@@ -26,7 +26,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := db.AutoMigrate(database); err != nil {
+	if err := db.AutoMigrateModels(database); err != nil {
 		return nil, err
 	}
 	if err := db.Seed(database); err != nil {
@@ -36,8 +36,14 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	jwtIssuer := appauth.NewJWTIssuer(cfg.Auth.JWTSecret, cfg.Auth.JWTIssuer, time.Duration(cfg.Auth.JWTExpireHours)*time.Hour)
 	repo := repository.NewUserRepository(database)
 	authService := service.NewAuthService(repo, jwtIssuer)
+	userService := service.NewUserService(repo)
+	roleService := service.NewRoleService()
+	permissionService := service.NewPermissionService()
 	authHandler := handler.NewAuthHandler(authService)
-	router := newRouter(cfg, authHandler, logger, jwtIssuer)
+	userHandler := handler.NewUserHandler(userService)
+	roleHandler := handler.NewRoleHandler(roleService)
+	permissionHandler := handler.NewPermissionHandler(permissionService)
+	router := newRouter(cfg, authHandler, userHandler, roleHandler, permissionHandler, logger, jwtIssuer)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 
@@ -47,8 +53,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		http: &http.Server{
 			Addr:         addr,
 			Handler:      router,
-			ReadTimeout:  time.Duration(cfg.App.ReadTimeout) * time.Second,
-			WriteTimeout: time.Duration(cfg.App.WriteTimeout) * time.Second,
+			ReadTimeout:   time.Duration(cfg.App.ReadTimeout) * time.Second,
+			WriteTimeout:  time.Duration(cfg.App.WriteTimeout) * time.Second,
 		},
 	}, nil
 }

@@ -20,13 +20,15 @@ func NewAuthHandler(authService service.AuthService) *AuthHandler {
 }
 
 // Login godoc
-// @Summary 用户登录
-// @Description 使用用户名和密码登录并获取 JWT
-// @Tags 认证
+// @Summary 管理员登录
+// @Description 使用管理员用户名和密码登录并获取 JWT
+// @Tags 管理员认证
 // @Accept json
 // @Produce json
 // @Param request body dto.LoginRequest true "登录参数"
-// @Success 200 {object} map[string]any
+// @Success 200 {object} dto.APIResponse[dto.LoginResponse]
+// @Failure 400 {object} dto.APIResponse[map[string]string]
+// @Failure 500 {object} dto.APIResponse[map[string]string]
 // @Router /api/v1/auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req dto.LoginRequest
@@ -45,13 +47,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 }
 
 // Me godoc
-// @Summary 当前用户信息
-// @Description 通过 JWT 获取当前登录用户信息
-// @Tags 认证
-// @Accept json
+// @Summary 当前管理员信息
+// @Description 通过 JWT 获取当前登录管理员信息
+// @Tags 管理员认证
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} map[string]any
+// @Success 200 {object} dto.APIResponse[dto.UserInfo]
+// @Failure 401 {object} dto.APIResponse[map[string]string]
+// @Failure 500 {object} dto.APIResponse[map[string]string]
 // @Router /api/v1/auth/me [get]
 func (h *AuthHandler) Me(c *gin.Context) {
 	claims, ok := middleware.GetClaims(c)
