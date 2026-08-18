@@ -10,7 +10,9 @@ import (
 	"hostsent/backend/internal/modules/user/handler"
 	"hostsent/backend/internal/modules/user/repository"
 	"hostsent/backend/internal/modules/user/service"
+	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/config"
+	"hostsent/backend/internal/pkg/db"
 )
 
 type Server struct {
@@ -19,11 +21,23 @@ type Server struct {
 	http   *http.Server
 }
 
-func New(cfg *config.Config, logger *zap.Logger) *Server {
-	repo := repository.NewUserRepository()
-	authService := service.NewAuthService(repo, cfg.Auth.MockToken)
+func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
+	database, err := db.New(cfg.Database)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.AutoMigrate(database); err != nil {
+		return nil, err
+	}
+	if err := db.Seed(database); err != nil {
+		return nil, err
+	}
+
+	jwtIssuer := appauth.NewJWTIssuer(cfg.Auth.JWTSecret, cfg.Auth.JWTIssuer, time.Duration(cfg.Auth.JWTExpireHours)*time.Hour)
+	repo := repository.NewUserRepository(database)
+	authService := service.NewAuthService(repo, jwtIssuer)
 	authHandler := handler.NewAuthHandler(authService)
-	router := newRouter(cfg, authHandler, logger)
+	router := newRouter(cfg, authHandler, logger, jwtIssuer)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 
@@ -36,7 +50,7 @@ func New(cfg *config.Config, logger *zap.Logger) *Server {
 			ReadTimeout:  time.Duration(cfg.App.ReadTimeout) * time.Second,
 			WriteTimeout: time.Duration(cfg.App.WriteTimeout) * time.Second,
 		},
-	}
+	}, nil
 }
 
 func (s *Server) Run() error {

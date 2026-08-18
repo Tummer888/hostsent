@@ -12,18 +12,26 @@ import (
 
 const claimsContextKey = "claims"
 
-func Auth(requiredToken string) gin.HandlerFunc {
+func Auth(jwtIssuer *appauth.JWTIssuer, bearerPrefix string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authorization := c.GetHeader("Authorization")
 		parts := strings.SplitN(authorization, " ", 2)
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] != requiredToken {
+		if len(parts) != 2 || !strings.EqualFold(parts[0], bearerPrefix) {
 			err := apperrors.New(10001, "unauthorized")
 			c.JSON(http.StatusUnauthorized, gin.H{"code": err.Code, "message": err.Message, "timestamp": timestamp()})
 			c.Abort()
 			return
 		}
 
-		c.Set(claimsContextKey, appauth.BuildMockClaims())
+		claims, err := jwtIssuer.Parse(parts[1])
+		if err != nil {
+			appErr := apperrors.New(10001, "unauthorized")
+			c.JSON(http.StatusUnauthorized, gin.H{"code": appErr.Code, "message": appErr.Message, "timestamp": timestamp()})
+			c.Abort()
+			return
+		}
+
+		c.Set(claimsContextKey, claims)
 		c.Next()
 	}
 }

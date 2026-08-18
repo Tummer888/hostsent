@@ -8,22 +8,34 @@ import (
 )
 
 type Config struct {
-	App  AppConfig  `mapstructure:"app"`
+	App AppConfig `mapstructure:"app"`
 	Auth AuthConfig `mapstructure:"auth"`
+	Database DatabaseConfig `mapstructure:"database"`
 }
 
 type AppConfig struct {
-	Name         string `mapstructure:"name"`
-	Env          string `mapstructure:"env"`
-	Host         string `mapstructure:"host"`
-	Port         int    `mapstructure:"port"`
-	ReadTimeout  int    `mapstructure:"read_timeout"`
-	WriteTimeout int    `mapstructure:"write_timeout"`
+	Name string `mapstructure:"name"`
+	Env string `mapstructure:"env"`
+	Host string `mapstructure:"host"`
+	Port int `mapstructure:"port"`
+	ReadTimeout int `mapstructure:"read_timeout"`
+	WriteTimeout int `mapstructure:"write_timeout"`
 }
 
 type AuthConfig struct {
 	BearerPrefix string `mapstructure:"bearer_prefix"`
-	MockToken    string `mapstructure:"mock_token"`
+	JWTSecret string `mapstructure:"jwt_secret"`
+	JWTIssuer string `mapstructure:"jwt_issuer"`
+	JWTExpireHours int `mapstructure:"jwt_expire_hours"`
+}
+
+type DatabaseConfig struct {
+	Host string `mapstructure:"host"`
+	Port int `mapstructure:"port"`
+	User string `mapstructure:"user"`
+	Password string `mapstructure:"password"`
+	Name string `mapstructure:"name"`
+	SSLMode string `mapstructure:"sslmode"`
 }
 
 func Load() (*Config, error) {
@@ -62,5 +74,13 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("app.read_timeout", 10)
 	v.SetDefault("app.write_timeout", 10)
 	v.SetDefault("auth.bearer_prefix", "Bearer")
-	v.SetDefault("auth.mock_token", "mock-token")
+	v.SetDefault("auth.jwt_secret", "hostsent-dev-secret")
+	v.SetDefault("auth.jwt_issuer", "hostsent-backend")
+	v.SetDefault("auth.jwt_expire_hours", 24)
+	v.SetDefault("database.host", "postgres")
+	v.SetDefault("database.port", 5432)
+	v.SetDefault("database.user", "hostsent")
+	v.SetDefault("database.password", "hostsent")
+	v.SetDefault("database.name", "hostsent")
+	v.SetDefault("database.sslmode", "disable")
 }

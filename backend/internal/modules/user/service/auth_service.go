@@ -2,9 +2,14 @@ package service
 
 import (
 	"context"
+	"errors"
+
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 
 	"hostsent/backend/internal/modules/user/dto"
 	"hostsent/backend/internal/modules/user/repository"
+	appauth "hostsent/backend/internal/pkg/auth"
 )
 
 type AuthService interface {
@@ -14,21 +19,42 @@ type AuthService interface {
 
 type authService struct {
 	repo      repository.UserRepository
-	mockToken string
+	jwtIssuer *appauth.JWTIssuer
 }
 
-func NewAuthService(repo repository.UserRepository, mockToken string) AuthService {
-	return &authService{repo: repo, mockToken: mockToken}
+func NewAuthService(repo repository.UserRepository, jwtIssuer *appauth.JWTIssuer) AuthService {
+	return &authService{repo: repo, jwtIssuer: jwtIssuer}
 }
 
 func (s *authService) Login(ctx context.Context, req dto.LoginRequest) (*dto.LoginResponse, error) {
 	user, err := s.repo.FindByUsername(ctx, req.Username)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("用户名或密码错误")
+		}
+		return nil, err
+	}
+
+	if user.Status != "active" {
+		return nil, errors.New("用户已被禁用")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		return nil, errors.New("用户名或密码错误")
+	}
+
+	token, err := s.jwtIssuer.Generate(&appauth.Claims{
+		UserID:   user.ID,
+		Username: user.Username,
+		Role:     user.Role,
+		Roles:    user.Roles,
+	})
+	if err != nil {
 		return nil, err
 	}
 
 	return &dto.LoginResponse{
-		Token: s.mockToken,
+		Token: token,
 		UserInfo: dto.UserInfo{
 			ID:       user.ID,
 			Username: user.Username,

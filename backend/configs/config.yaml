@@ -8,4 +8,14 @@ app:
 
 auth:
   bearer_prefix: Bearer
-  mock_token: mock-token
+  jwt_secret: hostsent-dev-secret
+  jwt_issuer: hostsent-backend
+  jwt_expire_hours: 24
+
+database:
+  host: postgres
+  port: 5432
+  user: hostsent
+  password: hostsent
+  name: hostsent
+  sslmode: disable
