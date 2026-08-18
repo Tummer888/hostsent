@@ -6,6 +6,8 @@ type UserInfo struct {
 	Role     string   `json:"role"`
 	Roles    []string `json:"roles"`
 	Email    string   `json:"email"`
+	Phone    string   `json:"phone"`
+	Status   string   `json:"status"`
 }
 
 type RoleInfo struct {
@@ -16,12 +18,14 @@ type RoleInfo struct {
 }
 
 type PermissionNode struct {
-	ID       uint64            `json:"id"`
-	ParentID uint64            `json:"parent_id"`
-	Name     string            `json:"name"`
-	Code     string            `json:"code"`
-	Type     string            `json:"type"`
-	Children []PermissionNode  `json:"children,omitempty"`
+	ID       uint64           `json:"id"`
+	ParentID uint64           `json:"parent_id"`
+	Name     string           `json:"name"`
+	Code     string           `json:"code"`
+	Type     string           `json:"type"`
+	Path     string           `json:"path,omitempty"`
+	Icon     string           `json:"icon,omitempty"`
+	Children []PermissionNode `json:"children,omitempty"`
 }
 
 type LoginResponse struct {

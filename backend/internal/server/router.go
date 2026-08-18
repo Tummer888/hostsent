@@ -39,19 +39,32 @@ func newRouter(cfg *config.Config, authHandler *handler.AuthHandler, userHandler
 		{
 			users.GET("", userHandler.ListUsers)
 			users.POST("", userHandler.CreateUser)
-			users.POST("/:id/roles", userHandler.AssignRoles)
+			users.GET(":id", userHandler.GetUser)
+			users.PUT(":id", userHandler.UpdateUser)
+			users.PATCH(":id/status", userHandler.UpdateUserStatus)
+			users.POST(":id/reset-password", userHandler.ResetPassword)
+			users.POST(":id/roles", userHandler.AssignRoles)
 		}
 
 		roles := v1.Group("/roles")
 		roles.Use(middleware.Auth(jwtIssuer, cfg.Auth.BearerPrefix))
 		{
 			roles.GET("", roleHandler.ListRoles)
+			roles.POST("", roleHandler.CreateRole)
+			roles.GET("/:id", roleHandler.GetRole)
+			roles.PUT("/:id", roleHandler.UpdateRole)
+			roles.DELETE("/:id", roleHandler.DeleteRole)
+			roles.GET("/:id/permissions", roleHandler.GetRolePermissions)
+			roles.POST("/:id/permissions", roleHandler.AssignPermissions)
 		}
 
 		permissions := v1.Group("/permissions")
 		permissions.Use(middleware.Auth(jwtIssuer, cfg.Auth.BearerPrefix))
 		{
 			permissions.GET("/tree", permissionHandler.Tree)
+			permissions.POST("", permissionHandler.CreatePermission)
+			permissions.PUT("/:id", permissionHandler.UpdatePermission)
+			permissions.DELETE("/:id", permissionHandler.DeletePermission)
 		}
 	}
 

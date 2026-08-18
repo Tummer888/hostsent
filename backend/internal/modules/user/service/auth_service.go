@@ -61,6 +61,8 @@ func (s *authService) Login(ctx context.Context, req dto.LoginRequest) (*dto.Log
 			Role:     user.Role,
 			Roles:    user.Roles,
 			Email:    user.Email,
+			Phone:    user.Phone,
+			Status:   user.Status,
 		},
 		Permissions: []string{"user:me", "auth:login"},
 		Menus:       []string{"dashboard", "profile"},
@@ -79,5 +81,7 @@ func (s *authService) Me(ctx context.Context, userID uint64) (*dto.UserInfo, err
 		Role:     user.Role,
 		Roles:    user.Roles,
 		Email:    user.Email,
+		Phone:    user.Phone,
+		Status:   user.Status,
 	}, nil
 }

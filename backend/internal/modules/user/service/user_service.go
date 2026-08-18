@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"hostsent/backend/internal/modules/user/dto"
 	"hostsent/backend/internal/modules/user/model"
 	"hostsent/backend/internal/modules/user/repository"
@@ -11,7 +13,12 @@ import (
 type UserService interface {
 	List(ctx context.Context) ([]dto.UserInfo, error)
 	Create(ctx context.Context, req dto.UserCreateRequest) (*dto.UserInfo, error)
+	FindByID(ctx context.Context, id uint64) (*dto.UserInfo, error)
+	Update(ctx context.Context, id uint64, req dto.UserUpdateRequest) (*dto.UserInfo, error)
+	UpdateStatus(ctx context.Context, id uint64, status string) error
+	ResetPassword(ctx context.Context, id uint64, password string) error
 	AssignRoles(ctx context.Context, userID uint64, roleIDs []uint64) error
+	Delete(ctx context.Context, id uint64) error
 }
 
 type userService struct {
@@ -29,13 +36,20 @@ func (s *userService) List(ctx context.Context) ([]dto.UserInfo, error) {
 	}
 	resp := make([]dto.UserInfo, 0, len(users))
 	for _, user := range users {
-		resp = append(resp, dto.UserInfo{ID: user.ID, Username: user.Username, Role: user.Role, Roles: user.Roles, Email: user.Email})
+		resp = append(resp, toUserInfo(user))
 	}
 	return resp, nil
 }
 
 func (s *userService) Create(ctx context.Context, req dto.UserCreateRequest) (*dto.UserInfo, error) {
-	user := &model.User{Username: req.Username, Email: req.Email, Status: "active"}
+	if req.Status == "" {
+		req.Status = "active"
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, err
+	}
+	user := &model.User{Username: req.Username, Email: req.Email, Phone: req.Phone, PasswordHash: string(hash), Status: req.Status}
 	if err := s.repo.Create(ctx, user); err != nil {
 		return nil, err
 	}
@@ -44,9 +58,66 @@ func (s *userService) Create(ctx context.Context, req dto.UserCreateRequest) (*d
 			return nil, err
 		}
 	}
-	return &dto.UserInfo{ID: user.ID, Username: user.Username, Role: "admin", Roles: []string{"admin"}, Email: user.Email}, nil
+	fresh, err := s.repo.FindByID(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	return ptrUserInfo(*fresh), nil
+}
+
+func (s *userService) FindByID(ctx context.Context, id uint64) (*dto.UserInfo, error) {
+	user, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return ptrUserInfo(*user), nil
+}
+
+func (s *userService) Update(ctx context.Context, id uint64, req dto.UserUpdateRequest) (*dto.UserInfo, error) {
+	user, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	user.Username = req.Username
+	user.Email = req.Email
+	user.Phone = req.Phone
+	user.Status = req.Status
+	if err := s.repo.Update(ctx, user); err != nil {
+		return nil, err
+	}
+	fresh, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return ptrUserInfo(*fresh), nil
+}
+
+func (s *userService) UpdateStatus(ctx context.Context, id uint64, status string) error {
+	return s.repo.UpdateStatus(ctx, id, status)
+}
+
+func (s *userService) ResetPassword(ctx context.Context, id uint64, password string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	return s.repo.ResetPassword(ctx, id, string(hash))
 }
 
 func (s *userService) AssignRoles(ctx context.Context, userID uint64, roleIDs []uint64) error {
 	return s.repo.UpsertRoles(ctx, userID, roleIDs)
 }
+
+func (s *userService) Delete(ctx context.Context, id uint64) error {
+	return s.repo.Delete(ctx, id)
+}
+
+func toUserInfo(user model.User) dto.UserInfo {
+	return dto.UserInfo{ID: user.ID, Username: user.Username, Role: user.Role, Roles: user.Roles, Email: user.Email, Phone: user.Phone, Status: user.Status}
+}
+
+func ptrUserInfo(user model.User) *dto.UserInfo {
+	info := toUserInfo(user)
+	return &info
+}
+

@@ -26,7 +26,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := db.AutoMigrateModels(database); err != nil {
+	if err := db.AutoMigrate(database); err != nil {
 		return nil, err
 	}
 	if err := db.Seed(database); err != nil {
@@ -34,11 +34,13 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	}
 
 	jwtIssuer := appauth.NewJWTIssuer(cfg.Auth.JWTSecret, cfg.Auth.JWTIssuer, time.Duration(cfg.Auth.JWTExpireHours)*time.Hour)
-	repo := repository.NewUserRepository(database)
-	authService := service.NewAuthService(repo, jwtIssuer)
-	userService := service.NewUserService(repo)
-	roleService := service.NewRoleService()
-	permissionService := service.NewPermissionService()
+	userRepo := repository.NewUserRepository(database)
+	roleRepo := repository.NewRoleRepository(database)
+	permissionRepo := repository.NewPermissionRepository(database)
+	authService := service.NewAuthService(userRepo, jwtIssuer)
+	userService := service.NewUserService(userRepo)
+	roleService := service.NewRoleService(roleRepo)
+	permissionService := service.NewPermissionService(permissionRepo)
 	authHandler := handler.NewAuthHandler(authService)
 	userHandler := handler.NewUserHandler(userService)
 	roleHandler := handler.NewRoleHandler(roleService)
