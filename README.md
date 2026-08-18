@@ -11,8 +11,8 @@ HostSent 是一个云主机管理系统，面向云资源的售卖、管理、�
 
 - 后端已接入真实用户认证与 JWT 登录流
 - 开发环境支持 Docker Compose 启动 PostgreSQL 与后端服务
-- 接口文档使用 `swaggo/swag` 生成
+- 接口文档统一使用 OpenAPI 3 维护
 
 ## 开发说明
 
-后端开发环境可直接通过 Docker Compose 启动，接口文档可通过 Swagger 页面查看。
+后端开发环境可直接通过 Docker Compose 启动，接口文档维护文件为 `backend/docs/openapi.yaml`。

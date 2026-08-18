@@ -1,2 +1,6 @@
 /docs
 /backend/docs
+node_modules
+
+/frontend-user/.git
+/frontend-user/node_modules
