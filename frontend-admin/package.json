@@ -12,8 +12,9 @@
   "dependencies": {
     "@types/nprogress": "^0.2.3",
     "axios": "^1.7.7",
+    "echarts": "^6.1.0",
     "nprogress": "^0.2.0",
-    "pinia": "^2.2.4",
+    "pinia": "^3.0.0",
     "pinia-plugin-persistedstate": "^4.1.2",
     "tdesign-icons-vue-next": "latest",
     "tdesign-vue-next": "latest",

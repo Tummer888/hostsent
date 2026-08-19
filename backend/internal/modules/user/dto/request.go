@@ -5,6 +5,15 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
+type UserListQuery struct {
+	Page     int    `form:"page"`
+	PageSize int    `form:"page_size"`
+	Status   string `form:"status"`
+	Filter   string `form:"filter"`
+	Region   string `form:"region"`
+	Keyword  string `form:"keyword"`
+}
+
 type UserCreateRequest struct {
 	Username string   `json:"username" binding:"required"`
 	Email    string   `json:"email" binding:"required"`

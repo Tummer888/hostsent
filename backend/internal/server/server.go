@@ -38,20 +38,26 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 
 	jwtIssuer := appauth.NewJWTIssuer(cfg.Auth.JWTSecret, cfg.Auth.JWTIssuer, time.Duration(cfg.Auth.JWTExpireHours)*time.Hour)
 	userRepo := repository.NewUserRepository(database)
+	userDetailRepo := repository.NewUserDetailRepository(database)
+	userGroupRepo := repository.NewUserGroupRepository(database)
 	roleRepo := repository.NewRoleRepository(database)
 	permissionRepo := repository.NewPermissionRepository(database)
 	menuRepo := menurepo.NewMenuRepository(database)
 	authService := service.NewAuthService(userRepo, jwtIssuer)
 	userService := service.NewUserService(userRepo)
+	userDetailService := service.NewUserDetailService(userRepo, userDetailRepo)
+	userGroupService := service.NewUserGroupService(userGroupRepo)
 	roleService := service.NewRoleService(roleRepo)
 	permissionService := service.NewPermissionService(permissionRepo)
 	menuService := menuservice.NewMenuService(menuRepo)
 	authHandler := handler.NewAuthHandler(authService)
 	userHandler := handler.NewUserHandler(userService)
+	userDetailHandler := handler.NewUserDetailHandler(userDetailService)
+	userGroupHandler := handler.NewUserGroupHandler(userGroupService)
 	roleHandler := handler.NewRoleHandler(roleService)
 	permissionHandler := handler.NewPermissionHandler(permissionService)
 	menuHandler := menuhandler.NewMenuHandler(menuService)
-	router := newRouter(cfg, authHandler, userHandler, roleHandler, permissionHandler, menuHandler, logger, jwtIssuer)
+	router := newRouter(cfg, authHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, logger, jwtIssuer)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 
@@ -61,8 +67,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		http: &http.Server{
 			Addr:         addr,
 			Handler:      router,
-			ReadTimeout:   time.Duration(cfg.App.ReadTimeout) * time.Second,
-			WriteTimeout:  time.Duration(cfg.App.WriteTimeout) * time.Second,
+			ReadTimeout:  time.Duration(cfg.App.ReadTimeout) * time.Second,
+			WriteTimeout: time.Duration(cfg.App.WriteTimeout) * time.Second,
 		},
 	}, nil
 }

@@ -15,6 +15,19 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   backend:
     build:
       context: .
@@ -29,9 +42,16 @@ services:
       HOSTSENT_DATABASE_PASSWORD: hostsent
       HOSTSENT_DATABASE_NAME: hostsent
       HOSTSENT_DATABASE_SSLMODE: disable
+      HOSTSENT_REDIS_HOST: redis
+      HOSTSENT_REDIS_PORT: 6379
+      HOSTSENT_REDIS_PASSWORD: ""
+      HOSTSENT_REDIS_DB: 0
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
 volumes:
   postgres_data:
+  redis_data:

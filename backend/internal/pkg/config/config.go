@@ -11,6 +11,14 @@ type Config struct {
 	App AppConfig `mapstructure:"app"`
 	Auth AuthConfig `mapstructure:"auth"`
 	Database DatabaseConfig `mapstructure:"database"`
+	Redis RedisConfig `mapstructure:"redis"`
+}
+
+type RedisConfig struct {
+	Host string `mapstructure:"host"`
+	Port int `mapstructure:"port"`
+	Password string `mapstructure:"password"`
+	DB int `mapstructure:"db"`
 }
 
 type AppConfig struct {
@@ -83,4 +91,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("database.password", "hostsent")
 	v.SetDefault("database.name", "hostsent")
 	v.SetDefault("database.sslmode", "disable")
+	v.SetDefault("redis.host", "redis")
+	v.SetDefault("redis.port", 6379)
+	v.SetDefault("redis.password", "")
+	v.SetDefault("redis.db", 0)
 }

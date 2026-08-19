@@ -11,7 +11,7 @@ import (
 )
 
 type UserService interface {
-	List(ctx context.Context) ([]dto.UserInfo, error)
+	List(ctx context.Context, query dto.UserListQuery) (*dto.UserListResponse, error)
 	Create(ctx context.Context, req dto.UserCreateRequest) (*dto.UserInfo, error)
 	FindByID(ctx context.Context, id uint64) (*dto.UserInfo, error)
 	Update(ctx context.Context, id uint64, req dto.UserUpdateRequest) (*dto.UserInfo, error)
@@ -19,6 +19,8 @@ type UserService interface {
 	ResetPassword(ctx context.Context, id uint64, password string) error
 	AssignRoles(ctx context.Context, userID uint64, roleIDs []uint64) error
 	Delete(ctx context.Context, id uint64) error
+	GetStats(ctx context.Context) (*dto.UserStatsResponse, error)
+	GetRegionStats(ctx context.Context) (*dto.RegionStatsResponse, error)
 }
 
 type userService struct {
@@ -29,16 +31,31 @@ func NewUserService(repo repository.UserRepository) UserService {
 	return &userService{repo: repo}
 }
 
-func (s *userService) List(ctx context.Context) ([]dto.UserInfo, error) {
-	users, err := s.repo.List(ctx)
+func (s *userService) List(ctx context.Context, query dto.UserListQuery) (*dto.UserListResponse, error) {
+	page := query.Page
+	if page < 1 {
+		page = 1
+	}
+	pageSize := query.PageSize
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+	users, total, err := s.repo.List(ctx, query)
 	if err != nil {
 		return nil, err
 	}
-	resp := make([]dto.UserInfo, 0, len(users))
+	items := make([]dto.UserInfo, 0, len(users))
 	for _, user := range users {
-		resp = append(resp, toUserInfo(user))
+		items = append(items, toUserInfo(user))
 	}
-	return resp, nil
+	return &dto.UserListResponse{
+		Items: items,
+		Meta: dto.UserListMeta{
+			Page:     page,
+			PageSize: pageSize,
+			Total:    total,
+		},
+	}, nil
 }
 
 func (s *userService) Create(ctx context.Context, req dto.UserCreateRequest) (*dto.UserInfo, error) {
@@ -112,12 +129,53 @@ func (s *userService) Delete(ctx context.Context, id uint64) error {
 	return s.repo.Delete(ctx, id)
 }
 
+func (s *userService) GetStats(ctx context.Context) (*dto.UserStatsResponse, error) {
+	stats, err := s.repo.Stats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dto.UserStatsResponse{
+		Total:           stats.Total,
+		TodayNew:        stats.TodayNew,
+		Active:          stats.Active,
+		Disabled:        stats.Disabled,
+		PendingRealName: stats.PendingRealName,
+		PendingReview:   stats.PendingReview,
+	}, nil
+}
+
+func (s *userService) GetRegionStats(ctx context.Context) (*dto.RegionStatsResponse, error) {
+	rows, err := s.repo.RegionStats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]dto.RegionStatItem, 0, len(rows))
+	var total int64
+	for _, r := range rows {
+		items = append(items, dto.RegionStatItem{Region: r.Region, Count: r.Count})
+		total += r.Count
+	}
+	return &dto.RegionStatsResponse{Items: items, Total: total}, nil
+}
+
 func toUserInfo(user model.User) dto.UserInfo {
-	return dto.UserInfo{ID: user.ID, Username: user.Username, Role: user.Role, Roles: user.Roles, Email: user.Email, Phone: user.Phone, Status: user.Status}
+	return dto.UserInfo{
+		ID:          user.ID,
+		Username:    user.Username,
+		RealName:    user.RealName,
+		Role:        user.Role,
+		Roles:       user.Roles,
+		Email:       user.Email,
+		Phone:       user.Phone,
+		Region:      user.Region,
+		Balance:     user.Balance,
+		Status:      user.Status,
+		CreatedAt:   user.CreatedAt,
+		LastLoginAt: user.LastLoginAt,
+	}
 }
 
 func ptrUserInfo(user model.User) *dto.UserInfo {
 	info := toUserInfo(user)
 	return &info
 }
-

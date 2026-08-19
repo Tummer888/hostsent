@@ -2,26 +2,42 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Component } from 'vue'
 import {
+  CloudIcon,
   DashboardIcon,
+  EditIcon,
+  FilePasteIcon,
   HomeIcon,
+  ImageIcon,
   LayersIcon,
+  LockOnIcon,
+  MoneyIcon,
   OrderIcon,
+  ServerIcon,
   ServiceIcon,
+  UserCircleIcon,
   UserIcon,
   WalletIcon,
 } from 'tdesign-icons-vue-next'
 
 import { getMenuTree, type MenuNode } from '@/api/menu'
 
+// 后端菜单 icon 字段是字符串名，这里映射到 TDesign 图标组件（按需引入）。
 const iconMap: Record<string, Component> = {
   dashboard: DashboardIcon,
   home: HomeIcon,
   user: UserIcon,
-  cloud: LayersIcon,
+  'user-circle': UserCircleIcon,
+  cloud: CloudIcon,
+  server: ServerIcon,
+  'file-paste': FilePasteIcon,
+  image: ImageIcon,
   layers: LayersIcon,
   order: OrderIcon,
   wallet: WalletIcon,
   bill: WalletIcon,
+  money: MoneyIcon,
+  'lock-on': LockOnIcon,
+  edit: EditIcon,
   service: ServiceIcon,
   ticket: ServiceIcon,
 }
@@ -38,7 +54,7 @@ export interface FlatMenu {
 function mapIcon(iconName?: string): Component | undefined {
   if (!iconName) return undefined
   const key = iconName.toLowerCase()
-  return iconMap[key] || DashboardIcon
+  return iconMap[key]
 }
 
 function flattenMenu(node: MenuNode): FlatMenu {

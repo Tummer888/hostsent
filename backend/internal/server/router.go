@@ -14,7 +14,7 @@ import (
 	"hostsent/backend/internal/pkg/middleware"
 )
 
-func newRouter(cfg *config.Config, authHandler *handler.AuthHandler, userHandler *handler.UserHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
+func newRouter(cfg *config.Config, authHandler *handler.AuthHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
@@ -40,11 +40,24 @@ func newRouter(cfg *config.Config, authHandler *handler.AuthHandler, userHandler
 		{
 			users.GET("", userHandler.ListUsers)
 			users.POST("", userHandler.CreateUser)
+			users.GET("/stats", userHandler.GetStats)
+			users.GET("/region-stats", userHandler.GetRegionStats)
 			users.GET(":id", userHandler.GetUser)
+			users.GET(":id/detail-aggregate", userDetailHandler.GetAggregate)
 			users.PUT(":id", userHandler.UpdateUser)
 			users.PATCH(":id/status", userHandler.UpdateUserStatus)
 			users.POST(":id/reset-password", userHandler.ResetPassword)
 			users.POST(":id/roles", userHandler.AssignRoles)
+		}
+
+		userGroups := v1.Group("/user-groups")
+		userGroups.Use(middleware.Auth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			userGroups.GET("", userGroupHandler.List)
+			userGroups.POST("", userGroupHandler.Create)
+			userGroups.GET("/:id", userGroupHandler.Get)
+			userGroups.PUT("/:id", userGroupHandler.Update)
+			userGroups.DELETE("/:id", userGroupHandler.Delete)
 		}
 
 		roles := v1.Group("/roles")

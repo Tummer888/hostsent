@@ -27,6 +27,38 @@ const routes: Array<RouteRecordRaw> = [
     ],
   },
   {
+    path: '/users',
+    component: () => import('@/layouts/index.vue'),
+    redirect: '/users/overview',
+    meta: { title: '用户管理' },
+    children: [
+      {
+        path: 'overview',
+        name: 'UserOverview',
+        component: () => import('@/pages/users/overview/index.vue'),
+        meta: { title: '用户总览', role: 'admin' },
+      },
+      {
+        path: 'accounts/list',
+        name: 'UserAccountsList',
+        component: () => import('@/pages/users/accounts/list/index.vue'),
+        meta: { title: '用户列表', role: 'admin' },
+      },
+      {
+        path: 'accounts/detail',
+        name: 'UserAccountsDetail',
+        component: () => import('@/pages/users/accounts/detail/index.vue'),
+        meta: { title: '用户详情', role: 'admin' },
+      },
+      {
+        path: 'accounts/groups',
+        name: 'UserAccountsGroups',
+        component: () => import('@/pages/users/accounts/groups/index.vue'),
+        meta: { title: '用户组管理', role: 'admin' },
+      },
+    ],
+  },
+  {
     path: '/system',
     component: () => import('@/layouts/index.vue'),
     redirect: '/system/menus',

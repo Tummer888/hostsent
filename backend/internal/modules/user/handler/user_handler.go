@@ -19,15 +19,59 @@ func NewUserHandler(userService service.UserService) *UserHandler {
 	return &UserHandler{userService: userService}
 }
 
-// ListUsers godoc
-// @Summary 用户列表
-// @Description 获取后台用户列表
+// GetStats godoc
+// @Summary 用户统计
+// @Description 获取用户总览统计数据（总用户/今日新增/活跃/冻结/待实名/待审核）
 // @Tags 用户管理
 // @Produce json
-// @Success 200 {object} dto.APIResponse[[]dto.UserInfo]
+// @Success 200 {object} dto.APIResponse[dto.UserStatsResponse]
+// @Router /api/v1/users/stats [get]
+func (h *UserHandler) GetStats(c *gin.Context) {
+	stats, err := h.userService.GetStats(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": stats, "timestamp": time.Now().Unix()})
+}
+
+// GetRegionStats godoc
+// @Summary 用户地域分布
+// @Description 获取用户按地域分布的统计
+// @Tags 用户管理
+// @Produce json
+// @Success 200 {object} dto.APIResponse[dto.RegionStatsResponse]
+// @Router /api/v1/users/region-stats [get]
+func (h *UserHandler) GetRegionStats(c *gin.Context) {
+	stats, err := h.userService.GetRegionStats(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": stats, "timestamp": time.Now().Unix()})
+}
+
+// ListUsers godoc
+// @Summary 用户列表
+// @Description 获取后台用户列表，支持分页、状态筛选、地域筛选、关键词搜索与快捷过滤
+// @Tags 用户管理
+// @Produce json
+// @Param page query int false "页码" default(1)
+// @Param page_size query int false "每页数量" default(10)
+// @Param status query string false "用户状态，如 active/disabled/pending/cancelled"
+// @Param filter query string false "快捷筛选，如 today/pending_real_name"
+// @Param region query string false "地域筛选"
+// @Param keyword query string false "关键词，支持用户名/姓名/邮箱/手机号模糊搜索"
+// @Success 200 {object} dto.APIResponse[dto.UserListResponse]
 // @Router /api/v1/users [get]
 func (h *UserHandler) ListUsers(c *gin.Context) {
-	users, err := h.userService.List(c.Request.Context())
+	var query dto.UserListQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+
+	users, err := h.userService.List(c.Request.Context(), query)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
