@@ -2,14 +2,15 @@ package db
 
 import (
 	"fmt"
+	"strings"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	menumodel "hostsent/backend/internal/modules/menu/model"
-	"hostsent/backend/internal/modules/user/model"
-	"hostsent/backend/internal/pkg/config"
+	usermodel "hostsent/backend/internal/modules/user/model"
+	config "hostsent/backend/internal/pkg/config"
 )
 
 type seedPermission struct {
@@ -17,197 +18,8 @@ type seedPermission struct {
 	Name       string
 	Code       string
 	Type       string
-	Path       string
-	Component  string
-	Icon       string
 	SortOrder  int
 	Status     string
-}
-
-func New(cfg config.DatabaseConfig) (*gorm.DB, error) {
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s", cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.Name, cfg.SSLMode)
-	return gorm.Open(postgres.Open(dsn), &gorm.Config{})
-}
-
-func AutoMigrate(database *gorm.DB) error {
-	return database.AutoMigrate(
-		&model.User{},
-		&model.Role{},
-		&model.Permission{},
-		&model.RolePermission{},
-		&model.UserRole{},
-		&menumodel.Menu{},
-	)
-}
-
-func Seed(database *gorm.DB) error {
-	return database.Transaction(func(tx *gorm.DB) error {
-		permissions, err := seedPermissions(tx)
-		if err != nil {
-			return err
-		}
-
-		role, err := seedAdminRole(tx)
-		if err != nil {
-			return err
-		}
-
-		if err := seedRolePermissions(tx, role.ID, permissionIDs(permissions)); err != nil {
-			return err
-		}
-
-		user, err := seedAdminUser(tx)
-		if err != nil {
-			return err
-		}
-
-		if err := seedUserRole(tx, user.ID, role.ID); err != nil {
-			return err
-		}
-
-		return seedMenus(tx)
-	})
-}
-
-func seedPermissions(tx *gorm.DB) ([]model.Permission, error) {
-	defaults := []seedPermission{
-		{Name: "系统管理", Code: "system", Type: "directory", Path: "/system", Icon: "settings", SortOrder: 1, Status: "active"},
-		{ParentCode: "system", Name: "用户管理", Code: "system:user", Type: "menu", Path: "/system/users", Component: "system/users/index", Icon: "users", SortOrder: 1, Status: "active"},
-		{ParentCode: "system", Name: "角色管理", Code: "system:role", Type: "menu", Path: "/system/roles", Component: "system/roles/index", Icon: "shield", SortOrder: 2, Status: "active"},
-		{ParentCode: "system", Name: "权限管理", Code: "system:permission", Type: "menu", Path: "/system/permissions", Component: "system/permissions/index", Icon: "key", SortOrder: 3, Status: "active"},
-		{ParentCode: "system:user", Name: "查看用户", Code: "user:list", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "system:user", Name: "创建用户", Code: "user:create", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "system:user", Name: "查看用户详情", Code: "user:detail", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "system:user", Name: "更新用户", Code: "user:update", Type: "button", SortOrder: 4, Status: "active"},
-		{ParentCode: "system:user", Name: "更新用户状态", Code: "user:update-status", Type: "button", SortOrder: 5, Status: "active"},
-		{ParentCode: "system:user", Name: "重置用户密码", Code: "user:reset-password", Type: "button", SortOrder: 6, Status: "active"},
-		{ParentCode: "system:user", Name: "分配用户角色", Code: "user:assign-role", Type: "button", SortOrder: 7, Status: "active"},
-		{ParentCode: "system:role", Name: "查看角色", Code: "role:list", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "system:role", Name: "创建角色", Code: "role:create", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "system:role", Name: "查看角色详情", Code: "role:detail", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "system:role", Name: "更新角色", Code: "role:update", Type: "button", SortOrder: 4, Status: "active"},
-		{ParentCode: "system:role", Name: "删除角色", Code: "role:delete", Type: "button", SortOrder: 5, Status: "active"},
-		{ParentCode: "system:role", Name: "查看角色权限", Code: "role:permission-list", Type: "button", SortOrder: 6, Status: "active"},
-		{ParentCode: "system:role", Name: "分配角色权限", Code: "role:assign-permission", Type: "button", SortOrder: 7, Status: "active"},
-		{ParentCode: "system:permission", Name: "查看权限", Code: "permission:list", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "system:permission", Name: "创建权限", Code: "permission:create", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "system:permission", Name: "更新权限", Code: "permission:update", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "system:permission", Name: "删除权限", Code: "permission:delete", Type: "button", SortOrder: 4, Status: "active"},
-	}
-
-	result := make([]model.Permission, 0, len(defaults))
-	idByCode := make(map[string]uint64, len(defaults))
-	for _, item := range defaults {
-		permission := model.Permission{}
-		if err := tx.Where("code = ?", item.Code).First(&permission).Error; err != nil {
-			if err != gorm.ErrRecordNotFound {
-				return nil, err
-			}
-			permission = model.Permission{Code: item.Code}
-		}
-		permission.ParentID = idByCode[item.ParentCode]
-		permission.Name = item.Name
-		permission.Type = item.Type
-		permission.Path = item.Path
-		permission.Component = item.Component
-		permission.Icon = item.Icon
-		permission.SortOrder = item.SortOrder
-		permission.Status = item.Status
-		if permission.ID == 0 {
-			if err := tx.Create(&permission).Error; err != nil {
-				return nil, err
-			}
-		} else {
-			if err := tx.Save(&permission).Error; err != nil {
-				return nil, err
-			}
-		}
-		idByCode[item.Code] = permission.ID
-		result = append(result, permission)
-	}
-
-	return result, nil
-}
-
-func seedAdminRole(tx *gorm.DB) (*model.Role, error) {
-	role := model.Role{}
-	if err := tx.Where("code = ?", "admin").First(&role).Error; err != nil {
-		if err != gorm.ErrRecordNotFound {
-			return nil, err
-		}
-		role = model.Role{Name: "管理员", Code: "admin", Status: "active"}
-		if err := tx.Create(&role).Error; err != nil {
-			return nil, err
-		}
-		return &role, nil
-	}
-	role.Name = "管理员"
-	role.Status = "active"
-	if err := tx.Save(&role).Error; err != nil {
-		return nil, err
-	}
-	return &role, nil
-}
-
-func seedRolePermissions(tx *gorm.DB, roleID uint64, permissionIDs []uint64) error {
-	if err := tx.Where("role_id = ?", roleID).Delete(&model.RolePermission{}).Error; err != nil {
-		return err
-	}
-	rows := make([]model.RolePermission, 0, len(permissionIDs))
-	for _, permissionID := range permissionIDs {
-		rows = append(rows, model.RolePermission{RoleID: roleID, PermissionID: permissionID})
-	}
-	if len(rows) == 0 {
-		return nil
-	}
-	return tx.Create(&rows).Error
-}
-
-func seedAdminUser(tx *gorm.DB) (*model.User, error) {
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("123456"), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, err
-	}
-	user := model.User{}
-	if err := tx.Where("username = ?", "admin").First(&user).Error; err != nil {
-		if err != gorm.ErrRecordNotFound {
-			return nil, err
-		}
-		user = model.User{
-			Username:     "admin",
-			Email:        "admin@example.com",
-			Phone:        "13800000000",
-			PasswordHash: string(passwordHash),
-			Status:       "active",
-		}
-		if err := tx.Create(&user).Error; err != nil {
-			return nil, err
-		}
-		return &user, nil
-	}
-	user.Email = "admin@example.com"
-	user.Phone = "13800000000"
-	user.PasswordHash = string(passwordHash)
-	user.Status = "active"
-	if err := tx.Save(&user).Error; err != nil {
-		return nil, err
-	}
-	return &user, nil
-}
-
-func seedUserRole(tx *gorm.DB, userID, roleID uint64) error {
-	if err := tx.Where("user_id = ?", userID).Delete(&model.UserRole{}).Error; err != nil {
-		return err
-	}
-	return tx.Create(&model.UserRole{UserID: userID, RoleID: roleID}).Error
-}
-
-func permissionIDs(permissions []model.Permission) []uint64 {
-	ids := make([]uint64, 0, len(permissions))
-	for _, permission := range permissions {
-		ids = append(ids, permission.ID)
-	}
-	return ids
 }
 
 type seedMenu struct {
@@ -222,91 +34,452 @@ type seedMenu struct {
 	Status    string
 }
 
+func AutoMigrate(db *gorm.DB) error {
+	if err := db.AutoMigrate(
+		&usermodel.User{},
+		&usermodel.Role{},
+		&usermodel.Permission{},
+		&usermodel.UserInstance{},
+		&usermodel.UserOrder{},
+		&usermodel.UserBill{},
+		&usermodel.UserTransaction{},
+		&usermodel.UserTicket{},
+		&menumodel.Menu{},
+	); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func SeedDefaults(db *gorm.DB, cfg config.Config) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := seedRoles(tx); err != nil {
+			return err
+		}
+		if err := seedPermissions(tx); err != nil {
+			return err
+		}
+		if err := seedRolePermissions(tx); err != nil {
+			return err
+		}
+		if err := seedMenus(tx); err != nil {
+			return err
+		}
+		if err := seedAdminUser(tx, cfg); err != nil {
+			return err
+		}
+		if err := seedDemoUsers(tx); err != nil {
+			return err
+		}
+		if err := seedDemoUserDetails(tx); err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func seedRoles(tx *gorm.DB) error {
+	defaults := []usermodel.Role{
+		{Code: "super_admin", Name: "超级管理员", Status: "active"},
+		{Code: "ops_admin", Name: "运维管理员", Status: "active"},
+		{Code: "finance_admin", Name: "财务管理员", Status: "active"},
+		{Code: "user", Name: "普通用户", Status: "active"},
+	}
+
+	for _, role := range defaults {
+		var existing usermodel.Role
+		if err := tx.Where("code = ?", role.Code).First(&existing).Error; err == nil {
+			continue
+		} else if err != gorm.ErrRecordNotFound {
+			return err
+		}
+		if err := tx.Create(&role).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func seedPermissions(tx *gorm.DB) error {
+	defaults := []seedPermission{
+		{Name: "系统管理", Code: "system", Type: "catalog", SortOrder: 1, Status: "active"},
+		{Name: "菜单管理", Code: "system:menu", Type: "menu", SortOrder: 1, Status: "active"},
+		{ParentCode: "system:menu", Name: "查看菜单", Code: "menu:view", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "system:menu", Name: "创建菜单", Code: "menu:create", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "system:menu", Name: "更新菜单", Code: "menu:update", Type: "button", SortOrder: 3, Status: "active"},
+		{ParentCode: "system:menu", Name: "删除菜单", Code: "menu:delete", Type: "button", SortOrder: 4, Status: "active"},
+		{Name: "用户管理", Code: "system:user", Type: "catalog", SortOrder: 2, Status: "active"},
+		{Name: "用户列表", Code: "system:user:list", Type: "menu", SortOrder: 1, Status: "active"},
+		{ParentCode: "system:user", Name: "查看用户详情", Code: "user:detail", Type: "button", SortOrder: 3, Status: "active"},
+		{ParentCode: "system:user", Name: "重置用户密码", Code: "user:reset_password", Type: "button", SortOrder: 4, Status: "active"},
+		{ParentCode: "system:user", Name: "修改用户状态", Code: "user:update_status", Type: "button", SortOrder: 5, Status: "active"},
+		{Name: "角色管理", Code: "system:role", Type: "catalog", SortOrder: 3, Status: "active"},
+		{Name: "角色列表", Code: "system:role:list", Type: "menu", SortOrder: 1, Status: "active"},
+		{ParentCode: "system:role", Name: "创建角色", Code: "role:create", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "system:role", Name: "更新角色", Code: "role:update", Type: "button", SortOrder: 3, Status: "active"},
+		{ParentCode: "system:role", Name: "删除角色", Code: "role:delete", Type: "button", SortOrder: 4, Status: "active"},
+		{ParentCode: "system:role", Name: "分配权限", Code: "role:assign_permissions", Type: "button", SortOrder: 5, Status: "active"},
+	}
+
+	permissionMap := make(map[string]uint64)
+	for _, item := range defaults {
+		var parentID uint64
+		if item.ParentCode != "" {
+			pid, ok := permissionMap[item.ParentCode]
+			if !ok {
+				var parent usermodel.Permission
+				if err := tx.Where("code = ?", item.ParentCode).First(&parent).Error; err != nil {
+					return err
+				}
+				pid = parent.ID
+				permissionMap[item.ParentCode] = pid
+			}
+			parentID = pid
+		}
+
+		var existing usermodel.Permission
+		if err := tx.Where("code = ?", item.Code).First(&existing).Error; err == nil {
+			permissionMap[item.Code] = existing.ID
+			continue
+		} else if err != gorm.ErrRecordNotFound {
+			return err
+		}
+
+		record := usermodel.Permission{ParentID: parentID, Name: item.Name, Code: item.Code, Type: item.Type, SortOrder: item.SortOrder, Status: item.Status}
+		if err := tx.Create(&record).Error; err != nil {
+			return err
+		}
+		permissionMap[item.Code] = record.ID
+	}
+
+	return nil
+}
+
+func seedRolePermissions(tx *gorm.DB) error {
+	rolePermissionCodes := map[string][]string{
+		"super_admin": {
+			"system",
+			"system:menu",
+			"menu:view",
+			"menu:create",
+			"menu:update",
+			"menu:delete",
+			"system:user",
+			"system:user:list",
+			"user:detail",
+			"user:reset_password",
+			"user:update_status",
+			"system:role",
+			"system:role:list",
+			"role:create",
+			"role:update",
+			"role:delete",
+			"role:assign_permissions",
+		},
+		"ops_admin": {
+			"system:user",
+			"system:user:list",
+			"user:detail",
+			"user:update_status",
+			"system:role",
+			"system:role:list",
+		},
+		"finance_admin": {
+			"system:user",
+			"system:user:list",
+			"user:detail",
+		},
+		"user": {
+			"system:user",
+			"system:user:list",
+			"user:detail",
+		},
+	}
+
+	roleIDs := make(map[string]uint64, len(rolePermissionCodes))
+	for roleCode := range rolePermissionCodes {
+		var role usermodel.Role
+		if err := tx.Where("code = ?", roleCode).First(&role).Error; err != nil {
+			return err
+		}
+		roleIDs[roleCode] = role.ID
+	}
+
+	permissionIDs := make(map[string]uint64)
+	for _, codes := range rolePermissionCodes {
+		for _, code := range codes {
+			if _, ok := permissionIDs[code]; ok {
+				continue
+			}
+			var permission usermodel.Permission
+			if err := tx.Where("code = ?", code).First(&permission).Error; err != nil {
+				return err
+			}
+			permissionIDs[code] = permission.ID
+		}
+	}
+
+	for roleCode, codes := range rolePermissionCodes {
+		roleID := roleIDs[roleCode]
+		for _, code := range codes {
+			var count int64
+			if err := tx.Table("role_permissions").Where("role_id = ? AND permission_id = ?", roleID, permissionIDs[code]).Count(&count).Error; err != nil {
+				return err
+			}
+			if count > 0 {
+				continue
+			}
+			if err := tx.Table("role_permissions").Create(map[string]any{"role_id": roleID, "permission_id": permissionIDs[code]}).Error; err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 func seedMenus(tx *gorm.DB) error {
 	defaults := []seedMenu{
-		// ================= 管理员后台菜单 =================
-		// 1. 仪表盘
 		{Platform: menumodel.PlatformAdmin, Name: "仪表盘", Type: menumodel.TypeDirectory, Path: "/dashboard", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/dashboard", Platform: menumodel.PlatformAdmin, Name: "概览", Type: menumodel.TypeMenu, Path: "/dashboard/base", Component: "dashboard/base/index", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/dashboard", Platform: menumodel.PlatformAdmin, Name: "数据分析", Type: menumodel.TypeMenu, Path: "/dashboard/analysis", Component: "dashboard/analysis/index", SortOrder: 2, Status: menumodel.StatusActive},
-
-		// 2. 用户管理
+		{ParentKey: "admin:/dashboard", Platform: menumodel.PlatformAdmin, Name: "概览", Type: menumodel.TypeMenu, Path: "/dashboard/base", Component: "dashboard/base/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
 		{Platform: menumodel.PlatformAdmin, Name: "用户管理", Type: menumodel.TypeDirectory, Path: "/users", Icon: "user", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "用户列表", Type: menumodel.TypeMenu, Path: "/users/list", Component: "users/list/index", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "角色权限", Type: menumodel.TypeMenu, Path: "/users/roles", Component: "users/roles/index", SortOrder: 2, Status: menumodel.StatusActive},
-
-		// 3. 资源管理
-		{Platform: menumodel.PlatformAdmin, Name: "资源管理", Type: menumodel.TypeDirectory, Path: "/resources", Icon: "layers", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resources", Platform: menumodel.PlatformAdmin, Name: "云主机", Type: menumodel.TypeDirectory, Path: "/resources/instances", Component: "resources/instances/index", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resources/instances)", Platform: menumodel.PlatformAdmin, Name: "实例列表", Type: menumodel.TypeMenu, Path: "/resources/instances/list", Component: "resources/instances/index", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resources/instances)", Platform: menumodel.PlatformAdmin, Name: "快照管理", Type: menumodel.TypeMenu, Path: "/resources/instances/snapshots", Component: "resources/instances/snapshots", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resources", Platform: menumodel.PlatformAdmin, Name: "镜像管理", Type: menumodel.TypeMenu, Path: "/resources/images", Component: "resources/images/index", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resources", Platform: menumodel.PlatformAdmin, Name: "网络管理", Type: menumodel.TypeMenu, Path: "/resources/networks", Component: "resources/networks/index", SortOrder: 3, Status: menumodel.StatusActive},
-
-		// 4. 产品管理
-		{Platform: menumodel.PlatformAdmin, Name: "产品管理", Type: menumodel.TypeDirectory, Path: "/products", Icon: "apps", SortOrder: 4, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/products", Platform: menumodel.PlatformAdmin, Name: "产品列表", Type: menumodel.TypeMenu, Path: "/products/list", Component: "products/list/index", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/products", Platform: menumodel.PlatformAdmin, Name: "产品分类", Type: menumodel.TypeMenu, Path: "/products/categories", Component: "products/categories/index", SortOrder: 2, Status: menumodel.StatusActive},
-
-		// 5. 订单管理
-		{Platform: menumodel.PlatformAdmin, Name: "订单管理", Type: menumodel.TypeDirectory, Path: "/orders", Icon: "order", SortOrder: 5, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "订单列表", Type: menumodel.TypeMenu, Path: "/orders/list", Component: "orders/list/index", SortOrder: 1, Status: menumodel.StatusActive},
-
-		// 6. 财务管理
-		{Platform: menumodel.PlatformAdmin, Name: "财务管理", Type: menumodel.TypeDirectory, Path: "/billing", Icon: "bill", SortOrder: 6, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/billing", Platform: menumodel.PlatformAdmin, Name: "账单查询", Type: menumodel.TypeMenu, Path: "/billing/bills", Component: "billing/bills/index", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/billing", Platform: menumodel.PlatformAdmin, Name: "交易流水", Type: menumodel.TypeMenu, Path: "/billing/transactions", Component: "billing/transactions/index", SortOrder: 2, Status: menumodel.StatusActive},
-
-		// 7. 系统管理
-		{Platform: menumodel.PlatformAdmin, Name: "系统管理", Type: menumodel.TypeDirectory, Path: "/system", Icon: "settings", SortOrder: 7, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "菜单管理", Type: menumodel.TypeMenu, Path: "/system/menus", Component: "system/menus/index", Icon: "menu", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "审计日志", Type: menumodel.TypeMenu, Path: "/system/audit", Component: "system/audit/index", SortOrder: 2, Status: menumodel.StatusActive},
-
-		// 8. 工单支持
-		{Platform: menumodel.PlatformAdmin, Name: "工单支持", Type: menumodel.TypeDirectory, Path: "/support", Icon: "service", SortOrder: 8, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/support", Platform: menumodel.PlatformAdmin, Name: "工单列表", Type: menumodel.TypeMenu, Path: "/support/tickets", Component: "support/tickets/index", SortOrder: 1, Status: menumodel.StatusActive},
-
-		// ================= 用户中心菜单 =================
-		{Platform: menumodel.PlatformUser, Name: "控制台", Type: menumodel.TypeMenu, Path: "/user/dashboard", Component: "user/dashboard/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
-		{Platform: menumodel.PlatformUser, Name: "云主机", Type: menumodel.TypeDirectory, Path: "/user/instances", Icon: "cloud", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "user:/user/instances", Platform: menumodel.PlatformUser, Name: "我的主机", Type: menumodel.TypeMenu, Path: "/user/instances/list", Component: "user/instances/list/index", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "user:/user/instances", Platform: menumodel.PlatformUser, Name: "快照管理", Type: menumodel.TypeMenu, Path: "/user/instances/snapshots", Component: "user/instances/snapshots", SortOrder: 2, Status: menumodel.StatusActive},
-		{Platform: menumodel.PlatformUser, Name: "订单中心", Type: menumodel.TypeDirectory, Path: "/user/orders", Icon: "order", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "user:/user/orders", Platform: menumodel.PlatformUser, Name: "我的订单", Type: menumodel.TypeMenu, Path: "/user/orders/list", Component: "user/orders/list/index", SortOrder: 1, Status: menumodel.StatusActive},
-		{Platform: menumodel.PlatformUser, Name: "账户管理", Type: menumodel.TypeDirectory, Path: "/user/account", Icon: "user", SortOrder: 4, Status: menumodel.StatusActive},
-		{ParentKey: "user:/user/account", Platform: menumodel.PlatformUser, Name: "账户概览", Type: menumodel.TypeMenu, Path: "/user/account/overview", Component: "user/account/overview/index", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "user:/user/account", Platform: menumodel.PlatformUser, Name: "账单查询", Type: menumodel.TypeMenu, Path: "/user/account/bills", Component: "user/account/bills/index", SortOrder: 2, Status: menumodel.StatusActive},
-		{Platform: menumodel.PlatformUser, Name: "工单支持", Type: menumodel.TypeMenu, Path: "/user/tickets", Component: "user/tickets/index", Icon: "service", SortOrder: 5, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "用户总览", Type: menumodel.TypeMenu, Path: "/users/overview", Component: "users/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "账户管理", Type: menumodel.TypeDirectory, Path: "/users/accounts", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/users/accounts", Platform: menumodel.PlatformAdmin, Name: "用户列表", Type: menumodel.TypeMenu, Path: "/users/accounts/list", Component: "users/accounts/list/index", Icon: "user-list", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/users/accounts", Platform: menumodel.PlatformAdmin, Name: "用户组/组织管理", Type: menumodel.TypeMenu, Path: "/users/accounts/groups", Component: "users/accounts/groups/index", Icon: "control-platform", SortOrder: 2, Status: menumodel.StatusActive},
 	}
 
-	idByKey := make(map[string]uint64, len(defaults))
+	menuMap := make(map[string]uint64)
 	for _, item := range defaults {
-		menu := menumodel.Menu{}
-		if err := tx.Where("platform = ? AND name = ?", item.Platform, item.Name).First(&menu).Error; err != nil {
-			if err != gorm.ErrRecordNotFound {
-				return err
+		var parentID uint64
+		if item.ParentKey != "" {
+			pid, ok := menuMap[item.ParentKey]
+			if !ok {
+				var parent menumodel.Menu
+				parts := strings.SplitN(item.ParentKey, ":", 2)
+				if len(parts) != 2 {
+					return fmt.Errorf("invalid parent key: %s", item.ParentKey)
+				}
+				if err := tx.Where("platform = ? AND path = ?", parts[0], parts[1]).First(&parent).Error; err != nil {
+					return err
+				}
+				pid = parent.ID
+				menuMap[item.ParentKey] = pid
 			}
-			menu = menumodel.Menu{Platform: item.Platform, Name: item.Name}
+			parentID = pid
 		}
-		menu.ParentID = idByKey[item.ParentKey]
-		menu.Platform = item.Platform
-		menu.Name = item.Name
-		menu.Type = item.Type
-		menu.Path = item.Path
-		menu.Component = item.Component
-		menu.Icon = item.Icon
-		menu.SortOrder = item.SortOrder
-		menu.Status = item.Status
-		if menu.ID == 0 {
-			if err := tx.Create(&menu).Error; err != nil {
-				return err
-			}
-		} else {
-			if err := tx.Save(&menu).Error; err != nil {
-				return err
-			}
+
+		var existing menumodel.Menu
+		if err := tx.Where("platform = ? AND path = ?", item.Platform, item.Path).First(&existing).Error; err == nil {
+			menuMap[item.Platform+":"+item.Path] = existing.ID
+			continue
+		} else if err != gorm.ErrRecordNotFound {
+			return err
 		}
-		idByKey[item.Platform+":"+item.Path] = menu.ID
+
+		record := menumodel.Menu{ParentID: parentID, Platform: item.Platform, Name: item.Name, Type: item.Type, Path: item.Path, Component: item.Component, Icon: item.Icon, SortOrder: item.SortOrder, Status: item.Status}
+		if err := tx.Create(&record).Error; err != nil {
+			return err
+		}
+		menuMap[item.Platform+":"+item.Path] = record.ID
 	}
+
+	return nil
+}
+
+func seedAdminUser(tx *gorm.DB, _ config.Config) error {
+	const adminUsername = "admin"
+	const adminEmail = "admin@hostsent.local"
+	const adminPassword = "Admin@123456"
+
+	var existing usermodel.User
+	if err := tx.Where("username = ?", adminUsername).First(&existing).Error; err == nil {
+		return nil
+	} else if err != gorm.ErrRecordNotFound {
+		return err
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	admin := usermodel.User{Username: adminUsername, Email: adminEmail, PasswordHash: string(hash), Status: "active"}
+	if err := tx.Create(&admin).Error; err != nil {
+		return err
+	}
+
+	var superAdmin usermodel.Role
+	if err := tx.Where("code = ?", "super_admin").First(&superAdmin).Error; err != nil {
+		return err
+	}
+
+	return ensureUserRole(tx, admin.ID, superAdmin.ID)
+}
+
+func seedDemoUsers(tx *gorm.DB) error {
+	var count int64
+	if err := tx.Model(&usermodel.User{}).Where("username LIKE ?", "user_%").Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		hash, err := bcrypt.GenerateFromPassword([]byte("User@123456"), bcrypt.DefaultCost)
+		if err != nil {
+			return err
+		}
+
+		now := time.Now()
+		newUserTime := now.Add(-2 * time.Hour)
+		loginA := now.Add(-35 * time.Minute)
+		loginB := now.Add(-5 * time.Hour)
+		loginC := now.Add(-28 * time.Hour)
+		loginD := now.Add(-72 * time.Hour)
+
+		defaults := []usermodel.User{
+			{Username: "user_east_01", Email: "east01@hostsent.local", Phone: "13900000001", PasswordHash: string(hash), Status: "active", RealName: "李东", Region: "华东", Balance: 1280.50, LastLoginAt: &loginA},
+			{Username: "user_north_01", Email: "north01@hostsent.local", Phone: "13900000002", PasswordHash: string(hash), Status: "active", RealName: "王北", Region: "华北", Balance: 860.00, LastLoginAt: &loginB},
+			{Username: "user_south_01", Email: "south01@hostsent.local", Phone: "13900000003", PasswordHash: string(hash), Status: "active", RealName: "陈南", Region: "华南", Balance: 420.35, LastLoginAt: &loginC},
+			{Username: "user_west_01", Email: "west01@hostsent.local", Phone: "13900000004", PasswordHash: string(hash), Status: "disabled", RealName: "赵西", Region: "西南", Balance: 0, LastLoginAt: &loginD},
+			{Username: "user_central_01", Email: "central01@hostsent.local", Phone: "13900000005", PasswordHash: string(hash), Status: "pending", RealName: "", Region: "华中", Balance: 66.60},
+			{Username: "user_east_02", Email: "east02@hostsent.local", Phone: "13900000006", PasswordHash: string(hash), Status: "cancelled", RealName: "孙城", Region: "华东", Balance: 0},
+			{Username: "user_new_01", Email: "new01@hostsent.local", Phone: "13900000007", PasswordHash: string(hash), Status: "active", RealName: "周新", Region: "华北", Balance: 218.88, CreatedAt: newUserTime, UpdatedAt: newUserTime, LastLoginAt: &loginA},
+			{Username: "user_nw_01", Email: "nw01@hostsent.local", Phone: "13900000008", PasswordHash: string(hash), Status: "active", RealName: "", Region: "西北", Balance: 0},
+			{Username: "user_ne_01", Email: "ne01@hostsent.local", Phone: "13900000009", PasswordHash: string(hash), Status: "disabled", RealName: "刘北", Region: "东北", Balance: 52.10, LastLoginAt: &loginD},
+			{Username: "user_oversea_01", Email: "os01@hostsent.local", Phone: "13900000010", PasswordHash: string(hash), Status: "pending", RealName: "吴洋", Region: "海外", Balance: 999.99},
+		}
+
+		for i := range defaults {
+			if defaults[i].CreatedAt.IsZero() {
+				defaults[i].CreatedAt = now.Add(-time.Duration((i+1)*24) * time.Hour)
+			}
+			if defaults[i].UpdatedAt.IsZero() {
+				defaults[i].UpdatedAt = defaults[i].CreatedAt
+			}
+		}
+
+		if err := tx.Create(&defaults).Error; err != nil {
+			return err
+		}
+	}
+
+	var userRole usermodel.Role
+	if err := tx.Where("code = ?", "user").First(&userRole).Error; err != nil {
+		return err
+	}
+
+	var opsRole usermodel.Role
+	if err := tx.Where("code = ?", "ops_admin").First(&opsRole).Error; err != nil {
+		return err
+	}
+
+	var users []usermodel.User
+	if err := tx.Where("username LIKE ?", "user_%").Find(&users).Error; err != nil {
+		return err
+	}
+	for _, user := range users {
+		if err := ensureUserRole(tx, user.ID, userRole.ID); err != nil {
+			return err
+		}
+		if user.Username == "user_nw_01" {
+			if err := ensureUserRole(tx, user.ID, opsRole.ID); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func ensureUserRole(tx *gorm.DB, userID, roleID uint64) error {
+	var count int64
+	if err := tx.Table("user_roles").Where("user_id = ? AND role_id = ?", userID, roleID).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	return tx.Table("user_roles").Create(map[string]any{"user_id": userID, "role_id": roleID}).Error
+}
+
+func seedDemoUserDetails(tx *gorm.DB) error {
+	var target usermodel.User
+	if err := tx.Where("username = ?", "user_nw_01").First(&target).Error; err != nil {
+		return nil
+	}
+
+	var instanceCount int64
+	if err := tx.Model(&usermodel.UserInstance{}).Where("user_id = ?", target.ID).Count(&instanceCount).Error; err != nil {
+		return err
+	}
+	if instanceCount == 0 {
+		instances := []usermodel.UserInstance{
+			{UserID: target.ID, Name: "web-prod-01", Region: "上海一区", Specs: "4C8G / 80G SSD / Ubuntu 22.04", Status: "active", ExpireAt: time.Now().AddDate(0, 1, 0)},
+			{UserID: target.ID, Name: "db-standby-01", Region: "上海一区", Specs: "8C16G / 200G SSD / Debian 12", Status: "pending", ExpireAt: time.Now().AddDate(0, 0, 9)},
+			{UserID: target.ID, Name: "ci-agent-01", Region: "杭州一区", Specs: "2C4G / 50G SSD / CentOS Stream", Status: "disabled", ExpireAt: time.Now().AddDate(0, 1, 20)},
+		}
+		if err := tx.Create(&instances).Error; err != nil {
+			return err
+		}
+	}
+
+	var orderCount int64
+	if err := tx.Model(&usermodel.UserOrder{}).Where("user_id = ?", target.ID).Count(&orderCount).Error; err != nil {
+		return err
+	}
+	if orderCount == 0 {
+		orders := []usermodel.UserOrder{
+			{UserID: target.ID, OrderNo: "OD202608180031", Product: "高主频云主机 4C8G", Amount: 688, Status: "paid"},
+			{UserID: target.ID, OrderNo: "OD202607260014", Product: "对象存储流量包", Amount: 199, Status: "completed"},
+			{UserID: target.ID, OrderNo: "OD202607120003", Product: "云主机续费 2C4G", Amount: 366, Status: "pending"},
+		}
+		if err := tx.Create(&orders).Error; err != nil {
+			return err
+		}
+	}
+
+	var billCount int64
+	if err := tx.Model(&usermodel.UserBill{}).Where("user_id = ?", target.ID).Count(&billCount).Error; err != nil {
+		return err
+	}
+	if billCount == 0 {
+			bills := []usermodel.UserBill{
+			{UserID: target.ID, BillingMonth: "2026-08", Amount: 1253, Status: "pending"},
+			{UserID: target.ID, BillingMonth: "2026-07", Amount: 866, Status: "paid"},
+		}
+		if err := tx.Create(&bills).Error; err != nil {
+			return err
+		}
+	}
+
+	var txnCount int64
+	if err := tx.Model(&usermodel.UserTransaction{}).Where("user_id = ?", target.ID).Count(&txnCount).Error; err != nil {
+		return err
+	}
+	if txnCount == 0 {
+		transactions := []usermodel.UserTransaction{
+			{UserID: target.ID, TxnNo: "TX202608190002", Type: "recharge", Amount: 2000},
+			{UserID: target.ID, TxnNo: "TX202608180021", Type: "consume", Amount: -688},
+		}
+		if err := tx.Create(&transactions).Error; err != nil {
+			return err
+		}
+	}
+
+	var ticketCount int64
+	if err := tx.Model(&usermodel.UserTicket{}).Where("user_id = ?", target.ID).Count(&ticketCount).Error; err != nil {
+		return err
+	}
+	if ticketCount == 0 {
+		tickets := []usermodel.UserTicket{
+			{UserID: target.ID, TicketNo: "TK20260819005", Title: "实例公网带宽波动", Category: "网络问题", Priority: "high", Status: "processing"},
+			{UserID: target.ID, TicketNo: "TK20260811001", Title: "发票抬头更新申请", Category: "财务支持", Priority: "medium", Status: "waiting"},
+			{UserID: target.ID, TicketNo: "TK20260730008", Title: "续费后实例未自动开机", Category: "产品使用", Priority: "medium", Status: "resolved"},
+		}
+		if err := tx.Create(&tickets).Error; err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
