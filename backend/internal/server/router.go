@@ -7,13 +7,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	menuhandler "hostsent/backend/internal/modules/menu/handler"
 	"hostsent/backend/internal/modules/user/handler"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/middleware"
 )
 
-func newRouter(cfg *config.Config, authHandler *handler.AuthHandler, userHandler *handler.UserHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
+func newRouter(cfg *config.Config, authHandler *handler.AuthHandler, userHandler *handler.UserHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
@@ -65,6 +66,15 @@ func newRouter(cfg *config.Config, authHandler *handler.AuthHandler, userHandler
 			permissions.POST("", permissionHandler.CreatePermission)
 			permissions.PUT("/:id", permissionHandler.UpdatePermission)
 			permissions.DELETE("/:id", permissionHandler.DeletePermission)
+		}
+
+		menus := v1.Group("/menus")
+		menus.Use(middleware.Auth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			menus.GET("/tree", menuHandler.Tree)
+			menus.POST("", menuHandler.CreateMenu)
+			menus.PUT("/:id", menuHandler.UpdateMenu)
+			menus.DELETE("/:id", menuHandler.DeleteMenu)
 		}
 	}
 

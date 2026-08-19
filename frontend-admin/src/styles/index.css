@@ -1,0 +1,103 @@
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
+
+:root {
+  /* HostSent Design System tokens — Light theme · Density 9 · Variance 3 · Motion 4 */
+  --color-primary: #16A34A;
+  --color-on-primary: #FFFFFF;
+  --color-secondary: #0F172A;
+  --color-on-secondary: #FFFFFF;
+  --color-accent: #16A34A;
+  --color-on-accent: #FFFFFF;
+  --color-background: #F5F7FA;
+  --color-foreground: #0F172A;
+  --color-card: #FFFFFF;
+  --color-card-foreground: #0F172A;
+  --color-muted: #F1F5F9;
+  --color-muted-foreground: #64748B;
+  --color-border: #E2E8F0;
+  --color-destructive: #EF4444;
+  --color-on-destructive: #FFFFFF;
+  --color-ring: #16A34A;
+
+  /* Surfaces */
+  --hs-surface-1: #FFFFFF;
+  --hs-surface-2: #F8FAFC;
+  --hs-surface-3: #F1F5F9;
+
+  /* Spacing scale — Density 9 (compact, 4–24px base) */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-2xl: 32px;
+
+  /* Radius — compact */
+  --hs-radius-sm: 4px;
+  --hs-radius-md: 6px;
+  --hs-radius-lg: 8px;
+  --hs-radius-xl: 10px;
+
+  /* Typography */
+  --hs-font-heading: 'Fira Sans', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+  --hs-font-body: 'Fira Sans', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+  --hs-font-mono: 'Fira Code', ui-monospace, Menlo, Consolas, monospace;
+
+  /* Shadows — flat, subtle */
+  --hs-shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --hs-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --hs-shadow-md: 0 2px 8px rgba(15, 23, 42, 0.08);
+  --hs-shadow-lg: 0 8px 24px rgba(15, 23, 42, 0.10);
+
+  /* Motion */
+  --hs-duration-fast: 150ms;
+  --hs-duration-base: 200ms;
+  --hs-duration-slow: 320ms;
+  --hs-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+body {
+  font-family: var(--hs-font-body);
+  color: var(--color-foreground);
+  background: var(--color-background);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--hs-font-heading);
+  letter-spacing: -0.01em;
+  color: var(--color-foreground);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

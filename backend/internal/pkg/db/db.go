@@ -7,6 +7,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
+	menumodel "hostsent/backend/internal/modules/menu/model"
 	"hostsent/backend/internal/modules/user/model"
 	"hostsent/backend/internal/pkg/config"
 )
@@ -35,6 +36,7 @@ func AutoMigrate(database *gorm.DB) error {
 		&model.Permission{},
 		&model.RolePermission{},
 		&model.UserRole{},
+		&menumodel.Menu{},
 	)
 }
 
@@ -59,7 +61,11 @@ func Seed(database *gorm.DB) error {
 			return err
 		}
 
-		return seedUserRole(tx, user.ID, role.ID)
+		if err := seedUserRole(tx, user.ID, role.ID); err != nil {
+			return err
+		}
+
+		return seedMenus(tx)
 	})
 }
 
@@ -202,4 +208,105 @@ func permissionIDs(permissions []model.Permission) []uint64 {
 		ids = append(ids, permission.ID)
 	}
 	return ids
+}
+
+type seedMenu struct {
+	ParentKey string
+	Platform  string
+	Name      string
+	Type      string
+	Path      string
+	Component string
+	Icon      string
+	SortOrder int
+	Status    string
+}
+
+func seedMenus(tx *gorm.DB) error {
+	defaults := []seedMenu{
+		// ================= 管理员后台菜单 =================
+		// 1. 仪表盘
+		{Platform: menumodel.PlatformAdmin, Name: "仪表盘", Type: menumodel.TypeDirectory, Path: "/dashboard", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/dashboard", Platform: menumodel.PlatformAdmin, Name: "概览", Type: menumodel.TypeMenu, Path: "/dashboard/base", Component: "dashboard/base/index", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/dashboard", Platform: menumodel.PlatformAdmin, Name: "数据分析", Type: menumodel.TypeMenu, Path: "/dashboard/analysis", Component: "dashboard/analysis/index", SortOrder: 2, Status: menumodel.StatusActive},
+
+		// 2. 用户管理
+		{Platform: menumodel.PlatformAdmin, Name: "用户管理", Type: menumodel.TypeDirectory, Path: "/users", Icon: "user", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "用户列表", Type: menumodel.TypeMenu, Path: "/users/list", Component: "users/list/index", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "角色权限", Type: menumodel.TypeMenu, Path: "/users/roles", Component: "users/roles/index", SortOrder: 2, Status: menumodel.StatusActive},
+
+		// 3. 资源管理
+		{Platform: menumodel.PlatformAdmin, Name: "资源管理", Type: menumodel.TypeDirectory, Path: "/resources", Icon: "layers", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resources", Platform: menumodel.PlatformAdmin, Name: "云主机", Type: menumodel.TypeDirectory, Path: "/resources/instances", Component: "resources/instances/index", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resources/instances)", Platform: menumodel.PlatformAdmin, Name: "实例列表", Type: menumodel.TypeMenu, Path: "/resources/instances/list", Component: "resources/instances/index", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resources/instances)", Platform: menumodel.PlatformAdmin, Name: "快照管理", Type: menumodel.TypeMenu, Path: "/resources/instances/snapshots", Component: "resources/instances/snapshots", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resources", Platform: menumodel.PlatformAdmin, Name: "镜像管理", Type: menumodel.TypeMenu, Path: "/resources/images", Component: "resources/images/index", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resources", Platform: menumodel.PlatformAdmin, Name: "网络管理", Type: menumodel.TypeMenu, Path: "/resources/networks", Component: "resources/networks/index", SortOrder: 3, Status: menumodel.StatusActive},
+
+		// 4. 产品管理
+		{Platform: menumodel.PlatformAdmin, Name: "产品管理", Type: menumodel.TypeDirectory, Path: "/products", Icon: "apps", SortOrder: 4, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/products", Platform: menumodel.PlatformAdmin, Name: "产品列表", Type: menumodel.TypeMenu, Path: "/products/list", Component: "products/list/index", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/products", Platform: menumodel.PlatformAdmin, Name: "产品分类", Type: menumodel.TypeMenu, Path: "/products/categories", Component: "products/categories/index", SortOrder: 2, Status: menumodel.StatusActive},
+
+		// 5. 订单管理
+		{Platform: menumodel.PlatformAdmin, Name: "订单管理", Type: menumodel.TypeDirectory, Path: "/orders", Icon: "order", SortOrder: 5, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "订单列表", Type: menumodel.TypeMenu, Path: "/orders/list", Component: "orders/list/index", SortOrder: 1, Status: menumodel.StatusActive},
+
+		// 6. 财务管理
+		{Platform: menumodel.PlatformAdmin, Name: "财务管理", Type: menumodel.TypeDirectory, Path: "/billing", Icon: "bill", SortOrder: 6, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/billing", Platform: menumodel.PlatformAdmin, Name: "账单查询", Type: menumodel.TypeMenu, Path: "/billing/bills", Component: "billing/bills/index", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/billing", Platform: menumodel.PlatformAdmin, Name: "交易流水", Type: menumodel.TypeMenu, Path: "/billing/transactions", Component: "billing/transactions/index", SortOrder: 2, Status: menumodel.StatusActive},
+
+		// 7. 系统管理
+		{Platform: menumodel.PlatformAdmin, Name: "系统管理", Type: menumodel.TypeDirectory, Path: "/system", Icon: "settings", SortOrder: 7, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "菜单管理", Type: menumodel.TypeMenu, Path: "/system/menus", Component: "system/menus/index", Icon: "menu", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "审计日志", Type: menumodel.TypeMenu, Path: "/system/audit", Component: "system/audit/index", SortOrder: 2, Status: menumodel.StatusActive},
+
+		// 8. 工单支持
+		{Platform: menumodel.PlatformAdmin, Name: "工单支持", Type: menumodel.TypeDirectory, Path: "/support", Icon: "service", SortOrder: 8, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/support", Platform: menumodel.PlatformAdmin, Name: "工单列表", Type: menumodel.TypeMenu, Path: "/support/tickets", Component: "support/tickets/index", SortOrder: 1, Status: menumodel.StatusActive},
+
+		// ================= 用户中心菜单 =================
+		{Platform: menumodel.PlatformUser, Name: "控制台", Type: menumodel.TypeMenu, Path: "/user/dashboard", Component: "user/dashboard/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
+		{Platform: menumodel.PlatformUser, Name: "云主机", Type: menumodel.TypeDirectory, Path: "/user/instances", Icon: "cloud", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "user:/user/instances", Platform: menumodel.PlatformUser, Name: "我的主机", Type: menumodel.TypeMenu, Path: "/user/instances/list", Component: "user/instances/list/index", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "user:/user/instances", Platform: menumodel.PlatformUser, Name: "快照管理", Type: menumodel.TypeMenu, Path: "/user/instances/snapshots", Component: "user/instances/snapshots", SortOrder: 2, Status: menumodel.StatusActive},
+		{Platform: menumodel.PlatformUser, Name: "订单中心", Type: menumodel.TypeDirectory, Path: "/user/orders", Icon: "order", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "user:/user/orders", Platform: menumodel.PlatformUser, Name: "我的订单", Type: menumodel.TypeMenu, Path: "/user/orders/list", Component: "user/orders/list/index", SortOrder: 1, Status: menumodel.StatusActive},
+		{Platform: menumodel.PlatformUser, Name: "账户管理", Type: menumodel.TypeDirectory, Path: "/user/account", Icon: "user", SortOrder: 4, Status: menumodel.StatusActive},
+		{ParentKey: "user:/user/account", Platform: menumodel.PlatformUser, Name: "账户概览", Type: menumodel.TypeMenu, Path: "/user/account/overview", Component: "user/account/overview/index", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "user:/user/account", Platform: menumodel.PlatformUser, Name: "账单查询", Type: menumodel.TypeMenu, Path: "/user/account/bills", Component: "user/account/bills/index", SortOrder: 2, Status: menumodel.StatusActive},
+		{Platform: menumodel.PlatformUser, Name: "工单支持", Type: menumodel.TypeMenu, Path: "/user/tickets", Component: "user/tickets/index", Icon: "service", SortOrder: 5, Status: menumodel.StatusActive},
+	}
+
+	idByKey := make(map[string]uint64, len(defaults))
+	for _, item := range defaults {
+		menu := menumodel.Menu{}
+		if err := tx.Where("platform = ? AND name = ?", item.Platform, item.Name).First(&menu).Error; err != nil {
+			if err != gorm.ErrRecordNotFound {
+				return err
+			}
+			menu = menumodel.Menu{Platform: item.Platform, Name: item.Name}
+		}
+		menu.ParentID = idByKey[item.ParentKey]
+		menu.Platform = item.Platform
+		menu.Name = item.Name
+		menu.Type = item.Type
+		menu.Path = item.Path
+		menu.Component = item.Component
+		menu.Icon = item.Icon
+		menu.SortOrder = item.SortOrder
+		menu.Status = item.Status
+		if menu.ID == 0 {
+			if err := tx.Create(&menu).Error; err != nil {
+				return err
+			}
+		} else {
+			if err := tx.Save(&menu).Error; err != nil {
+				return err
+			}
+		}
+		idByKey[item.Platform+":"+item.Path] = menu.ID
+	}
+	return nil
 }

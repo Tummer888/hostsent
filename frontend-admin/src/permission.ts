@@ -1,84 +1,121 @@
-import 'nprogress/nprogress.css';
+import type { App, Component } from 'vue'
+import { h, shallowRef } from 'vue'
 
-import NProgress from 'nprogress';
-import { MessagePlugin } from 'tdesign-vue-next';
-import type { RouteRecordRaw } from 'vue-router';
+import {
+  ChartBubbleIcon,
+  ChevronRightIcon,
+  DashboardIcon,
+  LayersIcon,
+  ServiceIcon,
+  SettingIcon,
+  UserIcon,
+} from 'tdesign-icons-vue-next'
+import { MessagePlugin } from 'tdesign-vue-next'
 
-import router from '@/router';
-import { getPermissionStore, useUserStore } from '@/store';
-import { PAGE_NOT_FOUND_ROUTE } from '@/utils/route/constant';
+import router from '@/router'
+import { useMenuStore, useUserStore } from '@/store'
 
-NProgress.configure({ showSpinner: false });
+function iconWrapper(icon: Component) {
+  return shallowRef({
+    render() {
+      return h(icon)
+    },
+  })
+}
 
-router.beforeEach(async (to, from, next) => {
-  NProgress.start();
+export const navMenu = [
+  {
+    title: '仪表盘',
+    path: '/dashboard',
+    icon: iconWrapper(DashboardIcon),
+    children: [{ title: '概览', path: '/dashboard/base' }],
+  },
+  {
+    title: '用户管理',
+    path: '/users',
+    icon: iconWrapper(UserIcon),
+    children: [{ title: '用户列表', path: '/users/list' }],
+  },
+  {
+    title: '资源管理',
+    path: '/resources',
+    icon: iconWrapper(ChevronRightIcon),
+    children: [{ title: '云主机', path: '/resources/instances' }],
+  },
+  {
+    title: '系统管理',
+    path: '/system',
+    icon: iconWrapper(SettingIcon),
+    children: [{ title: '菜单管理', path: '/system/menus' }],
+  },
+]
 
-  const permissionStore = getPermissionStore();
-  const { whiteListRouters } = permissionStore;
+export const featureIcons = {
+  security: iconWrapper(ServiceIcon),
+  stable: iconWrapper(ChartBubbleIcon),
+  manage: iconWrapper(LayersIcon),
+  service: iconWrapper(ServiceIcon),
+}
 
-  const userStore = useUserStore();
+export function setupPermission(app: App<Element>) {
+  app
 
-  if (userStore.token) {
-    if (to.path === '/login') {
-      next({ path: '/dashboard/base' });
-      return;
-    }
-    try {
-      if (!userStore.userInfo.id) {
-        await userStore.getUserInfo();
+  router.beforeEach(async (to, _from, next) => {
+    const userStore = useUserStore()
+
+    if (userStore.token) {
+      if (to.path === '/login') {
+        next({ path: '/dashboard/base', replace: true })
+        return
       }
-
-      const { asyncRoutes } = permissionStore;
-
-      if (asyncRoutes && asyncRoutes.length === 0) {
-        const routeList = await permissionStore.buildAsyncRoutes();
-        routeList.forEach((item: RouteRecordRaw) => {
-          router.addRoute(item);
-        });
-
-        if (to.name === PAGE_NOT_FOUND_ROUTE.name) {
-          next({ path: to.fullPath, replace: true, query: to.query });
-        } else {
-          const redirect = decodeURIComponent((from.query.redirect || to.path) as string);
-          next(to.path === redirect ? { ...to, replace: true } : { path: redirect, query: to.query });
-          return;
+      try {
+        if (!userStore.userInfo.id) {
+          await userStore.getUserInfo()
         }
+        // 拉取后端菜单树，驱动侧边栏动态渲染
+        const menuStore = useMenuStore()
+        if (!menuStore.loaded) {
+          try {
+            await menuStore.loadMenus('admin')
+          } catch {
+            // 后端不可达时降级为静态 navMenu，不阻断登录
+          }
+        }
+        next()
+      } catch (error) {
+        const message = (error as Error)?.message || '认证失败，请重新登录'
+        try {
+          MessagePlugin.error(message)
+        } catch {
+          // ignore when message plugin not yet available
+        }
+        userStore.logout()
+        next({
+          path: '/login',
+          query: { redirect: encodeURIComponent(to.fullPath) },
+          replace: true,
+        })
       }
-      if (to.name && router.hasRoute(to.name)) {
-        next();
-      } else {
-        next({ path: '/dashboard/base', replace: true });
-      }
-    } catch (error) {
-      await userStore.logout();
-      await permissionStore.restoreRoutes();
-      MessagePlugin.error((error as Error).message);
-      next({
-        path: '/login',
-        query: { redirect: encodeURIComponent(to.fullPath) },
-      });
-      NProgress.done();
+      return
     }
-  } else {
-    if (whiteListRouters.includes(to.path)) {
-      next();
-    } else {
-      next({
-        path: '/login',
-        query: { redirect: encodeURIComponent(to.fullPath) },
-      });
+
+    const isPublic = to.path === '/login' || (to.meta?.public as boolean)
+    if (isPublic) {
+      next()
+      return
     }
-    NProgress.done();
-  }
-});
 
-router.afterEach((to) => {
-  if (to.path === '/login') {
-    const userStore = useUserStore();
-    const permissionStore = getPermissionStore();
+    next({
+      path: '/login',
+      query: { redirect: encodeURIComponent(to.fullPath) },
+      replace: true,
+    })
+  })
 
-    userStore.logout();
-    permissionStore.restoreRoutes();
-  }
-  NProgress.done();
-});
+  router.afterEach((to) => {
+    if (to.meta?.title) {
+      const suffix = '宿派云控 管理平台'
+      document.title = `${to.meta.title} - ${suffix}`
+    }
+  })
+}

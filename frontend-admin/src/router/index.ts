@@ -1,96 +1,53 @@
-import isObject from 'lodash/isObject';
-import uniq from 'lodash/uniq';
-import type { RouteRecordRaw } from 'vue-router';
-import { createRouter, createWebHistory } from 'vue-router';
+import type { RouteRecordRaw } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router'
 
-const env = import.meta.env.MODE || 'development';
-
-// 导入homepage相关固定路由
-const homepageModules = import.meta.glob('./modules/**/homepage.ts', { eager: true });
-
-// 导入modules非homepage相关固定路由
-const fixedModules = import.meta.glob(['./modules/**/*.ts', '!./modules/**/homepage.ts'], { eager: true });
-
-// 其他固定路由
-const defaultRouterList: Array<RouteRecordRaw> = [
-  {
-    path: '/login',
-    name: 'login',
-    component: () => import('@/pages/login/index.vue'),
-  },
+const routes: Array<RouteRecordRaw> = [
   {
     path: '/',
     redirect: '/login',
   },
-];
-// 存放固定路由
-export const homepageRouterList: Array<RouteRecordRaw> = mapModuleRouterList(homepageModules);
-export const fixedRouterList: Array<RouteRecordRaw> = mapModuleRouterList(fixedModules);
-
-export const allRoutes = [...homepageRouterList, ...fixedRouterList, ...defaultRouterList];
-
-// 固定路由模块转换为路由
-export function mapModuleRouterList(modules: Record<string, unknown>): Array<RouteRecordRaw> {
-  const routerList: Array<RouteRecordRaw> = [];
-  Object.keys(modules).forEach((key) => {
-    const routeModule = modules[key];
-    if (isObject(routeModule) && 'default' in routeModule) {
-      const route = routeModule.default;
-      const routes = Array.isArray(route) ? [...route] : [route];
-      routerList.push(...routes);
-    }
-  });
-  return routerList;
-}
-
-/**
- *
- * @deprecated 未使用
- */
-export const getRoutesExpanded = () => {
-  const expandedRoutes: Array<string> = [];
-
-  fixedRouterList.forEach((item) => {
-    if (item.meta && item.meta.expanded) {
-      expandedRoutes.push(item.path);
-    }
-    if (item.children && item.children.length > 0) {
-      item.children
-        .filter((child) => child.meta && child.meta.expanded)
-        .forEach((child: RouteRecordRaw) => {
-          expandedRoutes.push(item.path);
-          expandedRoutes.push(`${item.path}/${child.path}`);
-        });
-    }
-  });
-  return uniq(expandedRoutes);
-};
-
-export const getActive = (maxLevel = 3): string => {
-  // 非组件内调用必须通过Router实例获取当前路由
-  const route = router.currentRoute.value;
-
-  if (!route.path) {
-    return '';
-  }
-
-  return route.path
-    .split('/')
-    .filter((_item: string, index: number) => index <= maxLevel && index > 0)
-    .map((item: string) => `/${item}`)
-    .join('');
-};
+  {
+    path: '/login',
+    name: 'login',
+    component: () => import('@/pages/login/index.vue'),
+    meta: { title: '管理员登录', public: true },
+  },
+  {
+    path: '/dashboard',
+    component: () => import('@/layouts/index.vue'),
+    redirect: '/dashboard/base',
+    meta: { title: '仪表盘' },
+    children: [
+      {
+        path: 'base',
+        name: 'DashboardBase',
+        component: () => import('@/pages/dashboard/base/index.vue'),
+        meta: { title: '概览', role: 'admin' },
+      },
+    ],
+  },
+  {
+    path: '/system',
+    component: () => import('@/layouts/index.vue'),
+    redirect: '/system/menus',
+    meta: { title: '系统管理' },
+    children: [
+      {
+        path: 'menus',
+        name: 'SystemMenus',
+        component: () => import('@/pages/system/menus/index.vue'),
+        meta: { title: '菜单管理', role: 'admin' },
+      },
+    ],
+  },
+]
 
 const router = createRouter({
-  history: createWebHistory(env === 'site' ? '/starter/vue-next/' : import.meta.env.VITE_BASE_URL),
-  routes: allRoutes,
+  history: createWebHistory('/'),
+  routes,
   scrollBehavior() {
-    return {
-      el: '#app',
-      top: 0,
-      behavior: 'smooth',
-    };
+    return { top: 0 }
   },
-});
+})
 
-export default router;
+export default router

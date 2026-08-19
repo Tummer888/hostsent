@@ -1,6 +1,9 @@
 /docs
 /backend/docs
 node_modules
+.trae/
+.claude/
 
 /frontend-user/.git
 /frontend-user/node_modules
+/frontend-admin/node_modules

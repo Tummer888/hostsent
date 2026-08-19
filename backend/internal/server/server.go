@@ -7,6 +7,9 @@ import (
 
 	"go.uber.org/zap"
 
+	menuhandler "hostsent/backend/internal/modules/menu/handler"
+	menurepo "hostsent/backend/internal/modules/menu/repository"
+	menuservice "hostsent/backend/internal/modules/menu/service"
 	"hostsent/backend/internal/modules/user/handler"
 	"hostsent/backend/internal/modules/user/repository"
 	"hostsent/backend/internal/modules/user/service"
@@ -37,15 +40,18 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	userRepo := repository.NewUserRepository(database)
 	roleRepo := repository.NewRoleRepository(database)
 	permissionRepo := repository.NewPermissionRepository(database)
+	menuRepo := menurepo.NewMenuRepository(database)
 	authService := service.NewAuthService(userRepo, jwtIssuer)
 	userService := service.NewUserService(userRepo)
 	roleService := service.NewRoleService(roleRepo)
 	permissionService := service.NewPermissionService(permissionRepo)
+	menuService := menuservice.NewMenuService(menuRepo)
 	authHandler := handler.NewAuthHandler(authService)
 	userHandler := handler.NewUserHandler(userService)
 	roleHandler := handler.NewRoleHandler(roleService)
 	permissionHandler := handler.NewPermissionHandler(permissionService)
-	router := newRouter(cfg, authHandler, userHandler, roleHandler, permissionHandler, logger, jwtIssuer)
+	menuHandler := menuhandler.NewMenuHandler(menuService)
+	router := newRouter(cfg, authHandler, userHandler, roleHandler, permissionHandler, menuHandler, logger, jwtIssuer)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 

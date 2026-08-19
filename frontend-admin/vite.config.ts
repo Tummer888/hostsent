@@ -1,64 +1,28 @@
-import path from 'node:path';
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
 
-import vue from '@vitejs/plugin-vue';
-import vueJsx from '@vitejs/plugin-vue-jsx';
-import type { ConfigEnv, UserConfig } from 'vite';
-import { loadEnv } from 'vite';
-import { viteMockServe } from 'vite-plugin-mock';
-import svgLoader from 'vite-svg-loader';
+// 使用 Vite 原生支持的 import.meta.url，避免依赖 node 类型
+const base = new URL('.', import.meta.url).pathname
+function resolve(p: string) {
+  // 处理 Windows 盘符前缀问题（Linux 下无需处理）
+  return `${base.replace(/\/$/, '')}/${p.replace(/^\.\//, '')}`
+}
 
-const CWD = process.cwd();
-
-// https://vitejs.dev/config/
-export default ({ mode }: ConfigEnv): UserConfig => {
-  const { VITE_BASE_URL, VITE_API_URL, VITE_API_URL_PREFIX } = loadEnv(mode, CWD);
-  return {
-    base: VITE_BASE_URL,
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, './src'),
+export default defineConfig({
+  plugins: [vue()],
+  resolve: {
+    alias: {
+      '@': resolve('./src'),
+    },
+  },
+  server: {
+    host: '127.0.0.1',
+    port: 3002,
+    proxy: {
+      '/api/v1': {
+        target: 'http://127.0.0.1:8080',
+        changeOrigin: true,
       },
     },
-
-    css: {
-      preprocessorOptions: {
-        less: {
-          modifyVars: {
-            hack: `true; @import (reference) "${path.resolve('src/style/variables.less')}";`,
-          },
-          math: 'strict',
-          javascriptEnabled: true,
-        },
-      },
-    },
-
-    plugins: [
-      vue(),
-      vueJsx(),
-      viteMockServe({
-        mockPath: 'mock',
-        enable: true,
-      }),
-      svgLoader(),
-    ],
-
-    server: {
-      port: 3002,
-      host: '0.0.0.0',
-      allowedHosts: true,
-      proxy: {
-        [VITE_API_URL_PREFIX]: VITE_API_URL,
-      },
-    },
-
-    // https://github.com/vueuse/vueuse/issues/5387#issuecomment-4734186040
-    build: {
-      rolldownOptions: {
-        onLog(level, log, defaultHandler) {
-          if (log.code === 'INVALID_ANNOTATION') return null;
-          else defaultHandler(level, log);
-        },
-      },
-    },
-  };
-};
+  },
+})

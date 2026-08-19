@@ -1,15 +1,10 @@
-import { createPinia } from 'pinia';
-import { createPersistedState } from 'pinia-plugin-persistedstate';
+import { createPinia } from 'pinia'
+import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
+import type { Pinia } from 'pinia'
 
-const store = createPinia();
-store.use(createPersistedState());
+export { useUserStore } from './modules/user'
+export { usePermissionStore } from './modules/permission'
+export { useMenuStore } from './modules/menu'
 
-export { store };
-
-export * from './modules/notification';
-export * from './modules/permission';
-export * from './modules/setting';
-export * from './modules/tabs-router';
-export * from './modules/user';
-
-export default store;
+export const pinia: Pinia = createPinia()
+pinia.use(piniaPluginPersistedstate)

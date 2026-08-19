@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="420" viewBox="0 0 520 420" fill="none">
+  <defs>
+    <linearGradient id="cloudMain" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#e0ecff" />
+    </linearGradient>
+    <linearGradient id="rackA" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#e5ecf8" />
+    </linearGradient>
+    <linearGradient id="rackLight" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2563eb" />
+      <stop offset="50%" stop-color="#0ea5e9" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="24" stdDeviation="20" flood-color="#2563eb" flood-opacity="0.2" />
+    </filter>
+  </defs>
+
+  <!-- 背景装饰圆 -->
+  <circle cx="430" cy="90" r="44" fill="#dbeafe" />
+  <circle cx="430" cy="90" r="28" fill="#bfdbfe" />
+  <rect x="56" y="306" width="38" height="26" rx="6" fill="#2563eb" opacity="0.92" filter="url(#softShadow)" />
+  <rect x="98" y="334" width="26" height="20" rx="5" fill="#60a5fa" opacity="0.92" />
+  <path d="M60 320 h30 M60 326 h24 M60 332 h18" stroke="#ffffff" stroke-opacity="0.9" stroke-width="2" stroke-linecap="round" />
+
+  <rect x="136" y="280" width="38" height="28" rx="6" fill="#2563eb" opacity="0.55" />
+  <rect x="176" y="304" width="28" height="22" rx="5" fill="#38bdf8" opacity="0.65" />
+
+  <!-- 连接线 -->
+  <path d="M74 334 C 90 360, 120 362, 140 382" stroke="#93c5fd" stroke-width="2" stroke-dasharray="6 6" />
+  <path d="M150 310 C 172 338, 188 346, 208 370" stroke="#93c5fd" stroke-width="2" stroke-dasharray="6 6" />
+  <path d="M364 272 C 382 300, 396 310, 420 328" stroke="#93c5fd" stroke-width="2" stroke-dasharray="6 6" />
+
+  <!-- 云主机组合 - 机柜 -->
+  <g filter="url(#softShadow)">
+    <!-- 底座 -->
+    <rect x="140" y="364" width="240" height="26" rx="14" fill="url(#rackLight)" opacity="0.95" />
+    <rect x="156" y="348" width="208" height="20" rx="8" fill="url(#rackA)" stroke="#c7d6ee" />
+
+    <!-- 第三层 -->
+    <rect x="156" y="292" width="208" height="56" rx="10" fill="url(#rackA)" stroke="#c7d6ee" />
+    <g fill="#2563eb">
+      <circle cx="180" cy="306" r="3" />
+      <circle cx="180" cy="334" r="3" />
+    </g>
+    <g fill="#0ea5e9" fill-opacity="0.85">
+      <rect x="204" y="301" width="42" height="8" rx="2" />
+      <rect x="204" y="315" width="64" height="8" rx="2" />
+      <rect x="204" y="329" width="56" height="8" rx="2" />
+    </g>
+    <g fill="#cbd5e1">
+      <rect x="300" y="301" width="56" height="8" rx="2" />
+      <rect x="300" y="315" width="56" height="8" rx="2" />
+      <rect x="300" y="329" width="56" height="8" rx="2" />
+    </g>
+
+    <!-- 第二层 -->
+    <rect x="156" y="228" width="208" height="56" rx="10" fill="url(#rackA)" stroke="#c7d6ee" />
+    <g fill="#2563eb">
+      <circle cx="180" cy="242" r="3" />
+      <circle cx="180" cy="270" r="3" />
+    </g>
+    <g fill="#0ea5e9" fill-opacity="0.85">
+      <rect x="204" y="237" width="50" height="8" rx="2" />
+      <rect x="204" y="251" width="72" height="8" rx="2" />
+      <rect x="204" y="265" width="62" height="8" rx="2" />
+    </g>
+    <g fill="#cbd5e1">
+      <rect x="300" y="237" width="56" height="8" rx="2" />
+      <rect x="300" y="251" width="56" height="8" rx="2" />
+      <rect x="300" y="265" width="56" height="8" rx="2" />
+    </g>
+  </g>
+
+  <!-- 云 -->
+  <g filter="url(#softShadow)">
+    <path d="M190 168 C 166 168, 148 186, 148 210 C 132 216, 122 232, 122 250 C 122 274, 142 294, 166 294 L 356 294 C 384 294, 406 272, 406 244 C 422 238, 432 222, 432 206 C 432 184, 414 166, 392 166 L 190 168 Z" fill="url(#cloudMain)" stroke="#d5e2f7" />
+  </g>
+
+  <!-- 云上 H 标识 -->
+  <g transform="translate(226 188)">
+    <rect x="0" y="0" width="70" height="70" rx="20" fill="url(#rackLight)" opacity="0.95" />
+    <text x="35" y="50" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-weight="800" font-size="40" fill="#ffffff">H</text>
+  </g>
+</svg>
