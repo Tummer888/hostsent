@@ -6,7 +6,9 @@
         <p>维护后台账号状态、资料与角色绑定关系。</p>
       </div>
       <t-button theme="primary" @click="openCreate">
-        <template #icon><t-icon name="add" /></template>
+        <template #icon>
+          <AddIcon />
+        </template>
         新增管理员
       </t-button>
     </div>
@@ -155,6 +157,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue';
+import { AddIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import type { FormInstanceFunctions, FormRule, PrimaryTableCol } from 'tdesign-vue-next';
 import {
@@ -277,6 +280,7 @@ async function loadRoles() {
 function resetFilters() {
   filters.keyword = '';
   filters.status = '';
+  page.value = 1;
   loadUsers();
 }
 

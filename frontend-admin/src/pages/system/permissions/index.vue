@@ -6,7 +6,9 @@
         <p>为角色分配菜单、页面和按钮级别的权限，保存操作将覆盖旧的权限集合。</p>
       </div>
       <t-button theme="primary" :loading="saving" :disabled="!selectedRoleId" @click="save">
-        <template #icon><t-icon name="save" /></template>
+        <template #icon>
+          <SaveIcon />
+        </template>
         保存权限
       </t-button>
     </div>
@@ -57,9 +59,9 @@
             >
               <template #label="{ node }">
                 <t-space size="small">
-                  <t-icon v-if="node.data.type === 'directory'" name="folder" />
-                  <t-icon v-else-if="node.data.type === 'menu'" name="view-module" />
-                  <t-icon v-else name="gesture-click" />
+                  <FolderIcon v-if="isDirectoryNode(node.data.type)" />
+                  <ViewModuleIcon v-else-if="isMenuNode(node.data.type)" />
+                  <GestureClickIcon v-else />
                   <span>{{ node.label }}</span>
                   <span class="permission-code">{{ node.data.code }}</span>
                 </t-space>
@@ -74,6 +76,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { FolderIcon, SaveIcon, ViewModuleIcon, GestureClickIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
 import { useRoute } from 'vue-router';
 import {
@@ -100,6 +103,18 @@ const selectedRoleId = ref<number>(Number(route.query.role_id) || 0);
 
 const loading = ref(false);
 const saving = ref(false);
+
+function normalizePermissionType(type?: string) {
+  return (type || '').toLowerCase();
+}
+
+function isDirectoryNode(type?: string) {
+  return ['directory', 'catalog'].includes(normalizePermissionType(type));
+}
+
+function isMenuNode(type?: string) {
+  return normalizePermissionType(type) === 'menu';
+}
 
 // 当前选中的角色对象
 const selectedRole = computed(() => roles.value.find((role) => role.id === selectedRoleId.value));

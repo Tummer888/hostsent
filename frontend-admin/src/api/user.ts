@@ -141,12 +141,16 @@ export interface RoleInfo {
   name: string
   code: string
   status: string
+  description?: string
+  created_at?: string
+  updated_at?: string
 }
 
 export interface RoleRequest {
   name: string
   code: string
   status: string
+  description?: string
 }
 
 export interface AssignPermissionsRequest {
