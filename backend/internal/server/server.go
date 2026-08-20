@@ -7,6 +7,9 @@ import (
 
 	"go.uber.org/zap"
 
+	distributionhandler "hostsent/backend/internal/modules/distribution/handler"
+	distributionrepo "hostsent/backend/internal/modules/distribution/repository"
+	distributionservice "hostsent/backend/internal/modules/distribution/service"
 	menuhandler "hostsent/backend/internal/modules/menu/handler"
 	menurepo "hostsent/backend/internal/modules/menu/repository"
 	menuservice "hostsent/backend/internal/modules/menu/service"
@@ -40,6 +43,11 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	userRepo := repository.NewUserRepository(database)
 	userDetailRepo := repository.NewUserDetailRepository(database)
 	userGroupRepo := repository.NewUserGroupRepository(database)
+	agentLevelRepo := distributionrepo.NewAgentLevelRepository(database)
+	agentRepo := distributionrepo.NewAgentRepository(database)
+	subordinateRepo := distributionrepo.NewSubordinateRepository(database)
+	commissionRepo := distributionrepo.NewCommissionRepository(database)
+	settlementRepo := distributionrepo.NewSettlementRepository(database)
 	roleRepo := repository.NewRoleRepository(database)
 	permissionRepo := repository.NewPermissionRepository(database)
 	menuRepo := menurepo.NewMenuRepository(database)
@@ -47,6 +55,11 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	userService := service.NewUserService(userRepo)
 	userDetailService := service.NewUserDetailService(userRepo, userDetailRepo)
 	userGroupService := service.NewUserGroupService(userGroupRepo)
+	agentLevelService := distributionservice.NewAgentLevelService(agentLevelRepo)
+	agentService := distributionservice.NewAgentService(agentRepo, userRepo, agentLevelRepo)
+	subordinateService := distributionservice.NewSubordinateService(subordinateRepo, agentRepo, userRepo)
+	commissionService := distributionservice.NewCommissionService(commissionRepo, agentRepo, subordinateRepo, userRepo)
+	settlementService := distributionservice.NewSettlementService(settlementRepo, agentRepo, userRepo, commissionRepo)
 	roleService := service.NewRoleService(roleRepo)
 	permissionService := service.NewPermissionService(permissionRepo)
 	menuService := menuservice.NewMenuService(menuRepo)
@@ -54,10 +67,15 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	userHandler := handler.NewUserHandler(userService)
 	userDetailHandler := handler.NewUserDetailHandler(userDetailService)
 	userGroupHandler := handler.NewUserGroupHandler(userGroupService)
+	agentLevelHandler := distributionhandler.NewAgentLevelHandler(agentLevelService)
+	agentHandler := distributionhandler.NewAgentHandler(agentService)
+	subordinateHandler := distributionhandler.NewSubordinateHandler(subordinateService)
+	commissionHandler := distributionhandler.NewCommissionHandler(commissionService)
+	settlementHandler := distributionhandler.NewSettlementHandler(settlementService)
 	roleHandler := handler.NewRoleHandler(roleService)
 	permissionHandler := handler.NewPermissionHandler(permissionService)
 	menuHandler := menuhandler.NewMenuHandler(menuService)
-	router := newRouter(cfg, authHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, logger, jwtIssuer)
+	router := newRouter(cfg, authHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, logger, jwtIssuer)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 

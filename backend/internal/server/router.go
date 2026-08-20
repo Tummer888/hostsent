@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	distributionhandler "hostsent/backend/internal/modules/distribution/handler"
 	menuhandler "hostsent/backend/internal/modules/menu/handler"
 	"hostsent/backend/internal/modules/user/handler"
 	appauth "hostsent/backend/internal/pkg/auth"
@@ -14,7 +15,7 @@ import (
 	"hostsent/backend/internal/pkg/middleware"
 )
 
-func newRouter(cfg *config.Config, authHandler *handler.AuthHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
+func newRouter(cfg *config.Config, authHandler *handler.AuthHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
@@ -58,6 +59,62 @@ func newRouter(cfg *config.Config, authHandler *handler.AuthHandler, userHandler
 			userGroups.GET("/:id", userGroupHandler.Get)
 			userGroups.PUT("/:id", userGroupHandler.Update)
 			userGroups.DELETE("/:id", userGroupHandler.Delete)
+		}
+
+		agentLevels := v1.Group("/distribution/agent-levels")
+		agentLevels.Use(middleware.Auth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			agentLevels.GET("", agentLevelHandler.List)
+			agentLevels.POST("", agentLevelHandler.Create)
+			agentLevels.GET("/:id", agentLevelHandler.Get)
+			agentLevels.PUT("/:id", agentLevelHandler.Update)
+			agentLevels.DELETE("/:id", agentLevelHandler.Delete)
+		}
+
+		agents := v1.Group("/distribution/agents")
+		agents.Use(middleware.Auth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			agents.GET("", agentHandler.List)
+			agents.POST("", agentHandler.Create)
+			agents.GET("/:id", agentHandler.Get)
+			agents.PUT("/:id", agentHandler.Update)
+			agents.DELETE("/:id", agentHandler.Delete)
+		}
+
+		subordinates := v1.Group("/distribution/subordinates")
+		subordinates.Use(middleware.Auth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			subordinates.GET("", subordinateHandler.List)
+			subordinates.POST("", subordinateHandler.Create)
+			subordinates.GET("/:id", subordinateHandler.Get)
+			subordinates.PUT("/:id", subordinateHandler.Update)
+			subordinates.DELETE("/:id", subordinateHandler.Delete)
+		}
+
+		commissions := v1.Group("/distribution/commissions")
+		commissions.Use(middleware.Auth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			commissions.GET("", commissionHandler.List)
+			commissions.POST("", commissionHandler.Create)
+			commissions.GET("/:id", commissionHandler.Get)
+			commissions.PUT("/:id", commissionHandler.Update)
+			commissions.POST("/:id/freeze", commissionHandler.Freeze)
+			commissions.POST("/:id/unfreeze", commissionHandler.Unfreeze)
+			commissions.POST("/:id/cancel", commissionHandler.Cancel)
+			commissions.DELETE("/:id", commissionHandler.Delete)
+		}
+
+		settlements := v1.Group("/distribution/settlements")
+		settlements.Use(middleware.Auth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			settlements.GET("", settlementHandler.List)
+			settlements.POST("", settlementHandler.Create)
+			settlements.GET("/:id", settlementHandler.Get)
+			settlements.PUT("/:id", settlementHandler.Update)
+			settlements.POST("/:id/confirm", settlementHandler.Confirm)
+			settlements.POST("/:id/pay", settlementHandler.Pay)
+			settlements.POST("/:id/cancel", settlementHandler.Cancel)
+			settlements.DELETE("/:id", settlementHandler.Delete)
 		}
 
 		roles := v1.Group("/roles")

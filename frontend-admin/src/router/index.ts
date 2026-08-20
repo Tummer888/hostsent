@@ -56,6 +56,30 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/users/accounts/groups/index.vue'),
         meta: { title: '用户组管理', role: 'admin' },
       },
+      {
+        path: 'partners/levels',
+        name: 'UserPartnersLevels',
+        component: () => import('@/pages/users/partners/levels/index.vue'),
+        meta: { title: '代理商等级配置', role: 'admin' },
+      },
+      {
+        path: 'partners/agents',
+        name: 'UserPartnersAgents',
+        component: () => import('@/pages/users/partners/agents/index.vue'),
+        meta: { title: '代理商列表', role: 'admin' },
+      },
+      {
+        path: 'partners/subordinates',
+        name: 'UserPartnersSubordinates',
+        component: () => import('@/pages/users/partners/subordinates/index.vue'),
+        meta: { title: '下级用户管理', role: 'admin' },
+      },
+      {
+        path: 'partners/commissions',
+        name: 'UserPartnersCommissions',
+        component: () => import('@/pages/users/partners/commissions/index.vue'),
+        meta: { title: '返利佣金记录', role: 'admin' },
+      },
     ],
   },
   {

@@ -1,22 +1,21 @@
 <template>
-  <div class="group-page">
+  <div class="level-page">
     <header class="list-header surface-card">
       <div class="list-header__main">
         <div class="list-header__title-row">
-          <h2 class="list-header__title">用户组管理</h2>
+          <h2 class="list-header__title">代理商等级配置</h2>
           <t-tag v-if="activeFilterLabel" class="page-chip" theme="primary" variant="light" shape="round">
             {{ activeFilterLabel }}
           </t-tag>
         </div>
-        <p class="list-header__subtitle">统一管理用户组织、部门与客户分组，支持筛选、创建、编辑与删除。</p>
+        <p class="list-header__subtitle">统一维护代理商等级、返佣比例、升级奖励和下级代理能力，支持筛选、创建、编辑与删除。</p>
       </div>
       <div class="list-header__actions">
-        <t-button class="page-btn page-btn--ghost" variant="outline" @click="router.push('/users/accounts/list')">查看用户列表</t-button>
         <t-button class="page-btn" theme="primary" @click="openCreate">
           <template #icon>
             <AddIcon aria-hidden="true" />
           </template>
-          新增用户组
+          新增等级
         </t-button>
       </div>
     </header>
@@ -25,7 +24,7 @@
       <div class="toolbar__header">
         <div>
           <h3 class="toolbar__title">筛选条件</h3>
-          <p class="toolbar__desc">按状态和关键词快速定位组织节点，保持与用户列表一致的操作密度。</p>
+          <p class="toolbar__desc">按状态和关键词快速定位代理商等级，便于维护不同合作层级的返佣策略。</p>
         </div>
         <div class="toolbar__actions">
           <t-space>
@@ -40,7 +39,7 @@
         </div>
       </div>
 
-      <div class="toolbar__grid toolbar__grid--groups">
+      <div class="toolbar__grid toolbar__grid--levels">
         <div class="toolbar-field toolbar-field--keyword">
           <span class="toolbar-field__label">关键词</span>
           <t-input
@@ -72,8 +71,8 @@
     <section class="table-panel surface-card">
       <div class="table-panel__head">
         <div>
-          <h3 class="table-panel__title">用户组列表</h3>
-          <p class="table-panel__desc">展示组织名称、编码、排序和启用状态，支持直接进入弹窗编辑。</p>
+          <h3 class="table-panel__title">等级列表</h3>
+          <p class="table-panel__desc">展示等级权重、返佣比例和代理权限，支持直接在列表侧重管理策略配置。</p>
         </div>
         <div class="table-panel__meta">
           <span>共 {{ pagination.total }} 条</span>
@@ -98,34 +97,50 @@
         bordered
         table-layout="fixed"
         cell-empty-content="—"
-        class="group-table"
+        class="level-table"
         @page-change="handlePageChange"
       >
-        <template #id="{ row }">
-          <span class="id-cell__value">#{{ row.id }}</span>
-        </template>
-
         <template #name="{ row }">
-          <div class="group-cell group-cell--primary">
-            <span class="group-cell__name">{{ row.name }}</span>
-            <span class="group-cell__desc">{{ row.description || '暂无描述' }}</span>
+          <div class="level-cell level-cell--primary">
+            <div class="level-cell__title-row">
+              <span class="level-cell__name">{{ row.name }}</span>
+              <span class="code-pill">{{ row.code }}</span>
+            </div>
+            <span class="level-cell__desc">{{ row.description || '暂无描述' }}</span>
           </div>
         </template>
 
-        <template #code="{ row }">
-          <div class="code-cell">
-            <span class="code-pill">{{ row.code }}</span>
+        <template #weight="{ row }">
+          <span class="weight-pill">权重 {{ row.weight }}</span>
+        </template>
+
+        <template #commissions="{ row }">
+          <div class="rate-stack">
+            <span>直属 {{ formatPercent(row.direct_commission_rate) }}</span>
+            <span>间推 {{ formatPercent(row.indirect_commission_rate) }}</span>
+            <span>续费 {{ formatPercent(row.renewal_commission_rate) }}</span>
+            <span>自购 {{ formatPercent(row.self_purchase_rebate_rate) }}</span>
           </div>
+        </template>
+
+        <template #permissions="{ row }">
+          <div class="permission-stack">
+            <t-tag class="status-chip" theme="success" variant="light" size="small" shape="round" v-if="row.allow_manual_price">可手动定价</t-tag>
+            <t-tag class="status-chip" theme="primary" variant="light" size="small" shape="round" v-if="row.allow_sub_agent">
+              下级代理 {{ row.max_sub_agent_depth }} 层
+            </t-tag>
+            <span v-if="!row.allow_manual_price && !row.allow_sub_agent" class="muted-text">基础权限</span>
+          </div>
+        </template>
+
+        <template #upgrade_reward_amount="{ row }">
+          <span class="money-text">¥{{ formatMoney(row.upgrade_reward_amount) }}</span>
         </template>
 
         <template #status="{ row }">
           <t-tag :class="['status-tag', `status-tag--${row.status || 'default'}`]" theme="default" variant="light" size="small" shape="round">
             {{ statusLabelMap[row.status] || row.status || '未知' }}
           </t-tag>
-        </template>
-
-        <template #sort_order="{ row }">
-          <span class="sort-text">{{ row.sort_order }}</span>
         </template>
 
         <template #created_at="{ row }">
@@ -135,14 +150,14 @@
         <template #operation="{ row }">
           <t-space size="small">
             <t-link theme="primary" hover="color" @click="openEdit(row.id)">编辑</t-link>
-            <t-popconfirm content="确认删除该用户组？" @confirm="handleDelete(row)">
+            <t-popconfirm content="确认删除该代理商等级？" @confirm="handleDelete(row)">
               <t-link theme="danger" hover="color">删除</t-link>
             </t-popconfirm>
           </t-space>
         </template>
 
         <template #empty>
-          <t-empty description="当前筛选条件下暂无用户组数据" />
+          <t-empty description="当前筛选条件下暂无代理商等级数据" />
         </template>
       </t-table>
     </section>
@@ -150,21 +165,21 @@
     <t-dialog
       v-model:visible="dialogVisible"
       :header="dialogTitle"
-      width="620px"
-      :confirm-btn="{ content: dialogMode === 'create' ? '创建用户组' : '保存修改', loading: submitting }"
+      width="760px"
+      :confirm-btn="{ content: dialogMode === 'create' ? '创建等级' : '保存修改', loading: submitting }"
       :on-confirm="handleSubmit"
       @close="handleDialogClose"
     >
       <t-form ref="formRef" :data="formData" :rules="rules" label-align="top" colonless>
         <div class="form-grid">
-          <t-form-item label="用户组名称" name="name">
-            <t-input v-model="formData.name" placeholder="例如：华东运营中心" maxlength="64" />
+          <t-form-item label="等级名称" name="name">
+            <t-input v-model="formData.name" placeholder="例如：核心代理" maxlength="64" />
           </t-form-item>
           <t-form-item label="编码" name="code">
-            <t-input v-model="formData.code" placeholder="例如：east_ops" maxlength="64" />
+            <t-input v-model="formData.code" placeholder="例如：core_agent" maxlength="64" />
           </t-form-item>
-          <t-form-item label="排序" name="sort_order">
-            <t-input-number v-model="formData.sort_order" :min="0" :max="9999" theme="normal" />
+          <t-form-item label="等级权重" name="weight">
+            <t-input-number v-model="formData.weight" :min="0" :max="9999" theme="normal" />
           </t-form-item>
           <t-form-item label="状态" name="status">
             <t-radio-group v-model="formData.status" variant="default-filled" class="status-switch">
@@ -172,13 +187,35 @@
               <t-radio-button value="disabled">禁用</t-radio-button>
             </t-radio-group>
           </t-form-item>
+          <t-form-item label="直属返佣比例" name="direct_commission_rate">
+            <t-input-number v-model="formData.direct_commission_rate" :min="0" :max="1" :step="0.01" theme="normal" />
+          </t-form-item>
+          <t-form-item label="间推返佣比例" name="indirect_commission_rate">
+            <t-input-number v-model="formData.indirect_commission_rate" :min="0" :max="1" :step="0.01" theme="normal" />
+          </t-form-item>
+          <t-form-item label="续费佣金比例" name="renewal_commission_rate">
+            <t-input-number v-model="formData.renewal_commission_rate" :min="0" :max="1" :step="0.01" theme="normal" />
+          </t-form-item>
+          <t-form-item label="自购返利比例" name="self_purchase_rebate_rate">
+            <t-input-number v-model="formData.self_purchase_rebate_rate" :min="0" :max="1" :step="0.01" theme="normal" />
+          </t-form-item>
+          <t-form-item label="升级奖励金额" name="upgrade_reward_amount">
+            <t-input-number v-model="formData.upgrade_reward_amount" :min="0" :step="100" theme="normal" />
+          </t-form-item>
+          <t-form-item label="下级代理层级" name="max_sub_agent_depth">
+            <t-input-number v-model="formData.max_sub_agent_depth" :min="0" :max="10" theme="normal" :disabled="!formData.allow_sub_agent" />
+          </t-form-item>
+        </div>
+        <div class="switch-grid">
+          <t-checkbox v-model="formData.allow_manual_price">允许手动定价</t-checkbox>
+          <t-checkbox v-model="formData.allow_sub_agent">允许发展下级代理</t-checkbox>
         </div>
         <t-form-item label="描述" name="description">
           <t-textarea
             v-model="formData.description"
             :maxlength="255"
             :autosize="{ minRows: 4, maxRows: 6 }"
-            placeholder="输入该用户组的业务职责、使用范围或归属说明"
+            placeholder="输入该代理商等级的合作定位、返佣说明或适用范围"
           />
         </t-form-item>
       </t-form>
@@ -194,17 +231,17 @@ import { AddIcon, ErrorCircleIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import {
-  createUserGroup,
-  deleteUserGroup,
-  getUserGroupDetail,
-  getUserGroupList,
-  updateUserGroup,
-  type UserGroupInfo,
-  type UserGroupListQuery,
-  type UserGroupRequest,
+  createAgentLevel,
+  deleteAgentLevel,
+  getAgentLevelDetail,
+  getAgentLevelList,
+  updateAgentLevel,
+  type AgentLevelInfo,
+  type AgentLevelListQuery,
+  type AgentLevelRequest,
 } from '@/api/user'
 
-defineOptions({ name: 'UserAccountsGroups' })
+defineOptions({ name: 'UserPartnersLevels' })
 
 type DialogMode = 'create' | 'edit'
 
@@ -218,9 +255,9 @@ const dialogVisible = ref(false)
 const dialogMode = ref<DialogMode>('create')
 const editingId = ref<number>(0)
 const formRef = ref<FormInstanceFunctions | null>(null)
-const tableData = ref<UserGroupInfo[]>([])
+const tableData = ref<AgentLevelInfo[]>([])
 
-const filters = reactive<UserGroupListQuery>({
+const filters = reactive<AgentLevelListQuery>({
   page: 1,
   page_size: 10,
   status: '',
@@ -236,15 +273,23 @@ const pagination = reactive({
   pageSizeOptions: [10, 20, 50, 100],
 })
 
-const initFormData = (): UserGroupRequest => ({
+const initFormData = (): AgentLevelRequest => ({
   name: '',
   code: '',
-  description: '',
+  weight: 0,
+  direct_commission_rate: 0,
+  indirect_commission_rate: 0,
+  renewal_commission_rate: 0,
+  upgrade_reward_amount: 0,
+  self_purchase_rebate_rate: 0,
+  allow_manual_price: false,
+  allow_sub_agent: false,
+  max_sub_agent_depth: 0,
   status: 'active',
-  sort_order: 0,
+  description: '',
 })
 
-const formData = reactive<UserGroupRequest>(initFormData())
+const formData = reactive<AgentLevelRequest>(initFormData())
 
 const statusOptions = [
   { label: '全部状态', value: '' },
@@ -258,16 +303,17 @@ const statusLabelMap: Record<string, string> = {
 }
 
 const rules: Record<string, FormRule[]> = {
-  name: [{ required: true, message: '请输入用户组名称', type: 'error', trigger: 'blur' }],
-  code: [{ required: true, message: '请输入用户组编码', type: 'error', trigger: 'blur' }],
+  name: [{ required: true, message: '请输入等级名称', type: 'error', trigger: 'blur' }],
+  code: [{ required: true, message: '请输入等级编码', type: 'error', trigger: 'blur' }],
   status: [{ required: true, message: '请选择状态', type: 'error', trigger: 'change' }],
 }
 
-const columns: PrimaryTableCol<UserGroupInfo>[] = [
-  { colKey: 'id', title: 'ID', width: 96 },
-  { colKey: 'name', title: '用户组', minWidth: 260 },
-  { colKey: 'code', title: '编码', minWidth: 180 },
-  { colKey: 'sort_order', title: '排序', width: 90, align: 'center' },
+const columns: PrimaryTableCol<AgentLevelInfo>[] = [
+  { colKey: 'name', title: '等级信息', minWidth: 280 },
+  { colKey: 'weight', title: '权重', width: 100, align: 'center' },
+  { colKey: 'commissions', title: '返佣比例', minWidth: 220 },
+  { colKey: 'permissions', title: '权限能力', minWidth: 200 },
+  { colKey: 'upgrade_reward_amount', title: '升级奖励', width: 120, align: 'right' },
   { colKey: 'status', title: '状态', width: 110 },
   { colKey: 'created_at', title: '创建时间', width: 180 },
   { colKey: 'operation', title: '操作', width: 140, fixed: 'right' },
@@ -279,7 +325,7 @@ const activeFilterLabel = computed(() => {
   return ''
 })
 
-const dialogTitle = computed(() => (dialogMode.value === 'create' ? '新增用户组' : '编辑用户组'))
+const dialogTitle = computed(() => (dialogMode.value === 'create' ? '新增代理商等级' : '编辑代理商等级'))
 
 function toPositiveInt(value: string | undefined, fallback: number) {
   const num = Number(value)
@@ -314,11 +360,11 @@ function resetForm() {
   editingId.value = 0
 }
 
-async function loadGroups() {
+async function loadLevels() {
   loading.value = true
   errorMessage.value = ''
   try {
-    const data = await getUserGroupList({
+    const data = await getAgentLevelList({
       page: filters.page,
       page_size: filters.page_size,
       status: filters.status || undefined,
@@ -333,7 +379,7 @@ async function loadGroups() {
   } catch (error) {
     tableData.value = []
     pagination.total = 0
-    errorMessage.value = (error as Error)?.message || '加载用户组失败'
+    errorMessage.value = (error as Error)?.message || '加载代理商等级失败'
   } finally {
     loading.value = false
   }
@@ -364,7 +410,7 @@ async function handlePageChange(pageInfo: PageInfo) {
 }
 
 async function reload() {
-  await loadGroups()
+  await loadLevels()
 }
 
 function openCreate() {
@@ -378,18 +424,26 @@ async function openEdit(id: number) {
   resetForm()
   submitting.value = true
   try {
-    const data = await getUserGroupDetail(id)
+    const data = await getAgentLevelDetail(id)
     editingId.value = data.id
     Object.assign(formData, {
       name: data.name,
       code: data.code,
-      description: data.description || '',
+      weight: Number(data.weight || 0),
+      direct_commission_rate: Number(data.direct_commission_rate || 0),
+      indirect_commission_rate: Number(data.indirect_commission_rate || 0),
+      renewal_commission_rate: Number(data.renewal_commission_rate || 0),
+      upgrade_reward_amount: Number(data.upgrade_reward_amount || 0),
+      self_purchase_rebate_rate: Number(data.self_purchase_rebate_rate || 0),
+      allow_manual_price: Boolean(data.allow_manual_price),
+      allow_sub_agent: Boolean(data.allow_sub_agent),
+      max_sub_agent_depth: Number(data.max_sub_agent_depth || 0),
       status: data.status || 'active',
-      sort_order: Number(data.sort_order || 0),
+      description: data.description || '',
     })
     dialogVisible.value = true
   } catch (error) {
-    MessagePlugin.error((error as Error)?.message || '加载用户组详情失败')
+    MessagePlugin.error((error as Error)?.message || '加载代理商等级详情失败')
   } finally {
     submitting.value = false
   }
@@ -401,28 +455,36 @@ async function handleSubmit() {
     return
   }
 
-  const payload: UserGroupRequest = {
+  const payload: AgentLevelRequest = {
     name: formData.name.trim(),
     code: formData.code.trim(),
-    description: (formData.description || '').trim(),
+    weight: Number(formData.weight || 0),
+    direct_commission_rate: Number(formData.direct_commission_rate || 0),
+    indirect_commission_rate: Number(formData.indirect_commission_rate || 0),
+    renewal_commission_rate: Number(formData.renewal_commission_rate || 0),
+    upgrade_reward_amount: Number(formData.upgrade_reward_amount || 0),
+    self_purchase_rebate_rate: Number(formData.self_purchase_rebate_rate || 0),
+    allow_manual_price: Boolean(formData.allow_manual_price),
+    allow_sub_agent: Boolean(formData.allow_sub_agent),
+    max_sub_agent_depth: formData.allow_sub_agent ? Number(formData.max_sub_agent_depth || 0) : 0,
     status: formData.status,
-    sort_order: Number(formData.sort_order || 0),
+    description: formData.description.trim(),
   }
 
   submitting.value = true
   try {
     if (dialogMode.value === 'create') {
-      await createUserGroup(payload)
-      MessagePlugin.success('用户组创建成功')
+      await createAgentLevel(payload)
+      MessagePlugin.success('代理商等级创建成功')
     } else {
-      await updateUserGroup(editingId.value, payload)
-      MessagePlugin.success('用户组更新成功')
+      await updateAgentLevel(editingId.value, payload)
+      MessagePlugin.success('代理商等级更新成功')
     }
     dialogVisible.value = false
     resetForm()
-    await loadGroups()
+    await loadLevels()
   } catch (error) {
-    MessagePlugin.error((error as Error)?.message || '保存用户组失败')
+    MessagePlugin.error((error as Error)?.message || '保存代理商等级失败')
   } finally {
     submitting.value = false
   }
@@ -432,19 +494,19 @@ function handleDialogClose() {
   resetForm()
 }
 
-async function handleDelete(row: UserGroupInfo) {
+async function handleDelete(row: AgentLevelInfo) {
   try {
-    await deleteUserGroup(row.id)
-    MessagePlugin.success(`已删除用户组 ${row.name}`)
+    await deleteAgentLevel(row.id)
+    MessagePlugin.success(`已删除代理商等级 ${row.name}`)
     if (tableData.value.length === 1 && filters.page && filters.page > 1) {
       filters.page -= 1
       pagination.current = filters.page
       await replaceRouteQuery()
       return
     }
-    await loadGroups()
+    await loadLevels()
   } catch (error) {
-    MessagePlugin.error((error as Error)?.message || '删除用户组失败')
+    MessagePlugin.error((error as Error)?.message || '删除代理商等级失败')
   }
 }
 
@@ -456,22 +518,39 @@ function formatDateTime(value: string) {
   })
 }
 
+function formatPercent(value: number) {
+  return `${(Number(value || 0) * 100).toFixed(2)}%`
+}
+
+function formatMoney(value: number) {
+  return Number(value || 0).toFixed(2)
+}
+
+watch(
+  () => formData.allow_sub_agent,
+  (enabled) => {
+    if (!enabled) {
+      formData.max_sub_agent_depth = 0
+    }
+  },
+)
+
 watch(
   () => route.query,
   async () => {
     syncFiltersFromRoute()
-    await loadGroups()
+    await loadLevels()
   },
 )
 
 onMounted(async () => {
   syncFiltersFromRoute()
-  await loadGroups()
+  await loadLevels()
 })
 </script>
 
 <style scoped lang="css">
-.group-page {
+.level-page {
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -566,7 +645,7 @@ onMounted(async () => {
   gap: 14px;
 }
 
-.toolbar__grid--groups {
+.toolbar__grid--levels {
   grid-template-columns: minmax(260px, 2fr) minmax(180px, 1fr);
 }
 
@@ -621,44 +700,74 @@ onMounted(async () => {
   color: var(--color-destructive);
 }
 
-.group-cell,
-.code-cell {
+.level-cell,
+.rate-stack,
+.permission-stack {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.group-cell__name,
-.id-cell__value {
+.level-cell__title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.level-cell__name {
   color: var(--color-foreground);
   font-weight: 700;
 }
 
-.group-cell__desc {
+.level-cell__desc,
+.muted-text,
+.time-text {
   font-size: 12px;
   line-height: 1.6;
   color: var(--color-muted-foreground);
 }
 
-.code-pill {
+.code-pill,
+.weight-pill {
   display: inline-flex;
   align-items: center;
   width: fit-content;
   min-height: 28px;
   padding: 0 10px;
-  border: 1px solid #bbf7d0;
   border-radius: 999px;
-  background: #ecfdf5;
-  color: #15803d;
   font-size: 12px;
   font-weight: 600;
 }
 
-.sort-text,
-.time-text {
+.code-pill {
+  border: 1px solid #bbf7d0;
+  background: #ecfdf5;
+  color: #15803d;
+}
+
+.weight-pill {
+  border: 1px solid #d9f99d;
+  background: #f7fee7;
+  color: #3f6212;
+}
+
+.rate-stack span,
+.money-text {
   color: #334155;
   font-size: 12px;
   line-height: 1.6;
+}
+
+.money-text {
+  font-weight: 600;
+}
+
+.switch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
 .form-grid {
@@ -729,33 +838,33 @@ onMounted(async () => {
   box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.10);
 }
 
-:deep(.group-table .t-table) {
+:deep(.level-table .t-table) {
   border-color: #dcfce7;
 }
 
-:deep(.group-table .t-table__header th) {
+:deep(.level-table .t-table__header th) {
   color: var(--color-muted-foreground);
   background: #f8fffb;
   font-weight: 600;
   border-bottom-color: #dcfce7;
 }
 
-:deep(.group-table .t-table__body td) {
+:deep(.level-table .t-table__body td) {
   color: var(--color-foreground);
   border-bottom-color: #f0fdf4;
   vertical-align: middle;
 }
 
-:deep(.group-table .t-table__row--hover td) {
+:deep(.level-table .t-table__row--hover td) {
   background: rgba(22, 163, 74, 0.03);
 }
 
-:deep(.group-table .t-table__pagination) {
+:deep(.level-table .t-table__pagination) {
   padding-top: 16px;
 }
 
-:deep(.group-table .t-pagination__number),
-:deep(.group-table .t-pagination__btn) {
+:deep(.level-table .t-pagination__number),
+:deep(.level-table .t-pagination__btn) {
   min-width: 32px;
   height: 32px;
   border-radius: var(--hs-radius-md);
@@ -763,16 +872,16 @@ onMounted(async () => {
   background: #ffffff;
 }
 
-:deep(.group-table .t-pagination__number.t-is-current) {
+:deep(.level-table .t-pagination__number.t-is-current) {
   color: #15803d;
   border-color: #bbf7d0;
   background: #ecfdf5;
   font-weight: 700;
 }
 
-:deep(.group-table .t-pagination__select-input .t-input),
-:deep(.group-table .t-pagination__size .t-select__wrap),
-:deep(.group-table .t-pagination .t-input) {
+:deep(.level-table .t-pagination__select-input .t-input),
+:deep(.level-table .t-pagination__size .t-select__wrap),
+:deep(.level-table .t-pagination .t-input) {
   border-radius: var(--hs-radius-md);
   border-color: #dcfce7;
   background: #ffffff;
@@ -794,6 +903,10 @@ onMounted(async () => {
   color: #b91c1c;
   background: #fef2f2;
   border-color: #fecaca;
+}
+
+:deep(.status-chip.t-tag) {
+  width: fit-content;
 }
 
 :deep(.status-switch .t-radio-button) {
@@ -823,8 +936,9 @@ onMounted(async () => {
     align-items: stretch;
   }
 
-  .toolbar__grid--groups,
-  .form-grid {
+  .toolbar__grid--levels,
+  .form-grid,
+  .switch-grid {
     grid-template-columns: 1fr;
   }
 
