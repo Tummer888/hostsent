@@ -45,6 +45,27 @@ export interface UserUpdateRequest {
   status?: string
 }
 
+export interface UserCreateRequest {
+  username: string
+  email: string
+  phone: string
+  password: string
+  status: string
+  role_ids?: number[]
+}
+
+export interface UserStatusRequest {
+  status: string
+}
+
+export interface ResetPasswordRequest {
+  password: string
+}
+
+export interface AssignRolesRequest {
+  role_ids: number[]
+}
+
 export interface UserStatsResponse {
   total: number
   today_new: number
@@ -113,6 +134,49 @@ export interface UserDetailAggregateResponse {
   bills: UserBillItem[]
   transactions: UserTransactionItem[]
   tickets: UserTicketItem[]
+}
+
+export interface RoleInfo {
+  id: number
+  name: string
+  code: string
+  status: string
+}
+
+export interface RoleRequest {
+  name: string
+  code: string
+  status: string
+}
+
+export interface AssignPermissionsRequest {
+  permission_ids: number[]
+}
+
+export interface PermissionNode {
+  id: number
+  parent_id: number
+  name: string
+  code: string
+  type: string
+  path?: string
+  component?: string
+  icon?: string
+  sort_order?: number
+  status?: string
+  children?: PermissionNode[]
+}
+
+export interface PermissionRequest {
+  parent_id?: number
+  name: string
+  code: string
+  type: string
+  path?: string
+  component?: string
+  icon?: string
+  sort_order?: number
+  status: string
 }
 
 export interface UserGroupListQuery {
@@ -295,6 +359,7 @@ export interface CommissionInfo {
   agent_name: string
   subordinate_id?: number
   subordinate_name?: string
+  settlement_id?: number
   order_no: string
   source_type: string
   commission_type: string
@@ -312,6 +377,7 @@ export interface CommissionInfo {
 export interface CommissionRequest {
   agent_id: number
   subordinate_id?: number
+  settlement_id?: number
   order_no: string
   source_type: string
   commission_type: string
@@ -331,6 +397,57 @@ export interface CommissionStatusActionRequest {
 
 export interface CommissionListResponse {
   items: CommissionInfo[]
+  meta: UserListMeta
+}
+
+export interface SettlementListQuery {
+  page?: number
+  page_size?: number
+  agent_id?: number
+  status?: string
+  start_date?: string
+  end_date?: string
+  keyword?: string
+}
+
+export interface SettlementInfo {
+  id: number
+  agent_id: number
+  agent_name: string
+  settlement_no: string
+  period_start: string
+  period_end: string
+  commission_total: number
+  deduction_total: number
+  payable_total: number
+  commission_count: number
+  status: string
+  confirmed_by?: number
+  confirmed_by_name?: string
+  confirmed_at?: string
+  paid_at?: string
+  remark?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface SettlementRequest {
+  agent_id?: number
+  settlement_no?: string
+  period_start: string
+  period_end: string
+  deduction_total: number
+  remark?: string
+  commission_ids?: number[]
+}
+
+export interface SettlementStatusActionRequest {
+  confirmed_by?: number
+  remark?: string
+}
+
+export interface SettlementListResponse {
+  items: SettlementInfo[]
   meta: UserListMeta
 }
 
@@ -364,6 +481,41 @@ export function getUserDetail(id: string | number): Promise<UserInfo> {
   })
 }
 
+export function createUser(data: UserCreateRequest): Promise<UserInfo> {
+  return request.post<UserInfo>({
+    url: '/users',
+    data,
+  })
+}
+
+export function updateUser(id: string | number, data: UserUpdateRequest): Promise<UserInfo> {
+  return request.put<UserInfo>({
+    url: `/users/${id}`,
+    data,
+  })
+}
+
+export function updateUserStatus(id: string | number, data: UserStatusRequest): Promise<string> {
+  return request.patch<string>({
+    url: `/users/${id}/status`,
+    data,
+  })
+}
+
+export function resetUserPassword(id: string | number, data: ResetPasswordRequest): Promise<string> {
+  return request.post<string>({
+    url: `/users/${id}/reset-password`,
+    data,
+  })
+}
+
+export function assignUserRoles(id: string | number, data: AssignRolesRequest): Promise<string> {
+  return request.post<string>({
+    url: `/users/${id}/roles`,
+    data,
+  })
+}
+
 export function getUserDetailAggregate(id: string | number): Promise<UserDetailAggregateResponse> {
   return request.get<UserDetailAggregateResponse>({
     url: `/users/${id}/detail-aggregate`,
@@ -386,6 +538,77 @@ export function getUserStats(): Promise<UserStatsResponse> {
 export function getRegionStats(): Promise<RegionStatsResponse> {
   return request.get<RegionStatsResponse>({
     url: '/users/region-stats',
+  })
+}
+
+export function getRoleList(): Promise<RoleInfo[]> {
+  return request.get<RoleInfo[]>({
+    url: '/roles',
+  })
+}
+
+export function getRoleDetail(id: string | number): Promise<RoleInfo> {
+  return request.get<RoleInfo>({
+    url: `/roles/${id}`,
+  })
+}
+
+export function createRole(data: RoleRequest): Promise<RoleInfo> {
+  return request.post<RoleInfo>({
+    url: '/roles',
+    data,
+  })
+}
+
+export function updateRole(id: string | number, data: RoleRequest): Promise<RoleInfo> {
+  return request.put<RoleInfo>({
+    url: `/roles/${id}`,
+    data,
+  })
+}
+
+export function deleteRole(id: string | number): Promise<string> {
+  return request.delete<string>({
+    url: `/roles/${id}`,
+  })
+}
+
+export function getRolePermissionIds(id: string | number): Promise<number[]> {
+  return request.get<number[]>({
+    url: `/roles/${id}/permissions`,
+  })
+}
+
+export function assignRolePermissions(id: string | number, data: AssignPermissionsRequest): Promise<string> {
+  return request.post<string>({
+    url: `/roles/${id}/permissions`,
+    data,
+  })
+}
+
+export function getPermissionTree(): Promise<PermissionNode[]> {
+  return request.get<PermissionNode[]>({
+    url: '/permissions/tree',
+  })
+}
+
+export function createPermission(data: PermissionRequest): Promise<PermissionNode> {
+  return request.post<PermissionNode>({
+    url: '/permissions',
+    data,
+  })
+}
+
+export function updatePermission(id: string | number, data: PermissionRequest): Promise<PermissionNode> {
+  return request.put<PermissionNode>({
+    url: `/permissions/${id}`,
+    data,
+  })
+}
+
+export function deletePermission(id: string | number): Promise<string> {
+  return request.delete<string>({
+    url: `/permissions/${id}`,
   })
 }
 
@@ -602,5 +825,67 @@ export function cancelCommission(id: string | number, data: CommissionStatusActi
 export function deleteCommission(id: string | number): Promise<string> {
   return request.delete<string>({
     url: `/distribution/commissions/${id}`,
+  })
+}
+
+export function getSettlementList(params: SettlementListQuery): Promise<SettlementListResponse> {
+  return request.get<SettlementListResponse>({
+    url: '/distribution/settlements',
+    params: {
+      page: params.page,
+      page_size: params.page_size,
+      agent_id: params.agent_id,
+      status: params.status,
+      start_date: params.start_date,
+      end_date: params.end_date,
+      keyword: params.keyword,
+    },
+  })
+}
+
+export function getSettlementDetail(id: string | number): Promise<SettlementInfo> {
+  return request.get<SettlementInfo>({
+    url: `/distribution/settlements/${id}`,
+  })
+}
+
+export function createSettlement(data: SettlementRequest): Promise<SettlementInfo> {
+  return request.post<SettlementInfo>({
+    url: '/distribution/settlements',
+    data,
+  })
+}
+
+export function updateSettlement(id: string | number, data: SettlementRequest): Promise<SettlementInfo> {
+  return request.put<SettlementInfo>({
+    url: `/distribution/settlements/${id}`,
+    data,
+  })
+}
+
+export function confirmSettlement(id: string | number, data: SettlementStatusActionRequest = {}): Promise<SettlementInfo> {
+  return request.post<SettlementInfo>({
+    url: `/distribution/settlements/${id}/confirm`,
+    data,
+  })
+}
+
+export function paySettlement(id: string | number, data: SettlementStatusActionRequest = {}): Promise<SettlementInfo> {
+  return request.post<SettlementInfo>({
+    url: `/distribution/settlements/${id}/pay`,
+    data,
+  })
+}
+
+export function cancelSettlement(id: string | number, data: SettlementStatusActionRequest = {}): Promise<SettlementInfo> {
+  return request.post<SettlementInfo>({
+    url: `/distribution/settlements/${id}/cancel`,
+    data,
+  })
+}
+
+export function deleteSettlement(id: string | number): Promise<string> {
+  return request.delete<string>({
+    url: `/distribution/settlements/${id}`,
   })
 }

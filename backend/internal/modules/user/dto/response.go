@@ -48,21 +48,27 @@ type RegionStatsResponse struct {
 }
 
 type RoleInfo struct {
-	ID     uint64 `json:"id"`
-	Name   string `json:"name"`
-	Code   string `json:"code"`
-	Status string `json:"status"`
+	ID          uint64    `json:"id"`
+	Name        string    `json:"name"`
+	Code        string    `json:"code"`
+	Description string    `json:"description"`
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type PermissionNode struct {
-	ID       uint64           `json:"id"`
-	ParentID uint64           `json:"parent_id"`
-	Name     string           `json:"name"`
-	Code     string           `json:"code"`
-	Type     string           `json:"type"`
-	Path     string           `json:"path,omitempty"`
-	Icon     string           `json:"icon,omitempty"`
-	Children []PermissionNode `json:"children,omitempty"`
+	ID        uint64           `json:"id"`
+	ParentID  uint64           `json:"parent_id"`
+	Name      string           `json:"name"`
+	Code      string           `json:"code"`
+	Type      string           `json:"type"`
+	Path      string           `json:"path,omitempty"`
+	Component string           `json:"component,omitempty"`
+	Icon      string           `json:"icon,omitempty"`
+	SortOrder int              `json:"sort_order"`
+	Status    string           `json:"status"`
+	Children  []PermissionNode `json:"children,omitempty"`
 }
 
 type LoginResponse struct {

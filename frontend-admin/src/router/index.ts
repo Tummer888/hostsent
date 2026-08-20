@@ -80,6 +80,12 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/users/partners/commissions/index.vue'),
         meta: { title: '返利佣金记录', role: 'admin' },
       },
+      {
+        path: 'partners/settlements',
+        name: 'UserPartnersSettlements',
+        component: () => import('@/pages/users/partners/settlements/index.vue'),
+        meta: { title: '代理结算单', role: 'admin' },
+      },
     ],
   },
   {
@@ -93,6 +99,24 @@ const routes: Array<RouteRecordRaw> = [
         name: 'SystemMenus',
         component: () => import('@/pages/system/menus/index.vue'),
         meta: { title: '菜单管理', role: 'admin' },
+      },
+      {
+        path: 'roles',
+        name: 'SystemRoles',
+        component: () => import('@/pages/system/roles/index.vue'),
+        meta: { title: '角色列表', role: 'admin' },
+      },
+      {
+        path: 'permissions',
+        name: 'SystemPermissions',
+        component: () => import('@/pages/system/permissions/index.vue'),
+        meta: { title: '权限分配', role: 'admin' },
+      },
+      {
+        path: 'admins',
+        name: 'SystemAdmins',
+        component: () => import('@/pages/system/admins/index.vue'),
+        meta: { title: '管理员列表', role: 'admin' },
       },
     ],
   },

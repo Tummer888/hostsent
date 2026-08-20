@@ -54,9 +54,21 @@ func (r *permissionRepository) Update(ctx context.Context, permission *model.Per
 
 func (r *permissionRepository) Delete(ctx context.Context, id uint64) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 检查是否有子节点
+		var count int64
+		if err := tx.Model(&model.Permission{}).Where("parent_id = ?", id).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return errors.New("存在子权限，无法删除")
+		}
+
+		// 删除角色关联
 		if err := tx.Where("permission_id = ?", id).Delete(&model.RolePermission{}).Error; err != nil {
 			return err
 		}
+
+		// 删除权限本身
 		return tx.Delete(&model.Permission{}, id).Error
 	})
 }

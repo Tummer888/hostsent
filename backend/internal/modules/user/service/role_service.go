@@ -84,7 +84,15 @@ func (s *roleService) AssignPermissions(ctx context.Context, id uint64, permissi
 }
 
 func toRoleInfo(role model.Role) dto.RoleInfo {
-	return dto.RoleInfo{ID: role.ID, Name: role.Name, Code: role.Code, Status: role.Status}
+	return dto.RoleInfo{
+		ID:          role.ID,
+		Name:        role.Name,
+		Code:        role.Code,
+		Description: role.Description,
+		Status:      role.Status,
+		CreatedAt:   role.CreatedAt,
+		UpdatedAt:   role.UpdatedAt,
+	}
 }
 
 func ptrRoleInfo(role model.Role) *dto.RoleInfo {

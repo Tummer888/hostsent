@@ -97,13 +97,16 @@ func buildPermissionChildren(childrenByParent map[uint64][]model.Permission, par
 
 func toPermissionNode(permission model.Permission) dto.PermissionNode {
 	return dto.PermissionNode{
-		ID:       permission.ID,
-		ParentID: permission.ParentID,
-		Name:     permission.Name,
-		Code:     permission.Code,
-		Type:     permission.Type,
-		Path:     permission.Path,
-		Icon:     permission.Icon,
+		ID:        permission.ID,
+		ParentID:  permission.ParentID,
+		Name:      permission.Name,
+		Code:      permission.Code,
+		Type:      permission.Type,
+		Path:      permission.Path,
+		Component: permission.Component,
+		Icon:      permission.Icon,
+		SortOrder: permission.SortOrder,
+		Status:    permission.Status,
 	}
 }
 

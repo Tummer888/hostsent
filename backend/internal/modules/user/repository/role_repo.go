@@ -56,12 +56,21 @@ func (r *roleRepository) Update(ctx context.Context, role *model.Role) error {
 
 func (r *roleRepository) Delete(ctx context.Context, id uint64) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 检查是否仍有关联的管理员
+		var count int64
+		if err := tx.Model(&model.UserRole{}).Where("role_id = ?", id).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return errors.New("该角色仍有关联的管理员，无法直接删除，请先解除绑定")
+		}
+
+		// 删除角色权限关联
 		if err := tx.Where("role_id = ?", id).Delete(&model.RolePermission{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("role_id = ?", id).Delete(&model.UserRole{}).Error; err != nil {
-			return err
-		}
+
+		// 删除角色本身
 		return tx.Delete(&model.Role{}, id).Error
 	})
 }
