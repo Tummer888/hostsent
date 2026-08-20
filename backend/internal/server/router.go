@@ -9,13 +9,14 @@ import (
 
 	distributionhandler "hostsent/backend/internal/modules/distribution/handler"
 	menuhandler "hostsent/backend/internal/modules/menu/handler"
+	securityhandler "hostsent/backend/internal/modules/security/handler"
 	"hostsent/backend/internal/modules/user/handler"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/middleware"
 )
 
-func newRouter(cfg *config.Config, authHandler *handler.AuthHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
+func newRouter(cfg *config.Config, authHandler *handler.AuthHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
@@ -145,6 +146,35 @@ func newRouter(cfg *config.Config, authHandler *handler.AuthHandler, userHandler
 			menus.POST("", menuHandler.CreateMenu)
 			menus.PUT("/:id", menuHandler.UpdateMenu)
 			menus.DELETE("/:id", menuHandler.DeleteMenu)
+		}
+
+		security := v1.Group("/security")
+		security.Use(middleware.Auth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			security.GET("/login-logs", securityHandler.ListLoginLogs)
+			security.GET("/login-logs/:id", securityHandler.GetLoginLog)
+			security.GET("/login-logs/export", securityHandler.ExportLoginLogs)
+			security.GET("/audit-logs", securityHandler.ListAuditLogs)
+			security.GET("/audit-logs/:id", securityHandler.GetAuditLog)
+			security.GET("/audit-logs/export", securityHandler.ExportAuditLogs)
+			security.GET("/risk-events", securityHandler.ListRiskEvents)
+			security.GET("/risk-events/:id", securityHandler.GetRiskEvent)
+			security.POST("/risk-events/:id/ignore", securityHandler.IgnoreRiskEvent)
+			security.POST("/risk-events/:id/handle", securityHandler.HandleRiskEvent)
+			security.POST("/risk-events/:id/blacklist", securityHandler.CreateBlacklistFromRisk)
+			security.POST("/risk-events/:id/revoke-sessions", securityHandler.RevokeSessionsFromRisk)
+			security.GET("/blacklists", securityHandler.ListBlacklists)
+			security.POST("/blacklists", securityHandler.CreateBlacklist)
+			security.GET("/blacklists/:id", securityHandler.GetBlacklist)
+			security.PUT("/blacklists/:id", securityHandler.UpdateBlacklist)
+			security.PATCH("/blacklists/:id/status", securityHandler.UpdateBlacklistStatus)
+			security.DELETE("/blacklists/:id", securityHandler.ReleaseBlacklist)
+			security.GET("/blacklists/:id/hits", securityHandler.ListBlacklistHits)
+			security.GET("/sessions", securityHandler.ListSessions)
+			security.GET("/sessions/:id", securityHandler.GetSession)
+			security.POST("/sessions/:id/revoke", securityHandler.RevokeSession)
+			security.POST("/sessions/batch-revoke", securityHandler.BatchRevokeSessions)
+			security.POST("/sessions/revoke-user-all", securityHandler.RevokeUserAllSessions)
 		}
 	}
 

@@ -7,9 +7,11 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	distributionmodel "hostsent/backend/internal/modules/distribution/model"
 	menumodel "hostsent/backend/internal/modules/menu/model"
+	securitymodel "hostsent/backend/internal/modules/security/model"
 	usermodel "hostsent/backend/internal/modules/user/model"
 	config "hostsent/backend/internal/pkg/config"
 )
@@ -44,6 +46,11 @@ func AutoMigrate(db *gorm.DB) error {
 		&distributionmodel.Subordinate{},
 		&distributionmodel.Commission{},
 		&distributionmodel.Settlement{},
+		&securitymodel.LoginLog{},
+		&securitymodel.AuditLog{},
+		&securitymodel.RiskEvent{},
+		&securitymodel.Blacklist{},
+		&securitymodel.Session{},
 		&usermodel.Role{},
 		&usermodel.Permission{},
 		&usermodel.UserInstance{},
@@ -80,6 +87,9 @@ func SeedDefaults(db *gorm.DB, cfg config.Config) error {
 			return err
 		}
 		if err := seedDemoUserDetails(tx); err != nil {
+			return err
+		}
+		if err := seedDemoSecurity(tx); err != nil {
 			return err
 		}
 		return nil
@@ -412,8 +422,13 @@ func ensureUserRole(tx *gorm.DB, userID, roleID uint64) error {
 func seedDemoUserDetails(tx *gorm.DB) error {
 	var target usermodel.User
 	if err := tx.Where("username = ?", "user_nw_01").First(&target).Error; err != nil {
-		return nil
+		if err == gorm.ErrRecordNotFound {
+			return nil
+		}
+		return err
 	}
+
+	now := time.Now()
 
 	var instanceCount int64
 	if err := tx.Model(&usermodel.UserInstance{}).Where("user_id = ?", target.ID).Count(&instanceCount).Error; err != nil {
@@ -421,9 +436,9 @@ func seedDemoUserDetails(tx *gorm.DB) error {
 	}
 	if instanceCount == 0 {
 		instances := []usermodel.UserInstance{
-			{UserID: target.ID, Name: "web-prod-01", Region: "上海一区", Specs: "4C8G / 80G SSD / Ubuntu 22.04", Status: "active", ExpireAt: time.Now().AddDate(0, 1, 0)},
-			{UserID: target.ID, Name: "db-standby-01", Region: "上海一区", Specs: "8C16G / 200G SSD / Debian 12", Status: "pending", ExpireAt: time.Now().AddDate(0, 0, 9)},
-			{UserID: target.ID, Name: "ci-agent-01", Region: "杭州一区", Specs: "2C4G / 50G SSD / CentOS Stream", Status: "disabled", ExpireAt: time.Now().AddDate(0, 1, 20)},
+			{UserID: target.ID, Name: "web-prod-01", Region: "上海一区", Specs: "4C8G / 80G SSD / Ubuntu 22.04", Status: "active", ExpireAt: now.AddDate(0, 1, 0)},
+			{UserID: target.ID, Name: "db-standby-01", Region: "上海一区", Specs: "8C16G / 200G SSD / Debian 12", Status: "pending", ExpireAt: now.AddDate(0, 0, 9)},
+			{UserID: target.ID, Name: "ci-agent-01", Region: "杭州一区", Specs: "2C4G / 50G SSD / CentOS Stream", Status: "disabled", ExpireAt: now.AddDate(0, 1, 20)},
 		}
 		if err := tx.Create(&instances).Error; err != nil {
 			return err
@@ -450,7 +465,7 @@ func seedDemoUserDetails(tx *gorm.DB) error {
 		return err
 	}
 	if billCount == 0 {
-			bills := []usermodel.UserBill{
+		bills := []usermodel.UserBill{
 			{UserID: target.ID, BillingMonth: "2026-08", Amount: 1253, Status: "pending"},
 			{UserID: target.ID, BillingMonth: "2026-07", Amount: 866, Status: "paid"},
 		}
@@ -489,4 +504,149 @@ func seedDemoUserDetails(tx *gorm.DB) error {
 	}
 
 	return nil
+}
+
+func seedDemoSecurity(tx *gorm.DB) error {
+	users, err := loadSecuritySeedUsers(tx)
+	if err != nil {
+		return err
+	}
+	if len(users) == 0 {
+		return nil
+	}
+	if err := seedDemoLoginLogs(tx, users); err != nil {
+		return err
+	}
+	if err := seedDemoAuditLogs(tx, users); err != nil {
+		return err
+	}
+	if err := seedDemoRiskEvents(tx, users); err != nil {
+		return err
+	}
+	if err := seedDemoBlacklists(tx, users); err != nil {
+		return err
+	}
+	if err := seedDemoSessions(tx, users); err != nil {
+		return err
+	}
+	return nil
+}
+
+func loadSecuritySeedUsers(tx *gorm.DB) (map[string]usermodel.User, error) {
+	names := []string{"admin", "user_east_01", "user_north_01", "user_south_01", "user_west_01", "user_nw_01"}
+	var users []usermodel.User
+	if err := tx.Where("username IN ?", names).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	result := make(map[string]usermodel.User, len(users))
+	for _, user := range users {
+		result[user.Username] = user
+	}
+	return result, nil
+}
+
+func seedDemoLoginLogs(tx *gorm.DB, users map[string]usermodel.User) error {
+	var count int64
+	if err := tx.Model(&securitymodel.LoginLog{}).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	now := time.Now()
+	logs := []securitymodel.LoginLog{
+		{UserID: users["user_east_01"].ID, Username: "user_east_01", LoginType: "password", Result: "success", IP: "101.32.10.12", IPRegion: "上海", UserAgent: "Chrome 139 / macOS", DeviceFingerprint: "fp-east-01", Platform: "web", RiskFlag: "normal", CreatedAt: now.Add(-25 * time.Minute)},
+		{UserID: users["user_north_01"].ID, Username: "user_north_01", LoginType: "password", Result: "failed", FailureReason: "密码错误", IP: "43.132.88.9", IPRegion: "北京", UserAgent: "Chrome 139 / Windows", DeviceFingerprint: "fp-north-02", Platform: "web", RiskFlag: "brute_force", CreatedAt: now.Add(-2 * time.Hour)},
+		{UserID: users["user_north_01"].ID, Username: "user_north_01", LoginType: "password", Result: "failed", FailureReason: "密码错误", IP: "43.132.88.9", IPRegion: "北京", UserAgent: "Chrome 139 / Windows", DeviceFingerprint: "fp-north-02", Platform: "web", RiskFlag: "brute_force", CreatedAt: now.Add(-110 * time.Minute)},
+		{UserID: users["user_south_01"].ID, Username: "user_south_01", LoginType: "sms", Result: "success", IP: "119.29.22.7", IPRegion: "广州", UserAgent: "Mobile Safari / iOS", DeviceFingerprint: "fp-south-01", Platform: "mobile", RiskFlag: "normal", CreatedAt: now.Add(-6 * time.Hour)},
+		{UserID: users["user_west_01"].ID, Username: "user_west_01", LoginType: "password", Result: "success", IP: "154.83.14.33", IPRegion: "海外", UserAgent: "Firefox / Linux", DeviceFingerprint: "fp-west-01", Platform: "web", RiskFlag: "suspicious_ip", CreatedAt: now.Add(-11 * time.Hour)},
+		{UserID: users["user_nw_01"].ID, Username: "user_nw_01", LoginType: "password", Result: "success", IP: "10.10.2.16", IPRegion: "西安", UserAgent: "Edge / Windows", DeviceFingerprint: "fp-nw-01", Platform: "desktop", RiskFlag: "normal", CreatedAt: now.Add(-27 * time.Hour)},
+	}
+	return tx.Create(&logs).Error
+}
+
+func seedDemoAuditLogs(tx *gorm.DB, users map[string]usermodel.User) error {
+	var count int64
+	if err := tx.Model(&securitymodel.AuditLog{}).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	now := time.Now()
+	logs := []securitymodel.AuditLog{
+		{OperatorID: users["admin"].ID, OperatorName: "admin", Module: "security", ResourceType: "blacklist", ResourceID: "1", Action: "create", RequestMethod: "POST", RequestPath: "/api/v1/security/blacklists", RequestPayload: `{"type":"ip","target_value":"154.83.14.33"}`, ResponseCode: 200, ResponseMessage: "ok", IP: "127.0.0.1", UserAgent: "Chrome 139 / macOS", TraceID: "trace-sec-001", CreatedAt: now.Add(-90 * time.Minute)},
+		{OperatorID: users["admin"].ID, OperatorName: "admin", Module: "security", ResourceType: "risk_event", ResourceID: "2", Action: "handle", RequestMethod: "POST", RequestPath: "/api/v1/security/risk-events/2/handle", RequestPayload: `{"note":"人工复核后转已处理"}`, ResponseCode: 200, ResponseMessage: "ok", IP: "127.0.0.1", UserAgent: "Chrome 139 / macOS", TraceID: "trace-sec-002", CreatedAt: now.Add(-70 * time.Minute)},
+		{OperatorID: users["admin"].ID, OperatorName: "admin", Module: "security", ResourceType: "session", ResourceID: "3", Action: "revoke", RequestMethod: "POST", RequestPath: "/api/v1/security/sessions/3/revoke", RequestPayload: `{"reason":"异地风险登录"}`, ResponseCode: 200, ResponseMessage: "ok", IP: "127.0.0.1", UserAgent: "Chrome 139 / macOS", TraceID: "trace-sec-003", CreatedAt: now.Add(-45 * time.Minute)},
+		{OperatorID: users["admin"].ID, OperatorName: "admin", Module: "menu", ResourceType: "menu", ResourceID: "8", Action: "update", RequestMethod: "PUT", RequestPath: "/api/v1/menus/8", RequestPayload: `{"name":"安全与风控"}`, ResponseCode: 200, ResponseMessage: "ok", IP: "127.0.0.1", UserAgent: "Chrome 139 / macOS", TraceID: "trace-sec-004", CreatedAt: now.Add(-20 * time.Minute)},
+		{OperatorID: users["user_nw_01"].ID, OperatorName: "user_nw_01", Module: "auth", ResourceType: "login", ResourceID: "user_nw_01", Action: "login", RequestMethod: "POST", RequestPath: "/api/v1/auth/login", RequestPayload: `{"username":"user_nw_01"}`, ResponseCode: 200, ResponseMessage: "ok", IP: "10.10.2.16", UserAgent: "Edge / Windows", TraceID: "trace-sec-005", CreatedAt: now.Add(-15 * time.Minute)},
+	}
+	return tx.Create(&logs).Error
+}
+
+func seedDemoRiskEvents(tx *gorm.DB, users map[string]usermodel.User) error {
+	var count int64
+	if err := tx.Model(&securitymodel.RiskEvent{}).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	now := time.Now()
+	handledBy := users["admin"].ID
+	handledAt := now.Add(-50 * time.Minute)
+	events := []securitymodel.RiskEvent{
+		{RiskType: "brute_force", RiskLevel: "high", UserID: users["user_north_01"].ID, Username: "user_north_01", IP: "43.132.88.9", DeviceFingerprint: "fp-north-02", RuleCode: "LOGIN_FAIL_THRESHOLD", Summary: "短时间内连续登录失败", DetailPayload: `{"fail_count":5,"window_minutes":10}`, OccurCount: 5, FirstOccurredAt: now.Add(-130 * time.Minute), LastOccurredAt: now.Add(-105 * time.Minute), Status: "pending", CreatedAt: now.Add(-105 * time.Minute), UpdatedAt: now.Add(-105 * time.Minute)},
+		{RiskType: "suspicious_ip", RiskLevel: "medium", UserID: users["user_west_01"].ID, Username: "user_west_01", IP: "154.83.14.33", DeviceFingerprint: "fp-west-01", RuleCode: "GEO_ABNORMAL_LOGIN", Summary: "非常用地区登录", DetailPayload: `{"usual_region":"西南","current_region":"海外"}`, OccurCount: 2, FirstOccurredAt: now.Add(-12 * time.Hour), LastOccurredAt: now.Add(-11 * time.Hour), Status: "handled", HandledBy: &handledBy, HandledAt: &handledAt, HandleNote: "已核验为代理节点登录，保留观察", CreatedAt: now.Add(-11 * time.Hour), UpdatedAt: handledAt},
+		{RiskType: "device_change", RiskLevel: "low", UserID: users["user_south_01"].ID, Username: "user_south_01", IP: "119.29.22.7", DeviceFingerprint: "fp-south-new", RuleCode: "DEVICE_FINGERPRINT_CHANGED", Summary: "设备指纹发生变化", DetailPayload: `{"old":"fp-south-01","new":"fp-south-new"}`, OccurCount: 1, FirstOccurredAt: now.Add(-7 * time.Hour), LastOccurredAt: now.Add(-7 * time.Hour), Status: "ignored", HandledBy: &handledBy, HandledAt: &handledAt, HandleNote: "用户自助换机", CreatedAt: now.Add(-7 * time.Hour), UpdatedAt: handledAt},
+	}
+	return tx.Create(&events).Error
+}
+
+func seedDemoBlacklists(tx *gorm.DB, users map[string]usermodel.User) error {
+	var count int64
+	if err := tx.Model(&securitymodel.Blacklist{}).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	now := time.Now()
+	expiredAt := now.AddDate(0, 0, 14)
+	items := []securitymodel.Blacklist{
+		{Type: "ip", TargetValue: "154.83.14.33", Status: "active", Source: "system", Reason: "命中异地高风险登录", EffectiveAt: now.Add(-10 * time.Hour), ExpiredAt: &expiredAt, HitCount: 3, CreatedBy: users["admin"].ID, UpdatedBy: users["admin"].ID, CreatedAt: now.Add(-10 * time.Hour), UpdatedAt: now.Add(-2 * time.Hour)},
+		{Type: "device", TargetValue: "fp-north-02", Status: "inactive", Source: "manual", Reason: "暴力破解后临时封禁，已解除", EffectiveAt: now.Add(-3 * 24 * time.Hour), HitCount: 5, CreatedBy: users["admin"].ID, UpdatedBy: users["admin"].ID, CreatedAt: now.Add(-3 * 24 * time.Hour), UpdatedAt: now.Add(-24 * time.Hour)},
+		{Type: "user", TargetValue: "user_west_01", Status: "active", Source: "risk_event", Reason: "多次高风险地区尝试登录", EffectiveAt: now.Add(-9 * time.Hour), HitCount: 2, CreatedBy: users["admin"].ID, UpdatedBy: users["admin"].ID, CreatedAt: now.Add(-9 * time.Hour), UpdatedAt: now.Add(-9 * time.Hour)},
+	}
+	return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&items).Error
+}
+
+func seedDemoSessions(tx *gorm.DB, users map[string]usermodel.User) error {
+	var count int64
+	if err := tx.Model(&securitymodel.Session{}).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	now := time.Now()
+	expiresA := now.Add(7 * 24 * time.Hour)
+	expiresB := now.Add(5 * 24 * time.Hour)
+	expiresC := now.Add(3 * 24 * time.Hour)
+	expiresD := now.Add(24 * time.Hour)
+	revokedAt := now.Add(-40 * time.Minute)
+	revokedBy := users["admin"].ID
+	sessions := []securitymodel.Session{
+		{SessionID: "sess_admin_001", UserID: users["admin"].ID, Username: "admin", Platform: "web", IP: "127.0.0.1", IPRegion: "本地", UserAgent: "Chrome 139 / macOS", DeviceFingerprint: "fp-admin-01", LoginAt: now.Add(-8 * time.Hour), LastActiveAt: now.Add(-5 * time.Minute), ExpiredAt: &expiresA, Status: "active", RiskFlag: "normal", CreatedAt: now.Add(-8 * time.Hour), UpdatedAt: now.Add(-5 * time.Minute)},
+		{SessionID: "sess_east_001", UserID: users["user_east_01"].ID, Username: "user_east_01", Platform: "web", IP: "101.32.10.12", IPRegion: "上海", UserAgent: "Chrome 139 / macOS", DeviceFingerprint: "fp-east-01", LoginAt: now.Add(-6 * time.Hour), LastActiveAt: now.Add(-25 * time.Minute), ExpiredAt: &expiresB, Status: "active", RiskFlag: "normal", CreatedAt: now.Add(-6 * time.Hour), UpdatedAt: now.Add(-25 * time.Minute)},
+		{SessionID: "sess_north_001", UserID: users["user_north_01"].ID, Username: "user_north_01", Platform: "web", IP: "43.132.88.9", IPRegion: "北京", UserAgent: "Chrome 139 / Windows", DeviceFingerprint: "fp-north-02", LoginAt: now.Add(-3 * time.Hour), LastActiveAt: now.Add(-2 * time.Hour), ExpiredAt: &expiresC, Status: "revoked", RiskFlag: "brute_force", RevokedReason: "异地风险登录", RevokedBy: &revokedBy, RevokedAt: &revokedAt, CreatedAt: now.Add(-3 * time.Hour), UpdatedAt: revokedAt},
+		{SessionID: "sess_south_001", UserID: users["user_south_01"].ID, Username: "user_south_01", Platform: "mobile", IP: "119.29.22.7", IPRegion: "广州", UserAgent: "Mobile Safari / iOS", DeviceFingerprint: "fp-south-new", LoginAt: now.Add(-9 * time.Hour), LastActiveAt: now.Add(-7 * time.Hour), ExpiredAt: &expiresD, Status: "expired", RiskFlag: "device_change", CreatedAt: now.Add(-9 * time.Hour), UpdatedAt: now.Add(-7 * time.Hour)},
+		{SessionID: "sess_nw_001", UserID: users["user_nw_01"].ID, Username: "user_nw_01", Platform: "desktop", IP: "10.10.2.16", IPRegion: "西安", UserAgent: "Edge / Windows", DeviceFingerprint: "fp-nw-01", LoginAt: now.Add(-26 * time.Hour), LastActiveAt: now.Add(-90 * time.Minute), ExpiredAt: &expiresA, Status: "active", RiskFlag: "normal", CreatedAt: now.Add(-26 * time.Hour), UpdatedAt: now.Add(-90 * time.Minute)},
+	}
+	return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&sessions).Error
 }

@@ -34,7 +34,20 @@ export const navMenu = [
     title: '用户管理',
     path: '/users',
     icon: iconWrapper(UserIcon),
-    children: [{ title: '用户列表', path: '/users/list' }],
+    children: [
+      { title: '用户列表', path: '/users/accounts/list' },
+      { title: '用户组管理', path: '/users/accounts/groups' },
+      { title: '代理商等级配置', path: '/users/partners/levels' },
+      { title: '代理商列表', path: '/users/partners/agents' },
+      { title: '下级用户管理', path: '/users/partners/subordinates' },
+      { title: '返利佣金记录', path: '/users/partners/commissions' },
+      { title: '代理结算单', path: '/users/partners/settlements' },
+      { title: '登录日志', path: '/users/security/login-logs' },
+      { title: '操作审计日志', path: '/users/security/audit-logs' },
+      { title: '异常行为监控', path: '/users/security/risk' },
+      { title: '黑名单管理', path: '/users/security/blacklist' },
+      { title: '会话管理', path: '/users/security/sessions' },
+    ],
   },
   {
     title: '资源管理',
@@ -46,7 +59,12 @@ export const navMenu = [
     title: '系统管理',
     path: '/system',
     icon: iconWrapper(SettingIcon),
-    children: [{ title: '菜单管理', path: '/system/menus' }],
+    children: [
+      { title: '菜单管理', path: '/system/menus' },
+      { title: '角色列表', path: '/system/roles' },
+      { title: '权限分配', path: '/system/permissions' },
+      { title: '管理员列表', path: '/system/admins' },
+    ],
   },
 ]
 
@@ -72,7 +90,6 @@ export function setupPermission(app: App<Element>) {
         if (!userStore.userInfo.id) {
           await userStore.getUserInfo()
         }
-        // 拉取后端菜单树，驱动侧边栏动态渲染
         const menuStore = useMenuStore()
         if (!menuStore.loaded) {
           try {

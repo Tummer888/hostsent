@@ -13,6 +13,9 @@ import (
 	menuhandler "hostsent/backend/internal/modules/menu/handler"
 	menurepo "hostsent/backend/internal/modules/menu/repository"
 	menuservice "hostsent/backend/internal/modules/menu/service"
+	securityhandler "hostsent/backend/internal/modules/security/handler"
+	securityrepo "hostsent/backend/internal/modules/security/repository"
+	securityservice "hostsent/backend/internal/modules/security/service"
 	"hostsent/backend/internal/modules/user/handler"
 	"hostsent/backend/internal/modules/user/repository"
 	"hostsent/backend/internal/modules/user/service"
@@ -51,6 +54,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	roleRepo := repository.NewRoleRepository(database)
 	permissionRepo := repository.NewPermissionRepository(database)
 	menuRepo := menurepo.NewMenuRepository(database)
+	securityRepo := securityrepo.NewSecurityRepository(database)
 	authService := service.NewAuthService(userRepo, jwtIssuer)
 	userService := service.NewUserService(userRepo)
 	userDetailService := service.NewUserDetailService(userRepo, userDetailRepo)
@@ -63,6 +67,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	roleService := service.NewRoleService(roleRepo)
 	permissionService := service.NewPermissionService(permissionRepo)
 	menuService := menuservice.NewMenuService(menuRepo)
+	securityService := securityservice.NewSecurityService(securityRepo)
 	authHandler := handler.NewAuthHandler(authService)
 	userHandler := handler.NewUserHandler(userService)
 	userDetailHandler := handler.NewUserDetailHandler(userDetailService)
@@ -75,7 +80,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	roleHandler := handler.NewRoleHandler(roleService)
 	permissionHandler := handler.NewPermissionHandler(permissionService)
 	menuHandler := menuhandler.NewMenuHandler(menuService)
-	router := newRouter(cfg, authHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, logger, jwtIssuer)
+	securityHandler := securityhandler.NewSecurityHandler(securityService)
+	router := newRouter(cfg, authHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, logger, jwtIssuer)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 
