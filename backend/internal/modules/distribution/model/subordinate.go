@@ -1,3 +1,4 @@
+// Package model 定义分销模块的数据库实体。
 package model
 
 import "time"
@@ -17,6 +18,7 @@ type Subordinate struct {
 	UpdatedAt          time.Time  `gorm:"autoUpdateTime"`
 }
 
+// TableName 返回下级关系对应的数据表名。
 func (Subordinate) TableName() string {
 	return "distribution_subordinates"
 }

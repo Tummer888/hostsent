@@ -1,3 +1,4 @@
+// Package dto 定义分销模块对外传输的数据结构。
 package dto
 
 import "time"
@@ -18,6 +19,7 @@ var CommissionStatuses = map[string]struct{}{
 	CommissionStatusCancelled: {},
 }
 
+// CommissionListQuery 定义佣金列表的筛选条件。
 type CommissionListQuery struct {
 	Page           int    `form:"page"`
 	PageSize       int    `form:"page_size"`
@@ -58,6 +60,7 @@ type CommissionUpdateRequest struct {
 	Remark         string     `json:"remark"`
 }
 
+// CommissionStatusChangeRequest 定义冻结或解冻佣金时的状态变更入参。
 type CommissionStatusChangeRequest struct {
 	FreezeUntil *time.Time `json:"freeze_until"`
 	Remark      string     `json:"remark"`
@@ -90,6 +93,7 @@ type CommissionListMeta struct {
 	Total    int64 `json:"total"`
 }
 
+// CommissionListResponse 描述佣金列表的返回结构。
 type CommissionListResponse struct {
 	Items []CommissionInfo   `json:"items"`
 	Meta  CommissionListMeta `json:"meta"`

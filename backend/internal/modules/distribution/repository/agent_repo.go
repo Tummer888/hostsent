@@ -22,6 +22,7 @@ type agentRepository struct {
 	db *gorm.DB
 }
 
+// NewAgentRepository 创建代理仓储实现。
 func NewAgentRepository(db *gorm.DB) AgentRepository {
 	return &agentRepository{db: db}
 }

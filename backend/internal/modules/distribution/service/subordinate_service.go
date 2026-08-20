@@ -1,3 +1,4 @@
+// Package service 提供分销模块的业务编排与规则处理。
 package service
 
 import (
@@ -10,6 +11,7 @@ import (
 	userrepo "hostsent/backend/internal/modules/user/repository"
 )
 
+// SubordinateService 定义下级关系统计与管理所需的业务能力。
 type SubordinateService interface {
 	List(ctx context.Context, query distributiondto.SubordinateListQuery) (*distributiondto.SubordinateListResponse, error)
 	FindByID(ctx context.Context, id uint64) (*distributiondto.SubordinateInfo, error)
@@ -24,6 +26,7 @@ type subordinateService struct {
 	userRepo  userrepo.UserRepository
 }
 
+// NewSubordinateService 创建下级关系业务服务。
 func NewSubordinateService(repo distributionrepo.SubordinateRepository, agentRepo distributionrepo.AgentRepository, userRepo userrepo.UserRepository) SubordinateService {
 	return &subordinateService{repo: repo, agentRepo: agentRepo, userRepo: userRepo}
 }

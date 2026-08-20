@@ -1,3 +1,4 @@
+// Package dto 定义分销模块对外传输的数据结构。
 package dto
 
 import "time"
@@ -33,6 +34,7 @@ type SubordinateUpdateRequest struct {
 	JoinedAt           *time.Time `json:"joined_at"`
 }
 
+// SubordinateInfo 描述单条下级关系记录的展示信息。
 type SubordinateInfo struct {
 	ID                 uint64     `json:"id"`
 	AgentID            uint64     `json:"agent_id"`
@@ -59,6 +61,7 @@ type SubordinateListMeta struct {
 	Total    int64 `json:"total"`
 }
 
+// SubordinateListResponse 描述下级关系列表的返回结构。
 type SubordinateListResponse struct {
 	Items []SubordinateInfo   `json:"items"`
 	Meta  SubordinateListMeta `json:"meta"`

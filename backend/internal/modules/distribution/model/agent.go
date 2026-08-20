@@ -1,7 +1,9 @@
+// Package model 定义分销模块的数据库实体。
 package model
 
 import "time"
 
+// Agent 表示代理账户及其分销统计信息。
 type Agent struct {
 	ID               uint64     `gorm:"primaryKey;autoIncrement"`
 	UserID           uint64     `gorm:"column:user_id;not null;uniqueIndex"`
@@ -19,6 +21,7 @@ type Agent struct {
 	UpdatedAt        time.Time  `gorm:"autoUpdateTime"`
 }
 
+// TableName 返回代理记录对应的数据表名。
 func (Agent) TableName() string {
 	return "distribution_agents"
 }

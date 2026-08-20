@@ -1,3 +1,4 @@
+// Package model 定义分销模块的数据库实体。
 package model
 
 import "time"
@@ -21,6 +22,7 @@ type AgentLevel struct {
 	UpdatedAt              time.Time `gorm:"autoUpdateTime"`
 }
 
+// TableName 返回分销等级对应的数据表名。
 func (AgentLevel) TableName() string {
 	return "agent_levels"
 }

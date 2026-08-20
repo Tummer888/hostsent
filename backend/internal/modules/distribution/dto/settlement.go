@@ -1,3 +1,4 @@
+// Package dto 定义分销模块对外传输的数据结构。
 package dto
 
 import "time"
@@ -16,6 +17,7 @@ var SettlementStatuses = map[string]struct{}{
 	SettlementStatusCancelled: {},
 }
 
+// SettlementListQuery 定义结算单列表的筛选条件。
 type SettlementListQuery struct {
 	Page      int       `form:"page"`
 	PageSize  int       `form:"page_size"`
@@ -69,12 +71,14 @@ type SettlementInfo struct {
 	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
+// SettlementListMeta 描述结算单列表分页信息。
 type SettlementListMeta struct {
 	Page     int   `json:"page"`
 	PageSize int   `json:"page_size"`
 	Total    int64 `json:"total"`
 }
 
+// SettlementListResponse 描述结算单列表的返回结构。
 type SettlementListResponse struct {
 	Items []SettlementInfo   `json:"items"`
 	Meta  SettlementListMeta `json:"meta"`

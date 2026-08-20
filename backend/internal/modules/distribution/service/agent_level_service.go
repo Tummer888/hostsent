@@ -1,3 +1,4 @@
+// Package service 提供分销模块的业务编排与规则处理。
 package service
 
 import (
@@ -8,6 +9,7 @@ import (
 	"hostsent/backend/internal/modules/distribution/repository"
 )
 
+// AgentLevelService 定义分销等级管理所需的业务能力。
 type AgentLevelService interface {
 	List(ctx context.Context, query dto.AgentLevelListQuery) (*dto.AgentLevelListResponse, error)
 	FindByID(ctx context.Context, id uint64) (*dto.AgentLevelInfo, error)
@@ -20,6 +22,7 @@ type agentLevelService struct {
 	repo repository.AgentLevelRepository
 }
 
+// NewAgentLevelService 创建分销等级业务服务。
 func NewAgentLevelService(repo repository.AgentLevelRepository) AgentLevelService {
 	return &agentLevelService{repo: repo}
 }

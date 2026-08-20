@@ -1,3 +1,4 @@
+// Package dto 定义分销模块对外传输的数据结构。
 package dto
 
 import "time"
@@ -60,12 +61,14 @@ type AgentInfo struct {
 	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
+// AgentListMeta 描述代理列表分页信息。
 type AgentListMeta struct {
 	Page     int   `json:"page"`
 	PageSize int   `json:"page_size"`
 	Total    int64 `json:"total"`
 }
 
+// AgentListResponse 描述代理列表的返回结构。
 type AgentListResponse struct {
 	Items []AgentInfo   `json:"items"`
 	Meta  AgentListMeta `json:"meta"`

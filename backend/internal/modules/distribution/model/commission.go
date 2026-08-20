@@ -1,3 +1,4 @@
+// Package model 定义分销模块的数据库实体。
 package model
 
 import "time"
@@ -21,6 +22,7 @@ type Commission struct {
 	UpdatedAt      time.Time  `gorm:"autoUpdateTime"`
 }
 
+// TableName 返回佣金记录对应的数据表名。
 func (Commission) TableName() string {
 	return "distribution_commissions"
 }

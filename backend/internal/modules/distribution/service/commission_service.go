@@ -1,3 +1,4 @@
+// Package service 提供分销模块的业务编排与规则处理。
 package service
 
 import (
@@ -13,7 +14,9 @@ import (
 )
 
 var (
+// ErrInvalidCommissionStatus 表示佣金状态不在允许集合内。
 	ErrInvalidCommissionStatus   = errors.New("invalid commission status")
+// ErrCommissionStatusUnchanged 表示佣金状态变更不被允许。
 	ErrCommissionStatusUnchanged = errors.New("commission status cannot be changed")
 	commissionStatusTransitions  = map[string]map[string]struct{}{
 		distributiondto.CommissionStatusPending: {
@@ -50,6 +53,7 @@ type commissionService struct {
 	userRepo        userrepo.UserRepository
 }
 
+// NewCommissionService 创建佣金业务服务。
 func NewCommissionService(repo distributionrepo.CommissionRepository, agentRepo distributionrepo.AgentRepository, subordinateRepo distributionrepo.SubordinateRepository, userRepo userrepo.UserRepository) CommissionService {
 	return &commissionService{repo: repo, agentRepo: agentRepo, subordinateRepo: subordinateRepo, userRepo: userRepo}
 }

@@ -1,3 +1,4 @@
+// Package repository 提供分销模块的佣金数据访问实现。
 package repository
 
 import (
@@ -22,6 +23,7 @@ type commissionRepository struct {
 	db *gorm.DB
 }
 
+// NewCommissionRepository 创建佣金仓储实现。
 func NewCommissionRepository(db *gorm.DB) CommissionRepository {
 	return &commissionRepository{db: db}
 }

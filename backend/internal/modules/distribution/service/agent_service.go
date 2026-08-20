@@ -1,3 +1,4 @@
+// Package service 提供分销模块的业务编排与规则处理。
 package service
 
 import (
@@ -9,6 +10,7 @@ import (
 	userrepo "hostsent/backend/internal/modules/user/repository"
 )
 
+// AgentService 定义代理管理所需的业务能力。
 type AgentService interface {
 	List(ctx context.Context, query distributiondto.AgentListQuery) (*distributiondto.AgentListResponse, error)
 	FindByID(ctx context.Context, id uint64) (*distributiondto.AgentInfo, error)
@@ -23,6 +25,7 @@ type agentService struct {
 	agentLevelRepo distributionrepo.AgentLevelRepository
 }
 
+// NewAgentService 创建代理业务服务。
 func NewAgentService(repo distributionrepo.AgentRepository, userRepo userrepo.UserRepository, agentLevelRepo distributionrepo.AgentLevelRepository) AgentService {
 	return &agentService{repo: repo, userRepo: userRepo, agentLevelRepo: agentLevelRepo}
 }

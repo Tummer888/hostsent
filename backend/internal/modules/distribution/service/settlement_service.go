@@ -1,3 +1,4 @@
+// Package service 提供分销模块的业务编排与规则处理。
 package service
 
 import (
@@ -20,6 +21,7 @@ var (
 	ErrSettlementStatusChange  = errors.New("settlement status cannot be changed")
 )
 
+// SettlementService 定义结算单管理所需的业务能力。
 type SettlementService interface {
 	List(ctx context.Context, query distributiondto.SettlementListQuery) (*distributiondto.SettlementListResponse, error)
 	FindByID(ctx context.Context, id uint64) (*distributiondto.SettlementInfo, error)

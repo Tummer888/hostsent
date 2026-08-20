@@ -24,6 +24,7 @@ type settlementRepository struct {
 	db *gorm.DB
 }
 
+// NewSettlementRepository 创建结算单仓储实现。
 func NewSettlementRepository(db *gorm.DB) SettlementRepository {
 	return &settlementRepository{db: db}
 }

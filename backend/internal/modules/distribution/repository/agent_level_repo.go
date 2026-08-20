@@ -22,6 +22,7 @@ type agentLevelRepository struct {
 	db *gorm.DB
 }
 
+// NewAgentLevelRepository 创建分销等级仓储实现。
 func NewAgentLevelRepository(db *gorm.DB) AgentLevelRepository {
 	return &agentLevelRepository{db: db}
 }

@@ -22,6 +22,7 @@ type subordinateRepository struct {
 	db *gorm.DB
 }
 
+// NewSubordinateRepository 创建下级关系仓储实现。
 func NewSubordinateRepository(db *gorm.DB) SubordinateRepository {
 	return &subordinateRepository{db: db}
 }

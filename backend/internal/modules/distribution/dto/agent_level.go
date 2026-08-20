@@ -1,3 +1,4 @@
+// Package dto 定义分销模块对外传输的数据结构。
 package dto
 
 import "time"
@@ -9,6 +10,7 @@ type AgentLevelListQuery struct {
 	Keyword  string `form:"keyword"`
 }
 
+// AgentLevelCreateRequest 定义创建分销等级时的入参。
 type AgentLevelCreateRequest struct {
 	Name                   string  `json:"name" binding:"required"`
 	Code                   string  `json:"code" binding:"required"`
@@ -66,6 +68,7 @@ type AgentLevelListMeta struct {
 	Total    int64 `json:"total"`
 }
 
+// AgentLevelListResponse 描述分销等级列表的返回结构。
 type AgentLevelListResponse struct {
 	Items []AgentLevelInfo   `json:"items"`
 	Meta  AgentLevelListMeta `json:"meta"`
