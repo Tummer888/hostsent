@@ -1,3 +1,4 @@
+// Package repository 提供配额模块的数据访问实现。
 package repository
 
 import (
@@ -70,6 +71,7 @@ type quotaAdjustmentRepository struct {
 	db *gorm.DB
 }
 
+// NewResourceQuotaRepository 创建资源配额仓储实现。
 func NewResourceQuotaRepository(db *gorm.DB) ResourceQuotaRepository {
 	return &resourceQuotaRepository{db: db}
 }
@@ -79,6 +81,7 @@ func NewQuotaTemplateRepository(db *gorm.DB) QuotaTemplateRepository {
 	return &quotaTemplateRepository{db: db}
 }
 
+// NewUserLevelRepository 创建用户等级仓储实现。
 func NewUserLevelRepository(db *gorm.DB) UserLevelRepository {
 	return &userLevelRepository{db: db}
 }

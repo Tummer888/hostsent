@@ -1,3 +1,4 @@
+// Package service 提供配额模块的业务编排与规则处理。
 package service
 
 import (
@@ -58,6 +59,7 @@ type quotaAdjustmentService struct {
 	repo repository.QuotaAdjustmentRepository
 }
 
+// NewResourceQuotaService 创建资源配额业务服务。
 func NewResourceQuotaService(quotaRepo repository.ResourceQuotaRepository, logRepo repository.QuotaAdjustmentRepository) ResourceQuotaService {
 	return &resourceQuotaService{quotaRepo: quotaRepo, logRepo: logRepo}
 }
@@ -66,6 +68,7 @@ func NewQuotaTemplateService(repo repository.QuotaTemplateRepository) QuotaTempl
 	return &quotaTemplateService{repo: repo}
 }
 
+// NewUserLevelService 创建用户等级业务服务。
 func NewUserLevelService(repo repository.UserLevelRepository) UserLevelService {
 	return &userLevelService{repo: repo}
 }

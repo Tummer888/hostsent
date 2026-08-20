@@ -1,3 +1,4 @@
+// Package dto 定义配额模块的请求与响应数据结构。
 package dto
 
 import "time"
@@ -15,6 +16,7 @@ type QuotaListQuery struct {
 	Keyword         string `form:"keyword"`
 }
 
+// QuotaAdjustRequest 定义调整资源配额时提交的参数。
 type QuotaAdjustRequest struct {
 	LimitValue float64 `json:"limit_value" binding:"required"`
 	Reason     string  `json:"reason"`
@@ -92,6 +94,7 @@ type QuotaTemplateUpdateRequest struct {
 	Items       []QuotaTemplateItemPayload `json:"items"`
 }
 
+// QuotaTemplateInfo 描述配额模板及其规则明细。
 type QuotaTemplateInfo struct {
 	ID            uint64                     `json:"id"`
 	Name          string                     `json:"name"`
@@ -195,6 +198,7 @@ type QuotaAdjustmentListQuery struct {
 	OperatorName   string `form:"operator_name"`
 }
 
+// QuotaAdjustmentInfo 描述单条配额调整记录。
 type QuotaAdjustmentInfo struct {
 	ID             uint64    `json:"id"`
 	UserID         uint64    `json:"user_id"`

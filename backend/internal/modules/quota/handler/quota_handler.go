@@ -1,3 +1,4 @@
+// Package handler 提供配额模块的 HTTP 接口。
 package handler
 
 import (
@@ -14,9 +15,11 @@ import (
 type ResourceQuotaHandler struct{ service service.ResourceQuotaService }
 type QuotaTemplateHandler struct{ service service.QuotaTemplateService }
 type UserLevelHandler struct{ service service.UserLevelService }
+// QuotaAdjustmentHandler 提供配额调整记录相关的 HTTP 接口。
 type QuotaAdjustmentHandler struct{ service service.QuotaAdjustmentService }
 
 func NewResourceQuotaHandler(service service.ResourceQuotaService) *ResourceQuotaHandler { return &ResourceQuotaHandler{service: service} }
+// NewQuotaTemplateHandler 创建配额模板处理器。
 func NewQuotaTemplateHandler(service service.QuotaTemplateService) *QuotaTemplateHandler { return &QuotaTemplateHandler{service: service} }
 func NewUserLevelHandler(service service.UserLevelService) *UserLevelHandler { return &UserLevelHandler{service: service} }
 func NewQuotaAdjustmentHandler(service service.QuotaAdjustmentService) *QuotaAdjustmentHandler { return &QuotaAdjustmentHandler{service: service} }

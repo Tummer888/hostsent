@@ -1,3 +1,4 @@
+// Package model 定义配额模块的数据库实体。
 package model
 
 import "time"
