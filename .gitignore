@@ -9,3 +9,4 @@ node_modules
 /frontend-admin/node_modules
 /frontend-admin/dist
 /frontend-user/dist
+/skill
