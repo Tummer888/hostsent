@@ -201,6 +201,9 @@ func (s *settlementService) Cancel(ctx context.Context, id uint64, req distribut
 	if err := ensureSettlementStatusTransition(item.Status, distributiondto.SettlementStatusCancelled); err != nil {
 		return nil, err
 	}
+	if err := s.releaseSettlementCommissions(ctx, item.ID, req.Remark); err != nil {
+		return nil, err
+	}
 	item.Status = distributiondto.SettlementStatusCancelled
 	item.Remark = req.Remark
 	if err := s.repo.Update(ctx, item); err != nil {
@@ -316,6 +319,26 @@ func (s *settlementService) countSettlementCommissions(ctx context.Context, sett
 		}
 	}
 	return count, nil
+}
+
+func (s *settlementService) releaseSettlementCommissions(ctx context.Context, settlementID uint64, remark string) error {
+	items, _, err := s.commission.List(ctx, distributiondto.CommissionListQuery{Page: 1, PageSize: 100})
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if item.SettlementID == nil || *item.SettlementID != settlementID {
+			continue
+		}
+		item.SettlementID = nil
+		item.Status = distributiondto.CommissionStatusAvailable
+		item.SettledAt = nil
+		item.Remark = remark
+		if err := s.commission.Update(ctx, &item); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func ensureSettlementStatusTransition(from, to string) error {
