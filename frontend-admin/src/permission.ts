@@ -47,6 +47,10 @@ export const navMenu = [
       { title: '异常行为监控', path: '/users/security/risk' },
       { title: '黑名单管理', path: '/users/security/blacklist' },
       { title: '会话管理', path: '/users/security/sessions' },
+      { title: '用户资源配额', path: '/users/quota/resources' },
+      { title: '配额模板管理', path: '/users/quota/templates' },
+      { title: '用户等级管理', path: '/users/quota/tiers' },
+      { title: '配额调整记录', path: '/users/quota/changes' },
     ],
   },
   {

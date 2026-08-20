@@ -9,14 +9,16 @@ import (
 
 	distributionhandler "hostsent/backend/internal/modules/distribution/handler"
 	menuhandler "hostsent/backend/internal/modules/menu/handler"
+	quotahandler "hostsent/backend/internal/modules/quota/handler"
 	securityhandler "hostsent/backend/internal/modules/security/handler"
 	"hostsent/backend/internal/modules/user/handler"
+	verificationhandler "hostsent/backend/internal/modules/verification/handler"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/middleware"
 )
 
-func newRouter(cfg *config.Config, authHandler *handler.AuthHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
+func newRouter(cfg *config.Config, authHandler *handler.AuthHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
@@ -130,6 +132,51 @@ func newRouter(cfg *config.Config, authHandler *handler.AuthHandler, userHandler
 			roles.POST("/:id/permissions", roleHandler.AssignPermissions)
 		}
 
+		quotas := v1.Group("/quotas")
+		quotas.Use(middleware.Auth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			quotas.GET("", resourceQuotaHandler.List)
+			quotas.GET("/:id", resourceQuotaHandler.Get)
+			quotas.GET("/users/:user_id", resourceQuotaHandler.GetByUser)
+			quotas.POST("/:id/adjust", resourceQuotaHandler.Adjust)
+		}
+
+		quotaTemplates := v1.Group("/quota-templates")
+		quotaTemplates.Use(middleware.Auth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			quotaTemplates.GET("", quotaTemplateHandler.List)
+			quotaTemplates.POST("", quotaTemplateHandler.Create)
+			quotaTemplates.GET("/:id", quotaTemplateHandler.Get)
+			quotaTemplates.PUT("/:id", quotaTemplateHandler.Update)
+			quotaTemplates.DELETE("/:id", quotaTemplateHandler.Delete)
+		}
+
+		userLevels := v1.Group("/user-levels")
+		userLevels.Use(middleware.Auth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			userLevels.GET("", quotaUserLevelHandler.List)
+			userLevels.POST("", quotaUserLevelHandler.Create)
+			userLevels.GET("/:id", quotaUserLevelHandler.Get)
+			userLevels.PUT("/:id", quotaUserLevelHandler.Update)
+			userLevels.DELETE("/:id", quotaUserLevelHandler.Delete)
+			userLevels.POST("/:id/bind-template", quotaUserLevelHandler.BindTemplate)
+		}
+
+		quotaAdjustments := v1.Group("/quota-adjustments")
+		quotaAdjustments.Use(middleware.Auth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			quotaAdjustments.GET("", quotaAdjustmentHandler.List)
+			quotaAdjustments.GET("/:id", quotaAdjustmentHandler.Get)
+		}
+
+		verifications := v1.Group("/verifications")
+		verifications.Use(middleware.Auth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			verifications.GET("/pending", verificationHandler.ListPending)
+			verifications.GET("/approved", verificationHandler.ListApproved)
+			verifications.GET("/rejected", verificationHandler.ListRejected)
+		}
+
 		permissions := v1.Group("/permissions")
 		permissions.Use(middleware.Auth(jwtIssuer, cfg.Auth.BearerPrefix))
 		{
@@ -151,9 +198,9 @@ func newRouter(cfg *config.Config, authHandler *handler.AuthHandler, userHandler
 		security := v1.Group("/security")
 		security.Use(middleware.Auth(jwtIssuer, cfg.Auth.BearerPrefix))
 		{
+			security.GET("/login-logs/export", securityHandler.ExportLoginLogs)
 			security.GET("/login-logs", securityHandler.ListLoginLogs)
 			security.GET("/login-logs/:id", securityHandler.GetLoginLog)
-			security.GET("/login-logs/export", securityHandler.ExportLoginLogs)
 			security.GET("/audit-logs", securityHandler.ListAuditLogs)
 			security.GET("/audit-logs/:id", securityHandler.GetAuditLog)
 			security.GET("/audit-logs/export", securityHandler.ExportAuditLogs)

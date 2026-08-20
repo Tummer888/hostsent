@@ -1,8 +1,8 @@
 import { computed, reactive, ref } from 'vue'
 
-import type { PageInfo, PrimaryTableCol } from 'tdesign-vue-next'
+import type { PageInfo, PrimaryTableCol, TableRowData } from 'tdesign-vue-next'
 
-export interface SecurityPageConfig<TQuery extends Record<string, any>, TItem> {
+export interface SecurityPageConfig<TQuery extends Record<string, any>, TItem extends TableRowData> {
   title: string
   subtitle: string
   tableTitle: string
@@ -13,7 +13,7 @@ export interface SecurityPageConfig<TQuery extends Record<string, any>, TItem> {
   fetcher: (query: TQuery) => Promise<{ items: TItem[]; meta: { page: number; page_size: number; total: number } }>
 }
 
-export function useSecurityListPage<TQuery extends { page?: number; page_size?: number }, TItem>(config: SecurityPageConfig<TQuery, TItem>) {
+export function useSecurityListPage<TQuery extends { page?: number; page_size?: number }, TItem extends TableRowData>(config: SecurityPageConfig<TQuery, TItem>) {
   const loading = ref(false)
   const errorMessage = ref('')
   const items = ref<TItem[]>([])
@@ -38,7 +38,7 @@ export function useSecurityListPage<TQuery extends { page?: number; page_size?: 
     try {
       filters.page = pagination.current
       filters.page_size = pagination.pageSize
-      const data = await config.fetcher({ ...filters })
+      const data = await config.fetcher({ ...(filters as TQuery) })
       items.value = data.items || []
       pagination.current = data.meta.page
       pagination.pageSize = data.meta.page_size

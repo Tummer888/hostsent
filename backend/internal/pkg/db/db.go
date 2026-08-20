@@ -11,8 +11,10 @@ import (
 
 	distributionmodel "hostsent/backend/internal/modules/distribution/model"
 	menumodel "hostsent/backend/internal/modules/menu/model"
+	quotamodel "hostsent/backend/internal/modules/quota/model"
 	securitymodel "hostsent/backend/internal/modules/security/model"
 	usermodel "hostsent/backend/internal/modules/user/model"
+	verificationmodel "hostsent/backend/internal/modules/verification/model"
 	config "hostsent/backend/internal/pkg/config"
 )
 
@@ -58,6 +60,16 @@ func AutoMigrate(db *gorm.DB) error {
 		&usermodel.UserBill{},
 		&usermodel.UserTransaction{},
 		&usermodel.UserTicket{},
+		&quotamodel.QuotaTemplate{},
+		&quotamodel.QuotaTemplateItem{},
+		&quotamodel.UserLevel{},
+		&quotamodel.ResourceQuota{},
+		&quotamodel.QuotaAdjustmentLog{},
+		&verificationmodel.VerificationApplication{},
+		&verificationmodel.VerificationEnterprise{},
+		&verificationmodel.VerificationDocument{},
+		&verificationmodel.VerificationReviewLog{},
+		&verificationmodel.VerificationConfig{},
 		&menumodel.Menu{},
 	); err != nil {
 		return err
@@ -90,6 +102,12 @@ func SeedDefaults(db *gorm.DB, cfg config.Config) error {
 			return err
 		}
 		if err := seedDemoSecurity(tx); err != nil {
+			return err
+		}
+		if err := seedDemoQuota(tx); err != nil {
+			return err
+		}
+		if err := seedDemoVerification(tx); err != nil {
 			return err
 		}
 		return nil
@@ -649,4 +667,254 @@ func seedDemoSessions(tx *gorm.DB, users map[string]usermodel.User) error {
 		{SessionID: "sess_nw_001", UserID: users["user_nw_01"].ID, Username: "user_nw_01", Platform: "desktop", IP: "10.10.2.16", IPRegion: "西安", UserAgent: "Edge / Windows", DeviceFingerprint: "fp-nw-01", LoginAt: now.Add(-26 * time.Hour), LastActiveAt: now.Add(-90 * time.Minute), ExpiredAt: &expiresA, Status: "active", RiskFlag: "normal", CreatedAt: now.Add(-26 * time.Hour), UpdatedAt: now.Add(-90 * time.Minute)},
 	}
 	return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&sessions).Error
+}
+
+func seedDemoQuota(tx *gorm.DB) error {
+	users, err := loadQuotaSeedUsers(tx)
+	if err != nil {
+		return err
+	}
+	if len(users) == 0 {
+		return nil
+	}
+
+	adminID := users["admin"].ID
+	templateIDs, err := seedDemoQuotaTemplates(tx, adminID)
+	if err != nil {
+		return err
+	}
+	levelIDs, err := seedDemoUserLevels(tx, adminID, templateIDs)
+	if err != nil {
+		return err
+	}
+	if err := seedDemoResourceQuotas(tx, users, adminID, templateIDs, levelIDs); err != nil {
+		return err
+	}
+	if err := seedDemoQuotaAdjustmentLogs(tx, users, adminID, templateIDs, levelIDs); err != nil {
+		return err
+	}
+	return nil
+}
+
+func loadQuotaSeedUsers(tx *gorm.DB) (map[string]usermodel.User, error) {
+	names := []string{"admin", "user_east_01", "user_north_01", "user_south_01", "user_nw_01"}
+	var users []usermodel.User
+	if err := tx.Where("username IN ?", names).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	result := make(map[string]usermodel.User, len(users))
+	for _, user := range users {
+		result[user.Username] = user
+	}
+	return result, nil
+}
+
+func seedDemoQuotaTemplates(tx *gorm.DB, adminID uint64) (map[string]uint64, error) {
+	templates := []struct {
+		Template quotamodel.QuotaTemplate
+		Items    []quotamodel.QuotaTemplateItem
+	}{
+		{
+			Template: quotamodel.QuotaTemplate{
+				Name:        "标准版模板",
+				Code:        "starter_default",
+				Scope:       "default",
+				Status:      "active",
+				Description: "适用于普通新注册用户的默认配额模板",
+				Version:     1,
+				CreatedBy:   adminID,
+				UpdatedBy:   adminID,
+			},
+			Items: []quotamodel.QuotaTemplateItem{
+				{QuotaCode: "instance_count", QuotaName: "云主机数量", QuotaType: "compute", LimitValue: 2, Unit: "count", Sort: 1},
+				{QuotaCode: "cpu_cores", QuotaName: "CPU 核数", QuotaType: "compute", LimitValue: 4, Unit: "core", Sort: 2},
+				{QuotaCode: "memory_gb", QuotaName: "内存", QuotaType: "compute", LimitValue: 8, Unit: "GB", Sort: 3},
+				{QuotaCode: "disk_gb", QuotaName: "系统盘", QuotaType: "storage", LimitValue: 120, Unit: "GB", Sort: 4},
+			},
+		},
+		{
+			Template: quotamodel.QuotaTemplate{
+				Name:        "企业版模板",
+				Code:        "business_plus",
+				Scope:       "level",
+				Status:      "active",
+				Description: "适用于进阶企业用户的配额模板",
+				Version:     1,
+				CreatedBy:   adminID,
+				UpdatedBy:   adminID,
+			},
+			Items: []quotamodel.QuotaTemplateItem{
+				{QuotaCode: "instance_count", QuotaName: "云主机数量", QuotaType: "compute", LimitValue: 10, Unit: "count", Sort: 1},
+				{QuotaCode: "cpu_cores", QuotaName: "CPU 核数", QuotaType: "compute", LimitValue: 32, Unit: "core", Sort: 2},
+				{QuotaCode: "memory_gb", QuotaName: "内存", QuotaType: "compute", LimitValue: 64, Unit: "GB", Sort: 3},
+				{QuotaCode: "disk_gb", QuotaName: "系统盘", QuotaType: "storage", LimitValue: 1000, Unit: "GB", Sort: 4},
+			},
+		},
+	}
+
+	result := make(map[string]uint64, len(templates))
+	for _, item := range templates {
+		var existing quotamodel.QuotaTemplate
+		if err := tx.Where("code = ?", item.Template.Code).First(&existing).Error; err == nil {
+			result[item.Template.Code] = existing.ID
+			continue
+		} else if err != gorm.ErrRecordNotFound {
+			return nil, err
+		}
+		if err := tx.Create(&item.Template).Error; err != nil {
+			return nil, err
+		}
+		for i := range item.Items {
+			item.Items[i].TemplateID = item.Template.ID
+		}
+		if err := tx.Create(&item.Items).Error; err != nil {
+			return nil, err
+		}
+		result[item.Template.Code] = item.Template.ID
+	}
+	return result, nil
+}
+
+func seedDemoUserLevels(tx *gorm.DB, adminID uint64, templateIDs map[string]uint64) (map[string]uint64, error) {
+	starterTemplateID := templateIDs["starter_default"]
+	businessTemplateID := templateIDs["business_plus"]
+	levels := []quotamodel.UserLevel{
+		{
+			Name:              "标准用户",
+			Code:              "standard",
+			Weight:            10,
+			Status:            "active",
+			DefaultTemplateID: &starterTemplateID,
+			MaxInstanceCount:  2,
+			MaxCPUCores:       4,
+			MaxMemoryGB:       8,
+			MaxDiskGB:         120,
+			FeatureFlags:      "snapshot,backup",
+			UpgradeCondition:  "累计消费满 1000 元",
+			Description:       "默认用户等级",
+			CreatedBy:         adminID,
+			UpdatedBy:         adminID,
+		},
+		{
+			Name:              "企业用户",
+			Code:              "business",
+			Weight:            20,
+			Status:            "active",
+			DefaultTemplateID: &businessTemplateID,
+			MaxInstanceCount:  10,
+			MaxCPUCores:       32,
+			MaxMemoryGB:       64,
+			MaxDiskGB:         1000,
+			FeatureFlags:      "snapshot,backup,ha,custom-image",
+			UpgradeCondition:  "通过企业实名认证并完成销售审核",
+			Description:       "企业大客户等级",
+			CreatedBy:         adminID,
+			UpdatedBy:         adminID,
+		},
+	}
+
+	result := make(map[string]uint64, len(levels))
+	for _, level := range levels {
+		var existing quotamodel.UserLevel
+		if err := tx.Where("code = ?", level.Code).First(&existing).Error; err == nil {
+			result[level.Code] = existing.ID
+			continue
+		} else if err != gorm.ErrRecordNotFound {
+			return nil, err
+		}
+		if err := tx.Create(&level).Error; err != nil {
+			return nil, err
+		}
+		result[level.Code] = level.ID
+	}
+	return result, nil
+}
+
+func seedDemoResourceQuotas(tx *gorm.DB, users map[string]usermodel.User, adminID uint64, templateIDs map[string]uint64, levelIDs map[string]uint64) error {
+	type quotaSeed struct {
+		Username string
+		Code     string
+		Name     string
+		Type     string
+		Limit    float64
+		Used     float64
+		Unit     string
+		Source   string
+		Template string
+		Level    string
+	}
+
+	seeds := []quotaSeed{
+		{Username: "user_east_01", Code: "instance_count", Name: "云主机数量", Type: "compute", Limit: 2, Used: 1, Unit: "count", Source: "template", Template: "starter_default", Level: "standard"},
+		{Username: "user_east_01", Code: "cpu_cores", Name: "CPU 核数", Type: "compute", Limit: 4, Used: 2, Unit: "core", Source: "template", Template: "starter_default", Level: "standard"},
+		{Username: "user_east_01", Code: "memory_gb", Name: "内存", Type: "compute", Limit: 8, Used: 4, Unit: "GB", Source: "template", Template: "starter_default", Level: "standard"},
+		{Username: "user_north_01", Code: "instance_count", Name: "云主机数量", Type: "compute", Limit: 10, Used: 6, Unit: "count", Source: "level", Template: "business_plus", Level: "business"},
+		{Username: "user_north_01", Code: "cpu_cores", Name: "CPU 核数", Type: "compute", Limit: 32, Used: 20, Unit: "core", Source: "level", Template: "business_plus", Level: "business"},
+		{Username: "user_north_01", Code: "disk_gb", Name: "系统盘", Type: "storage", Limit: 1000, Used: 760, Unit: "GB", Source: "level", Template: "business_plus", Level: "business"},
+		{Username: "user_south_01", Code: "memory_gb", Name: "内存", Type: "compute", Limit: 8, Used: 10, Unit: "GB", Source: "manual", Template: "starter_default", Level: "standard"},
+		{Username: "user_nw_01", Code: "instance_count", Name: "云主机数量", Type: "compute", Limit: 12, Used: 9, Unit: "count", Source: "manual", Template: "business_plus", Level: "business"},
+	}
+
+	now := time.Now()
+	for _, seed := range seeds {
+		user, ok := users[seed.Username]
+		if !ok {
+			continue
+		}
+		var count int64
+		if err := tx.Model(&quotamodel.ResourceQuota{}).Where("user_id = ? AND quota_code = ?", user.ID, seed.Code).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			continue
+		}
+		available := seed.Limit - seed.Used
+		templateID := templateIDs[seed.Template]
+		levelID := levelIDs[seed.Level]
+		record := quotamodel.ResourceQuota{
+			UserID:          user.ID,
+			QuotaCode:       seed.Code,
+			QuotaName:       seed.Name,
+			QuotaType:       seed.Type,
+			LimitValue:      seed.Limit,
+			UsedValue:       seed.Used,
+			AvailableValue:  available,
+			Unit:            seed.Unit,
+			Status:          "active",
+			Source:          seed.Source,
+			TemplateID:      &templateID,
+			LevelID:         &levelID,
+			IsOverallocated: available < 0,
+			UpdatedBy:       adminID,
+			LastAdjustedAt:  now,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		}
+		if err := tx.Create(&record).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func seedDemoQuotaAdjustmentLogs(tx *gorm.DB, users map[string]usermodel.User, adminID uint64, templateIDs map[string]uint64, levelIDs map[string]uint64) error {
+	var count int64
+	if err := tx.Model(&quotamodel.QuotaAdjustmentLog{}).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	templateStarter := templateIDs["starter_default"]
+	templateBusiness := templateIDs["business_plus"]
+	levelStandard := levelIDs["standard"]
+	levelBusiness := levelIDs["business"]
+	now := time.Now()
+	logs := []quotamodel.QuotaAdjustmentLog{
+		{UserID: users["user_south_01"].ID, Username: "user_south_01", QuotaCode: "memory_gb", QuotaName: "内存", BeforeValue: 6, AfterValue: 8, DeltaValue: 2, AdjustmentType: "manual", Source: "manual", TemplateID: &templateStarter, LevelID: &levelStandard, OperatorID: adminID, OperatorName: "admin", Reason: "活动期补充资源", TicketNo: "TK-QUOTA-20260801", BatchNo: "quota-batch-001", CreatedAt: now.Add(-48 * time.Hour)},
+		{UserID: users["user_nw_01"].ID, Username: "user_nw_01", QuotaCode: "instance_count", QuotaName: "云主机数量", BeforeValue: 10, AfterValue: 12, DeltaValue: 2, AdjustmentType: "manual", Source: "manual", TemplateID: &templateBusiness, LevelID: &levelBusiness, OperatorID: adminID, OperatorName: "admin", Reason: "大客户扩容审批通过", TicketNo: "TK-QUOTA-20260802", BatchNo: "quota-batch-002", CreatedAt: now.Add(-24 * time.Hour)},
+		{UserID: users["user_north_01"].ID, Username: "user_north_01", QuotaCode: "cpu_cores", QuotaName: "CPU 核数", BeforeValue: 24, AfterValue: 32, DeltaValue: 8, AdjustmentType: "upgrade", Source: "level", TemplateID: &templateBusiness, LevelID: &levelBusiness, OperatorID: adminID, OperatorName: "admin", Reason: "升级企业等级自动提升", TicketNo: "TK-QUOTA-20260803", BatchNo: "quota-batch-003", CreatedAt: now.Add(-12 * time.Hour)},
+	}
+	return tx.Create(&logs).Error
 }

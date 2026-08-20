@@ -13,9 +13,15 @@ import (
 	menuhandler "hostsent/backend/internal/modules/menu/handler"
 	menurepo "hostsent/backend/internal/modules/menu/repository"
 	menuservice "hostsent/backend/internal/modules/menu/service"
+	quotahandler "hostsent/backend/internal/modules/quota/handler"
+	quotarepo "hostsent/backend/internal/modules/quota/repository"
+	quotaservice "hostsent/backend/internal/modules/quota/service"
 	securityhandler "hostsent/backend/internal/modules/security/handler"
 	securityrepo "hostsent/backend/internal/modules/security/repository"
 	securityservice "hostsent/backend/internal/modules/security/service"
+	verificationhandler "hostsent/backend/internal/modules/verification/handler"
+	verificationrepo "hostsent/backend/internal/modules/verification/repository"
+	verificationservice "hostsent/backend/internal/modules/verification/service"
 	"hostsent/backend/internal/modules/user/handler"
 	"hostsent/backend/internal/modules/user/repository"
 	"hostsent/backend/internal/modules/user/service"
@@ -55,6 +61,11 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	permissionRepo := repository.NewPermissionRepository(database)
 	menuRepo := menurepo.NewMenuRepository(database)
 	securityRepo := securityrepo.NewSecurityRepository(database)
+	resourceQuotaRepo := quotarepo.NewResourceQuotaRepository(database)
+	quotaTemplateRepo := quotarepo.NewQuotaTemplateRepository(database)
+	quotaUserLevelRepo := quotarepo.NewUserLevelRepository(database)
+	quotaAdjustmentRepo := quotarepo.NewQuotaAdjustmentRepository(database)
+	verificationRepo := verificationrepo.NewVerificationRepository(database)
 	authService := service.NewAuthService(userRepo, jwtIssuer)
 	userService := service.NewUserService(userRepo)
 	userDetailService := service.NewUserDetailService(userRepo, userDetailRepo)
@@ -68,6 +79,11 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	permissionService := service.NewPermissionService(permissionRepo)
 	menuService := menuservice.NewMenuService(menuRepo)
 	securityService := securityservice.NewSecurityService(securityRepo)
+	resourceQuotaService := quotaservice.NewResourceQuotaService(resourceQuotaRepo, quotaAdjustmentRepo)
+	quotaTemplateService := quotaservice.NewQuotaTemplateService(quotaTemplateRepo)
+	quotaUserLevelService := quotaservice.NewUserLevelService(quotaUserLevelRepo)
+	quotaAdjustmentService := quotaservice.NewQuotaAdjustmentService(quotaAdjustmentRepo)
+	verificationService := verificationservice.NewVerificationService(verificationRepo)
 	authHandler := handler.NewAuthHandler(authService)
 	userHandler := handler.NewUserHandler(userService)
 	userDetailHandler := handler.NewUserDetailHandler(userDetailService)
@@ -81,7 +97,12 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	permissionHandler := handler.NewPermissionHandler(permissionService)
 	menuHandler := menuhandler.NewMenuHandler(menuService)
 	securityHandler := securityhandler.NewSecurityHandler(securityService)
-	router := newRouter(cfg, authHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, logger, jwtIssuer)
+	resourceQuotaHandler := quotahandler.NewResourceQuotaHandler(resourceQuotaService)
+	quotaTemplateHandler := quotahandler.NewQuotaTemplateHandler(quotaTemplateService)
+	quotaUserLevelHandler := quotahandler.NewUserLevelHandler(quotaUserLevelService)
+	quotaAdjustmentHandler := quotahandler.NewQuotaAdjustmentHandler(quotaAdjustmentService)
+	verificationHandler := verificationhandler.NewVerificationHandler(verificationService)
+	router := newRouter(cfg, authHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, logger, jwtIssuer)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 

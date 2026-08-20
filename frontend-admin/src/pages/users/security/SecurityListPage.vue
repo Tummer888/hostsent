@@ -62,7 +62,7 @@
   </div>
 </template>
 
-<script setup lang="ts" generic="TItem">
+<script setup lang="ts" generic="TItem extends import('tdesign-vue-next').TableRowData">
 import type { PageInfo, PaginationProps, PrimaryTableCol } from 'tdesign-vue-next'
 
 defineProps<{

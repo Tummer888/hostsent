@@ -465,6 +465,154 @@ export interface RegionStatsResponse {
   total: number
 }
 
+export interface QuotaListQuery {
+  page?: number
+  page_size?: number
+  user_id?: number
+  username?: string
+  quota_type?: string
+  source?: string
+  status?: string
+  is_overallocated?: string
+  keyword?: string
+}
+
+export interface QuotaAdjustRequest {
+  limit_value: number
+  reason?: string
+  ticket_no?: string
+}
+
+export interface QuotaInfo {
+  id: number
+  user_id: number
+  username: string
+  quota_code: string
+  quota_name: string
+  quota_type: string
+  limit_value: number
+  used_value: number
+  available_value: number
+  unit: string
+  status: string
+  source: string
+  template_id?: number
+  level_id?: number
+  is_overallocated: boolean
+  updated_by: number
+  last_adjusted_at: string
+  created_at: string
+  updated_at: string
+}
+
+export interface QuotaTemplateItemPayload {
+  quota_code: string
+  quota_name: string
+  quota_type: string
+  limit_value: number
+  unit: string
+  sort: number
+}
+
+export interface QuotaTemplateListQuery {
+  page?: number
+  page_size?: number
+  status?: string
+  scope?: string
+  keyword?: string
+}
+
+export interface QuotaTemplateInfo {
+  id: number
+  name: string
+  code: string
+  scope: string
+  status: string
+  description?: string
+  version: number
+  created_by: number
+  updated_by: number
+  binding_levels: number
+  binding_users: number
+  items: QuotaTemplateItemPayload[]
+  created_at: string
+  updated_at: string
+}
+
+export interface QuotaTemplateListResponse {
+  items: QuotaTemplateInfo[]
+  meta: UserListMeta
+}
+
+export interface UserLevelListQuery {
+  page?: number
+  page_size?: number
+  status?: string
+  default_template_id?: number
+  keyword?: string
+}
+
+export interface UserLevelInfo {
+  id: number
+  name: string
+  code: string
+  weight: number
+  status: string
+  default_template_id?: number
+  default_template_name: string
+  max_instance_count: number
+  max_cpu_cores: number
+  max_memory_gb: number
+  max_disk_gb: number
+  feature_flags: string
+  upgrade_condition: string
+  description?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface UserLevelListResponse {
+  items: UserLevelInfo[]
+  meta: UserListMeta
+}
+
+export interface QuotaAdjustmentListQuery {
+  page?: number
+  page_size?: number
+  user_id?: number
+  username?: string
+  quota_code?: string
+  adjustment_type?: string
+  source?: string
+  operator_name?: string
+}
+
+export interface QuotaAdjustmentInfo {
+  id: number
+  user_id: number
+  username: string
+  quota_code: string
+  quota_name: string
+  before_value: number
+  after_value: number
+  delta_value: number
+  adjustment_type: string
+  source: string
+  template_id?: number
+  level_id?: number
+  operator_id: number
+  operator_name: string
+  reason?: string
+  ticket_no?: string
+  batch_no?: string
+  created_at: string
+}
+
+export interface QuotaAdjustmentListResponse {
+  items: QuotaAdjustmentInfo[]
+  meta: UserListMeta
+}
+
 export function getUserList(params: UserListQuery): Promise<UserListResponse> {
   return request.get<UserListResponse>({
     url: '/users',
@@ -542,6 +690,72 @@ export function getUserStats(): Promise<UserStatsResponse> {
 export function getRegionStats(): Promise<RegionStatsResponse> {
   return request.get<RegionStatsResponse>({
     url: '/users/region-stats',
+  })
+}
+
+export function getQuotaList(params: QuotaListQuery): Promise<{ items: QuotaInfo[]; meta: UserListMeta }> {
+  return request.get<{ items: QuotaInfo[]; meta: UserListMeta }>({
+    url: '/quotas',
+    params: {
+      page: params.page,
+      page_size: params.page_size,
+      user_id: params.user_id,
+      username: params.username,
+      quota_type: params.quota_type,
+      source: params.source,
+      status: params.status,
+      is_overallocated: params.is_overallocated,
+      keyword: params.keyword,
+    },
+  })
+}
+
+export function adjustQuota(id: string | number, data: QuotaAdjustRequest): Promise<QuotaInfo> {
+  return request.post<QuotaInfo>({
+    url: `/quotas/${id}/adjust`,
+    data,
+  })
+}
+
+export function getQuotaTemplateList(params: QuotaTemplateListQuery): Promise<QuotaTemplateListResponse> {
+  return request.get<QuotaTemplateListResponse>({
+    url: '/quota-templates',
+    params: {
+      page: params.page,
+      page_size: params.page_size,
+      status: params.status,
+      scope: params.scope,
+      keyword: params.keyword,
+    },
+  })
+}
+
+export function getUserLevelList(params: UserLevelListQuery): Promise<UserLevelListResponse> {
+  return request.get<UserLevelListResponse>({
+    url: '/user-levels',
+    params: {
+      page: params.page,
+      page_size: params.page_size,
+      status: params.status,
+      default_template_id: params.default_template_id,
+      keyword: params.keyword,
+    },
+  })
+}
+
+export function getQuotaAdjustmentList(params: QuotaAdjustmentListQuery): Promise<QuotaAdjustmentListResponse> {
+  return request.get<QuotaAdjustmentListResponse>({
+    url: '/quota-adjustments',
+    params: {
+      page: params.page,
+      page_size: params.page_size,
+      user_id: params.user_id,
+      username: params.username,
+      quota_code: params.quota_code,
+      adjustment_type: params.adjustment_type,
+      source: params.source,
+      operator_name: params.operator_name,
+    },
   })
 }
 
