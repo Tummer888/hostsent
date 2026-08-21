@@ -3,17 +3,22 @@
     <header class="list-header surface-card">
       <div class="list-header__main">
         <div class="list-header__title-row">
+          <div class="list-header__icon">
+            <UserIcon size="22" aria-hidden="true" />
+          </div>
           <h2 class="list-header__title">用户列表</h2>
           <t-tag v-if="activeFilterLabel" class="page-chip" theme="primary" variant="light" shape="round">
             {{ activeFilterLabel }}
           </t-tag>
         </div>
-        <p class="list-header__subtitle">
-          支持按状态、地域、快捷条件与关键词检索，数据实时来自后端接口。
-        </p>
       </div>
       <div class="list-header__actions">
-        <t-button class="page-btn page-btn--ghost" variant="outline" @click="router.push('/users/overview')">返回总览</t-button>
+        <t-button class="page-btn page-btn--ghost" variant="outline" @click="openCreate">
+          <template #icon>
+            <AddIcon aria-hidden="true" />
+          </template>
+          新增用户
+        </t-button>
         <t-button class="page-btn" theme="primary" :loading="loading" @click="reload">
           <template #icon>
             <RefreshIcon aria-hidden="true" />
@@ -27,7 +32,6 @@
       <div class="toolbar__header">
         <div>
           <h3 class="toolbar__title">筛选条件</h3>
-          <p class="toolbar__desc">复用当前后台表单风格，快速定位目标用户并调整列表排序。</p>
         </div>
         <div class="toolbar__actions">
           <t-space>
@@ -82,47 +86,22 @@
         </div>
 
         <div class="toolbar-field">
-          <span class="toolbar-field__label">地域分布</span>
+          <span class="toolbar-field__label">登录 IP 归属地</span>
           <t-select
-            v-model="filters.region"
+            v-model="filters.last_login_ip_region"
             class="unified-control"
             clearable
             filterable
-            placeholder="全部地域"
+            placeholder="全部归属地"
             :options="regionOptions"
           />
-        </div>
-
-        <div class="toolbar-field">
-          <span class="toolbar-field__label">排序字段</span>
-          <t-select
-            v-model="sortField"
-            class="unified-control"
-            placeholder="选择排序字段"
-            :options="sortFieldOptions"
-          />
-        </div>
-
-        <div class="toolbar-field">
-          <span class="toolbar-field__label">排序顺序</span>
-          <t-radio-group v-model="sortOrder" variant="default-filled" class="sort-order-group">
-            <t-radio-button value="desc">降序</t-radio-button>
-            <t-radio-button value="asc">升序</t-radio-button>
-          </t-radio-group>
         </div>
       </div>
     </section>
 
     <section class="table-panel surface-card">
       <div class="table-panel__head">
-        <div>
-          <h3 class="table-panel__title">用户数据</h3>
-          <p class="table-panel__desc">展示用户主档、联系信息、所属地域、账户状态与最近活跃情况。</p>
-        </div>
-        <div class="table-panel__meta">
-          <span>共 {{ pagination.total }} 条</span>
-          <span>当前第 {{ pagination.current }} 页</span>
-        </div>
+        <h3 class="table-panel__title">用户数据</h3>
       </div>
 
       <div v-if="errorMessage" class="error-banner" role="alert">
@@ -131,136 +110,251 @@
         <t-link class="page-link" theme="primary" hover="color" @click="reload">重试</t-link>
       </div>
 
-      <t-table
-        row-key="id"
-        :data="sortedTableData"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        size="small"
-        hover
-        bordered
-        table-layout="fixed"
-        cell-empty-content="—"
-        class="user-table"
-        @page-change="handlePageChange"
+      <div
+        ref="tableDragRef"
+        :class="['table-drag-scroll', { 'table-drag-scroll--dragging': isTableDragging }]"
+        @mousedown="handleTableDragStart"
       >
-        <template #id="{ row }">
-          <div class="id-cell">
-            <span class="id-cell__value">#{{ row.id }}</span>
-          </div>
-        </template>
+        <t-table
+          row-key="id"
+          :data="sortedTableData"
+          :columns="columns"
+          :loading="loading"
+          :pagination="pagination"
+          size="small"
+          hover
+          bordered
+          table-layout="fixed"
+          cell-empty-content="—"
+          class="user-table"
+          @page-change="handlePageChange"
+        >
+          <template #title-id>
+            <button type="button" class="id-sort-button" @click="toggleIdSort">
+              <span>ID</span>
+              <component :is="sortOrder === 'asc' ? ArrowUpIcon : ArrowDownIcon" size="14" aria-hidden="true" />
+            </button>
+          </template>
 
-        <template #username="{ row }">
-          <div class="user-cell user-cell--primary">
-            <t-link class="user-link" theme="primary" hover="color" @click="goUserDetail(row)">
-              {{ row.username }}
-            </t-link>
-            <div class="copy-row" v-if="row.email">
-              <span class="copy-row__value copy-row__value--email">{{ row.email }}</span>
-              <t-popup content="复制邮箱" placement="top">
-                <t-tag class="copy-tag" theme="primary" variant="light" size="small" shape="round" @click="copyText(row.email, '邮箱')">
-                  复制
-                </t-tag>
+          <template #id="{ row }">
+            <div class="id-cell">
+              <span class="id-cell__value">{{ row.id }}</span>
+            </div>
+          </template>
+
+          <template #username="{ row }">
+            <div class="user-cell user-cell--primary">
+              <t-link class="user-link" theme="primary" hover="color" @click="goUserDetail(row)">
+                {{ row.username }}
+              </t-link>
+              <div class="copy-row" v-if="row.email">
+                <span class="copy-row__value copy-row__value--email">{{ row.email }}</span>
+                <t-popup content="复制邮箱" placement="top">
+                  <t-tag class="copy-tag" theme="primary" variant="light" size="small" shape="round" @click="copyText(row.email, '邮箱')">
+                    复制
+                  </t-tag>
+                </t-popup>
+              </div>
+            </div>
+          </template>
+
+          <template #real_name="{ row }">
+            <div class="user-cell">
+              <span class="user-cell__name user-cell__name--secondary">{{ row.real_name || '待补充' }}</span>
+              <div class="copy-row" v-if="row.phone">
+                <span class="copy-row__value copy-row__value--phone">{{ row.phone }}</span>
+                <t-popup content="复制手机号" placement="top">
+                  <t-tag class="copy-tag" theme="primary" variant="light" size="small" shape="round" @click="copyText(row.phone, '手机号')">
+                    复制
+                  </t-tag>
+                </t-popup>
+              </div>
+            </div>
+          </template>
+
+          <template #role="{ row }">
+            <div class="role-tags">
+              <t-tag
+                v-for="role in resolveRoles(row)"
+                :key="role"
+                class="role-tag"
+                theme="primary"
+                variant="light"
+                size="small"
+                shape="round"
+              >
+                {{ formatRoleLabel(role) }}
+              </t-tag>
+            </div>
+          </template>
+
+          <template #user_group_name="{ row }">
+            <span class="text-muted">{{ row.user_group_name || '未分组' }}</span>
+          </template>
+
+          <template #last_login_ip="{ row }">
+            <div class="ip-cell">
+              <span class="ip-cell__value">{{ row.last_login_ip || '未记录' }}</span>
+              <span class="ip-cell__region" :class="{ 'ip-cell__region--muted': !row.last_login_ip_region }">
+                {{ row.last_login_ip_region || '未解析' }}
+              </span>
+            </div>
+          </template>
+
+          <template #oauth_provider="{ row }">
+            <div class="oauth-cell">
+              <t-popup v-for="provider in oauthProviders" :key="provider.key" :content="provider.label" placement="top">
+                <span
+                  :class="[
+                    'oauth-provider-icon',
+                    `oauth-provider-icon--${provider.key}`,
+                    { 'oauth-provider-icon--inactive': !hasOauthProvider(row, provider.key) },
+                  ]"
+                >
+                  <component :is="provider.icon" size="18" aria-hidden="true" />
+                </span>
               </t-popup>
             </div>
-          </div>
-        </template>
+          </template>
 
-        <template #real_name="{ row }">
-          <div class="user-cell">
-            <span class="user-cell__name user-cell__name--secondary">{{ row.real_name || '待补充' }}</span>
-            <div class="copy-row" v-if="row.phone">
-              <span class="copy-row__value copy-row__value--phone">{{ row.phone }}</span>
-              <t-popup content="复制手机号" placement="top">
-                <t-tag class="copy-tag" theme="primary" variant="light" size="small" shape="round" @click="copyText(row.phone, '手机号')">
-                  复制
-                </t-tag>
-              </t-popup>
-            </div>
-          </div>
-        </template>
-
-        <template #role="{ row }">
-          <div class="role-tags">
-            <t-tag
-              v-for="role in resolveRoles(row)"
-              :key="role"
-              class="role-tag"
-              theme="primary"
-              variant="light"
-              size="small"
-              shape="round"
-            >
-              {{ role }}
+          <template #status="{ row }">
+            <t-tag :class="['status-tag', `status-tag--${row.status || 'default'}`]" theme="default" variant="light" size="small" shape="round">
+              {{ statusLabelMap[row.status] || row.status || '未知' }}
             </t-tag>
-          </div>
-        </template>
+          </template>
 
-        <template #region="{ row }">
-          <span class="region-text">{{ row.region || '未分配' }}</span>
-        </template>
+          <template #balance="{ row }">
+            <div class="money-cell">
+              <span class="money">{{ formatMoney(row.balance) }}</span>
+            </div>
+          </template>
 
-        <template #status="{ row }">
-          <t-tag :class="['status-tag', `status-tag--${row.status || 'default'}`]" theme="default" variant="light" size="small" shape="round">
-            {{ statusLabelMap[row.status] || row.status || '未知' }}
-          </t-tag>
-        </template>
+          <template #total_consume_amount="{ row }">
+            <div class="money-cell">
+              <span class="money">{{ formatMoney(row.total_consume_amount) }}</span>
+            </div>
+          </template>
 
-        <template #balance="{ row }">
-          <div class="money-cell">
-            <span class="money">{{ formatMoney(row.balance) }}</span>
-          </div>
-        </template>
+          <template #last_login_at="{ row }">
+            <span class="time-text" :class="{ 'time-text--muted': !row.last_login_at }">
+              {{ row.last_login_at ? formatDateTime(row.last_login_at) : '未登录' }}
+            </span>
+          </template>
 
-        <template #created_at="{ row }">
-          <span class="time-text time-text--created">{{ formatDateTime(row.created_at) }}</span>
-        </template>
+          <template #action="{ row }">
+            <div class="action-cell">
+              <t-space size="small">
+                <t-link theme="primary" hover="color" @click="goUserDetail(row)">详情</t-link>
+                <t-link theme="primary" hover="color" @click="handleRecharge(row)">充值</t-link>
+                <t-link theme="primary" hover="color" @click="handleImpersonate(row)">登录</t-link>
+                <t-popconfirm
+                  :content="row.status === 'active' ? '确认冻结该用户？' : '确认解冻该用户？'"
+                  @confirm="toggleStatus(row)"
+                >
+                  <t-link :theme="row.status === 'active' ? 'warning' : 'primary'" hover="color">
+                    {{ row.status === 'active' ? '冻结' : '解冻' }}
+                  </t-link>
+                </t-popconfirm>
+              </t-space>
+            </div>
+          </template>
 
-        <template #last_login_at="{ row }">
-          <span class="time-text" :class="{ 'time-text--muted': !row.last_login_at }">
-            {{ row.last_login_at ? formatDateTime(row.last_login_at) : '未登录' }}
-          </span>
-        </template>
-
-        <template #empty>
-          <t-empty description="当前筛选条件下暂无用户数据" />
-        </template>
-      </t-table>
+          <template #empty>
+            <t-empty description="当前筛选条件下暂无用户数据" />
+          </template>
+        </t-table>
+      </div>
     </section>
+
+    <t-dialog
+      v-model:visible="dialogVisible"
+      header="新增用户"
+      width="620px"
+      :confirm-btn="{ content: '创建用户', theme: 'success', loading: submitting }"
+      :on-confirm="handleCreateUser"
+      @close="handleDialogClose"
+    >
+      <t-form ref="formRef" :data="formData" :rules="rules" label-align="top" colonless>
+        <div class="form-grid">
+          <t-form-item label="用户 ID" name="id">
+            <t-input v-model="formData.id" type="number" placeholder="可自定义用户 ID" />
+          </t-form-item>
+
+          <t-form-item label="用户名" name="username">
+            <t-input v-model="formData.username" placeholder="登录账号，唯一不可重复" maxlength="50" />
+          </t-form-item>
+
+          <t-form-item label="邮箱" name="email">
+            <t-input v-model="formData.email" placeholder="example@domain.com" />
+          </t-form-item>
+          <t-form-item label="手机号" name="phone">
+            <t-input v-model="formData.phone" placeholder="11位手机号" maxlength="11" />
+          </t-form-item>
+          <t-form-item label="初始密码" name="password">
+            <t-input v-model="formData.password" type="password" placeholder="建议包含字母与数字，至少8位" />
+          </t-form-item>
+          <t-form-item label="状态" name="status">
+            <t-radio-group v-model="formData.status" variant="default-filled" class="status-radio-group">
+              <t-radio-button value="active">正常</t-radio-button>
+              <t-radio-button value="disabled">冻结</t-radio-button>
+            </t-radio-group>
+          </t-form-item>
+        </div>
+      </t-form>
+    </t-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { ErrorCircleIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
-import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import {
+  AddIcon,
+  ArrowDownIcon,
+  ArrowUpIcon,
+  ErrorCircleIcon,
+  LogoAndroidIcon,
+  LogoAppleFilledIcon,
+  LogoGithubFilledIcon,
+  LogoQqIcon,
+  LogoWechatStrokeIcon,
+  RefreshIcon,
+  SearchIcon,
+  UserIcon,
+} from 'tdesign-icons-vue-next'
+import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
-import { getRegionStats, getUserList, type RegionStatItem, type UserInfo, type UserListQuery } from '@/api/user'
+import { useUserStore } from '@/store/modules/user'
+import { createUser, getRegionStats, getUserList, impersonateUser, updateUserStatus, type RegionStatItem, type UserCreateRequest, type UserInfo, type UserListQuery } from '@/api/user'
 
 defineOptions({ name: 'UserAccountsList' })
 
-type SortField = 'id' | 'created_at' | 'balance'
 type SortOrder = 'asc' | 'desc'
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
 
 const loading = ref(false)
 const errorMessage = ref('')
 const tableData = ref<UserInfo[]>([])
 const regionItems = ref<RegionStatItem[]>([])
-const sortField = ref<SortField>('id')
 const sortOrder = ref<SortOrder>('desc')
+const tableDragRef = ref<HTMLElement | null>(null)
+const activeTableScrollRef = ref<HTMLElement | null>(null)
+const isTableDragging = ref(false)
+const dragState = {
+  startX: 0,
+  startScrollLeft: 0,
+}
 
 const filters = reactive<UserListQuery>({
   page: 1,
   page_size: 10,
   status: '',
   filter: '',
-  region: '',
+  last_login_ip_region: '',
   keyword: '',
 })
 
@@ -272,6 +366,46 @@ const pagination = reactive({
   showPageSize: true,
   pageSizeOptions: [10, 20, 50, 100],
 })
+
+const dialogVisible = ref(false)
+const submitting = ref(false)
+const formRef = ref<FormInstanceFunctions | null>(null)
+const formData = reactive<UserCreateRequest>({
+  id: undefined,
+  username: '',
+  email: '',
+  phone: '',
+  password: '',
+  status: 'active',
+  role_ids: [],
+})
+
+const rules: Record<string, FormRule[]> = {
+  id: [
+    {
+      validator: (value) => !value || (Number.isInteger(Number(value)) && Number(value) > 0),
+      message: '用户ID需为正整数',
+      type: 'error',
+    },
+  ],
+  username: [
+    { required: true, message: '请输入用户名', type: 'error', trigger: 'blur' },
+    { min: 3, message: '用户名至少 3 个字符', type: 'error', trigger: 'blur' },
+  ],
+  email: [
+    { required: true, message: '请输入邮箱', type: 'error', trigger: 'blur' },
+    { email: true, message: '请输入正确的邮箱格式', type: 'error', trigger: 'blur' },
+  ],
+  phone: [
+    { required: true, message: '请输入手机号', type: 'error', trigger: 'blur' },
+    { pattern: /^\d{11}$/, message: '手机号需为11位数字', type: 'error', trigger: 'blur' },
+  ],
+  password: [
+    { required: true, message: '请输入初始密码', type: 'error', trigger: 'blur' },
+    { min: 8, message: '密码至少需要 8 位', type: 'error', trigger: 'blur' },
+  ],
+  status: [{ required: true, message: '请选择状态', type: 'error', trigger: 'change' }],
+}
 
 const statusOptions = [
   { label: '全部状态', value: '' },
@@ -286,12 +420,6 @@ const quickFilterOptions = [
   { label: '待实名', value: 'pending_real_name' },
 ]
 
-const sortFieldOptions = [
-  { label: 'ID', value: 'id' },
-  { label: '注册时间', value: 'created_at' },
-  { label: '账户余额', value: 'balance' },
-]
-
 const statusLabelMap: Record<string, string> = {
   active: '正常',
   disabled: '冻结',
@@ -299,8 +427,29 @@ const statusLabelMap: Record<string, string> = {
   cancelled: '已注销',
 }
 
+const roleLabelMap: Record<string, string> = {
+  super_admin: '超级管理员',
+  admin: '管理员',
+  user: '普通用户',
+  agent: '代理',
+  member: '会员',
+  finance: '财务',
+  operator: '运营',
+  support: '客服',
+  guest: '访客',
+  unassigned: '未分配',
+}
+
+const oauthProviders = [
+  { key: 'wechat', label: '微信', icon: LogoWechatStrokeIcon },
+  { key: 'qq', label: 'QQ', icon: LogoQqIcon },
+  { key: 'github', label: 'GitHub', icon: LogoGithubFilledIcon },
+  { key: 'apple', label: 'Apple', icon: LogoAppleFilledIcon },
+  { key: 'android', label: 'Android', icon: LogoAndroidIcon },
+] as const
+
 const regionOptions = computed(() => [
-  { label: '全部地域', value: '' },
+  { label: '全部归属地', value: '' },
   ...regionItems.value.map((item) => ({ label: `${item.region} (${item.count})`, value: item.region })),
 ])
 
@@ -308,34 +457,29 @@ const activeFilterLabel = computed(() => {
   if (filters.filter === 'today') return '今日新增'
   if (filters.filter === 'pending_real_name') return '待实名认证'
   if (filters.status) return statusLabelMap[filters.status] || filters.status
-  if (filters.region) return filters.region
+  if (filters.last_login_ip_region) return filters.last_login_ip_region
   if (filters.keyword) return `搜索: ${filters.keyword}`
   return ''
 })
 
 const sortedTableData = computed(() => {
   const orderFactor = sortOrder.value === 'asc' ? 1 : -1
-  return [...tableData.value].sort((left, right) => {
-    if (sortField.value === 'created_at') {
-      return (new Date(left.created_at).getTime() - new Date(right.created_at).getTime()) * orderFactor
-    }
-    if (sortField.value === 'balance') {
-      return (Number(left.balance || 0) - Number(right.balance || 0)) * orderFactor
-    }
-    return (Number(left.id || 0) - Number(right.id || 0)) * orderFactor
-  })
+  return [...tableData.value].sort((left, right) => (Number(left.id || 0) - Number(right.id || 0)) * orderFactor)
 })
 
 const columns: PrimaryTableCol<UserInfo>[] = [
-  { colKey: 'id', title: 'ID', width: 96 },
-  { colKey: 'username', title: '账号信息', minWidth: 250 },
+  { colKey: 'id', title: 'ID', width: 92 },
+  { colKey: 'username', title: '账号信息', minWidth: 260 },
   { colKey: 'real_name', title: '实名信息', minWidth: 220 },
-  { colKey: 'role', title: '角色', minWidth: 180 },
-  { colKey: 'region', title: '地域', width: 120 },
-  { colKey: 'status', title: '状态', width: 110 },
   { colKey: 'balance', title: '账户余额', width: 130, align: 'right' },
-  { colKey: 'created_at', title: '注册时间', width: 180 },
+  { colKey: 'total_consume_amount', title: '总消费金额', width: 150, align: 'right' },
+  { colKey: 'role', title: '角色', minWidth: 180 },
+  { colKey: 'user_group_name', title: '用户组', minWidth: 180 },
+  { colKey: 'last_login_ip', title: '登录 IP', minWidth: 220 },
+  { colKey: 'oauth_provider', title: '第三方登录', minWidth: 180 },
+  { colKey: 'status', title: '状态', width: 110 },
   { colKey: 'last_login_at', title: '最近登录', width: 180 },
+  { colKey: 'action', title: '操作', width: 260, fixed: 'right' },
 ]
 
 function syncFiltersFromRoute() {
@@ -344,7 +488,7 @@ function syncFiltersFromRoute() {
   filters.page_size = toPositiveInt(query.page_size, 10)
   filters.status = query.status || ''
   filters.filter = query.filter || ''
-  filters.region = query.region || ''
+  filters.last_login_ip_region = query.last_login_ip_region || ''
   filters.keyword = query.keyword || ''
   pagination.current = filters.page
   pagination.pageSize = filters.page_size
@@ -355,15 +499,26 @@ function toPositiveInt(value: string | undefined, fallback: number) {
   return Number.isFinite(num) && num > 0 ? num : fallback
 }
 
+function hasOauthProvider(row: UserInfo, provider: string) {
+  if (Array.isArray(row.oauth_providers) && row.oauth_providers.length > 0) {
+    return row.oauth_providers.includes(provider)
+  }
+  return row.oauth_provider === provider
+}
+
 function buildQuery() {
   const query: Record<string, string> = {}
   if (filters.page && filters.page !== 1) query.page = String(filters.page)
   if (filters.page_size && filters.page_size !== 10) query.page_size = String(filters.page_size)
   if (filters.status) query.status = filters.status
   if (filters.filter) query.filter = filters.filter
-  if (filters.region) query.region = filters.region
+  if (filters.last_login_ip_region) query.last_login_ip_region = filters.last_login_ip_region
   if (filters.keyword) query.keyword = filters.keyword
   return query
+}
+
+function toggleIdSort() {
+  sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
 }
 
 async function replaceRouteQuery() {
@@ -388,7 +543,7 @@ async function loadUsers() {
       page_size: filters.page_size,
       status: filters.status || undefined,
       filter: filters.filter || undefined,
-      region: filters.region || undefined,
+      last_login_ip_region: filters.last_login_ip_region || undefined,
       keyword: filters.keyword || undefined,
     })
     tableData.value = data.items || []
@@ -421,9 +576,8 @@ async function handleReset() {
   filters.page_size = 10
   filters.status = ''
   filters.filter = ''
-  filters.region = ''
+  filters.last_login_ip_region = ''
   filters.keyword = ''
-  sortField.value = 'id'
   sortOrder.value = 'desc'
   pagination.current = 1
   pagination.pageSize = 10
@@ -445,7 +599,12 @@ async function handlePageChange(pageInfo: PageInfo) {
 function resolveRoles(row: UserInfo) {
   if (Array.isArray(row.roles) && row.roles.length) return row.roles
   if (row.role) return [row.role]
-  return ['未分配']
+  return ['unassigned']
+}
+
+function formatRoleLabel(role: string) {
+  const normalizedRole = String(role || '').trim().toLowerCase()
+  return roleLabelMap[normalizedRole] || roleLabelMap[role] || role || '未分配'
 }
 
 function formatMoney(value: number) {
@@ -480,6 +639,140 @@ function goUserDetail(row: UserInfo) {
   })
 }
 
+function handleRecharge(row: UserInfo) {
+  MessagePlugin.info(`充值功能开发中 - 用户: ${row.username}`)
+}
+
+async function handleImpersonate(row: UserInfo) {
+  if (row.status !== 'active') {
+    MessagePlugin.warning('仅可代登录正常状态用户')
+    return
+  }
+  try {
+    const res = await impersonateUser({ user_id: row.id })
+    userStore.token = res.token
+    userStore.userInfo = {
+      id: res.user_info.id,
+      name: res.user_info.username,
+      username: res.user_info.username,
+      role: res.user_info.role,
+      roles: res.user_info.roles?.length ? res.user_info.roles : [res.user_info.role],
+      email: res.user_info.email,
+      phone: res.user_info.phone,
+      status: res.user_info.status,
+    }
+    MessagePlugin.success(`已代登录用户 ${row.username}`)
+    await router.push('/')
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '代登录失败')
+  }
+}
+
+function resolveTableScrollContainer() {
+  const root = tableDragRef.value
+  if (!root) return null
+
+  const candidates = root.querySelectorAll<HTMLElement>('.t-table__content, .t-table__body, .t-table, .t-table__inner, .t-table__header')
+  for (const candidate of candidates) {
+    if (candidate.scrollWidth > candidate.clientWidth) {
+      return candidate
+    }
+  }
+
+  return root.scrollWidth > root.clientWidth ? root : null
+}
+
+function handleTableDragStart(event: MouseEvent) {
+  if (event.button !== 0) return
+  const target = event.target as HTMLElement | null
+  if (target?.closest('a,button,input,textarea,[role="button"],.t-link,.t-button,.t-input,.t-tag,.t-popup')) return
+  const container = resolveTableScrollContainer()
+  if (!container) return
+  activeTableScrollRef.value = container
+  isTableDragging.value = true
+  dragState.startX = event.clientX
+  dragState.startScrollLeft = container.scrollLeft
+  document.body.classList.add('user-table-dragging')
+  window.addEventListener('mousemove', handleTableDragging)
+  window.addEventListener('mouseup', handleTableDragEnd)
+  window.addEventListener('mouseleave', handleTableDragEnd)
+  event.preventDefault()
+}
+
+function handleTableDragging(event: MouseEvent) {
+  if (!isTableDragging.value || !activeTableScrollRef.value) return
+  const deltaX = event.clientX - dragState.startX
+  activeTableScrollRef.value.scrollLeft = dragState.startScrollLeft - deltaX
+  event.preventDefault()
+}
+
+function handleTableDragEnd() {
+  activeTableScrollRef.value = null
+  if (!isTableDragging.value) return
+  isTableDragging.value = false
+  document.body.classList.remove('user-table-dragging')
+  window.removeEventListener('mousemove', handleTableDragging)
+  window.removeEventListener('mouseup', handleTableDragEnd)
+  window.removeEventListener('mouseleave', handleTableDragEnd)
+}
+
+function initFormData(): UserCreateRequest {
+  return {
+    username: '',
+    email: '',
+    phone: '',
+    password: '',
+    status: 'active',
+    role_ids: [],
+  }
+}
+
+function openCreate() {
+  Object.assign(formData, initFormData())
+  formRef.value?.clearValidate?.()
+  dialogVisible.value = true
+}
+
+async function handleCreateUser() {
+  const validate = await formRef.value?.validate?.()
+  if (validate !== true) return
+  submitting.value = true
+  try {
+    await createUser({
+      id: formData.id ? Number(formData.id) : undefined,
+      username: formData.username,
+      email: formData.email,
+      phone: formData.phone,
+      password: formData.password,
+      status: formData.status,
+    })
+    MessagePlugin.success('用户创建成功')
+    dialogVisible.value = false
+    filters.page = 1
+    pagination.current = 1
+    await loadUsers()
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '创建用户失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+function handleDialogClose() {
+  formRef.value?.clearValidate?.()
+}
+
+async function toggleStatus(row: UserInfo) {
+  const newStatus = row.status === 'active' ? 'disabled' : 'active'
+  try {
+    await updateUserStatus(row.id, { status: newStatus })
+    MessagePlugin.success(newStatus === 'active' ? '用户已解冻' : '用户已冻结')
+    await loadUsers()
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '操作失败')
+  }
+}
+
 watch(
   () => route.query,
   async () => {
@@ -491,6 +784,10 @@ watch(
 onMounted(async () => {
   syncFiltersFromRoute()
   await loadAll()
+})
+
+onBeforeUnmount(() => {
+  handleTableDragEnd()
 })
 </script>
 
@@ -516,6 +813,19 @@ onMounted(async () => {
   border-color: #d1fae5;
 }
 
+.list-header__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 4px 10px rgba(34, 197, 94, 0.25);
+}
+
 .list-header__main {
   display: flex;
   flex: 1;
@@ -535,13 +845,6 @@ onMounted(async () => {
   font-size: 22px;
   font-weight: 700;
   color: var(--color-foreground);
-}
-
-.list-header__subtitle {
-  margin: 0;
-  color: var(--color-muted-foreground);
-  font-size: 13px;
-  line-height: 1.7;
 }
 
 .list-header__actions {
@@ -572,14 +875,6 @@ onMounted(async () => {
   color: var(--color-foreground);
 }
 
-.toolbar__desc,
-.table-panel__desc {
-  margin: 6px 0 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--color-muted-foreground);
-}
-
 .toolbar__actions {
   display: flex;
   justify-content: flex-end;
@@ -607,8 +902,22 @@ onMounted(async () => {
   color: var(--color-muted-foreground);
 }
 
-.sort-order-group {
-  width: 100%;
+.id-sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.id-sort-button:hover {
+  color: var(--td-brand-color);
 }
 
 .table-panel {
@@ -617,21 +926,25 @@ onMounted(async () => {
   border-color: #dcfce7;
 }
 
+.table-drag-scroll {
+  overflow-x: auto;
+  cursor: grab;
+}
+
+.table-drag-scroll--dragging {
+  cursor: grabbing;
+}
+
+.table-drag-scroll--dragging :deep(*) {
+  user-select: none;
+}
+
 .table-panel__head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 12px;
-}
-
-.table-panel__meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  color: var(--color-muted-foreground);
-  font-size: 12px;
 }
 
 .error-banner {
@@ -648,7 +961,8 @@ onMounted(async () => {
 
 .id-cell,
 .user-cell,
-.money-cell {
+.money-cell,
+.ip-cell {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -703,9 +1017,61 @@ onMounted(async () => {
   gap: 6px;
 }
 
-.region-text {
-  color: #334155;
-  font-weight: 500;
+.oauth-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.oauth-provider-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+.oauth-provider-icon--inactive {
+  color: #cbd5e1;
+}
+
+.oauth-provider-icon--wechat:not(.oauth-provider-icon--inactive) {
+  color: #07c160;
+}
+
+.oauth-provider-icon--qq:not(.oauth-provider-icon--inactive) {
+  color: #12b7f5;
+}
+
+.oauth-provider-icon--github:not(.oauth-provider-icon--inactive),
+.oauth-provider-icon--apple:not(.oauth-provider-icon--inactive) {
+  color: #111827;
+}
+
+.oauth-provider-icon--android:not(.oauth-provider-icon--inactive) {
+  color: #34a853;
+}
+
+.action-cell {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.ip-cell__value {
+  color: #0f172a;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ip-cell__region {
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ip-cell__region--muted {
+  color: var(--color-muted-foreground);
 }
 
 .money {
@@ -718,10 +1084,6 @@ onMounted(async () => {
   color: #334155;
   font-size: 12px;
   line-height: 1.6;
-}
-
-.time-text--created {
-  color: #0f172a;
 }
 
 .time-text--muted {
@@ -797,6 +1159,7 @@ onMounted(async () => {
 
 :deep(.user-link) {
   font-weight: 700;
+  font-size: 15px;
 }
 
 :deep(.unified-control .t-input),
@@ -821,19 +1184,9 @@ onMounted(async () => {
   box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.10);
 }
 
-:deep(.sort-order-group .t-radio-button) {
-  border-color: #dcfce7;
-  color: var(--color-muted-foreground);
-  background: #ffffff;
-}
-
-:deep(.sort-order-group .t-radio-button.t-is-checked) {
-  color: #15803d;
-  background: #ecfdf5;
-  border-color: #bbf7d0;
-}
 
 :deep(.user-table .t-table) {
+  min-width: 1450px;
   border-color: #dcfce7;
 }
 
@@ -969,5 +1322,20 @@ onMounted(async () => {
   .list-header__actions {
     justify-content: flex-start;
   }
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+
+.status-radio-group {
+  width: 220px;
+}
+
+.status-radio-group :deep(.t-radio-button) {
+  min-width: 96px;
+  text-align: center;
 }
 </style>

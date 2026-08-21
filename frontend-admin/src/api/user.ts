@@ -1,3 +1,4 @@
+import type { LoginResponse } from '@/api/auth'
 import { request } from '@/utils/request'
 
 export interface UserListQuery {
@@ -5,7 +6,7 @@ export interface UserListQuery {
   page_size?: number
   status?: string
   filter?: string
-  region?: string
+  last_login_ip_region?: string
   keyword?: string
 }
 
@@ -15,10 +16,16 @@ export interface UserInfo {
   real_name?: string
   role?: string
   roles?: string[]
-  phone?: string
   email?: string
+  phone?: string
+  user_group_name?: string
   region?: string
+  last_login_ip?: string
+  last_login_ip_region?: string
+  oauth_provider?: string
+  oauth_providers?: string[]
   balance?: number
+  total_consume_amount?: number
   status: string
   created_at: string
   last_login_at?: string
@@ -46,6 +53,7 @@ export interface UserUpdateRequest {
 }
 
 export interface UserCreateRequest {
+  id?: number
   username: string
   email: string
   phone: string
@@ -64,6 +72,10 @@ export interface ResetPasswordRequest {
 
 export interface AssignRolesRequest {
   role_ids: number[]
+}
+
+export interface AdminImpersonateRequest {
+  user_id: number
 }
 
 /** 用户总览统计响应 */
@@ -632,7 +644,7 @@ export function getUserList(params: UserListQuery): Promise<UserListResponse> {
       page_size: params.page_size,
       status: params.status,
       filter: params.filter,
-      region: params.region,
+      last_login_ip_region: params.last_login_ip_region,
       keyword: params.keyword,
     },
   })
@@ -661,6 +673,13 @@ export function updateUser(id: string | number, data: UserUpdateRequest): Promis
 export function updateUserStatus(id: string | number, data: UserStatusRequest): Promise<string> {
   return request.patch<string>({
     url: `/users/${id}/status`,
+    data,
+  })
+}
+
+export function impersonateUser(data: AdminImpersonateRequest): Promise<LoginResponse> {
+  return request.post<LoginResponse>({
+    url: '/auth/impersonate',
     data,
   })
 }

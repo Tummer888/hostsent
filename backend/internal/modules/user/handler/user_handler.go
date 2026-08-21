@@ -36,8 +36,8 @@ func (h *UserHandler) GetStats(c *gin.Context) {
 }
 
 // GetRegionStats godoc
-// @Summary 用户地域分布
-// @Description 获取用户按地域分布的统计
+// @Summary 用户登录 IP 归属地分布
+// @Description 获取用户按登录 IP 归属地分布的统计
 // @Tags 用户管理
 // @Produce json
 // @Success 200 {object} dto.APIResponse[dto.RegionStatsResponse]

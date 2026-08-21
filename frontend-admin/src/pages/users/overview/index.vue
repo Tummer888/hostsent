@@ -116,7 +116,7 @@
     <article class="panel-card surface-card" aria-labelledby="region-chart-title">
       <header class="panel-card__head">
         <div>
-          <h3 id="region-chart-title" class="panel-card__title">用户地域分布</h3>
+          <h3 id="region-chart-title" class="panel-card__title">用户登录 IP 归属地分布</h3>
         </div>
       </header>
       <t-loading v-if="loading" size="small" text="加载中..." class="chart-loading" />
@@ -345,8 +345,8 @@ const statCards = computed<StatCardItem[]>(() => {
 
 const statusPieData = computed(() => [
   { name: '正常账号', value: stats.value.active, itemStyle: { color: '#16a34a' } },
-  { name: '冻结账号', value: stats.value.disabled, itemStyle: { color: '#d97706' } },
-  { name: '待审核', value: stats.value.pending_review, itemStyle: { color: '#dc2626' } },
+  { name: '冻结账号', value: stats.value.disabled, itemStyle: { color: '#dc2626' } },
+  { name: '待审核', value: stats.value.pending_review, itemStyle: { color: '#3b82f6' } },
 ])
 
 const statusPieOption = computed<EChartsOption>(() => ({
@@ -374,9 +374,10 @@ const regionBarOption = computed<EChartsOption>(() => {
   const items = regionItems.value
   const regions = items.map((i) => i.region)
   const counts = items.map((i) => i.count)
+  const maxCount = Math.max(...counts, 1)
   return {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    grid: { left: 8, right: 24, top: 10, bottom: 8, containLabel: true },
+    grid: { left: 8, right: 40, top: 16, bottom: 16, containLabel: true },
     xAxis: { type: 'value', axisLabel: { color: '#94a3b8' }, splitLine: { lineStyle: { color: '#eef2f7' } } },
     yAxis: {
       type: 'category',
@@ -388,19 +389,21 @@ const regionBarOption = computed<EChartsOption>(() => {
     series: [
       {
         type: 'bar',
-        data: counts.slice().reverse(),
-        barWidth: 14,
-        itemStyle: {
-          borderRadius: [0, 6, 6, 0],
-          color: {
-            type: 'linear',
-            x: 0, y: 0, x2: 1, y2: 0,
-            colorStops: [
-              { offset: 0, color: '#86efac' },
-              { offset: 1, color: '#16a34a' },
-            ],
+        data: counts.slice().reverse().map((v) => ({
+          value: v,
+          itemStyle: {
+            color: {
+              type: 'linear',
+              x: 0, y: 0, x2: 1, y2: 0,
+              colorStops: [
+                { offset: 0, color: v > maxCount * 0.7 ? '#86efac' : v > maxCount * 0.4 ? '#a7f3d0' : '#bbf7d0' },
+                { offset: 1, color: v > maxCount * 0.7 ? '#16a34a' : v > maxCount * 0.4 ? '#22c55e' : '#4ade80' },
+              ],
+            },
           },
-        },
+        })),
+        barWidth: 18,
+        itemStyle: { borderRadius: [0, 6, 6, 0] },
         emphasis: { itemStyle: { color: '#15803d' } },
         label: { show: true, position: 'right', color: '#475569', fontSize: 12 },
       },
@@ -497,7 +500,7 @@ function onStatusClick(payload: { name: string; seriesType?: string }) {
 
 function onRegionClick(payload: { name: string; seriesType?: string }) {
   if (payload.seriesType !== 'bar') return
-  if (payload.name) void navigateRaw(listPath, { region: payload.name })
+  if (payload.name) void navigateRaw(listPath, { last_login_ip_region: payload.name })
 }
 
 async function loadAll() {
@@ -602,13 +605,13 @@ onMounted(() => {
   width: 44px;
   height: 44px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  background: linear-gradient(135deg, #22c55e, #16a34a);
   color: #ffffff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 4px 10px rgba(99, 102, 241, 0.25);
+  box-shadow: 0 4px 10px rgba(34, 197, 94, 0.25);
 }
 
 .overview-header__text {
@@ -1027,8 +1030,47 @@ onMounted(() => {
 
 @media (max-width: 640px) {
   .stat-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
   }
+
+  .stat-card {
+    min-height: 72px;
+    box-shadow: 0 4px 12px rgba(148, 163, 184, 0.08);
+  }
+
+  .stat-card__body {
+    min-height: 72px;
+    padding: 10px 12px;
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .stat-card__icon-wrap {
+    display: none;
+  }
+
+  .stat-card__content {
+    align-items: center;
+    gap: 2px;
+    padding-right: 0;
+  }
+
+  .stat-card__title {
+    font-size: 12px;
+    text-align: center;
+    margin-top: 0;
+  }
+
+  .stat-card__value :deep(.t-statistic__content) {
+    font-size: 28px;
+  }
+
+  .stat-card::before,
+  .stat-card::after {
+    display: none;
+  }
+
   .quick-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

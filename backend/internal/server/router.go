@@ -37,6 +37,7 @@ func newRouter(cfg *config.Config, authHandler *handler.AuthHandler, userHandler
 		{
 			auth.POST("/login", authHandler.Login)
 			auth.GET("/me", middleware.Auth(jwtIssuer, cfg.Auth.BearerPrefix), authHandler.Me)
+			auth.POST("/impersonate", middleware.Auth(jwtIssuer, cfg.Auth.BearerPrefix), authHandler.Impersonate)
 		}
 
 		users := v1.Group("/users")

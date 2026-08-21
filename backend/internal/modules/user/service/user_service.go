@@ -66,12 +66,12 @@ func (s *userService) Create(ctx context.Context, req dto.UserCreateRequest) (*d
 	if err != nil {
 		return nil, err
 	}
-	user := &model.User{Username: req.Username, Email: req.Email, Phone: req.Phone, PasswordHash: string(hash), Status: req.Status}
+	user := &model.User{ID: req.ID, Username: req.Username, Email: req.Email, Phone: req.Phone, PasswordHash: string(hash), Status: req.Status}
 	if err := s.repo.Create(ctx, user); err != nil {
 		return nil, err
 	}
 	if len(req.RoleIDs) > 0 {
-		if err := s.repo.UpsertRoles(ctx, user.ID, req.RoleIDs); err != nil {
+		if err := s.repo.SetRoles(ctx, user.ID, req.RoleIDs); err != nil {
 			return nil, err
 		}
 	}
@@ -118,11 +118,11 @@ func (s *userService) ResetPassword(ctx context.Context, id uint64, password str
 	if err != nil {
 		return err
 	}
-	return s.repo.ResetPassword(ctx, id, string(hash))
+	return s.repo.UpdatePassword(ctx, id, string(hash))
 }
 
 func (s *userService) AssignRoles(ctx context.Context, userID uint64, roleIDs []uint64) error {
-	return s.repo.UpsertRoles(ctx, userID, roleIDs)
+	return s.repo.SetRoles(ctx, userID, roleIDs)
 }
 
 func (s *userService) Delete(ctx context.Context, id uint64) error {
@@ -141,6 +141,8 @@ func (s *userService) GetStats(ctx context.Context) (*dto.UserStatsResponse, err
 		Disabled:        stats.Disabled,
 		PendingRealName: stats.PendingRealName,
 		PendingReview:   stats.PendingReview,
+		TotalBalance:    stats.TotalBalance,
+		PurchasedCount:  stats.PurchasedCount,
 	}, nil
 }
 
@@ -160,18 +162,23 @@ func (s *userService) GetRegionStats(ctx context.Context) (*dto.RegionStatsRespo
 
 func toUserInfo(user model.User) dto.UserInfo {
 	return dto.UserInfo{
-		ID:          user.ID,
-		Username:    user.Username,
-		RealName:    user.RealName,
-		Role:        user.Role,
-		Roles:       user.Roles,
-		Email:       user.Email,
-		Phone:       user.Phone,
-		Region:      user.Region,
-		Balance:     user.Balance,
-		Status:      user.Status,
-		CreatedAt:   user.CreatedAt,
-		LastLoginAt: user.LastLoginAt,
+		ID:                user.ID,
+		Username:          user.Username,
+		RealName:          user.RealName,
+		Role:              user.Role,
+		Roles:             user.Roles,
+		Email:             user.Email,
+		Phone:             user.Phone,
+		UserGroupName:     user.UserGroupName,
+		Region:            user.Region,
+		LastLoginIP:       user.LastLoginIP,
+		LastLoginIPRegion: user.LastLoginIPRegion,
+		OAuthProvider:     user.OAuthProvider,
+		Balance:           user.Balance,
+		TotalConsumeAmount: user.TotalConsumeAmount,
+		Status:            user.Status,
+		CreatedAt:         user.CreatedAt,
+		LastLoginAt:       user.LastLoginAt,
 	}
 }
 

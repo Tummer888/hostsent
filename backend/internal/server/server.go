@@ -28,6 +28,7 @@ import (
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/db"
+	"hostsent/backend/internal/pkg/netutil"
 )
 
 type Server struct {
@@ -49,6 +50,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	}
 
 	jwtIssuer := appauth.NewJWTIssuer(cfg.Auth.JWTSecret, cfg.Auth.JWTIssuer, time.Duration(cfg.Auth.JWTExpireHours)*time.Hour)
+	ipRegionResolver := netutil.NewHTTPIPRegionResolver()
 	userRepo := repository.NewUserRepository(database)
 	userDetailRepo := repository.NewUserDetailRepository(database)
 	userGroupRepo := repository.NewUserGroupRepository(database)
@@ -66,7 +68,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	quotaUserLevelRepo := quotarepo.NewUserLevelRepository(database)
 	quotaAdjustmentRepo := quotarepo.NewQuotaAdjustmentRepository(database)
 	verificationRepo := verificationrepo.NewVerificationRepository(database)
-	authService := service.NewAuthService(userRepo, jwtIssuer)
+	authService := service.NewAuthService(userRepo, jwtIssuer, ipRegionResolver)
 	userService := service.NewUserService(userRepo)
 	userDetailService := service.NewUserDetailService(userRepo, userDetailRepo)
 	userGroupService := service.NewUserGroupService(userGroupRepo)
