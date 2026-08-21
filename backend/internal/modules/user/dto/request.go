@@ -19,13 +19,14 @@ type UserListQuery struct {
 }
 
 type UserCreateRequest struct {
-	ID       uint64   `json:"id"`
-	Username string   `json:"username" binding:"required"`
-	Email    string   `json:"email" binding:"required"`
-	Phone    string   `json:"phone" binding:"required,len=11,numeric"`
-	Password string   `json:"password" binding:"required"`
-	Status   string   `json:"status"`
-	RoleIDs  []uint64 `json:"role_ids"`
+	ID          uint64   `json:"id"`
+	Username    string   `json:"username" binding:"required"`
+	Email       string   `json:"email" binding:"required"`
+	Phone       string   `json:"phone" binding:"required,len=11,numeric"`
+	Password    string   `json:"password" binding:"required"`
+	Status      string   `json:"status"`
+	RoleIDs     []uint64 `json:"role_ids"`
+	UserGroupID *uint64  `json:"user_group_id"`
 }
 
 type UserUpdateRequest struct {

@@ -243,7 +243,7 @@
 
           <template #action="{ row }">
             <div class="action-cell">
-              <t-space size="small">
+              <t-space v-if="!isMobile" size="small">
                 <t-link theme="primary" hover="color" @click="goUserDetail(row)">详情</t-link>
                 <t-link theme="primary" hover="color" @click="handleRecharge(row)">充值</t-link>
                 <t-link theme="primary" hover="color" @click="handleImpersonate(row)">登录</t-link>
@@ -290,6 +290,25 @@
           <t-form-item label="手机号" name="phone">
             <t-input v-model="formData.phone" placeholder="11位手机号" maxlength="11" />
           </t-form-item>
+          <t-form-item label="角色" name="role_ids">
+            <t-select
+              v-model="formData.role_ids"
+              multiple
+              clearable
+              filterable
+              placeholder="请选择角色"
+              :options="roleSelectOptions"
+            />
+          </t-form-item>
+          <t-form-item label="用户组" name="user_group_id">
+            <t-select
+              v-model="formData.user_group_id"
+              clearable
+              filterable
+              placeholder="请选择用户组"
+              :options="userGroupSelectOptions"
+            />
+          </t-form-item>
           <t-form-item label="初始密码" name="password">
             <t-input v-model="formData.password" type="password" placeholder="建议包含字母与数字，至少8位" />
           </t-form-item>
@@ -320,13 +339,14 @@ import {
   LogoQqIcon,
   LogoWechatStrokeIcon,
   RefreshIcon,
+  EllipsisIcon,
   SearchIcon,
   UserIcon,
 } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { useUserStore } from '@/store/modules/user'
-import { createUser, getRegionStats, getUserList, impersonateUser, updateUserStatus, type RegionStatItem, type UserCreateRequest, type UserInfo, type UserListQuery } from '@/api/user'
+import { createUser, getRegionStats, getRoleList, getUserGroupList, getUserList, impersonateUser, updateUserStatus, type RegionStatItem, type RoleInfo, type UserCreateRequest, type UserGroupInfo, type UserInfo, type UserListQuery } from '@/api/user'
 
 defineOptions({ name: 'UserAccountsList' })
 
@@ -340,7 +360,10 @@ const loading = ref(false)
 const errorMessage = ref('')
 const tableData = ref<UserInfo[]>([])
 const regionItems = ref<RegionStatItem[]>([])
+const roleOptions = ref<RoleInfo[]>([])
+const userGroupOptions = ref<UserGroupInfo[]>([])
 const sortOrder = ref<SortOrder>('desc')
+const isMobile = ref(false)
 const tableDragRef = ref<HTMLElement | null>(null)
 const activeTableScrollRef = ref<HTMLElement | null>(null)
 const isTableDragging = ref(false)
@@ -378,6 +401,7 @@ const formData = reactive<UserCreateRequest>({
   password: '',
   status: 'active',
   role_ids: [],
+  user_group_id: undefined,
 })
 
 const rules: Record<string, FormRule[]> = {
@@ -453,6 +477,18 @@ const regionOptions = computed(() => [
   ...regionItems.value.map((item) => ({ label: `${item.region} (${item.count})`, value: item.region })),
 ])
 
+const roleSelectOptions = computed(() =>
+  roleOptions.value
+    .filter((item) => item.status !== 'disabled')
+    .map((item) => ({ label: item.name || formatRoleLabel(item.code), value: item.id })),
+)
+
+const userGroupSelectOptions = computed(() =>
+  userGroupOptions.value
+    .filter((item) => item.status !== 'disabled')
+    .map((item) => ({ label: item.name, value: item.id })),
+)
+
 const activeFilterLabel = computed(() => {
   if (filters.filter === 'today') return '今日新增'
   if (filters.filter === 'pending_real_name') return '待实名认证'
@@ -467,7 +503,7 @@ const sortedTableData = computed(() => {
   return [...tableData.value].sort((left, right) => (Number(left.id || 0) - Number(right.id || 0)) * orderFactor)
 })
 
-const columns: PrimaryTableCol<UserInfo>[] = [
+const columns = computed<PrimaryTableCol<UserInfo>[]>(() => [
   { colKey: 'id', title: 'ID', width: 92 },
   { colKey: 'username', title: '账号信息', minWidth: 260 },
   { colKey: 'real_name', title: '实名信息', minWidth: 220 },
@@ -479,8 +515,18 @@ const columns: PrimaryTableCol<UserInfo>[] = [
   { colKey: 'oauth_provider', title: '第三方登录', minWidth: 180 },
   { colKey: 'status', title: '状态', width: 110 },
   { colKey: 'last_login_at', title: '最近登录', width: 180 },
-  { colKey: 'action', title: '操作', width: 260, fixed: 'right' },
-]
+  ...(!isMobile.value
+    ? [
+        {
+          colKey: 'action',
+          title: '操作',
+          width: 260,
+          fixed: 'right' as const,
+          align: 'center' as const,
+        },
+      ]
+    : []),
+])
 
 function syncFiltersFromRoute() {
   const query = route.query as Record<string, string | undefined>
@@ -521,6 +567,11 @@ function toggleIdSort() {
   sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
 }
 
+function syncViewportState() {
+  if (typeof window === 'undefined') return
+  isMobile.value = window.innerWidth < 768
+}
+
 async function replaceRouteQuery() {
   await router.replace({ query: buildQuery() })
 }
@@ -531,6 +582,23 @@ async function loadRegions() {
     regionItems.value = data.items || []
   } catch {
     regionItems.value = []
+  }
+}
+
+async function loadRoleOptions() {
+  try {
+    roleOptions.value = await getRoleList()
+  } catch {
+    roleOptions.value = []
+  }
+}
+
+async function loadUserGroupOptions() {
+  try {
+    const data = await getUserGroupList({ page: 1, page_size: 200, status: 'active' })
+    userGroupOptions.value = data.items || []
+  } catch {
+    userGroupOptions.value = []
   }
 }
 
@@ -562,7 +630,7 @@ async function loadUsers() {
 }
 
 async function loadAll() {
-  await Promise.all([loadRegions(), loadUsers()])
+  await Promise.all([loadRegions(), loadRoleOptions(), loadUserGroupOptions(), loadUsers()])
 }
 
 async function handleSearch() {
@@ -632,6 +700,7 @@ async function copyText(value: string, label: string) {
   }
 }
 
+
 function goUserDetail(row: UserInfo) {
   router.push({
     path: '/users/accounts/detail',
@@ -641,6 +710,34 @@ function goUserDetail(row: UserInfo) {
 
 function handleRecharge(row: UserInfo) {
   MessagePlugin.info(`充值功能开发中 - 用户: ${row.username}`)
+}
+
+function buildMobileActionOptions(row: UserInfo) {
+  return [
+    { content: '详情', value: 'detail' },
+    { content: '充值', value: 'recharge' },
+    { content: '登录', value: 'impersonate', disabled: row.status !== 'active' },
+    { content: row.status === 'active' ? '冻结' : '解冻', value: 'toggle-status' },
+  ]
+}
+
+function handleMobileActionClick(data: { value: string } | string, row: UserInfo) {
+  const value = typeof data === 'string' ? data : data?.value
+  if (value === 'detail') {
+    goUserDetail(row)
+    return
+  }
+  if (value === 'recharge') {
+    handleRecharge(row)
+    return
+  }
+  if (value === 'impersonate') {
+    void handleImpersonate(row)
+    return
+  }
+  if (value === 'toggle-status') {
+    void toggleStatus(row)
+  }
 }
 
 async function handleImpersonate(row: UserInfo) {
@@ -718,12 +815,14 @@ function handleTableDragEnd() {
 
 function initFormData(): UserCreateRequest {
   return {
+    id: undefined,
     username: '',
     email: '',
     phone: '',
     password: '',
     status: 'active',
     role_ids: [],
+    user_group_id: undefined,
   }
 }
 
@@ -783,11 +882,14 @@ watch(
 
 onMounted(async () => {
   syncFiltersFromRoute()
+  syncViewportState()
+  window.addEventListener('resize', syncViewportState)
   await loadAll()
 })
 
 onBeforeUnmount(() => {
   handleTableDragEnd()
+  window.removeEventListener('resize', syncViewportState)
 })
 </script>
 
@@ -809,7 +911,7 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
-  padding: 20px 24px;
+  padding: 18px 20px;
   border-color: #d1fae5;
 }
 
@@ -1054,8 +1156,17 @@ onBeforeUnmount(() => {
 
 .action-cell {
   display: flex;
+  width: 100%;
   gap: 6px;
   align-items: center;
+  justify-content: center;
+}
+
+.action-menu-button {
+  min-width: 0;
+  width: 36px;
+  height: 32px;
+  padding: 0;
 }
 
 .ip-cell__value {
@@ -1321,6 +1432,37 @@ onBeforeUnmount(() => {
   .toolbar__actions,
   .list-header__actions {
     justify-content: flex-start;
+  }
+}
+
+@media (max-width: 767px) {
+  .table-panel {
+    padding: 8px;
+  }
+
+  .action-cell {
+    justify-content: center;
+  }
+
+  .mobile-action-button {
+    padding-inline: 10px;
+  }
+
+  .mobile-action-fab {
+    right: 10px;
+    top: calc(50% + 24px);
+  }
+
+  :deep(.user-table .t-table__header th),
+  :deep(.user-table .t-table__body td) {
+    padding-inline: 4px;
+  }
+
+  :deep(.user-table .t-table__cell-fixed-left),
+  :deep(.user-table .t-table__cell-fixed-right),
+  :deep(.user-table .t-table__fixed-left),
+  :deep(.user-table .t-table__fixed-right) {
+    z-index: 1;
   }
 }
 

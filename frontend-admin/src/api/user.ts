@@ -60,6 +60,7 @@ export interface UserCreateRequest {
   password: string
   status: string
   role_ids?: number[]
+  user_group_id?: number
 }
 
 export interface UserStatusRequest {

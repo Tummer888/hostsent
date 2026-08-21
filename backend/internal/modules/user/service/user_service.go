@@ -66,7 +66,7 @@ func (s *userService) Create(ctx context.Context, req dto.UserCreateRequest) (*d
 	if err != nil {
 		return nil, err
 	}
-	user := &model.User{ID: req.ID, Username: req.Username, Email: req.Email, Phone: req.Phone, PasswordHash: string(hash), Status: req.Status}
+	user := &model.User{ID: req.ID, Username: req.Username, Email: req.Email, Phone: req.Phone, PasswordHash: string(hash), Status: req.Status, UserGroupID: req.UserGroupID}
 	if err := s.repo.Create(ctx, user); err != nil {
 		return nil, err
 	}
