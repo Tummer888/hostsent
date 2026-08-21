@@ -507,8 +507,9 @@ watch(
 
 .group-sidebar {
   width: 88px;
-  background: linear-gradient(180deg, #14532d 0%, #166534 42%, #15803d 100%);
-  color: #ffffff;
+  background: #ffffff;
+  border-right: 1px solid #e5e7eb;
+  color: #111827;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -519,7 +520,8 @@ watch(
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.14);
+  background: #f0fdf4;
+  color: #16a34a;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -548,15 +550,15 @@ watch(
   width: 100%;
   min-height: 54px;
   border-radius: 12px;
-  color: rgba(255, 255, 255, 0.76);
+  color: #111827;
   cursor: pointer;
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .group-item:hover,
 .group-item.is-active {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.12);
+  color: #111827;
+  background: #f0fdf4;
 }
 
 .group-item.is-active {
@@ -1017,19 +1019,20 @@ watch(
   width: 36px;
   height: 36px;
   border-radius: 8px;
-  background: transparent;
-  border: 1px solid #e5e7eb;
+  background: #f3f4f6;
+  border: 0px solid #d1d5db;
   color: #374151;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   padding: 0;
   margin-right: 10px;
-  transition: background-color 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .mobile-menu-btn:hover {
-  background: #f3f4f6;
+  background: #e5e7eb;
+  border-color: #9ca3af;
 }
 
 /* ===== 二级菜单搜索栏 ===== */

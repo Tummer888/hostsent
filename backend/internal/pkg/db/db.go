@@ -372,17 +372,17 @@ func seedDemoUsers(tx *gorm.DB) error {
 		loginD := now.Add(-72 * time.Hour)
 
 		defaults := []usermodel.User{
-			{Username: "user_east_01", Email: "east01@hostsent.local", Phone: "13900000001", PasswordHash: string(hash), Status: "active", RealName: "李东", Region: "华东", Balance: 1280.50, LastLoginAt: &loginA},
-			{Username: "user_north_01", Email: "north01@hostsent.local", Phone: "13900000002", PasswordHash: string(hash), Status: "active", RealName: "王北", Region: "华北", Balance: 860.00, LastLoginAt: &loginB},
-			{Username: "user_south_01", Email: "south01@hostsent.local", Phone: "13900000003", PasswordHash: string(hash), Status: "active", RealName: "陈南", Region: "华南", Balance: 420.35, LastLoginAt: &loginC},
-			{Username: "user_west_01", Email: "west01@hostsent.local", Phone: "13900000004", PasswordHash: string(hash), Status: "disabled", RealName: "赵西", Region: "西南", Balance: 0, LastLoginAt: &loginD},
-			{Username: "user_central_01", Email: "central01@hostsent.local", Phone: "13900000005", PasswordHash: string(hash), Status: "pending", RealName: "", Region: "华中", Balance: 66.60},
-			{Username: "user_east_02", Email: "east02@hostsent.local", Phone: "13900000006", PasswordHash: string(hash), Status: "cancelled", RealName: "孙城", Region: "华东", Balance: 0},
-			{Username: "user_new_01", Email: "new01@hostsent.local", Phone: "13900000007", PasswordHash: string(hash), Status: "active", RealName: "周新", Region: "华北", Balance: 218.88, CreatedAt: newUserTime, UpdatedAt: newUserTime, LastLoginAt: &loginA},
-			{Username: "user_nw_01", Email: "nw01@hostsent.local", Phone: "13900000008", PasswordHash: string(hash), Status: "active", RealName: "", Region: "西北", Balance: 0},
-			{Username: "user_ne_01", Email: "ne01@hostsent.local", Phone: "13900000009", PasswordHash: string(hash), Status: "disabled", RealName: "刘北", Region: "东北", Balance: 52.10, LastLoginAt: &loginD},
-			{Username: "user_oversea_01", Email: "os01@hostsent.local", Phone: "13900000010", PasswordHash: string(hash), Status: "pending", RealName: "吴洋", Region: "海外", Balance: 999.99},
-		}
+			{Username: "user_east_01", Email: "east01@hostsent.local", Phone: "13900000001", PasswordHash: string(hash), Status: "active", RealName: "李东", Region: "华东", Balance: 1280.50, LastLoginAt: &loginA, OAuthProvider: "wechat", OAuthOpenID: "wx_o_01"},
+		{Username: "user_north_01", Email: "north01@hostsent.local", Phone: "13900000002", PasswordHash: string(hash), Status: "active", RealName: "王北", Region: "华北", Balance: 860.00, LastLoginAt: &loginB, OAuthProvider: "github", OAuthOpenID: "gh_o_02"},
+		{Username: "user_south_01", Email: "south01@hostsent.local", Phone: "13900000003", PasswordHash: string(hash), Status: "active", RealName: "陈南", Region: "华南", Balance: 420.35, LastLoginAt: &loginC, OAuthProvider: "qq", OAuthOpenID: "qq_o_03"},
+		{Username: "user_west_01", Email: "west01@hostsent.local", Phone: "13900000004", PasswordHash: string(hash), Status: "disabled", RealName: "赵西", Region: "西南", Balance: 0, LastLoginAt: &loginD},
+		{Username: "user_central_01", Email: "central01@hostsent.local", Phone: "13900000005", PasswordHash: string(hash), Status: "pending", RealName: "", Region: "华中", Balance: 66.60, OAuthProvider: "alipay", OAuthOpenID: "ali_o_05"},
+		{Username: "user_east_02", Email: "east02@hostsent.local", Phone: "13900000006", PasswordHash: string(hash), Status: "cancelled", RealName: "孙城", Region: "华东", Balance: 0},
+		{Username: "user_new_01", Email: "new01@hostsent.local", Phone: "13900000007", PasswordHash: string(hash), Status: "active", RealName: "周新", Region: "华北", Balance: 218.88, CreatedAt: newUserTime, UpdatedAt: newUserTime, LastLoginAt: &loginA, OAuthProvider: "wecom", OAuthOpenID: "ww_o_07"},
+		{Username: "user_nw_01", Email: "nw01@hostsent.local", Phone: "13900000008", PasswordHash: string(hash), Status: "active", RealName: "", Region: "西北", Balance: 0},
+		{Username: "user_ne_01", Email: "ne01@hostsent.local", Phone: "13900000009", PasswordHash: string(hash), Status: "disabled", RealName: "刘北", Region: "东北", Balance: 52.10, LastLoginAt: &loginD},
+		{Username: "user_oversea_01", Email: "os01@hostsent.local", Phone: "13900000010", PasswordHash: string(hash), Status: "pending", RealName: "吴洋", Region: "海外", Balance: 999.99, OAuthProvider: "github", OAuthOpenID: "gh_o_10"},
+	}
 
 		for i := range defaults {
 			if defaults[i].CreatedAt.IsZero() {
