@@ -221,6 +221,22 @@ func (r *userRepository) Stats(ctx context.Context) (*model.UserStats, error) {
 		return nil, err
 	}
 
+	// 用户总余额
+	if err := r.db.WithContext(ctx).Model(&model.User{}).
+		Select("COALESCE(SUM(balance), 0)").
+		Scan(&stats.TotalBalance).Error; err != nil {
+		return nil, err
+	}
+
+	// 已购用户数（至少有一条订单记录的用户）
+	if err := r.db.WithContext(ctx).
+		Table("orders").
+		Select("COUNT(DISTINCT user_id)").
+		Where("deleted_at IS NULL").
+		Scan(&stats.PurchasedCount).Error; err != nil {
+		return nil, err
+	}
+
 	return &stats, nil
 }
 

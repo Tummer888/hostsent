@@ -6,26 +6,14 @@
     >
       <div class="overview-header__brand">
         <div class="overview-header__badge">
-          <DashboardIcon size="22" aria-hidden="true" />
+          <UserIcon size="22" aria-hidden="true" />
         </div>
         <div class="overview-header__text">
-          <div class="overview-header__title-row">
-            <h2 class="overview-header__title">用户总览</h2>
-            <span
-              v-if="!loading && !errorMessage"
-              class="overview-header__sync"
-            >
-              <span class="sync-dot" aria-hidden="true"></span>
-              实时同步
-            </span>
-          </div>
-          <p class="overview-header__subtitle">
-            汇总平台用户状态与地域分布 · 数据同步于 {{ lastSync }}
-          </p>
+          <h2 class="overview-header__title">用户总览</h2>
         </div>
       </div>
       <t-button
-        theme="primary"
+        theme="success"
         variant="outline"
         size="medium"
         :loading="loading"
@@ -46,33 +34,26 @@
         :key="stat.key"
         class="stat-card surface-card"
         :class="`stat-card--${stat.variant}`"
-        :style="{ animationDelay: `${60 + idx * 45}ms`, '--card-bg': `url('${cardBg}')` }"
-        tabindex="0"
-        role="button"
-        :aria-label="`${stat.title}：${stat.value}，点击查看明细`"
-        @click="goStat(stat)"
-        @keydown.enter="goStat(stat)"
+        :style="{ animationDelay: `${60 + idx * 45}ms` }"
       >
         <div class="stat-card__body">
-          <div class="stat-card__head">
-            <div class="stat-card__icon" :class="`stat-card__icon--${stat.variant}`">
-              <component :is="stat.icon" size="20" aria-hidden="true" />
+          <div class="stat-card__icon-wrap" :class="`stat-card__icon-wrap--${stat.variant}`">
+            <div class="stat-card__icon stat-card__icon--floating" :class="`stat-card__icon--${stat.variant}`">
+              <component :is="stat.icon" size="26" aria-hidden="true" />
             </div>
-            <span class="stat-card__title">{{ stat.title }}</span>
           </div>
-          <div class="stat-card__main">
-            <t-statistic
-              :value="stat.value"
-              :decimal-places="0"
-              :precision="0"
-              class="stat-card__value"
-            />
-            <span class="stat-card__hint" :class="`stat-card__hint--${stat.variant}`">{{ stat.hint }}</span>
-          </div>
-          <p class="stat-card__desc">{{ stat.desc }}</p>
-          <div class="stat-card__foot">
-            <span class="stat-card__link">查看明细</span>
-            <ArrowRightIcon size="13" class="stat-card__arrow" aria-hidden="true" />
+          <div class="stat-card__content">
+            <div class="stat-card__meta">
+              <span class="stat-card__title">{{ stat.title }}</span>
+            </div>
+            <div class="stat-card__main">
+              <t-statistic
+                :value="stat.displayValue"
+                :decimal-places="stat.decimalPlaces"
+                :precision="stat.precision"
+                class="stat-card__value"
+              />
+            </div>
           </div>
         </div>
       </article>
@@ -83,9 +64,7 @@
         <header class="panel-card__head">
           <div>
             <h3 id="status-chart-title" class="panel-card__title">用户状态分布</h3>
-            <p class="panel-card__subtitle">点击扇区可跳转对应用户列表</p>
           </div>
-          <t-tag theme="primary" variant="light" size="small" shape="round">扇形图</t-tag>
         </header>
         <t-loading v-if="loading" size="small" text="加载中..." class="chart-loading" />
         <EChart
@@ -105,7 +84,6 @@
         <header class="panel-card__head">
           <div>
             <h3 id="quick-entry-title" class="panel-card__title">快捷入口</h3>
-            <p class="panel-card__subtitle">点击即可跳转，可在右侧编辑自定义入口</p>
           </div>
           <t-button variant="outline" size="small" @click="openEntryEditor">
             <template #icon>
@@ -139,9 +117,7 @@
       <header class="panel-card__head">
         <div>
           <h3 id="region-chart-title" class="panel-card__title">用户地域分布</h3>
-          <p class="panel-card__subtitle">点击柱条可跳转对应用户列表</p>
         </div>
-        <t-tag theme="success" variant="light" size="small" shape="round">统计图</t-tag>
       </header>
       <t-loading v-if="loading" size="small" text="加载中..." class="chart-loading" />
       <EChart
@@ -194,10 +170,10 @@ import type { EChartsOption } from 'echarts'
 
 import {
   ArrowRightIcon,
-  DashboardIcon,
   EditIcon,
   ErrorCircleIcon,
-  MenuIcon,
+  MoneyIcon,
+  OrderIcon,
   RefreshIcon,
   UserAddIcon,
   UserArrowUpIcon,
@@ -207,6 +183,7 @@ import {
   UserSafetyIcon,
   UserUnknownIcon,
 } from 'tdesign-icons-vue-next'
+
 
 import EChart from '@/components/EChart.vue'
 import { getRegionStats, getUserStats, type RegionStatItem, type UserStatsResponse } from '@/api/user'
@@ -222,14 +199,7 @@ const headerBg =
   ) +
   '&image_size=landscape_16_9'
 
-const cardBg =
-  'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=' +
-  encodeURIComponent(
-    'realistic photograph of a modern data center server room, rows of server racks with soft blue and green indicator lights, shallow depth of field, bright clean professional lighting, no people, no text',
-  ) +
-  '&image_size=landscape_4_3'
-
-type StatVariant = 'blue' | 'green' | 'cyan' | 'orange' | 'purple' | 'warning'
+type StatVariant = 'blue' | 'green' | 'cyan' | 'orange' | 'purple' | 'warning' | 'indigo' | 'teal'
 
 interface StatCardItem {
   key: keyof UserStatsResponse
@@ -240,6 +210,9 @@ interface StatCardItem {
   desc: string
   icon: unknown
   filter: Record<string, string>
+  displayValue: number
+  decimalPlaces: number
+  precision: number
 }
 
 const loading = ref(false)
@@ -251,14 +224,29 @@ const stats = ref<UserStatsResponse>({
   disabled: 0,
   pending_real_name: 0,
   pending_review: 0,
+  total_balance: 0,
+  purchased_count: 0,
 })
 const regionItems = ref<RegionStatItem[]>([])
-const lastSync = ref('--:--:--')
 
 const listPath = '/users/accounts/list'
 
 const statCards = computed<StatCardItem[]>(() => {
   const items: StatCardItem[] = [
+    // Row 1
+    {
+      key: 'total_balance',
+      title: '用户总余额',
+      value: stats.value.total_balance,
+      variant: 'indigo',
+      hint: '累计',
+      desc: '平台全部用户账户余额总和',
+      icon: MoneyIcon,
+      filter: {},
+      displayValue: stats.value.total_balance,
+      decimalPlaces: 2,
+      precision: 2,
+    },
     {
       key: 'total',
       title: '总用户数',
@@ -268,6 +256,9 @@ const statCards = computed<StatCardItem[]>(() => {
       desc: '平台全部注册用户总数',
       icon: UserIcon,
       filter: {},
+      displayValue: stats.value.total,
+      decimalPlaces: 0,
+      precision: 0,
     },
     {
       key: 'today_new',
@@ -278,27 +269,24 @@ const statCards = computed<StatCardItem[]>(() => {
       desc: '当日新增注册用户数量',
       icon: UserAddIcon,
       filter: { filter: 'today' },
+      displayValue: stats.value.today_new,
+      decimalPlaces: 0,
+      precision: 0,
     },
     {
-      key: 'active',
-      title: '活跃用户',
-      value: stats.value.active,
-      variant: 'cyan',
-      hint: '正常',
-      desc: '状态为正常可登录的账号',
-      icon: UserArrowUpIcon,
-      filter: { status: 'active' },
+      key: 'purchased_count',
+      title: '已购用户',
+      value: stats.value.purchased_count,
+      variant: 'teal',
+      hint: '累计',
+      desc: '至少有一条订单的用户数量',
+      icon: OrderIcon,
+      filter: {},
+      displayValue: stats.value.purchased_count,
+      decimalPlaces: 0,
+      precision: 0,
     },
-    {
-      key: 'disabled',
-      title: '冻结用户',
-      value: stats.value.disabled,
-      variant: 'orange',
-      hint: '冻结',
-      desc: '因风控或违规被冻结的账号',
-      icon: UserLockedIcon,
-      filter: { status: 'disabled' },
-    },
+    // Row 2
     {
       key: 'pending_real_name',
       title: '待实名',
@@ -308,6 +296,9 @@ const statCards = computed<StatCardItem[]>(() => {
       desc: '正常账号中尚未实名认证',
       icon: UserSafetyIcon,
       filter: { filter: 'pending_real_name' },
+      displayValue: stats.value.pending_real_name,
+      decimalPlaces: 0,
+      precision: 0,
     },
     {
       key: 'pending_review',
@@ -318,6 +309,35 @@ const statCards = computed<StatCardItem[]>(() => {
       desc: '等待管理员审核的新注册账号',
       icon: UserUnknownIcon,
       filter: { status: 'pending' },
+      displayValue: stats.value.pending_review,
+      decimalPlaces: 0,
+      precision: 0,
+    },
+    {
+      key: 'disabled',
+      title: '冻结用户',
+      value: stats.value.disabled,
+      variant: 'orange',
+      hint: '冻结',
+      desc: '因风控或违规被冻结的账号',
+      icon: UserLockedIcon,
+      filter: { status: 'disabled' },
+      displayValue: stats.value.disabled,
+      decimalPlaces: 0,
+      precision: 0,
+    },
+    {
+      key: 'active',
+      title: '活跃用户',
+      value: stats.value.active,
+      variant: 'cyan',
+      hint: '正常',
+      desc: '状态为正常可登录的账号',
+      icon: UserArrowUpIcon,
+      filter: { status: 'active' },
+      displayValue: stats.value.active,
+      decimalPlaces: 0,
+      precision: 0,
     },
   ]
   return items
@@ -396,14 +416,12 @@ interface QuickCandidate {
 }
 
 const entryCandidates: QuickCandidate[] = [
-  { key: 'users-overview', label: '用户总览', path: '/users/overview', icon: DashboardIcon },
   { key: 'users-list', label: '用户列表', path: listPath, icon: UserListIcon },
   { key: 'real-name', label: '待实名', path: `${listPath}?filter=pending_real_name`, icon: UserSafetyIcon },
   { key: 'pending', label: '待审核', path: `${listPath}?status=pending`, icon: UserUnknownIcon },
-  { key: 'disabled', label: '冻结用户', path: `${listPath}?status=disabled`, icon: UserLockedIcon },
   { key: 'today-new', label: '今日新增', path: `${listPath}?filter=today`, icon: UserAddIcon },
-  { key: 'dashboard', label: '仪表盘', path: '/dashboard/base', icon: DashboardIcon },
-  { key: 'menus', label: '菜单管理', path: '/system/menus', icon: MenuIcon },
+  { key: 'purchased', label: '已购用户', path: `${listPath}?filter=purchased`, icon: OrderIcon },
+  { key: 'disabled', label: '冻结用户', path: `${listPath}?status=disabled`, icon: UserLockedIcon },
 ]
 
 const QUICK_STORAGE_KEY = 'hostsent_admin_quick_entries'
@@ -482,11 +500,6 @@ function onRegionClick(payload: { name: string; seriesType?: string }) {
   if (payload.name) void navigateRaw(listPath, { region: payload.name })
 }
 
-function markSync() {
-  const d = new Date()
-  lastSync.value = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`
-}
-
 async function loadAll() {
   loading.value = true
   errorMessage.value = ''
@@ -499,9 +512,10 @@ async function loadAll() {
       disabled: s.disabled ?? 0,
       pending_real_name: s.pending_real_name ?? 0,
       pending_review: s.pending_review ?? 0,
+      total_balance: s.total_balance ?? 0,
+      purchased_count: s.purchased_count ?? 0,
     }
     regionItems.value = r.items ?? []
-    markSync()
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : '获取用户统计失败，请稍后重试'
   } finally {
@@ -524,7 +538,6 @@ onMounted(() => {
   padding: 2px 2px 16px;
 }
 
-/* Shared surface card — flat, no shadow, no glass */
 .surface-card {
   position: relative;
   border-radius: var(--hs-radius-lg);
@@ -540,7 +553,6 @@ onMounted(() => {
   box-shadow: none;
 }
 
-/* Page header — banner with faint background image */
 .overview-header {
   position: relative;
   padding: 20px 22px;
@@ -550,7 +562,7 @@ onMounted(() => {
   gap: 16px;
   flex-wrap: wrap;
   overflow: hidden;
-  border-color: #d1fae5;
+  border-color: transparent;
 }
 
 .overview-header::before {
@@ -560,7 +572,7 @@ onMounted(() => {
   background-image: var(--header-bg);
   background-size: cover;
   background-position: center;
-  opacity: 0.22;
+  opacity: 0.15;
   z-index: 0;
   pointer-events: none;
 }
@@ -569,7 +581,7 @@ onMounted(() => {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.82) 0%, rgba(255, 255, 255, 0.6) 60%, rgba(255, 255, 255, 0.7) 100%);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.90) 0%, rgba(255, 255, 255, 0.5) 60%, rgba(255, 255, 255, 0.85) 100%);
   z-index: 0;
   pointer-events: none;
 }
@@ -587,31 +599,24 @@ onMounted(() => {
 }
 
 .overview-header__badge {
-  width: 46px;
-  height: 46px;
-  border-radius: var(--hs-radius-md);
-  background: linear-gradient(135deg, #22c55e, #16a34a);
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
   color: #ffffff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: none;
+  box-shadow: 0 4px 10px rgba(99, 102, 241, 0.25);
 }
 
 .overview-header__text {
   min-width: 0;
 }
 
-.overview-header__title-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
 .overview-header__title {
-  margin: 0 0 2px;
+  margin: 0;
   font-family: var(--hs-font-heading);
   font-size: 22px;
   font-weight: 800;
@@ -619,48 +624,14 @@ onMounted(() => {
   letter-spacing: -0.01em;
 }
 
-.overview-header__sync {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 10px;
-  border-radius: var(--hs-radius-xl);
-  background: #ecfdf5;
-  border: 1px solid #bbf7d0;
-  color: #15803d;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.overview-header__subtitle {
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--color-muted-foreground);
-}
-
 .overview-header__refresh {
   border-radius: var(--hs-radius-md);
   flex-shrink: 0;
 }
 
-.sync-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #16a34a;
-  display: inline-block;
-  margin-right: 4px;
-  animation: syncPulse 2.4s ease-in-out infinite;
-}
-
-@keyframes syncPulse {
-  0%, 100% { opacity: 1; }
-  70% { opacity: 0.4; }
-}
-
-/* Stat cards grid */
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -672,137 +643,194 @@ onMounted(() => {
   transform: translateY(8px);
   animation: cardIn 360ms var(--hs-ease-out) forwards;
   outline: none;
+  min-height: 132px;
+  border: none;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+  box-shadow: 0 10px 26px rgba(148, 163, 184, 0.12);
 }
 
 .stat-card:focus-visible {
-  border-color: #16a34a;
-  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18);
+  box-shadow:
+    0 10px 26px rgba(148, 163, 184, 0.12),
+    0 0 0 3px rgba(22, 163, 74, 0.14);
 }
 
 .stat-card:hover {
-  border-color: #bbf7d0;
-  box-shadow: none;
+  box-shadow: 0 14px 32px rgba(148, 163, 184, 0.16);
 }
 
 @keyframes cardIn {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.stat-card::before {
+.stat-card::before,
+.stat-card::after {
   content: '';
   position: absolute;
-  inset: 0;
-  background-image: var(--card-bg);
-  background-size: cover;
-  background-position: center;
-  opacity: 0.2;
-  z-index: 0;
   pointer-events: none;
-  transition: opacity var(--hs-duration-fast);
+  border-radius: 999px;
+  transition: transform var(--hs-duration-fast), opacity var(--hs-duration-fast);
+}
+
+.stat-card::before {
+  width: 150px;
+  height: 150px;
+  left: -28px;
+  top: -18px;
+  opacity: 0.78;
+}
+
+.stat-card::after {
+  width: 112px;
+  height: 112px;
+  right: -20px;
+  bottom: -36px;
+  opacity: 0.34;
 }
 
 .stat-card:hover::before {
-  opacity: 0.28;
+  transform: scale(1.04);
 }
+
+.stat-card:hover::after {
+  transform: scale(1.05);
+}
+
+.stat-card--blue::before { background: radial-gradient(circle at 45% 45%, rgba(191, 219, 254, 0.92) 0%, rgba(147, 197, 253, 0.72) 38%, rgba(191, 219, 254, 0) 72%); }
+.stat-card--blue::after { background: radial-gradient(circle at 50% 50%, rgba(96, 165, 250, 0.22) 0%, rgba(96, 165, 250, 0) 70%); }
+.stat-card--green::before { background: radial-gradient(circle at 45% 45%, rgba(220, 252, 231, 0.94) 0%, rgba(187, 247, 208, 0.76) 38%, rgba(220, 252, 231, 0) 72%); }
+.stat-card--green::after { background: radial-gradient(circle at 50% 50%, rgba(74, 222, 128, 0.22) 0%, rgba(74, 222, 128, 0) 70%); }
+.stat-card--cyan::before { background: radial-gradient(circle at 45% 45%, rgba(207, 250, 254, 0.94) 0%, rgba(165, 243, 252, 0.76) 38%, rgba(207, 250, 254, 0) 72%); }
+.stat-card--cyan::after { background: radial-gradient(circle at 50% 50%, rgba(34, 211, 238, 0.2) 0%, rgba(34, 211, 238, 0) 70%); }
+.stat-card--orange::before { background: radial-gradient(circle at 45% 45%, rgba(255, 237, 213, 0.95) 0%, rgba(254, 215, 170, 0.76) 38%, rgba(255, 237, 213, 0) 72%); }
+.stat-card--orange::after { background: radial-gradient(circle at 50% 50%, rgba(251, 191, 36, 0.2) 0%, rgba(251, 191, 36, 0) 70%); }
+.stat-card--warning::before { background: radial-gradient(circle at 45% 45%, rgba(237, 233, 254, 0.95) 0%, rgba(221, 214, 254, 0.76) 38%, rgba(237, 233, 254, 0) 72%); }
+.stat-card--warning::after { background: radial-gradient(circle at 50% 50%, rgba(139, 92, 246, 0.22) 0%, rgba(139, 92, 246, 0) 70%); }
+.stat-card--purple::before { background: radial-gradient(circle at 45% 45%, rgba(243, 232, 255, 0.94) 0%, rgba(221, 214, 254, 0.78) 38%, rgba(243, 232, 255, 0) 72%); }
+  .stat-card--purple::after { background: radial-gradient(circle at 50% 50%, rgba(167, 139, 250, 0.22) 0%, rgba(167, 139, 250, 0) 70%); }
+  .stat-card--indigo::before { background: radial-gradient(circle at 45% 45%, rgba(224, 231, 255, 0.94) 0%, rgba(199, 210, 254, 0.78) 38%, rgba(224, 231, 255, 0) 72%); }
+  .stat-card--indigo::after { background: radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.22) 0%, rgba(99, 102, 241, 0) 70%); }
+  .stat-card--teal::before { background: radial-gradient(circle at 45% 45%, rgba(204, 251, 241, 0.94) 0%, rgba(153, 246, 228, 0.76) 38%, rgba(204, 251, 241, 0) 72%); }
+  .stat-card--teal::after { background: radial-gradient(circle at 50% 50%, rgba(20, 184, 166, 0.22) 0%, rgba(20, 184, 166, 0) 70%); }
+  .stat-card__icon--indigo { background: linear-gradient(135deg, #818cf8, #4f46e5); }
+  .stat-card__icon--teal { background: linear-gradient(135deg, #2dd4bf, #0d9488); }
 
 .stat-card__body {
   position: relative;
   z-index: 1;
-  padding: 18px 20px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+  min-height: 132px;
+  padding: 14px 24px 16px 16px;
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  align-items: center;
+  gap: 6px;
 }
 
-.stat-card__head {
+.stat-card__icon-wrap {
+  position: relative;
+  width: 70px;
+  height: 70px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
+}
+
+.stat-card__icon-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 10px 8px 8px 10px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.42);
+  filter: blur(8px);
+}
+
+.stat-card__content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 2px;
+}
+
+.stat-card__meta {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
 }
 
 .stat-card__icon {
-  width: 42px;
-  height: 42px;
-  border-radius: var(--hs-radius-md);
+  position: relative;
+  z-index: 1;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: #ffffff;
   flex-shrink: 0;
-  box-shadow: none;
+  border: none;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.34),
+    0 8px 14px rgba(15, 23, 42, 0.1);
+  transform: rotate(-20deg);
 }
 
-.stat-card__icon--blue { background: linear-gradient(135deg, #3b82f6, #2563eb); }
-.stat-card__icon--green { background: linear-gradient(135deg, #22c55e, #16a34a); }
-.stat-card__icon--cyan { background: linear-gradient(135deg, #06b6d4, #0891b2); }
-.stat-card__icon--orange { background: linear-gradient(135deg, #f59e0b, #d97706); }
-.stat-card__icon--warning { background: linear-gradient(135deg, #f59e0b, #d97706); }
-.stat-card__icon--purple { background: linear-gradient(135deg, #8b5cf6, #7c3aed); }
+.stat-card__icon :deep(svg) {
+  transform: rotate(24deg);
+}
+
+.stat-card__icon--floating {
+  position: relative;
+}
+
+.stat-card__icon--blue { background: linear-gradient(135deg, #60a5fa, #2563eb); }
+.stat-card__icon--green { background: linear-gradient(135deg, #4ade80, #16a34a); }
+.stat-card__icon--cyan { background: linear-gradient(135deg, #22d3ee, #0891b2); }
+.stat-card__icon--orange { background: linear-gradient(135deg, #fbbf24, #ea580c); }
+.stat-card__icon--warning { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
+.stat-card__icon--purple { background: linear-gradient(135deg, #a78bfa, #7c3aed); }\n.stat-card__icon--indigo { background: linear-gradient(135deg, #818cf8, #4f46e5); }\n.stat-card__icon--teal { background: linear-gradient(135deg, #2dd4bf, #0d9488); }
 
 .stat-card__title {
-  color: var(--color-foreground);
-  font-size: 14.5px;
+  color: #64748b;
+  font-size: 16px;
   font-weight: 600;
+  line-height: 1.1;
+  text-align: center;
+  width: 100%;
+  margin-top: -2px;
 }
 
 .stat-card__main {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
-  margin-top: 2px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  margin-top: 0;
 }
 
 .stat-card__value :deep(.t-statistic__content) {
   font-family: var(--hs-font-heading);
-  font-size: 34px;
-  font-weight: 800;
-  color: var(--color-foreground);
+  font-size: 58px;
+  font-weight: 900;
+  color: #1e3a8a;
   line-height: 1;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
 }
 
-.stat-card__hint {
-  font-family: var(--hs-font-mono);
-  font-size: 11px;
+.stat-card__value :deep(.t-statistic__value) {
+  font-size: inherit;
+}
+
+.stat-card__value :deep(.t-statistic__prefix),
+.stat-card__value :deep(.t-statistic__suffix) {
+  font-size: 20px;
   font-weight: 700;
-  padding: 2px 7px;
-  border-radius: var(--hs-radius-sm);
-  background: var(--hs-surface-3);
-  color: var(--color-muted-foreground);
 }
 
-.stat-card__hint--blue { color: #2563eb; background: #eff6ff; }
-.stat-card__hint--green { color: #16a34a; background: #ecfdf5; }
-.stat-card__hint--cyan { color: #0891b2; background: #ecfeff; }
-.stat-card__hint--orange { color: #d97706; background: #fffbeb; }
-.stat-card__hint--warning { color: #d97706; background: #fffbeb; }
-.stat-card__hint--purple { color: #7c3aed; background: #f5f3ff; }
-
-.stat-card__desc {
-  margin: 0;
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-  line-height: 1.5;
-}
-
-.stat-card__foot {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: #16a34a;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.stat-card__arrow {
-  transition: transform var(--hs-duration-fast);
-}
-
-.stat-card:hover .stat-card__arrow {
-  transform: translateX(3px);
-}
-
-/* Chart grid — 两列：用户状态扇形图（左）+ 快捷入口（右），地域分布下移满宽 */
 .chart-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
@@ -861,7 +889,6 @@ onMounted(() => {
   padding: 40px 0;
 }
 
-/* Quick entries */
 .quick-panel {
   padding: 16px 16px 16px;
 }
@@ -933,7 +960,6 @@ onMounted(() => {
   padding: 18px 0;
 }
 
-/* Editor dialog */
 .editor-tip {
   margin: 0 0 12px;
   font-size: 12.5px;
@@ -962,7 +988,6 @@ onMounted(() => {
   font-size: 13px;
 }
 
-/* Error banner */
 .error-banner {
   display: flex;
   align-items: center;
@@ -976,8 +1001,19 @@ onMounted(() => {
   flex: 1;
 }
 
-/* Responsive */
-@media (max-width: 1100px) {
+@media (max-width: 1200px) {
+  .stat-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .chart-grid {
+    grid-template-columns: 1fr;
+  }
+  .quick-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
   .stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1006,8 +1042,7 @@ onMounted(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .stat-card,
-  .sync-dot {
+  .stat-card {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;

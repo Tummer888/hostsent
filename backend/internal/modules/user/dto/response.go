@@ -29,12 +29,14 @@ type UserListResponse struct {
 }
 
 type UserStatsResponse struct {
-	Total           int64 `json:"total"`
-	TodayNew        int64 `json:"today_new"`
-	Active          int64 `json:"active"`
-	Disabled        int64 `json:"disabled"`
-	PendingRealName int64 `json:"pending_real_name"`
-	PendingReview   int64 `json:"pending_review"`
+	Total           int64   `json:"total"`
+	TodayNew        int64   `json:"today_new"`
+	Active          int64   `json:"active"`
+	Disabled        int64   `json:"disabled"`
+	PendingRealName int64   `json:"pending_real_name"`
+	PendingReview   int64   `json:"pending_review"`
+	TotalBalance    float64 `json:"total_balance"`
+	PurchasedCount  int64   `json:"purchased_count"`
 }
 
 type RegionStatItem struct {

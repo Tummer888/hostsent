@@ -1,7 +1,22 @@
 <template>
   <div class="admin-layout">
+    <!-- 移动端遮罩 -->
+    <transition name="overlay-fade">
+      <div
+        v-if="mobileSidebarOpen"
+        class="sidebar-overlay"
+        @click="mobileSidebarOpen = false"
+      ></div>
+    </transition>
+
     <!-- 侧边栏区域 -->
-    <div class="sidebar-wrapper">
+    <div
+      class="sidebar-wrapper"
+      :class="{
+        'is-collapsed': sidebarCollapsed,
+        'is-mobile-open': mobileSidebarOpen,
+      }"
+    >
       <!-- 1. 分组/一级菜单栏 (使用动态菜单的顶级节点) -->
       <aside class="group-sidebar">
         <div class="group-logo">H</div>
@@ -14,16 +29,16 @@
             @click="onGroupClick(group)"
           >
             <component :is="group.icon" class="group-icon" v-if="group.icon" />
-            <span class="group-label">{{ group.name }}</span>
+            <span class="group-label" :class="{ 'label-hidden': sidebarCollapsed }">{{ group.name }}</span>
           </li>
         </ul>
       </aside>
 
       <!-- 2. 主菜单/二三级栏 -->
-      <aside class="menu-sidebar">
+      <aside class="menu-sidebar" :class="{ 'is-closed': sidebarCollapsed }">
         <div class="menu-header">{{ currentGroup?.name || '菜单' }}</div>
         <ul class="menu-list">
-          <template v-for="menu in currentMenuList" :key="menu.path || menu.name">
+          <template v-for="menu in filteredMenuList" :key="menu.path || menu.name">
             <!-- 有子菜单 -->
             <li
               v-if="menu.children && menu.children.length"
@@ -35,9 +50,26 @@
                 <span class="menu-title">{{ menu.name }}</span>
                 <ChevronRightIcon class="menu-arrow" :class="{ 'is-open': isExpanded(menu) }" />
               </div>
-              <!-- 三级菜单 -->
+              <!-- 收缩态二级悬浮弹出 -->
+              <div v-if="sidebarCollapsed" class="collapsed-popup" @click.stop>
+                <div class="collapsed-popup__header">{{ menu.name }}</div>
+                <ul class="collapsed-popup__list">
+                  <li
+                    v-for="sub in (menu.children || [])"
+                    :key="sub.path || sub.name"
+                    class="collapsed-popup__item"
+                    :class="{ 'is-active': route.path === sub.path }"
+                  >
+                    <div class="collapsed-popup__link" @click="navigateTo(sub.path)">
+                      <span class="collapsed-popup__dot"></span>
+                      <span>{{ sub.name }}</span>
+                    </div>
+                  </li>
+                </ul>
+              </div>
+              <!-- 三级菜单（展开态） -->
               <transition name="slide">
-                <ul v-if="isExpanded(menu)" class="submenu-list">
+                <ul v-if="!sidebarCollapsed && isExpanded(menu)" class="submenu-list">
                   <li
                     v-for="submenu in menu.children"
                     :key="submenu.path || submenu.name"
@@ -66,6 +98,20 @@
           </template>
         </ul>
 
+        <!-- 二级菜单搜索 -->
+        <div class="menu-search" :class="{ 'is-hidden': sidebarCollapsed }">
+          <SearchIcon size="16" class="menu-search__icon" />
+          <input
+            v-model="searchQuery"
+            class="menu-search__input"
+            type="text"
+            placeholder="搜索菜单..."
+          />
+          <button v-if="searchQuery" class="menu-search__clear" @click="searchQuery = ''">
+            &times;
+          </button>
+        </div>
+
         <!-- 底部按钮组 -->
         <div class="sidebar-footer">
           <div class="footer-btn" :title="useFallbackMenu ? '使用静态菜单（后端不可用）' : '菜单管理'" @click="router.push('/system/menus')">
@@ -87,8 +133,20 @@
     <t-layout direction="vertical" class="main-layout">
       <t-header class="top-header">
         <div class="top-header__left">
+          <!-- 桌面端收缩按钮 -->
+          <button
+            class="sidebar-toggle"
+            :title="sidebarCollapsed ? '展开菜单' : '收缩菜单'"
+            @click="toggleSidebar"
+          >
+            <ChevronLeftIcon v-if="!sidebarCollapsed" size="18" />
+            <ChevronRightIcon v-else size="18" />
+          </button>
+          <!-- 移动端菜单按钮 -->
+          <button class="mobile-menu-btn" aria-label="菜单" @click="mobileSidebarOpen = true">
+            <MenuIcon size="20" />
+          </button>
           <t-breadcrumb separator="/">
-            <t-breadcrumb-item>首页</t-breadcrumb-item>
             <t-breadcrumb-item v-if="currentGroup">{{ currentGroup.name }}</t-breadcrumb-item>
             <t-breadcrumb-item>{{ currentMenuTitle }}</t-breadcrumb-item>
           </t-breadcrumb>
@@ -163,15 +221,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, watch } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import {
   ChevronDownIcon,
+  ChevronLeftIcon,
   ChevronRightIcon,
   DashboardIcon,
   MenuIcon,
   NotificationIcon,
   PoweroffIcon,
   RefreshIcon,
+  SearchIcon,
   SettingIcon,
   UserIcon,
 } from 'tdesign-icons-vue-next'
@@ -193,6 +253,56 @@ const userStore = useUserStore()
 const expandedKeys = ref<Set<string>>(new Set())
 const menuLoading = ref(false)
 const useFallbackMenu = ref(false)
+
+const SIDEBAR_STORAGE_KEY = 'hostsent_admin_sidebar_collapsed'
+
+function getInitialCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+const sidebarCollapsed = ref(getInitialCollapsed())
+
+const mobileSidebarOpen = ref(false)
+
+const searchQuery = ref('')
+
+const filteredMenuList = computed(() => {
+  const list = currentMenuList.value
+  if (!searchQuery.value.trim()) return list
+  const q = searchQuery.value.trim().toLowerCase()
+  return list.filter((menu) => {
+    if (menu.name.toLowerCase().includes(q)) return true
+    if (menu.children?.some((child) => child.name.toLowerCase().includes(q))) return true
+    return false
+  })
+})
+
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+  try {
+    localStorage.setItem(SIDEBAR_STORAGE_KEY, String(sidebarCollapsed.value))
+  } catch {
+    /* ignore storage errors */
+  }
+}
+
+function handleResize() {
+  if (window.innerWidth > 768) {
+    mobileSidebarOpen.value = false
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('resize', handleResize)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
+})
 
 const userName = computed(() => {
   const { name, username } = userStore.userInfo
@@ -383,6 +493,16 @@ watch(
 .sidebar-wrapper {
   display: flex;
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  height: 100vh;
+  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  width: 320px;
+}
+
+.sidebar-wrapper.is-collapsed {
+  width: 148px;
 }
 
 .group-sidebar {
@@ -392,20 +512,20 @@ watch(
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 16px 0 12px;
+  padding: 12px 0 8px;
 }
 
 .group-logo {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.14);
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 20px;
-  margin-bottom: 18px;
+  font-size: 17px;
+  margin-bottom: 10px;
 }
 
 .group-list {
@@ -414,22 +534,23 @@ watch(
   padding: 0 8px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 16px;
   width: 100%;
 }
 
 .group-item {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 6px;
   width: 100%;
-  min-height: 72px;
-  border-radius: 16px;
+  min-height: 54px;
+  border-radius: 12px;
   color: rgba(255, 255, 255, 0.76);
   cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .group-item:hover,
@@ -443,14 +564,24 @@ watch(
 }
 
 .group-icon {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
 }
 
 .group-label {
   font-size: 12px;
   line-height: 1.4;
   text-align: center;
+  transition: opacity 0.2s ease, width 0.2s ease;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.sidebar-wrapper.is-collapsed .group-label.label-hidden {
+  opacity: 1;
+  width: auto;
+  margin: initial;
+  overflow: visible;
 }
 
 .menu-sidebar {
@@ -460,6 +591,146 @@ watch(
   display: flex;
   flex-direction: column;
   padding: 0 0 12px;
+  overflow: hidden;
+  transition:
+    width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    padding 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.2s ease;
+}
+
+.menu-sidebar.is-closed {
+  width: 60px;
+  padding: 0;
+  border-right-color: #e5e7eb;
+  opacity: 1;
+  overflow: visible;
+}
+
+.menu-sidebar.is-closed .menu-header {
+  display: none;
+}
+
+.menu-sidebar.is-closed .menu-list {
+  padding: 12px 6px;
+  overflow: visible;
+}
+
+.menu-sidebar.is-closed .menu-item {
+  margin-bottom: 8px;
+}
+
+.menu-sidebar.is-closed .menu-item-inner {
+  justify-content: center;
+  padding: 0;
+  min-height: 48px;
+  width: 48px;
+  margin: 0 auto;
+  border-radius: 12px;
+}
+
+.menu-sidebar.is-closed .menu-title,
+.menu-sidebar.is-closed .menu-arrow {
+  display: none;
+}
+
+.menu-sidebar.is-closed .menu-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.menu-sidebar.is-closed .menu-search,
+.menu-sidebar.is-closed .sidebar-footer {
+  display: none;
+}
+
+/* 收缩态二级菜单悬浮弹出 */
+.menu-sidebar.is-closed .menu-item {
+  position: relative;
+}
+
+.menu-sidebar.is-closed .collapsed-popup {
+  position: absolute;
+  left: calc(100% + 12px);
+  top: -12px;
+  z-index: 100;
+  width: 200px;
+  background: #ffffff;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.10);
+  overflow: hidden;
+  display: none;
+  padding-top: 12px;
+}
+
+/* 悬浮桥接 — 使鼠标从图标滑入弹窗不中断 */
+.menu-sidebar.is-closed .collapsed-popup::before {
+  content: '';
+  position: absolute;
+  right: 100%;
+  top: 0;
+  bottom: 0;
+  width: 16px;
+}
+
+.menu-sidebar.is-closed .menu-item.has-children:hover .collapsed-popup,
+.menu-sidebar.is-closed .collapsed-popup:hover {
+  display: block;
+}
+
+.collapsed-popup__header {
+  padding: 10px 14px 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #111827;
+  border-bottom: 1px solid #f3f4f6;
+  white-space: nowrap;
+}
+
+/* 移动端隐藏悬浮弹出 */
+@media (max-width: 768px) {
+  .collapsed-popup {
+    display: none !important;
+  }
+}
+
+.collapsed-popup__list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+}
+
+.collapsed-popup__item {
+  margin-bottom: 2px;
+}
+
+.collapsed-popup__link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: #374151;
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.collapsed-popup__link:hover,
+.collapsed-popup__item.is-active .collapsed-popup__link {
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.collapsed-popup__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.5;
+  flex-shrink: 0;
 }
 
 .menu-header {
@@ -697,6 +968,232 @@ watch(
   min-height: calc(100vh - 56px - 30px);
 }
 
+/* ===== 收缩切换按钮（头部） ===== */
+.sidebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: #f3f4f6;
+  border: none;
+  color: #374151;
+  cursor: pointer;
+  padding: 0;
+  margin-right: 15px;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.sidebar-toggle:hover {
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
+/* ===== 移动端遮罩 ===== */
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 50;
+  backdrop-filter: blur(2px);
+}
+
+.overlay-fade-enter-active,
+.overlay-fade-leave-active {
+  transition: opacity 0.25s ease;
+}
+
+.overlay-fade-enter-from,
+.overlay-fade-leave-to {
+  opacity: 0;
+}
+
+/* ===== 移动端菜单按钮 ===== */
+.mobile-menu-btn {
+  display: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid #e5e7eb;
+  color: #374151;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  margin-right: 10px;
+  transition: background-color 0.2s ease;
+}
+
+.mobile-menu-btn:hover {
+  background: #f3f4f6;
+}
+
+/* ===== 二级菜单搜索栏 ===== */
+.menu-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 6px 12px 8px;
+  gap: 6px;
+  transition: opacity 0.2s ease;
+}
+
+.menu-search.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.menu-search__icon {
+  position: absolute;
+  left: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #9ca3af;
+  pointer-events: none;
+}
+
+.menu-search__input {
+  width: 100%;
+  height: 32px;
+  padding: 0 28px 0 32px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+  color: #374151;
+  font-size: 13px;
+  outline: none;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.menu-search__input::placeholder {
+  color: #9ca3af;
+}
+
+.menu-search__input:focus {
+  border-color: #16a34a;
+  background: #ffffff;
+}
+
+.menu-search__clear {
+  position: absolute;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: #d1d5db;
+  color: #ffffff;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.menu-search__clear:hover {
+  background: #9ca3af;
+}
+
+/* ===== 收缩态二级悬浮弹出（popup-fade 过渡） ===== */
+.popup-fade-enter-active,
+.popup-fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+
+.popup-fade-enter-from,
+.popup-fade-leave-to {
+  opacity: 0;
+}
+
+/* ===== 响应式：移动端 ===== */
+@media (max-width: 768px) {
+  .mobile-menu-btn {
+    display: inline-flex;
+  }
+
+  .sidebar-wrapper {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 320px !important;
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.10);
+  }
+
+  .sidebar-wrapper.is-mobile-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-wrapper.is-collapsed {
+    width: 320px !important;
+  }
+
+  .sidebar-wrapper.is-collapsed .menu-sidebar {
+    width: 232px;
+    padding: 0 0 12px;
+    opacity: 1;
+    border-right-color: #e5e7eb;
+  }
+
+  .sidebar-wrapper.is-collapsed .group-label {
+    opacity: 1;
+    width: auto;
+    margin: initial;
+    overflow: visible;
+  }
+
+  /* 移动端强制展开二级菜单内容 */
+  .sidebar-wrapper.is-collapsed .menu-sidebar.is-closed .menu-header {
+    display: block;
+  }
+
+  .sidebar-wrapper.is-collapsed .menu-sidebar.is-closed .menu-title,
+  .sidebar-wrapper.is-collapsed .menu-sidebar.is-closed .menu-arrow {
+    display: flex;
+  }
+
+  .sidebar-wrapper.is-collapsed .menu-sidebar.is-closed .menu-search,
+  .sidebar-wrapper.is-collapsed .menu-sidebar.is-closed .sidebar-footer {
+    display: flex;
+  }
+
+  .sidebar-wrapper.is-collapsed .menu-sidebar.is-closed .menu-item-inner {
+    justify-content: flex-start;
+    width: auto;
+    min-height: 40px;
+    padding: 0 12px;
+    margin: 0;
+    border-radius: 10px;
+  }
+
+  .sidebar-wrapper.is-collapsed .menu-sidebar.is-closed .menu-icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* 移动端隐藏悬浮弹出 */
+  .collapsed-popup {
+    display: none !important;
+  }
+
+  .sidebar-toggle {
+    display: none;
+  }
+}
+
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.18s ease;
@@ -707,14 +1204,29 @@ watch(
   opacity: 0;
 }
 
-.slide-enter-active,
+.slide-enter-active {
+  transition:
+    opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1) 0.05s,
+    transform 0.25s cubic-bezier(0.4, 0, 0.2, 1) 0.05s;
+  will-change: opacity, transform;
+}
+
 .slide-leave-active {
-  transition: all 0.18s ease;
+  transition:
+    opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: opacity, transform;
 }
 
 .slide-enter-from,
 .slide-leave-to {
   opacity: 0;
-  transform: translateY(-4px);
+  transform: translateY(-8px);
+}
+
+.slide-enter-to,
+.slide-leave-from {
+  opacity: 1;
+  transform: translateY(0);
 }
 </style>

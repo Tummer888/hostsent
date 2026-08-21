@@ -66,13 +66,24 @@ export interface AssignRolesRequest {
   role_ids: number[]
 }
 
+/** 用户总览统计响应 */
 export interface UserStatsResponse {
+  /** 总用户数 */
   total: number
+  /** 今日新增 */
   today_new: number
+  /** 活跃用户 */
   active: number
+  /** 冻结用户 */
   disabled: number
+  /** 待实名 */
   pending_real_name: number
+  /** 待审核 */
   pending_review: number
+  /** 用户总余额 */
+  total_balance: number
+  /** 已购用户数 */
+  purchased_count: number
 }
 
 export interface UserPermissionItem {

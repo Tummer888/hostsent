@@ -21,7 +21,7 @@ func NewUserHandler(userService service.UserService) *UserHandler {
 
 // GetStats godoc
 // @Summary 用户统计
-// @Description 获取用户总览统计数据（总用户/今日新增/活跃/冻结/待实名/待审核）
+// @Description 获取用户总览统计数据（总用户/今日新增/活跃/冻结/待实名/待审核/用户总余额/已购用户数）
 // @Tags 用户管理
 // @Produce json
 // @Success 200 {object} dto.APIResponse[dto.UserStatsResponse]

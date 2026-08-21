@@ -21,12 +21,14 @@ type User struct {
 
 // UserStats 用户统计聚合结果，字段与 users 表对齐，不映射单独表。
 type UserStats struct {
-	Total           int64 `json:"total"`
-	TodayNew        int64 `json:"today_new"`
-	Active          int64 `json:"active"`
-	Disabled        int64 `json:"disabled"`
-	PendingRealName int64 `json:"pending_real_name"`
-	PendingReview   int64 `json:"pending_review"`
+	Total           int64   `json:"total"`
+	TodayNew        int64   `json:"today_new"`
+	Active          int64   `json:"active"`
+	Disabled        int64   `json:"disabled"`
+	PendingRealName int64   `json:"pending_real_name"`
+	PendingReview   int64   `json:"pending_review"`
+	TotalBalance    float64 `json:"total_balance"`
+	PurchasedCount  int64   `json:"purchased_count"`
 }
 
 // RegionStat 地域分布聚合项。
