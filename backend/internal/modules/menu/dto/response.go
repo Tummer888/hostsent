@@ -1,5 +1,7 @@
+// Package dto 定义菜单模块的返回结构。
 package dto
 
+// MenuNode 表示菜单树中的一个节点及其子节点。
 type MenuNode struct {
 	ID        uint64     `json:"id"`
 	ParentID  uint64     `json:"parent_id"`

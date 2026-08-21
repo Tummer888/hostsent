@@ -1,20 +1,26 @@
+// Package model 定义菜单模块的数据库实体。
 package model
 
 import "time"
 
-// PlatformAdmin 标识管理员后台菜单，PlatformUser 标识用户中心菜单。
-// 两类菜单共用 menus 单表，通过 Platform 字段区分。
 const (
+	// PlatformAdmin 标识管理员后台菜单。
 	PlatformAdmin = "admin"
-	PlatformUser  = "user"
+	// PlatformUser 标识用户中心菜单。
+	PlatformUser = "user"
 
+	// TypeDirectory 表示目录节点。
 	TypeDirectory = "directory"
-	TypeMenu      = "menu"
+	// TypeMenu 表示菜单节点。
+	TypeMenu = "menu"
 
-	StatusActive   = "active"
+	// StatusActive 表示启用状态。
+	StatusActive = "active"
+	// StatusDisabled 表示禁用状态。
 	StatusDisabled = "disabled"
 )
 
+// Menu 表示菜单表中的一条记录。
 type Menu struct {
 	ID        uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
 	ParentID  uint64    `gorm:"not null;default:0;index:idx_menu_platform" json:"parent_id"`

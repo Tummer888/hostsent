@@ -1,3 +1,4 @@
+// Package dto 定义菜单模块的请求入参。
 package dto
 
 type MenuCreateRequest struct {
@@ -12,6 +13,7 @@ type MenuCreateRequest struct {
 	Status    string `json:"status"`
 }
 
+// MenuUpdateRequest 定义更新菜单节点时的请求参数。
 type MenuUpdateRequest struct {
 	ParentID  uint64 `json:"parent_id"`
 	Platform  string `json:"platform" binding:"required"`

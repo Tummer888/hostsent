@@ -51,7 +51,10 @@ export const useUserStore = defineStore('user', {
     savedPassword: safeGet(CREDENTIAL_KEY) ? JSON.parse(safeGet(CREDENTIAL_KEY)).password || '' : '',
   }),
   getters: {
-    isAdmin: (state) => state.userInfo.roles.includes('admin') || state.userInfo.role === 'admin',
+    isAdmin: (state) => {
+      const roleSet = new Set([state.userInfo.role, ...(state.userInfo.roles || [])].filter(Boolean))
+      return roleSet.has('admin') || roleSet.has('super_admin')
+    },
     roles: (state) => state.userInfo.roles,
   },
   actions: {

@@ -1,7 +1,6 @@
 <template>
   <div class="admin-login-card" role="region" aria-labelledby="login-heading">
     <div class="admin-login-card__header">
-      <p class="admin-login-card__eyebrow" id="login-heading-eyebrow">Secure Sign In</p>
       <h2 class="admin-login-card__title" id="login-heading">管理员登录</h2>
       <p class="admin-login-card__subtitle">
         欢迎回来，使用管理员账号登录 <span class="accent-word">宿派云控</span> 管理平台。
@@ -37,7 +36,6 @@
       colonless
       class="admin-login-card__form"
       :disabled="loading"
-      aria-describedby="login-heading-eyebrow"
       novalidate
       @submit="onSubmit"
     >
@@ -474,14 +472,7 @@ onMounted(async () => {
   text-align: left;
 }
 
-.admin-login-card__eyebrow {
-  margin: 0 0 6px;
-  font-family: var(--hs-font-mono);
-  font-size: 11px;
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
-  color: #16a34a;
-}
+
 
 .admin-login-card__title {
   margin: 0 0 6px;

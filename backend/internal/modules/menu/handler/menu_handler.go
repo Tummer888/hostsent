@@ -1,3 +1,4 @@
+// Package handler 提供菜单模块的 HTTP 接口。
 package handler
 
 import (
@@ -17,6 +18,7 @@ type MenuHandler struct {
 	menuService service.MenuService
 }
 
+// NewMenuHandler 创建菜单接口处理器。
 func NewMenuHandler(menuService service.MenuService) *MenuHandler {
 	return &MenuHandler{menuService: menuService}
 }

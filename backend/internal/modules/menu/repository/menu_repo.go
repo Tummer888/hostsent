@@ -1,3 +1,4 @@
+// Package repository 提供菜单模块的数据访问实现。
 package repository
 
 import (
@@ -9,8 +10,7 @@ import (
 	"hostsent/backend/internal/modules/menu/model"
 )
 
-// MenuRepository 定义菜单数据访问契约。
-// 接受 ctx 以支持取消与超时，返回具体类型以便上层组装树。
+// MenuRepository 定义菜单数据访问所需的仓储能力。
 type MenuRepository interface {
 	List(ctx context.Context, platform string) ([]model.Menu, error)
 	Create(ctx context.Context, menu *model.Menu) error
@@ -24,6 +24,7 @@ type menuRepository struct {
 	db *gorm.DB
 }
 
+// NewMenuRepository 创建菜单仓储实现。
 func NewMenuRepository(db *gorm.DB) MenuRepository {
 	return &menuRepository{db: db}
 }

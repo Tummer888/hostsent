@@ -491,9 +491,6 @@ watch(
 onMounted(async () => {
   syncFiltersFromRoute()
   await loadAll()
-  if (route.query.status || route.query.filter || route.query.region || route.query.keyword) {
-    MessagePlugin.success('已按总览入口条件加载用户列表')
-  }
 })
 </script>
 

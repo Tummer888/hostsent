@@ -1,3 +1,4 @@
+// Package service 提供菜单模块的树构建与增删改查业务。
 package service
 
 import (
@@ -11,7 +12,7 @@ import (
 	"hostsent/backend/internal/modules/menu/repository"
 )
 
-// MenuService 提供菜单树构建与增删改查能力。
+// MenuService 定义菜单树构建与增删改查所需的业务能力。
 type MenuService interface {
 	Tree(ctx context.Context, platform string) ([]dto.MenuNode, error)
 	Create(ctx context.Context, req dto.MenuCreateRequest) (*dto.MenuNode, error)
