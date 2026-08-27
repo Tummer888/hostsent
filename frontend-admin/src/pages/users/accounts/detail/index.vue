@@ -93,7 +93,7 @@
         <header class="panel-card__head">
           <div>
             <h3 class="panel-card__title">角色与权限</h3>
-            <p class="panel-card__subtitle">角色来自用户主档，权限明细来自 `/api/v1/users/:id/detail-aggregate`。</p>
+            <p class="panel-card__subtitle">角色来自用户主档，权限明细来自 `/api/v1/admin/users/:id/detail-aggregate`。</p>
           </div>
           <t-tag theme="success" variant="light" size="small" shape="round">permissions</t-tag>
         </header>

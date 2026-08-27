@@ -414,6 +414,9 @@ function toggleExpand(menu: FlatMenu) {
 
 function navigateTo(path?: string) {
   if (!path) return
+  if (window.innerWidth <= 768) {
+    mobileSidebarOpen.value = false
+  }
   router.push(path)
 }
 

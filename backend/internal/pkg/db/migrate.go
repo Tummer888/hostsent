@@ -3,7 +3,7 @@ package db
 import (
 	"gorm.io/gorm"
 
-	"hostsent/backend/internal/modules/user/model"
+	"hostsent/backend/internal/modules/admin/user/account/model"
 )
 
 func AutoMigrateModels(database *gorm.DB) error {

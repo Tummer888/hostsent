@@ -3,9 +3,9 @@ package db
 import (
 	"fmt"
 
-	config "hostsent/backend/internal/pkg/config"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	config "hostsent/backend/internal/pkg/config"
 )
 
 func New(cfg config.DatabaseConfig) (*gorm.DB, error) {

@@ -243,7 +243,26 @@
 
           <template #action="{ row }">
             <div class="action-cell">
-              <t-space v-if="!isMobile" size="small">
+              <t-dropdown
+                v-if="isMobile"
+                trigger="click"
+                :options="buildMobileActionOptions(row)"
+                @click="createMobileActionHandler(row)"
+              >
+                <t-button
+                  theme="default"
+                  variant="outline"
+                  size="small"
+                  shape="square"
+                  class="mobile-action-button"
+                  aria-label="操作"
+                >
+                  <template #icon>
+                    <EllipsisIcon aria-hidden="true" />
+                  </template>
+                </t-button>
+              </t-dropdown>
+              <t-space v-else size="small">
                 <t-link theme="primary" hover="color" @click="goUserDetail(row)">详情</t-link>
                 <t-link theme="primary" hover="color" @click="handleRecharge(row)">充值</t-link>
                 <t-link theme="primary" hover="color" @click="handleImpersonate(row)">登录</t-link>
@@ -515,17 +534,13 @@ const columns = computed<PrimaryTableCol<UserInfo>[]>(() => [
   { colKey: 'oauth_provider', title: '第三方登录', minWidth: 180 },
   { colKey: 'status', title: '状态', width: 110 },
   { colKey: 'last_login_at', title: '最近登录', width: 180 },
-  ...(!isMobile.value
-    ? [
-        {
-          colKey: 'action',
-          title: '操作',
-          width: 260,
-          fixed: 'right' as const,
-          align: 'center' as const,
-        },
-      ]
-    : []),
+  {
+    colKey: 'action',
+    title: '操作',
+    width: isMobile.value ? 70 : 260,
+    fixed: 'right' as const,
+    align: 'center' as const,
+  },
 ])
 
 function syncFiltersFromRoute() {
@@ -721,8 +736,14 @@ function buildMobileActionOptions(row: UserInfo) {
   ]
 }
 
-function handleMobileActionClick(data: { value: string } | string, row: UserInfo) {
-  const value = typeof data === 'string' ? data : data?.value
+function createMobileActionHandler(row: UserInfo) {
+  return (data: { value?: string | number } | string) => {
+    void handleMobileActionClick(data, row)
+  }
+}
+
+function handleMobileActionClick(data: { value?: string | number } | string, row: UserInfo) {
+  const value = typeof data === 'string' ? data : String(data?.value ?? '')
   if (value === 'detail') {
     goUserDetail(row)
     return
@@ -755,7 +776,7 @@ async function handleImpersonate(row: UserInfo) {
       role: res.user_info.role,
       roles: res.user_info.roles?.length ? res.user_info.roles : [res.user_info.role],
       email: res.user_info.email,
-      phone: res.user_info.phone,
+      phone: res.user_info.phone || '',
       status: res.user_info.status,
     }
     MessagePlugin.success(`已代登录用户 ${row.username}`)
@@ -1169,6 +1190,22 @@ onBeforeUnmount(() => {
   padding: 0;
 }
 
+.mobile-action-button {
+  min-width: 0;
+  padding-inline: 8px;
+  color: #475569;
+  background: #ffffff;
+  border-color: transparent;
+}
+
+/* 固定操作列悬浮于表格内容之上，且不遮挡顶部导航（导航 z-index 为 5） */
+:deep(.user-table .t-table__cell-fixed-left),
+:deep(.user-table .t-table__cell-fixed-right),
+:deep(.user-table .t-table__fixed-left),
+:deep(.user-table .t-table__fixed-right) {
+  z-index: 2;
+}
+
 .ip-cell__value {
   color: #0f172a;
   font-weight: 600;
@@ -1448,21 +1485,9 @@ onBeforeUnmount(() => {
     padding-inline: 10px;
   }
 
-  .mobile-action-fab {
-    right: 10px;
-    top: calc(50% + 24px);
-  }
-
   :deep(.user-table .t-table__header th),
   :deep(.user-table .t-table__body td) {
     padding-inline: 4px;
-  }
-
-  :deep(.user-table .t-table__cell-fixed-left),
-  :deep(.user-table .t-table__cell-fixed-right),
-  :deep(.user-table .t-table__fixed-left),
-  :deep(.user-table .t-table__fixed-right) {
-    z-index: 1;
   }
 }
 

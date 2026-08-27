@@ -90,8 +90,10 @@ export const useUserStore = defineStore('user', {
         role: res.user_info.role,
         roles: res.user_info.roles?.length ? res.user_info.roles : [res.user_info.role],
         email: res.user_info.email,
-        phone: res.user_info.phone,
+        phone: res.user_info.phone || '',
         status: res.user_info.status,
+        avatar: res.user_info.avatar,
+        department: res.user_info.department,
       }
       if (!this.isAdmin) {
         await this.logout()
@@ -108,8 +110,10 @@ export const useUserStore = defineStore('user', {
         role: res.role,
         roles: res.roles?.length ? res.roles : [res.role],
         email: res.email,
-        phone: res.phone,
+        phone: res.phone || '',
         status: res.status,
+        avatar: res.avatar,
+        department: res.department,
       }
       if (!this.isAdmin) {
         await this.logout()

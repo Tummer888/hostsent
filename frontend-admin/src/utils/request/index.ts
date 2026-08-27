@@ -17,7 +17,7 @@ declare module 'axios' {
   }
 }
 
-const URL_PREFIX = '/api/v1'
+const URL_PREFIX = '/api/v1/admin'
 
 const instance: AxiosInstance = axios.create({
   baseURL: URL_PREFIX,

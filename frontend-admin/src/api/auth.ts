@@ -11,10 +11,13 @@ export interface AuthUserInfo {
   id: number
   username: string
   role: string
-  roles: string[]
+  roles?: string[]
   email: string
-  phone: string
+  phone?: string
   status: string
+  avatar?: string
+  department?: string
+  last_login_ip?: string
 }
 
 export interface LoginResponse {

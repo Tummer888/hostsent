@@ -7,4 +7,6 @@ export interface UserInfo {
   email: string
   phone: string
   status: string
+  avatar?: string
+  department?: string
 }

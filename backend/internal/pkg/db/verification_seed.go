@@ -5,8 +5,8 @@ import (
 
 	"gorm.io/gorm"
 
-	usermodel "hostsent/backend/internal/modules/user/model"
-	verificationmodel "hostsent/backend/internal/modules/verification/model"
+	usermodel "hostsent/backend/internal/modules/admin/user/account/model"
+	verificationmodel "hostsent/backend/internal/modules/admin/user/verification/model"
 )
 
 func seedDemoVerification(tx *gorm.DB) error {
@@ -18,19 +18,20 @@ func seedDemoVerification(tx *gorm.DB) error {
 		return nil
 	}
 
-	names := []string{"user_east_01", "user_north_01", "user_south_01", "admin"}
+	names := []string{"user_east_01", "user_north_01", "user_south_01"}
 	var users []usermodel.User
 	if err := tx.Where("username IN ?", names).Find(&users).Error; err != nil {
 		return err
 	}
-	userMap := make(map[string]usermodel.User, len(users))
+	userMap := make(map[string]usermodel.User, len(users)+1)
 	for _, user := range users {
 		userMap[user.Username] = user
 	}
-	admin, ok := userMap["admin"]
-	if !ok {
-		return nil
+	admin, err := loadAdminAsUser(tx)
+	if err != nil {
+		return err
 	}
+	userMap["admin"] = admin
 
 	now := time.Now()
 	reviewedApproved := now.Add(-18 * time.Hour)

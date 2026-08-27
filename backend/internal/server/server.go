@@ -7,24 +7,27 @@ import (
 
 	"go.uber.org/zap"
 
-	distributionhandler "hostsent/backend/internal/modules/distribution/handler"
-	distributionrepo "hostsent/backend/internal/modules/distribution/repository"
-	distributionservice "hostsent/backend/internal/modules/distribution/service"
-	menuhandler "hostsent/backend/internal/modules/menu/handler"
-	menurepo "hostsent/backend/internal/modules/menu/repository"
-	menuservice "hostsent/backend/internal/modules/menu/service"
-	quotahandler "hostsent/backend/internal/modules/quota/handler"
-	quotarepo "hostsent/backend/internal/modules/quota/repository"
-	quotaservice "hostsent/backend/internal/modules/quota/service"
-	securityhandler "hostsent/backend/internal/modules/security/handler"
-	securityrepo "hostsent/backend/internal/modules/security/repository"
-	securityservice "hostsent/backend/internal/modules/security/service"
-	verificationhandler "hostsent/backend/internal/modules/verification/handler"
-	verificationrepo "hostsent/backend/internal/modules/verification/repository"
-	verificationservice "hostsent/backend/internal/modules/verification/service"
-	"hostsent/backend/internal/modules/user/handler"
-	"hostsent/backend/internal/modules/user/repository"
-	"hostsent/backend/internal/modules/user/service"
+	adminhandler "hostsent/backend/internal/modules/admin/manager/handler"
+	adminrepo "hostsent/backend/internal/modules/admin/manager/repository"
+	adminservice "hostsent/backend/internal/modules/admin/manager/service"
+	menuhandler "hostsent/backend/internal/modules/admin/menu/handler"
+	menurepo "hostsent/backend/internal/modules/admin/menu/repository"
+	menuservice "hostsent/backend/internal/modules/admin/menu/service"
+	"hostsent/backend/internal/modules/admin/user/account/handler"
+	"hostsent/backend/internal/modules/admin/user/account/repository"
+	"hostsent/backend/internal/modules/admin/user/account/service"
+	distributionhandler "hostsent/backend/internal/modules/admin/user/distribution/handler"
+	distributionrepo "hostsent/backend/internal/modules/admin/user/distribution/repository"
+	distributionservice "hostsent/backend/internal/modules/admin/user/distribution/service"
+	quotahandler "hostsent/backend/internal/modules/admin/user/quota/handler"
+	quotarepo "hostsent/backend/internal/modules/admin/user/quota/repository"
+	quotaservice "hostsent/backend/internal/modules/admin/user/quota/service"
+	securityhandler "hostsent/backend/internal/modules/admin/user/security/handler"
+	securityrepo "hostsent/backend/internal/modules/admin/user/security/repository"
+	securityservice "hostsent/backend/internal/modules/admin/user/security/service"
+	verificationhandler "hostsent/backend/internal/modules/admin/user/verification/handler"
+	verificationrepo "hostsent/backend/internal/modules/admin/user/verification/repository"
+	verificationservice "hostsent/backend/internal/modules/admin/user/verification/service"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/db"
@@ -51,6 +54,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 
 	jwtIssuer := appauth.NewJWTIssuer(cfg.Auth.JWTSecret, cfg.Auth.JWTIssuer, time.Duration(cfg.Auth.JWTExpireHours)*time.Hour)
 	ipRegionResolver := netutil.NewHTTPIPRegionResolver()
+	adminRepo := adminrepo.NewAdminRepository(database)
 	userRepo := repository.NewUserRepository(database)
 	userDetailRepo := repository.NewUserDetailRepository(database)
 	userGroupRepo := repository.NewUserGroupRepository(database)
@@ -68,6 +72,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	quotaUserLevelRepo := quotarepo.NewUserLevelRepository(database)
 	quotaAdjustmentRepo := quotarepo.NewQuotaAdjustmentRepository(database)
 	verificationRepo := verificationrepo.NewVerificationRepository(database)
+	adminService := adminservice.NewAdminService(adminRepo, jwtIssuer)
 	authService := service.NewAuthService(userRepo, jwtIssuer, ipRegionResolver)
 	userService := service.NewUserService(userRepo)
 	userDetailService := service.NewUserDetailService(userRepo, userDetailRepo)
@@ -86,6 +91,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	quotaUserLevelService := quotaservice.NewUserLevelService(quotaUserLevelRepo)
 	quotaAdjustmentService := quotaservice.NewQuotaAdjustmentService(quotaAdjustmentRepo)
 	verificationService := verificationservice.NewVerificationService(verificationRepo)
+	adminHandler := adminhandler.NewAdminHandler(adminService)
 	authHandler := handler.NewAuthHandler(authService)
 	userHandler := handler.NewUserHandler(userService)
 	userDetailHandler := handler.NewUserDetailHandler(userDetailService)
@@ -104,7 +110,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	quotaUserLevelHandler := quotahandler.NewUserLevelHandler(quotaUserLevelService)
 	quotaAdjustmentHandler := quotahandler.NewQuotaAdjustmentHandler(quotaAdjustmentService)
 	verificationHandler := verificationhandler.NewVerificationHandler(verificationService)
-	router := newRouter(cfg, authHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, logger, jwtIssuer)
+	router := newRouter(cfg, adminHandler, authHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, logger, jwtIssuer)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 

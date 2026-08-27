@@ -9,12 +9,13 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	distributionmodel "hostsent/backend/internal/modules/distribution/model"
-	menumodel "hostsent/backend/internal/modules/menu/model"
-	quotamodel "hostsent/backend/internal/modules/quota/model"
-	securitymodel "hostsent/backend/internal/modules/security/model"
-	usermodel "hostsent/backend/internal/modules/user/model"
-	verificationmodel "hostsent/backend/internal/modules/verification/model"
+	adminmodel "hostsent/backend/internal/modules/admin/manager/model"
+	menumodel "hostsent/backend/internal/modules/admin/menu/model"
+	usermodel "hostsent/backend/internal/modules/admin/user/account/model"
+	distributionmodel "hostsent/backend/internal/modules/admin/user/distribution/model"
+	quotamodel "hostsent/backend/internal/modules/admin/user/quota/model"
+	securitymodel "hostsent/backend/internal/modules/admin/user/security/model"
+	verificationmodel "hostsent/backend/internal/modules/admin/user/verification/model"
 	config "hostsent/backend/internal/pkg/config"
 )
 
@@ -71,6 +72,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&verificationmodel.VerificationReviewLog{},
 		&verificationmodel.VerificationConfig{},
 		&menumodel.Menu{},
+		&adminmodel.Admin{},
+		&adminmodel.AdminAuditLog{},
 	); err != nil {
 		return err
 	}
@@ -326,31 +329,27 @@ func seedMenus(tx *gorm.DB) error {
 func seedAdminUser(tx *gorm.DB, _ config.Config) error {
 	const adminUsername = "admin"
 	const adminEmail = "admin@hostsent.local"
-	const adminPassword = "Admin@123456"
-
-	var existing usermodel.User
-	if err := tx.Where("username = ?", adminUsername).First(&existing).Error; err == nil {
-		return nil
-	} else if err != gorm.ErrRecordNotFound {
-		return err
-	}
+	const adminPassword = "123456"
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
 
-	admin := usermodel.User{Username: adminUsername, Email: adminEmail, PasswordHash: string(hash), Status: "active"}
-	if err := tx.Create(&admin).Error; err != nil {
+	var existing adminmodel.Admin
+	if err := tx.Where("username = ?", adminUsername).First(&existing).Error; err == nil {
+		// 账号已存在，同步更新密码与邮箱，保证默认口令生效
+		existing.Email = adminEmail
+		existing.PasswordHash = string(hash)
+		existing.Status = "active"
+		existing.Role = "super_admin"
+		return tx.Save(&existing).Error
+	} else if err != gorm.ErrRecordNotFound {
 		return err
 	}
 
-	var superAdmin usermodel.Role
-	if err := tx.Where("code = ?", "super_admin").First(&superAdmin).Error; err != nil {
-		return err
-	}
-
-	return ensureUserRole(tx, admin.ID, superAdmin.ID)
+	admin := adminmodel.Admin{Username: adminUsername, Email: adminEmail, PasswordHash: string(hash), Role: "super_admin", Status: "active"}
+	return tx.Create(&admin).Error
 }
 
 func seedDemoUsers(tx *gorm.DB) error {
@@ -373,16 +372,16 @@ func seedDemoUsers(tx *gorm.DB) error {
 
 		defaults := []usermodel.User{
 			{Username: "user_east_01", Email: "east01@hostsent.local", Phone: "13900000001", PasswordHash: string(hash), Status: "active", RealName: "李东", Region: "华东", Balance: 1280.50, LastLoginAt: &loginA, OAuthProvider: "wechat", OAuthOpenID: "wx_o_01"},
-		{Username: "user_north_01", Email: "north01@hostsent.local", Phone: "13900000002", PasswordHash: string(hash), Status: "active", RealName: "王北", Region: "华北", Balance: 860.00, LastLoginAt: &loginB, OAuthProvider: "github", OAuthOpenID: "gh_o_02"},
-		{Username: "user_south_01", Email: "south01@hostsent.local", Phone: "13900000003", PasswordHash: string(hash), Status: "active", RealName: "陈南", Region: "华南", Balance: 420.35, LastLoginAt: &loginC, OAuthProvider: "qq", OAuthOpenID: "qq_o_03"},
-		{Username: "user_west_01", Email: "west01@hostsent.local", Phone: "13900000004", PasswordHash: string(hash), Status: "disabled", RealName: "赵西", Region: "西南", Balance: 0, LastLoginAt: &loginD},
-		{Username: "user_central_01", Email: "central01@hostsent.local", Phone: "13900000005", PasswordHash: string(hash), Status: "pending", RealName: "", Region: "华中", Balance: 66.60, OAuthProvider: "alipay", OAuthOpenID: "ali_o_05"},
-		{Username: "user_east_02", Email: "east02@hostsent.local", Phone: "13900000006", PasswordHash: string(hash), Status: "cancelled", RealName: "孙城", Region: "华东", Balance: 0},
-		{Username: "user_new_01", Email: "new01@hostsent.local", Phone: "13900000007", PasswordHash: string(hash), Status: "active", RealName: "周新", Region: "华北", Balance: 218.88, CreatedAt: newUserTime, UpdatedAt: newUserTime, LastLoginAt: &loginA, OAuthProvider: "wecom", OAuthOpenID: "ww_o_07"},
-		{Username: "user_nw_01", Email: "nw01@hostsent.local", Phone: "13900000008", PasswordHash: string(hash), Status: "active", RealName: "", Region: "西北", Balance: 0},
-		{Username: "user_ne_01", Email: "ne01@hostsent.local", Phone: "13900000009", PasswordHash: string(hash), Status: "disabled", RealName: "刘北", Region: "东北", Balance: 52.10, LastLoginAt: &loginD},
-		{Username: "user_oversea_01", Email: "os01@hostsent.local", Phone: "13900000010", PasswordHash: string(hash), Status: "pending", RealName: "吴洋", Region: "海外", Balance: 999.99, OAuthProvider: "github", OAuthOpenID: "gh_o_10"},
-	}
+			{Username: "user_north_01", Email: "north01@hostsent.local", Phone: "13900000002", PasswordHash: string(hash), Status: "active", RealName: "王北", Region: "华北", Balance: 860.00, LastLoginAt: &loginB, OAuthProvider: "github", OAuthOpenID: "gh_o_02"},
+			{Username: "user_south_01", Email: "south01@hostsent.local", Phone: "13900000003", PasswordHash: string(hash), Status: "active", RealName: "陈南", Region: "华南", Balance: 420.35, LastLoginAt: &loginC, OAuthProvider: "qq", OAuthOpenID: "qq_o_03"},
+			{Username: "user_west_01", Email: "west01@hostsent.local", Phone: "13900000004", PasswordHash: string(hash), Status: "disabled", RealName: "赵西", Region: "西南", Balance: 0, LastLoginAt: &loginD},
+			{Username: "user_central_01", Email: "central01@hostsent.local", Phone: "13900000005", PasswordHash: string(hash), Status: "pending", RealName: "", Region: "华中", Balance: 66.60, OAuthProvider: "alipay", OAuthOpenID: "ali_o_05"},
+			{Username: "user_east_02", Email: "east02@hostsent.local", Phone: "13900000006", PasswordHash: string(hash), Status: "cancelled", RealName: "孙城", Region: "华东", Balance: 0},
+			{Username: "user_new_01", Email: "new01@hostsent.local", Phone: "13900000007", PasswordHash: string(hash), Status: "active", RealName: "周新", Region: "华北", Balance: 218.88, CreatedAt: newUserTime, UpdatedAt: newUserTime, LastLoginAt: &loginA, OAuthProvider: "wecom", OAuthOpenID: "ww_o_07"},
+			{Username: "user_nw_01", Email: "nw01@hostsent.local", Phone: "13900000008", PasswordHash: string(hash), Status: "active", RealName: "", Region: "西北", Balance: 0},
+			{Username: "user_ne_01", Email: "ne01@hostsent.local", Phone: "13900000009", PasswordHash: string(hash), Status: "disabled", RealName: "刘北", Region: "东北", Balance: 52.10, LastLoginAt: &loginD},
+			{Username: "user_oversea_01", Email: "os01@hostsent.local", Phone: "13900000010", PasswordHash: string(hash), Status: "pending", RealName: "吴洋", Region: "海外", Balance: 999.99, OAuthProvider: "github", OAuthOpenID: "gh_o_10"},
+		}
 
 		for i := range defaults {
 			if defaults[i].CreatedAt.IsZero() {
@@ -551,16 +550,30 @@ func seedDemoSecurity(tx *gorm.DB) error {
 }
 
 func loadSecuritySeedUsers(tx *gorm.DB) (map[string]usermodel.User, error) {
-	names := []string{"admin", "user_east_01", "user_north_01", "user_south_01", "user_west_01", "user_nw_01"}
+	names := []string{"user_east_01", "user_north_01", "user_south_01", "user_west_01", "user_nw_01"}
 	var users []usermodel.User
 	if err := tx.Where("username IN ?", names).Find(&users).Error; err != nil {
 		return nil, err
 	}
-	result := make(map[string]usermodel.User, len(users))
+	result := make(map[string]usermodel.User, len(users)+1)
 	for _, user := range users {
 		result[user.Username] = user
 	}
+	admin, err := loadAdminAsUser(tx)
+	if err != nil {
+		return nil, err
+	}
+	result["admin"] = admin
 	return result, nil
+}
+
+// loadAdminAsUser 从 admins 表取 admin，映射为 usermodel.User 供各 seed 记录操作人 ID。
+func loadAdminAsUser(tx *gorm.DB) (usermodel.User, error) {
+	var admin adminmodel.Admin
+	if err := tx.Where("username = ?", "admin").First(&admin).Error; err != nil {
+		return usermodel.User{}, err
+	}
+	return usermodel.User{ID: admin.ID, Username: admin.Username}, nil
 }
 
 func seedDemoLoginLogs(tx *gorm.DB, users map[string]usermodel.User) error {
@@ -595,11 +608,11 @@ func seedDemoAuditLogs(tx *gorm.DB, users map[string]usermodel.User) error {
 
 	now := time.Now()
 	logs := []securitymodel.AuditLog{
-		{OperatorID: users["admin"].ID, OperatorName: "admin", Module: "security", ResourceType: "blacklist", ResourceID: "1", Action: "create", RequestMethod: "POST", RequestPath: "/api/v1/security/blacklists", RequestPayload: `{"type":"ip","target_value":"154.83.14.33"}`, ResponseCode: 200, ResponseMessage: "ok", IP: "127.0.0.1", UserAgent: "Chrome 139 / macOS", TraceID: "trace-sec-001", CreatedAt: now.Add(-90 * time.Minute)},
-		{OperatorID: users["admin"].ID, OperatorName: "admin", Module: "security", ResourceType: "risk_event", ResourceID: "2", Action: "handle", RequestMethod: "POST", RequestPath: "/api/v1/security/risk-events/2/handle", RequestPayload: `{"note":"人工复核后转已处理"}`, ResponseCode: 200, ResponseMessage: "ok", IP: "127.0.0.1", UserAgent: "Chrome 139 / macOS", TraceID: "trace-sec-002", CreatedAt: now.Add(-70 * time.Minute)},
-		{OperatorID: users["admin"].ID, OperatorName: "admin", Module: "security", ResourceType: "session", ResourceID: "3", Action: "revoke", RequestMethod: "POST", RequestPath: "/api/v1/security/sessions/3/revoke", RequestPayload: `{"reason":"异地风险登录"}`, ResponseCode: 200, ResponseMessage: "ok", IP: "127.0.0.1", UserAgent: "Chrome 139 / macOS", TraceID: "trace-sec-003", CreatedAt: now.Add(-45 * time.Minute)},
-		{OperatorID: users["admin"].ID, OperatorName: "admin", Module: "menu", ResourceType: "menu", ResourceID: "8", Action: "update", RequestMethod: "PUT", RequestPath: "/api/v1/menus/8", RequestPayload: `{"name":"安全与风控"}`, ResponseCode: 200, ResponseMessage: "ok", IP: "127.0.0.1", UserAgent: "Chrome 139 / macOS", TraceID: "trace-sec-004", CreatedAt: now.Add(-20 * time.Minute)},
-		{OperatorID: users["user_nw_01"].ID, OperatorName: "user_nw_01", Module: "auth", ResourceType: "login", ResourceID: "user_nw_01", Action: "login", RequestMethod: "POST", RequestPath: "/api/v1/auth/login", RequestPayload: `{"username":"user_nw_01"}`, ResponseCode: 200, ResponseMessage: "ok", IP: "10.10.2.16", UserAgent: "Edge / Windows", TraceID: "trace-sec-005", CreatedAt: now.Add(-15 * time.Minute)},
+		{OperatorID: users["admin"].ID, OperatorName: "admin", Module: "security", ResourceType: "blacklist", ResourceID: "1", Action: "create", RequestMethod: "POST", RequestPath: "/api/v1/admin/security/blacklists", RequestPayload: `{"type":"ip","target_value":"154.83.14.33"}`, ResponseCode: 200, ResponseMessage: "ok", IP: "127.0.0.1", UserAgent: "Chrome 139 / macOS", TraceID: "trace-sec-001", CreatedAt: now.Add(-90 * time.Minute)},
+		{OperatorID: users["admin"].ID, OperatorName: "admin", Module: "security", ResourceType: "risk_event", ResourceID: "2", Action: "handle", RequestMethod: "POST", RequestPath: "/api/v1/admin/security/risk-events/2/handle", RequestPayload: `{"note":"人工复核后转已处理"}`, ResponseCode: 200, ResponseMessage: "ok", IP: "127.0.0.1", UserAgent: "Chrome 139 / macOS", TraceID: "trace-sec-002", CreatedAt: now.Add(-70 * time.Minute)},
+		{OperatorID: users["admin"].ID, OperatorName: "admin", Module: "security", ResourceType: "session", ResourceID: "3", Action: "revoke", RequestMethod: "POST", RequestPath: "/api/v1/admin/security/sessions/3/revoke", RequestPayload: `{"reason":"异地风险登录"}`, ResponseCode: 200, ResponseMessage: "ok", IP: "127.0.0.1", UserAgent: "Chrome 139 / macOS", TraceID: "trace-sec-003", CreatedAt: now.Add(-45 * time.Minute)},
+		{OperatorID: users["admin"].ID, OperatorName: "admin", Module: "menu", ResourceType: "menu", ResourceID: "8", Action: "update", RequestMethod: "PUT", RequestPath: "/api/v1/admin/menus/8", RequestPayload: `{"name":"安全与风控"}`, ResponseCode: 200, ResponseMessage: "ok", IP: "127.0.0.1", UserAgent: "Chrome 139 / macOS", TraceID: "trace-sec-004", CreatedAt: now.Add(-20 * time.Minute)},
+		{OperatorID: users["user_nw_01"].ID, OperatorName: "user_nw_01", Module: "auth", ResourceType: "login", ResourceID: "user_nw_01", Action: "login", RequestMethod: "POST", RequestPath: "/api/v1/admin/auth/login", RequestPayload: `{"username":"user_nw_01"}`, ResponseCode: 200, ResponseMessage: "ok", IP: "10.10.2.16", UserAgent: "Edge / Windows", TraceID: "trace-sec-005", CreatedAt: now.Add(-15 * time.Minute)},
 	}
 	return tx.Create(&logs).Error
 }
@@ -697,15 +710,20 @@ func seedDemoQuota(tx *gorm.DB) error {
 }
 
 func loadQuotaSeedUsers(tx *gorm.DB) (map[string]usermodel.User, error) {
-	names := []string{"admin", "user_east_01", "user_north_01", "user_south_01", "user_nw_01"}
+	names := []string{"user_east_01", "user_north_01", "user_south_01", "user_nw_01"}
 	var users []usermodel.User
 	if err := tx.Where("username IN ?", names).Find(&users).Error; err != nil {
 		return nil, err
 	}
-	result := make(map[string]usermodel.User, len(users))
+	result := make(map[string]usermodel.User, len(users)+1)
 	for _, user := range users {
 		result[user.Username] = user
 	}
+	admin, err := loadAdminAsUser(tx)
+	if err != nil {
+		return nil, err
+	}
+	result["admin"] = admin
 	return result, nil
 }
 
