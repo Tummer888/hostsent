@@ -9,6 +9,9 @@ import (
 
 	adminhandler "hostsent/backend/internal/modules/admin/manager/handler"
 	menuhandler "hostsent/backend/internal/modules/admin/menu/handler"
+	providerhandler "hostsent/backend/internal/modules/admin/upstream/provider/handler"
+	producthandler "hostsent/backend/internal/modules/admin/upstream/product/handler"
+	synchandler "hostsent/backend/internal/modules/admin/upstream/sync/handler"
 	"hostsent/backend/internal/modules/admin/user/account/handler"
 	distributionhandler "hostsent/backend/internal/modules/admin/user/distribution/handler"
 	quotahandler "hostsent/backend/internal/modules/admin/user/quota/handler"
@@ -19,7 +22,7 @@ import (
 	"hostsent/backend/internal/pkg/middleware"
 )
 
-func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, authHandler *handler.AuthHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
+func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, authHandler *handler.AuthHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, providerHandler *providerhandler.ProviderHandler, productHandler *producthandler.ProductHandler, syncHandler *synchandler.SyncHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
@@ -230,6 +233,55 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, auth
 			security.POST("/sessions/:id/revoke", securityHandler.RevokeSession)
 			security.POST("/sessions/batch-revoke", securityHandler.BatchRevokeSessions)
 			security.POST("/sessions/revoke-user-all", securityHandler.RevokeUserAllSessions)
+		}
+
+		// 资源管理（对接上游）— 第一阶段
+		upstreamGroup := v1.Group("/upstream")
+		upstreamGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			// 上游提供商
+			providers := upstreamGroup.Group("/providers")
+			{
+				providers.GET("", providerHandler.List)
+				providers.POST("", providerHandler.Create)
+				providers.GET("/types", providerHandler.ListTypes)
+				providers.GET("/:id", providerHandler.Get)
+				providers.PUT("/:id", providerHandler.Update)
+				providers.DELETE("/:id", providerHandler.Delete)
+				providers.POST("/:id/test", providerHandler.TestConnection)
+			}
+
+			// 资源池
+			pools := upstreamGroup.Group("/pools")
+			{
+				pools.GET("", providerHandler.ListPools)
+				pools.GET("/:id", providerHandler.GetPool)
+			}
+
+			// 上游商品
+			products := upstreamGroup.Group("/products")
+			{
+				products.GET("", productHandler.List)
+				products.GET("/:id", productHandler.Get)
+				products.PUT("/:id/price", productHandler.UpdatePrice)
+				products.POST("/sync", productHandler.Sync)
+			}
+
+			// 同步管理
+			sync := upstreamGroup.Group("/sync")
+			{
+				sync.POST("", syncHandler.CreateTask)
+				sync.GET("/tasks", syncHandler.ListTasks)
+				sync.GET("/tasks/:id", syncHandler.GetTask)
+				sync.GET("/logs", syncHandler.ListLogs)
+			}
+
+			// 实例管理
+			instances := upstreamGroup.Group("/instances")
+			{
+				instances.GET("", syncHandler.ListInstances)
+				instances.GET("/:id", syncHandler.GetInstance)
+			}
 		}
 	}
 

@@ -185,6 +185,110 @@ const routes: Array<RouteRecordRaw> = [
     ],
   },
   {
+    path: '/upstream',
+    component: () => import('@/layouts/index.vue'),
+    redirect: '/upstream/dashboard',
+    meta: { title: '资源管理' },
+    children: [
+      // —— 资源总览 ——
+      {
+        path: 'dashboard',
+        name: 'UpstreamDashboard',
+        component: () => import('@/pages/upstream/dashboard/index.vue'),
+        meta: { title: '资源大盘', role: 'admin' },
+      },
+      {
+        path: 'sync-monitor',
+        name: 'UpstreamSyncMonitor',
+        component: () => import('@/pages/upstream/sync-monitor/index.vue'),
+        meta: { title: '同步监控', role: 'admin' },
+      },
+      // —— 上游对接管理 ——
+      {
+        path: 'providers',
+        name: 'UpstreamProviders',
+        component: () => import('@/pages/upstream/providers/index.vue'),
+        meta: { title: '上游提供商', role: 'admin' },
+      },
+      {
+        path: 'pools',
+        name: 'UpstreamPools',
+        component: () => import('@/pages/upstream/pools/index.vue'),
+        meta: { title: '资源池管理', role: 'admin' },
+      },
+      {
+        path: 'connectivity',
+        name: 'UpstreamConnectivity',
+        component: () => import('@/pages/upstream/connectivity/index.vue'),
+        meta: { title: '连接测试', role: 'admin' },
+      },
+      // —— 资源同步与对账 ——
+      {
+        path: 'sync',
+        name: 'UpstreamSync',
+        component: () => import('@/pages/upstream/sync/index.vue'),
+        meta: { title: '同步任务', role: 'admin' },
+      },
+      {
+        path: 'logs',
+        name: 'UpstreamLogs',
+        component: () => import('@/pages/upstream/logs/index.vue'),
+        meta: { title: '同步日志', role: 'admin' },
+      },
+      {
+        path: 'reconciliation',
+        name: 'UpstreamReconciliation',
+        component: () => import('@/pages/upstream/reconciliation/index.vue'),
+        meta: { title: '对账报告', role: 'admin' },
+      },
+      // —— 资源商品管理 ——
+      {
+        path: 'products',
+        name: 'UpstreamProducts',
+        component: () => import('@/pages/upstream/products/index.vue'),
+        meta: { title: '商品列表', role: 'admin' },
+      },
+      {
+        path: 'product-sync',
+        name: 'UpstreamProductSync',
+        component: () => import('@/pages/upstream/product-sync/index.vue'),
+        meta: { title: '商品同步', role: 'admin' },
+      },
+      {
+        path: 'pricing',
+        name: 'UpstreamPricing',
+        component: () => import('@/pages/upstream/pricing/index.vue'),
+        meta: { title: '定价管理', role: 'admin' },
+      },
+      // —— 实例资源 ——
+      {
+        path: 'instances',
+        name: 'UpstreamInstances',
+        component: () => import('@/pages/upstream/instances/index.vue'),
+        meta: { title: '云主机实例', role: 'admin' },
+      },
+      // —— 运维工具 ——
+      {
+        path: 'api-test',
+        name: 'UpstreamApiTest',
+        component: () => import('@/pages/upstream/api-test/index.vue'),
+        meta: { title: 'API测试', role: 'admin' },
+      },
+      {
+        path: 'anomalies',
+        name: 'UpstreamAnomalies',
+        component: () => import('@/pages/upstream/anomalies/index.vue'),
+        meta: { title: '异常处理', role: 'admin' },
+      },
+      {
+        path: 'settings',
+        name: 'UpstreamSettings',
+        component: () => import('@/pages/upstream/settings/index.vue'),
+        meta: { title: '系统配置', role: 'admin' },
+      },
+    ],
+  },
+  {
     path: '/system',
     component: () => import('@/layouts/index.vue'),
     redirect: '/system/menus',

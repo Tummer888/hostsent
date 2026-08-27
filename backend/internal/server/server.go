@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -13,6 +14,15 @@ import (
 	menuhandler "hostsent/backend/internal/modules/admin/menu/handler"
 	menurepo "hostsent/backend/internal/modules/admin/menu/repository"
 	menuservice "hostsent/backend/internal/modules/admin/menu/service"
+	providerhandler "hostsent/backend/internal/modules/admin/upstream/provider/handler"
+	providerrepo "hostsent/backend/internal/modules/admin/upstream/provider/repository"
+	providerservice "hostsent/backend/internal/modules/admin/upstream/provider/service"
+	producthandler "hostsent/backend/internal/modules/admin/upstream/product/handler"
+	productrepo "hostsent/backend/internal/modules/admin/upstream/product/repository"
+	productservice "hostsent/backend/internal/modules/admin/upstream/product/service"
+	synchandler "hostsent/backend/internal/modules/admin/upstream/sync/handler"
+	syncrepo "hostsent/backend/internal/modules/admin/upstream/sync/repository"
+	syncservice "hostsent/backend/internal/modules/admin/upstream/sync/service"
 	"hostsent/backend/internal/modules/admin/user/account/handler"
 	"hostsent/backend/internal/modules/admin/user/account/repository"
 	"hostsent/backend/internal/modules/admin/user/account/service"
@@ -32,12 +42,15 @@ import (
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/db"
 	"hostsent/backend/internal/pkg/netutil"
+	"hostsent/backend/internal/pkg/upstream"
 )
 
 type Server struct {
-	cfg    *config.Config
-	logger *zap.Logger
-	http   *http.Server
+	cfg       *config.Config
+	logger    *zap.Logger
+	http      *http.Server
+	scheduler *syncservice.Scheduler
+	cancel    context.CancelFunc
 }
 
 func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
@@ -72,6 +85,11 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	quotaUserLevelRepo := quotarepo.NewUserLevelRepository(database)
 	quotaAdjustmentRepo := quotarepo.NewQuotaAdjustmentRepository(database)
 	verificationRepo := verificationrepo.NewVerificationRepository(database)
+	upstreamMgr := upstream.GetProviderManager()
+	providerRepo := providerrepo.NewProviderRepository(database)
+	poolRepo := providerrepo.NewPoolRepository(database)
+	productRepo := productrepo.NewProductRepository(database)
+	syncRepo := syncrepo.NewSyncRepository(database)
 	adminService := adminservice.NewAdminService(adminRepo, jwtIssuer)
 	authService := service.NewAuthService(userRepo, jwtIssuer, ipRegionResolver)
 	userService := service.NewUserService(userRepo)
@@ -91,6 +109,11 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	quotaUserLevelService := quotaservice.NewUserLevelService(quotaUserLevelRepo)
 	quotaAdjustmentService := quotaservice.NewQuotaAdjustmentService(quotaAdjustmentRepo)
 	verificationService := verificationservice.NewVerificationService(verificationRepo)
+	providerService := providerservice.NewProviderService(providerRepo, poolRepo, upstreamMgr, cfg.App.EncryptKey)
+	productService := productservice.NewProductService(productRepo)
+	syncEngine := syncservice.NewSyncEngine(upstreamMgr, providerService, productRepo, poolRepo, providerRepo, syncRepo, logger)
+	syncService := syncservice.NewSyncService(syncRepo, syncEngine)
+	scheduler := syncservice.NewScheduler(syncEngine, syncRepo, logger)
 	adminHandler := adminhandler.NewAdminHandler(adminService)
 	authHandler := handler.NewAuthHandler(authService)
 	userHandler := handler.NewUserHandler(userService)
@@ -110,23 +133,31 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	quotaUserLevelHandler := quotahandler.NewUserLevelHandler(quotaUserLevelService)
 	quotaAdjustmentHandler := quotahandler.NewQuotaAdjustmentHandler(quotaAdjustmentService)
 	verificationHandler := verificationhandler.NewVerificationHandler(verificationService)
-	router := newRouter(cfg, adminHandler, authHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, logger, jwtIssuer)
+	providerHandler := providerhandler.NewProviderHandler(providerService)
+	productHandler := producthandler.NewProductHandler(productService)
+	syncHandler := synchandler.NewSyncHandler(syncService)
+	router := newRouter(cfg, adminHandler, authHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, logger, jwtIssuer)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 
 	return &Server{
-		cfg:    cfg,
-		logger: logger,
-		http: &http.Server{
+		cfg:       cfg,
+		logger:    logger,
+		http:      &http.Server{
 			Addr:         addr,
 			Handler:      router,
 			ReadTimeout:  time.Duration(cfg.App.ReadTimeout) * time.Second,
 			WriteTimeout: time.Duration(cfg.App.WriteTimeout) * time.Second,
 		},
+		scheduler: scheduler,
 	}, nil
 }
 
 func (s *Server) Run() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+	defer s.cancel()
+	s.scheduler.Start(ctx)
 	s.logger.Info("server starting", zap.String("addr", s.http.Addr), zap.String("name", s.cfg.App.Name))
 	return s.http.ListenAndServe()
 }

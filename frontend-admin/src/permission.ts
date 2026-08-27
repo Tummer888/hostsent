@@ -55,9 +55,14 @@ export const navMenu = [
   },
   {
     title: '资源管理',
-    path: '/resources',
+    path: '/upstream',
     icon: iconWrapper(ChevronRightIcon),
-    children: [{ title: '云主机', path: '/resources/instances' }],
+    children: [
+      { title: '上游提供商', path: '/upstream/providers' },
+      { title: '上游商品', path: '/upstream/products' },
+      { title: '同步任务', path: '/upstream/sync' },
+      { title: '云主机', path: '/upstream/instances' },
+    ],
   },
   {
     title: '系统管理',

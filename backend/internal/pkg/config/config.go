@@ -8,42 +8,43 @@ import (
 )
 
 type Config struct {
-	App AppConfig `mapstructure:"app"`
-	Auth AuthConfig `mapstructure:"auth"`
+	App      AppConfig      `mapstructure:"app"`
+	Auth     AuthConfig     `mapstructure:"auth"`
 	Database DatabaseConfig `mapstructure:"database"`
-	Redis RedisConfig `mapstructure:"redis"`
+	Redis    RedisConfig    `mapstructure:"redis"`
 }
 
 type RedisConfig struct {
-	Host string `mapstructure:"host"`
-	Port int `mapstructure:"port"`
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
 	Password string `mapstructure:"password"`
-	DB int `mapstructure:"db"`
+	DB       int    `mapstructure:"db"`
 }
 
 type AppConfig struct {
-	Name string `mapstructure:"name"`
-	Env string `mapstructure:"env"`
-	Host string `mapstructure:"host"`
-	Port int `mapstructure:"port"`
-	ReadTimeout int `mapstructure:"read_timeout"`
-	WriteTimeout int `mapstructure:"write_timeout"`
+	Name         string `mapstructure:"name"`
+	Env          string `mapstructure:"env"`
+	Host         string `mapstructure:"host"`
+	Port         int    `mapstructure:"port"`
+	ReadTimeout  int    `mapstructure:"read_timeout"`
+	WriteTimeout int    `mapstructure:"write_timeout"`
+	EncryptKey   string `mapstructure:"encrypt_key"`
 }
 
 type AuthConfig struct {
-	BearerPrefix string `mapstructure:"bearer_prefix"`
-	JWTSecret string `mapstructure:"jwt_secret"`
-	JWTIssuer string `mapstructure:"jwt_issuer"`
-	JWTExpireHours int `mapstructure:"jwt_expire_hours"`
+	BearerPrefix   string `mapstructure:"bearer_prefix"`
+	JWTSecret      string `mapstructure:"jwt_secret"`
+	JWTIssuer      string `mapstructure:"jwt_issuer"`
+	JWTExpireHours int    `mapstructure:"jwt_expire_hours"`
 }
 
 type DatabaseConfig struct {
-	Host string `mapstructure:"host"`
-	Port int `mapstructure:"port"`
-	User string `mapstructure:"user"`
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	User     string `mapstructure:"user"`
 	Password string `mapstructure:"password"`
-	Name string `mapstructure:"name"`
-	SSLMode string `mapstructure:"sslmode"`
+	Name     string `mapstructure:"name"`
+	SSLMode  string `mapstructure:"sslmode"`
 }
 
 func Load() (*Config, error) {
@@ -81,6 +82,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("app.port", 8080)
 	v.SetDefault("app.read_timeout", 10)
 	v.SetDefault("app.write_timeout", 10)
+	v.SetDefault("app.encrypt_key", "hostsent-encrypt-key")
 	v.SetDefault("auth.bearer_prefix", "Bearer")
 	v.SetDefault("auth.jwt_secret", "hostsent-dev-secret")
 	v.SetDefault("auth.jwt_issuer", "hostsent-backend")

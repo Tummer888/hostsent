@@ -2,14 +2,17 @@ import type { Component } from 'vue'
 import { defineStore } from 'pinia'
 
 import {
+  AiToolIcon,
   AppIcon,
   BillIcon,
   CatalogIcon,
   ChartBarIcon,
   CheckCircleIcon,
+  CloudDownloadIcon,
   CloudIcon,
   ControlPlatformIcon,
   DashboardIcon,
+  DataCheckedIcon,
   ErrorCircleIcon,
   FileIcon,
   FilePasteIcon,
@@ -80,6 +83,9 @@ const iconMap: Record<string, Component> = {
   product: AppIcon,
   resource: LayersIcon,
   data: DashboardIcon,
+  'cloud-download': CloudDownloadIcon,
+  'data-checked': DataCheckedIcon,
+  'ai-tool': AiToolIcon,
 }
 
 function resolveIcon(name?: string): Component | undefined {
