@@ -192,10 +192,16 @@ const routes: Array<RouteRecordRaw> = [
     children: [
       // —— 资源总览 ——
       {
+        path: 'overview',
+        name: 'UpstreamOverview',
+        redirect: '/upstream/dashboard',
+        meta: { title: '资源总览', role: 'admin' },
+      },
+      {
         path: 'dashboard',
         name: 'UpstreamDashboard',
         component: () => import('@/pages/upstream/dashboard/index.vue'),
-        meta: { title: '资源大盘', role: 'admin' },
+        meta: { title: '资源总览', role: 'admin' },
       },
       {
         path: 'sync-monitor',
@@ -205,10 +211,28 @@ const routes: Array<RouteRecordRaw> = [
       },
       // —— 上游对接管理 ——
       {
+        path: 'connection',
+        name: 'UpstreamConnection',
+        redirect: '/upstream/providers',
+        meta: { title: '上游对接管理', role: 'admin' },
+      },
+      {
         path: 'providers',
         name: 'UpstreamProviders',
         component: () => import('@/pages/upstream/providers/index.vue'),
         meta: { title: '上游提供商', role: 'admin' },
+      },
+      {
+        path: 'providers/create',
+        name: 'UpstreamProvidersCreate',
+        component: () => import('@/pages/upstream/providers/create.vue'),
+        meta: { title: '添加提供商', role: 'admin' },
+      },
+      {
+        path: 'providers/:id',
+        name: 'UpstreamProvidersDetail',
+        component: () => import('@/pages/upstream/providers/detail.vue'),
+        meta: { title: '提供商详情', role: 'admin' },
       },
       {
         path: 'pools',
@@ -223,6 +247,12 @@ const routes: Array<RouteRecordRaw> = [
         meta: { title: '连接测试', role: 'admin' },
       },
       // —— 资源同步与对账 ——
+      {
+        path: 'sync-center',
+        name: 'UpstreamSyncCenter',
+        redirect: '/upstream/sync',
+        meta: { title: '资源同步与对账', role: 'admin' },
+      },
       {
         path: 'sync',
         name: 'UpstreamSync',
@@ -243,6 +273,12 @@ const routes: Array<RouteRecordRaw> = [
       },
       // —— 资源商品管理 ——
       {
+        path: 'products-center',
+        name: 'UpstreamProductsCenter',
+        redirect: '/upstream/products',
+        meta: { title: '资源商品管理', role: 'admin' },
+      },
+      {
         path: 'products',
         name: 'UpstreamProducts',
         component: () => import('@/pages/upstream/products/index.vue'),
@@ -262,12 +298,24 @@ const routes: Array<RouteRecordRaw> = [
       },
       // —— 实例资源 ——
       {
+        path: 'instance',
+        name: 'UpstreamInstance',
+        redirect: '/upstream/instances',
+        meta: { title: '实例资源', role: 'admin' },
+      },
+      {
         path: 'instances',
         name: 'UpstreamInstances',
         component: () => import('@/pages/upstream/instances/index.vue'),
         meta: { title: '云主机实例', role: 'admin' },
       },
       // —— 运维工具 ——
+      {
+        path: 'ops',
+        name: 'UpstreamOps',
+        redirect: '/upstream/api-test',
+        meta: { title: '运维工具', role: 'admin' },
+      },
       {
         path: 'api-test',
         name: 'UpstreamApiTest',

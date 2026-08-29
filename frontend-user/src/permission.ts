@@ -3,7 +3,7 @@ import router from './router'
 import { useUserStore } from './store'
 import { useMenuStore } from './store/modules/menu'
 
-const whiteList = ['/login']
+const whiteList = ['/login', '/register']
 
 export function setupPermission(app: App) {
   router.beforeEach(async (to, from, next) => {

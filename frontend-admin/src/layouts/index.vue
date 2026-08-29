@@ -148,6 +148,7 @@
           </button>
           <t-breadcrumb separator="/">
             <t-breadcrumb-item v-if="currentGroup">{{ currentGroup.name }}</t-breadcrumb-item>
+            <t-breadcrumb-item v-if="currentSectionName">{{ currentSectionName }}</t-breadcrumb-item>
             <t-breadcrumb-item>{{ currentMenuTitle }}</t-breadcrumb-item>
           </t-breadcrumb>
         </div>
@@ -181,7 +182,7 @@
           <!-- 用户信息 -->
           <t-dropdown trigger="click" @click="onUserMenuClick">
             <div class="user-chip" tabindex="0" role="button" aria-label="用户菜单">
-              <t-avatar :size="30" class="user-chip__avatar">
+              <t-avatar size="30" class="user-chip__avatar">
                 {{ userInitial }}
               </t-avatar>
               <span class="user-chip__name">{{ userName }}</span>
@@ -395,6 +396,14 @@ const currentMenuTitle = computed(() => {
   return '工作台'
 })
 
+// 当前路由命中的二级大类名（三级菜单时用于面包屑中间层级）
+const currentSectionName = computed(() => {
+  for (const menu of currentMenuList.value) {
+    if (menu.children?.some((child) => child.path === route.path)) return menu.name
+  }
+  return ''
+})
+
 function isMenuActive(menu: FlatMenu) {
   if (menu.path === route.path) return true
   return menu.children?.some((child) => child.path === route.path) || false
@@ -463,17 +472,18 @@ async function refreshMenus() {
   }
 }
 
-function onUserMenuClick(data: { value: string }) {
-  if (data.value === 'logout') {
+function onUserMenuClick(value: string | number | Record<string, unknown> | undefined) {
+  const key = typeof value === 'object' && value !== null ? String(value.value ?? '') : String(value ?? '')
+  if (key === 'logout') {
     userStore.logout()
     router.push('/login')
     return
   }
-  if (data.value === 'profile') {
+  if (key === 'profile') {
     MessagePlugin.info('个人资料开发中')
     return
   }
-  if (data.value === 'settings') {
+  if (key === 'settings') {
     MessagePlugin.info('账号设置开发中')
   }
 }

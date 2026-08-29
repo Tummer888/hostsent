@@ -17,12 +17,14 @@ import (
 	quotahandler "hostsent/backend/internal/modules/admin/user/quota/handler"
 	securityhandler "hostsent/backend/internal/modules/admin/user/security/handler"
 	verificationhandler "hostsent/backend/internal/modules/admin/user/verification/handler"
+	usercenterhandler "hostsent/backend/internal/modules/user/auth/handler"
+	usermenuhandler "hostsent/backend/internal/modules/user/menu/handler"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/middleware"
 )
 
-func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, authHandler *handler.AuthHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, providerHandler *providerhandler.ProviderHandler, productHandler *producthandler.ProductHandler, syncHandler *synchandler.SyncHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
+func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, providerHandler *providerhandler.ProviderHandler, productHandler *producthandler.ProductHandler, syncHandler *synchandler.SyncHandler, userCenterAuthHandler *usercenterhandler.AuthHandler, userMenuHandler *usermenuhandler.MenuHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
@@ -285,14 +287,40 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, auth
 		}
 	}
 
-	// 用户中心（普通用户自助）
-	uc := r.Group("/api/v1/uc")
+	// 用户中心（普通用户自助）：独立模块 internal/modules/user/auth
+	ucAuth := r.Group("/api/v1/uc/auth")
 	{
-		ucAuth := uc.Group("/auth")
-		{
-			ucAuth.POST("/login", authHandler.Login)
-			ucAuth.GET("/me", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), authHandler.Me)
-		}
+		ucAuth.POST("/login", userCenterAuthHandler.Login)    // 登录
+		ucAuth.POST("/register", userCenterAuthHandler.Register) // 注册
+		ucAuth.POST("/logout", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.Logout) // 登出
+		ucAuth.GET("/userinfo", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.UserInfo) // 用户信息
+		ucAuth.PUT("/profile", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.UpdateProfile) // 更新资料
+		ucAuth.PUT("/password", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.ChangePassword) // 修改密码
+	}
+
+	// 用户中心菜单：普通用户控制台侧边栏（platform=user）
+	ucMenu := r.Group("/api/v1/uc/menus")
+	ucMenu.Use(middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+	{
+		ucMenu.GET("/tree", userMenuHandler.Tree) // 菜单树
+	}
+
+	// 兼容 frontend-user 项目 baseURL=/api/v1 时的 /auth 路径（同处理器，避免前端改动）
+	ucAuthCompat := r.Group("/api/v1/auth")
+	{
+		ucAuthCompat.POST("/login", userCenterAuthHandler.Login)
+		ucAuthCompat.POST("/register", userCenterAuthHandler.Register)
+		ucAuthCompat.POST("/logout", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.Logout)
+		ucAuthCompat.GET("/userinfo", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.UserInfo)
+		ucAuthCompat.PUT("/profile", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.UpdateProfile) // 更新资料
+		ucAuthCompat.PUT("/password", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.ChangePassword) // 修改密码
+	}
+
+	// 兼容 frontend-user 项目 baseURL=/api/v1 时的 /menus/tree 路径（同处理器）
+	ucMenuCompat := r.Group("/api/v1/menus")
+	ucMenuCompat.Use(middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+	{
+		ucMenuCompat.GET("/tree", userMenuHandler.Tree) // 菜单树
 	}
 
 	return r

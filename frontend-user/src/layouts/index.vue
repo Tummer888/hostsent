@@ -39,9 +39,9 @@
                 <router-link
                   v-for="child in menu.children"
                   :key="child.path || child.name"
-                  :to="child.path ? '/' + child.path : '#'"
+                  :to="child.path || '#'"
                   class="sub-menu-item"
-                  :class="{ 'is-active': route.path === '/' + child.path }"
+                  :class="{ 'is-active': route.path === child.path }"
                 >
                   <span class="sub-menu-dot"></span>
                   <span class="sub-menu-label">{{ child.name }}</span>
@@ -52,9 +52,9 @@
             <!-- 无子菜单 -->
             <router-link
               v-else
-              :to="menu.path ? '/' + menu.path : '#'"
+              :to="menu.path || '#'"
               class="nav-item"
-              :class="{ 'is-active': route.path === '/' + menu.path }"
+              :class="{ 'is-active': route.path === menu.path }"
             >
               <component :is="menu.icon" v-if="menu.icon" class="nav-icon" />
               <span class="nav-label" v-show="!isCollapsed">{{ menu.name }}</span>
@@ -122,7 +122,7 @@
             </t-button>
           </t-tooltip>
           
-          <t-dropdown trigger="click">
+          <t-dropdown trigger="click" @click="handleDropdownClick">
             <div class="user-dropdown-trigger">
               <t-avatar :size="36" class="header-avatar">
                 {{ userInitial }}
@@ -245,8 +245,8 @@ function toggleGroup(menu: FlatMenu) {
 }
 
 function isGroupActive(menu: FlatMenu): boolean {
-  const basePath = '/' + (menu.path || '')
-  return route.path.startsWith(basePath)
+  const basePath = menu.path || ''
+  return route.path.startsWith(basePath + '/')
 }
 
 const currentMenuTitle = computed(() => {
@@ -264,7 +264,7 @@ const currentMenuTitle = computed(() => {
   // 从菜单树查找
   const findInMenu = (menus: FlatMenu[]): string | null => {
     for (const menu of menus) {
-      if ('/' + (menu.path || '') === path) return menu.name
+      if ((menu.path || '') === path) return menu.name
       if (menu.children) {
         const found = findInMenu(menu.children)
         if (found) return found
@@ -327,7 +327,7 @@ watch(() => route.path, (newPath) => {
   for (const menu of menus) {
     if (menu.children && menu.children.length > 0) {
       const hasMatchingChild = menu.children.some(
-        (child) => '/' + (child.path || '') === newPath
+        (child) => (child.path || '') === newPath
       )
       if (hasMatchingChild) {
         expandedGroups.value.add(menu.path || menu.name)

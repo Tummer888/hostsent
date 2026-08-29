@@ -1,0 +1,457 @@
+<template>
+  <div class="page-body">
+    <header class="page-header surface-card">
+      <div class="page-header__main">
+        <span class="page-header__chip">
+          <AddIcon size="22" aria-hidden="true" />
+        </span>
+        <div class="page-header__text">
+          <h2 class="page-header__title">添加提供商</h2>
+          <p class="page-header__desc">通过分步向导接入上游云厂商，填写 API 信息并测试连接后完成创建。</p>
+        </div>
+      </div>
+      <t-button variant="outline" @click="router.push('/upstream/providers')">返回列表</t-button>
+    </header>
+
+    <section class="steps-card surface-card">
+      <t-steps :current="current" layout="horizontal">
+        <t-step title="选择类型" content="选择上游云厂商" />
+        <t-step title="填写 API 信息" content="配置端点与密钥" />
+        <t-step title="完成" content="创建并测试连接" />
+      </t-steps>
+    </section>
+
+    <!-- Step 1: 选择类型 -->
+    <section v-if="current === 0" class="panel-card surface-card">
+      <header class="panel-card__head">
+        <div>
+          <h3 class="card-title">选择提供商类型</h3>
+          <p class="card-subtitle">请选择待接入的上游云厂商类型，类型决定了适配器与字段。</p>
+        </div>
+      </header>
+      <div v-loading="loadingTypes" class="type-grid">
+        <div
+          v-for="item in typeOptions"
+          :key="item.value"
+          class="type-card"
+          :class="{ 'type-card--active': formData.provider_type === item.value }"
+          @click="formData.provider_type = item.value"
+        >
+          <div class="type-card__icon">
+            <CloudIcon size="24" aria-hidden="true" />
+          </div>
+          <div class="type-card__name">{{ item.label }}</div>
+          <div class="type-card__code">{{ item.value }}</div>
+          <div class="type-card__radio">
+            <t-icon v-if="formData.provider_type === item.value" name="check-circle-filled" />
+          </div>
+        </div>
+      </div>
+      <t-alert v-if="!typeOptions.length && !loadingTypes" theme="warning" :message="`暂无可用的提供商类型，请联系后端确认适配器已注册`" />
+      <div class="steps-footer">
+        <t-button theme="primary" :disabled="!formData.provider_type" @click="handleNext">下一步</t-button>
+      </div>
+    </section>
+
+    <!-- Step 2: 填写 API 信息 -->
+    <section v-else-if="current === 1" class="panel-card surface-card">
+      <header class="panel-card__head">
+        <div>
+          <h3 class="card-title">填写 API 信息</h3>
+          <p class="card-subtitle">端点为可访问的上游 API 地址，密钥加密落库，提交后以脱敏形式展示。</p>
+        </div>
+      </header>
+      <t-form ref="formRef" :data="formData" :rules="formRules" label-align="top" class="provider-form">
+        <div class="form-grid">
+          <t-form-item label="提供商名称" name="name">
+            <t-input v-model="formData.name" placeholder="例如：华东 OpenStack" maxlength="50" />
+          </t-form-item>
+          <t-form-item label="提供商类型" name="provider_type">
+            <t-input :model-value="selectedTypeLabel" disabled />
+          </t-form-item>
+          <t-form-item label="API 地址" name="api_endpoint">
+            <t-input v-model="formData.api_endpoint" placeholder="https://api.example.com" />
+          </t-form-item>
+          <t-form-item label="区域" name="region">
+            <t-input v-model="formData.region" placeholder="例如：cn-east-1" />
+          </t-form-item>
+          <t-form-item label="API 密钥" name="api_key">
+            <t-input v-model="formData.api_key" type="password" placeholder="上游访问密钥（敏感）" />
+          </t-form-item>
+          <t-form-item label="API 密码" name="api_secret">
+            <t-input v-model="formData.api_secret" type="password" placeholder="上游访问密码（敏感）" />
+          </t-form-item>
+          <t-form-item label="同步间隔（秒）" name="sync_interval">
+            <t-input-number v-model="formData.sync_interval" :min="0" :step="60" placeholder="默认 3600" />
+          </t-form-item>
+          <t-form-item label="启用实例同步" name="sync_enabled">
+            <t-switch v-model="formData.sync_enabled" />
+          </t-form-item>
+        </div>
+      </t-form>
+      <div class="steps-footer">
+        <t-button variant="outline" @click="current = 0">上一步</t-button>
+        <t-space size="small">
+          <t-button variant="outline" :loading="submitting" @click="handleSubmit">提交</t-button>
+          <t-button theme="primary" :loading="submitting" @click="handleSubmitAndTest">提交并测试连接</t-button>
+        </t-space>
+      </div>
+    </section>
+
+    <!-- Step 3: 完成 -->
+    <section v-else class="panel-card surface-card">
+      <div class="done-box">
+        <div class="done-box__icon">
+          <CheckCircleIcon size="40" aria-hidden="true" />
+        </div>
+        <h3 class="done-box__title">提供商已添加成功</h3>
+        <t-loading v-if="submitting" text="正在创建并测试连接，请稍候…" />
+        <t-descriptions v-else :column="2" bordered size="small" class="done-desc">
+          <t-descriptions-item label="名称">{{ created?.name }}</t-descriptions-item>
+          <t-descriptions-item label="类型">{{ selectedTypeLabel }}</t-descriptions-item>
+          <t-descriptions-item label="API 地址">{{ created?.api_endpoint }}</t-descriptions-item>
+          <t-descriptions-item label="实例同步">{{ created?.sync_enabled ? '启用' : '禁用' }}</t-descriptions-item>
+          <t-descriptions-item label="连接">{{ testResultText }}</t-descriptions-item>
+        </t-descriptions>
+        <div class="steps-footer">
+          <t-button theme="primary" @click="router.push(created ? `/upstream/providers/${created.id}` : '/upstream/providers')">查看详情</t-button>
+          <t-button variant="outline" @click="router.push('/upstream/providers')">返回列表</t-button>
+        </div>
+      </div>
+    </section>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
+
+import { AddIcon, CheckCircleIcon, CloudIcon } from 'tdesign-icons-vue-next'
+import { MessagePlugin, type FormInstanceFunctions, type FormRule } from 'tdesign-vue-next'
+
+import { createProvider, getProviderTypes, testConnection } from '@/api/admin'
+import type { ProviderCreateRequest, ProviderInfo, ProviderTypeItem } from '@/types/interface'
+
+defineOptions({ name: 'UpstreamProvidersCreate' })
+
+const router = useRouter()
+
+const current = ref(0)
+const loadingTypes = ref(false)
+const submitting = ref(false)
+const created = ref<ProviderInfo | null>(null)
+const testResultText = ref('—')
+const typeOptions = ref<{ label: string; value: string }[]>([])
+const formRef = ref<FormInstanceFunctions | null>(null)
+
+const formData = reactive<ProviderCreateRequest>({
+  name: '',
+  provider_type: '',
+  api_endpoint: '',
+  api_key: '',
+  api_secret: '',
+  region: '',
+  status: 1,
+  sync_enabled: false,
+  sync_interval: 3600,
+})
+
+const selectedTypeLabel = computed(() => {
+  const item = typeOptions.value.find((type) => type.value === formData.provider_type)
+  return item?.label || formData.provider_type
+})
+
+const formRules: Record<string, FormRule[]> = {
+  name: [{ required: true, message: '请输入提供商名称', type: 'error', trigger: 'blur' }],
+  provider_type: [{ required: true, message: '请选择提供商类型', type: 'error', trigger: 'change' }],
+  api_endpoint: [
+    { required: true, message: '请输入 API 地址', type: 'error', trigger: 'blur' },
+    { pattern: /^https?:\/\//, message: 'API 地址需以 http(s):// 开头', type: 'error', trigger: 'blur' },
+  ],
+}
+
+async function loadTypes() {
+  loadingTypes.value = true
+  try {
+    const types = await getProviderTypes()
+    typeOptions.value = types.map((item: ProviderTypeItem) => ({ label: item.name, value: item.type }))
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '加载提供商类型失败')
+  } finally {
+    loadingTypes.value = false
+  }
+}
+
+function handleNext() {
+  if (!formData.provider_type) {
+    MessagePlugin.warning('请先选择提供商类型')
+    return
+  }
+  current.value = 1
+}
+
+async function handleSubmit() {
+  const validate = await formRef.value?.validate?.()
+  if (validate !== true) return
+  submitting.value = true
+  try {
+    created.value = await createProvider({
+      name: formData.name,
+      provider_type: formData.provider_type,
+      api_endpoint: formData.api_endpoint,
+      api_key: formData.api_key || undefined,
+      api_secret: formData.api_secret || undefined,
+      region: formData.region,
+      status: 1,
+      sync_enabled: formData.sync_enabled,
+      sync_interval: formData.sync_interval,
+    })
+    testResultText.value = '未测试'
+    current.value = 2
+    MessagePlugin.success('提供商已创建')
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '创建提供商失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function handleSubmitAndTest() {
+  const validate = await formRef.value?.validate?.()
+  if (validate !== true) return
+  submitting.value = true
+  try {
+    created.value = await createProvider({
+      name: formData.name,
+      provider_type: formData.provider_type,
+      api_endpoint: formData.api_endpoint,
+      api_key: formData.api_key || undefined,
+      api_secret: formData.api_secret || undefined,
+      region: formData.region,
+      status: 1,
+      sync_enabled: formData.sync_enabled,
+      sync_interval: formData.sync_interval,
+    })
+    const result = await testConnection(created.value.id)
+    testResultText.value = result.success ? `测试通过（${result.message}）` : `测试失败：${result.message}`
+    current.value = 2
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '创建或测试连接失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+onMounted(() => {
+  loadTypes()
+})
+</script>
+
+<style scoped lang="css">
+.page-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.surface-card {
+  position: relative;
+  border-radius: var(--hs-radius-lg);
+  background: var(--hs-surface-1);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--hs-shadow-xs);
+  transition:
+    border-color var(--hs-duration-fast),
+    box-shadow var(--hs-duration-fast);
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  padding: var(--space-lg) var(--space-xl);
+  flex-wrap: wrap;
+}
+
+.page-header__main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.page-header__chip {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--hs-radius-xl);
+  background: linear-gradient(135deg, #16a34a, #15803d);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 4px 10px rgba(22, 163, 74, 0.25);
+}
+
+.page-header__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+
+.page-header__desc {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-muted-foreground);
+}
+
+.steps-card,
+.panel-card {
+  padding: var(--space-lg) 24px;
+}
+
+.card-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+
+.card-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--color-muted-foreground);
+}
+
+.panel-card__head {
+  margin-bottom: var(--space-lg);
+}
+
+.type-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.type-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 16px;
+  border-radius: var(--hs-radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--hs-surface-2);
+  cursor: pointer;
+  transition:
+    border-color var(--hs-duration-fast),
+    box-shadow var(--hs-duration-fast),
+    transform var(--hs-duration-fast);
+}
+
+.type-card:hover {
+  box-shadow: var(--hs-shadow-sm);
+  transform: translateY(-2px);
+}
+
+.type-card--active {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.18);
+}
+
+.type-card__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--hs-radius-xl);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--hs-surface-3);
+  color: #16a34a;
+}
+
+.type-card__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+
+.type-card__code {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.type-card__radio {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  color: #16a34a;
+  display: inline-flex;
+}
+
+.steps-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+}
+
+.provider-form {
+  max-width: 720px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--space-lg);
+}
+
+.done-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-xl) 0;
+  text-align: center;
+}
+
+.done-box__icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(22, 163, 74, 0.12);
+  color: #16a34a;
+}
+
+.done-box__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+
+.done-desc {
+  max-width: 560px;
+  width: 100%;
+  text-align: left;
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

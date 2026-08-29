@@ -10,6 +10,7 @@ interface UserInfo {
   phone?: string
   avatar?: string
   role?: string
+  tier?: string
 }
 
 export const useUserStore = defineStore('user', () => {
@@ -30,7 +31,7 @@ export const useUserStore = defineStore('user', () => {
     loaded.value = true
   }
 
-  async function register(data: { username: string; password: string; email: string }) {
+  async function register(data: { username: string; password: string; email: string; phone?: string }) {
     const { data: result } = await registerApi(data)
     return result
   }

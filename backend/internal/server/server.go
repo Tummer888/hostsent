@@ -38,6 +38,12 @@ import (
 	verificationhandler "hostsent/backend/internal/modules/admin/user/verification/handler"
 	verificationrepo "hostsent/backend/internal/modules/admin/user/verification/repository"
 	verificationservice "hostsent/backend/internal/modules/admin/user/verification/service"
+	usercenterhandler "hostsent/backend/internal/modules/user/auth/handler"
+	usercenterrepo "hostsent/backend/internal/modules/user/auth/repository"
+	usercenterservice "hostsent/backend/internal/modules/user/auth/service"
+	usermenuhandler "hostsent/backend/internal/modules/user/menu/handler"
+	usermenurepo "hostsent/backend/internal/modules/user/menu/repository"
+	usermenuservice "hostsent/backend/internal/modules/user/menu/service"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/db"
@@ -91,7 +97,6 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	productRepo := productrepo.NewProductRepository(database)
 	syncRepo := syncrepo.NewSyncRepository(database)
 	adminService := adminservice.NewAdminService(adminRepo, jwtIssuer)
-	authService := service.NewAuthService(userRepo, jwtIssuer, ipRegionResolver)
 	userService := service.NewUserService(userRepo)
 	userDetailService := service.NewUserDetailService(userRepo, userDetailRepo)
 	userGroupService := service.NewUserGroupService(userGroupRepo)
@@ -109,13 +114,20 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	quotaUserLevelService := quotaservice.NewUserLevelService(quotaUserLevelRepo)
 	quotaAdjustmentService := quotaservice.NewQuotaAdjustmentService(quotaAdjustmentRepo)
 	verificationService := verificationservice.NewVerificationService(verificationRepo)
+	// 用户中心模块：独立的数据访问、认证服务与处理器（与后台管理模块解耦）
+	userCenterRepo := usercenterrepo.NewUserRepository(database)
+	userCenterService := usercenterservice.NewAuthService(userCenterRepo, jwtIssuer, ipRegionResolver)
+	userCenterAuthHandler := usercenterhandler.NewAuthHandler(userCenterService)
+	// 用户中心菜单：复用 menus 表（platform=user），独立 DTO 对齐前端驼峰字段
+	userMenuRepo := usermenurepo.NewMenuRepository(database)
+	userMenuService := usermenuservice.NewMenuService(userMenuRepo)
+	userMenuHandler := usermenuhandler.NewMenuHandler(userMenuService)
 	providerService := providerservice.NewProviderService(providerRepo, poolRepo, upstreamMgr, cfg.App.EncryptKey)
 	productService := productservice.NewProductService(productRepo)
 	syncEngine := syncservice.NewSyncEngine(upstreamMgr, providerService, productRepo, poolRepo, providerRepo, syncRepo, logger)
 	syncService := syncservice.NewSyncService(syncRepo, syncEngine)
 	scheduler := syncservice.NewScheduler(syncEngine, syncRepo, logger)
 	adminHandler := adminhandler.NewAdminHandler(adminService)
-	authHandler := handler.NewAuthHandler(authService)
 	userHandler := handler.NewUserHandler(userService)
 	userDetailHandler := handler.NewUserDetailHandler(userDetailService)
 	userGroupHandler := handler.NewUserGroupHandler(userGroupService)
@@ -136,7 +148,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	providerHandler := providerhandler.NewProviderHandler(providerService)
 	productHandler := producthandler.NewProductHandler(productService)
 	syncHandler := synchandler.NewSyncHandler(syncService)
-	router := newRouter(cfg, adminHandler, authHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, logger, jwtIssuer)
+	router := newRouter(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, logger, jwtIssuer)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 

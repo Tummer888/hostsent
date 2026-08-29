@@ -58,10 +58,55 @@ export const navMenu = [
     path: '/upstream',
     icon: iconWrapper(ChevronRightIcon),
     children: [
-      { title: '上游提供商', path: '/upstream/providers' },
-      { title: '上游商品', path: '/upstream/products' },
-      { title: '同步任务', path: '/upstream/sync' },
-      { title: '云主机', path: '/upstream/instances' },
+      {
+        title: '资源总览',
+        path: '/upstream/overview',
+        children: [
+          { title: '资源总览', path: '/upstream/dashboard' },
+          { title: '同步监控', path: '/upstream/sync-monitor' },
+        ],
+      },
+      {
+        title: '上游对接管理',
+        path: '/upstream/connection',
+        children: [
+          { title: '上游提供商', path: '/upstream/providers' },
+          { title: '资源池管理', path: '/upstream/pools' },
+          { title: '连接测试', path: '/upstream/connectivity' },
+        ],
+      },
+      {
+        title: '资源同步与对账',
+        path: '/upstream/sync-center',
+        children: [
+          { title: '同步任务', path: '/upstream/sync' },
+          { title: '同步日志', path: '/upstream/logs' },
+          { title: '对账报告', path: '/upstream/reconciliation' },
+        ],
+      },
+      {
+        title: '资源商品管理',
+        path: '/upstream/products-center',
+        children: [
+          { title: '商品列表', path: '/upstream/products' },
+          { title: '商品同步', path: '/upstream/product-sync' },
+          { title: '定价管理', path: '/upstream/pricing' },
+        ],
+      },
+      {
+        title: '实例资源',
+        path: '/upstream/instance',
+        children: [{ title: '云主机实例', path: '/upstream/instances' }],
+      },
+      {
+        title: '运维工具',
+        path: '/upstream/ops',
+        children: [
+          { title: 'API测试', path: '/upstream/api-test' },
+          { title: '异常处理', path: '/upstream/anomalies' },
+          { title: '系统配置', path: '/upstream/settings' },
+        ],
+      },
     ],
   },
   {

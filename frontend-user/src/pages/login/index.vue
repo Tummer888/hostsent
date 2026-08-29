@@ -111,7 +111,7 @@
             </t-tab-panel>
           </t-tabs>
 
-          <t-button theme="primary" size="large" block class="auth-btn">
+          <t-button theme="primary" size="large" block class="auth-btn" @click="handleLogin">
             登 录
           </t-button>
 
@@ -232,7 +232,7 @@
             </div>
           </div>
 
-          <t-button theme="primary" size="large" block class="auth-btn">
+          <t-button theme="primary" size="large" block class="auth-btn" @click="handleRegister">
             注 册
           </t-button>
         </div>
@@ -282,6 +282,8 @@
 
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { MessagePlugin } from 'tdesign-vue-next'
 import {
   CloudIcon,
   UserIcon,
@@ -299,9 +301,15 @@ import {
   LogoGithubIcon,
 } from 'tdesign-icons-vue-next'
 
+import { useUserStore } from '@/store'
+
 defineOptions({ name: 'UserLogin' })
 
 import loginBg from '@/assets/images/login-user.webp'
+
+const route = useRoute()
+const router = useRouter()
+const userStore = useUserStore()
 
 const authTab = ref<'login' | 'register'>('login')
 const activeTab = ref('password')
@@ -309,6 +317,8 @@ const showPassword = ref(false)
 const showRegisterPassword = ref(false)
 const showConfirmPassword = ref(false)
 const countdown = ref(0)
+const loginLoading = ref(false)
+const registerLoading = ref(false)
 const captchaCode = ref('7044')
 
 const loginForm = reactive({
@@ -345,6 +355,59 @@ function refreshCaptcha() {
     code += chars[Math.floor(Math.random() * chars.length)]
   }
   captchaCode.value = code
+}
+
+// 登录：调用后端 /auth/login，成功后写入 token 并跳转
+async function handleLogin() {
+  if (activeTab.value === 'sms') {
+    MessagePlugin.info('短信登录暂未开放，请使用密码登录')
+    return
+  }
+  if (!loginForm.username || !loginForm.password) {
+    MessagePlugin.warning('请输入用户名和密码')
+    return
+  }
+  loginLoading.value = true
+  try {
+    await userStore.login({
+      username: loginForm.username,
+      password: loginForm.password,
+    })
+    MessagePlugin.success('登录成功')
+    const redirect = (route.query.redirect as string) || '/'
+    router.replace(redirect)
+  } catch (e: any) {
+    console.error('Login failed:', e)
+  } finally {
+    loginLoading.value = false
+  }
+}
+
+// 注册：调用后端 /auth/register，成功后切换到登录标签
+async function handleRegister() {
+  if (!registerForm.username || !registerForm.email || !registerForm.password) {
+    MessagePlugin.warning('请填写用户名、邮箱和密码')
+    return
+  }
+  if (registerForm.password !== registerForm.confirmPassword) {
+    MessagePlugin.warning('两次输入的密码不一致')
+    return
+  }
+  registerLoading.value = true
+  try {
+    await userStore.register({
+      username: registerForm.username,
+      email: registerForm.email,
+      phone: registerForm.phone,
+      password: registerForm.password,
+    })
+    MessagePlugin.success('注册成功，请登录')
+    authTab.value = 'login'
+  } catch (e: any) {
+    console.error('Register failed:', e)
+  } finally {
+    registerLoading.value = false
+  }
 }
 </script>
 

@@ -39,6 +39,26 @@ export function getUserInfo() {
   return request.get<any, { data: any }>('/auth/userinfo')
 }
 
+export interface UpdateProfileParams {
+  name?: string
+  email?: string
+  phone?: string
+  avatar?: string
+}
+
+export function updateProfile(data: UpdateProfileParams) {
+  return request.put<any, { data: any }>('/auth/profile', data)
+}
+
+export interface ChangePasswordParams {
+  old_password: string
+  new_password: string
+}
+
+export function changePassword(data: ChangePasswordParams) {
+  return request.put<any, void>('/auth/password', data)
+}
+
 export function logout() {
   return request.post<any, void>('/auth/logout')
 }

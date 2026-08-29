@@ -1,14 +1,5 @@
 package dto
 
-type LoginRequest struct {
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required"`
-}
-
-type AdminImpersonateRequest struct {
-	UserID uint64 `json:"user_id" binding:"required"`
-}
-
 type UserListQuery struct {
 	Page              int    `form:"page"`
 	PageSize          int    `form:"page_size"`

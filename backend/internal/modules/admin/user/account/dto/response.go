@@ -78,13 +78,6 @@ type PermissionNode struct {
 	Children  []PermissionNode `json:"children,omitempty"`
 }
 
-type LoginResponse struct {
-	Token       string   `json:"token"`
-	UserInfo    UserInfo `json:"user_info"`
-	Permissions []string `json:"permissions"`
-	Menus       []string `json:"menus"`
-}
-
 type APIResponse[T any] struct {
 	Code      int    `json:"code"`
 	Message   string `json:"message"`
