@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	prodhandler "hostsent/backend/internal/modules/admin/product/handler"
 	adminhandler "hostsent/backend/internal/modules/admin/manager/handler"
 	menuhandler "hostsent/backend/internal/modules/admin/menu/handler"
 	providerhandler "hostsent/backend/internal/modules/admin/resource/provider/handler"
@@ -24,7 +25,7 @@ import (
 	"hostsent/backend/internal/pkg/middleware"
 )
 
-func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, providerHandler *providerhandler.ProviderHandler, productHandler *producthandler.ProductHandler, syncHandler *synchandler.SyncHandler, userCenterAuthHandler *usercenterhandler.AuthHandler, userMenuHandler *usermenuhandler.MenuHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
+func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, providerHandler *providerhandler.ProviderHandler, productHandler *producthandler.ProductHandler, syncHandler *synchandler.SyncHandler, userCenterAuthHandler *usercenterhandler.AuthHandler, userMenuHandler *usermenuhandler.MenuHandler, prodCategoryHandler *prodhandler.CategoryHandler, prodProductHandler *prodhandler.ProductHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
@@ -283,6 +284,36 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 			{
 				instances.GET("", syncHandler.ListInstances)
 				instances.GET("/:id", syncHandler.GetInstance)
+			}
+		}
+
+		// 产品管理（面向终端售卖）
+		productGroup := v1.Group("/product")
+		productGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			// 产品分类
+			categories := productGroup.Group("/categories")
+			{
+				categories.GET("", prodCategoryHandler.List)
+				categories.POST("", prodCategoryHandler.Create)
+				categories.GET("/:id", prodCategoryHandler.Get)
+				categories.PUT("/:id", prodCategoryHandler.Update)
+				categories.DELETE("/:id", prodCategoryHandler.Delete)
+			}
+
+			// 产品
+			prodProducts := productGroup.Group("/products")
+			{
+				prodProducts.GET("", prodProductHandler.List)
+				prodProducts.POST("", prodProductHandler.Create)
+				prodProducts.GET("/:id", prodProductHandler.Get)
+				prodProducts.PUT("/:id", prodProductHandler.Update)
+				prodProducts.DELETE("/:id", prodProductHandler.Delete)
+				prodProducts.POST("/:id/publish", prodProductHandler.Publish)
+				prodProducts.POST("/:id/unpublish", prodProductHandler.Unpublish)
+				prodProducts.PUT("/:id/price", prodProductHandler.UpdatePrice)
+				prodProducts.GET("/:id/history", prodProductHandler.ListHistory)
+				prodProducts.GET("/:id/specs", prodProductHandler.ListSpecs)
 			}
 		}
 	}

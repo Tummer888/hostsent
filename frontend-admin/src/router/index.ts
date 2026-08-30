@@ -337,6 +337,50 @@ const routes: Array<RouteRecordRaw> = [
     ],
   },
   {
+    path: '/product',
+    component: () => import('@/layouts/index.vue'),
+    redirect: '/product/products',
+    meta: { title: '产品管理' },
+    children: [
+      {
+        path: 'products',
+        name: 'ProductProducts',
+        component: () => import('@/pages/product/products/index.vue'),
+        meta: { title: '产品列表', role: 'admin' },
+      },
+      {
+        path: 'products/create',
+        name: 'ProductProductsCreate',
+        component: () => import('@/pages/product/products/create.vue'),
+        meta: { title: '新建产品', role: 'admin' },
+      },
+      {
+        path: 'products/:id/edit',
+        name: 'ProductProductsEdit',
+        component: () => import('@/pages/product/products/edit.vue'),
+        meta: { title: '编辑产品', role: 'admin' },
+      },
+      {
+        path: 'products/:id',
+        name: 'ProductProductsDetail',
+        component: () => import('@/pages/product/products/detail.vue'),
+        meta: { title: '产品详情', role: 'admin' },
+      },
+      {
+        path: 'categories',
+        name: 'ProductCategories',
+        component: () => import('@/pages/product/categories/index.vue'),
+        meta: { title: '分类管理', role: 'admin' },
+      },
+      {
+        path: 'pricing',
+        name: 'ProductPricing',
+        component: () => import('@/pages/product/pricing/index.vue'),
+        meta: { title: '价格与上下架', role: 'admin' },
+      },
+    ],
+  },
+  {
     path: '/system',
     component: () => import('@/layouts/index.vue'),
     redirect: '/system/menus',

@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	prodmodel "hostsent/backend/internal/modules/admin/product/model"
 	adminmodel "hostsent/backend/internal/modules/admin/manager/model"
 	menumodel "hostsent/backend/internal/modules/admin/menu/model"
 	providermodel "hostsent/backend/internal/modules/admin/resource/provider/model"
@@ -86,6 +87,11 @@ func AutoMigrate(db *gorm.DB) error {
 		&syncmodel.SyncTask{},
 		&syncmodel.SyncLog{},
 		&syncmodel.Instance{},
+		// 产品管理（面向终端售卖）
+		&prodmodel.ProductCategory{},
+		&prodmodel.Product{},
+		&prodmodel.ProductSpec{},
+		&prodmodel.ProductHistory{},
 	); err != nil {
 		return err
 	}
@@ -300,6 +306,18 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "resource:sync", Name: "查看同步日志", Code: "sync:log", Type: "button", SortOrder: 2, Status: "active"},
 		{ParentCode: "resource", Name: "云主机", Code: "resource:instance", Type: "menu", SortOrder: 4, Status: "active"},
 		{ParentCode: "resource:instance", Name: "实例操作", Code: "instance:action", Type: "button", SortOrder: 1, Status: "active"},
+		{Name: "产品管理", Code: "product", Type: "catalog", SortOrder: 5, Status: "active"},
+		{ParentCode: "product", Name: "产品列表", Code: "product:list", Type: "menu", SortOrder: 1, Status: "active"},
+		{ParentCode: "product:list", Name: "创建产品", Code: "product:create", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "product:list", Name: "编辑产品", Code: "product:update", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "product:list", Name: "删除产品", Code: "product:delete", Type: "button", SortOrder: 3, Status: "active"},
+		{ParentCode: "product:list", Name: "上下架产品", Code: "product:publish", Type: "button", SortOrder: 4, Status: "active"},
+		{ParentCode: "product", Name: "分类管理", Code: "product:category", Type: "menu", SortOrder: 2, Status: "active"},
+		{ParentCode: "product:category", Name: "创建分类", Code: "product:category:create", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "product:category", Name: "编辑分类", Code: "product:category:update", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "product:category", Name: "删除分类", Code: "product:category:delete", Type: "button", SortOrder: 3, Status: "active"},
+		{ParentCode: "product", Name: "定价管理", Code: "product:price", Type: "menu", SortOrder: 3, Status: "active"},
+		{ParentCode: "product:price", Name: "修改价格", Code: "product:price:update", Type: "button", SortOrder: 1, Status: "active"},
 	}
 
 	permissionMap := make(map[string]uint64)
@@ -370,6 +388,18 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"sync:log",
 			"resource:instance",
 			"instance:action",
+			"product",
+			"product:list",
+			"product:create",
+			"product:update",
+			"product:delete",
+			"product:publish",
+			"product:category",
+			"product:category:create",
+			"product:category:update",
+			"product:category:delete",
+			"product:price",
+			"product:price:update",
 		},
 		"ops_admin": {
 			"system:user",
@@ -387,6 +417,14 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"sync:log",
 			"resource:instance",
 			"instance:action",
+			"product",
+			"product:list",
+			"product:update",
+			"product:publish",
+			"product:category",
+			"product:category:update",
+			"product:price",
+			"product:price:update",
 		},
 		"finance_admin": {
 			"system:user",
@@ -479,6 +517,12 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "API测试", Type: menumodel.TypeMenu, Path: "/resource/api-test", Component: "resource/api-test/index", Icon: "ai-tool", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "异常处理", Type: menumodel.TypeMenu, Path: "/resource/anomalies", Component: "resource/anomalies/index", Icon: "error-circle", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeMenu, Path: "/resource/settings", Component: "resource/settings/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
+
+		// —— 产品管理（面向终端售卖）
+		{Platform: menumodel.PlatformAdmin, Name: "产品管理", Type: menumodel.TypeDirectory, Path: "/product", Icon: "product", SortOrder: 4, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "产品列表", Type: menumodel.TypeMenu, Path: "/product/products", Component: "product/products/index", Icon: "product", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "分类管理", Type: menumodel.TypeMenu, Path: "/product/categories", Component: "product/categories/index", Icon: "tag", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "价格与上下架", Type: menumodel.TypeMenu, Path: "/product/pricing", Component: "product/pricing/index", Icon: "money", SortOrder: 3, Status: menumodel.StatusActive},
 
 		// —— 用户中心菜单（platform=user）
 		{Platform: menumodel.PlatformUser, Name: "控制台", Type: menumodel.TypeMenu, Path: "/dashboard", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},

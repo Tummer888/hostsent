@@ -11,6 +11,9 @@ import (
 	adminhandler "hostsent/backend/internal/modules/admin/manager/handler"
 	adminrepo "hostsent/backend/internal/modules/admin/manager/repository"
 	adminservice "hostsent/backend/internal/modules/admin/manager/service"
+	prodhandler "hostsent/backend/internal/modules/admin/product/handler"
+	prodrepo "hostsent/backend/internal/modules/admin/product/repository"
+	prodservice "hostsent/backend/internal/modules/admin/product/service"
 	menuhandler "hostsent/backend/internal/modules/admin/menu/handler"
 	menurepo "hostsent/backend/internal/modules/admin/menu/repository"
 	menuservice "hostsent/backend/internal/modules/admin/menu/service"
@@ -148,7 +151,14 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	providerHandler := providerhandler.NewProviderHandler(providerService)
 	productHandler := producthandler.NewProductHandler(productService)
 	syncHandler := synchandler.NewSyncHandler(syncService)
-	router := newRouter(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, logger, jwtIssuer)
+	// 产品管理（面向终端售卖）
+	prodCategoryRepo := prodrepo.NewCategoryRepository(database)
+	prodProductRepo := prodrepo.NewProductRepository(database)
+	prodCategoryService := prodservice.NewCategoryService(prodCategoryRepo)
+	prodProductService := prodservice.NewProductService(prodProductRepo)
+	prodCategoryHandler := prodhandler.NewCategoryHandler(prodCategoryService)
+	prodProductHandler := prodhandler.NewProductHandler(prodProductService)
+	router := newRouter(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodProductHandler, logger, jwtIssuer)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 

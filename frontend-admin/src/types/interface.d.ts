@@ -259,3 +259,126 @@ export interface InstanceListResponse {
   items: InstanceInfo[]
   meta: ListMeta
 }
+
+// ===== 产品管理 - 产品 =====
+
+export interface SaleProductListQuery {
+  keyword?: string
+  category_id?: number
+  status?: number
+  page?: number
+  page_size?: number
+}
+
+export interface SaleProductCreateRequest {
+  code: string
+  name: string
+  category_id?: number
+  product_type?: string
+  description?: string
+  specs?: string
+  price_model?: string
+  price?: number
+  cost_price?: number
+  source_product_id?: number
+  source_provider_id?: number
+  stock?: number
+  sort_order?: number
+  status?: number
+}
+
+export interface SaleProductUpdateRequest {
+  name: string
+  category_id?: number
+  product_type?: string
+  description?: string
+  specs?: string
+  price_model?: string
+  price?: number
+  cost_price?: number
+  stock?: number
+  sort_order?: number
+  status?: number
+}
+
+export interface SaleProductPriceRequest {
+  price: number
+  cost_price: number
+  remark?: string
+}
+
+export interface SaleProductInfo {
+  id: number
+  code: string
+  name: string
+  category_id: number
+  product_type: string
+  description: string
+  specs: string
+  price_model: string
+  price: number
+  cost_price: number
+  source_product_id: number
+  source_provider_id: number
+  stock: number
+  sort_order: number
+  status: number
+  created_at: string
+  updated_at: string
+}
+
+export interface SaleProductListResponse {
+  items: SaleProductInfo[]
+  meta: ListMeta
+}
+
+export interface SaleProductSpecInfo {
+  id: number
+  product_id: number
+  spec_code: string
+  name: string
+  specs: string
+  price_model: string
+  price: number
+  cost_price: number
+  stock: number
+  sort_order: number
+  status: number
+}
+
+export interface SaleProductHistoryInfo {
+  id: number
+  product_id: number
+  change_type: string
+  old_value: string
+  new_value: string
+  operator_name: string
+  remark: string
+  created_at: string
+}
+
+// ===== 产品管理 - 分类 =====
+
+export interface SaleProductCategoryCreateRequest {
+  parent_id?: number
+  name: string
+  icon?: string
+  sort_order?: number
+  status?: number
+}
+
+export type SaleProductCategoryUpdateRequest = SaleProductCategoryCreateRequest
+
+export interface SaleProductCategoryInfo {
+  id: number
+  parent_id: number
+  name: string
+  icon: string
+  sort_order: number
+  status: number
+  children?: SaleProductCategoryInfo[]
+}
+
+export interface SaleProductCategoryListResponse {
+  items: SaleProductCategoryInfo[]
+}
