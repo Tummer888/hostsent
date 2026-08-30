@@ -381,6 +381,44 @@ const routes: Array<RouteRecordRaw> = [
     ],
   },
   {
+    path: '/orders',
+    component: () => import('@/layouts/index.vue'),
+    redirect: '/orders/list',
+    meta: { title: '订单管理' },
+    children: [
+      {
+        path: 'list',
+        name: 'OrderList',
+        component: () => import('@/pages/order/index.vue'),
+        meta: { title: '订单列表', role: 'admin' },
+      },
+      {
+        path: 'detail/:id',
+        name: 'OrderDetail',
+        component: () => import('@/pages/order/detail.vue'),
+        meta: { title: '订单详情', role: 'admin' },
+      },
+      {
+        path: 'refunds',
+        name: 'OrderRefunds',
+        component: () => import('@/pages/order/refunds/index.vue'),
+        meta: { title: '退款管理', role: 'admin' },
+      },
+      {
+        path: 'refunds/:id',
+        name: 'OrderRefundDetail',
+        component: () => import('@/pages/order/refunds/detail.vue'),
+        meta: { title: '退款详情', role: 'admin' },
+      },
+      {
+        path: 'stats',
+        name: 'OrderStats',
+        component: () => import('@/pages/order/stats/index.vue'),
+        meta: { title: '订单统计', role: 'admin' },
+      },
+    ],
+  },
+  {
     path: '/system',
     component: () => import('@/layouts/index.vue'),
     redirect: '/system/menus',

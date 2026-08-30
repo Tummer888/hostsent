@@ -7,11 +7,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
-	prodhandler "hostsent/backend/internal/modules/admin/product/handler"
 	adminhandler "hostsent/backend/internal/modules/admin/manager/handler"
 	menuhandler "hostsent/backend/internal/modules/admin/menu/handler"
-	providerhandler "hostsent/backend/internal/modules/admin/resource/provider/handler"
+	orderhandler "hostsent/backend/internal/modules/admin/order/handler"
+	prodhandler "hostsent/backend/internal/modules/admin/product/handler"
 	producthandler "hostsent/backend/internal/modules/admin/resource/product/handler"
+	providerhandler "hostsent/backend/internal/modules/admin/resource/provider/handler"
 	synchandler "hostsent/backend/internal/modules/admin/resource/sync/handler"
 	"hostsent/backend/internal/modules/admin/user/account/handler"
 	distributionhandler "hostsent/backend/internal/modules/admin/user/distribution/handler"
@@ -25,7 +26,7 @@ import (
 	"hostsent/backend/internal/pkg/middleware"
 )
 
-func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, providerHandler *providerhandler.ProviderHandler, productHandler *producthandler.ProductHandler, syncHandler *synchandler.SyncHandler, userCenterAuthHandler *usercenterhandler.AuthHandler, userMenuHandler *usermenuhandler.MenuHandler, prodCategoryHandler *prodhandler.CategoryHandler, prodProductHandler *prodhandler.ProductHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
+func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, providerHandler *providerhandler.ProviderHandler, productHandler *producthandler.ProductHandler, syncHandler *synchandler.SyncHandler, userCenterAuthHandler *usercenterhandler.AuthHandler, userMenuHandler *usermenuhandler.MenuHandler, prodCategoryHandler *prodhandler.CategoryHandler, prodProductHandler *prodhandler.ProductHandler, orderHandler *orderhandler.OrderHandler, refundHandler *orderhandler.RefundHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
@@ -316,16 +317,39 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 				prodProducts.GET("/:id/specs", prodProductHandler.ListSpecs)
 			}
 		}
+
+		// 订单管理
+		orderGroup := v1.Group("/orders")
+		orderGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			orderGroup.GET("", orderHandler.List)
+			orderGroup.GET("/stats", orderHandler.Stats)
+			orderGroup.GET("/:id", orderHandler.Get)
+			orderGroup.POST("/:id/cancel", orderHandler.Cancel)
+			orderGroup.PUT("/:id/remark", orderHandler.UpdateRemark)
+			orderGroup.POST("/:id/refund", orderHandler.CreateRefund)
+			orderGroup.POST("/:id/activate", orderHandler.Activate)
+		}
+
+		// 退款管理
+		refundGroup := v1.Group("/refunds")
+		refundGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			refundGroup.GET("", refundHandler.List)
+			refundGroup.GET("/:id", refundHandler.Get)
+			refundGroup.POST("/:id/approve", refundHandler.Approve)
+			refundGroup.POST("/:id/reject", refundHandler.Reject)
+		}
 	}
 
 	// 用户中心（普通用户自助）：独立模块 internal/modules/user/auth
 	ucAuth := r.Group("/api/v1/uc/auth")
 	{
-		ucAuth.POST("/login", userCenterAuthHandler.Login)    // 登录
-		ucAuth.POST("/register", userCenterAuthHandler.Register) // 注册
-		ucAuth.POST("/logout", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.Logout) // 登出
-		ucAuth.GET("/userinfo", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.UserInfo) // 用户信息
-		ucAuth.PUT("/profile", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.UpdateProfile) // 更新资料
+		ucAuth.POST("/login", userCenterAuthHandler.Login)                                                                   // 登录
+		ucAuth.POST("/register", userCenterAuthHandler.Register)                                                             // 注册
+		ucAuth.POST("/logout", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.Logout)          // 登出
+		ucAuth.GET("/userinfo", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.UserInfo)       // 用户信息
+		ucAuth.PUT("/profile", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.UpdateProfile)   // 更新资料
 		ucAuth.PUT("/password", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.ChangePassword) // 修改密码
 	}
 
@@ -343,7 +367,7 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 		ucAuthCompat.POST("/register", userCenterAuthHandler.Register)
 		ucAuthCompat.POST("/logout", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.Logout)
 		ucAuthCompat.GET("/userinfo", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.UserInfo)
-		ucAuthCompat.PUT("/profile", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.UpdateProfile) // 更新资料
+		ucAuthCompat.PUT("/profile", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.UpdateProfile)   // 更新资料
 		ucAuthCompat.PUT("/password", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.ChangePassword) // 修改密码
 	}
 

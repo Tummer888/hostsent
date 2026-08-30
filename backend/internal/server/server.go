@@ -11,18 +11,21 @@ import (
 	adminhandler "hostsent/backend/internal/modules/admin/manager/handler"
 	adminrepo "hostsent/backend/internal/modules/admin/manager/repository"
 	adminservice "hostsent/backend/internal/modules/admin/manager/service"
-	prodhandler "hostsent/backend/internal/modules/admin/product/handler"
-	prodrepo "hostsent/backend/internal/modules/admin/product/repository"
-	prodservice "hostsent/backend/internal/modules/admin/product/service"
 	menuhandler "hostsent/backend/internal/modules/admin/menu/handler"
 	menurepo "hostsent/backend/internal/modules/admin/menu/repository"
 	menuservice "hostsent/backend/internal/modules/admin/menu/service"
-	providerhandler "hostsent/backend/internal/modules/admin/resource/provider/handler"
-	providerrepo "hostsent/backend/internal/modules/admin/resource/provider/repository"
-	providerservice "hostsent/backend/internal/modules/admin/resource/provider/service"
+	orderhandler "hostsent/backend/internal/modules/admin/order/handler"
+	orderrepo "hostsent/backend/internal/modules/admin/order/repository"
+	orderservice "hostsent/backend/internal/modules/admin/order/service"
+	prodhandler "hostsent/backend/internal/modules/admin/product/handler"
+	prodrepo "hostsent/backend/internal/modules/admin/product/repository"
+	prodservice "hostsent/backend/internal/modules/admin/product/service"
 	producthandler "hostsent/backend/internal/modules/admin/resource/product/handler"
 	productrepo "hostsent/backend/internal/modules/admin/resource/product/repository"
 	productservice "hostsent/backend/internal/modules/admin/resource/product/service"
+	providerhandler "hostsent/backend/internal/modules/admin/resource/provider/handler"
+	providerrepo "hostsent/backend/internal/modules/admin/resource/provider/repository"
+	providerservice "hostsent/backend/internal/modules/admin/resource/provider/service"
 	synchandler "hostsent/backend/internal/modules/admin/resource/sync/handler"
 	syncrepo "hostsent/backend/internal/modules/admin/resource/sync/repository"
 	syncservice "hostsent/backend/internal/modules/admin/resource/sync/service"
@@ -89,6 +92,13 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	permissionRepo := repository.NewPermissionRepository(database)
 	menuRepo := menurepo.NewMenuRepository(database)
 	securityRepo := securityrepo.NewSecurityRepository(database)
+	// 订单域
+	orderRepo := orderrepo.NewOrderRepository(database)
+	orderItemRepo := orderrepo.NewOrderItemRepository(database)
+	orderRefundRepo := orderrepo.NewRefundRepository(database)
+	orderService := orderservice.NewOrderService(orderRepo, orderItemRepo, orderRefundRepo, orderservice.NewDefaultProvisionAdapter())
+	orderHandler := orderhandler.NewOrderHandler(orderService)
+	refundHandler := orderhandler.NewRefundHandler(orderService)
 	resourceQuotaRepo := quotarepo.NewResourceQuotaRepository(database)
 	quotaTemplateRepo := quotarepo.NewQuotaTemplateRepository(database)
 	quotaUserLevelRepo := quotarepo.NewUserLevelRepository(database)
@@ -158,14 +168,14 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	prodProductService := prodservice.NewProductService(prodProductRepo)
 	prodCategoryHandler := prodhandler.NewCategoryHandler(prodCategoryService)
 	prodProductHandler := prodhandler.NewProductHandler(prodProductService)
-	router := newRouter(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodProductHandler, logger, jwtIssuer)
+	router := newRouter(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodProductHandler, orderHandler, refundHandler, logger, jwtIssuer)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 
 	return &Server{
-		cfg:       cfg,
-		logger:    logger,
-		http:      &http.Server{
+		cfg:    cfg,
+		logger: logger,
+		http: &http.Server{
 			Addr:         addr,
 			Handler:      router,
 			ReadTimeout:  time.Duration(cfg.App.ReadTimeout) * time.Second,

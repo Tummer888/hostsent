@@ -9,11 +9,12 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	prodmodel "hostsent/backend/internal/modules/admin/product/model"
 	adminmodel "hostsent/backend/internal/modules/admin/manager/model"
 	menumodel "hostsent/backend/internal/modules/admin/menu/model"
-	providermodel "hostsent/backend/internal/modules/admin/resource/provider/model"
+	ordermodel "hostsent/backend/internal/modules/admin/order/model"
+	prodmodel "hostsent/backend/internal/modules/admin/product/model"
 	productmodel "hostsent/backend/internal/modules/admin/resource/product/model"
+	providermodel "hostsent/backend/internal/modules/admin/resource/provider/model"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	usermodel "hostsent/backend/internal/modules/admin/user/account/model"
 	distributionmodel "hostsent/backend/internal/modules/admin/user/distribution/model"
@@ -92,6 +93,10 @@ func AutoMigrate(db *gorm.DB) error {
 		&prodmodel.Product{},
 		&prodmodel.ProductSpec{},
 		&prodmodel.ProductHistory{},
+		// 订单管理
+		&ordermodel.Order{},
+		&ordermodel.OrderItem{},
+		&ordermodel.OrderRefund{},
 	); err != nil {
 		return err
 	}
@@ -132,6 +137,9 @@ func SeedDefaults(db *gorm.DB, cfg config.Config) error {
 			return err
 		}
 		if err := seedUpstreamData(tx); err != nil {
+			return err
+		}
+		if err := seedDemoOrders(tx); err != nil {
 			return err
 		}
 		return nil
@@ -251,6 +259,93 @@ func seedUpstreamData(tx *gorm.DB) error {
 	return nil
 }
 
+// seedDemoOrders 为订单管理模块写入演示订单/明细/退款数据。
+// 幂等：仅当 orders 表尚无数据时写入。
+func seedDemoOrders(tx *gorm.DB) error {
+	var count int64
+	if err := tx.Model(&ordermodel.Order{}).Count(&count).Error; err != nil {
+		return err
+	}
+	// 取真实用户 ID 用于演示归属，避免依赖固定用户名
+	usernames := []string{"user_nw_01", "user_east_01", "user_north_01", "user_south_01"}
+	userIDs := make(map[string]uint64, len(usernames))
+	var realIDs []uint64
+	if err := tx.Model(&usermodel.User{}).Order("id asc").Limit(4).Pluck("id", &realIDs).Error; err != nil {
+		return err
+	}
+	if len(realIDs) == 0 {
+		realIDs = []uint64{0}
+	}
+	for i, uname := range usernames {
+		userIDs[uname] = realIDs[i%len(realIDs)]
+	}
+
+	// 矫正既有演示数据：补全归属为 0 的订单与退款
+	if count > 0 {
+		var orphanOrders []ordermodel.Order
+		if err := tx.Where("user_id = 0").Order("id asc").Find(&orphanOrders).Error; err != nil {
+			return err
+		}
+		for i := range orphanOrders {
+			orphanOrders[i].UserID = realIDs[i%len(realIDs)]
+			if err := tx.Save(&orphanOrders[i]).Error; err != nil {
+				return err
+			}
+		}
+		var orphanRefunds []ordermodel.OrderRefund
+		if err := tx.Where("user_id = 0").Order("id asc").Find(&orphanRefunds).Error; err != nil {
+			return err
+		}
+		for i := range orphanRefunds {
+			orphanRefunds[i].UserID = realIDs[i%len(realIDs)]
+			if err := tx.Save(&orphanRefunds[i]).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	now := time.Now()
+	timePtr := func(t time.Time) *time.Time { return &t }
+	daysAgo := func(d int) time.Time { return now.Add(-time.Duration(d) * 24 * time.Hour) }
+
+	orders := []ordermodel.Order{
+		{OrderNo: "OD202608180031", UserID: userIDs["user_nw_01"], ProductID: 1, ProductName: "高主频云主机 4C8G", Specs: `{"cpu":4,"memory":8,"disk":100}`, Quantity: 1, PriceModel: "monthly", TotalAmount: 688, PaidAmount: 688, Status: ordermodel.OrderStatusActive, PayMethod: ordermodel.PayMethodBalance, PayTime: timePtr(daysAgo(0)), ExpireTime: timePtr(now.AddDate(0, 1, 0)), CreatedAt: daysAgo(0), UpdatedAt: daysAgo(0)},
+		{OrderNo: "OD202608120007", UserID: userIDs["user_east_01"], ProductID: 2, ProductName: "云主机续费 2C4G", Specs: `{"cpu":2,"memory":4,"disk":50}`, Quantity: 1, PriceModel: "monthly", TotalAmount: 366, PaidAmount: 366, Status: ordermodel.OrderStatusPaid, PayMethod: ordermodel.PayMethodAlipay, PayTime: timePtr(daysAgo(1)), CreatedAt: daysAgo(1), UpdatedAt: daysAgo(1)},
+		{OrderNo: "OD202608100018", UserID: userIDs["user_east_01"], ProductID: 3, ProductName: "对象存储流量包", Specs: `{"type":"traffic","size":100}`, Quantity: 1, PriceModel: "fixed", TotalAmount: 199, PaidAmount: 0, Status: ordermodel.OrderStatusPending, PayMethod: "", CreatedAt: daysAgo(2), UpdatedAt: daysAgo(2)},
+		{OrderNo: "OD202608050002", UserID: userIDs["user_north_01"], ProductID: 4, ProductName: "云主机 4C8G 华东一区", Specs: `{"cpu":4,"memory":8,"disk":200}`, Quantity: 1, PriceModel: "monthly", TotalAmount: 1280, PaidAmount: 1280, Status: ordermodel.OrderStatusPaid, PayMethod: ordermodel.PayMethodWeChat, PayTime: timePtr(daysAgo(5)), CreatedAt: daysAgo(5), UpdatedAt: daysAgo(5)},
+		{OrderNo: "OD202608010003", UserID: userIDs["user_south_01"], ProductID: 5, ProductName: "云主机 2C2G 华南一区", Specs: `{"cpu":2,"memory":2,"disk":40}`, Quantity: 1, PriceModel: "monthly", TotalAmount: 39.90, PaidAmount: 39.90, Status: ordermodel.OrderStatusCancelled, PayMethod: ordermodel.PayMethodManual, PayTime: timePtr(daysAgo(8)), CreatedAt: daysAgo(8), UpdatedAt: daysAgo(8)},
+		{OrderNo: "OD202607280009", UserID: userIDs["user_nw_01"], ProductID: 6, ProductName: "企业级云主机 8C16G", Specs: `{"cpu":8,"memory":16,"disk":400}`, Quantity: 1, PriceModel: "monthly", TotalAmount: 2360, PaidAmount: 2360, Status: ordermodel.OrderStatusRefunding, PayMethod: ordermodel.PayMethodAlipay, PayTime: timePtr(daysAgo(10)), CreatedAt: daysAgo(10), UpdatedAt: daysAgo(2)},
+		{OrderNo: "OD202607200011", UserID: userIDs["user_north_01"], ProductID: 7, ProductName: "VPS 2C4G", Specs: `{"cpu":2,"memory":4,"disk":60}`, Quantity: 1, PriceModel: "monthly", TotalAmount: 96, PaidAmount: 96, Status: ordermodel.OrderStatusRefunded, PayMethod: ordermodel.PayMethodBalance, PayTime: timePtr(daysAgo(12)), CreatedAt: daysAgo(12), UpdatedAt: daysAgo(11)},
+	}
+
+	for i := range orders {
+		if err := tx.Create(&orders[i]).Error; err != nil {
+			return err
+		}
+		item := ordermodel.OrderItem{
+			OrderID: orders[i].ID, ProductID: orders[i].ProductID, ProductName: orders[i].ProductName,
+			SpecCode: fmt.Sprintf("SPEC-%d", orders[i].ProductID), Specs: orders[i].Specs,
+			Price: orders[i].TotalAmount, Quantity: orders[i].Quantity, Amount: orders[i].TotalAmount,
+		}
+		if err := tx.Create(&item).Error; err != nil {
+			return err
+		}
+	}
+
+	refunds := []ordermodel.OrderRefund{
+		{RefundNo: "RF202607280001", OrderID: orders[5].ID, UserID: orders[5].UserID, Amount: 1180, Reason: "业务调整，申请部分退款", Status: ordermodel.RefundStatusPending},
+		{RefundNo: "RF202607200001", OrderID: orders[6].ID, UserID: orders[6].UserID, Amount: 96, Reason: "申请退货退款", Status: ordermodel.RefundStatusApproved, AuditBy: 1, AuditByName: "admin", AuditedAt: timePtr(daysAgo(11))},
+	}
+	for i := range refunds {
+		if err := tx.Create(&refunds[i]).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func seedRoles(tx *gorm.DB) error {
 	defaults := []usermodel.Role{
 		{Code: "super_admin", Name: "超级管理员", Status: "active"},
@@ -318,6 +413,15 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "product:category", Name: "删除分类", Code: "product:category:delete", Type: "button", SortOrder: 3, Status: "active"},
 		{ParentCode: "product", Name: "定价管理", Code: "product:price", Type: "menu", SortOrder: 3, Status: "active"},
 		{ParentCode: "product:price", Name: "修改价格", Code: "product:price:update", Type: "button", SortOrder: 1, Status: "active"},
+		{Name: "订单管理", Code: "order", Type: "catalog", SortOrder: 6, Status: "active"},
+		{ParentCode: "order", Name: "订单列表", Code: "order:list", Type: "menu", SortOrder: 1, Status: "active"},
+		{ParentCode: "order:list", Name: "取消订单", Code: "order:cancel", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "order:list", Name: "订单备注", Code: "order:remark", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "order:list", Name: "发起退款", Code: "order:refund", Type: "button", SortOrder: 3, Status: "active"},
+		{ParentCode: "order:list", Name: "重新开通", Code: "order:activate", Type: "button", SortOrder: 4, Status: "active"},
+		{ParentCode: "order", Name: "退款管理", Code: "order:refunds", Type: "menu", SortOrder: 2, Status: "active"},
+		{ParentCode: "order:refunds", Name: "审核退款", Code: "order:refund:audit", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "order", Name: "订单统计", Code: "order:stats", Type: "menu", SortOrder: 3, Status: "active"},
 	}
 
 	permissionMap := make(map[string]uint64)
@@ -400,6 +504,15 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"product:category:delete",
 			"product:price",
 			"product:price:update",
+			"order",
+			"order:list",
+			"order:cancel",
+			"order:remark",
+			"order:refund",
+			"order:activate",
+			"order:refunds",
+			"order:refund:audit",
+			"order:stats",
 		},
 		"ops_admin": {
 			"system:user",
@@ -425,11 +538,23 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"product:category:update",
 			"product:price",
 			"product:price:update",
+			"order",
+			"order:list",
+			"order:cancel",
+			"order:remark",
+			"order:activate",
+			"order:stats",
 		},
 		"finance_admin": {
 			"system:user",
 			"system:user:list",
 			"user:detail",
+			"order",
+			"order:list",
+			"order:refund",
+			"order:refunds",
+			"order:refund:audit",
+			"order:stats",
 		},
 		"user": {
 			"system:user",
@@ -523,6 +648,12 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "产品列表", Type: menumodel.TypeMenu, Path: "/product/products", Component: "product/products/index", Icon: "product", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "分类管理", Type: menumodel.TypeMenu, Path: "/product/categories", Component: "product/categories/index", Icon: "tag", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "价格与上下架", Type: menumodel.TypeMenu, Path: "/product/pricing", Component: "product/pricing/index", Icon: "money", SortOrder: 3, Status: menumodel.StatusActive},
+
+		// —— 订单管理（doc16）
+		{Platform: menumodel.PlatformAdmin, Name: "订单管理", Type: menumodel.TypeDirectory, Path: "/orders", Icon: "order", SortOrder: 5, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "订单列表", Type: menumodel.TypeMenu, Path: "/orders/list", Component: "order/index", Icon: "order", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "退款管理", Type: menumodel.TypeMenu, Path: "/orders/refunds", Component: "order/refunds/index", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "订单统计", Type: menumodel.TypeMenu, Path: "/orders/stats", Component: "order/stats/index", Icon: "chart-bar", SortOrder: 3, Status: menumodel.StatusActive},
 
 		// —— 用户中心菜单（platform=user）
 		{Platform: menumodel.PlatformUser, Name: "控制台", Type: menumodel.TypeMenu, Path: "/dashboard", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
