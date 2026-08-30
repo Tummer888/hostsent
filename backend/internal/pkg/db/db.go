@@ -11,9 +11,9 @@ import (
 
 	adminmodel "hostsent/backend/internal/modules/admin/manager/model"
 	menumodel "hostsent/backend/internal/modules/admin/menu/model"
-	providermodel "hostsent/backend/internal/modules/admin/upstream/provider/model"
-	productmodel "hostsent/backend/internal/modules/admin/upstream/product/model"
-	syncmodel "hostsent/backend/internal/modules/admin/upstream/sync/model"
+	providermodel "hostsent/backend/internal/modules/admin/resource/provider/model"
+	productmodel "hostsent/backend/internal/modules/admin/resource/product/model"
+	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	usermodel "hostsent/backend/internal/modules/admin/user/account/model"
 	distributionmodel "hostsent/backend/internal/modules/admin/user/distribution/model"
 	quotamodel "hostsent/backend/internal/modules/admin/user/quota/model"
@@ -80,9 +80,9 @@ func AutoMigrate(db *gorm.DB) error {
 		&adminmodel.Admin{},
 		&adminmodel.AdminAuditLog{},
 		// 资源管理模块核心表（第一阶段）
-		&providermodel.UpstreamProvider{},
+		&providermodel.ResourceProvider{},
 		&providermodel.ResourcePool{},
-		&productmodel.UpstreamProduct{},
+		&productmodel.ResourceProduct{},
 		&syncmodel.SyncTask{},
 		&syncmodel.SyncLog{},
 		&syncmodel.Instance{},
@@ -136,7 +136,7 @@ func SeedDefaults(db *gorm.DB, cfg config.Config) error {
 // 幂等：仅当尚无任何上游提供商时写入，避免重复与覆盖真实运营数据。
 func seedUpstreamData(tx *gorm.DB) error {
 	var providerCount int64
-	if err := tx.Model(&providermodel.UpstreamProvider{}).Count(&providerCount).Error; err != nil {
+	if err := tx.Model(&providermodel.ResourceProvider{}).Count(&providerCount).Error; err != nil {
 		return err
 	}
 	if providerCount > 0 {
@@ -148,7 +148,7 @@ func seedUpstreamData(tx *gorm.DB) error {
 	lastSync := now.Add(-30 * time.Minute)
 
 	// —— 上游提供商 ——
-	providers := []providermodel.UpstreamProvider{
+	providers := []providermodel.ResourceProvider{
 		{Name: "魔方云·华东旗舰", ProviderType: "mofangyun", APIEndpoint: "https://api.mofangyun.com/v3", APIKey: "seed_mfy_key_east", APISecret: "seed_mfy_secret_east", Region: "华东", Status: 1, SyncEnabled: true, SyncInterval: 1800, LastSyncAt: timePtr(lastSync), TotalCPU: 640, TotalMemory: 4096, TotalDisk: 200000, UsedCPU: 420, UsedMemory: 2710, UsedDisk: 132500},
 		{Name: "华东 OpenStack 主池", ProviderType: "openstack", APIEndpoint: "https://ostack-east.hostsent.cn/v3", APIKey: "seed_os_key", APISecret: "seed_os_secret", Region: "华东", Status: 1, SyncEnabled: true, SyncInterval: 3600, LastSyncAt: timePtr(now.Add(-2 * time.Hour)), TotalCPU: 1280, TotalMemory: 8192, TotalDisk: 400000, UsedCPU: 990, UsedMemory: 6150, UsedDisk: 287000},
 		{Name: "华南 Proxmox 集群", ProviderType: "proxmox", APIEndpoint: "https://pxm-south.hostsent.cn:8006", APIKey: "seed_pxm_key", APISecret: "seed_pxm_secret", Region: "华南", Status: 1, SyncEnabled: true, SyncInterval: 3600, LastSyncAt: timePtr(now.Add(-55 * time.Minute)), TotalCPU: 512, TotalMemory: 3072, TotalDisk: 150000, UsedCPU: 318, UsedMemory: 2020, UsedDisk: 96500},
@@ -180,7 +180,7 @@ func seedUpstreamData(tx *gorm.DB) error {
 	}
 
 	// —— 上游商品 ——
-	products := []productmodel.UpstreamProduct{
+	products := []productmodel.ResourceProduct{
 		{ProviderID: providerIDs[0], UpstreamID: "sku_mfy_c2m4d50", Name: "魔方云 标准型 c2-m4-d50", CPU: 2, Memory: 4, Disk: 50, DiskType: "ssd", Bandwidth: 5, OS: "CentOS 7.9", Region: "华东", Zone: "east-01", CostPrice: 42.50, SalePrice: 58.00, Status: 1},
 		{ProviderID: providerIDs[0], UpstreamID: "sku_mfy_c4m8d100", Name: "魔方云 性能型 c4-m8-d100", CPU: 4, Memory: 8, Disk: 100, DiskType: "ssd", Bandwidth: 10, OS: "Ubuntu 22.04", Region: "华东", Zone: "east-01", CostPrice: 82.00, SalePrice: 118.00, Status: 1},
 		{ProviderID: providerIDs[0], UpstreamID: "sku_mfy_c8m16d200", Name: "魔方云 内存型 c8-m16-d200", CPU: 8, Memory: 16, Disk: 200, DiskType: "ssd", Bandwidth: 20, OS: "Debian 12", Region: "华东", Zone: "east-02", CostPrice: 168.00, SalePrice: 236.00, Status: 1},
@@ -286,20 +286,20 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "system:role", Name: "更新角色", Code: "role:update", Type: "button", SortOrder: 3, Status: "active"},
 		{ParentCode: "system:role", Name: "删除角色", Code: "role:delete", Type: "button", SortOrder: 4, Status: "active"},
 		{ParentCode: "system:role", Name: "分配权限", Code: "role:assign_permissions", Type: "button", SortOrder: 5, Status: "active"},
-		{Name: "资源管理", Code: "upstream", Type: "catalog", SortOrder: 4, Status: "active"},
-		{ParentCode: "upstream", Name: "上游提供商", Code: "upstream:provider", Type: "menu", SortOrder: 1, Status: "active"},
-		{ParentCode: "upstream:provider", Name: "创建提供商", Code: "provider:create", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "upstream:provider", Name: "更新提供商", Code: "provider:update", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "upstream:provider", Name: "删除提供商", Code: "provider:delete", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "upstream:provider", Name: "测试连接", Code: "provider:test", Type: "button", SortOrder: 4, Status: "active"},
-		{ParentCode: "upstream", Name: "上游商品", Code: "upstream:product", Type: "menu", SortOrder: 2, Status: "active"},
-		{ParentCode: "upstream:product", Name: "更新商品定价", Code: "product:update_price", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "upstream:product", Name: "同步商品", Code: "product:sync", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "upstream", Name: "同步任务", Code: "upstream:sync", Type: "menu", SortOrder: 3, Status: "active"},
-		{ParentCode: "upstream:sync", Name: "创建同步任务", Code: "sync:create", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "upstream:sync", Name: "查看同步日志", Code: "sync:log", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "upstream", Name: "云主机", Code: "upstream:instance", Type: "menu", SortOrder: 4, Status: "active"},
-		{ParentCode: "upstream:instance", Name: "实例操作", Code: "instance:action", Type: "button", SortOrder: 1, Status: "active"},
+		{Name: "资源管理", Code: "resource", Type: "catalog", SortOrder: 4, Status: "active"},
+		{ParentCode: "resource", Name: "上游提供商", Code: "resource:provider", Type: "menu", SortOrder: 1, Status: "active"},
+		{ParentCode: "resource:provider", Name: "创建提供商", Code: "provider:create", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "resource:provider", Name: "更新提供商", Code: "provider:update", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "resource:provider", Name: "删除提供商", Code: "provider:delete", Type: "button", SortOrder: 3, Status: "active"},
+		{ParentCode: "resource:provider", Name: "测试连接", Code: "provider:test", Type: "button", SortOrder: 4, Status: "active"},
+		{ParentCode: "resource", Name: "上游商品", Code: "resource:product", Type: "menu", SortOrder: 2, Status: "active"},
+		{ParentCode: "resource:product", Name: "更新商品定价", Code: "product:update_price", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "resource:product", Name: "同步商品", Code: "product:sync", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "resource", Name: "同步任务", Code: "resource:sync", Type: "menu", SortOrder: 3, Status: "active"},
+		{ParentCode: "resource:sync", Name: "创建同步任务", Code: "sync:create", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "resource:sync", Name: "查看同步日志", Code: "sync:log", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "resource", Name: "云主机", Code: "resource:instance", Type: "menu", SortOrder: 4, Status: "active"},
+		{ParentCode: "resource:instance", Name: "实例操作", Code: "instance:action", Type: "button", SortOrder: 1, Status: "active"},
 	}
 
 	permissionMap := make(map[string]uint64)
@@ -356,19 +356,19 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"role:update",
 			"role:delete",
 			"role:assign_permissions",
-			"upstream",
-			"upstream:provider",
+			"resource",
+			"resource:provider",
 			"provider:create",
 			"provider:update",
 			"provider:delete",
 			"provider:test",
-			"upstream:product",
+			"resource:product",
 			"product:update_price",
 			"product:sync",
-			"upstream:sync",
+			"resource:sync",
 			"sync:create",
 			"sync:log",
-			"upstream:instance",
+			"resource:instance",
 			"instance:action",
 		},
 		"ops_admin": {
@@ -378,14 +378,14 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"user:update_status",
 			"system:role",
 			"system:role:list",
-			"upstream",
-			"upstream:provider",
+			"resource",
+			"resource:provider",
 			"provider:test",
-			"upstream:product",
+			"resource:product",
 			"product:sync",
-			"upstream:sync",
+			"resource:sync",
 			"sync:log",
-			"upstream:instance",
+			"resource:instance",
 			"instance:action",
 		},
 		"finance_admin": {
@@ -451,34 +451,34 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "账户管理", Type: menumodel.TypeDirectory, Path: "/users/accounts", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/users/accounts", Platform: menumodel.PlatformAdmin, Name: "用户列表", Type: menumodel.TypeMenu, Path: "/users/accounts/list", Component: "users/accounts/list/index", Icon: "user-list", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/users/accounts", Platform: menumodel.PlatformAdmin, Name: "用户组/组织管理", Type: menumodel.TypeMenu, Path: "/users/accounts/groups", Component: "users/accounts/groups/index", Icon: "control-platform", SortOrder: 2, Status: menumodel.StatusActive},
-		{Platform: menumodel.PlatformAdmin, Name: "资源管理", Type: menumodel.TypeDirectory, Path: "/upstream", Icon: "resource", SortOrder: 3, Status: menumodel.StatusActive},
+		{Platform: menumodel.PlatformAdmin, Name: "资源管理", Type: menumodel.TypeDirectory, Path: "/resource", Icon: "resource", SortOrder: 3, Status: menumodel.StatusActive},
 		// —— 资源总览（doc10 §5.1）
-		{ParentKey: "admin:/upstream", Platform: menumodel.PlatformAdmin, Name: "资源总览", Type: menumodel.TypeDirectory, Path: "/upstream/overview", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/upstream/overview", Platform: menumodel.PlatformAdmin, Name: "资源总览", Type: menumodel.TypeMenu, Path: "/upstream/dashboard", Component: "upstream/dashboard/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/upstream/overview", Platform: menumodel.PlatformAdmin, Name: "同步监控", Type: menumodel.TypeMenu, Path: "/upstream/sync-monitor", Component: "upstream/sync-monitor/index", Icon: "data-checked", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "资源总览", Type: menumodel.TypeDirectory, Path: "/resource/overview", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/overview", Platform: menumodel.PlatformAdmin, Name: "资源总览", Type: menumodel.TypeMenu, Path: "/resource/dashboard", Component: "resource/dashboard/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/overview", Platform: menumodel.PlatformAdmin, Name: "同步监控", Type: menumodel.TypeMenu, Path: "/resource/sync-monitor", Component: "resource/sync-monitor/index", Icon: "data-checked", SortOrder: 2, Status: menumodel.StatusActive},
 		// —— 上游对接管理（doc10 §5.2）
-		{ParentKey: "admin:/upstream", Platform: menumodel.PlatformAdmin, Name: "上游对接管理", Type: menumodel.TypeDirectory, Path: "/upstream/connection", Icon: "cloud", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/upstream/connection", Platform: menumodel.PlatformAdmin, Name: "上游提供商", Type: menumodel.TypeMenu, Path: "/upstream/providers", Component: "upstream/providers/index", Icon: "cloud", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/upstream/connection", Platform: menumodel.PlatformAdmin, Name: "资源池管理", Type: menumodel.TypeMenu, Path: "/upstream/pools", Component: "upstream/pools/index", Icon: "layers", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/upstream/connection", Platform: menumodel.PlatformAdmin, Name: "连接测试", Type: menumodel.TypeMenu, Path: "/upstream/connectivity", Component: "upstream/connectivity/index", Icon: "link", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "上游对接管理", Type: menumodel.TypeDirectory, Path: "/resource/connection", Icon: "cloud", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/connection", Platform: menumodel.PlatformAdmin, Name: "上游提供商", Type: menumodel.TypeMenu, Path: "/resource/providers", Component: "resource/providers/index", Icon: "cloud", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/connection", Platform: menumodel.PlatformAdmin, Name: "资源池管理", Type: menumodel.TypeMenu, Path: "/resource/pools", Component: "resource/pools/index", Icon: "layers", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/connection", Platform: menumodel.PlatformAdmin, Name: "连接测试", Type: menumodel.TypeMenu, Path: "/resource/connectivity", Component: "resource/connectivity/index", Icon: "link", SortOrder: 3, Status: menumodel.StatusActive},
 		// —— 资源同步与对账（doc10 §5.3）
-		{ParentKey: "admin:/upstream", Platform: menumodel.PlatformAdmin, Name: "资源同步与对账", Type: menumodel.TypeDirectory, Path: "/upstream/sync-center", Icon: "refresh", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/upstream/sync-center", Platform: menumodel.PlatformAdmin, Name: "同步任务", Type: menumodel.TypeMenu, Path: "/upstream/sync", Component: "upstream/sync/index", Icon: "refresh", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/upstream/sync-center", Platform: menumodel.PlatformAdmin, Name: "同步日志", Type: menumodel.TypeMenu, Path: "/upstream/logs", Component: "upstream/logs/index", Icon: "history", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/upstream/sync-center", Platform: menumodel.PlatformAdmin, Name: "对账报告", Type: menumodel.TypeMenu, Path: "/upstream/reconciliation", Component: "upstream/reconciliation/index", Icon: "verify", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "资源同步与对账", Type: menumodel.TypeDirectory, Path: "/resource/sync-center", Icon: "refresh", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/sync-center", Platform: menumodel.PlatformAdmin, Name: "同步任务", Type: menumodel.TypeMenu, Path: "/resource/sync", Component: "resource/sync/index", Icon: "refresh", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/sync-center", Platform: menumodel.PlatformAdmin, Name: "同步日志", Type: menumodel.TypeMenu, Path: "/resource/logs", Component: "resource/logs/index", Icon: "history", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/sync-center", Platform: menumodel.PlatformAdmin, Name: "对账报告", Type: menumodel.TypeMenu, Path: "/resource/reconciliation", Component: "resource/reconciliation/index", Icon: "verify", SortOrder: 3, Status: menumodel.StatusActive},
 		// —— 资源商品管理（doc10 §5.4）
-		{ParentKey: "admin:/upstream", Platform: menumodel.PlatformAdmin, Name: "资源商品管理", Type: menumodel.TypeDirectory, Path: "/upstream/products-center", Icon: "product", SortOrder: 4, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/upstream/products-center", Platform: menumodel.PlatformAdmin, Name: "商品列表", Type: menumodel.TypeMenu, Path: "/upstream/products", Component: "upstream/products/index", Icon: "product", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/upstream/products-center", Platform: menumodel.PlatformAdmin, Name: "商品同步", Type: menumodel.TypeMenu, Path: "/upstream/product-sync", Component: "upstream/product-sync/index", Icon: "cloud-download", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/upstream/products-center", Platform: menumodel.PlatformAdmin, Name: "定价管理", Type: menumodel.TypeMenu, Path: "/upstream/pricing", Component: "upstream/pricing/index", Icon: "money", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "资源商品管理", Type: menumodel.TypeDirectory, Path: "/resource/products-center", Icon: "product", SortOrder: 4, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/products-center", Platform: menumodel.PlatformAdmin, Name: "商品列表", Type: menumodel.TypeMenu, Path: "/resource/products", Component: "resource/products/index", Icon: "product", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/products-center", Platform: menumodel.PlatformAdmin, Name: "商品同步", Type: menumodel.TypeMenu, Path: "/resource/product-sync", Component: "resource/product-sync/index", Icon: "cloud-download", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/products-center", Platform: menumodel.PlatformAdmin, Name: "定价管理", Type: menumodel.TypeMenu, Path: "/resource/pricing", Component: "resource/pricing/index", Icon: "money", SortOrder: 3, Status: menumodel.StatusActive},
 		// —— 实例资源
-		{ParentKey: "admin:/upstream", Platform: menumodel.PlatformAdmin, Name: "实例资源", Type: menumodel.TypeDirectory, Path: "/upstream/instance", Icon: "server", SortOrder: 5, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/upstream/instance", Platform: menumodel.PlatformAdmin, Name: "云主机实例", Type: menumodel.TypeMenu, Path: "/upstream/instances", Component: "upstream/instances/index", Icon: "server", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "实例资源", Type: menumodel.TypeDirectory, Path: "/resource/instance", Icon: "server", SortOrder: 5, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/instance", Platform: menumodel.PlatformAdmin, Name: "云主机实例", Type: menumodel.TypeMenu, Path: "/resource/instances", Component: "resource/instances/index", Icon: "server", SortOrder: 1, Status: menumodel.StatusActive},
 		// —— 运维工具（doc10 §5.5）
-		{ParentKey: "admin:/upstream", Platform: menumodel.PlatformAdmin, Name: "运维工具", Type: menumodel.TypeDirectory, Path: "/upstream/ops", Icon: "setting", SortOrder: 6, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/upstream/ops", Platform: menumodel.PlatformAdmin, Name: "API测试", Type: menumodel.TypeMenu, Path: "/upstream/api-test", Component: "upstream/api-test/index", Icon: "ai-tool", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/upstream/ops", Platform: menumodel.PlatformAdmin, Name: "异常处理", Type: menumodel.TypeMenu, Path: "/upstream/anomalies", Component: "upstream/anomalies/index", Icon: "error-circle", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/upstream/ops", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeMenu, Path: "/upstream/settings", Component: "upstream/settings/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "运维工具", Type: menumodel.TypeDirectory, Path: "/resource/ops", Icon: "setting", SortOrder: 6, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "API测试", Type: menumodel.TypeMenu, Path: "/resource/api-test", Component: "resource/api-test/index", Icon: "ai-tool", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "异常处理", Type: menumodel.TypeMenu, Path: "/resource/anomalies", Component: "resource/anomalies/index", Icon: "error-circle", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeMenu, Path: "/resource/settings", Component: "resource/settings/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
 
 		// —— 用户中心菜单（platform=user）
 		{Platform: menumodel.PlatformUser, Name: "控制台", Type: menumodel.TypeMenu, Path: "/dashboard", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},

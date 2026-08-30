@@ -127,7 +127,7 @@
             </div>
             <t-progress
               :percentage="item.percent"
-              :theme="item.theme"
+              :color="item.color"
               :label="false"
               size="medium"
               class="overview-item__progress"
@@ -155,7 +155,6 @@
           size="small"
           row-key="id"
           :bordered="false"
-          :pagination="false"
           :row-class-name="resolveLogRowClass"
           class="log-table"
         >
@@ -175,7 +174,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted, ref, shallowRef } from 'vue'
+import { computed, markRaw, onMounted, ref, type Component } from 'vue'
 
 import {
   ArrowDownIcon,
@@ -226,8 +225,8 @@ const greeting = computed(() => {
   return '晚上好'
 })
 
-function wrap(iconComp: unknown) {
-  return shallowRef({ render: () => h(iconComp as never) })
+function wrap(iconComp: Component) {
+  return markRaw(iconComp)
 }
 
 function buildSpark(points: number[], height = 36, width = 200) {
@@ -285,11 +284,18 @@ const statCards = computed<StatCardItem[]>(() => {
 
 type OverviewTheme = 'primary' | 'success' | 'warning' | 'danger'
 
-const overview = ref<Array<{ label: string; value: string; percent: number; theme: OverviewTheme }>>([
-  { label: 'CPU 平均使用率', value: '58%', percent: 58, theme: 'primary' },
-  { label: '内存平均使用率', value: '64%', percent: 64, theme: 'success' },
-  { label: '网络入流量', value: '42%', percent: 42, theme: 'warning' },
-  { label: '存储使用率', value: '77%', percent: 77, theme: 'danger' },
+const overviewColorMap: Record<OverviewTheme, string> = {
+  primary: '#2563eb',
+  success: '#16a34a',
+  warning: '#d97706',
+  danger: '#dc2626',
+}
+
+const overview = ref<Array<{ label: string; value: string; percent: number; theme: OverviewTheme; color: string }>>([
+  { label: 'CPU 平均使用率', value: '58%', percent: 58, theme: 'primary', color: overviewColorMap.primary },
+  { label: '内存平均使用率', value: '64%', percent: 64, theme: 'success', color: overviewColorMap.success },
+  { label: '网络入流量', value: '42%', percent: 42, theme: 'warning', color: overviewColorMap.warning },
+  { label: '存储使用率', value: '77%', percent: 77, theme: 'danger', color: overviewColorMap.danger },
 ])
 
 type LogRow = {

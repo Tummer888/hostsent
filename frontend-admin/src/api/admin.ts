@@ -140,7 +140,7 @@ export function deleteAdmin(id: string | number): Promise<string> {
 
 export function getProviderList(params: ProviderListQuery): Promise<ProviderListResponse> {
   return request.get<ProviderListResponse>({
-    url: '/upstream/providers',
+    url: '/resource/providers',
     params: {
       page: params.page,
       page_size: params.page_size,
@@ -153,39 +153,39 @@ export function getProviderList(params: ProviderListQuery): Promise<ProviderList
 
 export function getProviderDetail(id: number): Promise<ProviderInfo> {
   return request.get<ProviderInfo>({
-    url: `/upstream/providers/${id}`,
+    url: `/resource/providers/${id}`,
   })
 }
 
 export function createProvider(data: ProviderCreateRequest): Promise<ProviderInfo> {
   return request.post<ProviderInfo>({
-    url: '/upstream/providers',
+    url: '/resource/providers',
     data,
   })
 }
 
 export function updateProvider(id: number, data: ProviderUpdateRequest): Promise<ProviderInfo> {
   return request.put<ProviderInfo>({
-    url: `/upstream/providers/${id}`,
+    url: `/resource/providers/${id}`,
     data,
   })
 }
 
 export function deleteProvider(id: number): Promise<string> {
   return request.delete<string>({
-    url: `/upstream/providers/${id}`,
+    url: `/resource/providers/${id}`,
   })
 }
 
 export function testConnection(id: number): Promise<TestConnectionResult> {
   return request.post<TestConnectionResult>({
-    url: `/upstream/providers/${id}/test`,
+    url: `/resource/providers/${id}/test`,
   })
 }
 
 export function getProviderTypes(): Promise<ProviderTypeItem[]> {
   return request.get<ProviderTypeItem[]>({
-    url: '/upstream/providers/types',
+    url: '/resource/providers/types',
   })
 }
 
@@ -193,7 +193,7 @@ export function getProviderTypes(): Promise<ProviderTypeItem[]> {
 
 export function getPoolList(params: PoolListQuery): Promise<PoolListResponse> {
   return request.get<PoolListResponse>({
-    url: '/upstream/pools',
+    url: '/resource/pools',
     params: {
       provider_id: params.provider_id,
       page: params.page,
@@ -204,7 +204,7 @@ export function getPoolList(params: PoolListQuery): Promise<PoolListResponse> {
 
 export function getPoolDetail(id: number): Promise<PoolInfo> {
   return request.get<PoolInfo>({
-    url: `/upstream/pools/${id}`,
+    url: `/resource/pools/${id}`,
   })
 }
 
@@ -212,7 +212,7 @@ export function getPoolDetail(id: number): Promise<PoolInfo> {
 
 export function getProductList(params: ProductListQuery): Promise<ProductListResponse> {
   return request.get<ProductListResponse>({
-    url: '/upstream/products',
+    url: '/resource/products',
     params: {
       keyword: params.keyword,
       provider_id: params.provider_id,
@@ -225,13 +225,13 @@ export function getProductList(params: ProductListQuery): Promise<ProductListRes
 
 export function getProductDetail(id: number): Promise<ProductInfo> {
   return request.get<ProductInfo>({
-    url: `/upstream/products/${id}`,
+    url: `/resource/products/${id}`,
   })
 }
 
 export function updateProductPrice(id: number, data: ProductPriceRequest): Promise<ProductInfo> {
   return request.put<ProductInfo>({
-    url: `/upstream/products/${id}/price`,
+    url: `/resource/products/${id}/price`,
     data,
   })
 }
@@ -240,7 +240,7 @@ export function updateProductPrice(id: number, data: ProductPriceRequest): Promi
 
 export function getSyncTaskList(params: SyncTaskListQuery): Promise<SyncTaskListResponse> {
   return request.get<SyncTaskListResponse>({
-    url: '/upstream/sync/tasks',
+    url: '/resource/sync/tasks',
     params: {
       provider_id: params.provider_id,
       task_type: params.task_type,
@@ -253,20 +253,20 @@ export function getSyncTaskList(params: SyncTaskListQuery): Promise<SyncTaskList
 
 export function getSyncTaskDetail(id: number): Promise<SyncTaskInfo> {
   return request.get<SyncTaskInfo>({
-    url: `/upstream/sync/tasks/${id}`,
+    url: `/resource/sync/tasks/${id}`,
   })
 }
 
 export function createSyncTask(data: CreateSyncTaskRequest): Promise<SyncTaskInfo> {
   return request.post<SyncTaskInfo>({
-    url: '/upstream/sync',
+    url: '/resource/sync',
     data,
   })
 }
 
 export function getSyncLogList(params: SyncLogListQuery): Promise<SyncLogListResponse> {
   return request.get<SyncLogListResponse>({
-    url: '/upstream/sync/logs',
+    url: '/resource/sync/logs',
     params: {
       provider_id: params.provider_id,
       task_id: params.task_id,
@@ -279,7 +279,7 @@ export function getSyncLogList(params: SyncLogListQuery): Promise<SyncLogListRes
 
 export function getInstanceList(params: InstanceListQuery): Promise<InstanceListResponse> {
   return request.get<InstanceListResponse>({
-    url: '/upstream/instances',
+    url: '/resource/instances',
     params: {
       provider_id: params.provider_id,
       user_id: params.user_id,
@@ -293,6 +293,6 @@ export function getInstanceList(params: InstanceListQuery): Promise<InstanceList
 
 export function getInstanceDetail(id: number): Promise<InstanceInfo> {
   return request.get<InstanceInfo>({
-    url: `/upstream/instances/${id}`,
+    url: `/resource/instances/${id}`,
   })
 }

@@ -1,4 +1,4 @@
-import type { Component } from 'vue'
+import { markRaw, type Component } from 'vue'
 import { defineStore } from 'pinia'
 
 import {
@@ -90,7 +90,7 @@ const iconMap: Record<string, Component> = {
 
 function resolveIcon(name?: string): Component | undefined {
   if (!name) return undefined
-  return iconMap[name] || iconMap[name.toLowerCase()]
+  return markRaw(iconMap[name] || iconMap[name.toLowerCase()])
 }
 
 export interface FlatMenu {

@@ -163,7 +163,7 @@
       </t-button>
     </t-form>
 
-    <t-divider align="middle" class="alt-divider">安全选项</t-divider>
+    <t-divider align="center" class="alt-divider">安全选项</t-divider>
 
     <div class="alt-login">
       <t-tooltip content="密钥登录功能即将上线" placement="top">
