@@ -8,6 +8,9 @@ import (
 
 	"go.uber.org/zap"
 
+	financehandler "hostsent/backend/internal/modules/admin/finance/handler"
+	financerepo "hostsent/backend/internal/modules/admin/finance/repository"
+	financeservice "hostsent/backend/internal/modules/admin/finance/service"
 	adminhandler "hostsent/backend/internal/modules/admin/manager/handler"
 	adminrepo "hostsent/backend/internal/modules/admin/manager/repository"
 	adminservice "hostsent/backend/internal/modules/admin/manager/service"
@@ -47,6 +50,7 @@ import (
 	usercenterhandler "hostsent/backend/internal/modules/user/auth/handler"
 	usercenterrepo "hostsent/backend/internal/modules/user/auth/repository"
 	usercenterservice "hostsent/backend/internal/modules/user/auth/service"
+	userfinancehandler "hostsent/backend/internal/modules/user/finance/handler"
 	usermenuhandler "hostsent/backend/internal/modules/user/menu/handler"
 	usermenurepo "hostsent/backend/internal/modules/user/menu/repository"
 	usermenuservice "hostsent/backend/internal/modules/user/menu/service"
@@ -99,6 +103,22 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	orderService := orderservice.NewOrderService(orderRepo, orderItemRepo, orderRefundRepo, orderservice.NewDefaultProvisionAdapter())
 	orderHandler := orderhandler.NewOrderHandler(orderService)
 	refundHandler := orderhandler.NewRefundHandler(orderService)
+	// 财务域
+	walletRepo := financerepo.NewWalletRepository(database)
+	walletTxRepo := financerepo.NewTransactionRepository(database)
+	walletService := financeservice.NewWalletService(database, walletRepo, walletTxRepo)
+	rechargeRepo := financerepo.NewRechargeRepository(database)
+	rechargeService := financeservice.NewRechargeService(rechargeRepo, walletService)
+	withdrawRepo := financerepo.NewWithdrawRepository(database)
+	withdrawService := financeservice.NewWithdrawService(withdrawRepo, walletService)
+	billRepo := financerepo.NewBillRepository(database)
+	billService := financeservice.NewBillService(billRepo, walletTxRepo)
+	reconService := financeservice.NewReconService(walletRepo, walletTxRepo)
+	walletHandler := financehandler.NewWalletHandler(walletService)
+	rechargeHandler := financehandler.NewRechargeHandler(rechargeService)
+	withdrawHandler := financehandler.NewWithdrawHandler(withdrawService)
+	billHandler := financehandler.NewBillHandler(billService)
+	reconHandler := financehandler.NewReconHandler(reconService)
 	resourceQuotaRepo := quotarepo.NewResourceQuotaRepository(database)
 	quotaTemplateRepo := quotarepo.NewQuotaTemplateRepository(database)
 	quotaUserLevelRepo := quotarepo.NewUserLevelRepository(database)
@@ -135,6 +155,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	userMenuRepo := usermenurepo.NewMenuRepository(database)
 	userMenuService := usermenuservice.NewMenuService(userMenuRepo)
 	userMenuHandler := usermenuhandler.NewMenuHandler(userMenuService)
+	// 用户中心财务：复用账务核心/充值/账单服务，仅暴露用户自助接口
+	userFinanceHandler := userfinancehandler.NewFinanceHandler(walletService, rechargeService, billService)
 	providerService := providerservice.NewProviderService(providerRepo, poolRepo, upstreamMgr, cfg.App.EncryptKey)
 	productService := productservice.NewProductService(productRepo)
 	syncEngine := syncservice.NewSyncEngine(upstreamMgr, providerService, productRepo, poolRepo, providerRepo, syncRepo, logger)
@@ -168,7 +190,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	prodProductService := prodservice.NewProductService(prodProductRepo)
 	prodCategoryHandler := prodhandler.NewCategoryHandler(prodCategoryService)
 	prodProductHandler := prodhandler.NewProductHandler(prodProductService)
-	router := newRouter(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodProductHandler, orderHandler, refundHandler, logger, jwtIssuer)
+	router := newRouter(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodProductHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, userFinanceHandler, logger, jwtIssuer)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 

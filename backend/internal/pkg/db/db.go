@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	financmodel "hostsent/backend/internal/modules/admin/finance/model"
 	adminmodel "hostsent/backend/internal/modules/admin/manager/model"
 	menumodel "hostsent/backend/internal/modules/admin/menu/model"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
@@ -97,6 +98,12 @@ func AutoMigrate(db *gorm.DB) error {
 		&ordermodel.Order{},
 		&ordermodel.OrderItem{},
 		&ordermodel.OrderRefund{},
+		// 财务管理
+		&financmodel.WalletAccount{},
+		&financmodel.WalletTransaction{},
+		&financmodel.Recharge{},
+		&financmodel.Withdraw{},
+		&financmodel.Bill{},
 	); err != nil {
 		return err
 	}
@@ -140,6 +147,9 @@ func SeedDefaults(db *gorm.DB, cfg config.Config) error {
 			return err
 		}
 		if err := seedDemoOrders(tx); err != nil {
+			return err
+		}
+		if err := seedDemoFinance(tx); err != nil {
 			return err
 		}
 		return nil
@@ -346,6 +356,98 @@ func seedDemoOrders(tx *gorm.DB) error {
 	return nil
 }
 
+// seedDemoFinance 为财务管理模块写入演示数据（钱包账户/流水/充值单/提现单/账单）。
+// 幂等：仅当 wallet_accounts 尚无数据时写入；余额与流水保持一致（净变动 = 账户余额）。
+func seedDemoFinance(tx *gorm.DB) error {
+	var count int64
+	if err := tx.Model(&financmodel.WalletAccount{}).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	var userIDs []uint64
+	if err := tx.Model(&usermodel.User{}).Order("id asc").Limit(4).Pluck("id", &userIDs).Error; err != nil {
+		return err
+	}
+	if len(userIDs) == 0 {
+		return nil
+	}
+
+	now := time.Now()
+	currPeriod := now.Format("200601")
+
+	for i, uid := range userIDs {
+		balance, income, expense := 0.0, 0.0, 0.0
+		var txs []financmodel.WalletTransaction
+
+		appendTx := func(txType string, dir int, amount float64, refNo, biz string) {
+			before := balance
+			balance += float64(dir) * amount
+			if dir > 0 {
+				income += amount
+			} else {
+				expense += amount
+			}
+			txs = append(txs, financmodel.WalletTransaction{
+				TxNo:          fmt.Sprintf("SEEDW%02d%02d", i, len(txs)),
+				UserID:        uid,
+				Type:          txType,
+				Direction:     dir,
+				Amount:        amount,
+				BalanceBefore: before,
+				BalanceAfter:  balance,
+				RefNo:         refNo,
+				BizType:       biz,
+				Remark:        "演示数据",
+				CreatedAt:     now.Add(-time.Duration(i) * time.Hour),
+			})
+		}
+
+		appendTx(financmodel.TxTypeRecharge, 1, 50, fmt.Sprintf("RCDEMO%03d", i), "recharge")
+		appendTx(financmodel.TxTypeConsume, -1, 30, fmt.Sprintf("ODDEMO%03d", i), "consume")
+		appendTx(financmodel.TxTypeRefund, 1, 10, fmt.Sprintf("RFDEMO%03d", i), "refund")
+
+		acc := &financmodel.WalletAccount{UserID: uid, Balance: balance, Frozen: 0, TotalIncome: income, TotalExpense: expense, Version: 1}
+		if err := tx.Create(acc).Error; err != nil {
+			return err
+		}
+		for k := range txs {
+			if err := tx.Create(&txs[k]).Error; err != nil {
+				return err
+			}
+		}
+
+		rc := &financmodel.Recharge{
+			RechargeNo: fmt.Sprintf("RCDEMO%03d", i), UserID: uid, Amount: 50, Method: "manual",
+			Status: financmodel.RechargeStatusSuccess, ChannelTx: fmt.Sprintf("channel-%d", i),
+			PaidAt: &now, Remark: "演示充值",
+		}
+		if err := tx.Create(rc).Error; err != nil {
+			return err
+		}
+
+		wd := &financmodel.Withdraw{
+			WithdrawNo: fmt.Sprintf("WDDEMO%03d", i), UserID: uid, Amount: 20, Channel: "bank",
+			Account: "622202****0001", Status: financmodel.WithdrawStatusPending, Remark: "演示提现",
+		}
+		if err := tx.Create(wd).Error; err != nil {
+			return err
+		}
+
+		bill := &financmodel.Bill{
+			BillNo: fmt.Sprintf("BILLDEMO%03d", i), UserID: uid, Period: currPeriod,
+			TotalAmount: 20, RefundAmount: 10, Status: financmodel.BillStatusUnpaid,
+			Detail: `{"consume":30,"refund":10}`,
+		}
+		if err := tx.Create(bill).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func seedRoles(tx *gorm.DB) error {
 	defaults := []usermodel.Role{
 		{Code: "super_admin", Name: "超级管理员", Status: "active"},
@@ -422,6 +524,16 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "order", Name: "退款管理", Code: "order:refunds", Type: "menu", SortOrder: 2, Status: "active"},
 		{ParentCode: "order:refunds", Name: "审核退款", Code: "order:refund:audit", Type: "button", SortOrder: 1, Status: "active"},
 		{ParentCode: "order", Name: "订单统计", Code: "order:stats", Type: "menu", SortOrder: 3, Status: "active"},
+		{Name: "财务管理", Code: "finance", Type: "catalog", SortOrder: 7, Status: "active"},
+		{ParentCode: "finance", Name: "钱包/流水", Code: "finance:wallet", Type: "menu", SortOrder: 1, Status: "active"},
+		{ParentCode: "finance:wallet", Name: "人工调账", Code: "finance:adjust", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "finance", Name: "充值管理", Code: "finance:recharge", Type: "menu", SortOrder: 2, Status: "active"},
+		{ParentCode: "finance:recharge", Name: "确认到账", Code: "finance:recharge:approve", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "finance", Name: "提现管理", Code: "finance:withdraw", Type: "menu", SortOrder: 3, Status: "active"},
+		{ParentCode: "finance:withdraw", Name: "审核提现", Code: "finance:withdraw:audit", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "finance", Name: "账单管理", Code: "finance:bill", Type: "menu", SortOrder: 4, Status: "active"},
+		{ParentCode: "finance:bill", Name: "关账", Code: "finance:bill:close", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "finance:bill", Name: "对账", Code: "finance:bill:recon", Type: "button", SortOrder: 2, Status: "active"},
 	}
 
 	permissionMap := make(map[string]uint64)
@@ -654,6 +766,15 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "订单列表", Type: menumodel.TypeMenu, Path: "/orders/list", Component: "order/index", Icon: "order", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "退款管理", Type: menumodel.TypeMenu, Path: "/orders/refunds", Component: "order/refunds/index", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "订单统计", Type: menumodel.TypeMenu, Path: "/orders/stats", Component: "order/stats/index", Icon: "chart-bar", SortOrder: 3, Status: menumodel.StatusActive},
+
+		// —— 财务管理（doc）
+		{Platform: menumodel.PlatformAdmin, Name: "财务管理", Type: menumodel.TypeDirectory, Path: "/finance", Icon: "wallet", SortOrder: 6, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "用户钱包", Type: menumodel.TypeMenu, Path: "/finance/wallets", Component: "finance/wallets/index", Icon: "wallet", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "资金流水", Type: menumodel.TypeMenu, Path: "/finance/transactions", Component: "finance/transactions/index", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "充值管理", Type: menumodel.TypeMenu, Path: "/finance/recharges", Component: "finance/recharges/index", Icon: "download", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "提现管理", Type: menumodel.TypeMenu, Path: "/finance/withdrawals", Component: "finance/withdrawals/index", Icon: "upload", SortOrder: 4, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "账单管理", Type: menumodel.TypeMenu, Path: "/finance/bills", Component: "finance/bills/index", Icon: "file", SortOrder: 5, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "对账中心", Type: menumodel.TypeMenu, Path: "/finance/recon", Component: "finance/bills/recon", Icon: "verify", SortOrder: 6, Status: menumodel.StatusActive},
 
 		// —— 用户中心菜单（platform=user）
 		{Platform: menumodel.PlatformUser, Name: "控制台", Type: menumodel.TypeMenu, Path: "/dashboard", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},

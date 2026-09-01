@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	financehandler "hostsent/backend/internal/modules/admin/finance/handler"
 	adminhandler "hostsent/backend/internal/modules/admin/manager/handler"
 	menuhandler "hostsent/backend/internal/modules/admin/menu/handler"
 	orderhandler "hostsent/backend/internal/modules/admin/order/handler"
@@ -20,13 +21,14 @@ import (
 	securityhandler "hostsent/backend/internal/modules/admin/user/security/handler"
 	verificationhandler "hostsent/backend/internal/modules/admin/user/verification/handler"
 	usercenterhandler "hostsent/backend/internal/modules/user/auth/handler"
+	userfinancehandler "hostsent/backend/internal/modules/user/finance/handler"
 	usermenuhandler "hostsent/backend/internal/modules/user/menu/handler"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/middleware"
 )
 
-func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, providerHandler *providerhandler.ProviderHandler, productHandler *producthandler.ProductHandler, syncHandler *synchandler.SyncHandler, userCenterAuthHandler *usercenterhandler.AuthHandler, userMenuHandler *usermenuhandler.MenuHandler, prodCategoryHandler *prodhandler.CategoryHandler, prodProductHandler *prodhandler.ProductHandler, orderHandler *orderhandler.OrderHandler, refundHandler *orderhandler.RefundHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
+func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, providerHandler *providerhandler.ProviderHandler, productHandler *producthandler.ProductHandler, syncHandler *synchandler.SyncHandler, userCenterAuthHandler *usercenterhandler.AuthHandler, userMenuHandler *usermenuhandler.MenuHandler, prodCategoryHandler *prodhandler.CategoryHandler, prodProductHandler *prodhandler.ProductHandler, orderHandler *orderhandler.OrderHandler, refundHandler *orderhandler.RefundHandler, walletHandler *financehandler.WalletHandler, rechargeHandler *financehandler.RechargeHandler, withdrawHandler *financehandler.WithdrawHandler, billHandler *financehandler.BillHandler, reconHandler *financehandler.ReconHandler, userFinanceHandler *userfinancehandler.FinanceHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
@@ -340,6 +342,28 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 			refundGroup.POST("/:id/approve", refundHandler.Approve)
 			refundGroup.POST("/:id/reject", refundHandler.Reject)
 		}
+
+		// 财务管理
+		financeGroup := v1.Group("/finance")
+		financeGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			// 钱包/流水
+			financeGroup.GET("/wallets/:user_id", walletHandler.Balance)
+			financeGroup.GET("/transactions", walletHandler.ListTransactions)
+			financeGroup.POST("/transactions/adjust", walletHandler.Adjust)
+			// 充值
+			financeGroup.POST("/recharges", rechargeHandler.Create)
+			financeGroup.GET("/recharges", rechargeHandler.List)
+			financeGroup.POST("/recharges/:id/approve", rechargeHandler.Approve)
+			// 提现
+			financeGroup.GET("/withdrawals", withdrawHandler.List)
+			financeGroup.POST("/withdrawals/:id/approve", withdrawHandler.Approve)
+			financeGroup.POST("/withdrawals/:id/reject", withdrawHandler.Reject)
+			// 账单/对账
+			financeGroup.GET("/bills", billHandler.List)
+			financeGroup.POST("/bills/:id/close", billHandler.Close)
+			financeGroup.POST("/bills/recon", reconHandler.Reconcile)
+		}
 	}
 
 	// 用户中心（普通用户自助）：独立模块 internal/modules/user/auth
@@ -376,6 +400,16 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 	ucMenuCompat.Use(middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix))
 	{
 		ucMenuCompat.GET("/tree", userMenuHandler.Tree) // 菜单树
+	}
+
+	// 用户中心财务：用户自助查看余额 / 流水 / 账单并发起充值
+	ucFinance := r.Group("/api/v1/uc/finance")
+	{
+		ucFinance.GET("/balance", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userFinanceHandler.Balance)           // 我的余额
+		ucFinance.GET("/transactions", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userFinanceHandler.Transactions) // 我的资金流水
+		ucFinance.POST("/recharge", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userFinanceHandler.CreateRecharge)  // 发起充值
+		ucFinance.GET("/bills", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userFinanceHandler.Bills)               // 我的账单
+		ucFinance.POST("/recharge/callback", userFinanceHandler.RechargeCallback)                                              // 充值回调（渠道通知）
 	}
 
 	return r

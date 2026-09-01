@@ -50,6 +50,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '费用中心', icon: 'wallet' },
       },
       {
+        path: 'billing/balance',
+        name: 'BillingBalance',
+        component: () => import('@/pages/billing/balance.vue'),
+        meta: { title: '余额与充值', icon: 'wallet' },
+      },
+      {
+        path: 'billing/transactions',
+        name: 'BillingTransactions',
+        component: () => import('@/pages/billing/transactions.vue'),
+        meta: { title: '资金流水', icon: 'money' },
+      },
+      {
         path: 'support/tickets',
         name: 'TicketList',
         component: () => import('@/pages/support/tickets.vue'),

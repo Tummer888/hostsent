@@ -419,6 +419,56 @@ const routes: Array<RouteRecordRaw> = [
     ],
   },
   {
+    path: '/finance',
+    component: () => import('@/layouts/index.vue'),
+    redirect: '/finance/wallets',
+    meta: { title: '财务管理' },
+    children: [
+      {
+        path: 'wallets',
+        name: 'FinanceWallets',
+        component: () => import('@/pages/finance/wallets/index.vue'),
+        meta: { title: '用户钱包', role: 'admin' },
+      },
+      {
+        path: 'transactions',
+        name: 'FinanceTransactions',
+        component: () => import('@/pages/finance/transactions/index.vue'),
+        meta: { title: '资金流水', role: 'admin' },
+      },
+      {
+        path: 'transactions/adjust',
+        name: 'FinanceAdjust',
+        component: () => import('@/pages/finance/transactions/adjust.vue'),
+        meta: { title: '人工调账', role: 'admin' },
+      },
+      {
+        path: 'recharges',
+        name: 'FinanceRecharges',
+        component: () => import('@/pages/finance/recharges/index.vue'),
+        meta: { title: '充值管理', role: 'admin' },
+      },
+      {
+        path: 'withdrawals',
+        name: 'FinanceWithdrawals',
+        component: () => import('@/pages/finance/withdrawals/index.vue'),
+        meta: { title: '提现管理', role: 'admin' },
+      },
+      {
+        path: 'bills',
+        name: 'FinanceBills',
+        component: () => import('@/pages/finance/bills/index.vue'),
+        meta: { title: '账单管理', role: 'admin' },
+      },
+      {
+        path: 'recon',
+        name: 'FinanceReconciliation',
+        component: () => import('@/pages/finance/bills/recon.vue'),
+        meta: { title: '对账中心', role: 'admin' },
+      },
+    ],
+  },
+  {
     path: '/system',
     component: () => import('@/layouts/index.vue'),
     redirect: '/system/menus',

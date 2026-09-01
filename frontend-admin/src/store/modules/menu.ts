@@ -12,6 +12,7 @@ import {
   ControlPlatformIcon,
   DashboardIcon,
   DataCheckedIcon,
+  DownloadIcon,
   ErrorCircleIcon,
   FileIcon,
   FilePasteIcon,
@@ -32,11 +33,13 @@ import {
   SettingIcon,
   StopIcon,
   TagIcon,
+  UploadIcon,
   UserIcon,
   UserCircleIcon,
   UserListIcon,
   UsergroupIcon,
   VerifyIcon,
+  WalletIcon,
 } from 'tdesign-icons-vue-next'
 
 import { getMenuTree, type MenuNode } from '@/api/menu'
@@ -82,6 +85,9 @@ const iconMap: Record<string, Component> = {
   resource: LayersIcon,
   data: DashboardIcon,
   catalog: LayersIcon,
+  wallet: WalletIcon,
+  download: DownloadIcon,
+  upload: UploadIcon,
   'cloud-download': CloudDownloadIcon,
   'data-checked': DataCheckedIcon,
   'ai-tool': AiToolIcon,
@@ -89,7 +95,10 @@ const iconMap: Record<string, Component> = {
 
 function resolveIcon(name?: string): Component | undefined {
   if (!name) return undefined
-  return markRaw(iconMap[name] || iconMap[name.toLowerCase()])
+  const comp = iconMap[name] || iconMap[name.toLowerCase()]
+  // 仅当映射到真实组件时才 markRaw，避免对 undefined 调用 Vue.markRaw(undefined) 抛错
+  // （该 Vue 版本的 markRaw 先执行 Object.hasOwn(value,...) 再判空，传入 undefined 会抛 TypeError）。
+  return comp ? markRaw(comp) : undefined
 }
 
 export interface FlatMenu {
