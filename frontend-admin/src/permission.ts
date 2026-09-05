@@ -206,6 +206,8 @@ export const navMenu = [
       { title: '角色列表', path: '/system/roles', icon: iconWrapper(UsergroupIcon) },
       { title: '权限分配', path: '/system/permissions', icon: iconWrapper(SettingIcon) },
       { title: '管理员列表', path: '/system/admins', icon: iconWrapper(UserListIcon) },
+      { title: '系统配置', path: '/system/config', icon: iconWrapper(SettingIcon) },
+      { title: '操作审计', path: '/system/audit-logs', icon: iconWrapper(HistoryIcon) },
     ],
   },
 ]

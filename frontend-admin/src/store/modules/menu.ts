@@ -16,6 +16,7 @@ import {
   ErrorCircleIcon,
   FileIcon,
   FilePasteIcon,
+  FolderIcon,
   HistoryIcon,
   HomeIcon,
   ImageIcon,
@@ -33,6 +34,7 @@ import {
   SettingIcon,
   StopIcon,
   TagIcon,
+  TicketIcon,
   UploadIcon,
   UserIcon,
   UserCircleIcon,
@@ -59,6 +61,7 @@ const iconMap: Record<string, Component> = {
   server: ServerIcon,
   'file-paste': FilePasteIcon,
   file: FileIcon,
+  folder: FolderIcon,
   image: ImageIcon,
   internet: InternetIcon,
   app: AppIcon,
@@ -72,6 +75,7 @@ const iconMap: Record<string, Component> = {
   menu: MenuIcon,
   history: HistoryIcon,
   service: ServiceIcon,
+  ticket: TicketIcon,
   'chart-bar': ChartBarIcon,
   'lock-on': LockOnIcon,
   key: KeyIcon,
@@ -111,16 +115,19 @@ export interface FlatMenu {
   children: FlatMenu[]
 }
 
+// 递归转换菜单树为扁平结构；仅保留启用（active）节点，禁用菜单不在侧边栏下发展示
 function toFlatMenu(nodes: MenuNode[]): FlatMenu[] {
-  return nodes.map((node) => ({
-    id: node.id,
-    parentId: node.parent_id,
-    name: node.name,
-    path: node.path,
-    component: node.component,
-    icon: resolveIcon(node.icon),
-    children: node.children?.length ? toFlatMenu(node.children) : [],
-  }))
+  return nodes
+    .filter((node) => node.status === 'active')
+    .map((node) => ({
+      id: node.id,
+      parentId: node.parent_id,
+      name: node.name,
+      path: node.path,
+      component: node.component,
+      icon: resolveIcon(node.icon),
+      children: node.children?.length ? toFlatMenu(node.children) : [],
+    }))
 }
 
 export const useMenuStore = defineStore('menu', {

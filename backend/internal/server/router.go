@@ -15,6 +15,8 @@ import (
 	producthandler "hostsent/backend/internal/modules/admin/resource/product/handler"
 	providerhandler "hostsent/backend/internal/modules/admin/resource/provider/handler"
 	synchandler "hostsent/backend/internal/modules/admin/resource/sync/handler"
+	systemhandler "hostsent/backend/internal/modules/admin/system/handler"
+	tickethandler "hostsent/backend/internal/modules/admin/ticket/handler"
 	"hostsent/backend/internal/modules/admin/user/account/handler"
 	distributionhandler "hostsent/backend/internal/modules/admin/user/distribution/handler"
 	quotahandler "hostsent/backend/internal/modules/admin/user/quota/handler"
@@ -28,7 +30,7 @@ import (
 	"hostsent/backend/internal/pkg/middleware"
 )
 
-func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, providerHandler *providerhandler.ProviderHandler, productHandler *producthandler.ProductHandler, syncHandler *synchandler.SyncHandler, userCenterAuthHandler *usercenterhandler.AuthHandler, userMenuHandler *usermenuhandler.MenuHandler, prodCategoryHandler *prodhandler.CategoryHandler, prodProductHandler *prodhandler.ProductHandler, orderHandler *orderhandler.OrderHandler, refundHandler *orderhandler.RefundHandler, walletHandler *financehandler.WalletHandler, rechargeHandler *financehandler.RechargeHandler, withdrawHandler *financehandler.WithdrawHandler, billHandler *financehandler.BillHandler, reconHandler *financehandler.ReconHandler, userFinanceHandler *userfinancehandler.FinanceHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
+func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, providerHandler *providerhandler.ProviderHandler, productHandler *producthandler.ProductHandler, syncHandler *synchandler.SyncHandler, userCenterAuthHandler *usercenterhandler.AuthHandler, userMenuHandler *usermenuhandler.MenuHandler, prodCategoryHandler *prodhandler.CategoryHandler, prodProductHandler *prodhandler.ProductHandler, orderHandler *orderhandler.OrderHandler, refundHandler *orderhandler.RefundHandler, walletHandler *financehandler.WalletHandler, rechargeHandler *financehandler.RechargeHandler, withdrawHandler *financehandler.WithdrawHandler, billHandler *financehandler.BillHandler, reconHandler *financehandler.ReconHandler, configHandler *systemhandler.ConfigHandler, userFinanceHandler *userfinancehandler.FinanceHandler, ticketHandler *tickethandler.TicketHandler, ticketCategoryHandler *tickethandler.CategoryHandler, userTicketHandler *tickethandler.UserTicketHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
@@ -333,6 +335,29 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 			orderGroup.POST("/:id/activate", orderHandler.Activate)
 		}
 
+		// 工单支持（doc50）
+		ticketGroup := v1.Group("/tickets")
+		ticketGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			ticketGroup.GET("", ticketHandler.List)
+			ticketGroup.GET("/stats", ticketHandler.Stats)
+			ticketGroup.GET("/:id", ticketHandler.Get)
+			ticketGroup.POST("/:id/reply", ticketHandler.Reply)
+			ticketGroup.PUT("/:id/assign", ticketHandler.Assign)
+			ticketGroup.PUT("/:id/status", ticketHandler.UpdateStatus)
+			ticketGroup.POST("/:id/close", ticketHandler.Close)
+		}
+
+		// 工单分类（doc50）
+		ticketCategoryGroup := v1.Group("/ticket-categories")
+		ticketCategoryGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			ticketCategoryGroup.GET("", ticketCategoryHandler.List)
+			ticketCategoryGroup.POST("", ticketCategoryHandler.Create)
+			ticketCategoryGroup.PUT("/:id", ticketCategoryHandler.Update)
+			ticketCategoryGroup.DELETE("/:id", ticketCategoryHandler.Delete)
+		}
+
 		// 退款管理
 		refundGroup := v1.Group("/refunds")
 		refundGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
@@ -363,6 +388,17 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 			financeGroup.GET("/bills", billHandler.List)
 			financeGroup.POST("/bills/:id/close", billHandler.Close)
 			financeGroup.POST("/bills/recon", reconHandler.Reconcile)
+		}
+
+		// 系统管理（系统配置）
+		systemConfigGroup := v1.Group("/system/configs")
+		systemConfigGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		{
+			systemConfigGroup.GET("", configHandler.List)
+			systemConfigGroup.POST("", configHandler.Create)
+			systemConfigGroup.GET("/:key", configHandler.GetByKey)
+			systemConfigGroup.PUT("/:id", configHandler.Update)
+			systemConfigGroup.DELETE("/:id", configHandler.Delete)
 		}
 	}
 
@@ -410,6 +446,17 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 		ucFinance.POST("/recharge", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userFinanceHandler.CreateRecharge)  // 发起充值
 		ucFinance.GET("/bills", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userFinanceHandler.Bills)               // 我的账单
 		ucFinance.POST("/recharge/callback", userFinanceHandler.RechargeCallback)                                              // 充值回调（渠道通知）
+	}
+
+	// 用户中心工单支持：我的工单自助管理（doc50）
+	ucSupport := r.Group("/api/v1/uc/support")
+	{
+		ucSupport.GET("/tickets", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userTicketHandler.List)                     // 我的工单列表
+		ucSupport.POST("/tickets", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userTicketHandler.Create)                  // 提交工单
+		ucSupport.GET("/ticket-categories", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userTicketHandler.ListCategories) // 可用工单分类
+		ucSupport.GET("/tickets/:id", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userTicketHandler.Get)                  // 工单详情（含回复）
+		ucSupport.POST("/tickets/:id/replies", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userTicketHandler.Reply)       // 追加工单回复
+		ucSupport.POST("/tickets/:id/cancel", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userTicketHandler.Cancel)       // 取消工单
 	}
 
 	return r

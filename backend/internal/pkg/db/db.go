@@ -17,6 +17,8 @@ import (
 	productmodel "hostsent/backend/internal/modules/admin/resource/product/model"
 	providermodel "hostsent/backend/internal/modules/admin/resource/provider/model"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
+	systemmodel "hostsent/backend/internal/modules/admin/system/model"
+	ticketmodel "hostsent/backend/internal/modules/admin/ticket/model"
 	usermodel "hostsent/backend/internal/modules/admin/user/account/model"
 	distributionmodel "hostsent/backend/internal/modules/admin/user/distribution/model"
 	quotamodel "hostsent/backend/internal/modules/admin/user/quota/model"
@@ -98,17 +100,85 @@ func AutoMigrate(db *gorm.DB) error {
 		&ordermodel.Order{},
 		&ordermodel.OrderItem{},
 		&ordermodel.OrderRefund{},
+		// 工单支持（doc50）
+		&ticketmodel.Ticket{},
+		&ticketmodel.TicketReply{},
+		&ticketmodel.TicketCategory{},
+		&ticketmodel.TicketAttachment{},
 		// 财务管理
 		&financmodel.WalletAccount{},
 		&financmodel.WalletTransaction{},
 		&financmodel.Recharge{},
 		&financmodel.Withdraw{},
 		&financmodel.Bill{},
+		// 系统管理（系统配置）
+		&systemmodel.SystemConfig{},
 	); err != nil {
 		return err
 	}
 
+	// 旧 user_tickets 数据一次性迁移至新 tickets 表（doc50 §6.6）
+	if err := migrateLegacyTickets(db); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// migrateLegacyTickets 将旧 user_tickets 表数据一次性迁移至新 tickets 表（doc50 §6.6）。
+// 策略：新表为空且旧表存在数据时执行迁移，旧状态值映射为新状态机枚举
+// （processing→in_progress、waiting→waiting_user），迁移完成后旧表重命名为 user_tickets_legacy 归档。
+func migrateLegacyTickets(db *gorm.DB) error {
+	if !db.Migrator().HasTable("user_tickets") {
+		return nil
+	}
+	var ticketCount int64
+	if err := db.Table("tickets").Count(&ticketCount).Error; err != nil {
+		return err
+	}
+	if ticketCount > 0 {
+		return nil // 新表已有数据，跳过迁移
+	}
+	var legacyCount int64
+	if err := db.Table("user_tickets").Count(&legacyCount).Error; err != nil {
+		return err
+	}
+	if legacyCount == 0 {
+		return nil
+	}
+
+	var legacy []usermodel.UserTicket
+	if err := db.Table("user_tickets").Find(&legacy).Error; err != nil {
+		return err
+	}
+	for _, item := range legacy {
+		status := item.Status
+		switch status {
+		case "processing":
+			status = ticketmodel.TicketStatusInProgress
+		case "waiting":
+			status = ticketmodel.TicketStatusWaitingUser
+		case "pending":
+			status = ticketmodel.TicketStatusOpen
+		case "done":
+			status = ticketmodel.TicketStatusResolved
+		}
+		record := ticketmodel.Ticket{
+			TicketNo:  item.TicketNo,
+			UserID:    item.UserID,
+			Title:     item.Title,
+			Category:  item.Category,
+			Priority:  item.Priority,
+			Status:    status,
+			CreatedAt: item.CreatedAt,
+			UpdatedAt: item.UpdatedAt,
+		}
+		if err := db.Create(&record).Error; err != nil {
+			return err
+		}
+	}
+	// 旧表归档重命名
+	return db.Migrator().RenameTable("user_tickets", "user_tickets_legacy")
 }
 
 func SeedDefaults(db *gorm.DB, cfg config.Config) error {
@@ -125,6 +195,9 @@ func SeedDefaults(db *gorm.DB, cfg config.Config) error {
 		if err := seedMenus(tx); err != nil {
 			return err
 		}
+		if err := seedSystemConfigs(tx); err != nil {
+			return err
+		}
 		if err := seedAdminUser(tx, cfg); err != nil {
 			return err
 		}
@@ -132,6 +205,9 @@ func SeedDefaults(db *gorm.DB, cfg config.Config) error {
 			return err
 		}
 		if err := seedDemoUserDetails(tx); err != nil {
+			return err
+		}
+		if err := seedTicketCategories(tx); err != nil {
 			return err
 		}
 		if err := seedDemoSecurity(tx); err != nil {
@@ -448,6 +524,30 @@ func seedDemoFinance(tx *gorm.DB) error {
 	return nil
 }
 
+// seedSystemConfigs 为系统配置模块写入默认配置项。
+// 幂等：按 config_key 查重，已存在则跳过，不覆盖运营期修改。
+func seedSystemConfigs(tx *gorm.DB) error {
+	defaults := []systemmodel.SystemConfig{
+		{ConfigKey: "site_name", ConfigValue: "HostSent 云主机管理系统", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "站点名称", SortOrder: 1, Status: systemmodel.StatusActive},
+		{ConfigKey: "default_billing_cycle", ConfigValue: "monthly", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupBilling, Description: "默认计费周期", SortOrder: 1, Status: systemmodel.StatusActive},
+		{ConfigKey: "enable_user_register", ConfigValue: "true", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupFeature, Description: "是否开放用户注册", SortOrder: 1, Status: systemmodel.StatusActive},
+		{ConfigKey: "enable_mfa_required", ConfigValue: "false", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupSecurity, Description: "是否强制管理员开启MFA", SortOrder: 1, Status: systemmodel.StatusActive},
+		{ConfigKey: "order_expire_minutes", ConfigValue: "30", ValueType: systemmodel.ValueTypeInt, Group: systemmodel.ConfigGroupOrder, Description: "待支付订单过期时间(分钟)", SortOrder: 1, Status: systemmodel.StatusActive},
+	}
+	for _, config := range defaults {
+		var existing systemmodel.SystemConfig
+		if err := tx.Where("config_key = ?", config.ConfigKey).First(&existing).Error; err == nil {
+			continue
+		} else if err != gorm.ErrRecordNotFound {
+			return err
+		}
+		if err := tx.Create(&config).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func seedRoles(tx *gorm.DB) error {
 	defaults := []usermodel.Role{
 		{Code: "super_admin", Name: "超级管理员", Status: "active"},
@@ -478,6 +578,12 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "system:menu", Name: "创建菜单", Code: "menu:create", Type: "button", SortOrder: 2, Status: "active"},
 		{ParentCode: "system:menu", Name: "更新菜单", Code: "menu:update", Type: "button", SortOrder: 3, Status: "active"},
 		{ParentCode: "system:menu", Name: "删除菜单", Code: "menu:delete", Type: "button", SortOrder: 4, Status: "active"},
+		// —— 系统配置（系统管理模块）
+		{Name: "系统配置", Code: "system:config", Type: "menu", SortOrder: 4, Status: "active"},
+		{ParentCode: "system:config", Name: "查看配置", Code: "system:config:view", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "system:config", Name: "创建配置", Code: "system:config:create", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "system:config", Name: "更新配置", Code: "system:config:update", Type: "button", SortOrder: 3, Status: "active"},
+		{ParentCode: "system:config", Name: "删除配置", Code: "system:config:delete", Type: "button", SortOrder: 4, Status: "active"},
 		{Name: "用户管理", Code: "system:user", Type: "catalog", SortOrder: 2, Status: "active"},
 		{Name: "用户列表", Code: "system:user:list", Type: "menu", SortOrder: 1, Status: "active"},
 		{ParentCode: "system:user", Name: "查看用户详情", Code: "user:detail", Type: "button", SortOrder: 3, Status: "active"},
@@ -534,6 +640,17 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "finance", Name: "账单管理", Code: "finance:bill", Type: "menu", SortOrder: 4, Status: "active"},
 		{ParentCode: "finance:bill", Name: "关账", Code: "finance:bill:close", Type: "button", SortOrder: 1, Status: "active"},
 		{ParentCode: "finance:bill", Name: "对账", Code: "finance:bill:recon", Type: "button", SortOrder: 2, Status: "active"},
+		// —— 工单支持（doc50 §7.4）
+		{Name: "工单支持", Code: "ticket", Type: "catalog", SortOrder: 8, Status: "active"},
+		{ParentCode: "ticket", Name: "工单列表", Code: "ticket:list", Type: "menu", SortOrder: 1, Status: "active"},
+		{ParentCode: "ticket:list", Name: "查看工单", Code: "ticket:view", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "ticket:list", Name: "回复工单", Code: "ticket:reply", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "ticket:list", Name: "分配工单", Code: "ticket:assign", Type: "button", SortOrder: 3, Status: "active"},
+		{ParentCode: "ticket:list", Name: "更新状态", Code: "ticket:update", Type: "button", SortOrder: 4, Status: "active"},
+		{ParentCode: "ticket:list", Name: "关闭工单", Code: "ticket:close", Type: "button", SortOrder: 5, Status: "active"},
+		{ParentCode: "ticket", Name: "分类管理", Code: "ticket:category", Type: "menu", SortOrder: 2, Status: "active"},
+		{ParentCode: "ticket:category", Name: "管理分类", Code: "ticket:manage", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "ticket", Name: "工单统计", Code: "ticket:stats", Type: "menu", SortOrder: 3, Status: "active"},
 	}
 
 	permissionMap := make(map[string]uint64)
@@ -579,6 +696,11 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"menu:create",
 			"menu:update",
 			"menu:delete",
+			"system:config",
+			"system:config:view",
+			"system:config:create",
+			"system:config:update",
+			"system:config:delete",
 			"system:user",
 			"system:user:list",
 			"user:detail",
@@ -625,6 +747,17 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"order:refunds",
 			"order:refund:audit",
 			"order:stats",
+			// 工单支持权限（doc50 §7.4）
+			"ticket",
+			"ticket:list",
+			"ticket:view",
+			"ticket:reply",
+			"ticket:assign",
+			"ticket:update",
+			"ticket:close",
+			"ticket:category",
+			"ticket:manage",
+			"ticket:stats",
 		},
 		"ops_admin": {
 			"system:user",
@@ -717,6 +850,8 @@ func seedRolePermissions(tx *gorm.DB) error {
 	return nil
 }
 
+// seedMenus 为各平台写入默认菜单树。
+// 幂等：按唯一键查重跳过已存在菜单，字段变化时同步更新，支持默认菜单结构平滑升级。
 func seedMenus(tx *gorm.DB) error {
 	defaults := []seedMenu{
 		{Platform: menumodel.PlatformAdmin, Name: "仪表盘", Type: menumodel.TypeDirectory, Path: "/dashboard", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
@@ -775,6 +910,21 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "提现管理", Type: menumodel.TypeMenu, Path: "/finance/withdrawals", Component: "finance/withdrawals/index", Icon: "upload", SortOrder: 4, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "账单管理", Type: menumodel.TypeMenu, Path: "/finance/bills", Component: "finance/bills/index", Icon: "file", SortOrder: 5, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "对账中心", Type: menumodel.TypeMenu, Path: "/finance/recon", Component: "finance/bills/recon", Icon: "verify", SortOrder: 6, Status: menumodel.StatusActive},
+
+		// —— 工单支持（doc50 §5.3，admin 平台 SortOrder=8）
+		{Platform: menumodel.PlatformAdmin, Name: "工单支持", Type: menumodel.TypeDirectory, Path: "/tickets", Icon: "service", SortOrder: 8, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单列表", Type: menumodel.TypeMenu, Path: "/tickets/list", Component: "ticket/index", Icon: "ticket", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单分类管理", Type: menumodel.TypeMenu, Path: "/tickets/categories", Component: "ticket/categories/index", Icon: "folder", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单统计", Type: menumodel.TypeMenu, Path: "/tickets/stats", Component: "ticket/stats/index", Icon: "chart-bar", SortOrder: 3, Status: menumodel.StatusActive},
+
+		// —— 系统管理（doc40 系统管理模块）
+		{Platform: menumodel.PlatformAdmin, Name: "系统管理", Type: menumodel.TypeDirectory, Path: "/system", Icon: "setting", SortOrder: 7, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "菜单管理", Type: menumodel.TypeMenu, Path: "/system/menus", Component: "system/menus/index", Icon: "menu", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "角色列表", Type: menumodel.TypeMenu, Path: "/system/roles", Component: "system/roles/index", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "权限分配", Type: menumodel.TypeMenu, Path: "/system/permissions", Component: "system/permissions/index", Icon: "lock-on", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "管理员列表", Type: menumodel.TypeMenu, Path: "/system/admins", Component: "system/admins/index", Icon: "user-list", SortOrder: 4, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeMenu, Path: "/system/config", Component: "system/config/index", Icon: "setting", SortOrder: 5, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "操作审计", Type: menumodel.TypeMenu, Path: "/system/audit-logs", Component: "system/audit-logs/index", Icon: "history", SortOrder: 6, Status: menumodel.StatusActive},
 
 		// —— 用户中心菜单（platform=user）
 		{Platform: menumodel.PlatformUser, Name: "控制台", Type: menumodel.TypeMenu, Path: "/dashboard", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
@@ -1022,20 +1172,54 @@ func seedDemoUserDetails(tx *gorm.DB) error {
 	}
 
 	var ticketCount int64
-	if err := tx.Model(&usermodel.UserTicket{}).Where("user_id = ?", target.ID).Count(&ticketCount).Error; err != nil {
+	if err := tx.Model(&ticketmodel.Ticket{}).Where("user_id = ?", target.ID).Count(&ticketCount).Error; err != nil {
 		return err
 	}
 	if ticketCount == 0 {
-		tickets := []usermodel.UserTicket{
-			{UserID: target.ID, TicketNo: "TK20260819005", Title: "实例公网带宽波动", Category: "网络问题", Priority: "high", Status: "processing"},
-			{UserID: target.ID, TicketNo: "TK20260811001", Title: "发票抬头更新申请", Category: "财务支持", Priority: "medium", Status: "waiting"},
-			{UserID: target.ID, TicketNo: "TK20260730008", Title: "续费后实例未自动开机", Category: "产品使用", Priority: "medium", Status: "resolved"},
+		// 演示工单：分类编码对齐 ticket_categories seed（doc50 §6.5）
+		tickets := []ticketmodel.Ticket{
+			{TicketNo: "TK20260819005", UserID: target.ID, Title: "实例公网带宽波动", Description: "晚间高峰期实例公网带宽持续波动，影响线上业务访问，请协助排查。", Category: "technical", Priority: "high", Status: "in_progress"},
+			{TicketNo: "TK20260811001", UserID: target.ID, Title: "发票抬头更新申请", Description: "需要将发票抬头更新为公司全称，请协助处理。", Category: "billing", Priority: "medium", Status: "waiting_user"},
+			{TicketNo: "TK20260730008", UserID: target.ID, Title: "续费后实例未自动开机", Description: "实例续费完成后未自动开机，已手动处理，请确认后续计费正常。", Category: "aftersales", Priority: "medium", Status: "resolved"},
 		}
 		if err := tx.Create(&tickets).Error; err != nil {
 			return err
 		}
+		// 演示对话回复：与工单状态保持一致
+		replies := []ticketmodel.TicketReply{
+			{TicketID: tickets[0].ID, SenderType: "admin", SenderName: "admin", Content: "您好，已收到反馈，正在排查带宽波动问题，稍后同步进展。"},
+			{TicketID: tickets[1].ID, SenderType: "admin", SenderName: "admin", Content: "已登记发票抬头变更申请，请提供新抬头全称与税号。"},
+			{TicketID: tickets[2].ID, SenderType: "admin", SenderName: "admin", Content: "实例已恢复开机，计费已核实无误，感谢反馈。"},
+			{TicketID: tickets[2].ID, SenderType: "user", SenderID: target.ID, SenderName: target.Username, Content: "收到，问题已解决，感谢支持。"},
+		}
+		if err := tx.Create(&replies).Error; err != nil {
+			return err
+		}
 	}
 
+	return nil
+}
+
+// seedTicketCategories 写入默认工单分类（doc50 §6.5）。幂等：按 code 查重跳过。
+func seedTicketCategories(tx *gorm.DB) error {
+	defaults := []ticketmodel.TicketCategory{
+		{Name: "售前咨询", Code: "presales", Description: "产品价格、功能咨询", SortOrder: 1, Status: "active"},
+		{Name: "售后问题", Code: "aftersales", Description: "使用问题、故障报修", SortOrder: 2, Status: "active"},
+		{Name: "账单问题", Code: "billing", Description: "充值、扣费、退款", SortOrder: 3, Status: "active"},
+		{Name: "技术支持", Code: "technical", Description: "配置、部署、API技术", SortOrder: 4, Status: "active"},
+		{Name: "投诉建议", Code: "complaint", Description: "服务投诉、改进建议", SortOrder: 5, Status: "active"},
+	}
+	for _, item := range defaults {
+		var existing ticketmodel.TicketCategory
+		if err := tx.Where("code = ?", item.Code).First(&existing).Error; err == nil {
+			continue
+		} else if err != gorm.ErrRecordNotFound {
+			return err
+		}
+		if err := tx.Create(&item).Error; err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

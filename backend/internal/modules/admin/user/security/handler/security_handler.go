@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"encoding/csv"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -127,15 +129,62 @@ func (h *SecurityHandler) GetAuditLog(c *gin.Context) {
 }
 
 // ExportAuditLogs godoc
-// @Summary 导出审计日志
+// @Summary 导出审计日志 CSV
+// @Description 按查询条件导出审计日志为 CSV 文件（当前页数据，UTF-8 带 BOM，便于 Excel 打开）
 // @Tags 安全与风控
-// @Accept json
-// @Produce json
+// @Produce text/csv
 // @Security BearerAuth
-// @Success 200 {object} dto.APIResponse[string]
-// @Router /api/v1/admin/security/audit-logs/export [post]
+// @Param page query int false "页码"
+// @Param page_size query int false "每页条数"
+// @Param operator query string false "操作人"
+// @Param module query string false "模块"
+// @Param action query string false "动作"
+// @Param result query string false "结果"
+// @Param resource_type query string false "资源类型"
+// @Param resource_id query string false "资源ID"
+// @Success 200 {file} file
+// @Router /api/v1/admin/security/audit-logs/export [get]
 func (h *SecurityHandler) ExportAuditLogs(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": "security-audit-logs-export-job", "timestamp": time.Now().Unix()})
+	var query dto.AuditLogListQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	// 导出上限：单次最多导出 1000 条，防止内存放大
+	if query.PageSize <= 0 || query.PageSize > 1000 {
+		query.PageSize = 1000
+	}
+	data, err := h.service.ListAuditLogs(c.Request.Context(), query)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="audit-logs-%s.csv"`, time.Now().Format("20060102150405")))
+	// 写入 UTF-8 BOM，保证 Excel 正确识别中文
+	c.Writer.WriteString("\xEF\xBB\xBF")
+
+	w := csv.NewWriter(c.Writer)
+	_ = w.Write([]string{"ID", "操作人", "模块", "动作", "资源类型", "资源ID", "请求方法", "请求路径", "状态码", "响应信息", "IP", "TraceID", "发生时间"})
+	for _, item := range data.Items {
+		_ = w.Write([]string{
+			strconv.FormatUint(item.ID, 10),
+			item.OperatorName,
+			item.Module,
+			item.Action,
+			item.ResourceType,
+			item.ResourceID,
+			item.RequestMethod,
+			item.RequestPath,
+			strconv.Itoa(item.ResponseCode),
+			item.ResponseMessage,
+			item.IP,
+			item.TraceID,
+			item.CreatedAt.Format("2006-01-02 15:04:05"),
+		})
+	}
+	w.Flush()
 }
 
 // ListRiskEvents godoc

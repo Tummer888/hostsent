@@ -32,6 +32,12 @@ import (
 	synchandler "hostsent/backend/internal/modules/admin/resource/sync/handler"
 	syncrepo "hostsent/backend/internal/modules/admin/resource/sync/repository"
 	syncservice "hostsent/backend/internal/modules/admin/resource/sync/service"
+	systemhandler "hostsent/backend/internal/modules/admin/system/handler"
+	systemrepo "hostsent/backend/internal/modules/admin/system/repository"
+	systemservice "hostsent/backend/internal/modules/admin/system/service"
+	tickethandler "hostsent/backend/internal/modules/admin/ticket/handler"
+	ticketrepo "hostsent/backend/internal/modules/admin/ticket/repository"
+	ticketservice "hostsent/backend/internal/modules/admin/ticket/service"
 	"hostsent/backend/internal/modules/admin/user/account/handler"
 	"hostsent/backend/internal/modules/admin/user/account/repository"
 	"hostsent/backend/internal/modules/admin/user/account/service"
@@ -119,6 +125,10 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	withdrawHandler := financehandler.NewWithdrawHandler(withdrawService)
 	billHandler := financehandler.NewBillHandler(billService)
 	reconHandler := financehandler.NewReconHandler(reconService)
+	// 系统配置
+	configRepo := systemrepo.NewConfigRepository(database)
+	configService := systemservice.NewConfigService(configRepo)
+	configHandler := systemhandler.NewConfigHandler(configService)
 	resourceQuotaRepo := quotarepo.NewResourceQuotaRepository(database)
 	quotaTemplateRepo := quotarepo.NewQuotaTemplateRepository(database)
 	quotaUserLevelRepo := quotarepo.NewUserLevelRepository(database)
@@ -190,7 +200,16 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	prodProductService := prodservice.NewProductService(prodProductRepo)
 	prodCategoryHandler := prodhandler.NewCategoryHandler(prodCategoryService)
 	prodProductHandler := prodhandler.NewProductHandler(prodProductService)
-	router := newRouter(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodProductHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, userFinanceHandler, logger, jwtIssuer)
+	// 工单支持域
+	ticketRepo := ticketrepo.NewTicketRepository(database)
+	ticketReplyRepo := ticketrepo.NewReplyRepository(database)
+	ticketCategoryRepo := ticketrepo.NewCategoryRepository(database)
+	ticketService := ticketservice.NewTicketService(ticketRepo, ticketReplyRepo, ticketCategoryRepo)
+	ticketCategoryService := ticketservice.NewCategoryService(ticketCategoryRepo, ticketRepo)
+	ticketHandler := tickethandler.NewTicketHandler(ticketService)
+	ticketCategoryHandler := tickethandler.NewCategoryHandler(ticketCategoryService)
+	userTicketHandler := tickethandler.NewUserTicketHandler(ticketService, ticketCategoryService)
+	router := newRouter(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodProductHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, logger, jwtIssuer)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 

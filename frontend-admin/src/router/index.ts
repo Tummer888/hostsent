@@ -419,6 +419,38 @@ const routes: Array<RouteRecordRaw> = [
     ],
   },
   {
+    path: '/tickets',
+    component: () => import('@/layouts/index.vue'),
+    redirect: '/tickets/list',
+    meta: { title: '工单支持' },
+    children: [
+      {
+        path: 'list',
+        name: 'TicketList',
+        component: () => import('@/pages/ticket/index.vue'),
+        meta: { title: '工单列表', role: 'admin' },
+      },
+      {
+        path: 'detail/:id',
+        name: 'TicketDetail',
+        component: () => import('@/pages/ticket/detail.vue'),
+        meta: { title: '工单详情', role: 'admin' },
+      },
+      {
+        path: 'categories',
+        name: 'TicketCategories',
+        component: () => import('@/pages/ticket/categories/index.vue'),
+        meta: { title: '工单分类管理', role: 'admin' },
+      },
+      {
+        path: 'stats',
+        name: 'TicketStats',
+        component: () => import('@/pages/ticket/stats/index.vue'),
+        meta: { title: '工单统计', role: 'admin' },
+      },
+    ],
+  },
+  {
     path: '/finance',
     component: () => import('@/layouts/index.vue'),
     redirect: '/finance/wallets',
@@ -497,6 +529,20 @@ const routes: Array<RouteRecordRaw> = [
         name: 'SystemAdmins',
         component: () => import('@/pages/system/admins/index.vue'),
         meta: { title: '管理员列表', role: 'admin' },
+      },
+      {
+        // 系统配置：键值型配置项的增删改查
+        path: 'config',
+        name: 'SystemConfig',
+        component: () => import('@/pages/system/config/index.vue'),
+        meta: { title: '系统配置', role: 'admin' },
+      },
+      {
+        // 操作审计：管理员操作日志查询与 CSV 导出
+        path: 'audit-logs',
+        name: 'SystemAuditLogs',
+        component: () => import('@/pages/system/audit-logs/index.vue'),
+        meta: { title: '操作审计', role: 'admin' },
       },
     ],
   },

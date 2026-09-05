@@ -62,10 +62,28 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '资金流水', icon: 'money' },
       },
       {
-        path: 'support/tickets',
-        name: 'TicketList',
-        component: () => import('@/pages/support/tickets.vue'),
-        meta: { title: '我的工单', icon: 'service' },
+        path: 'support',
+        meta: { title: '工单中心' },
+        children: [
+          {
+            path: 'tickets',
+            name: 'TicketList',
+            component: () => import('@/pages/support/tickets.vue'),
+            meta: { title: '我的工单', icon: 'service' },
+          },
+          {
+            path: 'tickets/create',
+            name: 'UserTicketCreate',
+            component: () => import('@/pages/support/ticket-create.vue'),
+            meta: { title: '提交工单' },
+          },
+          {
+            path: 'tickets/:id',
+            name: 'UserTicketDetail',
+            component: () => import('@/pages/support/ticket-detail.vue'),
+            meta: { title: '工单详情' },
+          },
+        ],
       },
       {
         path: 'profile',

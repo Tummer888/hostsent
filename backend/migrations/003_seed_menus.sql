@@ -71,8 +71,8 @@ INSERT INTO menus (id, parent_id, platform, name, type, path, component, icon, s
 -- 7. 系统管理
 (47, 0,  'admin', '系统管理', 'directory', '/system',                        NULL,                            'setting',    7, 'active'),
 (48, 47, 'admin', '菜单管理', 'menu',      '/system/menus',                    'system/menus/index',           'menu',       1, 'active'),
-(49, 47, 'admin', '审计日志', 'menu',      '/system/audit',                    'system/audit/index',           'history',    2, 'active'),
-(50, 47, 'admin', '系统设置', 'menu',      '/system/settings',                 'system/settings/index',        'setting',    3, 'active'),
+(49, 47, 'admin', '操作审计', 'menu',      '/system/audit-logs',                'system/audit-logs/index',      'history',    2, 'active'),
+(50, 47, 'admin', '系统配置', 'menu',      '/system/config',                    'system/config/index',          'setting',    3, 'active'),
 -- 8. 工单支持
 (51, 0,  'admin', '工单支持', 'directory', '/support',                        NULL,                            'service',    8, 'active'),
 (52, 51, 'admin', '工单列表', 'menu',      '/support/tickets',                'support/tickets/index',         'service',    1, 'active');
