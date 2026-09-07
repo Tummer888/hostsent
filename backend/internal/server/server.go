@@ -11,6 +11,14 @@ import (
 	financehandler "hostsent/backend/internal/modules/admin/finance/handler"
 	financerepo "hostsent/backend/internal/modules/admin/finance/repository"
 	financeservice "hostsent/backend/internal/modules/admin/finance/service"
+	lifecyclehandler "hostsent/backend/internal/modules/admin/lifecycle/handler"
+	lifecyclerepo "hostsent/backend/internal/modules/admin/lifecycle/repository"
+	lifecycleservice "hostsent/backend/internal/modules/admin/lifecycle/service"
+	notifyhandler "hostsent/backend/internal/modules/admin/notification/handler"
+	notifymodel "hostsent/backend/internal/modules/admin/notification/model"
+	notifyrepo "hostsent/backend/internal/modules/admin/notification/repository"
+	notifydto "hostsent/backend/internal/modules/admin/notification/dto"
+	notifyservice "hostsent/backend/internal/modules/admin/notification/service"
 	adminhandler "hostsent/backend/internal/modules/admin/manager/handler"
 	adminrepo "hostsent/backend/internal/modules/admin/manager/repository"
 	adminservice "hostsent/backend/internal/modules/admin/manager/service"
@@ -18,6 +26,7 @@ import (
 	menurepo "hostsent/backend/internal/modules/admin/menu/repository"
 	menuservice "hostsent/backend/internal/modules/admin/menu/service"
 	orderhandler "hostsent/backend/internal/modules/admin/order/handler"
+	ordermodel "hostsent/backend/internal/modules/admin/order/model"
 	orderrepo "hostsent/backend/internal/modules/admin/order/repository"
 	orderservice "hostsent/backend/internal/modules/admin/order/service"
 	prodhandler "hostsent/backend/internal/modules/admin/product/handler"
@@ -68,11 +77,12 @@ import (
 )
 
 type Server struct {
-	cfg       *config.Config
-	logger    *zap.Logger
-	http      *http.Server
-	scheduler *syncservice.Scheduler
-	cancel    context.CancelFunc
+	cfg                *config.Config
+	logger             *zap.Logger
+	http               *http.Server
+	scheduler          *syncservice.Scheduler
+	lifecycleScheduler *lifecycleservice.LifecycleScheduler
+	cancel             context.CancelFunc
 }
 
 func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
@@ -209,28 +219,95 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	ticketHandler := tickethandler.NewTicketHandler(ticketService)
 	ticketCategoryHandler := tickethandler.NewCategoryHandler(ticketCategoryService)
 	userTicketHandler := tickethandler.NewUserTicketHandler(ticketService, ticketCategoryService)
-	router := newRouter(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodProductHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, logger, jwtIssuer)
+	// 生命周期与续费域（doc60）
+	lifecycleRenewalRepo := lifecyclerepo.NewRenewalRepository(database)
+	lifecyclePolicyRepo := lifecyclerepo.NewPolicyRepository(database)
+	lifecycleAutoRepo := lifecyclerepo.NewAutoRenewRepository(database)
+	lifecycleInstanceReader := lifecyclerepo.NewInstanceReader(database)
+	lifecycleOrderWriter := lifecyclerepo.NewOrderWriter(database)
+	lifecycleRenewalSvc := lifecycleservice.NewRenewalService(database, lifecycleRenewalRepo, lifecyclePolicyRepo, lifecycleAutoRepo, lifecycleInstanceReader, lifecycleOrderWriter, walletService, logger)
+	lifecycleSvc := lifecycleservice.NewLifecycleService(database, lifecyclePolicyRepo, lifecycleInstanceReader, lifecycleRenewalSvc, logger)
+	lifecycleExpiringHandler := lifecyclehandler.NewExpiringHandler(lifecycleSvc)
+	lifecycleAdminHandler := lifecyclehandler.NewLifecycleAdminHandler(lifecycleSvc, lifecycleRenewalSvc)
+	lifecycleUserHandler := lifecyclehandler.NewLifecycleUserHandler(lifecycleSvc, lifecycleRenewalSvc)
+	lifecycleScheduler := lifecycleservice.NewLifecycleScheduler(lifecycleSvc, logger)
+	// 通知与消息中心（doc70）
+	notifyRepo := notifyrepo.NewNotificationRepository(database)
+	notifyTplRepo := notifyrepo.NewTemplateRepository(database)
+	notifyPrefRepo := notifyrepo.NewPreferenceRepository(database)
+	notifyAnnRepo := notifyrepo.NewAnnouncementRepository(database)
+	notifyMailChannel := notifyservice.NewMailChannel(database, configRepo, notifyRepo, logger)
+	notifySvc := notifyservice.NewNotificationService(database, notifyRepo, notifyTplRepo, notifyPrefRepo, notifyAnnRepo, notifyMailChannel, logger)
+	announceSvc := notifyservice.NewAnnouncementService(notifyAnnRepo)
+	templateSvc := notifyservice.NewTemplateService(notifyTplRepo)
+	preferenceSvc := notifyservice.NewPreferenceService(notifyPrefRepo, notifyTplRepo)
+	notifyAdminHandler := notifyhandler.NewAdminHandler(notifySvc, announceSvc, templateSvc, preferenceSvc)
+	notifyUserHandler := notifyhandler.NewUserHandler(notifySvc, announceSvc, preferenceSvc)
+	// 生命周期 Notifier 桥接：替换 noopNotifier 为通知中心
+	lifecycleSvc.SetNotifier(&lifecycleNotifierBridge{notifySvc: notifySvc, logger: logger})
+	// 订单支付成功钩子（doc60）：续费订单支付完成后联动完成续费并延长到期时间
+	// doc70：支付成功后发布通知
+	orderservice.OnPaid = func(ctx context.Context, order *ordermodel.Order) {
+		if order == nil {
+			return
+		}
+		if order.RenewalID != 0 {
+			if err := lifecycleRenewalSvc.CompleteRenewalByOrderID(ctx, order.ID); err != nil {
+				logger.Error("lifecycle: complete renewal by order failed", zap.Uint64("order_id", order.ID), zap.Error(err))
+			}
+		}
+		// 发布支付成功通知（doc70）
+		_ = notifySvc.Publish(ctx, notifydto.PublishInput{
+			Event:        notifymodel.EventOrderPaid,
+			UserID:       order.UserID,
+			Target:       notifymodel.TargetUser,
+			Vars:         map[string]string{"order_no": order.OrderNo, "amount": fmt.Sprintf("%.2f", order.PaidAmount)},
+			SourceModule: "order",
+			SourceID:     order.OrderNo,
+		})
+	}
+	router := newRouter(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodProductHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, logger, jwtIssuer)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 
 	return &Server{
-		cfg:    cfg,
-		logger: logger,
+		cfg:                cfg,
+		logger:             logger,
 		http: &http.Server{
 			Addr:         addr,
 			Handler:      router,
 			ReadTimeout:  time.Duration(cfg.App.ReadTimeout) * time.Second,
 			WriteTimeout: time.Duration(cfg.App.WriteTimeout) * time.Second,
 		},
-		scheduler: scheduler,
+		scheduler:          scheduler,
+		lifecycleScheduler: lifecycleScheduler,
 	}, nil
 }
 
 func (s *Server) Run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
-	defer s.cancel()
+	defer cancel()
 	s.scheduler.Start(ctx)
+	s.lifecycleScheduler.Start(ctx)
 	s.logger.Info("server starting", zap.String("addr", s.http.Addr), zap.String("name", s.cfg.App.Name))
 	return s.http.ListenAndServe()
+}
+
+// lifecycleNotifierBridge 桥接生命周期模块的 Notifier 接口到通知中心。
+// 生命周期提醒（到期/续费结果）通过 Publish 发布到通知中心。
+type lifecycleNotifierBridge struct {
+	notifySvc notifyservice.NotificationService
+	logger    *zap.Logger
+}
+
+func (b *lifecycleNotifierBridge) Publish(ctx context.Context, userID uint64, title, content string) error {
+	return b.notifySvc.Publish(ctx, notifydto.PublishInput{
+		Event:        notifymodel.EventInstanceExpiring,
+		UserID:       userID,
+		Target:       notifymodel.TargetUser,
+		Vars:         map[string]string{"title": title, "content": content},
+		SourceModule: "lifecycle",
+		SourceID:     fmt.Sprintf("remind-%d", userID),
+	})
 }

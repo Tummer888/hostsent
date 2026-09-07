@@ -25,6 +25,8 @@ import (
 	securitymodel "hostsent/backend/internal/modules/admin/user/security/model"
 	verificationmodel "hostsent/backend/internal/modules/admin/user/verification/model"
 	usercentermodel "hostsent/backend/internal/modules/user/auth/model"
+	lifecyclemodel "hostsent/backend/internal/modules/admin/lifecycle/model"
+	notifymodel "hostsent/backend/internal/modules/admin/notification/model"
 	config "hostsent/backend/internal/pkg/config"
 )
 
@@ -113,6 +115,16 @@ func AutoMigrate(db *gorm.DB) error {
 		&financmodel.Bill{},
 		// 系统管理（系统配置）
 		&systemmodel.SystemConfig{},
+		// 生命周期与续费（doc60）
+		&lifecyclemodel.InstanceRenewal{},
+		&lifecyclemodel.LifecyclePolicy{},
+		&lifecyclemodel.InstanceAutoRenewal{},
+		// 通知与消息中心（doc70）
+		&notifymodel.Notification{},
+		&notifymodel.Announcement{},
+		&notifymodel.NotificationTemplate{},
+		&notifymodel.NotificationRead{},
+		&notifymodel.NotificationPreference{},
 	); err != nil {
 		return err
 	}
@@ -226,6 +238,12 @@ func SeedDefaults(db *gorm.DB, cfg config.Config) error {
 			return err
 		}
 		if err := seedDemoFinance(tx); err != nil {
+			return err
+		}
+		if err := seedNotificationTemplates(tx); err != nil {
+			return err
+		}
+		if err := seedSMTPConfigs(tx); err != nil {
 			return err
 		}
 		return nil
@@ -651,6 +669,20 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "ticket", Name: "分类管理", Code: "ticket:category", Type: "menu", SortOrder: 2, Status: "active"},
 		{ParentCode: "ticket:category", Name: "管理分类", Code: "ticket:manage", Type: "button", SortOrder: 1, Status: "active"},
 		{ParentCode: "ticket", Name: "工单统计", Code: "ticket:stats", Type: "menu", SortOrder: 3, Status: "active"},
+		// —— 生命周期管理（doc60）
+		{Name: "生命周期管理", Code: "lifecycle", Type: "catalog", SortOrder: 9, Status: "active"},
+		{ParentCode: "lifecycle", Name: "到期管理", Code: "lifecycle:expiring", Type: "menu", SortOrder: 1, Status: "active"},
+		{ParentCode: "lifecycle:expiring", Name: "实例代续费", Code: "lifecycle:renew", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "lifecycle", Name: "续费记录", Code: "lifecycle:renewals", Type: "menu", SortOrder: 2, Status: "active"},
+		{ParentCode: "lifecycle", Name: "生命周期策略", Code: "lifecycle:policy", Type: "menu", SortOrder: 3, Status: "active"},
+		{ParentCode: "lifecycle:policy", Name: "更新策略", Code: "lifecycle:policy:update", Type: "button", SortOrder: 1, Status: "active"},
+		// —— 消息中心（doc70）
+		{Name: "消息中心", Code: "notification", Type: "catalog", SortOrder: 10, Status: "active"},
+		{ParentCode: "notification", Name: "公告管理", Code: "notify:announcement", Type: "menu", SortOrder: 1, Status: "active"},
+		{ParentCode: "notify:announcement", Name: "管理公告", Code: "notify:manage", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "notification", Name: "通知记录", Code: "notify:record", Type: "menu", SortOrder: 2, Status: "active"},
+		{ParentCode: "notify:record", Name: "查看记录", Code: "notify:view", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "notification", Name: "通知模板", Code: "notify:template", Type: "menu", SortOrder: 3, Status: "active"},
 	}
 
 	permissionMap := make(map[string]uint64)
@@ -758,6 +790,20 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"ticket:category",
 			"ticket:manage",
 			"ticket:stats",
+			// 生命周期管理权限（doc60）
+			"lifecycle",
+			"lifecycle:expiring",
+			"lifecycle:renew",
+			"lifecycle:renewals",
+			"lifecycle:policy",
+			"lifecycle:policy:update",
+			// 消息中心权限（doc70）
+			"notification",
+			"notify:announcement",
+			"notify:manage",
+			"notify:record",
+			"notify:view",
+			"notify:template",
 		},
 		"ops_admin": {
 			"system:user",
@@ -926,16 +972,31 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeMenu, Path: "/system/config", Component: "system/config/index", Icon: "setting", SortOrder: 5, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "操作审计", Type: menumodel.TypeMenu, Path: "/system/audit-logs", Component: "system/audit-logs/index", Icon: "history", SortOrder: 6, Status: menumodel.StatusActive},
 
+		// —— 生命周期管理（doc60，admin 平台 SortOrder=9）
+		{Platform: menumodel.PlatformAdmin, Name: "生命周期管理", Type: menumodel.TypeDirectory, Path: "/lifecycle", Icon: "history", SortOrder: 9, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/lifecycle", Platform: menumodel.PlatformAdmin, Name: "到期管理", Type: menumodel.TypeMenu, Path: "/lifecycle/expiring", Component: "lifecycle/expiring/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/lifecycle", Platform: menumodel.PlatformAdmin, Name: "续费记录", Type: menumodel.TypeMenu, Path: "/lifecycle/renewals", Component: "lifecycle/renewals/index", Icon: "order", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/lifecycle", Platform: menumodel.PlatformAdmin, Name: "生命周期策略", Type: menumodel.TypeMenu, Path: "/lifecycle/policy", Component: "lifecycle/policy/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
+
+		// —— 管理员后台 - 消息中心（doc70）
+		{Platform: menumodel.PlatformAdmin, Name: "消息中心", Type: menumodel.TypeDirectory, Path: "/notification", Icon: "mail", SortOrder: 10, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "公告管理", Type: menumodel.TypeMenu, Path: "/notification/announcements", Component: "notification/announcements/index", Icon: "sound", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "通知记录", Type: menumodel.TypeMenu, Path: "/notification/records", Component: "notification/records/index", Icon: "mail", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "通知模板", Type: menumodel.TypeMenu, Path: "/notification/templates", Component: "notification/templates/index", Icon: "root-list", SortOrder: 3, Status: menumodel.StatusActive},
+
 		// —— 用户中心菜单（platform=user）
 		{Platform: menumodel.PlatformUser, Name: "控制台", Type: menumodel.TypeMenu, Path: "/dashboard", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
 		{Platform: menumodel.PlatformUser, Name: "云产品", Type: menumodel.TypeDirectory, Path: "/cloud", Icon: "cloud", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "user:/cloud", Platform: menumodel.PlatformUser, Name: "我的云主机", Type: menumodel.TypeMenu, Path: "/cloud/instances", Icon: "server", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "user:/cloud", Platform: menumodel.PlatformUser, Name: "镜像管理", Type: menumodel.TypeMenu, Path: "/cloud/images", Icon: "layers", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "user:/cloud", Platform: menumodel.PlatformUser, Name: "续费管理", Type: menumodel.TypeMenu, Path: "/cloud/renewals", Icon: "refresh", SortOrder: 3, Status: menumodel.StatusActive},
 		{Platform: menumodel.PlatformUser, Name: "我的订单", Type: menumodel.TypeMenu, Path: "/order", Icon: "order", SortOrder: 3, Status: menumodel.StatusActive},
 		{Platform: menumodel.PlatformUser, Name: "费用中心", Type: menumodel.TypeMenu, Path: "/billing", Icon: "wallet", SortOrder: 4, Status: menumodel.StatusActive},
 		{Platform: menumodel.PlatformUser, Name: "工单中心", Type: menumodel.TypeDirectory, Path: "/support", Icon: "service", SortOrder: 5, Status: menumodel.StatusActive},
 		{ParentKey: "user:/support", Platform: menumodel.PlatformUser, Name: "我的工单", Type: menumodel.TypeMenu, Path: "/support/tickets", Icon: "ticket", SortOrder: 1, Status: menumodel.StatusActive},
 		{Platform: menumodel.PlatformUser, Name: "个人中心", Type: menumodel.TypeMenu, Path: "/profile", Icon: "user", SortOrder: 6, Status: menumodel.StatusActive},
+		{ParentKey: "user:/profile", Platform: menumodel.PlatformUser, Name: "我的消息", Type: menumodel.TypeMenu, Path: "/profile/messages", Icon: "mail", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "user:/profile", Platform: menumodel.PlatformUser, Name: "通知偏好", Type: menumodel.TypeMenu, Path: "/profile/preferences", Icon: "setting", SortOrder: 2, Status: menumodel.StatusActive},
 	}
 
 	menuMap := make(map[string]uint64)
@@ -1635,4 +1696,54 @@ func seedDemoQuotaAdjustmentLogs(tx *gorm.DB, users map[string]usermodel.User, a
 		{UserID: users["user_north_01"].ID, Username: "user_north_01", QuotaCode: "cpu_cores", QuotaName: "CPU 核数", BeforeValue: 24, AfterValue: 32, DeltaValue: 8, AdjustmentType: "upgrade", Source: "level", TemplateID: &templateBusiness, LevelID: &levelBusiness, OperatorID: adminID, OperatorName: "admin", Reason: "升级企业等级自动提升", TicketNo: "TK-QUOTA-20260803", BatchNo: "quota-batch-003", CreatedAt: now.Add(-12 * time.Hour)},
 	}
 	return tx.Create(&logs).Error
+}
+
+// seedNotificationTemplates 注入通知事件默认模板（doc70 §6.2）。
+func seedNotificationTemplates(tx *gorm.DB) error {
+	defaults := []notifymodel.NotificationTemplate{
+		{Event: notifymodel.EventOrderPaid, TitleTpl: "订单 {order_no} 支付成功", ContentTpl: "您的订单 {order_no} 已支付成功，金额 ¥{amount}，感谢您的支持。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
+		{Event: notifymodel.EventRenewalSuccess, TitleTpl: "实例续费成功", ContentTpl: "实例 {instance_mark} 续费成功，新到期时间 {expire_after}。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
+		{Event: notifymodel.EventRenewalFailed, TitleTpl: "实例自动续费失败", ContentTpl: "实例 {instance_mark} 自动续费失败（{reason}），请及时处理，避免服务暂停。", InboxOn: true, MailOn: true, Status: notifymodel.TemplateStatusActive},
+		{Event: notifymodel.EventInstanceExpiring, TitleTpl: "实例即将到期提醒", ContentTpl: "您的实例 {instance_mark} 将于 {expire_at} 到期（剩余 {days_left} 天），请及时续费。", InboxOn: true, MailOn: true, Status: notifymodel.TemplateStatusActive},
+		{Event: notifymodel.EventTicketReplied, TitleTpl: "工单 {ticket_no} 有新回复", ContentTpl: "您的工单 {ticket_no} 有新的客服回复，请前往工单中心查看。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
+		{Event: notifymodel.EventBalanceLow, TitleTpl: "余额不足预警", ContentTpl: "您的账户余额为 ¥{balance}，低于预警阈值 ¥{threshold}，请及时充值。", InboxOn: true, MailOn: true, Status: notifymodel.TemplateStatusActive},
+		{Event: notifymodel.EventSyncFailed, TitleTpl: "上游同步失败", ContentTpl: "提供商 {provider_name} 同步失败：{reason}，请检查上游连接。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
+		{Event: notifymodel.EventSystem, TitleTpl: "{title}", ContentTpl: "{content}", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
+	}
+	for _, item := range defaults {
+		var existing notifymodel.NotificationTemplate
+		if err := tx.Where("event = ?", item.Event).First(&existing).Error; err == nil {
+			continue
+		} else if err != gorm.ErrRecordNotFound {
+			return err
+		}
+		if err := tx.Create(&item).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// seedSMTPConfigs 注入 SMTP 配置默认项（doc70 §6.6）。
+func seedSMTPConfigs(tx *gorm.DB) error {
+	defaults := []systemmodel.SystemConfig{
+		{ConfigKey: "smtp_host", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: "mail", Description: "SMTP 服务器地址", SortOrder: 1, Status: systemmodel.StatusActive},
+		{ConfigKey: "smtp_port", ConfigValue: "587", ValueType: systemmodel.ValueTypeInt, Group: "mail", Description: "SMTP 端口", SortOrder: 2, Status: systemmodel.StatusActive},
+		{ConfigKey: "smtp_user", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: "mail", Description: "SMTP 用户名", SortOrder: 3, Status: systemmodel.StatusActive},
+		{ConfigKey: "smtp_pass", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: "mail", Description: "SMTP 密码", SortOrder: 4, Status: systemmodel.StatusActive},
+		{ConfigKey: "smtp_from", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: "mail", Description: "发件邮箱地址", SortOrder: 5, Status: systemmodel.StatusActive},
+		{ConfigKey: "mail_channel_enabled", ConfigValue: "false", ValueType: systemmodel.ValueTypeBool, Group: "mail", Description: "是否启用邮件通知通道", SortOrder: 6, Status: systemmodel.StatusActive},
+	}
+	for _, config := range defaults {
+		var existing systemmodel.SystemConfig
+		if err := tx.Where("config_key = ?", config.ConfigKey).First(&existing).Error; err == nil {
+			continue
+		} else if err != gorm.ErrRecordNotFound {
+			return err
+		}
+		if err := tx.Create(&config).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }

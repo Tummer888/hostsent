@@ -12,6 +12,10 @@ type ProvisionAdapter interface {
 	Activate(ctx context.Context, order *model.Order) error
 }
 
+// OnPaid 订单支付成功扩展点（doc60）：支付渠道回调确认支付后调用，
+// 用于识别续费订单并联动完成续费（lifecycle.CompleteRenewalByOrderID）。可为空。
+var OnPaid func(ctx context.Context, order *model.Order)
+
 // DefaultProvisionAdapter 默认履约实现：仅推进订单状态（paid → provisioning → active）。
 // 现阶段为轻量起步，后续可在此接入上游 SDK 异步创建实例。
 type DefaultProvisionAdapter struct{}

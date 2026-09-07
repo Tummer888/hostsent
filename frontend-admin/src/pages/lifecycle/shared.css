@@ -1,0 +1,233 @@
+/* ============================================================
+   HostSent · 工单支持模块共享样式
+   所有选择器均以 .lifecycle-module 命名空间包裹，避免影响其他模块。
+   ============================================================ */
+
+/* ---------- 页面骨架 ---------- */
+.lifecycle-module {
+  --chip-bg: linear-gradient(135deg, #6366f1, #4f46e5);
+  --chip-shadow: 0 4px 10px rgba(99, 102, 241, 0.25);
+}
+
+.lifecycle-module .page-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+/* ---------- 通用卡片 ---------- */
+.lifecycle-module .surface-card {
+  position: relative;
+  border-radius: var(--hs-radius-lg);
+  background: var(--hs-surface-1);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--hs-shadow-xs);
+  transition:
+    border-color var(--hs-duration-fast),
+    box-shadow var(--hs-duration-fast),
+    transform var(--hs-duration-fast) var(--hs-ease-out);
+}
+
+.lifecycle-module .surface-card:hover {
+  border-color: #d3dae5;
+  box-shadow: var(--hs-shadow-sm);
+}
+
+/* ---------- 页头 ---------- */
+.lifecycle-module .page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  padding: var(--space-lg) var(--space-xl);
+  flex-wrap: wrap;
+  overflow: hidden;
+}
+
+.lifecycle-module .page-header::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--chip-bg, linear-gradient(135deg, #6366f1, #4f46e5));
+  opacity: 0.9;
+}
+
+.lifecycle-module .page-header__main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.lifecycle-module .page-header__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.lifecycle-module .page-header__chip {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--hs-radius-xl);
+  background: var(--chip-bg, linear-gradient(135deg, #6366f1, #4f46e5));
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: var(--chip-shadow, 0 4px 10px rgba(99, 102, 241, 0.25));
+  transition: transform var(--hs-duration-fast) var(--hs-ease-out);
+}
+
+.lifecycle-module .page-header__chip:hover {
+  transform: translateY(-1px) scale(1.03);
+}
+
+.lifecycle-module .page-header__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+
+.lifecycle-module .page-header__desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-muted-foreground);
+}
+
+/* ---------- 筛选卡片 / 表格卡片 ---------- */
+.lifecycle-module .filter-card,
+.lifecycle-module .table-card {
+  padding: var(--space-lg) 20px;
+}
+
+.lifecycle-module .filter-card__head,
+.lifecycle-module .table-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.lifecycle-module .card-title {
+  position: relative;
+  margin: 0;
+  padding-left: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+
+.lifecycle-module .card-title::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #6366f1, #4f46e5);
+}
+
+.lifecycle-module .table-card__meta {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.lifecycle-module .filter-card__grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+/* ---------- 表单项 ---------- */
+.lifecycle-module .field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.lifecycle-module .field__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+}
+
+/* ---------- 操作列 / 单元格辅助 ---------- */
+.lifecycle-module .action-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lifecycle-module .cell-strong {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.lifecycle-module .cell-muted {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.lifecycle-module .time-text {
+  color: #334155;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.lifecycle-module .product-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lifecycle-module .product-sub {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+/* ---------- TDesign 表格细节优化 ---------- */
+.lifecycle-module .t-table__th {
+  background: var(--hs-surface-2) !important;
+  color: var(--color-muted-foreground) !important;
+  font-weight: 600 !important;
+}
+
+.lifecycle-module .t-table__tr--hover > .t-table__td {
+  background: var(--hs-surface-2) !important;
+  transition: background-color var(--hs-duration-fast);
+}
+
+.lifecycle-module .t-table__pagination {
+  padding-top: var(--space-md);
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 768px) {
+  .lifecycle-module .page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .lifecycle-module .filter-card__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1200px) {
+  .lifecycle-module .stat-grid,
+  .lifecycle-module .chart-grid {
+    grid-template-columns: 1fr;
+  }
+}

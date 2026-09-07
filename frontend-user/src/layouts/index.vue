@@ -224,6 +224,7 @@ const userInitial = computed(() => {
 const fallbackMenus: FlatMenu[] = [
   { id: 1, parentId: 0, path: '/dashboard', name: '控制台', icon: DashboardIcon },
   { id: 2, parentId: 0, path: '/cloud/instances', name: '我的云主机', icon: CloudIcon },
+  { id: 7, parentId: 2, path: '/cloud/renewals', name: '续费管理', icon: RefreshIcon },
   { id: 3, parentId: 0, path: '/order', name: '我的订单', icon: OrderIcon },
   { id: 4, parentId: 0, path: '/billing', name: '费用中心', icon: WalletIcon },
   { id: 5, parentId: 0, path: '/support/tickets', name: '我的工单', icon: TicketIcon },

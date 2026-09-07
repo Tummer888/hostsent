@@ -501,6 +501,58 @@ const routes: Array<RouteRecordRaw> = [
     ],
   },
   {
+    path: '/lifecycle',
+    component: () => import('@/layouts/index.vue'),
+    redirect: '/lifecycle/expiring',
+    meta: { title: '生命周期管理' },
+    children: [
+      {
+        path: 'expiring',
+        name: 'LifecycleExpiring',
+        component: () => import('@/pages/lifecycle/expiring/index.vue'),
+        meta: { title: '到期管理', role: 'admin' },
+      },
+      {
+        path: 'renewals',
+        name: 'LifecycleRenewals',
+        component: () => import('@/pages/lifecycle/renewals/index.vue'),
+        meta: { title: '续费记录', role: 'admin' },
+      },
+      {
+        path: 'policy',
+        name: 'LifecyclePolicy',
+        component: () => import('@/pages/lifecycle/policy/index.vue'),
+        meta: { title: '生命周期策略', role: 'admin' },
+      },
+    ],
+  },
+  {
+    path: '/notification',
+    component: () => import('@/layouts/index.vue'),
+    redirect: '/notification/announcements',
+    meta: { title: '消息中心', role: 'admin' },
+    children: [
+      {
+        path: 'announcements',
+        name: 'NotifyAnnouncements',
+        component: () => import('@/pages/notification/announcements/index.vue'),
+        meta: { title: '公告管理', role: 'admin' },
+      },
+      {
+        path: 'records',
+        name: 'NotifyRecords',
+        component: () => import('@/pages/notification/records/index.vue'),
+        meta: { title: '通知记录', role: 'admin' },
+      },
+      {
+        path: 'templates',
+        name: 'NotifyTemplates',
+        component: () => import('@/pages/notification/templates/index.vue'),
+        meta: { title: '通知模板', role: 'admin' },
+      },
+    ],
+  },
+  {
     path: '/system',
     component: () => import('@/layouts/index.vue'),
     redirect: '/system/menus',

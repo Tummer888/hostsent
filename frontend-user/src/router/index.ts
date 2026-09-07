@@ -38,6 +38,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '镜像管理', icon: 'layers' },
       },
       {
+        path: 'cloud/renewals',
+        name: 'UserRenewals',
+        component: () => import('@/pages/cloud/renewals/index.vue'),
+        meta: { title: '续费管理', icon: 'refresh' },
+      },
+      {
         path: 'order',
         name: 'OrderList',
         component: () => import('@/pages/order/index.vue'),
@@ -87,9 +93,27 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'profile',
-        name: 'Profile',
-        component: () => import('@/pages/profile/index.vue'),
         meta: { title: '个人中心', icon: 'user' },
+        children: [
+          {
+            path: '',
+            name: 'Profile',
+            component: () => import('@/pages/profile/index.vue'),
+            meta: { title: '个人中心' },
+          },
+          {
+            path: 'messages',
+            name: 'UserMessages',
+            component: () => import('@/pages/profile/messages.vue'),
+            meta: { title: '我的消息' },
+          },
+          {
+            path: 'preferences',
+            name: 'UserNotifyPrefs',
+            component: () => import('@/pages/profile/preferences.vue'),
+            meta: { title: '通知偏好' },
+          },
+        ],
       },
     ],
   },

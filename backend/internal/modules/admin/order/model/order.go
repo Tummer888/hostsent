@@ -42,6 +42,7 @@ type Order struct {
 	ExpireTime  *time.Time `gorm:"column:expire_time"`                                        // 过期/计费到期时间
 	Remark      string     `gorm:"size:255"`                                                  // 备注
 	OperatorID  uint64     `gorm:"column:operator_id"`                                        // 最近操作人
+	RenewalID   uint64     `gorm:"column:renewal_id;index;default:0"`                         // 关联续费记录 ID（续费订单，doc60）
 	CreatedAt   time.Time  `gorm:"autoCreateTime;index"`
 	UpdatedAt   time.Time  `gorm:"autoUpdateTime"`
 	DeletedAt   *time.Time `gorm:"index"`

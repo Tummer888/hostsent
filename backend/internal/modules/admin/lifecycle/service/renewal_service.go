@@ -1,0 +1,602 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"go.uber.org/zap"
+	"gorm.io/gorm"
+
+	financemodel "hostsent/backend/internal/modules/admin/finance/model"
+	financeservice "hostsent/backend/internal/modules/admin/finance/service"
+	lifecycledto "hostsent/backend/internal/modules/admin/lifecycle/dto"
+	lifecyclemodel "hostsent/backend/internal/modules/admin/lifecycle/model"
+	lifecyclerepo "hostsent/backend/internal/modules/admin/lifecycle/repository"
+	ordermodel "hostsent/backend/internal/modules/admin/order/model"
+	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
+	"hostsent/backend/internal/pkg/money"
+)
+
+// lifecycleBizTypeRenewal 资金流水业务类型：续费扣款
+const lifecycleBizTypeRenewal = "renewal"
+
+// RenewalService 续费服务：手动续费 / 管理员代续费 / 自动续费。
+type RenewalService interface {
+	// UserRenew 用户发起续费：生成续费记录 + 待支付订单，并立即尝试余额支付
+	UserRenew(ctx context.Context, userID, instanceID uint64, req *lifecycledto.UserRenewRequest) (*lifecycledto.RenewalCreatedResponse, error)
+	// AdminRenew 管理员代续费：线下放行，直接完成支付并延长到期时间
+	AdminRenew(ctx context.Context, adminID, instanceID uint64, req *lifecycledto.AdminRenewRequest) (*lifecycledto.RenewalInfo, error)
+	// ToggleAutoRenew 用户设置实例自动续费开关
+	ToggleAutoRenew(ctx context.Context, userID, instanceID uint64, req *lifecycledto.AutoRenewToggleRequest) error
+	// ProcessAutoRenewals 扫描到期且开启自动续费的实例并执行续费（调度器调用）
+	ProcessAutoRenewals(ctx context.Context) error
+	// ListRenewals 管理端续费记录分页
+	ListRenewals(ctx context.Context, q *lifecycledto.RenewalListQuery) (*lifecycledto.RenewalListResponse, error)
+	// GetRenewal 管理端续费记录详情
+	GetRenewal(ctx context.Context, id uint64) (*lifecycledto.RenewalInfo, error)
+	// UserRenewalRecords 用户端我的续费记录
+	UserRenewalRecords(ctx context.Context, userID uint64, q *lifecycledto.UserRenewalListQuery) (*lifecycledto.RenewalListResponse, error)
+	// UserRenewalsView 用户端续费管理聚合视图（我的实例到期情况 + 策略摘要）
+	UserRenewalsView(ctx context.Context, userID uint64) (*lifecycledto.UserRenewalsViewResponse, error)
+	// UserRenewalDetail 用户端续费记录详情（校验归属）
+	UserRenewalDetail(ctx context.Context, userID, id uint64) (*lifecycledto.RenewalInfo, error)
+	// CompleteRenewalByOrderID 订单支付成功钩子：完成续费单并延长实例到期时间
+	CompleteRenewalByOrderID(ctx context.Context, orderID uint64) error
+}
+
+// lifecycleRenewalGetter 续费完成时按 ID 读取订单（用于获取支付方式快照）。
+type lifecycleRenewalGetter interface {
+	GetByID(ctx context.Context, id uint64) (*ordermodel.Order, error)
+}
+
+type renewalService struct {
+	db           *gorm.DB
+	renewalRepo  lifecyclerepo.RenewalRepository
+	policyRepo   lifecyclerepo.PolicyRepository
+	autoRepo     lifecyclerepo.AutoRenewRepository
+	instanceRepo lifecyclerepo.InstanceReader
+	orderWriter  lifecyclerepo.OrderWriter
+	orderReader  lifecycleRenewalGetter // 可选：读取订单支付方式
+	walletSvc    financeservice.WalletService
+	logger       *zap.Logger
+}
+
+// NewRenewalService 创建续费服务。
+func NewRenewalService(
+	db *gorm.DB,
+	renewalRepo lifecyclerepo.RenewalRepository,
+	policyRepo lifecyclerepo.PolicyRepository,
+	autoRepo lifecyclerepo.AutoRenewRepository,
+	instanceRepo lifecyclerepo.InstanceReader,
+	orderWriter lifecyclerepo.OrderWriter,
+	walletSvc financeservice.WalletService,
+	logger *zap.Logger,
+) RenewalService {
+	return &renewalService{
+		db:           db,
+		renewalRepo:  renewalRepo,
+		policyRepo:   policyRepo,
+		autoRepo:     autoRepo,
+		instanceRepo: instanceRepo,
+		orderWriter:  orderWriter,
+		walletSvc:    walletSvc,
+		logger:       logger,
+	}
+}
+
+// SetOrderReader 注入订单读取器（可选依赖，用于支付钩子读取支付方式）。
+func (s *renewalService) SetOrderReader(r lifecycleRenewalGetter) {
+	s.orderReader = r
+}
+
+// UserRenew 用户手动续费：创建续费记录 + 待支付订单，随后立即尝试余额支付。
+// 余额充足则一步完成；不足时保持 pending，等待充值后由支付钩子驱动完成。
+func (s *renewalService) UserRenew(ctx context.Context, userID, instanceID uint64, req *lifecycledto.UserRenewRequest) (*lifecycledto.RenewalCreatedResponse, error) {
+	instance, err := s.loadOwnedInstance(ctx, userID, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	if instance.ExpireAt == nil {
+		return nil, ErrStatusNotAllowed
+	}
+	periodCount := normalizePeriod(req.PeriodCount)
+	productName, unitPrice, err := s.instanceRepo.ResolveProduct(ctx, instance.ProductID)
+	if err != nil {
+		return nil, err
+	}
+	amount := money.Round2(unitPrice * float64(periodCount))
+	if amount <= 0 {
+		return nil, ErrPolicyInvalid
+	}
+	renewal, err := s.createPendingRenewal(ctx, instance, productName, periodCount, amount, lifecyclemodel.RenewalSourceManual, 0, "")
+	if err != nil {
+		return nil, err
+	}
+	// 余额支付：余额不足不视为请求失败，续费单保持待支付等充值
+	if perr := s.payRenewalOrder(ctx, renewal, ordermodel.PayMethodBalance, 0); perr != nil && !errors.Is(perr, ErrInsufficientBalance) {
+		s.logger.Warn("auto balance pay after user renew failed",
+			zap.String("renewal_no", renewal.RenewalNo), zap.Error(perr))
+	}
+	latest, err := s.renewalRepo.FindByID(ctx, renewal.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &lifecycledto.RenewalCreatedResponse{Renewal: *buildRenewalInfo(latest)}, nil
+}
+
+// AdminRenew 管理员代续费：人工放行（线下结算），直接完成支付并延长到期时间。
+func (s *renewalService) AdminRenew(ctx context.Context, adminID, instanceID uint64, req *lifecycledto.AdminRenewRequest) (*lifecycledto.RenewalInfo, error) {
+	instance, err := s.instanceRepo.GetByID(ctx, instanceID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrInstanceNotFound
+		}
+		return nil, err
+	}
+	if instance.ExpireAt == nil {
+		return nil, ErrStatusNotAllowed
+	}
+	periodCount := normalizePeriod(req.PeriodCount)
+	productName, unitPrice, err := s.instanceRepo.ResolveProduct(ctx, instance.ProductID)
+	if err != nil {
+		return nil, err
+	}
+	amount := money.Round2(req.Amount)
+	if amount <= 0 {
+		amount = money.Round2(unitPrice * float64(periodCount))
+	}
+	if amount <= 0 {
+		return nil, ErrPolicyInvalid
+	}
+	renewal, err := s.createPendingRenewal(ctx, &lifecyclerepo.InstanceWithUser{Instance: *instance}, productName, periodCount, amount, lifecyclemodel.RenewalSourceAdmin, adminID, req.Remark)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.markRenewalSuccess(ctx, renewal, ordermodel.PayMethodManual, adminID); err != nil {
+		return nil, err
+	}
+	latest, err := s.renewalRepo.FindByID(ctx, renewal.ID)
+	if err != nil {
+		return nil, err
+	}
+	return buildRenewalInfo(latest), nil
+}
+
+// ToggleAutoRenew 设置实例自动续费开关（仅实例归属人可操作）。
+func (s *renewalService) ToggleAutoRenew(ctx context.Context, userID, instanceID uint64, req *lifecycledto.AutoRenewToggleRequest) error {
+	if _, err := s.loadOwnedInstance(ctx, userID, instanceID); err != nil {
+		return err
+	}
+	return s.autoRepo.Upsert(ctx, &lifecyclemodel.InstanceAutoRenewal{
+		InstanceID:  instanceID,
+		UserID:      userID,
+		Enabled:     req.Enabled,
+		PeriodCount: normalizePeriod(req.PeriodCount),
+	})
+}
+
+// ProcessAutoRenewals 自动续费扫描：对开启自动续费且已到期的实例逐一尝试余额扣款续费。
+// 余额不足时续费单置为 failed，等待下轮扫描重试（每轮新建续费单，避免积压大量 pending）。
+func (s *renewalService) ProcessAutoRenewals(ctx context.Context) error {
+	switches, err := s.autoRepo.ListEnabled(ctx)
+	if err != nil {
+		return err
+	}
+	if len(switches) == 0 {
+		return nil
+	}
+	now := time.Now()
+	instanceIDs := make([]uint64, 0, len(switches))
+	periodByInstance := make(map[uint64]int, len(switches))
+	userByInstance := make(map[uint64]uint64, len(switches))
+	for _, sw := range switches {
+		instanceIDs = append(instanceIDs, sw.InstanceID)
+		periodByInstance[sw.InstanceID] = normalizePeriod(sw.PeriodCount)
+		userByInstance[sw.InstanceID] = sw.UserID
+	}
+	instances, err := s.instanceRepo.ListDueForAutoRenew(ctx, now, instanceIDs)
+	if err != nil {
+		return err
+	}
+	for i := range instances {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		instance := &instances[i]
+		if instance.UserID == 0 {
+			instance.UserID = userByInstance[instance.ID]
+		}
+		if err := s.processOneAutoRenewal(ctx, instance, periodByInstance[instance.ID]); err != nil {
+			s.logger.Warn("auto renew instance failed",
+				zap.Uint64("instance_id", instance.ID), zap.Error(err))
+		}
+	}
+	return nil
+}
+
+// processOneAutoRenewal 单实例自动续费：查价 → 建续费单 → 余额扣款 → 完成。
+// 余额不足时续费单置 failed 留痕，不影响其余实例。
+func (s *renewalService) processOneAutoRenewal(ctx context.Context, instance *syncmodel.Instance, periodCount int) error {
+	if instance.ExpireAt == nil {
+		return nil
+	}
+	productName, unitPrice, err := s.instanceRepo.ResolveProduct(ctx, instance.ProductID)
+	if err != nil {
+		return err
+	}
+	amount := money.Round2(unitPrice * float64(periodCount))
+	if amount <= 0 {
+		return ErrPolicyInvalid
+	}
+	renewal, err := s.createPendingRenewal(ctx, &lifecyclerepo.InstanceWithUser{Instance: *instance}, productName, periodCount, amount, lifecyclemodel.RenewalSourceAuto, 0, "")
+	if err != nil {
+		return err
+	}
+	if err := s.payRenewalOrder(ctx, renewal, ordermodel.PayMethodBalance, 0); err != nil {
+		// 余额不足等失败：续费单置 failed，下轮扫描重建重试
+		renewal.Status = lifecyclemodel.RenewalStatusFailed
+		renewal.FailReason = err.Error()
+		if uerr := s.renewalRepo.Update(ctx, renewal); uerr != nil {
+			return uerr
+		}
+		if errors.Is(err, ErrInsufficientBalance) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+// ListRenewals 管理端续费记录分页。
+func (s *renewalService) ListRenewals(ctx context.Context, q *lifecycledto.RenewalListQuery) (*lifecycledto.RenewalListResponse, error) {
+	items, total, err := s.renewalRepo.List(ctx, lifecyclerepo.RenewalListParams{
+		Keyword:   q.Keyword,
+		UserID:    q.UserID,
+		Status:    q.Status,
+		Source:    q.Source,
+		StartTime: q.StartTime,
+		EndTime:   q.EndTime,
+		Page:      q.Page,
+		PageSize:  q.PageSize,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return buildRenewalListResponse(items, total, q.Page, q.PageSize), nil
+}
+
+func (s *renewalService) GetRenewal(ctx context.Context, id uint64) (*lifecycledto.RenewalInfo, error) {
+	renewal, err := s.renewalRepo.FindByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrRenewalNotFound
+		}
+		return nil, err
+	}
+	return buildRenewalInfo(renewal), nil
+}
+
+func (s *renewalService) UserRenewalRecords(ctx context.Context, userID uint64, q *lifecycledto.UserRenewalListQuery) (*lifecycledto.RenewalListResponse, error) {
+	items, total, err := s.renewalRepo.ListByUser(ctx, userID, q.Status, q.Page, q.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	return buildRenewalListResponse(items, total, q.Page, q.PageSize), nil
+}
+
+func (s *renewalService) UserRenewalDetail(ctx context.Context, userID, id uint64) (*lifecycledto.RenewalInfo, error) {
+	renewal, err := s.renewalRepo.FindByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrRenewalNotFound
+		}
+		return nil, err
+	}
+	if renewal.UserID != userID {
+		return nil, ErrPermissionDenied
+	}
+	return buildRenewalInfo(renewal), nil
+}
+
+// UserRenewalsView 用户端续费管理聚合视图：我的实例到期情况 + 自动续费开关 + 策略摘要。
+func (s *renewalService) UserRenewalsView(ctx context.Context, userID uint64) (*lifecycledto.UserRenewalsViewResponse, error) {
+	instances, err := s.instanceRepo.ListByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	policy, perr := s.policyRepo.Get(ctx)
+	if perr != nil && !errors.Is(perr, gorm.ErrRecordNotFound) {
+		return nil, perr
+	}
+	now := time.Now()
+	items := make([]lifecycledto.UserInstanceRenewalItem, 0, len(instances))
+	for i := range instances {
+		item := &instances[i]
+		if item.ExpireAt == nil {
+			continue
+		}
+		productName, unitPrice, perr := s.instanceRepo.ResolveProduct(ctx, item.ProductID)
+		if perr != nil {
+			return nil, perr
+		}
+		stage := ""
+		if policy != nil {
+			stage = deriveStageForUser(*item.ExpireAt, now, policy)
+		}
+		items = append(items, lifecycledto.UserInstanceRenewalItem{
+			ID:           item.ID,
+			Name:         item.Name,
+			InstanceMark: item.InstanceID,
+			ProductID:    item.ProductID,
+			ProductName:  productName,
+			UnitPrice:    unitPrice,
+			BillingMode:  item.BillingMode,
+			Status:       item.Status,
+			ExpireAt:     formatTime(item.ExpireAt),
+			DaysLeft:     daysLeft(*item.ExpireAt, now),
+			Stage:        stage,
+			AutoRenew:    item.AutoRenew,
+			AutoPeriod:   item.AutoPeriod,
+		})
+	}
+	resp := &lifecycledto.UserRenewalsViewResponse{Items: items}
+	if policy != nil {
+		policyResp := buildPolicyResponse(policy)
+		resp.Policy = *policyResp
+	}
+	return resp, nil
+}
+
+// deriveStageForUser 用户端展示用的派生阶段（与管理端 DeriveStage 同规则）。
+func deriveStageForUser(expireAt, now time.Time, policy *lifecyclemodel.LifecyclePolicy) string {
+	graceEnd := expireAt.AddDate(0, 0, policy.GraceDays)
+	destroyEnd := graceEnd.AddDate(0, 0, policy.DestroyKeepDays)
+	switch {
+	case now.Before(expireAt):
+		return lifecyclemodel.StageActive
+	case now.Before(graceEnd):
+		return lifecyclemodel.StageGrace
+	case now.Before(destroyEnd):
+		return lifecyclemodel.StageSuspended
+	default:
+		return lifecyclemodel.StageDestroyed
+	}
+}
+
+// CompleteRenewalByOrderID 订单支付成功钩子：按订单完成关联续费单并延长到期时间。
+// 幂等：续费单非 pending 状态直接跳过。
+func (s *renewalService) CompleteRenewalByOrderID(ctx context.Context, orderID uint64) error {
+	renewal, err := s.renewalRepo.FindByOrderID(ctx, orderID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil // 非续费订单，忽略
+		}
+		return err
+	}
+	if renewal.Status != lifecyclemodel.RenewalStatusPending {
+		return nil
+	}
+	payMethod := ""
+	if s.orderReader != nil {
+		if order, err := s.orderReader.GetByID(ctx, orderID); err == nil {
+			payMethod = order.PayMethod
+		}
+	}
+	return s.markRenewalSuccess(ctx, renewal, payMethod, 0)
+}
+
+// ---- 内部辅助 ----
+
+// loadOwnedInstance 加载归属用户的实例。
+func (s *renewalService) loadOwnedInstance(ctx context.Context, userID, instanceID uint64) (*lifecyclerepo.InstanceWithUser, error) {
+	instance, err := s.instanceRepo.GetByID(ctx, instanceID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrInstanceNotFound
+		}
+		return nil, err
+	}
+	if instance.UserID != userID {
+		return nil, ErrPermissionDenied
+	}
+	return &lifecyclerepo.InstanceWithUser{Instance: *instance}, nil
+}
+
+// createPendingRenewal 创建续费记录 + 待支付续费订单（同事务落库保证关联一致）。
+func (s *renewalService) createPendingRenewal(ctx context.Context, instance *lifecyclerepo.InstanceWithUser, productName string, periodCount int, amount float64, source string, operatorID uint64, remark string) (*lifecyclemodel.InstanceRenewal, error) {
+	order := &ordermodel.Order{
+		OrderNo:     genOrderNoLocal(),
+		UserID:      instance.UserID,
+		ProductID:   instance.ProductID,
+		ProductName: productName,
+		Specs:       fmt.Sprintf(`{"type":"renewal","instance_id":%d,"period_count":%d}`, instance.ID, periodCount),
+		Quantity:    periodCount,
+		TotalAmount: amount,
+		Status:      ordermodel.OrderStatusPending,
+		Remark:      remark,
+		OperatorID:  operatorID,
+	}
+	renewal := &lifecyclemodel.InstanceRenewal{
+		RenewalNo:    genRenewalNoLocal(),
+		InstanceID:   instance.ID,
+		InstanceMark: instance.InstanceID,
+		UserID:       instance.UserID,
+		ProductID:    instance.ProductID,
+		ProductName:  productName,
+		BillingMode:  instance.BillingMode,
+		PeriodCount:  periodCount,
+		Amount:       amount,
+		Source:       source,
+		Status:       lifecyclemodel.RenewalStatusPending,
+		Remark:       remark,
+		ExpireBefore: instance.ExpireAt,
+	}
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(order).Error; err != nil {
+			return err
+		}
+		renewal.OrderID = order.ID
+		renewal.OrderNo = order.OrderNo
+		if err := tx.Create(renewal).Error; err != nil {
+			return err
+		}
+		// 回写订单续费关联，供支付成功钩子识别（doc60）
+		return tx.Model(order).Update("renewal_id", renewal.ID).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return renewal, nil
+}
+
+// payRenewalOrder 续费订单余额支付：扣款 → 标记订单 → 完成续费（扣款幂等，重复调用不重复记账）。
+func (s *renewalService) payRenewalOrder(ctx context.Context, renewal *lifecyclemodel.InstanceRenewal, payMethod string, operatorID uint64) error {
+	if _, err := s.walletSvc.Change(ctx, financeservice.ChangeRequest{
+		UserID:    renewal.UserID,
+		Type:      financemodel.TxTypeConsume,
+		Direction: financemodel.DirectionExpense,
+		Amount:    renewal.Amount,
+		OrderID:   renewal.OrderID,
+		OrderNo:   renewal.OrderNo,
+		RefNo:     renewal.RenewalNo,
+		BizType:   lifecycleBizTypeRenewal,
+		Remark:    "云主机续费：" + renewal.ProductName,
+	}); err != nil {
+		if errors.Is(err, financeservice.ErrInsufficientBalance) {
+			return ErrInsufficientBalance
+		}
+		return err
+	}
+	return s.markRenewalSuccess(ctx, renewal, payMethod, operatorID)
+}
+
+// markRenewalSuccess 完成续费：标记订单已支付 → 续费单 success → 延长实例到期时间。
+// 以续费前到期时间为基准累加（过期实例从当前时间起算），可重复调用（状态机幂等）。
+func (s *renewalService) markRenewalSuccess(ctx context.Context, renewal *lifecyclemodel.InstanceRenewal, payMethod string, operatorID uint64) error {
+	if err := s.orderWriter.MarkOrderPaid(ctx, renewal.OrderID, renewal.Amount, payMethod, operatorID); err != nil {
+		return err
+	}
+	now := time.Now()
+	payTime := now
+	renewal.Status = lifecyclemodel.RenewalStatusSuccess
+	renewal.PayTime = &payTime
+	if renewal.ExpireBefore == nil {
+		instance, err := s.instanceRepo.GetByID(ctx, renewal.InstanceID)
+		if err != nil {
+			return err
+		}
+		renewal.ExpireBefore = instance.ExpireAt
+	}
+	if renewal.ExpireBefore == nil {
+		renewal.ExpireBefore = &now
+	}
+	renewal.ExpireAfter = s.nextExpireAt(*renewal.ExpireBefore, renewal.BillingMode, renewal.PeriodCount)
+	if err := s.renewalRepo.Update(ctx, renewal); err != nil {
+		return err
+	}
+	if err := s.instanceRepo.ExtendExpireAt(ctx, renewal.InstanceID, *renewal.ExpireAfter); err != nil {
+		return err
+	}
+	s.logger.Info("renewal completed",
+		zap.String("renewal_no", renewal.RenewalNo),
+		zap.Uint64("instance_id", renewal.InstanceID),
+		zap.Float64("amount", renewal.Amount))
+	return nil
+}
+
+// nextExpireAt 按计费模式计算续费后的到期时间。
+func (s *renewalService) nextExpireAt(base time.Time, billingMode string, periodCount int) *time.Time {
+	// 已过期实例从当前时间起算，避免续费期落在过去时段
+	if base.Before(time.Now()) {
+		base = time.Now()
+	}
+	switch billingMode {
+	case "year", "yearly":
+		t := base.AddDate(12*periodCount, 0, 0)
+		return &t
+	case "quarter":
+		t := base.AddDate(0, 3*periodCount, 0)
+		return &t
+	case "day", "daily":
+		t := base.AddDate(0, 0, periodCount)
+		return &t
+	default: // month/monthly 及未知模式默认按月
+		t := base.AddDate(0, periodCount, 0)
+		return &t
+	}
+}
+
+// genOrderNoLocal 生成续费订单号：RO + 时间戳 + 随机。
+func genOrderNoLocal() string {
+	return fmt.Sprintf("RO%s%06d", time.Now().Format("20060102150405"), time.Now().UnixNano()%1000000)
+}
+
+// genRenewalNoLocal 生成续费单号：RN + 时间戳 + 随机。
+func genRenewalNoLocal() string {
+	return fmt.Sprintf("RN%s%06d", time.Now().Format("20060102150405"), time.Now().UnixNano()%1000000)
+}
+
+func normalizePeriod(period int) int {
+	if period <= 0 {
+		return 1
+	}
+	if period > 36 {
+		return 36
+	}
+	return period
+}
+
+// buildRenewalListResponse 续费列表统一组装。
+func buildRenewalListResponse(items []lifecyclemodel.InstanceRenewal, total int64, page, pageSize int) *lifecycledto.RenewalListResponse {
+	resp := make([]lifecycledto.RenewalInfo, 0, len(items))
+	for i := range items {
+		resp = append(resp, *buildRenewalInfo(&items[i]))
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize <= 0 || pageSize > 200 {
+		pageSize = 10
+	}
+	return &lifecycledto.RenewalListResponse{
+		Items: resp,
+		Meta:  lifecycledto.ListMeta{Page: page, PageSize: pageSize, Total: total},
+	}
+}
+
+// buildRenewalInfo 模型转 DTO。
+func buildRenewalInfo(renewal *lifecyclemodel.InstanceRenewal) *lifecycledto.RenewalInfo {
+	info := &lifecycledto.RenewalInfo{
+		ID:           renewal.ID,
+		RenewalNo:    renewal.RenewalNo,
+		InstanceID:   renewal.InstanceID,
+		InstanceMark: renewal.InstanceMark,
+		UserID:       renewal.UserID,
+		ProductID:    renewal.ProductID,
+		ProductName:  renewal.ProductName,
+		BillingMode:  renewal.BillingMode,
+		PeriodCount:  renewal.PeriodCount,
+		Amount:       renewal.Amount,
+		Source:       renewal.Source,
+		Status:       renewal.Status,
+		OrderID:      renewal.OrderID,
+		OrderNo:      renewal.OrderNo,
+		Remark:       renewal.Remark,
+		FailReason:   renewal.FailReason,
+		CreatedAt:    renewal.CreatedAt.Format(time.RFC3339),
+	}
+	if renewal.PayTime != nil {
+		info.PayTime = renewal.PayTime.Format(time.RFC3339)
+	}
+	if renewal.ExpireBefore != nil {
+		info.ExpireBefore = renewal.ExpireBefore.Format(time.RFC3339)
+	}
+	if renewal.ExpireAfter != nil {
+		info.ExpireAfter = renewal.ExpireAfter.Format(time.RFC3339)
+	}
+	return info
+}
