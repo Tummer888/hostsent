@@ -142,6 +142,53 @@ func (h *ConfigHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": "ok", "timestamp": time.Now().Unix()})
 }
 
+// ListByGroup godoc
+// @Summary 按分组查询全部配置项
+// @Description 查询指定分组下的全部配置项（按 sort_order 排序），用于分组化配置页面加载
+// @Tags 系统配置
+// @Produce json
+// @Security BearerAuth
+// @Param group path string true "配置分组"
+// @Success 200 {object} dto.APIResponse[[]dto.ConfigInfo]
+// @Router /api/v1/admin/system/configs/group/{group} [get]
+func (h *ConfigHandler) ListByGroup(c *gin.Context) {
+	group := c.Param("group")
+	if group == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": "配置分组不能为空", "timestamp": time.Now().Unix()})
+		return
+	}
+	items, err := h.configService.ListByGroup(c.Request.Context(), group)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": items, "timestamp": time.Now().Unix()})
+}
+
+// BatchUpsert godoc
+// @Summary 按分组批量保存配置项
+// @Description 对指定分组逐项按 config_key 幂等 upsert，返回该分组最新配置列表
+// @Tags 系统配置
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param request body dto.ConfigBatchUpsertRequest true "批量配置参数"
+// @Success 200 {object} dto.APIResponse[[]dto.ConfigInfo]
+// @Router /api/v1/admin/system/configs/batch [post]
+func (h *ConfigHandler) BatchUpsert(c *gin.Context) {
+	var req dto.ConfigBatchUpsertRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	items, err := h.configService.BatchUpsert(c.Request.Context(), req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": items, "timestamp": time.Now().Unix()})
+}
+
 // replyError 统一映射业务错误：不存在→404/20002，配置键重复→400/20004，其余→500/50001。
 func (h *ConfigHandler) replyError(c *gin.Context, err error) {
 	switch {

@@ -19,11 +19,16 @@ const (
 
 // 配置分组常量。
 const (
-	ConfigGroupSite     = "site"     // 站点配置
-	ConfigGroupBilling  = "billing"  // 计费配置
-	ConfigGroupFeature  = "feature"  // 功能开关
-	ConfigGroupSecurity = "security" // 安全
-	ConfigGroupOrder    = "order"    // 订单
+	ConfigGroupBase     = "base"     // 基础配置
+	ConfigGroupSecurity = "security" // 安全配置
+	ConfigGroupRegister = "register" // 注册配置
+	ConfigGroupNotify   = "notify"   // 消息模板
+
+	// 兼容历史分组
+	ConfigGroupSite    = "site"    // 站点配置
+	ConfigGroupBilling = "billing" // 计费配置
+	ConfigGroupFeature = "feature" // 功能开关
+	ConfigGroupOrder   = "order"   // 订单
 )
 
 // SystemConfig 系统配置项。

@@ -1019,14 +1019,21 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单分类管理", Type: menumodel.TypeMenu, Path: "/tickets/categories", Component: "ticket/categories/index", Icon: "folder", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单统计", Type: menumodel.TypeMenu, Path: "/tickets/stats", Component: "ticket/stats/index", Icon: "chart-bar", SortOrder: 3, Status: menumodel.StatusActive},
 
-		// —— 系统管理（doc40 系统管理模块）
+		// —— 系统管理（doc40 系统管理模块，二级目录 + 三级叶子）
 		{Platform: menumodel.PlatformAdmin, Name: "系统管理", Type: menumodel.TypeDirectory, Path: "/system", Icon: "setting", SortOrder: 7, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "菜单管理", Type: menumodel.TypeMenu, Path: "/system/menus", Component: "system/menus/index", Icon: "menu", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "角色列表", Type: menumodel.TypeMenu, Path: "/system/roles", Component: "system/roles/index", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "权限分配", Type: menumodel.TypeMenu, Path: "/system/permissions", Component: "system/permissions/index", Icon: "lock-on", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "管理员列表", Type: menumodel.TypeMenu, Path: "/system/admins", Component: "system/admins/index", Icon: "user-list", SortOrder: 4, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeMenu, Path: "/system/config", Component: "system/config/index", Icon: "setting", SortOrder: 5, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "操作审计", Type: menumodel.TypeMenu, Path: "/system/audit-logs", Component: "system/audit-logs/index", Icon: "history", SortOrder: 6, Status: menumodel.StatusActive},
+		// 1. 权限管理
+		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "权限管理", Type: menumodel.TypeDirectory, Path: "/system/permission-center", Icon: "lock-on", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "菜单管理", Type: menumodel.TypeMenu, Path: "/system/menus", Component: "system/menus/index", Icon: "menu", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "角色列表", Type: menumodel.TypeMenu, Path: "/system/roles", Component: "system/roles/index", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "权限分配", Type: menumodel.TypeMenu, Path: "/system/permissions", Component: "system/permissions/index", Icon: "lock-on", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "管理员列表", Type: menumodel.TypeMenu, Path: "/system/admins", Component: "system/admins/index", Icon: "user-list", SortOrder: 4, Status: menumodel.StatusActive},
+		// 2. 系统配置
+		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeDirectory, Path: "/system/config-center", Icon: "setting", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/system/config-center", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeMenu, Path: "/system/config", Component: "system/config/index", Icon: "setting", SortOrder: 1, Status: menumodel.StatusActive},
+		// 3. 安全审计
+		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "安全审计", Type: menumodel.TypeDirectory, Path: "/system/audit-center", Icon: "history", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/system/audit-center", Platform: menumodel.PlatformAdmin, Name: "操作审计", Type: menumodel.TypeMenu, Path: "/system/audit-logs", Component: "system/audit-logs/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/system/audit-center", Platform: menumodel.PlatformAdmin, Name: "公告管理", Type: menumodel.TypeMenu, Path: "/system/announcements", Component: "notification/announcements/index", Icon: "sound", SortOrder: 2, Status: menumodel.StatusActive},
 
 		// —— 生命周期管理（doc60，admin 平台 SortOrder=9）
 		{Platform: menumodel.PlatformAdmin, Name: "生命周期管理", Type: menumodel.TypeDirectory, Path: "/lifecycle", Icon: "history", SortOrder: 9, Status: menumodel.StatusActive},
@@ -1034,11 +1041,10 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/lifecycle", Platform: menumodel.PlatformAdmin, Name: "续费记录", Type: menumodel.TypeMenu, Path: "/lifecycle/renewals", Component: "lifecycle/renewals/index", Icon: "order", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/lifecycle", Platform: menumodel.PlatformAdmin, Name: "生命周期策略", Type: menumodel.TypeMenu, Path: "/lifecycle/policy", Component: "lifecycle/policy/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
 
-		// —— 管理员后台 - 消息中心（doc70）
+		// —— 管理员后台 - 消息中心（doc70，公告管理已归类到系统管理/安全审计）
 		{Platform: menumodel.PlatformAdmin, Name: "消息中心", Type: menumodel.TypeDirectory, Path: "/notification", Icon: "mail", SortOrder: 10, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "公告管理", Type: menumodel.TypeMenu, Path: "/notification/announcements", Component: "notification/announcements/index", Icon: "sound", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "通知记录", Type: menumodel.TypeMenu, Path: "/notification/records", Component: "notification/records/index", Icon: "mail", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "通知模板", Type: menumodel.TypeMenu, Path: "/notification/templates", Component: "notification/templates/index", Icon: "root-list", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "通知记录", Type: menumodel.TypeMenu, Path: "/notification/records", Component: "notification/records/index", Icon: "mail", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "通知模板", Type: menumodel.TypeMenu, Path: "/notification/templates", Component: "notification/templates/index", Icon: "root-list", SortOrder: 2, Status: menumodel.StatusActive},
 
 		// —— 用户中心菜单（platform=user）
 		{Platform: menumodel.PlatformUser, Name: "控制台", Type: menumodel.TypeMenu, Path: "/dashboard", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},

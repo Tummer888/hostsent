@@ -27,6 +27,10 @@ type ConfigService interface {
 	Update(ctx context.Context, id uint64, req dto.ConfigUpdateRequest) (*dto.ConfigInfo, error)
 	// Delete 删除指定配置项。
 	Delete(ctx context.Context, id uint64) error
+	// ListByGroup 按分组查询全部配置项（按 sort_order 排序）。
+	ListByGroup(ctx context.Context, group string) ([]dto.ConfigInfo, error)
+	// BatchUpsert 按分组批量保存配置项（按 config_key 幂等 upsert），返回该分组最新配置。
+	BatchUpsert(ctx context.Context, req dto.ConfigBatchUpsertRequest) ([]dto.ConfigInfo, error)
 }
 
 type configService struct {
@@ -118,6 +122,40 @@ func (s *configService) Delete(ctx context.Context, id uint64) error {
 		return err
 	}
 	return s.repo.Delete(ctx, id)
+}
+
+// ListByGroup 按分组查询全部配置项。
+func (s *configService) ListByGroup(ctx context.Context, group string) ([]dto.ConfigInfo, error) {
+	configs, err := s.repo.ListByGroup(ctx, group)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]dto.ConfigInfo, 0, len(configs))
+	for _, config := range configs {
+		items = append(items, toConfigInfo(config))
+	}
+	return items, nil
+}
+
+// BatchUpsert 按分组批量保存配置项：分组以请求体 config_group 为准，逐项按 config_key 幂等 upsert。
+func (s *configService) BatchUpsert(ctx context.Context, req dto.ConfigBatchUpsertRequest) ([]dto.ConfigInfo, error) {
+	configs := make([]*model.SystemConfig, 0, len(req.Items))
+	for _, item := range req.Items {
+		configs = append(configs, &model.SystemConfig{
+			ConfigKey:   item.ConfigKey,
+			ConfigValue: item.ConfigValue,
+			ValueType:   defaultValueType(item.ValueType),
+			Group:       req.Group,
+			Description: item.Description,
+			SortOrder:   item.SortOrder,
+			Status:      defaultStatus(item.Status),
+		})
+	}
+	if err := s.repo.BatchUpsert(ctx, configs); err != nil {
+		return nil, err
+	}
+	// 返回该分组保存后的最新配置列表
+	return s.ListByGroup(ctx, req.Group)
 }
 
 // toConfigInfo 将模型实体映射为响应 DTO。

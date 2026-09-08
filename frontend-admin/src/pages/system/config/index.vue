@@ -1,437 +1,412 @@
 <template>
-  <div class="page-container">
-    <!-- 页头：标题 + 新增入口 -->
-    <div class="page-header">
-      <div>
-        <h2>系统配置</h2>
-        <p>管理全局参数与功能开关</p>
+  <div class="page-body system-config-module">
+    <header class="page-header surface-card">
+      <div class="page-header__main">
+        <span class="page-header__chip"><SettingIcon size="22" aria-hidden="true" /></span>
+        <div class="page-header__text">
+          <h2 class="page-header__title">系统配置</h2>
+          <p class="page-header__desc">平台级配置项，按分组集中管理，保存后即时生效。</p>
+        </div>
       </div>
-      <t-button theme="primary" @click="openCreate">
-        <template #icon>
-          <AddIcon />
-        </template>
-        新增配置
-      </t-button>
-    </div>
+    </header>
 
-    <!-- 筛选卡片：分组 + 关键字 -->
-    <t-card :bordered="false" class="filter-card">
-      <t-form layout="inline" :data="filters" @submit="onSearch">
-        <t-form-item label="分组">
-          <t-select
-            v-model="filters.group"
-            :options="groupOptions"
-            clearable
-            placeholder="全部分组"
-            class="filter-select"
-          />
-        </t-form-item>
-        <t-form-item label="关键字">
-          <t-input
-            v-model="filters.keyword"
-            placeholder="配置键 / 描述模糊匹配"
-            clearable
-            @enter="onSearch"
-          />
-        </t-form-item>
-        <t-form-item>
-          <t-space>
-            <t-button theme="primary" type="submit">查询</t-button>
-            <t-button variant="outline" @click="resetFilters">重置</t-button>
-          </t-space>
-        </t-form-item>
-      </t-form>
-    </t-card>
+    <section class="form-card surface-card">
+      <t-tabs v-model="activeGroup" @change="onTabChange">
+        <t-tab-panel
+          v-for="group in groups"
+          :key="group.value"
+          :value="group.value"
+          :label="group.label"
+        >
+          <div class="tab-panel">
+            <t-form label-align="top" :data="formData" @submit.prevent="saveCurrent">
+              <div class="form-grid">
+                <div
+                  v-for="field in group.fields"
+                  :key="field.key"
+                  class="form-cell"
+                  :class="{ 'form-cell--full': field.span === 'full' }"
+                >
+                  <t-form-item :label="field.label">
+                    <!-- 输入框 -->
+                    <t-input
+                      v-if="field.type === 'input'"
+                      v-model="(formData as Record<string, any>)[field.key]"
+                      :placeholder="field.placeholder || `请输入${field.label}`"
+                      clearable
+                    />
+                    <!-- 多行文本 -->
+                    <t-textarea
+                      v-else-if="field.type === 'textarea'"
+                      v-model="(formData as Record<string, any>)[field.key]"
+                      :autosize="{ minRows: 3, maxRows: 8 }"
+                      :placeholder="field.placeholder || `请输入${field.label}`"
+                    />
+                    <!-- 数字 -->
+                    <t-input-number
+                      v-else-if="field.type === 'number'"
+                      v-model="(formData as Record<string, any>)[field.key]"
+                      :min="field.min ?? 0"
+                      :max="field.max"
+                      :step="field.step ?? 1"
+                      theme="column"
+                    />
+                    <!-- 开关 -->
+                    <t-switch
+                      v-else-if="field.type === 'switch'"
+                      v-model="(formData as Record<string, any>)[field.key]"
+                    >
+                      <template #label="{ value }">
+                        {{ value ? '开启' : '关闭' }}
+                      </template>
+                    </t-switch>
+                    <!-- 下拉选择 -->
+                    <t-select
+                      v-else-if="field.type === 'select'"
+                      v-model="(formData as Record<string, any>)[field.key]"
+                      :options="field.options"
+                      :placeholder="field.placeholder || `请选择${field.label}`"
+                      clearable
+                    />
+                  </t-form-item>
+                  <p v-if="field.hint" class="field-hint">{{ field.hint }}</p>
+                </div>
+              </div>
 
-    <!-- 表格卡片 -->
-    <t-card :bordered="false" class="table-card">
-      <div v-if="errorMessage" class="table-error">
-        <span>{{ errorMessage }}</span>
-        <t-link theme="primary" hover="color" @click="loadData">重试</t-link>
-      </div>
-
-      <t-table
-        row-key="id"
-        :data="tableData"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        size="medium"
-        cell-empty-content="—"
-        @page-change="handlePageChange"
-      >
-        <!-- 配置键：等宽字体展示 -->
-        <template #config_key="{ row }">
-          <span class="mono-text">{{ row.config_key }}</span>
-        </template>
-        <!-- 类型：不同主题 tag 区分 -->
-        <template #value_type="{ row }">
-          <t-tag :theme="valueTypeTagTheme[row.value_type] || 'default'" variant="light-outline">
-            {{ row.value_type }}
-          </t-tag>
-        </template>
-        <!-- 分组：中文映射标签，未收录分组展示原值 -->
-        <template #config_group="{ row }">
-          <t-tag theme="primary" variant="light">
-            {{ groupLabelMap[row.config_group] || row.config_group }}
-          </t-tag>
-        </template>
-        <template #description="{ row }">
-          <span>{{ row.description || '-' }}</span>
-        </template>
-        <!-- 状态：启用/禁用 -->
-        <template #status="{ row }">
-          <t-tag :theme="row.status === 'active' ? 'success' : 'default'" variant="light-outline">
-            {{ row.status === 'active' ? '启用' : '禁用' }}
-          </t-tag>
-        </template>
-        <template #operation="{ row }">
-          <t-space size="small">
-            <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
-            <t-popconfirm
-              content="删除后不可恢复，确认删除该配置项？"
-              @confirm="removeConfig(row.id)"
-            >
-              <t-link theme="danger" hover="color">删除</t-link>
-            </t-popconfirm>
-          </t-space>
-        </template>
-        <template #empty>
-          <t-empty description="暂无配置项" />
-        </template>
-      </t-table>
-    </t-card>
-
-    <!-- 新增 / 编辑共用弹窗 -->
-    <t-dialog
-      v-model:visible="dialogVisible"
-      :header="editing ? '编辑配置' : '新增配置'"
-      :confirm-btn="{ content: '保存', loading: submitting }"
-      width="520px"
-      @confirm="submitConfig"
-    >
-      <t-form ref="formRef" :data="form" :rules="rules" label-align="top">
-        <t-form-item label="配置键" name="config_key">
-          <t-input
-            v-model="form.config_key"
-            :disabled="editing"
-            maxlength="64"
-            placeholder="小写字母开头，仅小写字母数字下划线"
-          />
-        </t-form-item>
-        <t-form-item label="配置值" name="config_value">
-          <t-textarea
-            v-model="form.config_value"
-            :autosize="{ minRows: 2, maxRows: 6 }"
-            placeholder="请输入配置值，JSON 类型请填写合法 JSON 文本"
-          />
-        </t-form-item>
-        <t-form-item label="类型" name="value_type">
-          <t-select v-model="form.value_type" :options="valueTypeOptions" placeholder="请选择类型" />
-        </t-form-item>
-        <t-form-item label="分组" name="config_group">
-          <t-select
-            v-model="form.config_group"
-            :options="groupOptions"
-            filterable
-            creatable
-            placeholder="请选择分组，支持输入创建新分组"
-          />
-        </t-form-item>
-        <t-form-item label="描述" name="description">
-          <t-textarea
-            v-model="form.description"
-            :autosize="{ minRows: 2, maxRows: 4 }"
-            :maxlength="255"
-            placeholder="请输入配置说明"
-          />
-        </t-form-item>
-        <t-form-item label="排序" name="sort_order">
-          <t-input-number v-model="form.sort_order" :min="0" :max="9999" :step="1" theme="normal" />
-        </t-form-item>
-        <t-form-item label="状态" name="status">
-          <t-switch v-model="form.status" :custom-value="['active', 'disabled']">
-            <template #label="{ value }">
-              {{ value === 'active' ? '启用' : '禁用' }}
-            </template>
-          </t-switch>
-        </t-form-item>
-      </t-form>
-    </t-dialog>
+              <div class="form-footer">
+                <t-button variant="outline" @click="loadCurrent">重置</t-button>
+                <t-button theme="primary" type="submit" :loading="savingGroup === group.value">
+                  保存配置
+                </t-button>
+              </div>
+            </t-form>
+          </div>
+        </t-tab-panel>
+      </t-tabs>
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 
-import { AddIcon } from 'tdesign-icons-vue-next'
+import { SettingIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
-import type { FormInstanceFunctions, FormRule, PageInfo, PrimaryTableCol } from 'tdesign-vue-next'
 
-import {
-  createConfig,
-  deleteConfig,
-  getConfigList,
-  updateConfig,
-  type SystemConfigInfo,
-} from '@/api/system'
+import { batchSaveConfigs, getConfigListByGroup } from '@/api/system'
+import type { SystemConfigInfo } from '@/api/system'
 
 defineOptions({ name: 'SystemConfig' })
 
-const loading = ref(false)
-const submitting = ref(false)
-const dialogVisible = ref(false)
-const editing = ref(false)
-const formRef = ref<FormInstanceFunctions | null>(null)
-const tableData = ref<SystemConfigInfo[]>([])
-const errorMessage = ref('')
+/** 字段类型 */
+type FieldType = 'input' | 'textarea' | 'number' | 'switch' | 'select'
 
-const filters = reactive({
-  group: '',
-  keyword: '',
-})
-
-const pagination = reactive({
-  current: 1,
-  pageSize: 10,
-  total: 0,
-  showJumper: true,
-  showPageSize: true,
-  pageSizeOptions: [10, 20, 50],
-})
-
-/** 分组下拉选项（筛选与表单共用，表单允许自定义创建） */
-const groupOptions = [
-  { label: '站点配置', value: 'site' },
-  { label: '计费配置', value: 'billing' },
-  { label: '功能开关', value: 'feature' },
-  { label: '安全', value: 'security' },
-  { label: '订单', value: 'order' },
-]
-
-const groupLabelMap: Record<string, string> = Object.fromEntries(
-  groupOptions.map((option) => [option.value, option.label]),
-)
-
-/** 类型下拉选项 */
-const valueTypeOptions = [
-  { label: 'string（字符串）', value: 'string' },
-  { label: 'bool（布尔）', value: 'bool' },
-  { label: 'int（整数）', value: 'int' },
-  { label: 'json（JSON）', value: 'json' },
-]
-
-/** 类型对应的 tag 主题 */
-const valueTypeTagTheme: Record<string, string> = {
-  string: 'default',
-  bool: 'warning',
-  int: 'primary',
-  json: 'success',
+interface SelectOption {
+  label: string
+  value: string
 }
 
-const rules: Record<string, FormRule[]> = {
-  config_key: [
-    { required: true, message: '请输入配置键', type: 'error' },
-    { pattern: /^[a-z][a-z0-9_]*$/, message: '小写字母开头，仅小写字母数字下划线', type: 'error' },
-  ],
-  value_type: [{ required: true, message: '请选择类型', type: 'error' }],
-  sort_order: [
-    {
-      validator: (value) => Number.isInteger(Number(value)),
-      message: '排序必须为整数',
-      type: 'error',
-    },
-  ],
+/** 配置项字段元信息 */
+interface ConfigField {
+  key: string // 配置键
+  label: string // 表单标签
+  type: FieldType // 渲染控件
+  valueType: SystemConfigInfo['value_type'] // 存储语义类型
+  default?: string | number | boolean // 缺省值
+  placeholder?: string
+  hint?: string // 表单下方提示
+  options?: SelectOption[] // select 专用
+  min?: number // number 专用
+  max?: number // number 专用
+  step?: number // number 专用
+  span?: 'full' // 占满整行
 }
 
-const columns: PrimaryTableCol<SystemConfigInfo>[] = [
-  { colKey: 'config_key', title: '配置键', minWidth: 200 },
-  { colKey: 'config_value', title: '配置值', minWidth: 200, ellipsis: true },
-  { colKey: 'value_type', title: '类型', width: 110 },
-  { colKey: 'config_group', title: '分组', width: 130 },
-  { colKey: 'description', title: '描述', minWidth: 200, ellipsis: true },
-  { colKey: 'sort_order', title: '排序', width: 90 },
-  { colKey: 'status', title: '状态', width: 100 },
-  { colKey: 'operation', title: '操作', width: 130, fixed: 'right' },
+/** 配置分组定义 */
+interface ConfigGroup {
+  value: string // config_group 值
+  label: string
+  fields: ConfigField[]
+}
+
+const groups: ConfigGroup[] = [
+  {
+    value: 'base',
+    label: '基础配置',
+    fields: [
+      { key: 'site_name', label: '站点名称', type: 'input', valueType: 'string', default: '' },
+      { key: 'site_logo', label: '站点 Logo 地址', type: 'input', valueType: 'string', default: '', placeholder: 'https://…' },
+      { key: 'site_icp', label: 'ICP 备案号', type: 'input', valueType: 'string', default: '' },
+      { key: 'site_copyright', label: '版权信息', type: 'input', valueType: 'string', default: '' },
+      { key: 'contact_phone', label: '客服电话', type: 'input', valueType: 'string', default: '' },
+      { key: 'contact_email', label: '客服邮箱', type: 'input', valueType: 'string', default: '' },
+      { key: 'contact_address', label: '联系地址', type: 'textarea', valueType: 'string', default: '', span: 'full' },
+      { key: 'system_timezone', label: '系统时区', type: 'select', valueType: 'string', default: 'Asia/Shanghai', options: [
+        { label: 'Asia/Shanghai (UTC+8)', value: 'Asia/Shanghai' },
+        { label: 'UTC', value: 'UTC' },
+        { label: 'Asia/Tokyo (UTC+9)', value: 'Asia/Tokyo' },
+        { label: 'America/New_York (UTC-5)', value: 'America/New_York' },
+      ] },
+      { key: 'date_format', label: '日期格式', type: 'select', valueType: 'string', default: 'YYYY-MM-DD', options: [
+        { label: 'YYYY-MM-DD', value: 'YYYY-MM-DD' },
+        { label: 'YYYY/MM/DD', value: 'YYYY/MM/DD' },
+        { label: 'DD/MM/YYYY', value: 'DD/MM/YYYY' },
+        { label: 'MM/DD/YYYY', value: 'MM/DD/YYYY' },
+      ] },
+      { key: 'currency_unit', label: '货币单位', type: 'input', valueType: 'string', default: 'CNY' },
+    ],
+  },
+  {
+    value: 'security',
+    label: '安全配置',
+    fields: [
+      { key: 'password_min_length', label: '密码最小长度', type: 'number', valueType: 'int', default: 8, min: 4, max: 64, hint: '新密码至少包含的字符数量' },
+      { key: 'password_require_number', label: '密码必须包含数字', type: 'switch', valueType: 'bool', default: true },
+      { key: 'password_require_upper', label: '密码必须包含大写字母', type: 'switch', valueType: 'bool', default: false },
+      { key: 'password_require_lower', label: '密码必须包含小写字母', type: 'switch', valueType: 'bool', default: true },
+      { key: 'password_require_special', label: '密码必须包含特殊字符', type: 'switch', valueType: 'bool', default: false },
+      { key: 'password_expire_days', label: '密码有效期（天）', type: 'number', valueType: 'int', default: 90, min: 0, hint: '0 表示永不过期' },
+      { key: 'password_history_keep', label: '历史密码防重用（次）', type: 'number', valueType: 'int', default: 5, min: 0 },
+      { key: 'login_fail_lock', label: '登录失败锁定', type: 'switch', valueType: 'bool', default: true },
+      { key: 'login_fail_threshold', label: '失败次数阈值', type: 'number', valueType: 'int', default: 5, min: 1 },
+      { key: 'login_lock_minutes', label: '锁定时间（分钟）', type: 'number', valueType: 'int', default: 15, min: 1 },
+      { key: 'session_timeout_minutes', label: '会话超时（分钟）', type: 'number', valueType: 'int', default: 120, min: 1 },
+      { key: 'mfa_required', label: '强制启用双因素认证（MFA）', type: 'switch', valueType: 'bool', default: false },
+      { key: 'jwt_expire_minutes', label: 'JWT 有效期（分钟）', type: 'number', valueType: 'int', default: 720, min: 1 },
+      { key: 'api_rate_limit', label: '每 IP 请求限流（次/分钟）', type: 'number', valueType: 'int', default: 120, min: 1 },
+    ],
+  },
+  {
+    value: 'register',
+    label: '注册配置',
+    fields: [
+      { key: 'register_enabled', label: '开放注册', type: 'switch', valueType: 'bool', default: true },
+      { key: 'register_need_audit', label: '注册需人工审核', type: 'switch', valueType: 'bool', default: false },
+      { key: 'register_default_role', label: '默认角色', type: 'input', valueType: 'string', default: 'user', placeholder: '角色标识，如 user' },
+      { key: 'register_default_tier', label: '默认用户等级', type: 'input', valueType: 'string', default: '', placeholder: '如 base' },
+      { key: 'register_default_quota', label: '默认配额模板', type: 'input', valueType: 'string', default: '', placeholder: '配额模板标识' },
+      { key: 'invite_code_required', label: '注册需要邀请码', type: 'switch', valueType: 'bool', default: false },
+      { key: 'invite_code_length', label: '邀请码长度', type: 'number', valueType: 'int', default: 8, min: 4, max: 32 },
+    ],
+  },
+  {
+    value: 'notify',
+    label: '消息模板',
+    fields: [
+      { key: 'mail_register_verify', label: '注册验证邮件模板', type: 'textarea', valueType: 'string', default: '', span: 'full', hint: '可用变量：{code}、{site_name}、{expire_minutes}' },
+      { key: 'mail_password_reset', label: '密码重置邮件模板', type: 'textarea', valueType: 'string', default: '', span: 'full', hint: '可用变量：{code}、{link}、{site_name}、{expire_minutes}' },
+      { key: 'mail_order_notify', label: '订单通知邮件模板', type: 'textarea', valueType: 'string', default: '', span: 'full', hint: '可用变量：{order_no}、{amount}、{site_name}' },
+      { key: 'sms_verify_code', label: '验证码短信模板', type: 'textarea', valueType: 'string', default: '', span: 'full', hint: '可用变量：{code}、{site_name}、{expire_minutes}' },
+      { key: 'sms_alert', label: '告警短信模板', type: 'textarea', valueType: 'string', default: '', span: 'full', hint: '可用变量：{title}、{content}、{site_name}' },
+      { key: 'inapp_system_notify', label: '系统通知站内信模板', type: 'textarea', valueType: 'string', default: '', span: 'full', hint: '可用变量：{content}、{site_name}' },
+      { key: 'inapp_alert_notify', label: '告警通知站内信模板', type: 'textarea', valueType: 'string', default: '', span: 'full', hint: '可用变量：{title}、{content}、{site_name}' },
+    ],
+  },
 ]
 
-const initForm = () => ({
-  id: 0,
-  config_key: '',
-  config_value: '',
-  value_type: 'string' as SystemConfigInfo['value_type'],
-  config_group: 'site',
-  description: '',
-  sort_order: 0,
-  status: 'active' as SystemConfigInfo['status'],
-})
+const activeGroup = ref<string>(groups[0].value)
+const savingGroup = ref<string>('')
+// 表单数据：key 与字段类型对应，switch 为 boolean、number 为 number、其余为 string
+const formData = reactive<Record<string, string | number | boolean>>({})
 
-const form = reactive(initForm())
+function defaultForType(field: ConfigField): string | number | boolean {
+  if (field.default !== undefined) return field.default
+  if (field.type === 'switch') return false
+  if (field.type === 'number') return 0
+  return ''
+}
 
-/** 加载配置列表（服务端分页 + 筛选） */
-async function loadData() {
-  loading.value = true
-  errorMessage.value = ''
+/** 加载当前分组配置，将已有值应用到表单；未设置项回落默认值 */
+async function loadCurrent() {
+  const group = groups.find((g) => g.value === activeGroup.value)
+  if (!group) return
   try {
-    const response = await getConfigList({
-      group: filters.group || undefined,
-      keyword: filters.keyword.trim() || undefined,
-      page: pagination.current,
-      page_size: pagination.pageSize,
-    })
-    tableData.value = response.items
-    pagination.total = response.meta.total
-  } catch (error) {
-    errorMessage.value = (error as Error)?.message || '加载系统配置失败'
-  } finally {
-    loading.value = false
-  }
-}
+    const configs = await getConfigListByGroup(group.value)
+    const configMap: Record<string, SystemConfigInfo> = {}
+    for (const cfg of configs) configMap[cfg.config_key] = cfg
 
-function onSearch() {
-  pagination.current = 1
-  void loadData()
-}
-
-function resetFilters() {
-  filters.group = ''
-  filters.keyword = ''
-  pagination.current = 1
-  pagination.pageSize = 10
-  void loadData()
-}
-
-function handlePageChange(pageInfo: PageInfo) {
-  pagination.current = pageInfo.current
-  pagination.pageSize = pageInfo.pageSize
-  void loadData()
-}
-
-function openCreate() {
-  editing.value = false
-  Object.assign(form, initForm())
-  dialogVisible.value = true
-}
-
-function openEdit(row: SystemConfigInfo) {
-  editing.value = true
-  Object.assign(form, {
-    id: row.id,
-    config_key: row.config_key,
-    config_value: row.config_value,
-    value_type: row.value_type,
-    config_group: row.config_group,
-    description: row.description || '',
-    sort_order: row.sort_order,
-    status: row.status,
-  })
-  dialogVisible.value = true
-}
-
-async function submitConfig() {
-  const validateResult = await formRef.value?.validate?.()
-  if (validateResult !== true) return
-
-  submitting.value = true
-  try {
-    if (editing.value) {
-      await updateConfig(form.id, {
-        config_value: form.config_value,
-        value_type: form.value_type,
-        config_group: form.config_group,
-        description: form.description.trim(),
-        sort_order: form.sort_order,
-        status: form.status,
-      })
-    } else {
-      await createConfig({
-        config_key: form.config_key.trim(),
-        config_value: form.config_value,
-        value_type: form.value_type,
-        config_group: form.config_group,
-        description: form.description.trim(),
-        sort_order: form.sort_order,
-        status: form.status,
-      })
+    for (const field of group.fields) {
+      const cfg = configMap[field.key]
+      if (!cfg) {
+        formData[field.key] = defaultForType(field)
+        continue
+      }
+      if (field.valueType === 'bool') {
+        formData[field.key] = cfg.config_value === 'true'
+      } else if (field.valueType === 'int') {
+        formData[field.key] = Number(cfg.config_value) || 0
+      } else {
+        formData[field.key] = cfg.config_value
+      }
     }
-
-    MessagePlugin.success('配置已保存')
-    dialogVisible.value = false
-    await loadData()
   } catch (error) {
-    MessagePlugin.error((error as Error)?.message || '保存配置失败')
-  } finally {
-    submitting.value = false
+    MessagePlugin.error((error as Error)?.message || `加载${group.label}失败`)
+    // 加载失败时仍回落默认值，保证表单可编辑
+    for (const field of group.fields) formData[field.key] = defaultForType(field)
   }
 }
 
-async function removeConfig(id: number) {
+/** 序列化当前分组字段为批量保存请求体 */
+function buildItems(group: ConfigGroup) {
+  return group.fields.map((field) => {
+    const value = formData[field.key]
+    let configValue = String(value ?? '')
+    if (field.valueType === 'bool') configValue = value ? 'true' : 'false'
+    if (field.valueType === 'int') configValue = String(value ?? '')
+    return {
+      config_key: field.key,
+      config_value: configValue,
+      value_type: field.valueType,
+      config_group: group.value,
+      description: field.label,
+      sort_order: group.fields.indexOf(field),
+      status: 'active' as const,
+    }
+  })
+}
+
+async function saveCurrent() {
+  const group = groups.find((g) => g.value === activeGroup.value)
+  if (!group) return
+  savingGroup.value = group.value
   try {
-    await deleteConfig(id)
-    MessagePlugin.success('配置已删除')
-    await loadData()
+    await batchSaveConfigs(group.value, buildItems(group))
+    MessagePlugin.success(`${group.label}已保存`)
+    await loadCurrent()
   } catch (error) {
-    MessagePlugin.error((error as Error)?.message || '删除配置失败')
+    MessagePlugin.error((error as Error)?.message || `保存${group.label}失败`)
+  } finally {
+    savingGroup.value = ''
   }
+}
+
+function onTabChange() {
+  activeGroup.value = activeGroup.value
+  void loadCurrent()
 }
 
 onMounted(() => {
-  void loadData()
+  void loadCurrent()
 })
 </script>
 
 <style scoped>
-.page-container {
-  padding: 16px;
+/* 系统配置模块样式（复用全局变量，命名空间 .system-config-module 避免影响其他模块） */
+.system-config-module {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-lg);
 }
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
+.system-config-module .surface-card {
+  position: relative;
+  border-radius: var(--hs-radius-lg);
+  background: var(--hs-surface-1);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--hs-shadow-xs);
 }
 
-.page-header h2 {
-  margin: 0 0 4px;
-  font-size: 20px;
-  font-weight: 500;
-}
-
-.page-header p {
-  margin: 0;
-  color: var(--td-text-color-secondary);
-  font-size: 14px;
-}
-
-.filter-card,
-.table-card {
-  background: var(--td-bg-color-container);
-  border-radius: var(--td-radius-medium);
-}
-
-.filter-select {
-  min-width: 180px;
-}
-
-.mono-text {
-  font-family: var(--hs-font-mono, ui-monospace, Menlo, Consolas, monospace);
-  font-size: 13px;
-}
-
-.table-error {
+.system-config-module .page-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 0 0 12px;
-  padding: 10px 12px;
-  border: 1px solid rgba(239, 68, 68, 0.18);
-  border-radius: var(--td-radius-medium);
-  background: rgba(239, 68, 68, 0.06);
-  color: var(--td-error-color);
+  justify-content: space-between;
+  gap: var(--space-lg);
+  padding: var(--space-lg) var(--space-xl);
+  overflow: hidden;
+}
+
+.system-config-module .page-header::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(135deg, #16a34a, #0891b2);
+  opacity: 0.9;
+}
+
+.system-config-module .page-header__main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.system-config-module .page-header__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.system-config-module .page-header__chip {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--hs-radius-xl);
+  background: linear-gradient(135deg, #16a34a, #0891b2);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 4px 10px rgba(22, 163, 74, 0.25);
+}
+
+.system-config-module .page-header__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+
+.system-config-module .page-header__desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-muted-foreground);
+}
+
+.system-config-module .form-card {
+  padding: var(--space-lg) var(--space-xl);
+}
+
+.system-config-module .tab-panel {
+  padding-top: var(--space-md);
+}
+
+.system-config-module .form-grid {
+  display: grid;
+  gap: 16px 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.system-config-module .form-cell--full {
+  grid-column: 1 / -1;
+}
+
+.system-config-module .field-hint {
+  margin: -6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-muted-foreground);
+}
+
+.system-config-module .form-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  margin-top: var(--space-xl);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--color-border);
+}
+
+@media (max-width: 768px) {
+  .system-config-module .page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .system-config-module .form-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

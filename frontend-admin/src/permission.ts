@@ -25,6 +25,7 @@ import {
   ServerIcon,
   ServiceIcon,
   SettingIcon,
+  SoundIcon,
   StopIcon,
   TagIcon,
   UserCircleIcon,
@@ -322,12 +323,32 @@ export const navMenu = [
     path: '/system',
     icon: iconWrapper(SettingIcon),
     children: [
-      { title: '菜单管理', path: '/system/menus', icon: iconWrapper(MenuIcon) },
-      { title: '角色列表', path: '/system/roles', icon: iconWrapper(UsergroupIcon) },
-      { title: '权限分配', path: '/system/permissions', icon: iconWrapper(SettingIcon) },
-      { title: '管理员列表', path: '/system/admins', icon: iconWrapper(UserListIcon) },
-      { title: '系统配置', path: '/system/config', icon: iconWrapper(SettingIcon) },
-      { title: '操作审计', path: '/system/audit-logs', icon: iconWrapper(HistoryIcon) },
+      {
+        title: '权限管理',
+        path: '/system/permission-center',
+        icon: iconWrapper(LockOnIcon),
+        children: [
+          { title: '菜单管理', path: '/system/menus', icon: iconWrapper(MenuIcon) },
+          { title: '角色列表', path: '/system/roles', icon: iconWrapper(UsergroupIcon) },
+          { title: '权限分配', path: '/system/permissions', icon: iconWrapper(SettingIcon) },
+          { title: '管理员列表', path: '/system/admins', icon: iconWrapper(UserListIcon) },
+        ],
+      },
+      {
+        title: '系统配置',
+        path: '/system/config-center',
+        icon: iconWrapper(SettingIcon),
+        children: [{ title: '系统配置', path: '/system/config', icon: iconWrapper(SettingIcon) }],
+      },
+      {
+        title: '安全审计',
+        path: '/system/audit-center',
+        icon: iconWrapper(HistoryIcon),
+        children: [
+          { title: '操作审计', path: '/system/audit-logs', icon: iconWrapper(HistoryIcon) },
+          { title: '公告管理', path: '/system/announcements', icon: iconWrapper(SoundIcon) },
+        ],
+      },
     ],
   },
 ]

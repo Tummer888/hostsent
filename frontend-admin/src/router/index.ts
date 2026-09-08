@@ -632,15 +632,9 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: '/notification',
     component: () => import('@/layouts/index.vue'),
-    redirect: '/notification/announcements',
+    redirect: '/notification/records',
     meta: { title: '消息中心', role: 'admin' },
     children: [
-      {
-        path: 'announcements',
-        name: 'NotifyAnnouncements',
-        component: () => import('@/pages/notification/announcements/index.vue'),
-        meta: { title: '公告管理', role: 'admin' },
-      },
       {
         path: 'records',
         name: 'NotifyRecords',
@@ -698,6 +692,13 @@ const routes: Array<RouteRecordRaw> = [
         name: 'SystemAuditLogs',
         component: () => import('@/pages/system/audit-logs/index.vue'),
         meta: { title: '操作审计', role: 'admin' },
+      },
+      {
+        // 公告管理（复用 notification 公告服务，归类到系统管理/安全审计）
+        path: 'announcements',
+        name: 'SystemAnnouncements',
+        component: () => import('@/pages/notification/announcements/index.vue'),
+        meta: { title: '公告管理', role: 'admin' },
       },
     ],
   },

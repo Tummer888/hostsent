@@ -491,6 +491,10 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 		{
 			systemConfigGroup.GET("", configHandler.List)
 			systemConfigGroup.POST("", configHandler.Create)
+			// 按分组读取（固定段 /group/:group 需先于 /:key 匹配，且二者不同段数不冲突）
+			systemConfigGroup.GET("/group/:group", configHandler.ListByGroup)
+			// 分组批量 upsert
+			systemConfigGroup.POST("/batch", configHandler.BatchUpsert)
 			systemConfigGroup.GET("/:key", configHandler.GetByKey)
 			systemConfigGroup.PUT("/:id", configHandler.Update)
 			systemConfigGroup.DELETE("/:id", configHandler.Delete)
