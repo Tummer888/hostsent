@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">订单统计</h2>
-          <p class="page-header__desc">掌握平台订单的销售额、订单量、客单价与退款情况。</p>
         </div>
       </div>
       <t-space size="small">

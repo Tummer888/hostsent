@@ -1,13 +1,7 @@
 <template>
-  <div class="page-body system-config-module">
-    <header class="page-header surface-card">
-      <div class="page-header__main">
-        <span class="page-header__chip"><SettingIcon size="22" aria-hidden="true" /></span>
-        <div class="page-header__text">
-          <h2 class="page-header__title">系统配置</h2>
-          <p class="page-header__desc">平台级配置项，按分组集中管理，保存后即时生效。</p>
-        </div>
-      </div>
+  <div class="page-body system-page system-config-module">
+    <header class="page-header">
+      <h2 class="page-header__title">系统配置</h2>
     </header>
 
     <section class="form-card surface-card">
@@ -90,7 +84,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 
-import { SettingIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
 
 import { batchSaveConfigs, getConfigListByGroup } from '@/api/system'
@@ -291,121 +284,72 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* 系统配置模块样式（复用全局变量，命名空间 .system-config-module 避免影响其他模块） */
+@import '../shared.css';
+
 .system-config-module {
   display: flex;
   flex-direction: column;
-  gap: var(--space-lg);
+  gap: 16px;
+  padding: 16px;
+  color: var(--td-text-color-primary);
 }
 
-.system-config-module .surface-card {
-  position: relative;
-  border-radius: var(--hs-radius-lg);
-  background: var(--hs-surface-1);
-  border: 1px solid var(--color-border);
-  box-shadow: var(--hs-shadow-xs);
-}
-
-.system-config-module .page-header {
+.page-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-lg);
-  padding: var(--space-lg) var(--space-xl);
-  overflow: hidden;
+  min-height: 32px;
 }
 
-.system-config-module .page-header::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 3px;
-  background: linear-gradient(135deg, #16a34a, #0891b2);
-  opacity: 0.9;
-}
-
-.system-config-module .page-header__main {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  min-width: 0;
-}
-
-.system-config-module .page-header__text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.system-config-module .page-header__chip {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--hs-radius-xl);
-  background: linear-gradient(135deg, #16a34a, #0891b2);
-  color: #ffffff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  box-shadow: 0 4px 10px rgba(22, 163, 74, 0.25);
-}
-
-.system-config-module .page-header__title {
+.page-header__title {
   margin: 0;
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--color-foreground);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
-.system-config-module .page-header__desc {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--color-muted-foreground);
+.form-card {
+  padding: 20px 24px 24px;
+  border: 1px solid var(--system-card-border);
+  border-radius: var(--td-radius-medium);
+  background: var(--td-bg-color-container);
 }
 
-.system-config-module .form-card {
-  padding: var(--space-lg) var(--space-xl);
+.tab-panel {
+  padding-top: 20px;
 }
 
-.system-config-module .tab-panel {
-  padding-top: var(--space-md);
-}
-
-.system-config-module .form-grid {
+.form-grid {
   display: grid;
-  gap: 16px 20px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 24px;
 }
 
-.system-config-module .form-cell--full {
+.form-cell--full {
   grid-column: 1 / -1;
 }
 
-.system-config-module .field-hint {
+.field-hint {
   margin: -6px 0 0;
+  color: var(--td-text-color-secondary);
   font-size: 12px;
   line-height: 1.5;
-  color: var(--color-muted-foreground);
 }
 
-.system-config-module .form-footer {
+.form-footer {
   display: flex;
   justify-content: flex-end;
-  gap: var(--space-md);
-  margin-top: var(--space-xl);
-  padding-top: var(--space-lg);
-  border-top: 1px solid var(--color-border);
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--system-card-border);
 }
 
 @media (max-width: 768px) {
-  .system-config-module .page-header {
-    flex-direction: column;
-    align-items: stretch;
+  .form-card {
+    padding: 16px;
   }
 
-  .system-config-module .form-grid {
+  .form-grid {
     grid-template-columns: 1fr;
   }
 }

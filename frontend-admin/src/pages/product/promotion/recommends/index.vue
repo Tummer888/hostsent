@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">推荐位管理</h2>
-          <p class="page-header__desc">将商品设置或取消为推荐位，推荐商品将在前台被优先展示。</p>
         </div>
       </div>
       <t-button variant="outline" :loading="loading" @click="loadProducts">
@@ -59,7 +58,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"

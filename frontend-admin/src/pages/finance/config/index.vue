@@ -2,10 +2,8 @@
   <div class="page-body finance-module">
     <header class="page-header surface-card">
       <div class="page-header__main">
-        <span class="page-header__chip"><SettingIcon size="22" aria-hidden="true" /></span>
         <div class="page-header__text">
           <h2 class="page-header__title">财务配置</h2>
-          <p class="page-header__desc">财务相关全局配置项，保存后即时生效。</p>
         </div>
       </div>
     </header>
@@ -41,7 +39,6 @@
 
 <script setup lang="ts">
 import { onMounted, reactive } from 'vue'
-import { SettingIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
 
 import { createConfig, getConfigList, updateConfig } from '@/api/system'

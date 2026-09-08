@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">套餐组合</h2>
-          <p class="page-header__desc">管理商品套餐组合促销，配置组合规则与活动有效期。</p>
         </div>
       </div>
       <t-space size="small">
@@ -63,7 +62,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"

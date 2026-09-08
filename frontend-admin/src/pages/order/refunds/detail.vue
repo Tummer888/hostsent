@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">{{ refund?.refund_no || '退款详情' }}</h2>
-          <p class="page-header__desc">关联订单 {{ refund?.order_no || '—' }} · 用户 ID {{ refund?.user_id ?? '—' }}</p>
         </div>
       </div>
       <t-space size="small">

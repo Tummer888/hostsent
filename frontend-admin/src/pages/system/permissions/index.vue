@@ -1,10 +1,7 @@
 <template>
-  <div class="page-container">
+  <div class="page-container system-page permissions-page">
     <div class="page-header">
-      <div>
-        <h2>权限分配</h2>
-        <p>为角色分配菜单、页面和按钮级别的权限，保存操作将覆盖旧的权限集合。</p>
-      </div>
+      <h2>权限分配</h2>
       <t-button theme="primary" :loading="saving" :disabled="!selectedRoleId" @click="save">
         <template #icon>
           <SaveIcon />
@@ -40,9 +37,9 @@
       >
         <div class="tree-toolbar">
           <t-space size="small">
-            <t-button variant="outline" size="small" @click="expandAll">全部展开</t-button>
-            <t-button variant="outline" size="small" @click="collapseAll">全部收起</t-button>
-            <t-button variant="outline" size="small" @click="clearSelection">清空已选</t-button>
+            <t-button variant="outline" size="small" @click="expandAll">展开</t-button>
+            <t-button variant="outline" size="small" @click="collapseAll">收起</t-button>
+            <t-button variant="outline" size="small" @click="clearSelection">清空</t-button>
           </t-space>
         </div>
 
@@ -220,29 +217,29 @@ onMounted(load);
 </script>
 
 <style scoped>
+@import '../shared.css';
+
 .page-container {
-  padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding: 16px;
+  color: var(--td-text-color-primary);
 }
 
 .page-header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: flex-start;
+  gap: 16px;
+  min-height: 32px;
 }
 
 .page-header h2 {
-  margin: 0 0 4px;
-  font-size: 20px;
-  font-weight: 500;
-}
-
-.page-header p {
   margin: 0;
-  color: var(--td-text-color-secondary);
-  font-size: 14px;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .permission-layout {
@@ -252,61 +249,81 @@ onMounted(load);
   align-items: start;
 }
 
-.role-panel {
-  background: var(--td-bg-color-container);
+.role-panel,
+.tree-panel {
+  border: 1px solid var(--system-card-border);
   border-radius: var(--td-radius-medium);
+  background: var(--td-bg-color-container);
 }
 
 .role-item {
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color 0.16s ease, color 0.16s ease;
 }
 
 .role-item:hover {
-  background: var(--td-bg-color-container-hover);
+  background: var(--system-green-soft);
 }
 
 .role-item-active {
-  background: var(--td-brand-color-light) !important;
-  color: var(--td-brand-color);
+  color: var(--system-green-hover);
+  background: var(--system-green-soft) !important;
 }
 
 .role-item-content {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   width: 100%;
 }
 
 .role-name {
-  font-weight: 500;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tree-panel {
-  background: var(--td-bg-color-container);
-  border-radius: var(--td-radius-medium);
   min-height: 600px;
 }
 
 .tree-toolbar {
-  margin-bottom: 16px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--td-component-border);
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--system-card-border);
 }
 
 .tree-wrapper {
-  padding: 8px 0;
+  padding: 4px 0;
 }
 
 .permission-code {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
   margin-left: 8px;
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 @media (max-width: 960px) {
   .permission-layout {
     grid-template-columns: 1fr;
+  }
+
+  .tree-panel {
+    min-height: 480px;
+  }
+}
+
+@media (max-width: 640px) {
+  .page-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .page-header :deep(.t-button) {
+    align-self: flex-start;
   }
 }
 </style>

@@ -8,8 +8,29 @@
 
 /* ---------- 页面骨架 ---------- */
 .order-module {
-  --chip-bg: linear-gradient(135deg, #2563eb, #4f46e5);
-  --chip-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
+  --chip-bg: linear-gradient(135deg, #22c55e, #15803d);
+  --chip-shadow: 0 4px 10px rgba(22, 163, 74, 0.22);
+  --order-green: var(--color-primary, #16a34a);
+  --order-green-hover: #15803d;
+  --order-green-soft: #f0fdf4;
+  --order-green-border: #dcfce7;
+  --td-brand-color-1: #f0fdf4;
+  --td-brand-color-2: #dcfce7;
+  --td-brand-color-3: #bbf7d0;
+  --td-brand-color-4: #86efac;
+  --td-brand-color-5: #4ade80;
+  --td-brand-color-6: #22c55e;
+  --td-brand-color-7: #16a34a;
+  --td-brand-color-8: #15803d;
+  --td-brand-color-9: #166534;
+  --td-brand-color-10: #14532d;
+  --td-brand-color: var(--order-green);
+  --td-brand-color-hover: var(--order-green-hover);
+  --td-brand-color-focus: rgba(22, 163, 74, 0.14);
+  --td-brand-color-active: #166534;
+  --td-brand-color-disabled: #86efac;
+  --td-brand-color-light: var(--order-green-soft);
+  --td-brand-color-light-hover: #dcfce7;
 }
 
 .order-module .page-body {
@@ -19,21 +40,22 @@
 }
 
 /* ---------- 通用卡片 ---------- */
-.order-module .surface-card {
+.order-module .surface-card,
+.order-module .stat-card {
   position: relative;
   border-radius: var(--hs-radius-lg);
   background: var(--hs-surface-1);
   border: 1px solid var(--color-border);
-  box-shadow: var(--hs-shadow-xs);
-  transition:
-    border-color var(--hs-duration-fast),
-    box-shadow var(--hs-duration-fast),
-    transform var(--hs-duration-fast) var(--hs-ease-out);
+  box-shadow: none !important;
+  transition: border-color var(--hs-duration-fast);
+  transform: none;
 }
 
-.order-module .surface-card:hover {
-  border-color: #d3dae5;
-  box-shadow: var(--hs-shadow-sm);
+.order-module .surface-card:hover,
+.order-module .stat-card:hover {
+  border-color: #bbf7d0;
+  box-shadow: none !important;
+  transform: none;
 }
 
 /* ---------- 页头 ---------- */
@@ -44,16 +66,6 @@
   gap: var(--space-lg);
   padding: var(--space-lg) var(--space-xl);
   flex-wrap: wrap;
-  overflow: hidden;
-}
-
-.order-module .page-header::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 3px;
-  background: var(--chip-bg, linear-gradient(135deg, #2563eb, #4f46e5));
-  opacity: 0.9;
 }
 
 .order-module .page-header__main {
@@ -74,18 +86,13 @@
   width: 44px;
   height: 44px;
   border-radius: var(--hs-radius-xl);
-  background: var(--chip-bg, linear-gradient(135deg, #2563eb, #4f46e5));
+  background: var(--chip-bg, linear-gradient(135deg, #22c55e, #15803d));
   color: #ffffff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: var(--chip-shadow, 0 4px 10px rgba(37, 99, 235, 0.25));
-  transition: transform var(--hs-duration-fast) var(--hs-ease-out);
-}
-
-.order-module .page-header__chip:hover {
-  transform: translateY(-1px) scale(1.03);
+  box-shadow: none;
 }
 
 .order-module .page-header__title {
@@ -136,7 +143,7 @@
   width: 3px;
   height: 14px;
   border-radius: 2px;
-  background: linear-gradient(180deg, var(--color-primary), #4f46e5);
+  background: linear-gradient(180deg, var(--order-green), #15803d);
 }
 
 .order-module .table-card__meta {
@@ -323,14 +330,50 @@
 
 /* ---------- TDesign 表格细节优化 ---------- */
 .order-module .t-table__th {
-  background: var(--hs-surface-2) !important;
-  color: var(--color-muted-foreground) !important;
+  background: #f0fdf4 !important;
+  color: #3f5848 !important;
+  border-bottom-color: var(--order-green-border) !important;
   font-weight: 600 !important;
 }
 
-.order-module .t-table__tr--hover > .t-table__td {
-  background: var(--hs-surface-2) !important;
+.order-module .t-table__tr--hover > .t-table__td,
+.order-module .t-table__row--hover > .t-table__td {
+  background: rgba(22, 163, 74, 0.035) !important;
   transition: background-color var(--hs-duration-fast);
+}
+
+.order-module .t-button--theme-primary {
+  border-color: var(--order-green);
+  background-color: var(--order-green);
+}
+
+.order-module .t-button--theme-primary:hover,
+.order-module .t-button--theme-primary:focus-visible {
+  border-color: var(--order-green-hover);
+  background-color: var(--order-green-hover);
+}
+
+.order-module .t-switch.t-is-checked {
+  background-color: var(--order-green);
+}
+
+.order-module .t-switch.t-is-checked:hover {
+  background-color: var(--order-green-hover);
+}
+
+.order-module .t-input.t-is-focused,
+.order-module .t-input--focused,
+.order-module .t-textarea__inner:focus,
+.order-module .t-input-number.t-is-focused,
+.order-module .t-select-input.t-is-focused {
+  border-color: var(--order-green) !important;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.1) !important;
+}
+
+.order-module .t-pagination__number.t-is-current {
+  color: #fff;
+  border-color: var(--order-green);
+  background: var(--order-green);
 }
 
 .order-module .t-table__pagination {

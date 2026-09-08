@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">上游资源大盘</h2>
-          <p class="page-header__desc">聚合各上游提供商的账户、云主机与同步概况，快速掌握整体资源水位。</p>
         </div>
       </div>
       <t-space size="small">
@@ -93,7 +92,6 @@
         :columns="summaryColumns"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
       >
@@ -128,7 +126,7 @@ const instances = ref<InstanceInfo[]>([])
 const tasks = ref<SyncTaskInfo[]>([])
 
 const stats = ref([
-  { key: 'accounts', label: '上游账户数', value: 0, icon: markRaw(CloudIcon), variant: 'cyan' },
+  { key: 'accounts', label: '上游账户数', value: 0, icon: markRaw(CloudIcon), variant: 'green' },
   { key: 'hosts', label: '云主机总数', value: 0, icon: markRaw(DesktopIcon), variant: 'success' },
   { key: 'added', label: '同步任务数', value: 0, icon: markRaw(RefreshIcon), variant: 'orange' },
   { key: 'errors', label: '异常数', value: 0, icon: markRaw(ErrorCircleIcon), variant: 'danger' },
@@ -169,7 +167,7 @@ function formatTime(value: string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
 
-const DIST_COLORS = ['#16a34a', '#0891b2', '#f59e0b', '#6366f1', '#ec4899', '#dc2626']
+const DIST_COLORS = ['#16a34a', '#22c55e', '#f59e0b', '#6366f1', '#ec4899', '#dc2626']
 const abnormalStatuses = new Set(['error', 'failed', 'stopped', 'deleted'])
 
 function loadStats() {

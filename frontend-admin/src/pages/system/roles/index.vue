@@ -1,10 +1,7 @@
 <template>
-  <div class="page-container">
+  <div class="page-container system-page">
     <div class="page-header">
-      <div>
-        <h2>角色列表</h2>
-        <p>维护后台角色及其权限授权关系。</p>
-      </div>
+      <h2>角色列表</h2>
       <t-button theme="primary" @click="openCreate">
         <template #icon>
           <AddIcon />
@@ -255,6 +252,8 @@ onMounted(loadRoles)
 </script>
 
 <style scoped>
+@import '../shared.css';
+
 .page-container {
   padding: 16px;
   display: flex;
@@ -265,7 +264,7 @@ onMounted(loadRoles)
 .page-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 16px;
 }
 

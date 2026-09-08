@@ -95,7 +95,6 @@
         :pagination="pagination"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         class="group-table"

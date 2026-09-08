@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">规格映射</h2>
-          <p class="page-header__desc">将上游供应商的规格编号映射到平台规格模板，保证商品规格统一识别。</p>
         </div>
       </div>
       <t-space size="small">
@@ -67,7 +66,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"

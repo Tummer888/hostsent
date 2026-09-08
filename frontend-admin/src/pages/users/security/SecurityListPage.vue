@@ -1,10 +1,7 @@
 <template>
   <div class="security-page">
     <header class="security-page__header surface-card">
-      <div>
-        <h2 class="security-page__title">{{ title }}</h2>
-        <p class="security-page__subtitle">{{ subtitle }}</p>
-      </div>
+      <h2 class="security-page__title">{{ title }}</h2>
       <div class="security-page__actions">
         <slot name="header-actions" />
       </div>
@@ -12,12 +9,9 @@
 
     <section class="security-page__toolbar surface-card">
       <div class="security-page__toolbar-head">
-        <div>
-          <h3 class="security-page__section-title">筛选条件</h3>
-          <p class="security-page__section-desc">按主体对象、状态、风险和时间范围快速检索安全事件与处置结果。</p>
-        </div>
+        <h3 class="security-page__section-title">筛选条件</h3>
         <t-space>
-          <t-button theme="primary" @click="$emit('search')">查询</t-button>
+          <t-button theme="success" @click="$emit('search')">查询</t-button>
           <t-button variant="outline" @click="$emit('reset')">重置</t-button>
         </t-space>
       </div>
@@ -26,10 +20,7 @@
 
     <section class="security-page__table surface-card">
       <div class="security-page__table-head">
-        <div>
-          <h3 class="security-page__section-title">{{ tableTitle }}</h3>
-          <p class="security-page__section-desc">{{ tableDesc }}</p>
-        </div>
+        <h3 class="security-page__section-title">{{ tableTitle }}</h3>
         <div class="security-page__table-meta">共 {{ total }} 条</div>
       </div>
 
@@ -46,7 +37,6 @@
         :pagination="pagination"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         @page-change="$emit('page-change', $event)"
@@ -67,9 +57,9 @@ import type { PageInfo, PaginationProps, PrimaryTableCol } from 'tdesign-vue-nex
 
 defineProps<{
   title: string
-  subtitle: string
+  subtitle?: string
   tableTitle: string
-  tableDesc: string
+  tableDesc?: string
   total: number
   data: TItem[]
   columns: PrimaryTableCol<TItem>[]
@@ -89,6 +79,19 @@ defineEmits<{
 
 <style scoped lang="css">
 .security-page {
+  --td-brand-color-1: #f0fdf4;
+  --td-brand-color-2: #dcfce7;
+  --td-brand-color-3: #bbf7d0;
+  --td-brand-color-6: #22c55e;
+  --td-brand-color-7: #16a34a;
+  --td-brand-color-8: #15803d;
+  --td-brand-color: #16a34a;
+  --td-brand-color-hover: #15803d;
+  --td-brand-color-focus: rgba(22, 163, 74, 0.14);
+  --td-brand-color-active: #166534;
+  --td-brand-color-disabled: #86efac;
+  --td-brand-color-light: #f0fdf4;
+  --td-brand-color-light-hover: #dcfce7;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -97,13 +100,10 @@ defineEmits<{
 .security-page__header,
 .security-page__toolbar,
 .security-page__table {
-  border-radius: var(--hs-radius-lg);
-}
-
-.security-page__header,
-.security-page__toolbar,
-.security-page__table {
   padding: 18px 20px;
+  border: 1px solid #e2ebe6;
+  border-radius: var(--hs-radius-lg);
+  box-shadow: none;
 }
 
 .security-page__header,
@@ -122,10 +122,7 @@ defineEmits<{
   color: var(--color-foreground);
 }
 
-.security-page__subtitle,
-.security-page__section-desc,
 .security-page__table-meta {
-  margin: 6px 0 0;
   font-size: 12px;
   line-height: 1.6;
   color: var(--color-muted-foreground);
@@ -136,6 +133,16 @@ defineEmits<{
   font-size: 16px;
   font-weight: 700;
   color: var(--color-foreground);
+}
+
+.security-page :deep(.t-table__th) {
+  background: rgba(0, 168, 112, 0.07);
+  color: #176b50;
+  font-weight: 600;
+}
+
+.security-page :deep(.t-table__td) {
+  border-color: rgba(15, 23, 42, 0.06);
 }
 
 .security-page__error {

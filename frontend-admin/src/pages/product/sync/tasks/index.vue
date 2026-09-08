@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">同步任务</h2>
-          <p class="page-header__desc">查看上游资源同步任务，可手动发起商品 / 实例同步。</p>
         </div>
       </div>
       <t-space size="small">
@@ -67,7 +66,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"

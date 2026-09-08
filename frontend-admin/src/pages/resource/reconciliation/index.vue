@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">对账报告</h2>
-          <p class="page-header__desc">基于同步日志生成提供商维度的对账概览，核对成功与异常。</p>
         </div>
       </div>
       <t-button variant="outline" :loading="loading" @click="loadAll">
@@ -23,7 +22,7 @@
         <h3 class="card-title">提供商对账汇总</h3>
         <span class="table-card__meta">共 {{ summaryList.length }} 个提供商</span>
       </div>
-      <t-table row-key="provider_id" :data="summaryList" :columns="summaryColumns" :loading="loading" size="small" hover bordered table-layout="fixed" cell-empty-content="—">
+      <t-table row-key="provider_id" :data="summaryList" :columns="summaryColumns" :loading="loading" size="small" hover table-layout="fixed" cell-empty-content="—">
         <template #provider_id="{ row }">
           <span class="cell-strong">提供商 #{{ row.provider_id }}</span>
         </template>
@@ -48,7 +47,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"
@@ -190,7 +188,7 @@ onMounted(loadAll)
 
 <style scoped lang="css">
 .resource-module {
-  --chip-bg: linear-gradient(135deg, #0891b2, #0e7490);
-  --chip-shadow: 0 4px 10px rgba(8, 145, 178, 0.25);
+  --chip-bg: linear-gradient(135deg, #16a34a, #15803d);
+  --chip-shadow: 0 2px 6px rgba(22, 163, 74, 0.16);
 }
 </style>

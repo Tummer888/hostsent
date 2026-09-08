@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">差异对比</h2>
-          <p class="page-header__desc">对比上游商品与平台商品，识别上游未映射 / 未匹配项，辅助完成映射对齐。</p>
         </div>
       </div>
       <t-button variant="outline" :loading="loading" @click="runCompare">
@@ -64,7 +63,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
       >

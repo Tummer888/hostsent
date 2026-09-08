@@ -2,10 +2,8 @@
   <div class="page-body finance-module">
     <header class="page-header surface-card">
       <div class="page-header__main">
-        <span class="page-header__chip"><MoneyIcon size="22" aria-hidden="true" /></span>
         <div class="page-header__text">
           <h2 class="page-header__title">财务总览</h2>
-          <p class="page-header__desc">平台资金核心指标、收支趋势与待处理事项一览。</p>
         </div>
       </div>
       <t-space size="small">
@@ -49,7 +47,7 @@
         <h3 class="card-title">最近交易</h3>
         <span class="table-card__meta">近 20 笔</span>
       </div>
-      <t-table row-key="id" :data="items" :columns="columns" :loading="loading" size="small" hover bordered cell-empty-content="—">
+      <t-table row-key="id" :data="items" :columns="columns" :loading="loading" size="small" hover cell-empty-content="—">
         <template #amount="{ row }">
           <span :class="row.amount >= 0 ? 'tx-in' : 'tx-out'">{{ row.amount >= 0 ? '+' : '' }}¥{{ formatPrice(Math.abs(row.amount)) }}</span>
         </template>

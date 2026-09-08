@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">公告管理</h2>
-          <p class="page-header__desc">面向用户/管理员的公告发布与维护，支持弹窗、等级、平台范围控制。</p>
         </div>
       </div>
       <t-space size="small">
@@ -61,7 +60,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"

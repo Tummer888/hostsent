@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">分类管理</h2>
-          <p class="page-header__desc">维护产品管理的分类树，支持多级子分类与排序。</p>
         </div>
       </div>
       <t-space size="small">

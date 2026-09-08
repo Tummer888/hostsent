@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">优惠券管理</h2>
-          <p class="page-header__desc">创建满减券、折扣券并管理发放，查看发放记录。</p>
         </div>
       </div>
       <t-space size="small">
@@ -67,7 +66,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"
@@ -197,7 +195,6 @@
         :columns="grantColumns"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
       >

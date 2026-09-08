@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">异常处理</h2>
-          <p class="page-header__desc">聚合上游连接、同步与异常实例事件，集中排查并修复问题。</p>
         </div>
       </div>
       <t-button variant="outline" :loading="loading" @click="loadAll">
@@ -37,7 +36,7 @@
       </div>
       <t-tabs v-model="activeTab" :theme="'card'">
         <t-tab-panel value="tasks" label="同步失败任务">
-          <t-table row-key="id" :data="taskList" :columns="taskColumns" :loading="taskLoading" size="small" hover bordered table-layout="fixed" cell-empty-content="—">
+          <t-table row-key="id" :data="taskList" :columns="taskColumns" :loading="taskLoading" size="small" hover table-layout="fixed" cell-empty-content="—">
             <template #provider_id="{ row }">
               <span class="cell-strong">{{ providerName(row.provider_id) }}</span>
             </template>
@@ -60,7 +59,7 @@
         </t-tab-panel>
 
         <t-tab-panel value="logs" label="同步失败日志">
-          <t-table row-key="id" :data="logList" :columns="logColumns" :loading="logLoading" size="small" hover bordered table-layout="fixed" cell-empty-content="—">
+          <t-table row-key="id" :data="logList" :columns="logColumns" :loading="logLoading" size="small" hover table-layout="fixed" cell-empty-content="—">
             <template #provider_id="{ row }">
               <span class="cell-strong">{{ providerName(row.provider_id) }}</span>
             </template>
@@ -83,7 +82,7 @@
         </t-tab-panel>
 
         <t-tab-panel value="instances" label="异常实例">
-          <t-table row-key="id" :data="instanceList" :columns="instanceColumns" :loading="instanceLoading" size="small" hover bordered table-layout="fixed" cell-empty-content="—">
+          <t-table row-key="id" :data="instanceList" :columns="instanceColumns" :loading="instanceLoading" size="small" hover table-layout="fixed" cell-empty-content="—">
             <template #name="{ row }">
               <span class="cell-strong">{{ row.name }}</span>
             </template>

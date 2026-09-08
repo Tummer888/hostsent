@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">产品列表</h2>
-          <p class="page-header__desc">管理面向终端售卖的产品目录，配置分类、规格、价格与上架状态。</p>
         </div>
       </div>
       <t-space size="small">
@@ -67,7 +66,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"

@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">{{ pageTitle }}</h2>
-          <p class="page-header__desc">配置产品的基础信息、规格、价格模型与销售状态。</p>
         </div>
       </div>
     </header>

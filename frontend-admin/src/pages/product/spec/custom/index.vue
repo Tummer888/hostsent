@@ -5,7 +5,6 @@
         <span class="page-header__chip"><FileIcon size="22" aria-hidden="true" /></span>
         <div class="page-header__text">
           <h2 class="page-header__title">自定义规格</h2>
-          <p class="page-header__desc">脱离预设模板，按实际需求创建自定义规格并保存为可复用规格。</p>
         </div>
       </div>
     </header>

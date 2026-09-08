@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">工单统计</h2>
-          <p class="page-header__desc">掌握工单总量、处理进度、响应时长与分类分布。</p>
         </div>
       </div>
       <t-space size="small">

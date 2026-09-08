@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">通知模板</h2>
-          <p class="page-header__desc">维护各业务事件的站内信/邮件模板，控制投递开关与启用状态。</p>
         </div>
       </div>
       <t-space size="small">
@@ -30,7 +29,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         :pagination="null"
       >

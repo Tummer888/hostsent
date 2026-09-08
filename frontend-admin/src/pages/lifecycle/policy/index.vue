@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">生命周期策略</h2>
-          <p class="page-header__desc">配置到期提醒、宽限期与销毁保留期，控制实例从到期到销毁的完整流转。</p>
         </div>
       </div>
     </header>

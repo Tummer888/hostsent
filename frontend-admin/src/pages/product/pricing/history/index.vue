@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">价格变更历史</h2>
-          <p class="page-header__desc">选择商品后展示其历次调价、上架、下架等变更记录。</p>
         </div>
       </div>
       <t-button variant="outline" :loading="loading" @click="loadHistory">
@@ -53,7 +52,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
       >

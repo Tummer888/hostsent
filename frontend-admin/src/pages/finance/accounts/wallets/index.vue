@@ -2,12 +2,8 @@
   <div class="page-body finance-module">
     <header class="page-header surface-card">
       <div class="page-header__main">
-        <span class="page-header__chip">
-          <WalletIcon size="22" aria-hidden="true" />
-        </span>
         <div class="page-header__text">
           <h2 class="page-header__title">用户钱包</h2>
-          <p class="page-header__desc">按用户 ID 查询钱包余额，以及累计收入 / 支出概览。所有资金变动均经由唯一账务入口。</p>
         </div>
       </div>
       <t-space size="small">

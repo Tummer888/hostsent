@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">续费记录</h2>
-          <p class="page-header__desc">查看所有续费单：来源（用户/自动/管理员代续）、金额与到期时间变化。</p>
         </div>
       </div>
       <t-space size="small">
@@ -61,7 +60,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"

@@ -2,12 +2,8 @@
   <div class="page-body finance-module">
     <header class="page-header surface-card">
       <div class="page-header__main">
-        <span class="page-header__chip">
-          <SwapIcon size="22" aria-hidden="true" />
-        </span>
         <div class="page-header__text">
           <h2 class="page-header__title">人工调账</h2>
-          <p class="page-header__desc">对用户余额进行人工赠送或扣减。每笔调账均写入流水，并通过唯一幂等键防止重复记账。</p>
         </div>
       </div>
     </header>
@@ -67,7 +63,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 
-import { CheckCircleIcon, SwapIcon } from 'tdesign-icons-vue-next'
+import { CheckCircleIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
 
 import { adjustBalance } from '@/api/finance'

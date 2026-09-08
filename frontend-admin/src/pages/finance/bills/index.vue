@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">账单管理</h2>
-          <p class="page-header__desc">按账期归集用户消费与退款，支持关账锁定账单。</p>
         </div>
       </div>
       <t-space size="small">
@@ -61,7 +60,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"

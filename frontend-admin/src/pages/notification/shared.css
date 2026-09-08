@@ -5,8 +5,29 @@
 
 /* ---------- 页面骨架 ---------- */
 .notify-module {
-  --chip-bg: linear-gradient(135deg, #0ea5e9, #2563eb);
-  --chip-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
+  --chip-bg: linear-gradient(135deg, #22c55e, #15803d);
+  --chip-shadow: 0 4px 10px rgba(22, 163, 74, 0.22);
+  --notify-green: var(--color-primary, #16a34a);
+  --notify-green-hover: #15803d;
+  --notify-green-soft: #f0fdf4;
+  --notify-green-border: #dcfce7;
+  --td-brand-color-1: #f0fdf4;
+  --td-brand-color-2: #dcfce7;
+  --td-brand-color-3: #bbf7d0;
+  --td-brand-color-4: #86efac;
+  --td-brand-color-5: #4ade80;
+  --td-brand-color-6: #22c55e;
+  --td-brand-color-7: #16a34a;
+  --td-brand-color-8: #15803d;
+  --td-brand-color-9: #166534;
+  --td-brand-color-10: #14532d;
+  --td-brand-color: var(--notify-green);
+  --td-brand-color-hover: var(--notify-green-hover);
+  --td-brand-color-focus: rgba(22, 163, 74, 0.14);
+  --td-brand-color-active: #166534;
+  --td-brand-color-disabled: #86efac;
+  --td-brand-color-light: var(--notify-green-soft);
+  --td-brand-color-light-hover: #dcfce7;
 }
 
 .notify-module .page-body {
@@ -16,21 +37,22 @@
 }
 
 /* ---------- 通用卡片 ---------- */
-.notify-module .surface-card {
+.notify-module .surface-card,
+.notify-module .stat-card {
   position: relative;
   border-radius: var(--hs-radius-lg);
   background: var(--hs-surface-1);
   border: 1px solid var(--color-border);
-  box-shadow: var(--hs-shadow-xs);
-  transition:
-    border-color var(--hs-duration-fast),
-    box-shadow var(--hs-duration-fast),
-    transform var(--hs-duration-fast) var(--hs-ease-out);
+  box-shadow: none !important;
+  transition: border-color var(--hs-duration-fast);
+  transform: none;
 }
 
-.notify-module .surface-card:hover {
-  border-color: #d3dae5;
-  box-shadow: var(--hs-shadow-sm);
+.notify-module .surface-card:hover,
+.notify-module .stat-card:hover {
+  border-color: #bbf7d0;
+  box-shadow: none !important;
+  transform: none;
 }
 
 /* ---------- 页头 ---------- */
@@ -41,16 +63,10 @@
   gap: var(--space-lg);
   padding: var(--space-lg) var(--space-xl);
   flex-wrap: wrap;
-  overflow: hidden;
 }
 
 .notify-module .page-header::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 3px;
-  background: var(--chip-bg, linear-gradient(135deg, #0ea5e9, #2563eb));
-  opacity: 0.9;
+  content: none;
 }
 
 .notify-module .page-header__main {
@@ -71,18 +87,13 @@
   width: 44px;
   height: 44px;
   border-radius: var(--hs-radius-xl);
-  background: var(--chip-bg, linear-gradient(135deg, #0ea5e9, #2563eb));
+  background: var(--chip-bg, linear-gradient(135deg, #22c55e, #15803d));
   color: #ffffff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: var(--chip-shadow, 0 4px 10px rgba(37, 99, 235, 0.25));
-  transition: transform var(--hs-duration-fast) var(--hs-ease-out);
-}
-
-.notify-module .page-header__chip:hover {
-  transform: translateY(-1px) scale(1.03);
+  box-shadow: none;
 }
 
 .notify-module .page-header__title {
@@ -93,10 +104,7 @@
 }
 
 .notify-module .page-header__desc {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--color-muted-foreground);
+  display: none;
 }
 
 /* ---------- 筛选卡片 / 表格卡片 ---------- */
@@ -133,7 +141,7 @@
   width: 3px;
   height: 14px;
   border-radius: 2px;
-  background: linear-gradient(180deg, #0ea5e9, #2563eb);
+  background: linear-gradient(180deg, var(--notify-green), #15803d);
 }
 
 .notify-module .table-card__meta {
@@ -199,14 +207,50 @@
 
 /* ---------- TDesign 表格细节优化 ---------- */
 .notify-module .t-table__th {
-  background: var(--hs-surface-2) !important;
-  color: var(--color-muted-foreground) !important;
+  background: #f0fdf4 !important;
+  color: #3f5848 !important;
+  border-bottom-color: var(--notify-green-border) !important;
   font-weight: 600 !important;
 }
 
-.notify-module .t-table__tr--hover > .t-table__td {
-  background: var(--hs-surface-2) !important;
+.notify-module .t-table__tr--hover > .t-table__td,
+.notify-module .t-table__row--hover > .t-table__td {
+  background: rgba(22, 163, 74, 0.035) !important;
   transition: background-color var(--hs-duration-fast);
+}
+
+.notify-module .t-button--theme-primary {
+  border-color: var(--notify-green);
+  background-color: var(--notify-green);
+}
+
+.notify-module .t-button--theme-primary:hover,
+.notify-module .t-button--theme-primary:focus-visible {
+  border-color: var(--notify-green-hover);
+  background-color: var(--notify-green-hover);
+}
+
+.notify-module .t-switch.t-is-checked {
+  background-color: var(--notify-green);
+}
+
+.notify-module .t-switch.t-is-checked:hover {
+  background-color: var(--notify-green-hover);
+}
+
+.notify-module .t-input.t-is-focused,
+.notify-module .t-input--focused,
+.notify-module .t-textarea__inner:focus,
+.notify-module .t-input-number.t-is-focused,
+.notify-module .t-select-input.t-is-focused {
+  border-color: var(--notify-green) !important;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.1) !important;
+}
+
+.notify-module .t-pagination__number.t-is-current {
+  color: #fff;
+  border-color: var(--notify-green);
+  background: var(--notify-green);
 }
 
 .notify-module .t-table__pagination {

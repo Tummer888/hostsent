@@ -8,8 +8,30 @@
 
 /* ---------- 页面骨架 ---------- */
 .finance-module {
-  --chip-bg: linear-gradient(135deg, #10b981, #0891b2);
-  --chip-shadow: 0 4px 10px rgba(16, 185, 129, 0.25);
+  --finance-green: #16a34a;
+  --finance-green-hover: #15803d;
+  --finance-green-soft: #f0fdf4;
+  --finance-green-border: #dcfce7;
+  --finance-card-border: #edf3ef;
+  --chip-bg: var(--finance-green);
+  --chip-shadow: 0 6px 14px rgba(22, 163, 74, 0.18);
+  --td-brand-color-1: #f0fdf4;
+  --td-brand-color-2: #dcfce7;
+  --td-brand-color-3: #bbf7d0;
+  --td-brand-color-4: #86efac;
+  --td-brand-color-5: #4ade80;
+  --td-brand-color-6: #22c55e;
+  --td-brand-color-7: #16a34a;
+  --td-brand-color-8: #15803d;
+  --td-brand-color-9: #166534;
+  --td-brand-color-10: #14532d;
+  --td-brand-color: var(--finance-green);
+  --td-brand-color-hover: var(--finance-green-hover);
+  --td-brand-color-focus: rgba(22, 163, 74, 0.14);
+  --td-brand-color-active: #166534;
+  --td-brand-color-disabled: #86efac;
+  --td-brand-color-light: var(--finance-green-soft);
+  --td-brand-color-light-hover: var(--finance-green-border);
 }
 
 .finance-module .page-body {
@@ -23,17 +45,12 @@
   position: relative;
   border-radius: var(--hs-radius-lg);
   background: var(--hs-surface-1);
-  border: 1px solid var(--color-border);
-  box-shadow: var(--hs-shadow-xs);
-  transition:
-    border-color var(--hs-duration-fast),
-    box-shadow var(--hs-duration-fast),
-    transform var(--hs-duration-fast) var(--hs-ease-out);
+  border: 1px solid var(--finance-card-border);
+  box-shadow: none;
 }
 
-.finance-module .surface-card:hover {
-  border-color: #d3dae5;
-  box-shadow: var(--hs-shadow-sm);
+.finance-module .page-header.surface-card {
+  border-color: transparent;
 }
 
 /* ---------- 页头 ---------- */
@@ -48,12 +65,7 @@
 }
 
 .finance-module .page-header::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 3px;
-  background: var(--chip-bg, linear-gradient(135deg, #10b981, #0891b2));
-  opacity: 0.9;
+  content: none;
 }
 
 .finance-module .page-header__main {
@@ -74,7 +86,7 @@
   width: 44px;
   height: 44px;
   border-radius: var(--hs-radius-xl);
-  background: var(--chip-bg, linear-gradient(135deg, #10b981, #0891b2));
+  background: var(--chip-bg);
   color: #ffffff;
   display: inline-flex;
   align-items: center;
@@ -119,24 +131,10 @@
 }
 
 .finance-module .card-title {
-  position: relative;
   margin: 0;
-  padding-left: 10px;
   font-size: 16px;
   font-weight: 700;
-  color: var(--color-foreground);
-}
-
-.finance-module .card-title::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 14px;
-  border-radius: 2px;
-  background: linear-gradient(180deg, #10b981, #0891b2);
+  color: #182230;
 }
 
 .finance-module .table-card__meta {
@@ -313,20 +311,75 @@
   color: #dc2626;
 }
 
-/* ---------- TDesign 表格细节优化 ---------- */
+/* ---------- TDesign 组件统一主题 ---------- */
+.finance-module .t-button--theme-primary:not(.t-button--variant-text):not(.t-button--variant-outline) {
+  background-color: var(--finance-green);
+  border-color: var(--finance-green);
+}
+
+.finance-module .t-button--theme-primary:not(.t-button--variant-text):not(.t-button--variant-outline):hover {
+  background-color: var(--finance-green-hover);
+  border-color: var(--finance-green-hover);
+}
+
+.finance-module .t-button--theme-primary.t-button--variant-outline,
+.finance-module .t-button--theme-primary.t-button--variant-text,
+.finance-module .t-link--theme-primary {
+  color: var(--finance-green);
+}
+
+.finance-module .t-button--theme-primary.t-button--variant-outline {
+  border-color: var(--finance-green-border);
+  background: var(--finance-green-soft);
+}
+
+.finance-module .t-switch.t-is-checked {
+  background-color: var(--finance-green);
+}
+
+.finance-module .t-tabs__nav-item.t-is-active,
+.finance-module .t-tabs__nav-item:not(.t-is-disabled):hover {
+  color: var(--finance-green);
+}
+
+.finance-module .t-tabs__bar {
+  background-color: var(--finance-green);
+}
+
+.finance-module .t-input.t-is-focused,
+.finance-module .t-input--focused,
+.finance-module .t-textarea__inner:focus,
+.finance-module .t-input-number.t-is-focused,
+.finance-module .t-select-input.t-is-focused {
+  border-color: var(--finance-green) !important;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.1) !important;
+}
+
+.finance-module .t-table {
+  --td-table-header-bg-color: #f4fbf6;
+  --td-table-row-hover-bg-color: #f6fcf8;
+}
+
 .finance-module .t-table__th {
-  background: var(--hs-surface-2) !important;
-  color: var(--color-muted-foreground) !important;
+  background: #f4fbf6 !important;
+  color: #5d6b7c !important;
   font-weight: 600 !important;
+  border-bottom-color: var(--finance-green-border) !important;
 }
 
 .finance-module .t-table__tr--hover > .t-table__td {
-  background: var(--hs-surface-2) !important;
+  background: #f6fcf8 !important;
   transition: background-color var(--hs-duration-fast);
 }
 
 .finance-module .t-table__pagination {
   padding-top: var(--space-md);
+}
+
+.finance-module .t-pagination__number.t-is-current {
+  color: var(--finance-green);
+  border-color: var(--finance-green);
+  background: var(--finance-green-soft);
 }
 
 /* ---------- 响应式 ---------- */

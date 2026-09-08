@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">API 测试</h2>
-          <p class="page-header__desc">对上游提供商执行连接测试，校验 API 端点与密钥是否可用。</p>
         </div>
       </div>
       <t-button variant="outline" :loading="loading" @click="loadProviders">
@@ -23,7 +22,7 @@
         <h3 class="card-title">提供商连接测试</h3>
         <span class="table-card__meta">共 {{ providers.length }} 个提供商</span>
       </div>
-      <t-table row-key="id" :data="providers" :columns="columns" :loading="loading" size="small" hover bordered table-layout="fixed" cell-empty-content="—">
+      <t-table row-key="id" :data="providers" :columns="columns" :loading="loading" size="small" hover table-layout="fixed" cell-empty-content="—">
         <template #name="{ row }">
           <span class="cell-strong">{{ row.name }}</span>
         </template>

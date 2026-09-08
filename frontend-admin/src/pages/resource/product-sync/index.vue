@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">商品同步</h2>
-          <p class="page-header__desc">按提供商手动触发商品同步，拉取上游商品到本地商品库。</p>
         </div>
       </div>
       <t-button variant="outline" :loading="providersLoading || tasksLoading" @click="loadAll">
@@ -23,7 +22,7 @@
         <h3 class="card-title">提供商列表</h3>
         <span class="table-card__meta">共 {{ providers.length }} 个提供商</span>
       </div>
-      <t-table row-key="id" :data="providers" :columns="providerColumns" :loading="providersLoading" size="small" hover bordered table-layout="fixed" cell-empty-content="—">
+      <t-table row-key="id" :data="providers" :columns="providerColumns" :loading="providersLoading" size="small" hover table-layout="fixed" cell-empty-content="—">
         <template #name="{ row }">
           <span class="cell-strong">{{ row.name }}</span>
         </template>
@@ -52,7 +51,7 @@
         <h3 class="card-title">最近商品同步任务</h3>
         <span class="table-card__meta">共 {{ tasks.length }} 条</span>
       </div>
-      <t-table row-key="id" :data="tasks" :columns="taskColumns" :loading="tasksLoading" size="small" hover bordered table-layout="fixed" cell-empty-content="—">
+      <t-table row-key="id" :data="tasks" :columns="taskColumns" :loading="tasksLoading" size="small" hover table-layout="fixed" cell-empty-content="—">
         <template #result="{ row }">
           <span class="cell-muted">{{ row.success_count }} / {{ row.total_count }}</span>
         </template>

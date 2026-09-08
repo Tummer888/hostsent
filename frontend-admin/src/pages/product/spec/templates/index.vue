@@ -5,7 +5,6 @@
         <span class="page-header__chip"><AppIcon size="22" aria-hidden="true" /></span>
         <div class="page-header__text">
           <h2 class="page-header__title">规格模板</h2>
-          <p class="page-header__desc">预置计算型/内存型/存储型等规范规格，供创建商品时直接引用。</p>
         </div>
       </div>
       <t-space size="small">
@@ -54,7 +53,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         cell-empty-content="—"
         :pagination="pagination"
         @page-change="onPageChange"

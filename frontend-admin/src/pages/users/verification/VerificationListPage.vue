@@ -48,9 +48,9 @@ import SecurityListPage from '../security/SecurityListPage.vue'
 
 const props = defineProps<{
   title: string
-  subtitle: string
+  subtitle?: string
   tableTitle: string
-  tableDesc: string
+  tableDesc?: string
   emptyText: string
   fetcher: (params: VerificationListQuery) => Promise<{ items: VerificationInfo[]; meta: { total: number } }>
 }>()

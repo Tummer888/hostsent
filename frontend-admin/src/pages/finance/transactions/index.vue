@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">资金流水</h2>
-          <p class="page-header__desc">全部资金变动台账，只增不改，用于核对每一笔余额变化。</p>
         </div>
       </div>
       <t-space size="small">
@@ -65,7 +64,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"

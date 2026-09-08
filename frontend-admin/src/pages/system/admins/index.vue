@@ -1,10 +1,7 @@
 <template>
-  <div class="page-container">
+  <div class="page-container system-page">
     <div class="page-header">
-      <div>
-        <h2>管理员列表</h2>
-        <p>维护后台账号状态、资料与角色。</p>
-      </div>
+      <h2>管理员列表</h2>
       <t-button theme="primary" @click="openCreate">
         <template #icon>
           <AddIcon />
@@ -406,6 +403,8 @@ onMounted(() => {
 </script>
 
 <style scoped>
+@import '../shared.css';
+
 .page-container {
   padding: 16px;
   display: flex;
@@ -420,15 +419,9 @@ onMounted(() => {
 }
 
 .page-header h2 {
-  margin: 0 0 4px;
-  font-size: 20px;
-  font-weight: 500;
-}
-
-.page-header p {
   margin: 0;
-  color: var(--td-text-color-secondary);
-  font-size: 14px;
+  font-size: 20px;
+  font-weight: 600;
 }
 
 .filter-card,

@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">资源池管理</h2>
-          <p class="page-header__desc">按提供商划分资源池，跟踪容量组成、使用率与状态。</p>
         </div>
       </div>
       <t-button variant="outline" :loading="loading" @click="loadPools">
@@ -51,7 +50,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"
@@ -283,8 +281,8 @@ onMounted(() => {
 
 <style scoped lang="css">
 .resource-module {
-  --chip-bg: linear-gradient(135deg, #0891b2, #0e7490);
-  --chip-shadow: 0 4px 10px rgba(8, 145, 178, 0.25);
+  --chip-bg: linear-gradient(135deg, #16a34a, #15803d);
+  --chip-shadow: 0 2px 6px rgba(22, 163, 74, 0.16);
 }
 
 .filter-card__grid {

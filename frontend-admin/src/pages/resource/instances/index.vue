@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">云主机实例</h2>
-          <p class="page-header__desc">管理从上游同步而来的云主机实例，跟踪规格与运行状态。</p>
         </div>
       </div>
       <t-button variant="outline" :loading="loading" @click="loadInstances">
@@ -59,7 +58,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"

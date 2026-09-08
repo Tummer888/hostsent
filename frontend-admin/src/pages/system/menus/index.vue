@@ -1,12 +1,7 @@
 <template>
-  <div class="menu-page">
+  <div class="menu-page system-page">
     <div class="menu-page__header">
-      <div>
-        <h2 class="menu-page__title">菜单管理</h2>
-        <p class="menu-page__subtitle">
-          统一维护管理员后台与用户中心菜单树，支持目录与菜单层级编辑。
-        </p>
-      </div>
+      <h2 class="menu-page__title">菜单管理</h2>
       <div class="menu-page__actions">
         <t-radio-group v-model="platform" variant="default-filled" size="small" @change="loadTree">
           <t-radio-button value="admin">管理员后台</t-radio-button>
@@ -21,44 +16,46 @@
       </div>
     </div>
 
-    <t-table
-      row-key="id"
-      :data="treeData"
-      :columns="columns"
-      :loading="loading"
-      :tree="{ childrenKey: 'children', treeNodeColumnIndex: 0 }"
-      size="small"
-      hover
-      vertical-align="middle"
-    >
-      <template #icon="{ row }">
-        <span class="menu-icon">{{ row.icon || '—' }}</span>
-      </template>
-      <template #type="{ row }">
-        <t-tag theme="primary" variant="light" size="small" shape="round">
-          {{ typeLabel(row.type) }}
-        </t-tag>
-      </template>
-      <template #platform="{ row }">
-        <t-tag :theme="row.platform === 'admin' ? 'success' : 'warning'" variant="light" size="small" shape="round">
-          {{ row.platform === 'admin' ? '管理员' : '用户中心' }}
-        </t-tag>
-      </template>
-      <template #status="{ row }">
-        <t-tag :theme="row.status === 'active' ? 'success' : 'danger'" variant="light" size="small" shape="round">
-          {{ row.status === 'active' ? '启用' : '禁用' }}
-        </t-tag>
-      </template>
-      <template #operation="{ row }">
-        <t-space size="small">
-          <t-link theme="primary" size="small" @click="onAddChild(row)">新增子级</t-link>
-          <t-link theme="primary" size="small" @click="onEdit(row)">编辑</t-link>
-          <t-popconfirm content="确认删除该菜单及其全部子节点？" @confirm="onDelete(row)">
-            <t-link theme="danger" size="small">删除</t-link>
-          </t-popconfirm>
-        </t-space>
-      </template>
-    </t-table>
+    <t-card :bordered="false" class="table-card">
+      <t-table
+        row-key="id"
+        :data="treeData"
+        :columns="columns"
+        :loading="loading"
+        :tree="{ childrenKey: 'children', treeNodeColumnIndex: 0 }"
+        size="small"
+        hover
+        vertical-align="middle"
+      >
+        <template #icon="{ row }">
+          <span class="menu-icon">{{ row.icon || '—' }}</span>
+        </template>
+        <template #type="{ row }">
+          <t-tag theme="primary" variant="light" size="small" shape="round">
+            {{ typeLabel(row.type) }}
+          </t-tag>
+        </template>
+        <template #platform="{ row }">
+          <t-tag :theme="row.platform === 'admin' ? 'success' : 'warning'" variant="light" size="small" shape="round">
+            {{ row.platform === 'admin' ? '管理员' : '用户中心' }}
+          </t-tag>
+        </template>
+        <template #status="{ row }">
+          <t-tag :theme="row.status === 'active' ? 'success' : 'danger'" variant="light" size="small" shape="round">
+            {{ row.status === 'active' ? '启用' : '禁用' }}
+          </t-tag>
+        </template>
+        <template #operation="{ row }">
+          <t-space size="small">
+            <t-link theme="primary" size="small" @click="onAddChild(row)">新增子级</t-link>
+            <t-link theme="primary" size="small" @click="onEdit(row)">编辑</t-link>
+            <t-popconfirm content="确认删除该菜单及其全部子节点？" @confirm="onDelete(row)">
+              <t-link theme="danger" size="small">删除</t-link>
+            </t-popconfirm>
+          </t-space>
+        </template>
+      </t-table>
+    </t-card>
 
     <t-dialog
       v-model:visible="dialogVisible"
@@ -300,31 +297,33 @@ onMounted(loadTree)
 </script>
 
 <style scoped lang="css">
+@import '../shared.css';
+
 .menu-page {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding: 16px;
 }
 
 .menu-page__header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
 }
 
 .menu-page__title {
-  margin: 0 0 4px;
-  font-size: 18px;
+  margin: 0;
+  font-size: 20px;
   font-weight: 600;
   color: var(--color-foreground);
 }
 
-.menu-page__subtitle {
-  margin: 0;
-  font-size: 13px;
-  color: var(--color-muted-foreground);
+.table-card {
+  background: var(--td-bg-color-container);
+  border-radius: var(--td-radius-medium);
 }
 
 .menu-page__actions {

@@ -2,10 +2,8 @@
   <div class="page-body finance-module">
     <header class="page-header surface-card">
       <div class="page-header__main">
-        <span class="page-header__chip"><ChartBarIcon size="22" aria-hidden="true" /></span>
         <div class="page-header__text">
           <h2 class="page-header__title">财务报表</h2>
-          <p class="page-header__desc">应收/实收/未付账单与收支汇总，辅助财务分析。</p>
         </div>
       </div>
       <t-space size="small">
@@ -42,7 +40,7 @@
         <h3 class="card-title">账单明细</h3>
         <span class="table-card__meta">共 {{ total }} 条</span>
       </div>
-      <t-table row-key="id" :data="items" :columns="columns" :loading="loading" size="small" hover bordered cell-empty-content="—" :pagination="pagination" @page-change="onPageChange">
+      <t-table row-key="id" :data="items" :columns="columns" :loading="loading" size="small" hover cell-empty-content="—" :pagination="pagination" @page-change="onPageChange">
         <template #status="{ row }">
           <t-tag :theme="statusTheme(row.status)" variant="light" size="small" shape="round">{{ statusLabel(row.status) }}</t-tag>
         </template>
@@ -54,7 +52,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { ChartBarIcon, CheckCircleIcon, ErrorCircleIcon, FileIcon } from 'tdesign-icons-vue-next'
+import { CheckCircleIcon, ErrorCircleIcon, FileIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { getBillList } from '@/api/finance'

@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">添加提供商</h2>
-          <p class="page-header__desc">通过分步向导接入上游云厂商，填写 API 信息并测试连接后完成创建。</p>
         </div>
       </div>
       <t-button variant="outline" @click="router.push('/resource/providers')">返回列表</t-button>

@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">退款管理</h2>
-          <p class="page-header__desc">审核与跟踪所有退款单，支持通过 / 驳回操作。</p>
         </div>
       </div>
       <t-space size="small">
@@ -61,7 +60,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"

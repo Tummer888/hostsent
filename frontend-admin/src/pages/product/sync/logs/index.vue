@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">同步日志</h2>
-          <p class="page-header__desc">查看上游资源同步过程中的执行日志与结果明细。</p>
         </div>
       </div>
       <t-button variant="outline" :loading="loading" @click="loadLogs">
@@ -59,7 +58,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"

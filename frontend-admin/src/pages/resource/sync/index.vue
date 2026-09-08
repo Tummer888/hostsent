@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">同步任务</h2>
-          <p class="page-header__desc">创建并跟踪从上游同步商品、资源池与实例的任务执行情况。</p>
         </div>
       </div>
       <t-space>
@@ -67,7 +66,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"

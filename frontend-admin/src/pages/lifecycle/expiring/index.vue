@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">到期管理</h2>
-          <p class="page-header__desc">查看即将到期与已进入宽限期/暂停期的实例，支持管理员代续费。</p>
         </div>
       </div>
       <t-space size="small">
@@ -57,7 +56,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"

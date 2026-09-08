@@ -2,12 +2,8 @@
   <div class="page-body finance-module">
     <header class="page-header surface-card">
       <div class="page-header__main">
-        <span class="page-header__chip">
-          <AddIcon size="22" aria-hidden="true" />
-        </span>
         <div class="page-header__text">
           <h2 class="page-header__title">充值管理</h2>
-          <p class="page-header__desc">登记线下充值单，人工确认到账后自动入账并写入资金流水。</p>
         </div>
       </div>
       <t-space size="small">
@@ -71,7 +67,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"

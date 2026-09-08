@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">工单分类管理</h2>
-          <p class="page-header__desc">维护用户提交工单时可选择的分类，支持启用/禁用与排序。</p>
         </div>
       </div>
       <t-space size="small">
@@ -34,7 +33,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="null"

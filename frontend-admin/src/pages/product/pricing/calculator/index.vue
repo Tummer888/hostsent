@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">价格计算器</h2>
-          <p class="page-header__desc">根据商品计费模式、数量与时长效期，估算售卖价格并展示明细。</p>
         </div>
       </div>
     </header>
@@ -52,7 +51,6 @@
         :columns="detailColumns"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
       >

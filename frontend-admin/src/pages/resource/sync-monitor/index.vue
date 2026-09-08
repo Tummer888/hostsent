@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">同步监控</h2>
-          <p class="page-header__desc">汇总上游同步任务的执行概况与最近动态。</p>
         </div>
       </div>
       <t-button variant="outline" :loading="loading" @click="loadMonitor">
@@ -47,7 +46,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"
@@ -103,7 +101,7 @@ const stat = reactive({
 
 const statCards = computed(() => [
   { key: 'total', label: '任务总数', value: stat.total, icon: TimeIcon, variant: 'indigo' },
-  { key: 'running', label: '执行中', value: stat.running, icon: RefreshIcon, variant: 'cyan' },
+  { key: 'running', label: '执行中', value: stat.running, icon: RefreshIcon, variant: 'green' },
   { key: 'success', label: '成功', value: stat.success, icon: CheckCircleIcon, variant: 'success' },
   { key: 'failed', label: '失败', value: stat.failed, icon: ErrorCircleIcon, variant: 'danger' },
 ])

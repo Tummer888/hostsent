@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">资源模块系统配置</h2>
-          <p class="page-header__desc">维护上游同步调度、定价加价策略与异常事件通知的全局默认配置。</p>
         </div>
       </div>
       <t-space size="small">

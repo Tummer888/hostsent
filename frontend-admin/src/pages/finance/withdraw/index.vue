@@ -2,12 +2,8 @@
   <div class="page-body finance-module">
     <header class="page-header surface-card">
       <div class="page-header__main">
-        <span class="page-header__chip">
-          <MoneyIcon size="22" aria-hidden="true" />
-        </span>
         <div class="page-header__text">
           <h2 class="page-header__title">提现管理</h2>
-          <p class="page-header__desc">审核用户提现申请，通过后进入出账打款流程。</p>
         </div>
       </div>
       <t-space size="small">
@@ -61,7 +57,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"
@@ -135,7 +130,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 
-import { MoneyIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
+import { RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { approveWithdraw, getWithdrawList, rejectWithdraw } from '@/api/finance'

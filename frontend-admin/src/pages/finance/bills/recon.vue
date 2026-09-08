@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">对账中心</h2>
-          <p class="page-header__desc">核对资金流水净变动与钱包余额是否一致，账实差异应为 0。</p>
         </div>
       </div>
     </header>

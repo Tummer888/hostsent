@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">上游提供商</h2>
-          <p class="page-header__desc">管理对接的上游云厂商与 API 端点，维护密钥信息并触发库存同步。</p>
         </div>
       </div>
       <t-space size="small">
@@ -76,7 +75,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"

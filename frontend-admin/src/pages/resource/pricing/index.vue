@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">定价管理</h2>
-          <p class="page-header__desc">统一维护商品售价与成本价，实时计算毛利。</p>
         </div>
       </div>
       <t-button variant="outline" :loading="loading" @click="loadProducts">
@@ -55,7 +54,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"

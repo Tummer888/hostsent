@@ -73,7 +73,6 @@
               :loading="loading"
               size="small"
               hover
-              bordered
               table-layout="fixed"
               cell-empty-content="—"
             >
@@ -102,7 +101,6 @@
               :loading="loading"
               size="small"
               hover
-              bordered
               table-layout="fixed"
               cell-empty-content="—"
             >

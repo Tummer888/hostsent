@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">价格与上下架</h2>
-          <p class="page-header__desc">集中管理产品的销售定价、成本价与上架状态。</p>
         </div>
       </div>
       <t-space size="small">
@@ -61,7 +60,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"

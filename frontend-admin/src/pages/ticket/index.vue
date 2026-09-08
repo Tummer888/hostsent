@@ -7,7 +7,6 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">工单列表</h2>
-          <p class="page-header__desc">受理用户工单，支持查询、回复、分配处理人与状态流转。</p>
         </div>
       </div>
       <t-space size="small">
@@ -69,7 +68,6 @@
         :loading="loading"
         size="small"
         hover
-        bordered
         table-layout="fixed"
         cell-empty-content="—"
         :pagination="pagination"
