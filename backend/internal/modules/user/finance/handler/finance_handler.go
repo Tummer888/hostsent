@@ -7,9 +7,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"hostsent/backend/internal/modules/admin/finance/dto"
-	"hostsent/backend/internal/modules/admin/finance/model"
-	finservice "hostsent/backend/internal/modules/admin/finance/service"
+	accountservice "hostsent/backend/internal/modules/admin/finance/account/service"
+	billdto "hostsent/backend/internal/modules/admin/finance/bill/dto"
+	billservice "hostsent/backend/internal/modules/admin/finance/bill/service"
+	finrechdto "hostsent/backend/internal/modules/admin/finance/recharge/dto"
+	finrechmodel "hostsent/backend/internal/modules/admin/finance/recharge/model"
+	rechservice "hostsent/backend/internal/modules/admin/finance/recharge/service"
+	transdto "hostsent/backend/internal/modules/admin/finance/transaction/dto"
 	apperrors "hostsent/backend/internal/pkg/errors"
 	"hostsent/backend/internal/pkg/middleware"
 	"hostsent/backend/internal/pkg/response"
@@ -17,13 +21,13 @@ import (
 
 // FinanceHandler 用户中心财务 HTTP 处理器。
 type FinanceHandler struct {
-	walletService   finservice.WalletService
-	rechargeService finservice.RechargeService
-	billService     finservice.BillService
+	walletService   accountservice.WalletService
+	rechargeService rechservice.RechargeService
+	billService     billservice.BillService
 }
 
 // NewFinanceHandler 创建用户中心财务处理器。
-func NewFinanceHandler(walletService finservice.WalletService, rechargeService finservice.RechargeService, billService finservice.BillService) *FinanceHandler {
+func NewFinanceHandler(walletService accountservice.WalletService, rechargeService rechservice.RechargeService, billService billservice.BillService) *FinanceHandler {
 	return &FinanceHandler{
 		walletService:   walletService,
 		rechargeService: rechargeService,
@@ -50,19 +54,12 @@ func currentUserID(c *gin.Context) (uint64, bool) {
 // mapErr 将财务域错误映射为统一错误码。
 func mapErr(err error) *apperrors.AppError {
 	switch {
-	case errors.Is(err, finservice.ErrWalletNotFound),
-		errors.Is(err, finservice.ErrRechargeNotFound),
-		errors.Is(err, finservice.ErrWithdrawNotFound),
-		errors.Is(err, finservice.ErrBillNotFound):
+	case errors.Is(err, accountservice.ErrWalletNotFound):
 		return apperrors.New(20002, err.Error())
-	case errors.Is(err, finservice.ErrStatusConflict):
-		return apperrors.New(20003, err.Error())
-	case errors.Is(err, finservice.ErrBizExist):
-		return apperrors.New(30005, err.Error())
-	case errors.Is(err, finservice.ErrInsufficientBalance):
+	case errors.Is(err, accountservice.ErrInsufficientBalance):
 		return apperrors.New(30001, err.Error())
-	case errors.Is(err, finservice.ErrFrozenInsufficient):
-		return apperrors.New(30006, err.Error())
+	case errors.Is(err, accountservice.ErrStatusConflict):
+		return apperrors.New(20003, err.Error())
 	default:
 		return apperrors.New(50001, err.Error())
 	}
@@ -109,7 +106,7 @@ func (h *FinanceHandler) Transactions(c *gin.Context) {
 		unauthorized(c)
 		return
 	}
-	var query dto.TransactionListQuery
+	var query transdto.TransactionListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
 		response.Error(c, apperrors.New(20001, err.Error()))
 		return
@@ -136,13 +133,14 @@ func (h *FinanceHandler) CreateRecharge(c *gin.Context) {
 		unauthorized(c)
 		return
 	}
-	var req dto.RechargeCreateRequest
+	var req finrechdto.RechargeCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, apperrors.New(20001, err.Error()))
 		return
 	}
 	req.UserID = userID // 只能给自己充值
 	resp, err := h.rechargeService.Create(c.Request.Context(), req, userID)
+
 	if err != nil {
 		response.Error(c, mapErr(err))
 		return
@@ -166,7 +164,7 @@ func (h *FinanceHandler) Bills(c *gin.Context) {
 		unauthorized(c)
 		return
 	}
-	var query dto.BillListQuery
+	var query billdto.BillListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
 		response.Error(c, apperrors.New(20001, err.Error()))
 		return
@@ -193,16 +191,16 @@ func (h *FinanceHandler) RechargeCallback(c *gin.Context) {
 		return
 	}
 	// 仅当渠道通知成功时才入账；失败/其他状态忽略
-	if req.Status != "" && req.Status != model.RechargeStatusSuccess {
+	if req.Status != "" && req.Status != finrechmodel.RechargeStatusSuccess {
 		response.Success(c, gin.H{"handled": true, "status": req.Status})
 		return
 	}
-	_, err := h.rechargeService.ApproveByNo(c.Request.Context(), req.RechargeNo, dto.RechargeApproveRequest{
+	_, err := h.rechargeService.ApproveByNo(c.Request.Context(), req.RechargeNo, finrechdto.RechargeApproveRequest{
 		ChannelTx: req.ChannelTx,
 	}, 0)
 	if err != nil {
 		response.Error(c, mapErr(err))
 		return
 	}
-	response.Success(c, gin.H{"handled": true, "status": model.RechargeStatusSuccess})
+	response.Success(c, gin.H{"handled": true, "status": finrechmodel.RechargeStatusSuccess})
 }

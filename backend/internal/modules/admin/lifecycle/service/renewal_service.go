@@ -9,8 +9,8 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	financemodel "hostsent/backend/internal/modules/admin/finance/model"
-	financeservice "hostsent/backend/internal/modules/admin/finance/service"
+	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
+	accountservice "hostsent/backend/internal/modules/admin/finance/account/service"
 	lifecycledto "hostsent/backend/internal/modules/admin/lifecycle/dto"
 	lifecyclemodel "hostsent/backend/internal/modules/admin/lifecycle/model"
 	lifecyclerepo "hostsent/backend/internal/modules/admin/lifecycle/repository"
@@ -59,7 +59,7 @@ type renewalService struct {
 	instanceRepo lifecyclerepo.InstanceReader
 	orderWriter  lifecyclerepo.OrderWriter
 	orderReader  lifecycleRenewalGetter // 可选：读取订单支付方式
-	walletSvc    financeservice.WalletService
+	walletSvc    accountservice.WalletService
 	logger       *zap.Logger
 }
 
@@ -71,7 +71,7 @@ func NewRenewalService(
 	autoRepo lifecyclerepo.AutoRenewRepository,
 	instanceRepo lifecyclerepo.InstanceReader,
 	orderWriter lifecyclerepo.OrderWriter,
-	walletSvc financeservice.WalletService,
+	walletSvc accountservice.WalletService,
 	logger *zap.Logger,
 ) RenewalService {
 	return &renewalService{
@@ -455,10 +455,10 @@ func (s *renewalService) createPendingRenewal(ctx context.Context, instance *lif
 
 // payRenewalOrder 续费订单余额支付：扣款 → 标记订单 → 完成续费（扣款幂等，重复调用不重复记账）。
 func (s *renewalService) payRenewalOrder(ctx context.Context, renewal *lifecyclemodel.InstanceRenewal, payMethod string, operatorID uint64) error {
-	if _, err := s.walletSvc.Change(ctx, financeservice.ChangeRequest{
+	if _, err := s.walletSvc.Change(ctx, accountservice.ChangeRequest{
 		UserID:    renewal.UserID,
-		Type:      financemodel.TxTypeConsume,
-		Direction: financemodel.DirectionExpense,
+		Type:      transmodel.TxTypeConsume,
+		Direction: transmodel.DirectionExpense,
 		Amount:    renewal.Amount,
 		OrderID:   renewal.OrderID,
 		OrderNo:   renewal.OrderNo,
@@ -466,7 +466,7 @@ func (s *renewalService) payRenewalOrder(ctx context.Context, renewal *lifecycle
 		BizType:   lifecycleBizTypeRenewal,
 		Remark:    "云主机续费：" + renewal.ProductName,
 	}); err != nil {
-		if errors.Is(err, financeservice.ErrInsufficientBalance) {
+		if errors.Is(err, accountservice.ErrInsufficientBalance) {
 			return ErrInsufficientBalance
 		}
 		return err

@@ -145,7 +145,7 @@ const filters = reactive<{
   user_id: undefined,
   type: undefined,
   direction: undefined,
-  dateRange: undefined,
+  dateRange: [],
 })
 
 const pagination = reactive({
@@ -205,7 +205,7 @@ function handleResetFilters() {
   filters.user_id = undefined
   filters.type = undefined
   filters.direction = undefined
-  filters.dateRange = undefined
+  filters.dateRange = []
   pagination.current = 1
   loadTransactions()
 }

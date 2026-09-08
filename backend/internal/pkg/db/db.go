@@ -9,7 +9,11 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	financmodel "hostsent/backend/internal/modules/admin/finance/model"
+	finaccountmodel "hostsent/backend/internal/modules/admin/finance/account/model"
+	finbillmodel "hostsent/backend/internal/modules/admin/finance/bill/model"
+	finrechmodel "hostsent/backend/internal/modules/admin/finance/recharge/model"
+	fintransmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
+	finwithdrawmodel "hostsent/backend/internal/modules/admin/finance/withdraw/model"
 	adminmodel "hostsent/backend/internal/modules/admin/manager/model"
 	menumodel "hostsent/backend/internal/modules/admin/menu/model"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
@@ -121,11 +125,11 @@ func AutoMigrate(db *gorm.DB) error {
 		&ticketmodel.TicketCategory{},
 		&ticketmodel.TicketAttachment{},
 		// 财务管理
-		&financmodel.WalletAccount{},
-		&financmodel.WalletTransaction{},
-		&financmodel.Recharge{},
-		&financmodel.Withdraw{},
-		&financmodel.Bill{},
+		&finaccountmodel.WalletAccount{},
+		&fintransmodel.WalletTransaction{},
+		&finrechmodel.Recharge{},
+		&finwithdrawmodel.Withdraw{},
+		&finbillmodel.Bill{},
 		// 系统管理（系统配置）
 		&systemmodel.SystemConfig{},
 		// 生命周期与续费（doc60）
@@ -467,7 +471,7 @@ func seedDemoOrders(tx *gorm.DB) error {
 // 幂等：仅当 wallet_accounts 尚无数据时写入；余额与流水保持一致（净变动 = 账户余额）。
 func seedDemoFinance(tx *gorm.DB) error {
 	var count int64
-	if err := tx.Model(&financmodel.WalletAccount{}).Count(&count).Error; err != nil {
+	if err := tx.Model(&finaccountmodel.WalletAccount{}).Count(&count).Error; err != nil {
 		return err
 	}
 	if count > 0 {
@@ -487,7 +491,7 @@ func seedDemoFinance(tx *gorm.DB) error {
 
 	for i, uid := range userIDs {
 		balance, income, expense := 0.0, 0.0, 0.0
-		var txs []financmodel.WalletTransaction
+		var txs []fintransmodel.WalletTransaction
 
 		appendTx := func(txType string, dir int, amount float64, refNo, biz string) {
 			before := balance
@@ -497,7 +501,7 @@ func seedDemoFinance(tx *gorm.DB) error {
 			} else {
 				expense += amount
 			}
-			txs = append(txs, financmodel.WalletTransaction{
+			txs = append(txs, fintransmodel.WalletTransaction{
 				TxNo:          fmt.Sprintf("SEEDW%02d%02d", i, len(txs)),
 				UserID:        uid,
 				Type:          txType,
@@ -512,11 +516,11 @@ func seedDemoFinance(tx *gorm.DB) error {
 			})
 		}
 
-		appendTx(financmodel.TxTypeRecharge, 1, 50, fmt.Sprintf("RCDEMO%03d", i), "recharge")
-		appendTx(financmodel.TxTypeConsume, -1, 30, fmt.Sprintf("ODDEMO%03d", i), "consume")
-		appendTx(financmodel.TxTypeRefund, 1, 10, fmt.Sprintf("RFDEMO%03d", i), "refund")
+		appendTx(fintransmodel.TxTypeRecharge, 1, 50, fmt.Sprintf("RCDEMO%03d", i), "recharge")
+		appendTx(fintransmodel.TxTypeConsume, -1, 30, fmt.Sprintf("ODDEMO%03d", i), "consume")
+		appendTx(fintransmodel.TxTypeRefund, 1, 10, fmt.Sprintf("RFDEMO%03d", i), "refund")
 
-		acc := &financmodel.WalletAccount{UserID: uid, Balance: balance, Frozen: 0, TotalIncome: income, TotalExpense: expense, Version: 1}
+		acc := &finaccountmodel.WalletAccount{UserID: uid, Balance: balance, Frozen: 0, TotalIncome: income, TotalExpense: expense, Version: 1}
 		if err := tx.Create(acc).Error; err != nil {
 			return err
 		}
@@ -526,26 +530,26 @@ func seedDemoFinance(tx *gorm.DB) error {
 			}
 		}
 
-		rc := &financmodel.Recharge{
+		rc := &finrechmodel.Recharge{
 			RechargeNo: fmt.Sprintf("RCDEMO%03d", i), UserID: uid, Amount: 50, Method: "manual",
-			Status: financmodel.RechargeStatusSuccess, ChannelTx: fmt.Sprintf("channel-%d", i),
+			Status: finrechmodel.RechargeStatusSuccess, ChannelTx: fmt.Sprintf("channel-%d", i),
 			PaidAt: &now, Remark: "演示充值",
 		}
 		if err := tx.Create(rc).Error; err != nil {
 			return err
 		}
 
-		wd := &financmodel.Withdraw{
+		wd := &finwithdrawmodel.Withdraw{
 			WithdrawNo: fmt.Sprintf("WDDEMO%03d", i), UserID: uid, Amount: 20, Channel: "bank",
-			Account: "622202****0001", Status: financmodel.WithdrawStatusPending, Remark: "演示提现",
+			Account: "622202****0001", Status: finwithdrawmodel.WithdrawStatusPending, Remark: "演示提现",
 		}
 		if err := tx.Create(wd).Error; err != nil {
 			return err
 		}
 
-		bill := &financmodel.Bill{
+		bill := &finbillmodel.Bill{
 			BillNo: fmt.Sprintf("BILLDEMO%03d", i), UserID: uid, Period: currPeriod,
-			TotalAmount: 20, RefundAmount: 10, Status: financmodel.BillStatusUnpaid,
+			TotalAmount: 20, RefundAmount: 10, Status: finbillmodel.BillStatusUnpaid,
 			Detail: `{"consume":30,"refund":10}`,
 		}
 		if err := tx.Create(bill).Error; err != nil {
@@ -985,14 +989,29 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "退款管理", Type: menumodel.TypeMenu, Path: "/orders/refunds", Component: "order/refunds/index", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "订单统计", Type: menumodel.TypeMenu, Path: "/orders/stats", Component: "order/stats/index", Icon: "chart-bar", SortOrder: 3, Status: menumodel.StatusActive},
 
-		// —— 财务管理（doc）
+		// —— 财务管理（doc32，分组树：叶子 + 二级目录）
 		{Platform: menumodel.PlatformAdmin, Name: "财务管理", Type: menumodel.TypeDirectory, Path: "/finance", Icon: "wallet", SortOrder: 6, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "用户钱包", Type: menumodel.TypeMenu, Path: "/finance/wallets", Component: "finance/wallets/index", Icon: "wallet", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "资金流水", Type: menumodel.TypeMenu, Path: "/finance/transactions", Component: "finance/transactions/index", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "充值管理", Type: menumodel.TypeMenu, Path: "/finance/recharges", Component: "finance/recharges/index", Icon: "download", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "提现管理", Type: menumodel.TypeMenu, Path: "/finance/withdrawals", Component: "finance/withdrawals/index", Icon: "upload", SortOrder: 4, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "账单管理", Type: menumodel.TypeMenu, Path: "/finance/bills", Component: "finance/bills/index", Icon: "file", SortOrder: 5, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "对账中心", Type: menumodel.TypeMenu, Path: "/finance/recon", Component: "finance/bills/recon", Icon: "verify", SortOrder: 6, Status: menumodel.StatusActive},
+		// 1. 财务总览
+		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务总览", Type: menumodel.TypeMenu, Path: "/finance/overview", Component: "finance/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
+		// 2. 账户管理
+		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "账户管理", Type: menumodel.TypeDirectory, Path: "/finance/accounts", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/finance/accounts", Platform: menumodel.PlatformAdmin, Name: "用户钱包", Type: menumodel.TypeMenu, Path: "/finance/accounts/wallets", Component: "finance/accounts/wallets/index", Icon: "wallet", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/finance/accounts", Platform: menumodel.PlatformAdmin, Name: "人工调账", Type: menumodel.TypeMenu, Path: "/finance/accounts/adjust", Component: "finance/accounts/adjust", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
+		// 3. 交易流水
+		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "交易流水", Type: menumodel.TypeDirectory, Path: "/finance/transactions-center", Icon: "money", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/finance/transactions-center", Platform: menumodel.PlatformAdmin, Name: "资金流水", Type: menumodel.TypeMenu, Path: "/finance/transactions", Component: "finance/transactions/index", Icon: "money", SortOrder: 1, Status: menumodel.StatusActive},
+		// 4. 充值提现
+		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "充值提现", Type: menumodel.TypeDirectory, Path: "/finance/recharge-center", Icon: "download", SortOrder: 4, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/finance/recharge-center", Platform: menumodel.PlatformAdmin, Name: "充值管理", Type: menumodel.TypeMenu, Path: "/finance/recharges", Component: "finance/recharge/index", Icon: "download", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/finance/recharge-center", Platform: menumodel.PlatformAdmin, Name: "提现管理", Type: menumodel.TypeMenu, Path: "/finance/withdrawals", Component: "finance/withdraw/index", Icon: "upload", SortOrder: 2, Status: menumodel.StatusActive},
+		// 5. 账单管理
+		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "账单管理", Type: menumodel.TypeDirectory, Path: "/finance/bill-center", Icon: "file", SortOrder: 5, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/finance/bill-center", Platform: menumodel.PlatformAdmin, Name: "账单管理", Type: menumodel.TypeMenu, Path: "/finance/bills", Component: "finance/bills/index", Icon: "file", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/finance/bill-center", Platform: menumodel.PlatformAdmin, Name: "对账中心", Type: menumodel.TypeMenu, Path: "/finance/recon", Component: "finance/bills/recon", Icon: "verify", SortOrder: 2, Status: menumodel.StatusActive},
+		// 6. 财务报表
+		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务报表", Type: menumodel.TypeMenu, Path: "/finance/report", Component: "finance/report/index", Icon: "chart-bar", SortOrder: 6, Status: menumodel.StatusActive},
+		// 7. 财务配置
+		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务配置", Type: menumodel.TypeMenu, Path: "/finance/config", Component: "finance/config/index", Icon: "setting", SortOrder: 7, Status: menumodel.StatusActive},
 
 		// —— 工单支持（doc50 §5.3，admin 平台 SortOrder=8）
 		{Platform: menumodel.PlatformAdmin, Name: "工单支持", Type: menumodel.TypeDirectory, Path: "/tickets", Icon: "service", SortOrder: 8, Status: menumodel.StatusActive},

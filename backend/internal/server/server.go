@@ -8,9 +8,19 @@ import (
 
 	"go.uber.org/zap"
 
-	financehandler "hostsent/backend/internal/modules/admin/finance/handler"
-	financerepo "hostsent/backend/internal/modules/admin/finance/repository"
-	financeservice "hostsent/backend/internal/modules/admin/finance/service"
+	finaccountrepo "hostsent/backend/internal/modules/admin/finance/account/repository"
+	finaccountservice "hostsent/backend/internal/modules/admin/finance/account/service"
+	finaccounthandler "hostsent/backend/internal/modules/admin/finance/account/handler"
+	finbillhandler "hostsent/backend/internal/modules/admin/finance/bill/handler"
+	finbillrepo "hostsent/backend/internal/modules/admin/finance/bill/repository"
+	finbillservice "hostsent/backend/internal/modules/admin/finance/bill/service"
+	finrechargerepo "hostsent/backend/internal/modules/admin/finance/recharge/repository"
+	finrechargeservice "hostsent/backend/internal/modules/admin/finance/recharge/service"
+	finrechargehandler "hostsent/backend/internal/modules/admin/finance/recharge/handler"
+	fintransactionrepo "hostsent/backend/internal/modules/admin/finance/transaction/repository"
+	finwithdrawrepo "hostsent/backend/internal/modules/admin/finance/withdraw/repository"
+	finwithdrawservice "hostsent/backend/internal/modules/admin/finance/withdraw/service"
+	finwithdrawhandler "hostsent/backend/internal/modules/admin/finance/withdraw/handler"
 	lifecyclehandler "hostsent/backend/internal/modules/admin/lifecycle/handler"
 	lifecyclerepo "hostsent/backend/internal/modules/admin/lifecycle/repository"
 	lifecycleservice "hostsent/backend/internal/modules/admin/lifecycle/service"
@@ -132,21 +142,21 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	orderHandler := orderhandler.NewOrderHandler(orderService)
 	refundHandler := orderhandler.NewRefundHandler(orderService)
 	// 财务域
-	walletRepo := financerepo.NewWalletRepository(database)
-	walletTxRepo := financerepo.NewTransactionRepository(database)
-	walletService := financeservice.NewWalletService(database, walletRepo, walletTxRepo)
-	rechargeRepo := financerepo.NewRechargeRepository(database)
-	rechargeService := financeservice.NewRechargeService(rechargeRepo, walletService)
-	withdrawRepo := financerepo.NewWithdrawRepository(database)
-	withdrawService := financeservice.NewWithdrawService(withdrawRepo, walletService)
-	billRepo := financerepo.NewBillRepository(database)
-	billService := financeservice.NewBillService(billRepo, walletTxRepo)
-	reconService := financeservice.NewReconService(walletRepo, walletTxRepo)
-	walletHandler := financehandler.NewWalletHandler(walletService)
-	rechargeHandler := financehandler.NewRechargeHandler(rechargeService)
-	withdrawHandler := financehandler.NewWithdrawHandler(withdrawService)
-	billHandler := financehandler.NewBillHandler(billService)
-	reconHandler := financehandler.NewReconHandler(reconService)
+	walletTxRepo := fintransactionrepo.NewTransactionRepository(database)
+	walletRepo := finaccountrepo.NewWalletRepository(database)
+	walletService := finaccountservice.NewWalletService(database, walletRepo, walletTxRepo)
+	rechargeRepo := finrechargerepo.NewRechargeRepository(database)
+	rechargeService := finrechargeservice.NewRechargeService(rechargeRepo, walletService)
+	withdrawRepo := finwithdrawrepo.NewWithdrawRepository(database)
+	withdrawService := finwithdrawservice.NewWithdrawService(withdrawRepo, walletService)
+	billRepo := finbillrepo.NewBillRepository(database)
+	billService := finbillservice.NewBillService(billRepo, walletTxRepo)
+	reconService := finbillservice.NewReconService(walletRepo, walletTxRepo)
+	walletHandler := finaccounthandler.NewWalletHandler(walletService)
+	rechargeHandler := finrechargehandler.NewRechargeHandler(rechargeService)
+	withdrawHandler := finwithdrawhandler.NewWithdrawHandler(withdrawService)
+	billHandler := finbillhandler.NewBillHandler(billService)
+	reconHandler := finbillhandler.NewReconHandler(reconService)
 	// 系统配置
 	configRepo := systemrepo.NewConfigRepository(database)
 	configService := systemservice.NewConfigService(configRepo)

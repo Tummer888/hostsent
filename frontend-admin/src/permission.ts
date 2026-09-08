@@ -252,6 +252,72 @@ export const navMenu = [
     ],
   },
   {
+    title: '财务管理',
+    path: '/finance',
+    icon: iconWrapper(MoneyIcon),
+    children: [
+      {
+        title: '财务总览',
+        path: '/finance/overview',
+        icon: iconWrapper(DashboardIcon),
+        children: [
+          { title: '财务总览', path: '/finance/overview', icon: iconWrapper(DashboardIcon) },
+        ],
+      },
+      {
+        title: '账户管理',
+        path: '/finance/accounts',
+        icon: iconWrapper(MoneyIcon),
+        children: [
+          { title: '用户钱包', path: '/finance/accounts/wallets', icon: iconWrapper(MoneyIcon) },
+          { title: '人工调账', path: '/finance/accounts/adjust', icon: iconWrapper(FileIcon) },
+        ],
+      },
+      {
+        title: '交易流水',
+        path: '/finance/transactions-center',
+        icon: iconWrapper(MoneyIcon),
+        children: [
+          { title: '资金流水', path: '/finance/transactions', icon: iconWrapper(MoneyIcon) },
+        ],
+      },
+      {
+        title: '充值提现',
+        path: '/finance/recharge-center',
+        icon: iconWrapper(FileIcon),
+        children: [
+          { title: '充值管理', path: '/finance/recharges', icon: iconWrapper(MoneyIcon) },
+          { title: '提现管理', path: '/finance/withdrawals', icon: iconWrapper(FileIcon) },
+        ],
+      },
+      {
+        title: '账单管理',
+        path: '/finance/bill-center',
+        icon: iconWrapper(FileIcon),
+        children: [
+          { title: '账单管理', path: '/finance/bills', icon: iconWrapper(FileIcon) },
+          { title: '对账中心', path: '/finance/recon', icon: iconWrapper(CheckCircleIcon) },
+        ],
+      },
+      {
+        title: '财务报表',
+        path: '/finance/report',
+        icon: iconWrapper(ChartBarIcon),
+        children: [
+          { title: '财务报表', path: '/finance/report', icon: iconWrapper(ChartBarIcon) },
+        ],
+      },
+      {
+        title: '财务配置',
+        path: '/finance/config',
+        icon: iconWrapper(SettingIcon),
+        children: [
+          { title: '财务配置', path: '/finance/config', icon: iconWrapper(SettingIcon) },
+        ],
+      },
+    ],
+  },
+  {
     title: '系统管理',
     path: '/system',
     icon: iconWrapper(SettingIcon),
