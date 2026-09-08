@@ -1,0 +1,315 @@
+/* ============================================================
+   HostSent · 统一统计卡片样式
+   对齐用户总览页（users/overview）的卡片风格与配色：
+   渐变光斑背景 + 旋转彩色渐变图标 + 大数字 + 入场动画
+   通过 :is() 聚合各页面命名空间作用，不影响用户总览页自身的 scoped 样式。
+   ============================================================ */
+
+:is(.order-module, .ticket-module, .finance-module, .resource-module, .dashboard-page) {
+  /* ---------- 骨架 ---------- */
+  .stat-card {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    min-height: 132px;
+    padding: 18px 24px 18px 18px;
+    border: none;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+    box-shadow: 0 10px 26px rgba(148, 163, 184, 0.12);
+    opacity: 0;
+    transform: translateY(8px);
+    animation: hs-stat-card-in 360ms var(--hs-ease-out) forwards;
+  }
+
+  .stat-card:nth-child(2) { animation-delay: 60ms; }
+  .stat-card:nth-child(3) { animation-delay: 120ms; }
+  .stat-card:nth-child(4) { animation-delay: 180ms; }
+
+  .stat-card:hover {
+    box-shadow: 0 14px 32px rgba(148, 163, 184, 0.16);
+  }
+
+  .stat-card:focus-visible {
+    box-shadow:
+      0 10px 26px rgba(148, 163, 184, 0.12),
+      0 0 0 3px rgba(22, 163, 74, 0.14);
+  }
+
+  /* ---------- 渐变光斑背景 ---------- */
+  .stat-card::before,
+  .stat-card::after {
+    content: '';
+    position: absolute;
+    pointer-events: none;
+    border-radius: 999px;
+    transition: transform var(--hs-duration-fast), opacity var(--hs-duration-fast);
+  }
+
+  .stat-card::before {
+    width: 150px;
+    height: 150px;
+    left: -28px;
+    top: -18px;
+    opacity: 0.78;
+  }
+
+  .stat-card::after {
+    width: 112px;
+    height: 112px;
+    right: -20px;
+    bottom: -36px;
+    opacity: 0.34;
+  }
+
+  .stat-card:hover::before { transform: scale(1.04); }
+  .stat-card:hover::after { transform: scale(1.05); }
+
+  /* ---------- 旋转彩色图标 ---------- */
+  .stat-card__icon {
+    position: relative;
+    z-index: 1;
+    width: 46px;
+    height: 46px;
+    border-radius: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    flex-shrink: 0;
+    border: none;
+    box-shadow:
+      inset 0 2px 0 rgba(255, 255, 255, 0.34),
+      0 8px 14px rgba(15, 23, 42, 0.1);
+    transform: rotate(-20deg);
+  }
+
+  .stat-card__icon svg {
+    transform: rotate(24deg);
+  }
+
+  /* ---------- 文本排版：标题在上 + 大数字在下 ---------- */
+  .stat-card__info,
+  .stat-card__text,
+  .stat-card__body {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .stat-card__label {
+    color: #64748b;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.2;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+
+  .stat-card__value {
+    font-family: var(--hs-font-heading);
+    font-size: 44px;
+    font-weight: 900;
+    color: #1e3a8a;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  /* 兼容 t-statistic：让内部结构继承卡片数值样式 */
+  .stat-card__value .t-statistic__content,
+  .stat-card__value .t-statistic__value {
+    font-family: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+    color: inherit;
+    line-height: inherit;
+    letter-spacing: inherit;
+  }
+
+  /* ---------- 光斑配色 ---------- */
+  .stat-card--blue::before,
+  .stat-card--info::before {
+    background: radial-gradient(circle at 45% 45%, rgba(191, 219, 254, 0.92) 0%, rgba(147, 197, 253, 0.72) 38%, rgba(191, 219, 254, 0) 72%);
+  }
+
+  .stat-card--blue::after,
+  .stat-card--info::after {
+    background: radial-gradient(circle at 50% 50%, rgba(96, 165, 250, 0.22) 0%, rgba(96, 165, 250, 0) 70%);
+  }
+
+  .stat-card--green::before,
+  .stat-card--success::before {
+    background: radial-gradient(circle at 45% 45%, rgba(220, 252, 231, 0.94) 0%, rgba(187, 247, 208, 0.76) 38%, rgba(220, 252, 231, 0) 72%);
+  }
+
+  .stat-card--green::after,
+  .stat-card--success::after {
+    background: radial-gradient(circle at 50% 50%, rgba(74, 222, 128, 0.22) 0%, rgba(74, 222, 128, 0) 70%);
+  }
+
+  .stat-card--cyan::before {
+    background: radial-gradient(circle at 45% 45%, rgba(207, 250, 254, 0.94) 0%, rgba(165, 243, 252, 0.76) 38%, rgba(207, 250, 254, 0) 72%);
+  }
+
+  .stat-card--cyan::after {
+    background: radial-gradient(circle at 50% 50%, rgba(34, 211, 238, 0.2) 0%, rgba(34, 211, 238, 0) 70%);
+  }
+
+  .stat-card--orange::before {
+    background: radial-gradient(circle at 45% 45%, rgba(255, 237, 213, 0.95) 0%, rgba(254, 215, 170, 0.76) 38%, rgba(255, 237, 213, 0) 72%);
+  }
+
+  .stat-card--orange::after {
+    background: radial-gradient(circle at 50% 50%, rgba(251, 191, 36, 0.2) 0%, rgba(251, 191, 36, 0) 70%);
+  }
+
+  .stat-card--red::before,
+  .stat-card--danger::before {
+    background: radial-gradient(circle at 45% 45%, rgba(254, 226, 226, 0.95) 0%, rgba(254, 202, 202, 0.78) 38%, rgba(254, 226, 226, 0) 72%);
+  }
+
+  .stat-card--red::after,
+  .stat-card--danger::after {
+    background: radial-gradient(circle at 50% 50%, rgba(248, 113, 113, 0.2) 0%, rgba(248, 113, 113, 0) 70%);
+  }
+
+  .stat-card--purple::before {
+    background: radial-gradient(circle at 45% 45%, rgba(243, 232, 255, 0.94) 0%, rgba(221, 214, 254, 0.78) 38%, rgba(243, 232, 255, 0) 72%);
+  }
+
+  .stat-card--purple::after {
+    background: radial-gradient(circle at 50% 50%, rgba(167, 139, 250, 0.22) 0%, rgba(167, 139, 250, 0) 70%);
+  }
+
+  .stat-card--warning::before {
+    background: radial-gradient(circle at 45% 45%, rgba(237, 233, 254, 0.95) 0%, rgba(221, 214, 254, 0.76) 38%, rgba(237, 233, 254, 0) 72%);
+  }
+
+  .stat-card--warning::after {
+    background: radial-gradient(circle at 50% 50%, rgba(139, 92, 246, 0.22) 0%, rgba(139, 92, 246, 0) 70%);
+  }
+
+  .stat-card--indigo::before {
+    background: radial-gradient(circle at 45% 45%, rgba(224, 231, 255, 0.94) 0%, rgba(199, 210, 254, 0.78) 38%, rgba(224, 231, 255, 0) 72%);
+  }
+
+  .stat-card--indigo::after {
+    background: radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.22) 0%, rgba(99, 102, 241, 0) 70%);
+  }
+
+  .stat-card--teal::before {
+    background: radial-gradient(circle at 45% 45%, rgba(204, 251, 241, 0.94) 0%, rgba(153, 246, 228, 0.76) 38%, rgba(204, 251, 241, 0) 72%);
+  }
+
+  .stat-card--teal::after {
+    background: radial-gradient(circle at 50% 50%, rgba(20, 184, 166, 0.22) 0%, rgba(20, 184, 166, 0) 70%);
+  }
+
+  /* ---------- 图标渐变配色 ---------- */
+  .stat-card__icon--blue,
+  .stat-card__icon--info,
+  .stat-card--blue .stat-card__icon,
+  .stat-card--info .stat-card__icon {
+    background: linear-gradient(135deg, #60a5fa, #2563eb);
+  }
+
+  .stat-card__icon--green,
+  .stat-card__icon--success,
+  .stat-card--green .stat-card__icon,
+  .stat-card--success .stat-card__icon {
+    background: linear-gradient(135deg, #4ade80, #16a34a);
+  }
+
+  .stat-card__icon--cyan,
+  .stat-card--cyan .stat-card__icon {
+    background: linear-gradient(135deg, #22d3ee, #0891b2);
+  }
+
+  .stat-card__icon--orange,
+  .stat-card--orange .stat-card__icon {
+    background: linear-gradient(135deg, #fbbf24, #ea580c);
+  }
+
+  .stat-card__icon--red,
+  .stat-card__icon--danger,
+  .stat-card--red .stat-card__icon,
+  .stat-card--danger .stat-card__icon {
+    background: linear-gradient(135deg, #f87171, #dc2626);
+  }
+
+  .stat-card__icon--purple,
+  .stat-card--purple .stat-card__icon {
+    background: linear-gradient(135deg, #a78bfa, #7c3aed);
+  }
+
+  .stat-card__icon--warning,
+  .stat-card--warning .stat-card__icon {
+    background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  }
+
+  .stat-card__icon--indigo,
+  .stat-card--indigo .stat-card__icon {
+    background: linear-gradient(135deg, #818cf8, #4f46e5);
+  }
+
+  .stat-card__icon--teal,
+  .stat-card--teal .stat-card__icon {
+    background: linear-gradient(135deg, #2dd4bf, #0d9488);
+  }
+
+  /* ---------- 响应式 ---------- */
+  @media (max-width: 640px) {
+    .stat-card {
+      min-height: 96px;
+      padding: 14px 16px;
+      gap: 12px;
+    }
+
+    .stat-card::before,
+    .stat-card::after {
+      display: none;
+    }
+
+    .stat-card__icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+    }
+
+    .stat-card__label {
+      font-size: 13px;
+    }
+
+    .stat-card__value {
+      font-size: 30px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .stat-card {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+@keyframes hs-stat-card-in {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

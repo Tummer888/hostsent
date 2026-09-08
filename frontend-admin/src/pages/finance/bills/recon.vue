@@ -35,8 +35,8 @@
 
     <template v-if="result">
       <div class="recon-grid">
-        <div class="stat-card surface-card">
-          <span class="stat-card__icon" style="background: linear-gradient(135deg, #10b981, #059669); color: #fff">
+        <div class="stat-card surface-card stat-card--success">
+          <span class="stat-card__icon">
             <SwapIcon size="24" aria-hidden="true" />
           </span>
           <div class="stat-card__info">
@@ -44,8 +44,8 @@
             <span class="stat-card__label">收入合计</span>
           </div>
         </div>
-        <div class="stat-card surface-card">
-          <span class="stat-card__icon" style="background: linear-gradient(135deg, #ef4444, #dc2626); color: #fff">
+        <div class="stat-card surface-card stat-card--red">
+          <span class="stat-card__icon">
             <TimeIcon size="24" aria-hidden="true" />
           </span>
           <div class="stat-card__info">
@@ -53,8 +53,8 @@
             <span class="stat-card__label">支出合计</span>
           </div>
         </div>
-        <div class="stat-card surface-card">
-          <span class="stat-card__icon" style="background: linear-gradient(135deg, #3b82f6, #2563eb); color: #fff">
+        <div class="stat-card surface-card stat-card--blue">
+          <span class="stat-card__icon">
             <WalletIcon size="24" aria-hidden="true" />
           </span>
           <div class="stat-card__info">
@@ -141,12 +141,4 @@ function handleReset() {
 
 <style lang="css">
 @import '../shared.css';
-</style>
-
-<style lang="css" scoped>
-.stat-card__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
 </style>

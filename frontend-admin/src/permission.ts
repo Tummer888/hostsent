@@ -192,9 +192,63 @@ export const navMenu = [
     path: '/product',
     icon: iconWrapper(AppIcon),
     children: [
-      { title: '产品列表', path: '/product/products', icon: iconWrapper(AppIcon) },
-      { title: '分类管理', path: '/product/categories', icon: iconWrapper(TagIcon) },
-      { title: '价格与上下架', path: '/product/pricing', icon: iconWrapper(MoneyIcon) },
+      {
+        title: '商品管理',
+        path: '/product/mgmt',
+        icon: iconWrapper(AppIcon),
+        children: [
+          { title: '商品列表', path: '/product/products', icon: iconWrapper(AppIcon) },
+        ],
+      },
+      {
+        title: '规格管理',
+        path: '/product/spec',
+        icon: iconWrapper(LayersIcon),
+        children: [
+          { title: '规格模板', path: '/product/spec/templates', icon: iconWrapper(LayersIcon) },
+          { title: '自定义规格', path: '/product/spec/custom', icon: iconWrapper(FileIcon) },
+          { title: '规格映射', path: '/product/spec/mappings', icon: iconWrapper(LinkIcon) },
+        ],
+      },
+      {
+        title: '定价与计费',
+        path: '/product/pricing-center',
+        icon: iconWrapper(MoneyIcon),
+        children: [
+          { title: '价格策略', path: '/product/pricing', icon: iconWrapper(MoneyIcon) },
+          { title: '价格计算器', path: '/product/pricing/calculator', icon: iconWrapper(ChartBarIcon) },
+          { title: '价格历史', path: '/product/pricing/history', icon: iconWrapper(HistoryIcon) },
+        ],
+      },
+      {
+        title: '促销管理',
+        path: '/product/promotion',
+        icon: iconWrapper(TagIcon),
+        children: [
+          { title: '优惠券管理', path: '/product/promotion/coupons', icon: iconWrapper(TagIcon) },
+          { title: '折扣活动', path: '/product/promotion/activities', icon: iconWrapper(ChartBarIcon) },
+          { title: '套餐组合', path: '/product/promotion/bundles', icon: iconWrapper(AppIcon) },
+          { title: '推荐位管理', path: '/product/promotion/recommends', icon: iconWrapper(DataCheckedIcon) },
+        ],
+      },
+      {
+        title: '商品分类',
+        path: '/product/category',
+        icon: iconWrapper(TagIcon),
+        children: [
+          { title: '分类管理', path: '/product/categories', icon: iconWrapper(TagIcon) },
+        ],
+      },
+      {
+        title: '上游商品同步',
+        path: '/product/sync-center',
+        icon: iconWrapper(CloudDownloadIcon),
+        children: [
+          { title: '同步任务', path: '/product/sync/tasks', icon: iconWrapper(RefreshIcon) },
+          { title: '同步日志', path: '/product/sync/logs', icon: iconWrapper(HistoryIcon) },
+          { title: '差异对比', path: '/product/sync/diff', icon: iconWrapper(DataCheckedIcon) },
+        ],
+      },
     ],
   },
   {

@@ -13,9 +13,13 @@ import (
 	adminmodel "hostsent/backend/internal/modules/admin/manager/model"
 	menumodel "hostsent/backend/internal/modules/admin/menu/model"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
-	prodmodel "hostsent/backend/internal/modules/admin/product/model"
+	categorymodel "hostsent/backend/internal/modules/admin/product/category/model"
 	productmodel "hostsent/backend/internal/modules/admin/resource/product/model"
 	providermodel "hostsent/backend/internal/modules/admin/resource/provider/model"
+	catalogmodel "hostsent/backend/internal/modules/admin/product/catalog/model"
+	specmodel "hostsent/backend/internal/modules/admin/product/spec/model"
+	pricingmodel "hostsent/backend/internal/modules/admin/product/pricing/model"
+	promotionmodel "hostsent/backend/internal/modules/admin/product/promotion/model"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	systemmodel "hostsent/backend/internal/modules/admin/system/model"
 	ticketmodel "hostsent/backend/internal/modules/admin/ticket/model"
@@ -94,10 +98,19 @@ func AutoMigrate(db *gorm.DB) error {
 		&syncmodel.SyncLog{},
 		&syncmodel.Instance{},
 		// 产品管理（面向终端售卖）
-		&prodmodel.ProductCategory{},
-		&prodmodel.Product{},
-		&prodmodel.ProductSpec{},
-		&prodmodel.ProductHistory{},
+		&categorymodel.ProductCategory{},
+		&catalogmodel.Product{},
+		&catalogmodel.ProductSpec{},
+		&catalogmodel.ProductHistory{},
+		// 产品管理-规格管理（spec 子域）
+		&specmodel.SpecTemplate{},
+		&specmodel.SpecMapping{},
+		// 产品管理-定价与计费（pricing 子域）
+		&pricingmodel.ProductPricing{},
+		// 产品管理-促销管理（promotion 子域）
+		&promotionmodel.Coupon{},
+		&promotionmodel.CouponGrant{},
+		&promotionmodel.Promotion{},
 		// 订单管理
 		&ordermodel.Order{},
 		&ordermodel.OrderItem{},
@@ -936,11 +949,35 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "异常处理", Type: menumodel.TypeMenu, Path: "/resource/anomalies", Component: "resource/anomalies/index", Icon: "error-circle", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeMenu, Path: "/resource/settings", Component: "resource/settings/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
 
-		// —— 产品管理（面向终端售卖）
+		// —— 产品管理（面向终端售卖，三层树）
 		{Platform: menumodel.PlatformAdmin, Name: "产品管理", Type: menumodel.TypeDirectory, Path: "/product", Icon: "product", SortOrder: 4, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "产品列表", Type: menumodel.TypeMenu, Path: "/product/products", Component: "product/products/index", Icon: "product", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "分类管理", Type: menumodel.TypeMenu, Path: "/product/categories", Component: "product/categories/index", Icon: "tag", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "价格与上下架", Type: menumodel.TypeMenu, Path: "/product/pricing", Component: "product/pricing/index", Icon: "money", SortOrder: 3, Status: menumodel.StatusActive},
+		// 1. 商品管理
+		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "商品管理", Type: menumodel.TypeDirectory, Path: "/product/mgmt", Icon: "product", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product/mgmt", Platform: menumodel.PlatformAdmin, Name: "商品列表", Type: menumodel.TypeMenu, Path: "/product/products", Component: "product/products/index", Icon: "product", SortOrder: 1, Status: menumodel.StatusActive},
+		// 2. 规格管理
+		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "规格管理", Type: menumodel.TypeDirectory, Path: "/product/spec", Icon: "layers", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "规格模板", Type: menumodel.TypeMenu, Path: "/product/spec/templates", Component: "product/spec/templates/index", Icon: "catalog", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "自定义规格", Type: menumodel.TypeMenu, Path: "/product/spec/custom", Component: "product/spec/custom/index", Icon: "add", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "规格映射", Type: menumodel.TypeMenu, Path: "/product/spec/mappings", Component: "product/spec/mappings/index", Icon: "link", SortOrder: 3, Status: menumodel.StatusActive},
+		// 3. 定价与计费
+		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "定价与计费", Type: menumodel.TypeDirectory, Path: "/product/pricing-center", Icon: "money", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "价格策略", Type: menumodel.TypeMenu, Path: "/product/pricing", Component: "product/pricing/index", Icon: "money", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "价格计算器", Type: menumodel.TypeMenu, Path: "/product/pricing/calculator", Component: "product/pricing/calculator/index", Icon: "chart-bar", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "价格历史", Type: menumodel.TypeMenu, Path: "/product/pricing/history", Component: "product/pricing/history/index", Icon: "history", SortOrder: 3, Status: menumodel.StatusActive},
+		// 4. 促销管理
+		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "促销管理", Type: menumodel.TypeDirectory, Path: "/product/promotion", Icon: "tag", SortOrder: 4, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product/promotion", Platform: menumodel.PlatformAdmin, Name: "优惠券管理", Type: menumodel.TypeMenu, Path: "/product/promotion/coupons", Component: "product/promotion/coupons/index", Icon: "ticket", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product/promotion", Platform: menumodel.PlatformAdmin, Name: "折扣活动", Type: menumodel.TypeMenu, Path: "/product/promotion/activities", Component: "product/promotion/activities/index", Icon: "chart-bar", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product/promotion", Platform: menumodel.PlatformAdmin, Name: "套餐组合", Type: menumodel.TypeMenu, Path: "/product/promotion/bundles", Component: "product/promotion/bundles/index", Icon: "app", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product/promotion", Platform: menumodel.PlatformAdmin, Name: "推荐位管理", Type: menumodel.TypeMenu, Path: "/product/promotion/recommends", Component: "product/promotion/recommends/index", Icon: "star", SortOrder: 4, Status: menumodel.StatusActive},
+		// 5. 商品分类
+		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "商品分类", Type: menumodel.TypeDirectory, Path: "/product/category", Icon: "folder", SortOrder: 5, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product/category", Platform: menumodel.PlatformAdmin, Name: "分类管理", Type: menumodel.TypeMenu, Path: "/product/categories", Component: "product/categories/index", Icon: "tag", SortOrder: 1, Status: menumodel.StatusActive},
+		// 6. 上游商品同步
+		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "上游商品同步", Type: menumodel.TypeDirectory, Path: "/product/sync-center", Icon: "cloud-download", SortOrder: 6, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product/sync-center", Platform: menumodel.PlatformAdmin, Name: "同步任务", Type: menumodel.TypeMenu, Path: "/product/sync/tasks", Component: "product/sync/tasks/index", Icon: "refresh", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product/sync-center", Platform: menumodel.PlatformAdmin, Name: "同步日志", Type: menumodel.TypeMenu, Path: "/product/sync/logs", Component: "product/sync/logs/index", Icon: "history", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product/sync-center", Platform: menumodel.PlatformAdmin, Name: "差异对比", Type: menumodel.TypeMenu, Path: "/product/sync/diff", Component: "product/sync/diff/index", Icon: "data-checked", SortOrder: 3, Status: menumodel.StatusActive},
 
 		// —— 订单管理（doc16）
 		{Platform: menumodel.PlatformAdmin, Name: "订单管理", Type: menumodel.TypeDirectory, Path: "/orders", Icon: "order", SortOrder: 5, Status: menumodel.StatusActive},

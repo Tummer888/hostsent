@@ -13,7 +13,11 @@ import (
 	lifecyclehandler "hostsent/backend/internal/modules/admin/lifecycle/handler"
 	notifyhandler "hostsent/backend/internal/modules/admin/notification/handler"
 	orderhandler "hostsent/backend/internal/modules/admin/order/handler"
-	prodhandler "hostsent/backend/internal/modules/admin/product/handler"
+	categoryhandler "hostsent/backend/internal/modules/admin/product/category/handler"
+	cataloghandler "hostsent/backend/internal/modules/admin/product/catalog/handler"
+	spechandler "hostsent/backend/internal/modules/admin/product/spec/handler"
+	pricinghandler "hostsent/backend/internal/modules/admin/product/pricing/handler"
+	promotionhandler "hostsent/backend/internal/modules/admin/product/promotion/handler"
 	producthandler "hostsent/backend/internal/modules/admin/resource/product/handler"
 	providerhandler "hostsent/backend/internal/modules/admin/resource/provider/handler"
 	synchandler "hostsent/backend/internal/modules/admin/resource/sync/handler"
@@ -32,7 +36,7 @@ import (
 	"hostsent/backend/internal/pkg/middleware"
 )
 
-func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, providerHandler *providerhandler.ProviderHandler, productHandler *producthandler.ProductHandler, syncHandler *synchandler.SyncHandler, userCenterAuthHandler *usercenterhandler.AuthHandler, userMenuHandler *usermenuhandler.MenuHandler, prodCategoryHandler *prodhandler.CategoryHandler, prodProductHandler *prodhandler.ProductHandler, orderHandler *orderhandler.OrderHandler, refundHandler *orderhandler.RefundHandler, walletHandler *financehandler.WalletHandler, rechargeHandler *financehandler.RechargeHandler, withdrawHandler *financehandler.WithdrawHandler, billHandler *financehandler.BillHandler, reconHandler *financehandler.ReconHandler, configHandler *systemhandler.ConfigHandler, userFinanceHandler *userfinancehandler.FinanceHandler, ticketHandler *tickethandler.TicketHandler, ticketCategoryHandler *tickethandler.CategoryHandler, userTicketHandler *tickethandler.UserTicketHandler, expiringHandler *lifecyclehandler.ExpiringHandler, lifecycleAdminHandler *lifecyclehandler.LifecycleAdminHandler, lifecycleUserHandler *lifecyclehandler.LifecycleUserHandler, notifyAdminHandler *notifyhandler.AdminHandler, notifyUserHandler *notifyhandler.UserHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
+func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, providerHandler *providerhandler.ProviderHandler, productHandler *producthandler.ProductHandler, syncHandler *synchandler.SyncHandler, userCenterAuthHandler *usercenterhandler.AuthHandler, userMenuHandler *usermenuhandler.MenuHandler, prodCategoryHandler *categoryhandler.CategoryHandler, prodCatalogHandler *cataloghandler.ProductHandler, specHandler *spechandler.SpecHandler, pricingHandler *pricinghandler.PricingHandler, promotionHandler *promotionhandler.PromotionHandler, orderHandler *orderhandler.OrderHandler, refundHandler *orderhandler.RefundHandler, walletHandler *financehandler.WalletHandler, rechargeHandler *financehandler.RechargeHandler, withdrawHandler *financehandler.WithdrawHandler, billHandler *financehandler.BillHandler, reconHandler *financehandler.ReconHandler, configHandler *systemhandler.ConfigHandler, userFinanceHandler *userfinancehandler.FinanceHandler, ticketHandler *tickethandler.TicketHandler, ticketCategoryHandler *tickethandler.CategoryHandler, userTicketHandler *tickethandler.UserTicketHandler, expiringHandler *lifecyclehandler.ExpiringHandler, lifecycleAdminHandler *lifecyclehandler.LifecycleAdminHandler, lifecycleUserHandler *lifecyclehandler.LifecycleUserHandler, notifyAdminHandler *notifyhandler.AdminHandler, notifyUserHandler *notifyhandler.UserHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
@@ -335,19 +339,78 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 				categories.DELETE("/:id", prodCategoryHandler.Delete)
 			}
 
-			// 产品
+			// 产品（商品管理 catalog 子域）
 			prodProducts := productGroup.Group("/products")
 			{
-				prodProducts.GET("", prodProductHandler.List)
-				prodProducts.POST("", prodProductHandler.Create)
-				prodProducts.GET("/:id", prodProductHandler.Get)
-				prodProducts.PUT("/:id", prodProductHandler.Update)
-				prodProducts.DELETE("/:id", prodProductHandler.Delete)
-				prodProducts.POST("/:id/publish", prodProductHandler.Publish)
-				prodProducts.POST("/:id/unpublish", prodProductHandler.Unpublish)
-				prodProducts.PUT("/:id/price", prodProductHandler.UpdatePrice)
-				prodProducts.GET("/:id/history", prodProductHandler.ListHistory)
-				prodProducts.GET("/:id/specs", prodProductHandler.ListSpecs)
+				prodProducts.GET("", prodCatalogHandler.List)
+				prodProducts.POST("", prodCatalogHandler.Create)
+				prodProducts.GET("/:id", prodCatalogHandler.Get)
+				prodProducts.PUT("/:id", prodCatalogHandler.Update)
+				prodProducts.DELETE("/:id", prodCatalogHandler.Delete)
+				prodProducts.POST("/:id/publish", prodCatalogHandler.Publish)
+				prodProducts.POST("/:id/unpublish", prodCatalogHandler.Unpublish)
+				prodProducts.PUT("/:id/price", prodCatalogHandler.UpdatePrice)
+				prodProducts.POST("/:id/featured", prodCatalogHandler.SetFeatured)
+				prodProducts.GET("/:id/history", prodCatalogHandler.ListHistory)
+				prodProducts.GET("/:id/specs", prodCatalogHandler.ListSpecs)
+			}
+
+			// 规格管理（spec 子域）
+			specGroup := productGroup.Group("/spec")
+			{
+				specTemplates := specGroup.Group("/templates")
+				{
+					specTemplates.GET("", specHandler.ListTemplates)
+					specTemplates.POST("", specHandler.CreateTemplate)
+					specTemplates.GET("/:id", specHandler.GetTemplate)
+					specTemplates.PUT("/:id", specHandler.UpdateTemplate)
+					specTemplates.DELETE("/:id", specHandler.DeleteTemplate)
+				}
+				specMappings := specGroup.Group("/mappings")
+				{
+					specMappings.GET("", specHandler.ListMappings)
+					specMappings.POST("", specHandler.CreateMapping)
+					specMappings.GET("/:id", specHandler.GetMapping)
+					specMappings.PUT("/:id", specHandler.UpdateMapping)
+					specMappings.POST("/:id/bind", specHandler.BindMapping)
+					specMappings.DELETE("/:id", specHandler.DeleteMapping)
+				}
+			}
+
+			// 定价与计费（pricing 子域）
+			pricingGroup := productGroup.Group("/pricing")
+			{
+				pricingGroup.GET("", pricingHandler.List)
+				pricingGroup.POST("", pricingHandler.Create)
+				pricingGroup.GET("/:id", pricingHandler.Get)
+				pricingGroup.PUT("/:id", pricingHandler.Update)
+				pricingGroup.DELETE("/:id", pricingHandler.Delete)
+			}
+
+			// 促销管理（promotion 子域）
+			promoGroup := productGroup.Group("/promotion")
+			{
+				coupons := promoGroup.Group("/coupons")
+				{
+					coupons.GET("", promotionHandler.ListCoupons)
+					coupons.POST("", promotionHandler.CreateCoupon)
+					coupons.GET("/:id", promotionHandler.GetCoupon)
+					coupons.PUT("/:id", promotionHandler.UpdateCoupon)
+					coupons.DELETE("/:id", promotionHandler.DeleteCoupon)
+				}
+				couponGrants := promoGroup.Group("/coupon-grants")
+				{
+					couponGrants.GET("", promotionHandler.ListCouponGrants)
+					couponGrants.POST("", promotionHandler.CreateCouponGrants)
+				}
+				promotions := promoGroup.Group("/promotions")
+				{
+					promotions.GET("", promotionHandler.ListPromotions)
+					promotions.POST("", promotionHandler.CreatePromotion)
+					promotions.GET("/:id", promotionHandler.GetPromotion)
+					promotions.PUT("/:id", promotionHandler.UpdatePromotion)
+					promotions.DELETE("/:id", promotionHandler.DeletePromotion)
+				}
 			}
 		}
 

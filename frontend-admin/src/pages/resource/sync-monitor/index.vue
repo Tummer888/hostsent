@@ -19,11 +19,16 @@
     </header>
 
     <section class="stat-grid">
-      <div v-for="card in statCards" :key="card.key" class="stat-card surface-card">
-        <span class="stat-card__chip" :style="{ background: card.color }">
-          <component :is="card.icon" size="20" aria-hidden="true" />
+      <div
+        v-for="card in statCards"
+        :key="card.key"
+        class="stat-card surface-card"
+        :class="`stat-card--${card.variant}`"
+      >
+        <span class="stat-card__icon">
+          <component :is="card.icon" size="22" aria-hidden="true" />
         </span>
-        <div class="stat-card__body">
+        <div class="stat-card__info">
           <span class="stat-card__value">{{ card.value }}</span>
           <span class="stat-card__label">{{ card.label }}</span>
         </div>
@@ -97,10 +102,10 @@ const stat = reactive({
 })
 
 const statCards = computed(() => [
-  { key: 'total', label: '任务总数', value: stat.total, icon: TimeIcon, color: 'linear-gradient(135deg,#64748b,#475569)' },
-  { key: 'running', label: '执行中', value: stat.running, icon: RefreshIcon, color: 'linear-gradient(135deg,#0284c7,#0369a1)' },
-  { key: 'success', label: '成功', value: stat.success, icon: CheckCircleIcon, color: 'linear-gradient(135deg,#059669,#047857)' },
-  { key: 'failed', label: '失败', value: stat.failed, icon: ErrorCircleIcon, color: 'linear-gradient(135deg,#dc2626,#b91c1c)' },
+  { key: 'total', label: '任务总数', value: stat.total, icon: TimeIcon, variant: 'indigo' },
+  { key: 'running', label: '执行中', value: stat.running, icon: RefreshIcon, variant: 'cyan' },
+  { key: 'success', label: '成功', value: stat.success, icon: CheckCircleIcon, variant: 'success' },
+  { key: 'failed', label: '失败', value: stat.failed, icon: ErrorCircleIcon, variant: 'danger' },
 ])
 
 const typeOptions = [

@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	prodmodel "hostsent/backend/internal/modules/admin/product/model"
+	catalogmodel "hostsent/backend/internal/modules/admin/product/catalog/model"
 	productmodel "hostsent/backend/internal/modules/admin/resource/product/model"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 )
@@ -127,7 +127,7 @@ func (r *instanceReader) ResolveProduct(ctx context.Context, productID uint64) (
 	if productID == 0 {
 		return "", 0, nil
 	}
-	var saleProd prodmodel.Product
+	var saleProd catalogmodel.Product
 	err := r.db.WithContext(ctx).
 		Where("source_product_id = ?", productID).
 		Order("id DESC").First(&saleProd).Error

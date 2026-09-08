@@ -21,8 +21,13 @@
     </header>
 
     <section class="stat-grid">
-      <div v-for="stat in metricCards" :key="stat.key" class="stat-card surface-card">
-        <span class="stat-card__icon" :style="{ background: stat.bg, color: stat.color }">
+      <div
+        v-for="stat in metricCards"
+        :key="stat.key"
+        class="stat-card surface-card"
+        :class="`stat-card--${stat.variant}`"
+      >
+        <span class="stat-card__icon">
           <component :is="stat.icon" size="22" aria-hidden="true" />
         </span>
         <div class="stat-card__info">
@@ -94,10 +99,10 @@ const stats = ref<TicketStatsResponse | null>(null)
 const STAT_COLORS = ['#f59e0b', '#2563eb', '#8b5cf6', '#16a34a', '#64748b', '#dc2626', '#0891b2', '#ec4899']
 
 const metricCards = ref([
-  { key: 'open', label: '待处理工单', value: '0', icon: markRaw(ErrorCircleIcon), bg: '#fef3c7', color: '#d97706' },
-  { key: 'in_progress', label: '处理中工单', value: '0', icon: markRaw(SwapIcon), bg: '#dbeafe', color: '#2563eb' },
-  { key: 'resolved', label: '已解决工单', value: '0', icon: markRaw(CheckCircleIcon), bg: '#dcfce7', color: '#16a34a' },
-  { key: 'avg_first_reply', label: '平均首次响应', value: '—', icon: markRaw(TimeIcon), bg: '#ede9fe', color: '#7c3aed' },
+  { key: 'open', label: '待处理工单', value: '0', icon: markRaw(ErrorCircleIcon), variant: 'orange' },
+  { key: 'in_progress', label: '处理中工单', value: '0', icon: markRaw(SwapIcon), variant: 'blue' },
+  { key: 'resolved', label: '已解决工单', value: '0', icon: markRaw(CheckCircleIcon), variant: 'success' },
+  { key: 'avg_first_reply', label: '平均首次响应', value: '—', icon: markRaw(TimeIcon), variant: 'purple' },
 ])
 
 // 近 7 日趋势柱状图

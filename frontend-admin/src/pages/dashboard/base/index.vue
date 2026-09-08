@@ -44,35 +44,36 @@
 
     <section class="stat-grid" aria-label="关键指标">
       <article
-        v-for="(stat, idx) in statCards"
+        v-for="stat in statCards"
         :key="stat.key"
         class="stat-card surface-card"
-        :style="{ animationDelay: `${60 + idx * 50}ms` }"
+        :class="`stat-card--${stat.variant}`"
       >
-        <div class="stat-card__head">
-          <span class="stat-card__title">{{ stat.title }}</span>
-          <div class="stat-card__icon" :class="`stat-card__icon--${stat.variant}`">
-            <component :is="stat.icon" size="18" aria-hidden="true" />
-          </div>
-        </div>
-        <div class="stat-card__main">
+        <span class="stat-card__icon">
+          <component :is="stat.icon" size="22" aria-hidden="true" />
+        </span>
+        <div class="stat-card__info">
           <t-statistic
             :value="stat.value"
             :decimal-places="0"
             :precision="0"
             class="stat-card__value"
           />
-          <t-tag
-            :theme="stat.trend === 'up' ? 'success' : stat.trend === 'down' ? 'warning' : 'default'"
-            variant="light"
-            shape="round"
-            class="stat-card__trend"
-          >
-            <ArrowUpIcon v-if="stat.trend === 'up'" size="11" aria-hidden="true" />
-            <ArrowDownIcon v-else-if="stat.trend === 'down'" size="11" aria-hidden="true" />
-            <MinusIcon v-else size="11" aria-hidden="true" />
-            {{ stat.change }}
-          </t-tag>
+          <span class="stat-card__label">
+            {{ stat.title }}
+            <t-tag
+              :theme="stat.trend === 'up' ? 'success' : stat.trend === 'down' ? 'warning' : 'default'"
+              variant="light"
+              shape="round"
+              size="small"
+              class="stat-card__trend"
+            >
+              <ArrowUpIcon v-if="stat.trend === 'up'" size="11" aria-hidden="true" />
+              <ArrowDownIcon v-else-if="stat.trend === 'down'" size="11" aria-hidden="true" />
+              <MinusIcon v-else size="11" aria-hidden="true" />
+              {{ stat.change }}
+            </t-tag>
+          </span>
         </div>
         <div class="stat-card__spark" aria-hidden="true">
           <svg viewBox="0 0 200 36" preserveAspectRatio="none" class="spark-svg">
@@ -493,84 +494,31 @@ onMounted(() => {
   object-fit: cover;
 }
 
-/* Stat cards grid */
+/* Stat cards grid — 统一样式由 stat-card.css 提供（.dashboard-page 命名空间） */
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
-.stat-card {
-  padding: 14px 14px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  opacity: 0;
-  transform: translateY(8px);
-  animation: cardIn 360ms var(--hs-ease-out) forwards;
+/* spark 迷你趋势线：贴卡片底部作为装饰层 */
+.stat-card__spark {
+  position: absolute;
+  left: 18px;
+  right: 24px;
+  bottom: 8px;
+  z-index: 0;
+  opacity: 0.85;
+  pointer-events: none;
 }
 
 @keyframes cardIn {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.stat-card__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.stat-card__title {
-  color: var(--color-muted-foreground);
-  font-size: 12.5px;
-  font-weight: 500;
-}
-
-.stat-card__icon {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--hs-radius-md);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #ffffff;
-  flex-shrink: 0;
-  box-shadow: var(--hs-shadow-xs);
-}
-
-.stat-card__icon--blue { background: #2563eb; }
-.stat-card__icon--cyan { background: #0891b2; }
-.stat-card__icon--green { background: #16a34a; }
-.stat-card__icon--orange { background: #d97706; }
-
-.stat-card__main {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.stat-card__value :deep(.t-statistic__content) {
-  font-family: var(--hs-font-heading);
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--color-foreground);
-  line-height: 1.1;
-  letter-spacing: -0.01em;
-}
-
 .stat-card__trend {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 1px 8px !important;
-  font-weight: 600;
-  font-size: 11px;
-}
-
-.stat-card__spark {
-  margin-top: 0;
-  opacity: 0.95;
+  vertical-align: 2px;
+  margin-left: 4px;
 }
 
 .spark-svg {
@@ -749,4 +697,9 @@ onMounted(() => {
   .spark-line { stroke-dashoffset: 0 !important; }
   .spark-area { opacity: 1 !important; }
 }
+</style>
+
+<style lang="css">
+/* 统一统计卡片样式（stat-card--{variant} / 光斑 / 旋转图标 / 大数字） */
+@import '../../stat-card.css';
 </style>

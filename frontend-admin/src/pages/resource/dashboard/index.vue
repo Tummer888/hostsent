@@ -21,8 +21,13 @@
     </header>
 
     <section class="stat-grid">
-      <div v-for="stat in stats" :key="stat.key" class="stat-card surface-card">
-        <span class="stat-card__icon" :style="{ background: stat.bg, color: stat.color }">
+      <div
+        v-for="stat in stats"
+        :key="stat.key"
+        class="stat-card surface-card"
+        :class="`stat-card--${stat.variant}`"
+      >
+        <span class="stat-card__icon">
           <component :is="stat.icon" size="22" aria-hidden="true" />
         </span>
         <div class="stat-card__info">
@@ -123,10 +128,10 @@ const instances = ref<InstanceInfo[]>([])
 const tasks = ref<SyncTaskInfo[]>([])
 
 const stats = ref([
-  { key: 'accounts', label: '上游账户数', value: 0, icon: markRaw(CloudIcon), bg: '#e0f2fe', color: '#0284c7' },
-  { key: 'hosts', label: '云主机总数', value: 0, icon: markRaw(DesktopIcon), bg: '#dcfce7', color: '#16a34a' },
-  { key: 'added', label: '同步任务数', value: 0, icon: markRaw(RefreshIcon), bg: '#fef3c7', color: '#d97706' },
-  { key: 'errors', label: '异常数', value: 0, icon: markRaw(ErrorCircleIcon), bg: '#fee2e2', color: '#dc2626' },
+  { key: 'accounts', label: '上游账户数', value: 0, icon: markRaw(CloudIcon), variant: 'cyan' },
+  { key: 'hosts', label: '云主机总数', value: 0, icon: markRaw(DesktopIcon), variant: 'success' },
+  { key: 'added', label: '同步任务数', value: 0, icon: markRaw(RefreshIcon), variant: 'orange' },
+  { key: 'errors', label: '异常数', value: 0, icon: markRaw(ErrorCircleIcon), variant: 'danger' },
 ])
 
 const taskTypeOptions = [

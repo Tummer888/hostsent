@@ -42,11 +42,8 @@
     </section>
 
     <section v-if="wallet" class="wallet-stat-grid">
-      <div class="stat-card surface-card">
-        <span
-          class="stat-card__icon"
-          style="background: linear-gradient(135deg, #10b981, #059669); color: #fff"
-        >
+      <div class="stat-card surface-card stat-card--success">
+        <span class="stat-card__icon">
           <WalletIcon size="24" aria-hidden="true" />
         </span>
         <div class="stat-card__info">
@@ -54,11 +51,8 @@
           <span class="stat-card__label">可用余额</span>
         </div>
       </div>
-      <div class="stat-card surface-card">
-        <span
-          class="stat-card__icon"
-          style="background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff"
-        >
+      <div class="stat-card surface-card stat-card--orange">
+        <span class="stat-card__icon">
           <MoneyIcon size="24" aria-hidden="true" />
         </span>
         <div class="stat-card__info">
@@ -66,11 +60,8 @@
           <span class="stat-card__label">冻结金额</span>
         </div>
       </div>
-      <div class="stat-card surface-card">
-        <span
-          class="stat-card__icon"
-          style="background: linear-gradient(135deg, #3b82f6, #2563eb); color: #fff"
-        >
+      <div class="stat-card surface-card stat-card--blue">
+        <span class="stat-card__icon">
           <SwapIcon size="24" aria-hidden="true" />
         </span>
         <div class="stat-card__info">
@@ -78,11 +69,8 @@
           <span class="stat-card__label">累计收入</span>
         </div>
       </div>
-      <div class="stat-card surface-card">
-        <span
-          class="stat-card__icon"
-          style="background: linear-gradient(135deg, #ef4444, #dc2626); color: #fff"
-        >
+      <div class="stat-card surface-card stat-card--red">
+        <span class="stat-card__icon">
           <TimeIcon size="24" aria-hidden="true" />
         </span>
         <div class="stat-card__info">
@@ -145,14 +133,6 @@ onMounted(() => {
   handleQuery()
 })
 </script>
-
-<style lang="css" scoped>
-.stat-card__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-</style>
 
 <style lang="css">
 @import '../shared.css';

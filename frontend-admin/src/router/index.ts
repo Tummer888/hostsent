@@ -342,41 +342,119 @@ const routes: Array<RouteRecordRaw> = [
     redirect: '/product/products',
     meta: { title: '产品管理' },
     children: [
+      // —— 商品管理（catalog）——
       {
         path: 'products',
         name: 'ProductProducts',
         component: () => import('@/pages/product/products/index.vue'),
-        meta: { title: '产品列表', role: 'admin' },
+        meta: { title: '商品列表', role: 'admin' },
       },
       {
         path: 'products/create',
         name: 'ProductProductsCreate',
         component: () => import('@/pages/product/products/create.vue'),
-        meta: { title: '新建产品', role: 'admin' },
+        meta: { title: '创建商品', role: 'admin' },
       },
       {
         path: 'products/:id/edit',
         name: 'ProductProductsEdit',
         component: () => import('@/pages/product/products/edit.vue'),
-        meta: { title: '编辑产品', role: 'admin' },
+        meta: { title: '编辑商品', role: 'admin' },
       },
       {
         path: 'products/:id',
         name: 'ProductProductsDetail',
         component: () => import('@/pages/product/products/detail.vue'),
-        meta: { title: '产品详情', role: 'admin' },
+        meta: { title: '商品详情', role: 'admin' },
       },
+      // —— 规格管理（spec）——
+      {
+        path: 'spec/templates',
+        name: 'ProductSpecTemplates',
+        component: () => import('@/pages/product/spec/templates/index.vue'),
+        meta: { title: '规格模板', role: 'admin' },
+      },
+      {
+        path: 'spec/custom',
+        name: 'ProductSpecCustom',
+        component: () => import('@/pages/product/spec/custom/index.vue'),
+        meta: { title: '自定义规格', role: 'admin' },
+      },
+      {
+        path: 'spec/mappings',
+        name: 'ProductSpecMappings',
+        component: () => import('@/pages/product/spec/mappings/index.vue'),
+        meta: { title: '规格映射', role: 'admin' },
+      },
+      // —— 定价与计费（pricing）——
+      {
+        path: 'pricing',
+        name: 'ProductPricing',
+        component: () => import('@/pages/product/pricing/index.vue'),
+        meta: { title: '价格策略', role: 'admin' },
+      },
+      {
+        path: 'pricing/calculator',
+        name: 'ProductPricingCalculator',
+        component: () => import('@/pages/product/pricing/calculator/index.vue'),
+        meta: { title: '价格计算器', role: 'admin' },
+      },
+      {
+        path: 'pricing/history',
+        name: 'ProductPricingHistory',
+        component: () => import('@/pages/product/pricing/history/index.vue'),
+        meta: { title: '价格历史', role: 'admin' },
+      },
+      // —— 促销管理（promotion）——
+      {
+        path: 'promotion/coupons',
+        name: 'ProductPromotionCoupons',
+        component: () => import('@/pages/product/promotion/coupons/index.vue'),
+        meta: { title: '优惠券管理', role: 'admin' },
+      },
+      {
+        path: 'promotion/activities',
+        name: 'ProductPromotionActivities',
+        component: () => import('@/pages/product/promotion/activities/index.vue'),
+        meta: { title: '折扣活动', role: 'admin' },
+      },
+      {
+        path: 'promotion/bundles',
+        name: 'ProductPromotionBundles',
+        component: () => import('@/pages/product/promotion/bundles/index.vue'),
+        meta: { title: '套餐组合', role: 'admin' },
+      },
+      {
+        path: 'promotion/recommends',
+        name: 'ProductPromotionRecommends',
+        component: () => import('@/pages/product/promotion/recommends/index.vue'),
+        meta: { title: '推荐位管理', role: 'admin' },
+      },
+      // —— 商品分类（category）——
       {
         path: 'categories',
         name: 'ProductCategories',
         component: () => import('@/pages/product/categories/index.vue'),
         meta: { title: '分类管理', role: 'admin' },
       },
+      // —— 上游商品同步（sync）——
       {
-        path: 'pricing',
-        name: 'ProductPricing',
-        component: () => import('@/pages/product/pricing/index.vue'),
-        meta: { title: '价格与上下架', role: 'admin' },
+        path: 'sync/tasks',
+        name: 'ProductSyncTasks',
+        component: () => import('@/pages/product/sync/tasks/index.vue'),
+        meta: { title: '同步任务', role: 'admin' },
+      },
+      {
+        path: 'sync/logs',
+        name: 'ProductSyncLogs',
+        component: () => import('@/pages/product/sync/logs/index.vue'),
+        meta: { title: '同步日志', role: 'admin' },
+      },
+      {
+        path: 'sync/diff',
+        name: 'ProductSyncDiff',
+        component: () => import('@/pages/product/sync/diff/index.vue'),
+        meta: { title: '差异对比', role: 'admin' },
       },
     ],
   },

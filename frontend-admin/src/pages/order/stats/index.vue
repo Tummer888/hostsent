@@ -21,8 +21,13 @@
     </header>
 
     <section class="stat-grid">
-      <div v-for="stat in metricCards" :key="stat.key" class="stat-card surface-card">
-        <span class="stat-card__icon" :style="{ background: stat.bg, color: stat.color }">
+      <div
+        v-for="stat in metricCards"
+        :key="stat.key"
+        class="stat-card surface-card"
+        :class="`stat-card--${stat.variant}`"
+      >
+        <span class="stat-card__icon">
           <component :is="stat.icon" size="22" aria-hidden="true" />
         </span>
         <div class="stat-card__info">
@@ -94,10 +99,10 @@ const stats = ref<OrderStatsResponse | null>(null)
 const STAT_COLORS = ['#16a34a', '#3b82f6', '#f59e0b', '#6366f1', '#ec4899', '#dc2626', '#0891b2', '#64748b', '#10b981']
 
 const metricCards = ref([
-  { key: 'today_sales', label: '今日销售额', value: '¥0.00', icon: markRaw(MoneyIcon), bg: '#dcfce7', color: '#16a34a' },
-  { key: 'today_orders', label: '今日订单量', value: '0', icon: markRaw(CartIcon), bg: '#dbeafe', color: '#2563eb' },
-  { key: 'avg_order_value', label: '客单价', value: '¥0.00', icon: markRaw(ChartPieIcon), bg: '#fef3c7', color: '#d97706' },
-  { key: 'refund_rate', label: '退款率', value: '0%', icon: markRaw(PercentIcon), bg: '#fee2e2', color: '#dc2626' },
+  { key: 'today_sales', label: '今日销售额', value: '¥0.00', icon: markRaw(MoneyIcon), variant: 'success' },
+  { key: 'today_orders', label: '今日订单量', value: '0', icon: markRaw(CartIcon), variant: 'blue' },
+  { key: 'avg_order_value', label: '客单价', value: '¥0.00', icon: markRaw(ChartPieIcon), variant: 'orange' },
+  { key: 'refund_rate', label: '退款率', value: '0%', icon: markRaw(PercentIcon), variant: 'red' },
 ])
 
 const trendOption = computed<EChartsOption>(() => {

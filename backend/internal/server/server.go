@@ -29,9 +29,21 @@ import (
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
 	orderrepo "hostsent/backend/internal/modules/admin/order/repository"
 	orderservice "hostsent/backend/internal/modules/admin/order/service"
-	prodhandler "hostsent/backend/internal/modules/admin/product/handler"
-	prodrepo "hostsent/backend/internal/modules/admin/product/repository"
-	prodservice "hostsent/backend/internal/modules/admin/product/service"
+	categoryhandler "hostsent/backend/internal/modules/admin/product/category/handler"
+	categoryrepo "hostsent/backend/internal/modules/admin/product/category/repository"
+	categoryservice "hostsent/backend/internal/modules/admin/product/category/service"
+	cataloghandler "hostsent/backend/internal/modules/admin/product/catalog/handler"
+	catalogrepo "hostsent/backend/internal/modules/admin/product/catalog/repository"
+	catalogservice "hostsent/backend/internal/modules/admin/product/catalog/service"
+	spechandler "hostsent/backend/internal/modules/admin/product/spec/handler"
+	specrepo "hostsent/backend/internal/modules/admin/product/spec/repository"
+	specservice "hostsent/backend/internal/modules/admin/product/spec/service"
+	pricinghandler "hostsent/backend/internal/modules/admin/product/pricing/handler"
+	pricingrepo "hostsent/backend/internal/modules/admin/product/pricing/repository"
+	pricingservice "hostsent/backend/internal/modules/admin/product/pricing/service"
+	promotionhandler "hostsent/backend/internal/modules/admin/product/promotion/handler"
+	promotionrepo "hostsent/backend/internal/modules/admin/product/promotion/repository"
+	promotionservice "hostsent/backend/internal/modules/admin/product/promotion/service"
 	producthandler "hostsent/backend/internal/modules/admin/resource/product/handler"
 	productrepo "hostsent/backend/internal/modules/admin/resource/product/repository"
 	productservice "hostsent/backend/internal/modules/admin/resource/product/service"
@@ -204,12 +216,31 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	productHandler := producthandler.NewProductHandler(productService)
 	syncHandler := synchandler.NewSyncHandler(syncService)
 	// 产品管理（面向终端售卖）
-	prodCategoryRepo := prodrepo.NewCategoryRepository(database)
-	prodProductRepo := prodrepo.NewProductRepository(database)
-	prodCategoryService := prodservice.NewCategoryService(prodCategoryRepo)
-	prodProductService := prodservice.NewProductService(prodProductRepo)
-	prodCategoryHandler := prodhandler.NewCategoryHandler(prodCategoryService)
-	prodProductHandler := prodhandler.NewProductHandler(prodProductService)
+	prodCategoryRepo := categoryrepo.NewCategoryRepository(database)
+	prodCategoryService := categoryservice.NewCategoryService(prodCategoryRepo)
+	prodCategoryHandler := categoryhandler.NewCategoryHandler(prodCategoryService)
+	// 商品管理（catalog 子域）
+	prodCatalogRepo := catalogrepo.NewProductRepository(database)
+	prodCatalogService := catalogservice.NewProductService(prodCatalogRepo)
+	prodCatalogHandler := cataloghandler.NewProductHandler(prodCatalogService)
+	// 规格管理（spec 子域）
+	specTemplateRepo := specrepo.NewSpecTemplateRepository(database)
+	specMappingRepo := specrepo.NewSpecMappingRepository(database)
+	specTemplateService := specservice.NewSpecTemplateService(specTemplateRepo)
+	specMappingService := specservice.NewSpecMappingService(specMappingRepo)
+	specHandler := spechandler.NewSpecHandler(specTemplateService, specMappingService)
+	// 定价与计费（pricing 子域）
+	pricingRepo := pricingrepo.NewPricingRepository(database)
+	pricingService := pricingservice.NewPricingService(pricingRepo)
+	pricingHandler := pricinghandler.NewPricingHandler(pricingService)
+	// 促销管理（promotion 子域）
+	couponRepo := promotionrepo.NewCouponRepository(database)
+	couponGrantRepo := promotionrepo.NewCouponGrantRepository(database)
+	promotionRepo := promotionrepo.NewPromotionRepository(database)
+	couponService := promotionservice.NewCouponService(couponRepo, couponGrantRepo)
+	couponGrantService := promotionservice.NewCouponGrantService(couponGrantRepo, couponRepo)
+	promotionService := promotionservice.NewPromotionService(promotionRepo)
+	promotionHandler := promotionhandler.NewPromotionHandler(couponService, couponGrantService, promotionService)
 	// 工单支持域
 	ticketRepo := ticketrepo.NewTicketRepository(database)
 	ticketReplyRepo := ticketrepo.NewReplyRepository(database)
@@ -266,7 +297,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 			SourceID:     order.OrderNo,
 		})
 	}
-	router := newRouter(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodProductHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, logger, jwtIssuer)
+	router := newRouter(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, promotionHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, logger, jwtIssuer)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 
