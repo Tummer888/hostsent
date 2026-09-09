@@ -3,6 +3,7 @@
 node_modules
 .trae/
 .claude/
+/backend/migrations/backups
 
 /frontend-user/.git
 /frontend-user/node_modules

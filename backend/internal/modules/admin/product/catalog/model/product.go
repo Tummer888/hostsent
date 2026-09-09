@@ -42,7 +42,7 @@ type Product struct {
 	PriceModel       string     `gorm:"column:price_model;size:20;default:'fixed'"`         // 价格模型
 	Price            float64    `gorm:"column:price;type:decimal(10,2)"`                    // 终端售价
 	CostPrice        float64    `gorm:"column:cost_price;type:decimal(10,2)"`               // 成本价
-	SourceProductID  uint64     `gorm:"column:source_product_id;index"`                     // 克隆模式：关联上游资源商品 ID
+	SourceProductID  uint64     `gorm:"column:source_product_id;index"`                     // 克隆模式：关联【本地】resource_products.id（上游资源商品的本地主键，非上游 upstream_id）
 	SourceProviderID uint64     `gorm:"column:source_provider_id;index"`                    // 关联上游提供商 ID（克隆模式的推送目标）
 	ProvisionMode    string     `gorm:"column:provision_mode;size:20;default:'self';index"` // 供货模式：self 自营 / clone 上游克隆
 	ConfigOptions    string     `gorm:"column:config_options;type:text"`                    // JSON 可配置项（自营模式映射到上游 /clouds 参数；克隆模式可覆盖规格）

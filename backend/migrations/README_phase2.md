@@ -71,8 +71,9 @@ products.config_options          : 上游 config_groups → product_config_optio
 > `catalog/buildProvisionRequest` 的 `extractConfigGroups(rp.RawSpecs)` **惰性解析**。
 > 因此 `015` 迁移已按此真实来源（`resource_products.raw_specs -> 'config_groups'`，经 `source_product_id` 关联）
 > 修正回填。**T2.3 的服务层重构**（让 catalog 读写 product_config_options/sub 替代惰性解析）涉及
-> 克隆→开通→上游下单核心链路，且当前无嵌套 config_groups 数据，属于需专项设计与回归的重构，
-> 本规划按「服务改造 + 走通核心流程 + 再执行 015」另行推进，暂不在此硬改。
+> 克隆→开通→上游下单核心链路，属于需专项设计与回归的重构。
+> **已完成**：见下文「进度更新」——catalog 服务已改为读写子表，`015` 已执行（实测 dev 库
+> 237 条 resource_products.raw_specs 含 `config_groups`，非扁平）。
 
 ### 2.4 标识
 ```
@@ -90,7 +91,7 @@ source_product_id 语义：明确指向 resource_products.id（本地），文�
 | `012_phase2_validate_source_product.sql` | T2.4 标识回填校验 | 只读校验+报告 | 是 |
 | `013_phase2_retire_redundant_tables.sql` | T2.2/T2.1 退役 user_instances/user_transactions/user_bills | 破坏性（代码层已就绪，见进度更新） | 是（快照+备份恢复） |
 | `014_phase2_account_ledger.sql` | T2.1 账务收敛（wallet 权威 + users.balance 派生触发） | 安全（加 trigger+回填，已语法/执行校验） | 是（drop trigger） |
-| `015_phase2_product_config_tables.sql` | T2.3 商品配置子表 | 结构（建表+幂等回填，已语法/执行校验） | 是（drop 表） |
+| `015_phase2_product_config_tables.sql` | T2.3 商品配置子表 | 结构（建表+幂等回填，**已执行**） | 是（drop 表） |
 
 > **执行门禁**：`013` 需先部署新后端（读权威表）再执行 DROP；`014/015` 为安全/结构性迁移，
 > 可在测试库先跑（014 含 trigger + 回填，015 建空表 + 幂等回填）。`011/012` 为只读校验或安全加约束。
@@ -103,7 +104,10 @@ source_product_id 语义：明确指向 resource_products.id（本地），文�
 > **已执行**：`010`（清占位）、`011`（实例外键）、`014`（账务收敛 trigger + 回填）、`013`
 > （退役 `user_instances`/`user_transactions`/`user_bills`，已快照到 `retired_user_*_20260909`）；
 > 并已重新构建/部署后端（新代码读权威表）。当前库只剩权威表。
-> `015`（商品配置子表）仍为**结构性暂存**：需产品目录服务改为读写子表后再执行。
+> **T2.3 已完成（2026-09-09）**：产品目录服务已改为读写 `product_config_options` / `product_config_options_sub`
+> 子表（新增 `ProductConfigOption`/`ProductConfigOptionSub` 模型 + repo `SaveConfigOptions`/`ConfigGroupsByProductID`；
+> `CloneFromUpstream`/`BatchCloneFromUpstream` 落子表；`BuildProvisionRequest` 优先读子表、缺失回退惰性解析）。
+> `015` 已执行并回填（10 个商品、75 个 option、286 个 sub），后端已重建部署（/health、/ready 200），`go build/vet/test` 全绿。
 
 ---
 

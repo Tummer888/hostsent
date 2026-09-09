@@ -108,6 +108,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&catalogmodel.Product{},
 		&catalogmodel.ProductSpec{},
 		&catalogmodel.ProductHistory{},
+		&catalogmodel.ProductConfigOption{},
+		&catalogmodel.ProductConfigOptionSub{},
 		// 产品管理-规格管理（spec 子域）
 		&specmodel.SpecTemplate{},
 		&specmodel.SpecMapping{},

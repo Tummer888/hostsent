@@ -346,6 +346,7 @@ func (s *productService) CloneFromUpstream(ctx context.Context, req dto.ProductC
 		Status:           req.Status,
 	}
 	// 若未传入名称，尝试从上游资源商品补全名称与规格快照（用于列表/详情展示）。
+	var cloneGroups []interface{}
 	if s.resourceReader != nil && req.SourceProductID > 0 {
 		if rp, err := s.resourceReader.FindByID(ctx, req.SourceProductID); err == nil {
 			if item.Name == "" || item.Name == item.Code {
@@ -361,6 +362,8 @@ func (s *productService) CloneFromUpstream(ctx context.Context, req dto.ProductC
 				specJSON, _ := json.Marshal(buildCloneBaseOptions(rp))
 				item.Specs = string(specJSON)
 			}
+			// 落上游 config_groups 到子表，供开通时优先读取（替代惰性解析 raw_specs）。
+			cloneGroups = extractConfigGroups(rp.RawSpecs)
 		}
 	}
 	if item.Stock == 0 {
@@ -371,6 +374,9 @@ func (s *productService) CloneFromUpstream(ctx context.Context, req dto.ProductC
 	}
 	if err := s.repo.Create(ctx, item); err != nil {
 		return nil, err
+	}
+	if len(cloneGroups) > 0 {
+		_ = s.repo.SaveConfigOptions(ctx, item.ID, cloneGroups)
 	}
 	s.repo.AddHistory(ctx, &model.ProductHistory{
 		ProductID: item.ID, ChangeType: model.ChangeTypeCreate,
@@ -398,12 +404,14 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 		name := ""
 		specs := ""
 		cost := 0.0
+		var groups []interface{}
 		if s.resourceReader != nil {
 			if rp, err := s.resourceReader.FindByID(ctx, pid); err == nil {
 				name = rp.Name
 				cost = rp.SalePrice // 上游售价作为成本基线
 				specJSON, _ := json.Marshal(buildCloneBaseOptions(rp))
 				specs = string(specJSON)
+				groups = extractConfigGroups(rp.RawSpecs)
 			}
 		}
 		item := &model.Product{
@@ -423,6 +431,9 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 		if err := s.repo.Create(ctx, item); err != nil {
 			// 单个失败不阻塞整批：记录后继续
 			continue
+		}
+		if len(groups) > 0 {
+			_ = s.repo.SaveConfigOptions(ctx, item.ID, groups)
 		}
 		s.repo.AddHistory(ctx, &model.ProductHistory{
 			ProductID: item.ID, ChangeType: model.ChangeTypeCreate,
@@ -482,7 +493,10 @@ func (s *productService) BuildProvisionRequest(ctx context.Context, productID ui
 				if rp.UpstreamID != "" {
 					opts["upstream_pid"] = rp.UpstreamID
 				}
-				if groups := extractConfigGroups(rp.RawSpecs); len(groups) > 0 {
+				// 优先读取子表（克隆时已落库的 config_groups），缺失回退惰性解析 raw_specs（Strangler-fig）。
+				if groups, gerr := s.repo.ConfigGroupsByProductID(ctx, item.ID); gerr == nil && len(groups) > 0 {
+					opts["config_groups"] = groups
+				} else if groups := extractConfigGroups(rp.RawSpecs); len(groups) > 0 {
 					opts["config_groups"] = groups
 				}
 			}

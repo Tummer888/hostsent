@@ -8,6 +8,7 @@ import (
 	"hostsent/backend/internal/modules/admin/finance/bill/dto"
 	transrepo "hostsent/backend/internal/modules/admin/finance/transaction/repository"
 	"hostsent/backend/internal/pkg/money"
+	"hostsent/backend/internal/pkg/observability"
 )
 
 // ReconService 对账能力：比对账务流水与钱包余额，检查账实相符。
@@ -39,6 +40,11 @@ func (s *reconService) Reconcile(ctx context.Context, period string) (*dto.Recon
 	status := "ok"
 	if math.Abs(diff) > 0.005 {
 		status = "suspicious"
+	}
+	// 观测：账务对账（T5.3）——正常/可疑计数。
+	observability.Inc("finance_reconcile_total", 1)
+	if status == "suspicious" {
+		observability.Inc("finance_reconcile_suspicious_total", 1)
 	}
 	return &dto.ReconcileResponse{
 		Period:        period,
