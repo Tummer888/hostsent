@@ -272,17 +272,6 @@ func (p *MoFangYunProvider) HealthCheck(ctx context.Context) error {
 	return err
 }
 
-// ListProducts 魔方云无商品目录概念：商品由计费系统定义，
-// 规格在开通时通过 CreateInstance 的 Extra（configoptions）映射为 /clouds 参数。
-func (p *MoFangYunProvider) ListProducts(ctx context.Context) ([]*model.StandardProduct, error) {
-	return nil, p.notSupported("ListProducts", "魔方云无商品目录，商品由计费系统（HostSent 产品模块）定义，规格通过创建实例的 Extra 映射")
-}
-
-// GetProduct 同 ListProducts：魔方云不提供商品目录。
-func (p *MoFangYunProvider) GetProduct(ctx context.Context, upstreamID string) (*model.StandardProduct, error) {
-	return nil, p.notSupported("GetProduct", "魔方云无商品目录，规格通过创建实例的 Extra 映射")
-}
-
 // CreateInstance 开通云主机。
 // 参考源码 createAccount()：先确保魔方云用户（POST /user + GET /user/check），
 // 再 POST /clouds 下发实例。规格参数通过 req.Extra 传递，键名与魔方云一致
@@ -412,11 +401,11 @@ func (p *MoFangYunProvider) RestartInstance(ctx context.Context, instanceID stri
 // （vnc_url=ws/wss + token + vnc_pass，需前端用 noVNC 连接，External=false）。
 func (p *MoFangYunProvider) VNC(ctx context.Context, instanceID string) (upstream.VNCResult, error) {
 	var resp struct {
-		VncURL         string `json:"vnc_url"`
-		VncURLHTTP     string `json:"vnc_url_http"`
-		VncURLHTTPS    string `json:"vnc_url_https"`
-		VncPass        string `json:"vnc_pass"`
-		Token          string `json:"token"`
+		VncURL      string `json:"vnc_url"`
+		VncURLHTTP  string `json:"vnc_url_http"`
+		VncURLHTTPS string `json:"vnc_url_https"`
+		VncPass     string `json:"vnc_pass"`
+		Token       string `json:"token"`
 	}
 	if err := p.call(ctx, "VNC", http.MethodGet, "/clouds/"+instanceID+"/vnc", nil, &resp); err != nil {
 		return upstream.VNCResult{}, err
@@ -558,10 +547,7 @@ func (p *MoFangYunProvider) ListPools(ctx context.Context) ([]*upstream.Standard
 	return pools, nil
 }
 
-// GetAccountInfo 魔方云为资源管理系统，无账户余额概念。
-func (p *MoFangYunProvider) GetAccountInfo(ctx context.Context) (*upstream.AccountInfo, error) {
-	return nil, p.notSupported("GetAccountInfo", "魔方云为资源管理系统，不提供账户余额信息")
-}
+// GetAccountInfo 魔方云为资源管理系统，无账户余额概念，本适配器不实现 AccountReader。
 
 // ensureCloudUser 确保魔方云侧用户存在并返回用户 ID（参考源码 createAccount 的建用户逻辑）。
 func (p *MoFangYunProvider) ensureCloudUser(ctx context.Context, opts map[string]string) (string, error) {
@@ -786,11 +772,6 @@ func jsonStr(m map[string]interface{}, key string) string {
 	default:
 		return fmt.Sprintf("%v", t)
 	}
-}
-
-// notSupported 返回能力不支持错误。
-func (p *MoFangYunProvider) notSupported(op, msg string) error {
-	return &upstream.ProviderError{Op: op, Msg: msg}
 }
 
 func firstNonEmpty(vals ...string) string {

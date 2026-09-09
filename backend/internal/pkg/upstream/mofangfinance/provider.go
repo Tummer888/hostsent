@@ -668,11 +668,6 @@ func (p *MoFangFinanceProvider) waitInstanceReady(ctx context.Context, instanceI
 	return inst, nil
 }
 
-// ListInstances 暂不支持：上游主机列表依赖资源型 resource/agenthosts 或下游订单映射。
-func (p *MoFangFinanceProvider) ListInstances(ctx context.Context, filters map[string]string) ([]*model.StandardInstance, error) {
-	return nil, p.notSupported("ListInstances", "请通过订单/主机模块按 host_id 逐台查询（host/header）")
-}
-
 // GetInstance 拉取上游云主机信息：GET host/header（host_id + source=API）。
 func (p *MoFangFinanceProvider) GetInstance(ctx context.Context, instanceID string) (*model.StandardInstance, error) {
 	var header HostHeader
@@ -758,27 +753,12 @@ func (p *MoFangFinanceProvider) VNC(ctx context.Context, instanceID string) (ups
 	return upstream.VNCResult{URL: resp.URL, Password: resp.Pass, External: resp.ZjmfCloudOut}, nil
 }
 
-// DeleteInstance 财务型上游不提供直接删除主机接口（由上游订单/推送流程管理）。
-func (p *MoFangFinanceProvider) DeleteInstance(ctx context.Context, instanceID string) error {
-	return p.notSupported("DeleteInstance", "财务型上游由上游订单流程管理主机删除，不提供直接删除接口")
-}
+// DeleteInstance / ResizeInstance / ListPools / GetAccountInfo 在「财务对接财务」模式下
+// 不由本适配器直接提供（删除/升降配走上游订单，魔方财务无资源池与账户资源统计），
+// 因此 MoFangFinanceProvider 不再实现 InstanceAdministration / PoolReader / AccountReader
+// 能力接口。消费方通过类型断言按需取用，失败即返回「上游不支持」。
 
-// ResizeInstance 财务型上游不提供直接升降配接口（走上游升降配订单）。
-func (p *MoFangFinanceProvider) ResizeInstance(ctx context.Context, instanceID string, specs *model.StandardProductSpec) error {
-	return p.notSupported("ResizeInstance", "财务型上游升降配需在上游创建升级订单，不提供直接接口")
-}
-
-// ListPools 魔方财务上游无资源池概念。
-func (p *MoFangFinanceProvider) ListPools(ctx context.Context) ([]*upstream.StandardPool, error) {
-	return nil, p.notSupported("ListPools", "魔方财务为账单系统，无资源池概念")
-}
-
-// GetAccountInfo 魔方财务上游无账户资源统计接口。
-func (p *MoFangFinanceProvider) GetAccountInfo(ctx context.Context) (*upstream.AccountInfo, error) {
-	return nil, p.notSupported("GetAccountInfo", "魔方财务上游不提供账户资源统计")
-}
-
-// notSupported 返回能力不支持错误。
+// notSupported 返回能力不支持错误（用于运行期分支：如资源型上游下的 GetProduct/CreateInstance）。
 func (p *MoFangFinanceProvider) notSupported(op, msg string) error {
 	return &upstream.ProviderError{Op: op, Msg: msg}
 }

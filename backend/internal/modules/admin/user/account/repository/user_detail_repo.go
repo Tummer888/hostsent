@@ -38,9 +38,16 @@ func (r *userDetailRepository) ListPermissionsByUserID(ctx context.Context, user
 	return items, err
 }
 
+// ListInstancesByUserID 改读权威表 instances（单一真相），映射为聚合视图所需字段。
+// 占位/冗余表 user_instances 将在 Phase 2 013 迁移中退役（先改服务，后退役表）。
 func (r *userDetailRepository) ListInstancesByUserID(ctx context.Context, userID uint64) ([]model.UserInstance, error) {
 	var items []model.UserInstance
-	err := r.db.WithContext(ctx).Where("user_id = ?", userID).Order("expire_at asc, id desc").Find(&items).Error
+	err := r.db.WithContext(ctx).
+		Table("instances").
+		Select("id, user_id, name, region, (cpu || '核/' || memory || 'M/' || disk || 'G') AS specs, status, COALESCE(expire_at, '1970-01-01 00:00:00+00'::timestamptz) AS expire_at").
+		Where("user_id = ?", userID).
+		Order("expire_at ASC, id DESC").
+		Scan(&items).Error
 	return items, err
 }
 
@@ -50,15 +57,28 @@ func (r *userDetailRepository) ListOrdersByUserID(ctx context.Context, userID ui
 	return items, err
 }
 
+// ListBillsByUserID 改读权威表 bills（单一真相）；user_bills 将在 014 迁移中退役。
 func (r *userDetailRepository) ListBillsByUserID(ctx context.Context, userID uint64) ([]model.UserBill, error) {
 	var items []model.UserBill
-	err := r.db.WithContext(ctx).Where("user_id = ?", userID).Order("billing_month desc, id desc").Find(&items).Error
+	err := r.db.WithContext(ctx).
+		Table("bills").
+		Select("id, user_id, period AS billing_month, total_amount AS amount, status, created_at").
+		Where("user_id = ?", userID).
+		Order("period DESC, id DESC").
+		Scan(&items).Error
 	return items, err
 }
 
+// ListTransactionsByUserID 改读权威流水表 wallet_transactions（单一真相）；
+// user_transactions 将在 014 迁移中退役。
 func (r *userDetailRepository) ListTransactionsByUserID(ctx context.Context, userID uint64) ([]model.UserTransaction, error) {
 	var items []model.UserTransaction
-	err := r.db.WithContext(ctx).Where("user_id = ?", userID).Order("created_at desc, id desc").Find(&items).Error
+	err := r.db.WithContext(ctx).
+		Table("wallet_transactions").
+		Select("id, user_id, tx_no AS txn_no, type, amount, created_at").
+		Where("user_id = ?", userID).
+		Order("created_at DESC, id DESC").
+		Scan(&items).Error
 	return items, err
 }
 

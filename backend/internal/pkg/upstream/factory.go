@@ -21,7 +21,8 @@ func (m *ProviderManager) Build(providerType string, config *ProviderConfig) (Pr
 
 	factory, ok := m.factories[providerType]
 	if !ok {
-		return nil, fmt.Errorf("provider factory %s not registered", providerType)
+		// 未注册类型给明确错误并列出已接入提供商，避免静默失败。
+		return nil, fmt.Errorf("provider factory %q 未注册（已接入: %v，请确认上游 provider_type 正确或该上游是否已实现）", providerType, m.registeredTypes())
 	}
 	return factory(config), nil
 }

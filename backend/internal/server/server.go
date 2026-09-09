@@ -94,21 +94,23 @@ import (
 	usercenterrepo "hostsent/backend/internal/modules/uc/auth/repository"
 	usercenterservice "hostsent/backend/internal/modules/uc/auth/service"
 	userfinancehandler "hostsent/backend/internal/modules/uc/finance/handler"
+	ucinstancehandler "hostsent/backend/internal/modules/uc/instance/handler"
+	ucinstancerepo "hostsent/backend/internal/modules/uc/instance/repository"
+	ucinstanceservice "hostsent/backend/internal/modules/uc/instance/service"
 	usermenuhandler "hostsent/backend/internal/modules/uc/menu/handler"
 	usermenurepo "hostsent/backend/internal/modules/uc/menu/repository"
 	usermenuservice "hostsent/backend/internal/modules/uc/menu/service"
 	ucorderhandler "hostsent/backend/internal/modules/uc/order/handler"
 	ucorderservice "hostsent/backend/internal/modules/uc/order/service"
-	ucinstancehandler "hostsent/backend/internal/modules/uc/instance/handler"
-	ucinstancerepo "hostsent/backend/internal/modules/uc/instance/repository"
-	ucinstanceservice "hostsent/backend/internal/modules/uc/instance/service"
 	ucproducthandler "hostsent/backend/internal/modules/uc/product/handler"
 	ucproductservice "hostsent/backend/internal/modules/uc/product/service"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/db"
+	apperrors "hostsent/backend/internal/pkg/errors"
 	"hostsent/backend/internal/pkg/model"
 	"hostsent/backend/internal/pkg/netutil"
+	"hostsent/backend/internal/pkg/observability"
 	"hostsent/backend/internal/pkg/upstream"
 	// 各上游适配器通过 init() 注册工厂，须在此空导入以触发注册。
 	_ "hostsent/backend/internal/pkg/upstream/mofangfinance"
@@ -225,8 +227,22 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	userMenuRepo := usermenurepo.NewMenuRepository(database)
 	userMenuService := usermenuservice.NewMenuService(userMenuRepo)
 	userMenuHandler := usermenuhandler.NewMenuHandler(userMenuService)
-	// 用户中心财务：复用账务核心/充值/账单服务，仅暴露用户自助接口
-	userFinanceHandler := userfinancehandler.NewFinanceHandler(walletService, rechargeService, billService)
+	// 用户中心财务：复用账务核心/充值/账单服务，仅暴露用户自助接口；
+	// 错误码映射由本装配层提供（uc 不依赖 admin 的错误变量）。
+	userFinanceHandler := userfinancehandler.NewFinanceHandler(walletService, rechargeService, billService,
+		func(err error) *apperrors.AppError {
+			switch {
+			case errors.Is(err, finaccountservice.ErrWalletNotFound):
+				return apperrors.New(20002, err.Error())
+			case errors.Is(err, finaccountservice.ErrInsufficientBalance):
+				return apperrors.New(30001, err.Error())
+			case errors.Is(err, finaccountservice.ErrStatusConflict):
+				return apperrors.New(20003, err.Error())
+			default:
+				return apperrors.New(50001, err.Error())
+			}
+		},
+	)
 	providerService := providerservice.NewProviderService(providerRepo, poolRepo, upstreamMgr, cfg.App.EncryptKey)
 	productService := productservice.NewProductService(productRepo)
 	syncEngine := syncservice.NewSyncEngine(upstreamMgr, providerService, productRepo, poolRepo, providerRepo, syncRepo, logger)
@@ -262,30 +278,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	prodCatalogService := catalogservice.NewProductService(prodCatalogRepo, productRepo)
 	prodCatalogHandler := cataloghandler.NewProductHandler(prodCatalogService)
 	// 订单履约：上游开通适配器（打通订单 paid/provisioning → 上游创建实例）
-	orderService := orderservice.NewOrderService(orderRepo, orderItemRepo, orderRefundRepo, orderservice.NewUpstreamProvisionAdapter(orderservice.ProvisionDeps{
-		BuildProvisionRequest: func(ctx context.Context, productID uint64, name string) (interface{}, error) {
-			return prodCatalogService.BuildProvisionRequest(ctx, productID, name)
-		},
-		BuildProviderConfig: providerService.BuildProviderConfig,
-		CreateInstance: func(ctx context.Context, cfg *upstream.ProviderConfig, req *model.CreateInstanceRequest) (*model.StandardInstance, error) {
-			provider, err := upstreamMgr.Build(cfg.Type, cfg)
-			if err != nil {
-				return nil, err
-			}
-			return provider.CreateInstance(ctx, req)
-		},
-		RecordInstance: func(ctx context.Context, inst *model.StandardInstance, order *ordermodel.Order) error {
-			row := buildRecordedInstance(inst, order)
-			if row.InstanceID == "" {
-				return nil
-			}
-			return syncRepo.UpsertInstances(ctx, []syncmodel.Instance{row})
-		},
-		HasInstance: func(ctx context.Context, userID, productID uint64) (bool, error) {
-			n, err := syncRepo.CountInstancesByProductUser(ctx, userID, productID)
-			return n > 0, err
-		},
-	}))
+	orderService := orderservice.NewOrderService(orderRepo, orderItemRepo, orderRefundRepo, orderservice.NewUpstreamProvisionAdapter(buildOrderProvisionDeps(prodCatalogService, providerService, upstreamMgr, syncRepo)))
 	orderHandler := orderhandler.NewOrderHandler(orderService)
 	userHandler := handler.NewUserHandler(userService,
 		// 为用户创建订单：余额支付并开通，或仅创建待支付
@@ -357,35 +350,13 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 用户中心订单：余额支付下单 + 复用履约适配器开通上游
 	// ensureOpenable：下单前校验商品能否直连开通，财务型上游（账单推送制）不支持单次开通，先拒绝避免误扣款。
 	ucOrderService := ucorderservice.NewOrderService(prodCatalogService, walletService, orderRepo, orderService,
-		func(ctx context.Context, productID uint64) error {
-			preq, err := prodCatalogService.BuildProvisionRequest(ctx, productID, "")
-			if err != nil {
-				return err
-			}
-			if preq == nil || preq.ProviderID == 0 {
-				return errors.New("该商品未绑定上游，暂不可在线购买")
-			}
-			cfg, err := providerService.BuildProviderConfig(ctx, preq.ProviderID)
-			if err != nil {
-				return errors.New("该商品上游配置不可用，暂不可购买")
-			}
-			// 财务型上游（mofangfinance）现已支持下游下单开通，不再拦截。
-			_ = cfg
-			return nil
-		},
+		buildEnsureOpenable(prodCatalogService, providerService),
+		func(err error) bool { return errors.Is(err, finaccountservice.ErrInsufficientBalance) },
 	)
 	ucOrderHandler := ucorderhandler.NewOrderHandler(ucOrderService)
 	// 用户中心主机管理：列表/详情/电源/VNC（复用上游适配器）
 	ucInstanceRepo := ucinstancerepo.NewInstanceRepository(database)
-	ucInstanceService := ucinstanceservice.NewInstanceService(ucInstanceRepo,
-		func(ctx context.Context, providerID uint64) (upstream.Provider, error) {
-			cfg, err := providerService.BuildProviderConfig(ctx, providerID)
-			if err != nil {
-				return nil, err
-			}
-			return upstreamMgr.Build(cfg.Type, cfg)
-		},
-	)
+	ucInstanceService := ucinstanceservice.NewInstanceService(ucInstanceRepo, buildProviderResolver(providerService, upstreamMgr))
 	ucInstanceHandler := ucinstancehandler.NewInstanceHandler(ucInstanceService)
 	// 规格管理（spec 子域）
 	specTemplateRepo := specrepo.NewSpecTemplateRepository(database)
@@ -446,6 +417,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		if order == nil {
 			return
 		}
+		observability.Inc("order_paid_total", 1)
 		if order.RenewalID != 0 {
 			if err := lifecycleRenewalSvc.CompleteRenewalByOrderID(ctx, order.ID); err != nil {
 				logger.Error("lifecycle: complete renewal by order failed", zap.Uint64("order_id", order.ID), zap.Error(err))
@@ -461,7 +433,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 			SourceID:     order.OrderNo,
 		})
 	}
-	router := newRouter(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, promotionHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, logger, jwtIssuer)
+	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, promotionHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, logger, jwtIssuer)
+	router := newRouter(app)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 

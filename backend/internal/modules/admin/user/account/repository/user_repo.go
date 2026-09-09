@@ -103,7 +103,7 @@ func (r *userRepository) List(ctx context.Context, query dto.UserListQuery) ([]m
 		Joins("LEFT JOIN user_groups ON user_groups.id = users.user_group_id").
 		Joins(`LEFT JOIN (
 			SELECT user_id, COALESCE(SUM(ABS(amount)), 0) AS total_consume_amount
-			FROM user_transactions
+			FROM wallet_transactions
 			WHERE type = ?
 			GROUP BY user_id
 		) AS consume_stats ON consume_stats.user_id = users.id`, "consume").

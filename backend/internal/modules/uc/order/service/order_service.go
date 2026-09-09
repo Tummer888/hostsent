@@ -9,12 +9,10 @@ import (
 	"time"
 
 	accountdto "hostsent/backend/internal/modules/admin/finance/account/dto"
-	accountservice "hostsent/backend/internal/modules/admin/finance/account/service"
+	transdto "hostsent/backend/internal/modules/admin/finance/transaction/dto"
 	orderdto "hostsent/backend/internal/modules/admin/order/dto"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
-	orderrepo "hostsent/backend/internal/modules/admin/order/repository"
-	orderservice "hostsent/backend/internal/modules/admin/order/service"
-	catalogservice "hostsent/backend/internal/modules/admin/product/catalog/service"
+	catalogdto "hostsent/backend/internal/modules/admin/product/catalog/dto"
 
 	"hostsent/backend/internal/modules/uc/order/dto"
 )
@@ -28,6 +26,27 @@ var (
 	ErrProvisionFailed = errors.New("开通资源失败，已扣款，可稍后重试")
 )
 
+// 以下为装配层注入的最小暴露接口（仅声明 uc 真正用到的方法，避免依赖 admin 的 service 层）。
+type (
+	// productReader 商品读取（catalog.FindByID）。
+	productReader interface {
+		FindByID(ctx context.Context, id uint64) (*catalogdto.ProductInfo, error)
+	}
+	// walletPort 账务调整（余额扣款）。
+	walletPort interface {
+		Adjust(ctx context.Context, req accountdto.AdjustRequest, operatorID uint64) (*transdto.TransactionInfo, error)
+	}
+	// orderRepoPort 订单仓储读写。
+	orderRepoPort interface {
+		Create(ctx context.Context, item *ordermodel.Order) error
+		List(ctx context.Context, query orderdto.OrderListQuery) ([]ordermodel.Order, int64, error)
+	}
+	// orderActivator 订单履约开通（Activate）。
+	orderActivator interface {
+		Activate(ctx context.Context, id uint64) error
+	}
+)
+
 // OrderService 用户中心订单业务能力。
 type OrderService interface {
 	// Create 用户下单（余额支付 + 开通上游）。
@@ -37,22 +56,24 @@ type OrderService interface {
 }
 
 type orderService struct {
-	catalog        catalogservice.ProductService
-	wallet         accountservice.WalletService
-	orderRepo      orderrepo.OrderRepository
-	orderSvc       orderservice.OrderService                         // 用于履约开通（Activate）
+	catalog        productReader
+	wallet         walletPort
+	orderRepo      orderRepoPort
+	orderSvc       orderActivator
 	ensureOpenable func(ctx context.Context, productID uint64) error // 校验商品是否可即时开通（避免误扣款）
+	isBalanceErr   func(error) bool                                  // 余额不足判定（由装配层提供，避免依赖 admin 错误变量）
 }
 
 // NewOrderService 创建用户中心订单服务。
 func NewOrderService(
-	catalog catalogservice.ProductService,
-	wallet accountservice.WalletService,
-	orderRepo orderrepo.OrderRepository,
-	orderSvc orderservice.OrderService,
+	catalog productReader,
+	wallet walletPort,
+	orderRepo orderRepoPort,
+	orderSvc orderActivator,
 	ensureOpenable func(ctx context.Context, productID uint64) error,
+	isBalanceErr func(error) bool,
 ) OrderService {
-	return &orderService{catalog: catalog, wallet: wallet, orderRepo: orderRepo, orderSvc: orderSvc, ensureOpenable: ensureOpenable}
+	return &orderService{catalog: catalog, wallet: wallet, orderRepo: orderRepo, orderSvc: orderSvc, ensureOpenable: ensureOpenable, isBalanceErr: isBalanceErr}
 }
 
 // Create 用户下单：校验商品 → 余额扣款 → 创建已支付订单 → 触发上游开通。
@@ -91,7 +112,7 @@ func (s *orderService) Create(ctx context.Context, userID uint64, req dto.Create
 		BizKey:    fmt.Sprintf("uc-order-%d-%d", userID, time.Now().UnixNano()),
 		Remark:    fmt.Sprintf("购买云主机：%s", product.Name),
 	}, userID); err != nil {
-		if errors.Is(err, accountservice.ErrInsufficientBalance) {
+		if s.isBalanceErr != nil && s.isBalanceErr(err) {
 			return nil, ErrInsufficientBalance
 		}
 		return nil, err

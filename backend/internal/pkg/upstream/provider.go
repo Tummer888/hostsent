@@ -11,34 +11,55 @@ import (
 	"hostsent/backend/internal/pkg/model"
 )
 
-// Provider 上游提供商统一接口
+// Provider 上游提供商统一接口 —— 仅保留全适配器共有的最小能力。
 type Provider interface {
 	// 基础信息
 	GetType() string
 	GetName() string
 	HealthCheck(ctx context.Context) error
+}
 
-	// 商品管理
+// ProductCatalog 商品目录读取能力。
+type ProductCatalog interface {
 	ListProducts(ctx context.Context) ([]*model.StandardProduct, error)
 	GetProduct(ctx context.Context, upstreamID string) (*model.StandardProduct, error)
+}
 
-	// 实例管理
+// InstanceProvisioning 实例开通能力（下单/创建实例）。
+type InstanceProvisioning interface {
 	CreateInstance(ctx context.Context, req *model.CreateInstanceRequest) (*model.StandardInstance, error)
-	ListInstances(ctx context.Context, filters map[string]string) ([]*model.StandardInstance, error)
+}
+
+// InstanceControl 实例电源与查询能力（详情/开机/关机/重启/控制台）。
+type InstanceControl interface {
 	GetInstance(ctx context.Context, instanceID string) (*model.StandardInstance, error)
 	StartInstance(ctx context.Context, instanceID string) error
 	StopInstance(ctx context.Context, instanceID string, force bool) error
 	RestartInstance(ctx context.Context, instanceID string) error
+	VNC(ctx context.Context, instanceID string) (VNCResult, error)
+}
+
+// InstanceAdministration 实例管理与维护能力（列表/删除/升降配）。
+type InstanceAdministration interface {
+	ListInstances(ctx context.Context, filters map[string]string) ([]*model.StandardInstance, error)
 	DeleteInstance(ctx context.Context, instanceID string) error
 	ResizeInstance(ctx context.Context, instanceID string, specs *model.StandardProductSpec) error
+}
 
-	// VNC 获取实例远程控制台地址（返回可直接打开的 URL）。
-	VNC(ctx context.Context, instanceID string) (VNCResult, error)
+// InstanceLifecycle 实例全生命周期能力：开通 + 电源控制 + 管理维护的组合。
+type InstanceLifecycle interface {
+	InstanceProvisioning
+	InstanceControl
+	InstanceAdministration
+}
 
-	// 资源池管理
+// PoolReader 资源池读取能力。
+type PoolReader interface {
 	ListPools(ctx context.Context) ([]*StandardPool, error)
+}
 
-	// 账户信息
+// AccountReader 账户信息读取能力。
+type AccountReader interface {
 	GetAccountInfo(ctx context.Context) (*AccountInfo, error)
 }
 
@@ -63,7 +84,8 @@ type ProviderConfig struct {
 }
 
 // StandardPool 统一资源池
-type StandardPool struct {	ID          string `json:"id"`
+type StandardPool struct {
+	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Type        string `json:"type"` // region/zone/cluster
 	TotalCPU    int    `json:"total_cpu"`

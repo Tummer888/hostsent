@@ -3,29 +3,14 @@ package upstream
 import (
 	"context"
 	"testing"
-
-	"hostsent/backend/internal/pkg/model"
 )
 
-// mockProvider 用于测试管理器注册/查询逻辑的占位 Provider。
+// mockProvider 用于测试管理器注册/查询逻辑的占位 Provider（仅实现最小公共能力）。
 type mockProvider struct{}
 
-func (m *mockProvider) GetType() string { return "mock" }
-func (m *mockProvider) GetName() string { return "mock" }
+func (m *mockProvider) GetType() string                   { return "mock" }
+func (m *mockProvider) GetName() string                   { return "mock" }
 func (m *mockProvider) HealthCheck(context.Context) error { return nil }
-func (m *mockProvider) ListProducts(context.Context) ([]*model.StandardProduct, error) { return nil, nil }
-func (m *mockProvider) GetProduct(context.Context, string) (*model.StandardProduct, error) { return nil, nil }
-func (m *mockProvider) CreateInstance(context.Context, *model.CreateInstanceRequest) (*model.StandardInstance, error) { return nil, nil }
-func (m *mockProvider) ListInstances(context.Context, map[string]string) ([]*model.StandardInstance, error) { return nil, nil }
-func (m *mockProvider) GetInstance(context.Context, string) (*model.StandardInstance, error) { return nil, nil }
-func (m *mockProvider) StartInstance(context.Context, string) error { return nil }
-func (m *mockProvider) StopInstance(context.Context, string, bool) error { return nil }
-func (m *mockProvider) RestartInstance(context.Context, string) error { return nil }
-func (m *mockProvider) DeleteInstance(context.Context, string) error { return nil }
-func (m *mockProvider) ResizeInstance(context.Context, string, *model.StandardProductSpec) error { return nil }
-func (m *mockProvider) VNC(context.Context, string) (VNCResult, error) { return VNCResult{}, nil }
-func (m *mockProvider) ListPools(context.Context) ([]*StandardPool, error) { return nil, nil }
-func (m *mockProvider) GetAccountInfo(context.Context) (*AccountInfo, error) { return nil, nil }
 
 func TestProviderManagerRegisterAndGet(t *testing.T) {
 	mgr := &ProviderManager{

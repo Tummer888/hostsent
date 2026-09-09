@@ -103,3 +103,13 @@ func (m *ProviderManager) ListProviders() []string {
 	}
 	return types
 }
+
+// registeredTypes 返回已注册工厂的类型列表（供 Build 报错时提示可用上游）。
+// 调用方需已持有 m.mu（读锁或写锁），本方法不加锁。
+func (m *ProviderManager) registeredTypes() []string {
+	types := make([]string, 0, len(m.factories))
+	for t := range m.factories {
+		types = append(types, t)
+	}
+	return types
+}

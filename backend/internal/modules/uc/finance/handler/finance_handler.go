@@ -1,38 +1,51 @@
 // Package handler 提供用户中心财务模块的 HTTP 接口。
 // 用户自助只能访问自身账户数据，user_id 一律取自鉴权上下文，不能由前端指定。
+//
+// 本处理器不直接依赖 admin 的 finance service 层：账务/充值/账单能力与错误码映射
+// 由装配层以最小接口与闭包注入（见 NewFinanceHandler），保持 uc 与 admin 服务层解耦。
 package handler
 
 import (
-	"errors"
+	"context"
 
 	"github.com/gin-gonic/gin"
 
-	accountservice "hostsent/backend/internal/modules/admin/finance/account/service"
+	accountdto "hostsent/backend/internal/modules/admin/finance/account/dto"
 	billdto "hostsent/backend/internal/modules/admin/finance/bill/dto"
-	billservice "hostsent/backend/internal/modules/admin/finance/bill/service"
 	finrechdto "hostsent/backend/internal/modules/admin/finance/recharge/dto"
 	finrechmodel "hostsent/backend/internal/modules/admin/finance/recharge/model"
-	rechservice "hostsent/backend/internal/modules/admin/finance/recharge/service"
 	transdto "hostsent/backend/internal/modules/admin/finance/transaction/dto"
 	apperrors "hostsent/backend/internal/pkg/errors"
 	"hostsent/backend/internal/pkg/middleware"
 	"hostsent/backend/internal/pkg/response"
 )
 
+// 以下为装配层注入的最小财务能力接口（仅声明本模块真正用到的方法）。
+type (
+	walletPort interface {
+		Balance(ctx context.Context, userID uint64) (*accountdto.WalletInfo, error)
+		ListTransactions(ctx context.Context, query transdto.TransactionListQuery) (*transdto.TransactionListResponse, error)
+	}
+	rechargePort interface {
+		Create(ctx context.Context, req finrechdto.RechargeCreateRequest, operatorID uint64) (*finrechdto.RechargeInfo, error)
+		ApproveByNo(ctx context.Context, rechargeNo string, req finrechdto.RechargeApproveRequest, operatorID uint64) (*finrechdto.RechargeInfo, error)
+	}
+	billPort interface {
+		List(ctx context.Context, query billdto.BillListQuery) (*billdto.BillListResponse, error)
+	}
+)
+
 // FinanceHandler 用户中心财务 HTTP 处理器。
 type FinanceHandler struct {
-	walletService   accountservice.WalletService
-	rechargeService rechservice.RechargeService
-	billService     billservice.BillService
+	wallet   walletPort
+	recharge rechargePort
+	bill     billPort
+	mapErr   func(error) *apperrors.AppError // 财务域错误映射（由装配层提供，避免依赖 admin 错误变量）
 }
 
 // NewFinanceHandler 创建用户中心财务处理器。
-func NewFinanceHandler(walletService accountservice.WalletService, rechargeService rechservice.RechargeService, billService billservice.BillService) *FinanceHandler {
-	return &FinanceHandler{
-		walletService:   walletService,
-		rechargeService: rechargeService,
-		billService:     billService,
-	}
+func NewFinanceHandler(wallet walletPort, recharge rechargePort, bill billPort, mapErr func(error) *apperrors.AppError) *FinanceHandler {
+	return &FinanceHandler{wallet: wallet, recharge: recharge, bill: bill, mapErr: mapErr}
 }
 
 // rechargeCallbackRequest 充值渠道回调请求。
@@ -49,20 +62,6 @@ func currentUserID(c *gin.Context) (uint64, bool) {
 		return 0, false
 	}
 	return claims.UserID, true
-}
-
-// mapErr 将财务域错误映射为统一错误码。
-func mapErr(err error) *apperrors.AppError {
-	switch {
-	case errors.Is(err, accountservice.ErrWalletNotFound):
-		return apperrors.New(20002, err.Error())
-	case errors.Is(err, accountservice.ErrInsufficientBalance):
-		return apperrors.New(30001, err.Error())
-	case errors.Is(err, accountservice.ErrStatusConflict):
-		return apperrors.New(20003, err.Error())
-	default:
-		return apperrors.New(50001, err.Error())
-	}
 }
 
 // unauthorized 用户未登录。
@@ -82,9 +81,9 @@ func (h *FinanceHandler) Balance(c *gin.Context) {
 		unauthorized(c)
 		return
 	}
-	resp, err := h.walletService.Balance(c.Request.Context(), userID)
+	resp, err := h.wallet.Balance(c.Request.Context(), userID)
 	if err != nil {
-		response.Error(c, mapErr(err))
+		response.Error(c, h.mapErr(err))
 		return
 	}
 	response.Success(c, resp)
@@ -112,9 +111,9 @@ func (h *FinanceHandler) Transactions(c *gin.Context) {
 		return
 	}
 	query.UserID = userID // 仅能查自己的流水
-	resp, err := h.walletService.ListTransactions(c.Request.Context(), query)
+	resp, err := h.wallet.ListTransactions(c.Request.Context(), query)
 	if err != nil {
-		response.Error(c, mapErr(err))
+		response.Error(c, h.mapErr(err))
 		return
 	}
 	response.Success(c, resp)
@@ -139,10 +138,10 @@ func (h *FinanceHandler) CreateRecharge(c *gin.Context) {
 		return
 	}
 	req.UserID = userID // 只能给自己充值
-	resp, err := h.rechargeService.Create(c.Request.Context(), req, userID)
+	resp, err := h.recharge.Create(c.Request.Context(), req, userID)
 
 	if err != nil {
-		response.Error(c, mapErr(err))
+		response.Error(c, h.mapErr(err))
 		return
 	}
 	response.Success(c, resp)
@@ -170,9 +169,9 @@ func (h *FinanceHandler) Bills(c *gin.Context) {
 		return
 	}
 	query.UserID = userID // 仅能查自己的账单
-	resp, err := h.billService.List(c.Request.Context(), query)
+	resp, err := h.bill.List(c.Request.Context(), query)
 	if err != nil {
-		response.Error(c, mapErr(err))
+		response.Error(c, h.mapErr(err))
 		return
 	}
 	response.Success(c, resp)
@@ -195,11 +194,11 @@ func (h *FinanceHandler) RechargeCallback(c *gin.Context) {
 		response.Success(c, gin.H{"handled": true, "status": req.Status})
 		return
 	}
-	_, err := h.rechargeService.ApproveByNo(c.Request.Context(), req.RechargeNo, finrechdto.RechargeApproveRequest{
+	_, err := h.recharge.ApproveByNo(c.Request.Context(), req.RechargeNo, finrechdto.RechargeApproveRequest{
 		ChannelTx: req.ChannelTx,
 	}, 0)
 	if err != nil {
-		response.Error(c, mapErr(err))
+		response.Error(c, h.mapErr(err))
 		return
 	}
 	response.Success(c, gin.H{"handled": true, "status": finrechmodel.RechargeStatusSuccess})

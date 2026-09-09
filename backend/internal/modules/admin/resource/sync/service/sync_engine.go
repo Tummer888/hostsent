@@ -17,6 +17,7 @@ import (
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	syncrepo "hostsent/backend/internal/modules/admin/resource/sync/repository"
 	pkgmodel "hostsent/backend/internal/pkg/model"
+	"hostsent/backend/internal/pkg/observability"
 	"hostsent/backend/internal/pkg/upstream"
 )
 
@@ -130,11 +131,11 @@ func (e *SyncEngine) RunTask(ctx context.Context, taskID uint64) {
 	var runErr error
 	switch task.TaskType {
 	case TaskTypeProduct:
-		runErr = e.syncProducts(ctx, task)
+		runErr = observability.Timed("sync_"+TaskTypeProduct, func() error { return e.syncProducts(ctx, task) })
 	case TaskTypePool:
-		runErr = e.syncPools(ctx, task)
+		runErr = observability.Timed("sync_"+TaskTypePool, func() error { return e.syncPools(ctx, task) })
 	case TaskTypeInstance:
-		runErr = e.syncInstances(ctx, task)
+		runErr = observability.Timed("sync_"+TaskTypeInstance, func() error { return e.syncInstances(ctx, task) })
 	default:
 		runErr = fmt.Errorf("未知同步类型 %q", task.TaskType)
 	}
@@ -159,7 +160,11 @@ func (e *SyncEngine) syncProducts(ctx context.Context, task *syncmodel.SyncTask)
 	if err != nil {
 		return err
 	}
-	items, err := provider.ListProducts(ctx)
+	catalog, ok := provider.(upstream.ProductCatalog)
+	if !ok {
+		return upstream.ErrNotImplemented{}
+	}
+	items, err := catalog.ListProducts(ctx)
 	if err != nil {
 		return err
 	}
@@ -182,7 +187,11 @@ func (e *SyncEngine) syncPools(ctx context.Context, task *syncmodel.SyncTask) er
 	if err != nil {
 		return err
 	}
-	pools, err := provider.ListPools(ctx)
+	poolReader, ok := provider.(upstream.PoolReader)
+	if !ok {
+		return upstream.ErrNotImplemented{}
+	}
+	pools, err := poolReader.ListPools(ctx)
 	if err != nil {
 		return err
 	}
@@ -214,7 +223,11 @@ func (e *SyncEngine) syncInstances(ctx context.Context, task *syncmodel.SyncTask
 	if err != nil {
 		return err
 	}
-	items, err := provider.ListInstances(ctx, nil)
+	admin, ok := provider.(upstream.InstanceAdministration)
+	if !ok {
+		return upstream.ErrNotImplemented{}
+	}
+	items, err := admin.ListInstances(ctx, nil)
 	if err != nil {
 		return err
 	}

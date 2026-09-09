@@ -35,20 +35,20 @@ const StatusPaidSuccess = 1001
 // HostHeader 下游拉取上游云主机信息（host/header 的 data.host_data）
 type HostHeader struct {
 	HostData struct {
-		ID           int64  `json:"id"`
-		Domain       string `json:"domain"`      // 主机名
-		Username     string `json:"username"`    // 系统用户
+		ID           int64      `json:"id"`
+		Domain       string     `json:"domain"`      // 主机名
+		Username     string     `json:"username"`    // 系统用户
 		DedicatedIP  string     `json:"dedicatedip"` // 主 IP
 		AssignedIPs  StringList `json:"assignedips"` // 附加 IP（可能为逗号字符串或数组）
 		Port         string     `json:"port"`
-		OS           string `json:"os"`
-		DomainStatus string `json:"domainstatus"` // Active/Pending/Suspended/...
-		NextDueDate  int64  `json:"nextduedate"`
-		ProductID    int64  `json:"productid"`
-		ProductName  string `json:"productname"`
-		UpstreamCost string `json:"upstream_cost"`
-		DcimID       int64  `json:"dcimid"`
-		InvoiceID    int64  `json:"invoice_id"`
+		OS           string     `json:"os"`
+		DomainStatus string     `json:"domainstatus"` // Active/Pending/Suspended/...
+		NextDueDate  int64      `json:"nextduedate"`
+		ProductID    int64      `json:"productid"`
+		ProductName  string     `json:"productname"`
+		UpstreamCost string     `json:"upstream_cost"`
+		DcimID       int64      `json:"dcimid"`
+		InvoiceID    int64      `json:"invoice_id"`
 	} `json:"host_data"`
 }
 
@@ -165,63 +165,7 @@ type OpenapiProdetailResp struct {
 	Detail map[string]UpstreamProductDetail `json:"detail"`
 }
 
-// ===== openapi（v1）对外商品接口响应结构 =====
-// 下游对接上游财务的正式开放接口：
-//   - GET v1/products            商品列表（含售价 product_price + 一级/二级分类）
-//   - GET v1/productsconfig      商品配置（含 configoptions 开通规格），可按 first_group_id/group_id/product_id 过滤
-
-// OpenapiProductsResp GET v1/products 响应 data。
-type OpenapiProductsResp struct {
-	FirstGroup []OpenapiFirstGroup `json:"first_group"`
-	Currency   json.RawMessage     `json:"currency"` // 货币信息（对象/数组，暂不消费）
-}
-
-// OpenapiFirstGroup 一级商品分类（first_group）。
-type OpenapiFirstGroup struct {
-	ID    int64          `json:"id"`
-	Name  string         `json:"name"`
-	Group []OpenapiGroup `json:"group"`
-}
-
-// OpenapiGroup 二级商品分类（product_groups）。
-type OpenapiGroup struct {
-	ID       int64            `json:"id"`
-	Name     string           `json:"name"`
-	Products []OpenapiProduct `json:"products"`
-}
-
-// OpenapiProduct 可购商品条目（getList() 字段，含上游售价 product_price）。
-type OpenapiProduct struct {
-	ID                 int64           `json:"id"`
-	Name               string          `json:"name"`
-	Type               string          `json:"type"`
-	Description        string          `json:"description"`
-	ProductPrice       json.RawMessage `json:"product_price"` // 上游售价（当前计费周期，可能为字符串）
-	SetupFee           json.RawMessage `json:"setup_fee"`     // 初装费（可能为字符串）
-	BillingCycle       string          `json:"billingcycle"`  // monthly/quarterly/onetime/free...
-	UpstreamPriceType  string          `json:"upstream_price_type"`
-	UpstreamPriceValue float64         `json:"upstream_price_value"`
-	PayType            json.RawMessage `json:"pay_type"`
-	Qty                int             `json:"qty"`
-	StockControl       int             `json:"stock_control"`
-}
-
-// OpenapiProductsConfigResp GET v1/productsconfig 响应 data。
-type OpenapiProductsConfigResp struct {
-	FirstGroup []struct {
-		Group []struct {
-			ID       int64                  `json:"id"`
-			Name     string                 `json:"name"`
-			Products []OpenapiProductConfig `json:"products"`
-		} `json:"group"`
-	} `json:"first_group"`
-}
-
-// OpenapiProductConfig 商品配置（含 configoptions 规格）。
-type OpenapiProductConfig struct {
-	ID            int64                    `json:"id"`
-	Name          string                   `json:"name"`
-	ConfigOptions []ConfigOption           `json:"configoptions"`
-	CustomFields  []map[string]interface{} `json:"custom_fields"`
-	Cycle         []map[string]interface{} `json:"cycle"`
-}
+// 说明：v1/products 与 v1/productsconfig 这一整套旧版 "openapi v1" 对外商品接口
+// 响应结构（OpenapiProductsResp/OpenapiFirstGroup/OpenapiGroup/OpenapiProduct/
+// OpenapiProductsConfigResp/OpenapiProductConfig）已被 api/product/proinfo 与
+// api/product/prodetail 取代且无任何消费方引用，故删除。见 00 规划 Phase 0 T0.1。

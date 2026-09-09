@@ -5,48 +5,16 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 
-	finaccounthandler "hostsent/backend/internal/modules/admin/finance/account/handler"
-	finbillhandler "hostsent/backend/internal/modules/admin/finance/bill/handler"
-	finrechargehandler "hostsent/backend/internal/modules/admin/finance/recharge/handler"
-	finwithdrawhandler "hostsent/backend/internal/modules/admin/finance/withdraw/handler"
-	lifecyclehandler "hostsent/backend/internal/modules/admin/lifecycle/handler"
-	adminhandler "hostsent/backend/internal/modules/admin/manager/handler"
-	menuhandler "hostsent/backend/internal/modules/admin/menu/handler"
-	notifyhandler "hostsent/backend/internal/modules/admin/notification/handler"
-	orderhandler "hostsent/backend/internal/modules/admin/order/handler"
-	cataloghandler "hostsent/backend/internal/modules/admin/product/catalog/handler"
-	categoryhandler "hostsent/backend/internal/modules/admin/product/category/handler"
-	pricinghandler "hostsent/backend/internal/modules/admin/product/pricing/handler"
-	promotionhandler "hostsent/backend/internal/modules/admin/product/promotion/handler"
-	spechandler "hostsent/backend/internal/modules/admin/product/spec/handler"
-	producthandler "hostsent/backend/internal/modules/admin/resource/product/handler"
-	providerhandler "hostsent/backend/internal/modules/admin/resource/provider/handler"
-	synchandler "hostsent/backend/internal/modules/admin/resource/sync/handler"
-	systemhandler "hostsent/backend/internal/modules/admin/system/handler"
-	tickethandler "hostsent/backend/internal/modules/admin/ticket/handler"
-	"hostsent/backend/internal/modules/admin/user/account/handler"
-	distributionhandler "hostsent/backend/internal/modules/admin/user/distribution/handler"
-	quotahandler "hostsent/backend/internal/modules/admin/user/quota/handler"
-	securityhandler "hostsent/backend/internal/modules/admin/user/security/handler"
-	verificationhandler "hostsent/backend/internal/modules/admin/user/verification/handler"
-	usercenterhandler "hostsent/backend/internal/modules/uc/auth/handler"
-	userfinancehandler "hostsent/backend/internal/modules/uc/finance/handler"
-	usermenuhandler "hostsent/backend/internal/modules/uc/menu/handler"
-	ucorderhandler "hostsent/backend/internal/modules/uc/order/handler"
-	ucinstancehandler "hostsent/backend/internal/modules/uc/instance/handler"
-	ucproducthandler "hostsent/backend/internal/modules/uc/product/handler"
-	appauth "hostsent/backend/internal/pkg/auth"
-	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/middleware"
+	"hostsent/backend/internal/pkg/observability"
 )
 
-func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, providerHandler *providerhandler.ProviderHandler, productHandler *producthandler.ProductHandler, syncHandler *synchandler.SyncHandler, userCenterAuthHandler *usercenterhandler.AuthHandler, userMenuHandler *usermenuhandler.MenuHandler, prodCategoryHandler *categoryhandler.CategoryHandler, prodCatalogHandler *cataloghandler.ProductHandler, specHandler *spechandler.SpecHandler, pricingHandler *pricinghandler.PricingHandler, promotionHandler *promotionhandler.PromotionHandler, orderHandler *orderhandler.OrderHandler, refundHandler *orderhandler.RefundHandler, walletHandler *finaccounthandler.WalletHandler, rechargeHandler *finrechargehandler.RechargeHandler, withdrawHandler *finwithdrawhandler.WithdrawHandler, billHandler *finbillhandler.BillHandler, reconHandler *finbillhandler.ReconHandler, configHandler *systemhandler.ConfigHandler, userFinanceHandler *userfinancehandler.FinanceHandler, ucProductHandler *ucproducthandler.ProductHandler, ucOrderHandler *ucorderhandler.OrderHandler, ucInstanceHandler *ucinstancehandler.InstanceHandler, ticketHandler *tickethandler.TicketHandler, ticketCategoryHandler *tickethandler.CategoryHandler, userTicketHandler *tickethandler.UserTicketHandler, expiringHandler *lifecyclehandler.ExpiringHandler, lifecycleAdminHandler *lifecyclehandler.LifecycleAdminHandler, lifecycleUserHandler *lifecyclehandler.LifecycleUserHandler, notifyAdminHandler *notifyhandler.AdminHandler, notifyUserHandler *notifyhandler.UserHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
+func newRouter(app *App) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
-	r.Use(gin.Recovery(), middleware.Logger(logger), cors.Default())
+	r.Use(gin.Recovery(), middleware.Logger(app.logger), cors.Default())
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 0, "message": "ok", "data": gin.H{"status": "ok"}})
@@ -54,256 +22,259 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 	r.GET("/ready", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 0, "message": "ready", "data": gin.H{"status": "ready"}})
 	})
+	r.GET("/metrics", func(c *gin.Context) {
+		c.Data(http.StatusOK, "text/plain; version=0.0.4", []byte(observability.Snapshot()))
+	})
 
 	v1 := r.Group("/api/v1/admin")
 	{
 		auth := v1.Group("/auth")
 		{
-			auth.POST("/login", adminHandler.Login)
-			auth.GET("/me", middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix), adminHandler.Me)
-			auth.GET("/admins", middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix), adminHandler.List)
-			auth.POST("/admins", middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix), adminHandler.Create)
-			auth.GET("/admins/:id", middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix), adminHandler.Get)
-			auth.PUT("/admins/:id", middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix), adminHandler.Update)
-			auth.PATCH("/admins/:id/status", middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix), adminHandler.UpdateStatus)
-			auth.POST("/admins/:id/reset-password", middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix), adminHandler.ResetPassword)
-			auth.DELETE("/admins/:id", middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix), adminHandler.Delete)
+			auth.POST("/login", app.adminHandler.Login)
+			auth.GET("/me", middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.adminHandler.Me)
+			auth.GET("/admins", middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.adminHandler.List)
+			auth.POST("/admins", middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.adminHandler.Create)
+			auth.GET("/admins/:id", middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.adminHandler.Get)
+			auth.PUT("/admins/:id", middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.adminHandler.Update)
+			auth.PATCH("/admins/:id/status", middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.adminHandler.UpdateStatus)
+			auth.POST("/admins/:id/reset-password", middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.adminHandler.ResetPassword)
+			auth.DELETE("/admins/:id", middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.adminHandler.Delete)
 		}
 
 		users := v1.Group("/users")
-		users.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		users.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			users.GET("", userHandler.ListUsers)
-			users.POST("", userHandler.CreateUser)
-			users.GET("/stats", userHandler.GetStats)
-			users.GET("/region-stats", userHandler.GetRegionStats)
-			users.GET(":id", userHandler.GetUser)
-			users.GET(":id/detail-aggregate", userDetailHandler.GetAggregate)
-			users.PUT(":id", userHandler.UpdateUser)
-			users.PATCH(":id/status", userHandler.UpdateUserStatus)
-			users.POST(":id/reset-password", userHandler.ResetPassword)
-			users.POST(":id/roles", userHandler.AssignRoles)
-			users.POST(":id/impersonate", userHandler.Impersonate)
-			users.POST(":id/recharge", userHandler.Recharge)
-			users.POST(":id/orders", userHandler.CreateOrder)
+			users.GET("", app.userHandler.ListUsers)
+			users.POST("", app.userHandler.CreateUser)
+			users.GET("/stats", app.userHandler.GetStats)
+			users.GET("/region-stats", app.userHandler.GetRegionStats)
+			users.GET(":id", app.userHandler.GetUser)
+			users.GET(":id/detail-aggregate", app.userDetailHandler.GetAggregate)
+			users.PUT(":id", app.userHandler.UpdateUser)
+			users.PATCH(":id/status", app.userHandler.UpdateUserStatus)
+			users.POST(":id/reset-password", app.userHandler.ResetPassword)
+			users.POST(":id/roles", app.userHandler.AssignRoles)
+			users.POST(":id/impersonate", app.userHandler.Impersonate)
+			users.POST(":id/recharge", app.userHandler.Recharge)
+			users.POST(":id/orders", app.userHandler.CreateOrder)
 		}
 
 		userGroups := v1.Group("/user-groups")
-		userGroups.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		userGroups.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			userGroups.GET("", userGroupHandler.List)
-			userGroups.POST("", userGroupHandler.Create)
-			userGroups.GET("/:id", userGroupHandler.Get)
-			userGroups.PUT("/:id", userGroupHandler.Update)
-			userGroups.DELETE("/:id", userGroupHandler.Delete)
+			userGroups.GET("", app.userGroupHandler.List)
+			userGroups.POST("", app.userGroupHandler.Create)
+			userGroups.GET("/:id", app.userGroupHandler.Get)
+			userGroups.PUT("/:id", app.userGroupHandler.Update)
+			userGroups.DELETE("/:id", app.userGroupHandler.Delete)
 		}
 
 		agentLevels := v1.Group("/distribution/agent-levels")
-		agentLevels.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		agentLevels.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			agentLevels.GET("", agentLevelHandler.List)
-			agentLevels.POST("", agentLevelHandler.Create)
-			agentLevels.GET("/:id", agentLevelHandler.Get)
-			agentLevels.PUT("/:id", agentLevelHandler.Update)
-			agentLevels.DELETE("/:id", agentLevelHandler.Delete)
+			agentLevels.GET("", app.agentLevelHandler.List)
+			agentLevels.POST("", app.agentLevelHandler.Create)
+			agentLevels.GET("/:id", app.agentLevelHandler.Get)
+			agentLevels.PUT("/:id", app.agentLevelHandler.Update)
+			agentLevels.DELETE("/:id", app.agentLevelHandler.Delete)
 		}
 
 		agents := v1.Group("/distribution/agents")
-		agents.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		agents.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			agents.GET("", agentHandler.List)
-			agents.POST("", agentHandler.Create)
-			agents.GET("/:id", agentHandler.Get)
-			agents.PUT("/:id", agentHandler.Update)
-			agents.DELETE("/:id", agentHandler.Delete)
+			agents.GET("", app.agentHandler.List)
+			agents.POST("", app.agentHandler.Create)
+			agents.GET("/:id", app.agentHandler.Get)
+			agents.PUT("/:id", app.agentHandler.Update)
+			agents.DELETE("/:id", app.agentHandler.Delete)
 		}
 
 		subordinates := v1.Group("/distribution/subordinates")
-		subordinates.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		subordinates.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			subordinates.GET("", subordinateHandler.List)
-			subordinates.POST("", subordinateHandler.Create)
-			subordinates.GET("/:id", subordinateHandler.Get)
-			subordinates.PUT("/:id", subordinateHandler.Update)
-			subordinates.DELETE("/:id", subordinateHandler.Delete)
+			subordinates.GET("", app.subordinateHandler.List)
+			subordinates.POST("", app.subordinateHandler.Create)
+			subordinates.GET("/:id", app.subordinateHandler.Get)
+			subordinates.PUT("/:id", app.subordinateHandler.Update)
+			subordinates.DELETE("/:id", app.subordinateHandler.Delete)
 		}
 
 		commissions := v1.Group("/distribution/commissions")
-		commissions.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		commissions.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			commissions.GET("", commissionHandler.List)
-			commissions.POST("", commissionHandler.Create)
-			commissions.GET("/:id", commissionHandler.Get)
-			commissions.PUT("/:id", commissionHandler.Update)
-			commissions.POST("/:id/freeze", commissionHandler.Freeze)
-			commissions.POST("/:id/unfreeze", commissionHandler.Unfreeze)
-			commissions.POST("/:id/cancel", commissionHandler.Cancel)
-			commissions.DELETE("/:id", commissionHandler.Delete)
+			commissions.GET("", app.commissionHandler.List)
+			commissions.POST("", app.commissionHandler.Create)
+			commissions.GET("/:id", app.commissionHandler.Get)
+			commissions.PUT("/:id", app.commissionHandler.Update)
+			commissions.POST("/:id/freeze", app.commissionHandler.Freeze)
+			commissions.POST("/:id/unfreeze", app.commissionHandler.Unfreeze)
+			commissions.POST("/:id/cancel", app.commissionHandler.Cancel)
+			commissions.DELETE("/:id", app.commissionHandler.Delete)
 		}
 
 		settlements := v1.Group("/distribution/settlements")
-		settlements.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		settlements.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			settlements.GET("", settlementHandler.List)
-			settlements.POST("", settlementHandler.Create)
-			settlements.GET("/:id", settlementHandler.Get)
-			settlements.PUT("/:id", settlementHandler.Update)
-			settlements.POST("/:id/confirm", settlementHandler.Confirm)
-			settlements.POST("/:id/pay", settlementHandler.Pay)
-			settlements.POST("/:id/cancel", settlementHandler.Cancel)
-			settlements.DELETE("/:id", settlementHandler.Delete)
+			settlements.GET("", app.settlementHandler.List)
+			settlements.POST("", app.settlementHandler.Create)
+			settlements.GET("/:id", app.settlementHandler.Get)
+			settlements.PUT("/:id", app.settlementHandler.Update)
+			settlements.POST("/:id/confirm", app.settlementHandler.Confirm)
+			settlements.POST("/:id/pay", app.settlementHandler.Pay)
+			settlements.POST("/:id/cancel", app.settlementHandler.Cancel)
+			settlements.DELETE("/:id", app.settlementHandler.Delete)
 		}
 
 		roles := v1.Group("/roles")
-		roles.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		roles.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			roles.GET("", roleHandler.ListRoles)
-			roles.POST("", roleHandler.CreateRole)
-			roles.GET("/:id", roleHandler.GetRole)
-			roles.PUT("/:id", roleHandler.UpdateRole)
-			roles.DELETE("/:id", roleHandler.DeleteRole)
-			roles.GET("/:id/permissions", roleHandler.GetRolePermissions)
-			roles.POST("/:id/permissions", roleHandler.AssignPermissions)
+			roles.GET("", app.roleHandler.ListRoles)
+			roles.POST("", app.roleHandler.CreateRole)
+			roles.GET("/:id", app.roleHandler.GetRole)
+			roles.PUT("/:id", app.roleHandler.UpdateRole)
+			roles.DELETE("/:id", app.roleHandler.DeleteRole)
+			roles.GET("/:id/permissions", app.roleHandler.GetRolePermissions)
+			roles.POST("/:id/permissions", app.roleHandler.AssignPermissions)
 		}
 
 		quotas := v1.Group("/quotas")
-		quotas.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		quotas.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			quotas.GET("", resourceQuotaHandler.List)
-			quotas.GET("/:id", resourceQuotaHandler.Get)
-			quotas.GET("/users/:user_id", resourceQuotaHandler.GetByUser)
-			quotas.POST("/:id/adjust", resourceQuotaHandler.Adjust)
+			quotas.GET("", app.resourceQuotaHandler.List)
+			quotas.GET("/:id", app.resourceQuotaHandler.Get)
+			quotas.GET("/users/:user_id", app.resourceQuotaHandler.GetByUser)
+			quotas.POST("/:id/adjust", app.resourceQuotaHandler.Adjust)
 		}
 
 		quotaTemplates := v1.Group("/quota-templates")
-		quotaTemplates.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		quotaTemplates.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			quotaTemplates.GET("", quotaTemplateHandler.List)
-			quotaTemplates.POST("", quotaTemplateHandler.Create)
-			quotaTemplates.GET("/:id", quotaTemplateHandler.Get)
-			quotaTemplates.PUT("/:id", quotaTemplateHandler.Update)
-			quotaTemplates.DELETE("/:id", quotaTemplateHandler.Delete)
+			quotaTemplates.GET("", app.quotaTemplateHandler.List)
+			quotaTemplates.POST("", app.quotaTemplateHandler.Create)
+			quotaTemplates.GET("/:id", app.quotaTemplateHandler.Get)
+			quotaTemplates.PUT("/:id", app.quotaTemplateHandler.Update)
+			quotaTemplates.DELETE("/:id", app.quotaTemplateHandler.Delete)
 		}
 
 		userLevels := v1.Group("/user-levels")
-		userLevels.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		userLevels.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			userLevels.GET("", quotaUserLevelHandler.List)
-			userLevels.POST("", quotaUserLevelHandler.Create)
-			userLevels.GET("/:id", quotaUserLevelHandler.Get)
-			userLevels.PUT("/:id", quotaUserLevelHandler.Update)
-			userLevels.DELETE("/:id", quotaUserLevelHandler.Delete)
-			userLevels.POST("/:id/bind-template", quotaUserLevelHandler.BindTemplate)
+			userLevels.GET("", app.quotaUserLevelHandler.List)
+			userLevels.POST("", app.quotaUserLevelHandler.Create)
+			userLevels.GET("/:id", app.quotaUserLevelHandler.Get)
+			userLevels.PUT("/:id", app.quotaUserLevelHandler.Update)
+			userLevels.DELETE("/:id", app.quotaUserLevelHandler.Delete)
+			userLevels.POST("/:id/bind-template", app.quotaUserLevelHandler.BindTemplate)
 		}
 
 		quotaAdjustments := v1.Group("/quota-adjustments")
-		quotaAdjustments.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		quotaAdjustments.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			quotaAdjustments.GET("", quotaAdjustmentHandler.List)
-			quotaAdjustments.GET("/:id", quotaAdjustmentHandler.Get)
+			quotaAdjustments.GET("", app.quotaAdjustmentHandler.List)
+			quotaAdjustments.GET("/:id", app.quotaAdjustmentHandler.Get)
 		}
 
 		verifications := v1.Group("/verifications")
-		verifications.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		verifications.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			verifications.GET("/pending", verificationHandler.ListPending)
-			verifications.GET("/approved", verificationHandler.ListApproved)
-			verifications.GET("/rejected", verificationHandler.ListRejected)
+			verifications.GET("/pending", app.verificationHandler.ListPending)
+			verifications.GET("/approved", app.verificationHandler.ListApproved)
+			verifications.GET("/rejected", app.verificationHandler.ListRejected)
 		}
 
 		permissions := v1.Group("/permissions")
-		permissions.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		permissions.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			permissions.GET("/tree", permissionHandler.Tree)
-			permissions.POST("", permissionHandler.CreatePermission)
-			permissions.PUT("/:id", permissionHandler.UpdatePermission)
-			permissions.DELETE("/:id", permissionHandler.DeletePermission)
+			permissions.GET("/tree", app.permissionHandler.Tree)
+			permissions.POST("", app.permissionHandler.CreatePermission)
+			permissions.PUT("/:id", app.permissionHandler.UpdatePermission)
+			permissions.DELETE("/:id", app.permissionHandler.DeletePermission)
 		}
 
 		menus := v1.Group("/menus")
-		menus.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		menus.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			menus.GET("/tree", menuHandler.Tree)
-			menus.POST("", menuHandler.CreateMenu)
-			menus.PUT("/:id", menuHandler.UpdateMenu)
-			menus.DELETE("/:id", menuHandler.DeleteMenu)
+			menus.GET("/tree", app.menuHandler.Tree)
+			menus.POST("", app.menuHandler.CreateMenu)
+			menus.PUT("/:id", app.menuHandler.UpdateMenu)
+			menus.DELETE("/:id", app.menuHandler.DeleteMenu)
 		}
 
 		security := v1.Group("/security")
-		security.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		security.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			security.GET("/login-logs/export", securityHandler.ExportLoginLogs)
-			security.GET("/login-logs", securityHandler.ListLoginLogs)
-			security.GET("/login-logs/:id", securityHandler.GetLoginLog)
-			security.GET("/audit-logs", securityHandler.ListAuditLogs)
-			security.GET("/audit-logs/:id", securityHandler.GetAuditLog)
-			security.GET("/audit-logs/export", securityHandler.ExportAuditLogs)
-			security.GET("/risk-events", securityHandler.ListRiskEvents)
-			security.GET("/risk-events/:id", securityHandler.GetRiskEvent)
-			security.POST("/risk-events/:id/ignore", securityHandler.IgnoreRiskEvent)
-			security.POST("/risk-events/:id/handle", securityHandler.HandleRiskEvent)
-			security.POST("/risk-events/:id/blacklist", securityHandler.CreateBlacklistFromRisk)
-			security.POST("/risk-events/:id/revoke-sessions", securityHandler.RevokeSessionsFromRisk)
-			security.GET("/blacklists", securityHandler.ListBlacklists)
-			security.POST("/blacklists", securityHandler.CreateBlacklist)
-			security.GET("/blacklists/:id", securityHandler.GetBlacklist)
-			security.PUT("/blacklists/:id", securityHandler.UpdateBlacklist)
-			security.PATCH("/blacklists/:id/status", securityHandler.UpdateBlacklistStatus)
-			security.DELETE("/blacklists/:id", securityHandler.ReleaseBlacklist)
-			security.GET("/blacklists/:id/hits", securityHandler.ListBlacklistHits)
-			security.GET("/sessions", securityHandler.ListSessions)
-			security.GET("/sessions/:id", securityHandler.GetSession)
-			security.POST("/sessions/:id/revoke", securityHandler.RevokeSession)
-			security.POST("/sessions/batch-revoke", securityHandler.BatchRevokeSessions)
-			security.POST("/sessions/revoke-user-all", securityHandler.RevokeUserAllSessions)
+			security.GET("/login-logs/export", app.securityHandler.ExportLoginLogs)
+			security.GET("/login-logs", app.securityHandler.ListLoginLogs)
+			security.GET("/login-logs/:id", app.securityHandler.GetLoginLog)
+			security.GET("/audit-logs", app.securityHandler.ListAuditLogs)
+			security.GET("/audit-logs/:id", app.securityHandler.GetAuditLog)
+			security.GET("/audit-logs/export", app.securityHandler.ExportAuditLogs)
+			security.GET("/risk-events", app.securityHandler.ListRiskEvents)
+			security.GET("/risk-events/:id", app.securityHandler.GetRiskEvent)
+			security.POST("/risk-events/:id/ignore", app.securityHandler.IgnoreRiskEvent)
+			security.POST("/risk-events/:id/handle", app.securityHandler.HandleRiskEvent)
+			security.POST("/risk-events/:id/blacklist", app.securityHandler.CreateBlacklistFromRisk)
+			security.POST("/risk-events/:id/revoke-sessions", app.securityHandler.RevokeSessionsFromRisk)
+			security.GET("/blacklists", app.securityHandler.ListBlacklists)
+			security.POST("/blacklists", app.securityHandler.CreateBlacklist)
+			security.GET("/blacklists/:id", app.securityHandler.GetBlacklist)
+			security.PUT("/blacklists/:id", app.securityHandler.UpdateBlacklist)
+			security.PATCH("/blacklists/:id/status", app.securityHandler.UpdateBlacklistStatus)
+			security.DELETE("/blacklists/:id", app.securityHandler.ReleaseBlacklist)
+			security.GET("/blacklists/:id/hits", app.securityHandler.ListBlacklistHits)
+			security.GET("/sessions", app.securityHandler.ListSessions)
+			security.GET("/sessions/:id", app.securityHandler.GetSession)
+			security.POST("/sessions/:id/revoke", app.securityHandler.RevokeSession)
+			security.POST("/sessions/batch-revoke", app.securityHandler.BatchRevokeSessions)
+			security.POST("/sessions/revoke-user-all", app.securityHandler.RevokeUserAllSessions)
 		}
 
 		// 资源管理（对接上游）— 第一阶段
 		resourceGroup := v1.Group("/resource")
-		resourceGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		resourceGroup.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
 			// 上游提供商
 			providers := resourceGroup.Group("/providers")
 			{
-				providers.GET("", providerHandler.List)
-				providers.POST("", providerHandler.Create)
-				providers.GET("/types", providerHandler.ListTypes)
-				providers.GET("/:id", providerHandler.Get)
-				providers.PUT("/:id", providerHandler.Update)
-				providers.DELETE("/:id", providerHandler.Delete)
-				providers.POST("/:id/test", providerHandler.TestConnection)
+				providers.GET("", app.providerHandler.List)
+				providers.POST("", app.providerHandler.Create)
+				providers.GET("/types", app.providerHandler.ListTypes)
+				providers.GET("/:id", app.providerHandler.Get)
+				providers.PUT("/:id", app.providerHandler.Update)
+				providers.DELETE("/:id", app.providerHandler.Delete)
+				providers.POST("/:id/test", app.providerHandler.TestConnection)
 			}
 
 			// 资源池
 			pools := resourceGroup.Group("/pools")
 			{
-				pools.GET("", providerHandler.ListPools)
-				pools.GET("/:id", providerHandler.GetPool)
+				pools.GET("", app.providerHandler.ListPools)
+				pools.GET("/:id", app.providerHandler.GetPool)
 			}
 
 			// 上游商品
 			products := resourceGroup.Group("/products")
 			{
-				products.GET("", productHandler.List)
-				products.GET("/:id", productHandler.Get)
-				products.PUT("/:id/price", productHandler.UpdatePrice)
-				products.POST("/sync", productHandler.Sync)
+				products.GET("", app.productHandler.List)
+				products.GET("/:id", app.productHandler.Get)
+				products.PUT("/:id/price", app.productHandler.UpdatePrice)
+				products.POST("/sync", app.productHandler.Sync)
 			}
 
 			// 同步管理
 			sync := resourceGroup.Group("/sync")
 			{
-				sync.POST("", syncHandler.CreateTask)
-				sync.GET("/tasks", syncHandler.ListTasks)
-				sync.GET("/tasks/:id", syncHandler.GetTask)
-				sync.GET("/logs", syncHandler.ListLogs)
+				sync.POST("", app.syncHandler.CreateTask)
+				sync.GET("/tasks", app.syncHandler.ListTasks)
+				sync.GET("/tasks/:id", app.syncHandler.GetTask)
+				sync.GET("/logs", app.syncHandler.ListLogs)
 			}
 
 			// 实例管理
 			instances := resourceGroup.Group("/instances")
 			{
-				instances.GET("", syncHandler.ListInstances)
-				instances.GET("/:id", syncHandler.GetInstance)
+				instances.GET("", app.syncHandler.ListInstances)
+				instances.GET("/:id", app.syncHandler.GetInstance)
 			}
 		}
 
@@ -311,61 +282,61 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 		// 到期实例 + 代续费：/admin/instances/expiring、/admin/instances/:id/renew
 		// 注意：/expiring 固定路径需先于 /:id 注册，避免路由冲突
 		lcInstances := v1.Group("/instances")
-		lcInstances.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		lcInstances.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			lcInstances.GET("/expiring", expiringHandler.List)
-			lcInstances.POST("/:id/renew", lifecycleAdminHandler.RenewAdmin)
+			lcInstances.GET("/expiring", app.expiringHandler.List)
+			lcInstances.POST("/:id/renew", app.lifecycleAdminHandler.RenewAdmin)
 		}
 
 		// 续费记录：/admin/renewals
 		lcRenewals := v1.Group("/renewals")
-		lcRenewals.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		lcRenewals.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			lcRenewals.GET("", lifecycleAdminHandler.ListRenewals)
-			lcRenewals.GET("/:id", lifecycleAdminHandler.GetRenewal)
+			lcRenewals.GET("", app.lifecycleAdminHandler.ListRenewals)
+			lcRenewals.GET("/:id", app.lifecycleAdminHandler.GetRenewal)
 		}
 
 		// 策略与手动扫描：/admin/lifecycle/policy、/admin/lifecycle/scan
 		lifecycleGroup := v1.Group("/lifecycle")
-		lifecycleGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		lifecycleGroup.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			lifecycleGroup.GET("/policy", lifecycleAdminHandler.GetPolicy)
-			lifecycleGroup.PUT("/policy", lifecycleAdminHandler.UpdatePolicy)
-			lifecycleGroup.POST("/scan", lifecycleAdminHandler.ScanOnce)
+			lifecycleGroup.GET("/policy", app.lifecycleAdminHandler.GetPolicy)
+			lifecycleGroup.PUT("/policy", app.lifecycleAdminHandler.UpdatePolicy)
+			lifecycleGroup.POST("/scan", app.lifecycleAdminHandler.ScanOnce)
 		}
 
 		// 产品管理（面向终端售卖）
 		productGroup := v1.Group("/product")
-		productGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		productGroup.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
 			// 产品分类
 			categories := productGroup.Group("/categories")
 			{
-				categories.GET("", prodCategoryHandler.List)
-				categories.POST("", prodCategoryHandler.Create)
-				categories.GET("/:id", prodCategoryHandler.Get)
-				categories.PUT("/:id", prodCategoryHandler.Update)
-				categories.DELETE("/:id", prodCategoryHandler.Delete)
+				categories.GET("", app.prodCategoryHandler.List)
+				categories.POST("", app.prodCategoryHandler.Create)
+				categories.GET("/:id", app.prodCategoryHandler.Get)
+				categories.PUT("/:id", app.prodCategoryHandler.Update)
+				categories.DELETE("/:id", app.prodCategoryHandler.Delete)
 			}
 
 			// 产品（商品管理 catalog 子域）
 			prodProducts := productGroup.Group("/products")
 			{
-				prodProducts.GET("", prodCatalogHandler.List)
-				prodProducts.POST("", prodCatalogHandler.Create)
+				prodProducts.GET("", app.prodCatalogHandler.List)
+				prodProducts.POST("", app.prodCatalogHandler.Create)
 				// 从上游商品克隆创建销售商品（对接魔方财务商品导入）。
 				// 注意：静态路由需在 /:id 之前注册，避免被参数路由吞并。
-				prodProducts.POST("/clone", prodCatalogHandler.CloneFromUpstream)
-				prodProducts.POST("/clone/batch", prodCatalogHandler.BatchCloneFromUpstream)
-				prodProducts.GET("/:id", prodCatalogHandler.Get)
-				prodProducts.PUT("/:id", prodCatalogHandler.Update)
-				prodProducts.DELETE("/:id", prodCatalogHandler.Delete)
-				prodProducts.POST("/:id/publish", prodCatalogHandler.Publish)
-				prodProducts.POST("/:id/unpublish", prodCatalogHandler.Unpublish)
-				prodProducts.PUT("/:id/price", prodCatalogHandler.UpdatePrice)
-				prodProducts.POST("/:id/featured", prodCatalogHandler.SetFeatured)
-				prodProducts.GET("/:id/history", prodCatalogHandler.ListHistory)
-				prodProducts.GET("/:id/specs", prodCatalogHandler.ListSpecs)
+				prodProducts.POST("/clone", app.prodCatalogHandler.CloneFromUpstream)
+				prodProducts.POST("/clone/batch", app.prodCatalogHandler.BatchCloneFromUpstream)
+				prodProducts.GET("/:id", app.prodCatalogHandler.Get)
+				prodProducts.PUT("/:id", app.prodCatalogHandler.Update)
+				prodProducts.DELETE("/:id", app.prodCatalogHandler.Delete)
+				prodProducts.POST("/:id/publish", app.prodCatalogHandler.Publish)
+				prodProducts.POST("/:id/unpublish", app.prodCatalogHandler.Unpublish)
+				prodProducts.PUT("/:id/price", app.prodCatalogHandler.UpdatePrice)
+				prodProducts.POST("/:id/featured", app.prodCatalogHandler.SetFeatured)
+				prodProducts.GET("/:id/history", app.prodCatalogHandler.ListHistory)
+				prodProducts.GET("/:id/specs", app.prodCatalogHandler.ListSpecs)
 			}
 
 			// 规格管理（spec 子域）
@@ -373,31 +344,31 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 			{
 				specTemplates := specGroup.Group("/templates")
 				{
-					specTemplates.GET("", specHandler.ListTemplates)
-					specTemplates.POST("", specHandler.CreateTemplate)
-					specTemplates.GET("/:id", specHandler.GetTemplate)
-					specTemplates.PUT("/:id", specHandler.UpdateTemplate)
-					specTemplates.DELETE("/:id", specHandler.DeleteTemplate)
+					specTemplates.GET("", app.specHandler.ListTemplates)
+					specTemplates.POST("", app.specHandler.CreateTemplate)
+					specTemplates.GET("/:id", app.specHandler.GetTemplate)
+					specTemplates.PUT("/:id", app.specHandler.UpdateTemplate)
+					specTemplates.DELETE("/:id", app.specHandler.DeleteTemplate)
 				}
 				specMappings := specGroup.Group("/mappings")
 				{
-					specMappings.GET("", specHandler.ListMappings)
-					specMappings.POST("", specHandler.CreateMapping)
-					specMappings.GET("/:id", specHandler.GetMapping)
-					specMappings.PUT("/:id", specHandler.UpdateMapping)
-					specMappings.POST("/:id/bind", specHandler.BindMapping)
-					specMappings.DELETE("/:id", specHandler.DeleteMapping)
+					specMappings.GET("", app.specHandler.ListMappings)
+					specMappings.POST("", app.specHandler.CreateMapping)
+					specMappings.GET("/:id", app.specHandler.GetMapping)
+					specMappings.PUT("/:id", app.specHandler.UpdateMapping)
+					specMappings.POST("/:id/bind", app.specHandler.BindMapping)
+					specMappings.DELETE("/:id", app.specHandler.DeleteMapping)
 				}
 			}
 
 			// 定价与计费（pricing 子域）
 			pricingGroup := productGroup.Group("/pricing")
 			{
-				pricingGroup.GET("", pricingHandler.List)
-				pricingGroup.POST("", pricingHandler.Create)
-				pricingGroup.GET("/:id", pricingHandler.Get)
-				pricingGroup.PUT("/:id", pricingHandler.Update)
-				pricingGroup.DELETE("/:id", pricingHandler.Delete)
+				pricingGroup.GET("", app.pricingHandler.List)
+				pricingGroup.POST("", app.pricingHandler.Create)
+				pricingGroup.GET("/:id", app.pricingHandler.Get)
+				pricingGroup.PUT("/:id", app.pricingHandler.Update)
+				pricingGroup.DELETE("/:id", app.pricingHandler.Delete)
 			}
 
 			// 促销管理（promotion 子域）
@@ -405,246 +376,246 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 			{
 				coupons := promoGroup.Group("/coupons")
 				{
-					coupons.GET("", promotionHandler.ListCoupons)
-					coupons.POST("", promotionHandler.CreateCoupon)
-					coupons.GET("/:id", promotionHandler.GetCoupon)
-					coupons.PUT("/:id", promotionHandler.UpdateCoupon)
-					coupons.DELETE("/:id", promotionHandler.DeleteCoupon)
+					coupons.GET("", app.promotionHandler.ListCoupons)
+					coupons.POST("", app.promotionHandler.CreateCoupon)
+					coupons.GET("/:id", app.promotionHandler.GetCoupon)
+					coupons.PUT("/:id", app.promotionHandler.UpdateCoupon)
+					coupons.DELETE("/:id", app.promotionHandler.DeleteCoupon)
 				}
 				couponGrants := promoGroup.Group("/coupon-grants")
 				{
-					couponGrants.GET("", promotionHandler.ListCouponGrants)
-					couponGrants.POST("", promotionHandler.CreateCouponGrants)
+					couponGrants.GET("", app.promotionHandler.ListCouponGrants)
+					couponGrants.POST("", app.promotionHandler.CreateCouponGrants)
 				}
 				promotions := promoGroup.Group("/promotions")
 				{
-					promotions.GET("", promotionHandler.ListPromotions)
-					promotions.POST("", promotionHandler.CreatePromotion)
-					promotions.GET("/:id", promotionHandler.GetPromotion)
-					promotions.PUT("/:id", promotionHandler.UpdatePromotion)
-					promotions.DELETE("/:id", promotionHandler.DeletePromotion)
+					promotions.GET("", app.promotionHandler.ListPromotions)
+					promotions.POST("", app.promotionHandler.CreatePromotion)
+					promotions.GET("/:id", app.promotionHandler.GetPromotion)
+					promotions.PUT("/:id", app.promotionHandler.UpdatePromotion)
+					promotions.DELETE("/:id", app.promotionHandler.DeletePromotion)
 				}
 			}
 		}
 
 		// 订单管理
 		orderGroup := v1.Group("/orders")
-		orderGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		orderGroup.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			orderGroup.GET("", orderHandler.List)
-			orderGroup.GET("/stats", orderHandler.Stats)
-			orderGroup.GET("/:id", orderHandler.Get)
-			orderGroup.POST("/:id/cancel", orderHandler.Cancel)
-			orderGroup.PUT("/:id/remark", orderHandler.UpdateRemark)
-			orderGroup.POST("/:id/refund", orderHandler.CreateRefund)
-			orderGroup.POST("/:id/activate", orderHandler.Activate)
+			orderGroup.GET("", app.orderHandler.List)
+			orderGroup.GET("/stats", app.orderHandler.Stats)
+			orderGroup.GET("/:id", app.orderHandler.Get)
+			orderGroup.POST("/:id/cancel", app.orderHandler.Cancel)
+			orderGroup.PUT("/:id/remark", app.orderHandler.UpdateRemark)
+			orderGroup.POST("/:id/refund", app.orderHandler.CreateRefund)
+			orderGroup.POST("/:id/activate", app.orderHandler.Activate)
 		}
 
 		// 工单支持（doc50）
 		ticketGroup := v1.Group("/tickets")
-		ticketGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		ticketGroup.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			ticketGroup.GET("", ticketHandler.List)
-			ticketGroup.GET("/stats", ticketHandler.Stats)
-			ticketGroup.GET("/:id", ticketHandler.Get)
-			ticketGroup.POST("/:id/reply", ticketHandler.Reply)
-			ticketGroup.PUT("/:id/assign", ticketHandler.Assign)
-			ticketGroup.PUT("/:id/status", ticketHandler.UpdateStatus)
-			ticketGroup.POST("/:id/close", ticketHandler.Close)
+			ticketGroup.GET("", app.ticketHandler.List)
+			ticketGroup.GET("/stats", app.ticketHandler.Stats)
+			ticketGroup.GET("/:id", app.ticketHandler.Get)
+			ticketGroup.POST("/:id/reply", app.ticketHandler.Reply)
+			ticketGroup.PUT("/:id/assign", app.ticketHandler.Assign)
+			ticketGroup.PUT("/:id/status", app.ticketHandler.UpdateStatus)
+			ticketGroup.POST("/:id/close", app.ticketHandler.Close)
 		}
 
 		// 工单分类（doc50）
 		ticketCategoryGroup := v1.Group("/ticket-categories")
-		ticketCategoryGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		ticketCategoryGroup.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			ticketCategoryGroup.GET("", ticketCategoryHandler.List)
-			ticketCategoryGroup.POST("", ticketCategoryHandler.Create)
-			ticketCategoryGroup.PUT("/:id", ticketCategoryHandler.Update)
-			ticketCategoryGroup.DELETE("/:id", ticketCategoryHandler.Delete)
+			ticketCategoryGroup.GET("", app.ticketCategoryHandler.List)
+			ticketCategoryGroup.POST("", app.ticketCategoryHandler.Create)
+			ticketCategoryGroup.PUT("/:id", app.ticketCategoryHandler.Update)
+			ticketCategoryGroup.DELETE("/:id", app.ticketCategoryHandler.Delete)
 		}
 
 		// 退款管理
 		refundGroup := v1.Group("/refunds")
-		refundGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		refundGroup.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			refundGroup.GET("", refundHandler.List)
-			refundGroup.GET("/:id", refundHandler.Get)
-			refundGroup.POST("/:id/approve", refundHandler.Approve)
-			refundGroup.POST("/:id/reject", refundHandler.Reject)
+			refundGroup.GET("", app.refundHandler.List)
+			refundGroup.GET("/:id", app.refundHandler.Get)
+			refundGroup.POST("/:id/approve", app.refundHandler.Approve)
+			refundGroup.POST("/:id/reject", app.refundHandler.Reject)
 		}
 
 		// 财务管理
 		financeGroup := v1.Group("/finance")
-		financeGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		financeGroup.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
 			// 钱包/流水
-			financeGroup.GET("/wallets/:user_id", walletHandler.Balance)
-			financeGroup.GET("/transactions", walletHandler.ListTransactions)
-			financeGroup.POST("/transactions/adjust", walletHandler.Adjust)
+			financeGroup.GET("/wallets/:user_id", app.walletHandler.Balance)
+			financeGroup.GET("/transactions", app.walletHandler.ListTransactions)
+			financeGroup.POST("/transactions/adjust", app.walletHandler.Adjust)
 			// 充值
-			financeGroup.POST("/recharges", rechargeHandler.Create)
-			financeGroup.GET("/recharges", rechargeHandler.List)
-			financeGroup.POST("/recharges/:id/approve", rechargeHandler.Approve)
+			financeGroup.POST("/recharges", app.rechargeHandler.Create)
+			financeGroup.GET("/recharges", app.rechargeHandler.List)
+			financeGroup.POST("/recharges/:id/approve", app.rechargeHandler.Approve)
 			// 提现
-			financeGroup.GET("/withdrawals", withdrawHandler.List)
-			financeGroup.POST("/withdrawals/:id/approve", withdrawHandler.Approve)
-			financeGroup.POST("/withdrawals/:id/reject", withdrawHandler.Reject)
+			financeGroup.GET("/withdrawals", app.withdrawHandler.List)
+			financeGroup.POST("/withdrawals/:id/approve", app.withdrawHandler.Approve)
+			financeGroup.POST("/withdrawals/:id/reject", app.withdrawHandler.Reject)
 			// 账单/对账
-			financeGroup.GET("/bills", billHandler.List)
-			financeGroup.POST("/bills/:id/close", billHandler.Close)
-			financeGroup.POST("/bills/recon", reconHandler.Reconcile)
+			financeGroup.GET("/bills", app.billHandler.List)
+			financeGroup.POST("/bills/:id/close", app.billHandler.Close)
+			financeGroup.POST("/bills/recon", app.reconHandler.Reconcile)
 		}
 
 		// 系统管理（系统配置）
 		systemConfigGroup := v1.Group("/system/configs")
-		systemConfigGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		systemConfigGroup.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			systemConfigGroup.GET("", configHandler.List)
-			systemConfigGroup.POST("", configHandler.Create)
+			systemConfigGroup.GET("", app.configHandler.List)
+			systemConfigGroup.POST("", app.configHandler.Create)
 			// 按分组读取（固定段 /group/:group 需先于 /:key 匹配，且二者不同段数不冲突）
-			systemConfigGroup.GET("/group/:group", configHandler.ListByGroup)
+			systemConfigGroup.GET("/group/:group", app.configHandler.ListByGroup)
 			// 分组批量 upsert
-			systemConfigGroup.POST("/batch", configHandler.BatchUpsert)
-			systemConfigGroup.GET("/:key", configHandler.GetByKey)
-			systemConfigGroup.PUT("/:id", configHandler.Update)
-			systemConfigGroup.DELETE("/:id", configHandler.Delete)
+			systemConfigGroup.POST("/batch", app.configHandler.BatchUpsert)
+			systemConfigGroup.GET("/:key", app.configHandler.GetByKey)
+			systemConfigGroup.PUT("/:id", app.configHandler.Update)
+			systemConfigGroup.DELETE("/:id", app.configHandler.Delete)
 		}
 
 		// 消息中心 - 公告管理（doc70 §7.1）
 		annGroup := v1.Group("/announcements")
-		annGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		annGroup.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			annGroup.GET("", notifyAdminHandler.ListAnnouncements)
-			annGroup.POST("", notifyAdminHandler.CreateAnnouncement)
-			annGroup.PUT("/:id", notifyAdminHandler.UpdateAnnouncement)
-			annGroup.POST("/:id/publish", notifyAdminHandler.PublishAnnouncement)
-			annGroup.POST("/:id/offline", notifyAdminHandler.OfflineAnnouncement)
-			annGroup.DELETE("/:id", notifyAdminHandler.DeleteAnnouncement)
+			annGroup.GET("", app.notifyAdminHandler.ListAnnouncements)
+			annGroup.POST("", app.notifyAdminHandler.CreateAnnouncement)
+			annGroup.PUT("/:id", app.notifyAdminHandler.UpdateAnnouncement)
+			annGroup.POST("/:id/publish", app.notifyAdminHandler.PublishAnnouncement)
+			annGroup.POST("/:id/offline", app.notifyAdminHandler.OfflineAnnouncement)
+			annGroup.DELETE("/:id", app.notifyAdminHandler.DeleteAnnouncement)
 		}
 
 		// 消息中心 - 通知记录（doc70 §7.1）
 		// 注意：/unread-count 和 /mail-test 固定路径需先于 /:id/resend 注册
 		notifyGroup := v1.Group("/notifications")
-		notifyGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		notifyGroup.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			notifyGroup.GET("", notifyAdminHandler.ListRecords)
-			notifyGroup.GET("/unread-count", notifyAdminHandler.AdminUnreadCount)
-			notifyGroup.POST("/mail-test", notifyAdminHandler.SendMailTest)
-			notifyGroup.POST("/:id/resend", notifyAdminHandler.Resend)
+			notifyGroup.GET("", app.notifyAdminHandler.ListRecords)
+			notifyGroup.GET("/unread-count", app.notifyAdminHandler.AdminUnreadCount)
+			notifyGroup.POST("/mail-test", app.notifyAdminHandler.SendMailTest)
+			notifyGroup.POST("/:id/resend", app.notifyAdminHandler.Resend)
 		}
 
 		// 消息中心 - 通知模板（doc70 §7.1）
 		tplGroup := v1.Group("/notification-templates")
-		tplGroup.Use(middleware.AdminAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+		tplGroup.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			tplGroup.GET("", notifyAdminHandler.ListTemplates)
-			tplGroup.PUT("/:id", notifyAdminHandler.UpdateTemplate)
+			tplGroup.GET("", app.notifyAdminHandler.ListTemplates)
+			tplGroup.PUT("/:id", app.notifyAdminHandler.UpdateTemplate)
 		}
 	}
 
 	// 用户中心（普通用户自助）：独立模块 internal/modules/uc/auth
 	ucAuth := r.Group("/api/v1/uc/auth")
 	{
-		ucAuth.POST("/login", userCenterAuthHandler.Login)                                                                   // 登录
-		ucAuth.POST("/register", userCenterAuthHandler.Register)                                                             // 注册
-		ucAuth.POST("/logout", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.Logout)          // 登出
-		ucAuth.GET("/userinfo", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.UserInfo)       // 用户信息
-		ucAuth.PUT("/profile", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.UpdateProfile)   // 更新资料
-		ucAuth.PUT("/password", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.ChangePassword) // 修改密码
+		ucAuth.POST("/login", app.userCenterAuthHandler.Login)                                                                           // 登录
+		ucAuth.POST("/register", app.userCenterAuthHandler.Register)                                                                     // 注册
+		ucAuth.POST("/logout", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.Logout)          // 登出
+		ucAuth.GET("/userinfo", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.UserInfo)       // 用户信息
+		ucAuth.PUT("/profile", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.UpdateProfile)   // 更新资料
+		ucAuth.PUT("/password", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.ChangePassword) // 修改密码
 	}
 
 	// 用户中心菜单：普通用户控制台侧边栏（platform=user）
 	ucMenu := r.Group("/api/v1/uc/menus")
-	ucMenu.Use(middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+	ucMenu.Use(middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 	{
-		ucMenu.GET("/tree", userMenuHandler.Tree) // 菜单树
+		ucMenu.GET("/tree", app.userMenuHandler.Tree) // 菜单树
 	}
 
 	// 兼容 frontend-user 项目 baseURL=/api/v1 时的 /auth 路径（同处理器，避免前端改动）
 	ucAuthCompat := r.Group("/api/v1/auth")
 	{
-		ucAuthCompat.POST("/login", userCenterAuthHandler.Login)
-		ucAuthCompat.POST("/register", userCenterAuthHandler.Register)
-		ucAuthCompat.POST("/logout", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.Logout)
-		ucAuthCompat.GET("/userinfo", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.UserInfo)
-		ucAuthCompat.PUT("/profile", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.UpdateProfile)   // 更新资料
-		ucAuthCompat.PUT("/password", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userCenterAuthHandler.ChangePassword) // 修改密码
+		ucAuthCompat.POST("/login", app.userCenterAuthHandler.Login)
+		ucAuthCompat.POST("/register", app.userCenterAuthHandler.Register)
+		ucAuthCompat.POST("/logout", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.Logout)
+		ucAuthCompat.GET("/userinfo", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.UserInfo)
+		ucAuthCompat.PUT("/profile", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.UpdateProfile)   // 更新资料
+		ucAuthCompat.PUT("/password", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.ChangePassword) // 修改密码
 	}
 
 	// 兼容 frontend-user 项目 baseURL=/api/v1 时的 /menus/tree 路径（同处理器）
 	ucMenuCompat := r.Group("/api/v1/menus")
-	ucMenuCompat.Use(middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+	ucMenuCompat.Use(middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 	{
-		ucMenuCompat.GET("/tree", userMenuHandler.Tree) // 菜单树
+		ucMenuCompat.GET("/tree", app.userMenuHandler.Tree) // 菜单树
 	}
 
 	// 用户中心财务：用户自助查看余额 / 流水 / 账单并发起充值
 	ucFinance := r.Group("/api/v1/uc/finance")
 	{
-		ucFinance.GET("/balance", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userFinanceHandler.Balance)           // 我的余额
-		ucFinance.GET("/transactions", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userFinanceHandler.Transactions) // 我的资金流水
-		ucFinance.POST("/recharge", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userFinanceHandler.CreateRecharge)  // 发起充值
-		ucFinance.GET("/bills", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userFinanceHandler.Bills)               // 我的账单
-		ucFinance.POST("/recharge/callback", userFinanceHandler.RechargeCallback)                                              // 充值回调（渠道通知）
+		ucFinance.GET("/balance", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userFinanceHandler.Balance)           // 我的余额
+		ucFinance.GET("/transactions", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userFinanceHandler.Transactions) // 我的资金流水
+		ucFinance.POST("/recharge", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userFinanceHandler.CreateRecharge)  // 发起充值
+		ucFinance.GET("/bills", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userFinanceHandler.Bills)               // 我的账单
+		ucFinance.POST("/recharge/callback", app.userFinanceHandler.RechargeCallback)                                                      // 充值回调（渠道通知）
 	}
 
 	// 用户中心商品：上架商品公开可浏览（无需登录）
 	ucProducts := r.Group("/api/v1/uc/products")
 	{
-		ucProducts.GET("", ucProductHandler.List)
-		ucProducts.GET("/:id", ucProductHandler.Get)
+		ucProducts.GET("", app.ucProductHandler.List)
+		ucProducts.GET("/:id", app.ucProductHandler.Get)
 	}
 
 	// 用户中心订单：下单（余额支付开通）+ 我的订单（需登录）
 	ucOrders := r.Group("/api/v1/uc/orders")
-	ucOrders.Use(middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+	ucOrders.Use(middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 	{
-		ucOrders.POST("", ucOrderHandler.Create)
-		ucOrders.GET("", ucOrderHandler.List)
+		ucOrders.POST("", app.ucOrderHandler.Create)
+		ucOrders.GET("", app.ucOrderHandler.List)
 	}
 
 	// 用户中心主机管理：列表/详情/电源操作/VNC（需登录）
 	ucInstances := r.Group("/api/v1/uc/instances")
-	ucInstances.Use(middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+	ucInstances.Use(middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 	{
-		ucInstances.GET("", ucInstanceHandler.List)            // 我的主机列表
-		ucInstances.GET("/:id", ucInstanceHandler.Detail)       // 主机详情
-		ucInstances.POST("/:id/power", ucInstanceHandler.Power) // 电源操作 on/off/reboot/hard_off/hard_reboot
-		ucInstances.POST("/:id/vnc", ucInstanceHandler.VNC)     // 远程控制台
+		ucInstances.GET("", app.ucInstanceHandler.List)             // 我的主机列表
+		ucInstances.GET("/:id", app.ucInstanceHandler.Detail)       // 主机详情
+		ucInstances.POST("/:id/power", app.ucInstanceHandler.Power) // 电源操作 on/off/reboot/hard_off/hard_reboot
+		ucInstances.POST("/:id/vnc", app.ucInstanceHandler.VNC)     // 远程控制台
 	}
 
 	// 用户中心工单支持：我的工单自助管理（doc50）
 	ucSupport := r.Group("/api/v1/uc/support")
 	{
-		ucSupport.GET("/tickets", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userTicketHandler.List)                     // 我的工单列表
-		ucSupport.POST("/tickets", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userTicketHandler.Create)                  // 提交工单
-		ucSupport.GET("/ticket-categories", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userTicketHandler.ListCategories) // 可用工单分类
-		ucSupport.GET("/tickets/:id", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userTicketHandler.Get)                  // 工单详情（含回复）
-		ucSupport.POST("/tickets/:id/replies", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userTicketHandler.Reply)       // 追加工单回复
-		ucSupport.POST("/tickets/:id/cancel", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), userTicketHandler.Cancel)       // 取消工单
+		ucSupport.GET("/tickets", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userTicketHandler.List)                     // 我的工单列表
+		ucSupport.POST("/tickets", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userTicketHandler.Create)                  // 提交工单
+		ucSupport.GET("/ticket-categories", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userTicketHandler.ListCategories) // 可用工单分类
+		ucSupport.GET("/tickets/:id", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userTicketHandler.Get)                  // 工单详情（含回复）
+		ucSupport.POST("/tickets/:id/replies", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userTicketHandler.Reply)       // 追加工单回复
+		ucSupport.POST("/tickets/:id/cancel", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userTicketHandler.Cancel)       // 取消工单
 	}
 
 	// 用户中心生命周期与续费（doc60 §7.2）
 	// 聚合视图 /uc/instances/renewals 为固定路径，需先于 /instances/:id 注册
 	ucLifecycle := r.Group("/api/v1/uc")
 	{
-		ucLifecycle.GET("/instances/renewals", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), lifecycleUserHandler.RenewalsView)          // 续费管理聚合视图
-		ucLifecycle.POST("/instances/:id/renew", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), lifecycleUserHandler.Renew)               // 手动续费
-		ucLifecycle.PUT("/instances/:id/auto-renew", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), lifecycleUserHandler.ToggleAutoRenew) // 自动续费开关
-		ucLifecycle.GET("/renewals", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), lifecycleUserHandler.Records)                         // 我的续费记录
-		ucLifecycle.GET("/renewals/:id", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), lifecycleUserHandler.Detail)                      // 续费记录详情
+		ucLifecycle.GET("/instances/renewals", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.lifecycleUserHandler.RenewalsView)          // 续费管理聚合视图
+		ucLifecycle.POST("/instances/:id/renew", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.lifecycleUserHandler.Renew)               // 手动续费
+		ucLifecycle.PUT("/instances/:id/auto-renew", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.lifecycleUserHandler.ToggleAutoRenew) // 自动续费开关
+		ucLifecycle.GET("/renewals", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.lifecycleUserHandler.Records)                         // 我的续费记录
+		ucLifecycle.GET("/renewals/:id", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.lifecycleUserHandler.Detail)                      // 续费记录详情
 	}
 
 	// 用户中心消息中心（doc70 §7.2）
 	ucNotify := r.Group("/api/v1/uc")
 	{
-		ucNotify.GET("/notifications/unread-count", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), notifyUserHandler.UserUnreadCount)
-		ucNotify.GET("/notifications", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), notifyUserHandler.UserList)
-		ucNotify.GET("/notifications/:id", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), notifyUserHandler.UserDetail)
-		ucNotify.POST("/notifications/read-all", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), notifyUserHandler.UserReadAll)
-		ucNotify.GET("/announcements", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), notifyUserHandler.UserAnnouncements)
-		ucNotify.GET("/notification-preferences", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), notifyUserHandler.UserGetPrefs)
-		ucNotify.PUT("/notification-preferences", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), notifyUserHandler.UserUpdatePrefs)
+		ucNotify.GET("/notifications/unread-count", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.notifyUserHandler.UserUnreadCount)
+		ucNotify.GET("/notifications", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.notifyUserHandler.UserList)
+		ucNotify.GET("/notifications/:id", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.notifyUserHandler.UserDetail)
+		ucNotify.POST("/notifications/read-all", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.notifyUserHandler.UserReadAll)
+		ucNotify.GET("/announcements", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.notifyUserHandler.UserAnnouncements)
+		ucNotify.GET("/notification-preferences", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.notifyUserHandler.UserGetPrefs)
+		ucNotify.PUT("/notification-preferences", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.notifyUserHandler.UserUpdatePrefs)
 	}
 
 	return r

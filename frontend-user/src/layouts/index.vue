@@ -17,63 +17,47 @@
       </div>
       
       <nav class="sidebar-nav">
-        <template v-if="menuStore.hasMenu">
-          <!-- 动态菜单 -->
-          <template v-for="menu in menuStore.sidebarMenus" :key="menu.path || menu.name">
-            <!-- 有子菜单 -->
+        <!-- 菜单驱动（单一真相，T4.3）：侧边菜单仅来自后端 uc/menus；已移除硬编码降级菜单重复定义 -->
+        <template v-for="menu in menuStore.sidebarMenus" :key="menu.path || menu.name">
+          <!-- 有子菜单 -->
+          <div
+            v-if="menu.children && menu.children.length > 0"
+            class="nav-group"
+            :class="{ 'is-expanded': expandedGroups.has(menu.path || menu.name) }"
+          >
             <div
-              v-if="menu.children && menu.children.length > 0"
-              class="nav-group"
-              :class="{ 'is-expanded': expandedGroups.has(menu.path || menu.name) }"
-            >
-              <div
-                class="nav-item"
-                :class="{ 'is-active': isGroupActive(menu) }"
-                @click="toggleGroup(menu)"
-              >
-                <component :is="menu.icon" v-if="menu.icon" class="nav-icon" />
-                <span class="nav-label" v-show="!isCollapsed">{{ menu.name }}</span>
-                <ChevronRightIcon class="nav-arrow" :class="{ 'is-rotated': expandedGroups.has(menu.path || menu.name) }" />
-              </div>
-              <div class="sub-menu" v-show="expandedGroups.has(menu.path || menu.name) && !isCollapsed">
-                <router-link
-                  v-for="child in menu.children"
-                  :key="child.path || child.name"
-                  :to="child.path || '#'"
-                  class="sub-menu-item"
-                  :class="{ 'is-active': route.path === child.path }"
-                >
-                  <span class="sub-menu-dot"></span>
-                  <span class="sub-menu-label">{{ child.name }}</span>
-                </router-link>
-              </div>
-            </div>
-            
-            <!-- 无子菜单 -->
-            <router-link
-              v-else
-              :to="menu.path || '#'"
               class="nav-item"
-              :class="{ 'is-active': route.path === menu.path }"
+              :class="{ 'is-active': isGroupActive(menu) }"
+              @click="toggleGroup(menu)"
             >
               <component :is="menu.icon" v-if="menu.icon" class="nav-icon" />
               <span class="nav-label" v-show="!isCollapsed">{{ menu.name }}</span>
-            </router-link>
-          </template>
-        </template>
-        
-        <!-- 降级静态菜单 -->
-        <template v-else>
-          <template v-for="item in fallbackMenus" :key="item.path">
-            <router-link
-              :to="item.path || '/'"
-              class="nav-item"
-              :class="{ 'is-active': route.path === item.path }"
-            >
-              <component :is="item.icon" class="nav-icon" />
-              <span class="nav-label">{{ item.name }}</span>
-            </router-link>
-          </template>
+              <ChevronRightIcon class="nav-arrow" :class="{ 'is-rotated': expandedGroups.has(menu.path || menu.name) }" />
+            </div>
+            <div class="sub-menu" v-show="expandedGroups.has(menu.path || menu.name) && !isCollapsed">
+              <router-link
+                v-for="child in menu.children"
+                :key="child.path || child.name"
+                :to="child.path || '#'"
+                class="sub-menu-item"
+                :class="{ 'is-active': route.path === child.path }"
+              >
+                <span class="sub-menu-dot"></span>
+                <span class="sub-menu-label">{{ child.name }}</span>
+              </router-link>
+            </div>
+          </div>
+
+          <!-- 无子菜单 -->
+          <router-link
+            v-else
+            :to="menu.path || '#'"
+            class="nav-item"
+            :class="{ 'is-active': route.path === menu.path }"
+          >
+            <component :is="menu.icon" v-if="menu.icon" class="nav-icon" />
+            <span class="nav-label" v-show="!isCollapsed">{{ menu.name }}</span>
+          </router-link>
         </template>
       </nav>
       
@@ -174,11 +158,7 @@ import {
   UserIcon,
   WalletIcon,
   PoweroffIcon,
-  DashboardIcon,
-  CloudIcon,
-  OrderIcon,
   LayersIcon,
-  TicketIcon,
 } from 'tdesign-icons-vue-next'
 
 import { useMenuStore, useUserStore } from '@/store'
@@ -219,17 +199,6 @@ const userInitial = computed(() => {
   const base = userStore.userInfo?.name || userStore.userInfo?.username || 'U'
   return base.slice(0, 1).toUpperCase()
 })
-
-// ========== 降级菜单 ==========
-const fallbackMenus: FlatMenu[] = [
-  { id: 1, parentId: 0, path: '/dashboard', name: '控制台', icon: DashboardIcon },
-  { id: 2, parentId: 0, path: '/cloud/instances', name: '我的云主机', icon: CloudIcon },
-  { id: 7, parentId: 2, path: '/cloud/renewals', name: '续费管理', icon: RefreshIcon },
-  { id: 3, parentId: 0, path: '/order', name: '我的订单', icon: OrderIcon },
-  { id: 4, parentId: 0, path: '/billing', name: '费用中心', icon: WalletIcon },
-  { id: 5, parentId: 0, path: '/support/tickets', name: '我的工单', icon: TicketIcon },
-  { id: 6, parentId: 0, path: '/profile', name: '个人中心', icon: UserIcon },
-]
 
 // ========== 菜单操作 ==========
 function toggleSidebar() {
@@ -274,7 +243,7 @@ const currentMenuTitle = computed(() => {
     return null
   }
   
-  return findInMenu(menuStore.sidebarMenus) || findInMenu(fallbackMenus) || ''
+  return findInMenu(menuStore.sidebarMenus) || ''
 })
 
 // ========== 初始化 ==========
@@ -321,9 +290,7 @@ function handleDropdownClick(value: string) {
 // 监听路由变化，自动展开对应菜单
 watch(() => route.path, (newPath) => {
   // 找到当前路径对应的一级菜单并展开
-  const menus = menuStore.sidebarMenus.length > 0 
-    ? menuStore.sidebarMenus 
-    : fallbackMenus
+  const menus = menuStore.sidebarMenus
   
   for (const menu of menus) {
     if (menu.children && menu.children.length > 0) {

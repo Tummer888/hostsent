@@ -76,10 +76,12 @@ func AutoMigrate(db *gorm.DB) error {
 		&securitymodel.Session{},
 		&usermodel.Role{},
 		&usermodel.Permission{},
-		&usermodel.UserInstance{},
+		// 冗余聚合表 user_instances/user_bills/user_transactions 已于 Phase 2
+		// 将读路径收敛到实例/账务权威表并退役（见 migrations 013/014）：
+		//   &usermodel.UserInstance{},
+		//   &usermodel.UserBill{},
+		//   &usermodel.UserTransaction{},
 		&usermodel.UserOrder{},
-		&usermodel.UserBill{},
-		&usermodel.UserTransaction{},
 		&usermodel.UserTicket{},
 		&quotamodel.QuotaTemplate{},
 		&quotamodel.QuotaTemplateItem{},
@@ -1247,22 +1249,7 @@ func seedDemoUserDetails(tx *gorm.DB) error {
 		return err
 	}
 
-	now := time.Now()
-
-	var instanceCount int64
-	if err := tx.Model(&usermodel.UserInstance{}).Where("user_id = ?", target.ID).Count(&instanceCount).Error; err != nil {
-		return err
-	}
-	if instanceCount == 0 {
-		instances := []usermodel.UserInstance{
-			{UserID: target.ID, Name: "web-prod-01", Region: "上海一区", Specs: "4C8G / 80G SSD / Ubuntu 22.04", Status: "active", ExpireAt: now.AddDate(0, 1, 0)},
-			{UserID: target.ID, Name: "db-standby-01", Region: "上海一区", Specs: "8C16G / 200G SSD / Debian 12", Status: "pending", ExpireAt: now.AddDate(0, 0, 9)},
-			{UserID: target.ID, Name: "ci-agent-01", Region: "杭州一区", Specs: "2C4G / 50G SSD / CentOS Stream", Status: "disabled", ExpireAt: now.AddDate(0, 1, 20)},
-		}
-		if err := tx.Create(&instances).Error; err != nil {
-			return err
-		}
-	}
+	// user_instances 已退役（Phase 2 013）：其聚合读路径改走权威表 instances。
 
 	var orderCount int64
 	if err := tx.Model(&usermodel.UserOrder{}).Where("user_id = ?", target.ID).Count(&orderCount).Error; err != nil {
@@ -1279,33 +1266,7 @@ func seedDemoUserDetails(tx *gorm.DB) error {
 		}
 	}
 
-	var billCount int64
-	if err := tx.Model(&usermodel.UserBill{}).Where("user_id = ?", target.ID).Count(&billCount).Error; err != nil {
-		return err
-	}
-	if billCount == 0 {
-		bills := []usermodel.UserBill{
-			{UserID: target.ID, BillingMonth: "2026-08", Amount: 1253, Status: "pending"},
-			{UserID: target.ID, BillingMonth: "2026-07", Amount: 866, Status: "paid"},
-		}
-		if err := tx.Create(&bills).Error; err != nil {
-			return err
-		}
-	}
-
-	var txnCount int64
-	if err := tx.Model(&usermodel.UserTransaction{}).Where("user_id = ?", target.ID).Count(&txnCount).Error; err != nil {
-		return err
-	}
-	if txnCount == 0 {
-		transactions := []usermodel.UserTransaction{
-			{UserID: target.ID, TxnNo: "TX202608190002", Type: "recharge", Amount: 2000},
-			{UserID: target.ID, TxnNo: "TX202608180021", Type: "consume", Amount: -688},
-		}
-		if err := tx.Create(&transactions).Error; err != nil {
-			return err
-		}
-	}
+	// user_bills 已退役（Phase 2 014）：其聚合读路径改走权威表 bills。
 
 	var ticketCount int64
 	if err := tx.Model(&ticketmodel.Ticket{}).Where("user_id = ?", target.ID).Count(&ticketCount).Error; err != nil {

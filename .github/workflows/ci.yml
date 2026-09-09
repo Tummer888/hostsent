@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (build + vet + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+
+  frontend-admin:
+    name: Admin Frontend (vue-tsc + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend-admin/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+
+  frontend-user:
+    name: User Frontend (vue-tsc + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-user
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend-user/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build

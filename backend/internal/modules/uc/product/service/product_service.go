@@ -6,13 +6,18 @@ import (
 	"errors"
 
 	catalogdto "hostsent/backend/internal/modules/admin/product/catalog/dto"
-	catalogservice "hostsent/backend/internal/modules/admin/product/catalog/service"
 
 	"hostsent/backend/internal/modules/uc/product/dto"
 )
 
 // ErrProductOffline 商品未上架，不可购买。
 var ErrProductOffline = errors.New("商品已下架，不可购买")
+
+// catalogReader 管理端商品目录读取能力的最小暴露接口（由装配层注入，避免 uc 依赖 admin service 层）。
+type catalogReader interface {
+	List(ctx context.Context, query catalogdto.ProductListQuery) (*catalogdto.ProductListResponse, error)
+	FindByID(ctx context.Context, id uint64) (*catalogdto.ProductInfo, error)
+}
 
 // ProductService 用户中心商品业务能力。
 type ProductService interface {
@@ -23,11 +28,11 @@ type ProductService interface {
 }
 
 type productService struct {
-	catalog catalogservice.ProductService
+	catalog catalogReader
 }
 
 // NewProductService 创建用户中心商品服务。
-func NewProductService(catalog catalogservice.ProductService) ProductService {
+func NewProductService(catalog catalogReader) ProductService {
 	return &productService{catalog: catalog}
 }
 

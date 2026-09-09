@@ -1,6 +1,9 @@
 package mofangfinance
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 // TestParseCloudSpecs 验证从 prodetail 嵌套 config_groups 提取标准规格。
 func TestParseCloudSpecs(t *testing.T) {
@@ -80,5 +83,31 @@ func TestLeadingInt(t *testing.T) {
 		if got := leadingInt(in); got != want {
 			t.Errorf("leadingInt(%q) = %d, want %d", in, got, want)
 		}
+	}
+}
+
+// TestUpstreamPrice 验证上游售价归一化：pricings 的金额字段来自上游常为字符串
+// （如 "0.00"/"88.00"），FlexFloat 需兼容字符串与数字，且上月付优先。
+func TestUpstreamPrice(t *testing.T) {
+	// 金额字段为字符串（兼容 FlexFloat 解析）。
+	var prs []ProductPricing
+	if err := json.Unmarshal([]byte(`[
+		{"monthly":"88.00","annually":"960.00","quarterly":"264.00","onetime":"0.00"},
+		{"monthly":"0","annually":"1200.00","quarterly":"300.00","onetime":"0"}
+	]`), &prs); err != nil {
+		t.Fatalf("unmarshal pricing failed: %v", err)
+	}
+	// 第一项：monthly 有值，优选取月付。
+	if got, want := upstreamPrice(prs[:1]), 88.00; got != want {
+		t.Errorf("upstreamPrice monthly = %v, want %v", got, want)
+	}
+	// 第二项：monthly 为 0/空，退到 annual 下一位，季付/年付需 year 优先于 quarterly？逻辑是 quarterly 优先于 annually。
+	// 依实现：monthly -> quarterly -> annually -> onetime，故第二项应取 quarterly=300。
+	if got, want := upstreamPrice(prs[1:]), 300.00; got != want {
+		t.Errorf("upstreamPrice quarterly = %v, want %v", got, want)
+	}
+	// 空列表返回 0。
+	if got := upstreamPrice(nil); got != 0 {
+		t.Errorf("upstreamPrice(nil) = %v, want 0", got)
 	}
 }

@@ -26,8 +26,8 @@ type InstanceService interface {
 }
 
 type instanceService struct {
-	repo      repository.InstanceRepository
-	resolve   ProviderResolver
+	repo    repository.InstanceRepository
+	resolve ProviderResolver
 }
 
 // NewInstanceService 创建用户中心主机服务。
@@ -84,7 +84,7 @@ func (s *instanceService) Power(ctx context.Context, userID, id uint64, action s
 	if err != nil {
 		return err
 	}
-	provider, err := s.buildProvider(ctx, it.ProviderID)
+	provider, err := s.buildControl(ctx, it.ProviderID)
 	if err != nil {
 		return err
 	}
@@ -114,7 +114,7 @@ func (s *instanceService) VNC(ctx context.Context, userID, id uint64) (*dto.VNCR
 	if err != nil {
 		return nil, err
 	}
-	provider, err := s.buildProvider(ctx, it.ProviderID)
+	provider, err := s.buildControl(ctx, it.ProviderID)
 	if err != nil {
 		return nil, err
 	}
@@ -140,9 +140,22 @@ func (s *instanceService) buildProvider(ctx context.Context, providerID uint64) 
 	return provider, nil
 }
 
+// buildControl 解析提供商并断言为「电源/查询」能力接口；失败返回明确错误。
+func (s *instanceService) buildControl(ctx context.Context, providerID uint64) (upstream.InstanceControl, error) {
+	provider, err := s.buildProvider(ctx, providerID)
+	if err != nil {
+		return nil, err
+	}
+	control, ok := provider.(upstream.InstanceControl)
+	if !ok {
+		return nil, fmt.Errorf("上游不支持该操作（电源/控制台）")
+	}
+	return control, nil
+}
+
 // refresh 调用上游 GetInstance 刷新运行状态；失败返回 ok=false（降级为本地状态）。
 func (s *instanceService) refresh(ctx context.Context, it *model.Instance) (*pkgmodel.StandardInstance, bool) {
-	provider, err := s.resolve(ctx, it.ProviderID)
+	provider, err := s.buildControl(ctx, it.ProviderID)
 	if err != nil {
 		return nil, false
 	}
