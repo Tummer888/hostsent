@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"hostsent/backend/internal/modules/user/auth/model"
+	"hostsent/backend/internal/modules/uc/auth/model"
 )
 
 // UserRepository 用户中心数据访问接口。

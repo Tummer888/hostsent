@@ -11,7 +11,6 @@ import (
 	"hostsent/backend/internal/modules/admin/resource/provider/repository"
 	"hostsent/backend/internal/pkg/crypto"
 	"hostsent/backend/internal/pkg/upstream"
-	"hostsent/backend/internal/pkg/upstream/mofangfinance"
 )
 
 // ProviderService 上游提供商业务能力
@@ -103,47 +102,13 @@ func (s *providerService) Create(ctx context.Context, req dto.ProviderCreateRequ
 		SyncEnabled:      req.SyncEnabled,
 		SyncInterval:     syncInterval,
 	}
-	// 魔方财务：先注册上游接口凭证（createApi），拿到 finance api id 再一并落库，避免残留半成品。
-	if req.ProviderType == "mofangfinance" {
-		apiID, err := s.createFinanceAPI(ctx, req, upstreamType)
-		if err != nil {
-			return nil, err
-		}
-		item.ZjmfFinanceAPIID = apiID
-	}
+	// 说明：上游对接仅保存连接信息（地址/账号/密码），连通性由 TestConnection 按真实协议
+	// 校验（魔方财务走 /zjmf_api_login 登录换 JWT，魔方云走 /v1/login 或 /token 换 access-token）。
+	// 此前在此处调用上游 createApi 注册凭证的做法是错误的——那是对方系统的管理端接口，外部无法调用。
 	if err := s.repo.Create(ctx, item); err != nil {
 		return nil, err
 	}
 	return s.FindByID(ctx, item.ID)
-}
-
-// createFinanceAPI 调用魔方财务 createApi 注册上游接口访问凭证。
-// 与 createApi 契约字段一一映射：用户名→username、API密钥→password、接口地址→hostname，
-// 返回创建成功后的 finance api id（供后续 inputProduct 导入商品使用）。
-func (s *providerService) createFinanceAPI(ctx context.Context, req dto.ProviderCreateRequest, upstreamType string) (uint64, error) {
-	cfg := &upstream.ProviderConfig{
-		Name:        req.Name,
-		Type:        req.ProviderType,
-		APIEndpoint: req.APIEndpoint,
-		Region:      req.Region,
-		Timeout:     15,
-		APIKey:      req.APIKey,
-		APISecret:   req.APISecret,
-	}
-	provider := mofangfinance.NewMoFangFinanceProvider(cfg)
-	info, err := provider.CreateAPI(ctx, mofangfinance.CreateAPIParams{
-		Name:       req.Name,
-		Hostname:   req.APIEndpoint,
-		Username:   req.APIKey,
-		Password:   req.APISecret,
-		Des:        req.Des,
-		Type:       upstreamType,
-		ContactWay: req.ContactWay,
-	})
-	if err != nil {
-		return 0, err
-	}
-	return info.ID, nil
 }
 
 func (s *providerService) Update(ctx context.Context, id uint64, req dto.ProviderUpdateRequest) (*dto.ProviderInfo, error) {
@@ -352,12 +317,17 @@ func (s *providerService) BuildProviderConfig(ctx context.Context, id uint64) (*
 // buildProviderConfig 由存储记录构建适配器配置（密钥解密注入）。
 func (s *providerService) buildProviderConfig(item *model.ResourceProvider) *upstream.ProviderConfig {
 	cfg := &upstream.ProviderConfig{
-		ID:          uint(item.ID),
-		Name:        item.Name,
-		Type:        item.ProviderType,
-		APIEndpoint: item.APIEndpoint,
-		Region:      item.Region,
-		Timeout:     15,
+		ID:           uint(item.ID),
+		Name:         item.Name,
+		Type:         item.ProviderType,
+		APIEndpoint:  item.APIEndpoint,
+		Region:       item.Region,
+		Timeout:      15,
+		UpstreamType: item.UpstreamType,
+		Port:         item.Port,
+		Secure:       item.Secure,
+		UserPrefix:   item.UserPrefix,
+		AccountType:  item.AccountType,
 	}
 	if item.APIKey != "" {
 		cfg.APIKey = s.decryptValue(item.APIKey)

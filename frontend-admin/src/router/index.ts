@@ -188,7 +188,7 @@ const routes: Array<RouteRecordRaw> = [
     path: '/resource',
     component: () => import('@/layouts/index.vue'),
     redirect: '/resource/dashboard',
-    meta: { title: '资源管理' },
+    meta: { title: '上游对接' },
     children: [
       // —— 资源总览 ——
       {
@@ -340,7 +340,7 @@ const routes: Array<RouteRecordRaw> = [
     path: '/product',
     component: () => import('@/layouts/index.vue'),
     redirect: '/product/products',
-    meta: { title: '产品管理' },
+    meta: { title: '商品销售' },
     children: [
       // —— 商品管理（catalog）——
       {

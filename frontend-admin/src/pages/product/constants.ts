@@ -19,6 +19,22 @@ export const productTypeOptions = [
   { label: '带宽', value: 'bandwidth' },
 ]
 
+// 商品供货模式
+export const provisionModeOptions = [
+  { label: '自营', value: 'self' },
+  { label: '上游克隆', value: 'clone' },
+]
+
+export function provisionModeText(mode: string): string {
+  return mode === 'clone' ? '上游克隆' : mode === 'self' ? '自营' : mode || '自营'
+}
+
+export function provisionModeTag(mode: string): { theme: 'primary' | 'warning' | 'default'; text: string } {
+  if (mode === 'clone') return { theme: 'warning', text: '上游克隆' }
+  if (mode === 'self') return { theme: 'primary', text: '自营' }
+  return { theme: 'default', text: '自营' }
+}
+
 export const changeTypeOptions = [
   { label: '上架', value: 'publish' },
   { label: '下架', value: 'unpublish' },

@@ -4,7 +4,9 @@ import type {
   SaleProductCategoryCreateRequest,
   SaleProductCategoryInfo,
   SaleProductCategoryListResponse,
+  SaleProductBatchCloneRequest,
   SaleProductCategoryUpdateRequest,
+  SaleProductCloneRequest,
   SaleProductCreateRequest,
   SaleProductHistoryInfo,
   SaleProductInfo,
@@ -83,9 +85,24 @@ export function getProductList(params: SaleProductListQuery): Promise<SaleProduc
       keyword: params.keyword,
       category_id: params.category_id,
       status: params.status,
+      provision_mode: params.provision_mode,
       page: params.page,
       page_size: params.page_size,
     },
+  })
+}
+
+export function cloneProductFromUpstream(data: SaleProductCloneRequest): Promise<SaleProductInfo> {
+  return request.post<SaleProductInfo>({
+    url: '/product/products/clone',
+    data,
+  })
+}
+
+export function batchCloneProductFromUpstream(data: SaleProductBatchCloneRequest): Promise<SaleProductInfo[]> {
+  return request.post<SaleProductInfo[]>({
+    url: '/product/products/clone/batch',
+    data,
   })
 }
 

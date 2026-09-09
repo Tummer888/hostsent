@@ -8,9 +8,9 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
-	"hostsent/backend/internal/modules/user/auth/dto"
-	"hostsent/backend/internal/modules/user/auth/model"
-	"hostsent/backend/internal/modules/user/auth/repository"
+	"hostsent/backend/internal/modules/uc/auth/dto"
+	"hostsent/backend/internal/modules/uc/auth/model"
+	"hostsent/backend/internal/modules/uc/auth/repository"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/netutil"
 )

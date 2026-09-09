@@ -32,6 +32,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '我的云主机', icon: 'cloud' },
       },
       {
+        path: 'shop',
+        name: 'Shop',
+        component: () => import('@/pages/shop/index.vue'),
+        meta: { title: '购买云主机', icon: 'cart' },
+      },
+      {
         path: 'cloud/images',
         name: 'ImageList',
         component: () => import('@/pages/cloud/images/index.vue'),

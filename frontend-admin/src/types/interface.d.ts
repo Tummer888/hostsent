@@ -161,6 +161,8 @@ export interface ProductInfo {
   provider_id: number
   upstream_id: string
   name: string
+  group_id: number
+  group_name: string
   cpu: number
   memory: number
   disk: number
@@ -291,6 +293,7 @@ export interface SaleProductListQuery {
   keyword?: string
   category_id?: number
   status?: number
+  provision_mode?: string
   page?: number
   page_size?: number
 }
@@ -307,8 +310,31 @@ export interface SaleProductCreateRequest {
   cost_price?: number
   source_product_id?: number
   source_provider_id?: number
+  provision_mode?: string
+  config_options?: string
   stock?: number
   sort_order?: number
+  status?: number
+}
+
+export interface SaleProductCloneRequest {
+  source_product_id: number
+  source_provider_id: number
+  code: string
+  name?: string
+  category_id?: number
+  price?: number
+  cost_price?: number
+  config_options?: string
+  stock?: number
+  status?: number
+}
+
+export interface SaleProductBatchCloneRequest {
+  source_provider_id: number
+  source_product_ids: number[]
+  category_id?: number
+  price_percent?: number
   status?: number
 }
 
@@ -345,6 +371,8 @@ export interface SaleProductInfo {
   cost_price: number
   source_product_id: number
   source_provider_id: number
+  provision_mode: string
+  config_options: string
   featured: boolean
   stock: number
   sort_order: number

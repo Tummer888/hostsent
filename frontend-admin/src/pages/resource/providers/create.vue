@@ -185,7 +185,7 @@
           <t-descriptions-item label="名称">{{ created?.name }}</t-descriptions-item>
           <t-descriptions-item label="类型">{{ selectedTypeLabel }}</t-descriptions-item>
           <t-descriptions-item label="API 地址">{{ created?.api_endpoint }}</t-descriptions-item>
-          <t-descriptions-item v-if="isMofangFinance" label="上游 API ID">{{ created?.zjmf_finance_api_id }}</t-descriptions-item>
+          <t-descriptions-item v-if="isMofangFinance && created?.zjmf_finance_api_id" label="上游 API ID">{{ created?.zjmf_finance_api_id }}</t-descriptions-item>
           <t-descriptions-item label="实例同步">{{ created?.sync_enabled ? '启用' : '禁用' }}</t-descriptions-item>
           <t-descriptions-item label="连接">{{ testResultText }}</t-descriptions-item>
         </t-descriptions>

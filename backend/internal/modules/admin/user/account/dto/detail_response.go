@@ -11,12 +11,12 @@ type UserPermissionItem struct {
 }
 
 type UserInstanceItem struct {
-	ID        uint64    `json:"id"`
-	Name      string    `json:"name"`
-	Region    string    `json:"region"`
-	Specs     string    `json:"specs"`
-	Status    string    `json:"status"`
-	ExpireAt  time.Time `json:"expire_at"`
+	ID       uint64    `json:"id"`
+	Name     string    `json:"name"`
+	Region   string    `json:"region"`
+	Specs    string    `json:"specs"`
+	Status   string    `json:"status"`
+	ExpireAt time.Time `json:"expire_at"`
 }
 
 type UserOrderItem struct {
@@ -54,11 +54,11 @@ type UserTicketItem struct {
 }
 
 type UserDetailAggregateResponse struct {
-	Profile      UserInfo                `json:"profile"`
-	Permissions  []UserPermissionItem    `json:"permissions"`
-	Instances    []UserInstanceItem      `json:"instances"`
-	Orders       []UserOrderItem         `json:"orders"`
-	Bills        []UserBillItem          `json:"bills"`
-	Transactions []UserTransactionItem   `json:"transactions"`
-	Tickets      []UserTicketItem        `json:"tickets"`
+	Profile      UserInfo              `json:"profile"`
+	Permissions  []UserPermissionItem  `json:"permissions"`
+	Instances    []UserInstanceItem    `json:"instances"`
+	Orders       []UserOrderItem       `json:"orders"`
+	Bills        []UserBillItem        `json:"bills"`
+	Transactions []UserTransactionItem `json:"transactions"`
+	Tickets      []UserTicketItem      `json:"tickets"`
 }

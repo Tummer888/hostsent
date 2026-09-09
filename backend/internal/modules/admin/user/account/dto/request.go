@@ -21,10 +21,10 @@ type UserCreateRequest struct {
 }
 
 type UserUpdateRequest struct {
-	Username string   `json:"username" binding:"required"`
-	Email    string   `json:"email" binding:"required"`
-	Phone    string   `json:"phone" binding:"required"`
-	Status   string   `json:"status" binding:"required"`
+	Username string `json:"username" binding:"required"`
+	Email    string `json:"email" binding:"required"`
+	Phone    string `json:"phone" binding:"required"`
+	Status   string `json:"status" binding:"required"`
 }
 
 type UserStatusRequest struct {
@@ -77,4 +77,10 @@ type PermissionUpdateRequest struct {
 	Icon      string `json:"icon"`
 	SortOrder int    `json:"sort_order"`
 	Status    string `json:"status" binding:"required"`
+}
+
+// RechargeRequest 用户充值（人工调账）请求
+type RechargeRequest struct {
+	Amount float64 `json:"amount" binding:"required"`
+	Remark string  `json:"remark"`
 }

@@ -9,6 +9,7 @@ import (
 
 	"hostsent/backend/internal/modules/admin/user/account/dto"
 	"hostsent/backend/internal/modules/admin/user/account/service"
+	"hostsent/backend/internal/pkg/middleware"
 )
 
 type UserHandler struct {
@@ -211,6 +212,49 @@ func (h *UserHandler) AssignRoles(c *gin.Context) {
 		return
 	}
 	if err := h.userService.AssignRoles(c.Request.Context(), id, req.RoleIDs); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": "ok", "timestamp": time.Now().Unix()})
+}
+
+// Impersonate godoc
+// @Summary 代登录用户
+// @Description 以指定用户身份登录，返回用户端 token
+// @Tags 用户管理
+// @Param id path int true "用户ID"
+// @Success 200 {object} dto.APIResponse[dto.ImpersonateResponse]
+// @Router /api/v1/admin/users/{id}/impersonate [post]
+func (h *UserHandler) Impersonate(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	resp, err := h.userService.Impersonate(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 40001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": resp, "timestamp": time.Now().Unix()})
+}
+
+// Recharge godoc
+// @Summary 用户充值
+// @Description 给指定用户钱包人工充值（收入）
+// @Tags 用户管理
+// @Param id path int true "用户ID"
+// @Param request body dto.RechargeRequest true "充值参数"
+// @Success 200 {object} dto.APIResponse[string]
+// @Router /api/v1/admin/users/{id}/recharge [post]
+func (h *UserHandler) Recharge(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	var req dto.RechargeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	operatorID := uint64(0)
+	if claims, ok := middleware.GetAdminClaims(c); ok {
+		operatorID = claims.AdminID
+	}
+	if err := h.userService.Recharge(c.Request.Context(), id, req.Amount, req.Remark, operatorID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
 	}

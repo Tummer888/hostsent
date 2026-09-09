@@ -40,7 +40,7 @@ type LoginResponse struct {
 // UpdateProfileRequest 用户资料更新请求参数。
 // 仅允许更新展示类字段（显示名、邮箱、手机、头像），用户名与密码走独立接口。
 type UpdateProfileRequest struct {
-	Name   string `json:"name"`   // 显示名/真实姓名，写入 real_name 字段
+	Name   string `json:"name"` // 显示名/真实姓名，写入 real_name 字段
 	Email  string `json:"email" binding:"omitempty,email"`
 	Phone  string `json:"phone"`
 	Avatar string `json:"avatar"`
@@ -48,6 +48,6 @@ type UpdateProfileRequest struct {
 
 // ChangePasswordRequest 修改密码请求参数。
 type ChangePasswordRequest struct {
-	OldPassword string `json:"old_password" binding:"required"`           // 旧密码，用于身份校验
-	NewPassword string `json:"new_password" binding:"required,min=6"`     // 新密码，最短 6 位
+	OldPassword string `json:"old_password" binding:"required"`       // 旧密码，用于身份校验
+	NewPassword string `json:"new_password" binding:"required,min=6"` // 新密码，最短 6 位
 }

@@ -70,6 +70,11 @@
           </div>
         </template>
 
+        <template #group="{ row }">
+          <t-tag v-if="row.group_name" theme="primary" variant="light" size="small" shape="round">{{ row.group_name }}</t-tag>
+          <span v-else class="muted">未分类</span>
+        </template>
+
         <template #specs="{ row }">
           <span class="spec-text">{{ row.cpu }}核 / {{ formatMemory(row.memory) }} / {{ formatDisk(row.disk) }} {{ row.bandwidth }}Mbps</span>
         </template>
@@ -209,6 +214,7 @@ function formatTime(value: string): string {
 
 const columns: PrimaryTableCol<ProductInfo>[] = [
   { colKey: 'name', title: '商品', minWidth: 180 },
+  { colKey: 'group', title: '分类', width: 130 },
   { colKey: 'specs', title: '规格', minWidth: 200 },
   { colKey: 'os', title: '系统', width: 100 },
   { colKey: 'price', title: '价格', width: 150 },

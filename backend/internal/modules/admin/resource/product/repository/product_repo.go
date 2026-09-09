@@ -83,6 +83,6 @@ func (r *productRepository) UpsertMany(ctx context.Context, providerID uint64, i
 	}
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "provider_id"}, {Name: "upstream_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"name", "cpu", "memory", "disk", "disk_type", "bandwidth", "os", "region", "zone", "specs", "raw_specs", "cost_price", "sale_price", "status", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"name", "group_id", "group_name", "cpu", "memory", "disk", "disk_type", "bandwidth", "os", "region", "zone", "specs", "raw_specs", "cost_price", "sale_price", "status", "updated_at"}),
 	}).Create(&items).Error
 }

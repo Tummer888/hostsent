@@ -8,6 +8,15 @@ import router from './router'
 import { pinia } from './store'
 import './styles/index.css'
 
+// 代登录（管理端新窗口带入 ?token=）：写入登录态并清除 URL 参数，
+// 供 pinia store 初始化与请求拦截器读取，使新窗口免登录直接进入用户端。
+const urlParams = new URLSearchParams(window.location.search)
+const urlToken = urlParams.get('token')
+if (urlToken) {
+  localStorage.setItem('user_token', urlToken)
+  window.history.replaceState({}, '', window.location.pathname + window.location.hash)
+}
+
 const app = createApp(App)
 app.use(pinia)
 app.use(router)

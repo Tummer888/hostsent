@@ -13,13 +13,13 @@ type User struct {
 	PasswordHash      string     `gorm:"column:password_hash;size:255;not null"`
 	Status            string     `gorm:"size:32;not null;default:active"`
 	RealName          string     `gorm:"column:real_name;size:64"`
-	Avatar            string     `gorm:"size:255"`                                    // 用户头像 URL
-	Tier              string     `gorm:"size:32;not null;default:free"`               // 用户等级
-	LastLoginAt       *time.Time `gorm:"column:last_login_at"`                        // 最近登录时间
-	LastLoginIP       string     `gorm:"column:last_login_ip;size:64"`                // 最近登录 IP
-	LastLoginIPRegion string     `gorm:"column:last_login_ip_region;size:128"`        // 最近登录 IP 归属地
-	CreatedAt         time.Time  `gorm:"autoCreateTime"`                              // 创建时间
-	UpdatedAt         time.Time  `gorm:"autoUpdateTime"`                              // 更新时间
+	Avatar            string     `gorm:"size:255"`                             // 用户头像 URL
+	Tier              string     `gorm:"size:32;not null;default:free"`        // 用户等级
+	LastLoginAt       *time.Time `gorm:"column:last_login_at"`                 // 最近登录时间
+	LastLoginIP       string     `gorm:"column:last_login_ip;size:64"`         // 最近登录 IP
+	LastLoginIPRegion string     `gorm:"column:last_login_ip_region;size:128"` // 最近登录 IP 归属地
+	CreatedAt         time.Time  `gorm:"autoCreateTime"`                       // 创建时间
+	UpdatedAt         time.Time  `gorm:"autoUpdateTime"`                       // 更新时间
 }
 
 func (User) TableName() string {

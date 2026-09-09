@@ -3,11 +3,11 @@ package handler
 import (
 	"github.com/gin-gonic/gin"
 
-	"hostsent/backend/internal/modules/user/auth/dto"
-	"hostsent/backend/internal/modules/user/auth/service"
+	"hostsent/backend/internal/modules/uc/auth/dto"
+	"hostsent/backend/internal/modules/uc/auth/service"
+	apperrors "hostsent/backend/internal/pkg/errors"
 	"hostsent/backend/internal/pkg/middleware"
 	"hostsent/backend/internal/pkg/netutil"
-	apperrors "hostsent/backend/internal/pkg/errors"
 	"hostsent/backend/internal/pkg/response"
 )
 

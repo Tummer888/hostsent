@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"errors"
 
 	"golang.org/x/crypto/bcrypt"
 
 	"hostsent/backend/internal/modules/admin/user/account/dto"
 	"hostsent/backend/internal/modules/admin/user/account/model"
 	"hostsent/backend/internal/modules/admin/user/account/repository"
+	pkgauth "hostsent/backend/internal/pkg/auth"
 )
 
 type UserService interface {
@@ -21,14 +23,23 @@ type UserService interface {
 	Delete(ctx context.Context, id uint64) error
 	GetStats(ctx context.Context) (*dto.UserStatsResponse, error)
 	GetRegionStats(ctx context.Context) (*dto.RegionStatsResponse, error)
+	// Impersonate 代登录：按用户 ID 签发用户端 token（仅 active 用户）
+	Impersonate(ctx context.Context, id uint64) (*dto.ImpersonateResponse, error)
+	// Recharge 用户充值（人工调账）
+	Recharge(ctx context.Context, id uint64, amount float64, remark string, operatorID uint64) error
 }
+
+// Recharger 充值能力适配器（由装配层注入，内部调用财务钱包调账）。
+type Recharger func(ctx context.Context, userID uint64, amount float64, remark string, operatorID uint64) error
 
 type userService struct {
-	repo repository.UserRepository
+	repo      repository.UserRepository
+	jwtIssuer *pkgauth.JWTIssuer
+	recharge  Recharger
 }
 
-func NewUserService(repo repository.UserRepository) UserService {
-	return &userService{repo: repo}
+func NewUserService(repo repository.UserRepository, jwtIssuer *pkgauth.JWTIssuer, recharge Recharger) UserService {
+	return &userService{repo: repo, jwtIssuer: jwtIssuer, recharge: recharge}
 }
 
 func (s *userService) List(ctx context.Context, query dto.UserListQuery) (*dto.UserListResponse, error) {
@@ -162,27 +173,58 @@ func (s *userService) GetRegionStats(ctx context.Context) (*dto.RegionStatsRespo
 
 func toUserInfo(user model.User) dto.UserInfo {
 	return dto.UserInfo{
-		ID:                user.ID,
-		Username:          user.Username,
-		RealName:          user.RealName,
-		Role:              user.Role,
-		Roles:             user.Roles,
-		Email:             user.Email,
-		Phone:             user.Phone,
-		UserGroupName:     user.UserGroupName,
-		Region:            user.Region,
-		LastLoginIP:       user.LastLoginIP,
-		LastLoginIPRegion: user.LastLoginIPRegion,
-		OAuthProvider:     user.OAuthProvider,
-		Balance:           user.Balance,
+		ID:                 user.ID,
+		Username:           user.Username,
+		RealName:           user.RealName,
+		Role:               user.Role,
+		Roles:              user.Roles,
+		Email:              user.Email,
+		Phone:              user.Phone,
+		UserGroupName:      user.UserGroupName,
+		Region:             user.Region,
+		LastLoginIP:        user.LastLoginIP,
+		LastLoginIPRegion:  user.LastLoginIPRegion,
+		OAuthProvider:      user.OAuthProvider,
+		Balance:            user.Balance,
 		TotalConsumeAmount: user.TotalConsumeAmount,
-		Status:            user.Status,
-		CreatedAt:         user.CreatedAt,
-		LastLoginAt:       user.LastLoginAt,
+		Status:             user.Status,
+		CreatedAt:          user.CreatedAt,
+		LastLoginAt:        user.LastLoginAt,
 	}
 }
 
 func ptrUserInfo(user model.User) *dto.UserInfo {
 	info := toUserInfo(user)
 	return &info
+}
+
+// Impersonate 代登录：按用户 ID 签发用户端 JWT。
+func (s *userService) Impersonate(ctx context.Context, id uint64) (*dto.ImpersonateResponse, error) {
+	user, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if user.Status != "active" {
+		return nil, errors.New("仅可代登录正常状态用户")
+	}
+	if s.jwtIssuer == nil {
+		return nil, errors.New("代登录能力未配置")
+	}
+	info, err := s.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	token, err := s.jwtIssuer.GenerateUser(user.Username, user.ID, "")
+	if err != nil {
+		return nil, err
+	}
+	return &dto.ImpersonateResponse{Token: token, UserInfo: *info}, nil
+}
+
+// Recharge 用户充值（人工调账），委托给注入的 Recharger。
+func (s *userService) Recharge(ctx context.Context, id uint64, amount float64, remark string, operatorID uint64) error {
+	if s.recharge == nil {
+		return errors.New("充值能力未配置")
+	}
+	return s.recharge(ctx, id, amount, remark, operatorID)
 }

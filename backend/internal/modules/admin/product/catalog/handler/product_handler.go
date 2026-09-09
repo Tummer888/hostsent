@@ -68,6 +68,52 @@ func (h *ProductHandler) Create(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// CloneFromUpstream godoc
+// @Summary 从上游商品克隆创建销售商品
+// @Tags 产品管理-商品
+// @Security BearerAuth
+// @Param request body dto.ProductCloneRequest true "克隆参数"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/product/products/clone [post]
+func (h *ProductHandler) CloneFromUpstream(c *gin.Context) {
+	var req dto.ProductCloneRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	operatorID, operatorName := operatorFromContext(c)
+	resp, err := h.productService.CloneFromUpstream(c.Request.Context(), req, operatorID, operatorName)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// BatchCloneFromUpstream godoc
+// @Summary 批量从上游商品克隆创建销售商品（按百分比定价）
+// @Tags 产品管理-商品
+// @Security BearerAuth
+// @Param request body dto.ProductBatchCloneRequest true "批量克隆参数"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/product/products/clone/batch [post]
+func (h *ProductHandler) BatchCloneFromUpstream(c *gin.Context) {
+	var req dto.ProductBatchCloneRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	operatorID, operatorName := operatorFromContext(c)
+	resp, err := h.productService.CloneFromUpstreamBatch(c.Request.Context(), req, operatorID, operatorName)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, resp)
+}
+
 // Get godoc
 // @Summary 查询商品详情
 // @Tags 产品管理-商品

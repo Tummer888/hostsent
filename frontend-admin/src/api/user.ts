@@ -79,6 +79,11 @@ export interface AdminImpersonateRequest {
   user_id: number
 }
 
+export interface UserRechargeRequest {
+  amount: number
+  remark?: string
+}
+
 /** 用户总览统计响应 */
 export interface UserStatsResponse {
   /** 总用户数 */
@@ -680,7 +685,14 @@ export function updateUserStatus(id: string | number, data: UserStatusRequest): 
 
 export function impersonateUser(data: AdminImpersonateRequest): Promise<LoginResponse> {
   return request.post<LoginResponse>({
-    url: '/auth/impersonate',
+    url: `/users/${data.user_id}/impersonate`,
+    data: {},
+  })
+}
+
+export function rechargeUser(id: string | number, data: UserRechargeRequest): Promise<string> {
+  return request.post<string>({
+    url: `/users/${id}/recharge`,
     data,
   })
 }

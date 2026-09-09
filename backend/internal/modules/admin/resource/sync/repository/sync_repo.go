@@ -25,6 +25,7 @@ type SyncRepository interface {
 	ListInstances(ctx context.Context, query dto.InstanceListQuery) ([]model.Instance, int64, error)
 	FindInstanceByID(ctx context.Context, id uint64) (*model.Instance, error)
 	UpsertInstances(ctx context.Context, items []model.Instance) error
+	CountInstancesByProductUser(ctx context.Context, userID, productID uint64) (int64, error)
 }
 
 type syncRepository struct {
@@ -202,6 +203,15 @@ func (r *syncRepository) UpsertInstances(ctx context.Context, items []model.Inst
 	}
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "instance_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"provider_id", "user_id", "product_id", "name", "cpu", "memory", "disk", "disk_type", "bandwidth", "os", "region", "zone", "status", "private_ip", "public_ip", "raw_data", "billing_mode", "expire_at", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"status", "name", "public_ip", "private_ip", "cpu", "memory", "disk", "raw_data", "expire_at", "updated_at"}),
 	}).Create(&items).Error
+}
+
+// CountInstancesByProductUser 统计某用户已开通某商品（instances）的实例数，用于开通幂等判断。
+func (r *syncRepository) CountInstancesByProductUser(ctx context.Context, userID, productID uint64) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&model.Instance{}).
+		Where("user_id = ? AND product_id = ?", userID, productID).
+		Count(&count).Error
+	return count, err
 }

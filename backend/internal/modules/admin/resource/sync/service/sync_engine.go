@@ -47,13 +47,13 @@ type ProviderConfigProvider interface {
 // SyncEngine 资源同步引擎：拉取上游商品/资源池/实例数据，标准化后幂等落库，
 // 并维护任务状态机（pending → running → success/failed）与同步日志。
 type SyncEngine struct {
-	upmgr       *upstream.ProviderManager
-	provider    ProviderConfigProvider
-	productRepo productrepo.ProductRepository
-	poolRepo    providerrepo.PoolRepository
+	upmgr        *upstream.ProviderManager
+	provider     ProviderConfigProvider
+	productRepo  productrepo.ProductRepository
+	poolRepo     providerrepo.PoolRepository
 	providerRepo providerrepo.ProviderRepository
-	syncRepo    syncrepo.SyncRepository
-	logger      *zap.Logger
+	syncRepo     syncrepo.SyncRepository
+	logger       *zap.Logger
 }
 
 // NewSyncEngine 创建同步引擎
@@ -251,6 +251,8 @@ func (e *SyncEngine) convertProduct(providerID uint64, p *pkgmodel.StandardProdu
 		ProviderID: providerID,
 		UpstreamID: p.UpstreamID,
 		Name:       p.Name,
+		GroupID:    jsonToInt64(p.RawSpecs, "gid"),
+		GroupName:  jsonToString(p.RawSpecs, "group_name"),
 		CPU:        p.Specs.CPU,
 		Memory:     p.Specs.Memory,
 		Disk:       p.Specs.Disk,
@@ -265,6 +267,43 @@ func (e *SyncEngine) convertProduct(providerID uint64, p *pkgmodel.StandardProdu
 		SalePrice:  p.SalePrice,
 		Status:     normalizeStatus(p.Status, true),
 	}
+}
+
+// jsonToInt64 从 RawSpecs map 读取 int64 字段（兼容 json.Number/float64）。
+func jsonToInt64(m map[string]interface{}, key string) int64 {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return 0
+	}
+	switch t := v.(type) {
+	case float64:
+		return int64(t)
+	case int64:
+		return t
+	case int:
+		return int64(t)
+	case json.Number:
+		n, _ := t.Int64()
+		return n
+	case string:
+		var n int64
+		if _, err := fmt.Sscanf(t, "%d", &n); err == nil {
+			return n
+		}
+	}
+	return 0
+}
+
+// jsonToString 从 RawSpecs map 读取 string 字段。
+func jsonToString(m map[string]interface{}, key string) string {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return fmt.Sprintf("%v", v)
 }
 
 // convertPool 标准化资源池（标准模型 → 存储模型）。

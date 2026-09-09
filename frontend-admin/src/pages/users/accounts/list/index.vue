@@ -339,6 +339,28 @@
         </div>
       </t-form>
     </t-dialog>
+
+    <t-dialog
+      v-model:visible="rechargeVisible"
+      header="用户充值"
+      width="460px"
+      :confirm-btn="{ content: '确认充值', theme: 'primary', loading: rechargeSubmitting }"
+      :cancel-btn="{ content: '取消' }"
+      @confirm="handleRechargeConfirm"
+      @close="rechargeVisible = false"
+    >
+      <t-form label-align="top" :data="rechargeForm" @submit.prevent>
+        <t-form-item label="充值用户" name="username">
+          <t-input :model-value="rechargeForm.username" disabled />
+        </t-form-item>
+        <t-form-item label="充值金额（元）" name="amount" :rules="[{ required: true, message: '请输入充值金额' }]">
+          <t-input-number v-model="rechargeForm.amount" :min="0.01" :precision="2" theme="column" placeholder="请输入充值金额" />
+        </t-form-item>
+        <t-form-item label="备注" name="remark">
+          <t-textarea v-model="rechargeForm.remark" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="选填，记录本次充值说明" />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
   </div>
 </template>
 
@@ -363,8 +385,7 @@ import {
 } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
-import { useUserStore } from '@/store/modules/user'
-import { createUser, getRegionStats, getRoleList, getUserGroupList, getUserList, impersonateUser, updateUserStatus, type RegionStatItem, type RoleInfo, type UserCreateRequest, type UserGroupInfo, type UserInfo, type UserListQuery } from '@/api/user'
+import { createUser, getRegionStats, getRoleList, getUserGroupList, getUserList, impersonateUser, rechargeUser, updateUserStatus, type RegionStatItem, type RoleInfo, type UserCreateRequest, type UserGroupInfo, type UserInfo, type UserListQuery } from '@/api/user'
 
 defineOptions({ name: 'UserAccountsList' })
 
@@ -372,7 +393,6 @@ type SortOrder = 'asc' | 'desc'
 
 const route = useRoute()
 const router = useRouter()
-const userStore = useUserStore()
 
 const loading = ref(false)
 const errorMessage = ref('')
@@ -723,7 +743,11 @@ function goUserDetail(row: UserInfo) {
 }
 
 function handleRecharge(row: UserInfo) {
-  MessagePlugin.info(`充值功能开发中 - 用户: ${row.username}`)
+  rechargeForm.user_id = row.id
+  rechargeForm.username = row.username
+  rechargeForm.amount = 0
+  rechargeForm.remark = ''
+  rechargeVisible.value = true
 }
 
 function buildMobileActionOptions(row: UserInfo) {
@@ -767,19 +791,11 @@ async function handleImpersonate(row: UserInfo) {
   }
   try {
     const res = await impersonateUser({ user_id: row.id })
-    userStore.token = res.token
-    userStore.userInfo = {
-      id: res.user_info.id,
-      name: res.user_info.username,
-      username: res.user_info.username,
-      role: res.user_info.role,
-      roles: res.user_info.roles?.length ? res.user_info.roles : [res.user_info.role],
-      email: res.user_info.email,
-      phone: res.user_info.phone || '',
-      status: res.user_info.status,
-    }
-    MessagePlugin.success(`已代登录用户 ${row.username}`)
-    await router.push('/')
+    // 代登录：新窗口打开用户端并携带 user token，绝不在管理端写入用户登录态
+    const base = (import.meta.env.VITE_USER_BASE_URL as string) || 'http://localhost:3001'
+    const url = `${base.replace(/\/+$/, '')}/?token=${encodeURIComponent(res.token)}`
+    window.open(url, '_blank')
+    MessagePlugin.success(`已在用户端窗口代为登录 ${row.username}`)
   } catch (error) {
     MessagePlugin.error((error as Error)?.message || '代登录失败')
   }
@@ -852,10 +868,39 @@ function openCreate() {
   dialogVisible.value = true
 }
 
+const rechargeVisible = ref(false)
+const rechargeSubmitting = ref(false)
+const rechargeForm = reactive<{ user_id: number; username: string; amount: number; remark: string }>({
+  user_id: 0,
+  username: '',
+  amount: 0,
+  remark: '',
+})
+
+async function handleRechargeConfirm() {
+  if (!rechargeForm.amount || rechargeForm.amount <= 0) {
+    MessagePlugin.warning('请输入有效的充值金额')
+    return
+  }
+  rechargeSubmitting.value = true
+  try {
+    await rechargeUser(rechargeForm.user_id, {
+      amount: rechargeForm.amount,
+      remark: rechargeForm.remark || undefined,
+    })
+    MessagePlugin.success('充值成功')
+    rechargeVisible.value = false
+    await loadUsers()
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '充值失败')
+  } finally {
+    rechargeSubmitting.value = false
+  }
+}
+
 async function handleCreateUser() {
   const validate = await formRef.value?.validate?.()
-  if (validate !== true) return
-  submitting.value = true
+  if (validate !== true) return  submitting.value = true
   try {
     await createUser({
       id: formData.id ? Number(formData.id) : undefined,

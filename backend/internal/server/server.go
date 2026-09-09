@@ -2,12 +2,15 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"go.uber.org/zap"
 
+	accountdto "hostsent/backend/internal/modules/admin/finance/account/dto"
 	finaccounthandler "hostsent/backend/internal/modules/admin/finance/account/handler"
 	finaccountrepo "hostsent/backend/internal/modules/admin/finance/account/repository"
 	finaccountservice "hostsent/backend/internal/modules/admin/finance/account/service"
@@ -61,6 +64,7 @@ import (
 	providerrepo "hostsent/backend/internal/modules/admin/resource/provider/repository"
 	providerservice "hostsent/backend/internal/modules/admin/resource/provider/service"
 	synchandler "hostsent/backend/internal/modules/admin/resource/sync/handler"
+	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	syncrepo "hostsent/backend/internal/modules/admin/resource/sync/repository"
 	syncservice "hostsent/backend/internal/modules/admin/resource/sync/service"
 	systemhandler "hostsent/backend/internal/modules/admin/system/handler"
@@ -84,16 +88,21 @@ import (
 	verificationhandler "hostsent/backend/internal/modules/admin/user/verification/handler"
 	verificationrepo "hostsent/backend/internal/modules/admin/user/verification/repository"
 	verificationservice "hostsent/backend/internal/modules/admin/user/verification/service"
-	usercenterhandler "hostsent/backend/internal/modules/user/auth/handler"
-	usercenterrepo "hostsent/backend/internal/modules/user/auth/repository"
-	usercenterservice "hostsent/backend/internal/modules/user/auth/service"
-	userfinancehandler "hostsent/backend/internal/modules/user/finance/handler"
-	usermenuhandler "hostsent/backend/internal/modules/user/menu/handler"
-	usermenurepo "hostsent/backend/internal/modules/user/menu/repository"
-	usermenuservice "hostsent/backend/internal/modules/user/menu/service"
+	usercenterhandler "hostsent/backend/internal/modules/uc/auth/handler"
+	usercenterrepo "hostsent/backend/internal/modules/uc/auth/repository"
+	usercenterservice "hostsent/backend/internal/modules/uc/auth/service"
+	userfinancehandler "hostsent/backend/internal/modules/uc/finance/handler"
+	usermenuhandler "hostsent/backend/internal/modules/uc/menu/handler"
+	usermenurepo "hostsent/backend/internal/modules/uc/menu/repository"
+	usermenuservice "hostsent/backend/internal/modules/uc/menu/service"
+	ucorderhandler "hostsent/backend/internal/modules/uc/order/handler"
+	ucorderservice "hostsent/backend/internal/modules/uc/order/service"
+	ucproducthandler "hostsent/backend/internal/modules/uc/product/handler"
+	ucproductservice "hostsent/backend/internal/modules/uc/product/service"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/db"
+	"hostsent/backend/internal/pkg/model"
 	"hostsent/backend/internal/pkg/netutil"
 	"hostsent/backend/internal/pkg/upstream"
 	// 各上游适配器通过 init() 注册工厂，须在此空导入以触发注册。
@@ -137,13 +146,10 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	permissionRepo := repository.NewPermissionRepository(database)
 	menuRepo := menurepo.NewMenuRepository(database)
 	securityRepo := securityrepo.NewSecurityRepository(database)
-	// 订单域
+	// 订单域（仓储先行；履约适配器需依赖上游/商品服务，见下方装配）
 	orderRepo := orderrepo.NewOrderRepository(database)
 	orderItemRepo := orderrepo.NewOrderItemRepository(database)
 	orderRefundRepo := orderrepo.NewRefundRepository(database)
-	orderService := orderservice.NewOrderService(orderRepo, orderItemRepo, orderRefundRepo, orderservice.NewDefaultProvisionAdapter())
-	orderHandler := orderhandler.NewOrderHandler(orderService)
-	refundHandler := orderhandler.NewRefundHandler(orderService)
 	// 财务域
 	walletTxRepo := fintransactionrepo.NewTransactionRepository(database)
 	walletRepo := finaccountrepo.NewWalletRepository(database)
@@ -175,7 +181,21 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	productRepo := productrepo.NewProductRepository(database)
 	syncRepo := syncrepo.NewSyncRepository(database)
 	adminService := adminservice.NewAdminService(adminRepo, jwtIssuer)
-	userService := service.NewUserService(userRepo)
+	userService := service.NewUserService(
+		userRepo,
+		jwtIssuer,
+		func(ctx context.Context, userID uint64, amount float64, remark string, operatorID uint64) error {
+			_, err := walletService.Adjust(ctx, accountdto.AdjustRequest{
+				UserID:    userID,
+				Type:      "adjust",
+				Direction: 1, // 收入
+				Amount:    amount,
+				BizKey:    fmt.Sprintf("admin-recharge-%d", userID) + fmt.Sprintf("-%d", time.Now().UnixNano()),
+				Remark:    remark,
+			}, operatorID)
+			return err
+		},
+	)
 	userDetailService := service.NewUserDetailService(userRepo, userDetailRepo)
 	userGroupService := service.NewUserGroupService(userGroupRepo)
 	agentLevelService := distributionservice.NewAgentLevelService(agentLevelRepo)
@@ -234,8 +254,60 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	prodCategoryHandler := categoryhandler.NewCategoryHandler(prodCategoryService)
 	// 商品管理（catalog 子域）
 	prodCatalogRepo := catalogrepo.NewProductRepository(database)
-	prodCatalogService := catalogservice.NewProductService(prodCatalogRepo)
+	prodCatalogService := catalogservice.NewProductService(prodCatalogRepo, productRepo)
 	prodCatalogHandler := cataloghandler.NewProductHandler(prodCatalogService)
+	// 订单履约：上游开通适配器（打通订单 paid/provisioning → 上游创建实例）
+	orderService := orderservice.NewOrderService(orderRepo, orderItemRepo, orderRefundRepo, orderservice.NewUpstreamProvisionAdapter(orderservice.ProvisionDeps{
+		BuildProvisionRequest: func(ctx context.Context, productID uint64, name string) (interface{}, error) {
+			return prodCatalogService.BuildProvisionRequest(ctx, productID, name)
+		},
+		BuildProviderConfig: providerService.BuildProviderConfig,
+		CreateInstance: func(ctx context.Context, cfg *upstream.ProviderConfig, req *model.CreateInstanceRequest) (*model.StandardInstance, error) {
+			provider, err := upstreamMgr.Build(cfg.Type, cfg)
+			if err != nil {
+				return nil, err
+			}
+			return provider.CreateInstance(ctx, req)
+		},
+		RecordInstance: func(ctx context.Context, inst *model.StandardInstance, order *ordermodel.Order) error {
+			row := buildRecordedInstance(inst, order)
+			if row.InstanceID == "" {
+				return nil
+			}
+			return syncRepo.UpsertInstances(ctx, []syncmodel.Instance{row})
+		},
+		HasInstance: func(ctx context.Context, userID, productID uint64) (bool, error) {
+			n, err := syncRepo.CountInstancesByProductUser(ctx, userID, productID)
+			return n > 0, err
+		},
+	}))
+	orderHandler := orderhandler.NewOrderHandler(orderService)
+	refundHandler := orderhandler.NewRefundHandler(orderService)
+	// 用户中心商品：复用管理端商品目录，仅暴露上架商品（用户可购）
+	ucProductService := ucproductservice.NewProductService(prodCatalogService)
+	ucProductHandler := ucproducthandler.NewProductHandler(ucProductService)
+	// 用户中心订单：余额支付下单 + 复用履约适配器开通上游
+	// ensureOpenable：下单前校验商品能否直连开通，财务型上游（账单推送制）不支持单次开通，先拒绝避免误扣款。
+	ucOrderService := ucorderservice.NewOrderService(prodCatalogService, walletService, orderRepo, orderService,
+		func(ctx context.Context, productID uint64) error {
+			preq, err := prodCatalogService.BuildProvisionRequest(ctx, productID, "")
+			if err != nil {
+				return err
+			}
+			if preq == nil || preq.ProviderID == 0 {
+				return errors.New("该商品未绑定上游，暂不可在线购买")
+			}
+			cfg, err := providerService.BuildProviderConfig(ctx, preq.ProviderID)
+			if err != nil {
+				return errors.New("该商品上游配置不可用，暂不可购买")
+			}
+			if cfg.Type == "mofangfinance" {
+				return errors.New("该商品由魔方财务上架，需走订单推送流程，暂不支持在线直接开通")
+			}
+			return nil
+		},
+	)
+	ucOrderHandler := ucorderhandler.NewOrderHandler(ucOrderService)
 	// 规格管理（spec 子域）
 	specTemplateRepo := specrepo.NewSpecTemplateRepository(database)
 	specMappingRepo := specrepo.NewSpecMappingRepository(database)
@@ -310,7 +382,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 			SourceID:     order.OrderNo,
 		})
 	}
-	router := newRouter(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, promotionHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, logger, jwtIssuer)
+	router := newRouter(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, promotionHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, logger, jwtIssuer)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 
@@ -354,4 +426,43 @@ func (b *lifecycleNotifierBridge) Publish(ctx context.Context, userID uint64, ti
 		SourceModule: "lifecycle",
 		SourceID:     fmt.Sprintf("remind-%d", userID),
 	})
+}
+
+// buildRecordedInstance 将标准实例转换为同步实例记录（订单履约开通成功后落库）。
+func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order) syncmodel.Instance {
+	rawJSON, _ := json.Marshal(inst.RawData)
+	row := syncmodel.Instance{
+		InstanceID:  inst.UpstreamID,
+		UserID:      order.UserID,
+		ProductID:   order.ProductID,
+		Name:        firstNonEmpty(inst.Name, order.ProductName),
+		CPU:         inst.Specs.CPU,
+		Memory:      inst.Specs.Memory,
+		Disk:        inst.Specs.Disk,
+		DiskType:    inst.Specs.DiskType,
+		Bandwidth:   inst.Specs.Bandwidth,
+		OS:          inst.Specs.OS,
+		Region:      inst.Region,
+		Zone:        inst.Zone,
+		Status:      string(inst.Status),
+		PublicIP:    inst.PublicIP,
+		PrivateIP:   inst.PrivateIP,
+		RawData:     string(rawJSON),
+		BillingMode: order.PriceModel,
+	}
+	if !inst.ExpireAt.IsZero() {
+		exp := inst.ExpireAt
+		row.ExpireAt = &exp
+	}
+	return row
+}
+
+// firstNonEmpty 返回第一个非空字符串。
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

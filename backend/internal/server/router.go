@@ -11,16 +11,16 @@ import (
 	finbillhandler "hostsent/backend/internal/modules/admin/finance/bill/handler"
 	finrechargehandler "hostsent/backend/internal/modules/admin/finance/recharge/handler"
 	finwithdrawhandler "hostsent/backend/internal/modules/admin/finance/withdraw/handler"
+	lifecyclehandler "hostsent/backend/internal/modules/admin/lifecycle/handler"
 	adminhandler "hostsent/backend/internal/modules/admin/manager/handler"
 	menuhandler "hostsent/backend/internal/modules/admin/menu/handler"
-	lifecyclehandler "hostsent/backend/internal/modules/admin/lifecycle/handler"
 	notifyhandler "hostsent/backend/internal/modules/admin/notification/handler"
 	orderhandler "hostsent/backend/internal/modules/admin/order/handler"
-	categoryhandler "hostsent/backend/internal/modules/admin/product/category/handler"
 	cataloghandler "hostsent/backend/internal/modules/admin/product/catalog/handler"
-	spechandler "hostsent/backend/internal/modules/admin/product/spec/handler"
+	categoryhandler "hostsent/backend/internal/modules/admin/product/category/handler"
 	pricinghandler "hostsent/backend/internal/modules/admin/product/pricing/handler"
 	promotionhandler "hostsent/backend/internal/modules/admin/product/promotion/handler"
+	spechandler "hostsent/backend/internal/modules/admin/product/spec/handler"
 	producthandler "hostsent/backend/internal/modules/admin/resource/product/handler"
 	providerhandler "hostsent/backend/internal/modules/admin/resource/provider/handler"
 	synchandler "hostsent/backend/internal/modules/admin/resource/sync/handler"
@@ -31,15 +31,17 @@ import (
 	quotahandler "hostsent/backend/internal/modules/admin/user/quota/handler"
 	securityhandler "hostsent/backend/internal/modules/admin/user/security/handler"
 	verificationhandler "hostsent/backend/internal/modules/admin/user/verification/handler"
-	usercenterhandler "hostsent/backend/internal/modules/user/auth/handler"
-	userfinancehandler "hostsent/backend/internal/modules/user/finance/handler"
-	usermenuhandler "hostsent/backend/internal/modules/user/menu/handler"
+	usercenterhandler "hostsent/backend/internal/modules/uc/auth/handler"
+	userfinancehandler "hostsent/backend/internal/modules/uc/finance/handler"
+	usermenuhandler "hostsent/backend/internal/modules/uc/menu/handler"
+	ucorderhandler "hostsent/backend/internal/modules/uc/order/handler"
+	ucproducthandler "hostsent/backend/internal/modules/uc/product/handler"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/middleware"
 )
 
-func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, providerHandler *providerhandler.ProviderHandler, productHandler *producthandler.ProductHandler, syncHandler *synchandler.SyncHandler, userCenterAuthHandler *usercenterhandler.AuthHandler, userMenuHandler *usermenuhandler.MenuHandler, prodCategoryHandler *categoryhandler.CategoryHandler, prodCatalogHandler *cataloghandler.ProductHandler, specHandler *spechandler.SpecHandler, pricingHandler *pricinghandler.PricingHandler, promotionHandler *promotionhandler.PromotionHandler, orderHandler *orderhandler.OrderHandler, refundHandler *orderhandler.RefundHandler, walletHandler *finaccounthandler.WalletHandler, rechargeHandler *finrechargehandler.RechargeHandler, withdrawHandler *finwithdrawhandler.WithdrawHandler, billHandler *finbillhandler.BillHandler, reconHandler *finbillhandler.ReconHandler, configHandler *systemhandler.ConfigHandler, userFinanceHandler *userfinancehandler.FinanceHandler, ticketHandler *tickethandler.TicketHandler, ticketCategoryHandler *tickethandler.CategoryHandler, userTicketHandler *tickethandler.UserTicketHandler, expiringHandler *lifecyclehandler.ExpiringHandler, lifecycleAdminHandler *lifecyclehandler.LifecycleAdminHandler, lifecycleUserHandler *lifecyclehandler.LifecycleUserHandler, notifyAdminHandler *notifyhandler.AdminHandler, notifyUserHandler *notifyhandler.UserHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
+func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, providerHandler *providerhandler.ProviderHandler, productHandler *producthandler.ProductHandler, syncHandler *synchandler.SyncHandler, userCenterAuthHandler *usercenterhandler.AuthHandler, userMenuHandler *usermenuhandler.MenuHandler, prodCategoryHandler *categoryhandler.CategoryHandler, prodCatalogHandler *cataloghandler.ProductHandler, specHandler *spechandler.SpecHandler, pricingHandler *pricinghandler.PricingHandler, promotionHandler *promotionhandler.PromotionHandler, orderHandler *orderhandler.OrderHandler, refundHandler *orderhandler.RefundHandler, walletHandler *finaccounthandler.WalletHandler, rechargeHandler *finrechargehandler.RechargeHandler, withdrawHandler *finwithdrawhandler.WithdrawHandler, billHandler *finbillhandler.BillHandler, reconHandler *finbillhandler.ReconHandler, configHandler *systemhandler.ConfigHandler, userFinanceHandler *userfinancehandler.FinanceHandler, ucProductHandler *ucproducthandler.ProductHandler, ucOrderHandler *ucorderhandler.OrderHandler, ticketHandler *tickethandler.TicketHandler, ticketCategoryHandler *tickethandler.CategoryHandler, userTicketHandler *tickethandler.UserTicketHandler, expiringHandler *lifecyclehandler.ExpiringHandler, lifecycleAdminHandler *lifecyclehandler.LifecycleAdminHandler, lifecycleUserHandler *lifecyclehandler.LifecycleUserHandler, notifyAdminHandler *notifyhandler.AdminHandler, notifyUserHandler *notifyhandler.UserHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
@@ -80,6 +82,8 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 			users.PATCH(":id/status", userHandler.UpdateUserStatus)
 			users.POST(":id/reset-password", userHandler.ResetPassword)
 			users.POST(":id/roles", userHandler.AssignRoles)
+			users.POST(":id/impersonate", userHandler.Impersonate)
+			users.POST(":id/recharge", userHandler.Recharge)
 		}
 
 		userGroups := v1.Group("/user-groups")
@@ -347,6 +351,10 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 			{
 				prodProducts.GET("", prodCatalogHandler.List)
 				prodProducts.POST("", prodCatalogHandler.Create)
+				// 从上游商品克隆创建销售商品（对接魔方财务商品导入）。
+				// 注意：静态路由需在 /:id 之前注册，避免被参数路由吞并。
+				prodProducts.POST("/clone", prodCatalogHandler.CloneFromUpstream)
+				prodProducts.POST("/clone/batch", prodCatalogHandler.BatchCloneFromUpstream)
 				prodProducts.GET("/:id", prodCatalogHandler.Get)
 				prodProducts.PUT("/:id", prodCatalogHandler.Update)
 				prodProducts.DELETE("/:id", prodCatalogHandler.Delete)
@@ -532,7 +540,7 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 		}
 	}
 
-	// 用户中心（普通用户自助）：独立模块 internal/modules/user/auth
+	// 用户中心（普通用户自助）：独立模块 internal/modules/uc/auth
 	ucAuth := r.Group("/api/v1/uc/auth")
 	{
 		ucAuth.POST("/login", userCenterAuthHandler.Login)                                                                   // 登录
@@ -578,6 +586,21 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 		ucFinance.POST("/recharge/callback", userFinanceHandler.RechargeCallback)                                              // 充值回调（渠道通知）
 	}
 
+	// 用户中心商品：上架商品公开可浏览（无需登录）
+	ucProducts := r.Group("/api/v1/uc/products")
+	{
+		ucProducts.GET("", ucProductHandler.List)
+		ucProducts.GET("/:id", ucProductHandler.Get)
+	}
+
+	// 用户中心订单：下单（余额支付开通）+ 我的订单（需登录）
+	ucOrders := r.Group("/api/v1/uc/orders")
+	ucOrders.Use(middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+	{
+		ucOrders.POST("", ucOrderHandler.Create)
+		ucOrders.GET("", ucOrderHandler.List)
+	}
+
 	// 用户中心工单支持：我的工单自助管理（doc50）
 	ucSupport := r.Group("/api/v1/uc/support")
 	{
@@ -593,12 +616,12 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 	// 聚合视图 /uc/instances/renewals 为固定路径，需先于 /instances/:id 注册
 	ucLifecycle := r.Group("/api/v1/uc")
 	{
-		ucLifecycle.GET("/instances/renewals", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), lifecycleUserHandler.RenewalsView)       // 续费管理聚合视图
-		ucLifecycle.POST("/instances/:id/renew", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), lifecycleUserHandler.Renew)            // 手动续费
+		ucLifecycle.GET("/instances/renewals", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), lifecycleUserHandler.RenewalsView)          // 续费管理聚合视图
+		ucLifecycle.POST("/instances/:id/renew", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), lifecycleUserHandler.Renew)               // 手动续费
 		ucLifecycle.PUT("/instances/:id/auto-renew", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), lifecycleUserHandler.ToggleAutoRenew) // 自动续费开关
-		ucLifecycle.GET("/renewals", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), lifecycleUserHandler.Records)                      // 我的续费记录
-		ucLifecycle.GET("/renewals/:id", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), lifecycleUserHandler.Detail)                   // 续费记录详情
-		}
+		ucLifecycle.GET("/renewals", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), lifecycleUserHandler.Records)                         // 我的续费记录
+		ucLifecycle.GET("/renewals/:id", middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix), lifecycleUserHandler.Detail)                      // 续费记录详情
+	}
 
 	// 用户中心消息中心（doc70 §7.2）
 	ucNotify := r.Group("/api/v1/uc")

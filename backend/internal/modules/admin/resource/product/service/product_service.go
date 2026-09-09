@@ -80,6 +80,8 @@ func buildProductInfo(item model.ResourceProduct) dto.ProductInfo {
 		ProviderID: item.ProviderID,
 		UpstreamID: item.UpstreamID,
 		Name:       item.Name,
+		GroupID:    item.GroupID,
+		GroupName:  item.GroupName,
 		CPU:        item.CPU,
 		Memory:     item.Memory,
 		Disk:       item.Disk,

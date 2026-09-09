@@ -31,6 +31,11 @@
               <t-descriptions-item label="SKU 编码">{{ product.code }}</t-descriptions-item>
               <t-descriptions-item label="分类">{{ categoryName(product.category_id) }}</t-descriptions-item>
               <t-descriptions-item label="产品类型">{{ product.product_type || '—' }}</t-descriptions-item>
+              <t-descriptions-item label="供货模式">
+                <t-tag :theme="provisionModeTag(product.provision_mode).theme" variant="light" size="small" shape="round">
+                  {{ provisionModeTag(product.provision_mode).text }}
+                </t-tag>
+              </t-descriptions-item>
               <t-descriptions-item label="价格模型">{{ priceModelLabel(product.price_model) }}</t-descriptions-item>
               <t-descriptions-item label="已售库存">
                 <span>{{ product.stock === -1 ? '不限' : product.stock }}</span>
@@ -54,6 +59,9 @@
               <t-descriptions-item label="产品描述" :span="2">{{ product.description || '—' }}</t-descriptions-item>
               <t-descriptions-item label="规格 JSON" :span="2">
                 <pre class="spec-pre">{{ product.specs || '—' }}</pre>
+              </t-descriptions-item>
+              <t-descriptions-item label="上游配置选项 JSON" :span="2">
+                <pre class="spec-pre">{{ product.config_options || '—' }}</pre>
               </t-descriptions-item>
             </t-descriptions>
             <t-empty v-else description="暂无数据" />
@@ -138,6 +146,7 @@ import {
   formatPrice,
   formatTime,
   priceModelLabel,
+  provisionModeTag,
   statusTag,
 } from '@/pages/product/constants'
 import type {

@@ -2,11 +2,12 @@ package dto
 
 // ProductListQuery 产品列表查询
 type ProductListQuery struct {
-	Keyword    string `form:"keyword" json:"keyword"`
-	CategoryID uint64 `form:"category_id" json:"category_id"`
-	Status     int    `form:"status" json:"status"`
-	Page       int    `form:"page" json:"page"`
-	PageSize   int    `form:"page_size" json:"page_size"`
+	Keyword       string `form:"keyword" json:"keyword"`
+	CategoryID    uint64 `form:"category_id" json:"category_id"`
+	Status        int    `form:"status" json:"status"`
+	ProvisionMode string `form:"provision_mode" json:"provision_mode"` // self / clone
+	Page          int    `form:"page" json:"page"`
+	PageSize      int    `form:"page_size" json:"page_size"`
 }
 
 // ProductCreateRequest 创建产品
@@ -22,24 +23,50 @@ type ProductCreateRequest struct {
 	CostPrice        float64 `json:"cost_price"`
 	SourceProductID  uint64  `json:"source_product_id"`
 	SourceProviderID uint64  `json:"source_provider_id"`
+	ProvisionMode    string  `json:"provision_mode"` // self / clone
+	ConfigOptions    string  `json:"config_options"`
 	Stock            int     `json:"stock"`
 	SortOrder        int     `json:"sort_order"`
 	Status           int     `json:"status"`
 }
 
+// ProductCloneRequest 从上游商品克隆创建销售商品
+type ProductCloneRequest struct {
+	SourceProductID  uint64  `json:"source_product_id" binding:"required"`  // 上游资源商品 ID
+	SourceProviderID uint64  `json:"source_provider_id" binding:"required"` // 上游提供商 ID
+	Code             string  `json:"code" binding:"required"`
+	Name             string  `json:"name"`
+	CategoryID       uint64  `json:"category_id"`
+	Price            float64 `json:"price"`
+	CostPrice        float64 `json:"cost_price"`
+	ConfigOptions    string  `json:"config_options"` // 可覆盖上游默认规格
+	Stock            int     `json:"stock"`
+	Status           int     `json:"status"`
+}
+
+// ProductBatchCloneRequest 批量从上游商品克隆创建销售商品（按百分比定价）。
+type ProductBatchCloneRequest struct {
+	SourceProviderID uint64   `json:"source_provider_id" binding:"required"` // 上游提供商 ID
+	SourceProductIDs []uint64 `json:"source_product_ids" binding:"required"` // 待导入的上游商品 ID 列表
+	CategoryID       uint64   `json:"category_id"`                           // 归入的商品分类
+	PricePercent     float64  `json:"price_percent"`                         // 定价百分比：售价 = 上游售价 × percent/100（0 或 100 表示按原价）
+	Status           int      `json:"status"`                                // 默认草稿
+}
+
 // ProductUpdateRequest 更新产品
 type ProductUpdateRequest struct {
-	Name        string  `json:"name" binding:"required"`
-	CategoryID  uint64  `json:"category_id"`
-	ProductType string  `json:"product_type"`
-	Description string  `json:"description"`
-	Specs       string  `json:"specs"`
-	PriceModel  string  `json:"price_model"`
-	Price       float64 `json:"price"`
-	CostPrice   float64 `json:"cost_price"`
-	Stock       int     `json:"stock"`
-	SortOrder   int     `json:"sort_order"`
-	Status      int     `json:"status"`
+	Name          string  `json:"name" binding:"required"`
+	CategoryID    uint64  `json:"category_id"`
+	ProductType   string  `json:"product_type"`
+	Description   string  `json:"description"`
+	Specs         string  `json:"specs"`
+	PriceModel    string  `json:"price_model"`
+	Price         float64 `json:"price"`
+	CostPrice     float64 `json:"cost_price"`
+	ConfigOptions string  `json:"config_options"`
+	Stock         int     `json:"stock"`
+	SortOrder     int     `json:"sort_order"`
+	Status        int     `json:"status"`
 }
 
 // ProductPriceRequest 更新产品价格
@@ -68,6 +95,8 @@ type ProductInfo struct {
 	CostPrice        float64 `json:"cost_price"`
 	SourceProductID  uint64  `json:"source_product_id"`
 	SourceProviderID uint64  `json:"source_provider_id"`
+	ProvisionMode    string  `json:"provision_mode"`
+	ConfigOptions    string  `json:"config_options"`
 	Featured         bool    `json:"featured"`
 	Stock            int     `json:"stock"`
 	SortOrder        int     `json:"sort_order"`

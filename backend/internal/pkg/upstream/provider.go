@@ -50,6 +50,13 @@ type ProviderConfig struct {
 	Region      string `json:"region"`
 	Timeout     int    `json:"timeout"` // 秒
 	MaxRetries  int    `json:"max_retries"`
+
+	// 魔方云 / 魔方财务扩展字段
+	UpstreamType string `json:"upstream_type,omitempty"` // 接口类型：zjmf_api/resource 等
+	Secure       bool   `json:"secure,omitempty"`        // 是否 https
+	Port         string `json:"port,omitempty"`          // 接口端口，如 8443
+	UserPrefix   string `json:"user_prefix,omitempty"`   // 财务标识（拼在云主机用户名前）
+	AccountType  string `json:"account_type,omitempty"`  // 魔方云账号类型：admin/agent
 }
 
 // StandardPool 统一资源池

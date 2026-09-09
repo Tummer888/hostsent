@@ -26,6 +26,8 @@ type ProductInfo struct {
 	ProviderID uint64  `json:"provider_id"`
 	UpstreamID string  `json:"upstream_id"`
 	Name       string  `json:"name"`
+	GroupID    int64   `json:"group_id"`
+	GroupName  string  `json:"group_name"`
 	CPU        int     `json:"cpu"`
 	Memory     int     `json:"memory"`
 	Disk       int     `json:"disk"`

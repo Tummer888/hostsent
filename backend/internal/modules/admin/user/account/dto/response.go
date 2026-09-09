@@ -3,23 +3,23 @@ package dto
 import "time"
 
 type UserInfo struct {
-	ID          uint64     `json:"id"`
-	Username    string     `json:"username"`
-	RealName      string     `json:"real_name"`
-	Role          string     `json:"role"`
-	Roles         []string   `json:"roles"`
-	Email             string     `json:"email"`
-	Phone             string     `json:"phone"`
-	UserGroupName     string     `json:"user_group_name"`
-	Region            string     `json:"region"`
-	LastLoginIP       string     `json:"last_login_ip"`
-	LastLoginIPRegion string     `json:"last_login_ip_region"`
-	OAuthProvider     string     `json:"oauth_provider"`
-	Balance           float64    `json:"balance"`
-	TotalConsumeAmount float64   `json:"total_consume_amount"`
-	Status            string     `json:"status"`
-	CreatedAt         time.Time  `json:"created_at"`
-	LastLoginAt       *time.Time `json:"last_login_at,omitempty"`
+	ID                 uint64     `json:"id"`
+	Username           string     `json:"username"`
+	RealName           string     `json:"real_name"`
+	Role               string     `json:"role"`
+	Roles              []string   `json:"roles"`
+	Email              string     `json:"email"`
+	Phone              string     `json:"phone"`
+	UserGroupName      string     `json:"user_group_name"`
+	Region             string     `json:"region"`
+	LastLoginIP        string     `json:"last_login_ip"`
+	LastLoginIPRegion  string     `json:"last_login_ip_region"`
+	OAuthProvider      string     `json:"oauth_provider"`
+	Balance            float64    `json:"balance"`
+	TotalConsumeAmount float64    `json:"total_consume_amount"`
+	Status             string     `json:"status"`
+	CreatedAt          time.Time  `json:"created_at"`
+	LastLoginAt        *time.Time `json:"last_login_at,omitempty"`
 }
 
 type UserListMeta struct {
@@ -29,8 +29,8 @@ type UserListMeta struct {
 }
 
 type UserListResponse struct {
-	Items []UserInfo    `json:"items"`
-	Meta  UserListMeta  `json:"meta"`
+	Items []UserInfo   `json:"items"`
+	Meta  UserListMeta `json:"meta"`
 }
 
 type UserStatsResponse struct {
@@ -83,4 +83,10 @@ type APIResponse[T any] struct {
 	Message   string `json:"message"`
 	Data      T      `json:"data"`
 	Timestamp int64  `json:"timestamp"`
+}
+
+// ImpersonateResponse 代登录响应：返回用户端 token 与用户信息
+type ImpersonateResponse struct {
+	Token    string   `json:"token"`
+	UserInfo UserInfo `json:"user_info"`
 }

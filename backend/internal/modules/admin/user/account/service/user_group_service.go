@@ -43,7 +43,7 @@ func (s *userGroupService) List(ctx context.Context, query dto.UserGroupListQuer
 	}
 	return &dto.UserGroupListResponse{
 		Items: respItems,
-		Meta: dto.UserGroupListMeta{Page: page, PageSize: pageSize, Total: total},
+		Meta:  dto.UserGroupListMeta{Page: page, PageSize: pageSize, Total: total},
 	}, nil
 }
 

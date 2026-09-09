@@ -4,7 +4,7 @@ package handler
 import (
 	"github.com/gin-gonic/gin"
 
-	"hostsent/backend/internal/modules/user/menu/service"
+	"hostsent/backend/internal/modules/uc/menu/service"
 	apperrors "hostsent/backend/internal/pkg/errors"
 	"hostsent/backend/internal/pkg/response"
 )

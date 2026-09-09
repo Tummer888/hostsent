@@ -26,6 +26,9 @@
           <t-form-item label="产品类型" name="product_type">
             <t-select v-model="form.product_type" clearable placeholder="请选择类型" :options="productTypeOptions" />
           </t-form-item>
+          <t-form-item label="供货模式" name="provision_mode">
+            <t-select v-model="form.provision_mode" placeholder="请选择供货模式" :options="provisionModeOptions" />
+          </t-form-item>
           <t-form-item label="价格模型" name="price_model">
             <t-select v-model="form.price_model" placeholder="请选择价格模型" :options="priceModelOptions" />
           </t-form-item>
@@ -64,6 +67,14 @@
           />
         </t-form-item>
 
+        <t-form-item label="上游配置选项 JSON（自营映射 /clouds 参数）" name="config_options">
+          <t-textarea
+            v-model="form.config_options"
+            :autosize="{ minRows: 3, maxRows: 8 }"
+            placeholder='选填，如 {"area":1,"os":"centos7","cpu":2,"memory":4096,"bw":10,"ip_num":1,"network_type":"normal"}'
+          />
+        </t-form-item>
+
         <div class="form-footer">
           <t-button variant="outline" @click="handleCancel">取消</t-button>
           <t-button theme="primary" :loading="submitting" @click="handleSubmit">{{ mode === 'create' ? '创建' : '保存' }}</t-button>
@@ -80,7 +91,7 @@ import { AddIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
 
 import { getProductCategoryList } from '@/api/product'
-import { priceModelOptions, productStatusOptions, productTypeOptions } from '@/pages/product/constants'
+import { priceModelOptions, productStatusOptions, productTypeOptions, provisionModeOptions } from '@/pages/product/constants'
 import type { SaleProductCategoryInfo, SaleProductInfo } from '@/types/interface'
 
 const props = defineProps<{
@@ -110,6 +121,8 @@ const form = reactive({
   cost_price: 0,
   source_product_id: undefined as number | undefined,
   source_provider_id: undefined as number | undefined,
+  provision_mode: 'self',
+  config_options: '',
   stock: -1,
   sort_order: 0,
   status: 0,
@@ -147,6 +160,8 @@ watch(
       form.cost_price = initial.cost_price
       form.source_product_id = initial.source_product_id || undefined
       form.source_provider_id = initial.source_provider_id || undefined
+      form.provision_mode = initial.provision_mode || 'self'
+      form.config_options = initial.config_options || ''
       form.stock = initial.stock
       form.sort_order = initial.sort_order
       form.status = initial.status
@@ -181,6 +196,8 @@ async function handleSubmit() {
       cost_price: form.cost_price,
       source_product_id: form.source_product_id || 0,
       source_provider_id: form.source_provider_id || 0,
+      provision_mode: form.provision_mode,
+      config_options: form.config_options,
       stock: form.stock,
       sort_order: form.sort_order,
       status: form.status,

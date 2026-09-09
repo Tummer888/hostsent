@@ -5,8 +5,8 @@ import (
 	"context"
 
 	menumodel "hostsent/backend/internal/modules/admin/menu/model"
-	"hostsent/backend/internal/modules/user/menu/dto"
-	"hostsent/backend/internal/modules/user/menu/repository"
+	"hostsent/backend/internal/modules/uc/menu/dto"
+	"hostsent/backend/internal/modules/uc/menu/repository"
 )
 
 // MenuService 用户中心菜单服务接口。

@@ -14,16 +14,18 @@ import (
 	finrechmodel "hostsent/backend/internal/modules/admin/finance/recharge/model"
 	fintransmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
 	finwithdrawmodel "hostsent/backend/internal/modules/admin/finance/withdraw/model"
+	lifecyclemodel "hostsent/backend/internal/modules/admin/lifecycle/model"
 	adminmodel "hostsent/backend/internal/modules/admin/manager/model"
 	menumodel "hostsent/backend/internal/modules/admin/menu/model"
+	notifymodel "hostsent/backend/internal/modules/admin/notification/model"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
-	categorymodel "hostsent/backend/internal/modules/admin/product/category/model"
-	productmodel "hostsent/backend/internal/modules/admin/resource/product/model"
-	providermodel "hostsent/backend/internal/modules/admin/resource/provider/model"
 	catalogmodel "hostsent/backend/internal/modules/admin/product/catalog/model"
-	specmodel "hostsent/backend/internal/modules/admin/product/spec/model"
+	categorymodel "hostsent/backend/internal/modules/admin/product/category/model"
 	pricingmodel "hostsent/backend/internal/modules/admin/product/pricing/model"
 	promotionmodel "hostsent/backend/internal/modules/admin/product/promotion/model"
+	specmodel "hostsent/backend/internal/modules/admin/product/spec/model"
+	productmodel "hostsent/backend/internal/modules/admin/resource/product/model"
+	providermodel "hostsent/backend/internal/modules/admin/resource/provider/model"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	systemmodel "hostsent/backend/internal/modules/admin/system/model"
 	ticketmodel "hostsent/backend/internal/modules/admin/ticket/model"
@@ -32,9 +34,7 @@ import (
 	quotamodel "hostsent/backend/internal/modules/admin/user/quota/model"
 	securitymodel "hostsent/backend/internal/modules/admin/user/security/model"
 	verificationmodel "hostsent/backend/internal/modules/admin/user/verification/model"
-	usercentermodel "hostsent/backend/internal/modules/user/auth/model"
-	lifecyclemodel "hostsent/backend/internal/modules/admin/lifecycle/model"
-	notifymodel "hostsent/backend/internal/modules/admin/notification/model"
+	usercentermodel "hostsent/backend/internal/modules/uc/auth/model"
 	config "hostsent/backend/internal/pkg/config"
 )
 
@@ -151,7 +151,20 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 
+	// 商品供货模式回填：新增列后旧记录 provision_mode 可能为空，统一归一为 self（自营），
+	// 避免空模式导致订单履约无法解析供货模式（GORM AutoMigrate 只加列不写默认值）。
+	if err := backfillProductProvisionMode(db); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// backfillProductProvisionMode 将 products 表中 provision_mode 为空或未知的存量记录归一为 self（自营）。
+func backfillProductProvisionMode(db *gorm.DB) error {
+	return db.Exec(
+		"UPDATE products SET provision_mode = 'self' WHERE provision_mode IS NULL OR provision_mode = '' OR provision_mode NOT IN ('self', 'clone')",
+	).Error
 }
 
 // migrateLegacyTickets 将旧 user_tickets 表数据一次性迁移至新 tickets 表（doc50 §6.6）。
@@ -630,7 +643,7 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "system:role", Name: "更新角色", Code: "role:update", Type: "button", SortOrder: 3, Status: "active"},
 		{ParentCode: "system:role", Name: "删除角色", Code: "role:delete", Type: "button", SortOrder: 4, Status: "active"},
 		{ParentCode: "system:role", Name: "分配权限", Code: "role:assign_permissions", Type: "button", SortOrder: 5, Status: "active"},
-		{Name: "资源管理", Code: "resource", Type: "catalog", SortOrder: 4, Status: "active"},
+		{Name: "上游对接", Code: "resource", Type: "catalog", SortOrder: 4, Status: "active"},
 		{ParentCode: "resource", Name: "上游提供商", Code: "resource:provider", Type: "menu", SortOrder: 1, Status: "active"},
 		{ParentCode: "resource:provider", Name: "创建提供商", Code: "provider:create", Type: "button", SortOrder: 1, Status: "active"},
 		{ParentCode: "resource:provider", Name: "更新提供商", Code: "provider:update", Type: "button", SortOrder: 2, Status: "active"},
@@ -644,7 +657,7 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "resource:sync", Name: "查看同步日志", Code: "sync:log", Type: "button", SortOrder: 2, Status: "active"},
 		{ParentCode: "resource", Name: "云主机", Code: "resource:instance", Type: "menu", SortOrder: 4, Status: "active"},
 		{ParentCode: "resource:instance", Name: "实例操作", Code: "instance:action", Type: "button", SortOrder: 1, Status: "active"},
-		{Name: "产品管理", Code: "product", Type: "catalog", SortOrder: 5, Status: "active"},
+		{Name: "商品销售", Code: "product", Type: "catalog", SortOrder: 5, Status: "active"},
 		{ParentCode: "product", Name: "产品列表", Code: "product:list", Type: "menu", SortOrder: 1, Status: "active"},
 		{ParentCode: "product:list", Name: "创建产品", Code: "product:create", Type: "button", SortOrder: 1, Status: "active"},
 		{ParentCode: "product:list", Name: "编辑产品", Code: "product:update", Type: "button", SortOrder: 2, Status: "active"},
