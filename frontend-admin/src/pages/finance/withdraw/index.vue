@@ -2,6 +2,9 @@
   <div class="page-body finance-module">
     <header class="page-header surface-card">
       <div class="page-header__main">
+        <span class="page-header__chip">
+          <FileIcon size="22" aria-hidden="true" />
+        </span>
         <div class="page-header__text">
           <h2 class="page-header__title">提现管理</h2>
         </div>
@@ -130,7 +133,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 
-import { RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
+import { FileIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { approveWithdraw, getWithdrawList, rejectWithdraw } from '@/api/finance'

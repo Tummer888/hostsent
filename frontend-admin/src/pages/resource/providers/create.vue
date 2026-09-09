@@ -60,33 +60,109 @@
           <p class="card-subtitle">端点为可访问的上游 API 地址，密钥加密落库，提交后以脱敏形式展示。</p>
         </div>
       </header>
+      <t-alert v-if="providerHint" theme="info" :message="providerHint" class="provider-hint" />
       <t-form ref="formRef" :data="formData" :rules="formRules" label-align="top" class="provider-form">
-        <div class="form-grid">
-          <t-form-item label="提供商名称" name="name">
-            <t-input v-model="formData.name" placeholder="例如：华东 OpenStack" maxlength="50" />
-          </t-form-item>
-          <t-form-item label="提供商类型" name="provider_type">
-            <t-input :model-value="selectedTypeLabel" disabled />
-          </t-form-item>
-          <t-form-item label="API 地址" name="api_endpoint">
-            <t-input v-model="formData.api_endpoint" placeholder="https://api.example.com" />
-          </t-form-item>
-          <t-form-item label="区域" name="region">
-            <t-input v-model="formData.region" placeholder="例如：cn-east-1" />
-          </t-form-item>
-          <t-form-item label="API 密钥" name="api_key">
-            <t-input v-model="formData.api_key" type="password" placeholder="上游访问密钥（敏感）" />
-          </t-form-item>
-          <t-form-item label="API 密码" name="api_secret">
-            <t-input v-model="formData.api_secret" type="password" placeholder="上游访问密码（敏感）" />
-          </t-form-item>
-          <t-form-item label="同步间隔（秒）" name="sync_interval">
-            <t-input-number v-model="formData.sync_interval" :min="0" :step="60" placeholder="默认 3600" />
-          </t-form-item>
-          <t-form-item label="启用实例同步" name="sync_enabled">
-            <t-switch v-model="formData.sync_enabled" />
-          </t-form-item>
-        </div>
+        <!-- 魔方财务：createApi 契约表单 -->
+        <template v-if="isMofangFinance">
+          <div class="form-section__title">基本信息</div>
+          <div class="form-grid">
+            <t-form-item label="名称" name="name">
+              <t-input v-model="formData.name" placeholder="请输入名称" maxlength="100" />
+            </t-form-item>
+            <t-form-item label="联系方式" name="contact_way">
+              <t-input v-model="formData.contact_way" placeholder="请输入联系方式" maxlength="100" />
+            </t-form-item>
+            <t-form-item label="备注" name="des" class="form-item--full">
+              <t-textarea v-model="formData.des" placeholder="请输入备注" :autosize="{ minRows: 2, maxRows: 4 }" maxlength="255" />
+            </t-form-item>
+          </div>
+          <div class="form-section__title">自动化设置</div>
+          <div class="form-grid">
+            <t-form-item label="接口类型" name="upstream_type">
+              <t-select v-model="formData.upstream_type" :options="financeTypeOptions" />
+            </t-form-item>
+            <t-form-item label="接口地址" name="api_endpoint">
+              <t-input v-model="formData.api_endpoint" placeholder="请输入接口地址" />
+            </t-form-item>
+            <t-form-item label="用户名" name="api_key">
+              <t-input v-model="formData.api_key" placeholder="请输入用户名" maxlength="100" />
+            </t-form-item>
+            <t-form-item label="API密钥" name="api_secret">
+              <t-input v-model="formData.api_secret" type="password" placeholder="请输入密码" maxlength="255" />
+            </t-form-item>
+          </div>
+        </template>
+
+        <!-- 魔方云：新增接口(添加服务器 /admin/dcimcloud/server) 契约表单 -->
+        <template v-else-if="isMofangYun">
+          <div class="form-grid">
+            <t-form-item label="名称" name="name">
+              <t-input v-model="formData.name" placeholder="请输入名称" maxlength="100" />
+            </t-form-item>
+            <t-form-item label="地址" name="api_endpoint">
+              <t-input v-model="formData.api_endpoint" placeholder="请输入Ip地址或域名" />
+            </t-form-item>
+          </div>
+          <p class="form-tip">填写魔方云的域名或ip+端口+后台管理员路径 如：192.168.10.1:443/zjmf123</p>
+          <div class="form-grid">
+            <t-form-item label="账号" name="api_key">
+              <t-input v-model="formData.api_key" placeholder="请输入用户名" maxlength="100" />
+            </t-form-item>
+            <t-form-item label="密码" name="api_secret">
+              <t-input v-model="formData.api_secret" type="password" placeholder="请输入密码" maxlength="255" />
+            </t-form-item>
+            <t-form-item class="form-item--half" label="是否https" name="secure">
+              <t-switch v-model="formData.secure" />
+            </t-form-item>
+            <t-form-item class="form-item--half" label="是否启用" name="mofangyun_enabled">
+              <t-switch v-model="mofangYunEnabled" />
+            </t-form-item>
+          </div>
+          <div class="advanced-box">
+            <t-divider align="left">高级设置</t-divider>
+            <div class="form-grid">
+              <t-form-item label="端口" name="port">
+                <t-input v-model="formData.port" placeholder="例如 443" maxlength="20" />
+              </t-form-item>
+              <t-form-item label="财务标识" name="user_prefix">
+                <t-input v-model="formData.user_prefix" placeholder="请输入财务标识" maxlength="50" />
+              </t-form-item>
+              <t-form-item label="账号类型" name="account_type">
+                <t-select v-model="formData.account_type" :options="accountTypeOptions" placeholder="请选择账号类型" />
+              </t-form-item>
+            </div>
+          </div>
+        </template>
+
+        <!-- 其它类型：通用表单 -->
+        <template v-else>
+          <div class="form-grid">
+            <t-form-item label="提供商名称" name="name">
+              <t-input v-model="formData.name" placeholder="例如：华东魔方云" maxlength="50" />
+            </t-form-item>
+            <t-form-item label="提供商类型" name="provider_type">
+              <t-input :model-value="selectedTypeLabel" disabled />
+            </t-form-item>
+            <t-form-item label="接口地址" name="api_endpoint">
+              <t-input v-model="formData.api_endpoint" :placeholder="endpointPlaceholder" />
+            </t-form-item>
+            <t-form-item label="区域" name="region">
+              <t-input v-model="formData.region" :placeholder="regionPlaceholder" />
+            </t-form-item>
+            <t-form-item :label="credentialLabels.key" name="api_key">
+              <t-input v-model="formData.api_key" type="password" :placeholder="credentialLabels.keyPlaceholder" />
+            </t-form-item>
+            <t-form-item :label="credentialLabels.secret" name="api_secret">
+              <t-input v-model="formData.api_secret" type="password" :placeholder="credentialLabels.secretPlaceholder" />
+            </t-form-item>
+            <t-form-item label="同步间隔（秒）" name="sync_interval">
+              <t-input-number v-model="formData.sync_interval" :min="0" :step="60" placeholder="默认 3600" />
+            </t-form-item>
+            <t-form-item label="启用实例同步" name="sync_enabled">
+              <t-switch v-model="formData.sync_enabled" />
+            </t-form-item>
+          </div>
+        </template>
       </t-form>
       <div class="steps-footer">
         <t-button variant="outline" @click="current = 0">上一步</t-button>
@@ -109,6 +185,7 @@
           <t-descriptions-item label="名称">{{ created?.name }}</t-descriptions-item>
           <t-descriptions-item label="类型">{{ selectedTypeLabel }}</t-descriptions-item>
           <t-descriptions-item label="API 地址">{{ created?.api_endpoint }}</t-descriptions-item>
+          <t-descriptions-item v-if="isMofangFinance" label="上游 API ID">{{ created?.zjmf_finance_api_id }}</t-descriptions-item>
           <t-descriptions-item label="实例同步">{{ created?.sync_enabled ? '启用' : '禁用' }}</t-descriptions-item>
           <t-descriptions-item label="连接">{{ testResultText }}</t-descriptions-item>
         </t-descriptions>
@@ -153,21 +230,101 @@ const formData = reactive<ProviderCreateRequest>({
   status: 1,
   sync_enabled: false,
   sync_interval: 3600,
+  contact_way: '',
+  des: '',
+  upstream_type: 'zjmf_api',
+  port: '',
+  secure: false,
+  disabled: false,
+  user_prefix: '',
+  account_type: '',
 })
+
+const financeTypeOptions = [
+  { label: '智简魔方', value: 'zjmf_api' },
+  { label: '手动', value: 'manual' },
+  { label: 'V10', value: 'v10' },
+]
+
+const accountTypeOptions = [
+  { label: '管理员', value: 'admin' },
+  { label: '代理商', value: 'agent' },
+]
 
 const selectedTypeLabel = computed(() => {
   const item = typeOptions.value.find((type) => type.value === formData.provider_type)
   return item?.label || formData.provider_type
 })
 
-const formRules: Record<string, FormRule[]> = {
-  name: [{ required: true, message: '请输入提供商名称', type: 'error', trigger: 'blur' }],
-  provider_type: [{ required: true, message: '请选择提供商类型', type: 'error', trigger: 'change' }],
-  api_endpoint: [
-    { required: true, message: '请输入 API 地址', type: 'error', trigger: 'blur' },
-    { pattern: /^https?:\/\//, message: 'API 地址需以 http(s):// 开头', type: 'error', trigger: 'blur' },
-  ],
+const isMofangFinance = computed(() => formData.provider_type === 'mofangfinance')
+const isMofangYun = computed(() => formData.provider_type === 'mofangyun')
+// 魔方云契约 disabled=是否禁用(0启用 1禁用)，开关以「是否启用」呈现，提交时取反。
+const mofangYunEnabled = ref(true)
+
+// 各提供商类型的动态字段配置：根据上游语义定制标签、占位符与提示
+interface FieldLabels {
+  key: string
+  keyPlaceholder: string
+  secret: string
+  secretPlaceholder: string
+  endpointPlaceholder: string
+  regionPlaceholder: string
+  hint: string
 }
+
+const FIELD_CONFIG: Record<string, Partial<FieldLabels>> = {
+  mofangyun: {
+    key: 'API 账号',
+    keyPlaceholder: 'API 账户的账号（用户名）',
+    secret: 'API 密码',
+    secretPlaceholder: 'API 账户的密码',
+    endpointPlaceholder: '例如：https://y.host.youcloude.com',
+    regionPlaceholder: '区域 ID，可留空（如 cn-east）',
+    hint: '魔方云：填写面板地址 + API 账户「账号 / 密码」，用于调用 index.php?m=api 接口',
+  },
+  mofangfinance: {
+    key: 'API 密钥',
+    keyPlaceholder: 'API 应用密钥（api_key）',
+    secret: 'API 密钥',
+    secretPlaceholder: 'API 应用密钥（api_secret）',
+    endpointPlaceholder: '例如：https://finance.example.com',
+    regionPlaceholder: '区域 ID，可留空',
+    hint: '魔方财务：填写 API 地址 + 应用「密钥 / 密钥（api_key / api_secret）」，用于调用 createApi 等接口',
+  },
+}
+
+const typedConfig = computed<Partial<FieldLabels>>(() => FIELD_CONFIG[formData.provider_type] || {})
+
+const providerHint = computed(() => typedConfig.value.hint || '')
+const credentialLabels = computed<FieldLabels>(() => ({
+  key: typedConfig.value.key || 'API 密钥',
+  keyPlaceholder: typedConfig.value.keyPlaceholder || '请输入 API 密钥',
+  secret: typedConfig.value.secret || 'API 密码',
+  secretPlaceholder: typedConfig.value.secretPlaceholder || '请输入 API 密码',
+  endpointPlaceholder: typedConfig.value.endpointPlaceholder || '请输入 API 地址',
+  regionPlaceholder: typedConfig.value.regionPlaceholder || '请输入区域 ID',
+  hint: typedConfig.value.hint || '',
+}))
+const endpointPlaceholder = computed(() => credentialLabels.value.endpointPlaceholder)
+const regionPlaceholder = computed(() => credentialLabels.value.regionPlaceholder)
+
+const formRules = computed<Record<string, FormRule[]>>(() => {
+  const base: Record<string, FormRule[]> = {
+    name: [{ required: true, message: '请输入提供商名称', type: 'error', trigger: 'blur' }],
+    provider_type: [{ required: true, message: '请选择提供商类型', type: 'error', trigger: 'change' }],
+    api_endpoint: [{ required: true, message: '请输入 API 地址', type: 'error', trigger: 'blur' }],
+    api_key: [{ required: true, message: '请输入用户名/密钥', type: 'error', trigger: 'blur' }],
+    api_secret: [{ required: true, message: '请输入密码/密钥', type: 'error', trigger: 'blur' }],
+  }
+  // 魔方云地址为「Ip地址或域名」而非 http 链接，不校验协议前缀。
+  if (!isMofangYun.value) {
+    base.api_endpoint.push({ pattern: /^https?:\/\//, message: 'API 地址需以 http(s):// 开头', type: 'error', trigger: 'blur' })
+  }
+  if (isMofangFinance.value) {
+    base.upstream_type = [{ required: true, message: '请选择接口类型', type: 'error', trigger: 'change' }]
+  }
+  return base
+})
 
 async function loadTypes() {
   loadingTypes.value = true
@@ -204,6 +361,14 @@ async function handleSubmit() {
       status: 1,
       sync_enabled: formData.sync_enabled,
       sync_interval: formData.sync_interval,
+      contact_way: formData.contact_way || undefined,
+      des: formData.des || undefined,
+      upstream_type: formData.upstream_type || undefined,
+      port: formData.port || undefined,
+      secure: formData.secure,
+      disabled: !mofangYunEnabled.value,
+      user_prefix: formData.user_prefix || undefined,
+      account_type: formData.account_type || undefined,
     })
     testResultText.value = '未测试'
     current.value = 2
@@ -230,6 +395,14 @@ async function handleSubmitAndTest() {
       status: 1,
       sync_enabled: formData.sync_enabled,
       sync_interval: formData.sync_interval,
+      contact_way: formData.contact_way || undefined,
+      des: formData.des || undefined,
+      upstream_type: formData.upstream_type || undefined,
+      port: formData.port || undefined,
+      secure: formData.secure,
+      disabled: !mofangYunEnabled.value,
+      user_prefix: formData.user_prefix || undefined,
+      account_type: formData.account_type || undefined,
     })
     const result = await testConnection(created.value.id)
     testResultText.value = result.success ? `测试通过（${result.message}）` : `测试失败：${result.message}`
@@ -350,6 +523,27 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 var(--space-lg);
+}
+
+.form-tip {
+  margin: 4px 0 var(--space-md);
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.form-item--full {
+  grid-column: 1 / -1;
+}
+
+.form-item--half {
+  min-width: 0;
+}
+
+.advanced-box {
+  margin-top: var(--space-md);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--hs-radius-lg);
+  padding: var(--space-md) var(--space-lg) 0;
 }
 
 .done-box {

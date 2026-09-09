@@ -2,6 +2,9 @@
   <div class="page-body finance-module">
     <header class="page-header surface-card">
       <div class="page-header__main">
+        <span class="page-header__chip">
+          <MoneyIcon size="22" aria-hidden="true" />
+        </span>
         <div class="page-header__text">
           <h2 class="page-header__title">充值管理</h2>
         </div>
@@ -160,7 +163,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 
-import { AddIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
+import { AddIcon, MoneyIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { approveRecharge, createRecharge, getRechargeList } from '@/api/finance'

@@ -13,7 +13,7 @@
   --finance-green-soft: #f0fdf4;
   --finance-green-border: #dcfce7;
   --finance-card-border: #edf3ef;
-  --chip-bg: var(--finance-green);
+  --chip-bg: linear-gradient(135deg, #22c55e, #15803d);
   --chip-shadow: 0 6px 14px rgba(22, 163, 74, 0.18);
   --td-brand-color-1: #f0fdf4;
   --td-brand-color-2: #dcfce7;
@@ -92,7 +92,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: var(--chip-shadow, 0 4px 10px rgba(16, 185, 129, 0.25));
+  box-shadow: var(--chip-shadow, 0 4px 10px rgba(22, 163, 74, 0.18));
   transition: transform var(--hs-duration-fast) var(--hs-ease-out);
 }
 

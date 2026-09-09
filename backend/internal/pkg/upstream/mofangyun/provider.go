@@ -83,12 +83,13 @@ func (p *MoFangYunProvider) call(ctx context.Context, action string, params url.
 	} else {
 		params = cloneValues(params)
 	}
-	// 公共鉴权参数（字段名以魔方云开发文档为准）
-	if p.config.APISecret != "" {
-		params.Set("user", p.config.APISecret)
-	}
+	// 公共鉴权参数：魔方云对接时填「地址 + 账号 + 密码」。
+	// 约定 APIKey=API 账户账号(用户名)，APISecret=API 账户密码(以魔方云开发文档为准)。
 	if p.config.APIKey != "" {
-		params.Set("pass", p.config.APIKey)
+		params.Set("user", p.config.APIKey)
+	}
+	if p.config.APISecret != "" {
+		params.Set("pass", p.config.APISecret)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+query, strings.NewReader(params.Encode()))
@@ -164,11 +165,13 @@ func (p *MoFangYunProvider) CreateInstance(ctx context.Context, req *model.Creat
 	if req.Name != "" {
 		params.Set("name", req.Name)
 	}
+	// 魔方云参数：区域(area)/节点(node) 二选一必传；以统一 Specs 的核心字段作默认映射，
+	// 其余魔方云私有配置项（os/network_type/bw/ip_num/... ）通过 req.Extra 透传。
 	if req.Region != "" {
-		params.Set("region", req.Region)
+		params.Set("area", req.Region)
 	}
 	if req.Zone != "" {
-		params.Set("zone", req.Zone)
+		params.Set("node", req.Zone)
 	}
 	if req.Count > 0 {
 		params.Set("count", strconv.Itoa(req.Count))

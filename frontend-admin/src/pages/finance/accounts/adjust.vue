@@ -2,6 +2,9 @@
   <div class="page-body finance-module">
     <header class="page-header surface-card">
       <div class="page-header__main">
+        <span class="page-header__chip">
+          <SwapIcon size="22" aria-hidden="true" />
+        </span>
         <div class="page-header__text">
           <h2 class="page-header__title">人工调账</h2>
         </div>
@@ -63,7 +66,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 
-import { CheckCircleIcon } from 'tdesign-icons-vue-next'
+import { CheckCircleIcon, SwapIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
 
 import { adjustBalance } from '@/api/finance'

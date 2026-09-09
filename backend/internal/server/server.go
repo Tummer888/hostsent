@@ -8,52 +8,52 @@ import (
 
 	"go.uber.org/zap"
 
+	finaccounthandler "hostsent/backend/internal/modules/admin/finance/account/handler"
 	finaccountrepo "hostsent/backend/internal/modules/admin/finance/account/repository"
 	finaccountservice "hostsent/backend/internal/modules/admin/finance/account/service"
-	finaccounthandler "hostsent/backend/internal/modules/admin/finance/account/handler"
 	finbillhandler "hostsent/backend/internal/modules/admin/finance/bill/handler"
 	finbillrepo "hostsent/backend/internal/modules/admin/finance/bill/repository"
 	finbillservice "hostsent/backend/internal/modules/admin/finance/bill/service"
+	finrechargehandler "hostsent/backend/internal/modules/admin/finance/recharge/handler"
 	finrechargerepo "hostsent/backend/internal/modules/admin/finance/recharge/repository"
 	finrechargeservice "hostsent/backend/internal/modules/admin/finance/recharge/service"
-	finrechargehandler "hostsent/backend/internal/modules/admin/finance/recharge/handler"
 	fintransactionrepo "hostsent/backend/internal/modules/admin/finance/transaction/repository"
+	finwithdrawhandler "hostsent/backend/internal/modules/admin/finance/withdraw/handler"
 	finwithdrawrepo "hostsent/backend/internal/modules/admin/finance/withdraw/repository"
 	finwithdrawservice "hostsent/backend/internal/modules/admin/finance/withdraw/service"
-	finwithdrawhandler "hostsent/backend/internal/modules/admin/finance/withdraw/handler"
 	lifecyclehandler "hostsent/backend/internal/modules/admin/lifecycle/handler"
 	lifecyclerepo "hostsent/backend/internal/modules/admin/lifecycle/repository"
 	lifecycleservice "hostsent/backend/internal/modules/admin/lifecycle/service"
-	notifyhandler "hostsent/backend/internal/modules/admin/notification/handler"
-	notifymodel "hostsent/backend/internal/modules/admin/notification/model"
-	notifyrepo "hostsent/backend/internal/modules/admin/notification/repository"
-	notifydto "hostsent/backend/internal/modules/admin/notification/dto"
-	notifyservice "hostsent/backend/internal/modules/admin/notification/service"
 	adminhandler "hostsent/backend/internal/modules/admin/manager/handler"
 	adminrepo "hostsent/backend/internal/modules/admin/manager/repository"
 	adminservice "hostsent/backend/internal/modules/admin/manager/service"
 	menuhandler "hostsent/backend/internal/modules/admin/menu/handler"
 	menurepo "hostsent/backend/internal/modules/admin/menu/repository"
 	menuservice "hostsent/backend/internal/modules/admin/menu/service"
+	notifydto "hostsent/backend/internal/modules/admin/notification/dto"
+	notifyhandler "hostsent/backend/internal/modules/admin/notification/handler"
+	notifymodel "hostsent/backend/internal/modules/admin/notification/model"
+	notifyrepo "hostsent/backend/internal/modules/admin/notification/repository"
+	notifyservice "hostsent/backend/internal/modules/admin/notification/service"
 	orderhandler "hostsent/backend/internal/modules/admin/order/handler"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
 	orderrepo "hostsent/backend/internal/modules/admin/order/repository"
 	orderservice "hostsent/backend/internal/modules/admin/order/service"
-	categoryhandler "hostsent/backend/internal/modules/admin/product/category/handler"
-	categoryrepo "hostsent/backend/internal/modules/admin/product/category/repository"
-	categoryservice "hostsent/backend/internal/modules/admin/product/category/service"
 	cataloghandler "hostsent/backend/internal/modules/admin/product/catalog/handler"
 	catalogrepo "hostsent/backend/internal/modules/admin/product/catalog/repository"
 	catalogservice "hostsent/backend/internal/modules/admin/product/catalog/service"
-	spechandler "hostsent/backend/internal/modules/admin/product/spec/handler"
-	specrepo "hostsent/backend/internal/modules/admin/product/spec/repository"
-	specservice "hostsent/backend/internal/modules/admin/product/spec/service"
+	categoryhandler "hostsent/backend/internal/modules/admin/product/category/handler"
+	categoryrepo "hostsent/backend/internal/modules/admin/product/category/repository"
+	categoryservice "hostsent/backend/internal/modules/admin/product/category/service"
 	pricinghandler "hostsent/backend/internal/modules/admin/product/pricing/handler"
 	pricingrepo "hostsent/backend/internal/modules/admin/product/pricing/repository"
 	pricingservice "hostsent/backend/internal/modules/admin/product/pricing/service"
 	promotionhandler "hostsent/backend/internal/modules/admin/product/promotion/handler"
 	promotionrepo "hostsent/backend/internal/modules/admin/product/promotion/repository"
 	promotionservice "hostsent/backend/internal/modules/admin/product/promotion/service"
+	spechandler "hostsent/backend/internal/modules/admin/product/spec/handler"
+	specrepo "hostsent/backend/internal/modules/admin/product/spec/repository"
+	specservice "hostsent/backend/internal/modules/admin/product/spec/service"
 	producthandler "hostsent/backend/internal/modules/admin/resource/product/handler"
 	productrepo "hostsent/backend/internal/modules/admin/resource/product/repository"
 	productservice "hostsent/backend/internal/modules/admin/resource/product/service"
@@ -96,6 +96,9 @@ import (
 	"hostsent/backend/internal/pkg/db"
 	"hostsent/backend/internal/pkg/netutil"
 	"hostsent/backend/internal/pkg/upstream"
+	// 各上游适配器通过 init() 注册工厂，须在此空导入以触发注册。
+	_ "hostsent/backend/internal/pkg/upstream/mofangfinance"
+	_ "hostsent/backend/internal/pkg/upstream/mofangyun"
 )
 
 type Server struct {
@@ -312,8 +315,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 
 	return &Server{
-		cfg:                cfg,
-		logger:             logger,
+		cfg:    cfg,
+		logger: logger,
 		http: &http.Server{
 			Addr:         addr,
 			Handler:      router,

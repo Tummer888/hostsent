@@ -1,7 +1,14 @@
 <template>
   <div class="page-container system-page">
     <div class="page-header">
-      <h2>管理员列表</h2>
+      <div class="page-header__main">
+        <span class="page-header__chip">
+          <UserListIcon size="22" aria-hidden="true" />
+        </span>
+        <div class="page-header__text">
+          <h2 class="page-header__title">管理员列表</h2>
+        </div>
+      </div>
       <t-button theme="primary" @click="openCreate">
         <template #icon>
           <AddIcon />

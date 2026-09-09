@@ -1,7 +1,14 @@
 <template>
   <div class="page-body system-page system-config-module">
     <header class="page-header">
-      <h2 class="page-header__title">系统配置</h2>
+      <div class="page-header__main">
+        <span class="page-header__chip">
+          <SettingIcon size="22" aria-hidden="true" />
+        </span>
+        <div class="page-header__text">
+          <h2 class="page-header__title">系统配置</h2>
+        </div>
+      </div>
     </header>
 
     <section class="form-card surface-card">
@@ -84,6 +91,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 
+import { SettingIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
 
 import { batchSaveConfigs, getConfigListByGroup } from '@/api/system'

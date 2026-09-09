@@ -1,7 +1,14 @@
 <template>
   <div class="menu-page system-page">
     <div class="menu-page__header">
-      <h2 class="menu-page__title">菜单管理</h2>
+      <div class="page-header__main">
+        <span class="page-header__chip">
+          <MenuIcon size="22" aria-hidden="true" />
+        </span>
+        <div class="page-header__text">
+          <h2 class="menu-page__title">菜单管理</h2>
+        </div>
+      </div>
       <div class="menu-page__actions">
         <t-radio-group v-model="platform" variant="default-filled" size="small" @change="loadTree">
           <t-radio-button value="admin">管理员后台</t-radio-button>

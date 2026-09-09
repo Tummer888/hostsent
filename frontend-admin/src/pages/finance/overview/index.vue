@@ -2,6 +2,9 @@
   <div class="page-body finance-module">
     <header class="page-header surface-card">
       <div class="page-header__main">
+        <span class="page-header__chip">
+          <MoneyIcon size="22" aria-hidden="true" />
+        </span>
         <div class="page-header__text">
           <h2 class="page-header__title">财务总览</h2>
         </div>

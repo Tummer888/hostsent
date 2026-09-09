@@ -1,7 +1,10 @@
 <template>
   <div class="security-page">
     <header class="security-page__header surface-card">
-      <h2 class="security-page__title">{{ title }}</h2>
+      <div class="security-page__heading">
+        <slot name="header-leading" />
+        <h2 class="security-page__title">{{ title }}</h2>
+      </div>
       <div class="security-page__actions">
         <slot name="header-actions" />
       </div>

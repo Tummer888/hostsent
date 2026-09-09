@@ -31,6 +31,14 @@ export interface ProviderCreateRequest {
   status?: number
   sync_enabled?: boolean
   sync_interval?: number
+  contact_way?: string
+  des?: string
+  upstream_type?: string
+  port?: string
+  secure?: boolean
+  disabled?: boolean
+  user_prefix?: string
+  account_type?: string
 }
 
 export interface ProviderUpdateRequest {
@@ -42,6 +50,14 @@ export interface ProviderUpdateRequest {
   status?: number
   sync_enabled?: boolean
   sync_interval?: number
+  contact_way?: string
+  des?: string
+  upstream_type?: string
+  port?: string
+  secure?: boolean
+  disabled?: boolean
+  user_prefix?: string
+  account_type?: string
 }
 
 export interface ProviderInfo {
@@ -55,6 +71,15 @@ export interface ProviderInfo {
   status: number
   sync_enabled: boolean
   sync_interval: number
+  contact_way: string
+  des: string
+  upstream_type: string
+  zjmf_finance_api_id: number
+  port: string
+  secure: boolean
+  disabled: boolean
+  user_prefix: string
+  account_type: string
   last_sync_at: string | null
   total_cpu: number
   total_memory: number

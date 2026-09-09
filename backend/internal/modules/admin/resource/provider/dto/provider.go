@@ -16,50 +16,77 @@ type ProviderListQuery struct {
 
 // ProviderCreateRequest 添加上游提供商
 type ProviderCreateRequest struct {
-	Name         string `json:"name" binding:"required"`
-	ProviderType string `json:"provider_type" binding:"required"`
-	APIEndpoint  string `json:"api_endpoint" binding:"required"`
-	APIKey       string `json:"api_key"`
-	APISecret    string `json:"api_secret"`
-	Region       string `json:"region"`
-	Status       int    `json:"status"`
-	SyncEnabled  bool   `json:"sync_enabled"`
-	SyncInterval int    `json:"sync_interval"`
+	Name             string `json:"name" binding:"required"`
+	ProviderType     string `json:"provider_type" binding:"required"`
+	APIEndpoint      string `json:"api_endpoint" binding:"required"`
+	APIKey           string `json:"api_key"`
+	APISecret        string `json:"api_secret"`
+	Region           string `json:"region"`
+	ContactWay       string `json:"contact_way"`
+	Des              string `json:"des"`
+	UpstreamType     string `json:"upstream_type"`
+	ZjmfFinanceAPIID uint64 `json:"zjmf_finance_api_id"`
+	Port             string `json:"port"`
+	Secure           bool   `json:"secure"`
+	Disabled         bool   `json:"disabled"`
+	UserPrefix       string `json:"user_prefix"`
+	AccountType      string `json:"account_type"`
+	Status           int    `json:"status"`
+	SyncEnabled      bool   `json:"sync_enabled"`
+	SyncInterval     int    `json:"sync_interval"`
 }
 
 // ProviderUpdateRequest 更新上游提供商
 type ProviderUpdateRequest struct {
-	Name         string `json:"name"`
-	APIEndpoint  string `json:"api_endpoint"`
-	APIKey       string `json:"api_key"`
-	APISecret    string `json:"api_secret"`
-	Region       string `json:"region"`
-	Status       int    `json:"status"`
-	SyncEnabled  bool   `json:"sync_enabled"`
-	SyncInterval int    `json:"sync_interval"`
+	Name             string `json:"name"`
+	APIEndpoint      string `json:"api_endpoint"`
+	APIKey           string `json:"api_key"`
+	APISecret        string `json:"api_secret"`
+	Region           string `json:"region"`
+	ContactWay       string `json:"contact_way"`
+	Des              string `json:"des"`
+	UpstreamType     string `json:"upstream_type"`
+	ZjmfFinanceAPIID uint64 `json:"zjmf_finance_api_id"`
+	Port             string `json:"port"`
+	Secure           bool   `json:"secure"`
+	Disabled         bool   `json:"disabled"`
+	UserPrefix       string `json:"user_prefix"`
+	AccountType      string `json:"account_type"`
+	Status           int    `json:"status"`
+	SyncEnabled      bool   `json:"sync_enabled"`
+	SyncInterval     int    `json:"sync_interval"`
 }
 
 // ProviderInfo 上游提供商信息
 type ProviderInfo struct {
-	ID           uint64 `json:"id"`
-	Name         string `json:"name"`
-	ProviderType string `json:"provider_type"`
-	APIEndpoint  string `json:"api_endpoint"`
-	APIKey       string `json:"api_key"`
-	APISecret    string `json:"api_secret"`
-	Region       string `json:"region"`
-	Status       int    `json:"status"`
-	SyncEnabled  bool   `json:"sync_enabled"`
-	SyncInterval int    `json:"sync_interval"`
-	LastSyncAt   *string `json:"last_sync_at"`
-	TotalCPU     int    `json:"total_cpu"`
-	TotalMemory  int    `json:"total_memory"`
-	TotalDisk    int    `json:"total_disk"`
-	UsedCPU      int    `json:"used_cpu"`
-	UsedMemory   int    `json:"used_memory"`
-	UsedDisk     int    `json:"used_disk"`
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
+	ID               uint64  `json:"id"`
+	Name             string  `json:"name"`
+	ProviderType     string  `json:"provider_type"`
+	APIEndpoint      string  `json:"api_endpoint"`
+	APIKey           string  `json:"api_key"`
+	APISecret        string  `json:"api_secret"`
+	Region           string  `json:"region"`
+	ContactWay       string  `json:"contact_way"`
+	Des              string  `json:"des"`
+	UpstreamType     string  `json:"upstream_type"`
+	ZjmfFinanceAPIID uint64  `json:"zjmf_finance_api_id"`
+	Port             string  `json:"port"`
+	Secure           bool    `json:"secure"`
+	Disabled         bool    `json:"disabled"`
+	UserPrefix       string  `json:"user_prefix"`
+	AccountType      string  `json:"account_type"`
+	Status           int     `json:"status"`
+	SyncEnabled      bool    `json:"sync_enabled"`
+	SyncInterval     int     `json:"sync_interval"`
+	LastSyncAt       *string `json:"last_sync_at"`
+	TotalCPU         int     `json:"total_cpu"`
+	TotalMemory      int     `json:"total_memory"`
+	TotalDisk        int     `json:"total_disk"`
+	UsedCPU          int     `json:"used_cpu"`
+	UsedMemory       int     `json:"used_memory"`
+	UsedDisk         int     `json:"used_disk"`
+	CreatedAt        string  `json:"created_at"`
+	UpdatedAt        string  `json:"updated_at"`
 }
 
 // ProviderListResponse 提供商列表响应

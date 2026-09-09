@@ -1,7 +1,14 @@
 <template>
   <div class="page-container system-page">
     <div class="page-header">
-      <h2>角色列表</h2>
+      <div class="page-header__main">
+        <span class="page-header__chip">
+          <UsergroupIcon size="22" aria-hidden="true" />
+        </span>
+        <div class="page-header__text">
+          <h2>角色列表</h2>
+        </div>
+      </div>
       <t-button theme="primary" @click="openCreate">
         <template #icon>
           <AddIcon />
@@ -90,7 +97,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { AddIcon } from 'tdesign-icons-vue-next'
+import { AddIcon, UsergroupIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
 import type { FormInstanceFunctions, FormRule, PrimaryTableCol, SubmitContext } from 'tdesign-vue-next'
 import { useRouter } from 'vue-router'

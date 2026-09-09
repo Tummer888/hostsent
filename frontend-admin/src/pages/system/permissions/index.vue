@@ -1,7 +1,14 @@
 <template>
   <div class="page-container system-page permissions-page">
     <div class="page-header">
-      <h2>权限分配</h2>
+      <div class="page-header__main">
+        <span class="page-header__chip">
+          <LockOnIcon size="22" aria-hidden="true" />
+        </span>
+        <div class="page-header__text">
+          <h2>权限分配</h2>
+        </div>
+      </div>
       <t-button theme="primary" :loading="saving" :disabled="!selectedRoleId" @click="save">
         <template #icon>
           <SaveIcon />
@@ -73,7 +80,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { FolderIcon, SaveIcon, ViewModuleIcon, GestureClickIcon } from 'tdesign-icons-vue-next';
+import { FolderIcon, LockOnIcon, SaveIcon, ViewModuleIcon, GestureClickIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
 import { useRoute } from 'vue-router';
 import {

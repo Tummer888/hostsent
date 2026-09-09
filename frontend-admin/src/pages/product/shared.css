@@ -79,7 +79,7 @@
   width: 44px;
   height: 44px;
   border-radius: var(--hs-radius-xl);
-  background: var(--chip-bg, linear-gradient(135deg, #10b981, #047857));
+  background: var(--chip-bg, linear-gradient(135deg, #22c55e, #15803d));
   color: #ffffff;
   display: inline-flex;
   align-items: center;

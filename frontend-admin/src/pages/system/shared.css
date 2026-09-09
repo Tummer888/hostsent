@@ -5,6 +5,8 @@
   --system-green-soft: #f0fdf4;
   --system-green-border: #dcfce7;
   --system-card-border: #edf3ef;
+  --chip-bg: linear-gradient(135deg, #22c55e, #15803d);
+  --chip-shadow: 0 6px 14px rgba(22, 163, 74, 0.18);
   --td-brand-color-1: #f0fdf4;
   --td-brand-color-2: #dcfce7;
   --td-brand-color-3: #bbf7d0;
@@ -28,6 +30,46 @@
 .system-page .t-card {
   border-color: var(--system-card-border) !important;
   box-shadow: none !important;
+}
+
+/* ---------- 页头标题图标 ---------- */
+.system-page .page-header__main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md, 16px);
+  min-width: 0;
+}
+
+.system-page .page-header__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.system-page .page-header__chip {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--hs-radius-xl);
+  background: var(--chip-bg, linear-gradient(135deg, #22c55e, #15803d));
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: var(--chip-shadow, 0 4px 10px rgba(22, 163, 74, 0.18));
+  transition: transform var(--hs-duration-fast) var(--hs-ease-out);
+}
+
+.system-page .page-header__chip:hover {
+  transform: translateY(-1px) scale(1.03);
+}
+
+.system-page .page-header__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-foreground);
 }
 
 .system-page .t-button--theme-primary {

@@ -1,6 +1,6 @@
 <template>
   <!-- 单根节点包裹：避免 <Transition> 对多根组件的动画警告 -->
-  <div class="audit-page">
+  <div class="audit-page system-page">
     <SecurityListPage
     title="操作审计"
     subtitle="管理员关键操作留痕查询与导出"
@@ -18,6 +18,12 @@
     @reload="loadData"
     @page-change="handlePageChange"
   >
+    <!-- 页头图标 -->
+    <template #header-leading>
+      <span class="page-header__chip">
+        <HistoryIcon size="22" aria-hidden="true" />
+      </span>
+    </template>
     <!-- 页头右侧：导出 CSV（GET blob 下载） -->
     <template #header-actions>
       <t-button variant="outline" :loading="exporting" @click="handleExportCSV">
@@ -267,6 +273,8 @@ onMounted(() => {
 </script>
 
 <style scoped>
+@import '../shared.css';
+
 .audit-page {
   display: flex;
   flex-direction: column;

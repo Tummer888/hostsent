@@ -11,6 +11,7 @@ import (
 	"hostsent/backend/internal/modules/admin/resource/provider/repository"
 	"hostsent/backend/internal/pkg/crypto"
 	"hostsent/backend/internal/pkg/upstream"
+	"hostsent/backend/internal/pkg/upstream/mofangfinance"
 )
 
 // ProviderService 上游提供商业务能力
@@ -78,21 +79,71 @@ func (s *providerService) Create(ctx context.Context, req dto.ProviderCreateRequ
 	if syncInterval <= 0 {
 		syncInterval = 3600
 	}
+	upstreamType := req.UpstreamType
+	if req.ProviderType == "mofangfinance" && upstreamType == "" {
+		upstreamType = "zjmf_api" // 智简魔方（默认接口类型）
+	}
 	item := &model.ResourceProvider{
-		Name:         req.Name,
-		ProviderType: req.ProviderType,
-		APIEndpoint:  req.APIEndpoint,
-		APIKey:       s.encryptValue(req.APIKey),
-		APISecret:    s.encryptValue(req.APISecret),
-		Region:       req.Region,
-		Status:       status,
-		SyncEnabled:  req.SyncEnabled,
-		SyncInterval: syncInterval,
+		Name:             req.Name,
+		ProviderType:     req.ProviderType,
+		APIEndpoint:      req.APIEndpoint,
+		APIKey:           s.encryptValue(req.APIKey),
+		APISecret:        s.encryptValue(req.APISecret),
+		Region:           req.Region,
+		ContactWay:       req.ContactWay,
+		Des:              req.Des,
+		UpstreamType:     upstreamType,
+		ZjmfFinanceAPIID: req.ZjmfFinanceAPIID,
+		Port:             req.Port,
+		Secure:           req.Secure,
+		Disabled:         req.Disabled,
+		UserPrefix:       req.UserPrefix,
+		AccountType:      req.AccountType,
+		Status:           status,
+		SyncEnabled:      req.SyncEnabled,
+		SyncInterval:     syncInterval,
+	}
+	// 魔方财务：先注册上游接口凭证（createApi），拿到 finance api id 再一并落库，避免残留半成品。
+	if req.ProviderType == "mofangfinance" {
+		apiID, err := s.createFinanceAPI(ctx, req, upstreamType)
+		if err != nil {
+			return nil, err
+		}
+		item.ZjmfFinanceAPIID = apiID
 	}
 	if err := s.repo.Create(ctx, item); err != nil {
 		return nil, err
 	}
 	return s.FindByID(ctx, item.ID)
+}
+
+// createFinanceAPI 调用魔方财务 createApi 注册上游接口访问凭证。
+// 与 createApi 契约字段一一映射：用户名→username、API密钥→password、接口地址→hostname，
+// 返回创建成功后的 finance api id（供后续 inputProduct 导入商品使用）。
+func (s *providerService) createFinanceAPI(ctx context.Context, req dto.ProviderCreateRequest, upstreamType string) (uint64, error) {
+	cfg := &upstream.ProviderConfig{
+		Name:        req.Name,
+		Type:        req.ProviderType,
+		APIEndpoint: req.APIEndpoint,
+		Region:      req.Region,
+		Timeout:     15,
+		APIKey:      req.APIKey,
+		APISecret:   req.APISecret,
+	}
+	provider := mofangfinance.NewMoFangFinanceProvider(cfg)
+	info, err := provider.CreateAPI(ctx, mofangfinance.CreateAPIParams{
+		Name:       req.Name,
+		Hostname:   req.APIEndpoint,
+		Username:   req.APIKey,
+		Password:   req.APISecret,
+		Des:        req.Des,
+		Type:       upstreamType,
+		ContactWay: req.ContactWay,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return info.ID, nil
 }
 
 func (s *providerService) Update(ctx context.Context, id uint64, req dto.ProviderUpdateRequest) (*dto.ProviderInfo, error) {
@@ -109,6 +160,17 @@ func (s *providerService) Update(ctx context.Context, id uint64, req dto.Provide
 		item.APISecret = s.encryptValue(req.APISecret)
 	}
 	item.Region = req.Region
+	item.ContactWay = req.ContactWay
+	item.Des = req.Des
+	item.UpstreamType = req.UpstreamType
+	if req.ZjmfFinanceAPIID > 0 {
+		item.ZjmfFinanceAPIID = req.ZjmfFinanceAPIID
+	}
+	item.Port = req.Port
+	item.Secure = req.Secure
+	item.Disabled = req.Disabled
+	item.UserPrefix = req.UserPrefix
+	item.AccountType = req.AccountType
 	item.Status = req.Status
 	item.SyncEnabled = req.SyncEnabled
 	if req.SyncInterval > 0 {
@@ -133,12 +195,13 @@ func (s *providerService) Delete(ctx context.Context, id uint64) error {
 
 // providerTypeNames 提供商类型显示名映射；未收录时兜底使用类型标识。
 var providerTypeNames = map[string]string{
-	"mofangyun": "魔方云",
-	"aliyun":    "阿里云",
-	"tencent":   "腾讯云",
-	"aws":       "AWS",
-	"azure":     "Azure",
-	"gcp":       "GCP",
+	"mofangyun":     "魔方云",
+	"mofangfinance": "魔方财务",
+	"aliyun":        "阿里云",
+	"tencent":       "腾讯云",
+	"aws":           "AWS",
+	"azure":         "Azure",
+	"gcp":           "GCP",
 }
 
 func (s *providerService) ListTypes(_ context.Context) []dto.ProviderTypeItem {
@@ -203,24 +266,33 @@ func (s *providerService) FindPool(ctx context.Context, id uint64) (*dto.PoolInf
 
 func (s *providerService) buildProviderInfo(item model.ResourceProvider) dto.ProviderInfo {
 	info := dto.ProviderInfo{
-		ID:           item.ID,
-		Name:         item.Name,
-		ProviderType: item.ProviderType,
-		APIEndpoint:  item.APIEndpoint,
-		APIKey:       s.maskSecret(item.APIKey),
-		APISecret:    s.maskSecret(item.APISecret),
-		Region:       item.Region,
-		Status:       item.Status,
-		SyncEnabled:  item.SyncEnabled,
-		SyncInterval: item.SyncInterval,
-		TotalCPU:     item.TotalCPU,
-		TotalMemory:  item.TotalMemory,
-		TotalDisk:    item.TotalDisk,
-		UsedCPU:      item.UsedCPU,
-		UsedMemory:   item.UsedMemory,
-		UsedDisk:     item.UsedDisk,
-		CreatedAt:    item.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:    item.UpdatedAt.Format(time.RFC3339),
+		ID:               item.ID,
+		Name:             item.Name,
+		ProviderType:     item.ProviderType,
+		APIEndpoint:      item.APIEndpoint,
+		APIKey:           s.maskSecret(item.APIKey),
+		APISecret:        s.maskSecret(item.APISecret),
+		Region:           item.Region,
+		ContactWay:       item.ContactWay,
+		Des:              item.Des,
+		UpstreamType:     item.UpstreamType,
+		ZjmfFinanceAPIID: item.ZjmfFinanceAPIID,
+		Port:             item.Port,
+		Secure:           item.Secure,
+		Disabled:         item.Disabled,
+		UserPrefix:       item.UserPrefix,
+		AccountType:      item.AccountType,
+		Status:           item.Status,
+		SyncEnabled:      item.SyncEnabled,
+		SyncInterval:     item.SyncInterval,
+		TotalCPU:         item.TotalCPU,
+		TotalMemory:      item.TotalMemory,
+		TotalDisk:        item.TotalDisk,
+		UsedCPU:          item.UsedCPU,
+		UsedMemory:       item.UsedMemory,
+		UsedDisk:         item.UsedDisk,
+		CreatedAt:        item.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:        item.UpdatedAt.Format(time.RFC3339),
 	}
 	if item.LastSyncAt != nil {
 		val := item.LastSyncAt.Format(time.RFC3339)
