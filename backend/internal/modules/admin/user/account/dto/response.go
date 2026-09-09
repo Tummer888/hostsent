@@ -90,3 +90,14 @@ type ImpersonateResponse struct {
 	Token    string   `json:"token"`
 	UserInfo UserInfo `json:"user_info"`
 }
+
+// AdminOrderBrief 为指定用户创建订单的返回摘要。
+type AdminOrderBrief struct {
+	ID           uint64  `json:"id"`
+	OrderNo      string  `json:"order_no"`
+	ProductName  string  `json:"product_name"`
+	BillingCycle string  `json:"billing_cycle"`
+	TotalAmount  float64 `json:"total_amount"`
+	Status       string  `json:"status"`
+	PayMethod    string  `json:"pay_method"`
+}

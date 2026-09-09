@@ -331,6 +331,7 @@ func (p *MoFangYunProvider) CreateInstance(ctx context.Context, req *model.Creat
 		// 详情失败不回滚开通，仅返回最小可用信息。
 		return &model.StandardInstance{
 			ProviderType: ProviderType,
+			ProviderID:   p.config.ID,
 			UpstreamID:   strconv.FormatInt(created.ID, 10),
 			Name:         firstNonEmpty(req.Name, opts["hostname"]),
 			Status:       model.InstanceStatusCreating,
@@ -355,7 +356,9 @@ func (p *MoFangYunProvider) ListInstances(ctx context.Context, filters map[strin
 	}
 	instances := make([]*model.StandardInstance, 0, len(rows))
 	for _, row := range rows {
-		instances = append(instances, buildInstance(row))
+		inst := buildInstance(row)
+		inst.ProviderID = p.config.ID
+		instances = append(instances, inst)
 	}
 	return instances, nil
 }
@@ -367,6 +370,7 @@ func (p *MoFangYunProvider) GetInstance(ctx context.Context, instanceID string) 
 		return nil, err
 	}
 	inst := buildInstance(detail)
+	inst.ProviderID = p.config.ID
 	// 状态以 /clouds/{id}/status 为准（参考源码 getCloudStatus）。
 	var st struct {
 		Status   string `json:"status"`
@@ -401,6 +405,41 @@ func (p *MoFangYunProvider) StopInstance(ctx context.Context, instanceID string,
 // RestartInstance 重启：POST /clouds/{id}/reboot；force 时硬重启 /hard_reboot。
 func (p *MoFangYunProvider) RestartInstance(ctx context.Context, instanceID string) error {
 	return p.call(ctx, "RestartInstance", http.MethodPost, "/clouds/"+instanceID+"/reboot", url.Values{}, nil)
+}
+
+// VNC 获取远程控制台：GET /clouds/{id}/vnc。
+// 上游可能返回外链（vnc_url_http/vnc_url_https，External=true）或 websocket 地址
+// （vnc_url=ws/wss + token + vnc_pass，需前端用 noVNC 连接，External=false）。
+func (p *MoFangYunProvider) VNC(ctx context.Context, instanceID string) (upstream.VNCResult, error) {
+	var resp struct {
+		VncURL         string `json:"vnc_url"`
+		VncURLHTTP     string `json:"vnc_url_http"`
+		VncURLHTTPS    string `json:"vnc_url_https"`
+		VncPass        string `json:"vnc_pass"`
+		Token          string `json:"token"`
+	}
+	if err := p.call(ctx, "VNC", http.MethodGet, "/clouds/"+instanceID+"/vnc", nil, &resp); err != nil {
+		return upstream.VNCResult{}, err
+	}
+	if resp.VncURLHTTP != "" || resp.VncURLHTTPS != "" {
+		url := resp.VncURLHTTPS
+		if url == "" {
+			url = resp.VncURLHTTP
+		}
+		return upstream.VNCResult{URL: url, External: true}, nil
+	}
+	if resp.VncURL == "" {
+		return upstream.VNCResult{}, &upstream.ProviderError{Op: "VNC", Msg: "魔方云未返回远程控制台地址"}
+	}
+	link := resp.VncURL
+	if resp.Token != "" && !strings.Contains(link, "token=") {
+		sep := "?"
+		if strings.Contains(link, "?") {
+			sep = "&"
+		}
+		link += sep + "token=" + resp.Token
+	}
+	return upstream.VNCResult{URL: link, Password: resp.VncPass, External: false}, nil
 }
 
 // DeleteInstance 删除云主机：DELETE /clouds/{id}；404 视为已删除（与源码 terminate 一致）。

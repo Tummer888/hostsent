@@ -10,6 +10,7 @@ package mofangfinance
 import (
 	"encoding/json"
 	"strconv"
+	"strings"
 )
 
 // ZjmfResp 魔方财务统一响应外壳：{status, msg, data}；个别接口返回 {code, data}；
@@ -28,20 +29,26 @@ const StatusOK = 200
 // StatusTokenExpired JWT 失效码：收到后需强制重新登录重试一次（zjmfCurl 逻辑）。
 const StatusTokenExpired = 405
 
+// StatusPaidSuccess 上游余额支付成功码（apply_credit 返回 1001=支付完成并开通）。
+const StatusPaidSuccess = 1001
+
 // HostHeader 下游拉取上游云主机信息（host/header 的 data.host_data）
 type HostHeader struct {
 	HostData struct {
 		ID           int64  `json:"id"`
 		Domain       string `json:"domain"`      // 主机名
 		Username     string `json:"username"`    // 系统用户
-		DedicatedIP  string `json:"dedicatedip"` // 主 IP
-		AssignedIPs  string `json:"assignedips"` // 附加 IP（逗号分隔）
-		Port         string `json:"port"`
+		DedicatedIP  string     `json:"dedicatedip"` // 主 IP
+		AssignedIPs  StringList `json:"assignedips"` // 附加 IP（可能为逗号字符串或数组）
+		Port         string     `json:"port"`
 		OS           string `json:"os"`
-		DomainStatus string `json:"domainstatus"` // Active/Suspended/...
+		DomainStatus string `json:"domainstatus"` // Active/Pending/Suspended/...
 		NextDueDate  int64  `json:"nextduedate"`
 		ProductID    int64  `json:"productid"`
+		ProductName  string `json:"productname"`
 		UpstreamCost string `json:"upstream_cost"`
+		DcimID       int64  `json:"dcimid"`
+		InvoiceID    int64  `json:"invoice_id"`
 	} `json:"host_data"`
 }
 
@@ -69,6 +76,29 @@ func (f *FlexFloat) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// StringList 兼容字符串或数组的字段（上游 assignedips 可能是 "ip1,ip2" 或 ["ip1","ip2"]）。
+type StringList string
+
+// UnmarshalJSON 接受 json 字符串或数组，统一归一为逗号分隔字符串。
+func (s *StringList) UnmarshalJSON(b []byte) error {
+	if string(b) == "null" {
+		*s = ""
+		return nil
+	}
+	var arr []string
+	if err := json.Unmarshal(b, &arr); err == nil {
+		*s = StringList(strings.Join(arr, ","))
+		return nil
+	}
+	var str string
+	if err := json.Unmarshal(b, &str); err == nil {
+		*s = StringList(str)
+		return nil
+	}
+	*s = StringList(strings.Trim(string(b), `"`))
+	return nil
+}
+
 // ProductPricing 上游商品价格（pricing 表，月付取 monthly）。字段可能为字符串或数字。
 type ProductPricing struct {
 	Monthly   FlexFloat `json:"monthly"`   // 月付价格（通常为上游售价）
@@ -83,7 +113,10 @@ type ConfigOption struct {
 	ID         int64       `json:"id"`
 	OptionName string      `json:"option_name"`
 	OptionType int         `json:"option_type"` // 1 下拉 2 单选 3 开关 4 数量
+	QtyMinimum int         `json:"qty_minimum"`
 	QtyMaximum int         `json:"qty_maximum"`
+	UpstreamID int64       `json:"upstream_id"` // 上游 configoption 键（cart 下单用）
+	Hidden     int         `json:"hidden"`
 	Sub        []ConfigSub `json:"sub"`
 }
 
@@ -91,6 +124,10 @@ type ConfigOption struct {
 type ConfigSub struct {
 	ID         int64            `json:"id"`
 	OptionName string           `json:"option_name"`
+	QtyMinimum int              `json:"qty_minimum"`
+	QtyMaximum int              `json:"qty_maximum"`
+	UpstreamID int64            `json:"upstream_id"` // 上游 configoption 值（cart 下单用）
+	Hidden     int              `json:"hidden"`
 	Pricings   []ProductPricing `json:"pricings"`
 }
 

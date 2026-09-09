@@ -61,6 +61,10 @@ func (a *UpstreamProvisionAdapter) Activate(ctx context.Context, order *model.Or
 			return err
 		}
 		order.Status = model.OrderStatusProvisioning
+		// 上游主机已就绪（同步开通）：直接推进到服务中，避免订单停留在 provisioning 等待人工重试。
+		if inst.Status == pkgmodel.InstanceStatusRunning {
+			return a.markActive(order)
+		}
 		return nil
 	case model.OrderStatusProvisioning:
 		if order.ProductID == 0 {

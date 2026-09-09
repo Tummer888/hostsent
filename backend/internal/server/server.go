@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"time"
 
@@ -73,6 +74,7 @@ import (
 	tickethandler "hostsent/backend/internal/modules/admin/ticket/handler"
 	ticketrepo "hostsent/backend/internal/modules/admin/ticket/repository"
 	ticketservice "hostsent/backend/internal/modules/admin/ticket/service"
+	userdto "hostsent/backend/internal/modules/admin/user/account/dto"
 	"hostsent/backend/internal/modules/admin/user/account/handler"
 	"hostsent/backend/internal/modules/admin/user/account/repository"
 	"hostsent/backend/internal/modules/admin/user/account/service"
@@ -97,6 +99,9 @@ import (
 	usermenuservice "hostsent/backend/internal/modules/uc/menu/service"
 	ucorderhandler "hostsent/backend/internal/modules/uc/order/handler"
 	ucorderservice "hostsent/backend/internal/modules/uc/order/service"
+	ucinstancehandler "hostsent/backend/internal/modules/uc/instance/handler"
+	ucinstancerepo "hostsent/backend/internal/modules/uc/instance/repository"
+	ucinstanceservice "hostsent/backend/internal/modules/uc/instance/service"
 	ucproducthandler "hostsent/backend/internal/modules/uc/product/handler"
 	ucproductservice "hostsent/backend/internal/modules/uc/product/service"
 	appauth "hostsent/backend/internal/pkg/auth"
@@ -228,7 +233,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	syncService := syncservice.NewSyncService(syncRepo, syncEngine)
 	scheduler := syncservice.NewScheduler(syncEngine, syncRepo, logger)
 	adminHandler := adminhandler.NewAdminHandler(adminService)
-	userHandler := handler.NewUserHandler(userService)
+
 	userDetailHandler := handler.NewUserDetailHandler(userDetailService)
 	userGroupHandler := handler.NewUserGroupHandler(userGroupService)
 	agentLevelHandler := distributionhandler.NewAgentLevelHandler(agentLevelService)
@@ -282,6 +287,69 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		},
 	}))
 	orderHandler := orderhandler.NewOrderHandler(orderService)
+	userHandler := handler.NewUserHandler(userService,
+		// 为用户创建订单：余额支付并开通，或仅创建待支付
+		func(ctx context.Context, userID uint64, req userdto.AdminCreateOrderRequest) (*userdto.AdminOrderBrief, error) {
+			product, err := prodCatalogService.FindByID(ctx, req.ProductID)
+			if err != nil {
+				return nil, err
+			}
+			price := req.Price
+			if price <= 0 {
+				price = product.Price
+			}
+			cycle := req.BillingCycle
+			if cycle == "" {
+				cycle = "monthly"
+			}
+			payMode := req.PayMode
+			if payMode == "" {
+				payMode = "create"
+			}
+			now := time.Now()
+			order := &ordermodel.Order{
+				OrderNo:     fmt.Sprintf("AO%d%d%04d", userID, now.Unix(), rand.Intn(10000)),
+				UserID:      userID,
+				ProductID:   product.ID,
+				ProductName: product.Name,
+				Specs:       product.Specs,
+				Quantity:    1,
+				PriceModel:  cycle,
+				TotalAmount: price,
+				Status:      ordermodel.OrderStatusPending,
+			}
+			// 余额支付：扣款 + 标记已支付 + 触发开通
+			if payMode == "balance" {
+				if _, err := walletService.Adjust(ctx, accountdto.AdjustRequest{
+					UserID: userID, Type: "order", Direction: -1, Amount: price,
+					BizKey: fmt.Sprintf("admin-order-%d", now.UnixNano()),
+					Remark: fmt.Sprintf("后台为用户下单：%s（%s）", product.Name, cycle),
+				}, userID); err != nil {
+					if errors.Is(err, finaccountservice.ErrInsufficientBalance) {
+						return nil, errors.New("用户余额不足")
+					}
+					return nil, err
+				}
+				order.Status = ordermodel.OrderStatusPaid
+				order.PayMethod = "balance"
+				order.PaidAmount = price
+				order.PayTime = &now
+			}
+			if err := orderRepo.Create(ctx, order); err != nil {
+				return nil, err
+			}
+			brief := &userdto.AdminOrderBrief{
+				ID: order.ID, OrderNo: order.OrderNo, ProductName: product.Name,
+				BillingCycle: cycle, TotalAmount: price, Status: order.Status, PayMethod: order.PayMethod,
+			}
+			if payMode == "balance" {
+				if err := orderService.Activate(ctx, order.ID); err == nil {
+					brief.Status = ordermodel.OrderStatusActive
+				}
+			}
+			return brief, nil
+		},
+	)
 	refundHandler := orderhandler.NewRefundHandler(orderService)
 	// 用户中心商品：复用管理端商品目录，仅暴露上架商品（用户可购）
 	ucProductService := ucproductservice.NewProductService(prodCatalogService)
@@ -301,13 +369,24 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 			if err != nil {
 				return errors.New("该商品上游配置不可用，暂不可购买")
 			}
-			if cfg.Type == "mofangfinance" {
-				return errors.New("该商品由魔方财务上架，需走订单推送流程，暂不支持在线直接开通")
-			}
+			// 财务型上游（mofangfinance）现已支持下游下单开通，不再拦截。
+			_ = cfg
 			return nil
 		},
 	)
 	ucOrderHandler := ucorderhandler.NewOrderHandler(ucOrderService)
+	// 用户中心主机管理：列表/详情/电源/VNC（复用上游适配器）
+	ucInstanceRepo := ucinstancerepo.NewInstanceRepository(database)
+	ucInstanceService := ucinstanceservice.NewInstanceService(ucInstanceRepo,
+		func(ctx context.Context, providerID uint64) (upstream.Provider, error) {
+			cfg, err := providerService.BuildProviderConfig(ctx, providerID)
+			if err != nil {
+				return nil, err
+			}
+			return upstreamMgr.Build(cfg.Type, cfg)
+		},
+	)
+	ucInstanceHandler := ucinstancehandler.NewInstanceHandler(ucInstanceService)
 	// 规格管理（spec 子域）
 	specTemplateRepo := specrepo.NewSpecTemplateRepository(database)
 	specMappingRepo := specrepo.NewSpecMappingRepository(database)
@@ -382,7 +461,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 			SourceID:     order.OrderNo,
 		})
 	}
-	router := newRouter(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, promotionHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, logger, jwtIssuer)
+	router := newRouter(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, promotionHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, logger, jwtIssuer)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 
@@ -433,6 +512,7 @@ func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order
 	rawJSON, _ := json.Marshal(inst.RawData)
 	row := syncmodel.Instance{
 		InstanceID:  inst.UpstreamID,
+		ProviderID:  uint64(inst.ProviderID),
 		UserID:      order.UserID,
 		ProductID:   order.ProductID,
 		Name:        firstNonEmpty(inst.Name, order.ProductName),

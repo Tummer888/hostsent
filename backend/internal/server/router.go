@@ -35,13 +35,14 @@ import (
 	userfinancehandler "hostsent/backend/internal/modules/uc/finance/handler"
 	usermenuhandler "hostsent/backend/internal/modules/uc/menu/handler"
 	ucorderhandler "hostsent/backend/internal/modules/uc/order/handler"
+	ucinstancehandler "hostsent/backend/internal/modules/uc/instance/handler"
 	ucproducthandler "hostsent/backend/internal/modules/uc/product/handler"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/middleware"
 )
 
-func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, providerHandler *providerhandler.ProviderHandler, productHandler *producthandler.ProductHandler, syncHandler *synchandler.SyncHandler, userCenterAuthHandler *usercenterhandler.AuthHandler, userMenuHandler *usermenuhandler.MenuHandler, prodCategoryHandler *categoryhandler.CategoryHandler, prodCatalogHandler *cataloghandler.ProductHandler, specHandler *spechandler.SpecHandler, pricingHandler *pricinghandler.PricingHandler, promotionHandler *promotionhandler.PromotionHandler, orderHandler *orderhandler.OrderHandler, refundHandler *orderhandler.RefundHandler, walletHandler *finaccounthandler.WalletHandler, rechargeHandler *finrechargehandler.RechargeHandler, withdrawHandler *finwithdrawhandler.WithdrawHandler, billHandler *finbillhandler.BillHandler, reconHandler *finbillhandler.ReconHandler, configHandler *systemhandler.ConfigHandler, userFinanceHandler *userfinancehandler.FinanceHandler, ucProductHandler *ucproducthandler.ProductHandler, ucOrderHandler *ucorderhandler.OrderHandler, ticketHandler *tickethandler.TicketHandler, ticketCategoryHandler *tickethandler.CategoryHandler, userTicketHandler *tickethandler.UserTicketHandler, expiringHandler *lifecyclehandler.ExpiringHandler, lifecycleAdminHandler *lifecyclehandler.LifecycleAdminHandler, lifecycleUserHandler *lifecyclehandler.LifecycleUserHandler, notifyAdminHandler *notifyhandler.AdminHandler, notifyUserHandler *notifyhandler.UserHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
+func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, userHandler *handler.UserHandler, userDetailHandler *handler.UserDetailHandler, userGroupHandler *handler.UserGroupHandler, agentLevelHandler *distributionhandler.AgentLevelHandler, agentHandler *distributionhandler.AgentHandler, subordinateHandler *distributionhandler.SubordinateHandler, commissionHandler *distributionhandler.CommissionHandler, settlementHandler *distributionhandler.SettlementHandler, roleHandler *handler.RoleHandler, permissionHandler *handler.PermissionHandler, menuHandler *menuhandler.MenuHandler, securityHandler *securityhandler.SecurityHandler, resourceQuotaHandler *quotahandler.ResourceQuotaHandler, quotaTemplateHandler *quotahandler.QuotaTemplateHandler, quotaUserLevelHandler *quotahandler.UserLevelHandler, quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler, verificationHandler *verificationhandler.VerificationHandler, providerHandler *providerhandler.ProviderHandler, productHandler *producthandler.ProductHandler, syncHandler *synchandler.SyncHandler, userCenterAuthHandler *usercenterhandler.AuthHandler, userMenuHandler *usermenuhandler.MenuHandler, prodCategoryHandler *categoryhandler.CategoryHandler, prodCatalogHandler *cataloghandler.ProductHandler, specHandler *spechandler.SpecHandler, pricingHandler *pricinghandler.PricingHandler, promotionHandler *promotionhandler.PromotionHandler, orderHandler *orderhandler.OrderHandler, refundHandler *orderhandler.RefundHandler, walletHandler *finaccounthandler.WalletHandler, rechargeHandler *finrechargehandler.RechargeHandler, withdrawHandler *finwithdrawhandler.WithdrawHandler, billHandler *finbillhandler.BillHandler, reconHandler *finbillhandler.ReconHandler, configHandler *systemhandler.ConfigHandler, userFinanceHandler *userfinancehandler.FinanceHandler, ucProductHandler *ucproducthandler.ProductHandler, ucOrderHandler *ucorderhandler.OrderHandler, ucInstanceHandler *ucinstancehandler.InstanceHandler, ticketHandler *tickethandler.TicketHandler, ticketCategoryHandler *tickethandler.CategoryHandler, userTicketHandler *tickethandler.UserTicketHandler, expiringHandler *lifecyclehandler.ExpiringHandler, lifecycleAdminHandler *lifecyclehandler.LifecycleAdminHandler, lifecycleUserHandler *lifecyclehandler.LifecycleUserHandler, notifyAdminHandler *notifyhandler.AdminHandler, notifyUserHandler *notifyhandler.UserHandler, logger *zap.Logger, jwtIssuer *appauth.JWTIssuer) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
@@ -84,6 +85,7 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 			users.POST(":id/roles", userHandler.AssignRoles)
 			users.POST(":id/impersonate", userHandler.Impersonate)
 			users.POST(":id/recharge", userHandler.Recharge)
+			users.POST(":id/orders", userHandler.CreateOrder)
 		}
 
 		userGroups := v1.Group("/user-groups")
@@ -599,6 +601,16 @@ func newRouter(cfg *config.Config, adminHandler *adminhandler.AdminHandler, user
 	{
 		ucOrders.POST("", ucOrderHandler.Create)
 		ucOrders.GET("", ucOrderHandler.List)
+	}
+
+	// 用户中心主机管理：列表/详情/电源操作/VNC（需登录）
+	ucInstances := r.Group("/api/v1/uc/instances")
+	ucInstances.Use(middleware.UserAuth(jwtIssuer, cfg.Auth.BearerPrefix))
+	{
+		ucInstances.GET("", ucInstanceHandler.List)            // 我的主机列表
+		ucInstances.GET("/:id", ucInstanceHandler.Detail)       // 主机详情
+		ucInstances.POST("/:id/power", ucInstanceHandler.Power) // 电源操作 on/off/reboot/hard_off/hard_reboot
+		ucInstances.POST("/:id/vnc", ucInstanceHandler.VNC)     // 远程控制台
 	}
 
 	// 用户中心工单支持：我的工单自助管理（doc50）

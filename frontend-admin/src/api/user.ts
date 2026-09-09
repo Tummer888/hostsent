@@ -1150,3 +1150,27 @@ export function deleteSettlement(id: string | number): Promise<string> {
     url: `/distribution/settlements/${id}`,
   })
 }
+
+export interface AdminOrderCreateRequest {
+  product_id: number
+  billing_cycle?: string
+  price?: number
+  pay_mode?: 'balance' | 'create'
+}
+
+export interface AdminOrderBrief {
+  id: number
+  order_no: string
+  product_name: string
+  billing_cycle: string
+  total_amount: number
+  status: string
+  pay_method: string
+}
+
+export function createUserOrder(id: string | number, data: AdminOrderCreateRequest): Promise<AdminOrderBrief> {
+  return request.post<AdminOrderBrief>({
+    url: `/users/${id}/orders`,
+    data,
+  })
+}

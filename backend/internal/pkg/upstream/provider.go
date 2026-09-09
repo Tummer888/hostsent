@@ -32,6 +32,9 @@ type Provider interface {
 	DeleteInstance(ctx context.Context, instanceID string) error
 	ResizeInstance(ctx context.Context, instanceID string, specs *model.StandardProductSpec) error
 
+	// VNC 获取实例远程控制台地址（返回可直接打开的 URL）。
+	VNC(ctx context.Context, instanceID string) (VNCResult, error)
+
 	// 资源池管理
 	ListPools(ctx context.Context) ([]*StandardPool, error)
 
@@ -60,8 +63,7 @@ type ProviderConfig struct {
 }
 
 // StandardPool 统一资源池
-type StandardPool struct {
-	ID          string `json:"id"`
+type StandardPool struct {	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Type        string `json:"type"` // region/zone/cluster
 	TotalCPU    int    `json:"total_cpu"`
@@ -83,6 +85,16 @@ type AccountInfo struct {
 	UsedDisk    int     `json:"used_disk"`
 	Balance     float64 `json:"balance"`
 	Currency    string  `json:"currency"`
+}
+
+// VNCResult VNC 远程控制台结果。
+type VNCResult struct {
+	// URL 可直接打开的远程控制台地址（可能为 http(s) iframe 地址或 websocket 地址）。
+	URL string `json:"url"`
+	// Password 控制台密码（URL 未内嵌时单独返回，可用于 noVNC 客户端）。
+	Password string `json:"password,omitempty"`
+	// External 是否外部独立控制台地址（true 时前端可直接 iframe/新窗口打开）。
+	External bool `json:"external"`
 }
 
 // ErrNotImplemented 用于占位适配器：标识能力尚未实现

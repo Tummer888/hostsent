@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
@@ -14,10 +15,12 @@ import (
 
 type UserHandler struct {
 	userService service.UserService
+	// createOrder 为指定用户创建订单（余额支付/仅创建），由装配层注入。
+	createOrder func(ctx context.Context, userID uint64, req dto.AdminCreateOrderRequest) (*dto.AdminOrderBrief, error)
 }
 
-func NewUserHandler(userService service.UserService) *UserHandler {
-	return &UserHandler{userService: userService}
+func NewUserHandler(userService service.UserService, createOrder func(ctx context.Context, userID uint64, req dto.AdminCreateOrderRequest) (*dto.AdminOrderBrief, error)) *UserHandler {
+	return &UserHandler{userService: userService, createOrder: createOrder}
 }
 
 // GetStats godoc
@@ -259,4 +262,36 @@ func (h *UserHandler) Recharge(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": "ok", "timestamp": time.Now().Unix()})
+}
+
+// CreateOrder godoc
+// @Summary 为用户创建订单
+// @Description 给指定用户添加订单：余额支付并开通，或仅创建待支付
+// @Tags 用户管理
+// @Param id path int true "用户ID"
+// @Param request body dto.AdminCreateOrderRequest true "订单参数"
+// @Success 200 {object} dto.APIResponse[dto.AdminOrderBrief]
+// @Router /api/v1/admin/users/{id}/orders [post]
+func (h *UserHandler) CreateOrder(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	var req dto.AdminCreateOrderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	operatorID := uint64(0)
+	if claims, ok := middleware.GetAdminClaims(c); ok {
+		operatorID = claims.AdminID
+	}
+	_ = operatorID
+	if h.createOrder == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": "添加订单能力未配置", "timestamp": time.Now().Unix()})
+		return
+	}
+	brief, err := h.createOrder(c.Request.Context(), id, req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": brief, "timestamp": time.Now().Unix()})
 }

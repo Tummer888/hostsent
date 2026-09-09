@@ -84,3 +84,11 @@ type RechargeRequest struct {
 	Amount float64 `json:"amount" binding:"required"`
 	Remark string  `json:"remark"`
 }
+
+// AdminCreateOrderRequest 为指定用户创建订单。
+type AdminCreateOrderRequest struct {
+	ProductID    uint64  `json:"product_id" binding:"required"`
+	BillingCycle string  `json:"billing_cycle"` // monthly/quarterly/annually...
+	Price        float64 `json:"price"`         // 覆盖价格（<=0 用商品默认价）
+	PayMode      string  `json:"pay_mode"`      // balance=余额支付并开通; create=仅创建不支付(默认)
+}

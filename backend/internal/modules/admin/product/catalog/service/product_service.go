@@ -478,6 +478,13 @@ func (s *productService) BuildProvisionRequest(ctx context.Context, productID ui
 			rp, err := s.resourceReader.FindByID(ctx, item.SourceProductID)
 			if err == nil {
 				opts = buildCloneBaseOptions(rp)
+				// 财务型上游下单需要：上游商品ID(upstream_pid) 与 上游配置组(config_groups 含选项/子项 upstream_id)
+				if rp.UpstreamID != "" {
+					opts["upstream_pid"] = rp.UpstreamID
+				}
+				if groups := extractConfigGroups(rp.RawSpecs); len(groups) > 0 {
+					opts["config_groups"] = groups
+				}
 			}
 		}
 	}
@@ -548,6 +555,26 @@ func parseConfigOptions(s string) map[string]interface{} {
 		return map[string]interface{}{}
 	}
 	return m
+}
+
+// extractConfigGroups 从上游资源商品的 RawSpecs（JSON）中提取 config_groups 数组，
+// 供财务型上游下单时解析出配置项/子项的 upstream_id。
+func extractConfigGroups(rawSpecs string) []interface{} {
+	if strings.TrimSpace(rawSpecs) == "" {
+		return nil
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal([]byte(rawSpecs), &m); err != nil {
+		return nil
+	}
+	raw, ok := m["config_groups"]
+	if !ok || raw == nil {
+		return nil
+	}
+	if arr, ok := raw.([]interface{}); ok {
+		return arr
+	}
+	return nil
 }
 
 func buildProductInfo(item model.Product) dto.ProductInfo {

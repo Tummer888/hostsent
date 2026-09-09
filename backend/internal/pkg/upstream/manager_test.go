@@ -23,6 +23,7 @@ func (m *mockProvider) StopInstance(context.Context, string, bool) error { retur
 func (m *mockProvider) RestartInstance(context.Context, string) error { return nil }
 func (m *mockProvider) DeleteInstance(context.Context, string) error { return nil }
 func (m *mockProvider) ResizeInstance(context.Context, string, *model.StandardProductSpec) error { return nil }
+func (m *mockProvider) VNC(context.Context, string) (VNCResult, error) { return VNCResult{}, nil }
 func (m *mockProvider) ListPools(context.Context) ([]*StandardPool, error) { return nil, nil }
 func (m *mockProvider) GetAccountInfo(context.Context) (*AccountInfo, error) { return nil, nil }
 

@@ -264,6 +264,7 @@
               <t-space v-else size="small">
                 <t-link theme="primary" hover="color" @click="goUserDetail(row)">详情</t-link>
                 <t-link theme="primary" hover="color" @click="handleRecharge(row)">充值</t-link>
+                <t-link theme="primary" hover="color" @click="handleAddOrder(row)">订单</t-link>
                 <t-link theme="primary" hover="color" @click="handleImpersonate(row)">登录</t-link>
                 <t-popconfirm
                   :content="row.status === 'active' ? '确认冻结该用户？' : '确认解冻该用户？'"
@@ -361,6 +362,37 @@
         </t-form-item>
       </t-form>
     </t-dialog>
+
+    <t-dialog
+      v-model:visible="orderVisible"
+      header="添加订单"
+      width="520px"
+      :confirm-btn="{ content: '创建订单', theme: 'primary', loading: orderSubmitting }"
+      :cancel-btn="{ content: '取消' }"
+      @confirm="handleOrderConfirm"
+      @close="orderVisible = false"
+    >
+      <t-form label-align="top" :data="orderForm" @submit.prevent>
+        <t-form-item label="下单用户" name="username">
+          <t-input :model-value="orderForm.username" disabled />
+        </t-form-item>
+        <t-form-item label="选择商品" name="product_id">
+          <t-select v-model="orderForm.product_id" :options="productOptions" filterable placeholder="请选择商品" />
+        </t-form-item>
+        <t-form-item label="计费周期" name="billing_cycle">
+          <t-select v-model="orderForm.billing_cycle" :options="cycleOptions" placeholder="请选择计费周期" />
+        </t-form-item>
+        <t-form-item label="价格（元）" name="price">
+          <t-input-number v-model="orderForm.price" :min="0" :precision="2" theme="column" placeholder="留空使用商品默认价" />
+        </t-form-item>
+        <t-form-item label="支付方式" name="pay_mode">
+          <t-radio-group v-model="orderForm.pay_mode" variant="default-filled">
+            <t-radio-button value="create">仅创建（待支付）</t-radio-button>
+            <t-radio-button value="balance">余额支付并开通</t-radio-button>
+          </t-radio-group>
+        </t-form-item>
+      </t-form>
+    </t-dialog>
   </div>
 </template>
 
@@ -385,7 +417,8 @@ import {
 } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
-import { createUser, getRegionStats, getRoleList, getUserGroupList, getUserList, impersonateUser, rechargeUser, updateUserStatus, type RegionStatItem, type RoleInfo, type UserCreateRequest, type UserGroupInfo, type UserInfo, type UserListQuery } from '@/api/user'
+import { createUser, createUserOrder, getRegionStats, getRoleList, getUserGroupList, getUserList, impersonateUser, rechargeUser, updateUserStatus, type RegionStatItem, type RoleInfo, type UserCreateRequest, type UserGroupInfo, type UserInfo, type UserListQuery } from '@/api/user'
+import { getProductList as getUcProductList } from '@/api/product'
 
 defineOptions({ name: 'UserAccountsList' })
 
@@ -750,10 +783,70 @@ function handleRecharge(row: UserInfo) {
   rechargeVisible.value = true
 }
 
+// ===== 添加订单 =====
+const orderVisible = ref(false)
+const orderSubmitting = ref(false)
+const productOptions = ref<{ label: string; value: number }[]>([])
+const cycleOptions = [
+  { label: '月付', value: 'monthly' },
+  { label: '季付', value: 'quarterly' },
+  { label: '半年付', value: 'semiannually' },
+  { label: '年付', value: 'annually' },
+]
+const orderForm = reactive<{ user_id: number; username: string; product_id: number | undefined; billing_cycle: string; price: number; pay_mode: 'create' | 'balance' }>({
+  user_id: 0,
+  username: '',
+  product_id: undefined,
+  billing_cycle: 'monthly',
+  price: 0,
+  pay_mode: 'create',
+})
+
+async function handleAddOrder(row: UserInfo) {
+  orderForm.user_id = row.id
+  orderForm.username = row.username
+  orderForm.product_id = undefined
+  orderForm.billing_cycle = 'monthly'
+  orderForm.price = 0
+  orderForm.pay_mode = 'create'
+  orderVisible.value = true
+  if (!productOptions.value.length) {
+    try {
+      const data = await getUcProductList({ page_size: 100 })
+      productOptions.value = (data?.items || []).map((p) => ({ label: `${p.name} ¥${p.price}`, value: p.id }))
+    } catch {
+      MessagePlugin.error('加载商品列表失败')
+    }
+  }
+}
+
+async function handleOrderConfirm() {
+  if (!orderForm.product_id) {
+    MessagePlugin.warning('请选择商品')
+    return
+  }
+  orderSubmitting.value = true
+  try {
+    await createUserOrder(orderForm.user_id, {
+      product_id: orderForm.product_id,
+      billing_cycle: orderForm.billing_cycle,
+      price: orderForm.price > 0 ? orderForm.price : undefined,
+      pay_mode: orderForm.pay_mode,
+    })
+    MessagePlugin.success(orderForm.pay_mode === 'balance' ? '已支付并开通' : '订单已创建（待支付）')
+    orderVisible.value = false
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '创建订单失败')
+  } finally {
+    orderSubmitting.value = false
+  }
+}
+
 function buildMobileActionOptions(row: UserInfo) {
   return [
     { content: '详情', value: 'detail' },
     { content: '充值', value: 'recharge' },
+    { content: '订单', value: 'order' },
     { content: '登录', value: 'impersonate', disabled: row.status !== 'active' },
     { content: row.status === 'active' ? '冻结' : '解冻', value: 'toggle-status' },
   ]
@@ -773,6 +866,10 @@ function handleMobileActionClick(data: { value?: string | number } | string, row
   }
   if (value === 'recharge') {
     handleRecharge(row)
+    return
+  }
+  if (value === 'order') {
+    handleAddOrder(row)
     return
   }
   if (value === 'impersonate') {
