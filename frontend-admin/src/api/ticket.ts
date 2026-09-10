@@ -11,11 +11,12 @@ import type {
   TicketReplyRequest,
   TicketStatsResponse,
   TicketStatusRequest,
+  TicketTransferRequest,
 } from '@/types/interface'
 
 // ===== 工单管理（doc50） =====
 
-/** 查询工单分页列表 */
+/** 查询工单分页列表（view 支持工作台视图：my_todo/unassigned/involved/sla_breached） */
 export function getTickets(params: TicketListQuery): Promise<TicketListResponse> {
   return request.get<TicketListResponse>({
     url: '/tickets',
@@ -29,6 +30,7 @@ export function getTickets(params: TicketListQuery): Promise<TicketListResponse>
       assigned_to: params.assigned_to,
       start_time: params.start_time,
       end_time: params.end_time,
+      view: params.view,
       page: params.page,
       page_size: params.page_size,
     },
@@ -48,6 +50,16 @@ export function replyTicket(id: number, data: TicketReplyRequest): Promise<Ticke
 /** 分配工单给指定管理员 */
 export function assignTicket(id: number, data: TicketAssignRequest): Promise<TicketDetail> {
   return request.put<TicketDetail>({ url: `/tickets/${id}/assign`, data })
+}
+
+/** 认领未分配工单（P2-03） */
+export function claimTicket(id: number): Promise<TicketDetail> {
+  return request.post<TicketDetail>({ url: `/tickets/${id}/claim` })
+}
+
+/** 转派工单给其他员工（P2-03） */
+export function transferTicket(id: number, data: TicketTransferRequest): Promise<TicketDetail> {
+  return request.put<TicketDetail>({ url: `/tickets/${id}/transfer`, data })
 }
 
 /** 更新工单状态（状态机校验） */

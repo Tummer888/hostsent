@@ -25,3 +25,7 @@ redis:
   port: 6379
   password: ""
   db: 0
+
+pricing:
+  # 多来源折扣叠加模式：best 取最优（默认）/ stack 按顺序叠加
+  stack_mode: best

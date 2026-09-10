@@ -19,6 +19,18 @@ type UserLevelRepository interface {
 	Create(ctx context.Context, item *model.UserLevel) error
 	Update(ctx context.Context, item *model.UserLevel) error
 	Delete(ctx context.Context, id uint64) error
+
+	// —— 消费升级支撑（P3-03）——
+	// FindBestByThreshold 取「升级门槛 ≤ amount 且启用中」的最高权重等级。
+	FindBestByThreshold(ctx context.Context, amount float64) (*model.UserLevel, error)
+	// GetUserTier 读取用户当前等级 ID 与累计消费额。
+	GetUserTier(ctx context.Context, userID uint64) (*uint64, float64, error)
+	// AddUserConsume 原子累加累计消费额，返回累加后的值。
+	AddUserConsume(ctx context.Context, userID uint64, delta float64) (float64, error)
+	// SetUserTier 更新用户当前等级 ID。
+	SetUserTier(ctx context.Context, userID uint64, levelID uint64) error
+	// CreateChangeLog 写入等级变更日志。
+	CreateChangeLog(ctx context.Context, item *model.UserLevelChangeLog) error
 }
 
 type userLevelRepository struct {
@@ -77,6 +89,59 @@ func (r *userLevelRepository) Update(ctx context.Context, item *model.UserLevel)
 
 func (r *userLevelRepository) Delete(ctx context.Context, id uint64) error {
 	return r.db.WithContext(ctx).Delete(&model.UserLevel{}, id).Error
+}
+
+// FindBestByThreshold 取满足门槛的最高权重等级；没有满足条件的等级时返回 gorm.ErrRecordNotFound。
+func (r *userLevelRepository) FindBestByThreshold(ctx context.Context, amount float64) (*model.UserLevel, error) {
+	var item model.UserLevel
+	if err := r.db.WithContext(ctx).
+		Where("status = ? AND upgrade_threshold <= ?", "active", amount).
+		Order("weight desc, upgrade_threshold desc, id desc").
+		First(&item).Error; err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
+// GetUserTier 读取 users 表的 user_level_id 与 total_consume_amount。
+func (r *userLevelRepository) GetUserTier(ctx context.Context, userID uint64) (*uint64, float64, error) {
+	var row struct {
+		UserLevelID        *uint64
+		TotalConsumeAmount float64
+	}
+	if err := r.db.WithContext(ctx).
+		Table("users").
+		Select("user_level_id, total_consume_amount").
+		Where("id = ?", userID).
+		Take(&row).Error; err != nil {
+		return nil, 0, err
+	}
+	return row.UserLevelID, row.TotalConsumeAmount, nil
+}
+
+// AddUserConsume 原子累加累计消费额，并返回累加后的最新值。
+func (r *userLevelRepository) AddUserConsume(ctx context.Context, userID uint64, delta float64) (float64, error) {
+	if err := r.db.WithContext(ctx).
+		Table("users").
+		Where("id = ?", userID).
+		UpdateColumn("total_consume_amount", gorm.Expr("total_consume_amount + ?", delta)).Error; err != nil {
+		return 0, err
+	}
+	_, total, err := r.GetUserTier(ctx, userID)
+	return total, err
+}
+
+// SetUserTier 更新用户当前等级。
+func (r *userLevelRepository) SetUserTier(ctx context.Context, userID uint64, levelID uint64) error {
+	return r.db.WithContext(ctx).
+		Table("users").
+		Where("id = ?", userID).
+		UpdateColumn("user_level_id", levelID).Error
+}
+
+// CreateChangeLog 写入等级变更日志。
+func (r *userLevelRepository) CreateChangeLog(ctx context.Context, item *model.UserLevelChangeLog) error {
+	return r.db.WithContext(ctx).Create(item).Error
 }
 
 func normalizePage(page, pageSize int) (int, int) {

@@ -4,22 +4,24 @@ package model
 import "time"
 
 type AgentLevel struct {
-	ID                     uint64    `gorm:"primaryKey;autoIncrement"`
-	Name                   string    `gorm:"size:64;not null;uniqueIndex"`
-	Code                   string    `gorm:"size:64;not null;uniqueIndex"`
-	Weight                 int       `gorm:"not null;default:0"`
-	DirectCommissionRate   float64   `gorm:"column:direct_commission_rate;type:decimal(7,4);not null;default:0"`
-	IndirectCommissionRate float64   `gorm:"column:indirect_commission_rate;type:decimal(7,4);not null;default:0"`
-	RenewalCommissionRate  float64   `gorm:"column:renewal_commission_rate;type:decimal(7,4);not null;default:0"`
-	UpgradeRewardAmount    float64   `gorm:"column:upgrade_reward_amount;type:decimal(15,2);not null;default:0"`
-	SelfPurchaseRebateRate float64   `gorm:"column:self_purchase_rebate_rate;type:decimal(7,4);not null;default:0"`
-	AllowManualPrice       bool      `gorm:"column:allow_manual_price;not null;default:false"`
-	AllowSubAgent          bool      `gorm:"column:allow_sub_agent;not null;default:false"`
-	MaxSubAgentDepth       int       `gorm:"column:max_sub_agent_depth;not null;default:0"`
-	Status                 string    `gorm:"size:32;not null;default:active"`
-	Description            string    `gorm:"size:255"`
-	CreatedAt              time.Time `gorm:"autoCreateTime"`
-	UpdatedAt              time.Time `gorm:"autoUpdateTime"`
+	ID                     uint64  `gorm:"primaryKey;autoIncrement"`
+	Name                   string  `gorm:"size:64;not null;uniqueIndex"`
+	Code                   string  `gorm:"size:64;not null;uniqueIndex"`
+	Weight                 int     `gorm:"not null;default:0"`
+	DirectCommissionRate   float64 `gorm:"column:direct_commission_rate;type:decimal(7,4);not null;default:0"`
+	IndirectCommissionRate float64 `gorm:"column:indirect_commission_rate;type:decimal(7,4);not null;default:0"`
+	RenewalCommissionRate  float64 `gorm:"column:renewal_commission_rate;type:decimal(7,4);not null;default:0"`
+	UpgradeRewardAmount    float64 `gorm:"column:upgrade_reward_amount;type:decimal(15,2);not null;default:0"`
+	SelfPurchaseRebateRate float64 `gorm:"column:self_purchase_rebate_rate;type:decimal(7,4);not null;default:0"`
+	// PricePolicyID 代理等级绑定的折扣策略（P6-01）：代理下单时命中该策略作为代理价。
+	PricePolicyID    *uint64   `gorm:"column:price_policy_id;index"`
+	AllowManualPrice bool      `gorm:"column:allow_manual_price;not null;default:false"`
+	AllowSubAgent    bool      `gorm:"column:allow_sub_agent;not null;default:false"`
+	MaxSubAgentDepth int       `gorm:"column:max_sub_agent_depth;not null;default:0"`
+	Status           string    `gorm:"size:32;not null;default:active"`
+	Description      string    `gorm:"size:255"`
+	CreatedAt        time.Time `gorm:"autoCreateTime"`
+	UpdatedAt        time.Time `gorm:"autoUpdateTime"`
 }
 
 // TableName 返回分销等级对应的数据表名。

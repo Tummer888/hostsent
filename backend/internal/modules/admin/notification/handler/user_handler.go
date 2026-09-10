@@ -31,11 +31,13 @@ func NewUserHandler(
 	}
 }
 
+// userIDFromContext 返回数据归属账号 ID（P4-04）：子账号能看到主账号的站内信。
 func userIDFromContext(c *gin.Context) (uint64, bool) {
-	if claims, ok := middleware.GetUserClaims(c); ok {
-		return claims.UserID, true
+	userID := middleware.EffectiveUserID(c)
+	if userID == 0 {
+		return 0, false
 	}
-	return 0, false
+	return userID, true
 }
 
 func (h *UserHandler) UserUnreadCount(c *gin.Context) {

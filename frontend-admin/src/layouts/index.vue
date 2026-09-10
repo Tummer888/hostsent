@@ -277,6 +277,8 @@
 
     <!-- 主题设置抽屉 -->
     <SettingsPanel v-model:visible="settingsVisible" />
+    <!-- 首次登录/重置密码后强制改密 -->
+    <ForcePasswordChangeDialog />
   </div>
 </template>
 
@@ -309,6 +311,7 @@ import { useSettingsStore } from '@/store/modules/settings'
 import { useUserStore } from '@/store/modules/user'
 import type { FlatMenu } from '@/store/modules/menu'
 import SettingsPanel from '@/components/settings-panel/index.vue'
+import ForcePasswordChangeDialog from '@/components/ForcePasswordChangeDialog.vue'
 
 defineOptions({ name: 'AdminLayout' })
 

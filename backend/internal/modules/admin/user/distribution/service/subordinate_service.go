@@ -5,10 +5,10 @@ import (
 	"context"
 	"time"
 
+	userrepo "hostsent/backend/internal/modules/admin/user/account/repository"
 	distributiondto "hostsent/backend/internal/modules/admin/user/distribution/dto"
 	distributionmodel "hostsent/backend/internal/modules/admin/user/distribution/model"
 	distributionrepo "hostsent/backend/internal/modules/admin/user/distribution/repository"
-	userrepo "hostsent/backend/internal/modules/admin/user/account/repository"
 )
 
 // SubordinateService 定义下级关系统计与管理所需的业务能力。

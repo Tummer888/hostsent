@@ -11,6 +11,15 @@ interface UserInfo {
   avatar?: string
   role?: string
   tier?: string
+  /** 子账号信息（P4-09）：是否子账号、归属主账号 ID/用户名、备注 */
+  is_sub_account?: boolean
+  owner_user_id?: number
+  owner_name?: string
+  remark?: string
+  /** 子账号已授予的客户侧权限码；主账号为空数组 */
+  permissions?: string[]
+  /** 是否代理（P6-03）：存在代理记录即 true，决定 /agent 子树是否放行 */
+  is_agent?: boolean
 }
 
 export const useUserStore = defineStore('user', () => {
@@ -20,6 +29,9 @@ export const useUserStore = defineStore('user', () => {
 
   const isLoggedIn = computed(() => !!token.value)
   const displayName = computed(() => userInfo.value.name || userInfo.value.username || '用户')
+  const isSubAccount = computed(() => Boolean(userInfo.value.is_sub_account))
+  const isAgent = computed(() => Boolean(userInfo.value.is_agent) && !isSubAccount.value)
+  const permissions = computed<string[]>(() => userInfo.value.permissions || [])
 
   async function login(credentials: { username: string; password: string }) {
     const { data } = await loginApi(credentials)
@@ -60,6 +72,9 @@ export const useUserStore = defineStore('user', () => {
     loaded,
     isLoggedIn,
     displayName,
+    isSubAccount,
+    isAgent,
+    permissions,
     login,
     register,
     fetchUserInfo,

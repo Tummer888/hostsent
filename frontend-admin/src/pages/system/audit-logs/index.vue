@@ -1,6 +1,8 @@
 <template>
   <!-- 单根节点包裹：避免 <Transition> 对多根组件的动画警告 -->
   <div class="audit-page system-page">
+    <t-tabs v-model="activeTab" class="audit-tabs">
+      <t-tab-panel value="user" label="用户安全审计">
     <SecurityListPage
     title="操作审计"
     subtitle="管理员关键操作留痕查询与导出"
@@ -95,11 +97,91 @@
       </t-descriptions-item>
     </t-descriptions>
   </t-dialog>
+      </t-tab-panel>
+
+      <!-- 管理操作审计（P2-06）：新表 admin_audit_logs，记录后台写操作 -->
+      <t-tab-panel value="admin" label="管理操作审计">
+        <t-card :bordered="false" class="admin-audit-card">
+          <div class="filter-grid">
+            <t-input v-model="adminFilters.keyword" clearable placeholder="操作人 / 路径" @enter="handleAdminSearch" />
+            <t-input v-model="adminFilters.resource_type" clearable placeholder="资源类型（如 users）" />
+            <t-input v-model="adminFilters.action" clearable placeholder="动作（如 create）" />
+            <t-button theme="primary" @click="handleAdminSearch">查询</t-button>
+            <t-button variant="outline" @click="handleAdminReset">重置</t-button>
+          </div>
+
+          <t-table
+            row-key="id"
+            :data="adminAuditData"
+            :columns="adminColumns"
+            :loading="adminAuditLoading"
+            hover
+            size="small"
+            table-layout="fixed"
+            class="admin-audit-table"
+          >
+            <template #method="{ row }">
+              <t-tag variant="light-outline" size="small">{{ row.request_method }}</t-tag>
+            </template>
+            <template #response_code="{ row }">
+              <t-tag :theme="row.response_code < 400 ? 'success' : 'danger'" variant="light-outline" size="small">
+                {{ row.response_code }}
+              </t-tag>
+            </template>
+            <template #created_at="{ row }">
+              {{ row.created_at }}
+            </template>
+            <template #operation="{ row }">
+              <t-link theme="primary" hover="color" @click="openAdminDetail(row)">详情</t-link>
+            </template>
+            <template #empty>
+              <t-empty description="暂无管理操作审计记录" />
+            </template>
+          </t-table>
+
+          <div class="admin-audit-pagination">
+            <t-pagination
+              v-model:current="adminPagination.current"
+              v-model:page-size="adminPagination.pageSize"
+              :total="adminPagination.total"
+              show-jumper
+              show-page-size
+              :page-size-options="[10, 20, 50]"
+              @change="loadAdminAudit"
+            />
+          </div>
+        </t-card>
+      </t-tab-panel>
+    </t-tabs>
+
+    <!-- 管理操作审计详情 -->
+    <t-dialog v-model:visible="adminDetailVisible" header="操作审计详情" width="680px" :footer="false">
+      <t-descriptions v-if="adminDetailRow" :column="2" bordered size="small">
+        <t-descriptions-item label="ID">{{ adminDetailRow.id }}</t-descriptions-item>
+        <t-descriptions-item label="操作人">{{ adminDetailRow.admin_name }}（ID {{ adminDetailRow.admin_id }}）</t-descriptions-item>
+        <t-descriptions-item label="资源类型">{{ adminDetailRow.resource_type }}</t-descriptions-item>
+        <t-descriptions-item label="资源 ID">{{ adminDetailRow.resource_id || '—' }}</t-descriptions-item>
+        <t-descriptions-item label="动作">{{ adminDetailRow.action }}</t-descriptions-item>
+        <t-descriptions-item label="状态码">
+          <t-tag :theme="adminDetailRow.response_code < 400 ? 'success' : 'danger'" variant="light-outline">
+            {{ adminDetailRow.response_code }}
+          </t-tag>
+        </t-descriptions-item>
+        <t-descriptions-item label="请求方法">{{ adminDetailRow.request_method }}</t-descriptions-item>
+        <t-descriptions-item label="IP">{{ adminDetailRow.ip }}</t-descriptions-item>
+        <t-descriptions-item label="请求路径" :span="2">{{ adminDetailRow.request_path }}</t-descriptions-item>
+        <t-descriptions-item label="User Agent" :span="2">{{ adminDetailRow.user_agent }}</t-descriptions-item>
+        <t-descriptions-item label="发生时间" :span="2">{{ adminDetailRow.created_at }}</t-descriptions-item>
+        <t-descriptions-item label="请求负载（已脱敏）" :span="2">
+          <pre class="payload-block">{{ formatPayload(adminDetailRow.detail) }}</pre>
+        </t-descriptions-item>
+      </t-descriptions>
+    </t-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 
 import type { AxiosResponse } from 'axios'
 import { DownloadIcon } from 'tdesign-icons-vue-next'
@@ -108,12 +190,19 @@ import type { PageInfo, PrimaryTableCol } from 'tdesign-vue-next'
 
 import type { AuditLogInfo, AuditLogListQuery } from '@/api/system'
 import { getAuditLogList } from '@/api/system'
+import {
+  getAdminAuditLogs,
+  type AdminAuditLogInfo,
+  type AdminAuditLogQuery,
+} from '@/api/admin'
 import { request } from '@/utils/request'
 
 import SecurityListPage from '../../users/security/SecurityListPage.vue'
 import { formatSecurityTime } from '../../users/security/shared'
 
 defineOptions({ name: 'SystemAuditLogs' })
+
+const activeTab = ref<'user' | 'admin'>('user')
 
 const loading = ref(false)
 const exporting = ref(false)
@@ -270,6 +359,79 @@ async function handleExportCSV() {
 onMounted(() => {
   void loadData()
 })
+
+// ===== 管理操作审计（P2-06） =====
+const adminAuditLoading = ref(false)
+const adminAuditData = ref<AdminAuditLogInfo[]>([])
+const adminDetailVisible = ref(false)
+const adminDetailRow = ref<AdminAuditLogInfo | null>(null)
+
+const adminFilters = reactive<AdminAuditLogQuery>({
+  keyword: '',
+  resource_type: '',
+  action: '',
+})
+
+const adminPagination = reactive({
+  current: 1,
+  pageSize: 10,
+  total: 0,
+})
+
+const adminColumns: PrimaryTableCol<AdminAuditLogInfo>[] = [
+  { colKey: 'admin_name', title: '操作人', width: 120 },
+  { colKey: 'module', title: '模块', width: 110 },
+  { colKey: 'action', title: '动作', width: 120 },
+  { colKey: 'resource_type', title: '资源类型', width: 120 },
+  { colKey: 'resource_id', title: '资源 ID', width: 90 },
+  { colKey: 'method', title: '方法', width: 90 },
+  { colKey: 'request_path', title: '路径', minWidth: 200, ellipsis: true },
+  { colKey: 'response_code', title: '状态码', width: 90 },
+  { colKey: 'created_at', title: '发生时间', width: 170 },
+  { colKey: 'operation', title: '操作', width: 80, fixed: 'right' },
+]
+
+async function loadAdminAudit() {
+  adminAuditLoading.value = true
+  try {
+    const data = await getAdminAuditLogs({
+      ...adminFilters,
+      page: adminPagination.current,
+      page_size: adminPagination.pageSize,
+    })
+    adminAuditData.value = data.items
+    adminPagination.total = data.meta.total
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '加载管理操作审计失败')
+  } finally {
+    adminAuditLoading.value = false
+  }
+}
+
+function handleAdminSearch() {
+  adminPagination.current = 1
+  void loadAdminAudit()
+}
+
+function handleAdminReset() {
+  adminFilters.keyword = ''
+  adminFilters.resource_type = ''
+  adminFilters.action = ''
+  adminPagination.current = 1
+  void loadAdminAudit()
+}
+
+function openAdminDetail(row: AdminAuditLogInfo) {
+  adminDetailRow.value = row
+  adminDetailVisible.value = true
+}
+
+// 切到管理操作审计 tab 时懒加载
+watch(activeTab, (tab) => {
+  if (tab === 'admin' && adminAuditData.value.length === 0) {
+    void loadAdminAudit()
+  }
+})
 </script>
 
 <style scoped>
@@ -279,6 +441,36 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.audit-tabs {
+  margin-top: -8px;
+}
+
+.admin-audit-card {
+  padding: 4px 0 0;
+}
+
+.admin-audit-card .filter-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto auto;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.admin-audit-table {
+  margin-top: 4px;
+}
+
+.admin-audit-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+@media (max-width: 1200px) {
+  .admin-audit-card .filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .filter-grid {

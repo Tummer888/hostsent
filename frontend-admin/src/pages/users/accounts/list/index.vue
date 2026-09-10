@@ -96,6 +96,29 @@
             :options="regionOptions"
           />
         </div>
+
+        <div class="toolbar-field">
+          <span class="toolbar-field__label">用户等级</span>
+          <t-select
+            v-model="filters.user_level_id"
+            class="unified-control"
+            clearable
+            filterable
+            placeholder="全部等级"
+            :options="levelOptions"
+          />
+        </div>
+
+        <div class="toolbar-field">
+          <span class="toolbar-field__label">账号类型</span>
+          <t-select
+            v-model="filters.is_sub_account"
+            class="unified-control"
+            clearable
+            placeholder="全部账号"
+            :options="accountTypeOptions"
+          />
+        </div>
       </div>
     </section>
 
@@ -143,9 +166,31 @@
 
           <template #username="{ row }">
             <div class="user-cell user-cell--primary">
-              <t-link class="user-link" theme="primary" hover="color" @click="goUserDetail(row)">
-                {{ row.username }}
-              </t-link>
+              <div class="user-cell__head">
+                <t-link class="user-link" theme="primary" hover="color" @click="goUserDetail(row)">
+                  {{ row.username }}
+                </t-link>
+                <t-tag
+                  v-if="row.is_sub_account"
+                  class="account-type-tag account-type-tag--sub"
+                  theme="warning"
+                  variant="light"
+                  size="small"
+                  shape="round"
+                >
+                  子账号{{ row.owner_name ? ` · ${row.owner_name}` : '' }}
+                </t-tag>
+                <t-tag
+                  v-else
+                  class="account-type-tag"
+                  theme="success"
+                  variant="light-outline"
+                  size="small"
+                  shape="round"
+                >
+                  主账号
+                </t-tag>
+              </div>
               <div class="copy-row" v-if="row.email">
                 <span class="copy-row__value copy-row__value--email">{{ row.email }}</span>
                 <t-popup content="复制邮箱" placement="top">
@@ -189,6 +234,13 @@
 
           <template #user_group_name="{ row }">
             <span class="text-muted">{{ row.user_group_name || '未分组' }}</span>
+          </template>
+
+          <template #user_level_name="{ row }">
+            <t-tag v-if="row.user_level_name" theme="primary" variant="light-outline" size="small" shape="round">
+              {{ row.user_level_name }}
+            </t-tag>
+            <span v-else class="text-muted">未分级</span>
           </template>
 
           <template #last_login_ip="{ row }">
@@ -417,7 +469,7 @@ import {
 } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
-import { createUser, createUserOrder, getRegionStats, getRoleList, getUserGroupList, getUserList, impersonateUser, rechargeUser, updateUserStatus, type RegionStatItem, type RoleInfo, type UserCreateRequest, type UserGroupInfo, type UserInfo, type UserListQuery } from '@/api/user'
+import { createUser, createUserOrder, getRegionStats, getRoleList, getUserGroupList, getUserLevelList, getUserList, impersonateUser, rechargeUser, updateUserStatus, type RegionStatItem, type RoleInfo, type UserCreateRequest, type UserGroupInfo, type UserInfo, type UserLevelInfo, type UserListQuery } from '@/api/user'
 import { getProductList as getUcProductList } from '@/api/product'
 
 defineOptions({ name: 'UserAccountsList' })
@@ -433,6 +485,7 @@ const tableData = ref<UserInfo[]>([])
 const regionItems = ref<RegionStatItem[]>([])
 const roleOptions = ref<RoleInfo[]>([])
 const userGroupOptions = ref<UserGroupInfo[]>([])
+const userLevelOptions = ref<UserLevelInfo[]>([])
 const sortOrder = ref<SortOrder>('desc')
 const isMobile = ref(false)
 const tableDragRef = ref<HTMLElement | null>(null)
@@ -450,6 +503,8 @@ const filters = reactive<UserListQuery>({
   filter: '',
   last_login_ip_region: '',
   keyword: '',
+  user_level_id: undefined,
+  is_sub_account: '',
 })
 
 const pagination = reactive({
@@ -548,6 +603,19 @@ const regionOptions = computed(() => [
   ...regionItems.value.map((item) => ({ label: `${item.region} (${item.count})`, value: item.region })),
 ])
 
+const levelOptions = computed(() => [
+  { label: '全部等级', value: undefined },
+  ...userLevelOptions.value
+    .filter((item) => item.status !== 'disabled')
+    .map((item) => ({ label: item.name, value: item.id })),
+])
+
+// 账号类型筛选（P4-10）：主账号 / 子账号
+const accountTypeOptions = [
+  { label: '主账号', value: 'false' },
+  { label: '子账号', value: 'true' },
+]
+
 const roleSelectOptions = computed(() =>
   roleOptions.value
     .filter((item) => item.status !== 'disabled')
@@ -581,6 +649,7 @@ const columns = computed<PrimaryTableCol<UserInfo>[]>(() => [
   { colKey: 'balance', title: '账户余额', width: 130, align: 'right' },
   { colKey: 'total_consume_amount', title: '总消费金额', width: 150, align: 'right' },
   { colKey: 'role', title: '角色', minWidth: 180 },
+  { colKey: 'user_level_name', title: '用户等级', width: 130 },
   { colKey: 'user_group_name', title: '用户组', minWidth: 180 },
   { colKey: 'last_login_ip', title: '登录 IP', minWidth: 220 },
   { colKey: 'oauth_provider', title: '第三方登录', minWidth: 180 },
@@ -603,6 +672,8 @@ function syncFiltersFromRoute() {
   filters.filter = query.filter || ''
   filters.last_login_ip_region = query.last_login_ip_region || ''
   filters.keyword = query.keyword || ''
+  filters.user_level_id = query.user_level_id ? Number(query.user_level_id) : undefined
+  filters.is_sub_account = query.is_sub_account === 'true' || query.is_sub_account === 'false' ? query.is_sub_account : ''
   pagination.current = filters.page
   pagination.pageSize = filters.page_size
 }
@@ -627,6 +698,8 @@ function buildQuery() {
   if (filters.filter) query.filter = filters.filter
   if (filters.last_login_ip_region) query.last_login_ip_region = filters.last_login_ip_region
   if (filters.keyword) query.keyword = filters.keyword
+  if (filters.user_level_id) query.user_level_id = String(filters.user_level_id)
+  if (filters.is_sub_account) query.is_sub_account = filters.is_sub_account
   return query
 }
 
@@ -669,6 +742,15 @@ async function loadUserGroupOptions() {
   }
 }
 
+async function loadUserLevelOptions() {
+  try {
+    const data = await getUserLevelList({ page: 1, page_size: 200, status: 'active' })
+    userLevelOptions.value = data.items || []
+  } catch {
+    userLevelOptions.value = []
+  }
+}
+
 async function loadUsers() {
   loading.value = true
   errorMessage.value = ''
@@ -680,6 +762,8 @@ async function loadUsers() {
       filter: filters.filter || undefined,
       last_login_ip_region: filters.last_login_ip_region || undefined,
       keyword: filters.keyword || undefined,
+      user_level_id: filters.user_level_id || undefined,
+      is_sub_account: filters.is_sub_account || undefined,
     })
     tableData.value = data.items || []
     pagination.current = data.meta.page
@@ -697,7 +781,7 @@ async function loadUsers() {
 }
 
 async function loadAll() {
-  await Promise.all([loadRegions(), loadRoleOptions(), loadUserGroupOptions(), loadUsers()])
+  await Promise.all([loadRegions(), loadRoleOptions(), loadUserGroupOptions(), loadUserLevelOptions(), loadUsers()])
 }
 
 async function handleSearch() {
@@ -713,6 +797,8 @@ async function handleReset() {
   filters.filter = ''
   filters.last_login_ip_region = ''
   filters.keyword = ''
+  filters.user_level_id = undefined
+  filters.is_sub_account = ''
   sortOrder.value = 'desc'
   pagination.current = 1
   pagination.pageSize = 10
@@ -1234,6 +1320,24 @@ onBeforeUnmount(() => {
 
 .user-cell--primary {
   gap: 8px;
+}
+
+.user-cell__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.account-type-tag {
+  flex-shrink: 0;
+}
+
+.account-type-tag--sub {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .id-cell__value {

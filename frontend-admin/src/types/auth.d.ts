@@ -10,4 +10,5 @@ export interface UserInfo {
   status: string
   avatar?: string
   department?: string
+  position?: string
 }

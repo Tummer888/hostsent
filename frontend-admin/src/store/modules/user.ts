@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-import { getCurrentUser, login as loginApi } from '@/api/auth'
+import { changePassword as changePasswordApi, getCurrentUser, login as loginApi } from '@/api/auth'
 import { useMenuStore } from '@/store/modules/menu'
 import type { UserInfo } from '@/types/interface'
 
@@ -58,6 +58,10 @@ export const useUserStore = defineStore('user', {
   state: () => ({
     token: '',
     userInfo: { ...initUserInfo },
+    // 权限码集合：超管为 ['*']，后端 /auth/me 会刷新（不长期信任本地缓存）
+    permissions: [] as string[],
+    // 首次登录/重置密码后需强制改密
+    mustChangePassword: false,
     remember: safeGet(REMEMBER_KEY) === '1',
     savedUsername: readSavedCredential('username'),
     savedPassword: readSavedCredential('password'),
@@ -68,8 +72,18 @@ export const useUserStore = defineStore('user', {
       return roleSet.has('admin') || roleSet.has('super_admin')
     },
     roles: (state) => state.userInfo.roles,
+    isSuperAdmin: (state) => {
+      const roleSet = new Set([state.userInfo.role, ...(state.userInfo.roles || [])].filter(Boolean))
+      return state.permissions.includes('*') || roleSet.has('super_admin')
+    },
   },
   actions: {
+    // 是否持有任一权限码；超管通配 "*" 恒通过。
+    hasPermission(...codes: string[]): boolean {
+      if (!codes.length) return true
+      if (this.permissions.includes('*')) return true
+      return codes.some((code) => this.permissions.includes(code))
+    },
     persistCredentials(username: string, password: string, remember: boolean) {
       this.remember = remember
       if (remember) {
@@ -95,6 +109,8 @@ export const useUserStore = defineStore('user', {
         captcha_code: captchaCode,
       })
       this.token = res.token
+      this.permissions = res.permissions || []
+      this.mustChangePassword = res.must_change_password === true
       this.userInfo = {
         id: res.user_info.id,
         name: res.user_info.username,
@@ -106,6 +122,7 @@ export const useUserStore = defineStore('user', {
         status: res.user_info.status,
         avatar: res.user_info.avatar,
         department: res.user_info.department,
+        position: res.user_info.position,
       }
       if (!this.isAdmin) {
         await this.logout()
@@ -126,6 +143,14 @@ export const useUserStore = defineStore('user', {
         status: res.status,
         avatar: res.avatar,
         department: res.department,
+        position: res.position,
+      }
+      // 刷新时从 /auth/me 恢复权限，避免长期信任 localStorage
+      if (res.permissions) {
+        this.permissions = res.permissions
+      }
+      if (typeof res.must_change_password === 'boolean') {
+        this.mustChangePassword = res.must_change_password
       }
       if (!this.isAdmin) {
         await this.logout()
@@ -133,9 +158,15 @@ export const useUserStore = defineStore('user', {
       }
       return this.userInfo
     },
+    async changePassword(oldPassword: string, newPassword: string) {
+      await changePasswordApi({ old_password: oldPassword, new_password: newPassword })
+      this.mustChangePassword = false
+    },
     async logout() {
       this.token = ''
       this.userInfo = { ...initUserInfo }
+      this.permissions = []
+      this.mustChangePassword = false
       // 登出时清空动态菜单，避免下次登录残留旧菜单
       useMenuStore().reset()
     },

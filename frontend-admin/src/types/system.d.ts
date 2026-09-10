@@ -11,6 +11,8 @@ export interface TicketListQuery {
   assigned_to?: number
   start_time?: string
   end_time?: string
+  /** 工作台视图：my_todo / unassigned / involved / sla_breached */
+  view?: string
   page?: number
   page_size?: number
 }
@@ -30,6 +32,10 @@ export interface TicketInfo {
   order_id: number
   instance_id: number
   reply_count: number
+  /** SLA 首次响应时限（小时），0 表示未启用 */
+  sla_hours: number
+  /** 是否已超时未首次响应 */
+  sla_breached: boolean
   created_at: string
   updated_at: string
 }
@@ -49,12 +55,25 @@ export interface TicketReplyInfo {
   created_at: string
 }
 
+export interface TicketLogInfo {
+  id: number
+  ticket_id: number
+  operator_id: number
+  operator_name: string
+  action: string // create/assign/claim/transfer/reply/status/close/cancel
+  from_value: string
+  to_value: string
+  note: string
+  created_at: string
+}
+
 export interface TicketDetail extends TicketInfo {
   description: string
   first_reply_at: string
   resolved_at: string
   closed_at: string
   replies: TicketReplyInfo[]
+  logs: TicketLogInfo[]
 }
 
 export interface TicketReplyRequest {
@@ -63,6 +82,11 @@ export interface TicketReplyRequest {
 
 export interface TicketAssignRequest {
   assigned_to: number
+}
+
+export interface TicketTransferRequest {
+  to_id: number
+  note?: string
 }
 
 export interface TicketStatusRequest {
@@ -75,6 +99,12 @@ export interface TicketCategorySaveRequest {
   description?: string
   sort_order?: number
   status?: string
+  /** 自动派单目标角色 code */
+  default_role_code?: string
+  /** 自动派单目标客服组 ID */
+  default_group_id?: number
+  /** 首次响应时限（小时），0 表示不启用 */
+  sla_hours?: number
 }
 
 export interface TicketCategoryInfo {
@@ -84,6 +114,9 @@ export interface TicketCategoryInfo {
   description: string
   sort_order: number
   status: string
+  default_role_code: string
+  default_group_id: number
+  sla_hours: number
   created_at: string
   updated_at: string
 }

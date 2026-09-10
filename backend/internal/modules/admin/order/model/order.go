@@ -43,9 +43,16 @@ type Order struct {
 	Remark      string     `gorm:"size:255"`                                                  // 备注
 	OperatorID  uint64     `gorm:"column:operator_id"`                                        // 最近操作人
 	RenewalID   uint64     `gorm:"column:renewal_id;index;default:0"`                         // 关联续费记录 ID（续费订单，doc60）
-	CreatedAt   time.Time  `gorm:"autoCreateTime;index"`
-	UpdatedAt   time.Time  `gorm:"autoUpdateTime"`
-	DeletedAt   *time.Time `gorm:"index"`
+	// 算价快照（P5-01/P5-04）：原价、优惠、实付与命中的折扣来源，便于对账与展示。
+	OriginalAmount float64    `gorm:"column:original_amount;type:decimal(15,2);not null;default:0"` // 优惠前金额
+	DiscountAmount float64    `gorm:"column:discount_amount;type:decimal(15,2);not null;default:0"` // 优惠金额
+	FinalAmount    float64    `gorm:"column:final_amount;type:decimal(15,2);not null;default:0"`    // 实付金额
+	PricePolicyID  *uint64    `gorm:"column:price_policy_id"`                                       // 命中的折扣策略 ID
+	DiscountSource string     `gorm:"column:discount_source;size:32"`                               // agent / group / promotion / manual
+	PriceSnapshot  string     `gorm:"column:price_snapshot;type:jsonb"`                             // 命中规则明细 JSON
+	CreatedAt      time.Time  `gorm:"autoCreateTime;index"`
+	UpdatedAt      time.Time  `gorm:"autoUpdateTime"`
+	DeletedAt      *time.Time `gorm:"index"`
 }
 
 // TableName 指定表名

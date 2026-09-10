@@ -7,16 +7,16 @@ import (
 	"fmt"
 	"time"
 
+	userrepo "hostsent/backend/internal/modules/admin/user/account/repository"
 	distributiondto "hostsent/backend/internal/modules/admin/user/distribution/dto"
 	distributionmodel "hostsent/backend/internal/modules/admin/user/distribution/model"
 	distributionrepo "hostsent/backend/internal/modules/admin/user/distribution/repository"
-	userrepo "hostsent/backend/internal/modules/admin/user/account/repository"
 )
 
 var (
-// ErrInvalidCommissionStatus 表示佣金状态不在允许集合内。
-	ErrInvalidCommissionStatus   = errors.New("invalid commission status")
-// ErrCommissionStatusUnchanged 表示佣金状态变更不被允许。
+	// ErrInvalidCommissionStatus 表示佣金状态不在允许集合内。
+	ErrInvalidCommissionStatus = errors.New("invalid commission status")
+	// ErrCommissionStatusUnchanged 表示佣金状态变更不被允许。
 	ErrCommissionStatusUnchanged = errors.New("commission status cannot be changed")
 	commissionStatusTransitions  = map[string]map[string]struct{}{
 		distributiondto.CommissionStatusPending: {

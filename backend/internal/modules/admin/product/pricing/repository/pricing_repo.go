@@ -3,6 +3,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 
 	"gorm.io/gorm"
 
@@ -14,6 +15,8 @@ import (
 type PricingRepository interface {
 	List(ctx context.Context, query dto.PricingQuery) ([]model.ProductPricing, int64, error)
 	FindByID(ctx context.Context, id uint64) (*model.ProductPricing, error)
+	// FindByProductID 取商品当前启用的计费模板（基础价来源，P5-02）；无则返回 nil。
+	FindByProductID(ctx context.Context, productID uint64) (*model.ProductPricing, error)
 	Create(ctx context.Context, item *model.ProductPricing) error
 	Update(ctx context.Context, item *model.ProductPricing) error
 	Delete(ctx context.Context, id uint64) error
@@ -63,6 +66,22 @@ func (r *pricingRepository) List(ctx context.Context, query dto.PricingQuery) ([
 func (r *pricingRepository) FindByID(ctx context.Context, id uint64) (*model.ProductPricing, error) {
 	var item model.ProductPricing
 	if err := r.db.WithContext(ctx).First(&item, id).Error; err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
+// FindByProductID 取商品启用中的计费模板；商品未配置时返回 (nil, nil)。
+func (r *pricingRepository) FindByProductID(ctx context.Context, productID uint64) (*model.ProductPricing, error) {
+	var item model.ProductPricing
+	err := r.db.WithContext(ctx).
+		Where("product_id = ? AND status = ?", productID, model.PricingEnabled).
+		Order("id asc").
+		First(&item).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
 		return nil, err
 	}
 	return &item, nil

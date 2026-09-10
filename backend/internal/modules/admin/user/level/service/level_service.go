@@ -64,6 +64,9 @@ func (s *userLevelService) Create(ctx context.Context, req dto.CreateRequest) (*
 		Status:           status,
 		FeatureFlags:     req.FeatureFlags,
 		UpgradeCondition: req.UpgradeCondition,
+		UpgradeThreshold: req.UpgradeThreshold,
+		MaxSubAccounts:   req.MaxSubAccounts,
+		Benefits:         req.Benefits,
 		Description:      req.Description,
 	}
 	if err := s.repo.Create(ctx, item); err != nil {
@@ -84,6 +87,9 @@ func (s *userLevelService) Update(ctx context.Context, id uint64, req dto.Update
 	item.Status = req.Status
 	item.FeatureFlags = req.FeatureFlags
 	item.UpgradeCondition = req.UpgradeCondition
+	item.UpgradeThreshold = req.UpgradeThreshold
+	item.MaxSubAccounts = req.MaxSubAccounts
+	item.Benefits = req.Benefits
 	item.Description = req.Description
 	if err := s.repo.Update(ctx, item); err != nil {
 		return nil, err
@@ -118,6 +124,9 @@ func toInfo(item model.UserLevel) dto.Info {
 		Status:           item.Status,
 		FeatureFlags:     item.FeatureFlags,
 		UpgradeCondition: item.UpgradeCondition,
+		UpgradeThreshold: item.UpgradeThreshold,
+		MaxSubAccounts:   item.MaxSubAccounts,
+		Benefits:         item.Benefits,
 		Description:      item.Description,
 		CreatedAt:        item.CreatedAt,
 		UpdatedAt:        item.UpdatedAt,

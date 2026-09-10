@@ -171,3 +171,31 @@ CREATE TABLE IF NOT EXISTS product_config_options (
 - 本阶段**未对线上库执行破坏性迁移**；已生成完整备份（`backups/pre-phase2-*.sql`）与暂存迁移。
 - 建议按 `011 → 012`（安全）→ 改写 `user_detail_service` / 产品目录服务 → `013/014/015`（破坏性，测试库演练）推进。
 - 每次迁移独立事务、可回滚、幂等，与 00 规划 Phase 2「备份 + 事务 + 可重复执行」一致。
+
+---
+
+## 6. 新增列的落地流程（R1 双写，账号体系重构起）
+
+> 背景：`migrations/*.sql` **没有 Go 侧执行器**，运行时建表/加列一律由
+> `internal/pkg/db/db.go` 的 `AutoMigrate` 完成。因此任何 DDL 必须**双写**，只做一边必然出问题。
+
+**新增一个字段/表的固定步骤**（每个 DDL 任务都拆成这两个子项）：
+
+1. **Go model**：在对应 GORM struct 上声明字段（`gorm:"column:xxx;type:..."`），
+   并把新 model 加入 `AutoMigrate` 的列表（`db.go` 顶部 `db.AutoMigrate(...)`）。
+   - 注意 `users` 表有**两个 Go model**：`admin/user/account/model/user.go`（全字段）与
+     `uc/auth/model/user.go`（子集），都映射 `users`。GORM 不删列，新列**声明在会读它的 model 上即可**；
+     uc 侧要读的列需在 uc model 里也加一份。
+2. **SQL 迁移**：新增 `migrations/0xx_<说明>.sql`，用 `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`
+   保证可重入；存量数据回填同样要幂等（`ON CONFLICT DO NOTHING` 或 `WHERE NOT EXISTS`）。
+   - 该文件仅作**版本留痕**，不自动执行；如需在特定环境执行，人工 `psql -f`。
+   - 如回填逻辑必须每次启动自愈（如 `admin_roles` 从 `admins.role` 补齐），则在 `AutoMigrate` 里
+     加一个等价的 Go 回填函数（参考 `backfillAdminRoles`）。
+
+**验收**：新建空库 → 启动服务 → `\d <表>` 能看到所有新列。
+
+**示例（P1-01）**：
+- model：`manager/model/admin_role.go` + `admin.go` 加 `service_group_id/position/must_change_password`
+  + `role.go` 加 `scope`；`AutoMigrate` 加 `&adminmodel.AdminRole{}`。
+- SQL：`migrations/018_rbac_admin_roles.sql`（建表 + 加列 + `admins.role` 回填 + `user` 角色 scope 归位）。
+

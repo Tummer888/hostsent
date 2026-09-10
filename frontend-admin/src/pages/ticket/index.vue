@@ -18,6 +18,21 @@
     </header>
 
     <section class="filter-card surface-card">
+      <!-- 工作台视图（P2-07）：我的待办 / 未分配池 / 我参与的 / SLA 超时 -->
+      <div class="workbench-tabs" role="tablist" aria-label="工单视图">
+        <button
+          v-for="tab in viewTabs"
+          :key="tab.value"
+          type="button"
+          role="tab"
+          class="workbench-tab"
+          :class="{ 'is-active': activeView === tab.value }"
+          :aria-selected="activeView === tab.value"
+          @click="handleViewChange(tab.value)"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
       <div class="filter-card__head">
         <h3 class="card-title">筛选条件</h3>
         <t-space size="small">
@@ -99,13 +114,21 @@
           <span v-if="row.assigned_name" class="cell-strong">{{ row.assigned_name }}</span>
           <span v-else class="cell-muted">未分配</span>
         </template>
+        <template #sla="{ row }">
+          <t-tag v-if="row.sla_breached" theme="danger" variant="light" size="small" shape="round">超时</t-tag>
+          <t-tag v-else-if="row.sla_hours > 0" theme="success" variant="light" size="small" shape="round">
+            {{ row.sla_hours }}h
+          </t-tag>
+          <span v-else class="cell-muted">—</span>
+        </template>
         <template #created_at="{ row }">
           <span class="time-text">{{ formatTime(row.created_at) }}</span>
         </template>
         <template #action="{ row }">
           <div class="action-cell">
             <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
-            <t-link v-if="isClosable(row)" theme="danger" hover="color" @click="handleClose(row)">关闭</t-link>
+            <t-link v-if="canClaim(row)" theme="success" hover="color" @click="handleClaim(row)">认领</t-link>
+            <t-link v-if="isClosable(row) && has('ticket:close')" theme="danger" hover="color" @click="handleClose(row)">关闭</t-link>
           </div>
         </template>
         <template #empty>
@@ -122,7 +145,8 @@ import { useRouter } from 'vue-router'
 import { RefreshIcon, SearchIcon, ServiceIcon } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
-import { closeTicket, getTicketCategories, getTickets } from '@/api/ticket'
+import { closeTicket, claimTicket, getTicketCategories, getTickets } from '@/api/ticket'
+import { usePermission } from '@/composables/usePermission'
 import {
   formatTime,
   ticketPriorityLabel,
@@ -138,10 +162,21 @@ import type { TicketCategoryInfo, TicketInfo } from '@/types/interface'
 defineOptions({ name: 'TicketList' })
 
 const router = useRouter()
+const { has } = usePermission()
 const ticketList = ref<TicketInfo[]>([])
 const loading = ref(false)
 const total = ref(0)
 const categoryOptions = ref<{ label: string; value: string }[]>([])
+
+// 工作台视图：空串表示全部
+const viewTabs = [
+  { label: '全部工单', value: '' },
+  { label: '我的待办', value: 'my_todo' },
+  { label: '未分配池', value: 'unassigned' },
+  { label: '我参与的', value: 'involved' },
+  { label: 'SLA 超时', value: 'sla_breached' },
+]
+const activeView = ref('')
 
 const filters = reactive<{
   keyword: string | undefined
@@ -174,8 +209,9 @@ const columns: PrimaryTableCol<TicketInfo>[] = [
   { colKey: 'priority', title: '优先级', width: 90 },
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'assigned_name', title: '处理人', width: 110 },
+  { colKey: 'sla', title: 'SLA', width: 80, align: 'center' as const },
   { colKey: 'created_at', title: '提交时间', width: 160 },
-  { colKey: 'action', title: '操作', width: 120, fixed: 'right' as const, align: 'center' as const },
+  { colKey: 'action', title: '操作', width: 150, fixed: 'right' as const, align: 'center' as const },
 ]
 
 // 加载工单分类下拉（供筛选使用）
@@ -200,6 +236,7 @@ async function loadTickets() {
       status: filters.status,
       start_time: toDateString(startDate) ? `${toDateString(startDate)} 00:00:00` : undefined,
       end_time: toDateString(endDate) ? `${toDateString(endDate)} 23:59:59` : undefined,
+      view: activeView.value || undefined,
       page: pagination.current,
       page_size: pagination.pageSize,
     })
@@ -211,6 +248,12 @@ async function loadTickets() {
   } finally {
     loading.value = false
   }
+}
+
+function handleViewChange(view: string) {
+  activeView.value = view
+  pagination.current = 1
+  loadTickets()
 }
 
 function handlePageChange(pageInfo: PageInfo) {
@@ -244,6 +287,21 @@ function isClosable(row: TicketInfo): boolean {
   return row.status !== 'closed' && row.status !== 'cancelled'
 }
 
+// 未分配且非终态可认领
+function canClaim(row: TicketInfo): boolean {
+  return !row.assigned_to && isClosable(row) && has('ticket:list')
+}
+
+async function handleClaim(row: TicketInfo) {
+  try {
+    await claimTicket(row.id)
+    MessagePlugin.success('认领成功')
+    loadTickets()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '认领失败')
+  }
+}
+
 function handleClose(row: TicketInfo) {
   const dialog = DialogPlugin.confirm({
     header: '关闭工单',
@@ -272,4 +330,38 @@ onMounted(() => {
 
 <style lang="css">
 @import './shared.css';
+</style>
+
+<style scoped>
+/* ---------- 工作台视图切换 ---------- */
+.workbench-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.workbench-tab {
+  border: 1px solid transparent;
+  background: var(--hs-surface-2);
+  color: var(--color-muted-foreground);
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color var(--hs-duration-fast), background-color var(--hs-duration-fast), border-color var(--hs-duration-fast);
+}
+
+.workbench-tab:hover {
+  color: var(--color-foreground);
+  border-color: var(--color-border);
+}
+
+.workbench-tab.is-active {
+  background: var(--color-primary);
+  color: #ffffff;
+  border-color: var(--color-primary);
+}
 </style>

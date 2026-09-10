@@ -55,13 +55,13 @@ type rechargeCallbackRequest struct {
 	Status     string `json:"status"`                         // 渠道状态：success/failed
 }
 
-// currentUserID 从鉴权上下文提取当前登录用户 ID。
+// currentUserID 返回数据归属账号 ID（P4-04）：余额/账单/流水一律取主账号。
 func currentUserID(c *gin.Context) (uint64, bool) {
-	claims, ok := middleware.GetClaims(c)
-	if !ok || claims.UserID == 0 {
+	userID := middleware.EffectiveUserID(c)
+	if userID == 0 {
 		return 0, false
 	}
-	return claims.UserID, true
+	return userID, true
 }
 
 // unauthorized 用户未登录。

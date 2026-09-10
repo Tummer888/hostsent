@@ -193,3 +193,62 @@ func (h *AdminHandler) Delete(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "timestamp": time.Now().Unix()})
 }
+
+// SetRoles 覆盖式设置员工角色（D2 多角色）。
+func (h *AdminHandler) SetRoles(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": "invalid id", "timestamp": time.Now().Unix()})
+		return
+	}
+	var req dto.AdminAssignRolesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	if err := h.adminService.SetRoles(c.Request.Context(), id, req.RoleIDs); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 40001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "timestamp": time.Now().Unix()})
+}
+
+// ChangePassword 管理员自助改密（首次登录强制改密走同一接口）。
+func (h *AdminHandler) ChangePassword(c *gin.Context) {
+	adminClaims, ok := middleware.GetAdminClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 10001, "message": "unauthorized", "timestamp": time.Now().Unix()})
+		return
+	}
+	var req dto.AdminChangePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	if err := h.adminService.ChangePassword(c.Request.Context(), adminClaims.AdminID, req); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 40001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "timestamp": time.Now().Unix()})
+}
+
+// ListAuditLogs godoc
+// @Summary 管理端操作审计日志
+// @Description 查询后台写操作审计（POST/PUT/PATCH/DELETE），payload 已脱敏
+// @Tags 管理员
+// @Security BearerAuth
+// @Success 200 {object} dto.AdminAuditLogResponse
+// @Router /api/v1/admin/audit-logs [get]
+func (h *AdminHandler) ListAuditLogs(c *gin.Context) {
+	var query dto.AdminAuditLogQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	resp, err := h.adminService.ListAuditLogs(c.Request.Context(), query)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": resp, "timestamp": time.Now().Unix()})
+}

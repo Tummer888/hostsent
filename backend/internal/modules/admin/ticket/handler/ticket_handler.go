@@ -43,6 +43,8 @@ func (h *TicketHandler) List(c *gin.Context) {
 		response.Error(c, apperrors.New(20001, err.Error()))
 		return
 	}
+	// 工作台视图按当前登录员工过滤，不接受前端传参，避免越权查看他人待办。
+	query.AdminID, _ = operatorFromContext(c)
 	resp, err := h.ticketService.List(c.Request.Context(), query)
 	if err != nil {
 		response.Error(c, writeError(err))
@@ -116,7 +118,56 @@ func (h *TicketHandler) Assign(c *gin.Context) {
 		response.Error(c, apperrors.New(20001, err.Error()))
 		return
 	}
-	resp, err := h.ticketService.Assign(c.Request.Context(), id, req.AssignedTo)
+	operatorID, operatorName := operatorFromContext(c)
+	resp, err := h.ticketService.Assign(c.Request.Context(), id, req.AssignedTo, operatorID, operatorName)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// Claim godoc
+// @Summary 认领未分配工单
+// @Tags 工单支持-工单
+// @Security BearerAuth
+// @Param id path int true "工单 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/tickets/{id}/claim [post]
+func (h *TicketHandler) Claim(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	operatorID, operatorName := operatorFromContext(c)
+	resp, err := h.ticketService.Claim(c.Request.Context(), id, operatorID, operatorName)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// Transfer godoc
+// @Summary 转派工单给其他员工
+// @Tags 工单支持-工单
+// @Security BearerAuth
+// @Param id path int true "工单 ID"
+// @Param request body dto.TicketTransferRequest true "转派参数"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/tickets/{id}/transfer [put]
+func (h *TicketHandler) Transfer(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	var req dto.TicketTransferRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	operatorID, operatorName := operatorFromContext(c)
+	resp, err := h.ticketService.Transfer(c.Request.Context(), id, operatorID, operatorName, req.ToID, req.Note)
 	if err != nil {
 		response.Error(c, writeError(err))
 		return
@@ -142,7 +193,8 @@ func (h *TicketHandler) UpdateStatus(c *gin.Context) {
 		response.Error(c, apperrors.New(20001, err.Error()))
 		return
 	}
-	resp, err := h.ticketService.UpdateStatus(c.Request.Context(), id, req.Status)
+	operatorID, operatorName := operatorFromContext(c)
+	resp, err := h.ticketService.UpdateStatus(c.Request.Context(), id, req.Status, operatorID, operatorName)
 	if err != nil {
 		response.Error(c, writeError(err))
 		return

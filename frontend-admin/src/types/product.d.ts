@@ -396,3 +396,65 @@ export interface PromotionListResponse {
   items: PromotionInfo[]
   meta: ListMeta
 }
+
+// ===== 折扣策略（P5 统一算价管线）=====
+
+export interface PricePolicyQuery {
+  [key: string]: unknown
+  keyword?: string
+  status?: string
+  scope?: string
+  page?: number
+  page_size?: number
+}
+
+export interface PricePolicyItemRequest {
+  target_type: string
+  target_id: number
+  discount_type: string
+  discount_value: number
+}
+
+export interface PricePolicyRequest {
+  name: string
+  code: string
+  discount_type: string
+  discount_value: number
+  scope?: string
+  priority?: number
+  effective_from?: string
+  effective_to?: string
+  status?: string
+  remark?: string
+  items?: PricePolicyItemRequest[]
+}
+
+export interface PricePolicyItemInfo {
+  id: number
+  target_type: string
+  target_id: number
+  discount_type: string
+  discount_value: number
+}
+
+export interface PricePolicyInfo {
+  id: number
+  name: string
+  code: string
+  discount_type: string
+  discount_value: number
+  scope: string
+  priority: number
+  effective_from: string
+  effective_to: string
+  status: string
+  remark: string
+  items: PricePolicyItemInfo[]
+  created_at: string
+  updated_at: string
+}
+
+export interface PricePolicyListResponse {
+  items: PricePolicyInfo[]
+  meta: ListMeta
+}

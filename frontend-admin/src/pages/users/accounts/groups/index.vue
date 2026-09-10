@@ -127,6 +127,27 @@
           <span class="sort-text">{{ row.sort_order }}</span>
         </template>
 
+        <template #price_policy_id="{ row }">
+          <span v-if="row.price_policy_id" class="sort-text">
+            {{ policyNameMap[row.price_policy_id] || `策略 #${row.price_policy_id}` }}
+          </span>
+          <span v-else class="group-cell__desc">未绑定</span>
+        </template>
+
+        <template #priority="{ row }">
+          <span class="sort-text">{{ row.priority }}</span>
+        </template>
+
+        <template #is_default="{ row }">
+          <t-tag v-if="row.is_default" theme="primary" variant="light" size="small" shape="round">默认组</t-tag>
+          <span v-else class="group-cell__desc">—</span>
+        </template>
+
+        <template #is_agent_group="{ row }">
+          <t-tag v-if="row.is_agent_group" theme="warning" variant="light" size="small" shape="round">代理组</t-tag>
+          <span v-else class="group-cell__desc">—</span>
+        </template>
+
         <template #created_at="{ row }">
           <span class="time-text">{{ formatDateTime(row.created_at) }}</span>
         </template>
@@ -165,12 +186,29 @@
           <t-form-item label="排序" name="sort_order">
             <t-input-number v-model="formData.sort_order" :min="0" :max="9999" theme="normal" />
           </t-form-item>
+          <t-form-item label="组间优先级" name="priority">
+            <t-input-number v-model="formData.priority" :min="0" :max="9999" theme="normal" />
+          </t-form-item>
           <t-form-item label="状态" name="status">
             <t-radio-group v-model="formData.status" variant="default-filled" class="status-switch">
               <t-radio-button value="active">启用</t-radio-button>
               <t-radio-button value="disabled">禁用</t-radio-button>
             </t-radio-group>
           </t-form-item>
+          <t-form-item label="折扣策略绑定" name="price_policy_id">
+            <t-select
+              v-model="formData.price_policy_id"
+              :options="policyOptions"
+              clearable
+              filterable
+              placeholder="选择折扣策略（不选则不打折）"
+            />
+            <p class="form-tip">用户组是主折扣来源：该组用户下单/续费时按所选策略打折（P5 统一算价管线）。</p>
+          </t-form-item>
+        </div>
+        <div class="form-flags">
+          <t-checkbox v-model="formData.is_default">设为默认用户组（新用户未指定分组时归入）</t-checkbox>
+          <t-checkbox v-model="formData.is_agent_group">标记为代理组（P6 代理体系使用）</t-checkbox>
         </div>
         <t-form-item label="描述" name="description">
           <t-textarea
@@ -202,6 +240,7 @@ import {
   type UserGroupListQuery,
   type UserGroupRequest,
 } from '@/api/user'
+import { getPricePolicyList } from '@/api/product'
 
 defineOptions({ name: 'UserAccountsGroups' })
 
@@ -241,9 +280,31 @@ const initFormData = (): UserGroupRequest => ({
   description: '',
   status: 'active',
   sort_order: 0,
+  price_policy_id: undefined,
+  priority: 0,
+  is_default: false,
+  is_agent_group: false,
 })
 
 const formData = reactive<UserGroupRequest>(initFormData())
+
+// 折扣策略下拉（P5-06）：用户组绑定后即成为该组用户的折扣来源。
+const policyOptions = ref<{ label: string; value: number }[]>([])
+const policyNameMap = ref<Record<number, string>>({})
+
+async function loadPolicies() {
+  try {
+    const data = await getPricePolicyList({ page: 1, page_size: 200, status: 'active' })
+    const map: Record<number, string> = {}
+    policyOptions.value = (data.items || []).map((item) => {
+      map[item.id] = item.name
+      return { label: item.name, value: item.id }
+    })
+    policyNameMap.value = map
+  } catch {
+    /* 策略加载失败不阻塞用户组列表 */
+  }
+}
 
 const statusOptions = [
   { label: '全部状态', value: '' },
@@ -266,6 +327,10 @@ const columns: PrimaryTableCol<UserGroupInfo>[] = [
   { colKey: 'id', title: 'ID', width: 96 },
   { colKey: 'name', title: '用户组', minWidth: 260 },
   { colKey: 'code', title: '编码', minWidth: 180 },
+  { colKey: 'price_policy_id', title: '折扣策略', width: 120 },
+  { colKey: 'priority', title: '优先级', width: 90, align: 'center' },
+  { colKey: 'is_default', title: '默认组', width: 100, align: 'center' },
+  { colKey: 'is_agent_group', title: '代理组', width: 100, align: 'center' },
   { colKey: 'sort_order', title: '排序', width: 90, align: 'center' },
   { colKey: 'status', title: '状态', width: 110 },
   { colKey: 'created_at', title: '创建时间', width: 180 },
@@ -385,6 +450,10 @@ async function openEdit(id: number) {
       description: data.description || '',
       status: data.status || 'active',
       sort_order: Number(data.sort_order || 0),
+      price_policy_id: data.price_policy_id ?? undefined,
+      priority: Number(data.priority || 0),
+      is_default: Boolean(data.is_default),
+      is_agent_group: Boolean(data.is_agent_group),
     })
     dialogVisible.value = true
   } catch (error) {
@@ -406,6 +475,10 @@ async function handleSubmit() {
     description: (formData.description || '').trim(),
     status: formData.status,
     sort_order: Number(formData.sort_order || 0),
+    price_policy_id: formData.price_policy_id ? Number(formData.price_policy_id) : undefined,
+    priority: Number(formData.priority || 0),
+    is_default: Boolean(formData.is_default),
+    is_agent_group: Boolean(formData.is_agent_group),
   }
 
   submitting.value = true
@@ -465,6 +538,7 @@ watch(
 
 onMounted(async () => {
   syncFiltersFromRoute()
+  loadPolicies()
   await loadGroups()
 })
 </script>
@@ -664,6 +738,20 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 16px;
+}
+
+.form-flags {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.form-tip {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-muted-foreground);
 }
 
 :deep(.page-btn.t-button--theme-primary) {

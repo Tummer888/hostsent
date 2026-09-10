@@ -3,23 +3,51 @@ package dto
 import "time"
 
 type UserInfo struct {
-	ID                 uint64     `json:"id"`
-	Username           string     `json:"username"`
-	RealName           string     `json:"real_name"`
-	Role               string     `json:"role"`
-	Roles              []string   `json:"roles"`
-	Email              string     `json:"email"`
-	Phone              string     `json:"phone"`
-	UserGroupName      string     `json:"user_group_name"`
-	Region             string     `json:"region"`
-	LastLoginIP        string     `json:"last_login_ip"`
-	LastLoginIPRegion  string     `json:"last_login_ip_region"`
-	OAuthProvider      string     `json:"oauth_provider"`
-	Balance            float64    `json:"balance"`
-	TotalConsumeAmount float64    `json:"total_consume_amount"`
-	Status             string     `json:"status"`
-	CreatedAt          time.Time  `json:"created_at"`
-	LastLoginAt        *time.Time `json:"last_login_at,omitempty"`
+	ID                 uint64   `json:"id"`
+	Username           string   `json:"username"`
+	RealName           string   `json:"real_name"`
+	Role               string   `json:"role"`
+	Roles              []string `json:"roles"`
+	Email              string   `json:"email"`
+	Phone              string   `json:"phone"`
+	UserGroupName      string   `json:"user_group_name"`
+	UserLevelID        *uint64  `json:"user_level_id"`
+	UserLevelName      string   `json:"user_level_name"`
+	UserLevelCode      string   `json:"user_level_code"`
+	Region             string   `json:"region"`
+	LastLoginIP        string   `json:"last_login_ip"`
+	LastLoginIPRegion  string   `json:"last_login_ip_region"`
+	OAuthProvider      string   `json:"oauth_provider"`
+	Balance            float64  `json:"balance"`
+	TotalConsumeAmount float64  `json:"total_consume_amount"`
+	Status             string   `json:"status"`
+	// 子账号标识（P4-10）：是否子账号、归属主账号 ID 与用户名、成员备注。
+	IsSubAccount     bool       `json:"is_sub_account"`
+	OwnerUserID      *uint64    `json:"owner_user_id"`
+	OwnerName        string     `json:"owner_name"`
+	SubAccountRemark string     `json:"sub_account_remark"`
+	CreatedAt        time.Time  `json:"created_at"`
+	LastLoginAt      *time.Time `json:"last_login_at,omitempty"`
+}
+
+// SubAccountMemberInfo 管理端成员 Tab 展示项（P4-10）。
+type SubAccountMemberInfo struct {
+	ID          uint64     `json:"id"`
+	Username    string     `json:"username"`
+	Name        string     `json:"name"`
+	Email       string     `json:"email"`
+	Phone       string     `json:"phone"`
+	Remark      string     `json:"remark"`
+	Status      string     `json:"status"`
+	Permissions []string   `json:"permissions"`
+	CreatedAt   time.Time  `json:"created_at"`
+	LastLoginAt *time.Time `json:"last_login_at,omitempty"`
+}
+
+// SubAccountMemberListResponse 某主账号下的成员列表响应（P4-10）。
+type SubAccountMemberListResponse struct {
+	Items []SubAccountMemberInfo `json:"items"`
+	Total int64                  `json:"total"`
 }
 
 type UserListMeta struct {
@@ -55,13 +83,16 @@ type RegionStatsResponse struct {
 }
 
 type RoleInfo struct {
-	ID          uint64    `json:"id"`
-	Name        string    `json:"name"`
-	Code        string    `json:"code"`
-	Description string    `json:"description"`
-	Status      string    `json:"status"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          uint64 `json:"id"`
+	Name        string `json:"name"`
+	Code        string `json:"code"`
+	Description string `json:"description"`
+	Scope       string `json:"scope"`
+	// Builtin 内置角色（如 super_admin）：不可删除、不可改 code，权限树只读。
+	Builtin   bool      `json:"builtin"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type PermissionNode struct {

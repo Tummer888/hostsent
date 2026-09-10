@@ -26,6 +26,10 @@ type UserRepository interface {
 	UpdateProfile(ctx context.Context, id uint64, name, email, phone, avatar string) error
 	// UpdatePassword 更新用户密码哈希。
 	UpdatePassword(ctx context.Context, id uint64, passwordHash string) error
+	// PermissionsOf 返回子账号已授予的客户侧权限码（主账号返回空集，P4-09）。
+	PermissionsOf(ctx context.Context, id uint64) ([]string, error)
+	// IsAgent 判断用户是否为代理（存在 distribution_agents 记录，P6-03）。
+	IsAgent(ctx context.Context, id uint64) (bool, error)
 }
 
 type userRepository struct {
@@ -84,4 +88,36 @@ func (r *userRepository) UpdateProfile(ctx context.Context, id uint64, name, ema
 
 func (r *userRepository) UpdatePassword(ctx context.Context, id uint64, passwordHash string) error {
 	return r.db.WithContext(ctx).Model(&model.User{}).Where("id = ?", id).Update("password_hash", passwordHash).Error
+}
+
+// PermissionsOf 读取子账号权限表；主账号不查（返回 nil）。
+func (r *userRepository) PermissionsOf(ctx context.Context, id uint64) ([]string, error) {
+	var isSub bool
+	if err := r.db.WithContext(ctx).Model(&model.User{}).
+		Select("is_sub_account").Where("id = ?", id).Scan(&isSub).Error; err != nil {
+		return nil, err
+	}
+	if !isSub {
+		return nil, nil
+	}
+	var codes []string
+	if err := r.db.WithContext(ctx).
+		Table("sub_account_permissions").
+		Where("user_id = ?", id).
+		Pluck("permission_code", &codes).Error; err != nil {
+		return nil, err
+	}
+	return codes, nil
+}
+
+// IsAgent 判断用户是否为代理：存在 distribution_agents 记录即视为代理（P6-03）。
+func (r *userRepository) IsAgent(ctx context.Context, id uint64) (bool, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).
+		Table("distribution_agents").
+		Where("user_id = ?", id).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }

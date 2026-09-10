@@ -296,7 +296,7 @@
             <span class="fee-label">账户余额（元）</span>
             <span class="fee-head__value">¥ 0.00</span>
           </div>
-          <t-button theme="primary" size="small" @click="go('/billing/balance')">充值</t-button>
+          <t-button v-if="memberStore.has('billing:recharge')" theme="primary" size="small" @click="go('/billing/balance')">充值</t-button>
         </div>
         <div class="fee-tiles">
           <div class="fee-tile">
@@ -393,11 +393,13 @@ import {
 } from 'tdesign-icons-vue-next'
 
 import { useUserStore } from '@/store'
+import { useMemberStore } from '@/store/modules/member'
 
 defineOptions({ name: 'UserConsole' })
 
 const router = useRouter()
 const userStore = useUserStore()
+const memberStore = useMemberStore()
 
 function go(path: string) {
   router.push(path)
@@ -577,16 +579,18 @@ const accessStats = [
   { label: '策略', value: 0 },
 ]
 
-const tools = [
-  { label: '工单', path: '/support' },
-  { label: '价格计算器', path: '/shop' },
-  { label: '消息中心', path: '/profile' },
-  { label: 'API 密钥', path: '/profile' },
-  { label: '实名认证', path: '/profile' },
-  { label: '备案管理', path: '/profile' },
-  { label: '账户设置', path: '/profile' },
-  { label: '帮助文档', path: '/support' },
-]
+const tools = computed(() =>
+  [
+    { label: '工单', path: '/support' },
+    { label: '价格计算器', path: '/shop' },
+    { label: '消息中心', path: '/profile' },
+    { label: 'API 密钥', path: '/profile' },
+    { label: '实名认证', path: '/profile', ownerOnly: true },
+    { label: '备案管理', path: '/profile', ownerOnly: true },
+    { label: '账户设置', path: '/profile' },
+    { label: '帮助文档', path: '/support' },
+  ].filter((item) => !item.ownerOnly || memberStore.isOwner),
+)
 </script>
 
 <style scoped>

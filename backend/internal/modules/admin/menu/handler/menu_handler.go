@@ -12,6 +12,7 @@ import (
 
 	"hostsent/backend/internal/modules/admin/menu/dto"
 	"hostsent/backend/internal/modules/admin/menu/service"
+	"hostsent/backend/internal/pkg/middleware"
 )
 
 type MenuHandler struct {
@@ -37,6 +38,12 @@ func (h *MenuHandler) Tree(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
+	}
+	// 后台菜单按当前管理员权限过滤后再返回（82 P1-13）：前端直接渲染，不做权限过滤。
+	if platform == "admin" {
+		if grant, ok := middleware.GetAdminGrant(c); ok {
+			tree = service.FilterByPermissions(tree, grant.Perms)
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": tree, "timestamp": time.Now().Unix()})
 }

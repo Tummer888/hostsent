@@ -30,13 +30,24 @@ func operatorFromContext(c *gin.Context) (uint64, string) {
 	return 0, ""
 }
 
-// currentUserID 从鉴权上下文提取当前登录用户 ID 与账号名。
+// currentUserID 返回数据归属账号 ID（子账号为主账号）与操作人账号名（P4-04）。
+// 工单列表/详情按归属查询，子账号能看到主账号的全部工单。
 func currentUserID(c *gin.Context) (uint64, string, bool) {
-	claims, ok := middleware.GetUserClaims(c)
-	if !ok || claims.UserID == 0 {
+	userID := middleware.EffectiveUserID(c)
+	if userID == 0 {
 		return 0, "", false
 	}
-	return claims.UserID, claims.Username, true
+	return userID, middleware.ActorUsername(c), true
+}
+
+// currentActorID 返回真实操作人 ID 与账号名（P4-04）。
+// 子账号提交工单时，提交人记操作人自身，便于主账号区分是谁提的。
+func currentActorID(c *gin.Context) (uint64, string, bool) {
+	userID := middleware.ActorUserID(c)
+	if userID == 0 {
+		return 0, "", false
+	}
+	return userID, middleware.ActorUsername(c), true
 }
 
 // writeError 将工单域业务错误映射为统一错误码。
@@ -48,6 +59,9 @@ func writeError(err error) *apperrors.AppError {
 		errors.Is(err, service.ErrAdminNotFound):
 		return apperrors.New(20002, err.Error())
 	case errors.Is(err, service.ErrStatusConflict):
+		return apperrors.New(20003, err.Error())
+	case errors.Is(err, service.ErrTicketAssigned),
+		errors.Is(err, service.ErrSameAssignee):
 		return apperrors.New(20003, err.Error())
 	case errors.Is(err, service.ErrCategoryCodeExists):
 		return apperrors.New(30005, err.Error())

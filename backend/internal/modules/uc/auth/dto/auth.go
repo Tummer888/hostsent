@@ -28,6 +28,15 @@ type UserInfo struct {
 	Role     string `json:"role"` // 用户中心角色，固定为 "user"
 	Tier     string `json:"tier"` // 用户等级（标准用户 standard / 企业用户 business / 免费 free）
 	Status   string `json:"status"`
+	// —— 子账号信息（P4-03）——
+	IsSubAccount bool   `json:"is_sub_account"`          // 是否子账号
+	OwnerUserID  uint64 `json:"owner_user_id,omitempty"` // 子账号归属的主账号 ID
+	OwnerName    string `json:"owner_name,omitempty"`    // 主账号用户名（子账号展示「XX 的子账号」）
+	Remark       string `json:"remark,omitempty"`        // 子账号备注
+	// IsAgent 是否代理（P6-03）：存在 distribution_agents 记录即 true，前端据此放行 /agent 子树。
+	IsAgent bool `json:"is_agent"`
+	// Permissions 子账号已授予的客户侧权限码；主账号为空数组（前端据此隐藏入口，P4-09）。
+	Permissions []string `json:"permissions"`
 }
 
 // LoginResponse 用户中心登录响应，结构对齐前端 LoginResponse：

@@ -28,6 +28,10 @@ import type {
   PricingListResponse,
   PricingQuery,
   PricingRequest,
+  PricePolicyInfo,
+  PricePolicyListResponse,
+  PricePolicyQuery,
+  PricePolicyRequest,
   CouponInfo,
   CouponListResponse,
   CouponQuery,
@@ -247,6 +251,28 @@ export function updatePricing(id: number, data: PricingRequest): Promise<Pricing
 
 export function deletePricing(id: number): Promise<string> {
   return request.delete<string>({ url: `/product/pricing/${id}` })
+}
+
+// ===== 产品管理 - 折扣策略（P5 统一算价管线）=====
+
+export function getPricePolicyList(params: PricePolicyQuery): Promise<PricePolicyListResponse> {
+  return request.get<PricePolicyListResponse>({ url: '/product/discount-policies', params })
+}
+
+export function getPricePolicyDetail(id: number): Promise<PricePolicyInfo> {
+  return request.get<PricePolicyInfo>({ url: `/product/discount-policies/${id}` })
+}
+
+export function createPricePolicy(data: PricePolicyRequest): Promise<PricePolicyInfo> {
+  return request.post<PricePolicyInfo>({ url: '/product/discount-policies', data })
+}
+
+export function updatePricePolicy(id: number, data: PricePolicyRequest): Promise<PricePolicyInfo> {
+  return request.put<PricePolicyInfo>({ url: `/product/discount-policies/${id}`, data })
+}
+
+export function deletePricePolicy(id: number): Promise<string> {
+  return request.delete<string>({ url: `/product/discount-policies/${id}` })
 }
 
 // ===== 产品管理 - 优惠券 =====

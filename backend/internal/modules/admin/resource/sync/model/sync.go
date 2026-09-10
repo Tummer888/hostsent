@@ -43,25 +43,27 @@ func (SyncLog) TableName() string {
 
 // Instance 统一实例主数据
 type Instance struct {
-	ID          uint64     `gorm:"primaryKey;autoIncrement"`
-	InstanceID  string     `gorm:"column:instance_id;size:64;uniqueIndex;not null"`
-	ProviderID  uint64     `gorm:"column:provider_id;not null;index"`
-	UserID      uint64     `gorm:"column:user_id;not null;index"`
-	ProductID   uint64     `gorm:"column:product_id"`
-	Name        string     `gorm:"size:100;not null"`
-	CPU         int        `gorm:"not null"`
-	Memory      int        `gorm:"not null"`
-	Disk        int        `gorm:"not null"`
-	DiskType    string     `gorm:"column:disk_type;size:20"`
-	Bandwidth   int        `gorm:"default:0"`
-	OS          string     `gorm:"size:50"`
-	Region      string     `gorm:"size:50"`
-	Zone        string     `gorm:"size:50"`
-	Status      string     `gorm:"size:30;default:creating;index"`
-	PrivateIP   string     `gorm:"column:private_ip;size:15"`
-	PublicIP    string     `gorm:"column:public_ip;size:15"`
-	RawData     string     `gorm:"column:raw_data;type:text"` // JSON 以 text 存储
-	BillingMode string     `gorm:"column:billing_mode;size:20;default:hourly"`
+	ID          uint64 `gorm:"primaryKey;autoIncrement"`
+	InstanceID  string `gorm:"column:instance_id;size:64;uniqueIndex;not null"`
+	ProviderID  uint64 `gorm:"column:provider_id;not null;index"`
+	UserID      uint64 `gorm:"column:user_id;not null;index"`
+	ProductID   uint64 `gorm:"column:product_id"`
+	Name        string `gorm:"size:100;not null"`
+	CPU         int    `gorm:"not null"`
+	Memory      int    `gorm:"not null"`
+	Disk        int    `gorm:"not null"`
+	DiskType    string `gorm:"column:disk_type;size:20"`
+	Bandwidth   int    `gorm:"default:0"`
+	OS          string `gorm:"size:50"`
+	Region      string `gorm:"size:50"`
+	Zone        string `gorm:"size:50"`
+	Status      string `gorm:"size:30;default:creating;index"`
+	PrivateIP   string `gorm:"column:private_ip;size:15"`
+	PublicIP    string `gorm:"column:public_ip;size:15"`
+	RawData     string `gorm:"column:raw_data;type:text"` // JSON 以 text 存储
+	BillingMode string `gorm:"column:billing_mode;size:20;default:hourly"`
+	// ActorUserID 开通该实例的真实操作人（子账号下单时为主账号名下的子账号，P4-09）
+	ActorUserID uint64     `gorm:"column:actor_user_id;index"`
 	CreatedAt   time.Time  `gorm:"autoCreateTime"`
 	ExpireAt    *time.Time `gorm:"column:expire_at"`
 	UpdatedAt   time.Time  `gorm:"autoUpdateTime"`

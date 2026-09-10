@@ -4,10 +4,10 @@ package service
 import (
 	"context"
 
+	userrepo "hostsent/backend/internal/modules/admin/user/account/repository"
 	distributiondto "hostsent/backend/internal/modules/admin/user/distribution/dto"
 	distributionmodel "hostsent/backend/internal/modules/admin/user/distribution/model"
 	distributionrepo "hostsent/backend/internal/modules/admin/user/distribution/repository"
-	userrepo "hostsent/backend/internal/modules/admin/user/account/repository"
 )
 
 // AgentService 定义代理管理所需的业务能力。

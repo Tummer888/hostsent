@@ -87,7 +87,8 @@ func (h *UserTicketHandler) Get(c *gin.Context) {
 // @Success 200 {object} response.Body
 // @Router /api/v1/uc/support/tickets [post]
 func (h *UserTicketHandler) Create(c *gin.Context) {
-	userID, username, ok := currentUserID(c)
+	// 提交人 = 真实操作人（P4-05）：子账号提交的工单记在其本人名下，主账号按归属可查。
+	actorID, username, ok := currentActorID(c)
 	if !ok {
 		unauthorized(c)
 		return
@@ -97,7 +98,7 @@ func (h *UserTicketHandler) Create(c *gin.Context) {
 		response.Error(c, apperrors.New(20001, err.Error()))
 		return
 	}
-	resp, err := h.ticketService.Create(c.Request.Context(), userID, username, req)
+	resp, err := h.ticketService.Create(c.Request.Context(), actorID, username, req)
 	if err != nil {
 		response.Error(c, writeError(err))
 		return
@@ -114,7 +115,13 @@ func (h *UserTicketHandler) Create(c *gin.Context) {
 // @Success 200 {object} response.Body
 // @Router /api/v1/uc/support/tickets/{id}/replies [post]
 func (h *UserTicketHandler) Reply(c *gin.Context) {
-	userID, username, ok := currentUserID(c)
+	// 归属账号用于权限校验，操作人用于回复落库（P4-05）。
+	accountID, _, ok := currentUserID(c)
+	if !ok {
+		unauthorized(c)
+		return
+	}
+	actorID, username, ok := currentActorID(c)
 	if !ok {
 		unauthorized(c)
 		return
@@ -128,7 +135,7 @@ func (h *UserTicketHandler) Reply(c *gin.Context) {
 		response.Error(c, apperrors.New(20001, err.Error()))
 		return
 	}
-	resp, err := h.ticketService.UserReply(c.Request.Context(), userID, username, id, req.Content)
+	resp, err := h.ticketService.UserReply(c.Request.Context(), accountID, actorID, username, id, req.Content)
 	if err != nil {
 		response.Error(c, writeError(err))
 		return

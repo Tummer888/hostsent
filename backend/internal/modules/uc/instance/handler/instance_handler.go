@@ -22,12 +22,13 @@ func NewInstanceHandler(instanceService service.InstanceService) *InstanceHandle
 	return &InstanceHandler{instanceService: instanceService}
 }
 
+// currentUserID 返回数据归属账号 ID（P4-04）：子账号取主账号，实例一律归属主账号。
 func currentUserID(c *gin.Context) (uint64, bool) {
-	claims, ok := middleware.GetClaims(c)
-	if !ok || claims.UserID == 0 {
+	userID := middleware.EffectiveUserID(c)
+	if userID == 0 {
 		return 0, false
 	}
-	return claims.UserID, true
+	return userID, true
 }
 
 // List godoc

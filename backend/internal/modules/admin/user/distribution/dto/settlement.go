@@ -29,13 +29,13 @@ type SettlementListQuery struct {
 }
 
 type SettlementCreateRequest struct {
-	AgentID         uint64    `json:"agent_id" binding:"required"`
-	SettlementNo    string    `json:"settlement_no"`
-	PeriodStart     time.Time `json:"period_start" binding:"required"`
-	PeriodEnd       time.Time `json:"period_end" binding:"required"`
-	DeductionTotal  float64   `json:"deduction_total"`
-	Remark          string    `json:"remark"`
-	CommissionIDs   []uint64  `json:"commission_ids"`
+	AgentID        uint64    `json:"agent_id" binding:"required"`
+	SettlementNo   string    `json:"settlement_no"`
+	PeriodStart    time.Time `json:"period_start" binding:"required"`
+	PeriodEnd      time.Time `json:"period_end" binding:"required"`
+	DeductionTotal float64   `json:"deduction_total"`
+	Remark         string    `json:"remark"`
+	CommissionIDs  []uint64  `json:"commission_ids"`
 }
 
 type SettlementUpdateRequest struct {
@@ -51,24 +51,24 @@ type SettlementStatusChangeRequest struct {
 }
 
 type SettlementInfo struct {
-	ID               uint64     `json:"id"`
-	AgentID          uint64     `json:"agent_id"`
-	AgentName        string     `json:"agent_name"`
-	SettlementNo     string     `json:"settlement_no"`
-	PeriodStart      time.Time  `json:"period_start"`
-	PeriodEnd        time.Time  `json:"period_end"`
-	CommissionTotal  float64    `json:"commission_total"`
-	DeductionTotal   float64    `json:"deduction_total"`
-	PayableTotal     float64    `json:"payable_total"`
-	CommissionCount  int        `json:"commission_count"`
-	Status           string     `json:"status"`
-	ConfirmedBy      *uint64    `json:"confirmed_by"`
-	ConfirmedByName  string     `json:"confirmed_by_name"`
-	ConfirmedAt      *time.Time `json:"confirmed_at"`
-	PaidAt           *time.Time `json:"paid_at"`
-	Remark           string     `json:"remark"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
+	ID              uint64     `json:"id"`
+	AgentID         uint64     `json:"agent_id"`
+	AgentName       string     `json:"agent_name"`
+	SettlementNo    string     `json:"settlement_no"`
+	PeriodStart     time.Time  `json:"period_start"`
+	PeriodEnd       time.Time  `json:"period_end"`
+	CommissionTotal float64    `json:"commission_total"`
+	DeductionTotal  float64    `json:"deduction_total"`
+	PayableTotal    float64    `json:"payable_total"`
+	CommissionCount int        `json:"commission_count"`
+	Status          string     `json:"status"`
+	ConfirmedBy     *uint64    `json:"confirmed_by"`
+	ConfirmedByName string     `json:"confirmed_by_name"`
+	ConfirmedAt     *time.Time `json:"confirmed_at"`
+	PaidAt          *time.Time `json:"paid_at"`
+	Remark          string     `json:"remark"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 // SettlementListMeta 描述结算单列表分页信息。

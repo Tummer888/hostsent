@@ -9,3 +9,7 @@ app:
 auth:
   bearer_prefix: Bearer
   mock_token: mock-token
+
+pricing:
+  # 多来源折扣叠加模式：best 取最优（默认）/ stack 按顺序叠加
+  stack_mode: best

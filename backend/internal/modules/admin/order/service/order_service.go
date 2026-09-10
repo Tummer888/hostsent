@@ -25,6 +25,8 @@ type OrderService interface {
 	CreateRefund(ctx context.Context, id uint64, req dto.RefundCreateRequest, operatorID uint64, operatorName string) (*dto.RefundInfo, error)
 	Activate(ctx context.Context, id uint64) error
 	Stats(ctx context.Context) (*dto.OrderStatsResponse, error)
+	// SetCommissionHook 注入订单完成后的佣金计提钩子（P6-02，装配层调用）。
+	SetCommissionHook(hook OrderCommissionHook)
 	// 退款管理
 	ListRefunds(ctx context.Context, q dto.RefundListQuery) (*dto.RefundListResponse, error)
 	FindRefund(ctx context.Context, id uint64) (*dto.RefundInfo, error)
@@ -32,16 +34,27 @@ type OrderService interface {
 	RejectRefund(ctx context.Context, id uint64, operatorID uint64, operatorName string, remark string) (*dto.RefundInfo, error)
 }
 
+// OrderCommissionHook 订单完成（开通成功）后的佣金计提钩子（P6-02）。
+// 仅传基础类型，避免订单模块反向依赖分销模块。
+type OrderCommissionHook func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, baseAmount float64, isRenewal bool) error
+
 type orderService struct {
 	orderRepo  repository.OrderRepository
 	itemRepo   repository.OrderItemRepository
 	refundRepo repository.RefundRepository
 	provision  ProvisionAdapter
+	// commissionHook 可选：订单开通成功后自动计提代理佣金，为 nil 时跳过。
+	commissionHook OrderCommissionHook
 }
 
 // NewOrderService 创建订单业务服务。
 func NewOrderService(orderRepo repository.OrderRepository, itemRepo repository.OrderItemRepository, refundRepo repository.RefundRepository, provision ProvisionAdapter) OrderService {
 	return &orderService{orderRepo: orderRepo, itemRepo: itemRepo, refundRepo: refundRepo, provision: provision}
+}
+
+// SetCommissionHook 注入佣金计提钩子（装配层调用，避免改构造签名影响既有装配点）。
+func (s *orderService) SetCommissionHook(hook OrderCommissionHook) {
+	s.commissionHook = hook
 }
 
 func (s *orderService) List(ctx context.Context, q dto.OrderListQuery) (*dto.OrderListResponse, error) {
@@ -169,7 +182,14 @@ func (s *orderService) Activate(ctx context.Context, id uint64) error {
 	if err := s.provision.Activate(ctx, item); err != nil {
 		return err
 	}
-	return s.orderRepo.Update(ctx, item)
+	if err := s.orderRepo.Update(ctx, item); err != nil {
+		return err
+	}
+	// 订单开通成功后的代理佣金计提（P6-02）：失败不回滚订单，钩子实现负责记录错误。
+	if s.commissionHook != nil {
+		_ = s.commissionHook(ctx, item.ID, item.OrderNo, item.UserID, item.PaidAmount, item.RenewalID != 0)
+	}
+	return nil
 }
 
 func (s *orderService) Stats(ctx context.Context) (*dto.OrderStatsResponse, error) {

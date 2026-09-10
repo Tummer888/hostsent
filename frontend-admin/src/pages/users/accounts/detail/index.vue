@@ -46,6 +46,7 @@
       <t-tabs v-model="activeTab" theme="card" size="medium">
         <t-tab-panel value="profile" label="基础资料" />
         <t-tab-panel value="permissions" label="角色权限" />
+        <t-tab-panel value="members" label="成员" />
         <t-tab-panel value="assets" label="云主机资产" />
         <t-tab-panel value="orders" label="订单财务" />
         <t-tab-panel value="tickets" label="服务工单" />
@@ -119,6 +120,53 @@
             <div v-else class="empty-state empty-state--compact">当前用户暂无权限数据</div>
           </div>
         </div>
+      </article>
+
+      <article v-else-if="activeTab === 'members'" class="panel-card surface-card">
+        <header class="panel-card__head">
+          <div>
+            <h3 class="panel-card__title">成员（子账号）</h3>
+            <p class="panel-card__subtitle">主账号名下的子账号及其被授予的客户侧权限；子账号不能充值、提现与实名。</p>
+          </div>
+          <t-tag theme="primary" variant="light" size="small" shape="round">members</t-tag>
+        </header>
+
+        <div v-if="userDetail?.is_sub_account" class="empty-state empty-state--compact">
+          当前账号本身是子账号，归属主账号：{{ userDetail.owner_name || userDetail.owner_user_id || '—' }}
+        </div>
+        <div v-else-if="membersLoading" class="empty-state">正在加载成员…</div>
+        <div v-else-if="members.length" class="member-grid">
+          <div v-for="member in members" :key="member.id" class="member-card surface-card">
+            <div class="member-card__head">
+              <div class="member-card__identity">
+                <span class="member-card__name">{{ member.username }}</span>
+                <span class="member-card__sub">
+                  {{ member.name || member.email || '—' }}
+                  <template v-if="member.remark"> · {{ member.remark }}</template>
+                </span>
+              </div>
+              <t-tag
+                :theme="member.status === 'active' ? 'success' : 'default'"
+                variant="light"
+                size="small"
+                shape="round"
+              >
+                {{ statusLabelMap[member.status] || member.status }}
+              </t-tag>
+            </div>
+            <div class="tag-group">
+              <t-tag v-for="code in member.permissions" :key="code" theme="primary" variant="light-outline" size="small" shape="round">
+                {{ userPermissionLabels[code] || code }}
+              </t-tag>
+              <span v-if="!member.permissions?.length" class="member-card__sub">未分配权限</span>
+            </div>
+            <div class="member-card__meta">
+              <span>最近登录：{{ member.last_login_at ? formatDateTime(member.last_login_at) : '未登录' }}</span>
+              <span>创建时间：{{ formatDateTime(member.created_at) }}</span>
+            </div>
+          </div>
+        </div>
+        <div v-else class="empty-state empty-state--compact">该账号下暂无成员</div>
       </article>
 
       <article v-else-if="activeTab === 'assets'" class="panel-card surface-card">
@@ -308,13 +356,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { EditIcon, MoneyIcon, NotificationIcon, SecuredIcon, UserIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type FormInstanceFunctions, type FormRules } from 'tdesign-vue-next'
 import {
   getUserDetailAggregate,
+  getUserMembers,
   updateUserDetail,
+  type SubAccountMemberInfo,
   type UserBillItem,
   type UserDetailAggregateResponse,
   type UserInfo,
@@ -327,7 +377,7 @@ import {
 
 defineOptions({ name: 'UserAccountsDetail' })
 
-type DetailTab = 'profile' | 'permissions' | 'assets' | 'orders' | 'tickets'
+type DetailTab = 'profile' | 'permissions' | 'members' | 'assets' | 'orders' | 'tickets'
 
 const route = useRoute()
 const router = useRouter()
@@ -400,6 +450,18 @@ const ticketPriorityLabelMap: Record<string, string> = {
   low: '低',
 }
 
+// 客户侧权限码中文名（与后端 pkg/auth/user_permission.go 保持一致，P4-10）
+const userPermissionLabels: Record<string, string> = {
+  'instance:view': '查看实例',
+  'instance:operate': '实例操作',
+  'order:view': '查看订单',
+  'order:create': '下单/续费',
+  'ticket:view': '查看工单',
+  'ticket:submit': '提交工单',
+  'billing:view': '查看账单',
+  'subaccount:manage': '成员管理',
+}
+
 const statusOptions = [
   { label: '正常', value: 'active' },
   { label: '待审核', value: 'pending' },
@@ -445,6 +507,9 @@ const basicFields = computed(() => {
     { label: '邮箱地址', value: userDetail.value.email || '—', valueClass: '' },
     { label: '手机号码', value: userDetail.value.phone || '—', valueClass: 'mono-text' },
     { label: '所属地域', value: userDetail.value.region || '未设置', valueClass: '' },
+    { label: '用户等级', value: userDetail.value.user_level_name || '未分级', valueClass: '' },
+    { label: '所属用户组', value: userDetail.value.user_group_name || '未分组', valueClass: '' },
+    { label: '累计消费', value: formatAmount(userDetail.value.total_consume_amount || 0), valueClass: 'accent-text' },
     { label: '账户状态', value: currentStatusLabel.value, valueClass: userDetail.value.status === 'active' ? 'accent-text' : 'warning-text' },
     { label: '账户余额', value: balanceText.value, valueClass: 'accent-text' },
     { label: '角色标识', value: roleTags.value.join('、'), valueClass: '' },
@@ -510,6 +575,31 @@ async function loadUserDetail() {
     loading.value = false
   }
 }
+
+// 成员（子账号）列表：仅在主账号且首次切到「成员」Tab 时懒加载（P4-10）。
+const members = ref<SubAccountMemberInfo[]>([])
+const membersLoading = ref(false)
+const membersLoaded = ref(false)
+
+async function loadMembers() {
+  if (!userId.value || membersLoaded.value) return
+  membersLoading.value = true
+  try {
+    const data = await getUserMembers(userId.value)
+    members.value = data.items || []
+    membersLoaded.value = true
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '加载成员列表失败')
+  } finally {
+    membersLoading.value = false
+  }
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'members' && !userDetail.value?.is_sub_account) {
+    void loadMembers()
+  }
+})
 
 function openEditDialog() {
   if (!userDetail.value) return
@@ -780,11 +870,51 @@ onMounted(() => {
 }
 
 .permission-grid,
-.data-grid {
+.data-grid,
+.member-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
   margin-top: 10px;
+}
+
+.member-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 12px;
+}
+
+.member-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.member-card__identity {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.member-card__name {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.member-card__sub {
+  color: var(--td-text-color-secondary, #6b7280);
+  font-size: 12px;
+}
+
+.member-card__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--td-text-color-placeholder, #9ca3af);
+  font-size: 12px;
 }
 
 .permission-item,

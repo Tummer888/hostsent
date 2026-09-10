@@ -27,6 +27,8 @@ type UserService interface {
 	Impersonate(ctx context.Context, id uint64) (*dto.ImpersonateResponse, error)
 	// Recharge 用户充值（人工调账）
 	Recharge(ctx context.Context, id uint64, amount float64, remark string, operatorID uint64) error
+	// ListMembers 查询某主账号名下的成员（子账号）及权限（P4-10）
+	ListMembers(ctx context.Context, ownerID uint64) (*dto.SubAccountMemberListResponse, error)
 }
 
 // Recharger 充值能力适配器（由装配层注入，内部调用财务钱包调账）。
@@ -181,6 +183,9 @@ func toUserInfo(user model.User) dto.UserInfo {
 		Email:              user.Email,
 		Phone:              user.Phone,
 		UserGroupName:      user.UserGroupName,
+		UserLevelID:        user.UserLevelID,
+		UserLevelName:      user.UserLevelName,
+		UserLevelCode:      user.UserLevelCode,
 		Region:             user.Region,
 		LastLoginIP:        user.LastLoginIP,
 		LastLoginIPRegion:  user.LastLoginIPRegion,
@@ -188,9 +193,49 @@ func toUserInfo(user model.User) dto.UserInfo {
 		Balance:            user.Balance,
 		TotalConsumeAmount: user.TotalConsumeAmount,
 		Status:             user.Status,
+		IsSubAccount:       user.IsSubAccount,
+		OwnerUserID:        user.OwnerUserID,
+		OwnerName:          user.OwnerName,
+		SubAccountRemark:   user.SubAccountRemark,
 		CreatedAt:          user.CreatedAt,
 		LastLoginAt:        user.LastLoginAt,
 	}
+}
+
+// ListMembers 查询某主账号名下的成员（子账号）及各自权限（P4-10，管理端成员 Tab）。
+func (s *userService) ListMembers(ctx context.Context, ownerID uint64) (*dto.SubAccountMemberListResponse, error) {
+	members, err := s.repo.ListSubAccounts(ctx, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]uint64, 0, len(members))
+	for _, m := range members {
+		ids = append(ids, m.ID)
+	}
+	perms, err := s.repo.PermissionsByUserIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]dto.SubAccountMemberInfo, 0, len(members))
+	for _, m := range members {
+		codes := perms[m.ID]
+		if codes == nil {
+			codes = []string{}
+		}
+		items = append(items, dto.SubAccountMemberInfo{
+			ID:          m.ID,
+			Username:    m.Username,
+			Name:        m.RealName,
+			Email:       m.Email,
+			Phone:       m.Phone,
+			Remark:      m.SubAccountRemark,
+			Status:      m.Status,
+			Permissions: codes,
+			CreatedAt:   m.CreatedAt,
+			LastLoginAt: m.LastLoginAt,
+		})
+	}
+	return &dto.SubAccountMemberListResponse{Items: items, Total: int64(len(items))}, nil
 }
 
 func ptrUserInfo(user model.User) *dto.UserInfo {
@@ -214,7 +259,12 @@ func (s *userService) Impersonate(ctx context.Context, id uint64) (*dto.Imperson
 	if err != nil {
 		return nil, err
 	}
-	token, err := s.jwtIssuer.GenerateUser(user.Username, user.ID, "")
+	// 代登录同样带上归属信息（P4-03），子账号被代登录时权限语义与本人登录一致。
+	ownerID := uint64(0)
+	if user.OwnerUserID != nil {
+		ownerID = *user.OwnerUserID
+	}
+	token, err := s.jwtIssuer.GenerateUserFull(user.Username, user.ID, "", ownerID, user.IsSubAccount)
 	if err != nil {
 		return nil, err
 	}

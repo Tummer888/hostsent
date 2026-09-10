@@ -10,11 +10,11 @@ type ListMeta struct {
 
 // PricingQuery 价格策略列表查询
 type PricingQuery struct {
-	ProductID    uint64 `form:"product_id" json:"product_id"`
-	BillingMode  string `form:"billing_mode" json:"billing_mode"`
-	Status       int    `form:"status" json:"status"`
-	Page         int    `form:"page" json:"page"`
-	PageSize     int    `form:"page_size" json:"page_size"`
+	ProductID   uint64 `form:"product_id" json:"product_id"`
+	BillingMode string `form:"billing_mode" json:"billing_mode"`
+	Status      int    `form:"status" json:"status"`
+	Page        int    `form:"page" json:"page"`
+	PageSize    int    `form:"page_size" json:"page_size"`
 }
 
 // PricingRequest 创建/更新价格策略

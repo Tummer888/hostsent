@@ -20,11 +20,13 @@ type AgentLevelCreateRequest struct {
 	RenewalCommissionRate  float64 `json:"renewal_commission_rate"`
 	UpgradeRewardAmount    float64 `json:"upgrade_reward_amount"`
 	SelfPurchaseRebateRate float64 `json:"self_purchase_rebate_rate"`
-	AllowManualPrice       bool    `json:"allow_manual_price"`
-	AllowSubAgent          bool    `json:"allow_sub_agent"`
-	MaxSubAgentDepth       int     `json:"max_sub_agent_depth"`
-	Status                 string  `json:"status"`
-	Description            string  `json:"description"`
+	// PricePolicyID 代理等级绑定的折扣策略（P6-01），nil 表示不打折。
+	PricePolicyID    *uint64 `json:"price_policy_id"`
+	AllowManualPrice bool    `json:"allow_manual_price"`
+	AllowSubAgent    bool    `json:"allow_sub_agent"`
+	MaxSubAgentDepth int     `json:"max_sub_agent_depth"`
+	Status           string  `json:"status"`
+	Description      string  `json:"description"`
 }
 
 type AgentLevelUpdateRequest struct {
@@ -36,6 +38,7 @@ type AgentLevelUpdateRequest struct {
 	RenewalCommissionRate  float64 `json:"renewal_commission_rate"`
 	UpgradeRewardAmount    float64 `json:"upgrade_reward_amount"`
 	SelfPurchaseRebateRate float64 `json:"self_purchase_rebate_rate"`
+	PricePolicyID          *uint64 `json:"price_policy_id"`
 	AllowManualPrice       bool    `json:"allow_manual_price"`
 	AllowSubAgent          bool    `json:"allow_sub_agent"`
 	MaxSubAgentDepth       int     `json:"max_sub_agent_depth"`
@@ -53,6 +56,7 @@ type AgentLevelInfo struct {
 	RenewalCommissionRate  float64   `json:"renewal_commission_rate"`
 	UpgradeRewardAmount    float64   `json:"upgrade_reward_amount"`
 	SelfPurchaseRebateRate float64   `json:"self_purchase_rebate_rate"`
+	PricePolicyID          *uint64   `json:"price_policy_id"`
 	AllowManualPrice       bool      `json:"allow_manual_price"`
 	AllowSubAgent          bool      `json:"allow_sub_agent"`
 	MaxSubAgentDepth       int       `json:"max_sub_agent_depth"`

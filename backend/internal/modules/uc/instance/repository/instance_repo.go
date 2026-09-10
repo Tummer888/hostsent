@@ -28,10 +28,15 @@ func NewInstanceRepository(db *gorm.DB) InstanceRepository {
 	return &instanceRepository{db: db}
 }
 
-// ListByUser 查询某用户的全部主机。
+// ListByUser 查询某用户的全部主机（附带操作人用户名，用于「操作人」列 P4-09）。
 func (r *instanceRepository) ListByUser(ctx context.Context, userID uint64) ([]model.Instance, error) {
 	var items []model.Instance
-	if err := r.db.WithContext(ctx).Where("user_id = ?", userID).Order("id desc").Find(&items).Error; err != nil {
+	if err := r.db.WithContext(ctx).
+		Select("instances.*, actor.username AS actor_name").
+		Joins("LEFT JOIN users AS actor ON actor.id = instances.actor_user_id").
+		Where("instances.user_id = ?", userID).
+		Order("instances.id desc").
+		Find(&items).Error; err != nil {
 		return nil, err
 	}
 	return items, nil
@@ -40,7 +45,11 @@ func (r *instanceRepository) ListByUser(ctx context.Context, userID uint64) ([]m
 // FindByUser 按 id + userID 查询主机（校验归属）。
 func (r *instanceRepository) FindByUser(ctx context.Context, userID, id uint64) (*model.Instance, error) {
 	var item model.Instance
-	err := r.db.WithContext(ctx).Where("user_id = ? AND id = ?", userID, id).First(&item).Error
+	err := r.db.WithContext(ctx).
+		Select("instances.*, actor.username AS actor_name").
+		Joins("LEFT JOIN users AS actor ON actor.id = instances.actor_user_id").
+		Where("instances.user_id = ? AND instances.id = ?", userID, id).
+		First(&item).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrNotFound
 	}

@@ -62,11 +62,15 @@ func (s *userGroupService) Create(ctx context.Context, req dto.UserGroupCreateRe
 		status = "active"
 	}
 	item := &model.UserGroup{
-		Name:        req.Name,
-		Code:        req.Code,
-		Description: req.Description,
-		Status:      status,
-		SortOrder:   req.SortOrder,
+		Name:          req.Name,
+		Code:          req.Code,
+		Description:   req.Description,
+		Status:        status,
+		SortOrder:     req.SortOrder,
+		PricePolicyID: req.PricePolicyID,
+		Priority:      req.Priority,
+		IsDefault:     req.IsDefault,
+		IsAgentGroup:  req.IsAgentGroup,
 	}
 	if err := s.repo.Create(ctx, item); err != nil {
 		return nil, err
@@ -85,6 +89,10 @@ func (s *userGroupService) Update(ctx context.Context, id uint64, req dto.UserGr
 	item.Description = req.Description
 	item.Status = req.Status
 	item.SortOrder = req.SortOrder
+	item.PricePolicyID = req.PricePolicyID
+	item.Priority = req.Priority
+	item.IsDefault = req.IsDefault
+	item.IsAgentGroup = req.IsAgentGroup
 	if err := s.repo.Update(ctx, item); err != nil {
 		return nil, err
 	}
@@ -98,13 +106,17 @@ func (s *userGroupService) Delete(ctx context.Context, id uint64) error {
 
 func toUserGroupInfo(item model.UserGroup) dto.UserGroupInfo {
 	return dto.UserGroupInfo{
-		ID:          item.ID,
-		Name:        item.Name,
-		Code:        item.Code,
-		Description: item.Description,
-		Status:      item.Status,
-		SortOrder:   item.SortOrder,
-		CreatedAt:   item.CreatedAt,
-		UpdatedAt:   item.UpdatedAt,
+		ID:            item.ID,
+		Name:          item.Name,
+		Code:          item.Code,
+		Description:   item.Description,
+		Status:        item.Status,
+		SortOrder:     item.SortOrder,
+		PricePolicyID: item.PricePolicyID,
+		Priority:      item.Priority,
+		IsDefault:     item.IsDefault,
+		IsAgentGroup:  item.IsAgentGroup,
+		CreatedAt:     item.CreatedAt,
+		UpdatedAt:     item.UpdatedAt,
 	}
 }

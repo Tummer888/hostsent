@@ -13,24 +13,30 @@ type ListQuery struct {
 
 // CreateRequest 表示创建用户等级时提交的参数。
 type CreateRequest struct {
-	Name             string `json:"name" binding:"required"`
-	Code             string `json:"code" binding:"required"`
-	Weight           int    `json:"weight"`
-	Status           string `json:"status"`
-	FeatureFlags     string `json:"feature_flags"`
-	UpgradeCondition string `json:"upgrade_condition"`
-	Description      string `json:"description"`
+	Name             string  `json:"name" binding:"required"`
+	Code             string  `json:"code" binding:"required"`
+	Weight           int     `json:"weight"`
+	Status           string  `json:"status"`
+	FeatureFlags     string  `json:"feature_flags"`
+	UpgradeCondition string  `json:"upgrade_condition"`
+	UpgradeThreshold float64 `json:"upgrade_threshold"`
+	MaxSubAccounts   int     `json:"max_sub_accounts"`
+	Benefits         string  `json:"benefits"`
+	Description      string  `json:"description"`
 }
 
 // UpdateRequest 表示更新用户等级时提交的参数。
 type UpdateRequest struct {
-	Name             string `json:"name" binding:"required"`
-	Code             string `json:"code" binding:"required"`
-	Weight           int    `json:"weight"`
-	Status           string `json:"status" binding:"required"`
-	FeatureFlags     string `json:"feature_flags"`
-	UpgradeCondition string `json:"upgrade_condition"`
-	Description      string `json:"description"`
+	Name             string  `json:"name" binding:"required"`
+	Code             string  `json:"code" binding:"required"`
+	Weight           int     `json:"weight"`
+	Status           string  `json:"status" binding:"required"`
+	FeatureFlags     string  `json:"feature_flags"`
+	UpgradeCondition string  `json:"upgrade_condition"`
+	UpgradeThreshold float64 `json:"upgrade_threshold"`
+	MaxSubAccounts   int     `json:"max_sub_accounts"`
+	Benefits         string  `json:"benefits"`
+	Description      string  `json:"description"`
 }
 
 // Info 描述单个用户等级。
@@ -42,6 +48,9 @@ type Info struct {
 	Status           string    `json:"status"`
 	FeatureFlags     string    `json:"feature_flags"`
 	UpgradeCondition string    `json:"upgrade_condition"`
+	UpgradeThreshold float64   `json:"upgrade_threshold"`
+	MaxSubAccounts   int       `json:"max_sub_accounts"`
+	Benefits         string    `json:"benefits"`
 	Description      string    `json:"description"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`

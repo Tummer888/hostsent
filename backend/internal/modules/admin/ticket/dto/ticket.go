@@ -11,8 +11,14 @@ type TicketListQuery struct {
 	AssignedTo  uint64 `form:"assigned_to" json:"assigned_to"`   // 处理人 ID
 	StartTime   string `form:"start_time" json:"start_time"`     // 开始时间（YYYY-MM-DD HH:MM:SS）
 	EndTime     string `form:"end_time" json:"end_time"`         // 结束时间
-	Page        int    `form:"page" json:"page"`
-	PageSize    int    `form:"page_size" json:"page_size"`
+	// View 工单工作台视图（P2-07）：my_todo / unassigned / involved / sla_breached
+	View string `form:"view" json:"view"`
+	// AdminID 当前登录员工 ID，工作台视图按此过滤（由 handler 注入，不接受前端传参）
+	AdminID uint64 `form:"-" json:"-"`
+	// UserIDs 账号家族 ID（主账号 + 子账号），用户端按归属过滤用（由 service 注入，P4-05）
+	UserIDs  []uint64 `form:"-" json:"-"`
+	Page     int      `form:"page" json:"page"`
+	PageSize int      `form:"page_size" json:"page_size"`
 }
 
 // TicketInfo 工单列表项
@@ -31,8 +37,12 @@ type TicketInfo struct {
 	OrderID      uint64 `json:"order_id"`
 	InstanceID   uint64 `json:"instance_id"`
 	ReplyCount   int64  `json:"reply_count"` // 回复数
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
+	// SLAHours 分类的首次响应时限（0 表示未启用）
+	SLAHours int `json:"sla_hours"`
+	// SLABreached 是否已超时未首次响应（P2-05）
+	SLABreached bool   `json:"sla_breached"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 // TicketListResponse 工单列表响应
@@ -60,6 +70,20 @@ type TicketDetail struct {
 	ResolvedAt   string            `json:"resolved_at"`
 	ClosedAt     string            `json:"closed_at"`
 	Replies      []TicketReplyInfo `json:"replies"`
+	Logs         []TicketLogInfo   `json:"logs"` // 操作日志时间线（P2-02）
+}
+
+// TicketLogInfo 工单操作日志项
+type TicketLogInfo struct {
+	ID           uint64 `json:"id"`
+	TicketID     uint64 `json:"ticket_id"`
+	OperatorID   uint64 `json:"operator_id"`
+	OperatorName string `json:"operator_name"`
+	Action       string `json:"action"` // create/assign/claim/transfer/reply/status/close/cancel
+	FromValue    string `json:"from_value"`
+	ToValue      string `json:"to_value"`
+	Note         string `json:"note"`
+	CreatedAt    string `json:"created_at"`
 }
 
 // TicketCreateRequest 用户提交工单
@@ -82,6 +106,12 @@ type TicketAssignRequest struct {
 	AssignedTo uint64 `json:"assigned_to" binding:"required"` // 管理员 ID
 }
 
+// TicketTransferRequest 转派工单（P2-03）
+type TicketTransferRequest struct {
+	ToID uint64 `json:"to_id" binding:"required"` // 目标管理员 ID
+	Note string `json:"note"`                     // 转派说明
+}
+
 // TicketStatusRequest 更新工单状态
 type TicketStatusRequest struct {
 	Status string `json:"status" binding:"required"` // 目标状态
@@ -95,17 +125,26 @@ type CategoryInfo struct {
 	Description string `json:"description"`
 	SortOrder   int    `json:"sort_order"`
 	Status      string `json:"status"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	// DefaultRoleCode 自动派单目标角色（P2-03）
+	DefaultRoleCode string `json:"default_role_code"`
+	// DefaultGroupID 自动派单目标客服组
+	DefaultGroupID uint64 `json:"default_group_id"`
+	// SLAHours 首次响应时限（小时，0 表示不启用）
+	SLAHours  int    `json:"sla_hours"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 // CategorySaveRequest 创建/更新分类请求
 type CategorySaveRequest struct {
-	Name        string `json:"name" binding:"required"` // 显示名称
-	Code        string `json:"code" binding:"required"` // 分类编码
-	Description string `json:"description"`             // 描述
-	SortOrder   int    `json:"sort_order"`              // 排序值
-	Status      string `json:"status"`                  // active / disabled（默认 active）
+	Name            string `json:"name" binding:"required"` // 显示名称
+	Code            string `json:"code" binding:"required"` // 分类编码
+	Description     string `json:"description"`             // 描述
+	SortOrder       int    `json:"sort_order"`              // 排序值
+	Status          string `json:"status"`                  // active / disabled（默认 active）
+	DefaultRoleCode string `json:"default_role_code"`       // 自动派单目标角色 code
+	DefaultGroupID  uint64 `json:"default_group_id"`        // 自动派单目标客服组
+	SLAHours        int    `json:"sla_hours"`               // 首次响应时限（小时）
 }
 
 // TicketStatusStat 工单状态分布统计项

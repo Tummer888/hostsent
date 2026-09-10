@@ -21,6 +21,9 @@ export interface InstanceInfo {
   public_ip: string
   private_ip: string
   billing_mode: string
+  /** 开通该实例的真实操作人（子账号下单时有值，P4-09） */
+  actor_user_id: number
+  actor_name: string
   expire_at: string
   created_at: string
   updated_at: string

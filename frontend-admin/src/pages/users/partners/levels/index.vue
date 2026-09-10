@@ -124,11 +124,14 @@
 
         <template #permissions="{ row }">
           <div class="permission-stack">
+            <t-tag class="status-chip" theme="warning" variant="light" size="small" shape="round" v-if="row.price_policy_id">
+              代理价 · {{ policyNameMap.get(row.price_policy_id) || `#${row.price_policy_id}` }}
+            </t-tag>
             <t-tag class="status-chip" theme="success" variant="light" size="small" shape="round" v-if="row.allow_manual_price">可手动定价</t-tag>
             <t-tag class="status-chip" theme="primary" variant="light" size="small" shape="round" v-if="row.allow_sub_agent">
               下级代理 {{ row.max_sub_agent_depth }} 层
             </t-tag>
-            <span v-if="!row.allow_manual_price && !row.allow_sub_agent" class="muted-text">基础权限</span>
+            <span v-if="!row.price_policy_id && !row.allow_manual_price && !row.allow_sub_agent" class="muted-text">基础权限</span>
           </div>
         </template>
 
@@ -201,6 +204,17 @@
           <t-form-item label="升级奖励金额" name="upgrade_reward_amount">
             <t-input-number v-model="formData.upgrade_reward_amount" :min="0" :step="100" theme="normal" />
           </t-form-item>
+          <t-form-item label="代理折扣策略" name="price_policy_id">
+            <t-select
+              v-model="formData.price_policy_id"
+              class="unified-control"
+              clearable
+              filterable
+              placeholder="不绑定（无代理价）"
+              :options="policyOptions"
+              :loading="policyLoading"
+            />
+          </t-form-item>
           <t-form-item label="下级代理层级" name="max_sub_agent_depth">
             <t-input-number v-model="formData.max_sub_agent_depth" :min="0" :max="10" theme="normal" :disabled="!formData.allow_sub_agent" />
           </t-form-item>
@@ -239,6 +253,7 @@ import {
   type AgentLevelListQuery,
   type AgentLevelRequest,
 } from '@/api/user'
+import { getPricePolicyList } from '@/api/product'
 
 defineOptions({ name: 'UserPartnersLevels' })
 
@@ -281,6 +296,7 @@ const initFormData = (): AgentLevelRequest => ({
   renewal_commission_rate: 0,
   upgrade_reward_amount: 0,
   self_purchase_rebate_rate: 0,
+  price_policy_id: null,
   allow_manual_price: false,
   allow_sub_agent: false,
   max_sub_agent_depth: 0,
@@ -289,6 +305,25 @@ const initFormData = (): AgentLevelRequest => ({
 })
 
 const formData = reactive<AgentLevelRequest>(initFormData())
+
+/** 折扣策略下拉（P6-01）：代理等级绑定后，该等级代理下单走代理价。 */
+const policyOptions = ref<{ label: string; value: number }[]>([])
+const policyLoading = ref(false)
+
+async function loadPolicyOptions() {
+  policyLoading.value = true
+  try {
+    const data = await getPricePolicyList({ page: 1, page_size: 100 })
+    policyOptions.value = (data.items || []).map((item) => ({
+      label: `${item.name}（${item.code}）`,
+      value: item.id,
+    }))
+  } catch {
+    policyOptions.value = []
+  } finally {
+    policyLoading.value = false
+  }
+}
 
 const statusOptions = [
   { label: '全部状态', value: '' },
@@ -323,6 +358,8 @@ const activeFilterLabel = computed(() => {
   if (filters.keyword) return `搜索: ${filters.keyword}`
   return ''
 })
+
+const policyNameMap = computed(() => new Map(policyOptions.value.map((item) => [item.value, item.label])))
 
 const dialogTitle = computed(() => (dialogMode.value === 'create' ? '新增代理商等级' : '编辑代理商等级'))
 
@@ -434,6 +471,7 @@ async function openEdit(id: number) {
       renewal_commission_rate: Number(data.renewal_commission_rate || 0),
       upgrade_reward_amount: Number(data.upgrade_reward_amount || 0),
       self_purchase_rebate_rate: Number(data.self_purchase_rebate_rate || 0),
+      price_policy_id: data.price_policy_id ?? null,
       allow_manual_price: Boolean(data.allow_manual_price),
       allow_sub_agent: Boolean(data.allow_sub_agent),
       max_sub_agent_depth: Number(data.max_sub_agent_depth || 0),
@@ -463,6 +501,7 @@ async function handleSubmit() {
     renewal_commission_rate: Number(formData.renewal_commission_rate || 0),
     upgrade_reward_amount: Number(formData.upgrade_reward_amount || 0),
     self_purchase_rebate_rate: Number(formData.self_purchase_rebate_rate || 0),
+    price_policy_id: formData.price_policy_id || null,
     allow_manual_price: Boolean(formData.allow_manual_price),
     allow_sub_agent: Boolean(formData.allow_sub_agent),
     max_sub_agent_depth: formData.allow_sub_agent ? Number(formData.max_sub_agent_depth || 0) : 0,
@@ -544,6 +583,7 @@ watch(
 
 onMounted(async () => {
   syncFiltersFromRoute()
+  loadPolicyOptions()
   await loadLevels()
 })
 </script>

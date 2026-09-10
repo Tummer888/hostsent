@@ -20,6 +20,8 @@ type AdminRepository interface {
 	List(ctx context.Context, query dto.AdminListQuery) ([]model.Admin, int64, error)
 	UpdateStatus(ctx context.Context, id uint64, status string) error
 	UpdatePassword(ctx context.Context, id uint64, passwordHash string) error
+	// UpdatePasswordAndFlag 更新密码并同步强制改密标记（重置=true / 自助改密=false）。
+	UpdatePasswordAndFlag(ctx context.Context, id uint64, passwordHash string, mustChange bool) error
 	UpdateLoginProfile(ctx context.Context, id uint64, ip string, loginAt time.Time) error
 }
 
@@ -100,6 +102,13 @@ func (r *adminRepository) UpdateStatus(ctx context.Context, id uint64, status st
 
 func (r *adminRepository) UpdatePassword(ctx context.Context, id uint64, passwordHash string) error {
 	return r.db.WithContext(ctx).Model(&model.Admin{}).Where("id = ?", id).Update("password_hash", passwordHash).Error
+}
+
+func (r *adminRepository) UpdatePasswordAndFlag(ctx context.Context, id uint64, passwordHash string, mustChange bool) error {
+	return r.db.WithContext(ctx).Model(&model.Admin{}).Where("id = ?", id).Updates(map[string]any{
+		"password_hash":        passwordHash,
+		"must_change_password": mustChange,
+	}).Error
 }
 
 func (r *adminRepository) UpdateLoginProfile(ctx context.Context, id uint64, ip string, loginAt time.Time) error {

@@ -62,7 +62,7 @@ func (r *commissionRepository) List(ctx context.Context, query dto.CommissionLis
 	}
 
 	var items []model.Commission
-	if err := base.Order("id desc").Offset((page-1)*pageSize).Limit(pageSize).Find(&items).Error; err != nil {
+	if err := base.Order("id desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&items).Error; err != nil {
 		return nil, 0, err
 	}
 	return items, total, nil

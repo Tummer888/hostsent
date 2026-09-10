@@ -5,14 +5,16 @@ import "time"
 
 // 通知事件类型（与模板 event 对应）
 const (
-	EventOrderPaid        string = "order_paid"         // 订单支付成功
-	EventRenewalSuccess   string = "renewal_success"    // 续费成功
-	EventRenewalFailed    string = "renewal_failed"     // 续费失败
-	EventInstanceExpiring string = "instance_expiring"  // 实例即将到期
-	EventTicketReplied   string = "ticket_replied"     // 工单新回复
-	EventBalanceLow      string = "balance_low"        // 余额不足预警
-	EventSyncFailed       string = "sync_failed"        // 上游同步失败（管理员）
-	EventSystem           string = "system"             // 系统通用
+	EventOrderPaid        string = "order_paid"        // 订单支付成功
+	EventRenewalSuccess   string = "renewal_success"   // 续费成功
+	EventRenewalFailed    string = "renewal_failed"    // 续费失败
+	EventInstanceExpiring string = "instance_expiring" // 实例即将到期
+	EventTicketReplied    string = "ticket_replied"    // 工单新回复（通知用户）
+	EventTicketAssigned   string = "ticket_assigned"   // 工单指派（通知被指派员工，P2-04）
+	EventTicketStatus     string = "ticket_status"     // 工单状态变更（通知用户，P2-04）
+	EventBalanceLow       string = "balance_low"       // 余额不足预警
+	EventSyncFailed       string = "sync_failed"       // 上游同步失败（管理员）
+	EventSystem           string = "system"            // 系统通用
 )
 
 // 投递通道
@@ -30,7 +32,7 @@ const (
 
 // 目标类型
 const (
-	TargetUser string = "user"  // 用户
+	TargetUser  string = "user"  // 用户
 	TargetAdmin string = "admin" // 管理员
 )
 
@@ -64,12 +66,12 @@ const (
 // Notification 站内通知记录（同时承载外发通道的结果）。
 type Notification struct {
 	ID           uint64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID       uint64     `gorm:"column:user_id;index;not null;default:0" json:"user_id"`        // 0=全员广播（配合 reads 表）
+	UserID       uint64     `gorm:"column:user_id;index;not null;default:0" json:"user_id"`              // 0=全员广播（配合 reads 表）
 	TargetType   string     `gorm:"column:target_type;size:10;not null;default:user" json:"target_type"` // user / admin
 	Event        string     `gorm:"column:event;size:64;not null;index" json:"event"`
 	Title        string     `gorm:"column:title;size:255;not null" json:"title"`
 	Content      string     `gorm:"column:content;type:text" json:"content"`
-	Channel      string     `gorm:"column:channel;size:20;not null;default:inbox" json:"channel"`     // inbox / mail
+	Channel      string     `gorm:"column:channel;size:20;not null;default:inbox" json:"channel"` // inbox / mail
 	SendStatus   string     `gorm:"column:send_status;size:20;not null;default:sent" json:"send_status"`
 	FailReason   string     `gorm:"column:fail_reason;size:255" json:"fail_reason"`
 	SourceModule string     `gorm:"column:source_module;size:32" json:"source_module"`
@@ -82,18 +84,18 @@ func (Notification) TableName() string { return "notifications" }
 
 // Announcement 公告。
 type Announcement struct {
-	ID         uint64      `gorm:"primaryKey;autoIncrement" json:"id"`
-	Title      string      `gorm:"column:title;size:255;not null" json:"title"`
-	Content    string      `gorm:"column:content;type:text;not null" json:"content"`
-	Platform   string      `gorm:"column:platform;size:10;not null;default:user" json:"platform"`  // user / admin / both
-	Level      string      `gorm:"column:level;size:20;not null;default:info" json:"level"`       // info / warning / critical
-	Popup      bool        `gorm:"column:popup;not null;default:false" json:"popup"`
-	Status     string      `gorm:"size:20;not null;default:draft;index" json:"status"`
-	PublishAt  *time.Time  `gorm:"column:publish_at" json:"publish_at"`
-	OfflineAt  *time.Time  `gorm:"column:offline_at" json:"offline_at"`
-	OperatorID uint64      `gorm:"column:operator_id" json:"operator_id"`
-	CreatedAt  time.Time   `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt  time.Time   `gorm:"autoUpdateTime" json:"updated_at"`
+	ID         uint64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	Title      string     `gorm:"column:title;size:255;not null" json:"title"`
+	Content    string     `gorm:"column:content;type:text;not null" json:"content"`
+	Platform   string     `gorm:"column:platform;size:10;not null;default:user" json:"platform"` // user / admin / both
+	Level      string     `gorm:"column:level;size:20;not null;default:info" json:"level"`       // info / warning / critical
+	Popup      bool       `gorm:"column:popup;not null;default:false" json:"popup"`
+	Status     string     `gorm:"size:20;not null;default:draft;index" json:"status"`
+	PublishAt  *time.Time `gorm:"column:publish_at" json:"publish_at"`
+	OfflineAt  *time.Time `gorm:"column:offline_at" json:"offline_at"`
+	OperatorID uint64     `gorm:"column:operator_id" json:"operator_id"`
+	CreatedAt  time.Time  `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt  time.Time  `gorm:"autoUpdateTime" json:"updated_at"`
 }
 
 func (Announcement) TableName() string { return "announcements" }

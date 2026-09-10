@@ -76,7 +76,7 @@ func (s *authService) Login(ctx context.Context, req dto.LoginRequest, ip string
 		return nil, err
 	}
 
-	return s.buildLoginResponse(user), nil
+	return s.buildLoginResponse(ctx, user), nil
 }
 
 // Register 执行用户注册流程：
@@ -129,17 +129,21 @@ func (s *authService) UserInfo(ctx context.Context, userID uint64) (*dto.UserInf
 		}
 		return nil, err
 	}
-	info := s.toUserInfo(user)
+	info := s.toUserInfo(ctx, user)
 	return &info, nil
 }
 
-// buildLoginResponse 组装登录响应，使用 GenerateUser 签发普通用户 JWT。
-func (s *authService) buildLoginResponse(user *model.User) *dto.LoginResponse {
-	token, err := s.jwtIssuer.GenerateUser(user.Username, user.ID, user.Tier)
+// buildLoginResponse 组装登录响应，签发带归属信息的普通用户 JWT（P4-03）。
+func (s *authService) buildLoginResponse(ctx context.Context, user *model.User) *dto.LoginResponse {
+	ownerID := uint64(0)
+	if user.OwnerUserID != nil {
+		ownerID = *user.OwnerUserID
+	}
+	token, err := s.jwtIssuer.GenerateUserFull(user.Username, user.ID, user.Tier, ownerID, user.IsSubAccount)
 	if err != nil {
 		return nil
 	}
-	userInfo := s.toUserInfo(user)
+	userInfo := s.toUserInfo(ctx, user)
 	return &dto.LoginResponse{
 		Token: token,
 		User:  userInfo,
@@ -147,22 +151,49 @@ func (s *authService) buildLoginResponse(user *model.User) *dto.LoginResponse {
 }
 
 // toUserInfo 将用户模型转换为响应 DTO，name 优先取 real_name，为空时回退为 username。
-func (s *authService) toUserInfo(user *model.User) dto.UserInfo {
+func (s *authService) toUserInfo(ctx context.Context, user *model.User) dto.UserInfo {
 	name := user.RealName
 	if name == "" {
 		name = user.Username
 	}
-	return dto.UserInfo{
-		ID:       user.ID,
-		Username: user.Username,
-		Name:     name,
-		Email:    user.Email,
-		Phone:    user.Phone,
-		Avatar:   user.Avatar,
-		Role:     "user",
-		Tier:     user.Tier,
-		Status:   user.Status,
+	ownerID := uint64(0)
+	if user.OwnerUserID != nil {
+		ownerID = *user.OwnerUserID
 	}
+	info := dto.UserInfo{
+		ID:           user.ID,
+		Username:     user.Username,
+		Name:         name,
+		Email:        user.Email,
+		Phone:        user.Phone,
+		Avatar:       user.Avatar,
+		Role:         "user",
+		Tier:         user.Tier,
+		Status:       user.Status,
+		IsSubAccount: user.IsSubAccount,
+		OwnerUserID:  ownerID,
+		Remark:       user.SubAccountRemark,
+	}
+	if user.IsSubAccount && ownerID > 0 {
+		if owner, err := s.repo.FindByID(ctx, ownerID); err == nil && owner != nil {
+			info.OwnerName = owner.Username
+		}
+	}
+	if codes, err := s.repo.PermissionsOf(ctx, user.ID); err == nil {
+		if codes == nil {
+			codes = []string{}
+		}
+		info.Permissions = codes
+	} else {
+		info.Permissions = []string{}
+	}
+	// 代理标识（P6-03）：子账号沿用主账号身份判断会误放行，故仅主账号查询。
+	if !user.IsSubAccount {
+		if isAgent, err := s.repo.IsAgent(ctx, user.ID); err == nil {
+			info.IsAgent = isAgent
+		}
+	}
+	return info
 }
 
 // updateLoginProfile 解析 IP 归属地并更新用户的登录档案。
@@ -213,7 +244,7 @@ func (s *authService) UpdateProfile(ctx context.Context, userID uint64, req dto.
 	if err != nil {
 		return nil, err
 	}
-	info := s.toUserInfo(updated)
+	info := s.toUserInfo(ctx, updated)
 	return &info, nil
 }
 

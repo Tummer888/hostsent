@@ -21,9 +21,12 @@ type InstanceInfo struct {
 	PublicIP     string `json:"public_ip"`
 	PrivateIP    string `json:"private_ip"`
 	BillingMode  string `json:"billing_mode"`
-	ExpireAt     string `json:"expire_at"`
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
+	// ActorID/ActorName 开通该实例的真实操作人（子账号下单可见，P4-09）
+	ActorID   uint64 `json:"actor_user_id"`
+	ActorName string `json:"actor_name"`
+	ExpireAt  string `json:"expire_at"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 // ListQuery 我的主机查询。

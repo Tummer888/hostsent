@@ -124,6 +124,24 @@ func (h *UserHandler) GetUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": user, "timestamp": time.Now().Unix()})
 }
 
+// ListMembers godoc
+// @Summary 用户成员（子账号）列表
+// @Description 列出指定主账号名下的全部子账号及各自权限（P4-10 用户详情「成员」Tab）
+// @Tags 用户管理
+// @Produce json
+// @Param id path int true "主账号ID"
+// @Success 200 {object} dto.APIResponse[dto.SubAccountMemberListResponse]
+// @Router /api/v1/admin/users/{id}/members [get]
+func (h *UserHandler) ListMembers(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	result, err := h.userService.ListMembers(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": result, "timestamp": time.Now().Unix()})
+}
+
 // UpdateUser godoc
 // @Summary 更新用户
 // @Description 更新后台用户基础信息

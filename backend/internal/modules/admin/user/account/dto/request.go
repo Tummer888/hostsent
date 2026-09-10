@@ -7,6 +7,10 @@ type UserListQuery struct {
 	Filter            string `form:"filter"`
 	LastLoginIPRegion string `form:"last_login_ip_region"`
 	Keyword           string `form:"keyword"`
+	// UserLevelID 按用户等级筛选（P3-04，0 表示不筛选）。
+	UserLevelID uint64 `form:"user_level_id"`
+	// IsSubAccount 按主账号/子账号筛选（P4-10）："true" 仅子账号，"false" 仅主账号，空为全部。
+	IsSubAccount string `form:"is_sub_account"`
 }
 
 type UserCreateRequest struct {

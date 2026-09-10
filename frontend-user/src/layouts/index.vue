@@ -36,9 +36,9 @@
           <!-- 文本导航 -->
           <nav class="header-links">
             <button class="header-link" @click="router.push('/billing')">费用</button>
-            <button class="header-link" @click="router.push('/support')">客户支持</button>
-            <button class="header-link" @click="router.push('/support')">备案</button>
-            <button class="header-link" @click="router.push('/tickets')">渠道管理</button>
+            <button class="header-link" @click="router.push('/support/tickets')">客户支持</button>
+            <button class="header-link" @click="router.push('/support/tickets')">备案</button>
+            <button class="header-link" @click="router.push('/support/tickets')">渠道管理</button>
           </nav>
 
           <!-- 图标组 -->
@@ -50,7 +50,7 @@
             </t-tooltip>
 
             <t-tooltip content="消息通知" placement="bottom">
-              <button class="icon-btn" aria-label="消息通知" @click="router.push('/messages')">
+              <button class="icon-btn" aria-label="消息通知" @click="router.push('/profile/messages')">
                 <MailIcon size="18" />
                 <span class="icon-btn__dot"></span>
               </button>
@@ -77,12 +77,25 @@
 
           <!-- 用户名 -->
           <t-dropdown trigger="click" @click="handleDropdownClick">
-            <span class="header-username">{{ userName }}</span>
+            <span class="header-username">
+              {{ userName }}
+              <span v-if="memberStore.isSub" class="header-username__sub">
+                {{ memberStore.ownerName ? `${memberStore.ownerName} 的子账号` : '子账号' }}
+              </span>
+            </span>
             <template #dropdown>
               <t-dropdown-menu>
                 <t-dropdown-item value="profile">
                   <template #icon><UserIcon /></template>
                   个人中心
+                </t-dropdown-item>
+                <t-dropdown-item v-if="memberStore.isOwner" value="member">
+                  <template #icon><UsergroupIcon /></template>
+                  成员管理
+                </t-dropdown-item>
+                <t-dropdown-item v-if="memberStore.isAgent" value="agent">
+                  <template #icon><ShareIcon /></template>
+                  代理中心
                 </t-dropdown-item>
                 <t-dropdown-item value="billing">
                   <template #icon><WalletIcon /></template>
@@ -299,12 +312,15 @@ import {
   SearchIcon,
   SecuredIcon,
   ServiceIcon,
+  ShareIcon,
   TimeIcon,
   UserIcon,
+  UsergroupIcon,
   WalletIcon,
 } from 'tdesign-icons-vue-next'
 
 import { useMenuStore, useUserStore } from '@/store'
+import { useMemberStore } from '@/store/modules/member'
 import ProductMenu from '@/components/product-menu/index.vue'
 
 defineOptions({ name: 'UserLayout' })
@@ -313,6 +329,7 @@ const router = useRouter()
 const route = useRoute()
 const menuStore = useMenuStore()
 const userStore = useUserStore()
+const memberStore = useMemberStore()
 
 // 左侧产品大菜单开合
 const navOpen = ref(false)
@@ -475,6 +492,10 @@ function handleDropdownClick(value: string) {
     router.push('/profile')
   } else if (value === 'billing') {
     router.push('/billing')
+  } else if (value === 'member') {
+    router.push('/member')
+  } else if (value === 'agent') {
+    router.push('/agent/overview')
   }
 }
 
@@ -692,6 +713,9 @@ watch(() => route.path, () => {
 
 /* ===== 用户名 ===== */
 .header-username {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 13.5px;
   color: #334155;
   cursor: pointer;
@@ -699,6 +723,20 @@ watch(() => route.path, () => {
   border-radius: 6px;
   white-space: nowrap;
   transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.header-username__sub {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #EFF6FF;
+  color: var(--color-primary, #2563eb);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.dark .header-username__sub {
+  background: #1e293b;
+  color: #93c5fd;
 }
 
 .header-username:hover {

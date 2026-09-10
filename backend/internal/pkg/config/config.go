@@ -12,6 +12,13 @@ type Config struct {
 	Auth     AuthConfig     `mapstructure:"auth"`
 	Database DatabaseConfig `mapstructure:"database"`
 	Redis    RedisConfig    `mapstructure:"redis"`
+	Pricing  PricingConfig  `mapstructure:"pricing"`
+}
+
+// PricingConfig 统一算价管线配置（P5-03）。
+type PricingConfig struct {
+	// StackMode 多来源折扣叠加模式：best（取最优，默认）/ stack（按顺序叠加）。
+	StackMode string `mapstructure:"stack_mode"`
 }
 
 type RedisConfig struct {
@@ -97,4 +104,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("redis.port", 6379)
 	v.SetDefault("redis.password", "")
 	v.SetDefault("redis.db", 0)
+	// 算价管线默认取最优折扣（P5-03）。
+	v.SetDefault("pricing.stack_mode", "best")
 }

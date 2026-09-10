@@ -73,6 +73,7 @@ func (s *agentLevelService) Create(ctx context.Context, req dto.AgentLevelCreate
 		RenewalCommissionRate:  req.RenewalCommissionRate,
 		UpgradeRewardAmount:    req.UpgradeRewardAmount,
 		SelfPurchaseRebateRate: req.SelfPurchaseRebateRate,
+		PricePolicyID:          req.PricePolicyID,
 		AllowManualPrice:       req.AllowManualPrice,
 		AllowSubAgent:          req.AllowSubAgent,
 		MaxSubAgentDepth:       req.MaxSubAgentDepth,
@@ -99,6 +100,7 @@ func (s *agentLevelService) Update(ctx context.Context, id uint64, req dto.Agent
 	item.RenewalCommissionRate = req.RenewalCommissionRate
 	item.UpgradeRewardAmount = req.UpgradeRewardAmount
 	item.SelfPurchaseRebateRate = req.SelfPurchaseRebateRate
+	item.PricePolicyID = req.PricePolicyID
 	item.AllowManualPrice = req.AllowManualPrice
 	item.AllowSubAgent = req.AllowSubAgent
 	item.MaxSubAgentDepth = req.MaxSubAgentDepth
@@ -126,6 +128,7 @@ func toAgentLevelInfo(item model.AgentLevel) dto.AgentLevelInfo {
 		RenewalCommissionRate:  item.RenewalCommissionRate,
 		UpgradeRewardAmount:    item.UpgradeRewardAmount,
 		SelfPurchaseRebateRate: item.SelfPurchaseRebateRate,
+		PricePolicyID:          item.PricePolicyID,
 		AllowManualPrice:       item.AllowManualPrice,
 		AllowSubAgent:          item.AllowSubAgent,
 		MaxSubAgentDepth:       item.MaxSubAgentDepth,

@@ -24,6 +24,17 @@ type TicketRepository interface {
 	UserNamesByIDs(ctx context.Context, ids []uint64) (map[uint64]string, error)
 	// AdminNameByID 查询管理员名称（分配时快照处理人）
 	AdminNameByID(ctx context.Context, id uint64) (string, error)
+	// —— 操作日志（P2-02）——
+	// CreateLog 写入一条工单操作日志。
+	CreateLog(ctx context.Context, log *model.TicketLog) error
+	// ListLogs 按时间正序查询工单操作日志。
+	ListLogs(ctx context.Context, ticketID uint64) ([]model.TicketLog, error)
+	// —— 自动派单（P2-03）——
+	// PickAssignee 按角色/客服组挑当前在手工单最少的启用员工；无匹配返回 id=0。
+	PickAssignee(ctx context.Context, roleCode string, groupID uint64) (uint64, string, error)
+	// —— 子账号归属（P4-05）——
+	// AccountUserIDs 返回账号及其全部子账号 ID（主账号在前）；无子账号时仅返回自身。
+	AccountUserIDs(ctx context.Context, accountID uint64) ([]uint64, error)
 	// —— 统计 ——
 	// StatsTotal 工单总量
 	StatsTotal(ctx context.Context) (int64, error)
@@ -63,6 +74,10 @@ func (r *ticketRepository) List(ctx context.Context, query dto.TicketListQuery) 
 	if query.UserID > 0 {
 		base = base.Where("tickets.user_id = ?", query.UserID)
 	}
+	// 账号家族范围（P4-05）：主账号能看到自己与全部子账号提交的工单。
+	if len(query.UserIDs) > 0 {
+		base = base.Where("tickets.user_id IN ?", query.UserIDs)
+	}
 	if category := strings.TrimSpace(query.Category); category != "" {
 		base = base.Where("tickets.category = ?", category)
 	}
@@ -74,6 +89,30 @@ func (r *ticketRepository) List(ctx context.Context, query dto.TicketListQuery) 
 	}
 	if query.AssignedTo > 0 {
 		base = base.Where("tickets.assigned_to = ?", query.AssignedTo)
+	}
+	// 工单工作台视图（P2-07）：my_todo / unassigned / involved / sla_breached
+	switch query.View {
+	case "my_todo":
+		if query.AdminID > 0 {
+			base = base.Where("tickets.assigned_to = ?", query.AdminID).
+				Where("tickets.status IN ?", []string{model.TicketStatusOpen, model.TicketStatusInProgress, model.TicketStatusWaitingUser})
+		}
+	case "unassigned":
+		base = base.Where("tickets.assigned_to = 0").
+			Where("tickets.status NOT IN ?", []string{model.TicketStatusClosed, model.TicketStatusCancelled})
+	case "involved":
+		if query.AdminID > 0 {
+			base = base.Where(
+				"tickets.assigned_to = ? OR EXISTS (SELECT 1 FROM ticket_replies tr WHERE tr.ticket_id = tickets.id AND tr.sender_type = ? AND tr.sender_id = ?)",
+				query.AdminID, model.SenderTypeAdmin, query.AdminID,
+			)
+		}
+	case "sla_breached":
+		// 未首次响应且已超分类 SLA 时限
+		base = base.Joins("JOIN ticket_categories c ON c.code = tickets.category").
+			Select("tickets.*").
+			Where("c.sla_hours > 0 AND tickets.first_reply_at IS NULL").
+			Where("tickets.created_at < NOW() - (c.sla_hours * INTERVAL '1 hour')")
 	}
 	if start := normalizeTime(query.StartTime); start != nil {
 		base = base.Where("tickets.created_at >= ?", *start)
@@ -100,6 +139,21 @@ func (r *ticketRepository) FindByID(ctx context.Context, id uint64) (*model.Tick
 		return nil, err
 	}
 	return &item, nil
+}
+
+// AccountUserIDs 返回账号及其全部子账号 ID（主账号在前），供用户端按归属查询（P4-05）。
+func (r *ticketRepository) AccountUserIDs(ctx context.Context, accountID uint64) ([]uint64, error) {
+	if accountID == 0 {
+		return nil, nil
+	}
+	var subIDs []uint64
+	if err := r.db.WithContext(ctx).
+		Table("users").
+		Where("owner_user_id = ?", accountID).
+		Pluck("id", &subIDs).Error; err != nil {
+		return nil, err
+	}
+	return append([]uint64{accountID}, subIDs...), nil
 }
 
 func (r *ticketRepository) Create(ctx context.Context, item *model.Ticket) error {
@@ -164,6 +218,56 @@ func (r *ticketRepository) AdminNameByID(ctx context.Context, id uint64) (string
 		return "", err
 	}
 	return row.Username, nil
+}
+
+// CreateLog 写入一条工单操作日志。
+func (r *ticketRepository) CreateLog(ctx context.Context, log *model.TicketLog) error {
+	return r.db.WithContext(ctx).Create(log).Error
+}
+
+// ListLogs 按时间正序查询工单操作日志。
+func (r *ticketRepository) ListLogs(ctx context.Context, ticketID uint64) ([]model.TicketLog, error) {
+	var items []model.TicketLog
+	if err := r.db.WithContext(ctx).
+		Where("ticket_id = ?", ticketID).
+		Order("created_at asc, id asc").
+		Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// PickAssignee 按角色/客服组挑当前在手工单最少的启用员工。
+// roleCode 为空且 groupID 为 0 时返回 0（不自动派单）。
+func (r *ticketRepository) PickAssignee(ctx context.Context, roleCode string, groupID uint64) (uint64, string, error) {
+	if roleCode == "" && groupID == 0 {
+		return 0, "", nil
+	}
+	type row struct {
+		ID       uint64 `gorm:"column:id"`
+		Username string `gorm:"column:username"`
+		Load     int64  `gorm:"column:load"`
+	}
+	var candidates []row
+	query := r.db.WithContext(ctx).Table("admins a").
+		Select("a.id AS id, a.username AS username, COUNT(t.id) AS load").
+		Joins("LEFT JOIN tickets t ON t.assigned_to = a.id AND t.status IN ?", []string{model.TicketStatusOpen, model.TicketStatusInProgress, model.TicketStatusWaitingUser}).
+		Where("a.status = ?", "active")
+	if roleCode != "" {
+		query = query.Joins("JOIN admin_roles ar ON ar.admin_id = a.id").
+			Joins("JOIN roles r ON r.id = ar.role_id").
+			Where("r.code = ?", roleCode)
+	}
+	if groupID > 0 {
+		query = query.Where("a.service_group_id = ?", groupID)
+	}
+	if err := query.Group("a.id, a.username").Order("load asc, a.id asc").Limit(1).Scan(&candidates).Error; err != nil {
+		return 0, "", err
+	}
+	if len(candidates) == 0 {
+		return 0, "", nil
+	}
+	return candidates[0].ID, candidates[0].Username, nil
 }
 
 func (r *ticketRepository) StatsTotal(ctx context.Context) (int64, error) {

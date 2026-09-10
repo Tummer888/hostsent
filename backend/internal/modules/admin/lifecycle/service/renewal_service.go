@@ -2,21 +2,24 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
 	accountservice "hostsent/backend/internal/modules/admin/finance/account/service"
+	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
 	lifecycledto "hostsent/backend/internal/modules/admin/lifecycle/dto"
 	lifecyclemodel "hostsent/backend/internal/modules/admin/lifecycle/model"
 	lifecyclerepo "hostsent/backend/internal/modules/admin/lifecycle/repository"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	"hostsent/backend/internal/pkg/money"
+	"hostsent/backend/internal/pkg/pricing"
 )
 
 // lifecycleBizTypeRenewal 资金流水业务类型：续费扣款
@@ -44,26 +47,49 @@ type RenewalService interface {
 	UserRenewalDetail(ctx context.Context, userID, id uint64) (*lifecycledto.RenewalInfo, error)
 	// CompleteRenewalByOrderID 订单支付成功钩子：完成续费单并延长实例到期时间
 	CompleteRenewalByOrderID(ctx context.Context, orderID uint64) error
+	// SetCommissionHook 注入续费完成后的佣金计提钩子（P6-02，装配层调用）
+	SetCommissionHook(hook RenewalCommissionHook)
 }
+
+// RenewalCommissionHook 续费完成后的佣金计提钩子（P6-02）。
+// 仅传基础类型，避免生命周期模块反向依赖分销模块。
+type RenewalCommissionHook func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, amount float64, isRenewal bool) error
 
 // lifecycleRenewalGetter 续费完成时按 ID 读取订单（用于获取支付方式快照）。
 type lifecycleRenewalGetter interface {
 	GetByID(ctx context.Context, id uint64) (*ordermodel.Order, error)
 }
 
-type renewalService struct {
-	db           *gorm.DB
-	renewalRepo  lifecyclerepo.RenewalRepository
-	policyRepo   lifecyclerepo.PolicyRepository
-	autoRepo     lifecyclerepo.AutoRenewRepository
-	instanceRepo lifecyclerepo.InstanceReader
-	orderWriter  lifecyclerepo.OrderWriter
-	orderReader  lifecycleRenewalGetter // 可选：读取订单支付方式
-	walletSvc    accountservice.WalletService
-	logger       *zap.Logger
+// renewalPriceResolver 统一算价管线（P5-04）；为 nil 时回落为「单价 × 期数」不打折。
+type renewalPriceResolver interface {
+	Resolve(ctx context.Context, in pricing.ResolveInput) (*pricing.Quote, error)
 }
 
-// NewRenewalService 创建续费服务。
+// renewalQuote 续费算价结果：原价/优惠/实付 + 折扣来源快照，随订单落库。
+type renewalQuote struct {
+	Original float64
+	Discount float64
+	Final    float64
+	PolicyID *uint64
+	Source   string
+	Snapshot string
+}
+
+type renewalService struct {
+	db             *gorm.DB
+	renewalRepo    lifecyclerepo.RenewalRepository
+	policyRepo     lifecyclerepo.PolicyRepository
+	autoRepo       lifecyclerepo.AutoRenewRepository
+	instanceRepo   lifecyclerepo.InstanceReader
+	orderWriter    lifecyclerepo.OrderWriter
+	orderReader    lifecycleRenewalGetter // 可选：读取订单支付方式
+	walletSvc      accountservice.WalletService
+	pricingSvc     renewalPriceResolver  // 可选：统一算价管线（P5-04）
+	commissionHook RenewalCommissionHook // 可选：续费完成后的佣金计提（P6-02）
+	logger         *zap.Logger
+}
+
+// NewRenewalService 创建续费服务。pricingSvc 为 nil 时续费按「单价 × 期数」计不加折扣。
 func NewRenewalService(
 	db *gorm.DB,
 	renewalRepo lifecyclerepo.RenewalRepository,
@@ -72,6 +98,7 @@ func NewRenewalService(
 	instanceRepo lifecyclerepo.InstanceReader,
 	orderWriter lifecyclerepo.OrderWriter,
 	walletSvc accountservice.WalletService,
+	pricingSvc renewalPriceResolver,
 	logger *zap.Logger,
 ) RenewalService {
 	return &renewalService{
@@ -82,6 +109,7 @@ func NewRenewalService(
 		instanceRepo: instanceRepo,
 		orderWriter:  orderWriter,
 		walletSvc:    walletSvc,
+		pricingSvc:   pricingSvc,
 		logger:       logger,
 	}
 }
@@ -89,6 +117,63 @@ func NewRenewalService(
 // SetOrderReader 注入订单读取器（可选依赖，用于支付钩子读取支付方式）。
 func (s *renewalService) SetOrderReader(r lifecycleRenewalGetter) {
 	s.orderReader = r
+}
+
+// SetCommissionHook 注入续费完成后的佣金计提钩子（P6-02）。
+func (s *renewalService) SetCommissionHook(hook RenewalCommissionHook) {
+	s.commissionHook = hook
+}
+
+// resolveRenewalQuote 续费算价（P5-04）：命中管线则走统一算价；未注入时回落单价×期数。
+// manual 非 nil 表示管理员手动改价，直接作为实付（最高优先级）。
+func (s *renewalService) resolveRenewalQuote(ctx context.Context, userID, productID uint64, periodCount int, manual *float64) (renewalQuote, error) {
+	if s.pricingSvc != nil {
+		quote, err := s.pricingSvc.Resolve(ctx, pricing.ResolveInput{
+			UserID:       userID,
+			ProductID:    productID,
+			Quantity:     periodCount,
+			Period:       periodCount,
+			ManualAmount: manual,
+		})
+		if err != nil {
+			return renewalQuote{}, err
+		}
+		return renewalQuote{
+			Original: quote.OriginalAmount,
+			Discount: quote.DiscountAmount,
+			Final:    quote.FinalAmount,
+			PolicyID: quote.PolicyID,
+			Source:   quote.Source,
+			Snapshot: marshalRenewalSnapshot(quote.Snapshot),
+		}, nil
+	}
+	_, unitPrice, err := s.instanceRepo.ResolveProduct(ctx, productID)
+	if err != nil {
+		return renewalQuote{}, err
+	}
+	original := money.Round2(unitPrice * float64(periodCount))
+	final := original
+	source := ""
+	if manual != nil {
+		final = money.Round2(*manual)
+		source = pricing.SourceManual
+	}
+	if final <= 0 {
+		return renewalQuote{}, ErrPolicyInvalid
+	}
+	return renewalQuote{Original: original, Discount: money.Round2(math.Max(0, original-final)), Final: final, Source: source}, nil
+}
+
+// marshalRenewalSnapshot 折扣快照序列化为 jsonb 文本，失败时退化为空数组。
+func marshalRenewalSnapshot(rules []pricing.Rule) string {
+	if len(rules) == 0 {
+		return "[]"
+	}
+	raw, err := json.Marshal(rules)
+	if err != nil {
+		return "[]"
+	}
+	return string(raw)
 }
 
 // UserRenew 用户手动续费：创建续费记录 + 待支付订单，随后立即尝试余额支付。
@@ -102,15 +187,16 @@ func (s *renewalService) UserRenew(ctx context.Context, userID, instanceID uint6
 		return nil, ErrStatusNotAllowed
 	}
 	periodCount := normalizePeriod(req.PeriodCount)
-	productName, unitPrice, err := s.instanceRepo.ResolveProduct(ctx, instance.ProductID)
+	productName, _, err := s.instanceRepo.ResolveProduct(ctx, instance.ProductID)
 	if err != nil {
 		return nil, err
 	}
-	amount := money.Round2(unitPrice * float64(periodCount))
-	if amount <= 0 {
-		return nil, ErrPolicyInvalid
+	// 统一算价管线（P5-04）：用户组/代理折扣在此生效。
+	quote, err := s.resolveRenewalQuote(ctx, userID, instance.ProductID, periodCount, nil)
+	if err != nil {
+		return nil, err
 	}
-	renewal, err := s.createPendingRenewal(ctx, instance, productName, periodCount, amount, lifecyclemodel.RenewalSourceManual, 0, "")
+	renewal, err := s.createPendingRenewal(ctx, instance, productName, periodCount, quote, lifecyclemodel.RenewalSourceManual, 0, "")
 	if err != nil {
 		return nil, err
 	}
@@ -139,18 +225,21 @@ func (s *renewalService) AdminRenew(ctx context.Context, adminID, instanceID uin
 		return nil, ErrStatusNotAllowed
 	}
 	periodCount := normalizePeriod(req.PeriodCount)
-	productName, unitPrice, err := s.instanceRepo.ResolveProduct(ctx, instance.ProductID)
+	productName, _, err := s.instanceRepo.ResolveProduct(ctx, instance.ProductID)
 	if err != nil {
 		return nil, err
 	}
-	amount := money.Round2(req.Amount)
-	if amount <= 0 {
-		amount = money.Round2(unitPrice * float64(periodCount))
+	// 管理员指定金额 → 走 ManualAmount 分支（discount_source='manual'）；未指定则按管线算价（P5-04）。
+	var manual *float64
+	if req.Amount > 0 {
+		amount := money.Round2(req.Amount)
+		manual = &amount
 	}
-	if amount <= 0 {
-		return nil, ErrPolicyInvalid
+	quote, err := s.resolveRenewalQuote(ctx, instance.UserID, instance.ProductID, periodCount, manual)
+	if err != nil {
+		return nil, err
 	}
-	renewal, err := s.createPendingRenewal(ctx, &lifecyclerepo.InstanceWithUser{Instance: *instance}, productName, periodCount, amount, lifecyclemodel.RenewalSourceAdmin, adminID, req.Remark)
+	renewal, err := s.createPendingRenewal(ctx, &lifecyclerepo.InstanceWithUser{Instance: *instance}, productName, periodCount, quote, lifecyclemodel.RenewalSourceAdmin, adminID, req.Remark)
 	if err != nil {
 		return nil, err
 	}
@@ -224,15 +313,19 @@ func (s *renewalService) processOneAutoRenewal(ctx context.Context, instance *sy
 	if instance.ExpireAt == nil {
 		return nil
 	}
-	productName, unitPrice, err := s.instanceRepo.ResolveProduct(ctx, instance.ProductID)
+	productName, _, err := s.instanceRepo.ResolveProduct(ctx, instance.ProductID)
 	if err != nil {
 		return err
 	}
-	amount := money.Round2(unitPrice * float64(periodCount))
-	if amount <= 0 {
+	// 自动续费同样走统一算价管线（P5-04），折扣口径与手动续费一致。
+	quote, err := s.resolveRenewalQuote(ctx, instance.UserID, instance.ProductID, periodCount, nil)
+	if err != nil {
+		return err
+	}
+	if quote.Final <= 0 {
 		return ErrPolicyInvalid
 	}
-	renewal, err := s.createPendingRenewal(ctx, &lifecyclerepo.InstanceWithUser{Instance: *instance}, productName, periodCount, amount, lifecyclemodel.RenewalSourceAuto, 0, "")
+	renewal, err := s.createPendingRenewal(ctx, &lifecyclerepo.InstanceWithUser{Instance: *instance}, productName, periodCount, quote, lifecyclemodel.RenewalSourceAuto, 0, "")
 	if err != nil {
 		return err
 	}
@@ -407,18 +500,27 @@ func (s *renewalService) loadOwnedInstance(ctx context.Context, userID, instance
 }
 
 // createPendingRenewal 创建续费记录 + 待支付续费订单（同事务落库保证关联一致）。
-func (s *renewalService) createPendingRenewal(ctx context.Context, instance *lifecyclerepo.InstanceWithUser, productName string, periodCount int, amount float64, source string, operatorID uint64, remark string) (*lifecyclemodel.InstanceRenewal, error) {
+// quote 携带算价明细，随订单落库以还原历史优惠（P5-04）。
+func (s *renewalService) createPendingRenewal(ctx context.Context, instance *lifecyclerepo.InstanceWithUser, productName string, periodCount int, quote renewalQuote, source string, operatorID uint64, remark string) (*lifecyclemodel.InstanceRenewal, error) {
+	amount := quote.Final
 	order := &ordermodel.Order{
-		OrderNo:     genOrderNoLocal(),
-		UserID:      instance.UserID,
-		ProductID:   instance.ProductID,
-		ProductName: productName,
-		Specs:       fmt.Sprintf(`{"type":"renewal","instance_id":%d,"period_count":%d}`, instance.ID, periodCount),
-		Quantity:    periodCount,
-		TotalAmount: amount,
-		Status:      ordermodel.OrderStatusPending,
-		Remark:      remark,
-		OperatorID:  operatorID,
+		OrderNo:        genOrderNoLocal(),
+		UserID:         instance.UserID,
+		ProductID:      instance.ProductID,
+		ProductName:    productName,
+		Specs:          fmt.Sprintf(`{"type":"renewal","instance_id":%d,"period_count":%d}`, instance.ID, periodCount),
+		Quantity:       periodCount,
+		TotalAmount:    quote.Original,
+		PaidAmount:     amount,
+		OriginalAmount: quote.Original,
+		DiscountAmount: quote.Discount,
+		FinalAmount:    quote.Final,
+		PricePolicyID:  quote.PolicyID,
+		DiscountSource: quote.Source,
+		PriceSnapshot:  quote.Snapshot,
+		Status:         ordermodel.OrderStatusPending,
+		Remark:         remark,
+		OperatorID:     operatorID,
 	}
 	renewal := &lifecyclemodel.InstanceRenewal{
 		RenewalNo:    genRenewalNoLocal(),
@@ -500,6 +602,10 @@ func (s *renewalService) markRenewalSuccess(ctx context.Context, renewal *lifecy
 	}
 	if err := s.instanceRepo.ExtendExpireAt(ctx, renewal.InstanceID, *renewal.ExpireAfter); err != nil {
 		return err
+	}
+	// 续费完成后的代理佣金计提（P6-02）：失败不影响续费结果，钩子实现负责记录错误。
+	if s.commissionHook != nil {
+		_ = s.commissionHook(ctx, renewal.OrderID, renewal.OrderNo, renewal.UserID, renewal.Amount, true)
 	}
 	s.logger.Info("renewal completed",
 		zap.String("renewal_no", renewal.RenewalNo),

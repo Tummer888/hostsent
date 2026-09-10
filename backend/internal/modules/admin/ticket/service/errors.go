@@ -20,4 +20,8 @@ var (
 	ErrAdminNotFound = errors.New("处理人不存在")
 	// ErrInvalidPriority 优先级非法
 	ErrInvalidPriority = errors.New("优先级非法")
+	// ErrTicketAssigned 工单已被他人认领/分配，无法重复认领（P2-03）
+	ErrTicketAssigned = errors.New("工单已被认领")
+	// ErrSameAssignee 转派目标与当前处理人相同
+	ErrSameAssignee = errors.New("转派目标与当前处理人相同")
 )

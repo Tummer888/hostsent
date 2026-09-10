@@ -10,7 +10,7 @@
         </div>
       </div>
       <div class="hero-right">
-        <t-button theme="primary" size="large" @click="goRecharge">
+        <t-button v-if="memberStore.has('billing:recharge')" theme="primary" size="large" @click="goRecharge">
           <template #icon><AddIcon /></template>
           立即充值
         </t-button>
@@ -145,10 +145,12 @@ import {
   txTypeLabel,
   txTypeTheme,
 } from '@/pages/billing/constants'
+import { useMemberStore } from '@/store/modules/member'
 
 defineOptions({ name: 'BillingOverview' })
 
 const router = useRouter()
+const memberStore = useMemberStore()
 const activeTab = ref('transactions')
 
 const wallet = ref<WalletInfo>({ user_id: 0, balance: 0, frozen: 0, total_income: 0, total_expense: 0 })

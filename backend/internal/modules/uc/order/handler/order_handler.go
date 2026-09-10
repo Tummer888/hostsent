@@ -21,13 +21,21 @@ func NewOrderHandler(orderService service.OrderService) *OrderHandler {
 	return &OrderHandler{orderService: orderService}
 }
 
-// currentUserID 从鉴权上下文取当前登录用户。
+// currentUserID 返回数据归属账号 ID（P4-04）：子账号下单/查单都落在主账号名下。
 func currentUserID(c *gin.Context) (uint64, bool) {
-	claims, ok := middleware.GetClaims(c)
-	if !ok || claims.UserID == 0 {
+	userID := middleware.EffectiveUserID(c)
+	if userID == 0 {
 		return 0, false
 	}
-	return claims.UserID, true
+	return userID, true
+}
+
+// currentActorID 返回真实操作人 ID：子账号下单时用于订单「操作人」列（P4-09）。
+func currentActorID(c *gin.Context) uint64 {
+	if actorID := middleware.ActorUserID(c); actorID > 0 {
+		return actorID
+	}
+	return middleware.EffectiveUserID(c)
 }
 
 // Create godoc
@@ -48,7 +56,7 @@ func (h *OrderHandler) Create(c *gin.Context) {
 		response.Error(c, apperrors.New(50001, err.Error()))
 		return
 	}
-	info, err := h.orderService.Create(c.Request.Context(), userID, req)
+	info, err := h.orderService.Create(c.Request.Context(), userID, currentActorID(c), req)
 	if err != nil {
 		response.Error(c, apperrors.New(50001, err.Error()))
 		return
@@ -77,6 +85,33 @@ func (h *OrderHandler) List(c *gin.Context) {
 		return
 	}
 	resp, err := h.orderService.List(c.Request.Context(), userID, query)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// Quote godoc
+// @Summary 预结算价格明细
+// @Description 返回商品原价、优惠、实付与折扣来源，不落库、不扣款（P5-05）
+// @Tags 用户中心-订单
+// @Security BearerAuth
+// @Param request body dto.QuoteRequest true "预结算参数"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/orders/quote [post]
+func (h *OrderHandler) Quote(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, apperrors.New(10001, "unauthorized"))
+		return
+	}
+	var req dto.QuoteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	resp, err := h.orderService.Quote(c.Request.Context(), userID, req)
 	if err != nil {
 		response.Error(c, apperrors.New(50001, err.Error()))
 		return

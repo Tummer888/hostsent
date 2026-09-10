@@ -15,6 +15,11 @@ type UserGroupCreateRequest struct {
 	Description string `json:"description"`
 	Status      string `json:"status"`
 	SortOrder   int    `json:"sort_order"`
+	// 折扣策略绑定（P3-01/D3）：用户组是主折扣来源，策略表在 P5 落地，此处先占位。
+	PricePolicyID *uint64 `json:"price_policy_id"`
+	Priority      int     `json:"priority"`
+	IsDefault     bool    `json:"is_default"`
+	IsAgentGroup  bool    `json:"is_agent_group"`
 }
 
 type UserGroupUpdateRequest struct {
@@ -23,17 +28,26 @@ type UserGroupUpdateRequest struct {
 	Description string `json:"description"`
 	Status      string `json:"status" binding:"required"`
 	SortOrder   int    `json:"sort_order"`
+	// 折扣策略绑定（P3-01/D3）：用户组是主折扣来源，策略表在 P5 落地，此处先占位。
+	PricePolicyID *uint64 `json:"price_policy_id"`
+	Priority      int     `json:"priority"`
+	IsDefault     bool    `json:"is_default"`
+	IsAgentGroup  bool    `json:"is_agent_group"`
 }
 
 type UserGroupInfo struct {
-	ID          uint64    `json:"id"`
-	Name        string    `json:"name"`
-	Code        string    `json:"code"`
-	Description string    `json:"description"`
-	Status      string    `json:"status"`
-	SortOrder   int       `json:"sort_order"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID            uint64    `json:"id"`
+	Name          string    `json:"name"`
+	Code          string    `json:"code"`
+	Description   string    `json:"description"`
+	Status        string    `json:"status"`
+	SortOrder     int       `json:"sort_order"`
+	PricePolicyID *uint64   `json:"price_policy_id"`
+	Priority      int       `json:"priority"`
+	IsDefault     bool      `json:"is_default"`
+	IsAgentGroup  bool      `json:"is_agent_group"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type UserGroupListMeta struct {

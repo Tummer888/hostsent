@@ -8,6 +8,9 @@ export interface UserListQuery {
   filter?: string
   last_login_ip_region?: string
   keyword?: string
+  user_level_id?: number
+  /** 主账号/子账号筛选（P4-10）：'true' 仅子账号，'false' 仅主账号，空为全部 */
+  is_sub_account?: string
 }
 
 export interface UserInfo {
@@ -19,6 +22,9 @@ export interface UserInfo {
   email?: string
   phone?: string
   user_group_name?: string
+  user_level_id?: number
+  user_level_name?: string
+  user_level_code?: string
   region?: string
   last_login_ip?: string
   last_login_ip_region?: string
@@ -27,9 +33,33 @@ export interface UserInfo {
   balance?: number
   total_consume_amount?: number
   status: string
+  /** 子账号标识（P4-10） */
+  is_sub_account?: boolean
+  owner_user_id?: number
+  owner_name?: string
+  sub_account_remark?: string
   created_at: string
   last_login_at?: string
   updated_at?: string
+}
+
+/** 管理端成员（子账号）项（P4-10） */
+export interface SubAccountMemberInfo {
+  id: number
+  username: string
+  name?: string
+  email?: string
+  phone?: string
+  remark?: string
+  status: string
+  permissions: string[]
+  created_at: string
+  last_login_at?: string
+}
+
+export interface SubAccountMemberListResponse {
+  items: SubAccountMemberInfo[]
+  total: number
 }
 
 export interface UserListMeta {
@@ -225,6 +255,10 @@ export interface UserGroupInfo {
   code: string
   status: string
   sort_order: number
+  price_policy_id?: number
+  priority: number
+  is_default: boolean
+  is_agent_group: boolean
   description?: string
   created_at: string
   updated_at: string
@@ -235,6 +269,10 @@ export interface UserGroupRequest {
   code: string
   status: string
   sort_order: number
+  price_policy_id?: number
+  priority?: number
+  is_default?: boolean
+  is_agent_group?: boolean
   description?: string
 }
 
@@ -260,6 +298,8 @@ export interface AgentLevelInfo {
   renewal_commission_rate: number
   upgrade_reward_amount: number
   self_purchase_rebate_rate: number
+  /** 代理等级绑定的折扣策略（P6-01），null 表示不打折。 */
+  price_policy_id?: number | null
   allow_manual_price: boolean
   allow_sub_agent: boolean
   max_sub_agent_depth: number
@@ -278,6 +318,7 @@ export interface AgentLevelRequest {
   renewal_commission_rate: number
   upgrade_reward_amount: number
   self_purchase_rebate_rate: number
+  price_policy_id?: number | null
   allow_manual_price: boolean
   allow_sub_agent: boolean
   max_sub_agent_depth: number
@@ -509,9 +550,25 @@ export interface UserLevelInfo {
   status: string
   feature_flags: string
   upgrade_condition: string
+  upgrade_threshold: number
+  max_sub_accounts: number
+  benefits?: string
   description?: string
   created_at: string
   updated_at: string
+}
+
+export interface UserLevelRequest {
+  name: string
+  code: string
+  weight: number
+  status: string
+  feature_flags?: string
+  upgrade_condition?: string
+  upgrade_threshold?: number
+  max_sub_accounts?: number
+  benefits?: string
+  description?: string
 }
 
 export interface UserLevelListResponse {
@@ -529,6 +586,8 @@ export function getUserList(params: UserListQuery): Promise<UserListResponse> {
       filter: params.filter,
       last_login_ip_region: params.last_login_ip_region,
       keyword: params.keyword,
+      user_level_id: params.user_level_id,
+      is_sub_account: params.is_sub_account,
     },
   })
 }
@@ -536,6 +595,13 @@ export function getUserList(params: UserListQuery): Promise<UserListResponse> {
 export function getUserDetail(id: string | number): Promise<UserInfo> {
   return request.get<UserInfo>({
     url: `/users/${id}`,
+  })
+}
+
+/** 查询指定主账号名下的成员（子账号）及权限（P4-10） */
+export function getUserMembers(id: string | number): Promise<SubAccountMemberListResponse> {
+  return request.get<SubAccountMemberListResponse>({
+    url: `/users/${id}/members`,
   })
 }
 
@@ -622,6 +688,26 @@ export function getUserLevelList(params: UserLevelListQuery): Promise<UserLevelL
       status: params.status,
       keyword: params.keyword,
     },
+  })
+}
+
+export function createUserLevel(data: UserLevelRequest): Promise<UserLevelInfo> {
+  return request.post<UserLevelInfo>({
+    url: '/user-levels',
+    data,
+  })
+}
+
+export function updateUserLevel(id: string | number, data: UserLevelRequest): Promise<UserLevelInfo> {
+  return request.put<UserLevelInfo>({
+    url: `/user-levels/${id}`,
+    data,
+  })
+}
+
+export function deleteUserLevel(id: string | number): Promise<string> {
+  return request.delete<string>({
+    url: `/user-levels/${id}`,
   })
 }
 

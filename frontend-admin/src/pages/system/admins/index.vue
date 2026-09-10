@@ -47,17 +47,27 @@
         size="medium"
       >
         <template #role="{ row }">
-          <t-tag :theme="roleTagTheme(row.role)" variant="light-outline">
-            {{ roleLabel(row.role) }}
-          </t-tag>
+          <t-space size="small" break-line>
+            <t-tag v-for="code in roleCodesOf(row)" :key="code" :theme="roleTagTheme(code)" variant="light-outline">
+              {{ roleLabel(code) }}
+            </t-tag>
+            <span v-if="!roleCodesOf(row).length" class="cell-muted">未分配角色</span>
+          </t-space>
         </template>
         <template #status="{ row }">
           <t-tag :theme="row.status === 'active' ? 'success' : 'danger'" variant="light-outline">
             {{ row.status === 'active' ? '启用' : '禁用' }}
           </t-tag>
         </template>
+        <template #must_change_password="{ row }">
+          <t-tag v-if="row.must_change_password" theme="warning" variant="light-outline">待改密</t-tag>
+          <span v-else class="cell-muted">—</span>
+        </template>
         <template #department="{ row }">
           {{ row.department || '—' }}
+        </template>
+        <template #position="{ row }">
+          {{ row.position || '—' }}
         </template>
         <template #operation="{ row }">
           <t-space size="small">
@@ -107,11 +117,21 @@
           <t-form-item label="邮箱" name="email">
             <t-input v-model="form.email" placeholder="example@domain.com" />
           </t-form-item>
-          <t-form-item label="角色" name="role">
-            <t-select v-model="form.role" :options="roleOptions" placeholder="请选择角色" />
+          <t-form-item label="角色（可多选）" name="role_ids">
+            <t-select
+              v-model="form.role_ids"
+              :options="roleOptions"
+              multiple
+              clearable
+              filterable
+              placeholder="请选择角色"
+            />
           </t-form-item>
           <t-form-item label="部门" name="department">
             <t-input v-model="form.department" placeholder="所属部门" />
+          </t-form-item>
+          <t-form-item label="职位" name="position">
+            <t-input v-model="form.position" placeholder="如：客服专员" />
           </t-form-item>
           <t-form-item v-if="!editing" label="初始密码" name="password">
             <t-input v-model="form.password" type="password" placeholder="建议包含字母与数字，至少8位" />
@@ -123,6 +143,12 @@
             </t-radio-group>
           </t-form-item>
         </div>
+        <t-alert
+          v-if="!editing"
+          theme="info"
+          message="新建员工首次登录将被强制修改密码。"
+          style="margin-top: 8px"
+        />
       </t-form>
     </t-dialog>
 
@@ -151,23 +177,19 @@ import {
   deleteAdmin,
   getAdminList,
   resetAdminPassword,
+  setAdminRoles,
   updateAdmin,
   updateAdminStatus,
   type AdminInfo,
   type AdminListResponse,
 } from '@/api/admin';
+import { getRoleList, type RoleInfo } from '@/api/user';
 
 /**
- * 管理员列表页面
- * 用于管理后台账号、角色、重置密码等
+ * 员工管理页面（P2-01）
+ * 支持多角色（admin_roles）、部门/职位、状态切换、重置密码（重置后强制改密）
  */
 defineOptions({ name: 'SystemAdmins' });
-
-const ROLE_MAP: Record<string, string> = {
-  super_admin: '超级管理员',
-  admin: '管理员',
-  operator: '运营',
-};
 
 const loading = ref(false);
 const submitting = ref(false);
@@ -180,6 +202,11 @@ const pageSize = ref(10);
 const formRef = ref<FormInstanceFunctions | null>(null);
 const newPassword = ref('');
 
+// 后端角色（scope=admin），用于多选与名称映射
+const roleList = ref<RoleInfo[]>([]);
+const roleOptions = ref<{ label: string; value: number }[]>([]);
+const roleLabelByCode = ref<Record<string, string>>({});
+
 // 筛选与数据
 const filters = reactive({ keyword: '', role: '', status: '' });
 const admins = ref<AdminListResponse>({
@@ -191,18 +218,13 @@ const admins = ref<AdminListResponse>({
 const form = reactive({
   username: '',
   email: '',
-  role: 'admin',
+  role_ids: [] as number[],
   department: '',
+  position: '',
   password: '',
   status: 'active',
 });
 
-// 选项
-const roleOptions = [
-  { label: '超级管理员', value: 'super_admin' },
-  { label: '管理员', value: 'admin' },
-  { label: '运营', value: 'operator' },
-];
 const statusOptions = [
   { label: '启用', value: 'active' },
   { label: '禁用', value: 'disabled' },
@@ -215,15 +237,21 @@ const rules: Record<string, FormRule[]> = {
     { required: true, message: '请输入邮箱', type: 'error' },
     { email: true, message: '请输入正确的邮箱格式', type: 'error' },
   ],
-  role: [{ required: true, message: '请选择角色', type: 'error' }],
+  role_ids: [{ required: true, message: '请至少选择一个角色', type: 'error' }],
   password: [
     { required: true, message: '请输入初始密码', type: 'error' },
     { min: 8, message: '密码至少需要 8 位', type: 'error' },
   ],
 };
 
-function roleLabel(role: string): string {
-  return ROLE_MAP[role] || role;
+function roleLabel(code: string): string {
+  return roleLabelByCode.value[code] || code;
+}
+
+// 兼容：优先展示 roles 数组，回退到单个 role 字符串
+function roleCodesOf(row: AdminInfo): string[] {
+  if (row.roles?.length) return row.roles;
+  return row.role ? [row.role] : [];
 }
 
 function roleTagTheme(role: string): 'primary' | 'success' | 'warning' | 'default' {
@@ -232,20 +260,42 @@ function roleTagTheme(role: string): 'primary' | 'success' | 'warning' | 'defaul
   return 'default';
 }
 
+function roleIdOf(code: string): number | undefined {
+  return roleList.value.find((item) => item.code === code)?.id;
+}
+
 // 表格列配置
 const columns: PrimaryTableCol<AdminInfo>[] = [
   { colKey: 'id', title: 'ID', width: 70 },
   { colKey: 'username', title: '用户名', width: 140 },
   { colKey: 'email', title: '邮箱', minWidth: 200 },
-  { colKey: 'role', title: '角色', width: 130 },
-  { colKey: 'department', title: '部门', width: 120 },
+  { colKey: 'role', title: '角色', minWidth: 160 },
+  { colKey: 'department', title: '部门', width: 110 },
+  { colKey: 'position', title: '职位', width: 110 },
+  { colKey: 'must_change_password', title: '改密', width: 90 },
   { colKey: 'status', title: '状态', width: 90 },
   { colKey: 'last_login_at', title: '最近登录', width: 180 },
   { colKey: 'operation', title: '操作', width: 240, fixed: 'right' },
 ];
 
 /**
- * 加载管理员列表
+ * 加载角色列表（用于多选）
+ */
+async function loadRoles() {
+  try {
+    const items = await getRoleList();
+    roleList.value = items;
+    roleOptions.value = items
+      .filter((item) => item.status === 'active')
+      .map((item) => ({ label: item.name, value: item.id }));
+    roleLabelByCode.value = Object.fromEntries(items.map((item) => [item.code, item.name]));
+  } catch {
+    // 角色列表加载失败不阻断页面主体
+  }
+}
+
+/**
+ * 加载员工列表
  */
 async function loadAdmins() {
   loading.value = true;
@@ -259,7 +309,7 @@ async function loadAdmins() {
     });
     admins.value = data;
   } catch (error) {
-    MessagePlugin.error((error as Error).message || '加载管理员失败');
+    MessagePlugin.error((error as Error).message || '加载员工失败');
   } finally {
     loading.value = false;
   }
@@ -284,8 +334,9 @@ function openCreate() {
   Object.assign(form, {
     username: '',
     email: '',
-    role: 'admin',
+    role_ids: [],
     department: '',
+    position: '',
     password: '',
     status: 'active',
   });
@@ -301,8 +352,12 @@ function openEdit(row: AdminInfo) {
   Object.assign(form, {
     username: row.username,
     email: row.email,
-    role: row.role,
+    // 后端返回的是角色 code，这里映射回 role_id 供多选使用
+    role_ids: roleCodesOf(row)
+      .map((code) => roleIdOf(code))
+      .filter((id): id is number => typeof id === 'number'),
     department: row.department || '',
+    position: row.position || '',
     password: '',
     status: row.status,
   });
@@ -310,7 +365,7 @@ function openEdit(row: AdminInfo) {
 }
 
 /**
- * 提交管理员表单
+ * 提交员工表单
  */
 async function submitAdmin() {
   const validateResult = await formRef.value?.validate?.();
@@ -321,29 +376,41 @@ async function submitAdmin() {
     if (editing.value) {
       await updateAdmin(currentAdminId.value, {
         email: form.email.trim(),
-        role: form.role,
+        // role 为兼容字段：取首个角色 code；真实多角色由 setAdminRoles 覆盖式写入
+        role: roleCodeOf(form.role_ids[0]) || '',
+        role_ids: form.role_ids,
         department: form.department.trim(),
+        position: form.position.trim(),
         status: form.status,
       });
+      // 覆盖式设置多角色（写 admin_roles 并清权限缓存）
+      await setAdminRoles(currentAdminId.value, form.role_ids);
     } else {
       await createAdmin({
         username: form.username.trim(),
         email: form.email.trim(),
         password: form.password,
-        role: form.role,
+        role: roleCodeOf(form.role_ids[0]) || '',
+        role_ids: form.role_ids,
         department: form.department.trim(),
+        position: form.position.trim(),
         status: form.status,
       });
     }
 
-    MessagePlugin.success('管理员已保存');
+    MessagePlugin.success('员工已保存');
     dialogVisible.value = false;
     await loadAdmins();
   } catch (error) {
-    MessagePlugin.error((error as Error).message || '保存管理员失败');
+    MessagePlugin.error((error as Error).message || '保存员工失败');
   } finally {
     submitting.value = false;
   }
+}
+
+function roleCodeOf(id?: number): string {
+  if (!id) return '';
+  return roleList.value.find((item) => item.id === id)?.code || '';
 }
 
 /**
@@ -397,14 +464,15 @@ async function submitPassword() {
 async function removeAdmin(row: AdminInfo) {
   try {
     await deleteAdmin(row.id);
-    MessagePlugin.success('管理员已删除');
+    MessagePlugin.success('员工已删除');
     await loadAdmins();
   } catch (error) {
-    MessagePlugin.error((error as Error).message || '删除管理员失败');
+    MessagePlugin.error((error as Error).message || '删除员工失败');
   }
 }
 
 onMounted(() => {
+  loadRoles();
   loadAdmins();
 });
 </script>

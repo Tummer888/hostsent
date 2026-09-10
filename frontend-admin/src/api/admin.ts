@@ -41,7 +41,11 @@ export interface AdminInfo {
   email: string
   avatar?: string
   role: string
+  roles?: string[]
   department?: string
+  position?: string
+  service_group_id?: number
+  must_change_password?: boolean
   status: string
   last_login_ip?: string
   last_login_at?: string
@@ -64,14 +68,18 @@ export interface AdminCreateRequest {
   email: string
   password: string
   role?: string
+  role_ids?: number[]
   department?: string
+  position?: string
   status?: string
 }
 
 export interface AdminUpdateRequest {
   email: string
   role: string
+  role_ids?: number[]
   department?: string
+  position?: string
   status: string
 }
 
@@ -83,9 +91,11 @@ export interface AdminResetPasswordRequest {
   password: string
 }
 
+// ===== 员工管理（P2-01，新路径 /staff，超管独占） =====
+
 export function getAdminList(params: AdminListQuery): Promise<AdminListResponse> {
   return request.get<AdminListResponse>({
-    url: '/auth/admins',
+    url: '/staff',
     params: {
       page: params.page,
       page_size: params.page_size,
@@ -98,41 +108,101 @@ export function getAdminList(params: AdminListQuery): Promise<AdminListResponse>
 
 export function getAdminDetail(id: string | number): Promise<AdminInfo> {
   return request.get<AdminInfo>({
-    url: `/auth/admins/${id}`,
+    url: `/staff/${id}`,
   })
 }
 
 export function createAdmin(data: AdminCreateRequest): Promise<AdminInfo> {
   return request.post<AdminInfo>({
-    url: '/auth/admins',
+    url: '/staff',
     data,
   })
 }
 
 export function updateAdmin(id: string | number, data: AdminUpdateRequest): Promise<AdminInfo> {
   return request.put<AdminInfo>({
-    url: `/auth/admins/${id}`,
+    url: `/staff/${id}`,
     data,
+  })
+}
+
+/** 覆盖式设置员工角色（写 admin_roles） */
+export function setAdminRoles(id: string | number, roleIDs: number[]): Promise<string> {
+  return request.put<string>({
+    url: `/staff/${id}/roles`,
+    data: { role_ids: roleIDs },
   })
 }
 
 export function updateAdminStatus(id: string | number, data: AdminStatusRequest): Promise<string> {
   return request.patch<string>({
-    url: `/auth/admins/${id}/status`,
+    url: `/staff/${id}/status`,
     data,
   })
 }
 
 export function resetAdminPassword(id: string | number, data: AdminResetPasswordRequest): Promise<string> {
   return request.post<string>({
-    url: `/auth/admins/${id}/reset-password`,
+    url: `/staff/${id}/reset-password`,
     data,
   })
 }
 
 export function deleteAdmin(id: string | number): Promise<string> {
   return request.delete<string>({
-    url: `/auth/admins/${id}`,
+    url: `/staff/${id}`,
+  })
+}
+
+// ===== 管理端操作审计（P2-06） =====
+
+export interface AdminAuditLogQuery {
+  page?: number
+  page_size?: number
+  admin_id?: number
+  resource_type?: string
+  action?: string
+  keyword?: string
+  start_time?: string
+  end_time?: string
+}
+
+export interface AdminAuditLogInfo {
+  id: number
+  admin_id: number
+  admin_name: string
+  module: string
+  resource_type: string
+  resource_id: string
+  action: string
+  request_method: string
+  request_path: string
+  response_code: number
+  ip: string
+  user_agent: string
+  detail: string
+  created_at: string
+}
+
+export interface AdminAuditLogResponse {
+  items: AdminAuditLogInfo[]
+  meta: AdminListMeta
+}
+
+/** 查询管理端操作审计日志 */
+export function getAdminAuditLogs(params: AdminAuditLogQuery): Promise<AdminAuditLogResponse> {
+  return request.get<AdminAuditLogResponse>({
+    url: '/audit-logs',
+    params: {
+      page: params.page,
+      page_size: params.page_size,
+      admin_id: params.admin_id,
+      resource_type: params.resource_type,
+      action: params.action,
+      keyword: params.keyword,
+      start_time: params.start_time,
+      end_time: params.end_time,
+    },
   })
 }
 

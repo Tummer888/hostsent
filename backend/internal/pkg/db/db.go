@@ -21,6 +21,7 @@ import (
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
 	catalogmodel "hostsent/backend/internal/modules/admin/product/catalog/model"
 	categorymodel "hostsent/backend/internal/modules/admin/product/category/model"
+	discountmodel "hostsent/backend/internal/modules/admin/product/discount/model"
 	pricingmodel "hostsent/backend/internal/modules/admin/product/pricing/model"
 	promotionmodel "hostsent/backend/internal/modules/admin/product/promotion/model"
 	specmodel "hostsent/backend/internal/modules/admin/product/spec/model"
@@ -35,6 +36,7 @@ import (
 	securitymodel "hostsent/backend/internal/modules/admin/user/security/model"
 	verificationmodel "hostsent/backend/internal/modules/admin/user/verification/model"
 	usercentermodel "hostsent/backend/internal/modules/uc/auth/model"
+	membermodel "hostsent/backend/internal/modules/uc/member/model"
 	config "hostsent/backend/internal/pkg/config"
 )
 
@@ -64,6 +66,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&usermodel.User{},
 		&usercentermodel.User{}, // 用户中心模型，与 usermodel.User 共用 users 表，补齐 avatar/tier 列
 		&usermodel.UserGroup{},
+		&usermodel.SubAccountPermission{},
+		&membermodel.OperationLog{},
 		&distributionmodel.AgentLevel{},
 		&distributionmodel.Agent{},
 		&distributionmodel.Subordinate{},
@@ -84,6 +88,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&usermodel.UserOrder{},
 		&usermodel.UserTicket{},
 		&levelmodel.UserLevel{},
+		&levelmodel.UserLevelChangeLog{},
 		&verificationmodel.VerificationApplication{},
 		&verificationmodel.VerificationEnterprise{},
 		&verificationmodel.VerificationDocument{},
@@ -91,6 +96,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&verificationmodel.VerificationConfig{},
 		&menumodel.Menu{},
 		&adminmodel.Admin{},
+		&adminmodel.AdminRole{},
 		&adminmodel.AdminAuditLog{},
 		// 资源管理模块核心表（第一阶段）
 		&providermodel.ResourceProvider{},
@@ -111,6 +117,9 @@ func AutoMigrate(db *gorm.DB) error {
 		&specmodel.SpecMapping{},
 		// 产品管理-定价与计费（pricing 子域）
 		&pricingmodel.ProductPricing{},
+		// 产品管理-折扣策略（P5-01 统一算价管线）
+		&discountmodel.PricePolicy{},
+		&discountmodel.PricePolicyItem{},
 		// 产品管理-促销管理（promotion 子域）
 		&promotionmodel.Coupon{},
 		&promotionmodel.CouponGrant{},
@@ -124,6 +133,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&ticketmodel.TicketReply{},
 		&ticketmodel.TicketCategory{},
 		&ticketmodel.TicketAttachment{},
+		// 工单操作日志时间线（P2-02）
+		&ticketmodel.TicketLog{},
 		// 财务管理
 		&finaccountmodel.WalletAccount{},
 		&fintransmodel.WalletTransaction{},
@@ -151,6 +162,11 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 
+	// admins.role（单字符串）→ admin_roles 关联表回填（P1-01，等价 migrations/018）
+	if err := backfillAdminRoles(db); err != nil {
+		return err
+	}
+
 	// 商品供货模式回填：新增列后旧记录 provision_mode 可能为空，统一归一为 self（自营），
 	// 避免空模式导致订单履约无法解析供货模式（GORM AutoMigrate 只加列不写默认值）。
 	if err := backfillProductProvisionMode(db); err != nil {
@@ -158,6 +174,19 @@ func AutoMigrate(db *gorm.DB) error {
 	}
 
 	return nil
+}
+
+// backfillAdminRoles 将存量 admins.role 按 roles.code 灌入 admin_roles。
+// 幂等：仅对尚无任何角色关联的管理员补齐，不覆盖已有多角色绑定（R4）。
+func backfillAdminRoles(db *gorm.DB) error {
+	if !db.Migrator().HasTable("admin_roles") || !db.Migrator().HasTable("admins") || !db.Migrator().HasTable("roles") {
+		return nil
+	}
+	return db.Exec(`INSERT INTO admin_roles (admin_id, role_id)
+		SELECT a.id, r.id FROM admins a JOIN roles r ON r.code = a.role
+		WHERE a.role <> ''
+		  AND NOT EXISTS (SELECT 1 FROM admin_roles ar WHERE ar.admin_id = a.id)
+		ON CONFLICT DO NOTHING`).Error
 }
 
 // backfillProductProvisionMode 将 products 表中 provision_mode 为空或未知的存量记录归一为 self（自营）。
@@ -256,6 +285,9 @@ func SeedDefaults(db *gorm.DB, cfg config.Config) error {
 			return err
 		}
 		if err := seedUserLevels(tx); err != nil {
+			return err
+		}
+		if err := backfillUserConsumeTotals(tx); err != nil {
 			return err
 		}
 		if err := seedDemoVerification(tx); err != nil {
@@ -598,15 +630,22 @@ func seedSystemConfigs(tx *gorm.DB) error {
 
 func seedRoles(tx *gorm.DB) error {
 	defaults := []usermodel.Role{
-		{Code: "super_admin", Name: "超级管理员", Status: "active"},
-		{Code: "ops_admin", Name: "运维管理员", Status: "active"},
-		{Code: "finance_admin", Name: "财务管理员", Status: "active"},
-		{Code: "user", Name: "普通用户", Status: "active"},
+		{Code: "super_admin", Name: "超级管理员", Scope: usermodel.RoleScopeAdmin, Status: "active"},
+		{Code: "ops_admin", Name: "运维管理员", Scope: usermodel.RoleScopeAdmin, Status: "active"},
+		{Code: "finance_admin", Name: "财务管理员", Scope: usermodel.RoleScopeAdmin, Status: "active"},
+		// 客户角色：不进后台权限树（scope=user），本方案不使用，保留兼容历史 seed。
+		{Code: "user", Name: "普通用户", Scope: usermodel.RoleScopeUser, Status: "active"},
 	}
 
 	for _, role := range defaults {
 		var existing usermodel.Role
 		if err := tx.Where("code = ?", role.Code).First(&existing).Error; err == nil {
+			// 幂等：补齐缺失的 scope，避免老库升级后后台权限树混入客户角色。
+			if existing.Scope == "" {
+				if err := tx.Model(&existing).Update("scope", role.Scope).Error; err != nil {
+					return err
+				}
+			}
 			continue
 		} else if err != gorm.ErrRecordNotFound {
 			return err
@@ -713,6 +752,74 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "notification", Name: "通知记录", Code: "notify:record", Type: "menu", SortOrder: 2, Status: "active"},
 		{ParentCode: "notify:record", Name: "查看记录", Code: "notify:view", Type: "button", SortOrder: 1, Status: "active"},
 		{ParentCode: "notification", Name: "通知模板", Code: "notify:template", Type: "menu", SortOrder: 3, Status: "active"},
+
+		// —— 账号体系与权限分级重构（81/82）补充权限码 ——
+		// 员工管理（超管独占）
+		{ParentCode: "system", Name: "员工管理", Code: "staff:list", Type: "menu", SortOrder: 4, Status: "active"},
+		{ParentCode: "staff:list", Name: "查看员工", Code: "staff:view", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "staff:list", Name: "新建员工", Code: "staff:create", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "staff:list", Name: "编辑员工", Code: "staff:update", Type: "button", SortOrder: 3, Status: "active"},
+		{ParentCode: "staff:list", Name: "删除员工", Code: "staff:delete", Type: "button", SortOrder: 4, Status: "active"},
+		{ParentCode: "staff:list", Name: "重置密码", Code: "staff:reset_password", Type: "button", SortOrder: 5, Status: "active"},
+		{ParentCode: "staff:list", Name: "分配角色", Code: "staff:assign_role", Type: "button", SortOrder: 6, Status: "active"},
+		// 权限管理
+		{ParentCode: "system", Name: "权限管理", Code: "system:permission:view", Type: "menu", SortOrder: 5, Status: "active"},
+		{ParentCode: "system:permission:view", Name: "创建权限", Code: "permission:create", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "system:permission:view", Name: "更新权限", Code: "permission:update", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "system:permission:view", Name: "删除权限", Code: "permission:delete", Type: "button", SortOrder: 3, Status: "active"},
+		// 用户管理补充
+		{ParentCode: "system:user", Name: "创建用户", Code: "user:create", Type: "button", SortOrder: 6, Status: "active"},
+		{ParentCode: "system:user", Name: "编辑用户", Code: "user:update", Type: "button", SortOrder: 7, Status: "active"},
+		{ParentCode: "system:user", Name: "分配用户角色", Code: "user:assign_role", Type: "button", SortOrder: 8, Status: "active"},
+		{ParentCode: "system:user", Name: "代登录用户", Code: "user:impersonate", Type: "button", SortOrder: 9, Status: "active"},
+		// 用户组（折扣来源绑定）
+		{ParentCode: "system:user", Name: "用户组", Code: "user:group:list", Type: "menu", SortOrder: 2, Status: "active"},
+		{ParentCode: "user:group:list", Name: "创建用户组", Code: "user:group:create", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "user:group:list", Name: "编辑用户组", Code: "user:group:update", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "user:group:list", Name: "删除用户组", Code: "user:group:delete", Type: "button", SortOrder: 3, Status: "active"},
+		// 用户等级（消费升级）
+		{ParentCode: "system:user", Name: "用户等级", Code: "level:list", Type: "menu", SortOrder: 3, Status: "active"},
+		{ParentCode: "level:list", Name: "创建等级", Code: "level:create", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "level:list", Name: "编辑等级", Code: "level:update", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "level:list", Name: "删除等级", Code: "level:delete", Type: "button", SortOrder: 3, Status: "active"},
+		// 实名认证
+		{ParentCode: "system:user", Name: "实名认证", Code: "verification:list", Type: "menu", SortOrder: 10, Status: "active"},
+		{ParentCode: "verification:list", Name: "审核实名", Code: "verification:review", Type: "button", SortOrder: 1, Status: "active"},
+		// 分销与代理商
+		{Name: "分销与代理商", Code: "distribution", Type: "catalog", SortOrder: 11, Status: "active"},
+		{ParentCode: "distribution", Name: "代理商等级", Code: "distribution:level:list", Type: "menu", SortOrder: 1, Status: "active"},
+		{ParentCode: "distribution:level:list", Name: "创建代理等级", Code: "distribution:level:create", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "distribution:level:list", Name: "编辑代理等级", Code: "distribution:level:update", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "distribution:level:list", Name: "删除代理等级", Code: "distribution:level:delete", Type: "button", SortOrder: 3, Status: "active"},
+		{ParentCode: "distribution", Name: "代理商", Code: "distribution:agent:list", Type: "menu", SortOrder: 2, Status: "active"},
+		{ParentCode: "distribution:agent:list", Name: "创建代理商", Code: "distribution:agent:create", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "distribution:agent:list", Name: "编辑代理商", Code: "distribution:agent:update", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "distribution:agent:list", Name: "删除代理商", Code: "distribution:agent:delete", Type: "button", SortOrder: 3, Status: "active"},
+		{ParentCode: "distribution", Name: "下级用户", Code: "distribution:subordinate:list", Type: "menu", SortOrder: 3, Status: "active"},
+		{ParentCode: "distribution", Name: "佣金记录", Code: "distribution:commission:list", Type: "menu", SortOrder: 4, Status: "active"},
+		{ParentCode: "distribution:commission:list", Name: "结算佣金", Code: "distribution:commission:settle", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "distribution", Name: "结算单", Code: "distribution:settlement:list", Type: "menu", SortOrder: 5, Status: "active"},
+		{ParentCode: "distribution:settlement:list", Name: "审核结算", Code: "distribution:settlement:audit", Type: "button", SortOrder: 1, Status: "active"},
+		// 产品：规格/定价/促销
+		{ParentCode: "product", Name: "规格管理", Code: "product:spec", Type: "menu", SortOrder: 4, Status: "active"},
+		{ParentCode: "product:spec", Name: "规格模板查看", Code: "spec:template:list", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "product:spec", Name: "规格模板维护", Code: "spec:template:update", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "product:spec", Name: "规格映射查看", Code: "spec:mapping:list", Type: "button", SortOrder: 3, Status: "active"},
+		{ParentCode: "product:spec", Name: "规格映射维护", Code: "spec:mapping:update", Type: "button", SortOrder: 4, Status: "active"},
+		{ParentCode: "product", Name: "定价管理", Code: "product:pricing", Type: "menu", SortOrder: 5, Status: "active"},
+		{ParentCode: "product:pricing", Name: "定价查看", Code: "pricing:list", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "product:pricing", Name: "定价维护", Code: "pricing:update", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "product", Name: "促销管理", Code: "product:promotion", Type: "menu", SortOrder: 6, Status: "active"},
+		{ParentCode: "product:promotion", Name: "优惠券查看", Code: "promotion:coupon:list", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "product:promotion", Name: "优惠券维护", Code: "promotion:coupon:update", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "product:promotion", Name: "活动查看", Code: "promotion:activity:list", Type: "button", SortOrder: 3, Status: "active"},
+		{ParentCode: "product:promotion", Name: "活动维护", Code: "promotion:activity:update", Type: "button", SortOrder: 4, Status: "active"},
+		// 安全审计（后台）
+		{ParentCode: "system", Name: "登录日志", Code: "security:login-log:list", Type: "menu", SortOrder: 6, Status: "active"},
+		{ParentCode: "system", Name: "用户审计日志", Code: "security:audit:list", Type: "menu", SortOrder: 7, Status: "active"},
+		{ParentCode: "system", Name: "风控事件", Code: "security:risk:list", Type: "menu", SortOrder: 8, Status: "active"},
+		{ParentCode: "system", Name: "黑名单", Code: "security:blacklist:manage", Type: "menu", SortOrder: 9, Status: "active"},
+		{ParentCode: "system", Name: "会话管理", Code: "security:session:manage", Type: "menu", SortOrder: 10, Status: "active"},
 	}
 
 	permissionMap := make(map[string]uint64)
@@ -840,6 +947,9 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"system:user:list",
 			"user:detail",
 			"user:update_status",
+			"user:group:list",
+			"level:list",
+			"verification:list",
 			"system:role",
 			"system:role:list",
 			"resource",
@@ -859,12 +969,31 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"product:category:update",
 			"product:price",
 			"product:price:update",
+			"product:spec",
+			"spec:template:list",
+			"spec:mapping:list",
+			"product:pricing",
+			"pricing:list",
+			"product:promotion",
+			"promotion:coupon:list",
+			"promotion:activity:list",
 			"order",
 			"order:list",
 			"order:cancel",
 			"order:remark",
 			"order:activate",
 			"order:stats",
+			"distribution",
+			"distribution:level:list",
+			"distribution:agent:list",
+			"distribution:subordinate:list",
+			"distribution:commission:list",
+			"distribution:settlement:list",
+			"security:login-log:list",
+			"security:audit:list",
+			"security:risk:list",
+			"security:blacklist:manage",
+			"security:session:manage",
 		},
 		"finance_admin": {
 			"system:user",
@@ -876,6 +1005,19 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"order:refunds",
 			"order:refund:audit",
 			"order:stats",
+			"finance",
+			"finance:wallet",
+			"finance:adjust",
+			"finance:recharge",
+			"finance:recharge:approve",
+			"finance:withdraw",
+			"finance:withdraw:audit",
+			"finance:bill",
+			"finance:bill:close",
+			"finance:bill:recon",
+			"distribution:commission:list",
+			"distribution:settlement:list",
+			"distribution:settlement:audit",
 		},
 		"user": {
 			"system:user",
@@ -981,6 +1123,7 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "价格策略", Type: menumodel.TypeMenu, Path: "/product/pricing", Component: "product/pricing/index", Icon: "money", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "价格计算器", Type: menumodel.TypeMenu, Path: "/product/pricing/calculator", Component: "product/pricing/calculator/index", Icon: "chart-bar", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "价格历史", Type: menumodel.TypeMenu, Path: "/product/pricing/history", Component: "product/pricing/history/index", Icon: "history", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "折扣策略", Type: menumodel.TypeMenu, Path: "/product/pricing/policies", Component: "product/pricing/policies/index", Icon: "discount", SortOrder: 4, Status: menumodel.StatusActive},
 		// 4. 促销管理
 		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "促销管理", Type: menumodel.TypeDirectory, Path: "/product/promotion", Icon: "tag", SortOrder: 4, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/product/promotion", Platform: menumodel.PlatformAdmin, Name: "优惠券管理", Type: menumodel.TypeMenu, Path: "/product/promotion/coupons", Component: "product/promotion/coupons/index", Icon: "ticket", SortOrder: 1, Status: menumodel.StatusActive},
@@ -1128,29 +1271,42 @@ func seedMenus(tx *gorm.DB) error {
 	return nil
 }
 
+// seedAdminUser 仅在初始管理员不存在时创建；已存在则只补齐缺失的 role/status，
+// 绝不覆盖 PasswordHash —— 否则运营改密后重启会被默认口令重置（见 P0-01）。
 func seedAdminUser(tx *gorm.DB, _ config.Config) error {
 	const adminUsername = "admin"
 	const adminEmail = "admin@hostsent.local"
 	const adminPassword = "123456"
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.DefaultCost)
-	if err != nil {
-		return err
-	}
-
 	var existing adminmodel.Admin
 	if err := tx.Where("username = ?", adminUsername).First(&existing).Error; err == nil {
-		// 账号已存在，同步更新密码与邮箱，保证默认口令生效
-		existing.Email = adminEmail
-		existing.PasswordHash = string(hash)
-		existing.Status = "active"
-		existing.Role = "super_admin"
-		return tx.Save(&existing).Error
+		updates := map[string]any{}
+		if existing.Role == "" {
+			updates["role"] = "super_admin"
+		}
+		if existing.Status != "active" {
+			updates["status"] = "active"
+		}
+		if len(updates) == 0 {
+			return nil
+		}
+		return tx.Model(&existing).Updates(updates).Error
 	} else if err != gorm.ErrRecordNotFound {
 		return err
 	}
 
-	admin := adminmodel.Admin{Username: adminUsername, Email: adminEmail, PasswordHash: string(hash), Role: "super_admin", Status: "active"}
+	hash, err := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	admin := adminmodel.Admin{
+		Username:           adminUsername,
+		Email:              adminEmail,
+		PasswordHash:       string(hash),
+		Role:               "super_admin",
+		Status:             "active",
+		MustChangePassword: true, // 初始口令要求首次登录强制改密（P1-08）
+	}
 	return tx.Create(&admin).Error
 }
 
@@ -1481,6 +1637,8 @@ func seedDemoSessions(tx *gorm.DB, users map[string]usermodel.User) error {
 //
 // 等级是「消费升级」的载体：按累计消费自动升级（只升不降），不参与折扣计算。
 // 原先与等级同模块的资源配额（模板/上限/调整记录）已移除，见 migrations/017。
+// 升级门槛升级为按累计消费（P3-02）：standard 0 / business 10000 / enterprise 50000，
+// 子账号上限分别为 1 / 5 / 20；门槛为示例值，运营可在「用户等级」页调整。
 func seedUserLevels(tx *gorm.DB) error {
 	admin, err := loadAdminAsUser(tx)
 	if err != nil {
@@ -1494,6 +1652,9 @@ func seedUserLevels(tx *gorm.DB) error {
 			Status:           "active",
 			FeatureFlags:     "snapshot,backup",
 			UpgradeCondition: "注册即获得",
+			UpgradeThreshold: 0,
+			MaxSubAccounts:   1,
+			Benefits:         `{"benefits":["基础工单支持","每周自动备份"]}`,
 			Description:      "默认用户等级",
 			CreatedBy:        admin.ID,
 			UpdatedBy:        admin.ID,
@@ -1505,15 +1666,49 @@ func seedUserLevels(tx *gorm.DB) error {
 			Status:           "active",
 			FeatureFlags:     "snapshot,backup,ha,custom-image",
 			UpgradeCondition: "累计消费满 10000 元",
+			UpgradeThreshold: 10000,
+			MaxSubAccounts:   5,
+			Benefits:         `{"benefits":["高优先级工单","每日自动备份","自定义镜像"]}`,
 			Description:      "企业大客户等级",
+			CreatedBy:        admin.ID,
+			UpdatedBy:        admin.ID,
+		},
+		{
+			Name:             "高级企业",
+			Code:             "enterprise",
+			Weight:           30,
+			Status:           "active",
+			FeatureFlags:     "snapshot,backup,ha,custom-image,dedicated-support",
+			UpgradeCondition: "累计消费满 50000 元",
+			UpgradeThreshold: 50000,
+			MaxSubAccounts:   20,
+			Benefits:         `{"benefits":["专属客户经理","SLA 保障","每日自动备份","自定义镜像"]}`,
+			Description:      "高级企业等级",
 			CreatedBy:        admin.ID,
 			UpdatedBy:        admin.ID,
 		},
 	}
 
-	for _, level := range levels {
+	for i := range levels {
+		level := levels[i]
 		var existing levelmodel.UserLevel
 		if err := tx.Where("code = ?", level.Code).First(&existing).Error; err == nil {
+			// 已存在的等级不覆盖运营改过的配置；仅在门槛/上限仍为 0（老数据）时补齐默认值。
+			updates := map[string]any{}
+			if existing.UpgradeThreshold == 0 && level.UpgradeThreshold > 0 {
+				updates["upgrade_threshold"] = level.UpgradeThreshold
+			}
+			if existing.MaxSubAccounts == 0 && level.MaxSubAccounts > 0 {
+				updates["max_sub_accounts"] = level.MaxSubAccounts
+			}
+			if existing.Benefits == "" && level.Benefits != "" {
+				updates["benefits"] = level.Benefits
+			}
+			if len(updates) > 0 {
+				if err := tx.Model(&levelmodel.UserLevel{}).Where("id = ?", existing.ID).Updates(updates).Error; err != nil {
+					return err
+				}
+			}
 			continue
 		} else if err != gorm.ErrRecordNotFound {
 			return err
@@ -1525,6 +1720,24 @@ func seedUserLevels(tx *gorm.DB) error {
 	return nil
 }
 
+// backfillUserConsumeTotals 将 users.total_consume_amount 落列的历史数据补齐（P3-01）。
+// 口径与 P0-02 归一后的 wallet_transactions.type='consume' 一致；仅回填仍为 0 的用户，
+// 幂等且不会覆盖消费升级服务已累加的值。
+func backfillUserConsumeTotals(tx *gorm.DB) error {
+	return tx.Exec(`
+		UPDATE users u
+		SET total_consume_amount = stats.total
+		FROM (
+			SELECT user_id, COALESCE(SUM(ABS(amount)), 0) AS total
+			FROM wallet_transactions
+			WHERE type = ?
+			GROUP BY user_id
+		) AS stats
+		WHERE stats.user_id = u.id
+		  AND u.total_consume_amount = 0
+		  AND stats.total > 0`, "consume").Error
+}
+
 // seedNotificationTemplates 注入通知事件默认模板（doc70 §6.2）。
 func seedNotificationTemplates(tx *gorm.DB) error {
 	defaults := []notifymodel.NotificationTemplate{
@@ -1533,6 +1746,8 @@ func seedNotificationTemplates(tx *gorm.DB) error {
 		{Event: notifymodel.EventRenewalFailed, TitleTpl: "实例自动续费失败", ContentTpl: "实例 {instance_mark} 自动续费失败（{reason}），请及时处理，避免服务暂停。", InboxOn: true, MailOn: true, Status: notifymodel.TemplateStatusActive},
 		{Event: notifymodel.EventInstanceExpiring, TitleTpl: "实例即将到期提醒", ContentTpl: "您的实例 {instance_mark} 将于 {expire_at} 到期（剩余 {days_left} 天），请及时续费。", InboxOn: true, MailOn: true, Status: notifymodel.TemplateStatusActive},
 		{Event: notifymodel.EventTicketReplied, TitleTpl: "工单 {ticket_no} 有新回复", ContentTpl: "您的工单 {ticket_no} 有新的客服回复，请前往工单中心查看。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
+		{Event: notifymodel.EventTicketAssigned, TitleTpl: "工单 {ticket_no} 已指派给您", ContentTpl: "工单 {ticket_no}（{title}）已指派给您，请及时跟进处理。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
+		{Event: notifymodel.EventTicketStatus, TitleTpl: "工单 {ticket_no} 状态更新", ContentTpl: "您的工单 {ticket_no} 状态已更新为 {status}。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
 		{Event: notifymodel.EventBalanceLow, TitleTpl: "余额不足预警", ContentTpl: "您的账户余额为 ¥{balance}，低于预警阈值 ¥{threshold}，请及时充值。", InboxOn: true, MailOn: true, Status: notifymodel.TemplateStatusActive},
 		{Event: notifymodel.EventSyncFailed, TitleTpl: "上游同步失败", ContentTpl: "提供商 {provider_name} 同步失败：{reason}，请检查上游连接。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
 		{Event: notifymodel.EventSystem, TitleTpl: "{title}", ContentTpl: "{content}", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},

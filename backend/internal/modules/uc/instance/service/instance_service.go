@@ -186,6 +186,8 @@ func toInfo(it *model.Instance) dto.InstanceInfo {
 		PublicIP:    it.PublicIP,
 		PrivateIP:   it.PrivateIP,
 		BillingMode: it.BillingMode,
+		ActorID:     it.ActorUserID,
+		ActorName:   it.ActorName,
 		ExpireAt:    fmtTime(it.ExpireAt),
 		CreatedAt:   it.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:   it.UpdatedAt.Format(time.RFC3339),

@@ -14,6 +14,7 @@
         <t-tag v-if="ticket" :theme="ticketStatusTheme(ticket.status)" variant="light" size="medium" shape="round">
           {{ ticketStatusLabel(ticket.status) }}
         </t-tag>
+        <t-tag v-if="ticket?.sla_breached" theme="danger" variant="light" size="medium" shape="round">SLA 超时</t-tag>
         <t-button variant="outline" :loading="loading" @click="loadDetail">刷新</t-button>
         <t-button variant="outline" @click="goBack">返回列表</t-button>
       </t-space>
@@ -23,7 +24,9 @@
       <div class="table-card__head">
         <h3 class="card-title">工单信息</h3>
         <t-space size="small">
+          <t-button v-if="canClaim" variant="outline" size="small" theme="primary" @click="handleClaim">认领工单</t-button>
           <t-button v-if="canAssign" variant="outline" size="small" @click="openAssign">分配处理人</t-button>
+          <t-button v-if="canTransfer" variant="outline" size="small" @click="openTransfer">转派</t-button>
           <t-popconfirm v-if="canClose" content="确认关闭该工单吗？" @confirm="handleClose">
             <t-button variant="outline" size="small" theme="danger">关闭工单</t-button>
           </t-popconfirm>
@@ -109,6 +112,31 @@
       <t-alert v-else theme="warning" message="工单已结束（已关闭/已取消），不可继续回复。" />
     </section>
 
+    <!-- 操作日志时间线（P2-02） -->
+    <section class="table-card surface-card">
+      <div class="table-card__head">
+        <h3 class="card-title">操作日志</h3>
+        <span class="table-card__meta">共 {{ logs.length }} 条</span>
+      </div>
+      <ul v-if="logs.length" class="log-stream">
+        <li v-for="log in logs" :key="log.id" class="log-item">
+          <span class="log-item__dot" :class="`is-${log.action}`" aria-hidden="true"></span>
+          <div class="log-item__body">
+            <div class="log-item__head">
+              <span class="log-item__action">{{ logActionLabel(log.action) }}</span>
+              <span class="log-item__operator">{{ log.operator_name || '系统' }}</span>
+              <span class="log-item__time">{{ formatTime(log.created_at) }}</span>
+            </div>
+            <div class="log-item__detail">
+              <template v-if="log.from_value || log.to_value">{{ log.from_value || '—' }} → {{ log.to_value || '—' }}</template>
+              <template v-if="log.note"> · {{ log.note }}</template>
+            </div>
+          </div>
+        </li>
+      </ul>
+      <t-empty v-else description="暂无操作日志" />
+    </section>
+
     <!-- 分配处理人对话框 -->
     <t-dialog
       v-model:visible="assignVisible"
@@ -132,6 +160,33 @@
         </t-form-item>
       </t-form>
     </t-dialog>
+
+    <!-- 转派对话框 -->
+    <t-dialog
+      v-model:visible="transferVisible"
+      header="转派工单"
+      width="420px"
+      :confirm-btn="{ content: '确认转派', theme: 'primary' }"
+      :cancel-btn="{ content: '取消' }"
+      @confirm="handleTransfer"
+      @close="transferVisible = false"
+    >
+      <t-form label-align="top" :data="{}" @submit.prevent>
+        <t-form-item label="转派给" name="to_id">
+          <t-select
+            v-model="transferForm.to_id"
+            clearable
+            filterable
+            placeholder="选择接收员工"
+            :options="adminOptions"
+            :loading="adminLoading"
+          />
+        </t-form-item>
+        <t-form-item label="转派说明" name="note">
+          <t-textarea v-model="transferForm.note" placeholder="可选，说明转派原因" :autosize="{ minRows: 2, maxRows: 4 }" :maxlength="255" />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
   </div>
 </template>
 
@@ -143,7 +198,8 @@ import { MessagePlugin } from 'tdesign-vue-next'
 
 import { getAdminList } from '@/api/admin'
 import type { AdminInfo } from '@/api/admin'
-import { assignTicket, closeTicket, getTicketDetail, replyTicket, updateTicketStatus } from '@/api/ticket'
+import { assignTicket, claimTicket, closeTicket, getTicketDetail, replyTicket, transferTicket, updateTicketStatus } from '@/api/ticket'
+import { usePermission } from '@/composables/usePermission'
 import {
   formatTime,
   senderTypeLabel,
@@ -152,34 +208,55 @@ import {
   ticketStatusLabel,
   ticketStatusTheme,
 } from '@/pages/ticket/constants'
-import type { TicketDetail, TicketReplyInfo } from '@/types/interface'
+import type { TicketDetail, TicketLogInfo, TicketReplyInfo } from '@/types/interface'
 
 defineOptions({ name: 'TicketDetail' })
 
 const route = useRoute()
 const router = useRouter()
+const { has } = usePermission()
 
 const ticket = ref<TicketDetail | null>(null)
 const loading = ref(false)
 const replies = computed<TicketReplyInfo[]>(() => ticket.value?.replies ?? [])
+const logs = computed<TicketLogInfo[]>(() => ticket.value?.logs ?? [])
 
 const replyContent = ref('')
 const replying = ref(false)
 
 const assignVisible = ref(false)
+const transferVisible = ref(false)
 const adminLoading = ref(false)
 const adminOptions = ref<{ label: string; value: number }[]>([])
 const assignForm = reactive<{ assigned_to: number | undefined }>({ assigned_to: undefined })
+const transferForm = reactive<{ to_id: number | undefined; note: string }>({ to_id: undefined, note: '' })
 
 const isFinal = computed(() => {
   const status = ticket.value?.status
   return status === 'closed' || status === 'cancelled'
 })
 
-// 非终态可回复、可分配、可关闭
-const canReply = computed(() => !isFinal.value)
-const canAssign = computed(() => !isFinal.value)
-const canClose = computed(() => !isFinal.value)
+// 非终态可回复；分配/转派需对应权限（后端仍会校验）
+const canReply = computed(() => !isFinal.value && has('ticket:reply'))
+const canAssign = computed(() => !isFinal.value && !!ticket.value?.assigned_to && has('ticket:assign'))
+const canTransfer = computed(() => !isFinal.value && !!ticket.value?.assigned_to && has('ticket:assign'))
+const canClaim = computed(() => !isFinal.value && !ticket.value?.assigned_to && has('ticket:list'))
+const canClose = computed(() => !isFinal.value && has('ticket:close'))
+
+const LOG_ACTION_LABELS: Record<string, string> = {
+  create: '创建工单',
+  assign: '分配',
+  claim: '认领',
+  transfer: '转派',
+  reply: '回复',
+  status: '状态变更',
+  close: '关闭',
+  cancel: '取消',
+}
+
+function logActionLabel(action: string): string {
+  return LOG_ACTION_LABELS[action] || action
+}
 
 async function loadDetail() {
   const id = Number(route.params.id)
@@ -243,6 +320,38 @@ async function handleAssign() {
     MessagePlugin.success('分配成功')
   } catch (error) {
     MessagePlugin.error((error as Error).message || '分配失败')
+  }
+}
+
+function openTransfer() {
+  transferForm.to_id = undefined
+  transferForm.note = ''
+  transferVisible.value = true
+  loadAdmins()
+}
+
+async function handleTransfer() {
+  if (!ticket.value) return
+  if (!transferForm.to_id) {
+    MessagePlugin.warning('请选择转派对象')
+    return
+  }
+  try {
+    ticket.value = await transferTicket(ticket.value.id, { to_id: transferForm.to_id, note: transferForm.note })
+    transferVisible.value = false
+    MessagePlugin.success('转派成功')
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '转派失败')
+  }
+}
+
+async function handleClaim() {
+  if (!ticket.value) return
+  try {
+    ticket.value = await claimTicket(ticket.value.id)
+    MessagePlugin.success('认领成功')
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '认领失败')
   }
 }
 
@@ -361,5 +470,81 @@ onMounted(loadDetail)
 .reply-input__actions {
   display: flex;
   justify-content: flex-end;
+}
+
+/* ---------- 操作日志时间线 ---------- */
+.log-stream {
+  list-style: none;
+  margin: 0;
+  padding: 4px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.log-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.log-item__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.log-item__dot.is-create {
+  background: #16a34a;
+}
+.log-item__dot.is-assign,
+.log-item__dot.is-claim,
+.log-item__dot.is-transfer {
+  background: #2563eb;
+}
+.log-item__dot.is-close,
+.log-item__dot.is-cancel {
+  background: #dc2626;
+}
+
+.log-item__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.log-item__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.log-item__action {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.log-item__operator {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.log-item__time {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.log-item__detail {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+  word-break: break-all;
 }
 </style>

@@ -4,8 +4,11 @@ package model
 import "time"
 
 type Commission struct {
-	ID             uint64     `gorm:"primaryKey;autoIncrement"`
-	AgentID        uint64     `gorm:"column:agent_id;not null;index"`
+	ID uint64 `gorm:"primaryKey;autoIncrement"`
+	// OrderID 关联订单 ID（P6-02）：与 AgentID 组成唯一键，保证订单完成自动计提幂等。
+	// 手工录入的历史佣金无关联订单，保持 NULL（Postgres 唯一索引对 NULL 不去重）。
+	OrderID        *uint64    `gorm:"column:order_id;uniqueIndex:uk_commissions_order_agent"`
+	AgentID        uint64     `gorm:"column:agent_id;not null;index;uniqueIndex:uk_commissions_order_agent"`
 	SubordinateID  *uint64    `gorm:"column:subordinate_id;index"`
 	SettlementID   *uint64    `gorm:"column:settlement_id;index"`
 	OrderNo        string     `gorm:"column:order_no;size:64;not null;uniqueIndex"`

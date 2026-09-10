@@ -378,6 +378,18 @@ export function setupPermission(app: App<Element>) {
             // 后端不可达时降级为静态 navMenu，不阻断登录
           }
         }
+
+        // 路由级权限校验：meta.permission 由后端权限码对齐（P1-11）。
+        // 前端仅做体验拦截，真正的越权防护由后端 RequirePermission 承担。
+        const required = to.meta?.permission as string | string[] | undefined
+        if (required) {
+          const codes = Array.isArray(required) ? required : [required]
+          if (!userStore.hasPermission(...codes)) {
+            MessagePlugin.warning('无权访问该页面')
+            next({ path: '/dashboard/base', replace: true })
+            return
+          }
+        }
         next()
       } catch (error) {
         const message = (error as Error)?.message || '认证失败，请重新登录'

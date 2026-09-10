@@ -25,6 +25,9 @@
       <template #status="{ row }">
         <t-tag :theme="statusTheme(row)" variant="light" size="small" shape="round">{{ statusText(row) }}</t-tag>
       </template>
+      <template #actor_name="{ row }">
+        <span class="cell-sub">{{ row.actor_name || '主账号' }}</span>
+      </template>
       <template #expire_at="{ row }">{{ row.expire_at ? row.expire_at.replace('T', ' ').slice(0, 16) : '—' }}</template>
       <template #op="{ row }">
         <t-button theme="primary" variant="text" size="small" @click="goDetail(row)">详情</t-button>
@@ -74,6 +77,7 @@ const columns: PrimaryTableCol<InstanceInfo>[] = [
   { colKey: 'spec', title: '配置', minWidth: 150 },
   { colKey: 'ip', title: '公网 IP', minWidth: 130 },
   { colKey: 'status', title: '状态', width: 110 },
+  { colKey: 'actor_name', title: '操作人', width: 120 },
   { colKey: 'expire_at', title: '到期时间', minWidth: 150 },
   { colKey: 'op', title: '操作', width: 260, fixed: 'right' },
 ]

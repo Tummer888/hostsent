@@ -4,13 +4,26 @@
       <h2 class="order-title">我的订单</h2>
     </div>
 
-    <t-table :data="orders" :columns="columns" :loading="loading" row-key="id" :pagination="pagination" @page-change="onPageChange">
+    <t-table :data="orders" :columns="columns" :loading="loading" row-key="id" :pagination="pagination" cell-empty-content="—" @page-change="onPageChange">
       <template #product_name="{ row }">
         <div class="cell-strong">{{ row.product_name }}</div>
         <div class="cell-sub">{{ row.order_no }}</div>
       </template>
       <template #amount="{ row }">
-        <span class="cell-amount">¥{{ row.paid_amount.toFixed(2) }}</span>
+        <span class="cell-amount">¥{{ payAmount(row).toFixed(2) }}</span>
+        <div class="cell-sub cell-original" v-if="row.discount_amount > 0">原价 ¥{{ row.original_amount.toFixed(2) }}</div>
+      </template>
+      <template #discount="{ row }">
+        <template v-if="row.discount_amount > 0">
+          <span class="cell-discount">-¥{{ row.discount_amount.toFixed(2) }}</span>
+          <t-tag size="small" variant="light" :theme="row.discount_source === 'agent' ? 'warning' : 'success'">
+            {{ sourceLabel(row.discount_source) }}
+          </t-tag>
+        </template>
+        <span v-else>—</span>
+      </template>
+      <template #actor_name="{ row }">
+        <span :class="{ 'cell-sub': !row.actor_name }">{{ row.actor_name || '主账号' }}</span>
       </template>
       <template #status="{ row }">
         <t-tag :theme="statusTheme(row.status)" variant="light" size="small" shape="round">{{ statusText(row.status) }}</t-tag>
@@ -36,10 +49,28 @@ const pagination = reactive({ current: 1, pageSize: 10, total: 0 })
 
 const columns: PrimaryTableCol<OrderInfo>[] = [
   { colKey: 'product_name', title: '产品', minWidth: 160 },
-  { colKey: 'amount', title: '金额', width: 120 },
+  { colKey: 'amount', title: '实付金额', width: 140 },
+  { colKey: 'discount', title: '优惠', width: 160 },
+  { colKey: 'actor_name', title: '操作人', width: 120 },
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'created_at', title: '下单时间', width: 180 },
 ]
+
+/** 实付优先取算价快照，兼容未写快照的存量订单。 */
+function payAmount(row: OrderInfo): number {
+  return row.final_amount || row.paid_amount
+}
+
+/** 折扣来源中文标签（P5-06）。 */
+function sourceLabel(source: string): string {
+  const map: Record<string, string> = {
+    agent: '代理价',
+    group: '用户组折扣',
+    promotion: '促销优惠',
+    manual: '人工改价',
+  }
+  return map[source] || source || '优惠'
+}
 
 function statusText(s: string): string {
   return (
@@ -88,4 +119,6 @@ onMounted(loadOrders)
 .cell-strong { font-weight: 600; }
 .cell-sub { color: #999; font-size: 12px; }
 .cell-amount { color: #e37318; font-weight: 700; }
+.cell-original { text-decoration: line-through; }
+.cell-discount { color: #e37318; margin-right: 6px; }
 </style>

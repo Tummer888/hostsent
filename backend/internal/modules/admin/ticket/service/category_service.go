@@ -54,11 +54,14 @@ func (s *categoryService) Create(ctx context.Context, req dto.CategorySaveReques
 		status = model.CategoryStatusActive
 	}
 	item := &model.TicketCategory{
-		Name:        req.Name,
-		Code:        code,
-		Description: req.Description,
-		SortOrder:   req.SortOrder,
-		Status:      status,
+		Name:            req.Name,
+		Code:            code,
+		Description:     req.Description,
+		SortOrder:       req.SortOrder,
+		Status:          status,
+		DefaultRoleCode: req.DefaultRoleCode,
+		DefaultGroupID:  optionalID(req.DefaultGroupID),
+		SLAHours:        req.SLAHours,
 	}
 	if err := s.categoryRepo.Create(ctx, item); err != nil {
 		return nil, err
@@ -81,6 +84,9 @@ func (s *categoryService) Update(ctx context.Context, id uint64, req dto.Categor
 	item.Code = code
 	item.Description = req.Description
 	item.SortOrder = req.SortOrder
+	item.DefaultRoleCode = req.DefaultRoleCode
+	item.DefaultGroupID = optionalID(req.DefaultGroupID)
+	item.SLAHours = req.SLAHours
 	if req.Status != "" {
 		item.Status = req.Status
 	}
@@ -111,16 +117,31 @@ func (s *categoryService) Delete(ctx context.Context, id uint64) error {
 }
 
 func buildCategoryInfo(item model.TicketCategory) dto.CategoryInfo {
-	return dto.CategoryInfo{
-		ID:          item.ID,
-		Name:        item.Name,
-		Code:        item.Code,
-		Description: item.Description,
-		SortOrder:   item.SortOrder,
-		Status:      item.Status,
-		CreatedAt:   item.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:   item.UpdatedAt.Format(time.RFC3339),
+	var groupID uint64
+	if item.DefaultGroupID != nil {
+		groupID = *item.DefaultGroupID
 	}
+	return dto.CategoryInfo{
+		ID:              item.ID,
+		Name:            item.Name,
+		Code:            item.Code,
+		Description:     item.Description,
+		SortOrder:       item.SortOrder,
+		Status:          item.Status,
+		DefaultRoleCode: item.DefaultRoleCode,
+		DefaultGroupID:  groupID,
+		SLAHours:        item.SLAHours,
+		CreatedAt:       item.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:       item.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
+// optionalID 把 0 值转为 nil，避免写入无意义的默认客服组。
+func optionalID(id uint64) *uint64 {
+	if id == 0 {
+		return nil
+	}
+	return &id
 }
 
 func mapCategoryErr(err error) error {

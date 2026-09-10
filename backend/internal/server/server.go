@@ -49,6 +49,9 @@ import (
 	categoryhandler "hostsent/backend/internal/modules/admin/product/category/handler"
 	categoryrepo "hostsent/backend/internal/modules/admin/product/category/repository"
 	categoryservice "hostsent/backend/internal/modules/admin/product/category/service"
+	discounthandler "hostsent/backend/internal/modules/admin/product/discount/handler"
+	discountrepo "hostsent/backend/internal/modules/admin/product/discount/repository"
+	discountservice "hostsent/backend/internal/modules/admin/product/discount/service"
 	pricinghandler "hostsent/backend/internal/modules/admin/product/pricing/handler"
 	pricingrepo "hostsent/backend/internal/modules/admin/product/pricing/repository"
 	pricingservice "hostsent/backend/internal/modules/admin/product/pricing/service"
@@ -90,6 +93,9 @@ import (
 	verificationhandler "hostsent/backend/internal/modules/admin/user/verification/handler"
 	verificationrepo "hostsent/backend/internal/modules/admin/user/verification/repository"
 	verificationservice "hostsent/backend/internal/modules/admin/user/verification/service"
+	ucagenthandler "hostsent/backend/internal/modules/uc/agent/handler"
+	ucagentrepo "hostsent/backend/internal/modules/uc/agent/repository"
+	ucagentservice "hostsent/backend/internal/modules/uc/agent/service"
 	usercenterhandler "hostsent/backend/internal/modules/uc/auth/handler"
 	usercenterrepo "hostsent/backend/internal/modules/uc/auth/repository"
 	usercenterservice "hostsent/backend/internal/modules/uc/auth/service"
@@ -97,6 +103,9 @@ import (
 	ucinstancehandler "hostsent/backend/internal/modules/uc/instance/handler"
 	ucinstancerepo "hostsent/backend/internal/modules/uc/instance/repository"
 	ucinstanceservice "hostsent/backend/internal/modules/uc/instance/service"
+	memberhandler "hostsent/backend/internal/modules/uc/member/handler"
+	memberrepo "hostsent/backend/internal/modules/uc/member/repository"
+	memberservice "hostsent/backend/internal/modules/uc/member/service"
 	usermenuhandler "hostsent/backend/internal/modules/uc/menu/handler"
 	usermenurepo "hostsent/backend/internal/modules/uc/menu/repository"
 	usermenuservice "hostsent/backend/internal/modules/uc/menu/service"
@@ -110,9 +119,11 @@ import (
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/db"
 	apperrors "hostsent/backend/internal/pkg/errors"
+	"hostsent/backend/internal/pkg/middleware"
 	"hostsent/backend/internal/pkg/model"
 	"hostsent/backend/internal/pkg/netutil"
 	"hostsent/backend/internal/pkg/observability"
+	"hostsent/backend/internal/pkg/pricing"
 	"hostsent/backend/internal/pkg/upstream"
 	// 各上游适配器通过 init() 注册工厂，须在此空导入以触发注册。
 	_ "hostsent/backend/internal/pkg/upstream/mofangfinance"
@@ -143,6 +154,9 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	jwtIssuer := appauth.NewJWTIssuer(cfg.Auth.JWTSecret, cfg.Auth.JWTIssuer, time.Duration(cfg.Auth.JWTExpireHours)*time.Hour)
 	ipRegionResolver := netutil.NewHTTPIPRegionResolver()
 	adminRepo := adminrepo.NewAdminRepository(database)
+	rbacRepo := adminrepo.NewRBACRepository(database)
+	permCache := middleware.NewMemoryPermissionCache()
+	adminAuditRepo := adminrepo.NewAdminAuditRepository(database, logger)
 	userRepo := repository.NewUserRepository(database)
 	userDetailRepo := repository.NewUserDetailRepository(database)
 	userGroupRepo := repository.NewUserGroupRepository(database)
@@ -186,7 +200,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	poolRepo := providerrepo.NewPoolRepository(database)
 	productRepo := productrepo.NewProductRepository(database)
 	syncRepo := syncrepo.NewSyncRepository(database)
-	adminService := adminservice.NewAdminService(adminRepo, jwtIssuer)
+	adminService := adminservice.NewAdminService(adminRepo, rbacRepo, adminAuditRepo, permCache, jwtIssuer)
 	userService := service.NewUserService(
 		userRepo,
 		jwtIssuer,
@@ -209,11 +223,15 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	subordinateService := distributionservice.NewSubordinateService(subordinateRepo, agentRepo, userRepo)
 	commissionService := distributionservice.NewCommissionService(commissionRepo, agentRepo, subordinateRepo, userRepo)
 	settlementService := distributionservice.NewSettlementService(settlementRepo, agentRepo, userRepo, commissionRepo)
-	roleService := service.NewRoleService(roleRepo)
+	// 佣金自动计提（P6-02）：订单开通成功后按代理等级佣金率生成记录，幂等 (order_id, agent_id)。
+	commissionAccrualService := distributionservice.NewCommissionAccrualService(distributionrepo.NewAccrualRepository(database), logger)
+	roleService := service.NewRoleService(roleRepo, permCache)
 	permissionService := service.NewPermissionService(permissionRepo)
 	menuService := menuservice.NewMenuService(menuRepo)
 	securityService := securityservice.NewSecurityService(securityRepo)
 	userLevelService := levelservice.NewUserLevelService(levelRepo)
+	// 消费升级服务（P3-03）：订单支付成功后累加累计消费并重算等级（只升不降）。
+	levelUpgradeService := levelservice.NewLevelUpgradeService(levelRepo)
 	verificationService := verificationservice.NewVerificationService(verificationRepo)
 	// 用户中心模块：独立的数据访问、认证服务与处理器（与后台管理模块解耦）
 	userCenterRepo := usercenterrepo.NewUserRepository(database)
@@ -272,6 +290,17 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	prodCatalogHandler := cataloghandler.NewProductHandler(prodCatalogService)
 	// 订单履约：上游开通适配器（打通订单 paid/provisioning → 上游创建实例）
 	orderService := orderservice.NewOrderService(orderRepo, orderItemRepo, orderRefundRepo, orderservice.NewUpstreamProvisionAdapter(buildOrderProvisionDeps(prodCatalogService, providerService, upstreamMgr, syncRepo)))
+	// 订单开通成功 → 自动计提代理佣金（P6-02）；计提失败只记日志，不影响订单。
+	orderService.SetCommissionHook(func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, baseAmount float64, isRenewal bool) error {
+		if err := commissionAccrualService.AccrueForOrder(ctx, distributionservice.AccrualInput{
+			OrderID: orderID, OrderNo: orderNo, BuyerUserID: buyerUserID, BaseAmount: baseAmount, IsRenewal: isRenewal,
+		}); err != nil {
+			logger.Warn("commission accrual failed",
+				zap.Uint64("order_id", orderID), zap.String("order_no", orderNo),
+				zap.Uint64("user_id", buyerUserID), zap.Error(err))
+		}
+		return nil
+	})
 	orderHandler := orderhandler.NewOrderHandler(orderService)
 	userHandler := handler.NewUserHandler(userService,
 		// 为用户创建订单：余额支付并开通，或仅创建待支付
@@ -340,11 +369,54 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 用户中心商品：复用管理端商品目录，仅暴露上架商品（用户可购）
 	ucProductService := ucproductservice.NewProductService(prodCatalogService)
 	ucProductHandler := ucproducthandler.NewProductHandler(ucProductService)
+	// 定价与计费（pricing 子域）
+	pricingRepo := pricingrepo.NewPricingRepository(database)
+	pricingService := pricingservice.NewPricingService(pricingRepo)
+	pricingHandler := pricinghandler.NewPricingHandler(pricingService)
+	// 折扣策略（discount 子域，P5-01/P5-06）
+	discountPolicyRepo := discountrepo.NewPricePolicyRepository(database)
+	discountPolicyService := discountservice.NewPolicyService(discountPolicyRepo)
+	discountPolicyHandler := discounthandler.NewPolicyHandler(discountPolicyService)
+	// 统一算价管线（P5-03）：基础价读 product_pricing 回落 products.price；折扣来源按序注入。
+	pricePipeline := pricing.NewService(pricing.Deps{
+		BasePrice: func(ctx context.Context, productID uint64) (float64, uint64, error) {
+			product, err := prodCatalogService.FindByID(ctx, productID)
+			if err != nil {
+				return 0, 0, err
+			}
+			unitPrice := product.Price
+			// product_pricing = 这商品基础多少钱：配置了启用中的计费模板则优先采用其单价。
+			if tmpl, err := pricingRepo.FindByProductID(ctx, productID); err == nil && tmpl != nil && tmpl.UnitPrice > 0 {
+				unitPrice = tmpl.UnitPrice
+			}
+			return unitPrice, product.CategoryID, nil
+		},
+		// 用户组策略 = 这客户打几折（D3 主要折扣来源）。
+		GroupRule: discountPolicyService.RuleForUserGroup,
+		// 代理价（P6-01）：users → distribution_agents → agent_levels.price_policy_id；
+		// 非代理用户返回 nil，管线自动跳过该来源。
+		AgentRule: discountPolicyService.RuleForAgent,
+		// 促销/优惠券暂不在管线内（缺少选券入参）。
+	}, cfg.Pricing.StackMode)
 	// 用户中心订单：余额支付下单 + 复用履约适配器开通上游
 	// ensureOpenable：下单前校验商品能否直连开通，财务型上游（账单推送制）不支持单次开通，先拒绝避免误扣款。
 	ucOrderService := ucorderservice.NewOrderService(prodCatalogService, walletService, orderRepo, orderService,
 		buildEnsureOpenable(prodCatalogService, providerService),
 		func(err error) bool { return errors.Is(err, finaccountservice.ErrInsufficientBalance) },
+		func(userID uint64, amount float64) {
+			// 异步执行：不阻塞下单；使用独立 context，避免请求结束后被取消。
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				if err := levelUpgradeService.ApplyConsume(ctx, userID, amount); err != nil {
+					logger.Warn("user level: apply consume failed",
+						zap.Uint64("user_id", userID), zap.Float64("amount", amount), zap.Error(err))
+				}
+			}()
+		},
+		userRepo,      // 订单「操作人」列：批量解析 operator_id → 用户名（P4-09）
+		orderItemRepo, // 订单项落库：行级折扣快照（P5-04）
+		pricePipeline, // 统一算价管线（P5-03/P5-04）
 	)
 	ucOrderHandler := ucorderhandler.NewOrderHandler(ucOrderService)
 	// 用户中心主机管理：列表/详情/电源/VNC（复用上游适配器）
@@ -357,10 +429,6 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	specTemplateService := specservice.NewSpecTemplateService(specTemplateRepo)
 	specMappingService := specservice.NewSpecMappingService(specMappingRepo)
 	specHandler := spechandler.NewSpecHandler(specTemplateService, specMappingService)
-	// 定价与计费（pricing 子域）
-	pricingRepo := pricingrepo.NewPricingRepository(database)
-	pricingService := pricingservice.NewPricingService(pricingRepo)
-	pricingHandler := pricinghandler.NewPricingHandler(pricingService)
 	// 促销管理（promotion 子域）
 	couponRepo := promotionrepo.NewCouponRepository(database)
 	couponGrantRepo := promotionrepo.NewCouponGrantRepository(database)
@@ -373,7 +441,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	ticketRepo := ticketrepo.NewTicketRepository(database)
 	ticketReplyRepo := ticketrepo.NewReplyRepository(database)
 	ticketCategoryRepo := ticketrepo.NewCategoryRepository(database)
-	ticketService := ticketservice.NewTicketService(ticketRepo, ticketReplyRepo, ticketCategoryRepo)
+	ticketService := ticketservice.NewTicketService(ticketRepo, ticketReplyRepo, ticketCategoryRepo, nil)
 	ticketCategoryService := ticketservice.NewCategoryService(ticketCategoryRepo, ticketRepo)
 	ticketHandler := tickethandler.NewTicketHandler(ticketService)
 	ticketCategoryHandler := tickethandler.NewCategoryHandler(ticketCategoryService)
@@ -384,7 +452,18 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	lifecycleAutoRepo := lifecyclerepo.NewAutoRenewRepository(database)
 	lifecycleInstanceReader := lifecyclerepo.NewInstanceReader(database)
 	lifecycleOrderWriter := lifecyclerepo.NewOrderWriter(database)
-	lifecycleRenewalSvc := lifecycleservice.NewRenewalService(database, lifecycleRenewalRepo, lifecyclePolicyRepo, lifecycleAutoRepo, lifecycleInstanceReader, lifecycleOrderWriter, walletService, logger)
+	lifecycleRenewalSvc := lifecycleservice.NewRenewalService(database, lifecycleRenewalRepo, lifecyclePolicyRepo, lifecycleAutoRepo, lifecycleInstanceReader, lifecycleOrderWriter, walletService, pricePipeline, logger)
+	// 续费完成 → 自动计提代理佣金（P6-02），与订单开通共用同一计提服务。
+	lifecycleRenewalSvc.SetCommissionHook(func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, amount float64, isRenewal bool) error {
+		if err := commissionAccrualService.AccrueForOrder(ctx, distributionservice.AccrualInput{
+			OrderID: orderID, OrderNo: orderNo, BuyerUserID: buyerUserID, BaseAmount: amount, IsRenewal: isRenewal,
+		}); err != nil {
+			logger.Warn("renewal commission accrual failed",
+				zap.Uint64("order_id", orderID), zap.String("order_no", orderNo),
+				zap.Uint64("user_id", buyerUserID), zap.Error(err))
+		}
+		return nil
+	})
 	lifecycleSvc := lifecycleservice.NewLifecycleService(database, lifecyclePolicyRepo, lifecycleInstanceReader, lifecycleRenewalSvc, logger)
 	lifecycleExpiringHandler := lifecyclehandler.NewExpiringHandler(lifecycleSvc)
 	lifecycleAdminHandler := lifecyclehandler.NewLifecycleAdminHandler(lifecycleSvc, lifecycleRenewalSvc)
@@ -407,6 +486,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	ucSiteHandler := ucsitehandler.NewSiteHandler(ucSiteService)
 	// 生命周期 Notifier 桥接：替换 noopNotifier 为通知中心
 	lifecycleSvc.SetNotifier(&lifecycleNotifierBridge{notifySvc: notifySvc, logger: logger})
+	// 工单 Notifier 桥接（P2-04）：回复/状态通知用户，指派通知员工
+	ticketService.SetNotifier(&ticketNotifierBridge{notifySvc: notifySvc, logger: logger})
 	// 订单支付成功钩子（doc60）：续费订单支付完成后联动完成续费并延长到期时间
 	// doc70：支付成功后发布通知
 	orderservice.OnPaid = func(ctx context.Context, order *ordermodel.Order) {
@@ -429,7 +510,14 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 			SourceID:     order.OrderNo,
 		})
 	}
-	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, promotionHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, logger, jwtIssuer)
+	// 用户中心成员（子账号，P4）：仓储同时作为 RequireUserPermission 的权限解析器。
+	memberRepo := memberrepo.NewMemberRepository(database)
+	memberService := memberservice.NewMemberService(memberRepo)
+	memberHandler := memberhandler.NewMemberHandler(memberService)
+	// 代理专区（P6-03）：用户中心 /agent 子树的只读数据源
+	ucAgentService := ucagentservice.NewAgentService(ucagentrepo.NewAgentRepository(database))
+	ucAgentHandler := ucagenthandler.NewAgentHandler(ucAgentService)
+	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, discountPolicyHandler, promotionHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, memberHandler, ucAgentHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, logger, jwtIssuer)
 	router := newRouter(app)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
@@ -476,6 +564,32 @@ func (b *lifecycleNotifierBridge) Publish(ctx context.Context, userID uint64, ti
 	})
 }
 
+// ticketNotifierBridge 桥接工单模块的 Notifier 接口到通知中心（P2-04）。
+// target=user 时通知工单提交人，target=admin 时通知被指派员工。
+type ticketNotifierBridge struct {
+	notifySvc notifyservice.NotificationService
+	logger    *zap.Logger
+}
+
+func (b *ticketNotifierBridge) Publish(ctx context.Context, event, target string, recipientID uint64, vars map[string]string, sourceID string) error {
+	if target == "" {
+		target = notifymodel.TargetUser
+	}
+	err := b.notifySvc.Publish(ctx, notifydto.PublishInput{
+		Event:        event,
+		UserID:       recipientID,
+		Target:       target,
+		Vars:         vars,
+		SourceModule: "ticket",
+		SourceID:     sourceID,
+	})
+	if err != nil {
+		b.logger.Warn("ticket: publish notification failed",
+			zap.String("event", event), zap.Uint64("recipient_id", recipientID), zap.Error(err))
+	}
+	return err
+}
+
 // buildRecordedInstance 将标准实例转换为同步实例记录（订单履约开通成功后落库）。
 func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order) syncmodel.Instance {
 	rawJSON, _ := json.Marshal(inst.RawData)
@@ -498,6 +612,8 @@ func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order
 		PrivateIP:   inst.PrivateIP,
 		RawData:     string(rawJSON),
 		BillingMode: order.PriceModel,
+		// 子账号下单时 order.OperatorID 为真实操作人，落到实例「操作人」列（P4-09）。
+		ActorUserID: order.OperatorID,
 	}
 	if !inst.ExpireAt.IsZero() {
 		exp := inst.ExpireAt

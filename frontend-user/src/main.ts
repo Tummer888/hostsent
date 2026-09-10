@@ -3,6 +3,7 @@ import TDesign from 'tdesign-vue-next'
 import 'tdesign-vue-next/es/style/index.css'
 
 import App from './App.vue'
+import { permission } from './directives/permission'
 import { setupPermission } from './permission'
 import router from './router'
 import { pinia } from './store'
@@ -21,5 +22,6 @@ const app = createApp(App)
 app.use(pinia)
 app.use(router)
 app.use(TDesign)
+app.directive('permission', permission)
 setupPermission(app)
 app.mount('#app')

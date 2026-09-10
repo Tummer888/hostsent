@@ -42,6 +42,9 @@
           <template #category="{ row }">
             <span>{{ row.category_name || row.category || '—' }}</span>
           </template>
+          <template #username="{ row }">
+            <span class="time-text">{{ row.username || '主账号' }}</span>
+          </template>
           <template #priority="{ row }">
             <t-tag :theme="ticketPriorityTheme(row.priority)" variant="light" size="small" shape="round">
               {{ ticketPriorityLabel(row.priority) }}
@@ -106,6 +109,7 @@ const columns: PrimaryTableCol<TicketInfo>[] = [
   { colKey: 'ticket_no', title: '工单号', width: 150 },
   { colKey: 'title', title: '标题', ellipsis: true },
   { colKey: 'category', title: '分类', width: 110 },
+  { colKey: 'username', title: '操作人', width: 120 },
   { colKey: 'priority', title: '优先级', width: 90 },
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'reply_count', title: '回复数', width: 80 },

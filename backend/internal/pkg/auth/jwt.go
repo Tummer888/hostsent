@@ -34,6 +34,10 @@ type UserClaims struct {
 	UserID   uint64 `json:"user_id"`
 	Username string `json:"username"`
 	Tier     string `json:"tier"`
+	// OwnerUserID 子账号归属的主账号 ID；主账号为 0（旧 token 缺该字段即视为主账号，P4-03）。
+	OwnerUserID uint64 `json:"owner_user_id,omitempty"`
+	// IsSub 是否子账号。
+	IsSub bool `json:"is_sub,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -70,12 +74,20 @@ func (j *JWTIssuer) GenerateAdmin(username string, adminID uint64, role string) 
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(j.secretKey)
 }
 
-// GenerateUser 生成普通用户 token。
+// GenerateUser 生成普通用户 token（主账号场景，等价于 GenerateUserFull 的子账号参数为空）。
 func (j *JWTIssuer) GenerateUser(username string, userID uint64, tier string) (string, error) {
+	return j.GenerateUserFull(username, userID, tier, 0, false)
+}
+
+// GenerateUserFull 生成带归属信息的普通用户 token（P4-03）。
+// ownerUserID/isSub 为子账号信息：主账号传 0/false，子账号传主账号 ID 与 true。
+func (j *JWTIssuer) GenerateUserFull(username string, userID uint64, tier string, ownerUserID uint64, isSub bool) (string, error) {
 	claims := UserClaims{
 		UserID:           userID,
 		Username:         username,
 		Tier:             tier,
+		OwnerUserID:      ownerUserID,
+		IsSub:            isSub,
 		RegisteredClaims: j.buildRegisteredClaims(time.Now()),
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(j.secretKey)

@@ -36,8 +36,9 @@ func Auth(jwtIssuer *appauth.JWTIssuer, bearerPrefix string) gin.HandlerFunc {
 	}
 }
 
-// AdminAuth 管理员专用鉴权：仅接受 AdminClaims，并兼容转换到 Claims。
-func AdminAuth(jwtIssuer *appauth.JWTIssuer, bearerPrefix string) gin.HandlerFunc {
+// AdminAuth 管理员专用鉴权：解析 AdminClaims，并按 admin_roles 加载真实角色与权限快照。
+// resolver/cache 允许为 nil（此时仅按 token 内的 role 字符串兼容处理）。
+func AdminAuth(jwtIssuer *appauth.JWTIssuer, bearerPrefix string, resolver PermissionResolver, cache PermissionCache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tokenStr, ok := extractBearerToken(c, bearerPrefix)
 		if !ok {
@@ -45,31 +46,79 @@ func AdminAuth(jwtIssuer *appauth.JWTIssuer, bearerPrefix string) gin.HandlerFun
 			return
 		}
 
-		adminClaims, err := jwtIssuer.ParseAdmin(tokenStr)
-		if err != nil {
+		var adminID uint64
+		var username, role string
+		if adminClaims, err := jwtIssuer.ParseAdmin(tokenStr); err == nil {
+			adminID, username, role = adminClaims.AdminID, adminClaims.Username, adminClaims.Role
+			c.Set(adminClaimsContextKey, adminClaims)
+		} else {
 			// 兼容旧管理员 token（UserType 为空）
 			claims, perr := jwtIssuer.Parse(tokenStr)
 			if perr != nil {
 				unauthorized(c)
 				return
 			}
-			c.Set(claimsContextKey, claims)
-			c.Set(adminClaimsContextKey, toAdminClaims(claims))
-			c.Next()
-			return
+			adminID, username, role = claims.UserID, claims.Username, claims.Role
+			if role == "" && len(claims.Roles) > 0 {
+				role = claims.Roles[0]
+			}
+			c.Set(adminClaimsContextKey, &appauth.AdminClaims{AdminID: adminID, Username: username, Role: role})
+		}
+
+		// 鉴权以 admin_roles 为准：加载真实角色与权限快照，替代 token 里的单 role 字符串。
+		roleCodes := stringSlice(role)
+		if resolver != nil {
+			grant, err := LoadAdminGrant(c.Request.Context(), cache, resolver, adminID)
+			if err == nil {
+				if !grant.Active {
+					// 员工被禁用：旧 token 立即失效
+					unauthorized(c)
+					return
+				}
+				if len(grant.Roles) > 0 {
+					roleCodes = grant.Roles
+					if role == "" {
+						role = grant.Roles[0]
+					}
+				}
+				c.Set(adminGrantContextKey, grant)
+			}
 		}
 
 		// 转成兼容的 Claims，供现有 handler 读取 UserID/Role/Roles
 		c.Set(claimsContextKey, &appauth.Claims{
-			UserID:   adminClaims.AdminID,
-			Username: adminClaims.Username,
-			Role:     adminClaims.Role,
-			Roles:    stringSlice(adminClaims.Role),
+			UserID:   adminID,
+			Username: username,
+			Role:     role,
+			Roles:    roleCodes,
 			UserType: appauth.UserTypeAdmin,
 		})
-		c.Set(adminClaimsContextKey, adminClaims)
 		c.Next()
 	}
+}
+
+// adminIDFromContext 从上下文或 bearer token 解析当前管理员 ID（供权限中间件独立使用）。
+func adminIDFromContext(c *gin.Context, issuer *appauth.JWTIssuer, bearerPrefix string) (uint64, bool) {
+	if claims, ok := GetAdminClaims(c); ok {
+		return claims.AdminID, true
+	}
+	if claims, ok := GetClaims(c); ok && claims.UserID > 0 {
+		return claims.UserID, true
+	}
+	if issuer == nil {
+		return 0, false
+	}
+	tokenStr, ok := extractBearerToken(c, bearerPrefix)
+	if !ok {
+		return 0, false
+	}
+	if adminClaims, err := issuer.ParseAdmin(tokenStr); err == nil {
+		return adminClaims.AdminID, true
+	}
+	if claims, err := issuer.Parse(tokenStr); err == nil {
+		return claims.UserID, true
+	}
+	return 0, false
 }
 
 // UserAuth 普通用户专用鉴权：仅接受 UserClaims。
