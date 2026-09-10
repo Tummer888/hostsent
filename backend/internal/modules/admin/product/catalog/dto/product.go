@@ -6,8 +6,11 @@ type ProductListQuery struct {
 	CategoryID    uint64 `form:"category_id" json:"category_id"`
 	Status        int    `form:"status" json:"status"`
 	ProvisionMode string `form:"provision_mode" json:"provision_mode"` // self / clone
-	Page          int    `form:"page" json:"page"`
-	PageSize      int    `form:"page_size" json:"page_size"`
+	// Featured 推荐位过滤：nil=不过滤，true/false=按推荐位精确筛选。
+	// 用指针而非 bool，以区分「未传」与「显式传 false」。
+	Featured *bool `form:"featured" json:"featured"`
+	Page     int   `form:"page" json:"page"`
+	PageSize int   `form:"page_size" json:"page_size"`
 }
 
 // ProductCreateRequest 创建产品
@@ -17,6 +20,7 @@ type ProductCreateRequest struct {
 	CategoryID       uint64  `json:"category_id"`
 	ProductType      string  `json:"product_type"`
 	Description      string  `json:"description"`
+	CoverImage       string  `json:"cover_image"`
 	Specs            string  `json:"specs"`
 	PriceModel       string  `json:"price_model"`
 	Price            float64 `json:"price"`
@@ -59,6 +63,7 @@ type ProductUpdateRequest struct {
 	CategoryID    uint64  `json:"category_id"`
 	ProductType   string  `json:"product_type"`
 	Description   string  `json:"description"`
+	CoverImage    string  `json:"cover_image"`
 	Specs         string  `json:"specs"`
 	PriceModel    string  `json:"price_model"`
 	Price         float64 `json:"price"`
@@ -89,6 +94,7 @@ type ProductInfo struct {
 	CategoryID       uint64  `json:"category_id"`
 	ProductType      string  `json:"product_type"`
 	Description      string  `json:"description"`
+	CoverImage       string  `json:"cover_image"`
 	Specs            string  `json:"specs"`
 	PriceModel       string  `json:"price_model"`
 	Price            float64 `json:"price"`

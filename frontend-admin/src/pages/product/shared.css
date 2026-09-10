@@ -228,6 +228,30 @@
   border-top: 1px solid var(--color-border);
 }
 
+/* ---------- 封面图预览 ---------- */
+.product-module .cover-preview {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.product-module .cover-preview__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+  flex-shrink: 0;
+}
+
+.product-module .cover-preview__img {
+  width: 132px;
+  height: 88px;
+  object-fit: cover;
+  border-radius: var(--hs-radius-lg);
+  border: 1px solid #edf3ef;
+  background: var(--td-brand-color-1);
+}
+
 /* ---------- TDesign 表格细节优化 ---------- */
 .product-module .t-table__th {
   background: var(--product-green-soft) !important;

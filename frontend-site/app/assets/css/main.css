@@ -1,0 +1,242 @@
+/**
+ * 官网设计 Token 与基础样式。
+ *
+ * 规范 R10：官网不引入全量组件库，样式基于 --site-* 变量，主题色由配置运行时注入。
+ */
+
+:root {
+  --site-primary: #2b5cff;
+  --site-primary-strong: #1a45e0;
+  /* 主色的 RGB 通道，供 --site-art-* 等需要透明度的场景使用（见文件末尾说明） */
+  --site-primary-rgb: 43, 92, 255;
+  --site-primary-soft: rgba(43, 92, 255, 0.08);
+  --site-primary-border: rgba(43, 92, 255, 0.26);
+
+  --site-radius: 10px;
+  --site-radius-sm: 6px;
+  --site-radius-lg: 14px;
+
+  --site-text: #0f172a;
+  --site-text-muted: #64748b;
+  --site-text-subtle: #94a3b8;
+  --site-bg: #ffffff;
+  --site-bg-muted: #f6f8ff;
+  --site-border: #e5e7eb;
+  --site-border-soft: #eef2f7;
+
+  /*
+   * 卡片配图占位渐变（art-1..5）。
+   * 浅蓝/薰衣草色系，全部由主色通道派生 —— 换主题色时整页配图跟着变。
+   * 若品牌需要多种辅助色，覆盖这 5 个 token 即可，不必改组件。
+   */
+  --site-art-1: linear-gradient(140deg, rgba(var(--site-primary-rgb), 0.1) 0%, rgba(var(--site-primary-rgb), 0.34) 100%);
+  --site-art-2: linear-gradient(140deg, rgba(var(--site-primary-rgb), 0.06) 0%, rgba(var(--site-primary-rgb), 0.22) 100%);
+  --site-art-3: linear-gradient(140deg, rgba(var(--site-primary-rgb), 0.16) 0%, rgba(var(--site-primary-rgb), 0.44) 100%);
+  --site-art-4: linear-gradient(140deg, rgba(var(--site-primary-rgb), 0.28) 0%, rgba(var(--site-primary-rgb), 0.6) 100%);
+  --site-art-5: linear-gradient(140deg, rgba(var(--site-primary-rgb), 0.12) 0%, rgba(var(--site-primary-rgb), 0.3) 100%);
+
+  /* 页头 banner 的浅色底：白 → 极浅蓝，配合右侧插画区的光斑 */
+  --site-hero-wash: linear-gradient(180deg, #ffffff 0%, #f4f7ff 62%, #eef3ff 100%);
+
+  --site-max-width: 1200px;
+  --site-header-height: 68px;
+  --site-band-gap: 84px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--site-bg);
+  color: var(--site-text);
+  font-family: 'Inter', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui,
+    -apple-system, sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+button {
+  font: inherit;
+}
+
+.site-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.site-main {
+  flex: 1;
+}
+
+/* 通用容器 */
+.site-container {
+  width: 100%;
+  max-width: var(--site-max-width);
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* 通用按钮 */
+.site-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 44px;
+  padding: 0 24px;
+  border: 1px solid transparent;
+  border-radius: var(--site-radius);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease,
+    box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.site-btn--primary {
+  background: var(--site-primary);
+  color: #fff;
+  box-shadow: 0 6px 18px var(--site-primary-border);
+}
+
+.site-btn--primary:hover {
+  background: var(--site-primary-strong);
+  transform: translateY(-1px);
+}
+
+.site-btn--ghost {
+  background: #fff;
+  color: var(--site-text);
+  border-color: var(--site-border);
+}
+
+.site-btn--ghost:hover {
+  color: var(--site-primary);
+  border-color: var(--site-primary-border);
+}
+
+/* 区块标题 */
+.site-section {
+  padding: 72px 0;
+}
+
+.site-section--tight {
+  padding: 56px 0;
+}
+
+.site-section--muted {
+  background: var(--site-bg-muted);
+}
+
+.site-section__title {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-align: center;
+}
+
+.site-section__subtitle {
+  margin-top: 12px;
+  font-size: 15px;
+  color: var(--site-text-muted);
+  text-align: center;
+}
+
+/* 胶囊按钮（参考图右侧「查看全部 / 了解更多」），比 site-btn 更小更圆 */
+.site-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 18px;
+  border: 1px solid var(--site-border);
+  border-radius: 999px;
+  background: #fff;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--site-text);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.site-pill:hover {
+  color: var(--site-primary);
+  border-color: var(--site-primary-border);
+}
+
+/* 横向货架：可滑动卡片行（不引轮播库，用原生滚动 + snap） */
+.site-shelf {
+  display: flex;
+  gap: 18px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding-bottom: 8px;
+  scrollbar-width: thin;
+}
+
+.site-shelf > * {
+  scroll-snap-align: start;
+  flex: 0 0 auto;
+}
+
+.site-shelf::-webkit-scrollbar {
+  height: 6px;
+}
+
+.site-shelf::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--site-border);
+}
+
+.site-shelf::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (max-width: 768px) {
+  .site-section {
+    padding: 48px 0;
+  }
+
+  .site-section--tight {
+    padding: 38px 0;
+  }
+
+  .site-section__title {
+    font-size: 23px;
+  }
+
+  .site-container {
+    padding: 0 16px;
+  }
+}

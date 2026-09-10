@@ -65,6 +65,9 @@ func (r *productRepository) List(ctx context.Context, query dto.ProductListQuery
 	if query.ProvisionMode != "" {
 		base = base.Where("provision_mode = ?", query.ProvisionMode)
 	}
+	if query.Featured != nil {
+		base = base.Where("featured = ?", *query.Featured)
+	}
 
 	var total int64
 	if err := base.Count(&total).Error; err != nil {

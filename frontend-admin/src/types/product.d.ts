@@ -6,6 +6,7 @@ export interface SaleProductListQuery {
   category_id?: number
   status?: number
   provision_mode?: string
+  featured?: boolean
   page?: number
   page_size?: number
 }
@@ -16,6 +17,7 @@ export interface SaleProductCreateRequest {
   category_id?: number
   product_type?: string
   description?: string
+  cover_image?: string
   specs?: string
   price_model?: string
   price?: number
@@ -55,6 +57,7 @@ export interface SaleProductUpdateRequest {
   category_id?: number
   product_type?: string
   description?: string
+  cover_image?: string
   specs?: string
   price_model?: string
   price?: number
@@ -77,6 +80,7 @@ export interface SaleProductInfo {
   category_id: number
   product_type: string
   description: string
+  cover_image: string
   specs: string
   price_model: string
   price: number

@@ -49,6 +49,7 @@ func (s *productService) List(ctx context.Context, query dto.ListQuery) (*dto.Li
 		Keyword:    query.Keyword,
 		CategoryID: query.Category,
 		Status:     1, // 仅上架
+		Featured:   query.Featured,
 		Page:       page,
 		PageSize:   pageSize,
 	})
@@ -81,6 +82,7 @@ func fromAdmin(it catalogdto.ProductInfo) dto.ProductInfo {
 		ID:            it.ID,
 		Name:          it.Name,
 		Description:   it.Description,
+		CoverImage:    it.CoverImage,
 		CategoryID:    it.CategoryID,
 		ProductType:   it.ProductType,
 		Price:         it.Price,

@@ -566,6 +566,12 @@ func newRouter(app *App) *gin.Engine {
 		ucProducts.GET("/:id", app.ucProductHandler.Get)
 	}
 
+	// 官网门户公开只读接口（无需登录，字段已脱敏，响应声明可共享缓存）
+	publicSite := r.Group("/api/v1/public")
+	{
+		publicSite.GET("/announcements", app.ucSiteHandler.Announcements) // 已发布公告
+	}
+
 	// 用户中心订单：下单（余额支付开通）+ 我的订单（需登录）
 	ucOrders := r.Group("/api/v1/uc/orders")
 	ucOrders.Use(middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))

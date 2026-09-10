@@ -109,6 +109,7 @@ func (s *productService) Create(ctx context.Context, req dto.ProductCreateReques
 		CategoryID:       req.CategoryID,
 		ProductType:      req.ProductType,
 		Description:      req.Description,
+		CoverImage:       req.CoverImage,
 		Specs:            req.Specs,
 		PriceModel:       req.PriceModel,
 		Price:            req.Price,
@@ -153,6 +154,7 @@ func (s *productService) Update(ctx context.Context, id uint64, req dto.ProductU
 	item.CategoryID = req.CategoryID
 	item.ProductType = req.ProductType
 	item.Description = req.Description
+	item.CoverImage = req.CoverImage
 	item.Specs = req.Specs
 	item.PriceModel = req.PriceModel
 	item.Price = req.Price
@@ -599,6 +601,7 @@ func buildProductInfo(item model.Product) dto.ProductInfo {
 		CategoryID:       item.CategoryID,
 		ProductType:      item.ProductType,
 		Description:      item.Description,
+		CoverImage:       item.CoverImage,
 		Specs:            item.Specs,
 		PriceModel:       item.PriceModel,
 		Price:            item.Price,

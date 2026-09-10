@@ -5,8 +5,11 @@ package dto
 type ListQuery struct {
 	Keyword  string `form:"keyword" json:"keyword"`
 	Category uint64 `form:"category_id" json:"category_id"`
-	Page     int    `form:"page" json:"page"`
-	PageSize int    `form:"page_size" json:"page_size"`
+	// Featured 推荐位过滤：nil=不过滤（全部上架商品），true=仅推荐位商品。
+	// 官网首页「热门产品」用它取运营勾选的推荐位，避免前端拉全量再本地筛选。
+	Featured *bool `form:"featured" json:"featured"`
+	Page     int   `form:"page" json:"page"`
+	PageSize int   `form:"page_size" json:"page_size"`
 }
 
 // ProductInfo 用户可购商品信息（不含成本价等内部字段）。
@@ -14,6 +17,7 @@ type ProductInfo struct {
 	ID            uint64  `json:"id"`
 	Name          string  `json:"name"`
 	Description   string  `json:"description"`
+	CoverImage    string  `json:"cover_image"`
 	CategoryID    uint64  `json:"category_id"`
 	ProductType   string  `json:"product_type"`
 	Price         float64 `json:"price"`

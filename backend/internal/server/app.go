@@ -40,6 +40,7 @@ import (
 	usermenuhandler "hostsent/backend/internal/modules/uc/menu/handler"
 	ucorderhandler "hostsent/backend/internal/modules/uc/order/handler"
 	ucproducthandler "hostsent/backend/internal/modules/uc/product/handler"
+	ucsitehandler "hostsent/backend/internal/modules/uc/site/handler"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/config"
 )
@@ -98,6 +99,7 @@ type App struct {
 	lifecycleUserHandler   *lifecyclehandler.LifecycleUserHandler
 	notifyAdminHandler     *notifyhandler.AdminHandler
 	notifyUserHandler      *notifyhandler.UserHandler
+	ucSiteHandler          *ucsitehandler.SiteHandler
 }
 
 // NewApp 构造装配容器（DI 单一接线点）。
@@ -152,6 +154,7 @@ func NewApp(
 	lifecycleUserHandler *lifecyclehandler.LifecycleUserHandler,
 	notifyAdminHandler *notifyhandler.AdminHandler,
 	notifyUserHandler *notifyhandler.UserHandler,
+	ucSiteHandler *ucsitehandler.SiteHandler,
 	logger *zap.Logger,
 	jwtIssuer *appauth.JWTIssuer,
 ) *App {
@@ -207,5 +210,6 @@ func NewApp(
 		lifecycleUserHandler:   lifecycleUserHandler,
 		notifyAdminHandler:     notifyAdminHandler,
 		notifyUserHandler:      notifyUserHandler,
+		ucSiteHandler:          ucSiteHandler,
 	}
 }

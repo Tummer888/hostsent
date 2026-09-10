@@ -57,6 +57,10 @@
               <t-descriptions-item label="创建时间">{{ formatTime(product.created_at) }}</t-descriptions-item>
               <t-descriptions-item label="更新时间">{{ formatTime(product.updated_at) }}</t-descriptions-item>
               <t-descriptions-item label="产品描述" :span="2">{{ product.description || '—' }}</t-descriptions-item>
+              <t-descriptions-item label="封面图" :span="2">
+                <img v-if="product.cover_image" class="detail-cover" :src="product.cover_image" alt="产品封面图">
+                <span v-else>—</span>
+              </t-descriptions-item>
               <t-descriptions-item label="规格 JSON" :span="2">
                 <pre class="spec-pre">{{ product.specs || '—' }}</pre>
               </t-descriptions-item>
@@ -252,5 +256,13 @@ onMounted(() => {
   font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
   font-size: 12px;
   color: #334155;
+}
+
+.detail-cover {
+  width: 160px;
+  height: 106px;
+  object-fit: cover;
+  border-radius: var(--hs-radius-lg);
+  border: 1px solid #edf3ef;
 }
 </style>

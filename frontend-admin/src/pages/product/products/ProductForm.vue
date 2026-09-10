@@ -55,6 +55,15 @@
           </t-form-item>
         </div>
 
+        <t-form-item label="封面图 URL" name="cover_image">
+          <t-input v-model="form.cover_image" placeholder="选填，官网产品卡与详情页展示用，如 /branding/logo.svg" clearable />
+        </t-form-item>
+
+        <div v-if="form.cover_image" class="cover-preview">
+          <span class="cover-preview__label">封面预览</span>
+          <img class="cover-preview__img" :src="form.cover_image" alt="封面预览">
+        </div>
+
         <t-form-item label="产品描述" name="description">
           <t-textarea v-model="form.description" :autosize="{ minRows: 2, maxRows: 5 }" placeholder="选填，产品简介" />
         </t-form-item>
@@ -115,6 +124,7 @@ const form = reactive({
   category_id: undefined as number | undefined,
   product_type: 'cloud_host',
   description: '',
+  cover_image: '',
   specs: '',
   price_model: 'fixed',
   price: 0,
@@ -154,6 +164,7 @@ watch(
       form.category_id = initial.category_id || undefined
       form.product_type = initial.product_type
       form.description = initial.description || ''
+      form.cover_image = initial.cover_image || ''
       form.specs = initial.specs || ''
       form.price_model = initial.price_model
       form.price = initial.price
@@ -190,6 +201,7 @@ async function handleSubmit() {
       category_id: form.category_id || 0,
       product_type: form.product_type,
       description: form.description,
+      cover_image: form.cover_image,
       specs: form.specs,
       price_model: form.price_model,
       price: form.price,
