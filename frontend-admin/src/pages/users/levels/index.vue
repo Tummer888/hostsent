@@ -1,8 +1,8 @@
 <template>
-  <div class="quota-page">
-    <header class="page-header surface-card"><div><h2 class="page-title">用户等级管理</h2><p class="page-subtitle">管理等级权重、绑定默认模板和实例 / CPU / 内存 / 磁盘上限。</p></div></header>
+  <div class="level-page">
+    <header class="page-header surface-card"><div><h2 class="page-title">用户等级管理</h2><p class="page-subtitle">管理等级权重、升级条件与权益。等级按累计消费自动升级，不参与折扣计算。</p></div></header>
     <section class="toolbar surface-card"><t-space wrap><t-input v-model="filters.keyword" clearable placeholder="搜索等级名称 / 编码" @enter="handleSearch" /><t-select v-model="filters.status" clearable placeholder="状态" :options="statusOptions" /><t-button theme="primary" @click="handleSearch">查询</t-button><t-button variant="outline" @click="handleReset">重置</t-button></t-space></section>
-    <section class="table-panel surface-card"><t-table row-key="id" :data="tableData" :columns="columns" :loading="loading" :pagination="pagination" cell-empty-content="—" @page-change="handlePageChange"><template #name="{ row }"><div class="primary-cell"><strong>{{ row.name }}</strong><span>{{ row.code }}</span></div></template><template #default_template_name="{ row }">{{ row.default_template_name || '—' }}</template><template #resource="{ row }"><div class="primary-cell"><span>实例 {{ row.max_instance_count }}</span><span>CPU {{ row.max_cpu_cores }} / 内存 {{ row.max_memory_gb }}GB / 磁盘 {{ row.max_disk_gb }}GB</span></div></template><template #status="{ row }"><t-tag theme="primary" variant="light">{{ row.status }}</t-tag></template></t-table></section>
+    <section class="table-panel surface-card"><t-table row-key="id" :data="tableData" :columns="columns" :loading="loading" :pagination="pagination" cell-empty-content="—" @page-change="handlePageChange"><template #name="{ row }"><div class="primary-cell"><strong>{{ row.name }}</strong><span>{{ row.code }}</span></div></template><template #status="{ row }"><t-tag theme="primary" variant="light">{{ row.status }}</t-tag></template></t-table></section>
   </div>
 </template>
 
@@ -11,7 +11,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 import { getUserLevelList, type UserLevelInfo, type UserLevelListQuery } from '@/api/user'
 
-defineOptions({ name: 'UserQuotaTiers' })
+defineOptions({ name: 'UserLevels' })
 const loading = ref(false)
 const tableData = ref<UserLevelInfo[]>([])
 const filters = reactive<UserLevelListQuery>({ page: 1, page_size: 10, keyword: '', status: '' })
@@ -20,10 +20,10 @@ const statusOptions = [{ label: '启用', value: 'active' }, { label: '禁用', 
 const columns: PrimaryTableCol<UserLevelInfo>[] = [
   { colKey: 'name', title: '等级信息', minWidth: 220 },
   { colKey: 'weight', title: '权重', width: 100 },
-  { colKey: 'default_template_name', title: '默认模板', width: 160 },
-  { colKey: 'resource', title: '资源限制', minWidth: 260 },
+  { colKey: 'upgrade_condition', title: '升级条件', minWidth: 200 },
+  { colKey: 'feature_flags', title: '权益', minWidth: 220 },
   { colKey: 'status', title: '状态', width: 120 },
-  { colKey: 'description', title: '说明', minWidth: 220 },
+  { colKey: 'description', title: '说明', minWidth: 200 },
 ]
 async function loadData() { loading.value = true; try { const data = await getUserLevelList(filters); tableData.value = data.items || []; pagination.current = data.meta.page; pagination.pageSize = data.meta.page_size; pagination.total = data.meta.total } catch (error) { MessagePlugin.error((error as Error)?.message || '加载用户等级失败') } finally { loading.value = false } }
 function handleSearch() { filters.page = 1; pagination.current = 1; void loadData() }
@@ -33,7 +33,7 @@ onMounted(() => { void loadData() })
 </script>
 
 <style scoped>
-.quota-page { display: flex; flex-direction: column; gap: 16px; }
+.level-page { display: flex; flex-direction: column; gap: 16px; }
 .page-header,.toolbar,.table-panel { padding: 16px 20px; }
 .page-title { margin: 0; font-size: 22px; }
 .page-subtitle { margin: 8px 0 0; color: var(--color-muted-foreground); }

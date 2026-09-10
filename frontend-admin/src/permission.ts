@@ -104,14 +104,9 @@ export const navMenu = [
         ],
       },
       {
-        title: '资源配额与等级',
-        path: '/users/quota',
-        icon: iconWrapper(LayersIcon),
-        children: [
-          { title: '配额模板管理', path: '/users/quota/templates', icon: iconWrapper(LayersIcon) },
-          { title: '用户等级管理', path: '/users/quota/tiers', icon: iconWrapper(TagIcon) },
-          { title: '配额调整记录', path: '/users/quota/changes', icon: iconWrapper(HistoryIcon) },
-        ],
+        title: '用户等级',
+        path: '/users/levels',
+        icon: iconWrapper(TagIcon),
       },
       {
         title: '实名认证',

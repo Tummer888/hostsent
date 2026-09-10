@@ -81,9 +81,9 @@ import (
 	distributionhandler "hostsent/backend/internal/modules/admin/user/distribution/handler"
 	distributionrepo "hostsent/backend/internal/modules/admin/user/distribution/repository"
 	distributionservice "hostsent/backend/internal/modules/admin/user/distribution/service"
-	quotahandler "hostsent/backend/internal/modules/admin/user/quota/handler"
-	quotarepo "hostsent/backend/internal/modules/admin/user/quota/repository"
-	quotaservice "hostsent/backend/internal/modules/admin/user/quota/service"
+	levelhandler "hostsent/backend/internal/modules/admin/user/level/handler"
+	levelrepo "hostsent/backend/internal/modules/admin/user/level/repository"
+	levelservice "hostsent/backend/internal/modules/admin/user/level/service"
 	securityhandler "hostsent/backend/internal/modules/admin/user/security/handler"
 	securityrepo "hostsent/backend/internal/modules/admin/user/security/repository"
 	securityservice "hostsent/backend/internal/modules/admin/user/security/service"
@@ -179,10 +179,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	configRepo := systemrepo.NewConfigRepository(database)
 	configService := systemservice.NewConfigService(configRepo)
 	configHandler := systemhandler.NewConfigHandler(configService)
-	resourceQuotaRepo := quotarepo.NewResourceQuotaRepository(database)
-	quotaTemplateRepo := quotarepo.NewQuotaTemplateRepository(database)
-	quotaUserLevelRepo := quotarepo.NewUserLevelRepository(database)
-	quotaAdjustmentRepo := quotarepo.NewQuotaAdjustmentRepository(database)
+	levelRepo := levelrepo.NewUserLevelRepository(database)
 	verificationRepo := verificationrepo.NewVerificationRepository(database)
 	upstreamMgr := upstream.GetProviderManager()
 	providerRepo := providerrepo.NewProviderRepository(database)
@@ -216,10 +213,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	permissionService := service.NewPermissionService(permissionRepo)
 	menuService := menuservice.NewMenuService(menuRepo)
 	securityService := securityservice.NewSecurityService(securityRepo)
-	resourceQuotaService := quotaservice.NewResourceQuotaService(resourceQuotaRepo, quotaAdjustmentRepo)
-	quotaTemplateService := quotaservice.NewQuotaTemplateService(quotaTemplateRepo)
-	quotaUserLevelService := quotaservice.NewUserLevelService(quotaUserLevelRepo)
-	quotaAdjustmentService := quotaservice.NewQuotaAdjustmentService(quotaAdjustmentRepo)
+	userLevelService := levelservice.NewUserLevelService(levelRepo)
 	verificationService := verificationservice.NewVerificationService(verificationRepo)
 	// 用户中心模块：独立的数据访问、认证服务与处理器（与后台管理模块解耦）
 	userCenterRepo := usercenterrepo.NewUserRepository(database)
@@ -263,10 +257,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	permissionHandler := handler.NewPermissionHandler(permissionService)
 	menuHandler := menuhandler.NewMenuHandler(menuService)
 	securityHandler := securityhandler.NewSecurityHandler(securityService)
-	resourceQuotaHandler := quotahandler.NewResourceQuotaHandler(resourceQuotaService)
-	quotaTemplateHandler := quotahandler.NewQuotaTemplateHandler(quotaTemplateService)
-	quotaUserLevelHandler := quotahandler.NewUserLevelHandler(quotaUserLevelService)
-	quotaAdjustmentHandler := quotahandler.NewQuotaAdjustmentHandler(quotaAdjustmentService)
+	userLevelHandler := levelhandler.NewUserLevelHandler(userLevelService)
 	verificationHandler := verificationhandler.NewVerificationHandler(verificationService)
 	providerHandler := providerhandler.NewProviderHandler(providerService)
 	productHandler := producthandler.NewProductHandler(productService)
@@ -438,7 +429,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 			SourceID:     order.OrderNo,
 		})
 	}
-	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, resourceQuotaHandler, quotaTemplateHandler, quotaUserLevelHandler, quotaAdjustmentHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, promotionHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, logger, jwtIssuer)
+	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, promotionHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, logger, jwtIssuer)
 	router := newRouter(app)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)

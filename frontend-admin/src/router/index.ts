@@ -135,28 +135,10 @@ const routes: Array<RouteRecordRaw> = [
         meta: { title: '会话管理', role: 'admin' },
       },
       {
-        path: 'quota/resources',
-        name: 'UserQuotaResources',
-        component: () => import('@/pages/users/quota/resources/index.vue'),
-        meta: { title: '用户资源配额', role: 'admin' },
-      },
-      {
-        path: 'quota/templates',
-        name: 'UserQuotaTemplates',
-        component: () => import('@/pages/users/quota/templates/index.vue'),
-        meta: { title: '配额模板管理', role: 'admin' },
-      },
-      {
-        path: 'quota/tiers',
-        name: 'UserQuotaTiers',
-        component: () => import('@/pages/users/quota/tiers/index.vue'),
+        path: 'levels',
+        name: 'UserLevels',
+        component: () => import('@/pages/users/levels/index.vue'),
         meta: { title: '用户等级管理', role: 'admin' },
-      },
-      {
-        path: 'quota/changes',
-        name: 'UserQuotaChanges',
-        component: () => import('@/pages/users/quota/changes/index.vue'),
-        meta: { title: '配额调整记录', role: 'admin' },
       },
       {
         path: 'verification/pending',

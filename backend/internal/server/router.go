@@ -137,41 +137,14 @@ func newRouter(app *App) *gin.Engine {
 			roles.POST("/:id/permissions", app.roleHandler.AssignPermissions)
 		}
 
-		quotas := v1.Group("/quotas")
-		quotas.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
-		{
-			quotas.GET("", app.resourceQuotaHandler.List)
-			quotas.GET("/:id", app.resourceQuotaHandler.Get)
-			quotas.GET("/users/:user_id", app.resourceQuotaHandler.GetByUser)
-			quotas.POST("/:id/adjust", app.resourceQuotaHandler.Adjust)
-		}
-
-		quotaTemplates := v1.Group("/quota-templates")
-		quotaTemplates.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
-		{
-			quotaTemplates.GET("", app.quotaTemplateHandler.List)
-			quotaTemplates.POST("", app.quotaTemplateHandler.Create)
-			quotaTemplates.GET("/:id", app.quotaTemplateHandler.Get)
-			quotaTemplates.PUT("/:id", app.quotaTemplateHandler.Update)
-			quotaTemplates.DELETE("/:id", app.quotaTemplateHandler.Delete)
-		}
-
 		userLevels := v1.Group("/user-levels")
 		userLevels.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
 		{
-			userLevels.GET("", app.quotaUserLevelHandler.List)
-			userLevels.POST("", app.quotaUserLevelHandler.Create)
-			userLevels.GET("/:id", app.quotaUserLevelHandler.Get)
-			userLevels.PUT("/:id", app.quotaUserLevelHandler.Update)
-			userLevels.DELETE("/:id", app.quotaUserLevelHandler.Delete)
-			userLevels.POST("/:id/bind-template", app.quotaUserLevelHandler.BindTemplate)
-		}
-
-		quotaAdjustments := v1.Group("/quota-adjustments")
-		quotaAdjustments.Use(middleware.AdminAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
-		{
-			quotaAdjustments.GET("", app.quotaAdjustmentHandler.List)
-			quotaAdjustments.GET("/:id", app.quotaAdjustmentHandler.Get)
+			userLevels.GET("", app.userLevelHandler.List)
+			userLevels.POST("", app.userLevelHandler.Create)
+			userLevels.GET("/:id", app.userLevelHandler.Get)
+			userLevels.PUT("/:id", app.userLevelHandler.Update)
+			userLevels.DELETE("/:id", app.userLevelHandler.Delete)
 		}
 
 		verifications := v1.Group("/verifications")

@@ -31,7 +31,7 @@ import (
 	tickethandler "hostsent/backend/internal/modules/admin/ticket/handler"
 	"hostsent/backend/internal/modules/admin/user/account/handler"
 	distributionhandler "hostsent/backend/internal/modules/admin/user/distribution/handler"
-	quotahandler "hostsent/backend/internal/modules/admin/user/quota/handler"
+	levelhandler "hostsent/backend/internal/modules/admin/user/level/handler"
 	securityhandler "hostsent/backend/internal/modules/admin/user/security/handler"
 	verificationhandler "hostsent/backend/internal/modules/admin/user/verification/handler"
 	usercenterhandler "hostsent/backend/internal/modules/uc/auth/handler"
@@ -51,55 +51,52 @@ type App struct {
 	logger    *zap.Logger
 	jwtIssuer *appauth.JWTIssuer
 
-	adminHandler           *adminhandler.AdminHandler
-	userHandler            *handler.UserHandler
-	userDetailHandler      *handler.UserDetailHandler
-	userGroupHandler       *handler.UserGroupHandler
-	agentLevelHandler      *distributionhandler.AgentLevelHandler
-	agentHandler           *distributionhandler.AgentHandler
-	subordinateHandler     *distributionhandler.SubordinateHandler
-	commissionHandler      *distributionhandler.CommissionHandler
-	settlementHandler      *distributionhandler.SettlementHandler
-	roleHandler            *handler.RoleHandler
-	permissionHandler      *handler.PermissionHandler
-	menuHandler            *menuhandler.MenuHandler
-	securityHandler        *securityhandler.SecurityHandler
-	resourceQuotaHandler   *quotahandler.ResourceQuotaHandler
-	quotaTemplateHandler   *quotahandler.QuotaTemplateHandler
-	quotaUserLevelHandler  *quotahandler.UserLevelHandler
-	quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler
-	verificationHandler    *verificationhandler.VerificationHandler
-	providerHandler        *providerhandler.ProviderHandler
-	productHandler         *producthandler.ProductHandler
-	syncHandler            *synchandler.SyncHandler
-	userCenterAuthHandler  *usercenterhandler.AuthHandler
-	userMenuHandler        *usermenuhandler.MenuHandler
-	prodCategoryHandler    *categoryhandler.CategoryHandler
-	prodCatalogHandler     *cataloghandler.ProductHandler
-	specHandler            *spechandler.SpecHandler
-	pricingHandler         *pricinghandler.PricingHandler
-	promotionHandler       *promotionhandler.PromotionHandler
-	orderHandler           *orderhandler.OrderHandler
-	refundHandler          *orderhandler.RefundHandler
-	walletHandler          *finaccounthandler.WalletHandler
-	rechargeHandler        *finrechargehandler.RechargeHandler
-	withdrawHandler        *finwithdrawhandler.WithdrawHandler
-	billHandler            *finbillhandler.BillHandler
-	reconHandler           *finbillhandler.ReconHandler
-	configHandler          *systemhandler.ConfigHandler
-	userFinanceHandler     *userfinancehandler.FinanceHandler
-	ucProductHandler       *ucproducthandler.ProductHandler
-	ucOrderHandler         *ucorderhandler.OrderHandler
-	ucInstanceHandler      *ucinstancehandler.InstanceHandler
-	ticketHandler          *tickethandler.TicketHandler
-	ticketCategoryHandler  *tickethandler.CategoryHandler
-	userTicketHandler      *tickethandler.UserTicketHandler
-	expiringHandler        *lifecyclehandler.ExpiringHandler
-	lifecycleAdminHandler  *lifecyclehandler.LifecycleAdminHandler
-	lifecycleUserHandler   *lifecyclehandler.LifecycleUserHandler
-	notifyAdminHandler     *notifyhandler.AdminHandler
-	notifyUserHandler      *notifyhandler.UserHandler
-	ucSiteHandler          *ucsitehandler.SiteHandler
+	adminHandler          *adminhandler.AdminHandler
+	userHandler           *handler.UserHandler
+	userDetailHandler     *handler.UserDetailHandler
+	userGroupHandler      *handler.UserGroupHandler
+	agentLevelHandler     *distributionhandler.AgentLevelHandler
+	agentHandler          *distributionhandler.AgentHandler
+	subordinateHandler    *distributionhandler.SubordinateHandler
+	commissionHandler     *distributionhandler.CommissionHandler
+	settlementHandler     *distributionhandler.SettlementHandler
+	roleHandler           *handler.RoleHandler
+	permissionHandler     *handler.PermissionHandler
+	menuHandler           *menuhandler.MenuHandler
+	securityHandler       *securityhandler.SecurityHandler
+	userLevelHandler      *levelhandler.UserLevelHandler
+	verificationHandler   *verificationhandler.VerificationHandler
+	providerHandler       *providerhandler.ProviderHandler
+	productHandler        *producthandler.ProductHandler
+	syncHandler           *synchandler.SyncHandler
+	userCenterAuthHandler *usercenterhandler.AuthHandler
+	userMenuHandler       *usermenuhandler.MenuHandler
+	prodCategoryHandler   *categoryhandler.CategoryHandler
+	prodCatalogHandler    *cataloghandler.ProductHandler
+	specHandler           *spechandler.SpecHandler
+	pricingHandler        *pricinghandler.PricingHandler
+	promotionHandler      *promotionhandler.PromotionHandler
+	orderHandler          *orderhandler.OrderHandler
+	refundHandler         *orderhandler.RefundHandler
+	walletHandler         *finaccounthandler.WalletHandler
+	rechargeHandler       *finrechargehandler.RechargeHandler
+	withdrawHandler       *finwithdrawhandler.WithdrawHandler
+	billHandler           *finbillhandler.BillHandler
+	reconHandler          *finbillhandler.ReconHandler
+	configHandler         *systemhandler.ConfigHandler
+	userFinanceHandler    *userfinancehandler.FinanceHandler
+	ucProductHandler      *ucproducthandler.ProductHandler
+	ucOrderHandler        *ucorderhandler.OrderHandler
+	ucInstanceHandler     *ucinstancehandler.InstanceHandler
+	ticketHandler         *tickethandler.TicketHandler
+	ticketCategoryHandler *tickethandler.CategoryHandler
+	userTicketHandler     *tickethandler.UserTicketHandler
+	expiringHandler       *lifecyclehandler.ExpiringHandler
+	lifecycleAdminHandler *lifecyclehandler.LifecycleAdminHandler
+	lifecycleUserHandler  *lifecyclehandler.LifecycleUserHandler
+	notifyAdminHandler    *notifyhandler.AdminHandler
+	notifyUserHandler     *notifyhandler.UserHandler
+	ucSiteHandler         *ucsitehandler.SiteHandler
 }
 
 // NewApp 构造装配容器（DI 单一接线点）。
@@ -119,10 +116,7 @@ func NewApp(
 	permissionHandler *handler.PermissionHandler,
 	menuHandler *menuhandler.MenuHandler,
 	securityHandler *securityhandler.SecurityHandler,
-	resourceQuotaHandler *quotahandler.ResourceQuotaHandler,
-	quotaTemplateHandler *quotahandler.QuotaTemplateHandler,
-	quotaUserLevelHandler *quotahandler.UserLevelHandler,
-	quotaAdjustmentHandler *quotahandler.QuotaAdjustmentHandler,
+	userLevelHandler *levelhandler.UserLevelHandler,
 	verificationHandler *verificationhandler.VerificationHandler,
 	providerHandler *providerhandler.ProviderHandler,
 	productHandler *producthandler.ProductHandler,
@@ -159,57 +153,54 @@ func NewApp(
 	jwtIssuer *appauth.JWTIssuer,
 ) *App {
 	return &App{
-		cfg:                    cfg,
-		logger:                 logger,
-		jwtIssuer:              jwtIssuer,
-		adminHandler:           adminHandler,
-		userHandler:            userHandler,
-		userDetailHandler:      userDetailHandler,
-		userGroupHandler:       userGroupHandler,
-		agentLevelHandler:      agentLevelHandler,
-		agentHandler:           agentHandler,
-		subordinateHandler:     subordinateHandler,
-		commissionHandler:      commissionHandler,
-		settlementHandler:      settlementHandler,
-		roleHandler:            roleHandler,
-		permissionHandler:      permissionHandler,
-		menuHandler:            menuHandler,
-		securityHandler:        securityHandler,
-		resourceQuotaHandler:   resourceQuotaHandler,
-		quotaTemplateHandler:   quotaTemplateHandler,
-		quotaUserLevelHandler:  quotaUserLevelHandler,
-		quotaAdjustmentHandler: quotaAdjustmentHandler,
-		verificationHandler:    verificationHandler,
-		providerHandler:        providerHandler,
-		productHandler:         productHandler,
-		syncHandler:            syncHandler,
-		userCenterAuthHandler:  userCenterAuthHandler,
-		userMenuHandler:        userMenuHandler,
-		prodCategoryHandler:    prodCategoryHandler,
-		prodCatalogHandler:     prodCatalogHandler,
-		specHandler:            specHandler,
-		pricingHandler:         pricingHandler,
-		promotionHandler:       promotionHandler,
-		orderHandler:           orderHandler,
-		refundHandler:          refundHandler,
-		walletHandler:          walletHandler,
-		rechargeHandler:        rechargeHandler,
-		withdrawHandler:        withdrawHandler,
-		billHandler:            billHandler,
-		reconHandler:           reconHandler,
-		configHandler:          configHandler,
-		userFinanceHandler:     userFinanceHandler,
-		ucProductHandler:       ucProductHandler,
-		ucOrderHandler:         ucOrderHandler,
-		ucInstanceHandler:      ucInstanceHandler,
-		ticketHandler:          ticketHandler,
-		ticketCategoryHandler:  ticketCategoryHandler,
-		userTicketHandler:      userTicketHandler,
-		expiringHandler:        expiringHandler,
-		lifecycleAdminHandler:  lifecycleAdminHandler,
-		lifecycleUserHandler:   lifecycleUserHandler,
-		notifyAdminHandler:     notifyAdminHandler,
-		notifyUserHandler:      notifyUserHandler,
-		ucSiteHandler:          ucSiteHandler,
+		cfg:                   cfg,
+		logger:                logger,
+		jwtIssuer:             jwtIssuer,
+		adminHandler:          adminHandler,
+		userHandler:           userHandler,
+		userDetailHandler:     userDetailHandler,
+		userGroupHandler:      userGroupHandler,
+		agentLevelHandler:     agentLevelHandler,
+		agentHandler:          agentHandler,
+		subordinateHandler:    subordinateHandler,
+		commissionHandler:     commissionHandler,
+		settlementHandler:     settlementHandler,
+		roleHandler:           roleHandler,
+		permissionHandler:     permissionHandler,
+		menuHandler:           menuHandler,
+		securityHandler:       securityHandler,
+		userLevelHandler:      userLevelHandler,
+		verificationHandler:   verificationHandler,
+		providerHandler:       providerHandler,
+		productHandler:        productHandler,
+		syncHandler:           syncHandler,
+		userCenterAuthHandler: userCenterAuthHandler,
+		userMenuHandler:       userMenuHandler,
+		prodCategoryHandler:   prodCategoryHandler,
+		prodCatalogHandler:    prodCatalogHandler,
+		specHandler:           specHandler,
+		pricingHandler:        pricingHandler,
+		promotionHandler:      promotionHandler,
+		orderHandler:          orderHandler,
+		refundHandler:         refundHandler,
+		walletHandler:         walletHandler,
+		rechargeHandler:       rechargeHandler,
+		withdrawHandler:       withdrawHandler,
+		billHandler:           billHandler,
+		reconHandler:          reconHandler,
+		configHandler:         configHandler,
+		userFinanceHandler:    userFinanceHandler,
+		ucProductHandler:      ucProductHandler,
+		ucOrderHandler:        ucOrderHandler,
+		ucInstanceHandler:     ucInstanceHandler,
+		ticketHandler:         ticketHandler,
+		ticketCategoryHandler: ticketCategoryHandler,
+		userTicketHandler:     userTicketHandler,
+		expiringHandler:       expiringHandler,
+		lifecycleAdminHandler: lifecycleAdminHandler,
+		lifecycleUserHandler:  lifecycleUserHandler,
+		notifyAdminHandler:    notifyAdminHandler,
+		notifyUserHandler:     notifyUserHandler,
+		ucSiteHandler:         ucSiteHandler,
 	}
 }

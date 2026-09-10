@@ -185,7 +185,6 @@ const groups: ConfigGroup[] = [
       { key: 'register_need_audit', label: '注册需人工审核', type: 'switch', valueType: 'bool', default: false },
       { key: 'register_default_role', label: '默认角色', type: 'input', valueType: 'string', default: 'user', placeholder: '角色标识，如 user' },
       { key: 'register_default_tier', label: '默认用户等级', type: 'input', valueType: 'string', default: '', placeholder: '如 base' },
-      { key: 'register_default_quota', label: '默认配额模板', type: 'input', valueType: 'string', default: '', placeholder: '配额模板标识' },
       { key: 'invite_code_required', label: '注册需要邀请码', type: 'switch', valueType: 'bool', default: false },
       { key: 'invite_code_length', label: '邀请码长度', type: 'number', valueType: 'int', default: 8, min: 4, max: 32 },
     ],
