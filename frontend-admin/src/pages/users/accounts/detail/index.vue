@@ -600,7 +600,7 @@ onMounted(() => {
   width: 54px;
   height: 54px;
   border-radius: 14px;
-  background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--td-brand-color-6) 100%);
   color: #ffffff;
   font-size: 22px;
   font-weight: 700;
@@ -641,7 +641,7 @@ onMounted(() => {
 
 .summary-card {
   padding: 16px;
-  border: 1px solid #dcfce7;
+  border: 1px solid var(--td-brand-color-2);
   background: var(--hs-surface-1);
 }
 
@@ -672,14 +672,14 @@ onMounted(() => {
 .summary-card__hint {
   margin: 6px 0 0;
   font-size: 12px;
-  color: #166534;
+  color: var(--td-brand-color-9);
 }
 
 .detail-tabs,
 .panel-card,
 .side-card {
   padding: 16px;
-  border: 1px solid #dcfce7;
+  border: 1px solid var(--td-brand-color-2);
   background: var(--hs-surface-1);
 }
 
@@ -872,7 +872,7 @@ onMounted(() => {
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: #16a34a;
+  background: var(--color-primary);
   margin-top: 6px;
   flex: none;
 }
@@ -924,21 +924,21 @@ onMounted(() => {
 
 :deep(.page-btn.t-button--theme-primary:hover),
 :deep(.page-btn.t-button--theme-primary:focus-visible) {
-  background-color: #15803d;
-  border-color: #15803d;
+  background-color: var(--td-brand-color-8);
+  border-color: var(--td-brand-color-8);
 }
 
 :deep(.page-btn--ghost) {
   color: var(--color-primary);
-  border-color: #bbf7d0;
+  border-color: var(--td-brand-color-3);
   background: #ecfdf5;
 }
 
 :deep(.page-btn--ghost:hover),
 :deep(.page-btn--ghost:focus-visible) {
-  color: #15803d;
-  border-color: #86efac;
-  background: #dcfce7;
+  color: var(--td-brand-color-8);
+  border-color: var(--td-brand-color-4);
+  background: var(--td-brand-color-2);
 }
 
 :deep(.t-tabs__nav-item.t-is-active) {
@@ -955,9 +955,9 @@ onMounted(() => {
 :deep(.status-tag--paid),
 :deep(.status-tag--completed),
 :deep(.status-tag--resolved) {
-  color: #15803d;
+  color: var(--td-brand-color-8);
   background: #ecfdf5;
-  border-color: #bbf7d0;
+  border-color: var(--td-brand-color-3);
 }
 
 :deep(.status-tag--pending),

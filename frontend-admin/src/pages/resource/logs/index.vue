@@ -263,7 +263,7 @@ onMounted(() => {
 
 <style scoped lang="css">
 .resource-module {
-  --chip-bg: linear-gradient(135deg, #16a34a, #15803d);
+  --chip-bg: linear-gradient(135deg, var(--color-primary), var(--td-brand-color-8));
   --chip-shadow: 0 2px 6px rgba(22, 163, 74, 0.16);
 }
 

@@ -230,7 +230,7 @@
   .stat-card__icon--success,
   .stat-card--green .stat-card__icon,
   .stat-card--success .stat-card__icon {
-    background: linear-gradient(135deg, #4ade80, #16a34a);
+    background: linear-gradient(135deg, var(--td-brand-color-5), var(--color-primary));
   }
 
   .stat-card__icon--cyan,

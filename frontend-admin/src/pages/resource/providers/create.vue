@@ -425,7 +425,7 @@ onMounted(() => {
 
 <style scoped lang="css">
 .resource-module {
-  --chip-bg: linear-gradient(135deg, #16a34a, #15803d);
+  --chip-bg: linear-gradient(135deg, var(--color-primary), var(--td-brand-color-8));
   --chip-shadow: 0 4px 10px rgba(22, 163, 74, 0.25);
 }
 
@@ -473,7 +473,7 @@ onMounted(() => {
 }
 
 .type-card--active {
-  border-color: #16a34a;
+  border-color: var(--color-primary);
   box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.18);
 }
 
@@ -485,7 +485,7 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   background: var(--hs-surface-3);
-  color: #16a34a;
+  color: var(--color-primary);
 }
 
 .type-card__name {
@@ -503,7 +503,7 @@ onMounted(() => {
   position: absolute;
   top: 10px;
   right: 10px;
-  color: #16a34a;
+  color: var(--color-primary);
   display: inline-flex;
 }
 
@@ -563,7 +563,7 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   background: rgba(22, 163, 74, 0.12);
-  color: #16a34a;
+  color: var(--color-primary);
 }
 
 .done-box__title {

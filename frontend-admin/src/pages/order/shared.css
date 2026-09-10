@@ -8,29 +8,12 @@
 
 /* ---------- 页面骨架 ---------- */
 .order-module {
-  --chip-bg: linear-gradient(135deg, #22c55e, #15803d);
+  --chip-bg: linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8));
   --chip-shadow: 0 4px 10px rgba(22, 163, 74, 0.22);
-  --order-green: var(--color-primary, #16a34a);
-  --order-green-hover: #15803d;
-  --order-green-soft: #f0fdf4;
-  --order-green-border: #dcfce7;
-  --td-brand-color-1: #f0fdf4;
-  --td-brand-color-2: #dcfce7;
-  --td-brand-color-3: #bbf7d0;
-  --td-brand-color-4: #86efac;
-  --td-brand-color-5: #4ade80;
-  --td-brand-color-6: #22c55e;
-  --td-brand-color-7: #16a34a;
-  --td-brand-color-8: #15803d;
-  --td-brand-color-9: #166534;
-  --td-brand-color-10: #14532d;
-  --td-brand-color: var(--order-green);
-  --td-brand-color-hover: var(--order-green-hover);
-  --td-brand-color-focus: rgba(22, 163, 74, 0.14);
-  --td-brand-color-active: #166534;
-  --td-brand-color-disabled: #86efac;
-  --td-brand-color-light: var(--order-green-soft);
-  --td-brand-color-light-hover: #dcfce7;
+  --order-green: var(--color-primary, var(--color-primary));
+  --order-green-hover: var(--td-brand-color-8);
+  --order-green-soft: var(--td-brand-color-1);
+  --order-green-border: var(--td-brand-color-2);
 }
 
 .order-module .page-body {
@@ -53,7 +36,7 @@
 
 .order-module .surface-card:hover,
 .order-module .stat-card:hover {
-  border-color: #bbf7d0;
+  border-color: var(--td-brand-color-3);
   box-shadow: none !important;
   transform: none;
 }
@@ -86,7 +69,7 @@
   width: 44px;
   height: 44px;
   border-radius: var(--hs-radius-xl);
-  background: var(--chip-bg, linear-gradient(135deg, #22c55e, #15803d));
+  background: var(--chip-bg, linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8)));
   color: #ffffff;
   display: inline-flex;
   align-items: center;
@@ -143,7 +126,7 @@
   width: 3px;
   height: 14px;
   border-radius: 2px;
-  background: linear-gradient(180deg, var(--order-green), #15803d);
+  background: linear-gradient(180deg, var(--order-green), var(--td-brand-color-8));
 }
 
 .order-module .table-card__meta {
@@ -330,7 +313,7 @@
 
 /* ---------- TDesign 表格细节优化 ---------- */
 .order-module .t-table__th {
-  background: #f0fdf4 !important;
+  background: var(--td-brand-color-1) !important;
   color: #3f5848 !important;
   border-bottom-color: var(--order-green-border) !important;
   font-weight: 600 !important;

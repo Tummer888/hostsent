@@ -396,15 +396,15 @@ const regionBarOption = computed<EChartsOption>(() => {
               type: 'linear',
               x: 0, y: 0, x2: 1, y2: 0,
               colorStops: [
-                { offset: 0, color: v > maxCount * 0.7 ? '#86efac' : v > maxCount * 0.4 ? '#a7f3d0' : '#bbf7d0' },
-                { offset: 1, color: v > maxCount * 0.7 ? '#16a34a' : v > maxCount * 0.4 ? '#22c55e' : '#4ade80' },
+                { offset: 0, color: v > maxCount * 0.7 ? '#16a34a' : v > maxCount * 0.4 ? '#a7f3d0' : '#16a34a' },
+                { offset: 1, color: v > maxCount * 0.7 ? '#16a34a' : v > maxCount * 0.4 ? '#16a34a' : '#16a34a' },
               ],
             },
           },
         })),
         barWidth: 18,
         itemStyle: { borderRadius: [0, 6, 6, 0] },
-        emphasis: { itemStyle: { color: '#15803d' } },
+        emphasis: { itemStyle: { color: '#16a34a' } },
         label: { show: true, position: 'right', color: '#475569', fontSize: 12 },
       },
     ],
@@ -605,7 +605,7 @@ onMounted(() => {
   width: 44px;
   height: 44px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #22c55e, #16a34a);
+  background: linear-gradient(135deg, var(--td-brand-color-6), var(--color-primary));
   color: #ffffff;
   display: inline-flex;
   align-items: center;
@@ -791,7 +791,7 @@ onMounted(() => {
 }
 
 .stat-card__icon--blue { background: linear-gradient(135deg, #60a5fa, #2563eb); }
-.stat-card__icon--green { background: linear-gradient(135deg, #4ade80, #16a34a); }
+.stat-card__icon--green { background: linear-gradient(135deg, var(--td-brand-color-5), var(--color-primary)); }
 .stat-card__icon--cyan { background: linear-gradient(135deg, #22d3ee, #0891b2); }
 .stat-card__icon--orange { background: linear-gradient(135deg, #fbbf24, #ea580c); }
 .stat-card__icon--warning { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
@@ -922,7 +922,7 @@ onMounted(() => {
 
 .quick-btn:hover {
   background: #ecfdf5;
-  border-color: #86efac;
+  border-color: var(--td-brand-color-4);
   transform: translateY(-1px);
 }
 
@@ -935,7 +935,7 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #16a34a;
+  color: var(--color-primary);
   flex-shrink: 0;
 }
 
@@ -952,7 +952,7 @@ onMounted(() => {
 
 .quick-btn:hover .quick-btn__arrow {
   transform: translateX(3px);
-  color: #16a34a;
+  color: var(--color-primary);
 }
 
 .quick-empty {

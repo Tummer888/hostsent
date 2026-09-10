@@ -167,7 +167,7 @@ function formatTime(value: string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
 
-const DIST_COLORS = ['#16a34a', '#22c55e', '#f59e0b', '#6366f1', '#ec4899', '#dc2626']
+const DIST_COLORS = ['#16a34a', '#16a34a', '#f59e0b', '#6366f1', '#ec4899', '#dc2626']
 const abnormalStatuses = new Set(['error', 'failed', 'stopped', 'deleted'])
 
 function loadStats() {

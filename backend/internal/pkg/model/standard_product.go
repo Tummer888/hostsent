@@ -22,7 +22,7 @@ type StandardProduct struct {
 	ProviderType string                 `json:"provider_type"`
 	UpstreamID   string                 `json:"upstream_id"`
 	Name         string                 `json:"name"`
-	Specs        StandardProductSpec    `json:"specs"`
+	Specs        StandardProductSpec    `json:"specs"` // 上游标准化规格（StandardProductSpec）；wire 层商品 DTO 的 `specs` 为该结构的 JSON 字符串
 	RawSpecs     map[string]interface{} `json:"raw_specs"`
 	CostPrice    float64                `json:"cost_price"`
 	SalePrice    float64                `json:"sale_price"`

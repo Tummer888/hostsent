@@ -36,9 +36,23 @@
 
       <!-- 2. 主菜单/二三级栏 -->
       <aside class="menu-sidebar" :class="{ 'is-closed': sidebarCollapsed }">
-        <div class="menu-header">{{ currentGroup?.name || '菜单' }}</div>
+        <div class="menu-header">
+          <span class="menu-header__title">{{ currentGroup?.name || '菜单' }}</span>
+          <button
+            class="menu-collapse-btn"
+            :title="sidebarCollapsed ? '展开菜单' : '收缩菜单'"
+            @click="toggleSidebar"
+          >
+            <ChevronRightIcon v-if="sidebarCollapsed" size="16" />
+            <ChevronLeftIcon v-else size="16" />
+          </button>
+          <!-- 移动端专用：关闭抽屉菜单 -->
+          <button class="menu-close-btn" title="关闭菜单" aria-label="关闭菜单" @click="mobileSidebarOpen = false">
+            <CloseIcon size="16" />
+          </button>
+        </div>
         <ul class="menu-list">
-          <template v-for="menu in filteredMenuList" :key="menu.path || menu.name">
+          <template v-for="menu in currentMenuList" :key="menu.path || menu.name">
             <!-- 有子菜单 -->
             <li
               v-if="menu.children && menu.children.length"
@@ -97,35 +111,6 @@
             </li>
           </template>
         </ul>
-
-        <!-- 二级菜单搜索 -->
-        <div class="menu-search" :class="{ 'is-hidden': sidebarCollapsed }">
-          <SearchIcon size="16" class="menu-search__icon" />
-          <input
-            v-model="searchQuery"
-            class="menu-search__input"
-            type="text"
-            placeholder="搜索菜单..."
-          />
-          <button v-if="searchQuery" class="menu-search__clear" @click="searchQuery = ''">
-            &times;
-          </button>
-        </div>
-
-        <!-- 底部按钮组 -->
-        <div class="sidebar-footer">
-          <div class="footer-btn" :title="useFallbackMenu ? '使用静态菜单（后端不可用）' : '菜单管理'" @click="router.push('/system/menus')">
-            <MenuIcon />
-            <span v-if="useFallbackMenu" class="fallback-dot" aria-label="降级模式"></span>
-          </div>
-          <div class="footer-btn" title="返回仪表盘" @click="router.push('/dashboard/base')">
-            <DashboardIcon />
-          </div>
-          <!-- 加载指示器 -->
-          <div v-if="menuLoading" class="loading-indicator" aria-label="加载中">
-            <div class="loading-spinner"></div>
-          </div>
-        </div>
       </aside>
     </div>
 
@@ -133,39 +118,72 @@
     <t-layout direction="vertical" class="main-layout">
       <t-header class="top-header">
         <div class="top-header__left">
-          <!-- 桌面端收缩按钮 -->
-          <button
-            class="sidebar-toggle"
-            :title="sidebarCollapsed ? '展开菜单' : '收缩菜单'"
-            @click="toggleSidebar"
-          >
-            <ChevronLeftIcon v-if="!sidebarCollapsed" size="18" />
-            <ChevronRightIcon v-else size="18" />
-          </button>
           <!-- 移动端菜单按钮 -->
           <button class="mobile-menu-btn" aria-label="菜单" @click="mobileSidebarOpen = true">
             <MenuIcon size="20" />
           </button>
-          <t-breadcrumb separator="/">
-            <t-breadcrumb-item v-if="currentGroup">{{ currentGroup.name }}</t-breadcrumb-item>
-            <t-breadcrumb-item v-if="currentSectionName">{{ currentSectionName }}</t-breadcrumb-item>
-            <t-breadcrumb-item>{{ currentMenuTitle }}</t-breadcrumb-item>
-          </t-breadcrumb>
         </div>
         <div class="top-header__right">
-          <!-- 刷新菜单 -->
-          <t-tooltip content="刷新菜单" placement="bottom">
-            <t-button
-              variant="text"
-              shape="square"
-              aria-label="刷新菜单"
-              :loading="menuLoading"
-              @click="refreshMenus"
-            >
-              <template #icon>
-                <RefreshIcon />
-              </template>
+          <!-- 导航搜索框 -->
+          <div class="navbar-search">
+            <SearchIcon size="16" class="navbar-search__icon" />
+            <input
+              v-model="navSearch"
+              class="navbar-search__input"
+              type="text"
+              placeholder="搜索页面..."
+              @focus="navSearchOpen = true"
+              @blur="navSearchOpen = false"
+              @keyup.enter="gotoFirstResult"
+            />
+            <div v-if="navSearchOpen && navSearch.trim()" class="navbar-search__dropdown">
+              <div
+                v-for="r in navResults"
+                :key="r.path"
+                class="navbar-search__item"
+                @mousedown.prevent="switchTo(r.path)"
+              >
+                <span class="navbar-search__item-icon"><component :is="r.icon" v-if="r.icon" /></span>
+                <span>{{ r.title }}</span>
+              </div>
+              <div v-if="!navResults.length" class="navbar-search__empty">无匹配结果</div>
+            </div>
+          </div>
+
+          <!-- 主题设置 -->
+          <t-tooltip content="主题设置" placement="bottom">
+            <t-button variant="text" shape="square" aria-label="主题设置" @click="settingsVisible = true">
+              <template #icon><SettingIcon /></template>
             </t-button>
+          </t-tooltip>
+
+          <!-- 全屏 -->
+          <t-tooltip content="全屏" placement="bottom">
+            <t-button variant="text" shape="square" aria-label="全屏" @click="toggleFullscreen">
+              <template #icon><FullscreenIcon /></template>
+            </t-button>
+          </t-tooltip>
+
+          <!-- 主题切换 -->
+          <t-tooltip :content="isDark ? '切换浅色' : '切换深色'" placement="bottom">
+            <t-button variant="text" shape="square" aria-label="主题切换" @click="toggleTheme">
+              <template #icon><MoonIcon v-if="!isDark" /><SunnyIcon v-else /></template>
+            </t-button>
+          </t-tooltip>
+
+          <!-- 语言切换 -->
+          <t-tooltip content="语言切换" placement="bottom">
+            <t-dropdown trigger="click" @click="onLangChange">
+              <t-button variant="text" shape="square" aria-label="语言切换">
+                <template #icon><TranslateIcon /></template>
+              </t-button>
+              <template #dropdown>
+                <t-dropdown-menu>
+                  <t-dropdown-item value="zh-CN">中文</t-dropdown-item>
+                  <t-dropdown-item value="en-US">English</t-dropdown-item>
+                </t-dropdown-menu>
+              </template>
+            </t-dropdown>
           </t-tooltip>
 
           <!-- 通知 -->
@@ -208,6 +226,44 @@
           </t-dropdown>
         </div>
       </t-header>
+
+      <!-- 已打开页面标签栏（可在主题设置中关闭） -->
+      <div v-if="settings.showTabsBar" class="tabs-bar">
+        <div class="tabs-bar__scroll">
+          <div
+            v-for="tab in openedTabs"
+            :key="tab.path"
+            class="tabs-bar__tab"
+            :class="{ 'is-active': isTabActive(tab) }"
+            @click="switchTab(tab)"
+          >
+            <span class="tabs-bar__title">{{ tab.title }}</span>
+            <button
+              class="tabs-bar__pin"
+              :class="{ 'is-pinned': tab.pinned }"
+              :title="tab.pinned ? '取消固定' : '固定标签'"
+              @click.stop="togglePin(tab)"
+            >
+              <PinIcon size="12" />
+            </button>
+            <button v-if="!tab.pinned" class="tabs-bar__close" title="关闭" @click.stop="closeTab(tab)">
+              <CloseIcon size="12" />
+            </button>
+          </div>
+        </div>
+        <t-dropdown trigger="click" @click="onTabsMore">
+          <t-button variant="text" shape="square" class="tabs-bar__more" aria-label="标签操作">
+            <template #icon><MoreIcon /></template>
+          </t-button>
+          <template #dropdown>
+            <t-dropdown-menu>
+              <t-dropdown-item value="pin-current">固定当前页</t-dropdown-item>
+              <t-dropdown-item value="close-others">关闭其它</t-dropdown-item>
+              <t-dropdown-item value="close-all">关闭全部</t-dropdown-item>
+            </t-dropdown-menu>
+          </template>
+        </t-dropdown>
+      </div>
       <t-content class="content-area">
         <div class="content-inner">
           <router-view v-slot="{ Component }">
@@ -218,6 +274,9 @@
         </div>
       </t-content>
     </t-layout>
+
+    <!-- 主题设置抽屉 -->
+    <SettingsPanel v-model:visible="settingsVisible" />
   </div>
 </template>
 
@@ -227,13 +286,18 @@ import {
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  DashboardIcon,
+  CloseIcon,
+  FullscreenIcon,
   MenuIcon,
+  MoonIcon,
+  MoreIcon,
   NotificationIcon,
+  PinIcon,
   PoweroffIcon,
-  RefreshIcon,
   SearchIcon,
   SettingIcon,
+  SunnyIcon,
+  TranslateIcon,
   UserIcon,
 } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
@@ -241,8 +305,10 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { navMenu } from '@/permission'
 import { useMenuStore } from '@/store/modules/menu'
+import { useSettingsStore } from '@/store/modules/settings'
 import { useUserStore } from '@/store/modules/user'
 import type { FlatMenu } from '@/store/modules/menu'
+import SettingsPanel from '@/components/settings-panel/index.vue'
 
 defineOptions({ name: 'AdminLayout' })
 
@@ -250,6 +316,10 @@ const router = useRouter()
 const route = useRoute()
 const menuStore = useMenuStore()
 const userStore = useUserStore()
+const settings = useSettingsStore()
+
+// 主题设置抽屉
+const settingsVisible = ref(false)
 
 const expandedKeys = ref<Set<string>>(new Set())
 const menuLoading = ref(false)
@@ -269,18 +339,22 @@ const sidebarCollapsed = ref(getInitialCollapsed())
 
 const mobileSidebarOpen = ref(false)
 
-const searchQuery = ref('')
+// ---- 导航搜索 ----
+const navSearch = ref('')
+const navSearchOpen = ref(false)
 
-const filteredMenuList = computed(() => {
-  const list = currentMenuList.value
-  if (!searchQuery.value.trim()) return list
-  const q = searchQuery.value.trim().toLowerCase()
-  return list.filter((menu) => {
-    if (menu.name.toLowerCase().includes(q)) return true
-    if (menu.children?.some((child) => child.name.toLowerCase().includes(q))) return true
-    return false
-  })
-})
+// ---- 主题（浅/深）：由 settings store 驱动 ----
+const isDark = computed(() => settings.isDark)
+
+// ---- 已打开页面标签 ----
+const TABS_KEY = 'hostsent_admin_tabs'
+interface OpenedTab {
+  path: string
+  name: string
+  title: string
+  pinned: boolean
+}
+const openedTabs = ref<OpenedTab[]>([])
 
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
@@ -377,6 +451,8 @@ onMounted(async () => {
     menuLoading.value = false
   }
   initByRoute()
+  initTabs()
+  settings.init()
 })
 
 const activeGroup = ref<string>('')
@@ -386,23 +462,6 @@ const currentGroup = computed(() => {
 })
 
 const currentMenuList = computed(() => currentGroup.value?.children || [])
-
-const currentMenuTitle = computed(() => {
-  for (const menu of currentMenuList.value) {
-    if (menu.path === route.path) return menu.name
-    const hit = menu.children?.find((child) => child.path === route.path)
-    if (hit) return hit.name
-  }
-  return '工作台'
-})
-
-// 当前路由命中的二级大类名（三级菜单时用于面包屑中间层级）
-const currentSectionName = computed(() => {
-  for (const menu of currentMenuList.value) {
-    if (menu.children?.some((child) => child.path === route.path)) return menu.name
-  }
-  return ''
-})
 
 function isMenuActive(menu: FlatMenu) {
   if (menu.path === route.path) return true
@@ -415,6 +474,11 @@ function isExpanded(menu: FlatMenu) {
 
 function toggleExpand(menu: FlatMenu) {
   const key = menu.path || menu.name
+  // 手风琴模式：同时只展开一项
+  if (settings.menuAccordion) {
+    expandedKeys.value = isExpanded(menu) ? new Set() : new Set([key])
+    return
+  }
   const next = new Set(expandedKeys.value)
   if (next.has(key)) next.delete(key)
   else next.add(key)
@@ -435,9 +499,13 @@ function onGroupClick(group: FlatMenu) {
   if (!first) return
   if (first.children?.length) {
     expandedKeys.value = new Set([first.path || first.name])
+    // 移动端始终仅切换；桌面端按「点击一级菜单」设置决定是否跳转
+    if (window.innerWidth <= 768 || settings.firstMenuClick === 'switch') return
     navigateTo(first.children[0].path)
     return
   }
+  // 移动端 / 仅切换模式：等待用户点击具体菜单项再跳转
+  if (window.innerWidth <= 768 || settings.firstMenuClick === 'switch') return
   navigateTo(first.path)
 }
 
@@ -457,18 +525,161 @@ function initByRoute() {
   }
 }
 
-async function refreshMenus() {
-  menuLoading.value = true
+// ---- 导航搜索：在菜单树里按标题匹配，跳转到对应页面 ----
+function flattenMenus(menus: FlatMenu[]): Array<{ path: string; title: string; icon?: any }> {
+  const out: Array<{ path: string; title: string; icon?: any }> = []
+  for (const m of menus) {
+    if (m.path) out.push({ path: m.path, title: m.name, icon: m.icon })
+    if (m.children?.length) out.push(...flattenMenus(m.children))
+  }
+  return out
+}
+
+const navResults = computed(() => {
+  const q = navSearch.value.trim().toLowerCase()
+  if (!q) return []
+  return flattenMenus(sidebarItems.value)
+    .filter((r) => r.title.toLowerCase().includes(q))
+    .slice(0, 10)
+})
+
+function switchTo(path?: string) {
+  if (!path) return
+  navSearch.value = ''
+  navSearchOpen.value = false
+  router.push(path)
+}
+
+function gotoFirstResult() {
+  switchTo(navResults.value[0]?.path)
+}
+
+// ---- 全屏 ----
+function toggleFullscreen() {
+  const el = document.documentElement
+  if (!document.fullscreenElement) {
+    el.requestFullscreen?.().catch(() => {})
+  } else {
+    document.exitFullscreen?.()
+  }
+}
+
+// ---- 主题快捷切换（浅/深，由 settings store 持久化） ----
+function toggleTheme() {
+  settings.toggleDark()
+}
+
+// ---- 语言切换（暂无 i18n，占位提示） ----
+function onLangChange(value: string | number | Record<string, unknown> | undefined) {
+  const key = typeof value === 'object' && value !== null ? String(value.value ?? '') : String(value ?? '')
+  if (key === 'en-US') {
+    MessagePlugin.info('English 界面开发中，当前暂支持中文')
+    return
+  }
+  MessagePlugin.success('已切换为中文')
+}
+
+// ---- 已打开页面标签 ----
+const homeTab: OpenedTab = { path: '/dashboard/base', name: 'DashboardBase', title: '概览', pinned: true }
+
+function persistTabs() {
+  if (!settings.rememberTabs) return
   try {
-    await menuStore.loadMenus('admin')
-    useFallbackMenu.value = false
-    initByRoute()
-    MessagePlugin.success('菜单已刷新')
+    localStorage.setItem(TABS_KEY, JSON.stringify(openedTabs.value))
   } catch {
-    useFallbackMenu.value = true
-    MessagePlugin.error('菜单刷新失败，已使用本地菜单')
-  } finally {
-    menuLoading.value = false
+    /* ignore */
+  }
+}
+
+function initTabs() {
+  let loaded: OpenedTab[] = []
+  if (settings.rememberTabs) {
+    try {
+      loaded = JSON.parse(localStorage.getItem(TABS_KEY) || '[]')
+    } catch {
+      loaded = []
+    }
+  }
+  const seen = new Set<string>()
+  const rest = loaded.filter((t) => t.path && t.path !== homeTab.path && !seen.has(t.path))
+  for (const t of loaded) seen.add(t.path)
+  openedTabs.value = [homeTab, ...rest]
+  if (!openedTabs.value.some((t) => t.path === route.path)) ensureTab(route.path)
+  persistTabs()
+}
+
+function titleForPath(path: string, fallback: string): string {
+  for (const item of flattenMenus(sidebarItems.value)) {
+    if (item.path === path) return item.title
+  }
+  return fallback
+}
+
+function ensureTab(path?: string) {
+  if (!path || path === '/login') return
+  if (openedTabs.value.some((t) => t.path === path)) return
+  const title = titleForPath(path, (route.meta.title as string) || '页面')
+  openedTabs.value.push({ path, name: String(route.name || ''), title, pinned: false })
+  persistTabs()
+}
+
+function isTabActive(tab: OpenedTab) {
+  return route.path === tab.path
+}
+
+function switchTab(tab: OpenedTab) {
+  if (route.path !== tab.path) router.push(tab.path)
+}
+
+function closeTab(tab: OpenedTab) {
+  if (tab.pinned) return
+  const idx = openedTabs.value.findIndex((t) => t.path === tab.path)
+  if (idx === -1) return
+  const wasActive = route.path === tab.path
+  openedTabs.value.splice(idx, 1)
+  if (!openedTabs.value.length) openedTabs.value = [{ ...homeTab }]
+  persistTabs()
+  if (wasActive) {
+    const next = openedTabs.value[Math.min(idx, openedTabs.value.length - 1)]
+    router.push(next.path)
+  }
+}
+
+function togglePin(tab: OpenedTab) {
+  tab.pinned = !tab.pinned
+  if (tab.pinned) {
+    // 固定的标签排到最前（紧跟既有固定标签之后）
+    const idx = openedTabs.value.findIndex((t) => t.path === tab.path)
+    if (idx > -1) {
+      const [moved] = openedTabs.value.splice(idx, 1)
+      let insertAt = 0
+      while (insertAt < openedTabs.value.length && openedTabs.value[insertAt].pinned) insertAt += 1
+      openedTabs.value.splice(insertAt, 0, moved)
+    }
+  }
+  persistTabs()
+}
+
+function onTabsMore(value: string | number | Record<string, unknown> | undefined) {
+  const key = typeof value === 'object' && value !== null ? String(value.value ?? '') : String(value ?? '')
+  if (key === 'pin-current') {
+    const cur = openedTabs.value.find((t) => t.path === route.path)
+    if (cur) {
+      cur.pinned = true
+      persistTabs()
+    }
+    return
+  }
+  if (key === 'close-others') {
+    openedTabs.value = openedTabs.value.filter((t) => t.pinned || t.path === route.path)
+    persistTabs()
+    return
+  }
+  if (key === 'close-all') {
+    const keep = openedTabs.value.filter((t) => t.path === homeTab.path)
+    openedTabs.value = keep.length ? [keep[0]] : [{ ...homeTab }]
+    persistTabs()
+    router.push(openedTabs.value[0].path)
   }
 }
 
@@ -490,9 +701,11 @@ function onUserMenuClick(value: string | number | Record<string, unknown> | unde
 
 watch(
   () => route.path,
-  () => {
+  (path) => {
     initByRoute()
+    ensureTab(path)
   },
+  { immediate: true },
 )
 </script>
 
@@ -533,8 +746,8 @@ watch(
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: #f0fdf4;
-  color: #16a34a;
+  background: var(--td-brand-color-1);
+  color: var(--color-primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -571,7 +784,7 @@ watch(
 .group-item:hover,
 .group-item.is-active {
   color: #111827;
-  background: #f0fdf4;
+  background: var(--td-brand-color-1);
 }
 
 .group-item.is-active {
@@ -622,6 +835,12 @@ watch(
 }
 
 .menu-sidebar.is-closed .menu-header {
+  display: flex;
+  justify-content: center;
+  padding: 14px 0 6px;
+}
+
+.menu-sidebar.is-closed .menu-header__title {
   display: none;
 }
 
@@ -653,19 +872,20 @@ watch(
   height: 24px;
 }
 
-.menu-sidebar.is-closed .menu-search,
-.menu-sidebar.is-closed .sidebar-footer {
-  display: none;
-}
-
 /* 收缩态二级菜单悬浮弹出 */
 .menu-sidebar.is-closed .menu-item {
   position: relative;
 }
 
+/* hover 时抬升层级，避免弹窗被后续兄弟菜单项盖住导致“滑向弹窗即消失” */
+.menu-sidebar.is-closed .menu-item.has-children:hover,
+.menu-sidebar.is-closed .menu-item.has-children:focus-within {
+  z-index: 120;
+}
+
 .menu-sidebar.is-closed .collapsed-popup {
   position: absolute;
-  left: calc(100% + 12px);
+  left: calc(100% + 4px);
   top: -12px;
   z-index: 100;
   width: 200px;
@@ -678,7 +898,7 @@ watch(
   padding-top: 12px;
 }
 
-/* 悬浮桥接 — 使鼠标从图标滑入弹窗不中断 */
+/* 悬浮桥接 — 使鼠标从图标滑入弹窗不中断（覆盖 4px 间隙并向图标侧延伸 12px） */
 .menu-sidebar.is-closed .collapsed-popup::before {
   content: '';
   position: absolute;
@@ -735,8 +955,8 @@ watch(
 
 .collapsed-popup__link:hover,
 .collapsed-popup__item.is-active .collapsed-popup__link {
-  background: #f0fdf4;
-  color: #166534;
+  background: var(--td-brand-color-1);
+  color: var(--td-brand-color-9);
 }
 
 .collapsed-popup__dot {
@@ -749,10 +969,61 @@ watch(
 }
 
 .menu-header {
-  padding: 22px 20px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 18px 16px 14px 20px;
+}
+
+.menu-header__title {
   font-size: 16px;
   font-weight: 700;
   color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.menu-collapse-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: #f3f4f6;
+  color: #374151;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.menu-collapse-btn:hover {
+  background: var(--td-brand-color-1);
+  color: var(--color-primary);
+}
+
+/* 移动端专用关闭按钮（桌面隐藏，移动端媒体查询中显示） */
+.menu-close-btn {
+  display: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: #f3f4f6;
+  color: #374151;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.menu-close-btn:hover {
+  background: var(--td-brand-color-1);
+  color: var(--color-primary);
 }
 
 .menu-list {
@@ -781,8 +1052,8 @@ watch(
 
 .menu-item-inner:hover,
 .menu-item.is-active > .menu-item-inner {
-  background: #f0fdf4;
-  color: #166534;
+  background: var(--td-brand-color-1);
+  color: var(--td-brand-color-9);
 }
 
 .menu-icon {
@@ -831,8 +1102,8 @@ watch(
 
 .submenu-item:hover,
 .submenu-item.is-active {
-  background: #f0fdf4;
-  color: #166534;
+  background: var(--td-brand-color-1);
+  color: var(--td-brand-color-9);
 }
 
 .submenu-dot {
@@ -847,70 +1118,6 @@ watch(
   font-size: 13px;
 }
 
-.sidebar-footer {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px;
-  border-top: 1px solid #f3f4f6;
-}
-
-.footer-btn {
-  position: relative;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  background: #f8fafc;
-  color: #4b5563;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease;
-}
-
-.footer-btn:hover {
-  background: #f0fdf4;
-  color: #166534;
-}
-
-.fallback-dot {
-  position: absolute;
-  top: 7px;
-  right: 7px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #f59e0b;
-}
-
-.loading-indicator {
-  position: absolute;
-  bottom: 20px;
-  right: 20px;
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.loading-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid #e5e7eb;
-  border-top-color: #16a34a;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 .main-layout {
   flex: 1;
   min-width: 0;
@@ -923,7 +1130,7 @@ watch(
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  padding: 0 14px 0 24px;
   position: sticky;
   top: 0;
   z-index: 5;
@@ -951,11 +1158,11 @@ watch(
 }
 
 .user-chip:hover {
-  background: #f0fdf4;
+  background: var(--td-brand-color-1);
 }
 
 .user-chip__avatar {
-  background: #16a34a !important;
+  background: var(--color-primary) !important;
   color: #ffffff !important;
   font-weight: 600;
   font-size: 13px;
@@ -980,7 +1187,7 @@ watch(
   border-radius: 8px;
   border: 1px solid #e5e7eb;
   padding: 19px;
-  min-height: calc(100vh - 56px - 30px);
+  min-height: calc(100vh - 118px);
 }
 
 /* ===== 收缩切换按钮（头部） ===== */
@@ -1003,8 +1210,8 @@ watch(
 }
 
 .sidebar-toggle:hover {
-  background: #f0fdf4;
-  color: #16a34a;
+  background: var(--td-brand-color-1);
+  color: var(--color-primary);
 }
 
 /* ===== 移动端遮罩 ===== */
@@ -1046,78 +1253,6 @@ watch(
 .mobile-menu-btn:hover {
   background: #e5e7eb;
   border-color: #9ca3af;
-}
-
-/* ===== 二级菜单搜索栏 ===== */
-.menu-search {
-  position: relative;
-  display: flex;
-  align-items: center;
-  padding: 6px 12px 8px;
-  gap: 6px;
-  transition: opacity 0.2s ease;
-}
-
-.menu-search.is-hidden {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.menu-search__icon {
-  position: absolute;
-  left: 18px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #9ca3af;
-  pointer-events: none;
-}
-
-.menu-search__input {
-  width: 100%;
-  height: 32px;
-  padding: 0 28px 0 32px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  background: #f9fafb;
-  color: #374151;
-  font-size: 13px;
-  outline: none;
-  transition:
-    border-color 0.2s ease,
-    background-color 0.2s ease;
-}
-
-.menu-search__input::placeholder {
-  color: #9ca3af;
-}
-
-.menu-search__input:focus {
-  border-color: #16a34a;
-  background: #ffffff;
-}
-
-.menu-search__clear {
-  position: absolute;
-  right: 18px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: none;
-  background: #d1d5db;
-  color: #ffffff;
-  font-size: 14px;
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  padding: 0;
-}
-
-.menu-search__clear:hover {
-  background: #9ca3af;
 }
 
 /* ===== 收缩态二级悬浮弹出（popup-fade 过渡） ===== */
@@ -1173,16 +1308,11 @@ watch(
 
   /* 移动端强制展开二级菜单内容 */
   .sidebar-wrapper.is-collapsed .menu-sidebar.is-closed .menu-header {
-    display: block;
+    display: flex;
   }
 
   .sidebar-wrapper.is-collapsed .menu-sidebar.is-closed .menu-title,
   .sidebar-wrapper.is-collapsed .menu-sidebar.is-closed .menu-arrow {
-    display: flex;
-  }
-
-  .sidebar-wrapper.is-collapsed .menu-sidebar.is-closed .menu-search,
-  .sidebar-wrapper.is-collapsed .menu-sidebar.is-closed .sidebar-footer {
     display: flex;
   }
 
@@ -1244,5 +1374,335 @@ watch(
 .slide-leave-from {
   opacity: 1;
   transform: translateY(0);
+}
+
+/* ===== 导航搜索框 ===== */
+.navbar-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 260px;
+  margin-right: 12px;
+}
+
+.navbar-search__icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #9ca3af;
+  pointer-events: none;
+}
+
+.navbar-search__input {
+  width: 100%;
+  height: 34px;
+  padding: 0 12px 0 34px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #374151;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.navbar-search__input::placeholder {
+  color: #9ca3af;
+}
+
+.navbar-search__input:focus {
+  border-color: var(--color-primary);
+  background: #ffffff;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.12);
+}
+
+.navbar-search__dropdown {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1);
+  overflow: hidden;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.navbar-search__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  font-size: 13px;
+  color: #374151;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.navbar-search__item:hover {
+  background: var(--td-brand-color-1);
+  color: var(--td-brand-color-9);
+}
+
+.navbar-search__item-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  color: var(--color-primary);
+}
+
+.navbar-search__empty {
+  padding: 12px;
+  font-size: 12.5px;
+  color: #9ca3af;
+  text-align: center;
+}
+
+/* ===== 已打开页面标签栏 ===== */
+.tabs-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 42px;
+  padding: 0 12px;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.tabs-bar__scroll {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs-bar__scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.tabs-bar__tab {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px 0 12px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #f8fafc;
+  color: #4b5563;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.tabs-bar__tab:hover {
+  border-color: var(--color-primary);
+  color: var(--td-brand-color-9);
+}
+
+.tabs-bar__tab.is-active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #ffffff;
+}
+
+.tabs-bar__title {
+  white-space: nowrap;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tabs-bar__pin,
+.tabs-bar__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0.75;
+}
+
+.tabs-bar__pin {
+  opacity: 0.35;
+}
+
+.tabs-bar__tab:hover .tabs-bar__pin {
+  opacity: 0.8;
+}
+
+.tabs-bar__pin.is-pinned {
+  opacity: 1;
+  color: var(--color-primary);
+}
+
+.tabs-bar__tab.is-active .tabs-bar__pin.is-pinned {
+  color: #ffffff;
+}
+
+.tabs-bar__pin:hover,
+.tabs-bar__close:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.tabs-bar__tab.is-active .tabs-bar__pin,
+.tabs-bar__tab.is-active .tabs-bar__close {
+  color: #ffffff;
+}
+
+.tabs-bar__more {
+  flex-shrink: 0;
+  color: #4b5563;
+}
+
+/* ===== 移动端：导航搜索自适应 + 用户区只留头像 ===== */
+@media (max-width: 768px) {
+  /* 收紧导航栏左右内边距，用户头像更靠右 */
+  .top-header {
+    padding: 0 10px;
+  }
+
+  .navbar-search {
+    width: auto;
+    flex: 1;
+    min-width: 0;
+    margin-right: 8px;
+  }
+
+  .navbar-search__dropdown {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    top: 60px;
+  }
+
+  /* 用户信息只显示头像，点头像展开菜单 */
+  .user-chip {
+    padding: 4px;
+  }
+
+  .user-chip__name,
+  .user-chip__caret {
+    display: none;
+  }
+
+  /* 抽屉菜单：隐藏 PC 收缩按钮，只保留移动端关闭按钮 */
+  .menu-collapse-btn {
+    display: none;
+  }
+
+  .menu-close-btn {
+    display: inline-flex;
+  }
+
+  .sidebar-wrapper.is-collapsed .menu-sidebar.is-closed .menu-header {
+    display: flex;
+  }
+}
+
+/* ===== 深色主题（壳层 chrome，纯黑基调） ===== */
+.dark .admin-layout {
+  background: #000000;
+}
+
+.dark .sidebar-wrapper,
+.dark .group-sidebar,
+.dark .menu-sidebar,
+.dark .top-header,
+.dark .tabs-bar,
+.dark .content-inner {
+  background: #000000;
+  border-color: #262626;
+}
+
+.dark .menu-header__title,
+.dark .brand-name,
+.dark .group-item,
+.dark .menu-title,
+.dark .submenu-title,
+.dark .user-chip__name,
+.dark .collapsed-popup__link {
+  color: #e5e7eb;
+}
+
+.dark .group-item:hover,
+.dark .group-item.is-active,
+.dark .menu-item-inner:hover,
+.dark .menu-item.is-active > .menu-item-inner,
+.dark .submenu-item:hover,
+.dark .submenu-item.is-active,
+.dark .collapsed-popup__link:hover {
+  background: #161616;
+  color: var(--td-brand-color-4);
+}
+
+.dark .menu-item-inner,
+.dark .collapsed-popup__link {
+  color: #d4d4d4;
+}
+
+.dark .menu-collapse-btn,
+.dark .menu-close-btn,
+.dark .sidebar-toggle,
+.dark .mobile-menu-btn {
+  background: #161616;
+  color: #d4d4d4;
+}
+
+.dark .navbar-search__input {
+  background: #111111;
+  border-color: #262626;
+  color: #e5e7eb;
+}
+
+.dark .navbar-search__dropdown,
+.dark .collapsed-popup {
+  background: #0a0a0a;
+  border-color: #262626;
+}
+
+.dark .navbar-search__item {
+  color: #e5e7eb;
+}
+
+.dark .navbar-search__item:hover {
+  background: #161616;
+  color: var(--td-brand-color-4);
+}
+
+.dark .tabs-bar__tab {
+  background: #111111;
+  border-color: #262626;
+  color: #d4d4d4;
+}
+
+.dark .tabs-bar__tab:hover {
+  border-color: var(--td-brand-color-6);
+  color: var(--td-brand-color-4);
+}
+
+.dark .tabs-bar__tab.is-active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #ffffff;
+}
+
+.dark .user-chip:hover {
+  background: #161616;
 }
 </style>

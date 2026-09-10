@@ -8,30 +8,13 @@
 
 /* ---------- 页面骨架 ---------- */
 .finance-module {
-  --finance-green: #16a34a;
-  --finance-green-hover: #15803d;
-  --finance-green-soft: #f0fdf4;
-  --finance-green-border: #dcfce7;
+  --finance-green: var(--color-primary);
+  --finance-green-hover: var(--td-brand-color-8);
+  --finance-green-soft: var(--td-brand-color-1);
+  --finance-green-border: var(--td-brand-color-2);
   --finance-card-border: #edf3ef;
-  --chip-bg: linear-gradient(135deg, #22c55e, #15803d);
+  --chip-bg: linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8));
   --chip-shadow: 0 6px 14px rgba(22, 163, 74, 0.18);
-  --td-brand-color-1: #f0fdf4;
-  --td-brand-color-2: #dcfce7;
-  --td-brand-color-3: #bbf7d0;
-  --td-brand-color-4: #86efac;
-  --td-brand-color-5: #4ade80;
-  --td-brand-color-6: #22c55e;
-  --td-brand-color-7: #16a34a;
-  --td-brand-color-8: #15803d;
-  --td-brand-color-9: #166534;
-  --td-brand-color-10: #14532d;
-  --td-brand-color: var(--finance-green);
-  --td-brand-color-hover: var(--finance-green-hover);
-  --td-brand-color-focus: rgba(22, 163, 74, 0.14);
-  --td-brand-color-active: #166534;
-  --td-brand-color-disabled: #86efac;
-  --td-brand-color-light: var(--finance-green-soft);
-  --td-brand-color-light-hover: var(--finance-green-border);
 }
 
 .finance-module .page-body {

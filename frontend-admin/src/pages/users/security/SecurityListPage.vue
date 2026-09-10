@@ -82,19 +82,6 @@ defineEmits<{
 
 <style scoped lang="css">
 .security-page {
-  --td-brand-color-1: #f0fdf4;
-  --td-brand-color-2: #dcfce7;
-  --td-brand-color-3: #bbf7d0;
-  --td-brand-color-6: #22c55e;
-  --td-brand-color-7: #16a34a;
-  --td-brand-color-8: #15803d;
-  --td-brand-color: #16a34a;
-  --td-brand-color-hover: #15803d;
-  --td-brand-color-focus: rgba(22, 163, 74, 0.14);
-  --td-brand-color-active: #166534;
-  --td-brand-color-disabled: #86efac;
-  --td-brand-color-light: #f0fdf4;
-  --td-brand-color-light-hover: #dcfce7;
   display: flex;
   flex-direction: column;
   gap: 16px;

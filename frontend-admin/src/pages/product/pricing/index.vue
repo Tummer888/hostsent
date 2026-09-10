@@ -332,7 +332,7 @@ onMounted(() => {
 .margin-cell {
   font-size: 13px;
   font-weight: 600;
-  color: #16a34a;
+  color: var(--color-primary);
   font-variant-numeric: tabular-nums;
 }
 </style>

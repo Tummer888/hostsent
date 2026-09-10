@@ -19,7 +19,7 @@ type ResourceProduct struct {
 	OS         string    `gorm:"size:50"`
 	Region     string    `gorm:"size:50"`
 	Zone       string    `gorm:"size:50"`
-	Specs      string    `gorm:"type:text"` // JSON 以 text 存储，避免 jsonb 空串解析崩溃
+	Specs      string    `gorm:"type:text"` // JSON 以 text 存储，避免 jsonb 空串解析崩溃；内容为 StandardProductSpec 词汇（cpu/memory/disk/disk_type/bandwidth/os/region/zone/extra）
 	RawSpecs   string    `gorm:"column:raw_specs;type:text"`
 	CostPrice  float64   `gorm:"column:cost_price;type:decimal(10,2)"`
 	SalePrice  float64   `gorm:"column:sale_price;type:decimal(10,2)"`

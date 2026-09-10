@@ -42,13 +42,25 @@ function safeRemove(key: string) {
   }
 }
 
+// 读取记住的凭证字段，解析失败返回空串，避免 localStorage 损坏时初始化崩溃。
+function readSavedCredential(field: 'username' | 'password'): string {
+  try {
+    const raw = safeGet(CREDENTIAL_KEY)
+    if (!raw) return ''
+    const parsed = JSON.parse(raw)
+    return (parsed?.[field] as string) || ''
+  } catch {
+    return ''
+  }
+}
+
 export const useUserStore = defineStore('user', {
   state: () => ({
     token: '',
     userInfo: { ...initUserInfo },
     remember: safeGet(REMEMBER_KEY) === '1',
-    savedUsername: safeGet(CREDENTIAL_KEY) ? JSON.parse(safeGet(CREDENTIAL_KEY)).username || '' : '',
-    savedPassword: safeGet(CREDENTIAL_KEY) ? JSON.parse(safeGet(CREDENTIAL_KEY)).password || '' : '',
+    savedUsername: readSavedCredential('username'),
+    savedPassword: readSavedCredential('password'),
   }),
   getters: {
     isAdmin: (state) => {

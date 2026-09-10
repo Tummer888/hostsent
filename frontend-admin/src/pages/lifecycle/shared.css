@@ -5,29 +5,12 @@
 
 /* ---------- 页面骨架 ---------- */
 .lifecycle-module {
-  --chip-bg: linear-gradient(135deg, #22c55e, #15803d);
+  --chip-bg: linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8));
   --chip-shadow: 0 4px 10px rgba(22, 163, 74, 0.22);
-  --lifecycle-green: var(--color-primary, #16a34a);
-  --lifecycle-green-hover: #15803d;
-  --lifecycle-green-soft: #f0fdf4;
-  --lifecycle-green-border: #dcfce7;
-  --td-brand-color-1: #f0fdf4;
-  --td-brand-color-2: #dcfce7;
-  --td-brand-color-3: #bbf7d0;
-  --td-brand-color-4: #86efac;
-  --td-brand-color-5: #4ade80;
-  --td-brand-color-6: #22c55e;
-  --td-brand-color-7: #16a34a;
-  --td-brand-color-8: #15803d;
-  --td-brand-color-9: #166534;
-  --td-brand-color-10: #14532d;
-  --td-brand-color: var(--lifecycle-green);
-  --td-brand-color-hover: var(--lifecycle-green-hover);
-  --td-brand-color-focus: rgba(22, 163, 74, 0.14);
-  --td-brand-color-active: #166534;
-  --td-brand-color-disabled: #86efac;
-  --td-brand-color-light: var(--lifecycle-green-soft);
-  --td-brand-color-light-hover: #dcfce7;
+  --lifecycle-green: var(--color-primary, var(--color-primary));
+  --lifecycle-green-hover: var(--td-brand-color-8);
+  --lifecycle-green-soft: var(--td-brand-color-1);
+  --lifecycle-green-border: var(--td-brand-color-2);
 }
 
 .lifecycle-module .page-body {
@@ -50,7 +33,7 @@
 
 .lifecycle-module .surface-card:hover,
 .lifecycle-module .stat-card:hover {
-  border-color: #bbf7d0;
+  border-color: var(--td-brand-color-3);
   box-shadow: none !important;
   transform: none;
 }
@@ -87,7 +70,7 @@
   width: 44px;
   height: 44px;
   border-radius: var(--hs-radius-xl);
-  background: var(--chip-bg, linear-gradient(135deg, #22c55e, #15803d));
+  background: var(--chip-bg, linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8)));
   color: #ffffff;
   display: inline-flex;
   align-items: center;
@@ -144,7 +127,7 @@
   width: 3px;
   height: 14px;
   border-radius: 2px;
-  background: linear-gradient(180deg, var(--lifecycle-green), #15803d);
+  background: linear-gradient(180deg, var(--lifecycle-green), var(--td-brand-color-8));
 }
 
 .lifecycle-module .table-card__meta {
@@ -210,7 +193,7 @@
 
 /* ---------- TDesign 表格细节优化 ---------- */
 .lifecycle-module .t-table__th {
-  background: #f0fdf4 !important;
+  background: var(--td-brand-color-1) !important;
   color: #3f5848 !important;
   border-bottom-color: var(--lifecycle-green-border) !important;
   font-weight: 600 !important;

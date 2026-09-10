@@ -142,9 +142,6 @@
         <t-checkbox v-model="formData.remember" size="medium" aria-label="记住账号和密码">
           记住我（当前设备）
         </t-checkbox>
-        <t-link theme="primary" size="small" hover="color" tabindex="0" @click="onForget">
-          忘记密码？
-        </t-link>
       </div>
 
       <t-button
@@ -183,11 +180,6 @@
         </button>
       </t-tooltip>
     </div>
-
-    <p class="security-hint" aria-live="polite">
-      <LockOnIcon size="13" aria-hidden="true" />
-      登录过程受 TLS 加密保护；系统会对异常登录进行二次验证。
-    </p>
   </div>
 </template>
 
@@ -400,7 +392,7 @@ async function onSubmit(ctx: SubmitContext) {
       captchaCode: formData.captchaCode.trim().toUpperCase(),
       remember: formData.remember,
     })
-    MessagePlugin.success('登录成功，正在进入管理平台…')
+    MessagePlugin.success('登录成功')
     const redirect = typeof route.query.redirect === 'string' ? decodeURIComponent(route.query.redirect) : ''
     await router.replace(redirect || '/dashboard/base')
   } catch (error) {
@@ -416,10 +408,6 @@ async function onSubmit(ctx: SubmitContext) {
 
 async function onSubmitClick() {
   await formRef.value?.submit?.()
-}
-
-function onForget() {
-  MessagePlugin.info('请联系系统管理员或使用找回密码邮箱流程重置密码')
 }
 
 function onKeyLogin() {
@@ -490,7 +478,7 @@ onMounted(async () => {
 }
 
 .accent-word {
-  color: #16a34a;
+  color: var(--color-primary);
   font-weight: 600;
 }
 
@@ -571,7 +559,8 @@ onMounted(async () => {
 
 .captcha-row {
   display: grid;
-  grid-template-columns: 1fr 110px;
+  /* minmax(0,1fr)：允许输入列收缩，防止原生 input 的 size 固有宽度在移动端把行撑出视口 */
+  grid-template-columns: minmax(0, 1fr) 110px;
   gap: 10px;
   align-items: end;
   margin-bottom: 2px;
@@ -579,6 +568,12 @@ onMounted(async () => {
 
 .captcha-row__input {
   margin: 0;
+  min-width: 0;
+}
+
+.captcha-row__input :deep(.t-form__controls) {
+  min-width: 0;
+  width: 100%;
 }
 
 .captcha-image {
@@ -598,7 +593,7 @@ onMounted(async () => {
 }
 
 .captcha-image:hover {
-  border-color: #86efac;
+  border-color: var(--td-brand-color-4);
   transform: translateY(-1px);
 }
 
@@ -619,7 +614,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 6px 0 12px;
+  margin: 22px 0 12px;
   font-size: 12.5px;
   color: var(--color-muted-foreground);
 }
@@ -629,7 +624,7 @@ onMounted(async () => {
   font-family: var(--hs-font-heading);
   font-weight: 600;
   letter-spacing: 0.02em;
-  background: #16a34a;
+  background: var(--color-primary);
   border: 0;
   color: #ffffff;
   border-radius: var(--hs-radius-md);
@@ -638,7 +633,7 @@ onMounted(async () => {
 }
 
 .submit-btn:hover {
-  background: #15803d;
+  background: var(--td-brand-color-8);
   transform: translateY(-1px);
   box-shadow: 0 6px 16px rgba(22, 163, 74, 0.32);
 }
@@ -686,21 +681,11 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   background: var(--hs-surface-2);
-  color: #16a34a;
+  color: var(--color-primary);
   border: 1px solid var(--color-border);
 }
 
 .alt-login__text {
   font-size: 11.5px;
-}
-
-.security-hint {
-  margin: 14px 0 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11.5px;
-  color: var(--color-muted-foreground);
-  line-height: 1.55;
 }
 </style>

@@ -38,7 +38,7 @@ type Product struct {
 	CategoryID       uint64     `gorm:"column:category_id;index"`                           // 分类 ID
 	ProductType      string     `gorm:"column:product_type;size:20;default:'cloud_host'"`   // 产品类型
 	Description      string     `gorm:"type:text"`                                          // 描述
-	Specs            string     `gorm:"type:text"`                                          // JSON 规格
+	Specs            string     `gorm:"type:text"`                                          // JSON 规格：自营/克隆商品的可编辑展示规格。克隆默认取 buildCloneBaseOptions(rp)（开通参数词汇：system_disk_size/bw/area/node）；与资源商品 ResourceProduct.Specs（StandardProductSpec 词汇：disk/bandwidth/region/zone）语义不同，见 docs/实施计划/00 §Phase4 T4.4
 	PriceModel       string     `gorm:"column:price_model;size:20;default:'fixed'"`         // 价格模型
 	Price            float64    `gorm:"column:price;type:decimal(10,2)"`                    // 终端售价
 	CostPrice        float64    `gorm:"column:cost_price;type:decimal(10,2)"`               // 成本价
