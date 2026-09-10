@@ -41,8 +41,7 @@
           <div class="confirm__row confirm__row--discount" v-if="quote.discount_amount > 0">
             <span>
               优惠金额
-              <t-tag v-if="quote.is_agent_price" size="small" theme="warning" variant="light">代理价</t-tag>
-              <t-tag v-else-if="quote.discount_source" size="small" theme="success" variant="light">
+              <t-tag v-if="quote.discount_source" size="small" theme="success" variant="light">
                 {{ sourceLabel(quote.discount_source) }}
               </t-tag>
             </span>
@@ -77,10 +76,9 @@ const quote = ref<QuoteInfo | null>(null)
 const quoteLoading = ref(false)
 const submitting = ref(false)
 
-/** 折扣来源中文标签（P5-06）。 */
+/** 折扣来源中文标签（P5-06）：折扣仅由用户组价格策略承载。 */
 function sourceLabel(source: string) {
   const map: Record<string, string> = {
-    agent: '代理价',
     group: '用户组折扣',
     promotion: '促销优惠',
     manual: '人工改价',

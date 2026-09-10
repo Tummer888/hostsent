@@ -93,9 +93,9 @@
                   <template #icon><UsergroupIcon /></template>
                   成员管理
                 </t-dropdown-item>
-                <t-dropdown-item v-if="memberStore.isAgent" value="agent">
+                <t-dropdown-item value="referral">
                   <template #icon><ShareIcon /></template>
-                  代理中心
+                  推广邀请
                 </t-dropdown-item>
                 <t-dropdown-item value="billing">
                   <template #icon><WalletIcon /></template>
@@ -494,8 +494,8 @@ function handleDropdownClick(value: string) {
     router.push('/billing')
   } else if (value === 'member') {
     router.push('/member')
-  } else if (value === 'agent') {
-    router.push('/agent/overview')
+  } else if (value === 'referral') {
+    router.push('/referral/overview')
   }
 }
 

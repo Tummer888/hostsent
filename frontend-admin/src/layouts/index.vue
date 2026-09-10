@@ -594,6 +594,19 @@ function persistTabs() {
   }
 }
 
+// 过滤：重复路径、首页、「下钻页」（meta.hideInTabs）以及已不存在的路由。
+// 后者用于清掉历史遗留的标签，例如已从菜单/导航摘除的用户详情页。
+function restorableTabs(loaded: OpenedTab[]): OpenedTab[] {
+  const seen = new Set<string>([homeTab.path])
+  const rest: OpenedTab[] = []
+  for (const tab of loaded) {
+    if (!tab.path || seen.has(tab.path) || isDrillDownPath(tab.path)) continue
+    seen.add(tab.path)
+    rest.push(tab)
+  }
+  return rest
+}
+
 function initTabs() {
   let loaded: OpenedTab[] = []
   if (settings.rememberTabs) {
@@ -603,12 +616,22 @@ function initTabs() {
       loaded = []
     }
   }
-  const seen = new Set<string>()
-  const rest = loaded.filter((t) => t.path && t.path !== homeTab.path && !seen.has(t.path))
-  for (const t of loaded) seen.add(t.path)
-  openedTabs.value = [homeTab, ...rest]
+  openedTabs.value = [homeTab, ...restorableTabs(loaded)]
   if (!openedTabs.value.some((t) => t.path === route.path)) ensureTab(route.path)
   persistTabs()
+}
+
+// 下钻页（详情页等）不作为标签出现：它是「从列表点进去的页面」，不是导航目的地。
+// meta.hideInTabs 显式标记，或路由表里已不存在该路径，都视为不应保留标签。
+function isDrillDownPath(path: string): boolean {
+  try {
+    const resolved = router.resolve(path)
+    if (resolved.matched.length === 0) return true
+    return Boolean(resolved.meta?.hideInTabs)
+  } catch {
+    // 本地缓存的路径可能已损坏，直接丢弃该标签即可
+    return true
+  }
 }
 
 function titleForPath(path: string, fallback: string): string {
@@ -620,6 +643,7 @@ function titleForPath(path: string, fallback: string): string {
 
 function ensureTab(path?: string) {
   if (!path || path === '/login') return
+  if (isDrillDownPath(path)) return
   if (openedTabs.value.some((t) => t.path === path)) return
   const title = titleForPath(path, (route.meta.title as string) || '页面')
   openedTabs.value.push({ path, name: String(route.name || ''), title, pinned: false })

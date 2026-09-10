@@ -25,8 +25,10 @@ type OrderService interface {
 	CreateRefund(ctx context.Context, id uint64, req dto.RefundCreateRequest, operatorID uint64, operatorName string) (*dto.RefundInfo, error)
 	Activate(ctx context.Context, id uint64) error
 	Stats(ctx context.Context) (*dto.OrderStatsResponse, error)
-	// SetCommissionHook 注入订单完成后的佣金计提钩子（P6-02，装配层调用）。
-	SetCommissionHook(hook OrderCommissionHook)
+	// SetCashbackHook 注入订单完成后的推广返现计提钩子（装配层调用）。
+	SetCashbackHook(hook OrderCashbackHook)
+	// SetRefundHook 注入退款审核通过后的返现冲减钩子（装配层调用）。
+	SetRefundHook(hook OrderRefundHook)
 	// 退款管理
 	ListRefunds(ctx context.Context, q dto.RefundListQuery) (*dto.RefundListResponse, error)
 	FindRefund(ctx context.Context, id uint64) (*dto.RefundInfo, error)
@@ -34,17 +36,22 @@ type OrderService interface {
 	RejectRefund(ctx context.Context, id uint64, operatorID uint64, operatorName string, remark string) (*dto.RefundInfo, error)
 }
 
-// OrderCommissionHook 订单完成（开通成功）后的佣金计提钩子（P6-02）。
-// 仅传基础类型，避免订单模块反向依赖分销模块。
-type OrderCommissionHook func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, baseAmount float64, isRenewal bool) error
+// OrderCashbackHook 订单完成（开通成功）后的推广返现计提钩子。
+// 仅传基础类型，避免订单模块反向依赖返现模块。
+type OrderCashbackHook func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, baseAmount float64, isRenewal bool) error
+
+// OrderRefundHook 退款审核通过后的返现冲减钩子：按退款额占实付比例冲减邀请人返现。
+type OrderRefundHook func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, paidAmount, refundAmount float64, refundNo string) error
 
 type orderService struct {
 	orderRepo  repository.OrderRepository
 	itemRepo   repository.OrderItemRepository
 	refundRepo repository.RefundRepository
 	provision  ProvisionAdapter
-	// commissionHook 可选：订单开通成功后自动计提代理佣金，为 nil 时跳过。
-	commissionHook OrderCommissionHook
+	// cashbackHook 可选：订单开通成功后计提推广返现，为 nil 时跳过。
+	cashbackHook OrderCashbackHook
+	// refundHook 可选：退款审核通过后冲减已计提返现，为 nil 时跳过。
+	refundHook OrderRefundHook
 }
 
 // NewOrderService 创建订单业务服务。
@@ -52,9 +59,14 @@ func NewOrderService(orderRepo repository.OrderRepository, itemRepo repository.O
 	return &orderService{orderRepo: orderRepo, itemRepo: itemRepo, refundRepo: refundRepo, provision: provision}
 }
 
-// SetCommissionHook 注入佣金计提钩子（装配层调用，避免改构造签名影响既有装配点）。
-func (s *orderService) SetCommissionHook(hook OrderCommissionHook) {
-	s.commissionHook = hook
+// SetCashbackHook 注入推广返现计提钩子（装配层调用，避免改构造签名影响既有装配点）。
+func (s *orderService) SetCashbackHook(hook OrderCashbackHook) {
+	s.cashbackHook = hook
+}
+
+// SetRefundHook 注入返现冲减钩子（装配层调用）。
+func (s *orderService) SetRefundHook(hook OrderRefundHook) {
+	s.refundHook = hook
 }
 
 func (s *orderService) List(ctx context.Context, q dto.OrderListQuery) (*dto.OrderListResponse, error) {
@@ -185,9 +197,9 @@ func (s *orderService) Activate(ctx context.Context, id uint64) error {
 	if err := s.orderRepo.Update(ctx, item); err != nil {
 		return err
 	}
-	// 订单开通成功后的代理佣金计提（P6-02）：失败不回滚订单，钩子实现负责记录错误。
-	if s.commissionHook != nil {
-		_ = s.commissionHook(ctx, item.ID, item.OrderNo, item.UserID, item.PaidAmount, item.RenewalID != 0)
+	// 订单开通成功后的推广返现计提：失败不回滚订单，钩子实现负责记录错误。
+	if s.cashbackHook != nil {
+		_ = s.cashbackHook(ctx, item.ID, item.OrderNo, item.UserID, item.PaidAmount, item.RenewalID != 0)
 	}
 	return nil
 }
@@ -305,6 +317,12 @@ func (s *orderService) ApproveRefund(ctx context.Context, id uint64, operatorID 
 			order.Status = model.OrderStatusActive
 			order.OperatorID = operatorID
 			_ = s.orderRepo.Update(ctx, order)
+		}
+	}
+	// 退款审核通过 → 按退款额占比冲减邀请人已计提返现（失败不回滚退款，钩子实现负责记录错误）。
+	if s.refundHook != nil {
+		if order, err := s.orderRepo.FindByID(ctx, refund.OrderID); err == nil {
+			_ = s.refundHook(ctx, order.ID, order.OrderNo, order.UserID, order.PaidAmount, refund.Amount, refund.RefundNo)
 		}
 	}
 	return s.FindRefund(ctx, refund.ID)

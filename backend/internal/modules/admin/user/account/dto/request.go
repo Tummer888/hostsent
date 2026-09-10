@@ -9,6 +9,8 @@ type UserListQuery struct {
 	Keyword           string `form:"keyword"`
 	// UserLevelID 按用户等级筛选（P3-04，0 表示不筛选）。
 	UserLevelID uint64 `form:"user_level_id"`
+	// UserGroupID 按用户组筛选（0 表示不筛选）。
+	UserGroupID uint64 `form:"user_group_id"`
 	// IsSubAccount 按主账号/子账号筛选（P4-10）："true" 仅子账号，"false" 仅主账号，空为全部。
 	IsSubAccount string `form:"is_sub_account"`
 }
@@ -29,6 +31,8 @@ type UserUpdateRequest struct {
 	Email    string `json:"email" binding:"required"`
 	Phone    string `json:"phone" binding:"required"`
 	Status   string `json:"status" binding:"required"`
+	// UserGroupID 调整用户组：nil 表示不修改，0 表示移出分组（未分组），其余为组 ID。
+	UserGroupID *uint64 `json:"user_group_id"`
 }
 
 type UserStatusRequest struct {

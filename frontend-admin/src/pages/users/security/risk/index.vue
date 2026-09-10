@@ -1,9 +1,7 @@
 <template>
   <SecurityListPage
     title="异常行为监控"
-    subtitle="汇总规则命中、风险等级与处置状态，帮助快速识别高危行为链路。"
     table-title="风险事件"
-    table-desc="支持按风险类型、等级、状态和关键字检索。"
     :total="pagination.total"
     :data="tableData"
     :columns="columns"

@@ -14,8 +14,10 @@ import {
   OrderIcon,
   ServerIcon,
   ServiceIcon,
+  ShareIcon,
   UserCircleIcon,
   UserIcon,
+  UsergroupIcon,
   WalletIcon,
 } from 'tdesign-icons-vue-next'
 
@@ -40,6 +42,8 @@ const iconMap: Record<string, Component> = {
   edit: EditIcon,
   service: ServiceIcon,
   ticket: ServiceIcon,
+  share: ShareIcon,
+  usergroup: UsergroupIcon,
 }
 
 export interface FlatMenu {

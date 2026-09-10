@@ -190,6 +190,17 @@ const groups: ConfigGroup[] = [
     ],
   },
   {
+    value: 'referral',
+    label: '推广返现',
+    fields: [
+      { key: 'referral.enabled', label: '启用推广邀请返现', type: 'switch', valueType: 'bool', default: true, hint: '关闭后停止计提返现，且用户无法提现或转入余额' },
+      { key: 'referral.first_order_rate', label: '首单返现比率', type: 'number', valueType: 'decimal', default: 0.1, min: 0, max: 1, step: 0.01, hint: '0-1 之间的小数，如 0.1 表示返 10%；基数为被邀请人订单实付金额' },
+      { key: 'referral.subsequent_rate', label: '后续订单返现比率', type: 'number', valueType: 'decimal', default: 0.05, min: 0, max: 1, step: 0.01, hint: '被邀请人首单之后的每次成功订单适用' },
+      { key: 'referral.renewal_rate', label: '续费返现比率', type: 'number', valueType: 'decimal', default: 0.03, min: 0, max: 1, step: 0.01, hint: '被邀请人续费订单适用' },
+      { key: 'referral.min_withdraw_amount', label: '最低提现金额（元）', type: 'number', valueType: 'decimal', default: 50, min: 0, step: 1, hint: '单笔返现提现申请的最低金额' },
+    ],
+  },
+  {
     value: 'notify',
     label: '消息模板',
     fields: [
@@ -233,7 +244,7 @@ async function loadCurrent() {
       }
       if (field.valueType === 'bool') {
         formData[field.key] = cfg.config_value === 'true'
-      } else if (field.valueType === 'int') {
+      } else if (field.valueType === 'int' || field.valueType === 'decimal') {
         formData[field.key] = Number(cfg.config_value) || 0
       } else {
         formData[field.key] = cfg.config_value
@@ -252,7 +263,7 @@ function buildItems(group: ConfigGroup) {
     const value = formData[field.key]
     let configValue = String(value ?? '')
     if (field.valueType === 'bool') configValue = value ? 'true' : 'false'
-    if (field.valueType === 'int') configValue = String(value ?? '')
+    if (field.valueType === 'int' || field.valueType === 'decimal') configValue = String(value ?? '')
     return {
       config_key: field.key,
       config_value: configValue,

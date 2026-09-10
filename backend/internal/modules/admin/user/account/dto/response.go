@@ -10,6 +10,7 @@ type UserInfo struct {
 	Roles              []string `json:"roles"`
 	Email              string   `json:"email"`
 	Phone              string   `json:"phone"`
+	UserGroupID        *uint64  `json:"user_group_id"`
 	UserGroupName      string   `json:"user_group_name"`
 	UserLevelID        *uint64  `json:"user_level_id"`
 	UserLevelName      string   `json:"user_level_name"`

@@ -1,9 +1,7 @@
 <template>
   <SecurityListPage
     title="操作审计日志"
-    subtitle="记录后台关键操作与接口调用，便于事后追溯与合规审计。"
     table-title="审计记录"
-    table-desc="按操作人、模块、动作和结果定位关键变更。"
     :total="pagination.total"
     :data="tableData"
     :columns="columns"

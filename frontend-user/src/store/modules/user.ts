@@ -18,8 +18,6 @@ interface UserInfo {
   remark?: string
   /** 子账号已授予的客户侧权限码；主账号为空数组 */
   permissions?: string[]
-  /** 是否代理（P6-03）：存在代理记录即 true，决定 /agent 子树是否放行 */
-  is_agent?: boolean
 }
 
 export const useUserStore = defineStore('user', () => {
@@ -30,7 +28,6 @@ export const useUserStore = defineStore('user', () => {
   const isLoggedIn = computed(() => !!token.value)
   const displayName = computed(() => userInfo.value.name || userInfo.value.username || '用户')
   const isSubAccount = computed(() => Boolean(userInfo.value.is_sub_account))
-  const isAgent = computed(() => Boolean(userInfo.value.is_agent) && !isSubAccount.value)
   const permissions = computed<string[]>(() => userInfo.value.permissions || [])
 
   async function login(credentials: { username: string; password: string }) {
@@ -43,7 +40,7 @@ export const useUserStore = defineStore('user', () => {
     loaded.value = true
   }
 
-  async function register(data: { username: string; password: string; email: string; phone?: string }) {
+  async function register(data: { username: string; password: string; email: string; phone?: string; invite_code?: string }) {
     const { data: result } = await registerApi(data)
     return result
   }
@@ -73,7 +70,6 @@ export const useUserStore = defineStore('user', () => {
     isLoggedIn,
     displayName,
     isSubAccount,
-    isAgent,
     permissions,
     login,
     register,

@@ -27,17 +27,16 @@ import (
 	pricinghandler "hostsent/backend/internal/modules/admin/product/pricing/handler"
 	promotionhandler "hostsent/backend/internal/modules/admin/product/promotion/handler"
 	spechandler "hostsent/backend/internal/modules/admin/product/spec/handler"
+	referralhandler "hostsent/backend/internal/modules/admin/referral/handler"
 	producthandler "hostsent/backend/internal/modules/admin/resource/product/handler"
 	providerhandler "hostsent/backend/internal/modules/admin/resource/provider/handler"
 	synchandler "hostsent/backend/internal/modules/admin/resource/sync/handler"
 	systemhandler "hostsent/backend/internal/modules/admin/system/handler"
 	tickethandler "hostsent/backend/internal/modules/admin/ticket/handler"
 	"hostsent/backend/internal/modules/admin/user/account/handler"
-	distributionhandler "hostsent/backend/internal/modules/admin/user/distribution/handler"
 	levelhandler "hostsent/backend/internal/modules/admin/user/level/handler"
 	securityhandler "hostsent/backend/internal/modules/admin/user/security/handler"
 	verificationhandler "hostsent/backend/internal/modules/admin/user/verification/handler"
-	ucagenthandler "hostsent/backend/internal/modules/uc/agent/handler"
 	usercenterhandler "hostsent/backend/internal/modules/uc/auth/handler"
 	userfinancehandler "hostsent/backend/internal/modules/uc/finance/handler"
 	ucinstancehandler "hostsent/backend/internal/modules/uc/instance/handler"
@@ -45,6 +44,7 @@ import (
 	usermenuhandler "hostsent/backend/internal/modules/uc/menu/handler"
 	ucorderhandler "hostsent/backend/internal/modules/uc/order/handler"
 	ucproducthandler "hostsent/backend/internal/modules/uc/product/handler"
+	ucreferralhandler "hostsent/backend/internal/modules/uc/referral/handler"
 	ucsitehandler "hostsent/backend/internal/modules/uc/site/handler"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/config"
@@ -66,11 +66,6 @@ type App struct {
 	userHandler           *handler.UserHandler
 	userDetailHandler     *handler.UserDetailHandler
 	userGroupHandler      *handler.UserGroupHandler
-	agentLevelHandler     *distributionhandler.AgentLevelHandler
-	agentHandler          *distributionhandler.AgentHandler
-	subordinateHandler    *distributionhandler.SubordinateHandler
-	commissionHandler     *distributionhandler.CommissionHandler
-	settlementHandler     *distributionhandler.SettlementHandler
 	roleHandler           *handler.RoleHandler
 	permissionHandler     *handler.PermissionHandler
 	menuHandler           *menuhandler.MenuHandler
@@ -88,6 +83,7 @@ type App struct {
 	pricingHandler        *pricinghandler.PricingHandler
 	discountPolicyHandler *discounthandler.PolicyHandler
 	promotionHandler      *promotionhandler.PromotionHandler
+	adminReferralHandler  *referralhandler.ReferralHandler
 	orderHandler          *orderhandler.OrderHandler
 	refundHandler         *orderhandler.RefundHandler
 	walletHandler         *finaccounthandler.WalletHandler
@@ -109,8 +105,8 @@ type App struct {
 	notifyAdminHandler    *notifyhandler.AdminHandler
 	notifyUserHandler     *notifyhandler.UserHandler
 	ucSiteHandler         *ucsitehandler.SiteHandler
+	ucReferralHandler     *ucreferralhandler.ReferralHandler
 	memberHandler         *memberhandler.MemberHandler
-	ucAgentHandler        *ucagenthandler.AgentHandler
 	// memberRepo 同时作为子账号权限解析器供 RequireUserPermission 使用（P4-06）。
 	memberRepo middleware.SubAccountPermissionResolver
 	// userAuditWriter 子账号写操作审计落库（P4-08），与 memberRepo 同一实现。
@@ -125,11 +121,6 @@ func NewApp(
 	userHandler *handler.UserHandler,
 	userDetailHandler *handler.UserDetailHandler,
 	userGroupHandler *handler.UserGroupHandler,
-	agentLevelHandler *distributionhandler.AgentLevelHandler,
-	agentHandler *distributionhandler.AgentHandler,
-	subordinateHandler *distributionhandler.SubordinateHandler,
-	commissionHandler *distributionhandler.CommissionHandler,
-	settlementHandler *distributionhandler.SettlementHandler,
 	roleHandler *handler.RoleHandler,
 	permissionHandler *handler.PermissionHandler,
 	menuHandler *menuhandler.MenuHandler,
@@ -147,6 +138,7 @@ func NewApp(
 	pricingHandler *pricinghandler.PricingHandler,
 	discountPolicyHandler *discounthandler.PolicyHandler,
 	promotionHandler *promotionhandler.PromotionHandler,
+	adminReferralHandler *referralhandler.ReferralHandler,
 	orderHandler *orderhandler.OrderHandler,
 	refundHandler *orderhandler.RefundHandler,
 	walletHandler *finaccounthandler.WalletHandler,
@@ -168,8 +160,8 @@ func NewApp(
 	notifyAdminHandler *notifyhandler.AdminHandler,
 	notifyUserHandler *notifyhandler.UserHandler,
 	ucSiteHandler *ucsitehandler.SiteHandler,
+	ucReferralHandler *ucreferralhandler.ReferralHandler,
 	memberHandler *memberhandler.MemberHandler,
-	ucAgentHandler *ucagenthandler.AgentHandler,
 	memberRepo middleware.SubAccountPermissionResolver,
 	userAuditWriter middleware.UserOperationLogWriter,
 	rbacRepo adminrepo.RBACRepository,
@@ -189,11 +181,6 @@ func NewApp(
 		userHandler:           userHandler,
 		userDetailHandler:     userDetailHandler,
 		userGroupHandler:      userGroupHandler,
-		agentLevelHandler:     agentLevelHandler,
-		agentHandler:          agentHandler,
-		subordinateHandler:    subordinateHandler,
-		commissionHandler:     commissionHandler,
-		settlementHandler:     settlementHandler,
 		roleHandler:           roleHandler,
 		permissionHandler:     permissionHandler,
 		menuHandler:           menuHandler,
@@ -211,6 +198,7 @@ func NewApp(
 		pricingHandler:        pricingHandler,
 		discountPolicyHandler: discountPolicyHandler,
 		promotionHandler:      promotionHandler,
+		adminReferralHandler:  adminReferralHandler,
 		orderHandler:          orderHandler,
 		refundHandler:         refundHandler,
 		walletHandler:         walletHandler,
@@ -232,8 +220,8 @@ func NewApp(
 		notifyAdminHandler:    notifyAdminHandler,
 		notifyUserHandler:     notifyUserHandler,
 		ucSiteHandler:         ucSiteHandler,
+		ucReferralHandler:     ucReferralHandler,
 		memberHandler:         memberHandler,
-		ucAgentHandler:        ucAgentHandler,
 		memberRepo:            memberRepo,
 		userAuditWriter:       userAuditWriter,
 	}

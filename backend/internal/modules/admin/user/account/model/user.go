@@ -15,12 +15,15 @@ type User struct {
 	OAuthOpenID   string  `gorm:"column:oauth_openid;size:128"`
 	Balance       float64 `gorm:"column:balance;type:decimal(15,2);not null;default:0"`
 	UserGroupID   *uint64 `gorm:"column:user_group_id"`
-	UserGroupName string  `gorm:"-"`
+	// UserGroupName 用户组名称；由列表/详情查询的 LEFT JOIN 别名带出，非持久化。
+	// 只读权限（->）而非 gorm:"-"：后者会让 GORM 完全忽略该字段，联表别名无处可落，
+	// 接口返回的 user_group_name 会恒为空。只读字段不参与写入，也不会被迁移建列。
+	UserGroupName string `gorm:"->;-:migration"`
 	// UserLevelID 当前用户等级；由消费升级服务按累计消费自动调整（只升不降）。
 	UserLevelID *uint64 `gorm:"column:user_level_id"`
-	// UserLevelName / UserLevelCode 列表查询联表带出，非持久化字段。
-	UserLevelName string `gorm:"-"`
-	UserLevelCode string `gorm:"-"`
+	// UserLevelName / UserLevelCode 列表查询联表带出，非持久化字段（同上，需只读权限）。
+	UserLevelName string `gorm:"->;-:migration"`
+	UserLevelCode string `gorm:"->;-:migration"`
 	// TotalConsumeAmount 累计消费额（P3-01 起落列持久化，不再靠实时聚合子查询）。
 	TotalConsumeAmount float64 `gorm:"column:total_consume_amount;type:decimal(15,2);not null;default:0"`
 	// OwnerUserID 子账号归属的主账号 ID；主账号为 NULL（P4-01）。
@@ -29,8 +32,14 @@ type User struct {
 	IsSubAccount bool `gorm:"column:is_sub_account;not null;default:false"`
 	// SubAccountRemark 子账号备注，便于主账号区分成员。
 	SubAccountRemark string `gorm:"column:sub_account_remark;size:64"`
-	// OwnerName 子账号归属主账号用户名；列表/详情联表带出，非持久化（P4-10）。
-	OwnerName         string     `gorm:"-"`
+	// InviteCode 用户专属邀请码（推广邀请注册用）；历史用户由迁移回填。
+	InviteCode *string `gorm:"column:invite_code;size:32;uniqueIndex:uk_users_invite_code"`
+	// InviterUserID 邀请人用户 ID；单级邀请，注册时一次性绑定。
+	InviterUserID *uint64 `gorm:"column:inviter_user_id;index:idx_users_inviter_user_id"`
+	// InvitedAt 绑定邀请关系的时间。
+	InvitedAt *time.Time `gorm:"column:invited_at"`
+	// OwnerName 子账号归属主账号用户名；列表/详情联表带出，非持久化（P4-10，只读权限同上）。
+	OwnerName         string     `gorm:"->;-:migration"`
 	LastLoginAt       *time.Time `gorm:"column:last_login_at"`
 	LastLoginIP       string     `gorm:"column:last_login_ip;size:64"`
 	LastLoginIPRegion string     `gorm:"column:last_login_ip_region;size:128"`

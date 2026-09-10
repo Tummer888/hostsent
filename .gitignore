@@ -4,6 +4,7 @@ node_modules
 .trae/
 .claude/
 /backend/migrations/backups
+/scripts/logs
 
 /frontend-user/.git
 /frontend-user/node_modules
@@ -16,3 +17,4 @@ node_modules
 /frontend-site/dist
 /frontend-site/.env
 /skill
+/.zcode

@@ -1,9 +1,7 @@
 <template>
   <SecurityListPage
     :title="title"
-    :subtitle="subtitle"
     :table-title="tableTitle"
-    :table-desc="tableDesc"
     :total="pagination.total"
     :data="tableData"
     :columns="columns"
@@ -48,9 +46,7 @@ import SecurityListPage from '../security/SecurityListPage.vue'
 
 const props = defineProps<{
   title: string
-  subtitle?: string
   tableTitle: string
-  tableDesc?: string
   emptyText: string
   fetcher: (params: VerificationListQuery) => Promise<{ items: VerificationInfo[]; meta: { total: number } }>
 }>()

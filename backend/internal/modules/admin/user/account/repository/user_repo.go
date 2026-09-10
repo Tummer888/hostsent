@@ -171,6 +171,9 @@ func applyUserFilters(db *gorm.DB, query dto.UserListQuery) *gorm.DB {
 	if query.UserLevelID > 0 {
 		db = db.Where("users.user_level_id = ?", query.UserLevelID)
 	}
+	if query.UserGroupID > 0 {
+		db = db.Where("users.user_group_id = ?", query.UserGroupID)
+	}
 	// 主账号 / 子账号筛选（P4-10）。
 	switch strings.TrimSpace(query.IsSubAccount) {
 	case "true", "1":

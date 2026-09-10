@@ -1,0 +1,391 @@
+/* ============================================================
+   HostSent · 推广返现模块共享样式
+   所有选择器均以 .referral-module 命名空间包裹，避免影响其他模块。
+   统计卡片样式统一由 ../stat-card.css 提供。
+   ============================================================ */
+
+@import '../stat-card.css';
+
+/* ---------- 页面骨架 ---------- */
+/* 根节点同时带 .page-body 与 .referral-module，布局必须挂在本类上：
+   写成 `.referral-module .page-body`（后代选择器）时同一元素不匹配，卡片会贴在一起。 */
+.referral-module {
+  --finance-green: var(--color-primary);
+  --finance-green-hover: var(--td-brand-color-8);
+  --finance-green-soft: var(--td-brand-color-1);
+  --finance-green-border: var(--td-brand-color-2);
+  --finance-card-border: #edf3ef;
+  --chip-bg: linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8));
+  --chip-shadow: 0 6px 14px rgba(22, 163, 74, 0.18);
+
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.referral-module .page-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+/* ---------- 通用卡片 ---------- */
+.referral-module .surface-card {
+  position: relative;
+  border-radius: var(--hs-radius-lg);
+  background: var(--hs-surface-1);
+  border: 1px solid var(--finance-card-border);
+  box-shadow: none;
+}
+
+.referral-module .page-header.surface-card {
+  border-color: transparent;
+}
+
+/* ---------- 页头 ---------- */
+.referral-module .page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  padding: var(--space-lg) var(--space-xl);
+  flex-wrap: wrap;
+  overflow: hidden;
+}
+
+.referral-module .page-header::before {
+  content: none;
+}
+
+.referral-module .page-header__main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.referral-module .page-header__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.referral-module .page-header__chip {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--hs-radius-xl);
+  background: var(--chip-bg);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: var(--chip-shadow, 0 4px 10px rgba(22, 163, 74, 0.18));
+  transition: transform var(--hs-duration-fast) var(--hs-ease-out);
+}
+
+.referral-module .page-header__chip:hover {
+  transform: translateY(-1px) scale(1.03);
+}
+
+.referral-module .page-header__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+
+.referral-module .page-header__desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-muted-foreground);
+}
+
+/* ---------- 筛选卡片 / 表格卡片 ---------- */
+.referral-module .filter-card,
+.referral-module .table-card {
+  padding: var(--space-lg) 20px;
+}
+
+.referral-module .filter-card__head,
+.referral-module .table-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.referral-module .card-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #182230;
+}
+
+.referral-module .table-card__meta {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.referral-module .filter-card__grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+/* ---------- 表单项 ---------- */
+.referral-module .field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.referral-module .field__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+}
+
+/* ---------- 操作列 / 单元格辅助 ---------- */
+.referral-module .action-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.referral-module .cell-strong {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.referral-module .cell-muted {
+  font-size: 12px;
+  color: var(--color-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.referral-module .time-text {
+  color: #334155;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.referral-module .price-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.referral-module .price-main {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  font-variant-numeric: tabular-nums;
+}
+
+.referral-module .price-sub {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.referral-module .amount-income {
+  font-size: 13px;
+  font-weight: 600;
+  color: #059669;
+  font-variant-numeric: tabular-nums;
+}
+
+.referral-module .amount-expense {
+  font-size: 13px;
+  font-weight: 600;
+  color: #dc2626;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 钱包总览 ---------- */
+.referral-module .wallet-stat-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.referral-module .stat-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg) 20px;
+}
+
+.referral-module .stat-card__icon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--hs-radius-lg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.referral-module .stat-card__info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.referral-module .stat-card__value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--color-foreground);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.referral-module .stat-card__label {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+/* ---------- 对账页 ---------- */
+.referral-module .recon-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.referral-module .recon-result {
+  padding: var(--space-lg) 20px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.referral-module .recon-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--color-border);
+}
+
+.referral-module .recon-row:last-child {
+  border-bottom: none;
+}
+
+.referral-module .recon-row__label {
+  font-size: 13px;
+  color: var(--color-muted-foreground);
+}
+
+.referral-module .recon-row__value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.referral-module .recon-diff-ok {
+  color: #059669;
+}
+
+.referral-module .recon-diff-bad {
+  color: #dc2626;
+}
+
+/* ---------- TDesign 组件统一主题 ---------- */
+.referral-module .t-button--theme-primary:not(.t-button--variant-text):not(.t-button--variant-outline) {
+  background-color: var(--finance-green);
+  border-color: var(--finance-green);
+}
+
+.referral-module .t-button--theme-primary:not(.t-button--variant-text):not(.t-button--variant-outline):hover {
+  background-color: var(--finance-green-hover);
+  border-color: var(--finance-green-hover);
+}
+
+.referral-module .t-button--theme-primary.t-button--variant-outline,
+.referral-module .t-button--theme-primary.t-button--variant-text,
+.referral-module .t-link--theme-primary {
+  color: var(--finance-green);
+}
+
+.referral-module .t-button--theme-primary.t-button--variant-outline {
+  border-color: var(--finance-green-border);
+  background: var(--finance-green-soft);
+}
+
+.referral-module .t-switch.t-is-checked {
+  background-color: var(--finance-green);
+}
+
+.referral-module .t-tabs__nav-item.t-is-active,
+.referral-module .t-tabs__nav-item:not(.t-is-disabled):hover {
+  color: var(--finance-green);
+}
+
+.referral-module .t-tabs__bar {
+  background-color: var(--finance-green);
+}
+
+.referral-module .t-input.t-is-focused,
+.referral-module .t-input--focused,
+.referral-module .t-textarea__inner:focus,
+.referral-module .t-input-number.t-is-focused,
+.referral-module .t-select-input.t-is-focused {
+  border-color: var(--finance-green) !important;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.1) !important;
+}
+
+.referral-module .t-table {
+  --td-table-header-bg-color: #f4fbf6;
+  --td-table-row-hover-bg-color: #f6fcf8;
+}
+
+.referral-module .t-table__th {
+  background: #f4fbf6 !important;
+  color: #5d6b7c !important;
+  font-weight: 600 !important;
+  border-bottom-color: var(--finance-green-border) !important;
+}
+
+.referral-module .t-table__tr--hover > .t-table__td {
+  background: #f6fcf8 !important;
+  transition: background-color var(--hs-duration-fast);
+}
+
+.referral-module .t-table__pagination {
+  padding-top: var(--space-md);
+}
+
+.referral-module .t-pagination__number.t-is-current {
+  color: var(--finance-green);
+  border-color: var(--finance-green);
+  background: var(--finance-green-soft);
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 768px) {
+  .referral-module .page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .referral-module .filter-card__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1200px) {
+  .referral-module .wallet-stat-grid,
+  .referral-module .recon-grid {
+    grid-template-columns: 1fr;
+  }
+}

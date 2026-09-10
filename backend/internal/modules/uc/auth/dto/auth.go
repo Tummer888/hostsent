@@ -14,6 +14,8 @@ type RegisterRequest struct {
 	Password string `json:"password" binding:"required,min=6"`
 	Email    string `json:"email" binding:"required,email"`
 	Phone    string `json:"phone"`
+	// InviteCode 邀请码（可选）。携带时注册后绑定单级邀请关系，无效码不阻断注册。
+	InviteCode string `json:"invite_code"`
 }
 
 // UserInfo 用户中心用户信息，响应结构对齐前端
@@ -33,8 +35,6 @@ type UserInfo struct {
 	OwnerUserID  uint64 `json:"owner_user_id,omitempty"` // 子账号归属的主账号 ID
 	OwnerName    string `json:"owner_name,omitempty"`    // 主账号用户名（子账号展示「XX 的子账号」）
 	Remark       string `json:"remark,omitempty"`        // 子账号备注
-	// IsAgent 是否代理（P6-03）：存在 distribution_agents 记录即 true，前端据此放行 /agent 子树。
-	IsAgent bool `json:"is_agent"`
 	// Permissions 子账号已授予的客户侧权限码；主账号为空数组（前端据此隐藏入口，P4-09）。
 	Permissions []string `json:"permissions"`
 }

@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
@@ -28,17 +30,52 @@ type AuthService interface {
 	UpdateProfile(ctx context.Context, userID uint64, req dto.UpdateProfileRequest) (*dto.UserInfo, error)
 	// ChangePassword 修改密码：校验旧密码后写入新密码哈希。
 	ChangePassword(ctx context.Context, userID uint64, req dto.ChangePasswordRequest) error
+	// SetInviteBinder 注入推广邀请关系绑定能力（可选，装配层调用）。
+	SetInviteBinder(binder InviteBinder)
+	// SetDefaultGroupResolver 注入默认用户组解析能力（可选，装配层调用）。
+	SetDefaultGroupResolver(resolver DefaultGroupResolver)
+}
+
+// InviteBinder 注册时的推广邀请关系绑定能力（由返现模块实现，装配层注入）。
+// 抽成接口是为了避免 uc/auth 直接依赖 admin 返现服务。
+type InviteBinder interface {
+	// ResolveInviter 按邀请码解析邀请人；无效码返回 0（不报错）。
+	ResolveInviter(ctx context.Context, code string) (uint64, error)
+	// EnsureInviteCode 返回用户邀请码，缺失时生成并落库。
+	EnsureInviteCode(ctx context.Context, userID uint64) (string, error)
+	// BindInviter 绑定单级邀请关系（一次性，已有邀请人不覆盖）。
+	BindInviter(ctx context.Context, inviteeID, inviterID uint64) error
+}
+
+// DefaultGroupResolver 解析「默认用户组」，注册时兜底归组（由用户组服务实现，装配层注入）。
+// 抽成接口是为了避免 uc/auth 直接依赖 admin 用户组模块。
+type DefaultGroupResolver interface {
+	// DefaultGroupID 返回默认用户组 ID；未配置时返回 0（不报错）。
+	DefaultGroupID(ctx context.Context) (uint64, error)
 }
 
 type authService struct {
 	repo             repository.UserRepository
 	jwtIssuer        *appauth.JWTIssuer
 	ipRegionResolver netutil.IPRegionResolver
+	logger           *zap.Logger
+	inviteBinder     InviteBinder         // 可选：注册时生成邀请码并绑定邀请关系
+	defaultGroup     DefaultGroupResolver // 可选：注册时兜底归入默认用户组
 }
 
 // NewAuthService 创建用户中心认证服务实例。
-func NewAuthService(repo repository.UserRepository, jwtIssuer *appauth.JWTIssuer, ipRegionResolver netutil.IPRegionResolver) AuthService {
-	return &authService{repo: repo, jwtIssuer: jwtIssuer, ipRegionResolver: ipRegionResolver}
+func NewAuthService(repo repository.UserRepository, jwtIssuer *appauth.JWTIssuer, ipRegionResolver netutil.IPRegionResolver, logger *zap.Logger) AuthService {
+	return &authService{repo: repo, jwtIssuer: jwtIssuer, ipRegionResolver: ipRegionResolver, logger: logger}
+}
+
+// SetInviteBinder 注入推广邀请绑定能力。
+func (s *authService) SetInviteBinder(binder InviteBinder) {
+	s.inviteBinder = binder
+}
+
+// SetDefaultGroupResolver 注入默认用户组解析能力。
+func (s *authService) SetDefaultGroupResolver(resolver DefaultGroupResolver) {
+	s.defaultGroup = resolver
 }
 
 // Login 执行用户登录流程：
@@ -112,12 +149,69 @@ func (s *authService) Register(ctx context.Context, req dto.RegisterRequest) (ui
 		PasswordHash: string(hash),
 		Status:       "active",
 		Tier:         "free",
+		UserGroupID:  s.resolveDefaultGroupID(ctx),
 	}
 
 	if err := s.repo.Create(ctx, user); err != nil {
 		return 0, err
 	}
+
+	// 推广邀请：失败一律不阻断注册（邀请码只影响返现归属，不影响账号可用性）。
+	s.setupInvite(ctx, user.ID, req.InviteCode)
 	return user.ID, nil
+}
+
+// resolveDefaultGroupID 解析默认用户组；未配置、解析失败或为 0 都返回 nil（保持未分组，不阻断注册）。
+func (s *authService) resolveDefaultGroupID(ctx context.Context) *uint64 {
+	if s.defaultGroup == nil {
+		return nil
+	}
+	id, err := s.defaultGroup.DefaultGroupID(ctx)
+	if err != nil {
+		s.warn("解析默认用户组失败", 0, err)
+		return nil
+	}
+	if id == 0 {
+		return nil
+	}
+	return &id
+}
+
+// setupInvite 为新注册用户生成自有邀请码，并在携带邀请码时绑定单级邀请关系。
+func (s *authService) setupInvite(ctx context.Context, userID uint64, inviteCode string) {
+	if s.inviteBinder == nil {
+		return
+	}
+	if _, err := s.inviteBinder.EnsureInviteCode(ctx, userID); err != nil {
+		s.warn("生成邀请码失败", userID, err)
+	}
+	inviteCode = strings.TrimSpace(inviteCode)
+	if inviteCode == "" {
+		return
+	}
+	inviterID, err := s.inviteBinder.ResolveInviter(ctx, inviteCode)
+	if err != nil {
+		s.warn("解析邀请码失败", userID, err)
+		return
+	}
+	if inviterID == 0 {
+		s.warn("邀请码无效", userID, errors.New("invite code not found"))
+		return
+	}
+	if inviterID == userID {
+		s.warn("不接受自邀", userID, errors.New("self invitation"))
+		return
+	}
+	if err := s.inviteBinder.BindInviter(ctx, userID, inviterID); err != nil {
+		s.warn("绑定邀请关系失败", userID, err)
+	}
+}
+
+func (s *authService) warn(msg string, userID uint64, err error) {
+	if s.logger == nil {
+		return
+	}
+	s.logger.Warn(msg, zap.Uint64("user_id", userID), zap.Error(err))
 }
 
 // UserInfo 根据用户 ID 查询用户信息。
@@ -186,12 +280,6 @@ func (s *authService) toUserInfo(ctx context.Context, user *model.User) dto.User
 		info.Permissions = codes
 	} else {
 		info.Permissions = []string{}
-	}
-	// 代理标识（P6-03）：子账号沿用主账号身份判断会误放行，故仅主账号查询。
-	if !user.IsSubAccount {
-		if isAgent, err := s.repo.IsAgent(ctx, user.ID); err == nil {
-			info.IsAgent = isAgent
-		}
 	}
 	return info
 }

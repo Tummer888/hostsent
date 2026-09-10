@@ -24,8 +24,6 @@ type PolicyService interface {
 	RuleForProduct(ctx context.Context, policyID, productID, categoryID uint64) (*pricing.Rule, error)
 	// RuleForUserGroup 解析用户所属用户组的折扣规则，供算价管线 GroupRule 使用。
 	RuleForUserGroup(ctx context.Context, userID, productID, categoryID uint64) (*pricing.Rule, error)
-	// RuleForAgent 解析代理用户所属代理等级的折扣规则，供算价管线 AgentRule 使用（P6-01）。
-	RuleForAgent(ctx context.Context, userID, productID, categoryID uint64) (*pricing.Rule, error)
 }
 
 type policyService struct {
@@ -191,19 +189,6 @@ func (s *policyService) RuleForUserGroup(ctx context.Context, userID, productID,
 		return nil, nil
 	}
 	return s.RuleForProduct(ctx, policyID, productID, categoryID)
-}
-
-// RuleForAgent 组合「用户 → 代理 → 代理等级 → 策略 → 规则」链路（P6-01）。
-// 非代理用户或等级未绑定策略时返回 nil，管线继续走用户组折扣。
-func (s *policyService) RuleForAgent(ctx context.Context, userID, productID, categoryID uint64) (*pricing.Rule, error) {
-	policyID, err := s.repo.AgentPolicyIDForUser(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	if policyID == 0 {
-		return nil, nil
-	}
-	return s.ruleForPolicy(ctx, policyID, productID, categoryID, pricing.SourceAgent)
 }
 
 func (s *policyService) saveItems(ctx context.Context, policyID uint64, reqItems []dto.PolicyItemRequest) error {

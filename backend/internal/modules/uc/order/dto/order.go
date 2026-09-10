@@ -38,14 +38,13 @@ type QuoteRequest struct {
 	Quantity  int    `json:"quantity"`
 }
 
-// QuoteInfo 预结算价格明细，代理用户额外标注代理价来源。
+// QuoteInfo 预结算价格明细。
 type QuoteInfo struct {
 	OriginalAmount float64        `json:"original_amount"`
 	DiscountAmount float64        `json:"discount_amount"`
 	FinalAmount    float64        `json:"final_amount"`
 	PolicyID       *uint64        `json:"price_policy_id"`
 	Source         string         `json:"discount_source"`
-	IsAgentPrice   bool           `json:"is_agent_price"`
 	Snapshot       []pricing.Rule `json:"price_snapshot"`
 }
 

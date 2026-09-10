@@ -7,7 +7,7 @@ export interface SystemConfigInfo {
   id: number
   config_key: string
   config_value: string
-  value_type: 'string' | 'bool' | 'int' | 'json'
+  value_type: 'string' | 'bool' | 'int' | 'decimal' | 'json'
   config_group: string
   description: string
   sort_order: number

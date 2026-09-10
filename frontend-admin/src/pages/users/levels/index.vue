@@ -3,9 +3,6 @@
     <header class="page-header surface-card">
       <div>
         <h2 class="page-title">用户等级管理</h2>
-        <p class="page-subtitle">
-          等级按累计消费自动升级（只升不降），不参与折扣计算；门槛与子账号上限可直接调整，权益本期仅记录不自动发放。
-        </p>
       </div>
       <t-space>
         <t-button v-permission="'level:create'" theme="primary" @click="openCreate">新建等级</t-button>
@@ -81,18 +78,15 @@
           </t-form-item>
           <t-form-item label="权重" name="weight">
             <t-input-number v-model="form.weight" :min="0" :step="1" theme="normal" />
-            <p class="form-tip">权重越大等级越高，只升不降按此比较。</p>
           </t-form-item>
           <t-form-item label="状态" name="status">
             <t-select v-model="form.status" :options="statusOptions" />
           </t-form-item>
           <t-form-item label="升级门槛（累计消费，元）" name="upgrade_threshold">
             <t-input-number v-model="form.upgrade_threshold" :min="0" :step="1000" theme="normal" />
-            <p class="form-tip">0 表示注册即获得（最低等级）。</p>
           </t-form-item>
           <t-form-item label="子账号上限" name="max_sub_accounts">
             <t-input-number v-model="form.max_sub_accounts" :min="0" :step="1" theme="normal" />
-            <p class="form-tip">该等级用户可创建的成员数量。</p>
           </t-form-item>
         </div>
         <t-form-item label="权益（每行一条）" name="benefits">
@@ -333,6 +327,13 @@ onMounted(() => {
   gap: 16px;
 }
 
+.surface-card {
+  border-radius: var(--hs-radius-lg);
+  background: var(--hs-surface-1);
+  border: 1px solid var(--color-border);
+  box-shadow: none;
+}
+
 .page-header {
   display: flex;
   align-items: flex-start;
@@ -351,13 +352,6 @@ onMounted(() => {
   font-size: 22px;
 }
 
-.page-subtitle {
-  margin: 8px 0 0;
-  max-width: 720px;
-  color: var(--color-muted-foreground);
-  line-height: 1.6;
-}
-
 .primary-cell {
   display: flex;
   flex-direction: column;
@@ -372,12 +366,6 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 20px;
-}
-
-.form-tip {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: var(--color-muted-foreground);
 }
 
 @media (max-width: 768px) {

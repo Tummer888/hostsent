@@ -11,6 +11,8 @@ const (
 	TxTypeCommission string = "commission" // 佣金（分销入账）
 	TxTypeSettlement string = "settlement" // 结算（分销/提现出账）
 	TxTypeAdjust     string = "adjust"     // 调账（赠送/扣减）
+	// TxTypeReferralTransfer 推广返现转入现金余额（收入）。
+	TxTypeReferralTransfer string = "referral_transfer"
 )
 
 // 资金方向

@@ -21,8 +21,6 @@ type PricePolicyRepository interface {
 	ReplaceItems(ctx context.Context, policyID uint64, items []model.PricePolicyItem) error
 	// GroupPolicyIDForUser 返回用户所属用户组绑定的折扣策略 ID（0 表示未绑定）。
 	GroupPolicyIDForUser(ctx context.Context, userID uint64) (uint64, error)
-	// AgentPolicyIDForUser 返回用户所属代理等级绑定的折扣策略 ID（0 表示非代理/未绑定，P6-01）。
-	AgentPolicyIDForUser(ctx context.Context, userID uint64) (uint64, error)
 }
 
 type pricePolicyRepository struct {
@@ -122,28 +120,6 @@ func (r *pricePolicyRepository) GroupPolicyIDForUser(ctx context.Context, userID
 		Select("user_groups.price_policy_id").
 		Joins("JOIN user_groups ON user_groups.id = users.user_group_id").
 		Where("users.id = ?", userID).
-		Limit(1).
-		Scan(&policyID).Error
-	if err != nil {
-		return 0, err
-	}
-	if policyID == nil {
-		return 0, nil
-	}
-	return *policyID, nil
-}
-
-// AgentPolicyIDForUser 通过 distribution_agents + agent_levels 反查代理价格策略（P6-01）。
-// 仅启用状态的代理与等级参与算价；非代理用户返回 0。
-func (r *pricePolicyRepository) AgentPolicyIDForUser(ctx context.Context, userID uint64) (uint64, error) {
-	var policyID *uint64
-	err := r.db.WithContext(ctx).
-		Table("distribution_agents").
-		Select("agent_levels.price_policy_id").
-		Joins("JOIN agent_levels ON agent_levels.id = distribution_agents.agent_level_id").
-		Where("distribution_agents.user_id = ?", userID).
-		Where("distribution_agents.status = ?", "active").
-		Where("agent_levels.status = ?", "active").
 		Limit(1).
 		Scan(&policyID).Error
 	if err != nil {

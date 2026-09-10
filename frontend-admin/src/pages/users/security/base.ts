@@ -4,9 +4,7 @@ import type { PageInfo, PrimaryTableCol, TableRowData } from 'tdesign-vue-next'
 
 export interface SecurityPageConfig<TQuery extends Record<string, any>, TItem extends TableRowData> {
   title: string
-  subtitle: string
   tableTitle: string
-  tableDesc: string
   emptyText: string
   columns: PrimaryTableCol<TItem>[]
   createQuery: () => TQuery
@@ -28,9 +26,7 @@ export function useSecurityListPage<TQuery extends { page?: number; page_size?: 
   })
 
   const pageTitle = computed(() => config.title)
-  const pageSubtitle = computed(() => config.subtitle)
   const tableTitle = computed(() => config.tableTitle)
-  const tableDesc = computed(() => config.tableDesc)
 
   async function load() {
     loading.value = true
@@ -79,9 +75,7 @@ export function useSecurityListPage<TQuery extends { page?: number; page_size?: 
     filters,
     pagination,
     pageTitle,
-    pageSubtitle,
     tableTitle,
-    tableDesc,
     columns: config.columns,
     emptyText: config.emptyText,
     load,

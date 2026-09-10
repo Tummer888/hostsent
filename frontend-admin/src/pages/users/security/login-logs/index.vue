@@ -1,9 +1,7 @@
 <template>
   <SecurityListPage
     title="登录日志"
-    subtitle="聚合管理员与用户登录轨迹，快速识别异常来源、失败爆发与高风险访问。"
     table-title="登录事件"
-    table-desc="支持按账号、IP、登录结果和风险等级进行筛查。"
     :total="pagination.total"
     :data="tableData"
     :columns="columns"

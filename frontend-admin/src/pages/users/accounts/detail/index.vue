@@ -13,9 +13,6 @@
                   {{ statusLabelMap[userDetail.status] || userDetail.status }}
                 </t-tag>
               </div>
-              <p class="detail-header__subtitle">
-                当前页面已切为真实聚合数据渲染。基础资料、权限、实例、订单、工单均来自后端聚合接口，编辑资料仍走用户主档更新接口。
-              </p>
             </div>
           </div>
           <div class="detail-header__actions">
@@ -38,7 +35,6 @@
           <component :is="item.icon" size="18" aria-hidden="true" class="summary-card__icon" />
         </div>
         <div class="summary-card__value">{{ item.value }}</div>
-        <p class="summary-card__hint">{{ item.hint }}</p>
       </article>
     </section>
 
@@ -56,11 +52,7 @@
     <section class="detail-content">
       <article v-if="activeTab === 'profile'" class="panel-card surface-card">
         <header class="panel-card__head">
-          <div>
-            <h3 class="panel-card__title">基础资料</h3>
-            <p class="panel-card__subtitle">来自真实聚合接口的用户主档数据，用于承接资料编辑与状态查看。</p>
-          </div>
-          <t-tag theme="primary" variant="light" size="small" shape="round">profile</t-tag>
+          <h3 class="panel-card__title">基础资料</h3>
         </header>
 
         <div v-if="loading" class="empty-state">正在加载用户资料…</div>
@@ -92,11 +84,7 @@
 
       <article v-else-if="activeTab === 'permissions'" class="panel-card surface-card">
         <header class="panel-card__head">
-          <div>
-            <h3 class="panel-card__title">角色与权限</h3>
-            <p class="panel-card__subtitle">角色来自用户主档，权限明细来自 `/api/v1/admin/users/:id/detail-aggregate`。</p>
-          </div>
-          <t-tag theme="success" variant="light" size="small" shape="round">permissions</t-tag>
+          <h3 class="panel-card__title">角色与权限</h3>
         </header>
         <div class="permission-section">
           <div>
@@ -124,11 +112,7 @@
 
       <article v-else-if="activeTab === 'members'" class="panel-card surface-card">
         <header class="panel-card__head">
-          <div>
-            <h3 class="panel-card__title">成员（子账号）</h3>
-            <p class="panel-card__subtitle">主账号名下的子账号及其被授予的客户侧权限；子账号不能充值、提现与实名。</p>
-          </div>
-          <t-tag theme="primary" variant="light" size="small" shape="round">members</t-tag>
+          <h3 class="panel-card__title">成员（子账号）</h3>
         </header>
 
         <div v-if="userDetail?.is_sub_account" class="empty-state empty-state--compact">
@@ -171,11 +155,7 @@
 
       <article v-else-if="activeTab === 'assets'" class="panel-card surface-card">
         <header class="panel-card__head">
-          <div>
-            <h3 class="panel-card__title">云主机资产</h3>
-            <p class="panel-card__subtitle">实例列表、状态与到期时间均来自真实聚合接口。</p>
-          </div>
-          <t-tag theme="warning" variant="light" size="small" shape="round">instances</t-tag>
+          <h3 class="panel-card__title">云主机资产</h3>
         </header>
         <div v-if="instanceItems.length" class="data-grid">
           <div v-for="instance in instanceItems" :key="instance.id" class="data-card">
@@ -206,11 +186,7 @@
 
       <article v-else-if="activeTab === 'orders'" class="panel-card surface-card">
         <header class="panel-card__head">
-          <div>
-            <h3 class="panel-card__title">订单与财务</h3>
-            <p class="panel-card__subtitle">订单、账单和流水均来自真实聚合接口。</p>
-          </div>
-          <t-tag theme="primary" variant="light" size="small" shape="round">orders · bills · transactions</t-tag>
+          <h3 class="panel-card__title">订单与财务</h3>
         </header>
 
         <div class="finance-grid finance-grid--wide">
@@ -296,11 +272,7 @@
 
       <article v-else class="panel-card surface-card">
         <header class="panel-card__head">
-          <div>
-            <h3 class="panel-card__title">服务工单</h3>
-            <p class="panel-card__subtitle">工单列表、优先级与处理状态来自真实聚合接口。</p>
-          </div>
-          <t-tag theme="danger" variant="light" size="small" shape="round">tickets</t-tag>
+          <h3 class="panel-card__title">服务工单</h3>
         </header>
         <div v-if="ticketItems.length" class="data-grid">
           <div v-for="ticket in ticketItems" :key="ticket.id" class="data-card">
@@ -349,6 +321,15 @@
           <t-form-item label="手机号码" name="phone">
             <t-input v-model="editForm.phone" placeholder="请输入手机号码" />
           </t-form-item>
+          <t-form-item label="所属用户组" name="user_group_id">
+            <t-select
+              v-model="editForm.user_group_id"
+              :options="userGroupOptions"
+              clearable
+              filterable
+              placeholder="未分组"
+            />
+          </t-form-item>
         </div>
       </t-form>
     </t-dialog>
@@ -362,6 +343,7 @@ import { EditIcon, MoneyIcon, NotificationIcon, SecuredIcon, UserIcon } from 'td
 import { MessagePlugin, type FormInstanceFunctions, type FormRules } from 'tdesign-vue-next'
 import {
   getUserDetailAggregate,
+  getUserGroupList,
   getUserMembers,
   updateUserDetail,
   type SubAccountMemberInfo,
@@ -390,12 +372,37 @@ const activeTab = ref<DetailTab>('profile')
 const userDetail = ref<UserInfo | null>(null)
 const aggregateDetail = ref<UserDetailAggregateResponse | null>(null)
 
-const editForm = reactive({
+const editForm = reactive<{
+  username: string
+  email: string
+  phone: string
+  status: string
+  user_group_id?: number
+}>({
   username: '',
   email: '',
   phone: '',
   status: 'active',
+  user_group_id: undefined,
 })
+
+// 用户组下拉：包含已禁用组，避免历史归属被编辑时静默清空
+const userGroupOptions = ref<{ label: string; value: number }[]>([])
+
+async function loadUserGroupOptions() {
+  try {
+    const data = await getUserGroupList({ page: 1, page_size: 200 })
+    userGroupOptions.value = (data.items || []).map((item) => {
+      const suffix: string[] = []
+      if (item.is_agent_group) suffix.push('代理')
+      if (item.is_default) suffix.push('默认')
+      if (item.status === 'disabled') suffix.push('已禁用')
+      return { label: suffix.length > 0 ? `${item.name}（${suffix.join('·')}）` : item.name, value: item.id }
+    })
+  } catch {
+    userGroupOptions.value = []
+  }
+}
 
 const statusLabelMap: Record<string, string> = {
   active: '正常',
@@ -492,11 +499,19 @@ const transactionItems = computed<UserTransactionItem[]>(() => aggregateDetail.v
 const ticketItems = computed<UserTicketItem[]>(() => aggregateDetail.value?.tickets || [])
 
 const summaryCards = computed(() => [
-  { key: 'user-id', label: '用户编号', value: userDetail.value ? `#${userDetail.value.id}` : '--', hint: '来自真实用户主档', icon: UserIcon },
-  { key: 'status', label: '账户状态', value: currentStatusLabel.value, hint: '可在编辑资料中调整', icon: SecuredIcon },
-  { key: 'balance', label: '账户余额', value: balanceText.value, hint: '来自用户主档余额字段', icon: MoneyIcon },
-  { key: 'login', label: '最近登录', value: formatDateTime(userDetail.value?.last_login_at), hint: '实时读取用户最后登录时间', icon: NotificationIcon },
+  { key: 'user-id', label: '用户编号', value: userDetail.value ? `#${userDetail.value.id}` : '--', icon: UserIcon },
+  { key: 'status', label: '账户状态', value: currentStatusLabel.value, icon: SecuredIcon },
+  { key: 'balance', label: '账户余额', value: balanceText.value, icon: MoneyIcon },
+  { key: 'login', label: '最近登录', value: formatDateTime(userDetail.value?.last_login_at), icon: NotificationIcon },
 ])
+
+// 所属用户组展示：优先用下拉选项里的富标签（含「代理/默认」标注），保证与编辑弹窗一致
+const userGroupDisplay = computed(() => {
+  const groupId = userDetail.value?.user_group_id
+  if (!groupId) return '未分组'
+  const option = userGroupOptions.value.find((item) => item.value === groupId)
+  return option?.label || userDetail.value?.user_group_name || `用户组 #${groupId}`
+})
 
 const basicFields = computed(() => {
   if (!userDetail.value) return []
@@ -508,7 +523,7 @@ const basicFields = computed(() => {
     { label: '手机号码', value: userDetail.value.phone || '—', valueClass: 'mono-text' },
     { label: '所属地域', value: userDetail.value.region || '未设置', valueClass: '' },
     { label: '用户等级', value: userDetail.value.user_level_name || '未分级', valueClass: '' },
-    { label: '所属用户组', value: userDetail.value.user_group_name || '未分组', valueClass: '' },
+    { label: '所属用户组', value: userGroupDisplay.value, valueClass: '' },
     { label: '累计消费', value: formatAmount(userDetail.value.total_consume_amount || 0), valueClass: 'accent-text' },
     { label: '账户状态', value: currentStatusLabel.value, valueClass: userDetail.value.status === 'active' ? 'accent-text' : 'warning-text' },
     { label: '账户余额', value: balanceText.value, valueClass: 'accent-text' },
@@ -556,6 +571,7 @@ function syncEditForm() {
   editForm.email = userDetail.value.email || ''
   editForm.phone = userDetail.value.phone || ''
   editForm.status = userDetail.value.status || 'active'
+  editForm.user_group_id = userDetail.value.user_group_id ?? undefined
 }
 
 async function loadUserDetail() {
@@ -604,6 +620,7 @@ watch(activeTab, (tab) => {
 function openEditDialog() {
   if (!userDetail.value) return
   syncEditForm()
+  void loadUserGroupOptions()
   editVisible.value = true
 }
 
@@ -617,6 +634,8 @@ async function handleSubmitEdit() {
       email: editForm.email,
       phone: editForm.phone,
       status: editForm.status,
+      // 0 表示移出分组（未分组），与后端 nil=不修改 / 0=清空 的约定一致
+      user_group_id: editForm.user_group_id ?? 0,
     })
     userDetail.value = data
     if (aggregateDetail.value) {
@@ -636,6 +655,7 @@ async function handleSubmitEdit() {
 
 onMounted(() => {
   loadUserDetail()
+  void loadUserGroupOptions()
 })
 </script>
 
@@ -710,13 +730,6 @@ onMounted(() => {
   font-weight: 700;
 }
 
-.detail-header__subtitle {
-  margin: 8px 0 0;
-  color: var(--color-muted-foreground);
-  font-size: 13px;
-  line-height: 1.7;
-}
-
 .detail-header__actions {
   display: flex;
   gap: 12px;
@@ -759,12 +772,6 @@ onMounted(() => {
   color: var(--color-foreground);
 }
 
-.summary-card__hint {
-  margin: 6px 0 0;
-  font-size: 12px;
-  color: var(--td-brand-color-9);
-}
-
 .detail-tabs,
 .panel-card,
 .side-card {
@@ -791,13 +798,6 @@ onMounted(() => {
   font-size: 16px;
   font-weight: 700;
   color: var(--color-foreground);
-}
-
-.panel-card__subtitle {
-  margin: 6px 0 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--color-muted-foreground);
 }
 
 .profile-layout {

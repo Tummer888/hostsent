@@ -60,9 +60,7 @@ import type { PageInfo, PaginationProps, PrimaryTableCol } from 'tdesign-vue-nex
 
 defineProps<{
   title: string
-  subtitle?: string
   tableTitle: string
-  tableDesc?: string
   total: number
   data: TItem[]
   columns: PrimaryTableCol<TItem>[]

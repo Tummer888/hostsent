@@ -16,7 +16,7 @@
       <template #discount="{ row }">
         <template v-if="row.discount_amount > 0">
           <span class="cell-discount">-¥{{ row.discount_amount.toFixed(2) }}</span>
-          <t-tag size="small" variant="light" :theme="row.discount_source === 'agent' ? 'warning' : 'success'">
+          <t-tag size="small" variant="light" theme="success">
             {{ sourceLabel(row.discount_source) }}
           </t-tag>
         </template>
@@ -61,10 +61,9 @@ function payAmount(row: OrderInfo): number {
   return row.final_amount || row.paid_amount
 }
 
-/** 折扣来源中文标签（P5-06）。 */
+/** 折扣来源中文标签（P5-06）：折扣仅由用户组价格策略承载。 */
 function sourceLabel(source: string): string {
   const map: Record<string, string> = {
-    agent: '代理价',
     group: '用户组折扣',
     promotion: '促销优惠',
     manual: '人工改价',

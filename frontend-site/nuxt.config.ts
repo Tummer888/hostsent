@@ -24,6 +24,9 @@ export default defineNuxtConfig({
     },
   },
 
+  // 开发端口固定为 3003，与 scripts/start-frontends.sh 保持一致
+  devServer: { port: 3003, host: '0.0.0.0' },
+
   // 缓存策略：只对公开营销页启用 SWR；含用户态路径一律 no-store
   routeRules: {
     '/': {

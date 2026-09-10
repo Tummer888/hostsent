@@ -29,19 +29,45 @@ type UserService interface {
 	Recharge(ctx context.Context, id uint64, amount float64, remark string, operatorID uint64) error
 	// ListMembers 查询某主账号名下的成员（子账号）及权限（P4-10）
 	ListMembers(ctx context.Context, ownerID uint64) (*dto.SubAccountMemberListResponse, error)
+	// SetDefaultGroupProvider 注入默认用户组解析能力（可选，装配层调用）。
+	SetDefaultGroupProvider(provider DefaultGroupProvider)
 }
 
 // Recharger 充值能力适配器（由装配层注入，内部调用财务钱包调账）。
 type Recharger func(ctx context.Context, userID uint64, amount float64, remark string, operatorID uint64) error
 
+// DefaultGroupProvider 提供默认用户组 ID（由用户组服务实现，装配层注入）；
+// 返回 0 表示未配置默认组，此时新用户保持未分组。
+type DefaultGroupProvider interface {
+	DefaultGroupID(ctx context.Context) (uint64, error)
+}
+
 type userService struct {
-	repo      repository.UserRepository
-	jwtIssuer *pkgauth.JWTIssuer
-	recharge  Recharger
+	repo         repository.UserRepository
+	jwtIssuer    *pkgauth.JWTIssuer
+	recharge     Recharger
+	defaultGroup DefaultGroupProvider
 }
 
 func NewUserService(repo repository.UserRepository, jwtIssuer *pkgauth.JWTIssuer, recharge Recharger) UserService {
 	return &userService{repo: repo, jwtIssuer: jwtIssuer, recharge: recharge}
+}
+
+// SetDefaultGroupProvider 注入默认用户组解析能力（可选，装配层调用）。
+func (s *userService) SetDefaultGroupProvider(provider DefaultGroupProvider) {
+	s.defaultGroup = provider
+}
+
+// resolveDefaultGroupID 解析默认用户组；未配置或解析失败都返回 nil（保持未分组，不阻断建号）。
+func (s *userService) resolveDefaultGroupID(ctx context.Context) *uint64 {
+	if s.defaultGroup == nil {
+		return nil
+	}
+	id, err := s.defaultGroup.DefaultGroupID(ctx)
+	if err != nil || id == 0 {
+		return nil
+	}
+	return &id
 }
 
 func (s *userService) List(ctx context.Context, query dto.UserListQuery) (*dto.UserListResponse, error) {
@@ -80,6 +106,10 @@ func (s *userService) Create(ctx context.Context, req dto.UserCreateRequest) (*d
 		return nil, err
 	}
 	user := &model.User{ID: req.ID, Username: req.Username, Email: req.Email, Phone: req.Phone, PasswordHash: string(hash), Status: req.Status, UserGroupID: req.UserGroupID}
+	// 未指定分组时归入默认组（未配置默认组则保持未分组）。
+	if user.UserGroupID == nil {
+		user.UserGroupID = s.resolveDefaultGroupID(ctx)
+	}
 	if err := s.repo.Create(ctx, user); err != nil {
 		return nil, err
 	}
@@ -112,6 +142,14 @@ func (s *userService) Update(ctx context.Context, id uint64, req dto.UserUpdateR
 	user.Email = req.Email
 	user.Phone = req.Phone
 	user.Status = req.Status
+	// nil 表示不修改分组；0 表示移出分组；其余为组 ID。
+	if req.UserGroupID != nil {
+		if *req.UserGroupID == 0 {
+			user.UserGroupID = nil
+		} else {
+			user.UserGroupID = req.UserGroupID
+		}
+	}
 	if err := s.repo.Update(ctx, user); err != nil {
 		return nil, err
 	}
@@ -182,6 +220,7 @@ func toUserInfo(user model.User) dto.UserInfo {
 		Roles:              user.Roles,
 		Email:              user.Email,
 		Phone:              user.Phone,
+		UserGroupID:        user.UserGroupID,
 		UserGroupName:      user.UserGroupName,
 		UserLevelID:        user.UserLevelID,
 		UserLevelName:      user.UserLevelName,

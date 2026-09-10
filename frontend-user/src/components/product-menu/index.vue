@@ -1,6 +1,9 @@
 <template>
-  <transition name="pm-fade">
-    <div v-if="open" class="pm-panel" role="dialog" aria-label="全部云产品">
+  <transition name="pm-open">
+    <div v-if="open" class="pm-root">
+      <button class="pm-backdrop" aria-label="关闭菜单" @click="close"></button>
+
+      <div class="pm-panel" role="dialog" aria-label="全部云产品">
       <!-- ============ 左侧导航栏 ============ -->
       <aside class="pm-rail">
         <nav class="pm-rail__nav">
@@ -173,6 +176,8 @@
       <button class="pm-close" aria-label="关闭" @click="close">
         <CloseIcon size="20" />
       </button>
+    </div>
+
     </div>
   </transition>
 </template>
@@ -521,12 +526,31 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.pm-panel {
+.pm-root {
   position: fixed;
   inset: 0;
   z-index: 200;
+}
+
+.pm-backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: rgba(15, 23, 42, 0.45);
+  cursor: default;
+}
+
+.pm-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 50%;
+  min-width: 640px;
+  max-width: 920px;
   display: flex;
   background: #ffffff;
+  box-shadow: 20px 0 50px rgba(15, 23, 42, 0.18);
 }
 
 /* ============ 左侧导航栏 ============ */
@@ -841,14 +865,24 @@ onBeforeUnmount(() => {
 }
 
 /* ============ 动画 ============ */
-.pm-fade-enter-active,
-.pm-fade-leave-active {
+.pm-open-enter-active,
+.pm-open-leave-active {
   transition: opacity 0.2s ease;
 }
 
-.pm-fade-enter-from,
-.pm-fade-leave-to {
+.pm-open-enter-active .pm-panel,
+.pm-open-leave-active .pm-panel {
+  transition: transform 0.24s ease;
+}
+
+.pm-open-enter-from,
+.pm-open-leave-to {
   opacity: 0;
+}
+
+.pm-open-enter-from .pm-panel,
+.pm-open-leave-to .pm-panel {
+  transform: translateX(-100%);
 }
 
 .pm-tools-enter-active,
@@ -903,6 +937,12 @@ onBeforeUnmount(() => {
 
 /* ============ 响应式 ============ */
 @media (max-width: 1280px) {
+  .pm-panel {
+    width: 60%;
+    min-width: 0;
+    max-width: 780px;
+  }
+
   .pm-index {
     display: none;
   }
@@ -913,6 +953,12 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 768px) {
+  .pm-panel {
+    width: 88vw;
+    min-width: 0;
+    max-width: none;
+  }
+
   .pm-rail {
     width: 40vw;
     min-width: 150px;

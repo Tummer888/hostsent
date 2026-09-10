@@ -342,7 +342,6 @@ func (s *orderService) Quote(ctx context.Context, userID uint64, req dto.QuoteRe
 		FinalAmount:    quote.FinalAmount,
 		PolicyID:       quote.PolicyID,
 		Source:         quote.Source,
-		IsAgentPrice:   quote.Source == pricing.SourceAgent,
 		Snapshot:       quote.Snapshot,
 	}, nil
 }

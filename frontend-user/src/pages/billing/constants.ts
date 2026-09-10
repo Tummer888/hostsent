@@ -7,6 +7,7 @@ export const txTypeOptions = [
   { label: '佣金', value: 'commission' },
   { label: '结算', value: 'settlement' },
   { label: '调账', value: 'adjust' },
+  { label: '返现转入', value: 'referral_transfer' },
 ]
 
 export const directionOptions = [
@@ -44,6 +45,8 @@ export function txTypeTheme(type: string): string {
     case 'settlement':
     case 'adjust':
       return 'warning'
+    case 'referral_transfer':
+      return 'success'
     default:
       return 'default'
   }

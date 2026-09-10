@@ -110,6 +110,18 @@
         </div>
 
         <div class="toolbar-field">
+          <span class="toolbar-field__label">用户组</span>
+          <t-select
+            v-model="filters.user_group_id"
+            class="unified-control"
+            clearable
+            filterable
+            placeholder="全部用户组"
+            :options="userGroupFilterOptions"
+          />
+        </div>
+
+        <div class="toolbar-field">
           <span class="toolbar-field__label">账号类型</span>
           <t-select
             v-model="filters.is_sub_account"
@@ -504,6 +516,7 @@ const filters = reactive<UserListQuery>({
   last_login_ip_region: '',
   keyword: '',
   user_level_id: undefined,
+  user_group_id: undefined,
   is_sub_account: '',
 })
 
@@ -628,11 +641,28 @@ const userGroupSelectOptions = computed(() =>
     .map((item) => ({ label: item.name, value: item.id })),
 )
 
+// 用户组筛选：包含已禁用组（便于排查历史归属），并标注代理组与默认组
+const userGroupFilterOptions = computed(() => [
+  { label: '全部用户组', value: undefined },
+  ...userGroupOptions.value.map((item) => {
+    const suffix: string[] = []
+    if (item.is_agent_group) suffix.push('代理')
+    if (item.is_default) suffix.push('默认')
+    if (item.status === 'disabled') suffix.push('已禁用')
+    const label = suffix.length > 0 ? `${item.name}（${suffix.join('·')}）` : item.name
+    return { label, value: item.id }
+  }),
+])
+
 const activeFilterLabel = computed(() => {
   if (filters.filter === 'today') return '今日新增'
   if (filters.filter === 'pending_real_name') return '待实名认证'
   if (filters.status) return statusLabelMap[filters.status] || filters.status
   if (filters.last_login_ip_region) return filters.last_login_ip_region
+  if (filters.user_group_id) {
+    const group = userGroupOptions.value.find((item) => item.id === filters.user_group_id)
+    return `用户组: ${group?.name || filters.user_group_id}`
+  }
   if (filters.keyword) return `搜索: ${filters.keyword}`
   return ''
 })
@@ -673,6 +703,7 @@ function syncFiltersFromRoute() {
   filters.last_login_ip_region = query.last_login_ip_region || ''
   filters.keyword = query.keyword || ''
   filters.user_level_id = query.user_level_id ? Number(query.user_level_id) : undefined
+  filters.user_group_id = query.user_group_id ? Number(query.user_group_id) : undefined
   filters.is_sub_account = query.is_sub_account === 'true' || query.is_sub_account === 'false' ? query.is_sub_account : ''
   pagination.current = filters.page
   pagination.pageSize = filters.page_size
@@ -699,6 +730,7 @@ function buildQuery() {
   if (filters.last_login_ip_region) query.last_login_ip_region = filters.last_login_ip_region
   if (filters.keyword) query.keyword = filters.keyword
   if (filters.user_level_id) query.user_level_id = String(filters.user_level_id)
+  if (filters.user_group_id) query.user_group_id = String(filters.user_group_id)
   if (filters.is_sub_account) query.is_sub_account = filters.is_sub_account
   return query
 }
@@ -735,7 +767,8 @@ async function loadRoleOptions() {
 
 async function loadUserGroupOptions() {
   try {
-    const data = await getUserGroupList({ page: 1, page_size: 200, status: 'active' })
+    // 不限定 status：筛选项需要覆盖已禁用组，创建弹窗再按 status 过滤
+    const data = await getUserGroupList({ page: 1, page_size: 200 })
     userGroupOptions.value = data.items || []
   } catch {
     userGroupOptions.value = []
@@ -763,6 +796,7 @@ async function loadUsers() {
       last_login_ip_region: filters.last_login_ip_region || undefined,
       keyword: filters.keyword || undefined,
       user_level_id: filters.user_level_id || undefined,
+      user_group_id: filters.user_group_id || undefined,
       is_sub_account: filters.is_sub_account || undefined,
     })
     tableData.value = data.items || []
@@ -798,6 +832,7 @@ async function handleReset() {
   filters.last_login_ip_region = ''
   filters.keyword = ''
   filters.user_level_id = undefined
+  filters.user_group_id = undefined
   filters.is_sub_account = ''
   sortOrder.value = 'desc'
   pagination.current = 1
@@ -1232,7 +1267,7 @@ onBeforeUnmount(() => {
 
 .toolbar__grid {
   display: grid;
-  grid-template-columns: minmax(260px, 2fr) repeat(5, minmax(150px, 1fr));
+  grid-template-columns: minmax(260px, 2fr) repeat(6, minmax(150px, 1fr));
   gap: 14px;
 }
 

@@ -1,9 +1,7 @@
 <template>
   <SecurityListPage
     title="黑名单管理"
-    subtitle="统一管理 IP、账号与设备指纹黑名单，支持人工创建与状态切换。"
     table-title="黑名单列表"
-    table-desc="查看命中来源、有效期与当前状态。"
     :total="pagination.total"
     :data="tableData"
     :columns="columns"

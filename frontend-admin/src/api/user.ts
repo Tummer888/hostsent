@@ -9,6 +9,8 @@ export interface UserListQuery {
   last_login_ip_region?: string
   keyword?: string
   user_level_id?: number
+  /** 用户组筛选，0 或空表示不筛选 */
+  user_group_id?: number
   /** 主账号/子账号筛选（P4-10）：'true' 仅子账号，'false' 仅主账号，空为全部 */
   is_sub_account?: string
 }
@@ -21,6 +23,7 @@ export interface UserInfo {
   roles?: string[]
   email?: string
   phone?: string
+  user_group_id?: number
   user_group_name?: string
   user_level_id?: number
   user_level_name?: string
@@ -80,6 +83,8 @@ export interface UserUpdateRequest {
   email?: string
   region?: string
   status?: string
+  /** 所属用户组：不传表示不修改，0 表示移出分组，其余为组 ID */
+  user_group_id?: number
 }
 
 export interface UserCreateRequest {
@@ -247,6 +252,8 @@ export interface UserGroupListQuery {
   page_size?: number
   status?: string
   keyword?: string
+  /** 组类型三态：'' 全部，'true' 仅代理组，'false' 仅普通组 */
+  is_agent_group?: string
 }
 
 export interface UserGroupInfo {
@@ -256,7 +263,6 @@ export interface UserGroupInfo {
   status: string
   sort_order: number
   price_policy_id?: number
-  priority: number
   is_default: boolean
   is_agent_group: boolean
   description?: string
@@ -270,7 +276,6 @@ export interface UserGroupRequest {
   status: string
   sort_order: number
   price_policy_id?: number
-  priority?: number
   is_default?: boolean
   is_agent_group?: boolean
   description?: string
@@ -278,250 +283,6 @@ export interface UserGroupRequest {
 
 export interface UserGroupListResponse {
   items: UserGroupInfo[]
-  meta: UserListMeta
-}
-
-export interface AgentLevelListQuery {
-  page?: number
-  page_size?: number
-  status?: string
-  keyword?: string
-}
-
-export interface AgentLevelInfo {
-  id: number
-  name: string
-  code: string
-  weight: number
-  direct_commission_rate: number
-  indirect_commission_rate: number
-  renewal_commission_rate: number
-  upgrade_reward_amount: number
-  self_purchase_rebate_rate: number
-  /** 代理等级绑定的折扣策略（P6-01），null 表示不打折。 */
-  price_policy_id?: number | null
-  allow_manual_price: boolean
-  allow_sub_agent: boolean
-  max_sub_agent_depth: number
-  status: string
-  description?: string
-  created_at: string
-  updated_at: string
-}
-
-export interface AgentLevelRequest {
-  name: string
-  code: string
-  weight: number
-  direct_commission_rate: number
-  indirect_commission_rate: number
-  renewal_commission_rate: number
-  upgrade_reward_amount: number
-  self_purchase_rebate_rate: number
-  price_policy_id?: number | null
-  allow_manual_price: boolean
-  allow_sub_agent: boolean
-  max_sub_agent_depth: number
-  status: string
-  description: string
-}
-
-export interface AgentLevelListResponse {
-  items: AgentLevelInfo[]
-  meta: UserListMeta
-}
-
-export interface AgentListQuery {
-  page?: number
-  page_size?: number
-  status?: string
-  agent_level_id?: number
-  keyword?: string
-}
-
-export interface AgentInfo {
-  id: number
-  user_id: number
-  username: string
-  real_name?: string
-  phone?: string
-  email?: string
-  region?: string
-  agent_level_id: number
-  agent_level_name: string
-  inviter_agent_id?: number
-  invite_code: string
-  direct_user_count: number
-  team_user_count: number
-  total_commission_amount: number
-  withdrawable_commission_amount: number
-  balance: number
-  status: string
-  created_at: string
-  updated_at: string
-}
-
-export interface AgentRequest {
-  user_id: number
-  agent_level_id: number
-  inviter_agent_id?: number
-  invite_code: string
-  status: string
-  remark?: string
-}
-
-export interface AgentListResponse {
-  items: AgentInfo[]
-  meta: UserListMeta
-}
-
-export interface SubordinateListQuery {
-  page?: number
-  page_size?: number
-  agent_id?: number
-  status?: string
-  level_depth?: number
-  keyword?: string
-}
-
-export interface SubordinateInfo {
-  id: number
-  agent_id: number
-  agent_name: string
-  user_id: number
-  username: string
-  real_name?: string
-  phone?: string
-  parent_agent_id?: number
-  parent_agent_name?: string
-  level_depth: number
-  relation_path: string
-  contribution_amount: number
-  commission_amount: number
-  status: string
-  created_at: string
-  updated_at: string
-}
-
-export interface SubordinateRequest {
-  agent_id: number
-  user_id: number
-  level_depth: number
-  relation_path: string
-  contribution_amount: number
-  commission_amount: number
-  status: string
-}
-
-export interface SubordinateListResponse {
-  items: SubordinateInfo[]
-  meta: UserListMeta
-}
-
-export interface CommissionListQuery {
-  page?: number
-  page_size?: number
-  agent_id?: number
-  status?: string
-  commission_type?: string
-  keyword?: string
-}
-
-export interface CommissionInfo {
-  id: number
-  agent_id: number
-  agent_name: string
-  subordinate_id?: number
-  subordinate_name?: string
-  settlement_id?: number
-  order_no: string
-  source_type: string
-  commission_type: string
-  base_amount: number
-  rate: number
-  amount: number
-  status: string
-  freeze_until?: string
-  settled_at?: string
-  remark?: string
-  created_at: string
-  updated_at: string
-}
-
-export interface CommissionRequest {
-  agent_id: number
-  subordinate_id?: number
-  settlement_id?: number
-  order_no: string
-  source_type: string
-  commission_type: string
-  base_amount: number
-  rate: number
-  amount: number
-  status: string
-  freeze_until?: string
-  settled_at?: string
-  remark?: string
-}
-
-export interface CommissionStatusActionRequest {
-  freeze_until?: string
-  remark?: string
-}
-
-export interface CommissionListResponse {
-  items: CommissionInfo[]
-  meta: UserListMeta
-}
-
-export interface SettlementListQuery {
-  page?: number
-  page_size?: number
-  agent_id?: number
-  status?: string
-  start_date?: string
-  end_date?: string
-  keyword?: string
-}
-
-export interface SettlementInfo {
-  id: number
-  agent_id: number
-  agent_name: string
-  settlement_no: string
-  period_start: string
-  period_end: string
-  commission_total: number
-  deduction_total: number
-  payable_total: number
-  commission_count: number
-  status: string
-  confirmed_by?: number
-  confirmed_by_name?: string
-  confirmed_at?: string
-  paid_at?: string
-  remark?: string
-  created_at: string
-  updated_at: string
-}
-
-export interface SettlementRequest {
-  agent_id?: number
-  settlement_no?: string
-  period_start: string
-  period_end: string
-  deduction_total: number
-  remark?: string
-  commission_ids?: number[]
-}
-
-export interface SettlementStatusActionRequest {
-  confirmed_by?: number
-  remark?: string
-}
-
-export interface SettlementListResponse {
-  items: SettlementInfo[]
   meta: UserListMeta
 }
 
@@ -587,6 +348,7 @@ export function getUserList(params: UserListQuery): Promise<UserListResponse> {
       last_login_ip_region: params.last_login_ip_region,
       keyword: params.keyword,
       user_level_id: params.user_level_id,
+      user_group_id: params.user_group_id,
       is_sub_account: params.is_sub_account,
     },
   })
@@ -790,6 +552,7 @@ export function getUserGroupList(params: UserGroupListQuery): Promise<UserGroupL
       page_size: params.page_size,
       status: params.status,
       keyword: params.keyword,
+      is_agent_group: params.is_agent_group,
     },
   })
 }
@@ -817,246 +580,6 @@ export function updateUserGroup(id: string | number, data: UserGroupRequest): Pr
 export function deleteUserGroup(id: string | number): Promise<string> {
   return request.delete<string>({
     url: `/user-groups/${id}`,
-  })
-}
-
-export function getAgentLevelList(params: AgentLevelListQuery): Promise<AgentLevelListResponse> {
-  return request.get<AgentLevelListResponse>({
-    url: '/distribution/agent-levels',
-    params: {
-      page: params.page,
-      page_size: params.page_size,
-      status: params.status,
-      keyword: params.keyword,
-    },
-  })
-}
-
-export function getAgentLevelDetail(id: string | number): Promise<AgentLevelInfo> {
-  return request.get<AgentLevelInfo>({
-    url: `/distribution/agent-levels/${id}`,
-  })
-}
-
-export function createAgentLevel(data: AgentLevelRequest): Promise<AgentLevelInfo> {
-  return request.post<AgentLevelInfo>({
-    url: '/distribution/agent-levels',
-    data,
-  })
-}
-
-export function updateAgentLevel(id: string | number, data: AgentLevelRequest): Promise<AgentLevelInfo> {
-  return request.put<AgentLevelInfo>({
-    url: `/distribution/agent-levels/${id}`,
-    data,
-  })
-}
-
-export function deleteAgentLevel(id: string | number): Promise<string> {
-  return request.delete<string>({
-    url: `/distribution/agent-levels/${id}`,
-  })
-}
-
-export function getAgentList(params: AgentListQuery): Promise<AgentListResponse> {
-  return request.get<AgentListResponse>({
-    url: '/distribution/agents',
-    params: {
-      page: params.page,
-      page_size: params.page_size,
-      status: params.status,
-      agent_level_id: params.agent_level_id,
-      keyword: params.keyword,
-    },
-  })
-}
-
-export function getAgentDetail(id: string | number): Promise<AgentInfo> {
-  return request.get<AgentInfo>({
-    url: `/distribution/agents/${id}`,
-  })
-}
-
-export function createAgent(data: AgentRequest): Promise<AgentInfo> {
-  return request.post<AgentInfo>({
-    url: '/distribution/agents',
-    data,
-  })
-}
-
-export function updateAgent(id: string | number, data: AgentRequest): Promise<AgentInfo> {
-  return request.put<AgentInfo>({
-    url: `/distribution/agents/${id}`,
-    data,
-  })
-}
-
-export function deleteAgent(id: string | number): Promise<string> {
-  return request.delete<string>({
-    url: `/distribution/agents/${id}`,
-  })
-}
-
-export function getSubordinateList(params: SubordinateListQuery): Promise<SubordinateListResponse> {
-  return request.get<SubordinateListResponse>({
-    url: '/distribution/subordinates',
-    params: {
-      page: params.page,
-      page_size: params.page_size,
-      agent_id: params.agent_id,
-      status: params.status,
-      level_depth: params.level_depth,
-      keyword: params.keyword,
-    },
-  })
-}
-
-export function getSubordinateDetail(id: string | number): Promise<SubordinateInfo> {
-  return request.get<SubordinateInfo>({
-    url: `/distribution/subordinates/${id}`,
-  })
-}
-
-export function createSubordinate(data: SubordinateRequest): Promise<SubordinateInfo> {
-  return request.post<SubordinateInfo>({
-    url: '/distribution/subordinates',
-    data,
-  })
-}
-
-export function updateSubordinate(id: string | number, data: SubordinateRequest): Promise<SubordinateInfo> {
-  return request.put<SubordinateInfo>({
-    url: `/distribution/subordinates/${id}`,
-    data,
-  })
-}
-
-export function deleteSubordinate(id: string | number): Promise<string> {
-  return request.delete<string>({
-    url: `/distribution/subordinates/${id}`,
-  })
-}
-
-export function getCommissionList(params: CommissionListQuery): Promise<CommissionListResponse> {
-  return request.get<CommissionListResponse>({
-    url: '/distribution/commissions',
-    params: {
-      page: params.page,
-      page_size: params.page_size,
-      agent_id: params.agent_id,
-      status: params.status,
-      commission_type: params.commission_type,
-      keyword: params.keyword,
-    },
-  })
-}
-
-export function getCommissionDetail(id: string | number): Promise<CommissionInfo> {
-  return request.get<CommissionInfo>({
-    url: `/distribution/commissions/${id}`,
-  })
-}
-
-export function createCommission(data: CommissionRequest): Promise<CommissionInfo> {
-  return request.post<CommissionInfo>({
-    url: '/distribution/commissions',
-    data,
-  })
-}
-
-export function updateCommission(id: string | number, data: CommissionRequest): Promise<CommissionInfo> {
-  return request.put<CommissionInfo>({
-    url: `/distribution/commissions/${id}`,
-    data,
-  })
-}
-
-export function freezeCommission(id: string | number, data: CommissionStatusActionRequest): Promise<CommissionInfo> {
-  return request.post<CommissionInfo>({
-    url: `/distribution/commissions/${id}/freeze`,
-    data,
-  })
-}
-
-export function unfreezeCommission(id: string | number, data: CommissionStatusActionRequest = {}): Promise<CommissionInfo> {
-  return request.post<CommissionInfo>({
-    url: `/distribution/commissions/${id}/unfreeze`,
-    data,
-  })
-}
-
-export function cancelCommission(id: string | number, data: CommissionStatusActionRequest = {}): Promise<CommissionInfo> {
-  return request.post<CommissionInfo>({
-    url: `/distribution/commissions/${id}/cancel`,
-    data,
-  })
-}
-
-export function deleteCommission(id: string | number): Promise<string> {
-  return request.delete<string>({
-    url: `/distribution/commissions/${id}`,
-  })
-}
-
-export function getSettlementList(params: SettlementListQuery): Promise<SettlementListResponse> {
-  return request.get<SettlementListResponse>({
-    url: '/distribution/settlements',
-    params: {
-      page: params.page,
-      page_size: params.page_size,
-      agent_id: params.agent_id,
-      status: params.status,
-      start_date: params.start_date,
-      end_date: params.end_date,
-      keyword: params.keyword,
-    },
-  })
-}
-
-export function getSettlementDetail(id: string | number): Promise<SettlementInfo> {
-  return request.get<SettlementInfo>({
-    url: `/distribution/settlements/${id}`,
-  })
-}
-
-export function createSettlement(data: SettlementRequest): Promise<SettlementInfo> {
-  return request.post<SettlementInfo>({
-    url: '/distribution/settlements',
-    data,
-  })
-}
-
-export function updateSettlement(id: string | number, data: SettlementRequest): Promise<SettlementInfo> {
-  return request.put<SettlementInfo>({
-    url: `/distribution/settlements/${id}`,
-    data,
-  })
-}
-
-export function confirmSettlement(id: string | number, data: SettlementStatusActionRequest = {}): Promise<SettlementInfo> {
-  return request.post<SettlementInfo>({
-    url: `/distribution/settlements/${id}/confirm`,
-    data,
-  })
-}
-
-export function paySettlement(id: string | number, data: SettlementStatusActionRequest = {}): Promise<SettlementInfo> {
-  return request.post<SettlementInfo>({
-    url: `/distribution/settlements/${id}/pay`,
-    data,
-  })
-}
-
-export function cancelSettlement(id: string | number, data: SettlementStatusActionRequest = {}): Promise<SettlementInfo> {
-  return request.post<SettlementInfo>({
-    url: `/distribution/settlements/${id}/cancel`,
-    data,
-  })
-}
-
-export function deleteSettlement(id: string | number): Promise<string> {
-  return request.delete<string>({
-    url: `/distribution/settlements/${id}`,
   })
 }
 

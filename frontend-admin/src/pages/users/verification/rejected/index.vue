@@ -1,7 +1,6 @@
 <template>
   <VerificationListPage
     title="实名认证审核拒绝"
-    subtitle="跟踪被驳回的实名认证申请，便于复核拒绝原因和补件情况。"
     table-title="审核拒绝记录"
     empty-text="暂无审核拒绝记录"
     :fetcher="getRejectedVerificationList"

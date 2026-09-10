@@ -23,6 +23,7 @@ const (
 	ConfigGroupSecurity = "security" // 安全配置
 	ConfigGroupRegister = "register" // 注册配置
 	ConfigGroupNotify   = "notify"   // 消息模板
+	ConfigGroupReferral = "referral" // 推广邀请返现
 
 	// 兼容历史分组
 	ConfigGroupSite    = "site"    // 站点配置

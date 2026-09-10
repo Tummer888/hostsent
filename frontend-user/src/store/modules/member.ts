@@ -17,8 +17,6 @@ export const useMemberStore = defineStore('member', () => {
   const ownerName = computed(() => userStore.userInfo?.owner_name || '')
   const permissions = computed<string[]>(() => userStore.permissions)
   const isSuperAccount = computed(() => !isSub.value)
-  /** isAgent 是否代理（P6-03）：后端 /uc/agent/* 会再次校验，前端仅用于路由门禁与入口显示。 */
-  const isAgent = computed(() => userStore.isAgent)
 
   /** has 判断是否持有某客户侧权限码；主账号恒为 true（拥有全部客户侧权限）。 */
   function has(code: string): boolean {
@@ -30,7 +28,6 @@ export const useMemberStore = defineStore('member', () => {
     isSub,
     isOwner,
     isSuperAccount,
-    isAgent,
     ownerName,
     permissions,
     has,

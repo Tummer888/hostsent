@@ -15,7 +15,7 @@ type ConfigListQuery struct {
 type ConfigCreateRequest struct {
 	ConfigKey   string `json:"config_key" binding:"required"`                             // 配置键（全局唯一）
 	ConfigValue string `json:"config_value" binding:"required"`                           // 配置值
-	ValueType   string `json:"value_type" binding:"omitempty,oneof=string bool int json"` // 值类型，空为 string
+	ValueType   string `json:"value_type" binding:"omitempty,oneof=string bool int decimal json"` // 值类型，空为 string
 	Group       string `json:"config_group"`                                              // 配置分组
 	Description string `json:"description"`                                               // 配置描述
 	SortOrder   int    `json:"sort_order"`                                                // 排序权重
@@ -25,7 +25,7 @@ type ConfigCreateRequest struct {
 // ConfigUpdateRequest 更新配置项请求（配置键创建后不可修改）
 type ConfigUpdateRequest struct {
 	ConfigValue string `json:"config_value"`                                              // 配置值
-	ValueType   string `json:"value_type" binding:"omitempty,oneof=string bool int json"` // 值类型
+	ValueType   string `json:"value_type" binding:"omitempty,oneof=string bool int decimal json"` // 值类型
 	Group       string `json:"config_group"`                                              // 配置分组
 	Description string `json:"description"`                                               // 配置描述
 	SortOrder   int    `json:"sort_order"`                                                // 排序权重
@@ -36,7 +36,7 @@ type ConfigUpdateRequest struct {
 type ConfigSaveItem struct {
 	ConfigKey   string `json:"config_key" binding:"required"`                             // 配置键（全局唯一）
 	ConfigValue string `json:"config_value"`                                              // 配置值
-	ValueType   string `json:"value_type" binding:"omitempty,oneof=string bool int json"` // 值类型，空为 string
+	ValueType   string `json:"value_type" binding:"omitempty,oneof=string bool int decimal json"` // 值类型，空为 string
 	Group       string `json:"config_group"`                                              // 配置分组
 	Description string `json:"description"`                                               // 配置描述
 	SortOrder   int    `json:"sort_order"`                                                // 排序权重
@@ -54,7 +54,7 @@ type ConfigInfo struct {
 	ID          uint64    `json:"id"`           // 主键 ID
 	ConfigKey   string    `json:"config_key"`   // 配置键
 	ConfigValue string    `json:"config_value"` // 配置值
-	ValueType   string    `json:"value_type"`   // 值类型：string/bool/int/json
+	ValueType   string    `json:"value_type"`   // 值类型：string/bool/int/decimal/json
 	Group       string    `json:"config_group"` // 配置分组
 	Description string    `json:"description"`  // 配置描述
 	SortOrder   int       `json:"sort_order"`   // 排序权重

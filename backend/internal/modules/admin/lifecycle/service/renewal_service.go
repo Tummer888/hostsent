@@ -47,13 +47,13 @@ type RenewalService interface {
 	UserRenewalDetail(ctx context.Context, userID, id uint64) (*lifecycledto.RenewalInfo, error)
 	// CompleteRenewalByOrderID 订单支付成功钩子：完成续费单并延长实例到期时间
 	CompleteRenewalByOrderID(ctx context.Context, orderID uint64) error
-	// SetCommissionHook 注入续费完成后的佣金计提钩子（P6-02，装配层调用）
-	SetCommissionHook(hook RenewalCommissionHook)
+	// SetCashbackHook 注入续费完成后的推广返现计提钩子（装配层调用）
+	SetCashbackHook(hook RenewalCashbackHook)
 }
 
-// RenewalCommissionHook 续费完成后的佣金计提钩子（P6-02）。
-// 仅传基础类型，避免生命周期模块反向依赖分销模块。
-type RenewalCommissionHook func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, amount float64, isRenewal bool) error
+// RenewalCashbackHook 续费完成后的推广返现计提钩子。
+// 仅传基础类型，避免生命周期模块反向依赖返现模块。
+type RenewalCashbackHook func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, amount float64, isRenewal bool) error
 
 // lifecycleRenewalGetter 续费完成时按 ID 读取订单（用于获取支付方式快照）。
 type lifecycleRenewalGetter interface {
@@ -84,9 +84,9 @@ type renewalService struct {
 	orderWriter    lifecyclerepo.OrderWriter
 	orderReader    lifecycleRenewalGetter // 可选：读取订单支付方式
 	walletSvc      accountservice.WalletService
-	pricingSvc     renewalPriceResolver  // 可选：统一算价管线（P5-04）
-	commissionHook RenewalCommissionHook // 可选：续费完成后的佣金计提（P6-02）
-	logger         *zap.Logger
+	pricingSvc   renewalPriceResolver // 可选：统一算价管线（P5-04）
+	cashbackHook RenewalCashbackHook  // 可选：续费完成后的推广返现计提
+	logger       *zap.Logger
 }
 
 // NewRenewalService 创建续费服务。pricingSvc 为 nil 时续费按「单价 × 期数」计不加折扣。
@@ -119,9 +119,9 @@ func (s *renewalService) SetOrderReader(r lifecycleRenewalGetter) {
 	s.orderReader = r
 }
 
-// SetCommissionHook 注入续费完成后的佣金计提钩子（P6-02）。
-func (s *renewalService) SetCommissionHook(hook RenewalCommissionHook) {
-	s.commissionHook = hook
+// SetCashbackHook 注入续费完成后的推广返现计提钩子。
+func (s *renewalService) SetCashbackHook(hook RenewalCashbackHook) {
+	s.cashbackHook = hook
 }
 
 // resolveRenewalQuote 续费算价（P5-04）：命中管线则走统一算价；未注入时回落单价×期数。
@@ -603,9 +603,9 @@ func (s *renewalService) markRenewalSuccess(ctx context.Context, renewal *lifecy
 	if err := s.instanceRepo.ExtendExpireAt(ctx, renewal.InstanceID, *renewal.ExpireAfter); err != nil {
 		return err
 	}
-	// 续费完成后的代理佣金计提（P6-02）：失败不影响续费结果，钩子实现负责记录错误。
-	if s.commissionHook != nil {
-		_ = s.commissionHook(ctx, renewal.OrderID, renewal.OrderNo, renewal.UserID, renewal.Amount, true)
+	// 续费完成后的推广返现计提：失败不影响续费结果，钩子实现负责记录错误。
+	if s.cashbackHook != nil {
+		_ = s.cashbackHook(ctx, renewal.OrderID, renewal.OrderNo, renewal.UserID, renewal.Amount, true)
 	}
 	s.logger.Info("renewal completed",
 		zap.String("renewal_no", renewal.RenewalNo),

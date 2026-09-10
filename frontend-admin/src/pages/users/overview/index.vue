@@ -140,7 +140,6 @@
       :confirm-btn="{ content: '保存', loading: false }"
       :on-confirm="saveEntries"
     >
-      <p class="editor-tip">从下方候选中选择常用功能（最多 8 项），将展示在总览页快捷入口区。</p>
       <t-checkbox-group v-model="draftKeys" class="editor-group">
         <div v-for="c in entryCandidates" :key="c.key" class="editor-item">
           <t-checkbox :value="c.key" :disabled="false">
@@ -864,12 +863,6 @@ onMounted(() => {
   color: var(--color-foreground);
 }
 
-.panel-card__subtitle {
-  margin: 0;
-  font-size: 11.5px;
-  color: var(--color-muted-foreground);
-}
-
 .chart-loading {
   display: flex;
   justify-content: center;
@@ -961,12 +954,6 @@ onMounted(() => {
   font-size: 13px;
   color: var(--color-muted-foreground);
   padding: 18px 0;
-}
-
-.editor-tip {
-  margin: 0 0 12px;
-  font-size: 12.5px;
-  color: var(--color-muted-foreground);
 }
 
 .editor-group {

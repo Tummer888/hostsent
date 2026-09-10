@@ -25,13 +25,13 @@ import (
 	pricingmodel "hostsent/backend/internal/modules/admin/product/pricing/model"
 	promotionmodel "hostsent/backend/internal/modules/admin/product/promotion/model"
 	specmodel "hostsent/backend/internal/modules/admin/product/spec/model"
+	referralmodel "hostsent/backend/internal/modules/admin/referral/model"
 	productmodel "hostsent/backend/internal/modules/admin/resource/product/model"
 	providermodel "hostsent/backend/internal/modules/admin/resource/provider/model"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	systemmodel "hostsent/backend/internal/modules/admin/system/model"
 	ticketmodel "hostsent/backend/internal/modules/admin/ticket/model"
 	usermodel "hostsent/backend/internal/modules/admin/user/account/model"
-	distributionmodel "hostsent/backend/internal/modules/admin/user/distribution/model"
 	levelmodel "hostsent/backend/internal/modules/admin/user/level/model"
 	securitymodel "hostsent/backend/internal/modules/admin/user/security/model"
 	verificationmodel "hostsent/backend/internal/modules/admin/user/verification/model"
@@ -68,11 +68,10 @@ func AutoMigrate(db *gorm.DB) error {
 		&usermodel.UserGroup{},
 		&usermodel.SubAccountPermission{},
 		&membermodel.OperationLog{},
-		&distributionmodel.AgentLevel{},
-		&distributionmodel.Agent{},
-		&distributionmodel.Subordinate{},
-		&distributionmodel.Commission{},
-		&distributionmodel.Settlement{},
+		// 推广邀请返现（独立于现金钱包的三表）
+		&referralmodel.ReferralAccount{},
+		&referralmodel.ReferralTransaction{},
+		&referralmodel.ReferralWithdrawal{},
 		&securitymodel.LoginLog{},
 		&securitymodel.AuditLog{},
 		&securitymodel.RiskEvent{},
@@ -285,6 +284,9 @@ func SeedDefaults(db *gorm.DB, cfg config.Config) error {
 			return err
 		}
 		if err := seedUserLevels(tx); err != nil {
+			return err
+		}
+		if err := seedDefaultUserGroup(tx); err != nil {
 			return err
 		}
 		if err := backfillUserConsumeTotals(tx); err != nil {
@@ -613,6 +615,12 @@ func seedSystemConfigs(tx *gorm.DB) error {
 		{ConfigKey: "enable_user_register", ConfigValue: "true", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupFeature, Description: "是否开放用户注册", SortOrder: 1, Status: systemmodel.StatusActive},
 		{ConfigKey: "enable_mfa_required", ConfigValue: "false", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupSecurity, Description: "是否强制管理员开启MFA", SortOrder: 1, Status: systemmodel.StatusActive},
 		{ConfigKey: "order_expire_minutes", ConfigValue: "30", ValueType: systemmodel.ValueTypeInt, Group: systemmodel.ConfigGroupOrder, Description: "待支付订单过期时间(分钟)", SortOrder: 1, Status: systemmodel.StatusActive},
+		// 推广邀请返现：全局三档比率 + 最低提现金额 + 开关（返现模块运行时读取）
+		{ConfigKey: referralmodel.ConfigKeyEnabled, ConfigValue: "true", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupReferral, Description: "启用推广邀请返现", SortOrder: 1, Status: systemmodel.StatusActive},
+		{ConfigKey: referralmodel.ConfigKeyFirstOrder, ConfigValue: "0.10", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupReferral, Description: "首单返现比率（0-1）", SortOrder: 2, Status: systemmodel.StatusActive},
+		{ConfigKey: referralmodel.ConfigKeySubsequent, ConfigValue: "0.05", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupReferral, Description: "后续订单返现比率（0-1）", SortOrder: 3, Status: systemmodel.StatusActive},
+		{ConfigKey: referralmodel.ConfigKeyRenewal, ConfigValue: "0.03", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupReferral, Description: "续费返现比率（0-1）", SortOrder: 4, Status: systemmodel.StatusActive},
+		{ConfigKey: referralmodel.ConfigKeyMinWithdraw, ConfigValue: "50", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupReferral, Description: "返现最低提现金额（元）", SortOrder: 5, Status: systemmodel.StatusActive},
 	}
 	for _, config := range defaults {
 		var existing systemmodel.SystemConfig
@@ -752,6 +760,11 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "notification", Name: "通知记录", Code: "notify:record", Type: "menu", SortOrder: 2, Status: "active"},
 		{ParentCode: "notify:record", Name: "查看记录", Code: "notify:view", Type: "button", SortOrder: 1, Status: "active"},
 		{ParentCode: "notification", Name: "通知模板", Code: "notify:template", Type: "menu", SortOrder: 3, Status: "active"},
+		// —— 推广邀请返现（替代原代理/分销域）
+		{Name: "推广返现", Code: "referral", Type: "catalog", SortOrder: 11, Status: "active"},
+		{ParentCode: "referral", Name: "返现台账", Code: "referral:cashback:list", Type: "menu", SortOrder: 1, Status: "active"},
+		{ParentCode: "referral", Name: "提现管理", Code: "referral:withdraw:list", Type: "menu", SortOrder: 2, Status: "active"},
+		{ParentCode: "referral:withdraw:list", Name: "审核提现", Code: "referral:withdraw:audit", Type: "button", SortOrder: 1, Status: "active"},
 
 		// —— 账号体系与权限分级重构（81/82）补充权限码 ——
 		// 员工管理（超管独占）
@@ -785,21 +798,6 @@ func seedPermissions(tx *gorm.DB) error {
 		// 实名认证
 		{ParentCode: "system:user", Name: "实名认证", Code: "verification:list", Type: "menu", SortOrder: 10, Status: "active"},
 		{ParentCode: "verification:list", Name: "审核实名", Code: "verification:review", Type: "button", SortOrder: 1, Status: "active"},
-		// 分销与代理商
-		{Name: "分销与代理商", Code: "distribution", Type: "catalog", SortOrder: 11, Status: "active"},
-		{ParentCode: "distribution", Name: "代理商等级", Code: "distribution:level:list", Type: "menu", SortOrder: 1, Status: "active"},
-		{ParentCode: "distribution:level:list", Name: "创建代理等级", Code: "distribution:level:create", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "distribution:level:list", Name: "编辑代理等级", Code: "distribution:level:update", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "distribution:level:list", Name: "删除代理等级", Code: "distribution:level:delete", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "distribution", Name: "代理商", Code: "distribution:agent:list", Type: "menu", SortOrder: 2, Status: "active"},
-		{ParentCode: "distribution:agent:list", Name: "创建代理商", Code: "distribution:agent:create", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "distribution:agent:list", Name: "编辑代理商", Code: "distribution:agent:update", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "distribution:agent:list", Name: "删除代理商", Code: "distribution:agent:delete", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "distribution", Name: "下级用户", Code: "distribution:subordinate:list", Type: "menu", SortOrder: 3, Status: "active"},
-		{ParentCode: "distribution", Name: "佣金记录", Code: "distribution:commission:list", Type: "menu", SortOrder: 4, Status: "active"},
-		{ParentCode: "distribution:commission:list", Name: "结算佣金", Code: "distribution:commission:settle", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "distribution", Name: "结算单", Code: "distribution:settlement:list", Type: "menu", SortOrder: 5, Status: "active"},
-		{ParentCode: "distribution:settlement:list", Name: "审核结算", Code: "distribution:settlement:audit", Type: "button", SortOrder: 1, Status: "active"},
 		// 产品：规格/定价/促销
 		{ParentCode: "product", Name: "规格管理", Code: "product:spec", Type: "menu", SortOrder: 4, Status: "active"},
 		{ParentCode: "product:spec", Name: "规格模板查看", Code: "spec:template:list", Type: "button", SortOrder: 1, Status: "active"},
@@ -941,6 +939,11 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"notify:record",
 			"notify:view",
 			"notify:template",
+			// 推广邀请返现权限
+			"referral",
+			"referral:cashback:list",
+			"referral:withdraw:list",
+			"referral:withdraw:audit",
 		},
 		"ops_admin": {
 			"system:user",
@@ -983,12 +986,6 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"order:remark",
 			"order:activate",
 			"order:stats",
-			"distribution",
-			"distribution:level:list",
-			"distribution:agent:list",
-			"distribution:subordinate:list",
-			"distribution:commission:list",
-			"distribution:settlement:list",
 			"security:login-log:list",
 			"security:audit:list",
 			"security:risk:list",
@@ -1015,9 +1012,11 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"finance:bill",
 			"finance:bill:close",
 			"finance:bill:recon",
-			"distribution:commission:list",
-			"distribution:settlement:list",
-			"distribution:settlement:audit",
+			// 推广返现（财务核对返现台账与提现）
+			"referral",
+			"referral:cashback:list",
+			"referral:withdraw:list",
+			"referral:withdraw:audit",
 		},
 		"user": {
 			"system:user",
@@ -1079,6 +1078,18 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "账户管理", Type: menumodel.TypeDirectory, Path: "/users/accounts", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/users/accounts", Platform: menumodel.PlatformAdmin, Name: "用户列表", Type: menumodel.TypeMenu, Path: "/users/accounts/list", Component: "users/accounts/list/index", Icon: "user-list", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/users/accounts", Platform: menumodel.PlatformAdmin, Name: "用户组/组织管理", Type: menumodel.TypeMenu, Path: "/users/accounts/groups", Component: "users/accounts/groups/index", Icon: "control-platform", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "安全与风控", Type: menumodel.TypeDirectory, Path: "/users/security", Icon: "key", SortOrder: 5, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/users/security", Platform: menumodel.PlatformAdmin, Name: "登录日志", Type: menumodel.TypeMenu, Path: "/users/security/login-logs", Component: "users/security/login-logs/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/users/security", Platform: menumodel.PlatformAdmin, Name: "操作审计日志", Type: menumodel.TypeMenu, Path: "/users/security/audit-logs", Component: "users/security/audit-logs/index", Icon: "file", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/users/security", Platform: menumodel.PlatformAdmin, Name: "异常行为监控", Type: menumodel.TypeMenu, Path: "/users/security/risk", Component: "users/security/risk/index", Icon: "chart-bar", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/users/security", Platform: menumodel.PlatformAdmin, Name: "黑名单管理", Type: menumodel.TypeMenu, Path: "/users/security/blacklist", Component: "users/security/blacklist/index", Icon: "stop", SortOrder: 4, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/users/security", Platform: menumodel.PlatformAdmin, Name: "会话管理", Type: menumodel.TypeMenu, Path: "/users/security/sessions", Component: "users/security/sessions/index", Icon: "refresh", SortOrder: 5, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "用户等级", Type: menumodel.TypeMenu, Path: "/users/levels", Component: "users/levels/index", Icon: "tag", SortOrder: 6, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "实名认证", Type: menumodel.TypeDirectory, Path: "/users/verification", Icon: "verify", SortOrder: 7, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "待审核列表", Type: menumodel.TypeMenu, Path: "/users/verification/pending", Component: "users/verification/pending/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "审核通过列表", Type: menumodel.TypeMenu, Path: "/users/verification/approved", Component: "users/verification/approved/index", Icon: "check-circle", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "审核拒绝列表", Type: menumodel.TypeMenu, Path: "/users/verification/rejected", Component: "users/verification/rejected/index", Icon: "error-circle", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "认证配置", Type: menumodel.TypeMenu, Path: "/users/verification/config", Component: "users/verification/config/index", Icon: "setting", SortOrder: 4, Status: menumodel.StatusActive},
 		{Platform: menumodel.PlatformAdmin, Name: "资源管理", Type: menumodel.TypeDirectory, Path: "/resource", Icon: "resource", SortOrder: 3, Status: menumodel.StatusActive},
 		// —— 资源总览（doc10 §5.1）
 		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "资源总览", Type: menumodel.TypeDirectory, Path: "/resource/overview", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
@@ -1169,6 +1180,12 @@ func seedMenus(tx *gorm.DB) error {
 		// 7. 财务配置
 		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务配置", Type: menumodel.TypeMenu, Path: "/finance/config", Component: "finance/config/index", Icon: "setting", SortOrder: 7, Status: menumodel.StatusActive},
 
+		// —— 推广返现（替代原代理/分销域）
+		{Platform: menumodel.PlatformAdmin, Name: "推广返现", Type: menumodel.TypeDirectory, Path: "/referral", Icon: "share", SortOrder: 12, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/referral", Platform: menumodel.PlatformAdmin, Name: "返现台账", Type: menumodel.TypeMenu, Path: "/referral/cashbacks", Component: "referral/cashbacks/index", Icon: "money", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/referral", Platform: menumodel.PlatformAdmin, Name: "提现审核", Type: menumodel.TypeMenu, Path: "/referral/withdrawals", Component: "referral/withdrawals/index", Icon: "upload", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/referral", Platform: menumodel.PlatformAdmin, Name: "邀请关系", Type: menumodel.TypeMenu, Path: "/referral/invitees", Component: "referral/invitees/index", Icon: "usergroup", SortOrder: 3, Status: menumodel.StatusActive},
+
 		// —— 工单支持（doc50 §5.3，admin 平台 SortOrder=8）
 		{Platform: menumodel.PlatformAdmin, Name: "工单支持", Type: menumodel.TypeDirectory, Path: "/tickets", Icon: "service", SortOrder: 8, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单列表", Type: menumodel.TypeMenu, Path: "/tickets/list", Component: "ticket/index", Icon: "ticket", SortOrder: 1, Status: menumodel.StatusActive},
@@ -1215,6 +1232,13 @@ func seedMenus(tx *gorm.DB) error {
 		{Platform: menumodel.PlatformUser, Name: "个人中心", Type: menumodel.TypeMenu, Path: "/profile", Icon: "user", SortOrder: 6, Status: menumodel.StatusActive},
 		{ParentKey: "user:/profile", Platform: menumodel.PlatformUser, Name: "我的消息", Type: menumodel.TypeMenu, Path: "/profile/messages", Icon: "mail", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "user:/profile", Platform: menumodel.PlatformUser, Name: "通知偏好", Type: menumodel.TypeMenu, Path: "/profile/preferences", Icon: "setting", SortOrder: 2, Status: menumodel.StatusActive},
+		// 推广邀请返现（用户自助；子账号可看，提现与转出后端硬拒）
+		{Platform: menumodel.PlatformUser, Name: "推广邀请", Type: menumodel.TypeDirectory, Path: "/referral", Icon: "share", SortOrder: 7, Status: menumodel.StatusActive},
+		{ParentKey: "user:/referral", Platform: menumodel.PlatformUser, Name: "推广概览", Type: menumodel.TypeMenu, Path: "/referral/overview", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "user:/referral", Platform: menumodel.PlatformUser, Name: "我的邀请", Type: menumodel.TypeMenu, Path: "/referral/invitees", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "user:/referral", Platform: menumodel.PlatformUser, Name: "返现明细", Type: menumodel.TypeMenu, Path: "/referral/cashbacks", Icon: "money", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "user:/referral", Platform: menumodel.PlatformUser, Name: "提现与转出", Type: menumodel.TypeMenu, Path: "/referral/withdrawals", Icon: "wallet", SortOrder: 4, Status: menumodel.StatusActive},
+		{ParentKey: "user:/referral", Platform: menumodel.PlatformUser, Name: "推广素材", Type: menumodel.TypeMenu, Path: "/referral/materials", Icon: "share", SortOrder: 5, Status: menumodel.StatusActive},
 	}
 
 	menuMap := make(map[string]uint64)
@@ -1631,6 +1655,44 @@ func seedDemoSessions(tx *gorm.DB, users map[string]usermodel.User) error {
 		{SessionID: "sess_nw_001", UserID: users["user_nw_01"].ID, Username: "user_nw_01", Platform: "desktop", IP: "10.10.2.16", IPRegion: "西安", UserAgent: "Edge / Windows", DeviceFingerprint: "fp-nw-01", LoginAt: now.Add(-26 * time.Hour), LastActiveAt: now.Add(-90 * time.Minute), ExpiredAt: &expiresA, Status: "active", RiskFlag: "normal", CreatedAt: now.Add(-26 * time.Hour), UpdatedAt: now.Add(-90 * time.Minute)},
 	}
 	return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&sessions).Error
+}
+
+// seedDefaultUserGroup 保证存在且仅存在一个默认用户组。
+//
+// is_default 是注册（uc/auth）与后台建号（admin user）的兜底分组：新用户未指定
+// 分组时归入该组，因此必须有且只有一个默认组，否则兜底能力形同虚设。
+//
+// 处理顺序：已存在默认组 → 不动数据；已存在 code=default 的组 → 提升为默认；
+// 其余情况 → 新建「默认用户组」。只新增/标记，绝不改动既有组的折扣策略，
+// 因此对存量数据的算价零影响（新建的默认组不绑定 price_policy_id）。
+func seedDefaultUserGroup(tx *gorm.DB) error {
+	var defaultCount int64
+	if err := tx.Model(&usermodel.UserGroup{}).Where("is_default = ?", true).Count(&defaultCount).Error; err != nil {
+		return err
+	}
+	if defaultCount > 0 {
+		return nil
+	}
+
+	// 已有 code=default 的组时只打默认标记，避免出现重复的「默认用户组」。
+	// 用 Find 而非 First：未命中是正常分支，不需要 gorm 打印 record not found。
+	var existing []usermodel.UserGroup
+	if err := tx.Where("code = ?", "default").Limit(1).Find(&existing).Error; err != nil {
+		return err
+	}
+	if len(existing) > 0 {
+		return tx.Model(&usermodel.UserGroup{}).Where("id = ?", existing[0].ID).Update("is_default", true).Error
+	}
+
+	group := usermodel.UserGroup{
+		Name:        "默认用户组",
+		Code:        "default",
+		Description: "新用户未指定分组时的兜底分组，可在用户组管理中调整默认组与折扣策略。",
+		Status:      "active",
+		SortOrder:   1,
+		IsDefault:   true,
+	}
+	return tx.Create(&group).Error
 }
 
 // seedUserLevels 注入默认用户等级。

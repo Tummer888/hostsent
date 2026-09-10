@@ -1,9 +1,7 @@
 <template>
   <SecurityListPage
     title="会话管理"
-    subtitle="集中查看在线、过期与风险会话，支持单个、批量与全量失效。"
     table-title="会话列表"
-    table-desc="用于排查异常登录与及时清理过期会话。"
     :total="pagination.total"
     :data="tableData"
     :columns="columns"

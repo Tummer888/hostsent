@@ -21,6 +21,7 @@ import (
 	finrechargehandler "hostsent/backend/internal/modules/admin/finance/recharge/handler"
 	finrechargerepo "hostsent/backend/internal/modules/admin/finance/recharge/repository"
 	finrechargeservice "hostsent/backend/internal/modules/admin/finance/recharge/service"
+	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
 	fintransactionrepo "hostsent/backend/internal/modules/admin/finance/transaction/repository"
 	finwithdrawhandler "hostsent/backend/internal/modules/admin/finance/withdraw/handler"
 	finwithdrawrepo "hostsent/backend/internal/modules/admin/finance/withdraw/repository"
@@ -61,6 +62,9 @@ import (
 	spechandler "hostsent/backend/internal/modules/admin/product/spec/handler"
 	specrepo "hostsent/backend/internal/modules/admin/product/spec/repository"
 	specservice "hostsent/backend/internal/modules/admin/product/spec/service"
+	referralhandler "hostsent/backend/internal/modules/admin/referral/handler"
+	referralrepo "hostsent/backend/internal/modules/admin/referral/repository"
+	referralservice "hostsent/backend/internal/modules/admin/referral/service"
 	producthandler "hostsent/backend/internal/modules/admin/resource/product/handler"
 	productrepo "hostsent/backend/internal/modules/admin/resource/product/repository"
 	productservice "hostsent/backend/internal/modules/admin/resource/product/service"
@@ -81,9 +85,6 @@ import (
 	"hostsent/backend/internal/modules/admin/user/account/handler"
 	"hostsent/backend/internal/modules/admin/user/account/repository"
 	"hostsent/backend/internal/modules/admin/user/account/service"
-	distributionhandler "hostsent/backend/internal/modules/admin/user/distribution/handler"
-	distributionrepo "hostsent/backend/internal/modules/admin/user/distribution/repository"
-	distributionservice "hostsent/backend/internal/modules/admin/user/distribution/service"
 	levelhandler "hostsent/backend/internal/modules/admin/user/level/handler"
 	levelrepo "hostsent/backend/internal/modules/admin/user/level/repository"
 	levelservice "hostsent/backend/internal/modules/admin/user/level/service"
@@ -93,9 +94,6 @@ import (
 	verificationhandler "hostsent/backend/internal/modules/admin/user/verification/handler"
 	verificationrepo "hostsent/backend/internal/modules/admin/user/verification/repository"
 	verificationservice "hostsent/backend/internal/modules/admin/user/verification/service"
-	ucagenthandler "hostsent/backend/internal/modules/uc/agent/handler"
-	ucagentrepo "hostsent/backend/internal/modules/uc/agent/repository"
-	ucagentservice "hostsent/backend/internal/modules/uc/agent/service"
 	usercenterhandler "hostsent/backend/internal/modules/uc/auth/handler"
 	usercenterrepo "hostsent/backend/internal/modules/uc/auth/repository"
 	usercenterservice "hostsent/backend/internal/modules/uc/auth/service"
@@ -113,6 +111,7 @@ import (
 	ucorderservice "hostsent/backend/internal/modules/uc/order/service"
 	ucproducthandler "hostsent/backend/internal/modules/uc/product/handler"
 	ucproductservice "hostsent/backend/internal/modules/uc/product/service"
+	ucreferralhandler "hostsent/backend/internal/modules/uc/referral/handler"
 	ucsitehandler "hostsent/backend/internal/modules/uc/site/handler"
 	ucsiteservice "hostsent/backend/internal/modules/uc/site/service"
 	appauth "hostsent/backend/internal/pkg/auth"
@@ -160,11 +159,6 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	userRepo := repository.NewUserRepository(database)
 	userDetailRepo := repository.NewUserDetailRepository(database)
 	userGroupRepo := repository.NewUserGroupRepository(database)
-	agentLevelRepo := distributionrepo.NewAgentLevelRepository(database)
-	agentRepo := distributionrepo.NewAgentRepository(database)
-	subordinateRepo := distributionrepo.NewSubordinateRepository(database)
-	commissionRepo := distributionrepo.NewCommissionRepository(database)
-	settlementRepo := distributionrepo.NewSettlementRepository(database)
 	roleRepo := repository.NewRoleRepository(database)
 	permissionRepo := repository.NewPermissionRepository(database)
 	menuRepo := menurepo.NewMenuRepository(database)
@@ -218,13 +212,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	)
 	userDetailService := service.NewUserDetailService(userRepo, userDetailRepo)
 	userGroupService := service.NewUserGroupService(userGroupRepo)
-	agentLevelService := distributionservice.NewAgentLevelService(agentLevelRepo)
-	agentService := distributionservice.NewAgentService(agentRepo, userRepo, agentLevelRepo)
-	subordinateService := distributionservice.NewSubordinateService(subordinateRepo, agentRepo, userRepo)
-	commissionService := distributionservice.NewCommissionService(commissionRepo, agentRepo, subordinateRepo, userRepo)
-	settlementService := distributionservice.NewSettlementService(settlementRepo, agentRepo, userRepo, commissionRepo)
-	// 佣金自动计提（P6-02）：订单开通成功后按代理等级佣金率生成记录，幂等 (order_id, agent_id)。
-	commissionAccrualService := distributionservice.NewCommissionAccrualService(distributionrepo.NewAccrualRepository(database), logger)
+	// 默认用户组兜底：后台建号（admin user）未指定分组时归入 is_default 组。
+	userService.SetDefaultGroupProvider(userGroupService)
 	roleService := service.NewRoleService(roleRepo, permCache)
 	permissionService := service.NewPermissionService(permissionRepo)
 	menuService := menuservice.NewMenuService(menuRepo)
@@ -235,7 +224,9 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	verificationService := verificationservice.NewVerificationService(verificationRepo)
 	// 用户中心模块：独立的数据访问、认证服务与处理器（与后台管理模块解耦）
 	userCenterRepo := usercenterrepo.NewUserRepository(database)
-	userCenterService := usercenterservice.NewAuthService(userCenterRepo, jwtIssuer, ipRegionResolver)
+	userCenterService := usercenterservice.NewAuthService(userCenterRepo, jwtIssuer, ipRegionResolver, logger)
+	// 默认用户组兜底：用户自助注册未指定分组时归入 is_default 组。
+	userCenterService.SetDefaultGroupResolver(userGroupService)
 	userCenterAuthHandler := usercenterhandler.NewAuthHandler(userCenterService)
 	// 用户中心菜单：复用 menus 表（platform=user），独立 DTO 对齐前端驼峰字段
 	userMenuRepo := usermenurepo.NewMenuRepository(database)
@@ -266,11 +257,6 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 
 	userDetailHandler := handler.NewUserDetailHandler(userDetailService)
 	userGroupHandler := handler.NewUserGroupHandler(userGroupService)
-	agentLevelHandler := distributionhandler.NewAgentLevelHandler(agentLevelService)
-	agentHandler := distributionhandler.NewAgentHandler(agentService)
-	subordinateHandler := distributionhandler.NewSubordinateHandler(subordinateService)
-	commissionHandler := distributionhandler.NewCommissionHandler(commissionService)
-	settlementHandler := distributionhandler.NewSettlementHandler(settlementService)
 	roleHandler := handler.NewRoleHandler(roleService)
 	permissionHandler := handler.NewPermissionHandler(permissionService)
 	menuHandler := menuhandler.NewMenuHandler(menuService)
@@ -288,16 +274,64 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	prodCatalogRepo := catalogrepo.NewProductRepository(database)
 	prodCatalogService := catalogservice.NewProductService(prodCatalogRepo, productRepo)
 	prodCatalogHandler := cataloghandler.NewProductHandler(prodCatalogService)
+	// 推广邀请返现（独立于现金钱包）：订单完成计提、退款按比例冲减。
+	referralRepo := referralrepo.NewReferralRepository(database)
+	referralSvc := referralservice.NewReferralService(database, referralRepo, logger)
+	// 注册链路：为新用户生成邀请码并按需绑定邀请人（失败不阻断注册）。
+	userCenterService.SetInviteBinder(referralSvc)
+	// 返现提现/转出：转出桥接到现金钱包，biz_type=referral_transfer，ref_no=转账号（钱包侧幂等）。
+	referralWithdrawSvc := referralservice.NewWithdrawalService(database, referralRepo,
+		func(ctx context.Context, userID uint64, amount float64, bizType, refNo, remark string) error {
+			_, err := walletService.Change(ctx, finaccountservice.ChangeRequest{
+				UserID:    userID,
+				Type:      transmodel.TxTypeReferralTransfer,
+				Direction: transmodel.DirectionIncome,
+				Amount:    amount,
+				BizType:   bizType,
+				RefNo:     refNo,
+				Remark:    remark,
+			})
+			return err
+		}, logger)
+	adminReferralHandler := referralhandler.NewReferralHandler(referralSvc, referralWithdrawSvc)
+	ucReferralHandler := ucreferralhandler.NewReferralHandler(referralSvc, referralWithdrawSvc,
+		// 错误码映射由装配层提供（uc 不依赖 admin 错误变量，与用户中心财务一致）。
+		func(err error) *apperrors.AppError {
+			switch {
+			case errors.Is(err, referralservice.ErrWithdrawNotFound):
+				return apperrors.New(20002, err.Error())
+			case errors.Is(err, referralservice.ErrWithdrawStatus), errors.Is(err, referralservice.ErrReferralDisabled):
+				return apperrors.New(20003, err.Error())
+			case errors.Is(err, referralservice.ErrInvalidAmount), errors.Is(err, referralservice.ErrBelowMinWithdraw):
+				return apperrors.New(20001, err.Error())
+			case errors.Is(err, referralservice.ErrInsufficientBalance):
+				return apperrors.New(30001, err.Error())
+			default:
+				return apperrors.New(50001, err.Error())
+			}
+		})
 	// 订单履约：上游开通适配器（打通订单 paid/provisioning → 上游创建实例）
 	orderService := orderservice.NewOrderService(orderRepo, orderItemRepo, orderRefundRepo, orderservice.NewUpstreamProvisionAdapter(buildOrderProvisionDeps(prodCatalogService, providerService, upstreamMgr, syncRepo)))
-	// 订单开通成功 → 自动计提代理佣金（P6-02）；计提失败只记日志，不影响订单。
-	orderService.SetCommissionHook(func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, baseAmount float64, isRenewal bool) error {
-		if err := commissionAccrualService.AccrueForOrder(ctx, distributionservice.AccrualInput{
+	// 订单开通成功 → 给邀请人计提返现（失败只记日志，不影响订单）。
+	orderService.SetCashbackHook(func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, baseAmount float64, isRenewal bool) error {
+		if err := referralSvc.AccrueForOrder(ctx, referralservice.AccrualInput{
 			OrderID: orderID, OrderNo: orderNo, BuyerUserID: buyerUserID, BaseAmount: baseAmount, IsRenewal: isRenewal,
 		}); err != nil {
-			logger.Warn("commission accrual failed",
+			logger.Warn("referral cashback accrual failed",
 				zap.Uint64("order_id", orderID), zap.String("order_no", orderNo),
 				zap.Uint64("user_id", buyerUserID), zap.Error(err))
+		}
+		return nil
+	})
+	// 退款审核通过 → 按退款额占比冲减邀请人返现（失败只记日志，不影响退款）。
+	orderService.SetRefundHook(func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, paidAmount, refundAmount float64, refundNo string) error {
+		if err := referralSvc.ClawbackForRefund(ctx, referralservice.ClawbackInput{
+			OrderID: orderID, OrderNo: orderNo, BuyerUserID: buyerUserID,
+			PaidAmount: paidAmount, RefundAmount: refundAmount, RefundNo: refundNo,
+		}); err != nil {
+			logger.Warn("referral cashback clawback failed",
+				zap.Uint64("order_id", orderID), zap.String("order_no", orderNo),
+				zap.String("refund_no", refundNo), zap.Error(err))
 		}
 		return nil
 	})
@@ -331,7 +365,13 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 				Quantity:    1,
 				PriceModel:  cycle,
 				TotalAmount: price,
-				Status:      ordermodel.OrderStatusPending,
+				// 后台代下单不经过算价管线：原价即实付、无优惠、未命中任何规则。
+				// price_snapshot 为 jsonb，空串无法写入，这里落空数组表示「无规则明细」。
+				OriginalAmount: price,
+				FinalAmount:    price,
+				DiscountSource: "manual",
+				PriceSnapshot:  "[]",
+				Status:         ordermodel.OrderStatusPending,
 			}
 			// 余额支付：扣款 + 标记已支付 + 触发开通
 			if payMode == "balance" {
@@ -391,11 +431,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 			}
 			return unitPrice, product.CategoryID, nil
 		},
-		// 用户组策略 = 这客户打几折（D3 主要折扣来源）。
+		// 用户组策略 = 这客户打几折（D3 唯一折扣来源）。
 		GroupRule: discountPolicyService.RuleForUserGroup,
-		// 代理价（P6-01）：users → distribution_agents → agent_levels.price_policy_id；
-		// 非代理用户返回 nil，管线自动跳过该来源。
-		AgentRule: discountPolicyService.RuleForAgent,
 		// 促销/优惠券暂不在管线内（缺少选券入参）。
 	}, cfg.Pricing.StackMode)
 	// 用户中心订单：余额支付下单 + 复用履约适配器开通上游
@@ -453,12 +490,12 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	lifecycleInstanceReader := lifecyclerepo.NewInstanceReader(database)
 	lifecycleOrderWriter := lifecyclerepo.NewOrderWriter(database)
 	lifecycleRenewalSvc := lifecycleservice.NewRenewalService(database, lifecycleRenewalRepo, lifecyclePolicyRepo, lifecycleAutoRepo, lifecycleInstanceReader, lifecycleOrderWriter, walletService, pricePipeline, logger)
-	// 续费完成 → 自动计提代理佣金（P6-02），与订单开通共用同一计提服务。
-	lifecycleRenewalSvc.SetCommissionHook(func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, amount float64, isRenewal bool) error {
-		if err := commissionAccrualService.AccrueForOrder(ctx, distributionservice.AccrualInput{
+	// 续费完成 → 给邀请人按续费比率计提返现。
+	lifecycleRenewalSvc.SetCashbackHook(func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, amount float64, isRenewal bool) error {
+		if err := referralSvc.AccrueForOrder(ctx, referralservice.AccrualInput{
 			OrderID: orderID, OrderNo: orderNo, BuyerUserID: buyerUserID, BaseAmount: amount, IsRenewal: isRenewal,
 		}); err != nil {
-			logger.Warn("renewal commission accrual failed",
+			logger.Warn("referral renewal cashback accrual failed",
 				zap.Uint64("order_id", orderID), zap.String("order_no", orderNo),
 				zap.Uint64("user_id", buyerUserID), zap.Error(err))
 		}
@@ -514,10 +551,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	memberRepo := memberrepo.NewMemberRepository(database)
 	memberService := memberservice.NewMemberService(memberRepo)
 	memberHandler := memberhandler.NewMemberHandler(memberService)
-	// 代理专区（P6-03）：用户中心 /agent 子树的只读数据源
-	ucAgentService := ucagentservice.NewAgentService(ucagentrepo.NewAgentRepository(database))
-	ucAgentHandler := ucagenthandler.NewAgentHandler(ucAgentService)
-	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, agentLevelHandler, agentHandler, subordinateHandler, commissionHandler, settlementHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, discountPolicyHandler, promotionHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, memberHandler, ucAgentHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, logger, jwtIssuer)
+	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, logger, jwtIssuer)
 	router := newRouter(app)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)

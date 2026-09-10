@@ -7,6 +7,8 @@
 @import '../stat-card.css';
 
 /* ---------- 页面骨架 ---------- */
+/* 根节点同时带 .page-body 与 .finance-module，布局必须挂在本类上：
+   写成 `.finance-module .page-body`（后代选择器）时同一元素不匹配，卡片会贴在一起。 */
 .finance-module {
   --finance-green: var(--color-primary);
   --finance-green-hover: var(--td-brand-color-8);
@@ -15,6 +17,10 @@
   --finance-card-border: #edf3ef;
   --chip-bg: linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8));
   --chip-shadow: 0 6px 14px rgba(22, 163, 74, 0.18);
+
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
 }
 
 .finance-module .page-body {

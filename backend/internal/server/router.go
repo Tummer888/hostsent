@@ -98,62 +98,6 @@ func newRouter(app *App) *gin.Engine {
 			userGroups.DELETE("/:id", app.perm("user:group:delete"), app.userGroupHandler.Delete)
 		}
 
-		agentLevels := v1.Group("/distribution/agent-levels")
-		agentLevels.Use(app.adminAuth())
-		{
-			agentLevels.GET("", app.perm("distribution:level:list"), app.agentLevelHandler.List)
-			agentLevels.POST("", app.perm("distribution:level:create"), app.agentLevelHandler.Create)
-			agentLevels.GET("/:id", app.perm("distribution:level:list"), app.agentLevelHandler.Get)
-			agentLevels.PUT("/:id", app.perm("distribution:level:update"), app.agentLevelHandler.Update)
-			agentLevels.DELETE("/:id", app.perm("distribution:level:delete"), app.agentLevelHandler.Delete)
-		}
-
-		agents := v1.Group("/distribution/agents")
-		agents.Use(app.adminAuth())
-		{
-			agents.GET("", app.perm("distribution:agent:list"), app.agentHandler.List)
-			agents.POST("", app.perm("distribution:agent:create"), app.agentHandler.Create)
-			agents.GET("/:id", app.perm("distribution:agent:list"), app.agentHandler.Get)
-			agents.PUT("/:id", app.perm("distribution:agent:update"), app.agentHandler.Update)
-			agents.DELETE("/:id", app.perm("distribution:agent:delete"), app.agentHandler.Delete)
-		}
-
-		subordinates := v1.Group("/distribution/subordinates")
-		subordinates.Use(app.adminAuth())
-		{
-			subordinates.GET("", app.perm("distribution:subordinate:list"), app.subordinateHandler.List)
-			subordinates.POST("", app.perm("distribution:agent:create"), app.subordinateHandler.Create)
-			subordinates.GET("/:id", app.perm("distribution:subordinate:list"), app.subordinateHandler.Get)
-			subordinates.PUT("/:id", app.perm("distribution:agent:update"), app.subordinateHandler.Update)
-			subordinates.DELETE("/:id", app.perm("distribution:agent:delete"), app.subordinateHandler.Delete)
-		}
-
-		commissions := v1.Group("/distribution/commissions")
-		commissions.Use(app.adminAuth())
-		{
-			commissions.GET("", app.perm("distribution:commission:list"), app.commissionHandler.List)
-			commissions.POST("", app.perm("distribution:commission:settle"), app.commissionHandler.Create)
-			commissions.GET("/:id", app.perm("distribution:commission:list"), app.commissionHandler.Get)
-			commissions.PUT("/:id", app.perm("distribution:commission:settle"), app.commissionHandler.Update)
-			commissions.POST("/:id/freeze", app.perm("distribution:commission:settle"), app.commissionHandler.Freeze)
-			commissions.POST("/:id/unfreeze", app.perm("distribution:commission:settle"), app.commissionHandler.Unfreeze)
-			commissions.POST("/:id/cancel", app.perm("distribution:commission:settle"), app.commissionHandler.Cancel)
-			commissions.DELETE("/:id", app.perm("distribution:commission:settle"), app.commissionHandler.Delete)
-		}
-
-		settlements := v1.Group("/distribution/settlements")
-		settlements.Use(app.adminAuth())
-		{
-			settlements.GET("", app.perm("distribution:settlement:list"), app.settlementHandler.List)
-			settlements.POST("", app.perm("distribution:settlement:audit"), app.settlementHandler.Create)
-			settlements.GET("/:id", app.perm("distribution:settlement:list"), app.settlementHandler.Get)
-			settlements.PUT("/:id", app.perm("distribution:settlement:audit"), app.settlementHandler.Update)
-			settlements.POST("/:id/confirm", app.perm("distribution:settlement:audit"), app.settlementHandler.Confirm)
-			settlements.POST("/:id/pay", app.perm("distribution:settlement:audit"), app.settlementHandler.Pay)
-			settlements.POST("/:id/cancel", app.perm("distribution:settlement:audit"), app.settlementHandler.Cancel)
-			settlements.DELETE("/:id", app.perm("distribution:settlement:audit"), app.settlementHandler.Delete)
-		}
-
 		roles := v1.Group("/roles")
 		roles.Use(app.adminAuth())
 		{
@@ -197,7 +141,10 @@ func newRouter(app *App) *gin.Engine {
 		menus := v1.Group("/menus")
 		menus.Use(app.adminAuth())
 		{
-			menus.GET("/tree", app.perm("system:menu"), app.menuHandler.Tree)
+			// /tree 是侧边栏的数据源，服务端已按当前管理员权限过滤（FilterByPermissions），
+			// 因此只需登录态即可访问；若在此再要求 system:menu，未持有该码的管理员会吃到
+			// 403 并让前端回退到「不过滤」的静态菜单，等于绕过权限控制。
+			menus.GET("/tree", app.menuHandler.Tree)
 			menus.POST("", app.perm("menu:create"), app.menuHandler.CreateMenu)
 			menus.PUT("/:id", app.perm("menu:update"), app.menuHandler.UpdateMenu)
 			menus.DELETE("/:id", app.perm("menu:delete"), app.menuHandler.DeleteMenu)
@@ -482,6 +429,17 @@ func newRouter(app *App) *gin.Engine {
 			financeGroup.POST("/bills/recon", app.perm("finance:bill:recon"), app.reconHandler.Reconcile)
 		}
 
+		// 推广邀请返现（台账 / 邀请关系 / 提现审核）
+		referralGroup := v1.Group("/referral")
+		referralGroup.Use(app.adminAuth())
+		{
+			referralGroup.GET("/cashbacks", app.perm("referral:cashback:list"), app.adminReferralHandler.Cashbacks)
+			referralGroup.GET("/invitees", app.perm("referral:cashback:list"), app.adminReferralHandler.Invitees)
+			referralGroup.GET("/withdrawals", app.perm("referral:withdraw:list"), app.adminReferralHandler.Withdrawals)
+			referralGroup.POST("/withdrawals/:id/approve", app.perm("referral:withdraw:audit"), app.adminReferralHandler.Approve)
+			referralGroup.POST("/withdrawals/:id/reject", app.perm("referral:withdraw:audit"), app.adminReferralHandler.Reject)
+		}
+
 		// 系统管理（系统配置）
 		systemConfigGroup := v1.Group("/system/configs")
 		systemConfigGroup.Use(app.adminAuth())
@@ -576,6 +534,17 @@ func newRouter(app *App) *gin.Engine {
 		ucFinance.POST("/recharge/callback", app.userFinanceHandler.RechargeCallback)                                                                                             // 充值回调（渠道通知）
 	}
 
+	// 用户中心推广返现：查看邀请码/邀请人/返现明细属账单域，申请提现与转入余额为资金入口（子账号拒绝）。
+	ucReferral := r.Group("/api/v1/uc/referral")
+	{
+		ucReferral.GET("/profile", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Profile)         // 我的推广概览
+		ucReferral.GET("/invitees", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Invitees)       // 我的邀请
+		ucReferral.GET("/cashbacks", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Cashbacks)     // 返现明细
+		ucReferral.GET("/withdrawals", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Withdrawals) // 我的提现记录
+		ucReferral.POST("/withdrawals", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.ucReferralHandler.ApplyWithdrawal)                  // 申请提现
+		ucReferral.POST("/transfer", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.ucReferralHandler.Transfer)                            // 转入现金余额
+	}
+
 	// 用户中心商品：上架商品公开可浏览（无需登录）
 	ucProducts := r.Group("/api/v1/uc/products")
 	{
@@ -634,18 +603,6 @@ func newRouter(app *App) *gin.Engine {
 		ucMembers.PUT("/:id/permissions", app.memberHandler.SetPermissions) // 覆盖式设置权限
 		ucMembers.DELETE("/:id", app.memberHandler.Delete)                  // 删除（禁用）成员
 		ucMembers.GET("/:id/logs", app.memberHandler.ListLogs)              // 成员操作日志
-	}
-
-	// 用户中心代理专区（P6-03）：门禁为「存在 distribution_agents 记录」，
-	// 服务层对非代理统一返回业务错误；资金类数据对子账号硬拒绝。
-	ucAgent := r.Group("/api/v1/uc/agent")
-	ucAgent.Use(middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub())
-	{
-		ucAgent.GET("/profile", app.ucAgentHandler.Profile)         // 代理概览（等级/推广码/业绩）
-		ucAgent.GET("/stats", app.ucAgentHandler.Stats)             // 代理看板汇总（P7）
-		ucAgent.GET("/team", app.ucAgentHandler.Team)               // 我的团队与下级
-		ucAgent.GET("/commissions", app.ucAgentHandler.Commissions) // 佣金记录
-		ucAgent.GET("/settlements", app.ucAgentHandler.Settlements) // 结算单
 	}
 
 	// 用户中心生命周期与续费（doc60 §7.2）

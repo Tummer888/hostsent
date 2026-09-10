@@ -72,6 +72,19 @@
             </t-input>
           </t-form-item>
           
+          <t-form-item label="邀请码" name="inviteCode">
+            <t-input
+              v-model="formData.inviteCode"
+              placeholder="邀请码（选填，由推广链接自动带入）"
+              size="large"
+              clearable
+            >
+              <template #prefix-icon>
+                <ShareIcon />
+              </template>
+            </t-input>
+          </t-form-item>
+
           <t-form-item label="密码" name="password">
             <t-input
               v-model="formData.password"
@@ -141,13 +154,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import {
   UserIcon,
   MailIcon,
   LockOnIcon,
+  ShareIcon,
   RocketIcon,
   SettingIcon,
   ServiceIcon,
@@ -161,6 +175,7 @@ import { useUserStore } from '@/store'
 
 defineOptions({ name: 'UserRegister' })
 
+const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 
@@ -168,9 +183,11 @@ const formRef = ref()
 const loading = ref(false)
 const agreed = ref(false)
 
+/** 邀请码：推广链接 /register?invite_code=XXXX 自动带入。 */
 const formData = reactive({
   username: '',
   email: '',
+  inviteCode: (route.query.invite_code as string) || '',
   password: '',
   confirmPassword: '',
 })
@@ -211,6 +228,7 @@ async function handleRegister() {
       username: formData.username,
       email: formData.email,
       password: formData.password,
+      invite_code: formData.inviteCode.trim() || undefined,
     })
     
     MessagePlugin.success('注册成功，请登录')

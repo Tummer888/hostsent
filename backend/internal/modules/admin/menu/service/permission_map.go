@@ -16,6 +16,23 @@ var menuPermissionMap = map[string]string{
 	"/users/accounts/list":   "system:user:list",
 	"/users/accounts/groups": "user:group:list",
 
+	"/users/security/login-logs": "security:login-log:list",
+	"/users/security/audit-logs": "security:audit:list",
+	"/users/security/risk":       "security:risk:list",
+	"/users/security/blacklist":  "security:blacklist:manage",
+	"/users/security/sessions":   "security:session:manage",
+
+	"/users/levels": "level:list",
+
+	"/users/verification/pending":  "verification:list",
+	"/users/verification/approved": "verification:list",
+	"/users/verification/rejected": "verification:list",
+	"/users/verification/config":   "verification:list",
+
+	"/referral/cashbacks":   "referral:cashback:list",
+	"/referral/invitees":    "referral:cashback:list",
+	"/referral/withdrawals": "referral:withdraw:list",
+
 	"/resource/dashboard":      "resource:provider",
 	"/resource/sync-monitor":   "resource:sync",
 	"/resource/providers":      "resource:provider",

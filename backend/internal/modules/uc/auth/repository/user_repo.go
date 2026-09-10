@@ -28,8 +28,6 @@ type UserRepository interface {
 	UpdatePassword(ctx context.Context, id uint64, passwordHash string) error
 	// PermissionsOf 返回子账号已授予的客户侧权限码（主账号返回空集，P4-09）。
 	PermissionsOf(ctx context.Context, id uint64) ([]string, error)
-	// IsAgent 判断用户是否为代理（存在 distribution_agents 记录，P6-03）。
-	IsAgent(ctx context.Context, id uint64) (bool, error)
 }
 
 type userRepository struct {
@@ -108,16 +106,4 @@ func (r *userRepository) PermissionsOf(ctx context.Context, id uint64) ([]string
 		return nil, err
 	}
 	return codes, nil
-}
-
-// IsAgent 判断用户是否为代理：存在 distribution_agents 记录即视为代理（P6-03）。
-func (r *userRepository) IsAgent(ctx context.Context, id uint64) (bool, error) {
-	var count int64
-	if err := r.db.WithContext(ctx).
-		Table("distribution_agents").
-		Where("user_id = ?", id).
-		Count(&count).Error; err != nil {
-		return false, err
-	}
-	return count > 0, nil
 }
