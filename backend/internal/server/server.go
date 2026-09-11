@@ -650,8 +650,9 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	memberRepo := memberrepo.NewMemberRepository(database)
 	memberService := memberservice.NewMemberService(memberRepo)
 	memberHandler := memberhandler.NewMemberHandler(memberService)
-	// 开放平台（P6/T6.1）：网关与处理器集合，单一 Bundle 字段挂 App。
-	openBundle := buildOpenBundle(cfg, database, logger)
+	// 开放平台（P6）：网关与处理器集合，单一 Bundle 字段挂 App。
+	// 目录服务复用 uc 商品（上架口径）、spec 契约字典与统一算价管线（D3）。
+	openBundle := buildOpenBundle(cfg, database, ucProductService, specContractRepo, pricePipeline, logger)
 	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, logger, jwtIssuer)
 	router := newRouter(app)
 

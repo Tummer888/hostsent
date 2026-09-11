@@ -681,6 +681,13 @@ func newRouter(app *App) *gin.Engine {
 		// 链路自检：签名通过即可访问，不占能力位。POST 用于验证带 body 的签名。
 		openV1.GET("/ping", app.open.Ping)
 		openV1.POST("/ping", app.open.Ping)
+		// 只读目录（T6.2，能力位 catalog:read）：标准契约，内部异构不出门（doc16 §8.1）。
+		openV1.GET("/spec-atoms", app.open.RequireScope("catalog:read"), app.open.ListSpecAtoms)
+		openV1.GET("/products", app.open.RequireScope("catalog:read"), app.open.ListProducts)
+		openV1.GET("/products/:id", app.open.RequireScope("catalog:read"), app.open.GetProduct)
+		openV1.GET("/regions", app.open.RequireScope("catalog:read"), app.open.ListRegions)
+		openV1.GET("/images", app.open.RequireScope("catalog:read"), app.open.ListImages)
+		openV1.POST("/quote", app.open.RequireScope("catalog:read"), app.open.Quote)
 	}
 
 	return r

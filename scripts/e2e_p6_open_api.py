@@ -172,10 +172,73 @@ def run_t61(c: OpenClient):
     check("未知应用返回 40101", code_of(resp) == 40101, f"{resp}")
 
 
+# ---------------------------------------------------------------------------
+# T6.2 只读目录与询价
+# ---------------------------------------------------------------------------
+
+def run_t62(c: OpenClient):
+    print("== T6.2 只读接口 ==")
+
+    status, resp = c.request("GET", "/open/v1/spec-atoms")
+    atoms = resp.get("data") or []
+    check("spec-atoms 返回 0 且非空", code_of(resp) == 0 and len(atoms) > 0, f"{status} code={code_of(resp)}")
+    check("spec-atoms 不泄露平台字段映射", all("platform_fields" not in a for a in atoms))
+
+    status, resp = c.request("GET", "/open/v1/products", query={"page": 1, "page_size": 50})
+    data = resp.get("data") or {}
+    items = data.get("items") or []
+    check("products 返回 0 且非空", code_of(resp) == 0 and len(items) > 0, f"{code_of(resp)} n={len(items)}")
+    check("products 不含成本/状态机内部字段",
+          all(not ({"cost_price", "status", "provision_mode"} & set(it.keys())) for it in items))
+    target = next((it for it in items if it.get("id") == 1), None)
+    check("商品 1（在售）可见", target is not None, f"{items[:2]}")
+
+    status, resp = c.request("GET", "/open/v1/products/1")
+    detail = resp.get("data") or {}
+    check("商品详情返回 0", code_of(resp) == 0 and detail.get("id") == 1, f"{code_of(resp)}")
+
+    status, resp = c.request("GET", "/open/v1/products/999999")
+    check("不存在商品返回 40404", code_of(resp) == 40404, f"{resp}")
+
+    status, resp = c.request("GET", "/open/v1/regions")
+    regions = resp.get("data") or []
+    check("regions 返回 0（列表可能为空）", code_of(resp) == 0, f"{code_of(resp)}")
+    check("regions 字段只有 id/name/type", all(set(r.keys()) <= {"id", "name", "type"} for r in regions))
+
+    status, resp = c.request("GET", "/open/v1/images")
+    images = resp.get("data") or []
+    check("images 返回 0", code_of(resp) == 0, f"{code_of(resp)}")
+    check("images 字段只有 id/name", all(set(i.keys()) <= {"id", "name"} for i in images))
+
+    # 询价（D3：owner 组折扣 0.85；policy item 绑定商品 1）
+    status, resp = c.request("POST", "/open/v1/quote", body={"product_id": 1, "quantity": 1})
+    quote = resp.get("data") or {}
+    check("quote 返回 0 且金额>0", code_of(resp) == 0 and quote.get("final_amount", 0) > 0, f"{resp}")
+    original = quote.get("original_amount", 0)
+    final = quote.get("final_amount", 0)
+    expected = round(original * 0.85, 2)
+    check(f"quote 实付=原价×0.85（{final} == {expected}）", abs(final - expected) < 0.011, f"{quote}")
+    check("quote 不泄露折扣明细字段",
+          not ({"discount_amount", "price_policy_id", "discount_source", "price_snapshot"} & set(quote.keys())))
+
+    # scope 缺失：用只读 app 验证（由外部准备，跳过条件见 run_t62_scoped）
+    return {"quote_original": original, "quote_final": final}
+
+
+def run_t62_scope_denied(c_readonly: OpenClient):
+    """只读 app（无 order:create）访问 quote 之外——catalog:read 覆盖 T6.2 全部端点；
+    用未授 catalog:read 的应用验证 40301（由调用方保证 app 权限差集）。"""
+    print("== T6.2 scope 校验 ==")
+    status, resp = c_readonly.request("GET", "/open/v1/spec-atoms")
+    check("无 catalog:read 访问 spec-atoms 返回 40301", code_of(resp) == 40301, f"{resp}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--app-id", required=True)
     ap.add_argument("--app-secret", required=True)
+    ap.add_argument("--readonly-app-id", default="", help="仅具部分 scope 的应用（scope 拒绝用例）")
+    ap.add_argument("--readonly-app-secret", default="")
     ap.add_argument("--only", default="all", help="t61|t62|t63|t64|t65|t66|all")
     args = ap.parse_args()
 
@@ -184,6 +247,10 @@ def main():
 
     if only in ("all", "t61"):
         run_t61(client)
+    if only in ("all", "t62"):
+        run_t62(client)
+        if args.readonly_app_id and args.readonly_app_secret:
+            run_t62_scope_denied(OpenClient(args.readonly_app_id, args.readonly_app_secret))
 
     print(f"\n结果：PASS={PASS} FAIL={FAIL}")
     if FAILED:

@@ -3,24 +3,31 @@
 package handler
 
 import (
+	"strconv"
+
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	"hostsent/backend/internal/modules/open/dto"
 	"hostsent/backend/internal/modules/open/service"
 	apperrors "hostsent/backend/internal/pkg/errors"
 	"hostsent/backend/internal/pkg/response"
 )
 
-// Bundle 开放平台处理器集合。后续任务（T6.2～T6.6）的业务服务挂在同一结构上。
+// Bundle 开放平台处理器集合。后续任务（T6.3～T6.6）的业务服务挂在同一结构上。
 type Bundle struct {
-	gw     *service.Gateway
-	logger *zap.Logger
+	gw      *service.Gateway
+	catalog *service.CatalogService
+	logger  *zap.Logger
 }
 
-// NewBundle 构造处理器集合。
+// NewBundle 构造处理器集合（catalog 服务可后置注入）。
 func NewBundle(gw *service.Gateway, logger *zap.Logger) *Bundle {
 	return &Bundle{gw: gw, logger: logger}
 }
+
+// SetCatalog 注入目录服务（T6.2）。
+func (b *Bundle) SetCatalog(catalog *service.CatalogService) { b.catalog = catalog }
 
 // Audit 请求/响应审计（分组最外层）。
 func (b *Bundle) Audit() gin.HandlerFunc { return b.gw.Audit() }
@@ -46,4 +53,93 @@ func (b *Bundle) Ping(c *gin.Context) {
 		"owner_user_id": app.App.OwnerUserID,
 		"scopes":        app.ScopeNames(),
 	})
+}
+
+// ListSpecAtoms GET /open/v1/spec-atoms
+func (b *Bundle) ListSpecAtoms(c *gin.Context) {
+	items, err := b.catalog.ListSpecAtoms(c.Request.Context())
+	if err != nil {
+		response.Error(c, apperrors.New(service.CodeOpenInternal, err.Error()))
+		return
+	}
+	response.Success(c, items)
+}
+
+// ListProducts GET /open/v1/products
+func (b *Bundle) ListProducts(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	resp, err := b.catalog.ListProducts(c.Request.Context(),
+		c.Query("keyword"),
+		parseUint64(c.Query("category_id")),
+		page, pageSize)
+	if err != nil {
+		response.Error(c, apperrors.New(service.CodeOpenInternal, err.Error()))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// GetProduct GET /open/v1/products/:id
+func (b *Bundle) GetProduct(c *gin.Context) {
+	id := parseUint64(c.Param("id"))
+	if id == 0 {
+		response.Error(c, apperrors.New(service.CodeOpenParam, "id 非法"))
+		return
+	}
+	detail, err := b.catalog.GetProduct(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, toAppError(err))
+		return
+	}
+	response.Success(c, detail)
+}
+
+// ListRegions GET /open/v1/regions
+func (b *Bundle) ListRegions(c *gin.Context) {
+	items, err := b.catalog.ListRegions(c.Request.Context())
+	if err != nil {
+		response.Error(c, apperrors.New(service.CodeOpenInternal, err.Error()))
+		return
+	}
+	response.Success(c, items)
+}
+
+// ListImages GET /open/v1/images
+func (b *Bundle) ListImages(c *gin.Context) {
+	items, err := b.catalog.ListImages(c.Request.Context())
+	if err != nil {
+		response.Error(c, apperrors.New(service.CodeOpenInternal, err.Error()))
+		return
+	}
+	response.Success(c, items)
+}
+
+// Quote POST /open/v1/quote
+func (b *Bundle) Quote(c *gin.Context) {
+	var req dto.QuoteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(service.CodeOpenParam, err.Error()))
+		return
+	}
+	app := service.AppFromContext(c)
+	info, err := b.catalog.Quote(c.Request.Context(), app.App.OwnerUserID, req)
+	if err != nil {
+		response.Error(c, toAppError(err))
+		return
+	}
+	response.Success(c, info)
+}
+
+// toAppError 业务错误透传 AppError，其余按内部错误。
+func toAppError(err error) *apperrors.AppError {
+	if ae, ok := err.(*apperrors.AppError); ok {
+		return ae
+	}
+	return apperrors.New(service.CodeOpenInternal, err.Error())
+}
+
+func parseUint64(raw string) uint64 {
+	v, _ := strconv.ParseUint(raw, 10, 64)
+	return v
 }
