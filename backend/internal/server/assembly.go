@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 
+	instanceservice "hostsent/backend/internal/modules/admin/instance/service"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
 	orderservice "hostsent/backend/internal/modules/admin/order/service"
 	catalogservice "hostsent/backend/internal/modules/admin/product/catalog/service"
@@ -95,4 +96,10 @@ func buildProviderResolver(provider providerservice.ProviderService, upmgr *upst
 		}
 		return upmgr.Build(cfg.Type, cfg)
 	}
+}
+
+// buildInstanceOpsResolver 返回实例运维台（管理端跨用户）的 ProviderResolver。
+// 与用户中心复用同一解析实现，仅做具名函数类型转换（两者底层类型一致）。
+func buildInstanceOpsResolver(provider providerservice.ProviderService, upmgr *upstream.ProviderManager) instanceservice.ProviderResolver {
+	return instanceservice.ProviderResolver(buildProviderResolver(provider, upmgr))
 }

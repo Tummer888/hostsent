@@ -26,6 +26,9 @@ import (
 	finwithdrawhandler "hostsent/backend/internal/modules/admin/finance/withdraw/handler"
 	finwithdrawrepo "hostsent/backend/internal/modules/admin/finance/withdraw/repository"
 	finwithdrawservice "hostsent/backend/internal/modules/admin/finance/withdraw/service"
+	instancehandler "hostsent/backend/internal/modules/admin/instance/handler"
+	instancerepo "hostsent/backend/internal/modules/admin/instance/repository"
+	instanceservice "hostsent/backend/internal/modules/admin/instance/service"
 	lifecyclehandler "hostsent/backend/internal/modules/admin/lifecycle/handler"
 	lifecyclerepo "hostsent/backend/internal/modules/admin/lifecycle/repository"
 	lifecycleservice "hostsent/backend/internal/modules/admin/lifecycle/service"
@@ -460,6 +463,18 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	ucInstanceRepo := ucinstancerepo.NewInstanceRepository(database)
 	ucInstanceService := ucinstanceservice.NewInstanceService(ucInstanceRepo, buildProviderResolver(providerService, upstreamMgr))
 	ucInstanceHandler := ucinstancehandler.NewInstanceHandler(ucInstanceService)
+	// 实例运维台（管理端跨用户）：列表/详情/电源/控制台/回源/变配/销毁/流水/关联（见 docs/实施计划/61）
+	instanceOpsRepo := instancerepo.NewInstanceRepository(database)
+	instanceOpRepo := instancerepo.NewOperationRepository(database)
+	instanceRelatedRepo := instancerepo.NewRelatedRepository(database)
+	instanceOpsService := instanceservice.NewInstanceService(
+		instanceOpsRepo,
+		instanceOpRepo,
+		instanceRelatedRepo,
+		buildInstanceOpsResolver(providerService, upstreamMgr),
+		logger,
+	)
+	instanceOpsHandler := instancehandler.NewInstanceHandler(instanceOpsService)
 	// 规格管理（spec 子域）
 	specTemplateRepo := specrepo.NewSpecTemplateRepository(database)
 	specMappingRepo := specrepo.NewSpecMappingRepository(database)
@@ -551,7 +566,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	memberRepo := memberrepo.NewMemberRepository(database)
 	memberService := memberservice.NewMemberService(memberRepo)
 	memberHandler := memberhandler.NewMemberHandler(memberService)
-	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, logger, jwtIssuer)
+	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, logger, jwtIssuer)
 	router := newRouter(app)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
@@ -648,6 +663,8 @@ func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order
 		BillingMode: order.PriceModel,
 		// 子账号下单时 order.OperatorID 为真实操作人，落到实例「操作人」列（P4-09）。
 		ActorUserID: order.OperatorID,
+		// 记录来源订单，实例运维台据此展示关联订单（见 61 实施计划 §4.1）。
+		OrderID: order.ID,
 	}
 	if !inst.ExpireAt.IsZero() {
 		exp := inst.ExpireAt

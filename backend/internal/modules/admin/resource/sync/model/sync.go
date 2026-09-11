@@ -63,10 +63,16 @@ type Instance struct {
 	RawData     string `gorm:"column:raw_data;type:text"` // JSON 以 text 存储
 	BillingMode string `gorm:"column:billing_mode;size:20;default:hourly"`
 	// ActorUserID 开通该实例的真实操作人（子账号下单时为主账号名下的子账号，P4-09）
-	ActorUserID uint64     `gorm:"column:actor_user_id;index"`
-	CreatedAt   time.Time  `gorm:"autoCreateTime"`
-	ExpireAt    *time.Time `gorm:"column:expire_at"`
-	UpdatedAt   time.Time  `gorm:"autoUpdateTime"`
+	ActorUserID uint64 `gorm:"column:actor_user_id;index"`
+	// OrderID 开通该实例的来源订单；存量数据为 0（见 61 实施计划 §4.1）。
+	OrderID uint64 `gorm:"column:order_id;index"`
+	// Remark 管理员内部备注。注意：同步流程（UpsertInstances）不得覆盖此列。
+	Remark string `gorm:"size:255"`
+	// LastSyncedAt 最近一次单实例回源上游的时间。
+	LastSyncedAt *time.Time `gorm:"column:last_synced_at"`
+	CreatedAt    time.Time  `gorm:"autoCreateTime"`
+	ExpireAt     *time.Time `gorm:"column:expire_at"`
+	UpdatedAt    time.Time  `gorm:"autoUpdateTime"`
 }
 
 // TableName 指定表名

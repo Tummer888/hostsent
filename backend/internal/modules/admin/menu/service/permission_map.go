@@ -45,6 +45,8 @@ var menuPermissionMap = map[string]string{
 	"/resource/product-sync":   "product:sync",
 	"/resource/pricing":        "product:update_price",
 	"/resource/instances":      "resource:instance",
+	"/instances":               "resource:instance",
+	"/instances/list":          "resource:instance",
 	"/resource/api-test":       "resource:provider",
 	"/resource/anomalies":      "resource:instance",
 	"/resource/settings":       "system:config:view",

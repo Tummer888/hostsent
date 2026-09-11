@@ -14,6 +14,7 @@ import (
 	finrechmodel "hostsent/backend/internal/modules/admin/finance/recharge/model"
 	fintransmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
 	finwithdrawmodel "hostsent/backend/internal/modules/admin/finance/withdraw/model"
+	instancemodel "hostsent/backend/internal/modules/admin/instance/model"
 	lifecyclemodel "hostsent/backend/internal/modules/admin/lifecycle/model"
 	adminmodel "hostsent/backend/internal/modules/admin/manager/model"
 	menumodel "hostsent/backend/internal/modules/admin/menu/model"
@@ -104,6 +105,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&syncmodel.SyncTask{},
 		&syncmodel.SyncLog{},
 		&syncmodel.Instance{},
+		// 实例运维管理台：操作流水（见 docs/实施计划/61-实例运维管理台实施计划.md）
+		&instancemodel.Operation{},
 		// 产品管理（面向终端售卖）
 		&categorymodel.ProductCategory{},
 		&catalogmodel.Product{},
@@ -704,6 +707,10 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "resource:sync", Name: "查看同步日志", Code: "sync:log", Type: "button", SortOrder: 2, Status: "active"},
 		{ParentCode: "resource", Name: "云主机", Code: "resource:instance", Type: "menu", SortOrder: 4, Status: "active"},
 		{ParentCode: "resource:instance", Name: "实例操作", Code: "instance:action", Type: "button", SortOrder: 1, Status: "active"},
+		// 实例运维台敏感动作细分权限（见 docs/实施计划/61-实例运维管理台实施计划.md §6.1）
+		{ParentCode: "resource:instance", Name: "远程控制台", Code: "instance:console", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "resource:instance", Name: "实例变配", Code: "instance:resize", Type: "button", SortOrder: 3, Status: "active"},
+		{ParentCode: "resource:instance", Name: "销毁实例", Code: "instance:destroy", Type: "button", SortOrder: 4, Status: "active"},
 		{Name: "商品销售", Code: "product", Type: "catalog", SortOrder: 5, Status: "active"},
 		{ParentCode: "product", Name: "产品列表", Code: "product:list", Type: "menu", SortOrder: 1, Status: "active"},
 		{ParentCode: "product:list", Name: "创建产品", Code: "product:create", Type: "button", SortOrder: 1, Status: "active"},
@@ -893,6 +900,9 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"sync:log",
 			"resource:instance",
 			"instance:action",
+			"instance:console",
+			"instance:resize",
+			"instance:destroy",
 			"product",
 			"product:list",
 			"product:create",
@@ -964,6 +974,8 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"sync:log",
 			"resource:instance",
 			"instance:action",
+			// 运维需要控制台排障，但不授予变配/销毁（见 61 实施计划 §6.1）。
+			"instance:console",
 			"product",
 			"product:list",
 			"product:update",
@@ -1113,6 +1125,10 @@ func seedMenus(tx *gorm.DB) error {
 		// —— 实例资源
 		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "实例资源", Type: menumodel.TypeDirectory, Path: "/resource/instance", Icon: "server", SortOrder: 5, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/resource/instance", Platform: menumodel.PlatformAdmin, Name: "云主机实例", Type: menumodel.TypeMenu, Path: "/resource/instances", Component: "resource/instances/index", Icon: "server", SortOrder: 1, Status: menumodel.StatusActive},
+		// —— 实例管理（一级菜单，跨用户操作、维护与售后）：见 docs/实施计划/61-实例运维管理台实施计划.md
+		// 父级必须排在子项之前，否则 ParentKey 解析取不到父节点会导致 seed 失败。
+		{Platform: menumodel.PlatformAdmin, Name: "实例管理", Type: menumodel.TypeDirectory, Path: "/instances", Icon: "server", SortOrder: 4, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "实例运维台", Type: menumodel.TypeMenu, Path: "/instances/list", Component: "instances/index", Icon: "server", SortOrder: 1, Status: menumodel.StatusActive},
 		// —— 运维工具（doc10 §5.5）
 		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "运维工具", Type: menumodel.TypeDirectory, Path: "/resource/ops", Icon: "setting", SortOrder: 6, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "API测试", Type: menumodel.TypeMenu, Path: "/resource/api-test", Component: "resource/api-test/index", Icon: "ai-tool", SortOrder: 1, Status: menumodel.StatusActive},
@@ -1120,7 +1136,7 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeMenu, Path: "/resource/settings", Component: "resource/settings/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
 
 		// —— 产品管理（面向终端售卖，三层树）
-		{Platform: menumodel.PlatformAdmin, Name: "产品管理", Type: menumodel.TypeDirectory, Path: "/product", Icon: "product", SortOrder: 4, Status: menumodel.StatusActive},
+		{Platform: menumodel.PlatformAdmin, Name: "产品管理", Type: menumodel.TypeDirectory, Path: "/product", Icon: "product", SortOrder: 5, Status: menumodel.StatusActive},
 		// 1. 商品管理
 		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "商品管理", Type: menumodel.TypeDirectory, Path: "/product/mgmt", Icon: "product", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/product/mgmt", Platform: menumodel.PlatformAdmin, Name: "商品列表", Type: menumodel.TypeMenu, Path: "/product/products", Component: "product/products/index", Icon: "product", SortOrder: 1, Status: menumodel.StatusActive},
@@ -1151,13 +1167,13 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/product/sync-center", Platform: menumodel.PlatformAdmin, Name: "差异对比", Type: menumodel.TypeMenu, Path: "/product/sync/diff", Component: "product/sync/diff/index", Icon: "data-checked", SortOrder: 3, Status: menumodel.StatusActive},
 
 		// —— 订单管理（doc16）
-		{Platform: menumodel.PlatformAdmin, Name: "订单管理", Type: menumodel.TypeDirectory, Path: "/orders", Icon: "order", SortOrder: 5, Status: menumodel.StatusActive},
+		{Platform: menumodel.PlatformAdmin, Name: "订单管理", Type: menumodel.TypeDirectory, Path: "/orders", Icon: "order", SortOrder: 6, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "订单列表", Type: menumodel.TypeMenu, Path: "/orders/list", Component: "order/index", Icon: "order", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "退款管理", Type: menumodel.TypeMenu, Path: "/orders/refunds", Component: "order/refunds/index", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "订单统计", Type: menumodel.TypeMenu, Path: "/orders/stats", Component: "order/stats/index", Icon: "chart-bar", SortOrder: 3, Status: menumodel.StatusActive},
 
 		// —— 财务管理（doc32，分组树：叶子 + 二级目录）
-		{Platform: menumodel.PlatformAdmin, Name: "财务管理", Type: menumodel.TypeDirectory, Path: "/finance", Icon: "wallet", SortOrder: 6, Status: menumodel.StatusActive},
+		{Platform: menumodel.PlatformAdmin, Name: "财务管理", Type: menumodel.TypeDirectory, Path: "/finance", Icon: "wallet", SortOrder: 7, Status: menumodel.StatusActive},
 		// 1. 财务总览
 		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务总览", Type: menumodel.TypeMenu, Path: "/finance/overview", Component: "finance/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
 		// 2. 账户管理
@@ -1186,14 +1202,14 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/referral", Platform: menumodel.PlatformAdmin, Name: "提现审核", Type: menumodel.TypeMenu, Path: "/referral/withdrawals", Component: "referral/withdrawals/index", Icon: "upload", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/referral", Platform: menumodel.PlatformAdmin, Name: "邀请关系", Type: menumodel.TypeMenu, Path: "/referral/invitees", Component: "referral/invitees/index", Icon: "usergroup", SortOrder: 3, Status: menumodel.StatusActive},
 
-		// —— 工单支持（doc50 §5.3，admin 平台 SortOrder=8）
-		{Platform: menumodel.PlatformAdmin, Name: "工单支持", Type: menumodel.TypeDirectory, Path: "/tickets", Icon: "service", SortOrder: 8, Status: menumodel.StatusActive},
+		// —— 工单支持（doc50 §5.3，admin 平台 SortOrder=9）
+		{Platform: menumodel.PlatformAdmin, Name: "工单支持", Type: menumodel.TypeDirectory, Path: "/tickets", Icon: "service", SortOrder: 9, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单列表", Type: menumodel.TypeMenu, Path: "/tickets/list", Component: "ticket/index", Icon: "ticket", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单分类管理", Type: menumodel.TypeMenu, Path: "/tickets/categories", Component: "ticket/categories/index", Icon: "folder", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单统计", Type: menumodel.TypeMenu, Path: "/tickets/stats", Component: "ticket/stats/index", Icon: "chart-bar", SortOrder: 3, Status: menumodel.StatusActive},
 
 		// —— 系统管理（doc40 系统管理模块，二级目录 + 三级叶子）
-		{Platform: menumodel.PlatformAdmin, Name: "系统管理", Type: menumodel.TypeDirectory, Path: "/system", Icon: "setting", SortOrder: 7, Status: menumodel.StatusActive},
+		{Platform: menumodel.PlatformAdmin, Name: "系统管理", Type: menumodel.TypeDirectory, Path: "/system", Icon: "setting", SortOrder: 8, Status: menumodel.StatusActive},
 		// 1. 权限管理
 		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "权限管理", Type: menumodel.TypeDirectory, Path: "/system/permission-center", Icon: "lock-on", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "菜单管理", Type: menumodel.TypeMenu, Path: "/system/menus", Component: "system/menus/index", Icon: "menu", SortOrder: 1, Status: menumodel.StatusActive},
@@ -1208,14 +1224,14 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/system/audit-center", Platform: menumodel.PlatformAdmin, Name: "操作审计", Type: menumodel.TypeMenu, Path: "/system/audit-logs", Component: "system/audit-logs/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/system/audit-center", Platform: menumodel.PlatformAdmin, Name: "公告管理", Type: menumodel.TypeMenu, Path: "/system/announcements", Component: "notification/announcements/index", Icon: "sound", SortOrder: 2, Status: menumodel.StatusActive},
 
-		// —— 生命周期管理（doc60，admin 平台 SortOrder=9）
-		{Platform: menumodel.PlatformAdmin, Name: "生命周期管理", Type: menumodel.TypeDirectory, Path: "/lifecycle", Icon: "history", SortOrder: 9, Status: menumodel.StatusActive},
+		// —— 生命周期管理（doc60，admin 平台 SortOrder=10）
+		{Platform: menumodel.PlatformAdmin, Name: "生命周期管理", Type: menumodel.TypeDirectory, Path: "/lifecycle", Icon: "history", SortOrder: 10, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/lifecycle", Platform: menumodel.PlatformAdmin, Name: "到期管理", Type: menumodel.TypeMenu, Path: "/lifecycle/expiring", Component: "lifecycle/expiring/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/lifecycle", Platform: menumodel.PlatformAdmin, Name: "续费记录", Type: menumodel.TypeMenu, Path: "/lifecycle/renewals", Component: "lifecycle/renewals/index", Icon: "order", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/lifecycle", Platform: menumodel.PlatformAdmin, Name: "生命周期策略", Type: menumodel.TypeMenu, Path: "/lifecycle/policy", Component: "lifecycle/policy/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
 
 		// —— 管理员后台 - 消息中心（doc70，公告管理已归类到系统管理/安全审计）
-		{Platform: menumodel.PlatformAdmin, Name: "消息中心", Type: menumodel.TypeDirectory, Path: "/notification", Icon: "mail", SortOrder: 10, Status: menumodel.StatusActive},
+		{Platform: menumodel.PlatformAdmin, Name: "消息中心", Type: menumodel.TypeDirectory, Path: "/notification", Icon: "mail", SortOrder: 11, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "通知记录", Type: menumodel.TypeMenu, Path: "/notification/records", Component: "notification/records/index", Icon: "mail", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "通知模板", Type: menumodel.TypeMenu, Path: "/notification/templates", Component: "notification/templates/index", Icon: "root-list", SortOrder: 2, Status: menumodel.StatusActive},
 

@@ -238,6 +238,24 @@ func newRouter(app *App) *gin.Engine {
 			lcInstances.POST("/:id/renew", app.perm("lifecycle:renew"), app.lifecycleAdminHandler.RenewAdmin)
 		}
 
+		// 实例运维台（管理端跨用户）：/admin/instances（见 docs/实施计划/61-实例运维管理台实施计划.md）
+		// 同样遵循"静态段先于 /:id 注册"，故本组置于生命周期组之后。
+		instanceOps := v1.Group("/instances")
+		instanceOps.Use(app.adminAuth())
+		{
+			instanceOps.GET("", app.perm("resource:instance"), app.instanceOpsHandler.List)
+			instanceOps.GET("/stats", app.perm("resource:instance"), app.instanceOpsHandler.Stats)
+			instanceOps.GET("/:id", app.perm("resource:instance"), app.instanceOpsHandler.Detail)
+			instanceOps.GET("/:id/operations", app.perm("resource:instance"), app.instanceOpsHandler.Operations)
+			instanceOps.GET("/:id/related", app.perm("resource:instance"), app.instanceOpsHandler.Related)
+			instanceOps.POST("/:id/sync", app.perm("instance:action"), app.instanceOpsHandler.Sync)
+			instanceOps.POST("/:id/power", app.perm("instance:action"), app.instanceOpsHandler.Power)
+			instanceOps.PUT("/:id/remark", app.perm("instance:action"), app.instanceOpsHandler.SetRemark)
+			instanceOps.POST("/:id/vnc", app.perm("instance:console"), app.instanceOpsHandler.VNC)
+			instanceOps.POST("/:id/resize", app.perm("instance:resize"), app.instanceOpsHandler.Resize)
+			instanceOps.DELETE("/:id", app.perm("instance:destroy"), app.instanceOpsHandler.Destroy)
+		}
+
 		// 续费记录：/admin/renewals
 		lcRenewals := v1.Group("/renewals")
 		lcRenewals.Use(app.adminAuth())

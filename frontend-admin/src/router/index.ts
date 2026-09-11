@@ -438,6 +438,26 @@ const routes: Array<RouteRecordRaw> = [
     ],
   },
   {
+    path: '/instances',
+    component: () => import('@/layouts/index.vue'),
+    redirect: '/instances/list',
+    meta: { title: '实例管理' },
+    children: [
+      {
+        path: 'list',
+        name: 'InstanceList',
+        component: () => import('@/pages/instances/index.vue'),
+        meta: { title: '实例列表', role: 'admin', permission: 'resource:instance' },
+      },
+      {
+        path: 'detail/:id',
+        name: 'InstanceDetail',
+        component: () => import('@/pages/instances/detail.vue'),
+        meta: { title: '实例详情', role: 'admin', permission: 'resource:instance', hideInTabs: true },
+      },
+    ],
+  },
+  {
     path: '/tickets',
     component: () => import('@/layouts/index.vue'),
     redirect: '/tickets/list',

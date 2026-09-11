@@ -102,6 +102,55 @@
       <path d="M3.5 16.6L12 20.8l8.5-4.2" />
     </template>
 
+    <!-- 页脚图标（服务保障/社交/合规） -->
+    <template v-else-if="name === 'time'">
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 2" />
+    </template>
+    <template v-else-if="name === 'secured'">
+      <path d="M12 3l7 3v5.5c0 4.2-2.9 7.9-7 9.5-4.1-1.6-7-5.3-7-9.5V6l7-3z" />
+      <path d="M9.2 12.2l2 2 3.6-3.8" />
+    </template>
+    <template v-else-if="name === 'service'">
+      <path d="M4.5 13v-1a7.5 7.5 0 0115 0v1" />
+      <rect x="2.8" y="12.6" width="4" height="6" rx="1.6" />
+      <rect x="17.2" y="12.6" width="4" height="6" rx="1.6" />
+      <path d="M19.2 18.6c0 1.5-1.6 2.4-3.7 2.4" />
+    </template>
+    <template v-else-if="name === 'rollback'">
+      <path d="M9.5 7L5 11.5 9.5 16" />
+      <path d="M5 11.5h9a5.5 5.5 0 015.5 5.5" />
+    </template>
+    <template v-else-if="name === 'edit'">
+      <path d="M4 20h4L19.2 8.8a1.6 1.6 0 000-2.3l-1.7-1.7a1.6 1.6 0 00-2.3 0L4 15.9V20z" />
+      <path d="M13.5 6.5l4 4" />
+    </template>
+    <template v-else-if="name === 'wechat'">
+      <path d="M9 5.2c3.6 0 6.5 2.4 6.5 5.4s-2.9 5.4-6.5 5.4c-.7 0-1.4-.1-2-.3l-2.3 1.2.6-2.1A4.9 4.9 0 012.5 10.6C2.5 7.6 5.4 5.2 9 5.2z" />
+      <circle cx="6.8" cy="10" r=".8" />
+      <circle cx="11" cy="10" r=".8" />
+    </template>
+    <template v-else-if="name === 'qq'">
+      <path d="M12 3.5c2.2 0 3.8 1.6 3.8 4v1.2c0 1.3.4 2 1.5 3-.8.4-1.6.6-2.5.6 0 .8.3 1.6 1 2.3-2.1.7-4.8.7-7.6 0 .7-.7 1-1.5 1-2.3-.9 0-1.7-.2-2.5-.6 1.1-1 1.5-1.7 1.5-3V7.5C8.2 5.1 9.8 3.5 12 3.5z" />
+      <path d="M8.2 16.5c.5 1 1.5 2 3.8 2s3.3-1 3.8-2" />
+    </template>
+    <template v-else-if="name === 'github'">
+      <path d="M9 19.5c-3.5 1-3.5-2.1-5-2.6M15 21v-3.2c0-1 .3-1.7.7-2.4 2.3-.3 4.8-1.2 4.8-5.4a4.3 4.3 0 00-1.2-3A4 4 0 0019 4.4s-.8-.2-2.7.9a9 9 0 00-4.9 0C9.5 4.2 8.7 4.4 8.7 4.4a4 4 0 00-1.3 2.6 4.3 4.3 0 00-1.2 3c0 4.2 2.4 5.1 4.7 5.4.4.7.6 1.4.7 2.4V21" />
+    </template>
+    <template v-else-if="name === 'video'">
+      <rect x="3" y="6" width="14" height="12" rx="2.5" />
+      <path d="M17 10.5l4-2.5v8l-4-2.5" />
+    </template>
+    <template v-else-if="name === 'certificate'">
+      <circle cx="12" cy="10" r="5" />
+      <path d="M10.8 9.2l1 1 2-2.1" />
+      <path d="M12 14.8V17l-1.5 1 1.5-1 1.5 1-1.5-1v-2.2" />
+    </template>
+    <template v-else-if="name === 'mobile'">
+      <rect x="7.5" y="3" width="9" height="18" rx="2" />
+      <path d="M11 17.5h2" />
+    </template>
+
     <!-- 兜底 -->
     <template v-else>
       <circle cx="12" cy="12" r="8.5" />

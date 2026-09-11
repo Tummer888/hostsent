@@ -75,40 +75,46 @@
             </t-tooltip>
           </div>
 
-          <!-- 用户名 -->
-          <t-dropdown trigger="click" @click="handleDropdownClick">
+          <!-- 用户名：点开账户面板 -->
+          <t-popup
+            v-model:visible="userMenuVisible"
+            trigger="click"
+            placement="bottom-right"
+            overlay-class-name="user-menu-popup"
+          >
             <span class="header-username">
               {{ userName }}
               <span v-if="memberStore.isSub" class="header-username__sub">
                 {{ memberStore.ownerName ? `${memberStore.ownerName} 的子账号` : '子账号' }}
               </span>
             </span>
-            <template #dropdown>
-              <t-dropdown-menu>
-                <t-dropdown-item value="profile">
-                  <template #icon><UserIcon /></template>
-                  个人中心
-                </t-dropdown-item>
-                <t-dropdown-item v-if="memberStore.isOwner" value="member">
-                  <template #icon><UsergroupIcon /></template>
-                  成员管理
-                </t-dropdown-item>
-                <t-dropdown-item value="referral">
-                  <template #icon><ShareIcon /></template>
-                  推广邀请
-                </t-dropdown-item>
-                <t-dropdown-item value="billing">
-                  <template #icon><WalletIcon /></template>
-                  费用中心
-                </t-dropdown-item>
-                <t-dropdown-item divider />
-                <t-dropdown-item value="logout">
-                  <template #icon><PoweroffIcon /></template>
-                  退出登录
-                </t-dropdown-item>
-              </t-dropdown-menu>
+            <template #content>
+              <div class="user-menu">
+                <div class="user-menu__head">
+                  <span class="user-menu__avatar">{{ userInitial }}</span>
+                  <div class="user-menu__meta">
+                    <strong>{{ userName }}</strong>
+                    <span>@{{ userStore.userInfo?.username || '-' }}</span>
+                  </div>
+                </div>
+
+                <div class="user-menu__body">
+                  <button
+                    v-for="m in userMenuItems"
+                    :key="m.key"
+                    class="user-menu__item"
+                    @click="handleUserMenuClick(m)"
+                  >
+                    {{ m.title }}
+                  </button>
+                </div>
+
+                <div class="user-menu__foot">
+                  <button class="user-menu__logout" @click="handleLogout">退出登录</button>
+                </div>
+              </div>
             </template>
-          </t-dropdown>
+          </t-popup>
         </div>
       </header>
 
@@ -123,90 +129,6 @@
           </transition>
         </router-view>
       </main>
-
-      <!-- 页脚 -->
-      <footer class="site-footer">
-        <!-- 服务保障条 -->
-        <div class="footer-promise">
-          <div v-for="p in footerPromises" :key="p.title" class="promise-item">
-            <span class="promise-item__icon">
-              <component :is="p.icon" size="26" />
-            </span>
-            <div class="promise-item__text">
-              <strong>{{ p.title }}</strong>
-              <span>{{ p.desc }}</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="footer-main">
-          <div class="footer-brand">
-            <div class="footer-logo">
-              <span class="footer-logo__icon">H</span>
-              <span class="footer-logo__text">宿派云控 App</span>
-            </div>
-
-            <div class="footer-block">
-              <h5 class="footer-col__title">售前咨询热线</h5>
-              <p class="footer-hotline">400-800-1234</p>
-              <button class="footer-link" @click="router.push('/support')">技术服务咨询</button>
-              <button class="footer-link" @click="router.push('/support')">备案服务</button>
-              <button class="footer-link" @click="router.push('/shop')">云商店咨询</button>
-            </div>
-
-            <div class="footer-block">
-              <h5 class="footer-col__title">关注宿派云控</h5>
-              <div class="footer-social">
-                <button
-                  v-for="s in footerSocial"
-                  :key="s.label"
-                  class="footer-social__icon"
-                  :aria-label="s.label"
-                  :title="s.label"
-                  @click="onFooterSocial(s.label)"
-                >
-                  <component :is="s.icon" size="18" />
-                </button>
-                <button class="footer-social__app" @click="onFooterSocial('App')">
-                  <MobileIcon size="14" />
-                  App
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div class="footer-links">
-            <div v-for="col in footerColumns" :key="col.title" class="footer-col">
-              <h5 class="footer-col__title">{{ col.title }}</h5>
-              <button
-                v-for="l in col.links"
-                :key="l.label"
-                class="footer-link"
-                @click="router.push(l.path)"
-              >
-                {{ l.label }}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div class="footer-bottom">
-          <div class="footer-bottom__legal">
-            <p>© 2026 Hostsent.com 版权所有 苏ICP备00000000号-1 苏B2-20260000 苏B2-20260001</p>
-            <p>增值电信业务经营许可证：B1-20260000 | 代理域名注册服务机构：示例机构</p>
-          </div>
-          <div class="footer-bottom__policy">
-            <button class="footer-policy" @click="router.push('/support')">法律条文</button>
-            <span class="footer-bottom__sep">|</span>
-            <button class="footer-policy" @click="router.push('/support')">隐私政策</button>
-          </div>
-        </div>
-
-        <div class="footer-bottom__badges">
-          <span class="footer-badge-item"><CertificateIcon size="14" /> 电子营业执照</span>
-          <span class="footer-badge-item"><SecuredIcon size="14" /> 公网安备 0000000000000号</span>
-        </div>
-      </footer>
     </div>
 
     <!-- 右侧漂浮浮窗 -->
@@ -286,37 +208,22 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import {
   BookIcon,
   CartIcon,
-  CertificateIcon,
   ChatBubbleIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   CloseIcon,
   ContrastIcon,
   EarthIcon,
-  Edit1Icon,
   HelpCircleIcon,
-  LogoGithubIcon,
-  LogoQqIcon,
-  LogoWechatStrokeIcon,
-  LogoYoutubeIcon,
   MailIcon,
   MenuFoldIcon,
   MenuUnfoldIcon,
-  MobileIcon,
-  PoweroffIcon,
-  RollbackIcon,
   SearchIcon,
-  SecuredIcon,
   ServiceIcon,
-  ShareIcon,
-  TimeIcon,
-  UserIcon,
-  UsergroupIcon,
-  WalletIcon,
 } from 'tdesign-icons-vue-next'
 
 import { useMenuStore, useUserStore } from '@/store'
@@ -355,6 +262,7 @@ function onHeaderSearch() {
 
 // ========== 用户信息 ==========
 const userName = computed(() => userStore.displayName || '用户')
+const userInitial = computed(() => (userStore.displayName || '用').slice(0, 1).toUpperCase())
 
 function onRegionClick() {
   MessagePlugin.info('地区与语言设置开发中')
@@ -362,6 +270,53 @@ function onRegionClick() {
 
 function onThemeClick() {
   MessagePlugin.info('主题设置开发中')
+}
+
+// ========== 头像/昵称账户菜单 ==========
+const userMenuVisible = ref(false)
+
+interface UserMenuItem {
+  key: string
+  title: string
+  to: string
+  ownerOnly?: boolean
+}
+
+const userMenuItems = computed<UserMenuItem[]>(() => {
+  const items: UserMenuItem[] = [
+    { key: 'profile', title: '个人中心', to: '/profile' },
+    { key: 'member', title: '成员管理', to: '/member', ownerOnly: true },
+    { key: 'referral', title: '推广邀请', to: '/referral/overview' },
+    { key: 'billing', title: '费用中心', to: '/billing' },
+  ]
+  // 子账号不展示「成员管理」（仅主账号可管理子账号）
+  return items.filter((m) => !m.ownerOnly || memberStore.isOwner)
+})
+
+function closeUserMenu() {
+  userMenuVisible.value = false
+}
+
+function handleUserMenuClick(item: UserMenuItem) {
+  closeUserMenu()
+  router.push(item.to)
+}
+
+function handleLogout() {
+  const dialog = DialogPlugin.confirm({
+    header: '退出登录',
+    body: '确认退出当前账号？退出后需要重新登录。',
+    confirmBtn: { content: '退出登录', theme: 'danger' },
+    cancelBtn: { content: '取消' },
+    onConfirm: () => {
+      dialog.destroy()
+      closeUserMenu()
+      userStore.logout()
+      MessagePlugin.success('已退出登录')
+      router.replace('/login')
+    },
+    onClose: () => dialog.destroy(),
+  })
 }
 
 // ========== 右侧漂浮浮窗 ==========
@@ -393,79 +348,6 @@ function onDockQuick(question: string) {
   MessagePlugin.info(`智能助手：${question}`)
 }
 
-// ========== 页脚 ==========
-const footerPromises = [
-  { title: '7×24', desc: '多渠道服务支持', icon: TimeIcon },
-  { title: '备案', desc: '提供免费备案服务', icon: SecuredIcon },
-  { title: '专业服务', desc: '云业务全流程支持', icon: ServiceIcon },
-  { title: '退订', desc: '享无忧退订服务', icon: RollbackIcon },
-  { title: '建议反馈', desc: '优化改进建议', icon: Edit1Icon },
-]
-
-const footerSocial = [
-  { label: '微信', icon: LogoWechatStrokeIcon },
-  { label: 'QQ', icon: LogoQqIcon },
-  { label: '开源社区', icon: LogoGithubIcon },
-  { label: '视频号', icon: LogoYoutubeIcon },
-]
-
-const footerColumns = [
-  {
-    title: '关于宿派云控',
-    links: [
-      { label: '了解宿派云控', path: '/support' },
-      { label: '云计算概念', path: '/support' },
-      { label: '客户案例', path: '/support' },
-      { label: '信任中心', path: '/support' },
-      { label: '新闻资讯', path: '/support' },
-      { label: '视频中心', path: '/support' },
-    ],
-  },
-  {
-    title: '热门产品',
-    links: [
-      { label: '云主机 CVM', path: '/shop' },
-      { label: '轻量云主机', path: '/shop' },
-      { label: '对象存储', path: '/shop' },
-      { label: '云数据库', path: '/shop' },
-      { label: '私有网络', path: '/shop' },
-      { label: '负载均衡', path: '/shop' },
-    ],
-  },
-  {
-    title: '支持与服务',
-    links: [
-      { label: '自助服务', path: '/support' },
-      { label: '服务公告', path: '/support' },
-      { label: '支持计划', path: '/support' },
-      { label: '联系我们', path: '/support' },
-      { label: '举报中心', path: '/support' },
-    ],
-  },
-  {
-    title: '实用工具',
-    links: [
-      { label: '价格计算器', path: '/shop' },
-      { label: '云助手', path: '/profile' },
-      { label: '服务健康看板', path: '/support' },
-      { label: 'API 密钥', path: '/profile' },
-    ],
-  },
-  {
-    title: '友情链接',
-    links: [
-      { label: '宿派云官网', path: '/dashboard' },
-      { label: '开发者联盟', path: '/support' },
-      { label: '企业业务', path: '/shop' },
-      { label: '云商城', path: '/shop' },
-    ],
-  },
-]
-
-function onFooterSocial(label: string) {
-  MessagePlugin.info(`${label}开发中`)
-}
-
 // ========== 初始化 ==========
 onMounted(async () => {
   checkMobile()
@@ -483,25 +365,10 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', checkMobile)
 })
 
-function handleDropdownClick(value: string) {
-  if (value === 'logout') {
-    userStore.logout()
-    MessagePlugin.success('已退出登录')
-    router.replace('/login')
-  } else if (value === 'profile') {
-    router.push('/profile')
-  } else if (value === 'billing') {
-    router.push('/billing')
-  } else if (value === 'member') {
-    router.push('/member')
-  } else if (value === 'referral') {
-    router.push('/referral/overview')
-  }
-}
-
 // 路由切换后收起移动端抽屉
 watch(() => route.path, () => {
   if (isMobile.value) navOpen.value = false
+  closeUserMenu()
 })
 </script>
 
@@ -734,6 +601,143 @@ watch(() => route.path, () => {
   line-height: 16px;
 }
 
+/* ===== 头像/昵称账户菜单 ===== */
+.user-menu {
+  width: 220px;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.14);
+  overflow: hidden;
+}
+
+.user-menu__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
+  border-bottom: 1px solid #eef2f7;
+}
+
+.user-menu__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.user-menu__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.user-menu__meta strong {
+  font-size: 14.5px;
+  color: #1e293b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu__meta span {
+  font-size: 12px;
+  color: #8b95a8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu__body {
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+}
+
+.user-menu__item {
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #334155;
+  font-size: 13.5px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.user-menu__item:hover {
+  background: #f1f5f9;
+  color: var(--color-primary, #2563eb);
+}
+
+.user-menu__foot {
+  padding: 6px;
+  border-top: 1px solid #eef2f7;
+}
+
+.user-menu__logout {
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #ef4444;
+  font-size: 13.5px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s ease;
+}
+
+.user-menu__logout:hover {
+  background: #fef2f2;
+}
+
+.dark .user-menu {
+  background: #141414;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.dark .user-menu__head {
+  background: linear-gradient(135deg, #10192e 0%, #0f1420 100%);
+  border-bottom-color: #262626;
+}
+
+.dark .user-menu__meta strong {
+  color: #e5e7eb;
+}
+
+.dark .user-menu__meta span {
+  color: #9ca3af;
+}
+
+.dark .user-menu__item {
+  color: #cbd5e1;
+}
+
+.dark .user-menu__item:hover {
+  background: #1f1f1f;
+  color: #93c5fd;
+}
+
+.dark .user-menu__foot {
+  border-top-color: #262626;
+}
+
+.dark .user-menu__logout:hover {
+  background: #2a1212;
+}
+
 .dark .header-username__sub {
   background: #1e293b;
   color: #93c5fd;
@@ -781,258 +785,6 @@ watch(() => route.path, () => {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
-}
-
-/* ============ 页脚 ============ */
-.site-footer {
-  background: #ffffff;
-  border-top: 1px solid #e8ecf2;
-  color: #64748b;
-  margin-top: 16px;
-  padding: 0 32px;
-}
-
-/* 服务保障条 */
-.footer-promise {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 24px;
-  padding: 28px 0;
-  border-bottom: 1px solid #eef1f5;
-}
-
-.promise-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-
-.promise-item__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #1e293b;
-  flex-shrink: 0;
-}
-
-.promise-item__text {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.promise-item__text strong {
-  font-size: 15px;
-  font-weight: 600;
-  color: #1e293b;
-}
-
-.promise-item__text span {
-  font-size: 12.5px;
-  color: #8b95a8;
-}
-
-/* 主体 */
-.footer-main {
-  display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
-  gap: 40px;
-  padding: 32px 0;
-}
-
-.footer-brand {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  padding-right: 40px;
-  border-right: 1px solid #eef1f5;
-  min-width: 0;
-}
-
-.footer-logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.footer-logo__icon {
-  width: 32px;
-  height: 32px;
-  background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-weight: 700;
-  font-size: 16px;
-}
-
-.footer-logo__text {
-  font-size: 16px;
-  font-weight: 700;
-  color: #1e293b;
-}
-
-.footer-block {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-}
-
-.footer-hotline {
-  margin: 0 0 4px;
-  font-size: 22px;
-  font-weight: 700;
-  color: #1e293b;
-  line-height: 1.1;
-}
-
-.footer-social {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.footer-social__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  color: #475569;
-  cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease;
-}
-
-.footer-social__icon:hover {
-  color: var(--color-primary);
-  border-color: #bfdbfe;
-}
-
-.footer-social__app {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 38px;
-  padding: 0 14px;
-  border-radius: 19px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  color: #475569;
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease;
-}
-
-.footer-social__app:hover {
-  color: var(--color-primary);
-  border-color: #bfdbfe;
-}
-
-.footer-links {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 32px;
-  min-width: 0;
-}
-
-.footer-col {
-  display: flex;
-  flex-direction: column;
-  gap: 11px;
-  min-width: 0;
-}
-
-.footer-col__title {
-  margin: 0 0 3px;
-  font-size: 13.5px;
-  font-weight: 600;
-  color: #1e293b;
-}
-
-.footer-link {
-  border: none;
-  background: transparent;
-  text-align: left;
-  padding: 0;
-  font-size: 13px;
-  color: #8b95a8;
-  cursor: pointer;
-  transition: color 0.15s ease;
-}
-
-.footer-link:hover {
-  color: var(--color-primary);
-}
-
-/* 版权信息 */
-.footer-bottom {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 20px 0 8px;
-  border-top: 1px solid #eef1f5;
-  font-size: 12.5px;
-  color: #94a3b8;
-}
-
-.footer-bottom__legal {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.footer-bottom__legal p {
-  margin: 0;
-}
-
-.footer-bottom__policy {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.footer-policy {
-  border: none;
-  background: transparent;
-  padding: 0;
-  font-size: 12.5px;
-  color: #94a3b8;
-  cursor: pointer;
-  transition: color 0.15s ease;
-}
-
-.footer-policy:hover {
-  color: var(--color-primary);
-}
-
-.footer-bottom__sep {
-  color: #d5dbe5;
-}
-
-.footer-bottom__badges {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 20px;
-  padding: 8px 0 24px;
-}
-
-.footer-badge-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
-  color: #94a3b8;
 }
 
 /* ============ 右侧漂浮浮窗 ============ */
@@ -1287,36 +1039,6 @@ watch(() => route.path, () => {
   color: #cbd5e1;
 }
 
-/* 深色模式：页脚 */
-.dark .site-footer {
-  background: #0a0a0a;
-  border-top-color: #262626;
-}
-
-.dark .footer-promise,
-.dark .footer-bottom {
-  border-color: #262626;
-}
-
-.dark .footer-brand {
-  border-color: #262626;
-}
-
-.dark .promise-item__icon,
-.dark .promise-item__text strong,
-.dark .footer-logo__text,
-.dark .footer-hotline,
-.dark .footer-col__title {
-  color: #e5e7eb;
-}
-
-.dark .footer-social__icon,
-.dark .footer-social__app {
-  background: #141414;
-  border-color: #2a2a2a;
-  color: #cbd5e1;
-}
-
 /* ============ 响应式 ============ */
 @media (max-width: 768px) {
   .top-header {
@@ -1340,43 +1062,6 @@ watch(() => route.path, () => {
 
   .content-area {
     padding: 16px;
-  }
-
-  .site-footer {
-    padding: 0 16px;
-  }
-
-  .footer-promise {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 18px 16px;
-    padding: 22px 0;
-  }
-
-  .footer-main {
-    grid-template-columns: 1fr;
-    gap: 28px;
-    padding: 24px 0;
-  }
-
-  .footer-brand {
-    padding-right: 0;
-    border-right: none;
-    padding-bottom: 24px;
-    border-bottom: 1px solid #eef1f5;
-  }
-
-  .footer-links {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 24px 16px;
-  }
-
-  .footer-bottom {
-    flex-direction: column;
-    gap: 14px;
-  }
-
-  .footer-bottom__badges {
-    padding-bottom: 20px;
   }
 
   .float-dock {

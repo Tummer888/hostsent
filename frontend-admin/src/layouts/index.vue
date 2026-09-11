@@ -266,9 +266,13 @@
       </div>
       <t-content class="content-area">
         <div class="content-inner">
-          <router-view v-slot="{ Component }">
+          <router-view v-slot="{ Component, route: currentRoute }">
             <transition name="fade" mode="out-in">
-              <component :is="Component" />
+              <!-- 必须用单元素包裹：路由页面若渲染多根节点（如列表 + 弹窗共存），
+                   <Transition mode="out-in"> 无法完成离场动画，会卡死并让内容区永久空白。 -->
+              <div :key="currentRoute.path" class="route-view">
+                <component :is="Component" />
+              </div>
             </transition>
           </router-view>
         </div>

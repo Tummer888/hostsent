@@ -150,7 +150,9 @@ export const navMenu = [
         title: '实例资源',
         path: '/resource/instance',
         icon: iconWrapper(ServerIcon),
-        children: [{ title: '云主机实例', path: '/resource/instances', icon: iconWrapper(ServerIcon) }],
+        children: [
+          { title: '云主机实例', path: '/resource/instances', icon: iconWrapper(ServerIcon) },
+        ],
       },
       {
         title: '运维工具',
@@ -162,6 +164,14 @@ export const navMenu = [
           { title: '系统配置', path: '/resource/settings', icon: iconWrapper(SettingIcon) },
         ],
       },
+    ],
+  },
+  {
+    title: '实例管理',
+    path: '/instances',
+    icon: iconWrapper(ServerIcon),
+    children: [
+      { title: '实例运维台', path: '/instances/list', icon: iconWrapper(ServerIcon) },
     ],
   },
   {

@@ -15,6 +15,7 @@ import (
 	finbillhandler "hostsent/backend/internal/modules/admin/finance/bill/handler"
 	finrechargehandler "hostsent/backend/internal/modules/admin/finance/recharge/handler"
 	finwithdrawhandler "hostsent/backend/internal/modules/admin/finance/withdraw/handler"
+	admininstancehandler "hostsent/backend/internal/modules/admin/instance/handler"
 	lifecyclehandler "hostsent/backend/internal/modules/admin/lifecycle/handler"
 	adminhandler "hostsent/backend/internal/modules/admin/manager/handler"
 	adminrepo "hostsent/backend/internal/modules/admin/manager/repository"
@@ -96,6 +97,7 @@ type App struct {
 	ucProductHandler      *ucproducthandler.ProductHandler
 	ucOrderHandler        *ucorderhandler.OrderHandler
 	ucInstanceHandler     *ucinstancehandler.InstanceHandler
+	instanceOpsHandler    *admininstancehandler.InstanceHandler
 	ticketHandler         *tickethandler.TicketHandler
 	ticketCategoryHandler *tickethandler.CategoryHandler
 	userTicketHandler     *tickethandler.UserTicketHandler
@@ -151,6 +153,7 @@ func NewApp(
 	ucProductHandler *ucproducthandler.ProductHandler,
 	ucOrderHandler *ucorderhandler.OrderHandler,
 	ucInstanceHandler *ucinstancehandler.InstanceHandler,
+	instanceOpsHandler *admininstancehandler.InstanceHandler,
 	ticketHandler *tickethandler.TicketHandler,
 	ticketCategoryHandler *tickethandler.CategoryHandler,
 	userTicketHandler *tickethandler.UserTicketHandler,
@@ -211,6 +214,7 @@ func NewApp(
 		ucProductHandler:      ucProductHandler,
 		ucOrderHandler:        ucOrderHandler,
 		ucInstanceHandler:     ucInstanceHandler,
+		instanceOpsHandler:    instanceOpsHandler,
 		ticketHandler:         ticketHandler,
 		ticketCategoryHandler: ticketCategoryHandler,
 		userTicketHandler:     userTicketHandler,
