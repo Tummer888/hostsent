@@ -272,7 +272,7 @@ const columns: PrimaryTableCol<SpecMappingInfo>[] = [
   {
     colKey: 'action',
     title: '操作',
-    width: 220,
+    width: isMobile.value ? 70 : 220,
     fixed: 'right' as const,
     align: 'center' as const,
   },

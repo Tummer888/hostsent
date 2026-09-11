@@ -148,6 +148,7 @@ func (h *OrderHandler) CreateRefund(c *gin.Context) {
 
 // Activate godoc
 // @Summary 重新触发开通实例（幂等）
+// @Description 异步开通（T5.1）：投递履约任务，由工作池执行上游开通；未装配队列时同步执行
 // @Tags 订单管理-订单
 // @Security BearerAuth
 // @Param id path int true "订单 ID"
@@ -159,7 +160,7 @@ func (h *OrderHandler) Activate(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := h.orderService.Activate(c.Request.Context(), id); err != nil {
+	if err := h.orderService.EnqueueProvision(c.Request.Context(), id); err != nil {
 		response.Error(c, writeError(err))
 		return
 	}

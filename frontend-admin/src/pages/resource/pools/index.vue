@@ -236,7 +236,7 @@ const columns: PrimaryTableCol<PoolInfo>[] = [
   {
     colKey: 'action',
     title: '操作',
-    width: 90,
+    width: isMobile.value ? 70 : 90,
     fixed: 'right' as const,
     align: 'center' as const,
   },

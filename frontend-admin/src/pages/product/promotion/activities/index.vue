@@ -223,7 +223,7 @@ const columns: PrimaryTableCol<PromotionInfo>[] = [
   {
     colKey: 'action',
     title: '操作',
-    width: 170,
+    width: isMobile.value ? 70 : 170,
     fixed: 'right' as const,
     align: 'center' as const,
   },

@@ -140,6 +140,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&ordermodel.Order{},
 		&ordermodel.OrderItem{},
 		&ordermodel.OrderRefund{},
+		// 开通履约任务（T5.1）：DB 任务表 + 进程内工作池，异步执行上游开通
+		&ordermodel.ProvisionTask{},
 		// 工单支持（doc50）
 		&ticketmodel.Ticket{},
 		&ticketmodel.TicketReply{},

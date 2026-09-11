@@ -3,6 +3,7 @@ package handler
 
 import (
 	"errors"
+	"io"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -291,6 +292,51 @@ func (h *InstanceHandler) SetRemark(c *gin.Context) {
 		return
 	}
 	response.SuccessMessage(c, "备注已保存")
+}
+
+// Suspend 暂停实例。
+// @Summary 暂停实例（T5.5：优先平台暂停态，缺能力显式报错）
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Param body body dto.SuspendRequest false "暂停原因"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/suspend [post]
+func (h *InstanceHandler) Suspend(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var req dto.SuspendRequest
+	// reason 为可选字段：空 body 视为未填原因，不应报参数错误。
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	if err := h.svc.Suspend(c.Request.Context(), operator(c), id, req.Reason); err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.SuccessMessage(c, "实例已暂停")
+}
+
+// Unsuspend 恢复实例。
+// @Summary 恢复实例（T5.5：优先解除平台暂停态）
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/unsuspend [post]
+func (h *InstanceHandler) Unsuspend(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	if err := h.svc.Unsuspend(c.Request.Context(), operator(c), id); err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.SuccessMessage(c, "实例已恢复")
 }
 
 // Destroy 销毁实例。

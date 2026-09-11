@@ -180,7 +180,7 @@ const columns: PrimaryTableCol<RefundInfo>[] = [
   {
     colKey: 'action',
     title: '操作',
-    width: 130,
+    width: isMobile.value ? 70 : 130,
     fixed: 'right' as const,
     align: 'center' as const,
   },

@@ -33,7 +33,12 @@
           <span class="cell-muted">{{ row.last_sync_at ? formatTime(row.last_sync_at) : '从未同步' }}</span>
         </template>
         <template #action="{ row }">
-          <t-button size="small" theme="primary" variant="outline" :loading="syncingId === row.id" @click="triggerSync(row)">
+          <MobileAction
+            v-if="isMobile"
+            :options="[{ content: '同步商品', value: 'sync' }]"
+            @select="(value) => value === 'sync' && triggerSync(row)"
+          />
+          <t-button v-else size="small" theme="primary" variant="outline" :loading="syncingId === row.id" @click="triggerSync(row)">
             <template #icon>
               <CloudDownloadIcon aria-hidden="true" />
             </template>
@@ -72,12 +77,14 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 import { CloudDownloadIcon, RefreshIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { createSyncTask, getProviderList, getSyncTaskList } from '@/api/admin'
+import MobileAction from '@/components/mobile-action/index.vue'
+import { useIsMobile } from '@/composables/useIsMobile'
 import type { ProviderInfo, SyncTaskInfo } from '@/types/interface'
 
 defineOptions({ name: 'ResourceProductSync' })
@@ -104,14 +111,16 @@ function taskStatusLabel(status: string): string {
   return status
 }
 
-const providerColumns: PrimaryTableCol<ProviderInfo>[] = [
+const { isMobile } = useIsMobile()
+
+const providerColumns = computed<PrimaryTableCol<ProviderInfo>[]>(() => [
   { colKey: 'name', title: '提供商', minWidth: 160 },
   { colKey: 'provider_type', title: '类型', width: 120 },
   { colKey: 'api_endpoint', title: 'API 地址', minWidth: 180 },
   { colKey: 'sync_enabled', title: '同步开关', width: 110 },
   { colKey: 'last_sync_at', title: '上次同步', minWidth: 170 },
-  { colKey: 'action', title: '操作', width: 140, fixed: 'right' as const, align: 'center' as const },
-]
+  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 140, fixed: 'right' as const, align: 'center' as const },
+])
 
 const taskColumns: PrimaryTableCol<SyncTaskInfo>[] = [
   { colKey: 'id', title: '任务 ID', width: 90 },

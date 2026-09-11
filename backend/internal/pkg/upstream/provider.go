@@ -7,6 +7,7 @@ package upstream
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"hostsent/backend/internal/pkg/model"
 )
@@ -48,6 +49,54 @@ type InstanceAdministration interface {
 	ListInstances(ctx context.Context, filters map[string]string) ([]*model.StandardInstance, error)
 	DeleteInstance(ctx context.Context, instanceID string) error
 	ResizeInstance(ctx context.Context, instanceID string, specs *model.StandardProductSpec) error
+}
+
+// InstanceRenewal 实例续费能力（T5.2）：把实例账期在上游/平台侧顺延。
+//
+// 链路 A（上游）由上游返回权威的新到期时间；链路 B（自营）多数平台无续费接口，
+// 由本地账期顺延 + 平台侧动作承接（描述符 RenewMode 为 RenewModeNone）。
+// 实现方返回上游回执单号便于对账（RenewResult.UpstreamOrderRef）。
+type InstanceRenewal interface {
+	RenewInstance(ctx context.Context, req *RenewRequest) (*RenewResult, error)
+}
+
+// RenewRequest 续费请求。
+type RenewRequest struct {
+	// ProviderInstanceID 上游/平台侧实例号。
+	ProviderInstanceID string
+	// Period 续费周期数（1 个月 / 3 个月 / 1 年等，含义随 Cycle）。
+	Period int
+	// Cycle 计费周期模式：month/monthly、year/yearly、quarter/monthly、day/daily。
+	Cycle string
+	// Extra 上游特有参数（原样透传）。
+	Extra map[string]interface{}
+}
+
+// RenewResult 续费结果。
+type RenewResult struct {
+	// NewExpireAt 续费后的到期时间；零值表示上游未返回（链路 B 由调用方本地顺延）。
+	NewExpireAt time.Time
+	// UpstreamOrderRef 上游回执（账单号/订单号等），用于对账与幂等。
+	UpstreamOrderRef string
+	// Raw 上游原始响应（排障用）。
+	Raw map[string]interface{}
+}
+
+// InstanceSuspension 实例暂停/恢复能力（T5.5 生命周期推进器使用）。
+//
+// 与 InstanceControl.Stop 的区别：Stop 是"关机"（客户可自行开机），
+// Suspend 是"因欠费/违规暂停"（平台侧置为暂停态并通常禁止自助恢复）。
+// 上游未实现本接口时，分派层退化为 StopInstance/StartInstance，
+// 两者都不支持则返回 ErrCapabilityMissing，绝不静默假装完成。
+type InstanceSuspension interface {
+	SuspendInstance(ctx context.Context, instanceID, reason string) error
+	UnsuspendInstance(ctx context.Context, instanceID string) error
+}
+
+// InstanceTermination 实例销毁能力（T5.5）。语义比 InstanceAdministration.DeleteInstance
+// 更窄：只做"终止"。上游以取消/退订实现终止时实现本接口，无需实现整表管理能力。
+type InstanceTermination interface {
+	TerminateInstance(ctx context.Context, instanceID, reason string) error
 }
 
 // InstanceLifecycle 实例全生命周期能力：开通 + 电源控制 + 管理维护的组合。

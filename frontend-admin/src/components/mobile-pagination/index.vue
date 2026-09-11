@@ -105,7 +105,8 @@ function confirmJump() {
 </script>
 
 <style scoped>
-/* 移动端自定义分页：两行布局，避免内置分页在窄屏溢出裁切 */
+/* 移动端自定义分页：两行布局，避免内置分页在窄屏溢出裁切。
+   第二行整体可换行（wrap），防止窄机型上「跳转」按钮被挤出卡片可视区。 */
 .mobile-pagination {
   display: flex;
   flex-direction: column;
@@ -123,6 +124,7 @@ function confirmJump() {
 .mobile-pagination__row--secondary {
   justify-content: flex-start;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .mobile-pagination__nav-btn {
@@ -149,7 +151,11 @@ function confirmJump() {
 }
 
 .mobile-pagination__size {
-  flex: 0 0 118px;
+  /* TDesign t-select__wrap 对 shrink:0 的子项不收缩，固定 basis 会溢出卡片，
+     这里允许收缩并直接定宽；换行后独占一行时自动放大铺满。 */
+  flex: 0 1 96px;
+  width: 96px;
+  min-width: 0;
 }
 
 .mobile-pagination__size :deep(.t-input),

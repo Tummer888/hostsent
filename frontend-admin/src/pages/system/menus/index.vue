@@ -53,7 +53,16 @@
           </t-tag>
         </template>
         <template #operation="{ row }">
-          <t-space size="small">
+          <MobileAction
+            v-if="isMobile"
+            :options="buildMobileActionOptions([
+              { content: '新增子级', value: 'add-child' },
+              { content: '编辑', value: 'edit' },
+              { content: '删除', value: 'delete', theme: 'error' },
+            ])"
+            @select="(value) => handleMobileAction(value, row)"
+          />
+          <t-space v-else size="small">
             <t-link theme="primary" size="small" @click="onAddChild(row)">新增子级</t-link>
             <t-link theme="primary" size="small" @click="onEdit(row)">编辑</t-link>
             <t-popconfirm content="确认删除该菜单及其全部子节点？" @confirm="onDelete(row)">
@@ -135,6 +144,9 @@ import {
   updateMenu,
   type MenuNode,
 } from '@/api/menu'
+import MobileAction from '@/components/mobile-action/index.vue'
+import { buildMobileActionOptions } from '@/composables/useMobileActions'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 defineOptions({ name: 'SystemMenus' })
 
@@ -169,7 +181,9 @@ const rules: Record<string, FormRule[]> = {
   status: [{ required: true, message: '请选择状态', type: 'error', trigger: 'change' }],
 }
 
-const columns: PrimaryTableCol<MenuNode>[] = [
+const { isMobile } = useIsMobile()
+
+const columns = computed<PrimaryTableCol<MenuNode>[]>(() => [
   { colKey: 'name', title: '菜单名称', minWidth: 200, ellipsis: true },
   { colKey: 'icon', title: '图标', width: 120 },
   { colKey: 'type', title: '类型', width: 100 },
@@ -177,8 +191,8 @@ const columns: PrimaryTableCol<MenuNode>[] = [
   { colKey: 'platform', title: '平台', width: 110 },
   { colKey: 'sort_order', title: '排序', width: 80 },
   { colKey: 'status', title: '状态', width: 90 },
-  { colKey: 'operation', title: '操作', width: 200, fixed: 'right' },
-]
+  { colKey: 'operation', title: '操作', width: isMobile.value ? 70 : 200, fixed: 'right' },
+])
 
 const dialogTitle = computed(() => (isEdit.value ? '编辑菜单' : '新增菜单'))
 
@@ -301,6 +315,20 @@ function onDialogClose() {
 }
 
 onMounted(loadTree)
+function handleMobileAction(value: string | number | Record<string, any>, row: MenuNode) {
+  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '');
+  switch (action) {
+    case 'add-child':
+      onAddChild(row)
+      break
+    case 'edit':
+      onEdit(row)
+      break
+    case 'delete':
+      void onDelete(row)
+      break
+  }
+}
 </script>
 
 <style scoped lang="css">

@@ -394,7 +394,7 @@ const columns: PrimaryTableCol<InstanceItem>[] = [
   {
     colKey: 'action',
     title: '操作',
-    minWidth: 300,
+    width: isMobile.value ? 70 : 300,
     fixed: 'right' as const,
     align: 'center' as const,
   },

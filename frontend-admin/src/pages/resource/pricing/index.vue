@@ -185,7 +185,7 @@ const columns: PrimaryTableCol<ProductInfo>[] = [
   { colKey: 'sale_price', title: '销售价', width: 110 },
   { colKey: 'cost_price', title: '成本价', width: 110 },
   { colKey: 'margin', title: '毛利率', width: 90 },
-  { colKey: 'action', title: '操作', width: 90, fixed: 'right' as const, align: 'center' as const },
+  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 90, fixed: 'right' as const, align: 'center' as const },
 ]
 
 async function loadProducts() {
@@ -311,8 +311,11 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
   --chip-shadow: 0 4px 10px rgba(217, 119, 6, 0.25);
 }
 
-.filter-card__grid {
-  grid-template-columns: repeat(2, minmax(200px, 1fr));
+/* 桌面端固定列数；窄屏回落到 shared.css 的单列（否则 3×200px 在移动端横向溢出） */
+@media (min-width: 769px) {
+  .filter-card__grid {
+    grid-template-columns: repeat(2, minmax(200px, 1fr));
+  }
 }
 
 .price-sale {

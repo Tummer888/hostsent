@@ -242,7 +242,7 @@ const columns: PrimaryTableCol<InstanceInfo>[] = [
   {
     colKey: 'action',
     title: '操作',
-    width: 90,
+    width: isMobile.value ? 70 : 90,
     fixed: 'right' as const,
     align: 'center' as const,
   },
@@ -355,8 +355,11 @@ function handleMobileAction(value: string | number | Record<string, any>, row: I
   --chip-shadow: 0 4px 10px rgba(5, 150, 105, 0.25);
 }
 
-.filter-card__grid {
-  grid-template-columns: repeat(3, minmax(200px, 1fr));
+/* 桌面端固定列数；窄屏回落到 shared.css 的单列（否则 3×200px 在移动端横向溢出） */
+@media (min-width: 769px) {
+  .filter-card__grid {
+    grid-template-columns: repeat(3, minmax(200px, 1fr));
+  }
 }
 
 .instance-cell,

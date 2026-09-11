@@ -287,7 +287,7 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'popup', title: '弹窗', width: 80, align: 'center' },
   { colKey: 'status', title: '状态', width: 90 },
   { colKey: 'publish_at', title: '发布时间', width: 160 },
-  { colKey: 'action', title: '操作', width: 200, fixed: 'right', align: 'center' },
+  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 200, fixed: 'right', align: 'center' },
 ]
 
 const pagination = computed(() => ({

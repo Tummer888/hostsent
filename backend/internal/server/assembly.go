@@ -7,7 +7,11 @@ import (
 	"context"
 	"errors"
 
+	"go.uber.org/zap"
+
 	instanceservice "hostsent/backend/internal/modules/admin/instance/service"
+	lifecyclerepo "hostsent/backend/internal/modules/admin/lifecycle/repository"
+	lifecycleservice "hostsent/backend/internal/modules/admin/lifecycle/service"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
 	orderservice "hostsent/backend/internal/modules/admin/order/service"
 	catalogservice "hostsent/backend/internal/modules/admin/product/catalog/service"
@@ -53,7 +57,16 @@ func buildOrderProvisionDeps(
 			return inst, nil
 		},
 		RecordInstance: func(ctx context.Context, inst *pkgmodel.StandardInstance, order *ordermodel.Order) error {
-			row := buildRecordedInstance(inst, order)
+			// 链路判据（D6）：实例归属由商品 source_mode 决定，而非"经订单开通即自营"
+			// ——代理商品（upstream）经订单开通后同样是上游链路实例，否则续费会被
+			// markRenewalSuccess 误判为链路 B 而静默本地顺延。
+			sourceMode := ""
+			var upstreamProductID uint64
+			if product, perr := catalog.FindByID(ctx, order.ProductID); perr == nil && product != nil {
+				sourceMode = product.SourceMode
+				upstreamProductID = product.SourceProductID
+			}
+			row := buildRecordedInstance(inst, order, sourceMode, upstreamProductID)
 			if row.InstanceID == "" {
 				return nil
 			}
@@ -102,4 +115,84 @@ func buildProviderResolver(provider providerservice.ProviderService, upmgr *upst
 // 与用户中心复用同一解析实现，仅做具名函数类型转换（两者底层类型一致）。
 func buildInstanceOpsResolver(provider providerservice.ProviderService, upmgr *upstream.ProviderManager) instanceservice.ProviderResolver {
 	return instanceservice.ProviderResolver(buildProviderResolver(provider, upmgr))
+}
+
+// buildUpstreamRenewer 返回生命周期续费的上游/平台执行器（T5.2）。
+//
+// 按实例 provider_id 解析适配器后调用 InstanceRenewal；适配器未实现该能力时
+// 返回 upstream.ErrCapabilityMissing，由续费服务按链路判据决定：
+// 链路 A（upstream）显式失败不得只改本地账期；链路 B（self）回落本地顺延。
+func buildUpstreamRenewer(provider providerservice.ProviderService, upmgr *upstream.ProviderManager) lifecycleservice.UpstreamRenewer {
+	return func(ctx context.Context, inst *syncmodel.Instance, periodCount int, cycle string) (*upstream.RenewResult, error) {
+		if inst == nil || inst.ProviderID == 0 {
+			return nil, upstream.ErrCapabilityMissing
+		}
+		cfg, err := provider.BuildProviderConfig(ctx, inst.ProviderID)
+		if err != nil {
+			return nil, err
+		}
+		p, err := upmgr.Build(cfg.Type, cfg)
+		if err != nil {
+			return nil, err
+		}
+		req := &upstream.RenewRequest{
+			ProviderInstanceID: firstNonEmpty(inst.ProviderInstanceID, inst.InstanceID),
+			Period:             periodCount,
+			Cycle:              cycle,
+		}
+		var res *upstream.RenewResult
+		err = observability.Timed("upstream_renew_instance", func() error {
+			var rerr error
+			res, rerr = upstream.RenewWithCapability(ctx, p, req)
+			return rerr
+		})
+		if err != nil {
+			return nil, err
+		}
+		return res, nil
+	}
+}
+
+// buildLifecycleAdvancer 组装生命周期阶段推进器（T5.4）：按实例 provider_id 解析上游适配器，
+// 阶段动作审计写入实例运维流水（instance_operations）。
+//
+// 注意：provider 解析单独走 buildProviderResolver，避免为"仅记录阶段"的宽限步骤解析上游。
+func buildLifecycleAdvancer(
+	instanceRepo lifecyclerepo.InstanceReader,
+	policyRepo lifecyclerepo.PolicyRepository,
+	provider providerservice.ProviderService,
+	upmgr *upstream.ProviderManager,
+	recorder lifecycleservice.StageActionRecorder,
+	logger *zap.Logger,
+) *lifecycleservice.LifecycleAdvancer {
+	adv := lifecycleservice.NewLifecycleAdvancer(
+		instanceRepo, policyRepo,
+		lifecycleservice.ProviderResolverForLifecycle(buildProviderResolver(provider, upmgr)),
+		recorder, logger,
+	)
+	return adv
+}
+
+// stageActionRecorderBridge 把实例运维服务的审计写入适配为生命周期模块的 StageActionRecorder。
+//
+// 两个模块不能互相 import（实例运维 → 生命周期方向已存在），故用最小接口桥接；
+// 动作名与阶段值均为字符串，转换不涉及业务语义。
+type stageActionRecorderBridge struct {
+	svc instanceservice.InstanceService
+}
+
+// RecordStageAction 写一条系统操作人流水；未注入实例服务时静默跳过（无审计源）。
+func (b *stageActionRecorderBridge) RecordStageAction(ctx context.Context, in lifecycleservice.StageActionRecord) error {
+	if b == nil || b.svc == nil {
+		return nil
+	}
+	return b.svc.RecordStageAction(ctx, instanceservice.StageActionInput{
+		InstanceID:   in.InstanceID,
+		InstanceMark: in.InstanceMark,
+		UserID:       in.UserID,
+		Action:       in.Action,
+		FromStage:    in.FromStage,
+		ToStage:      in.ToStage,
+		Err:          in.Err,
+	})
 }

@@ -48,7 +48,17 @@
     </template>
 
     <template #operation="{ row }">
-      <t-space size="small">
+      <MobileAction
+        v-if="isMobile"
+        :options="buildMobileActionOptions([
+          { content: '忽略', value: 'ignore' },
+          { content: '处置', value: 'resolve' },
+          { content: '拉黑', value: 'blacklist', theme: 'error' },
+          { content: '失效会话', value: 'revoke' },
+        ])"
+        @select="(value) => handleMobileAction(value, row)"
+      />
+      <t-space v-else size="small">
         <t-link theme="primary" @click="handleIgnore(row)">忽略</t-link>
         <t-link theme="primary" @click="handleResolve(row)">处置</t-link>
         <t-link theme="danger" @click="handleBlacklist(row)">拉黑</t-link>
@@ -59,7 +69,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 
 import type { PageInfo, PrimaryTableCol } from 'tdesign-vue-next'
 
@@ -73,6 +83,9 @@ import {
   type RiskEventListQuery,
 } from '@/api/security'
 
+import MobileAction from '@/components/mobile-action/index.vue'
+import { buildMobileActionOptions } from '@/composables/useMobileActions'
+import { useIsMobile } from '@/composables/useIsMobile'
 import SecurityListPage from '../SecurityListPage.vue'
 import { formatSecurityCount, formatSecurityTime, securityRiskTagTheme, securityStatusTagTheme } from '../shared'
 
@@ -132,7 +145,9 @@ const statusLabel: Record<string, string> = {
   handled: '已处置',
 }
 
-const columns: PrimaryTableCol<RiskEventInfo>[] = [
+const { isMobile } = useIsMobile()
+
+const columns = computed<PrimaryTableCol<RiskEventInfo>[]>(() => [
   { colKey: 'risk_type', title: '风险类型', width: 130 },
   { colKey: 'risk_level', title: '等级', width: 100 },
   { colKey: 'username', title: '用户名', width: 120 },
@@ -143,8 +158,8 @@ const columns: PrimaryTableCol<RiskEventInfo>[] = [
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'first_occurred_at', title: '首次发生', width: 180 },
   { colKey: 'last_occurred_at', title: '最近发生', width: 180 },
-  { colKey: 'operation', title: '操作', width: 240, fixed: 'right' },
-]
+  { colKey: 'operation', title: '操作', width: isMobile.value ? 70 : 240, fixed: 'right' },
+])
 
 async function loadData() {
   loading.value = true
@@ -208,6 +223,23 @@ async function handleRevoke(row: RiskEventInfo) {
 onMounted(() => {
   void loadData()
 })
+function handleMobileAction(value: string | number | Record<string, any>, row: RiskEventInfo) {
+  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+  switch (action) {
+    case 'ignore':
+      handleIgnore(row)
+      break
+    case 'resolve':
+      handleResolve(row)
+      break
+    case 'blacklist':
+      handleBlacklist(row)
+      break
+    case 'revoke':
+      handleRevoke(row)
+      break
+  }
+}
 </script>
 
 <style scoped>

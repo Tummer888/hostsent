@@ -58,6 +58,7 @@ func init() {
 		Operations: []string{
 			upstream.OpProvision, upstream.OpStart, upstream.OpStop, upstream.OpRestart,
 			upstream.OpVNC, upstream.OpResize, upstream.OpDestroy,
+			upstream.OpSuspend, upstream.OpUnsuspend,
 		},
 		RenewMode:   upstream.RenewModeNone, // 续费为本地账期 + 平台延期，尚未提供独立续费接口
 		DestroyMode: upstream.DestroyModeImmediate,
@@ -453,6 +454,30 @@ func (p *MoFangYunProvider) StopInstance(ctx context.Context, instanceID string,
 // RestartInstance 重启：POST /clouds/{id}/reboot；force 时硬重启 /hard_reboot。
 func (p *MoFangYunProvider) RestartInstance(ctx context.Context, instanceID string) error {
 	return p.call(ctx, "RestartInstance", http.MethodPost, "/clouds/"+instanceID+"/reboot", url.Values{}, nil)
+}
+
+// SuspendInstance 暂停云主机：POST /clouds/{id}/suspend（type=traffic|due|other）。
+// reason 为 "flow"/"traffic" 时映射流量超额，"due" 映射到期，其余为 other。
+func (p *MoFangYunProvider) SuspendInstance(ctx context.Context, instanceID, reason string) error {
+	if instanceID == "" {
+		return &upstream.ProviderError{Op: "SuspendInstance", Msg: "缺少上游云主机ID"}
+	}
+	typ := "other"
+	switch strings.ToLower(strings.TrimSpace(reason)) {
+	case "flow", "traffic":
+		typ = "traffic"
+	case "due", "expire", "expired":
+		typ = "due"
+	}
+	return p.call(ctx, "SuspendInstance", http.MethodPost, "/clouds/"+instanceID+"/suspend", url.Values{"type": {typ}}, nil)
+}
+
+// UnsuspendInstance 解除暂停：POST /clouds/{id}/unsuspend。
+func (p *MoFangYunProvider) UnsuspendInstance(ctx context.Context, instanceID string) error {
+	if instanceID == "" {
+		return &upstream.ProviderError{Op: "UnsuspendInstance", Msg: "缺少上游云主机ID"}
+	}
+	return p.call(ctx, "UnsuspendInstance", http.MethodPost, "/clouds/"+instanceID+"/unsuspend", url.Values{}, nil)
 }
 
 // VNC 获取远程控制台：GET /clouds/{id}/vnc。

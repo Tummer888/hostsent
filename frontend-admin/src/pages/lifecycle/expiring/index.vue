@@ -228,7 +228,7 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'expire_at', title: '到期时间', width: 180 },
   { colKey: 'stage', title: '阶段', width: 100 },
   { colKey: 'auto_renew', title: '自动续费', width: 90 },
-  { colKey: 'action', title: '操作', width: 90 },
+  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 90 },
 ]
 
 const pagination = computed(() => ({

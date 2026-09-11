@@ -337,13 +337,29 @@ h1, h2, h3, h4, h5, h6 {
   min-width: 88px;
 }
 
-/* ===== 移动端适配：筛选按钮组占满一行并靠右 ===== */
+/* ===== 移动端适配：按钮组靠右（按钮在 t-space 内，右对齐容器即可） ===== */
 @media (max-width: 767px) {
-  .filter-card__actions {
-    justify-content: stretch;
+  .filter-card__actions,
+  .security-page__toolbar-actions,
+  .filter-form__actions,
+  .tab-toolbar__actions,
+  .admin-audit-actions {
+    justify-content: flex-end;
   }
+}
 
-  .filter-card__actions .t-button {
-    flex: 1 1 0;
-  }
+/* ===== 表格固定列层级修复：TDesign 吸顶单元格默认 z-index 31，会盖过
+   布局中 z-index: 5 的吸顶导航（.top-header）。统一压到 3，
+   低于导航、高于普通单元格，滚动时不再遮挡页头。 ===== */
+.t-table__cell--fixed-left,
+.t-table__cell--fixed-right,
+.t-table__cell-fixed-left,
+.t-table__cell-fixed-right,
+.t-table__fixed-left,
+.t-table__fixed-right,
+th.t-table__cell--fixed-right,
+td.t-table__cell--fixed-right,
+th.t-table__cell--fixed-left,
+td.t-table__cell--fixed-left {
+  z-index: 3;
 }

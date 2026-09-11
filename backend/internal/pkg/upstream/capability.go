@@ -47,6 +47,8 @@ const (
 	OpReinstall = "reinstall"
 	OpDestroy   = "destroy"
 	OpSnapshot  = "snapshot"
+	OpSuspend   = "suspend"   // 欠费/违规暂停
+	OpUnsuspend = "unsuspend" // 恢复
 )
 
 // 续费模式：order=上游下单续费，direct=直接延期，none=不支持。
@@ -216,6 +218,21 @@ func CapabilitiesOf(p Provider) CapabilityDescriptor {
 	if _, ok := p.(InstanceAdministration); ok {
 		d.Operations = append(d.Operations, OpResize, OpDestroy)
 		d.DestroyMode = DestroyModeImmediate
+	}
+	if _, ok := p.(InstanceRenewal); ok {
+		d.Operations = append(d.Operations, OpRenew)
+		if d.RenewMode == RenewModeNone {
+			d.RenewMode = RenewModeDirect
+		}
+	}
+	if _, ok := p.(InstanceSuspension); ok {
+		d.Operations = append(d.Operations, OpSuspend, OpUnsuspend)
+	}
+	if _, ok := p.(InstanceTermination); ok {
+		d.Operations = append(d.Operations, OpDestroy)
+		if d.DestroyMode == DestroyModeUnsupported {
+			d.DestroyMode = DestroyModeImmediate
+		}
 	}
 	return d
 }

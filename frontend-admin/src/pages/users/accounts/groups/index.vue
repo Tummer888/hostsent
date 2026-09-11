@@ -156,7 +156,15 @@
         </template>
 
         <template #operation="{ row }">
-          <t-space size="small">
+          <MobileAction
+            v-if="isMobile"
+            :options="buildMobileActionOptions([
+              { content: '编辑', value: 'edit' },
+              { content: '删除', value: 'delete', disabled: () => !!row.is_default, theme: 'error' },
+            ])"
+            @select="(value) => handleMobileAction(value, row)"
+          />
+          <t-space v-else size="small">
             <t-link theme="primary" hover="color" @click="openEdit(row.id)">编辑</t-link>
             <t-tooltip v-if="row.is_default" content="默认用户组不可删除，请先取消默认标记">
               <t-link theme="default" disabled>删除</t-link>
@@ -253,7 +261,9 @@ import {
   type UserGroupRequest,
 } from '@/api/user'
 import { getPricePolicyList } from '@/api/product'
+import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
+import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
 
 defineOptions({ name: 'UserAccountsGroups' })
@@ -344,7 +354,7 @@ const rules: Record<string, FormRule[]> = {
   status: [{ required: true, message: '请选择状态', type: 'error', trigger: 'change' }],
 }
 
-const columns: PrimaryTableCol<UserGroupInfo>[] = [
+const columns = computed<PrimaryTableCol<UserGroupInfo>[]>(() => [
   { colKey: 'id', title: 'ID', width: 96 },
   { colKey: 'name', title: '用户组', minWidth: 260 },
   { colKey: 'code', title: '编码', minWidth: 180 },
@@ -354,8 +364,8 @@ const columns: PrimaryTableCol<UserGroupInfo>[] = [
   { colKey: 'sort_order', title: '排序', width: 90, align: 'center' },
   { colKey: 'status', title: '状态', width: 110 },
   { colKey: 'created_at', title: '创建时间', width: 180 },
-  { colKey: 'operation', title: '操作', width: 140, fixed: 'right' },
-]
+  { colKey: 'operation', title: '操作', width: isMobile.value ? 70 : 140, fixed: 'right' },
+])
 
 const typeLabelMap: Record<string, string> = {
   true: '代理用户组',
@@ -606,6 +616,17 @@ onMounted(async () => {
   loadPolicies()
   await loadGroups()
 })
+function handleMobileAction(value: string | number | Record<string, any>, row: UserGroupInfo) {
+  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+  switch (action) {
+    case 'edit':
+      void openEdit(row.id)
+      break
+    case 'delete':
+      handleDelete(row)
+      break
+  }
+}
 </script>
 
 <style scoped lang="css">

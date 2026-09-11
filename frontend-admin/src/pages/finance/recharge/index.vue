@@ -247,7 +247,7 @@ const columns: PrimaryTableCol<RechargeInfo>[] = [
   {
     colKey: 'action',
     title: '操作',
-    width: 120,
+    width: isMobile.value ? 70 : 120,
     fixed: 'right' as const,
     align: 'center' as const,
   },

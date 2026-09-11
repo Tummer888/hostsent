@@ -24,11 +24,18 @@ type OrderService interface {
 	UpdateRemark(ctx context.Context, id uint64, remark string, operatorID uint64) error
 	CreateRefund(ctx context.Context, id uint64, req dto.RefundCreateRequest, operatorID uint64, operatorName string) (*dto.RefundInfo, error)
 	Activate(ctx context.Context, id uint64) error
+	// EnqueueProvision 投递异步开通任务（T5.1）：下单/人工重试统一入口，
+	// 未注入任务队列时回落为同步 Activate，保持既有行为。
+	EnqueueProvision(ctx context.Context, id uint64) error
 	Stats(ctx context.Context) (*dto.OrderStatsResponse, error)
 	// SetCashbackHook 注入订单完成后的推广返现计提钩子（装配层调用）。
 	SetCashbackHook(hook OrderCashbackHook)
 	// SetRefundHook 注入退款审核通过后的返现冲减钩子（装配层调用）。
 	SetRefundHook(hook OrderRefundHook)
+	// SetProvisionQueue 注入异步开通任务队列（装配层调用，T5.1）。
+	SetProvisionQueue(queue ProvisionQueue)
+	// SetProductSourceModeResolver 注入商品链路判据解析（装配层调用，仅用于任务留痕）。
+	SetProductSourceModeResolver(fn func(ctx context.Context, productID uint64) string)
 	// 退款管理
 	ListRefunds(ctx context.Context, q dto.RefundListQuery) (*dto.RefundListResponse, error)
 	FindRefund(ctx context.Context, id uint64) (*dto.RefundInfo, error)
@@ -43,11 +50,21 @@ type OrderCashbackHook func(ctx context.Context, orderID uint64, orderNo string,
 // OrderRefundHook 退款审核通过后的返现冲减钩子：按退款额占实付比例冲减邀请人返现。
 type OrderRefundHook func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, paidAmount, refundAmount float64, refundNo string) error
 
+// ProvisionQueue 异步开通任务队列（T5.1，由 ProvisionEnqueuer 实现）。
+// 订单模块只依赖这一最小接口，避免与 uc/装配层形成反向依赖。
+type ProvisionQueue interface {
+	EnqueueProvision(ctx context.Context, order *model.Order, sourceMode string) error
+}
+
 type orderService struct {
 	orderRepo  repository.OrderRepository
 	itemRepo   repository.OrderItemRepository
 	refundRepo repository.RefundRepository
 	provision  ProvisionAdapter
+	// provisionQueue 可选：异步开通任务队列，未注入时 Activate/EnqueueProvision 走同步履约。
+	provisionQueue ProvisionQueue
+	// productSourceMode 可选：按商品 ID 解析链路判据（self/upstream，D6），仅用于任务留痕。
+	productSourceMode func(ctx context.Context, productID uint64) string
 	// cashbackHook 可选：订单开通成功后计提推广返现，为 nil 时跳过。
 	cashbackHook OrderCashbackHook
 	// refundHook 可选：退款审核通过后冲减已计提返现，为 nil 时跳过。
@@ -67,6 +84,39 @@ func (s *orderService) SetCashbackHook(hook OrderCashbackHook) {
 // SetRefundHook 注入返现冲减钩子（装配层调用）。
 func (s *orderService) SetRefundHook(hook OrderRefundHook) {
 	s.refundHook = hook
+}
+
+// SetProvisionQueue 注入异步开通任务队列（装配层调用，T5.1）。
+func (s *orderService) SetProvisionQueue(queue ProvisionQueue) {
+	s.provisionQueue = queue
+}
+
+// SetProductSourceModeResolver 注入商品链路判据解析（装配层调用）。
+func (s *orderService) SetProductSourceModeResolver(fn func(ctx context.Context, productID uint64) string) {
+	s.productSourceMode = fn
+}
+
+// EnqueueProvision 投递异步开通任务（T5.1）。
+//
+// 未注入队列时回落为同步 Activate：人工重试接口（/:id/activate）无论哪种装配都可用。
+// 队列路径下订单状态由工作池推进（paid→provisioning→active），本方法只负责投递。
+func (s *orderService) EnqueueProvision(ctx context.Context, id uint64) error {
+	item, err := s.orderRepo.FindByID(ctx, id)
+	if err != nil {
+		return mapOrderErr(err)
+	}
+	if s.provisionQueue == nil {
+		return s.Activate(ctx, id)
+	}
+	// source_mode 判据（D6）：按订单绑定的商品取链路；读取失败不影响投递（仅留痕）。
+	sourceMode := ""
+	if s.productSourceMode != nil {
+		sourceMode = s.productSourceMode(ctx, item.ProductID)
+	}
+	if err := s.provisionQueue.EnqueueProvision(ctx, item, sourceMode); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *orderService) List(ctx context.Context, q dto.OrderListQuery) (*dto.OrderListResponse, error) {

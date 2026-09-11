@@ -298,7 +298,7 @@ const columns: PrimaryTableCol<CouponInfo>[] = [
   {
     colKey: 'action',
     title: '操作',
-    width: 200,
+    width: isMobile.value ? 70 : 200,
     fixed: 'right' as const,
     align: 'center' as const,
   },

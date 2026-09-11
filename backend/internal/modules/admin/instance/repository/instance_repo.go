@@ -30,6 +30,18 @@ type InstanceRow struct {
 	ProviderType string `gorm:"column:provider_type"`
 }
 
+// InstanceMark 上游/平台侧实例号（优先 provider_instance_id，回落 instance_id），
+// 生命周期动作（暂停/恢复/销毁）一律以该值调用上游（T5.5）。
+func (r *InstanceRow) InstanceMark() string {
+	if r == nil {
+		return ""
+	}
+	if r.ProviderInstanceID != "" {
+		return r.ProviderInstanceID
+	}
+	return r.InstanceID
+}
+
 // InstanceRepository 实例运维仓储接口。
 type InstanceRepository interface {
 	List(ctx context.Context, query *dto.ListQuery) ([]InstanceRow, int64, error)
@@ -39,6 +51,8 @@ type InstanceRepository interface {
 	UpdateStatus(ctx context.Context, id uint64, status string) error
 	ApplySync(ctx context.Context, id uint64, status, publicIP, privateIP, rawData string, syncedAt time.Time) error
 	UpdateSpecs(ctx context.Context, id uint64, cpu, memory, disk int, diskType string) error
+	// UpdateLifecycleStage 落库生命周期阶段（T5.4/T5.5：手动暂停/恢复与推进器共用）。
+	UpdateLifecycleStage(ctx context.Context, id uint64, stage string) error
 }
 
 type instanceRepository struct {
@@ -223,6 +237,14 @@ func (r *instanceRepository) UpdateSpecs(ctx context.Context, id uint64, cpu, me
 	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
 		Where("id = ?", id).
 		Updates(updates).Error
+}
+
+// UpdateLifecycleStage 落库生命周期阶段（T5.4/T5.5）。同步流程不覆盖该列，
+// 仅生命周期推进器与手动暂停/恢复写入，保证阶段与上游动作一致。
+func (r *instanceRepository) UpdateLifecycleStage(ctx context.Context, id uint64, stage string) error {
+	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("id = ?", id).
+		Update("lifecycle_stage", stage).Error
 }
 
 // normalizePage 规整分页参数（默认 20，单页上限 100）。

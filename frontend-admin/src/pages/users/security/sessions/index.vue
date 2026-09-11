@@ -56,15 +56,18 @@
     </template>
 
     <template #operation="{ row }">
-      <t-space size="small">
-        <t-link theme="primary" @click="revokeOne(row)">失效</t-link>
-      </t-space>
+      <t-link v-if="!isMobile" theme="primary" @click="revokeOne(row)">失效</t-link>
+      <MobileAction
+        v-else
+        :options="[{ content: '失效', value: 'revoke' }]"
+        @select="(value) => handleMobileAction(value, row)"
+      />
     </template>
   </SecurityListPage>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 
 import type { PageInfo, PrimaryTableCol } from 'tdesign-vue-next'
 
@@ -77,6 +80,8 @@ import {
   type SessionListQuery,
 } from '@/api/security'
 
+import MobileAction from '@/components/mobile-action/index.vue'
+import { useIsMobile } from '@/composables/useIsMobile'
 import SecurityListPage from '../SecurityListPage.vue'
 import { formatSecurityTime, securityRiskTagTheme, securityStatusTagTheme } from '../shared'
 
@@ -134,7 +139,9 @@ const riskLabel: Record<string, string> = {
   critical: '严重风险',
 }
 
-const columns: PrimaryTableCol<SessionInfo>[] = [
+const { isMobile } = useIsMobile()
+
+const columns = computed<PrimaryTableCol<SessionInfo>[]>(() => [
   { colKey: 'username', title: '用户名', width: 120 },
   { colKey: 'platform', title: '平台', width: 90 },
   { colKey: 'ip', title: 'IP 地址', width: 130 },
@@ -145,8 +152,8 @@ const columns: PrimaryTableCol<SessionInfo>[] = [
   { colKey: 'login_at', title: '登录时间', width: 180 },
   { colKey: 'last_active_at', title: '最近活跃', width: 180 },
   { colKey: 'expired_at', title: '过期时间', width: 180 },
-  { colKey: 'operation', title: '操作', width: 100, fixed: 'right' },
-]
+  { colKey: 'operation', title: '操作', width: isMobile.value ? 70 : 100, fixed: 'right' },
+])
 
 async function loadData() {
   loading.value = true
@@ -210,6 +217,10 @@ async function revokeAll() {
 onMounted(() => {
   void loadData()
 })
+function handleMobileAction(value: string | number | Record<string, any>, row: SessionInfo) {
+  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+  if (action === 'revoke') void revokeOne(row)
+}
 </script>
 
 <style scoped>

@@ -137,7 +137,7 @@ const columns: PrimaryTableCol<TicketCategoryInfo>[] = [
   { colKey: 'sort_order', title: '排序', width: 80, align: 'center' as const },
   { colKey: 'status', title: '状态', width: 90 },
   { colKey: 'created_at', title: '创建时间', width: 160 },
-  { colKey: 'action', title: '操作', width: 170, fixed: 'right' as const, align: 'center' as const },
+  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 170, fixed: 'right' as const, align: 'center' as const },
 ]
 
 async function loadCategories() {

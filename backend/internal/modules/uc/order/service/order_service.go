@@ -54,9 +54,18 @@ type (
 	priceResolverPort interface {
 		Resolve(ctx context.Context, in pricing.ResolveInput) (*pricing.Quote, error)
 	}
-	// orderActivator 订单履约开通（Activate）。
+	// orderActivator 订单履约开通（Activate）——仅在工作池未装配时同步兜底（T5.1）。
 	orderActivator interface {
 		Activate(ctx context.Context, id uint64) error
+	}
+	// provisionQueuerPort 开通履约任务投递（T5.1）：下单只落库 + 投递任务，
+	// 由进程内工作池异步调用上游（上游开通约 50s，超过 app.write_timeout=10s）。
+	provisionQueuerPort interface {
+		EnqueueProvision(ctx context.Context, order *ordermodel.Order, sourceMode string) error
+	}
+	// provisionTaskLookup 开通任务状态查询（订单列表展示履约进度/失败原因）。
+	provisionTaskLookup interface {
+		FindByOrderIDs(ctx context.Context, orderIDs []uint64) (map[uint64]*ordermodel.ProvisionTask, error)
 	}
 	// productSkuPort 商品 SKU 读取与库存增减（T4.1：按 SKU 下单）。
 	// 由 admin catalog 服务实现（装配层注入），uc 只依赖自身声明的最小接口。
@@ -84,6 +93,8 @@ type orderService struct {
 	orderRepo       orderRepoPort
 	orderItems      orderItemPort
 	orderSvc        orderActivator
+	provisionQueue  provisionQueuerPort // 异步开通投递（T5.1）；为 nil 时回落同步 Activate
+	provisionTasks  provisionTaskLookup // 开通任务查询（订单列表状态展示）
 	pricing         priceResolverPort
 	ensureOpenable  func(ctx context.Context, productID uint64) error // 校验商品是否可即时开通（避免误扣款）
 	isBalanceErr    func(error) bool                                  // 余额不足判定（由装配层提供，避免依赖 admin 错误变量）
@@ -99,6 +110,7 @@ type actorNameLookup interface {
 
 // NewOrderService 创建用户中心订单服务。
 // consumeRecorder/actorNames 可为 nil（累计消费与等级重算见 P3-03，操作人列见 P4-09）。
+// provisionQueue 为 nil 时回落到同步 orderSvc.Activate（兼容未装配工作池的测试与旧部署）。
 func NewOrderService(
 	catalog productReader,
 	wallet walletPort,
@@ -111,12 +123,15 @@ func NewOrderService(
 	orderItems orderItemPort,
 	pricing priceResolverPort,
 	sku productSkuPort,
+	provisionQueue provisionQueuerPort,
+	provisionTasks provisionTaskLookup,
 ) OrderService {
 	return &orderService{
 		catalog: catalog, wallet: wallet, orderRepo: orderRepo, orderSvc: orderSvc,
 		ensureOpenable: ensureOpenable, isBalanceErr: isBalanceErr,
 		consumeRecorder: consumeRecorder, actorNames: actorNames,
 		orderItems: orderItems, pricing: pricing, sku: sku,
+		provisionQueue: provisionQueue, provisionTasks: provisionTasks,
 	}
 }
 
@@ -323,7 +338,25 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 		s.consumeRecorder(userID, amount)
 	}
 
-	// 3) 触发上游开通（orderService.Activate：paid → 创建实例 → active）
+	// 3) 投递开通履约任务（T5.1）：上游开通约 50s，超过 app.write_timeout=10s，
+	//    因此下单只落库 + 投递任务，由进程内工作池异步执行 paid→provisioning→active；
+	//    接口立即返回，前端按订单状态轮询。
+	//    未装配工作池（provisionQueue=nil）时回落为同步开通，保持既有行为。
+	if s.provisionQueue != nil {
+		if err := s.provisionQueue.EnqueueProvision(ctx, order, product.SourceMode); err != nil {
+			// 任务投递失败：订单保持 paid，可稍后重试；库存由 defer 回补。
+			info := fromAdminOrder(*order, nil)
+			info.Status = ordermodel.OrderStatusPaid
+			return &info, ErrProvisionFailed
+		}
+		orderSucceeded = true
+		info := fromAdminOrder(*order, nil)
+		info.Status = ordermodel.OrderStatusPaid // 待工作池推进，前端轮询
+		info.ProvisionStatus = ordermodel.ProvisionTaskPending
+		return &info, nil
+	}
+
+	// 兜底：同步触发上游开通（orderService.Activate：paid → 创建实例 → active）
 	if err := s.orderSvc.Activate(ctx, order.ID); err != nil {
 		// 已扣款，订单保持 paid，允许用户稍后重试；库存由 defer 回补。
 		info := fromAdminOrder(*order, nil)
@@ -354,10 +387,32 @@ func (s *orderService) List(ctx context.Context, userID uint64, query dto.ListQu
 	}
 	resp := &dto.ListResponse{Page: page, PageSize: pageSize, Total: total, Items: make([]dto.OrderInfo, 0, len(items))}
 	actorNames := s.resolveActorNames(ctx, items)
+	provisionTasks := s.resolveProvisionTasks(ctx, items)
 	for _, it := range items {
-		resp.Items = append(resp.Items, fromAdminOrder(it, actorNames))
+		info := fromAdminOrder(it, actorNames)
+		if task := provisionTasks[it.ID]; task != nil {
+			info.ProvisionStatus = task.Status
+			info.ProvisionError = task.LastError
+		}
+		resp.Items = append(resp.Items, info)
 	}
 	return resp, nil
+}
+
+// resolveProvisionTasks 批量取订单的开通任务状态（T5.1，避免 N+1）；失败降级为空映射。
+func (s *orderService) resolveProvisionTasks(ctx context.Context, items []ordermodel.Order) map[uint64]*ordermodel.ProvisionTask {
+	if s.provisionTasks == nil || len(items) == 0 {
+		return nil
+	}
+	ids := make([]uint64, 0, len(items))
+	for _, it := range items {
+		ids = append(ids, it.ID)
+	}
+	tasks, err := s.provisionTasks.FindByOrderIDs(ctx, ids)
+	if err != nil {
+		return nil
+	}
+	return tasks
 }
 
 // resolveActorNames 批量解析订单操作人用户名；失败时降级为空映射（不阻断列表）。

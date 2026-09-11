@@ -244,7 +244,7 @@ const columns: PrimaryTableCol<TicketInfo>[] = [
   { colKey: 'assigned_name', title: '处理人', width: 110 },
   { colKey: 'sla', title: 'SLA', width: 80, align: 'center' as const },
   { colKey: 'created_at', title: '提交时间', width: 160 },
-  { colKey: 'action', title: '操作', width: isMobile ? 70 : 150, fixed: 'right' as const, align: 'center' as const },
+  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 150, fixed: 'right' as const, align: 'center' as const },
 ]
 
 // 加载工单分类下拉（供筛选使用）

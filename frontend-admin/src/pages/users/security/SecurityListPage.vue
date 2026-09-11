@@ -39,7 +39,7 @@
         :data="data"
         :columns="columns"
         :loading="loading"
-        :pagination="pagination"
+        :pagination="isMobile ? undefined : pagination"
         size="small"
         hover
         table-layout="fixed"
@@ -53,12 +53,24 @@
           <t-empty :description="emptyText" />
         </template>
       </t-table>
+
+      <MobilePagination
+        v-if="isMobile"
+        :current="pagination.current ?? 1"
+        :page-size="pagination.pageSize ?? 10"
+        :total="total"
+        @go="(p: number) => $emit('page-change', { current: p, previous: pagination.current ?? 1, pageSize: pagination.pageSize ?? 10 })"
+        @page-size="(s: number) => $emit('page-change', { current: 1, previous: pagination.current ?? 1, pageSize: s })"
+      />
     </section>
   </div>
 </template>
 
 <script setup lang="ts" generic="TItem extends import('tdesign-vue-next').TableRowData">
 import type { PageInfo, PaginationProps, PrimaryTableCol } from 'tdesign-vue-next'
+
+import MobilePagination from '@/components/mobile-pagination/index.vue'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 defineProps<{
   title: string
@@ -78,6 +90,8 @@ defineEmits<{
   reload: []
   'page-change': [pageInfo: PageInfo]
 }>()
+
+const { isMobile } = useIsMobile()
 </script>
 
 <style scoped lang="css">
@@ -164,11 +178,7 @@ defineEmits<{
   }
 
   .security-page__toolbar-actions {
-    justify-content: stretch;
-  }
-
-  .security-page__toolbar-actions .t-button {
-    flex: 1 1 0;
+    justify-content: flex-end;
   }
 }
 </style>

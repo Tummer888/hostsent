@@ -57,7 +57,15 @@
           </t-tag>
         </template>
         <template #operation="{ row }">
-          <t-space size="8px">
+          <MobileAction
+            v-if="isMobile"
+            :options="buildMobileActionOptions([
+              { content: '编辑', value: 'edit', hidden: () => !has('level:update') },
+              { content: '删除', value: 'delete', hidden: () => !has('level:delete'), theme: 'error' },
+            ])"
+            @select="(value) => handleMobileAction(value, row)"
+          />
+          <t-space v-else size="8px">
             <t-link v-permission="'level:update'" theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
             <t-link v-permission="'level:delete'" theme="danger" hover="color" @click="handleDelete(row)">删除</t-link>
           </t-space>
@@ -120,7 +128,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import type { FormInstanceFunctions, FormRule, PageInfo, PrimaryTableCol } from 'tdesign-vue-next'
@@ -134,13 +142,17 @@ import {
   type UserLevelListQuery,
   type UserLevelRequest,
 } from '@/api/user'
+import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
+import { buildMobileActionOptions } from '@/composables/useMobileActions'
+import { usePermission } from '@/composables/usePermission'
 import { useIsMobile } from '@/composables/useIsMobile'
 
 defineOptions({ name: 'UserLevels' })
 
 const loading = ref(false)
 const { isMobile } = useIsMobile()
+const { has } = usePermission()
 const submitting = ref(false)
 const dialogVisible = ref(false)
 const editing = ref(false)
@@ -169,7 +181,7 @@ const statusOptions = [
   { label: '禁用', value: 'disabled' },
 ]
 
-const columns: PrimaryTableCol<UserLevelInfo>[] = [
+const columns = computed<PrimaryTableCol<UserLevelInfo>[]>(() => [
   { colKey: 'name', title: '等级信息', minWidth: 180 },
   { colKey: 'weight', title: '权重', width: 90 },
   { colKey: 'upgrade_threshold', title: '升级门槛', width: 140 },
@@ -177,8 +189,8 @@ const columns: PrimaryTableCol<UserLevelInfo>[] = [
   { colKey: 'benefits', title: '权益', minWidth: 240 },
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'description', title: '说明', minWidth: 160 },
-  { colKey: 'operation', title: '操作', width: 130, fixed: 'right' },
-]
+  { colKey: 'operation', title: '操作', width: isMobile.value ? 70 : 130, fixed: 'right' },
+])
 
 const formRef = ref<FormInstanceFunctions>()
 
@@ -365,6 +377,17 @@ function formatMoney(value: number): string {
 onMounted(() => {
   void loadData()
 })
+function handleMobileAction(value: string | number | Record<string, any>, row: UserLevelInfo) {
+  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+  switch (action) {
+    case 'edit':
+      openEdit(row)
+      break
+    case 'delete':
+      handleDelete(row)
+      break
+  }
+}
 </script>
 
 <style scoped>

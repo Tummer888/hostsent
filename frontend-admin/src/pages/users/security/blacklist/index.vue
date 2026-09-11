@@ -50,7 +50,16 @@
     </template>
 
     <template #operation="{ row }">
-      <t-space size="small">
+      <MobileAction
+        v-if="isMobile"
+        :options="buildMobileActionOptions([
+          { content: '编辑', value: 'edit' },
+          { content: row.status === 'active' ? '停用' : '启用', value: 'toggle' },
+          { content: '解除', value: 'release', theme: 'error' },
+        ])"
+        @select="(value) => handleMobileAction(value, row)"
+      />
+      <t-space v-else size="small">
         <t-link theme="primary" @click="openEdit(row)">编辑</t-link>
         <t-link theme="primary" @click="toggleStatus(row)">
           {{ row.status === 'active' ? '停用' : '启用' }}
@@ -89,7 +98,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
@@ -104,6 +113,9 @@ import {
   type BlacklistListQuery,
 } from '@/api/security'
 
+import MobileAction from '@/components/mobile-action/index.vue'
+import { buildMobileActionOptions } from '@/composables/useMobileActions'
+import { useIsMobile } from '@/composables/useIsMobile'
 import SecurityListPage from '../SecurityListPage.vue'
 import { formatSecurityCount, formatSecurityTime, securityStatusTagTheme } from '../shared'
 
@@ -169,7 +181,9 @@ const statusLabelMap: Record<string, string> = {
   inactive: '停用',
 }
 
-const columns: PrimaryTableCol<BlacklistInfo>[] = [
+const { isMobile } = useIsMobile()
+
+const columns = computed<PrimaryTableCol<BlacklistInfo>[]>(() => [
   { colKey: 'type', title: '类型', width: 90 },
   { colKey: 'target_value', title: '命中值', minWidth: 180, ellipsis: true },
   { colKey: 'status', title: '状态', width: 100 },
@@ -178,8 +192,8 @@ const columns: PrimaryTableCol<BlacklistInfo>[] = [
   { colKey: 'hit_count', title: '命中次数', width: 100 },
   { colKey: 'effective_at', title: '生效时间', width: 180 },
   { colKey: 'expired_at', title: '失效时间', width: 180 },
-  { colKey: 'operation', title: '操作', width: 180, fixed: 'right' },
-]
+  { colKey: 'operation', title: '操作', width: isMobile.value ? 70 : 180, fixed: 'right' },
+])
 
 async function loadData() {
   loading.value = true
@@ -284,6 +298,20 @@ async function release(row: BlacklistInfo) {
 onMounted(() => {
   void loadData()
 })
+function handleMobileAction(value: string | number | Record<string, any>, row: BlacklistInfo) {
+  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+  switch (action) {
+    case 'edit':
+      openEdit(row)
+      break
+    case 'toggle':
+      toggleStatus(row)
+      break
+    case 'release':
+      release(row)
+      break
+  }
+}
 </script>
 
 <style scoped>

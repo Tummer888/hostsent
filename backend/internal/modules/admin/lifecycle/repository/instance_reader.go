@@ -34,6 +34,13 @@ type InstanceReader interface {
 	ListDueForAutoRenew(ctx context.Context, expireBefore time.Time, instanceIDs []uint64) ([]syncmodel.Instance, error)
 	ExtendExpireAt(ctx context.Context, id uint64, expireAt time.Time) error
 	ResolveProduct(ctx context.Context, inst *syncmodel.Instance) (name string, unitPrice float64, err error)
+	// ListStageCandidates 生命周期推进器候选：expire_at 落在窗口内且 lifecycle_stage 不等于目标阶段（T5.4）。
+	// lifecycle_stage 为 NULL 的存量行也会被选出（由推进器"只落阶段、不触发上游动作"做种子化）。
+	ListStageCandidates(ctx context.Context, window *StageWindow, stage string, limit int) ([]syncmodel.Instance, error)
+	// ListActiveResetCandidates 续费后需回退到 active 的实例：expire_at > now 且 stage 非空且不等于 active。
+	ListActiveResetCandidates(ctx context.Context, now time.Time, limit int) ([]syncmodel.Instance, error)
+	// UpdateLifecycleStage 落库生命周期阶段（T5.4 推进器的唯一写入点）。
+	UpdateLifecycleStage(ctx context.Context, id uint64, stage string) error
 }
 
 type instanceReader struct {
@@ -120,6 +127,54 @@ func (r *instanceReader) ExtendExpireAt(ctx context.Context, id uint64, expireAt
 	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
 		Where("id = ?", id).
 		Update("expire_at", expireAt).Error
+}
+
+// UpdateLifecycleStage 落库生命周期阶段（T5.4 推进器的唯一写入点）。
+func (r *instanceReader) UpdateLifecycleStage(ctx context.Context, id uint64, stage string) error {
+	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("id = ?", id).
+		Update("lifecycle_stage", stage).Error
+}
+
+// ListStageCandidates 列出目标阶段的候选实例（T5.4）：
+// expire_at 落在窗口内，且 lifecycle_stage 尚未等于目标阶段（含 NULL 存量行）。
+// 按 expire_at 升序（越早到期越先处理），limit 控制单轮处理量避免长事务。
+func (r *instanceReader) ListStageCandidates(ctx context.Context, window *StageWindow, stage string, limit int) ([]syncmodel.Instance, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	tx := r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("expire_at IS NOT NULL").
+		Where("(lifecycle_stage IS NULL OR lifecycle_stage <> ?)", stage)
+	if window != nil {
+		if window.ExpireAfter != nil {
+			tx = tx.Where("expire_at > ?", *window.ExpireAfter)
+		}
+		if window.ExpireBefore != nil {
+			tx = tx.Where("expire_at <= ?", *window.ExpireBefore)
+		}
+	}
+	var items []syncmodel.Instance
+	if err := tx.Order("expire_at ASC").Limit(limit).Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// ListActiveResetCandidates 列出续费后需回退 active 的实例：
+// expire_at > now 但 lifecycle_stage 非空且不等于 active（曾被暂停/标记销毁后已续费）。
+func (r *instanceReader) ListActiveResetCandidates(ctx context.Context, now time.Time, limit int) ([]syncmodel.Instance, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	var items []syncmodel.Instance
+	err := r.db.WithContext(ctx).
+		Where("expire_at IS NOT NULL AND expire_at > ?", now).
+		Where("lifecycle_stage IS NOT NULL AND lifecycle_stage <> ?", "active").
+		Order("expire_at ASC").
+		Limit(limit).
+		Find(&items).Error
+	return items, err
 }
 
 // ResolveProduct 解析实例对应的产品名称与单周期单价。

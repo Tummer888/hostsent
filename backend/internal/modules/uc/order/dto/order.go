@@ -34,6 +34,11 @@ type OrderInfo struct {
 	FinalAmount    float64 `json:"final_amount"`
 	DiscountSource string  `json:"discount_source"`
 	CreatedAt      string  `json:"created_at"`
+	// 开通履约状态（T5.1）：pending/running/success/failed/manual，供前端轮询展示；
+	// 未装配工作池或非异步开通的订单为空。
+	ProvisionStatus string `json:"provision_status,omitempty"`
+	// ProvisionError 开通失败原因（failed/manual 时展示，便于用户/运维排查）。
+	ProvisionError string `json:"provision_error,omitempty"`
 }
 
 // QuoteRequest 预结算请求（P5-05）：不落库、不扣款。

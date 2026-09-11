@@ -104,6 +104,8 @@ type Capabilities struct {
 	Resize    bool `json:"resize"`
 	Destroy   bool `json:"destroy"`
 	Reinstall bool `json:"reinstall"`
+	// Suspend 是否支持暂停/恢复（T5.5）：平台暂停态或退化为关机/开机皆算支持。
+	Suspend bool `json:"suspend"`
 }
 
 // DetailInfo 实例详情。
@@ -138,6 +140,11 @@ type ResizeRequest struct {
 type DestroyRequest struct {
 	ConfirmMark string `json:"confirm_mark" binding:"required"`
 	Reason      string `json:"reason"`
+}
+
+// SuspendRequest 暂停请求（T5.5；reason 透传上游暂停原因并落审计）。
+type SuspendRequest struct {
+	Reason string `json:"reason"`
 }
 
 // RemarkRequest 管理员备注请求。

@@ -18,6 +18,15 @@ const (
 	RenewalSourceAdmin  string = "admin"  // 管理员代续费
 )
 
+// 续费同步状态（instance_renewals.sync_state，T5.2）：
+// 链路 A 续费成功落 upstream_ok；链路 B 无上游续费接口时落 local_only（本地账期顺延）；
+// failed 表示上游续费失败（本地账期不得顺延，续费单保持待重试）。
+const (
+	RenewalSyncUpstreamOK string = "upstream_ok"
+	RenewalSyncLocalOnly  string = "local_only"
+	RenewalSyncFailed     string = "failed"
+)
+
 // 生命周期派生阶段（不落库，按 expire_at + 策略推导）
 const (
 	StageActive    string = "active"    // 服务中（未到期）
@@ -46,9 +55,13 @@ type InstanceRenewal struct {
 	PayTime      *time.Time `gorm:"column:pay_time" json:"pay_time"`
 	ExpireBefore *time.Time `gorm:"column:expire_before" json:"expire_before"` // 续费前到期时间
 	ExpireAfter  *time.Time `gorm:"column:expire_after" json:"expire_after"`   // 续费后到期时间
-	FailReason   string     `gorm:"column:fail_reason;size:255" json:"fail_reason"`
-	CreatedAt    time.Time  `gorm:"autoCreateTime;index" json:"created_at"`
-	UpdatedAt    time.Time  `gorm:"autoUpdateTime" json:"updated_at"`
+	// UpstreamOrderID 上游续费回执（账单号/hostid），链路 A 对账与幂等用（T5.2）。
+	UpstreamOrderID string `gorm:"column:upstream_order_id;size:128" json:"upstream_order_id"`
+	// SyncState 续费同步状态：upstream_ok / local_only / failed（T5.2）。
+	SyncState  string    `gorm:"column:sync_state;size:32" json:"sync_state"`
+	FailReason string    `gorm:"column:fail_reason;size:255" json:"fail_reason"`
+	CreatedAt  time.Time `gorm:"autoCreateTime;index" json:"created_at"`
+	UpdatedAt  time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
 
 // TableName 指定表名

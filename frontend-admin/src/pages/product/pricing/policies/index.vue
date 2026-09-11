@@ -307,7 +307,7 @@ const columns: PrimaryTableCol<PricePolicyInfo>[] = [
   { colKey: 'effective', title: '生效时间', width: 200 },
   { colKey: 'priority', title: '优先级', width: 80 },
   { colKey: 'status', title: '状态', width: 90 },
-  { colKey: 'action', title: '操作', width: 130, fixed: 'right' as const, align: 'center' as const },
+  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 130, fixed: 'right' as const, align: 'center' as const },
 ]
 
 const categoryOptions = ref<{ label: string; value: number }[]>([])

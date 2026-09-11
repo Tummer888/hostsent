@@ -48,6 +48,11 @@ type InstanceService interface {
 	Resize(ctx context.Context, op Operator, id uint64, req *dto.ResizeRequest) error
 	SetRemark(ctx context.Context, id uint64, remark string) error
 	Destroy(ctx context.Context, op Operator, id uint64, req *dto.DestroyRequest) error
+	// Suspend / Unsuspend 暂停/恢复实例（T5.5 按能力分派）。
+	Suspend(ctx context.Context, op Operator, id uint64, reason string) error
+	Unsuspend(ctx context.Context, op Operator, id uint64) error
+	// RecordStageAction 写入生命周期阶段推进审计（T5.4 推进器调用，系统操作人）。
+	RecordStageAction(ctx context.Context, in StageActionInput) error
 	Operations(ctx context.Context, id uint64, query *dto.OperationListQuery) (*dto.OperationListResponse, error)
 	Related(ctx context.Context, id uint64) (*dto.RelatedInfo, error)
 }
@@ -271,7 +276,7 @@ func (s *instanceService) SetRemark(ctx context.Context, id uint64, remark strin
 	return s.repo.UpdateRemark(ctx, id, remark)
 }
 
-// Destroy 销毁实例（上游须实现 InstanceAdministration）。
+// Destroy 销毁实例（T5.5 按能力分派：优先 InstanceTermination，退化 InstanceAdministration.Delete）。
 // req.ConfirmMark 必须等于实例标识或记录 ID，否则拒绝执行。
 func (s *instanceService) Destroy(ctx context.Context, op Operator, id uint64, req *dto.DestroyRequest) error {
 	row, err := s.repo.FindByID(ctx, id)
@@ -291,12 +296,19 @@ func (s *instanceService) Destroy(ctx context.Context, op Operator, id uint64, r
 
 	params := map[string]any{"reason": req.Reason}
 	before := row.Status
-	admin, err := s.administration(ctx, row.ProviderID)
+	provider, err := s.buildProvider(ctx, row.ProviderID)
 	if err != nil {
 		s.record(ctx, row, op, model.ActionDestroy, params, before, before, err)
 		return err
 	}
-	if err := admin.DeleteInstance(ctx, row.InstanceID); err != nil {
+	reason := req.Reason
+	if reason == "" {
+		reason = "管理员销毁"
+	}
+	if err := upstream.TerminateWithFallback(ctx, provider, row.InstanceMark(), reason); err != nil {
+		if errors.Is(err, upstream.ErrCapabilityMissing) {
+			err = fmt.Errorf("%w: %s", ErrCapabilityUnsupported, err.Error())
+		}
 		s.record(ctx, row, op, model.ActionDestroy, params, before, before, err)
 		return err
 	}
@@ -304,6 +316,117 @@ func (s *instanceService) Destroy(ctx context.Context, op Operator, id uint64, r
 	_ = s.repo.UpdateStatus(ctx, row.ID, after)
 	s.record(ctx, row, op, model.ActionDestroy, params, before, after, nil)
 	return nil
+}
+
+// Suspend 暂停实例（T5.5）：优先平台暂停态，退化关机；缺能力显式报错。
+func (s *instanceService) Suspend(ctx context.Context, op Operator, id uint64, reason string) error {
+	row, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return s.wrapNotFound(err)
+	}
+	before := row.Status
+	params := map[string]any{"reason": reason}
+	provider, err := s.buildProvider(ctx, row.ProviderID)
+	if err != nil {
+		s.record(ctx, row, op, model.ActionSuspend, params, before, before, err)
+		return err
+	}
+	if reason == "" {
+		reason = "管理员暂停"
+	}
+	if err := upstream.SuspendWithFallback(ctx, provider, row.InstanceMark(), reason); err != nil {
+		err = mapCapabilityErr(err)
+		s.record(ctx, row, op, model.ActionSuspend, params, before, before, err)
+		return err
+	}
+	after := string(pkgmodel.InstanceStatusStopped)
+	_ = s.repo.UpdateStatus(ctx, row.ID, after)
+	// 落阶段（T5.4 语义）：手动暂停同样写 lifecycle_stage，避免推进器重复动作。
+	_ = s.repo.UpdateLifecycleStage(ctx, row.ID, "suspended")
+	s.record(ctx, row, op, model.ActionSuspend, params, before, after, nil)
+	return nil
+}
+
+// Unsuspend 恢复实例（T5.5）：优先平台解除暂停，退化开机；缺能力显式报错。
+func (s *instanceService) Unsuspend(ctx context.Context, op Operator, id uint64) error {
+	row, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return s.wrapNotFound(err)
+	}
+	before := row.Status
+	provider, err := s.buildProvider(ctx, row.ProviderID)
+	if err != nil {
+		s.record(ctx, row, op, model.ActionUnsuspend, nil, before, before, err)
+		return err
+	}
+	if err := upstream.UnsuspendWithFallback(ctx, provider, row.InstanceMark()); err != nil {
+		err = mapCapabilityErr(err)
+		s.record(ctx, row, op, model.ActionUnsuspend, nil, before, before, err)
+		return err
+	}
+	after := string(pkgmodel.InstanceStatusRunning)
+	_ = s.repo.UpdateStatus(ctx, row.ID, after)
+	_ = s.repo.UpdateLifecycleStage(ctx, row.ID, "active")
+	s.record(ctx, row, op, model.ActionUnsuspend, nil, before, after, nil)
+	return nil
+}
+
+// StageActionInput 生命周期阶段推进审计入参（T5.4 推进器 → 实例运维流水）。
+//
+// 生命周期模块只依赖本结构的基础类型（service 层桥接），避免模块间循环依赖。
+type StageActionInput struct {
+	InstanceID   uint64
+	InstanceMark string
+	UserID       uint64
+	Action       string
+	FromStage    string
+	ToStage      string
+	Err          error
+}
+
+// RecordStageAction 以系统操作人身份写入一条实例运维流水（T5.4）。
+// 尽力而为：写入失败返回错误由调用方记日志，不回滚上游动作。
+func (s *instanceService) RecordStageAction(ctx context.Context, in StageActionInput) error {
+	action := in.Action
+	if action == "" {
+		action = model.ActionStage
+	}
+	if action == model.ActionStage && in.FromStage == "" && in.ToStage == "" {
+		// 无阶段变化且无动作：无需落库。
+		return nil
+	}
+	entry := &model.Operation{
+		InstanceID:   in.InstanceID,
+		InstanceMark: in.InstanceMark,
+		UserID:       in.UserID,
+		OperatorType: model.OperatorTypeSystem,
+		Action:       action,
+		BeforeStatus: in.FromStage,
+		AfterStatus:  in.ToStage,
+		Result:       model.ResultSuccess,
+	}
+	if in.Err != nil {
+		entry.Result = model.ResultFailed
+		entry.ErrorMessage = truncate(in.Err.Error(), 500)
+	}
+	if err := s.opRepo.Create(ctx, entry); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("写入生命周期阶段流水失败",
+				zap.Uint64("instance_id", in.InstanceID),
+				zap.String("action", action),
+				zap.Error(err))
+		}
+		return err
+	}
+	return nil
+}
+
+// mapCapabilityErr 把上游能力缺失错误映射为实例域错误（handler 统一提示 20004）。
+func mapCapabilityErr(err error) error {
+	if errors.Is(err, upstream.ErrCapabilityMissing) {
+		return fmt.Errorf("%w: %s", ErrCapabilityUnsupported, err.Error())
+	}
+	return err
 }
 
 // Operations 实例操作流水分页。
@@ -489,11 +612,15 @@ func (s *instanceService) capabilities(ctx context.Context, providerID uint64) (
 	}
 	_, ctrl := provider.(upstream.InstanceControl)
 	_, admin := provider.(upstream.InstanceAdministration)
+	_, suspend := provider.(upstream.InstanceSuspension)
+	_, terminate := provider.(upstream.InstanceTermination)
+	// 暂停/销毁按能力分派（T5.5）：平台无对应接口时退化为电源/删除等价操作。
 	return dto.Capabilities{
 		Power:   ctrl,
 		Console: ctrl,
 		Resize:  admin,
-		Destroy: admin,
+		Destroy: admin || terminate,
+		Suspend: suspend || ctrl,
 		// 上游尚未提供重装系统能力（见 61 实施计划 §1.3），保留字段便于后续开启。
 		Reinstall: false,
 	}, nil

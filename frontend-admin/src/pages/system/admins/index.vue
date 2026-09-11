@@ -29,11 +29,11 @@
         <t-form-item label="状态">
           <t-select v-model="filters.status" :options="statusOptions" clearable placeholder="全部状态" />
         </t-form-item>
-        <t-form-item>
-          <t-button theme="primary" type="submit">查询</t-button>
-          <t-button variant="outline" @click="resetFilters">重置</t-button>
-        </t-form-item>
       </t-form>
+      <div class="filter-form__actions">
+        <t-button theme="primary" type="submit" @click.prevent="loadAdmins">查询</t-button>
+        <t-button variant="outline" @click="resetFilters">重置</t-button>
+      </div>
     </t-card>
 
     <!-- 表格区域 -->
@@ -70,7 +70,17 @@
           {{ row.position || '—' }}
         </template>
         <template #operation="{ row }">
-          <t-space size="small">
+          <MobileAction
+            v-if="isMobile"
+            :options="buildMobileActionOptions([
+              { content: '编辑', value: 'edit' },
+              { content: '重置密码', value: 'reset-password' },
+              { content: row.status === 'active' ? '禁用' : '启用', value: 'toggle', theme: 'error' },
+              { content: '删除', value: 'delete', theme: 'error' },
+            ])"
+            @select="(value) => handleMobileAction(value, row)"
+          />
+          <t-space v-else size="small">
             <t-link theme="primary" @click="openEdit(row)">编辑</t-link>
             <t-link theme="primary" @click="resetPassword(row)">重置密码</t-link>
             <t-popconfirm
@@ -168,7 +178,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { AddIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import type { FormInstanceFunctions, FormRule, PrimaryTableCol } from 'tdesign-vue-next';
@@ -184,6 +194,9 @@ import {
   type AdminListResponse,
 } from '@/api/admin';
 import { getRoleList, type RoleInfo } from '@/api/user';
+import MobileAction from '@/components/mobile-action/index.vue';
+import { buildMobileActionOptions } from '@/composables/useMobileActions';
+import { useIsMobile } from '@/composables/useIsMobile';
 
 /**
  * 员工管理页面（P2-01）
@@ -265,7 +278,9 @@ function roleIdOf(code: string): number | undefined {
 }
 
 // 表格列配置
-const columns: PrimaryTableCol<AdminInfo>[] = [
+const { isMobile } = useIsMobile();
+
+const columns = computed<PrimaryTableCol<AdminInfo>[]>(() => [
   { colKey: 'id', title: 'ID', width: 70 },
   { colKey: 'username', title: '用户名', width: 140 },
   { colKey: 'email', title: '邮箱', minWidth: 200 },
@@ -275,8 +290,8 @@ const columns: PrimaryTableCol<AdminInfo>[] = [
   { colKey: 'must_change_password', title: '改密', width: 90 },
   { colKey: 'status', title: '状态', width: 90 },
   { colKey: 'last_login_at', title: '最近登录', width: 180 },
-  { colKey: 'operation', title: '操作', width: 240, fixed: 'right' },
-];
+  { colKey: 'operation', title: '操作', width: isMobile.value ? 70 : 240, fixed: 'right' },
+]);
 
 /**
  * 加载角色列表（用于多选）
@@ -475,9 +490,35 @@ onMounted(() => {
   loadRoles();
   loadAdmins();
 });
+function handleMobileAction(value: string | number | Record<string, any>, row: AdminInfo) {
+  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '');
+  switch (action) {
+    case 'edit':
+      openEdit(row);
+      break;
+    case 'reset-password':
+      resetPassword(row);
+      break;
+    case 'toggle':
+      void toggleStatus(row);
+      break;
+    case 'delete':
+      void removeAdmin(row);
+      break;
+  }
+}
 </script>
 
 <style scoped>
+.filter-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--td-brand-color-1);
+}
+
 @import '../shared.css';
 
 .page-container {

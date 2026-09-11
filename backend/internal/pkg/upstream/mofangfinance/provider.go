@@ -17,9 +17,13 @@
 //   - GET  api/product/proinfo        上游商品详情（pids）
 //   - GET  host/header                下游拉取上游云主机信息（host_id + source=API）
 //   - POST /dcim/on | /dcim/off | /dcim/reboot    独立服务器/裸金属电源操作（id + is_api=1）
+//   - POST /host/renew               续费生成账单（hostid + billingcycles）
+//   - POST /apply_credit             余额支付账单（invoiceid + use_credit=1，status 1001=完成）
+//   - POST /host/cancel              终止主机（id + type=Immediate + reason）
+//   - POST /provision/default        电源/暂停/恢复/控制台（id + func=on|off|reboot|hard_off|hard_reboot|suspend|unsuspend|vnc）
 //
-// 开通/删除/升降配在「财务对接财务」模式下由下游下单 + 上游推送 /api/host/sync 完成，
-// 不在本适配器直接实现，见 notSupported 提示。
+// 开通直连走 cart/add_to_shop → cart/settle → apply_credit（见 CreateInstance）；
+// 资源型上游（upstream_type=resource）的开通/续费不在本适配器直接实现，见 notSupported 提示。
 package mofangfinance
 
 import (
@@ -49,17 +53,19 @@ func init() {
 	upstream.GetProviderManager().RegisterFactory(ProviderType, func(cfg *upstream.ProviderConfig) upstream.Provider {
 		return NewMoFangFinanceProvider(cfg)
 	})
-	// 能力描述符（T2.1）：财务型上游目录权威在上游，开通/续费受对接模式限制。
+	// 能力描述符（T2.1）：财务型上游目录权威在上游，开通/续费/暂停/终止按 zjmf_api 分支直连。
 	upstream.RegisterDescriptor(ProviderType, upstream.CapabilityDescriptor{
 		Kind:          upstream.KindUpstream,
 		SyncScopes:    []string{upstream.ScopeCatalog, upstream.ScopePrice, upstream.ScopeInstance},
-		BillingCycles: []string{"month", "year"},
+		BillingCycles: []string{"monthly", "quarterly", "semiannually", "annually", "biennially", "triennially"},
 		Operations: []string{
-			upstream.OpProvision, upstream.OpStart, upstream.OpStop, upstream.OpRestart, upstream.OpVNC,
+			upstream.OpProvision, upstream.OpRenew,
+			upstream.OpStart, upstream.OpStop, upstream.OpRestart, upstream.OpVNC,
+			upstream.OpSuspend, upstream.OpUnsuspend, upstream.OpDestroy,
 		},
-		// 财务对接财务模式：开通由上游推送 /api/host/sync 完成，续费/销毁未提供直连接口。
-		RenewMode:   upstream.RenewModeNone,
-		DestroyMode: upstream.DestroyModeUnsupported,
+		// zjmf_api 分支：续费走 /host/renew + /apply_credit（上游下单），终止走 /host/cancel（立即生效）。
+		RenewMode:   upstream.RenewModeOrder,
+		DestroyMode: upstream.DestroyModeImmediate,
 		SignerType:  upstream.SignerBearer,
 		CredentialSchema: []upstream.Field{
 			{Key: "api_key", Label: "用户名", Type: upstream.FieldTypeString, Required: true,
@@ -81,10 +87,11 @@ func init() {
 		RateLimit:      upstream.RateLimitSpec{QPS: 3, Burst: 6},
 		SupportsPaging: false,
 		FieldDictionary: map[string]any{
-			"source": "实测（依据 mofangfinance/provider.go 与上游源码 app/zjmf.php）",
+			"source": "实测（依据 mofangfinance/provider.go 与上游源码 app/zjmf.php、app/common/logic/Host.php）",
 			"paths": []string{"cart/all", "cart/get_product_config", "api/product/proinfo",
-				"host/header", "/dcim/on", "/dcim/off", "/dcim/reboot"},
-			"note": "登录换 JWT（Bearer），status=405 表示 JWT 失效需重登；开通/删除依赖上游推送",
+				"host/header", "/dcim/on", "/dcim/off", "/dcim/reboot",
+				"/host/renew", "/apply_credit", "/host/cancel", "/provision/default"},
+			"note": "登录换 JWT（Bearer），status=405 表示 JWT 失效需重登；续费=host/renew+apply_credit(1001)；暂停/恢复=provision/default func=suspend|unsuspend；终止=host/cancel type=Immediate",
 		},
 	})
 }
@@ -482,11 +489,15 @@ func matchKey(key string, cands ...string) bool {
 	return false
 }
 
-// num 从 interface{} 读取 float64（兼容 json.Number/float64/string）。
+// num 从 interface{} 读取 float64（兼容 json.Number/float64/string 与各整型）。
+// 注意必须覆盖 int64：host/header 的 nextduedate 经 HostHeader 解析后即为 int64，
+// 早先漏掉整型会让链路 A 续费拿不到上游权威账期而静默回退本地顺延。
 func num(v interface{}) (float64, bool) {
 	switch t := v.(type) {
 	case float64:
 		return t, true
+	case float32:
+		return float64(t), true
 	case json.Number:
 		f, err := t.Float64()
 		return f, err == nil
@@ -494,6 +505,24 @@ func num(v interface{}) (float64, bool) {
 		f, err := strconv.ParseFloat(strings.TrimSpace(t), 64)
 		return f, err == nil
 	case int:
+		return float64(t), true
+	case int8:
+		return float64(t), true
+	case int16:
+		return float64(t), true
+	case int32:
+		return float64(t), true
+	case int64:
+		return float64(t), true
+	case uint:
+		return float64(t), true
+	case uint8:
+		return float64(t), true
+	case uint16:
+		return float64(t), true
+	case uint32:
+		return float64(t), true
+	case uint64:
 		return float64(t), true
 	case json.RawMessage:
 		// 上游价格字段可能是字符串或数字；先按浮点解析，失败再按字符串解析
@@ -795,6 +824,103 @@ func (p *MoFangFinanceProvider) VNC(ctx context.Context, instanceID string) (ups
 		return upstream.VNCResult{}, &upstream.ProviderError{Op: "VNC", Msg: "上游未返回远程控制台地址"}
 	}
 	return upstream.VNCResult{URL: resp.URL, Password: resp.Pass, External: resp.ZjmfCloudOut}, nil
+}
+
+// SuspendInstance 暂停主机：POST /provision/default（func=suspend，reason 为暂停原因）。
+func (p *MoFangFinanceProvider) SuspendInstance(ctx context.Context, instanceID, reason string) error {
+	if instanceID == "" {
+		return &upstream.ProviderError{Op: "SuspendInstance", Msg: "缺少上游主机ID"}
+	}
+	if reason == "" {
+		reason = "代理商暂停"
+	}
+	return p.call(ctx, "SuspendInstance", http.MethodPost, "provision/default", url.Values{
+		"id": {instanceID}, "func": {"suspend"}, "reason": {reason}, "is_api": {"1"},
+	}, nil)
+}
+
+// UnsuspendInstance 解除暂停：POST /provision/default（func=unsuspend）。
+func (p *MoFangFinanceProvider) UnsuspendInstance(ctx context.Context, instanceID string) error {
+	if instanceID == "" {
+		return &upstream.ProviderError{Op: "UnsuspendInstance", Msg: "缺少上游主机ID"}
+	}
+	return p.call(ctx, "UnsuspendInstance", http.MethodPost, "provision/default", url.Values{
+		"id": {instanceID}, "func": {"unsuspend"}, "is_api": {"1"},
+	}, nil)
+}
+
+// TerminateInstance 终止主机：POST /host/cancel（type=Immediate 立即停用，reason 为原因）。
+//
+// 注意：上游 /host/cancel 的语义是"提交停用申请并生效"（对应 domainstatus=Deleted），
+// 而非物理删除记录；这是魔方财务对外提供的唯一终止入口。
+func (p *MoFangFinanceProvider) TerminateInstance(ctx context.Context, instanceID, reason string) error {
+	if instanceID == "" {
+		return &upstream.ProviderError{Op: "TerminateInstance", Msg: "缺少上游主机ID"}
+	}
+	if reason == "" {
+		reason = "立即删除"
+	}
+	return p.call(ctx, "TerminateInstance", http.MethodPost, "host/cancel", url.Values{
+		"id": {instanceID}, "type": {"Immediate"}, "reason": {reason},
+	}, nil)
+}
+
+// RenewInstance 续费主机（等价源码 Host::renew 的 zjmf_api 分支）：
+//  1. POST /host/renew   {hostid, billingcycles} → data.invoiceid（上游生成续费账单）；
+//  2. POST /apply_credit {invoiceid, use_credit:1} → status 1001（余额支付完成，账期顺延）；
+//  3. GET  host/header     → nextduedate 作为权威新到期时间返回。
+//
+// 上游任一步失败即整体失败，调用方不得回退为"只改本地账期"。
+func (p *MoFangFinanceProvider) RenewInstance(ctx context.Context, req *upstream.RenewRequest) (*upstream.RenewResult, error) {
+	if p.isResource() {
+		return nil, p.notSupported("RenewInstance", "资源型上游请走资源池续费流程处理")
+	}
+	if req == nil || req.ProviderInstanceID == "" {
+		return nil, &upstream.ProviderError{Op: "RenewInstance", Msg: "缺少上游主机ID"}
+	}
+	cycle := normalizeBillingCycle(firstNonEmpty(req.Cycle, strFromMap(req.Extra, "billingcycle")))
+
+	// 1) 生成续费账单
+	renewForm := url.Values{}
+	renewForm.Set("hostid", req.ProviderInstanceID)
+	renewForm.Set("billingcycles", cycle)
+	var renewData struct {
+		InvoiceID int64 `json:"invoiceid"`
+	}
+	if err := p.call(ctx, "RenewInstance", http.MethodPost, "host/renew", renewForm, &renewData); err != nil {
+		return nil, err
+	}
+	if renewData.InvoiceID == 0 {
+		return nil, &upstream.ProviderError{Op: "RenewInstance", Msg: "上游续费成功但未返回账单ID"}
+	}
+
+	// 2) 用上游余额支付（status 1001 = 支付完成）
+	payForm := url.Values{}
+	payForm.Set("invoiceid", strconv.FormatInt(renewData.InvoiceID, 10))
+	payForm.Set("use_credit", "1")
+	shell, httpStatus, body, err := p.callShell(ctx, "RenewInstance", http.MethodPost, "apply_credit", payForm)
+	if err != nil {
+		return nil, err
+	}
+	if httpStatus >= 400 {
+		return nil, &upstream.ProviderError{Op: "RenewInstance", StatusCode: httpStatus, Msg: firstNonEmpty(shell.Msg, strings.TrimSpace(string(body)))}
+	}
+	if shell.Status != StatusPaidSuccess && shell.Status != StatusOK && shell.Code != StatusOK {
+		return nil, &upstream.ProviderError{Op: "RenewInstance", Code: shell.Status, Msg: firstNonEmpty(shell.Msg, "上游续费余额支付失败")}
+	}
+
+	res := &upstream.RenewResult{
+		UpstreamOrderRef: strconv.FormatInt(renewData.InvoiceID, 10),
+		Raw:              map[string]interface{}{"invoiceid": renewData.InvoiceID, "billingcycles": cycle},
+	}
+	// 3) 拉取权威新到期时间；失败不视为续费失败（账单已支付），由调用方按本地周期兜底。
+	if inst, gerr := p.GetInstance(ctx, req.ProviderInstanceID); gerr == nil && inst != nil {
+		if due, ok := num(inst.RawData["nextduedate"]); ok && due > 0 {
+			res.NewExpireAt = time.Unix(int64(due), 0)
+			res.Raw["nextduedate"] = int64(due)
+		}
+	}
+	return res, nil
 }
 
 // DeleteInstance / ResizeInstance / ListPools / GetAccountInfo 在「财务对接财务」模式下

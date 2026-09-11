@@ -129,6 +129,8 @@
               <span class="field__label">状态</span>
               <t-select v-model="taskFilter.status" clearable placeholder="全部状态" :options="taskStatusOptions" />
             </div>
+          </div>
+          <div class="tab-toolbar__actions">
             <t-space size="small">
               <t-button theme="primary" @click="searchTasks">查询</t-button>
               <t-button variant="outline" @click="resetTaskFilters">重置</t-button>
@@ -605,7 +607,7 @@ const scheduleColumns: PrimaryTableCol<SyncScheduleInfo>[] = [
   { colKey: 'enabled', title: '状态', width: 80 },
   { colKey: 'last_status', title: '上次结果', width: 100 },
   { colKey: 'next_run_at', title: '下次执行', minWidth: 160 },
-  { colKey: 'action', title: '操作', width: 140, fixed: 'right' as const, align: 'center' as const },
+  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 140, fixed: 'right' as const, align: 'center' as const },
 ]
 
 async function loadSchedules() {
@@ -1122,6 +1124,15 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
   gap: var(--space-md);
   flex-wrap: wrap;
   padding: var(--space-md) 0 var(--space-lg);
+}
+
+.tab-toolbar__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--td-brand-color-1);
+  margin-bottom: 14px;
 }
 
 .tab-toolbar .field {

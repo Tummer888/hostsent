@@ -262,7 +262,7 @@ const columns: PrimaryTableCol<OrderInfo>[] = [
   {
     colKey: 'action',
     title: '操作',
-    minWidth: isMobile ? 70 : 230,
+    width: isMobile.value ? 70 : 230,
     fixed: 'right' as const,
     align: 'center' as const,
   },

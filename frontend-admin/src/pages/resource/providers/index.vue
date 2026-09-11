@@ -341,7 +341,7 @@ const columns: PrimaryTableCol<ProviderInfo>[] = [
   {
     colKey: 'action',
     title: '操作',
-    width: 260,
+    width: isMobile.value ? 70 : 260,
     fixed: 'right' as const,
     align: 'center' as const,
   },
@@ -601,8 +601,11 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
   --chip-shadow: 0 4px 10px rgba(22, 163, 74, 0.25);
 }
 
-.filter-card__grid {
-  grid-template-columns: minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(140px, 1fr);
+/* 桌面端 4 列等宽；窄屏回落 shared.css 单列（与其它 resource 页面一致） */
+@media (min-width: 769px) {
+  .filter-card__grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 .resource-cell {

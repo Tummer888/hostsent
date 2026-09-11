@@ -20,7 +20,6 @@
     <section class="filter-card surface-card">
       <div class="filter-card__head">
         <h3 class="card-title">筛选</h3>
-        <t-button variant="outline" @click="resetFilters">重置</t-button>
       </div>
       <div class="filter-card__grid">
         <div class="field">
@@ -35,9 +34,12 @@
           <span class="field__label">状态</span>
           <t-select v-model="filters.status" clearable placeholder="全部" :options="statusOptions" />
         </div>
-        <div class="field field--actions">
+      </div>
+      <div class="filter-card__actions">
+        <t-space size="small">
           <t-button theme="primary" @click="search"><template #icon><SearchIcon /></template>查询</t-button>
-        </div>
+          <t-button variant="outline" @click="resetFilters">重置</t-button>
+        </t-space>
       </div>
     </section>
 
@@ -151,7 +153,7 @@ const columns: PrimaryTableCol<SpecTemplateInfo>[] = [
   { colKey: 'os', title: '操作系统', width: 120 },
   { colKey: 'price', title: '参考售价', width: 100 },
   { colKey: 'status', title: '状态', width: 90 },
-  { colKey: 'action', title: '操作', width: 120, fixed: 'right' as const, align: 'center' as const },
+  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 120, fixed: 'right' as const, align: 'center' as const },
 ]
 
 function familyLabel(v: string): string {

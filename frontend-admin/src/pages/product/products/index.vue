@@ -303,7 +303,7 @@ const columns: PrimaryTableCol<SaleProductInfo>[] = [
   {
     colKey: 'action',
     title: '操作',
-    width: 260,
+    width: isMobile.value ? 70 : 260,
     fixed: 'right' as const,
     align: 'center' as const,
   },

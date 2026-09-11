@@ -206,7 +206,7 @@ const columns: PrimaryTableCol<ReferralWithdrawInfo>[] = [
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'audit_by_name', title: '审核人', width: 100 },
   { colKey: 'created_at', title: '申请时间', width: 170 },
-  { colKey: 'action', title: '操作', width: 130, fixed: 'right' as const, align: 'center' as const },
+  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 130, fixed: 'right' as const, align: 'center' as const },
 ]
 
 function channelLabel(channel: string): string {

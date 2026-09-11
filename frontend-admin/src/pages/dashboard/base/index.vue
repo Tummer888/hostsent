@@ -548,6 +548,12 @@ onMounted(() => {
   gap: 12px;
 }
 
+/* 网格子项默认 min-width:auto，日志表列宽（170px 时间列等）会把卡片
+   min-content 撑到 ~616px，窄屏把整列撑爆产生横向滚动 */
+.panel-grid > .panel-card {
+  min-width: 0;
+}
+
 .panel-card {
   padding: 16px 16px 14px;
   display: flex;

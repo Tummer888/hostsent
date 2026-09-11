@@ -59,7 +59,12 @@
 
     <!-- 行操作：查看详情 -->
     <template #operation="{ row }">
-      <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
+      <t-link v-if="!isMobile" theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
+      <MobileAction
+        v-else
+        :options="[{ content: '详情', value: 'detail' }]"
+        @select="(value) => value === 'detail' && openDetail(row)"
+      />
     </template>
   </SecurityListPage>
 
@@ -134,7 +139,12 @@
               {{ row.created_at }}
             </template>
             <template #operation="{ row }">
-              <t-link theme="primary" hover="color" @click="openAdminDetail(row)">详情</t-link>
+              <t-link v-if="!isMobile" theme="primary" hover="color" @click="openAdminDetail(row)">详情</t-link>
+              <MobileAction
+                v-else
+                :options="[{ content: '详情', value: 'detail' }]"
+                @select="(value) => value === 'detail' && openAdminDetail(row)"
+              />
             </template>
             <template #empty>
               <t-empty description="暂无管理操作审计记录" />
@@ -183,7 +193,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 
 import type { AxiosResponse } from 'axios'
 import { DownloadIcon } from 'tdesign-icons-vue-next'
@@ -199,12 +209,15 @@ import {
 } from '@/api/admin'
 import { request } from '@/utils/request'
 
+import MobileAction from '@/components/mobile-action/index.vue'
+import { useIsMobile } from '@/composables/useIsMobile'
 import SecurityListPage from '../../users/security/SecurityListPage.vue'
 import { formatSecurityTime } from '../../users/security/shared'
 
 defineOptions({ name: 'SystemAuditLogs' })
 
 const activeTab = ref<'user' | 'admin'>('user')
+const { isMobile } = useIsMobile()
 
 const loading = ref(false)
 const exporting = ref(false)
@@ -243,7 +256,7 @@ const resultOptions = [
   { label: '失败', value: 'failed' },
 ]
 
-const columns: PrimaryTableCol<AuditLogInfo>[] = [
+const columns = computed<PrimaryTableCol<AuditLogInfo>[]>(() => [
   { colKey: 'operator_name', title: '操作人', width: 120 },
   { colKey: 'module', title: '模块', width: 120 },
   { colKey: 'action', title: '动作', width: 100 },
@@ -254,8 +267,8 @@ const columns: PrimaryTableCol<AuditLogInfo>[] = [
   { colKey: 'response_code', title: '状态码', width: 100 },
   { colKey: 'trace_id', title: 'Trace ID', minWidth: 160, ellipsis: true },
   { colKey: 'created_at', title: '发生时间', width: 180 },
-  { colKey: 'operation', title: '操作', width: 80, fixed: 'right' },
-]
+  { colKey: 'operation', title: '操作', width: isMobile.value ? 70 : 80, fixed: 'right' },
+])
 
 const detailVisible = ref(false)
 const detailRow = ref<AuditLogInfo | null>(null)
@@ -380,7 +393,7 @@ const adminPagination = reactive({
   total: 0,
 })
 
-const adminColumns: PrimaryTableCol<AdminAuditLogInfo>[] = [
+const adminColumns = computed<PrimaryTableCol<AdminAuditLogInfo>[]>(() => [
   { colKey: 'admin_name', title: '操作人', width: 120 },
   { colKey: 'module', title: '模块', width: 110 },
   { colKey: 'action', title: '动作', width: 120 },
@@ -390,8 +403,8 @@ const adminColumns: PrimaryTableCol<AdminAuditLogInfo>[] = [
   { colKey: 'request_path', title: '路径', minWidth: 200, ellipsis: true },
   { colKey: 'response_code', title: '状态码', width: 90 },
   { colKey: 'created_at', title: '发生时间', width: 170 },
-  { colKey: 'operation', title: '操作', width: 80, fixed: 'right' },
-]
+  { colKey: 'operation', title: '操作', width: isMobile.value ? 70 : 80, fixed: 'right' },
+])
 
 async function loadAdminAudit() {
   adminAuditLoading.value = true

@@ -36,7 +36,12 @@
           <t-tag :theme="row.status === 1 ? 'success' : 'default'" variant="light" size="small" shape="round">{{ row.status === 1 ? '启用中' : '已停用' }}</t-tag>
         </template>
         <template #action="{ row }">
-          <t-button size="small" theme="primary" variant="outline" :loading="testingId === row.id" @click="handleTest(row)">
+          <MobileAction
+            v-if="isMobile"
+            :options="[{ content: '测试连接', value: 'test' }]"
+            @select="(value) => value === 'test' && handleTest(row)"
+          />
+          <t-button v-else size="small" theme="primary" variant="outline" :loading="testingId === row.id" @click="handleTest(row)">
             <template #icon>
               <LinkIcon aria-hidden="true" />
             </template>
@@ -52,12 +57,14 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 import { AiToolIcon, LinkIcon, RefreshIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { getProviderList, testConnection } from '@/api/admin'
+import MobileAction from '@/components/mobile-action/index.vue'
+import { useIsMobile } from '@/composables/useIsMobile'
 import type { ProviderInfo } from '@/types/interface'
 
 defineOptions({ name: 'ResourceApiTest' })
@@ -66,13 +73,15 @@ const providers = ref<ProviderInfo[]>([])
 const loading = ref(false)
 const testingId = ref<number | null>(null)
 
-const columns: PrimaryTableCol<ProviderInfo>[] = [
+const { isMobile } = useIsMobile()
+
+const columns = computed<PrimaryTableCol<ProviderInfo>[]>(() => [
   { colKey: 'name', title: '提供商', minWidth: 160 },
   { colKey: 'type', title: '类型', width: 120 },
   { colKey: 'endpoint', title: 'API 地址', minWidth: 220 },
   { colKey: 'status', title: '状态', width: 100 },
-  { colKey: 'action', title: '操作', width: 150, fixed: 'right' as const, align: 'center' as const },
-]
+  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 150, fixed: 'right' as const, align: 'center' as const },
+])
 
 async function loadProviders() {
   loading.value = true

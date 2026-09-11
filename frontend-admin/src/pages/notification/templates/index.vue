@@ -171,7 +171,7 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'mail_on', title: '邮件', width: 90, align: 'center', cell: 'mail_on' },
   { colKey: 'status', title: '状态', width: 90, cell: 'status' },
   { colKey: 'updated_at', title: '更新时间', width: 160 },
-  { colKey: 'action', title: '操作', width: 100, fixed: 'right', align: 'center', cell: 'action' },
+  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 100, fixed: 'right', align: 'center', cell: 'action' },
 ]
 
 async function loadData() {

@@ -23,6 +23,9 @@ const (
 	ActionDestroy    = "destroy"
 	ActionRemark     = "remark"
 	ActionSuspend    = "suspend"
+	ActionUnsuspend  = "unsuspend"
+	// ActionStage 生命周期阶段推进（T5.4 自动扫描落阶段，无上游动作时记录阶段变化）。
+	ActionStage = "stage"
 )
 
 // 操作结果。

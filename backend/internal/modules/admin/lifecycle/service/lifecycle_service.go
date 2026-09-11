@@ -35,10 +35,17 @@ type LifecycleService interface {
 	DeriveStage(expireAt, now time.Time, policy *lifecyclemodel.LifecyclePolicy) string
 	// ListExpiring 到期实例分页列表（按阶段筛选）
 	ListExpiring(ctx context.Context, q *lifecycledto.ExpiringListQuery) (*lifecycledto.ExpiringListResponse, error)
-	// RunScanOnce 手动触发一轮扫描（提醒 + 自动续费），供运维接口调用
+	// RunScanOnce 手动触发一轮扫描（提醒 + 自动续费 + 阶段推进），供运维接口调用
 	RunScanOnce(ctx context.Context) error
 	// SetNotifier 注入通知实现（通知中心模块就绪后替换空实现）
 	SetNotifier(n Notifier)
+	// SetStageAdvancer 注入生命周期阶段推进器（T5.4 落库幂等推进），可选
+	SetStageAdvancer(a StageAdvancer)
+}
+
+// StageAdvancer 生命周期阶段推进器（T5.4）：宽限→暂停→销毁落库并触发一次上游动作。
+type StageAdvancer interface {
+	AdvanceOnce(ctx context.Context) (int, error)
 }
 
 type lifecycleService struct {
@@ -47,6 +54,7 @@ type lifecycleService struct {
 	instanceRepo lifecyclerepo.InstanceReader
 	renewalSvc   RenewalService
 	notifier     Notifier
+	advancer     StageAdvancer
 	logger       *zap.Logger
 }
 
@@ -72,6 +80,11 @@ func (s *lifecycleService) SetNotifier(n Notifier) {
 	if n != nil {
 		s.notifier = n
 	}
+}
+
+// SetStageAdvancer 注入生命周期阶段推进器（T5.4）。
+func (s *lifecycleService) SetStageAdvancer(a StageAdvancer) {
+	s.advancer = a
 }
 
 func (s *lifecycleService) GetPolicy(ctx context.Context) (*lifecycledto.PolicyResponse, error) {
@@ -178,14 +191,21 @@ func (s *lifecycleService) ListExpiring(ctx context.Context, q *lifecycledto.Exp
 	}, nil
 }
 
-// RunScanOnce 单轮扫描：到期提醒 → 自动续费。
-// 宽限期/暂停/销毁为派生状态，无需落库推进；阶段二经 provider adapter 联动上游动作。
+// RunScanOnce 单轮扫描：到期提醒 → 自动续费 → 阶段推进（宽限→暂停→销毁）。
+// 阶段推进已落库并幂等（T5.4）：只有阶段变化才执行一次上游/平台动作，重复扫描不重复调用。
 func (s *lifecycleService) RunScanOnce(ctx context.Context) error {
 	if err := s.SendDueReminders(ctx); err != nil {
 		s.logger.Error("send due reminders failed", zap.Error(err))
 	}
 	if err := s.renewalSvc.ProcessAutoRenewals(ctx); err != nil {
 		return err
+	}
+	if s.advancer != nil {
+		if n, err := s.advancer.AdvanceOnce(ctx); err != nil {
+			s.logger.Error("lifecycle advance stages failed", zap.Error(err))
+		} else if n > 0 {
+			s.logger.Info("lifecycle advance stages done", zap.Int("instances", n))
+		}
 	}
 	return nil
 }

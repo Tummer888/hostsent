@@ -20,6 +20,7 @@ import (
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	"hostsent/backend/internal/pkg/money"
 	"hostsent/backend/internal/pkg/pricing"
+	"hostsent/backend/internal/pkg/upstream"
 )
 
 // lifecycleBizTypeRenewal 资金流水业务类型：续费扣款
@@ -49,7 +50,15 @@ type RenewalService interface {
 	CompleteRenewalByOrderID(ctx context.Context, orderID uint64) error
 	// SetCashbackHook 注入续费完成后的推广返现计提钩子（装配层调用）
 	SetCashbackHook(hook RenewalCashbackHook)
+	// SetUpstreamRenewer 注入上游/平台续费执行器（装配层调用，T5.2）
+	SetUpstreamRenewer(renewer UpstreamRenewer)
 }
+
+// UpstreamRenewer 上游/平台续费执行器（装配层注入，避免生命周期模块依赖 provider 模块）。
+//
+// 链路 A（inst.SourceMode=upstream）由适配器调上游续费接口并返回权威新到期时间；
+// 适配器不具备续费能力时返回 upstream.ErrCapabilityMissing，由服务层按链路决定降级。
+type UpstreamRenewer func(ctx context.Context, inst *syncmodel.Instance, periodCount int, cycle string) (*upstream.RenewResult, error)
 
 // RenewalCashbackHook 续费完成后的推广返现计提钩子。
 // 仅传基础类型，避免生命周期模块反向依赖返现模块。
@@ -86,6 +95,7 @@ type renewalService struct {
 	walletSvc    accountservice.WalletService
 	pricingSvc   renewalPriceResolver // 可选：统一算价管线（P5-04）
 	cashbackHook RenewalCashbackHook  // 可选：续费完成后的推广返现计提
+	upstream     UpstreamRenewer      // 可选：上游/平台续费执行器（T5.2）
 	logger       *zap.Logger
 }
 
@@ -122,6 +132,11 @@ func (s *renewalService) SetOrderReader(r lifecycleRenewalGetter) {
 // SetCashbackHook 注入续费完成后的推广返现计提钩子。
 func (s *renewalService) SetCashbackHook(hook RenewalCashbackHook) {
 	s.cashbackHook = hook
+}
+
+// SetUpstreamRenewer 注入上游/平台续费执行器（T5.2）。
+func (s *renewalService) SetUpstreamRenewer(renewer UpstreamRenewer) {
+	s.upstream = renewer
 }
 
 // resolveRenewalQuote 续费算价（P5-04）：命中管线则走统一算价；未注入时回落单价×期数。
@@ -162,7 +177,8 @@ func (s *renewalService) resolveRenewalQuote(ctx context.Context, userID uint64,
 	if final <= 0 {
 		return renewalQuote{}, ErrPolicyInvalid
 	}
-	return renewalQuote{Original: original, Discount: money.Round2(math.Max(0, original-final)), Final: final, Source: source}, nil
+	// Snapshot 落到 jsonb 列：无折扣明细时也必须给合法空数组，否则写库报错。
+	return renewalQuote{Original: original, Discount: money.Round2(math.Max(0, original-final)), Final: final, Source: source, Snapshot: "[]"}, nil
 }
 
 // marshalRenewalSnapshot 折扣快照序列化为 jsonb 文本，失败时退化为空数组。
@@ -577,9 +593,62 @@ func (s *renewalService) payRenewalOrder(ctx context.Context, renewal *lifecycle
 	return s.markRenewalSuccess(ctx, renewal, payMethod, operatorID)
 }
 
-// markRenewalSuccess 完成续费：标记订单已支付 → 续费单 success → 延长实例到期时间。
-// 以续费前到期时间为基准累加（过期实例从当前时间起算），可重复调用（状态机幂等）。
+// markRenewalSuccess 完成续费（T5.2）：上游/平台续费 → 标记订单已支付 → 续费单 success → 落实例到期时间。
+//
+// 链路差异（doc15 §6.2）：
+//   - 链路 A（SourceMode=upstream）：必须调上游续费接口，以上游返回的 NewExpireAt 为权威账期；
+//     上游失败或缺能力时**不得只改本地账期**，直接报错让续费单保持可重试。
+//   - 链路 B（SourceMode=self）：平台无独立续费接口时按本地账期顺延（sync_state=local_only），
+//     平台若实现了续费接口同样调用；平台调用失败则整体失败（本地顺延回滚）。
+//
+// 幂等：可重复调用（状态机幂等；钱包扣款以 renewal_no 为幂等键）。
 func (s *renewalService) markRenewalSuccess(ctx context.Context, renewal *lifecyclemodel.InstanceRenewal, payMethod string, operatorID uint64) error {
+	// 0) 解析实例：链路判据 + provider 实例号（续费必需）。
+	instance, err := s.instanceRepo.GetByID(ctx, renewal.InstanceID)
+	if err != nil {
+		return err
+	}
+	if renewal.ExpireBefore == nil {
+		renewal.ExpireBefore = instance.ExpireAt
+	}
+	if renewal.ExpireBefore == nil {
+		now := time.Now()
+		renewal.ExpireBefore = &now
+	}
+	// 本地顺延账期（链路 B 权威；链路 A 在上游未返回新账期时兜底）。
+	finalExpire := s.nextExpireAt(*renewal.ExpireBefore, renewal.BillingMode, renewal.PeriodCount)
+	syncState := lifecyclemodel.RenewalSyncLocalOnly
+
+	// 1) 上游/平台续费。
+	if s.upstream != nil {
+		res, rerr := s.upstream(ctx, instance, renewal.PeriodCount, renewal.BillingMode)
+		switch {
+		case rerr == nil:
+			syncState = lifecyclemodel.RenewalSyncUpstreamOK
+			if res != nil {
+				renewal.UpstreamOrderID = res.UpstreamOrderRef
+				if !res.NewExpireAt.IsZero() {
+					t := res.NewExpireAt
+					finalExpire = &t
+				}
+			}
+		case errors.Is(rerr, upstream.ErrCapabilityMissing):
+			if instance.SourceMode == syncmodel.SourceModeUpstream {
+				// 链路 A 缺续费能力：显式失败并留痕，绝不静默只改本地账期。
+				s.markRenewalSyncFailed(ctx, renewal, rerr)
+				return fmt.Errorf("上游续费失败：%w", rerr)
+			}
+			// 链路 B：平台无独立续费接口属预期，本地账期顺延。
+			s.logger.Info("renewal upstream not supported, fallback to local period",
+				zap.String("renewal_no", renewal.RenewalNo), zap.Uint64("instance_id", renewal.InstanceID))
+		default:
+			// 平台续费失败（链路 B 亦不放过）：整体失败，本地顺延不生效。
+			s.markRenewalSyncFailed(ctx, renewal, rerr)
+			return fmt.Errorf("上游续费失败：%w", rerr)
+		}
+	}
+
+	// 2) 落订单支付 + 续费单成功 + 实例新账期。
 	if err := s.orderWriter.MarkOrderPaid(ctx, renewal.OrderID, renewal.Amount, payMethod, operatorID); err != nil {
 		return err
 	}
@@ -587,17 +656,9 @@ func (s *renewalService) markRenewalSuccess(ctx context.Context, renewal *lifecy
 	payTime := now
 	renewal.Status = lifecyclemodel.RenewalStatusSuccess
 	renewal.PayTime = &payTime
-	if renewal.ExpireBefore == nil {
-		instance, err := s.instanceRepo.GetByID(ctx, renewal.InstanceID)
-		if err != nil {
-			return err
-		}
-		renewal.ExpireBefore = instance.ExpireAt
-	}
-	if renewal.ExpireBefore == nil {
-		renewal.ExpireBefore = &now
-	}
-	renewal.ExpireAfter = s.nextExpireAt(*renewal.ExpireBefore, renewal.BillingMode, renewal.PeriodCount)
+	renewal.SyncState = syncState
+	renewal.FailReason = ""
+	renewal.ExpireAfter = finalExpire
 	if err := s.renewalRepo.Update(ctx, renewal); err != nil {
 		return err
 	}
@@ -611,8 +672,28 @@ func (s *renewalService) markRenewalSuccess(ctx context.Context, renewal *lifecy
 	s.logger.Info("renewal completed",
 		zap.String("renewal_no", renewal.RenewalNo),
 		zap.Uint64("instance_id", renewal.InstanceID),
+		zap.String("sync_state", syncState),
+		zap.String("upstream_order_id", renewal.UpstreamOrderID),
 		zap.Float64("amount", renewal.Amount))
 	return nil
+}
+
+// markRenewalSyncFailed 记录续费同步失败（留痕，便于运维重试与对账）；写库失败只记日志。
+func (s *renewalService) markRenewalSyncFailed(ctx context.Context, renewal *lifecyclemodel.InstanceRenewal, cause error) {
+	renewal.SyncState = lifecyclemodel.RenewalSyncFailed
+	renewal.FailReason = truncateReason(cause.Error())
+	if err := s.renewalRepo.Update(ctx, renewal); err != nil {
+		s.logger.Warn("record renewal sync failure failed",
+			zap.String("renewal_no", renewal.RenewalNo), zap.Error(err))
+	}
+}
+
+// truncateReason 截断失败原因到 fail_reason 列长（255），避免写库报错。
+func truncateReason(msg string) string {
+	if len(msg) <= 255 {
+		return msg
+	}
+	return msg[:255]
 }
 
 // nextExpireAt 按计费模式计算续费后的到期时间。

@@ -25,13 +25,13 @@
         <t-form-item label="状态">
           <t-select v-model="filters.status" :options="statusOptions" clearable placeholder="全部状态" />
         </t-form-item>
-        <t-form-item>
-          <t-space>
-            <t-button theme="primary" type="submit">查询</t-button>
-            <t-button variant="outline" @click="resetFilters">重置</t-button>
-          </t-space>
-        </t-form-item>
       </t-form>
+      <div class="filter-form__actions">
+        <t-space>
+          <t-button theme="primary" type="submit" @click.prevent="onSearch">查询</t-button>
+          <t-button variant="outline" @click="resetFilters">重置</t-button>
+        </t-space>
+      </div>
     </t-card>
 
     <t-card :bordered="false" class="table-card">
@@ -45,7 +45,16 @@
           <span>{{ row.description || '-' }}</span>
         </template>
         <template #operation="{ row }">
-          <t-space size="small">
+          <MobileAction
+            v-if="isMobile"
+            :options="buildMobileActionOptions([
+              { content: '编辑', value: 'edit' },
+              { content: '权限分配', value: 'permissions' },
+              { content: '删除', value: 'delete', theme: 'error' },
+            ])"
+            @select="(value) => handleMobileAction(value, row)"
+          />
+          <t-space v-else size="small">
             <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
             <t-link theme="primary" hover="color" @click="goPermissions(row.id)">权限分配</t-link>
             <t-popconfirm content="确认删除该角色？已绑定管理员的角色应先解除绑定。" @confirm="removeRole(row.id)">
@@ -103,6 +112,9 @@ import type { FormInstanceFunctions, FormRule, PrimaryTableCol, SubmitContext } 
 import { useRouter } from 'vue-router'
 
 import { createRole, deleteRole, getRoleList, updateRole, type RoleInfo } from '@/api/user'
+import MobileAction from '@/components/mobile-action/index.vue'
+import { buildMobileActionOptions } from '@/composables/useMobileActions'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 defineOptions({ name: 'SystemRoles' })
 
@@ -139,15 +151,17 @@ const rules: Record<string, FormRule[]> = {
   status: [{ required: true, message: '请选择状态', type: 'error' }],
 }
 
-const columns: PrimaryTableCol<RoleInfo>[] = [
+const { isMobile } = useIsMobile()
+
+const columns = computed<PrimaryTableCol<RoleInfo>[]>(() => [
   { colKey: 'id', title: 'ID', width: 80 },
   { colKey: 'name', title: '角色名称', minWidth: 160 },
   { colKey: 'code', title: '角色编码', minWidth: 200 },
   { colKey: 'description', title: '描述', minWidth: 220 },
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'updated_at', title: '更新时间', width: 180 },
-  { colKey: 'operation', title: '操作', width: 220, fixed: 'right' },
-]
+  { colKey: 'operation', title: '操作', width: isMobile.value ? 70 : 220, fixed: 'right' },
+])
 
 const filteredRoles = computed(() => {
   const keyword = filters.keyword.trim().toLowerCase()
@@ -256,9 +270,31 @@ function goPermissions(id: number) {
 }
 
 onMounted(loadRoles)
+function handleMobileAction(value: string | number | Record<string, any>, row: RoleInfo) {
+  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '');
+  switch (action) {
+    case 'edit':
+      openEdit(row)
+      break
+    case 'permissions':
+      goPermissions(row.id)
+      break
+    case 'delete':
+      void removeRole(row.id)
+      break
+  }
+}
 </script>
 
 <style scoped>
+.filter-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--td-brand-color-1);
+}
+
 @import '../shared.css';
 
 .page-container {

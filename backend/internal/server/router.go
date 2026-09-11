@@ -259,6 +259,8 @@ func newRouter(app *App) *gin.Engine {
 			instanceOps.GET("/:id/related", app.perm("resource:instance"), app.instanceOpsHandler.Related)
 			instanceOps.POST("/:id/sync", app.perm("instance:action"), app.instanceOpsHandler.Sync)
 			instanceOps.POST("/:id/power", app.perm("instance:action"), app.instanceOpsHandler.Power)
+			instanceOps.POST("/:id/suspend", app.perm("instance:action"), app.instanceOpsHandler.Suspend)
+			instanceOps.POST("/:id/unsuspend", app.perm("instance:action"), app.instanceOpsHandler.Unsuspend)
 			instanceOps.PUT("/:id/remark", app.perm("instance:action"), app.instanceOpsHandler.SetRemark)
 			instanceOps.POST("/:id/vnc", app.perm("instance:console"), app.instanceOpsHandler.VNC)
 			instanceOps.POST("/:id/resize", app.perm("instance:resize"), app.instanceOpsHandler.Resize)

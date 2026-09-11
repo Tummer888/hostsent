@@ -140,6 +140,7 @@ type Server struct {
 	http               *http.Server
 	scheduler          *syncservice.Scheduler
 	lifecycleScheduler *lifecycleservice.LifecycleScheduler
+	provisionWorker    *orderservice.ProvisionWorker
 	cancel             context.CancelFunc
 }
 
@@ -172,6 +173,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	orderRepo := orderrepo.NewOrderRepository(database)
 	orderItemRepo := orderrepo.NewOrderItemRepository(database)
 	orderRefundRepo := orderrepo.NewRefundRepository(database)
+	// 开通履约任务表（T5.1）：下单只投递任务，工作池异步执行上游开通（约 50s > write_timeout）。
+	provisionTaskRepo := orderrepo.NewProvisionTaskRepository(database)
 	// 财务域
 	walletTxRepo := fintransactionrepo.NewTransactionRepository(database)
 	walletRepo := finaccountrepo.NewWalletRepository(database)
@@ -350,6 +353,10 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		})
 	// 订单履约：上游开通适配器（打通订单 paid/provisioning → 上游创建实例）
 	orderService := orderservice.NewOrderService(orderRepo, orderItemRepo, orderRefundRepo, orderservice.NewUpstreamProvisionAdapter(buildOrderProvisionDeps(prodCatalogService, providerService, upstreamMgr, syncRepo)))
+	// 异步开通（T5.1）：下单/后台重试只投递任务，工作池领取后执行上游开通（约 50s > write_timeout）。
+	provisionEnqueuer := orderservice.NewProvisionEnqueuer(provisionTaskRepo, logger)
+	orderService.SetProvisionQueue(provisionEnqueuer)
+	orderService.SetProductSourceModeResolver(buildProductSourceModeResolver(prodCatalogService))
 	// 订单开通成功 → 给邀请人计提返现（失败只记日志，不影响订单）。
 	orderService.SetCashbackHook(func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, baseAmount float64, isRenewal bool) error {
 		if err := referralSvc.AccrueForOrder(ctx, referralservice.AccrualInput{
@@ -411,7 +418,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 				PriceSnapshot:  "[]",
 				Status:         ordermodel.OrderStatusPending,
 			}
-			// 余额支付：扣款 + 标记已支付 + 触发开通
+			// 余额支付：扣款 + 标记已支付 + 投递开通任务（T5.1 异步履约）。
 			if payMode == "balance" {
 				if _, err := walletService.Adjust(ctx, accountdto.AdjustRequest{
 					UserID: userID, Type: "order", Direction: -1, Amount: price,
@@ -436,8 +443,9 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 				BillingCycle: cycle, TotalAmount: price, Status: order.Status, PayMethod: order.PayMethod,
 			}
 			if payMode == "balance" {
-				if err := orderService.Activate(ctx, order.ID); err == nil {
-					brief.Status = ordermodel.OrderStatusActive
+				// 异步开通：投递任务即返回 paid，前端/后台按订单状态轮询（T5.1）。
+				if err := provisionEnqueuer.EnqueueProvision(ctx, order, product.SourceMode); err == nil {
+					brief.Status = ordermodel.OrderStatusPaid
 				}
 			}
 			return brief, nil
@@ -505,6 +513,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		orderItemRepo,      // 订单项落库：行级折扣快照（P5-04）
 		pricePipeline,      // 统一算价管线（P5-03/P5-04）
 		prodCatalogService, // SKU 读取与库存增减（T4.1，按 SKU 下单）
+		provisionEnqueuer,  // 异步开通任务投递（T5.1）
+		provisionTaskRepo,  // 开通任务状态查询（订单列表轮询展示）
 	)
 	ucOrderHandler := ucorderhandler.NewOrderHandler(ucOrderService)
 	// 用户中心主机管理：列表/详情/电源/VNC（复用上游适配器）
@@ -559,6 +569,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	lifecycleInstanceReader := lifecyclerepo.NewInstanceReader(database)
 	lifecycleOrderWriter := lifecyclerepo.NewOrderWriter(database)
 	lifecycleRenewalSvc := lifecycleservice.NewRenewalService(database, lifecycleRenewalRepo, lifecyclePolicyRepo, lifecycleAutoRepo, lifecycleInstanceReader, lifecycleOrderWriter, walletService, pricePipeline, logger)
+	// 续费接上游/平台（T5.2）：链路 A 以上游返回账期为权威，链路 B 回落本地顺延。
+	lifecycleRenewalSvc.SetUpstreamRenewer(buildUpstreamRenewer(providerService, upstreamMgr))
 	// 续费完成 → 给邀请人按续费比率计提返现。
 	lifecycleRenewalSvc.SetCashbackHook(func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, amount float64, isRenewal bool) error {
 		if err := referralSvc.AccrueForOrder(ctx, referralservice.AccrualInput{
@@ -575,6 +587,13 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	lifecycleAdminHandler := lifecyclehandler.NewLifecycleAdminHandler(lifecycleSvc, lifecycleRenewalSvc)
 	lifecycleUserHandler := lifecyclehandler.NewLifecycleUserHandler(lifecycleSvc, lifecycleRenewalSvc)
 	lifecycleScheduler := lifecycleservice.NewLifecycleScheduler(lifecycleSvc, logger)
+	// 生命周期阶段推进器（T5.4）：宽限→暂停→销毁幂等落库；审计写入实例运维流水。
+	lifecycleAdvancer := buildLifecycleAdvancer(
+		lifecycleInstanceReader, lifecyclePolicyRepo,
+		providerService, upstreamMgr,
+		&stageActionRecorderBridge{svc: instanceOpsService},
+		logger,
+	)
 	// 通知与消息中心（doc70）
 	notifyRepo := notifyrepo.NewNotificationRepository(database)
 	notifyTplRepo := notifyrepo.NewTemplateRepository(database)
@@ -592,10 +611,19 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	ucSiteHandler := ucsitehandler.NewSiteHandler(ucSiteService)
 	// 生命周期 Notifier 桥接：替换 noopNotifier 为通知中心
 	lifecycleSvc.SetNotifier(&lifecycleNotifierBridge{notifySvc: notifySvc, logger: logger})
+	// 生命周期阶段推进器注入（T5.4）：能力缺失告警复用开通失败告警通道。
+	lifecycleAdvancer.SetCapabilityNotifier(buildStageCapabilityNotifier(notifySvc, logger))
+	lifecycleSvc.SetStageAdvancer(lifecycleAdvancer)
 	// 工单 Notifier 桥接（P2-04）：回复/状态通知用户，指派通知员工
 	ticketService.SetNotifier(&ticketNotifierBridge{notifySvc: notifySvc, logger: logger})
 	// 调价待确认通知桥接（T3.4）：上游改价超阈值时提醒运维处理
 	syncEngine.SetNotifier(&priceChangeNotifierBridge{notifySvc: notifySvc, logger: logger})
+	// 开通履约工作池（T5.1）：连续失败转人工队列时向管理端告警。
+	provisionWorker := orderservice.NewProvisionWorker(
+		provisionTaskRepo, orderService,
+		(&provisionManualNotifier{notifySvc: notifySvc, logger: logger}).Notify,
+		logger, orderservice.ProvisionWorkerOptions{},
+	)
 	// 订单支付成功钩子（doc60）：续费订单支付完成后联动完成续费并延长到期时间
 	// doc70：支付成功后发布通知
 	orderservice.OnPaid = func(ctx context.Context, order *ordermodel.Order) {
@@ -638,6 +666,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		},
 		scheduler:          scheduler,
 		lifecycleScheduler: lifecycleScheduler,
+		provisionWorker:    provisionWorker,
 	}, nil
 }
 
@@ -647,6 +676,7 @@ func (s *Server) Run() error {
 	defer cancel()
 	s.scheduler.Start(ctx)
 	s.lifecycleScheduler.Start(ctx)
+	s.provisionWorker.Start(ctx)
 	s.logger.Info("server starting", zap.String("addr", s.http.Addr), zap.String("name", s.cfg.App.Name))
 	return s.http.ListenAndServe()
 }
@@ -724,8 +754,77 @@ func (b *priceChangeNotifierBridge) NotifyPriceChangePending(ctx context.Context
 	return err
 }
 
+// buildProductSourceModeResolver 返回商品链路判据解析（T5.1 任务留痕用）：
+// 读不到商品时返回空串，不影响开通投递。
+func buildProductSourceModeResolver(catalog catalogservice.ProductService) func(ctx context.Context, productID uint64) string {
+	return func(ctx context.Context, productID uint64) string {
+		product, err := catalog.FindByID(ctx, productID)
+		if err != nil || product == nil {
+			return ""
+		}
+		return product.SourceMode
+	}
+}
+
+// provisionManualNotifier 桥接开通任务连续失败告警到通知中心（T5.1）。
+// 复用 system 事件避免为一个提示新增模板（与调价待确认一致）。
+type provisionManualNotifier struct {
+	notifySvc notifyservice.NotificationService
+	logger    *zap.Logger
+}
+
+// Notify 发布"开通失败转人工"管理端站内信；发布失败只记日志，不影响工作池。
+func (b *provisionManualNotifier) Notify(ctx context.Context, task *ordermodel.ProvisionTask) {
+	if task == nil {
+		return
+	}
+	err := b.notifySvc.Publish(ctx, notifydto.PublishInput{
+		Event:  notifymodel.EventSystem,
+		Target: notifymodel.TargetAdmin,
+		Vars: map[string]string{
+			"title": "订单开通失败待人工处理",
+			"content": fmt.Sprintf("订单 #%d（用户 #%d）连续 %d 次开通失败，已转入人工队列：%s。请前往「订单管理」重试或联系上游排查。",
+				task.OrderID, task.UserID, task.Attempts, task.LastError),
+		},
+		SourceModule: "order",
+		SourceID:     fmt.Sprintf("provision-manual-%d", task.OrderID),
+	})
+	if err != nil {
+		b.logger.Warn("publish provision manual notification failed",
+			zap.Uint64("order_id", task.OrderID), zap.Error(err))
+	}
+}
+
+// buildStageCapabilityNotifier 阶段推进遇上游缺能力时的显式告警（T5.4/T5.5）。
+//
+// 语义：平台确实不支持暂停/销毁时，推进器只落阶段并告警，必须让运营可见，
+// 避免"看起来已暂停"的静默假完成。告警复用 system 事件，不新增模板。
+func buildStageCapabilityNotifier(notifySvc notifyservice.NotificationService, logger *zap.Logger) lifecycleservice.StageCapabilityNotifier {
+	return func(ctx context.Context, inst *syncmodel.Instance, stage string, cause error) {
+		if inst == nil {
+			return
+		}
+		err := notifySvc.Publish(ctx, notifydto.PublishInput{
+			Event:  notifymodel.EventSystem,
+			Target: notifymodel.TargetAdmin,
+			Vars: map[string]string{
+				"title": "实例到期处置缺少上游能力",
+				"content": fmt.Sprintf("实例 #%d（用户 #%d，服务商 #%d）进入阶段 %s 时上游不支持对应操作，已仅落库标记，需人工跟进：%v。",
+					inst.ID, inst.UserID, inst.ProviderID, stage, cause),
+			},
+			SourceModule: "lifecycle",
+			SourceID:     fmt.Sprintf("lifecycle-capability-%d-%s", inst.ID, stage),
+		})
+		if err != nil {
+			logger.Warn("publish lifecycle capability notification failed",
+				zap.Uint64("instance_id", inst.ID), zap.String("stage", stage), zap.Error(err))
+		}
+	}
+}
+
 // buildRecordedInstance 将标准实例转换为同步实例记录（订单履约开通成功后落库）。
-func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order) syncmodel.Instance {
+// sourceMode 为商品链路判据（D6），upstreamProductID 为代理商品对应的上游资源商品 ID。
+func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order, sourceMode string, upstreamProductID uint64) syncmodel.Instance {
 	rawJSON, _ := json.Marshal(inst.RawData)
 	// 规格回落（T4.1）：上游详情拉取失败时适配器只返回最小实例（规格为空），
 	// 此时用订单规格快照（SKU 原子取值 JSON）补齐，保证实例列表能显示下单所选配置。
@@ -734,6 +833,9 @@ func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order
 		if snapshot := specsFromOrder(order); snapshot != nil && (snapshot.CPU > 0 || snapshot.Memory > 0 || snapshot.Disk > 0) {
 			specs = *snapshot
 		}
+	}
+	if sourceMode == "" {
+		sourceMode = syncmodel.SourceModeSelf
 	}
 	row := syncmodel.Instance{
 		InstanceID:  inst.UpstreamID,
@@ -758,10 +860,13 @@ func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order
 		ActorUserID: order.OperatorID,
 		// 记录来源订单，实例运维台据此展示关联订单（见 61 实施计划 §4.1）。
 		OrderID: order.ID,
-		// 双链路语义（P1/T1.2）：经订单开通 = 自营链路，售出商品为 order.ProductID
-		// （products.id）；provider_instance_id 同步记录平台实例号。
-		SourceMode:         syncmodel.SourceModeSelf,
+		// 双链路语义（P1/T1.2，D6）：判据取自商品 source_mode，而非"是否经订单开通"
+		//——代理商品（upstream）经订单开通后仍是上游链路实例，续费/暂停/销毁须调上游。
+		// sell_product_id 恒为我方售出的 products.id（续费算价与展示的权威来源）；
+		// 上游链路另记 upstream_product_id（resource_products.id）便于对账与回溯源。
+		SourceMode:         sourceMode,
 		SellProductID:      order.ProductID,
+		UpstreamProductID:  upstreamProductID,
 		ProviderInstanceID: inst.UpstreamID,
 	}
 	if !inst.ExpireAt.IsZero() {
