@@ -652,8 +652,9 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	memberHandler := memberhandler.NewMemberHandler(memberService)
 	// 开放平台（P6）：网关与处理器集合，单一 Bundle 字段挂 App。
 	// 目录服务复用 uc 商品（上架口径）、spec 契约字典与统一算价管线（D3）；
-	// 代客下单复用 UC 下单管线（余额扣 owner、SKU/库存/算价/履约投递同一条路径）。
-	openBundle := buildOpenBundle(cfg, database, ucProductService, ucOrderService, specContractRepo, pricePipeline, logger)
+	// 代客下单复用 UC 下单管线（余额扣 owner、SKU/库存/算价/履约投递同一条路径）；
+	// 实例接口复用实例运维台（电源/暂停/审计）与生命周期续费（双链路，T5.2）。
+	openBundle := buildOpenBundle(cfg, database, ucProductService, ucOrderService, instanceOpsService, lifecycleRenewalSvc, specContractRepo, pricePipeline, logger)
 	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, logger, jwtIssuer)
 	router := newRouter(app)
 

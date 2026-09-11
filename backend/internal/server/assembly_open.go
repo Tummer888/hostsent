@@ -7,6 +7,8 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	instanceservice "hostsent/backend/internal/modules/admin/instance/service"
+	lifecycleservice "hostsent/backend/internal/modules/admin/lifecycle/service"
 	specrepo "hostsent/backend/internal/modules/admin/product/spec/repository"
 	openhandler "hostsent/backend/internal/modules/open/handler"
 	openrepo "hostsent/backend/internal/modules/open/repository"
@@ -17,12 +19,14 @@ import (
 	"hostsent/backend/internal/pkg/pricing"
 )
 
-// buildOpenBundle 装配开放平台处理器集合（网关 + 目录服务 + 代客下单）。
+// buildOpenBundle 装配开放平台处理器集合（网关 + 目录/下单/实例服务）。
 func buildOpenBundle(
 	cfg *config.Config,
 	db *gorm.DB,
 	ucProducts ucproductservice.ProductService,
 	ucOrders ucorderservice.OrderService,
+	instanceOps instanceservice.InstanceService,
+	renewals lifecycleservice.RenewalService,
 	specAtoms specrepo.SpecContractRepository,
 	pricePipeline *pricing.Service,
 	logger *zap.Logger,
@@ -44,6 +48,13 @@ func buildOpenBundle(
 	bundle.SetOrder(openservice.NewOpenOrderService(openservice.OrderDeps{
 		Orders:   ucOrders,
 		Requests: openrepo.NewOpenRequestRepository(db),
+	}))
+	// 实例（T6.4）：查询按 owner 隔离走独立仓储；电源/暂停/续费复用实例运维台与生命周期续费
+	//（含运维审计、上游能力分派 SuspendWithFallback 与双链路上游续费）。
+	bundle.SetInstance(openservice.NewOpenInstanceService(openservice.InstanceDeps{
+		Repo:     openrepo.NewInstanceRepository(db),
+		Ops:      instanceOps,
+		Renewals: renewals,
 	}))
 	return bundle
 }

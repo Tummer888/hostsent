@@ -279,6 +279,56 @@ def run_t63(c: OpenClient):
     return {"order_no": order.get("order_no"), "request_id": req_id}
 
 
+# ---------------------------------------------------------------------------
+# T6.4 实例接口
+# ---------------------------------------------------------------------------
+
+def run_t64(c: OpenClient):
+    print("== T6.4 实例接口 ==")
+
+    # 等待 T6.3 订单的实例开通完成（异步履约，最多 60s）
+    inst = None
+    for _ in range(30):
+        status, resp = c.request("GET", "/open/v1/instances", query={"page": 1, "page_size": 50})
+        data = resp.get("data") or {}
+        items = data.get("items") or []
+        inst = next((it for it in items if it.get("order_id") and it.get("source_mode") == "self"), None)
+        if inst:
+            break
+        time.sleep(2)
+    check("实例列表可见 T6.3 开通的实例", inst is not None, f"{resp}")
+
+    inst_id = inst["id"] if inst else 0
+    if inst_id:
+        status, resp = c.request("GET", f"/open/v1/instances/{inst_id}")
+        check("实例详情返回 0", code_of(resp) == 0 and (resp.get("data") or {}).get("id") == inst_id, f"{resp}")
+
+        status, resp = c.request("GET", "/open/v1/instances/999999")
+        check("不存在/不归属实例返回 40404", code_of(resp) == 40404, f"{resp}")
+
+        status, resp = c.request("POST", f"/open/v1/instances/{inst_id}/power", body={"action": "off"})
+        check("电源关机返回 0", code_of(resp) == 0, f"{resp}")
+
+        status, resp = c.request("POST", f"/open/v1/instances/{inst_id}/power", body={"action": "explode"})
+        check("非法电源动作返回 40001", code_of(resp) == 40001, f"{resp}")
+
+        status, resp = c.request("POST", f"/open/v1/instances/{inst_id}/suspend", body={"reason": "e2e-suspend"})
+        check("暂停实例返回 0", code_of(resp) == 0, f"{resp}")
+
+        status, resp = c.request("POST", f"/open/v1/instances/{inst_id}/unsuspend")
+        check("恢复实例返回 0", code_of(resp) == 0, f"{resp}")
+
+        status, resp = c.request("POST", f"/open/v1/instances/{inst_id}/renew", body={"period_count": 1})
+        check("续费返回 0（双链路续费）", code_of(resp) == 0, f"{resp}")
+        renewal = (resp.get("data") or {}).get("renewal") or {}
+        check("续费单金额>0（折扣口径由 DB 断言）", renewal.get("amount", 0) > 0, f"{renewal}")
+
+    # D2：DELETE 必须返回明确的「不支持」
+    status, resp = c.request("DELETE", f"/open/v1/instances/{inst_id or 1}")
+    check("DELETE /instances/{id} 返回 40009（D2）", code_of(resp) == 40009, f"{resp}")
+    check("DELETE 响应明确说明不支持销毁", "不支持" in (resp.get("message") or ""), f"{resp}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--app-id", required=True)
@@ -299,6 +349,8 @@ def main():
             run_t62_scope_denied(OpenClient(args.readonly_app_id, args.readonly_app_secret))
     if only in ("all", "t63"):
         run_t63(client)
+    if only in ("all", "t64"):
+        run_t64(client)
 
     print(f"\n结果：PASS={PASS} FAIL={FAIL}")
     if FAILED:

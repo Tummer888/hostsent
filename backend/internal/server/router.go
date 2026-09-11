@@ -690,6 +690,15 @@ func newRouter(app *App) *gin.Engine {
 		openV1.POST("/quote", app.open.RequireScope("catalog:read"), app.open.Quote)
 		// 代客下单（T6.3，能力位 order:create）：幂等键走 X-Client-Request-Id 头（doc16 §8.5）。
 		openV1.POST("/orders", app.open.RequireScope("order:create"), app.open.CreateOrder)
+		// 实例接口（T6.4）：查询/续费/电源/暂停恢复，按能力位细分；
+		// D2 安全边界：DELETE 显式注册并固定返回 40009「不支持」（开放平台无销毁能力）。
+		openV1.GET("/instances", app.open.RequireScope("instance:read"), app.open.ListInstances)
+		openV1.GET("/instances/:id", app.open.RequireScope("instance:read"), app.open.GetInstance)
+		openV1.POST("/instances/:id/renew", app.open.RequireScope("instance:renew"), app.open.RenewInstance)
+		openV1.POST("/instances/:id/power", app.open.RequireScope("instance:power"), app.open.PowerInstance)
+		openV1.POST("/instances/:id/suspend", app.open.RequireScope("instance:suspend"), app.open.SuspendInstance)
+		openV1.POST("/instances/:id/unsuspend", app.open.RequireScope("instance:suspend"), app.open.UnsuspendInstance)
+		openV1.DELETE("/instances/:id", app.open.DeleteInstance)
 	}
 
 	return r

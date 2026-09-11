@@ -14,15 +14,16 @@ import (
 	"hostsent/backend/internal/pkg/response"
 )
 
-// Bundle 开放平台处理器集合。后续任务（T6.4～T6.6）的业务服务挂在同一结构上。
+// Bundle 开放平台处理器集合。后续任务（T6.5～T6.6）的业务服务挂在同一结构上。
 type Bundle struct {
-	gw      *service.Gateway
-	catalog *service.CatalogService
-	order   *service.OpenOrderService
-	logger  *zap.Logger
+	gw       *service.Gateway
+	catalog  *service.CatalogService
+	order    *service.OpenOrderService
+	instance *service.OpenInstanceService
+	logger   *zap.Logger
 }
 
-// NewBundle 构造处理器集合（catalog 服务可后置注入）。
+// NewBundle 构造处理器集合（业务服务可后置注入）。
 func NewBundle(gw *service.Gateway, logger *zap.Logger) *Bundle {
 	return &Bundle{gw: gw, logger: logger}
 }
@@ -32,6 +33,9 @@ func (b *Bundle) SetCatalog(catalog *service.CatalogService) { b.catalog = catal
 
 // SetOrder 注入代客下单服务（T6.3）。
 func (b *Bundle) SetOrder(order *service.OpenOrderService) { b.order = order }
+
+// SetInstance 注入实例服务（T6.4）。
+func (b *Bundle) SetInstance(instance *service.OpenInstanceService) { b.instance = instance }
 
 // Audit 请求/响应审计（分组最外层）。
 func (b *Bundle) Audit() gin.HandlerFunc { return b.gw.Audit() }
@@ -151,6 +155,98 @@ func (b *Bundle) CreateOrder(c *gin.Context) {
 		return
 	}
 	response.Success(c, result)
+}
+
+// ListInstances GET /open/v1/instances（T6.4）
+func (b *Bundle) ListInstances(c *gin.Context) {
+	app := service.AppFromContext(c)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	resp, err := b.instance.List(c.Request.Context(), app.App.OwnerUserID, c.Query("status"), page, pageSize)
+	if err != nil {
+		response.Error(c, toAppError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// GetInstance GET /open/v1/instances/:id
+func (b *Bundle) GetInstance(c *gin.Context) {
+	app := service.AppFromContext(c)
+	id := parseUint64(c.Param("id"))
+	if id == 0 {
+		response.Error(c, apperrors.New(service.CodeOpenParam, "id 非法"))
+		return
+	}
+	item, err := b.instance.Get(c.Request.Context(), app.App.OwnerUserID, id)
+	if err != nil {
+		response.Error(c, toAppError(err))
+		return
+	}
+	response.Success(c, item)
+}
+
+// RenewInstance POST /open/v1/instances/:id/renew
+func (b *Bundle) RenewInstance(c *gin.Context) {
+	var req dto.RenewInstanceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(service.CodeOpenParam, err.Error()))
+		return
+	}
+	app := service.AppFromContext(c)
+	resp, err := b.instance.Renew(c.Request.Context(), app, parseUint64(c.Param("id")), req)
+	if err != nil {
+		response.Error(c, toAppError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// PowerInstance POST /open/v1/instances/:id/power
+func (b *Bundle) PowerInstance(c *gin.Context) {
+	var req dto.PowerInstanceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(service.CodeOpenParam, err.Error()))
+		return
+	}
+	app := service.AppFromContext(c)
+	if err := b.instance.Power(c.Request.Context(), app, parseUint64(c.Param("id")), req.Action); err != nil {
+		response.Error(c, toAppError(err))
+		return
+	}
+	response.SuccessMessage(c, "电源操作已执行")
+}
+
+// SuspendInstance POST /open/v1/instances/:id/suspend
+func (b *Bundle) SuspendInstance(c *gin.Context) {
+	var req dto.SuspendInstanceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		req = dto.SuspendInstanceRequest{}
+	}
+	app := service.AppFromContext(c)
+	if err := b.instance.Suspend(c.Request.Context(), app, parseUint64(c.Param("id")), req.Reason); err != nil {
+		response.Error(c, toAppError(err))
+		return
+	}
+	response.SuccessMessage(c, "实例已暂停")
+}
+
+// UnsuspendInstance POST /open/v1/instances/:id/unsuspend
+func (b *Bundle) UnsuspendInstance(c *gin.Context) {
+	app := service.AppFromContext(c)
+	if err := b.instance.Unsuspend(c.Request.Context(), app, parseUint64(c.Param("id"))); err != nil {
+		response.Error(c, toAppError(err))
+		return
+	}
+	response.SuccessMessage(c, "实例已恢复")
+}
+
+// DeleteInstance DELETE /open/v1/instances/:id —— D2 安全边界：显式注册并固定拒绝，
+// 让下游得到明确的「不支持」而不是 404/权限错误（验收专门断言本响应）。
+func (b *Bundle) DeleteInstance(c *gin.Context) {
+	_ = b.instance // 网关鉴权后到达；响应与实例服务无关，恒为不支持
+	response.Error(c, apperrors.New(service.CodeOpenUnsupported,
+		"销毁不支持：实例销毁仅限平台侧人工操作"))
 }
 
 // toAppError 业务错误透传 AppError，其余按内部错误。
