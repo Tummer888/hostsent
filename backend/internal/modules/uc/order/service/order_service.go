@@ -303,6 +303,12 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 		PayTime:        &now,
 		OperatorID:     actorID, // 真实操作人（子账号下单可追溯，P4-09）
 	}
+	// 开放平台代客下单（P6/T6.3）：渠道归属由 open 模块程序化注入，UC 自有路由为空值。
+	if req.ChannelMeta.Channel != "" {
+		order.Channel = req.ChannelMeta.Channel
+		order.OpenAppID = req.ChannelMeta.OpenAppID
+		order.ChannelCustomerRef = req.ChannelMeta.ChannelCustomerRef
+	}
 	if err := s.orderRepo.Create(ctx, order); err != nil {
 		return nil, err
 	}

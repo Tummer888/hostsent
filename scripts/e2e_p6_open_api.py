@@ -233,6 +233,52 @@ def run_t62_scope_denied(c_readonly: OpenClient):
     check("无 catalog:read 访问 spec-atoms 返回 40301", code_of(resp) == 40301, f"{resp}")
 
 
+# ---------------------------------------------------------------------------
+# T6.3 代客下单
+# ---------------------------------------------------------------------------
+
+def run_t63(c: OpenClient):
+    print("== T6.3 代客下单 ==")
+
+    # 正常下单（幂等键 + customer_ref）
+    req_id = "e2e-order-" + uuid.uuid4().hex
+    status, resp = c.request("POST", "/open/v1/orders",
+                             body={"product_id": 1, "quantity": 1, "customer_ref": "cust-e2e-001"},
+                             headers_extra={"X-Client-Request-Id": req_id})
+    data = resp.get("data") or {}
+    order = data.get("order") or {}
+    check("下单返回 0 且订单号非空", code_of(resp) == 0 and order.get("order_no"), f"{resp}")
+    check("下单后状态为 paid（异步开通）", order.get("status") in ("paid", "provisioning", "active"), f"{order}")
+    check("下单实付=0.85 折扣价", abs(order.get("paid_amount", 0) - round(order.get("original_amount", 0) * 0.85, 2)) < 0.011, f"{order}")
+    check("首次响应 idempotently_replayed=False", data.get("idempotently_replayed") is False, f"{data}")
+
+    # 同幂等键重放：返回同一订单、不重复扣款
+    status, resp = c.request("POST", "/open/v1/orders",
+                             body={"product_id": 1, "quantity": 1, "customer_ref": "cust-e2e-001"},
+                             headers_extra={"X-Client-Request-Id": req_id})
+    data2 = resp.get("data") or {}
+    order2 = data2.get("order") or {}
+    check("重放返回同一订单", code_of(resp) == 0 and order2.get("order_no") == order.get("order_no"), f"{resp}")
+    check("重放标记 idempotently_replayed=True", data2.get("idempotently_replayed") is True, f"{data2}")
+
+    # 缺幂等键
+    status, resp = c.request("POST", "/open/v1/orders", body={"product_id": 1, "quantity": 1})
+    check("缺幂等键返回 40001", code_of(resp) == 40001, f"{resp}")
+
+    # 失败快照：不存在商品 → 40404；同键重放返回同样 40404（不隐式重执行）
+    bad_id = "e2e-bad-" + uuid.uuid4().hex
+    status, resp = c.request("POST", "/open/v1/orders",
+                             body={"product_id": 999999, "quantity": 1},
+                             headers_extra={"X-Client-Request-Id": bad_id})
+    check("不存在商品下单返回 40404", code_of(resp) == 40404, f"{resp}")
+    status, resp = c.request("POST", "/open/v1/orders",
+                             body={"product_id": 999999, "quantity": 1},
+                             headers_extra={"X-Client-Request-Id": bad_id})
+    check("失败快照重放返回同样 40404", code_of(resp) == 40404, f"{resp}")
+
+    return {"order_no": order.get("order_no"), "request_id": req_id}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--app-id", required=True)
@@ -251,6 +297,8 @@ def main():
         run_t62(client)
         if args.readonly_app_id and args.readonly_app_secret:
             run_t62_scope_denied(OpenClient(args.readonly_app_id, args.readonly_app_secret))
+    if only in ("all", "t63"):
+        run_t63(client)
 
     print(f"\n结果：PASS={PASS} FAIL={FAIL}")
     if FAILED:

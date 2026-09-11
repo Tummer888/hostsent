@@ -14,10 +14,11 @@ import (
 	"hostsent/backend/internal/pkg/response"
 )
 
-// Bundle 开放平台处理器集合。后续任务（T6.3～T6.6）的业务服务挂在同一结构上。
+// Bundle 开放平台处理器集合。后续任务（T6.4～T6.6）的业务服务挂在同一结构上。
 type Bundle struct {
 	gw      *service.Gateway
 	catalog *service.CatalogService
+	order   *service.OpenOrderService
 	logger  *zap.Logger
 }
 
@@ -28,6 +29,9 @@ func NewBundle(gw *service.Gateway, logger *zap.Logger) *Bundle {
 
 // SetCatalog 注入目录服务（T6.2）。
 func (b *Bundle) SetCatalog(catalog *service.CatalogService) { b.catalog = catalog }
+
+// SetOrder 注入代客下单服务（T6.3）。
+func (b *Bundle) SetOrder(order *service.OpenOrderService) { b.order = order }
 
 // Audit 请求/响应审计（分组最外层）。
 func (b *Bundle) Audit() gin.HandlerFunc { return b.gw.Audit() }
@@ -129,6 +133,24 @@ func (b *Bundle) Quote(c *gin.Context) {
 		return
 	}
 	response.Success(c, info)
+}
+
+// CreateOrder POST /open/v1/orders（代客下单，T6.3）
+func (b *Bundle) CreateOrder(c *gin.Context) {
+	var req dto.OpenOrderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(service.CodeOpenParam, err.Error()))
+		return
+	}
+	// 幂等键从请求头注入（doc16 §8.5）。
+	req.ClientRequestID = c.GetHeader(service.HeaderClientRequestID)
+	app := service.AppFromContext(c)
+	result, err := b.order.Create(c.Request.Context(), app, req)
+	if err != nil {
+		response.Error(c, toAppError(err))
+		return
+	}
+	response.Success(c, result)
 }
 
 // toAppError 业务错误透传 AppError，其余按内部错误。

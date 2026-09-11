@@ -9,6 +9,17 @@ type CreateRequest struct {
 	// SpecCode 规格变体编码（SKU，T4.1）；商品挂有规格时必填，未挂规格可留空。
 	SpecCode string `json:"spec_code"`
 	Quantity int    `json:"quantity"`
+	// ChannelMeta 开放平台代客下单渠道信息（P6/T6.3）。仅由 open 模块程序化注入，
+	// json:"-" 保证 UC 自有 HTTP 路由无法伪造渠道标记。
+	ChannelMeta ChannelMeta `json:"-"`
+}
+
+// ChannelMeta 下单渠道归属：channel='open' 的订单由下游应用代客下单，
+// open_app_id 指向 open_apps.id，customer_ref 存下游自己的终端客户标识。
+type ChannelMeta struct {
+	Channel            string
+	OpenAppID          uint64
+	ChannelCustomerRef string
 }
 
 // OrderInfo 用户可见订单信息。

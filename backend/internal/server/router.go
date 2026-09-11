@@ -688,6 +688,8 @@ func newRouter(app *App) *gin.Engine {
 		openV1.GET("/regions", app.open.RequireScope("catalog:read"), app.open.ListRegions)
 		openV1.GET("/images", app.open.RequireScope("catalog:read"), app.open.ListImages)
 		openV1.POST("/quote", app.open.RequireScope("catalog:read"), app.open.Quote)
+		// 代客下单（T6.3，能力位 order:create）：幂等键走 X-Client-Request-Id 头（doc16 §8.5）。
+		openV1.POST("/orders", app.open.RequireScope("order:create"), app.open.CreateOrder)
 	}
 
 	return r

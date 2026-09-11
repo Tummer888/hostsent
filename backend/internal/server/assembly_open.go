@@ -11,16 +11,18 @@ import (
 	openhandler "hostsent/backend/internal/modules/open/handler"
 	openrepo "hostsent/backend/internal/modules/open/repository"
 	openservice "hostsent/backend/internal/modules/open/service"
+	ucorderservice "hostsent/backend/internal/modules/uc/order/service"
 	ucproductservice "hostsent/backend/internal/modules/uc/product/service"
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/pricing"
 )
 
-// buildOpenBundle 装配开放平台处理器集合（网关 + 目录服务）。
+// buildOpenBundle 装配开放平台处理器集合（网关 + 目录服务 + 代客下单）。
 func buildOpenBundle(
 	cfg *config.Config,
 	db *gorm.DB,
 	ucProducts ucproductservice.ProductService,
+	ucOrders ucorderservice.OrderService,
 	specAtoms specrepo.SpecContractRepository,
 	pricePipeline *pricing.Service,
 	logger *zap.Logger,
@@ -38,6 +40,10 @@ func buildOpenBundle(
 		Products: ucProducts,
 		Catalog:  openrepo.NewCatalogRepository(db),
 		Pricing:  pricePipeline,
+	}))
+	bundle.SetOrder(openservice.NewOpenOrderService(openservice.OrderDeps{
+		Orders:   ucOrders,
+		Requests: openrepo.NewOpenRequestRepository(db),
 	}))
 	return bundle
 }
