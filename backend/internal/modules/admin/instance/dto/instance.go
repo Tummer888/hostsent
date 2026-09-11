@@ -24,6 +24,7 @@ type ListQuery struct {
 	UserID           uint64 `form:"user_id" json:"user_id"`                       // 精确用户
 	ProviderID       uint64 `form:"provider_id" json:"provider_id"`               // 服务商
 	Status           string `form:"status" json:"status"`                         // 服务状态
+	SourceMode       string `form:"source_mode" json:"source_mode"`               // self/upstream（链路筛选，T1.3）
 	ExpireState      string `form:"expire_state" json:"expire_state"`             // all/expiring/expired/none
 	ExpireWithinDays int    `form:"expire_within_days" json:"expire_within_days"` // 临期天数，默认 7
 	Page             int    `form:"page" json:"page"`
@@ -43,29 +44,35 @@ type InstanceItem struct {
 	UserPhone    string `json:"user_phone"`
 	ProductID    uint64 `json:"product_id"`
 	OrderID      uint64 `json:"order_id"`
-	Name         string `json:"name"`
-	CPU          int    `json:"cpu"`
-	Memory       int    `json:"memory"`
-	Disk         int    `json:"disk"`
-	DiskType     string `json:"disk_type"`
-	Bandwidth    int    `json:"bandwidth"`
-	OS           string `json:"os"`
-	Region       string `json:"region"`
-	Zone         string `json:"zone"`
-	Status       string `json:"status"`
-	PowerStatus  string `json:"power_status"`
-	PrivateIP    string `json:"private_ip"`
-	PublicIP     string `json:"public_ip"`
-	BillingMode  string `json:"billing_mode"`
-	ActorUserID  uint64 `json:"actor_user_id"`
-	ActorName    string `json:"actor_name"`
-	Remark       string `json:"remark"`
-	ExpireAt     string `json:"expire_at"`
-	DaysLeft     int    `json:"days_left"`
-	ExpireState  string `json:"expire_state"`
-	LastSyncedAt string `json:"last_synced_at"`
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
+	// 双链路语义（P1/T1.4）：来源判据与两条链路各自的产品引用。
+	SourceMode         string `json:"source_mode"`
+	SellProductID      uint64 `json:"sell_product_id"`
+	UpstreamProductID  uint64 `json:"upstream_product_id"`
+	ProviderInstanceID string `json:"provider_instance_id"`
+	LifecycleStage     string `json:"lifecycle_stage"`
+	Name               string `json:"name"`
+	CPU                int    `json:"cpu"`
+	Memory             int    `json:"memory"`
+	Disk               int    `json:"disk"`
+	DiskType           string `json:"disk_type"`
+	Bandwidth          int    `json:"bandwidth"`
+	OS                 string `json:"os"`
+	Region             string `json:"region"`
+	Zone               string `json:"zone"`
+	Status             string `json:"status"`
+	PowerStatus        string `json:"power_status"`
+	PrivateIP          string `json:"private_ip"`
+	PublicIP           string `json:"public_ip"`
+	BillingMode        string `json:"billing_mode"`
+	ActorUserID        uint64 `json:"actor_user_id"`
+	ActorName          string `json:"actor_name"`
+	Remark             string `json:"remark"`
+	ExpireAt           string `json:"expire_at"`
+	DaysLeft           int    `json:"days_left"`
+	ExpireState        string `json:"expire_state"`
+	LastSyncedAt       string `json:"last_synced_at"`
+	CreatedAt          string `json:"created_at"`
+	UpdatedAt          string `json:"updated_at"`
 }
 
 // ListResponse 实例列表响应。

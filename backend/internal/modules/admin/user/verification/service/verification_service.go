@@ -94,7 +94,6 @@ func (s *verificationService) listByStatus(ctx context.Context, status string, q
 	}
 	return &dto.ListResponse[dto.VerificationInfo]{
 		Items: respItems,
-		Meta: dto.ListMeta{Page: page, PageSize: pageSize, Total: total},
+		Meta:  dto.ListMeta{Page: page, PageSize: pageSize, Total: total},
 	}, nil
 }
-

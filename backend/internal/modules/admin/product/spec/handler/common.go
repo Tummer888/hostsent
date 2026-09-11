@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	apperrors "hostsent/backend/internal/pkg/errors"
+	"hostsent/backend/internal/pkg/middleware"
 	"hostsent/backend/internal/pkg/response"
 )
 
@@ -17,4 +18,12 @@ func pathID(c *gin.Context, param string) (uint64, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+// adminID 从鉴权上下文提取当前管理员 ID，缺失时返回 0。
+func adminID(c *gin.Context) uint64 {
+	if claims, ok := middleware.GetAdminClaims(c); ok {
+		return claims.AdminID
+	}
+	return 0
 }

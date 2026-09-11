@@ -74,7 +74,7 @@ func (r *verificationRepository) ListByStatus(ctx context.Context, status string
 		return nil, 0, err
 	}
 	var items []model.VerificationApplication
-	if err := base.Order("submitted_at desc, id desc").Offset((page-1)*pageSize).Limit(pageSize).Find(&items).Error; err != nil {
+	if err := base.Order("submitted_at desc, id desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&items).Error; err != nil {
 		return nil, 0, err
 	}
 	return items, total, nil

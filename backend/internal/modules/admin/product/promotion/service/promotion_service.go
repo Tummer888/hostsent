@@ -121,7 +121,7 @@ type CouponGrantService interface {
 }
 
 type couponGrantService struct {
-	grantRepo repository.CouponGrantRepository
+	grantRepo  repository.CouponGrantRepository
 	couponRepo repository.CouponRepository
 }
 
@@ -160,9 +160,9 @@ func (s *couponGrantService) Create(ctx context.Context, req dto.CouponGrantCrea
 			continue
 		}
 		grant := &model.CouponGrant{
-			CouponID: coupon.ID,
-			UserID:   userID,
-			Status:   model.CouponGrantIssued,
+			CouponID:  coupon.ID,
+			UserID:    userID,
+			Status:    model.CouponGrantIssued,
 			ValidFrom: coupon.ValidFrom,
 			ValidTo:   coupon.ValidTo,
 		}

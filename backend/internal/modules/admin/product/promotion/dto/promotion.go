@@ -10,11 +10,11 @@ type ListMeta struct {
 
 // CouponQuery 优惠券列表查询
 type CouponQuery struct {
-	Keyword  string `form:"keyword" json:"keyword"`
+	Keyword    string `form:"keyword" json:"keyword"`
 	CouponType string `form:"coupon_type" json:"coupon_type"`
-	Status   int    `form:"status" json:"status"`
-	Page     int    `form:"page" json:"page"`
-	PageSize int    `form:"page_size" json:"page_size"`
+	Status     int    `form:"status" json:"status"`
+	Page       int    `form:"page" json:"page"`
+	PageSize   int    `form:"page_size" json:"page_size"`
 }
 
 // CouponRequest 创建/更新优惠券

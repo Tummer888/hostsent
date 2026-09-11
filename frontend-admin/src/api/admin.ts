@@ -216,6 +216,7 @@ export function getProviderList(params: ProviderListQuery): Promise<ProviderList
       page_size: params.page_size,
       keyword: params.keyword,
       provider_type: params.provider_type,
+      kind: params.kind,
       status: params.status,
     },
   })
@@ -250,6 +251,13 @@ export function deleteProvider(id: number): Promise<string> {
 export function testConnection(id: number): Promise<TestConnectionResult> {
   return request.post<TestConnectionResult>({
     url: `/resource/providers/${id}/test`,
+  })
+}
+
+// 恢复渠道同步：解除熔断（P0/T0.3 后台一键恢复）
+export function resumeProviderSync(id: number): Promise<ProviderInfo> {
+  return request.post<ProviderInfo>({
+    url: `/resource/providers/${id}/sync/resume`,
   })
 }
 

@@ -164,6 +164,26 @@ func (h *ProviderHandler) TestConnection(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// ResumeSync godoc
+// @Summary 恢复渠道同步（解除熔断）
+// @Tags 资源管理-上游提供商
+// @Param id path int true "提供商 ID"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/resource/providers/{id}/sync/resume [post]
+func (h *ProviderHandler) ResumeSync(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.providerService.ResumeSync(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, resp)
+}
+
 // ListPools godoc
 // @Summary 查询资源池列表
 // @Tags 资源管理-上游提供商

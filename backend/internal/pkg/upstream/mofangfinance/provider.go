@@ -49,6 +49,44 @@ func init() {
 	upstream.GetProviderManager().RegisterFactory(ProviderType, func(cfg *upstream.ProviderConfig) upstream.Provider {
 		return NewMoFangFinanceProvider(cfg)
 	})
+	// 能力描述符（T2.1）：财务型上游目录权威在上游，开通/续费受对接模式限制。
+	upstream.RegisterDescriptor(ProviderType, upstream.CapabilityDescriptor{
+		Kind:          upstream.KindUpstream,
+		SyncScopes:    []string{upstream.ScopeCatalog, upstream.ScopePrice, upstream.ScopeInstance},
+		BillingCycles: []string{"month", "year"},
+		Operations: []string{
+			upstream.OpProvision, upstream.OpStart, upstream.OpStop, upstream.OpRestart, upstream.OpVNC,
+		},
+		// 财务对接财务模式：开通由上游推送 /api/host/sync 完成，续费/销毁未提供直连接口。
+		RenewMode:   upstream.RenewModeNone,
+		DestroyMode: upstream.DestroyModeUnsupported,
+		SignerType:  upstream.SignerBearer,
+		CredentialSchema: []upstream.Field{
+			{Key: "api_key", Label: "用户名", Type: upstream.FieldTypeString, Required: true,
+				Placeholder: "上游 API 用户名"},
+			{Key: "api_secret", Label: "API 密钥", Type: upstream.FieldTypePassword, Required: true, Secret: true,
+				Placeholder: "上游 API 密码"},
+			{Key: "upstream_type", Label: "接口类型", Type: upstream.FieldTypeSelect, Required: false,
+				Default: "zjmf_api", Options: []upstream.FieldOption{
+					{Label: "智简魔方", Value: "zjmf_api"},
+					{Label: "资源型", Value: "resource"},
+				}},
+		},
+		EndpointSchema: []upstream.Field{
+			{Key: "api_endpoint", Label: "接口地址", Type: upstream.FieldTypeString, Required: true,
+				Placeholder: "https://上游财务系统地址"},
+			{Key: "port", Label: "接口端口", Type: upstream.FieldTypeString, Required: false},
+			{Key: "secure", Label: "使用 HTTPS", Type: upstream.FieldTypeBool, Required: false},
+		},
+		RateLimit:      upstream.RateLimitSpec{QPS: 3, Burst: 6},
+		SupportsPaging: false,
+		FieldDictionary: map[string]any{
+			"source": "实测（依据 mofangfinance/provider.go 与上游源码 app/zjmf.php）",
+			"paths": []string{"cart/all", "cart/get_product_config", "api/product/proinfo",
+				"host/header", "/dcim/on", "/dcim/off", "/dcim/reboot"},
+			"note": "登录换 JWT（Bearer），status=405 表示 JWT 失效需重登；开通/删除依赖上游推送",
+		},
+	})
 }
 
 // MoFangFinanceProvider 魔方财务适配器
@@ -78,6 +116,12 @@ func (p *MoFangFinanceProvider) GetType() string { return ProviderType }
 
 // GetName 返回提供商名称
 func (p *MoFangFinanceProvider) GetName() string { return "魔方财务" }
+
+// Capabilities 返回能力描述符（T2.1）。
+func (p *MoFangFinanceProvider) Capabilities() upstream.CapabilityDescriptor {
+	d, _ := upstream.Descriptor(ProviderType)
+	return d
+}
 
 // isResource 是否资源型上游（is_resource=1，登录与业务路径不同）。
 func (p *MoFangFinanceProvider) isResource() bool {

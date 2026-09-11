@@ -61,8 +61,8 @@ func TestBuildCartConfigOptionOsMatch(t *testing.T) {
 func TestSafeHostname(t *testing.T) {
 	cases := map[string]string{
 		"宁波电信|一区·标准 16-32 30Mbps": "hs-16-32-30mbps",
-		"hs-probe-123":                "hs-probe-123",
-		"":                            "hs-",
+		"hs-probe-123": "hs-probe-123",
+		"":             "hs-",
 	}
 	for in, expected := range cases {
 		got := safeHostname(in)

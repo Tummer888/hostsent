@@ -184,7 +184,7 @@ func (r *notificationRepository) UpdateSendStatus(ctx context.Context, id uint64
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"send_status": status,
-			"fail_reason":  failReason,
+			"fail_reason": failReason,
 		}).Error
 }
 

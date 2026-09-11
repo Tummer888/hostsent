@@ -19,9 +19,9 @@ const (
 
 // CouponGrant 状态
 const (
-	CouponGrantIssued   string = "issued"   // 已发放
-	CouponGrantUsed     string = "used"     // 已使用
-	CouponGrantExpired  string = "expired"  // 已过期
+	CouponGrantIssued  string = "issued"  // 已发放
+	CouponGrantUsed    string = "used"    // 已使用
+	CouponGrantExpired string = "expired" // 已过期
 )
 
 // 促销活动类型
@@ -66,13 +66,13 @@ func (Coupon) TableName() string {
 // CouponGrant 优惠券发放记录。
 type CouponGrant struct {
 	ID        uint64     `gorm:"primaryKey;autoIncrement"`
-	CouponID  uint64     `gorm:"column:coupon_id;not null;index"`                   // 优惠券 ID
-	UserID    uint64     `gorm:"column:user_id;index"`                              // 发放对象用户 ID
-	UserName  string     `gorm:"column:user_name;size:100"`                         // 用户名快照
-	Status    string     `gorm:"column:status;size:20;default:'issued';index"`      // 状态
-	UsedAt    *time.Time `gorm:"column:used_at"`                                    // 使用时间
-	ValidFrom *time.Time `gorm:"column:valid_from"`                                 // 生效时间
-	ValidTo   *time.Time `gorm:"column:valid_to"`                                   // 失效时间
+	CouponID  uint64     `gorm:"column:coupon_id;not null;index"`              // 优惠券 ID
+	UserID    uint64     `gorm:"column:user_id;index"`                         // 发放对象用户 ID
+	UserName  string     `gorm:"column:user_name;size:100"`                    // 用户名快照
+	Status    string     `gorm:"column:status;size:20;default:'issued';index"` // 状态
+	UsedAt    *time.Time `gorm:"column:used_at"`                               // 使用时间
+	ValidFrom *time.Time `gorm:"column:valid_from"`                            // 生效时间
+	ValidTo   *time.Time `gorm:"column:valid_to"`                              // 失效时间
 	CreatedAt time.Time  `gorm:"autoCreateTime"`
 	UpdatedAt time.Time  `gorm:"autoUpdateTime"`
 }
@@ -85,13 +85,13 @@ func (CouponGrant) TableName() string {
 // Promotion 促销活动（折扣/新用户专享/套餐组合）。
 type Promotion struct {
 	ID            uint64     `gorm:"primaryKey;autoIncrement"`
-	Name          string     `gorm:"size:100;not null"`                       // 活动名称
-	PromotionType string     `gorm:"column:promotion_type;size:20;not null"`  // 类型
-	Rule          string     `gorm:"type:text"`                               // 规则 JSON
-	StartTime     *time.Time `gorm:"column:start_time"`                       // 开始时间
-	EndTime       *time.Time `gorm:"column:end_time"`                         // 结束时间
-	SortOrder     int        `gorm:"column:sort_order;default:0"`              // 排序
-	Status        int        `gorm:"default:0;index"`                         // 状态
+	Name          string     `gorm:"size:100;not null"`                      // 活动名称
+	PromotionType string     `gorm:"column:promotion_type;size:20;not null"` // 类型
+	Rule          string     `gorm:"type:text"`                              // 规则 JSON
+	StartTime     *time.Time `gorm:"column:start_time"`                      // 开始时间
+	EndTime       *time.Time `gorm:"column:end_time"`                        // 结束时间
+	SortOrder     int        `gorm:"column:sort_order;default:0"`            // 排序
+	Status        int        `gorm:"default:0;index"`                        // 状态
 	CreatedAt     time.Time  `gorm:"autoCreateTime"`
 	UpdatedAt     time.Time  `gorm:"autoUpdateTime"`
 }

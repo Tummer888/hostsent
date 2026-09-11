@@ -16,6 +16,7 @@
       <t-space size="small">
         <t-button variant="outline" @click="router.push('/resource/providers')">返回列表</t-button>
         <t-button variant="outline" :loading="testing" @click="handleTestConnection">测试连接</t-button>
+        <t-button v-if="detail?.sync_paused" theme="warning" :loading="resuming" @click="handleResumeSync">恢复同步</t-button>
         <t-button theme="primary" :loading="saving" @click="toggleEdit">{{ editing ? '保存' : '编辑资料' }}</t-button>
       </t-space>
     </header>
@@ -23,6 +24,7 @@
     <section class="tabs-card surface-card">
       <t-tabs v-model="activeTab" theme="card" size="medium">
         <t-tab-panel value="basic" label="基本信息" />
+        <t-tab-panel value="capability" label="能力矩阵" />
         <t-tab-panel value="pools" label="资源池" />
         <t-tab-panel value="logs" label="同步日志" />
       </t-tabs>
@@ -33,6 +35,12 @@
       <template v-if="activeTab === 'basic'">
         <t-loading :loading="loading" class="panel-loading">
           <template v-if="detail">
+            <t-alert
+              v-if="detail.credential_error"
+              theme="error"
+              :message="`凭证不可用：${detail.credential_error}`"
+              class="credential-alert"
+            />
             <t-form ref="formRef" :data="formData" :rules="formRules" label-align="top">
               <div class="form-grid">
                 <t-form-item label="提供商名称" name="name">
@@ -50,14 +58,6 @@
                   <t-input v-if="editing" v-model="formData.region" placeholder="例如：cn-east-1" />
                   <span v-else class="readonly-text">{{ detail.region || '—' }}</span>
                 </t-form-item>
-                <t-form-item label="API 密钥">
-                  <t-input v-if="editing" v-model="formData.api_key" type="password" placeholder="留空表示不修改" />
-                  <span v-else class="readonly-text mono-text">{{ detail.api_key || '—' }}</span>
-                </t-form-item>
-                <t-form-item label="API 密码">
-                  <t-input v-if="editing" v-model="formData.api_secret" type="password" placeholder="留空表示不修改" />
-                  <span v-else class="readonly-text mono-text">{{ detail.api_secret || '—' }}</span>
-                </t-form-item>
                 <t-form-item label="同步间隔（秒）">
                   <t-input-number v-if="editing" v-model="formData.sync_interval" :min="0" :step="60" />
                   <span v-else class="readonly-text">{{ detail.sync_interval }} 秒</span>
@@ -73,6 +73,18 @@
                     </t-tag>
                   </span>
                 </t-form-item>
+                <t-form-item label="同步健康">
+                  <span class="readonly-text">
+                    <t-tag v-if="detail.sync_paused" theme="warning" variant="light" size="small" shape="round">
+                      {{ detail.last_sync_error === '适配器未实现' ? '未接入' : '已暂停' }}
+                    </t-tag>
+                    <t-tag v-else-if="detail.consecutive_failures > 0" theme="danger" variant="light" size="small" shape="round">
+                      失败 {{ detail.consecutive_failures }} 次
+                    </t-tag>
+                    <t-tag v-else theme="success" variant="light" size="small" shape="round">正常</t-tag>
+                    <span v-if="detail.last_sync_error" class="readonly-text sync-error">{{ detail.last_sync_error }}</span>
+                  </span>
+                </t-form-item>
                 <t-form-item label="创建时间">
                   <span class="readonly-text">{{ formatTime(detail.created_at) }}</span>
                 </t-form-item>
@@ -80,7 +92,49 @@
                   <span class="readonly-text">{{ formatTime(detail.updated_at) }}</span>
                 </t-form-item>
               </div>
+
+              <!-- 传输参数（契约③）：超时/重试/限流，0 表示用默认 -->
+              <div v-if="editing" class="advanced-box">
+                <t-divider align="left">传输设置</t-divider>
+                <div class="form-grid">
+                  <t-form-item label="超时（秒）" name="timeout_seconds">
+                    <t-input-number v-model="formData.timeout_seconds" :min="0" placeholder="0 表示默认" />
+                  </t-form-item>
+                  <t-form-item label="最大重试次数" name="retry_max">
+                    <t-input-number v-model="formData.retry_max" :min="0" placeholder="0 表示默认" />
+                  </t-form-item>
+                  <t-form-item label="限流 QPS" name="rate_limit_qps">
+                    <t-input-number v-model="formData.rate_limit_qps" :min="0" placeholder="0 表示不限" />
+                  </t-form-item>
+                </div>
+              </div>
             </t-form>
+
+            <!-- 凭证：只读态展示脱敏值；编辑态按描述符渲染动态字段 -->
+            <div v-if="!editing" class="credential-view">
+              <div class="form-section__title">凭证（脱敏）</div>
+              <t-descriptions :column="2" bordered size="small">
+                <t-descriptions-item v-for="field in credentialFields" :key="field.key" :label="field.label">
+                  <span class="mono-text">{{ detail.credentials?.[field.key] || '—' }}</span>
+                </t-descriptions-item>
+                <t-descriptions-item v-if="!credentialFields.length" label="凭证">
+                  <span class="readonly-text">该渠道类型未声明凭证字段</span>
+                </t-descriptions-item>
+              </t-descriptions>
+            </div>
+            <CredentialFormFields
+              v-else-if="credentialFields.length"
+              v-model="formData.credentials"
+              :fields="credentialFields"
+            />
+            <div v-else-if="editing" class="form-grid credential-legacy">
+              <t-form-item label="API 密钥">
+                <t-input v-model="formData.api_key" type="password" placeholder="留空表示不修改" />
+              </t-form-item>
+              <t-form-item label="API 密码">
+                <t-input v-model="formData.api_secret" type="password" placeholder="留空表示不修改" />
+              </t-form-item>
+            </div>
 
             <t-descriptions v-if="!editing" :column="3" bordered size="small" class="resource-summary">
               <t-descriptions-item label="CPU 配额">{{ detail.used_cpu }} / {{ detail.total_cpu }}</t-descriptions-item>
@@ -91,7 +145,20 @@
           <t-empty v-else-if="!loading" description="未获取到提供商信息" />
         </t-loading>
 
-        <t-alert v-if="editing" theme="info" message="编辑时 API 密钥/密码留空表示保持原值不变。" class="edit-alert" />
+        <t-alert
+          v-if="editing"
+          theme="info"
+          :message="credentialFields.length
+            ? '编辑时凭证字段留空或保持脱敏回显表示不修改；修改后将重新加密落库。'
+            : '编辑时 API 密钥/密码留空表示保持原值不变。'"
+          class="edit-alert"
+        />
+      </template>
+
+      <!-- 能力矩阵 -->
+      <template v-else-if="activeTab === 'capability'">
+        <CapabilityMatrix v-if="detail" :descriptor="detail.capabilities" :title="`${detail.name} 能力矩阵`" />
+        <t-empty v-else description="加载能力矩阵…" />
       </template>
 
       <!-- 资源池 -->
@@ -115,9 +182,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { CloudIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type FormInstanceFunctions, type FormRule } from 'tdesign-vue-next'
 
-import { getProviderDetail, getProviderTypes, testConnection, updateProvider } from '@/api/admin'
-import type { ProviderInfo, ProviderTypeItem } from '@/types/interface'
+import { getProviderDetail, getProviderTypes, resumeProviderSync, testConnection, updateProvider } from '@/api/admin'
+import type { ProviderField, ProviderInfo, ProviderTypeItem } from '@/types/interface'
 import PoolPanel from '@/pages/resource/pools/index.vue'
+import CapabilityMatrix from './components/CapabilityMatrix.vue'
+import CredentialFormFields from './components/CredentialFormFields.vue'
 
 defineOptions({ name: 'ResourceProvidersDetail' })
 
@@ -129,10 +198,14 @@ const detail = ref<ProviderInfo | null>(null)
 const loading = ref(false)
 const saving = ref(false)
 const testing = ref(false)
+const resuming = ref(false)
 const editing = ref(false)
 const activeTab = ref('basic')
-const typeNameMap = ref<Record<string, string>>({})
+const typeList = ref<ProviderTypeItem[]>([])
 const formRef = ref<FormInstanceFunctions | null>(null)
+
+// 凭证字段由渠道能力描述符驱动（落库的脱敏值据此回显）。
+const credentialFields = computed<ProviderField[]>(() => detail.value?.capabilities?.credential_schema || [])
 
 const statusLabelMap: Record<number, string> = {
   1: '启用',
@@ -145,9 +218,13 @@ const formData = reactive({
   region: '',
   api_key: '',
   api_secret: '',
+  credentials: {} as Record<string, string>,
   sync_interval: 3600,
   sync_enabled: false,
   status: 1,
+  timeout_seconds: 0,
+  retry_max: 0,
+  rate_limit_qps: 0,
 })
 
 const formRules: Record<string, FormRule[]> = {
@@ -159,7 +236,7 @@ const formRules: Record<string, FormRule[]> = {
 }
 
 function typeLabel(type: string): string {
-  return typeNameMap.value[type] || type
+  return typeList.value.find((item) => item.type === type)?.name || type
 }
 
 function formatTime(value?: string): string {
@@ -180,9 +257,13 @@ async function loadDetail() {
       region: detail.value.region,
       api_key: '',
       api_secret: '',
+      credentials: { ...(detail.value.credentials || {}) },
       sync_interval: detail.value.sync_interval,
       sync_enabled: detail.value.sync_enabled,
       status: detail.value.status,
+      timeout_seconds: detail.value.timeout_seconds,
+      retry_max: detail.value.retry_max,
+      rate_limit_qps: detail.value.rate_limit_qps,
     })
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载提供商详情失败')
@@ -194,8 +275,7 @@ async function loadDetail() {
 
 async function loadTypes() {
   try {
-    const types = await getProviderTypes()
-    typeNameMap.value = Object.fromEntries(types.map((item: ProviderTypeItem) => [item.type, item.name]))
+    typeList.value = await getProviderTypes()
   } catch {
     /* 类型名映射失败不阻塞详情展示 */
   }
@@ -214,17 +294,28 @@ async function handleSave() {
   if (validate !== true) return
   saving.value = true
   try {
-    const updated = await updateProvider(providerId.value, {
+    const payload = {
       name: formData.name,
       api_endpoint: formData.api_endpoint,
-      api_key: formData.api_key || undefined,
-      api_secret: formData.api_secret || undefined,
       region: formData.region,
       sync_enabled: formData.sync_enabled,
       sync_interval: formData.sync_interval,
       status: formData.status,
-    })
+      timeout_seconds: formData.timeout_seconds,
+      retry_max: formData.retry_max,
+      rate_limit_qps: formData.rate_limit_qps,
+    } as Parameters<typeof updateProvider>[1]
+    if (credentialFields.value.length) {
+      payload.credentials = formData.credentials
+    } else {
+      payload.api_key = formData.api_key || undefined
+      payload.api_secret = formData.api_secret || undefined
+    }
+    const updated = await updateProvider(providerId.value, payload)
     detail.value = updated
+    formData.credentials = { ...(updated.credentials || {}) }
+    formData.api_key = ''
+    formData.api_secret = ''
     editing.value = false
     MessagePlugin.success('提供商资料已保存')
   } catch (error) {
@@ -247,6 +338,19 @@ async function handleTestConnection() {
     MessagePlugin.error((error as Error).message || '连接测试失败')
   } finally {
     testing.value = false
+  }
+}
+
+async function handleResumeSync() {
+  resuming.value = true
+  try {
+    await resumeProviderSync(providerId.value)
+    MessagePlugin.success('已恢复同步，下次调度将重新尝试')
+    await loadDetail()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '恢复同步失败')
+  } finally {
+    resuming.value = false
   }
 }
 
@@ -281,6 +385,14 @@ onMounted(() => {
   gap: 0 var(--space-lg);
 }
 
+.sync-error {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  word-break: break-all;
+  color: var(--color-muted-foreground);
+}
+
 .readonly-text {
   display: inline-flex;
   align-items: center;
@@ -301,6 +413,33 @@ onMounted(() => {
 
 .edit-alert {
   margin-top: var(--space-lg);
+}
+
+.credential-alert {
+  margin-bottom: var(--space-lg);
+}
+
+.credential-view {
+  margin-top: var(--space-lg);
+}
+
+.credential-view .form-section__title,
+.form-section__title {
+  margin: 0 0 var(--space-sm);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+
+.credential-legacy {
+  margin-top: var(--space-md);
+}
+
+.advanced-box {
+  margin-top: var(--space-md);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--hs-radius-lg);
+  padding: var(--space-md) var(--space-lg) 0;
 }
 
 .logs-hint {

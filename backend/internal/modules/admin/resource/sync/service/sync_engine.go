@@ -18,6 +18,7 @@ import (
 	syncrepo "hostsent/backend/internal/modules/admin/resource/sync/repository"
 	pkgmodel "hostsent/backend/internal/pkg/model"
 	"hostsent/backend/internal/pkg/observability"
+	"hostsent/backend/internal/pkg/specatom"
 	"hostsent/backend/internal/pkg/upstream"
 )
 
@@ -38,6 +39,16 @@ const (
 
 // ErrTaskRunning 同一提供商同类型已有同步任务执行中（防重入）。
 var ErrTaskRunning = errors.New("已有同步任务在执行中")
+
+// maxConsecutiveSyncFailures 连续失败达到该次数即自动熔断（sync_paused）。
+const maxConsecutiveSyncFailures = 5
+
+// providerUnavailableError 适配器构建/凭证加载失败——属永久性错误，应立即熔断而非重试。
+// Error() 透传底层信息，describeSyncError 仍能给出可读描述。
+type providerUnavailableError struct{ err error }
+
+func (e *providerUnavailableError) Error() string { return e.err.Error() }
+func (e *providerUnavailableError) Unwrap() error { return e.err }
 
 // ProviderConfigProvider 根据提供商 ID 构建适配器配置（含解密密钥）。
 // 由 providerService 实现，避免 sync 包依赖 provider 具体实现。
@@ -152,6 +163,56 @@ func (e *SyncEngine) RunTask(ctx context.Context, taskID uint64) {
 		e.logger.Error("sync task finish failed", zap.Uint64("task_id", taskID), zap.Error(err))
 	}
 	e.writeLog(ctx, task, runErr)
+	// T0.2/T0.3：无论成功失败都要 touch last_sync_at，让 sync_interval 真正生效，
+	// 并维护熔断健康字段；否则坏渠道会每 60 秒重试、好渠道永不再同步。
+	e.recordProviderHealth(ctx, task, runErr)
+}
+
+// recordProviderHealth 依据任务终态维护渠道同步健康：成功清零，失败累加计数并在
+// 达到阈值时熔断；适配器不可用属永久性错误，立即熔断避免无意义重试刷日志。
+func (e *SyncEngine) recordProviderHealth(ctx context.Context, task *syncmodel.SyncTask, runErr error) {
+	if runErr == nil {
+		if err := e.providerRepo.RecordSyncSuccess(ctx, task.ProviderID); err != nil {
+			e.logger.Error("record provider sync success failed",
+				zap.Uint64("provider_id", task.ProviderID), zap.Error(err))
+		}
+		return
+	}
+
+	msg := describeSyncError(runErr)
+	var unavailable *providerUnavailableError
+	if errors.As(runErr, &unavailable) {
+		if err := e.providerRepo.PauseSync(ctx, task.ProviderID, msg); err != nil {
+			e.logger.Error("pause provider sync failed",
+				zap.Uint64("provider_id", task.ProviderID), zap.Error(err))
+			return
+		}
+		e.logger.Warn("provider sync paused: adapter unavailable",
+			zap.Uint64("provider_id", task.ProviderID), zap.String("reason", msg))
+		return
+	}
+
+	if err := e.providerRepo.RecordSyncFailure(ctx, task.ProviderID, msg, maxConsecutiveSyncFailures); err != nil {
+		e.logger.Error("record provider sync failure failed",
+			zap.Uint64("provider_id", task.ProviderID), zap.Error(err))
+	}
+}
+
+// CheckProviderReady 调度前置校验：适配器可构建才允许触发；不可用时立即暂停该渠道
+// 并写 last_sync_error，返回 false 让调度器跳过。用于避免未接入/错配渠道反复产失败任务。
+func (e *SyncEngine) CheckProviderReady(ctx context.Context, providerID uint64) bool {
+	if _, err := e.buildProvider(ctx, providerID); err != nil {
+		msg := describeSyncError(err)
+		if perr := e.providerRepo.PauseSync(ctx, providerID, msg); perr != nil {
+			e.logger.Error("pause unavailable provider failed",
+				zap.Uint64("provider_id", providerID), zap.Error(perr))
+		}
+		// 降级日志：仅在暂停时记一条 warn，而非每轮 error。
+		e.logger.Warn("skip provider sync: adapter unavailable",
+			zap.Uint64("provider_id", providerID), zap.String("reason", msg))
+		return false
+	}
+	return true
 }
 
 // syncProducts 拉取上游商品并幂等写入 resource_products。
@@ -170,6 +231,15 @@ func (e *SyncEngine) syncProducts(ctx context.Context, task *syncmodel.SyncTask)
 	}
 	rows := make([]model.ResourceProduct, 0, len(items))
 	for _, it := range items {
+		// T2.6：Extra 由"万能袋"升级为受 spec_atoms 字典约束的扩展位——
+		// 未登记 key / 越界值只告警不阻断（预埋期避免误伤存量），但会留下可排查记录。
+		if issues := specatom.Validate(it.Specs); len(issues) > 0 {
+			e.logger.Warn("上游商品规格超出原子字典约束",
+				zap.Uint64("provider_id", task.ProviderID),
+				zap.String("upstream_id", it.UpstreamID),
+				zap.Int("issue_count", len(issues)),
+				zap.String("first_issue", issues[0].Error()))
+		}
 		rows = append(rows, e.convertProduct(task.ProviderID, it))
 	}
 	if err := e.productRepo.UpsertMany(ctx, task.ProviderID, rows); err != nil {
@@ -244,14 +314,15 @@ func (e *SyncEngine) syncInstances(ctx context.Context, task *syncmodel.SyncTask
 }
 
 // buildProvider 构建提供商适配器实例（解密配置 → 工厂实例化）。
+// 任一环节失败都视为渠道不可用（永久性），由调用方熔断，不做无限重试。
 func (e *SyncEngine) buildProvider(ctx context.Context, providerID uint64) (upstream.Provider, error) {
 	cfg, err := e.provider.BuildProviderConfig(ctx, providerID)
 	if err != nil {
-		return nil, err
+		return nil, &providerUnavailableError{err: err}
 	}
 	provider, err := e.upmgr.Build(cfg.Type, cfg)
 	if err != nil {
-		return nil, err
+		return nil, &providerUnavailableError{err: err}
 	}
 	return provider, nil
 }
@@ -358,6 +429,11 @@ func (e *SyncEngine) convertInstance(providerID uint64, in *pkgmodel.StandardIns
 		PublicIP:   in.PublicIP,
 		RawData:    string(rawJSON),
 		CreatedAt:  in.CreatedAt,
+		// 双链路语义（P1/T1.2）：同步发现的实例 = 上游链路，
+		// upstream_product_id 指向 resource_products.id，provider_instance_id 记录上游实例号。
+		SourceMode:         syncmodel.SourceModeUpstream,
+		UpstreamProductID:  uint64(in.ProductID),
+		ProviderInstanceID: in.UpstreamID,
 	}
 	if !in.ExpireAt.IsZero() {
 		exp := in.ExpireAt

@@ -68,8 +68,8 @@
               </button>
             </t-tooltip>
 
-            <t-tooltip content="主题" placement="bottom">
-              <button class="icon-btn" aria-label="主题" @click="onThemeClick">
+            <t-tooltip content="主题设置" placement="bottom">
+              <button class="icon-btn" aria-label="主题设置" @click="settingsVisible = true">
                 <ContrastIcon size="18" />
               </button>
             </t-tooltip>
@@ -130,6 +130,9 @@
         </router-view>
       </main>
     </div>
+
+    <!-- 主题设置抽屉 -->
+    <SettingsPanel v-model:visible="settingsVisible" />
 
     <!-- 右侧漂浮浮窗 -->
     <div class="float-dock" :class="{ 'is-open': dockOpen }">
@@ -226,9 +229,10 @@ import {
   ServiceIcon,
 } from 'tdesign-icons-vue-next'
 
-import { useMenuStore, useUserStore } from '@/store'
+import { useMenuStore, useUserStore, useSettingsStore } from '@/store'
 import { useMemberStore } from '@/store/modules/member'
 import ProductMenu from '@/components/product-menu/index.vue'
+import SettingsPanel from '@/components/settings-panel/index.vue'
 
 defineOptions({ name: 'UserLayout' })
 
@@ -237,6 +241,10 @@ const route = useRoute()
 const menuStore = useMenuStore()
 const userStore = useUserStore()
 const memberStore = useMemberStore()
+const settingsStore = useSettingsStore()
+
+// 主题设置抽屉
+const settingsVisible = ref(false)
 
 // 左侧产品大菜单开合
 const navOpen = ref(false)
@@ -268,8 +276,9 @@ function onRegionClick() {
   MessagePlugin.info('地区与语言设置开发中')
 }
 
-function onThemeClick() {
-  MessagePlugin.info('主题设置开发中')
+// 深色快捷切换（main.ts 已 init，这里只负责按钮行为）
+function toggleTheme() {
+  settingsStore.toggleDark()
 }
 
 // ========== 头像/昵称账户菜单 ==========
@@ -352,6 +361,7 @@ function onDockQuick(question: string) {
 onMounted(async () => {
   checkMobile()
   window.addEventListener('resize', checkMobile)
+  settingsStore.init()
   try {
     if (!menuStore.loaded) {
       await menuStore.loadMenus('user')

@@ -90,6 +90,7 @@ export function getProductList(params: SaleProductListQuery): Promise<SaleProduc
       category_id: params.category_id,
       status: params.status,
       provision_mode: params.provision_mode,
+      source_mode: params.source_mode,
       page: params.page,
       page_size: params.page_size,
     },

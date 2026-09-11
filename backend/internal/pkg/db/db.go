@@ -101,6 +101,7 @@ func AutoMigrate(db *gorm.DB) error {
 		// 资源管理模块核心表（第一阶段）
 		&providermodel.ResourceProvider{},
 		&providermodel.ResourcePool{},
+		&providermodel.ProviderType{}, // 渠道类型注册表（P2/T2.2）
 		&productmodel.ResourceProduct{},
 		&syncmodel.SyncTask{},
 		&syncmodel.SyncLog{},
@@ -117,6 +118,10 @@ func AutoMigrate(db *gorm.DB) error {
 		// 产品管理-规格管理（spec 子域）
 		&specmodel.SpecTemplate{},
 		&specmodel.SpecMapping{},
+		// 规格契约（P2/T2.5）：原子字典 / 外部规格快照 / 双向绑定
+		&specmodel.SpecAtom{},
+		&specmodel.ExternalSpec{},
+		&specmodel.SpecBinding{},
 		// 产品管理-定价与计费（pricing 子域）
 		&pricingmodel.ProductPricing{},
 		// 产品管理-折扣策略（P5-01 统一算价管线）
@@ -191,10 +196,18 @@ func backfillAdminRoles(db *gorm.DB) error {
 		ON CONFLICT DO NOTHING`).Error
 }
 
-// backfillProductProvisionMode 将 products 表中 provision_mode 为空或未知的存量记录归一为 self（自营）。
+// backfillProductProvisionMode 回填存量商品的供货模式：空值/未知值一律归一。
+// 关键修正（地雷 L5）：不能无脑归一为 self——已绑定上游渠道（source_provider_id != 0）
+// 或已绑定上游商品（source_product_id != 0）的存量记录是上游克隆商品，应归为 clone，
+// 否则会被误标为自营、进而在双链路判据 source_mode 上错分。
 func backfillProductProvisionMode(db *gorm.DB) error {
 	return db.Exec(
-		"UPDATE products SET provision_mode = 'self' WHERE provision_mode IS NULL OR provision_mode = '' OR provision_mode NOT IN ('self', 'clone')",
+		`UPDATE products
+		    SET provision_mode = CASE
+		        WHEN COALESCE(source_provider_id, 0) <> 0 OR COALESCE(source_product_id, 0) <> 0 THEN 'clone'
+		        ELSE 'self'
+		    END
+		  WHERE provision_mode IS NULL OR provision_mode = '' OR provision_mode NOT IN ('self', 'clone')`,
 	).Error
 }
 
@@ -811,6 +824,8 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "product:spec", Name: "规格模板维护", Code: "spec:template:update", Type: "button", SortOrder: 2, Status: "active"},
 		{ParentCode: "product:spec", Name: "规格映射查看", Code: "spec:mapping:list", Type: "button", SortOrder: 3, Status: "active"},
 		{ParentCode: "product:spec", Name: "规格映射维护", Code: "spec:mapping:update", Type: "button", SortOrder: 4, Status: "active"},
+		{ParentCode: "product:spec", Name: "规格契约查看", Code: "spec:contract:list", Type: "button", SortOrder: 5, Status: "active"},
+		{ParentCode: "product:spec", Name: "规格契约维护", Code: "spec:contract:update", Type: "button", SortOrder: 6, Status: "active"},
 		{ParentCode: "product", Name: "定价管理", Code: "product:pricing", Type: "menu", SortOrder: 5, Status: "active"},
 		{ParentCode: "product:pricing", Name: "定价查看", Code: "pricing:list", Type: "button", SortOrder: 1, Status: "active"},
 		{ParentCode: "product:pricing", Name: "定价维护", Code: "pricing:update", Type: "button", SortOrder: 2, Status: "active"},
@@ -987,6 +1002,7 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"product:spec",
 			"spec:template:list",
 			"spec:mapping:list",
+			"spec:contract:list",
 			"product:pricing",
 			"pricing:list",
 			"product:promotion",

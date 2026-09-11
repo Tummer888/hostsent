@@ -6,6 +6,7 @@ type ProductListQuery struct {
 	CategoryID    uint64 `form:"category_id" json:"category_id"`
 	Status        int    `form:"status" json:"status"`
 	ProvisionMode string `form:"provision_mode" json:"provision_mode"` // self / clone
+	SourceMode    string `form:"source_mode" json:"source_mode"`       // self / upstream（双链路判据）
 	// Featured 推荐位过滤：nil=不过滤，true/false=按推荐位精确筛选。
 	// 用指针而非 bool，以区分「未传」与「显式传 false」。
 	Featured *bool `form:"featured" json:"featured"`
@@ -102,6 +103,7 @@ type ProductInfo struct {
 	SourceProductID  uint64  `json:"source_product_id"`
 	SourceProviderID uint64  `json:"source_provider_id"`
 	ProvisionMode    string  `json:"provision_mode"`
+	SourceMode       string  `json:"source_mode"`
 	ConfigOptions    string  `json:"config_options"`
 	Featured         bool    `json:"featured"`
 	Stock            int     `json:"stock"`

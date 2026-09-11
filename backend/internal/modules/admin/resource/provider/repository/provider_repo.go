@@ -8,9 +8,9 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	productmodel "hostsent/backend/internal/modules/admin/resource/product/model"
 	"hostsent/backend/internal/modules/admin/resource/provider/dto"
 	"hostsent/backend/internal/modules/admin/resource/provider/model"
-	productmodel "hostsent/backend/internal/modules/admin/resource/product/model"
 )
 
 // ProviderRepository 上游提供商仓储接口
@@ -26,6 +26,18 @@ type ProviderRepository interface {
 	UpdateStats(ctx context.Context, providerID uint64, totalCPU, totalMemory, totalDisk, usedCPU, usedMemory, usedDisk int) error
 	// MarkSynced 更新提供商最近同步时间
 	MarkSynced(ctx context.Context, providerID uint64) error
+	// RecordSyncSuccess 记录一次同步成功：刷新 last_sync_at/last_success_at，清零失败计数与错误
+	RecordSyncSuccess(ctx context.Context, providerID uint64) error
+	// RecordSyncFailure 记录一次同步失败：累加连续失败次数，达到 maxFailures 自动熔断暂停
+	RecordSyncFailure(ctx context.Context, providerID uint64, errMsg string, maxFailures int) error
+	// PauseSync 永久性错误（适配器未注册/凭证缺失等）立即熔断并写明原因
+	PauseSync(ctx context.Context, providerID uint64, reason string) error
+	// ResumeSync 手动恢复：解除熔断并清零失败计数
+	ResumeSync(ctx context.Context, providerID uint64) error
+	// ListAll 返回全部渠道（含禁用），供启动期凭证归一/注册表同步等批处理使用。
+	ListAll(ctx context.Context) ([]model.ResourceProvider, error)
+	// UpdateCredentials 仅更新 credentials 列，避免全量 Save 覆盖其他并发修改。
+	UpdateCredentials(ctx context.Context, providerID uint64, credentialsJSON string) error
 }
 
 type providerRepository struct {
@@ -57,6 +69,9 @@ func (r *providerRepository) List(ctx context.Context, query dto.ProviderListQue
 	}
 	if pt := strings.TrimSpace(query.ProviderType); pt != "" {
 		base = base.Where("provider_type = ?", pt)
+	}
+	if k := strings.TrimSpace(query.Kind); k != "" {
+		base = base.Where("kind = ?", k)
 	}
 	if query.Status != 0 {
 		base = base.Where("status = ?", query.Status)
@@ -125,6 +140,70 @@ func (r *providerRepository) MarkSynced(ctx context.Context, providerID uint64) 
 	return r.db.WithContext(ctx).Model(&model.ResourceProvider{}).
 		Where("id = ?", providerID).
 		Update("last_sync_at", &now).Error
+}
+
+// RecordSyncSuccess 成功用例：同步间隔以 last_sync_at 为准，失败也要 touch（见 RecordSyncFailure）。
+func (r *providerRepository) RecordSyncSuccess(ctx context.Context, providerID uint64) error {
+	now := time.Now()
+	return r.db.WithContext(ctx).Model(&model.ResourceProvider{}).
+		Where("id = ?", providerID).
+		Updates(map[string]interface{}{
+			"last_sync_at":         &now,
+			"last_success_at":      &now,
+			"consecutive_failures": 0,
+			"last_sync_error":      "",
+		}).Error
+}
+
+// RecordSyncFailure 失败用例：失败同样刷新 last_sync_at，使 sync_interval 对失败渠道也生效，
+// 避免坏渠道每 60 秒重试；连续失败达到 maxFailures 时置 sync_paused（由调度器跳过）。
+func (r *providerRepository) RecordSyncFailure(ctx context.Context, providerID uint64, errMsg string, maxFailures int) error {
+	now := time.Now()
+	if maxFailures <= 0 {
+		maxFailures = 5
+	}
+	// 单条 UPDATE 内自增并用旧值判定，避免读改写竞态。
+	return r.db.WithContext(ctx).Model(&model.ResourceProvider{}).
+		Where("id = ?", providerID).
+		Updates(map[string]interface{}{
+			"last_sync_at":         &now,
+			"last_sync_error":      errMsg,
+			"consecutive_failures": gorm.Expr("consecutive_failures + 1"),
+			"sync_paused":          gorm.Expr("(consecutive_failures + 1) >= ?", maxFailures),
+		}).Error
+}
+
+func (r *providerRepository) PauseSync(ctx context.Context, providerID uint64, reason string) error {
+	return r.db.WithContext(ctx).Model(&model.ResourceProvider{}).
+		Where("id = ?", providerID).
+		Updates(map[string]interface{}{
+			"sync_paused":     true,
+			"last_sync_error": reason,
+		}).Error
+}
+
+func (r *providerRepository) ResumeSync(ctx context.Context, providerID uint64) error {
+	return r.db.WithContext(ctx).Model(&model.ResourceProvider{}).
+		Where("id = ?", providerID).
+		Updates(map[string]interface{}{
+			"sync_paused":          false,
+			"consecutive_failures": 0,
+			"last_sync_error":      "",
+		}).Error
+}
+
+func (r *providerRepository) ListAll(ctx context.Context) ([]model.ResourceProvider, error) {
+	var items []model.ResourceProvider
+	if err := r.db.WithContext(ctx).Order("id asc").Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (r *providerRepository) UpdateCredentials(ctx context.Context, providerID uint64, credentialsJSON string) error {
+	return r.db.WithContext(ctx).Model(&model.ResourceProvider{}).
+		Where("id = ?", providerID).
+		Update("credentials", credentialsJSON).Error
 }
 
 // PoolRepository 资源池仓储接口

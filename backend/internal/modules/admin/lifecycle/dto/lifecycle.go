@@ -10,8 +10,8 @@ type ListMeta struct {
 
 // ExpiringListQuery 到期实例分页查询（管理端）
 type ExpiringListQuery struct {
-	Stage    string `form:"stage" json:"stage"`       // expiring/grace/suspended/destroyed/active，空=全部
-	Keyword  string `form:"keyword" json:"keyword"`   // 实例标识 / 实例名 / 用户名
+	Stage    string `form:"stage" json:"stage"`     // expiring/grace/suspended/destroyed/active，空=全部
+	Keyword  string `form:"keyword" json:"keyword"` // 实例标识 / 实例名 / 用户名
 	Page     int    `form:"page" json:"page"`
 	PageSize int    `form:"page_size" json:"page_size"`
 }
@@ -25,7 +25,7 @@ type ExpiringInstanceItem struct {
 	Username     string  `json:"username"`
 	ProductID    uint64  `json:"product_id"`
 	ProductName  string  `json:"product_name"`
-	UnitPrice    float64 `json:"unit_price"`        // 单周期续费价（元）
+	UnitPrice    float64 `json:"unit_price"` // 单周期续费价（元）
 	BillingMode  string  `json:"billing_mode"`
 	Status       string  `json:"status"` // 上游同步状态（running/stopped...）
 	ExpireAt     string  `json:"expire_at"`
@@ -85,9 +85,9 @@ type RenewalListResponse struct {
 
 // AdminRenewRequest 管理员代续费请求
 type AdminRenewRequest struct {
-	PeriodCount int     `json:"period_count"`             // 续费周期数，默认 1
-	Amount      float64 `json:"amount"`                   // 自定义金额（元），0=按产品价计算
-	Remark      string  `json:"remark"`                   // 备注
+	PeriodCount int     `json:"period_count"` // 续费周期数，默认 1
+	Amount      float64 `json:"amount"`       // 自定义金额（元），0=按产品价计算
+	Remark      string  `json:"remark"`       // 备注
 }
 
 // UserRenewRequest 用户发起续费请求
@@ -137,8 +137,8 @@ type UserInstanceRenewalItem struct {
 
 // UserRenewalsViewResponse 用户续费管理聚合视图
 type UserRenewalsViewResponse struct {
-	Items   []UserInstanceRenewalItem `json:"items"`
-	Policy  PolicyResponse            `json:"policy"` // 策略摘要（宽限期等展示用）
+	Items  []UserInstanceRenewalItem `json:"items"`
+	Policy PolicyResponse            `json:"policy"` // 策略摘要（宽限期等展示用）
 }
 
 // RenewalCreatedResponse 续费订单创建结果（待支付）
@@ -148,7 +148,7 @@ type RenewalCreatedResponse struct {
 
 // UserRenewalListQuery 我的续费记录查询
 type UserRenewalListQuery struct {
-	Status string `form:"status" json:"status"`
-	Page   int    `form:"page" json:"page"`
-	PageSize int  `form:"page_size" json:"page_size"`
+	Status   string `form:"status" json:"status"`
+	Page     int    `form:"page" json:"page"`
+	PageSize int    `form:"page_size" json:"page_size"`
 }

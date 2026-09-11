@@ -57,6 +57,10 @@
           <t-select v-model="filters.provider_type" clearable placeholder="全部类型" :options="typeOptions" />
         </div>
         <div class="field">
+          <span class="field__label">链路</span>
+          <t-select v-model="filters.kind" clearable placeholder="全部链路" :options="kindFilterOptions" />
+        </div>
+        <div class="field">
           <span class="field__label">状态</span>
           <t-select v-model="filters.status" clearable placeholder="全部状态" :options="statusFilterOptions" />
         </div>
@@ -80,8 +84,23 @@
         :pagination="pagination"
         @page-change="handlePageChange"
       >
+        <template #name="{ row }">
+          <div class="name-cell">
+            <span class="name-cell__text">{{ row.name }}</span>
+            <t-tooltip v-if="row.credential_error" :content="row.credential_error" placement="top">
+              <t-tag theme="danger" variant="light" size="small" shape="round">凭证异常</t-tag>
+            </t-tooltip>
+          </div>
+        </template>
+
         <template #provider_type="{ row }">
           <t-tag theme="primary" variant="light" size="small" shape="round">{{ typeLabel(row.provider_type) }}</t-tag>
+        </template>
+
+        <template #kind="{ row }">
+          <t-tag :theme="row.kind === 'compute' ? 'success' : 'default'" variant="light" size="small" shape="round">
+            {{ row.kind === 'compute' ? '算力平台' : '上游转售' }}
+          </t-tag>
         </template>
 
         <template #resources="{ row }">
@@ -111,11 +130,24 @@
           <span class="time-text">{{ row.last_sync_at ? formatTime(row.last_sync_at) : '从未同步' }}</span>
         </template>
 
+        <template #sync_state="{ row }">
+          <t-tooltip v-if="row.sync_paused" :content="row.last_sync_error || '同步已暂停'" placement="top">
+            <t-tag theme="warning" variant="light" size="small" shape="round">
+              {{ row.last_sync_error === '适配器未实现' ? '未接入' : '已暂停' }}
+            </t-tag>
+          </t-tooltip>
+          <t-tag v-else-if="row.consecutive_failures > 0" theme="danger" variant="light" size="small" shape="round">
+            失败 {{ row.consecutive_failures }} 次
+          </t-tag>
+          <t-tag v-else theme="success" variant="light" size="small" shape="round">正常</t-tag>
+        </template>
+
         <template #action="{ row }">
           <div class="action-cell">
             <t-link theme="primary" hover="color" @click="router.push(`/resource/providers/${row.id}`)">详情</t-link>
             <t-link theme="primary" hover="color" @click="openEditDialog(row)">编辑</t-link>
             <t-link theme="primary" hover="color" :loading="testingId === row.id" @click="handleTestConnection(row)">测试连接</t-link>
+            <t-link v-if="row.sync_paused" theme="warning" hover="color" :loading="resumingId === row.id" @click="handleResumeSync(row)">恢复同步</t-link>
             <t-popconfirm content="确认删除该提供商？该操作不可恢复" @confirm="handleDelete(row)">
               <t-link theme="danger">删除</t-link>
             </t-popconfirm>
@@ -131,13 +163,19 @@
     <t-dialog
       v-model:visible="dialogVisible"
       header="编辑提供商"
-      width="620px"
+      width="680px"
       :confirm-btn="{ content: '保存', theme: 'success', loading: submitting }"
       cancel-btn="取消"
       :on-confirm="handleSaveDialog"
       @close="handleDialogClose"
     >
       <t-form ref="formRef" :data="formData" :rules="rules" label-align="top">
+        <CapabilityMatrix
+          v-if="editingDescriptor"
+          :descriptor="editingDescriptor"
+          :title="`${typeLabel(formData.provider_type)} 能力矩阵`"
+          class="dialog-matrix"
+        />
         <div class="form-grid">
           <t-form-item label="提供商名称" name="name">
             <t-input v-model="formData.name" placeholder="例如：华东 OpenStack" maxlength="50" />
@@ -151,17 +189,24 @@
           <t-form-item label="区域" name="region">
             <t-input v-model="formData.region" placeholder="例如：cn-east-1" />
           </t-form-item>
-          <t-form-item label="API 密钥" name="api_key">
-            <t-input v-model="formData.api_key" type="password" placeholder="留空表示不修改" />
-          </t-form-item>
-          <t-form-item label="API 密码" name="api_secret">
-            <t-input v-model="formData.api_secret" type="password" placeholder="留空表示不修改" />
-          </t-form-item>
           <t-form-item label="同步间隔（秒）" name="sync_interval">
             <t-input-number v-model="formData.sync_interval" :min="0" :step="60" placeholder="默认 3600" />
           </t-form-item>
           <t-form-item label="启用实例同步" name="sync_enabled">
             <t-switch v-model="formData.sync_enabled" />
+          </t-form-item>
+        </div>
+        <CredentialFormFields
+          v-if="editingCredentialFields.length"
+          v-model="formData.credentials"
+          :fields="editingCredentialFields"
+        />
+        <div v-else class="form-grid">
+          <t-form-item label="API 密钥" name="api_key">
+            <t-input v-model="formData.api_key" type="password" placeholder="留空表示不修改" />
+          </t-form-item>
+          <t-form-item label="API 密码" name="api_secret">
+            <t-input v-model="formData.api_secret" type="password" placeholder="留空表示不修改" />
           </t-form-item>
         </div>
       </t-form>
@@ -170,7 +215,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { AddIcon, CloudIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
@@ -180,10 +225,13 @@ import {
   deleteProvider,
   getProviderList,
   getProviderTypes,
+  resumeProviderSync,
   testConnection,
   updateProvider,
 } from '@/api/admin'
-import type { ProviderInfo, ProviderTypeItem } from '@/types/interface'
+import type { CapabilityDescriptor, ProviderInfo, ProviderTypeItem } from '@/types/interface'
+import CapabilityMatrix from './components/CapabilityMatrix.vue'
+import CredentialFormFields from './components/CredentialFormFields.vue'
 
 defineOptions({ name: 'ResourceProviders' })
 
@@ -193,6 +241,7 @@ const providerList = ref<ProviderInfo[]>([])
 const loading = ref(false)
 const submitting = ref(false)
 const testingId = ref<number | null>(null)
+const resumingId = ref<number | null>(null)
 const total = ref(0)
 const typeOptions = ref<{ label: string; value: string }[]>([])
 const typeNameMap = ref<Record<string, string>>({})
@@ -207,9 +256,15 @@ const statusFilterOptions = [
   { label: '禁用', value: 0 },
 ]
 
+const kindFilterOptions = [
+  { label: '上游转售', value: 'upstream' },
+  { label: '算力平台', value: 'compute' },
+]
+
 const filters = reactive({
   keyword: '',
   provider_type: '',
+  kind: '',
   status: 0 as number | '',
 })
 
@@ -249,16 +304,18 @@ function formatTime(value: string): string {
 }
 
 const columns: PrimaryTableCol<ProviderInfo>[] = [
-  { colKey: 'name', title: '名称', minWidth: 180 },
+  { colKey: 'name', title: '名称', minWidth: 200 },
   { colKey: 'provider_type', title: '类型', width: 120 },
+  { colKey: 'kind', title: '链路', width: 110 },
   { colKey: 'api_endpoint', title: 'API 地址', minWidth: 240, ellipsis: true },
   { colKey: 'status', title: '状态', width: 90 },
+  { colKey: 'sync_state', title: '同步状态', width: 110 },
   { colKey: 'resources', title: '资源概览', minWidth: 220 },
   { colKey: 'last_sync_at', title: '最后同步', width: 160 },
   {
     colKey: 'action',
     title: '操作',
-    width: 200,
+    width: 260,
     fixed: 'right' as const,
     align: 'center' as const,
   },
@@ -282,6 +339,7 @@ async function loadProviders() {
       page_size: pagination.pageSize,
       keyword: filters.keyword || undefined,
       provider_type: filters.provider_type || undefined,
+      kind: filters.kind || undefined,
       status: filters.status === '' ? undefined : filters.status,
     })
     providerList.value = data.items
@@ -308,6 +366,7 @@ function handleSearch() {
 function handleResetFilters() {
   filters.keyword = ''
   filters.provider_type = ''
+  filters.kind = ''
   filters.status = ''
   pagination.current = 1
   loadProviders()
@@ -333,8 +392,20 @@ async function handleTestConnection(row: ProviderInfo) {
   }
 }
 
-async function handleDelete(row: ProviderInfo) {
+async function handleResumeSync(row: ProviderInfo) {
+  resumingId.value = row.id
   try {
+    await resumeProviderSync(row.id)
+    MessagePlugin.success('已恢复同步，下次调度将重新尝试')
+    loadProviders()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '恢复同步失败')
+  } finally {
+    resumingId.value = null
+  }
+}
+
+async function handleDelete(row: ProviderInfo) {  try {
     await deleteProvider(row.id)
     MessagePlugin.success('提供商已删除')
     if (providerList.value.length === 1 && pagination.current > 1) {
@@ -353,6 +424,7 @@ type ProviderForm = {
   region: string
   api_key: string
   api_secret: string
+  credentials: Record<string, string>
   sync_interval: number
   sync_enabled: boolean
   status: number
@@ -360,7 +432,10 @@ type ProviderForm = {
 
 const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
+const editingDescriptor = ref<CapabilityDescriptor | null>(null)
 const formRef = ref<FormInstanceFunctions | null>(null)
+
+const editingCredentialFields = computed(() => editingDescriptor.value?.credential_schema || [])
 
 const formData = reactive<ProviderForm>({
   name: '',
@@ -369,6 +444,7 @@ const formData = reactive<ProviderForm>({
   region: '',
   api_key: '',
   api_secret: '',
+  credentials: {},
   sync_interval: 3600,
   sync_enabled: false,
   status: 1,
@@ -384,6 +460,7 @@ const rules: Record<string, FormRule[]> = {
 
 function openEditDialog(row: ProviderInfo) {
   editingId.value = row.id
+  editingDescriptor.value = row.capabilities || null
   Object.assign(formData, {
     name: row.name,
     provider_type: row.provider_type,
@@ -391,6 +468,7 @@ function openEditDialog(row: ProviderInfo) {
     region: row.region,
     api_key: '',
     api_secret: '',
+    credentials: { ...(row.credentials || {}) },
     sync_interval: row.sync_interval,
     sync_enabled: row.sync_enabled,
     status: row.status,
@@ -405,16 +483,21 @@ async function handleSaveDialog() {
   if (editingId.value === null) return
   submitting.value = true
   try {
-    await updateProvider(editingId.value, {
+    const payload = {
       name: formData.name,
       api_endpoint: formData.api_endpoint,
-      api_key: formData.api_key || undefined,
-      api_secret: formData.api_secret || undefined,
       region: formData.region,
       sync_enabled: formData.sync_enabled,
       sync_interval: formData.sync_interval,
       status: formData.status,
-    })
+    } as Parameters<typeof updateProvider>[1]
+    if (editingCredentialFields.value.length) {
+      payload.credentials = formData.credentials
+    } else {
+      payload.api_key = formData.api_key || undefined
+      payload.api_secret = formData.api_secret || undefined
+    }
+    await updateProvider(editingId.value, payload)
     MessagePlugin.success('提供商已保存')
     dialogVisible.value = false
     loadProviders()
@@ -446,7 +529,7 @@ onMounted(() => {
 }
 
 .filter-card__grid {
-  grid-template-columns: minmax(240px, 2fr) minmax(160px, 1fr) minmax(160px, 1fr);
+  grid-template-columns: minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr) minmax(140px, 1fr);
 }
 
 .resource-cell {
@@ -472,6 +555,23 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 var(--space-lg);
+}
+
+.dialog-matrix {
+  margin-bottom: var(--space-lg);
+}
+
+.name-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.name-cell__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: 1200px) and (min-width: 769px) {

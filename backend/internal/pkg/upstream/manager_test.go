@@ -11,6 +11,9 @@ type mockProvider struct{}
 func (m *mockProvider) GetType() string                   { return "mock" }
 func (m *mockProvider) GetName() string                   { return "mock" }
 func (m *mockProvider) HealthCheck(context.Context) error { return nil }
+func (m *mockProvider) Capabilities() CapabilityDescriptor {
+	return CapabilityDescriptor{Kind: KindUpstream, SignerType: SignerNone}
+}
 
 func TestProviderManagerRegisterAndGet(t *testing.T) {
 	mgr := &ProviderManager{

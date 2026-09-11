@@ -320,9 +320,7 @@
                   class="mobile-action-button"
                   aria-label="操作"
                 >
-                  <template #icon>
-                    <EllipsisIcon aria-hidden="true" />
-                  </template>
+                  <template #icon><MoreIcon aria-hidden="true" /></template>
                 </t-button>
               </t-dropdown>
               <t-space v-else size="small">
@@ -474,8 +472,8 @@ import {
   LogoGithubFilledIcon,
   LogoQqIcon,
   LogoWechatStrokeIcon,
+  MoreIcon,
   RefreshIcon,
-  EllipsisIcon,
   SearchIcon,
   UserIcon,
 } from 'tdesign-icons-vue-next'
@@ -1471,19 +1469,36 @@ onBeforeUnmount(() => {
 }
 
 .mobile-action-button {
-  min-width: 0;
-  padding-inline: 8px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
   color: #475569;
   background: #ffffff;
   border-color: transparent;
 }
 
-/* 固定操作列悬浮于表格内容之上，且不遮挡顶部导航（导航 z-index 为 5） */
+/* TDesign 原生 MoreIcon 是描边式三竖点（1em svg），在固定列 flex 压缩下会被
+   挤成 2px 宽而不可见；这里解除压缩并锁定渲染宽度，保证点阵完整。 */
+.mobile-action-button :deep(.t-icon) {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  max-width: none;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+/* 固定操作列悬浮于表格内容之上，但必须低于 sticky 顶栏（z-index:5），
+   否则窗口下滑时操作列会浮到导航栏之上；表格 sticky 单元默认 z-index:31，
+   这里统一压到 3。 */
 :deep(.user-table .t-table__cell-fixed-left),
 :deep(.user-table .t-table__cell-fixed-right),
 :deep(.user-table .t-table__fixed-left),
-:deep(.user-table .t-table__fixed-right) {
-  z-index: 2;
+:deep(.user-table .t-table__fixed-right),
+:deep(.user-table th.t-table__cell--fixed-right),
+:deep(.user-table td.t-table__cell--fixed-right) {
+  z-index: 3;
 }
 
 .ip-cell__value {
@@ -1762,7 +1777,9 @@ onBeforeUnmount(() => {
   }
 
   .mobile-action-button {
-    padding-inline: 10px;
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
   }
 
   :deep(.user-table .t-table__header th),

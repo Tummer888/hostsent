@@ -38,14 +38,14 @@ type RiskEventListQuery struct {
 }
 
 type BlacklistListQuery struct {
-	Page        int    `form:"page"`
-	PageSize    int    `form:"page_size"`
-	Type        string `form:"type"`
-	Status      string `form:"status"`
-	Source      string `form:"source"`
-	Keyword     string `form:"keyword"`
-	StartTime   string `form:"start_time"`
-	EndTime     string `form:"end_time"`
+	Page      int    `form:"page"`
+	PageSize  int    `form:"page_size"`
+	Type      string `form:"type"`
+	Status    string `form:"status"`
+	Source    string `form:"source"`
+	Keyword   string `form:"keyword"`
+	StartTime string `form:"start_time"`
+	EndTime   string `form:"end_time"`
 }
 
 type SessionListQuery struct {

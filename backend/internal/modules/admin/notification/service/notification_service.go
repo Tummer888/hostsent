@@ -15,11 +15,11 @@ import (
 
 // Sentinel errors
 var (
-	ErrTemplateNotFound = gorm.ErrRecordNotFound
+	ErrTemplateNotFound     = gorm.ErrRecordNotFound
 	ErrNotificationNotFound = &appError{"notification not found", 20002}
 	ErrAnnouncementNotFound = &appError{"announcement not found", 20002}
-	ErrTemplateExists = &appError{"event template already exists", 20004}
-	ErrInvalidParams = &appError{"invalid parameters", 20001}
+	ErrTemplateExists       = &appError{"event template already exists", 20004}
+	ErrInvalidParams        = &appError{"invalid parameters", 20001}
 )
 
 type appError struct {
@@ -52,8 +52,8 @@ type NotificationService interface {
 type notifyListResponse struct {
 	Total    int64                        `json:"total"`
 	List     []notifydto.NotificationInfo `json:"list"`
-	Page     int                           `json:"page"`
-	PageSize int                           `json:"page_size"`
+	Page     int                          `json:"page"`
+	PageSize int                          `json:"page_size"`
 }
 
 type notificationService struct {

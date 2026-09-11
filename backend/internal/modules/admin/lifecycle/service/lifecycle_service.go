@@ -150,7 +150,7 @@ func (s *lifecycleService) ListExpiring(ctx context.Context, q *lifecycledto.Exp
 		if item.ExpireAt != nil {
 			expireAt = *item.ExpireAt
 		}
-		productName, unitPrice, perr := s.instanceRepo.ResolveProduct(ctx, item.ProductID)
+		productName, unitPrice, perr := s.instanceRepo.ResolveProduct(ctx, &item.Instance)
 		if perr != nil {
 			return nil, perr
 		}
@@ -251,12 +251,12 @@ func (s *lifecycleService) loadPolicy(ctx context.Context) (*lifecyclemodel.Life
 // ensureDefaultPolicyRow 策略单行缺失时注入默认行（ID=1：7,3,1 / 7 天宽限 / 30 天保留）。
 func ensureDefaultPolicyRow(tx *gorm.DB) (*lifecyclemodel.LifecyclePolicy, error) {
 	policy := &lifecyclemodel.LifecyclePolicy{
-		ID:              1,
-		RemindDays:      "7,3,1",
+		ID:               1,
+		RemindDays:       "7,3,1",
 		AutoRenewDefault: false,
-		GraceDays:       7,
-		DestroyKeepDays: 30,
-		Status:          "active",
+		GraceDays:        7,
+		DestroyKeepDays:  30,
+		Status:           "active",
 	}
 	if err := tx.Create(policy).Error; err != nil {
 		return nil, err

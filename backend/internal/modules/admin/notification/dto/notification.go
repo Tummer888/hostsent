@@ -3,20 +3,20 @@ package dto
 
 // PublishInput 发布通知入参（内部调用，非 HTTP）。
 type PublishInput struct {
-	Event        string            `json:"event"`          // 事件类型
-	UserID       uint64            `json:"user_id"`        // 接收用户
-	Target       string            `json:"target"`         // user / admin
-	Vars         map[string]string `json:"vars"`           // 模板变量
-	SourceModule string            `json:"source_module"`  // 来源模块
-	SourceID     string            `json:"source_id"`      // 来源单号（幂等去重）
+	Event        string            `json:"event"`         // 事件类型
+	UserID       uint64            `json:"user_id"`       // 接收用户
+	Target       string            `json:"target"`        // user / admin
+	Vars         map[string]string `json:"vars"`          // 模板变量
+	SourceModule string            `json:"source_module"` // 来源模块
+	SourceID     string            `json:"source_id"`     // 来源单号（幂等去重）
 }
 
 // AnnouncementCreateRequest 创建公告请求。
 type AnnouncementCreateRequest struct {
 	Title     string `json:"title" binding:"required"`
 	Content   string `json:"content" binding:"required"`
-	Platform  string `json:"platform"`   // user/admin/both，默认 user
-	Level     string `json:"level"`      // info/warning/critical，默认 info
+	Platform  string `json:"platform"` // user/admin/both，默认 user
+	Level     string `json:"level"`    // info/warning/critical，默认 info
 	Popup     bool   `json:"popup"`
 	PublishAt string `json:"publish_at"` // ISO 时间字符串，空=立即发布
 }
@@ -68,19 +68,19 @@ type NotificationListQuery struct {
 
 // NotificationInfo 通知记录信息。
 type NotificationInfo struct {
-	ID           uint64 `json:"id"`
-	UserID       uint64 `json:"user_id"`
-	TargetType   string `json:"target_type"`
-	Event        string `json:"event"`
-	Title        string `json:"title"`
-	Content      string `json:"content"`
-	Channel      string `json:"channel"`
-	SendStatus   string `json:"send_status"`
-	FailReason   string `json:"fail_reason"`
-	SourceModule string `json:"source_module"`
-	SourceID     string `json:"source_id"`
+	ID           uint64  `json:"id"`
+	UserID       uint64  `json:"user_id"`
+	TargetType   string  `json:"target_type"`
+	Event        string  `json:"event"`
+	Title        string  `json:"title"`
+	Content      string  `json:"content"`
+	Channel      string  `json:"channel"`
+	SendStatus   string  `json:"send_status"`
+	FailReason   string  `json:"fail_reason"`
+	SourceModule string  `json:"source_module"`
+	SourceID     string  `json:"source_id"`
 	ReadAt       *string `json:"read_at"`
-	CreatedAt    string `json:"created_at"`
+	CreatedAt    string  `json:"created_at"`
 }
 
 // TemplateInfo 模板信息。

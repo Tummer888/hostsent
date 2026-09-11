@@ -13,40 +13,40 @@ type ConfigListQuery struct {
 
 // ConfigCreateRequest 创建配置项请求
 type ConfigCreateRequest struct {
-	ConfigKey   string `json:"config_key" binding:"required"`                             // 配置键（全局唯一）
-	ConfigValue string `json:"config_value" binding:"required"`                           // 配置值
+	ConfigKey   string `json:"config_key" binding:"required"`                                     // 配置键（全局唯一）
+	ConfigValue string `json:"config_value" binding:"required"`                                   // 配置值
 	ValueType   string `json:"value_type" binding:"omitempty,oneof=string bool int decimal json"` // 值类型，空为 string
-	Group       string `json:"config_group"`                                              // 配置分组
-	Description string `json:"description"`                                               // 配置描述
-	SortOrder   int    `json:"sort_order"`                                                // 排序权重
-	Status      string `json:"status" binding:"omitempty,oneof=active disabled"`          // 状态，空为 active
+	Group       string `json:"config_group"`                                                      // 配置分组
+	Description string `json:"description"`                                                       // 配置描述
+	SortOrder   int    `json:"sort_order"`                                                        // 排序权重
+	Status      string `json:"status" binding:"omitempty,oneof=active disabled"`                  // 状态，空为 active
 }
 
 // ConfigUpdateRequest 更新配置项请求（配置键创建后不可修改）
 type ConfigUpdateRequest struct {
-	ConfigValue string `json:"config_value"`                                              // 配置值
+	ConfigValue string `json:"config_value"`                                                      // 配置值
 	ValueType   string `json:"value_type" binding:"omitempty,oneof=string bool int decimal json"` // 值类型
-	Group       string `json:"config_group"`                                              // 配置分组
-	Description string `json:"description"`                                               // 配置描述
-	SortOrder   int    `json:"sort_order"`                                                // 排序权重
-	Status      string `json:"status" binding:"omitempty,oneof=active disabled"`          // 状态
+	Group       string `json:"config_group"`                                                      // 配置分组
+	Description string `json:"description"`                                                       // 配置描述
+	SortOrder   int    `json:"sort_order"`                                                        // 排序权重
+	Status      string `json:"status" binding:"omitempty,oneof=active disabled"`                  // 状态
 }
 
 // ConfigSaveItem 分组批量保存的单项配置。
 type ConfigSaveItem struct {
-	ConfigKey   string `json:"config_key" binding:"required"`                             // 配置键（全局唯一）
-	ConfigValue string `json:"config_value"`                                              // 配置值
+	ConfigKey   string `json:"config_key" binding:"required"`                                     // 配置键（全局唯一）
+	ConfigValue string `json:"config_value"`                                                      // 配置值
 	ValueType   string `json:"value_type" binding:"omitempty,oneof=string bool int decimal json"` // 值类型，空为 string
-	Group       string `json:"config_group"`                                              // 配置分组
-	Description string `json:"description"`                                               // 配置描述
-	SortOrder   int    `json:"sort_order"`                                                // 排序权重
-	Status      string `json:"status" binding:"omitempty,oneof=active disabled"`          // 状态，空为 active
+	Group       string `json:"config_group"`                                                      // 配置分组
+	Description string `json:"description"`                                                       // 配置描述
+	SortOrder   int    `json:"sort_order"`                                                        // 排序权重
+	Status      string `json:"status" binding:"omitempty,oneof=active disabled"`                  // 状态，空为 active
 }
 
 // ConfigBatchUpsertRequest 分组批量保存配置请求（按 config_key 幂等 upsert）。
 type ConfigBatchUpsertRequest struct {
-	Group string           `json:"config_group" binding:"required"`             // 目标分组
-	Items []ConfigSaveItem `json:"items" binding:"required,min=1,dive"`         // 待保存的配置项
+	Group string           `json:"config_group" binding:"required"`     // 目标分组
+	Items []ConfigSaveItem `json:"items" binding:"required,min=1,dive"` // 待保存的配置项
 }
 
 // ConfigInfo 配置项信息（响应体，字段与前端 snake_case 保持一致）

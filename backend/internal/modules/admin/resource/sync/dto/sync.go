@@ -74,6 +74,7 @@ type InstanceInfo struct {
 	ProviderID  uint64  `json:"provider_id"`
 	UserID      uint64  `json:"user_id"`
 	ProductID   uint64  `json:"product_id"`
+	SourceMode  string  `json:"source_mode"`
 	Name        string  `json:"name"`
 	CPU         int     `json:"cpu"`
 	Memory      int     `json:"memory"`

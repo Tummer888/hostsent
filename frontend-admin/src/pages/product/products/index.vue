@@ -58,8 +58,8 @@
           <t-select v-model="filters.status" clearable placeholder="全部状态" :options="productStatusOptions" />
         </div>
         <div class="field">
-          <span class="field__label">供货模式</span>
-          <t-select v-model="filters.provision_mode" clearable placeholder="全部模式" :options="provisionModeOptions" />
+          <span class="field__label">链路</span>
+          <t-select v-model="filters.source_mode" clearable placeholder="全部链路" :options="sourceModeOptions" />
         </div>
       </div>
     </section>
@@ -92,9 +92,9 @@
           <span>{{ categoryName(row.category_id) }}</span>
         </template>
 
-        <template #provision_mode="{ row }">
-          <t-tag :theme="provisionModeTag(row.provision_mode).theme" variant="light" size="small" shape="round">
-            {{ provisionModeTag(row.provision_mode).text }}
+        <template #source_mode="{ row }">
+          <t-tag :theme="sourceModeTag(row.source_mode || (row.provision_mode === 'clone' ? 'upstream' : 'self')).theme" variant="light" size="small" shape="round">
+            {{ sourceModeTag(row.source_mode || (row.provision_mode === 'clone' ? 'upstream' : 'self')).text }}
           </t-tag>
         </template>
 
@@ -231,7 +231,7 @@ import {
   updateProductPrice,
 } from '@/api/product'
 import { getProductList as getResourceProductList, getProviderList } from '@/api/admin'
-import { formatPrice, priceModelLabel, productStatusOptions, provisionModeOptions, provisionModeTag, statusTag } from '@/pages/product/constants'
+import { formatPrice, priceModelLabel, productStatusOptions, sourceModeOptions, sourceModeTag, statusTag } from '@/pages/product/constants'
 import type { ProductInfo, ProviderInfo, SaleProductCategoryInfo, SaleProductInfo } from '@/types/interface'
 
 defineOptions({ name: 'ProductProducts' })
@@ -244,11 +244,11 @@ const total = ref(0)
 const categoryOptions = ref<{ label: string; value: number }[]>([])
 const categoryIdMap = ref<Record<number, string>>({})
 
-const filters = reactive<{ keyword: string | undefined; category_id: number | undefined; status: number | undefined; provision_mode: string | undefined }>({
+const filters = reactive<{ keyword: string | undefined; category_id: number | undefined; status: number | undefined; source_mode: string | undefined }>({
   keyword: undefined,
   category_id: undefined,
   status: undefined,
-  provision_mode: undefined,
+  source_mode: undefined,
 })
 
 const pagination = reactive({
@@ -260,7 +260,7 @@ const pagination = reactive({
 
 const columns: PrimaryTableCol<SaleProductInfo>[] = [
   { colKey: 'name', title: '产品', minWidth: 180 },
-  { colKey: 'provision_mode', title: '供货模式', width: 110 },
+  { colKey: 'source_mode', title: '链路', width: 110 },
   { colKey: 'category', title: '分类', width: 120 },
   { colKey: 'price', title: '价格', width: 170 },
   { colKey: 'stock', title: '库存', width: 80 },
@@ -305,7 +305,7 @@ async function loadProducts() {
       keyword: filters.keyword,
       category_id: filters.category_id,
       status: filters.status,
-      provision_mode: filters.provision_mode,
+      source_mode: filters.source_mode,
       page: pagination.current,
       page_size: pagination.pageSize,
     })
@@ -334,7 +334,7 @@ function handleResetFilters() {
   filters.keyword = undefined
   filters.category_id = undefined
   filters.status = undefined
-  filters.provision_mode = undefined
+  filters.source_mode = undefined
   pagination.current = 1
   loadProducts()
 }

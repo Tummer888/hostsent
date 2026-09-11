@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"strconv"
+
 	"github.com/gin-gonic/gin"
 
 	"hostsent/backend/internal/modules/admin/product/spec/dto"
@@ -9,15 +11,16 @@ import (
 	"hostsent/backend/internal/pkg/response"
 )
 
-// SpecHandler 规格管理入口（规格模板 + 规格映射）。
+// SpecHandler 规格管理入口（规格模板 + 规格映射 + 规格契约）。
 type SpecHandler struct {
 	templateService service.SpecTemplateService
 	mappingService  service.SpecMappingService
+	contractService service.SpecContractService
 }
 
 // NewSpecHandler 创建规格管理入口。
-func NewSpecHandler(templateService service.SpecTemplateService, mappingService service.SpecMappingService) *SpecHandler {
-	return &SpecHandler{templateService: templateService, mappingService: mappingService}
+func NewSpecHandler(templateService service.SpecTemplateService, mappingService service.SpecMappingService, contractService service.SpecContractService) *SpecHandler {
+	return &SpecHandler{templateService: templateService, mappingService: mappingService, contractService: contractService}
 }
 
 // ===== 规格模板 =====
@@ -274,4 +277,150 @@ func (h *SpecHandler) DeleteMapping(c *gin.Context) {
 		return
 	}
 	response.SuccessMessage(c, "success")
+}
+
+// ===== 规格契约（P2/T2.5、T2.6）=====
+
+// ListAtoms godoc
+// @Summary 查询规格原子字典
+// @Tags 产品管理-规格
+// @Security BearerAuth
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/product/spec/atoms [get]
+func (h *SpecHandler) ListAtoms(c *gin.Context) {
+	resp, err := h.contractService.ListAtoms(c.Request.Context())
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// ValidateSpec godoc
+// @Summary 按原子字典校验规格
+// @Tags 产品管理-规格
+// @Security BearerAuth
+// @Param request body dto.SpecValidateRequest true "规格取值"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/product/spec/validate [post]
+func (h *SpecHandler) ValidateSpec(c *gin.Context) {
+	var req dto.SpecValidateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	response.Success(c, h.contractService.ValidateSpec(c.Request.Context(), req))
+}
+
+// ListExternalSpecs godoc
+// @Summary 查询外部规格快照
+// @Tags 产品管理-规格
+// @Security BearerAuth
+// @Param provider_type query string false "渠道类型"
+// @Param status query string false "状态 active/offline"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/product/spec/external-specs [get]
+func (h *SpecHandler) ListExternalSpecs(c *gin.Context) {
+	resp, err := h.contractService.ListExternalSpecs(c.Request.Context(), c.Query("provider_type"), c.Query("status"))
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// UpsertExternalSpec godoc
+// @Summary 登记/刷新外部规格快照
+// @Tags 产品管理-规格
+// @Security BearerAuth
+// @Param request body dto.ExternalSpecUpsertRequest true "外部规格"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/product/spec/external-specs [post]
+func (h *SpecHandler) UpsertExternalSpec(c *gin.Context) {
+	var req dto.ExternalSpecUpsertRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	resp, err := h.contractService.UpsertExternalSpec(c.Request.Context(), req)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// ListBindings godoc
+// @Summary 查询规格绑定
+// @Tags 产品管理-规格
+// @Security BearerAuth
+// @Param external_spec_id query int false "外部规格 ID"
+// @Param status query string false "绑定状态"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/product/spec/bindings [get]
+func (h *SpecHandler) ListBindings(c *gin.Context) {
+	externalSpecID := uint64(0)
+	if raw := c.Query("external_spec_id"); raw != "" {
+		if id, err := strconv.ParseUint(raw, 10, 64); err == nil {
+			externalSpecID = id
+		}
+	}
+	resp, err := h.contractService.ListBindings(c.Request.Context(), externalSpecID, c.Query("status"))
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// UpsertBinding godoc
+// @Summary 建立/更新规格绑定
+// @Tags 产品管理-规格
+// @Security BearerAuth
+// @Param request body dto.SpecBindingUpsertRequest true "绑定参数"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/product/spec/bindings [post]
+func (h *SpecHandler) UpsertBinding(c *gin.Context) {
+	var req dto.SpecBindingUpsertRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	resp, err := h.contractService.UpsertBinding(c.Request.Context(), req)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// ConfirmBinding godoc
+// @Summary 人工确认规格绑定
+// @Tags 产品管理-规格
+// @Security BearerAuth
+// @Param id path int true "绑定 ID"
+// @Param request body dto.SpecBindingConfirmRequest true "确认参数"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/product/spec/bindings/{id}/confirm [post]
+func (h *SpecHandler) ConfirmBinding(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	var req dto.SpecBindingConfirmRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	operatorID := adminID(c)
+	resp, err := h.contractService.ConfirmBinding(c.Request.Context(), id, req, operatorID)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, resp)
 }

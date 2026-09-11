@@ -22,10 +22,10 @@ type AnnouncementService interface {
 }
 
 type announcementListResponse struct {
-	Total    int64                          `json:"total"`
-	List     []notifydto.AnnouncementInfo   `json:"list"`
-	Page     int                             `json:"page"`
-	PageSize int                             `json:"page_size"`
+	Total    int64                        `json:"total"`
+	List     []notifydto.AnnouncementInfo `json:"list"`
+	Page     int                          `json:"page"`
+	PageSize int                          `json:"page_size"`
 }
 
 type announcementService struct {

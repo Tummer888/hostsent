@@ -192,6 +192,21 @@
   font-variant-numeric: tabular-nums;
 }
 
+.instances-module .provider-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.instances-module .provider-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--color-foreground);
+}
+
 .instances-module .cell-error {
   font-size: 12px;
   color: var(--color-error, #ef4444);

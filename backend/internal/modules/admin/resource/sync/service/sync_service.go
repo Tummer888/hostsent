@@ -161,6 +161,7 @@ func buildInstanceInfo(item model.Instance) dto.InstanceInfo {
 		ProviderID:  item.ProviderID,
 		UserID:      item.UserID,
 		ProductID:   item.ProductID,
+		SourceMode:  item.SourceMode,
 		Name:        item.Name,
 		CPU:         item.CPU,
 		Memory:      item.Memory,

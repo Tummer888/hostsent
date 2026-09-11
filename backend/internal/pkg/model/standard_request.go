@@ -9,6 +9,6 @@ type CreateInstanceRequest struct {
 	Region       string                 `json:"region"`
 	Zone         string                 `json:"zone"`
 	Count        int                    `json:"count"`
-	BillingMode  string                 `json:"billing_mode"` // hourly/monthly
+	BillingMode  string                 `json:"billing_mode"`    // hourly/monthly
 	Extra        map[string]interface{} `json:"extra,omitempty"` // 上游特有参数
 }

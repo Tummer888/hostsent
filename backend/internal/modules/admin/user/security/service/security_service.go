@@ -349,7 +349,7 @@ func newListResponse[T any](items []T, page, pageSize int, total int64) *dto.Lis
 	}
 	return &dto.ListResponse[T]{
 		Items: items,
-		Meta: dto.ListMeta{Page: page, PageSize: pageSize, Total: total},
+		Meta:  dto.ListMeta{Page: page, PageSize: pageSize, Total: total},
 	}
 }
 

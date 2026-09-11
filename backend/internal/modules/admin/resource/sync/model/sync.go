@@ -41,6 +41,14 @@ func (SyncLog) TableName() string {
 	return "sync_logs"
 }
 
+// 实例链路判据（P1/T1.2，D6）：单一字段区分自营与上游，禁止混用。
+const (
+	// SourceModeSelf 经我方订单/后台开通的自营链路实例。
+	SourceModeSelf = "self"
+	// SourceModeUpstream 由上游渠道同步发现的上游链路实例。
+	SourceModeUpstream = "upstream"
+)
+
 // Instance 统一实例主数据
 type Instance struct {
 	ID          uint64 `gorm:"primaryKey;autoIncrement"`
@@ -70,9 +78,22 @@ type Instance struct {
 	Remark string `gorm:"size:255"`
 	// LastSyncedAt 最近一次单实例回源上游的时间。
 	LastSyncedAt *time.Time `gorm:"column:last_synced_at"`
-	CreatedAt    time.Time  `gorm:"autoCreateTime"`
-	ExpireAt     *time.Time `gorm:"column:expire_at"`
-	UpdatedAt    time.Time  `gorm:"autoUpdateTime"`
+	// ---- 双链路语义列（P1/T1.2）----
+	// SourceMode 链路判据：self=经我方订单/后台开通，upstream=由上游同步发现。
+	SourceMode string `gorm:"column:source_mode;size:16"`
+	// SellProductID 自营链路售出商品（products.id）；上游链路为空。
+	SellProductID uint64 `gorm:"column:sell_product_id"`
+	// UpstreamProductID 上游链路资源商品（resource_products.id）；自营链路为空。
+	UpstreamProductID uint64 `gorm:"column:upstream_product_id"`
+	// ProviderInstanceID 上游/平台侧的实例号（= instance_id，独立列便于多平台对接）。
+	ProviderInstanceID string `gorm:"column:provider_instance_id;size:128"`
+	// UpstreamOrderID 上游订单号（链路 A 续费/对账用）。
+	UpstreamOrderID string `gorm:"column:upstream_order_id;size:128"`
+	// LifecycleStage 生命周期阶段（T5.4 推进器使用）。
+	LifecycleStage string     `gorm:"column:lifecycle_stage;size:24"`
+	CreatedAt      time.Time  `gorm:"autoCreateTime"`
+	ExpireAt       *time.Time `gorm:"column:expire_at"`
+	UpdatedAt      time.Time  `gorm:"autoUpdateTime"`
 }
 
 // TableName 指定表名

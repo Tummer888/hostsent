@@ -76,14 +76,14 @@ type renewalQuote struct {
 }
 
 type renewalService struct {
-	db             *gorm.DB
-	renewalRepo    lifecyclerepo.RenewalRepository
-	policyRepo     lifecyclerepo.PolicyRepository
-	autoRepo       lifecyclerepo.AutoRenewRepository
-	instanceRepo   lifecyclerepo.InstanceReader
-	orderWriter    lifecyclerepo.OrderWriter
-	orderReader    lifecycleRenewalGetter // 可选：读取订单支付方式
-	walletSvc      accountservice.WalletService
+	db           *gorm.DB
+	renewalRepo  lifecyclerepo.RenewalRepository
+	policyRepo   lifecyclerepo.PolicyRepository
+	autoRepo     lifecyclerepo.AutoRenewRepository
+	instanceRepo lifecyclerepo.InstanceReader
+	orderWriter  lifecyclerepo.OrderWriter
+	orderReader  lifecycleRenewalGetter // 可选：读取订单支付方式
+	walletSvc    accountservice.WalletService
 	pricingSvc   renewalPriceResolver // 可选：统一算价管线（P5-04）
 	cashbackHook RenewalCashbackHook  // 可选：续费完成后的推广返现计提
 	logger       *zap.Logger
@@ -126,11 +126,12 @@ func (s *renewalService) SetCashbackHook(hook RenewalCashbackHook) {
 
 // resolveRenewalQuote 续费算价（P5-04）：命中管线则走统一算价；未注入时回落单价×期数。
 // manual 非 nil 表示管理员手动改价，直接作为实付（最高优先级）。
-func (s *renewalService) resolveRenewalQuote(ctx context.Context, userID, productID uint64, periodCount int, manual *float64) (renewalQuote, error) {
+// 算价仍以 product_id（售出商品）为口径，产品名/兜底单价改用实例的双链路列解析（T1.2）。
+func (s *renewalService) resolveRenewalQuote(ctx context.Context, userID uint64, instance *syncmodel.Instance, periodCount int, manual *float64) (renewalQuote, error) {
 	if s.pricingSvc != nil {
 		quote, err := s.pricingSvc.Resolve(ctx, pricing.ResolveInput{
 			UserID:       userID,
-			ProductID:    productID,
+			ProductID:    instance.ProductID,
 			Quantity:     periodCount,
 			Period:       periodCount,
 			ManualAmount: manual,
@@ -147,7 +148,7 @@ func (s *renewalService) resolveRenewalQuote(ctx context.Context, userID, produc
 			Snapshot: marshalRenewalSnapshot(quote.Snapshot),
 		}, nil
 	}
-	_, unitPrice, err := s.instanceRepo.ResolveProduct(ctx, productID)
+	_, unitPrice, err := s.instanceRepo.ResolveProduct(ctx, instance)
 	if err != nil {
 		return renewalQuote{}, err
 	}
@@ -187,12 +188,12 @@ func (s *renewalService) UserRenew(ctx context.Context, userID, instanceID uint6
 		return nil, ErrStatusNotAllowed
 	}
 	periodCount := normalizePeriod(req.PeriodCount)
-	productName, _, err := s.instanceRepo.ResolveProduct(ctx, instance.ProductID)
+	productName, _, err := s.instanceRepo.ResolveProduct(ctx, &instance.Instance)
 	if err != nil {
 		return nil, err
 	}
 	// 统一算价管线（P5-04）：用户组/代理折扣在此生效。
-	quote, err := s.resolveRenewalQuote(ctx, userID, instance.ProductID, periodCount, nil)
+	quote, err := s.resolveRenewalQuote(ctx, userID, &instance.Instance, periodCount, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +226,7 @@ func (s *renewalService) AdminRenew(ctx context.Context, adminID, instanceID uin
 		return nil, ErrStatusNotAllowed
 	}
 	periodCount := normalizePeriod(req.PeriodCount)
-	productName, _, err := s.instanceRepo.ResolveProduct(ctx, instance.ProductID)
+	productName, _, err := s.instanceRepo.ResolveProduct(ctx, instance)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +236,7 @@ func (s *renewalService) AdminRenew(ctx context.Context, adminID, instanceID uin
 		amount := money.Round2(req.Amount)
 		manual = &amount
 	}
-	quote, err := s.resolveRenewalQuote(ctx, instance.UserID, instance.ProductID, periodCount, manual)
+	quote, err := s.resolveRenewalQuote(ctx, instance.UserID, instance, periodCount, manual)
 	if err != nil {
 		return nil, err
 	}
@@ -313,12 +314,12 @@ func (s *renewalService) processOneAutoRenewal(ctx context.Context, instance *sy
 	if instance.ExpireAt == nil {
 		return nil
 	}
-	productName, _, err := s.instanceRepo.ResolveProduct(ctx, instance.ProductID)
+	productName, _, err := s.instanceRepo.ResolveProduct(ctx, instance)
 	if err != nil {
 		return err
 	}
 	// 自动续费同样走统一算价管线（P5-04），折扣口径与手动续费一致。
-	quote, err := s.resolveRenewalQuote(ctx, instance.UserID, instance.ProductID, periodCount, nil)
+	quote, err := s.resolveRenewalQuote(ctx, instance.UserID, instance, periodCount, nil)
 	if err != nil {
 		return err
 	}
@@ -412,7 +413,7 @@ func (s *renewalService) UserRenewalsView(ctx context.Context, userID uint64) (*
 		if item.ExpireAt == nil {
 			continue
 		}
-		productName, unitPrice, perr := s.instanceRepo.ResolveProduct(ctx, item.ProductID)
+		productName, unitPrice, perr := s.instanceRepo.ResolveProduct(ctx, &item.Instance)
 		if perr != nil {
 			return nil, perr
 		}

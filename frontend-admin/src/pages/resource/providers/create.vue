@@ -30,23 +30,41 @@
       </header>
       <div v-loading="loadingTypes" class="type-grid">
         <div
-          v-for="item in typeOptions"
-          :key="item.value"
+          v-for="item in typeList"
+          :key="item.type"
           class="type-card"
-          :class="{ 'type-card--active': formData.provider_type === item.value }"
-          @click="formData.provider_type = item.value"
+          :class="{ 'type-card--active': formData.provider_type === item.type }"
+          @click="formData.provider_type = item.type"
         >
           <div class="type-card__icon">
             <CloudIcon size="24" aria-hidden="true" />
           </div>
-          <div class="type-card__name">{{ item.label }}</div>
-          <div class="type-card__code">{{ item.value }}</div>
+          <div class="type-card__name">{{ item.name }}</div>
+          <div class="type-card__code">{{ item.type }}</div>
+          <div class="type-card__meta">
+            <t-tag :theme="item.kind === 'compute' ? 'success' : 'default'" variant="light" size="small" shape="round">
+              {{ labelOf(KIND_LABELS, item.kind) }}
+            </t-tag>
+            <t-tag v-if="!item.implemented" theme="warning" variant="light" size="small" shape="round">未接入</t-tag>
+          </div>
           <div class="type-card__radio">
-            <t-icon v-if="formData.provider_type === item.value" name="check-circle-filled" />
+            <t-icon v-if="formData.provider_type === item.type" name="check-circle-filled" />
           </div>
         </div>
       </div>
-      <t-alert v-if="!typeOptions.length && !loadingTypes" theme="warning" :message="`暂无可用的提供商类型，请联系后端确认适配器已注册`" />
+      <t-alert v-if="!typeList.length && !loadingTypes" theme="warning" :message="`暂无可用的提供商类型，请联系后端确认适配器已注册`" />
+      <CapabilityMatrix
+        v-if="selectedType"
+        :descriptor="selectedType.capabilities"
+        :title="`${selectedType.name} 能力矩阵`"
+        class="selected-matrix"
+      />
+      <t-alert
+        v-if="selectedType && !selectedType.implemented"
+        theme="warning"
+        :message="`${selectedType.name} 尚未接入适配器：可先创建渠道占位，连接测试会明确提示未实现。`"
+        class="selected-matrix"
+      />
       <div class="steps-footer">
         <t-button theme="primary" :disabled="!formData.provider_type" @click="handleNext">下一步</t-button>
       </div>
@@ -134,8 +152,9 @@
           </div>
         </template>
 
-        <!-- 其它类型：通用表单 -->
+        <!-- 其它类型（含未接入适配器的假渠道）：描述符驱动的通用表单 -->
         <template v-else>
+          <CapabilityMatrix :descriptor="selectedDescriptor" :title="`${selectedTypeLabel} 能力矩阵`" class="form-matrix" />
           <div class="form-grid">
             <t-form-item label="提供商名称" name="name">
               <t-input v-model="formData.name" placeholder="例如：华东魔方云" maxlength="50" />
@@ -149,18 +168,42 @@
             <t-form-item label="区域" name="region">
               <t-input v-model="formData.region" :placeholder="regionPlaceholder" />
             </t-form-item>
-            <t-form-item :label="credentialLabels.key" name="api_key">
-              <t-input v-model="formData.api_key" type="password" :placeholder="credentialLabels.keyPlaceholder" />
-            </t-form-item>
-            <t-form-item :label="credentialLabels.secret" name="api_secret">
-              <t-input v-model="formData.api_secret" type="password" :placeholder="credentialLabels.secretPlaceholder" />
-            </t-form-item>
             <t-form-item label="同步间隔（秒）" name="sync_interval">
               <t-input-number v-model="formData.sync_interval" :min="0" :step="60" placeholder="默认 3600" />
             </t-form-item>
             <t-form-item label="启用实例同步" name="sync_enabled">
               <t-switch v-model="formData.sync_enabled" />
             </t-form-item>
+          </div>
+
+          <!-- 凭证字段由 capabilities.credential_schema 驱动；无适配器时回退旧 api_key/api_secret -->
+          <CredentialFormFields
+            v-if="usesDynamicCredentialForm"
+            v-model="formData.credentials"
+            :fields="credentialSchema"
+          />
+          <div v-else class="form-grid">
+            <t-form-item label="访问密钥" name="api_key">
+              <t-input v-model="formData.api_key" type="password" placeholder="请输入访问密钥（AK/用户名）" />
+            </t-form-item>
+            <t-form-item label="访问密钥 Secret" name="api_secret">
+              <t-input v-model="formData.api_secret" type="password" placeholder="请输入访问密钥（SK/密码）" />
+            </t-form-item>
+          </div>
+
+          <div class="advanced-box">
+            <t-divider align="left">传输设置</t-divider>
+            <div class="form-grid">
+              <t-form-item label="超时（秒）" name="timeout_seconds">
+                <t-input-number v-model="formData.timeout_seconds" :min="0" placeholder="0 表示默认" />
+              </t-form-item>
+              <t-form-item label="最大重试次数" name="retry_max">
+                <t-input-number v-model="formData.retry_max" :min="0" placeholder="0 表示默认" />
+              </t-form-item>
+              <t-form-item label="限流 QPS" name="rate_limit_qps">
+                <t-input-number v-model="formData.rate_limit_qps" :min="0" placeholder="0 表示不限" />
+              </t-form-item>
+            </div>
           </div>
         </template>
       </t-form>
@@ -207,6 +250,9 @@ import { MessagePlugin, type FormInstanceFunctions, type FormRule } from 'tdesig
 
 import { createProvider, getProviderTypes, testConnection } from '@/api/admin'
 import type { ProviderCreateRequest, ProviderInfo, ProviderTypeItem } from '@/types/interface'
+import CapabilityMatrix from './components/CapabilityMatrix.vue'
+import CredentialFormFields from './components/CredentialFormFields.vue'
+import { KIND_LABELS, labelOf } from './components/capability-labels'
 
 defineOptions({ name: 'ResourceProvidersCreate' })
 
@@ -217,7 +263,7 @@ const loadingTypes = ref(false)
 const submitting = ref(false)
 const created = ref<ProviderInfo | null>(null)
 const testResultText = ref('—')
-const typeOptions = ref<{ label: string; value: string }[]>([])
+const typeList = ref<ProviderTypeItem[]>([])
 const formRef = ref<FormInstanceFunctions | null>(null)
 
 const formData = reactive<ProviderCreateRequest>({
@@ -238,6 +284,10 @@ const formData = reactive<ProviderCreateRequest>({
   disabled: false,
   user_prefix: '',
   account_type: '',
+  credentials: {},
+  timeout_seconds: 0,
+  retry_max: 0,
+  rate_limit_qps: 0,
 })
 
 const financeTypeOptions = [
@@ -251,13 +301,22 @@ const accountTypeOptions = [
   { label: '代理商', value: 'agent' },
 ]
 
-const selectedTypeLabel = computed(() => {
-  const item = typeOptions.value.find((type) => type.value === formData.provider_type)
-  return item?.label || formData.provider_type
-})
+const selectedType = computed<ProviderTypeItem | undefined>(() =>
+  typeList.value.find((type) => type.type === formData.provider_type),
+)
+
+const selectedDescriptor = computed(() => selectedType.value?.capabilities || null)
+// 凭证字段由渠道能力描述符驱动；无声明时回退旧 api_key/api_secret 双字段。
+const credentialSchema = computed(() => selectedDescriptor.value?.credential_schema || [])
+
+const selectedTypeLabel = computed(() => selectedType.value?.name || formData.provider_type)
 
 const isMofangFinance = computed(() => formData.provider_type === 'mofangfinance')
 const isMofangYun = computed(() => formData.provider_type === 'mofangyun')
+// 魔方云/魔方财务保留各自的专用契约表单（字段与业务语义耦合），其余类型走描述符驱动表单。
+const usesDynamicCredentialForm = computed(
+  () => !isMofangFinance.value && !isMofangYun.value && credentialSchema.value.length > 0,
+)
 // 魔方云契约 disabled=是否禁用(0启用 1禁用)，开关以「是否启用」呈现，提交时取反。
 const mofangYunEnabled = ref(true)
 
@@ -296,17 +355,8 @@ const FIELD_CONFIG: Record<string, Partial<FieldLabels>> = {
 const typedConfig = computed<Partial<FieldLabels>>(() => FIELD_CONFIG[formData.provider_type] || {})
 
 const providerHint = computed(() => typedConfig.value.hint || '')
-const credentialLabels = computed<FieldLabels>(() => ({
-  key: typedConfig.value.key || 'API 密钥',
-  keyPlaceholder: typedConfig.value.keyPlaceholder || '请输入 API 密钥',
-  secret: typedConfig.value.secret || 'API 密码',
-  secretPlaceholder: typedConfig.value.secretPlaceholder || '请输入 API 密码',
-  endpointPlaceholder: typedConfig.value.endpointPlaceholder || '请输入 API 地址',
-  regionPlaceholder: typedConfig.value.regionPlaceholder || '请输入区域 ID',
-  hint: typedConfig.value.hint || '',
-}))
-const endpointPlaceholder = computed(() => credentialLabels.value.endpointPlaceholder)
-const regionPlaceholder = computed(() => credentialLabels.value.regionPlaceholder)
+const endpointPlaceholder = computed(() => typedConfig.value.endpointPlaceholder || '请输入 API 地址')
+const regionPlaceholder = computed(() => typedConfig.value.regionPlaceholder || '请输入区域 ID')
 
 const formRules = computed<Record<string, FormRule[]>>(() => {
   const base: Record<string, FormRule[]> = {
@@ -323,14 +373,18 @@ const formRules = computed<Record<string, FormRule[]>>(() => {
   if (isMofangFinance.value) {
     base.upstream_type = [{ required: true, message: '请选择接口类型', type: 'error', trigger: 'change' }]
   }
+  // 描述符驱动的渠道由字段声明必填，不再强制旧 api_key/api_secret。
+  if (usesDynamicCredentialForm.value) {
+    delete base.api_key
+    delete base.api_secret
+  }
   return base
 })
 
 async function loadTypes() {
   loadingTypes.value = true
   try {
-    const types = await getProviderTypes()
-    typeOptions.value = types.map((item: ProviderTypeItem) => ({ label: item.name, value: item.type }))
+    typeList.value = await getProviderTypes()
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载提供商类型失败')
   } finally {
@@ -346,30 +400,44 @@ function handleNext() {
   current.value = 1
 }
 
+// 组装提交载荷：描述符驱动的渠道走 credentials，旧渠道保留 api_key/api_secret。
+function buildPayload(): ProviderCreateRequest {
+  const payload: ProviderCreateRequest = {
+    name: formData.name,
+    provider_type: formData.provider_type,
+    api_endpoint: formData.api_endpoint,
+    region: formData.region,
+    status: 1,
+    sync_enabled: formData.sync_enabled,
+    sync_interval: formData.sync_interval,
+    contact_way: formData.contact_way || undefined,
+    des: formData.des || undefined,
+    upstream_type: formData.upstream_type || undefined,
+    port: formData.port || undefined,
+    secure: formData.secure,
+    disabled: !mofangYunEnabled.value,
+    user_prefix: formData.user_prefix || undefined,
+    account_type: formData.account_type || undefined,
+    timeout_seconds: formData.timeout_seconds || 0,
+    retry_max: formData.retry_max || 0,
+    rate_limit_qps: formData.rate_limit_qps || 0,
+  }
+  if (usesDynamicCredentialForm.value) {
+    payload.credentials = formData.credentials
+  } else {
+    // 魔方云/魔方财务沿用专用表单的 api_key/api_secret，后端会按描述符加密进 credentials。
+    payload.api_key = formData.api_key || undefined
+    payload.api_secret = formData.api_secret || undefined
+  }
+  return payload
+}
+
 async function handleSubmit() {
   const validate = await formRef.value?.validate?.()
   if (validate !== true) return
   submitting.value = true
   try {
-    created.value = await createProvider({
-      name: formData.name,
-      provider_type: formData.provider_type,
-      api_endpoint: formData.api_endpoint,
-      api_key: formData.api_key || undefined,
-      api_secret: formData.api_secret || undefined,
-      region: formData.region,
-      status: 1,
-      sync_enabled: formData.sync_enabled,
-      sync_interval: formData.sync_interval,
-      contact_way: formData.contact_way || undefined,
-      des: formData.des || undefined,
-      upstream_type: formData.upstream_type || undefined,
-      port: formData.port || undefined,
-      secure: formData.secure,
-      disabled: !mofangYunEnabled.value,
-      user_prefix: formData.user_prefix || undefined,
-      account_type: formData.account_type || undefined,
-    })
+    created.value = await createProvider(buildPayload())
     testResultText.value = '未测试'
     current.value = 2
     MessagePlugin.success('提供商已创建')
@@ -385,25 +453,7 @@ async function handleSubmitAndTest() {
   if (validate !== true) return
   submitting.value = true
   try {
-    created.value = await createProvider({
-      name: formData.name,
-      provider_type: formData.provider_type,
-      api_endpoint: formData.api_endpoint,
-      api_key: formData.api_key || undefined,
-      api_secret: formData.api_secret || undefined,
-      region: formData.region,
-      status: 1,
-      sync_enabled: formData.sync_enabled,
-      sync_interval: formData.sync_interval,
-      contact_way: formData.contact_way || undefined,
-      des: formData.des || undefined,
-      upstream_type: formData.upstream_type || undefined,
-      port: formData.port || undefined,
-      secure: formData.secure,
-      disabled: !mofangYunEnabled.value,
-      user_prefix: formData.user_prefix || undefined,
-      account_type: formData.account_type || undefined,
-    })
+    created.value = await createProvider(buildPayload())
     const result = await testConnection(created.value.id)
     testResultText.value = result.success ? `测试通过（${result.message}）` : `测试失败：${result.message}`
     current.value = 2
@@ -497,6 +547,21 @@ onMounted(() => {
 .type-card__code {
   font-size: 12px;
   color: var(--color-muted-foreground);
+}
+
+.type-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+}
+
+.selected-matrix {
+  margin-top: var(--space-md);
+}
+
+.form-matrix {
+  margin-bottom: var(--space-lg);
 }
 
 .type-card__radio {

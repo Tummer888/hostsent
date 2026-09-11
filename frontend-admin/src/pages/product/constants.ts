@@ -35,6 +35,18 @@ export function provisionModeTag(mode: string): { theme: 'primary' | 'warning' |
   return { theme: 'default', text: '自营' }
 }
 
+// 链路判据（双链路重构 D6）：source_mode 为唯一判据，供货模式仅保留展示一版。
+export const sourceModeOptions = [
+  { label: '自营', value: 'self' },
+  { label: '上游转售', value: 'upstream' },
+]
+
+export function sourceModeTag(mode: string): { theme: 'primary' | 'warning' | 'default'; text: string } {
+  if (mode === 'upstream') return { theme: 'warning', text: '上游转售' }
+  if (mode === 'self') return { theme: 'primary', text: '自营' }
+  return { theme: 'default', text: '未知' }
+}
+
 export const changeTypeOptions = [
   { label: '上架', value: 'publish' },
   { label: '下架', value: 'unpublish' },

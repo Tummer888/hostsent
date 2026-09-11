@@ -81,6 +81,9 @@ func (r *instanceRepository) baseQuery(ctx context.Context, query *dto.ListQuery
 	if s := strings.TrimSpace(query.Status); s != "" {
 		db = db.Where("instances.status = ?", s)
 	}
+	if sm := strings.TrimSpace(query.SourceMode); sm != "" {
+		db = db.Where("instances.source_mode = ?", sm)
+	}
 
 	days := query.ExpireWithinDays
 	if days <= 0 {

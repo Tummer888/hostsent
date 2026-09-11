@@ -9,6 +9,7 @@ export interface InstanceOpsListQuery {
   user_id?: number
   provider_id?: number
   status?: string
+  source_mode?: string
   expire_state?: string
   expire_within_days?: number
   page?: number
@@ -27,6 +28,11 @@ export interface InstanceItem {
   user_phone: string
   product_id: number
   order_id: number
+  source_mode: string
+  sell_product_id: number
+  upstream_product_id: number
+  provider_instance_id: string
+  lifecycle_stage: string
   name: string
   cpu: number
   memory: number

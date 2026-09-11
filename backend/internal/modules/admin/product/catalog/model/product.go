@@ -16,6 +16,12 @@ const (
 	ProvisionModeSelf  string = "self"  // 自营：自定义配置映射到上游（对接魔方云）
 )
 
+// 商品链路判据（双链路重构 D6，单一判据，禁止与 provision_mode 混用）
+const (
+	SourceModeSelf     string = "self"     // 自营链路
+	SourceModeUpstream string = "upstream" // 上游转售链路
+)
+
 // 价格模型
 const (
 	PriceModelFixed   string = "fixed"   // 固定价
@@ -45,7 +51,8 @@ type Product struct {
 	CostPrice        float64    `gorm:"column:cost_price;type:decimal(10,2)"`               // 成本价
 	SourceProductID  uint64     `gorm:"column:source_product_id;index"`                     // 克隆模式：关联【本地】resource_products.id（上游资源商品的本地主键，非上游 upstream_id）
 	SourceProviderID uint64     `gorm:"column:source_provider_id;index"`                    // 关联上游提供商 ID（克隆模式的推送目标）
-	ProvisionMode    string     `gorm:"column:provision_mode;size:20;default:'self';index"` // 供货模式：self 自营 / clone 上游克隆
+	ProvisionMode    string     `gorm:"column:provision_mode;size:20;default:'self';index"` // 供货模式：self 自营 / clone 上游克隆（保留只读一版，P8 删除）
+	SourceMode       string     `gorm:"column:source_mode;size:16;index"`                   // 链路判据：self 自营 / upstream 上游转售（双链路重构 D6 单一判据）
 	ConfigOptions    string     `gorm:"column:config_options;type:text"`                    // JSON 可配置项（自营模式映射到上游 /clouds 参数；克隆模式可覆盖规格）
 	Featured         bool       `gorm:"column:featured;default:false;index"`                // 是否前台推荐（推荐位管理）
 	Stock            int        `gorm:"default:-1"`                                         // 库存，-1 表示不限

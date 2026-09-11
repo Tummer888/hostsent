@@ -48,11 +48,11 @@ func ensureDefaultPolicy(tx *gorm.DB) (*lifecyclemodel.LifecyclePolicy, error) {
 		return nil, err
 	}
 	policy = lifecyclemodel.LifecyclePolicy{
-		ID:          1,
-		RemindDays:  "7,3,1",
-		GraceDays:   7,
+		ID:              1,
+		RemindDays:      "7,3,1",
+		GraceDays:       7,
 		DestroyKeepDays: 30,
-		Status:      "active",
+		Status:          "active",
 	}
 	if err := tx.Create(&policy).Error; err != nil {
 		return nil, err

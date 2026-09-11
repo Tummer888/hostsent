@@ -6,6 +6,7 @@ export interface SaleProductListQuery {
   category_id?: number
   status?: number
   provision_mode?: string
+  source_mode?: string
   featured?: boolean
   page?: number
   page_size?: number
@@ -88,6 +89,7 @@ export interface SaleProductInfo {
   source_product_id: number
   source_provider_id: number
   provision_mode: string
+  source_mode: string
   config_options: string
   featured: boolean
   stock: number

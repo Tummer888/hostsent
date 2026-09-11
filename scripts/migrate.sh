@@ -15,10 +15,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MIGRATIONS_DIR="$ROOT/backend/migrations"
 
 # 默认走 docker 里的 postgres；可用环境变量覆盖为远程库。
+# 注意：docker exec 需 -i 才能从宿主机 stdin 读入 SQL（见下方 -f - 用法），
+#       否则 psql 在容器内找不到宿主机路径的迁移文件。
 if [[ -n "${PGHOST:-}" && -n "${PGPORT:-}" ]]; then
   PSQL=(psql -h "$PGHOST" -p "$PGPORT" -U "${DB_USER:-hostsent}" -d "${DB_NAME:-hostsent}")
 else
-  PSQL=(docker exec backend-postgres-1 psql -U "${DB_USER:-hostsent}" -d "${DB_NAME:-hostsent}")
+  PSQL=(docker exec -i backend-postgres-1 psql -U "${DB_USER:-hostsent}" -d "${DB_NAME:-hostsent}")
 fi
 
 log() { echo "[migrate] $*"; }
@@ -36,7 +38,8 @@ for f in "$MIGRATIONS_DIR"/*.sql; do
     continue
   fi
   log "apply $v"
-  "${PSQL[@]}" -v ON_ERROR_STOP=1 -f "$f"
+  # 以 stdin 方式喂入 SQL：迁移文件在宿主机，psql 可能跑在容器内（-i 已开启）。
+  "${PSQL[@]}" -v ON_ERROR_STOP=1 -f - < "$f"
   "${PSQL[@]}" -v ON_ERROR_STOP=1 -c "INSERT INTO schema_migrations(version) VALUES ('$v') ON CONFLICT DO NOTHING;"
   changed=1
 done

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
@@ -32,7 +33,7 @@ type InstanceReader interface {
 	ListByUser(ctx context.Context, userID uint64) ([]InstanceWithUser, error)
 	ListDueForAutoRenew(ctx context.Context, expireBefore time.Time, instanceIDs []uint64) ([]syncmodel.Instance, error)
 	ExtendExpireAt(ctx context.Context, id uint64, expireAt time.Time) error
-	ResolveProduct(ctx context.Context, productID uint64) (name string, unitPrice float64, err error)
+	ResolveProduct(ctx context.Context, inst *syncmodel.Instance) (name string, unitPrice float64, err error)
 }
 
 type instanceReader struct {
@@ -121,9 +122,40 @@ func (r *instanceReader) ExtendExpireAt(ctx context.Context, id uint64, expireAt
 		Update("expire_at", expireAt).Error
 }
 
-// ResolveProduct 解析产品名称与单周期续费价。
-// 优先取面向终端售卖的产品（source_product_id 关联上游商品）；回退上游资源商品 SalePrice。
-func (r *instanceReader) ResolveProduct(ctx context.Context, productID uint64) (string, float64, error) {
+// ResolveProduct 解析实例对应的产品名称与单周期单价。
+// 双链路判据（P1/T1.2）：自营取售出商品 sell_product_id（products.id）；
+// 上游取 upstream_product_id（resource_products.id）；两者皆空时回落到含义含糊的
+// 旧 product_id 解析（保留只读一版，待存量为空后移除）。
+func (r *instanceReader) ResolveProduct(ctx context.Context, inst *syncmodel.Instance) (string, float64, error) {
+	if inst == nil {
+		return "", 0, nil
+	}
+	if inst.SellProductID > 0 {
+		var saleProd catalogmodel.Product
+		err := r.db.WithContext(ctx).First(&saleProd, inst.SellProductID).Error
+		if err == nil {
+			return saleProd.Name, saleProd.Price, nil
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", 0, err
+		}
+	}
+	if inst.UpstreamProductID > 0 {
+		var resourceProd productmodel.ResourceProduct
+		err := r.db.WithContext(ctx).First(&resourceProd, inst.UpstreamProductID).Error
+		if err == nil {
+			return resourceProd.Name, resourceProd.SalePrice, nil
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", 0, err
+		}
+	}
+	return r.resolveLegacyProduct(ctx, inst.ProductID)
+}
+
+// resolveLegacyProduct 旧 product_id 语义的兜底解析：先按 source_product_id 找售出商品，
+// 再按主键找上游资源商品。仅为存量数据兼容，新数据不应走到这里。
+func (r *instanceReader) resolveLegacyProduct(ctx context.Context, productID uint64) (string, float64, error) {
 	if productID == 0 {
 		return "", 0, nil
 	}
@@ -134,13 +166,13 @@ func (r *instanceReader) ResolveProduct(ctx context.Context, productID uint64) (
 	if err == nil {
 		return saleProd.Name, saleProd.Price, nil
 	}
-	if err != gorm.ErrRecordNotFound {
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return "", 0, err
 	}
 	var resourceProd productmodel.ResourceProduct
 	err = r.db.WithContext(ctx).First(&resourceProd, productID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return "", 0, nil
 		}
 		return "", 0, err

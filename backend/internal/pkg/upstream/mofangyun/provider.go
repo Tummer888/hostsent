@@ -50,6 +50,59 @@ func init() {
 	upstream.GetProviderManager().RegisterFactory(ProviderType, func(cfg *upstream.ProviderConfig) upstream.Provider {
 		return NewMoFangYunProvider(cfg)
 	})
+	// 能力描述符（T2.1）：字段级声明本平台能做什么，驱动后台能力矩阵与动态表单。
+	upstream.RegisterDescriptor(ProviderType, upstream.CapabilityDescriptor{
+		Kind:          upstream.KindCompute,
+		SyncScopes:    []string{upstream.ScopePool, upstream.ScopeRegion, upstream.ScopeInstance},
+		BillingCycles: []string{"month", "year", "hour", "day"},
+		Operations: []string{
+			upstream.OpProvision, upstream.OpStart, upstream.OpStop, upstream.OpRestart,
+			upstream.OpVNC, upstream.OpResize, upstream.OpDestroy,
+		},
+		RenewMode:   upstream.RenewModeNone, // 续费为本地账期 + 平台延期，尚未提供独立续费接口
+		DestroyMode: upstream.DestroyModeImmediate,
+		SignerType:  upstream.SignerToken,
+		// 凭证字段：面板地址走 EndpointSchema，账号密码走 CredentialSchema（password 字段级加密）。
+		CredentialSchema: []upstream.Field{
+			{Key: "api_key", Label: "账号", Type: upstream.FieldTypeString, Required: true,
+				Placeholder: "请输入魔方云用户名"},
+			{Key: "api_secret", Label: "密码", Type: upstream.FieldTypePassword, Required: true, Secret: true,
+				Placeholder: "请输入魔方云密码"},
+			{Key: "account_type", Label: "账号类型", Type: upstream.FieldTypeSelect, Required: false,
+				Default: "admin", Options: []upstream.FieldOption{
+					{Label: "管理员", Value: "admin"},
+					{Label: "代理商", Value: "agent"},
+				}},
+			{Key: "user_prefix", Label: "财务标识", Type: upstream.FieldTypeString, Required: false,
+				Help: "拼在云主机用户名前，用于区分下游来源"},
+		},
+		EndpointSchema: []upstream.Field{
+			{Key: "api_endpoint", Label: "接口地址", Type: upstream.FieldTypeString, Required: true,
+				Placeholder: "IP 或域名，可含后台路径"},
+			{Key: "port", Label: "接口端口", Type: upstream.FieldTypeString, Required: false,
+				Placeholder: "例如 8443"},
+			{Key: "secure", Label: "使用 HTTPS", Type: upstream.FieldTypeBool, Required: false},
+		},
+		RateLimit:      upstream.RateLimitSpec{QPS: 5, Burst: 10},
+		SupportsPaging: false,
+		FieldDictionary: map[string]any{
+			"source": "实测（依据 mofangyun/provider.go 与 17 号文档 §6.1）",
+			"write": []string{
+				"area", "node", "node_group", "node_priority", "ip_group", "store",
+				"cpu", "memory", "cpu_limit", "cpu_model", "advanced_cpu", "type", "rid",
+				"system_disk_size", "niccard",
+				"bw", "in_bw", "out_bw", "advanced_bw", "network_type", "vpc", "vpc_name",
+				"traffic_type", "traffic_quota", "flow_way", "flow_limit", "reset_flow_day",
+				"bind_mac", "port", "ip_num", "ipv6_num",
+				"os", "nat_acl_limit", "nat_web_limit", "backup_num", "snap_num", "link_clone",
+				"other_data_disk",
+			},
+			"read": []string{"id", "name", "state", "cpu_num", "memory_size", "disk_size",
+				"disk_type", "bandwidth", "private_ip", "public_ip", "region", "zone", "host",
+				"os_image", "created_at", "expire_at"},
+			"note": "读写字段名不对称：写用 cpu/memory/system_disk_size，读用 cpu_num/memory_size/disk_size",
+		},
+	})
 }
 
 // MoFangYunProvider 魔方云适配器
@@ -79,6 +132,12 @@ func (p *MoFangYunProvider) GetType() string { return ProviderType }
 
 // GetName 返回提供商名称
 func (p *MoFangYunProvider) GetName() string { return "魔方云" }
+
+// Capabilities 返回能力描述符（T2.1）。
+func (p *MoFangYunProvider) Capabilities() upstream.CapabilityDescriptor {
+	d, _ := upstream.Descriptor(ProviderType)
+	return d
+}
 
 // isAgent 账号类型：agent=代理商（/index.php?path= 入口），其余为管理员（/v1 入口）。
 func (p *MoFangYunProvider) isAgent() bool { return p.config.AccountType == "agent" }

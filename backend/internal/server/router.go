@@ -193,6 +193,7 @@ func newRouter(app *App) *gin.Engine {
 				providers.PUT("/:id", app.perm("provider:update"), app.providerHandler.Update)
 				providers.DELETE("/:id", app.perm("provider:delete"), app.providerHandler.Delete)
 				providers.POST("/:id/test", app.perm("provider:test"), app.providerHandler.TestConnection)
+				providers.POST("/:id/sync/resume", app.perm("provider:update"), app.providerHandler.ResumeSync)
 			}
 
 			// 资源池
@@ -327,6 +328,14 @@ func newRouter(app *App) *gin.Engine {
 					specMappings.POST("/:id/bind", app.perm("spec:mapping:update"), app.specHandler.BindMapping)
 					specMappings.DELETE("/:id", app.perm("spec:mapping:update"), app.specHandler.DeleteMapping)
 				}
+				// 规格契约（P2/T2.5）：原子字典 / 校验 / 外部规格快照 / 绑定
+				specGroup.GET("/atoms", app.perm("spec:contract:list"), app.specHandler.ListAtoms)
+				specGroup.POST("/validate", app.perm("spec:contract:list"), app.specHandler.ValidateSpec)
+				specGroup.GET("/external-specs", app.perm("spec:contract:list"), app.specHandler.ListExternalSpecs)
+				specGroup.POST("/external-specs", app.perm("spec:contract:update"), app.specHandler.UpsertExternalSpec)
+				specGroup.GET("/bindings", app.perm("spec:contract:list"), app.specHandler.ListBindings)
+				specGroup.POST("/bindings", app.perm("spec:contract:update"), app.specHandler.UpsertBinding)
+				specGroup.POST("/bindings/:id/confirm", app.perm("spec:contract:update"), app.specHandler.ConfirmBinding)
 			}
 
 			// 定价与计费（pricing 子域）

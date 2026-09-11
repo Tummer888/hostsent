@@ -195,6 +195,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	upstreamMgr := upstream.GetProviderManager()
 	providerRepo := providerrepo.NewProviderRepository(database)
 	poolRepo := providerrepo.NewPoolRepository(database)
+	providerTypeRepo := providerrepo.NewProviderTypeRepository(database)
 	productRepo := productrepo.NewProductRepository(database)
 	syncRepo := syncrepo.NewSyncRepository(database)
 	adminService := adminservice.NewAdminService(adminRepo, rbacRepo, adminAuditRepo, permCache, jwtIssuer)
@@ -251,7 +252,17 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 			}
 		},
 	)
-	providerService := providerservice.NewProviderService(providerRepo, poolRepo, upstreamMgr, cfg.App.EncryptKey)
+	providerService := providerservice.NewProviderService(providerRepo, poolRepo, providerTypeRepo, upstreamMgr, cfg.App.EncryptKey)
+	// 渠道类型注册表（T2.2）：把已注册适配器的能力描述符回写 provider_types，
+	// 使后台类型列表/动态表单以数据库为权威来源（地雷 L9 从硬编码 map 改为查表）。
+	if err := providerService.SyncTypeRegistry(context.Background()); err != nil {
+		logger.Warn("同步渠道类型注册表失败", zap.Error(err))
+	}
+	// 凭证归一（T2.3）：把迁移搬入 credentials 的旧列密文改为带 enc: 前缀的统一密文，
+	// 使"解密失败必须报错"（L8）能可靠区分历史明文与密文。
+	if err := providerService.NormalizeCredentials(context.Background()); err != nil {
+		logger.Warn("归一渠道凭证失败", zap.Error(err))
+	}
 	productService := productservice.NewProductService(productRepo)
 	syncEngine := syncservice.NewSyncEngine(upstreamMgr, providerService, productRepo, poolRepo, providerRepo, syncRepo, logger)
 	syncService := syncservice.NewSyncService(syncRepo, syncEngine)
@@ -478,9 +489,15 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 规格管理（spec 子域）
 	specTemplateRepo := specrepo.NewSpecTemplateRepository(database)
 	specMappingRepo := specrepo.NewSpecMappingRepository(database)
+	specContractRepo := specrepo.NewSpecContractRepository(database)
+	// 规格原子字典（T2.5/T2.6）：启动期从 spec_atoms 载入内存，供 Extra 校验与平台字段展示。
+	if err := specrepo.LoadAtomDictionary(context.Background(), specContractRepo); err != nil {
+		logger.Warn("加载规格原子字典失败", zap.Error(err))
+	}
 	specTemplateService := specservice.NewSpecTemplateService(specTemplateRepo)
 	specMappingService := specservice.NewSpecMappingService(specMappingRepo)
-	specHandler := spechandler.NewSpecHandler(specTemplateService, specMappingService)
+	specContractService := specservice.NewSpecContractService(specContractRepo)
+	specHandler := spechandler.NewSpecHandler(specTemplateService, specMappingService, specContractService)
 	// 促销管理（promotion 子域）
 	couponRepo := promotionrepo.NewCouponRepository(database)
 	couponGrantRepo := promotionrepo.NewCouponGrantRepository(database)
@@ -665,6 +682,11 @@ func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order
 		ActorUserID: order.OperatorID,
 		// 记录来源订单，实例运维台据此展示关联订单（见 61 实施计划 §4.1）。
 		OrderID: order.ID,
+		// 双链路语义（P1/T1.2）：经订单开通 = 自营链路，售出商品为 order.ProductID
+		// （products.id）；provider_instance_id 同步记录平台实例号。
+		SourceMode:         syncmodel.SourceModeSelf,
+		SellProductID:      order.ProductID,
+		ProviderInstanceID: inst.UpstreamID,
 	}
 	if !inst.ExpireAt.IsZero() {
 		exp := inst.ExpireAt

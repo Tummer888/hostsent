@@ -107,8 +107,8 @@ func TestNextExpireAt(t *testing.T) {
 
 // TestStageWindow 阶段筛选窗口与派生规则一致（grace 不混入 suspended）。
 func TestStageWindow(t *testing.T) {
-	graceEnd := testNow.AddDate(0, 0, -testPolicy.GraceDays)                 // expire_at 下界（grace）
-	destroyEnd := graceEnd.AddDate(0, 0, -testPolicy.DestroyKeepDays)        // expire_at 下界（suspended）
+	graceEnd := testNow.AddDate(0, 0, -testPolicy.GraceDays)          // expire_at 下界（grace）
+	destroyEnd := graceEnd.AddDate(0, 0, -testPolicy.DestroyKeepDays) // expire_at 下界（suspended）
 	thirtyDays := testNow.AddDate(0, 0, 30)
 
 	cases := []struct {

@@ -26,6 +26,7 @@ export function getInstanceList(params: InstanceOpsListQuery): Promise<InstanceO
       user_id: params.user_id,
       provider_id: params.provider_id,
       status: params.status,
+      source_mode: params.source_mode,
       expire_state: params.expire_state,
       expire_within_days: params.expire_within_days,
       page: params.page,

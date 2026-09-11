@@ -6,7 +6,7 @@ import App from './App.vue'
 import { permission } from './directives/permission'
 import { setupPermission } from './permission'
 import router from './router'
-import { pinia } from './store'
+import { pinia, useSettingsStore } from './store'
 import './styles/index.css'
 
 // 代登录（管理端新窗口带入 ?token=）：写入登录态并清除 URL 参数，
@@ -20,6 +20,8 @@ if (urlToken) {
 
 const app = createApp(App)
 app.use(pinia)
+// 用户端主题设置不依赖路由/登录态，先应用可避免首屏闪烁
+useSettingsStore().init()
 app.use(router)
 app.use(TDesign)
 app.directive('permission', permission)

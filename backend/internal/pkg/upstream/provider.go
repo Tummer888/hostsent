@@ -12,11 +12,15 @@ import (
 )
 
 // Provider 上游提供商统一接口 —— 仅保留全适配器共有的最小能力。
+// Capabilities 返回字段级能力描述（契约②，见 capability.go）；实现方通常直接
+// 返回本包注册的描述符，旧实现可依赖 CapabilitiesOf 的类型断言兜底。
 type Provider interface {
 	// 基础信息
 	GetType() string
 	GetName() string
 	HealthCheck(ctx context.Context) error
+	// Capabilities 字段级能力描述（T2.1）：驱动后台能力矩阵/动态表单、开通前校验、同步任务生成。
+	Capabilities() CapabilityDescriptor
 }
 
 // ProductCatalog 商品目录读取能力。

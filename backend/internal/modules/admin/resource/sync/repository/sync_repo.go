@@ -26,6 +26,10 @@ type SyncRepository interface {
 	FindInstanceByID(ctx context.Context, id uint64) (*model.Instance, error)
 	UpsertInstances(ctx context.Context, items []model.Instance) error
 	CountInstancesByProductUser(ctx context.Context, userID, productID uint64) (int64, error)
+	// PurgeSyncDataBefore 分批清理 before 之前的同步任务与日志，返回删除总行数
+	PurgeSyncDataBefore(ctx context.Context, before time.Time, batchSize int) (int64, error)
+	// FailStaleTasks 将超时仍处于 pending/running 的任务标记为 failed，避免僵死任务永久阻塞调度
+	FailStaleTasks(ctx context.Context, olderThan time.Time) (int64, error)
 }
 
 type syncRepository struct {
@@ -107,6 +111,8 @@ func (r *syncRepository) FindDueProviders(ctx context.Context, now time.Time) ([
 		Table("resource_providers AS p").
 		Where("p.sync_enabled = ?", true).
 		Where("p.status = ?", 1).
+		Where("p.sync_paused = ?", false).
+		Where("p.deleted_at IS NULL").
 		Where("p.last_sync_at IS NULL OR p.last_sync_at + make_interval(secs => p.sync_interval) <= ?", now).
 		Where("NOT EXISTS (SELECT 1 FROM sync_tasks t WHERE t.provider_id = p.id AND t.status IN ('pending','running'))").
 		Pluck("p.id", &ids).Error
@@ -202,8 +208,12 @@ func (r *syncRepository) UpsertInstances(ctx context.Context, items []model.Inst
 		return nil
 	}
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "instance_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"status", "name", "public_ip", "private_ip", "cpu", "memory", "disk", "raw_data", "expire_at", "updated_at"}),
+		Columns: []clause.Column{{Name: "instance_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"status", "name", "public_ip", "private_ip", "cpu", "memory", "disk", "raw_data", "expire_at", "updated_at",
+			// 双链路语义列随同步刷新（T1.2）；sell_product_id 属自营链路，不被上游同步覆盖。
+			"source_mode", "upstream_product_id", "provider_instance_id",
+		}),
 	}).Create(&items).Error
 }
 
@@ -214,4 +224,55 @@ func (r *syncRepository) CountInstancesByProductUser(ctx context.Context, userID
 		Where("user_id = ? AND product_id = ?", userID, productID).
 		Count(&count).Error
 	return count, err
+}
+
+// PurgeSyncDataBefore 分批删除 before 之前的同步日志与任务，返回删除总行数。
+// 先删日志（引用任务），再删终态任务；pending/running 任务保留，避免清掉在跑的任务。
+// 每批 batchSize 行（默认 5000），避免单条长事务锁表。
+func (r *syncRepository) PurgeSyncDataBefore(ctx context.Context, before time.Time, batchSize int) (int64, error) {
+	if batchSize <= 0 {
+		batchSize = 5000
+	}
+	var total int64
+	for {
+		res := r.db.WithContext(ctx).Exec(
+			`DELETE FROM sync_logs WHERE id IN (SELECT id FROM sync_logs WHERE created_at < ? ORDER BY id LIMIT ?)`,
+			before, batchSize)
+		if res.Error != nil {
+			return total, res.Error
+		}
+		total += res.RowsAffected
+		if res.RowsAffected < int64(batchSize) {
+			break
+		}
+	}
+	for {
+		res := r.db.WithContext(ctx).Exec(
+			`DELETE FROM sync_tasks WHERE id IN (SELECT id FROM sync_tasks WHERE created_at < ? AND status NOT IN ('pending','running') ORDER BY id LIMIT ?)`,
+			before, batchSize)
+		if res.Error != nil {
+			return total, res.Error
+		}
+		total += res.RowsAffected
+		if res.RowsAffected < int64(batchSize) {
+			break
+		}
+	}
+	return total, nil
+}
+
+// FailStaleTasks 回收僵死任务：进程重启/执行中断会让任务永远停在 pending/running，
+// 而 FindDueProviders 的 NOT EXISTS 防重入判定会因此永久跳过该渠道。
+func (r *syncRepository) FailStaleTasks(ctx context.Context, olderThan time.Time) (int64, error) {
+	res := r.db.WithContext(ctx).Exec(
+		`UPDATE sync_tasks
+		    SET status = 'failed',
+		        error_message = COALESCE(NULLIF(error_message, ''), '任务超时被回收（进程重启或执行中断）'),
+		        completed_at = now()
+		  WHERE status IN ('pending', 'running')
+		    AND COALESCE(started_at, created_at) < ?`, olderThan)
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	return res.RowsAffected, nil
 }

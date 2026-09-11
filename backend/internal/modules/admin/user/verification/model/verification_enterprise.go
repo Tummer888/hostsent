@@ -1,7 +1,6 @@
 // Package model 提供实名认证模块的数据模型。
 package model
 
-
 import "time"
 
 // VerificationEnterprise 表示企业实名认证扩展信息。

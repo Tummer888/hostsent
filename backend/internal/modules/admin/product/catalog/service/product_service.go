@@ -131,6 +131,12 @@ func (s *productService) Create(ctx context.Context, req dto.ProductCreateReques
 	if item.ProvisionMode == "" {
 		item.ProvisionMode = model.ProvisionModeSelf
 	}
+	// 链路判据单一化（D6）：按供货模式派生 source_mode，禁止两套判据并存。
+	if item.ProvisionMode == model.ProvisionModeClone {
+		item.SourceMode = model.SourceModeUpstream
+	} else {
+		item.SourceMode = model.SourceModeSelf
+	}
 	if err := s.repo.Create(ctx, item); err != nil {
 		return nil, err
 	}
@@ -341,6 +347,7 @@ func (s *productService) CloneFromUpstream(ctx context.Context, req dto.ProductC
 		SourceProductID:  req.SourceProductID,
 		SourceProviderID: req.SourceProviderID,
 		ProvisionMode:    model.ProvisionModeClone,
+		SourceMode:       model.SourceModeUpstream,
 		ConfigOptions:    req.ConfigOptions,
 		Price:            req.Price,
 		CostPrice:        req.CostPrice,
@@ -424,6 +431,7 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 			SourceProductID:  pid,
 			SourceProviderID: req.SourceProviderID,
 			ProvisionMode:    model.ProvisionModeClone,
+			SourceMode:       model.SourceModeUpstream,
 			Specs:            specs,
 			Price:            round2(cost * pct / 100),
 			CostPrice:        round2(cost),
@@ -609,6 +617,7 @@ func buildProductInfo(item model.Product) dto.ProductInfo {
 		SourceProductID:  item.SourceProductID,
 		SourceProviderID: item.SourceProviderID,
 		ProvisionMode:    item.ProvisionMode,
+		SourceMode:       item.SourceMode,
 		ConfigOptions:    item.ConfigOptions,
 		Featured:         item.Featured,
 		Stock:            item.Stock,

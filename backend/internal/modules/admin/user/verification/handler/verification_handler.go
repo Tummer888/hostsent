@@ -37,9 +37,15 @@ func NewVerificationHandler(service service.VerificationService) *VerificationHa
 // @Router /api/v1/admin/verifications/pending [get]
 func (h *VerificationHandler) ListPending(c *gin.Context) {
 	var query dto.VerificationListQuery
-	if err := c.ShouldBindQuery(&query); err != nil { badRequest(c, err.Error()); return }
+	if err := c.ShouldBindQuery(&query); err != nil {
+		badRequest(c, err.Error())
+		return
+	}
 	data, err := h.service.ListPending(c.Request.Context(), query)
-	if err != nil { serverError(c, err.Error()); return }
+	if err != nil {
+		serverError(c, err.Error())
+		return
+	}
 	success(c, data)
 }
 
@@ -62,9 +68,15 @@ func (h *VerificationHandler) ListPending(c *gin.Context) {
 // @Router /api/v1/admin/verifications/approved [get]
 func (h *VerificationHandler) ListApproved(c *gin.Context) {
 	var query dto.VerificationListQuery
-	if err := c.ShouldBindQuery(&query); err != nil { badRequest(c, err.Error()); return }
+	if err := c.ShouldBindQuery(&query); err != nil {
+		badRequest(c, err.Error())
+		return
+	}
 	data, err := h.service.ListApproved(c.Request.Context(), query)
-	if err != nil { serverError(c, err.Error()); return }
+	if err != nil {
+		serverError(c, err.Error())
+		return
+	}
 	success(c, data)
 }
 
@@ -87,9 +99,15 @@ func (h *VerificationHandler) ListApproved(c *gin.Context) {
 // @Router /api/v1/admin/verifications/rejected [get]
 func (h *VerificationHandler) ListRejected(c *gin.Context) {
 	var query dto.VerificationListQuery
-	if err := c.ShouldBindQuery(&query); err != nil { badRequest(c, err.Error()); return }
+	if err := c.ShouldBindQuery(&query); err != nil {
+		badRequest(c, err.Error())
+		return
+	}
 	data, err := h.service.ListRejected(c.Request.Context(), query)
-	if err != nil { serverError(c, err.Error()); return }
+	if err != nil {
+		serverError(c, err.Error())
+		return
+	}
 	success(c, data)
 }
 

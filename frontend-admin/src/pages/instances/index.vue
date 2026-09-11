@@ -72,6 +72,10 @@
           <t-select v-model="filters.status" clearable placeholder="全部状态" :options="instanceStatusOptions" />
         </div>
         <div class="field">
+          <span class="field__label">来源</span>
+          <t-select v-model="filters.source_mode" clearable placeholder="全部来源" :options="sourceModeOptions" />
+        </div>
+        <div class="field">
           <span class="field__label">到期状态</span>
           <t-select v-model="filters.expire_state" placeholder="全部" :options="expireStateOptions" />
         </div>
@@ -129,6 +133,15 @@
 
         <template #public_ip="{ row }">
           <span class="cell-muted">{{ row.public_ip || '—' }}</span>
+        </template>
+
+        <template #provider_name="{ row }">
+          <div class="provider-cell">
+            <t-tag :theme="row.source_mode === 'upstream' ? 'warning' : 'primary'" variant="light" size="small" shape="round">
+              {{ row.source_mode === 'upstream' ? '上游' : '自营' }}
+            </t-tag>
+            <span class="provider-name">{{ row.provider_name || '—' }}</span>
+          </div>
         </template>
 
         <template #status="{ row }">
@@ -273,6 +286,7 @@ import {
   powerActionLabel,
   powerActionTips,
 } from '@/pages/instances/constants'
+import { sourceModeOptions } from '@/pages/product/constants'
 import type { InstanceItem, InstanceStatsResponse } from '@/types/interface'
 
 defineOptions({ name: 'InstanceList' })
@@ -309,6 +323,7 @@ const filters = reactive<{
   user_id: string | undefined
   provider_id: string | undefined
   status: string | undefined
+  source_mode: string | undefined
   expire_state: string
   expire_within_days: number
 }>({
@@ -317,6 +332,7 @@ const filters = reactive<{
   user_id: undefined,
   provider_id: undefined,
   status: undefined,
+  source_mode: undefined,
   expire_state: 'all',
   expire_within_days: 7,
 })
@@ -368,6 +384,7 @@ async function loadInstances() {
       user_id: filters.user_id ? Number(filters.user_id) : undefined,
       provider_id: filters.provider_id ? Number(filters.provider_id) : undefined,
       status: filters.status,
+      source_mode: filters.source_mode,
       expire_state: filters.expire_state,
       expire_within_days: filters.expire_state === 'expiring' ? filters.expire_within_days : undefined,
       page: pagination.current,
@@ -414,6 +431,7 @@ function handleResetFilters() {
   filters.user_id = undefined
   filters.provider_id = undefined
   filters.status = undefined
+  filters.source_mode = undefined
   filters.expire_state = 'all'
   filters.expire_within_days = 7
   pagination.current = 1
