@@ -14,7 +14,14 @@ import type {
   SaleProductListResponse,
   SaleProductPriceRequest,
   SaleProductSpecInfo,
+  SaleProductSpecRequest,
+  SaleProductConfigGroup,
   SaleProductUpdateRequest,
+  SpecAtomInfo,
+  SpecBindingConfirmRequest,
+  SpecBindingInfo,
+  SpecBindingUpsertRequest,
+  ExternalSpecInfo,
   SpecMappingBindRequest,
   SpecMappingInfo,
   SpecMappingListResponse,
@@ -166,6 +173,65 @@ export function getProductSpecs(id: number): Promise<SaleProductSpecInfo[]> {
   return request.get<SaleProductSpecInfo[]>({
     url: `/product/products/${id}/specs`,
   })
+}
+
+export function createProductSpec(id: number, data: SaleProductSpecRequest): Promise<SaleProductSpecInfo> {
+  return request.post<SaleProductSpecInfo>({
+    url: `/product/products/${id}/specs`,
+    data,
+  })
+}
+
+export function updateProductSpec(id: number, specId: number, data: SaleProductSpecRequest): Promise<SaleProductSpecInfo> {
+  return request.put<SaleProductSpecInfo>({
+    url: `/product/products/${id}/specs/${specId}`,
+    data,
+  })
+}
+
+export function deleteProductSpec(id: number, specId: number): Promise<string> {
+  return request.delete<string>({
+    url: `/product/products/${id}/specs/${specId}`,
+  })
+}
+
+export function getProductConfigOptions(id: number): Promise<SaleProductConfigGroup[]> {
+  return request.get<SaleProductConfigGroup[]>({
+    url: `/product/products/${id}/config-options`,
+  })
+}
+
+export function saveProductConfigOptions(id: number, groups: SaleProductConfigGroup[]): Promise<string> {
+  return request.put<string>({
+    url: `/product/products/${id}/config-options`,
+    data: { groups },
+  })
+}
+
+// ===== 产品管理 - 规格契约（P2/T2.5，T4.2/T4.3 绑定维护）=====
+
+export function getSpecAtomList(): Promise<SpecAtomInfo[]> {
+  return request.get<SpecAtomInfo[]>({ url: '/product/spec/atoms' })
+}
+
+export function getExternalSpecList(params?: { provider_type?: string; status?: string }): Promise<ExternalSpecInfo[]> {
+  return request.get<ExternalSpecInfo[]>({ url: '/product/spec/external-specs', params })
+}
+
+export function getSpecBindingList(params?: {
+  external_spec_id?: number
+  product_spec_id?: number
+  status?: string
+}): Promise<SpecBindingInfo[]> {
+  return request.get<SpecBindingInfo[]>({ url: '/product/spec/bindings', params })
+}
+
+export function upsertSpecBinding(data: SpecBindingUpsertRequest): Promise<SpecBindingInfo> {
+  return request.post<SpecBindingInfo>({ url: '/product/spec/bindings', data })
+}
+
+export function confirmSpecBinding(id: number, data: SpecBindingConfirmRequest): Promise<SpecBindingInfo> {
+  return request.post<SpecBindingInfo>({ url: `/product/spec/bindings/${id}/confirm`, data })
 }
 
 export function setProductFeatured(id: number, featured: boolean): Promise<SaleProductInfo> {

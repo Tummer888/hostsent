@@ -2,13 +2,21 @@ package model
 
 import "time"
 
+// 配置项来源（T4.4 / 16 §7.5）。两条链路共用一套表与渲染/校验逻辑。
+const (
+	ConfigSourceUpstream = "upstream" // source_key 是上游配置项 id（代理链路）
+	ConfigSourceSelf     = "self"     // source_key 是平台参数名（自营链路，如 area/os/store）
+)
+
 // ProductConfigOption 商品配置项（上游 configoption），对应 product_config_options 表。
 // 由克隆/上游导入流程把 resource_products.raw_specs->'config_groups' 中的配置项落库，
 // 替代对 JSON 文本的惰性解析（见 migration 015）。
 type ProductConfigOption struct {
 	ID          uint64    `gorm:"primaryKey;autoIncrement"`
 	ProductID   uint64    `gorm:"column:product_id;not null;index;constraint:OnDelete:CASCADE"` // 所属销售商品 ID
-	UpstreamKey int64     `gorm:"column:upstream_key;default:0"`                                // 上游 configoption 键（option.upstream_id）
+	UpstreamKey int64     `gorm:"column:upstream_key;default:0"`                                // 旧列（P8 清理）：上游 configoption 键
+	Source      string    `gorm:"column:source;size:16;not null;default:upstream"`              // 配置项来源：upstream / self（T4.4）
+	SourceKey   string    `gorm:"column:source_key;size:128"`                                   // 来源键：upstream=上游选项 id，self=平台参数名
 	OptionName  string    `gorm:"column:option_name;size:64"`                                   // cpu/memory/os/area/...
 	OptionType  int       `gorm:"column:option_type;default:1"`                                 // 1 下拉 2 单选 3 开关 4 数量
 	SortOrder   int       `gorm:"column:sort_order;default:0"`
@@ -27,7 +35,9 @@ func (ProductConfigOption) TableName() string {
 type ProductConfigOptionSub struct {
 	ID             uint64    `gorm:"primaryKey;autoIncrement"`
 	OptionID       uint64    `gorm:"column:option_id;not null;index;constraint:OnDelete:CASCADE"` // 所属配置项 ID
-	UpstreamKey    int64     `gorm:"column:upstream_key;default:0"`                               // 上游 configoption 值（sub.upstream_id）
+	UpstreamKey    int64     `gorm:"column:upstream_key;default:0"`                               // 旧列（P8 清理）：上游 configoption 值
+	Source         string    `gorm:"column:source;size:16;not null;default:upstream"`             // 子项来源：upstream / self（T4.4）
+	SourceKey      string    `gorm:"column:source_key;size:128"`                                  // 子项来源键（上游子项 id 或平台取值）
 	OptionName     string    `gorm:"column:option_name;size:255"`                                 // 如 "16|16核" / "HK" / "CentOS"
 	Hidden         int       `gorm:"default:0"`
 	PriceMonthly   float64   `gorm:"column:price_monthly;type:decimal(15,2);default:0"`

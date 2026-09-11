@@ -20,13 +20,6 @@
     <section class="filter-card surface-card">
       <div class="filter-card__head">
         <h3 class="card-title">筛选条件</h3>
-        <t-space size="small">
-          <t-button theme="primary" @click="handleSearch">
-            <template #icon><SearchIcon aria-hidden="true" /></template>
-            查询
-          </t-button>
-          <t-button variant="outline" @click="handleReset">重置</t-button>
-        </t-space>
       </div>
       <div class="filter-card__grid">
         <div class="field">
@@ -46,6 +39,15 @@
           <t-input-number v-model="filters.user_id" :min="1" theme="column" placeholder="按用户过滤" style="width: 100%" />
         </div>
       </div>
+      <div class="filter-card__actions">
+        <t-space size="small">
+          <t-button theme="primary" @click="handleSearch">
+            <template #icon><SearchIcon aria-hidden="true" /></template>
+            查询
+          </t-button>
+          <t-button variant="outline" @click="handleReset">重置</t-button>
+        </t-space>
+      </div>
     </section>
 
     <section class="table-card surface-card">
@@ -62,7 +64,7 @@
         hover
         table-layout="fixed"
         cell-empty-content="—"
-        :pagination="pagination"
+        :pagination="isMobile ? undefined : pagination"
         @page-change="handlePageChange"
       >
         <template #renewal_no="{ row }">
@@ -106,6 +108,15 @@
           <t-empty description="暂无续费记录" />
         </template>
       </t-table>
+
+      <MobilePagination
+        v-if="isMobile"
+        :current="page.current"
+        :page-size="page.size"
+        :total="total"
+        @go="goMobilePage"
+        @page-size="handleMobilePageSizeChange"
+      />
     </section>
 
     <!-- 续费详情抽屉 -->
@@ -138,10 +149,13 @@ import { OrderIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { getRenewalDetail, getRenewalList, type RenewalInfo } from '@/api/lifecycle'
+import MobilePagination from '@/components/mobile-pagination/index.vue'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 defineOptions({ name: 'LifecycleRenewals' })
 
 const loading = ref(false)
+const { isMobile } = useIsMobile()
 const list = ref<RenewalInfo[]>([])
 const total = ref(0)
 const filters = reactive<{ keyword: string; status: string; source: string; user_id?: number }>({
@@ -259,6 +273,25 @@ function handlePageChange(info: PageInfo) {
   page.size = info.pageSize
   loadData()
 }
+
+// —— 移动端分页交互 ——
+function goMobilePage(target: number) {
+  const totalPages = Math.max(1, Math.ceil(total.value / page.size))
+  const clamped = Math.min(Math.max(target, 1), totalPages)
+  if (clamped === page.current) return
+  void applyMobilePage(clamped, page.size)
+}
+
+async function applyMobilePage(current: number, pageSize: number) {
+  page.current = current
+  page.size = pageSize
+  await loadData()
+}
+
+function handleMobilePageSizeChange(pageSize: number) {
+  void applyMobilePage(1, pageSize)
+}
+
 
 // —— 详情抽屉 ——
 const detailVisible = ref(false)

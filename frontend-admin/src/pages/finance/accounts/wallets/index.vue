@@ -22,6 +22,14 @@
     <section class="filter-card surface-card">
       <div class="filter-card__head">
         <h3 class="card-title">余额查询</h3>
+      </div>
+      <div class="filter-card__grid">
+        <div class="field">
+          <span class="field__label">用户 ID</span>
+          <t-input v-model="userId" placeholder="请输入用户 ID" clearable @enter="handleQuery" />
+        </div>
+      </div>
+      <div class="filter-card__actions">
         <t-space size="small">
           <t-button theme="primary" :loading="loading" @click="handleQuery">
             <template #icon>
@@ -31,12 +39,6 @@
           </t-button>
           <t-button variant="outline" @click="handleReset">重置</t-button>
         </t-space>
-      </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">用户 ID</span>
-          <t-input v-model="userId" placeholder="请输入用户 ID" clearable @enter="handleQuery" />
-        </div>
       </div>
     </section>
 

@@ -88,3 +88,38 @@ export function formatTime(value: string): string {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
+
+// ===== 上游加价规则与规格绑定（T4.2/T4.3/T4.4）=====
+
+/** 上游加价规则类型选项：空串表示不配置（上游改价只更新成本、不改售价） */
+export const markupTypeOptions = [
+  { label: '不自动改价', value: '' },
+  { label: '按成本百分比', value: 'percent' },
+  { label: '成本加固定额', value: 'fixed' },
+]
+
+export function markupLabel(type: string, value: number): string {
+  if (!type) return '未配置（上游改价只更新成本）'
+  if (type === 'percent') return `成本 × ${value}%`
+  if (type === 'fixed') return `成本 + ¥${Number(value || 0).toFixed(2)}`
+  return type
+}
+
+/** SKU 出站平台绑定状态（spec_bindings.status）的展示标签 */
+export function bindingStatusTag(status?: string): {
+  theme: 'success' | 'warning' | 'danger' | 'default'
+  text: string
+} {
+  switch (status) {
+    case 'confirmed':
+      return { theme: 'success', text: '已确认' }
+    case 'auto_mapped':
+      return { theme: 'warning', text: '自动映射' }
+    case 'stale':
+      return { theme: 'danger', text: '已失效' }
+    case 'unmapped':
+      return { theme: 'warning', text: '未映射' }
+    default:
+      return { theme: 'default', text: '未绑定' }
+  }
+}

@@ -87,15 +87,25 @@
             </template>
             <template #action="{ row }">
               <div class="action-cell">
-                <t-link theme="primary" hover="color" @click="openScheduleDialog(row)">配置</t-link>
-                <t-link
-                  theme="primary"
-                  hover="color"
-                  :disabled="syncingScope === `${row.provider_id}-${row.scope}`"
-                  @click="triggerScope(row)"
-                >
-                  立即同步
-                </t-link>
+                <MobileAction
+                  v-if="isMobile"
+                  :options="buildMobileActionOptions([
+                    { content: '配置', value: 'schedule' },
+                    { content: '立即同步', value: 'sync', disabled: () => syncingScope === `${row.provider_id}-${row.scope}` },
+                  ])"
+                  @select="(value) => handleMobileAction(value, row)"
+                />
+                <template v-else>
+                  <t-link theme="primary" hover="color" @click="openScheduleDialog(row)">配置</t-link>
+                  <t-link
+                    theme="primary"
+                    hover="color"
+                    :disabled="syncingScope === `${row.provider_id}-${row.scope}`"
+                    @click="triggerScope(row)"
+                  >
+                    立即同步
+                  </t-link>
+                </template>
               </div>
             </template>
             <template #empty>
@@ -469,6 +479,9 @@ import type {
   SyncScheduleInfo,
   SyncTaskInfo,
 } from '@/types/interface'
+import MobileAction from '@/components/mobile-action/index.vue'
+import { buildMobileActionOptions } from '@/composables/useMobileActions'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 defineOptions({ name: 'ResourceSyncCenter' })
 
@@ -476,6 +489,7 @@ type TabValue = 'schedules' | 'tasks' | 'logs' | 'diffs' | 'prices'
 
 const activeTab = ref<TabValue>('schedules')
 const loading = ref(false)
+const { isMobile } = useIsMobile()
 const providerOptions = ref<{ label: string; value: number }[]>([])
 const providerNameMap = ref<Record<number, string>>({})
 const scopeOptions = ref<{ label: string; value: string }[]>([])
@@ -1071,6 +1085,19 @@ onMounted(async () => {
   await Promise.all([loadProviders(), loadScopes()])
   loadActive()
 })
+
+// 移动端操作下拉分发（同步范围配置表）
+function handleMobileAction(value: string | number | Record<string, any>, row: SyncScheduleInfo) {
+  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+  switch (action) {
+    case 'schedule':
+      openScheduleDialog(row)
+      break
+    case 'sync':
+      void triggerScope(row)
+      break
+  }
+}
 </script>
 
 <style lang="css">

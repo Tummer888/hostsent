@@ -59,8 +59,14 @@
           <span class="time-text">{{ formatTime(row.updated_at) }}</span>
         </template>
         <template #action="{ row }">
-          <div class="action-cell">
-            <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
+<div class="action-cell">
+            <MobileAction
+              v-if="isMobile"
+              :options="buildMobileActionOptions([
+                { content: '编辑', value: 'edit', theme: 'default' },
+              ])"
+              @select="(value) => handleMobileAction(value, row)"
+            />
           </div>
         </template>
         <template #empty>
@@ -124,10 +130,14 @@ import {
   updateTemplate,
   type NotificationTemplateItem,
 } from '@/api/notification'
+import MobileAction from '@/components/mobile-action/index.vue'
+import { buildMobileActionOptions } from '@/composables/useMobileActions'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 defineOptions({ name: 'NotifyTemplates' })
 
 const loading = ref(false)
+const { isMobile } = useIsMobile()
 const saving = ref(false)
 const list = ref<NotificationTemplateItem[]>([])
 
@@ -247,6 +257,16 @@ async function handleToggle(
 }
 
 onMounted(loadData)
+
+// 移动端操作下拉分发
+function handleMobileAction(value: string | number | Record<string, any>, row: NotificationTemplateItem) {
+  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+  switch (action) {
+    case 'edit':
+      openEdit(row)
+      break
+  }
+}
 </script>
 
 <style lang="css">

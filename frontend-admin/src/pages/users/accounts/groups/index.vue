@@ -99,7 +99,7 @@
         :data="tableData"
         :columns="columns"
         :loading="loading"
-        :pagination="pagination"
+        :pagination="isMobile ? undefined : pagination"
         size="small"
         hover
         table-layout="fixed"
@@ -171,6 +171,15 @@
           <t-empty description="当前筛选条件下暂无用户组数据" />
         </template>
       </t-table>
+
+      <MobilePagination
+        v-if="isMobile"
+        :current="mobilePage.current"
+        :page-size="mobilePage.pageSize"
+        :total="mobilePage.total"
+        @go="goMobilePage"
+        @page-size="handleMobilePageSizeChange"
+      />
     </section>
 
     <t-dialog
@@ -244,6 +253,8 @@ import {
   type UserGroupRequest,
 } from '@/api/user'
 import { getPricePolicyList } from '@/api/product'
+import MobilePagination from '@/components/mobile-pagination/index.vue'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 defineOptions({ name: 'UserAccountsGroups' })
 
@@ -253,6 +264,7 @@ const route = useRoute()
 const router = useRouter()
 
 const loading = ref(false)
+const { isMobile } = useIsMobile()
 const submitting = ref(false)
 const errorMessage = ref('')
 const dialogVisible = ref(false)
@@ -278,6 +290,12 @@ const pagination = reactive({
   pageSizeOptions: [10, 20, 50, 100],
 })
 
+// 移动端分页状态：与桌面端 pagination 同步维护
+const mobilePage = reactive({
+  current: 1,
+  pageSize: 10,
+  total: 0,
+})
 const initFormData = (): UserGroupRequest => ({
   name: '',
   code: '',
@@ -408,11 +426,13 @@ async function loadGroups() {
     pagination.current = data.meta.page
     pagination.pageSize = data.meta.page_size
     pagination.total = data.meta.total
+    mobilePage.total = data.meta.total
     filters.page = data.meta.page
     filters.page_size = data.meta.page_size
   } catch (error) {
     tableData.value = []
     pagination.total = 0
+    mobilePage.total = 0
     errorMessage.value = (error as Error)?.message || '加载用户组失败'
   } finally {
     loading.value = false
@@ -448,7 +468,31 @@ async function handlePageChange(pageInfo: PageInfo) {
   pagination.current = pageInfo.current
   pagination.pageSize = pageInfo.pageSize
   await replaceRouteQuery()
+  mobilePage.current = pageInfo?.current ?? pagination.current
+  mobilePage.pageSize = pageInfo?.pageSize ?? pagination.pageSize
+  mobilePage.total = pagination.total
 }
+
+// —— 移动端分页交互 ——
+function goMobilePage(target: number) {
+  const clamped = Math.min(Math.max(target, 1), Math.max(1, Math.ceil(mobilePage.total / mobilePage.pageSize)))
+  if (clamped === mobilePage.current) return
+  void applyMobilePage(clamped, mobilePage.pageSize)
+}
+
+async function applyMobilePage(current: number, pageSize: number) {
+  pagination.current = current
+  pagination.pageSize = pageSize
+  mobilePage.current = current
+  mobilePage.pageSize = pageSize
+  await handlePageChange({ current, pageSize } as never)
+}
+
+function handleMobilePageSizeChange(pageSize: number) {
+  mobilePage.pageSize = pageSize
+  void applyMobilePage(1, pageSize)
+}
+
 
 async function reload() {
   await loadGroups()

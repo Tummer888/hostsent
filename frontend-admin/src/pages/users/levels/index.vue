@@ -13,9 +13,13 @@
       <t-space wrap>
         <t-input v-model="filters.keyword" clearable placeholder="搜索等级名称 / 编码" @enter="handleSearch" />
         <t-select v-model="filters.status" clearable placeholder="状态" :options="statusOptions" />
-        <t-button theme="primary" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" @click="handleReset">重置</t-button>
       </t-space>
+      <div class="toolbar__actions">
+        <t-space>
+          <t-button theme="primary" @click="handleSearch">查询</t-button>
+          <t-button variant="outline" @click="handleReset">重置</t-button>
+        </t-space>
+      </div>
     </section>
 
     <section class="table-panel surface-card">
@@ -24,7 +28,7 @@
         :data="tableData"
         :columns="columns"
         :loading="loading"
-        :pagination="pagination"
+        :pagination="isMobile ? undefined : pagination"
         cell-empty-content="—"
         @page-change="handlePageChange"
       >
@@ -59,6 +63,15 @@
           </t-space>
         </template>
       </t-table>
+
+      <MobilePagination
+        v-if="isMobile"
+        :current="mobilePage.current"
+        :page-size="mobilePage.pageSize"
+        :total="mobilePage.total"
+        @go="goMobilePage"
+        @page-size="handleMobilePageSizeChange"
+      />
     </section>
 
     <t-dialog
@@ -121,10 +134,13 @@ import {
   type UserLevelListQuery,
   type UserLevelRequest,
 } from '@/api/user'
+import MobilePagination from '@/components/mobile-pagination/index.vue'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 defineOptions({ name: 'UserLevels' })
 
 const loading = ref(false)
+const { isMobile } = useIsMobile()
 const submitting = ref(false)
 const dialogVisible = ref(false)
 const editing = ref(false)
@@ -142,6 +158,12 @@ const pagination = reactive({
   pageSizeOptions: [10, 20, 50, 100],
 })
 
+// 移动端分页状态：与桌面端 pagination 同步维护
+const mobilePage = reactive({
+  current: 1,
+  pageSize: 10,
+  total: 0,
+})
 const statusOptions = [
   { label: '启用', value: 'active' },
   { label: '禁用', value: 'disabled' },
@@ -191,6 +213,7 @@ async function loadData() {
     pagination.current = data.meta.page
     pagination.pageSize = data.meta.page_size
     pagination.total = data.meta.total
+    mobilePage.total = data.meta.total
   } catch (error) {
     MessagePlugin.error((error as Error)?.message || '加载用户等级失败')
   } finally {
@@ -215,7 +238,31 @@ function handlePageChange(pageInfo: PageInfo) {
   filters.page = pageInfo.current
   filters.page_size = pageInfo.pageSize
   void loadData()
+  mobilePage.current = pageInfo?.current ?? pagination.current
+  mobilePage.pageSize = pageInfo?.pageSize ?? pagination.pageSize
+  mobilePage.total = pagination.total
 }
+
+// —— 移动端分页交互 ——
+function goMobilePage(target: number) {
+  const clamped = Math.min(Math.max(target, 1), Math.max(1, Math.ceil(mobilePage.total / mobilePage.pageSize)))
+  if (clamped === mobilePage.current) return
+  void applyMobilePage(clamped, mobilePage.pageSize)
+}
+
+async function applyMobilePage(current: number, pageSize: number) {
+  pagination.current = current
+  pagination.pageSize = pageSize
+  mobilePage.current = current
+  mobilePage.pageSize = pageSize
+  await handlePageChange({ current, pageSize } as never)
+}
+
+function handleMobilePageSizeChange(pageSize: number) {
+  mobilePage.pageSize = pageSize
+  void applyMobilePage(1, pageSize)
+}
+
 
 function openCreate() {
   editing.value = false
@@ -345,6 +392,14 @@ onMounted(() => {
 .toolbar,
 .table-panel {
   padding: 16px 20px;
+}
+
+.toolbar__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--td-brand-color-1);
 }
 
 .page-title {

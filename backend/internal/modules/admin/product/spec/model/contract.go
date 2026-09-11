@@ -85,13 +85,19 @@ const (
 )
 
 // SpecBinding 外部规格 ↔ 内部标准规格的双向绑定（由 spec_mappings 演进）。
+// 两条链路共用一张表：
+//   - 代理链路：ExternalSpecID 指向 external_specs（上游规格镜像，§7.3）；
+//   - 自营链路：ProductSpecID 指向 product_specs（我方 SKU，§7.2）。
+//
+// 二者至少有一个非空，方向均为 outbound（实际开通参数）时生效。
 type SpecBinding struct {
 	ID             uint64     `gorm:"primaryKey;autoIncrement"`
-	ExternalSpecID uint64     `gorm:"column:external_spec_id;not null"`
+	ExternalSpecID *uint64    `gorm:"column:external_spec_id;index"` // 外部规格（代理链路）
+	ProductSpecID  *uint64    `gorm:"column:product_spec_id;index"`  // 商品 SKU（自营链路，T4.2）
 	SpecTemplateID uint64     `gorm:"column:spec_template_id;index"`
 	Direction      string     `gorm:"size:16;not null;default:outbound"`
 	PlatformParams string     `gorm:"column:platform_params;type:jsonb"`
-	MatchType      string     `gorm:"column:match_type;size:16;not null;default:manual"`
+	MatchType      string     `gorm:"size:16;not null;default:manual"`
 	Status         string     `gorm:"size:16;not null;default:unmapped"`
 	Confidence     int        `gorm:"not null;default:0"`
 	ConfirmedBy    uint64     `gorm:"column:confirmed_by"`

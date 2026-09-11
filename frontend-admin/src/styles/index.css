@@ -321,3 +321,29 @@ h1, h2, h3, h4, h5, h6 {
   --td-border-level-1-color: #262626;
   --td-border-level-2-color: #2a2a2a;
 }
+
+/* ===== 列表页筛选卡片：查询/重置按钮统一下移到筛选框右下角 ===== */
+/* 结构：<filter-card__head>标题</> <filter-card__grid>筛选项</> <filter-card__actions>按钮</> */
+.filter-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--td-brand-color-1);
+}
+
+.filter-card__actions .t-button {
+  min-width: 88px;
+}
+
+/* ===== 移动端适配：筛选按钮组占满一行并靠右 ===== */
+@media (max-width: 767px) {
+  .filter-card__actions {
+    justify-content: stretch;
+  }
+
+  .filter-card__actions .t-button {
+    flex: 1 1 0;
+  }
+}

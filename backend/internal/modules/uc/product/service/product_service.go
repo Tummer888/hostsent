@@ -17,6 +17,8 @@ var ErrProductOffline = errors.New("商品已下架，不可购买")
 type catalogReader interface {
 	List(ctx context.Context, query catalogdto.ProductListQuery) (*catalogdto.ProductListResponse, error)
 	FindByID(ctx context.Context, id uint64) (*catalogdto.ProductInfo, error)
+	// ListSpecs 商品下的 SKU 列表（T4.1）：详情页展示可售规格。
+	ListSpecs(ctx context.Context, productID uint64) ([]catalogdto.ProductSpecInfo, error)
 }
 
 // ProductService 用户中心商品业务能力。
@@ -73,6 +75,22 @@ func (s *productService) Get(ctx context.Context, id uint64) (*dto.ProductInfo, 
 		return nil, ErrProductOffline
 	}
 	info := fromAdmin(*item)
+	// SKU 矩阵（T4.1）：详情页展示可售规格，供用户选择后按 spec_code 下单。
+	if specs, err := s.catalog.ListSpecs(ctx, id); err == nil {
+		for _, sp := range specs {
+			if sp.Status != 1 {
+				continue
+			}
+			info.Skus = append(info.Skus, dto.SkuInfo{
+				SpecCode:   sp.SpecCode,
+				Name:       sp.Name,
+				Specs:      sp.Specs,
+				Price:      sp.Price,
+				PriceModel: sp.PriceModel,
+				Stock:      sp.Stock,
+			})
+		}
+	}
 	return &info, nil
 }
 

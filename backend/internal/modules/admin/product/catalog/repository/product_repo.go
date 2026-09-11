@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -21,14 +22,30 @@ type ProductRepository interface {
 	Update(ctx context.Context, item *model.Product) error
 	Delete(ctx context.Context, id uint64) error
 	ListSpecs(ctx context.Context, productID uint64) ([]model.ProductSpec, error)
+	// FindSpecByCode 按商品 + 规格编码取 SKU（下单/算价用，T4.1）。
+	FindSpecByCode(ctx context.Context, productID uint64, specCode string) (*model.ProductSpec, error)
+	// FindSpecByID 按主键取 SKU（改/删时校验归属用）。
+	FindSpecByID(ctx context.Context, id uint64) (*model.ProductSpec, error)
+	CreateSpec(ctx context.Context, item *model.ProductSpec) error
+	UpdateSpec(ctx context.Context, item *model.ProductSpec) error
+	DeleteSpec(ctx context.Context, id uint64) error
+	// DecrementSpecStock 原子扣减库存（stock<0 表示不限，不扣减）；返回受影响行数，0 表示库存不足。
+	DecrementSpecStock(ctx context.Context, specID uint64, qty int) (int64, error)
+	// IncrementSpecStock 回补库存（下单失败补偿用；stock<0 表示不限，不回补）。
+	IncrementSpecStock(ctx context.Context, specID uint64, qty int) (int64, error)
 	AddHistory(ctx context.Context, history *model.ProductHistory) error
 	ListHistory(ctx context.Context, productID uint64) ([]model.ProductHistory, error)
 	// ListBySourceProductID 按上游资源商品 ID 查关联售出商品（T3.4 已确认调价落地用）。
 	ListBySourceProductID(ctx context.Context, sourceProductID uint64) ([]model.Product, error)
 	// SaveConfigOptions 保存商品的配置组（上游 config_groups）到子表（幂等：先删后插）。
+	// 配置组内可带 source/source_key 覆盖来源（T4.4）；缺省按 upstream + upstream_id 派生。
 	SaveConfigOptions(ctx context.Context, productID uint64, groups []interface{}) error
 	// ConfigGroupsByProductID 读取商品的配置组，重建为 config_groups 结构（供上游下单使用）。
 	ConfigGroupsByProductID(ctx context.Context, productID uint64) ([]interface{}, error)
+	// AllConfigGroupsByProductID 读取商品全部配置组（含 source=self），供配置项管理页展示/编辑（T4.4）。
+	AllConfigGroupsByProductID(ctx context.Context, productID uint64) ([]interface{}, error)
+	// SelfConfigParams 读取 source=self 的配置项，返回"平台参数名 → 选中值"（T4.4 自营可配置项）。
+	SelfConfigParams(ctx context.Context, productID uint64) (map[string]string, error)
 }
 
 type productRepository struct {
@@ -114,6 +131,65 @@ func (r *productRepository) ListSpecs(ctx context.Context, productID uint64) ([]
 	return items, nil
 }
 
+func (r *productRepository) FindSpecByCode(ctx context.Context, productID uint64, specCode string) (*model.ProductSpec, error) {
+	var item model.ProductSpec
+	if err := r.db.WithContext(ctx).
+		Where("product_id = ? AND spec_code = ?", productID, specCode).
+		First(&item).Error; err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
+func (r *productRepository) FindSpecByID(ctx context.Context, id uint64) (*model.ProductSpec, error) {
+	var item model.ProductSpec
+	if err := r.db.WithContext(ctx).First(&item, id).Error; err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
+func (r *productRepository) CreateSpec(ctx context.Context, item *model.ProductSpec) error {
+	return r.db.WithContext(ctx).Create(item).Error
+}
+
+func (r *productRepository) UpdateSpec(ctx context.Context, item *model.ProductSpec) error {
+	return r.db.WithContext(ctx).Save(item).Error
+}
+
+func (r *productRepository) DeleteSpec(ctx context.Context, id uint64) error {
+	return r.db.WithContext(ctx).Delete(&model.ProductSpec{}, id).Error
+}
+
+// DecrementSpecStock 条件更新扣减库存：stock < 0（不限）不扣减，视为成功；
+// 有限库存时要求 stock >= qty，用 SQL 原子自减避免并发超卖。
+func (r *productRepository) DecrementSpecStock(ctx context.Context, specID uint64, qty int) (int64, error) {
+	if qty <= 0 {
+		qty = 1
+	}
+	res := r.db.WithContext(ctx).Model(&model.ProductSpec{}).
+		Where("id = ? AND (stock < 0 OR stock >= ?)", specID, qty).
+		Updates(map[string]interface{}{
+			"stock":      gorm.Expr("CASE WHEN stock < 0 THEN stock ELSE stock - ? END", qty),
+			"updated_at": time.Now(),
+		})
+	return res.RowsAffected, res.Error
+}
+
+// IncrementSpecStock 回补库存（下单/开通失败补偿）；不限库存（stock<0）不处理。
+func (r *productRepository) IncrementSpecStock(ctx context.Context, specID uint64, qty int) (int64, error) {
+	if qty <= 0 {
+		qty = 1
+	}
+	res := r.db.WithContext(ctx).Model(&model.ProductSpec{}).
+		Where("id = ? AND stock >= 0", specID).
+		Updates(map[string]interface{}{
+			"stock":      gorm.Expr("stock + ?", qty),
+			"updated_at": time.Now(),
+		})
+	return res.RowsAffected, res.Error
+}
+
 func (r *productRepository) AddHistory(ctx context.Context, history *model.ProductHistory) error {
 	return r.db.WithContext(ctx).Create(history).Error
 }
@@ -148,15 +224,18 @@ type configGroup struct {
 }
 
 type configOption struct {
-	ID         int64       `json:"id"`
-	OptionName string      `json:"option_name"`
-	OptionType int         `json:"option_type"`
-	QtyMinimum int         `json:"qty_minimum"`
-	QtyMaximum int         `json:"qty_maximum"`
-	UpstreamID int64       `json:"upstream_id"`
-	Hidden     int         `json:"hidden"`
-	SortOrder  int         `json:"sort_order"`
-	Sub        []configSub `json:"sub"`
+	ID         int64  `json:"id"`
+	OptionName string `json:"option_name"`
+	OptionType int    `json:"option_type"`
+	QtyMinimum int    `json:"qty_minimum"`
+	QtyMaximum int    `json:"qty_maximum"`
+	UpstreamID int64  `json:"upstream_id"`
+	// Source/SourceKey 配置项来源（T4.4）：upstream（默认）或 self；self 时 SourceKey 是平台参数名。
+	Source    string      `json:"source,omitempty"`
+	SourceKey string      `json:"source_key,omitempty"`
+	Hidden    int         `json:"hidden"`
+	SortOrder int         `json:"sort_order"`
+	Sub       []configSub `json:"sub"`
 }
 
 type configSub struct {
@@ -165,6 +244,8 @@ type configSub struct {
 	QtyMinimum int           `json:"qty_minimum"`
 	QtyMaximum int           `json:"qty_maximum"`
 	UpstreamID int64         `json:"upstream_id"`
+	Source     string        `json:"source,omitempty"`
+	SourceKey  string        `json:"source_key,omitempty"`
 	Hidden     int           `json:"hidden"`
 	SortOrder  int           `json:"sort_order"`
 	Pricings   []configPrice `json:"pricings"`
@@ -238,21 +319,28 @@ func (r *productRepository) SaveConfigOptions(ctx context.Context, productID uin
 }
 
 // buildConfigOptionRows 把解析后的 config_groups 组织为商品配置项（含子项）行，便于落库。
+// 来源规则（T4.4）：显式 source/source_key 优先；缺省按 upstream + upstream_id 派生。
 func buildConfigOptionRows(parsed []configGroup, productID uint64) []*model.ProductConfigOption {
 	rows := make([]*model.ProductConfigOption, 0)
 	for _, g := range parsed {
 		for _, opt := range g.Options {
+			source, sourceKey := normalizeConfigSource(opt.Source, opt.SourceKey, opt.UpstreamID)
 			option := &model.ProductConfigOption{
 				ProductID:   productID,
 				UpstreamKey: opt.UpstreamID,
+				Source:      source,
+				SourceKey:   sourceKey,
 				OptionName:  opt.OptionName,
 				OptionType:  intOr(opt.OptionType, 1),
 				SortOrder:   opt.SortOrder,
 			}
 			for _, sub := range opt.Sub {
 				price := firstPrice(sub.Pricings)
+				subSource, subSourceKey := normalizeConfigSource(sub.Source, sub.SourceKey, sub.UpstreamID)
 				option.Subs = append(option.Subs, model.ProductConfigOptionSub{
 					UpstreamKey:    sub.UpstreamID,
+					Source:         subSource,
+					SourceKey:      subSourceKey,
 					OptionName:     sub.OptionName,
 					Hidden:         sub.Hidden,
 					PriceMonthly:   float64(price.Monthly),
@@ -268,8 +356,47 @@ func buildConfigOptionRows(parsed []configGroup, productID uint64) []*model.Prod
 	return rows
 }
 
+// normalizeConfigSource 归一配置项来源：source 仅接受 upstream/self，其余回落 upstream；
+// source_key 为空时用上游 id 派生（自营项无上游 id 则留空，由 option_name 兜底）。
+func normalizeConfigSource(source, sourceKey string, upstreamID int64) (string, string) {
+	sourceKey = strings.TrimSpace(sourceKey)
+	switch strings.TrimSpace(source) {
+	case model.ConfigSourceSelf:
+		return model.ConfigSourceSelf, sourceKey
+	case model.ConfigSourceUpstream:
+		if sourceKey == "" && upstreamID != 0 {
+			sourceKey = strconv.FormatInt(upstreamID, 10)
+		}
+		return model.ConfigSourceUpstream, sourceKey
+	}
+	if upstreamID != 0 {
+		if sourceKey == "" {
+			sourceKey = strconv.FormatInt(upstreamID, 10)
+		}
+		return model.ConfigSourceUpstream, sourceKey
+	}
+	// 无上游 id 且未显式声明来源：视为自营平台参数项。
+	return model.ConfigSourceSelf, sourceKey
+}
+
 // ConfigGroupsByProductID 读取商品配置子表，重建为 config_groups 数组（结构对齐上游 ConfigGroup）。
 func (r *productRepository) ConfigGroupsByProductID(ctx context.Context, productID uint64) ([]interface{}, error) {
+	var options []*model.ProductConfigOption
+	if err := r.db.WithContext(ctx).
+		Preload("Subs").
+		Where("product_id = ? AND source = ?", productID, model.ConfigSourceUpstream).
+		Order("sort_order asc, id asc").
+		Find(&options).Error; err != nil {
+		return nil, err
+	}
+	if len(options) == 0 {
+		return nil, nil
+	}
+	return buildConfigGroups(options), nil
+}
+
+// AllConfigGroupsByProductID 读取商品全部配置组（含 source=self），供配置项管理页展示/编辑（T4.4）。
+func (r *productRepository) AllConfigGroupsByProductID(ctx context.Context, productID uint64) ([]interface{}, error) {
 	var options []*model.ProductConfigOption
 	if err := r.db.WithContext(ctx).
 		Preload("Subs").
@@ -282,6 +409,49 @@ func (r *productRepository) ConfigGroupsByProductID(ctx context.Context, product
 		return nil, nil
 	}
 	return buildConfigGroups(options), nil
+}
+
+// SelfConfigParams 读取 source=self 的配置项，返回"平台参数名 → 选中值"（T4.4）。
+// 自营链路里 option_name 即目标平台写参数名（如 area/os/store），sub 的首个可见项为取值；
+// source_key 非空时优先作为平台参数名，兼容"展示名 ≠ 平台参数名"的场景。
+func (r *productRepository) SelfConfigParams(ctx context.Context, productID uint64) (map[string]string, error) {
+	var options []*model.ProductConfigOption
+	if err := r.db.WithContext(ctx).
+		Preload("Subs").
+		Where("product_id = ? AND source = ?", productID, model.ConfigSourceSelf).
+		Order("sort_order asc, id asc").
+		Find(&options).Error; err != nil {
+		return nil, err
+	}
+	if len(options) == 0 {
+		return nil, nil
+	}
+	out := map[string]string{}
+	for _, opt := range options {
+		key := strings.TrimSpace(opt.SourceKey)
+		if key == "" {
+			key = strings.TrimSpace(opt.OptionName)
+		}
+		if key == "" {
+			continue
+		}
+		value := ""
+		for _, sub := range opt.Subs {
+			if sub.Hidden != 0 {
+				continue
+			}
+			if sub.SourceKey != "" {
+				value = sub.SourceKey
+			} else {
+				value = sub.OptionName
+			}
+			break
+		}
+		if value != "" {
+			out[key] = value
+		}
+	}
+	return out, nil
 }
 
 // parseConfigGroups 把 config_groups（接口切片，来自 extractConfigGroups 或上游镜像结构）解析为内部类型。
@@ -308,12 +478,16 @@ func buildConfigGroups(options []*model.ProductConfigOption) []interface{} {
 			OptionName: opt.OptionName,
 			OptionType: opt.OptionType,
 			UpstreamID: opt.UpstreamKey,
+			Source:     opt.Source,
+			SourceKey:  opt.SourceKey,
 			Sub:        make([]configSub, 0, len(opt.Subs)),
 		}
 		for _, sub := range opt.Subs {
 			copt.Sub = append(copt.Sub, configSub{
 				OptionName: sub.OptionName,
 				UpstreamID: sub.UpstreamKey,
+				Source:     sub.Source,
+				SourceKey:  sub.SourceKey,
 				Hidden:     sub.Hidden,
 				SortOrder:  sub.SortOrder,
 				Pricings: []configPrice{{

@@ -14,6 +14,14 @@
     <section class="filter-card surface-card">
       <div class="filter-card__head">
         <h3 class="card-title">对账条件</h3>
+      </div>
+      <div class="filter-card__grid">
+        <div class="field">
+          <span class="field__label">账期（选填）</span>
+          <t-input v-model="period" placeholder="留空表示全量对账，如 2026-08" clearable @enter="handleReconcile" />
+        </div>
+      </div>
+      <div class="filter-card__actions">
         <t-space size="small">
           <t-button theme="primary" :loading="loading" @click="handleReconcile">
             <template #icon>
@@ -23,12 +31,6 @@
           </t-button>
           <t-button variant="outline" @click="handleReset">重置</t-button>
         </t-space>
-      </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">账期（选填）</span>
-          <t-input v-model="period" placeholder="留空表示全量对账，如 2026-08" clearable @enter="handleReconcile" />
-        </div>
       </div>
     </section>
 

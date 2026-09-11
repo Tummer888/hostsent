@@ -304,6 +304,13 @@
   padding-top: var(--space-md);
 }
 
+/* ---------- 表单行内提示（加价/透传等，T4.3） ---------- */
+.product-module .form-hint {
+  margin-left: var(--space-sm);
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
 /* ---------- 响应式 ---------- */
 @media (max-width: 768px) {
   .product-module .page-header {

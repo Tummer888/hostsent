@@ -27,6 +27,19 @@ type ProductInfo struct {
 	ConfigOptions string  `json:"config_options"`
 	Featured      bool    `json:"featured"`
 	CreatedAt     string  `json:"created_at"`
+	// Skus 商品下挂的可售规格（T4.1）。空数组表示该商品未拆 SKU，按商品级价格下单。
+	// 下单时把选中项的 spec_code 传给 POST /uc/orders 的 spec_code 字段。
+	Skus []SkuInfo `json:"skus"`
+}
+
+// SkuInfo 用户可见的规格变体（不含成本价）。
+type SkuInfo struct {
+	SpecCode   string  `json:"spec_code"`
+	Name       string  `json:"name"`
+	Specs      string  `json:"specs"` // 原子取值 JSON，便于前端渲染规格参数
+	Price      float64 `json:"price"`
+	PriceModel string  `json:"price_model"`
+	Stock      int     `json:"stock"` // -1 表示不限
 }
 
 // ListResponse 商品列表响应

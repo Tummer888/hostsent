@@ -13,7 +13,9 @@ import (
 // ProvisionDeps 上游开通适配器依赖集合（由装配层注入，避免订单包反向依赖产品/资源包）。
 type ProvisionDeps struct {
 	// BuildProvisionRequest 按商品解析上游开通请求（product/catalog 服务实现）。
-	BuildProvisionRequest func(ctx context.Context, productID uint64, name string) (interface{}, error)
+	// specSnapshot 为下单时落库的规格快照（SKU 原子取值 JSON，T4.1），可为空；
+	// specCode 为所选 SKU 编码（T4.2），用于回查已确认的平台绑定参数，可为空。
+	BuildProvisionRequest func(ctx context.Context, productID uint64, name, specSnapshot, specCode string) (interface{}, error)
 	// BuildProviderConfig 按提供商 ID 构建适配器配置（含解密密钥与提供商类型）。
 	BuildProviderConfig func(ctx context.Context, providerID uint64) (*upstream.ProviderConfig, error)
 	// CreateInstance 创建上游实例：由装配层用 cfg 实例化 provider 并调用。
@@ -105,7 +107,7 @@ func (a *UpstreamProvisionAdapter) provision(ctx context.Context, order *model.O
 	if a.deps.BuildProvisionRequest == nil || a.deps.CreateInstance == nil || a.deps.BuildProviderConfig == nil {
 		return nil, nil
 	}
-	raw, err := a.deps.BuildProvisionRequest(ctx, order.ProductID, order.ProductName)
+	raw, err := a.deps.BuildProvisionRequest(ctx, order.ProductID, order.ProductName, order.Specs, order.SpecCode)
 	if err != nil {
 		return nil, fmt.Errorf("构建开通请求失败: %w", err)
 	}

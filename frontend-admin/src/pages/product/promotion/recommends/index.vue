@@ -20,15 +20,6 @@
     <section class="filter-card surface-card">
       <div class="filter-card__head">
         <h3 class="card-title">筛选条件</h3>
-        <t-space size="small">
-          <t-button theme="primary" @click="handleSearch">
-            <template #icon>
-              <SearchIcon aria-hidden="true" />
-            </template>
-            查询
-          </t-button>
-          <t-button variant="outline" @click="handleResetFilters">重置</t-button>
-        </t-space>
       </div>
       <div class="filter-card__grid">
         <div class="field">
@@ -43,6 +34,17 @@
           <span class="field__label">商品状态</span>
           <t-select v-model="filters.status" clearable placeholder="全部状态" :options="statusOptions" />
         </div>
+      </div>
+      <div class="filter-card__actions">
+        <t-space size="small">
+          <t-button theme="primary" @click="handleSearch">
+            <template #icon>
+              <SearchIcon aria-hidden="true" />
+            </template>
+            查询
+          </t-button>
+          <t-button variant="outline" @click="handleResetFilters">重置</t-button>
+        </t-space>
       </div>
     </section>
 
@@ -60,7 +62,7 @@
         hover
         table-layout="fixed"
         cell-empty-content="—"
-        :pagination="pagination"
+        :pagination="isMobile ? undefined : pagination"
         @page-change="handlePageChange"
       >
         <template #name="{ row }">
@@ -94,6 +96,15 @@
           <t-empty description="暂无商品数据" />
         </template>
       </t-table>
+
+      <MobilePagination
+        v-if="isMobile"
+        :current="mobilePage.current"
+        :page-size="mobilePage.pageSize"
+        :total="mobilePage.total"
+        @go="goMobilePage"
+        @page-size="handleMobilePageSizeChange"
+      />
     </section>
   </div>
 </template>
@@ -107,6 +118,8 @@ import { AppIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { getProductList, setProductFeatured } from '@/api/product'
 import { formatPrice, statusTag } from '@/pages/product/constants'
 import type { SaleProductInfo } from '@/types/interface'
+import MobilePagination from '@/components/mobile-pagination/index.vue'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 defineOptions({ name: 'ProductPromotionRecommends' })
 
@@ -121,6 +134,7 @@ const statusOptions = [
 ]
 
 const loading = ref(false)
+const { isMobile } = useIsMobile()
 const list = ref<SaleProductInfo[]>([])
 const total = ref(0)
 
@@ -137,6 +151,12 @@ const pagination = reactive({
   showJumper: true,
 })
 
+// 移动端分页状态：与桌面端 pagination 同步维护
+const mobilePage = reactive({
+  current: 1,
+  pageSize: 10,
+  total: 0,
+})
 const featuredCount = computed(() => list.value.filter((item) => item.featured).length)
 
 const columns: PrimaryTableCol<SaleProductInfo>[] = [
@@ -162,6 +182,7 @@ async function loadProducts() {
     list.value = items
     total.value = data.meta.total
     pagination.total = data.meta.total
+    mobilePage.total = data.meta.total
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载商品失败')
   } finally {
@@ -173,7 +194,31 @@ function handlePageChange(pageInfo: PageInfo) {
   pagination.current = pageInfo.current
   pagination.pageSize = pageInfo.pageSize
   loadProducts()
+  mobilePage.current = pageInfo?.current ?? pagination.current
+  mobilePage.pageSize = pageInfo?.pageSize ?? pagination.pageSize
+  mobilePage.total = pagination.total
 }
+
+// —— 移动端分页交互 ——
+function goMobilePage(target: number) {
+  const clamped = Math.min(Math.max(target, 1), Math.max(1, Math.ceil(mobilePage.total / mobilePage.pageSize)))
+  if (clamped === mobilePage.current) return
+  void applyMobilePage(clamped, mobilePage.pageSize)
+}
+
+async function applyMobilePage(current: number, pageSize: number) {
+  pagination.current = current
+  pagination.pageSize = pageSize
+  mobilePage.current = current
+  mobilePage.pageSize = pageSize
+  await handlePageChange({ current, pageSize } as never)
+}
+
+function handleMobilePageSizeChange(pageSize: number) {
+  mobilePage.pageSize = pageSize
+  void applyMobilePage(1, pageSize)
+}
+
 
 function handleSearch() {
   pagination.current = 1

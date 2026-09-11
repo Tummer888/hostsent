@@ -22,15 +22,6 @@
     <section class="filter-card surface-card">
       <div class="filter-card__head">
         <h3 class="card-title">筛选条件</h3>
-        <t-space size="small">
-          <t-button theme="primary" @click="handleSearch">
-            <template #icon>
-              <SearchIcon aria-hidden="true" />
-            </template>
-            查询
-          </t-button>
-          <t-button variant="outline" @click="handleResetFilters">重置</t-button>
-        </t-space>
       </div>
       <div class="filter-card__grid">
         <div class="field">
@@ -58,6 +49,17 @@
           <t-date-range-picker v-model="filters.dateRange" clearable separator="~" placeholder="开始日期 ~ 结束日期" />
         </div>
       </div>
+      <div class="filter-card__actions">
+        <t-space size="small">
+          <t-button theme="primary" @click="handleSearch">
+            <template #icon>
+              <SearchIcon aria-hidden="true" />
+            </template>
+            查询
+          </t-button>
+          <t-button variant="outline" @click="handleResetFilters">重置</t-button>
+        </t-space>
+      </div>
     </section>
 
     <section class="table-card surface-card">
@@ -74,7 +76,7 @@
         hover
         table-layout="fixed"
         cell-empty-content="—"
-        :pagination="pagination"
+        :pagination="isMobile ? undefined : pagination"
         @page-change="handlePageChange"
       >
         <template #order_no="{ row }">
@@ -111,11 +113,24 @@
 
         <template #action="{ row }">
           <div class="action-cell">
-            <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
-            <t-link v-if="isCancellable(row)" theme="danger" hover="color" @click="handleCancel(row)">取消</t-link>
-            <t-link v-if="isRefundable(row)" theme="warning" hover="color" @click="openRefundDialog(row)">退款</t-link>
-            <t-link v-if="isActivatable(row)" theme="success" hover="color" @click="handleActivate(row)">重新开通</t-link>
-            <t-link theme="primary" hover="color" @click="openRemarkDialog(row)">备注</t-link>
+            <MobileAction
+              v-if="isMobile"
+              :options="buildMobileActionOptions([
+                { content: '详情', value: 'detail' },
+                { content: '取消', value: 'cancel', hidden: () => !isCancellable(row), theme: 'error' },
+                { content: '退款', value: 'refund', hidden: () => !isRefundable(row), theme: 'warning' },
+                { content: '重新开通', value: 'activate', hidden: () => !isActivatable(row), theme: 'success' },
+                { content: '备注', value: 'remark' },
+              ])"
+              @select="(value) => handleMobileAction(value, row)"
+            />
+            <template v-else>
+              <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
+              <t-link v-if="isCancellable(row)" theme="danger" hover="color" @click="handleCancel(row)">取消</t-link>
+              <t-link v-if="isRefundable(row)" theme="warning" hover="color" @click="openRefundDialog(row)">退款</t-link>
+              <t-link v-if="isActivatable(row)" theme="success" hover="color" @click="handleActivate(row)">重新开通</t-link>
+              <t-link theme="primary" hover="color" @click="openRemarkDialog(row)">备注</t-link>
+            </template>
           </div>
         </template>
 
@@ -123,6 +138,15 @@
           <t-empty description="暂无订单数据" />
         </template>
       </t-table>
+
+      <MobilePagination
+        v-if="isMobile"
+        :current="mobilePage.current"
+        :page-size="mobilePage.pageSize"
+        :total="mobilePage.total"
+        @go="goMobilePage"
+        @page-size="handleMobilePageSizeChange"
+      />
     </section>
 
     <t-dialog
@@ -184,6 +208,10 @@ import {
   toDateString,
 } from '@/pages/order/constants'
 import type { OrderInfo } from '@/types/interface'
+import MobileAction from '@/components/mobile-action/index.vue'
+import MobilePagination from '@/components/mobile-pagination/index.vue'
+import { buildMobileActionOptions } from '@/composables/useMobileActions'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 defineOptions({ name: 'OrderList' })
 
@@ -191,6 +219,7 @@ const router = useRouter()
 
 const orderList = ref<OrderInfo[]>([])
 const loading = ref(false)
+const { isMobile } = useIsMobile()
 const total = ref(0)
 
 const filters = reactive<{
@@ -216,6 +245,12 @@ const pagination = reactive({
   showJumper: true,
 })
 
+// 移动端分页状态：与桌面端 pagination 同步维护（见 loadUsers/loadData）
+const mobilePage = reactive({
+  current: 1,
+  pageSize: 10,
+  total: 0,
+})
 const columns: PrimaryTableCol<OrderInfo>[] = [
   { colKey: 'order_no', title: '订单号', minWidth: 180 },
   { colKey: 'user_id', title: '用户ID', width: 90, align: 'center' as const },
@@ -227,7 +262,7 @@ const columns: PrimaryTableCol<OrderInfo>[] = [
   {
     colKey: 'action',
     title: '操作',
-    minWidth: 230,
+    minWidth: isMobile ? 70 : 230,
     fixed: 'right' as const,
     align: 'center' as const,
   },
@@ -263,6 +298,7 @@ async function loadOrders() {
     orderList.value = data.items
     total.value = data.meta.total
     pagination.total = data.meta.total
+    mobilePage.total = data.meta.total
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载订单列表失败')
   } finally {
@@ -274,7 +310,31 @@ function handlePageChange(pageInfo: PageInfo) {
   pagination.current = pageInfo.current
   pagination.pageSize = pageInfo.pageSize
   loadOrders()
+  mobilePage.current = pageInfo?.current ?? pagination.current
+  mobilePage.pageSize = pageInfo?.pageSize ?? pagination.pageSize
+  mobilePage.total = pagination.total
 }
+
+// —— 移动端分页交互 ——
+function goMobilePage(target: number) {
+  const clamped = Math.min(Math.max(target, 1), Math.max(1, Math.ceil(mobilePage.total / mobilePage.pageSize)))
+  if (clamped === mobilePage.current) return
+  void applyMobilePage(clamped, mobilePage.pageSize)
+}
+
+async function applyMobilePage(current: number, pageSize: number) {
+  pagination.current = current
+  pagination.pageSize = pageSize
+  mobilePage.current = current
+  mobilePage.pageSize = pageSize
+  await handlePageChange({ current, pageSize } as never)
+}
+
+function handleMobilePageSizeChange(pageSize: number) {
+  mobilePage.pageSize = pageSize
+  void applyMobilePage(1, pageSize)
+}
+
 
 function handleSearch() {
   pagination.current = 1
@@ -290,6 +350,27 @@ function handleResetFilters() {
   filters.dateRange = undefined
   pagination.current = 1
   loadOrders()
+}
+
+function handleMobileAction(value: string | number | Record<string, any>, row: OrderInfo) {
+  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+  switch (action) {
+    case 'detail':
+      openDetail(row)
+      break
+    case 'cancel':
+      void handleCancel(row)
+      break
+    case 'refund':
+      openRefundDialog(row)
+      break
+    case 'activate':
+      void handleActivate(row)
+      break
+    case 'remark':
+      openRemarkDialog(row)
+      break
+  }
 }
 
 function openDetail(row: OrderInfo) {

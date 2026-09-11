@@ -6,10 +6,14 @@ import "hostsent/backend/internal/pkg/pricing"
 // CreateRequest 用户下单请求。
 type CreateRequest struct {
 	ProductID uint64 `json:"product_id" binding:"required"`
-	Quantity  int    `json:"quantity"`
+	// SpecCode 规格变体编码（SKU，T4.1）；商品挂有规格时必填，未挂规格可留空。
+	SpecCode string `json:"spec_code"`
+	Quantity int    `json:"quantity"`
 }
 
 // OrderInfo 用户可见订单信息。
+// 注意：orders 表无 spec_code 列，SKU 编码落在 order_items（后台订单详情可见）；
+// 订单的 specs 已是所选 SKU 的规格快照。
 type OrderInfo struct {
 	ID          uint64  `json:"id"`
 	OrderNo     string  `json:"order_no"`
@@ -35,11 +39,14 @@ type OrderInfo struct {
 // QuoteRequest 预结算请求（P5-05）：不落库、不扣款。
 type QuoteRequest struct {
 	ProductID uint64 `json:"product_id" binding:"required"`
-	Quantity  int    `json:"quantity"`
+	// SpecCode 规格变体编码（SKU，T4.1）；与下单口径一致。
+	SpecCode string `json:"spec_code"`
+	Quantity int    `json:"quantity"`
 }
 
 // QuoteInfo 预结算价格明细。
 type QuoteInfo struct {
+	SpecCode       string         `json:"spec_code"`
 	OriginalAmount float64        `json:"original_amount"`
 	DiscountAmount float64        `json:"discount_amount"`
 	FinalAmount    float64        `json:"final_amount"`

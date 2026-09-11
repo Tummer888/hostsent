@@ -314,6 +314,13 @@ func newRouter(app *App) *gin.Engine {
 				prodProducts.POST("/:id/featured", app.perm("product:update"), app.prodCatalogHandler.SetFeatured)
 				prodProducts.GET("/:id/history", app.perm("product:list"), app.prodCatalogHandler.ListHistory)
 				prodProducts.GET("/:id/specs", app.perm("product:list"), app.prodCatalogHandler.ListSpecs)
+				// SKU 规格变体维护（T4.1）：商品下挂规格矩阵，下单按 SKU 计价与开通。
+				prodProducts.POST("/:id/specs", app.perm("product:update"), app.prodCatalogHandler.CreateSpec)
+				prodProducts.PUT("/:id/specs/:specId", app.perm("product:update"), app.prodCatalogHandler.UpdateSpec)
+				prodProducts.DELETE("/:id/specs/:specId", app.perm("product:update"), app.prodCatalogHandler.DeleteSpec)
+				// 可配置项维护（T4.4）：source=upstream 走上游配置 id，source=self 直接下发平台参数名。
+				prodProducts.GET("/:id/config-options", app.perm("product:list"), app.prodCatalogHandler.ListConfigOptions)
+				prodProducts.PUT("/:id/config-options", app.perm("product:update"), app.prodCatalogHandler.SaveConfigOptions)
 			}
 
 			// 规格管理（spec 子域）

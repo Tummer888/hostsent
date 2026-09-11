@@ -22,15 +22,6 @@
     <section class="filter-card surface-card">
       <div class="filter-card__head">
         <h3 class="card-title">筛选条件</h3>
-        <t-space size="small">
-          <t-button theme="primary" @click="handleSearch">
-            <template #icon>
-              <SearchIcon aria-hidden="true" />
-            </template>
-            查询
-          </t-button>
-          <t-button variant="outline" @click="handleResetFilters">重置</t-button>
-        </t-space>
       </div>
       <div class="filter-card__grid">
         <div class="field">
@@ -45,6 +36,17 @@
           <span class="field__label">状态</span>
           <t-select v-model="filters.status" clearable placeholder="全部状态" :options="productStatusOptions" />
         </div>
+      </div>
+      <div class="filter-card__actions">
+        <t-space size="small">
+          <t-button theme="primary" @click="handleSearch">
+            <template #icon>
+              <SearchIcon aria-hidden="true" />
+            </template>
+            查询
+          </t-button>
+          <t-button variant="outline" @click="handleResetFilters">重置</t-button>
+        </t-space>
       </div>
     </section>
 
@@ -62,7 +64,7 @@
         hover
         table-layout="fixed"
         cell-empty-content="—"
-        :pagination="pagination"
+        :pagination="isMobile ? undefined : pagination"
         @page-change="handlePageChange"
       >
         <template #name="{ row }">
@@ -98,20 +100,31 @@
         </template>
 
         <template #action="{ row }">
-          <div class="action-cell">
-            <t-link theme="primary" hover="color" @click="openPriceDialog(row)">改价</t-link>
-            <t-link
-              v-if="row.status !== 1"
-              theme="success"
-              hover="color"
-              @click="handlePublish(row)"
-            >上架</t-link>
-            <t-link
-              v-else
-              theme="warning"
-              hover="color"
-              @click="handleUnpublish(row)"
-            >下架</t-link>
+<div class="action-cell">
+            <MobileAction
+              v-if="isMobile"
+              :options="buildMobileActionOptions([
+                { content: '改价', value: 'price', theme: 'default' },
+                { content: '上架', value: 'publish', hidden: () => !(row.status !== 1), theme: 'success' },
+                { content: '下架', value: 'unpublish', hidden: () => !(row.status === 1), theme: 'warning' },
+              ])"
+              @select="(value) => handleMobileAction(value, row)"
+            />
+            <template v-else>
+              <t-link theme="primary" hover="color" @click="openPriceDialog(row)">改价</t-link>
+              <t-link
+                v-if="row.status !== 1"
+                theme="success"
+                hover="color"
+                @click="handlePublish(row)"
+              >上架</t-link>
+              <t-link
+                v-else
+                theme="warning"
+                hover="color"
+                @click="handleUnpublish(row)"
+              >下架</t-link>
+            </template>
           </div>
         </template>
 
@@ -119,6 +132,15 @@
           <t-empty description="暂无产品数据" />
         </template>
       </t-table>
+
+      <MobilePagination
+        v-if="isMobile"
+        :current="mobilePage.current"
+        :page-size="mobilePage.pageSize"
+        :total="mobilePage.total"
+        @go="goMobilePage"
+        @page-size="handleMobilePageSizeChange"
+      />
     </section>
 
     <t-dialog
@@ -160,11 +182,16 @@ import {
 } from '@/api/product'
 import { formatPrice, priceModelLabel, productStatusOptions, statusTag } from '@/pages/product/constants'
 import type { SaleProductCategoryInfo, SaleProductInfo } from '@/types/interface'
+import MobileAction from '@/components/mobile-action/index.vue'
+import MobilePagination from '@/components/mobile-pagination/index.vue'
+import { buildMobileActionOptions } from '@/composables/useMobileActions'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 defineOptions({ name: 'ProductPricing' })
 
 const productList = ref<SaleProductInfo[]>([])
 const loading = ref(false)
+const { isMobile } = useIsMobile()
 const total = ref(0)
 const categoryOptions = ref<{ label: string; value: number }[]>([])
 const categoryIdMap = ref<Record<number, string>>({})
@@ -182,6 +209,12 @@ const pagination = reactive({
   showJumper: true,
 })
 
+// 移动端分页状态：与桌面端 pagination 同步维护（见 loadUsers/loadData）
+const mobilePage = reactive({
+  current: 1,
+  pageSize: 10,
+  total: 0,
+})
 const columns: PrimaryTableCol<SaleProductInfo>[] = [
   { colKey: 'name', title: '产品', minWidth: 180 },
   { colKey: 'category', title: '分类', width: 120 },
@@ -241,6 +274,7 @@ async function loadProducts() {
     productList.value = data.items
     total.value = data.meta.total
     pagination.total = data.meta.total
+    mobilePage.total = data.meta.total
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载产品列表失败')
   } finally {
@@ -252,7 +286,31 @@ function handlePageChange(pageInfo: PageInfo) {
   pagination.current = pageInfo.current
   pagination.pageSize = pageInfo.pageSize
   loadProducts()
+  mobilePage.current = pageInfo?.current ?? pagination.current
+  mobilePage.pageSize = pageInfo?.pageSize ?? pagination.pageSize
+  mobilePage.total = pagination.total
 }
+
+// —— 移动端分页交互 ——
+function goMobilePage(target: number) {
+  const clamped = Math.min(Math.max(target, 1), Math.max(1, Math.ceil(mobilePage.total / mobilePage.pageSize)))
+  if (clamped === mobilePage.current) return
+  void applyMobilePage(clamped, mobilePage.pageSize)
+}
+
+async function applyMobilePage(current: number, pageSize: number) {
+  pagination.current = current
+  pagination.pageSize = pageSize
+  mobilePage.current = current
+  mobilePage.pageSize = pageSize
+  await handlePageChange({ current, pageSize } as never)
+}
+
+function handleMobilePageSizeChange(pageSize: number) {
+  mobilePage.pageSize = pageSize
+  void applyMobilePage(1, pageSize)
+}
+
 
 function handleSearch() {
   pagination.current = 1
@@ -322,6 +380,22 @@ onMounted(() => {
   loadCategories()
   loadProducts()
 })
+
+// 移动端操作下拉分发
+function handleMobileAction(value: string | number | Record<string, any>, row: SaleProductInfo) {
+  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+  switch (action) {
+    case 'price':
+      openPriceDialog(row)
+      break
+    case 'publish':
+      void handlePublish(row)
+      break
+    case 'unpublish':
+      void handleUnpublish(row)
+      break
+  }
+}
 </script>
 
 <style lang="css">

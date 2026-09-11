@@ -57,6 +57,19 @@ type Atom struct {
 	AppliesTo   string          `json:"applies_to"`
 	Status      int             `json:"status"`
 	Description string          `json:"description"`
+	// Required 必填原子（spec_atoms.required）：上架门禁据此校验规格完整性（T4.6）。
+	Required bool `json:"required"`
+	// PlatformFields 各平台的读写字段名映射（spec_atoms.platform_fields 列）：
+	// {"mofangyun":{"read":"cpu_num","write":"cpu","source":"实测"},...}
+	// SKU 开通时据此把原子取值翻译为目标平台的写参数（T4.1/T4.2）。
+	PlatformFields map[string]AtomPlatformField `json:"platform_fields,omitempty"`
+}
+
+// AtomPlatformField 单个平台对某原子的读写字段名与来源说明。
+type AtomPlatformField struct {
+	Read   string `json:"read,omitempty"`
+	Write  string `json:"write,omitempty"`
+	Source string `json:"source,omitempty"`
 }
 
 // Issue 校验发现的问题。
@@ -172,6 +185,96 @@ func (d *Dictionary) Validate(spec model.StandardProductSpec) []Issue {
 	return issues
 }
 
+// ValidateMap 直接校验"原子 key → 取值"映射（SKU 的 Specs JSON）。
+// 与 Validate 的区别：不做 int 截断，按原始取值判值域，因此 0.5 核 CPU 这类
+// 非整数/越界取值会被拦下，而不是先被转成 0 后当作"未提供"跳过。
+// 每个 key 必须登记（平台专有参数白名单除外）；字典为空时返回 nil（预埋期不阻断）。
+func (d *Dictionary) ValidateMap(m map[string]any) []Issue {
+	if d == nil || d.Len() == 0 || len(m) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var issues []Issue
+	for _, k := range keys {
+		if wellKnownExtraKeys[k] {
+			continue
+		}
+		if _, ok := d.Get(k); !ok {
+			issues = append(issues, Issue{Key: k, Reason: "规格键未在 spec_atoms 字典登记"})
+			continue
+		}
+		issues = append(issues, d.validateValue(k, m[k])...)
+	}
+	return issues
+}
+
+// ValidateMap 用全局字典校验（便捷入口）。
+func ValidateMap(m map[string]any) []Issue {
+	return Global().ValidateMap(m)
+}
+
+// RequiredMissing 返回字典中标记 required 但映射未提供（缺失或零值）的原子 key。
+// 用于上架/入库前的完整性门禁（T4.6）。不带平台时按全部 required 原子校验。
+func (d *Dictionary) RequiredMissing(m map[string]any) []Issue {
+	return d.RequiredMissingFor(m, "", "")
+}
+
+// RequiredMissingFor 按链路与目标平台过滤必填原子（上架门禁，T4.6）：
+//   - appliesTo 非空时只校验 applies_to 为该链路或 both 的原子（self/upstream 互不误伤）；
+//   - platform 非空时只校验"在该平台确有写参数"的原子——billing.cycle 这类
+//     由订单账期决定、platform_fields 写侧为 "-" 的原子不参与 SKU 规格完整性校验；
+//   - platform 为空时保守回退为校验全部适用的 required 原子。
+func (d *Dictionary) RequiredMissingFor(m map[string]any, appliesTo, platform string) []Issue {
+	if d == nil || d.Len() == 0 {
+		return nil
+	}
+	var issues []Issue
+	for _, atom := range d.Atoms() {
+		if !atom.Required || !atomAppliesTo(atom, appliesTo) {
+			continue
+		}
+		if platform != "" && !atomProvisionableOn(atom, platform) {
+			continue
+		}
+		if v, ok := m[atom.Key]; !ok || isZeroValue(v) {
+			issues = append(issues, Issue{Key: atom.Key, Reason: "必填规格缺失"})
+		}
+	}
+	return issues
+}
+
+// atomAppliesTo 判断原子是否适用于指定链路；appliesTo 或 atom.AppliesTo 为空视为适用。
+func atomAppliesTo(atom Atom, appliesTo string) bool {
+	if appliesTo == "" || atom.AppliesTo == "" {
+		return true
+	}
+	return atom.AppliesTo == appliesTo || atom.AppliesTo == "both"
+}
+
+// atomProvisionableOn 判断原子在目标平台是否存在有效的写字段（"-" 表示该平台无此参数）。
+func atomProvisionableOn(atom Atom, platform string) bool {
+	field, ok := atom.PlatformFields[platform]
+	if !ok {
+		return false
+	}
+	write := strings.TrimSpace(field.Write)
+	return write != "" && write != "-"
+}
+
+// RequiredMissing 用全局字典检查（便捷入口）。
+func RequiredMissing(m map[string]any) []Issue {
+	return Global().RequiredMissing(m)
+}
+
+// RequiredMissingFor 用全局字典按链路 + 平台检查（便捷入口，T4.6 上架门禁）。
+func RequiredMissingFor(m map[string]any, appliesTo, platform string) []Issue {
+	return Global().RequiredMissingFor(m, appliesTo, platform)
+}
+
 // validateValue 校验单个值；零值（空串/0）视为未提供，跳过 required 判定。
 func (d *Dictionary) validateValue(key string, value any) []Issue {
 	atom, ok := d.Get(key)
@@ -260,4 +363,119 @@ func toFloat(v any) (float64, bool) {
 // Validate 用全局字典校验（便捷入口）。
 func Validate(spec model.StandardProductSpec) []Issue {
 	return Global().Validate(spec)
+}
+
+// FromMap 把"原子 key → 取值"的映射还原为标准规格（SKU 的 Specs JSON → StandardProductSpec）。
+// 字典中登记的额外原子（非 9 个固定字段）落入 Extra，供开通时按平台字段名翻译下发。
+func FromMap(m map[string]any) model.StandardProductSpec {
+	var spec model.StandardProductSpec
+	if m == nil {
+		return spec
+	}
+	spec.CPU = intValue(m[KeyCPU])
+	spec.Memory = intValue(m[KeyMemory])
+	spec.Disk = intValue(m[KeyDisk])
+	spec.Bandwidth = intValue(m[KeyBandwidth])
+	spec.DiskType = stringValue(m[KeyDiskType])
+	spec.OS = stringValue(m[KeyOS])
+	spec.Region = stringValue(m[KeyRegion])
+	spec.Zone = stringValue(m[KeyZone])
+	for k, v := range m {
+		switch k {
+		case KeyCPU, KeyMemory, KeyDisk, KeyBandwidth, KeyDiskType, KeyOS, KeyRegion, KeyZone:
+			continue
+		}
+		if isZeroValue(v) {
+			continue
+		}
+		if spec.Extra == nil {
+			spec.Extra = map[string]interface{}{}
+		}
+		spec.Extra[k] = v
+	}
+	return spec
+}
+
+// ToMap 把标准规格拍平为"原子 key → 取值"，仅保留非零值（SKU Specs JSON 的写入口径）。
+func ToMap(spec model.StandardProductSpec) map[string]any {
+	m := map[string]any{}
+	if spec.CPU != 0 {
+		m[KeyCPU] = spec.CPU
+	}
+	if spec.Memory != 0 {
+		m[KeyMemory] = spec.Memory
+	}
+	if spec.Disk != 0 {
+		m[KeyDisk] = spec.Disk
+	}
+	if spec.Bandwidth != 0 {
+		m[KeyBandwidth] = spec.Bandwidth
+	}
+	if spec.DiskType != "" {
+		m[KeyDiskType] = spec.DiskType
+	}
+	if spec.OS != "" {
+		m[KeyOS] = spec.OS
+	}
+	if spec.Region != "" {
+		m[KeyRegion] = spec.Region
+	}
+	if spec.Zone != "" {
+		m[KeyZone] = spec.Zone
+	}
+	for k, v := range spec.Extra {
+		if isZeroValue(v) {
+			continue
+		}
+		m[k] = v
+	}
+	return m
+}
+
+// WriteParams 把原子取值翻译为目标平台的写参数（键名为该平台约定字段）。
+// 平台未登记写字段或取值缺失时跳过该原子；原样返回键名相同的通用参数。
+// 返回空 map（非 nil）便于调用方直接合并进上游 Extra。
+func (d *Dictionary) WriteParams(platform string, spec model.StandardProductSpec) map[string]any {
+	out := map[string]any{}
+	if d == nil || platform == "" {
+		return out
+	}
+	for key, value := range ToMap(spec) {
+		atom, ok := d.Get(key)
+		if !ok {
+			continue
+		}
+		field, ok := atom.PlatformFields[platform]
+		if !ok || field.Write == "" {
+			continue
+		}
+		out[field.Write] = value
+	}
+	return out
+}
+
+// WriteParams 用全局字典翻译（便捷入口）。
+func WriteParams(platform string, spec model.StandardProductSpec) map[string]any {
+	return Global().WriteParams(platform, spec)
+}
+
+// intValue 把字典取值转为 int（数字/数字字符串/浮点）。
+func intValue(v any) int {
+	f, ok := toFloat(v)
+	if !ok {
+		return 0
+	}
+	return int(f)
+}
+
+// stringValue 把字典取值转为 string。
+func stringValue(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	default:
+		return fmt.Sprintf("%v", t)
+	}
 }

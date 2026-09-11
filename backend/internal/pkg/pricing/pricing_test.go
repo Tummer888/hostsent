@@ -128,3 +128,45 @@ func TestResolveQuantityDefaultsToOne(t *testing.T) {
 		t.Fatalf("数量缺省应为 1，实际原价 %v", quote.OriginalAmount)
 	}
 }
+
+// TestResolveSpecBasePriceOverridesProductBase SKU 定价覆盖商品级基础价，折扣照常叠加。
+func TestResolveSpecBasePriceOverridesProductBase(t *testing.T) {
+	deps := basePrice(100, 1)
+	deps.SpecBasePrice = func(_ context.Context, in ResolveInput) (float64, uint64, bool, error) {
+		if in.SpecCode == "big" {
+			return 200, 0, true, nil
+		}
+		return 0, 0, false, nil
+	}
+	deps.GroupRule = rateRule(SourceGroup, 0.9)
+	svc := NewService(deps, StackModeBest)
+
+	quote, err := svc.Resolve(context.Background(), ResolveInput{UserID: 1, ProductID: 2, SpecCode: "big", Quantity: 1})
+	if err != nil {
+		t.Fatalf("Resolve 失败: %v", err)
+	}
+	if quote.OriginalAmount != 200 {
+		t.Fatalf("SKU 原价应为 200，实际 %v", quote.OriginalAmount)
+	}
+	if quote.FinalAmount != 180 {
+		t.Fatalf("SKU 价叠加 9 折应实付 180，实际 %v", quote.FinalAmount)
+	}
+}
+
+// TestResolveSpecBasePriceFallsBack 未定价 SKU / 未选规格回落商品级基础价。
+func TestResolveSpecBasePriceFallsBack(t *testing.T) {
+	deps := basePrice(100, 1)
+	deps.SpecBasePrice = func(context.Context, ResolveInput) (float64, uint64, bool, error) {
+		return 999, 0, false, nil
+	}
+	svc := NewService(deps, StackModeBest)
+	for _, code := range []string{"", "unknown"} {
+		quote, err := svc.Resolve(context.Background(), ResolveInput{UserID: 1, ProductID: 2, SpecCode: code, Quantity: 2})
+		if err != nil {
+			t.Fatalf("Resolve 失败: %v", err)
+		}
+		if quote.OriginalAmount != 200 {
+			t.Fatalf("spec_code=%q 应回落商品基础价 200，实际 %v", code, quote.OriginalAmount)
+		}
+	}
+}

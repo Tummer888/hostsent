@@ -24,13 +24,6 @@
     <section class="filter-card surface-card">
       <div class="filter-card__head">
         <h3 class="card-title">筛选条件</h3>
-        <t-space size="small">
-          <t-button theme="primary" @click="handleSearch">
-            <template #icon><SearchIcon aria-hidden="true" /></template>
-            查询
-          </t-button>
-          <t-button variant="outline" @click="handleReset">重置</t-button>
-        </t-space>
       </div>
       <div class="filter-card__grid">
         <div class="field">
@@ -45,6 +38,15 @@
           <span class="field__label">平台</span>
           <t-select v-model="filters.platform" clearable placeholder="全部平台" :options="platformOptions" />
         </div>
+      </div>
+      <div class="filter-card__actions">
+        <t-space size="small">
+          <t-button theme="primary" @click="handleSearch">
+            <template #icon><SearchIcon aria-hidden="true" /></template>
+            查询
+          </t-button>
+          <t-button variant="outline" @click="handleReset">重置</t-button>
+        </t-space>
       </div>
     </section>
 
@@ -62,7 +64,7 @@
         hover
         table-layout="fixed"
         cell-empty-content="—"
-        :pagination="pagination"
+        :pagination="isMobile ? undefined : pagination"
         @page-change="handlePageChange"
       >
         <template #title="{ row }">
@@ -91,31 +93,52 @@
           <span class="time-text">{{ formatTime(row.publish_at) }}</span>
         </template>
         <template #action="{ row }">
-          <div class="action-cell">
-            <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
-            <t-link
-              v-if="row.status !== 'published'"
-              theme="success"
-              hover="color"
-              @click="handlePublish(row)"
-            >
-              发布
-            </t-link>
-            <t-link
-              v-if="row.status === 'published'"
-              theme="warning"
-              hover="color"
-              @click="handleOffline(row)"
-            >
-              下线
-            </t-link>
-            <t-link theme="danger" hover="color" @click="handleDelete(row)">删除</t-link>
+<div class="action-cell">
+            <MobileAction
+              v-if="isMobile"
+              :options="buildMobileActionOptions([
+                { content: '编辑', value: 'edit', theme: 'default' },
+                { content: '发布', value: 'publish', hidden: () => !(row.status !== 'published'), theme: 'success' },
+                { content: '下线', value: 'offline', hidden: () => !(row.status === 'published'), theme: 'warning' },
+                { content: '删除', value: 'delete', theme: 'error' },
+              ])"
+              @select="(value) => handleMobileAction(value, row)"
+            />
+            <template v-else>
+              <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
+              <t-link
+                v-if="row.status !== 'published'"
+                theme="success"
+                hover="color"
+                @click="handlePublish(row)"
+              >
+                发布
+              </t-link>
+              <t-link
+                v-if="row.status === 'published'"
+                theme="warning"
+                hover="color"
+                @click="handleOffline(row)"
+              >
+                下线
+              </t-link>
+              <t-link theme="danger" hover="color" @click="handleDelete(row)">删除</t-link>
+            </template>
           </div>
         </template>
         <template #empty>
           <t-empty description="暂无公告" />
         </template>
       </t-table>
+
+      <MobilePagination
+        v-if="isMobile"
+        :current="page.current"
+        :page-size="page.size"
+        :total="total"
+        @go="goMobilePage"
+        @page-size="handleMobilePageSizeChange"
+      />
     </section>
 
     <!-- 新增/编辑公告抽屉 -->
@@ -177,10 +200,15 @@ import {
   type AnnouncementItem,
   type AnnouncementSaveRequest,
 } from '@/api/notification'
+import MobileAction from '@/components/mobile-action/index.vue'
+import { buildMobileActionOptions } from '@/composables/useMobileActions'
+import { useIsMobile } from '@/composables/useIsMobile'
+import MobilePagination from '@/components/mobile-pagination/index.vue'
 
 defineOptions({ name: 'NotifyAnnouncements' })
 
 const loading = ref(false)
+const { isMobile } = useIsMobile()
 const saving = ref(false)
 const list = ref<AnnouncementItem[]>([])
 const total = ref(0)
@@ -306,6 +334,25 @@ function handlePageChange(info: PageInfo) {
   page.size = info.pageSize
   loadData()
 }
+
+// —— 移动端分页交互 ——
+function goMobilePage(target: number) {
+  const totalPages = Math.max(1, Math.ceil(total.value / page.size))
+  const clamped = Math.min(Math.max(target, 1), totalPages)
+  if (clamped === page.current) return
+  void applyMobilePage(clamped, page.size)
+}
+
+async function applyMobilePage(current: number, pageSize: number) {
+  page.current = current
+  page.size = pageSize
+  await loadData()
+}
+
+function handleMobilePageSizeChange(pageSize: number) {
+  void applyMobilePage(1, pageSize)
+}
+
 
 // —— 新增 / 编辑 ——
 const formVisible = ref(false)
@@ -439,6 +486,25 @@ function handleDelete(row: AnnouncementItem) {
 }
 
 onMounted(loadData)
+
+// 移动端操作下拉分发
+function handleMobileAction(value: string | number | Record<string, any>, row: AnnouncementItem) {
+  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+  switch (action) {
+    case 'edit':
+      openEdit(row)
+      break
+    case 'publish':
+      void handlePublish(row)
+      break
+    case 'offline':
+      void handleOffline(row)
+      break
+    case 'delete':
+      void handleDelete(row)
+      break
+  }
+}
 </script>
 
 <style lang="css">

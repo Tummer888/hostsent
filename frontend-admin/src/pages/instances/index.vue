@@ -40,15 +40,6 @@
     <section class="filter-card surface-card">
       <div class="filter-card__head">
         <h3 class="card-title">筛选条件</h3>
-        <t-space size="small">
-          <t-button theme="primary" @click="handleSearch">
-            <template #icon>
-              <SearchIcon aria-hidden="true" />
-            </template>
-            查询
-          </t-button>
-          <t-button variant="outline" @click="handleResetFilters">重置</t-button>
-        </t-space>
       </div>
       <div class="filter-card__grid">
         <div class="field">
@@ -91,6 +82,17 @@
           />
         </div>
       </div>
+      <div class="filter-card__actions">
+        <t-space size="small">
+          <t-button theme="primary" @click="handleSearch">
+            <template #icon>
+              <SearchIcon aria-hidden="true" />
+            </template>
+            查询
+          </t-button>
+          <t-button variant="outline" @click="handleResetFilters">重置</t-button>
+        </t-space>
+      </div>
     </section>
 
     <section class="table-card surface-card">
@@ -107,7 +109,7 @@
         hover
         table-layout="fixed"
         cell-empty-content="—"
-        :pagination="pagination"
+        :pagination="isMobile ? undefined : pagination"
         @page-change="handlePageChange"
       >
         <template #name="{ row }">
@@ -159,55 +161,70 @@
 
         <template #action="{ row }">
           <div class="action-cell">
-            <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
-            <t-link
-              v-permission="'instance:action'"
-              theme="success"
-              hover="color"
-              :disabled="row.power_status === 'on' || poweringId === row.id"
-              @click="handlePower(row, 'on')"
-            >
-              开机
-            </t-link>
-            <t-link
-              v-permission="'instance:action'"
-              theme="warning"
-              hover="color"
-              :disabled="row.power_status === 'off' || poweringId === row.id"
-              @click="handlePower(row, 'off')"
-            >
-              关机
-            </t-link>
-            <t-link
-              v-permission="'instance:action'"
-              theme="primary"
-              hover="color"
-              :disabled="row.power_status !== 'on' || poweringId === row.id"
-              @click="handlePower(row, 'reboot')"
-            >
-              重启
-            </t-link>
-            <t-link
-              v-permission="'instance:console'"
-              theme="primary"
-              hover="color"
-              :disabled="row.status !== 'running'"
-              @click="handleVnc(row)"
-            >
-              控制台
-            </t-link>
-            <!-- t-dropdown 根节点是 fragment，指令无法作用于组件自身，故用 span 包裹 -->
-            <span v-permission="'instance:action'">
-              <t-dropdown trigger="click">
-                <t-link theme="primary" hover="color">更多</t-link>
-                <t-dropdown-menu>
-                  <t-dropdown-item :disabled="syncingId === row.id" @click="handleSync(row)">
-                    {{ syncingId === row.id ? '同步中…' : '同步刷新' }}
-                  </t-dropdown-item>
-                  <t-dropdown-item @click="openRemarkDialog(row)">备注</t-dropdown-item>
-                </t-dropdown-menu>
-              </t-dropdown>
-            </span>
+            <MobileAction
+              v-if="isMobile"
+              :options="buildMobileActionOptions([
+                { content: '详情', value: 'detail' },
+                { content: '开机', value: 'power-on', hidden: () => !has('instance:action'), disabled: () => row.power_status === 'on' || poweringId === row.id },
+                { content: '关机', value: 'power-off', hidden: () => !has('instance:action'), disabled: () => row.power_status === 'off' || poweringId === row.id },
+                { content: '重启', value: 'power-reboot', hidden: () => !has('instance:action'), disabled: () => row.power_status !== 'on' || poweringId === row.id },
+                { content: '控制台', value: 'vnc', hidden: () => !has('instance:console'), disabled: () => row.status !== 'running' },
+                { content: '同步刷新', value: 'sync', hidden: () => !has('instance:action'), disabled: () => syncingId === row.id },
+                { content: '备注', value: 'remark', hidden: () => !has('instance:action') },
+              ])"
+              @select="(value) => handleMobileAction(value, row)"
+            />
+            <template v-else>
+              <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
+              <t-link
+                v-permission="'instance:action'"
+                theme="success"
+                hover="color"
+                :disabled="row.power_status === 'on' || poweringId === row.id"
+                @click="handlePower(row, 'on')"
+              >
+                开机
+              </t-link>
+              <t-link
+                v-permission="'instance:action'"
+                theme="warning"
+                hover="color"
+                :disabled="row.power_status === 'off' || poweringId === row.id"
+                @click="handlePower(row, 'off')"
+              >
+                关机
+              </t-link>
+              <t-link
+                v-permission="'instance:action'"
+                theme="primary"
+                hover="color"
+                :disabled="row.power_status !== 'on' || poweringId === row.id"
+                @click="handlePower(row, 'reboot')"
+              >
+                重启
+              </t-link>
+              <t-link
+                v-permission="'instance:console'"
+                theme="primary"
+                hover="color"
+                :disabled="row.status !== 'running'"
+                @click="handleVnc(row)"
+              >
+                控制台
+              </t-link>
+              <!-- t-dropdown 根节点是 fragment，指令无法作用于组件自身，故用 span 包裹 -->
+              <span v-permission="'instance:action'">
+                <t-dropdown trigger="click">
+                  <t-link theme="primary" hover="color">更多</t-link>
+                  <t-dropdown-menu>
+                    <t-dropdown-item :disabled="syncingId === row.id" @click="handleSync(row)">
+                      {{ syncingId === row.id ? '同步中…' : '同步刷新' }}
+                    </t-dropdown-item>
+                    <t-dropdown-item @click="openRemarkDialog(row)">备注</t-dropdown-item>
+                  </t-dropdown-menu>
+                </t-dropdown>
+              </span>
+            </template>
           </div>
         </template>
 
@@ -215,6 +232,15 @@
           <t-empty description="暂无实例数据" />
         </template>
       </t-table>
+
+      <MobilePagination
+        v-if="isMobile"
+        :current="mobilePage.current"
+        :page-size="mobilePage.pageSize"
+        :total="mobilePage.total"
+        @go="goMobilePage"
+        @page-size="handleMobilePageSizeChange"
+      />
     </section>
 
     <t-dialog
@@ -288,6 +314,11 @@ import {
 } from '@/pages/instances/constants'
 import { sourceModeOptions } from '@/pages/product/constants'
 import type { InstanceItem, InstanceStatsResponse } from '@/types/interface'
+import MobileAction from '@/components/mobile-action/index.vue'
+import MobilePagination from '@/components/mobile-pagination/index.vue'
+import { buildMobileActionOptions } from '@/composables/useMobileActions'
+import { useIsMobile } from '@/composables/useIsMobile'
+import { usePermission } from '@/composables/usePermission'
 
 defineOptions({ name: 'InstanceList' })
 
@@ -295,6 +326,8 @@ const router = useRouter()
 
 const instanceList = ref<InstanceItem[]>([])
 const loading = ref(false)
+const { isMobile } = useIsMobile()
+const { has } = usePermission()
 const total = ref(0)
 const syncingId = ref(0)
 const poweringId = ref(0)
@@ -344,6 +377,12 @@ const pagination = reactive({
   showJumper: true,
 })
 
+// 移动端分页状态：与桌面端 pagination 同步维护（见 loadUsers/loadData）
+const mobilePage = reactive({
+  current: 1,
+  pageSize: 10,
+  total: 0,
+})
 const columns: PrimaryTableCol<InstanceItem>[] = [
   { colKey: 'name', title: '实例', minWidth: 200 },
   { colKey: 'user', title: '归属用户', minWidth: 170 },
@@ -393,6 +432,7 @@ async function loadInstances() {
     instanceList.value = data.items
     total.value = data.meta.total
     pagination.total = data.meta.total
+    mobilePage.total = data.meta.total
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载实例列表失败')
   } finally {
@@ -418,7 +458,31 @@ function handlePageChange(pageInfo: PageInfo) {
   pagination.current = pageInfo.current
   pagination.pageSize = pageInfo.pageSize
   loadInstances()
+  mobilePage.current = pageInfo?.current ?? pagination.current
+  mobilePage.pageSize = pageInfo?.pageSize ?? pagination.pageSize
+  mobilePage.total = pagination.total
 }
+
+// —— 移动端分页交互 ——
+function goMobilePage(target: number) {
+  const clamped = Math.min(Math.max(target, 1), Math.max(1, Math.ceil(mobilePage.total / mobilePage.pageSize)))
+  if (clamped === mobilePage.current) return
+  void applyMobilePage(clamped, mobilePage.pageSize)
+}
+
+async function applyMobilePage(current: number, pageSize: number) {
+  pagination.current = current
+  pagination.pageSize = pageSize
+  mobilePage.current = current
+  mobilePage.pageSize = pageSize
+  await handlePageChange({ current, pageSize } as never)
+}
+
+function handleMobilePageSizeChange(pageSize: number) {
+  mobilePage.pageSize = pageSize
+  void applyMobilePage(1, pageSize)
+}
+
 
 function handleSearch() {
   pagination.current = 1
@@ -530,6 +594,34 @@ function isHttp(url: string): boolean {
 }
 
 onMounted(loadAll)
+
+// 移动端操作下拉分发
+function handleMobileAction(value: string | number | Record<string, any>, row: InstanceItem) {
+  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+  switch (action) {
+    case 'detail':
+      openDetail(row)
+      break
+    case 'power-on':
+      void handlePower(row, 'on')
+      break
+    case 'power-off':
+      void handlePower(row, 'off')
+      break
+    case 'power-reboot':
+      void handlePower(row, 'reboot')
+      break
+    case 'vnc':
+      void handleVnc(row)
+      break
+    case 'sync':
+      void handleSync(row)
+      break
+    case 'remark':
+      openRemarkDialog(row)
+      break
+  }
+}
 </script>
 
 <style lang="css">

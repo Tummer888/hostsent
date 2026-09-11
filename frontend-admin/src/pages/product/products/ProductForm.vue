@@ -53,7 +53,25 @@
           <t-form-item label="关联上游提供商 ID" name="source_provider_id">
             <t-input-number v-model="form.source_provider_id" :min="0" theme="column" placeholder="选填" />
           </t-form-item>
+          <t-form-item label="上游加价方式" name="upstream_markup_type">
+            <t-select v-model="form.upstream_markup_type" :options="markupTypeOptions" />
+          </t-form-item>
+          <t-form-item label="上游加价数值" name="upstream_markup_value">
+            <t-input-number
+              v-model="form.upstream_markup_value"
+              :min="0"
+              :precision="4"
+              :disabled="!form.upstream_markup_type"
+              theme="column"
+              :placeholder="markupValuePlaceholder"
+            />
+          </t-form-item>
         </div>
+
+        <t-form-item label="规格仅透传（代理商品）" name="spec_passthrough">
+          <t-switch v-model="form.spec_passthrough" />
+          <span class="form-hint">代理商品上游规格未完成平台绑定时，开启后可上架（仅透传上游参数、不做归一改写）。</span>
+        </t-form-item>
 
         <t-form-item label="封面图 URL" name="cover_image">
           <t-input v-model="form.cover_image" placeholder="选填，官网产品卡与详情页展示用，如 /branding/logo.svg" clearable />
@@ -100,7 +118,13 @@ import { AddIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
 
 import { getProductCategoryList } from '@/api/product'
-import { priceModelOptions, productStatusOptions, productTypeOptions, provisionModeOptions } from '@/pages/product/constants'
+import {
+  markupTypeOptions,
+  priceModelOptions,
+  productStatusOptions,
+  productTypeOptions,
+  provisionModeOptions,
+} from '@/pages/product/constants'
 import type { SaleProductCategoryInfo, SaleProductInfo } from '@/types/interface'
 
 const props = defineProps<{
@@ -136,7 +160,15 @@ const form = reactive({
   stock: -1,
   sort_order: 0,
   status: 0,
+  // 上游加价规则与「仅透传」标记（T4.3）
+  upstream_markup_type: '',
+  upstream_markup_value: 0,
+  spec_passthrough: false,
 })
+
+const markupValuePlaceholder = computed(() =>
+  form.upstream_markup_type === 'fixed' ? '加价金额，如 20' : '百分比，如 130 表示成本×130%',
+)
 
 async function loadCategories() {
   try {
@@ -176,6 +208,9 @@ watch(
       form.stock = initial.stock
       form.sort_order = initial.sort_order
       form.status = initial.status
+      form.upstream_markup_type = initial.upstream_markup_type || ''
+      form.upstream_markup_value = initial.upstream_markup_value || 0
+      form.spec_passthrough = !!initial.spec_passthrough
     }
   },
   { immediate: true },
@@ -213,6 +248,9 @@ async function handleSubmit() {
       stock: form.stock,
       sort_order: form.sort_order,
       status: form.status,
+      upstream_markup_type: form.upstream_markup_type,
+      upstream_markup_value: form.upstream_markup_type ? form.upstream_markup_value : 0,
+      spec_passthrough: form.spec_passthrough,
     }
     if (props.mode === 'create') {
       payload.code = form.code.trim()

@@ -26,12 +26,15 @@ const (
 
 // Order 订单
 type Order struct {
-	ID          uint64     `gorm:"primaryKey;autoIncrement"`
-	OrderNo     string     `gorm:"column:order_no;size:64;uniqueIndex;not null"`              // 订单号
-	UserID      uint64     `gorm:"column:user_id;index;not null"`                             // 下单用户
-	ProductID   uint64     `gorm:"column:product_id;index"`                                   // 主产品ID(简化快照，明细见 order_items)
-	ProductName string     `gorm:"column:product_name;size:128"`                              // 产品名称快照
-	Specs       string     `gorm:"type:text"`                                                 // 规格快照 JSON
+	ID          uint64 `gorm:"primaryKey;autoIncrement"`
+	OrderNo     string `gorm:"column:order_no;size:64;uniqueIndex;not null"` // 订单号
+	UserID      uint64 `gorm:"column:user_id;index;not null"`                // 下单用户
+	ProductID   uint64 `gorm:"column:product_id;index"`                      // 主产品ID(简化快照，明细见 order_items)
+	ProductName string `gorm:"column:product_name;size:128"`                 // 产品名称快照
+	Specs       string `gorm:"type:text"`                                    // 规格快照 JSON
+	// SpecCode 所选 SKU 编码（T4.2）：履约时据此回查 spec_bindings 的平台参数；
+	// 空表示按商品级配置（存量订单语义）。
+	SpecCode    string     `gorm:"column:spec_code;size:64;index"`
 	Quantity    int        `gorm:"default:1"`                                                 // 数量
 	PriceModel  string     `gorm:"column:price_model;size:20;default:'fixed'"`                // 价格模型
 	TotalAmount float64    `gorm:"column:total_amount;type:decimal(15,2);not null;default:0"` // 应付总额

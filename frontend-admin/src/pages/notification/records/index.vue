@@ -20,13 +20,6 @@
     <section class="filter-card surface-card">
       <div class="filter-card__head">
         <h3 class="card-title">筛选条件</h3>
-        <t-space size="small">
-          <t-button theme="primary" @click="handleSearch">
-            <template #icon><SearchIcon aria-hidden="true" /></template>
-            查询
-          </t-button>
-          <t-button variant="outline" @click="handleReset">重置</t-button>
-        </t-space>
       </div>
       <div class="filter-card__grid">
         <div class="field">
@@ -46,6 +39,15 @@
           <t-select v-model="filters.target_type" clearable placeholder="全部目标" :options="targetTypeOptions" />
         </div>
       </div>
+      <div class="filter-card__actions">
+        <t-space size="small">
+          <t-button theme="primary" @click="handleSearch">
+            <template #icon><SearchIcon aria-hidden="true" /></template>
+            查询
+          </t-button>
+          <t-button variant="outline" @click="handleReset">重置</t-button>
+        </t-space>
+      </div>
     </section>
 
     <section class="table-card surface-card">
@@ -62,7 +64,7 @@
         hover
         table-layout="fixed"
         cell-empty-content="—"
-        :pagination="pagination"
+        :pagination="isMobile ? undefined : pagination"
         @page-change="handlePageChange"
       >
         <template #id="{ row }">
@@ -96,22 +98,41 @@
           <span class="time-text">{{ formatTime(row.created_at) }}</span>
         </template>
         <template #action="{ row }">
-          <div class="action-cell">
-            <t-link theme="primary" hover="color" @click="openDetail(row)">查看</t-link>
-            <t-link
-              v-if="row.channel === 'mail' && row.send_status === 'failed'"
-              theme="warning"
-              hover="color"
-              @click="handleResend(row)"
-            >
-              重发
-            </t-link>
+<div class="action-cell">
+            <MobileAction
+              v-if="isMobile"
+              :options="buildMobileActionOptions([
+                { content: '查看', value: 'detail', theme: 'default' },
+                { content: '重发', value: 'resend', hidden: () => !(row.channel === 'mail' && row.send_status === 'failed'), theme: 'warning' },
+              ])"
+              @select="(value) => handleMobileAction(value, row)"
+            />
+            <template v-else>
+              <t-link theme="primary" hover="color" @click="openDetail(row)">查看</t-link>
+              <t-link
+                v-if="row.channel === 'mail' && row.send_status === 'failed'"
+                theme="warning"
+                hover="color"
+                @click="handleResend(row)"
+              >
+                重发
+              </t-link>
+            </template>
           </div>
         </template>
         <template #empty>
           <t-empty description="暂无通知记录" />
         </template>
       </t-table>
+
+      <MobilePagination
+        v-if="isMobile"
+        :current="page.current"
+        :page-size="page.size"
+        :total="total"
+        @go="goMobilePage"
+        @page-size="handleMobilePageSizeChange"
+      />
     </section>
 
     <!-- 通知内容查看弹窗 -->
@@ -152,10 +173,15 @@ import { ChatIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { getNotifyRecords, resendNotify, type NotifyRecordItem } from '@/api/notification'
+import MobileAction from '@/components/mobile-action/index.vue'
+import { buildMobileActionOptions } from '@/composables/useMobileActions'
+import { useIsMobile } from '@/composables/useIsMobile'
+import MobilePagination from '@/components/mobile-pagination/index.vue'
 
 defineOptions({ name: 'NotifyRecords' })
 
 const loading = ref(false)
+const { isMobile } = useIsMobile()
 const list = ref<NotifyRecordItem[]>([])
 const total = ref(0)
 const filters = reactive({ event: '', channel: '', send_status: '', target_type: '' })
@@ -281,6 +307,25 @@ function handlePageChange(info: PageInfo) {
   loadData()
 }
 
+// —— 移动端分页交互 ——
+function goMobilePage(target: number) {
+  const totalPages = Math.max(1, Math.ceil(total.value / page.size))
+  const clamped = Math.min(Math.max(target, 1), totalPages)
+  if (clamped === page.current) return
+  void applyMobilePage(clamped, page.size)
+}
+
+async function applyMobilePage(current: number, pageSize: number) {
+  page.current = current
+  page.size = pageSize
+  await loadData()
+}
+
+function handleMobilePageSizeChange(pageSize: number) {
+  void applyMobilePage(1, pageSize)
+}
+
+
 // —— 内容查看 ——
 const detailVisible = ref(false)
 const currentRow = ref<NotifyRecordItem | null>(null)
@@ -314,6 +359,19 @@ function handleResend(row: NotifyRecordItem) {
 }
 
 onMounted(loadData)
+
+// 移动端操作下拉分发
+function handleMobileAction(value: string | number | Record<string, any>, row: NotifyRecordItem) {
+  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+  switch (action) {
+    case 'detail':
+      openDetail(row)
+      break
+    case 'resend':
+      void handleResend(row)
+      break
+  }
+}
 </script>
 
 <style lang="css">

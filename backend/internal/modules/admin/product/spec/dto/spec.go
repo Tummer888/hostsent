@@ -184,26 +184,32 @@ type ExternalSpecUpsertRequest struct {
 }
 
 // SpecBindingInfo 规格绑定信息。
+// ExternalSpecID 与 ProductSpecID 二选一非零：前者为代理链路（上游规格镜像），
+// 后者为自营链路（我方 SKU，T4.2）。
 type SpecBindingInfo struct {
-	ID             uint64          `json:"id"`
-	ExternalSpecID uint64          `json:"external_spec_id"`
-	SpecTemplateID uint64          `json:"spec_template_id"`
-	Direction      string          `json:"direction"`
-	PlatformParams json.RawMessage `json:"platform_params"`
-	MatchType      string          `json:"match_type"`
-	Status         string          `json:"status"`
-	Confidence     int             `json:"confidence"`
-	ConfirmedBy    uint64          `json:"confirmed_by"`
-	ConfirmedAt    *string         `json:"confirmed_at"`
-	Remark         string          `json:"remark"`
-	Priority       int             `json:"priority"`
-	CreatedAt      string          `json:"created_at"`
-	UpdatedAt      string          `json:"updated_at"`
+	ID              uint64          `json:"id"`
+	ExternalSpecID  uint64          `json:"external_spec_id,omitempty"`
+	ProductSpecID   uint64          `json:"product_spec_id,omitempty"`
+	ProductSpecCode string          `json:"product_spec_code,omitempty"` // SKU 编码（仅自营绑定回填展示）
+	SpecTemplateID  uint64          `json:"spec_template_id"`
+	Direction       string          `json:"direction"`
+	PlatformParams  json.RawMessage `json:"platform_params"`
+	MatchType       string          `json:"match_type"`
+	Status          string          `json:"status"`
+	Confidence      int             `json:"confidence"`
+	ConfirmedBy     uint64          `json:"confirmed_by"`
+	ConfirmedAt     *string         `json:"confirmed_at"`
+	Remark          string          `json:"remark"`
+	Priority        int             `json:"priority"`
+	CreatedAt       string          `json:"created_at"`
+	UpdatedAt       string          `json:"updated_at"`
 }
 
 // SpecBindingUpsertRequest 建立/更新规格绑定。
+// 自营链路填 product_spec_id，代理链路填 external_spec_id（至少一个）。
 type SpecBindingUpsertRequest struct {
-	ExternalSpecID uint64          `json:"external_spec_id" binding:"required"`
+	ExternalSpecID uint64          `json:"external_spec_id"`
+	ProductSpecID  uint64          `json:"product_spec_id"`
 	SpecTemplateID uint64          `json:"spec_template_id"`
 	Direction      string          `json:"direction"`
 	PlatformParams json.RawMessage `json:"platform_params"`

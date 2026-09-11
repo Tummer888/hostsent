@@ -70,6 +70,9 @@ type ResolveInput struct {
 type Deps struct {
 	// BasePrice 返回商品基础单价与分类 ID（product_pricing 优先，回落 products.price）。
 	BasePrice func(ctx context.Context, productID uint64) (unitPrice float64, categoryID uint64, err error)
+	// SpecBasePrice 可选：SKU 级基础单价（T4.1）。in.SpecCode 非空且能取到定价时优先于 BasePrice；
+	// 返回 found=false 表示该 SKU 未单独定价，回落商品级基础价。折扣算法与叠加顺序不受影响。
+	SpecBasePrice func(ctx context.Context, in ResolveInput) (unitPrice float64, categoryID uint64, found bool, err error)
 	// AgentRule 代理价（P6 接入 agent_levels.price_policy_id，当前可为 nil）。
 	AgentRule func(ctx context.Context, userID, productID, categoryID uint64) (*Rule, error)
 	// GroupRule 用户组策略（user_groups.price_policy_id）。
@@ -107,6 +110,19 @@ func (s *Service) Resolve(ctx context.Context, in ResolveInput) (*Quote, error) 
 			return nil, err
 		}
 		unitPrice, categoryID = price, category
+	}
+	// SKU 级定价优先（T4.1）：仅当请求指定了 spec_code 且该 SKU 定了价才覆盖商品级基础价。
+	if s.deps.SpecBasePrice != nil && in.SpecCode != "" {
+		price, category, found, err := s.deps.SpecBasePrice(ctx, in)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			unitPrice = price
+			if category != 0 {
+				categoryID = category
+			}
+		}
 	}
 	if unitPrice < 0 {
 		unitPrice = 0

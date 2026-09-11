@@ -30,6 +30,11 @@ export interface SaleProductCreateRequest {
   stock?: number
   sort_order?: number
   status?: number
+  // 上游加价规则（T4.3）：percent 按成本百分比、fixed 加固定额；空串表示不配置。
+  upstream_markup_type?: string
+  upstream_markup_value?: number
+  // 代理商品「仅透传」标记：上游规格未归一确认时放行上架。
+  spec_passthrough?: boolean
 }
 
 export interface SaleProductCloneRequest {
@@ -63,9 +68,14 @@ export interface SaleProductUpdateRequest {
   price_model?: string
   price?: number
   cost_price?: number
+  config_options?: string
   stock?: number
   sort_order?: number
   status?: number
+  // 加价规则与透传标记（T4.3）：指针语义——省略保持原值。
+  upstream_markup_type?: string
+  upstream_markup_value?: number
+  spec_passthrough?: boolean
 }
 
 export interface SaleProductPriceRequest {
@@ -91,6 +101,11 @@ export interface SaleProductInfo {
   provision_mode: string
   source_mode: string
   config_options: string
+  /** 上游加价规则（T4.3）：percent / fixed，空串表示未配置 */
+  upstream_markup_type: string
+  upstream_markup_value: number
+  /** 代理商品「仅透传」标记（T4.3） */
+  spec_passthrough: boolean
   featured: boolean
   stock: number
   sort_order: number
@@ -104,6 +119,9 @@ export interface SaleProductListResponse {
   meta: ListMeta
 }
 
+/** SKU 出站平台绑定状态（T4.2）：空串表示未建立绑定 */
+export type SaleProductSpecBindingStatus = '' | 'unmapped' | 'auto_mapped' | 'confirmed' | 'stale'
+
 export interface SaleProductSpecInfo {
   id: number
   product_id: number
@@ -114,6 +132,136 @@ export interface SaleProductSpecInfo {
   price: number
   cost_price: number
   stock: number
+  /** 引用的标准规格模板 ID（T4.2）；0 表示未引用 */
+  spec_template_id: number
+  sort_order: number
+  status: number
+  /** 该 SKU 的出站平台绑定状态（T4.2/T4.6） */
+  binding_status: SaleProductSpecBindingStatus | string
+  /** 已确认的出站平台参数 JSON（无绑定为空串） */
+  platform_params?: string
+}
+
+export interface SaleProductSpecRequest {
+  spec_code: string
+  name: string
+  specs?: string
+  price_model?: string
+  price?: number
+  cost_price?: number
+  stock?: number
+  spec_template_id?: number
+  sort_order?: number
+  status?: number
+}
+
+/** 商品可配置项（T4.4）：source=upstream 走上游配置 id，source=self 直接下发平台参数名 */
+export interface SaleProductConfigSub {
+  option_name: string
+  upstream_id?: number
+  source?: string
+  source_key?: string
+  hidden?: number
+  sort_order?: number
+  pricings?: Array<{
+    monthly?: number
+    annually?: number
+    quarterly?: number
+    onetime?: number
+  }>
+}
+
+export interface SaleProductConfigOption {
+  option_name: string
+  option_type?: number
+  qty_minimum?: number
+  qty_maximum?: number
+  upstream_id?: number
+  source?: string
+  source_key?: string
+  hidden?: number
+  sort_order?: number
+  sub?: SaleProductConfigSub[]
+}
+
+export interface SaleProductConfigGroup {
+  id?: number
+  name?: string
+  description?: string
+  options: SaleProductConfigOption[]
+}
+
+/** 规格绑定（spec_bindings，T4.2/T4.3）：external_spec_id 与 product_spec_id 二选一 */
+export interface SpecBindingInfo {
+  id: number
+  external_spec_id?: number
+  product_spec_id?: number
+  product_spec_code?: string
+  spec_template_id: number
+  direction: string
+  platform_params?: Record<string, unknown> | string | null
+  match_type: string
+  status: string
+  confidence: number
+  confirmed_by: number
+  confirmed_at?: string | null
+  remark: string
+  priority: number
+  created_at: string
+  updated_at: string
+}
+
+export interface SpecBindingUpsertRequest {
+  external_spec_id?: number
+  product_spec_id?: number
+  spec_template_id?: number
+  direction?: string
+  platform_params?: Record<string, unknown> | string
+  match_type?: string
+  status?: string
+  confidence?: number
+  remark?: string
+  priority?: number
+}
+
+export interface SpecBindingConfirmRequest {
+  spec_template_id?: number
+  platform_params?: Record<string, unknown> | string
+  remark?: string
+}
+
+/** 外部规格快照（external_specs，T4.3） */
+export interface ExternalSpecInfo {
+  id: number
+  provider_id: number
+  provider_type: string
+  external_id: string
+  external_name: string
+  external_kind: string
+  raw?: unknown
+  normalized?: unknown
+  fingerprint: string
+  status: string
+  synced_at?: string | null
+  created_at: string
+}
+
+/** 规格原子字典项（spec_atoms） */
+export interface SpecAtomInfo {
+  id: number
+  key: string
+  name: string
+  unit: string
+  value_type: string
+  enum_values?: unknown
+  min_value?: number | null
+  max_value?: number | null
+  step_value?: number | null
+  required: boolean
+  configurable: boolean
+  applies_to: string
+  platform_fields?: Record<string, { read?: string; write?: string; source?: string }> | null
+  description: string
   sort_order: number
   status: number
 }

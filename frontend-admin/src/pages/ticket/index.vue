@@ -35,13 +35,6 @@
       </div>
       <div class="filter-card__head">
         <h3 class="card-title">筛选条件</h3>
-        <t-space size="small">
-          <t-button theme="primary" @click="handleSearch">
-            <template #icon><SearchIcon aria-hidden="true" /></template>
-            查询
-          </t-button>
-          <t-button variant="outline" @click="handleResetFilters">重置</t-button>
-        </t-space>
       </div>
       <div class="filter-card__grid">
         <div class="field">
@@ -69,6 +62,15 @@
           <t-date-range-picker v-model="filters.dateRange" clearable separator="~" placeholder="开始日期 ~ 结束日期" />
         </div>
       </div>
+      <div class="filter-card__actions">
+        <t-space size="small">
+          <t-button theme="primary" @click="handleSearch">
+            <template #icon><SearchIcon aria-hidden="true" /></template>
+            查询
+          </t-button>
+          <t-button variant="outline" @click="handleResetFilters">重置</t-button>
+        </t-space>
+      </div>
     </section>
 
     <section class="table-card surface-card">
@@ -85,7 +87,7 @@
         hover
         table-layout="fixed"
         cell-empty-content="—"
-        :pagination="pagination"
+        :pagination="isMobile ? undefined : pagination"
         @page-change="handlePageChange"
       >
         <template #ticket_no="{ row }">
@@ -126,15 +128,35 @@
         </template>
         <template #action="{ row }">
           <div class="action-cell">
-            <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
-            <t-link v-if="canClaim(row)" theme="success" hover="color" @click="handleClaim(row)">认领</t-link>
-            <t-link v-if="isClosable(row) && has('ticket:close')" theme="danger" hover="color" @click="handleClose(row)">关闭</t-link>
+            <MobileAction
+              v-if="isMobile"
+              :options="buildMobileActionOptions([
+                { content: '详情', value: 'detail' },
+                { content: '认领', value: 'claim', hidden: () => !canClaim(row) },
+                { content: '关闭', value: 'close', hidden: () => !(isClosable(row) && has('ticket:close')), theme: 'error' },
+              ])"
+              @select="(value) => handleMobileAction(value, row)"
+            />
+            <template v-else>
+              <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
+              <t-link v-if="canClaim(row)" theme="success" hover="color" @click="handleClaim(row)">认领</t-link>
+              <t-link v-if="isClosable(row) && has('ticket:close')" theme="danger" hover="color" @click="handleClose(row)">关闭</t-link>
+            </template>
           </div>
         </template>
         <template #empty>
           <t-empty description="暂无工单数据" />
         </template>
       </t-table>
+
+      <MobilePagination
+        v-if="isMobile"
+        :current="mobilePage.current"
+        :page-size="mobilePage.pageSize"
+        :total="mobilePage.total"
+        @go="goMobilePage"
+        @page-size="handleMobilePageSizeChange"
+      />
     </section>
   </div>
 </template>
@@ -146,6 +168,9 @@ import { RefreshIcon, SearchIcon, ServiceIcon } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { closeTicket, claimTicket, getTicketCategories, getTickets } from '@/api/ticket'
+import MobileAction from '@/components/mobile-action/index.vue'
+import { buildMobileActionOptions } from '@/composables/useMobileActions'
+import { useIsMobile } from '@/composables/useIsMobile'
 import { usePermission } from '@/composables/usePermission'
 import {
   formatTime,
@@ -158,6 +183,7 @@ import {
   toDateString,
 } from '@/pages/ticket/constants'
 import type { TicketCategoryInfo, TicketInfo } from '@/types/interface'
+import MobilePagination from '@/components/mobile-pagination/index.vue'
 
 defineOptions({ name: 'TicketList' })
 
@@ -165,6 +191,7 @@ const router = useRouter()
 const { has } = usePermission()
 const ticketList = ref<TicketInfo[]>([])
 const loading = ref(false)
+const { isMobile } = useIsMobile()
 const total = ref(0)
 const categoryOptions = ref<{ label: string; value: string }[]>([])
 
@@ -201,6 +228,12 @@ const pagination = reactive({
   showJumper: true,
 })
 
+// 移动端分页状态：与桌面端 pagination 同步维护
+const mobilePage = reactive({
+  current: 1,
+  pageSize: 10,
+  total: 0,
+})
 const columns: PrimaryTableCol<TicketInfo>[] = [
   { colKey: 'ticket_no', title: '工单号', minWidth: 170 },
   { colKey: 'user', title: '用户', minWidth: 140 },
@@ -211,7 +244,7 @@ const columns: PrimaryTableCol<TicketInfo>[] = [
   { colKey: 'assigned_name', title: '处理人', width: 110 },
   { colKey: 'sla', title: 'SLA', width: 80, align: 'center' as const },
   { colKey: 'created_at', title: '提交时间', width: 160 },
-  { colKey: 'action', title: '操作', width: 150, fixed: 'right' as const, align: 'center' as const },
+  { colKey: 'action', title: '操作', width: isMobile ? 70 : 150, fixed: 'right' as const, align: 'center' as const },
 ]
 
 // 加载工单分类下拉（供筛选使用）
@@ -243,6 +276,7 @@ async function loadTickets() {
     ticketList.value = data.items
     total.value = data.meta.total
     pagination.total = data.meta.total
+    mobilePage.total = data.meta.total
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载工单列表失败')
   } finally {
@@ -260,7 +294,31 @@ function handlePageChange(pageInfo: PageInfo) {
   pagination.current = pageInfo.current
   pagination.pageSize = pageInfo.pageSize
   loadTickets()
+  mobilePage.current = pageInfo?.current ?? pagination.current
+  mobilePage.pageSize = pageInfo?.pageSize ?? pagination.pageSize
+  mobilePage.total = pagination.total
 }
+
+// —— 移动端分页交互 ——
+function goMobilePage(target: number) {
+  const clamped = Math.min(Math.max(target, 1), Math.max(1, Math.ceil(mobilePage.total / mobilePage.pageSize)))
+  if (clamped === mobilePage.current) return
+  void applyMobilePage(clamped, mobilePage.pageSize)
+}
+
+async function applyMobilePage(current: number, pageSize: number) {
+  pagination.current = current
+  pagination.pageSize = pageSize
+  mobilePage.current = current
+  mobilePage.pageSize = pageSize
+  await handlePageChange({ current, pageSize } as never)
+}
+
+function handleMobilePageSizeChange(pageSize: number) {
+  mobilePage.pageSize = pageSize
+  void applyMobilePage(1, pageSize)
+}
+
 
 function handleSearch() {
   pagination.current = 1
@@ -276,6 +334,21 @@ function handleResetFilters() {
   filters.dateRange = undefined
   pagination.current = 1
   loadTickets()
+}
+
+function handleMobileAction(value: string | number | Record<string, any>, row: TicketInfo) {
+  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+  switch (action) {
+    case 'detail':
+      openDetail(row)
+      break
+    case 'claim':
+      void handleClaim(row)
+      break
+    case 'close':
+      void handleClose(row)
+      break
+  }
 }
 
 function openDetail(row: TicketInfo) {

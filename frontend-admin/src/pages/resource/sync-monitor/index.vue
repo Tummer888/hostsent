@@ -48,7 +48,7 @@
         hover
         table-layout="fixed"
         cell-empty-content="—"
-        :pagination="pagination"
+        :pagination="isMobile ? undefined : pagination"
         @page-change="handlePageChange"
       >
         <template #task_type="{ row }">
@@ -67,6 +67,15 @@
           <t-empty description="暂无同步任务" />
         </template>
       </t-table>
+
+      <MobilePagination
+        v-if="isMobile"
+        :current="mobilePage.current"
+        :page-size="mobilePage.pageSize"
+        :total="mobilePage.total"
+        @go="goMobilePage"
+        @page-size="handleMobilePageSizeChange"
+      />
     </section>
   </div>
 </template>
@@ -79,11 +88,14 @@ import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-
 
 import { getSyncTaskList } from '@/api/admin'
 import type { SyncTaskInfo } from '@/types/interface'
+import MobilePagination from '@/components/mobile-pagination/index.vue'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 defineOptions({ name: 'ResourceSyncMonitor' })
 
 const taskList = ref<SyncTaskInfo[]>([])
 const loading = ref(false)
+const { isMobile } = useIsMobile()
 const total = ref(0)
 const pagination = reactive({
   current: 1,
@@ -92,6 +104,12 @@ const pagination = reactive({
   showJumper: true,
 })
 
+// 移动端分页状态：与桌面端 pagination 同步维护
+const mobilePage = reactive({
+  current: 1,
+  pageSize: 10,
+  total: 0,
+})
 const stat = reactive({
   total: 0,
   running: 0,
@@ -176,6 +194,7 @@ async function loadTasks() {
     taskList.value = data.items
     total.value = data.meta.total
     pagination.total = data.meta.total
+    mobilePage.total = data.meta.total
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载同步任务失败')
   } finally {
@@ -187,7 +206,31 @@ function handlePageChange(pageInfo: PageInfo) {
   pagination.current = pageInfo.current
   pagination.pageSize = pageInfo.pageSize
   loadTasks()
+  mobilePage.current = pageInfo?.current ?? pagination.current
+  mobilePage.pageSize = pageInfo?.pageSize ?? pagination.pageSize
+  mobilePage.total = pagination.total
 }
+
+// —— 移动端分页交互 ——
+function goMobilePage(target: number) {
+  const clamped = Math.min(Math.max(target, 1), Math.max(1, Math.ceil(mobilePage.total / mobilePage.pageSize)))
+  if (clamped === mobilePage.current) return
+  void applyMobilePage(clamped, mobilePage.pageSize)
+}
+
+async function applyMobilePage(current: number, pageSize: number) {
+  pagination.current = current
+  pagination.pageSize = pageSize
+  mobilePage.current = current
+  mobilePage.pageSize = pageSize
+  await handlePageChange({ current, pageSize } as never)
+}
+
+function handleMobilePageSizeChange(pageSize: number) {
+  mobilePage.pageSize = pageSize
+  void applyMobilePage(1, pageSize)
+}
+
 
 async function loadMonitor() {
   await Promise.all([loadStat(), loadTasks()])

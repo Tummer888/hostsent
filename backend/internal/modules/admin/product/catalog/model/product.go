@@ -29,6 +29,12 @@ const (
 	PriceModelMonthly string = "monthly" // 按月
 )
 
+// 上游加价规则类型（T4.3）：applyMarkup 与入参校验共用，避免字符串散落。
+const (
+	MarkupTypePercent string = "percent" // 售价 = 成本 × value/100
+	MarkupTypeFixed   string = "fixed"   // 售价 = 成本 + value
+)
+
 // ProductSpecItem 产品规格项（Specs 列中的 JSON 结构）
 type ProductSpecItem struct {
 	Key   string `json:"key"`
@@ -59,13 +65,16 @@ type Product struct {
 	UpstreamMarkupType    string     `gorm:"column:upstream_markup_type;size:16"`
 	UpstreamMarkupValue   float64    `gorm:"column:upstream_markup_value;type:numeric(12,4);default:0"`
 	UpstreamPriceSyncedAt *time.Time `gorm:"column:upstream_price_synced_at"`
-	Featured              bool       `gorm:"column:featured;default:false;index"` // 是否前台推荐（推荐位管理）
-	Stock                 int        `gorm:"default:-1"`                          // 库存，-1 表示不限
-	SortOrder             int        `gorm:"column:sort_order;default:0"`         // 排序
-	Status                int        `gorm:"default:0;index"`                     // 状态
-	CreatedAt             time.Time  `gorm:"autoCreateTime"`
-	UpdatedAt             time.Time  `gorm:"autoUpdateTime"`
-	DeletedAt             *time.Time `gorm:"index"`
+	// SpecPassthrough 代理商品"仅透传"标记（T4.3 / 16 §7.6.3）：上游规格未归一确认时，
+	// 显式声明只透传上游参数、不改写，方可上架（上架门禁据此放行）。
+	SpecPassthrough bool       `gorm:"column:spec_passthrough;not null;default:false"`
+	Featured        bool       `gorm:"column:featured;default:false;index"` // 是否前台推荐（推荐位管理）
+	Stock           int        `gorm:"default:-1"`                          // 库存，-1 表示不限
+	SortOrder       int        `gorm:"column:sort_order;default:0"`         // 排序
+	Status          int        `gorm:"default:0;index"`                     // 状态
+	CreatedAt       time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt       time.Time  `gorm:"autoUpdateTime"`
+	DeletedAt       *time.Time `gorm:"index"`
 }
 
 // TableName 指定表名

@@ -106,6 +106,8 @@
             <t-input v-model="adminFilters.keyword" clearable placeholder="操作人 / 路径" @enter="handleAdminSearch" />
             <t-input v-model="adminFilters.resource_type" clearable placeholder="资源类型（如 users）" />
             <t-input v-model="adminFilters.action" clearable placeholder="动作（如 create）" />
+          </div>
+          <div class="admin-audit-actions">
             <t-button theme="primary" @click="handleAdminSearch">查询</t-button>
             <t-button variant="outline" @click="handleAdminReset">重置</t-button>
           </div>
@@ -452,9 +454,19 @@ watch(activeTab, (tab) => {
 }
 
 .admin-audit-card .filter-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr)) auto auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: center;
+  margin-bottom: 0;
+}
+
+.admin-audit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
   margin-bottom: 16px;
+  border-top: 1px solid var(--td-brand-color-1);
 }
 
 .admin-audit-table {

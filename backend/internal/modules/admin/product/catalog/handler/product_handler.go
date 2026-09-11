@@ -1,6 +1,9 @@
 package handler
 
 import (
+	"encoding/json"
+	"errors"
+
 	"github.com/gin-gonic/gin"
 
 	"hostsent/backend/internal/modules/admin/product/catalog/dto"
@@ -315,4 +318,155 @@ func (h *ProductHandler) ListSpecs(c *gin.Context) {
 		return
 	}
 	response.Success(c, resp)
+}
+
+// CreateSpec godoc
+// @Summary 新增商品规格变体（SKU）
+// @Tags 产品管理-商品
+// @Security BearerAuth
+// @Param id path int true "商品 ID"
+// @Param request body dto.ProductSpecRequest true "规格参数"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/product/catalog/products/{id}/specs [post]
+func (h *ProductHandler) CreateSpec(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	var req dto.ProductSpecRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	operatorID, operatorName := operatorFromContext(c)
+	resp, err := h.productService.CreateSpec(c.Request.Context(), id, req, operatorID, operatorName)
+	if err != nil {
+		response.Error(c, specError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// UpdateSpec godoc
+// @Summary 更新商品规格变体（SKU）
+// @Tags 产品管理-商品
+// @Security BearerAuth
+// @Param id path int true "商品 ID"
+// @Param specId path int true "规格 ID"
+// @Param request body dto.ProductSpecRequest true "规格参数"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/product/catalog/products/{id}/specs/{specId} [put]
+func (h *ProductHandler) UpdateSpec(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	specID, ok := pathID(c, "specId")
+	if !ok {
+		return
+	}
+	var req dto.ProductSpecRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	operatorID, operatorName := operatorFromContext(c)
+	resp, err := h.productService.UpdateSpec(c.Request.Context(), id, specID, req, operatorID, operatorName)
+	if err != nil {
+		response.Error(c, specError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// DeleteSpec godoc
+// @Summary 删除商品规格变体（SKU）
+// @Tags 产品管理-商品
+// @Security BearerAuth
+// @Param id path int true "商品 ID"
+// @Param specId path int true "规格 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/product/catalog/products/{id}/specs/{specId} [delete]
+func (h *ProductHandler) DeleteSpec(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	specID, ok := pathID(c, "specId")
+	if !ok {
+		return
+	}
+	operatorID, operatorName := operatorFromContext(c)
+	if err := h.productService.DeleteSpec(c.Request.Context(), id, specID, operatorID, operatorName); err != nil {
+		response.Error(c, specError(err))
+		return
+	}
+	response.SuccessMessage(c, "success")
+}
+
+// ListConfigOptions godoc
+// @Summary 查询商品可配置项（含自营项）
+// @Tags 产品管理-商品
+// @Security BearerAuth
+// @Param id path int true "商品 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/product/catalog/products/{id}/config-options [get]
+func (h *ProductHandler) ListConfigOptions(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	resp, err := h.productService.ListConfigOptions(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// SaveConfigOptions godoc
+// @Summary 保存商品可配置项（覆盖式，支持 source/source_key 标注）
+// @Tags 产品管理-商品
+// @Security BearerAuth
+// @Param id path int true "商品 ID"
+// @Param request body dto.ProductConfigOptionsRequest true "配置组"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/product/catalog/products/{id}/config-options [put]
+func (h *ProductHandler) SaveConfigOptions(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	var req dto.ProductConfigOptionsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	groups := make([]interface{}, 0, len(req.Groups))
+	for _, raw := range req.Groups {
+		var item interface{}
+		if err := json.Unmarshal(raw, &item); err != nil {
+			response.Error(c, apperrors.New(20001, "配置组结构非法"))
+			return
+		}
+		groups = append(groups, item)
+	}
+	operatorID, operatorName := operatorFromContext(c)
+	if err := h.productService.SaveConfigOptions(c.Request.Context(), id, groups, operatorID, operatorName); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	response.SuccessMessage(c, "success")
+}
+
+// specError 把 SKU 业务错误映射为明确错误码（否则前端只能看到 50001 通用错误）。
+func specError(err error) *apperrors.AppError {
+	switch {
+	case errors.Is(err, service.ErrSpecNotFound):
+		return apperrors.New(20002, err.Error())
+	case errors.Is(err, service.ErrSpecCodeExists), errors.Is(err, service.ErrSpecInvalid):
+		return apperrors.New(20001, err.Error())
+	default:
+		return apperrors.New(50001, err.Error())
+	}
 }

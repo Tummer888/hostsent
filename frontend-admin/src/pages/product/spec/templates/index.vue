@@ -66,9 +66,19 @@
         <template #bandwidth="{ row }"><span>{{ row.bandwidth === 0 ? '不限' : row.bandwidth + ' Mbps' }}</span></template>
         <template #status="{ row }"><t-tag :theme="row.status === 1 ? 'success' : 'default'" variant="light" size="small" shape="round">{{ row.status === 1 ? '启用' : '停用' }}</t-tag></template>
         <template #action="{ row }">
-          <div class="action-cell">
-            <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
-            <t-link theme="danger" hover="color" @click="remove(row)">删除</t-link>
+<div class="action-cell">
+            <MobileAction
+              v-if="isMobile"
+              :options="buildMobileActionOptions([
+                { content: '编辑', value: 'edit', theme: 'default' },
+                { content: '删除', value: 'delete', theme: 'error' },
+              ])"
+              @select="(value) => handleMobileAction(value, row)"
+            />
+            <template v-else>
+              <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
+              <t-link theme="danger" hover="color" @click="remove(row)">删除</t-link>
+            </template>
           </div>
         </template>
         <template #empty><t-empty description="暂无规格模板，请新增" /></template>
@@ -104,11 +114,15 @@ import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-
 
 import { createSpecTemplate, deleteSpecTemplate, getSpecTemplateList, updateSpecTemplate } from '@/api/product'
 import type { SpecTemplateInfo } from '@/types/interface'
+import MobileAction from '@/components/mobile-action/index.vue'
+import { buildMobileActionOptions } from '@/composables/useMobileActions'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 defineOptions({ name: 'ProductSpecTemplates' })
 
 const items = ref<SpecTemplateInfo[]>([])
 const loading = ref(false)
+const { isMobile } = useIsMobile()
 const total = ref(0)
 
 const filters = reactive<{ keyword?: string; spec_family?: string; status?: number }>({})
@@ -231,6 +245,19 @@ async function remove(row: SpecTemplateInfo) {
 }
 
 onMounted(load)
+
+// 移动端操作下拉分发
+function handleMobileAction(value: string | number | Record<string, any>, row: SpecTemplateInfo) {
+  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+  switch (action) {
+    case 'edit':
+      openEdit(row)
+      break
+    case 'delete':
+      void remove(row)
+      break
+  }
+}
 </script>
 
 <style lang="css">

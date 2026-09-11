@@ -24,13 +24,6 @@
     <section class="filter-card surface-card">
       <div class="filter-card__head">
         <h3 class="card-title">筛选条件</h3>
-        <t-space size="small">
-          <t-button theme="primary" @click="handleSearch">
-            <template #icon><SearchIcon aria-hidden="true" /></template>
-            查询
-          </t-button>
-          <t-button variant="outline" @click="handleReset">重置</t-button>
-        </t-space>
       </div>
       <div class="filter-card__grid">
         <div class="field">
@@ -41,6 +34,15 @@
           <span class="field__label">生命周期阶段</span>
           <t-select v-model="filters.stage" clearable placeholder="全部阶段" :options="stageOptions" />
         </div>
+      </div>
+      <div class="filter-card__actions">
+        <t-space size="small">
+          <t-button theme="primary" @click="handleSearch">
+            <template #icon><SearchIcon aria-hidden="true" /></template>
+            查询
+          </t-button>
+          <t-button variant="outline" @click="handleReset">重置</t-button>
+        </t-space>
       </div>
     </section>
 
@@ -58,7 +60,7 @@
         hover
         table-layout="fixed"
         cell-empty-content="—"
-        :pagination="pagination"
+        :pagination="isMobile ? undefined : pagination"
         @page-change="handlePageChange"
       >
         <template #instance="{ row }">
@@ -96,12 +98,27 @@
           <t-tag v-else theme="default" variant="light" size="small" shape="round">未开启</t-tag>
         </template>
         <template #action="{ row }">
-          <t-link theme="primary" hover="color" @click="openRenew(row)">代续费</t-link>
+            <MobileAction
+              v-if="isMobile"
+              :options="buildMobileActionOptions([
+                { content: '代续费', value: 'renew', theme: 'default' },
+              ])"
+              @select="(value) => handleMobileAction(value, row)"
+            />
         </template>
         <template #empty>
           <t-empty description="暂无到期实例" />
         </template>
       </t-table>
+
+      <MobilePagination
+        v-if="isMobile"
+        :current="page.current"
+        :page-size="page.size"
+        :total="total"
+        @go="goMobilePage"
+        @page-size="handleMobilePageSizeChange"
+      />
     </section>
 
     <!-- 代续费弹窗 -->
@@ -144,10 +161,15 @@ import { HistoryIcon, RefreshIcon, RocketIcon, SearchIcon } from 'tdesign-icons-
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { getExpiringInstances, renewInstance, triggerLifecycleScan, type ExpiringInstanceItem } from '@/api/lifecycle'
+import MobileAction from '@/components/mobile-action/index.vue'
+import { buildMobileActionOptions } from '@/composables/useMobileActions'
+import { useIsMobile } from '@/composables/useIsMobile'
+import MobilePagination from '@/components/mobile-pagination/index.vue'
 
 defineOptions({ name: 'LifecycleExpiring' })
 
 const loading = ref(false)
+const { isMobile } = useIsMobile()
 const scanning = ref(false)
 const list = ref<ExpiringInstanceItem[]>([])
 const total = ref(0)
@@ -252,6 +274,25 @@ function handlePageChange(info: PageInfo) {
   loadData()
 }
 
+// —— 移动端分页交互 ——
+function goMobilePage(target: number) {
+  const totalPages = Math.max(1, Math.ceil(total.value / page.size))
+  const clamped = Math.min(Math.max(target, 1), totalPages)
+  if (clamped === page.current) return
+  void applyMobilePage(clamped, page.size)
+}
+
+async function applyMobilePage(current: number, pageSize: number) {
+  page.current = current
+  page.size = pageSize
+  await loadData()
+}
+
+function handleMobilePageSizeChange(pageSize: number) {
+  void applyMobilePage(1, pageSize)
+}
+
+
 async function handleScan() {
   scanning.value = true
   try {
@@ -299,6 +340,16 @@ async function submitRenew() {
 }
 
 onMounted(loadData)
+
+// 移动端操作下拉分发
+function handleMobileAction(value: string | number | Record<string, any>, row: ExpiringInstanceItem) {
+  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+  switch (action) {
+    case 'renew':
+      openRenew(row)
+      break
+  }
+}
 </script>
 
 <style lang="css">

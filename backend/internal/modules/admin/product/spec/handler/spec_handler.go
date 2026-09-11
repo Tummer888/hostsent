@@ -357,6 +357,7 @@ func (h *SpecHandler) UpsertExternalSpec(c *gin.Context) {
 // @Tags 产品管理-规格
 // @Security BearerAuth
 // @Param external_spec_id query int false "外部规格 ID"
+// @Param product_spec_id query int false "商品 SKU ID（自营链路，T4.2）"
 // @Param status query string false "绑定状态"
 // @Success 200 {object} response.Body
 // @Router /api/v1/admin/product/spec/bindings [get]
@@ -367,7 +368,13 @@ func (h *SpecHandler) ListBindings(c *gin.Context) {
 			externalSpecID = id
 		}
 	}
-	resp, err := h.contractService.ListBindings(c.Request.Context(), externalSpecID, c.Query("status"))
+	productSpecID := uint64(0)
+	if raw := c.Query("product_spec_id"); raw != "" {
+		if id, err := strconv.ParseUint(raw, 10, 64); err == nil {
+			productSpecID = id
+		}
+	}
+	resp, err := h.contractService.ListBindings(c.Request.Context(), externalSpecID, productSpecID, c.Query("status"))
 	if err != nil {
 		response.Error(c, apperrors.New(50001, err.Error()))
 		return

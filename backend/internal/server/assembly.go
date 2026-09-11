@@ -28,8 +28,8 @@ func buildOrderProvisionDeps(
 	syncRepo syncrepo.SyncRepository,
 ) orderservice.ProvisionDeps {
 	return orderservice.ProvisionDeps{
-		BuildProvisionRequest: func(ctx context.Context, productID uint64, name string) (interface{}, error) {
-			return catalog.BuildProvisionRequest(ctx, productID, name)
+		BuildProvisionRequest: func(ctx context.Context, productID uint64, name, specSnapshot, specCode string) (interface{}, error) {
+			return catalog.BuildProvisionRequest(ctx, productID, name, specSnapshot, specCode)
 		},
 		BuildProviderConfig: provider.BuildProviderConfig,
 		CreateInstance: func(ctx context.Context, cfg *upstream.ProviderConfig, req *pkgmodel.CreateInstanceRequest) (*pkgmodel.StandardInstance, error) {
@@ -70,7 +70,7 @@ func buildOrderProvisionDeps(
 // 财务型上游等不支持单次开通的场景先行拒绝，避免误扣款。
 func buildEnsureOpenable(catalog catalogservice.ProductService, provider providerservice.ProviderService) func(ctx context.Context, productID uint64) error {
 	return func(ctx context.Context, productID uint64) error {
-		preq, err := catalog.BuildProvisionRequest(ctx, productID, "")
+		preq, err := catalog.BuildProvisionRequest(ctx, productID, "", "", "")
 		if err != nil {
 			return err
 		}

@@ -46,16 +46,16 @@
           <span class="time-text">{{ formatTime(row.created_at) }}</span>
         </template>
         <template #action="{ row }">
-          <div class="action-cell">
-            <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
-            <t-link
-              :theme="row.status === 'active' ? 'warning' : 'success'"
-              hover="color"
-              @click="handleToggleStatus(row)"
-            >
-              {{ row.status === 'active' ? '禁用' : '启用' }}
-            </t-link>
-            <t-link theme="danger" hover="color" @click="handleDelete(row)">删除</t-link>
+<div class="action-cell">
+            <MobileAction
+              v-if="isMobile"
+              :options="buildMobileActionOptions([
+                { content: '编辑', value: 'edit', theme: 'default' },
+                { content: '禁用/启用', value: 'toggle', theme: 'warning' },
+                { content: '删除', value: 'delete', theme: 'error' },
+              ])"
+              @select="(value) => handleMobileAction(value, row)"
+            />
           </div>
         </template>
         <template #empty>
@@ -103,11 +103,15 @@ import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-n
 import { createTicketCategory, deleteTicketCategory, getTicketCategories, updateTicketCategory } from '@/api/ticket'
 import { categoryStatusLabel, categoryStatusOptions, categoryStatusTheme, formatTime } from '@/pages/ticket/constants'
 import type { TicketCategoryInfo } from '@/types/interface'
+import MobileAction from '@/components/mobile-action/index.vue'
+import { buildMobileActionOptions } from '@/composables/useMobileActions'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 defineOptions({ name: 'TicketCategories' })
 
 const categories = ref<TicketCategoryInfo[]>([])
 const loading = ref(false)
+const { isMobile } = useIsMobile()
 const saving = ref(false)
 const formVisible = ref(false)
 const editingId = ref<number | null>(null)
@@ -245,6 +249,22 @@ function handleDelete(row: TicketCategoryInfo) {
 }
 
 onMounted(loadCategories)
+
+// 移动端操作下拉分发
+function handleMobileAction(value: string | number | Record<string, any>, row: TicketCategoryInfo) {
+  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+  switch (action) {
+    case 'edit':
+      openEdit(row)
+      break
+    case 'toggle':
+      void handleToggleStatus(row)
+      break
+    case 'delete':
+      void handleDelete(row)
+      break
+  }
+}
 </script>
 
 <style lang="css">

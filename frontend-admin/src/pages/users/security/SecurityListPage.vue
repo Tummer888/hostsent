@@ -13,12 +13,14 @@
     <section class="security-page__toolbar surface-card">
       <div class="security-page__toolbar-head">
         <h3 class="security-page__section-title">筛选条件</h3>
+      </div>
+      <slot name="filters" />
+      <div class="security-page__toolbar-actions">
         <t-space>
           <t-button theme="success" @click="$emit('search')">查询</t-button>
           <t-button variant="outline" @click="$emit('reset')">重置</t-button>
         </t-space>
       </div>
-      <slot name="filters" />
     </section>
 
     <section class="security-page__table surface-card">
@@ -123,6 +125,14 @@ defineEmits<{
   color: var(--color-foreground);
 }
 
+.security-page__toolbar-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--td-brand-color-1);
+}
+
 .security-page :deep(.t-table__th) {
   background: rgba(0, 168, 112, 0.07);
   color: #176b50;
@@ -151,6 +161,14 @@ defineEmits<{
   .security-page__table-head {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .security-page__toolbar-actions {
+    justify-content: stretch;
+  }
+
+  .security-page__toolbar-actions .t-button {
+    flex: 1 1 0;
   }
 }
 </style>

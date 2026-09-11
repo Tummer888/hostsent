@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -126,6 +127,7 @@ import (
 	"hostsent/backend/internal/pkg/netutil"
 	"hostsent/backend/internal/pkg/observability"
 	"hostsent/backend/internal/pkg/pricing"
+	"hostsent/backend/internal/pkg/specatom"
 	"hostsent/backend/internal/pkg/upstream"
 	// 各上游适配器通过 init() 注册工厂，须在此空导入以触发注册。
 	_ "hostsent/backend/internal/pkg/upstream/mofangfinance"
@@ -289,7 +291,24 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	prodCategoryHandler := categoryhandler.NewCategoryHandler(prodCategoryService)
 	// 商品管理（catalog 子域）
 	prodCatalogRepo := catalogrepo.NewProductRepository(database)
-	prodCatalogService := catalogservice.NewProductService(prodCatalogRepo, productRepo)
+	// 规格契约仓储/服务提前构造：catalog 服务需读取 SKU 平台绑定（T4.2/T4.6）
+	// 并在克隆时登记上游规格快照（T4.3），故先于 prodCatalogService 装配。
+	specContractRepo := specrepo.NewSpecContractRepository(database)
+	specContractService := specservice.NewSpecContractService(specContractRepo)
+	prodCatalogService := catalogservice.NewProductService(
+		prodCatalogRepo, productRepo, providerRepo, specContractRepo,
+		catalogservice.UpstreamSpecRegistrar(func(ctx context.Context, snap catalogservice.UpstreamSpecSnapshot) error {
+			return specContractService.RegisterUpstreamSpec(ctx, specservice.UpstreamSpecSnapshot{
+				ProviderID:   snap.ProviderID,
+				ProviderType: snap.ProviderType,
+				ExternalID:   snap.ExternalID,
+				ExternalName: snap.ExternalName,
+				ExternalKind: snap.ExternalKind,
+				Raw:          snap.Raw,
+				Normalized:   snap.Normalized,
+			})
+		}),
+	)
 	prodCatalogHandler := cataloghandler.NewProductHandler(prodCatalogService)
 	// T3.4：把"已确认调价"落地到售出商品的实现注入同步引擎（写 product_history）。
 	syncEngine.SetPriceApplier(prodCatalogService)
@@ -450,6 +469,18 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 			}
 			return unitPrice, product.CategoryID, nil
 		},
+		// SKU 级基础价（T4.1）：请求带 spec_code 且该 SKU 有独立定价时覆盖商品级基础价；
+		// 未定价 / 未选规格返回 found=false，回落商品级基础价（折扣算法不变）。
+		SpecBasePrice: func(ctx context.Context, in pricing.ResolveInput) (float64, uint64, bool, error) {
+			if in.SpecCode == "" {
+				return 0, 0, false, nil
+			}
+			spec, err := prodCatalogService.FindSpec(ctx, in.ProductID, in.SpecCode)
+			if err != nil || spec == nil || spec.Status != 1 || spec.Price <= 0 {
+				return 0, 0, false, nil
+			}
+			return spec.Price, 0, true, nil
+		},
 		// 用户组策略 = 这客户打几折（D3 唯一折扣来源）。
 		GroupRule: discountPolicyService.RuleForUserGroup,
 		// 促销/优惠券暂不在管线内（缺少选券入参）。
@@ -470,9 +501,10 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 				}
 			}()
 		},
-		userRepo,      // 订单「操作人」列：批量解析 operator_id → 用户名（P4-09）
-		orderItemRepo, // 订单项落库：行级折扣快照（P5-04）
-		pricePipeline, // 统一算价管线（P5-03/P5-04）
+		userRepo,           // 订单「操作人」列：批量解析 operator_id → 用户名（P4-09）
+		orderItemRepo,      // 订单项落库：行级折扣快照（P5-04）
+		pricePipeline,      // 统一算价管线（P5-03/P5-04）
+		prodCatalogService, // SKU 读取与库存增减（T4.1，按 SKU 下单）
 	)
 	ucOrderHandler := ucorderhandler.NewOrderHandler(ucOrderService)
 	// 用户中心主机管理：列表/详情/电源/VNC（复用上游适配器）
@@ -494,14 +526,14 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 规格管理（spec 子域）
 	specTemplateRepo := specrepo.NewSpecTemplateRepository(database)
 	specMappingRepo := specrepo.NewSpecMappingRepository(database)
-	specContractRepo := specrepo.NewSpecContractRepository(database)
+	// specContractRepo 已在上方随 catalog 服务构造（见 prodCatalogService 处）。
 	// 规格原子字典（T2.5/T2.6）：启动期从 spec_atoms 载入内存，供 Extra 校验与平台字段展示。
 	if err := specrepo.LoadAtomDictionary(context.Background(), specContractRepo); err != nil {
 		logger.Warn("加载规格原子字典失败", zap.Error(err))
 	}
 	specTemplateService := specservice.NewSpecTemplateService(specTemplateRepo)
 	specMappingService := specservice.NewSpecMappingService(specMappingRepo)
-	specContractService := specservice.NewSpecContractService(specContractRepo)
+	// specContractService 已在上方随 catalog 服务构造（见 prodCatalogService 处）。
 	specHandler := spechandler.NewSpecHandler(specTemplateService, specMappingService, specContractService)
 	// 促销管理（promotion 子域）
 	couponRepo := promotionrepo.NewCouponRepository(database)
@@ -695,20 +727,28 @@ func (b *priceChangeNotifierBridge) NotifyPriceChangePending(ctx context.Context
 // buildRecordedInstance 将标准实例转换为同步实例记录（订单履约开通成功后落库）。
 func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order) syncmodel.Instance {
 	rawJSON, _ := json.Marshal(inst.RawData)
+	// 规格回落（T4.1）：上游详情拉取失败时适配器只返回最小实例（规格为空），
+	// 此时用订单规格快照（SKU 原子取值 JSON）补齐，保证实例列表能显示下单所选配置。
+	specs := inst.Specs
+	if specs.CPU == 0 && specs.Memory == 0 && specs.Disk == 0 {
+		if snapshot := specsFromOrder(order); snapshot != nil && (snapshot.CPU > 0 || snapshot.Memory > 0 || snapshot.Disk > 0) {
+			specs = *snapshot
+		}
+	}
 	row := syncmodel.Instance{
 		InstanceID:  inst.UpstreamID,
 		ProviderID:  uint64(inst.ProviderID),
 		UserID:      order.UserID,
 		ProductID:   order.ProductID,
 		Name:        firstNonEmpty(inst.Name, order.ProductName),
-		CPU:         inst.Specs.CPU,
-		Memory:      inst.Specs.Memory,
-		Disk:        inst.Specs.Disk,
-		DiskType:    inst.Specs.DiskType,
-		Bandwidth:   inst.Specs.Bandwidth,
-		OS:          inst.Specs.OS,
-		Region:      inst.Region,
-		Zone:        inst.Zone,
+		CPU:         specs.CPU,
+		Memory:      specs.Memory,
+		Disk:        specs.Disk,
+		DiskType:    specs.DiskType,
+		Bandwidth:   specs.Bandwidth,
+		OS:          specs.OS,
+		Region:      firstNonEmpty(inst.Region, specs.Region),
+		Zone:        firstNonEmpty(inst.Zone, specs.Zone),
 		Status:      string(inst.Status),
 		PublicIP:    inst.PublicIP,
 		PrivateIP:   inst.PrivateIP,
@@ -729,6 +769,20 @@ func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order
 		row.ExpireAt = &exp
 	}
 	return row
+}
+
+// specsFromOrder 解析订单的规格快照（SKU 原子取值 JSON）为标准规格；解析失败返回 nil。
+func specsFromOrder(order *ordermodel.Order) *model.StandardProductSpec {
+	raw := strings.TrimSpace(order.Specs)
+	if raw == "" {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return nil
+	}
+	spec := specatom.FromMap(m)
+	return &spec
 }
 
 // firstNonEmpty 返回第一个非空字符串。

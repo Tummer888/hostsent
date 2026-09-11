@@ -76,9 +76,9 @@ func (s *productService) ApplyConfirmedPrice(ctx context.Context, resourceProduc
 // type: percent=成本×value%；fixed=成本+value。
 func applyMarkup(markupType string, markupValue, cost float64) (float64, bool) {
 	switch strings.ToLower(strings.TrimSpace(markupType)) {
-	case "percent":
+	case model.MarkupTypePercent:
 		return cost * markupValue / 100, true
-	case "fixed":
+	case model.MarkupTypeFixed:
 		return cost + markupValue, true
 	default:
 		return 0, false

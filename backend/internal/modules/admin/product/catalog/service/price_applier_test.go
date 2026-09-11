@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"math"
 	"testing"
 
@@ -10,23 +11,32 @@ import (
 )
 
 type fakeProductRepo struct {
-	items   []model.Product
-	updates []model.Product
-	history []model.ProductHistory
+	items    []model.Product
+	updates  []model.Product
+	history  []model.ProductHistory
+	findByID *model.Product
+	// specs 供 ListSpecs 返回（T4.2 门禁用例）；specByCode 供 FindSpecByCode 命中。
+	specs      []model.ProductSpec
+	specByCode map[string]*model.ProductSpec
 }
 
 func (f *fakeProductRepo) List(context.Context, dto.ProductListQuery) ([]model.Product, int64, error) {
 	return nil, 0, nil
 }
-func (f *fakeProductRepo) FindByID(context.Context, uint64) (*model.Product, error) { return nil, nil }
-func (f *fakeProductRepo) Create(context.Context, *model.Product) error             { return nil }
+func (f *fakeProductRepo) FindByID(context.Context, uint64) (*model.Product, error) {
+	if f.findByID == nil {
+		return nil, errors.New("not found")
+	}
+	return f.findByID, nil
+}
+func (f *fakeProductRepo) Create(context.Context, *model.Product) error { return nil }
 func (f *fakeProductRepo) Update(_ context.Context, item *model.Product) error {
 	f.updates = append(f.updates, *item)
 	return nil
 }
 func (f *fakeProductRepo) Delete(context.Context, uint64) error { return nil }
 func (f *fakeProductRepo) ListSpecs(context.Context, uint64) ([]model.ProductSpec, error) {
-	return nil, nil
+	return f.specs, nil
 }
 func (f *fakeProductRepo) AddHistory(_ context.Context, h *model.ProductHistory) error {
 	f.history = append(f.history, *h)
@@ -40,6 +50,30 @@ func (f *fakeProductRepo) ListBySourceProductID(context.Context, uint64) ([]mode
 }
 func (f *fakeProductRepo) SaveConfigOptions(context.Context, uint64, []interface{}) error { return nil }
 func (f *fakeProductRepo) ConfigGroupsByProductID(context.Context, uint64) ([]interface{}, error) {
+	return nil, nil
+}
+func (f *fakeProductRepo) FindSpecByCode(_ context.Context, _ uint64, code string) (*model.ProductSpec, error) {
+	if sp, ok := f.specByCode[code]; ok {
+		return sp, nil
+	}
+	return nil, errors.New("not found")
+}
+func (f *fakeProductRepo) FindSpecByID(context.Context, uint64) (*model.ProductSpec, error) {
+	return nil, errors.New("not found")
+}
+func (f *fakeProductRepo) CreateSpec(context.Context, *model.ProductSpec) error { return nil }
+func (f *fakeProductRepo) UpdateSpec(context.Context, *model.ProductSpec) error { return nil }
+func (f *fakeProductRepo) DeleteSpec(context.Context, uint64) error             { return nil }
+func (f *fakeProductRepo) DecrementSpecStock(context.Context, uint64, int) (int64, error) {
+	return 1, nil
+}
+func (f *fakeProductRepo) IncrementSpecStock(context.Context, uint64, int) (int64, error) {
+	return 1, nil
+}
+func (f *fakeProductRepo) SelfConfigParams(context.Context, uint64) (map[string]string, error) {
+	return nil, nil
+}
+func (f *fakeProductRepo) AllConfigGroupsByProductID(context.Context, uint64) ([]interface{}, error) {
 	return nil, nil
 }
 

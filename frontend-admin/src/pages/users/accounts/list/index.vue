@@ -156,7 +156,7 @@
           :data="sortedTableData"
           :columns="columns"
           :loading="loading"
-          :pagination="pagination"
+          :pagination="isMobile ? undefined : pagination"
           size="small"
           hover
           table-layout="fixed"
@@ -311,7 +311,7 @@
                 v-if="isMobile"
                 trigger="click"
                 :options="buildMobileActionOptions(row)"
-                @click="createMobileActionHandler(row)"
+                @click="(value: string | number | Record<string, any>) => handleMobileActionClick(value, row)"
               >
                 <t-button
                   theme="default"
@@ -345,6 +345,15 @@
             <t-empty description="当前筛选条件下暂无用户数据" />
           </template>
         </t-table>
+
+        <MobilePagination
+          v-if="isMobile"
+          :current="mobilePage.current"
+          :page-size="mobilePage.pageSize"
+          :total="mobilePage.total"
+          @go="goMobilePage"
+          @page-size="handleMobilePageSizeChange"
+        />
       </div>
     </section>
 
@@ -482,6 +491,7 @@ import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo
 
 import { createUser, createUserOrder, getRegionStats, getRoleList, getUserGroupList, getUserLevelList, getUserList, impersonateUser, rechargeUser, updateUserStatus, type RegionStatItem, type RoleInfo, type UserCreateRequest, type UserGroupInfo, type UserInfo, type UserLevelInfo, type UserListQuery } from '@/api/user'
 import { getProductList as getUcProductList } from '@/api/product'
+import MobilePagination from '@/components/mobile-pagination/index.vue'
 
 defineOptions({ name: 'UserAccountsList' })
 
@@ -526,6 +536,13 @@ const pagination = reactive({
   showJumper: true,
   showPageSize: true,
   pageSizeOptions: [10, 20, 50, 100],
+})
+
+// 移动端分页状态：与桌面端 pagination 同步维护（见 loadUsers）
+const mobilePage = reactive({
+  current: 1,
+  pageSize: 10,
+  total: 0,
 })
 
 const dialogVisible = ref(false)
@@ -802,11 +819,17 @@ async function loadUsers() {
     pagination.current = data.meta.page
     pagination.pageSize = data.meta.page_size
     pagination.total = data.meta.total
+    mobilePage.total = data.meta.total
+    mobilePage.current = data.meta.page
+    mobilePage.pageSize = data.meta.page_size
+    mobilePage.total = data.meta.total
     filters.page = data.meta.page
     filters.page_size = data.meta.page_size
   } catch (error) {
     tableData.value = []
     pagination.total = 0
+    mobilePage.total = 0
+    mobilePage.total = 0
     errorMessage.value = (error as Error)?.message || '加载用户列表失败'
   } finally {
     loading.value = false
@@ -851,6 +874,26 @@ async function handlePageChange(pageInfo: PageInfo) {
   await replaceRouteQuery()
 }
 
+// —— 移动端分页交互 ——
+function goMobilePage(target: number) {
+  const clamped = Math.min(Math.max(target, 1), Math.max(1, Math.ceil(mobilePage.total / mobilePage.pageSize)))
+  if (clamped === mobilePage.current) return
+  void applyMobilePage(clamped, mobilePage.pageSize)
+}
+
+async function applyMobilePage(current: number, pageSize: number) {
+  filters.page = current
+  filters.page_size = pageSize
+  pagination.current = current
+  pagination.pageSize = pageSize
+  await replaceRouteQuery()
+}
+
+function handleMobilePageSizeChange(pageSize: number) {
+  mobilePage.pageSize = pageSize
+  void applyMobilePage(1, pageSize)
+}
+
 function resolveRoles(row: UserInfo) {
   if (Array.isArray(row.roles) && row.roles.length) return row.roles
   if (row.role) return [row.role]
@@ -879,9 +922,38 @@ function formatDateTime(value: string) {
 
 async function copyText(value: string, label: string) {
   if (!value) return
+  // 优先异步 Clipboard API；移动端浏览器常未授权 clipboard-write 导致
+  // "Write permission denied"，回退到 execCommand('copy')（隐藏 textarea + 手动选区）
   try {
     await navigator.clipboard.writeText(value)
     MessagePlugin.success(`${label}已复制`)
+    return
+  } catch {
+    // 继续走降级方案
+  }
+  try {
+    const textarea = document.createElement('textarea')
+    textarea.value = value
+    textarea.setAttribute('readonly', '')
+    textarea.style.position = 'fixed'
+    textarea.style.top = '-9999px'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    const selection = document.getSelection()
+    const previousRange = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null
+    textarea.select()
+    textarea.setSelectionRange(0, value.length)
+    const ok = document.execCommand('copy')
+    document.body.removeChild(textarea)
+    if (previousRange && selection) {
+      selection.removeAllRanges()
+      selection.addRange(previousRange)
+    }
+    if (ok) {
+      MessagePlugin.success(`${label}已复制`)
+    } else {
+      MessagePlugin.error(`${label}复制失败`)
+    }
   } catch {
     MessagePlugin.error(`${label}复制失败`)
   }
@@ -972,14 +1044,9 @@ function buildMobileActionOptions(row: UserInfo) {
   ]
 }
 
-function createMobileActionHandler(row: UserInfo) {
-  return (data: { value?: string | number } | string) => {
-    void handleMobileActionClick(data, row)
-  }
-}
 
-function handleMobileActionClick(data: { value?: string | number } | string, row: UserInfo) {
-  const value = typeof data === 'string' ? data : String(data?.value ?? '')
+function handleMobileActionClick(data: string | number | Record<string, any> | { value?: string | number }, row: UserInfo) {
+  const value = typeof data === 'string' || typeof data === 'number' ? String(data) : String((data as { value?: string | number })?.value ?? '')
   if (value === 'detail') {
     goUserDetail(row)
     return
@@ -1582,6 +1649,15 @@ onBeforeUnmount(() => {
   opacity: 1;
   transform: translateX(0);
   pointer-events: auto;
+}
+
+/* 触屏无 hover：移动端下复制标签常驻可见可点 */
+@media (hover: none), (max-width: 767px) {
+  :deep(.copy-tag) {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
 }
 
 :deep(.copy-tag:hover) {
