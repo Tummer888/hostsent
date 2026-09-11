@@ -198,6 +198,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	providerTypeRepo := providerrepo.NewProviderTypeRepository(database)
 	productRepo := productrepo.NewProductRepository(database)
 	syncRepo := syncrepo.NewSyncRepository(database)
+	syncFwRepo := syncrepo.NewFrameworkRepository(database)
 	adminService := adminservice.NewAdminService(adminRepo, rbacRepo, adminAuditRepo, permCache, jwtIssuer)
 	userService := service.NewUserService(
 		userRepo,
@@ -264,9 +265,10 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		logger.Warn("归一渠道凭证失败", zap.Error(err))
 	}
 	productService := productservice.NewProductService(productRepo)
-	syncEngine := syncservice.NewSyncEngine(upstreamMgr, providerService, productRepo, poolRepo, providerRepo, syncRepo, logger)
+	syncEngine := syncservice.NewSyncEngine(upstreamMgr, providerService, productRepo, poolRepo, providerRepo, syncRepo, syncFwRepo, logger)
 	syncService := syncservice.NewSyncService(syncRepo, syncEngine)
-	scheduler := syncservice.NewScheduler(syncEngine, syncRepo, logger)
+	scheduler := syncservice.NewScheduler(syncEngine, syncRepo, syncFwRepo, logger)
+	syncFrameworkService := syncservice.NewFrameworkService(syncFwRepo, syncEngine, logger)
 	adminHandler := adminhandler.NewAdminHandler(adminService)
 
 	userDetailHandler := handler.NewUserDetailHandler(userDetailService)
@@ -280,6 +282,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	providerHandler := providerhandler.NewProviderHandler(providerService)
 	productHandler := producthandler.NewProductHandler(productService)
 	syncHandler := synchandler.NewSyncHandler(syncService)
+	syncFrameworkHandler := synchandler.NewFrameworkHandler(syncFrameworkService)
 	// 产品管理（面向终端售卖）
 	prodCategoryRepo := categoryrepo.NewCategoryRepository(database)
 	prodCategoryService := categoryservice.NewCategoryService(prodCategoryRepo)
@@ -288,6 +291,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	prodCatalogRepo := catalogrepo.NewProductRepository(database)
 	prodCatalogService := catalogservice.NewProductService(prodCatalogRepo, productRepo)
 	prodCatalogHandler := cataloghandler.NewProductHandler(prodCatalogService)
+	// T3.4：把"已确认调价"落地到售出商品的实现注入同步引擎（写 product_history）。
+	syncEngine.SetPriceApplier(prodCatalogService)
 	// 推广邀请返现（独立于现金钱包）：订单完成计提、退款按比例冲减。
 	referralRepo := referralrepo.NewReferralRepository(database)
 	referralSvc := referralservice.NewReferralService(database, referralRepo, logger)
@@ -557,6 +562,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	lifecycleSvc.SetNotifier(&lifecycleNotifierBridge{notifySvc: notifySvc, logger: logger})
 	// 工单 Notifier 桥接（P2-04）：回复/状态通知用户，指派通知员工
 	ticketService.SetNotifier(&ticketNotifierBridge{notifySvc: notifySvc, logger: logger})
+	// 调价待确认通知桥接（T3.4）：上游改价超阈值时提醒运维处理
+	syncEngine.SetNotifier(&priceChangeNotifierBridge{notifySvc: notifySvc, logger: logger})
 	// 订单支付成功钩子（doc60）：续费订单支付完成后联动完成续费并延长到期时间
 	// doc70：支付成功后发布通知
 	orderservice.OnPaid = func(ctx context.Context, order *ordermodel.Order) {
@@ -583,7 +590,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	memberRepo := memberrepo.NewMemberRepository(database)
 	memberService := memberservice.NewMemberService(memberRepo)
 	memberHandler := memberhandler.NewMemberHandler(memberService)
-	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, logger, jwtIssuer)
+	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, logger, jwtIssuer)
 	router := newRouter(app)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
@@ -652,6 +659,35 @@ func (b *ticketNotifierBridge) Publish(ctx context.Context, event, target string
 	if err != nil {
 		b.logger.Warn("ticket: publish notification failed",
 			zap.String("event", event), zap.Uint64("recipient_id", recipientID), zap.Error(err))
+	}
+	return err
+}
+
+// priceChangeNotifierBridge 桥接同步引擎的调价提醒到通知中心（T3.4）。
+// 上游改价超阈值进入待确认队列时，向管理端发一条站内信（模板 event=sync_failed 之外
+// 复用 system 事件，避免为一个提示新增模板）。
+type priceChangeNotifierBridge struct {
+	notifySvc notifyservice.NotificationService
+	logger    *zap.Logger
+}
+
+func (b *priceChangeNotifierBridge) NotifyPriceChangePending(ctx context.Context, providerID uint64, providerName string, pending int) error {
+	if pending <= 0 {
+		return nil
+	}
+	err := b.notifySvc.Publish(ctx, notifydto.PublishInput{
+		Event:  notifymodel.EventSystem,
+		Target: notifymodel.TargetAdmin,
+		Vars: map[string]string{
+			"title":   "上游调价待确认",
+			"content": fmt.Sprintf("提供商 %s（#%d）有 %d 条成本价变动超过阈值，售价未自动调整，请前往「同步与调度 → 待确认调价」处理。", providerName, providerID, pending),
+		},
+		SourceModule: "sync",
+		SourceID:     fmt.Sprintf("price-pending-%d-%d", providerID, time.Now().Unix()/3600),
+	})
+	if err != nil {
+		b.logger.Warn("publish price change notification failed",
+			zap.Uint64("provider_id", providerID), zap.Error(err))
 	}
 	return err
 }

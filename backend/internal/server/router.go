@@ -219,6 +219,14 @@ func newRouter(app *App) *gin.Engine {
 				sync.GET("/tasks", app.perm("resource:sync"), app.syncHandler.ListTasks)
 				sync.GET("/tasks/:id", app.perm("resource:sync"), app.syncHandler.GetTask)
 				sync.GET("/logs", app.perm("sync:log"), app.syncHandler.ListLogs)
+				// ---- P3 同步框架（T3.2/T3.4/T3.5）----
+				sync.GET("/scopes", app.perm("resource:sync"), app.syncFrameworkHandler.ScopeMeta)
+				sync.GET("/schedules", app.perm("resource:sync"), app.syncFrameworkHandler.ListSchedules)
+				sync.PUT("/schedules/:id", app.perm("sync:schedule"), app.syncFrameworkHandler.UpdateSchedule)
+				sync.GET("/price-changes", app.perm("sync:price"), app.syncFrameworkHandler.ListPriceChanges)
+				sync.POST("/price-changes/handle", app.perm("sync:price:confirm"), app.syncFrameworkHandler.HandlePriceChanges)
+				sync.GET("/diffs", app.perm("resource:sync"), app.syncFrameworkHandler.ListDiffs)
+				sync.GET("/diffs/summary", app.perm("resource:sync"), app.syncFrameworkHandler.DiffSummary)
 			}
 
 			// 实例管理

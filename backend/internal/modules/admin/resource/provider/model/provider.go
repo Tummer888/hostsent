@@ -57,10 +57,13 @@ type ResourceProvider struct {
 	// RetryMax 额外重试次数（传输层退避重试）；<=0 不重试。
 	RetryMax int `gorm:"column:retry_max;not null;default:0"`
 	// RateLimitQPS 渠道级令牌桶 QPS；<=0 表示不限流。
-	RateLimitQPS int            `gorm:"column:rate_limit_qps;not null;default:0"`
-	CreatedAt    time.Time      `gorm:"autoCreateTime"`
-	UpdatedAt    time.Time      `gorm:"autoUpdateTime"`
-	DeletedAt    gorm.DeletedAt `gorm:"index"`
+	RateLimitQPS int `gorm:"column:rate_limit_qps;not null;default:0"`
+	// PriceChangeThreshold 上游成本价变动自动应用阈值（比例，0.05=5%）；
+	// 超过阈值写 price_change_events 待人工确认，绝不静默改售价（P3/T3.4）。
+	PriceChangeThreshold float64        `gorm:"column:price_change_threshold;type:numeric(10,4);not null;default:0.05"`
+	CreatedAt            time.Time      `gorm:"autoCreateTime"`
+	UpdatedAt            time.Time      `gorm:"autoUpdateTime"`
+	DeletedAt            gorm.DeletedAt `gorm:"index"`
 }
 
 // TableName 指定表名

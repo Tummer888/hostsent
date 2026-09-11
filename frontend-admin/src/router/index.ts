@@ -181,30 +181,31 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/resource/connectivity/index.vue'),
         meta: { title: '连接测试', role: 'admin', permission: 'resource:provider' },
       },
-      // —— 资源同步与对账 ——
+      // —— 同步与调度（T3.6 合并页：调度 / 任务 / 日志 / 差异 / 待确认调价）——
       {
         path: 'sync-center',
         name: 'ResourceSyncCenter',
-        redirect: '/resource/sync',
-        meta: { title: '资源同步与对账', role: 'admin' },
+        component: () => import('@/pages/resource/sync-center/index.vue'),
+        meta: { title: '同步与调度', role: 'admin', permission: 'resource:sync' },
       },
+      // 旧路径保留书签兼容：统一 redirect 到合并页（页面文件待 P7/T7.4 下线）。
       {
         path: 'sync',
         name: 'ResourceSync',
-        component: () => import('@/pages/resource/sync/index.vue'),
-        meta: { title: '同步任务', role: 'admin', permission: 'resource:sync' },
+        redirect: '/resource/sync-center',
+        meta: { title: '同步与调度', role: 'admin' },
       },
       {
         path: 'logs',
         name: 'ResourceLogs',
-        component: () => import('@/pages/resource/logs/index.vue'),
-        meta: { title: '同步日志', role: 'admin', permission: 'sync:log' },
+        redirect: '/resource/sync-center',
+        meta: { title: '同步与调度', role: 'admin' },
       },
       {
         path: 'reconciliation',
         name: 'ResourceReconciliation',
-        component: () => import('@/pages/resource/reconciliation/index.vue'),
-        meta: { title: '对账报告', role: 'admin', permission: 'resource:sync' },
+        redirect: '/resource/sync-center',
+        meta: { title: '同步与调度', role: 'admin' },
       },
       // —— 资源商品管理 ——
       {

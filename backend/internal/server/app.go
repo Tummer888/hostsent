@@ -76,6 +76,7 @@ type App struct {
 	providerHandler       *providerhandler.ProviderHandler
 	productHandler        *producthandler.ProductHandler
 	syncHandler           *synchandler.SyncHandler
+	syncFrameworkHandler  *synchandler.FrameworkHandler
 	userCenterAuthHandler *usercenterhandler.AuthHandler
 	userMenuHandler       *usermenuhandler.MenuHandler
 	prodCategoryHandler   *categoryhandler.CategoryHandler
@@ -132,6 +133,7 @@ func NewApp(
 	providerHandler *providerhandler.ProviderHandler,
 	productHandler *producthandler.ProductHandler,
 	syncHandler *synchandler.SyncHandler,
+	syncFrameworkHandler *synchandler.FrameworkHandler,
 	userCenterAuthHandler *usercenterhandler.AuthHandler,
 	userMenuHandler *usermenuhandler.MenuHandler,
 	prodCategoryHandler *categoryhandler.CategoryHandler,
@@ -193,6 +195,7 @@ func NewApp(
 		providerHandler:       providerHandler,
 		productHandler:        productHandler,
 		syncHandler:           syncHandler,
+		syncFrameworkHandler:  syncFrameworkHandler,
 		userCenterAuthHandler: userCenterAuthHandler,
 		userMenuHandler:       userMenuHandler,
 		prodCategoryHandler:   prodCategoryHandler,

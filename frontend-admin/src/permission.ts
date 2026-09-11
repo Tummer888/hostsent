@@ -127,13 +127,11 @@ export const navMenu = [
         ],
       },
       {
-        title: '资源同步与对账',
-        path: '/resource/sync-center',
+        title: '同步与调度',
+        path: '/resource/sync-group',
         icon: iconWrapper(RefreshIcon),
         children: [
-          { title: '同步任务', path: '/resource/sync', icon: iconWrapper(RefreshIcon) },
-          { title: '同步日志', path: '/resource/logs', icon: iconWrapper(HistoryIcon) },
-          { title: '对账报告', path: '/resource/reconciliation', icon: iconWrapper(VerifyIcon) },
+          { title: '同步与调度', path: '/resource/sync-center', icon: iconWrapper(RefreshIcon) },
         ],
       },
       {

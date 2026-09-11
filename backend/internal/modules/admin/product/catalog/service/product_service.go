@@ -40,6 +40,8 @@ type ProductService interface {
 	CloneFromUpstreamBatch(ctx context.Context, req dto.ProductBatchCloneRequest, operatorID uint64, operatorName string) ([]dto.ProductInfo, error)
 	// BuildProvisionRequest 按商品供货模式构建上游开通请求（供订单履约联动用）
 	BuildProvisionRequest(ctx context.Context, productID uint64, name string) (*ProvisionRequest, error)
+	// ApplyConfirmedPrice 把已确认的上游成本价写入绑定该上游资源商品的售出商品（T3.4）。
+	ApplyConfirmedPrice(ctx context.Context, resourceProductID uint64, costPrice float64, operatorName, remark string) (int, error)
 }
 
 // ProvisionRequest 订单履约时构建的上游开通请求（由订单模块消费）。

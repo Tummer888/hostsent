@@ -8,6 +8,10 @@ import type {
   PoolInfo,
   PoolListQuery,
   PoolListResponse,
+  PriceChangeHandleRequest,
+  PriceChangeInfo,
+  PriceChangeListQuery,
+  PriceChangeListResponse,
   ProductInfo,
   ProductListQuery,
   ProductListResponse,
@@ -18,9 +22,18 @@ import type {
   ProviderListResponse,
   ProviderTypeItem,
   ProviderUpdateRequest,
+  SyncDiffInfo,
+  SyncDiffListQuery,
+  SyncDiffListResponse,
+  SyncDiffSummaryResponse,
   SyncLogInfo,
   SyncLogListQuery,
   SyncLogListResponse,
+  SyncScheduleInfo,
+  SyncScheduleListQuery,
+  SyncScheduleListResponse,
+  SyncScheduleUpdateRequest,
+  SyncScopeMeta,
   SyncTaskInfo,
   SyncTaskListQuery,
   SyncTaskListResponse,
@@ -372,5 +385,75 @@ export function getInstanceList(params: InstanceListQuery): Promise<InstanceList
 export function getInstanceDetail(id: number): Promise<InstanceInfo> {
   return request.get<InstanceInfo>({
     url: `/resource/instances/${id}`,
+  })
+}
+
+// ===== 同步框架（P3/T3.6）：调度 / 调价事件 / 差异 =====
+
+export function getSyncScopeMeta(): Promise<SyncScopeMeta[]> {
+  return request.get<SyncScopeMeta[]>({
+    url: '/resource/sync/scopes',
+  })
+}
+
+export function getSyncScheduleList(params: SyncScheduleListQuery): Promise<SyncScheduleListResponse> {
+  return request.get<SyncScheduleListResponse>({
+    url: '/resource/sync/schedules',
+    params: {
+      provider_id: params.provider_id,
+      enabled: params.enabled,
+      page: params.page,
+      page_size: params.page_size,
+    },
+  })
+}
+
+export function updateSyncSchedule(id: number, data: SyncScheduleUpdateRequest): Promise<SyncScheduleInfo> {
+  return request.put<SyncScheduleInfo>({
+    url: `/resource/sync/schedules/${id}`,
+    data,
+  })
+}
+
+export function getPriceChangeList(params: PriceChangeListQuery): Promise<PriceChangeListResponse> {
+  return request.get<PriceChangeListResponse>({
+    url: '/resource/sync/price-changes',
+    params: {
+      provider_id: params.provider_id,
+      status: params.status,
+      page: params.page,
+      page_size: params.page_size,
+    },
+  })
+}
+
+export function handlePriceChanges(data: PriceChangeHandleRequest): Promise<{ handled: number }> {
+  return request.post<{ handled: number }>({
+    url: '/resource/sync/price-changes/handle',
+    data,
+  })
+}
+
+export function getSyncDiffList(params: SyncDiffListQuery): Promise<SyncDiffListResponse> {
+  return request.get<SyncDiffListResponse>({
+    url: '/resource/sync/diffs',
+    params: {
+      provider_id: params.provider_id,
+      task_id: params.task_id,
+      scope: params.scope,
+      action: params.action,
+      page: params.page,
+      page_size: params.page_size,
+    },
+  })
+}
+
+export function getSyncDiffSummary(params?: { provider_id?: number; days?: number }): Promise<SyncDiffSummaryResponse> {
+  return request.get<SyncDiffSummaryResponse>({
+    url: '/resource/sync/diffs/summary',
+    params: {
+      provider_id: params?.provider_id,
+      days: params?.days,
+    },
   })
 }

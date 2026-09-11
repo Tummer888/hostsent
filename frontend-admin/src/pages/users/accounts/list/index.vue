@@ -33,17 +33,6 @@
         <div>
           <h3 class="toolbar__title">筛选条件</h3>
         </div>
-        <div class="toolbar__actions">
-          <t-space>
-            <t-button class="page-btn" theme="primary" @click="handleSearch">
-              <template #icon>
-                <SearchIcon aria-hidden="true" />
-              </template>
-              查询
-            </t-button>
-            <t-button class="page-btn page-btn--ghost" variant="outline" @click="handleReset">重置</t-button>
-          </t-space>
-        </div>
       </div>
 
       <div class="toolbar__grid">
@@ -131,6 +120,18 @@
             :options="accountTypeOptions"
           />
         </div>
+      </div>
+
+      <div class="toolbar__actions">
+        <t-space>
+          <t-button class="page-btn" theme="primary" @click="handleSearch">
+            <template #icon>
+              <SearchIcon aria-hidden="true" />
+            </template>
+            查询
+          </t-button>
+          <t-button class="page-btn page-btn--ghost" variant="outline" @click="handleReset">重置</t-button>
+        </t-space>
       </div>
     </section>
 
@@ -1261,6 +1262,9 @@ onBeforeUnmount(() => {
 .toolbar__actions {
   display: flex;
   justify-content: flex-end;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--td-brand-color-1);
 }
 
 .toolbar__grid {

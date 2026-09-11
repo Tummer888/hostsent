@@ -342,3 +342,144 @@ export interface InstanceListResponse {
   items: InstanceInfo[]
   meta: ListMeta
 }
+
+// ============================================================================
+// P3 同步框架（调度 / 调价事件 / 差异记录）
+// ============================================================================
+
+/** 调度配置列表查询 */
+export interface SyncScheduleListQuery {
+  provider_id?: number
+  enabled?: boolean
+  page?: number
+  page_size?: number
+}
+
+/** 调度配置更新请求：节奏 / 启停 / 优先级 / 时间窗 */
+export interface SyncScheduleUpdateRequest {
+  interval_seconds?: number
+  full_sync_interval_seconds?: number
+  enabled?: boolean
+  priority?: number
+  /** 允许执行的小时区间 0-23 */
+  window_start?: number | null
+  window_end?: number | null
+  /** 传 true 清空时间窗（与「不修改」区分） */
+  window_clear?: boolean
+  /** 传 true 使调度立即到期 */
+  reset_next_run?: boolean
+}
+
+/** 渠道 × scope 调度配置 */
+export interface SyncScheduleInfo {
+  id: number
+  provider_id: number
+  provider_name: string
+  scope: string
+  scope_name: string
+  interval_seconds: number
+  full_sync_interval_seconds: number
+  enabled: boolean
+  priority: number
+  window_start: number | null
+  window_end: number | null
+  last_run_at: string | null
+  next_run_at: string | null
+  last_status: string
+  last_error: string
+}
+
+export interface SyncScheduleListResponse {
+  items: SyncScheduleInfo[]
+  meta: ListMeta
+}
+
+/** 已注册 scope 元数据 */
+export interface SyncScopeMeta {
+  scope: string
+  name: string
+  default_interval_seconds: number
+}
+
+/** 调价事件列表查询 */
+export interface PriceChangeListQuery {
+  provider_id?: number
+  status?: string
+  page?: number
+  page_size?: number
+}
+
+/** 上游调价事件 */
+export interface PriceChangeInfo {
+  id: number
+  provider_id: number
+  scope: string
+  resource_product_id: number
+  upstream_id: string
+  product_id: number
+  field: string
+  old_value: number | null
+  new_value: number | null
+  change_ratio: number | null
+  threshold: number | null
+  status: string
+  applied: boolean
+  remark: string
+  created_at: string
+  handled_at: string | null
+}
+
+export interface PriceChangeListResponse {
+  items: PriceChangeInfo[]
+  meta: ListMeta
+}
+
+/** 批量确认 / 驳回上游调价 */
+export interface PriceChangeHandleRequest {
+  ids: number[]
+  action: 'confirm' | 'reject'
+  remark?: string
+}
+
+/** 差异记录列表查询 */
+export interface SyncDiffListQuery {
+  provider_id?: number
+  task_id?: number
+  scope?: string
+  action?: string
+  page?: number
+  page_size?: number
+}
+
+/** 同步差异记录（真实数据源：sync_diffs） */
+export interface SyncDiffInfo {
+  id: number
+  task_id: number
+  provider_id: number
+  scope: string
+  action: string
+  local_id: number
+  external_id: string
+  field: string
+  old_value: string
+  new_value: string
+  disposition: string
+  remark: string
+  created_at: string
+}
+
+export interface SyncDiffListResponse {
+  items: SyncDiffInfo[]
+  meta: ListMeta
+}
+
+/** 按渠道汇总的差异统计（对账页数据源） */
+export interface SyncDiffSummaryProvider {
+  provider_id: number
+  total: number
+  by_action: Record<string, number>
+}
+
+export interface SyncDiffSummaryResponse {
+  items: SyncDiffSummaryProvider[]
+}

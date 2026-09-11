@@ -23,6 +23,8 @@ type ProductRepository interface {
 	ListSpecs(ctx context.Context, productID uint64) ([]model.ProductSpec, error)
 	AddHistory(ctx context.Context, history *model.ProductHistory) error
 	ListHistory(ctx context.Context, productID uint64) ([]model.ProductHistory, error)
+	// ListBySourceProductID 按上游资源商品 ID 查关联售出商品（T3.4 已确认调价落地用）。
+	ListBySourceProductID(ctx context.Context, sourceProductID uint64) ([]model.Product, error)
 	// SaveConfigOptions 保存商品的配置组（上游 config_groups）到子表（幂等：先删后插）。
 	SaveConfigOptions(ctx context.Context, productID uint64, groups []interface{}) error
 	// ConfigGroupsByProductID 读取商品的配置组，重建为 config_groups 结构（供上游下单使用）。
@@ -119,6 +121,17 @@ func (r *productRepository) AddHistory(ctx context.Context, history *model.Produ
 func (r *productRepository) ListHistory(ctx context.Context, productID uint64) ([]model.ProductHistory, error) {
 	var items []model.ProductHistory
 	if err := r.db.WithContext(ctx).Where("product_id = ?", productID).Order("created_at desc, id desc").Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// ListBySourceProductID 返回绑定了该上游资源商品的售出商品（克隆/转售链路）。
+func (r *productRepository) ListBySourceProductID(ctx context.Context, sourceProductID uint64) ([]model.Product, error) {
+	var items []model.Product
+	if err := r.db.WithContext(ctx).
+		Where("source_product_id = ?", sourceProductID).
+		Order("id asc").Find(&items).Error; err != nil {
 		return nil, err
 	}
 	return items, nil

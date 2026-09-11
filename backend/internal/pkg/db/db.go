@@ -106,6 +106,11 @@ func AutoMigrate(db *gorm.DB) error {
 		&syncmodel.SyncTask{},
 		&syncmodel.SyncLog{},
 		&syncmodel.Instance{},
+		// P3 同步框架（迁移 031）：渠道×scope 调度 / 增量游标 / 调价事件 / 差异记录
+		&syncmodel.SyncSchedule{},
+		&syncmodel.SyncCursor{},
+		&syncmodel.PriceChangeEvent{},
+		&syncmodel.SyncDiff{},
 		// 实例运维管理台：操作流水（见 docs/实施计划/61-实例运维管理台实施计划.md）
 		&instancemodel.Operation{},
 		// 产品管理（面向终端售卖）
@@ -718,6 +723,10 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "resource", Name: "同步任务", Code: "resource:sync", Type: "menu", SortOrder: 3, Status: "active"},
 		{ParentCode: "resource:sync", Name: "创建同步任务", Code: "sync:create", Type: "button", SortOrder: 1, Status: "active"},
 		{ParentCode: "resource:sync", Name: "查看同步日志", Code: "sync:log", Type: "button", SortOrder: 2, Status: "active"},
+		// P3 同步框架：调度配置 / 调价待确认（L2：新权限码必须登记，否则菜单会被过滤）
+		{ParentCode: "resource:sync", Name: "同步调度配置", Code: "sync:schedule", Type: "button", SortOrder: 3, Status: "active"},
+		{ParentCode: "resource:sync", Name: "查看调价事件", Code: "sync:price", Type: "button", SortOrder: 4, Status: "active"},
+		{ParentCode: "resource:sync", Name: "确认调价", Code: "sync:price:confirm", Type: "button", SortOrder: 5, Status: "active"},
 		{ParentCode: "resource", Name: "云主机", Code: "resource:instance", Type: "menu", SortOrder: 4, Status: "active"},
 		{ParentCode: "resource:instance", Name: "实例操作", Code: "instance:action", Type: "button", SortOrder: 1, Status: "active"},
 		// 实例运维台敏感动作细分权限（见 docs/实施计划/61-实例运维管理台实施计划.md §6.1）
@@ -913,6 +922,9 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"resource:sync",
 			"sync:create",
 			"sync:log",
+			"sync:schedule",
+			"sync:price",
+			"sync:price:confirm",
 			"resource:instance",
 			"instance:action",
 			"instance:console",
@@ -987,6 +999,8 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"product:sync",
 			"resource:sync",
 			"sync:log",
+			"sync:schedule",
+			"sync:price",
 			"resource:instance",
 			"instance:action",
 			// 运维需要控制台排障，但不授予变配/销毁（见 61 实施计划 §6.1）。
@@ -1128,11 +1142,14 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/resource/connection", Platform: menumodel.PlatformAdmin, Name: "上游提供商", Type: menumodel.TypeMenu, Path: "/resource/providers", Component: "resource/providers/index", Icon: "cloud", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/resource/connection", Platform: menumodel.PlatformAdmin, Name: "资源池管理", Type: menumodel.TypeMenu, Path: "/resource/pools", Component: "resource/pools/index", Icon: "layers", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/resource/connection", Platform: menumodel.PlatformAdmin, Name: "连接测试", Type: menumodel.TypeMenu, Path: "/resource/connectivity", Component: "resource/connectivity/index", Icon: "link", SortOrder: 3, Status: menumodel.StatusActive},
-		// —— 资源同步与对账（doc10 §5.3）
-		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "资源同步与对账", Type: menumodel.TypeDirectory, Path: "/resource/sync-center", Icon: "refresh", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/sync-center", Platform: menumodel.PlatformAdmin, Name: "同步任务", Type: menumodel.TypeMenu, Path: "/resource/sync", Component: "resource/sync/index", Icon: "refresh", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/sync-center", Platform: menumodel.PlatformAdmin, Name: "同步日志", Type: menumodel.TypeMenu, Path: "/resource/logs", Component: "resource/logs/index", Icon: "history", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/sync-center", Platform: menumodel.PlatformAdmin, Name: "对账报告", Type: menumodel.TypeMenu, Path: "/resource/reconciliation", Component: "resource/reconciliation/index", Icon: "verify", SortOrder: 3, Status: menumodel.StatusActive},
+		// —— 同步与调度（T3.6：合并原「同步任务/同步日志/对账报告」三处重复页面，
+		//    并取代产品管理下的 /product/sync/*；旧路径保留 redirect，菜单置 disabled 隐藏）
+		// 目录路径用 sync-group，叶子保持 /resource/sync-center 与前端路由一致（避免同路径冲突）。
+		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "同步与调度", Type: menumodel.TypeDirectory, Path: "/resource/sync-group", Icon: "refresh", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/sync-group", Platform: menumodel.PlatformAdmin, Name: "同步与调度", Type: menumodel.TypeMenu, Path: "/resource/sync-center", Component: "resource/sync-center/index", Icon: "refresh", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/sync-group", Platform: menumodel.PlatformAdmin, Name: "同步任务", Type: menumodel.TypeMenu, Path: "/resource/sync", Component: "resource/sync/index", Icon: "refresh", SortOrder: 91, Status: menumodel.StatusDisabled},
+		{ParentKey: "admin:/resource/sync-group", Platform: menumodel.PlatformAdmin, Name: "同步日志", Type: menumodel.TypeMenu, Path: "/resource/logs", Component: "resource/logs/index", Icon: "history", SortOrder: 92, Status: menumodel.StatusDisabled},
+		{ParentKey: "admin:/resource/sync-group", Platform: menumodel.PlatformAdmin, Name: "对账报告", Type: menumodel.TypeMenu, Path: "/resource/reconciliation", Component: "resource/reconciliation/index", Icon: "verify", SortOrder: 93, Status: menumodel.StatusDisabled},
 		// —— 资源商品管理（doc10 §5.4）
 		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "资源商品管理", Type: menumodel.TypeDirectory, Path: "/resource/products-center", Icon: "product", SortOrder: 4, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/resource/products-center", Platform: menumodel.PlatformAdmin, Name: "商品列表", Type: menumodel.TypeMenu, Path: "/resource/products", Component: "resource/products/index", Icon: "product", SortOrder: 1, Status: menumodel.StatusActive},

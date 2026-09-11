@@ -37,6 +37,8 @@ type ProviderService interface {
 	SyncTypeRegistry(ctx context.Context) error
 	// NormalizeCredentials 把迁移搬入 credentials 的历史值归一为带前缀的密文（启动时调用）
 	NormalizeCredentials(ctx context.Context) error
+	// PriceChangeThreshold 渠道级调价自动应用阈值（T3.4，比例，0.05=5%）
+	PriceChangeThreshold(ctx context.Context, providerID uint64) (float64, error)
 }
 
 type providerService struct {
@@ -114,29 +116,30 @@ func (s *providerService) Create(ctx context.Context, req dto.ProviderCreateRequ
 		return nil, err
 	}
 	item := &model.ResourceProvider{
-		Name:             req.Name,
-		ProviderType:     req.ProviderType,
-		Kind:             kind,
-		APIEndpoint:      req.APIEndpoint,
-		APIKey:           s.encryptValue(req.APIKey),
-		APISecret:        s.encryptValue(req.APISecret),
-		Credentials:      credJSON,
-		Region:           req.Region,
-		ContactWay:       req.ContactWay,
-		Des:              req.Des,
-		UpstreamType:     upstreamType,
-		ZjmfFinanceAPIID: req.ZjmfFinanceAPIID,
-		Port:             req.Port,
-		Secure:           req.Secure,
-		Disabled:         req.Disabled,
-		UserPrefix:       req.UserPrefix,
-		AccountType:      req.AccountType,
-		Status:           status,
-		SyncEnabled:      req.SyncEnabled,
-		SyncInterval:     syncInterval,
-		TimeoutSeconds:   req.TimeoutSeconds,
-		RetryMax:         req.RetryMax,
-		RateLimitQPS:     req.RateLimitQPS,
+		Name:                 req.Name,
+		ProviderType:         req.ProviderType,
+		Kind:                 kind,
+		APIEndpoint:          req.APIEndpoint,
+		APIKey:               s.encryptValue(req.APIKey),
+		APISecret:            s.encryptValue(req.APISecret),
+		Credentials:          credJSON,
+		Region:               req.Region,
+		ContactWay:           req.ContactWay,
+		Des:                  req.Des,
+		UpstreamType:         upstreamType,
+		ZjmfFinanceAPIID:     req.ZjmfFinanceAPIID,
+		Port:                 req.Port,
+		Secure:               req.Secure,
+		Disabled:             req.Disabled,
+		UserPrefix:           req.UserPrefix,
+		AccountType:          req.AccountType,
+		Status:               status,
+		SyncEnabled:          req.SyncEnabled,
+		SyncInterval:         syncInterval,
+		TimeoutSeconds:       req.TimeoutSeconds,
+		RetryMax:             req.RetryMax,
+		RateLimitQPS:         req.RateLimitQPS,
+		PriceChangeThreshold: priceChangeThresholdOrDefault(req.PriceChangeThreshold),
 	}
 	// 说明：上游对接仅保存连接信息（地址/账号/密码），连通性由 TestConnection 按真实协议
 	// 校验（魔方财务走 /zjmf_api_login 登录换 JWT，魔方云走 /v1/login 或 /token 换 access-token）。
@@ -193,6 +196,7 @@ func (s *providerService) Update(ctx context.Context, id uint64, req dto.Provide
 	item.TimeoutSeconds = req.TimeoutSeconds
 	item.RetryMax = req.RetryMax
 	item.RateLimitQPS = req.RateLimitQPS
+	item.PriceChangeThreshold = priceChangeThresholdOrDefault(req.PriceChangeThreshold)
 	if err := s.repo.Update(ctx, item); err != nil {
 		return nil, err
 	}
@@ -557,41 +561,42 @@ func (s *providerService) buildProviderInfo(item model.ResourceProvider) dto.Pro
 	descriptor := s.descriptorFor(item.ProviderType)
 	creds, credErr := s.decryptCredentials(item, descriptor)
 	info := dto.ProviderInfo{
-		ID:                  item.ID,
-		Name:                item.Name,
-		ProviderType:        item.ProviderType,
-		APIEndpoint:         item.APIEndpoint,
-		APIKey:              s.maskSecret(item.APIKey),
-		APISecret:           s.maskSecret(item.APISecret),
-		Region:              item.Region,
-		ContactWay:          item.ContactWay,
-		Des:                 item.Des,
-		UpstreamType:        item.UpstreamType,
-		ZjmfFinanceAPIID:    item.ZjmfFinanceAPIID,
-		Port:                item.Port,
-		Secure:              item.Secure,
-		Disabled:            item.Disabled,
-		UserPrefix:          item.UserPrefix,
-		AccountType:         item.AccountType,
-		Status:              item.Status,
-		SyncEnabled:         item.SyncEnabled,
-		SyncInterval:        item.SyncInterval,
-		Kind:                item.Kind,
-		SyncPaused:          item.SyncPaused,
-		ConsecutiveFailures: item.ConsecutiveFailures,
-		LastSyncError:       item.LastSyncError,
-		TimeoutSeconds:      item.TimeoutSeconds,
-		RetryMax:            item.RetryMax,
-		RateLimitQPS:        item.RateLimitQPS,
-		Capabilities:        descriptor,
-		TotalCPU:            item.TotalCPU,
-		TotalMemory:         item.TotalMemory,
-		TotalDisk:           item.TotalDisk,
-		UsedCPU:             item.UsedCPU,
-		UsedMemory:          item.UsedMemory,
-		UsedDisk:            item.UsedDisk,
-		CreatedAt:           item.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:           item.UpdatedAt.Format(time.RFC3339),
+		ID:                   item.ID,
+		Name:                 item.Name,
+		ProviderType:         item.ProviderType,
+		APIEndpoint:          item.APIEndpoint,
+		APIKey:               s.maskSecret(item.APIKey),
+		APISecret:            s.maskSecret(item.APISecret),
+		Region:               item.Region,
+		ContactWay:           item.ContactWay,
+		Des:                  item.Des,
+		UpstreamType:         item.UpstreamType,
+		ZjmfFinanceAPIID:     item.ZjmfFinanceAPIID,
+		Port:                 item.Port,
+		Secure:               item.Secure,
+		Disabled:             item.Disabled,
+		UserPrefix:           item.UserPrefix,
+		AccountType:          item.AccountType,
+		Status:               item.Status,
+		SyncEnabled:          item.SyncEnabled,
+		SyncInterval:         item.SyncInterval,
+		Kind:                 item.Kind,
+		SyncPaused:           item.SyncPaused,
+		ConsecutiveFailures:  item.ConsecutiveFailures,
+		LastSyncError:        item.LastSyncError,
+		TimeoutSeconds:       item.TimeoutSeconds,
+		RetryMax:             item.RetryMax,
+		RateLimitQPS:         item.RateLimitQPS,
+		PriceChangeThreshold: item.PriceChangeThreshold,
+		Capabilities:         descriptor,
+		TotalCPU:             item.TotalCPU,
+		TotalMemory:          item.TotalMemory,
+		TotalDisk:            item.TotalDisk,
+		UsedCPU:              item.UsedCPU,
+		UsedMemory:           item.UsedMemory,
+		UsedDisk:             item.UsedDisk,
+		CreatedAt:            item.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:            item.UpdatedAt.Format(time.RFC3339),
 	}
 	if credErr != nil {
 		// L8：解密失败显式上抛给前端，提示重新录入，不用密文当明文。
@@ -764,6 +769,26 @@ func (s *providerService) baseProviderConfig(item *model.ResourceProvider, creds
 		}
 	}
 	return cfg
+}
+
+// PriceChangeThreshold 读取渠道级调价阈值；未配置或异常时返回默认 5%。
+func (s *providerService) PriceChangeThreshold(ctx context.Context, providerID uint64) (float64, error) {
+	item, err := s.repo.FindByID(ctx, providerID)
+	if err != nil {
+		return 0, err
+	}
+	if item.PriceChangeThreshold <= 0 {
+		return 0.05, nil
+	}
+	return item.PriceChangeThreshold, nil
+}
+
+// priceChangeThresholdOrDefault 校正阈值：非法值（<=0 或 >1 非比例）回落默认 5%。
+func priceChangeThresholdOrDefault(v float64) float64 {
+	if v <= 0 || v > 1 {
+		return 0.05
+	}
+	return v
 }
 
 // maskSecret 通用脱敏：仅保留首尾各 2 位，中间替换为 ****。

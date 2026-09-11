@@ -33,11 +33,13 @@ var menuPermissionMap = map[string]string{
 	"/referral/invitees":    "referral:cashback:list",
 	"/referral/withdrawals": "referral:withdraw:list",
 
-	"/resource/dashboard":      "resource:provider",
-	"/resource/sync-monitor":   "resource:sync",
-	"/resource/providers":      "resource:provider",
-	"/resource/pools":          "resource:provider",
-	"/resource/connectivity":   "resource:provider",
+	"/resource/dashboard":    "resource:provider",
+	"/resource/sync-monitor": "resource:sync",
+	"/resource/providers":    "resource:provider",
+	"/resource/pools":        "resource:provider",
+	"/resource/connectivity": "resource:provider",
+	// T3.6 合并页「同步与调度」（调度/任务/日志/差异/待确认调价）。
+	"/resource/sync-center":    "resource:sync",
 	"/resource/sync":           "resource:sync",
 	"/resource/logs":           "sync:log",
 	"/resource/reconciliation": "resource:sync",
