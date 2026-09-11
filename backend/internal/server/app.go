@@ -38,6 +38,7 @@ import (
 	levelhandler "hostsent/backend/internal/modules/admin/user/level/handler"
 	securityhandler "hostsent/backend/internal/modules/admin/user/security/handler"
 	verificationhandler "hostsent/backend/internal/modules/admin/user/verification/handler"
+	openhandler "hostsent/backend/internal/modules/open/handler"
 	usercenterhandler "hostsent/backend/internal/modules/uc/auth/handler"
 	userfinancehandler "hostsent/backend/internal/modules/uc/finance/handler"
 	ucinstancehandler "hostsent/backend/internal/modules/uc/instance/handler"
@@ -114,6 +115,8 @@ type App struct {
 	memberRepo middleware.SubAccountPermissionResolver
 	// userAuditWriter 子账号写操作审计落库（P4-08），与 memberRepo 同一实现。
 	userAuditWriter middleware.UserOperationLogWriter
+	// open 开放平台处理器集合（P6/T6.1）：/open/v1 独立中间件链。
+	open *openhandler.Bundle
 }
 
 // NewApp 构造装配容器（DI 单一接线点）。
@@ -172,6 +175,7 @@ func NewApp(
 	rbacRepo adminrepo.RBACRepository,
 	permCache middleware.PermissionCache,
 	auditWriter middleware.AdminAuditWriter,
+	open *openhandler.Bundle,
 	logger *zap.Logger,
 	jwtIssuer *appauth.JWTIssuer,
 ) *App {
@@ -231,6 +235,7 @@ func NewApp(
 		memberHandler:         memberHandler,
 		memberRepo:            memberRepo,
 		userAuditWriter:       userAuditWriter,
+		open:                  open,
 	}
 }
 

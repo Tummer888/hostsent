@@ -24,6 +24,9 @@ const (
 	PayMethodManual  string = "manual"  // 线下/人工
 )
 
+// 下单渠道（P6/T6.3）：空串为平台自有渠道（存量语义），open 为下游应用代客下单。
+const OrderChannelOpen string = "open"
+
 // Order 订单
 type Order struct {
 	ID          uint64 `gorm:"primaryKey;autoIncrement"`
@@ -46,6 +49,11 @@ type Order struct {
 	Remark      string     `gorm:"size:255"`                                                  // 备注
 	OperatorID  uint64     `gorm:"column:operator_id"`                                        // 最近操作人
 	RenewalID   uint64     `gorm:"column:renewal_id;index;default:0"`                         // 关联续费记录 ID（续费订单，doc60）
+	// 开放平台渠道（P6/T6.3）：channel='open' 表示下游应用代客下单；
+	// open_app_id 指向 open_apps.id，channel_customer_ref 存下游自己的终端客户标识（对账用）。
+	Channel            string `gorm:"column:channel;size:16;default:'';index"`
+	OpenAppID          uint64 `gorm:"column:open_app_id;index"`
+	ChannelCustomerRef string `gorm:"column:channel_customer_ref;size:128"`
 	// 算价快照（P5-01/P5-04）：原价、优惠、实付与命中的折扣来源，便于对账与展示。
 	OriginalAmount float64    `gorm:"column:original_amount;type:decimal(15,2);not null;default:0"` // 优惠前金额
 	DiscountAmount float64    `gorm:"column:discount_amount;type:decimal(15,2);not null;default:0"` // 优惠金额

@@ -673,5 +673,15 @@ func newRouter(app *App) *gin.Engine {
 		ucNotify.PUT("/notification-preferences", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.notifyUserHandler.UserUpdatePrefs)
 	}
 
+	// 开放平台（P6/T6.1）：对外前缀 /open/v1，独立中间件链：
+	// 审计（最外层，鉴权失败同样留痕）→ 签名 → 应用校验 → IP 白名单 → nonce 防重放 → 限流。
+	openV1 := r.Group("/open/v1")
+	openV1.Use(app.open.Audit(), app.open.Gateway())
+	{
+		// 链路自检：签名通过即可访问，不占能力位。POST 用于验证带 body 的签名。
+		openV1.GET("/ping", app.open.Ping)
+		openV1.POST("/ping", app.open.Ping)
+	}
+
 	return r
 }

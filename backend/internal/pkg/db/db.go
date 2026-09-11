@@ -36,6 +36,7 @@ import (
 	levelmodel "hostsent/backend/internal/modules/admin/user/level/model"
 	securitymodel "hostsent/backend/internal/modules/admin/user/security/model"
 	verificationmodel "hostsent/backend/internal/modules/admin/user/verification/model"
+	openmodel "hostsent/backend/internal/modules/open/model"
 	usercentermodel "hostsent/backend/internal/modules/uc/auth/model"
 	membermodel "hostsent/backend/internal/modules/uc/member/model"
 	config "hostsent/backend/internal/pkg/config"
@@ -167,6 +168,13 @@ func AutoMigrate(db *gorm.DB) error {
 		&notifymodel.NotificationTemplate{},
 		&notifymodel.NotificationRead{},
 		&notifymodel.NotificationPreference{},
+		// 开放平台（P6/T6.1，迁移 034）
+		&openmodel.OpenApp{},
+		&openmodel.OpenAppScope{},
+		&openmodel.OpenAppIPRule{},
+		&openmodel.OpenRequest{},
+		&openmodel.OpenAPILog{},
+		&openmodel.OpenNotifyDelivery{},
 	); err != nil {
 		return err
 	}
