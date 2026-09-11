@@ -53,6 +53,8 @@ type InstanceService interface {
 	Unsuspend(ctx context.Context, op Operator, id uint64) error
 	// RecordStageAction 写入生命周期阶段推进审计（T5.4 推进器调用，系统操作人）。
 	RecordStageAction(ctx context.Context, in StageActionInput) error
+	// SetEventListener 注入实例操作事件监听（P6/T6.5 开放平台回调；装配层调用，可为 nil）。
+	SetEventListener(fn func(ctx context.Context, evt InstanceEvent))
 	Operations(ctx context.Context, id uint64, query *dto.OperationListQuery) (*dto.OperationListResponse, error)
 	Related(ctx context.Context, id uint64) (*dto.RelatedInfo, error)
 }
@@ -63,6 +65,19 @@ type instanceService struct {
 	related repository.RelatedRepository
 	resolve ProviderResolver
 	logger  *zap.Logger
+	// eventListener 实例操作/阶段事件监听（P6/T6.5 开放平台回调经装配层注入，可为 nil）。
+	eventListener func(ctx context.Context, evt InstanceEvent)
+}
+
+// InstanceEvent 实例操作事件：record() 与 RecordStageAction 收口后的对外通知载体。
+type InstanceEvent struct {
+	InstanceRowID uint64
+	InstanceMark  string
+	UserID        uint64
+	Action        string // power_on/power_off/suspend/unsuspend/stage...
+	FromStatus    string
+	ToStatus      string
+	Err           error
 }
 
 // NewInstanceService 创建实例运维台服务。
@@ -74,6 +89,19 @@ func NewInstanceService(
 	logger *zap.Logger,
 ) InstanceService {
 	return &instanceService{repo: repo, opRepo: opRepo, related: related, resolve: resolve, logger: logger}
+}
+
+// SetEventListener 注入实例操作事件监听（P6/T6.5）。
+func (s *instanceService) SetEventListener(fn func(ctx context.Context, evt InstanceEvent)) {
+	s.eventListener = fn
+}
+
+// notifyEvent 收口通知：监听器失败只记日志，不影响操作结果。
+func (s *instanceService) notifyEvent(ctx context.Context, evt InstanceEvent) {
+	if s.eventListener == nil {
+		return
+	}
+	s.eventListener(ctx, evt)
 }
 
 // List 跨用户实例分页列表。
@@ -418,6 +446,15 @@ func (s *instanceService) RecordStageAction(ctx context.Context, in StageActionI
 		}
 		return err
 	}
+	s.notifyEvent(ctx, InstanceEvent{
+		InstanceRowID: in.InstanceID,
+		InstanceMark:  in.InstanceMark,
+		UserID:        in.UserID,
+		Action:        action,
+		FromStatus:    in.FromStage,
+		ToStatus:      in.ToStage,
+		Err:           in.Err,
+	})
 	return nil
 }
 
@@ -602,6 +639,15 @@ func (s *instanceService) record(ctx context.Context, row *repository.InstanceRo
 			zap.String("action", action),
 			zap.Error(err))
 	}
+	s.notifyEvent(ctx, InstanceEvent{
+		InstanceRowID: row.ID,
+		InstanceMark:  row.InstanceID,
+		UserID:        row.UserID,
+		Action:        action,
+		FromStatus:    before,
+		ToStatus:      after,
+		Err:           opErr,
+	})
 }
 
 // capabilities 断言上游适配器能力，供前端置灰按钮。

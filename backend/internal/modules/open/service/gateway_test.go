@@ -43,6 +43,26 @@ func (s *stubAppRepo) ListApps(_ context.Context) ([]openmodel.OpenApp, error) {
 func (s *stubAppRepo) GetByAppID(_ context.Context, _ string) (*openmodel.OpenApp, error) {
 	return nil, errors.New("not implemented")
 }
+
+func (s *stubAppRepo) GetByID(_ context.Context, id uint64) (*openmodel.OpenApp, error) {
+	for _, res := range s.apps {
+		if res.App.ID == id {
+			cp := res.App
+			return &cp, nil
+		}
+	}
+	return nil, openrepo.ErrAppNotFound
+}
+
+func (s *stubAppRepo) ListNotifiableByOwner(_ context.Context, ownerUserID uint64) ([]openmodel.OpenApp, error) {
+	out := make([]openmodel.OpenApp, 0)
+	for _, res := range s.apps {
+		if res.App.OwnerUserID == ownerUserID && res.App.Status == openmodel.OpenAppStatusEnabled && res.App.NotifyURL != "" {
+			out = append(out, res.App)
+		}
+	}
+	return out, nil
+}
 func (s *stubAppRepo) UpdateStatus(_ context.Context, _ string, _ int) error {
 	return errors.New("not implemented")
 }

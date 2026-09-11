@@ -52,6 +52,8 @@ type RenewalService interface {
 	SetCashbackHook(hook RenewalCashbackHook)
 	// SetUpstreamRenewer 注入上游/平台续费执行器（装配层调用，T5.2）
 	SetUpstreamRenewer(renewer UpstreamRenewer)
+	// SetRenewedHook 注入续费完成事件回调（P6/T6.5 开放平台回调，装配层调用）
+	SetRenewedHook(hook RenewedHook)
 }
 
 // UpstreamRenewer 上游/平台续费执行器（装配层注入，避免生命周期模块依赖 provider 模块）。
@@ -96,6 +98,7 @@ type renewalService struct {
 	pricingSvc   renewalPriceResolver // 可选：统一算价管线（P5-04）
 	cashbackHook RenewalCashbackHook  // 可选：续费完成后的推广返现计提
 	upstream     UpstreamRenewer      // 可选：上游/平台续费执行器（T5.2）
+	renewedHook  RenewedHook          // 可选：续费完成事件（P6/T6.5 开放平台回调）
 	logger       *zap.Logger
 }
 
@@ -132,6 +135,14 @@ func (s *renewalService) SetOrderReader(r lifecycleRenewalGetter) {
 // SetCashbackHook 注入续费完成后的推广返现计提钩子。
 func (s *renewalService) SetCashbackHook(hook RenewalCashbackHook) {
 	s.cashbackHook = hook
+}
+
+// RenewedHook 续费完成事件钩子（P6/T6.5）：参数为已落库成功的续费单。
+type RenewedHook func(ctx context.Context, renewal *lifecyclemodel.InstanceRenewal)
+
+// SetRenewedHook 注入续费完成事件回调（装配层调用）。
+func (s *renewalService) SetRenewedHook(hook RenewedHook) {
+	s.renewedHook = hook
 }
 
 // SetUpstreamRenewer 注入上游/平台续费执行器（T5.2）。
@@ -668,6 +679,10 @@ func (s *renewalService) markRenewalSuccess(ctx context.Context, renewal *lifecy
 	// 续费完成后的推广返现计提：失败不影响续费结果，钩子实现负责记录错误。
 	if s.cashbackHook != nil {
 		_ = s.cashbackHook(ctx, renewal.OrderID, renewal.OrderNo, renewal.UserID, renewal.Amount, true)
+	}
+	// 开放平台续费完成事件（P6/T6.5）：失败只记日志，不影响续费结果。
+	if s.renewedHook != nil {
+		s.renewedHook(ctx, renewal)
 	}
 	s.logger.Info("renewal completed",
 		zap.String("renewal_no", renewal.RenewalNo),

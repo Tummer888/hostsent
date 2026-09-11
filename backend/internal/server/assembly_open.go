@@ -4,10 +4,15 @@ package server
 // 本文件只做接线，不含业务逻辑（与 assembly.go 的具名装配函数约定一致）。
 
 import (
+	"context"
+	"time"
+
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	instancemodel "hostsent/backend/internal/modules/admin/instance/model"
 	instanceservice "hostsent/backend/internal/modules/admin/instance/service"
+	lifecyclemodel "hostsent/backend/internal/modules/admin/lifecycle/model"
 	lifecycleservice "hostsent/backend/internal/modules/admin/lifecycle/service"
 	specrepo "hostsent/backend/internal/modules/admin/product/spec/repository"
 	openhandler "hostsent/backend/internal/modules/open/handler"
@@ -57,4 +62,49 @@ func buildOpenBundle(
 		Renewals: renewals,
 	}))
 	return bundle
+}
+
+// buildInstanceEventListener 实例操作/阶段事件桥（P6/T6.5）：
+// 只对下游关心的动作发布 status_changed（电源/暂停恢复/阶段推进），审计类动作不发布。
+func buildInstanceEventListener(publisher *openservice.EventPublisher) func(ctx context.Context, evt instanceservice.InstanceEvent) {
+	return func(ctx context.Context, evt instanceservice.InstanceEvent) {
+		if publisher == nil || evt.Err != nil {
+			return // 操作失败瞬间状态未变，不发布
+		}
+		switch evt.Action {
+		case instancemodel.ActionPowerOn, instancemodel.ActionPowerOff, instancemodel.ActionHardOff,
+			instancemodel.ActionReboot, instancemodel.ActionHardReboot,
+			instancemodel.ActionSuspend, instancemodel.ActionUnsuspend, instancemodel.ActionStage:
+		default:
+			return
+		}
+		publisher.PublishToOwner(ctx, evt.UserID, openservice.EventInstanceStatusChanged, map[string]any{
+			"instance_id": evt.InstanceRowID,
+			"mark":        evt.InstanceMark,
+			"action":      evt.Action,
+			"from":        evt.FromStatus,
+			"to":          evt.ToStatus,
+		})
+	}
+}
+
+// buildRenewedNotifier 续费完成事件桥（P6/T6.5）：instance.renewed。
+func buildRenewedNotifier(publisher *openservice.EventPublisher) lifecycleservice.RenewedHook {
+	return func(ctx context.Context, renewal *lifecyclemodel.InstanceRenewal) {
+		if publisher == nil || renewal == nil {
+			return
+		}
+		data := map[string]any{
+			"renewal_no":  renewal.RenewalNo,
+			"instance_id": renewal.InstanceID,
+			"mark":        renewal.InstanceMark,
+			"amount":      renewal.Amount,
+			"period":      renewal.PeriodCount,
+			"sync_state":  renewal.SyncState,
+		}
+		if renewal.ExpireAfter != nil {
+			data["expire_after"] = renewal.ExpireAfter.Format(time.RFC3339)
+		}
+		publisher.PublishToOwner(ctx, renewal.UserID, openservice.EventInstanceRenewed, data)
+	}
 }

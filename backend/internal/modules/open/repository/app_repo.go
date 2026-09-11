@@ -67,6 +67,10 @@ type AppRepository interface {
 	ListApps(ctx context.Context) ([]openmodel.OpenApp, error)
 	// GetByAppID 读取单个应用。
 	GetByAppID(ctx context.Context, appID string) (*openmodel.OpenApp, error)
+	// GetByID 按主键读取单个应用（回调投递时解析 notify_url/notify_secret）。
+	GetByID(ctx context.Context, id uint64) (*openmodel.OpenApp, error)
+	// ListNotifiableByOwner 归属账号下启用且配置了回调地址的应用（事件发布目标）。
+	ListNotifiableByOwner(ctx context.Context, ownerUserID uint64) ([]openmodel.OpenApp, error)
 	// UpdateStatus 启用/停用。
 	UpdateStatus(ctx context.Context, appID string, status int) error
 	// RotateSecret 重置 app_secret（传入加密后的密文）。
@@ -144,6 +148,25 @@ func (r *appRepository) GetByAppID(ctx context.Context, appID string) (*openmode
 		return nil, err
 	}
 	return &app, nil
+}
+
+func (r *appRepository) GetByID(ctx context.Context, id uint64) (*openmodel.OpenApp, error) {
+	var app openmodel.OpenApp
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&app).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrAppNotFound
+		}
+		return nil, err
+	}
+	return &app, nil
+}
+
+func (r *appRepository) ListNotifiableByOwner(ctx context.Context, ownerUserID uint64) ([]openmodel.OpenApp, error) {
+	var apps []openmodel.OpenApp
+	err := r.db.WithContext(ctx).
+		Where("owner_user_id = ? AND status = ? AND notify_url <> ''", ownerUserID, openmodel.OpenAppStatusEnabled).
+		Find(&apps).Error
+	return apps, err
 }
 
 func (r *appRepository) UpdateStatus(ctx context.Context, appID string, status int) error {

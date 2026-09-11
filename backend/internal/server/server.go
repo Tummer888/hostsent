@@ -98,6 +98,8 @@ import (
 	verificationhandler "hostsent/backend/internal/modules/admin/user/verification/handler"
 	verificationrepo "hostsent/backend/internal/modules/admin/user/verification/repository"
 	verificationservice "hostsent/backend/internal/modules/admin/user/verification/service"
+	openrepo "hostsent/backend/internal/modules/open/repository"
+	openservice "hostsent/backend/internal/modules/open/service"
 	usercenterhandler "hostsent/backend/internal/modules/uc/auth/handler"
 	usercenterrepo "hostsent/backend/internal/modules/uc/auth/repository"
 	usercenterservice "hostsent/backend/internal/modules/uc/auth/service"
@@ -141,6 +143,7 @@ type Server struct {
 	scheduler          *syncservice.Scheduler
 	lifecycleScheduler *lifecycleservice.LifecycleScheduler
 	provisionWorker    *orderservice.ProvisionWorker
+	notifyWorker       *openservice.NotifyDeliveryWorker
 	cancel             context.CancelFunc
 }
 
@@ -175,6 +178,13 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	orderRefundRepo := orderrepo.NewRefundRepository(database)
 	// 开通履约任务表（T5.1）：下单只投递任务，工作池异步执行上游开通（约 50s > write_timeout）。
 	provisionTaskRepo := orderrepo.NewProvisionTaskRepository(database)
+	// 开放平台事件发布器（P6/T6.5）：事件先落 open_notify_deliveries，投递由工作池异步执行；
+	// 只依赖仓储，构造可早于通知中心。
+	openEventPublisher := openservice.NewEventPublisher(
+		openrepo.NewNotifyRepository(database),
+		openrepo.NewAppRepository(database),
+		logger,
+	)
 	// 财务域
 	walletTxRepo := fintransactionrepo.NewTransactionRepository(database)
 	walletRepo := finaccountrepo.NewWalletRepository(database)
@@ -352,7 +362,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 			}
 		})
 	// 订单履约：上游开通适配器（打通订单 paid/provisioning → 上游创建实例）
-	orderService := orderservice.NewOrderService(orderRepo, orderItemRepo, orderRefundRepo, orderservice.NewUpstreamProvisionAdapter(buildOrderProvisionDeps(prodCatalogService, providerService, upstreamMgr, syncRepo)))
+	orderService := orderservice.NewOrderService(orderRepo, orderItemRepo, orderRefundRepo, orderservice.NewUpstreamProvisionAdapter(buildOrderProvisionDeps(prodCatalogService, providerService, upstreamMgr, syncRepo, openEventPublisher)))
 	// 异步开通（T5.1）：下单/后台重试只投递任务，工作池领取后执行上游开通（约 50s > write_timeout）。
 	provisionEnqueuer := orderservice.NewProvisionEnqueuer(provisionTaskRepo, logger)
 	orderService.SetProvisionQueue(provisionEnqueuer)
@@ -533,6 +543,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		logger,
 	)
 	instanceOpsHandler := instancehandler.NewInstanceHandler(instanceOpsService)
+	// 实例操作事件（P6/T6.5）：电源/暂停恢复/阶段推进 → instance.status_changed。
+	instanceOpsService.SetEventListener(buildInstanceEventListener(openEventPublisher))
 	// 规格管理（spec 子域）
 	specTemplateRepo := specrepo.NewSpecTemplateRepository(database)
 	specMappingRepo := specrepo.NewSpecMappingRepository(database)
@@ -609,6 +621,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 官网门户公开只读数据（公告等），无需登录；后续 site-content 也落在该模块
 	ucSiteService := ucsiteservice.NewSiteService(announceSvc)
 	ucSiteHandler := ucsitehandler.NewSiteHandler(ucSiteService)
+	// 续费完成事件（P6/T6.5）：instance.renewed → 开放平台回调。
+	lifecycleRenewalSvc.SetRenewedHook(buildRenewedNotifier(openEventPublisher))
 	// 生命周期 Notifier 桥接：替换 noopNotifier 为通知中心
 	lifecycleSvc.SetNotifier(&lifecycleNotifierBridge{notifySvc: notifySvc, logger: logger})
 	// 生命周期阶段推进器注入（T5.4）：能力缺失告警复用开通失败告警通道。
@@ -623,6 +637,14 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		provisionTaskRepo, orderService,
 		(&provisionManualNotifier{notifySvc: notifySvc, logger: logger}).Notify,
 		logger, orderservice.ProvisionWorkerOptions{},
+	)
+	// 开放平台回调投递工作池（P6/T6.5）：指数退避，耗尽转死信。
+	notifyWorker := openservice.NewNotifyDeliveryWorker(
+		openrepo.NewNotifyRepository(database),
+		openrepo.NewAppRepository(database),
+		cfg.App.EncryptKey,
+		logger,
+		openservice.NotifyWorkerOptions{},
 	)
 	// 订单支付成功钩子（doc60）：续费订单支付完成后联动完成续费并延长到期时间
 	// doc70：支付成功后发布通知
@@ -672,6 +694,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		scheduler:          scheduler,
 		lifecycleScheduler: lifecycleScheduler,
 		provisionWorker:    provisionWorker,
+		notifyWorker:       notifyWorker,
 	}, nil
 }
 
@@ -682,6 +705,7 @@ func (s *Server) Run() error {
 	s.scheduler.Start(ctx)
 	s.lifecycleScheduler.Start(ctx)
 	s.provisionWorker.Start(ctx)
+	go s.notifyWorker.Start(ctx)
 	s.logger.Info("server starting", zap.String("addr", s.http.Addr), zap.String("name", s.cfg.App.Name))
 	return s.http.ListenAndServe()
 }

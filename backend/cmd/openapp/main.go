@@ -14,6 +14,8 @@
 //	go run ./cmd/openapp set-notify -app-id app_xxx -url https://downstream/notify
 //	go run ./cmd/openapp add-ip -app-id app_xxx -cidr 10.0.0.0/8
 //	go run ./cmd/openapp clear-ip -app-id app_xxx
+//	go run ./cmd/openapp deliveries [-app-id app_xxx]
+//	go run ./cmd/openapp redeliver -delivery-id 42
 package main
 
 import (
@@ -68,7 +70,8 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := dispatch(ctx, repo, cfg, os.Args[1], os.Args[2:]); err != nil {
+	notifyRepo := openrepo.NewNotifyRepository(db)
+	if err := dispatch(ctx, repo, notifyRepo, cfg, os.Args[1], os.Args[2:]); err != nil {
 		log.Fatalf("openapp %s: %v", os.Args[1], err)
 	}
 }
@@ -83,7 +86,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "用法: openapp <create|list|show|enable|disable|reset-secret|set-notify|add-ip|clear-ip> [flags]")
 }
 
-func dispatch(ctx context.Context, repo openrepo.AppRepository, cfg *config.Config, cmd string, args []string) error {
+func dispatch(ctx context.Context, repo openrepo.AppRepository, notifyRepo openrepo.NotifyRepository, cfg *config.Config, cmd string, args []string) error {
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	name := fs.String("name", "", "应用名称")
 	owner := fs.Uint64("owner-user-id", 0, "归属平台账号 user_id（定价/余额/实例归属）")
@@ -92,6 +95,7 @@ func dispatch(ctx context.Context, repo openrepo.AppRepository, cfg *config.Conf
 	notifyURL := fs.String("url", "", "事件回调地址")
 	appID := fs.String("app-id", "", "应用 app_id")
 	cidrs := fs.String("cidr", "", "逗号分隔 CIDR 白名单")
+	deliveryID := fs.Uint64("delivery-id", 0, "回调投递记录 ID（redeliver 用）")
 	_ = fs.Parse(args)
 
 	switch cmd {
@@ -116,10 +120,50 @@ func dispatch(ctx context.Context, repo openrepo.AppRepository, cfg *config.Conf
 		return repo.AddIPRules(ctx, *appID, splitAndTrim(*cidrs))
 	case "clear-ip":
 		return repo.DeleteIPRules(ctx, *appID)
+	case "deliveries":
+		return cmdDeliveries(ctx, notifyRepo, *appID)
+	case "redeliver":
+		return cmdRedeliver(ctx, notifyRepo, *deliveryID)
 	default:
 		usage()
 		return fmt.Errorf("未知子命令 %q", cmd)
 	}
+}
+
+// cmdDeliveries 列出回调投递记录（含死信），供运维排查。
+func cmdDeliveries(ctx context.Context, notifyRepo openrepo.NotifyRepository, appID string) error {
+	var filter uint64
+	if strings.TrimSpace(appID) != "" {
+		app, err := notifyRepo.AppIDLookup(ctx, appID)
+		if err != nil {
+			return err
+		}
+		filter = app
+	}
+	deliveries, err := notifyRepo.ListDeliveries(ctx, filter, 100)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%-6s %-22s %-28s %-10s %-4s %s\n", "ID", "APP", "EVENT", "STATUS", "TRY", "LAST_ERROR")
+	for _, d := range deliveries {
+		fmt.Printf("%-6d %-22d %-28s %-10s %-4d %s\n", d.ID, d.AppID, d.Event, d.Status, d.Attempts, d.LastError)
+	}
+	return nil
+}
+
+// cmdRedeliver 人工重投死信：状态复位 pending、次数清零，由工作池自然领取。
+func cmdRedeliver(ctx context.Context, notifyRepo openrepo.NotifyRepository, id uint64) error {
+	if id == 0 {
+		return fmt.Errorf("-delivery-id 必填")
+	}
+	if _, err := notifyRepo.GetByID(ctx, id); err != nil {
+		return err
+	}
+	if err := notifyRepo.Redeliver(ctx, id); err != nil {
+		return err
+	}
+	fmt.Printf("投递记录 #%d 已复位为待投递，将随后台工作池重发。\n", id)
+	return nil
 }
 
 func cmdCreate(ctx context.Context, repo openrepo.AppRepository, cfg *config.Config, name string, owner uint64, scopes string, rateLimit int, notifyURL string) error {

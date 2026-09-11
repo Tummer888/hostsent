@@ -18,6 +18,7 @@ import (
 	providerservice "hostsent/backend/internal/modules/admin/resource/provider/service"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	syncrepo "hostsent/backend/internal/modules/admin/resource/sync/repository"
+	openservice "hostsent/backend/internal/modules/open/service"
 	ucinstanceservice "hostsent/backend/internal/modules/uc/instance/service"
 	pkgmodel "hostsent/backend/internal/pkg/model"
 	"hostsent/backend/internal/pkg/observability"
@@ -25,11 +26,13 @@ import (
 )
 
 // buildOrderProvisionDeps 组装订单履约的上游开通适配器依赖（打通订单 paid/provisioning → 上游创建实例）。
+// events 为开放平台事件发布器（P6/T6.5，可为 nil）：开通成功落库后发布 instance.created。
 func buildOrderProvisionDeps(
 	catalog catalogservice.ProductService,
 	provider providerservice.ProviderService,
 	upmgr *upstream.ProviderManager,
 	syncRepo syncrepo.SyncRepository,
+	events *openservice.EventPublisher,
 ) orderservice.ProvisionDeps {
 	return orderservice.ProvisionDeps{
 		BuildProvisionRequest: func(ctx context.Context, productID uint64, name, specSnapshot, specCode string) (interface{}, error) {
@@ -70,7 +73,22 @@ func buildOrderProvisionDeps(
 			if row.InstanceID == "" {
 				return nil
 			}
-			return syncRepo.UpsertInstances(ctx, []syncmodel.Instance{row})
+			if err := syncRepo.UpsertInstances(ctx, []syncmodel.Instance{row}); err != nil {
+				return err
+			}
+			// 开放平台 instance.created（P6/T6.5）：仅对代客下单订单发布，事件只落库不阻塞履约。
+			if order.OpenAppID != 0 {
+				events.PublishToOwner(ctx, order.UserID, openservice.EventInstanceCreated, map[string]any{
+					"instance_id":     row.ID,
+					"mark":            row.InstanceID,
+					"name":            row.Name,
+					"status":          row.Status,
+					"order_no":        order.OrderNo,
+					"customer_ref":    order.ChannelCustomerRef,
+					"sell_product_id": order.ProductID,
+				})
+			}
+			return nil
 		},
 		HasInstance: func(ctx context.Context, userID, productID uint64) (bool, error) {
 			n, err := syncRepo.CountInstancesByProductUser(ctx, userID, productID)

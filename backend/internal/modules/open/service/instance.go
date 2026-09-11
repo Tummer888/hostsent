@@ -109,7 +109,7 @@ func (s *OpenInstanceService) Power(ctx context.Context, app *openrepo.ResolvedA
 	default:
 		return apperrors.New(CodeOpenParam, "action 仅支持 on/off/hard_off/reboot")
 	}
-	return s.deps.Ops.Power(ctx, openOperator(app), instanceID, action)
+	return mapInstanceErr(s.deps.Ops.Power(ctx, openOperator(app), instanceID, action))
 }
 
 // Suspend 暂停实例（D2：开放接口提供的最重处置，无销毁）。
@@ -117,7 +117,7 @@ func (s *OpenInstanceService) Suspend(ctx context.Context, app *openrepo.Resolve
 	if _, err := s.deps.Repo.FindByIDForUser(ctx, instanceID, app.App.OwnerUserID); err != nil {
 		return mapInstanceErr(err)
 	}
-	return s.deps.Ops.Suspend(ctx, openOperator(app), instanceID, reason)
+	return mapInstanceErr(s.deps.Ops.Suspend(ctx, openOperator(app), instanceID, reason))
 }
 
 // Unsuspend 恢复实例。
@@ -125,7 +125,7 @@ func (s *OpenInstanceService) Unsuspend(ctx context.Context, app *openrepo.Resol
 	if _, err := s.deps.Repo.FindByIDForUser(ctx, instanceID, app.App.OwnerUserID); err != nil {
 		return mapInstanceErr(err)
 	}
-	return s.deps.Ops.Unsuspend(ctx, openOperator(app), instanceID)
+	return mapInstanceErr(s.deps.Ops.Unsuspend(ctx, openOperator(app), instanceID))
 }
 
 // Destroy 明确不支持（D2）：销毁仅限我方后台人工操作。
@@ -133,12 +133,19 @@ func (s *OpenInstanceService) Destroy() error {
 	return apperrors.New(CodeOpenUnsupported, "销毁不支持：实例销毁仅限平台侧人工操作")
 }
 
+// mapInstanceErr 实例域错误归一：不存在 → 40404；状态冲突 → 40003；非法动作 → 40001。
 func mapInstanceErr(err error) error {
 	if err == nil {
 		return nil
 	}
 	if errors.Is(err, openrepo.ErrInstanceNotFound) || errors.Is(err, lifecycleservice.ErrInstanceNotFound) {
 		return apperrors.New(CodeOpenNotFound, "实例不存在")
+	}
+	if errors.Is(err, instanceservice.ErrStatusConflict) {
+		return apperrors.New(CodeOpenConflict, err.Error())
+	}
+	if errors.Is(err, instanceservice.ErrInvalidAction) {
+		return apperrors.New(CodeOpenParam, err.Error())
 	}
 	if ae, ok := err.(*apperrors.AppError); ok {
 		return ae
