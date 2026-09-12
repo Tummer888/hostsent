@@ -20,6 +20,10 @@ type RechargeService interface {
 	Create(ctx context.Context, req dto.RechargeCreateRequest, operatorID uint64) (*dto.RechargeInfo, error)
 	Approve(ctx context.Context, id uint64, req dto.RechargeApproveRequest, operatorID uint64) (*dto.RechargeInfo, error)
 	ApproveByNo(ctx context.Context, rechargeNo string, req dto.RechargeApproveRequest, operatorID uint64) (*dto.RechargeInfo, error)
+	// BindPaymentOrder 绑定支付单（在线充值走支付中心时登记，不改变状态）。
+	BindPaymentOrder(ctx context.Context, rechargeNo string, paymentOrderID uint64, channelCode string) error
+	// FindByNo 按充值单号读取（支付成功事件回查用）。
+	FindByNo(ctx context.Context, rechargeNo string) (*dto.RechargeInfo, error)
 	List(ctx context.Context, q dto.RechargeListQuery) (*dto.RechargeListResponse, error)
 }
 
@@ -107,6 +111,28 @@ func (s *rechargeService) doApprove(ctx context.Context, rc *model.Recharge, req
 		OperatorID: operatorID,
 	})
 	return err
+}
+
+// BindPaymentOrder 绑定支付单：在线充值下单后登记支付单 ID 与渠道编码，状态仍为 pending，
+// 到账由支付中心 paid 事件经 ApproveByNo 幂等触发。
+func (s *rechargeService) BindPaymentOrder(ctx context.Context, rechargeNo string, paymentOrderID uint64, channelCode string) error {
+	rc, err := s.rechargeRepo.FindByNo(ctx, rechargeNo)
+	if err != nil {
+		return mapRechargeErr(err)
+	}
+	rc.PaymentOrderID = paymentOrderID
+	rc.ChannelCode = channelCode
+	return s.rechargeRepo.Update(ctx, rc)
+}
+
+// FindByNo 按充值单号读取。
+func (s *rechargeService) FindByNo(ctx context.Context, rechargeNo string) (*dto.RechargeInfo, error) {
+	rc, err := s.rechargeRepo.FindByNo(ctx, rechargeNo)
+	if err != nil {
+		return nil, mapRechargeErr(err)
+	}
+	info := buildRechargeInfo(*rc)
+	return &info, nil
 }
 
 func (s *rechargeService) List(ctx context.Context, q dto.RechargeListQuery) (*dto.RechargeListResponse, error) {

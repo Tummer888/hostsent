@@ -17,6 +17,8 @@ type BillRepository interface {
 	FindByUserPeriod(ctx context.Context, userID uint64, period string) (*model.Bill, error)
 	List(ctx context.Context, q dto.BillListQuery) ([]model.Bill, int64, error)
 	Close(ctx context.Context, id uint64) error
+	// MarkPaid 记录账单收款方式并置为已结清（doc34 F-11：账单须描述所用支付方式）。
+	MarkPaid(ctx context.Context, id uint64, paidAmountFen int64, paidMethod string, paidChannelID uint64) error
 }
 
 type billRepository struct {
@@ -81,4 +83,14 @@ func (r *billRepository) List(ctx context.Context, q dto.BillListQuery) ([]model
 
 func (r *billRepository) Close(ctx context.Context, id uint64) error {
 	return r.db.WithContext(ctx).Model(&model.Bill{}).Where("id = ?", id).Update("status", model.BillStatusClosed).Error
+}
+
+// MarkPaid 记录账单实际收款方式并结清。
+func (r *billRepository) MarkPaid(ctx context.Context, id uint64, paidAmountFen int64, paidMethod string, paidChannelID uint64) error {
+	return r.db.WithContext(ctx).Model(&model.Bill{}).Where("id = ?", id).Updates(map[string]any{
+		"status":          model.BillStatusPaid,
+		"paid_amount_fen": paidAmountFen,
+		"paid_method":     paidMethod,
+		"paid_channel_id": paidChannelID,
+	}).Error
 }

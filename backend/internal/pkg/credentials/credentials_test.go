@@ -4,15 +4,15 @@ import (
 	"strings"
 	"testing"
 
-	"hostsent/backend/internal/pkg/upstream"
+	"hostsent/backend/internal/pkg/integration"
 )
 
 const testKey = "test-encrypt-key"
 
 func TestEncryptDecryptRoundTrip(t *testing.T) {
-	schema := []upstream.Field{
-		{Key: "api_key", Type: upstream.FieldTypeString},
-		{Key: "api_secret", Type: upstream.FieldTypePassword, Secret: true},
+	schema := []integration.Field{
+		{Key: "api_key", Type: integration.FieldTypeString},
+		{Key: "api_secret", Type: integration.FieldTypePassword, Secret: true},
 	}
 	in := Map{"api_key": "user1", "api_secret": "super-secret"}
 	enc, err := EncryptFields(in, schema, testKey)
@@ -35,7 +35,7 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 }
 
 func TestEncryptFieldsIdempotent(t *testing.T) {
-	schema := []upstream.Field{{Key: "api_secret", Secret: true}}
+	schema := []integration.Field{{Key: "api_secret", Secret: true}}
 	once, err := EncryptFields(Map{"api_secret": "s"}, schema, testKey)
 	if err != nil {
 		t.Fatalf("first encrypt: %v", err)
@@ -72,7 +72,7 @@ func TestDecryptFieldsPassesThroughPlaintext(t *testing.T) {
 }
 
 func TestDecryptFieldsWrongKey(t *testing.T) {
-	enc, err := EncryptFields(Map{"api_secret": "s"}, []upstream.Field{{Key: "api_secret", Secret: true}}, testKey)
+	enc, err := EncryptFields(Map{"api_secret": "s"}, []integration.Field{{Key: "api_secret", Secret: true}}, testKey)
 	if err != nil {
 		t.Fatalf("EncryptFields: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestDecryptFieldsWrongKey(t *testing.T) {
 }
 
 func TestMaskOnlySecretFields(t *testing.T) {
-	schema := []upstream.Field{{Key: "api_key"}, {Key: "api_secret", Secret: true}}
+	schema := []integration.Field{{Key: "api_key"}, {Key: "api_secret", Secret: true}}
 	masked := Map{"api_key": "user1", "api_secret": "1234567890"}.Mask(schema)
 	if masked["api_key"] != "user1" {
 		t.Fatalf("non-secret masked: %q", masked["api_key"])

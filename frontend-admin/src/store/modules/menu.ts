@@ -2,6 +2,7 @@ import { markRaw, type Component } from 'vue'
 import { defineStore } from 'pinia'
 
 import {
+  AddIcon,
   AiToolIcon,
   AppIcon,
   BillIcon,
@@ -32,10 +33,13 @@ import {
   MoneyIcon,
   OrderIcon,
   RefreshIcon,
+  RootListIcon,
   ServerIcon,
   ServiceIcon,
   SettingIcon,
   ShareIcon,
+  SoundIcon,
+  StarIcon,
   StopIcon,
   TagIcon,
   TicketIcon,
@@ -105,6 +109,12 @@ const iconMap: Record<string, Component> = {
   'cloud-download': CloudDownloadIcon,
   'data-checked': DataCheckedIcon,
   'ai-tool': AiToolIcon,
+  // 产品域菜单图标补齐：后端 seed 中的 add / star / sound / root-list
+  // 此前未映射，导致「自定义规格」「推荐位管理」等叶子菜单无图标。
+  add: AddIcon,
+  star: StarIcon,
+  sound: SoundIcon,
+  'root-list': RootListIcon,
 }
 
 function resolveIcon(name?: string): Component | undefined {

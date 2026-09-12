@@ -49,8 +49,8 @@ func (r *pricingRepository) List(ctx context.Context, query dto.PricingQuery) ([
 	if query.BillingMode != "" {
 		base = base.Where("billing_mode = ?", query.BillingMode)
 	}
-	if query.Status != 0 {
-		base = base.Where("status = ?", query.Status)
+	if query.Status != nil {
+		base = base.Where("status = ?", *query.Status)
 	}
 	var total int64
 	if err := base.Count(&total).Error; err != nil {

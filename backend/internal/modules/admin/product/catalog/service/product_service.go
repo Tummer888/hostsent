@@ -108,6 +108,9 @@ type SpecBindingReader interface {
 	ConfirmedPlatformParamsByProductSpec(ctx context.Context, productSpecID uint64) (string, error)
 	// BindingStatusByProductSpecs 批量取 SKU 的出站绑定状态：product_spec_id → status。
 	BindingStatusByProductSpecs(ctx context.Context, productSpecIDs []uint64) (map[uint64]string, error)
+	// ConfirmedPlatformParamsByProductSpecs 批量取 SKU 已确认的出站平台参数：
+	// product_spec_id → platform_params（无绑定/未确认者不在 map 中）。
+	ConfirmedPlatformParamsByProductSpecs(ctx context.Context, productSpecIDs []uint64) (map[uint64]string, error)
 }
 
 // SpecExternalBindingReader 读取上游规格绑定（代理链路上架门禁用，T4.6）。
@@ -226,6 +229,10 @@ func (s *productService) Create(ctx context.Context, req dto.ProductCreateReques
 	if err != nil {
 		return nil, err
 	}
+	sourceMode, err := normalizeSourceMode(req.SourceMode)
+	if err != nil {
+		return nil, err
+	}
 	item := &model.Product{
 		Code:             strings.TrimSpace(req.Code),
 		Name:             strings.TrimSpace(req.Name),
@@ -239,6 +246,7 @@ func (s *productService) Create(ctx context.Context, req dto.ProductCreateReques
 		CostPrice:        req.CostPrice,
 		SourceProductID:  req.SourceProductID,
 		SourceProviderID: req.SourceProviderID,
+		SourceMode:       sourceMode,
 		ConfigOptions:    req.ConfigOptions,
 		Stock:            req.Stock,
 		SortOrder:        req.SortOrder,
@@ -253,10 +261,6 @@ func (s *productService) Create(ctx context.Context, req dto.ProductCreateReques
 	}
 	if item.Status == 0 {
 		item.Status = model.ProductStatusDraft
-	}
-	// 链路判据单一化（D6）：source_mode 即链路，空值归一为自营（P8 起 provision_mode 列已删除）。
-	if item.SourceMode == "" {
-		item.SourceMode = model.SourceModeSelf
 	}
 	if err := s.repo.Create(ctx, item); err != nil {
 		return nil, err
@@ -290,6 +294,14 @@ func (s *productService) Update(ctx context.Context, id uint64, req dto.ProductU
 	item.Stock = req.Stock
 	item.SortOrder = req.SortOrder
 	item.Status = req.Status
+	// 链路判据（D6）：指针为 nil 表示未传，保持原值；显式改动会同时影响上架门禁与履约分派。
+	if req.SourceMode != nil {
+		sourceMode, err := normalizeSourceMode(*req.SourceMode)
+		if err != nil {
+			return nil, err
+		}
+		item.SourceMode = sourceMode
+	}
 	// 上游加价规则与透传标记（T4.3）：指针为 nil 表示未传，保持原值。
 	if req.UpstreamMarkupType != nil {
 		markupType, err := normalizeMarkupType(*req.UpstreamMarkupType)
@@ -569,7 +581,7 @@ func (s *productService) ListSpecs(ctx context.Context, id uint64) ([]dto.Produc
 	for _, item := range items {
 		resp = append(resp, buildProductSpecInfo(item))
 	}
-	s.fillBindingStatus(ctx, resp)
+	s.fillSpecBinding(ctx, resp)
 	return resp, nil
 }
 
@@ -580,13 +592,13 @@ func (s *productService) FindSpec(ctx context.Context, productID uint64, specCod
 		return nil, err
 	}
 	info := buildProductSpecInfo(*item)
-	s.fillBindingStatus(ctx, []dto.ProductSpecInfo{info})
+	s.fillSpecBinding(ctx, []dto.ProductSpecInfo{info})
 	return &info, nil
 }
 
-// fillBindingStatus 批量回填 SKU 的出站绑定状态（T4.2）；
+// fillSpecBinding 批量回填 SKU 的出站绑定状态与已确认平台参数（T4.2）。
 // 读取失败时保持空串（列表仍可用，仅门禁侧会视为未绑定）。
-func (s *productService) fillBindingStatus(ctx context.Context, items []dto.ProductSpecInfo) {
+func (s *productService) fillSpecBinding(ctx context.Context, items []dto.ProductSpecInfo) {
 	if s.bindingReader == nil || len(items) == 0 {
 		return
 	}
@@ -603,8 +615,15 @@ func (s *productService) fillBindingStatus(ctx context.Context, items []dto.Prod
 	if err != nil {
 		return
 	}
+	params, err := s.bindingReader.ConfirmedPlatformParamsByProductSpecs(ctx, ids)
+	if err != nil {
+		params = nil // 参数回填失败不影响状态展示
+	}
 	for i := range items {
 		items[i].BindingStatus = status[items[i].ID]
+		if p, ok := params[items[i].ID]; ok {
+			items[i].PlatformParams = p
+		}
 	}
 }
 
@@ -1058,6 +1077,19 @@ func normalizeMarkupType(v string) (string, error) {
 		return strings.ToLower(strings.TrimSpace(v)), nil
 	default:
 		return "", errors.New("不支持的加价类型，仅支持 percent / fixed")
+	}
+}
+
+// normalizeSourceMode 归一链路判据（D6）：空值默认自营，仅接受 self / upstream。
+// 拒绝未知取值而非静默改写，避免"选了上游转售却建成自营"。
+func normalizeSourceMode(v string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", model.SourceModeSelf:
+		return model.SourceModeSelf, nil
+	case model.SourceModeUpstream:
+		return model.SourceModeUpstream, nil
+	default:
+		return "", errors.New("不支持的链路，仅支持 self / upstream")
 	}
 }
 

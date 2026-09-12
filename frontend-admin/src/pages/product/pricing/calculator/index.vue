@@ -92,6 +92,10 @@ const billingModeOptions = [
   { label: '按月', value: 'monthly' },
 ]
 
+// 小时价与月价的换算基数：30 天 × 24 小时 = 720 小时/月。
+// 与后端 pkg/billingcycle 的「月 = 720 小时」口径保持一致，改这里需同步改那边。
+const HOURS_PER_MONTH = 720
+
 const productOptions = ref<{ label: string; value: number }[]>([])
 const productMap = ref<Record<number, SaleProductInfo>>({})
 const productLoading = ref(false)
@@ -167,9 +171,9 @@ function applyUnitPrice() {
   }
   const price = product.price
   if (form.billing_mode === 'hourly') {
-    form.unit_price = Number((price / 720).toFixed(4))
+    form.unit_price = Number((price / HOURS_PER_MONTH).toFixed(4))
   } else if (form.billing_mode === 'monthly') {
-    form.unit_price = Number((price * 720).toFixed(2))
+    form.unit_price = Number((price * HOURS_PER_MONTH).toFixed(2))
   }
 }
 

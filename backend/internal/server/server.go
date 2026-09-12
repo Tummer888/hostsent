@@ -140,6 +140,8 @@ import (
 	// 各上游适配器通过 init() 注册工厂，须在此空导入以触发注册。
 	_ "hostsent/backend/internal/pkg/upstream/mofangfinance"
 	_ "hostsent/backend/internal/pkg/upstream/mofangyun"
+	// 支付渠道适配器同样以 init() 登记能力描述符与工厂。
+	_ "hostsent/backend/internal/pkg/payment/manual"
 )
 
 type Server struct {
@@ -721,7 +723,9 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 代客下单复用 UC 下单管线（余额扣 owner、SKU/库存/算价/履约投递同一条路径）；
 	// 实例接口复用实例运维台（电源/暂停/审计）与生命周期续费（双链路，T5.2）。
 	openBundle := buildOpenBundle(cfg, database, ucProductService, ucOrderService, instanceOpsService, lifecycleRenewalSvc, specContractRepo, pricePipeline, logger)
-	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, logger, jwtIssuer)
+	// 支付中心（doc35）：渠道管理 + 支付单 + 收银台，并注入提现打款与订单渠道退款钩子。
+	paymentBundle := buildPaymentBundle(cfg, database, walletService, rechargeService, billService, orderService, withdrawService, logger)
+	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, logger, jwtIssuer)
 	router := newRouter(app)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
@@ -911,22 +915,22 @@ func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order
 		sourceMode = syncmodel.SourceModeSelf
 	}
 	row := syncmodel.Instance{
-		InstanceID:  inst.UpstreamID,
-		ProviderID:  uint64(inst.ProviderID),
-		UserID:      order.UserID,
-		Name:        firstNonEmpty(inst.Name, order.ProductName),
-		CPU:         specs.CPU,
-		Memory:      specs.Memory,
-		Disk:        specs.Disk,
-		DiskType:    specs.DiskType,
-		Bandwidth:   specs.Bandwidth,
-		OS:          specs.OS,
-		Region:      firstNonEmpty(inst.Region, specs.Region),
-		Zone:        firstNonEmpty(inst.Zone, specs.Zone),
-		Status:      string(inst.Status),
-		PublicIP:    inst.PublicIP,
-		PrivateIP:   inst.PrivateIP,
-		RawData:     string(rawJSON),
+		InstanceID: inst.UpstreamID,
+		ProviderID: uint64(inst.ProviderID),
+		UserID:     order.UserID,
+		Name:       firstNonEmpty(inst.Name, order.ProductName),
+		CPU:        specs.CPU,
+		Memory:     specs.Memory,
+		Disk:       specs.Disk,
+		DiskType:   specs.DiskType,
+		Bandwidth:  specs.Bandwidth,
+		OS:         specs.OS,
+		Region:     firstNonEmpty(inst.Region, specs.Region),
+		Zone:       firstNonEmpty(inst.Zone, specs.Zone),
+		Status:     string(inst.Status),
+		PublicIP:   inst.PublicIP,
+		PrivateIP:  inst.PrivateIP,
+		RawData:    string(rawJSON),
 		// 计费周期优先取订单 cycle（doc25）：实例账期推进与续费按真实周期走。
 		BillingMode: firstNonEmpty(order.Cycle, order.PriceModel),
 		// 子账号下单时 order.OperatorID 为真实操作人，落到实例「操作人」列（P4-09）。

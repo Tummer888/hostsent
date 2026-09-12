@@ -311,7 +311,7 @@ const routes: Array<RouteRecordRaw> = [
     path: '/product',
     component: () => import('@/layouts/index.vue'),
     redirect: '/product/products',
-    meta: { title: '商品销售' },
+    meta: { title: '产品管理' },
     children: [
       // —— 商品管理（catalog）——
       {
@@ -381,7 +381,7 @@ const routes: Array<RouteRecordRaw> = [
         path: 'pricing',
         name: 'ProductPricing',
         component: () => import('@/pages/product/pricing/index.vue'),
-        meta: { title: '价格策略', role: 'admin', permission: 'pricing:list' },
+        meta: { title: '商品调价', role: 'admin', permission: 'pricing:list' },
       },
       {
         path: 'pricing/calculator',
@@ -622,6 +622,63 @@ const routes: Array<RouteRecordRaw> = [
         name: 'FinanceConfig',
         component: () => import('@/pages/finance/config/index.vue'),
         meta: { title: '财务配置', role: 'admin', permission: 'finance:wallet' },
+      },
+    ],
+  },
+  {
+    // 支付中心（doc35）：与财务管理并列的独立模块 —— 财务管账本，支付管钱进出的通道。
+    path: '/payment',
+    component: () => import('@/layouts/index.vue'),
+    redirect: '/payment/overview',
+    meta: { title: '支付中心' },
+    children: [
+      {
+        path: 'overview',
+        name: 'PaymentOverview',
+        component: () => import('@/pages/payment/overview/index.vue'),
+        meta: { title: '支付概览', role: 'admin', permission: 'payment:channel' },
+      },
+      {
+        path: 'channels',
+        name: 'PaymentChannels',
+        component: () => import('@/pages/payment/channels/index.vue'),
+        meta: { title: '支付渠道', role: 'admin', permission: 'payment:channel' },
+      },
+      {
+        path: 'methods',
+        name: 'PaymentMethods',
+        component: () => import('@/pages/payment/methods/index.vue'),
+        meta: { title: '支付方式', role: 'admin', permission: 'payment:method' },
+      },
+      {
+        path: 'orders',
+        name: 'PaymentOrders',
+        component: () => import('@/pages/payment/orders/index.vue'),
+        meta: { title: '支付订单', role: 'admin', permission: 'payment:order' },
+      },
+      {
+        path: 'callbacks',
+        name: 'PaymentCallbacks',
+        component: () => import('@/pages/payment/callbacks/index.vue'),
+        meta: { title: '回调日志', role: 'admin', permission: 'payment:callback' },
+      },
+      {
+        path: 'refunds',
+        name: 'PaymentRefunds',
+        component: () => import('@/pages/payment/refunds/index.vue'),
+        meta: { title: '渠道退款', role: 'admin', permission: 'payment:refund' },
+      },
+      {
+        path: 'payouts',
+        name: 'PaymentPayouts',
+        component: () => import('@/pages/payment/payouts/index.vue'),
+        meta: { title: '打款管理', role: 'admin', permission: 'payment:payout' },
+      },
+      {
+        path: 'recon',
+        name: 'PaymentRecon',
+        component: () => import('@/pages/payment/recon/index.vue'),
+        meta: { title: '渠道对账', role: 'admin', permission: 'payment:recon' },
       },
     ],
   },

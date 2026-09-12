@@ -3,7 +3,8 @@ package dto
 
 // CategoryListRequest 分类树查询
 type CategoryListRequest struct {
-	Status int `form:"status" json:"status"`
+	// Status 指针区分「未传」与「显式筛 status=0（停用）」
+	Status *int `form:"status" json:"status"`
 }
 
 // CategoryCreateRequest 创建分类

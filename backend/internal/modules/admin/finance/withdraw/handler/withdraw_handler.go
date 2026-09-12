@@ -98,3 +98,57 @@ func (h *WithdrawHandler) Reject(c *gin.Context) {
 	}
 	response.Success(c, resp)
 }
+
+// MarkPaid godoc
+// @Summary 登记打款完成（结算冻结资金）
+// @Tags 财务管理-提现
+// @Security BearerAuth
+// @Param id path int true "提现单 ID"
+// @Param request body dto.WithdrawPayoutRequest true "打款登记参数"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/finance/withdrawals/{id}/mark-paid [post]
+func (h *WithdrawHandler) MarkPaid(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	var req dto.WithdrawPayoutRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	operatorID, _ := operatorFromContext(c)
+	resp, err := h.withdrawService.MarkPaid(c.Request.Context(), id, req, operatorID)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// MarkFailed godoc
+// @Summary 登记打款失败（解冻退回余额）
+// @Tags 财务管理-提现
+// @Security BearerAuth
+// @Param id path int true "提现单 ID"
+// @Param request body dto.WithdrawAuditRequest true "失败原因"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/finance/withdrawals/{id}/mark-failed [post]
+func (h *WithdrawHandler) MarkFailed(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	var req dto.WithdrawAuditRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	operatorID, _ := operatorFromContext(c)
+	resp, err := h.withdrawService.MarkFailed(c.Request.Context(), id, req, operatorID)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}

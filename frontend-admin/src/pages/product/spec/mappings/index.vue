@@ -59,7 +59,7 @@
     <section class="table-card surface-card">
       <div class="table-card__head">
         <h3 class="card-title">映射列表</h3>
-        <span class="table-card__meta">共 {{ total }} 条映射</span>
+        <span class="table-card__meta">共 {{ pagination.total }} 条映射</span>
       </div>
       <t-table
         row-key="id"
@@ -108,8 +108,8 @@
               :options="buildMobileActionOptions([
                 { content: '编辑', value: 'edit', theme: 'default' },
                 { content: '绑定平台规格', value: 'bind', theme: 'default' },
-                { content: '停用', value: 'toggle', hidden: () => !(row.status === 1), theme: 'warning' },
-                { content: '启用', value: 'toggle', hidden: () => !(row.status !== 1), theme: 'success' },
+                { content: '停用', value: 'toggle', hidden: () => row.status !== 1, theme: 'warning' },
+                { content: '启用', value: 'toggle', hidden: () => row.status === 1, theme: 'success' },
                 { content: '删除', value: 'delete', theme: 'error' },
               ])"
               @select="(value) => handleMobileAction(value, row)"
@@ -212,7 +212,7 @@
 import { onMounted, reactive, ref } from 'vue'
 
 import { AddIcon, AppIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
-import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { getProviderTypes } from '@/api/admin'
 import {
@@ -229,13 +229,13 @@ import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { useMobilePagination } from '@/composables/useMobilePagination'
 
 defineOptions({ name: 'ProductSpecMappings' })
 
 const loading = ref(false)
 const { isMobile } = useIsMobile()
 const list = ref<SpecMappingInfo[]>([])
-const total = ref(0)
 
 const providerTypeOptions = ref<{ label: string; value: string }[]>([])
 const statusOptions = ref<{ label: string; value: number }[]>([
@@ -249,19 +249,9 @@ const filters = reactive<{ provider_type: string | undefined; keyword: string | 
   status: undefined,
 })
 
-const pagination = reactive({
-  current: 1,
-  pageSize: 20,
-  total: 0,
-  showJumper: true,
-})
+const { pagination, mobilePage, applyTotal, handlePageChange, goMobilePage, handleMobilePageSizeChange, resetPage } =
+  useMobilePagination(loadMappings)
 
-// 移动端分页状态：与桌面端 pagination 同步维护
-const mobilePage = reactive({
-  current: 1,
-  pageSize: 10,
-  total: 0,
-})
 const columns: PrimaryTableCol<SpecMappingInfo>[] = [
   { colKey: 'provider_type', title: '供应商类型', width: 120 },
   { colKey: 'upstream', title: '上游规格', minWidth: 160 },
@@ -306,9 +296,7 @@ async function loadMappings() {
       page_size: pagination.pageSize,
     })
     list.value = data.items
-    total.value = data.meta.total
-    pagination.total = data.meta.total
-    mobilePage.total = data.meta.total
+    applyTotal(data.meta.total)
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载规格映射失败')
   } finally {
@@ -316,47 +304,15 @@ async function loadMappings() {
   }
 }
 
-function handlePageChange(pageInfo: PageInfo) {
-  pagination.current = pageInfo.current
-  pagination.pageSize = pageInfo.pageSize
-  loadMappings()
-  mobilePage.current = pageInfo?.current ?? pagination.current
-  mobilePage.pageSize = pageInfo?.pageSize ?? pagination.pageSize
-  mobilePage.total = pagination.total
-}
-
-// —— 移动端分页交互 ——
-function goMobilePage(target: number) {
-  const clamped = Math.min(Math.max(target, 1), Math.max(1, Math.ceil(mobilePage.total / mobilePage.pageSize)))
-  if (clamped === mobilePage.current) return
-  void applyMobilePage(clamped, mobilePage.pageSize)
-}
-
-async function applyMobilePage(current: number, pageSize: number) {
-  pagination.current = current
-  pagination.pageSize = pageSize
-  mobilePage.current = current
-  mobilePage.pageSize = pageSize
-  await handlePageChange({ current, pageSize } as never)
-}
-
-function handleMobilePageSizeChange(pageSize: number) {
-  mobilePage.pageSize = pageSize
-  void applyMobilePage(1, pageSize)
-}
-
-
 function handleSearch() {
-  pagination.current = 1
-  loadMappings()
+  resetPage()
 }
 
 function handleResetFilters() {
   filters.provider_type = undefined
   filters.keyword = undefined
   filters.status = undefined
-  pagination.current = 1
-  loadMappings()
+  resetPage()
 }
 
 // ---- 新建 / 编辑 ----
@@ -496,14 +452,23 @@ async function handleToggleStatus(row: SpecMappingInfo) {
   }
 }
 
-async function handleDelete(row: SpecMappingInfo) {
-  try {
-    await deleteSpecMapping(row.id)
-    MessagePlugin.success('已删除')
-    loadMappings()
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '删除失败')
-  }
+function handleDelete(row: SpecMappingInfo) {
+  const dialog = DialogPlugin.confirm({
+    header: '删除规格映射',
+    body: `确认删除「${row.upstream_spec_id}」的映射？删除后不可恢复。`,
+    theme: 'danger',
+    confirmBtn: { content: '删除', theme: 'danger' },
+    onConfirm: async () => {
+      try {
+        await deleteSpecMapping(row.id)
+        MessagePlugin.success('已删除')
+        dialog.hide()
+        loadMappings()
+      } catch (error) {
+        MessagePlugin.error((error as Error).message || '删除失败')
+      }
+    },
+  })
 }
 
 onMounted(() => {

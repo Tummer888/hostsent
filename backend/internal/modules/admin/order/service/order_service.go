@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -36,6 +37,14 @@ type OrderService interface {
 	SetProvisionQueue(queue ProvisionQueue)
 	// SetProductSourceModeResolver 注入商品链路判据解析（装配层调用，仅用于任务留痕）。
 	SetProductSourceModeResolver(fn func(ctx context.Context, productID uint64) string)
+	// MarkPaidByChannel 支付中心回调确认到账：pending→paid 并记录渠道支付方式。
+	// 已是 paid/active 时幂等返回；返回是否发生了状态迁移（供装配层决定是否继续开通）。
+	MarkPaidByChannel(ctx context.Context, orderNo, payMethod, channelTx string) (bool, error)
+	// ActivateByNo 按订单号触发开通（支付成功后调用，复用异步任务队列）。
+	ActivateByNo(ctx context.Context, orderNo string) error
+	// SetChannelRefundHook 注入渠道退款钩子（装配层调用）：退款审核通过后原路退回，
+	// 无渠道支付记录时钩子实现回落为余额回补。
+	SetChannelRefundHook(hook OrderChannelRefundHook)
 	// 退款管理
 	ListRefunds(ctx context.Context, q dto.RefundListQuery) (*dto.RefundListResponse, error)
 	FindRefund(ctx context.Context, id uint64) (*dto.RefundInfo, error)
@@ -49,6 +58,11 @@ type OrderCashbackHook func(ctx context.Context, orderID uint64, orderNo string,
 
 // OrderRefundHook 退款审核通过后的返现冲减钩子：按退款额占实付比例冲减邀请人返现。
 type OrderRefundHook func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, paidAmount, refundAmount float64, refundNo string) error
+
+// OrderChannelRefundHook 退款审核通过后的渠道退款钩子（doc34 F-03 / doc35 §6.4）：
+// 有渠道支付记录时原路退回，无记录（余额支付）时由钩子实现回落为余额回补。
+// 失败不影响退款审核结果，装配层负责记录日志并留待人工处理。
+type OrderChannelRefundHook func(ctx context.Context, orderID uint64, orderNo string, orderRefundNo string, userID uint64, amount float64) error
 
 // ProvisionQueue 异步开通任务队列（T5.1，由 ProvisionEnqueuer 实现）。
 // 订单模块只依赖这一最小接口，避免与 uc/装配层形成反向依赖。
@@ -69,6 +83,8 @@ type orderService struct {
 	cashbackHook OrderCashbackHook
 	// refundHook 可选：退款审核通过后冲减已计提返现，为 nil 时跳过。
 	refundHook OrderRefundHook
+	// channelRefundHook 可选：退款审核通过后走渠道原路退回（doc35 S1），为 nil 时跳过。
+	channelRefundHook OrderChannelRefundHook
 }
 
 // NewOrderService 创建订单业务服务。
@@ -94,6 +110,60 @@ func (s *orderService) SetProvisionQueue(queue ProvisionQueue) {
 // SetProductSourceModeResolver 注入商品链路判据解析（装配层调用）。
 func (s *orderService) SetProductSourceModeResolver(fn func(ctx context.Context, productID uint64) string) {
 	s.productSourceMode = fn
+}
+
+// SetChannelRefundHook 注入渠道退款钩子（装配层调用）。
+func (s *orderService) SetChannelRefundHook(hook OrderChannelRefundHook) {
+	s.channelRefundHook = hook
+}
+
+// MarkPaidByChannel 支付中心确认到账：pending→paid，记录渠道支付方式与渠道交易号。
+// 已 paid/active/provisioning 等已收款状态幂等返回 false；返回 true 表示本次完成了迁移。
+func (s *orderService) MarkPaidByChannel(ctx context.Context, orderNo, payMethod, channelTx string) (bool, error) {
+	item, err := s.orderRepo.FindByNo(ctx, orderNo)
+	if err != nil {
+		return false, mapOrderErr(err)
+	}
+	if item.Status != model.OrderStatusPending {
+		// 已收款/已开通：幂等，不重复迁移与开通。
+		return false, nil
+	}
+	if err := EnsureStatus(item.Status, model.OrderStatusPaid); err != nil {
+		return false, err
+	}
+	now := time.Now()
+	item.Status = model.OrderStatusPaid
+	if payMethod != "" {
+		item.PayMethod = payMethod
+	}
+	item.PayTime = &now
+	item.Remark = remarkWithChannelTx(item.Remark, channelTx)
+	if err := s.orderRepo.Update(ctx, item); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ActivateByNo 按订单号触发开通（支付成功回调路径复用异步任务队列）。
+func (s *orderService) ActivateByNo(ctx context.Context, orderNo string) error {
+	item, err := s.orderRepo.FindByNo(ctx, orderNo)
+	if err != nil {
+		return mapOrderErr(err)
+	}
+	return s.EnqueueProvision(ctx, item.ID)
+}
+
+// remarkWithChannelTx 把渠道交易号追加到订单备注（保留人工备注，幂等去重）。
+func remarkWithChannelTx(remark, channelTx string) string {
+	channelTx = strings.TrimSpace(channelTx)
+	if channelTx == "" || strings.Contains(remark, channelTx) {
+		return remark
+	}
+	tag := "渠道流水号:" + channelTx
+	if remark == "" {
+		return tag
+	}
+	return remark + " | " + tag
 }
 
 // EnqueueProvision 投递异步开通任务（T5.1）。
@@ -373,6 +443,13 @@ func (s *orderService) ApproveRefund(ctx context.Context, id uint64, operatorID 
 	if s.refundHook != nil {
 		if order, err := s.orderRepo.FindByID(ctx, refund.OrderID); err == nil {
 			_ = s.refundHook(ctx, order.ID, order.OrderNo, order.UserID, order.PaidAmount, refund.Amount, refund.RefundNo)
+		}
+	}
+	// 退款审核通过 → 渠道原路退回（无渠道支付记录时钩子实现回落为余额回补，见 doc34 F-03）。
+	// 退回失败不回滚审核结果：支付中心留存退款单与失败原因，由财务人工重试或线下处理。
+	if s.channelRefundHook != nil {
+		if order, err := s.orderRepo.FindByID(ctx, refund.OrderID); err == nil {
+			_ = s.channelRefundHook(ctx, order.ID, order.OrderNo, refund.RefundNo, order.UserID, refund.Amount)
 		}
 	}
 	return s.FindRefund(ctx, refund.ID)

@@ -35,17 +35,19 @@ func normalizePageSize(pageSize int) int {
 // buildRechargeInfo 构建充值单 DTO。
 func buildRechargeInfo(rc model.Recharge) dto.RechargeInfo {
 	return dto.RechargeInfo{
-		ID:         rc.ID,
-		RechargeNo: rc.RechargeNo,
-		UserID:     rc.UserID,
-		Amount:     rc.Amount,
-		Method:     rc.Method,
-		Status:     rc.Status,
-		ChannelTx:  rc.ChannelTx,
-		PaidAt:     formatTime(rc.PaidAt),
-		Remark:     rc.Remark,
-		CreatedAt:  rc.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:  rc.UpdatedAt.Format(time.RFC3339),
+		ID:             rc.ID,
+		RechargeNo:     rc.RechargeNo,
+		UserID:         rc.UserID,
+		Amount:         rc.Amount,
+		Method:         rc.Method,
+		Status:         rc.Status,
+		ChannelTx:      rc.ChannelTx,
+		ChannelCode:    rc.ChannelCode,
+		PaymentOrderID: rc.PaymentOrderID,
+		PaidAt:         formatTime(rc.PaidAt),
+		Remark:         rc.Remark,
+		CreatedAt:      rc.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:      rc.UpdatedAt.Format(time.RFC3339),
 	}
 }
 

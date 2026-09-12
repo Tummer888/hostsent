@@ -4,10 +4,12 @@ import "encoding/json"
 
 // ProductListQuery 产品列表查询
 type ProductListQuery struct {
-	Keyword       string `form:"keyword" json:"keyword"`
-	CategoryID    uint64 `form:"category_id" json:"category_id"`
-	Status        int    `form:"status" json:"status"`
-	SourceMode    string `form:"source_mode" json:"source_mode"`       // self / upstream（双链路判据）
+	Keyword    string `form:"keyword" json:"keyword"`
+	CategoryID uint64 `form:"category_id" json:"category_id"`
+	// Status 状态过滤：用指针区分「未传」与「显式筛 status=0（草稿）」。
+	// 此前用 int + `!= 0` 判断，导致「草稿」筛选条件被当成未传，前端选草稿会返回全部商品。
+	Status     *int   `form:"status" json:"status"`
+	SourceMode string `form:"source_mode" json:"source_mode"` // self / upstream（双链路判据）
 	// Featured 推荐位过滤：nil=不过滤，true/false=按推荐位精确筛选。
 	// 用指针而非 bool，以区分「未传」与「显式传 false」。
 	Featured *bool `form:"featured" json:"featured"`
@@ -33,6 +35,9 @@ type ProductCreateRequest struct {
 	Stock            int     `json:"stock"`
 	SortOrder        int     `json:"sort_order"`
 	Status           int     `json:"status"`
+	// SourceMode 链路判据（D6 单一判据）：self 自营 / upstream 上游转售；空值归一为 self。
+	// 此前 DTO 缺该字段，导致前端选了链路也被静默丢弃（只能建出自营商品），见 doc23 P0-1。
+	SourceMode string `json:"source_mode"`
 	// 上游加价规则与"仅透传"标记（T4.3）：代理商品改上游价后按此规则重算售价。
 	UpstreamMarkupType  string  `json:"upstream_markup_type"`
 	UpstreamMarkupValue float64 `json:"upstream_markup_value"`
@@ -77,6 +82,8 @@ type ProductUpdateRequest struct {
 	Stock         int     `json:"stock"`
 	SortOrder     int     `json:"sort_order"`
 	Status        int     `json:"status"`
+	// SourceMode 链路判据（D6）：指针区分"未传"（保持原值）与"显式改链路"。
+	SourceMode *string `json:"source_mode"`
 	// 上游加价规则与"仅透传"标记（T4.3）；省略则保持原值（指针区分"未传"与"清空"）。
 	UpstreamMarkupType  *string  `json:"upstream_markup_type"`
 	UpstreamMarkupValue *float64 `json:"upstream_markup_value"`

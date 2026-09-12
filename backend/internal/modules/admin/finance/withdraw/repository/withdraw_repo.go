@@ -13,6 +13,7 @@ import (
 type WithdrawRepository interface {
 	Create(ctx context.Context, w *model.Withdraw) error
 	Update(ctx context.Context, w *model.Withdraw) error
+	Delete(ctx context.Context, id uint64) error
 	FindByID(ctx context.Context, id uint64) (*model.Withdraw, error)
 	List(ctx context.Context, q dto.WithdrawListQuery) ([]model.Withdraw, int64, error)
 }
@@ -32,6 +33,10 @@ func (r *withdrawRepository) Create(ctx context.Context, w *model.Withdraw) erro
 
 func (r *withdrawRepository) Update(ctx context.Context, w *model.Withdraw) error {
 	return r.db.WithContext(ctx).Save(w).Error
+}
+
+func (r *withdrawRepository) Delete(ctx context.Context, id uint64) error {
+	return r.db.WithContext(ctx).Delete(&model.Withdraw{}, id).Error
 }
 
 func (r *withdrawRepository) FindByID(ctx context.Context, id uint64) (*model.Withdraw, error) {

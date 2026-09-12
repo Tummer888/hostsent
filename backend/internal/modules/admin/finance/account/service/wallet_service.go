@@ -29,6 +29,17 @@ type ChangeRequest struct {
 	OperatorID uint64
 }
 
+// FreezeRequest 冻结/解冻/结算冻结资金请求。
+type FreezeRequest struct {
+	UserID     uint64
+	Amount     float64
+	RefNo      string
+	BizType    string
+	TxType     string
+	Remark     string
+	OperatorID uint64
+}
+
 // WalletService 账务核心能力：所有余额变动必须经由本服务（唯一资金入口）。
 type WalletService interface {
 	// Balance 查询用户可用/冻结余额
@@ -39,6 +50,12 @@ type WalletService interface {
 	ListTransactions(ctx context.Context, q transdto.TransactionListQuery) (*transdto.TransactionListResponse, error)
 	// Adjust 人工调账（赠送/扣减）
 	Adjust(ctx context.Context, req accountdto.AdjustRequest, operatorID uint64) (*transdto.TransactionInfo, error)
+	// Freeze 冻结：可用余额 → 冻结余额（提现申请/预授权），不计入累计支出
+	Freeze(ctx context.Context, req FreezeRequest) (*transmodel.WalletTransaction, error)
+	// Unfreeze 解冻：冻结余额 → 可用余额（提现驳回/打款失败）
+	Unfreeze(ctx context.Context, req FreezeRequest) (*transmodel.WalletTransaction, error)
+	// SettleFrozen 结算冻结：冻结余额 → 真实支出（打款成功），计入累计支出
+	SettleFrozen(ctx context.Context, req FreezeRequest) (*transmodel.WalletTransaction, error)
 }
 
 type walletService struct {
@@ -135,6 +152,128 @@ func (s *walletService) Change(ctx context.Context, req ChangeRequest) (*transmo
 			OrderNo:       req.OrderNo,
 			RefNo:         req.RefNo,
 			BizType:       req.BizType,
+			Remark:        req.Remark,
+			OperatorID:    req.OperatorID,
+		}
+		if err := s.txRepo.Create(tx, record); err != nil {
+			return err
+		}
+		result = record
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// Freeze 冻结：可用余额 → 冻结余额。不计入累计支出，流水方向按支出侧记 0 额
+// 变动金额仍记冻结额，但 direction 记为 0 会破坏既有约束，故按「支出方向 + 冻结标记」
+// 记账：Amount 记冻结额、余额不变，仅冻结列增减。
+func (s *walletService) Freeze(ctx context.Context, req FreezeRequest) (*transmodel.WalletTransaction, error) {
+	return s.moveFrozen(ctx, req, "freeze")
+}
+
+// Unfreeze 解冻：冻结余额 → 可用余额。
+func (s *walletService) Unfreeze(ctx context.Context, req FreezeRequest) (*transmodel.WalletTransaction, error) {
+	return s.moveFrozen(ctx, req, "unfreeze")
+}
+
+// SettleFrozen 结算冻结：冻结余额 → 真实支出（打款成功）。从冻结列扣减，
+// 余额不再次扣减（冻结时已从可用余额划出），累计支出累加。
+func (s *walletService) SettleFrozen(ctx context.Context, req FreezeRequest) (*transmodel.WalletTransaction, error) {
+	return s.moveFrozen(ctx, req, "settle")
+}
+
+// moveFrozen 冻结资金状态迁移的统一实现（事务 + 行锁 + 幂等）。
+//
+//	freeze  ：available -= amount, frozen += amount
+//	unfreeze：available += amount, frozen -= amount
+//	settle  ：frozen    -= amount（available 不变，累计支出 += amount）
+func (s *walletService) moveFrozen(ctx context.Context, req FreezeRequest, action string) (*transmodel.WalletTransaction, error) {
+	if req.Amount <= 0 {
+		return nil, ErrInsufficientBalance
+	}
+	bizType := req.BizType
+	if bizType == "" {
+		bizType = "freeze"
+	}
+	txType := req.TxType
+	if txType == "" {
+		switch action {
+		case "freeze":
+			txType = transmodel.TxTypeFreeze
+		case "unfreeze":
+			txType = transmodel.TxTypeUnfreeze
+		default:
+			txType = transmodel.TxTypeSettlement
+		}
+	}
+	var result *transmodel.WalletTransaction
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		acc, err := s.walletRepo.LockByUser(tx, req.UserID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				acc = &accountmodel.WalletAccount{UserID: req.UserID}
+				if cerr := s.walletRepo.Create(tx, acc); cerr != nil {
+					return cerr
+				}
+			} else {
+				return err
+			}
+		}
+		// 幂等：同业务同来源只处理一次
+		if existing, err := s.txRepo.FindByBiz(tx, req.UserID, bizType, req.RefNo); err == nil {
+			result = existing
+			return nil
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+
+		amount := money.Round2(req.Amount)
+		available := acc.Balance
+		frozen := acc.Frozen
+		switch action {
+		case "freeze":
+			if amount > available {
+				return ErrInsufficientBalance
+			}
+			acc.Balance = money.Round2(available - amount)
+			acc.Frozen = money.Round2(frozen + amount)
+		case "unfreeze":
+			if amount > frozen {
+				return ErrFrozenInsufficient
+			}
+			acc.Balance = money.Round2(available + amount)
+			acc.Frozen = money.Round2(frozen - amount)
+		case "settle":
+			if amount > frozen {
+				return ErrFrozenInsufficient
+			}
+			acc.Frozen = money.Round2(frozen - amount)
+			acc.TotalExpense = money.Round2(acc.TotalExpense + amount)
+		}
+		acc.Version++
+		if err := s.walletRepo.Update(tx, acc); err != nil {
+			return err
+		}
+		if err := s.walletRepo.SyncUsersBalance(tx, req.UserID, acc.Balance); err != nil {
+			return err
+		}
+		dir := transmodel.DirectionExpense
+		if action == "unfreeze" {
+			dir = transmodel.DirectionIncome
+		}
+		record := &transmodel.WalletTransaction{
+			TxNo:          genTxNo(),
+			UserID:        req.UserID,
+			Type:          txType,
+			Direction:     dir,
+			Amount:        money.Round2(req.Amount),
+			BalanceBefore: available,
+			BalanceAfter:  acc.Balance,
+			RefNo:         req.RefNo,
+			BizType:       bizType,
 			Remark:        req.Remark,
 			OperatorID:    req.OperatorID,
 		}

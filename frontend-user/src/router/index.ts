@@ -86,6 +86,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '资金流水', icon: 'money', permission: 'billing:view' },
       },
       {
+        path: 'billing/payment-methods',
+        name: 'BillingPaymentMethods',
+        component: () => import('@/pages/billing/payment-methods.vue'),
+        meta: { title: '支付方式', icon: 'wallet', permission: 'billing:view' },
+      },
+      {
         path: 'support',
         redirect: '/support/tickets',
         meta: { title: '工单中心' },

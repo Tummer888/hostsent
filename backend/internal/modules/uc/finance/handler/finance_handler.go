@@ -13,7 +13,6 @@ import (
 	accountdto "hostsent/backend/internal/modules/admin/finance/account/dto"
 	billdto "hostsent/backend/internal/modules/admin/finance/bill/dto"
 	finrechdto "hostsent/backend/internal/modules/admin/finance/recharge/dto"
-	finrechmodel "hostsent/backend/internal/modules/admin/finance/recharge/model"
 	transdto "hostsent/backend/internal/modules/admin/finance/transaction/dto"
 	apperrors "hostsent/backend/internal/pkg/errors"
 	"hostsent/backend/internal/pkg/middleware"
@@ -28,7 +27,7 @@ type (
 	}
 	rechargePort interface {
 		Create(ctx context.Context, req finrechdto.RechargeCreateRequest, operatorID uint64) (*finrechdto.RechargeInfo, error)
-		ApproveByNo(ctx context.Context, rechargeNo string, req finrechdto.RechargeApproveRequest, operatorID uint64) (*finrechdto.RechargeInfo, error)
+		List(ctx context.Context, query finrechdto.RechargeListQuery) (*finrechdto.RechargeListResponse, error)
 	}
 	billPort interface {
 		List(ctx context.Context, query billdto.BillListQuery) (*billdto.BillListResponse, error)
@@ -46,13 +45,6 @@ type FinanceHandler struct {
 // NewFinanceHandler 创建用户中心财务处理器。
 func NewFinanceHandler(wallet walletPort, recharge rechargePort, bill billPort, mapErr func(error) *apperrors.AppError) *FinanceHandler {
 	return &FinanceHandler{wallet: wallet, recharge: recharge, bill: bill, mapErr: mapErr}
-}
-
-// rechargeCallbackRequest 充值渠道回调请求。
-type rechargeCallbackRequest struct {
-	RechargeNo string `json:"recharge_no" binding:"required"` // 充值单号
-	ChannelTx  string `json:"channel_tx"`                     // 渠道交易号
-	Status     string `json:"status"`                         // 渠道状态：success/failed
 }
 
 // currentUserID 返回数据归属账号 ID（P4-04）：余额/账单/流水一律取主账号。
@@ -147,6 +139,37 @@ func (h *FinanceHandler) CreateRecharge(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// Recharges 查询我的充值单（余额页「我的充值单」列表）。
+// 此前前端以资金流水冒充满值单（`as unknown as RechargeInfo[]`），充值单号/状态必然空白
+// （doc34 F-07）；本接口直接返回本人充值单，含支付中心渠道与支付单号。
+// @Summary 我的充值单
+// @Tags 用户中心-财务
+// @Security BearerAuth
+// @Param status query string false "状态"
+// @Param page query int false "页码"
+// @Param page_size query int false "每页数量"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/finance/recharges [get]
+func (h *FinanceHandler) Recharges(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		unauthorized(c)
+		return
+	}
+	var query finrechdto.RechargeListQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	query.UserID = userID // 仅能查自己的充值单
+	resp, err := h.recharge.List(c.Request.Context(), query)
+	if err != nil {
+		response.Error(c, h.mapErr(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
 // Bills 查询我的账单。
 // @Summary 我的账单
 // @Tags 用户中心-财务
@@ -175,31 +198,4 @@ func (h *FinanceHandler) Bills(c *gin.Context) {
 		return
 	}
 	response.Success(c, resp)
-}
-
-// RechargeCallback 充值渠道回调（幂等：同单号只到账一次）。
-// @Summary 充值回调
-// @Tags 用户中心-财务
-// @Param request body rechargeCallbackRequest true "回调参数"
-// @Success 200 {object} response.Body
-// @Router /api/v1/uc/finance/recharge/callback [post]
-func (h *FinanceHandler) RechargeCallback(c *gin.Context) {
-	var req rechargeCallbackRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperrors.New(20001, err.Error()))
-		return
-	}
-	// 仅当渠道通知成功时才入账；失败/其他状态忽略
-	if req.Status != "" && req.Status != finrechmodel.RechargeStatusSuccess {
-		response.Success(c, gin.H{"handled": true, "status": req.Status})
-		return
-	}
-	_, err := h.recharge.ApproveByNo(c.Request.Context(), req.RechargeNo, finrechdto.RechargeApproveRequest{
-		ChannelTx: req.ChannelTx,
-	}, 0)
-	if err != nil {
-		response.Error(c, h.mapErr(err))
-		return
-	}
-	response.Success(c, gin.H{"handled": true, "status": finrechmodel.RechargeStatusSuccess})
 }

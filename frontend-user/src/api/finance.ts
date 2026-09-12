@@ -47,6 +47,9 @@ export interface RechargeInfo {
   method: string
   status: string
   channel_tx?: string
+  /** 支付中心渠道编码与支付单 ID（在线充值经收银台下单后回填） */
+  channel_code?: string
+  payment_order_id?: number
   remark?: string
   paid_at?: string
   created_at: string
@@ -65,11 +68,41 @@ export interface BillInfo {
   total_amount: number
   refund_amount: number
   status: string
+  // 支付方式描述（doc34 F-11）：结清时记录实收金额与所用方式/渠道。
+  paid_amount?: number
+  paid_method?: string
+  paid_channel_id?: number
   created_at: string
+  updated_at?: string
 }
 
 export interface BillListResponse {
   items: BillInfo[]
+  meta: ListMeta
+}
+
+/** 我的提现记录（含收款账户与打款方式，来自支付中心） */
+export interface WithdrawInfo {
+  id: number
+  withdraw_no: string
+  user_id: number
+  amount: number
+  channel: string
+  channel_name?: string
+  account: string
+  account_name: string
+  bank_name: string
+  status: string
+  payout_no: string
+  payout_mode: string
+  channel_tx: string
+  remark: string
+  paid_at?: string
+  created_at: string
+}
+
+export interface WithdrawListResponse {
+  items: WithdrawInfo[]
   meta: ListMeta
 }
 
@@ -108,7 +141,17 @@ export function createRecharge(data: RechargeCreateRequest) {
   return request.post<any, { data: RechargeInfo }>('/uc/finance/recharge', data)
 }
 
+// 查询我的充值单（doc34 F-07：此前以流水冒充，充值单号为空）
+export function getMyRecharges(params: { status?: string; page?: number; page_size?: number } = {}) {
+  return request.get<any, { data: RechargeListResponse }>('/uc/finance/recharges', { params })
+}
+
 // 查询我的账单
 export function getMyBills(params: BillListQuery = {}) {
   return request.get<any, { data: BillListResponse }>('/uc/finance/bills', { params })
+}
+
+// 查询我的提现记录（支付中心）
+export function getMyWithdrawals(params: { page?: number; page_size?: number } = {}) {
+  return request.get<any, { data: WithdrawListResponse }>('/uc/payment/withdrawals', { params })
 }

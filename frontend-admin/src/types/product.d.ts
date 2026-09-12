@@ -5,8 +5,9 @@ export interface SaleProductListQuery {
   keyword?: string
   category_id?: number
   status?: number
-  provision_mode?: string
+  /** 链路判据（D6）：self 自营 / upstream 上游转售 */
   source_mode?: string
+  /** 推荐位过滤：不传=不过滤，true/false=精确筛选（服务端支持） */
   featured?: boolean
   page?: number
   page_size?: number
@@ -25,7 +26,8 @@ export interface SaleProductCreateRequest {
   cost_price?: number
   source_product_id?: number
   source_provider_id?: number
-  provision_mode?: string
+  /** 链路判据（D6）：self 自营 / upstream 上游转售；省略视为 self */
+  source_mode?: string
   config_options?: string
   stock?: number
   sort_order?: number
@@ -72,6 +74,8 @@ export interface SaleProductUpdateRequest {
   stock?: number
   sort_order?: number
   status?: number
+  /** 链路判据（D6）：省略=保持原值，显式传则改链路 */
+  source_mode?: string
   // 加价规则与透传标记（T4.3）：指针语义——省略保持原值。
   upstream_markup_type?: string
   upstream_markup_value?: number
@@ -98,7 +102,7 @@ export interface SaleProductInfo {
   cost_price: number
   source_product_id: number
   source_provider_id: number
-  provision_mode: string
+  /** 链路判据（D6 单一判据）：self 自营 / upstream 上游转售 */
   source_mode: string
   config_options: string
   /** 上游加价规则（T4.3）：percent / fixed，空串表示未配置 */

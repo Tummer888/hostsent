@@ -2,8 +2,10 @@ import type { App, Component } from 'vue'
 import { h, shallowRef } from 'vue'
 
 import {
+  AddIcon,
   AiToolIcon,
   AppIcon,
+  CalendarIcon,
   ChartBarIcon,
   ChartBubbleIcon,
   CheckCircleIcon,
@@ -11,7 +13,7 @@ import {
   CloudIcon,
   ControlPlatformIcon,
   DashboardIcon,
-  DataCheckedIcon,
+  DiscountIcon,
   ErrorCircleIcon,
   FileIcon,
   HistoryIcon,
@@ -29,6 +31,7 @@ import {
   SettingIcon,
   ShareIcon,
   SoundIcon,
+  StarIcon,
   StopIcon,
   TagIcon,
   TimeIcon,
@@ -36,6 +39,7 @@ import {
   UserListIcon,
   UsergroupIcon,
   VerifyIcon,
+  WalletIcon,
 } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
 
@@ -191,7 +195,7 @@ export const navMenu = [
         icon: iconWrapper(LayersIcon),
         children: [
           { title: '规格模板', path: '/product/spec/templates', icon: iconWrapper(LayersIcon) },
-          { title: '自定义规格', path: '/product/spec/custom', icon: iconWrapper(FileIcon) },
+          { title: '自定义规格', path: '/product/spec/custom', icon: iconWrapper(AddIcon) },
           { title: '规格映射', path: '/product/spec/mappings', icon: iconWrapper(LinkIcon) },
         ],
       },
@@ -200,10 +204,11 @@ export const navMenu = [
         path: '/product/pricing-center',
         icon: iconWrapper(MoneyIcon),
         children: [
-          { title: '价格策略', path: '/product/pricing', icon: iconWrapper(MoneyIcon) },
+          { title: '商品调价', path: '/product/pricing', icon: iconWrapper(MoneyIcon) },
+          { title: '周期价格', path: '/product/pricing/matrix', icon: iconWrapper(CalendarIcon) },
           { title: '价格计算器', path: '/product/pricing/calculator', icon: iconWrapper(ChartBarIcon) },
           { title: '价格历史', path: '/product/pricing/history', icon: iconWrapper(HistoryIcon) },
-          { title: '折扣策略', path: '/product/pricing/policies', icon: iconWrapper(MoneyIcon) },
+          { title: '折扣策略', path: '/product/pricing/policies', icon: iconWrapper(DiscountIcon) },
         ],
       },
       {
@@ -214,7 +219,7 @@ export const navMenu = [
           { title: '优惠券管理', path: '/product/promotion/coupons', icon: iconWrapper(TagIcon) },
           { title: '折扣活动', path: '/product/promotion/activities', icon: iconWrapper(ChartBarIcon) },
           { title: '套餐组合', path: '/product/promotion/bundles', icon: iconWrapper(AppIcon) },
-          { title: '推荐位管理', path: '/product/promotion/recommends', icon: iconWrapper(DataCheckedIcon) },
+          { title: '推荐位管理', path: '/product/promotion/recommends', icon: iconWrapper(StarIcon) },
         ],
       },
       {
@@ -315,6 +320,49 @@ export const navMenu = [
         icon: iconWrapper(SettingIcon),
         children: [
           { title: '财务配置', path: '/finance/config', icon: iconWrapper(SettingIcon) },
+        ],
+      },
+    ],
+  },
+  {
+    title: '支付中心',
+    path: '/payment',
+    icon: iconWrapper(WalletIcon),
+    children: [
+      {
+        title: '支付概览',
+        path: '/payment/overview',
+        icon: iconWrapper(DashboardIcon),
+        children: [
+          { title: '支付概览', path: '/payment/overview', icon: iconWrapper(DashboardIcon) },
+        ],
+      },
+      {
+        title: '渠道管理',
+        path: '/payment/channel-center',
+        icon: iconWrapper(LinkIcon),
+        children: [
+          { title: '支付渠道', path: '/payment/channels', icon: iconWrapper(LinkIcon) },
+          { title: '支付方式', path: '/payment/methods', icon: iconWrapper(WalletIcon) },
+        ],
+      },
+      {
+        title: '交易管理',
+        path: '/payment/trade-center',
+        icon: iconWrapper(OrderIcon),
+        children: [
+          { title: '支付订单', path: '/payment/orders', icon: iconWrapper(OrderIcon) },
+          { title: '回调日志', path: '/payment/callbacks', icon: iconWrapper(MailIcon) },
+          { title: '渠道退款', path: '/payment/refunds', icon: iconWrapper(RefreshIcon) },
+        ],
+      },
+      {
+        title: '出款与对账',
+        path: '/payment/payout-center',
+        icon: iconWrapper(MoneyIcon),
+        children: [
+          { title: '打款管理', path: '/payment/payouts', icon: iconWrapper(MoneyIcon) },
+          { title: '渠道对账', path: '/payment/recon', icon: iconWrapper(VerifyIcon) },
         ],
       },
     ],

@@ -46,7 +46,7 @@
     <section class="table-card surface-card">
       <div class="table-card__head">
         <h3 class="card-title">规格模板列表</h3>
-        <span class="table-card__meta">共 {{ total }} 条</span>
+        <span class="table-card__meta">共 {{ pagination.total }} 条</span>
       </div>
       <t-table
         row-key="id"
@@ -56,8 +56,8 @@
         size="small"
         hover
         cell-empty-content="—"
-        :pagination="pagination"
-        @page-change="onPageChange"
+        :pagination="isMobile ? undefined : pagination"
+        @page-change="handlePageChange"
       >
         <template #spec="{ row }">
           <div class="product-cell"><span class="cell-strong">{{ row.name }}</span><span class="product-sub">{{ familyLabel(row.spec_family) }}</span></div>
@@ -85,6 +85,15 @@
         </template>
         <template #empty><t-empty description="暂无规格模板，请新增" /></template>
       </t-table>
+
+      <MobilePagination
+        v-if="isMobile"
+        :current="mobilePage.current"
+        :page-size="mobilePage.pageSize"
+        :total="mobilePage.total"
+        @go="goMobilePage"
+        @page-size="handleMobilePageSizeChange"
+      />
     </section>
 
     <t-dialog v-model:visible="dialogVisible" :header="form.id ? '编辑规格模板' : '新增规格模板'" width="560px"
@@ -112,23 +121,26 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { AddIcon, AppIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
-import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { createSpecTemplate, deleteSpecTemplate, getSpecTemplateList, updateSpecTemplate } from '@/api/product'
 import type { SpecTemplateInfo } from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
+import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { useMobilePagination } from '@/composables/useMobilePagination'
 
 defineOptions({ name: 'ProductSpecTemplates' })
 
 const items = ref<SpecTemplateInfo[]>([])
 const loading = ref(false)
 const { isMobile } = useIsMobile()
-const total = ref(0)
 
 const filters = reactive<{ keyword?: string; spec_family?: string; status?: number }>({})
-const pagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
+
+const { pagination, mobilePage, applyTotal, handlePageChange, goMobilePage, handleMobilePageSizeChange, resetPage } =
+  useMobilePagination(load)
 
 const specFamilyOptions = [
   { label: '通用型', value: 'general' },
@@ -171,8 +183,7 @@ async function load() {
       page_size: pagination.pageSize,
     })
     items.value = data.items
-    total.value = data.meta.total
-    pagination.total = data.meta.total
+    applyTotal(data.meta.total)
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载失败')
   } finally {
@@ -181,19 +192,13 @@ async function load() {
 }
 
 function search() {
-  pagination.current = 1
-  load()
+  resetPage()
 }
 function resetFilters() {
   filters.keyword = undefined
   filters.spec_family = undefined
   filters.status = undefined
-  search()
-}
-function onPageChange(info: PageInfo) {
-  pagination.current = info.current
-  pagination.pageSize = info.pageSize
-  load()
+  resetPage()
 }
 
 const dialogVisible = ref(false)
@@ -237,13 +242,22 @@ async function save() {
   }
 }
 async function remove(row: SpecTemplateInfo) {
-  try {
-    await deleteSpecTemplate(row.id)
-    MessagePlugin.success('已删除')
-    load()
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '删除失败')
-  }
+  const dialog = DialogPlugin.confirm({
+    header: '删除规格模板',
+    body: `确认删除「${row.name}」？删除后不可恢复。`,
+    theme: 'danger',
+    confirmBtn: { content: '删除', theme: 'danger' },
+    onConfirm: async () => {
+      try {
+        await deleteSpecTemplate(row.id)
+        MessagePlugin.success('已删除')
+        dialog.hide()
+        load()
+      } catch (error) {
+        MessagePlugin.error((error as Error).message || '删除失败')
+      }
+    },
+  })
 }
 
 onMounted(load)

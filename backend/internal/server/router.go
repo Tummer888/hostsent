@@ -486,10 +486,46 @@ func newRouter(app *App) *gin.Engine {
 			financeGroup.GET("/withdrawals", app.perm("finance:withdraw"), app.withdrawHandler.List)
 			financeGroup.POST("/withdrawals/:id/approve", app.perm("finance:withdraw:audit"), app.withdrawHandler.Approve)
 			financeGroup.POST("/withdrawals/:id/reject", app.perm("finance:withdraw:audit"), app.withdrawHandler.Reject)
+			// 打款闭环（doc34 F-02）：审核通过后登记打款完成/失败，成功才结算冻结资金。
+			financeGroup.POST("/withdrawals/:id/mark-paid", app.perm("finance:withdraw:audit"), app.withdrawHandler.MarkPaid)
+			financeGroup.POST("/withdrawals/:id/mark-failed", app.perm("finance:withdraw:audit"), app.withdrawHandler.MarkFailed)
 			// 账单/对账
 			financeGroup.GET("/bills", app.perm("finance:bill"), app.billHandler.List)
 			financeGroup.POST("/bills/:id/close", app.perm("finance:bill:close"), app.billHandler.Close)
 			financeGroup.POST("/bills/recon", app.perm("finance:bill:recon"), app.reconHandler.Reconcile)
+		}
+
+		// 支付中心（doc35）：渠道配置 / 支付单 / 回调 / 退款 / 打款 / 对账 / 支付方式
+		paymentGroup := v1.Group("/payment")
+		paymentGroup.Use(app.adminAuth())
+		{
+			// 渠道类型与渠道实例
+			paymentGroup.GET("/channel-types", app.perm("payment:channel"), app.payment.channelHandler.ListTypes)
+			paymentGroup.GET("/channels", app.perm("payment:channel"), app.payment.channelHandler.List)
+			paymentGroup.POST("/channels", app.perm("payment:channel:manage"), app.payment.channelHandler.Create)
+			paymentGroup.GET("/channels/:id", app.perm("payment:channel"), app.payment.channelHandler.Get)
+			paymentGroup.PUT("/channels/:id", app.perm("payment:channel:manage"), app.payment.channelHandler.Update)
+			paymentGroup.PATCH("/channels/:id/status", app.perm("payment:channel:manage"), app.payment.channelHandler.UpdateStatus)
+			paymentGroup.POST("/channels/:id/test", app.perm("payment:channel"), app.payment.channelHandler.Test)
+			// 支付单
+			paymentGroup.GET("/orders", app.perm("payment:order"), app.payment.orderHandler.List)
+			paymentGroup.GET("/orders/:id", app.perm("payment:order"), app.payment.orderHandler.Get)
+			paymentGroup.POST("/orders/:id/confirm", app.perm("payment:order:operate"), app.payment.orderHandler.Confirm)
+			paymentGroup.POST("/orders/:id/close", app.perm("payment:order:operate"), app.payment.orderHandler.Close)
+			paymentGroup.POST("/orders/:id/sync", app.perm("payment:order:operate"), app.payment.orderHandler.Sync)
+			// 回调日志
+			paymentGroup.GET("/callbacks", app.perm("payment:callback"), app.payment.callbackHandler.List)
+			// 渠道退款单
+			paymentGroup.GET("/refunds", app.perm("payment:refund"), app.payment.refundHandler.List)
+			// 打款单
+			paymentGroup.GET("/payouts", app.perm("payment:payout"), app.payment.payoutHandler.List)
+			paymentGroup.POST("/payouts/:id/mark-paid", app.perm("payment:payout:operate"), app.payment.payoutHandler.MarkPaid)
+			paymentGroup.POST("/payouts/:id/retry", app.perm("payment:payout:operate"), app.payment.payoutHandler.Retry)
+			// 渠道对账
+			paymentGroup.GET("/recon", app.perm("payment:recon"), app.payment.reconHandler.List)
+			paymentGroup.POST("/recon", app.perm("payment:recon"), app.payment.reconHandler.Reconcile)
+			// 支付方式路由（场景可用渠道与优先级）
+			paymentGroup.GET("/methods", app.perm("payment:method"), app.payment.methodHandler.Options)
 		}
 
 		// 推广邀请返现（台账 / 邀请关系 / 提现审核）
@@ -593,8 +629,34 @@ func newRouter(app *App) *gin.Engine {
 		ucFinance.GET("/balance", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.Balance)           // 我的余额
 		ucFinance.GET("/transactions", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.Transactions) // 我的资金流水
 		ucFinance.POST("/recharge", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.userFinanceHandler.CreateRecharge)                        // 发起充值（子账号拒绝）
+		ucFinance.GET("/recharges", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.Recharges)       // 我的充值单（doc34 F-07）
 		ucFinance.GET("/bills", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.Bills)               // 我的账单
-		ucFinance.POST("/recharge/callback", app.userFinanceHandler.RechargeCallback)                                                                                             // 充值回调（渠道通知）
+		// 注：原未鉴权充值回调 POST /uc/finance/recharge/callback 已下线（doc34 F-01）。
+		// 充值到账改由支付中心统一回调 /api/v1/payment/notify/:channel_code 验签后驱动。
+	}
+
+	// 用户中心支付：收银台 / 支付方式偏好 / 收款账户 / 提现申请（子账号拒绝资金入口）。
+	ucPayment := r.Group("/api/v1/uc/payment")
+	{
+		// 查看类（账单域权限即可）
+		ucPayment.GET("/methods", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.payment.userPaymentHandler.Methods)
+		ucPayment.GET("/preferences", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.payment.userPaymentHandler.Preferences)
+		ucPayment.PUT("/preferences", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.payment.userPaymentHandler.SavePreferences)
+		ucPayment.GET("/accounts", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.payment.userPaymentHandler.Accounts)
+		ucPayment.GET("/withdrawals", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.payment.userPaymentHandler.Withdrawals)
+		ucPayment.GET("/orders/:payment_no", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.payment.userPaymentHandler.Order)
+		// 资金入口（子账号硬拒绝，P4-06）
+		ucPayment.POST("/accounts", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.payment.userPaymentHandler.CreateAccount)
+		ucPayment.PUT("/accounts/:id/default", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.payment.userPaymentHandler.SetDefaultAccount)
+		ucPayment.POST("/recharge", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.payment.userPaymentHandler.Recharge)
+		ucPayment.POST("/bills/pay", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.payment.userPaymentHandler.PayBill)
+		ucPayment.POST("/withdrawals", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.payment.userPaymentHandler.Withdraw)
+	}
+
+	// 支付渠道异步回调（免登录，唯一信任来源为渠道验签；取代原未鉴权充值回调）。
+	paymentNotify := r.Group("/api/v1/payment/notify")
+	{
+		paymentNotify.POST("/:channel_code", app.payment.notifyHandler.Notify)
 	}
 
 	// 用户中心推广返现：查看邀请码/邀请人/返现明细属账单域，申请提现与转入余额为资金入口（子账号拒绝）。

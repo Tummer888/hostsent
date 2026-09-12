@@ -5,7 +5,7 @@
    通过 :is() 聚合各页面命名空间作用，不影响实例页自身的样式。
    ============================================================ */
 
-:is(.order-module, .ticket-module, .finance-module, .resource-module, .dashboard-page, .user-overview-page) {
+:is(.order-module, .ticket-module, .finance-module, .payment-module, .resource-module, .dashboard-page, .user-overview-page) {
   /* ---------- 骨架 ---------- */
   .stat-card {
     --stat-accent: 100, 116, 139;

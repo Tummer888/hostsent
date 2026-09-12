@@ -3,6 +3,8 @@ package upstream
 import (
 	"sort"
 	"sync"
+
+	"hostsent/backend/internal/pkg/integration"
 )
 
 // ============================================================================
@@ -76,33 +78,21 @@ const (
 )
 
 // FieldType 凭证/端点字段的控件类型，用于后台动态表单渲染。
+// 常量与结构类型中立化到 pkg/integration（支付渠道复用同一套凭证加密与动态表单）。
 const (
-	FieldTypeString   = "string"
-	FieldTypePassword = "password"
-	FieldTypeNumber   = "number"
-	FieldTypeSelect   = "select"
-	FieldTypeBool     = "bool"
-	FieldTypeTextarea = "textarea"
+	FieldTypeString   = integration.FieldTypeString
+	FieldTypePassword = integration.FieldTypePassword
+	FieldTypeNumber   = integration.FieldTypeNumber
+	FieldTypeSelect   = integration.FieldTypeSelect
+	FieldTypeBool     = integration.FieldTypeBool
+	FieldTypeTextarea = integration.FieldTypeTextarea
 )
 
-// FieldOption 下拉选项。
-type FieldOption struct {
-	Label string `json:"label"`
-	Value string `json:"value"`
-}
+// FieldOption 下拉选项（定义见 pkg/integration）。
+type FieldOption = integration.FieldOption
 
-// Field 凭证/端点字段描述：驱动后台"添加渠道"动态表单 + 字段级加密。
-type Field struct {
-	Key         string        `json:"key"`
-	Label       string        `json:"label"`
-	Type        string        `json:"type"` // FieldType*
-	Required    bool          `json:"required"`
-	Secret      bool          `json:"secret"` // true=落库前字段级加密，回显脱敏
-	Placeholder string        `json:"placeholder,omitempty"`
-	Help        string        `json:"help,omitempty"`
-	Default     string        `json:"default,omitempty"`
-	Options     []FieldOption `json:"options,omitempty"`
-}
+// Field 凭证/端点字段描述：驱动后台"添加渠道"动态表单 + 字段级加密（定义见 pkg/integration）。
+type Field = integration.Field
 
 // RateLimitSpec 渠道级限流参数（令牌桶）。
 type RateLimitSpec struct {

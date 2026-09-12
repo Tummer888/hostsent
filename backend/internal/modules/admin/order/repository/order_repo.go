@@ -16,6 +16,8 @@ import (
 type OrderRepository interface {
 	List(ctx context.Context, query dto.OrderListQuery) ([]model.Order, int64, error)
 	FindByID(ctx context.Context, id uint64) (*model.Order, error)
+	// FindByNo 按订单号读取（支付成功事件回查业务单用）。
+	FindByNo(ctx context.Context, orderNo string) (*model.Order, error)
 	FindByIDs(ctx context.Context, ids []uint64) ([]model.Order, error)
 	Create(ctx context.Context, item *model.Order) error
 	Update(ctx context.Context, item *model.Order) error
@@ -88,6 +90,15 @@ func (r *orderRepository) List(ctx context.Context, query dto.OrderListQuery) ([
 func (r *orderRepository) FindByID(ctx context.Context, id uint64) (*model.Order, error) {
 	var item model.Order
 	if err := r.db.WithContext(ctx).First(&item, id).Error; err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
+// FindByNo 按订单号读取。
+func (r *orderRepository) FindByNo(ctx context.Context, orderNo string) (*model.Order, error) {
+	var item model.Order
+	if err := r.db.WithContext(ctx).Where("order_no = ?", orderNo).First(&item).Error; err != nil {
 		return nil, err
 	}
 	return &item, nil

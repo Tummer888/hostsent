@@ -49,8 +49,8 @@ func (r *couponRepository) List(ctx context.Context, query dto.CouponQuery) ([]m
 	if query.CouponType != "" {
 		base = base.Where("coupon_type = ?", query.CouponType)
 	}
-	if query.Status != 0 {
-		base = base.Where("status = ?", query.Status)
+	if query.Status != nil {
+		base = base.Where("status = ?", *query.Status)
 	}
 	var total int64
 	if err := base.Count(&total).Error; err != nil {
@@ -177,8 +177,8 @@ func (r *promotionRepository) List(ctx context.Context, query dto.PromotionQuery
 	if query.PromotionType != "" {
 		base = base.Where("promotion_type = ?", query.PromotionType)
 	}
-	if query.Status != 0 {
-		base = base.Where("status = ?", query.Status)
+	if query.Status != nil {
+		base = base.Where("status = ?", *query.Status)
 	}
 	var total int64
 	if err := base.Count(&total).Error; err != nil {

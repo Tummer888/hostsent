@@ -48,8 +48,8 @@ func (r *specTemplateRepository) List(ctx context.Context, query dto.SpecTemplat
 	if query.SpecFamily != "" {
 		base = base.Where("spec_family = ?", query.SpecFamily)
 	}
-	if query.Status != 0 {
-		base = base.Where("status = ?", query.Status)
+	if query.Status != nil {
+		base = base.Where("status = ?", *query.Status)
 	}
 	var total int64
 	if err := base.Count(&total).Error; err != nil {
@@ -119,8 +119,8 @@ func (r *specMappingRepository) List(ctx context.Context, query dto.SpecMappingQ
 		like := "%" + keyword + "%"
 		base = base.Where("upstream_spec_id ILIKE ? OR upstream_name ILIKE ? OR platform_name ILIKE ?", like, like, like)
 	}
-	if query.Status != 0 {
-		base = base.Where("status = ?", query.Status)
+	if query.Status != nil {
+		base = base.Where("status = ?", *query.Status)
 	}
 	var total int64
 	if err := base.Count(&total).Error; err != nil {

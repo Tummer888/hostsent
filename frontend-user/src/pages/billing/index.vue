@@ -286,6 +286,24 @@
             <template #refund_amount="{ row }">
               <span class="num-cell">¥ {{ formatPrice(row.refund_amount) }}</span>
             </template>
+            <template #paid_method="{ row }">
+              <div v-if="row.status === 'paid'" class="cell-main">
+                <span class="cell-strong">{{ paidMethodLabel(row.paid_method) }}</span>
+                <span class="cell-sub">实收 ¥{{ formatPrice(row.paid_amount ?? row.total_amount - row.refund_amount) }}</span>
+              </div>
+              <span v-else class="time-text">—</span>
+            </template>
+            <template #action="{ row }">
+              <t-link
+                v-if="row.status === 'unpaid' && memberStore.has('billing:recharge')"
+                theme="primary"
+                hover="color"
+                @click="openBillPay(row)"
+              >
+                去支付
+              </t-link>
+              <span v-else class="time-text">—</span>
+            </template>
             <template #created_at="{ row }">
               <span class="time-text">{{ formatTime(row.created_at) }}</span>
             </template>
@@ -296,6 +314,30 @@
         </section>
       </template>
     </div>
+
+    <!-- 账单支付收银台 -->
+    <t-dialog
+      v-model:visible="billPayVisible"
+      header="账单支付"
+      width="520px"
+      :confirm-btn="{ content: '发起支付', theme: 'primary', loading: billPaying }"
+      :cancel-btn="{ content: '取消' }"
+      @confirm="handleBillPay"
+      @close="billPayVisible = false"
+    >
+      <t-alert
+        v-if="billPayTarget"
+        theme="info"
+        :message="`账单 ${billPayTarget.bill_no}（账期 ${billPayTarget.period}）应结 ¥${formatPrice(billDue)}`"
+        style="margin-bottom: 12px"
+      />
+      <t-form label-align="top" :data="billPayForm" @submit.prevent>
+        <t-form-item label="支付方式">
+          <t-select v-model="billPayForm.channel_code" placeholder="选择支付方式" :options="billPayChannelOptions" />
+        </t-form-item>
+      </t-form>
+      <p class="dialog-tip">支付单将由平台收银台创建；线下人工方式会返回转账指引，需后台确认到账。</p>
+    </t-dialog>
   </div>
 </template>
 
@@ -425,8 +467,16 @@ const billColumns: PrimaryTableCol<BillInfo>[] = [
   { colKey: 'total_amount', title: '消费金额', width: 130, align: 'right' },
   { colKey: 'refund_amount', title: '退款金额', width: 130, align: 'right' },
   { colKey: 'status', title: '状态', width: 110 },
+  { colKey: 'paid_method', title: '支付方式', width: 150 },
+  { colKey: 'action', title: '操作', width: 100 },
   { colKey: 'created_at', title: '创建时间', width: 170 },
 ]
+
+// 账单支付方式展示（后端 MarkPaid 写入的方式/渠道）。
+function paidMethodLabel(method?: string): string {
+  const map: Record<string, string> = { alipay: '支付宝', wechat: '微信支付', wechatpay: '微信支付', manual: '线下/人工', unionpay: '云闪付', bestpay: '翼支付', online: '在线支付', balance: '余额支付' }
+  return map[method || ''] || method || '在线支付'
+}
 
 function onDevelop(name: string) {
   MessagePlugin.info(`${name}功能开发中`)
@@ -452,6 +502,63 @@ async function loadAll() {
 
 function reload() {
   void loadAll()
+}
+
+// ========== 账单支付（支付中心收银台） ==========
+const billPayVisible = ref(false)
+const billPaying = ref(false)
+const billPayTarget = ref<BillInfo | null>(null)
+const billPayForm = reactive<{ channel_code: string | undefined }>({ channel_code: undefined })
+const billPayChannelOptions = ref<Array<{ label: string; value: string }>>([])
+
+const billDue = computed(() => {
+  if (!billPayTarget.value) return 0
+  return Math.max(0, Number(billPayTarget.value.total_amount || 0) - Number(billPayTarget.value.refund_amount || 0))
+})
+
+async function openBillPay(row: BillInfo) {
+  billPayTarget.value = row
+  billPayForm.channel_code = undefined
+  try {
+    const { getPaymentMethods } = await import('@/api/payment')
+    const { data } = await getPaymentMethods({ scene: 'native', amount: billDue.value })
+    const channels = data?.channels || []
+    billPayChannelOptions.value = channels.map((c) => ({ label: c.name, value: c.channel_code }))
+    billPayForm.channel_code = data?.default || channels[0]?.channel_code
+  } catch {
+    billPayChannelOptions.value = []
+  }
+  billPayVisible.value = true
+}
+
+async function handleBillPay() {
+  if (!billPayTarget.value) return
+  billPaying.value = true
+  try {
+    const { payBill } = await import('@/api/payment')
+    const target = billPayTarget.value
+    const { data } = await payBill({
+      bill_id: target.id,
+      bill_no: target.bill_no,
+      amount: billDue.value,
+      channel_code: billPayForm.channel_code,
+    })
+    billPayVisible.value = false
+    // 线下渠道返回转账指引；在线渠道返回支付链接/二维码。
+    if (data?.instructions) {
+      MessagePlugin.success(`支付单 ${data.payment_no} 已创建，请按指引完成转账`)
+    } else {
+      MessagePlugin.success(`支付单 ${data?.payment_no || ''} 已创建，请在渠道完成支付`)
+    }
+    if (data?.pay_url) {
+      window.open(data.pay_url, '_blank', 'noopener')
+    }
+    void loadAll()
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '发起账单支付失败')
+  } finally {
+    billPaying.value = false
+  }
 }
 
 onMounted(loadAll)
@@ -752,6 +859,31 @@ onMounted(loadAll)
   color: #64748b;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
+}
+
+/* 账单支付方式单元格 */
+.cell-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cell-strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.cell-sub {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.dialog-tip {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.6;
 }
 
 /* ============ 深色模式 ============ */

@@ -83,13 +83,29 @@
 
         <template #account="{ row }">
           <div class="price-cell">
-            <span class="cell-strong">{{ row.account }}</span>
-            <span class="price-sub">{{ row.channel }}</span>
+            <span class="cell-strong">{{ row.account_name || row.account }}</span>
+            <span class="price-sub">
+              {{ row.channel_name || row.channel }}
+              <template v-if="row.account_name && row.account"> · {{ row.account }}</template>
+            </span>
           </div>
+        </template>
+
+        <template #payout="{ row }">
+          <div v-if="row.payout_no" class="price-cell">
+            <span class="cell-strong">{{ payoutModeLabel(row.payout_mode) }}</span>
+            <span class="price-sub">{{ row.payout_no }}</span>
+            <span v-if="row.channel_tx" class="price-sub">流水号 {{ row.channel_tx }}</span>
+          </div>
+          <span v-else class="price-sub">待生成打款单</span>
         </template>
 
         <template #created_at="{ row }">
           <span class="time-text">{{ formatTime(row.created_at) }}</span>
+        </template>
+
+        <template #audited_at="{ row }">
+          <span class="time-text">{{ formatTime(row.audited_at) }}</span>
         </template>
 
         <template #action="{ row }">
@@ -174,6 +190,12 @@ import { useIsMobile } from '@/composables/useIsMobile'
 
 defineOptions({ name: 'FinanceWithdrawals' })
 
+// 打款方式中文名（打款单尚未生成时显示占位）。
+function payoutModeLabel(mode?: string): string {
+  if (!mode) return '待打款'
+  return { manual: '人工打款', api: '接口打款' }[mode] || mode
+}
+
 const withdrawList = ref<WithdrawInfo[]>([])
 const loading = ref(false)
 const { isMobile } = useIsMobile()
@@ -207,6 +229,7 @@ const columns: PrimaryTableCol<WithdrawInfo>[] = [
   { colKey: 'user_id', title: '用户ID', width: 90, align: 'center' as const },
   { colKey: 'amount', title: '金额', width: 130 },
   { colKey: 'account', title: '收款账户', minWidth: 180 },
+  { colKey: 'payout', title: '打款方式', minWidth: 190 },
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'audit_by_name', title: '审核人', width: 100 },
   { colKey: 'audited_at', title: '审核时间', width: 170 },

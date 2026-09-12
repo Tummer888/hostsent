@@ -62,18 +62,18 @@ var menuPermissionMap = map[string]string{
 
 	"/product/products": "product:list",
 	// T7.2 商品对接（doc16 §9.3）：组件复用资源侧页面，权限沿用资源商品口径。
-	"/product/upstream":             "resource:product",
-	"/product/cost-pricing":         "product:update_price",
-	"/product/spec/templates":       "spec:template:list",
-	"/product/spec/custom":          "spec:template:list",
-	"/product/spec/mappings":        "spec:mapping:list",
-	"/product/pricing":              "pricing:list",
-	"/product/pricing/calculator":   "pricing:list",
-	"/product/pricing/history":      "pricing:list",
+	"/product/upstream":           "resource:product",
+	"/product/cost-pricing":       "product:update_price",
+	"/product/spec/templates":     "spec:template:list",
+	"/product/spec/custom":        "spec:template:list",
+	"/product/spec/mappings":      "spec:mapping:list",
+	"/product/pricing":            "pricing:list",
+	"/product/pricing/calculator": "pricing:list",
+	"/product/pricing/history":    "pricing:list",
 	// 周期价格矩阵（doc25）：与折扣策略同权限口径（定价查看/维护）。
 	"/product/pricing/matrix": "pricing:list",
 	// 折扣策略此前漏登记 → 菜单对所有角色可见（doc23 问题清单）。
-	"/product/pricing/policies": "pricing:list",
+	"/product/pricing/policies":     "pricing:list",
 	"/product/promotion/coupons":    "promotion:coupon:list",
 	"/product/promotion/activities": "promotion:activity:list",
 	"/product/promotion/bundles":    "promotion:activity:list",
@@ -95,6 +95,16 @@ var menuPermissionMap = map[string]string{
 	"/finance/recon":            "finance:bill",
 	"/finance/report":           "finance:wallet",
 	"/finance/config":           "finance:wallet",
+
+	// 支付中心（doc35）：渠道/支付方式/支付单/回调/退款/打款/对账独立模块。
+	"/payment/overview":  "payment:order",
+	"/payment/channels":  "payment:channel",
+	"/payment/methods":   "payment:method",
+	"/payment/orders":    "payment:order",
+	"/payment/callbacks": "payment:callback",
+	"/payment/refunds":   "payment:refund",
+	"/payment/payouts":   "payment:payout",
+	"/payment/recon":     "payment:recon",
 
 	"/tickets/list":       "ticket:list",
 	"/tickets/categories": "ticket:category",

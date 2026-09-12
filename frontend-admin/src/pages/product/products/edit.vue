@@ -2,6 +2,7 @@
   <ProductForm
     mode="edit"
     :initial="product"
+    :submitting="submitting"
     @submit="handleSubmit"
     @cancel="goBack"
   />
@@ -15,7 +16,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 
 import { getProductDetail, updateProduct } from '@/api/product'
 import ProductForm from './ProductForm.vue'
-import type { SaleProductInfo, SaleProductUpdateRequest } from '@/types/interface'
+import type { SaleProductCreateRequest, SaleProductInfo } from '@/types/interface'
 
 defineOptions({ name: 'ProductProductsEdit' })
 
@@ -23,6 +24,7 @@ const route = useRoute()
 const router = useRouter()
 
 const product = ref<SaleProductInfo | null>(null)
+const submitting = ref(false)
 
 function goBack() {
   router.push('/product/products')
@@ -38,14 +40,20 @@ async function loadProduct() {
   }
 }
 
-async function handleSubmit(payload: Record<string, unknown>) {
+async function handleSubmit(payload: SaleProductCreateRequest) {
   const id = Number(route.params.id)
+  submitting.value = true
   try {
-    await updateProduct(id, payload as unknown as SaleProductUpdateRequest)
+    // 更新接口不接受 code（SKU 编码不可变），其余字段与创建同构。
+    const { code: _code, ...rest } = payload
+    void _code
+    await updateProduct(id, rest)
     MessagePlugin.success('产品已保存')
     router.push('/product/products')
   } catch (error) {
     MessagePlugin.error((error as Error).message || '保存产品失败')
+  } finally {
+    submitting.value = false
   }
 }
 

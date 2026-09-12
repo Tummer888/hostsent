@@ -35,10 +35,13 @@ type RechargeInfo struct {
 	Method     string  `json:"method"`
 	Status     string  `json:"status"`
 	ChannelTx  string  `json:"channel_tx"`
-	PaidAt     string  `json:"paid_at"`
-	Remark     string  `json:"remark"`
-	CreatedAt  string  `json:"created_at"`
-	UpdatedAt  string  `json:"updated_at"`
+	// ChannelCode/PaymentOrderID 支付通道关联（doc35）：在线充值经支付中心下单后回填。
+	ChannelCode    string `json:"channel_code"`
+	PaymentOrderID uint64 `json:"payment_order_id"`
+	PaidAt         string `json:"paid_at"`
+	Remark         string `json:"remark"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
 }
 
 // RechargeListResponse 充值单列表响应

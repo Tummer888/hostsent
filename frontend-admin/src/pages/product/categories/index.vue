@@ -99,7 +99,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import { AddIcon, AppIcon, RefreshIcon } from 'tdesign-icons-vue-next'
-import { MessagePlugin, type TreeOptionData } from 'tdesign-vue-next'
+import { DialogPlugin, MessagePlugin, type TreeOptionData } from 'tdesign-vue-next'
 
 import {
   createProductCategory,
@@ -240,14 +240,23 @@ async function handleSubmit() {
   }
 }
 
-async function handleDelete(node: SaleProductCategoryInfo) {
-  try {
-    await deleteProductCategory(node.id)
-    MessagePlugin.success('分类已删除')
-    loadData()
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '删除分类失败')
-  }
+function handleDelete(node: SaleProductCategoryInfo) {
+  const dialog = DialogPlugin.confirm({
+    header: '删除分类',
+    body: `确认删除「${node.name}」？若其下仍有子分类或已绑定商品，删除将失败。`,
+    theme: 'danger',
+    confirmBtn: { content: '删除', theme: 'danger' },
+    onConfirm: async () => {
+      try {
+        await deleteProductCategory(node.id)
+        MessagePlugin.success('分类已删除')
+        dialog.hide()
+        loadData()
+      } catch (error) {
+        MessagePlugin.error((error as Error).message || '删除分类失败')
+      }
+    },
+  })
 }
 
 onMounted(loadData)

@@ -187,6 +187,16 @@ func (f *fakeBindingReader) ConfirmedPlatformParamsByProductSpec(_ context.Conte
 	return f.params[id], nil
 }
 
+func (f *fakeBindingReader) ConfirmedPlatformParamsByProductSpecs(_ context.Context, ids []uint64) (map[uint64]string, error) {
+	out := make(map[uint64]string, len(ids))
+	for _, id := range ids {
+		if p, ok := f.params[id]; ok {
+			out[id] = p
+		}
+	}
+	return out, nil
+}
+
 // TestValidatePublishSelfRequiresSkuAndBinding 自营商品上架门禁（T4.6）：
 // 无启用 SKU → 拒绝；SKU 绑定未确认 → 拒绝；全部 confirmed → 放行。
 func TestValidatePublishSelfRequiresSkuAndBinding(t *testing.T) {

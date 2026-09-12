@@ -18,7 +18,8 @@ type ListMeta struct {
 type SpecTemplateQuery struct {
 	Keyword    string `form:"keyword" json:"keyword"`
 	SpecFamily string `form:"spec_family" json:"spec_family"`
-	Status     int    `form:"status" json:"status"`
+	// Status 指针区分「未传」与「显式筛 status=0（停用）」
+	Status *int `form:"status" json:"status"`
 	Page       int    `form:"page" json:"page"`
 	PageSize   int    `form:"page_size" json:"page_size"`
 }
@@ -68,9 +69,10 @@ type SpecTemplateListResponse struct {
 type SpecMappingQuery struct {
 	ProviderType string `form:"provider_type" json:"provider_type"`
 	Keyword      string `form:"keyword" json:"keyword"`
-	Status       int    `form:"status" json:"status"`
-	Page         int    `form:"page" json:"page"`
-	PageSize     int    `form:"page_size" json:"page_size"`
+	// Status 指针区分「未传」与「显式筛 status=0（停用）」
+	Status   *int `form:"status" json:"status"`
+	Page     int  `form:"page" json:"page"`
+	PageSize int  `form:"page_size" json:"page_size"`
 }
 
 // SpecMappingRequest 创建/更新规格映射

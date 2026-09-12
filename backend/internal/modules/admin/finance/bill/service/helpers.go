@@ -46,14 +46,17 @@ func normalizePageSize(pageSize int) int {
 // buildBillInfo 构建账单 DTO。
 func buildBillInfo(b billmodel.Bill) dto.BillInfo {
 	return dto.BillInfo{
-		ID:           b.ID,
-		BillNo:       b.BillNo,
-		UserID:       b.UserID,
-		Period:       b.Period,
-		TotalAmount:  b.TotalAmount,
-		RefundAmount: b.RefundAmount,
-		Status:       b.Status,
-		CreatedAt:    b.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:    b.UpdatedAt.Format(time.RFC3339),
+		ID:            b.ID,
+		BillNo:        b.BillNo,
+		UserID:        b.UserID,
+		Period:        b.Period,
+		TotalAmount:   b.TotalAmount,
+		RefundAmount:  b.RefundAmount,
+		Status:        b.Status,
+		PaidAmount:    float64(b.PaidAmountFen) / 100,
+		PaidMethod:    b.PaidMethod,
+		PaidChannelID: b.PaidChannelID,
+		CreatedAt:     b.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:     b.UpdatedAt.Format(time.RFC3339),
 	}
 }

@@ -112,12 +112,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, watch } from 'vue'
 
 import { AddIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
 
-import { getProductCategoryList } from '@/api/product'
 import {
   markupTypeOptions,
   priceModelOptions,
@@ -125,22 +124,24 @@ import {
   productTypeOptions,
   sourceModeOptions,
 } from '@/pages/product/constants'
-import type { SaleProductCategoryInfo, SaleProductInfo } from '@/types/interface'
+import { useCategoryOptions } from '@/composables/useCategoryOptions'
+import type { SaleProductCreateRequest, SaleProductInfo } from '@/types/interface'
 
 const props = defineProps<{
   mode: 'create' | 'edit'
   initial?: SaleProductInfo | null
+  /** 提交中由父页（真正发请求的一侧）持有，避免子组件 emit 后立即复位 loading。 */
+  submitting?: boolean
 }>()
 
 const emit = defineEmits<{
-  (e: 'submit', payload: Record<string, unknown>): void
+  (e: 'submit', payload: SaleProductCreateRequest): void
   (e: 'cancel'): void
 }>()
 
 const pageTitle = computed(() => (props.mode === 'create' ? '新建产品' : '编辑产品'))
 
-const categoryOptions = ref<{ label: string; value: number }[]>([])
-const submitting = ref(false)
+const { categoryOptions, loadCategories } = useCategoryOptions()
 
 const form = reactive({
   code: '',
@@ -169,23 +170,6 @@ const form = reactive({
 const markupValuePlaceholder = computed(() =>
   form.upstream_markup_type === 'fixed' ? '加价金额，如 20' : '百分比，如 130 表示成本×130%',
 )
-
-async function loadCategories() {
-  try {
-    const data = await getProductCategoryList()
-    const options: { label: string; value: number }[] = []
-    const flatten = (nodes: SaleProductCategoryInfo[]) => {
-      for (const node of nodes) {
-        options.push({ label: node.name, value: node.id })
-        if (node.children?.length) flatten(node.children)
-      }
-    }
-    flatten(data.items)
-    categoryOptions.value = options
-  } catch {
-    /* 分类加载失败不阻塞表单 */
-  }
-}
 
 watch(
   () => props.initial,
@@ -220,7 +204,7 @@ function handleCancel() {
   emit('cancel')
 }
 
-async function handleSubmit() {
+function handleSubmit() {
   if (!form.name.trim()) {
     MessagePlugin.warning('请输入产品名称')
     return
@@ -229,36 +213,31 @@ async function handleSubmit() {
     MessagePlugin.warning('请输入 SKU 编码')
     return
   }
-  submitting.value = true
-  try {
-    const payload: Record<string, unknown> = {
-      name: form.name.trim(),
-      category_id: form.category_id || 0,
-      product_type: form.product_type,
-      description: form.description,
-      cover_image: form.cover_image,
-      specs: form.specs,
-      price_model: form.price_model,
-      price: form.price,
-      cost_price: form.cost_price,
-      source_product_id: form.source_product_id || 0,
-      source_provider_id: form.source_provider_id || 0,
-      source_mode: form.source_mode,
-      config_options: form.config_options,
-      stock: form.stock,
-      sort_order: form.sort_order,
-      status: form.status,
-      upstream_markup_type: form.upstream_markup_type,
-      upstream_markup_value: form.upstream_markup_type ? form.upstream_markup_value : 0,
-      spec_passthrough: form.spec_passthrough,
-    }
-    if (props.mode === 'create') {
-      payload.code = form.code.trim()
-    }
-    emit('submit', payload)
-  } finally {
-    submitting.value = false
+  // 类型化 payload：字段与 SaleProductCreateRequest 一一对应，
+  // 不再用 Record<string, unknown> + 调用侧 as unknown as 掩盖不匹配。
+  const payload: SaleProductCreateRequest = {
+    code: props.mode === 'create' ? form.code.trim() : form.code,
+    name: form.name.trim(),
+    category_id: form.category_id || 0,
+    product_type: form.product_type,
+    description: form.description,
+    cover_image: form.cover_image,
+    specs: form.specs,
+    price_model: form.price_model,
+    price: form.price,
+    cost_price: form.cost_price,
+    source_product_id: form.source_product_id || 0,
+    source_provider_id: form.source_provider_id || 0,
+    source_mode: form.source_mode,
+    config_options: form.config_options,
+    stock: form.stock,
+    sort_order: form.sort_order,
+    status: form.status,
+    upstream_markup_type: form.upstream_markup_type,
+    upstream_markup_value: form.upstream_markup_type ? form.upstream_markup_value : 0,
+    spec_passthrough: form.spec_passthrough,
   }
+  emit('submit', payload)
 }
 
 onMounted(() => {

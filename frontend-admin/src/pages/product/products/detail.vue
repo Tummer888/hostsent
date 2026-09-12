@@ -31,11 +31,6 @@
               <t-descriptions-item label="SKU 编码">{{ product.code }}</t-descriptions-item>
               <t-descriptions-item label="分类">{{ categoryName(product.category_id) }}</t-descriptions-item>
               <t-descriptions-item label="产品类型">{{ product.product_type || '—' }}</t-descriptions-item>
-              <t-descriptions-item label="供货模式">
-                <t-tag :theme="sourceModeTag(product.source_mode).theme" variant="light" size="small" shape="round">
-                  {{ sourceModeTag(product.source_mode).text }}
-                </t-tag>
-              </t-descriptions-item>
               <t-descriptions-item label="链路">
                 <t-tag :theme="sourceModeTag(product.source_mode).theme" variant="light" size="small" shape="round">
                   {{ sourceModeTag(product.source_mode).text }}
@@ -112,6 +107,9 @@
                   {{ bindingStatusTag(row.binding_status).text }}
                 </t-tag>
               </template>
+              <template #platform_params="{ row }">
+                <span class="cell-muted">{{ row.platform_params || '—' }}</span>
+              </template>
               <template #status="{ row }">
                 <t-tag :theme="row.status === 1 ? 'success' : 'default'" variant="light" size="small" shape="round">
                   {{ row.status === 1 ? '启用' : '停用' }}
@@ -175,6 +173,9 @@
                 <t-tag theme="primary" variant="light" size="small" shape="round">
                   {{ changeTypeLabel(row.change_type) }}
                 </t-tag>
+              </template>
+              <template #created_at="{ row }">
+                <span class="cell-muted">{{ formatTime(row.created_at) }}</span>
               </template>
               <template #empty>
                 <t-empty description="暂无变更历史" />
@@ -338,7 +339,6 @@ import {
   confirmSpecBinding,
   createProductSpec,
   deleteProductSpec,
-  getProductCategoryList,
   getProductConfigOptions,
   getProductDetail,
   getProductHistory,
@@ -361,8 +361,8 @@ import {
   sourceModeTag,
   statusTag,
 } from '@/pages/product/constants'
+import { useCategoryOptions } from '@/composables/useCategoryOptions'
 import type {
-  SaleProductCategoryInfo,
   SaleProductConfigGroup,
   SaleProductHistoryInfo,
   SaleProductInfo,
@@ -385,7 +385,8 @@ const specAtoms = ref<SpecAtomInfo[]>([])
 const templateOptions = ref<{ label: string; value: number }[]>([])
 const loading = ref(false)
 const activeTab = ref('base')
-const categoryIdMap = ref<Record<number, string>>({})
+
+const { categoryName, loadCategories } = useCategoryOptions()
 
 const isUpstreamChain = computed(() => product.value?.source_mode === 'upstream')
 
@@ -396,6 +397,7 @@ const specColumns: PrimaryTableCol<SaleProductSpecInfo>[] = [
   { colKey: 'cost_price', title: '成本价', width: 90 },
   { colKey: 'stock', title: '库存', width: 70 },
   { colKey: 'binding_status', title: '平台绑定', width: 100 },
+  { colKey: 'platform_params', title: '已确认参数', minWidth: 180 },
   { colKey: 'status', title: '状态', width: 70 },
   { colKey: 'op', title: '操作', width: 190 },
 ]
@@ -696,27 +698,6 @@ async function saveConfigOptions() {
 }
 
 // ---------- 基础数据 ----------
-
-function categoryName(id: number): string {
-  return categoryIdMap.value[id] || '—'
-}
-
-async function loadCategories() {
-  try {
-    const data = await getProductCategoryList()
-    const map: Record<number, string> = {}
-    const flatten = (nodes: SaleProductCategoryInfo[]) => {
-      for (const node of nodes) {
-        map[node.id] = node.name
-        if (node.children?.length) flatten(node.children)
-      }
-    }
-    flatten(data.items)
-    categoryIdMap.value = map
-  } catch {
-    /* 忽略 */
-  }
-}
 
 async function loadSpecs() {
   specs.value = await getProductSpecs(Number(route.params.id))

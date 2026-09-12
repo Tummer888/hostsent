@@ -37,9 +37,9 @@ type Order struct {
 	Specs       string `gorm:"type:text"`                                    // 规格快照 JSON
 	// SpecCode 所选 SKU 编码（T4.2）：履约时据此回查 spec_bindings 的平台参数；
 	// 空表示按商品级配置（存量订单语义）。
-	SpecCode    string     `gorm:"column:spec_code;size:64;index"`
-	Quantity    int        `gorm:"default:1"`                                                 // 数量
-	PriceModel  string     `gorm:"column:price_model;size:20;default:'fixed'"`                // 价格模型
+	SpecCode   string `gorm:"column:spec_code;size:64;index"`
+	Quantity   int    `gorm:"default:1"`                                  // 数量
+	PriceModel string `gorm:"column:price_model;size:20;default:'fixed'"` // 价格模型
 	// Cycle 计费周期快照（doc25 §3.3）：monthly/quarterly/annually 等规范值。
 	// 与 price_model 并存（后者作为兼容列继续写）；开通时优先取本列作为实例计费周期。
 	Cycle       string     `gorm:"column:cycle;size:20"`                                      // 计费周期

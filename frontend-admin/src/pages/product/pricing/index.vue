@@ -6,7 +6,7 @@
           <AppIcon size="22" aria-hidden="true" />
         </span>
         <div class="page-header__text">
-          <h2 class="page-header__title">价格与上下架</h2>
+          <h2 class="page-header__title">商品调价</h2>
         </div>
       </div>
       <t-space size="small">
@@ -53,7 +53,7 @@
     <section class="table-card surface-card">
       <div class="table-card__head">
         <h3 class="card-title">价格与状态</h3>
-        <span class="table-card__meta">共 {{ total }} 个产品</span>
+        <span class="table-card__meta">共 {{ pagination.total }} 个产品</span>
       </div>
       <t-table
         row-key="id"
@@ -105,8 +105,8 @@
               v-if="isMobile"
               :options="buildMobileActionOptions([
                 { content: '改价', value: 'price', theme: 'default' },
-                { content: '上架', value: 'publish', hidden: () => !(row.status !== 1), theme: 'success' },
-                { content: '下架', value: 'unpublish', hidden: () => !(row.status === 1), theme: 'warning' },
+                { content: '上架', value: 'publish', hidden: () => row.status === 1, theme: 'success' },
+                { content: '下架', value: 'unpublish', hidden: () => row.status !== 1, theme: 'warning' },
               ])"
               @select="(value) => handleMobileAction(value, row)"
             />
@@ -171,30 +171,24 @@
 import { onMounted, reactive, ref } from 'vue'
 
 import { AppIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
-import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 
-import {
-  getProductCategoryList,
-  getProductList,
-  publishProduct,
-  unpublishProduct,
-  updateProductPrice,
-} from '@/api/product'
+import { getProductList, publishProduct, unpublishProduct, updateProductPrice } from '@/api/product'
 import { formatPrice, priceModelLabel, productStatusOptions, statusTag } from '@/pages/product/constants'
-import type { SaleProductCategoryInfo, SaleProductInfo } from '@/types/interface'
+import type { SaleProductInfo } from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
+import { useCategoryOptions } from '@/composables/useCategoryOptions'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { useMobilePagination } from '@/composables/useMobilePagination'
 
 defineOptions({ name: 'ProductPricing' })
 
 const productList = ref<SaleProductInfo[]>([])
 const loading = ref(false)
 const { isMobile } = useIsMobile()
-const total = ref(0)
-const categoryOptions = ref<{ label: string; value: number }[]>([])
-const categoryIdMap = ref<Record<number, string>>({})
+const { categoryOptions, categoryName, loadCategories } = useCategoryOptions()
 
 const filters = reactive<{ keyword: string | undefined; category_id: number | undefined; status: number | undefined }>({
   keyword: undefined,
@@ -202,19 +196,9 @@ const filters = reactive<{ keyword: string | undefined; category_id: number | un
   status: undefined,
 })
 
-const pagination = reactive({
-  current: 1,
-  pageSize: 20,
-  total: 0,
-  showJumper: true,
-})
+const { pagination, mobilePage, applyTotal, handlePageChange, goMobilePage, handleMobilePageSizeChange, resetPage } =
+  useMobilePagination(loadProducts)
 
-// 移动端分页状态：与桌面端 pagination 同步维护（见 loadUsers/loadData）
-const mobilePage = reactive({
-  current: 1,
-  pageSize: 10,
-  total: 0,
-})
 const columns: PrimaryTableCol<SaleProductInfo>[] = [
   { colKey: 'name', title: '产品', minWidth: 180 },
   { colKey: 'category', title: '分类', width: 120 },
@@ -237,30 +221,6 @@ function marginOf(row: SaleProductInfo): string {
   return `¥${formatPrice(margin)} (${ratio}%)`
 }
 
-function categoryName(id: number): string {
-  return categoryIdMap.value[id] || '—'
-}
-
-async function loadCategories() {
-  try {
-    const data = await getProductCategoryList()
-    const options: { label: string; value: number }[] = []
-    const map: Record<number, string> = {}
-    const flatten = (nodes: SaleProductCategoryInfo[]) => {
-      for (const node of nodes) {
-        options.push({ label: node.name, value: node.id })
-        map[node.id] = node.name
-        if (node.children?.length) flatten(node.children)
-      }
-    }
-    flatten(data.items)
-    categoryOptions.value = options
-    categoryIdMap.value = map
-  } catch {
-    /* 分类加载失败不阻塞列表 */
-  }
-}
-
 async function loadProducts() {
   loading.value = true
   try {
@@ -272,9 +232,7 @@ async function loadProducts() {
       page_size: pagination.pageSize,
     })
     productList.value = data.items
-    total.value = data.meta.total
-    pagination.total = data.meta.total
-    mobilePage.total = data.meta.total
+    applyTotal(data.meta.total)
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载产品列表失败')
   } finally {
@@ -282,47 +240,15 @@ async function loadProducts() {
   }
 }
 
-function handlePageChange(pageInfo: PageInfo) {
-  pagination.current = pageInfo.current
-  pagination.pageSize = pageInfo.pageSize
-  loadProducts()
-  mobilePage.current = pageInfo?.current ?? pagination.current
-  mobilePage.pageSize = pageInfo?.pageSize ?? pagination.pageSize
-  mobilePage.total = pagination.total
-}
-
-// —— 移动端分页交互 ——
-function goMobilePage(target: number) {
-  const clamped = Math.min(Math.max(target, 1), Math.max(1, Math.ceil(mobilePage.total / mobilePage.pageSize)))
-  if (clamped === mobilePage.current) return
-  void applyMobilePage(clamped, mobilePage.pageSize)
-}
-
-async function applyMobilePage(current: number, pageSize: number) {
-  pagination.current = current
-  pagination.pageSize = pageSize
-  mobilePage.current = current
-  mobilePage.pageSize = pageSize
-  await handlePageChange({ current, pageSize } as never)
-}
-
-function handleMobilePageSizeChange(pageSize: number) {
-  mobilePage.pageSize = pageSize
-  void applyMobilePage(1, pageSize)
-}
-
-
 function handleSearch() {
-  pagination.current = 1
-  loadProducts()
+  resetPage()
 }
 
 function handleResetFilters() {
   filters.keyword = undefined
   filters.category_id = undefined
   filters.status = undefined
-  pagination.current = 1
-  loadProducts()
+  resetPage()
 }
 
 async function handlePublish(row: SaleProductInfo) {

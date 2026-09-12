@@ -13,6 +13,10 @@ const (
 	TxTypeAdjust     string = "adjust"     // 调账（赠送/扣减）
 	// TxTypeReferralTransfer 推广返现转入现金余额（收入）。
 	TxTypeReferralTransfer string = "referral_transfer"
+	// TxTypeFreeze 冻结（可用余额→冻结余额；提现申请/预授权）。
+	TxTypeFreeze string = "freeze"
+	// TxTypeUnfreeze 解冻（冻结余额→可用余额；提现驳回/打款失败退余额）。
+	TxTypeUnfreeze string = "unfreeze"
 )
 
 // 资金方向

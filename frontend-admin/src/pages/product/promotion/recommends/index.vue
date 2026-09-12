@@ -51,7 +51,7 @@
     <section class="table-card surface-card">
       <div class="table-card__head">
         <h3 class="card-title">商品列表</h3>
-        <span class="table-card__meta">推荐位商品 {{ featuredCount }} 个 / 共 {{ total }} 个</span>
+        <span class="table-card__meta">共 {{ pagination.total }} 个商品</span>
       </div>
       <t-table
         row-key="id"
@@ -110,16 +110,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import { onMounted, reactive, ref } from 'vue'
+import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { AppIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
 
 import { getProductList, setProductFeatured } from '@/api/product'
-import { formatPrice, statusTag } from '@/pages/product/constants'
+import { formatPrice, productStatusOptions, statusTag } from '@/pages/product/constants'
 import type { SaleProductInfo } from '@/types/interface'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { useMobilePagination } from '@/composables/useMobilePagination'
 
 defineOptions({ name: 'ProductPromotionRecommends' })
 
@@ -127,16 +128,11 @@ const featuredOptions = [
   { label: '是', value: 1 },
   { label: '否', value: 0 },
 ]
-const statusOptions = [
-  { label: '草稿', value: 0 },
-  { label: '上架', value: 1 },
-  { label: '下架', value: 2 },
-]
+const statusOptions = productStatusOptions
 
 const loading = ref(false)
 const { isMobile } = useIsMobile()
 const list = ref<SaleProductInfo[]>([])
-const total = ref(0)
 
 const filters = reactive<{ keyword: string | undefined; featured: number | undefined; status: number | undefined }>({
   keyword: undefined,
@@ -144,20 +140,8 @@ const filters = reactive<{ keyword: string | undefined; featured: number | undef
   status: undefined,
 })
 
-const pagination = reactive({
-  current: 1,
-  pageSize: 20,
-  total: 0,
-  showJumper: true,
-})
-
-// 移动端分页状态：与桌面端 pagination 同步维护
-const mobilePage = reactive({
-  current: 1,
-  pageSize: 10,
-  total: 0,
-})
-const featuredCount = computed(() => list.value.filter((item) => item.featured).length)
+const { pagination, mobilePage, applyTotal, handlePageChange, goMobilePage, handleMobilePageSizeChange, resetPage } =
+  useMobilePagination(loadProducts)
 
 const columns: PrimaryTableCol<SaleProductInfo>[] = [
   { colKey: 'name', title: '产品', minWidth: 180 },
@@ -172,17 +156,14 @@ async function loadProducts() {
   try {
     const data = await getProductList({
       keyword: filters.keyword,
+      // 推荐位筛选交给服务端（此前是取回整页再前端过滤，导致分页总数与实际条数不一致）。
+      featured: filters.featured === undefined ? undefined : filters.featured === 1,
       status: filters.status,
       page: pagination.current,
       page_size: pagination.pageSize,
     })
-    let items = data.items
-    if (filters.featured === 1) items = items.filter((item) => item.featured)
-    else if (filters.featured === 0) items = items.filter((item) => !item.featured)
-    list.value = items
-    total.value = data.meta.total
-    pagination.total = data.meta.total
-    mobilePage.total = data.meta.total
+    list.value = data.items
+    applyTotal(data.meta.total)
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载商品失败')
   } finally {
@@ -190,47 +171,15 @@ async function loadProducts() {
   }
 }
 
-function handlePageChange(pageInfo: PageInfo) {
-  pagination.current = pageInfo.current
-  pagination.pageSize = pageInfo.pageSize
-  loadProducts()
-  mobilePage.current = pageInfo?.current ?? pagination.current
-  mobilePage.pageSize = pageInfo?.pageSize ?? pagination.pageSize
-  mobilePage.total = pagination.total
-}
-
-// —— 移动端分页交互 ——
-function goMobilePage(target: number) {
-  const clamped = Math.min(Math.max(target, 1), Math.max(1, Math.ceil(mobilePage.total / mobilePage.pageSize)))
-  if (clamped === mobilePage.current) return
-  void applyMobilePage(clamped, mobilePage.pageSize)
-}
-
-async function applyMobilePage(current: number, pageSize: number) {
-  pagination.current = current
-  pagination.pageSize = pageSize
-  mobilePage.current = current
-  mobilePage.pageSize = pageSize
-  await handlePageChange({ current, pageSize } as never)
-}
-
-function handleMobilePageSizeChange(pageSize: number) {
-  mobilePage.pageSize = pageSize
-  void applyMobilePage(1, pageSize)
-}
-
-
 function handleSearch() {
-  pagination.current = 1
-  loadProducts()
+  resetPage()
 }
 
 function handleResetFilters() {
   filters.keyword = undefined
   filters.featured = undefined
   filters.status = undefined
-  pagination.current = 1
-  loadProducts()
+  resetPage()
 }
 
 async function handleToggleFeatured(row: SaleProductInfo, value: boolean) {

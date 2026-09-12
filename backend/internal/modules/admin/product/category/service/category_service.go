@@ -35,6 +35,7 @@ func NewCategoryService(repo repository.CategoryRepository) CategoryService {
 }
 
 func (s *categoryService) List(ctx context.Context, req dto.CategoryListRequest) (*dto.CategoryListResponse, error) {
+	// 未传 status 时取全部（含停用，保证树结构完整）；传了则精确筛选。
 	items, err := s.repo.List(ctx, req.Status)
 	if err != nil {
 		return nil, err

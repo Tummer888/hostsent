@@ -105,6 +105,9 @@ const changeTypeOptionsRef = changeTypeOptions
 
 const currentProduct = computed(() => currentProductName.value)
 
+// 变更类型目前在前端过滤：后端 `/product/products/:id/history` 只按商品返回全量列表，
+// 未提供 change_type / 分页参数。数据量中等（单商品变更记录），暂无服务端过滤的收益；
+// 若历史记录增长到需要分页，需同步给该接口加 query 参数。
 const filteredList = computed(() => {
   if (!changeType.value) return list.value
   return list.value.filter((item) => item.change_type === changeType.value)

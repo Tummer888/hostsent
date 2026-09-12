@@ -107,8 +107,18 @@ export interface WithdrawInfo {
   user_id: number
   amount: number
   channel: string
+  /** 收款渠道中文名（银行卡/支付宝） */
+  channel_name?: string
   account: string
+  account_name?: string
+  bank_name?: string
   status: string
+  /** 打款单号（审批通过后生成，登记打款后回填） */
+  payout_no?: string
+  /** 打款方式：manual 人工 / api 接口自动 */
+  payout_mode?: string
+  /** 渠道交易号（打款流水号） */
+  channel_tx?: string
   audit_by: number
   audit_by_name: string
   audited_at: string

@@ -59,7 +59,7 @@
     <section class="table-card surface-card">
       <div class="table-card__head">
         <h3 class="card-title">优惠券列表</h3>
-        <span class="table-card__meta">共 {{ total }} 张优惠券</span>
+        <span class="table-card__meta">共 {{ pagination.total }} 张优惠券</span>
       </div>
       <t-table
         row-key="id"
@@ -212,14 +212,21 @@
       :footer="false"
       @close="grantsVisible = false"
     >
+      <div class="table-card__head">
+        <h3 class="card-title">发放明细</h3>
+        <span class="table-card__meta">共 {{ grantPagination.total }} 条</span>
+      </div>
       <t-table
         row-key="id"
         :data="grantList"
         :columns="grantColumns"
+        :loading="grantLoading"
+        :pagination="grantPagination"
         size="small"
         hover
         table-layout="fixed"
         cell-empty-content="—"
+        @page-change="handleGrantPageChange"
       >
         <template #status="{ row }">
           <t-tag variant="light" size="small" shape="round" :theme="row.status === 'used' ? 'success' : row.status === 'pending' ? 'warning' : 'default'">
@@ -233,7 +240,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import { DialogPlugin, MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { AddIcon, AppIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
 
@@ -251,6 +258,7 @@ import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { useMobilePagination } from '@/composables/useMobilePagination'
 
 defineOptions({ name: 'ProductPromotionCoupons' })
 
@@ -266,7 +274,6 @@ const statusOptions = [
 const loading = ref(false)
 const { isMobile } = useIsMobile()
 const list = ref<CouponInfo[]>([])
-const total = ref(0)
 
 const filters = reactive<{ keyword: string | undefined; coupon_type: string | undefined; status: number | undefined }>({
   keyword: undefined,
@@ -274,19 +281,9 @@ const filters = reactive<{ keyword: string | undefined; coupon_type: string | un
   status: undefined,
 })
 
-const pagination = reactive({
-  current: 1,
-  pageSize: 20,
-  total: 0,
-  showJumper: true,
-})
+const { pagination, mobilePage, applyTotal, handlePageChange, goMobilePage, handleMobilePageSizeChange, resetPage } =
+  useMobilePagination(loadCoupons)
 
-// 移动端分页状态：与桌面端 pagination 同步维护
-const mobilePage = reactive({
-  current: 1,
-  pageSize: 10,
-  total: 0,
-})
 const columns: PrimaryTableCol<CouponInfo>[] = [
   { colKey: 'name', title: '优惠券', minWidth: 180 },
   { colKey: 'coupon_type', title: '类型', width: 100 },
@@ -329,9 +326,7 @@ async function loadCoupons() {
       page_size: pagination.pageSize,
     })
     list.value = data.items
-    total.value = data.meta.total
-    pagination.total = data.meta.total
-    mobilePage.total = data.meta.total
+    applyTotal(data.meta.total)
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载优惠券失败')
   } finally {
@@ -339,47 +334,15 @@ async function loadCoupons() {
   }
 }
 
-function handlePageChange(pageInfo: PageInfo) {
-  pagination.current = pageInfo.current
-  pagination.pageSize = pageInfo.pageSize
-  loadCoupons()
-  mobilePage.current = pageInfo?.current ?? pagination.current
-  mobilePage.pageSize = pageInfo?.pageSize ?? pagination.pageSize
-  mobilePage.total = pagination.total
-}
-
-// —— 移动端分页交互 ——
-function goMobilePage(target: number) {
-  const clamped = Math.min(Math.max(target, 1), Math.max(1, Math.ceil(mobilePage.total / mobilePage.pageSize)))
-  if (clamped === mobilePage.current) return
-  void applyMobilePage(clamped, mobilePage.pageSize)
-}
-
-async function applyMobilePage(current: number, pageSize: number) {
-  pagination.current = current
-  pagination.pageSize = pageSize
-  mobilePage.current = current
-  mobilePage.pageSize = pageSize
-  await handlePageChange({ current, pageSize } as never)
-}
-
-function handleMobilePageSizeChange(pageSize: number) {
-  mobilePage.pageSize = pageSize
-  void applyMobilePage(1, pageSize)
-}
-
-
 function handleSearch() {
-  pagination.current = 1
-  loadCoupons()
+  resetPage()
 }
 
 function handleResetFilters() {
   filters.keyword = undefined
   filters.coupon_type = undefined
   filters.status = undefined
-  pagination.current = 1
-  loadCoupons()
+  resetPage()
 }
 
 // ---- 新建 / 编辑 ----
@@ -476,13 +439,22 @@ async function handleSave() {
 }
 
 async function handleDelete(row: CouponInfo) {
-  try {
-    await deleteCoupon(row.id)
-    MessagePlugin.success('已删除')
-    loadCoupons()
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '删除失败')
-  }
+  const dialog = DialogPlugin.confirm({
+    header: '删除优惠券',
+    body: `确认删除「${row.name}」？已发放的记录不会被撤回，但优惠券将无法再领取。`,
+    theme: 'danger',
+    confirmBtn: { content: '删除', theme: 'danger' },
+    onConfirm: async () => {
+      try {
+        await deleteCoupon(row.id)
+        MessagePlugin.success('已删除')
+        dialog.hide()
+        loadCoupons()
+      } catch (error) {
+        MessagePlugin.error((error as Error).message || '删除失败')
+      }
+    },
+  })
 }
 
 // ---- 批量发放 ----
@@ -521,7 +493,10 @@ async function handleCreateGrants() {
 // ---- 发放记录 ----
 const grantsVisible = ref(false)
 const grantsCouponName = ref('')
+const grantsCouponId = ref(0)
+const grantLoading = ref(false)
 const grantList = ref<CouponGrantInfo[]>([])
+const grantPagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
 const grantColumns: PrimaryTableCol<CouponGrantInfo>[] = [
   { colKey: 'user_id', title: '用户 ID', width: 90 },
   { colKey: 'user_name', title: '用户', minWidth: 120 },
@@ -534,15 +509,36 @@ function grantStatusText(status: string): string {
   return map[status] || status || '—'
 }
 
-async function openGrants(row: CouponInfo) {
-  grantsCouponName.value = row.name
+async function loadGrants() {
+  grantLoading.value = true
   try {
-    const data = await getCouponGrantList({ coupon_id: row.id, page: 1, page_size: 100 })
+    const data = await getCouponGrantList({
+      coupon_id: grantsCouponId.value,
+      page: grantPagination.current,
+      page_size: grantPagination.pageSize,
+    })
     grantList.value = data.items
-    grantsVisible.value = true
+    grantPagination.total = data.meta.total
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载发放记录失败')
+    grantList.value = []
+  } finally {
+    grantLoading.value = false
   }
+}
+
+async function openGrants(row: CouponInfo) {
+  grantsCouponName.value = row.name
+  grantsCouponId.value = row.id
+  grantPagination.current = 1
+  grantsVisible.value = true
+  await loadGrants()
+}
+
+function handleGrantPageChange(pageInfo: PageInfo) {
+  grantPagination.current = pageInfo.current
+  grantPagination.pageSize = pageInfo.pageSize
+  loadGrants()
 }
 
 onMounted(() => {

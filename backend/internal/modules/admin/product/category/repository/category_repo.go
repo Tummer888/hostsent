@@ -12,7 +12,8 @@ import (
 
 // CategoryRepository 定义商品分类数据访问能力。
 type CategoryRepository interface {
-	List(ctx context.Context, status int) ([]model.ProductCategory, error)
+	// List 取分类；status=nil 时返回全部（含停用），非 nil 时按状态精确筛选。
+	List(ctx context.Context, status *int) ([]model.ProductCategory, error)
 	FindByID(ctx context.Context, id uint64) (*model.ProductCategory, error)
 	Create(ctx context.Context, category *model.ProductCategory) error
 	Update(ctx context.Context, category *model.ProductCategory) error
@@ -31,11 +32,11 @@ func NewCategoryRepository(db *gorm.DB) CategoryRepository {
 	return &categoryRepository{db: db}
 }
 
-func (r *categoryRepository) List(ctx context.Context, status int) ([]model.ProductCategory, error) {
+func (r *categoryRepository) List(ctx context.Context, status *int) ([]model.ProductCategory, error) {
 	var items []model.ProductCategory
 	base := r.db.WithContext(ctx).Order("parent_id asc, sort_order asc, id asc")
-	if status != 0 {
-		base = base.Where("status = ?", status)
+	if status != nil {
+		base = base.Where("status = ?", *status)
 	}
 	if err := base.Find(&items).Error; err != nil {
 		return nil, err

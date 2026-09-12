@@ -12,7 +12,8 @@ type ListMeta struct {
 type CouponQuery struct {
 	Keyword    string `form:"keyword" json:"keyword"`
 	CouponType string `form:"coupon_type" json:"coupon_type"`
-	Status     int    `form:"status" json:"status"`
+	// Status 指针区分「未传」与「显式筛 status=0（停用）」
+	Status *int `form:"status" json:"status"`
 	Page       int    `form:"page" json:"page"`
 	PageSize   int    `form:"page_size" json:"page_size"`
 }
@@ -97,7 +98,8 @@ type CouponGrantListResponse struct {
 type PromotionQuery struct {
 	Keyword       string `form:"keyword" json:"keyword"`
 	PromotionType string `form:"promotion_type" json:"promotion_type"`
-	Status        int    `form:"status" json:"status"`
+	// Status 指针区分「未传」与「显式筛 status=0（停用）」
+	Status *int `form:"status" json:"status"`
 	Page          int    `form:"page" json:"page"`
 	PageSize      int    `form:"page_size" json:"page_size"`
 }

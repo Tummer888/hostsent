@@ -22,7 +22,7 @@ import (
 	"strings"
 
 	"hostsent/backend/internal/pkg/crypto"
-	"hostsent/backend/internal/pkg/upstream"
+	"hostsent/backend/internal/pkg/integration"
 )
 
 // EncPrefix 密文标记前缀（含版本号，便于将来换算法）。
@@ -61,7 +61,7 @@ func (m Map) Encode() (string, error) {
 
 // EncryptFields 按字段描述符加密：仅处理 Secret=true 且非空的字段。
 // 已是密文（带前缀）的值原样保留，保证幂等（重复提交不重复加密）。
-func EncryptFields(values Map, schema []upstream.Field, secretKey string) (Map, error) {
+func EncryptFields(values Map, schema []integration.Field, secretKey string) (Map, error) {
 	out := Map{}
 	for k, v := range values {
 		out[k] = v
@@ -103,7 +103,7 @@ func (m Map) DecryptFields(secretKey string) (Map, error) {
 
 // Mask 生成脱敏快照：secret 字段仅保留首尾各 2 位；非密文字段原样。
 // 用于后台回显，绝不输出明文或完整密文。
-func (m Map) Mask(schema []upstream.Field) Map {
+func (m Map) Mask(schema []integration.Field) Map {
 	secretKeys := map[string]bool{}
 	for _, f := range schema {
 		if f.Secret {

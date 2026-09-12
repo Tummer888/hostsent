@@ -124,6 +124,8 @@ type App struct {
 	userAuditWriter middleware.UserOperationLogWriter
 	// open 开放平台处理器集合（P6/T6.1）：/open/v1 独立中间件链。
 	open *openhandler.Bundle
+	// payment 支付中心处理器集合（doc35）：admin 支付管理 + uc 收银台。
+	payment *paymentBundle
 }
 
 // NewApp 构造装配容器（DI 单一接线点）。
@@ -186,6 +188,7 @@ func NewApp(
 	permCache middleware.PermissionCache,
 	auditWriter middleware.AdminAuditWriter,
 	open *openhandler.Bundle,
+	payment *paymentBundle,
 	logger *zap.Logger,
 	jwtIssuer *appauth.JWTIssuer,
 ) *App {
@@ -249,6 +252,7 @@ func NewApp(
 		memberRepo:            memberRepo,
 		userAuditWriter:       userAuditWriter,
 		open:                  open,
+		payment:               payment,
 	}
 }
 

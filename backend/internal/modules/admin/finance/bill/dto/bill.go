@@ -24,8 +24,12 @@ type BillInfo struct {
 	TotalAmount  float64 `json:"total_amount"`
 	RefundAmount float64 `json:"refund_amount"`
 	Status       string  `json:"status"`
-	CreatedAt    string  `json:"created_at"`
-	UpdatedAt    string  `json:"updated_at"`
+	// 支付方式描述（doc34 F-11）：结清时记录实收金额、方式与渠道实例。
+	PaidAmount    float64 `json:"paid_amount"`
+	PaidMethod    string  `json:"paid_method"`
+	PaidChannelID uint64  `json:"paid_channel_id"`
+	CreatedAt     string  `json:"created_at"`
+	UpdatedAt     string  `json:"updated_at"`
 }
 
 // BillListResponse 账单列表响应

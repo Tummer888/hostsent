@@ -69,7 +69,7 @@
     <section class="table-card surface-card">
       <div class="table-card__head">
         <h3 class="card-title">产品列表</h3>
-        <span class="table-card__meta">共 {{ total }} 个产品</span>
+        <span class="table-card__meta">共 {{ pagination.total }} 个产品</span>
       </div>
       <t-table
         row-key="id"
@@ -125,8 +125,9 @@
                 { content: '详情', value: 'detail', theme: 'default' },
                 { content: '编辑', value: 'edit', theme: 'default' },
                 { content: '改价', value: 'price', theme: 'default' },
-                { content: '上架', value: 'publish', hidden: () => !(row.status !== 1), theme: 'success' },
-                { content: '下架', value: 'unpublish', hidden: () => !(row.status === 1), theme: 'warning' },
+                { content: '上架', value: 'publish', hidden: () => row.status === 1, theme: 'success' },
+                { content: '下架', value: 'unpublish', hidden: () => row.status !== 1, theme: 'warning' },
+                { content: '删除', value: 'delete', theme: 'error' },
               ])"
               @select="(value) => handleMobileAction(value, row)"
             />
@@ -192,7 +193,7 @@
       v-model:visible="cloneVisible"
       header="从上游商品导入"
       width="720px"
-      :confirm-btn="{ content: '导入选中的 N 个商品', theme: 'primary', loading: cloneSubmitting }"
+      :confirm-btn="{ content: `导入选中的 ${selectedProductIds.size} 个商品`, theme: 'primary', disabled: !selectedProductIds.size, loading: cloneSubmitting }"
       :cancel-btn="{ content: '取消' }"
       @confirm="handleCloneConfirm"
       @close="cloneVisible = false"
@@ -243,12 +244,11 @@ import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { AddIcon, AppIcon, CloudIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
-import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import {
   batchCloneProductFromUpstream,
   deleteProduct,
-  getProductCategoryList,
   getProductList,
   publishProduct,
   unpublishProduct,
@@ -256,11 +256,13 @@ import {
 } from '@/api/product'
 import { getProductList as getResourceProductList, getProviderList } from '@/api/admin'
 import { formatPrice, priceModelLabel, productStatusOptions, sourceModeOptions, sourceModeTag, statusTag } from '@/pages/product/constants'
-import type { ProductInfo, ProviderInfo, SaleProductCategoryInfo, SaleProductInfo } from '@/types/interface'
+import type { ProductInfo, ProviderInfo, SaleProductInfo } from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
+import { useCategoryOptions } from '@/composables/useCategoryOptions'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { useMobilePagination } from '@/composables/useMobilePagination'
 
 defineOptions({ name: 'ProductProducts' })
 
@@ -269,9 +271,7 @@ const router = useRouter()
 const productList = ref<SaleProductInfo[]>([])
 const loading = ref(false)
 const { isMobile } = useIsMobile()
-const total = ref(0)
-const categoryOptions = ref<{ label: string; value: number }[]>([])
-const categoryIdMap = ref<Record<number, string>>({})
+const { categoryOptions, categoryName, loadCategories } = useCategoryOptions()
 
 const filters = reactive<{ keyword: string | undefined; category_id: number | undefined; status: number | undefined; source_mode: string | undefined }>({
   keyword: undefined,
@@ -280,19 +280,9 @@ const filters = reactive<{ keyword: string | undefined; category_id: number | un
   source_mode: undefined,
 })
 
-const pagination = reactive({
-  current: 1,
-  pageSize: 20,
-  total: 0,
-  showJumper: true,
-})
+const { pagination, mobilePage, applyTotal, handlePageChange, goMobilePage, handleMobilePageSizeChange, resetPage } =
+  useMobilePagination(loadProducts)
 
-// 移动端分页状态：与桌面端 pagination 同步维护
-const mobilePage = reactive({
-  current: 1,
-  pageSize: 10,
-  total: 0,
-})
 const columns: PrimaryTableCol<SaleProductInfo>[] = [
   { colKey: 'name', title: '产品', minWidth: 180 },
   { colKey: 'source_mode', title: '链路', width: 110 },
@@ -309,30 +299,6 @@ const columns: PrimaryTableCol<SaleProductInfo>[] = [
   },
 ]
 
-function categoryName(id: number): string {
-  return categoryIdMap.value[id] || '—'
-}
-
-async function loadCategories() {
-  try {
-    const data = await getProductCategoryList()
-    const options: { label: string; value: number }[] = []
-    const map: Record<number, string> = {}
-    const flatten = (nodes: SaleProductCategoryInfo[]) => {
-      for (const node of nodes) {
-        options.push({ label: node.name, value: node.id })
-        map[node.id] = node.name
-        if (node.children?.length) flatten(node.children)
-      }
-    }
-    flatten(data.items)
-    categoryOptions.value = options
-    categoryIdMap.value = map
-  } catch {
-    /* 分类加载失败不阻塞列表 */
-  }
-}
-
 async function loadProducts() {
   loading.value = true
   try {
@@ -345,9 +311,7 @@ async function loadProducts() {
       page_size: pagination.pageSize,
     })
     productList.value = data.items
-    total.value = data.meta.total
-    pagination.total = data.meta.total
-    mobilePage.total = data.meta.total
+    applyTotal(data.meta.total)
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载产品列表失败')
   } finally {
@@ -355,39 +319,8 @@ async function loadProducts() {
   }
 }
 
-function handlePageChange(pageInfo: PageInfo) {
-  pagination.current = pageInfo.current
-  pagination.pageSize = pageInfo.pageSize
-  loadProducts()
-  mobilePage.current = pageInfo?.current ?? pagination.current
-  mobilePage.pageSize = pageInfo?.pageSize ?? pagination.pageSize
-  mobilePage.total = pagination.total
-}
-
-// —— 移动端分页交互 ——
-function goMobilePage(target: number) {
-  const clamped = Math.min(Math.max(target, 1), Math.max(1, Math.ceil(mobilePage.total / mobilePage.pageSize)))
-  if (clamped === mobilePage.current) return
-  void applyMobilePage(clamped, mobilePage.pageSize)
-}
-
-async function applyMobilePage(current: number, pageSize: number) {
-  pagination.current = current
-  pagination.pageSize = pageSize
-  mobilePage.current = current
-  mobilePage.pageSize = pageSize
-  await handlePageChange({ current, pageSize } as never)
-}
-
-function handleMobilePageSizeChange(pageSize: number) {
-  mobilePage.pageSize = pageSize
-  void applyMobilePage(1, pageSize)
-}
-
-
 function handleSearch() {
-  pagination.current = 1
-  loadProducts()
+  resetPage()
 }
 
 function handleResetFilters() {
@@ -395,8 +328,7 @@ function handleResetFilters() {
   filters.category_id = undefined
   filters.status = undefined
   filters.source_mode = undefined
-  pagination.current = 1
-  loadProducts()
+  resetPage()
 }
 
 function handleCreate() {
@@ -542,13 +474,22 @@ async function handleUnpublish(row: SaleProductInfo) {
 }
 
 async function handleDelete(row: SaleProductInfo) {
-  try {
-    await deleteProduct(row.id)
-    MessagePlugin.success('已删除')
-    loadProducts()
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '删除失败')
-  }
+  const dialog = DialogPlugin.confirm({
+    header: '删除产品',
+    body: `确认删除「${row.name}」？删除后不可恢复。`,
+    theme: 'danger',
+    confirmBtn: { content: '删除', theme: 'danger' },
+    onConfirm: async () => {
+      try {
+        await deleteProduct(row.id)
+        MessagePlugin.success('已删除')
+        dialog.hide()
+        loadProducts()
+      } catch (error) {
+        MessagePlugin.error((error as Error).message || '删除失败')
+      }
+    },
+  })
 }
 
 const priceVisible = ref(false)
@@ -605,6 +546,9 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
       break
     case 'unpublish':
       void handleUnpublish(row)
+      break
+    case 'delete':
+      void handleDelete(row)
       break
   }
 }

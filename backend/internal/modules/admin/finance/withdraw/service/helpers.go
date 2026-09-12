@@ -3,15 +3,25 @@ package service
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 
 	"hostsent/backend/internal/modules/admin/finance/withdraw/dto"
 	"hostsent/backend/internal/modules/admin/finance/withdraw/model"
 )
 
-// genWithdrawNo 生成提现单号，如 20260908WD00001。
+// genWithdrawNo 生成提现单号，如 WD20260912153000123456。
 func genWithdrawNo() string {
-	return fmt.Sprintf("WD%s%05d", time.Now().Format("20060102150405"), rand.Intn(100000))
+	return fmt.Sprintf("WD%s%06d", time.Now().Format("20060102150405"), rand.Intn(1000000))
+}
+
+// maskTail 收款账号脱敏：保留末 4 位。
+func maskTail(account string) string {
+	account = strings.TrimSpace(account)
+	if len(account) <= 4 {
+		return "****"
+	}
+	return "****" + account[len(account)-4:]
 }
 
 // normalizePage/normalizePageSize 复用 repository 中的分页归一化逻辑。
@@ -40,8 +50,14 @@ func buildWithdrawInfo(w model.Withdraw) dto.WithdrawInfo {
 		UserID:      w.UserID,
 		Amount:      w.Amount,
 		Channel:     w.Channel,
+		ChannelName: channelName(w.Channel),
 		Account:     w.Account,
+		AccountName: w.AccountName,
+		BankName:    w.BankName,
 		Status:      w.Status,
+		PayoutNo:    w.PayoutNo,
+		PayoutMode:  w.PayoutMode,
+		ChannelTx:   w.ChannelTx,
 		AuditBy:     w.AuditBy,
 		AuditByName: w.AuditByName,
 		AuditedAt:   formatTime(w.AuditedAt),
@@ -49,6 +65,17 @@ func buildWithdrawInfo(w model.Withdraw) dto.WithdrawInfo {
 		Remark:      w.Remark,
 		CreatedAt:   w.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:   w.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
+func channelName(channel string) string {
+	switch channel {
+	case "bank":
+		return "银行卡"
+	case "alipay":
+		return "支付宝"
+	default:
+		return channel
 	}
 }
 

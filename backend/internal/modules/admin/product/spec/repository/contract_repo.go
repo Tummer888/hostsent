@@ -39,6 +39,10 @@ type SpecContractRepository interface {
 	// ConfirmedPlatformParamsByProductSpec 取某 SKU 已确认绑定的 platform_params JSON；
 	// 无绑定返回空串。实现 catalog 侧 SpecBindingReader（仅返回字符串，避免跨包依赖模型）。
 	ConfirmedPlatformParamsByProductSpec(ctx context.Context, productSpecID uint64) (string, error)
+	// ConfirmedPlatformParamsByProductSpecs 批量取若干 SKU 已确认绑定的 platform_params JSON：
+	// product_spec_id → platform_params（无绑定/未确认的 SKU 不出现在 map 中）。
+	// 供商品 SKU 列表回填展示，避免逐行查询。
+	ConfirmedPlatformParamsByProductSpecs(ctx context.Context, productSpecIDs []uint64) (map[uint64]string, error)
 	// HasConfirmedBindingForExternal 判断某外部规格是否存在已确认的入站/出站绑定
 	// （代理商品上架门禁用，T4.3/T4.6）：provider_type + external_id 定位 external_specs。
 	HasConfirmedBindingForExternal(ctx context.Context, providerType, externalID string) (bool, error)
@@ -215,6 +219,33 @@ func (r *specContractRepository) ConfirmedPlatformParamsByProductSpec(ctx contex
 		return "", err
 	}
 	return binding.PlatformParams, nil
+}
+
+// ConfirmedPlatformParamsByProductSpecs 批量取已确认的出站绑定参数。
+// 同一 SKU 多条时按 priority 高 → id 小取第一条（与 FindConfirmedBindingByProductSpec 同口径）。
+func (r *specContractRepository) ConfirmedPlatformParamsByProductSpecs(ctx context.Context, productSpecIDs []uint64) (map[uint64]string, error) {
+	if len(productSpecIDs) == 0 {
+		return map[uint64]string{}, nil
+	}
+	var items []model.SpecBinding
+	if err := r.db.WithContext(ctx).
+		Where("product_spec_id IN ? AND direction = ? AND status = ?",
+			productSpecIDs, model.BindingDirectionOutbound, model.BindingStatusConfirmed).
+		Order("priority desc, id asc").Find(&items).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[uint64]string, len(items))
+	for _, item := range items {
+		if item.ProductSpecID == nil {
+			continue
+		}
+		id := *item.ProductSpecID
+		if _, ok := out[id]; ok {
+			continue // 已取优先级更高的那条
+		}
+		out[id] = item.PlatformParams
+	}
+	return out, nil
 }
 
 // HasConfirmedBindingForExternal 判断某外部规格是否存在已确认绑定（代理商品上架门禁，T4.3）。

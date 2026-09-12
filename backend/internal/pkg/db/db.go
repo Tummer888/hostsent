@@ -20,6 +20,7 @@ import (
 	menumodel "hostsent/backend/internal/modules/admin/menu/model"
 	notifymodel "hostsent/backend/internal/modules/admin/notification/model"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
+	paymentmodel "hostsent/backend/internal/modules/admin/payment/model"
 	catalogmodel "hostsent/backend/internal/modules/admin/product/catalog/model"
 	categorymodel "hostsent/backend/internal/modules/admin/product/category/model"
 	discountmodel "hostsent/backend/internal/modules/admin/product/discount/model"
@@ -158,6 +159,17 @@ func AutoMigrate(db *gorm.DB) error {
 		&finrechmodel.Recharge{},
 		&finwithdrawmodel.Withdraw{},
 		&finbillmodel.Bill{},
+		// 支付中心（迁移 038，doc35）：渠道类型/渠道实例/支付单/回调日志/退款单/
+		// 打款单/用户收款账户/支付方式偏好/渠道对账记录
+		&paymentmodel.PaymentType{},
+		&paymentmodel.PaymentChannel{},
+		&paymentmodel.PaymentOrder{},
+		&paymentmodel.PaymentCallbackLog{},
+		&paymentmodel.PaymentRefund{},
+		&paymentmodel.PaymentPayout{},
+		&paymentmodel.UserPayoutAccount{},
+		&paymentmodel.UserPaymentPreference{},
+		&paymentmodel.PaymentReconRecord{},
 		// 系统管理（系统配置）
 		&systemmodel.SystemConfig{},
 		// 生命周期与续费（doc60）
@@ -787,6 +799,18 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "finance", Name: "账单管理", Code: "finance:bill", Type: "menu", SortOrder: 4, Status: "active"},
 		{ParentCode: "finance:bill", Name: "关账", Code: "finance:bill:close", Type: "button", SortOrder: 1, Status: "active"},
 		{ParentCode: "finance:bill", Name: "对账", Code: "finance:bill:recon", Type: "button", SortOrder: 2, Status: "active"},
+		// —— 支付中心（doc35）：独立模块（SortOrder 13，独立于财务管理的资金记账）
+		{Name: "支付中心", Code: "payment", Type: "catalog", SortOrder: 13, Status: "active"},
+		{ParentCode: "payment", Name: "支付渠道", Code: "payment:channel", Type: "menu", SortOrder: 1, Status: "active"},
+		{ParentCode: "payment:channel", Name: "管理渠道", Code: "payment:channel:manage", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "payment", Name: "支付方式", Code: "payment:method", Type: "menu", SortOrder: 2, Status: "active"},
+		{ParentCode: "payment", Name: "支付订单", Code: "payment:order", Type: "menu", SortOrder: 3, Status: "active"},
+		{ParentCode: "payment:order", Name: "订单操作", Code: "payment:order:operate", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "payment", Name: "回调日志", Code: "payment:callback", Type: "menu", SortOrder: 4, Status: "active"},
+		{ParentCode: "payment", Name: "渠道退款", Code: "payment:refund", Type: "menu", SortOrder: 5, Status: "active"},
+		{ParentCode: "payment", Name: "打款管理", Code: "payment:payout", Type: "menu", SortOrder: 6, Status: "active"},
+		{ParentCode: "payment:payout", Name: "打款操作", Code: "payment:payout:operate", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "payment", Name: "渠道对账", Code: "payment:recon", Type: "menu", SortOrder: 7, Status: "active"},
 		// —— 工单支持（doc50 §7.4）
 		{Name: "工单支持", Code: "ticket", Type: "catalog", SortOrder: 8, Status: "active"},
 		{ParentCode: "ticket", Name: "工单列表", Code: "ticket:list", Type: "menu", SortOrder: 1, Status: "active"},
@@ -1077,6 +1101,18 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"finance:bill",
 			"finance:bill:close",
 			"finance:bill:recon",
+			// 支付中心（财务管理员负责渠道配置与打款登记）
+			"payment",
+			"payment:channel",
+			"payment:channel:manage",
+			"payment:method",
+			"payment:order",
+			"payment:order:operate",
+			"payment:callback",
+			"payment:refund",
+			"payment:payout",
+			"payment:payout:operate",
+			"payment:recon",
 			// 推广返现（财务核对返现台账与提现）
 			"referral",
 			"referral:cashback:list",
@@ -1220,7 +1256,7 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "规格映射", Type: menumodel.TypeMenu, Path: "/product/spec/mappings", Component: "product/spec/mappings/index", Icon: "link", SortOrder: 3, Status: menumodel.StatusActive},
 		// 4. 定价与计费
 		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "定价与计费", Type: menumodel.TypeDirectory, Path: "/product/pricing-center", Icon: "money", SortOrder: 4, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "价格策略", Type: menumodel.TypeMenu, Path: "/product/pricing", Component: "product/pricing/index", Icon: "money", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "商品调价", Type: menumodel.TypeMenu, Path: "/product/pricing", Component: "product/pricing/index", Icon: "money", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "价格计算器", Type: menumodel.TypeMenu, Path: "/product/pricing/calculator", Component: "product/pricing/calculator/index", Icon: "chart-bar", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "价格历史", Type: menumodel.TypeMenu, Path: "/product/pricing/history", Component: "product/pricing/history/index", Icon: "history", SortOrder: 3, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "折扣策略", Type: menumodel.TypeMenu, Path: "/product/pricing/policies", Component: "product/pricing/policies/index", Icon: "discount", SortOrder: 4, Status: menumodel.StatusActive},
@@ -1270,6 +1306,18 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务报表", Type: menumodel.TypeMenu, Path: "/finance/report", Component: "finance/report/index", Icon: "chart-bar", SortOrder: 6, Status: menumodel.StatusActive},
 		// 7. 财务配置
 		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务配置", Type: menumodel.TypeMenu, Path: "/finance/config", Component: "finance/config/index", Icon: "setting", SortOrder: 7, Status: menumodel.StatusActive},
+
+		// —— 支付中心（doc35，SortOrder=13）：独立模块，只管收款渠道与打款任务，
+		// 资金记账仍归财务管理（WalletService 是唯一资金入口）。
+		{Platform: menumodel.PlatformAdmin, Name: "支付中心", Type: menumodel.TypeDirectory, Path: "/payment", Icon: "money", SortOrder: 13, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "支付概览", Type: menumodel.TypeMenu, Path: "/payment/overview", Component: "payment/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "支付渠道", Type: menumodel.TypeMenu, Path: "/payment/channels", Component: "payment/channels/index", Icon: "link", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "支付方式", Type: menumodel.TypeMenu, Path: "/payment/methods", Component: "payment/methods/index", Icon: "wallet", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "支付订单", Type: menumodel.TypeMenu, Path: "/payment/orders", Component: "payment/orders/index", Icon: "order", SortOrder: 4, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "回调日志", Type: menumodel.TypeMenu, Path: "/payment/callbacks", Component: "payment/callbacks/index", Icon: "mail", SortOrder: 5, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "渠道退款", Type: menumodel.TypeMenu, Path: "/payment/refunds", Component: "payment/refunds/index", Icon: "refresh", SortOrder: 6, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "打款管理", Type: menumodel.TypeMenu, Path: "/payment/payouts", Component: "payment/payouts/index", Icon: "upload", SortOrder: 7, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "渠道对账", Type: menumodel.TypeMenu, Path: "/payment/recon", Component: "payment/recon/index", Icon: "verify", SortOrder: 8, Status: menumodel.StatusActive},
 
 		// —— 推广返现（替代原代理/分销域）
 		{Platform: menumodel.PlatformAdmin, Name: "推广返现", Type: menumodel.TypeDirectory, Path: "/referral", Icon: "share", SortOrder: 12, Status: menumodel.StatusActive},

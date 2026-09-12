@@ -45,6 +45,8 @@ func NewProductService(catalog catalogReader, cycles cycleReader) ProductService
 	return &productService{catalog: catalog, cycles: cycles}
 }
 
+func statusPtr(v int) *int { return &v }
+
 func (s *productService) List(ctx context.Context, query dto.ListQuery) (*dto.ListResponse, error) {
 	page := query.Page
 	if page < 1 {
@@ -57,7 +59,7 @@ func (s *productService) List(ctx context.Context, query dto.ListQuery) (*dto.Li
 	resp, err := s.catalog.List(ctx, catalogdto.ProductListQuery{
 		Keyword:    query.Keyword,
 		CategoryID: query.Category,
-		Status:     1, // 仅上架
+		Status:     statusPtr(1), // 仅上架
 		Featured:   query.Featured,
 		Page:       page,
 		PageSize:   pageSize,

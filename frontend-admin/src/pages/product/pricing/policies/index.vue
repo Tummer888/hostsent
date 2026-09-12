@@ -60,7 +60,7 @@
     <section class="table-card surface-card">
       <div class="table-card__head">
         <h3 class="card-title">策略列表</h3>
-        <span class="table-card__meta">共 {{ total }} 条策略</span>
+        <span class="table-card__meta">共 {{ pagination.total }} 条策略</span>
       </div>
       <t-table
         row-key="id"
@@ -225,26 +225,22 @@
 import { onMounted, reactive, ref } from 'vue'
 
 import { AddIcon, AppIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
-import { DialogPlugin, MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import {
   createPricePolicy,
   deletePricePolicy,
   getPricePolicyList,
-  getProductCategoryList,
   getProductList,
   updatePricePolicy,
 } from '@/api/product'
-import type {
-  PricePolicyItemRequest,
-  PricePolicyInfo,
-  PricePolicyRequest,
-  SaleProductCategoryInfo,
-} from '@/types/interface'
+import type { PricePolicyItemRequest, PricePolicyInfo, PricePolicyRequest } from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
+import { useCategoryOptions } from '@/composables/useCategoryOptions'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { useMobilePagination } from '@/composables/useMobilePagination'
 
 defineOptions({ name: 'ProductPricingPolicies' })
 
@@ -266,15 +262,10 @@ const policies = ref<PricePolicyInfo[]>([])
 const loading = ref(false)
 const { isMobile } = useIsMobile()
 const saving = ref(false)
-const total = ref(0)
-const pagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
 
-// 移动端分页状态：与桌面端 pagination 同步维护
-const mobilePage = reactive({
-  current: 1,
-  pageSize: 10,
-  total: 0,
-})
+const { pagination, mobilePage, applyTotal, handlePageChange, goMobilePage, handleMobilePageSizeChange, resetPage } =
+  useMobilePagination(loadPolicies)
+
 const filters = reactive<{ keyword: string | undefined; scope: string | undefined; status: string | undefined }>({
   keyword: undefined,
   scope: undefined,
@@ -310,7 +301,7 @@ const columns: PrimaryTableCol<PricePolicyInfo>[] = [
   { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 130, fixed: 'right' as const, align: 'center' as const },
 ]
 
-const categoryOptions = ref<{ label: string; value: number }[]>([])
+const { categoryOptions, loadCategories } = useCategoryOptions()
 const productOptions = ref<{ label: string; value: number }[]>([])
 
 function discountLabel(row: PricePolicyInfo): string {
@@ -325,20 +316,7 @@ function effectiveLabel(row: PricePolicyInfo): string {
 }
 
 async function loadOptions() {
-  try {
-    const data = await getProductCategoryList()
-    const options: { label: string; value: number }[] = []
-    const flatten = (nodes: SaleProductCategoryInfo[]) => {
-      for (const node of nodes) {
-        options.push({ label: node.name, value: node.id })
-        if (node.children?.length) flatten(node.children)
-      }
-    }
-    flatten(data.items)
-    categoryOptions.value = options
-  } catch {
-    /* 分类加载失败不阻塞策略列表 */
-  }
+  await loadCategories()
   try {
     const data = await getProductList({ page: 1, page_size: 200 })
     productOptions.value = data.items.map((item) => ({ label: item.name, value: item.id }))
@@ -358,9 +336,7 @@ async function loadPolicies() {
       page_size: pagination.pageSize,
     })
     policies.value = data.items || []
-    total.value = data.meta.total
-    pagination.total = data.meta.total
-    mobilePage.total = data.meta.total
+    applyTotal(data.meta.total)
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载折扣策略失败')
   } finally {
@@ -368,38 +344,8 @@ async function loadPolicies() {
   }
 }
 
-function handlePageChange(pageInfo: PageInfo) {
-  pagination.current = pageInfo.current
-  pagination.pageSize = pageInfo.pageSize
-  loadPolicies()
-  mobilePage.current = pageInfo?.current ?? pagination.current
-  mobilePage.pageSize = pageInfo?.pageSize ?? pagination.pageSize
-  mobilePage.total = pagination.total
-}
-
-// —— 移动端分页交互 ——
-function goMobilePage(target: number) {
-  const clamped = Math.min(Math.max(target, 1), Math.max(1, Math.ceil(mobilePage.total / mobilePage.pageSize)))
-  if (clamped === mobilePage.current) return
-  void applyMobilePage(clamped, mobilePage.pageSize)
-}
-
-async function applyMobilePage(current: number, pageSize: number) {
-  pagination.current = current
-  pagination.pageSize = pageSize
-  mobilePage.current = current
-  mobilePage.pageSize = pageSize
-  await handlePageChange({ current, pageSize } as never)
-}
-
-function handleMobilePageSizeChange(pageSize: number) {
-  mobilePage.pageSize = pageSize
-  void applyMobilePage(1, pageSize)
-}
-
 function handleSearch() {
-  pagination.current = 1
-  loadPolicies()
+  resetPage()
 }
 function handleResetFilters() {
   filters.keyword = undefined

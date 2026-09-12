@@ -21,6 +21,10 @@ type BillService interface {
 	Close(ctx context.Context, id uint64) error
 	// GenerateForUser 归集某用户在指定账期（如 202608）的消费/退款，生成（upsert）账单。
 	GenerateForUser(ctx context.Context, userID uint64, period string) (*billmodel.Bill, error)
+	// FindByID 读取账单（支付前校验应结金额）。
+	FindByID(ctx context.Context, id uint64) (*billmodel.Bill, error)
+	// MarkPaid 账单结清并登记支付方式（由支付单 paid 事件触发，幂等）。
+	MarkPaid(ctx context.Context, id uint64, paidAmountFen int64, paidMethod string, paidChannelID uint64) error
 }
 
 type billService struct {
@@ -94,6 +98,30 @@ func (s *billService) GenerateForUser(ctx context.Context, userID uint64, period
 		return nil, err
 	}
 	return s.billRepo.FindByUserPeriod(ctx, userID, period)
+}
+
+// FindByID 读取账单（支付前校验应结金额）。
+func (s *billService) FindByID(ctx context.Context, id uint64) (*billmodel.Bill, error) {
+	b, err := s.billRepo.FindByID(ctx, id)
+	if err != nil {
+		return nil, mapBillErr(err)
+	}
+	return b, nil
+}
+
+// MarkPaid 账单结清并登记支付方式；已结清时直接返回（幂等）。
+func (s *billService) MarkPaid(ctx context.Context, id uint64, paidAmountFen int64, paidMethod string, paidChannelID uint64) error {
+	b, err := s.billRepo.FindByID(ctx, id)
+	if err != nil {
+		return mapBillErr(err)
+	}
+	if b.Status == billmodel.BillStatusPaid {
+		return nil
+	}
+	if b.Status == billmodel.BillStatusClosed {
+		return ErrStatusConflict
+	}
+	return s.billRepo.MarkPaid(ctx, id, paidAmountFen, paidMethod, paidChannelID)
 }
 
 func mapBillErr(err error) error {
