@@ -3,10 +3,11 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <CloudIcon size="22" aria-hidden="true" />
+          <component :is="pageIcon" size="22" aria-hidden="true" />
         </span>
         <div class="page-header__text">
-          <h2 class="page-header__title">上游提供商</h2>
+          <h2 class="page-header__title">{{ pageTitle }}</h2>
+          <p class="page-header__desc">{{ pageDesc }}</p>
         </div>
       </div>
       <t-space size="small">
@@ -16,11 +17,11 @@
           </template>
           刷新列表
         </t-button>
-        <t-button theme="primary" @click="router.push('/resource/providers/create')">
+        <t-button theme="primary" @click="goCreate">
           <template #icon>
             <AddIcon aria-hidden="true" />
           </template>
-          添加提供商
+          {{ createLabel }}
         </t-button>
       </t-space>
     </header>
@@ -46,10 +47,6 @@
         <div class="field">
           <span class="field__label">提供商类型</span>
           <t-select v-model="filters.provider_type" clearable placeholder="全部类型" :options="typeOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">链路</span>
-          <t-select v-model="filters.kind" clearable placeholder="全部链路" :options="kindFilterOptions" />
         </div>
         <div class="field">
           <span class="field__label">状态</span>
@@ -99,10 +96,38 @@
           <t-tag theme="primary" variant="light" size="small" shape="round">{{ typeLabel(row.provider_type) }}</t-tag>
         </template>
 
-        <template #kind="{ row }">
-          <t-tag :theme="row.kind === 'compute' ? 'success' : 'default'" variant="light" size="small" shape="round">
-            {{ row.kind === 'compute' ? '算力平台' : '上游转售' }}
-          </t-tag>
+        <template #connectivity="{ row }">
+          <span class="conn-cell">
+            <t-tag
+              v-if="connState(row.id).status === 'testing'"
+              theme="primary"
+              variant="light"
+              size="small"
+              shape="round"
+            >
+              测试中…
+            </t-tag>
+            <t-tag
+              v-else-if="connState(row.id).status === 'ok'"
+              theme="success"
+              variant="light"
+              size="small"
+              shape="round"
+            >
+              连通正常
+            </t-tag>
+            <t-tooltip v-else-if="connState(row.id).status === 'fail'" :content="connState(row.id).message" placement="top">
+              <t-tag theme="danger" variant="light" size="small" shape="round">连接失败</t-tag>
+            </t-tooltip>
+            <t-tag v-else theme="default" variant="light" size="small" shape="round">未测试</t-tag>
+          </span>
+        </template>
+
+        <template #ops_url="{ row }">
+          <t-link v-if="row.ops_console_url" theme="primary" hover="color" :href="row.ops_console_url" target="_blank">
+            运维平台
+          </t-link>
+          <span v-else class="muted">—</span>
         </template>
 
         <template #resources="{ row }">
@@ -152,11 +177,31 @@
                 { content: '详情', value: 'detail', theme: 'default' },
                 { content: '编辑', value: 'edit', theme: 'default' },
                 { content: '测试连接', value: 'test', theme: 'default' },
+                { content: '运维平台', value: 'ops', hidden: () => !row.ops_console_url, theme: 'default' },
                 { content: '恢复同步', value: 'resume', hidden: () => !(row.sync_paused), theme: 'warning' },
                 { content: '删除', value: 'delete', theme: 'error' },
               ])"
               @select="(value) => handleMobileAction(value, row)"
             />
+            <template v-else>
+              <t-link theme="primary" hover="color" @click="router.push(`/resource/providers/${row.id}`)">详情</t-link>
+              <t-link theme="primary" hover="color" @click="openEditDialog(row)">编辑</t-link>
+              <t-link theme="primary" hover="color" :disabled="connState(row.id).status === 'testing'" @click="handleTestConnection(row)">
+                测试连接
+              </t-link>
+              <t-link
+                v-if="row.sync_paused"
+                theme="warning"
+                hover="color"
+                :disabled="resumingId === row.id"
+                @click="handleResumeSync(row)"
+              >
+                恢复同步
+              </t-link>
+              <t-popconfirm content="删除后该渠道的同步配置将一并移除，确认删除？" @confirm="handleDelete(row)">
+                <t-link theme="danger" hover="color">删除</t-link>
+              </t-popconfirm>
+            </template>
           </div>
         </template>
 
@@ -210,6 +255,9 @@
           <t-form-item label="启用实例同步" name="sync_enabled">
             <t-switch v-model="formData.sync_enabled" />
           </t-form-item>
+          <t-form-item label="运维平台地址" name="ops_console_url" class="form-item--full">
+            <t-input v-model="formData.ops_console_url" placeholder="上游/平台运维控制台地址，留空则不显示跳转入口" />
+          </t-form-item>
         </div>
         <CredentialFormFields
           v-if="editingCredentialFields.length"
@@ -231,9 +279,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
-import { AddIcon, CloudIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
+import { AddIcon, CloudIcon, RefreshIcon, SearchIcon, ServerIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import {
@@ -254,17 +302,40 @@ import CredentialFormFields from './components/CredentialFormFields.vue'
 
 defineOptions({ name: 'ResourceProviders' })
 
+const route = useRoute()
 const router = useRouter()
+
+// 双链路拆页（本轮 S1）：同一组件服务两个路由，链路由路由 meta.channelKind 固定。
+// upstream = 上游转售渠道（对接上游商家，目录/定价/生命周期在上游）；
+// compute  = 自营平台对接（对接资源平台作为自营执行器，本地售卖）。
+const channelKind = computed(() => (route.meta.channelKind as string) || 'upstream')
+const isCompute = computed(() => channelKind.value === 'compute')
+const pageTitle = computed(() => (isCompute.value ? '自营平台对接' : '上游转售渠道'))
+const pageDesc = computed(() =>
+  isCompute.value
+    ? '对接资源平台作为自营产品执行器：本地定价与售卖，平台侧提供开通与电源控制'
+    : '对接上游商家转售其资源：商品目录、成本价与生命周期以对上为准',
+)
+const createLabel = computed(() => (isCompute.value ? '添加平台' : '添加渠道'))
+const pageIcon = computed(() => (isCompute.value ? ServerIcon : CloudIcon))
 
 const providerList = ref<ProviderInfo[]>([])
 const loading = ref(false)
 const { isMobile } = useIsMobile()
 const submitting = ref(false)
-const testingId = ref<number | null>(null)
 const resumingId = ref<number | null>(null)
 const total = ref(0)
 const typeOptions = ref<{ label: string; value: string }[]>([])
 const typeNameMap = ref<Record<string, string>>({})
+const typeKindMap = ref<Record<string, string>>({})
+
+// 行内连接测试状态：把「连接测试」页的职责收敛到列表一行一组状态。
+type ConnStatus = 'idle' | 'testing' | 'ok' | 'fail'
+const connResults = ref<Record<number, { status: ConnStatus; message: string; latency?: number }>>({})
+
+function connState(id: number) {
+  return connResults.value[id] || { status: 'idle' as ConnStatus, message: '' }
+}
 
 const statusLabelMap: Record<number, string> = {
   1: '启用',
@@ -276,15 +347,9 @@ const statusFilterOptions = [
   { label: '禁用', value: 0 },
 ]
 
-const kindFilterOptions = [
-  { label: '上游转售', value: 'upstream' },
-  { label: '算力平台', value: 'compute' },
-]
-
 const filters = reactive({
   keyword: '',
   provider_type: '',
-  kind: '',
   status: 0 as number | '',
 })
 
@@ -304,6 +369,14 @@ const mobilePage = reactive({
 function typeLabel(type: string): string {
   return typeNameMap.value[type] || type
 }
+
+// 可选类型按当前链路过滤：上游渠道只列出 kind=upstream 的类型，自营平台只列 kind=compute。
+const visibleTypes = computed(() => {
+  const types = typeOptions.value
+  const known = Object.keys(typeKindMap.value)
+  if (!known.length) return types
+  return types.filter((item) => (typeKindMap.value[item.value] || 'upstream') === channelKind.value)
+})
 
 function resolveStatusTheme(status: number) {
   if (status === 1) return 'success'
@@ -332,16 +405,17 @@ function formatTime(value: string): string {
 const columns: PrimaryTableCol<ProviderInfo>[] = [
   { colKey: 'name', title: '名称', minWidth: 200 },
   { colKey: 'provider_type', title: '类型', width: 120 },
-  { colKey: 'kind', title: '链路', width: 110 },
-  { colKey: 'api_endpoint', title: 'API 地址', minWidth: 240, ellipsis: true },
+  { colKey: 'api_endpoint', title: 'API 地址', minWidth: 220, ellipsis: true },
+  { colKey: 'connectivity', title: '连通性', width: 110 },
   { colKey: 'status', title: '状态', width: 90 },
   { colKey: 'sync_state', title: '同步状态', width: 110 },
   { colKey: 'resources', title: '资源概览', minWidth: 220 },
+  { colKey: 'ops_url', title: '运维入口', width: 100 },
   { colKey: 'last_sync_at', title: '最后同步', width: 160 },
   {
     colKey: 'action',
     title: '操作',
-    width: isMobile.value ? 70 : 260,
+    width: isMobile.value ? 70 : 300,
     fixed: 'right' as const,
     align: 'center' as const,
   },
@@ -350,8 +424,12 @@ const columns: PrimaryTableCol<ProviderInfo>[] = [
 async function loadTypes() {
   try {
     const types = await getProviderTypes()
-    typeOptions.value = types.map((item: ProviderTypeItem) => ({ label: item.name, value: item.type }))
     typeNameMap.value = Object.fromEntries(types.map((item: ProviderTypeItem) => [item.type, item.name]))
+    typeKindMap.value = Object.fromEntries(types.map((item: ProviderTypeItem) => [item.type, item.kind || 'upstream']))
+    // 类型下拉按当前链路过滤（上游转售 / 自营平台），避免跨链路选错。
+    typeOptions.value = types
+      .filter((item: ProviderTypeItem) => (item.kind || 'upstream') === channelKind.value)
+      .map((item: ProviderTypeItem) => ({ label: item.name, value: item.type }))
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载提供商类型失败')
   }
@@ -365,7 +443,8 @@ async function loadProviders() {
       page_size: pagination.pageSize,
       keyword: filters.keyword || undefined,
       provider_type: filters.provider_type || undefined,
-      kind: filters.kind || undefined,
+      // 链路由当前页面决定，用户不可跨链路查看/操作。
+      kind: channelKind.value,
       status: filters.status === '' ? undefined : filters.status,
     })
     providerList.value = data.items
@@ -417,7 +496,6 @@ function handleSearch() {
 function handleResetFilters() {
   filters.keyword = ''
   filters.provider_type = ''
-  filters.kind = ''
   filters.status = ''
   pagination.current = 1
   loadProviders()
@@ -427,19 +505,35 @@ function handleRefreshList() {
   loadProviders()
 }
 
+function goCreate() {
+  router.push({ path: '/resource/providers/create', query: { kind: channelKind.value } })
+}
+
 async function handleTestConnection(row: ProviderInfo) {
-  testingId.value = row.id
+  connResults.value = { ...connResults.value, [row.id]: { status: 'testing', message: '' } }
+  const startedAt = Date.now()
   try {
     const result = await testConnection(row.id)
+    const latency = Date.now() - startedAt
     if (result.success) {
-      MessagePlugin.success(`连接测试通过：${result.message}`)
+      connResults.value = {
+        ...connResults.value,
+        [row.id]: { status: 'ok', message: result.message || 'ok', latency },
+      }
+      MessagePlugin.success(`「${row.name}」连接正常（${latency} ms）`)
     } else {
-      MessagePlugin.error(`连接测试失败：${result.message}`)
+      connResults.value = {
+        ...connResults.value,
+        [row.id]: { status: 'fail', message: result.message, latency },
+      }
+      MessagePlugin.error(`「${row.name}」连接失败：${result.message}`)
     }
   } catch (error) {
+    connResults.value = {
+      ...connResults.value,
+      [row.id]: { status: 'fail', message: (error as Error).message || '连接测试失败' },
+    }
     MessagePlugin.error((error as Error).message || '连接测试失败')
-  } finally {
-    testingId.value = null
   }
 }
 
@@ -479,6 +573,7 @@ type ProviderForm = {
   sync_interval: number
   sync_enabled: boolean
   status: number
+  ops_console_url: string
 }
 
 const dialogVisible = ref(false)
@@ -499,6 +594,7 @@ const formData = reactive<ProviderForm>({
   sync_interval: 3600,
   sync_enabled: false,
   status: 1,
+  ops_console_url: '',
 })
 
 const rules: Record<string, FormRule[]> = {
@@ -506,6 +602,9 @@ const rules: Record<string, FormRule[]> = {
   api_endpoint: [
     { required: true, message: '请输入 API 地址', type: 'error', trigger: 'blur' },
     { pattern: /^https?:\/\//, message: 'API 地址需以 http(s):// 开头', type: 'error', trigger: 'blur' },
+  ],
+  ops_console_url: [
+    { pattern: /^https?:\/\//, message: '运维地址需以 http(s):// 开头', type: 'error', trigger: 'blur' },
   ],
 }
 
@@ -523,6 +622,7 @@ function openEditDialog(row: ProviderInfo) {
     sync_interval: row.sync_interval,
     sync_enabled: row.sync_enabled,
     status: row.status,
+    ops_console_url: row.ops_console_url || '',
   })
   formRef.value?.clearValidate?.()
   dialogVisible.value = true
@@ -541,6 +641,7 @@ async function handleSaveDialog() {
       sync_enabled: formData.sync_enabled,
       sync_interval: formData.sync_interval,
       status: formData.status,
+      ops_console_url: formData.ops_console_url || '',
     } as Parameters<typeof updateProvider>[1]
     if (editingCredentialFields.value.length) {
       payload.credentials = formData.credentials
@@ -580,6 +681,9 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
       break
     case 'test':
       void handleTestConnection(row)
+      break
+    case 'ops':
+      if (row.ops_console_url) window.open(row.ops_console_url, '_blank', 'noopener')
       break
     case 'resume':
       void handleResumeSync(row)
@@ -630,6 +734,10 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 var(--space-lg);
+}
+
+.form-item--full {
+  grid-column: 1 / -1;
 }
 
 .dialog-matrix {

@@ -6,15 +6,16 @@
           <AddIcon size="22" aria-hidden="true" />
         </span>
         <div class="page-header__text">
-          <h2 class="page-header__title">添加提供商</h2>
+          <h2 class="page-header__title">{{ pageTitle }}</h2>
+          <p class="page-header__desc">{{ pageDesc }}</p>
         </div>
       </div>
-      <t-button variant="outline" @click="router.push('/resource/providers')">返回列表</t-button>
+      <t-button variant="outline" @click="router.push(listPath)">返回列表</t-button>
     </header>
 
     <section class="steps-card surface-card">
       <t-steps :current="current" layout="horizontal">
-        <t-step title="选择类型" content="选择上游云厂商" />
+        <t-step title="选择类型" :content="isCompute ? '选择资源平台' : '选择上游云厂商'" />
         <t-step title="填写 API 信息" content="配置端点与密钥" />
         <t-step title="完成" content="创建并测试连接" />
       </t-steps>
@@ -233,8 +234,8 @@
           <t-descriptions-item label="连接">{{ testResultText }}</t-descriptions-item>
         </t-descriptions>
         <div class="steps-footer">
-          <t-button theme="primary" @click="router.push(created ? `/resource/providers/${created.id}` : '/resource/providers')">查看详情</t-button>
-          <t-button variant="outline" @click="router.push('/resource/providers')">返回列表</t-button>
+          <t-button theme="primary" @click="router.push(created ? `/resource/providers/${created.id}` : listPath)">查看详情</t-button>
+          <t-button variant="outline" @click="router.push(listPath)">返回列表</t-button>
         </div>
       </div>
     </section>
@@ -243,9 +244,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
-import { AddIcon, CheckCircleIcon, CloudIcon } from 'tdesign-icons-vue-next'
+import { AddIcon, CheckCircleIcon, CloudIcon, ServerIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type FormInstanceFunctions, type FormRule } from 'tdesign-vue-next'
 
 import { createProvider, getProviderTypes, testConnection } from '@/api/admin'
@@ -256,7 +257,20 @@ import { KIND_LABELS, labelOf } from './components/capability-labels'
 
 defineOptions({ name: 'ResourceProvidersCreate' })
 
+const route = useRoute()
 const router = useRouter()
+
+// 双链路拆页（本轮 S1）：创建页跟随入口页面的 kind（上游转售 / 自营平台对接），
+// 类型卡只列出当前链路可选适配器，避免跨链路建错渠道。
+const channelKind = computed(() => (route.query.kind as string) || 'upstream')
+const isCompute = computed(() => channelKind.value === 'compute')
+const listPath = computed(() => (isCompute.value ? '/resource/platforms' : '/resource/providers'))
+const pageTitle = computed(() => (isCompute.value ? '添加自营平台' : '添加上游渠道'))
+const pageDesc = computed(() =>
+  isCompute.value
+    ? '对接资源平台作为自营产品执行器：本地定价与售卖，平台侧提供开通与电源控制'
+    : '对接上游商家转售其资源：商品目录、成本价与生命周期以对上为准',
+)
 
 const current = ref(0)
 const loadingTypes = ref(false)
@@ -384,7 +398,9 @@ const formRules = computed<Record<string, FormRule[]>>(() => {
 async function loadTypes() {
   loadingTypes.value = true
   try {
-    typeList.value = await getProviderTypes()
+    const all = await getProviderTypes()
+    // 按入口链路过滤可选适配器类型（kind 缺省视为 upstream）。
+    typeList.value = all.filter((item) => (item.kind || 'upstream') === channelKind.value)
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载提供商类型失败')
   } finally {

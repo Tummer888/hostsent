@@ -14,7 +14,8 @@
         </div>
       </div>
       <t-space size="small">
-        <t-button variant="outline" @click="router.push('/resource/providers')">返回列表</t-button>
+        <t-button variant="outline" @click="router.push(listPath)">返回列表</t-button>
+        <t-button v-if="detail?.ops_console_url" variant="outline" @click="openOpsConsole">运维平台</t-button>
         <t-button variant="outline" :loading="testing" @click="handleTestConnection">测试连接</t-button>
         <t-button v-if="detail?.sync_paused" theme="warning" :loading="resuming" @click="handleResumeSync">恢复同步</t-button>
         <t-button theme="primary" :loading="saving" @click="toggleEdit">{{ editing ? '保存' : '编辑资料' }}</t-button>
@@ -71,6 +72,15 @@
                     <t-tag :theme="detail.status === 1 ? 'success' : 'default'" variant="light" size="small" shape="round">
                       {{ statusLabelMap[detail.status] || '未知' }}
                     </t-tag>
+                  </span>
+                </t-form-item>
+                <t-form-item label="运维平台">
+                  <t-input v-if="editing" v-model="formData.ops_console_url" placeholder="上游/平台运维控制台地址，留空则不显示跳转入口" />
+                  <span v-else class="readonly-text">
+                    <t-link v-if="detail.ops_console_url" theme="primary" hover="color" @click="openOpsConsole">
+                      {{ detail.ops_console_url }}
+                    </t-link>
+                    <span v-else>—</span>
                   </span>
                 </t-form-item>
                 <t-form-item label="同步健康">
@@ -194,6 +204,8 @@ const route = useRoute()
 const router = useRouter()
 
 const providerId = computed(() => Number(route.params.id))
+// 详情页归属哪个渠道列表：按渠道链路回跳（自营平台 / 上游转售），避免跨页跳错。
+const listPath = computed(() => (detail.value?.kind === 'compute' ? '/resource/platforms' : '/resource/providers'))
 const detail = ref<ProviderInfo | null>(null)
 const loading = ref(false)
 const saving = ref(false)
@@ -225,6 +237,7 @@ const formData = reactive({
   timeout_seconds: 0,
   retry_max: 0,
   rate_limit_qps: 0,
+  ops_console_url: '',
 })
 
 const formRules: Record<string, FormRule[]> = {
@@ -264,6 +277,7 @@ async function loadDetail() {
       timeout_seconds: detail.value.timeout_seconds,
       retry_max: detail.value.retry_max,
       rate_limit_qps: detail.value.rate_limit_qps,
+      ops_console_url: detail.value.ops_console_url || '',
     })
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载提供商详情失败')
@@ -289,6 +303,12 @@ function toggleEdit() {
   handleSave()
 }
 
+// 运维平台为外部系统，新窗口打开（不接管站内路由）。
+function openOpsConsole() {
+  const url = detail.value?.ops_console_url
+  if (url) window.open(url, '_blank', 'noopener')
+}
+
 async function handleSave() {
   const validate = await formRef.value?.validate?.()
   if (validate !== true) return
@@ -304,6 +324,7 @@ async function handleSave() {
       timeout_seconds: formData.timeout_seconds,
       retry_max: formData.retry_max,
       rate_limit_qps: formData.rate_limit_qps,
+      ops_console_url: formData.ops_console_url || '',
     } as Parameters<typeof updateProvider>[1]
     if (credentialFields.value.length) {
       payload.credentials = formData.credentials

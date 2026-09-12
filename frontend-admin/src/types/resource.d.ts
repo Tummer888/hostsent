@@ -34,6 +34,8 @@ export interface ProviderCreateRequest {
   timeout_seconds?: number
   retry_max?: number
   rate_limit_qps?: number
+  /** 上游/平台侧运维控制台地址，后台一键跳转 */
+  ops_console_url?: string
 }
 
 export interface ProviderUpdateRequest {
@@ -58,6 +60,8 @@ export interface ProviderUpdateRequest {
   timeout_seconds?: number
   retry_max?: number
   rate_limit_qps?: number
+  /** 上游/平台侧运维控制台地址，后台一键跳转 */
+  ops_console_url?: string
 }
 
 export interface ProviderInfo {
@@ -101,6 +105,8 @@ export interface ProviderInfo {
   timeout_seconds: number
   retry_max: number
   rate_limit_qps: number
+  /** 上游/平台侧运维控制台地址，后台一键跳转 */
+  ops_console_url: string
   /** 渠道能力描述符，供后台能力矩阵展示 */
   capabilities: CapabilityDescriptor
   created_at: string

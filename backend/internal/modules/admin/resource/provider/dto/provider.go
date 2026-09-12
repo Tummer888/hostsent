@@ -47,6 +47,8 @@ type ProviderCreateRequest struct {
 	RateLimitQPS   int               `json:"rate_limit_qps"`
 	// PriceChangeThreshold 上游成本价变动自动应用阈值（比例，0.05=5%，P3/T3.4）。
 	PriceChangeThreshold float64 `json:"price_change_threshold"`
+	// OpsConsoleURL 上游/平台侧运维控制台地址，后台一键跳转（本轮 S2）。
+	OpsConsoleURL string `json:"ops_console_url"`
 }
 
 // ProviderUpdateRequest 更新上游提供商
@@ -75,6 +77,8 @@ type ProviderUpdateRequest struct {
 	RateLimitQPS   int               `json:"rate_limit_qps"`
 	// PriceChangeThreshold 上游成本价变动自动应用阈值（比例，0.05=5%，P3/T3.4）。
 	PriceChangeThreshold float64 `json:"price_change_threshold"`
+	// OpsConsoleURL 上游/平台侧运维控制台地址，后台一键跳转（本轮 S2）。
+	OpsConsoleURL string `json:"ops_console_url"`
 }
 
 // ProviderInfo 上游提供商信息
@@ -123,6 +127,8 @@ type ProviderInfo struct {
 	RateLimitQPS    int    `json:"rate_limit_qps"`
 	// PriceChangeThreshold 上游成本价变动自动应用阈值（比例，P3/T3.4）。
 	PriceChangeThreshold float64 `json:"price_change_threshold"`
+	// OpsConsoleURL 上游/平台侧运维控制台地址，后台一键跳转（本轮 S2）。
+	OpsConsoleURL string `json:"ops_console_url"`
 	// Capabilities 渠道能力描述符，供后台能力矩阵展示。
 	Capabilities upstream.CapabilityDescriptor `json:"capabilities"`
 	CreatedAt    string                        `json:"created_at"`

@@ -60,10 +60,12 @@ type ResourceProvider struct {
 	RateLimitQPS int `gorm:"column:rate_limit_qps;not null;default:0"`
 	// PriceChangeThreshold 上游成本价变动自动应用阈值（比例，0.05=5%）；
 	// 超过阈值写 price_change_events 待人工确认，绝不静默改售价（P3/T3.4）。
-	PriceChangeThreshold float64        `gorm:"column:price_change_threshold;type:numeric(10,4);not null;default:0.05"`
-	CreatedAt            time.Time      `gorm:"autoCreateTime"`
-	UpdatedAt            time.Time      `gorm:"autoUpdateTime"`
-	DeletedAt            gorm.DeletedAt `gorm:"index"`
+	PriceChangeThreshold float64 `gorm:"column:price_change_threshold;type:numeric(10,4);not null;default:0.05"`
+	// OpsConsoleURL 上游/平台侧运维控制台地址；后台一键跳转（容量与位置、任务队列排障用）。
+	OpsConsoleURL string         `gorm:"column:ops_console_url;size:255;not null;default:''"`
+	CreatedAt      time.Time      `gorm:"autoCreateTime"`
+	UpdatedAt      time.Time      `gorm:"autoUpdateTime"`
+	DeletedAt      gorm.DeletedAt `gorm:"index"`
 }
 
 // TableName 指定表名

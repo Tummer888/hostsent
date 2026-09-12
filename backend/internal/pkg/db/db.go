@@ -1125,8 +1125,12 @@ func seedMenus(tx *gorm.DB) error {
 		// —— P7 菜单归位（doc16 §9.2）：渠道与平台 / 容量与位置 / 同步与调度 / 实例 / 运维。
 		// 资源管理只做资源，商品对接页面移入产品管理（T7.2）。
 		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "渠道与平台", Type: menumodel.TypeDirectory, Path: "/resource/channels", Icon: "cloud", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/channels", Platform: menumodel.PlatformAdmin, Name: "上游渠道", Type: menumodel.TypeMenu, Path: "/resource/providers", Component: "resource/providers/index", Icon: "cloud", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/channels", Platform: menumodel.PlatformAdmin, Name: "连接测试", Type: menumodel.TypeMenu, Path: "/resource/connectivity", Component: "resource/connectivity/index", Icon: "link", SortOrder: 2, Status: menumodel.StatusActive},
+		// 双链路拆分为两页（本轮）：上游转售渠道（kind=upstream）与自营平台对接（kind=compute）。
+		// 连接测试并入列表行内操作，不再单独成页；旧路径保留。
+		{ParentKey: "admin:/resource/channels", Platform: menumodel.PlatformAdmin, Name: "上游转售渠道", Type: menumodel.TypeMenu, Path: "/resource/providers", Component: "resource/providers/index", Icon: "cloud", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/channels", Platform: menumodel.PlatformAdmin, Name: "自营平台对接", Type: menumodel.TypeMenu, Path: "/resource/platforms", Component: "resource/providers/index", Icon: "server", SortOrder: 2, Status: menumodel.StatusActive},
+		// 连接测试页已下线（T-S1）：连通性内联到两个渠道列表的行内「测试连接」，旧菜单隐藏。
+		{ParentKey: "admin:/resource/channels", Platform: menumodel.PlatformAdmin, Name: "连接测试", Type: menumodel.TypeMenu, Path: "/resource/connectivity", Component: "resource/connectivity/index", Icon: "link", SortOrder: 91, Status: menumodel.StatusDisabled},
 		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "容量与位置", Type: menumodel.TypeDirectory, Path: "/resource/capacity", Icon: "layers", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/resource/capacity", Platform: menumodel.PlatformAdmin, Name: "资源池与容量", Type: menumodel.TypeMenu, Path: "/resource/pools", Component: "resource/pools/index", Icon: "layers", SortOrder: 1, Status: menumodel.StatusActive},
 		// —— 同步与调度（T3.6 合并页）：调度 / 任务 / 日志 / 差异 / 待确认调价多 Tab。
@@ -1145,9 +1149,13 @@ func seedMenus(tx *gorm.DB) error {
 		// 父级必须排在子项之前，否则 ParentKey 解析取不到父节点会导致 seed 失败。
 		{Platform: menumodel.PlatformAdmin, Name: "实例管理", Type: menumodel.TypeDirectory, Path: "/instances", Icon: "server", SortOrder: 4, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "实例运维台", Type: menumodel.TypeMenu, Path: "/instances/list", Component: "instances/index", Icon: "server", SortOrder: 1, Status: menumodel.StatusActive},
-		// —— 运维（doc16 §9.2）：异常处理；模块配置并入系统配置（/system/config）。
+		// —— 运维（doc16 §9.2）：异常处理 + 任务队列 + 实例对账；模块配置并入系统配置（/system/config）。
 		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "运维", Type: menumodel.TypeDirectory, Path: "/resource/ops", Icon: "setting", SortOrder: 5, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "异常处理", Type: menumodel.TypeMenu, Path: "/resource/anomalies", Component: "resource/anomalies/index", Icon: "error-circle", SortOrder: 1, Status: menumodel.StatusActive},
+		// 任务队列（本轮 S3）：开通履约 / 实例动作 / 续费 / 同步四类任务的「是否到达上游」。
+		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "任务队列", Type: menumodel.TypeMenu, Path: "/resource/task-queue", Component: "resource/task-queue/index", Icon: "refresh", SortOrder: 2, Status: menumodel.StatusActive},
+		// 实例对账（本轮 S4）：本地已开通实例与上游的售价/成本/到期时间比对。
+		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "实例对账", Type: menumodel.TypeMenu, Path: "/resource/reconcile", Component: "resource/reconcile/index", Icon: "verify", SortOrder: 3, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "API测试", Type: menumodel.TypeMenu, Path: "/resource/api-test", Component: "resource/api-test/index", Icon: "ai-tool", SortOrder: 91, Status: menumodel.StatusDisabled},
 		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeMenu, Path: "/resource/settings", Component: "resource/settings/index", Icon: "setting", SortOrder: 92, Status: menumodel.StatusDisabled},
 		// 资源总览/看板并入「容量与位置」看板（doc16 §9.4），旧菜单隐藏。

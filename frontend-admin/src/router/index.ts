@@ -147,6 +147,8 @@ const routes: Array<RouteRecordRaw> = [
         meta: { title: '同步监控', role: 'admin' },
       },
       // —— 渠道与平台 ——
+      // 本轮 S1：按链路拆两页 —— 上游转售渠道（kind=upstream）与自营平台对接（kind=compute），
+      // 两个页面复用同一组件，通过路由 meta.channelKind 固定过滤链路。
       {
         path: 'channels',
         name: 'ResourceChannels',
@@ -157,7 +159,13 @@ const routes: Array<RouteRecordRaw> = [
         path: 'providers',
         name: 'ResourceProviders',
         component: () => import('@/pages/resource/providers/index.vue'),
-        meta: { title: '上游渠道', role: 'admin', permission: 'resource:provider' },
+        meta: { title: '上游转售渠道', role: 'admin', permission: 'resource:provider', channelKind: 'upstream' },
+      },
+      {
+        path: 'platforms',
+        name: 'ResourcePlatforms',
+        component: () => import('@/pages/resource/providers/index.vue'),
+        meta: { title: '自营平台对接', role: 'admin', permission: 'resource:provider', channelKind: 'compute' },
       },
       {
         path: 'providers/create',
@@ -171,11 +179,12 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/resource/providers/detail.vue'),
         meta: { title: '提供商详情', role: 'admin', permission: 'resource:provider' },
       },
+      // 连接测试页已下线（本轮 S1）：连通性内联到两个渠道列表的行内「测试连接」，旧路径 redirect。
       {
         path: 'connectivity',
         name: 'ResourceConnectivity',
-        component: () => import('@/pages/resource/connectivity/index.vue'),
-        meta: { title: '连接测试', role: 'admin', permission: 'resource:provider' },
+        redirect: '/resource/providers',
+        meta: { title: '连接测试', role: 'admin' },
       },
       // —— 容量与位置 ——
       {
@@ -262,11 +271,11 @@ const routes: Array<RouteRecordRaw> = [
         redirect: '/resource/anomalies',
         meta: { title: '运维', role: 'admin' },
       },
-      // API 测试并入连接测试（doc16 §9.2），旧路径 redirect。
+      // API 测试/连接测试页已下线（本轮 S1）：连通性内联到渠道列表行内，旧路径 redirect。
       {
         path: 'api-test',
         name: 'ResourceApiTest',
-        redirect: '/resource/connectivity',
+        redirect: '/resource/providers',
         meta: { title: 'API测试', role: 'admin' },
       },
       {
@@ -274,6 +283,20 @@ const routes: Array<RouteRecordRaw> = [
         name: 'ResourceAnomalies',
         component: () => import('@/pages/resource/anomalies/index.vue'),
         meta: { title: '异常处理', role: 'admin', permission: 'resource:instance' },
+      },
+      // 任务队列（本轮 S3）：开通履约/实例动作/续费/同步四类任务的「是否到达上游」。
+      {
+        path: 'task-queue',
+        name: 'ResourceTaskQueue',
+        component: () => import('@/pages/resource/task-queue/index.vue'),
+        meta: { title: '任务队列', role: 'admin', permission: 'resource:sync' },
+      },
+      // 实例对账（本轮 S4）：本地已开通实例与上游的售价/成本/到期时间比对。
+      {
+        path: 'reconcile',
+        name: 'ResourceReconcile',
+        component: () => import('@/pages/resource/reconcile/index.vue'),
+        meta: { title: '实例对账', role: 'admin', permission: 'resource:instance' },
       },
       // 模块配置并入系统配置（doc16 §9.2），旧路径 redirect。
       {

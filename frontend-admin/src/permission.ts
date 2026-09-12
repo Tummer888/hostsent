@@ -109,12 +109,13 @@ export const navMenu = [
     children: [
       {
         // P7 菜单归位（doc16 §9.2）：渠道与平台 / 容量与位置 / 同步与调度 / 实例 / 运维。
+        // 本轮 S1：渠道与平台按链路拆两页（上游转售 / 自营平台对接），连接测试内联到列表行内。
         title: '渠道与平台',
         path: '/resource/channels',
         icon: iconWrapper(CloudIcon),
         children: [
-          { title: '上游渠道', path: '/resource/providers', icon: iconWrapper(CloudIcon) },
-          { title: '连接测试', path: '/resource/connectivity', icon: iconWrapper(LinkIcon) },
+          { title: '上游转售渠道', path: '/resource/providers', icon: iconWrapper(CloudIcon) },
+          { title: '自营平台对接', path: '/resource/platforms', icon: iconWrapper(ServerIcon) },
         ],
       },
       {
@@ -147,6 +148,8 @@ export const navMenu = [
         icon: iconWrapper(SettingIcon),
         children: [
           { title: '异常处理', path: '/resource/anomalies', icon: iconWrapper(ErrorCircleIcon) },
+          { title: '任务队列', path: '/resource/task-queue', icon: iconWrapper(RefreshIcon) },
+          { title: '实例对账', path: '/resource/reconcile', icon: iconWrapper(VerifyIcon) },
         ],
       },
     ],

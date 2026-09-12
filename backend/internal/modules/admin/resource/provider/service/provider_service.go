@@ -140,6 +140,7 @@ func (s *providerService) Create(ctx context.Context, req dto.ProviderCreateRequ
 		RetryMax:             req.RetryMax,
 		RateLimitQPS:         req.RateLimitQPS,
 		PriceChangeThreshold: priceChangeThresholdOrDefault(req.PriceChangeThreshold),
+		OpsConsoleURL:        req.OpsConsoleURL,
 	}
 	// 说明：上游对接仅保存连接信息（地址/账号/密码），连通性由 TestConnection 按真实协议
 	// 校验（魔方财务走 /zjmf_api_login 登录换 JWT，魔方云走 /v1/login 或 /token 换 access-token）。
@@ -197,6 +198,7 @@ func (s *providerService) Update(ctx context.Context, id uint64, req dto.Provide
 	item.RetryMax = req.RetryMax
 	item.RateLimitQPS = req.RateLimitQPS
 	item.PriceChangeThreshold = priceChangeThresholdOrDefault(req.PriceChangeThreshold)
+	item.OpsConsoleURL = req.OpsConsoleURL
 	if err := s.repo.Update(ctx, item); err != nil {
 		return nil, err
 	}
@@ -588,6 +590,7 @@ func (s *providerService) buildProviderInfo(item model.ResourceProvider) dto.Pro
 		RetryMax:             item.RetryMax,
 		RateLimitQPS:         item.RateLimitQPS,
 		PriceChangeThreshold: item.PriceChangeThreshold,
+		OpsConsoleURL:        item.OpsConsoleURL,
 		Capabilities:         descriptor,
 		TotalCPU:             item.TotalCPU,
 		TotalMemory:          item.TotalMemory,

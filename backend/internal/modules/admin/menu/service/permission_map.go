@@ -36,7 +36,10 @@ var menuPermissionMap = map[string]string{
 	"/resource/dashboard":    "resource:provider",
 	"/resource/sync-monitor": "resource:sync",
 	"/resource/providers":    "resource:provider",
-	"/resource/pools":        "resource:provider",
+	// 双链路拆页（本轮 S1）：自营平台对接与上游转售渠道同权限口径。
+	"/resource/platforms": "resource:provider",
+	"/resource/pools":     "resource:provider",
+	// 连接测试页已下线（连通性内联到渠道列表行内操作）；旧路径仅作书签兼容。
 	"/resource/connectivity": "resource:provider",
 	// T3.6 合并页「同步与调度」（调度/任务/日志/差异/待确认调价）。
 	"/resource/sync-center":    "resource:sync",
@@ -51,7 +54,11 @@ var menuPermissionMap = map[string]string{
 	"/instances/list":          "resource:instance",
 	"/resource/api-test":       "resource:provider",
 	"/resource/anomalies":      "resource:instance",
-	"/resource/settings":       "system:config:view",
+	// 任务队列（本轮 S3）：平台动作是否到达上游，沿用同步权限口径。
+	"/resource/task-queue": "resource:sync",
+	// 实例对账（本轮 S4）：本地实例与上游成本/账期比对。
+	"/resource/reconcile": "resource:instance",
+	"/resource/settings":  "system:config:view",
 
 	"/product/products": "product:list",
 	// T7.2 商品对接（doc16 §9.3）：组件复用资源侧页面，权限沿用资源商品口径。
