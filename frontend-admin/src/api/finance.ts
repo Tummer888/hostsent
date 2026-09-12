@@ -2,9 +2,14 @@ import { request } from '@/utils/request'
 
 import type {
   AdjustRequest,
+  BillGenerateRequest,
   BillInfo,
   BillListQuery,
   BillListResponse,
+  InvoiceInfo,
+  InvoiceIssueRequest,
+  InvoiceListQuery,
+  InvoiceListResponse,
   RechargeApproveRequest,
   RechargeCreateRequest,
   RechargeInfo,
@@ -119,11 +124,24 @@ export function getBillList(params: BillListQuery): Promise<BillListResponse> {
     url: '/finance/bills',
     params: {
       user_id: params.user_id,
+      user_keyword: params.user_keyword,
+      bill_no: params.bill_no,
+      keyword: params.keyword,
       period: params.period,
       status: params.status,
+      bill_type: params.bill_type,
+      invoice_status: params.invoice_status,
       page: params.page,
       page_size: params.page_size,
     },
+  })
+}
+
+// generateBill 手动生成账单（doc36 §7-2）：按用户 + 账期归集消费/退款并分类。
+export function generateBill(data: BillGenerateRequest): Promise<BillInfo> {
+  return request.post<BillInfo>({
+    url: '/finance/bills/generate',
+    data,
   })
 }
 
@@ -140,4 +158,33 @@ export function reconcile(period?: string): Promise<ReconcileResponse> {
   })
 }
 
-export type { BillInfo }
+// ===== 发票（doc36 §3.3） =====
+
+export function getInvoiceList(params: InvoiceListQuery): Promise<InvoiceListResponse> {
+  return request.get<InvoiceListResponse>({
+    url: '/finance/invoices',
+    params: {
+      user_id: params.user_id,
+      status: params.status,
+      bill_no: params.bill_no,
+      page: params.page,
+      page_size: params.page_size,
+    },
+  })
+}
+
+export function issueInvoice(id: number, data: InvoiceIssueRequest): Promise<InvoiceInfo> {
+  return request.post<InvoiceInfo>({
+    url: `/finance/invoices/${id}/issue`,
+    data,
+  })
+}
+
+export function rejectInvoice(id: number, reason: string): Promise<InvoiceInfo> {
+  return request.post<InvoiceInfo>({
+    url: `/finance/invoices/${id}/reject`,
+    data: { reason },
+  })
+}
+
+export type { BillInfo, InvoiceInfo }

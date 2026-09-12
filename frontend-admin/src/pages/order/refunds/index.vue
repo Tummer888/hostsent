@@ -36,6 +36,10 @@
           <span class="field__label">状态</span>
           <t-select v-model="filters.status" clearable placeholder="全部状态" :options="refundStatusOptions" />
         </div>
+        <div class="field">
+          <span class="field__label">退款去向</span>
+          <t-select v-model="filters.refund_mode" clearable placeholder="全部去向" :options="refundModeOptions" />
+        </div>
       </div>
       <div class="filter-card__actions">
         <t-space size="small">
@@ -72,7 +76,23 @@
         </template>
 
         <template #amount="{ row }">
-          <span class="price-main">¥{{ formatPrice(row.amount) }}</span>
+          <div class="price-cell">
+            <span class="price-main">¥{{ formatPrice(row.amount) }}</span>
+            <span v-if="row.refund_mode === 'channel' && row.fee_amount > 0" class="price-sub">
+              扣点 ¥{{ formatPrice(row.fee_amount) }}
+            </span>
+          </div>
+        </template>
+
+        <template #refund_mode="{ row }">
+          <div class="price-cell">
+            <t-tag :theme="refundModeTheme(row.refund_mode)" variant="light" size="small" shape="round">
+              {{ refundModeLabel(row.refund_mode) }}
+            </t-tag>
+            <span v-if="row.refund_mode === 'channel'" class="price-sub">
+              {{ channelRefundStatusLabel(row.channel_refund_status) }}
+            </span>
+          </div>
         </template>
 
         <template #status="{ row }">
@@ -124,8 +144,12 @@ import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-
 
 import { getRefundList } from '@/api/order'
 import {
+  channelRefundStatusLabel,
   formatPrice,
   formatTime,
+  refundModeLabel,
+  refundModeOptions,
+  refundModeTheme,
   refundStatusLabel,
   refundStatusOptions,
   refundStatusTheme,
@@ -149,10 +173,12 @@ const filters = reactive<{
   keyword: string | undefined
   order_id: string | undefined
   status: string | undefined
+  refund_mode: string | undefined
 }>({
   keyword: undefined,
   order_id: undefined,
   status: undefined,
+  refund_mode: undefined,
 })
 
 const pagination = reactive({
@@ -171,7 +197,8 @@ const mobilePage = reactive({
 const columns: PrimaryTableCol<RefundInfo>[] = [
   { colKey: 'refund_no', title: '退款单号', minWidth: 180 },
   { colKey: 'order_no', title: '关联订单', minWidth: 170 },
-  { colKey: 'amount', title: '金额', width: 110 },
+  { colKey: 'amount', title: '金额', width: 120 },
+  { colKey: 'refund_mode', title: '退款去向', width: 130 },
   { colKey: 'reason', title: '原因', minWidth: 150 },
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'audit_by_name', title: '审核人', width: 100 },
@@ -193,6 +220,7 @@ async function loadRefunds() {
       keyword: filters.keyword,
       order_id: filters.order_id ? Number(filters.order_id) : undefined,
       status: filters.status,
+      refund_mode: filters.refund_mode,
       page: pagination.current,
       page_size: pagination.pageSize,
     })
@@ -246,6 +274,7 @@ function handleResetFilters() {
   filters.keyword = undefined
   filters.order_id = undefined
   filters.status = undefined
+  filters.refund_mode = undefined
   pagination.current = 1
   loadRefunds()
 }

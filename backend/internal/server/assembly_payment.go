@@ -23,6 +23,7 @@ import (
 	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
 	withdrawdto "hostsent/backend/internal/modules/admin/finance/withdraw/dto"
 	withdrawservice "hostsent/backend/internal/modules/admin/finance/withdraw/service"
+	ordermodel "hostsent/backend/internal/modules/admin/order/model"
 	orderservice "hostsent/backend/internal/modules/admin/order/service"
 	payhandler "hostsent/backend/internal/modules/admin/payment/handler"
 	paymodel "hostsent/backend/internal/modules/admin/payment/model"
@@ -129,20 +130,29 @@ func buildPaymentBundle(
 		return err
 	})
 
-	// 渠道退款钩子：退款审核通过后原路退回；无渠道支付记录（余额支付）时回落余额回补。
-	// 这与 doc34 F-03（退款从不回补余额）直接对应。
-	orders.SetChannelRefundHook(func(ctx context.Context, orderID uint64, orderNo, orderRefundNo string, userID uint64, amount float64) error {
-		info, err := refundSvc.CreateForOrder(ctx, orderRefundNo, orderNo, userID, amount)
-		if err != nil {
-			// 渠道不支持退款等异常：不阻断审核，留待财务人工处理。
-			logger.Warn("payment: channel refund failed",
-				zap.String("order_no", orderNo), zap.String("refund_no", orderRefundNo),
-				zap.Error(err))
-			return nil
-		}
-		// 有渠道退款单时不再回补余额，避免重复退款。
-		if info != nil {
-			return nil
+	// 退款资金出口钩子（doc36 §3.2）：按退款去向分流。
+	//   channel：原路退回支付来源，有渠道支付记录则建渠道退款单并回传单号；
+	//   balance：直接回补余额（资金仍在平台内，消费口径不变）。
+	// 无渠道支付记录时无论何种模式都回落余额回补，与 doc34 F-03 对应。
+	orders.SetChannelRefundHook(func(ctx context.Context, orderID uint64, orderNo, orderRefundNo string, userID uint64, amount, fee float64, mode string) (string, error) {
+		channelRefundNo := ""
+		if mode == ordermodel.RefundModeChannel {
+			info, err := refundSvc.CreateForOrder(ctx, orderRefundNo, orderNo, userID, amount)
+			if err != nil {
+				// 渠道不支持退款等异常：不阻断审核，也不让资金悬空 —— 回落余额回补，
+				// 由订单侧把 channel_refund_status 记为 failed，账单不按原路退回扣减。
+				logger.Warn("payment: channel refund failed, fallback to balance",
+					zap.String("order_no", orderNo), zap.String("refund_no", orderRefundNo),
+					zap.Error(err))
+			} else if info != nil {
+				// 已建渠道退款单：原路退回，不再回补余额，避免重复退款。
+				// 扣点由退款单 fee_amount 承载，账单侧按其扣减收入口径。
+				logger.Info("payment: channel refund created",
+					zap.String("order_no", orderNo), zap.String("refund_no", orderRefundNo),
+					zap.Float64("amount", amount), zap.Float64("fee", fee))
+				return info.RefundNo, nil
+			}
+			// info == nil：该订单无渠道支付记录（余额支付），同样回落余额回补。
 		}
 		if _, werr := wallet.Change(ctx, accountservice.ChangeRequest{
 			UserID:    userID,
@@ -156,7 +166,7 @@ func buildPaymentBundle(
 			logger.Warn("finance: refund balance credit failed",
 				zap.String("order_no", orderNo), zap.String("refund_no", orderRefundNo), zap.Error(werr))
 		}
-		return nil
+		return channelRefundNo, nil
 	})
 
 	// 用户端收银台编排（建单 → 支付 → 回绑）。

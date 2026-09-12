@@ -55,6 +55,8 @@ type RenewalService interface {
 	SetUpstreamRenewer(renewer UpstreamRenewer)
 	// SetRenewedHook 注入续费完成事件回调（P6/T6.5 开放平台回调，装配层调用）
 	SetRenewedHook(hook RenewedHook)
+	// SetPointEarner 注入续费完成后的积分发放钩子（装配层调用，doc36）
+	SetPointEarner(hook RenewalPointHook)
 }
 
 // UpstreamRenewer 上游/平台续费执行器（装配层注入，避免生命周期模块依赖 provider 模块）。
@@ -100,6 +102,7 @@ type renewalService struct {
 	cashbackHook RenewalCashbackHook  // 可选：续费完成后的推广返现计提
 	upstream     UpstreamRenewer      // 可选：上游/平台续费执行器（T5.2）
 	renewedHook  RenewedHook          // 可选：续费完成事件（P6/T6.5 开放平台回调）
+	pointHook    RenewalPointHook     // 可选：续费完成后的积分发放（doc36）
 	logger       *zap.Logger
 }
 
@@ -141,9 +144,18 @@ func (s *renewalService) SetCashbackHook(hook RenewalCashbackHook) {
 // RenewedHook 续费完成事件钩子（P6/T6.5）：参数为已落库成功的续费单。
 type RenewedHook func(ctx context.Context, renewal *lifecyclemodel.InstanceRenewal)
 
+// RenewalPointHook 续费完成后的积分发放钩子（doc36）。
+// 只传基础类型，避免生命周期模块反向依赖积分模块；失败不影响续费结果。
+type RenewalPointHook func(ctx context.Context, orderID uint64, orderNo string, userID uint64, amount float64)
+
 // SetRenewedHook 注入续费完成事件回调（装配层调用）。
 func (s *renewalService) SetRenewedHook(hook RenewedHook) {
 	s.renewedHook = hook
+}
+
+// SetPointEarner 注入续费完成后的积分发放钩子（装配层调用，doc36）。
+func (s *renewalService) SetPointEarner(hook RenewalPointHook) {
+	s.pointHook = hook
 }
 
 // SetUpstreamRenewer 注入上游/平台续费执行器（T5.2）。
@@ -684,6 +696,10 @@ func (s *renewalService) markRenewalSuccess(ctx context.Context, renewal *lifecy
 	// 开放平台续费完成事件（P6/T6.5）：失败只记日志，不影响续费结果。
 	if s.renewedHook != nil {
 		s.renewedHook(ctx, renewal)
+	}
+	// 续费完成后的积分发放（doc36）：幂等键为订单号，失败只记日志。
+	if s.pointHook != nil {
+		s.pointHook(ctx, renewal.OrderID, renewal.OrderNo, renewal.UserID, renewal.Amount)
 	}
 	s.logger.Info("renewal completed",
 		zap.String("renewal_no", renewal.RenewalNo),

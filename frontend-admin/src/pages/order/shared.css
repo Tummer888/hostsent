@@ -206,6 +206,13 @@
   color: var(--color-muted-foreground);
 }
 
+.order-module .form-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-muted-foreground);
+}
+
 /* ---------- 统计页 ---------- */
 .order-module .stat-grid {
   display: grid;

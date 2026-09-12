@@ -17,6 +17,9 @@ type TransactionRepository interface {
 	List(ctx context.Context, q dto.TransactionListQuery) ([]model.WalletTransaction, int64, error)
 	// SumByType 在时间范围内汇总指定类型的有符号金额（收入为 +，支出为 -）。
 	SumByType(ctx context.Context, userID uint64, types []string, start, end *time.Time) (float64, error)
+	// SumConsumeSplit 按关联订单是否续费拆分消费流水（doc36 §3.4 账单分类）。
+	// 返回 (普通消费, 续费消费)，均为正数金额。
+	SumConsumeSplit(ctx context.Context, userID uint64, start, end *time.Time) (purchase, renewal float64, err error)
 	// Stats 汇总全部流水：收入合计、支出合计、条数。
 	Stats(ctx context.Context) (income, expense float64, count int64, err error)
 }
@@ -92,8 +95,39 @@ func (r *transactionRepository) SumByType(ctx context.Context, userID uint64, ty
 	return sum, err
 }
 
+// SumConsumeSplit 按关联订单是否续费拆分消费流水（doc36 §3.4 账单分类）。
+// 续费判定沿用 orders.renewal_id != 0（订单表无独立 order_type 列，见 doc36 §1.2）。
+// 返回 (普通消费, 续费消费)，均为正数金额。
+func (r *transactionRepository) SumConsumeSplit(ctx context.Context, userID uint64, start, end *time.Time) (purchase, renewal float64, err error) {
+	base := r.db.WithContext(ctx).Model(&model.WalletTransaction{}).
+		Where("type = ?", model.TxTypeConsume).
+		Where("direction = ?", model.DirectionExpense)
+	if userID > 0 {
+		base = base.Where("user_id = ?", userID)
+	}
+	if start != nil {
+		base = base.Where("created_at >= ?", *start)
+	}
+	if end != nil {
+		base = base.Where("created_at <= ?", *end)
+	}
+	query := `COALESCE(SUM(CASE WHEN EXISTS (
+			SELECT 1 FROM orders o WHERE o.order_no = wallet_transactions.order_no AND o.renewal_id <> 0
+		) THEN amount ELSE 0 END), 0) AS renewal,
+		COALESCE(SUM(CASE WHEN NOT EXISTS (
+			SELECT 1 FROM orders o WHERE o.order_no = wallet_transactions.order_no AND o.renewal_id <> 0
+		) THEN amount ELSE 0 END), 0) AS purchase`
+	var agg struct {
+		Purchase float64 `gorm:"column:purchase"`
+		Renewal  float64 `gorm:"column:renewal"`
+	}
+	if err = base.Select(query).Scan(&agg).Error; err != nil {
+		return 0, 0, err
+	}
+	return agg.Purchase, agg.Renewal, nil
+}
+
 // Stats 汇总全部流水的收入合计、支出合计与条数。
-// 注意：每次查询使用独立构建器，避免 GORM 复用同一 Statement 导致 WHERE 条件累加。
 func (r *transactionRepository) Stats(ctx context.Context) (income, expense float64, count int64, err error) {
 	if err = r.db.WithContext(ctx).Model(&model.WalletTransaction{}).Count(&count).Error; err != nil {
 		return 0, 0, 0, err

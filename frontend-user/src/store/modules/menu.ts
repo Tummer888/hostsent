@@ -6,6 +6,7 @@ import {
   DashboardIcon,
   EditIcon,
   FilePasteIcon,
+  GiftIcon,
   HomeIcon,
   ImageIcon,
   LayersIcon,
@@ -44,6 +45,7 @@ const iconMap: Record<string, Component> = {
   ticket: ServiceIcon,
   share: ShareIcon,
   usergroup: UsergroupIcon,
+  gift: GiftIcon,
 }
 
 export interface FlatMenu {

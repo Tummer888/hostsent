@@ -453,7 +453,9 @@ const resourceGroups = [
       { label: '余额与充值', path: '/billing/balance' },
       { label: '资金流水', path: '/billing/transactions' },
       { label: '支付方式', path: '/billing/payment-methods' },
+      { label: '发票管理', path: '/billing/invoices' },
       { label: '我的订单', path: '/order' },
+      { label: '我的积分', path: '/points' },
     ],
   },
   {

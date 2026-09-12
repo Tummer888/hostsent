@@ -26,7 +26,66 @@ export const refundStatusOptions = [
   { label: '已退款', value: 'done' },
 ]
 
+// 订单类型（doc36 §3.4）：续费由 renewal_id>0 判定。
+export const orderTypeOptions = [
+  { label: '普通购买', value: 'consume' },
+  { label: '产品续费', value: 'renewal' },
+]
+
+// 退款去向（doc36 §3.2）。
+export const refundModeOptions = [
+  { label: '退回余额', value: 'balance' },
+  { label: '原路退回', value: 'channel' },
+]
+
+// 渠道退款状态：原路退回时由支付中心回填。
+export const channelRefundStatusOptions = [
+  { label: '未发起', value: 'none' },
+  { label: '退款中', value: 'pending' },
+  { label: '已退款', value: 'success' },
+  { label: '退款失败', value: 'failed' },
+]
+
 const defaultOrderTheme = 'default'
+
+export function orderTypeLabel(value: string): string {
+  const found = orderTypeOptions.find((item) => item.value === value)
+  return found ? found.label : value || '—'
+}
+
+export function refundModeLabel(mode: string): string {
+  const found = refundModeOptions.find((item) => item.value === mode)
+  return found ? found.label : mode || '退回余额'
+}
+
+export function refundModeTheme(mode: string): string {
+  switch (mode) {
+    case 'channel':
+      return 'warning'
+    case 'balance':
+      return 'primary'
+    default:
+      return defaultOrderTheme
+  }
+}
+
+export function channelRefundStatusLabel(status: string): string {
+  const found = channelRefundStatusOptions.find((item) => item.value === status)
+  return found ? found.label : status || '未发起'
+}
+
+export function channelRefundStatusTheme(status: string): string {
+  switch (status) {
+    case 'success':
+      return 'success'
+    case 'pending':
+      return 'warning'
+    case 'failed':
+      return 'danger'
+    default:
+      return defaultOrderTheme
+  }
+}
 
 export function orderStatusLabel(status: string): string {
   const found = orderStatusOptions.find((item) => item.value === status)

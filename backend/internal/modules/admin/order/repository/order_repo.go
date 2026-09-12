@@ -68,6 +68,26 @@ func (r *orderRepository) List(ctx context.Context, query dto.OrderListQuery) ([
 	if query.PayMethod != "" {
 		base = base.Where("pay_method = ?", query.PayMethod)
 	}
+	// 支付单号 / 渠道流水号检索（doc36 §3.1）：支付单与业务单解耦存储，
+	// 按 biz_no 命中 payment_orders 再回捞订单，避免在 orders 上冗余渠道字段。
+	// 用裸 SQL 子查询而非 import 支付模型，保持订单域不反向依赖支付中心。
+	if paymentNo := strings.TrimSpace(query.PaymentNo); paymentNo != "" {
+		base = base.Where("order_no IN (?)",
+			r.db.Table("payment_orders").Select("biz_no").
+				Where("biz_type = ? AND payment_no ILIKE ?", "order", "%"+paymentNo+"%"))
+	}
+	if channelTx := strings.TrimSpace(query.ChannelTx); channelTx != "" {
+		base = base.Where("order_no IN (?)",
+			r.db.Table("payment_orders").Select("biz_no").
+				Where("biz_type = ? AND channel_tx ILIKE ?", "order", "%"+channelTx+"%"))
+	}
+	// 订单类型（doc36 §3.4）：续费订单以 renewal_id != 0 判定，无独立 order_type 列。
+	switch strings.TrimSpace(query.OrderType) {
+	case "renewal":
+		base = base.Where("renewal_id <> 0")
+	case "consume":
+		base = base.Where("renewal_id = 0")
+	}
 	if start := normalizeTime(query.StartTime); start != nil {
 		base = base.Where("created_at >= ?", *start)
 	}
@@ -84,7 +104,48 @@ func (r *orderRepository) List(ctx context.Context, query dto.OrderListQuery) ([
 	if err := base.Order("created_at desc, id desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&items).Error; err != nil {
 		return nil, 0, err
 	}
+	// 反查本页订单的支付单号 / 渠道流水号（doc36 §3.1）；失败不阻断列表。
+	_ = r.fillPaymentInfo(ctx, items)
 	return items, total, nil
+}
+
+// fillPaymentInfo 从支付中心补齐订单的支付单号与渠道流水号（doc36 §3.1）。
+// 同一业务单可能有多张支付单（换渠道重试 / 关闭后重开），取最近一张。
+func (r *orderRepository) fillPaymentInfo(ctx context.Context, items []model.Order) error {
+	if len(items) == 0 {
+		return nil
+	}
+	orderNos := make([]string, 0, len(items))
+	for _, it := range items {
+		orderNos = append(orderNos, it.OrderNo)
+	}
+	var rows []struct {
+		BizNo     string `gorm:"column:biz_no"`
+		PaymentNo string `gorm:"column:payment_no"`
+		ChannelTx string `gorm:"column:channel_tx"`
+	}
+	if err := r.db.WithContext(ctx).Table("payment_orders").
+		Select("biz_no, payment_no, channel_tx").
+		Where("biz_type = ? AND biz_no IN ?", "order", orderNos).
+		Order("id desc").
+		Find(&rows).Error; err != nil {
+		return err
+	}
+	type payInfo struct{ paymentNo, channelTx string }
+	latest := make(map[string]payInfo, len(rows))
+	for _, row := range rows {
+		if _, ok := latest[row.BizNo]; ok {
+			continue // id desc：首个即最新
+		}
+		latest[row.BizNo] = payInfo{paymentNo: row.PaymentNo, channelTx: row.ChannelTx}
+	}
+	for i := range items {
+		if info, ok := latest[items[i].OrderNo]; ok {
+			items[i].PaymentNo = info.paymentNo
+			items[i].ChannelTx = info.channelTx
+		}
+	}
+	return nil
 }
 
 func (r *orderRepository) FindByID(ctx context.Context, id uint64) (*model.Order, error) {

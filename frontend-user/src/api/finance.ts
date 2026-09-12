@@ -68,12 +68,59 @@ export interface BillInfo {
   total_amount: number
   refund_amount: number
   status: string
+  // 分类与拆分（doc36 §3.4）：充值/购买/续费与扣点口径。
+  bill_type?: string
+  consume_amount?: number
+  renewal_amount?: number
+  channel_refund_amount?: number
+  refund_fee_amount?: number
   // 支付方式描述（doc34 F-11）：结清时记录实收金额与所用方式/渠道。
   paid_amount?: number
   paid_method?: string
   paid_channel_id?: number
+  paid_at?: string
+  // 发票状态（doc36 §3.3）：none/applied/issued/rejected。
+  invoice_status?: string
+  invoice_no?: string
+  invoiced_at?: string
   created_at: string
   updated_at?: string
+}
+
+/** 发票申请（用户端）。 */
+export interface InvoiceInfo {
+  id: number
+  request_no: string
+  bill_id: number
+  bill_no: string
+  user_id: number
+  invoice_type: string
+  title: string
+  tax_no: string
+  amount: number
+  email: string
+  /** pending=待开票 issued=已开票 rejected=已驳回 */
+  status: string
+  channel: string
+  external_no: string
+  file_url: string
+  reject_reason: string
+  issued_at: string
+  created_at: string
+  updated_at?: string
+}
+
+export interface InvoiceListResponse {
+  items: InvoiceInfo[]
+  meta: ListMeta
+}
+
+export interface InvoiceApplyRequest {
+  bill_id: number
+  invoice_type?: string
+  title: string
+  tax_no?: string
+  email?: string
 }
 
 export interface BillListResponse {
@@ -122,6 +169,14 @@ export interface TransactionListQuery {
 export interface BillListQuery {
   period?: string
   status?: string
+  invoice_status?: string
+  page?: number
+  page_size?: number
+}
+
+export interface InvoiceListQuery {
+  status?: string
+  bill_no?: string
   page?: number
   page_size?: number
 }
@@ -154,4 +209,35 @@ export function getMyBills(params: BillListQuery = {}) {
 // 查询我的提现记录（支付中心）
 export function getMyWithdrawals(params: { page?: number; page_size?: number } = {}) {
   return request.get<any, { data: WithdrawListResponse }>('/uc/payment/withdrawals', { params })
+}
+
+// ===== 发票（doc36 §3.3）=====
+
+// 申请开票：只能对本人已结清且未开票的账单发起，同一账单仅一笔待处理申请。
+export function applyInvoice(data: InvoiceApplyRequest) {
+  return request.post<any, { data: InvoiceInfo }>('/uc/finance/invoices', data)
+}
+
+// 我的发票申请
+export function getMyInvoices(params: InvoiceListQuery = {}) {
+  return request.get<any, { data: InvoiceListResponse }>('/uc/finance/invoices', { params })
+}
+
+/** 发票取件结果（doc36 §3.3 预埋） */
+export interface InvoiceFileInfo {
+  request_no: string
+  bill_no: string
+  file_url: string
+  /** false 表示该能力本轮未接入（如邮件下发） */
+  delivered: boolean
+}
+
+// 取发票文件地址（已开票且回填了文件地址才能取件）
+export function downloadInvoice(id: number) {
+  return request.get<any, { data: InvoiceFileInfo }>(`/uc/finance/invoices/${id}/download`)
+}
+
+// 发票邮件下发（预埋：本轮返回「未接入」）
+export function emailInvoice(id: number) {
+  return request.post<any, { data: unknown }>(`/uc/finance/invoices/${id}/email`)
 }

@@ -491,8 +491,14 @@ func newRouter(app *App) *gin.Engine {
 			financeGroup.POST("/withdrawals/:id/mark-failed", app.perm("finance:withdraw:audit"), app.withdrawHandler.MarkFailed)
 			// 账单/对账
 			financeGroup.GET("/bills", app.perm("finance:bill"), app.billHandler.List)
+			// 手动生成账单（doc36 §7-2）：按用户 + 账期归集消费/退款并分类。
+			financeGroup.POST("/bills/generate", app.perm("finance:bill:close"), app.billHandler.Generate)
 			financeGroup.POST("/bills/:id/close", app.perm("finance:bill:close"), app.billHandler.Close)
 			financeGroup.POST("/bills/recon", app.perm("finance:bill:recon"), app.reconHandler.Reconcile)
+			// 发票管理（doc36 §3.3）：查看申请 → 开票/驳回；渠道与外部单号已预埋。
+			financeGroup.GET("/invoices", app.perm("finance:invoice"), app.billHandler.Invoices)
+			financeGroup.POST("/invoices/:id/issue", app.perm("finance:invoice:issue"), app.billHandler.IssueInvoice)
+			financeGroup.POST("/invoices/:id/reject", app.perm("finance:invoice:issue"), app.billHandler.RejectInvoice)
 		}
 
 		// 支付中心（doc35）：渠道配置 / 支付单 / 回调 / 退款 / 打款 / 对账 / 支付方式
@@ -526,6 +532,21 @@ func newRouter(app *App) *gin.Engine {
 			paymentGroup.POST("/recon", app.perm("payment:recon"), app.payment.reconHandler.Reconcile)
 			// 支付方式路由（场景可用渠道与优先级）
 			paymentGroup.GET("/methods", app.perm("payment:method"), app.payment.methodHandler.Options)
+		}
+
+		// 积分中心（doc36）：独立于资金账本的积分体系，仅规则/账户/流水管理，
+		// 不暴露任何「积分抵扣/提现」入口 —— 积分绝不可作为支付方式。
+		pointGroup := v1.Group("/points")
+		pointGroup.Use(app.adminAuth())
+		{
+			pointGroup.GET("/overview", app.perm("point:account"), app.point.adminHandler.Overview)
+			pointGroup.GET("/rules", app.perm("point:rule"), app.point.adminHandler.Rules)
+			pointGroup.POST("/rules", app.perm("point:rule:manage"), app.point.adminHandler.CreateRule)
+			pointGroup.PUT("/rules/:id", app.perm("point:rule:manage"), app.point.adminHandler.UpdateRule)
+			pointGroup.GET("/accounts", app.perm("point:account"), app.point.adminHandler.Accounts)
+			pointGroup.GET("/accounts/:user_id", app.perm("point:account"), app.point.adminHandler.Account)
+			pointGroup.POST("/accounts/adjust", app.perm("point:account:adjust"), app.point.adminHandler.Adjust)
+			pointGroup.GET("/transactions", app.perm("point:transaction"), app.point.adminHandler.Transactions)
 		}
 
 		// 推广邀请返现（台账 / 邀请关系 / 提现审核）
@@ -631,6 +652,12 @@ func newRouter(app *App) *gin.Engine {
 		ucFinance.POST("/recharge", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.userFinanceHandler.CreateRecharge)                        // 发起充值（子账号拒绝）
 		ucFinance.GET("/recharges", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.Recharges)       // 我的充值单（doc34 F-07）
 		ucFinance.GET("/bills", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.Bills)               // 我的账单
+		// 发票（doc36 §3.3）：查看与申请均属账单域，子账号可读可申请（不涉及资金出入）。
+		ucFinance.GET("/invoices", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.MyInvoices) // 我的发票申请
+		ucFinance.POST("/invoices", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.userFinanceHandler.ApplyInvoice)                    // 申请开票（子账号拒绝）
+		// 发票取件与邮件下发（doc36 §3.3 预埋）：下载已可用（取文件地址），邮件下发本轮返回明确未接入。
+		ucFinance.GET("/invoices/:id/download", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.InvoiceDownload)
+		ucFinance.POST("/invoices/:id/email", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.InvoiceEmail)
 		// 注：原未鉴权充值回调 POST /uc/finance/recharge/callback 已下线（doc34 F-01）。
 		// 充值到账改由支付中心统一回调 /api/v1/payment/notify/:channel_code 验签后驱动。
 	}
@@ -651,6 +678,14 @@ func newRouter(app *App) *gin.Engine {
 		ucPayment.POST("/recharge", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.payment.userPaymentHandler.Recharge)
 		ucPayment.POST("/bills/pay", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.payment.userPaymentHandler.PayBill)
 		ucPayment.POST("/withdrawals", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.payment.userPaymentHandler.Withdraw)
+	}
+
+	// 用户中心积分（doc36）：只读展示，积分不可抵扣、不可提现、不可转入余额。
+	// 复用账单域权限（billing:view），子账号可读（积分归主账号）。
+	ucPoints := r.Group("/api/v1/uc/points")
+	{
+		ucPoints.GET("", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.point.userHandler.Overview)                  // 我的积分
+		ucPoints.GET("/transactions", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.point.userHandler.Transactions) // 我的积分流水
 	}
 
 	// 支付渠道异步回调（免登录，唯一信任来源为渠道验签；取代原未鉴权充值回调）。

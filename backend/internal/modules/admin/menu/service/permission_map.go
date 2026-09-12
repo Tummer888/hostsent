@@ -93,8 +93,10 @@ var menuPermissionMap = map[string]string{
 	"/finance/withdrawals":      "finance:withdraw",
 	"/finance/bills":            "finance:bill",
 	"/finance/recon":            "finance:bill",
-	"/finance/report":           "finance:wallet",
-	"/finance/config":           "finance:wallet",
+	// 发票管理（doc36 §3.3）：与账单同域，开票动作由 finance:invoice:issue 细分。
+	"/finance/invoices": "finance:invoice",
+	"/finance/report":   "finance:wallet",
+	"/finance/config":   "finance:wallet",
 
 	// 支付中心（doc35）：渠道/支付方式/支付单/回调/退款/打款/对账独立模块。
 	"/payment/overview":  "payment:order",
@@ -124,6 +126,12 @@ var menuPermissionMap = map[string]string{
 
 	"/notification/records":   "notify:record",
 	"/notification/templates": "notify:template",
+
+	// 积分中心（doc36）：独立账本，规则/账户/流水三个叶子。
+	"/points/overview":     "point:account",
+	"/points/rules":        "point:rule",
+	"/points/accounts":     "point:account",
+	"/points/transactions": "point:transaction",
 }
 
 // FilterByPermissions 按权限集合过滤菜单树：

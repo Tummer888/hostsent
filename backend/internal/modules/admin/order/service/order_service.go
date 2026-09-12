@@ -59,10 +59,14 @@ type OrderCashbackHook func(ctx context.Context, orderID uint64, orderNo string,
 // OrderRefundHook 退款审核通过后的返现冲减钩子：按退款额占实付比例冲减邀请人返现。
 type OrderRefundHook func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, paidAmount, refundAmount float64, refundNo string) error
 
-// OrderChannelRefundHook 退款审核通过后的渠道退款钩子（doc34 F-03 / doc35 §6.4）：
-// 有渠道支付记录时原路退回，无记录（余额支付）时由钩子实现回落为余额回补。
+// OrderChannelRefundHook 退款审核通过后的资金出口钩子（doc34 F-03 / doc35 §6.4 / doc36 §3.2）：
+//   - mode=channel：原路退回支付来源；有渠道支付记录时创建渠道退款单并把单号回传落库，
+//     无记录（余额支付）时由钩子实现回落为余额回补；
+//   - mode=balance：直接退回余额，不走渠道。
+//
 // 失败不影响退款审核结果，装配层负责记录日志并留待人工处理。
-type OrderChannelRefundHook func(ctx context.Context, orderID uint64, orderNo string, orderRefundNo string, userID uint64, amount float64) error
+// 返回 channelRefundNo 供退款单回填（无渠道退款时为空串）。
+type OrderChannelRefundHook func(ctx context.Context, orderID uint64, orderNo string, orderRefundNo string, userID uint64, amount, fee float64, mode string) (channelRefundNo string, err error)
 
 // ProvisionQueue 异步开通任务队列（T5.1，由 ProvisionEnqueuer 实现）。
 // 订单模块只依赖这一最小接口，避免与 uc/装配层形成反向依赖。
@@ -278,14 +282,32 @@ func (s *orderService) CreateRefund(ctx context.Context, id uint64, req dto.Refu
 	if req.Amount+effective > item.PaidAmount {
 		return nil, ErrRefundExceeded
 	}
+	// 退款去向（doc36 §3.2）：默认退回余额；原路退回时扣点为渠道不退还的手续费。
+	refundMode := strings.TrimSpace(req.RefundMode)
+	if refundMode == "" {
+		refundMode = model.RefundModeBalance
+	}
+	if refundMode != model.RefundModeBalance && refundMode != model.RefundModeChannel {
+		return nil, ErrRefundModeInvalid
+	}
+	fee := 0.0
+	if refundMode == model.RefundModeChannel {
+		if req.FeeAmount < 0 || req.FeeAmount > req.Amount {
+			return nil, ErrRefundFeeInvalid
+		}
+		fee = round2(req.FeeAmount)
+	}
 
 	refund := &model.OrderRefund{
-		RefundNo: genRefundNo(),
-		OrderID:  item.ID,
-		UserID:   item.UserID,
-		Amount:   req.Amount,
-		Reason:   req.Reason,
-		Status:   model.RefundStatusPending,
+		RefundNo:   genRefundNo(),
+		OrderID:    item.ID,
+		UserID:     item.UserID,
+		Amount:     req.Amount,
+		Reason:     req.Reason,
+		Status:     model.RefundStatusPending,
+		RefundMode: refundMode,
+		FeeAmount:  fee,
+		NetAmount:  round2(req.Amount + fee),
 	}
 	if err := s.refundRepo.Create(ctx, refund); err != nil {
 		return nil, err
@@ -445,11 +467,25 @@ func (s *orderService) ApproveRefund(ctx context.Context, id uint64, operatorID 
 			_ = s.refundHook(ctx, order.ID, order.OrderNo, order.UserID, order.PaidAmount, refund.Amount, refund.RefundNo)
 		}
 	}
-	// 退款审核通过 → 渠道原路退回（无渠道支付记录时钩子实现回落为余额回补，见 doc34 F-03）。
-	// 退回失败不回滚审核结果：支付中心留存退款单与失败原因，由财务人工重试或线下处理。
+	// 退款审核通过 → 按去向执行资金出口（doc36 §3.2）。
+	// balance：直接退回余额，消费口径不变；channel：原路退回，收入口径扣减本金与扣点。
+	// 失败不回滚审核结果：支付中心留存退款单与失败原因，由财务人工重试或线下处理。
 	if s.channelRefundHook != nil {
 		if order, err := s.orderRepo.FindByID(ctx, refund.OrderID); err == nil {
-			_ = s.channelRefundHook(ctx, order.ID, order.OrderNo, refund.RefundNo, order.UserID, refund.Amount)
+			channelNo, herr := s.channelRefundHook(ctx, order.ID, order.OrderNo, refund.RefundNo,
+				order.UserID, refund.Amount, refund.FeeAmount, refund.RefundMode)
+			refund.ChannelRefundNo = channelNo
+			switch {
+			case herr == nil && channelNo != "":
+				// 渠道退款单已建：资金将按渠道异步流出，账单侧据此扣减口径。
+				refund.ChannelRefundStatus = model.ChannelRefundStatusPending
+			case refund.RefundMode == model.RefundModeChannel:
+				// 意图原路退回但未能建渠道退款单（无渠道支付记录 / 渠道不支持 / 渠道缺失）：
+				// 钩子实现已回落余额回补，资金并未流出平台，标记 failed。
+				// 账单口径只统计 pending/success，故不会误扣本金与扣点。
+				refund.ChannelRefundStatus = model.ChannelRefundStatusFailed
+			}
+			_ = s.refundRepo.Update(ctx, refund)
 		}
 	}
 	return s.FindRefund(ctx, refund.ID)
@@ -540,8 +576,19 @@ func buildOrderInfo(item model.Order) dto.OrderInfo {
 		PayTime:     formatTime(item.PayTime),
 		ExpireTime:  formatTime(item.ExpireTime),
 		Remark:      item.Remark,
-		CreatedAt:   item.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:   item.UpdatedAt.Format(time.RFC3339),
+		// 计费周期与续费标记（doc36 §3.4）：续费订单以 renewal_id != 0 判定。
+		Cycle:     item.Cycle,
+		RenewalID: item.RenewalID,
+		// 算价快照（P5-01/P5-04）：原价 / 优惠 / 实付与命中来源。
+		OriginalAmount: item.OriginalAmount,
+		DiscountAmount: item.DiscountAmount,
+		FinalAmount:    item.FinalAmount,
+		DiscountSource: item.DiscountSource,
+		// 支付单号与渠道流水号（doc36 §3.1）：由仓储从支付中心反查填充，空即未走渠道。
+		PaymentNo: item.PaymentNo,
+		ChannelTx: item.ChannelTx,
+		CreatedAt: item.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: item.UpdatedAt.Format(time.RFC3339),
 	}
 }
 
@@ -573,9 +620,23 @@ func buildRefundInfo(rf model.OrderRefund, orderNo string) dto.RefundInfo {
 		AuditBy:     rf.AuditBy,
 		AuditByName: rf.AuditByName,
 		AuditedAt:   formatTime(rf.AuditedAt),
-		CreatedAt:   rf.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:   rf.UpdatedAt.Format(time.RFC3339),
+		// 退款去向与扣点（doc36 §3.2）：空值视为余额退回（兼容迁移前存量数据）。
+		RefundMode:          defaultRefundMode(rf.RefundMode),
+		FeeAmount:           rf.FeeAmount,
+		NetAmount:           rf.NetAmount,
+		ChannelRefundNo:     rf.ChannelRefundNo,
+		ChannelRefundStatus: rf.ChannelRefundStatus,
+		CreatedAt:           rf.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:           rf.UpdatedAt.Format(time.RFC3339),
 	}
+}
+
+// defaultRefundMode 兼容存量退款单：迁移前无 refund_mode 列，一律按余额退回口径。
+func defaultRefundMode(mode string) string {
+	if strings.TrimSpace(mode) == "" {
+		return model.RefundModeBalance
+	}
+	return mode
 }
 
 // —— 工具 ——

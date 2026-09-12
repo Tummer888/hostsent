@@ -1,0 +1,111 @@
+/* 用户中心 · 积分页面共享样式（scoped 引入） */
+
+.point-page {
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.point-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.point-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.point-alert {
+  border-radius: 10px;
+  line-height: 1.7;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  background: #fff;
+  border: 1px solid var(--td-border-level-1-color, #f0f0f0);
+  border-radius: 12px;
+}
+
+.stat-card--primary {
+  border-color: #f6d9a8;
+  background: linear-gradient(180deg, #fffaf1 0%, #fff 100%);
+}
+
+.stat-card__label {
+  font-size: 13px;
+  color: #888;
+}
+
+.stat-card__value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1f2937;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-card--primary .stat-card__value {
+  color: #b76a00;
+}
+
+.stat-card__hint {
+  font-size: 12px;
+  color: #999;
+}
+
+.point-panel {
+  padding: 16px 20px;
+  background: #fff;
+  border: 1px solid var(--td-border-level-1-color, #f0f0f0);
+  border-radius: 12px;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.time-text {
+  color: #64748b;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dark .stat-card,
+.dark .point-panel {
+  background: #141414;
+  border-color: #262626;
+}
+
+.dark .stat-card__value,
+.dark .section-title {
+  color: #e5e7eb;
+}

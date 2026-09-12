@@ -21,6 +21,7 @@ import (
 	notifymodel "hostsent/backend/internal/modules/admin/notification/model"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
 	paymentmodel "hostsent/backend/internal/modules/admin/payment/model"
+	pointmodel "hostsent/backend/internal/modules/admin/point/model"
 	catalogmodel "hostsent/backend/internal/modules/admin/product/catalog/model"
 	categorymodel "hostsent/backend/internal/modules/admin/product/category/model"
 	discountmodel "hostsent/backend/internal/modules/admin/product/discount/model"
@@ -159,6 +160,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&finrechmodel.Recharge{},
 		&finwithdrawmodel.Withdraw{},
 		&finbillmodel.Bill{},
+		// 发票申请（doc36 §3.3）：预埋渠道/外部单号/文件地址，后续接税务 API。
+		&finbillmodel.InvoiceRequest{},
 		// 支付中心（迁移 038，doc35）：渠道类型/渠道实例/支付单/回调日志/退款单/
 		// 打款单/用户收款账户/支付方式偏好/渠道对账记录
 		&paymentmodel.PaymentType{},
@@ -182,6 +185,10 @@ func AutoMigrate(db *gorm.DB) error {
 		&notifymodel.NotificationTemplate{},
 		&notifymodel.NotificationRead{},
 		&notifymodel.NotificationPreference{},
+		// 积分体系（doc36）：独立账本，绝不可作为支付方式
+		&pointmodel.PointAccount{},
+		&pointmodel.PointTransaction{},
+		&pointmodel.PointRule{},
 		// 开放平台（P6/T6.1，迁移 034）
 		&openmodel.OpenApp{},
 		&openmodel.OpenAppScope{},
@@ -799,6 +806,9 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "finance", Name: "账单管理", Code: "finance:bill", Type: "menu", SortOrder: 4, Status: "active"},
 		{ParentCode: "finance:bill", Name: "关账", Code: "finance:bill:close", Type: "button", SortOrder: 1, Status: "active"},
 		{ParentCode: "finance:bill", Name: "对账", Code: "finance:bill:recon", Type: "button", SortOrder: 2, Status: "active"},
+		// 发票管理（doc36 §3.3）：预埋申请/开票流程，后续可接税务系统自动开票
+		{ParentCode: "finance", Name: "发票管理", Code: "finance:invoice", Type: "menu", SortOrder: 5, Status: "active"},
+		{ParentCode: "finance:invoice", Name: "开票/驳回", Code: "finance:invoice:issue", Type: "button", SortOrder: 1, Status: "active"},
 		// —— 支付中心（doc35）：独立模块（SortOrder 13，独立于财务管理的资金记账）
 		{Name: "支付中心", Code: "payment", Type: "catalog", SortOrder: 13, Status: "active"},
 		{ParentCode: "payment", Name: "支付渠道", Code: "payment:channel", Type: "menu", SortOrder: 1, Status: "active"},
@@ -811,6 +821,13 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "payment", Name: "打款管理", Code: "payment:payout", Type: "menu", SortOrder: 6, Status: "active"},
 		{ParentCode: "payment:payout", Name: "打款操作", Code: "payment:payout:operate", Type: "button", SortOrder: 1, Status: "active"},
 		{ParentCode: "payment", Name: "渠道对账", Code: "payment:recon", Type: "menu", SortOrder: 7, Status: "active"},
+		// —— 积分中心（doc36）：独立于资金账本的积分体系，绝不可作为支付方式
+		{Name: "积分中心", Code: "point", Type: "catalog", SortOrder: 14, Status: "active"},
+		{ParentCode: "point", Name: "积分规则", Code: "point:rule", Type: "menu", SortOrder: 1, Status: "active"},
+		{ParentCode: "point:rule", Name: "维护规则", Code: "point:rule:manage", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "point", Name: "积分账户", Code: "point:account", Type: "menu", SortOrder: 2, Status: "active"},
+		{ParentCode: "point:account", Name: "调整积分", Code: "point:account:adjust", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "point", Name: "积分流水", Code: "point:transaction", Type: "menu", SortOrder: 3, Status: "active"},
 		// —— 工单支持（doc50 §7.4）
 		{Name: "工单支持", Code: "ticket", Type: "catalog", SortOrder: 8, Status: "active"},
 		{ParentCode: "ticket", Name: "工单列表", Code: "ticket:list", Type: "menu", SortOrder: 1, Status: "active"},
@@ -1028,6 +1045,13 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"referral:cashback:list",
 			"referral:withdraw:list",
 			"referral:withdraw:audit",
+			// 积分中心（doc36）：独立账本，超管全量
+			"point",
+			"point:rule",
+			"point:rule:manage",
+			"point:account",
+			"point:account:adjust",
+			"point:transaction",
 		},
 		"ops_admin": {
 			"system:user",
@@ -1101,6 +1125,9 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"finance:bill",
 			"finance:bill:close",
 			"finance:bill:recon",
+			// 发票管理（doc36 §3.3）
+			"finance:invoice",
+			"finance:invoice:issue",
 			// 支付中心（财务管理员负责渠道配置与打款登记）
 			"payment",
 			"payment:channel",
@@ -1302,6 +1329,8 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "账单管理", Type: menumodel.TypeDirectory, Path: "/finance/bill-center", Icon: "file", SortOrder: 5, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/finance/bill-center", Platform: menumodel.PlatformAdmin, Name: "账单管理", Type: menumodel.TypeMenu, Path: "/finance/bills", Component: "finance/bills/index", Icon: "file", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/finance/bill-center", Platform: menumodel.PlatformAdmin, Name: "对账中心", Type: menumodel.TypeMenu, Path: "/finance/recon", Component: "finance/bills/recon", Icon: "verify", SortOrder: 2, Status: menumodel.StatusActive},
+		// 发票管理（doc36 §3.3）：用户申请 → 管理端开票/驳回，预埋税务 API 渠道。
+		{ParentKey: "admin:/finance/bill-center", Platform: menumodel.PlatformAdmin, Name: "发票管理", Type: menumodel.TypeMenu, Path: "/finance/invoices", Component: "finance/invoices/index", Icon: "file", SortOrder: 3, Status: menumodel.StatusActive},
 		// 6. 财务报表
 		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务报表", Type: menumodel.TypeMenu, Path: "/finance/report", Component: "finance/report/index", Icon: "chart-bar", SortOrder: 6, Status: menumodel.StatusActive},
 		// 7. 财务配置
@@ -1318,6 +1347,14 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "渠道退款", Type: menumodel.TypeMenu, Path: "/payment/refunds", Component: "payment/refunds/index", Icon: "refresh", SortOrder: 6, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "打款管理", Type: menumodel.TypeMenu, Path: "/payment/payouts", Component: "payment/payouts/index", Icon: "upload", SortOrder: 7, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "渠道对账", Type: menumodel.TypeMenu, Path: "/payment/recon", Component: "payment/recon/index", Icon: "verify", SortOrder: 8, Status: menumodel.StatusActive},
+
+		// —— 积分中心（doc36，SortOrder=14）：独立于资金账本的积分体系。
+		// 积分不可抵扣、不可提现、不可提现到余额，只能用于活动/权益兑换。
+		{Platform: menumodel.PlatformAdmin, Name: "积分中心", Type: menumodel.TypeDirectory, Path: "/points", Icon: "gift", SortOrder: 14, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/points", Platform: menumodel.PlatformAdmin, Name: "积分概览", Type: menumodel.TypeMenu, Path: "/points/overview", Component: "points/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/points", Platform: menumodel.PlatformAdmin, Name: "积分规则", Type: menumodel.TypeMenu, Path: "/points/rules", Component: "points/rules/index", Icon: "setting", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/points", Platform: menumodel.PlatformAdmin, Name: "积分账户", Type: menumodel.TypeMenu, Path: "/points/accounts", Component: "points/accounts/index", Icon: "usergroup", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/points", Platform: menumodel.PlatformAdmin, Name: "积分流水", Type: menumodel.TypeMenu, Path: "/points/transactions", Component: "points/transactions/index", Icon: "history", SortOrder: 4, Status: menumodel.StatusActive},
 
 		// —— 推广返现（替代原代理/分销域）
 		{Platform: menumodel.PlatformAdmin, Name: "推广返现", Type: menumodel.TypeDirectory, Path: "/referral", Icon: "share", SortOrder: 12, Status: menumodel.StatusActive},
@@ -1366,6 +1403,8 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "user:/cloud", Platform: menumodel.PlatformUser, Name: "续费管理", Type: menumodel.TypeMenu, Path: "/cloud/renewals", Icon: "refresh", SortOrder: 3, Status: menumodel.StatusActive},
 		{Platform: menumodel.PlatformUser, Name: "我的订单", Type: menumodel.TypeMenu, Path: "/order", Icon: "order", SortOrder: 3, Status: menumodel.StatusActive},
 		{Platform: menumodel.PlatformUser, Name: "费用中心", Type: menumodel.TypeMenu, Path: "/billing", Icon: "wallet", SortOrder: 4, Status: menumodel.StatusActive},
+		// 我的积分（doc36）：积分独立于余额，仅展示获得/消耗，不提供任何支付入口。
+		{Platform: menumodel.PlatformUser, Name: "我的积分", Type: menumodel.TypeMenu, Path: "/points", Icon: "gift", SortOrder: 8, Status: menumodel.StatusActive},
 		{Platform: menumodel.PlatformUser, Name: "工单中心", Type: menumodel.TypeDirectory, Path: "/support", Icon: "service", SortOrder: 5, Status: menumodel.StatusActive},
 		{ParentKey: "user:/support", Platform: menumodel.PlatformUser, Name: "我的工单", Type: menumodel.TypeMenu, Path: "/support/tickets", Icon: "ticket", SortOrder: 1, Status: menumodel.StatusActive},
 		{Platform: menumodel.PlatformUser, Name: "个人中心", Type: menumodel.TypeMenu, Path: "/profile", Icon: "user", SortOrder: 6, Status: menumodel.StatusActive},

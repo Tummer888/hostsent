@@ -27,6 +27,109 @@ export const billStatusOptions = [
   { label: '已关账', value: 'closed' },
 ]
 
+// 账单分类（doc36 §3.4）。
+export const billTypeOptions = [
+  { label: '产品购买', value: 'consumption' },
+  { label: '产品续费', value: 'renewal' },
+  { label: '购买+续费', value: 'mixed' },
+  { label: '余额充值', value: 'recharge' },
+]
+
+// 账单发票状态（doc36 §3.3）。
+export const billInvoiceStatusOptions = [
+  { label: '未开票', value: 'none' },
+  { label: '已申请', value: 'applied' },
+  { label: '已开票', value: 'issued' },
+  { label: '已驳回', value: 'rejected' },
+]
+
+// 发票申请状态。
+export const invoiceRequestStatusOptions = [
+  { label: '待开票', value: 'pending' },
+  { label: '已开票', value: 'issued' },
+  { label: '已驳回', value: 'rejected' },
+]
+
+// 发票类型。
+export const invoiceTypeOptions = [
+  { label: '增值税普通发票', value: 'normal' },
+  { label: '增值税专用发票', value: 'special' },
+]
+
+// 支付方式（含支付中心新增渠道）。
+export const payMethodOptions = [
+  { label: '余额支付', value: 'balance' },
+  { label: '支付宝', value: 'alipay' },
+  { label: '微信支付', value: 'wechat' },
+  { label: '云闪付', value: 'unionpay' },
+  { label: '翼支付', value: 'bestpay' },
+  { label: '线下/人工', value: 'manual' },
+]
+
+export function billTypeLabel(type?: string): string {
+  const found = billTypeOptions.find((item) => item.value === type)
+  return found ? found.label : type || '—'
+}
+
+export function billTypeTheme(type?: string): string {
+  switch (type) {
+    case 'consumption':
+      return 'primary'
+    case 'renewal':
+      return 'success'
+    case 'mixed':
+      return 'warning'
+    default:
+      return 'default'
+  }
+}
+
+export function billInvoiceStatusLabel(status?: string): string {
+  const found = billInvoiceStatusOptions.find((item) => item.value === status)
+  return found ? found.label : status || '未开票'
+}
+
+export function billInvoiceStatusTheme(status?: string): string {
+  switch (status) {
+    case 'issued':
+      return 'success'
+    case 'applied':
+      return 'warning'
+    case 'rejected':
+      return 'danger'
+    default:
+      return 'default'
+  }
+}
+
+export function invoiceRequestStatusLabel(status?: string): string {
+  const found = invoiceRequestStatusOptions.find((item) => item.value === status)
+  return found ? found.label : status || '—'
+}
+
+export function invoiceRequestStatusTheme(status?: string): string {
+  switch (status) {
+    case 'issued':
+      return 'success'
+    case 'pending':
+      return 'warning'
+    case 'rejected':
+      return 'danger'
+    default:
+      return 'default'
+  }
+}
+
+export function invoiceTypeLabel(type?: string): string {
+  const found = invoiceTypeOptions.find((item) => item.value === type)
+  return found ? found.label : type || '普票'
+}
+
+export function payMethodLabel(method?: string): string {
+  const found = payMethodOptions.find((item) => item.value === method)
+  return found ? found.label : method || '—'
+}
+
 export function txTypeLabel(type: string): string {
   const found = txTypeOptions.find((item) => item.value === type)
   return found ? found.label : type || '—'

@@ -7,6 +7,7 @@ package handler
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -31,6 +32,12 @@ type (
 	}
 	billPort interface {
 		List(ctx context.Context, query billdto.BillListQuery) (*billdto.BillListResponse, error)
+		// doc36 §3.3：用户自助开票与查询本人发票申请。
+		RequestInvoice(ctx context.Context, userID uint64, req billdto.InvoiceApplyRequest) (*billdto.InvoiceInfo, error)
+		MyInvoices(ctx context.Context, userID uint64, query billdto.InvoiceListQuery) (*billdto.InvoiceListResponse, error)
+		// doc36 §3.3 预埋：下载取件与邮件下发。
+		InvoiceFile(ctx context.Context, userID, requestID uint64) (*billdto.InvoiceFileInfo, error)
+		EmailInvoice(ctx context.Context, userID, requestID uint64) error
 	}
 )
 
@@ -59,6 +66,16 @@ func currentUserID(c *gin.Context) (uint64, bool) {
 // unauthorized 用户未登录。
 func unauthorized(c *gin.Context) {
 	response.Error(c, apperrors.New(10001, "unauthorized"))
+}
+
+// pathID 解析路径参数指定的数字 ID，解析失败时直接写入错误响应。
+func pathID(c *gin.Context, param string) (uint64, bool) {
+	id, err := strconv.ParseUint(c.Param(param), 10, 64)
+	if err != nil {
+		response.Error(c, apperrors.New(20001, "invalid "+param))
+		return 0, false
+	}
+	return id, true
 }
 
 // Balance 查询我的钱包余额。
@@ -198,4 +215,110 @@ func (h *FinanceHandler) Bills(c *gin.Context) {
 		return
 	}
 	response.Success(c, resp)
+}
+
+// ApplyInvoice 申请开票（doc36 §3.3）。
+// 只能对本人已结清且未开票的账单发起；同一账单仅允许一笔待处理申请。
+// @Summary 申请开票
+// @Tags 用户中心-财务
+// @Security BearerAuth
+// @Param request body dto.InvoiceApplyRequest true "开票信息"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/finance/invoices [post]
+func (h *FinanceHandler) ApplyInvoice(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		unauthorized(c)
+		return
+	}
+	var req billdto.InvoiceApplyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	resp, err := h.bill.RequestInvoice(c.Request.Context(), userID, req)
+	if err != nil {
+		response.Error(c, h.mapErr(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// MyInvoices 我的发票申请列表（doc36 §3.3）。
+// @Summary 我的发票
+// @Tags 用户中心-财务
+// @Security BearerAuth
+// @Param status query string false "申请状态"
+// @Param page query int false "页码"
+// @Param page_size query int false "每页数量"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/finance/invoices [get]
+func (h *FinanceHandler) MyInvoices(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		unauthorized(c)
+		return
+	}
+	var query billdto.InvoiceListQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	query.UserID = userID // 仅能查自己的发票申请
+	resp, err := h.bill.MyInvoices(c.Request.Context(), userID, query)
+	if err != nil {
+		response.Error(c, h.mapErr(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// InvoiceDownload 取本人发票文件地址（doc36 §3.3 预埋）。
+// 已开票但开票时未回填文件地址返回「尚未就绪」；文件地址就绪后由前端直接打开下载。
+// @Summary 下载发票
+// @Tags 用户中心-财务
+// @Security BearerAuth
+// @Param id path int true "申请单 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/finance/invoices/{id}/download [get]
+func (h *FinanceHandler) InvoiceDownload(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		unauthorized(c)
+		return
+	}
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	resp, err := h.bill.InvoiceFile(c.Request.Context(), userID, id)
+	if err != nil {
+		response.Error(c, h.mapErr(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// InvoiceEmail 发票邮件下发（doc36 §3.3 预埋，本轮返回未接入）。
+// @Summary 邮件发送发票
+// @Tags 用户中心-财务
+// @Security BearerAuth
+// @Param id path int true "申请单 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/finance/invoices/{id}/email [post]
+func (h *FinanceHandler) InvoiceEmail(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		unauthorized(c)
+		return
+	}
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	if err := h.bill.EmailInvoice(c.Request.Context(), userID, id); err != nil {
+		response.Error(c, h.mapErr(err))
+		return
+	}
+	response.SuccessMessage(c, "发票已发送至接收邮箱")
 }

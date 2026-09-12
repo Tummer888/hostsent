@@ -82,20 +82,24 @@ func (s *refundService) CreateForOrder(ctx context.Context, orderRefundNo string
 	if err := s.refundRepo.Create(ctx, refund); err != nil {
 		return nil, err
 	}
+	// 建单后到渠道受理前的任何失败都要落库标记，否则会留下永不推进的 pending 退款单。
+	fail := func(cause error) (*dto.RefundInfo, error) {
+		refund.Status = model.RefundStatusFailed
+		refund.FailReason = cause.Error()
+		_ = s.refundRepo.Update(ctx, refund)
+		return nil, cause
+	}
 	cfg, err := s.resolver.BuildConfig(ctx, ch)
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
 	gw, err := payment.Build(ch.Type, cfg)
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
 	refunder, ok := gw.(payment.Refunder)
 	if !ok {
-		refund.Status = model.RefundStatusFailed
-		refund.FailReason = "渠道不支持退款，请财务人工处理"
-		_ = s.refundRepo.Update(ctx, refund)
-		return nil, ErrRefundNotSupported
+		return fail(ErrRefundNotSupported)
 	}
 	res, err := refunder.Refund(ctx, cfg, &payment.RefundRequest{
 		OutTradeNo:  target.PaymentNo,
@@ -105,10 +109,7 @@ func (s *refundService) CreateForOrder(ctx context.Context, orderRefundNo string
 		Reason:      refund.Reason,
 	})
 	if err != nil {
-		refund.Status = model.RefundStatusFailed
-		refund.FailReason = err.Error()
-		_ = s.refundRepo.Update(ctx, refund)
-		return nil, err
+		return fail(err)
 	}
 	refund.ChannelRefundID = res.ChannelRefundID
 	if res.Status == model.RefundStatusSuccess {

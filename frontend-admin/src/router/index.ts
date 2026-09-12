@@ -609,6 +609,13 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/finance/bills/recon.vue'),
         meta: { title: '对账中心', role: 'admin', permission: 'finance:bill' },
       },
+      // 发票管理（doc36 §3.3）：用户申请 → 管理端开票/驳回。
+      {
+        path: 'invoices',
+        name: 'FinanceInvoices',
+        component: () => import('@/pages/finance/invoices/index.vue'),
+        meta: { title: '发票管理', role: 'admin', permission: 'finance:invoice' },
+      },
       // —— 财务报表 ——
       {
         path: 'report',
@@ -705,6 +712,39 @@ const routes: Array<RouteRecordRaw> = [
         name: 'ReferralWithdrawals',
         component: () => import('@/pages/referral/withdrawals/index.vue'),
         meta: { title: '提现审核', role: 'admin', permission: 'referral:withdraw:list' },
+      },
+    ],
+  },
+  {
+    // 积分中心（docs/实施计划/36）：独立于资金账本的积分体系。
+    path: '/points',
+    component: () => import('@/layouts/index.vue'),
+    redirect: '/points/overview',
+    meta: { title: '积分中心' },
+    children: [
+      {
+        path: 'overview',
+        name: 'PointsOverview',
+        component: () => import('@/pages/points/overview/index.vue'),
+        meta: { title: '积分概览', role: 'admin', permission: 'point:account' },
+      },
+      {
+        path: 'rules',
+        name: 'PointsRules',
+        component: () => import('@/pages/points/rules/index.vue'),
+        meta: { title: '积分规则', role: 'admin', permission: 'point:rule' },
+      },
+      {
+        path: 'accounts',
+        name: 'PointsAccounts',
+        component: () => import('@/pages/points/accounts/index.vue'),
+        meta: { title: '积分账户', role: 'admin', permission: 'point:account' },
+      },
+      {
+        path: 'transactions',
+        name: 'PointsTransactions',
+        component: () => import('@/pages/points/transactions/index.vue'),
+        meta: { title: '积分流水', role: 'admin', permission: 'point:transaction' },
       },
     ],
   },

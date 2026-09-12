@@ -203,6 +203,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	withdrawService := finwithdrawservice.NewWithdrawService(withdrawRepo, walletService)
 	billRepo := finbillrepo.NewBillRepository(database)
 	billService := finbillservice.NewBillService(billRepo, walletTxRepo)
+	// 原路退回扣点来源（doc36 §3.2）：财务侧不 import 订单模块，由装配层注入退款仓储实现。
+	billService.SetChannelRefundReader(orderRefundRepo.SumChannelRefund)
 	reconService := finbillservice.NewReconService(walletRepo, walletTxRepo)
 	walletHandler := finaccounthandler.NewWalletHandler(walletService)
 	rechargeHandler := finrechargehandler.NewRechargeHandler(rechargeService)
@@ -271,6 +273,20 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 				return apperrors.New(30001, err.Error())
 			case errors.Is(err, finaccountservice.ErrStatusConflict):
 				return apperrors.New(20003, err.Error())
+			// 开票（doc36 §3.3）：不可开票/已开票/已有待处理申请都是可预期的用户操作反馈，
+			// 归为业务错误（20001）让前端按提示语展示，而不是落到 50001 通用失败。
+			case errors.Is(err, finbillservice.ErrBillNotFound):
+				return apperrors.New(20002, err.Error())
+			case errors.Is(err, finbillservice.ErrBillNotInvoicable),
+				errors.Is(err, finbillservice.ErrAlreadyInvoiced),
+				errors.Is(err, finbillservice.ErrInvoicePending),
+				errors.Is(err, finbillservice.ErrInvoiceNotFound),
+				errors.Is(err, finbillservice.ErrInvoiceFileNotReady),
+				errors.Is(err, finbillservice.ErrInvoiceStatusConflict):
+				return apperrors.New(20001, err.Error())
+			// 邮件下发为预埋能力：本轮明确返回「未接入」，前端按提示语提示人工处理。
+			case errors.Is(err, finbillservice.ErrInvoiceEmailNotReady):
+				return apperrors.New(40001, err.Error())
 			default:
 				return apperrors.New(50001, err.Error())
 			}
@@ -692,8 +708,18 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		logger,
 		openservice.NotifyWorkerOptions{},
 	)
+	// 积分体系（doc36）：独立账本，不参与任何资金口径；发放挂在下单/续费/账单结清事件上。
+	pointBundle, pointEarner := buildPointBundle(database, logger)
+	// 续费完成积分：lifecycle 侧独立发放，幂等键为订单号。
+	lifecycleRenewalSvc.SetPointEarner(func(ctx context.Context, orderID uint64, orderNo string, userID uint64, amount float64) {
+		pointEarner(ctx, userID, "order", orderNo, amount, true)
+	})
+	// 账单结清积分：规则默认关闭，避免与消费积分重复计发。
+	billService.SetPointEarner(func(ctx context.Context, userID uint64, billNo string, amount float64) {
+		pointEarner(ctx, userID, "bill", billNo, amount, false)
+	})
 	// 订单支付成功钩子（doc60）：续费订单支付完成后联动完成续费并延长到期时间
-	// doc70：支付成功后发布通知
+	// doc70：支付成功后发布通知；doc36：非续费订单在此发放积分（续费积分走 lifecycle 路径，避免重复）。
 	orderservice.OnPaid = func(ctx context.Context, order *ordermodel.Order) {
 		if order == nil {
 			return
@@ -703,6 +729,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 			if err := lifecycleRenewalSvc.CompleteRenewalByOrderID(ctx, order.ID); err != nil {
 				logger.Error("lifecycle: complete renewal by order failed", zap.Uint64("order_id", order.ID), zap.Error(err))
 			}
+		} else {
+			pointEarner(ctx, order.UserID, "order", order.OrderNo, order.PaidAmount, false)
 		}
 		// 发布支付成功通知（doc70）
 		_ = notifySvc.Publish(ctx, notifydto.PublishInput{
@@ -725,7 +753,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	openBundle := buildOpenBundle(cfg, database, ucProductService, ucOrderService, instanceOpsService, lifecycleRenewalSvc, specContractRepo, pricePipeline, logger)
 	// 支付中心（doc35）：渠道管理 + 支付单 + 收银台，并注入提现打款与订单渠道退款钩子。
 	paymentBundle := buildPaymentBundle(cfg, database, walletService, rechargeService, billService, orderService, withdrawService, logger)
-	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, logger, jwtIssuer)
+	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, logger, jwtIssuer)
 	router := newRouter(app)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)

@@ -44,7 +44,7 @@
         <WalletIcon size="16" />
         <span>资产管理</span>
       </button>
-      <button class="sider-item" @click="onDevelop('发票管理')">
+      <button class="sider-item" @click="router.push('/billing/invoices')">
         <FilePasteIcon size="16" />
         <span>发票管理</span>
       </button>
@@ -280,29 +280,65 @@
                 {{ billStatusLabel(row.status) }}
               </t-tag>
             </template>
+            <template #bill_no="{ row }">
+              <div class="cell-main">
+                <span class="cell-strong">{{ row.bill_no }}</span>
+                <t-tag :theme="billTypeTheme(row.bill_type)" variant="light" size="small" shape="round">
+                  {{ billTypeLabel(row.bill_type) }}
+                </t-tag>
+              </div>
+            </template>
             <template #total_amount="{ row }">
-              <span class="num-cell num-cell--strong">¥ {{ formatPrice(row.total_amount) }}</span>
+              <div class="cell-main">
+                <span class="num-cell num-cell--strong">¥ {{ formatPrice(row.total_amount) }}</span>
+                <span v-if="(row.channel_refund_amount || 0) > 0" class="cell-sub">
+                  原路退回 ¥{{ formatPrice(row.channel_refund_amount) }}
+                </span>
+              </div>
             </template>
             <template #refund_amount="{ row }">
-              <span class="num-cell">¥ {{ formatPrice(row.refund_amount) }}</span>
+              <div class="cell-main">
+                <span class="num-cell">¥ {{ formatPrice(row.refund_amount) }}</span>
+                <span v-if="(row.refund_fee_amount || 0) > 0" class="cell-sub">
+                  扣点 ¥{{ formatPrice(row.refund_fee_amount) }}
+                </span>
+              </div>
             </template>
             <template #paid_method="{ row }">
               <div v-if="row.status === 'paid'" class="cell-main">
-                <span class="cell-strong">{{ paidMethodLabel(row.paid_method) }}</span>
+                <span class="cell-strong">{{ payMethodLabel(row.paid_method) }}</span>
                 <span class="cell-sub">实收 ¥{{ formatPrice(row.paid_amount ?? row.total_amount - row.refund_amount) }}</span>
               </div>
               <span v-else class="time-text">—</span>
             </template>
+            <template #invoice_status="{ row }">
+              <div class="cell-main">
+                <t-tag :theme="billInvoiceStatusTheme(row.invoice_status)" variant="light" size="small" shape="round">
+                  {{ billInvoiceStatusLabel(row.invoice_status) }}
+                </t-tag>
+                <span v-if="row.invoice_no" class="cell-sub">{{ row.invoice_no }}</span>
+              </div>
+            </template>
             <template #action="{ row }">
-              <t-link
-                v-if="row.status === 'unpaid' && memberStore.has('billing:recharge')"
-                theme="primary"
-                hover="color"
-                @click="openBillPay(row)"
-              >
-                去支付
-              </t-link>
-              <span v-else class="time-text">—</span>
+              <div class="cell-main">
+                <t-link
+                  v-if="row.status === 'unpaid' && memberStore.has('billing:recharge')"
+                  theme="primary"
+                  hover="color"
+                  @click="openBillPay(row)"
+                >
+                  去支付
+                </t-link>
+                <t-link
+                  v-else-if="canApplyInvoice(row)"
+                  theme="primary"
+                  hover="color"
+                  @click="openInvoiceDialog(row)"
+                >
+                  申请开票
+                </t-link>
+                <span v-else class="time-text">—</span>
+              </div>
             </template>
             <template #created_at="{ row }">
               <span class="time-text">{{ formatTime(row.created_at) }}</span>
@@ -338,6 +374,39 @@
       </t-form>
       <p class="dialog-tip">支付单将由平台收银台创建；线下人工方式会返回转账指引，需后台确认到账。</p>
     </t-dialog>
+
+    <!-- 申请开票（doc36 §3.3） -->
+    <t-dialog
+      v-model:visible="invoiceVisible"
+      header="申请开票"
+      width="520px"
+      :confirm-btn="{ content: '提交申请', theme: 'primary', loading: invoiceSubmitting }"
+      :cancel-btn="{ content: '取消' }"
+      @confirm="handleApplyInvoice"
+      @close="invoiceVisible = false"
+    >
+      <t-alert
+        v-if="invoiceTarget"
+        theme="info"
+        :message="`账单 ${invoiceTarget.bill_no}（账期 ${invoiceTarget.period}）可开票金额 ¥${formatPrice(invoiceTarget.total_amount)}`"
+        style="margin-bottom: 12px"
+      />
+      <t-form label-align="top" :data="invoiceForm" @submit.prevent>
+        <t-form-item label="发票类型">
+          <t-select v-model="invoiceForm.invoice_type" :options="invoiceTypeOptions" />
+        </t-form-item>
+        <t-form-item label="发票抬头（必填）">
+          <t-input v-model="invoiceForm.title" placeholder="企业或个人名称" clearable />
+        </t-form-item>
+        <t-form-item label="纳税人识别号">
+          <t-input v-model="invoiceForm.tax_no" placeholder="专票必填" clearable />
+        </t-form-item>
+        <t-form-item label="接收邮箱">
+          <t-input v-model="invoiceForm.email" placeholder="发票开具后发送至该邮箱" clearable />
+        </t-form-item>
+      </t-form>
+      <p class="dialog-tip">提交后由平台审核开票；驳回后账单回到未开票状态，可重新申请。</p>
+    </t-dialog>
   </div>
 </template>
 
@@ -367,15 +436,23 @@ import {
   getBalance,
   getMyBills,
   getMyTransactions,
+  applyInvoice,
   type BillInfo,
+  type InvoiceApplyRequest,
   type TransactionInfo,
   type WalletInfo,
 } from '@/api/finance'
 import {
+  billInvoiceStatusLabel,
+  billInvoiceStatusTheme,
   billStatusLabel,
   billStatusTheme,
+  billTypeLabel,
+  billTypeTheme,
   formatPrice,
   formatTime,
+  invoiceTypeOptions,
+  payMethodLabel,
   txTypeLabel,
 } from '@/pages/billing/constants'
 import { useMemberStore } from '@/store/modules/member'
@@ -462,21 +539,16 @@ const tagColumns: PrimaryTableCol<{ name: string }>[] = [
 ]
 
 const billColumns: PrimaryTableCol<BillInfo>[] = [
-  { colKey: 'period', title: '账期', width: 110 },
-  { colKey: 'bill_no', title: '账单号', minWidth: 200, ellipsis: true },
-  { colKey: 'total_amount', title: '消费金额', width: 130, align: 'right' },
-  { colKey: 'refund_amount', title: '退款金额', width: 130, align: 'right' },
-  { colKey: 'status', title: '状态', width: 110 },
+  { colKey: 'period', title: '账期', width: 100 },
+  { colKey: 'bill_no', title: '账单号 / 分类', minWidth: 190 },
+  { colKey: 'total_amount', title: '消费金额', width: 140 },
+  { colKey: 'refund_amount', title: '退款金额', width: 140 },
+  { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'paid_method', title: '支付方式', width: 150 },
-  { colKey: 'action', title: '操作', width: 100 },
+  { colKey: 'invoice_status', title: '发票', width: 130 },
+  { colKey: 'action', title: '操作', width: 110 },
   { colKey: 'created_at', title: '创建时间', width: 170 },
 ]
-
-// 账单支付方式展示（后端 MarkPaid 写入的方式/渠道）。
-function paidMethodLabel(method?: string): string {
-  const map: Record<string, string> = { alipay: '支付宝', wechat: '微信支付', wechatpay: '微信支付', manual: '线下/人工', unionpay: '云闪付', bestpay: '翼支付', online: '在线支付', balance: '余额支付' }
-  return map[method || ''] || method || '在线支付'
-}
 
 function onDevelop(name: string) {
   MessagePlugin.info(`${name}功能开发中`)
@@ -558,6 +630,58 @@ async function handleBillPay() {
     MessagePlugin.error((error as Error)?.message || '发起账单支付失败')
   } finally {
     billPaying.value = false
+  }
+}
+
+// ========== 申请开票（doc36 §3.3） ==========
+const invoiceVisible = ref(false)
+const invoiceSubmitting = ref(false)
+const invoiceTarget = ref<BillInfo | null>(null)
+const invoiceForm = reactive<{ invoice_type: string; title: string; tax_no: string; email: string }>({
+  invoice_type: 'normal',
+  title: '',
+  tax_no: '',
+  email: '',
+})
+
+// 只有已结清且未开票（或曾被驳回）的账单可申请开票。
+function canApplyInvoice(row: BillInfo): boolean {
+  if (row.status !== 'paid') return false
+  return !row.invoice_status || row.invoice_status === 'none' || row.invoice_status === 'rejected'
+}
+
+function openInvoiceDialog(row: BillInfo) {
+  invoiceTarget.value = row
+  invoiceForm.invoice_type = 'normal'
+  invoiceForm.title = ''
+  invoiceForm.tax_no = ''
+  invoiceForm.email = ''
+  invoiceVisible.value = true
+}
+
+async function handleApplyInvoice() {
+  if (!invoiceTarget.value) return
+  if (!invoiceForm.title.trim()) {
+    MessagePlugin.warning('请填写发票抬头')
+    return
+  }
+  invoiceSubmitting.value = true
+  try {
+    const payload: InvoiceApplyRequest = {
+      bill_id: invoiceTarget.value.id,
+      invoice_type: invoiceForm.invoice_type,
+      title: invoiceForm.title.trim(),
+      tax_no: invoiceForm.tax_no.trim() || undefined,
+      email: invoiceForm.email.trim() || undefined,
+    }
+    const { data } = await applyInvoice(payload)
+    MessagePlugin.success(`开票申请 ${data.request_no} 已提交，请等待平台审核`)
+    invoiceVisible.value = false
+    void loadAll()
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '提交开票申请失败')
+  } finally {
+    invoiceSubmitting.value = false
   }
 }
 

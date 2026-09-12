@@ -30,8 +30,35 @@
             <t-link theme="primary" hover="color" @click="openOrder">{{ refund.order_no || `#${refund.order_id}` }}</t-link>
           </t-descriptions-item>
           <t-descriptions-item label="用户 ID">{{ refund.user_id }}</t-descriptions-item>
+          <t-descriptions-item label="退款去向">
+            <t-tag :theme="refundModeTheme(refund.refund_mode)" variant="light" size="small" shape="round">
+              {{ refundModeLabel(refund.refund_mode) }}
+            </t-tag>
+          </t-descriptions-item>
           <t-descriptions-item label="退款金额">
             <span class="price-main">¥{{ formatPrice(refund.amount) }}</span>
+          </t-descriptions-item>
+          <t-descriptions-item label="渠道扣点">
+            <span class="price-sub">{{ refund.refund_mode === 'channel' ? `¥${formatPrice(refund.fee_amount)}` : '—' }}</span>
+          </t-descriptions-item>
+          <t-descriptions-item label="财务净额">
+            <span class="price-sub">
+              {{ refund.refund_mode === 'channel' ? `¥${formatPrice(refund.net_amount)}` : '消费口径不变' }}
+            </span>
+          </t-descriptions-item>
+          <t-descriptions-item label="渠道退款单">
+            <div class="price-cell">
+              <span class="price-sub">{{ refund.channel_refund_no || '—' }}</span>
+              <t-tag
+                v-if="refund.refund_mode === 'channel'"
+                :theme="channelRefundStatusTheme(refund.channel_refund_status)"
+                variant="light"
+                size="small"
+                shape="round"
+              >
+                {{ channelRefundStatusLabel(refund.channel_refund_status) }}
+              </t-tag>
+            </div>
           </t-descriptions-item>
           <t-descriptions-item label="退款原因">{{ refund.reason || '—' }}</t-descriptions-item>
           <t-descriptions-item label="状态">
@@ -58,7 +85,16 @@ import { MoneyIcon, RefreshIcon } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 
 import { approveRefund, getRefundDetail, rejectRefund } from '@/api/order'
-import { formatPrice, formatTime, refundStatusLabel, refundStatusTheme } from '@/pages/order/constants'
+import {
+  channelRefundStatusLabel,
+  channelRefundStatusTheme,
+  formatPrice,
+  formatTime,
+  refundModeLabel,
+  refundModeTheme,
+  refundStatusLabel,
+  refundStatusTheme,
+} from '@/pages/order/constants'
 import type { RefundInfo } from '@/types/interface'
 
 defineOptions({ name: 'OrderRefundDetail' })

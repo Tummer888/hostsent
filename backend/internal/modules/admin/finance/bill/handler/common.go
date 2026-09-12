@@ -33,10 +33,13 @@ func operatorFromContext(c *gin.Context) (uint64, string) {
 // writeError 将账单子域业务错误映射为统一错误码。
 func writeError(err error) *apperrors.AppError {
 	switch {
-	case errors.Is(err, service.ErrBillNotFound):
+	case errors.Is(err, service.ErrBillNotFound), errors.Is(err, service.ErrInvoiceNotFound):
 		return apperrors.New(20002, err.Error())
-	case errors.Is(err, service.ErrStatusConflict):
+	case errors.Is(err, service.ErrStatusConflict), errors.Is(err, service.ErrInvoiceStatusConflict):
 		return apperrors.New(20003, err.Error())
+	case errors.Is(err, service.ErrBillNotInvoicable), errors.Is(err, service.ErrAlreadyInvoiced),
+		errors.Is(err, service.ErrInvoicePending):
+		return apperrors.New(20001, err.Error())
 	default:
 		return apperrors.New(50001, err.Error())
 	}

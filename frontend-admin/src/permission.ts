@@ -16,6 +16,7 @@ import {
   DiscountIcon,
   ErrorCircleIcon,
   FileIcon,
+  GiftIcon,
   HistoryIcon,
   KeyIcon,
   LayersIcon,
@@ -304,6 +305,7 @@ export const navMenu = [
         children: [
           { title: '账单管理', path: '/finance/bills', icon: iconWrapper(FileIcon) },
           { title: '对账中心', path: '/finance/recon', icon: iconWrapper(CheckCircleIcon) },
+          { title: '发票管理', path: '/finance/invoices', icon: iconWrapper(FileIcon) },
         ],
       },
       {
@@ -389,6 +391,39 @@ export const navMenu = [
         path: '/referral/invitees',
         icon: iconWrapper(UsergroupIcon),
         children: [{ title: '邀请关系', path: '/referral/invitees', icon: iconWrapper(UsergroupIcon) }],
+      },
+    ],
+  },
+  {
+    // 积分中心（docs/实施计划/36）：独立于资金账本的积分体系。
+    // 积分不可抵扣、不可提现、不可转入余额，因此本模块不提供任何支付相关入口。
+    title: '积分中心',
+    path: '/points',
+    icon: iconWrapper(GiftIcon),
+    children: [
+      {
+        title: '积分概览',
+        path: '/points/overview',
+        icon: iconWrapper(DashboardIcon),
+        children: [{ title: '积分概览', path: '/points/overview', icon: iconWrapper(DashboardIcon) }],
+      },
+      {
+        title: '积分规则',
+        path: '/points/rules',
+        icon: iconWrapper(SettingIcon),
+        children: [{ title: '积分规则', path: '/points/rules', icon: iconWrapper(SettingIcon) }],
+      },
+      {
+        title: '积分账户',
+        path: '/points/accounts',
+        icon: iconWrapper(UsergroupIcon),
+        children: [{ title: '积分账户', path: '/points/accounts', icon: iconWrapper(UsergroupIcon) }],
+      },
+      {
+        title: '积分流水',
+        path: '/points/transactions',
+        icon: iconWrapper(HistoryIcon),
+        children: [{ title: '积分流水', path: '/points/transactions', icon: iconWrapper(HistoryIcon) }],
       },
     ],
   },

@@ -41,6 +41,34 @@ export const billStatusOptions = [
   { label: '已关账', value: 'closed' },
 ]
 
+// 账单分类（doc36 §3.4）：按消费构成区分充值/购买/续费。
+export const billTypeOptions = [
+  { label: '产品购买', value: 'consumption' },
+  { label: '产品续费', value: 'renewal' },
+  { label: '购买+续费', value: 'mixed' },
+  { label: '余额充值', value: 'recharge' },
+]
+
+// 发票状态（doc36 §3.3）。
+export const invoiceStatusOptions = [
+  { label: '未开票', value: 'none' },
+  { label: '已申请', value: 'applied' },
+  { label: '已开票', value: 'issued' },
+]
+
+// 发票申请状态。
+export const invoiceRequestStatusOptions = [
+  { label: '待开票', value: 'pending' },
+  { label: '已开票', value: 'issued' },
+  { label: '已驳回', value: 'rejected' },
+]
+
+// 发票类型。
+export const invoiceTypeOptions = [
+  { label: '增值税普通发票', value: 'normal' },
+  { label: '增值税专用发票', value: 'special' },
+]
+
 const defaultTheme = 'default'
 
 export function txTypeLabel(type: string): string {
@@ -131,6 +159,79 @@ export function billStatusTheme(status: string): string {
     default:
       return defaultTheme
   }
+}
+
+// 账单分类标签（doc36 §3.4）。
+export function billTypeLabel(type: string): string {
+  const found = billTypeOptions.find((item) => item.value === type)
+  return found ? found.label : type || '—'
+}
+
+export function billTypeTheme(type: string): string {
+  switch (type) {
+    case 'consumption':
+      return 'primary'
+    case 'renewal':
+      return 'success'
+    case 'mixed':
+      return 'warning'
+    case 'recharge':
+      return 'default'
+    default:
+      return defaultTheme
+  }
+}
+
+// 发票状态标签（账单行内）。
+export function invoiceStatusLabel(status: string): string {
+  const found = invoiceStatusOptions.find((item) => item.value === status)
+  return found ? found.label : status || '未开票'
+}
+
+export function invoiceStatusTheme(status: string): string {
+  switch (status) {
+    case 'issued':
+      return 'success'
+    case 'applied':
+      return 'warning'
+    default:
+      return defaultTheme
+  }
+}
+
+// 发票申请状态标签。
+export function invoiceRequestStatusLabel(status: string): string {
+  const found = invoiceRequestStatusOptions.find((item) => item.value === status)
+  return found ? found.label : status || '—'
+}
+
+export function invoiceRequestStatusTheme(status: string): string {
+  switch (status) {
+    case 'issued':
+      return 'success'
+    case 'pending':
+      return 'warning'
+    case 'rejected':
+      return 'danger'
+    default:
+      return defaultTheme
+  }
+}
+
+export function invoiceTypeLabel(type: string): string {
+  const found = invoiceTypeOptions.find((item) => item.value === type)
+  return found ? found.label : type || '普票'
+}
+
+// 支付方式标签（账单结清口径，doc34 F-11）。
+export function payMethodLabel(method: string): string {
+  const map: Record<string, string> = {
+    balance: '余额支付',
+    alipay: '支付宝',
+    wechat: '微信支付',
+    manual: '线下/人工',
+  }
+  return map[method] || method || '—'
 }
 
 // 金额展示：正数带 + 号，负数带 - 号。direction<0（支出）时取负值显示。

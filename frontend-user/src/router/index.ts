@@ -92,6 +92,24 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '支付方式', icon: 'wallet', permission: 'billing:view' },
       },
       {
+        path: 'billing/invoices',
+        name: 'BillingInvoices',
+        component: () => import('@/pages/billing/invoices.vue'),
+        meta: { title: '发票管理', icon: 'file-paste', permission: 'billing:view' },
+      },
+      {
+        path: 'points',
+        name: 'MyPoints',
+        component: () => import('@/pages/points/index.vue'),
+        meta: { title: '我的积分', icon: 'gift' },
+      },
+      {
+        path: 'points/transactions',
+        name: 'MyPointTransactions',
+        component: () => import('@/pages/points/transactions.vue'),
+        meta: { title: '积分明细', icon: 'money' },
+      },
+      {
         path: 'support',
         redirect: '/support/tickets',
         meta: { title: '工单中心' },

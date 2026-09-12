@@ -126,6 +126,8 @@ type App struct {
 	open *openhandler.Bundle
 	// payment 支付中心处理器集合（doc35）：admin 支付管理 + uc 收银台。
 	payment *paymentBundle
+	// point 积分体系处理器集合（doc36）：admin 积分中心 + uc 我的积分。
+	point *pointBundle
 }
 
 // NewApp 构造装配容器（DI 单一接线点）。
@@ -189,6 +191,7 @@ func NewApp(
 	auditWriter middleware.AdminAuditWriter,
 	open *openhandler.Bundle,
 	payment *paymentBundle,
+	point *pointBundle,
 	logger *zap.Logger,
 	jwtIssuer *appauth.JWTIssuer,
 ) *App {
@@ -253,6 +256,7 @@ func NewApp(
 		userAuditWriter:       userAuditWriter,
 		open:                  open,
 		payment:               payment,
+		point:                 point,
 	}
 }
 

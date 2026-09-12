@@ -139,8 +139,18 @@ export interface WithdrawAuditRequest {
 
 export interface BillListQuery {
   user_id?: number
+  /** 用户账号（用户名/邮箱）模糊 */
+  user_keyword?: string
+  /** 账单号精确 */
+  bill_no?: string
+  /** 账单号模糊 */
+  keyword?: string
   period?: string
   status?: string
+  /** 账单分类：consumption / renewal / mixed / recharge */
+  bill_type?: string
+  /** 发票状态：none / applied / issued */
+  invoice_status?: string
   page?: number
   page_size?: number
 }
@@ -153,6 +163,27 @@ export interface BillInfo {
   total_amount: number
   refund_amount: number
   status: string
+  /** 账单分类（doc36 §3.4） */
+  bill_type: string
+  /** 普通消费（正） */
+  consume_amount: number
+  /** 续费消费（正） */
+  renewal_amount: number
+  /** 原路退回本金（真金流出） */
+  channel_refund_amount: number
+  /** 原路退回渠道扣点（真金流出） */
+  refund_fee_amount: number
+  /** 扣点后计入口径 = 应结 + 原路退款扣点 */
+  net_amount: number
+  /** 结清时记录的实收金额与支付方式 */
+  paid_amount: number
+  paid_method: string
+  paid_channel_id: number
+  paid_at: string
+  /** 发票状态 */
+  invoice_status: string
+  invoice_no: string
+  invoiced_at: string
   created_at: string
   updated_at: string
 }
@@ -160,6 +191,63 @@ export interface BillInfo {
 export interface BillListResponse {
   items: BillInfo[]
   meta: ListMeta
+}
+
+// ===== 发票（doc36 §3.3） =====
+
+export interface InvoiceListQuery {
+  user_id?: number
+  status?: string
+  bill_no?: string
+  page?: number
+  page_size?: number
+}
+
+export interface InvoiceInfo {
+  id: number
+  request_no: string
+  bill_id: number
+  bill_no: string
+  user_id: number
+  username: string
+  /** normal=普票 special=专票 */
+  invoice_type: string
+  title: string
+  tax_no: string
+  amount: number
+  email: string
+  /** pending / issued / rejected */
+  status: string
+  /** manual=人工 / tax_api=税控（预埋） */
+  channel: string
+  /** 税控回执号（预埋） */
+  external_no: string
+  /** 发票文件地址（预埋下载） */
+  file_url: string
+  reject_reason: string
+  operator_id: number
+  issued_at: string
+  created_at: string
+  updated_at: string
+}
+
+export interface InvoiceListResponse {
+  items: InvoiceInfo[]
+  meta: ListMeta
+}
+
+export interface InvoiceIssueRequest {
+  invoice_no: string
+  /** 预埋：发票文件地址 */
+  file_url?: string
+  /** 预埋：manual / tax_api */
+  channel?: string
+  remark?: string
+}
+
+export interface BillGenerateRequest {
+  user_id: number
+  period: string
 }
 
 export interface ReconcileResponse {

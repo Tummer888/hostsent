@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -21,6 +22,10 @@ type RefundRepository interface {
 	SumEffective(ctx context.Context, orderID uint64) (float64, error)
 	// SumRefundedAmount 全量已通过/已退款金额合计（用于退款率）。
 	SumRefundedAmount(ctx context.Context) (float64, error)
+	// SumChannelRefund 指定用户与时间段内原路退回（channel 模式）的本金与扣点合计（doc36 §3.2）。
+	// 财务侧据此扣减收入口径；时间以审核通过时间（audited_at）落在账期内为准。
+	// userID=0 表示不限定用户（全平台）。
+	SumChannelRefund(ctx context.Context, userID uint64, start, end *time.Time) (principal, fee float64, err error)
 }
 
 type refundRepository struct {
@@ -46,6 +51,9 @@ func (r *refundRepository) List(ctx context.Context, query dto.RefundListQuery) 
 	}
 	if query.Status != "" {
 		base = base.Where("status = ?", query.Status)
+	}
+	if mode := strings.TrimSpace(query.RefundMode); mode != "" {
+		base = base.Where("refund_mode = ?", mode)
 	}
 
 	var total int64
@@ -102,4 +110,38 @@ func (r *refundRepository) SumRefundedAmount(ctx context.Context) (float64, erro
 		return 0, err
 	}
 	return sum, nil
+}
+
+// SumChannelRefund 汇总账期内原路退回的本金与渠道扣点（doc36 §3.2）。
+//
+// 口径：
+//   - 只统计 refund_mode='channel' 且渠道退款已发起/成功的退款单；
+//   - 未建渠道退款单（channel_refund_status='failed'）表示钩子已回落余额回补，
+//     资金未流出平台，不得扣减收入口径；
+//   - 账期归属按审核通过时间 audited_at（未回填时回落 updated_at）；
+//   - 本金 = amount，扣点 = fee_amount；两者都从收入口径中扣减。
+func (r *refundRepository) SumChannelRefund(ctx context.Context, userID uint64, start, end *time.Time) (principal, fee float64, err error) {
+	type agg struct {
+		Principal float64 `gorm:"column:principal"`
+		Fee       float64 `gorm:"column:fee"`
+	}
+	var row agg
+	q := r.db.WithContext(ctx).Model(&model.OrderRefund{}).
+		Where("refund_mode = ? AND status IN ? AND channel_refund_status IN ?", model.RefundModeChannel,
+			[]string{model.RefundStatusApproved, model.RefundStatusDone},
+			[]string{model.ChannelRefundStatusPending, model.ChannelRefundStatusSuccess}).
+		Select("COALESCE(SUM(amount), 0) AS principal, COALESCE(SUM(fee_amount), 0) AS fee")
+	if userID > 0 {
+		q = q.Where("user_id = ?", userID)
+	}
+	if start != nil {
+		q = q.Where("COALESCE(audited_at, updated_at) >= ?", *start)
+	}
+	if end != nil {
+		q = q.Where("COALESCE(audited_at, updated_at) <= ?", *end)
+	}
+	if err := q.Scan(&row).Error; err != nil {
+		return 0, 0, err
+	}
+	return row.Principal, row.Fee, nil
 }

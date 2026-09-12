@@ -67,6 +67,10 @@ type Order struct {
 	CreatedAt      time.Time  `gorm:"autoCreateTime;index"`
 	UpdatedAt      time.Time  `gorm:"autoUpdateTime"`
 	DeletedAt      *time.Time `gorm:"index"`
+	// 查询期附加字段（不落库，doc36 §3.1）：由支付中心 payment_orders 反查填充，
+	// 列表与详情据此展示并检索支付单号 / 渠道流水号。
+	PaymentNo string `gorm:"-"`
+	ChannelTx string `gorm:"-"`
 }
 
 // TableName 指定表名

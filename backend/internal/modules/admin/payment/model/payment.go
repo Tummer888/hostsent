@@ -116,32 +116,37 @@ func (PaymentChannel) TableName() string { return "payment_channels" }
 
 // PaymentOrder 支付单：以 biz_type + biz_id 与业务解耦，财务/订单不感知渠道细节。
 type PaymentOrder struct {
-	ID           uint64     `gorm:"primaryKey;autoIncrement"`
-	PaymentNo    string     `gorm:"column:payment_no;size:64;not null;uniqueIndex;index"`
-	UserID       uint64     `gorm:"column:user_id;not null;index"`
-	BizType      string     `gorm:"column:biz_type;size:32;not null;index"`
-	BizID        uint64     `gorm:"column:biz_id;not null;default:0"`
-	BizNo        string     `gorm:"column:biz_no;size:64"`
-	AmountFen    int64      `gorm:"column:amount_fen;not null"`
-	Currency     string     `gorm:"size:10;not null;default:CNY"`
-	ChannelID    uint64     `gorm:"column:channel_id;not null;default:0;index"`
-	ChannelCode  string     `gorm:"column:channel_code;size:64;not null;default:''"`
-	ChannelType  string     `gorm:"column:channel_type;size:50;not null;default:''"`
-	Scene        string     `gorm:"size:20;not null;default:''"`
-	Status       string     `gorm:"size:20;not null;default:pending;index"`
-	ChannelTx    string     `gorm:"column:channel_tx;size:128;index"`
-	PayURL       string     `gorm:"column:pay_url;size:512"`
-	QRCode       string     `gorm:"column:qrcode;size:512"`
-	PrepayParams string     `gorm:"column:prepay_params;type:jsonb"`
-	Instructions string     `gorm:"type:text"`
-	Subject      string     `gorm:"size:255"`
-	ClientIP     string     `gorm:"column:client_ip;size:64"`
-	FeeFen       int64      `gorm:"column:fee_fen;not null;default:0"` // 渠道手续费（分）
-	ExpireAt     *time.Time `gorm:"column:expire_at"`
-	PaidAt       *time.Time `gorm:"column:paid_at"`
-	Remark       string     `gorm:"size:255"`
-	CreatedAt    time.Time  `gorm:"autoCreateTime"`
-	UpdatedAt    time.Time  `gorm:"autoUpdateTime"`
+	ID           uint64 `gorm:"primaryKey;autoIncrement"`
+	PaymentNo    string `gorm:"column:payment_no;size:64;not null;uniqueIndex;index"`
+	UserID       uint64 `gorm:"column:user_id;not null;index"`
+	BizType      string `gorm:"column:biz_type;size:32;not null;index"`
+	BizID        uint64 `gorm:"column:biz_id;not null;default:0"`
+	BizNo        string `gorm:"column:biz_no;size:64"`
+	AmountFen    int64  `gorm:"column:amount_fen;not null"`
+	Currency     string `gorm:"size:10;not null;default:CNY"`
+	ChannelID    uint64 `gorm:"column:channel_id;not null;default:0;index"`
+	ChannelCode  string `gorm:"column:channel_code;size:64;not null;default:''"`
+	ChannelType  string `gorm:"column:channel_type;size:50;not null;default:''"`
+	Scene        string `gorm:"size:20;not null;default:''"`
+	Status       string `gorm:"size:20;not null;default:pending;index"`
+	ChannelTx    string `gorm:"column:channel_tx;size:128;index"`
+	PayURL       string `gorm:"column:pay_url;size:512"`
+	QRCode       string `gorm:"column:qrcode;size:512"`
+	PrepayParams string `gorm:"column:prepay_params;type:jsonb"`
+	Instructions string `gorm:"type:text"`
+	Subject      string `gorm:"size:255"`
+	// BizItems 合并支付明细（doc36 §3.5）：一单多业务时记录各业务单号与金额，普通单为空数组。
+	// 业务单据本身不合并，仍各自独立履约/退款/开票，避免退款与发票粒度丢失。
+	// 形如 [{"biz_type":"order","biz_id":1,"biz_no":"...","amount_fen":100,"status":"paid"}]。
+	BizItems  string     `gorm:"column:biz_items;type:jsonb;not null;default:'[]'"`
+	ItemCount int        `gorm:"column:item_count;not null;default:1"`
+	ClientIP  string     `gorm:"column:client_ip;size:64"`
+	FeeFen    int64      `gorm:"column:fee_fen;not null;default:0"` // 渠道手续费（分）
+	ExpireAt  *time.Time `gorm:"column:expire_at"`
+	PaidAt    *time.Time `gorm:"column:paid_at"`
+	Remark    string     `gorm:"size:255"`
+	CreatedAt time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt time.Time  `gorm:"autoUpdateTime"`
 }
 
 func (PaymentOrder) TableName() string { return "payment_orders" }

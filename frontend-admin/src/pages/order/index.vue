@@ -33,6 +33,18 @@
           <t-input v-model="filters.user_keyword" placeholder="用户名 / 邮箱 / 手机号" clearable @enter="handleSearch" />
         </div>
         <div class="field">
+          <span class="field__label">支付单号</span>
+          <t-input v-model="filters.payment_no" placeholder="支付中心支付单号" clearable @enter="handleSearch" />
+        </div>
+        <div class="field">
+          <span class="field__label">渠道流水号</span>
+          <t-input v-model="filters.channel_tx" placeholder="第三方交易号" clearable @enter="handleSearch" />
+        </div>
+        <div class="field">
+          <span class="field__label">订单类型</span>
+          <t-select v-model="filters.order_type" clearable placeholder="全部类型" :options="orderTypeOptions" />
+        </div>
+        <div class="field">
           <span class="field__label">产品 ID</span>
           <t-input v-model="filters.product_id" placeholder="按产品 ID 筛选" clearable @enter="handleSearch" />
         </div>
@@ -80,7 +92,14 @@
         @page-change="handlePageChange"
       >
         <template #order_no="{ row }">
-          <t-link theme="primary" hover="color" @click="openDetail(row)">{{ row.order_no }}</t-link>
+          <div class="price-cell">
+            <t-link theme="primary" hover="color" @click="openDetail(row)">{{ row.order_no }}</t-link>
+            <span class="price-sub">
+              <t-tag v-if="row.renewal_id" theme="success" variant="light" size="small" shape="round">续费</t-tag>
+              <template v-else>普通购买</template>
+              <template v-if="row.payment_no"> · 支付单 {{ row.payment_no }}</template>
+            </span>
+          </div>
         </template>
 
         <template #product="{ row }">
@@ -94,6 +113,7 @@
           <div class="price-cell">
             <span class="price-main">¥{{ formatPrice(row.paid_amount) }}</span>
             <span class="price-sub">应付 ¥{{ formatPrice(row.total_amount) }}</span>
+            <span v-if="row.discount_amount > 0" class="price-sub">优惠 ¥{{ formatPrice(row.discount_amount) }}</span>
           </div>
         </template>
 
@@ -178,8 +198,24 @@
         <t-form-item label="可退金额" name="paid_amount">
           <t-alert theme="warning" :message="`本订单实付 ¥${formatPrice(refundForm.paid_amount)}`" />
         </t-form-item>
+        <t-form-item label="退款去向" name="refund_mode">
+          <t-radio-group v-model="refundForm.refund_mode" variant="default-filled">
+            <t-radio-button value="balance">退回余额</t-radio-button>
+            <t-radio-button value="channel">原路退回</t-radio-button>
+          </t-radio-group>
+          <p class="form-hint">
+            {{
+              refundForm.refund_mode === 'balance'
+                ? '退回余额：消费口径不变，仅余额增加。'
+                : '原路退回：财务按本金 + 渠道扣点扣减收入，需支付渠道支持退款接口。'
+            }}
+          </p>
+        </t-form-item>
         <t-form-item label="退款金额（元）" name="amount">
           <t-input-number v-model="refundForm.amount" :min="0" :max="refundForm.paid_amount" :precision="2" theme="column" placeholder="请输入退款金额" />
+        </t-form-item>
+        <t-form-item v-if="refundForm.refund_mode === 'channel'" label="渠道扣点（元）" name="fee_amount">
+          <t-input-number v-model="refundForm.fee_amount" :min="0" :precision="2" theme="column" placeholder="渠道不退还的手续费，默认 0" />
         </t-form-item>
         <t-form-item label="退款原因" name="reason">
           <t-textarea v-model="refundForm.reason" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="选填，请填写退款原因" />
@@ -203,6 +239,7 @@ import {
   orderStatusLabel,
   orderStatusOptions,
   orderStatusTheme,
+  orderTypeOptions,
   payMethodLabel,
   payMethodOptions,
   toDateString,
@@ -225,6 +262,9 @@ const total = ref(0)
 const filters = reactive<{
   keyword: string | undefined
   user_keyword: string | undefined
+  payment_no: string | undefined
+  channel_tx: string | undefined
+  order_type: string | undefined
   product_id: string | undefined
   status: string | undefined
   pay_method: string | undefined
@@ -232,6 +272,9 @@ const filters = reactive<{
 }>({
   keyword: undefined,
   user_keyword: undefined,
+  payment_no: undefined,
+  channel_tx: undefined,
+  order_type: undefined,
   product_id: undefined,
   status: undefined,
   pay_method: undefined,
@@ -287,6 +330,9 @@ async function loadOrders() {
     const data = await getOrderList({
       keyword: filters.keyword,
       user_keyword: filters.user_keyword,
+      payment_no: filters.payment_no,
+      channel_tx: filters.channel_tx,
+      order_type: filters.order_type,
       product_id: filters.product_id ? Number(filters.product_id) : undefined,
       status: filters.status,
       pay_method: filters.pay_method,
@@ -344,6 +390,9 @@ function handleSearch() {
 function handleResetFilters() {
   filters.keyword = undefined
   filters.user_keyword = undefined
+  filters.payment_no = undefined
+  filters.channel_tx = undefined
+  filters.order_type = undefined
   filters.product_id = undefined
   filters.status = undefined
   filters.pay_method = undefined
@@ -418,10 +467,19 @@ async function handleSaveRemark() {
 }
 
 const refundVisible = ref(false)
-const refundForm = reactive<{ orderId: number; paid_amount: number; amount: number; reason: string }>({
+const refundForm = reactive<{
+  orderId: number
+  paid_amount: number
+  amount: number
+  refund_mode: string
+  fee_amount: number
+  reason: string
+}>({
   orderId: 0,
   paid_amount: 0,
   amount: 0,
+  refund_mode: 'balance',
+  fee_amount: 0,
   reason: '',
 })
 
@@ -429,15 +487,27 @@ function openRefundDialog(row: OrderInfo) {
   refundForm.orderId = row.id
   refundForm.paid_amount = row.paid_amount
   refundForm.amount = row.paid_amount
+  refundForm.refund_mode = 'balance'
+  refundForm.fee_amount = 0
   refundForm.reason = ''
   refundVisible.value = true
 }
 
 async function handleCreateRefund() {
+  if (refundForm.amount <= 0) {
+    MessagePlugin.warning('退款金额需大于 0')
+    return
+  }
+  if (refundForm.refund_mode === 'channel' && refundForm.fee_amount < 0) {
+    MessagePlugin.warning('渠道扣点不能为负数')
+    return
+  }
   try {
     await createOrderRefund(refundForm.orderId, {
       amount: refundForm.amount,
       reason: refundForm.reason || undefined,
+      refund_mode: refundForm.refund_mode,
+      fee_amount: refundForm.refund_mode === 'channel' ? refundForm.fee_amount : 0,
     })
     MessagePlugin.success('退款单已提交')
     refundVisible.value = false

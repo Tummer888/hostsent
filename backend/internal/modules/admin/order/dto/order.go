@@ -8,10 +8,16 @@ type OrderListQuery struct {
 	ProductID   uint64 `form:"product_id" json:"product_id"`     // 产品 ID
 	Status      string `form:"status" json:"status"`             // 订单状态
 	PayMethod   string `form:"pay_method" json:"pay_method"`     // 支付方式
-	StartTime   string `form:"start_time" json:"start_time"`     // 开始时间（YYYY-MM-DD HH:MM:SS）
-	EndTime     string `form:"end_time" json:"end_time"`         // 结束时间
-	Page        int    `form:"page" json:"page"`
-	PageSize    int    `form:"page_size" json:"page_size"`
+	// PaymentNo 支付单号（doc36 §3.1）：关联支付中心 payment_orders 反查，支持部分匹配。
+	PaymentNo string `form:"payment_no" json:"payment_no"`
+	// ChannelTx 渠道流水号（doc36 §3.1）：第三方交易号，对账排障用。
+	ChannelTx string `form:"channel_tx" json:"channel_tx"`
+	// OrderType 订单类型（doc36 §3.4）：consume=普通购买 renewal=续费；续费由 renewal_id>0 判定。
+	OrderType string `form:"order_type" json:"order_type"`
+	StartTime string `form:"start_time" json:"start_time"` // 开始时间（YYYY-MM-DD HH:MM:SS）
+	EndTime   string `form:"end_time" json:"end_time"`     // 结束时间
+	Page      int    `form:"page" json:"page"`
+	PageSize  int    `form:"page_size" json:"page_size"`
 }
 
 // OrderItemInfo 订单项信息
@@ -45,8 +51,19 @@ type OrderInfo struct {
 	PayTime     string  `json:"pay_time"`
 	ExpireTime  string  `json:"expire_time"`
 	Remark      string  `json:"remark"`
-	CreatedAt   string  `json:"created_at"`
-	UpdatedAt   string  `json:"updated_at"`
+	// 计费周期与续费标记（doc36 §3.4）：cycle 为计费周期快照，renewal_id>0 即续费订单。
+	Cycle     string `json:"cycle"`
+	RenewalID uint64 `json:"renewal_id"`
+	// 算价快照（P5-01）：原价 / 优惠 / 实付，便于核对折扣来源。
+	OriginalAmount float64 `json:"original_amount"`
+	DiscountAmount float64 `json:"discount_amount"`
+	FinalAmount    float64 `json:"final_amount"`
+	DiscountSource string  `json:"discount_source"`
+	// 支付单号与渠道流水号（doc36 §3.1）：由支付中心反查，列表与详情均可直接检索。
+	PaymentNo string `json:"payment_no"`
+	ChannelTx string `json:"channel_tx"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 // OrderListResponse 订单列表响应
@@ -71,6 +88,11 @@ type OrderRemarkUpdateRequest struct {
 type RefundCreateRequest struct {
 	Amount float64 `json:"amount" binding:"required"`
 	Reason string  `json:"reason"`
+	// RefundMode 退款去向（doc36 §3.2）：balance=退回余额（默认，消费口径不变）；
+	// channel=原路退回支付来源（收入口径需扣减本金与渠道扣点）。
+	RefundMode string `json:"refund_mode"`
+	// FeeAmount 渠道扣点（仅 channel 模式有意义）：原路退回时渠道不退还的手续费。
+	FeeAmount float64 `json:"fee_amount"`
 }
 
 // OrderStatusStat 订单状态分布统计项
