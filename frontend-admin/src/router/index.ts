@@ -216,30 +216,31 @@ const routes: Array<RouteRecordRaw> = [
         redirect: '/resource/sync-center',
         meta: { title: '同步与调度', role: 'admin' },
       },
-      // —— 资源商品管理（T7.2 移入产品管理「商品对接」，此处暂留原路径）——
+      // —— 资源商品管理（T7.2 移入产品管理「商品对接」，旧路径 redirect）——
       {
         path: 'products-center',
         name: 'ResourceProductsCenter',
-        redirect: '/resource/products',
+        redirect: '/product/upstream',
         meta: { title: '资源商品管理', role: 'admin' },
       },
       {
         path: 'products',
         name: 'ResourceProducts',
-        component: () => import('@/pages/resource/products/index.vue'),
-        meta: { title: '商品列表', role: 'admin', permission: 'resource:product' },
+        redirect: '/product/upstream',
+        meta: { title: '商品列表', role: 'admin' },
       },
       {
+        // 商品同步并入「同步与调度」合并页（doc16 §9.1）。
         path: 'product-sync',
         name: 'ResourceProductSync',
-        component: () => import('@/pages/resource/product-sync/index.vue'),
-        meta: { title: '商品同步', role: 'admin', permission: 'product:sync' },
+        redirect: '/resource/sync-center',
+        meta: { title: '商品同步', role: 'admin' },
       },
       {
         path: 'pricing',
         name: 'ResourcePricing',
-        component: () => import('@/pages/resource/pricing/index.vue'),
-        meta: { title: '定价管理', role: 'admin', permission: 'product:update_price' },
+        redirect: '/product/cost-pricing',
+        meta: { title: '定价管理', role: 'admin' },
       },
       // —— 实例资源 ——
       {
@@ -313,6 +314,25 @@ const routes: Array<RouteRecordRaw> = [
         name: 'ProductProductsDetail',
         component: () => import('@/pages/product/products/detail.vue'),
         meta: { title: '商品详情', role: 'admin', permission: 'product:list' },
+      },
+      // —— 商品对接（T7.2，doc16 §9.3）：组件复用资源侧页面，仅菜单与路径归位 ——
+      {
+        path: 'binding',
+        name: 'ProductBinding',
+        redirect: '/product/upstream',
+        meta: { title: '商品对接', role: 'admin' },
+      },
+      {
+        path: 'upstream',
+        name: 'ProductUpstreamCatalog',
+        component: () => import('@/pages/resource/products/index.vue'),
+        meta: { title: '上游商品目录', role: 'admin', permission: 'resource:product' },
+      },
+      {
+        path: 'cost-pricing',
+        name: 'ProductCostPricing',
+        component: () => import('@/pages/resource/pricing/index.vue'),
+        meta: { title: '成本与加价', role: 'admin', permission: 'product:update_price' },
       },
       // —— 规格管理（spec）——
       {

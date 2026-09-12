@@ -53,7 +53,10 @@ var menuPermissionMap = map[string]string{
 	"/resource/anomalies":      "resource:instance",
 	"/resource/settings":       "system:config:view",
 
-	"/product/products":             "product:list",
+	"/product/products": "product:list",
+	// T7.2 商品对接（doc16 §9.3）：组件复用资源侧页面，权限沿用资源商品口径。
+	"/product/upstream":             "resource:product",
+	"/product/cost-pricing":         "product:update_price",
 	"/product/spec/templates":       "spec:template:list",
 	"/product/spec/custom":          "spec:template:list",
 	"/product/spec/mappings":        "spec:mapping:list",

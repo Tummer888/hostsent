@@ -134,16 +134,6 @@ export const navMenu = [
         ],
       },
       {
-        title: '资源商品管理',
-        path: '/resource/products-center',
-        icon: iconWrapper(AppIcon),
-        children: [
-          { title: '商品列表', path: '/resource/products', icon: iconWrapper(AppIcon) },
-          { title: '商品同步', path: '/resource/product-sync', icon: iconWrapper(CloudDownloadIcon) },
-          { title: '定价管理', path: '/resource/pricing', icon: iconWrapper(MoneyIcon) },
-        ],
-      },
-      {
         title: '实例',
         path: '/resource/instance',
         icon: iconWrapper(ServerIcon),
@@ -180,6 +170,16 @@ export const navMenu = [
         icon: iconWrapper(AppIcon),
         children: [
           { title: '商品列表', path: '/product/products', icon: iconWrapper(AppIcon) },
+        ],
+      },
+      {
+        // T7.2 商品对接（doc16 §9.3）：选品/成本与加价等商品决策动作归产品管理。
+        title: '商品对接',
+        path: '/product/binding',
+        icon: iconWrapper(CloudIcon),
+        children: [
+          { title: '上游商品目录', path: '/product/upstream', icon: iconWrapper(AppIcon) },
+          { title: '成本与加价', path: '/product/cost-pricing', icon: iconWrapper(MoneyIcon) },
         ],
       },
       {
