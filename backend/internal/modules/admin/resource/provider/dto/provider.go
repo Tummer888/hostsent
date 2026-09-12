@@ -163,8 +163,16 @@ type TestConnectionResult struct {
 // PoolListQuery 资源池列表查询
 type PoolListQuery struct {
 	ProviderID uint64 `form:"provider_id" json:"provider_id"`
-	Page       int    `form:"page" json:"page"`
-	PageSize   int    `form:"page_size" json:"page_size"`
+	// Keyword 按池名 / 上游 ID 模糊搜索。
+	Keyword string `form:"keyword" json:"keyword"`
+	// Region 按地域筛选（位置检测）。
+	Region string `form:"region" json:"region"`
+	// Status 1=启用中 0=已停用；不传（nil）表示全部。
+	Status *int `form:"status" json:"status"`
+	// Alert 仅返回容量告警池：warn=用量≥60%，danger=用量≥80%。
+	Alert    string `form:"alert" json:"alert"`
+	Page     int    `form:"page" json:"page"`
+	PageSize int    `form:"page_size" json:"page_size"`
 }
 
 // PoolInfo 资源池信息
@@ -182,10 +190,44 @@ type PoolInfo struct {
 	UsedDisk    int     `json:"used_disk"`
 	Status      int     `json:"status"`
 	LastSyncAt  *string `json:"last_sync_at"`
+	// ProviderName 所属渠道名（列表展示用，来自 provider_id 反查）。
+	ProviderName string `json:"provider_name"`
+	// ProviderOpsURL 所属渠道的运维平台地址（为空则不展示一键跳转）。
+	ProviderOpsURL string `json:"provider_ops_url"`
+	// 位置（S2）：池所属地域/可用区；为空表示上游与渠道都未提供。
+	Region string `json:"region"`
+	Zone   string `json:"zone"`
+	// 探针流（S2 预留）：ProbeStatus 为空表示探针未接入，页面不展示探针区块。
+	ProbeStatus  string  `json:"probe_status"`
+	ProbeAt      *string `json:"probe_at"`
+	ProbeMessage string  `json:"probe_message"`
+	// 容量用量百分比（供列表/看板直接用，0~100）。
+	CPUUsagePercent    int `json:"cpu_usage_percent"`
+	MemoryUsagePercent int `json:"memory_usage_percent"`
+	DiskUsagePercent   int `json:"disk_usage_percent"`
 }
 
 // PoolListResponse 资源池列表响应
 type PoolListResponse struct {
 	Items []PoolInfo `json:"items"`
 	Meta  ListMeta   `json:"meta"`
+	// Summary 容量看板汇总（全量，不受分页影响；按当前筛选条件统计）。
+	Summary PoolCapacitySummary `json:"summary"`
+	// Regions 当前筛选结果中出现的地域，供位置筛选下拉。
+	Regions []string `json:"regions"`
+}
+
+// PoolCapacitySummary 资源池容量汇总。
+type PoolCapacitySummary struct {
+	TotalPools    int `json:"total_pools"`
+	OnlinePools   int `json:"online_pools"`
+	TotalCPU      int `json:"total_cpu"`
+	UsedCPU       int `json:"used_cpu"`
+	TotalMemory   int `json:"total_memory"`
+	UsedMemory    int `json:"used_memory"`
+	TotalDisk     int `json:"total_disk"`
+	UsedDisk      int `json:"used_disk"`
+	WarningPools   int `json:"warning_pools"`  // 用量≥60%
+	DangerPools    int `json:"danger_pools"`   // 用量≥80%
+	UnlocatedPools int `json:"unlocated_pools"`
 }

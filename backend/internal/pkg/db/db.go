@@ -340,10 +340,11 @@ func seedUpstreamData(tx *gorm.DB) error {
 	lastSync := now.Add(-30 * time.Minute)
 
 	// —— 上游提供商 ——
+	// OpsConsoleURL：上游云资源池的运维平台入口，后台渠道/资源池列表一键跳转（本轮 S2）。
 	providers := []providermodel.ResourceProvider{
-		{Name: "魔方云·华东旗舰", ProviderType: "mofangyun", APIEndpoint: "https://api.mofangyun.com/v3", APIKey: "seed_mfy_key_east", APISecret: "seed_mfy_secret_east", Region: "华东", Status: 1, SyncEnabled: true, SyncInterval: 1800, LastSyncAt: timePtr(lastSync), TotalCPU: 640, TotalMemory: 4096, TotalDisk: 200000, UsedCPU: 420, UsedMemory: 2710, UsedDisk: 132500},
-		{Name: "华东 OpenStack 主池", ProviderType: "openstack", APIEndpoint: "https://ostack-east.hostsent.cn/v3", APIKey: "seed_os_key", APISecret: "seed_os_secret", Region: "华东", Status: 1, SyncEnabled: true, SyncInterval: 3600, LastSyncAt: timePtr(now.Add(-2 * time.Hour)), TotalCPU: 1280, TotalMemory: 8192, TotalDisk: 400000, UsedCPU: 990, UsedMemory: 6150, UsedDisk: 287000},
-		{Name: "华南 Proxmox 集群", ProviderType: "proxmox", APIEndpoint: "https://pxm-south.hostsent.cn:8006", APIKey: "seed_pxm_key", APISecret: "seed_pxm_secret", Region: "华南", Status: 1, SyncEnabled: true, SyncInterval: 3600, LastSyncAt: timePtr(now.Add(-55 * time.Minute)), TotalCPU: 512, TotalMemory: 3072, TotalDisk: 150000, UsedCPU: 318, UsedMemory: 2020, UsedDisk: 96500},
+		{Name: "魔方云·华东旗舰", ProviderType: "mofangyun", APIEndpoint: "https://api.mofangyun.com/v3", APIKey: "seed_mfy_key_east", APISecret: "seed_mfy_secret_east", Region: "华东", Status: 1, SyncEnabled: true, SyncInterval: 1800, LastSyncAt: timePtr(lastSync), TotalCPU: 640, TotalMemory: 4096, TotalDisk: 200000, UsedCPU: 420, UsedMemory: 2710, UsedDisk: 132500, OpsConsoleURL: "https://ops.mofangyun.com/pools"},
+		{Name: "华东 OpenStack 主池", ProviderType: "openstack", APIEndpoint: "https://ostack-east.hostsent.cn/v3", APIKey: "seed_os_key", APISecret: "seed_os_secret", Region: "华东", Status: 1, SyncEnabled: true, SyncInterval: 3600, LastSyncAt: timePtr(now.Add(-2 * time.Hour)), TotalCPU: 1280, TotalMemory: 8192, TotalDisk: 400000, UsedCPU: 990, UsedMemory: 6150, UsedDisk: 287000, OpsConsoleURL: "https://horizon.hostsent.cn/admin"},
+		{Name: "华南 Proxmox 集群", ProviderType: "proxmox", APIEndpoint: "https://pxm-south.hostsent.cn:8006", APIKey: "seed_pxm_key", APISecret: "seed_pxm_secret", Region: "华南", Status: 1, SyncEnabled: true, SyncInterval: 3600, LastSyncAt: timePtr(now.Add(-55 * time.Minute)), TotalCPU: 512, TotalMemory: 3072, TotalDisk: 150000, UsedCPU: 318, UsedMemory: 2020, UsedDisk: 96500, OpsConsoleURL: "https://pxm-south.hostsent.cn:8006"},
 		{Name: "AWS EC2 全球", ProviderType: "aws", APIEndpoint: "https://ec2.ap-southeast-1.amazonaws.com", APIKey: "seed_aws_key", APISecret: "seed_aws_secret", Region: "海外", Status: 1, SyncEnabled: false, SyncInterval: 86400, LastSyncAt: nil, TotalCPU: 256, TotalMemory: 1024, TotalDisk: 50000, UsedCPU: 0, UsedMemory: 0, UsedDisk: 0},
 		{Name: "阿里云 ECS", ProviderType: "aliyun", APIEndpoint: "https://ecs.cn-shanghai.aliyuncs.com", APIKey: "seed_ali_key", APISecret: "seed_ali_secret", Region: "华东", Status: 0, SyncEnabled: true, SyncInterval: 3600, LastSyncAt: nil, TotalCPU: 96, TotalMemory: 384, TotalDisk: 20000, UsedCPU: 0, UsedMemory: 0, UsedDisk: 0},
 	}
@@ -357,13 +358,14 @@ func seedUpstreamData(tx *gorm.DB) error {
 	}
 
 	// —— 资源池 ——
+	// region/zone 为位置检测字段（S2）：上游未回传位置时以此为准，探针列留空表示未接入。
 	pools := []providermodel.ResourcePool{
-		{ProviderID: providerIDs[0], UpstreamID: "pool_mfy_east_01", Name: "魔方云·通用计算池", PoolType: "compute", TotalCPU: 320, TotalMemory: 2048, TotalDisk: 100000, UsedCPU: 218, UsedMemory: 1420, UsedDisk: 66500, Status: 1, LastSyncAt: timePtr(lastSync)},
-		{ProviderID: providerIDs[0], UpstreamID: "pool_mfy_east_02", Name: "魔方云·高内存池", PoolType: "memory", TotalCPU: 320, TotalMemory: 2048, TotalDisk: 100000, UsedCPU: 202, UsedMemory: 1290, UsedDisk: 66000, Status: 1, LastSyncAt: timePtr(lastSync)},
-		{ProviderID: providerIDs[1], UpstreamID: "pool_os_east_01", Name: "华东 OpenStack 主池", PoolType: "compute", TotalCPU: 640, TotalMemory: 4096, TotalDisk: 200000, UsedCPU: 496, UsedMemory: 3080, UsedDisk: 143500, Status: 1, LastSyncAt: timePtr(now.Add(-2 * time.Hour))},
-		{ProviderID: providerIDs[1], UpstreamID: "pool_os_east_02", Name: "华东 OpenStack 高密池", PoolType: "compute", TotalCPU: 640, TotalMemory: 4096, TotalDisk: 200000, UsedCPU: 494, UsedMemory: 3070, UsedDisk: 143500, Status: 0, LastSyncAt: timePtr(now.Add(-2 * time.Hour))},
-		{ProviderID: providerIDs[2], UpstreamID: "pool_pxm_south_01", Name: "华南 Proxmox 集群", PoolType: "compute", TotalCPU: 512, TotalMemory: 3072, TotalDisk: 150000, UsedCPU: 318, UsedMemory: 2020, UsedDisk: 96500, Status: 1, LastSyncAt: timePtr(now.Add(-55 * time.Minute))},
-		{ProviderID: providerIDs[3], UpstreamID: "pool_aws_sg_01", Name: "AWS 新加坡计算池", PoolType: "compute", TotalCPU: 256, TotalMemory: 1024, TotalDisk: 50000, UsedCPU: 0, UsedMemory: 0, UsedDisk: 0, Status: 1, LastSyncAt: nil},
+		{ProviderID: providerIDs[0], UpstreamID: "pool_mfy_east_01", Name: "魔方云·通用计算池", PoolType: "compute", Region: "华东", Zone: "cn-east-1a", TotalCPU: 320, TotalMemory: 2048, TotalDisk: 100000, UsedCPU: 218, UsedMemory: 1420, UsedDisk: 66500, Status: 1, LastSyncAt: timePtr(lastSync)},
+		{ProviderID: providerIDs[0], UpstreamID: "pool_mfy_east_02", Name: "魔方云·高内存池", PoolType: "memory", Region: "华东", Zone: "cn-east-1b", TotalCPU: 320, TotalMemory: 2048, TotalDisk: 100000, UsedCPU: 202, UsedMemory: 1290, UsedDisk: 66000, Status: 1, LastSyncAt: timePtr(lastSync)},
+		{ProviderID: providerIDs[1], UpstreamID: "pool_os_east_01", Name: "华东 OpenStack 主池", PoolType: "compute", Region: "华东", Zone: "cn-east-2a", TotalCPU: 640, TotalMemory: 4096, TotalDisk: 200000, UsedCPU: 496, UsedMemory: 3080, UsedDisk: 143500, Status: 1, LastSyncAt: timePtr(now.Add(-2 * time.Hour))},
+		{ProviderID: providerIDs[1], UpstreamID: "pool_os_east_02", Name: "华东 OpenStack 高密池", PoolType: "compute", Region: "华东", Zone: "cn-east-2b", TotalCPU: 640, TotalMemory: 4096, TotalDisk: 200000, UsedCPU: 494, UsedMemory: 3070, UsedDisk: 143500, Status: 0, LastSyncAt: timePtr(now.Add(-2 * time.Hour))},
+		{ProviderID: providerIDs[2], UpstreamID: "pool_pxm_south_01", Name: "华南 Proxmox 集群", PoolType: "compute", Region: "华南", Zone: "cn-south-1a", TotalCPU: 512, TotalMemory: 3072, TotalDisk: 150000, UsedCPU: 318, UsedMemory: 2020, UsedDisk: 96500, Status: 1, LastSyncAt: timePtr(now.Add(-55 * time.Minute))},
+		{ProviderID: providerIDs[3], UpstreamID: "pool_aws_sg_01", Name: "AWS 新加坡计算池", PoolType: "compute", Region: "海外", Zone: "ap-southeast-1a", TotalCPU: 256, TotalMemory: 1024, TotalDisk: 50000, UsedCPU: 0, UsedMemory: 0, UsedDisk: 0, Status: 1, LastSyncAt: nil},
 	}
 	for i := range pools {
 		if err := tx.Create(&pools[i]).Error; err != nil {

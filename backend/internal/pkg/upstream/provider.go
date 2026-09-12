@@ -147,6 +147,10 @@ type StandardPool struct {
 	UsedMemory  int    `json:"used_memory"`
 	UsedDisk    int    `json:"used_disk"`
 	Status      string `json:"status"`
+	// Region/Zone 池所属地域与可用区（S2 位置检测）；上游未提供时留空，
+	// 由同步层回退到渠道 region。
+	Region string `json:"region"`
+	Zone   string `json:"zone"`
 }
 
 // AccountInfo 账户信息

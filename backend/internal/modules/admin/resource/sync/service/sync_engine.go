@@ -550,12 +550,17 @@ func (e *SyncEngine) syncPoolsInternal(ctx context.Context, task *syncmodel.Sync
 	if err != nil {
 		return err
 	}
+	// 位置检测（S2）：上游池通常不带地域，回退到渠道手填 region 作为池位置。
+	fallbackRegion := ""
+	if pr, perr := e.providerRepo.FindByID(ctx, task.ProviderID); perr == nil {
+		fallbackRegion = pr.Region
+	}
 	rows := make([]providermodel.ResourcePool, 0, len(pools))
 	var totalCPU, totalMemory, totalDisk, usedCPU, usedMemory, usedDisk int
 	diffs := make([]syncmodel.SyncDiff, 0)
 	keep := make([]string, 0, len(pools))
 	for _, p := range pools {
-		rows = append(rows, e.convertPool(task.ProviderID, p))
+		rows = append(rows, e.convertPool(task.ProviderID, fallbackRegion, p))
 		keep = append(keep, p.ID)
 		if local[p.ID] == nil {
 			diffs = append(diffs, syncmodel.SyncDiff{
@@ -919,7 +924,13 @@ func jsonToString(m map[string]interface{}, key string) string {
 }
 
 // convertPool 标准化资源池（标准模型 → 存储模型）。
-func (e *SyncEngine) convertPool(providerID uint64, p *upstream.StandardPool) providermodel.ResourcePool {
+// fallbackRegion 为池自身未带地域时的回退位置（渠道 region）；探针列不在此写入，
+// 探针数据由后续探针流通道单独落库，避免同步把真实用量覆盖为 0。
+func (e *SyncEngine) convertPool(providerID uint64, fallbackRegion string, p *upstream.StandardPool) providermodel.ResourcePool {
+	region := p.Region
+	if region == "" {
+		region = fallbackRegion
+	}
 	return providermodel.ResourcePool{
 		ProviderID:  providerID,
 		UpstreamID:  p.ID,
@@ -932,6 +943,8 @@ func (e *SyncEngine) convertPool(providerID uint64, p *upstream.StandardPool) pr
 		UsedMemory:  p.UsedMemory,
 		UsedDisk:    p.UsedDisk,
 		Status:      normalizeStatus(p.Status, true),
+		Region:      region,
+		Zone:        p.Zone,
 	}
 }
 

@@ -530,6 +530,9 @@ func (s *providerService) TestConnection(ctx context.Context, id uint64) (*dto.T
 	return &dto.TestConnectionResult{Success: true, Message: "ok"}, nil
 }
 
+// ListPools 资源池列表：分页数据 + 全量容量汇总 + 地域枚举。
+// 汇总与地域都按「当前筛选条件」的全量结果计算（不受分页影响），
+// 保证看板数字与用户在页面上看到的筛选口径一致（S2 容量与位置检测）。
 func (s *providerService) ListPools(ctx context.Context, query dto.PoolListQuery) (*dto.PoolListResponse, error) {
 	page := query.Page
 	if page < 1 {
@@ -543,11 +546,74 @@ func (s *providerService) ListPools(ctx context.Context, query dto.PoolListQuery
 	if err != nil {
 		return nil, err
 	}
+	all, err := s.pool.ListAll(ctx, query)
+	if err != nil {
+		return nil, err
+	}
 	respItems := make([]dto.PoolInfo, 0, len(items))
 	for _, item := range items {
 		respItems = append(respItems, buildPoolInfo(item))
 	}
-	return &dto.PoolListResponse{Items: respItems, Meta: dto.ListMeta{Page: page, PageSize: pageSize, Total: total}}, nil
+	// 所属渠道名与运维平台地址（列表可读性 + 一键跳转）：一次批量反查，避免每行查库。
+	if metas, merr := s.pool.ProviderMeta(ctx); merr == nil {
+		for i := range respItems {
+			meta := metas[respItems[i].ProviderID]
+			respItems[i].ProviderName = meta.Name
+			respItems[i].ProviderOpsURL = meta.OpsConsoleURL
+		}
+	}
+	resp := &dto.PoolListResponse{
+		Items:   respItems,
+		Meta:    dto.ListMeta{Page: page, PageSize: pageSize, Total: total},
+		Summary: summarizePools(all),
+		Regions: collectPoolRegions(all),
+	}
+	return resp, nil
+}
+
+// summarizePools 汇总池容量与告警数量；告警阈值与前端进度条一致（60%/80%）。
+func summarizePools(items []model.ResourcePool) dto.PoolCapacitySummary {
+	summary := dto.PoolCapacitySummary{TotalPools: len(items)}
+	for _, item := range items {
+		if item.Status == 1 {
+			summary.OnlinePools++
+		}
+		summary.TotalCPU += item.TotalCPU
+		summary.UsedCPU += item.UsedCPU
+		summary.TotalMemory += item.TotalMemory
+		summary.UsedMemory += item.UsedMemory
+		summary.TotalDisk += item.TotalDisk
+		summary.UsedDisk += item.UsedDisk
+		if item.Region == "" {
+			summary.UnlocatedPools++
+		}
+		switch maxPoolUsagePercent(item) {
+		case 2:
+			summary.DangerPools++
+			summary.WarningPools++
+		case 1:
+			summary.WarningPools++
+		}
+	}
+	return summary
+}
+
+// collectPoolRegions 去重收集地域（按出现顺序稳定，空地域不进入筛选项）。
+func collectPoolRegions(items []model.ResourcePool) []string {
+	seen := make(map[string]struct{}, len(items))
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if item.Region == "" {
+			continue
+		}
+		if _, ok := seen[item.Region]; ok {
+			continue
+		}
+		seen[item.Region] = struct{}{}
+		out = append(out, item.Region)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (s *providerService) FindPool(ctx context.Context, id uint64) (*dto.PoolInfo, error) {
@@ -556,6 +622,11 @@ func (s *providerService) FindPool(ctx context.Context, id uint64) (*dto.PoolInf
 		return nil, err
 	}
 	info := buildPoolInfo(*item)
+	if metas, merr := s.pool.ProviderMeta(ctx); merr == nil {
+		meta := metas[info.ProviderID]
+		info.ProviderName = meta.Name
+		info.ProviderOpsURL = meta.OpsConsoleURL
+	}
 	return &info, nil
 }
 
@@ -807,22 +878,71 @@ func maskSecret(s string) string {
 
 func buildPoolInfo(item model.ResourcePool) dto.PoolInfo {
 	info := dto.PoolInfo{
-		ID:          item.ID,
-		ProviderID:  item.ProviderID,
-		UpstreamID:  item.UpstreamID,
-		Name:        item.Name,
-		PoolType:    item.PoolType,
-		TotalCPU:    item.TotalCPU,
-		TotalMemory: item.TotalMemory,
-		TotalDisk:   item.TotalDisk,
-		UsedCPU:     item.UsedCPU,
-		UsedMemory:  item.UsedMemory,
-		UsedDisk:    item.UsedDisk,
-		Status:      item.Status,
+		ID:                 item.ID,
+		ProviderID:         item.ProviderID,
+		UpstreamID:         item.UpstreamID,
+		Name:               item.Name,
+		PoolType:           item.PoolType,
+		TotalCPU:           item.TotalCPU,
+		TotalMemory:        item.TotalMemory,
+		TotalDisk:          item.TotalDisk,
+		UsedCPU:            item.UsedCPU,
+		UsedMemory:         item.UsedMemory,
+		UsedDisk:           item.UsedDisk,
+		Status:             item.Status,
+		Region:             item.Region,
+		Zone:               item.Zone,
+		ProbeStatus:        item.ProbeStatus,
+		ProbeMessage:       item.ProbeMessage,
+		CPUUsagePercent:    usagePercent(item.UsedCPU, item.TotalCPU),
+		MemoryUsagePercent: usagePercent(item.UsedMemory, item.TotalMemory),
+		DiskUsagePercent:   usagePercent(item.UsedDisk, item.TotalDisk),
 	}
 	if item.LastSyncAt != nil {
 		val := item.LastSyncAt.Format(time.RFC3339)
 		info.LastSyncAt = &val
 	}
+	if item.ProbeAt != nil {
+		val := item.ProbeAt.Format(time.RFC3339)
+		info.ProbeAt = &val
+	}
 	return info
+}
+
+// usagePercent 用量百分比（0~100，四舍五入；配额为 0 时按 0 计）。
+func usagePercent(used, total int) int {
+	if total <= 0 {
+		return 0
+	}
+	pct := int((float64(used)/float64(total))*100 + 0.5)
+	if pct > 100 {
+		pct = 100
+	}
+	if pct < 0 {
+		pct = 0
+	}
+	return pct
+}
+
+// maxPoolUsagePercent 池最大用量档位：0 正常、1 预警(≥60%)、2 告警(≥80%)。
+func maxPoolUsagePercent(item model.ResourcePool) int {
+	pcts := []int{
+		usagePercent(item.UsedCPU, item.TotalCPU),
+		usagePercent(item.UsedMemory, item.TotalMemory),
+		usagePercent(item.UsedDisk, item.TotalDisk),
+	}
+	max := 0
+	for _, p := range pcts {
+		if p > max {
+			max = p
+		}
+	}
+	switch {
+	case max >= 80:
+		return 2
+	case max >= 60:
+		return 1
+	default:
+		return 0
+	}
 }

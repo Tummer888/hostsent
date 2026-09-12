@@ -211,6 +211,16 @@ type PoolRepository interface {
 	List(ctx context.Context, query dto.PoolListQuery) ([]model.ResourcePool, int64, error)
 	FindByID(ctx context.Context, id uint64) (*model.ResourcePool, error)
 	UpsertPools(ctx context.Context, providerID uint64, items []model.ResourcePool) error
+	// ListAll 按当前筛选返回全量池（不分页），供容量汇总与地域枚举使用。
+	ListAll(ctx context.Context, query dto.PoolListQuery) ([]model.ResourcePool, error)
+	// ProviderMeta 返回 provider_id → 渠道元信息（名称 + 运维平台地址），供列表展示。
+	ProviderMeta(ctx context.Context) (map[uint64]ProviderMeta, error)
+}
+
+// ProviderMeta 渠道元信息（池列表附带展示用，避免前端再查一次渠道列表）。
+type ProviderMeta struct {
+	Name          string
+	OpsConsoleURL string
 }
 
 // NewPoolRepository 创建资源池仓储实现
@@ -235,10 +245,7 @@ func (r *poolRepository) List(ctx context.Context, query dto.PoolListQuery) ([]m
 		pageSize = 100
 	}
 
-	base := r.db.WithContext(ctx).Model(&model.ResourcePool{})
-	if query.ProviderID > 0 {
-		base = base.Where("provider_id = ?", query.ProviderID)
-	}
+	base := r.applyPoolFilters(r.db.WithContext(ctx).Model(&model.ResourcePool{}), query)
 
 	var total int64
 	if err := base.Count(&total).Error; err != nil {
@@ -252,6 +259,69 @@ func (r *poolRepository) List(ctx context.Context, query dto.PoolListQuery) ([]m
 	return items, total, nil
 }
 
+// ListAll 返回当前筛选下的全量池（上限 5000，防止看板统计被极端数据拖垮）。
+func (r *poolRepository) ListAll(ctx context.Context, query dto.PoolListQuery) ([]model.ResourcePool, error) {
+	base := r.applyPoolFilters(r.db.WithContext(ctx).Model(&model.ResourcePool{}), query)
+	var items []model.ResourcePool
+	if err := base.Order("id desc").Limit(5000).Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// ProviderMeta provider_id → 渠道元信息（名称 + 运维平台地址）。
+func (r *poolRepository) ProviderMeta(ctx context.Context) (map[uint64]ProviderMeta, error) {
+	var rows []struct {
+		ID            uint64
+		Name          string
+		OpsConsoleURL string
+	}
+	if err := r.db.WithContext(ctx).Model(&model.ResourceProvider{}).
+		Select("id, name, ops_console_url").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[uint64]ProviderMeta, len(rows))
+	for _, row := range rows {
+		out[row.ID] = ProviderMeta{Name: row.Name, OpsConsoleURL: row.OpsConsoleURL}
+	}
+	return out, nil
+}
+
+// applyPoolFilters 复用池列表的筛选条件（关键词/地域/状态/告警），
+// 保证分页列表与容量汇总统计口径一致。
+func (r *poolRepository) applyPoolFilters(base *gorm.DB, query dto.PoolListQuery) *gorm.DB {
+	if query.ProviderID > 0 {
+		base = base.Where("provider_id = ?", query.ProviderID)
+	}
+	if kw := strings.TrimSpace(query.Keyword); kw != "" {
+		like := "%" + kw + "%"
+		base = base.Where("name ILIKE ? OR upstream_id ILIKE ?", like, like)
+	}
+	if query.Region != "" {
+		base = base.Where("region = ?", query.Region)
+	}
+	// 状态：仅当显式传值时过滤（0 是有意义的「已停用」，不能用零值判断）。
+	if query.Status != nil {
+		base = base.Where("status = ?", *query.Status)
+	}
+	// 告警：按 CPU/内存/磁盘任一项用量比例过滤，与前端 usagePercent 口径一致
+	// （NULLIF 防 0 配额除零）。
+	switch query.Alert {
+	case "warn":
+		base = base.Where(poolUsageRatioSQL + " >= 0.6")
+	case "danger":
+		base = base.Where(poolUsageRatioSQL + " >= 0.8")
+	}
+	return base
+}
+
+// poolUsageRatioSQL 资源池最大用量比例（CPU/内存/磁盘取最大，0 配额按 0 计）。
+const poolUsageRatioSQL = `GREATEST(
+	COALESCE(used_cpu::numeric / NULLIF(total_cpu, 0), 0),
+	COALESCE(used_memory::numeric / NULLIF(total_memory, 0), 0),
+	COALESCE(used_disk::numeric / NULLIF(total_disk, 0), 0)
+)`
+
 func (r *poolRepository) FindByID(ctx context.Context, id uint64) (*model.ResourcePool, error) {
 	var item model.ResourcePool
 	if err := r.db.WithContext(ctx).First(&item, id).Error; err != nil {
@@ -264,8 +334,9 @@ func (r *poolRepository) UpsertPools(ctx context.Context, providerID uint64, ite
 	if len(items) == 0 {
 		return nil
 	}
+	// 注意：probe_* 不在更新列中——探针数据由探针流通道维护，同步不得覆盖。
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "provider_id"}, {Name: "upstream_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"name", "pool_type", "total_cpu", "total_memory", "total_disk", "used_cpu", "used_memory", "used_disk", "status", "last_sync_at", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"name", "pool_type", "total_cpu", "total_memory", "total_disk", "used_cpu", "used_memory", "used_disk", "status", "region", "zone", "last_sync_at", "updated_at"}),
 	}).Create(&items).Error
 }

@@ -182,6 +182,13 @@ export interface TestConnectionResult {
 
 export interface PoolListQuery {
   provider_id?: number
+  /** 按池名 / 上游 ID 模糊搜索 */
+  keyword?: string
+  /** 按地域筛选（位置检测） */
+  region?: string
+  status?: number
+  /** 仅看容量告警池：warn=用量≥60%，danger=用量≥80% */
+  alert?: string
   page?: number
   page_size?: number
 }
@@ -189,6 +196,10 @@ export interface PoolListQuery {
 export interface PoolInfo {
   id: number
   provider_id: number
+  /** 所属渠道名（列表展示用） */
+  provider_name: string
+  /** 所属渠道的运维平台地址（为空则不展示一键跳转） */
+  provider_ops_url: string
   upstream_id: string
   name: string
   pool_type: string
@@ -200,11 +211,43 @@ export interface PoolInfo {
   used_disk: number
   status: number
   last_sync_at: string | null
+  /** 位置：池所属地域 / 可用区 */
+  region: string
+  zone: string
+  /** 探针流（预留）：probe_status 为空表示探针未接入 */
+  probe_status: string
+  probe_at: string | null
+  probe_message: string
+  /** 用量百分比（后端算好，0~100） */
+  cpu_usage_percent: number
+  memory_usage_percent: number
+  disk_usage_percent: number
+}
+
+/** 资源池容量汇总（按当前筛选条件的全量统计，不受分页影响） */
+export interface PoolCapacitySummary {
+  total_pools: number
+  online_pools: number
+  total_cpu: number
+  used_cpu: number
+  total_memory: number
+  used_memory: number
+  total_disk: number
+  used_disk: number
+  /** 用量≥60% 的池数（含 danger） */
+  warning_pools: number
+  /** 用量≥80% 的池数 */
+  danger_pools: number
+  /** 未标注位置的池数 */
+  unlocated_pools: number
 }
 
 export interface PoolListResponse {
   items: PoolInfo[]
   meta: ListMeta
+  summary: PoolCapacitySummary
+  /** 当前筛选结果中出现的地域 */
+  regions: string[]
 }
 
 export interface ProductListQuery {

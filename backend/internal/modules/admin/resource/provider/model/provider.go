@@ -111,8 +111,15 @@ type ResourcePool struct {
 	UsedDisk    int        `gorm:"column:used_disk;default:0"`
 	Status      int        `gorm:"default:1"`
 	LastSyncAt  *time.Time `gorm:"column:last_sync_at"`
-	CreatedAt   time.Time  `gorm:"autoCreateTime"`
-	UpdatedAt   time.Time  `gorm:"autoUpdateTime"`
+	// 位置（S2）：池所属地域/可用区；池未带位置时回填渠道 region，用于容量与位置检测。
+	Region string `gorm:"column:region;size:64;not null;default:''"`
+	Zone   string `gorm:"column:zone;size:64;not null;default:''"`
+	// 探针流预留（S2）：probe_status 为空表示探针未接入；接入后展示真实状态/内存/硬盘用量。
+	ProbeStatus  string     `gorm:"column:probe_status;size:20;not null;default:''"`
+	ProbeAt      *time.Time `gorm:"column:probe_at"`
+	ProbeMessage string     `gorm:"column:probe_message;size:255;not null;default:''"`
+	CreatedAt    time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt    time.Time  `gorm:"autoUpdateTime"`
 }
 
 // TableName 指定表名
