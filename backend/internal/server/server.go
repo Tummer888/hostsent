@@ -79,6 +79,9 @@ import (
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	syncrepo "hostsent/backend/internal/modules/admin/resource/sync/repository"
 	syncservice "hostsent/backend/internal/modules/admin/resource/sync/service"
+	taskqueuehandler "hostsent/backend/internal/modules/admin/resource/taskqueue/handler"
+	taskqueuerepo "hostsent/backend/internal/modules/admin/resource/taskqueue/repository"
+	taskqueueservice "hostsent/backend/internal/modules/admin/resource/taskqueue/service"
 	systemhandler "hostsent/backend/internal/modules/admin/system/handler"
 	systemrepo "hostsent/backend/internal/modules/admin/system/repository"
 	systemservice "hostsent/backend/internal/modules/admin/system/service"
@@ -298,6 +301,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	productHandler := producthandler.NewProductHandler(productService)
 	syncHandler := synchandler.NewSyncHandler(syncService)
 	syncFrameworkHandler := synchandler.NewFrameworkHandler(syncFrameworkService)
+	// 任务队列（本轮 S3）：跨表只读聚合，仅依赖数据库。
+	taskQueueHandler := taskqueuehandler.NewTaskQueueHandler(taskqueueservice.NewTaskQueueService(taskqueuerepo.NewRepository(database)))
 	// 产品管理（面向终端售卖）
 	prodCategoryRepo := categoryrepo.NewCategoryRepository(database)
 	prodCategoryService := categoryservice.NewCategoryService(prodCategoryRepo)
@@ -677,7 +682,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 代客下单复用 UC 下单管线（余额扣 owner、SKU/库存/算价/履约投递同一条路径）；
 	// 实例接口复用实例运维台（电源/暂停/审计）与生命周期续费（双链路，T5.2）。
 	openBundle := buildOpenBundle(cfg, database, ucProductService, ucOrderService, instanceOpsService, lifecycleRenewalSvc, specContractRepo, pricePipeline, logger)
-	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, logger, jwtIssuer)
+	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, logger, jwtIssuer)
 	router := newRouter(app)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)

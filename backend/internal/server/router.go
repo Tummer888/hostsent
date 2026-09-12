@@ -235,6 +235,14 @@ func newRouter(app *App) *gin.Engine {
 				instances.GET("", app.perm("resource:instance"), app.syncHandler.ListInstances)
 				instances.GET("/:id", app.perm("resource:instance"), app.syncHandler.GetInstance)
 			}
+
+			// 任务队列（本轮 S3）：开通履约 / 实例动作 / 续费 / 上游同步四类平台动作的「是否到达上游」。
+			// 只读聚合视图，无写接口；/categories 静态段先于其它段注册。
+			taskQueue := resourceGroup.Group("/task-queue")
+			{
+				taskQueue.GET("", app.perm("resource:sync"), app.taskQueueHandler.List)
+				taskQueue.GET("/categories", app.perm("resource:sync"), app.taskQueueHandler.Categories)
+			}
 		}
 
 		// 生命周期管理（doc60 §7.1）

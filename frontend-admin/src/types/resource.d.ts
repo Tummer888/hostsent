@@ -534,3 +534,69 @@ export interface SyncDiffSummaryProvider {
 export interface SyncDiffSummaryResponse {
   items: SyncDiffSummaryProvider[]
 }
+
+// ===== 任务队列（运维 · 平台动作是否到达上游） =====
+
+export interface TaskQueueListQuery {
+  category?: string
+  status?: string
+  upstream_state?: string
+  provider_id?: number
+  keyword?: string
+  created_from?: string
+  created_to?: string
+  page?: number
+  page_size?: number
+}
+
+export interface TaskQueueItem {
+  id: string
+  category: string
+  category_name: string
+  action: string
+  action_name: string
+  subject: string
+  ref_no: string
+  instance_ref: string
+  status: string
+  status_name: string
+  upstream_state: string
+  upstream_state_name: string
+  upstream_detail: string
+  provider_id: number
+  provider_name: string
+  user_id: number
+  username: string
+  attempts: number
+  max_attempts: number
+  amount: number
+  created_at: string
+  finished_at: string | null
+  duration_ms: number
+}
+
+export interface TaskQueueCategoryCount {
+  category: string
+  category_name: string
+  total: number
+  not_reached: number
+}
+
+export interface TaskQueueSummary {
+  total: number
+  pending: number
+  running: number
+  success: number
+  failed: number
+  manual: number
+  reached: number
+  not_reached: number
+  reached_rate: number
+  categories: TaskQueueCategoryCount[]
+}
+
+export interface TaskQueueListResponse {
+  items: TaskQueueItem[]
+  meta: ListMeta
+  summary: TaskQueueSummary
+}

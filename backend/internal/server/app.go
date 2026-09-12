@@ -32,6 +32,7 @@ import (
 	producthandler "hostsent/backend/internal/modules/admin/resource/product/handler"
 	providerhandler "hostsent/backend/internal/modules/admin/resource/provider/handler"
 	synchandler "hostsent/backend/internal/modules/admin/resource/sync/handler"
+	taskqueuehandler "hostsent/backend/internal/modules/admin/resource/taskqueue/handler"
 	systemhandler "hostsent/backend/internal/modules/admin/system/handler"
 	tickethandler "hostsent/backend/internal/modules/admin/ticket/handler"
 	"hostsent/backend/internal/modules/admin/user/account/handler"
@@ -100,6 +101,8 @@ type App struct {
 	ucOrderHandler        *ucorderhandler.OrderHandler
 	ucInstanceHandler     *ucinstancehandler.InstanceHandler
 	instanceOpsHandler    *admininstancehandler.InstanceHandler
+	// taskQueueHandler 平台动作任务队列（开通/实例动作/续费/同步）只读聚合视图（本轮 S3）。
+	taskQueueHandler      *taskqueuehandler.TaskQueueHandler
 	ticketHandler         *tickethandler.TicketHandler
 	ticketCategoryHandler *tickethandler.CategoryHandler
 	userTicketHandler     *tickethandler.UserTicketHandler
@@ -159,6 +162,7 @@ func NewApp(
 	ucOrderHandler *ucorderhandler.OrderHandler,
 	ucInstanceHandler *ucinstancehandler.InstanceHandler,
 	instanceOpsHandler *admininstancehandler.InstanceHandler,
+	taskQueueHandler *taskqueuehandler.TaskQueueHandler,
 	ticketHandler *tickethandler.TicketHandler,
 	ticketCategoryHandler *tickethandler.CategoryHandler,
 	userTicketHandler *tickethandler.UserTicketHandler,
@@ -222,6 +226,7 @@ func NewApp(
 		ucOrderHandler:        ucOrderHandler,
 		ucInstanceHandler:     ucInstanceHandler,
 		instanceOpsHandler:    instanceOpsHandler,
+		taskQueueHandler:      taskQueueHandler,
 		ticketHandler:         ticketHandler,
 		ticketCategoryHandler: ticketCategoryHandler,
 		userTicketHandler:     userTicketHandler,

@@ -37,6 +37,9 @@ import type {
   SyncTaskInfo,
   SyncTaskListQuery,
   SyncTaskListResponse,
+  TaskQueueCategoryCount,
+  TaskQueueListQuery,
+  TaskQueueListResponse,
   TestConnectionResult,
 } from '@/types/interface'
 
@@ -455,5 +458,30 @@ export function getSyncDiffSummary(params?: { provider_id?: number; days?: numbe
       provider_id: params?.provider_id,
       days: params?.days,
     },
+  })
+}
+
+// ===== 任务队列（运维 · 平台动作是否到达上游） =====
+
+export function getTaskQueueList(params: TaskQueueListQuery): Promise<TaskQueueListResponse> {
+  return request.get<TaskQueueListResponse>({
+    url: '/resource/task-queue',
+    params: {
+      category: params.category,
+      status: params.status,
+      upstream_state: params.upstream_state,
+      provider_id: params.provider_id,
+      keyword: params.keyword,
+      created_from: params.created_from,
+      created_to: params.created_to,
+      page: params.page,
+      page_size: params.page_size,
+    },
+  })
+}
+
+export function getTaskQueueCategories(): Promise<TaskQueueCategoryCount[]> {
+  return request.get<TaskQueueCategoryCount[]>({
+    url: '/resource/task-queue/categories',
   })
 }
