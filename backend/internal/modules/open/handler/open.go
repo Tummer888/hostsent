@@ -14,12 +14,13 @@ import (
 	"hostsent/backend/internal/pkg/response"
 )
 
-// Bundle 开放平台处理器集合。后续任务（T6.5～T6.6）的业务服务挂在同一结构上。
+// Bundle 开放平台处理器集合。各业务服务经 Set* 注入。
 type Bundle struct {
 	gw       *service.Gateway
 	catalog  *service.CatalogService
 	order    *service.OpenOrderService
 	instance *service.OpenInstanceService
+	audit    *service.OpenAuditService
 	logger   *zap.Logger
 }
 
@@ -36,6 +37,9 @@ func (b *Bundle) SetOrder(order *service.OpenOrderService) { b.order = order }
 
 // SetInstance 注入实例服务（T6.4）。
 func (b *Bundle) SetInstance(instance *service.OpenInstanceService) { b.instance = instance }
+
+// SetAudit 注入对账服务（T6.6）。
+func (b *Bundle) SetAudit(audit *service.OpenAuditService) { b.audit = audit }
 
 // Audit 请求/响应审计（分组最外层）。
 func (b *Bundle) Audit() gin.HandlerFunc { return b.gw.Audit() }
@@ -247,6 +251,32 @@ func (b *Bundle) DeleteInstance(c *gin.Context) {
 	_ = b.instance // 网关鉴权后到达；响应与实例服务无关，恒为不支持
 	response.Error(c, apperrors.New(service.CodeOpenUnsupported,
 		"销毁不支持：实例销毁仅限平台侧人工操作"))
+}
+
+// ListAuditRequests GET /open/v1/audit/requests（T6.6）
+func (b *Bundle) ListAuditRequests(c *gin.Context) {
+	app := service.AppFromContext(c)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	pageResp, items, err := b.audit.ListRequests(c.Request.Context(), app.App.ID, page, pageSize)
+	if err != nil {
+		response.Error(c, toAppError(err))
+		return
+	}
+	response.Success(c, gin.H{"total": pageResp.Total, "page": pageResp.Page, "page_size": pageResp.PageSize, "items": items})
+}
+
+// ListAuditOrders GET /open/v1/audit/orders（T6.6）
+func (b *Bundle) ListAuditOrders(c *gin.Context) {
+	app := service.AppFromContext(c)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	pageResp, items, err := b.audit.ListOrders(c.Request.Context(), app.App.ID, page, pageSize)
+	if err != nil {
+		response.Error(c, toAppError(err))
+		return
+	}
+	response.Success(c, gin.H{"total": pageResp.Total, "page": pageResp.Page, "page_size": pageResp.PageSize, "items": items})
 }
 
 // toAppError 业务错误透传 AppError，其余按内部错误。

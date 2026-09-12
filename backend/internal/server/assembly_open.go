@@ -61,6 +61,10 @@ func buildOpenBundle(
 		Ops:      instanceOps,
 		Renewals: renewals,
 	}))
+	// 对账（T6.6）：本应用的幂等请求与代客下单订单。
+	bundle.SetAudit(openservice.NewOpenAuditService(openservice.AuditDeps{
+		Repo: openrepo.NewAuditRepository(db),
+	}))
 	return bundle
 }
 

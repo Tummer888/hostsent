@@ -699,6 +699,9 @@ func newRouter(app *App) *gin.Engine {
 		openV1.POST("/instances/:id/suspend", app.open.RequireScope("instance:suspend"), app.open.SuspendInstance)
 		openV1.POST("/instances/:id/unsuspend", app.open.RequireScope("instance:suspend"), app.open.UnsuspendInstance)
 		openV1.DELETE("/instances/:id", app.open.DeleteInstance)
+		// 对账（T6.6，能力位 audit:read）：幂等请求与代客下单订单。
+		openV1.GET("/audit/requests", app.open.RequireScope("audit:read"), app.open.ListAuditRequests)
+		openV1.GET("/audit/orders", app.open.RequireScope("audit:read"), app.open.ListAuditOrders)
 	}
 
 	return r
