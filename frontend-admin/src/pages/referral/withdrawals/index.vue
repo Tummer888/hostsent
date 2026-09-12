@@ -111,7 +111,7 @@
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
-              <t-link v-if="row.status === 'pending'" theme="success" hover="color" @click="openAuditDialog(row, 'approve')">
+              <t-link v-if="row.status === 'pending'" theme="primary" hover="color" @click="openAuditDialog(row, 'approve')">
                 通过
               </t-link>
               <t-link v-if="row.status === 'pending'" theme="danger" hover="color" @click="openAuditDialog(row, 'reject')">

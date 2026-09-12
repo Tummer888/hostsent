@@ -1,6 +1,7 @@
 <template>
   <SecurityListPage
     :title="title"
+    :icon="icon"
     :table-title="tableTitle"
     :total="pagination.total"
     :data="tableData"
@@ -39,7 +40,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { type Component, onMounted, reactive, ref } from 'vue'
 import type { PageInfo, PrimaryTableCol } from 'tdesign-vue-next'
 import type { VerificationInfo, VerificationListQuery } from '@/api/verification'
 import SecurityListPage from '../security/SecurityListPage.vue'
@@ -49,6 +50,7 @@ const props = defineProps<{
   tableTitle: string
   emptyText: string
   fetcher: (params: VerificationListQuery) => Promise<{ items: VerificationInfo[]; meta: { total: number } }>
+  icon?: Component
 }>()
 
 defineOptions({ name: 'VerificationListPage' })

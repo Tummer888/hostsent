@@ -287,6 +287,8 @@ function handleMobileAction(value: string | number | Record<string, any>, row: R
 </script>
 
 <style scoped>
+@import '../shared.css';
+
 .filter-form__actions {
   display: flex;
   justify-content: flex-end;
@@ -294,8 +296,6 @@ function handleMobileAction(value: string | number | Record<string, any>, row: R
   padding-top: 14px;
   border-top: 1px solid var(--td-brand-color-1);
 }
-
-@import '../shared.css';
 
 .page-container {
   padding: 16px;

@@ -1274,7 +1274,6 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 4px 10px rgba(34, 197, 94, 0.25);
 }
 
 .list-header__main {

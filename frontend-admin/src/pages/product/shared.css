@@ -23,9 +23,7 @@
   position: relative;
   border-radius: var(--hs-radius-lg);
   background: var(--hs-surface-1);
-  border: 1px solid #edf3ef;
   box-shadow: none;
-  transition: border-color var(--hs-duration-fast);
 }
 
 .product-module .surface-card:hover {

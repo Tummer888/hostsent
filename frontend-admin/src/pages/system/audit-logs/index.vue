@@ -196,7 +196,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 
 import type { AxiosResponse } from 'axios'
-import { DownloadIcon } from 'tdesign-icons-vue-next'
+import { DownloadIcon, HistoryIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
 import type { PageInfo, PrimaryTableCol } from 'tdesign-vue-next'
 

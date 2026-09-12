@@ -1107,10 +1107,6 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
 </style>
 
 <style scoped lang="css">
-.resource-module {
-  --chip-bg: linear-gradient(135deg, #0284c7, #0369a1);
-  --chip-shadow: 0 4px 10px rgba(2, 132, 199, 0.25);
-}
 
 .page-header__desc {
   margin: 0;

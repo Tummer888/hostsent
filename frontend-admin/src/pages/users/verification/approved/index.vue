@@ -1,5 +1,6 @@
 <template>
   <VerificationListPage
+    :icon="CheckCircleIcon"
     title="实名认证审核通过"
     table-title="审核通过记录"
     empty-text="暂无审核通过记录"
@@ -8,6 +9,7 @@
 </template>
 
 <script setup lang="ts">
+import { CheckCircleIcon } from 'tdesign-icons-vue-next'
 import { getApprovedVerificationList } from '@/api/verification'
 import VerificationListPage from '../VerificationListPage.vue'
 

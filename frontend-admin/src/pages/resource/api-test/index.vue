@@ -120,8 +120,4 @@ onMounted(loadProviders)
 </style>
 
 <style scoped lang="css">
-.resource-module {
-  --chip-bg: linear-gradient(135deg, #0284c7, #0369a1);
-  --chip-shadow: 0 4px 10px rgba(2, 132, 199, 0.25);
-}
 </style>

@@ -13,6 +13,7 @@
     @reset="handleReset"
     @reload="loadData"
     @page-change="handlePageChange"
+    :icon="StopIcon"
   >
     <template #header-actions>
       <t-button theme="primary" @click="openCreate">新增黑名单</t-button>
@@ -98,6 +99,7 @@
 </template>
 
 <script setup lang="ts">
+import { StopIcon } from 'tdesign-icons-vue-next'
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'

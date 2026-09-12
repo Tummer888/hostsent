@@ -17,7 +17,7 @@
           刷新
         </t-button>
         <t-button variant="outline" @click="goBack">返回列表</t-button>
-        <t-button v-if="refund?.status === 'pending'" theme="success" @click="openAuditDialog('approve')">通过</t-button>
+        <t-button v-if="refund?.status === 'pending'" theme="primary" @click="openAuditDialog('approve')">通过</t-button>
         <t-button v-if="refund?.status === 'pending'" theme="danger" @click="openAuditDialog('reject')">驳回</t-button>
       </t-space>
     </header>

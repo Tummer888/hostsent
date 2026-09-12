@@ -6,12 +6,11 @@
   --system-green-border: var(--td-brand-color-2);
   --system-card-border: #edf3ef;
   --chip-bg: linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8));
-  --chip-shadow: 0 6px 14px rgba(22, 163, 74, 0.18);
 }
 
 .system-page .surface-card,
 .system-page .t-card {
-  border-color: var(--system-card-border) !important;
+  border: none;
   box-shadow: none !important;
 }
 
@@ -40,7 +39,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: var(--chip-shadow, 0 4px 10px rgba(22, 163, 74, 0.18));
+  box-shadow: none;
   transition: transform var(--hs-duration-fast) var(--hs-ease-out);
 }
 

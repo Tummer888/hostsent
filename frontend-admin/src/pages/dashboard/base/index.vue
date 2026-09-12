@@ -351,11 +351,8 @@ onMounted(() => {
   position: relative;
   border-radius: var(--hs-radius-lg);
   background: var(--hs-surface-1);
-  border: 1px solid var(--color-border);
   box-shadow: var(--hs-shadow-xs);
-  transition:
-    border-color var(--hs-duration-fast),
-    box-shadow var(--hs-duration-fast);
+  transition: box-shadow var(--hs-duration-fast);
 }
 
 .surface-card:hover {

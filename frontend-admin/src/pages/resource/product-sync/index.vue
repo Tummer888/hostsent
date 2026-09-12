@@ -180,8 +180,4 @@ onMounted(loadAll)
 </style>
 
 <style scoped lang="css">
-.resource-module {
-  --chip-bg: linear-gradient(135deg, #7c3aed, #6d28d9);
-  --chip-shadow: 0 4px 10px rgba(124, 58, 237, 0.25);
-}
 </style>

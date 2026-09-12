@@ -125,7 +125,7 @@
               >停用</t-link>
               <t-link
                 v-else
-                theme="success"
+                theme="primary"
                 hover="color"
                 @click="handleToggleStatus(row)"
               >启用</t-link>

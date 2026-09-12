@@ -2,6 +2,9 @@
   <div class="security-page">
     <header class="security-page__header surface-card">
       <div class="security-page__heading">
+        <span v-if="!$slots['header-leading']" class="security-page__chip">
+          <component :is="icon ?? AppIcon" size="22" aria-hidden="true" />
+        </span>
         <slot name="header-leading" />
         <h2 class="security-page__title">{{ title }}</h2>
       </div>
@@ -17,7 +20,7 @@
       <slot name="filters" />
       <div class="security-page__toolbar-actions">
         <t-space>
-          <t-button theme="success" @click="$emit('search')">查询</t-button>
+          <t-button theme="primary" @click="$emit('search')">查询</t-button>
           <t-button variant="outline" @click="$emit('reset')">重置</t-button>
         </t-space>
       </div>
@@ -67,7 +70,10 @@
 </template>
 
 <script setup lang="ts" generic="TItem extends import('tdesign-vue-next').TableRowData">
+import type { Component } from 'vue'
 import type { PageInfo, PaginationProps, PrimaryTableCol } from 'tdesign-vue-next'
+
+import { AppIcon } from 'tdesign-icons-vue-next'
 
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
@@ -82,6 +88,8 @@ defineProps<{
   errorMessage: string
   emptyText: string
   pagination: PaginationProps
+  /** 页头标题前的图标（不传则用通用图标） */
+  icon?: Component
 }>()
 
 defineEmits<{
@@ -105,7 +113,6 @@ const { isMobile } = useIsMobile()
 .security-page__toolbar,
 .security-page__table {
   padding: 18px 20px;
-  border: 1px solid #e2ebe6;
   border-radius: var(--hs-radius-lg);
   box-shadow: none;
 }
@@ -137,6 +144,25 @@ const { isMobile } = useIsMobile()
   font-size: 16px;
   font-weight: 700;
   color: var(--color-foreground);
+}
+
+/* 页头标题图标：主题色渐变底、无投影（与用户列表页基准一致） */
+.security-page__chip {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--td-brand-color-6), var(--color-primary));
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.security-page__heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .security-page__toolbar-actions {

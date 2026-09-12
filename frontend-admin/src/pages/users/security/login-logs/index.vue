@@ -13,6 +13,7 @@
     @reset="handleReset"
     @reload="loadData"
     @page-change="handlePageChange"
+    :icon="HistoryIcon"
   >
     <template #filters>
       <div class="filter-grid">
@@ -43,6 +44,7 @@
 </template>
 
 <script setup lang="ts">
+import { HistoryIcon } from 'tdesign-icons-vue-next'
 import { onMounted, reactive, ref } from 'vue'
 
 import type { PageInfo, PrimaryTableCol } from 'tdesign-vue-next'

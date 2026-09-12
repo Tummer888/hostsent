@@ -179,7 +179,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
-import { AddIcon } from 'tdesign-icons-vue-next';
+import { AddIcon, UserListIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import type { FormInstanceFunctions, FormRule, PrimaryTableCol } from 'tdesign-vue-next';
 import {
@@ -510,6 +510,8 @@ function handleMobileAction(value: string | number | Record<string, any>, row: A
 </script>
 
 <style scoped>
+@import '../shared.css';
+
 .filter-form__actions {
   display: flex;
   justify-content: flex-end;
@@ -518,8 +520,6 @@ function handleMobileAction(value: string | number | Record<string, any>, row: A
   padding-top: 14px;
   border-top: 1px solid var(--td-brand-color-1);
 }
-
-@import '../shared.css';
 
 .page-container {
   padding: 16px;

@@ -178,7 +178,7 @@
               <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
               <t-link
                 v-permission="'instance:action'"
-                theme="success"
+                theme="primary"
                 hover="color"
                 :disabled="row.power_status === 'on' || poweringId === row.id"
                 @click="handlePower(row, 'on')"

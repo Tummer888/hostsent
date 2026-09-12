@@ -48,7 +48,7 @@
       </t-form>
       <div class="form-footer">
         <t-button variant="outline" @click="handleResetSection('同步调度配置')">恢复本区默认</t-button>
-        <t-button theme="success" @click="handleSaveSection('同步调度配置')">保存</t-button>
+        <t-button theme="primary" @click="handleSaveSection('同步调度配置')">保存</t-button>
       </div>
     </section>
 
@@ -80,7 +80,7 @@
       </t-form>
       <div class="form-footer">
         <t-button variant="outline" @click="handleResetSection('定价策略')">恢复本区默认</t-button>
-        <t-button theme="success" @click="handleSaveSection('定价策略')">保存</t-button>
+        <t-button theme="primary" @click="handleSaveSection('定价策略')">保存</t-button>
       </div>
     </section>
 
@@ -107,7 +107,7 @@
       </t-form>
       <div class="form-footer">
         <t-button variant="outline" @click="handleResetSection('通知配置')">恢复本区默认</t-button>
-        <t-button theme="success" @click="handleSaveSection('通知配置')">保存</t-button>
+        <t-button theme="primary" @click="handleSaveSection('通知配置')">保存</t-button>
       </div>
     </section>
   </div>
@@ -183,7 +183,6 @@ function handleSaveAll() {
 <style scoped lang="css">
 .resource-module {
   --chip-bg: linear-gradient(135deg, var(--color-primary), var(--td-brand-color-8));
-  --chip-shadow: 0 4px 10px rgba(22, 163, 74, 0.25);
 }
 
 .setting-card {

@@ -244,10 +244,6 @@ onMounted(loadMonitor)
 </style>
 
 <style scoped lang="css">
-.resource-module {
-  --chip-bg: linear-gradient(135deg, #0891b2, #0e7490);
-  --chip-shadow: 0 4px 10px rgba(8, 145, 178, 0.25);
-}
 
 .spec-text {
   font-size: 12px;

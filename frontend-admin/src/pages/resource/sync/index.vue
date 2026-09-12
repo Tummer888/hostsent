@@ -394,10 +394,6 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
 </style>
 
 <style scoped lang="css">
-.resource-module {
-  --chip-bg: linear-gradient(135deg, #0284c7, #0369a1);
-  --chip-shadow: 0 4px 10px rgba(2, 132, 199, 0.25);
-}
 
 /* 桌面端固定列数；窄屏回落到 shared.css 的单列（否则 3×200px 在移动端横向溢出） */
 @media (min-width: 769px) {

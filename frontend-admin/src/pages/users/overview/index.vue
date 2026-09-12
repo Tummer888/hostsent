@@ -13,7 +13,7 @@
         </div>
       </div>
       <t-button
-        theme="success"
+        theme="primary"
         variant="outline"
         size="medium"
         :loading="loading"
@@ -544,11 +544,8 @@ onMounted(() => {
   position: relative;
   border-radius: var(--hs-radius-lg);
   background: var(--hs-surface-1);
-  border: 1px solid var(--color-border);
   box-shadow: none;
-  transition:
-    border-color var(--hs-duration-fast),
-    transform var(--hs-duration-fast);
+  transition: transform var(--hs-duration-fast);
 }
 
 .surface-card:hover {

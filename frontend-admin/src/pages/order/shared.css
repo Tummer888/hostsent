@@ -9,7 +9,6 @@
 /* ---------- 页面骨架 ---------- */
 .order-module {
   --chip-bg: linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8));
-  --chip-shadow: 0 4px 10px rgba(22, 163, 74, 0.22);
   --order-green: var(--color-primary, var(--color-primary));
   --order-green-hover: var(--td-brand-color-8);
   --order-green-soft: var(--td-brand-color-1);
@@ -28,7 +27,6 @@
   position: relative;
   border-radius: var(--hs-radius-lg);
   background: var(--hs-surface-1);
-  border: 1px solid var(--color-border);
   box-shadow: none !important;
   transition: border-color var(--hs-duration-fast);
   transform: none;

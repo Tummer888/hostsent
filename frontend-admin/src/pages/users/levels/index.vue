@@ -1,7 +1,10 @@
 <template>
   <div class="level-page">
     <header class="page-header surface-card">
-      <div>
+      <div class="page-header__main">
+        <span class="page-header__chip">
+          <TagIcon size="22" aria-hidden="true" />
+        </span>
         <h2 class="page-title">用户等级管理</h2>
       </div>
       <t-space>
@@ -128,6 +131,7 @@
 </template>
 
 <script setup lang="ts">
+import { TagIcon } from 'tdesign-icons-vue-next'
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
@@ -400,8 +404,25 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
 .surface-card {
   border-radius: var(--hs-radius-lg);
   background: var(--hs-surface-1);
-  border: 1px solid var(--color-border);
   box-shadow: none;
+}
+
+.page-header__main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.page-header__chip {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--td-brand-color-6), var(--color-primary));
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .page-header {

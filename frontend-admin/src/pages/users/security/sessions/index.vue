@@ -13,6 +13,7 @@
     @reset="handleReset"
     @reload="loadData"
     @page-change="handlePageChange"
+    :icon="RefreshIcon"
   >
     <template #header-actions>
       <t-space>
@@ -67,6 +68,7 @@
 </template>
 
 <script setup lang="ts">
+import { RefreshIcon } from 'tdesign-icons-vue-next'
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import type { PageInfo, PrimaryTableCol } from 'tdesign-vue-next'

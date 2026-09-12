@@ -109,7 +109,7 @@
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
-              <t-link v-if="row.status === 'pending'" theme="success" hover="color" @click="openConfirmDialog(row)">
+              <t-link v-if="row.status === 'pending'" theme="primary" hover="color" @click="openConfirmDialog(row)">
                 确认到账
               </t-link>
             </template>

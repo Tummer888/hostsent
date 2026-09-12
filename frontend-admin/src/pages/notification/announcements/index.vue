@@ -108,7 +108,7 @@
               <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
               <t-link
                 v-if="row.status !== 'published'"
-                theme="success"
+                theme="primary"
                 hover="color"
                 @click="handlePublish(row)"
               >

@@ -128,7 +128,7 @@
               <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
               <t-link v-if="isCancellable(row)" theme="danger" hover="color" @click="handleCancel(row)">取消</t-link>
               <t-link v-if="isRefundable(row)" theme="warning" hover="color" @click="openRefundDialog(row)">退款</t-link>
-              <t-link v-if="isActivatable(row)" theme="success" hover="color" @click="handleActivate(row)">重新开通</t-link>
+              <t-link v-if="isActivatable(row)" theme="primary" hover="color" @click="handleActivate(row)">重新开通</t-link>
               <t-link theme="primary" hover="color" @click="openRemarkDialog(row)">备注</t-link>
             </template>
           </div>

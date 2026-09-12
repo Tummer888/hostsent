@@ -330,7 +330,6 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
 <style scoped lang="css">
 .resource-module {
   --chip-bg: linear-gradient(135deg, var(--color-primary), var(--td-brand-color-8));
-  --chip-shadow: 0 2px 6px rgba(22, 163, 74, 0.16);
 }
 
 /* 桌面端固定列数；窄屏回落到 shared.css 的单列（否则 3×200px 在移动端横向溢出） */

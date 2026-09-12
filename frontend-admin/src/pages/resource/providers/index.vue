@@ -598,7 +598,6 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
 <style scoped lang="css">
 .resource-module {
   --chip-bg: linear-gradient(135deg, var(--color-primary), var(--td-brand-color-8));
-  --chip-shadow: 0 4px 10px rgba(22, 163, 74, 0.25);
 }
 
 /* 桌面端 4 列等宽；窄屏回落 shared.css 单列（与其它 resource 页面一致） */

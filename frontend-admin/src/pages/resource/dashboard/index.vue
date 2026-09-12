@@ -307,10 +307,6 @@ onMounted(loadAll)
 </style>
 
 <style scoped lang="css">
-.resource-module {
-  --chip-bg: linear-gradient(135deg, #0891b2, #0e7490);
-  --chip-shadow: 0 4px 10px rgba(8, 145, 178, 0.25);
-}
 
 .mid-grid {
   display: grid;
@@ -388,6 +384,21 @@ onMounted(loadAll)
 @media (max-width: 1200px) {
   .mid-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* 移动端：汇总表列多（区域/规格/vCPU/内存/磁盘/数量），窄屏收进横向滚动，
+   不把整页撑出视口；分布条与统计卡铺满可用宽度。 */
+@media (max-width: 768px) {
+  .stat-grid,
+  .mid-grid,
+  .table-card {
+    max-width: 100%;
+  }
+
+  .page-body :deep(.t-table__content) {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 }
 </style>

@@ -276,7 +276,7 @@
           <template #op="{ row }">
             <t-space size="small">
               <t-link theme="primary" @click="editBinding(row)">编辑</t-link>
-              <t-link v-if="row.status !== 'confirmed'" theme="success" @click="confirmBinding(row)">确认</t-link>
+              <t-link v-if="row.status !== 'confirmed'" theme="primary" @click="confirmBinding(row)">确认</t-link>
             </t-space>
           </template>
           <template #empty>

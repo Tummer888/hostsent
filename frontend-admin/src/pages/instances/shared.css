@@ -7,7 +7,6 @@
 /* ---------- 页面骨架 ---------- */
 .instances-module {
   --chip-bg: linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8));
-  --chip-shadow: none;
   --instances-green: var(--color-primary, var(--color-primary));
   --instances-green-hover: var(--td-brand-color-8);
   --instances-green-soft: var(--td-brand-color-1);
@@ -25,7 +24,6 @@
   position: relative;
   border-radius: var(--hs-radius-lg);
   background: var(--hs-surface-1);
-  border: 1px solid var(--color-border);
   box-shadow: none;
   transition: border-color var(--hs-duration-fast);
 }
@@ -70,7 +68,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: var(--chip-shadow, none);
+  box-shadow: none;
 }
 
 .instances-module .page-header__title {
@@ -261,7 +259,6 @@
   padding: var(--space-lg) 20px;
   border-radius: var(--hs-radius-lg);
   background: var(--hs-surface-1);
-  border: 1px solid var(--color-border);
   box-shadow: none;
   transition: border-color var(--hs-duration-fast);
   transform: none;

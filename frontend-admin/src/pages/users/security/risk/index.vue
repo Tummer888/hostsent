@@ -13,6 +13,7 @@
     @reset="handleReset"
     @reload="loadData"
     @page-change="handlePageChange"
+    :icon="ChartBarIcon"
   >
     <template #filters>
       <div class="filter-grid">
@@ -69,6 +70,7 @@
 </template>
 
 <script setup lang="ts">
+import { ChartBarIcon } from 'tdesign-icons-vue-next'
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import type { PageInfo, PrimaryTableCol } from 'tdesign-vue-next'
