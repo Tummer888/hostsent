@@ -748,7 +748,6 @@ func (s *providerService) baseProviderConfig(item *model.ResourceProvider, creds
 		APIEndpoint:  item.APIEndpoint,
 		Region:       item.Region,
 		Timeout:      timeout,
-		MaxRetries:   item.RetryMax,
 		UpstreamType: item.UpstreamType,
 		Port:         item.Port,
 		Secure:       item.Secure,

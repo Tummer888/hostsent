@@ -126,7 +126,6 @@ type ProviderConfig struct {
 	APISecret   string `json:"api_secret"`
 	Region      string `json:"region"`
 	Timeout     int    `json:"timeout"` // 秒
-	MaxRetries  int    `json:"max_retries"`
 
 	// 魔方云 / 魔方财务扩展字段
 	UpstreamType string `json:"upstream_type,omitempty"` // 接口类型：zjmf_api/resource 等
