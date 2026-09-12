@@ -1212,11 +1212,12 @@ func seedMenus(tx *gorm.DB) error {
 		// 6. 商品分类
 		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "商品分类", Type: menumodel.TypeDirectory, Path: "/product/category", Icon: "folder", SortOrder: 6, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/product/category", Platform: menumodel.PlatformAdmin, Name: "分类管理", Type: menumodel.TypeMenu, Path: "/product/categories", Component: "product/categories/index", Icon: "tag", SortOrder: 1, Status: menumodel.StatusActive},
-		// 7. 上游商品同步（T7.4 下线：功能由「同步与调度」合并页承接）
-		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "上游商品同步", Type: menumodel.TypeDirectory, Path: "/product/sync-center", Icon: "cloud-download", SortOrder: 7, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/sync-center", Platform: menumodel.PlatformAdmin, Name: "同步任务", Type: menumodel.TypeMenu, Path: "/product/sync/tasks", Component: "product/sync/tasks/index", Icon: "refresh", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/sync-center", Platform: menumodel.PlatformAdmin, Name: "同步日志", Type: menumodel.TypeMenu, Path: "/product/sync/logs", Component: "product/sync/logs/index", Icon: "history", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/sync-center", Platform: menumodel.PlatformAdmin, Name: "差异对比", Type: menumodel.TypeMenu, Path: "/product/sync/diff", Component: "product/sync/diff/index", Icon: "data-checked", SortOrder: 3, Status: menumodel.StatusActive},
+		// 7. 上游商品同步（T7.4 下线：同步任务/日志/差异由资源管理「同步与调度」合并页统一承接，
+		//    见 doc16 §9.1 —— 同步的执行与调度归资源管理，产品管理只留选品与映射入口）
+		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "上游商品同步", Type: menumodel.TypeDirectory, Path: "/product/sync-center", Icon: "cloud-download", SortOrder: 97, Status: menumodel.StatusDisabled},
+		{ParentKey: "admin:/product/sync-center", Platform: menumodel.PlatformAdmin, Name: "同步任务", Type: menumodel.TypeMenu, Path: "/product/sync/tasks", Component: "product/sync/tasks/index", Icon: "refresh", SortOrder: 91, Status: menumodel.StatusDisabled},
+		{ParentKey: "admin:/product/sync-center", Platform: menumodel.PlatformAdmin, Name: "同步日志", Type: menumodel.TypeMenu, Path: "/product/sync/logs", Component: "product/sync/logs/index", Icon: "history", SortOrder: 92, Status: menumodel.StatusDisabled},
+		{ParentKey: "admin:/product/sync-center", Platform: menumodel.PlatformAdmin, Name: "差异对比", Type: menumodel.TypeMenu, Path: "/product/sync/diff", Component: "product/sync/diff/index", Icon: "data-checked", SortOrder: 93, Status: menumodel.StatusDisabled},
 
 		// —— 订单管理（doc16）
 		{Platform: menumodel.PlatformAdmin, Name: "订单管理", Type: menumodel.TypeDirectory, Path: "/orders", Icon: "order", SortOrder: 6, Status: menumodel.StatusActive},

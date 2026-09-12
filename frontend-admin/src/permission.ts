@@ -222,16 +222,7 @@ export const navMenu = [
           { title: '分类管理', path: '/product/categories', icon: iconWrapper(TagIcon) },
         ],
       },
-      {
-        title: '上游商品同步',
-        path: '/product/sync-center',
-        icon: iconWrapper(CloudDownloadIcon),
-        children: [
-          { title: '同步任务', path: '/product/sync/tasks', icon: iconWrapper(RefreshIcon) },
-          { title: '同步日志', path: '/product/sync/logs', icon: iconWrapper(HistoryIcon) },
-          { title: '差异对比', path: '/product/sync/diff', icon: iconWrapper(DataCheckedIcon) },
-        ],
-      },
+      // T7.4：上游商品同步组已下线，任务/日志/差异由「资源管理 → 同步与调度」承接。
     ],
   },
   {

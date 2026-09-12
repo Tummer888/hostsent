@@ -410,24 +410,24 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/product/categories/index.vue'),
         meta: { title: '分类管理', role: 'admin', permission: 'product:category' },
       },
-      // —— 上游商品同步（sync）——
+      // —— 上游商品同步（T7.4 下线：任务/日志/差异由资源管理「同步与调度」合并页承接，doc16 §9.1）——
       {
         path: 'sync/tasks',
         name: 'ProductSyncTasks',
-        component: () => import('@/pages/product/sync/tasks/index.vue'),
-        meta: { title: '同步任务', role: 'admin', permission: 'product:list' },
+        redirect: '/resource/sync-center',
+        meta: { title: '同步任务', role: 'admin' },
       },
       {
         path: 'sync/logs',
         name: 'ProductSyncLogs',
-        component: () => import('@/pages/product/sync/logs/index.vue'),
-        meta: { title: '同步日志', role: 'admin', permission: 'product:list' },
+        redirect: '/resource/sync-center',
+        meta: { title: '同步日志', role: 'admin' },
       },
       {
         path: 'sync/diff',
         name: 'ProductSyncDiff',
-        component: () => import('@/pages/product/sync/diff/index.vue'),
-        meta: { title: '差异对比', role: 'admin', permission: 'product:list' },
+        redirect: '/resource/sync-center',
+        meta: { title: '差异对比', role: 'admin' },
       },
     ],
   },

@@ -68,9 +68,7 @@ var menuPermissionMap = map[string]string{
 	"/product/promotion/bundles":    "promotion:activity:list",
 	"/product/promotion/recommends": "promotion:activity:list",
 	"/product/categories":           "product:category",
-	"/product/sync/tasks":           "product:list",
-	"/product/sync/logs":            "product:list",
-	"/product/sync/diff":            "product:list",
+	// T7.4：/product/sync/* 页面已下线（redirect 到资源管理「同步与调度」），映射一并移除。
 
 	"/orders/list":    "order:list",
 	"/orders/refunds": "order:refunds",
