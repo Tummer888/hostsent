@@ -13,10 +13,16 @@
     </header>
 
     <section class="toolbar surface-card">
-      <t-space wrap>
-        <t-input v-model="filters.keyword" clearable placeholder="搜索等级名称 / 编码" @enter="handleSearch" />
-        <t-select v-model="filters.status" clearable placeholder="状态" :options="statusOptions" />
-      </t-space>
+      <div class="toolbar__grid">
+        <div class="toolbar-field">
+          <span class="toolbar-field__label">关键词</span>
+          <t-input v-model="filters.keyword" clearable placeholder="搜索等级名称 / 编码" @enter="handleSearch" />
+        </div>
+        <div class="toolbar-field">
+          <span class="toolbar-field__label">状态</span>
+          <t-select v-model="filters.status" clearable placeholder="全部状态" :options="statusOptions" />
+        </div>
+      </div>
       <div class="toolbar__actions">
         <t-space>
           <t-button theme="primary" @click="handleSearch">查询</t-button>
@@ -416,7 +422,7 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
 .page-header__chip {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: var(--hs-radius-xl);
   background: linear-gradient(135deg, var(--td-brand-color-6), var(--color-primary));
   color: #ffffff;
   display: inline-flex;

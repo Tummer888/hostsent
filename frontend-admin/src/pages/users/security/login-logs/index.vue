@@ -17,11 +17,26 @@
   >
     <template #filters>
       <div class="filter-grid">
-        <t-input v-model="filters.username" clearable placeholder="用户名" />
-        <t-input v-model="filters.ip" clearable placeholder="IP 地址" />
-        <t-select v-model="filters.result" clearable :options="resultOptions" placeholder="登录结果" />
-        <t-select v-model="filters.login_type" clearable :options="loginTypeOptions" placeholder="登录类型" />
-        <t-select v-model="filters.risk_flag" clearable :options="riskOptions" placeholder="风险标记" />
+        <div class="field">
+          <span class="field__label">用户名</span>
+          <t-input v-model="filters.username" clearable placeholder="用户名" />
+        </div>
+        <div class="field">
+          <span class="field__label">IP 地址</span>
+          <t-input v-model="filters.ip" clearable placeholder="IP 地址" />
+        </div>
+        <div class="field">
+          <span class="field__label">登录结果</span>
+          <t-select v-model="filters.result" clearable :options="resultOptions" placeholder="登录结果" />
+        </div>
+        <div class="field">
+          <span class="field__label">登录类型</span>
+          <t-select v-model="filters.login_type" clearable :options="loginTypeOptions" placeholder="登录类型" />
+        </div>
+        <div class="field">
+          <span class="field__label">风险标记</span>
+          <t-select v-model="filters.risk_flag" clearable :options="riskOptions" placeholder="风险标记" />
+        </div>
       </div>
     </template>
 

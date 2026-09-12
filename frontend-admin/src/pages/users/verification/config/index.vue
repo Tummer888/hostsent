@@ -30,7 +30,7 @@ defineOptions({ name: 'UserVerificationConfig' })
 .page-header__chip {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: var(--hs-radius-xl);
   background: linear-gradient(135deg, var(--td-brand-color-6), var(--color-primary));
   color: #ffffff;
   display: inline-flex;

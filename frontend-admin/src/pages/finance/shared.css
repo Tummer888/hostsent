@@ -214,42 +214,15 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.finance-module .stat-card {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-lg) 20px;
-}
 
-.finance-module .stat-card__icon {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--hs-radius-lg);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
 
-.finance-module .stat-card__info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
 
-.finance-module .stat-card__value {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--color-foreground);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.1;
-}
 
-.finance-module .stat-card__label {
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-}
+
+
+
+
+
 
 /* ---------- 对账页 ---------- */
 .finance-module .recon-grid {

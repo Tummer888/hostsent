@@ -24,11 +24,26 @@
 
     <template #filters>
       <div class="filter-grid">
-        <t-input v-model="filters.username" clearable placeholder="用户名" />
-        <t-input v-model="filters.ip" clearable placeholder="IP 地址" />
-        <t-select v-model="filters.status" clearable :options="statusOptions" placeholder="状态" />
-        <t-select v-model="filters.platform" clearable :options="platformOptions" placeholder="平台" />
-        <t-select v-model="filters.risk_flag" clearable :options="riskOptions" placeholder="风险标记" />
+        <div class="field">
+          <span class="field__label">用户名</span>
+          <t-input v-model="filters.username" clearable placeholder="用户名" />
+        </div>
+        <div class="field">
+          <span class="field__label">IP 地址</span>
+          <t-input v-model="filters.ip" clearable placeholder="IP 地址" />
+        </div>
+        <div class="field">
+          <span class="field__label">状态</span>
+          <t-select v-model="filters.status" clearable :options="statusOptions" placeholder="状态" />
+        </div>
+        <div class="field">
+          <span class="field__label">平台</span>
+          <t-select v-model="filters.platform" clearable :options="platformOptions" placeholder="平台" />
+        </div>
+        <div class="field">
+          <span class="field__label">风险标记</span>
+          <t-select v-model="filters.risk_flag" clearable :options="riskOptions" placeholder="风险标记" />
+        </div>
       </div>
     </template>
 

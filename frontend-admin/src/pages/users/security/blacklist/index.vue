@@ -21,10 +21,22 @@
 
     <template #filters>
       <div class="filter-grid">
-        <t-select v-model="filters.type" clearable :options="typeOptions" placeholder="类型" />
-        <t-select v-model="filters.status" clearable :options="statusOptions" placeholder="状态" />
-        <t-select v-model="filters.source" clearable :options="sourceOptions" placeholder="来源" />
-        <t-input v-model="filters.keyword" clearable placeholder="命中值关键词" />
+        <div class="field">
+          <span class="field__label">类型</span>
+          <t-select v-model="filters.type" clearable :options="typeOptions" placeholder="类型" />
+        </div>
+        <div class="field">
+          <span class="field__label">状态</span>
+          <t-select v-model="filters.status" clearable :options="statusOptions" placeholder="状态" />
+        </div>
+        <div class="field">
+          <span class="field__label">来源</span>
+          <t-select v-model="filters.source" clearable :options="sourceOptions" placeholder="来源" />
+        </div>
+        <div class="field">
+          <span class="field__label">命中值关键词</span>
+          <t-input v-model="filters.keyword" clearable placeholder="命中值关键词" />
+        </div>
       </div>
     </template>
 

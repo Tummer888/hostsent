@@ -19,11 +19,11 @@
           </template>
           新增用户
         </t-button>
-        <t-button class="page-btn" theme="primary" :loading="loading" @click="reload">
+        <t-button class="page-btn" variant="outline" :loading="loading" @click="reload">
           <template #icon>
             <RefreshIcon aria-hidden="true" />
           </template>
-          刷新列表
+          刷新
         </t-button>
       </div>
     </header>
@@ -235,7 +235,7 @@
                 v-for="role in resolveRoles(row)"
                 :key="role"
                 class="role-tag"
-                theme="primary"
+                :theme="roleTagTheme(role)"
                 variant="light"
                 size="small"
                 shape="round"
@@ -900,6 +900,15 @@ function resolveRoles(row: UserInfo) {
   return ['unassigned']
 }
 
+// 角色标签按语义区分颜色：超管红、管理类橙、普通绿、其它灰
+function roleTagTheme(role: string): 'danger' | 'warning' | 'primary' | 'default' {
+  const code = String(role || '').trim().toLowerCase()
+  if (code.includes('super') || code.includes('超管')) return 'danger'
+  if (code.includes('admin') || code.includes('管理员') || code.includes('运营') || code.includes(' ops')) return 'warning'
+  if (code === 'unassigned' || !code) return 'default'
+  return 'primary'
+}
+
 function formatRoleLabel(role: string) {
   const normalizedRole = String(role || '').trim().toLowerCase()
   return roleLabelMap[normalizedRole] || roleLabelMap[role] || role || '未分配'
@@ -1267,7 +1276,7 @@ onBeforeUnmount(() => {
 .list-header__icon {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: var(--hs-radius-xl);
   background: linear-gradient(135deg, var(--td-brand-color-6), var(--color-primary));
   color: #ffffff;
   display: inline-flex;

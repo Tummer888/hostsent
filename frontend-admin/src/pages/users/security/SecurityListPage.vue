@@ -150,7 +150,7 @@ const { isMobile } = useIsMobile()
 .security-page__chip {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: var(--hs-radius-xl);
   background: linear-gradient(135deg, var(--td-brand-color-6), var(--color-primary));
   color: #ffffff;
   display: inline-flex;
@@ -163,6 +163,19 @@ const { isMobile } = useIsMobile()
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.security-page__toolbar :deep(.filter-grid .field) {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.security-page__toolbar :deep(.filter-grid .field__label) {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
 }
 
 .security-page__toolbar-actions {

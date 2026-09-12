@@ -1137,12 +1137,26 @@ watch(
   color: var(--td-brand-color-9);
 }
 
+/* 三级菜单顶点：默认空心圆，选中/悬停实心主题色 */
 .submenu-dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: currentColor;
-  opacity: 0.6;
+  background: transparent;
+  border: 1.5px solid currentColor;
+  opacity: 0.65;
+  box-sizing: border-box;
+  transition: background-color 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+}
+
+.submenu-item:hover .submenu-dot {
+  opacity: 1;
+}
+
+.submenu-item.is-active .submenu-dot {
+  background: var(--td-brand-color-7);
+  border-color: var(--td-brand-color-7);
+  opacity: 1;
 }
 
 .submenu-title {

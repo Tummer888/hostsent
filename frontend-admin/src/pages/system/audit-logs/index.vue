@@ -38,12 +38,30 @@
 
     <template #filters>
       <div class="filter-grid">
-        <t-input v-model="filters.operator" clearable placeholder="操作人" />
-        <t-input v-model="filters.module" clearable placeholder="模块" />
-        <t-select v-model="filters.action" clearable :options="actionOptions" placeholder="动作" />
-        <t-select v-model="filters.result" clearable :options="resultOptions" placeholder="结果" />
-        <t-input v-model="filters.resource_type" clearable placeholder="资源类型" />
-        <t-input v-model="filters.resource_id" clearable placeholder="资源 ID" />
+        <div class="field">
+          <span class="field__label">操作人</span>
+          <t-input v-model="filters.operator" clearable placeholder="操作人" />
+        </div>
+        <div class="field">
+          <span class="field__label">模块</span>
+          <t-input v-model="filters.module" clearable placeholder="模块" />
+        </div>
+        <div class="field">
+          <span class="field__label">动作</span>
+          <t-select v-model="filters.action" clearable :options="actionOptions" placeholder="动作" />
+        </div>
+        <div class="field">
+          <span class="field__label">结果</span>
+          <t-select v-model="filters.result" clearable :options="resultOptions" placeholder="结果" />
+        </div>
+        <div class="field">
+          <span class="field__label">资源类型</span>
+          <t-input v-model="filters.resource_type" clearable placeholder="资源类型" />
+        </div>
+        <div class="field">
+          <span class="field__label">资源 ID</span>
+          <t-input v-model="filters.resource_id" clearable placeholder="资源 ID" />
+        </div>
       </div>
     </template>
 
@@ -108,9 +126,18 @@
       <t-tab-panel value="admin" label="管理操作审计">
         <t-card :bordered="false" class="admin-audit-card">
           <div class="filter-grid">
-            <t-input v-model="adminFilters.keyword" clearable placeholder="操作人 / 路径" @enter="handleAdminSearch" />
-            <t-input v-model="adminFilters.resource_type" clearable placeholder="资源类型（如 users）" />
-            <t-input v-model="adminFilters.action" clearable placeholder="动作（如 create）" />
+            <div class="field">
+          <span class="field__label">关键词</span>
+          <t-input v-model="adminFilters.keyword" clearable placeholder="操作人 / 路径" @enter="handleAdminSearch" />
+        </div>
+            <div class="field">
+          <span class="field__label">资源类型</span>
+          <t-input v-model="adminFilters.resource_type" clearable placeholder="资源类型（如 users）" />
+        </div>
+            <div class="field">
+          <span class="field__label">动作</span>
+          <t-input v-model="adminFilters.action" clearable placeholder="动作（如 create）" />
+        </div>
           </div>
           <div class="admin-audit-actions">
             <t-button theme="primary" @click="handleAdminSearch">查询</t-button>
@@ -464,6 +491,19 @@ watch(activeTab, (tab) => {
 
 .admin-audit-card {
   padding: 4px 0 0;
+}
+
+.filter-grid .field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.filter-grid .field__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
 }
 
 .admin-audit-card .filter-grid {

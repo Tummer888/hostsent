@@ -17,12 +17,30 @@
   >
     <template #filters>
       <div class="filter-grid">
-        <t-input v-model="filters.operator" clearable placeholder="操作人" />
-        <t-input v-model="filters.module" clearable placeholder="模块" />
-        <t-select v-model="filters.action" clearable :options="actionOptions" placeholder="动作" />
-        <t-select v-model="filters.result" clearable :options="resultOptions" placeholder="结果" />
-        <t-input v-model="filters.resource_type" clearable placeholder="资源类型" />
-        <t-input v-model="filters.resource_id" clearable placeholder="资源 ID" />
+        <div class="field">
+          <span class="field__label">操作人</span>
+          <t-input v-model="filters.operator" clearable placeholder="操作人" />
+        </div>
+        <div class="field">
+          <span class="field__label">模块</span>
+          <t-input v-model="filters.module" clearable placeholder="模块" />
+        </div>
+        <div class="field">
+          <span class="field__label">动作</span>
+          <t-select v-model="filters.action" clearable :options="actionOptions" placeholder="动作" />
+        </div>
+        <div class="field">
+          <span class="field__label">结果</span>
+          <t-select v-model="filters.result" clearable :options="resultOptions" placeholder="结果" />
+        </div>
+        <div class="field">
+          <span class="field__label">资源类型</span>
+          <t-input v-model="filters.resource_type" clearable placeholder="资源类型" />
+        </div>
+        <div class="field">
+          <span class="field__label">资源 ID</span>
+          <t-input v-model="filters.resource_id" clearable placeholder="资源 ID" />
+        </div>
       </div>
     </template>
 

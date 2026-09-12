@@ -883,7 +883,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 10px;
   padding: 14px 16px;
-  border-radius: 12px;
+  border-radius: var(--hs-radius-lg);
 }
 
 .member-card__head {

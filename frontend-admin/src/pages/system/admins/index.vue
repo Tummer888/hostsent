@@ -267,8 +267,8 @@ function roleCodesOf(row: AdminInfo): string[] {
   return row.role ? [row.role] : [];
 }
 
-function roleTagTheme(role: string): 'primary' | 'success' | 'warning' | 'default' {
-  if (role === 'super_admin') return 'primary';
+function roleTagTheme(role: string): 'danger' | 'primary' | 'success' | 'warning' | 'default' {
+  if (role === 'super_admin') return 'danger';
   if (role === 'admin') return 'success';
   return 'default';
 }

@@ -1,23 +1,25 @@
 /* ============================================================
    HostSent · 统一统计卡片样式
-   对齐用户总览页（users/overview）的卡片风格与配色：
-   渐变光斑背景 + 旋转彩色渐变图标 + 大数字 + 入场动画
-   通过 :is() 聚合各页面命名空间作用，不影响用户总览页自身的 scoped 样式。
+   对齐实例运维台（instances）的卡片格式：
+   白底卡片 + 左上角彩色光晕 + 渐变彩色图标（左） + 大数字/说明（右）
+   通过 :is() 聚合各页面命名空间作用，不影响实例页自身的样式。
    ============================================================ */
 
-:is(.order-module, .ticket-module, .finance-module, .resource-module, .dashboard-page) {
+:is(.order-module, .ticket-module, .finance-module, .resource-module, .dashboard-page, .user-overview-page) {
   /* ---------- 骨架 ---------- */
   .stat-card {
+    --stat-accent: 100, 116, 139;
     position: relative;
     overflow: hidden;
     display: flex;
     align-items: center;
-    gap: 18px;
-    min-height: 132px;
-    padding: 18px 24px 18px 18px;
+    gap: 16px;
+    min-height: 108px;
+    padding: var(--space-lg) 20px;
     border: none;
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
-    box-shadow: 0 10px 26px rgba(148, 163, 184, 0.12);
+    border-radius: var(--hs-radius-lg);
+    background: var(--hs-surface-1);
+    box-shadow: none;
     opacity: 0;
     transform: translateY(8px);
     animation: hs-stat-card-in 360ms var(--hs-ease-out) forwards;
@@ -27,111 +29,75 @@
   .stat-card:nth-child(3) { animation-delay: 120ms; }
   .stat-card:nth-child(4) { animation-delay: 180ms; }
 
-  .stat-card:hover {
-    box-shadow: 0 14px 32px rgba(148, 163, 184, 0.16);
-  }
-
-  .stat-card:focus-visible {
-    box-shadow:
-      0 10px 26px rgba(148, 163, 184, 0.12),
-      0 0 0 3px rgba(22, 163, 74, 0.14);
-  }
-
-  /* ---------- 渐变光斑背景 ---------- */
-  .stat-card::before,
-  .stat-card::after {
+  /* ---------- 彩色光晕（左上角，随变体着色） ---------- */
+  .stat-card::before {
     content: '';
     position: absolute;
-    pointer-events: none;
-    border-radius: 999px;
-    transition: transform var(--hs-duration-fast), opacity var(--hs-duration-fast);
-  }
-
-  .stat-card::before {
     width: 150px;
     height: 150px;
-    left: -28px;
-    top: -18px;
-    opacity: 0.78;
+    left: -30px;
+    top: -30px;
+    border-radius: 999px;
+    pointer-events: none;
+    background: radial-gradient(
+      circle at 45% 45%,
+      rgba(var(--stat-accent), 0.18) 0%,
+      rgba(var(--stat-accent), 0) 72%
+    );
   }
 
-  .stat-card::after {
-    width: 112px;
-    height: 112px;
-    right: -20px;
-    bottom: -36px;
-    opacity: 0.34;
-  }
-
-  .stat-card:hover::before { transform: scale(1.04); }
-  .stat-card:hover::after { transform: scale(1.05); }
-
-  /* ---------- 旋转彩色图标 ---------- */
+  /* ---------- 图标（44px 圆角渐变方块，不旋转） ---------- */
   .stat-card__icon {
     position: relative;
     z-index: 1;
-    width: 46px;
-    height: 46px;
-    border-radius: 14px;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--hs-radius-xl);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     color: #ffffff;
     flex-shrink: 0;
     border: none;
-    box-shadow:
-      inset 0 2px 0 rgba(255, 255, 255, 0.34),
-      0 8px 14px rgba(15, 23, 42, 0.1);
-    transform: rotate(-20deg);
+    box-shadow: none;
   }
 
-  .stat-card__icon svg {
-    transform: rotate(24deg);
-  }
-
-  /* ---------- 文本排版：标题在上 + 大数字在下 ---------- */
+  /* ---------- 文本：数字在上、说明在下 ---------- */
   .stat-card__info,
   .stat-card__text,
   .stat-card__body {
     position: relative;
     z-index: 1;
-    flex: 1;
     display: flex;
-    flex-direction: column-reverse;
-    align-items: center;
-    justify-content: center;
+    flex-direction: column;
+    align-items: flex-start;
     gap: 4px;
     min-width: 0;
   }
 
+  .stat-card__value {
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--color-foreground);
+    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
   .stat-card__label {
-    color: #64748b;
-    font-size: 16px;
-    font-weight: 600;
+    color: var(--color-muted-foreground);
+    font-size: 12px;
     line-height: 1.2;
-    text-align: center;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 100%;
   }
 
-  .stat-card__value {
-    font-family: var(--hs-font-heading);
-    font-size: 44px;
-    font-weight: 900;
-    color: #1e3a8a;
-    line-height: 1;
-    letter-spacing: -0.03em;
-    font-variant-numeric: tabular-nums;
-    text-align: center;
-    white-space: nowrap;
-  }
-
   /* 兼容 t-statistic：让内部结构继承卡片数值样式 */
   .stat-card__value .t-statistic__content,
   .stat-card__value .t-statistic__value {
-    font-family: inherit;
     font-size: inherit;
     font-weight: inherit;
     color: inherit;
@@ -139,86 +105,30 @@
     letter-spacing: inherit;
   }
 
-  /* ---------- 光斑配色 ---------- */
-  .stat-card--blue::before,
-  .stat-card--info::before {
-    background: radial-gradient(circle at 45% 45%, rgba(191, 219, 254, 0.92) 0%, rgba(147, 197, 253, 0.72) 38%, rgba(191, 219, 254, 0) 72%);
-  }
+  /* ---------- 变体主色（光晕 + 图标渐变） ---------- */
+  .stat-card--default { --stat-accent: 100, 116, 139; }
 
-  .stat-card--blue::after,
-  .stat-card--info::after {
-    background: radial-gradient(circle at 50% 50%, rgba(96, 165, 250, 0.22) 0%, rgba(96, 165, 250, 0) 70%);
-  }
+  .stat-card--blue,
+  .stat-card--info { --stat-accent: 37, 99, 235; }
 
-  .stat-card--green::before,
-  .stat-card--success::before {
-    background: radial-gradient(circle at 45% 45%, rgba(220, 252, 231, 0.94) 0%, rgba(187, 247, 208, 0.76) 38%, rgba(220, 252, 231, 0) 72%);
-  }
+  .stat-card--green,
+  .stat-card--success { --stat-accent: 22, 163, 74; }
 
-  .stat-card--green::after,
-  .stat-card--success::after {
-    background: radial-gradient(circle at 50% 50%, rgba(74, 222, 128, 0.22) 0%, rgba(74, 222, 128, 0) 70%);
-  }
+  .stat-card--cyan { --stat-accent: 8, 145, 178; }
 
-  .stat-card--cyan::before {
-    background: radial-gradient(circle at 45% 45%, rgba(207, 250, 254, 0.94) 0%, rgba(165, 243, 252, 0.76) 38%, rgba(207, 250, 254, 0) 72%);
-  }
+  .stat-card--orange { --stat-accent: 234, 88, 12; }
 
-  .stat-card--cyan::after {
-    background: radial-gradient(circle at 50% 50%, rgba(34, 211, 238, 0.2) 0%, rgba(34, 211, 238, 0) 70%);
-  }
+  .stat-card--red,
+  .stat-card--danger { --stat-accent: 220, 38, 38; }
 
-  .stat-card--orange::before {
-    background: radial-gradient(circle at 45% 45%, rgba(255, 237, 213, 0.95) 0%, rgba(254, 215, 170, 0.76) 38%, rgba(255, 237, 213, 0) 72%);
-  }
+  .stat-card--purple { --stat-accent: 124, 58, 237; }
 
-  .stat-card--orange::after {
-    background: radial-gradient(circle at 50% 50%, rgba(251, 191, 36, 0.2) 0%, rgba(251, 191, 36, 0) 70%);
-  }
+  .stat-card--warning { --stat-accent: 217, 119, 6; }
 
-  .stat-card--red::before,
-  .stat-card--danger::before {
-    background: radial-gradient(circle at 45% 45%, rgba(254, 226, 226, 0.95) 0%, rgba(254, 202, 202, 0.78) 38%, rgba(254, 226, 226, 0) 72%);
-  }
+  .stat-card--indigo { --stat-accent: 79, 70, 229; }
 
-  .stat-card--red::after,
-  .stat-card--danger::after {
-    background: radial-gradient(circle at 50% 50%, rgba(248, 113, 113, 0.2) 0%, rgba(248, 113, 113, 0) 70%);
-  }
+  .stat-card--teal { --stat-accent: 13, 148, 136; }
 
-  .stat-card--purple::before {
-    background: radial-gradient(circle at 45% 45%, rgba(243, 232, 255, 0.94) 0%, rgba(221, 214, 254, 0.78) 38%, rgba(243, 232, 255, 0) 72%);
-  }
-
-  .stat-card--purple::after {
-    background: radial-gradient(circle at 50% 50%, rgba(167, 139, 250, 0.22) 0%, rgba(167, 139, 250, 0) 70%);
-  }
-
-  .stat-card--warning::before {
-    background: radial-gradient(circle at 45% 45%, rgba(237, 233, 254, 0.95) 0%, rgba(221, 214, 254, 0.76) 38%, rgba(237, 233, 254, 0) 72%);
-  }
-
-  .stat-card--warning::after {
-    background: radial-gradient(circle at 50% 50%, rgba(139, 92, 246, 0.22) 0%, rgba(139, 92, 246, 0) 70%);
-  }
-
-  .stat-card--indigo::before {
-    background: radial-gradient(circle at 45% 45%, rgba(224, 231, 255, 0.94) 0%, rgba(199, 210, 254, 0.78) 38%, rgba(224, 231, 255, 0) 72%);
-  }
-
-  .stat-card--indigo::after {
-    background: radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.22) 0%, rgba(99, 102, 241, 0) 70%);
-  }
-
-  .stat-card--teal::before {
-    background: radial-gradient(circle at 45% 45%, rgba(204, 251, 241, 0.94) 0%, rgba(153, 246, 228, 0.76) 38%, rgba(204, 251, 241, 0) 72%);
-  }
-
-  .stat-card--teal::after {
-    background: radial-gradient(circle at 50% 50%, rgba(20, 184, 166, 0.22) 0%, rgba(20, 184, 166, 0) 70%);
-  }
-
-  /* ---------- 图标渐变配色 ---------- */
   .stat-card__icon--blue,
   .stat-card__icon--info,
   .stat-card--blue .stat-card__icon,
@@ -257,7 +167,7 @@
 
   .stat-card__icon--warning,
   .stat-card--warning .stat-card__icon {
-    background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+    background: linear-gradient(135deg, #fbbf24, #d97706);
   }
 
   .stat-card__icon--indigo,
@@ -270,31 +180,26 @@
     background: linear-gradient(135deg, #2dd4bf, #0d9488);
   }
 
+  .stat-card__icon--default,
+  .stat-card--default .stat-card__icon {
+    background: linear-gradient(135deg, #94a3b8, #64748b);
+  }
+
   /* ---------- 响应式 ---------- */
-  @media (max-width: 640px) {
+  @media (max-width: 768px) {
     .stat-card {
-      min-height: 96px;
+      min-height: 84px;
       padding: 14px 16px;
       gap: 12px;
-    }
-
-    .stat-card::before,
-    .stat-card::after {
-      display: none;
     }
 
     .stat-card__icon {
       width: 40px;
       height: 40px;
-      border-radius: 12px;
-    }
-
-    .stat-card__label {
-      font-size: 13px;
     }
 
     .stat-card__value {
-      font-size: 30px;
+      font-size: 22px;
     }
   }
 

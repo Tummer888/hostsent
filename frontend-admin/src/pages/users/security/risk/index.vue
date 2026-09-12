@@ -17,10 +17,22 @@
   >
     <template #filters>
       <div class="filter-grid">
-        <t-select v-model="filters.risk_type" clearable :options="riskTypeOptions" placeholder="风险类型" />
-        <t-select v-model="filters.risk_level" clearable :options="riskLevelOptions" placeholder="风险等级" />
-        <t-select v-model="filters.status" clearable :options="statusOptions" placeholder="处置状态" />
-        <t-input v-model="filters.keyword" clearable placeholder="关键词 / 用户名 / IP" />
+        <div class="field">
+          <span class="field__label">风险类型</span>
+          <t-select v-model="filters.risk_type" clearable :options="riskTypeOptions" placeholder="风险类型" />
+        </div>
+        <div class="field">
+          <span class="field__label">风险等级</span>
+          <t-select v-model="filters.risk_level" clearable :options="riskLevelOptions" placeholder="风险等级" />
+        </div>
+        <div class="field">
+          <span class="field__label">处置状态</span>
+          <t-select v-model="filters.status" clearable :options="statusOptions" placeholder="处置状态" />
+        </div>
+        <div class="field">
+          <span class="field__label">关键词</span>
+          <t-input v-model="filters.keyword" clearable placeholder="关键词 / 用户名 / IP" />
+        </div>
       </div>
     </template>
 
