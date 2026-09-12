@@ -17,6 +17,7 @@ import (
 	orderdto "hostsent/backend/internal/modules/admin/order/dto"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
 	catalogdto "hostsent/backend/internal/modules/admin/product/catalog/dto"
+	"hostsent/backend/internal/pkg/billingcycle"
 	"hostsent/backend/internal/pkg/pricing"
 
 	"hostsent/backend/internal/modules/uc/order/dto"
@@ -136,8 +137,9 @@ func NewOrderService(
 }
 
 // resolveQuote 调用统一算价管线；未注入管线时回落为「商品单价 × 数量」不打折（P5-04）。
-// specCode 非空时按 SKU 定价（管线内 SKU 有定价则覆盖商品级基础价）。
-func (s *orderService) resolveQuote(ctx context.Context, userID uint64, product *catalogdto.ProductInfo, specCode string, qty int) (*pricing.Quote, error) {
+// specCode 非空时按 SKU 定价（管线内 SKU 有定价则覆盖商品级基础价）；
+// cycle 非空时按周期价格矩阵取基数（矩阵未建则回落上述单价，doc25）。
+func (s *orderService) resolveQuote(ctx context.Context, userID uint64, product *catalogdto.ProductInfo, specCode, cycle string, qty int) (*pricing.Quote, error) {
 	if s.pricing == nil {
 		amount := round2(product.Price * float64(qty))
 		return &pricing.Quote{
@@ -151,8 +153,27 @@ func (s *orderService) resolveQuote(ctx context.Context, userID uint64, product 
 		UserID:    userID,
 		ProductID: product.ID,
 		SpecCode:  specCode,
+		Cycle:     cycle,
 		Quantity:  qty,
 	})
+}
+
+// resolveCycle 归一化下单周期（doc25）：
+//   - 请求显式指定：非法值直接拒绝（避免静默落到默认档错价成交），
+//     接受上游别名写法（month/year/quarter 等）；
+//   - 留空：回落商品 price_model 对应周期，存量行为不变。
+func (s *orderService) resolveCycle(product *catalogdto.ProductInfo, raw string) (string, error) {
+	cycle := strings.TrimSpace(raw)
+	if cycle == "" {
+		return billingcycle.NormalizeOrDefault(product.PriceModel), nil
+	}
+	if billingcycle.IsValid(cycle) {
+		return cycle, nil
+	}
+	if normalized := billingcycle.Normalize(cycle); normalized != "" {
+		return normalized, nil
+	}
+	return "", fmt.Errorf("不支持的计费周期：%s", raw)
 }
 
 // resolveSku 解析下单使用的 SKU（T4.1）。
@@ -228,8 +249,14 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 	if spec != nil {
 		specCode = spec.SpecCode
 	}
+	// 计费周期（doc25）：显式周期需为规范值，留空回落商品 price_model。
+	cycle, err := s.resolveCycle(product, req.Cycle)
+	if err != nil {
+		return nil, err
+	}
 	// 统一算价管线（P5-03/P5-04）：原价、优惠、实付与折扣来源一并落库。
-	quote, err := s.resolveQuote(ctx, userID, product, specCode, qty)
+	// 周期价格矩阵存在时以其价为基数；该周期未开放则算价报错，订单不落库、不扣款。
+	quote, err := s.resolveQuote(ctx, userID, product, specCode, cycle, qty)
 	if err != nil {
 		return nil, err
 	}
@@ -290,6 +317,7 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 		SpecCode:       specCode,
 		Quantity:       qty,
 		PriceModel:     product.PriceModel,
+		Cycle:          cycle,
 		TotalAmount:    quote.OriginalAmount,
 		PaidAmount:     amount,
 		OriginalAmount: quote.OriginalAmount,
@@ -316,16 +344,16 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 	// 2.2) 补写订单项：行级保留原价/优惠/实付，否则 order_items 折扣字段永远为 0（P5-04）。
 	// spec_code 落 SKU 编码（T4.1），供履约按 SKU 取规格原子与平台参数。
 	if s.orderItems != nil {
-		itemPrice := product.Price
-		if spec != nil {
-			itemPrice = spec.Price
-		}
+		// 行单价取算价结果的单位原价：周期矩阵命中时即该周期基质价（doc25），
+		// 保证订单项与订单头的原价口径一致。
+		itemPrice := round2(quote.OriginalAmount / float64(qty))
 		item := &ordermodel.OrderItem{
 			OrderID:        order.ID,
 			ProductID:      product.ID,
 			ProductName:    product.Name,
 			SpecCode:       specCode,
 			Specs:          specsSnapshot,
+			Cycle:          cycle,
 			Price:          itemPrice,
 			Quantity:       qty,
 			Amount:         amount,
@@ -496,12 +524,18 @@ func (s *orderService) Quote(ctx context.Context, userID uint64, req dto.QuoteRe
 	if spec != nil {
 		specCode = spec.SpecCode
 	}
-	quote, err := s.resolveQuote(ctx, userID, product, specCode, qty)
+	// 预结算周期口径与下单完全一致（doc25）：非法周期直接拒绝。
+	cycle, err := s.resolveCycle(product, req.Cycle)
+	if err != nil {
+		return nil, err
+	}
+	quote, err := s.resolveQuote(ctx, userID, product, specCode, cycle, qty)
 	if err != nil {
 		return nil, err
 	}
 	return &dto.QuoteInfo{
 		SpecCode:       specCode,
+		Cycle:          cycle,
 		OriginalAmount: quote.OriginalAmount,
 		DiscountAmount: quote.DiscountAmount,
 		FinalAmount:    quote.FinalAmount,

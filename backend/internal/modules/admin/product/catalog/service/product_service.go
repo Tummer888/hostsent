@@ -69,6 +69,9 @@ type ProductService interface {
 	// SaveConfigOptions 覆盖保存商品配置项（T4.4）：配置项可标注 source/source_key，
 	// 自营项（source=self）在开通时作为平台写参数直接下发。
 	SaveConfigOptions(ctx context.Context, productID uint64, groups []interface{}, operatorID uint64, operatorName string) error
+	// SetCyclePriceWriter 注入周期价格矩阵写入能力（doc25 §5）。
+	// 装配层在价格矩阵服务就绪后调用（构造顺序上 catalog 先于 pricing，故不放构造函数）。
+	SetCyclePriceWriter(w CyclePriceWriter)
 }
 
 // ProvisionRequest 订单履约时构建的上游开通请求（由订单模块消费）。
@@ -130,6 +133,23 @@ type UpstreamSpecSnapshot struct {
 	Normalized   string
 }
 
+// CyclePriceWriter 周期价格矩阵写入能力（由 pricing 价格矩阵服务实现，doc25 §5）。
+// 用最小接口注入，避免 catalog 反向依赖 pricing 服务层。
+// rows 为上游各周期成本推导出的售价行；实现方负责保留人工覆盖行。
+type CyclePriceWriter interface {
+	ApplyUpstreamPrices(ctx context.Context, productID uint64, rows []CyclePriceRow) error
+}
+
+// CyclePriceRow 由上游周期成本推导出的单档价格（catalog 侧只构造，不落库）。
+type CyclePriceRow struct {
+	Cycle        string
+	Price        float64
+	CostPrice    float64
+	SetupFee     float64
+	CostSetupFee float64
+	Source       string
+}
+
 type productService struct {
 	repo repository.ProductRepository
 	// resourceReader 用于克隆商品开通时读取上游商品规格
@@ -140,11 +160,14 @@ type productService struct {
 	bindingReader SpecBindingReader
 	// specRegistrar 用于克隆时登记上游规格快照（T4.3）
 	specRegistrar UpstreamSpecRegistrar
+	// cycleWriter 用于上游调价确认后按周期重算矩阵（doc25 §5）
+	cycleWriter CyclePriceWriter
 }
 
 // NewProductService 创建商品业务服务。
 // readers 依次可为上游资源商品读取（resource/product 仓储）、渠道读取（resource/provider 仓储）、
-// SKU 绑定读取（spec 契约仓储）、上游规格登记（spec 契约服务）；均可省略（对应能力降级为空实现）。
+// SKU 绑定读取（spec 契约仓储）、上游规格登记（spec 契约服务）、周期价格矩阵写入；
+// 均可省略（对应能力降级为空实现）。
 func NewProductService(repo repository.ProductRepository, readers ...interface{}) ProductService {
 	s := &productService{repo: repo}
 	for _, r := range readers {
@@ -157,9 +180,16 @@ func NewProductService(repo repository.ProductRepository, readers ...interface{}
 			s.bindingReader = v
 		case UpstreamSpecRegistrar:
 			s.specRegistrar = v
+		case CyclePriceWriter:
+			s.cycleWriter = v
 		}
 	}
 	return s
+}
+
+// SetCyclePriceWriter 注入周期价格矩阵写入能力（doc25 §5）。
+func (s *productService) SetCyclePriceWriter(w CyclePriceWriter) {
+	s.cycleWriter = w
 }
 
 func (s *productService) List(ctx context.Context, query dto.ProductListQuery) (*dto.ProductListResponse, error) {
@@ -760,6 +790,7 @@ func (s *productService) CloneFromUpstream(ctx context.Context, req dto.ProductC
 	}
 	// 若未传入名称，尝试从上游资源商品补全名称与规格快照（用于列表/详情展示）。
 	var cloneGroups []interface{}
+	var cloneRawSpecs string
 	if s.resourceReader != nil && req.SourceProductID > 0 {
 		if rp, err := s.resourceReader.FindByID(ctx, req.SourceProductID); err == nil {
 			if item.Name == "" || item.Name == item.Code {
@@ -777,6 +808,7 @@ func (s *productService) CloneFromUpstream(ctx context.Context, req dto.ProductC
 			}
 			// 落上游 config_groups 到子表，供开通时优先读取（替代惰性解析 raw_specs）。
 			cloneGroups = extractConfigGroups(rp.RawSpecs)
+			cloneRawSpecs = rp.RawSpecs
 			// 登记上游规格快照（T4.3）：代理商品上架门禁按 (provider_type, upstream_id)
 			// 回查 external_specs 是否已有 confirmed 绑定；未登记则永远无法通过门禁。
 			s.registerUpstreamSpec(ctx, req.SourceProviderID, rp)
@@ -794,12 +826,23 @@ func (s *productService) CloneFromUpstream(ctx context.Context, req dto.ProductC
 	if len(cloneGroups) > 0 {
 		_ = s.repo.SaveConfigOptions(ctx, item.ID, cloneGroups)
 	}
+	// 按上游 product_pricings 生成初始周期价格矩阵（doc25 §5）：
+	// 倍率取"定价 / 成本"（运营实际采用的毛利口径），成本缺失时按原价转售。
+	s.seedCloneCyclePrices(ctx, *item, cloneRawSpecs, cloneRatio(item.CostPrice, item.Price))
 	s.repo.AddHistory(ctx, &model.ProductHistory{
 		ProductID: item.ID, ChangeType: model.ChangeTypeCreate,
 		NewValue: item.Name, OperatorID: operatorID, OperatorName: operatorName,
 		Remark: "从上游商品克隆导入",
 	})
 	return s.FindByID(ctx, item.ID)
+}
+
+// cloneRatio 由成本与售价推导周期价格倍率；成本或售价缺失时返回 0（调用方按 1 处理）。
+func cloneRatio(cost, price float64) float64 {
+	if cost <= 0 || price <= 0 {
+		return 0
+	}
+	return price / cost
 }
 
 // CloneFromUpstreamBatch 批量从上游商品克隆创建销售商品（按百分比定价）。
@@ -820,11 +863,13 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 		name := ""
 		specs := ""
 		cost := 0.0
+		rawSpecs := ""
 		var groups []interface{}
 		if s.resourceReader != nil {
 			if rp, err := s.resourceReader.FindByID(ctx, pid); err == nil {
 				name = rp.Name
 				cost = rp.SalePrice // 上游售价作为成本基线
+				rawSpecs = rp.RawSpecs
 				specJSON, _ := json.Marshal(buildCloneBaseOptions(rp))
 				specs = string(specJSON)
 				groups = extractConfigGroups(rp.RawSpecs)
@@ -853,6 +898,8 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 		if len(groups) > 0 {
 			_ = s.repo.SaveConfigOptions(ctx, item.ID, groups)
 		}
+		// 按上游 product_pricings 生成初始周期价格矩阵（doc25 §5），倍率即本次定价百分比。
+		s.seedCloneCyclePrices(ctx, *item, rawSpecs, pct/100)
 		s.repo.AddHistory(ctx, &model.ProductHistory{
 			ProductID: item.ID, ChangeType: model.ChangeTypeCreate,
 			NewValue: item.Name, OperatorID: operatorID, OperatorName: operatorName,

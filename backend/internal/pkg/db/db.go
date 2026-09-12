@@ -130,6 +130,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&specmodel.SpecBinding{},
 		// 产品管理-定价与计费（pricing 子域）
 		&pricingmodel.ProductPricing{},
+		// 周期价格矩阵（doc25）：商品 × 规格 × 周期 的售价/成本/初装费与启停
+		&pricingmodel.ProductPrice{},
 		// 产品管理-折扣策略（P5-01 统一算价管线）
 		&discountmodel.PricePolicy{},
 		&discountmodel.PricePolicyItem{},
@@ -189,6 +191,11 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 
+	// products 单值价 → product_prices 周期价格矩阵回填（doc25 §3.2）
+	if err := backfillProductPrices(db); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -203,6 +210,31 @@ func backfillAdminRoles(db *gorm.DB) error {
 		WHERE a.role <> ''
 		  AND NOT EXISTS (SELECT 1 FROM admin_roles ar WHERE ar.admin_id = a.id)
 		ON CONFLICT DO NOTHING`).Error
+}
+
+// backfillProductPrices 把存量 products 的单值价回填为周期价格矩阵首行（doc25 §3.2）。
+// 口径：price_model=fixed → onetime（一次性买断），其余（hourly/monthly/空）按
+// billingcycle.Normalize 归一，无法识别回落 monthly。幂等：仅当该商品在
+// product_prices 中尚无任何行时才回填，运营已维护矩阵的商品不被覆盖。
+func backfillProductPrices(db *gorm.DB) error {
+	if !db.Migrator().HasTable("products") || !db.Migrator().HasTable("product_prices") {
+		return nil
+	}
+	return db.Exec(`INSERT INTO product_prices
+			(product_id, product_spec_id, cycle, currency, price, cost_price, setup_fee, cost_setup_fee, source, status, remark, created_at, updated_at)
+		SELECT p.id, 0,
+			CASE p.price_model
+				WHEN 'fixed'   THEN 'onetime'
+				WHEN 'hourly'  THEN 'hourly'
+				WHEN 'monthly' THEN 'monthly'
+				ELSE 'monthly'
+			END,
+			'CNY', COALESCE(p.price, 0), COALESCE(p.cost_price, 0), 0, 0, 'manual', 1,
+			'存量单价回填（单档）', NOW(), NOW()
+		FROM products p
+		WHERE p.deleted_at IS NULL
+		  AND NOT EXISTS (SELECT 1 FROM product_prices pp WHERE pp.product_id = p.id)
+		ON CONFLICT (product_id, product_spec_id, cycle, currency) DO NOTHING`).Error
 }
 
 // migrateLegacyTickets 将旧 user_tickets 表数据一次性迁移至新 tickets 表（doc50 §6.6）。
@@ -1192,6 +1224,7 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "价格计算器", Type: menumodel.TypeMenu, Path: "/product/pricing/calculator", Component: "product/pricing/calculator/index", Icon: "chart-bar", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "价格历史", Type: menumodel.TypeMenu, Path: "/product/pricing/history", Component: "product/pricing/history/index", Icon: "history", SortOrder: 3, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "折扣策略", Type: menumodel.TypeMenu, Path: "/product/pricing/policies", Component: "product/pricing/policies/index", Icon: "discount", SortOrder: 4, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "周期价格", Type: menumodel.TypeMenu, Path: "/product/pricing/matrix", Component: "product/pricing/matrix/index", Icon: "calendar", SortOrder: 5, Status: menumodel.StatusActive},
 		// 5. 促销管理
 		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "促销管理", Type: menumodel.TypeDirectory, Path: "/product/promotion", Icon: "tag", SortOrder: 5, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/product/promotion", Platform: menumodel.PlatformAdmin, Name: "优惠券管理", Type: menumodel.TypeMenu, Path: "/product/promotion/coupons", Component: "product/promotion/coupons/index", Icon: "ticket", SortOrder: 1, Status: menumodel.StatusActive},

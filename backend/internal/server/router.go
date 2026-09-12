@@ -377,6 +377,13 @@ func newRouter(app *App) *gin.Engine {
 				pricingGroup.DELETE("/:id", app.perm("pricing:update"), app.pricingHandler.Delete)
 			}
 
+			// 周期价格矩阵（doc25）：商品 × 规格 × 周期，GET 取矩阵 / PUT 整表保存。
+			prices := productGroup.Group("/prices")
+			{
+				prices.GET("", app.perm("pricing:list"), app.priceMatrixHandler.Get)
+				prices.PUT("", app.perm("pricing:update"), app.priceMatrixHandler.Save)
+			}
+
 			// 折扣策略（discount 子域，P5-01/P5-06）：用户组/代理绑定的价格策略
 			discountPolicies := productGroup.Group("/discount-policies")
 			{

@@ -21,6 +21,12 @@ type catalogReader interface {
 	ListSpecs(ctx context.Context, productID uint64) ([]catalogdto.ProductSpecInfo, error)
 }
 
+// cycleReader 周期价格矩阵读取能力（doc25）：商品级与 SKU 级可售周期。
+// 由装配层注入价格矩阵服务适配器；未注入时商品详情不下发周期（Skus[].Cycles 为空）。
+type cycleReader interface {
+	SellableCycles(ctx context.Context, productID uint64) (product []string, bySpec map[uint64][]string, err error)
+}
+
 // ProductService 用户中心商品业务能力。
 type ProductService interface {
 	// List 上架商品列表（status=published），仅返回用户可见字段。
@@ -31,11 +37,12 @@ type ProductService interface {
 
 type productService struct {
 	catalog catalogReader
+	cycles  cycleReader
 }
 
-// NewProductService 创建用户中心商品服务。
-func NewProductService(catalog catalogReader) ProductService {
-	return &productService{catalog: catalog}
+// NewProductService 创建用户中心商品服务；cycles 可为 nil（商品详情不含周期选择）。
+func NewProductService(catalog catalogReader, cycles cycleReader) ProductService {
+	return &productService{catalog: catalog, cycles: cycles}
 }
 
 func (s *productService) List(ctx context.Context, query dto.ListQuery) (*dto.ListResponse, error) {
@@ -75,11 +82,26 @@ func (s *productService) Get(ctx context.Context, id uint64) (*dto.ProductInfo, 
 		return nil, ErrProductOffline
 	}
 	info := fromAdmin(*item)
+	// 周期矩阵（doc25）：商品级可售周期 + 各 SKU 自有周期，供用户端渲染周期选择。
+	var productCycles []string
+	cyclesBySpec := map[uint64][]string{}
+	if s.cycles != nil {
+		if pc, bySpec, err := s.cycles.SellableCycles(ctx, id); err == nil {
+			productCycles = pc
+			cyclesBySpec = bySpec
+		}
+	}
+	info.Cycles = productCycles
 	// SKU 矩阵（T4.1）：详情页展示可售规格，供用户选择后按 spec_code 下单。
 	if specs, err := s.catalog.ListSpecs(ctx, id); err == nil {
 		for _, sp := range specs {
 			if sp.Status != 1 {
 				continue
+			}
+			// SKU 自有周期优先；没有自有行则回落商品级周期（矩阵按 SKU 建行时才区分）。
+			cycles := cyclesBySpec[sp.ID]
+			if len(cycles) == 0 {
+				cycles = productCycles
 			}
 			info.Skus = append(info.Skus, dto.SkuInfo{
 				SpecCode:   sp.SpecCode,
@@ -88,6 +110,7 @@ func (s *productService) Get(ctx context.Context, id uint64) (*dto.ProductInfo, 
 				Price:      sp.Price,
 				PriceModel: sp.PriceModel,
 				Stock:      sp.Stock,
+				Cycles:     cycles,
 			})
 		}
 	}

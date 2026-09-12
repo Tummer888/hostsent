@@ -9,6 +9,9 @@ type CreateRequest struct {
 	// SpecCode 规格变体编码（SKU，T4.1）；商品挂有规格时必填，未挂规格可留空。
 	SpecCode string `json:"spec_code"`
 	Quantity int    `json:"quantity"`
+	// Cycle 计费周期（doc25）：monthly/quarterly/annually 等规范值。
+	// 留空回落商品 price_model 对应周期（存量行为不变）；该周期未开放则被拒。
+	Cycle string `json:"cycle"`
 	// ChannelMeta 开放平台代客下单渠道信息（P6/T6.3）。仅由 open 模块程序化注入，
 	// json:"-" 保证 UC 自有 HTTP 路由无法伪造渠道标记。
 	ChannelMeta ChannelMeta `json:"-"`
@@ -58,11 +61,14 @@ type QuoteRequest struct {
 	// SpecCode 规格变体编码（SKU，T4.1）；与下单口径一致。
 	SpecCode string `json:"spec_code"`
 	Quantity int    `json:"quantity"`
+	// Cycle 计费周期（doc25）；与下单口径一致，留空回落商品 price_model。
+	Cycle string `json:"cycle"`
 }
 
 // QuoteInfo 预结算价格明细。
 type QuoteInfo struct {
 	SpecCode       string         `json:"spec_code"`
+	Cycle          string         `json:"cycle"`
 	OriginalAmount float64        `json:"original_amount"`
 	DiscountAmount float64        `json:"discount_amount"`
 	FinalAmount    float64        `json:"final_amount"`

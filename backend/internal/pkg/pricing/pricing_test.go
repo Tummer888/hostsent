@@ -2,6 +2,7 @@ package pricing
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -168,5 +169,89 @@ func TestResolveSpecBasePriceFallsBack(t *testing.T) {
 		if quote.OriginalAmount != 200 {
 			t.Fatalf("spec_code=%q 应回落商品基础价 200，实际 %v", code, quote.OriginalAmount)
 		}
+	}
+}
+
+// TestResolveCycleBasePriceOverridesAll 周期价优先级最高（doc25）：
+// 矩阵价覆盖 SKU 价与商品价，且折扣规则仍在矩阵价之上二次叠加。
+func TestResolveCycleBasePriceOverridesAll(t *testing.T) {
+	deps := basePrice(100, 1)
+	deps.SpecBasePrice = func(context.Context, ResolveInput) (float64, uint64, bool, error) {
+		return 200, 0, true, nil
+	}
+	deps.CycleBasePrice = func(_ context.Context, in ResolveInput) (float64, uint64, bool, error) {
+		if in.Cycle == "annually" {
+			return 1188, 0, true, nil
+		}
+		return 0, 0, false, nil
+	}
+	deps.GroupRule = rateRule(SourceGroup, 0.9)
+	svc := NewService(deps, StackModeBest)
+
+	quote, err := svc.Resolve(context.Background(), ResolveInput{
+		UserID: 1, ProductID: 2, SpecCode: "big", Cycle: "annually", Quantity: 1,
+	})
+	if err != nil {
+		t.Fatalf("Resolve 失败: %v", err)
+	}
+	if quote.OriginalAmount != 1188 {
+		t.Fatalf("周期原价应为矩阵价 1188，实际 %v", quote.OriginalAmount)
+	}
+	if quote.FinalAmount != 1069.2 {
+		t.Fatalf("周期价再叠加 9 折应实付 1069.2，实际 %v", quote.FinalAmount)
+	}
+}
+
+// TestResolveCycleFallsBackToSpec 矩阵无该周期行时回落 SKU/商品基础价（存量兼容）。
+func TestResolveCycleFallsBackToSpec(t *testing.T) {
+	deps := basePrice(100, 1)
+	deps.CycleBasePrice = func(context.Context, ResolveInput) (float64, uint64, bool, error) {
+		return 0, 0, false, nil // 未建矩阵
+	}
+	svc := NewService(deps, StackModeBest)
+	quote, err := svc.Resolve(context.Background(), ResolveInput{
+		UserID: 1, ProductID: 2, Cycle: "quarterly", Quantity: 2,
+	})
+	if err != nil {
+		t.Fatalf("Resolve 失败: %v", err)
+	}
+	if quote.OriginalAmount != 200 {
+		t.Fatalf("未建矩阵应回落商品基础价 200，实际 %v", quote.OriginalAmount)
+	}
+}
+
+// TestResolveCycleUnavailableRejects 矩阵存在但该周期未开放时算价直接报错，
+// 绝不静默降级到别的档位成交（doc25 §4）。
+func TestResolveCycleUnavailableRejects(t *testing.T) {
+	deps := basePrice(100, 1)
+	deps.CycleBasePrice = func(context.Context, ResolveInput) (float64, uint64, bool, error) {
+		return 0, 0, true, errors.New("该商品不提供季付")
+	}
+	svc := NewService(deps, StackModeBest)
+	if _, err := svc.Resolve(context.Background(), ResolveInput{
+		UserID: 1, ProductID: 2, Cycle: "quarterly", Quantity: 1,
+	}); err == nil {
+		t.Fatal("未开放周期应报错，实际成功")
+	}
+}
+
+// TestResolveNoCycleSkipsCycleDep 请求不带 cycle 时不读矩阵（存量下单行为不变）。
+func TestResolveNoCycleSkipsCycleDep(t *testing.T) {
+	called := false
+	deps := basePrice(100, 1)
+	deps.CycleBasePrice = func(context.Context, ResolveInput) (float64, uint64, bool, error) {
+		called = true
+		return 999, 0, true, nil
+	}
+	svc := NewService(deps, StackModeBest)
+	quote, err := svc.Resolve(context.Background(), ResolveInput{UserID: 1, ProductID: 2, Quantity: 1})
+	if err != nil {
+		t.Fatalf("Resolve 失败: %v", err)
+	}
+	if called {
+		t.Fatal("未指定周期不应调用 CycleBasePrice")
+	}
+	if quote.OriginalAmount != 100 {
+		t.Fatalf("应使用商品基础价 100，实际 %v", quote.OriginalAmount)
 	}
 }

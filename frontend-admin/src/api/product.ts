@@ -35,6 +35,9 @@ import type {
   PricingListResponse,
   PricingQuery,
   PricingRequest,
+  ProductPriceMatrix,
+  ProductPriceMatrixQuery,
+  ProductPriceMatrixSaveRequest,
   PricePolicyInfo,
   PricePolicyListResponse,
   PricePolicyQuery,
@@ -403,4 +406,20 @@ export function updatePromotion(id: number, data: PromotionRequest): Promise<Pro
 
 export function deletePromotion(id: number): Promise<string> {
   return request.delete<string>({ url: `/product/promotion/promotions/${id}` })
+}
+
+// ===== 产品管理 - 周期价格矩阵（doc25） =====
+
+export function getProductPriceMatrix(params: ProductPriceMatrixQuery): Promise<ProductPriceMatrix> {
+  return request.get<ProductPriceMatrix>({
+    url: '/product/prices',
+    params,
+  })
+}
+
+export function saveProductPriceMatrix(data: ProductPriceMatrixSaveRequest): Promise<ProductPriceMatrix> {
+  return request.put<ProductPriceMatrix>({
+    url: '/product/prices',
+    data,
+  })
 }

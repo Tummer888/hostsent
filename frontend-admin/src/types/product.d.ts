@@ -431,6 +431,60 @@ export interface PricingListResponse {
   meta: ListMeta
 }
 
+/** 周期价格矩阵（doc25）：商品 × 规格 × 周期 一档价格 */
+export type ProductPriceSource = 'upstream' | 'markup' | 'manual'
+
+export interface ProductPriceItem {
+  cycle: string
+  cycle_name: string
+  price: number
+  cost_price: number
+  setup_fee: number
+  cost_setup_fee: number
+  source: ProductPriceSource | string
+  /** 1 启用可售 / 0 停用 */
+  status: number
+  /** 上游派生行只读：价格由上游成本 + 加价规则推导，只能改启停 */
+  editable: boolean
+  remark: string
+}
+
+export interface ProductPriceMatrix {
+  product_id: number
+  spec_id: number
+  product_name: string
+  currency: string
+  /** self 自营 / upstream 上游转售 */
+  source_mode: string
+  /** 渠道能力声明的可售周期（上游商品据此限制可选档位） */
+  upstream_cycles: string[]
+  items: ProductPriceItem[]
+}
+
+export interface ProductPriceMatrixQuery {
+  [key: string]: unknown
+  product_id: number
+  spec_id?: number
+  currency?: string
+}
+
+export interface ProductPriceMatrixSaveItem {
+  cycle: string
+  price: number
+  cost_price: number
+  setup_fee: number
+  cost_setup_fee: number
+  status: number
+}
+
+export interface ProductPriceMatrixSaveRequest {
+  product_id: number
+  spec_id?: number
+  currency?: string
+  remark?: string
+  items: ProductPriceMatrixSaveItem[]
+}
+
 export interface CouponQuery {
   [key: string]: unknown
   keyword?: string

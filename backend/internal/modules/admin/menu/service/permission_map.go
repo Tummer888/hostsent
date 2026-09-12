@@ -70,6 +70,10 @@ var menuPermissionMap = map[string]string{
 	"/product/pricing":              "pricing:list",
 	"/product/pricing/calculator":   "pricing:list",
 	"/product/pricing/history":      "pricing:list",
+	// 周期价格矩阵（doc25）：与折扣策略同权限口径（定价查看/维护）。
+	"/product/pricing/matrix": "pricing:list",
+	// 折扣策略此前漏登记 → 菜单对所有角色可见（doc23 问题清单）。
+	"/product/pricing/policies": "pricing:list",
 	"/product/promotion/coupons":    "promotion:coupon:list",
 	"/product/promotion/activities": "promotion:activity:list",
 	"/product/promotion/bundles":    "promotion:activity:list",

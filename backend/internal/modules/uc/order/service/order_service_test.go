@@ -70,3 +70,40 @@ func TestResolveSkuAllDisabled(t *testing.T) {
 		t.Fatalf("不应误用商品下架错误: %v", err)
 	}
 }
+
+// TestResolveCycle 下单周期归一（doc25）：显式周期接受规范值/上游别名，
+// 非法值直接拒绝（不静默落到默认档），留空回落商品 price_model。
+func TestResolveCycle(t *testing.T) {
+	svc := &orderService{}
+	cases := []struct {
+		priceModel string
+		raw        string
+		want       string
+		wantErr    bool
+	}{
+		{"monthly", "", "monthly", false},
+		{"fixed", "", "onetime", false},
+		{"hourly", "", "hourly", false},
+		{"monthly", "annually", "annually", false},
+		{"monthly", "year", "annually", false},
+		{"monthly", "quarter", "quarterly", false},
+		{"monthly", "semiannually", "semiannually", false},
+		{"monthly", "biennially", "biennially", false},
+		{"monthly", "nonsense", "", true},
+	}
+	for _, tc := range cases {
+		got, err := svc.resolveCycle(&catalogdto.ProductInfo{PriceModel: tc.priceModel}, tc.raw)
+		if tc.wantErr {
+			if err == nil {
+				t.Fatalf("cycle=%q 应报错", tc.raw)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("cycle=%q 不应报错: %v", tc.raw, err)
+		}
+		if got != tc.want {
+			t.Fatalf("cycle=%q price_model=%q → %q, want %q", tc.raw, tc.priceModel, got, tc.want)
+		}
+	}
+}

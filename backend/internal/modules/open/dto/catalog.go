@@ -49,6 +49,9 @@ type SkuItem struct {
 	Price      float64 `json:"price"`
 	PriceModel string  `json:"price_model"`
 	Stock      int     `json:"stock"` // -1 表示不限
+	// Cycles 该 SKU 可售计费周期（doc25）：下单 cycle 的合法取值；
+	// SKU 无自有周期价时回落商品级可售周期，两者皆空表示按商品单价下单（无周期概念）。
+	Cycles []string `json:"cycles"`
 }
 
 // RegionItem 标准区域（资源池），不含上游原始 ID 与容量细节。
@@ -69,6 +72,8 @@ type QuoteRequest struct {
 	ProductID uint64 `json:"product_id" binding:"required"`
 	SpecCode  string `json:"spec_code"`
 	Quantity  int    `json:"quantity"`
+	// Cycle 计费周期（doc25）；与下单口径一致，留空回落商品 price_model。
+	Cycle string `json:"cycle"`
 }
 
 // QuoteInfo 询价结果：只给零售原价与下游实付（成本价），
@@ -77,6 +82,7 @@ type QuoteInfo struct {
 	ProductID      uint64  `json:"product_id"`
 	SpecCode       string  `json:"spec_code,omitempty"`
 	Quantity       int     `json:"quantity"`
+	Cycle          string  `json:"cycle,omitempty"`
 	OriginalAmount float64 `json:"original_amount"`
 	FinalAmount    float64 `json:"final_amount"`
 }

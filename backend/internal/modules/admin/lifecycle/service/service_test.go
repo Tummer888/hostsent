@@ -63,7 +63,9 @@ func TestDeriveStageForUser(t *testing.T) {
 	}
 }
 
-// TestNextExpireAt 续费周期计算：按计费模式延长；已过期实例从当前时间起算。
+// TestNextExpireAt 续费周期计算：按计费周期延长；已过期实例从当前时间起算。
+// 周期口径统一走 pkg/billingcycle（doc25 §8）：修复前 yearly 的 12 被当成年数、
+// hourly/半年度等只能落默认按月，本测试锁定修正后的语义。
 func TestNextExpireAt(t *testing.T) {
 	svc := &renewalService{}
 	base := testNow.Add(10 * 24 * time.Hour) // 未到期实例
@@ -77,9 +79,13 @@ func TestNextExpireAt(t *testing.T) {
 		{"月付1周期", "monthly", 1, base.AddDate(0, 1, 0)},
 		{"月付3周期", "monthly", 3, base.AddDate(0, 3, 0)},
 		{"季付2周期", "quarter", 2, base.AddDate(0, 6, 0)},
-		{"年付1周期", "yearly", 1, base.AddDate(12, 0, 0)},
+		{"半年付1周期", "semiannually", 1, base.AddDate(0, 6, 0)},
+		{"年付1周期", "yearly", 1, base.AddDate(0, 12, 0)},
+		{"两年付1周期", "biennially", 1, base.AddDate(0, 24, 0)},
+		{"三年付1周期", "triennially", 1, base.AddDate(0, 36, 0)},
 		{"日付5周期", "daily", 5, base.AddDate(0, 0, 5)},
-		{"未知模式默认按月", "hourly", 2, base.AddDate(0, 2, 0)},
+		{"按小时2周期", "hourly", 2, base.Add(2 * time.Hour)},
+		{"未知模式默认按月", "weird-cycle", 2, base.AddDate(0, 2, 0)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

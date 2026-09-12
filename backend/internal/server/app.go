@@ -86,6 +86,7 @@ type App struct {
 	prodCatalogHandler    *cataloghandler.ProductHandler
 	specHandler           *spechandler.SpecHandler
 	pricingHandler        *pricinghandler.PricingHandler
+	priceMatrixHandler    *pricinghandler.PriceMatrixHandler
 	discountPolicyHandler *discounthandler.PolicyHandler
 	promotionHandler      *promotionhandler.PromotionHandler
 	adminReferralHandler  *referralhandler.ReferralHandler
@@ -149,6 +150,7 @@ func NewApp(
 	prodCatalogHandler *cataloghandler.ProductHandler,
 	specHandler *spechandler.SpecHandler,
 	pricingHandler *pricinghandler.PricingHandler,
+	priceMatrixHandler *pricinghandler.PriceMatrixHandler,
 	discountPolicyHandler *discounthandler.PolicyHandler,
 	promotionHandler *promotionhandler.PromotionHandler,
 	adminReferralHandler *referralhandler.ReferralHandler,
@@ -214,6 +216,7 @@ func NewApp(
 		prodCatalogHandler:    prodCatalogHandler,
 		specHandler:           specHandler,
 		pricingHandler:        pricingHandler,
+		priceMatrixHandler:    priceMatrixHandler,
 		discountPolicyHandler: discountPolicyHandler,
 		promotionHandler:      promotionHandler,
 		adminReferralHandler:  adminReferralHandler,

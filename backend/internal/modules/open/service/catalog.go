@@ -14,6 +14,7 @@ import (
 	openrepo "hostsent/backend/internal/modules/open/repository"
 	ucproductdto "hostsent/backend/internal/modules/uc/product/dto"
 	ucproductservice "hostsent/backend/internal/modules/uc/product/service"
+	"hostsent/backend/internal/pkg/billingcycle"
 	"hostsent/backend/internal/pkg/pricing"
 
 	"hostsent/backend/internal/modules/open/dto"
@@ -146,9 +147,15 @@ func (s *CatalogService) GetProduct(ctx context.Context, id uint64) (*dto.Produc
 	}
 	detail := &dto.ProductDetail{ProductItem: toProductItem(*info), Skus: make([]dto.SkuItem, 0, len(info.Skus))}
 	for _, sku := range info.Skus {
+		cycles := sku.Cycles
+		if cycles == nil {
+			// 显式给空数组：下游据此判断"该 SKU 无周期价、按单价下单"。
+			cycles = []string{}
+		}
 		detail.Skus = append(detail.Skus, dto.SkuItem{
 			SpecCode: sku.SpecCode, Name: sku.Name, Specs: sku.Specs,
 			Price: sku.Price, PriceModel: sku.PriceModel, Stock: sku.Stock,
+			Cycles: cycles,
 		})
 	}
 	return detail, nil
@@ -196,14 +203,21 @@ func (s *CatalogService) Quote(ctx context.Context, ownerUserID uint64, req dto.
 	if req.ProductID == 0 {
 		return nil, apperrors.New(CodeOpenParam, "product_id 必填")
 	}
-	if _, err := s.deps.Products.Get(ctx, req.ProductID); err != nil {
+	product, err := s.deps.Products.Get(ctx, req.ProductID)
+	if err != nil {
 		return nil, mapProductErr(err)
+	}
+	// 周期口径与下单一致（doc25）：显式周期须为规范值/上游别名，留空回落商品 price_model。
+	cycle, ok := resolveOpenCycle(product.PriceModel, req.Cycle)
+	if !ok {
+		return nil, apperrors.New(CodeOpenParam, "不支持的计费周期："+req.Cycle)
 	}
 	quote, err := s.deps.Pricing.Resolve(ctx, pricing.ResolveInput{
 		UserID:    ownerUserID,
 		ProductID: req.ProductID,
 		SpecCode:  req.SpecCode,
 		Quantity:  req.Quantity,
+		Cycle:     cycle,
 	})
 	if err != nil {
 		return nil, err
@@ -212,9 +226,26 @@ func (s *CatalogService) Quote(ctx context.Context, ownerUserID uint64, req dto.
 		ProductID:      req.ProductID,
 		SpecCode:       req.SpecCode,
 		Quantity:       req.Quantity,
+		Cycle:          cycle,
 		OriginalAmount: quote.OriginalAmount,
 		FinalAmount:    quote.FinalAmount,
 	}, nil
+}
+
+// resolveOpenCycle 归一化开放平台询价/下单周期：显式周期非法返回 false（调用方报参数错误），
+// 留空回落商品 price_model 对应周期（存量行为不变）。
+func resolveOpenCycle(priceModel, raw string) (string, bool) {
+	cycle := strings.TrimSpace(raw)
+	if cycle == "" {
+		return billingcycle.NormalizeOrDefault(priceModel), true
+	}
+	if billingcycle.IsValid(cycle) {
+		return cycle, true
+	}
+	if normalized := billingcycle.Normalize(cycle); normalized != "" {
+		return normalized, true
+	}
+	return "", false
 }
 
 // extractOSValue 从 SKU 原子取值 JSON 提取 os 值；解析失败返回空。

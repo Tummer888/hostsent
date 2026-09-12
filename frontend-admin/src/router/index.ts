@@ -401,6 +401,12 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/product/pricing/policies/index.vue'),
         meta: { title: '折扣策略', role: 'admin', permission: 'pricing:list' },
       },
+      {
+        path: 'pricing/matrix',
+        name: 'ProductPricingMatrix',
+        component: () => import('@/pages/product/pricing/matrix/index.vue'),
+        meta: { title: '周期价格', role: 'admin', permission: 'pricing:list' },
+      },
       // —— 促销管理（promotion）——
       {
         path: 'promotion/coupons',

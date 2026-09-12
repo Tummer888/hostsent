@@ -18,6 +18,7 @@ import (
 	lifecyclerepo "hostsent/backend/internal/modules/admin/lifecycle/repository"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
+	"hostsent/backend/internal/pkg/billingcycle"
 	"hostsent/backend/internal/pkg/money"
 	"hostsent/backend/internal/pkg/pricing"
 	"hostsent/backend/internal/pkg/upstream"
@@ -711,26 +712,16 @@ func truncateReason(msg string) string {
 	return msg[:255]
 }
 
-// nextExpireAt 按计费模式计算续费后的到期时间。
+// nextExpireAt 按计费周期计算续费后的到期时间（doc25 §8）。
+// 周期口径统一走 pkg/billingcycle：支持按小时/日/月/季/半年/年/两年/三年，
+// 未知周期回落按月（保持既有兜底语义，存量 billing_mode 行为不变）。
 func (s *renewalService) nextExpireAt(base time.Time, billingMode string, periodCount int) *time.Time {
 	// 已过期实例从当前时间起算，避免续费期落在过去时段
 	if base.Before(time.Now()) {
 		base = time.Now()
 	}
-	switch billingMode {
-	case "year", "yearly":
-		t := base.AddDate(12*periodCount, 0, 0)
-		return &t
-	case "quarter":
-		t := base.AddDate(0, 3*periodCount, 0)
-		return &t
-	case "day", "daily":
-		t := base.AddDate(0, 0, periodCount)
-		return &t
-	default: // month/monthly 及未知模式默认按月
-		t := base.AddDate(0, periodCount, 0)
-		return &t
-	}
+	t := billingcycle.Advance(base, billingMode, periodCount)
+	return &t
 }
 
 // genOrderNoLocal 生成续费订单号：RO + 时间戳 + 随机。

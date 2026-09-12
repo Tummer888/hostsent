@@ -40,6 +40,9 @@ type Order struct {
 	SpecCode    string     `gorm:"column:spec_code;size:64;index"`
 	Quantity    int        `gorm:"default:1"`                                                 // 数量
 	PriceModel  string     `gorm:"column:price_model;size:20;default:'fixed'"`                // 价格模型
+	// Cycle 计费周期快照（doc25 §3.3）：monthly/quarterly/annually 等规范值。
+	// 与 price_model 并存（后者作为兼容列继续写）；开通时优先取本列作为实例计费周期。
+	Cycle       string     `gorm:"column:cycle;size:20"`                                      // 计费周期
 	TotalAmount float64    `gorm:"column:total_amount;type:decimal(15,2);not null;default:0"` // 应付总额
 	PaidAmount  float64    `gorm:"column:paid_amount;type:decimal(15,2);not null;default:0"`  // 实付金额
 	Status      string     `gorm:"size:32;not null;default:pending;index"`                    // 订单状态

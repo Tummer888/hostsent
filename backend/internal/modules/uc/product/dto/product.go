@@ -27,6 +27,9 @@ type ProductInfo struct {
 	ConfigOptions string  `json:"config_options"`
 	Featured      bool    `json:"featured"`
 	CreatedAt     string  `json:"created_at"`
+	// Cycles 商品级可售周期（doc25）：monthly/quarterly/annually 等规范值。
+	// 空数组表示未维护周期价格矩阵，按商品级单价下单（存量行为）。
+	Cycles []string `json:"cycles"`
 	// Skus 商品下挂的可售规格（T4.1）。空数组表示该商品未拆 SKU，按商品级价格下单。
 	// 下单时把选中项的 spec_code 传给 POST /uc/orders 的 spec_code 字段。
 	Skus []SkuInfo `json:"skus"`
@@ -40,6 +43,8 @@ type SkuInfo struct {
 	Price      float64 `json:"price"`
 	PriceModel string  `json:"price_model"`
 	Stock      int     `json:"stock"` // -1 表示不限
+	// Cycles 该 SKU 可售周期（doc25）；SKU 无自有矩阵行时回落商品级周期。
+	Cycles []string `json:"cycles"`
 }
 
 // ListResponse 商品列表响应

@@ -68,6 +68,7 @@ func (s *OpenOrderService) Create(ctx context.Context, app *openrepo.ResolvedApp
 		ProductID: req.ProductID,
 		SpecCode:  req.SpecCode,
 		Quantity:  req.Quantity,
+		Cycle:     req.Cycle,
 		ChannelMeta: ucorderdto.ChannelMeta{
 			Channel:            ordermodel.OrderChannelOpen,
 			OpenAppID:          app.App.ID,

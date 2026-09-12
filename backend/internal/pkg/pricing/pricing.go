@@ -62,6 +62,9 @@ type ResolveInput struct {
 	SpecCode  string
 	Quantity  int
 	Period    int
+	// Cycle 计费周期（doc25）：月付/季付/年付等规范值。非空且矩阵有该档时，
+	// 以矩阵价为基数（已含上游周期折扣，属"折后价"），再交给折扣规则二次叠加。
+	Cycle string
 	// ManualAmount 非 nil 时为管理员手动改价，直接作为实付金额（最高优先级）。
 	ManualAmount *float64
 }
@@ -73,6 +76,10 @@ type Deps struct {
 	// SpecBasePrice 可选：SKU 级基础单价（T4.1）。in.SpecCode 非空且能取到定价时优先于 BasePrice；
 	// 返回 found=false 表示该 SKU 未单独定价，回落商品级基础价。折扣算法与叠加顺序不受影响。
 	SpecBasePrice func(ctx context.Context, in ResolveInput) (unitPrice float64, categoryID uint64, found bool, err error)
+	// CycleBasePrice 可选：周期基础单价（doc25）。in.Cycle 非空且矩阵有该档时优先于 SpecBasePrice；
+	// 返回 found=false 表示未建矩阵，回落旧口径（存量行为不变）。
+	// 返回 error 表示矩阵存在但该周期不可售，调用方应直接拒绝下单（不静默降级）。
+	CycleBasePrice func(ctx context.Context, in ResolveInput) (unitPrice float64, categoryID uint64, found bool, err error)
 	// AgentRule 代理价（P6 接入 agent_levels.price_policy_id，当前可为 nil）。
 	AgentRule func(ctx context.Context, userID, productID, categoryID uint64) (*Rule, error)
 	// GroupRule 用户组策略（user_groups.price_policy_id）。
@@ -114,6 +121,20 @@ func (s *Service) Resolve(ctx context.Context, in ResolveInput) (*Quote, error) 
 	// SKU 级定价优先（T4.1）：仅当请求指定了 spec_code 且该 SKU 定了价才覆盖商品级基础价。
 	if s.deps.SpecBasePrice != nil && in.SpecCode != "" {
 		price, category, found, err := s.deps.SpecBasePrice(ctx, in)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			unitPrice = price
+			if category != 0 {
+				categoryID = category
+			}
+		}
+	}
+	// 周期定价优先级最高（doc25）：矩阵价即该周期的折后价，覆盖上面两级基础价。
+	// found=false 表示未建矩阵，保持旧口径；err 非空表示该周期不可售，必须拒绝而非降级。
+	if s.deps.CycleBasePrice != nil && in.Cycle != "" {
+		price, category, found, err := s.deps.CycleBasePrice(ctx, in)
 		if err != nil {
 			return nil, err
 		}

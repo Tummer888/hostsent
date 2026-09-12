@@ -472,13 +472,24 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		},
 	)
 	refundHandler := orderhandler.NewRefundHandler(orderService)
-	// 用户中心商品：复用管理端商品目录，仅暴露上架商品（用户可购）
-	ucProductService := ucproductservice.NewProductService(prodCatalogService)
-	ucProductHandler := ucproducthandler.NewProductHandler(ucProductService)
 	// 定价与计费（pricing 子域）
 	pricingRepo := pricingrepo.NewPricingRepository(database)
 	pricingService := pricingservice.NewPricingService(pricingRepo)
 	pricingHandler := pricinghandler.NewPricingHandler(pricingService)
+	// 周期价格矩阵（doc25）：商品 × 规格 × 周期 的价格与启停，整表读写。
+	priceMatrixRepo := pricingrepo.NewPriceMatrixRepository(database)
+	priceMatrixService := pricingservice.NewPriceMatrixService(
+		priceMatrixRepo,
+		NewProductMetaReader(prodCatalogService),
+		NewProviderCyclesReader(providerService),
+	)
+	priceMatrixHandler := pricinghandler.NewPriceMatrixHandler(priceMatrixService)
+	// 上游调价确认 → 按周期重算售出商品的价格矩阵（doc25 §5）。
+	prodCatalogService.SetCyclePriceWriter(NewCyclePriceWriter(priceMatrixService))
+	// 用户中心商品：复用管理端商品目录，仅暴露上架商品（用户可购）；
+	// 详情页带周期价格矩阵的可售周期（doc25），用户端据此渲染周期选择。
+	ucProductService := ucproductservice.NewProductService(prodCatalogService, NewUCCycleReader(priceMatrixService))
+	ucProductHandler := ucproducthandler.NewProductHandler(ucProductService)
 	// 折扣策略（discount 子域，P5-01/P5-06）
 	discountPolicyRepo := discountrepo.NewPricePolicyRepository(database)
 	discountPolicyService := discountservice.NewPolicyService(discountPolicyRepo)
@@ -508,6 +519,29 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 				return 0, 0, false, nil
 			}
 			return spec.Price, 0, true, nil
+		},
+		// 周期基础价（doc25）：矩阵 (商品, SKU, 周期) 有价则以它为基数；
+		// 优先级最高（周期价就是"折后价"，再交给 price_policies 二次叠加）。
+		// 矩阵无该规格行时回落 SpecBasePrice / BasePrice，存量行为不变。
+		CycleBasePrice: func(ctx context.Context, in pricing.ResolveInput) (float64, uint64, bool, error) {
+			if in.Cycle == "" {
+				return 0, 0, false, nil
+			}
+			specID := uint64(0)
+			if in.SpecCode != "" {
+				if spec, err := prodCatalogService.FindSpec(ctx, in.ProductID, in.SpecCode); err == nil && spec != nil {
+					specID = spec.ID
+				}
+			}
+			price, hasMatrix, err := priceMatrixService.CycleBasePrice(ctx, in.ProductID, specID, in.Cycle)
+			if err != nil {
+				// 矩阵存在但该周期未开放：显式拒绝，避免按下单周期错价成交。
+				return 0, 0, false, err
+			}
+			if !hasMatrix {
+				return 0, 0, false, nil
+			}
+			return price, 0, true, nil
 		},
 		// 用户组策略 = 这客户打几折（D3 唯一折扣来源）。
 		GroupRule: discountPolicyService.RuleForUserGroup,
@@ -687,7 +721,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 代客下单复用 UC 下单管线（余额扣 owner、SKU/库存/算价/履约投递同一条路径）；
 	// 实例接口复用实例运维台（电源/暂停/审计）与生命周期续费（双链路，T5.2）。
 	openBundle := buildOpenBundle(cfg, database, ucProductService, ucOrderService, instanceOpsService, lifecycleRenewalSvc, specContractRepo, pricePipeline, logger)
-	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, logger, jwtIssuer)
+	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, logger, jwtIssuer)
 	router := newRouter(app)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
@@ -893,7 +927,8 @@ func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order
 		PublicIP:    inst.PublicIP,
 		PrivateIP:   inst.PrivateIP,
 		RawData:     string(rawJSON),
-		BillingMode: order.PriceModel,
+		// 计费周期优先取订单 cycle（doc25）：实例账期推进与续费按真实周期走。
+		BillingMode: firstNonEmpty(order.Cycle, order.PriceModel),
 		// 子账号下单时 order.OperatorID 为真实操作人，落到实例「操作人」列（P4-09）。
 		ActorUserID: order.OperatorID,
 		// 记录来源订单，实例运维台据此展示关联订单（见 61 实施计划 §4.1）。

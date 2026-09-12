@@ -125,9 +125,18 @@ func (a *UpstreamProvisionAdapter) provision(ctx context.Context, order *model.O
 		ProductID:    uint(order.ProductID),
 		Name:         order.ProductName,
 		Extra:        extractConfigOptions(raw),
-		BillingMode:  order.PriceModel,
+		// 计费周期优先取订单 cycle（doc25），空则回落 price_model（存量订单）。
+		BillingMode: orderBillingCycle(order),
 	}
 	return a.deps.CreateInstance(ctx, cfg, req)
+}
+
+// orderBillingCycle 取订单计费周期：cycle 权威，price_model 兼容兜底。
+func orderBillingCycle(order *model.Order) string {
+	if order.Cycle != "" {
+		return order.Cycle
+	}
+	return order.PriceModel
 }
 
 // advanceLegacy 无上游商品的订单：直接推进状态（与 DefaultProvisionAdapter 一致）。
