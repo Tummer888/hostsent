@@ -120,7 +120,7 @@
         </template>
 
         <template #pool_type="{ row }">
-          <t-tag theme="primary" variant="light" size="small" shape="round">{{ row.pool_type || '—' }}</t-tag>
+          <t-tag :theme="poolTypeTheme(row.pool_type)" variant="light" size="small" shape="round">{{ row.pool_type || '—' }}</t-tag>
         </template>
 
         <template #probe="{ row }">
@@ -570,6 +570,15 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
       if (row.provider_ops_url) window.open(row.provider_ops_url, '_blank', 'noopener')
       break
   }
+}
+// 资源池类型标签按语义区分颜色
+function poolTypeTheme(type?: string): 'primary' | 'warning' | 'success' | 'danger' | 'default' {
+  const t = String(type || '').toLowerCase()
+  if (t.includes('compute') || t.includes('计算')) return 'primary'
+  if (t.includes('memory') || t.includes('内存')) return 'warning'
+  if (t.includes('storage') || t.includes('存储')) return 'success'
+  if (t.includes('network') || t.includes('网络')) return 'danger'
+  return 'default'
 }
 </script>
 

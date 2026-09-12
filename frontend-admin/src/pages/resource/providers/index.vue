@@ -15,7 +15,7 @@
           <template #icon>
             <RefreshIcon aria-hidden="true" />
           </template>
-          刷新列表
+          刷新
         </t-button>
         <t-button theme="primary" @click="goCreate">
           <template #icon>
