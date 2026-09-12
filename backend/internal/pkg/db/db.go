@@ -189,12 +189,6 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 
-	// 商品供货模式回填：新增列后旧记录 provision_mode 可能为空，统一归一为 self（自营），
-	// 避免空模式导致订单履约无法解析供货模式（GORM AutoMigrate 只加列不写默认值）。
-	if err := backfillProductProvisionMode(db); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -209,21 +203,6 @@ func backfillAdminRoles(db *gorm.DB) error {
 		WHERE a.role <> ''
 		  AND NOT EXISTS (SELECT 1 FROM admin_roles ar WHERE ar.admin_id = a.id)
 		ON CONFLICT DO NOTHING`).Error
-}
-
-// backfillProductProvisionMode 回填存量商品的供货模式：空值/未知值一律归一。
-// 关键修正（地雷 L5）：不能无脑归一为 self——已绑定上游渠道（source_provider_id != 0）
-// 或已绑定上游商品（source_product_id != 0）的存量记录是上游克隆商品，应归为 clone，
-// 否则会被误标为自营、进而在双链路判据 source_mode 上错分。
-func backfillProductProvisionMode(db *gorm.DB) error {
-	return db.Exec(
-		`UPDATE products
-		    SET provision_mode = CASE
-		        WHEN COALESCE(source_provider_id, 0) <> 0 OR COALESCE(source_product_id, 0) <> 0 THEN 'clone'
-		        ELSE 'self'
-		    END
-		  WHERE provision_mode IS NULL OR provision_mode = '' OR provision_mode NOT IN ('self', 'clone')`,
-	).Error
 }
 
 // migrateLegacyTickets 将旧 user_tickets 表数据一次性迁移至新 tickets 表（doc50 §6.6）。
@@ -413,13 +392,13 @@ func seedUpstreamData(tx *gorm.DB) error {
 
 	// —— 云主机实例 ——
 	instances := []syncmodel.Instance{
-		{InstanceID: "i-mfy-a1b2c3d4", ProviderID: providerIDs[0], UserID: 1, ProductID: 1, Name: "web-prod-01", CPU: 2, Memory: 4, Disk: 50, DiskType: "ssd", Bandwidth: 5, OS: "CentOS 7.9", Region: "华东", Zone: "east-01", Status: "running", PrivateIP: "10.0.1.11", PublicIP: "118.31.10.21", BillingMode: "monthly"},
-		{InstanceID: "i-mfy-e5f6a7b8", ProviderID: providerIDs[0], UserID: 2, ProductID: 2, Name: "app-worker-02", CPU: 4, Memory: 8, Disk: 100, DiskType: "ssd", Bandwidth: 10, OS: "Ubuntu 22.04", Region: "华东", Zone: "east-01", Status: "running", PrivateIP: "10.0.1.12", PublicIP: "118.31.10.22", BillingMode: "monthly"},
-		{InstanceID: "i-mfy-c9d0e1f2", ProviderID: providerIDs[0], UserID: 3, ProductID: 3, Name: "db-primary-03", CPU: 8, Memory: 16, Disk: 200, DiskType: "ssd", Bandwidth: 20, OS: "Debian 12", Region: "华东", Zone: "east-02", Status: "running", PrivateIP: "10.0.2.11", PublicIP: "118.31.10.23", BillingMode: "monthly"},
-		{InstanceID: "i-os-0a1b2c3d", ProviderID: providerIDs[1], UserID: 4, ProductID: 4, Name: "test-node-04", CPU: 2, Memory: 2, Disk: 40, DiskType: "hdd", Bandwidth: 3, OS: "CentOS 7.9", Region: "华东", Zone: "east-01", Status: "stopped", PrivateIP: "10.0.3.11", PublicIP: "118.31.11.21", BillingMode: "hourly"},
-		{InstanceID: "i-pxm-1a2b3c4d", ProviderID: providerIDs[2], UserID: 5, ProductID: 6, Name: "build-runner-05", CPU: 4, Memory: 8, Disk: 120, DiskType: "ssd", Bandwidth: 10, OS: "Debian 12", Region: "华南", Zone: "south-01", Status: "error", PrivateIP: "10.0.4.11", PublicIP: "120.24.12.21", BillingMode: "monthly"},
-		{InstanceID: "i-aws-5a6b7c8d", ProviderID: providerIDs[3], UserID: 6, ProductID: 7, Name: "us-www-06", CPU: 2, Memory: 4, Disk: 80, DiskType: "ssd", Bandwidth: 0, OS: "Amazon Linux 2", Region: "海外", Zone: "us-west-2a", Status: "running", PrivateIP: "172.31.0.16", PublicIP: "54.215.10.20", BillingMode: "hourly"},
-		{InstanceID: "i-ali-9e8f7a6b", ProviderID: providerIDs[4], UserID: 7, ProductID: 0, Name: "snapshot-legacy-07", CPU: 2, Memory: 4, Disk: 60, DiskType: "ssd", Bandwidth: 5, OS: "CentOS 7.9", Region: "华东", Zone: "cn-shanghai-b", Status: "deleted", PrivateIP: "", PublicIP: "", BillingMode: "hourly"},
+		{InstanceID: "i-mfy-a1b2c3d4", ProviderID: providerIDs[0], UserID: 1, UpstreamProductID: 1, Name: "web-prod-01", CPU: 2, Memory: 4, Disk: 50, DiskType: "ssd", Bandwidth: 5, OS: "CentOS 7.9", Region: "华东", Zone: "east-01", Status: "running", PrivateIP: "10.0.1.11", PublicIP: "118.31.10.21", BillingMode: "monthly"},
+		{InstanceID: "i-mfy-e5f6a7b8", ProviderID: providerIDs[0], UserID: 2, UpstreamProductID: 2, Name: "app-worker-02", CPU: 4, Memory: 8, Disk: 100, DiskType: "ssd", Bandwidth: 10, OS: "Ubuntu 22.04", Region: "华东", Zone: "east-01", Status: "running", PrivateIP: "10.0.1.12", PublicIP: "118.31.10.22", BillingMode: "monthly"},
+		{InstanceID: "i-mfy-c9d0e1f2", ProviderID: providerIDs[0], UserID: 3, UpstreamProductID: 3, Name: "db-primary-03", CPU: 8, Memory: 16, Disk: 200, DiskType: "ssd", Bandwidth: 20, OS: "Debian 12", Region: "华东", Zone: "east-02", Status: "running", PrivateIP: "10.0.2.11", PublicIP: "118.31.10.23", BillingMode: "monthly"},
+		{InstanceID: "i-os-0a1b2c3d", ProviderID: providerIDs[1], UserID: 4, UpstreamProductID: 4, Name: "test-node-04", CPU: 2, Memory: 2, Disk: 40, DiskType: "hdd", Bandwidth: 3, OS: "CentOS 7.9", Region: "华东", Zone: "east-01", Status: "stopped", PrivateIP: "10.0.3.11", PublicIP: "118.31.11.21", BillingMode: "hourly"},
+		{InstanceID: "i-pxm-1a2b3c4d", ProviderID: providerIDs[2], UserID: 5, UpstreamProductID: 6, Name: "build-runner-05", CPU: 4, Memory: 8, Disk: 120, DiskType: "ssd", Bandwidth: 10, OS: "Debian 12", Region: "华南", Zone: "south-01", Status: "error", PrivateIP: "10.0.4.11", PublicIP: "120.24.12.21", BillingMode: "monthly"},
+		{InstanceID: "i-aws-5a6b7c8d", ProviderID: providerIDs[3], UserID: 6, UpstreamProductID: 7, Name: "us-www-06", CPU: 2, Memory: 4, Disk: 80, DiskType: "ssd", Bandwidth: 0, OS: "Amazon Linux 2", Region: "海外", Zone: "us-west-2a", Status: "running", PrivateIP: "172.31.0.16", PublicIP: "54.215.10.20", BillingMode: "hourly"},
+		{InstanceID: "i-ali-9e8f7a6b", ProviderID: providerIDs[4], UserID: 7, UpstreamProductID: 0, Name: "snapshot-legacy-07", CPU: 2, Memory: 4, Disk: 60, DiskType: "ssd", Bandwidth: 5, OS: "CentOS 7.9", Region: "华东", Zone: "cn-shanghai-b", Status: "deleted", PrivateIP: "", PublicIP: "", BillingMode: "hourly"},
 	}
 	for i := range instances {
 		if err := tx.Create(&instances[i]).Error; err != nil {

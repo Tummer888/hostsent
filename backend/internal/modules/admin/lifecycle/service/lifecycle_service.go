@@ -173,7 +173,7 @@ func (s *lifecycleService) ListExpiring(ctx context.Context, q *lifecycledto.Exp
 			Name:         item.Name,
 			UserID:       item.UserID,
 			Username:     item.Username,
-			ProductID:    item.ProductID,
+			ProductID:    item.SellProductID,
 			ProductName:  productName,
 			UnitPrice:    unitPrice,
 			BillingMode:  item.BillingMode,

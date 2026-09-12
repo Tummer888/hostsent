@@ -108,7 +108,7 @@ func TestBuildProvisionRequestMergesSkuAtoms(t *testing.T) {
 
 	repo := &fakeProductRepo{}
 	repo.findByID = &model.Product{
-		ID: 7, ProvisionMode: model.ProvisionModeSelf, SourceProviderID: 1, PriceModel: model.PriceModelFixed,
+		ID: 7, SourceMode: model.SourceModeSelf, SourceProviderID: 1, PriceModel: model.PriceModelFixed,
 		ConfigOptions: `{"cpu":8,"os":"centos7"}`,
 	}
 	svc := &productService{repo: repo, providerReader: &fakeProviderReader{typ: "mofangyun"}}
@@ -133,7 +133,7 @@ func TestBuildProvisionRequestMergesSkuAtoms(t *testing.T) {
 // TestBuildProvisionRequestNoSpecKeepsLegacy 未选规格时行为与改造前一致（仅 ConfigOptions）。
 func TestBuildProvisionRequestNoSpecKeepsLegacy(t *testing.T) {
 	repo := &fakeProductRepo{}
-	repo.findByID = &model.Product{ID: 8, ProvisionMode: model.ProvisionModeSelf, ConfigOptions: `{"cpu":4}`}
+	repo.findByID = &model.Product{ID: 8, SourceMode: model.SourceModeSelf, ConfigOptions: `{"cpu":4}`}
 	svc := &productService{repo: repo, providerReader: &fakeProviderReader{typ: "mofangyun"}}
 	req, err := svc.BuildProvisionRequest(context.Background(), 8, "vm", "", "")
 	if err != nil {

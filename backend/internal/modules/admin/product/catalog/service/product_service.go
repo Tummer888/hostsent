@@ -76,7 +76,6 @@ type ProvisionRequest struct {
 	ProductID     uint64                 `json:"product_id"`
 	ProviderID    uint64                 `json:"provider_id"`
 	ProviderType  string                 `json:"provider_type"`
-	ProvisionMode string                 `json:"provision_mode"`
 	Name          string                 `json:"name"`
 	ConfigOptions map[string]interface{} `json:"config_options"`
 	BillingMode   string                 `json:"billing_mode"`
@@ -210,7 +209,6 @@ func (s *productService) Create(ctx context.Context, req dto.ProductCreateReques
 		CostPrice:        req.CostPrice,
 		SourceProductID:  req.SourceProductID,
 		SourceProviderID: req.SourceProviderID,
-		ProvisionMode:    req.ProvisionMode,
 		ConfigOptions:    req.ConfigOptions,
 		Stock:            req.Stock,
 		SortOrder:        req.SortOrder,
@@ -226,13 +224,8 @@ func (s *productService) Create(ctx context.Context, req dto.ProductCreateReques
 	if item.Status == 0 {
 		item.Status = model.ProductStatusDraft
 	}
-	if item.ProvisionMode == "" {
-		item.ProvisionMode = model.ProvisionModeSelf
-	}
-	// 链路判据单一化（D6）：按供货模式派生 source_mode，禁止两套判据并存。
-	if item.ProvisionMode == model.ProvisionModeClone {
-		item.SourceMode = model.SourceModeUpstream
-	} else {
+	// 链路判据单一化（D6）：source_mode 即链路，空值归一为自营（P8 起 provision_mode 列已删除）。
+	if item.SourceMode == "" {
 		item.SourceMode = model.SourceModeSelf
 	}
 	if err := s.repo.Create(ctx, item); err != nil {
@@ -409,12 +402,12 @@ func (s *productService) validatePublish(ctx context.Context, item *model.Produc
 }
 
 // isUpstreamChain 判定商品是否走代理（上游转售）链路。
-// 以 source_mode 为单一判据（D6）；存量数据可能仅有 provision_mode，故空值时回退。
+// 以 source_mode 为单一判据（D6，P8 起 provision_mode 兼容列已删除）。
 func (s *productService) isUpstreamChain(item *model.Product) bool {
-	if item.SourceMode != "" {
-		return item.SourceMode == model.SourceModeUpstream
+	if item.SourceMode == "" {
+		return false
 	}
-	return item.ProvisionMode == model.ProvisionModeClone
+	return item.SourceMode == model.SourceModeUpstream
 }
 
 // externalSpecConfirmed 判断代理商品对应的上游规格是否已有 confirmed 绑定。
@@ -758,7 +751,6 @@ func (s *productService) CloneFromUpstream(ctx context.Context, req dto.ProductC
 		ProductType:      "cloud_host",
 		SourceProductID:  req.SourceProductID,
 		SourceProviderID: req.SourceProviderID,
-		ProvisionMode:    model.ProvisionModeClone,
 		SourceMode:       model.SourceModeUpstream,
 		ConfigOptions:    req.ConfigOptions,
 		Price:            req.Price,
@@ -847,7 +839,6 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 			ProductType:      "cloud_host",
 			SourceProductID:  pid,
 			SourceProviderID: req.SourceProviderID,
-			ProvisionMode:    model.ProvisionModeClone,
 			SourceMode:       model.SourceModeUpstream,
 			Specs:            specs,
 			Price:            round2(cost * pct / 100),
@@ -1043,20 +1034,16 @@ func (s *productService) BuildProvisionRequest(ctx context.Context, productID ui
 	if err != nil {
 		return nil, err
 	}
-	if item.ProvisionMode == "" {
-		item.ProvisionMode = model.ProvisionModeSelf
-	}
 	req := &ProvisionRequest{
-		ProductID:     item.ID,
-		ProviderID:    item.SourceProviderID,
-		ProvisionMode: item.ProvisionMode,
-		Name:          name,
-		BillingMode:   item.PriceModel,
+		ProductID:   item.ID,
+		ProviderID:  item.SourceProviderID,
+		Name:        name,
+		BillingMode: item.PriceModel,
 	}
 	// 自定义可配置项作基础（可能为空）
 	opts := map[string]interface{}{}
-	if item.ProvisionMode == model.ProvisionModeClone {
-		// 克隆模式：从上游资源商品取规格。source_product_id 缺失回退为空，交由适配器兜底。
+	if item.SourceMode == model.SourceModeUpstream {
+		// 代理商品：从上游资源商品取规格。source_product_id 缺失回退为空，交由适配器兜底。
 		if item.SourceProductID > 0 && s.resourceReader != nil {
 			rp, err := s.resourceReader.FindByID(ctx, item.SourceProductID)
 			if err == nil {
@@ -1241,7 +1228,6 @@ func buildProductInfo(item model.Product) dto.ProductInfo {
 		CostPrice:           item.CostPrice,
 		SourceProductID:     item.SourceProductID,
 		SourceProviderID:    item.SourceProviderID,
-		ProvisionMode:       item.ProvisionMode,
 		SourceMode:          item.SourceMode,
 		ConfigOptions:       item.ConfigOptions,
 		UpstreamMarkupType:  item.UpstreamMarkupType,

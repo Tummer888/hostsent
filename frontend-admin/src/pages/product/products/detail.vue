@@ -32,8 +32,8 @@
               <t-descriptions-item label="分类">{{ categoryName(product.category_id) }}</t-descriptions-item>
               <t-descriptions-item label="产品类型">{{ product.product_type || '—' }}</t-descriptions-item>
               <t-descriptions-item label="供货模式">
-                <t-tag :theme="provisionModeTag(product.provision_mode).theme" variant="light" size="small" shape="round">
-                  {{ provisionModeTag(product.provision_mode).text }}
+                <t-tag :theme="sourceModeTag(product.source_mode).theme" variant="light" size="small" shape="round">
+                  {{ sourceModeTag(product.source_mode).text }}
                 </t-tag>
               </t-descriptions-item>
               <t-descriptions-item label="链路">
@@ -358,7 +358,6 @@ import {
   markupLabel,
   priceModelLabel,
   priceModelOptions,
-  provisionModeTag,
   sourceModeTag,
   statusTag,
 } from '@/pages/product/constants'

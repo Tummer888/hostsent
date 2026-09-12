@@ -132,7 +132,7 @@
         <t-descriptions-item label="实例名称">{{ detailInstance.name }}</t-descriptions-item>
         <t-descriptions-item label="实例 ID">{{ detailInstance.instance_id }}</t-descriptions-item>
         <t-descriptions-item label="提供商 ID">{{ detailInstance.provider_id }}</t-descriptions-item>
-        <t-descriptions-item label="商品 ID">{{ detailInstance.product_id || '—' }}</t-descriptions-item>
+        <t-descriptions-item label="售出商品 ID">{{ detailInstance.sell_product_id || detailInstance.upstream_product_id || '—' }}</t-descriptions-item>
         <t-descriptions-item label="规格">{{ detailInstance.cpu }}核 / {{ formatMemory(detailInstance.memory) }} / {{ formatDisk(detailInstance.disk) }} {{ detailInstance.bandwidth }}Mbps</t-descriptions-item>
         <t-descriptions-item label="磁盘类型">{{ detailInstance.disk_type || '—' }}</t-descriptions-item>
         <t-descriptions-item label="操作系统">{{ detailInstance.os || '—' }}</t-descriptions-item>

@@ -26,7 +26,6 @@ export interface InstanceItem {
   username: string
   user_email: string
   user_phone: string
-  product_id: number
   order_id: number
   source_mode: string
   sell_product_id: number

@@ -81,9 +81,6 @@ func (r *productRepository) List(ctx context.Context, query dto.ProductListQuery
 	if query.Status != 0 {
 		base = base.Where("status = ?", query.Status)
 	}
-	if query.ProvisionMode != "" {
-		base = base.Where("provision_mode = ?", query.ProvisionMode)
-	}
 	if query.SourceMode != "" {
 		base = base.Where("source_mode = ?", query.SourceMode)
 	}

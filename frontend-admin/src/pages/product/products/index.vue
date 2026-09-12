@@ -95,8 +95,8 @@
         </template>
 
         <template #source_mode="{ row }">
-          <t-tag :theme="sourceModeTag(row.source_mode || (row.provision_mode === 'clone' ? 'upstream' : 'self')).theme" variant="light" size="small" shape="round">
-            {{ sourceModeTag(row.source_mode || (row.provision_mode === 'clone' ? 'upstream' : 'self')).text }}
+          <t-tag :theme="sourceModeTag(row.source_mode).theme" variant="light" size="small" shape="round">
+            {{ sourceModeTag(row.source_mode).text }}
           </t-tag>
         </template>
 

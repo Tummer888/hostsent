@@ -10,12 +10,6 @@ const (
 	ProductStatusOffline   int = 2 // 下架
 )
 
-// 商品供货模式
-const (
-	ProvisionModeClone string = "clone" // 上游克隆：直接销售上游商品（对接魔方财务）
-	ProvisionModeSelf  string = "self"  // 自营：自定义配置映射到上游（对接魔方云）
-)
-
 // 商品链路判据（双链路重构 D6，单一判据，禁止与 provision_mode 混用）
 const (
 	SourceModeSelf     string = "self"     // 自营链路
@@ -57,7 +51,6 @@ type Product struct {
 	CostPrice        float64 `gorm:"column:cost_price;type:decimal(10,2)"`               // 成本价
 	SourceProductID  uint64  `gorm:"column:source_product_id;index"`                     // 克隆模式：关联【本地】resource_products.id（上游资源商品的本地主键，非上游 upstream_id）
 	SourceProviderID uint64  `gorm:"column:source_provider_id;index"`                    // 关联上游提供商 ID（克隆模式的推送目标）
-	ProvisionMode    string  `gorm:"column:provision_mode;size:20;default:'self';index"` // 供货模式：self 自营 / clone 上游克隆（保留只读一版，P8 删除）
 	SourceMode       string  `gorm:"column:source_mode;size:16;index"`                   // 链路判据：self 自营 / upstream 上游转售（双链路重构 D6 单一判据）
 	ConfigOptions    string  `gorm:"column:config_options;type:text"`                    // JSON 可配置项（自营模式映射到上游 /clouds 参数；克隆模式可覆盖规格）
 	// 上游加价规则（029 已建列，T3.4 落地）：percent=成本×value%；fixed=成本+value。

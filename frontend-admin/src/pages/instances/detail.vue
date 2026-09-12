@@ -119,7 +119,7 @@
                 {{ instanceData.provider_name || '—' }}
                 <span v-if="instanceData.provider_type" class="cell-sub">（{{ instanceData.provider_type }}）</span>
               </t-descriptions-item>
-              <t-descriptions-item label="产品 ID">{{ instanceData.product_id || '—' }}</t-descriptions-item>
+              <t-descriptions-item label="售出商品 ID">{{ instanceData.sell_product_id || instanceData.upstream_product_id || '—' }}</t-descriptions-item>
               <t-descriptions-item label="规格">
                 {{ instanceData.cpu }} 核 / {{ instanceData.memory }} MB / {{ instanceData.disk }} GB
               </t-descriptions-item>

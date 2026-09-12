@@ -570,7 +570,6 @@ func (s *instanceService) toItem(row *repository.InstanceRow, withinDays int) dt
 		Username:           row.Username,
 		UserEmail:          row.UserEmail,
 		UserPhone:          row.UserPhone,
-		ProductID:          row.ProductID,
 		OrderID:            row.OrderID,
 		SourceMode:         row.SourceMode,
 		SellProductID:      row.SellProductID,

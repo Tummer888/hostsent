@@ -69,27 +69,28 @@ type SyncLogInfo struct {
 
 // InstanceInfo 实例信息
 type InstanceInfo struct {
-	ID          uint64  `json:"id"`
-	InstanceID  string  `json:"instance_id"`
-	ProviderID  uint64  `json:"provider_id"`
-	UserID      uint64  `json:"user_id"`
-	ProductID   uint64  `json:"product_id"`
-	SourceMode  string  `json:"source_mode"`
-	Name        string  `json:"name"`
-	CPU         int     `json:"cpu"`
-	Memory      int     `json:"memory"`
-	Disk        int     `json:"disk"`
-	DiskType    string  `json:"disk_type"`
-	Bandwidth   int     `json:"bandwidth"`
-	OS          string  `json:"os"`
-	Region      string  `json:"region"`
-	Zone        string  `json:"zone"`
-	Status      string  `json:"status"`
-	PrivateIP   string  `json:"private_ip"`
-	PublicIP    string  `json:"public_ip"`
-	BillingMode string  `json:"billing_mode"`
-	ExpireAt    *string `json:"expire_at"`
-	CreatedAt   string  `json:"created_at"`
+	ID                uint64  `json:"id"`
+	InstanceID        string  `json:"instance_id"`
+	ProviderID        uint64  `json:"provider_id"`
+	UserID            uint64  `json:"user_id"`
+	SellProductID     uint64  `json:"sell_product_id"`     // 自营链路售出商品（products.id）
+	UpstreamProductID uint64  `json:"upstream_product_id"` // 上游链路资源商品（resource_products.id）
+	SourceMode        string  `json:"source_mode"`
+	Name              string  `json:"name"`
+	CPU               int     `json:"cpu"`
+	Memory            int     `json:"memory"`
+	Disk              int     `json:"disk"`
+	DiskType          string  `json:"disk_type"`
+	Bandwidth         int     `json:"bandwidth"`
+	OS                string  `json:"os"`
+	Region            string  `json:"region"`
+	Zone              string  `json:"zone"`
+	Status            string  `json:"status"`
+	PrivateIP         string  `json:"private_ip"`
+	PublicIP          string  `json:"public_ip"`
+	BillingMode       string  `json:"billing_mode"`
+	ExpireAt          *string `json:"expire_at"`
+	CreatedAt         string  `json:"created_at"`
 }
 
 // SyncTaskListResponse 同步任务列表响应

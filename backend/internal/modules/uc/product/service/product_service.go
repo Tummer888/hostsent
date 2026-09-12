@@ -106,7 +106,7 @@ func fromAdmin(it catalogdto.ProductInfo) dto.ProductInfo {
 		Price:         it.Price,
 		PriceModel:    it.PriceModel,
 		Specs:         it.Specs,
-		ProvisionMode: it.ProvisionMode,
+		SourceMode:    it.SourceMode,
 		ConfigOptions: it.ConfigOptions,
 		Featured:      it.Featured,
 		CreatedAt:     it.CreatedAt,

@@ -19,23 +19,7 @@ export const productTypeOptions = [
   { label: '带宽', value: 'bandwidth' },
 ]
 
-// 商品供货模式
-export const provisionModeOptions = [
-  { label: '自营', value: 'self' },
-  { label: '上游克隆', value: 'clone' },
-]
-
-export function provisionModeText(mode: string): string {
-  return mode === 'clone' ? '上游克隆' : mode === 'self' ? '自营' : mode || '自营'
-}
-
-export function provisionModeTag(mode: string): { theme: 'primary' | 'warning' | 'default'; text: string } {
-  if (mode === 'clone') return { theme: 'warning', text: '上游克隆' }
-  if (mode === 'self') return { theme: 'primary', text: '自营' }
-  return { theme: 'default', text: '自营' }
-}
-
-// 链路判据（双链路重构 D6）：source_mode 为唯一判据，供货模式仅保留展示一版。
+// 链路判据（双链路重构 D6）：source_mode 为唯一判据（P8 起 provision_mode 列已删除）。
 export const sourceModeOptions = [
   { label: '自营', value: 'self' },
   { label: '上游转售', value: 'upstream' },

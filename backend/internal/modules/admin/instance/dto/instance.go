@@ -42,7 +42,6 @@ type InstanceItem struct {
 	Username     string `json:"username"`
 	UserEmail    string `json:"user_email"`
 	UserPhone    string `json:"user_phone"`
-	ProductID    uint64 `json:"product_id"`
 	OrderID      uint64 `json:"order_id"`
 	// 双链路语义（P1/T1.4）：来源判据与两条链路各自的产品引用。
 	SourceMode         string `json:"source_mode"`

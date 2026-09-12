@@ -136,6 +136,27 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* ===== 移动端禁止页面级横向滑动 =====
+   窄屏下个别内部元素（表格内部滚动容器等）在 WebKit/iOS 上可能把
+   文档撑出十几像素导致整页能左右拖动；在文档根上直接裁掉横向溢出。
+   用 clip 而不是 hidden：不会把 html 变成滚动容器，position: sticky
+   的吸顶导航不受影响；不支持 clip 的旧内核回退到 hidden。 ===== */
+@media (max-width: 767px) {
+  html,
+  body {
+    overflow-x: clip;
+  }
+}
+
+@supports not (overflow: clip) {
+  @media (max-width: 767px) {
+    html,
+    body {
+      overflow-x: hidden;
+    }
+  }
+}
+
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--hs-font-heading);
   letter-spacing: -0.01em;

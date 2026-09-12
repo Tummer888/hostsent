@@ -320,7 +320,9 @@ export interface InstanceInfo {
   instance_id: string
   provider_id: number
   user_id: number
-  product_id: number
+  sell_product_id: number
+  upstream_product_id: number
+  source_mode: string
   name: string
   cpu: number
   memory: number

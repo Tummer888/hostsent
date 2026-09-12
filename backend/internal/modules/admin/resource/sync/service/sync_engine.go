@@ -942,7 +942,6 @@ func (e *SyncEngine) convertInstance(providerID uint64, in *pkgmodel.StandardIns
 		InstanceID: in.UpstreamID,
 		ProviderID: providerID,
 		UserID:     uint64(in.UserID),
-		ProductID:  uint64(in.ProductID),
 		Name:       in.Name,
 		CPU:        in.Specs.CPU,
 		Memory:     in.Specs.Memory,

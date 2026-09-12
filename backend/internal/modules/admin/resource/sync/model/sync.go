@@ -55,7 +55,6 @@ type Instance struct {
 	InstanceID  string `gorm:"column:instance_id;size:64;uniqueIndex;not null"`
 	ProviderID  uint64 `gorm:"column:provider_id;not null;index"`
 	UserID      uint64 `gorm:"column:user_id;not null;index"`
-	ProductID   uint64 `gorm:"column:product_id"`
 	Name        string `gorm:"size:100;not null"`
 	CPU         int    `gorm:"not null"`
 	Memory      int    `gorm:"not null"`

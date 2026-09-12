@@ -26,8 +26,8 @@
           <t-form-item label="产品类型" name="product_type">
             <t-select v-model="form.product_type" clearable placeholder="请选择类型" :options="productTypeOptions" />
           </t-form-item>
-          <t-form-item label="供货模式" name="provision_mode">
-            <t-select v-model="form.provision_mode" placeholder="请选择供货模式" :options="provisionModeOptions" />
+          <t-form-item label="链路" name="source_mode">
+            <t-select v-model="form.source_mode" placeholder="请选择链路" :options="sourceModeOptions" />
           </t-form-item>
           <t-form-item label="价格模型" name="price_model">
             <t-select v-model="form.price_model" placeholder="请选择价格模型" :options="priceModelOptions" />
@@ -123,7 +123,7 @@ import {
   priceModelOptions,
   productStatusOptions,
   productTypeOptions,
-  provisionModeOptions,
+  sourceModeOptions,
 } from '@/pages/product/constants'
 import type { SaleProductCategoryInfo, SaleProductInfo } from '@/types/interface'
 
@@ -155,7 +155,7 @@ const form = reactive({
   cost_price: 0,
   source_product_id: undefined as number | undefined,
   source_provider_id: undefined as number | undefined,
-  provision_mode: 'self',
+  source_mode: 'self',
   config_options: '',
   stock: -1,
   sort_order: 0,
@@ -203,7 +203,7 @@ watch(
       form.cost_price = initial.cost_price
       form.source_product_id = initial.source_product_id || undefined
       form.source_provider_id = initial.source_provider_id || undefined
-      form.provision_mode = initial.provision_mode || 'self'
+      form.source_mode = initial.source_mode || 'self'
       form.config_options = initial.config_options || ''
       form.stock = initial.stock
       form.sort_order = initial.sort_order
@@ -243,7 +243,7 @@ async function handleSubmit() {
       cost_price: form.cost_price,
       source_product_id: form.source_product_id || 0,
       source_provider_id: form.source_provider_id || 0,
-      provision_mode: form.provision_mode,
+      source_mode: form.source_mode,
       config_options: form.config_options,
       stock: form.stock,
       sort_order: form.sort_order,

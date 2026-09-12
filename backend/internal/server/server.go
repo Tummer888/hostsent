@@ -870,7 +870,6 @@ func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order
 		InstanceID:  inst.UpstreamID,
 		ProviderID:  uint64(inst.ProviderID),
 		UserID:      order.UserID,
-		ProductID:   order.ProductID,
 		Name:        firstNonEmpty(inst.Name, order.ProductName),
 		CPU:         specs.CPU,
 		Memory:      specs.Memory,

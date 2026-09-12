@@ -205,7 +205,9 @@ func (r *instanceReader) ResolveProduct(ctx context.Context, inst *syncmodel.Ins
 			return "", 0, err
 		}
 	}
-	return r.resolveLegacyProduct(ctx, inst.ProductID)
+	// P8：product_id 兼容列已删除，旧数据兜底（resolveLegacyProduct）一并退役；
+	// 双链路列均解析不到时返回空，由调用方自行处理。
+	return "", 0, nil
 }
 
 // resolveLegacyProduct 旧 product_id 语义的兜底解析：先按 source_product_id 找售出商品，
