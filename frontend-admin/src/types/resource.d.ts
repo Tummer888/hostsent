@@ -600,3 +600,77 @@ export interface TaskQueueListResponse {
   meta: ListMeta
   summary: TaskQueueSummary
 }
+
+// ===== 实例对账（运维 · 本地实例 vs 上游） =====
+
+export interface ReconcileListQuery {
+  provider_id?: number
+  keyword?: string
+  anomaly?: string
+  page?: number
+  page_size?: number
+}
+
+export interface ReconcileAnomalyItem {
+  code: string
+  name: string
+  severity: string
+  severity_name: string
+}
+
+export interface ReconcileItem {
+  id: number
+  instance_id: string
+  name: string
+  status: string
+  status_name: string
+  lifecycle_stage: string
+  provider_id: number
+  provider_name: string
+  user_id: number
+  username: string
+  sell_product_id: number
+  sell_product_name: string
+  local_price: number | null
+  upstream_product_id: number
+  upstream_product_name: string
+  upstream_sku: string
+  upstream_cost: number | null
+  margin_amount: number | null
+  margin_rate: number | null
+  price_anomaly: string
+  price_anomaly_name: string
+  local_expire_at: string | null
+  upstream_expire_at: string | null
+  expire_diff_days: number | null
+  expire_anomaly: string
+  expire_anomaly_name: string
+  anomalies: ReconcileAnomalyItem[]
+  severity: string
+  severity_name: string
+  detail: string
+}
+
+export interface ReconcileSummary {
+  total: number
+  danger: number
+  warning: number
+  ok: number
+  below_cost: number
+  thin_margin: number
+  missing_price: number
+  expire_early: number
+  expire_late: number
+  missing_expire: number
+  negative_margin: number
+  total_margin: number
+  avg_margin_rate: number
+  tolerance_days: number
+  thin_margin_rate: number
+}
+
+export interface ReconcileListResponse {
+  items: ReconcileItem[]
+  meta: ListMeta
+  summary: ReconcileSummary
+}

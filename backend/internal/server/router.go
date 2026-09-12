@@ -243,6 +243,10 @@ func newRouter(app *App) *gin.Engine {
 				taskQueue.GET("", app.perm("resource:sync"), app.taskQueueHandler.List)
 				taskQueue.GET("/categories", app.perm("resource:sync"), app.taskQueueHandler.Categories)
 			}
+
+			// 实例对账（本轮 S4）：已开通的上游链路实例，本地售价/到期 vs 上游成本/到期。
+			// 只读比对视图，修正动作仍在商品/实例详情页完成。
+			resourceGroup.GET("/reconcile", app.perm("resource:instance"), app.reconcileHandler.List)
 		}
 
 		// 生命周期管理（doc60 §7.1）

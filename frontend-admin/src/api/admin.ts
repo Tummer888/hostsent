@@ -22,6 +22,8 @@ import type {
   ProviderListResponse,
   ProviderTypeItem,
   ProviderUpdateRequest,
+  ReconcileListQuery,
+  ReconcileListResponse,
   SyncDiffInfo,
   SyncDiffListQuery,
   SyncDiffListResponse,
@@ -483,5 +485,20 @@ export function getTaskQueueList(params: TaskQueueListQuery): Promise<TaskQueueL
 export function getTaskQueueCategories(): Promise<TaskQueueCategoryCount[]> {
   return request.get<TaskQueueCategoryCount[]>({
     url: '/resource/task-queue/categories',
+  })
+}
+
+// ===== 实例对账（运维 · 本地实例 vs 上游） =====
+
+export function getReconcileList(params: ReconcileListQuery): Promise<ReconcileListResponse> {
+  return request.get<ReconcileListResponse>({
+    url: '/resource/reconcile',
+    params: {
+      provider_id: params.provider_id,
+      keyword: params.keyword,
+      anomaly: params.anomaly,
+      page: params.page,
+      page_size: params.page_size,
+    },
   })
 }

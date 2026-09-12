@@ -31,6 +31,7 @@ import (
 	referralhandler "hostsent/backend/internal/modules/admin/referral/handler"
 	producthandler "hostsent/backend/internal/modules/admin/resource/product/handler"
 	providerhandler "hostsent/backend/internal/modules/admin/resource/provider/handler"
+	reconcilehandler "hostsent/backend/internal/modules/admin/resource/reconcile/handler"
 	synchandler "hostsent/backend/internal/modules/admin/resource/sync/handler"
 	taskqueuehandler "hostsent/backend/internal/modules/admin/resource/taskqueue/handler"
 	systemhandler "hostsent/backend/internal/modules/admin/system/handler"
@@ -102,7 +103,9 @@ type App struct {
 	ucInstanceHandler     *ucinstancehandler.InstanceHandler
 	instanceOpsHandler    *admininstancehandler.InstanceHandler
 	// taskQueueHandler 平台动作任务队列（开通/实例动作/续费/同步）只读聚合视图（本轮 S3）。
-	taskQueueHandler      *taskqueuehandler.TaskQueueHandler
+	taskQueueHandler *taskqueuehandler.TaskQueueHandler
+	// reconcileHandler 实例对账（本地售价/到期 vs 上游成本/到期）只读比对视图（本轮 S4）。
+	reconcileHandler      *reconcilehandler.ReconcileHandler
 	ticketHandler         *tickethandler.TicketHandler
 	ticketCategoryHandler *tickethandler.CategoryHandler
 	userTicketHandler     *tickethandler.UserTicketHandler
@@ -163,6 +166,7 @@ func NewApp(
 	ucInstanceHandler *ucinstancehandler.InstanceHandler,
 	instanceOpsHandler *admininstancehandler.InstanceHandler,
 	taskQueueHandler *taskqueuehandler.TaskQueueHandler,
+	reconcileHandler *reconcilehandler.ReconcileHandler,
 	ticketHandler *tickethandler.TicketHandler,
 	ticketCategoryHandler *tickethandler.CategoryHandler,
 	userTicketHandler *tickethandler.UserTicketHandler,
@@ -227,6 +231,7 @@ func NewApp(
 		ucInstanceHandler:     ucInstanceHandler,
 		instanceOpsHandler:    instanceOpsHandler,
 		taskQueueHandler:      taskQueueHandler,
+		reconcileHandler:      reconcileHandler,
 		ticketHandler:         ticketHandler,
 		ticketCategoryHandler: ticketCategoryHandler,
 		userTicketHandler:     userTicketHandler,
