@@ -120,42 +120,44 @@ const routes: Array<RouteRecordRaw> = [
     ],
   },
   {
+    // P7 菜单归位（doc16 §9.2）：资源管理只做资源 —— 渠道与平台 / 容量与位置 / 同步与调度 / 实例 / 运维。
     path: '/resource',
     component: () => import('@/layouts/index.vue'),
-    redirect: '/resource/dashboard',
-    meta: { title: '上游对接' },
+    redirect: '/resource/providers',
+    meta: { title: '资源管理' },
     children: [
-      // —— 资源总览 ——
       {
         path: 'overview',
         name: 'ResourceOverview',
-        redirect: '/resource/dashboard',
+        redirect: '/resource/providers',
         meta: { title: '资源总览', role: 'admin' },
       },
+      // 资源总览/看板并入「容量与位置」（doc16 §9.4），旧路径 redirect 保持书签可用。
       {
         path: 'dashboard',
         name: 'ResourceDashboard',
-        component: () => import('@/pages/resource/dashboard/index.vue'),
-        meta: { title: '资源总览', role: 'admin', permission: 'resource:provider' },
+        redirect: '/resource/pools',
+        meta: { title: '资源总览', role: 'admin' },
       },
+      // 同步监控并入同步与调度合并页（T3.6 sync-center）。
       {
         path: 'sync-monitor',
         name: 'ResourceSyncMonitor',
-        component: () => import('@/pages/resource/sync-monitor/index.vue'),
-        meta: { title: '同步监控', role: 'admin', permission: 'resource:sync' },
+        redirect: '/resource/sync-center',
+        meta: { title: '同步监控', role: 'admin' },
       },
-      // —— 上游对接管理 ——
+      // —— 渠道与平台 ——
       {
-        path: 'connection',
-        name: 'ResourceConnection',
+        path: 'channels',
+        name: 'ResourceChannels',
         redirect: '/resource/providers',
-        meta: { title: '上游对接管理', role: 'admin' },
+        meta: { title: '渠道与平台', role: 'admin' },
       },
       {
         path: 'providers',
         name: 'ResourceProviders',
         component: () => import('@/pages/resource/providers/index.vue'),
-        meta: { title: '上游提供商', role: 'admin', permission: 'resource:provider' },
+        meta: { title: '上游渠道', role: 'admin', permission: 'resource:provider' },
       },
       {
         path: 'providers/create',
@@ -170,16 +172,23 @@ const routes: Array<RouteRecordRaw> = [
         meta: { title: '提供商详情', role: 'admin', permission: 'resource:provider' },
       },
       {
-        path: 'pools',
-        name: 'ResourcePools',
-        component: () => import('@/pages/resource/pools/index.vue'),
-        meta: { title: '资源池管理', role: 'admin', permission: 'resource:provider' },
-      },
-      {
         path: 'connectivity',
         name: 'ResourceConnectivity',
         component: () => import('@/pages/resource/connectivity/index.vue'),
         meta: { title: '连接测试', role: 'admin', permission: 'resource:provider' },
+      },
+      // —— 容量与位置 ——
+      {
+        path: 'capacity',
+        name: 'ResourceCapacity',
+        redirect: '/resource/pools',
+        meta: { title: '容量与位置', role: 'admin' },
+      },
+      {
+        path: 'pools',
+        name: 'ResourcePools',
+        component: () => import('@/pages/resource/pools/index.vue'),
+        meta: { title: '资源池与容量', role: 'admin', permission: 'resource:provider' },
       },
       // —— 同步与调度（T3.6 合并页：调度 / 任务 / 日志 / 差异 / 待确认调价）——
       {
@@ -188,7 +197,7 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/resource/sync-center/index.vue'),
         meta: { title: '同步与调度', role: 'admin', permission: 'resource:sync' },
       },
-      // 旧路径保留书签兼容：统一 redirect 到合并页（页面文件待 P7/T7.4 下线）。
+      // 旧重复页面路径保留书签兼容：统一 redirect 到合并页（菜单已隐藏，文件待清理）。
       {
         path: 'sync',
         name: 'ResourceSync',
@@ -207,7 +216,7 @@ const routes: Array<RouteRecordRaw> = [
         redirect: '/resource/sync-center',
         meta: { title: '同步与调度', role: 'admin' },
       },
-      // —— 资源商品管理 ——
+      // —— 资源商品管理（T7.2 移入产品管理「商品对接」，此处暂留原路径）——
       {
         path: 'products-center',
         name: 'ResourceProductsCenter',
@@ -245,18 +254,19 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/resource/instances/index.vue'),
         meta: { title: '云主机实例', role: 'admin', permission: 'resource:instance' },
       },
-      // —— 运维工具 ——
+      // —— 运维 ——
       {
         path: 'ops',
         name: 'ResourceOps',
-        redirect: '/resource/api-test',
-        meta: { title: '运维工具', role: 'admin' },
+        redirect: '/resource/anomalies',
+        meta: { title: '运维', role: 'admin' },
       },
+      // API 测试并入连接测试（doc16 §9.2），旧路径 redirect。
       {
         path: 'api-test',
         name: 'ResourceApiTest',
-        component: () => import('@/pages/resource/api-test/index.vue'),
-        meta: { title: 'API测试', role: 'admin', permission: 'resource:provider' },
+        redirect: '/resource/connectivity',
+        meta: { title: 'API测试', role: 'admin' },
       },
       {
         path: 'anomalies',
@@ -264,11 +274,12 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/resource/anomalies/index.vue'),
         meta: { title: '异常处理', role: 'admin', permission: 'resource:instance' },
       },
+      // 模块配置并入系统配置（doc16 §9.2），旧路径 redirect。
       {
         path: 'settings',
         name: 'ResourceSettings',
-        component: () => import('@/pages/resource/settings/index.vue'),
-        meta: { title: '系统配置', role: 'admin', permission: 'system:config:view' },
+        redirect: '/system/config',
+        meta: { title: '系统配置', role: 'admin' },
       },
     ],
   },

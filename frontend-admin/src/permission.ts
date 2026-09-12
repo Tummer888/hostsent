@@ -108,22 +108,21 @@ export const navMenu = [
     icon: iconWrapper(LayersIcon),
     children: [
       {
-        title: '资源总览',
-        path: '/resource/overview',
-        icon: iconWrapper(DashboardIcon),
+        // P7 菜单归位（doc16 §9.2）：渠道与平台 / 容量与位置 / 同步与调度 / 实例 / 运维。
+        title: '渠道与平台',
+        path: '/resource/channels',
+        icon: iconWrapper(CloudIcon),
         children: [
-          { title: '资源总览', path: '/resource/dashboard', icon: iconWrapper(DashboardIcon) },
-          { title: '同步监控', path: '/resource/sync-monitor', icon: iconWrapper(DataCheckedIcon) },
+          { title: '上游渠道', path: '/resource/providers', icon: iconWrapper(CloudIcon) },
+          { title: '连接测试', path: '/resource/connectivity', icon: iconWrapper(LinkIcon) },
         ],
       },
       {
-        title: '上游对接管理',
-        path: '/resource/connection',
-        icon: iconWrapper(CloudIcon),
+        title: '容量与位置',
+        path: '/resource/capacity',
+        icon: iconWrapper(LayersIcon),
         children: [
-          { title: '上游提供商', path: '/resource/providers', icon: iconWrapper(CloudIcon) },
-          { title: '资源池管理', path: '/resource/pools', icon: iconWrapper(LayersIcon) },
-          { title: '连接测试', path: '/resource/connectivity', icon: iconWrapper(LinkIcon) },
+          { title: '资源池与容量', path: '/resource/pools', icon: iconWrapper(LayersIcon) },
         ],
       },
       {
@@ -145,7 +144,7 @@ export const navMenu = [
         ],
       },
       {
-        title: '实例资源',
+        title: '实例',
         path: '/resource/instance',
         icon: iconWrapper(ServerIcon),
         children: [
@@ -153,13 +152,11 @@ export const navMenu = [
         ],
       },
       {
-        title: '运维工具',
+        title: '运维',
         path: '/resource/ops',
         icon: iconWrapper(SettingIcon),
         children: [
-          { title: 'API测试', path: '/resource/api-test', icon: iconWrapper(AiToolIcon) },
           { title: '异常处理', path: '/resource/anomalies', icon: iconWrapper(ErrorCircleIcon) },
-          { title: '系统配置', path: '/resource/settings', icon: iconWrapper(SettingIcon) },
         ],
       },
     ],

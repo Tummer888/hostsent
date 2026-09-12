@@ -1143,40 +1143,39 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "审核拒绝列表", Type: menumodel.TypeMenu, Path: "/users/verification/rejected", Component: "users/verification/rejected/index", Icon: "error-circle", SortOrder: 3, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "认证配置", Type: menumodel.TypeMenu, Path: "/users/verification/config", Component: "users/verification/config/index", Icon: "setting", SortOrder: 4, Status: menumodel.StatusActive},
 		{Platform: menumodel.PlatformAdmin, Name: "资源管理", Type: menumodel.TypeDirectory, Path: "/resource", Icon: "resource", SortOrder: 3, Status: menumodel.StatusActive},
-		// —— 资源总览（doc10 §5.1）
-		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "资源总览", Type: menumodel.TypeDirectory, Path: "/resource/overview", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/overview", Platform: menumodel.PlatformAdmin, Name: "资源总览", Type: menumodel.TypeMenu, Path: "/resource/dashboard", Component: "resource/dashboard/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/overview", Platform: menumodel.PlatformAdmin, Name: "同步监控", Type: menumodel.TypeMenu, Path: "/resource/sync-monitor", Component: "resource/sync-monitor/index", Icon: "data-checked", SortOrder: 2, Status: menumodel.StatusActive},
-		// —— 上游对接管理（doc10 §5.2）
-		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "上游对接管理", Type: menumodel.TypeDirectory, Path: "/resource/connection", Icon: "cloud", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/connection", Platform: menumodel.PlatformAdmin, Name: "上游提供商", Type: menumodel.TypeMenu, Path: "/resource/providers", Component: "resource/providers/index", Icon: "cloud", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/connection", Platform: menumodel.PlatformAdmin, Name: "资源池管理", Type: menumodel.TypeMenu, Path: "/resource/pools", Component: "resource/pools/index", Icon: "layers", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/connection", Platform: menumodel.PlatformAdmin, Name: "连接测试", Type: menumodel.TypeMenu, Path: "/resource/connectivity", Component: "resource/connectivity/index", Icon: "link", SortOrder: 3, Status: menumodel.StatusActive},
-		// —— 同步与调度（T3.6：合并原「同步任务/同步日志/对账报告」三处重复页面，
-		//    并取代产品管理下的 /product/sync/*；旧路径保留 redirect，菜单置 disabled 隐藏）
+		// —— P7 菜单归位（doc16 §9.2）：渠道与平台 / 容量与位置 / 同步与调度 / 实例 / 运维。
+		// 资源管理只做资源，商品对接页面移入产品管理（T7.2）。
+		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "渠道与平台", Type: menumodel.TypeDirectory, Path: "/resource/channels", Icon: "cloud", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/channels", Platform: menumodel.PlatformAdmin, Name: "上游渠道", Type: menumodel.TypeMenu, Path: "/resource/providers", Component: "resource/providers/index", Icon: "cloud", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/channels", Platform: menumodel.PlatformAdmin, Name: "连接测试", Type: menumodel.TypeMenu, Path: "/resource/connectivity", Component: "resource/connectivity/index", Icon: "link", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "容量与位置", Type: menumodel.TypeDirectory, Path: "/resource/capacity", Icon: "layers", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/capacity", Platform: menumodel.PlatformAdmin, Name: "资源池与容量", Type: menumodel.TypeMenu, Path: "/resource/pools", Component: "resource/pools/index", Icon: "layers", SortOrder: 1, Status: menumodel.StatusActive},
+		// —— 同步与调度（T3.6 合并页）：调度 / 任务 / 日志 / 差异 / 待确认调价多 Tab。
 		// 目录路径用 sync-group，叶子保持 /resource/sync-center 与前端路由一致（避免同路径冲突）。
 		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "同步与调度", Type: menumodel.TypeDirectory, Path: "/resource/sync-group", Icon: "refresh", SortOrder: 3, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/resource/sync-group", Platform: menumodel.PlatformAdmin, Name: "同步与调度", Type: menumodel.TypeMenu, Path: "/resource/sync-center", Component: "resource/sync-center/index", Icon: "refresh", SortOrder: 1, Status: menumodel.StatusActive},
+		// 旧重复页面菜单置 disabled 隐藏（前端旧路径保留 redirect，P7/T7.4 下线）。
 		{ParentKey: "admin:/resource/sync-group", Platform: menumodel.PlatformAdmin, Name: "同步任务", Type: menumodel.TypeMenu, Path: "/resource/sync", Component: "resource/sync/index", Icon: "refresh", SortOrder: 91, Status: menumodel.StatusDisabled},
 		{ParentKey: "admin:/resource/sync-group", Platform: menumodel.PlatformAdmin, Name: "同步日志", Type: menumodel.TypeMenu, Path: "/resource/logs", Component: "resource/logs/index", Icon: "history", SortOrder: 92, Status: menumodel.StatusDisabled},
 		{ParentKey: "admin:/resource/sync-group", Platform: menumodel.PlatformAdmin, Name: "对账报告", Type: menumodel.TypeMenu, Path: "/resource/reconciliation", Component: "resource/reconciliation/index", Icon: "verify", SortOrder: 93, Status: menumodel.StatusDisabled},
-		// —— 资源商品管理（doc10 §5.4）
-		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "资源商品管理", Type: menumodel.TypeDirectory, Path: "/resource/products-center", Icon: "product", SortOrder: 4, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/products-center", Platform: menumodel.PlatformAdmin, Name: "商品列表", Type: menumodel.TypeMenu, Path: "/resource/products", Component: "resource/products/index", Icon: "product", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/products-center", Platform: menumodel.PlatformAdmin, Name: "商品同步", Type: menumodel.TypeMenu, Path: "/resource/product-sync", Component: "resource/product-sync/index", Icon: "cloud-download", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/products-center", Platform: menumodel.PlatformAdmin, Name: "定价管理", Type: menumodel.TypeMenu, Path: "/resource/pricing", Component: "resource/pricing/index", Icon: "money", SortOrder: 3, Status: menumodel.StatusActive},
-		// —— 实例资源
-		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "实例资源", Type: menumodel.TypeDirectory, Path: "/resource/instance", Icon: "server", SortOrder: 5, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/sync-group", Platform: menumodel.PlatformAdmin, Name: "同步监控", Type: menumodel.TypeMenu, Path: "/resource/sync-monitor", Component: "resource/sync-monitor/index", Icon: "data-checked", SortOrder: 94, Status: menumodel.StatusDisabled},
+		// —— 实例
+		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "实例", Type: menumodel.TypeDirectory, Path: "/resource/instance", Icon: "server", SortOrder: 4, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/resource/instance", Platform: menumodel.PlatformAdmin, Name: "云主机实例", Type: menumodel.TypeMenu, Path: "/resource/instances", Component: "resource/instances/index", Icon: "server", SortOrder: 1, Status: menumodel.StatusActive},
 		// —— 实例管理（一级菜单，跨用户操作、维护与售后）：见 docs/实施计划/61-实例运维管理台实施计划.md
 		// 父级必须排在子项之前，否则 ParentKey 解析取不到父节点会导致 seed 失败。
 		{Platform: menumodel.PlatformAdmin, Name: "实例管理", Type: menumodel.TypeDirectory, Path: "/instances", Icon: "server", SortOrder: 4, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "实例运维台", Type: menumodel.TypeMenu, Path: "/instances/list", Component: "instances/index", Icon: "server", SortOrder: 1, Status: menumodel.StatusActive},
-		// —— 运维工具（doc10 §5.5）
-		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "运维工具", Type: menumodel.TypeDirectory, Path: "/resource/ops", Icon: "setting", SortOrder: 6, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "API测试", Type: menumodel.TypeMenu, Path: "/resource/api-test", Component: "resource/api-test/index", Icon: "ai-tool", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "异常处理", Type: menumodel.TypeMenu, Path: "/resource/anomalies", Component: "resource/anomalies/index", Icon: "error-circle", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeMenu, Path: "/resource/settings", Component: "resource/settings/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
+		// —— 运维（doc16 §9.2）：异常处理；模块配置并入系统配置（/system/config）。
+		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "运维", Type: menumodel.TypeDirectory, Path: "/resource/ops", Icon: "setting", SortOrder: 5, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "异常处理", Type: menumodel.TypeMenu, Path: "/resource/anomalies", Component: "resource/anomalies/index", Icon: "error-circle", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "API测试", Type: menumodel.TypeMenu, Path: "/resource/api-test", Component: "resource/api-test/index", Icon: "ai-tool", SortOrder: 91, Status: menumodel.StatusDisabled},
+		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeMenu, Path: "/resource/settings", Component: "resource/settings/index", Icon: "setting", SortOrder: 92, Status: menumodel.StatusDisabled},
+		// 资源总览/看板并入「容量与位置」看板（doc16 §9.4），旧菜单隐藏。
+		{ParentKey: "admin:/resource/channels", Platform: menumodel.PlatformAdmin, Name: "资源总览", Type: menumodel.TypeMenu, Path: "/resource/dashboard", Component: "resource/dashboard/index", Icon: "dashboard", SortOrder: 95, Status: menumodel.StatusDisabled},
+		// 旧分组目录行（库里残留）置 disabled，避免侧边栏出现空目录。
+		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "资源总览", Type: menumodel.TypeDirectory, Path: "/resource/overview", Icon: "dashboard", SortOrder: 96, Status: menumodel.StatusDisabled},
+		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "上游对接管理", Type: menumodel.TypeDirectory, Path: "/resource/connection", Icon: "cloud", SortOrder: 97, Status: menumodel.StatusDisabled},
 
 		// —— 产品管理（面向终端售卖，三层树）
 		{Platform: menumodel.PlatformAdmin, Name: "产品管理", Type: menumodel.TypeDirectory, Path: "/product", Icon: "product", SortOrder: 5, Status: menumodel.StatusActive},
