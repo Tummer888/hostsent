@@ -35,11 +35,31 @@ func writeNotifyError(err error) *apperrors.AppError {
 	switch {
 	case errors.Is(err, notifyservice.ErrAnnouncementNotFound),
 		errors.Is(err, notifyservice.ErrNotificationNotFound),
-		errors.Is(err, notifyservice.ErrTemplateNotFound):
+		errors.Is(err, notifyservice.ErrTemplateNotFound),
+		errors.Is(err, notifyservice.ErrChannelNotFound),
+		errors.Is(err, notifyservice.ErrSmsTemplateNotFound),
+		errors.Is(err, notifyservice.ErrTemplateVarNotFound),
+		errors.Is(err, notifyservice.ErrDeliveryNotFound):
 		return apperrors.New(20002, err.Error())
-	case errors.Is(err, notifyservice.ErrTemplateExists):
+	case errors.Is(err, notifyservice.ErrTemplateExists),
+		errors.Is(err, notifyservice.ErrChannelCodeExists),
+		errors.Is(err, notifyservice.ErrSmsTemplateCodeExists),
+		errors.Is(err, notifyservice.ErrTemplateVarKeyExists):
 		return apperrors.New(20004, err.Error())
-	case errors.Is(err, notifyservice.ErrInvalidParams):
+	case errors.Is(err, notifyservice.ErrDeliveryNotRetryable),
+		errors.Is(err, notifyservice.ErrNoDeliveryForNotification),
+		errors.Is(err, notifyservice.ErrSmsTemplateInUse):
+		return apperrors.New(20003, err.Error())
+	case errors.Is(err, notifyservice.ErrBroadcastTooMany):
+		return apperrors.New(20005, err.Error())
+	case errors.Is(err, notifyservice.ErrChannelNotConfigured):
+		return apperrors.New(20006, err.Error())
+	case errors.Is(err, notifyservice.ErrInvalidParams),
+		errors.Is(err, notifyservice.ErrChannelTypeUnknown),
+		errors.Is(err, notifyservice.ErrUnregisteredVar),
+		errors.Is(err, notifyservice.ErrBroadcastTargetEmpty),
+		errors.Is(err, notifyservice.ErrBroadcastChannelEmpty),
+		errors.Is(err, notifyservice.ErrBroadcastSmsTemplateRequired):
 		return apperrors.New(20001, err.Error())
 	default:
 		return apperrors.New(50001, err.Error())

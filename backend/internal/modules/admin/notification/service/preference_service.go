@@ -6,6 +6,7 @@ import (
 	notifydto "hostsent/backend/internal/modules/admin/notification/dto"
 	notifymodel "hostsent/backend/internal/modules/admin/notification/model"
 	notifyrepo "hostsent/backend/internal/modules/admin/notification/repository"
+	"hostsent/backend/internal/pkg/notifier"
 )
 
 // PreferenceService 用户通知偏好服务。
@@ -43,10 +44,15 @@ func (s *preferenceService) ListByUser(ctx context.Context, userID uint64) ([]no
 			Event:   tpl.Event,
 			InboxOn: tpl.InboxOn,
 			MailOn:  tpl.MailOn,
+			SmsOn:   tpl.SmsOn,
+			// 强制送达事件（OTP/验证码）在用户端置灰：后端仍回显当前值，
+			// 但 Publish 侧经 IsMandatoryEvent 豁免，关掉也不生效（doc90 §8.7）。
+			Mandatory: notifier.IsMandatoryEvent(tpl.Event),
 		}
 		if pref, ok := prefMap[tpl.Event]; ok {
 			item.InboxOn = pref.InboxOn
 			item.MailOn = pref.MailOn
+			item.SmsOn = pref.SmsOn
 		}
 		result = append(result, item)
 	}
@@ -61,6 +67,7 @@ func (s *preferenceService) BatchUpsert(ctx context.Context, userID uint64, item
 			Event:   item.Event,
 			InboxOn: item.InboxOn,
 			MailOn:  item.MailOn,
+			SmsOn:   item.SmsOn,
 		})
 	}
 	return s.repo.BatchUpsert(ctx, prefs)

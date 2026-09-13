@@ -198,12 +198,6 @@ export function getAdminList(params: AdminListQuery): Promise<AdminListResponse>
   })
 }
 
-export function getAdminDetail(id: string | number): Promise<AdminInfo> {
-  return request.get<AdminInfo>({
-    url: `/staff/${id}`,
-  })
-}
-
 export function createAdmin(data: AdminCreateRequest): Promise<AdminInfo> {
   return request.post<AdminInfo>({
     url: '/staff',
@@ -270,10 +264,6 @@ export function getDepartmentList(params?: DepartmentListQuery): Promise<Departm
       keyword: params?.keyword,
     },
   })
-}
-
-export function getDepartmentDetail(id: number): Promise<DepartmentInfo> {
-  return request.get<DepartmentInfo>({ url: `/departments/${id}` })
 }
 
 export function createDepartment(data: DepartmentSaveRequest): Promise<DepartmentInfo> {
@@ -415,12 +405,6 @@ export function getPoolList(params: PoolListQuery): Promise<PoolListResponse> {
   })
 }
 
-export function getPoolDetail(id: number): Promise<PoolInfo> {
-  return request.get<PoolInfo>({
-    url: `/resource/pools/${id}`,
-  })
-}
-
 // ===== 上游商品 =====
 
 export function getProductList(params: ProductListQuery): Promise<ProductListResponse> {
@@ -461,12 +445,6 @@ export function getSyncTaskList(params: SyncTaskListQuery): Promise<SyncTaskList
       page: params.page,
       page_size: params.page_size,
     },
-  })
-}
-
-export function getSyncTaskDetail(id: number): Promise<SyncTaskInfo> {
-  return request.get<SyncTaskInfo>({
-    url: `/resource/sync/tasks/${id}`,
   })
 }
 
@@ -596,12 +574,6 @@ export function getTaskQueueList(params: TaskQueueListQuery): Promise<TaskQueueL
       page: params.page,
       page_size: params.page_size,
     },
-  })
-}
-
-export function getTaskQueueCategories(): Promise<TaskQueueCategoryCount[]> {
-  return request.get<TaskQueueCategoryCount[]>({
-    url: '/resource/task-queue/categories',
   })
 }
 

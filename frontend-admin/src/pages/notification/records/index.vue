@@ -10,6 +10,10 @@
         </div>
       </div>
       <t-space size="small">
+        <t-button variant="outline" @click="goDeliveries">
+          <template #icon><RootListIcon aria-hidden="true" /></template>
+          去发送日志
+        </t-button>
         <t-button variant="outline" :loading="loading" @click="loadData">
           <template #icon><RefreshIcon aria-hidden="true" /></template>
           刷新
@@ -86,6 +90,9 @@
             {{ channelLabel(row.channel) }}
           </t-tag>
         </template>
+        <template #content_format="{ row }">
+          <span class="cell-muted">{{ formatLabel(row.content_format) }}</span>
+        </template>
         <template #send_status="{ row }">
           <t-tag :theme="sendStatusTheme(row.send_status)" variant="light" size="small" shape="round">
             {{ sendStatusLabel(row.send_status) }}
@@ -99,18 +106,18 @@
         </template>
         <template #action="{ row }">
 <div class="action-cell">
-            <MobileAction
+              <MobileAction
               v-if="isMobile"
               :options="buildMobileActionOptions([
                 { content: '查看', value: 'detail', theme: 'default' },
-                { content: '重发', value: 'resend', hidden: () => !(row.channel === 'mail' && row.send_status === 'failed'), theme: 'warning' },
+                { content: '重发', value: 'resend', hidden: () => !canResend(row), theme: 'warning' },
               ])"
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
               <t-link theme="primary" hover="color" @click="openDetail(row)">查看</t-link>
               <t-link
-                v-if="row.channel === 'mail' && row.send_status === 'failed'"
+                v-if="canResend(row)"
                 theme="warning"
                 hover="color"
                 @click="handleResend(row)"
@@ -151,16 +158,27 @@
         <div class="detail-row"><span>渠道</span>
           <t-tag :theme="channelTheme(currentRow.channel)" variant="light" size="small">{{ channelLabel(currentRow.channel) }}</t-tag>
         </div>
+        <div class="detail-row"><span>格式</span>{{ formatLabel(currentRow.content_format) }}</div>
         <div class="detail-row"><span>状态</span>
           <t-tag :theme="sendStatusTheme(currentRow.send_status)" variant="light" size="small">{{ sendStatusLabel(currentRow.send_status) }}</t-tag>
         </div>
+        <div v-if="currentRow.delivery_id" class="detail-row"><span>投递记录</span>#{{ currentRow.delivery_id }}</div>
         <div class="detail-row"><span>来源模块</span>{{ currentRow.source_module || '—' }}</div>
         <div class="detail-row"><span>创建时间</span>{{ formatTime(currentRow.created_at) }}</div>
         <div v-if="currentRow.sent_at" class="detail-row"><span>发送时间</span>{{ formatTime(currentRow.sent_at) }}</div>
         <div v-if="currentRow.fail_reason" class="detail-row"><span>失败原因</span><span class="fail-text">{{ currentRow.fail_reason }}</span></div>
         <div class="detail-row detail-row--column"><span>标题</span><b>{{ currentRow.title || '—' }}</b></div>
         <div class="detail-row detail-row--column"><span>正文</span>
-          <pre class="detail-content">{{ currentRow.content || '—' }}</pre>
+          <!--
+            HTML 正文来自本系统后台模板，且已用 DOMPurify 净化：用户资料类变量
+            （用户名/备注）可能含尖括号，直接 v-html 会构成存储型 XSS。
+          -->
+          <div
+            v-if="currentRow.content_format === 'html'"
+            class="detail-content detail-content--html"
+            v-html="safeHtml(currentRow.content)"
+          ></div>
+          <pre v-else class="detail-content">{{ currentRow.content || '—' }}</pre>
         </div>
       </div>
     </t-dialog>
@@ -169,17 +187,22 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ChatIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
+import { useRouter } from 'vue-router'
+
+import { ChatIcon, RefreshIcon, RootListIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import DOMPurify from 'dompurify'
 
 import { getNotifyRecords, resendNotify, type NotifyRecordItem } from '@/api/notification'
 import MobileAction from '@/components/mobile-action/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
+import { formatLabel } from '@/pages/notification/constants'
 
 defineOptions({ name: 'NotifyRecords' })
 
+const router = useRouter()
 const loading = ref(false)
 const { isMobile } = useIsMobile()
 const list = ref<NotifyRecordItem[]>([])
@@ -190,6 +213,7 @@ const page = reactive({ current: 1, size: 10 })
 const channelOptions = [
   { label: '站内信', value: 'inbox' },
   { label: '邮件', value: 'mail' },
+  { label: '短信', value: 'sms' },
 ]
 
 const sendStatusOptions = [
@@ -206,6 +230,7 @@ const targetTypeOptions = [
 const channelMap: Record<string, { label: string; theme: string }> = {
   inbox: { label: '站内信', theme: 'primary' },
   mail: { label: '邮件', theme: 'success' },
+  sms: { label: '短信', theme: 'warning' },
 }
 
 const sendStatusMap: Record<string, { label: string; theme: string }> = {
@@ -254,6 +279,7 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'event', title: '事件', width: 140 },
   { colKey: 'title', title: '标题', minWidth: 180 },
   { colKey: 'channel', title: '渠道', width: 90 },
+  { colKey: 'content_format', title: '格式', width: 80 },
   { colKey: 'send_status', title: '发送状态', width: 100 },
   { colKey: 'source_module', title: '来源模块', width: 120 },
   { colKey: 'created_at', title: '创建时间', width: 160 },
@@ -335,11 +361,25 @@ function openDetail(row: NotifyRecordItem) {
   detailVisible.value = true
 }
 
-// —— 重发失败邮件 ——
+// —— 重发：改为对关联的投递记录重投（doc90 §8.6）——
+// 纯站内信（delivery_id=0）没有外发投递，按钮不显示。
+function canResend(row: NotifyRecordItem): boolean {
+  return row.delivery_id > 0
+}
+
+function goDeliveries() {
+  router.push('/notification/deliveries')
+}
+
+// HTML 正文净化：内容来自本系统模板，但模板变量可能带用户输入（用户名/备注）。
+function safeHtml(content: string): string {
+  return DOMPurify.sanitize(content || '', { USE_PROFILES: { html: true } })
+}
+
 function handleResend(row: NotifyRecordItem) {
   const dialog = DialogPlugin.confirm({
     header: '重发通知',
-    body: `确认对记录 #${row.id} 重新投递吗？`,
+    body: `将重投记录 #${row.id} 关联的投递（#${row.delivery_id}）。已发送的记录不允许重投。`,
     confirmBtn: { content: '确认重发', theme: 'primary', loading: false },
     cancelBtn: { content: '取消' },
     onConfirm: async () => {
@@ -411,6 +451,24 @@ function handleMobileAction(value: string | number | Record<string, any>, row: N
   word-break: break-word;
   max-height: 240px;
   overflow-y: auto;
+}
+/* HTML 正文：保留富文本排版，但同样限制高度与换行行为。 */
+.detail-content--html {
+  white-space: normal;
+}
+.detail-content--html :deep(img) {
+  max-width: 100%;
+  height: auto;
+}
+.detail-content--html :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+}
+.detail-content--html :deep(td),
+.detail-content--html :deep(th) {
+  border: 1px solid #e5e7eb;
+  padding: 4px 8px;
+  font-size: 12px;
 }
 .fail-text {
   color: var(--td-error-color, #d54941);

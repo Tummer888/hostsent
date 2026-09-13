@@ -92,10 +92,6 @@ export function getPaymentOrders(params: PaymentOrderListQuery): Promise<Payment
   })
 }
 
-export function getPaymentOrder(id: number): Promise<PaymentOrderInfo> {
-  return request.get<PaymentOrderInfo>({ url: `/payment/orders/${id}` })
-}
-
 export function confirmPaymentOrder(id: number, data: OrderConfirmRequest): Promise<PaymentOrderInfo> {
   return request.post<PaymentOrderInfo>({ url: `/payment/orders/${id}/confirm`, data })
 }

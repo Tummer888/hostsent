@@ -13,14 +13,14 @@
             </div>
             <div class="header-text">
               <h2 class="card-title">{{ brandStore.name }}</h2>
-              <p class="card-subtitle">{{ authTab === 'login' ? '欢迎回来，请登录账户' : '创建新账户，开启云端之旅' }}</p>
+              <p class="card-subtitle">欢迎回来，请登录账户</p>
             </div>
           </div>
         </div>
 
-        <!-- 登录表单 -->
-        <div v-if="authTab === 'login'" class="form-area">
+        <div class="form-area">
           <t-tabs v-model:value="activeTab" theme="normal" class="login-tabs">
+            <!-- ① 密码登录 -->
             <t-tab-panel value="password" label="密码登录">
               <div class="tab-content-inner">
                 <div class="input-group">
@@ -42,6 +42,7 @@
                     placeholder="请输入登录密码"
                     size="large"
                     class="custom-input"
+                    @enter="handleLogin"
                   >
                     <template #prefix-icon>
                       <LockOnIcon />
@@ -54,37 +55,65 @@
                     </template>
                   </t-input>
                 </div>
-                <div class="input-group captcha-group">
+                <div v-if="needCaptcha('user_login')" class="input-group captcha-group">
                   <t-input
-                    v-model="loginForm.captcha"
-                    placeholder="请输入数字验证码"
+                    v-model="loginForm.captchaCode"
+                    placeholder="请输入图形验证码"
                     size="large"
                     class="custom-input"
+                    maxlength="5"
+                    @enter="handleLogin"
                   >
                     <template #prefix-icon>
                       <ViewListIcon />
                     </template>
                   </t-input>
-                  <div class="captcha-image" title="点击刷新验证码" @click="refreshCaptcha">
-                    <span class="captcha-text">{{ captchaCode }}</span>
-                  </div>
+                  <CaptchaImage
+                    ref="passwordCaptchaRef"
+                    v-model:key="captchaKeys.password"
+                    v-model:code="loginForm.captchaCode"
+                    scene="user_login"
+                  />
+                </div>
+                <div class="helper-row">
+                  <router-link to="/forgot-password" class="helper-link">忘记密码？</router-link>
                 </div>
               </div>
             </t-tab-panel>
 
+            <!-- ② 短信登录 -->
             <t-tab-panel value="sms" label="短信登录">
               <div class="tab-content-inner">
                 <div class="input-group">
                   <t-input
                     v-model="loginForm.phone"
-                    placeholder="请输入登录名/手机号"
+                    placeholder="请输入手机号"
                     size="large"
                     class="custom-input"
                   >
                     <template #prefix-icon>
-                      <UserIcon />
+                      <MobileIcon />
                     </template>
                   </t-input>
+                </div>
+                <div v-if="needCaptcha('user_login_sms')" class="input-group captcha-group">
+                  <t-input
+                    v-model="smsCaptchaCode"
+                    placeholder="请输入图形验证码"
+                    size="large"
+                    class="custom-input"
+                    maxlength="5"
+                  >
+                    <template #prefix-icon>
+                      <ViewListIcon />
+                    </template>
+                  </t-input>
+                  <CaptchaImage
+                    ref="smsCaptchaRef"
+                    v-model:key="captchaKeys.sms"
+                    v-model:code="smsCaptchaCode"
+                    scene="user_login_sms"
+                  />
                 </div>
                 <div class="input-group captcha-group sms-captcha-row">
                   <t-input
@@ -92,6 +121,8 @@
                     placeholder="请输入短信验证码"
                     size="large"
                     class="custom-input sms-code-input"
+                    maxlength="6"
+                    @enter="handleLogin"
                   >
                     <template #prefix-icon>
                       <ChatMessageIcon />
@@ -102,17 +133,80 @@
                     variant="outline"
                     theme="primary"
                     class="send-code-btn"
-                    :disabled="countdown > 0"
-                    @click="handleSendCode"
+                    :disabled="smsCountdown > 0"
+                    :loading="sending.sms"
+                    @click="handleSendCode('sms')"
                   >
-                    {{ countdown > 0 ? `${countdown}s` : '获取验证码' }}
+                    {{ smsCountdown > 0 ? `${smsCountdown}s` : '获取验证码' }}
+                  </t-button>
+                </div>
+              </div>
+            </t-tab-panel>
+
+            <!-- ③ 邮箱登录 -->
+            <t-tab-panel value="email" label="邮箱登录">
+              <div class="tab-content-inner">
+                <div class="input-group">
+                  <t-input
+                    v-model="loginForm.email"
+                    placeholder="请输入邮箱地址"
+                    size="large"
+                    class="custom-input"
+                  >
+                    <template #prefix-icon>
+                      <MailIcon />
+                    </template>
+                  </t-input>
+                </div>
+                <div v-if="needCaptcha('user_login_email')" class="input-group captcha-group">
+                  <t-input
+                    v-model="emailCaptchaCode"
+                    placeholder="请输入图形验证码"
+                    size="large"
+                    class="custom-input"
+                    maxlength="5"
+                  >
+                    <template #prefix-icon>
+                      <ViewListIcon />
+                    </template>
+                  </t-input>
+                  <CaptchaImage
+                    ref="emailCaptchaRef"
+                    v-model:key="captchaKeys.email"
+                    v-model:code="emailCaptchaCode"
+                    scene="user_login_email"
+                  />
+                </div>
+                <div class="input-group captcha-group sms-captcha-row">
+                  <t-input
+                    v-model="loginForm.emailCode"
+                    placeholder="请输入邮箱验证码"
+                    size="large"
+                    class="custom-input sms-code-input"
+                    maxlength="6"
+                    @enter="handleLogin"
+                  >
+                    <template #prefix-icon>
+                      <ChatMessageIcon />
+                    </template>
+                  </t-input>
+                  <t-button
+                    size="small"
+                    variant="outline"
+                    theme="primary"
+                    class="send-code-btn"
+                    :disabled="emailCountdown > 0"
+                    :loading="sending.email"
+                    @click="handleSendCode('email')"
+                  >
+                    {{ emailCountdown > 0 ? `${emailCountdown}s` : '获取验证码' }}
                   </t-button>
                 </div>
               </div>
             </t-tab-panel>
           </t-tabs>
 
-          <t-button theme="primary" size="large" block class="auth-btn" @click="handleLogin">
+          <t-button theme="primary" size="large" block class="auth-btn" :loading="loginLoading" @click="handleLogin">
             登 录
           </t-button>
 
@@ -141,148 +235,42 @@
           </div>
         </div>
 
-        <!-- 注册表单 -->
-        <div v-else class="form-area">
-          <div class="input-group">
-            <t-input
-              v-model="registerForm.username"
-              placeholder="请输入用户名"
-              size="large"
-              class="custom-input"
-            >
-              <template #prefix-icon>
-                <UserIcon />
-              </template>
-            </t-input>
-          </div>
-          <div class="input-group">
-            <t-input
-              v-model="registerForm.email"
-              placeholder="请输入邮箱"
-              size="large"
-              class="custom-input"
-            >
-              <template #prefix-icon>
-                <MailIcon />
-              </template>
-            </t-input>
-          </div>
-          <div class="input-group">
-            <t-input
-              v-model="registerForm.phone"
-              placeholder="请输入手机号"
-              size="large"
-              class="custom-input"
-            >
-              <template #prefix-icon>
-                <MobileIcon />
-              </template>
-            </t-input>
-          </div>
-          <div class="input-group">
-            <t-input
-              v-model="registerForm.password"
-              :type="showRegisterPassword ? 'text' : 'password'"
-              placeholder="请设置登录密码"
-              size="large"
-              class="custom-input"
-            >
-              <template #prefix-icon>
-                <LockOnIcon />
-              </template>
-              <template #suffix-icon>
-                <span class="password-toggle" @click="showRegisterPassword = !showRegisterPassword">
-                  <BrowseIcon v-if="!showRegisterPassword" />
-                  <BrowseOffIcon v-else />
-                </span>
-              </template>
-            </t-input>
-          </div>
-          <div class="input-group">
-            <t-input
-              v-model="registerForm.confirmPassword"
-              :type="showConfirmPassword ? 'text' : 'password'"
-              placeholder="请确认密码"
-              size="large"
-              class="custom-input"
-            >
-              <template #prefix-icon>
-                <LockOnIcon />
-              </template>
-              <template #suffix-icon>
-                <span class="password-toggle" @click="showConfirmPassword = !showConfirmPassword">
-                  <BrowseIcon v-if="!showConfirmPassword" />
-                  <BrowseOffIcon v-else />
-                </span>
-              </template>
-            </t-input>
-          </div>
-          <div class="input-group captcha-group">
-            <t-input
-              v-model="registerForm.captcha"
-              placeholder="请输入验证码"
-              size="large"
-              class="custom-input"
-            >
-              <template #prefix-icon>
-                <ViewListIcon />
-              </template>
-            </t-input>
-            <div class="captcha-image" title="点击刷新验证码" @click="refreshCaptcha">
-              <span class="captcha-text">{{ captchaCode }}</span>
-            </div>
-          </div>
-
-          <t-button theme="primary" size="large" block class="auth-btn" @click="handleRegister">
-            注 册
-          </t-button>
-        </div>
-
         <div class="card-footer">
+          <p class="register-hint">
+            还没有账号？<router-link to="/register" class="helper-link">立即注册</router-link>
+          </p>
           <p>{{ brandStore.copyrightText }}</p>
-        </div>
-
-        <!-- 移动端底部切换 -->
-        <div class="mobile-switch">
-          <span
-            class="mobile-switch-item"
-            :class="{ active: authTab === 'login' }"
-            @click="authTab = 'login'"
-          >登录</span>
-          <span class="mobile-switch-divider">|</span>
-          <span
-            class="mobile-switch-item"
-            :class="{ active: authTab === 'register' }"
-            @click="authTab = 'register'"
-          >注册</span>
         </div>
       </div>
 
-      <!-- 右侧切换标签 -->
+      <!-- 右侧切换标签：注册跳独立页（与登录页表单不重复维护两套校验） -->
       <div class="side-tabs">
-        <div
-          class="side-tab"
-          :class="{ active: authTab === 'login' }"
-          @click="authTab = 'login'"
-        >
+        <div class="side-tab active">
           <UserIcon class="side-tab-icon" />
           <span class="side-tab-label">登录</span>
         </div>
-        <div
-          class="side-tab"
-          :class="{ active: authTab === 'register' }"
-          @click="authTab = 'register'"
-        >
+        <div class="side-tab" @click="goRegister">
           <UserIcon class="side-tab-icon" />
           <span class="side-tab-label">注册</span>
         </div>
       </div>
     </div>
+
+    <LoginOTPVerifyDialog
+      v-model:visible="otpVisible"
+      :otp-token="otpToken"
+      :otp-channel="otpContext.channel"
+      :otp-target-masked="otpContext.targetMasked"
+      :otp-expire-in="otpContext.expireIn"
+      :submitting="otpSubmitting"
+      @verify="onVerifyOTP"
+      @resend="onResendOTP"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import {
@@ -302,8 +290,12 @@ import {
   LogoGithubIcon,
 } from 'tdesign-icons-vue-next'
 
+import CaptchaImage from '@/components/verify/CaptchaImage.vue'
+import LoginOTPVerifyDialog from '@/pages/login/components/LoginOTPVerifyDialog.vue'
+import { sendVerifyCode } from '@/api/public'
 import { useUserStore } from '@/store'
 import { useBrandStore } from '@/store/modules/brand'
+import { imageRequired, loadAuthConfig, otpChannel } from '@/utils/captcha-resource'
 
 defineOptions({ name: 'UserLogin' })
 
@@ -314,104 +306,235 @@ const router = useRouter()
 const userStore = useUserStore()
 const brandStore = useBrandStore()
 
-const authTab = ref<'login' | 'register'>('login')
-const activeTab = ref('password')
+const activeTab = ref<'password' | 'sms' | 'email'>('password')
 const showPassword = ref(false)
-const showRegisterPassword = ref(false)
-const showConfirmPassword = ref(false)
-const countdown = ref(0)
 const loginLoading = ref(false)
-const registerLoading = ref(false)
-const captchaCode = ref('7044')
+const sending = reactive({ sms: false, email: false })
+const smsCountdown = ref(0)
+const emailCountdown = ref(0)
+
+/** 各 tab 的图形码 key（图形码一次性：换 tab 也要保留各自的 key，不能互相覆盖）。 */
+const captchaKeys = reactive({ password: '', sms: '', email: '' })
+
+const passwordCaptchaRef = ref<InstanceType<typeof CaptchaImage> | null>(null)
+const smsCaptchaRef = ref<InstanceType<typeof CaptchaImage> | null>(null)
+const emailCaptchaRef = ref<InstanceType<typeof CaptchaImage> | null>(null)
+
+/** 短信/邮箱 tab 的图形码输入值单独存放：密码 tab 那个同名输入框是给密码登录用的。 */
+const smsCaptchaCode = ref('')
+const emailCaptchaCode = ref('')
 
 const loginForm = reactive({
   username: '',
   password: '',
-  captcha: '',
+  captchaCode: '',
   phone: '',
   smsCode: '',
-})
-
-const registerForm = reactive({
-  username: '',
   email: '',
-  phone: '',
-  password: '',
-  confirmPassword: '',
-  captcha: '',
+  emailCode: '',
 })
 
-function handleSendCode() {
-  countdown.value = 60
+// —— 登录二次验证（doc91 §4.6）——
+const otpVisible = ref(false)
+const otpSubmitting = ref(false)
+const otpToken = ref('')
+const otpContext = reactive({ channel: '', targetMasked: '', expireIn: 0 })
+/** 重发验证码 = 重放密码登录（后端会重新下发 OTP 并换发新 otp_token）。 */
+const lastCredentials = ref<{ username: string; password: string } | null>(null)
+
+/** 场景是否要求图形码（auth-config 未加载或总闸关闭时恒 false）。 */
+function needCaptcha(scene: string): boolean {
+  return imageRequired(scene)
+}
+
+/** 各 tab 对应的登录场景（决定图形码 key 与发送场景）。 */
+const sceneOf = computed(() => ({ sms: 'user_login_sms', email: 'user_login_email' }) as const)
+
+function startCountdown(target: 'sms' | 'email') {
+  const counter = target === 'sms' ? smsCountdown : emailCountdown
+  counter.value = 60
   const timer = setInterval(() => {
-    countdown.value--
-    if (countdown.value <= 0) {
-      clearInterval(timer)
-    }
+    counter.value -= 1
+    if (counter.value <= 0) clearInterval(timer)
   }, 1000)
 }
 
-function refreshCaptcha() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  let code = ''
-  for (let i = 0; i < 4; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)]
+/** 真实下发验证码（doc91 §4.1）：图形码先验、失败即换新图。 */
+async function handleSendCode(target: 'sms' | 'email') {
+  const scene = sceneOf.value[target]
+  const channel = target === 'sms' ? 'sms' : 'email'
+  const rawTarget = target === 'sms' ? loginForm.phone.trim() : loginForm.email.trim()
+  if (!rawTarget) {
+    MessagePlugin.warning(target === 'sms' ? '请先输入手机号' : '请先输入邮箱地址')
+    return
   }
-  captchaCode.value = code
+  const captchaCode = target === 'sms' ? smsCaptchaCode.value : emailCaptchaCode.value
+  const captchaKey = target === 'sms' ? captchaKeys.sms : captchaKeys.email
+  if (needCaptcha(scene) && !captchaCode.trim()) {
+    MessagePlugin.warning('请先输入图形验证码')
+    return
+  }
+  sending[target] = true
+  try {
+    const res = await sendVerifyCode({
+      scene,
+      channel,
+      target: rawTarget,
+      captcha_key: captchaKey || undefined,
+      captcha_code: captchaCode.trim() || undefined,
+    })
+    MessagePlugin.success(`验证码已发送至 ${res.target_masked || rawTarget}`)
+    startCountdown(target)
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '验证码发送失败')
+  } finally {
+    // 图形码是一次性的：无论成功失败都要换新图，否则用户拿着旧图永远过不了。
+    if (target === 'sms') {
+      smsCaptchaCode.value = ''
+      smsCaptchaRef.value?.refresh()
+    } else {
+      emailCaptchaCode.value = ''
+      emailCaptchaRef.value?.refresh()
+    }
+    sending[target] = false
+  }
 }
 
-// 登录：调用后端 /auth/login，成功后写入 token 并跳转
+/** 登录成功后的统一收尾。 */
+async function finishLogin() {
+  MessagePlugin.success('登录成功')
+  const redirect = (route.query.redirect as string) || '/'
+  router.replace(redirect)
+}
+
+/** 命中二次验证时弹 OTP 框，否则直接完成登录。 */
+async function afterLogin(outcome: { needOTP: boolean; otpToken?: string; otpChannel?: string; otpTargetMasked?: string; otpExpireIn?: number }) {
+  if (outcome.needOTP && outcome.otpToken) {
+    otpToken.value = outcome.otpToken
+    otpContext.channel = outcome.otpChannel || ''
+    otpContext.targetMasked = outcome.otpTargetMasked || ''
+    otpContext.expireIn = outcome.otpExpireIn || 0
+    otpVisible.value = true
+    MessagePlugin.info('请完成二次验证')
+    return
+  }
+  await finishLogin()
+}
+
 async function handleLogin() {
-  if (activeTab.value === 'sms') {
-    MessagePlugin.info('短信登录暂未开放，请使用密码登录')
-    return
-  }
-  if (!loginForm.username || !loginForm.password) {
-    MessagePlugin.warning('请输入用户名和密码')
-    return
-  }
   loginLoading.value = true
   try {
-    await userStore.login({
-      username: loginForm.username,
-      password: loginForm.password,
+    if (activeTab.value === 'password') {
+      if (!loginForm.username || !loginForm.password) {
+        MessagePlugin.warning('请输入用户名和密码')
+        return
+      }
+      if (needCaptcha('user_login') && !loginForm.captchaCode.trim()) {
+        MessagePlugin.warning('请输入图形验证码')
+        return
+      }
+      lastCredentials.value = { username: loginForm.username, password: loginForm.password }
+      const outcome = await userStore.login({
+        login_type: 'password',
+        username: loginForm.username,
+        password: loginForm.password,
+        captcha_key: captchaKeys.password || undefined,
+        captcha_code: loginForm.captchaCode.trim() || undefined,
+      })
+      await afterLogin(outcome)
+      return
+    }
+
+    if (activeTab.value === 'sms') {
+      if (!loginForm.phone.trim() || !loginForm.smsCode.trim()) {
+        MessagePlugin.warning('请输入手机号和短信验证码')
+        return
+      }
+      const outcome = await userStore.login({
+        login_type: 'sms',
+        phone: loginForm.phone.trim(),
+        code: loginForm.smsCode.trim(),
+        captcha_key: captchaKeys.sms || undefined,
+        captcha_code: smsCaptchaCode.value.trim() || undefined,
+      })
+      await afterLogin(outcome)
+      return
+    }
+
+    if (!loginForm.email.trim() || !loginForm.emailCode.trim()) {
+      MessagePlugin.warning('请输入邮箱地址和邮箱验证码')
+      return
+    }
+    const outcome = await userStore.login({
+      login_type: 'email',
+      email: loginForm.email.trim(),
+      code: loginForm.emailCode.trim(),
+      captcha_key: captchaKeys.email || undefined,
+      captcha_code: emailCaptchaCode.value.trim() || undefined,
     })
-    MessagePlugin.success('登录成功')
-    const redirect = (route.query.redirect as string) || '/'
-    router.replace(redirect)
-  } catch (e: any) {
-    console.error('Login failed:', e)
+    await afterLogin(outcome)
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '登录失败，请稍后重试')
+    // 登录失败同样消费掉了图形码（后端校验即销毁），必须换新图。
+    if (activeTab.value === 'password') {
+      loginForm.captchaCode = ''
+      passwordCaptchaRef.value?.refresh()
+    }
   } finally {
     loginLoading.value = false
   }
 }
 
-// 注册：调用后端 /auth/register，成功后切换到登录标签
-async function handleRegister() {
-  if (!registerForm.username || !registerForm.email || !registerForm.password) {
-    MessagePlugin.warning('请填写用户名、邮箱和密码')
-    return
-  }
-  if (registerForm.password !== registerForm.confirmPassword) {
-    MessagePlugin.warning('两次输入的密码不一致')
-    return
-  }
-  registerLoading.value = true
+/** OTP 校验通过 → 换正式令牌。 */
+async function onVerifyOTP(code: string) {
+  if (!otpToken.value) return
   try {
-    await userStore.register({
-      username: registerForm.username,
-      email: registerForm.email,
-      phone: registerForm.phone,
-      password: registerForm.password,
-    })
-    MessagePlugin.success('注册成功，请登录')
-    authTab.value = 'login'
-  } catch (e: any) {
-    console.error('Register failed:', e)
+    otpSubmitting.value = true
+    await userStore.loginVerifyOTP(otpToken.value, code)
+    otpVisible.value = false
+    await finishLogin()
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '验证失败，请重试')
   } finally {
-    registerLoading.value = false
+    otpSubmitting.value = false
   }
 }
+
+/** 重发：重放密码登录以拿新的 otp_token。 */
+async function onResendOTP() {
+  const creds = lastCredentials.value
+  if (!creds) {
+    MessagePlugin.warning('请返回重新输入账号密码')
+    otpVisible.value = false
+    return
+  }
+  try {
+    const outcome = await userStore.login({
+      login_type: 'password',
+      username: creds.username,
+      password: creds.password,
+    })
+    if (outcome.needOTP && outcome.otpToken) {
+      otpToken.value = outcome.otpToken
+      otpContext.channel = outcome.otpChannel || otpContext.channel
+      otpContext.targetMasked = outcome.otpTargetMasked || otpContext.targetMasked
+      otpContext.expireIn = outcome.otpExpireIn || otpContext.expireIn
+    }
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '验证码发送失败，请稍后重试')
+  }
+}
+
+function goRegister() {
+  router.push('/register')
+}
+
+// 预留：策略里 OTP 默认通道（当前仅用于展示提示，可扩展为默认 tab）。
+void otpChannel
+
+onMounted(() => {
+  void loadAuthConfig()
+})
 </script>
 
 <style scoped>
@@ -555,7 +678,7 @@ async function handleRegister() {
 
 /* 子Tab样式 */
 .login-tabs {
-  margin-bottom: 32px;
+  margin-bottom: 28px;
 }
 
 .login-tabs :deep(.t-tabs__nav) {
@@ -586,7 +709,7 @@ async function handleRegister() {
 
 /* 输入框样式 */
 .input-group {
-  margin-bottom: 24px;
+  margin-bottom: 22px;
 }
 
 /* TDesign Input - 直接在 .t-input 上设置背景和边框 */
@@ -652,6 +775,12 @@ async function handleRegister() {
 .captcha-group {
   display: flex;
   gap: 12px;
+  align-items: center;
+}
+
+.captcha-group > :first-child {
+  flex: 1;
+  min-width: 0;
 }
 
 /* 短信验证码行：输入框 + 按钮 */
@@ -667,54 +796,20 @@ async function handleRegister() {
   flex-shrink: 0;
 }
 
-.captcha-image {
-  width: 100px;
-  height: 46px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #f0f5ff 0%, #e0ecff 50%, #e8f0ff 100%);
-  border: 1px solid rgba(0, 82, 217, 0.2);
+.helper-row {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  user-select: none;
-  transition: all 0.25s ease;
-  flex-shrink: 0;
-  position: relative;
-  overflow: hidden;
+  justify-content: flex-end;
+  margin: -12px 0 4px;
 }
 
-.captcha-image::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    repeating-linear-gradient(
-      45deg,
-      transparent,
-      transparent 4px,
-      rgba(0, 82, 217, 0.03) 4px,
-      rgba(0, 82, 217, 0.03) 8px
-    );
-  pointer-events: none;
-}
-
-.captcha-image:hover {
-  border-color: #0052d9;
-  transform: scale(1.02);
-}
-
-.captcha-text {
-  font-family: 'Courier New', 'Consolas', monospace;
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: 3px;
+.helper-link {
+  font-size: 12px;
   color: #0052d9;
-  text-decoration: line-through;
-  text-decoration-color: rgba(0, 82, 217, 0.25);
-  position: relative;
-  z-index: 1;
-  transform: skewX(-5deg);
+  text-decoration: none;
+}
+
+.helper-link:hover {
+  text-decoration: underline;
 }
 
 /* 发送验证码按钮 - 通用 */
@@ -852,34 +947,9 @@ async function handleRegister() {
   line-height: 1.6;
 }
 
-/* 移动端底部切换 */
-.mobile-switch {
-  display: none;
-  justify-content: center;
-  align-items: center;
-  gap: 12px;
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid rgba(0, 82, 217, 0.08);
-}
-
-.mobile-switch-item {
-  font-size: 14px;
-  font-weight: 500;
-  color: #64748b;
-  cursor: pointer;
-  padding: 4px 8px;
-  transition: all 0.2s;
-}
-
-.mobile-switch-item.active {
-  color: #0052d9;
-  font-weight: 600;
-}
-
-.mobile-switch-divider {
-  color: #cbd5e1;
-  font-size: 14px;
+.register-hint {
+  margin-bottom: 8px !important;
+  font-size: 13px !important;
 }
 
 /* ============ 右侧切换标签 ============ */
@@ -1003,10 +1073,6 @@ async function handleRegister() {
     display: none;
   }
 
-  .mobile-switch {
-    display: flex;
-  }
-
   .input-group {
     margin-left: 4px;
     margin-right: 4px;
@@ -1039,12 +1105,8 @@ async function handleRegister() {
 
   .captcha-group {
     flex-direction: column;
+    align-items: stretch;
     gap: 12px;
-  }
-
-  .captcha-image {
-    width: 100%;
-    height: 44px;
   }
 
   .send-code-btn {

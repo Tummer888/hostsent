@@ -5,6 +5,9 @@ import "time"
 type AdminLoginRequest struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
+	// CaptchaKey/CaptchaCode 图形验证码（doc91 C3）；策略未要求图形码时可不传。
+	CaptchaKey  string `json:"captcha_key"`
+	CaptchaCode string `json:"captcha_code"`
 }
 
 type AdminInfo struct {
@@ -51,6 +54,23 @@ type AdminLoginResponse struct {
 	Menus       []string  `json:"menus"`
 	// MustChangePassword 为 true 时前端强制跳转改密页
 	MustChangePassword bool `json:"must_change_password"`
+	// —— 登录二次验证（doc91 §5.2）——
+	// NeedOTP 为 true 时本次不返回 token，前端需引导用户完成 OTP 验证。
+	NeedOTP bool `json:"need_otp,omitempty"`
+	// OTPToken 待验证令牌（只能用一次，aud=otp_pending）。
+	OTPToken string `json:"otp_token,omitempty"`
+	// OTPChannel 本次二次验证使用的通道（email/sms）。
+	OTPChannel string `json:"otp_channel,omitempty"`
+	// OTPTargetMasked 二次验证目标的打码值。
+	OTPTargetMasked string `json:"otp_target_masked,omitempty"`
+	// OTPExpireIn 待验证令牌有效期（秒）。
+	OTPExpireIn int `json:"otp_expire_in,omitempty"`
+}
+
+// AdminVerifyOTPRequest 管理端登录二次验证（doc91 §5.2）。
+type AdminVerifyOTPRequest struct {
+	OTPToken string `json:"otp_token" binding:"required"`
+	Code     string `json:"code" binding:"required"`
 }
 
 type AdminCreateRequest struct {

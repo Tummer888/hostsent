@@ -42,13 +42,39 @@
         :loading="loading"
       >
         <template #event="{ row }">
-          <span class="cell-strong">{{ eventLabel(row.event) }}</span>
+          <div class="event-cell">
+            <span class="cell-strong">{{ eventLabel(row.event) }}</span>
+            <t-tooltip v-if="row.mandatory" content="安全验证通知不可关闭（验证码必须送达）">
+              <t-tag theme="warning" variant="light" size="small">
+                <template #icon><LockOnIcon /></template>
+                安全验证通知不可关闭
+              </t-tag>
+            </t-tooltip>
+          </div>
         </template>
         <template #inbox_on="{ row }">
-          <t-switch :value="row.inbox_on" size="small" @change="(val: boolean) => { row.inbox_on = val; markDirty() }" />
+          <t-switch
+            :value="row.inbox_on"
+            size="small"
+            :disabled="row.mandatory"
+            @change="(val: boolean) => { row.inbox_on = val; markDirty() }"
+          />
         </template>
         <template #mail_on="{ row }">
-          <t-switch :value="row.mail_on" size="small" @change="(val: boolean) => { row.mail_on = val; markDirty() }" />
+          <t-switch
+            :value="row.mail_on"
+            size="small"
+            :disabled="row.mandatory"
+            @change="(val: boolean) => { row.mail_on = val; markDirty() }"
+          />
+        </template>
+        <template #sms_on="{ row }">
+          <t-switch
+            :value="row.sms_on"
+            size="small"
+            :disabled="row.mandatory"
+            @change="(val: boolean) => { row.sms_on = val; markDirty() }"
+          />
         </template>
         <template #empty>
           <t-empty description="暂无通知偏好配置" />
@@ -71,7 +97,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 
-import { RefreshIcon, SaveIcon, SettingIcon } from 'tdesign-icons-vue-next'
+import { RefreshIcon, SaveIcon, SettingIcon, LockOnIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import {
@@ -91,9 +117,10 @@ const preferences = ref<NotificationPreference[]>([])
 const snapshot = ref<NotificationPreference[]>([])
 
 const columns: PrimaryTableCol<NotificationPreference>[] = [
-  { colKey: 'event', title: '事件类型', width: 220 },
-  { colKey: 'inbox_on', title: '站内信', width: 140 },
-  { colKey: 'mail_on', title: '邮件通知', width: 140 },
+  { colKey: 'event', title: '事件类型', width: 260 },
+  { colKey: 'inbox_on', title: '站内信', width: 120 },
+  { colKey: 'mail_on', title: '邮件通知', width: 120 },
+  { colKey: 'sms_on', title: '短信通知', width: 120 },
 ]
 
 async function loadPreferences() {
@@ -146,6 +173,14 @@ const EVENT_LABELS: Record<string, string> = {
   balance_low: '余额不足预警',
   sync_failed: '上游同步失败',
   system: '系统通知',
+  // 强制送达事件（IsMandatoryEvent 白名单），前端置灰不可关闭
+  login_otp: '登录二次验证码',
+  phone_bind: '手机绑定验证码',
+  email_bind: '邮箱绑定验证码',
+  password_reset: '密码重置验证码',
+  register_verify: '注册邮箱验证',
+  withdraw_verify: '提现验证码',
+  apikey_verify: 'API 密钥验证码',
 }
 
 function eventLabel(event?: string): string {
@@ -249,6 +284,13 @@ onMounted(loadPreferences)
 .cell-strong {
   font-weight: 600;
   color: #334155;
+}
+
+.event-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 @media (max-width: 768px) {

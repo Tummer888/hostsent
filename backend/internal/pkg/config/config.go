@@ -33,6 +33,9 @@ type RedisConfig struct {
 	Port     int    `mapstructure:"port"`
 	Password string `mapstructure:"password"`
 	DB       int    `mapstructure:"db"`
+	// Required 为 true 时 Redis 连不上将直接拒绝启动；默认 false，
+	// 即 Redis 视为「加速器」而非依赖，连不通时全链路降级（doc89 §3.3）。
+	Required bool `mapstructure:"required"`
 }
 
 type AppConfig struct {
@@ -111,6 +114,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("redis.port", 6379)
 	v.SetDefault("redis.password", "")
 	v.SetDefault("redis.db", 0)
+	// 默认不强制 Redis：连不通时降级运行，业务侧走 DB 兜底（doc91 §2.2）。
+	v.SetDefault("redis.required", false)
 	// 算价管线默认取最优折扣（P5-03）。
 	v.SetDefault("pricing.stack_mode", "best")
 	// 附件落盘目录（相对工作目录）；生产用只读根镜像时通过 HOSTSENT_STORAGE_ROOT 覆盖为挂载卷。

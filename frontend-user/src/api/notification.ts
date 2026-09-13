@@ -44,6 +44,10 @@ export interface NotificationPreference {
   event: string
   inbox_on: boolean
   mail_on: boolean
+  /** 短信通知（doc90 渠道体系新增；模板未配短信时该值无实际作用） */
+  sms_on: boolean
+  /** 强制送达事件（OTP/验证码类）：开关不可关闭，前端置灰并提示 */
+  mandatory: boolean
 }
 
 // 通知偏好列表响应：data = { list: [...] }

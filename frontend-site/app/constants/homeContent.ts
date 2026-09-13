@@ -129,10 +129,10 @@ export interface QuickEntry {
 
 /** Featured 深色卡里的控制台快捷入口；未配置 consoleUrl 时整卡降级为说明文案。 */
 export const CONSOLE_ENTRIES: QuickEntry[] = [
-  { icon: 'server', label: '我的资源', path: '/instances' },
-  { icon: 'cart', label: '订单与账单', path: '/orders' },
-  { icon: 'support', label: '工单支持', path: '/tickets' },
-  { icon: 'code', label: 'API 密钥', path: '/settings/api' },
+  { icon: 'server', label: '我的资源', path: '/cloud/instances' },
+  { icon: 'cart', label: '订单与账单', path: '/order' },
+  { icon: 'support', label: '工单支持', path: '/support/tickets' },
+  { icon: 'user', label: '账号资料', path: '/profile' },
 ]
 
 export interface LinkCard {

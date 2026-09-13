@@ -50,11 +50,12 @@ func (s *templateService) Update(ctx context.Context, id uint64, req *notifydto.
 	if found == nil {
 		return nil, ErrTemplateNotFound
 	}
-	if req.TitleTpl != "" {
-		found.TitleTpl = req.TitleTpl
+	// 指针字段：区分「未传」与「显式置空/置 false」。
+	if req.TitleTpl != nil {
+		found.TitleTpl = *req.TitleTpl
 	}
-	if req.ContentTpl != "" {
-		found.ContentTpl = req.ContentTpl
+	if req.ContentTpl != nil {
+		found.ContentTpl = *req.ContentTpl
 	}
 	if req.InboxOn != nil {
 		found.InboxOn = *req.InboxOn
@@ -62,8 +63,20 @@ func (s *templateService) Update(ctx context.Context, id uint64, req *notifydto.
 	if req.MailOn != nil {
 		found.MailOn = *req.MailOn
 	}
-	if req.Status != "" {
-		found.Status = req.Status
+	if req.SmsOn != nil {
+		found.SmsOn = *req.SmsOn
+	}
+	if req.SmsTemplateID != nil {
+		found.SmsTemplateID = *req.SmsTemplateID
+	}
+	if req.MailFormat != nil {
+		found.MailFormat = *req.MailFormat
+	}
+	if req.TitleShow != nil {
+		found.TitleShow = *req.TitleShow
+	}
+	if req.Status != nil {
+		found.Status = *req.Status
 	}
 	if err := s.repo.Update(ctx, found); err != nil {
 		return nil, err
@@ -73,13 +86,17 @@ func (s *templateService) Update(ctx context.Context, id uint64, req *notifydto.
 
 func toTemplateInfo(t *notifymodel.NotificationTemplate) *notifydto.TemplateInfo {
 	return &notifydto.TemplateInfo{
-		ID:         t.ID,
-		Event:      t.Event,
-		TitleTpl:   t.TitleTpl,
-		ContentTpl: t.ContentTpl,
-		InboxOn:    t.InboxOn,
-		MailOn:     t.MailOn,
-		Status:     t.Status,
-		UpdatedAt:  t.UpdatedAt.Format("2006-01-02 15:04:05"),
+		ID:            t.ID,
+		Event:         t.Event,
+		TitleTpl:      t.TitleTpl,
+		ContentTpl:    t.ContentTpl,
+		InboxOn:       t.InboxOn,
+		MailOn:        t.MailOn,
+		SmsOn:         t.SmsOn,
+		SmsTemplateID: t.SmsTemplateID,
+		MailFormat:    t.MailFormat,
+		TitleShow:     t.TitleShow,
+		Status:        t.Status,
+		UpdatedAt:     t.UpdatedAt.Format("2006-01-02 15:04:05"),
 	}
 }

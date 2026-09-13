@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"hostsent/backend/internal/pkg/jobrun"
 )
 
 // ReleaseScheduler 提成解冻调度器：按固定周期把已过解冻期的计提转入可用余额。
@@ -41,13 +43,21 @@ func (s *ReleaseScheduler) Start(ctx context.Context) {
 }
 
 // runOnce 单轮解冻：失败仅记录，不中断调度。
+//
+// 高频任务（1 分钟一轮）：留痕侧按「空轮不落库」处理，只有真的解冻了计提才写
+// job_run_logs，否则 180 天会累积几十万行「本轮解冻 0 条」（doc92 §7.2）。
 func (s *ReleaseScheduler) runOnce(ctx context.Context) {
-	n, err := s.svc.ReleaseDue(ctx, 200)
-	if err != nil {
-		s.logger.Error("sales commission release failed", zap.Error(err))
-		return
-	}
-	if n > 0 {
-		s.logger.Info("sales commission released", zap.Int("count", n))
-	}
+	jobrun.RunErr(ctx, "sales_release", "sales", jobrun.TriggerScheduled,
+		func(ctx context.Context) (int, int, map[string]any, error) {
+			n, err := s.svc.ReleaseDue(ctx, 200)
+			if err != nil {
+				s.logger.Error("sales commission release failed", zap.Error(err))
+				return 0, 0, nil, err
+			}
+			if n > 0 {
+				s.logger.Info("sales commission released", zap.Int("count", n))
+			}
+			// scanned 用 200（本轮尝试扫描的批大小）会让空轮也落库，故只报实际解冻数。
+			return n, n, map[string]any{"released": n}, nil
+		})
 }

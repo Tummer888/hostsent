@@ -832,6 +832,30 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/notification/templates/index.vue'),
         meta: { title: '通知模板', role: 'admin', permission: 'notify:template' },
       },
+      {
+        path: 'channels',
+        name: 'NotifyChannels',
+        component: () => import('@/pages/notification/channels/index.vue'),
+        meta: { title: '渠道配置', role: 'admin', permission: 'notify:channel' },
+      },
+      {
+        path: 'sms-templates',
+        name: 'NotifySmsTemplates',
+        component: () => import('@/pages/notification/sms-templates/index.vue'),
+        meta: { title: '短信模板', role: 'admin', permission: 'notify:sms-template' },
+      },
+      {
+        path: 'broadcast',
+        name: 'NotifyBroadcast',
+        component: () => import('@/pages/notification/broadcast/index.vue'),
+        meta: { title: '消息群发', role: 'admin', permission: 'notify:broadcast' },
+      },
+      {
+        path: 'deliveries',
+        name: 'NotifyDeliveries',
+        component: () => import('@/pages/notification/deliveries/index.vue'),
+        meta: { title: '发送日志', role: 'admin', permission: 'notify:delivery' },
+      },
     ],
   },
   {
@@ -884,6 +908,13 @@ const routes: Array<RouteRecordRaw> = [
         name: 'SystemAuditLogs',
         component: () => import('@/pages/system/audit-logs/index.vue'),
         meta: { title: '操作审计', role: 'admin', permission: 'security:audit:list' },
+      },
+      {
+        // 验证码配置（doc91）：服务商 / 场景策略 / 统计
+        path: 'captcha',
+        name: 'SystemCaptcha',
+        component: () => import('@/pages/system/captcha/index.vue'),
+        meta: { title: '验证码配置', role: 'admin', permission: 'captcha:config' },
       },
       {
         // 公告管理（复用 notification 公告服务，归类到系统管理/安全审计）

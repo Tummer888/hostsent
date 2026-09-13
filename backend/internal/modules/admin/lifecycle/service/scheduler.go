@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"hostsent/backend/internal/pkg/jobrun"
 )
 
 // LifecycleScheduler 生命周期调度器：按固定周期执行到期提醒与自动续费扫描。
@@ -43,7 +45,13 @@ func (s *LifecycleScheduler) Start(ctx context.Context) {
 
 // runOnce 单轮扫描：到期提醒 → 自动续费；失败仅记录，不中断调度。
 func (s *LifecycleScheduler) runOnce(ctx context.Context) {
-	if err := s.lifecycleSvc.RunScanOnce(ctx); err != nil {
-		s.logger.Error("lifecycle scan failed", zap.Error(err))
-	}
+	// 包一层任务运行留痕（doc92 §7.2）；留痕端点未注入时等价于直接调用。
+	jobrun.RunErr(ctx, "lifecycle_scan", "lifecycle", jobrun.TriggerScheduled,
+		func(ctx context.Context) (int, int, map[string]any, error) {
+			if err := s.lifecycleSvc.RunScanOnce(ctx); err != nil {
+				s.logger.Error("lifecycle scan failed", zap.Error(err))
+				return 0, 0, nil, err
+			}
+			return 0, 0, map[string]any{"result": "ok"}, nil
+		})
 }

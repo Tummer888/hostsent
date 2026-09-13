@@ -3,7 +3,6 @@ package service
 
 import (
 	"context"
-	"strings"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -11,6 +10,7 @@ import (
 	notifydto "hostsent/backend/internal/modules/admin/notification/dto"
 	notifymodel "hostsent/backend/internal/modules/admin/notification/model"
 	notifyrepo "hostsent/backend/internal/modules/admin/notification/repository"
+	"hostsent/backend/internal/pkg/notifier"
 )
 
 // Sentinel errors
@@ -31,7 +31,7 @@ func (e *appError) Error() string { return e.msg }
 
 // NotificationService 通知服务接口。
 type NotificationService interface {
-	// Publish 发布通知：模板渲染 → 偏好过滤 → 站内信落库 → 邮件异步。
+	// Publish 发布通知：模板渲染 → 偏好过滤 → 站内信落库 → 外发通道入队。
 	Publish(ctx context.Context, in notifydto.PublishInput) error
 	// UnreadCount 未读数（定向 + 广播聚合）。
 	UnreadCount(ctx context.Context, userID uint64, targetType string) (int64, error)
@@ -43,10 +43,19 @@ type NotificationService interface {
 	GetDetail(ctx context.Context, id, userID uint64) (*notifydto.NotificationInfo, error)
 	// ReadAll 全部已读。
 	ReadAll(ctx context.Context, userID uint64) error
-	// Resend 邮件失败重发。
+	// Resend 邮件失败重发（转为对投递记录重投，见 DeliveryService.RetryByNotification）。
 	Resend(ctx context.Context, id uint64) error
 	// SendMailTest 发送测试邮件。
 	SendMailTest(ctx context.Context, to string) error
+	// SetDeliveryDeps 注入投递队列依赖（doc90 N4）。
+	//
+	// 单独 setter 而非构造参数：装配顺序上投递仓储在通知服务之后构建，
+	// 且既有单测仍按旧签名构造本服务。未注入时外发通道静默跳过（站内信不受影响）。
+	SetDeliveryDeps(
+		deliveries notifyrepo.DeliveryRepository,
+		smsTplRepo notifyrepo.SmsTemplateRepository,
+		userRepo notifyrepo.RecipientResolver,
+	)
 }
 
 type notifyListResponse struct {
@@ -57,13 +66,20 @@ type notifyListResponse struct {
 }
 
 type notificationService struct {
-	db          *gorm.DB
-	repo        notifyrepo.NotificationRepository
-	tplRepo     notifyrepo.TemplateRepository
-	prefRepo    notifyrepo.PreferenceRepository
-	annRepo     notifyrepo.AnnouncementRepository
+	db       *gorm.DB
+	repo     notifyrepo.NotificationRepository
+	tplRepo  notifyrepo.TemplateRepository
+	prefRepo notifyrepo.PreferenceRepository
+	annRepo  notifyrepo.AnnouncementRepository
+	// mailChannel 兼容门面（doc91 阶段的直发实现）；doc90 起外发统一走投递队列。
 	mailChannel MailChannel
-	logger      *zap.Logger
+	// deliveries 投递队列；为 nil 时外发通道退化为不可用（站内信不受影响）。
+	deliveries notifyrepo.DeliveryRepository
+	// smsTplRepo 短信模板（读正文与上游模板号）。
+	smsTplRepo notifyrepo.SmsTemplateRepository
+	// userRepo 收件地址解析（邮箱/手机号）。
+	userRepo notifyrepo.RecipientResolver
+	logger   *zap.Logger
 }
 
 func NewNotificationService(
@@ -86,7 +102,25 @@ func NewNotificationService(
 	}
 }
 
-// Publish 发布通知：模板渲染 → 偏好过滤 → 站内信落库 → 邮件异步。
+// SetDeliveryDeps 注入投递队列依赖（doc90 N4）。
+//
+// 单独 setter 而非构造参数：装配顺序上投递仓储/短信模板仓储在通知服务之后构建，
+// 且既有单测（service_test.go）仍按旧签名构造本服务。
+func (s *notificationService) SetDeliveryDeps(
+	deliveries notifyrepo.DeliveryRepository,
+	smsTplRepo notifyrepo.SmsTemplateRepository,
+	userRepo notifyrepo.RecipientResolver,
+) {
+	s.deliveries = deliveries
+	s.smsTplRepo = smsTplRepo
+	s.userRepo = userRepo
+}
+
+// Publish 发布通知（doc90 §5.1 新流程）：
+//
+//	渲染模板 → 站内信落库（受偏好控制）→ 邮件/短信入投递队列
+//
+// notifications 表从此只装站内信；外发通道一律进 notification_deliveries。
 func (s *notificationService) Publish(ctx context.Context, in notifydto.PublishInput) error {
 	tpl, err := s.tplRepo.FindByEvent(ctx, in.Event)
 	if err != nil {
@@ -98,53 +132,140 @@ func (s *notificationService) Publish(ctx context.Context, in notifydto.PublishI
 		return nil
 	}
 
-	title := renderTemplate(tpl.TitleTpl, in.Vars)
-	content := renderTemplate(tpl.ContentTpl, in.Vars)
+	title := RenderTemplate(tpl.TitleTpl, in.Vars)
+	content := RenderTemplate(tpl.ContentTpl, in.Vars)
 
 	target := in.Target
 	if target == "" {
 		target = notifymodel.TargetUser
 	}
 
-	// 站内信通道（默认开启）：落库即送达
-	if tpl.InboxOn {
+	// 站内信通道：落库即送达。
+	// bug ④ 修复：站内信同样受偏好控制（此前只判 tpl.InboxOn，用户关不掉）。
+	// 例外：验证类事件（OTP）豁免，见 notifier.IsMandatoryEvent。
+	if tpl.InboxOn && s.prefAllowed(ctx, in.UserID, in.Event, notifymodel.ChannelInbox) {
 		n := &notifymodel.Notification{
-			UserID:       in.UserID,
-			TargetType:   target,
-			Event:        in.Event,
-			Title:        title,
-			Content:      content,
-			Channel:      notifymodel.ChannelInbox,
-			SendStatus:   notifymodel.SendStatusSent,
-			SourceModule: in.SourceModule,
-			SourceID:     in.SourceID,
+			UserID:        in.UserID,
+			TargetType:    target,
+			Event:         in.Event,
+			Title:         title,
+			Content:       content,
+			Channel:       notifymodel.ChannelInbox,
+			SendStatus:    notifymodel.SendStatusSent,
+			ContentFormat: notifymodel.FormatText,
+			SourceModule:  in.SourceModule,
+			SourceID:      in.SourceID,
 		}
 		if err := s.repo.CreateInbox(ctx, n); err != nil {
-			// 幂等索引冲突说明重复发布，视为成功
-			s.logger.Info("notification: inbox duplicate, skip", zap.String("event", in.Event), zap.String("source_id", in.SourceID))
-			return nil
+			if isDuplicateKey(err) {
+				// bug ③：幂等唯一索引冲突说明重复发布，视为成功（不再真的插两条）。
+				s.logger.Info("notification: inbox duplicate, skip",
+					zap.String("event", in.Event), zap.String("source_id", in.SourceID))
+			} else {
+				s.logger.Error("notification: inbox create failed", zap.String("event", in.Event), zap.Error(err))
+				return err
+			}
 		}
 	}
 
-	// 邮件通道：偏好允许且模板开启时异步发送
-	if tpl.MailOn && s.prefAllowed(ctx, in.UserID, in.Event, notifymodel.ChannelMail) {
-		s.mailChannel.SendAsync(notifymodel.Notification{
-			UserID:       in.UserID,
-			TargetType:   target,
-			Event:        in.Event,
-			Title:        title,
-			Content:      content,
-			Channel:      notifymodel.ChannelMail,
-			SendStatus:   notifymodel.SendStatusPending,
-			SourceModule: in.SourceModule,
-			SourceID:     in.SourceID,
-		})
-	}
+	// 外发通道：邮件 / 短信。只入队，由 worker 投递（bug ⑤：不再往 notifications 插 mail 行）。
+	s.enqueueExternal(ctx, tpl, in, target, title, content)
 	return nil
 }
 
+// enqueueExternal 按模板开关与用户偏好把外发通道写入投递队列。
+func (s *notificationService) enqueueExternal(
+	ctx context.Context,
+	tpl *notifymodel.NotificationTemplate,
+	in notifydto.PublishInput,
+	target, title, content string,
+) {
+	if s.deliveries == nil {
+		return
+	}
+	wantMail := tpl.MailOn && s.prefAllowed(ctx, in.UserID, in.Event, notifymodel.ChannelMail)
+	wantSMS := tpl.SmsOn && s.prefAllowed(ctx, in.UserID, in.Event, notifymodel.ChannelSMS)
+	if !wantMail && !wantSMS {
+		return
+	}
+	recipient := notifyrepo.Recipient{}
+	if s.userRepo != nil {
+		if r, err := s.userRepo.ResolveRecipient(ctx, in.UserID); err == nil {
+			recipient = r
+		}
+	}
+	if wantMail {
+		if recipient.Email == "" {
+			s.logger.Info("notification: skip mail, user has no email",
+				zap.Uint64("user_id", in.UserID), zap.String("event", in.Event))
+		} else {
+			row := &notifymodel.NotificationDelivery{
+				Event:         in.Event,
+				Channel:       notifymodel.ChannelMail,
+				TargetType:    target,
+				TargetID:      in.UserID,
+				TargetName:    recipient.Name,
+				Recipient:     recipient.Email,
+				Title:         title,
+				Content:       content,
+				ContentFormat: firstNonEmptyString(tpl.MailFormat, notifymodel.FormatText),
+				Vars:          encodeVars(in.Vars),
+				SendStatus:    notifymodel.DeliveryStatusPending,
+				SourceModule:  in.SourceModule,
+				SourceID:      in.SourceID,
+			}
+			if err := s.deliveries.Enqueue(ctx, row); err != nil {
+				s.logger.Warn("notification: enqueue mail failed", zap.String("event", in.Event), zap.Error(err))
+			}
+		}
+	}
+	if wantSMS {
+		if recipient.Phone == "" {
+			s.logger.Info("notification: skip sms, user has no phone",
+				zap.Uint64("user_id", in.UserID), zap.String("event", in.Event))
+			return
+		}
+		// 短信正文来自 sms_templates（模板变量已按注册表校验过）。
+		smsContent := content
+		upstreamCode := ""
+		if tpl.SmsTemplateID > 0 && s.smsTplRepo != nil {
+			if st, err := s.smsTplRepo.FindByID(ctx, tpl.SmsTemplateID); err == nil {
+				smsContent = RenderTemplate(st.Content, in.Vars)
+				upstreamCode = st.UpstreamCode
+			} else {
+				s.logger.Warn("notification: sms template missing, fallback to mail content",
+					zap.Uint64("sms_template_id", tpl.SmsTemplateID), zap.Error(err))
+			}
+		}
+		row := &notifymodel.NotificationDelivery{
+			Event:         in.Event,
+			Channel:       notifymodel.ChannelSMS,
+			TargetType:    target,
+			TargetID:      in.UserID,
+			TargetName:    recipient.Name,
+			Recipient:     recipient.Phone,
+			Title:         title,
+			Content:       smsContent,
+			ContentFormat: notifymodel.FormatText,
+			Vars:          encodeVars(mergeVars(in.Vars, upstreamCode)),
+			SendStatus:    notifymodel.DeliveryStatusPending,
+			SourceModule:  in.SourceModule,
+			SourceID:      in.SourceID,
+		}
+		if err := s.deliveries.Enqueue(ctx, row); err != nil {
+			s.logger.Warn("notification: enqueue sms failed", zap.String("event", in.Event), zap.Error(err))
+		}
+	}
+}
+
 // prefAllowed 检查用户偏好是否允许该通道。
+//
+// 验证类事件（OTP/绑定/重置密码）必须豁免：用户不能通过关掉通知偏好来关掉登录验证码。
+// 白名单与 doc91 共用 notifier.IsMandatoryEvent，避免两处各写一份。
 func (s *notificationService) prefAllowed(ctx context.Context, userID uint64, event, channel string) bool {
+	if notifier.IsMandatoryEvent(event) {
+		return true
+	}
 	pref, err := s.prefRepo.FindByUserAndEvent(ctx, userID, event)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -157,20 +278,22 @@ func (s *notificationService) prefAllowed(ctx context.Context, userID uint64, ev
 		return pref.InboxOn
 	case notifymodel.ChannelMail:
 		return pref.MailOn
+	case notifymodel.ChannelSMS:
+		return pref.SmsOn
 	}
 	return false
 }
 
-// renderTemplate 模板变量替换：{var_name} → value。变量缺失时保留 {var} 原文。
-func renderTemplate(tpl string, vars map[string]string) string {
-	if vars == nil {
-		return tpl
-	}
-	result := tpl
+// mergeVars 把上游模板号并入变量表（worker 发送短信时需要）。
+func mergeVars(vars map[string]string, upstreamCode string) map[string]string {
+	out := map[string]string{}
 	for k, v := range vars {
-		result = strings.ReplaceAll(result, "{"+k+"}", v)
+		out[k] = v
 	}
-	return result
+	if upstreamCode != "" {
+		out["_upstream_code"] = upstreamCode
+	}
+	return out
 }
 
 // UnreadCount 未读数 = 定向通知未读 + 广播未读（排除已读表记录）。
@@ -274,18 +397,39 @@ func (s *notificationService) ReadAll(ctx context.Context, userID uint64) error 
 	return s.repo.MarkAllRead(ctx, userID)
 }
 
-// Resend 邮件失败重发。
+// Resend 重发（bug ② 修复）。
+//
+// 旧实现把 FindByID 拿到的（ID≠0）对象交给 SendAsync，SendAsync 内部又
+// CreateInbox → 主键冲突 → 直接 return，邮件永远发不出去。新语义是
+// 「找到该通知关联的投递记录并重投」，天然没有主键冲突。
 func (s *notificationService) Resend(ctx context.Context, id uint64) error {
 	n, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return ErrNotificationNotFound
 	}
-	if n.Channel != notifymodel.ChannelMail {
-		return ErrInvalidParams
+	if s.deliveries == nil {
+		return ErrNoDeliveryForNotification
 	}
-	// 异步重发
-	s.mailChannel.SendAsync(*n)
-	return nil
+	channel := ""
+	if n.Channel != notifymodel.ChannelInbox {
+		channel = n.Channel
+	}
+	d, ferr := s.deliveries.FindBySource(ctx, n.SourceModule, n.SourceID, channel, n.UserID)
+	if ferr != nil {
+		if ferr == gorm.ErrRecordNotFound && n.DeliveryID > 0 {
+			d, ferr = s.deliveries.FindByID(ctx, n.DeliveryID)
+		}
+		if ferr != nil {
+			if ferr == gorm.ErrRecordNotFound {
+				return ErrNoDeliveryForNotification
+			}
+			return ferr
+		}
+	}
+	if !retryable(d.SendStatus) {
+		return ErrDeliveryNotRetryable
+	}
+	return s.deliveries.ResetForRetry(ctx, d.ID)
 }
 
 // SendMailTest 发送测试邮件。
@@ -301,19 +445,21 @@ func toNotificationInfo(n *notifymodel.Notification) *notifydto.NotificationInfo
 		readAt = &t
 	}
 	return &notifydto.NotificationInfo{
-		ID:           n.ID,
-		UserID:       n.UserID,
-		TargetType:   n.TargetType,
-		Event:        n.Event,
-		Title:        n.Title,
-		Content:      n.Content,
-		Channel:      n.Channel,
-		SendStatus:   n.SendStatus,
-		FailReason:   n.FailReason,
-		SourceModule: n.SourceModule,
-		SourceID:     n.SourceID,
-		ReadAt:       readAt,
-		CreatedAt:    n.CreatedAt.Format("2006-01-02 15:04:05"),
+		ID:            n.ID,
+		UserID:        n.UserID,
+		TargetType:    n.TargetType,
+		Event:         n.Event,
+		Title:         n.Title,
+		Content:       n.Content,
+		Channel:       n.Channel,
+		SendStatus:    n.SendStatus,
+		FailReason:    n.FailReason,
+		SourceModule:  n.SourceModule,
+		SourceID:      n.SourceID,
+		ReadAt:        readAt,
+		CreatedAt:     n.CreatedAt.Format("2006-01-02 15:04:05"),
+		ContentFormat: n.ContentFormat,
+		DeliveryID:    n.DeliveryID,
 	}
 }
 

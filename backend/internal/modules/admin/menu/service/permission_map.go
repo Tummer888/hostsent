@@ -130,13 +130,19 @@ var menuPermissionMap = map[string]string{
 	"/system/config":        "system:config:view",
 	"/system/audit-logs":    "security:audit:list",
 	"/system/announcements": "notify:announcement",
+	// 验证码配置（doc91 §10.1）：策略影响全站登录，属系统管理域。
+	"/system/captcha": "captcha:config",
 
 	"/lifecycle/expiring": "lifecycle:expiring",
 	"/lifecycle/renewals": "lifecycle:renewals",
 	"/lifecycle/policy":   "lifecycle:policy",
 
-	"/notification/records":   "notify:record",
-	"/notification/templates": "notify:template",
+	"/notification/records":       "notify:record",
+	"/notification/templates":     "notify:template",
+	"/notification/channels":      "notify:channel",
+	"/notification/sms-templates": "notify:sms-template",
+	"/notification/broadcast":     "notify:broadcast",
+	"/notification/deliveries":    "notify:delivery",
 
 	// 积分中心（doc36）：独立账本，规则/账户/流水三个叶子。
 	"/points/overview":     "point:account",

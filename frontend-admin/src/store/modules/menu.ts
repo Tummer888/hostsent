@@ -34,6 +34,8 @@ import {
   OrderIcon,
   RefreshIcon,
   RootListIcon,
+  SecuredIcon,
+  SendIcon,
   ServerIcon,
   ServiceIcon,
   SettingIcon,
@@ -115,6 +117,9 @@ const iconMap: Record<string, Component> = {
   star: StarIcon,
   sound: SoundIcon,
   'root-list': RootListIcon,
+  // 后端 seed 的 icon 字符串 -> TDesign 组件；未映射会静默丢图标。
+  safety: SecuredIcon,
+  send: SendIcon,
 }
 
 function resolveIcon(name?: string): Component | undefined {

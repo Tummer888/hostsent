@@ -8,6 +8,8 @@ package server
 //   - 扩展新模块只需：① 在 App 加字段 ② 在 NewApp 赋值 ③ 在路由表加一行。
 
 import (
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
@@ -52,6 +54,7 @@ import (
 	ucproducthandler "hostsent/backend/internal/modules/uc/product/handler"
 	ucreferralhandler "hostsent/backend/internal/modules/uc/referral/handler"
 	appauth "hostsent/backend/internal/pkg/auth"
+	"hostsent/backend/internal/pkg/cache"
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/middleware"
 )
@@ -61,6 +64,8 @@ type App struct {
 	cfg       *config.Config
 	logger    *zap.Logger
 	jwtIssuer *appauth.JWTIssuer
+	// cache 统一缓存端口（Redis + 进程内降级，doc89 §3.3）：验证码/限流/锁的共享依赖。
+	cache *cache.Client
 	// RBAC：员工多角色仓储 + 权限快照缓存（鉴权与权限中间件共用）。
 	rbacRepo  adminrepo.RBACRepository
 	permCache middleware.PermissionCache
@@ -135,6 +140,13 @@ type App struct {
 	payment *paymentBundle
 	// point 积分体系处理器集合（doc36）：admin 积分中心 + uc 我的积分。
 	point *pointBundle
+	// captcha 验证码与二次验证体系处理器集合（doc91）：公开/管理端/用户端三组接口。
+	captcha *captchaBundle
+	// notify 消息中心处理器集合（doc90）：渠道/短信模板/群发/发送日志 + 投递工作器。
+	notify *notifyBundle
+	// logcenter 日志中心处理器集合（doc92）：统一日志浏览/导出/保留策略/清理引擎，
+	// 以及上游接口采集写入器与任务运行留痕器。
+	logcenter *logcenterBundle
 }
 
 // NewApp 构造装配容器（DI 单一接线点）。
@@ -203,6 +215,10 @@ func NewApp(
 	open *openhandler.Bundle,
 	payment *paymentBundle,
 	point *pointBundle,
+	captchaBundle *captchaBundle,
+	notifyBundle *notifyBundle,
+	logcenterBundle *logcenterBundle,
+	cacheClient *cache.Client,
 	logger *zap.Logger,
 	jwtIssuer *appauth.JWTIssuer,
 ) *App {
@@ -210,6 +226,7 @@ func NewApp(
 		cfg:                     cfg,
 		logger:                  logger,
 		jwtIssuer:               jwtIssuer,
+		cache:                   cacheClient,
 		rbacRepo:                rbacRepo,
 		permCache:               permCache,
 		auditWriter:             auditWriter,
@@ -272,6 +289,9 @@ func NewApp(
 		open:                    open,
 		payment:                 payment,
 		point:                   point,
+		captcha:                 captchaBundle,
+		notify:                  notifyBundle,
+		logcenter:               logcenterBundle,
 	}
 }
 
@@ -315,4 +335,42 @@ func (a *App) invalidateAdmin(adminID uint64) {
 	if a.permCache != nil {
 		a.permCache.InvalidateAdmin(adminID)
 	}
+}
+
+// ucRateLimit 仅对 /api/v1/uc 前缀生效的限流（doc91 §9.1 api_rate_limit）。
+//
+// 用户中心路由分散在多个 Group（auth/finance/orders/instances/support/...），
+// 逐组挂载容易漏；这里用前缀判断统一挂一条，语义等价且不可能漏挂。
+func (a *App) ucRateLimit() gin.HandlerFunc {
+	if a.captcha == nil {
+		return func(c *gin.Context) { c.Next() }
+	}
+	handler := a.captcha.userLimiter.Handler()
+	return func(c *gin.Context) {
+		if !strings.HasPrefix(c.Request.URL.Path, "/api/v1/uc") {
+			c.Next()
+			return
+		}
+		handler(c)
+	}
+}
+
+// userRequireVerification 用户端关键操作二次验证中间件（doc91 §6.1）。
+//
+// 策略不要求 OTP 时直接放行，因此默认（captcha_enabled=false）挂上也不改变任何
+// 现有行为；运营逐场景开启后生效。
+func (a *App) userRequireVerification(scene string) gin.HandlerFunc {
+	if a.captcha == nil {
+		return func(c *gin.Context) { c.Next() }
+	}
+	return a.captcha.verifyTicket(scene, false)
+}
+
+// adminRequireVerification 管理端关键操作二次验证中间件（doc91 §6.2），
+// subject 取 adminID，票据 key 前缀为 auth:verify_ticket:admin:{id}:{scene}。
+func (a *App) adminRequireVerification(scene string) gin.HandlerFunc {
+	if a.captcha == nil {
+		return func(c *gin.Context) { c.Next() }
+	}
+	return a.captcha.verifyTicket(scene, true)
 }

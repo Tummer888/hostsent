@@ -44,9 +44,9 @@ func TestRenderTemplate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := renderTemplate(tt.tpl, tt.vars)
+			got := RenderTemplate(tt.tpl, tt.vars)
 			if got != tt.want {
-				t.Errorf("renderTemplate() = %q, want %q", got, tt.want)
+				t.Errorf("RenderTemplate() = %q, want %q", got, tt.want)
 			}
 		})
 	}

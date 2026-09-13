@@ -14,6 +14,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '注册', requiresAuth: false },
   },
   {
+    path: '/forgot-password',
+    name: 'ForgotPassword',
+    component: () => import('@/pages/forgot-password/index.vue'),
+    meta: { title: '找回密码', requiresAuth: false },
+  },
+  {
     path: '/',
     component: () => import('@/layouts/index.vue'),
     redirect: '/dashboard',
@@ -204,6 +210,12 @@ const routes: RouteRecordRaw[] = [
             name: 'UserNotifyPrefs',
             component: () => import('@/pages/profile/preferences.vue'),
             meta: { title: '通知偏好' },
+          },
+          {
+            path: 'security',
+            name: 'UserSecuritySettings',
+            component: () => import('@/pages/profile/security/index.vue'),
+            meta: { title: '安全设置' },
           },
         ],
       },

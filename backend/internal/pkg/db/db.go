@@ -16,6 +16,7 @@ import (
 	finwithdrawmodel "hostsent/backend/internal/modules/admin/finance/withdraw/model"
 	instancemodel "hostsent/backend/internal/modules/admin/instance/model"
 	lifecyclemodel "hostsent/backend/internal/modules/admin/lifecycle/model"
+	logcentermodel "hostsent/backend/internal/modules/admin/logcenter/model"
 	adminmodel "hostsent/backend/internal/modules/admin/manager/model"
 	menumodel "hostsent/backend/internal/modules/admin/menu/model"
 	notifymodel "hostsent/backend/internal/modules/admin/notification/model"
@@ -40,6 +41,7 @@ import (
 	verificationmodel "hostsent/backend/internal/modules/admin/user/verification/model"
 	openmodel "hostsent/backend/internal/modules/open/model"
 	usercentermodel "hostsent/backend/internal/modules/uc/auth/model"
+	captchamodel "hostsent/backend/internal/modules/uc/captcha/model"
 	membermodel "hostsent/backend/internal/modules/uc/member/model"
 	config "hostsent/backend/internal/pkg/config"
 )
@@ -187,6 +189,12 @@ func AutoMigrate(db *gorm.DB) error {
 		&notifymodel.NotificationTemplate{},
 		&notifymodel.NotificationRead{},
 		&notifymodel.NotificationPreference{},
+		// 消息中心多渠道通知（doc90，迁移 041）：渠道类型/实例、短信模板与变量、投递队列
+		&notifymodel.NotificationChannelType{},
+		&notifymodel.NotificationChannel{},
+		&notifymodel.SmsTemplate{},
+		&notifymodel.SmsTemplateVar{},
+		&notifymodel.NotificationDelivery{},
 		// 积分体系（doc36）：独立账本，绝不可作为支付方式
 		&pointmodel.PointAccount{},
 		&pointmodel.PointTransaction{},
@@ -198,6 +206,17 @@ func AutoMigrate(db *gorm.DB) error {
 		&openmodel.OpenRequest{},
 		&openmodel.OpenAPILog{},
 		&openmodel.OpenNotifyDelivery{},
+		// 验证码与二次验证体系（doc91，迁移 042）：服务商 / 场景策略 / 验证码记录 / 用户加严设置
+		&captchamodel.CaptchaProvider{},
+		&captchamodel.CaptchaPolicy{},
+		&captchamodel.VerificationCode{},
+		&captchamodel.UserSecuritySettings{},
+		// 日志中心（doc92，迁移 043）：上游接口日志 / 任务运行日志 / 保留策略 / 导出文件 / 清理任务
+		&logcentermodel.UpstreamAPILog{},
+		&logcentermodel.JobRunLog{},
+		&logcentermodel.LogRetentionPolicy{},
+		&logcentermodel.LogExportFile{},
+		&logcentermodel.LogCleanupJob{},
 	); err != nil {
 		return err
 	}
@@ -374,7 +393,22 @@ func SeedDefaults(db *gorm.DB, cfg config.Config) error {
 		if err := seedNotificationTemplates(tx); err != nil {
 			return err
 		}
+		// 消息中心多渠道（doc90）：模板变量注册表 + 渠道配置默认项
+		if err := seedSmsTemplateVars(tx); err != nil {
+			return err
+		}
+		if err := seedNotifyChannelConfigs(tx); err != nil {
+			return err
+		}
 		if err := seedSMTPConfigs(tx); err != nil {
+			return err
+		}
+		// 验证码体系（doc91）：场景基线策略 + 开关默认值
+		if err := seedCaptchaPolicies(tx); err != nil {
+			return err
+		}
+		// 日志中心（doc92）：26 源保留策略 seed（数据源即 catalog 注册表）
+		if err := seedLogRetentionPolicies(tx); err != nil {
 			return err
 		}
 		return nil
@@ -717,6 +751,10 @@ func seedSystemConfigs(tx *gorm.DB) error {
 		{ConfigKey: "sales.renewal_commission_mode", ConfigValue: "follow_order", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSales, Description: "续费提成归属：follow_order 跟单 / follow_owner 跟现役归属", SortOrder: 8, Status: systemmodel.StatusActive},
 		{ConfigKey: "sales.allow_negative", ConfigValue: "true", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupSales, Description: "退款冲减时允许提成余额为负（欠款）", SortOrder: 9, Status: systemmodel.StatusActive},
 	}
+	// 验证码体系开关（doc91 §9.1/§9.2）：与迁移 042 同口径双写，既有库与新建库一致。
+	defaults = append(defaults, captchaSystemConfigs()...)
+	// 日志中心开关（doc92 §9.1）：与迁移 043 同口径双写。
+	defaults = append(defaults, logSystemConfigs()...)
 	for _, config := range defaults {
 		var existing systemmodel.SystemConfig
 		if err := tx.Where("config_key = ?", config.ConfigKey).First(&existing).Error; err == nil {
@@ -892,6 +930,13 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "notification", Name: "通知记录", Code: "notify:record", Type: "menu", SortOrder: 2, Status: "active"},
 		{ParentCode: "notify:record", Name: "查看记录", Code: "notify:view", Type: "button", SortOrder: 1, Status: "active"},
 		{ParentCode: "notification", Name: "通知模板", Code: "notify:template", Type: "menu", SortOrder: 3, Status: "active"},
+		// —— 消息中心多渠道（doc90 §9.1）
+		{ParentCode: "notification", Name: "渠道配置", Code: "notify:channel", Type: "menu", SortOrder: 4, Status: "active"},
+		{ParentCode: "notify:channel", Name: "编辑渠道", Code: "notify:channel:manage", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "notification", Name: "短信模板", Code: "notify:sms-template", Type: "menu", SortOrder: 5, Status: "active"},
+		{ParentCode: "notify:sms-template", Name: "编辑短信模板", Code: "notify:sms-template:manage", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "notification", Name: "消息群发", Code: "notify:broadcast", Type: "menu", SortOrder: 6, Status: "active"},
+		{ParentCode: "notification", Name: "发送日志", Code: "notify:delivery", Type: "menu", SortOrder: 7, Status: "active"},
 		// —— 推广邀请返现（替代原代理/分销域）
 		{Name: "推广返现", Code: "referral", Type: "catalog", SortOrder: 11, Status: "active"},
 		{ParentCode: "referral", Name: "返现台账", Code: "referral:cashback:list", Type: "menu", SortOrder: 1, Status: "active"},
@@ -969,6 +1014,16 @@ func seedPermissions(tx *gorm.DB) error {
 		// 工单复核与内部备注（S2/S3）：挂在工单列表下，作为按钮级权限。
 		{ParentCode: "ticket:list", Name: "工单复核", Code: "ticket:review", Type: "button", SortOrder: 6, Status: "active"},
 		{ParentCode: "ticket:list", Name: "内部备注", Code: "ticket:internal_note", Type: "button", SortOrder: 7, Status: "active"},
+
+		// —— doc91 §10.1：验证码配置（影响全站登录，默认只给超管与运维）——
+		{ParentCode: "system", Name: "验证码配置", Code: "captcha:config", Type: "menu", SortOrder: 12, Status: "active"},
+		{ParentCode: "captcha:config", Name: "编辑验证码策略", Code: "captcha:config:manage", Type: "button", SortOrder: 1, Status: "active"},
+
+		// —— doc92 §9.1：日志中心（日志含手机号/邮箱/上游请求体，只给超管与运维）——
+		{ParentCode: "system", Name: "日志中心", Code: "log:center", Type: "menu", SortOrder: 13, Status: "active"},
+		{ParentCode: "log:center", Name: "日志导出", Code: "log:export", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "log:center", Name: "日志清理", Code: "log:cleanup", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "log:center", Name: "保留策略", Code: "log:policy", Type: "menu", SortOrder: 3, Status: "active"},
 	}
 
 	permissionMap := make(map[string]uint64)
@@ -1096,6 +1151,13 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"notify:record",
 			"notify:view",
 			"notify:template",
+			// 消息中心多渠道（doc90 §9.1）：超管全量
+			"notify:channel",
+			"notify:channel:manage",
+			"notify:sms-template",
+			"notify:sms-template:manage",
+			"notify:broadcast",
+			"notify:delivery",
 			// 推广邀请返现权限
 			"referral",
 			"referral:cashback:list",
@@ -1123,6 +1185,14 @@ func seedRolePermissions(tx *gorm.DB) error {
 			// 工单复核与内部备注（S2/S3）
 			"ticket:review",
 			"ticket:internal_note",
+			// 验证码配置（doc91 §10.1）：超管全量
+			"captcha:config",
+			"captcha:config:manage",
+			// 日志中心（doc92 §9.1）：超管全量
+			"log:center",
+			"log:export",
+			"log:cleanup",
+			"log:policy",
 		},
 		"ops_admin": {
 			"system:user",
@@ -1175,6 +1245,21 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"security:risk:list",
 			"security:blacklist:manage",
 			"security:session:manage",
+			// 验证码配置（doc91 §10.1）：运维负责验证码服务商与策略
+			"captcha:config",
+			"captcha:config:manage",
+			// 日志中心（doc92 §9.1）：运维是日志中心的主要使用者，四项全给
+			"log:center",
+			"log:export",
+			"log:cleanup",
+			"log:policy",
+			// 消息中心渠道与发送日志（doc90 §9.1）：运维负责渠道配置，不参与群发
+			"notification",
+			"notify:channel",
+			"notify:channel:manage",
+			"notify:delivery",
+			"notify:record",
+			"notify:view",
 		},
 		"finance_admin": {
 			"system:user",
@@ -1242,6 +1327,14 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"ticket:update",
 			"ticket:internal_note",
 			"ticket:category",
+			// 消息中心（doc90 §9.1）：客服负责群发与发送日志，不给渠道凭证权限。
+			"notification",
+			"notify:broadcast",
+			"notify:delivery",
+			"notify:record",
+			"notify:view",
+			"notify:template",
+			"notify:sms-template",
 		},
 		"support_lead": {
 			"ticket",
@@ -1514,6 +1607,12 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "安全审计", Type: menumodel.TypeDirectory, Path: "/system/audit-center", Icon: "history", SortOrder: 3, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/system/audit-center", Platform: menumodel.PlatformAdmin, Name: "操作审计", Type: menumodel.TypeMenu, Path: "/system/audit-logs", Component: "system/audit-logs/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/system/audit-center", Platform: menumodel.PlatformAdmin, Name: "公告管理", Type: menumodel.TypeMenu, Path: "/system/announcements", Component: "notification/announcements/index", Icon: "sound", SortOrder: 2, Status: menumodel.StatusActive},
+		// 验证码配置（doc91 §10.1）：服务商 / 场景策略 / 统计
+		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "验证码配置", Type: menumodel.TypeMenu, Path: "/system/captcha", Component: "system/captcha/index", Icon: "safety", SortOrder: 12, Status: menumodel.StatusActive},
+		// 日志中心（doc92 §9.1）：统一日志浏览 / 清理任务 / 保留策略
+		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "日志中心", Type: menumodel.TypeMenu, Path: "/system/logs", Component: "system/logs/index", Icon: "file", SortOrder: 13, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "清理任务", Type: menumodel.TypeMenu, Path: "/system/logs/cleanup", Component: "system/logs/cleanup/index", Icon: "delete", SortOrder: 14, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "保留策略", Type: menumodel.TypeMenu, Path: "/system/logs/policy", Component: "system/logs/policy/index", Icon: "setting", SortOrder: 15, Status: menumodel.StatusActive},
 
 		// —— 生命周期管理（doc60，admin 平台 SortOrder=10）
 		{Platform: menumodel.PlatformAdmin, Name: "生命周期管理", Type: menumodel.TypeDirectory, Path: "/lifecycle", Icon: "history", SortOrder: 10, Status: menumodel.StatusActive},
@@ -1525,6 +1624,11 @@ func seedMenus(tx *gorm.DB) error {
 		{Platform: menumodel.PlatformAdmin, Name: "消息中心", Type: menumodel.TypeDirectory, Path: "/notification", Icon: "mail", SortOrder: 11, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "通知记录", Type: menumodel.TypeMenu, Path: "/notification/records", Component: "notification/records/index", Icon: "mail", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "通知模板", Type: menumodel.TypeMenu, Path: "/notification/templates", Component: "notification/templates/index", Icon: "root-list", SortOrder: 2, Status: menumodel.StatusActive},
+		// doc90 §9.1：渠道配置 / 短信模板 / 消息群发 / 发送日志
+		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "渠道配置", Type: menumodel.TypeMenu, Path: "/notification/channels", Component: "notification/channels/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "短信模板", Type: menumodel.TypeMenu, Path: "/notification/sms-templates", Component: "notification/sms-templates/index", Icon: "file", SortOrder: 4, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "消息群发", Type: menumodel.TypeMenu, Path: "/notification/broadcast", Component: "notification/broadcast/index", Icon: "send", SortOrder: 5, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "发送日志", Type: menumodel.TypeMenu, Path: "/notification/deliveries", Component: "notification/deliveries/index", Icon: "root-list", SortOrder: 6, Status: menumodel.StatusActive},
 
 		// —— 用户中心菜单（platform=user）
 		// 顺序即侧边栏一级顺序：控制台 → 云产品 → 选购 → 订单 → 费用 → 积分 → 工单 → 成员 → 个人 → 推广。
@@ -1547,6 +1651,8 @@ func seedMenus(tx *gorm.DB) error {
 		{Platform: menumodel.PlatformUser, Name: "个人中心", Type: menumodel.TypeMenu, Path: "/profile", Icon: "user", SortOrder: 9, Status: menumodel.StatusActive},
 		{ParentKey: "user:/profile", Platform: menumodel.PlatformUser, Name: "我的消息", Type: menumodel.TypeMenu, Path: "/profile/messages", Icon: "mail", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "user:/profile", Platform: menumodel.PlatformUser, Name: "通知偏好", Type: menumodel.TypeMenu, Path: "/profile/preferences", Icon: "setting", SortOrder: 2, Status: menumodel.StatusActive},
+		// 安全设置（doc91 §10.1）：账号绑定 / 二次验证 / 关键操作场景开关
+		{ParentKey: "user:/profile", Platform: menumodel.PlatformUser, Name: "安全设置", Type: menumodel.TypeMenu, Path: "/profile/security", Component: "profile/security/index", Icon: "safety", SortOrder: 3, Status: menumodel.StatusActive},
 		// 推广邀请返现（用户自助；子账号可看，提现与转出后端硬拒）
 		{Platform: menumodel.PlatformUser, Name: "推广邀请", Type: menumodel.TypeDirectory, Path: "/referral", Icon: "share", SortOrder: 10, Status: menumodel.StatusActive},
 		{ParentKey: "user:/referral", Platform: menumodel.PlatformUser, Name: "推广概览", Type: menumodel.TypeMenu, Path: "/referral/overview", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
@@ -2162,6 +2268,75 @@ func seedNotificationTemplates(tx *gorm.DB) error {
 		} else if err != gorm.ErrRecordNotFound {
 			return err
 		}
+		if err := tx.Create(&item).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// seedSmsTemplateVars 注入模板变量注册表默认项（doc90 §1.4，D7）。
+//
+// 与迁移 041 的 INSERT ... ON CONFLICT DO NOTHING 双写：迁移覆盖既有库升级，
+// 这里覆盖「表已存在但缺行」的场景（例如迁移执行时被中断）。
+func seedSmsTemplateVars(tx *gorm.DB) error {
+	type varSeed struct {
+		key, label, category, valueType, sample string
+	}
+	seeds := []varSeed{
+		{"code", "验证码", "otp", "string", "5283"},
+		{"minutes", "有效分钟数", "otp", "number", "5"},
+		{"hostname", "主机名", "instance", "string", "web-01"},
+		{"display_ip", "显示 IP", "instance", "string", "203.0.113.10"},
+		{"expire_date", "到期日期", "instance", "date", "2026-12-31"},
+		{"instance_mark", "实例标识", "instance", "string", "i-8f3a91"},
+		{"days_left", "剩余天数", "instance", "number", "7"},
+		{"order_no", "订单号", "order", "string", "SO20260913001"},
+		{"amount", "金额", "order", "amount", "128.00"},
+		{"balance", "账户余额", "user", "amount", "320.50"},
+		{"threshold", "预警阈值", "user", "amount", "100.00"},
+		{"username", "用户名", "user", "string", "demo_user"},
+		{"ticket_no", "工单号", "system", "string", "TK20260913007"},
+		{"reason", "失败原因", "system", "string", "上游超时"},
+		{"site_name", "站点名称", "common", "string", "HostSent"},
+	}
+	for i, s := range seeds {
+		var existing notifymodel.SmsTemplateVar
+		if err := tx.Where("var_key = ?", s.key).First(&existing).Error; err == nil {
+			continue
+		} else if err != gorm.ErrRecordNotFound {
+			return err
+		}
+		item := notifymodel.SmsTemplateVar{
+			VarKey: s.key, Label: s.label, Category: s.category,
+			ValueType: s.valueType, Sample: s.sample,
+			SortOrder: i + 1, Status: notifymodel.TemplateVarStatusActive,
+		}
+		if err := tx.Create(&item).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// seedNotifyChannelConfigs 注入消息中心开关默认项（doc90 §5.2）。
+//
+// 默认值取「默认安全侧」：sms_channel_enabled=false 使升级后不会突然开始发短信；
+// mail_channel_enabled 是历史键（由 seedSMTPConfigs 负责），此处不重复。
+func seedNotifyChannelConfigs(tx *gorm.DB) error {
+	defaults := []systemmodel.SystemConfig{
+		{ConfigKey: "sms_channel_enabled", ConfigValue: "false", ValueType: systemmodel.ValueTypeBool, Group: "sms", Description: "是否启用短信通知通道", SortOrder: 1, Status: systemmodel.StatusActive},
+		{ConfigKey: "notify_broadcast_max_targets", ConfigValue: "5000", ValueType: systemmodel.ValueTypeInt, Group: "sms", Description: "单次消息群发命中人数上限", SortOrder: 2, Status: systemmodel.StatusActive},
+		{ConfigKey: "sms_unit_price_fen", ConfigValue: "5", ValueType: systemmodel.ValueTypeInt, Group: "sms", Description: "短信单价（分/条，用于群发费用估算）", SortOrder: 3, Status: systemmodel.StatusActive},
+	}
+	for _, config := range defaults {
+		var existing systemmodel.SystemConfig
+		if err := tx.Where("config_key = ?", config.ConfigKey).First(&existing).Error; err == nil {
+			continue
+		} else if err != gorm.ErrRecordNotFound {
+			return err
+		}
+		item := config
 		if err := tx.Create(&item).Error; err != nil {
 			return err
 		}

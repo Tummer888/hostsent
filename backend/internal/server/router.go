@@ -16,6 +16,8 @@ func newRouter(app *App) *gin.Engine {
 
 	r := gin.New()
 	r.Use(gin.Recovery(), middleware.Logger(app.logger), cors.Default())
+	// 用户中心限流（doc91 §9.1）：仅对 /api/v1/uc 前缀生效，挂全局以保证不漏挂。
+	r.Use(app.ucRateLimit())
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": 0, "message": "ok", "data": gin.H{"status": "ok"}})
@@ -30,10 +32,16 @@ func newRouter(app *App) *gin.Engine {
 	v1 := r.Group("/api/v1/admin")
 	// 管理端写操作审计（P2-06）：仅记录 POST/PUT/PATCH/DELETE，登录等白名单路径自动跳过。
 	v1.Use(app.adminAudit())
+	// 全局 API 限流（doc91 §9.1 api_rate_limit）：默认 0=不限；缓存不可用时放行并告警。
+	if app.captcha != nil {
+		v1.Use(app.captcha.limiter.Handler())
+	}
 	{
 		auth := v1.Group("/auth")
 		{
 			auth.POST("/login", app.adminHandler.Login)
+			// 登录二次验证（doc91 §5.2）：凭 otp_token 换正式令牌。
+			auth.POST("/login/verify-otp", app.adminHandler.VerifyLoginOTP)
 			auth.GET("/me", app.adminAuth(), app.adminHandler.Me)
 			auth.POST("/change-password", app.adminAuth(), app.adminHandler.ChangePassword)
 			// 员工管理（超管独占，81 §4.1）。保留 /auth/admins 旧路径做别名，前端逐步切到 /staff。
@@ -41,7 +49,7 @@ func newRouter(app *App) *gin.Engine {
 			auth.POST("/admins", app.adminAuth(), app.superOnly(), app.adminHandler.Create)
 			auth.GET("/admins/:id", app.adminAuth(), app.superOnly(), app.adminHandler.Get)
 			auth.PUT("/admins/:id", app.adminAuth(), app.superOnly(), app.adminHandler.Update)
-			auth.PUT("/admins/:id/roles", app.adminAuth(), app.superOnly(), app.adminHandler.SetRoles)
+			auth.PUT("/admins/:id/roles", app.adminAuth(), app.superOnly(), app.adminRequireVerification("admin_grant_change"), app.adminHandler.SetRoles)
 			auth.PATCH("/admins/:id/status", app.adminAuth(), app.superOnly(), app.adminHandler.UpdateStatus)
 			auth.POST("/admins/:id/reset-password", app.adminAuth(), app.superOnly(), app.adminHandler.ResetPassword)
 			auth.DELETE("/admins/:id", app.adminAuth(), app.superOnly(), app.adminHandler.Delete)
@@ -289,8 +297,8 @@ func newRouter(app *App) *gin.Engine {
 			instanceOps.POST("/:id/unsuspend", app.perm("instance:action"), app.instanceOpsHandler.Unsuspend)
 			instanceOps.PUT("/:id/remark", app.perm("instance:action"), app.instanceOpsHandler.SetRemark)
 			instanceOps.POST("/:id/vnc", app.perm("instance:console"), app.instanceOpsHandler.VNC)
-			instanceOps.POST("/:id/resize", app.perm("instance:resize"), app.instanceOpsHandler.Resize)
-			instanceOps.DELETE("/:id", app.perm("instance:destroy"), app.instanceOpsHandler.Destroy)
+			instanceOps.POST("/:id/resize", app.perm("instance:resize"), app.adminRequireVerification("instance_resize"), app.instanceOpsHandler.Resize)
+			instanceOps.DELETE("/:id", app.perm("instance:destroy"), app.adminRequireVerification("instance_destroy"), app.instanceOpsHandler.Destroy)
 		}
 
 		// 续费记录：/admin/renewals
@@ -596,7 +604,7 @@ func newRouter(app *App) *gin.Engine {
 			salesGroup.POST("/withdrawals", app.perm("sales:commission:list"), app.salesCommissionHandler.ApplyWithdrawal)
 			salesGroup.POST("/withdrawals/:id/approve", app.perm("sales:commission:audit"), app.salesCommissionHandler.ApproveWithdrawal)
 			salesGroup.POST("/withdrawals/:id/reject", app.perm("sales:commission:audit"), app.salesCommissionHandler.RejectWithdrawal)
-			salesGroup.POST("/withdrawals/:id/pay", app.perm("sales:commission:settle"), app.salesCommissionHandler.PayWithdrawal)
+			salesGroup.POST("/withdrawals/:id/pay", app.perm("sales:commission:settle"), app.adminRequireVerification("payout_apply"), app.salesCommissionHandler.PayWithdrawal)
 
 			salesGroup.GET("/performance/ranking", app.perm("sales:performance:view"), app.salesPerformanceHandler.Ranking)
 			salesGroup.GET("/performance/targets", app.perm("sales:performance:view"), app.salesPerformanceHandler.Targets)
@@ -649,17 +657,119 @@ func newRouter(app *App) *gin.Engine {
 			tplGroup.GET("", app.perm("notify:template"), app.notifyAdminHandler.ListTemplates)
 			tplGroup.PUT("/:id", app.perm("notify:manage"), app.notifyAdminHandler.UpdateTemplate)
 		}
+
+		// 验证码配置（doc91 §8.1/§10.2）：服务商 / 场景策略 / 统计。
+		// 固定路径（policies、stats、providers）与 /providers/:id 不同段数，无匹配歧义。
+		captchaGroup := v1.Group("/captcha")
+		captchaGroup.Use(app.adminAuth())
+		{
+			captchaGroup.GET("/providers/types", app.perm("captcha:config"), app.captcha.adminHandler.ListProviderTypes)
+			captchaGroup.GET("/providers", app.perm("captcha:config"), app.captcha.adminHandler.ListProviders)
+			captchaGroup.POST("/providers", app.perm("captcha:config:manage"), app.captcha.adminHandler.CreateProvider)
+			captchaGroup.PUT("/providers/:id", app.perm("captcha:config:manage"), app.captcha.adminHandler.UpdateProvider)
+			captchaGroup.DELETE("/providers/:id", app.perm("captcha:config:manage"), app.captcha.adminHandler.DeleteProvider)
+			captchaGroup.POST("/providers/:id/test", app.perm("captcha:config"), app.captcha.adminHandler.TestProvider)
+			captchaGroup.GET("/policies", app.perm("captcha:config"), app.captcha.adminHandler.ListPolicies)
+			captchaGroup.PUT("/policies/:scene", app.perm("captcha:config:manage"), app.captcha.adminHandler.UpdatePolicy)
+			captchaGroup.GET("/stats", app.perm("captcha:config"), app.captcha.adminHandler.Stats)
+		}
+
+		// 消息中心 - 渠道 / 短信模板 / 群发 / 发送日志（doc90 §3.4）。
+		//
+		// 既有三个平级前缀（/announcements、/notifications、/notification-templates）保持不变，
+		// 本轮新增接口统一挂 /notification/*；7 个固定段必须注册在任何通配段之前，
+		// 否则 Gin 会因通配冲突 panic（如 /channels 与 /channels/:id 的先后）。
+		adminNotify := v1.Group("/notification")
+		adminNotify.Use(app.adminAuth())
+		{
+			// 渠道类型与渠道实例
+			adminNotify.GET("/channel-types", app.perm("notify:channel"), app.notify.channelHandler.ListTypes)
+			adminNotify.GET("/channels", app.perm("notify:channel"), app.notify.channelHandler.List)
+			adminNotify.POST("/channels", app.perm("notify:channel:manage"), app.notify.channelHandler.Create)
+			adminNotify.GET("/channels/:id", app.perm("notify:channel"), app.notify.channelHandler.Get)
+			adminNotify.PUT("/channels/:id", app.perm("notify:channel:manage"), app.notify.channelHandler.Update)
+			adminNotify.PATCH("/channels/:id/status", app.perm("notify:channel:manage"), app.notify.channelHandler.UpdateStatus)
+			adminNotify.POST("/channels/:id/test", app.perm("notify:channel"), app.notify.channelHandler.Test)
+			// 短信 / 邮箱测试发送（统一入口，频控 10 次/分钟/管理员）
+			adminNotify.POST("/test-send", app.perm("notify:channel"), app.notify.channelHandler.TestSend)
+
+			// 短信模板
+			adminNotify.POST("/sms-templates/preview", app.perm("notify:sms-template"), app.notify.smsTemplateHandler.Preview)
+			adminNotify.GET("/sms-templates", app.perm("notify:sms-template"), app.notify.smsTemplateHandler.List)
+			adminNotify.POST("/sms-templates", app.perm("notify:sms-template:manage"), app.notify.smsTemplateHandler.Create)
+			adminNotify.GET("/sms-templates/:id", app.perm("notify:sms-template"), app.notify.smsTemplateHandler.Get)
+			adminNotify.PUT("/sms-templates/:id", app.perm("notify:sms-template:manage"), app.notify.smsTemplateHandler.Update)
+			adminNotify.DELETE("/sms-templates/:id", app.perm("notify:sms-template:manage"), app.notify.smsTemplateHandler.Delete)
+
+			// 模板变量注册表（D7）
+			adminNotify.GET("/template-vars", app.perm("notify:template"), app.notify.smsTemplateHandler.ListVars)
+			adminNotify.POST("/template-vars", app.perm("notify:template"), app.notify.smsTemplateHandler.CreateVar)
+			adminNotify.PUT("/template-vars/:id", app.perm("notify:template"), app.notify.smsTemplateHandler.UpdateVar)
+			adminNotify.DELETE("/template-vars/:id", app.perm("notify:template"), app.notify.smsTemplateHandler.DeleteVar)
+
+			// 消息群发（目标检索 / 预览 / 发送）
+			adminNotify.GET("/broadcast/targets", app.perm("notify:broadcast"), app.notify.broadcastHandler.Targets)
+			adminNotify.POST("/broadcast/preview", app.perm("notify:broadcast"), app.notify.broadcastHandler.Preview)
+			adminNotify.POST("/broadcast", app.perm("notify:broadcast"), app.notify.broadcastHandler.Send)
+
+			// 发送日志（投递记录）：batch-retry 必须注册在 /:id/retry 之前
+			adminNotify.POST("/deliveries/batch-retry", app.perm("notify:delivery"), app.notify.deliveryHandler.BatchRetry)
+			adminNotify.GET("/deliveries", app.perm("notify:delivery"), app.notify.deliveryHandler.List)
+			adminNotify.GET("/deliveries/:id", app.perm("notify:delivery"), app.notify.deliveryHandler.Get)
+			adminNotify.POST("/deliveries/:id/retry", app.perm("notify:delivery"), app.notify.deliveryHandler.Retry)
+		}
+
+		// 日志中心（doc92 §9.2）：统一日志浏览 / 导出 / 保留策略 / 清理任务。
+		//
+		// 26 个源共用一套页面，靠 GET /logs/catalog 下发的列元数据驱动渲染。
+		// 权限码与文档一致：log:center 读、log:export 导出下载、log:cleanup 清理、log:policy 策略。
+		// 路由顺序硬约束：所有固定段（catalog/stats/query/export/export-files/
+		// policies/cleanup/cleanup-jobs）必须先注册，最后才注册带通配段的
+		// /cleanup-jobs/:id 与 /:source/detail/:id，否则 Gin 通配冲突 panic。
+		if app.logcenter != nil {
+			logs := v1.Group("/logs")
+			logs.Use(app.adminAuth())
+			{
+				// 目录 / 统计 / 查询（固定段）
+				logs.GET("/catalog", app.perm("log:center"), app.logcenter.handler.Catalog)
+				logs.GET("/stats", app.perm("log:center"), app.logcenter.handler.Stats)
+				logs.GET("/query", app.perm("log:center"), app.logcenter.handler.Query)
+
+				// 导出（导出即留痕；下载同权限，写操作由全局审计中间件记录）
+				logs.POST("/export", app.perm("log:export"), app.logcenter.handler.Export)
+				logs.GET("/export-files", app.perm("log:center"), app.logcenter.handler.ListExportFiles)
+				logs.GET("/export-files/:id/download", app.perm("log:export"), app.logcenter.handler.DownloadExportFile)
+				logs.DELETE("/export-files/:id", app.perm("log:cleanup"), app.logcenter.handler.DeleteExportFile)
+
+				// 保留策略
+				logs.GET("/policies", app.perm("log:policy"), app.logcenter.handler.ListPolicies)
+				logs.PUT("/policies/:source", app.perm("log:cleanup"), app.logcenter.handler.UpdatePolicy)
+
+				// 清理：预演与执行分离，执行需 DELETE 确认文本
+				logs.POST("/cleanup/preview", app.perm("log:cleanup"), app.logcenter.handler.PreviewCleanup)
+				logs.POST("/cleanup", app.perm("log:cleanup"), app.logcenter.handler.RunCleanup)
+				logs.GET("/cleanup-jobs", app.perm("log:center"), app.logcenter.handler.ListCleanupJobs)
+
+				// 通配段收尾注册
+				logs.GET("/cleanup-jobs/:id", app.perm("log:center"), app.logcenter.handler.GetCleanupJob)
+				logs.POST("/cleanup-jobs/:id/cancel", app.perm("log:cleanup"), app.logcenter.handler.CancelCleanupJob)
+				logs.GET("/:source/detail/:id", app.perm("log:center"), app.logcenter.handler.Detail)
+			}
+		}
 	}
 
 	// 用户中心（普通用户自助）：独立模块 internal/modules/uc/auth
 	ucAuth := r.Group("/api/v1/uc/auth")
 	{
-		ucAuth.POST("/login", app.userCenterAuthHandler.Login)                                                                           // 登录
-		ucAuth.POST("/register", app.userCenterAuthHandler.Register)                                                                     // 注册
-		ucAuth.POST("/logout", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.Logout)          // 登出
-		ucAuth.GET("/userinfo", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.UserInfo)       // 用户信息
-		ucAuth.PUT("/profile", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.UpdateProfile)   // 更新资料
-		ucAuth.PUT("/password", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.ChangePassword) // 修改密码
+		ucAuth.POST("/login", app.userCenterAuthHandler.Login)                                                                                                                           // 登录
+		ucAuth.POST("/login/verify-otp", app.userCenterAuthHandler.VerifyLoginOTP)                                                                                                       // 登录二次验证
+		ucAuth.POST("/register", app.userCenterAuthHandler.Register)                                                                                                                     // 注册
+		ucAuth.POST("/forgot-password", app.userCenterAuthHandler.ForgotPassword)                                                                                                        // 忘记密码（下发验证码）
+		ucAuth.POST("/reset-password", app.userCenterAuthHandler.ResetPassword)                                                                                                          // 重置密码
+		ucAuth.POST("/logout", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.Logout)                                                          // 登出
+		ucAuth.GET("/userinfo", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.UserInfo)                                                       // 用户信息
+		ucAuth.PUT("/profile", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.UpdateProfile)                                                   // 更新资料（改手机/邮箱时按字段动态要求验证）
+		ucAuth.PUT("/password", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userRequireVerification("password_change"), app.userCenterAuthHandler.ChangePassword) // 修改密码
 	}
 
 	// 用户中心菜单：普通用户控制台侧边栏（platform=user）
@@ -673,11 +783,14 @@ func newRouter(app *App) *gin.Engine {
 	ucAuthCompat := r.Group("/api/v1/auth")
 	{
 		ucAuthCompat.POST("/login", app.userCenterAuthHandler.Login)
+		ucAuthCompat.POST("/login/verify-otp", app.userCenterAuthHandler.VerifyLoginOTP) // 登录二次验证
 		ucAuthCompat.POST("/register", app.userCenterAuthHandler.Register)
+		ucAuthCompat.POST("/forgot-password", app.userCenterAuthHandler.ForgotPassword) // 忘记密码
+		ucAuthCompat.POST("/reset-password", app.userCenterAuthHandler.ResetPassword)   // 重置密码
 		ucAuthCompat.POST("/logout", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.Logout)
 		ucAuthCompat.GET("/userinfo", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.UserInfo)
-		ucAuthCompat.PUT("/profile", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.UpdateProfile)   // 更新资料
-		ucAuthCompat.PUT("/password", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.ChangePassword) // 修改密码
+		ucAuthCompat.PUT("/profile", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.UpdateProfile)                                                   // 更新资料
+		ucAuthCompat.PUT("/password", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userRequireVerification("password_change"), app.userCenterAuthHandler.ChangePassword) // 修改密码
 	}
 
 	// 兼容 frontend-user 项目 baseURL=/api/v1 时的 /menus/tree 路径（同处理器）
@@ -721,7 +834,7 @@ func newRouter(app *App) *gin.Engine {
 		ucPayment.PUT("/accounts/:id/default", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.payment.userPaymentHandler.SetDefaultAccount)
 		ucPayment.POST("/recharge", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.payment.userPaymentHandler.Recharge)
 		ucPayment.POST("/bills/pay", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.payment.userPaymentHandler.PayBill)
-		ucPayment.POST("/withdrawals", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.payment.userPaymentHandler.Withdraw)
+		ucPayment.POST("/withdrawals", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.userRequireVerification("withdraw_apply"), app.payment.userPaymentHandler.Withdraw)
 	}
 
 	// 用户中心积分（doc36）：只读展示，积分不可抵扣、不可提现、不可转入余额。
@@ -741,12 +854,12 @@ func newRouter(app *App) *gin.Engine {
 	// 用户中心推广返现：查看邀请码/邀请人/返现明细属账单域，申请提现与转入余额为资金入口（子账号拒绝）。
 	ucReferral := r.Group("/api/v1/uc/referral")
 	{
-		ucReferral.GET("/profile", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Profile)         // 我的推广概览
-		ucReferral.GET("/invitees", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Invitees)       // 我的邀请
-		ucReferral.GET("/cashbacks", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Cashbacks)     // 返现明细
-		ucReferral.GET("/withdrawals", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Withdrawals) // 我的提现记录
-		ucReferral.POST("/withdrawals", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.ucReferralHandler.ApplyWithdrawal)                  // 申请提现
-		ucReferral.POST("/transfer", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.ucReferralHandler.Transfer)                            // 转入现金余额
+		ucReferral.GET("/profile", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Profile)                                       // 我的推广概览
+		ucReferral.GET("/invitees", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Invitees)                                     // 我的邀请
+		ucReferral.GET("/cashbacks", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Cashbacks)                                   // 返现明细
+		ucReferral.GET("/withdrawals", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Withdrawals)                               // 我的提现记录
+		ucReferral.POST("/withdrawals", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.userRequireVerification("withdraw_apply"), app.ucReferralHandler.ApplyWithdrawal) // 申请提现
+		ucReferral.POST("/transfer", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.ucReferralHandler.Transfer)                                                          // 转入现金余额
 	}
 
 	// 用户中心商品：上架商品公开可浏览（无需登录）
@@ -763,6 +876,28 @@ func newRouter(app *App) *gin.Engine {
 	{
 		publicSite.GET("/announcements", app.siteHandler.Announcements) // 已发布公告
 		publicSite.GET("/site-content", app.siteHandler.SiteContent)    // 品牌与站点配置（白名单）
+	}
+
+	// 验证码公开接口（doc91 §3.3）：登录前使用，无需鉴权。
+	// auth-config 是前端「要不要渲染验证码」的唯一依据：没有它前端只能写死。
+	if app.captcha != nil {
+		publicCaptcha := r.Group("/api/v1/public")
+		{
+			publicCaptcha.GET("/auth-config", app.captcha.publicHandler.AuthConfig)
+			publicCaptcha.GET("/captcha/image", app.captcha.publicHandler.ImageChallenge)
+			publicCaptcha.POST("/verify-code/send", app.captcha.publicHandler.SendCode)
+		}
+
+		// 用户端安全设置（doc91 §4.4/§4.5）：需登录；子账号也能看自己的设置。
+		ucSecurity := r.Group("/api/v1/uc/security")
+		ucSecurity.Use(middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userAudit())
+		{
+			ucSecurity.GET("/settings", app.captcha.userHandler.GetSettings)
+			ucSecurity.PUT("/settings", app.captcha.userHandler.UpdateSettings)
+			ucSecurity.POST("/verification/send", app.captcha.userHandler.SendVerification)
+			ucSecurity.POST("/verification/verify", app.captcha.userHandler.VerifyCode)
+			ucSecurity.GET("/verification/requirement", app.captcha.userHandler.OpenVerification)
+		}
 	}
 
 	// 用户中心订单：下单（余额支付即时开通 / 渠道支付落待支付单）+ 我的订单（需登录）
@@ -791,6 +926,9 @@ func newRouter(app *App) *gin.Engine {
 		ucInstances.GET("/:id", app.userPerm(appauth.PermInstanceView), app.ucInstanceHandler.Detail)          // 主机详情
 		ucInstances.POST("/:id/power", app.userPerm(appauth.PermInstanceOperate), app.ucInstanceHandler.Power) // 电源操作
 		ucInstances.POST("/:id/vnc", app.userPerm(appauth.PermInstanceOperate), app.ucInstanceHandler.VNC)     // 远程控制台
+		// 自助销毁（doc91 §6.4）：不可逆，子账号硬拒绝 + instance_destroy 二次验证票据。
+		// 默认 otp_required=false，升级当天这条新路由不阻断任何人。
+		ucInstances.DELETE("/:id", app.rejectSub(), app.userPerm(appauth.PermInstanceOperate), app.userRequireVerification("instance_destroy"), app.ucInstanceHandler.Destroy)
 	}
 
 	// 用户中心工单支持：我的工单自助管理（doc50）

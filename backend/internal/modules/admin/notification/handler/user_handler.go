@@ -136,7 +136,14 @@ func (h *UserHandler) UserUpdatePrefs(c *gin.Context) {
 		response.Error(c, apperrors.New(20001, err.Error()))
 		return
 	}
-	if err := h.preferenceSvc.BatchUpsert(c.Request.Context(), userID, req.Items); err != nil {
+	// bug ① 修复：兼容 {items:[...]} 与 {list:[...]} 两种请求体，
+	// 空列表在归一化后校验（不能靠 binding tag，否则发 list 时直接 400）。
+	items := req.Normalize()
+	if len(items) == 0 {
+		response.Error(c, apperrors.New(20001, "偏好列表不能为空"))
+		return
+	}
+	if err := h.preferenceSvc.BatchUpsert(c.Request.Context(), userID, items); err != nil {
 		response.Error(c, writeNotifyError(err))
 		return
 	}

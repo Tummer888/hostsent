@@ -37,6 +37,7 @@ import (
 	"time"
 
 	"hostsent/backend/internal/pkg/model"
+	"hostsent/backend/internal/pkg/traceid"
 	"hostsent/backend/internal/pkg/upstream"
 )
 
@@ -240,21 +241,44 @@ func (p *MoFangYunProvider) httpPost(ctx context.Context, rawURL string, form ur
 
 // httpDo 执行请求并返回响应体与状态码。
 func (p *MoFangYunProvider) httpDo(req *http.Request) ([]byte, int, error) {
+	started := time.Now()
 	resp, err := p.client.Do(req)
 	if err != nil {
+		upstream.Capture(req.Context(), req.Method, req.URL.String(),
+			upstream.RequestBodyOf(req.GetBody), 0, nil, err, time.Since(started))
 		return nil, 0, &upstream.ProviderError{Op: "request", Err: err}
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
+	upstream.Capture(req.Context(), req.Method, req.URL.String(),
+		upstream.RequestBodyOf(req.GetBody), resp.StatusCode, body, err, time.Since(started))
 	if err != nil {
 		return nil, resp.StatusCode, &upstream.ProviderError{Op: "request", Err: err}
 	}
 	return body, resp.StatusCode, nil
 }
 
+// traceCtx 创建一次调用的采集上下文（doc92 §3.2）：
+// trace_id 从请求 context 继承，渠道信息由 providerInfo 提供。
+func (p *MoFangYunProvider) traceCtx(ctx context.Context, op string) (context.Context, *upstream.Trace) {
+	next, tr := upstream.NewTrace(ctx, op, traceid.From(ctx))
+	tr.SetProvider(p.providerInfo)
+	return next, tr
+}
+
+// providerInfo 采集记录上要带的渠道标识。
+func (p *MoFangYunProvider) providerInfo() (uint, string, string) {
+	name := firstNonEmpty(p.config.Name, "魔方云")
+	return p.config.ID, name, ProviderType
+}
+
 // call 调用魔方云业务接口：自动登录、401 重登录重试一次、解析 error 字段。
 // out 非 nil 时将整个响应体 JSON 解析到 out。
-func (p *MoFangYunProvider) call(ctx context.Context, op, method, path string, form url.Values, out interface{}) error {
+func (p *MoFangYunProvider) call(ctx context.Context, op, method, path string, form url.Values, out interface{}) (err error) {
+	ctx, tr := p.traceCtx(ctx, op)
+	// 业务判定结果在返回时才可知（HTTP 2xx 也可能是 body.error 失败），
+	// 因此用命名返回值在 defer 里回填 success/error_code（doc92 §3.2）。
+	defer func() { tr.Finish(err) }()
 	base, err := p.baseURL()
 	if err != nil {
 		return err

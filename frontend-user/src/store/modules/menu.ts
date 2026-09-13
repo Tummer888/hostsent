@@ -16,6 +16,7 @@ import {
   MoneyIcon,
   OrderIcon,
   RefreshIcon,
+  SecuredIcon,
   ServerIcon,
   ServiceIcon,
   SettingIcon,
@@ -49,6 +50,8 @@ const iconMap: Record<string, Component> = {
   money: MoneyIcon,
   refresh: RefreshIcon,
   'lock-on': LockOnIcon,
+  // 后端菜单 icon 为 "safety"（doc91 /profile/security）；未映射会静默丢图标。
+  safety: SecuredIcon,
   mail: MailIcon,
   setting: SettingIcon,
   edit: EditIcon,

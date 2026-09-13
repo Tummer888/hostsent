@@ -153,12 +153,6 @@ export interface WithdrawListResponse {
   meta: ListMeta
 }
 
-export interface RechargeCreateRequest {
-  amount: number
-  method: string
-  remark?: string
-}
-
 export interface TransactionListQuery {
   type?: string
   direction?: number
@@ -189,11 +183,6 @@ export function getBalance() {
 // 查询我的资金流水
 export function getMyTransactions(params: TransactionListQuery = {}) {
   return request.get<any, { data: TransactionListResponse }>('/uc/finance/transactions', { params })
-}
-
-// 发起充值
-export function createRecharge(data: RechargeCreateRequest) {
-  return request.post<any, { data: RechargeInfo }>('/uc/finance/recharge', data)
 }
 
 // 查询我的充值单（doc34 F-07：此前以流水冒充，充值单号为空）

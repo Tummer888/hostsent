@@ -50,3 +50,11 @@ type VNCResult struct {
 	URL      string `json:"url"`
 	External bool   `json:"external"`
 }
+
+// DestroyRequest 用户侧销毁请求（doc91 §6.4）。
+// ConfirmMark 必须与实例标识（instance_id）完全一致才算二次确认，
+// 语义与管理端 dto.DestroyRequest 一致。
+type DestroyRequest struct {
+	ConfirmMark string `json:"confirm_mark" binding:"required"`
+	Reason      string `json:"reason"`
+}

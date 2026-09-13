@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	accountdto "hostsent/backend/internal/modules/admin/finance/account/dto"
 	finaccounthandler "hostsent/backend/internal/modules/admin/finance/account/handler"
@@ -129,6 +130,7 @@ import (
 	ucproductservice "hostsent/backend/internal/modules/uc/product/service"
 	ucreferralhandler "hostsent/backend/internal/modules/uc/referral/handler"
 	appauth "hostsent/backend/internal/pkg/auth"
+	"hostsent/backend/internal/pkg/cache"
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/db"
 	apperrors "hostsent/backend/internal/pkg/errors"
@@ -145,6 +147,21 @@ import (
 	_ "hostsent/backend/internal/pkg/upstream/mofangyun"
 	// 支付渠道适配器同样以 init() 登记能力描述符与工厂。
 	_ "hostsent/backend/internal/pkg/payment/manual"
+	// 通知渠道适配器以 init() 登记描述符与工厂（doc90 §2.3）：smtp 为真实现，
+	// 四家短信为占位（Send 返回「待接入」），使渠道在后台 UI 上完整可见。
+	_ "hostsent/backend/internal/pkg/notifier/provider/aliyun"
+	_ "hostsent/backend/internal/pkg/notifier/provider/duanxinbao"
+	_ "hostsent/backend/internal/pkg/notifier/provider/saiyou"
+	_ "hostsent/backend/internal/pkg/notifier/provider/smtp"
+	_ "hostsent/backend/internal/pkg/notifier/provider/tencent"
+	// 第三方验证码适配器以 init() 登记描述符与工厂（doc91 §7.2）：
+	// netease 为真实现，其余四家为占位（Challenge/Verify 返回「待接入」），
+	// 使类型在管理端完整可选，选中后自动回落 native（兜底必须存在）。
+	_ "hostsent/backend/internal/pkg/captcha/provider/aliyun"
+	_ "hostsent/backend/internal/pkg/captcha/provider/dingxiang"
+	_ "hostsent/backend/internal/pkg/captcha/provider/geetest"
+	_ "hostsent/backend/internal/pkg/captcha/provider/netease"
+	_ "hostsent/backend/internal/pkg/captcha/provider/tencent"
 )
 
 type Server struct {
@@ -158,7 +175,11 @@ type Server struct {
 	salesScheduler         *salesservice.ReleaseScheduler
 	provisionWorker        *orderservice.ProvisionWorker
 	notifyWorker           *openservice.NotifyDeliveryWorker
-	cancel                 context.CancelFunc
+	// deliveryWorker 通知投递队列工作器（doc90 N4）：邮件/短信排队投递与重试。
+	deliveryWorker *notifyservice.DeliveryWorker
+	// logcenter 日志中心后台组件（doc92）：上游采集写入器 + 统一清理调度器。
+	logcenter *logcenterBundle
+	cancel    context.CancelFunc
 }
 
 func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
@@ -172,6 +193,18 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	if err := db.Seed(database); err != nil {
 		return nil, err
 	}
+
+	// 缓存地基（doc89 §3 / doc91 §2.2）：Redis 是加速器而非依赖。
+	// Required=false 时连不通只降级（Warn + 进程内 LRU + 业务侧 DB 兜底），不阻断启动。
+	cacheClient, err := cache.New(cfg.Redis, cfg.Redis.Required, logger)
+	if err != nil {
+		if cfg.Redis.Required {
+			return nil, fmt.Errorf("redis required but unavailable: %w", err)
+		}
+		logger.Warn("redis unavailable, running in degraded mode", zap.Error(err))
+		cacheClient = cache.NewDisabled(logger)
+	}
+	logger.Info("cache initialized", zap.Bool("redis_enabled", cacheClient.Enabled()))
 
 	jwtIssuer := appauth.NewJWTIssuer(cfg.Auth.JWTSecret, cfg.Auth.JWTIssuer, time.Duration(cfg.Auth.JWTExpireHours)*time.Hour)
 	ipRegionResolver := netutil.NewHTTPIPRegionResolver()
@@ -227,6 +260,21 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	configRepo := systemrepo.NewConfigRepository(database)
 	configService := systemservice.NewConfigService(configRepo)
 	configHandler := systemhandler.NewConfigHandler(configService)
+	// 逐键读取 system_configs 原文（键不存在返回 ok=false，不报错）。
+	// 验证码策略（doc91）与消息中心（doc90）共用同一读取器。
+	configValueReader := func(ctx context.Context, key string) (string, bool, error) {
+		item, err := configRepo.FindByKey(ctx, key)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return "", false, nil
+			}
+			return "", false, err
+		}
+		if item == nil {
+			return "", false, nil
+		}
+		return item.ConfigValue, true, nil
+	}
 	levelRepo := levelrepo.NewUserLevelRepository(database)
 	verificationRepo := verificationrepo.NewVerificationRepository(database)
 	upstreamMgr := upstream.GetProviderManager()
@@ -642,6 +690,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		logger,
 	)
 	instanceOpsHandler := instancehandler.NewInstanceHandler(instanceOpsService)
+	// 用户侧自助销毁（doc91 §6.4）：薄委派给运维台，销毁逻辑（能力分派/流水/事件）不重写。
+	ucInstanceService.SetDestructor(instanceOpsService)
 	// 实例操作事件（P6/T6.5）：电源/暂停恢复/阶段推进 → instance.status_changed。
 	instanceOpsService.SetEventListener(buildInstanceEventListener(openEventPublisher))
 	// 规格管理（spec 子域）
@@ -737,6 +787,17 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	preferenceSvc := notifyservice.NewPreferenceService(notifyPrefRepo, notifyTplRepo)
 	notifyAdminHandler := notifyhandler.NewAdminHandler(notifySvc, announceSvc, templateSvc, preferenceSvc)
 	notifyUserHandler := notifyhandler.NewUserHandler(notifySvc, announceSvc, preferenceSvc)
+	// 消息中心（doc90）：渠道/短信模板/群发/发送日志 + 投递队列工作器。
+	// 该装配会把投递仓储注入 notifySvc，此后 Publish 的邮件/短信走队列而非直发。
+	notifyBundleInst := buildNotifyBundle(notifyBundleDeps{
+		DB:           database,
+		EncryptKey:   cfg.App.EncryptKey,
+		NotifySvc:    notifySvc,
+		NotifyRepo:   notifyRepo,
+		ConfigReader: configValueReader,
+		Counter:      &notifyRateCounter{cache: cacheClient},
+		Logger:       logger,
+	})
 	// 官网门户公开只读数据（公告等），无需登录；后续 site-content 也落在该模块
 	siteSvc := siteservice.NewSiteService(announceSvc, configRepo)
 	siteHandler := sitehandler.NewSiteHandler(siteSvc)
@@ -767,6 +828,27 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	)
 	// 积分体系（doc36）：独立账本，不参与任何资金口径；发放挂在下单/续费/账单结清事件上。
 	pointBundle, pointEarner := buildPointBundle(database, logger)
+	// 验证码与二次验证体系（doc91）：公开/管理端/用户端三组接口 + 登录守卫 + 限流。
+	// 配置读取走 system_configs 的逐键查询（读不到按默认值，绝不因配置缺失阻断登录）。
+	// OTP 下发走消息中心渠道路由（doc90 切换点），未接渠道表的部署自动回退历史 SMTP。
+	captchaBundle := buildCaptchaBundle(cfg, database, cacheClient, jwtIssuer, configValueReader, notifyBundleInst.resolver, logger)
+	// 日志中心（doc92 L1–L7）：上游采集写入器 + 任务留痕 + 26 源统一浏览/导出/清理。
+	// 采集端点在装配时即注册（upstream.SetRecorder），业务侧适配器调用自动留痕。
+	logcenterBundle := buildLogcenterBundle(logcenterBundleDeps{
+		DB:           database,
+		ConfigReader: configValueReader,
+		ConfigIntOr:  logcenterConfigIntOr(configValueReader),
+		ConfigBoolOr: logcenterConfigBoolOr(configValueReader),
+		StorageRoot:  cfg.Storage.Root,
+		Locker:       &logcenterRedisLocker{cache: cacheClient},
+		Logger:       logger,
+	})
+	// 登录安全端口回填（doc91 C3）：管理端与用户端认证服务都只依赖中性端口，
+	// 不 import 验证码模块，admin → uc 的反向依赖不存在。
+	if captchaBundle != nil && captchaBundle.port != nil {
+		adminService.SetSecurityDeps(captchaBundle.port, ipRegionResolver)
+		userCenterService.SetSecurityPort(captchaBundle.port)
+	}
 	// 续费完成积分：lifecycle 侧独立发放，幂等键为订单号。
 	lifecycleRenewalSvc.SetPointEarner(func(ctx context.Context, orderID uint64, orderNo string, userID uint64, amount float64) {
 		pointEarner(ctx, userID, "order", orderNo, amount, true)
@@ -839,7 +921,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	}, logger)
 	// 销售提现打款出口：复用支付中心打款单，biz_type=sales_withdraw（doc86 §2.5）。
 	salesBundle.wireSalesPayout(paymentBundle.payoutService)
-	app := NewApp(cfg, adminHandler, departmentHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, salesBundle.customerHandler, salesBundle.commissionHandler, salesBundle.performanceHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, siteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, logger, jwtIssuer)
+	app := NewApp(cfg, adminHandler, departmentHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, salesBundle.customerHandler, salesBundle.commissionHandler, salesBundle.performanceHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, siteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, captchaBundle, notifyBundleInst, logcenterBundle, cacheClient, logger, jwtIssuer)
 	router := newRouter(app)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
@@ -859,6 +941,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		salesScheduler:         salesBundle.scheduler,
 		provisionWorker:        provisionWorker,
 		notifyWorker:           notifyWorker,
+		deliveryWorker:         notifyBundleInst.worker,
+		logcenter:              logcenterBundle,
 	}, nil
 }
 
@@ -872,6 +956,19 @@ func (s *Server) Run() error {
 	s.salesScheduler.Start(ctx)
 	s.provisionWorker.Start(ctx)
 	go s.notifyWorker.Start(ctx)
+	if s.deliveryWorker != nil {
+		go s.deliveryWorker.Start(ctx)
+	}
+	// 日志中心（doc92）：上游采集写入器与统一清理调度器。
+	// 二者都以 ctx 控制生命周期，退出前写入器会尽力落盘一次。
+	if s.logcenter != nil {
+		if s.logcenter.recorder != nil {
+			go s.logcenter.recorder.Start(ctx)
+		}
+		if s.logcenter.scheduler != nil {
+			s.logcenter.scheduler.Start(ctx)
+		}
+	}
 	s.logger.Info("server starting", zap.String("addr", s.http.Addr), zap.String("name", s.cfg.App.Name))
 	return s.http.ListenAndServe()
 }

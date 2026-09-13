@@ -68,19 +68,24 @@ const (
 
 // Notification 站内通知记录（同时承载外发通道的结果）。
 type Notification struct {
-	ID           uint64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID       uint64     `gorm:"column:user_id;index;not null;default:0" json:"user_id"`              // 0=全员广播（配合 reads 表）
-	TargetType   string     `gorm:"column:target_type;size:10;not null;default:user" json:"target_type"` // user / admin
-	Event        string     `gorm:"column:event;size:64;not null;index" json:"event"`
-	Title        string     `gorm:"column:title;size:255;not null" json:"title"`
-	Content      string     `gorm:"column:content;type:text" json:"content"`
-	Channel      string     `gorm:"column:channel;size:20;not null;default:inbox" json:"channel"` // inbox / mail
-	SendStatus   string     `gorm:"column:send_status;size:20;not null;default:sent" json:"send_status"`
-	FailReason   string     `gorm:"column:fail_reason;size:255" json:"fail_reason"`
-	SourceModule string     `gorm:"column:source_module;size:32" json:"source_module"`
-	SourceID     string     `gorm:"column:source_id;size:64" json:"source_id"`
-	ReadAt       *time.Time `gorm:"column:read_at" json:"read_at"`
-	CreatedAt    time.Time  `gorm:"autoCreateTime;index" json:"created_at"`
+	ID         uint64 `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID     uint64 `gorm:"column:user_id;index;not null;default:0" json:"user_id"`              // 0=全员广播（配合 reads 表）
+	TargetType string `gorm:"column:target_type;size:10;not null;default:user" json:"target_type"` // user / admin
+	Event      string `gorm:"column:event;size:64;not null;index" json:"event"`
+	Title      string `gorm:"column:title;size:255;not null" json:"title"`
+	Content    string `gorm:"column:content;type:text" json:"content"`
+	Channel    string `gorm:"column:channel;size:20;not null;default:inbox" json:"channel"` // inbox / mail
+	SendStatus string `gorm:"column:send_status;size:20;not null;default:sent" json:"send_status"`
+	FailReason string `gorm:"column:fail_reason;size:255" json:"fail_reason"`
+	// ContentFormat 站内信内容格式（text/html）；DeliveryID 关联投递记录（外发通道）。
+	ContentFormat string `gorm:"column:content_format;size:10;not null;default:text" json:"content_format"`
+	DeliveryID    uint64 `gorm:"column:delivery_id;not null;default:0" json:"delivery_id"`
+	// MigratedToDelivery 存量 mail 行标注：用户端列表据此过滤（只标注不删，删除归 doc92）。
+	MigratedToDelivery bool       `gorm:"column:migrated_to_delivery;not null;default:false" json:"-"`
+	SourceModule       string     `gorm:"column:source_module;size:32" json:"source_module"`
+	SourceID           string     `gorm:"column:source_id;size:64" json:"source_id"`
+	ReadAt             *time.Time `gorm:"column:read_at" json:"read_at"`
+	CreatedAt          time.Time  `gorm:"autoCreateTime;index" json:"created_at"`
 }
 
 func (Notification) TableName() string { return "notifications" }
@@ -105,12 +110,18 @@ func (Announcement) TableName() string { return "announcements" }
 
 // NotificationTemplate 通知模板。
 type NotificationTemplate struct {
-	ID         uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
-	Event      string    `gorm:"column:event;size:64;not null;uniqueIndex" json:"event"`
-	TitleTpl   string    `gorm:"column:title_tpl;size:255;not null" json:"title_tpl"`
-	ContentTpl string    `gorm:"column:content_tpl;type:text" json:"content_tpl"`
-	InboxOn    bool      `gorm:"column:inbox_on;not null;default:true" json:"inbox_on"`
-	MailOn     bool      `gorm:"column:mail_on;not null;default:false" json:"mail_on"`
+	ID         uint64 `gorm:"primaryKey;autoIncrement" json:"id"`
+	Event      string `gorm:"column:event;size:64;not null;uniqueIndex" json:"event"`
+	TitleTpl   string `gorm:"column:title_tpl;size:255;not null" json:"title_tpl"`
+	ContentTpl string `gorm:"column:content_tpl;type:text" json:"content_tpl"`
+	InboxOn    bool   `gorm:"column:inbox_on;not null;default:true" json:"inbox_on"`
+	MailOn     bool   `gorm:"column:mail_on;not null;default:false" json:"mail_on"`
+	// 短信通道扩展（doc90 §1.6）：SmsTemplateID 指向 sms_templates。
+	SmsOn         bool   `gorm:"column:sms_on;not null;default:false" json:"sms_on"`
+	SmsTemplateID uint64 `gorm:"column:sms_template_id;not null;default:0" json:"sms_template_id"`
+	// MailFormat 邮件正文格式（text/html）；TitleShow 站内信是否显示标题行。
+	MailFormat string    `gorm:"column:mail_format;size:10;not null;default:text" json:"mail_format"`
+	TitleShow  bool      `gorm:"column:title_show;not null;default:true" json:"title_show"`
 	Status     string    `gorm:"size:20;not null;default:active" json:"status"`
 	UpdatedAt  time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
@@ -134,6 +145,7 @@ type NotificationPreference struct {
 	Event     string    `gorm:"column:event;size:64;uniqueIndex:uk_pref,priority:2;not null"`
 	InboxOn   bool      `gorm:"column:inbox_on;not null;default:true"`
 	MailOn    bool      `gorm:"column:mail_on;not null;default:false"`
+	SmsOn     bool      `gorm:"column:sms_on;not null;default:false"`
 	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 }
 

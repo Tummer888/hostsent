@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 
 	"hostsent/backend/internal/modules/admin/order/model"
+	"hostsent/backend/internal/pkg/jobrun"
 )
 
 // ProvisionTaskStore 工作池需要的任务仓储能力（由 admin/order/repository 实现）。
@@ -210,15 +211,22 @@ func (w *ProvisionWorker) retryDelay(attempts int) time.Duration {
 }
 
 // reapStale 回收租约过期的 running 任务，避免进程崩溃后任务僵死。
+//
+// 包一层任务运行留痕（doc92 §7.2）：每分钟一轮但只在真回收了任务时才有信息量，
+// 故报 scanned=n 让「空轮不落库」生效。
 func (w *ProvisionWorker) reapStale(ctx context.Context) {
-	n, err := w.store.ReleaseStale(ctx, time.Now())
-	if err != nil {
-		w.logger.Error("provision worker reap stale failed", zap.Error(err))
-		return
-	}
-	if n > 0 {
-		w.logger.Warn("provision worker released stale tasks", zap.Int64("rows", n))
-	}
+	jobrun.RunErr(ctx, "provision_reap", "order", jobrun.TriggerScheduled,
+		func(ctx context.Context) (int, int, map[string]any, error) {
+			n, err := w.store.ReleaseStale(ctx, time.Now())
+			if err != nil {
+				w.logger.Error("provision worker reap stale failed", zap.Error(err))
+				return 0, 0, nil, err
+			}
+			if n > 0 {
+				w.logger.Warn("provision worker released stale tasks", zap.Int64("rows", n))
+			}
+			return int(n), int(n), map[string]any{"released": n}, nil
+		})
 }
 
 // notifyManual 转人工队列告警；未注入通知时仅记录错误日志。

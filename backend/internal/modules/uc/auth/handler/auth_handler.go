@@ -9,6 +9,7 @@ import (
 	"hostsent/backend/internal/pkg/middleware"
 	"hostsent/backend/internal/pkg/netutil"
 	"hostsent/backend/internal/pkg/response"
+	"hostsent/backend/internal/pkg/security"
 )
 
 // AuthHandler 用户中心认证 HTTP 处理器。
@@ -24,7 +25,7 @@ func NewAuthHandler(authService service.AuthService) *AuthHandler {
 
 // Login 用户登录
 // @Summary 用户中心登录
-// @Description 普通用户使用用户名和密码登录，返回 JWT 和用户信息
+// @Description 支持 password（默认）/ sms / email 三种登录方式；策略要求二次验证时返回 need_otp
 // @Tags 用户中心-认证
 // @Accept json
 // @Produce json
@@ -40,18 +41,104 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.authService.Login(c.Request.Context(), req, netutil.ClientIP(c))
+	resp, err := h.authService.Login(c.Request.Context(), req, netutil.ClientIP(c), c.GetHeader("User-Agent"))
 	if err != nil {
-		response.Error(c, apperrors.New(50001, err.Error()))
+		writeSecurityError(c, err)
 		return
 	}
 
 	response.Success(c, resp)
 }
 
+// VerifyLoginOTP 登录二次验证
+// @Summary 登录二次验证
+// @Description 用登录返回的 otp_token 换取正式访问令牌（doc91 §4.6）
+// @Tags 用户中心-认证
+// @Accept json
+// @Produce json
+// @Param request body dto.VerifyOTPRequest true "验证参数"
+// @Success 200 {object} response.Body{data=dto.LoginResponse}
+// @Router /api/v1/uc/auth/login/verify-otp [post]
+func (h *AuthHandler) VerifyLoginOTP(c *gin.Context) {
+	var req dto.VerifyOTPRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+
+	resp, err := h.authService.VerifyLoginOTP(c.Request.Context(), req, netutil.ClientIP(c), c.GetHeader("User-Agent"))
+	if err != nil {
+		writeSecurityError(c, err)
+		return
+	}
+
+	response.Success(c, resp)
+}
+
+// ForgotPassword 忘记密码
+// @Summary 忘记密码（下发验证码）
+// @Description 向账号绑定的邮箱/手机下发验证码；无论账号是否存在都返回 sent=true（防枚举）
+// @Tags 用户中心-认证
+// @Accept json
+// @Produce json
+// @Param request body dto.ForgotPasswordRequest true "找回参数"
+// @Success 200 {object} response.Body{data=dto.ForgotPasswordResponse}
+// @Router /api/v1/uc/auth/forgot-password [post]
+func (h *AuthHandler) ForgotPassword(c *gin.Context) {
+	var req dto.ForgotPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+
+	resp, err := h.authService.ForgotPassword(c.Request.Context(), req, netutil.ClientIP(c), c.GetHeader("User-Agent"))
+	if err != nil {
+		writeSecurityError(c, err)
+		return
+	}
+
+	response.Success(c, resp)
+}
+
+// ResetPassword 重置密码
+// @Summary 重置密码
+// @Description 校验验证码后写入新密码并撤销历史会话
+// @Tags 用户中心-认证
+// @Accept json
+// @Produce json
+// @Param request body dto.ResetPasswordRequest true "重置参数"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/auth/reset-password [post]
+func (h *AuthHandler) ResetPassword(c *gin.Context) {
+	var req dto.ResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+
+	if err := h.authService.ResetPassword(c.Request.Context(), req, netutil.ClientIP(c), c.GetHeader("User-Agent")); err != nil {
+		writeSecurityError(c, err)
+		return
+	}
+
+	response.SuccessMessage(c, "密码重置成功")
+}
+
+// writeSecurityError 把安全域错误映射为业务错误码（20010/20011/20014/20015/20016 等）。
+//
+// 验证码错误、账号锁定属于正常业务反馈，用 200 业务码返回，避免前端与监控
+// 把「用户输错验证码」当成服务故障（doc91 §3.4）。
+func writeSecurityError(c *gin.Context, err error) {
+	if code := security.CodeOf(err); code != 0 {
+		response.Error(c, apperrors.New(code, err.Error()))
+		return
+	}
+	response.Error(c, apperrors.New(50001, err.Error()))
+}
+
 // Register 用户注册
 // @Summary 用户中心注册
-// @Description 普通用户自助注册，返回新用户 ID
+// @Description 普通用户自助注册（图形码 + 邮箱验证码），返回新用户 ID
 // @Tags 用户中心-认证
 // @Accept json
 // @Produce json
@@ -67,9 +154,9 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	id, err := h.authService.Register(c.Request.Context(), req)
+	id, err := h.authService.Register(c.Request.Context(), req, netutil.ClientIP(c), c.GetHeader("User-Agent"))
 	if err != nil {
-		response.Error(c, apperrors.New(50001, err.Error()))
+		writeSecurityError(c, err)
 		return
 	}
 

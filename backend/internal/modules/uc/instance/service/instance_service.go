@@ -3,10 +3,13 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	admininstancedto "hostsent/backend/internal/modules/admin/instance/dto"
+	admininstanceservice "hostsent/backend/internal/modules/admin/instance/service"
 	"hostsent/backend/internal/modules/uc/instance/dto"
 	"hostsent/backend/internal/modules/uc/instance/model"
 	"hostsent/backend/internal/modules/uc/instance/repository"
@@ -14,8 +17,26 @@ import (
 	"hostsent/backend/internal/pkg/upstream"
 )
 
+// 销毁相关错误（doc91 §6.4 验收断言 1/27）。
+var (
+	// ErrInstanceNotFoundOrDenied 实例不存在或不属于当前账号。
+	// 两种情形共用一条提示，避免枚举他人实例 ID。
+	ErrInstanceNotFoundOrDenied = errors.New("主机不存在或无权访问")
+	// ErrDestroyUnsupported 销毁执行者未装配（部署裁剪时）。
+	ErrDestroyUnsupported = errors.New("当前环境不支持自助销毁，请联系客服")
+)
+
 // ProviderResolver 按提供商 ID 解析上游适配器（装配层注入，避免依赖 provider 服务）。
 type ProviderResolver func(ctx context.Context, providerID uint64) (upstream.Provider, error)
+
+// Destructor 销毁执行者（装配层委派给管理端实例运维台，doc91 §6.4）。
+//
+// 接口定义在本包、实现是管理端的 instanceOpsService：uc/* 反向引用 admin/*
+// 在本仓库已有先例（uc/finance、uc/payment、uc/order 均直引 admin 的 dto/model），
+// 因此这里直接复用 admin 侧的 Operator 与 DestroyRequest，少一层结构体转换。
+type Destructor interface {
+	Destroy(ctx context.Context, op admininstanceservice.Operator, id uint64, req *admininstancedto.DestroyRequest) error
+}
 
 // InstanceService 用户中心主机业务能力。
 type InstanceService interface {
@@ -23,16 +44,51 @@ type InstanceService interface {
 	Detail(ctx context.Context, userID, id uint64, live bool) (*dto.InstanceInfo, error)
 	Power(ctx context.Context, userID, id uint64, action string) error
 	VNC(ctx context.Context, userID, id uint64) (*dto.VNCResult, error)
+	// Destroy 用户自助销毁实例（归属校验 → 转操作人 → 委派运维台）。
+	Destroy(ctx context.Context, userID, actorID uint64, actorName string, id uint64, req *dto.DestroyRequest) error
+	// SetDestructor 注入销毁执行者（装配层调用；未注入时销毁返回明确错误）。
+	SetDestructor(d Destructor)
 }
 
 type instanceService struct {
 	repo    repository.InstanceRepository
 	resolve ProviderResolver
+	// destructor 销毁执行者（管理端运维台），可为 nil。
+	destructor Destructor
 }
 
 // NewInstanceService 创建用户中心主机服务。
 func NewInstanceService(repo repository.InstanceRepository, resolve ProviderResolver) InstanceService {
 	return &instanceService{repo: repo, resolve: resolve}
+}
+
+// SetDestructor 注入销毁执行者。
+func (s *instanceService) SetDestructor(d Destructor) { s.destructor = d }
+
+// Destroy 用户自助销毁实例（doc91 §6.4）。
+//
+// 关键行为约束：
+//  1. 归属校验必须在委派之前——用带 user_id 过滤的仓储查询，绝不能只依赖
+//     管理端的 FindByID（那是跨用户的）。
+//  2. 操作人记为 user，ID 取真实操作人（子账号）而不是归属主账号。
+//  3. 不触发退款/余额返还：销毁只终止上游实例并把本地状态置 deleted，
+//     未到期余额需按业务规则另行处理（本轮不做自动退款）。
+func (s *instanceService) Destroy(ctx context.Context, userID, actorID uint64, actorName string, id uint64, req *dto.DestroyRequest) error {
+	it, err := s.repo.FindByUser(ctx, userID, id)
+	if err != nil {
+		return ErrInstanceNotFoundOrDenied
+	}
+	if s.destructor == nil {
+		return ErrDestroyUnsupported
+	}
+	if actorID == 0 {
+		actorID = userID
+	}
+	op := admininstanceservice.Operator{Type: "user", ID: actorID, Name: actorName}
+	return s.destructor.Destroy(ctx, op, it.ID, &admininstancedto.DestroyRequest{
+		ConfirmMark: req.ConfirmMark,
+		Reason:      req.Reason,
+	})
 }
 
 // List 我的主机列表。live=true 时逐个刷新上游运行状态。

@@ -64,12 +64,6 @@ export function getProductCategoryList(status?: number): Promise<SaleProductCate
   })
 }
 
-export function getProductCategoryDetail(id: number): Promise<SaleProductCategoryInfo> {
-  return request.get<SaleProductCategoryInfo>({
-    url: `/product/categories/${id}`,
-  })
-}
-
 export function createProductCategory(data: SaleProductCategoryCreateRequest): Promise<SaleProductCategoryInfo> {
   return request.post<SaleProductCategoryInfo>({
     url: '/product/categories',
@@ -104,13 +98,6 @@ export function getProductList(params: SaleProductListQuery): Promise<SaleProduc
       page: params.page,
       page_size: params.page_size,
     },
-  })
-}
-
-export function cloneProductFromUpstream(data: SaleProductCloneRequest): Promise<SaleProductInfo> {
-  return request.post<SaleProductInfo>({
-    url: '/product/products/clone',
-    data,
   })
 }
 
@@ -217,10 +204,6 @@ export function getSpecAtomList(): Promise<SpecAtomInfo[]> {
   return request.get<SpecAtomInfo[]>({ url: '/product/spec/atoms' })
 }
 
-export function getExternalSpecList(params?: { provider_type?: string; status?: string }): Promise<ExternalSpecInfo[]> {
-  return request.get<ExternalSpecInfo[]>({ url: '/product/spec/external-specs', params })
-}
-
 export function getSpecBindingList(params?: {
   external_spec_id?: number
   product_spec_id?: number
@@ -253,10 +236,6 @@ export function getSpecTemplateList(params: SpecTemplateQuery): Promise<SpecTemp
   })
 }
 
-export function getSpecTemplateDetail(id: number): Promise<SpecTemplateInfo> {
-  return request.get<SpecTemplateInfo>({ url: `/product/spec/templates/${id}` })
-}
-
 export function createSpecTemplate(data: SpecTemplateRequest): Promise<SpecTemplateInfo> {
   return request.post<SpecTemplateInfo>({ url: '/product/spec/templates', data })
 }
@@ -278,10 +257,6 @@ export function getSpecMappingList(params: SpecMappingQuery): Promise<SpecMappin
   })
 }
 
-export function getSpecMappingDetail(id: number): Promise<SpecMappingInfo> {
-  return request.get<SpecMappingInfo>({ url: `/product/spec/mappings/${id}` })
-}
-
 export function createSpecMapping(data: SpecMappingRequest): Promise<SpecMappingInfo> {
   return request.post<SpecMappingInfo>({ url: '/product/spec/mappings', data })
 }
@@ -300,37 +275,10 @@ export function deleteSpecMapping(id: number): Promise<string> {
 
 // ===== 产品管理 - 价格策略 =====
 
-export function getPricingList(params: PricingQuery): Promise<PricingListResponse> {
-  return request.get<PricingListResponse>({
-    url: '/product/pricing',
-    params,
-  })
-}
-
-export function getPricingDetail(id: number): Promise<PricingInfo> {
-  return request.get<PricingInfo>({ url: `/product/pricing/${id}` })
-}
-
-export function createPricing(data: PricingRequest): Promise<PricingInfo> {
-  return request.post<PricingInfo>({ url: '/product/pricing', data })
-}
-
-export function updatePricing(id: number, data: PricingRequest): Promise<PricingInfo> {
-  return request.put<PricingInfo>({ url: `/product/pricing/${id}`, data })
-}
-
-export function deletePricing(id: number): Promise<string> {
-  return request.delete<string>({ url: `/product/pricing/${id}` })
-}
-
 // ===== 产品管理 - 折扣策略（P5 统一算价管线）=====
 
 export function getPricePolicyList(params: PricePolicyQuery): Promise<PricePolicyListResponse> {
   return request.get<PricePolicyListResponse>({ url: '/product/discount-policies', params })
-}
-
-export function getPricePolicyDetail(id: number): Promise<PricePolicyInfo> {
-  return request.get<PricePolicyInfo>({ url: `/product/discount-policies/${id}` })
 }
 
 export function createPricePolicy(data: PricePolicyRequest): Promise<PricePolicyInfo> {
@@ -352,10 +300,6 @@ export function getCouponList(params: CouponQuery): Promise<CouponListResponse> 
     url: '/product/promotion/coupons',
     params,
   })
-}
-
-export function getCouponDetail(id: number): Promise<CouponInfo> {
-  return request.get<CouponInfo>({ url: `/product/promotion/coupons/${id}` })
 }
 
 export function createCoupon(data: CouponRequest): Promise<CouponInfo> {
@@ -390,10 +334,6 @@ export function getPromotionList(params: PromotionQuery): Promise<PromotionListR
     url: '/product/promotion/promotions',
     params,
   })
-}
-
-export function getPromotionDetail(id: number): Promise<PromotionInfo> {
-  return request.get<PromotionInfo>({ url: `/product/promotion/promotions/${id}` })
 }
 
 export function createPromotion(data: PromotionRequest): Promise<PromotionInfo> {

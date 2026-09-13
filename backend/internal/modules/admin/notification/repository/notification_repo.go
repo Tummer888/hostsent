@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	notifymodel "hostsent/backend/internal/modules/admin/notification/model"
 )
@@ -43,8 +44,12 @@ func NewNotificationRepository(db *gorm.DB) NotificationRepository {
 	return &notificationRepository{db: db}
 }
 
+// CreateInbox 写入站内信；命中 uk_notifications_source（同来源重复发布）时静默忽略，
+// 由调用方按「幂等成功」处理（bug ③）。
 func (r *notificationRepository) CreateInbox(ctx context.Context, n *notifymodel.Notification) error {
-	return r.db.WithContext(ctx).Create(n).Error
+	return r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{DoNothing: true}).
+		Create(n).Error
 }
 
 func (r *notificationRepository) FindByID(ctx context.Context, id uint64) (*notifymodel.Notification, error) {
@@ -84,8 +89,10 @@ func (r *notificationRepository) List(ctx context.Context, q NotificationListPar
 }
 
 func (r *notificationRepository) ListByUser(ctx context.Context, userID uint64, page, pageSize int) ([]notifymodel.Notification, int64, error) {
+	// migrated_to_delivery：存量 mail 行已迁移到投递队列，用户端不再展示
+	// （否则「我的消息」里会出现英文邮件记录）。
 	query := r.db.WithContext(ctx).Model(&notifymodel.Notification{}).
-		Where("user_id = ? AND channel = ?", userID, notifymodel.ChannelInbox)
+		Where("user_id = ? AND channel = ? AND migrated_to_delivery = false", userID, notifymodel.ChannelInbox)
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err

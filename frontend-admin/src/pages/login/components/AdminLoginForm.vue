@@ -95,7 +95,11 @@
         </t-input>
       </t-form-item>
 
-      <div class="captcha-row">
+      <!--
+        图形码只在场景策略要求时渲染（GET /public/auth-config）。
+        默认 admin_login.image_required=false → 升级后登录页视觉与升级前完全一致。
+      -->
+      <div v-if="captchaNeeded" class="captcha-row">
         <t-form-item
           id="field-captcha"
           label="图形验证码"
@@ -109,7 +113,7 @@
             size="large"
             placeholder="请输入验证码"
             autocomplete="off"
-            maxlength="4"
+            maxlength="5"
             :status="captchaStatus"
             aria-required="true"
             @enter="onSubmitClick"
@@ -119,23 +123,13 @@
             </template>
           </t-input>
         </t-form-item>
-        <button
-          type="button"
-          class="captcha-image"
-          @click="onRefreshCaptcha"
-          title="点击刷新验证码"
-          aria-label="点击刷新验证码"
-        >
-          <img
-            v-if="captchaImage"
-            :src="captchaImage"
-            alt="图形验证码"
-            width="110"
-            height="40"
-            loading="eager"
-          />
-          <span v-else class="captcha-fallback">验证码</span>
-        </button>
+        <CaptchaImage
+          ref="captchaRef"
+          v-model:key="captchaKey"
+          v-model:code="formData.captchaCode"
+          scene="admin_login"
+          class="captcha-row__image"
+        />
       </div>
 
       <div class="action-row">
@@ -180,11 +174,22 @@
         </button>
       </t-tooltip>
     </div>
+
+    <LoginOTPVerifyDialog
+      v-model:visible="otpVisible"
+      :otp-token="otpToken"
+      :otp-channel="otpContext.channel"
+      :otp-target-masked="otpContext.targetMasked"
+      :otp-expire-in="otpContext.expireIn"
+      :submitting="otpSubmitting"
+      @verify="onVerifyOTP"
+      @resend="onResendOTP"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import {
@@ -201,7 +206,10 @@ import {
 import { MessagePlugin } from 'tdesign-vue-next'
 import type { FormInstanceFunctions, FormRule, SubmitContext } from 'tdesign-vue-next'
 
+import CaptchaImage from '@/components/verify/CaptchaImage.vue'
+import LoginOTPVerifyDialog from '@/pages/login/components/LoginOTPVerifyDialog.vue'
 import { useUserStore } from '@/store'
+import { imageRequired, loadAuthConfig } from '@/utils/captcha-resource'
 
 defineOptions({ name: 'AdminLoginForm' })
 
@@ -211,12 +219,20 @@ type VR = boolean | VRItem[] | VRItem
 
 const formRef = ref<FormInstanceFunctions | null>(null)
 const errorSummaryRef = ref<HTMLElement | null>(null)
+const captchaRef = ref<InstanceType<typeof CaptchaImage> | null>(null)
 const showPassword = ref(false)
 const loading = ref(false)
 const captchaKey = ref('')
-const captchaImage = ref('')
 const touchedFields = ref<Record<string, boolean>>({})
 const submitError = ref('')
+
+// —— 登录二次验证（doc91 §4.6）——
+const otpVisible = ref(false)
+const otpSubmitting = ref(false)
+const otpToken = ref('')
+const otpContext = reactive({ channel: '', targetMasked: '', expireIn: 0 })
+/** 记住上次密码登录的入参，重发验证码时重放（后端重发 = 再走一次密码登录）。 */
+const lastCredentials = ref<{ username: string; password: string } | null>(null)
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -229,12 +245,16 @@ const formData = reactive({
   remember: userStore.remember,
 })
 
+/** 策略是否要求图形码；auth-config 未加载完成或总闸关闭时为 false（不渲染）。 */
+const captchaNeeded = computed(() => imageRequired('admin_login'))
+
 const notLoading = computed(() => !loading.value)
 const passwordInputType = computed(() => (showPassword.value ? 'text' : 'password'))
 const passwordAriaLabel = computed(() => (showPassword.value ? '隐藏密码' : '显示密码'))
 const buttonText = computed(() => (notLoading.value ? '登录管理平台' : '正在登录，请稍候…'))
 
-const rules: Record<FormField, FormRule[]> = {
+// 图形码规则随策略动态增删：策略关着时不渲染输入框，若仍留必填规则会永远提交不了。
+const rules = computed<Record<FormField, FormRule[]>>(() => ({
   username: [
     { required: true, message: '请输入管理员账号', type: 'error', trigger: 'blur' },
     { min: 2, max: 50, message: '账号长度为 2-50 个字符', type: 'error', trigger: 'blur' },
@@ -243,11 +263,10 @@ const rules: Record<FormField, FormRule[]> = {
     { required: true, message: '请输入密码', type: 'error', trigger: 'blur' },
     { min: 4, max: 64, message: '密码长度为 4-64 个字符', type: 'error', trigger: 'blur' },
   ],
-  captchaCode: [
-    { required: true, message: '请输入图形验证码', type: 'error', trigger: 'blur' },
-    { len: 4, message: '验证码为 4 位字符', type: 'error', trigger: 'blur' },
-  ],
-}
+  captchaCode: captchaNeeded.value
+    ? [{ required: true, message: '请输入图形验证码', type: 'error', trigger: 'blur' }]
+    : [],
+}))
 
 type ErrorItem = { field: FormField; href: string; message: string }
 
@@ -290,68 +309,12 @@ const usernameStatus = computed(() => computeStatus('username'))
 const passwordStatus = computed(() => computeStatus('password'))
 const captchaStatus = computed(() => computeStatus('captchaCode'))
 
-function generateCaptcha() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  let result = ''
-  for (let i = 0; i < 4; i += 1) {
-    result += chars[Math.floor(Math.random() * chars.length)]
-  }
-  captchaKey.value = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  captchaImage.value = renderCaptcha(result)
-}
-
+/** 刷新图形码（清空已输入答案）。策略关闭时组件未渲染，直接跳过。 */
 function refreshCaptchaInternal() {
   submitError.value = ''
-  generateCaptcha()
   formData.captchaCode = ''
   touchedFields.value.captchaCode = false
-}
-
-function onRefreshCaptcha() {
-  refreshCaptchaInternal()
-  MessagePlugin.success('验证码已刷新')
-}
-
-function renderCaptcha(text: string): string {
-  const canvas = document.createElement('canvas')
-  canvas.width = 110
-  canvas.height = 40
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return ''
-  ctx.fillStyle = '#f8fafc'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-  for (let i = 0; i < 6; i += 1) {
-    ctx.strokeStyle = `rgba(22, 163, 74, ${0.12 + Math.random() * 0.2})`
-    ctx.beginPath()
-    ctx.moveTo(Math.random() * canvas.width, Math.random() * canvas.height)
-    ctx.lineTo(Math.random() * canvas.width, Math.random() * canvas.height)
-    ctx.stroke()
-  }
-  for (let i = 0; i < 36; i += 1) {
-    ctx.fillStyle = `rgba(37, 99, 235, ${0.16 + Math.random() * 0.38})`
-    ctx.beginPath()
-    ctx.arc(Math.random() * canvas.width, Math.random() * canvas.height, Math.random() * 1.2, 0, Math.PI * 2)
-    ctx.fill()
-  }
-  const palette = ['#16a34a', '#2563eb', '#6366f1', '#d97706', '#0f172a']
-  for (let i = 0; i < text.length; i += 1) {
-    ctx.save()
-    ctx.font = 'bold 22px "Fira Code", "PingFang SC", "Microsoft YaHei", monospace'
-    ctx.fillStyle = palette[i % palette.length]
-    const offsetX = 16 + i * 20 + (Math.random() - 0.5) * 3
-    const offsetY = 27 + (Math.random() - 0.5) * 5
-    const rotate = ((Math.random() - 0.5) * Math.PI) / 7
-    ctx.translate(offsetX, offsetY)
-    ctx.rotate(rotate)
-    ctx.fillText(text[i], 0, 0)
-    ctx.restore()
-  }
-  ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)'
-  ctx.beginPath()
-  ctx.moveTo(6, 18 + Math.random() * 6)
-  ctx.bezierCurveTo(28, 4, 56, 38, 104, 22 + Math.random() * 8)
-  ctx.stroke()
-  return canvas.toDataURL('image/png')
+  captchaRef.value?.refresh()
 }
 
 function onTogglePassword() {
@@ -359,13 +322,36 @@ function onTogglePassword() {
 }
 
 async function focusFieldByName(field: FormField) {
-  const selector = field === 'username' ? '#input-username' : field === 'password' ? '#input-password' : '#input-captcha'
+  const selector =
+    field === 'username' ? '#input-username' : field === 'password' ? '#input-password' : '#input-captcha'
   const el = document.querySelector<HTMLElement>(selector)
   el?.focus()
 }
 
 function onErrorClick(field: FormField) {
   focusFieldByName(field)
+}
+
+/** 密码步骤：命中二次验证时不写令牌，转而弹 OTP 框。 */
+async function doPasswordLogin(username: string, password: string) {
+  const outcome = await userStore.login({
+    username,
+    password,
+    captchaKey: captchaKey.value,
+    captchaCode: formData.captchaCode.trim().toUpperCase(),
+    remember: formData.remember,
+  })
+  if (outcome.needOTP && outcome.otpToken) {
+    otpToken.value = outcome.otpToken
+    otpContext.channel = outcome.otpChannel || ''
+    otpContext.targetMasked = outcome.otpTargetMasked || ''
+    otpContext.expireIn = outcome.otpExpireIn || 0
+    otpVisible.value = true
+    touchedFields.value = {}
+    MessagePlugin.info('请完成二次验证')
+    return
+  }
+  await finishLogin()
 }
 
 async function onSubmit(ctx: SubmitContext) {
@@ -383,27 +369,69 @@ async function onSubmit(ctx: SubmitContext) {
     }
     return
   }
+  const username = formData.username.trim()
+  const password = formData.password
   try {
     loading.value = true
-    await userStore.login({
-      username: formData.username.trim(),
-      password: formData.password,
-      captchaKey: captchaKey.value,
-      captchaCode: formData.captchaCode.trim().toUpperCase(),
-      remember: formData.remember,
-    })
-    MessagePlugin.success('登录成功')
-    const redirect = typeof route.query.redirect === 'string' ? decodeURIComponent(route.query.redirect) : ''
-    await router.replace(redirect || '/dashboard/base')
+    lastCredentials.value = { username, password }
+    await doPasswordLogin(username, password)
   } catch (error) {
     submitError.value = (error as Error)?.message || '登录失败，请稍后重试'
     MessagePlugin.error(submitError.value)
+    // 图形码一次性：失败后必须换新图，否则用户拿着旧图再怎么输都错。
     refreshCaptchaInternal()
     await nextTick()
     errorSummaryRef.value?.focus({ preventScroll: true })
   } finally {
     loading.value = false
   }
+}
+
+/** OTP 校验通过 → 用 otp_token 换正式令牌。 */
+async function onVerifyOTP(code: string) {
+  if (!otpToken.value) return
+  try {
+    otpSubmitting.value = true
+    await userStore.loginVerifyOTP(otpToken.value, code)
+    otpVisible.value = false
+    await finishLogin()
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '验证失败，请重试')
+  } finally {
+    otpSubmitting.value = false
+  }
+}
+
+/** 重发验证码：重放密码登录，后端会重新下发 OTP 并换发新的 otp_token。 */
+async function onResendOTP() {
+  const creds = lastCredentials.value
+  if (!creds) {
+    MessagePlugin.warning('请返回重新输入账号密码')
+    otpVisible.value = false
+    return
+  }
+  try {
+    const outcome = await userStore.login({
+      username: creds.username,
+      password: creds.password,
+      remember: false,
+    })
+    if (outcome.needOTP && outcome.otpToken) {
+      otpToken.value = outcome.otpToken
+      otpContext.channel = outcome.otpChannel || otpContext.channel
+      otpContext.targetMasked = outcome.otpTargetMasked || otpContext.targetMasked
+      otpContext.expireIn = outcome.otpExpireIn || otpContext.expireIn
+    }
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '验证码发送失败，请稍后重试')
+  }
+}
+
+/** 登录成功后的统一收尾：提示 + 跳转（含 redirect 参数）。 */
+async function finishLogin() {
+  MessagePlugin.success('登录成功')
+  const redirect = typeof route.query.redirect === 'string' ? decodeURIComponent(route.query.redirect) : ''
+  await router.replace(redirect || '/dashboard/base')
 }
 
 async function onSubmitClick() {
@@ -422,17 +450,20 @@ function markTouched(field: FormField) {
   touchedFields.value[field] = true
 }
 
-onMounted(async () => {
-  generateCaptcha()
+// 策略加载完成后再决定是否绑定图形码输入框的 blur 监听（元素此前不存在）。
+watch(captchaNeeded, async (needed) => {
+  if (!needed) return
   await nextTick()
-  const fields: readonly FormField[] = ['username', 'password', 'captchaCode'] as const
-  for (const field of fields) {
-    const id = field === 'captchaCode' ? 'input-captcha' : `input-${field}`
-    const el = document.getElementById(id)
-    if (el) {
-      el.addEventListener('blur', () => markTouched(field), { once: false })
-    }
+  document.getElementById('input-captcha')?.addEventListener('blur', () => markTouched('captchaCode'))
+})
+
+onMounted(async () => {
+  // 并行拉策略，不阻塞首屏：接口失败时按「不需要图形码」处理，登录照常可用。
+  void loadAuthConfig()
+  for (const field of ['username', 'password'] as const) {
+    document.getElementById(`input-${field}`)?.addEventListener('blur', () => markTouched(field))
   }
+  await nextTick()
   if (!formData.username) {
     document.getElementById('input-username')?.focus()
   } else {
@@ -459,8 +490,6 @@ onMounted(async () => {
   margin-bottom: 16px;
   text-align: left;
 }
-
-
 
 .admin-login-card__title {
   margin: 0 0 6px;
@@ -562,7 +591,7 @@ onMounted(async () => {
   /* minmax(0,1fr)：允许输入列收缩，防止原生 input 的 size 固有宽度在移动端把行撑出视口 */
   grid-template-columns: minmax(0, 1fr) 110px;
   gap: 10px;
-  align-items: end;
+  align-items: start;
   margin-bottom: 2px;
 }
 
@@ -576,38 +605,8 @@ onMounted(async () => {
   width: 100%;
 }
 
-.captcha-image {
-  width: 110px;
-  height: 40px;
-  border-radius: var(--hs-radius-sm);
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f8fafc;
-  user-select: none;
-  padding: 0;
-  transition: border-color var(--hs-duration-fast), transform var(--hs-duration-fast);
-}
-
-.captcha-image:hover {
-  border-color: var(--td-brand-color-4);
-  transform: translateY(-1px);
-}
-
-.captcha-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.captcha-fallback {
-  font-size: 11px;
-  color: var(--color-muted-foreground);
-  letter-spacing: 0.08em;
+.captcha-row__image {
+  margin-top: 26px;
 }
 
 .action-row {

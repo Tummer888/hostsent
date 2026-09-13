@@ -14,10 +14,14 @@ import (
 	"hostsent/backend/internal/modules/admin/manager/repository"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/middleware"
+	"hostsent/backend/internal/pkg/netutil"
+	"hostsent/backend/internal/pkg/security"
 )
 
 type AdminService interface {
-	Login(ctx context.Context, req dto.AdminLoginRequest, ip string) (*dto.AdminLoginResponse, error)
+	Login(ctx context.Context, req dto.AdminLoginRequest, ip, userAgent string) (*dto.AdminLoginResponse, error)
+	// VerifyLoginOTP 完成登录二次验证，成功返回正式令牌（doc91 §5.2）。
+	VerifyLoginOTP(ctx context.Context, req dto.AdminVerifyOTPRequest, ip, userAgent string) (*dto.AdminLoginResponse, error)
 	Me(ctx context.Context, adminID uint64) (*dto.AdminInfo, error)
 	ChangePassword(ctx context.Context, adminID uint64, req dto.AdminChangePasswordRequest) error
 	List(ctx context.Context, query dto.AdminListQuery) (*dto.AdminListResponse, error)
@@ -32,6 +36,8 @@ type AdminService interface {
 	Resign(ctx context.Context, id uint64, req dto.AdminResignRequest) error
 	// ListAuditLogs 管理端操作审计查询（P2-06）。
 	ListAuditLogs(ctx context.Context, query dto.AdminAuditLogQuery) (*dto.AdminAuditLogResponse, error)
+	// SetSecurityDeps 注入登录安全端口（doc91 C3，装配层在 captcha 装配后调用）。
+	SetSecurityDeps(port security.Port, ipRegion netutil.IPRegionResolver)
 }
 
 // DepartmentNameResolver 部门名解析（由部门仓储实现）。
@@ -55,6 +61,10 @@ type adminService struct {
 	deptNames DepartmentNameResolver
 	// salesReleaser 离职交待在途客户，可为 nil（S1 阶段尚未装配）。
 	salesReleaser SalesReleaser
+	// sec 登录安全端口（图形码/OTP/锁定/登录日志），doc91 C3；未装配时全部放行。
+	sec security.Port
+	// ipRegion 登录日志的 IP 归属地解析，可为 nil。
+	ipRegion netutil.IPRegionResolver
 }
 
 func NewAdminService(
@@ -72,27 +82,116 @@ func NewAdminService(
 	}
 }
 
-func (s *adminService) Login(ctx context.Context, req dto.AdminLoginRequest, ip string) (*dto.AdminLoginResponse, error) {
+// SetSecurityDeps 注入登录安全依赖（doc91 C3，装配层调用）。
+//
+// 抽成 setter 而不是构造参数：Login 与 admin 的其余职责无关，且既有装配顺序
+// （captchaBundle 在 adminService 之后构建）决定了端口只能后置注入。
+func (s *adminService) SetSecurityDeps(port security.Port, ipRegion netutil.IPRegionResolver) {
+	s.sec = port
+	s.ipRegion = ipRegion
+}
+
+// loginFail 记录一次登录失败：写 login_logs + 失败计数（doc91 §9.1）。
+// 账号不存在也照写，便于运营发现撞库（不暴露账号是否存在给调用方）。
+func (s *adminService) loginFail(ctx context.Context, username, ip, userAgent, reason string) {
+	if s.sec == nil {
+		return
+	}
+	s.sec.RecordFailure(ctx, username, ip)
+	s.sec.Log(ctx, security.LoginLogEntry{
+		Username:      username,
+		LoginType:     "password",
+		Result:        security.LoginResultFailed,
+		FailureReason: reason,
+		IP:            ip,
+		IPRegion:      s.resolveIPRegion(ctx, ip),
+		UserAgent:     userAgent,
+		Platform:      "admin",
+	})
+}
+
+// resolveIPRegion IP 归属地（解析器未装配时返回空串）。
+func (s *adminService) resolveIPRegion(ctx context.Context, ip string) string {
+	if s.ipRegion == nil || ip == "" {
+		return ""
+	}
+	return s.ipRegion.Resolve(ctx, ip)
+}
+
+// Login 管理端登录（doc91 §5.2）。
+//
+// 顺序：锁定检查 → 图形码（策略要求时）→ 账号/密码 → 二次验证。
+// 二次验证命中时**不签发访问令牌**，只返回待验证令牌。
+func (s *adminService) Login(ctx context.Context, req dto.AdminLoginRequest, ip, userAgent string) (*dto.AdminLoginResponse, error) {
+	// ① 锁定检查：默认 login_fail_lock=false，行为与升级前一致。
+	if s.sec != nil {
+		if err := s.sec.CheckLocked(ctx, req.Username, ip); err != nil {
+			s.loginFail(ctx, req.Username, ip, userAgent, "locked")
+			return nil, err
+		}
+	}
+	// ② 图形码：策略要求时必须先过（admin_login 默认不要求）。
+	if s.sec != nil && s.sec.EffectiveImageRequired(ctx, security.SceneAdminLogin, security.Subject{IsAdmin: true}) {
+		if err := s.sec.VerifyImage(ctx, security.SceneAdminLogin, req.CaptchaKey, req.CaptchaCode); err != nil {
+			s.loginFail(ctx, req.Username, ip, userAgent, "captcha")
+			return nil, err
+		}
+	}
+
 	admin, err := s.repo.FindByUsername(ctx, req.Username)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("用户名或密码错误")
+			s.loginFail(ctx, req.Username, ip, userAgent, "user_not_found")
+			return nil, security.ErrInvalidCredential
 		}
 		return nil, err
 	}
 
 	if admin.Status != "active" {
-		return nil, errors.New("管理员已被禁用")
+		s.loginFail(ctx, req.Username, ip, userAgent, "disabled")
+		return nil, security.ErrLoginDisabled
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(admin.PasswordHash), []byte(req.Password)); err != nil {
-		return nil, errors.New("用户名或密码错误")
+		s.loginFail(ctx, req.Username, ip, userAgent, "bad_password")
+		return nil, security.ErrInvalidCredential
+	}
+
+	// ③ 二次验证：命中则下发 OTP 并返回待验证令牌，不签发访问令牌。
+	if s.sec != nil {
+		if required, _ := s.sec.EffectiveOTP(ctx, security.SceneAdminLogin, security.Subject{IsAdmin: true, ID: admin.ID}); required {
+			pending, perr := s.sec.IssueOTPPending(ctx, security.SceneAdminLogin,
+				security.Subject{IsAdmin: true, ID: admin.ID}, ip, userAgent)
+			if perr != nil {
+				return nil, perr
+			}
+			return &dto.AdminLoginResponse{
+				NeedOTP:         true,
+				OTPToken:        pending.Token,
+				OTPChannel:      pending.Channel,
+				OTPTargetMasked: pending.TargetMasked,
+				OTPExpireIn:     pending.ExpireIn,
+			}, nil
+		}
 	}
 
 	if err := s.repo.UpdateLoginProfile(ctx, admin.ID, ip, time.Now()); err != nil {
 		return nil, err
 	}
+	// ④ 成功：清零失败计数 + 写成功日志。
+	if s.sec != nil {
+		s.sec.ResetFailure(ctx, req.Username, ip)
+		s.sec.Log(ctx, security.LoginLogEntry{
+			UserID: admin.ID, Username: admin.Username, LoginType: "password",
+			Result: security.LoginResultSuccess, IP: ip,
+			IPRegion: s.resolveIPRegion(ctx, ip), UserAgent: userAgent, Platform: "admin",
+		})
+	}
+	return s.issueAdminLogin(ctx, admin)
+}
 
+// issueAdminLogin 组装管理端登录成功响应（令牌 + 权限）。
+func (s *adminService) issueAdminLogin(ctx context.Context, admin *model.Admin) (*dto.AdminLoginResponse, error) {
 	grant, err := middleware.LoadAdminGrant(ctx, s.cache, s.rbac, admin.ID)
 	if err != nil {
 		return nil, err
@@ -123,6 +222,38 @@ func (s *adminService) Login(ctx context.Context, req dto.AdminLoginRequest, ip 
 	}, nil
 }
 
+// VerifyLoginOTP 完成管理端登录二次验证（doc91 §5.2）。
+func (s *adminService) VerifyLoginOTP(ctx context.Context, req dto.AdminVerifyOTPRequest, ip, userAgent string) (*dto.AdminLoginResponse, error) {
+	if s.sec == nil {
+		return nil, security.ErrInvalidOTPToken
+	}
+	pending, err := s.sec.ConsumeOTPPending(ctx, req.OTPToken, req.Code)
+	if err != nil {
+		return nil, err
+	}
+	// aud/jti 已由端口校验；这里再确认令牌确实是管理端的（防用户令牌换管理端登录）。
+	if !pending.IsAdmin || pending.Scene != security.SceneAdminLogin {
+		return nil, security.ErrInvalidOTPToken
+	}
+	admin, err := s.repo.FindByID(ctx, pending.UserID)
+	if err != nil {
+		return nil, security.ErrInvalidOTPToken
+	}
+	if admin.Status != "active" {
+		return nil, security.ErrLoginDisabled
+	}
+	if err := s.repo.UpdateLoginProfile(ctx, admin.ID, ip, time.Now()); err != nil {
+		return nil, err
+	}
+	s.sec.ResetFailure(ctx, admin.Username, ip)
+	s.sec.Log(ctx, security.LoginLogEntry{
+		UserID: admin.ID, Username: admin.Username, LoginType: "password",
+		Result: security.LoginResultSuccess, IP: ip,
+		IPRegion: s.resolveIPRegion(ctx, ip), UserAgent: userAgent, Platform: "admin",
+	})
+	return s.issueAdminLogin(ctx, admin)
+}
+
 func (s *adminService) Me(ctx context.Context, adminID uint64) (*dto.AdminInfo, error) {
 	admin, err := s.repo.FindByID(ctx, adminID)
 	if err != nil {
@@ -150,11 +281,23 @@ func (s *adminService) ChangePassword(ctx context.Context, adminID uint64, req d
 	if err := bcrypt.CompareHashAndPassword([]byte(admin.PasswordHash), []byte(req.OldPassword)); err != nil {
 		return errors.New("原密码错误")
 	}
+	// 平台密码策略（doc91 §9.1）：6 个 password_* 开关在此生效。
+	if err := s.validatePassword(ctx, req.NewPassword); err != nil {
+		return err
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
 	return s.repo.UpdatePasswordAndFlag(ctx, adminID, string(hash), false)
+}
+
+// validatePassword 校验新密码是否符合平台策略（端口未装配时按默认策略）。
+func (s *adminService) validatePassword(ctx context.Context, password string) error {
+	if s.sec == nil {
+		return nil
+	}
+	return s.sec.ValidatePassword(ctx, password)
 }
 
 func (s *adminService) List(ctx context.Context, query dto.AdminListQuery) (*dto.AdminListResponse, error) {

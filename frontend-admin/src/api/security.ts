@@ -249,7 +249,7 @@ export function updateBlacklistStatus(id: number, data: BlacklistStatusRequest):
 }
 
 export function releaseBlacklist(id: number): Promise<BlacklistInfo> {
-  return request.post<BlacklistInfo>({ url: `/security/blacklists/${id}/release`, data: {} })
+  return request.delete<BlacklistInfo>({ url: `/security/blacklists/${id}` })
 }
 
 export function getSessionList(params: SessionListQuery): Promise<ListResponse<SessionInfo>> {

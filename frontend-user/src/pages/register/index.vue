@@ -72,6 +72,60 @@
               </template>
             </t-input>
           </t-form-item>
+
+          <!--
+            邮箱验证码行：仅当 user_register 场景 otp_required=true 时渲染。
+            默认策略虽为 true，但 captcha_enabled=false 时总闸未开 → 不渲染，
+            与升级前「注册只填用户名/邮箱/密码」的交互保持一致。
+          -->
+          <t-form-item v-if="emailCodeNeeded" label="邮箱验证码" name="emailCode">
+            <div class="code-row">
+              <t-input
+                v-model="formData.emailCode"
+                placeholder="请输入邮箱验证码"
+                size="large"
+                maxlength="6"
+                class="code-input"
+              >
+                <template #prefix-icon>
+                  <ChatMessageIcon />
+                </template>
+              </t-input>
+              <t-button
+                variant="outline"
+                theme="primary"
+                size="large"
+                class="send-code-btn"
+                :disabled="countdown > 0"
+                :loading="sendingCode"
+                @click="handleSendEmailCode"
+              >
+                {{ countdown > 0 ? `${countdown}s` : '获取验证码' }}
+              </t-button>
+            </div>
+          </t-form-item>
+
+          <t-form-item v-if="captchaNeeded" label="图形验证码" name="captchaCode">
+            <div class="code-row">
+              <t-input
+                v-model="formData.captchaCode"
+                placeholder="请输入图形验证码"
+                size="large"
+                maxlength="5"
+                class="code-input"
+              >
+                <template #prefix-icon>
+                  <ViewListIcon />
+                </template>
+              </t-input>
+              <CaptchaImage
+                ref="captchaRef"
+                v-model:key="captchaKey"
+                v-model:code="formData.captchaCode"
+                scene="user_register"
+              />
+            </div>
+          </t-form-item>
           
           <t-form-item label="邀请码" name="inviteCode">
             <t-input
@@ -155,7 +209,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import {
@@ -166,14 +220,19 @@ import {
   RocketIcon,
   SettingIcon,
   ServiceIcon,
+  ChatMessageIcon,
+  ViewListIcon,
   LogoWechatStrokeIcon,
   LogoQqIcon,
   LogoAppleIcon,
   LogoChromeIcon,
 } from 'tdesign-icons-vue-next'
 
+import CaptchaImage from '@/components/verify/CaptchaImage.vue'
+import { sendVerifyCode } from '@/api/public'
 import { useUserStore } from '@/store'
 import { useBrandStore } from '@/store/modules/brand'
+import { imageRequired, loadAuthConfig, otpRequired } from '@/utils/captcha-resource'
 
 defineOptions({ name: 'UserRegister' })
 
@@ -183,8 +242,16 @@ const userStore = useUserStore()
 const brandStore = useBrandStore()
 
 const formRef = ref()
+const captchaRef = ref<InstanceType<typeof CaptchaImage> | null>(null)
 const loading = ref(false)
+const sendingCode = ref(false)
+const countdown = ref(0)
 const agreed = ref(false)
+const captchaKey = ref('')
+
+/** 图形码/邮箱验证码是否渲染：由 auth-config 决定，总闸关闭时都不显示。 */
+const captchaNeeded = computed(() => imageRequired('user_register'))
+const emailCodeNeeded = computed(() => otpRequired('user_register'))
 
 /** 邀请码：推广链接 /register?invite_code=XXXX 自动带入。 */
 const formData = reactive({
@@ -193,6 +260,8 @@ const formData = reactive({
   inviteCode: (route.query.invite_code as string) || '',
   password: '',
   confirmPassword: '',
+  emailCode: '',
+  captchaCode: '',
 })
 
 const validateConfirm = (val: string) => {
@@ -202,7 +271,8 @@ const validateConfirm = (val: string) => {
   return true
 }
 
-const rules = {
+// 图形码/验证码规则随策略动态增删：不渲染的行若留必填规则会永远提交不了。
+const rules = computed(() => ({
   username: [
     { required: true, message: '请输入用户名', trigger: 'blur' },
     { min: 3, message: '用户名至少3位', trigger: 'blur' },
@@ -219,25 +289,77 @@ const rules = {
     { required: true, message: '请再次输入密码', trigger: 'blur' },
     { validator: validateConfirm, trigger: 'blur' },
   ],
+  emailCode: emailCodeNeeded.value
+    ? [{ required: true, message: '请输入邮箱验证码', trigger: 'blur' }]
+    : [],
+  captchaCode: captchaNeeded.value
+    ? [{ required: true, message: '请输入图形验证码', trigger: 'blur' }]
+    : [],
+}))
+
+/** 真实下发注册邮箱验证码（scene=user_register，服务端在公开白名单内）。 */
+async function handleSendEmailCode() {
+  if (!formData.email.trim()) {
+    MessagePlugin.warning('请先输入邮箱地址')
+    return
+  }
+  if (captchaNeeded.value && !formData.captchaCode.trim()) {
+    MessagePlugin.warning('请先输入图形验证码')
+    return
+  }
+  sendingCode.value = true
+  try {
+    const res = await sendVerifyCode({
+      scene: 'user_register',
+      channel: 'email',
+      target: formData.email.trim(),
+      captcha_key: captchaKey.value || undefined,
+      captcha_code: formData.captchaCode.trim() || undefined,
+    })
+    MessagePlugin.success(`验证码已发送至 ${res.target_masked || formData.email.trim()}`)
+    countdown.value = 60
+    const timer = setInterval(() => {
+      countdown.value -= 1
+      if (countdown.value <= 0) clearInterval(timer)
+    }, 1000)
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '验证码发送失败')
+  } finally {
+    // 图形码一次性：无论成败都要换新图。
+    formData.captchaCode = ''
+    captchaRef.value?.refresh()
+    sendingCode.value = false
+  }
 }
 
 async function handleRegister() {
   try {
     const result = await formRef.value.validate()
     if (result !== true) return
-    
+
     loading.value = true
     await userStore.register({
       username: formData.username,
       email: formData.email,
       password: formData.password,
       invite_code: formData.inviteCode.trim() || undefined,
+      email_code: emailCodeNeeded.value ? formData.emailCode.trim() : undefined,
+      captcha_key: captchaNeeded.value ? captchaKey.value || undefined : undefined,
+      captcha_code: captchaNeeded.value ? formData.captchaCode.trim() || undefined : undefined,
     })
-    
+
     MessagePlugin.success('注册成功，请登录')
     router.replace('/login')
   } catch (e: any) {
     console.error('Register failed:', e)
+    // 注册失败时图形码与邮箱验证码都已被消费，必须刷新。
+    if (captchaNeeded.value) {
+      formData.captchaCode = ''
+      captchaRef.value?.refresh()
+    }
+    if (emailCodeNeeded.value) {
+      formData.emailCode = ''
+    }
   } finally {
     loading.value = false
   }
@@ -252,6 +374,10 @@ function handleSocialLogin(provider: string) {
   }
   MessagePlugin.info(`${names[provider] || provider}登录功能即将开放`)
 }
+
+onMounted(() => {
+  void loadAuthConfig()
+})
 </script>
 
 <style scoped>
@@ -410,6 +536,35 @@ function handleSocialLogin(provider: string) {
   margin-bottom: 20px;
   font-size: 13px;
   color: #64748B;
+}
+
+/* 验证码行：输入框 + 图形码/发送按钮并排 */
+.code-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.code-row .code-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.code-row .send-code-btn {
+  flex-shrink: 0;
+  min-width: 108px;
+}
+
+@media (max-width: 480px) {
+  .code-row {
+    flex-wrap: wrap;
+  }
+
+  .code-row .send-code-btn {
+    width: 100%;
+    min-width: unset;
+  }
 }
 
 .form-agreement a {

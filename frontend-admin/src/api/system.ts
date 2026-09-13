@@ -68,10 +68,6 @@ export function getConfigList(
 }
 
 /** 按配置键查询单条配置 */
-export function getConfigByKey(key: string): Promise<SystemConfigInfo> {
-  return request.get<SystemConfigInfo>({ url: `/system/configs/${key}` })
-}
-
 /** 新增配置 */
 export function createConfig(data: SystemConfigCreateRequest): Promise<SystemConfigInfo> {
   return request.post<SystemConfigInfo>({ url: '/system/configs', data })
@@ -86,10 +82,6 @@ export function updateConfig(
 }
 
 /** 删除配置 */
-export function deleteConfig(id: number): Promise<string> {
-  return request.delete<string>({ url: `/system/configs/${id}` })
-}
-
 /** 按分组查询全部配置项（分组化配置页面加载原值用，按 sort_order 排序） */
 export function getConfigListByGroup(group: string): Promise<SystemConfigInfo[]> {
   return request.get<SystemConfigInfo[]>({ url: `/system/configs/group/${group}` })

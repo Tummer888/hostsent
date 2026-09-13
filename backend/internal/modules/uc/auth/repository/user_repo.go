@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -28,6 +29,12 @@ type UserRepository interface {
 	UpdatePassword(ctx context.Context, id uint64, passwordHash string) error
 	// PermissionsOf 返回子账号已授予的客户侧权限码（主账号返回空集，P4-09）。
 	PermissionsOf(ctx context.Context, id uint64) ([]string, error)
+	// FindByPhone 按手机号查找用户，未找到返回 gorm.ErrRecordNotFound（doc91 短信登录）。
+	FindByPhone(ctx context.Context, phone string) (*model.User, error)
+	// MarkVerified 写回邮箱/手机验证时间（channel=email/sms，doc91 C3）。
+	MarkVerified(ctx context.Context, id uint64, channel string, verifiedAt time.Time) error
+	// RevokeSessions 撤销该用户全部有效会话（改密/重置密码后调用，doc91 §5.5）。
+	RevokeSessions(ctx context.Context, id uint64, reason string) error
 }
 
 type userRepository struct {
@@ -106,4 +113,41 @@ func (r *userRepository) PermissionsOf(ctx context.Context, id uint64) ([]string
 		return nil, err
 	}
 	return codes, nil
+}
+
+// FindByPhone 按手机号查找用户（短信验证码登录用）。
+func (r *userRepository) FindByPhone(ctx context.Context, phone string) (*model.User, error) {
+	var user model.User
+	if err := r.db.WithContext(ctx).Where("phone = ?", phone).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+// MarkVerified 写回绑定验证时间。channel 只区分 sms / email 两类，
+// 未知值按 email 处理（与 captcha 模块 TargetResolver.SetVerifiedAt 口径一致）。
+func (r *userRepository) MarkVerified(ctx context.Context, id uint64, channel string, verifiedAt time.Time) error {
+	column := "email_verified_at"
+	if channel == "sms" {
+		column = "phone_verified_at"
+	}
+	return r.db.WithContext(ctx).Model(&model.User{}).Where("id = ?", id).
+		Update(column, verifiedAt).Error
+}
+
+// RevokeSessions 撤销该用户全部有效会话。
+//
+// 表 user_sessions 由安全模块维护（migration 004）；这里只做状态置位，
+// 不做级联删除，保留审计线索。无有效会话时影响 0 行，不算失败。
+func (r *userRepository) RevokeSessions(ctx context.Context, id uint64, reason string) error {
+	if strings.TrimSpace(reason) == "" {
+		reason = "password_reset"
+	}
+	return r.db.WithContext(ctx).Table("user_sessions").
+		Where("user_id = ? AND status = ?", id, "active").
+		Updates(map[string]any{
+			"status":         "revoked",
+			"revoked_reason": reason,
+			"revoked_at":     time.Now(),
+		}).Error
 }

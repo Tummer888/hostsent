@@ -1,8 +1,26 @@
 import { defineStore } from 'pinia'
 
-import { changePassword as changePasswordApi, getCurrentUser, login as loginApi } from '@/api/auth'
+import {
+  changePassword as changePasswordApi,
+  getCurrentUser,
+  login as loginApi,
+  verifyLoginOTP,
+  type LoginResponse,
+} from '@/api/auth'
 import { useMenuStore } from '@/store/modules/menu'
 import type { UserInfo } from '@/types/interface'
+
+/**
+ * 登录结果：needOTP=true 时表示命中二次验证，本次没有令牌，
+ * 调用方须弹 OTP 验证框（doc91 §5.2）。
+ */
+export interface LoginOutcome {
+  needOTP: boolean
+  otpToken?: string
+  otpChannel?: string
+  otpTargetMasked?: string
+  otpExpireIn?: number
+}
 
 const initUserInfo: UserInfo = {
   id: 0,
@@ -94,7 +112,7 @@ export const useUserStore = defineStore('user', {
         safeRemove(CREDENTIAL_KEY)
       }
     },
-    async login(payload: Record<string, unknown>) {
+    async login(payload: Record<string, unknown>): Promise<LoginOutcome> {
       const { username, password, captchaKey, captchaCode, remember } = payload as {
         username: string
         password: string
@@ -108,6 +126,32 @@ export const useUserStore = defineStore('user', {
         captcha_key: captchaKey,
         captcha_code: captchaCode,
       })
+      // 二次验证命中：本次没有令牌，把待验证令牌交回调用方弹验证框。
+      if (res.need_otp === true && res.otp_token) {
+        return {
+          needOTP: true,
+          otpToken: res.otp_token,
+          otpChannel: res.otp_channel || '',
+          otpTargetMasked: res.otp_target_masked || '',
+          otpExpireIn: res.otp_expire_in || 0,
+        }
+      }
+      await this.applyLoginResult(res)
+      this.persistCredentials(username, password, remember === true)
+      return { needOTP: false }
+    },
+    /** 完成登录二次验证：凭 otp_token + 验证码换正式令牌（doc91 §5.2）。 */
+    async loginVerifyOTP(otpToken: string, code: string) {
+      const res = await verifyLoginOTP({ otp_token: otpToken, code })
+      await this.applyLoginResult(res)
+    },
+    /**
+     * 应用登录成功的会话（写入令牌/权限/用户信息）。
+     *
+     * 单独抽出来是因为二次验证链路也要走完全一样的一套：任何分支漏掉一步
+     * （比如忘了写 permissions）都会让菜单变成空的，排查成本很高。
+     */
+    async applyLoginResult(res: LoginResponse) {
       this.token = res.token
       this.permissions = res.permissions || []
       this.mustChangePassword = res.must_change_password === true
@@ -128,7 +172,6 @@ export const useUserStore = defineStore('user', {
         await this.logout()
         throw new Error('仅管理员账号可登录管理后台')
       }
-      this.persistCredentials(username, password, remember === true)
     },
     async getUserInfo() {
       const res = await getCurrentUser()

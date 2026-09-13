@@ -11,6 +11,7 @@ import (
 	"hostsent/backend/internal/modules/admin/manager/service"
 	"hostsent/backend/internal/pkg/middleware"
 	"hostsent/backend/internal/pkg/netutil"
+	"hostsent/backend/internal/pkg/security"
 )
 
 type AdminHandler struct {
@@ -39,13 +40,51 @@ func (h *AdminHandler) Login(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.adminService.Login(c.Request.Context(), req, netutil.ClientIP(c))
+	resp, err := h.adminService.Login(c.Request.Context(), req, netutil.ClientIP(c), c.GetHeader("User-Agent"))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		writeSecurityError(c, err)
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": resp, "timestamp": time.Now().Unix()})
+}
+
+// VerifyLoginOTP godoc
+// @Summary 管理端登录二次验证
+// @Description 用登录返回的 otp_token 换取正式 JWT（doc91 §5.2）
+// @Tags 管理员认证
+// @Accept json
+// @Produce json
+// @Param request body dto.AdminVerifyOTPRequest true "验证参数"
+// @Success 200 {object} dto.APIResponse[map[string]any]
+// @Failure 400 {object} dto.APIResponse[map[string]string]
+// @Router /api/v1/admin/auth/login/verify-otp [post]
+func (h *AdminHandler) VerifyLoginOTP(c *gin.Context) {
+	var req dto.AdminVerifyOTPRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+
+	resp, err := h.adminService.VerifyLoginOTP(c.Request.Context(), req, netutil.ClientIP(c), c.GetHeader("User-Agent"))
+	if err != nil {
+		writeSecurityError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": resp, "timestamp": time.Now().Unix()})
+}
+
+// writeSecurityError 把安全域错误映射为业务错误码（doc91 §3.4/§4.1）。
+//
+// 走 200 业务码而非 500：验证码错误、账号锁定等是正常业务反馈，落 500 会让
+// 前端与监控把「用户输错验证码」当成服务故障。
+func writeSecurityError(c *gin.Context, err error) {
+	if code := security.CodeOf(err); code != 0 {
+		c.JSON(http.StatusOK, gin.H{"code": code, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
 }
 
 // Me godoc

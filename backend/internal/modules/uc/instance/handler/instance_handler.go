@@ -2,8 +2,10 @@
 package handler
 
 import (
-	"github.com/gin-gonic/gin"
+	"errors"
 	"strconv"
+
+	"github.com/gin-gonic/gin"
 
 	"hostsent/backend/internal/modules/uc/instance/dto"
 	"hostsent/backend/internal/modules/uc/instance/service"
@@ -140,6 +142,49 @@ func (h *InstanceHandler) VNC(c *gin.Context) {
 		return
 	}
 	response.Success(c, res)
+}
+
+// Destroy godoc
+// @Summary 销毁实例（不可逆）
+// @Description 用户自助销毁：归属校验 + 二次确认标识；不触发退款/余额返还（doc91 §6.4）
+// @Tags 用户中心-主机
+// @Security BearerAuth
+// @Param id path uint true "主机记录ID"
+// @Param body body dto.DestroyRequest true "销毁确认"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/instances/{id} [delete]
+func (h *InstanceHandler) Destroy(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, apperrors.New(10001, "unauthorized"))
+		return
+	}
+	id := pathUint(c, "id")
+	if id == 0 {
+		response.Error(c, apperrors.New(20001, "参数错误"))
+		return
+	}
+	var req dto.DestroyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	// 操作人取真实登录者（子账号），归属仍用主账号 ID；路由已挂 rejectSub，
+	// 这里的区分是为将来放开子账号时流水仍能回答「是谁点的」。
+	actorID := middleware.ActorUserID(c)
+	actorName := middleware.ActorUsername(c)
+	if err := h.instanceService.Destroy(c.Request.Context(), userID, actorID, actorName, id, &req); err != nil {
+		switch {
+		case errors.Is(err, service.ErrInstanceNotFoundOrDenied):
+			response.Error(c, apperrors.New(20002, err.Error()))
+		case errors.Is(err, service.ErrDestroyUnsupported):
+			response.Error(c, apperrors.New(20003, err.Error()))
+		default:
+			response.Error(c, apperrors.New(50001, err.Error()))
+		}
+		return
+	}
+	response.SuccessMessage(c, "销毁指令已提交")
 }
 
 func pathUint(c *gin.Context, key string) uint64 {

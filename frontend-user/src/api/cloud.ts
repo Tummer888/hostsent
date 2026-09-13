@@ -54,3 +54,24 @@ export function powerInstance(id: number, action: 'on' | 'off' | 'reboot' | 'har
 export function vncInstance(id: number) {
   return request.post<any, { data: VNCResult }>(`/uc/instances/${id}/vnc`)
 }
+
+/**
+ * 自助销毁实例（doc91 §6.4）。
+ *
+ * 注意本项目的 request 是 axios 实例本身（不是 admin 那种 {url} 对象式封装），
+ * 所以 DELETE 带 body 要写成 request.delete(url, { data })。confirmMark 必须
+ * 等于 instance_id，服务端会逐字比对。
+ *
+ * 二次验证：场景策略要求时后端返回 403 + 20017，此时需先用
+ * verifySecurityCode('instance_destroy', code) 拿 verify_ticket，再带
+ * verifyTicket 重放本次请求。
+ *
+ * 销毁不可逆且不退还剩余费用：服务端只终止上游实例并把本地状态置 deleted，
+ * 不触发任何退款/余额返还。
+ */
+export function destroyInstance(id: number, confirmMark: string, reason?: string, verifyTicket?: string) {
+  return request.delete<any, { data: unknown }>(`/uc/instances/${id}`, {
+    data: { confirm_mark: confirmMark, reason },
+    headers: verifyTicket ? { 'X-Verify-Ticket': verifyTicket } : undefined,
+  })
+}

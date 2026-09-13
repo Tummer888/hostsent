@@ -66,12 +66,6 @@ export function getPointAccounts(params: PointAccountListQuery): Promise<PointAc
   })
 }
 
-export function getPointAccount(userId: number): Promise<PointAccountInfo> {
-  return request.get<PointAccountInfo>({
-    url: `/points/accounts/${userId}`,
-  })
-}
-
 export function adjustPoints(data: PointAdjustRequest): Promise<PointTransactionInfo> {
   return request.post<PointTransactionInfo>({
     url: '/points/accounts/adjust',

@@ -10,6 +10,15 @@ auth:
   bearer_prefix: Bearer
   mock_token: mock-token
 
+redis:
+  host: redis
+  port: 6379
+  password: ""
+  db: 0
+  # required=false（默认）：Redis 视为加速器而非依赖，连不通时验证码/限流降级到 DB 兜底；
+  # 生产可置 true 强制启动自检失败即拒绝启动（doc89 §3.3）。
+  required: false
+
 pricing:
   # 多来源折扣叠加模式：best 取最优（默认）/ stack 按顺序叠加
   stack_mode: best

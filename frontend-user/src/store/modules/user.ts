@@ -1,6 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { login as loginApi, register as registerApi, getUserInfo } from '@/api/auth'
+import {
+  login as loginApi,
+  register as registerApi,
+  getUserInfo,
+  verifyLoginOTP,
+  type LoginParams,
+  type RegisterParams,
+} from '@/api/auth'
 
 interface UserInfo {
   id?: number
@@ -30,8 +37,35 @@ export const useUserStore = defineStore('user', () => {
   const isSubAccount = computed(() => Boolean(userInfo.value.is_sub_account))
   const permissions = computed<string[]>(() => userInfo.value.permissions || [])
 
-  async function login(credentials: { username: string; password: string }) {
+  /**
+   * 密码登录（doc91 §5.3）。
+   *
+   * 命中二次验证时不写令牌，返回值里带 need_otp/otp_token，由调用方弹 OTP 框。
+   * 旧调用方忽略返回值即可（不传账号密码以外字段时后端行为与升级前一致）。
+   */
+  async function login(credentials: LoginParams) {
     const { data } = await loginApi(credentials)
+    if (data.need_otp === true && data.otp_token) {
+      return {
+        needOTP: true,
+        otpToken: data.otp_token,
+        otpChannel: data.otp_channel || '',
+        otpTargetMasked: data.otp_target_masked || '',
+        otpExpireIn: data.otp_expire_in || 0,
+      }
+    }
+    applySession(data)
+    return { needOTP: false }
+  }
+
+  /** 完成登录二次验证：凭 otp_token + 验证码换正式令牌（doc91 §4.6）。 */
+  async function loginVerifyOTP(otpToken: string, code: string) {
+    const { data } = await verifyLoginOTP({ otp_token: otpToken, code })
+    applySession(data)
+  }
+
+  /** 写入登录会话（令牌 + 用户信息）。二次验证链路复用同一套，避免漏写。 */
+  function applySession(data: { token: string; user?: UserInfo }) {
     token.value = data.token
     localStorage.setItem('user_token', data.token)
     if (data.user) {
@@ -40,7 +74,7 @@ export const useUserStore = defineStore('user', () => {
     loaded.value = true
   }
 
-  async function register(data: { username: string; password: string; email: string; phone?: string; invite_code?: string }) {
+  async function register(data: RegisterParams) {
     const { data: result } = await registerApi(data)
     return result
   }
@@ -72,6 +106,7 @@ export const useUserStore = defineStore('user', () => {
     isSubAccount,
     permissions,
     login,
+    loginVerifyOTP,
     register,
     fetchUserInfo,
     logout,

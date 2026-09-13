@@ -40,6 +40,7 @@ import (
 	"time"
 
 	"hostsent/backend/internal/pkg/model"
+	"hostsent/backend/internal/pkg/traceid"
 	"hostsent/backend/internal/pkg/upstream"
 )
 
@@ -216,16 +217,25 @@ func (p *MoFangFinanceProvider) httpForm(ctx context.Context, method, rawURL str
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
+	started := time.Now()
 	resp, err := p.client.Do(req)
 	if err != nil {
+		upstream.Capture(ctx, method, rawURL, upstream.RequestBodyOf(req.GetBody), 0, nil, err, time.Since(started))
 		return nil, 0, &upstream.ProviderError{Op: "request", Err: err}
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
+	upstream.Capture(ctx, method, rawURL, upstream.RequestBodyOf(req.GetBody), resp.StatusCode, respBody, err, time.Since(started))
 	if err != nil {
 		return nil, resp.StatusCode, &upstream.ProviderError{Op: "request", Err: err}
 	}
 	return respBody, resp.StatusCode, nil
+}
+
+// providerInfo 采集记录上要带的渠道标识。
+func (p *MoFangFinanceProvider) providerInfo() (uint, string, string) {
+	name := firstNonEmpty(p.config.Name, "魔方财务")
+	return p.config.ID, name, ProviderType
 }
 
 // call 调用上游业务接口（zjmfCurl 等价实现）：
@@ -249,8 +259,26 @@ func (p *MoFangFinanceProvider) call(ctx context.Context, op, method, path strin
 
 // callShell 执行一次上游业务调用并返回原始响应壳，不做业务状态码判定。
 // 供 call（判定 200）与 applyCredit（额外接受 1001 支付成功码）复用。
-func (p *MoFangFinanceProvider) callShell(ctx context.Context, op, method, path string, form url.Values) (ZjmfResp[json.RawMessage], int, []byte, error) {
-	var shell ZjmfResp[json.RawMessage]
+//
+// 埋点（doc92 §3.2）：本函数的返回值就是「HTTP 2xx 也可能是业务失败」的原始证据，
+// 因此采集记录的业务判定在这里显式给出（FinishBusiness），而不是靠 err 推断 ——
+// 否则上游返回 {status:500,msg:"账号密码错误"} 会被记成成功。
+func (p *MoFangFinanceProvider) callShell(ctx context.Context, op, method, path string, form url.Values) (shell ZjmfResp[json.RawMessage], status int, body []byte, err error) {
+	ctx, tr := upstream.NewTrace(ctx, op, traceid.From(ctx))
+	tr.SetProvider(p.providerInfo)
+	defer func() {
+		if err != nil {
+			tr.FinishBusiness(err, false, "", "")
+			return
+		}
+		success := status < 400 && (shell.Status == StatusOK || shell.Code == StatusOK)
+		code := ""
+		if shell.Status != 0 {
+			code = strconv.Itoa(shell.Status)
+		}
+		tr.FinishBusiness(nil, success, code, shell.Msg)
+	}()
+
 	base, err := p.baseURL()
 	if err != nil {
 		return shell, 0, nil, err
@@ -259,7 +287,7 @@ func (p *MoFangFinanceProvider) callShell(ctx context.Context, op, method, path 
 	if err != nil {
 		return shell, 0, nil, &upstream.ProviderError{Op: op, Err: err}
 	}
-	body, status, err := p.callOnce(ctx, base, jwt, method, path, form)
+	body, status, err = p.callOnce(ctx, base, jwt, method, path, form)
 	if err != nil {
 		return shell, status, body, &upstream.ProviderError{Op: op, Err: err}
 	}

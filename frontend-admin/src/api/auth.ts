@@ -31,6 +31,13 @@ export interface LoginResponse {
   roles: string[]
   menus: string[]
   must_change_password: boolean
+  // —— 登录二次验证（doc91 §5.2）——
+  // need_otp=true 时本次不返回 token，前端须引导用户完成 OTP 验证。
+  need_otp?: boolean
+  otp_token?: string
+  otp_channel?: string
+  otp_target_masked?: string
+  otp_expire_in?: number
 }
 
 export interface ChangePasswordRequest {
@@ -41,6 +48,14 @@ export interface ChangePasswordRequest {
 export function login(data: LoginRequest): Promise<LoginResponse> {
   return request.post<LoginResponse>({
     url: '/auth/login',
+    data,
+  })
+}
+
+/** 登录二次验证：凭 otp_token + 验证码换正式令牌（doc91 §5.2）。 */
+export function verifyLoginOTP(data: { otp_token: string; code: string }): Promise<LoginResponse> {
+  return request.post<LoginResponse>({
+    url: '/auth/login/verify-otp',
     data,
   })
 }
