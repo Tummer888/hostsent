@@ -21,6 +21,14 @@ type OrderRepository interface {
 	FindByIDs(ctx context.Context, ids []uint64) ([]model.Order, error)
 	Create(ctx context.Context, item *model.Order) error
 	Update(ctx context.Context, item *model.Order) error
+	// ListExpiredPending 扫描超期未支付的订单（created_at < before，按下单先后）。
+	// 供待支付订单过期关单调度器使用：以「下单时间 + 配置的有效期」判定，
+	// 不用 orders.expire_time —— 那列是实例计费到期时间，语义不同。
+	ListExpiredPending(ctx context.Context, before time.Time, limit int) ([]model.Order, error)
+	// TransitionStatus 条件状态迁移（CAS）：仅当当前状态为 from 时置为 to，返回受影响行数。
+	// 支付成功回调与取消/超时关单会并发命中同一笔待支付订单，用 CAS 保证只有一方生效：
+	// 关单不会覆盖并发的支付成功，支付成功也不会复活已关闭的订单。
+	TransitionStatus(ctx context.Context, id uint64, from, to string) (int64, error)
 	// StatsCountToday 今日订单量
 	StatsCountToday(ctx context.Context) (int64, error)
 	// StatsSalesToday 今日销售额（已支付口径）
@@ -182,6 +190,34 @@ func (r *orderRepository) Create(ctx context.Context, item *model.Order) error {
 
 func (r *orderRepository) Update(ctx context.Context, item *model.Order) error {
 	return r.db.WithContext(ctx).Save(item).Error
+}
+
+// ListExpiredPending 超期未支付订单（按下单时间升序，便于先进先出关单）。
+//
+// 只挑「用户走过收银台」的订单：必须有支付单记录（payment_orders.biz_type='order'）。
+// 续费单（renewal_id<>0）与后台代下单是无支付单的 pending，语义是「等余额/等人工结算」，
+// 超时关掉会把用户已充值的续费意图悄悄作废，因此排除在外（与 doc88 §6.2 口径一致）。
+func (r *orderRepository) ListExpiredPending(ctx context.Context, before time.Time, limit int) ([]model.Order, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	var items []model.Order
+	if err := r.db.WithContext(ctx).
+		Where("status = ? AND created_at < ? AND renewal_id = 0 AND channel = ''", model.OrderStatusPending, before).
+		Where("order_no IN (?)",
+			r.db.Table("payment_orders").Select("biz_no").Where("biz_type = ?", "order")).
+		Order("created_at asc, id asc").Limit(limit).Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// TransitionStatus 条件状态迁移（CAS）：仅当当前状态为 from 时置为 to。
+func (r *orderRepository) TransitionStatus(ctx context.Context, id uint64, from, to string) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&model.Order{}).
+		Where("id = ? AND status = ?", id, from).
+		Updates(map[string]interface{}{"status": to, "updated_at": time.Now()})
+	return res.RowsAffected, res.Error
 }
 
 // paidStatuses 统计销售额时视为已支付的订单状态集合。

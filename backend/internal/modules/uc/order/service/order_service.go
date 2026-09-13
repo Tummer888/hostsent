@@ -9,6 +9,7 @@ import (
 	"math"
 	"math/rand"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	accountdto "hostsent/backend/internal/modules/admin/finance/account/dto"
@@ -16,6 +17,8 @@ import (
 	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
 	orderdto "hostsent/backend/internal/modules/admin/order/dto"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
+	paydto "hostsent/backend/internal/modules/admin/payment/dto"
+	paymodel "hostsent/backend/internal/modules/admin/payment/model"
 	catalogdto "hostsent/backend/internal/modules/admin/product/catalog/dto"
 	"hostsent/backend/internal/pkg/billingcycle"
 	"hostsent/backend/internal/pkg/pricing"
@@ -32,7 +35,17 @@ var (
 	ErrProvisionFailed = errors.New("开通资源失败，已扣款，可稍后重试")
 	// ErrOrderNotFound 订单不存在或不属于当前账号（两者对外同一文案，避免探测他人订单号）
 	ErrOrderNotFound = errors.New("订单不存在")
+	// ErrOrderNotPayable 订单当前状态不可支付（已支付/已取消/已超时关单）
+	ErrOrderNotPayable = errors.New("订单当前状态不可支付，请刷新后重试")
+	// ErrOrderNotCancellable 仅待支付订单可取消
+	ErrOrderNotCancellable = errors.New("仅待支付订单可取消")
+	// ErrPayModeInvalid 支付方式非法
+	ErrPayModeInvalid = errors.New("不支持的支付方式")
 )
+
+// defaultPayExpireMinutes 待支付订单默认有效期（分钟）：与系统配置 order_expire_minutes
+// 的种子值保持一致；配置缺失或非法时的兜底。
+const defaultPayExpireMinutes = 30
 
 // 以下为装配层注入的最小暴露接口（仅声明 uc 真正用到的方法，避免依赖 admin 的 service 层）。
 type (
@@ -50,6 +63,10 @@ type (
 		List(ctx context.Context, query orderdto.OrderListQuery) ([]ordermodel.Order, int64, error)
 		// FindByID 按主键读取订单；未找到返回 gorm.ErrRecordNotFound。
 		FindByID(ctx context.Context, id uint64) (*ordermodel.Order, error)
+		// TransitionStatus 条件状态迁移（CAS）：并发下只有一方生效，返回受影响行数。
+		TransitionStatus(ctx context.Context, id uint64, from, to string) (int64, error)
+		// ListExpiredPending 扫描超期未支付的订单（供过期关单调度器使用）。
+		ListExpiredPending(ctx context.Context, before time.Time, limit int) ([]ordermodel.Order, error)
 	}
 	// orderItemPort 订单项写入（P5-04 补写 order_items，行级保留折扣快照）。
 	orderItemPort interface {
@@ -85,18 +102,38 @@ type (
 		DecrementSpecStock(ctx context.Context, specID uint64, qty int) (int64, error)
 		IncrementSpecStock(ctx context.Context, specID uint64, qty int) (int64, error)
 	}
+	// prepayPort 收银台发起支付（支付中心 Prepay）。
+	prepayPort interface {
+		Prepay(ctx context.Context, userID uint64, req paydto.PrepayRequest) (*paydto.OrderInfo, error)
+	}
+	// pendingPaymentCloser 关闭某业务单的未支付支付单（取消/超时关单时调用）。
+	// 不关会留下「可继续付款但业务单已作废」的悬空资金入口。
+	pendingPaymentCloser interface {
+		CloseByBiz(ctx context.Context, bizType string, bizID uint64) (int, error)
+	}
 )
 
 // OrderService 用户中心订单业务能力。
 type OrderService interface {
-	// Create 用户下单（余额支付 + 开通上游）。userID 为归属账号，actorID 为真实操作人（P4-04）。
+	// Create 用户下单（余额支付立即开通 / 渠道支付落待支付单）。userID 为归属账号，actorID 为真实操作人（P4-04）。
 	Create(ctx context.Context, userID, actorID uint64, req dto.CreateRequest) (*dto.OrderInfo, error)
 	// List 我的订单。
 	List(ctx context.Context, userID uint64, query dto.ListQuery) (*dto.ListResponse, error)
-	// Detail 我的订单详情（含算价快照、支付时间、过期时间与履约状态）。
+	// Detail 我的订单详情（含算价快照、支付时间、支付截止时间与履约状态）。
 	Detail(ctx context.Context, userID, orderID uint64) (*dto.OrderInfo, error)
 	// Quote 预结算：算价明细，不落库、不扣款（P5-05）。
 	Quote(ctx context.Context, userID uint64, req dto.QuoteRequest) (*dto.QuoteInfo, error)
+	// Pay 待支付订单发起收银台支付：金额取订单应付（不接受前端传入），返回渠道支付参数。
+	Pay(ctx context.Context, userID, orderID uint64, req dto.PayRequest) (*dto.PayInfo, error)
+	// Cancel 用户取消待支付订单：置 cancelled + 关掉未支付支付单 + 回补占用的库存。
+	Cancel(ctx context.Context, userID, orderID uint64) (*dto.OrderInfo, error)
+	// ExpirePending 关掉超期未付的订单（调度器调用）：置 closed，口径与用户主动取消区分。
+	// expireMinutes 为配置的订单支付有效期（order_expire_minutes）。
+	ExpirePending(ctx context.Context, expireMinutes int) (int, error)
+	// SetPayExpireMinutes 注入待支付订单有效期（分钟，装配层读取系统配置后调用）。
+	SetPayExpireMinutes(minutes int)
+	// SetCashierPorts 注入收银台能力（支付中心 Prepay 与未支付单关闭）。
+	SetCashierPorts(prepay prepayPort, closer pendingPaymentCloser)
 	// SetSalesOwnerResolver 注入销售归属解析（装配层调用，doc86 §3.4）。
 	SetSalesOwnerResolver(r salesOwnerResolver)
 }
@@ -116,6 +153,11 @@ type orderService struct {
 	actorNames      actorNameLookup                                   // 操作人用户名解析（P4-09），可为 nil
 	sku             productSkuPort                                    // SKU 读取与库存（T4.1），可为 nil（无 SKU 的商品照旧下单）
 	salesOwner      salesOwnerResolver                                // 销售归属解析（doc86 §3.4），可为 nil（不记归属）
+	prepay          prepayPort                                        // 收银台发起支付（支付中心），可为 nil（未装配时不可线上支付）
+	pendingPayments pendingPaymentCloser                              // 关闭未支付支付单，可为 nil
+	// payExpireMinutes 待支付订单有效期（分钟），来自系统配置 order_expire_minutes。
+	// 读接口与过期扫描都会用到（调度器每轮刷新），用原子量避免 data race。
+	payExpireMinutes atomic.Int64
 }
 
 // actorNameLookup 批量解析用户 ID → 用户名，用于订单列表「操作人」列。
@@ -148,6 +190,13 @@ func NewOrderService(
 		orderItems: orderItems, pricing: pricing, sku: sku,
 		provisionQueue: provisionQueue, provisionTasks: provisionTasks,
 	}
+}
+
+// SetCashierPorts 注入收银台能力（装配层调用，避免改构造签名影响既有装配点）。
+// prepay 为 nil 时渠道支付不可用（Pay 返回不可支付）；closer 为 nil 时取消订单不关支付单。
+func (s *orderService) SetCashierPorts(prepay prepayPort, closer pendingPaymentCloser) {
+	s.prepay = prepay
+	s.pendingPayments = closer
 }
 
 // SetSalesOwnerResolver 注入销售归属解析器（装配层调用，避免改构造签名影响既有装配点）。
@@ -229,11 +278,32 @@ func (s *orderService) resolveSku(ctx context.Context, productID uint64, specCod
 	return nil, errors.New("所选规格不存在或已下架")
 }
 
-// Create 用户下单：校验商品 → 算价 → 余额扣款 → 创建已支付订单 → 触发上游开通。
+// Create 用户下单：校验商品 → 算价 →（余额扣款 或 落待支付单）→ 触发上游开通。
+//
+// 两条支付链路（doc88 §6.2「待支付 + 收银台」）：
+//   - pay_mode=balance（默认，存量行为）：下单即扣款，订单落 paid 并立刻投递开通；
+//   - pay_mode=channel：下单只锁库存与算价，订单落 pending 等收银台付款，
+//     支付成功由支付中心回调驱动（MarkPaidByChannel → ActivateByNo），此时才开通。
+//
+// 渠道链路必须占用库存：用户到收银台的这段时间里库存若不锁，可能超卖。
+// 因此库存回补责任从「下单失败」扩展到「关单」（取消/超时），见 Cancel/ExpirePending。
 func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req dto.CreateRequest) (*dto.OrderInfo, error) {
 	if req.ProductID == 0 {
 		return nil, errors.New("商品不能为空")
 	}
+	payMode := strings.TrimSpace(req.PayMode)
+	if payMode == "" {
+		payMode = dto.PayModeBalance
+	}
+	if payMode != dto.PayModeBalance && payMode != dto.PayModeChannel {
+		return nil, ErrPayModeInvalid
+	}
+	// 开放平台代客下单（P6/T6.3）是程序化渠道，不经过用户收银台：强制余额支付，
+	// 否则下游接口会返回一张没人能付的待支付单。
+	if req.ChannelMeta.Channel != "" {
+		payMode = dto.PayModeBalance
+	}
+	useChannel := payMode == dto.PayModeChannel
 	product, err := s.catalog.FindByID(ctx, req.ProductID)
 	if err != nil {
 		return nil, err
@@ -302,23 +372,26 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 		}
 	}()
 
-	// 1) 余额扣款（支出方向 -1），返回资金流水
+	// 1) 余额扣款（支出方向 -1），返回资金流水。
+	// 渠道支付此刻不扣款：钱在渠道侧，等回调确认到账后再标记 paid。
 	// 流水类型统一为 consume（P0-02）：累计消费聚合依赖 type='consume'，BizType 仍为 order 保证幂等键不变。
-	if _, err := s.wallet.Adjust(ctx, accountdto.AdjustRequest{
-		UserID:    userID,
-		Type:      transmodel.TxTypeConsume,
-		Direction: -1, // 支出
-		Amount:    amount,
-		BizKey:    fmt.Sprintf("uc-order-%d-%d", userID, time.Now().UnixNano()),
-		Remark:    fmt.Sprintf("购买云主机：%s", product.Name),
-	}, userID); err != nil {
-		if s.isBalanceErr != nil && s.isBalanceErr(err) {
-			return nil, ErrInsufficientBalance
+	if !useChannel {
+		if _, err := s.wallet.Adjust(ctx, accountdto.AdjustRequest{
+			UserID:    userID,
+			Type:      transmodel.TxTypeConsume,
+			Direction: -1, // 支出
+			Amount:    amount,
+			BizKey:    fmt.Sprintf("uc-order-%d-%d", userID, time.Now().UnixNano()),
+			Remark:    fmt.Sprintf("购买云主机：%s", product.Name),
+		}, userID); err != nil {
+			if s.isBalanceErr != nil && s.isBalanceErr(err) {
+				return nil, ErrInsufficientBalance
+			}
+			return nil, err
 		}
-		return nil, err
 	}
 
-	// 2) 创建已支付订单（含算价快照，P5-04）。
+	// 2) 创建订单（含算价快照，P5-04）：余额链路落 paid，渠道链路落 pending。
 	// 规格快照优先取 SKU 的 Specs（原子取值 JSON），未选规格时回落商品级 Specs。
 	specsSnapshot := product.Specs
 	if spec != nil && strings.TrimSpace(spec.Specs) != "" {
@@ -336,7 +409,6 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 		PriceModel:     product.PriceModel,
 		Cycle:          cycle,
 		TotalAmount:    quote.OriginalAmount,
-		PaidAmount:     amount,
 		OriginalAmount: quote.OriginalAmount,
 		DiscountAmount: quote.DiscountAmount,
 		FinalAmount:    quote.FinalAmount,
@@ -344,9 +416,18 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 		DiscountSource: quote.Source,
 		PriceSnapshot:  snapshotJSON(quote.Snapshot),
 		Status:         ordermodel.OrderStatusPaid,
-		PayMethod:      "balance",
+		PayMethod:      ordermodel.PayMethodBalance,
+		PaidAmount:     amount,
 		PayTime:        &now,
 		OperatorID:     actorID, // 真实操作人（子账号下单可追溯，P4-09）
+	}
+	if useChannel {
+		// 未收款：不写 paid_amount/pay_method/pay_time，避免未付款的订单混进销售额口径
+		// （仓储侧 paidStatuses 已排除 pending，这里保持列语义干净）。
+		order.Status = ordermodel.OrderStatusPending
+		order.PayMethod = ""
+		order.PaidAmount = 0
+		order.PayTime = nil
 	}
 	// 销售归属快照（doc86 §3.4）：下单瞬间锁定，后续改派不影响已成交订单的提成归属。
 	if s.salesOwner != nil {
@@ -385,6 +466,19 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 		if err := s.orderItems.Create(ctx, item); err != nil {
 			return nil, err
 		}
+	}
+
+	// 2.4) 渠道支付：到此为止订单已可靠落库（含库存占用），直接返回待支付单与支付截止时间。
+	//      累计消费与开通都必须等到账后（未付款不该累计消费、更不能开通资源）。
+	//      订单号此处即可确定，用户点「去支付」时才真正向渠道下单（避免无人支付也占用渠道单）。
+	if useChannel {
+		orderSucceeded = true
+		info := fromAdminOrder(*order, nil)
+		info.Status = ordermodel.OrderStatusPending
+		if expire := s.payExpireAt(order); expire != "" {
+			info.PayExpireAt = expire
+		}
+		return &info, nil
 	}
 
 	// 2.5) 累计消费 + 等级重算（P3-03）：已扣款即计入，开通失败也不回退。
@@ -449,6 +543,7 @@ func (s *orderService) List(ctx context.Context, userID uint64, query dto.ListQu
 			info.ProvisionStatus = task.Status
 			info.ProvisionError = task.LastError
 		}
+		info.PayExpireAt = s.payExpireAt(&it)
 		resp.Items = append(resp.Items, info)
 	}
 	return resp, nil
@@ -487,7 +582,183 @@ func (s *orderService) Detail(ctx context.Context, userID, orderID uint64) (*dto
 		info.ProvisionStatus = task.Status
 		info.ProvisionError = task.LastError
 	}
+	info.PayExpireAt = s.payExpireAt(order)
 	return &info, nil
+}
+
+// Pay 待支付订单发起收银台支付（doc88 §6.2）。
+//
+// 金额一律取订单算价快照，不接受前端传入：前端只选渠道与场景，避免改价支付。
+// 支付成功由支付中心回调驱动入账与开通（装配层 paid hook → MarkPaidByChannel → ActivateByNo），
+// 因此本方法只负责「向渠道下单并把参数交给收银台」，不碰订单资金状态。
+func (s *orderService) Pay(ctx context.Context, userID, orderID uint64, req dto.PayRequest) (*dto.PayInfo, error) {
+	if s.prepay == nil {
+		return nil, ErrOrderNotPayable
+	}
+	order, err := s.ownedOrder(ctx, userID, orderID)
+	if err != nil {
+		return nil, err
+	}
+	if order.Status != ordermodel.OrderStatusPending {
+		return nil, ErrOrderNotPayable
+	}
+	amount := payableAmount(order)
+	if amount <= 0 {
+		return nil, ErrOrderNotPayable
+	}
+	subject := "云产品订单支付"
+	if order.ProductName != "" {
+		subject = "云产品订单支付：" + order.ProductName
+	}
+	Scene := strings.TrimSpace(req.Scene)
+	info, err := s.prepay.Prepay(ctx, userID, paydto.PrepayRequest{
+		BizType:     paymodel.BizTypeOrder,
+		BizID:       order.ID,
+		BizNo:       order.OrderNo,
+		Amount:      amount,
+		Subject:     subject,
+		Scene:       Scene,
+		ChannelCode: strings.TrimSpace(req.ChannelCode),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &dto.PayInfo{
+		OrderID:      order.ID,
+		OrderNo:      order.OrderNo,
+		PaymentID:    info.ID,
+		PaymentNo:    info.PaymentNo,
+		Amount:       info.Amount,
+		ChannelCode:  info.ChannelCode,
+		ChannelName:  info.ChannelName,
+		Scene:        info.Scene,
+		Status:       info.Status,
+		PayURL:       info.PayURL,
+		QRCode:       info.QRCode,
+		Instructions: info.Instructions,
+		Subject:      info.Subject,
+		ExpireAt:     info.ExpireAt,
+	}, nil
+}
+
+// Cancel 用户取消待支付订单。
+//
+// 顺序有意为之：先 CAS 关单（并发下与支付成功回调互斥，避免钱付了单被取消），
+// 成功后再关掉未支付支付单并回补库存。关单失败说明订单已被支付或被系统关单，
+// 直接按不可取消返回，不再动支付单与库存。
+func (s *orderService) Cancel(ctx context.Context, userID, orderID uint64) (*dto.OrderInfo, error) {
+	order, err := s.ownedOrder(ctx, userID, orderID)
+	if err != nil {
+		return nil, err
+	}
+	if order.Status != ordermodel.OrderStatusPending {
+		return nil, ErrOrderNotCancellable
+	}
+	moved, err := s.orderRepo.TransitionStatus(ctx, order.ID, ordermodel.OrderStatusPending, ordermodel.OrderStatusCancelled)
+	if err != nil {
+		return nil, err
+	}
+	if moved == 0 {
+		// 并发：订单刚被支付成功或已被超时关单，以库内状态为准。
+		return nil, ErrOrderNotCancellable
+	}
+	order.Status = ordermodel.OrderStatusCancelled
+	s.releasePendingHoldings(ctx, order)
+	return s.Detail(ctx, userID, order.ID)
+}
+
+// ExpirePending 关掉超期未付的订单（保留期由 order_expire_minutes 配置，调度器周期调用）。
+//
+// 与用户主动取消分开落 closed：后台可据此区分「用户放弃」与「超时作废」两类流失。
+// 只处理有支付单的订单（仓储侧过滤），续费/后台代下单的 pending 不在关单范围内。
+func (s *orderService) ExpirePending(ctx context.Context, expireMinutes int) (int, error) {
+	if expireMinutes <= 0 {
+		expireMinutes = defaultPayExpireMinutes
+	}
+	before := time.Now().Add(-time.Duration(expireMinutes) * time.Minute)
+	items, err := s.orderRepo.ListExpiredPending(ctx, before, 200)
+	if err != nil {
+		return 0, err
+	}
+	closed := 0
+	for i := range items {
+		it := items[i]
+		moved, err := s.orderRepo.TransitionStatus(ctx, it.ID, ordermodel.OrderStatusPending, ordermodel.OrderStatusClosed)
+		if err != nil {
+			// 单笔失败不影响其余订单，下一轮扫描会重试。
+			continue
+		}
+		if moved == 0 {
+			// 扫描与支付成功回调并发：已被到账，跳过（不得回补库存、不得关支付单）。
+			continue
+		}
+		it.Status = ordermodel.OrderStatusClosed
+		s.releasePendingHoldings(ctx, &it)
+		closed++
+	}
+	return closed, nil
+}
+
+// releasePendingHoldings 释放待支付订单占用的资源：关闭未支付支付单 + 回补 SKU 库存。
+//
+// 两者都是尽力而为且互不阻断：失败只影响库存/支付单准确性，不回滚订单状态（订单已确定作废，
+// 由运维按订单人工核对）。支付单要尽力关掉：否则用户仍能付款到一张已作废的订单，
+// 到账后又无单可开，形成悬空资金。
+func (s *orderService) releasePendingHoldings(ctx context.Context, order *ordermodel.Order) {
+	if s.pendingPayments != nil {
+		_, _ = s.pendingPayments.CloseByBiz(ctx, paymodel.BizTypeOrder, order.ID)
+	}
+	if s.sku == nil || order.SpecCode == "" || order.Quantity <= 0 {
+		return
+	}
+	specs, err := s.sku.ListSpecs(ctx, order.ProductID)
+	if err != nil {
+		return
+	}
+	for i := range specs {
+		if specs[i].SpecCode == order.SpecCode {
+			// 独立 context：请求已可能被取消，库存回补仍要落库。
+			_, _ = s.sku.IncrementSpecStock(context.WithoutCancel(ctx), specs[i].ID, order.Quantity)
+			return
+		}
+	}
+}
+
+// ownedOrder 读取归属用户的订单；不存在与他人订单一律 ErrOrderNotFound（避免订单 ID 探测）。
+func (s *orderService) ownedOrder(ctx context.Context, userID, orderID uint64) (*ordermodel.Order, error) {
+	if orderID == 0 {
+		return nil, ErrOrderNotFound
+	}
+	order, err := s.orderRepo.FindByID(ctx, orderID)
+	if err != nil || order.UserID != userID {
+		return nil, ErrOrderNotFound
+	}
+	return order, nil
+}
+
+// SetPayExpireMinutes 注入待支付订单有效期（装配层每轮扫描刷新配置后调用）。
+func (s *orderService) SetPayExpireMinutes(minutes int) {
+	if minutes <= 0 {
+		minutes = defaultPayExpireMinutes
+	}
+	s.payExpireMinutes.Store(int64(minutes))
+}
+
+// payExpireMinutesOrDefault 当前有效期（分钟）。
+func (s *orderService) payExpireMinutesOrDefault() int {
+	if v := s.payExpireMinutes.Load(); v > 0 {
+		return int(v)
+	}
+	return defaultPayExpireMinutes
+}
+
+// payExpireAt 待支付订单的支付截止时间（RFC3339，非 pending 为空串）。
+// 实时推导而不落库：orders.expire_time 是实例计费到期时间，两者语义不同不可混用。
+func (s *orderService) payExpireAt(order *ordermodel.Order) string {
+	if order == nil || order.Status != ordermodel.OrderStatusPending || order.CreatedAt.IsZero() {
+		return ""
+	}
+	return order.CreatedAt.Add(time.Duration(s.payExpireMinutesOrDefault()) * time.Minute).Format(time.RFC3339)
 }
 
 // resolveProvisionTasks 批量取订单的开通任务状态（T5.1，避免 N+1）；失败降级为空映射。
@@ -628,6 +899,14 @@ func snapshotJSON(rules []pricing.Rule) string {
 // round2 金额保留两位小数。
 func round2(value float64) float64 {
 	return math.Round(value*100) / 100
+}
+
+// payableAmount 订单应付金额：算价快照（final_amount）优先，兼容未写快照的存量订单。
+func payableAmount(o *ordermodel.Order) float64 {
+	if o.FinalAmount > 0 {
+		return o.FinalAmount
+	}
+	return o.TotalAmount
 }
 
 // genOrderNo 生成订单号：时间戳 + 随机。

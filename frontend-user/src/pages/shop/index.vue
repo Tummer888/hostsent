@@ -98,9 +98,6 @@
       v-model:visible="buyVisible"
       header="确认购买"
       width="520px"
-      :confirm-btn="{ content: '余额支付并开通', loading: submitting }"
-      :cancel-btn="{ content: '取消' }"
-      @confirm="submitOrder"
     >
       <div v-if="current" class="buy">
         <div class="buy__product">{{ current.name }}</div>
@@ -129,6 +126,21 @@
         <div class="buy__field">
           <span class="buy__label">数量</span>
           <t-input-number v-model="quantity" :min="1" :max="99" theme="normal" @change="refreshQuote" />
+        </div>
+
+        <div class="buy__field">
+          <span class="buy__label">支付方式</span>
+          <t-radio-group v-model="payMode" variant="default-filled">
+            <t-radio-button value="balance">余额支付（即时开通）</t-radio-button>
+            <t-radio-button value="channel">在线支付（去收银台）</t-radio-button>
+          </t-radio-group>
+          <p class="buy__hint">
+            {{
+              payMode === 'balance'
+                ? '从账户余额扣款，下单后立即开通资源，余额不足会提示先充值。'
+                : '提交后生成待支付订单，用支付宝/微信/线下转账等方式完成支付；到账后自动开通。'
+            }}
+          </p>
         </div>
 
         <div v-loading="quoteLoading" class="buy__prices">
@@ -166,12 +178,20 @@
               :disabled="!quote || soldOut"
               @click="submitOrder"
             >
-              余额支付并开通
-            </t-button>
+              {{ payMode === 'balance' ? '余额支付并开通' : '提交订单并支付' }}            </t-button>
           </div>
         </div>
       </template>
     </t-dialog>
+
+    <!-- 在线支付收银台：下单后（订单已落待支付）选渠道付款，到账由后端回调自动开通 -->
+    <PaymentCashier
+      v-model:visible="cashierVisible"
+      :amount="cashierAmount"
+      :submit="submitCashier"
+      @paid="onCashierPaid"
+      @closed="onCashierClosed"
+    />
   </div>
 </template>
 
@@ -185,11 +205,13 @@ import {
   createOrder,
   getProductDetail,
   getProducts,
+  payOrder,
   quoteOrder,
   type ProductInfo,
   type QuoteInfo,
   type SkuInfo,
 } from '@/api/shop'
+import PaymentCashier, { type CashierPayment } from '@/components/payment-cashier/index.vue'
 import { useCartStore } from '@/store/modules/cart'
 
 defineOptions({ name: 'Shop' })
@@ -222,6 +244,48 @@ const quantity = ref(1)
 const quote = ref<QuoteInfo | null>(null)
 const quoteLoading = ref(false)
 const submitting = ref(false)
+/** 支付方式：balance 余额支付（默认，下单即开通）/ channel 在线支付（下单后去收银台）。 */
+const payMode = ref<'balance' | 'channel'>('balance')
+
+// ========== 收银台（在线支付） ==========
+const cashierVisible = ref(false)
+/** 已提交的待支付订单 ID：关闭收银台不删单，由用户在列表继续支付或后端超时关单。 */
+const pendingOrderId = ref(0)
+const cashierAmount = ref(0)
+
+function submitCashier(channelCode: string, scene: string): Promise<CashierPayment> {
+  return payOrder(pendingOrderId.value, { channel_code: channelCode, scene }).then(({ data }) => ({
+    payment_no: data.payment_no,
+    amount: data.amount,
+    pay_url: data.pay_url,
+    qrcode: data.qrcode,
+    instructions: data.instructions,
+    status: data.status,
+  }))
+}
+
+async function onCashierPaid() {
+  const orderId = pendingOrderId.value
+  pendingOrderId.value = 0
+  if (current.value) {
+    cartStore.remove(`${current.value.id}::${selectedSpec.value || '-'}::${selectedCycle.value || '-'}`)
+  }
+  MessagePlugin.success('支付完成，资源开通中')
+  if (orderId) router.push(`/order/${orderId}`)
+}
+
+/**
+ * 关闭收银台未付款：订单保留为待支付。
+ *
+ * 收银台上的按钮是「稍后支付」，删单会跟这句承诺自相矛盾（用户回头去订单列表找不到单）。
+ * 订单先放着，等用户自己在列表里继续支付或取消；超时也会被调度器关掉。
+ */
+function onCashierClosed() {
+  const orderId = pendingOrderId.value
+  pendingOrderId.value = 0
+  if (!orderId) return
+  MessagePlugin.info('订单已生成并保留为待支付，可在「我的订单」继续支付')
+}
 
 const selectedSku = computed<SkuInfo | undefined>(() =>
   current.value?.skus.find((s) => s.spec_code === selectedSpec.value),
@@ -358,13 +422,24 @@ async function submitOrder() {
       specCode: selectedSpec.value,
       cycle: selectedCycle.value,
       quantity: quantity.value,
+      payMode: payMode.value,
     })
-    MessagePlugin.success(`已购买「${current.value.name}」，资源开通中`)
     buyVisible.value = false
     cartStore.remove(
       // 下单成功后把同商品同规格同周期的购物车行移除，避免重复结算
       `${current.value.id}::${selectedSpec.value || '-'}::${selectedCycle.value || '-'}`,
     )
+
+    // 渠道支付：订单已落待支付，接着拉起收银台；付款成功由后端回调开通。
+    // 这里不跳转到详情页 —— 用户还没付钱，跳走会让他找不到收银台。
+    if (payMode.value === 'channel') {
+      pendingOrderId.value = data?.id || 0
+      cashierAmount.value = quote.value.final_amount
+      cashierVisible.value = true
+      return
+    }
+
+    MessagePlugin.success(`已购买「${current.value.name}」，资源开通中`)
     if (data?.id) router.push(`/order/${data.id}`)
   } catch {
     // 请求拦截器已提示错误原因（余额不足/库存不足等）
@@ -600,6 +675,14 @@ onMounted(async () => {
   margin: 0;
   font-size: 12px;
   color: var(--color-danger);
+}
+
+/* 支付方式说明：随所选方式切换文案，解释「钱什么时候扣、资源什么时候开」 */
+.buy__hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-muted-foreground);
 }
 
 .buy__prices {

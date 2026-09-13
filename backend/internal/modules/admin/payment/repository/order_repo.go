@@ -20,6 +20,10 @@ type OrderRepository interface {
 	FindPaidByBiz(ctx context.Context, bizType, bizNo string) (*model.PaymentOrder, error)
 	// FindPendingByBiz 查同业务未支付单（避免重复下单）。
 	FindPendingByBiz(ctx context.Context, bizType string, bizID uint64) (*model.PaymentOrder, error)
+	// ListPendingByBiz 列出某业务单的全部未支付支付单。
+	// 业务单作废（用户取消/超时关单）时调用：支付单与业务单必须同生共死，
+	// 否则用户可以继续付款到一张已作废的业务单上，形成悬空资金。
+	ListPendingByBiz(ctx context.Context, bizType string, bizID uint64) ([]model.PaymentOrder, error)
 	List(ctx context.Context, q dto.OrderListQuery) ([]model.PaymentOrder, int64, error)
 	// ListPaidForRecon 按账期汇总已支付单（渠道对账用），period 为空取全量。
 	SumPaid(ctx context.Context, channelCode, period string) (amountFen int64, count int64, err error)
@@ -77,6 +81,18 @@ func (r *orderRepository) FindPendingByBiz(ctx context.Context, bizType string, 
 		return nil, err
 	}
 	return &o, nil
+}
+
+// ListPendingByBiz 列出某业务单的全部未支付支付单（可能有换渠道重试产生的多张）。
+func (r *orderRepository) ListPendingByBiz(ctx context.Context, bizType string, bizID uint64) ([]model.PaymentOrder, error) {
+	var items []model.PaymentOrder
+	if err := r.db.WithContext(ctx).
+		Where("biz_type = ? AND biz_id = ? AND status IN ?", bizType, bizID,
+			[]string{model.OrderStatusPending, model.OrderStatusPaying}).
+		Order("id asc").Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func (r *orderRepository) FindPaidByBiz(ctx context.Context, bizType, bizNo string) (*model.PaymentOrder, error) {

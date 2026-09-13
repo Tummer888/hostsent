@@ -97,12 +97,25 @@
         </template>
 
         <template #created_at="{ row }">
-          <span class="time-text">{{ formatTime(row.created_at) }}</span>
+          <div class="time-text">{{ formatTime(row.created_at) }}</div>
+          <div v-if="row.status === 'pending' && row.pay_expire_at" class="cell-sub">
+            {{ payDeadlineText(row.pay_expire_at) }}
+          </div>
         </template>
 
         <template #op="{ row }">
           <span class="action-cell">
-            <t-button variant="text" size="small" @click.stop="router.push(`/order/${row.id}`)">
+            <!-- 待支付单的主操作是「去支付」：收银台在详情页（含取消订单），列表只做入口 -->
+            <t-button
+              v-if="row.status === 'pending'"
+              theme="primary"
+              variant="text"
+              size="small"
+              @click.stop="router.push(`/order/${row.id}`)"
+            >
+              去支付
+            </t-button>
+            <t-button v-else variant="text" size="small" @click.stop="router.push(`/order/${row.id}`)">
               详情
             </t-button>
           </span>
@@ -142,10 +155,12 @@ const status = ref('')
 const pagination = reactive({ current: 1, pageSize: 10, total: 0 })
 
 const STATUS_OPTIONS = [
+  { value: 'pending', label: '待支付' },
   { value: 'paid', label: '已支付' },
   { value: 'provisioning', label: '开通中' },
   { value: 'active', label: '服务中' },
   { value: 'cancelled', label: '已取消' },
+  { value: 'closed', label: '已关闭' },
   { value: 'refunded', label: '已退款' },
 ]
 
@@ -202,16 +217,29 @@ function statusText(s: string): string {
       provisioning: '开通中',
       active: '服务中',
       cancelled: '已取消',
+      closed: '已关闭',
       refunded: '已退款',
+      completed: '已完成',
     }[s] || s
   )
 }
 
 function statusTheme(s: string): 'success' | 'warning' | 'default' | 'danger' {
-  if (s === 'active' || s === 'paid') return 'success'
+  if (s === 'active' || s === 'paid' || s === 'completed') return 'success'
   if (s === 'provisioning' || s === 'pending') return 'warning'
-  if (s === 'cancelled' || s === 'refunded') return 'danger'
+  if (s === 'cancelled' || s === 'refunded' || s === 'closed') return 'danger'
   return 'default'
+}
+
+/** 待支付订单的支付截止提示：后端按下单时间 + order_expire_minutes 推算，不落库。 */
+function payDeadlineText(expireAt: string): string {
+  const deadline = new Date(expireAt).getTime()
+  if (Number.isNaN(deadline)) return '请尽快完成支付'
+  const left = deadline - Date.now()
+  if (left <= 0) return '已超时，等待系统关单'
+  const minutes = Math.floor(left / 60000)
+  if (minutes < 60) return `剩余 ${minutes} 分钟自动关闭`
+  return `${Math.floor(minutes / 60)} 小时后自动关闭`
 }
 
 function formatTime(v?: string): string {

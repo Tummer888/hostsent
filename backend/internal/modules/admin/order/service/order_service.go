@@ -137,6 +137,9 @@ func (s *orderService) SetChannelRefundHook(hook OrderChannelRefundHook) {
 
 // MarkPaidByChannel 支付中心确认到账：pending→paid，记录渠道支付方式与渠道交易号。
 // 已 paid/active/provisioning 等已收款状态幂等返回 false；返回 true 表示本次完成了迁移。
+//
+// 渠道路径下单时不扣款，paid_amount 仍为 0，这里以订单应付（total_amount）回写：
+// 不回写会让销售额统计（SUM(paid_amount)）与订单详情的实付金额漏掉全部渠道单。
 func (s *orderService) MarkPaidByChannel(ctx context.Context, orderNo, payMethod, channelTx string) (bool, error) {
 	item, err := s.orderRepo.FindByNo(ctx, orderNo)
 	if err != nil {
@@ -156,8 +159,16 @@ func (s *orderService) MarkPaidByChannel(ctx context.Context, orderNo, payMethod
 	}
 	item.PayTime = &now
 	item.Remark = remarkWithChannelTx(item.Remark, channelTx)
+	if item.PaidAmount <= 0 {
+		item.PaidAmount = payableAmount(item)
+	}
 	if err := s.orderRepo.Update(ctx, item); err != nil {
 		return false, err
+	}
+	// 订单支付成功扩展点（doc60）：续费联动 / 积分 / 通知。钩子失败不回滚支付状态，
+	// 与渠道回调的容错口径一致（到账已确认，业务侧问题由钩子实现自行留痕）。
+	if OnPaid != nil {
+		OnPaid(ctx, item)
 	}
 	return true, nil
 }
@@ -188,10 +199,17 @@ func remarkWithChannelTx(remark, channelTx string) string {
 //
 // 未注入队列时回落为同步 Activate：人工重试接口（/:id/activate）无论哪种装配都可用。
 // 队列路径下订单状态由工作池推进（paid→provisioning→active），本方法只负责投递。
+//
+// 续费订单（renewal_id != 0）不投递开通任务：它的商品就是被续费实例的售卖商品，
+// 按商品开通会再创建一台新实例（重复扣资源），资源侧由 lifecycle 的续费完成链路负责
+// （CompleteRenewalByOrderID → 上游续费 + 顺延到期时间）。
 func (s *orderService) EnqueueProvision(ctx context.Context, id uint64) error {
 	item, err := s.orderRepo.FindByID(ctx, id)
 	if err != nil {
 		return mapOrderErr(err)
+	}
+	if item.RenewalID != 0 {
+		return nil
 	}
 	if s.provisionQueue == nil {
 		return s.Activate(ctx, id)
@@ -668,6 +686,14 @@ func genRefundNo() string {
 
 func round2(v float64) float64 {
 	return math.Round(v*100) / 100
+}
+
+// payableAmount 订单应付金额：算价快照（final_amount）优先，兼容未写快照的存量订单。
+func payableAmount(o *model.Order) float64 {
+	if o.FinalAmount > 0 {
+		return o.FinalAmount
+	}
+	return o.TotalAmount
 }
 
 // fillTrend 保证返回连续 N 日趋势点（缺失日期补零）。

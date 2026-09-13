@@ -147,3 +147,63 @@ func (h *OrderHandler) Quote(c *gin.Context) {
 	}
 	response.Success(c, resp)
 }
+
+// Pay godoc
+// @Summary 待支付订单发起收银台支付
+// @Description 金额取订单算价快照（不接受前端传入），返回渠道支付参数；到账后由支付回调自动开通
+// @Tags 用户中心-订单
+// @Security BearerAuth
+// @Param id path int true "订单 ID"
+// @Param request body dto.PayRequest true "支付参数（渠道与场景）"
+// @Success 200 {object} response.Body{data=dto.PayInfo}
+// @Router /api/v1/uc/orders/{id}/pay [post]
+func (h *OrderHandler) Pay(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, apperrors.New(10001, "unauthorized"))
+		return
+	}
+	orderID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || orderID == 0 {
+		response.Error(c, apperrors.New(50001, "订单 ID 无效"))
+		return
+	}
+	var req dto.PayRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	info, err := h.orderService.Pay(c.Request.Context(), userID, orderID, req)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, info)
+}
+
+// Cancel godoc
+// @Summary 取消待支付订单
+// @Description 仅待支付订单可取消；同时关闭未支付支付单并回补占用库存（已到账/已关单返回不可取消）
+// @Tags 用户中心-订单
+// @Security BearerAuth
+// @Param id path int true "订单 ID"
+// @Success 200 {object} response.Body{data=dto.OrderInfo}
+// @Router /api/v1/uc/orders/{id}/cancel [post]
+func (h *OrderHandler) Cancel(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, apperrors.New(10001, "unauthorized"))
+		return
+	}
+	orderID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || orderID == 0 {
+		response.Error(c, apperrors.New(50001, "订单 ID 无效"))
+		return
+	}
+	info, err := h.orderService.Cancel(c.Request.Context(), userID, orderID)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, info)
+}

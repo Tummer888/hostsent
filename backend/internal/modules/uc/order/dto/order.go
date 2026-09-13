@@ -3,6 +3,14 @@ package dto
 
 import "hostsent/backend/internal/pkg/pricing"
 
+// 支付方式（doc88 §6.2「待支付 + 收银台」）：
+//   - balance 余额支付：下单即扣款、订单直接 paid，与存量行为一致；
+//   - channel 渠道支付：订单落 pending 等用户到收银台付款，支付成功回调后自动开通。
+const (
+	PayModeBalance = "balance"
+	PayModeChannel = "channel"
+)
+
 // CreateRequest 用户下单请求。
 type CreateRequest struct {
 	ProductID uint64 `json:"product_id" binding:"required"`
@@ -12,9 +20,19 @@ type CreateRequest struct {
 	// Cycle 计费周期（doc25）：monthly/quarterly/annually 等规范值。
 	// 留空回落商品 price_model 对应周期（存量行为不变）；该周期未开放则被拒。
 	Cycle string `json:"cycle"`
+	// PayMode 支付方式：balance（默认）/ channel。空值按 balance 处理，保证存量调用方行为不变。
+	PayMode string `json:"pay_mode"`
 	// ChannelMeta 开放平台代客下单渠道信息（P6/T6.3）。仅由 open 模块程序化注入，
 	// json:"-" 保证 UC 自有 HTTP 路由无法伪造渠道标记。
 	ChannelMeta ChannelMeta `json:"-"`
+}
+
+// PayRequest 发起收银台支付。
+type PayRequest struct {
+	// ChannelCode 指定支付渠道（来自 GET /uc/payment/methods）；留空按场景 + 用户偏好路由。
+	ChannelCode string `json:"channel_code"`
+	// Scene 支付场景：native/h5/jsapi/scan，留空按 native。
+	Scene string `json:"scene"`
 }
 
 // ChannelMeta 下单渠道归属：channel='open' 的订单由下游应用代客下单，
@@ -64,8 +82,31 @@ type OrderInfo struct {
 	PriceSnapshot string `json:"price_snapshot,omitempty"`
 	// ExpireTime 订单过期/计费到期时间（RFC3339，无则为空串）；详情页展示。
 	ExpireTime string `json:"expire_time,omitempty"`
+	// PayExpireAt 待支付订单的支付截止时间（RFC3339）：由「下单时间 + order_expire_minutes」
+	// 在读接口实时推导，不落库（orders.expire_time 是实例计费到期时间，两者语义不同）。
+	// 仅 pending 订单有值，供前端提示「请在 xx 前完成支付」。
+	PayExpireAt string `json:"pay_expire_at,omitempty"`
 	// Remark 订单备注（用户侧只读展示）。
 	Remark string `json:"remark,omitempty"`
+}
+
+// PayInfo 发起收银台支付的结果：收银台组件渲染所需参数（与支付中心 OrderInfo 同口径裁剪）。
+type PayInfo struct {
+	OrderID   uint64 `json:"order_id"`
+	OrderNo   string `json:"order_no"`
+	PaymentID uint64 `json:"payment_order_id"`
+	PaymentNo string `json:"payment_no"`
+	// Amount 应付金额（元）；与订单应付一致，由服务端取算价快照，不接受前端传入。
+	Amount       float64 `json:"amount"`
+	ChannelCode  string  `json:"channel_code"`
+	ChannelName  string  `json:"channel_name"`
+	Scene        string  `json:"scene"`
+	Status       string  `json:"status"`
+	PayURL       string  `json:"pay_url"`
+	QRCode       string  `json:"qrcode"`
+	Instructions string  `json:"instructions"`
+	Subject      string  `json:"subject"`
+	ExpireAt     string  `json:"expire_at"`
 }
 
 // QuoteRequest 预结算请求（P5-05）：不落库、不扣款。

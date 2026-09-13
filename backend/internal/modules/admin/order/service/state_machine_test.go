@@ -18,6 +18,9 @@ func TestOrderStateMachine(t *testing.T) {
 		{model.OrderStatusRefunding, model.OrderStatusRefunded},
 		{model.OrderStatusActive, model.OrderStatusCompleted},
 		{model.OrderStatusPending, model.OrderStatusCancelled},
+		// 待支付超期关单（doc88 §6.2）：与用户主动取消分开落 closed。
+		{model.OrderStatusPending, model.OrderStatusClosed},
+		{model.OrderStatusActive, model.OrderStatusClosed},
 	}
 	for _, tr := range legal {
 		if err := EnsureStatus(tr[0], tr[1]); err != nil {
@@ -36,6 +39,10 @@ func TestOrderStateMachine(t *testing.T) {
 		{model.OrderStatusActive, model.OrderStatusPaid},
 		{model.OrderStatusProvisioning, model.OrderStatusPaid},
 		{model.OrderStatusRefunded, model.OrderStatusPaid},
+		// 终态不可复活：已取消/已关单的订单不能被支付或开通（钱与资源都要靠这道门兜住）。
+		{model.OrderStatusCancelled, model.OrderStatusPaid},
+		{model.OrderStatusClosed, model.OrderStatusPaid},
+		{model.OrderStatusClosed, model.OrderStatusActive},
 	}
 	for _, tr := range illegal {
 		if err := EnsureStatus(tr[0], tr[1]); err == nil {

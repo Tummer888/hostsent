@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -152,10 +153,12 @@ type Server struct {
 	http               *http.Server
 	scheduler          *syncservice.Scheduler
 	lifecycleScheduler *lifecycleservice.LifecycleScheduler
-	salesScheduler     *salesservice.ReleaseScheduler
-	provisionWorker    *orderservice.ProvisionWorker
-	notifyWorker       *openservice.NotifyDeliveryWorker
-	cancel             context.CancelFunc
+	// pendingExpireScheduler 待支付订单过期关单（doc88 §6.2）。
+	pendingExpireScheduler *ucorderservice.PendingExpireScheduler
+	salesScheduler         *salesservice.ReleaseScheduler
+	provisionWorker        *orderservice.ProvisionWorker
+	notifyWorker           *openservice.NotifyDeliveryWorker
+	cancel                 context.CancelFunc
 }
 
 func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
@@ -774,6 +777,9 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	})
 	// 订单支付成功钩子（doc60）：续费订单支付完成后联动完成续费并延长到期时间
 	// doc70：支付成功后发布通知；doc36：非续费订单在此发放积分（续费积分走 lifecycle 路径，避免重复）。
+	//
+	// 本钩子只在「渠道支付到账」路径触发（MarkPaidByChannel 调用）：余额支付在下单时即扣款，
+	// 其累计消费在下单流程内记账，不会走到这里，因此这里的 ApplyConsume 不会重复累计。
 	orderservice.OnPaid = func(ctx context.Context, order *ordermodel.Order) {
 		if order == nil {
 			return
@@ -784,6 +790,15 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 				logger.Error("lifecycle: complete renewal by order failed", zap.Uint64("order_id", order.ID), zap.Error(err))
 			}
 		} else {
+			// 渠道支付的订单到账才累计消费并重算等级（下单时未收款，不能提前计入）。
+			go func(userID uint64, amount float64) {
+				cctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				if err := levelUpgradeService.ApplyConsume(cctx, userID, amount); err != nil {
+					logger.Warn("user level: apply consume failed",
+						zap.Uint64("user_id", userID), zap.Float64("amount", amount), zap.Error(err))
+				}
+			}(order.UserID, order.PaidAmount)
 			pointEarner(ctx, order.UserID, "order", order.OrderNo, order.PaidAmount, false)
 		}
 		// 发布支付成功通知（doc70）
@@ -807,6 +822,21 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	openBundle := buildOpenBundle(cfg, database, ucProductService, ucOrderService, instanceOpsService, lifecycleRenewalSvc, specContractRepo, pricePipeline, logger)
 	// 支付中心（doc35）：渠道管理 + 支付单 + 收银台，并注入提现打款与订单渠道退款钩子。
 	paymentBundle := buildPaymentBundle(cfg, database, walletService, rechargeService, billService, orderService, withdrawService, salesBundle.payoutSettler(), logger)
+	// 用户中心订单 ← 支付中心（doc88 §6.2）：待支付订单发起收银台支付；
+	// 取消/超时关单时同步关闭未支付支付单，避免用户付款打到已作废的订单上。
+	ucOrderService.SetCashierPorts(paymentBundle.orderService, paymentBundle.orderService)
+	// 待支付订单过期关单调度器：有效期每轮从系统配置 order_expire_minutes 重读（改配置无需重启）。
+	pendingExpireScheduler := ucorderservice.NewPendingExpireScheduler(ucOrderService, func(ctx context.Context) int {
+		item, err := configService.GetByKey(ctx, "order_expire_minutes")
+		if err != nil || item == nil {
+			return 0
+		}
+		minutes, err := strconv.Atoi(strings.TrimSpace(item.ConfigValue))
+		if err != nil || minutes <= 0 {
+			return 0
+		}
+		return minutes
+	}, logger)
 	// 销售提现打款出口：复用支付中心打款单，biz_type=sales_withdraw（doc86 §2.5）。
 	salesBundle.wireSalesPayout(paymentBundle.payoutService)
 	app := NewApp(cfg, adminHandler, departmentHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, salesBundle.customerHandler, salesBundle.commissionHandler, salesBundle.performanceHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, siteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, logger, jwtIssuer)
@@ -823,11 +853,12 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 			ReadTimeout:  time.Duration(cfg.App.ReadTimeout) * time.Second,
 			WriteTimeout: time.Duration(cfg.App.WriteTimeout) * time.Second,
 		},
-		scheduler:          scheduler,
-		lifecycleScheduler: lifecycleScheduler,
-		salesScheduler:     salesBundle.scheduler,
-		provisionWorker:    provisionWorker,
-		notifyWorker:       notifyWorker,
+		scheduler:              scheduler,
+		lifecycleScheduler:     lifecycleScheduler,
+		pendingExpireScheduler: pendingExpireScheduler,
+		salesScheduler:         salesBundle.scheduler,
+		provisionWorker:        provisionWorker,
+		notifyWorker:           notifyWorker,
 	}, nil
 }
 
@@ -837,6 +868,7 @@ func (s *Server) Run() error {
 	defer cancel()
 	s.scheduler.Start(ctx)
 	s.lifecycleScheduler.Start(ctx)
+	s.pendingExpireScheduler.Start(ctx)
 	s.salesScheduler.Start(ctx)
 	s.provisionWorker.Start(ctx)
 	go s.notifyWorker.Start(ctx)

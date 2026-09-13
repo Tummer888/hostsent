@@ -53,6 +53,9 @@ type paymentBundle struct {
 	userPaymentHandler *ucpayhandler.PaymentHandler
 	// payoutService 打款能力（装配层回填给销售提现，doc86 §2.5）。
 	payoutService payservice.PayoutService
+	// orderService 支付单能力：回填给用户中心订单（发起收银台支付、关单时同步关支付单）。
+	// 订单模块只声明自身需要的最小接口，这里传具体类型即可（Go 结构化满足）。
+	orderService payservice.OrderService
 }
 
 // buildPaymentBundle 装配支付中心：仓储 → 服务 → 处理器，并完成上下游钩子接线。
@@ -204,6 +207,7 @@ func buildPaymentBundle(
 		notifyHandler:      payhandler.NewNotifyHandler(orderSvc),
 		userPaymentHandler: userPaymentHandler,
 		payoutService:      payoutSvc,
+		orderService:       orderSvc,
 	}
 }
 

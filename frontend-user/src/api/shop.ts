@@ -76,6 +76,8 @@ export interface OrderInfo {
   price_snapshot?: string
   /** 计费到期时间（RFC3339，无则空串） */
   expire_time?: string
+  /** 待支付订单的支付截止时间（RFC3339）：仅 pending 有值，用于提示「请在 xx 前完成支付」 */
+  pay_expire_at?: string
   /** 订单备注（用户侧只读） */
   remark?: string
 }
@@ -105,6 +107,26 @@ export interface CreateOrderParams {
   specCode?: string
   cycle?: string
   quantity?: number
+  /** 支付方式：balance 余额支付（默认，下单即开通）/ channel 渠道支付（落待支付单去收银台）。 */
+  payMode?: 'balance' | 'channel'
+}
+
+/** 订单支付结果：收银台渲染与跳转所需参数。 */
+export interface OrderPayInfo {
+  order_id: number
+  order_no: string
+  payment_order_id: number
+  payment_no: string
+  amount: number
+  channel_code: string
+  channel_name: string
+  scene: string
+  status: string
+  pay_url: string
+  qrcode: string
+  instructions: string
+  subject: string
+  expire_at: string
 }
 
 /**
@@ -136,13 +158,31 @@ export function getProductDetail(id: number) {
     .then((res) => ({ ...res, data: normalizeProduct(res.data) }))
 }
 
-export function createOrder({ productId, specCode = '', cycle = '', quantity = 1 }: CreateOrderParams) {
+export function createOrder({
+  productId,
+  specCode = '',
+  cycle = '',
+  quantity = 1,
+  payMode,
+}: CreateOrderParams) {
   return request.post<any, { data: OrderInfo }>('/uc/orders', {
     product_id: productId,
     spec_code: specCode,
     cycle,
     quantity,
+    // 留空由后端按 balance 处理（存量调用方不变）；channel 时订单落待支付，去收银台付款。
+    pay_mode: payMode || undefined,
   })
+}
+
+/** 待支付订单发起收银台支付：金额由后端取算价快照，前端只选渠道与场景。 */
+export function payOrder(orderId: number, data: { channel_code?: string; scene?: string } = {}) {
+  return request.post<any, { data: OrderPayInfo }>(`/uc/orders/${orderId}/pay`, data)
+}
+
+/** 取消待支付订单：后端同时关闭未支付支付单并回补库存。 */
+export function cancelOrder(orderId: number) {
+  return request.post<any, { data: OrderInfo }>(`/uc/orders/${orderId}/cancel`)
 }
 
 /** 预结算：算价明细，不落库、不扣款（P5-05）。 */

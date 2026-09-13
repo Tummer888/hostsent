@@ -765,7 +765,7 @@ func newRouter(app *App) *gin.Engine {
 		publicSite.GET("/site-content", app.siteHandler.SiteContent)    // 品牌与站点配置（白名单）
 	}
 
-	// 用户中心订单：下单（余额支付开通）+ 我的订单（需登录）
+	// 用户中心订单：下单（余额支付即时开通 / 渠道支付落待支付单）+ 我的订单（需登录）
 	// 子账号下单需 order:create，查看需 order:view（P4-06）。
 	ucOrders := r.Group("/api/v1/uc/orders")
 	ucOrders.Use(middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userAudit())
@@ -774,6 +774,10 @@ func newRouter(app *App) *gin.Engine {
 		ucOrders.GET("", app.userPerm(appauth.PermOrderView), app.ucOrderHandler.List)
 		// 预结算只读算价，子账号可看（P5-05，需求 order:view）。
 		ucOrders.POST("/quote", app.userPerm(appauth.PermOrderView), app.ucOrderHandler.Quote)
+		// 取消待支付订单：状态作废而非资金进出，与下单同权限（子账号可操作）。
+		ucOrders.POST("/:id/cancel", app.userPerm(appauth.PermOrderCreate), app.ucOrderHandler.Cancel)
+		// 发起收银台支付属资金支出（rejectSub）：子账号硬拒绝，与充值/提现同口径（P4-06）。
+		ucOrders.POST("/:id/pay", app.userPerm(appauth.PermOrderCreate), app.rejectSub(), app.ucOrderHandler.Pay)
 		// 订单详情：仅返回订单归属账号下的订单，他人订单按不存在处理。
 		ucOrders.GET("/:id", app.userPerm(appauth.PermOrderView), app.ucOrderHandler.Detail)
 	}

@@ -137,12 +137,12 @@
       />
     </section>
 
-    <!-- 充值弹窗 -->
+    <!-- 充值弹窗：只收金额，支付渠道在收银台里选（渠道限额与金额相关，必须在收银台内过滤） -->
     <t-dialog
       v-model:visible="rechargeVisible"
       header="余额充值"
       width="480px"
-      :confirm-btn="{ content: '提交充值单', theme: 'primary' }"
+      :confirm-btn="{ content: '下一步：选择支付方式', theme: 'primary' }"
       :cancel-btn="{ content: '取消' }"
       @confirm="handleRecharge"
       @close="rechargeVisible = false"
@@ -152,42 +152,16 @@
         <t-form-item label="充值金额（元）" name="amount">
           <t-input-number v-model="rechargeForm.amount" :min="1" :precision="2" theme="column" placeholder="请输入充值金额" />
         </t-form-item>
-        <t-form-item label="支付方式" name="method">
-          <t-select v-model="rechargeForm.method" placeholder="请选择支付方式" :options="rechargeChannelOptions" />
-        </t-form-item>
       </t-form>
     </t-dialog>
 
-    <!-- 收银台：渠道支付参数 -->
-    <t-dialog
+    <!-- 收银台：与订单支付/账单支付共用同一组件 -->
+    <PaymentCashier
       v-model:visible="cashierVisible"
-      header="收银台"
-      width="520px"
-      :footer="false"
-      @close="cashierVisible = false"
-    >
-      <template v-if="cashierOrder">
-        <t-alert theme="success" :message="`支付单 ${cashierOrder.payment_no} 已创建，应付 ¥${formatPrice(cashierOrder.amount)}`" style="margin-bottom: 12px" />
-        <div v-if="cashierOrder.instructions" class="cashier-block">
-          <h4 class="cashier-block__title">支付指引</h4>
-          <pre class="cashier-pre">{{ cashierOrder.instructions }}</pre>
-        </div>
-        <div v-if="cashierOrder.qrcode" class="cashier-block">
-          <h4 class="cashier-block__title">收款二维码</h4>
-          <img v-if="isImage(cashierOrder.qrcode)" class="cashier-qr" :src="cashierOrder.qrcode" alt="收款二维码" />
-          <pre v-else class="cashier-pre">{{ cashierOrder.qrcode }}</pre>
-        </div>
-        <div v-if="cashierOrder.pay_url" class="cashier-block">
-          <h4 class="cashier-block__title">前往支付</h4>
-          <a class="cashier-link" :href="cashierOrder.pay_url" target="_blank" rel="noopener noreferrer">{{ cashierOrder.pay_url }}</a>
-        </div>
-        <t-space size="small" class="cashier-actions">
-          <t-button theme="primary" :loading="checking" @click="checkPayment">我已完成支付</t-button>
-          <t-button variant="outline" @click="cashierVisible = false">稍后支付</t-button>
-        </t-space>
-        <p class="cashier-tip">支付完成后点击「我已完成支付」刷新状态；线下渠道需等待财务确认到账。</p>
-      </template>
-    </t-dialog>
+      :amount="cashierAmount"
+      :submit="submitRecharge"
+      @paid="onRechargePaid"
+    />
   </div>
 </template>
 
@@ -206,7 +180,8 @@ import {
   type TransactionInfo,
   type WalletInfo,
 } from '@/api/finance'
-import { getPaymentMethods, getPaymentOrder, payRecharge, type PaymentOrderInfo } from '@/api/payment'
+import { payRecharge } from '@/api/payment'
+import PaymentCashier, { type CashierPayment } from '@/components/payment-cashier/index.vue'
 import {
   directionLabel,
   directionOptions,
@@ -300,36 +275,31 @@ function loadAll() {
 }
 
 const rechargeVisible = ref(false)
-const rechargeForm = reactive<{ amount: number | undefined; method: string | undefined }>({
-  amount: undefined,
-  method: undefined,
-})
-// 收银台可用渠道（来自支付中心，按我的偏好排序）
-const rechargeChannelOptions = ref<Array<{ label: string; value: string }>>([])
-
-async function loadPaymentMethods() {
-  try {
-    const { data } = await getPaymentMethods({ scene: 'native' })
-    const channels = data?.channels || []
-    rechargeChannelOptions.value = channels.map((c) => ({ label: c.name, value: c.channel_code }))
-  } catch {
-    rechargeChannelOptions.value = []
-  }
-}
+const rechargeForm = reactive<{ amount: number | undefined }>({ amount: undefined })
 
 function openRechargeDialog() {
   rechargeForm.amount = undefined
-  rechargeForm.method = undefined
-  void loadPaymentMethods()
   rechargeVisible.value = true
 }
 
 const cashierVisible = ref(false)
-const cashierOrder = ref<PaymentOrderInfo | null>(null)
-const checking = ref(false)
+/** 本次充值的金额：先记下来，收银台拉起后按金额过滤可选渠道。 */
+const cashierAmount = ref(0)
 
-function isImage(value: string): boolean {
-  return /^(data:image|https?:\/\/.*\.(png|jpe?g|gif|webp|svg))/i.test(value)
+/** 收银台回调：金额校验 + 创建充值单并发起支付（渠道由收银台选定）。 */
+function submitRecharge(channelCode: string, scene: string): Promise<CashierPayment> {
+  return payRecharge({
+    amount: cashierAmount.value,
+    channel_code: channelCode,
+    scene,
+  }).then(({ data }) => ({
+    payment_no: data.payment_no,
+    amount: data.amount,
+    pay_url: data.pay_url,
+    qrcode: data.qrcode,
+    instructions: data.instructions,
+    status: data.status,
+  }))
 }
 
 async function handleRecharge() {
@@ -337,46 +307,15 @@ async function handleRecharge() {
     MessagePlugin.warning('请输入大于 0 的充值金额')
     return
   }
-  try {
-    const { data } = await payRecharge({
-      amount: rechargeForm.amount,
-      channel_code: rechargeForm.method,
-    })
-    rechargeVisible.value = false
-    cashierOrder.value = data || null
-    cashierVisible.value = true
-    if (data?.pay_url && !data?.instructions && !data?.qrcode) {
-      window.open(data.pay_url, '_blank', 'noopener')
-    }
-  } catch (error) {
-    MessagePlugin.error(getErr(error) || '发起充值失败')
-  }
+  cashierAmount.value = rechargeForm.amount
+  rechargeVisible.value = false
+  cashierVisible.value = true
 }
 
-// 轮询支付单状态：渠道回调到账后前端可感知。
-async function checkPayment() {
-  if (!cashierOrder.value) return
-  checking.value = true
-  try {
-    const { data } = await getPaymentOrder(cashierOrder.value.payment_no)
-    cashierOrder.value = data || cashierOrder.value
-    if (data?.status === 'paid') {
-      MessagePlugin.success('支付已完成，余额已到账')
-      cashierVisible.value = false
-      wallet.value = { ...wallet.value, balance: wallet.value.balance + Number(data.amount || 0) }
-      await Promise.all([loadBalance(), loadTransactions()])
-      return
-    }
-    if (data?.status === 'pending' || data?.status === 'paying') {
-      MessagePlugin.info('支付尚未完成，请稍候再试；线下方式需等待财务确认到账')
-      return
-    }
-    MessagePlugin.warning(`支付单状态：${data?.status || '未知'}`)
-  } catch (error) {
-    MessagePlugin.error(getErr(error) || '查询支付状态失败')
-  } finally {
-    checking.value = false
-  }
+/** 到账后余额与流水都变了，重新拉取（不本地加金额，避免与线下确认到账的时点不一致）。 */
+async function onRechargePaid() {
+  MessagePlugin.success('支付已完成，余额已到账')
+  await Promise.all([loadBalance(), loadTransactions()])
 }
 
 function getErr(error: unknown): string {
@@ -412,53 +351,6 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: var(--space-lg);
-}
-
-/* 收银台 */
-.cashier-block {
-  margin-bottom: 14px;
-}
-
-.cashier-block__title {
-  margin: 0 0 6px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #1e293b;
-}
-
-.cashier-pre {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: #f8fafc;
-  font-size: 12px;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.cashier-qr {
-  width: 180px;
-  height: 180px;
-  object-fit: contain;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-}
-
-.cashier-link {
-  font-size: 12px;
-  color: #2563eb;
-  word-break: break-all;
-}
-
-.cashier-actions {
-  margin-top: 6px;
-}
-
-.cashier-tip {
-  margin: 10px 0 0;
-  font-size: 12px;
-  color: #64748b;
-  line-height: 1.6;
 }
 
 @media (max-width: 768px) {

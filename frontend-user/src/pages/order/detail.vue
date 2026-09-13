@@ -15,8 +15,12 @@
       </div>
       <div class="page-header__actions">
         <t-button variant="outline" @click="router.push('/order')">返回列表</t-button>
+        <template v-if="isPending">
+          <t-button variant="outline" :loading="cancelling" @click="confirmCancel">取消订单</t-button>
+          <t-button theme="primary" @click="cashierVisible = true">去支付</t-button>
+        </template>
         <t-button
-          v-if="order"
+          v-else-if="order"
           variant="outline"
           :loading="provisioning"
           @click="refreshProvision"
@@ -34,7 +38,7 @@
             {{ statusText(order.status) }}
           </t-tag>
           <span class="status-card__amount">¥{{ payAmount.toFixed(2) }}</span>
-          <span class="status-card__method">{{ payMethodText(order.pay_method) }}</span>
+          <span class="status-card__method">{{ isPending ? '待付款' : payMethodText(order.pay_method) }}</span>
         </div>
         <div v-if="order.provision_status" class="status-card__right">
           <t-tag :theme="provisionTheme(order.provision_status)" variant="light">
@@ -43,6 +47,14 @@
           <span v-if="order.provision_error" class="status-card__error">{{ order.provision_error }}</span>
         </div>
       </section>
+
+      <!-- 待支付提示：截止时间由后端按下单时间 + 有效期推算，过期由调度器关单 -->
+      <t-alert
+        v-if="isPending"
+        theme="warning"
+        class="order-detail__alert"
+        :message="payDeadlineMessage"
+      />
 
       <section class="surface-card detail-card">
         <div class="table-card__head">
@@ -112,6 +124,10 @@
           <t-descriptions-item label="支付时间">
             {{ order.pay_time ? formatTime(order.pay_time) : '—' }}
           </t-descriptions-item>
+          <t-descriptions-item v-if="order.pay_expire_at" label="支付截止" :span="2">
+            {{ formatTime(order.pay_expire_at) }}
+            <span class="order-detail__hint">（超时未支付系统自动关单）</span>
+          </t-descriptions-item>
         </t-descriptions>
       </section>
     </template>
@@ -123,15 +139,26 @@
         </template>
       </t-empty>
     </section>
+
+    <!-- 待支付订单的收银台：金额取订单应付，不信任前端传入 -->
+    <PaymentCashier
+      v-if="order"
+      v-model:visible="cashierVisible"
+      :amount="payAmount"
+      :submit="submitPay"
+      @paid="onPaid"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { OrderIcon } from 'tdesign-icons-vue-next'
 
-import { getOrderDetail, type OrderInfo } from '@/api/shop'
+import { cancelOrder, getOrderDetail, payOrder, type OrderInfo } from '@/api/shop'
+import PaymentCashier, { type CashierPayment } from '@/components/payment-cashier/index.vue'
 
 defineOptions({ name: 'OrderDetail' })
 
@@ -144,6 +171,70 @@ const provisioning = ref(false)
 
 /** 实付优先取算价快照，兼容未写快照的存量订单。 */
 const payAmount = computed(() => order.value?.final_amount || order.value?.paid_amount || 0)
+
+const isPending = computed(() => order.value?.status === 'pending')
+
+const cashierVisible = ref(false)
+const cancelling = ref(false)
+
+function submitPay(channelCode: string, scene: string): Promise<CashierPayment> {
+  return payOrder(order.value!.id, { channel_code: channelCode, scene }).then(({ data }) => ({
+    payment_no: data.payment_no,
+    amount: data.amount,
+    pay_url: data.pay_url,
+    qrcode: data.qrcode,
+    instructions: data.instructions,
+    status: data.status,
+  }))
+}
+
+/** 到账后订单由后端回调推进到已支付/开通中，重取详情即为最新状态（含履约任务）。 */
+async function onPaid() {
+  MessagePlugin.success('支付完成，资源开通中')
+  await load()
+}
+
+/** 支付截止提示：后端返回的是推算值（下单时间 + 订单有效期），前端只做倒计时文案。 */
+const payDeadlineMessage = computed(() => {
+  const raw = order.value?.pay_expire_at
+  if (!raw) return '该订单尚未支付，请尽快完成支付；超时未付系统将自动关闭订单。'
+  const deadline = new Date(raw).getTime()
+  if (Number.isNaN(deadline)) return '该订单尚未支付，请尽快完成支付。'
+  const left = deadline - Date.now()
+  if (left <= 0) return '已超过支付截止时间，系统即将关闭该订单。'
+  const minutes = Math.floor(left / 60000)
+  const remain = minutes < 60 ? `${minutes} 分钟` : `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟`
+  return `请在 ${formatTime(raw)} 前完成支付（剩余约 ${remain}）；超时未付将自动关闭订单并释放库存。`
+})
+
+/**
+ * 取消待支付订单。
+ *
+ * 后端是 CAS 状态迁移：如果此刻渠道已经回调到账，取消会失败并返回「不可取消」，
+ * 这时刷新详情反而能看到真实的已支付状态，比前端乐观改状态更可靠。
+ */
+function confirmCancel() {
+  const dialog = DialogPlugin.confirm({
+    header: '取消订单',
+    body: '取消后订单作废，已占用的库存会释放；需要的话可以重新下单。确认取消？',
+    confirmBtn: { content: '确认取消', theme: 'danger' },
+    onConfirm: async () => {
+      dialog.destroy()
+      cancelling.value = true
+      try {
+        const { data } = await cancelOrder(order.value!.id)
+        if (data) order.value = data
+        MessagePlugin.success('订单已取消')
+      } catch {
+        // 已支付/已被关单：刷新看真实状态，不误导用户
+        await load()
+      } finally {
+        cancelling.value = false
+      }
+    },
+    onClose: () => dialog.destroy(),
+  })
+}
 
 /** 规格：优先展示规格快照 JSON 里的可读项，取不到就退回原始字符串。 */
 const specText = computed(() => {
@@ -228,15 +319,17 @@ function statusText(s: string): string {
       provisioning: '开通中',
       active: '服务中',
       cancelled: '已取消',
+      closed: '已关闭',
       refunded: '已退款',
+      completed: '已完成',
     }[s] || s
   )
 }
 
 function statusTheme(s: string): 'success' | 'warning' | 'default' | 'danger' {
-  if (s === 'active' || s === 'paid') return 'success'
+  if (s === 'active' || s === 'paid' || s === 'completed') return 'success'
   if (s === 'provisioning' || s === 'pending') return 'warning'
-  if (s === 'cancelled' || s === 'refunded') return 'danger'
+  if (s === 'cancelled' || s === 'refunded' || s === 'closed') return 'danger'
   return 'default'
 }
 
@@ -294,6 +387,15 @@ onMounted(load)
 <style scoped>
 .order-detail__created {
   margin-left: var(--space-sm);
+  color: var(--color-muted-foreground);
+}
+
+.order-detail__alert {
+  border-radius: var(--hs-radius-lg);
+}
+
+.order-detail__hint {
+  margin-left: 6px;
   color: var(--color-muted-foreground);
 }
 

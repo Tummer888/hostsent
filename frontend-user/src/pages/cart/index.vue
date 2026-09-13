@@ -86,11 +86,24 @@
 
     <!-- 结算：逐条实时算价，全部成功才允许下单 -->
     <section v-if="!cartStore.isEmpty" class="surface-card settle-bar">
-      <div class="settle-bar__sum">
-        <span class="settle-bar__label">结算金额</span>
-        <span class="settle-bar__value">¥{{ settleTotal.toFixed(2) }}</span>
-        <span v-if="settleDiscount > 0" class="settle-bar__hint">
-          已优惠 ¥{{ settleDiscount.toFixed(2) }}
+      <div class="settle-bar__main">
+        <div class="settle-bar__sum">
+          <span class="settle-bar__label">结算金额</span>
+          <span class="settle-bar__value">¥{{ settleTotal.toFixed(2) }}</span>
+          <span v-if="settleDiscount > 0" class="settle-bar__hint">
+            已优惠 ¥{{ settleDiscount.toFixed(2) }}
+          </span>
+        </div>
+        <t-radio-group v-model="payMode" variant="default-filled" size="small">
+          <t-radio-button value="balance">余额支付</t-radio-button>
+          <t-radio-button value="channel">在线支付</t-radio-button>
+        </t-radio-group>
+        <span class="settle-bar__note">
+          {{
+            payMode === 'balance'
+              ? '余额不足会整单失败，可先到费用中心充值。'
+              : '按行生成待支付订单，提交后到订单列表逐笔完成支付，到账后自动开通。'
+          }}
         </span>
       </div>
       <t-button
@@ -100,11 +113,23 @@
         :disabled="!quotesReady"
         @click="confirmSettle"
       >
-        余额支付并开通（{{ cartStore.items.length }}）
+        {{ payMode === 'balance' ? '余额支付并开通' : '提交订单' }}（{{ cartStore.items.length }}）
       </t-button>
     </section>
 
     <t-alert v-if="quoteError" theme="warning" :message="quoteError" class="cart-alert" />
+
+    <!-- 在线支付的收银台：逐笔支付本单生成的待支付订单。
+         key 绑订单号让组件整块重建：连续付两单时渠道列表与上一单的支付参数不会残留。 -->
+    <PaymentCashier
+      v-if="currentPay"
+      :key="currentPay.orderId"
+      v-model:visible="cashierVisible"
+      :amount="currentPay.amount"
+      :submit="submitCashier"
+      @paid="onCashierPaid"
+      @closed="onCashierClosed"
+    />
   </div>
 </template>
 
@@ -114,7 +139,8 @@ import { useRouter } from 'vue-router'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { CartIcon, ServerIcon } from 'tdesign-icons-vue-next'
 
-import { createOrder, quoteOrder, type QuoteInfo } from '@/api/shop'
+import { createOrder, payOrder, quoteOrder, type QuoteInfo } from '@/api/shop'
+import PaymentCashier, { type CashierPayment } from '@/components/payment-cashier/index.vue'
 import { useCartStore, type CartItem } from '@/store/modules/cart'
 
 defineOptions({ name: 'CartPage' })
@@ -126,6 +152,13 @@ const cartStore = useCartStore()
 const quotes = ref<Record<string, QuoteInfo>>({})
 const quoteError = ref('')
 const submitting = ref(false)
+/** 支付方式：balance 余额支付（整单即时扣款开通）/ channel 在线支付（逐单去收银台）。 */
+const payMode = ref<'balance' | 'channel'>('balance')
+
+// ========== 在线支付收银台 ==========
+const cashierVisible = ref(false)
+/** 当前正在支付的订单：金额与订单号成对存，切行时不会被上一单污染。 */
+const currentPay = ref<{ orderId: number; amount: number } | null>(null)
 
 const settleTotal = computed(() =>
   cartStore.items.reduce((sum, it) => sum + (quotes.value[it.key]?.final_amount ?? 0), 0),
@@ -211,12 +244,19 @@ function confirmClear() {
 /**
  * 结算 = 逐条下单。
  *
- * 后端下单是「余额支付 + 即刻开通」，没有购物车批量结算接口（doc87 §6.2 澄清 2），
- * 这里按行串行调用 POST /uc/orders；成功的行移出购物车，失败的行保留并提示，
- * 用户能一眼看出哪一条没买成，不用整单重来。
+ * 后端没有购物车批量结算接口（doc87 §6.2 澄清 2），这里按行串行调用 POST /uc/orders；
+ * 成功的行移出购物车，失败的行保留并提示，用户能一眼看出哪一条没买成，不用整单重来。
+ *
+ * 支付方式影响流程：余额支付下单即扣款开通；在线支付落待支付单，随后逐笔拉起收银台。
  */
 async function settle() {
   submitting.value = true
+  if (payMode.value === 'channel') {
+    await settleByChannel()
+    submitting.value = false
+    return
+  }
+
   const failed: string[] = []
   let lastOrderId = 0
 
@@ -228,6 +268,7 @@ async function settle() {
         specCode: it.specCode,
         cycle: it.cycle,
         quantity: it.quantity,
+        payMode: 'balance',
       })
       if (data?.id) lastOrderId = data.id
       cartStore.remove(it.key)
@@ -235,8 +276,6 @@ async function settle() {
       failed.push(it.productName)
     }
   }
-
-  submitting.value = false
 
   if (failed.length) {
     MessagePlugin.warning(`以下商品下单失败：${failed.join('、')}`)
@@ -249,11 +288,98 @@ async function settle() {
   else router.push('/order')
 }
 
+/**
+ * 在线支付结算：先按行「提交订单」，再逐笔拉起收银台付款。
+ *
+ * 订单创建与付款分成两步：关掉收银台不等于订单消失 —— 已生成的待支付单留在订单列表，
+ * 用户可以稍后自己去付或取消。这样才不会出现「关闭弹窗就把刚下的单作废」的意外，
+ * 也避开了「渠道已扣款但前端主动关单」的时序风险。
+ */
+async function settleByChannel() {
+  const failed: string[] = []
+  const pending: Array<{ orderId: number; amount: number }> = []
+
+  for (const it of cartStore.items) {
+    if (!quotes.value[it.key]) continue
+    try {
+      const { data } = await createOrder({
+        productId: it.productId,
+        specCode: it.specCode,
+        cycle: it.cycle,
+        quantity: it.quantity,
+        payMode: 'channel',
+      })
+      if (!data?.id) {
+        failed.push(it.productName)
+        continue
+      }
+      pending.push({ orderId: data.id, amount: quotes.value[it.key]?.final_amount ?? 0 })
+      cartStore.remove(it.key)
+    } catch {
+      failed.push(it.productName)
+    }
+  }
+
+  if (failed.length) {
+    MessagePlugin.warning(`以下商品下单失败：${failed.join('、')}`)
+    await refreshQuotes()
+  }
+
+  let paidCount = 0
+  for (const p of pending) {
+    const paid = await openCashier(p.orderId, p.amount)
+    if (!paid) break
+    paidCount += 1
+  }
+
+  if (paidCount) MessagePlugin.success(`${paidCount} 笔订单已支付，资源开通中`)
+  const unpaid = pending.length - paidCount
+  if (unpaid > 0) {
+    MessagePlugin.info(`还有 ${unpaid} 笔待支付订单，可在订单列表继续支付或取消`)
+  }
+  router.push('/order')
+}
+
+/** 等待收银台结果：paid → true，关闭（稍后支付/放弃）→ false。 */
+let cashierResolve: ((paid: boolean) => void) | null = null
+
+function openCashier(orderId: number, amount: number): Promise<boolean> {
+  currentPay.value = { orderId, amount }
+  cashierVisible.value = true
+  return new Promise((resolve) => {
+    cashierResolve = resolve
+  })
+}
+
+function submitCashier(channelCode: string, scene: string): Promise<CashierPayment> {
+  return payOrder(currentPay.value!.orderId, { channel_code: channelCode, scene }).then(({ data }) => ({
+    payment_no: data.payment_no,
+    amount: data.amount,
+    pay_url: data.pay_url,
+    qrcode: data.qrcode,
+    instructions: data.instructions,
+    status: data.status,
+  }))
+}
+
+function onCashierPaid() {
+  cashierResolve?.(true)
+  cashierResolve = null
+}
+
+function onCashierClosed() {
+  cashierResolve?.(false)
+  cashierResolve = null
+}
+
 function confirmSettle() {
+  const isBalance = payMode.value === 'balance'
   const dialog = DialogPlugin.confirm({
     header: '确认结算',
-    body: `将从账户余额扣除 ¥${settleTotal.value.toFixed(2)}，下单后即时开通资源。`,
-    confirmBtn: { content: '确认支付' },
+    body: isBalance
+      ? `将从账户余额扣除 ¥${settleTotal.value.toFixed(2)}，下单后即时开通资源。`
+      : `将按行生成 ${cartStore.items.length} 笔待支付订单（合计 ¥${settleTotal.value.toFixed(2)}），随后逐笔完成支付。`,
+    confirmBtn: { content: isBalance ? '确认支付' : '提交订单' },
     onConfirm: () => {
       dialog.destroy()
       settle()
@@ -362,6 +488,23 @@ onMounted(refreshQuotes)
   display: flex;
   align-items: baseline;
   gap: var(--space-sm);
+}
+
+/* 结算条：金额 + 支付方式 + 说明，窄屏换行不挤压按钮 */
+.settle-bar__main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.settle-bar__note {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-muted-foreground);
 }
 
 .settle-bar__label {

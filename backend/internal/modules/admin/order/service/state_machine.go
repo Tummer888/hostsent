@@ -8,6 +8,9 @@ var transitionTable = map[string]map[string]bool{
 	model.OrderStatusPending: {
 		model.OrderStatusPaid:      true,
 		model.OrderStatusCancelled: true,
+		// closed：待支付订单超期未付被系统关单。与 cancelled（用户主动取消）分开，
+		// 便于后台区分「用户放弃」与「超时作废」两类流失。
+		model.OrderStatusClosed: true,
 	},
 	model.OrderStatusPaid: {
 		model.OrderStatusProvisioning: true,

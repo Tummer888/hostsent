@@ -31,6 +31,9 @@ type OrderService interface {
 	Confirm(ctx context.Context, id uint64, req dto.OrderConfirmRequest, operatorID uint64) (*dto.OrderInfo, error)
 	// Close 关闭支付单。
 	Close(ctx context.Context, id uint64) (*dto.OrderInfo, error)
+	// CloseByBiz 关闭某业务单的全部未支付支付单（用户取消/超时关单时调用），返回关闭数量。
+	// 业务单作废后支付单必须一起关：否则用户仍可付款到已作废的业务单，形成悬空资金。
+	CloseByBiz(ctx context.Context, bizType string, bizID uint64) (int, error)
 	// Sync 主动向渠道查单并推进状态（补偿回调丢失）。
 	Sync(ctx context.Context, id uint64) (*dto.OrderInfo, error)
 	// HandleNotify 处理渠道回调：验签 → 比额 → 幂等 → 置为已支付 → 触发钩子。
@@ -243,6 +246,28 @@ func (s *orderService) Close(ctx context.Context, id uint64) (*dto.OrderInfo, er
 		return nil, err
 	}
 	return s.infoWithChannelName(ctx, o, "")
+}
+
+// CloseByBiz 关闭某业务单的全部未支付支付单（用户取消/超时关单时调用）。
+//
+// 逐张走 Close：需要尽力通知渠道关单，直接改库会漏掉渠道侧的单（用户还能在渠道页付）。
+// 单张失败不阻断其余（下一轮调度或人工可再处理），返回成功关闭数量。
+func (s *orderService) CloseByBiz(ctx context.Context, bizType string, bizID uint64) (int, error) {
+	if bizID == 0 {
+		return 0, nil
+	}
+	items, err := s.orderRepo.ListPendingByBiz(ctx, bizType, bizID)
+	if err != nil {
+		return 0, err
+	}
+	closed := 0
+	for _, it := range items {
+		if _, err := s.Close(ctx, it.ID); err != nil {
+			continue
+		}
+		closed++
+	}
+	return closed, nil
 }
 
 // Sync 主动查单：仅对支付中/待支付单有效；渠道报已支付则走 markPaid。
