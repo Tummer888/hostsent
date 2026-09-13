@@ -1,27 +1,62 @@
 <template>
-  <div class="billing-page">
-    <!-- 余额 -->
-    <section class="balance-hero">
-      <div class="hero-left">
-        <span class="hero-chip"><WalletIcon size="22" /></span>
-        <div class="hero-info">
-          <span class="hero-label">可用余额（元）</span>
-          <span class="hero-value">¥ {{ formatPrice(wallet.balance) }}</span>
-          <span class="hero-sub">冻结 ¥ {{ formatPrice(wallet.frozen) }} · 累计收入 ¥ {{ formatPrice(wallet.total_income) }}</span>
+  <div class="page-body console-module balance-module">
+    <!-- 余额概览：与管理端财务页/首页仪表盘同一套统计卡片 -->
+    <header class="page-header surface-card">
+      <div class="page-header__main">
+        <span class="page-header__chip">
+          <WalletIcon size="22" aria-hidden="true" />
+        </span>
+        <div class="page-header__text">
+          <h2 class="page-header__title">余额与充值</h2>
+          <p class="page-header__desc">余额支付即时到账；冻结金额为退款/提现处理中占用</p>
         </div>
       </div>
-      <div class="hero-right">
-        <t-button theme="primary" size="large" @click="openRechargeDialog">
+      <div class="page-header__actions">
+        <t-button variant="outline" @click="router.push('/billing')">返回费用中心</t-button>
+        <t-button theme="primary" @click="openRechargeDialog">
           <template #icon><AddIcon /></template>
           余额充值
         </t-button>
       </div>
+    </header>
+
+    <section class="balance-stat-grid">
+      <div class="stat-card surface-card stat-card--blue">
+        <span class="stat-card__icon"><WalletIcon size="24" aria-hidden="true" /></span>
+        <div class="stat-card__info">
+          <span class="stat-card__value">¥{{ formatPrice(wallet.balance) }}</span>
+          <span class="stat-card__hint">可用余额</span>
+        </div>
+      </div>
+      <div class="stat-card surface-card stat-card--warning">
+        <span class="stat-card__icon"><LockOnIcon size="24" aria-hidden="true" /></span>
+        <div class="stat-card__info">
+          <span class="stat-card__value">¥{{ formatPrice(wallet.frozen) }}</span>
+          <span class="stat-card__hint">冻结金额</span>
+        </div>
+      </div>
+      <div class="stat-card surface-card stat-card--green">
+        <span class="stat-card__icon"><MoneyIcon size="24" aria-hidden="true" /></span>
+        <div class="stat-card__info">
+          <span class="stat-card__value">¥{{ formatPrice(wallet.total_income) }}</span>
+          <span class="stat-card__hint">累计收入</span>
+        </div>
+      </div>
+      <div class="stat-card surface-card stat-card--orange">
+        <span class="stat-card__icon"><MoneyIcon size="24" aria-hidden="true" /></span>
+        <div class="stat-card__info">
+          <span class="stat-card__value">¥{{ formatPrice(wallet.total_expense) }}</span>
+          <span class="stat-card__hint">累计支出</span>
+        </div>
+      </div>
     </section>
 
     <!-- 我的充值单 -->
-    <section v-if="recharges.length" class="panel">
-      <h3 class="section-title">我的充值单</h3>
-      <t-table :data="recharges" :columns="rechargeColumns" size="small" row-key="id" :pagination="false" :bordered="false" hover cell-empty-content="—">
+    <section v-if="recharges.length" class="table-card surface-card">
+      <div class="table-card__head">
+        <h3 class="card-title">我的充值单</h3>
+      </div>
+      <t-table :data="recharges" :columns="rechargeColumns" row-key="id" :pagination="false" hover cell-empty-content="—">
         <template #amount="{ row }">
           <span class="amount-income">¥ {{ formatPrice(row.amount) }}</span>
         </template>
@@ -46,13 +81,13 @@
     </section>
 
     <!-- 资金流水 -->
-    <section class="panel">
-      <div class="panel-head">
-        <h3 class="section-title">资金流水</h3>
+    <section class="table-card surface-card">
+      <div class="table-card__head">
+        <h3 class="card-title">资金流水</h3>
         <t-space size="small">
           <t-select v-model="filter.type" clearable placeholder="类型" :options="txTypeOptions" size="small" style="width: 120px" @change="handleSearch" />
           <t-select v-model="filter.direction" clearable placeholder="方向" :options="directionOptions" size="small" style="width: 100px" @change="handleSearch" />
-          <t-button variant="outline" size="small" :loading="loading" @click="loadTransactions">
+          <t-button variant="outline" size="small" :loading="loading" @click="loadAll">
             <template #icon><RefreshIcon /></template>
             刷新
           </t-button>
@@ -63,10 +98,11 @@
         :columns="txColumns"
         size="small"
         row-key="id"
-        :pagination="pagination"
+        :pagination="isMobile ? undefined : pagination"
         :bordered="false"
         hover
         cell-empty-content="—"
+        :loading="loading"
         @page-change="handlePageChange"
       >
         <template #type="{ row }">
@@ -90,6 +126,15 @@
           <t-empty description="暂无流水记录" />
         </template>
       </t-table>
+
+      <!-- 移动端翻页：与 admin 列表页同一套（桌面用表格内建分页） -->
+      <MobilePagination
+        v-if="isMobile"
+        :current="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
+        @change="handlePageChange"
+      />
     </section>
 
     <!-- 充值弹窗 -->
@@ -148,8 +193,9 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
-import { AddIcon, RefreshIcon, WalletIcon } from 'tdesign-icons-vue-next'
+import { AddIcon, LockOnIcon, MoneyIcon, RefreshIcon, WalletIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import {
@@ -174,8 +220,13 @@ import {
   txTypeOptions,
   txTypeTheme,
 } from '@/pages/billing/constants'
+import { useIsMobile } from '@/composables/useIsMobile'
+import MobilePagination from '@/components/mobile-pagination/index.vue'
 
 defineOptions({ name: 'BillingBalance' })
+
+const router = useRouter()
+const { isMobile } = useIsMobile()
 
 const wallet = ref<WalletInfo>({ user_id: 0, balance: 0, frozen: 0, total_income: 0, total_expense: 0 })
 const transactions = ref<TransactionInfo[]>([])
@@ -241,6 +292,11 @@ function handlePageChange(pageInfo: PageInfo) {
 function handleSearch() {
   pagination.current = 1
   loadTransactions()
+}
+
+/** 顶栏「刷新」：余额与流水一起重取（充值单是历史记录，不随余额变动）。 */
+function loadAll() {
+  void Promise.all([loadBalance(), loadTransactions()])
 }
 
 const rechargeVisible = ref(false)
@@ -351,123 +407,11 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.billing-page {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.balance-hero {
-  background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
-  border-radius: 16px;
-  padding: 24px 28px;
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-}
-
-.hero-left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.hero-chip {
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.18);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.hero-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.hero-label {
-  font-size: 14px;
-  opacity: 0.85;
-}
-
-.hero-value {
-  font-size: 30px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.1;
-}
-
-.hero-sub {
-  font-size: 13px;
-  opacity: 0.8;
-}
-
-.hero-right .t-button {
-  height: 44px;
-  font-weight: 600;
-}
-
-.panel {
-  background: #fff;
-  border-radius: 12px;
-  padding: 20px 24px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-}
-
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.section-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #1e293b;
-  margin: 0;
-}
-
-.amount-income {
-  color: #059669;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.amount-expense {
-  color: #dc2626;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.time-text {
-  color: #64748b;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
-
-.cell-main {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.cell-strong {
-  font-size: 13px;
-  font-weight: 600;
-  color: #334155;
-}
-
-.cell-sub {
-  font-size: 12px;
-  color: #94a3b8;
+/* 余额概览：与 admin 首页仪表盘/财务页同一套统计卡片栅格 */
+.balance-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-lg);
 }
 
 /* 收银台 */

@@ -1,30 +1,49 @@
 <template>
-  <div class="tx-page">
-    <section class="panel">
-      <div class="panel-head">
-        <h3 class="section-title">资金流水</h3>
-        <t-space size="small">
-          <t-button variant="outline" size="small" :loading="loading" @click="loadTransactions">
-            <template #icon><RefreshIcon /></template>
-            刷新
-          </t-button>
-        </t-space>
+  <div class="page-body console-module tx-module">
+    <header class="page-header surface-card">
+      <div class="page-header__main">
+        <span class="page-header__chip">
+          <SwapIcon size="22" aria-hidden="true" />
+        </span>
+        <div class="page-header__text">
+          <h2 class="page-header__title">资金流水</h2>
+          <p class="page-header__desc">余额的每一笔增减都在这里，金额正负号与方向列一致</p>
+        </div>
       </div>
+      <div class="page-header__actions">
+        <t-button variant="outline" @click="router.push('/billing')">返回费用中心</t-button>
+        <t-button variant="outline" :loading="loading" @click="loadTransactions">刷新</t-button>
+      </div>
+    </header>
 
-      <div class="filter-bar">
-        <t-select v-model="filter.type" clearable placeholder="全部类型" :options="txTypeOptions" style="width: 140px" @change="handleSearch" />
-        <t-select v-model="filter.direction" clearable placeholder="全部方向" :options="directionOptions" style="width: 120px" @change="handleSearch" />
-        <t-button theme="primary" size="small" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" size="small" @click="handleReset">重置</t-button>
+    <section class="filter-card surface-card">
+      <div class="filter-card__grid">
+        <div class="field">
+          <label class="field__label">流水类型</label>
+          <t-select v-model="filter.type" clearable placeholder="全部类型" :options="txTypeOptions" @change="handleSearch" />
+        </div>
+        <div class="field">
+          <label class="field__label">收支方向</label>
+          <t-select v-model="filter.direction" clearable placeholder="全部方向" :options="directionOptions" @change="handleSearch" />
+        </div>
+      </div>
+      <div class="filter-card__actions">
+        <t-button variant="outline" @click="handleReset">重置</t-button>
+        <t-button theme="primary" :loading="loading" @click="handleSearch">查询</t-button>
+      </div>
+    </section>
+
+    <section class="table-card surface-card">
+      <div class="table-card__head">
+        <h3 class="card-title">流水明细</h3>
+        <span class="table-card__meta">共 {{ pagination.total }} 条</span>
       </div>
 
       <t-table
         :data="transactions"
         :columns="columns"
-        size="small"
         row-key="id"
-        :pagination="pagination"
-        :bordered="false"
+        :pagination="isMobile ? undefined : pagination"
         hover
         cell-empty-content="—"
         :loading="loading"
@@ -42,7 +61,9 @@
           <span>{{ directionLabel(row.direction) }}</span>
         </template>
         <template #amount="{ row }">
-          <span :class="row.direction > 0 ? 'amount-income' : 'amount-expense'">{{ formatAmount(row.amount, row.direction) }}</span>
+          <span :class="row.direction > 0 ? 'amount-income' : 'amount-expense'">
+            {{ formatAmount(row.amount, row.direction) }}
+          </span>
         </template>
         <template #balance="{ row }">
           <span class="time-text">¥ {{ formatPrice(row.balance_after) }}</span>
@@ -57,14 +78,24 @@
           <t-empty description="暂无流水记录" />
         </template>
       </t-table>
+
+      <!-- 移动端翻页：与 admin 列表页同一套（桌面用表格内建分页） -->
+      <MobilePagination
+        v-if="isMobile"
+        :current="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
+        @change="handlePageChange"
+      />
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
-import { RefreshIcon } from 'tdesign-icons-vue-next'
+import { SwapIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { getMyTransactions, type TransactionInfo } from '@/api/finance'
@@ -78,13 +109,21 @@ import {
   txTypeOptions,
   txTypeTheme,
 } from '@/pages/billing/constants'
+import { useIsMobile } from '@/composables/useIsMobile'
+import MobilePagination from '@/components/mobile-pagination/index.vue'
 
 defineOptions({ name: 'BillingTransactions' })
+
+const router = useRouter()
+const { isMobile } = useIsMobile()
 
 const transactions = ref<TransactionInfo[]>([])
 const loading = ref(false)
 
-const filter = reactive<{ type: string | undefined; direction: number | undefined }>({ type: undefined, direction: undefined })
+const filter = reactive<{ type: string | undefined; direction: number | undefined }>({
+  type: undefined,
+  direction: undefined,
+})
 
 const pagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
 
@@ -141,61 +180,5 @@ onMounted(loadTransactions)
 </script>
 
 <style scoped>
-.tx-page {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.panel {
-  background: #fff;
-  border-radius: 12px;
-  padding: 20px 24px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-}
-
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.section-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #1e293b;
-  margin: 0;
-}
-
-.filter-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 0 16px;
-  flex-wrap: wrap;
-}
-
-.cell-strong {
-  font-weight: 600;
-  color: #334155;
-}
-
-.amount-income {
-  color: #059669;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.amount-expense {
-  color: #dc2626;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.time-text {
-  color: #64748b;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
+/* amount-income / amount-expense / time-text 由 console-module 骨架契约提供 */
 </style>

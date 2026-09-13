@@ -54,9 +54,11 @@ import { MessagePlugin } from 'tdesign-vue-next'
 
 import { getReferralProfile, type ReferralProfile } from '@/api/referral'
 import ReferralNav from '@/components/referral-nav/index.vue'
+import { useBrandStore } from '@/store/modules/brand'
 
 defineOptions({ name: 'ReferralMaterials' })
 
+const brandStore = useBrandStore()
 const profile = ref<ReferralProfile | null>(null)
 
 const inviteCode = computed(() => profile.value?.invite_code || '')
@@ -65,21 +67,26 @@ const inviteUrl = computed(() => {
   return `${window.location.origin}/register?invite_code=${inviteCode.value}`
 })
 
-const templates = [
-  {
-    label: '社群短文案',
-    render: (url: string) => `宿派云控新用户福利，通过专属链接注册享优惠：${url}`,
-  },
-  {
-    label: '邀请码文案',
-    render: (_url: string, code?: string) => `注册宿派云控时填写邀请码 ${code || '—'}，即可绑定专属服务与优惠。`,
-  },
-  {
-    label: '长文案',
-    render: (url: string) =>
-      `宿派云控提供云主机、对象存储与数据库等云产品，专业团队 7×24 支持。通过我的专属链接注册，可享受专属折扣与一对一服务：${url}`,
-  },
-]
+// 文案模板目前写在前端（管理侧尚无策展页，见 doc88 清点表 B3）。
+// 品牌名从站点配置取，避免模板里再写死一份品牌。
+const templates = computed(() => {
+  const brand = brandStore.name
+  return [
+    {
+      label: '社群短文案',
+      render: (url: string) => `${brand}新用户福利，通过专属链接注册享优惠：${url}`,
+    },
+    {
+      label: '邀请码文案',
+      render: (_url: string, code?: string) => `注册${brand}时填写邀请码 ${code || '—'}，即可绑定专属服务与优惠。`,
+    },
+    {
+      label: '长文案',
+      render: (url: string) =>
+        `${brand}提供云主机、对象存储与数据库等云产品，专业团队 7×24 支持。通过我的专属链接注册，可享受专属折扣与一对一服务：${url}`,
+    },
+  ]
+})
 
 async function copy(value: string, successMessage: string) {
   if (!value || value === '—') {

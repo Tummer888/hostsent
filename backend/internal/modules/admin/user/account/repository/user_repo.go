@@ -60,10 +60,11 @@ func (r *userRepository) Delete(ctx context.Context, id uint64) error {
 func (r *userRepository) FindByID(ctx context.Context, id uint64) (*model.User, error) {
 	var user model.User
 	if err := r.db.WithContext(ctx).
-		Select("users.*, user_groups.name AS user_group_name, user_levels.name AS user_level_name, user_levels.code AS user_level_code, owner.username AS owner_name").
+		Select("users.*, user_groups.name AS user_group_name, user_levels.name AS user_level_name, user_levels.code AS user_level_code, owner.username AS owner_name, COALESCE(NULLIF(sales.real_name, ''), sales.username, '') AS sales_admin_name").
 		Joins("LEFT JOIN user_groups ON user_groups.id = users.user_group_id").
 		Joins("LEFT JOIN user_levels ON user_levels.id = users.user_level_id").
 		Joins("LEFT JOIN users AS owner ON owner.id = users.owner_user_id").
+		Joins("LEFT JOIN admins AS sales ON sales.id = users.sales_admin_id").
 		First(&user, "users.id = ?", id).Error; err != nil {
 		return nil, err
 	}
@@ -134,10 +135,11 @@ func (r *userRepository) List(ctx context.Context, query dto.UserListQuery) ([]m
 	var users []model.User
 	// total_consume_amount 自 P3-01 起为 users 表落列字段（消费升级服务维护），无需再实时聚合。
 	if err := base.
-		Select("users.*, user_groups.name AS user_group_name, user_levels.name AS user_level_name, user_levels.code AS user_level_code, owner.username AS owner_name").
+		Select("users.*, user_groups.name AS user_group_name, user_levels.name AS user_level_name, user_levels.code AS user_level_code, owner.username AS owner_name, COALESCE(NULLIF(sales.real_name, ''), sales.username, '') AS sales_admin_name").
 		Joins("LEFT JOIN user_groups ON user_groups.id = users.user_group_id").
 		Joins("LEFT JOIN user_levels ON user_levels.id = users.user_level_id").
 		Joins("LEFT JOIN users AS owner ON owner.id = users.owner_user_id").
+		Joins("LEFT JOIN admins AS sales ON sales.id = users.sales_admin_id").
 		Order("users.id DESC").
 		Offset((page - 1) * pageSize).
 		Limit(pageSize).
@@ -180,6 +182,16 @@ func applyUserFilters(db *gorm.DB, query dto.UserListQuery) *gorm.DB {
 		db = db.Where("users.is_sub_account = ?", true)
 	case "false", "0":
 		db = db.Where("users.is_sub_account = ?", false)
+	}
+
+	// 归属销售筛选（doc86 §4.1.10）：未归属优先，其次按销售 ID。
+	switch strings.TrimSpace(query.UnassignedSales) {
+	case "true", "1":
+		db = db.Where("users.sales_admin_id = 0")
+	default:
+		if query.SalesAdminID > 0 {
+			db = db.Where("users.sales_admin_id = ?", query.SalesAdminID)
+		}
 	}
 
 	switch strings.TrimSpace(query.Filter) {

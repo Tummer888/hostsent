@@ -24,14 +24,14 @@
 
           <div class="site-footer__hotline">
             <h4 class="site-footer__column-title">售前咨询热线</h4>
-            <p class="site-footer__hotline-number">{{ site.contactPhone || '400-800-1234' }}</p>
+            <p class="site-footer__hotline-number">{{ site.contactPhone }}</p>
             <a class="site-footer__link" href="/#contact">技术服务咨询</a>
-            <a class="site-footer__link" href="/#contact">备案服务</a>
-            <a class="site-footer__link" href="/products">云商店咨询</a>
+            <a class="site-footer__link" href="/#announcements">服务公告</a>
+            <a class="site-footer__link" href="/products">产品咨询</a>
           </div>
 
           <div class="site-footer__social">
-            <h4 class="site-footer__column-title">关注宿派云控</h4>
+            <h4 class="site-footer__column-title">关注{{ site.name }}</h4>
             <div class="site-footer__social-row">
               <button
                 v-for="s in socials"
@@ -75,9 +75,8 @@
             <span>{{ site.icp }}</span>
           </template>
         </div>
-        <div class="site-footer__contact">
-          <span>增值电信业务经营许可证：B1-20260000 | 代理域名注册服务机构：示例机构</span>
-          <span>© 2026 Hostsent.com 版权所有</span>
+        <div v-if="legalLine" class="site-footer__contact">
+          <span>{{ legalLine }}</span>
         </div>
         <div class="site-footer__policy">
           <a class="site-footer__link" href="/#contact">法律条文</a>
@@ -86,14 +85,10 @@
         </div>
       </div>
 
-      <div class="site-footer__badges">
-        <span class="site-footer__badge">
-          <SiteIcon name="certificate" :size="14" />
-          电子营业执照
-        </span>
+      <div v-if="site.publicSecurity" class="site-footer__badges">
         <span class="site-footer__badge">
           <SiteIcon name="secured" :size="14" />
-          公网安备 0000000000000号
+          {{ site.publicSecurity }}
         </span>
       </div>
     </div>
@@ -104,6 +99,21 @@
 const { content } = useSiteContent()
 
 const site = computed(() => content.value.site)
+
+/**
+ * 法务信息行：许可证号与代理机构都来自管理端配置，两者都没有时不渲染整行。
+ * 之前这里是写死的示例证号，属于"看起来合规、实际是假信息"，比留空更危险。
+ */
+const legalLine = computed(() => {
+  const parts: string[] = []
+  if (site.value.licenseNo) {
+    parts.push(`增值电信业务经营许可证：${site.value.licenseNo}`)
+  }
+  if (site.value.licenseOrg) {
+    parts.push(`代理域名注册服务机构：${site.value.licenseOrg}`)
+  }
+  return parts.join(' | ')
+})
 
 const promises = [
   { title: '7×24', desc: '多渠道服务支持', icon: 'time' },
@@ -120,58 +130,43 @@ const socials = [
   { label: '视频号', icon: 'video' },
 ]
 
-const columns = [
+const columns = computed(() => [
   {
-    title: '关于宿派云控',
+    title: `关于${site.value.name}`,
     links: [
-      { label: '了解宿派云控', to: '/#contact' },
+      { label: `了解${site.value.name}`, to: '/#contact' },
       { label: '云计算概念', to: '/#contact' },
       { label: '客户案例', to: '/#contact' },
       { label: '信任中心', to: '/#contact' },
       { label: '新闻资讯', to: '/#contact' },
-      { label: '视频中心', to: '/#contact' },
     ],
   },
   {
     title: '热门产品',
     links: [
-      { label: '云主机 CVM', to: '/products' },
+      // 只列平台真实在售的商品线：此前写的是对象存储/云数据库/私有网络/负载均衡，
+      // 平台并不售卖，点进去在 /products 也是空结果。
+      { label: '云主机', to: '/products' },
       { label: '轻量云主机', to: '/products' },
-      { label: '对象存储', to: '/products' },
-      { label: '云数据库', to: '/products' },
-      { label: '私有网络', to: '/products' },
-      { label: '负载均衡', to: '/products' },
+      { label: 'GPU 云主机', to: '/products' },
+      { label: '全部产品', to: '/products' },
     ],
   },
   {
     title: '支持与服务',
     links: [
-      { label: '自助服务', to: '/#contact' },
-      { label: '服务公告', to: '/#contact' },
-      { label: '支持计划', to: '/#contact' },
-      { label: '联系我们', to: '/#contact' },
-      { label: '举报中心', to: '/#contact' },
-    ],
-  },
-  {
-    title: '实用工具',
-    links: [
-      { label: '价格计算器', to: '/products' },
-      { label: '云助手', to: '/#contact' },
-      { label: '服务健康看板', to: '/#contact' },
-      { label: 'API 密钥', to: '/#contact' },
+      { label: '服务公告', to: '/#announcements' },
+      { label: '联系咨询', to: '/#contact' },
     ],
   },
   {
     title: '友情链接',
     links: [
-      { label: '宿派云官网', to: '/' },
-      { label: '开发者联盟', to: '/#contact' },
-      { label: '企业业务', to: '/products' },
-      { label: '云商城', to: '/products' },
+      { label: `${site.value.name}官网`, to: '/' },
+      { label: '全部产品', to: '/products' },
     ],
   },
-]
+])
 
 function onSocial(label: string) {
   const notice = document.createElement('div')

@@ -19,3 +19,13 @@ type AnnouncementItem struct {
 type AnnouncementListResponse struct {
 	Items []AnnouncementItem `json:"items"`
 }
+
+// SiteContentResponse 站点品牌配置响应。
+//
+// Items 是「扁平键 → 值」的白名单映射，键形如 `site.name` / `home.hero_title`（点号命名）
+// 或管理端历史扁平键 `site_name`。刻意不做结构化成嵌套对象：键的 schema、默认值与校验
+// 是前端 frontend-site/shared/schemas/siteContent.ts 的单一真相，服务端只负责按白名单取值，
+// 避免同一份配置定义在前后端各维护一遍而漂移。
+type SiteContentResponse struct {
+	Items map[string]string `json:"items"`
+}

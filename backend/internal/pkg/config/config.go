@@ -13,6 +13,13 @@ type Config struct {
 	Database DatabaseConfig `mapstructure:"database"`
 	Redis    RedisConfig    `mapstructure:"redis"`
 	Pricing  PricingConfig  `mapstructure:"pricing"`
+	Storage  StorageConfig  `mapstructure:"storage"`
+}
+
+// StorageConfig 本地文件存储配置（工单附件用，S2）。
+type StorageConfig struct {
+	// Root 存储根目录；相对路径按进程工作目录解析。
+	Root string `mapstructure:"root"`
 }
 
 // PricingConfig 统一算价管线配置（P5-03）。
@@ -106,4 +113,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("redis.db", 0)
 	// 算价管线默认取最优折扣（P5-03）。
 	v.SetDefault("pricing.stack_mode", "best")
+	// 附件落盘目录（相对工作目录）；生产用只读根镜像时通过 HOSTSENT_STORAGE_ROOT 覆盖为挂载卷。
+	v.SetDefault("storage.root", "./uploads")
 }

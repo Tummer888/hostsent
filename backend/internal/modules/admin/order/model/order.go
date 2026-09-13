@@ -58,15 +58,18 @@ type Order struct {
 	OpenAppID          uint64 `gorm:"column:open_app_id;index"`
 	ChannelCustomerRef string `gorm:"column:channel_customer_ref;size:128"`
 	// 算价快照（P5-01/P5-04）：原价、优惠、实付与命中的折扣来源，便于对账与展示。
-	OriginalAmount float64    `gorm:"column:original_amount;type:decimal(15,2);not null;default:0"` // 优惠前金额
-	DiscountAmount float64    `gorm:"column:discount_amount;type:decimal(15,2);not null;default:0"` // 优惠金额
-	FinalAmount    float64    `gorm:"column:final_amount;type:decimal(15,2);not null;default:0"`    // 实付金额
-	PricePolicyID  *uint64    `gorm:"column:price_policy_id"`                                       // 命中的折扣策略 ID
-	DiscountSource string     `gorm:"column:discount_source;size:32"`                               // agent / group / promotion / manual
-	PriceSnapshot  string     `gorm:"column:price_snapshot;type:jsonb"`                             // 命中规则明细 JSON
-	CreatedAt      time.Time  `gorm:"autoCreateTime;index"`
-	UpdatedAt      time.Time  `gorm:"autoUpdateTime"`
-	DeletedAt      *time.Time `gorm:"index"`
+	OriginalAmount float64 `gorm:"column:original_amount;type:decimal(15,2);not null;default:0"` // 优惠前金额
+	DiscountAmount float64 `gorm:"column:discount_amount;type:decimal(15,2);not null;default:0"` // 优惠金额
+	FinalAmount    float64 `gorm:"column:final_amount;type:decimal(15,2);not null;default:0"`    // 实付金额
+	PricePolicyID  *uint64 `gorm:"column:price_policy_id"`                                       // 命中的折扣策略 ID
+	DiscountSource string  `gorm:"column:discount_source;size:32"`                               // agent / group / promotion / manual
+	PriceSnapshot  string  `gorm:"column:price_snapshot;type:jsonb"`                             // 命中规则明细 JSON
+	// SalesAdminID 销售归属快照（doc86 §1.3）：下单瞬间锁定，退款/换归属都不回改。
+	// 0 表示该单不参与销售提成（下单时客户无归属）。
+	SalesAdminID uint64     `gorm:"column:sales_admin_id;index;default:0"` // 归属销售（admins.id）
+	CreatedAt    time.Time  `gorm:"autoCreateTime;index"`
+	UpdatedAt    time.Time  `gorm:"autoUpdateTime"`
+	DeletedAt    *time.Time `gorm:"index"`
 	// 查询期附加字段（不落库，doc36 §3.1）：由支付中心 payment_orders 反查填充，
 	// 列表与详情据此展示并检索支付单号 / 渠道流水号。
 	PaymentNo string `gorm:"-"`

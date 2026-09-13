@@ -42,6 +42,14 @@
           <t-descriptions-item label="问题描述" :span="3" class="desc-item">
             <span class="problem-desc">{{ ticket?.description || '—' }}</span>
           </t-descriptions-item>
+          <t-descriptions-item v-if="ticketAttachments.length" label="相关附件" :span="3">
+            <div class="attachment-list">
+              <div v-for="file in ticketAttachments" :key="file.id" class="attachment-item">
+                <t-link theme="primary" hover="color" @click="handleDownload(file)">{{ file.file_name }}</t-link>
+                <span class="attachment-item__meta">{{ formatFileSize(file.file_size) }}</span>
+              </div>
+            </div>
+          </t-descriptions-item>
         </t-descriptions>
       </section>
 
@@ -62,6 +70,12 @@
                 <span class="reply-time">{{ formatTime(reply.created_at) }}</span>
               </div>
               <div class="reply-content">{{ reply.content }}</div>
+              <div v-if="reply.attachments?.length" class="attachment-list attachment-list--inline">
+                <div v-for="file in reply.attachments" :key="file.id" class="attachment-item">
+                  <t-link theme="primary" hover="color" @click="handleDownload(file)">{{ file.file_name }}</t-link>
+                  <span class="attachment-item__meta">{{ formatFileSize(file.file_size) }}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -76,9 +90,25 @@
             :autosize="{ minRows: 3, maxRows: 8 }"
             show-limit-number
           />
-          <div class="editor-actions">
-            <t-button theme="primary" :loading="replying" :disabled="!replyContent.trim()" @click="handleReply">发送回复</t-button>
+          <div v-if="pendingFiles.length" class="attachment-list">
+            <div v-for="(file, index) in pendingFiles" :key="file.id" class="attachment-item">
+              <span class="attachment-item__name">{{ file.file_name }}</span>
+              <span class="attachment-item__meta">{{ formatFileSize(file.file_size) }}</span>
+              <t-link theme="danger" hover="color" @click="pendingFiles.splice(index, 1)">移除</t-link>
+            </div>
           </div>
+          <div class="editor-actions">
+            <input ref="fileInputRef" type="file" class="hidden-file-input" multiple @change="handleFilePicked" />
+            <t-space size="small">
+              <t-button variant="outline" :disabled="uploading || maxAttachmentReached" @click="triggerFilePick">
+                {{ uploading ? '上传中…' : '添加附件' }}
+              </t-button>
+              <t-button theme="primary" :loading="replying" :disabled="!replyContent.trim()" @click="handleReply">发送回复</t-button>
+            </t-space>
+          </div>
+          <p class="attachment-tip">
+            支持图片、文本与压缩包，单个不超过 10MB，最多 {{ MAX_ATTACHMENTS }} 个。
+          </p>
         </div>
         <div v-else class="reply-closed-tip">工单已结束，如需继续处理请重新提交工单。</div>
       </section>
@@ -93,7 +123,16 @@ import { useRoute, useRouter } from 'vue-router'
 import { ChevronLeftIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
 
-import { cancelMyTicket, getMyTicketDetail, replyMyTicket, type TicketDetail, type TicketReplyInfo } from '@/api/support'
+import {
+  cancelMyTicket,
+  downloadMyTicketAttachment,
+  getMyTicketDetail,
+  replyMyTicket,
+  uploadMyTicketAttachment,
+  type TicketAttachmentInfo,
+  type TicketDetail,
+  type TicketReplyInfo,
+} from '@/api/support'
 import { formatTime, ticketPriorityLabel, ticketPriorityTheme, ticketStatusLabel, ticketStatusTheme } from '@/pages/support/constants'
 
 defineOptions({ name: 'UserTicketDetail' })
@@ -104,6 +143,7 @@ const router = useRouter()
 const ticket = ref<TicketDetail | null>(null)
 const loading = ref(false)
 const replies = computed<TicketReplyInfo[]>(() => ticket.value?.replies ?? [])
+const ticketAttachments = computed<TicketAttachmentInfo[]>(() => ticket.value?.attachments ?? [])
 
 // 终态（已关闭/已取消）不可再回复
 const isFinalStatus = (status?: string) => status === 'closed' || status === 'cancelled'
@@ -111,6 +151,13 @@ const canReply = computed(() => !!ticket.value && !isFinalStatus(ticket.value.st
 
 const replyContent = ref('')
 const replying = ref(false)
+
+// 附件：先上传（ticket_id 已知，走归属校验），发送回复时携带 ID
+const MAX_ATTACHMENTS = 3
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const pendingFiles = ref<TicketAttachmentInfo[]>([])
+const uploading = ref(false)
+const maxAttachmentReached = computed(() => pendingFiles.value.length >= MAX_ATTACHMENTS)
 
 const ticketId = computed(() => String(route.params.id || ''))
 
@@ -134,14 +181,49 @@ async function handleReply() {
   if (!content) return
   replying.value = true
   try {
-    const { data } = await replyMyTicket(ticketId.value, content)
+    const { data } = await replyMyTicket(ticketId.value, content, pendingFiles.value.map((file) => file.id))
     if (data) ticket.value = data
     replyContent.value = ''
+    pendingFiles.value = []
     MessagePlugin.success('回复成功')
   } catch (error) {
     MessagePlugin.error((error as Error)?.message || '回复失败，请稍后重试')
   } finally {
     replying.value = false
+  }
+}
+
+function triggerFilePick() {
+  fileInputRef.value?.click()
+}
+
+async function handleFilePicked(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  input.value = ''
+  if (!files.length) return
+  const remaining = MAX_ATTACHMENTS - pendingFiles.value.length
+  uploading.value = true
+  try {
+    for (const file of files.slice(0, remaining)) {
+      const { data } = await uploadMyTicketAttachment(ticketId.value, file)
+      if (data) pendingFiles.value.push(data)
+    }
+    if (files.length > remaining) {
+      MessagePlugin.warning(`单条回复最多 ${MAX_ATTACHMENTS} 个附件，超出部分已忽略`)
+    }
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '附件上传失败')
+  } finally {
+    uploading.value = false
+  }
+}
+
+async function handleDownload(file: TicketAttachmentInfo) {
+  try {
+    await downloadMyTicketAttachment(file.id, file.file_name)
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '附件下载失败')
   }
 }
 
@@ -158,6 +240,15 @@ async function handleCancel() {
 
 function goBack() {
   router.back()
+}
+
+// 文件大小 → 人类可读文案
+function formatFileSize(bytes: number): string {
+  const size = Number(bytes || 0)
+  if (size <= 0) return '—'
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / 1024 / 1024).toFixed(2)} MB`
 }
 
 onMounted(loadDetail)
@@ -308,6 +399,35 @@ onMounted(loadDetail)
   line-height: 1.6;
 }
 
+/* 附件 */
+.attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.attachment-list--inline {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.attachment-item__name {
+  color: #1e293b;
+}
+
+.attachment-item__meta {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
 /* 回复输入区 */
 .reply-editor {
   border-top: 1px solid #f1f5f9;
@@ -320,6 +440,16 @@ onMounted(loadDetail)
 .editor-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+.attachment-tip {
+  margin: 0;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.hidden-file-input {
+  display: none;
 }
 
 .reply-closed-tip {

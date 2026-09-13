@@ -24,6 +24,23 @@ export const categoryStatusOptions = [
   { label: '禁用', value: 'disabled' },
 ]
 
+// 复核状态下拉选项（S3）
+export const reviewStatusOptions = [
+  { label: '待复核', value: 'pending' },
+  { label: '已通过', value: 'approved' },
+  { label: '已驳回', value: 'rejected' },
+]
+
+// 部门类型选项（与后端 departments.kind 对齐）
+export const departmentKindOptions = [
+  { label: '综合', value: 'general' },
+  { label: '销售', value: 'sales' },
+  { label: '客服', value: 'support' },
+  { label: '技术', value: 'tech' },
+  { label: '运维', value: 'ops' },
+  { label: '财务', value: 'finance' },
+]
+
 const defaultTheme = 'default'
 
 /** 工单状态 → 展示文案 */
@@ -85,6 +102,47 @@ export function categoryStatusTheme(status: string): string {
 /** 发送人类型 → 展示文案 */
 export function senderTypeLabel(senderType: string): string {
   return senderType === 'admin' ? '客服' : senderType === 'user' ? '用户' : senderType || '—'
+}
+
+/** 复核状态 → 展示文案（S3）；空串表示无需复核 */
+export function reviewStatusLabel(status: string): string {
+  const found = reviewStatusOptions.find((item) => item.value === status)
+  if (found) return found.label
+  return '无需复核'
+}
+
+/** 复核状态 → 标签主题色（S3） */
+export function reviewStatusTheme(status: string): string {
+  switch (status) {
+    case 'pending':
+      return 'warning'
+    case 'approved':
+      return 'success'
+    case 'rejected':
+      return 'danger'
+    default:
+      return defaultTheme
+  }
+}
+
+/** 等待秒数 → 精简时长（复核队列用）：2小时15分 */
+export function formatWait(seconds: number): string {
+  const total = Math.max(0, Math.floor(Number(seconds || 0)))
+  if (total < 60) return `${total} 秒`
+  const minutes = Math.floor(total / 60)
+  if (minutes < 60) return `${minutes} 分钟`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} 小时 ${minutes % 60} 分`
+  return `${Math.floor(hours / 24)} 天 ${hours % 24} 小时`
+}
+
+/** 文件大小 → 人类可读（附件展示用） */
+export function formatFileSize(bytes: number): string {
+  const size = Number(bytes || 0)
+  if (size <= 0) return '—'
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / 1024 / 1024).toFixed(2)} MB`
 }
 
 /** 格式化金额（备用） */

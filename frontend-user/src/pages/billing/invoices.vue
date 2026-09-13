@@ -1,36 +1,51 @@
 <template>
-  <div class="invoice-page">
-    <section class="panel">
-      <div class="panel-head">
-        <div class="panel-head__text">
-          <h3 class="section-title">我的发票</h3>
-          <p class="section-desc">
-            发票只能针对本人<strong>已结清</strong>的账单申请；开具后可在本页查看发票号与下载地址。
+  <div class="page-body console-module invoice-module">
+    <header class="page-header surface-card">
+      <div class="page-header__main">
+        <span class="page-header__chip">
+          <FilePasteIcon size="22" aria-hidden="true" />
+        </span>
+        <div class="page-header__text">
+          <h2 class="page-header__title">我的发票</h2>
+          <p class="page-header__desc">
+            只能对本人<strong>已结清</strong>的账单申请开票；开具后可在此查看发票号与下载
           </p>
         </div>
-        <t-space size="small">
-          <t-button variant="outline" size="small" :loading="loading" @click="loadInvoices">
-            <template #icon><RefreshIcon /></template>
-            刷新
-          </t-button>
-          <t-button variant="outline" size="small" @click="router.push('/billing')">返回费用中心</t-button>
-        </t-space>
       </div>
+      <div class="page-header__actions">
+        <t-button variant="outline" @click="router.push('/billing')">返回费用中心</t-button>
+        <t-button variant="outline" :loading="loading" @click="loadInvoices">刷新</t-button>
+      </div>
+    </header>
 
-      <div class="filter-bar">
-        <t-select v-model="filter.status" clearable placeholder="全部状态" :options="invoiceRequestStatusOptions" style="width: 140px" @change="handleSearch" />
-        <t-input v-model="filter.bill_no" placeholder="按账单号查询" clearable style="width: 200px" @enter="handleSearch" />
-        <t-button theme="primary" size="small" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" size="small" @click="handleReset">重置</t-button>
+    <section class="filter-card surface-card">
+      <div class="filter-card__grid">
+        <div class="field">
+          <label class="field__label">申请状态</label>
+          <t-select v-model="filter.status" clearable placeholder="全部状态" :options="invoiceRequestStatusOptions" @change="handleSearch" />
+        </div>
+        <div class="field">
+          <label class="field__label">账单号</label>
+          <t-input v-model="filter.bill_no" placeholder="按账单号查询" clearable @enter="handleSearch" />
+        </div>
+      </div>
+      <div class="filter-card__actions">
+        <t-button variant="outline" @click="handleReset">重置</t-button>
+        <t-button theme="primary" :loading="loading" @click="handleSearch">查询</t-button>
+      </div>
+    </section>
+
+    <section class="table-card surface-card">
+      <div class="table-card__head">
+        <h3 class="card-title">开票申请</h3>
+        <span class="table-card__meta">共 {{ pagination.total }} 条</span>
       </div>
 
       <t-table
         :data="invoices"
         :columns="columns"
-        size="small"
         row-key="id"
-        :pagination="pagination"
-        :bordered="false"
+        :pagination="isMobile ? undefined : pagination"
         hover
         cell-empty-content="—"
         :loading="loading"
@@ -45,7 +60,9 @@
         <template #title="{ row }">
           <div class="cell-main">
             <span class="cell-strong">{{ row.title }}</span>
-            <span class="cell-sub">{{ invoiceTypeLabel(row.invoice_type) }}{{ row.tax_no ? ` · ${row.tax_no}` : '' }}</span>
+            <span class="cell-sub">
+              {{ invoiceTypeLabel(row.invoice_type) }}{{ row.tax_no ? ` · ${row.tax_no}` : '' }}
+            </span>
           </div>
         </template>
         <template #amount="{ row }">
@@ -56,12 +73,16 @@
             <t-tag :theme="invoiceRequestStatusTheme(row.status)" variant="light" size="small" shape="round">
               {{ invoiceRequestStatusLabel(row.status) }}
             </t-tag>
-            <span v-if="row.status === 'issued' && row.external_no" class="cell-sub">发票号 {{ row.external_no }}</span>
-            <span v-else-if="row.status === 'rejected' && row.reject_reason" class="cell-sub">{{ row.reject_reason }}</span>
+            <span v-if="row.status === 'issued' && row.external_no" class="cell-sub">
+              发票号 {{ row.external_no }}
+            </span>
+            <span v-else-if="row.status === 'rejected' && row.reject_reason" class="cell-sub">
+              {{ row.reject_reason }}
+            </span>
           </div>
         </template>
         <template #file_url="{ row }">
-          <t-space size="small">
+          <span class="action-cell">
             <t-link
               v-if="row.status === 'issued'"
               theme="primary"
@@ -79,7 +100,7 @@
               邮件发送
             </t-link>
             <span v-if="row.status !== 'issued'" class="time-text">—</span>
-          </t-space>
+          </span>
         </template>
         <template #email="{ row }">
           <span class="time-text">{{ row.email || '—' }}</span>
@@ -91,6 +112,15 @@
           <t-empty description="暂无开票申请，可在费用中心对已结清账单申请开票" />
         </template>
       </t-table>
+
+      <!-- 移动端翻页：与 admin 列表页同一套（桌面用表格内建分页） -->
+      <MobilePagination
+        v-if="isMobile"
+        :current="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
+        @change="handlePageChange"
+      />
     </section>
   </div>
 </template>
@@ -99,7 +129,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { RefreshIcon } from 'tdesign-icons-vue-next'
+import { FilePasteIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { downloadInvoice, emailInvoice, getMyInvoices, type InvoiceInfo } from '@/api/finance'
@@ -111,10 +141,14 @@ import {
   invoiceRequestStatusTheme,
   invoiceTypeLabel,
 } from '@/pages/billing/constants'
+import { useIsMobile } from '@/composables/useIsMobile'
+import MobilePagination from '@/components/mobile-pagination/index.vue'
 
 defineOptions({ name: 'BillingInvoices' })
 
 const router = useRouter()
+const { isMobile } = useIsMobile()
+
 const invoices = ref<InvoiceInfo[]>([])
 const loading = ref(false)
 
@@ -130,7 +164,7 @@ const columns: PrimaryTableCol<InvoiceInfo>[] = [
   { colKey: 'title', title: '抬头 / 税号', minWidth: 200 },
   { colKey: 'amount', title: '开票金额', width: 120, align: 'right' },
   { colKey: 'status', title: '状态', width: 170 },
-  { colKey: 'file_url', title: '发票文件', width: 110 },
+  { colKey: 'file_url', title: '发票文件', width: 140 },
   { colKey: 'email', title: '接收邮箱', minWidth: 160 },
   { colKey: 'created_at', title: '申请时间', width: 170 },
 ]
@@ -202,84 +236,13 @@ onMounted(loadInvoices)
 </script>
 
 <style scoped>
-.invoice-page {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.panel {
-  padding: 20px 24px;
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-}
-
-.panel-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 12px;
-}
-
-.panel-head__text {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.section-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: #1e293b;
-}
-
-.section-desc {
-  margin: 0;
-  font-size: 12.5px;
-  color: #64748b;
-  line-height: 1.6;
-}
-
-.filter-bar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding: 12px 0 16px;
-}
-
-.cell-main {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.cell-strong {
-  font-weight: 600;
-  color: #334155;
-}
-
-.cell-sub {
-  font-size: 12px;
-  color: #64748b;
-}
-
+/* 数字列用等宽数字；cell-main / cell-strong / cell-sub / time-text / action-cell
+   均由 console-module 骨架契约提供。 */
 .num-cell {
   font-variant-numeric: tabular-nums;
-  color: #334155;
 }
 
 .num-cell--strong {
   font-weight: 600;
-  color: #1e293b;
-}
-
-.time-text {
-  color: #64748b;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
 }
 </style>

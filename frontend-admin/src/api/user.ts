@@ -13,6 +13,10 @@ export interface UserListQuery {
   user_group_id?: number
   /** 主账号/子账号筛选（P4-10）：'true' 仅子账号，'false' 仅主账号，空为全部 */
   is_sub_account?: string
+  /** 归属销售筛选（doc86 §4.1.10），0 或空表示不筛选 */
+  sales_admin_id?: number
+  /** 仅看未归属销售的用户（doc86 §4.1.10），'true' 生效 */
+  unassigned_sales?: string
 }
 
 export interface UserInfo {
@@ -41,6 +45,9 @@ export interface UserInfo {
   owner_user_id?: number
   owner_name?: string
   sub_account_remark?: string
+  /** 归属销售（doc86 §4.1.10） */
+  sales_admin_id?: number
+  sales_admin_name?: string
   created_at: string
   last_login_at?: string
   updated_at?: string
@@ -205,6 +212,8 @@ export interface RoleInfo {
   name: string
   code: string
   status: string
+  /** 角色域：admin（后台员工）/ user（客户），工单分类可提交角色据此过滤 */
+  scope?: string
   description?: string
   created_at?: string
   updated_at?: string

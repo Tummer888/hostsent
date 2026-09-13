@@ -54,18 +54,32 @@ func newRouter(app *App) *gin.Engine {
 			auditGroup.GET("", app.perm("security:audit:list"), app.adminHandler.ListAuditLogs)
 		}
 
-		// 员工管理（P2-01 新路径，超管独占）
+		// 员工管理（P2-01 新路径）
+		// S1 员工体系：由 superOnly() 改为逐路由 perm(...)，语义等价（超管靠通配），
+		// 便于后续给 support_lead 开 staff:view（doc86 §2.1）。
 		staff := v1.Group("/staff")
-		staff.Use(app.adminAuth(), app.superOnly())
+		staff.Use(app.adminAuth())
 		{
-			staff.GET("", app.adminHandler.List)
-			staff.POST("", app.adminHandler.Create)
-			staff.GET("/:id", app.adminHandler.Get)
-			staff.PUT("/:id", app.adminHandler.Update)
-			staff.PUT("/:id/roles", app.adminHandler.SetRoles)
-			staff.PATCH("/:id/status", app.adminHandler.UpdateStatus)
-			staff.POST("/:id/reset-password", app.adminHandler.ResetPassword)
-			staff.DELETE("/:id", app.adminHandler.Delete)
+			staff.GET("", app.perm("staff:list"), app.adminHandler.List)
+			staff.POST("", app.perm("staff:create"), app.adminHandler.Create)
+			staff.GET("/:id", app.perm("staff:view"), app.adminHandler.Get)
+			staff.PUT("/:id", app.perm("staff:update"), app.adminHandler.Update)
+			staff.PUT("/:id/roles", app.perm("staff:assign_role"), app.adminHandler.SetRoles)
+			staff.PATCH("/:id/status", app.perm("staff:update"), app.adminHandler.UpdateStatus)
+			staff.POST("/:id/reset-password", app.perm("staff:reset_password"), app.adminHandler.ResetPassword)
+			staff.POST("/:id/resign", app.perm("staff:update"), app.adminHandler.Resign)
+			staff.DELETE("/:id", app.perm("staff:delete"), app.adminHandler.Delete)
+		}
+
+		// 组织部门（S1 员工体系，doc86 §2.1）
+		departments := v1.Group("/departments")
+		departments.Use(app.adminAuth())
+		{
+			departments.GET("", app.perm("department:list"), app.departmentHandler.List)
+			departments.POST("", app.perm("department:create"), app.departmentHandler.Create)
+			departments.GET("/:id", app.perm("department:list"), app.departmentHandler.Get)
+			departments.PUT("/:id", app.perm("department:update"), app.departmentHandler.Update)
+			departments.DELETE("/:id", app.perm("department:delete"), app.departmentHandler.Delete)
 		}
 
 		users := v1.Group("/users")
@@ -434,14 +448,19 @@ func newRouter(app *App) *gin.Engine {
 			orderGroup.POST("/:id/activate", app.perm("order:activate"), app.orderHandler.Activate)
 		}
 
-		// 工单支持（doc50）
+		// 工单支持（doc50；S2/S3 部门数据范围与双人复核）
 		ticketGroup := v1.Group("/tickets")
 		ticketGroup.Use(app.adminAuth())
 		{
 			ticketGroup.GET("", app.perm("ticket:list"), app.ticketHandler.List)
+			// 复核队列必须先于 /:id 注册，否则被通配路径吞掉。
+			ticketGroup.GET("/reviews", app.perm("ticket:review"), app.ticketHandler.ListReviews)
 			ticketGroup.GET("/stats", app.perm("ticket:stats"), app.ticketHandler.Stats)
+			ticketGroup.GET("/attachments/:id/download", app.perm("ticket:view"), app.ticketHandler.DownloadAttachment)
+			ticketGroup.POST("/replies/:replyId/review", app.perm("ticket:review"), app.ticketHandler.ReviewReply)
 			ticketGroup.GET("/:id", app.perm("ticket:view"), app.ticketHandler.Get)
 			ticketGroup.POST("/:id/reply", app.perm("ticket:reply"), app.ticketHandler.Reply)
+			ticketGroup.POST("/:id/attachments", app.perm("ticket:reply"), app.ticketHandler.UploadAttachment)
 			ticketGroup.PUT("/:id/assign", app.perm("ticket:assign"), app.ticketHandler.Assign)
 			// 认领开放给有工单列表权限的员工（未分配池自助认领）
 			ticketGroup.POST("/:id/claim", app.perm("ticket:list"), app.ticketHandler.Claim)
@@ -558,6 +577,31 @@ func newRouter(app *App) *gin.Engine {
 			referralGroup.GET("/withdrawals", app.perm("referral:withdraw:list"), app.adminReferralHandler.Withdrawals)
 			referralGroup.POST("/withdrawals/:id/approve", app.perm("referral:withdraw:audit"), app.adminReferralHandler.Approve)
 			referralGroup.POST("/withdrawals/:id/reject", app.perm("referral:withdraw:audit"), app.adminReferralHandler.Reject)
+		}
+
+		// 销售（客户归属 / 提成台账 / 提成提现 / 业绩排行，doc86 §2.3）
+		salesGroup := v1.Group("/sales")
+		salesGroup.Use(app.adminAuth())
+		{
+			salesGroup.GET("/customers", app.perm("sales:customer:list"), app.salesCustomerHandler.List)
+			salesGroup.GET("/customers/unassigned", app.perm("sales:customer:assign"), app.salesCustomerHandler.Unassigned)
+			salesGroup.POST("/customers/assign", app.perm("sales:customer:assign"), app.salesCustomerHandler.Assign)
+			salesGroup.POST("/customers/release", app.perm("sales:customer:assign"), app.salesCustomerHandler.Release)
+			salesGroup.GET("/customers/:userID/relations", app.perm("sales:customer:list"), app.salesCustomerHandler.Relations)
+			salesGroup.GET("/sales-candidates", app.perm("sales:customer:assign"), app.salesCustomerHandler.Candidates)
+
+			salesGroup.GET("/commissions", app.perm("sales:commission:list"), app.salesCommissionHandler.List)
+			salesGroup.GET("/commissions/summary", app.perm("sales:commission:list"), app.salesCommissionHandler.Summary)
+			salesGroup.GET("/withdrawals", app.perm("sales:commission:list"), app.salesCommissionHandler.Withdrawals)
+			salesGroup.POST("/withdrawals", app.perm("sales:commission:list"), app.salesCommissionHandler.ApplyWithdrawal)
+			salesGroup.POST("/withdrawals/:id/approve", app.perm("sales:commission:audit"), app.salesCommissionHandler.ApproveWithdrawal)
+			salesGroup.POST("/withdrawals/:id/reject", app.perm("sales:commission:audit"), app.salesCommissionHandler.RejectWithdrawal)
+			salesGroup.POST("/withdrawals/:id/pay", app.perm("sales:commission:settle"), app.salesCommissionHandler.PayWithdrawal)
+
+			salesGroup.GET("/performance/ranking", app.perm("sales:performance:view"), app.salesPerformanceHandler.Ranking)
+			salesGroup.GET("/performance/targets", app.perm("sales:performance:view"), app.salesPerformanceHandler.Targets)
+			salesGroup.PUT("/performance/targets", app.perm("sales:performance:view"), app.salesPerformanceHandler.UpsertTargets)
+			salesGroup.GET("/performance/me", app.perm("sales:commission:list"), app.salesPerformanceHandler.Me)
 		}
 
 		// 系统管理（系统配置）
@@ -712,10 +756,13 @@ func newRouter(app *App) *gin.Engine {
 		ucProducts.GET("/:id", app.ucProductHandler.Get)
 	}
 
-	// 官网门户公开只读接口（无需登录，字段已脱敏，响应声明可共享缓存）
+	// 官网门户公开只读接口（internal/modules/site，无需登录，字段已脱敏）
+	// 与 uc 分开的原因：这些接口服务的是「未登录的公网访客与搜索引擎」，响应可共享缓存；
+	// 用户中心接口一律带用户态，两者不能放同一模块混用缓存策略。
 	publicSite := r.Group("/api/v1/public")
 	{
-		publicSite.GET("/announcements", app.ucSiteHandler.Announcements) // 已发布公告
+		publicSite.GET("/announcements", app.siteHandler.Announcements) // 已发布公告
+		publicSite.GET("/site-content", app.siteHandler.SiteContent)    // 品牌与站点配置（白名单）
 	}
 
 	// 用户中心订单：下单（余额支付开通）+ 我的订单（需登录）
@@ -727,6 +774,8 @@ func newRouter(app *App) *gin.Engine {
 		ucOrders.GET("", app.userPerm(appauth.PermOrderView), app.ucOrderHandler.List)
 		// 预结算只读算价，子账号可看（P5-05，需求 order:view）。
 		ucOrders.POST("/quote", app.userPerm(appauth.PermOrderView), app.ucOrderHandler.Quote)
+		// 订单详情：仅返回订单归属账号下的订单，他人订单按不存在处理。
+		ucOrders.GET("/:id", app.userPerm(appauth.PermOrderView), app.ucOrderHandler.Detail)
 	}
 
 	// 用户中心主机管理：列表/详情/电源操作/VNC（需登录）
@@ -751,6 +800,9 @@ func newRouter(app *App) *gin.Engine {
 		ucSupport.GET("/tickets/:id", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermTicketView), app.userTicketHandler.Get)                  // 工单详情（含回复）
 		ucSupport.POST("/tickets/:id/replies", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermTicketSubmit), app.userTicketHandler.Reply)     // 追加工单回复
 		ucSupport.POST("/tickets/:id/cancel", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermTicketSubmit), app.userTicketHandler.Cancel)     // 取消工单
+		// S2 附件：上传需提交权，下载需查看权；服务端再按工单归属与内部标记鉴权。
+		ucSupport.POST("/tickets/:id/attachments", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermTicketSubmit), app.userTicketHandler.UploadAttachment)
+		ucSupport.GET("/attachments/:id/download", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermTicketView), app.userTicketHandler.DownloadAttachment)
 	}
 
 	// 用户中心成员（子账号，P4-07）：仅主账号可管理，服务层再校验一次 IsSub。

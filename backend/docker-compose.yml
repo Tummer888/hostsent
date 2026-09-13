@@ -46,6 +46,10 @@ services:
       HOSTSENT_REDIS_PORT: 6379
       HOSTSENT_REDIS_PASSWORD: ""
       HOSTSENT_REDIS_DB: 0
+      # 工单附件落盘目录（挂卷持久化，容器重建不丢文件）。
+      HOSTSENT_STORAGE_ROOT: /app/uploads
+    volumes:
+      - uploads_data:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,3 +59,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  uploads_data:

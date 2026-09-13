@@ -111,11 +111,22 @@ var menuPermissionMap = map[string]string{
 	"/tickets/list":       "ticket:list",
 	"/tickets/categories": "ticket:category",
 	"/tickets/stats":      "ticket:stats",
+	// 复核中心（S3 双人复核）：与回复复核同一权限码。
+	"/tickets/reviews": "ticket:review",
+
+	// 销售中心（S1/S4–S6）：客户归属 / 提成台账 / 提成审核 / 业绩排行。
+	// 提成审核页同时服务主管审核，菜单权限取审核码；销售的自助入口在台账页按钮级，
+	// 后端 GET /sales/withdrawals 仍用 sales:commission:list 放行本人查询（doc86 §5 注 2）。
+	"/sales/customers":   "sales:customer:list",
+	"/sales/commissions": "sales:commission:list",
+	"/sales/withdrawals": "sales:commission:audit",
+	"/sales/performance": "sales:performance:view",
 
 	"/system/menus":         "system:menu",
 	"/system/roles":         "system:role:list",
 	"/system/permissions":   "system:permission:view",
 	"/system/admins":        "staff:list",
+	"/system/departments":   "department:list",
 	"/system/config":        "system:config:view",
 	"/system/audit-logs":    "security:audit:list",
 	"/system/announcements": "notify:announcement",

@@ -26,7 +26,16 @@ export const siteSectionSchema = z.object({
   icp: z.string().max(100),
   contactPhone: z.string().max(50),
   contactEmail: z.string().max(100),
+  contactAddress: z.string().max(200),
   copyright: z.string().max(200),
+  /** 增值电信业务经营许可证号（页脚展示，运营在管理端配置） */
+  licenseNo: z.string().max(100),
+  /** 代理域名注册服务机构 */
+  licenseOrg: z.string().max(100),
+  /** 公网安备号 */
+  publicSecurity: z.string().max(100),
+  /** 微信公众号名称 */
+  wechat: z.string().max(100),
 })
 
 export const themeSectionSchema = z.object({
@@ -78,7 +87,14 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
     icp: '',
     contactPhone: '400-800-1234',
     contactEmail: 'support@hostsent.com',
+    contactAddress: '',
     copyright: '© 2026 Hostsent.com 版权所有',
+    // 法务信息默认留空：运营未配置时页脚不渲染该行，
+    // 而不是显示示例证号 —— 伪造的备案/许可证号比缺失更糟。
+    licenseNo: '',
+    licenseOrg: '',
+    publicSecurity: '',
+    wechat: '',
   },
   theme: {
     primaryColor: '#2b5cff',
@@ -215,15 +231,60 @@ function toCamelPath(path: string): string {
 }
 
 /**
+ * 管理端「系统配置」页历史扁平键 → 本 schema 路径的别名表。
+ *
+ * 为什么必须有这张表：管理端系统配置页（`frontend-admin/src/pages/system/config`）的
+ * 「基础配置」分组写的是扁平键 `site_name`，而后端 seed 的 doc80 规范键是 `site.name`。
+ * 不映射时 `site_name` 会被 toCamelPath 变成顶层 `siteName` —— 既不落在 `site` 区块下，
+ * `siteSectionSchema` 也不会采纳它。结果是运营在后台填的官网名称/Logo/版权全部静默失效
+ * （后端白名单原样返回两套键也没用，丢在前端的解析这一步）。
+ */
+const FLAT_KEY_ALIASES: Record<string, string> = {
+  site_name: 'site.name',
+  site_slogan: 'site.slogan',
+  site_logo: 'site.logo',
+  site_favicon: 'site.favicon',
+  site_icp: 'site.icp',
+  site_copyright: 'site.copyright',
+  site_license_no: 'site.licenseNo',
+  site_license_org: 'site.licenseOrg',
+  site_public_security: 'site.publicSecurity',
+  contact_phone: 'site.contactPhone',
+  contact_email: 'site.contactEmail',
+  contact_address: 'site.contactAddress',
+  contact_wechat: 'site.wechat',
+}
+
+/**
  * 扁平键值对（`{ "site.name": "宿派云控", "home.featured_limit": "8" }`）
  * 还原为嵌套结构。键不存在或类型不符时忽略该项，由默认值兜底。
+ *
+ * 两套键名同时存在时，**管理端扁平键（`site_name`）覆盖规范点号键（`site.name`）**：
+ * 运营实际维护入口是管理端系统配置页，它写的正是扁平键，以它为准则「后台改了什么、
+ * 官网立刻显示什么」这条预期成立。
  */
 export function fromFlatConfig(flat: unknown): PlainObject {
   if (!isPlainObject(flat)) return {}
   const out: PlainObject = {}
-  for (const [path, value] of Object.entries(flat)) {
+
+  const write = (path: string, value: unknown): void => {
     const camelPath = toCamelPath(path)
+    // 只接受本 schema 里存在的路径：否则 system_timezone 之类的无关配置也会被写进中间对象。
+    if (getByPath(DEFAULT_SITE_CONTENT, camelPath) === undefined) return
     setByPath(out, camelPath, value, getByPath(DEFAULT_SITE_CONTENT, camelPath))
+  }
+
+  // 第一轮：规范点号键，以及本 schema 已使用的点号路径。
+  // 未命中别名且不含点号的键（如 system_timezone / currency_unit）与本 schema 无关，跳过。
+  for (const [rawPath, value] of Object.entries(flat)) {
+    if (!rawPath.includes('.')) continue
+    write(rawPath, value)
+  }
+  // 第二轮：管理端扁平键，后写以覆盖同名规范键。
+  for (const [rawPath, value] of Object.entries(flat)) {
+    const alias = FLAT_KEY_ALIASES[rawPath]
+    if (!alias) continue
+    write(alias, value)
   }
   return out
 }

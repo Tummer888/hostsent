@@ -8,10 +8,11 @@
         <div class="card-header">
           <div class="header-left">
             <div class="card-logo">
-              <CloudIcon class="card-logo-icon" />
+              <img v-if="brandStore.logo" class="card-logo-img" :src="brandStore.logo" :alt="brandStore.name" />
+              <CloudIcon v-else class="card-logo-icon" />
             </div>
             <div class="header-text">
-              <h2 class="card-title">宿派云控</h2>
+              <h2 class="card-title">{{ brandStore.name }}</h2>
               <p class="card-subtitle">{{ authTab === 'login' ? '欢迎回来，请登录账户' : '创建新账户，开启云端之旅' }}</p>
             </div>
           </div>
@@ -238,7 +239,7 @@
         </div>
 
         <div class="card-footer">
-          <p>Copyright © 2024 宿派云控 HostSent. All Rights Reserved.</p>
+          <p>{{ brandStore.copyrightText }}</p>
         </div>
 
         <!-- 移动端底部切换 -->
@@ -302,6 +303,7 @@ import {
 } from 'tdesign-icons-vue-next'
 
 import { useUserStore } from '@/store'
+import { useBrandStore } from '@/store/modules/brand'
 
 defineOptions({ name: 'UserLogin' })
 
@@ -310,6 +312,7 @@ import loginBg from '@/assets/images/login-user.webp'
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const brandStore = useBrandStore()
 
 const authTab = ref<'login' | 'register'>('login')
 const activeTab = ref('password')
@@ -507,6 +510,19 @@ async function handleRegister() {
 .card-logo-icon {
   font-size: 24px;
   color: #fff;
+}
+
+/* 后台配置了 Logo 时替换默认云图标；去掉底色，让品牌图自带背景 */
+.card-logo:has(.card-logo-img) {
+  background: transparent;
+  box-shadow: none;
+}
+
+.card-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 12px;
 }
 
 .header-text {

@@ -14,11 +14,16 @@ import (
 type UserTicketHandler struct {
 	ticketService   service.TicketService
 	categoryService service.CategoryService
+	attachmentSvc   service.AttachmentService
 }
 
-// NewUserTicketHandler 创建用户中心工单处理器。
-func NewUserTicketHandler(ticketService service.TicketService, categoryService service.CategoryService) *UserTicketHandler {
-	return &UserTicketHandler{ticketService: ticketService, categoryService: categoryService}
+// NewUserTicketHandler 创建用户中心工单处理器（attachmentSvc 可为 nil）。
+func NewUserTicketHandler(
+	ticketService service.TicketService,
+	categoryService service.CategoryService,
+	attachmentSvc service.AttachmentService,
+) *UserTicketHandler {
+	return &UserTicketHandler{ticketService: ticketService, categoryService: categoryService, attachmentSvc: attachmentSvc}
 }
 
 // userTicketPageQuery 用户端列表分页参数。
@@ -135,7 +140,9 @@ func (h *UserTicketHandler) Reply(c *gin.Context) {
 		response.Error(c, apperrors.New(20001, err.Error()))
 		return
 	}
-	resp, err := h.ticketService.UserReply(c.Request.Context(), accountID, actorID, username, id, req.Content)
+	// 用户侧不支持内部备注：服务端强制置 false，不信任请求体。
+	req.IsInternal = false
+	resp, err := h.ticketService.UserReply(c.Request.Context(), accountID, actorID, username, id, req)
 	if err != nil {
 		response.Error(c, writeError(err))
 		return
@@ -169,21 +176,114 @@ func (h *UserTicketHandler) Cancel(c *gin.Context) {
 }
 
 // ListCategories godoc
-// @Summary 获取可用工单分类列表
+// @Summary 获取可用工单分类列表（含提交前置条件与实名状态）
 // @Tags 用户中心-工单
 // @Security BearerAuth
 // @Success 200 {object} response.Body
 // @Router /api/v1/uc/support/ticket-categories [get]
 func (h *UserTicketHandler) ListCategories(c *gin.Context) {
-	_, _, ok := currentUserID(c)
+	accountID, _, ok := currentUserID(c)
 	if !ok {
 		unauthorized(c)
 		return
 	}
-	resp, err := h.categoryService.List(c.Request.Context(), false)
+	actorID := accountID
+	if id, _, ok := currentActorID(c); ok {
+		actorID = id
+	}
+	resp, err := h.categoryService.ListForUser(c.Request.Context(), accountID, actorID)
 	if err != nil {
 		response.Error(c, writeError(err))
 		return
 	}
 	response.Success(c, resp)
+}
+
+// UploadAttachment godoc
+// @Summary 上传我的工单附件
+// @Tags 用户中心-工单
+// @Security BearerAuth
+// @Param id path int true "工单 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/support/tickets/{id}/attachments [post]
+func (h *UserTicketHandler) UploadAttachment(c *gin.Context) {
+	accountID, _, ok := currentUserID(c)
+	if !ok {
+		unauthorized(c)
+		return
+	}
+	if h.attachmentSvc == nil {
+		response.Error(c, apperrors.New(50001, "附件服务未启用"))
+		return
+	}
+	ticketID, valid := pathID(c, "id")
+	if !valid {
+		return
+	}
+	// 归属校验：只能往自己账号家族的工单上传附件，防止借上传接口探测他人工单。
+	// 待挂载（ticket_id=0）时不校验，此时附件尚未关联任何工单。
+	if ticketID > 0 {
+		if _, err := h.ticketService.UserFindByID(c.Request.Context(), accountID, ticketID); err != nil {
+			response.Error(c, writeError(err))
+			return
+		}
+	}
+	actorID, _, ok := currentActorID(c)
+	if !ok {
+		unauthorized(c)
+		return
+	}
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		response.Error(c, apperrors.New(20001, "请选择要上传的文件"))
+		return
+	}
+	f, err := fileHeader.Open()
+	if err != nil {
+		response.Error(c, apperrors.New(20001, "无法读取上传文件"))
+		return
+	}
+	defer f.Close()
+	// 用户侧不能上传内部附件：服务端强制 false。
+	resp, err := h.attachmentSvc.Upload(c.Request.Context(), ticketID, actorID, fileHeader.Filename, f, false)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// DownloadAttachment godoc
+// @Summary 下载我的工单附件
+// @Tags 用户中心-工单
+// @Security BearerAuth
+// @Param id path int true "附件 ID"
+// @Success 200 {file} file
+// @Router /api/v1/uc/support/attachments/{id}/download [get]
+func (h *UserTicketHandler) DownloadAttachment(c *gin.Context) {
+	accountID, _, ok := currentUserID(c)
+	if !ok {
+		unauthorized(c)
+		return
+	}
+	if h.attachmentSvc == nil {
+		response.Error(c, apperrors.New(50001, "附件服务未启用"))
+		return
+	}
+	id, valid := pathID(c, "id")
+	if !valid {
+		return
+	}
+	userIDs := h.ticketService.AccountUserIDs(c.Request.Context(), accountID)
+	if len(userIDs) == 0 {
+		unauthorized(c)
+		return
+	}
+	item, reader, err := h.attachmentSvc.Open(c.Request.Context(), id, false, userIDs)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	defer reader.Close()
+	writeAttachment(c, item.FileName, item.FileType, item.FileSize, reader)
 }

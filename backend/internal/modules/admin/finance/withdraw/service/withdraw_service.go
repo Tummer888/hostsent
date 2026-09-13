@@ -19,7 +19,8 @@ import (
 type PayoutPort interface {
 	// CreatePayout 为提现单创建打款任务：mode=api 走渠道接口，manual 等待人工登记。
 	// mode 为期望模式（可空=按平台默认），actualMode 返回实际生效模式（渠道不可用时回落 manual）。
-	CreatePayout(ctx context.Context, withdrawID uint64, withdrawNo string, userID uint64, amount float64, mode string) (payoutID uint64, payoutNo string, actualMode string, err error)
+	// bizType 固定传 payment 的 withdraw 域（销售提成提现走 sales 模块自己的通道，doc86 §2.5）。
+	CreatePayout(ctx context.Context, bizType string, withdrawID uint64, withdrawNo string, userID uint64, amount float64, mode string) (payoutID uint64, payoutNo string, actualMode string, err error)
 	// MarkPaid 标记打款成功（人工登记）。
 	MarkPaid(ctx context.Context, payoutNo string, channelTx, receiptURL, remark string, operatorID uint64) error
 	// Fail 标记打款失败并触发退回。
@@ -42,6 +43,10 @@ type WithdrawService interface {
 	// SetPayoutPort 注入打款能力（装配层调用）。
 	SetPayoutPort(port PayoutPort)
 }
+
+// payoutBizWithdraw 财务提现域标识，与 payment/model.PayoutBizWithdraw 同值。
+// 本模块不 import payment 包（只依赖 PayoutPort 契约），故按字符串常量对齐。
+const payoutBizWithdraw = "withdraw"
 
 type withdrawService struct {
 	withdrawRepo repository.WithdrawRepository
@@ -123,7 +128,7 @@ func (s *withdrawService) Approve(ctx context.Context, id uint64, req dto.Withdr
 	}
 	// 创建打款任务（人工/接口双模）。无打款能力时保持 approved，等待财务人工处理。
 	if s.payout != nil {
-		payoutID, payoutNo, actualMode, perr := s.payout.CreatePayout(ctx, w.ID, w.WithdrawNo, w.UserID, w.Amount, w.PayoutMode)
+		payoutID, payoutNo, actualMode, perr := s.payout.CreatePayout(ctx, payoutBizWithdraw, w.ID, w.WithdrawNo, w.UserID, w.Amount, w.PayoutMode)
 		if perr != nil {
 			return nil, perr
 		}

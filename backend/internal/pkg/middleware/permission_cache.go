@@ -12,13 +12,17 @@ type PermissionResolver interface {
 	FindRoleCodesByAdminID(ctx context.Context, adminID uint64) ([]string, error)
 	FindPermissionCodesByAdminID(ctx context.Context, adminID uint64) ([]string, error)
 	IsAdminActive(ctx context.Context, adminID uint64) (bool, error)
+	// FindDepartmentIDByAdminID 返回员工所属部门（0 表示未归属部门）。
+	// 部门随鉴权快照一起缓存，改部门后靠 InvalidateAdmin 刷新，避免每请求多查一次库。
+	FindDepartmentIDByAdminID(ctx context.Context, adminID uint64) (uint64, error)
 }
 
-// AdminGrant 一名管理员的鉴权快照：角色码 + 生效权限集合 + 启用状态。
+// AdminGrant 一名管理员的鉴权快照：角色码 + 生效权限集合 + 启用状态 + 所属部门。
 type AdminGrant struct {
-	Roles  []string
-	Perms  appauth.PermissionSet
-	Active bool
+	Roles        []string
+	Perms        appauth.PermissionSet
+	Active       bool
+	DepartmentID uint64
 }
 
 // IsSuper 是否为超管（权限集合含通配 "*"）。
@@ -109,8 +113,13 @@ func ResolveAdminGrant(ctx context.Context, resolver PermissionResolver, adminID
 	if err != nil {
 		return nil, err
 	}
+	// 部门查询失败不应阻断鉴权（老库或异常数据下 department_id 缺失），降级为「无部门」。
+	deptID, err := resolver.FindDepartmentIDByAdminID(ctx, adminID)
+	if err != nil {
+		deptID = 0
+	}
 	effective := appauth.EffectivePermissions(roles, perms)
-	return &AdminGrant{Roles: roles, Perms: appauth.NewPermissionSet(effective), Active: active}, nil
+	return &AdminGrant{Roles: roles, Perms: appauth.NewPermissionSet(effective), Active: active, DepartmentID: deptID}, nil
 }
 
 // LoadAdminGrant 优先读缓存，未命中则查库回填。

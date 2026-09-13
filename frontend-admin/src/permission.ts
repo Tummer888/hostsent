@@ -395,6 +395,39 @@ export const navMenu = [
     ],
   },
   {
+    // 销售中心（doc86 S4–S6）：客户归属 / 提成台账 / 提成审核 / 业绩排行。
+    // 销售本人只看自己的台账与业绩，主管按部门范围，超管全量。
+    title: '销售中心',
+    path: '/sales',
+    icon: iconWrapper(ShareIcon),
+    children: [
+      {
+        title: '客户归属',
+        path: '/sales/customers',
+        icon: iconWrapper(UsergroupIcon),
+        children: [{ title: '客户归属', path: '/sales/customers', icon: iconWrapper(UsergroupIcon) }],
+      },
+      {
+        title: '提成台账',
+        path: '/sales/commissions',
+        icon: iconWrapper(MoneyIcon),
+        children: [{ title: '提成台账', path: '/sales/commissions', icon: iconWrapper(MoneyIcon) }],
+      },
+      {
+        title: '提成审核',
+        path: '/sales/withdrawals',
+        icon: iconWrapper(WalletIcon),
+        children: [{ title: '提成审核', path: '/sales/withdrawals', icon: iconWrapper(WalletIcon) }],
+      },
+      {
+        title: '业绩排行',
+        path: '/sales/performance',
+        icon: iconWrapper(ChartBarIcon),
+        children: [{ title: '业绩排行', path: '/sales/performance', icon: iconWrapper(ChartBarIcon) }],
+      },
+    ],
+  },
+  {
     // 积分中心（docs/实施计划/36）：独立于资金账本的积分体系。
     // 积分不可抵扣、不可提现、不可转入余额，因此本模块不提供任何支付相关入口。
     title: '积分中心',
@@ -440,7 +473,8 @@ export const navMenu = [
           { title: '菜单管理', path: '/system/menus', icon: iconWrapper(MenuIcon) },
           { title: '角色列表', path: '/system/roles', icon: iconWrapper(UsergroupIcon) },
           { title: '权限分配', path: '/system/permissions', icon: iconWrapper(SettingIcon) },
-          { title: '管理员列表', path: '/system/admins', icon: iconWrapper(UserListIcon) },
+          { title: '员工管理', path: '/system/admins', icon: iconWrapper(UserListIcon) },
+          { title: '部门管理', path: '/system/departments', icon: iconWrapper(UsergroupIcon) },
         ],
       },
       {
@@ -470,6 +504,12 @@ export const navMenu = [
         path: '/tickets/list',
         icon: iconWrapper(ServiceIcon),
         children: [{ title: '工单列表', path: '/tickets/list', icon: iconWrapper(ServiceIcon) }],
+      },
+      {
+        title: '复核中心',
+        path: '/tickets/reviews',
+        icon: iconWrapper(VerifyIcon),
+        children: [{ title: '复核中心', path: '/tickets/reviews', icon: iconWrapper(VerifyIcon) }],
       },
       {
         title: '工单分类管理',

@@ -38,6 +38,11 @@ type User struct {
 	InviterUserID *uint64 `gorm:"column:inviter_user_id;index:idx_users_inviter_user_id"`
 	// InvitedAt 绑定邀请关系的时间。
 	InvitedAt *time.Time `gorm:"column:invited_at"`
+	// SalesAdminID 当前归属销售（admins.id），0 表示未归属；权威数据是 staff_sales_relations，
+	// 本列只是快照（doc86 §1.3），归属变更时由销售模块回写。
+	SalesAdminID uint64 `gorm:"column:sales_admin_id;not null;default:0;index:idx_users_sales_admin"`
+	// SalesAdminName 归属销售名；列表/详情联表带出，非持久化（只读权限同上）。
+	SalesAdminName string `gorm:"->;-:migration"`
 	// OwnerName 子账号归属主账号用户名；列表/详情联表带出，非持久化（P4-10，只读权限同上）。
 	OwnerName         string     `gorm:"->;-:migration"`
 	LastLoginAt       *time.Time `gorm:"column:last_login_at"`

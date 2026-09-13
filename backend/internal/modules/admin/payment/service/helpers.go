@@ -286,6 +286,7 @@ func buildPayoutInfo(p model.PaymentPayout) dto.PayoutInfo {
 	return dto.PayoutInfo{
 		ID:          p.ID,
 		PayoutNo:    p.PayoutNo,
+		BizType:     p.BizType,
 		WithdrawID:  p.WithdrawID,
 		WithdrawNo:  p.WithdrawNo,
 		UserID:      p.UserID,

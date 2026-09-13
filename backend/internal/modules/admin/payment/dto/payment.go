@@ -279,7 +279,9 @@ type RefundListResponse struct {
 
 // PayoutListQuery 打款单查询。
 type PayoutListQuery struct {
-	UserID    uint64 `form:"user_id" json:"user_id"`
+	UserID uint64 `form:"user_id" json:"user_id"`
+	// BizType 业务域过滤（withdraw/sales_withdraw，doc86 §2.5）；空表示全部。
+	BizType   string `form:"biz_type" json:"biz_type"`
 	Status    string `form:"status" json:"status"`
 	Mode      string `form:"mode" json:"mode"`
 	StartTime string `form:"start_time" json:"start_time"`
@@ -292,6 +294,7 @@ type PayoutListQuery struct {
 type PayoutInfo struct {
 	ID          uint64  `json:"id"`
 	PayoutNo    string  `json:"payout_no"`
+	BizType     string  `json:"biz_type"`
 	WithdrawID  uint64  `json:"withdraw_id"`
 	WithdrawNo  string  `json:"withdraw_no"`
 	UserID      uint64  `json:"user_id"`

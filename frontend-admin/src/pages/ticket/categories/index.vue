@@ -42,11 +42,31 @@
             {{ categoryStatusLabel(row.status) }}
           </t-tag>
         </template>
+        <template #department_name="{ row }">
+          <span v-if="row.department_name">{{ row.department_name }}</span>
+          <span v-else class="cell-muted">未指定</span>
+        </template>
+        <template #preconditions="{ row }">
+          <t-space size="small" break-line>
+            <t-tag v-if="row.require_realname" theme="warning" variant="light" size="small" shape="round">需实名</t-tag>
+            <t-tag v-if="row.require_binding" theme="warning" variant="light" size="small" shape="round">需关联订单</t-tag>
+            <t-tag v-if="row.need_review" theme="primary" variant="light" size="small" shape="round">双人复核</t-tag>
+            <t-tag v-if="row.visible_role_codes?.length" variant="light" size="small" shape="round">
+              限 {{ row.visible_role_codes.length }} 个角色
+            </t-tag>
+            <span
+              v-if="!row.require_realname && !row.require_binding && !row.need_review && !row.visible_role_codes?.length"
+              class="cell-muted"
+            >
+              无
+            </span>
+          </t-space>
+        </template>
         <template #created_at="{ row }">
           <span class="time-text">{{ formatTime(row.created_at) }}</span>
         </template>
         <template #action="{ row }">
-<div class="action-cell">
+          <div class="action-cell">
             <MobileAction
               v-if="isMobile"
               :options="buildMobileActionOptions([
@@ -56,6 +76,13 @@
               ])"
               @select="(value) => handleMobileAction(value, row)"
             />
+            <template v-else>
+              <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
+              <t-link theme="primary" hover="color" @click="handleToggleStatus(row)">
+                {{ row.status === 'active' ? '禁用' : '启用' }}
+              </t-link>
+              <t-link theme="danger" hover="color" @click="handleDelete(row)">删除</t-link>
+            </template>
           </div>
         </template>
         <template #empty>
@@ -68,7 +95,7 @@
     <t-dialog
       v-model:visible="formVisible"
       :header="editingId ? '编辑分类' : '新增分类'"
-      width="480px"
+      width="640px"
       :confirm-btn="{ content: '保存', theme: 'primary', loading: saving }"
       :cancel-btn="{ content: '取消' }"
       @confirm="handleSave"
@@ -84,11 +111,54 @@
         <t-form-item label="描述" name="description">
           <t-textarea v-model="form.description" placeholder="分类用途说明" :autosize="{ minRows: 2, maxRows: 4 }" :maxlength="255" />
         </t-form-item>
-        <t-form-item label="排序值" name="sort_order">
-          <t-input-number v-model="form.sort_order" :min="0" theme="column" style="width: 160px" />
+        <div class="form-grid">
+          <t-form-item label="排序值" name="sort_order">
+            <t-input-number v-model="form.sort_order" :min="0" theme="column" style="width: 100%" />
+          </t-form-item>
+          <t-form-item label="状态" name="status">
+            <t-select v-model="form.status" :options="categoryStatusOptions" />
+          </t-form-item>
+          <t-form-item label="首次响应时限（小时）" name="sla_hours">
+            <t-input-number v-model="form.sla_hours" :min="0" theme="column" style="width: 100%" />
+          </t-form-item>
+          <t-form-item label="归属部门" name="department_id">
+            <t-select
+              v-model="form.department_id"
+              clearable
+              filterable
+              placeholder="不指定则不限部门"
+              :options="departmentOptions"
+              :loading="departmentLoading"
+            />
+          </t-form-item>
+        </div>
+
+        <t-form-item label="提交前置条件" name="preconditions">
+          <t-space direction="vertical" size="small">
+            <t-checkbox v-model="form.require_realname">要求提交人已完成实名认证</t-checkbox>
+            <t-checkbox v-model="form.require_binding">要求关联本人的订单或实例</t-checkbox>
+            <span class="form-hint">勾选后，用户在用户中心提交该分类工单时会被前置校验拦截并给出对应提示。</span>
+          </t-space>
         </t-form-item>
-        <t-form-item label="状态" name="status">
-          <t-select v-model="form.status" :options="categoryStatusOptions" />
+
+        <t-form-item label="回复复核" name="need_review">
+          <t-space direction="vertical" size="small">
+            <t-checkbox v-model="form.need_review">管理员回复需双人复核（复核通过后才对用户可见）</t-checkbox>
+            <span class="form-hint">开启后需保证本部门存在两名以上具备「工单复核」权限的员工。</span>
+          </t-space>
+        </t-form-item>
+
+        <t-form-item label="可提交角色（空=不限）" name="visible_role_codes">
+          <t-select
+            v-model="form.visible_role_codes"
+            multiple
+            clearable
+            filterable
+            placeholder="不限"
+            :options="roleOptions"
+            :loading="roleLoading"
+            :max-tag-count="2"
+          />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -101,8 +171,10 @@ import { AddIcon, RefreshIcon, TagIcon } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { createTicketCategory, deleteTicketCategory, getTicketCategories, updateTicketCategory } from '@/api/ticket'
+import { getDepartmentList, type DepartmentInfo } from '@/api/admin'
+import { getRoleList, type RoleInfo } from '@/api/user'
 import { categoryStatusLabel, categoryStatusOptions, categoryStatusTheme, formatTime } from '@/pages/ticket/constants'
-import type { TicketCategoryInfo } from '@/types/interface'
+import type { TicketCategoryInfo, TicketCategorySaveRequest } from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
@@ -116,24 +188,44 @@ const saving = ref(false)
 const formVisible = ref(false)
 const editingId = ref<number | null>(null)
 
+// 部门下拉（S2 归属部门）与角色下拉（可提交角色）
+const departmentOptions = ref<{ label: string; value: number }[]>([])
+const departmentLoading = ref(false)
+const roleOptions = ref<{ label: string; value: string }[]>([])
+const roleLoading = ref(false)
+
 const form = reactive<{
   name: string
   code: string
   description: string
   sort_order: number
   status: string
+  department_id: number | undefined
+  require_realname: boolean
+  require_binding: boolean
+  need_review: boolean
+  visible_role_codes: string[]
+  sla_hours: number
 }>({
   name: '',
   code: '',
   description: '',
   sort_order: 0,
   status: 'active',
+  department_id: undefined,
+  require_realname: false,
+  require_binding: false,
+  need_review: false,
+  visible_role_codes: [],
+  sla_hours: 0,
 })
 
 const columns: PrimaryTableCol<TicketCategoryInfo>[] = [
   { colKey: 'name', title: '分类名称', minWidth: 140 },
-  { colKey: 'code', title: '编码', minWidth: 140 },
-  { colKey: 'description', title: '描述', minWidth: 220, ellipsis: true },
+  { colKey: 'code', title: '编码', minWidth: 120 },
+  { colKey: 'department_name', title: '归属部门', width: 120 },
+  { colKey: 'preconditions', title: '规则', minWidth: 200 },
+  { colKey: 'description', title: '描述', minWidth: 200, ellipsis: true },
   { colKey: 'sort_order', title: '排序', width: 80, align: 'center' as const },
   { colKey: 'status', title: '状态', width: 90 },
   { colKey: 'created_at', title: '创建时间', width: 160 },
@@ -151,13 +243,51 @@ async function loadCategories() {
   }
 }
 
-function openCreate() {
-  editingId.value = null
+// 加载部门下拉（平铺，只取启用部门）
+async function loadDepartments() {
+  departmentLoading.value = true
+  try {
+    const data = await getDepartmentList({ status: 'active', flat: 1 })
+    departmentOptions.value = (data.items ?? []).map((item: DepartmentInfo) => ({ label: item.name, value: item.id }))
+  } catch {
+    // 部门加载失败不阻断分类页主体
+  } finally {
+    departmentLoading.value = false
+  }
+}
+
+// 加载角色下拉：仅后台（admin scope）角色可被选为可提交角色
+async function loadRoles() {
+  roleLoading.value = true
+  try {
+    const roles = await getRoleList()
+    roleOptions.value = (roles ?? [])
+      .filter((role: RoleInfo) => role.scope !== 'user')
+      .map((role: RoleInfo) => ({ label: role.name, value: role.code }))
+  } catch {
+    // 角色加载失败不阻断分类页主体
+  } finally {
+    roleLoading.value = false
+  }
+}
+
+function resetForm() {
   form.name = ''
   form.code = ''
   form.description = ''
   form.sort_order = 0
   form.status = 'active'
+  form.department_id = undefined
+  form.require_realname = false
+  form.require_binding = false
+  form.need_review = false
+  form.visible_role_codes = []
+  form.sla_hours = 0
+}
+
+function openCreate() {
+  editingId.value = null
+  resetForm()
   formVisible.value = true
 }
 
@@ -168,7 +298,29 @@ function openEdit(row: TicketCategoryInfo) {
   form.description = row.description
   form.sort_order = row.sort_order
   form.status = row.status
+  form.department_id = row.department_id || undefined
+  form.require_realname = !!row.require_realname
+  form.require_binding = !!row.require_binding
+  form.need_review = !!row.need_review
+  form.visible_role_codes = [...(row.visible_role_codes ?? [])]
+  form.sla_hours = row.sla_hours ?? 0
   formVisible.value = true
+}
+
+function buildPayload(): TicketCategorySaveRequest {
+  return {
+    name: form.name.trim(),
+    code: form.code.trim(),
+    description: form.description,
+    sort_order: form.sort_order,
+    status: form.status,
+    department_id: form.department_id,
+    require_realname: form.require_realname,
+    require_binding: form.require_binding,
+    need_review: form.need_review,
+    visible_role_codes: form.visible_role_codes,
+    sla_hours: form.sla_hours,
+  }
 }
 
 async function handleSave() {
@@ -183,22 +335,10 @@ async function handleSave() {
   saving.value = true
   try {
     if (editingId.value) {
-      await updateTicketCategory(editingId.value, {
-        name: form.name.trim(),
-        code: form.code.trim(),
-        description: form.description,
-        sort_order: form.sort_order,
-        status: form.status,
-      })
+      await updateTicketCategory(editingId.value, buildPayload())
       MessagePlugin.success('分类已更新')
     } else {
-      await createTicketCategory({
-        name: form.name.trim(),
-        code: form.code.trim(),
-        description: form.description,
-        sort_order: form.sort_order,
-        status: form.status,
-      })
+      await createTicketCategory(buildPayload())
       MessagePlugin.success('分类已创建')
     }
     formVisible.value = false
@@ -210,7 +350,7 @@ async function handleSave() {
   }
 }
 
-// 启用/禁用切换
+// 启用/禁用切换：直接复用当前行数据组装完整请求，避免覆盖 S2 新字段
 async function handleToggleStatus(row: TicketCategoryInfo) {
   const target = row.status === 'active' ? 'disabled' : 'active'
   try {
@@ -220,6 +360,12 @@ async function handleToggleStatus(row: TicketCategoryInfo) {
       description: row.description,
       sort_order: row.sort_order,
       status: target,
+      department_id: row.department_id || undefined,
+      require_realname: row.require_realname,
+      require_binding: row.require_binding,
+      need_review: row.need_review,
+      visible_role_codes: row.visible_role_codes ?? [],
+      sla_hours: row.sla_hours ?? 0,
     })
     MessagePlugin.success(target === 'active' ? '分类已启用' : '分类已禁用')
     loadCategories()
@@ -248,7 +394,11 @@ function handleDelete(row: TicketCategoryInfo) {
   })
 }
 
-onMounted(loadCategories)
+onMounted(() => {
+  loadCategories()
+  loadDepartments()
+  loadRoles()
+})
 
 // 移动端操作下拉分发
 function handleMobileAction(value: string | number | Record<string, any>, row: TicketCategoryInfo) {
@@ -269,4 +419,25 @@ function handleMobileAction(value: string | number | Record<string, any>, row: T
 
 <style lang="css">
 @import '../shared.css';
+</style>
+
+<style scoped>
+/* 表单两列栅格：窄屏自动堆叠 */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+
+.form-hint {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+  line-height: 1.6;
+}
+
+@media (max-width: 768px) {
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 </style>

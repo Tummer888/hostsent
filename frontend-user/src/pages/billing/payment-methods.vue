@@ -1,29 +1,32 @@
 <template>
-  <div class="payment-methods-page">
-    <header class="pm-hero">
-      <div class="pm-hero__left">
-        <span class="pm-hero__chip"><WalletIcon size="22" /></span>
-        <div class="pm-hero__text">
-          <h2 class="pm-hero__title">支付方式</h2>
-          <p class="pm-hero__desc">设置默认支付方式与优先级，收银台将按此顺序推荐渠道；同时维护提现收款账户。</p>
+  <div class="page-body console-module payment-methods-module">
+    <header class="page-header surface-card">
+      <div class="page-header__main">
+        <span class="page-header__chip">
+          <WalletIcon size="22" aria-hidden="true" />
+        </span>
+        <div class="page-header__text">
+          <h2 class="page-header__title">支付方式</h2>
+          <p class="page-header__desc">设置默认支付方式与优先级，收银台按此顺序推荐渠道；提现收款账户与提现记录同页维护</p>
         </div>
       </div>
-      <t-space size="small">
+      <div class="page-header__actions">
+        <t-button variant="outline" @click="router.push('/billing')">返回费用中心</t-button>
         <t-button variant="outline" :loading="loading" @click="loadAll">
           <template #icon><RefreshIcon /></template>
           刷新
         </t-button>
-      </t-space>
+      </div>
     </header>
 
     <p v-if="memberStore.isSub" class="sub-tip">子账号仅可查看，支付方式与收款账户的修改请由主账号操作。</p>
 
     <!-- 支付方式偏好 -->
-    <section class="pm-panel">
-      <div class="pm-panel__head">
+    <section class="table-card surface-card">
+      <div class="table-card__head">
         <div>
-          <h3 class="pm-panel__title">默认方式与优先级</h3>
-          <p class="pm-panel__hint">场景「{{ sceneLabel(scene) }}」下可用渠道；拖动序号或点按上下调整顺序，标记为默认的渠道将优先展示。</p>
+          <h3 class="card-title">默认方式与优先级</h3>
+          <p class="table-card__meta">场景「{{ sceneLabel(scene) }}」下可用渠道；优先级数值越大越靠前，标记为默认的渠道将优先展示。</p>
         </div>
         <t-space size="small">
           <t-select v-model="scene" :options="sceneOptions" size="small" style="width: 180px" @change="loadMethods" />
@@ -71,11 +74,11 @@
     </section>
 
     <!-- 提现收款账户 -->
-    <section class="pm-panel">
-      <div class="pm-panel__head">
+    <section class="table-card surface-card">
+      <div class="table-card__head">
         <div>
-          <h3 class="pm-panel__title">提现收款账户</h3>
-          <p class="pm-panel__hint">提现时将款项打至默认收款账户；账号在服务端加密存储，此处仅展示尾号。</p>
+          <h3 class="card-title">提现收款账户</h3>
+          <p class="table-card__meta">提现时将款项打至默认收款账户；账号在服务端加密存储，此处仅展示脱敏信息。</p>
         </div>
         <t-button theme="primary" size="small" :disabled="!canEdit" @click="openAccountDialog">
           <template #icon><AddIcon /></template>
@@ -117,11 +120,11 @@
     </section>
 
     <!-- 我的提现记录 -->
-    <section class="pm-panel">
-      <div class="pm-panel__head">
+    <section class="table-card surface-card">
+      <div class="table-card__head">
         <div>
-          <h3 class="pm-panel__title">我的提现记录</h3>
-          <p class="pm-panel__hint">每笔提现记录所用收款渠道、账号尾号与打款方式，便于核对到账。</p>
+          <h3 class="card-title">我的提现记录</h3>
+          <p class="table-card__meta">每笔提现记录所用收款渠道、账号与打款方式，便于核对到账。</p>
         </div>
         <t-button theme="primary" size="small" :disabled="!canEdit || !accounts.length" @click="openWithdrawDialog">
           <template #icon><MoneyIcon /></template>
@@ -138,7 +141,7 @@
         hover
         cell-empty-content="—"
         :loading="withdrawLoading"
-        :pagination="withdrawPagination"
+        :pagination="isMobile ? undefined : withdrawPagination"
         @page-change="handleWithdrawPageChange"
       >
         <template #withdraw_no="{ row }">
@@ -171,6 +174,15 @@
           <t-empty description="暂无提现记录" />
         </template>
       </t-table>
+
+      <!-- 移动端翻页：与 admin 列表页同一套（桌面用表格内建分页） -->
+      <MobilePagination
+        v-if="isMobile"
+        :current="withdrawPagination.current"
+        :page-size="withdrawPagination.pageSize"
+        :total="withdrawPagination.total"
+        @change="handleWithdrawPageChange"
+      />
     </section>
 
     <!-- 新增收款账户 -->
@@ -240,6 +252,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
 import { AddIcon, CheckCircleIcon, MoneyIcon, RefreshIcon, WalletIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
@@ -257,9 +270,13 @@ import {
 } from '@/api/payment'
 import { getMyWithdrawals } from '@/api/finance'
 import { useMemberStore } from '@/store/modules/member'
+import { useIsMobile } from '@/composables/useIsMobile'
+import MobilePagination from '@/components/mobile-pagination/index.vue'
 
 defineOptions({ name: 'BillingPaymentMethods' })
 
+const router = useRouter()
+const { isMobile } = useIsMobile()
 const memberStore = useMemberStore()
 const canEdit = computed(() => !memberStore.isSub)
 
@@ -553,119 +570,22 @@ onMounted(loadAll)
 </script>
 
 <style scoped>
-.payment-methods-page {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.pm-hero {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 20px 24px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);
-  color: #fff;
-}
-
-.pm-hero__left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.pm-hero__chip {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.18);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.pm-hero__title {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 700;
-}
-
-.pm-hero__desc {
-  margin: 4px 0 0;
-  font-size: 13px;
-  opacity: 0.88;
-}
-
+/* 子账号只读提示：沿用既有告警配色，不与 console-module 骨架冲突 */
 .sub-tip {
   margin: 0;
   padding: 10px 14px;
-  border-radius: 10px;
+  border-radius: var(--hs-radius-md);
   background: #fff7ed;
   color: #b45309;
   font-size: 13px;
 }
 
-.pm-panel {
-  padding: 20px 22px;
-  border-radius: 16px;
-  background: #fff;
-  border: 1px solid #eef2f6;
-}
-
-.pm-panel__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
-}
-
-.pm-panel__title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  color: #182230;
-}
-
-.pm-panel__hint {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: #64748b;
-  max-width: 620px;
-  line-height: 1.6;
-}
-
-.cell-main {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.cell-strong {
-  font-size: 13px;
-  font-weight: 600;
-  color: #334155;
-}
-
-.cell-sub {
-  font-size: 12px;
-  color: #64748b;
-}
-
 .cell-money {
   font-size: 13px;
   font-weight: 600;
-  color: #0f766e;
+  color: var(--color-success);
   font-variant-numeric: tabular-nums;
 }
 
-@media (max-width: 768px) {
-  .pm-hero {
-    flex-direction: column;
-    align-items: stretch;
-  }
-}
+/* cell-main / cell-strong / cell-sub 由 console-module 骨架契约提供 */
 </style>

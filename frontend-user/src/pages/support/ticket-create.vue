@@ -26,15 +26,56 @@
         </t-form-item>
 
         <t-form-item label="问题分类" name="category">
-          <t-select v-model="formData.category" placeholder="请选择问题分类" :loading="categoryLoading">
+          <t-select v-model="formData.category" placeholder="请选择问题分类" :loading="categoryLoading" @change="handleCategoryChange">
             <t-option
               v-for="item in categories"
               :key="item.id"
               :value="item.code"
               :label="item.name"
-            />
+              :disabled="isCategoryBlocked(item)"
+            >
+              <div class="category-option">
+                <span>{{ item.name }}</span>
+                <span v-if="isCategoryBlocked(item)" class="category-option__lock">需先完成实名认证</span>
+              </div>
+            </t-option>
           </t-select>
+          <div v-if="selectedCategory" class="category-help">
+            <span v-if="selectedCategory.description">{{ selectedCategory.description }}</span>
+            <span v-if="selectedCategory.need_review" class="category-help__tip">
+              该分类的客服回复需内部复核通过后才会送达，可能稍有延迟。
+            </span>
+          </div>
         </t-form-item>
+
+        <!-- 前置条件：关联订单/实例（分类要求时必填） -->
+        <template v-if="selectedCategory?.require_binding">
+          <t-alert theme="warning" class="binding-alert">
+            <template #message>
+              该分类需关联您本人的订单或实例，请至少选择一项，否则无法提交。
+            </template>
+          </t-alert>
+          <t-form-item label="关联订单" name="order_id">
+            <t-select
+              v-model="formData.order_id"
+              clearable
+              filterable
+              placeholder="选择订单（可选）"
+              :options="orderOptions"
+              :loading="orderLoading"
+            />
+          </t-form-item>
+          <t-form-item label="关联实例" name="instance_id">
+            <t-select
+              v-model="formData.instance_id"
+              clearable
+              filterable
+              placeholder="选择实例（可选）"
+              :options="instanceOptions"
+              :loading="instanceLoading"
+            />
+          </t-form-item>
+        </template>
 
         <t-form-item label="优先级" name="priority">
           <t-radio-group v-model="formData.priority">
@@ -59,18 +100,21 @@
           <t-button theme="primary" type="submit" :loading="submitting">提交工单</t-button>
         </div>
       </t-form>
+      <p class="attachment-tip">如需附带截图或日志，可在提交成功后于工单详情页上传附件。</p>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { ChevronLeftIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type FormInstanceFunctions, type FormProps } from 'tdesign-vue-next'
 
 import { createMyTicket, getTicketCategories, type TicketCategoryInfo } from '@/api/support'
+import { getMyOrders } from '@/api/shop'
+import { listInstances } from '@/api/cloud'
 import { ticketPriorityOptions } from '@/pages/support/constants'
 
 defineOptions({ name: 'UserTicketCreate' })
@@ -80,11 +124,20 @@ const router = useRouter()
 const formRef = ref<FormInstanceFunctions>()
 
 // 表单数据（priority 默认 medium，与后端约定一致）
-const formData = reactive({
+const formData = reactive<{
+  title: string
+  category: string
+  priority: string
+  description: string
+  order_id: number | undefined
+  instance_id: number | undefined
+}>({
   title: '',
   category: '',
   priority: 'medium',
   description: '',
+  order_id: undefined,
+  instance_id: undefined,
 })
 
 // 表单校验规则（与后端 binding 约束对齐）
@@ -96,14 +149,29 @@ const rules: FormProps['rules'] = {
 
 const categories = ref<TicketCategoryInfo[]>([])
 const categoryLoading = ref(false)
+const realnameOK = ref(true)
 const submitting = ref(false)
 
-// 加载可用工单分类
+// 分类要求关联订单/实例时才拉取可选列表，避免无谓请求
+const orderOptions = ref<{ label: string; value: number }[]>([])
+const orderLoading = ref(false)
+const instanceOptions = ref<{ label: string; value: number }[]>([])
+const instanceLoading = ref(false)
+
+const selectedCategory = computed(() => categories.value.find((item) => item.code === formData.category))
+
+// 实名未完成时，要求实名的分类直接置灰（后端仍会再校验一次）
+function isCategoryBlocked(item: TicketCategoryInfo): boolean {
+  return item.require_realname && !realnameOK.value
+}
+
+// 加载可用工单分类（含前置条件与实名状态）
 async function loadCategories() {
   categoryLoading.value = true
   try {
     const { data } = await getTicketCategories()
-    if (data) categories.value = data
+    categories.value = data?.items ?? []
+    realnameOK.value = data?.realname_ok !== false
   } catch (error) {
     MessagePlugin.error((error as Error)?.message || '加载分类失败')
   } finally {
@@ -111,9 +179,54 @@ async function loadCategories() {
   }
 }
 
+async function loadBindingOptions() {
+  if (orderOptions.value.length === 0 && !orderLoading.value) {
+    orderLoading.value = true
+    try {
+      const response = await getMyOrders({ page: 1, page_size: 50 })
+      const items = response?.data?.items ?? []
+      orderOptions.value = items.map((item) => ({
+        label: `${item.order_no} · ${item.product_name}`,
+        value: item.id,
+      }))
+    } catch {
+      // 订单列表拉取失败不阻断提交，用户可仅填实例
+    } finally {
+      orderLoading.value = false
+    }
+  }
+  if (instanceOptions.value.length === 0 && !instanceLoading.value) {
+    instanceLoading.value = true
+    try {
+      const response = await listInstances()
+      const items = response?.data?.items ?? []
+      instanceOptions.value = items.map((item) => ({
+        label: `${item.name}（${item.instance_id || item.id}）`,
+        value: item.id,
+      }))
+    } catch {
+      // 实例列表拉取失败同上
+    } finally {
+      instanceLoading.value = false
+    }
+  }
+}
+
+function handleCategoryChange() {
+  formData.order_id = undefined
+  formData.instance_id = undefined
+  if (selectedCategory.value?.require_binding) {
+    void loadBindingOptions()
+  }
+}
+
 // 提交工单
 async function onSubmit({ validateResult }: { validateResult: boolean }) {
   if (validateResult !== true) return
+  if (selectedCategory.value?.require_binding && !formData.order_id && !formData.instance_id) {
+    MessagePlugin.warning('该分类需关联您本人的订单或实例，请至少选择一项')
+    return
+  }
   submitting.value = true
   try {
     const { data } = await createMyTicket({
@@ -121,6 +234,8 @@ async function onSubmit({ validateResult }: { validateResult: boolean }) {
       description: formData.description.trim(),
       category: formData.category,
       priority: formData.priority,
+      order_id: formData.order_id,
+      instance_id: formData.instance_id,
     })
     MessagePlugin.success('工单提交成功，我们会尽快处理')
     if (data?.id) {
@@ -194,5 +309,40 @@ onMounted(loadCategories)
   justify-content: flex-end;
   gap: 12px;
   margin-top: 8px;
+}
+
+.category-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.category-option__lock {
+  font-size: 12px;
+  color: #d97706;
+}
+
+.category-help {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.6;
+}
+
+.category-help__tip {
+  color: #d97706;
+}
+
+.binding-alert {
+  margin-bottom: 16px;
+}
+
+.attachment-tip {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: #94a3b8;
 }
 </style>

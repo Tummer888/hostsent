@@ -5,16 +5,19 @@ import "time"
 
 // 通知事件类型（与模板 event 对应）
 const (
-	EventOrderPaid        string = "order_paid"        // 订单支付成功
-	EventRenewalSuccess   string = "renewal_success"   // 续费成功
-	EventRenewalFailed    string = "renewal_failed"    // 续费失败
-	EventInstanceExpiring string = "instance_expiring" // 实例即将到期
-	EventTicketReplied    string = "ticket_replied"    // 工单新回复（通知用户）
-	EventTicketAssigned   string = "ticket_assigned"   // 工单指派（通知被指派员工，P2-04）
-	EventTicketStatus     string = "ticket_status"     // 工单状态变更（通知用户，P2-04）
-	EventBalanceLow       string = "balance_low"       // 余额不足预警
-	EventSyncFailed       string = "sync_failed"       // 上游同步失败（管理员）
-	EventSystem           string = "system"            // 系统通用
+	EventOrderPaid           string = "order_paid"            // 订单支付成功
+	EventRenewalSuccess      string = "renewal_success"       // 续费成功
+	EventRenewalFailed       string = "renewal_failed"        // 续费失败
+	EventInstanceExpiring    string = "instance_expiring"     // 实例即将到期
+	EventTicketReplied       string = "ticket_replied"        // 工单新回复（通知用户）
+	EventTicketAssigned      string = "ticket_assigned"       // 工单指派（通知被指派员工，P2-04）
+	EventTicketStatus        string = "ticket_status"         // 工单状态变更（通知用户，P2-04）
+	EventTicketReviewPending string = "ticket_review_pending" // 工单回复待复核（通知复核人，S3）
+	EventTicketReviewResult  string = "ticket_review_result"  // 工单回复复核结果（通知提交客服，S3）
+	EventTicketTransferred   string = "ticket_transferred"    // 工单转交专人（通知用户，S2）
+	EventBalanceLow          string = "balance_low"           // 余额不足预警
+	EventSyncFailed          string = "sync_failed"           // 上游同步失败（管理员）
+	EventSystem              string = "system"                // 系统通用
 )
 
 // 投递通道

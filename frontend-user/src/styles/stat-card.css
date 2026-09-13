@@ -1,0 +1,175 @@
+/* ============================================================
+   HostSent · 用户控制台统一统计卡片
+   由 frontend-admin/src/pages/stat-card.css 移植，作用域限定在 .console-module。
+
+   与管理端的差异只有一处：用户端页面历史上用过 .stat-card__hint（说明文字）
+   与管理端 .stat-card__label 同义，这里两个类名都支持，避免改老页面。
+   ============================================================ */
+
+.console-module {
+  /* ---------- 骨架 ---------- */
+  .stat-card {
+    --stat-accent: 37, 99, 235;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-height: 108px;
+    padding: var(--space-lg) 20px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--hs-radius-lg);
+    background: var(--hs-surface-1);
+    box-shadow: none;
+    opacity: 0;
+    transform: translateY(8px);
+    animation: hs-stat-card-in 360ms var(--hs-ease-out) forwards;
+  }
+
+  .stat-card:nth-child(2) { animation-delay: 60ms; }
+  .stat-card:nth-child(3) { animation-delay: 120ms; }
+  .stat-card:nth-child(4) { animation-delay: 180ms; }
+
+  /* ---------- 彩色光晕（左上角，随变体着色） ---------- */
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    width: 150px;
+    height: 150px;
+    left: -30px;
+    top: -30px;
+    border-radius: 999px;
+    pointer-events: none;
+    background: radial-gradient(
+      circle at 45% 45%,
+      rgba(var(--stat-accent), 0.18) 0%,
+      rgba(var(--stat-accent), 0) 72%
+    );
+  }
+
+  /* ---------- 图标（44px 圆角渐变方块） ---------- */
+  .stat-card__icon {
+    position: relative;
+    z-index: 1;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--hs-radius-xl);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    flex-shrink: 0;
+    background: linear-gradient(135deg, #60a5fa, #2563eb);
+  }
+
+  /* ---------- 文本：数字在上、说明在下 ---------- */
+  .stat-card__info,
+  .stat-card__text,
+  .stat-card__body {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .stat-card__value {
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--color-foreground);
+    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* label 与 hint 同义（hint 为用户端旧类名） */
+  .stat-card__label,
+  .stat-card__hint {
+    color: var(--color-muted-foreground);
+    font-size: 12px;
+    line-height: 1.4;
+    max-width: 100%;
+  }
+
+  .stat-card__label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .stat-card__value .t-statistic__content,
+  .stat-card__value .t-statistic__value {
+    font-size: inherit;
+    font-weight: inherit;
+    color: inherit;
+    line-height: inherit;
+    letter-spacing: inherit;
+  }
+
+  /* ---------- 变体主色（光晕 + 图标渐变） ---------- */
+  .stat-card--default { --stat-accent: 100, 116, 139; }
+  .stat-card--blue,
+  .stat-card--info,
+  .stat-card--primary { --stat-accent: 37, 99, 235; }
+  .stat-card--green,
+  .stat-card--success { --stat-accent: 22, 163, 74; }
+  .stat-card--cyan { --stat-accent: 8, 145, 178; }
+  .stat-card--orange { --stat-accent: 234, 88, 12; }
+  .stat-card--red,
+  .stat-card--danger { --stat-accent: 220, 38, 38; }
+  .stat-card--purple { --stat-accent: 124, 58, 237; }
+  .stat-card--warning { --stat-accent: 217, 119, 6; }
+  .stat-card--indigo { --stat-accent: 79, 70, 229; }
+  .stat-card--teal { --stat-accent: 13, 148, 136; }
+
+  .stat-card--default .stat-card__icon { background: linear-gradient(135deg, #94a3b8, #64748b); }
+  .stat-card--blue .stat-card__icon,
+  .stat-card--info .stat-card__icon,
+  .stat-card--primary .stat-card__icon { background: linear-gradient(135deg, #60a5fa, #2563eb); }
+  .stat-card--green .stat-card__icon,
+  .stat-card--success .stat-card__icon { background: linear-gradient(135deg, #4ade80, #16a34a); }
+  .stat-card--cyan .stat-card__icon { background: linear-gradient(135deg, #22d3ee, #0891b2); }
+  .stat-card--orange .stat-card__icon { background: linear-gradient(135deg, #fbbf24, #ea580c); }
+  .stat-card--red .stat-card__icon,
+  .stat-card--danger .stat-card__icon { background: linear-gradient(135deg, #f87171, #dc2626); }
+  .stat-card--purple .stat-card__icon { background: linear-gradient(135deg, #a78bfa, #7c3aed); }
+  .stat-card--warning .stat-card__icon { background: linear-gradient(135deg, #fbbf24, #d97706); }
+  .stat-card--indigo .stat-card__icon { background: linear-gradient(135deg, #818cf8, #4f46e5); }
+  .stat-card--teal .stat-card__icon { background: linear-gradient(135deg, #2dd4bf, #0d9488); }
+
+  /* ---------- 响应式 ---------- */
+  @media (max-width: 768px) {
+    .stat-card {
+      min-height: 84px;
+      padding: 14px 16px;
+      gap: 12px;
+    }
+
+    .stat-card__icon {
+      width: 40px;
+      height: 40px;
+    }
+
+    .stat-card__value {
+      font-size: 22px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .stat-card {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+@keyframes hs-stat-card-in {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

@@ -15,7 +15,8 @@ type PayoutRepository interface {
 	Update(ctx context.Context, p *model.PaymentPayout) error
 	FindByID(ctx context.Context, id uint64) (*model.PaymentPayout, error)
 	FindByNo(ctx context.Context, payoutNo string) (*model.PaymentPayout, error)
-	FindByWithdrawID(ctx context.Context, withdrawID uint64) (*model.PaymentPayout, error)
+	// FindByWithdrawID 按业务域 + 提现单 ID 查打款单（幂等键，doc86 §2.5）。
+	FindByWithdrawID(ctx context.Context, bizType string, withdrawID uint64) (*model.PaymentPayout, error)
 	List(ctx context.Context, q dto.PayoutListQuery) ([]model.PaymentPayout, int64, error)
 }
 
@@ -52,9 +53,15 @@ func (r *payoutRepository) FindByNo(ctx context.Context, payoutNo string) (*mode
 	return &p, nil
 }
 
-func (r *payoutRepository) FindByWithdrawID(ctx context.Context, withdrawID uint64) (*model.PaymentPayout, error) {
+// FindByWithdrawID 按业务域 + 提现单 ID 查最新打款单；bizType 为空时按财务提现域兜底（存量语义）。
+func (r *payoutRepository) FindByWithdrawID(ctx context.Context, bizType string, withdrawID uint64) (*model.PaymentPayout, error) {
+	if bizType == "" {
+		bizType = model.PayoutBizWithdraw
+	}
 	var p model.PaymentPayout
-	if err := r.db.WithContext(ctx).Where("withdraw_id = ?", withdrawID).Order("id desc").First(&p).Error; err != nil {
+	if err := r.db.WithContext(ctx).
+		Where("biz_type = ? AND withdraw_id = ?", bizType, withdrawID).
+		Order("id desc").First(&p).Error; err != nil {
 		return nil, err
 	}
 	return &p, nil
@@ -62,6 +69,9 @@ func (r *payoutRepository) FindByWithdrawID(ctx context.Context, withdrawID uint
 
 func (r *payoutRepository) List(ctx context.Context, q dto.PayoutListQuery) ([]model.PaymentPayout, int64, error) {
 	base := r.db.WithContext(ctx).Model(&model.PaymentPayout{})
+	if q.BizType != "" {
+		base = base.Where("biz_type = ?", q.BizType)
+	}
 	if q.UserID > 0 {
 		base = base.Where("user_id = ?", q.UserID)
 	}

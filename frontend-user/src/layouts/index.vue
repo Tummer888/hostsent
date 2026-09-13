@@ -1,127 +1,136 @@
 <template>
   <div class="user-layout">
-    <div class="main-wrapper">
-      <!-- 顶部导航：汉堡 + logo + 一级菜单 | 搜索 + 文本链接 + 图标 + 用户名 -->
-      <header class="top-header">
-        <div class="header-left">
-          <!-- 汉堡菜单（最左） -->
-          <button class="hamburger-btn" aria-label="菜单" @click="toggleNav">
-            <MenuUnfoldIcon v-if="!navOpen" size="20" />
-            <MenuFoldIcon v-else size="20" />
-          </button>
+    <!-- 顶部导航：汉堡 + logo + 一级菜单 | 搜索 + 文本链接 + 图标 + 用户名 -->
+    <header class="top-header">
+      <div class="header-left">
+        <!-- 汉堡菜单：桌面折叠侧边栏，移动端打开抽屉 -->
+        <button
+          class="hamburger-btn"
+          aria-label="切换导航"
+          @click="toggleNav"
+        >
+          <MenuUnfoldIcon size="20" />
+        </button>
 
-          <!-- logo -->
-          <div class="logo" @click="router.push('/dashboard')">
-            <span class="logo-icon">H</span>
-            <span class="logo-text">宿派云控</span>
-          </div>
-
+        <!-- logo：品牌名与图标来自管理端站点配置（brandStore） -->
+        <div class="logo" @click="router.push('/dashboard')">
+          <img v-if="brandStore.logo" class="logo-img" :src="brandStore.logo" :alt="brandStore.name" />
+          <span v-else class="logo-icon">{{ brandStore.logoMark }}</span>
+          <span class="logo-text">{{ brandStore.name }}</span>
         </div>
 
-        <div class="header-right">
-          <!-- 搜索框（图标在右） -->
-          <div class="header-search">
-            <input
-              v-model="headerSearch"
-              class="header-search__input"
-              type="text"
-              placeholder="搜索产品、资源或文档"
-              @keyup.enter="onHeaderSearch"
-            />
-            <button class="header-search__btn" aria-label="搜索" @click="onHeaderSearch">
-              <SearchIcon size="16" />
+        <!-- 全部云产品：打开产品大菜单（产品导航，与左侧账户导航职责不同） -->
+        <button class="all-products-btn" @click="productMenuOpen = true">
+          <GridViewIcon size="16" />
+          <span>全部云产品</span>
+        </button>
+
+      </div>
+
+      <div class="header-right">
+        <!-- 搜索框（图标在右） -->
+        <div class="header-search">
+          <input
+            v-model="headerSearch"
+            class="header-search__input"
+            type="text"
+            placeholder="搜索产品、资源或文档"
+            @keyup.enter="onHeaderSearch"
+          />
+          <button class="header-search__btn" aria-label="搜索" @click="onHeaderSearch">
+            <SearchIcon size="16" />
+          </button>
+        </div>
+
+        <!-- 文本导航：指向各功能的真实落点，不再统一指向工单页 -->
+        <nav class="header-links">
+          <button class="header-link" @click="router.push('/billing')">费用</button>
+          <button class="header-link" @click="router.push('/support/tickets')">客户支持</button>
+          <button class="header-link" @click="onSiteEntry">官网</button>
+          <button class="header-link" @click="router.push('/referral/materials')">渠道合作</button>
+        </nav>
+
+        <!-- 图标组 -->
+        <div class="header-icons">
+          <t-tooltip content="购物车" placement="bottom">
+            <button class="icon-btn" aria-label="购物车" @click="router.push('/cart')">
+              <CartIcon size="18" />
+              <span v-if="cartCount > 0" class="icon-btn__badge">{{ cartCount > 99 ? '99+' : cartCount }}</span>
             </button>
-          </div>
+          </t-tooltip>
 
-          <!-- 文本导航 -->
-          <nav class="header-links">
-            <button class="header-link" @click="router.push('/billing')">费用</button>
-            <button class="header-link" @click="router.push('/support/tickets')">客户支持</button>
-            <button class="header-link" @click="router.push('/support/tickets')">备案</button>
-            <button class="header-link" @click="router.push('/support/tickets')">渠道管理</button>
-          </nav>
+          <t-tooltip content="我的消息" placement="bottom">
+            <button class="icon-btn" aria-label="我的消息" @click="router.push('/profile/messages')">
+              <MailIcon size="18" />
+              <span v-if="unreadCount > 0" class="icon-btn__dot"></span>
+            </button>
+          </t-tooltip>
 
-          <!-- 图标组 -->
-          <div class="header-icons">
-            <t-tooltip content="购物车" placement="bottom">
-              <button class="icon-btn" aria-label="购物车" @click="router.push('/shop')">
-                <CartIcon size="18" />
-              </button>
-            </t-tooltip>
+          <t-tooltip content="提交工单" placement="bottom">
+            <button class="icon-btn" aria-label="提交工单" @click="router.push('/support/tickets')">
+              <HelpCircleIcon size="18" />
+            </button>
+          </t-tooltip>
 
-            <t-tooltip content="消息通知" placement="bottom">
-              <button class="icon-btn" aria-label="消息通知" @click="router.push('/profile/messages')">
-                <MailIcon size="18" />
-                <span class="icon-btn__dot"></span>
-              </button>
-            </t-tooltip>
+          <t-tooltip content="地区与语言" placement="bottom">
+            <button class="icon-btn" aria-label="地区与语言" @click="onRegionClick">
+              <EarthIcon size="18" />
+            </button>
+          </t-tooltip>
 
-            <t-tooltip content="帮助文档" placement="bottom">
-              <button class="icon-btn" aria-label="帮助文档" @click="router.push('/support')">
-                <HelpCircleIcon size="18" />
-              </button>
-            </t-tooltip>
+          <t-tooltip content="主题设置" placement="bottom">
+            <button class="icon-btn" aria-label="主题设置" @click="settingsVisible = true">
+              <ContrastIcon size="18" />
+            </button>
+          </t-tooltip>
+        </div>
 
-            <t-tooltip content="地区与语言" placement="bottom">
-              <button class="icon-btn" aria-label="地区与语言" @click="onRegionClick">
-                <EarthIcon size="18" />
-              </button>
-            </t-tooltip>
-
-            <t-tooltip content="主题设置" placement="bottom">
-              <button class="icon-btn" aria-label="主题设置" @click="settingsVisible = true">
-                <ContrastIcon size="18" />
-              </button>
-            </t-tooltip>
-          </div>
-
-          <!-- 用户名：点开账户面板 -->
-          <t-popup
-            v-model:visible="userMenuVisible"
-            trigger="click"
-            placement="bottom-right"
-            overlay-class-name="user-menu-popup"
-          >
-            <span class="header-username">
-              {{ userName }}
-              <span v-if="memberStore.isSub" class="header-username__sub">
-                {{ memberStore.ownerName ? `${memberStore.ownerName} 的子账号` : '子账号' }}
-              </span>
+        <!-- 用户名：点开账户面板 -->
+        <t-popup
+          v-model:visible="userMenuVisible"
+          trigger="click"
+          placement="bottom-right"
+          overlay-class-name="user-menu-popup"
+        >
+          <span class="header-username">
+            {{ userName }}
+            <span v-if="memberStore.isSub" class="header-username__sub">
+              {{ memberStore.ownerName ? `${memberStore.ownerName} 的子账号` : '子账号' }}
             </span>
-            <template #content>
-              <div class="user-menu">
-                <div class="user-menu__head">
-                  <span class="user-menu__avatar">{{ userInitial }}</span>
-                  <div class="user-menu__meta">
-                    <strong>{{ userName }}</strong>
-                    <span>@{{ userStore.userInfo?.username || '-' }}</span>
-                  </div>
-                </div>
-
-                <div class="user-menu__body">
-                  <button
-                    v-for="m in userMenuItems"
-                    :key="m.key"
-                    class="user-menu__item"
-                    @click="handleUserMenuClick(m)"
-                  >
-                    {{ m.title }}
-                  </button>
-                </div>
-
-                <div class="user-menu__foot">
-                  <button class="user-menu__logout" @click="handleLogout">退出登录</button>
+          </span>
+          <template #content>
+            <div class="user-menu">
+              <div class="user-menu__head">
+                <span class="user-menu__avatar">{{ userInitial }}</span>
+                <div class="user-menu__meta">
+                  <strong>{{ userName }}</strong>
+                  <span>@{{ userStore.userInfo?.username || '-' }}</span>
                 </div>
               </div>
-            </template>
-          </t-popup>
-        </div>
-      </header>
 
-      <!-- 左侧展开的产品大菜单 -->
-      <ProductMenu v-model:open="navOpen" />
+              <div class="user-menu__body">
+                <button
+                  v-for="m in userMenuItems"
+                  :key="m.key"
+                  class="user-menu__item"
+                  @click="handleUserMenuClick(m)"
+                >
+                  {{ m.title }}
+                </button>
+              </div>
+              <div class="user-menu__foot">
+                <button class="user-menu__logout" @click="handleLogout">退出登录</button>
+              </div>
+            </div>
+          </template>
+        </t-popup>
+      </div>
+    </header>
 
-      <!-- 内容区 -->
+    <!-- 主体：左侧控制台导航 + 右侧内容区 -->
+    <div class="body-wrapper">
+      <SideNav ref="sideNavRef" v-model:open="sideNavOpen" />
+
       <main class="content-area">
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
@@ -130,6 +139,9 @@
         </router-view>
       </main>
     </div>
+
+    <!-- 左侧展开的产品大菜单 -->
+    <ProductMenu v-model:open="productMenuOpen" />
 
     <!-- 主题设置抽屉 -->
     <SettingsPanel v-model:visible="settingsVisible" />
@@ -155,7 +167,7 @@
             </button>
           </div>
           <div class="dock-assistant__body">
-            <p>你好，我是宿派云控智能助手，可以帮你查资源、看账单、找文档。</p>
+            <p>你好，我是{{ brandStore.name }}智能助手，可以帮你查资源、看账单、找文档。</p>
             <div class="dock-assistant__quick">
               <button
                 v-for="q in dockQuick"
@@ -221,17 +233,19 @@ import {
   CloseIcon,
   ContrastIcon,
   EarthIcon,
+  GridViewIcon,
   HelpCircleIcon,
   MailIcon,
-  MenuFoldIcon,
   MenuUnfoldIcon,
   SearchIcon,
   ServiceIcon,
 } from 'tdesign-icons-vue-next'
 
-import { useMenuStore, useUserStore, useSettingsStore } from '@/store'
+import { useMenuStore, useUserStore, useSettingsStore, useCartStore, useBrandStore } from '@/store'
 import { useMemberStore } from '@/store/modules/member'
+import { getUnreadCount } from '@/api/notification'
 import ProductMenu from '@/components/product-menu/index.vue'
+import SideNav from '@/components/side-nav/index.vue'
 import SettingsPanel from '@/components/settings-panel/index.vue'
 
 defineOptions({ name: 'UserLayout' })
@@ -242,16 +256,29 @@ const menuStore = useMenuStore()
 const userStore = useUserStore()
 const memberStore = useMemberStore()
 const settingsStore = useSettingsStore()
+const cartStore = useCartStore()
+const cartCount = computed(() => cartStore.count)
+const brandStore = useBrandStore()
 
 // 主题设置抽屉
 const settingsVisible = ref(false)
 
-// 左侧产品大菜单开合
-const navOpen = ref(false)
+// 两个导航是两件事，各用一个开关：
+// - sideNavOpen：控制台侧边栏（桌面常驻/移动端抽屉），由汉堡按钮切换
+// - productMenuOpen：产品大菜单浮层（全屏面板），由导航里的「全部云产品」入口打开
+const sideNavOpen = ref(false)
+const productMenuOpen = ref(false)
 const isMobile = ref(false)
+/** 桌面端汉堡要能折叠侧边栏，折叠状态由 SideNav 自己持有，这里拿它的开关。 */
+const sideNavRef = ref<InstanceType<typeof SideNav> | null>(null)
 
+/** 汉堡：窄屏开侧边抽屉，宽屏折叠/展开常驻侧边栏（折叠态持久化在 SideNav 内）。 */
 function toggleNav() {
-  navOpen.value = !navOpen.value
+  if (isMobile.value) {
+    sideNavOpen.value = !sideNavOpen.value
+    return
+  }
+  sideNavRef.value?.toggleCollapse()
 }
 
 function checkMobile() {
@@ -274,6 +301,31 @@ const userInitial = computed(() => (userStore.displayName || '用').slice(0, 1).
 
 function onRegionClick() {
   MessagePlugin.info('地区与语言设置开发中')
+}
+
+// ========== 官网门户入口 ==========
+// user 是已登录控制台，官网是另一个独立站点（site，Nuxt SSR，默认 3003）。
+// 未配置 VITE_SITE_URL 时只提示，不做跳转 —— 硬编码一个可能不存在的地址比不跳更糟。
+const siteUrl = import.meta.env.VITE_SITE_URL || ''
+
+function onSiteEntry() {
+  if (!siteUrl) {
+    MessagePlugin.info('官网地址未配置（VITE_SITE_URL）')
+    return
+  }
+  window.open(siteUrl, '_blank', 'noopener')
+}
+
+// ========== 未读消息 / 购物车角标 ==========
+const unreadCount = ref(0)
+
+async function loadUnreadCount() {
+  try {
+    const { data } = await getUnreadCount()
+    unreadCount.value = data?.count ?? 0
+  } catch {
+    // 角标是装饰性信息，取不到就不显示，不打断页面
+  }
 }
 
 // 深色快捷切换（main.ts 已 init，这里只负责按钮行为）
@@ -362,6 +414,7 @@ onMounted(async () => {
   checkMobile()
   window.addEventListener('resize', checkMobile)
   settingsStore.init()
+  loadUnreadCount()
   try {
     if (!menuStore.loaded) {
       await menuStore.loadMenus('user')
@@ -377,7 +430,7 @@ onBeforeUnmount(() => {
 
 // 路由切换后收起移动端抽屉
 watch(() => route.path, () => {
-  if (isMobile.value) navOpen.value = false
+  if (isMobile.value) sideNavOpen.value = false
   closeUserMenu()
 })
 </script>
@@ -388,6 +441,14 @@ watch(() => route.path, () => {
   flex-direction: column;
   min-height: 100vh;
   background: #F8FAFC;
+}
+
+/* 主体：桌面端侧边栏常驻在左、内容在右；移动端侧边栏变抽屉（fixed），不占位。 */
+.body-wrapper {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
 }
 
 .main-wrapper {
@@ -440,11 +501,42 @@ watch(() => route.path, () => {
   font-size: 17px;
 }
 
+/* 后台配置了 Logo 图片时用它替换文字标记，高度与 .logo-icon 对齐 */
+.logo-img {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  border-radius: 9px;
+}
+
 .logo-text {
   font-size: 17px;
   font-weight: 700;
   color: #1E293B;
   white-space: nowrap;
+}
+
+/* 「全部云产品」：唯一的产品大菜单入口（原本无入口，菜单状态恒为关闭） */
+.all-products-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  background: transparent;
+  color: #334155;
+  font-size: 13.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.all-products-btn:hover {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+  background: #EFF6FF;
 }
 
 .header-right {
@@ -586,6 +678,24 @@ watch(() => route.path, () => {
   border-radius: 50%;
   background: #EF4444;
   border: 1.5px solid #fff;
+}
+
+/* 购物车数量角标：比未读小红点多一个数字，样式单独给（位置更靠外） */
+.icon-btn__badge {
+  position: absolute;
+  top: 2px;
+  right: 1px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #EF4444;
+  border: 1.5px solid #fff;
+  color: #fff;
+  font-size: 10px;
+  line-height: 13px;
+  text-align: center;
+  font-weight: 600;
 }
 
 /* ===== 用户名 ===== */
@@ -767,8 +877,23 @@ watch(() => route.path, () => {
 .dark .hamburger-btn,
 .dark .icon-btn,
 .dark .header-link,
-.dark .header-username {
+.dark .header-username,
+.dark .all-products-btn {
   color: #cbd5e1;
+}
+
+.dark .all-products-btn {
+  border-color: #2a2a2a;
+}
+
+.dark .all-products-btn:hover {
+  background: #1e1e1e;
+  border-color: var(--td-brand-color-4);
+  color: var(--td-brand-color-4);
+}
+
+.dark .icon-btn__badge {
+  border-color: #141414;
 }
 
 .dark .icon-btn:hover,
@@ -782,9 +907,8 @@ watch(() => route.path, () => {
 /* ============ 内容区 ============ */
 .content-area {
   flex: 1;
-  width: 100%;
+  min-width: 0;
   padding: 24px;
-  overflow-y: auto;
 }
 
 .fade-enter-active,
@@ -1056,9 +1180,10 @@ watch(() => route.path, () => {
     height: 56px;
   }
 
-  /* 移动端：隐藏搜索框与文本导航，保留汉堡 + logo + 图标 + 用户名 */
+  /* 移动端：隐藏搜索框、文本导航与产品大菜单入口，保留汉堡 + logo + 图标 + 用户名 */
   .header-search,
-  .header-links {
+  .header-links,
+  .all-products-btn {
     display: none;
   }
 

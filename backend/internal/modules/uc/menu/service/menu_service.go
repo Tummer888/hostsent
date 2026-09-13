@@ -11,7 +11,8 @@ import (
 
 // MenuService 用户中心菜单服务接口。
 type MenuService interface {
-	// Tree 按平台构建菜单树，platform 为空时默认取用户端（user）。
+	// Tree 构建用户端菜单树。平台参数只作兼容保留：用户中心只服务 platform=user，
+	// 传入 admin 等其它值时同样回落 user，避免普通用户借此读取管理端菜单结构。
 	Tree(ctx context.Context, platform string) ([]dto.MenuNode, error)
 }
 
@@ -25,11 +26,12 @@ func NewMenuService(repo repository.MenuRepository) MenuService {
 }
 
 // Tree 查询菜单记录并递归组装为树形结构。
-func (s *menuService) Tree(ctx context.Context, platform string) ([]dto.MenuNode, error) {
-	if platform == "" {
-		platform = menumodel.PlatformUser
-	}
-	menus, err := s.repo.ListByPlatform(ctx, platform)
+//
+// platform 不参与选择：用户中心菜单接口固定 platform=user。历史上该参数由客户端传入，
+// 普通用户可用 ?platform=admin 拿到管理端菜单结构（路径/图标/层级），属信息越权；
+// 这里改为一律回落 user，参数仅作向后兼容保留。
+func (s *menuService) Tree(ctx context.Context, _ string) ([]dto.MenuNode, error) {
+	menus, err := s.repo.ListByPlatform(ctx, menumodel.PlatformUser)
 	if err != nil {
 		return nil, err
 	}

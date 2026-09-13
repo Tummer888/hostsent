@@ -51,6 +51,11 @@ export interface AdminListQuery {
   role?: string
   status?: string
   keyword?: string
+  // S1 员工体系：组织维度筛选
+  department_id?: number
+  staff_type?: string
+  sales_enabled?: string
+  is_resigned?: string
 }
 
 export interface AdminInfo {
@@ -62,6 +67,16 @@ export interface AdminInfo {
   roles?: string[]
   department?: string
   position?: string
+  // S1 员工体系
+  real_name?: string
+  phone?: string
+  department_id?: number
+  department_name?: string
+  staff_type?: string
+  sales_enabled?: boolean
+  joined_at?: string
+  resigned_at?: string
+  is_resigned?: boolean
   service_group_id?: number
   must_change_password?: boolean
   status: string
@@ -90,6 +105,12 @@ export interface AdminCreateRequest {
   department?: string
   position?: string
   status?: string
+  // S1 员工体系
+  real_name?: string
+  phone?: string
+  department_id?: number
+  staff_type?: string
+  sales_enabled?: boolean
 }
 
 export interface AdminUpdateRequest {
@@ -99,6 +120,55 @@ export interface AdminUpdateRequest {
   department?: string
   position?: string
   status: string
+  // S1 员工体系
+  real_name?: string
+  phone?: string
+  department_id?: number
+  staff_type?: string
+  sales_enabled?: boolean
+}
+
+// ===== 组织部门（S1 员工体系，doc86 §2.1） =====
+
+export interface DepartmentListQuery {
+  kind?: string
+  status?: string
+  /** flat=1 返回平铺列表，否则返回两级树 */
+  flat?: number
+  keyword?: string
+}
+
+export interface DepartmentInfo {
+  id: number
+  name: string
+  code: string
+  kind: string
+  parent_id: number
+  leader_admin_id: number
+  leader_name?: string
+  remark?: string
+  sort_order: number
+  status: string
+  admin_count: number
+  category_count: number
+  children?: DepartmentInfo[]
+  created_at: string
+}
+
+export interface DepartmentListResponse {
+  items: DepartmentInfo[]
+  tree: boolean
+}
+
+export interface DepartmentSaveRequest {
+  name: string
+  code: string
+  kind?: string
+  parent_id?: number
+  leader_admin_id?: number
+  remark?: string
+  sort_order?: number
+  status?: string
 }
 
 export interface AdminStatusRequest {
@@ -109,7 +179,7 @@ export interface AdminResetPasswordRequest {
   password: string
 }
 
-// ===== 员工管理（P2-01，新路径 /staff，超管独占） =====
+// ===== 员工管理（P2-01，新路径 /staff） =====
 
 export function getAdminList(params: AdminListQuery): Promise<AdminListResponse> {
   return request.get<AdminListResponse>({
@@ -120,6 +190,10 @@ export function getAdminList(params: AdminListQuery): Promise<AdminListResponse>
       role: params.role,
       status: params.status,
       keyword: params.keyword,
+      department_id: params.department_id,
+      staff_type: params.staff_type,
+      sales_enabled: params.sales_enabled,
+      is_resigned: params.is_resigned,
     },
   })
 }
@@ -170,6 +244,49 @@ export function deleteAdmin(id: string | number): Promise<string> {
   return request.delete<string>({
     url: `/staff/${id}`,
   })
+}
+
+/**
+ * 员工离职（S1）：置离职标记 + 禁用账号，并交待在途客户。
+ * 已有提成/工单不受影响，历史记录保留可追溯。
+ */
+export function resignAdmin(id: string | number, data?: { reason?: string; transfer_to_admin_id?: number }): Promise<string> {
+  return request.post<string>({
+    url: `/staff/${id}/resign`,
+    data: data ?? {},
+  })
+}
+
+// ===== 组织部门（S1 员工体系） =====
+
+/** 查询部门（默认两级树；flat=1 平铺） */
+export function getDepartmentList(params?: DepartmentListQuery): Promise<DepartmentListResponse> {
+  return request.get<DepartmentListResponse>({
+    url: '/departments',
+    params: {
+      kind: params?.kind,
+      status: params?.status,
+      flat: params?.flat,
+      keyword: params?.keyword,
+    },
+  })
+}
+
+export function getDepartmentDetail(id: number): Promise<DepartmentInfo> {
+  return request.get<DepartmentInfo>({ url: `/departments/${id}` })
+}
+
+export function createDepartment(data: DepartmentSaveRequest): Promise<DepartmentInfo> {
+  return request.post<DepartmentInfo>({ url: '/departments', data })
+}
+
+export function updateDepartment(id: number, data: DepartmentSaveRequest): Promise<DepartmentInfo> {
+  return request.put<DepartmentInfo>({ url: `/departments/${id}`, data })
+}
+
+/** 删除部门：有在职员工或工单分类引用时后端返回 409 拒绝 */
+export function deleteDepartment(id: number): Promise<string> {
+  return request.delete<string>({ url: `/departments/${id}` })
 }
 
 // ===== 管理端操作审计（P2-06） =====

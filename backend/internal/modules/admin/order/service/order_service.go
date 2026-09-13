@@ -37,6 +37,8 @@ type OrderService interface {
 	SetProvisionQueue(queue ProvisionQueue)
 	// SetProductSourceModeResolver 注入商品链路判据解析（装配层调用，仅用于任务留痕）。
 	SetProductSourceModeResolver(fn func(ctx context.Context, productID uint64) string)
+	// SetSalesOwnerResolver 注入销售归属快照解析（装配层调用，doc86 §3.4，仅用于后台代下单）。
+	SetSalesOwnerResolver(r SalesOwnerResolver)
 	// MarkPaidByChannel 支付中心回调确认到账：pending→paid 并记录渠道支付方式。
 	// 已是 paid/active 时幂等返回；返回是否发生了状态迁移（供装配层决定是否继续开通）。
 	MarkPaidByChannel(ctx context.Context, orderNo, payMethod, channelTx string) (bool, error)
@@ -89,6 +91,18 @@ type orderService struct {
 	refundHook OrderRefundHook
 	// channelRefundHook 可选：退款审核通过后走渠道原路退回（doc35 S1），为 nil 时跳过。
 	channelRefundHook OrderChannelRefundHook
+	// salesOwner 可选：后台代下单时解析销售归属快照（doc86 §3.4），为 nil 时快照落 0。
+	salesOwner SalesOwnerResolver
+}
+
+// SalesOwnerResolver 销售归属解析（装配层注入，避免订单模块依赖销售模块）。
+type SalesOwnerResolver interface {
+	SalesAdminForNewOrder(ctx context.Context, userID uint64) uint64
+}
+
+// SetSalesOwnerResolver 注入销售归属解析（装配层调用）。
+func (s *orderService) SetSalesOwnerResolver(r SalesOwnerResolver) {
+	s.salesOwner = r
 }
 
 // NewOrderService 创建订单业务服务。

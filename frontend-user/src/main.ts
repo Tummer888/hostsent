@@ -8,6 +8,10 @@ import { setupPermission } from './permission'
 import router from './router'
 import { pinia, useSettingsStore } from './store'
 import './styles/index.css'
+// 设计 Token 与页面骨架契约（对齐 frontend-admin 的 --hs-* / surface-card 体系）。
+// 必须放在 index.css 之后：tokens.css 覆盖了同名的 --space-* 一类变量。
+import './styles/tokens.css'
+import './styles/console-module.css'
 
 // 代登录（管理端新窗口带入 ?token=）：写入登录态并清除 URL 参数，
 // 供 pinia store 初始化与请求拦截器读取，使新窗口免登录直接进入用户端。

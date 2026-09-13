@@ -236,6 +236,8 @@ func toUserInfo(user model.User) dto.UserInfo {
 		OwnerUserID:        user.OwnerUserID,
 		OwnerName:          user.OwnerName,
 		SubAccountRemark:   user.SubAccountRemark,
+		SalesAdminID:       user.SalesAdminID,
+		SalesAdminName:     user.SalesAdminName,
 		CreatedAt:          user.CreatedAt,
 		LastLoginAt:        user.LastLoginAt,
 	}

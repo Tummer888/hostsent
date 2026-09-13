@@ -120,6 +120,18 @@
             :options="accountTypeOptions"
           />
         </div>
+
+        <div class="toolbar-field">
+          <span class="toolbar-field__label">归属销售</span>
+          <t-select
+            v-model="filters.sales_admin_id"
+            class="unified-control"
+            clearable
+            filterable
+            placeholder="全部销售"
+            :options="salesFilterOptions"
+          />
+        </div>
       </div>
 
       <div class="toolbar__actions">
@@ -247,6 +259,16 @@
 
           <template #user_group_name="{ row }">
             <span class="text-muted">{{ row.user_group_name || '未分组' }}</span>
+          </template>
+
+          <template #sales_admin_name="{ row }">
+            <div v-if="row.sales_admin_name" class="price-cell">
+              <span class="user-cell__name user-cell__name--secondary">{{ row.sales_admin_name }}</span>
+            </div>
+            <span v-else class="text-muted">
+              未归属
+              <t-link class="page-link" theme="primary" hover="color" @click="goSalesAssign(row)">分配</t-link>
+            </span>
           </template>
 
           <template #user_level_name="{ row }">
@@ -491,7 +513,9 @@ import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo
 
 import { createUser, createUserOrder, getRegionStats, getRoleList, getUserGroupList, getUserLevelList, getUserList, impersonateUser, rechargeUser, updateUserStatus, type RegionStatItem, type RoleInfo, type UserCreateRequest, type UserGroupInfo, type UserInfo, type UserLevelInfo, type UserListQuery } from '@/api/user'
 import { getProductList as getUcProductList } from '@/api/product'
+import { getSalesCandidates } from '@/api/sales'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
+import type { SalesCandidateInfo } from '@/types/interface'
 
 defineOptions({ name: 'UserAccountsList' })
 
@@ -507,6 +531,7 @@ const regionItems = ref<RegionStatItem[]>([])
 const roleOptions = ref<RoleInfo[]>([])
 const userGroupOptions = ref<UserGroupInfo[]>([])
 const userLevelOptions = ref<UserLevelInfo[]>([])
+const salesOptions = ref<SalesCandidateInfo[]>([])
 const sortOrder = ref<SortOrder>('desc')
 const isMobile = ref(false)
 const tableDragRef = ref<HTMLElement | null>(null)
@@ -527,6 +552,8 @@ const filters = reactive<UserListQuery>({
   user_level_id: undefined,
   user_group_id: undefined,
   is_sub_account: '',
+  sales_admin_id: undefined,
+  unassigned_sales: '',
 })
 
 const pagination = reactive({
@@ -597,6 +624,8 @@ const statusOptions = [
 const quickFilterOptions = [
   { label: '今日新增', value: 'today' },
   { label: '待实名', value: 'pending_real_name' },
+  // 未归属销售（doc86 §4.1.10）：对应后端 unassigned_sales=1
+  { label: '未归属销售', value: 'unassigned_sales' },
 ]
 
 const statusLabelMap: Record<string, string> = {
@@ -670,14 +699,29 @@ const userGroupFilterOptions = computed(() => [
   }),
 ])
 
+// 归属销售筛选（doc86 §4.1.10）：数据源为在职且开启销售能力的员工
+const salesFilterOptions = computed(() => [
+  { label: '全部销售', value: undefined },
+  ...salesOptions.value.map((item) => ({
+    label: `${item.real_name || item.username}${item.department_name ? `（${item.department_name}）` : ''}`,
+    value: item.admin_id,
+  })),
+  { label: '未归属', value: 0 },
+])
+
 const activeFilterLabel = computed(() => {
   if (filters.filter === 'today') return '今日新增'
   if (filters.filter === 'pending_real_name') return '待实名认证'
+  if (filters.filter === 'unassigned_sales') return '未归属销售'
   if (filters.status) return statusLabelMap[filters.status] || filters.status
   if (filters.last_login_ip_region) return filters.last_login_ip_region
   if (filters.user_group_id) {
     const group = userGroupOptions.value.find((item) => item.id === filters.user_group_id)
     return `用户组: ${group?.name || filters.user_group_id}`
+  }
+  if (filters.sales_admin_id) {
+    const sales = salesOptions.value.find((item) => item.admin_id === filters.sales_admin_id)
+    return `归属销售: ${sales?.real_name || sales?.username || filters.sales_admin_id}`
   }
   if (filters.keyword) return `搜索: ${filters.keyword}`
   return ''
@@ -697,6 +741,7 @@ const columns = computed<PrimaryTableCol<UserInfo>[]>(() => [
   { colKey: 'role', title: '角色', minWidth: 180 },
   { colKey: 'user_level_name', title: '用户等级', width: 130 },
   { colKey: 'user_group_name', title: '用户组', minWidth: 180 },
+  { colKey: 'sales_admin_name', title: '归属销售', minWidth: 150 },
   { colKey: 'last_login_ip', title: '登录 IP', minWidth: 220 },
   { colKey: 'oauth_provider', title: '第三方登录', minWidth: 180 },
   { colKey: 'status', title: '状态', width: 110 },
@@ -721,6 +766,8 @@ function syncFiltersFromRoute() {
   filters.user_level_id = query.user_level_id ? Number(query.user_level_id) : undefined
   filters.user_group_id = query.user_group_id ? Number(query.user_group_id) : undefined
   filters.is_sub_account = query.is_sub_account === 'true' || query.is_sub_account === 'false' ? query.is_sub_account : ''
+  filters.sales_admin_id = query.sales_admin_id ? Number(query.sales_admin_id) : undefined
+  filters.unassigned_sales = query.unassigned_sales === 'true' ? 'true' : ''
   pagination.current = filters.page
   pagination.pageSize = filters.page_size
 }
@@ -748,6 +795,12 @@ function buildQuery() {
   if (filters.user_level_id) query.user_level_id = String(filters.user_level_id)
   if (filters.user_group_id) query.user_group_id = String(filters.user_group_id)
   if (filters.is_sub_account) query.is_sub_account = filters.is_sub_account
+  // 「归属销售=未归属(0)」与快捷筛选「未归属销售」统一收敛为 unassigned_sales=true
+  if (filters.filter === 'unassigned_sales' || filters.sales_admin_id === 0) {
+    query.unassigned_sales = 'true'
+  } else if (filters.sales_admin_id) {
+    query.sales_admin_id = String(filters.sales_admin_id)
+  }
   return query
 }
 
@@ -804,16 +857,20 @@ async function loadUsers() {
   loading.value = true
   errorMessage.value = ''
   try {
+    // 「未归属销售」既可由快捷筛选触发，也可由「归属销售=未归属(0)」触发。
+    const onlyUnassigned = filters.filter === 'unassigned_sales' || filters.sales_admin_id === 0
     const data = await getUserList({
       page: filters.page,
       page_size: filters.page_size,
       status: filters.status || undefined,
-      filter: filters.filter || undefined,
+      filter: filters.filter && filters.filter !== 'unassigned_sales' ? filters.filter : undefined,
       last_login_ip_region: filters.last_login_ip_region || undefined,
       keyword: filters.keyword || undefined,
       user_level_id: filters.user_level_id || undefined,
       user_group_id: filters.user_group_id || undefined,
       is_sub_account: filters.is_sub_account || undefined,
+      sales_admin_id: !onlyUnassigned && filters.sales_admin_id ? filters.sales_admin_id : undefined,
+      unassigned_sales: onlyUnassigned ? 'true' : undefined,
     })
     tableData.value = data.items || []
     pagination.current = data.meta.page
@@ -836,8 +893,17 @@ async function loadUsers() {
   }
 }
 
+async function loadSalesOptions() {
+  try {
+    const data = await getSalesCandidates({})
+    salesOptions.value = data.items || []
+  } catch {
+    salesOptions.value = []
+  }
+}
+
 async function loadAll() {
-  await Promise.all([loadRegions(), loadRoleOptions(), loadUserGroupOptions(), loadUserLevelOptions(), loadUsers()])
+  await Promise.all([loadRegions(), loadRoleOptions(), loadUserGroupOptions(), loadUserLevelOptions(), loadSalesOptions(), loadUsers()])
 }
 
 async function handleSearch() {
@@ -856,6 +922,8 @@ async function handleReset() {
   filters.user_level_id = undefined
   filters.user_group_id = undefined
   filters.is_sub_account = ''
+  filters.sales_admin_id = undefined
+  filters.unassigned_sales = ''
   sortOrder.value = 'desc'
   pagination.current = 1
   pagination.pageSize = 10
@@ -974,6 +1042,11 @@ function goUserDetail(row: UserInfo) {
     path: '/users/accounts/detail',
     query: { id: String(row.id) },
   })
+}
+
+// 未归属行内「分配」：跳客户归属页并带上该用户名做关键词（doc86 §4.1.10）
+function goSalesAssign(row: UserInfo) {
+  router.push({ path: '/sales/customers', query: { keyword: row.username } })
 }
 
 function handleRecharge(row: UserInfo) {

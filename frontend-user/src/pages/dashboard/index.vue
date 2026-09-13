@@ -6,7 +6,7 @@
       <section class="welcome-hero">
         <div class="hero-card__text">
           <h2 class="hero-title">
-            欢迎使用<span class="hero-title__name">宿派云控</span>
+            欢迎使用<span class="hero-title__name">{{ brandStore.name }}</span>
           </h2>
           <div class="hero-search">
             <SearchIcon size="16" class="hero-search__icon" />
@@ -394,12 +394,14 @@ import {
 
 import { useUserStore } from '@/store'
 import { useMemberStore } from '@/store/modules/member'
+import { useBrandStore } from '@/store/modules/brand'
 
 defineOptions({ name: 'UserConsole' })
 
 const router = useRouter()
 const userStore = useUserStore()
 const memberStore = useMemberStore()
+const brandStore = useBrandStore()
 
 function go(path: string) {
   router.push(path)

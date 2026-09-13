@@ -21,18 +21,17 @@ func NewMenuHandler(menuService service.MenuService) *MenuHandler {
 
 // Tree 用户中心菜单树
 // @Summary 用户中心菜单树
-// @Description 获取用户控制台（platform=user）的菜单树，供前端侧边栏渲染
+// @Description 获取用户控制台（固定 platform=user）的菜单树，供前端侧边栏渲染。platform 参数仅为兼容保留，不会切换到管理端菜单。
 // @Tags 用户中心-菜单
 // @Produce json
 // @Security BearerAuth
-// @Param platform query string false "平台：user(默认) 或 admin"
+// @Param platform query string false "兼容参数，无论传值一律返回 user 菜单"
 // @Success 200 {object} response.Body{data=[]dto.MenuNode}
 // @Failure 401 {object} response.Body
 // @Failure 500 {object} response.Body
 // @Router /api/v1/uc/menus/tree [get]
 func (h *MenuHandler) Tree(c *gin.Context) {
-	platform := c.DefaultQuery("platform", "user")
-	tree, err := h.menuService.Tree(c.Request.Context(), platform)
+	tree, err := h.menuService.Tree(c.Request.Context(), c.Query("platform"))
 	if err != nil {
 		response.Error(c, apperrors.New(50001, err.Error()))
 		return

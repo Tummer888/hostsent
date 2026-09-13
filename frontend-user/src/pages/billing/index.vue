@@ -55,40 +55,61 @@
     </aside>
 
     <!-- ============ 右侧内容 ============ -->
-    <div class="billing-main">
-      <div class="page-head">
-        <h2 class="page-title">消费总览</h2>
-        <t-button variant="text" theme="primary" @click="onDevelop('操作指南')">
-          <template #icon><FilePasteIcon /></template>
-          操作指南
-        </t-button>
-      </div>
+    <div class="billing-main page-body console-module">
+      <header class="page-header surface-card">
+        <div class="page-header__main">
+          <span class="page-header__chip">
+            <MoneyIcon size="22" aria-hidden="true" />
+          </span>
+          <div class="page-header__text">
+            <h2 class="page-header__title">{{ view === 'overview' ? '消费总览' : '资源月账单' }}</h2>
+            <p class="page-header__desc">余额支付即时到账；当月账单次月 1 日 9 点后可作为对账依据</p>
+          </div>
+        </div>
+        <div class="page-header__actions">
+          <t-button variant="outline" :loading="loading" @click="reload">刷新</t-button>
+          <t-button
+            v-if="memberStore.has('billing:recharge')"
+            theme="primary"
+            @click="router.push('/billing/balance')"
+          >
+            <template #icon><AddIcon /></template>
+            立即充值
+          </t-button>
+        </div>
+      </header>
 
-      <!-- 余额条 -->
-      <div class="balance-strip">
-        <span class="balance-strip__item">
-          可用余额
-          <strong class="balance-strip__value">¥ {{ formatPrice(wallet.balance) }}</strong>
-        </span>
-        <span class="balance-strip__item">
-          冻结
-          <strong class="balance-strip__value">¥ {{ formatPrice(wallet.frozen) }}</strong>
-        </span>
-        <span class="balance-strip__item">
-          累计收入
-          <strong class="balance-strip__value">¥ {{ formatPrice(wallet.total_income) }}</strong>
-        </span>
-        <span class="balance-strip__spacer"></span>
-        <t-button
-          v-if="memberStore.has('billing:recharge')"
-          theme="primary"
-          size="small"
-          @click="router.push('/billing/balance')"
-        >
-          <template #icon><AddIcon /></template>
-          立即充值
-        </t-button>
-      </div>
+      <!-- 资金概览：与首页仪表盘/管理端财务页同一套统计卡片 -->
+      <section class="billing-stat-grid">
+        <div class="stat-card surface-card stat-card--blue">
+          <span class="stat-card__icon"><WalletIcon size="24" aria-hidden="true" /></span>
+          <div class="stat-card__info">
+            <span class="stat-card__value">¥{{ formatPrice(wallet.balance) }}</span>
+            <span class="stat-card__hint">可用余额</span>
+          </div>
+        </div>
+        <div class="stat-card surface-card stat-card--warning">
+          <span class="stat-card__icon"><LockOnIcon size="24" aria-hidden="true" /></span>
+          <div class="stat-card__info">
+            <span class="stat-card__value">¥{{ formatPrice(wallet.frozen) }}</span>
+            <span class="stat-card__hint">冻结金额</span>
+          </div>
+        </div>
+        <div class="stat-card surface-card stat-card--green">
+          <span class="stat-card__icon"><ChartBarIcon size="24" aria-hidden="true" /></span>
+          <div class="stat-card__info">
+            <span class="stat-card__value">¥{{ formatPrice(summary.payable) }}</span>
+            <span class="stat-card__hint">本期应付{{ filter.month ? `（${filter.month}）` : '' }}</span>
+          </div>
+        </div>
+        <div class="stat-card surface-card stat-card--orange">
+          <span class="stat-card__icon"><MoneyIcon size="24" aria-hidden="true" /></span>
+          <div class="stat-card__info">
+            <span class="stat-card__value">¥{{ formatPrice(summary.paid) }}</span>
+            <span class="stat-card__hint">本期已付</span>
+          </div>
+        </div>
+      </section>
 
       <t-alert theme="info" class="billing-alert">
         当月最终账单在次月1日9点后支持查看/导出，在此之前的数据查询结果仅供参考，不作为对账依据。
@@ -101,9 +122,9 @@
 
       <!-- ---------- 消费总览 ---------- -->
       <template v-if="view === 'overview'">
-        <section class="panel">
-          <div class="panel-head">
-            <h3 class="panel-title">支付详情</h3>
+        <section class="surface-card billing-panel">
+          <div class="table-card__head">
+            <h3 class="card-title">支付详情</h3>
           </div>
 
           <div class="filter-row">
@@ -257,9 +278,9 @@
 
       <!-- ---------- 资源月账单 ---------- -->
       <template v-else>
-        <section class="panel">
-          <div class="panel-head">
-            <h3 class="panel-title">资源月账单</h3>
+        <section class="surface-card billing-panel">
+          <div class="table-card__head">
+            <h3 class="card-title">资源月账单</h3>
             <t-button variant="outline" size="small" :loading="loading" @click="reload">
               <template #icon><RefreshIcon /></template>
               刷新
@@ -425,6 +446,7 @@ import {
   FileIcon,
   FilePasteIcon,
   HelpCircleIcon,
+  LockOnIcon,
   MoneyIcon,
   RefreshIcon,
   SwapIcon,
@@ -757,85 +779,31 @@ onMounted(loadAll)
 }
 
 /* ============ 主区 ============ */
+/* 主区本身就是 .console-module 骨架（page-body），间距由骨架契约提供；
+   这里只补骨架没覆盖的部分。 */
 .billing-main {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
 }
 
-.page-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.page-title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: #1e293b;
-}
-
-/* 余额条 */
-.balance-strip {
-  display: flex;
-  align-items: center;
-  gap: 28px;
-  padding: 12px 20px;
-  background: #fff;
-  border: 1px solid var(--td-border-level-1-color, #eef1f5);
-  border-radius: 8px;
-}
-
-.balance-strip__item {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 13px;
-  color: #64748b;
-}
-
-.balance-strip__value {
-  font-size: 15px;
-  font-weight: 600;
-  color: #1e293b;
-  font-variant-numeric: tabular-nums;
-}
-
-.balance-strip__spacer {
-  flex: 1;
+/* 资金概览：与首页仪表盘/管理端财务页同一套 stat-card（间距沿用骨架 gap） */
+.billing-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-lg);
 }
 
 .billing-alert {
-  border-radius: 6px;
+  border-radius: var(--hs-radius-lg);
 }
 
 .top-tabs {
   margin-bottom: -4px;
 }
 
-/* ============ 面板 ============ */
-.panel {
-  background: #fff;
-  border: 1px solid var(--td-border-level-1-color, #eef1f5);
-  border-radius: 8px;
-  padding: 18px 20px 22px;
-}
-
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 14px;
-}
-
-.panel-title {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: #1e293b;
+/* ============ 面板（surface-card 内的内容留白） ============ */
+.billing-panel {
+  padding: var(--space-lg) 20px 22px;
 }
 
 /* ============ 筛选行 ============ */
@@ -857,17 +825,17 @@ onMounted(loadAll)
   justify-content: center;
   width: 32px;
   height: 32px;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  background: #fff;
-  color: #64748b;
+  border: 1px solid var(--color-border);
+  border-radius: var(--hs-radius-md);
+  background: var(--hs-surface-1);
+  color: var(--color-muted-foreground);
   cursor: pointer;
   transition: color 0.15s ease, border-color 0.15s ease;
 }
 
 .icon-btn:hover {
-  color: #2563eb;
-  border-color: #bfdbfe;
+  color: var(--color-primary);
+  border-color: var(--color-primary);
 }
 
 /* ============ 金额卡片 ============ */
@@ -966,54 +934,36 @@ onMounted(loadAll)
   margin: 14px 0;
   font-size: 13.5px;
   font-weight: 600;
-  color: #334155;
+  color: var(--color-foreground);
 }
 
+/* 数字列：右对齐用的等宽数字。cell-strong / cell-sub / time-text 由骨架契约提供 */
 .num-cell {
   font-variant-numeric: tabular-nums;
-  color: #334155;
+  color: var(--color-foreground);
 }
 
 .num-cell--strong {
   font-weight: 600;
-  color: #1e293b;
 }
 
-.time-text {
-  color: #64748b;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
-
-/* 账单支付方式单元格 */
+/* 金额列里「金额 + 副说明」的竖排（账单表多处使用） */
 .cell-main {
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-
-.cell-strong {
-  font-size: 13px;
-  font-weight: 600;
-  color: #1e293b;
-}
-
-.cell-sub {
-  font-size: 12px;
-  color: #64748b;
+  align-items: flex-start;
 }
 
 .dialog-tip {
   margin: 8px 0 0;
   font-size: 12px;
-  color: #64748b;
+  color: var(--color-muted-foreground);
   line-height: 1.6;
 }
 
 /* ============ 深色模式 ============ */
 .dark .billing-sider,
-.dark .panel,
-.dark .balance-strip,
 .dark .amount-card {
   background: #141414;
   border-color: #262626;
@@ -1031,17 +981,9 @@ onMounted(loadAll)
   background: #10192e;
 }
 
-.dark .page-title,
-.dark .panel-title,
 .dark .amount-value,
-.dark .balance-strip__value,
 .dark .num-cell,
 .dark .formula-text {
-  color: #e5e7eb;
-}
-
-.dark .balance-strip__value,
-.dark .num-cell--strong {
   color: #e5e7eb;
 }
 
@@ -1067,9 +1009,8 @@ onMounted(loadAll)
     min-height: auto;
   }
 
-  .balance-strip {
-    flex-wrap: wrap;
-    gap: 14px;
+  .billing-panel {
+    padding: var(--space-lg) var(--space-md);
   }
 
   .amount-card-row {

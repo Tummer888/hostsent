@@ -194,6 +194,25 @@ func (h *AdminHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "timestamp": time.Now().Unix()})
 }
 
+// Resign 员工离职（S1，doc86 §2.1）：置离职标记、禁用账号并交待在途客户。
+func (h *AdminHandler) Resign(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": "invalid id", "timestamp": time.Now().Unix()})
+		return
+	}
+	var req dto.AdminResignRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	if err := h.adminService.Resign(c.Request.Context(), id, req); err != nil {
+		c.JSON(http.StatusOK, gin.H{"code": 40001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "timestamp": time.Now().Unix()})
+}
+
 // SetRoles 覆盖式设置员工角色（D2 多角色）。
 func (h *AdminHandler) SetRoles(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)

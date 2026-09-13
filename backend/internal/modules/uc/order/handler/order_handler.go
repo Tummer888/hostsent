@@ -2,6 +2,8 @@
 package handler
 
 import (
+	"strconv"
+
 	"github.com/gin-gonic/gin"
 
 	"hostsent/backend/internal/modules/uc/order/dto"
@@ -90,6 +92,33 @@ func (h *OrderHandler) List(c *gin.Context) {
 		return
 	}
 	response.Success(c, resp)
+}
+
+// Detail godoc
+// @Summary 我的订单详情
+// @Description 返回订单号、规格/周期/数量、算价明细、支付与开通状态；仅限订单归属账号访问。
+// @Tags 用户中心-订单
+// @Security BearerAuth
+// @Param id path int true "订单 ID"
+// @Success 200 {object} response.Body{data=dto.OrderInfo}
+// @Router /api/v1/uc/orders/{id} [get]
+func (h *OrderHandler) Detail(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, apperrors.New(10001, "unauthorized"))
+		return
+	}
+	orderID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || orderID == 0 {
+		response.Error(c, apperrors.New(50001, "订单 ID 无效"))
+		return
+	}
+	info, err := h.orderService.Detail(c.Request.Context(), userID, orderID)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, info)
 }
 
 // Quote godoc

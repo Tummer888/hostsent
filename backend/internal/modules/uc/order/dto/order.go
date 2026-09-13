@@ -42,6 +42,13 @@ type OrderInfo struct {
 	// ActorID/ActorName 下单的真实操作人（子账号下单可见，P4-09）
 	ActorID   uint64 `json:"actor_user_id"`
 	ActorName string `json:"actor_name"`
+	// SpecCode 所选 SKU 编码（T4.1）；Quantity 数量；Cycle 计费周期（doc25）。
+	// 列表与详情都返回，详情页据此展示「规格 / 周期 / 数量」。
+	SpecCode string `json:"spec_code"`
+	Quantity int    `json:"quantity"`
+	Cycle    string `json:"cycle"`
+	// PayTime 支付时间（RFC3339，未支付为空串）；列表不保证填充，详情页用于展示。
+	PayTime string `json:"pay_time"`
 	// 算价明细（P5-04/P5-06）：原价、优惠、实付与折扣来源，用于订单列表/详情展示。
 	OriginalAmount float64 `json:"original_amount"`
 	DiscountAmount float64 `json:"discount_amount"`
@@ -53,6 +60,12 @@ type OrderInfo struct {
 	ProvisionStatus string `json:"provision_status,omitempty"`
 	// ProvisionError 开通失败原因（failed/manual 时展示，便于用户/运维排查）。
 	ProvisionError string `json:"provision_error,omitempty"`
+	// PriceSnapshot 命中规则明细 JSON（P5-04），详情页展示优惠构成；列表不填充。
+	PriceSnapshot string `json:"price_snapshot,omitempty"`
+	// ExpireTime 订单过期/计费到期时间（RFC3339，无则为空串）；详情页展示。
+	ExpireTime string `json:"expire_time,omitempty"`
+	// Remark 订单备注（用户侧只读展示）。
+	Remark string `json:"remark,omitempty"`
 }
 
 // QuoteRequest 预结算请求（P5-05）：不落库、不扣款。

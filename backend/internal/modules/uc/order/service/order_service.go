@@ -30,6 +30,8 @@ var (
 	ErrInsufficientBalance = errors.New("余额不足，请先充值")
 	// ErrProvisionFailed 开通上游失败（已扣款，可稍后在订单页重试）
 	ErrProvisionFailed = errors.New("开通资源失败，已扣款，可稍后重试")
+	// ErrOrderNotFound 订单不存在或不属于当前账号（两者对外同一文案，避免探测他人订单号）
+	ErrOrderNotFound = errors.New("订单不存在")
 )
 
 // 以下为装配层注入的最小暴露接口（仅声明 uc 真正用到的方法，避免依赖 admin 的 service 层）。
@@ -46,6 +48,8 @@ type (
 	orderRepoPort interface {
 		Create(ctx context.Context, item *ordermodel.Order) error
 		List(ctx context.Context, query orderdto.OrderListQuery) ([]ordermodel.Order, int64, error)
+		// FindByID 按主键读取订单；未找到返回 gorm.ErrRecordNotFound。
+		FindByID(ctx context.Context, id uint64) (*ordermodel.Order, error)
 	}
 	// orderItemPort 订单项写入（P5-04 补写 order_items，行级保留折扣快照）。
 	orderItemPort interface {
@@ -68,6 +72,11 @@ type (
 	provisionTaskLookup interface {
 		FindByOrderIDs(ctx context.Context, orderIDs []uint64) (map[uint64]*ordermodel.ProvisionTask, error)
 	}
+	// salesOwnerResolver 销售归属解析（doc86 §3.4）：装配层注入，避免 uc 依赖 sales 模块。
+	// 解析失败/无归属必须返回 0 且不报错，下单不因归属缺失而失败。
+	salesOwnerResolver interface {
+		SalesAdminForNewOrder(ctx context.Context, userID uint64) uint64
+	}
 	// productSkuPort 商品 SKU 读取与库存增减（T4.1：按 SKU 下单）。
 	// 由 admin catalog 服务实现（装配层注入），uc 只依赖自身声明的最小接口。
 	productSkuPort interface {
@@ -84,8 +93,12 @@ type OrderService interface {
 	Create(ctx context.Context, userID, actorID uint64, req dto.CreateRequest) (*dto.OrderInfo, error)
 	// List 我的订单。
 	List(ctx context.Context, userID uint64, query dto.ListQuery) (*dto.ListResponse, error)
+	// Detail 我的订单详情（含算价快照、支付时间、过期时间与履约状态）。
+	Detail(ctx context.Context, userID, orderID uint64) (*dto.OrderInfo, error)
 	// Quote 预结算：算价明细，不落库、不扣款（P5-05）。
 	Quote(ctx context.Context, userID uint64, req dto.QuoteRequest) (*dto.QuoteInfo, error)
+	// SetSalesOwnerResolver 注入销售归属解析（装配层调用，doc86 §3.4）。
+	SetSalesOwnerResolver(r salesOwnerResolver)
 }
 
 type orderService struct {
@@ -102,6 +115,7 @@ type orderService struct {
 	consumeRecorder func(userID uint64, amount float64)               // 累计消费/等级重算（P3-03，装配层异步化）
 	actorNames      actorNameLookup                                   // 操作人用户名解析（P4-09），可为 nil
 	sku             productSkuPort                                    // SKU 读取与库存（T4.1），可为 nil（无 SKU 的商品照旧下单）
+	salesOwner      salesOwnerResolver                                // 销售归属解析（doc86 §3.4），可为 nil（不记归属）
 }
 
 // actorNameLookup 批量解析用户 ID → 用户名，用于订单列表「操作人」列。
@@ -135,6 +149,9 @@ func NewOrderService(
 		provisionQueue: provisionQueue, provisionTasks: provisionTasks,
 	}
 }
+
+// SetSalesOwnerResolver 注入销售归属解析器（装配层调用，避免改构造签名影响既有装配点）。
+func (s *orderService) SetSalesOwnerResolver(r salesOwnerResolver) { s.salesOwner = r }
 
 // resolveQuote 调用统一算价管线；未注入管线时回落为「商品单价 × 数量」不打折（P5-04）。
 // specCode 非空时按 SKU 定价（管线内 SKU 有定价则覆盖商品级基础价）；
@@ -331,6 +348,10 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 		PayTime:        &now,
 		OperatorID:     actorID, // 真实操作人（子账号下单可追溯，P4-09）
 	}
+	// 销售归属快照（doc86 §3.4）：下单瞬间锁定，后续改派不影响已成交订单的提成归属。
+	if s.salesOwner != nil {
+		order.SalesAdminID = s.salesOwner.SalesAdminForNewOrder(ctx, userID)
+	}
 	// 开放平台代客下单（P6/T6.3）：渠道归属由 open 模块程序化注入，UC 自有路由为空值。
 	if req.ChannelMeta.Channel != "" {
 		order.Channel = req.ChannelMeta.Channel
@@ -433,6 +454,42 @@ func (s *orderService) List(ctx context.Context, userID uint64, query dto.ListQu
 	return resp, nil
 }
 
+// Detail 我的订单详情。
+//
+// 归属校验放在服务层而不是仓储查询条件里：findByID 后比对 UserID，
+// 他人的订单与不存在的订单返回同一错误（ErrOrderNotFound），避免通过订单号探测他人数据。
+func (s *orderService) Detail(ctx context.Context, userID, orderID uint64) (*dto.OrderInfo, error) {
+	if orderID == 0 {
+		return nil, ErrOrderNotFound
+	}
+	order, err := s.orderRepo.FindByID(ctx, orderID)
+	if err != nil {
+		return nil, ErrOrderNotFound
+	}
+	if order.UserID != userID {
+		return nil, ErrOrderNotFound
+	}
+
+	items := []ordermodel.Order{*order}
+	info := fromAdminOrder(*order, s.resolveActorNames(ctx, items))
+	info.SpecCode = order.SpecCode
+	info.Quantity = order.Quantity
+	info.Cycle = order.Cycle
+	info.PriceSnapshot = order.PriceSnapshot
+	info.Remark = order.Remark
+	if order.PayTime != nil {
+		info.PayTime = order.PayTime.Format(time.RFC3339)
+	}
+	if order.ExpireTime != nil {
+		info.ExpireTime = order.ExpireTime.Format(time.RFC3339)
+	}
+	if task := s.resolveProvisionTasks(ctx, items)[order.ID]; task != nil {
+		info.ProvisionStatus = task.Status
+		info.ProvisionError = task.LastError
+	}
+	return &info, nil
+}
+
 // resolveProvisionTasks 批量取订单的开通任务状态（T5.1，避免 N+1）；失败降级为空映射。
 func (s *orderService) resolveProvisionTasks(ctx context.Context, items []ordermodel.Order) map[uint64]*ordermodel.ProvisionTask {
 	if s.provisionTasks == nil || len(items) == 0 {
@@ -478,7 +535,7 @@ func (s *orderService) resolveActorNames(ctx context.Context, items []ordermodel
 
 // fromAdminOrder 映射订单为用户可见字段。
 func fromAdminOrder(o ordermodel.Order, actorNames map[uint64]string) dto.OrderInfo {
-	return dto.OrderInfo{
+	info := dto.OrderInfo{
 		ID:             o.ID,
 		OrderNo:        o.OrderNo,
 		ProductID:      o.ProductID,
@@ -491,12 +548,23 @@ func fromAdminOrder(o ordermodel.Order, actorNames map[uint64]string) dto.OrderI
 		PayMethod:      o.PayMethod,
 		ActorID:        o.OperatorID,
 		ActorName:      actorNames[o.OperatorID],
+		SpecCode:       o.SpecCode,
+		Quantity:       o.Quantity,
+		Cycle:          o.Cycle,
 		OriginalAmount: o.OriginalAmount,
 		DiscountAmount: o.DiscountAmount,
 		FinalAmount:    o.FinalAmount,
 		DiscountSource: o.DiscountSource,
 		CreatedAt:      o.CreatedAt.Format(time.RFC3339),
+		Remark:         o.Remark,
 	}
+	if o.PayTime != nil {
+		info.PayTime = o.PayTime.Format(time.RFC3339)
+	}
+	if o.ExpireTime != nil {
+		info.ExpireTime = o.ExpireTime.Format(time.RFC3339)
+	}
+	return info
 }
 
 // Quote 预结算：只算价不落库、不扣款（P5-05）。

@@ -3,9 +3,10 @@
     <div class="register-brand">
       <div class="brand-content">
         <div class="brand-logo">
-          <span class="logo-text">H</span>
+          <img v-if="brandStore.logo" class="logo-img" :src="brandStore.logo" :alt="brandStore.name" />
+          <span v-else class="logo-text">{{ brandStore.logoMark }}</span>
         </div>
-        <h1 class="brand-title">加入宿派云控</h1>
+        <h1 class="brand-title">加入{{ brandStore.name }}</h1>
         <p class="brand-desc">创建账号，开启您的云上之旅</p>
         
         <div class="brand-features">
@@ -172,12 +173,14 @@ import {
 } from 'tdesign-icons-vue-next'
 
 import { useUserStore } from '@/store'
+import { useBrandStore } from '@/store/modules/brand'
 
 defineOptions({ name: 'UserRegister' })
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const brandStore = useBrandStore()
 
 const formRef = ref()
 const loading = ref(false)
@@ -291,6 +294,14 @@ function handleSocialLogin(provider: string) {
   font-size: 28px;
   font-weight: 700;
   color: #fff;
+}
+
+/* 后台配置了 Logo 时替换文字标记 */
+.logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 14px;
 }
 
 .brand-title {

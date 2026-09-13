@@ -24,6 +24,7 @@ const (
 	ConfigGroupRegister = "register" // 注册配置
 	ConfigGroupNotify   = "notify"   // 消息模板
 	ConfigGroupReferral = "referral" // 推广邀请返现
+	ConfigGroupSales    = "sales"    // 销售提成（S5，doc86）
 
 	// 兼容历史分组
 	ConfigGroupSite    = "site"    // 站点配置

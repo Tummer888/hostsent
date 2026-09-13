@@ -23,12 +23,15 @@ type UserInfo struct {
 	TotalConsumeAmount float64  `json:"total_consume_amount"`
 	Status             string   `json:"status"`
 	// 子账号标识（P4-10）：是否子账号、归属主账号 ID 与用户名、成员备注。
-	IsSubAccount     bool       `json:"is_sub_account"`
-	OwnerUserID      *uint64    `json:"owner_user_id"`
-	OwnerName        string     `json:"owner_name"`
-	SubAccountRemark string     `json:"sub_account_remark"`
-	CreatedAt        time.Time  `json:"created_at"`
-	LastLoginAt      *time.Time `json:"last_login_at,omitempty"`
+	IsSubAccount     bool    `json:"is_sub_account"`
+	OwnerUserID      *uint64 `json:"owner_user_id"`
+	OwnerName        string  `json:"owner_name"`
+	SubAccountRemark string  `json:"sub_account_remark"`
+	// 归属销售（doc86 §4.1.10）：销售归属变更时由销售模块回写 users 快照列。
+	SalesAdminID   uint64     `json:"sales_admin_id"`
+	SalesAdminName string     `json:"sales_admin_name"`
+	CreatedAt      time.Time  `json:"created_at"`
+	LastLoginAt    *time.Time `json:"last_login_at,omitempty"`
 }
 
 // SubAccountMemberInfo 管理端成员 Tab 展示项（P4-10）。

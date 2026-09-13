@@ -16,6 +16,8 @@ import (
 type TicketRepository interface {
 	List(ctx context.Context, query dto.TicketListQuery) ([]model.Ticket, int64, error)
 	FindByID(ctx context.Context, id uint64) (*model.Ticket, error)
+	// FindByIDs 批量取工单（复核队列回填工单信息用，S3）。
+	FindByIDs(ctx context.Context, ids []uint64) (map[uint64]model.Ticket, error)
 	Create(ctx context.Context, item *model.Ticket) error
 	Update(ctx context.Context, item *model.Ticket) error
 	// CountByTicketIDs 批量统计工单回复数（列表展示）
@@ -29,9 +31,20 @@ type TicketRepository interface {
 	CreateLog(ctx context.Context, log *model.TicketLog) error
 	// ListLogs 按时间正序查询工单操作日志。
 	ListLogs(ctx context.Context, ticketID uint64) ([]model.TicketLog, error)
-	// —— 自动派单（P2-03）——
-	// PickAssignee 按角色/客服组挑当前在手工单最少的启用员工；无匹配返回 id=0。
-	PickAssignee(ctx context.Context, roleCode string, groupID uint64) (uint64, string, error)
+	// —— 自动派单（P2-03/S2）——
+	// PickAssignee 按部门挑当前在手工单最少的启用在职员工；departmentID=0 时回落到
+	// 按 roleCode 挑人（兼容未配置部门的存量分类）；两者皆空返回 id=0（进未分配池）。
+	PickAssignee(ctx context.Context, roleCode string, departmentID uint64) (uint64, string, error)
+	// —— S2 数据范围与展示 ——
+	// ListCategoriesByDepartment 取某部门下的启用分类 code（主管/客服数据范围）。
+	ListCategoriesByDepartment(ctx context.Context, departmentID uint64) ([]string, error)
+	// DepartmentNameMap 批量取部门 id → 名称。
+	DepartmentNameMap(ctx context.Context, ids []uint64) (map[uint64]string, error)
+	// AdminNameMap 批量取管理员 id → 展示名（real_name 优先，回落 username）。
+	AdminNameMap(ctx context.Context, ids []uint64) (map[uint64]string, error)
+	// ReviewerIDs 取某部门的在岗复核人 ID（support_lead 角色，S3）。
+	// departmentID=0 时返回全部 support_lead（无部门归属的存量数据不至于收不到复核通知）。
+	ReviewerIDs(ctx context.Context, departmentID uint64) ([]uint64, error)
 	// —— 子账号归属（P4-05）——
 	// AccountUserIDs 返回账号及其全部子账号 ID（主账号在前）；无子账号时仅返回自身。
 	AccountUserIDs(ctx context.Context, accountID uint64) ([]uint64, error)
@@ -87,8 +100,25 @@ func (r *ticketRepository) List(ctx context.Context, query dto.TicketListQuery) 
 	if query.Status != "" {
 		base = base.Where("tickets.status = ?", query.Status)
 	}
+	if query.ReviewStatus != "" {
+		base = base.Where("tickets.review_status = ?", query.ReviewStatus)
+	}
+	if query.DepartmentID > 0 {
+		base = base.Where("tickets.department_id = ?", query.DepartmentID)
+	}
 	if query.AssignedTo > 0 {
 		base = base.Where("tickets.assigned_to = ?", query.AssignedTo)
+	}
+	// 数据范围隔离（S2）：主管按本部门分类可见，客服再并上「指派给我的」。
+	// OrAssignee>0 时用 OR 括起来，保证不放大其它筛选条件的约束。
+	if len(query.VisibleCategories) > 0 {
+		if query.OrAssignee > 0 {
+			base = base.Where("(tickets.category IN ? OR tickets.assigned_to = ?)", query.VisibleCategories, query.OrAssignee)
+		} else {
+			base = base.Where("tickets.category IN ?", query.VisibleCategories)
+		}
+	} else if query.OrAssignee > 0 {
+		base = base.Where("tickets.assigned_to = ?", query.OrAssignee)
 	}
 	// 工单工作台视图（P2-07）：my_todo / unassigned / involved / sla_breached
 	switch query.View {
@@ -113,6 +143,9 @@ func (r *ticketRepository) List(ctx context.Context, query dto.TicketListQuery) 
 			Select("tickets.*").
 			Where("c.sla_hours > 0 AND tickets.first_reply_at IS NULL").
 			Where("tickets.created_at < NOW() - (c.sla_hours * INTERVAL '1 hour')")
+	case "review_pending":
+		// 有回复待复核（S3 复核中心入口）
+		base = base.Where("tickets.review_status = ?", model.ReviewStatusPending)
 	}
 	if start := normalizeTime(query.StartTime); start != nil {
 		base = base.Where("tickets.created_at >= ?", *start)
@@ -139,6 +172,22 @@ func (r *ticketRepository) FindByID(ctx context.Context, id uint64) (*model.Tick
 		return nil, err
 	}
 	return &item, nil
+}
+
+// FindByIDs 批量取工单，返回 id → 工单映射（复核队列回填用）。
+func (r *ticketRepository) FindByIDs(ctx context.Context, ids []uint64) (map[uint64]model.Ticket, error) {
+	out := make(map[uint64]model.Ticket, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var items []model.Ticket
+	if err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&items).Error; err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		out[item.ID] = item
+	}
+	return out, nil
 }
 
 // AccountUserIDs 返回账号及其全部子账号 ID（主账号在前），供用户端按归属查询（P4-05）。
@@ -237,10 +286,11 @@ func (r *ticketRepository) ListLogs(ctx context.Context, ticketID uint64) ([]mod
 	return items, nil
 }
 
-// PickAssignee 按角色/客服组挑当前在手工单最少的启用员工。
-// roleCode 为空且 groupID 为 0 时返回 0（不自动派单）。
-func (r *ticketRepository) PickAssignee(ctx context.Context, roleCode string, groupID uint64) (uint64, string, error) {
-	if roleCode == "" && groupID == 0 {
+// PickAssignee 挑当前在手工单最少的启用在职员工（S2：按部门派单）。
+// 优先 departmentID（分类挂部门后为主路径）；departmentID=0 时回落到 roleCode
+// （兼容未配置部门的存量分类，保持旧行为可用）；两者皆空返回 0（进未分配池）。
+func (r *ticketRepository) PickAssignee(ctx context.Context, roleCode string, departmentID uint64) (uint64, string, error) {
+	if roleCode == "" && departmentID == 0 {
 		return 0, "", nil
 	}
 	type row struct {
@@ -252,14 +302,15 @@ func (r *ticketRepository) PickAssignee(ctx context.Context, roleCode string, gr
 	query := r.db.WithContext(ctx).Table("admins a").
 		Select("a.id AS id, a.username AS username, COUNT(t.id) AS load").
 		Joins("LEFT JOIN tickets t ON t.assigned_to = a.id AND t.status IN ?", []string{model.TicketStatusOpen, model.TicketStatusInProgress, model.TicketStatusWaitingUser}).
-		Where("a.status = ?", "active")
+		// 离职员工不再接单（resigned_at 非空），避免派给已离场的人。
+		Where("a.status = ? AND a.resigned_at IS NULL", "active")
+	if departmentID > 0 {
+		query = query.Where("a.department_id = ?", departmentID)
+	}
 	if roleCode != "" {
 		query = query.Joins("JOIN admin_roles ar ON ar.admin_id = a.id").
 			Joins("JOIN roles r ON r.id = ar.role_id").
 			Where("r.code = ?", roleCode)
-	}
-	if groupID > 0 {
-		query = query.Where("a.service_group_id = ?", groupID)
 	}
 	if err := query.Group("a.id, a.username").Order("load asc, a.id asc").Limit(1).Scan(&candidates).Error; err != nil {
 		return 0, "", err
@@ -268,6 +319,81 @@ func (r *ticketRepository) PickAssignee(ctx context.Context, roleCode string, gr
 		return 0, "", nil
 	}
 	return candidates[0].ID, candidates[0].Username, nil
+}
+
+// ListCategoriesByDepartment 取某部门下的启用分类 code（数据范围隔离用，S2）。
+func (r *ticketRepository) ListCategoriesByDepartment(ctx context.Context, departmentID uint64) ([]string, error) {
+	if departmentID == 0 {
+		return nil, nil
+	}
+	var codes []string
+	if err := r.db.WithContext(ctx).Model(&model.TicketCategory{}).
+		Where("department_id = ? AND status = ?", departmentID, model.CategoryStatusActive).
+		Pluck("code", &codes).Error; err != nil {
+		return nil, err
+	}
+	return codes, nil
+}
+
+// DepartmentNameMap 批量取部门 id → 名称（列表展示，S2）。
+func (r *ticketRepository) DepartmentNameMap(ctx context.Context, ids []uint64) (map[uint64]string, error) {
+	out := make(map[uint64]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		ID   uint64 `gorm:"column:id"`
+		Name string `gorm:"column:name"`
+	}
+	if err := r.db.WithContext(ctx).Table("departments").
+		Select("id, name").Where("id IN ?", ids).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.ID] = row.Name
+	}
+	return out, nil
+}
+
+// AdminNameMap 批量取管理员 id → 展示名（优先 real_name，回落 username）。
+func (r *ticketRepository) AdminNameMap(ctx context.Context, ids []uint64) (map[uint64]string, error) {
+	out := make(map[uint64]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		ID       uint64 `gorm:"column:id"`
+		Username string `gorm:"column:username"`
+		RealName string `gorm:"column:real_name"`
+	}
+	if err := r.db.WithContext(ctx).Table("admins").
+		Select("id, username, real_name").Where("id IN ?", ids).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if row.RealName != "" {
+			out[row.ID] = row.RealName
+			continue
+		}
+		out[row.ID] = row.Username
+	}
+	return out, nil
+}
+
+// ReviewerIDs 取某部门的在岗复核人（support_lead）。离职/禁用员工不接收通知。
+func (r *ticketRepository) ReviewerIDs(ctx context.Context, departmentID uint64) ([]uint64, error) {
+	var ids []uint64
+	query := r.db.WithContext(ctx).Table("admins a").
+		Joins("JOIN admin_roles ar ON ar.admin_id = a.id").
+		Joins("JOIN roles r ON r.id = ar.role_id AND r.status = 'active'").
+		Where("r.code = ? AND a.status = ? AND a.resigned_at IS NULL", "support_lead", "active")
+	if departmentID > 0 {
+		query = query.Where("a.department_id = ?", departmentID)
+	}
+	if err := query.Distinct().Pluck("a.id", &ids).Error; err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 func (r *ticketRepository) StatsTotal(ctx context.Context) (int64, error) {

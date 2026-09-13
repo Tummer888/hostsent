@@ -28,6 +28,8 @@ type RBACRepository interface {
 	HasAdminRoles(ctx context.Context, adminID uint64) (bool, error)
 	// IsAdminActive 判断管理员是否处于启用状态（禁用后旧 token 立即失效）。
 	IsAdminActive(ctx context.Context, adminID uint64) (bool, error)
+	// FindDepartmentIDByAdminID 返回员工所属部门 ID（0 表示未归属），工单部门数据范围用。
+	FindDepartmentIDByAdminID(ctx context.Context, adminID uint64) (uint64, error)
 	// FindRoleCodesByIDs 按角色 ID 批量取 code。
 	FindRoleCodesByIDs(ctx context.Context, roleIDs []uint64) ([]string, error)
 	// FindRoleIDsByCodes 按角色 code 批量取 ID（用于兼容旧的单 role 字符串入参）。
@@ -145,6 +147,23 @@ func (r *rbacRepository) IsAdminActive(ctx context.Context, adminID uint64) (boo
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// FindDepartmentIDByAdminID 返回员工所属部门 ID（未归属或员工不存在时为 0）。
+// 工单部门数据范围据此判定，见 doc86 §2.4。
+func (r *rbacRepository) FindDepartmentIDByAdminID(ctx context.Context, adminID uint64) (uint64, error) {
+	if adminID == 0 {
+		return 0, nil
+	}
+	var deptID uint64
+	if err := r.db.WithContext(ctx).
+		Model(&model.Admin{}).
+		Select("COALESCE(department_id, 0)").
+		Where("id = ?", adminID).
+		Scan(&deptID).Error; err != nil {
+		return 0, err
+	}
+	return deptID, nil
 }
 
 func (r *rbacRepository) FindRoleCodesByIDs(ctx context.Context, roleIDs []uint64) ([]string, error) {

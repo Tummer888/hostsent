@@ -3,6 +3,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 
 import router from './router'
 import { useUserStore } from './store'
+import { useBrandStore } from './store/modules/brand'
 import { useMemberStore } from './store/modules/member'
 import { useMenuStore } from './store/modules/menu'
 
@@ -13,9 +14,11 @@ export function setupPermission(app: App) {
     const userStore = useUserStore()
     const memberStore = useMemberStore()
     const menuStore = useMenuStore()
+    const brandStore = useBrandStore()
 
     if (to.meta?.title) {
-      document.title = `${to.meta.title} - 宿派云控用户控制台`
+      // 品牌名来自管理端站点配置，不再写死；未拉到配置时 store 内部有兜底值。
+      document.title = `${to.meta.title} - ${brandStore.name}`
     }
 
     if (userStore.isLoggedIn && whiteList.includes(to.path)) {

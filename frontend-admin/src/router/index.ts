@@ -537,6 +537,12 @@ const routes: Array<RouteRecordRaw> = [
         meta: { title: '工单详情', role: 'admin', permission: 'ticket:view' },
       },
       {
+        path: 'reviews',
+        name: 'TicketReviews',
+        component: () => import('@/pages/ticket/reviews/index.vue'),
+        meta: { title: '复核中心', role: 'admin', permission: 'ticket:review' },
+      },
+      {
         path: 'categories',
         name: 'TicketCategories',
         component: () => import('@/pages/ticket/categories/index.vue'),
@@ -690,6 +696,40 @@ const routes: Array<RouteRecordRaw> = [
     ],
   },
   {
+    // 销售中心（doc86 S4–S6）：客户归属 / 提成台账 / 提成审核 / 业绩排行。
+    // meta.permission 与 backend permission_map.go、db.go seedMenus 四处对齐。
+    path: '/sales',
+    component: () => import('@/layouts/index.vue'),
+    redirect: '/sales/customers',
+    meta: { title: '销售中心' },
+    children: [
+      {
+        path: 'customers',
+        name: 'SalesCustomers',
+        component: () => import('@/pages/sales/customers/index.vue'),
+        meta: { title: '客户归属', role: 'admin', permission: 'sales:customer:list' },
+      },
+      {
+        path: 'commissions',
+        name: 'SalesCommissions',
+        component: () => import('@/pages/sales/commissions/index.vue'),
+        meta: { title: '提成台账', role: 'admin', permission: 'sales:commission:list' },
+      },
+      {
+        path: 'withdrawals',
+        name: 'SalesWithdrawals',
+        component: () => import('@/pages/sales/withdrawals/index.vue'),
+        meta: { title: '提成审核', role: 'admin', permission: 'sales:commission:audit' },
+      },
+      {
+        path: 'performance',
+        name: 'SalesPerformance',
+        component: () => import('@/pages/sales/performance/index.vue'),
+        meta: { title: '业绩排行', role: 'admin', permission: 'sales:performance:view' },
+      },
+    ],
+  },
+  {
     path: '/referral',
     component: () => import('@/layouts/index.vue'),
     redirect: '/referral/cashbacks',
@@ -822,7 +862,14 @@ const routes: Array<RouteRecordRaw> = [
         path: 'admins',
         name: 'SystemAdmins',
         component: () => import('@/pages/system/admins/index.vue'),
-        meta: { title: '管理员列表', role: 'admin', permission: 'staff:list' },
+        meta: { title: '员工管理', role: 'admin', permission: 'staff:list' },
+      },
+      {
+        // 部门管理（S1 员工体系）：组织架构维护，决定工单派单与销售归属范围
+        path: 'departments',
+        name: 'SystemDepartments',
+        component: () => import('@/pages/system/departments/index.vue'),
+        meta: { title: '部门管理', role: 'admin', permission: 'department:list' },
       },
       {
         // 系统配置：键值型配置项的增删改查

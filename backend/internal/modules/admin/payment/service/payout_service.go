@@ -15,8 +15,10 @@ import (
 
 // PayoutService 打款能力：人工登记 / 渠道接口双模。
 // 实现 finance/withdraw 的 PayoutPort 最小接口（装配层注入）。
+// bizType 区分业务域（withdraw/sales_withdraw，doc86 §2.5）：
+// 两类提现单 ID 各自从 1 开始，不带业务域会串单。
 type PayoutService interface {
-	CreatePayout(ctx context.Context, withdrawID uint64, withdrawNo string, userID uint64, amount float64, mode string) (payoutID uint64, payoutNo string, actualMode string, err error)
+	CreatePayout(ctx context.Context, bizType string, withdrawID uint64, withdrawNo string, userID uint64, amount float64, mode string) (payoutID uint64, payoutNo string, actualMode string, err error)
 	MarkPaid(ctx context.Context, payoutNo string, channelTx, receiptURL, remark string, operatorID uint64) error
 	Fail(ctx context.Context, payoutNo, reason string) error
 	// StatusByNo 读取打款单状态（提现审批后由 finance 判定 api 打款结果）。
@@ -32,7 +34,7 @@ type PayoutService interface {
 // PayoutSettler 打款成功后回调 finance 结算（置提现单为已打款并结算冻结资金）。
 // 由装配层注入 withdraw.MarkPaid，使「支付中心打款管理」与「财务提现单」状态一致；
 // payment 不直接依赖 finance，耦合点仍只在装配层。
-type PayoutSettler func(ctx context.Context, withdrawID uint64, channelTx, receiptURL, remark string, operatorID uint64) error
+type PayoutSettler func(ctx context.Context, bizType string, withdrawID uint64, channelTx, receiptURL, remark string, operatorID uint64) error
 
 type payoutService struct {
 	payoutRepo repository.PayoutRepository
@@ -50,15 +52,19 @@ func (s *payoutService) SetSettler(settler PayoutSettler) { s.settler = settler 
 
 // CreatePayout 创建打款任务。
 // mode=api 时尝试走渠道 Payouter；渠道不支持则回落为 manual（人工登记），不阻断审批。
-func (s *payoutService) CreatePayout(ctx context.Context, withdrawID uint64, withdrawNo string, userID uint64, amount float64, mode string) (uint64, string, string, error) {
+func (s *payoutService) CreatePayout(ctx context.Context, bizType string, withdrawID uint64, withdrawNo string, userID uint64, amount float64, mode string) (uint64, string, string, error) {
 	if mode != model.PayoutModeAPI {
 		mode = model.PayoutModeManual
 	}
-	if existing, err := s.payoutRepo.FindByWithdrawID(ctx, withdrawID); err == nil && existing != nil {
+	if bizType == "" {
+		bizType = model.PayoutBizWithdraw
+	}
+	if existing, err := s.payoutRepo.FindByWithdrawID(ctx, bizType, withdrawID); err == nil && existing != nil {
 		return existing.ID, existing.PayoutNo, existing.Mode, nil
 	}
 	p := &model.PaymentPayout{
 		PayoutNo:   genPayoutNo(),
+		BizType:    bizType,
 		WithdrawID: withdrawID,
 		WithdrawNo: withdrawNo,
 		UserID:     userID,
@@ -109,7 +115,7 @@ func (s *payoutService) CreatePayout(ctx context.Context, withdrawID uint64, wit
 	res, perr := payouter.Payout(ctx, cfg, &payment.PayoutRequest{
 		OutPayoutNo: p.PayoutNo,
 		AmountFen:   p.AmountFen,
-		Remark:      "用户提现 " + withdrawNo,
+		Remark:      payoutBizLabel(p.BizType) + " " + withdrawNo,
 	})
 	if perr != nil {
 		p.Status = model.PayoutStatusFailed
@@ -236,7 +242,7 @@ func (s *payoutService) syncWithdraw(ctx context.Context, p *model.PaymentPayout
 	if s.settler == nil || p.WithdrawID == 0 {
 		return
 	}
-	_ = s.settler(ctx, p.WithdrawID, p.ChannelTx, p.ReceiptURL, p.Remark, operatorID)
+	_ = s.settler(ctx, p.BizType, p.WithdrawID, p.ChannelTx, p.ReceiptURL, p.Remark, operatorID)
 }
 
 // AdminRetry 重试接口打款（仅 api 模式且非已支付）。
@@ -270,4 +276,14 @@ func (s *payoutService) findByNo(ctx context.Context, payoutNo string) (*model.P
 		return nil, err
 	}
 	return p, nil
+}
+
+// payoutBizLabel 打款单业务域中文标签（渠道备注与图表展示用）。
+func payoutBizLabel(bizType string) string {
+	switch bizType {
+	case model.PayoutBizSalesWithdraw:
+		return "销售提成提现"
+	default:
+		return "用户提现"
+	}
 }

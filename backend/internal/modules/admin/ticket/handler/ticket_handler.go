@@ -7,17 +7,64 @@ import (
 	"hostsent/backend/internal/modules/admin/ticket/dto"
 	"hostsent/backend/internal/modules/admin/ticket/service"
 	apperrors "hostsent/backend/internal/pkg/errors"
+	"hostsent/backend/internal/pkg/middleware"
 	"hostsent/backend/internal/pkg/response"
 )
 
 // TicketHandler 管理员工单处理入口。
 type TicketHandler struct {
-	ticketService service.TicketService
+	ticketService   service.TicketService
+	attachmentSvc   service.AttachmentService
+	categoryService service.CategoryService
 }
 
-// NewTicketHandler 创建管理员工单处理入口。
-func NewTicketHandler(ticketService service.TicketService) *TicketHandler {
-	return &TicketHandler{ticketService: ticketService}
+// NewTicketHandler 创建管理员工单处理入口。attachmentSvc 可为 nil（附件未启用）。
+func NewTicketHandler(
+	ticketService service.TicketService,
+	attachmentSvc service.AttachmentService,
+	categoryService service.CategoryService,
+) *TicketHandler {
+	return &TicketHandler{ticketService: ticketService, attachmentSvc: attachmentSvc, categoryService: categoryService}
+}
+
+// applyDataScope 按鉴权快照注入工单可见范围（doc86 §2.4）。
+//
+// 超管不注入 = 全量；其余按「本部门分类」裁剪，客服（无 ticket:review）再并上
+// 「指派给我的」，避免客服看不到被跨部门转派过来的工单。
+// 范围由服务端从 grant 推导，前端传参一律忽略。
+func (h *TicketHandler) applyDataScope(c *gin.Context, query *dto.TicketListQuery) {
+	adminID, _ := operatorFromContext(c)
+	query.AdminID = adminID
+
+	grant, ok := middleware.GetAdminGrant(c)
+	if !ok || grant.IsSuper() {
+		return
+	}
+	categories, err := h.ticketService.VisibleCategoriesByDepartment(c.Request.Context(), grant.DepartmentID)
+	if err != nil || len(categories) == 0 {
+		// 未归属部门或部门下没有启用分类：退化为「仅指派给我的」，
+		// 用不可能命中的哨兵 code 表达「无部门可见分类」，避免退化成全量。
+		query.VisibleCategories = []string{"__none__"}
+		query.OrAssignee = adminID
+		return
+	}
+	query.VisibleCategories = categories
+	if !grant.HasAny("ticket:review") {
+		query.OrAssignee = adminID
+	}
+}
+
+// visibleDepartments 复核中心的部门数据范围：超管返回 nil（全量），其余只含本部门。
+func (h *TicketHandler) visibleDepartments(c *gin.Context) []uint64 {
+	grant, ok := middleware.GetAdminGrant(c)
+	if !ok || grant.IsSuper() {
+		return nil
+	}
+	if grant.DepartmentID == 0 {
+		// 无部门归属的主管看不到任何部门的待复核，用 0 表达空集（部门 id 从 1 起）。
+		return []uint64{0}
+	}
+	return []uint64{grant.DepartmentID}
 }
 
 // List godoc
@@ -30,6 +77,8 @@ func NewTicketHandler(ticketService service.TicketService) *TicketHandler {
 // @Param category query string false "分类编码"
 // @Param priority query string false "优先级"
 // @Param status query string false "工单状态"
+// @Param review_status query string false "复核状态"
+// @Param department_id query int false "部门 ID"
 // @Param assigned_to query int false "处理人 ID"
 // @Param start_time query string false "开始时间"
 // @Param end_time query string false "结束时间"
@@ -43,9 +92,31 @@ func (h *TicketHandler) List(c *gin.Context) {
 		response.Error(c, apperrors.New(20001, err.Error()))
 		return
 	}
-	// 工作台视图按当前登录员工过滤，不接受前端传参，避免越权查看他人待办。
-	query.AdminID, _ = operatorFromContext(c)
+	h.applyDataScope(c, &query)
 	resp, err := h.ticketService.List(c.Request.Context(), query)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// ListReviews godoc
+// @Summary 待复核回复队列
+// @Tags 工单支持-工单
+// @Security BearerAuth
+// @Param page query int false "页码"
+// @Param page_size query int false "每页数量"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/tickets/reviews [get]
+func (h *TicketHandler) ListReviews(c *gin.Context) {
+	var query dto.TicketListQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	query.VisibleDepartments = h.visibleDepartments(c)
+	resp, err := h.ticketService.ListReviews(c.Request.Context(), query)
 	if err != nil {
 		response.Error(c, writeError(err))
 		return
@@ -74,7 +145,7 @@ func (h *TicketHandler) Get(c *gin.Context) {
 }
 
 // Reply godoc
-// @Summary 管理员回复工单
+// @Summary 管理员回复工单（支持内部备注）
 // @Tags 工单支持-工单
 // @Security BearerAuth
 // @Param id path int true "工单 ID"
@@ -92,7 +163,47 @@ func (h *TicketHandler) Reply(c *gin.Context) {
 		return
 	}
 	senderID, senderName := operatorFromContext(c)
-	resp, err := h.ticketService.Reply(c.Request.Context(), id, senderID, senderName, req.Content)
+	// 内部备注需权限：无权限时服务端强制回落为普通回复，不能只靠前端隐藏开关。
+	isInternal := req.IsInternal && hasAdminPerm(c, "ticket:internal_note")
+	resp, err := h.ticketService.Reply(c.Request.Context(), id, service.ReplyInput{
+		SenderID:      senderID,
+		SenderName:    senderName,
+		Content:       req.Content,
+		IsInternal:    isInternal,
+		AttachmentIDs: req.AttachmentIDs,
+	})
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// ReviewReply godoc
+// @Summary 复核一条待复核回复（双人复核）
+// @Tags 工单支持-工单
+// @Security BearerAuth
+// @Param replyId path int true "回复 ID"
+// @Param request body dto.TicketReviewRequest true "复核参数"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/tickets/replies/{replyId}/review [post]
+func (h *TicketHandler) ReviewReply(c *gin.Context) {
+	replyID, ok := pathID(c, "replyId")
+	if !ok {
+		return
+	}
+	var req dto.TicketReviewRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	reviewerID, reviewerName := operatorFromContext(c)
+	resp, err := h.ticketService.ReviewReply(c.Request.Context(), replyID, service.ReviewInput{
+		ReviewerID:   reviewerID,
+		ReviewerName: reviewerName,
+		Action:       req.Action,
+		Note:         req.Note,
+	})
 	if err != nil {
 		response.Error(c, writeError(err))
 		return
@@ -236,4 +347,67 @@ func (h *TicketHandler) Stats(c *gin.Context) {
 		return
 	}
 	response.Success(c, resp)
+}
+
+// UploadAttachment godoc
+// @Summary 上传工单附件（先上传拿 ID，再随建单/回复提交）
+// @Tags 工单支持-工单
+// @Security BearerAuth
+// @Param id path int true "工单 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/tickets/{id}/attachments [post]
+func (h *TicketHandler) UploadAttachment(c *gin.Context) {
+	ticketID, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	if h.attachmentSvc == nil {
+		response.Error(c, apperrors.New(50001, "附件服务未启用"))
+		return
+	}
+	operatorID, _ := operatorFromContext(c)
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		response.Error(c, apperrors.New(20001, "请选择要上传的文件"))
+		return
+	}
+	f, err := fileHeader.Open()
+	if err != nil {
+		response.Error(c, apperrors.New(20001, "无法读取上传文件"))
+		return
+	}
+	defer f.Close()
+	isInternal := c.PostForm("is_internal") == "true" && hasAdminPerm(c, "ticket:internal_note")
+	resp, err := h.attachmentSvc.Upload(c.Request.Context(), ticketID, operatorID, fileHeader.Filename, f, isInternal)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// DownloadAttachment godoc
+// @Summary 下载工单附件（管理端，可见内部附件）
+// @Tags 工单支持-工单
+// @Security BearerAuth
+// @Param id path int true "附件 ID"
+// @Success 200 {file} file
+// @Router /api/v1/admin/tickets/attachments/{id}/download [get]
+func (h *TicketHandler) DownloadAttachment(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	if h.attachmentSvc == nil {
+		response.Error(c, apperrors.New(50001, "附件服务未启用"))
+		return
+	}
+	item, reader, err := h.attachmentSvc.Open(c.Request.Context(), id, true, nil)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	defer reader.Close()
+	// 落盘名是随机串，这里用原始文件名回填，避免用户下载到无语义的名字。
+	writeAttachment(c, item.FileName, item.FileType, item.FileSize, reader)
 }

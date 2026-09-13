@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -27,8 +28,21 @@ type AdminService interface {
 	ResetPassword(ctx context.Context, id uint64, password string) error
 	Delete(ctx context.Context, id uint64) error
 	SetRoles(ctx context.Context, id uint64, roleIDs []uint64) error
+	// Resign 员工离职（S1）：置离职标记 + 禁用账号 + 交待在途客户（S4 装配后生效）。
+	Resign(ctx context.Context, id uint64, req dto.AdminResignRequest) error
 	// ListAuditLogs 管理端操作审计查询（P2-06）。
 	ListAuditLogs(ctx context.Context, query dto.AdminAuditLogQuery) (*dto.AdminAuditLogResponse, error)
+}
+
+// DepartmentNameResolver 部门名解析（由部门仓储实现）。
+// 定义在服务包内，避免 manager service → repository 的接口膨胀。
+type DepartmentNameResolver interface {
+	NameMap(ctx context.Context, ids []uint64) (map[uint64]string, error)
+}
+
+// SalesReleaser 员工离职时的在途客户交待人（S4 销售归属装配后注入；未装配时为 nil，跳过）。
+type SalesReleaser interface {
+	ReleaseStaff(ctx context.Context, adminID uint64, transferTo uint64) error
 }
 
 type adminService struct {
@@ -37,10 +51,25 @@ type adminService struct {
 	audit     repository.AdminAuditRepository
 	cache     middleware.PermissionCache
 	jwtIssuer *appauth.JWTIssuer
+	// deptNames 部门名解析（列表/详情回填 department_name），可为 nil。
+	deptNames DepartmentNameResolver
+	// salesReleaser 离职交待在途客户，可为 nil（S1 阶段尚未装配）。
+	salesReleaser SalesReleaser
 }
 
-func NewAdminService(repo repository.AdminRepository, rbac repository.RBACRepository, audit repository.AdminAuditRepository, cache middleware.PermissionCache, jwtIssuer *appauth.JWTIssuer) AdminService {
-	return &adminService{repo: repo, rbac: rbac, audit: audit, cache: cache, jwtIssuer: jwtIssuer}
+func NewAdminService(
+	repo repository.AdminRepository,
+	rbac repository.RBACRepository,
+	audit repository.AdminAuditRepository,
+	cache middleware.PermissionCache,
+	jwtIssuer *appauth.JWTIssuer,
+	deptNames DepartmentNameResolver,
+	salesReleaser SalesReleaser,
+) AdminService {
+	return &adminService{
+		repo: repo, rbac: rbac, audit: audit, cache: cache, jwtIssuer: jwtIssuer,
+		deptNames: deptNames, salesReleaser: salesReleaser,
+	}
 }
 
 func (s *adminService) Login(ctx context.Context, req dto.AdminLoginRequest, ip string) (*dto.AdminLoginResponse, error) {
@@ -142,6 +171,7 @@ func (s *adminService) List(ctx context.Context, query dto.AdminListQuery) (*dto
 		return nil, err
 	}
 	items := make([]dto.AdminInfo, 0, len(admins))
+	deptIDs := make([]uint64, 0, len(admins))
 	for _, admin := range admins {
 		info := toAdminInfo(admin)
 		if roles, rerr := s.rbac.FindRoleCodesByAdminID(ctx, admin.ID); rerr == nil {
@@ -151,6 +181,19 @@ func (s *adminService) List(ctx context.Context, query dto.AdminListQuery) (*dto
 			}
 		}
 		items = append(items, *info)
+		if admin.DepartmentID > 0 {
+			deptIDs = append(deptIDs, admin.DepartmentID)
+		}
+	}
+	if s.deptNames != nil && len(deptIDs) > 0 {
+		names, nerr := s.deptNames.NameMap(ctx, deptIDs)
+		if nerr == nil {
+			for i := range items {
+				if name, ok := names[items[i].DepartmentID]; ok {
+					items[i].DepartmentName = name
+				}
+			}
+		}
 	}
 	return &dto.AdminListResponse{
 		Items: items,
@@ -161,6 +204,9 @@ func (s *adminService) List(ctx context.Context, query dto.AdminListQuery) (*dto
 func (s *adminService) Create(ctx context.Context, req dto.AdminCreateRequest) (*dto.AdminInfo, error) {
 	if req.Status == "" {
 		req.Status = "active"
+	}
+	if req.StaffType != "" && !model.IsValidStaffType(req.StaffType) {
+		return nil, errors.New("员工类型不合法")
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -178,6 +224,10 @@ func (s *adminService) Create(ctx context.Context, req dto.AdminCreateRequest) (
 		roleCode = "admin"
 	}
 
+	staffType := req.StaffType
+	if staffType == "" {
+		staffType = model.StaffTypeAdmin
+	}
 	admin := &model.Admin{
 		Username:           req.Username,
 		Email:              req.Email,
@@ -186,6 +236,11 @@ func (s *adminService) Create(ctx context.Context, req dto.AdminCreateRequest) (
 		Department:         req.Department,
 		Position:           req.Position,
 		Status:             req.Status,
+		RealName:           strings.TrimSpace(req.RealName),
+		Phone:              strings.TrimSpace(req.Phone),
+		DepartmentID:       req.DepartmentID,
+		StaffType:          staffType,
+		SalesEnabled:       req.SalesEnabled,
 		MustChangePassword: true, // 新建员工首次登录强制改密（P1-08）
 	}
 	if err := s.repo.Create(ctx, admin); err != nil {
@@ -196,9 +251,7 @@ func (s *adminService) Create(ctx context.Context, req dto.AdminCreateRequest) (
 			return nil, err
 		}
 	}
-	info := toAdminInfo(*admin)
-	info.Roles = mustRoleCodes(ctx, s.rbac, roleIDs)
-	return info, nil
+	return s.FindByID(ctx, admin.ID)
 }
 
 func (s *adminService) FindByID(ctx context.Context, id uint64) (*dto.AdminInfo, error) {
@@ -214,6 +267,11 @@ func (s *adminService) FindByID(ctx context.Context, id uint64) (*dto.AdminInfo,
 			info.Role = roles[0]
 		}
 	}
+	if s.deptNames != nil && admin.DepartmentID > 0 {
+		if names, nerr := s.deptNames.NameMap(ctx, []uint64{admin.DepartmentID}); nerr == nil {
+			info.DepartmentName = names[admin.DepartmentID]
+		}
+	}
 	return info, nil
 }
 
@@ -222,10 +280,20 @@ func (s *adminService) Update(ctx context.Context, id uint64, req dto.AdminUpdat
 	if err != nil {
 		return nil, err
 	}
+	if req.StaffType != "" && !model.IsValidStaffType(req.StaffType) {
+		return nil, errors.New("员工类型不合法")
+	}
 	admin.Email = req.Email
 	admin.Department = req.Department
 	admin.Position = req.Position
 	admin.Status = req.Status
+	admin.RealName = strings.TrimSpace(req.RealName)
+	admin.Phone = strings.TrimSpace(req.Phone)
+	admin.DepartmentID = req.DepartmentID
+	admin.SalesEnabled = req.SalesEnabled
+	if req.StaffType != "" {
+		admin.StaffType = req.StaffType
+	}
 	// 兼容旧前端：传了单 role code 时同步为唯一角色（多角色走 SetRoles）。
 	if req.Role != "" {
 		if ids, rerr := s.rbac.FindRoleIDsByCodes(ctx, []string{req.Role}); rerr == nil && len(ids) > 0 {
@@ -235,6 +303,7 @@ func (s *adminService) Update(ctx context.Context, id uint64, req dto.AdminUpdat
 			admin.Role = req.Role
 		}
 	}
+	// Save 会写全量列：显式 Select 保证零值（如清空 phone、关闭 sales_enabled）也能落库。
 	if err := s.repo.Update(ctx, admin); err != nil {
 		return nil, err
 	}
@@ -298,6 +367,35 @@ func (s *adminService) invalidate(_ context.Context, adminID uint64) {
 	}
 }
 
+// Resign 员工离职（doc86 §2.1/S4）：
+//  1. 置 resigned_at + status=disabled（保留账号与角色绑定，历史工单/提成可追溯）；
+//  2. 交待在途客户（salesReleaser 由 S4 装配，未装配时跳过，不影响离职本身）；
+//  3. 失效权限缓存，旧 token 立即失效。
+//
+// 提成不受影响：已产生的提成照常解冻与提现，离职不等于清账。
+func (s *adminService) Resign(ctx context.Context, id uint64, req dto.AdminResignRequest) error {
+	admin, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if admin.ResignedAt != nil {
+		return errors.New("该员工已离职")
+	}
+	if err := s.repo.Resign(ctx, id, time.Now()); err != nil {
+		return err
+	}
+	// 客户交待失败不回滚离职：离职是人事事实，客户归属可事后补办；
+	// 失败原因由装配层实现负责记录日志（与返现/通知钩子同一约定）。
+	if s.salesReleaser != nil {
+		if rerr := s.salesReleaser.ReleaseStaff(ctx, id, req.TransferToAdminID); rerr != nil {
+			// 交由上层日志记录，不阻断接口（离职状态已落库）。
+			_ = rerr
+		}
+	}
+	s.invalidate(ctx, id)
+	return nil
+}
+
 // resolveRoleIDs 合并 role_ids 与兼容的 role code 入参，得到最终角色 ID 集合。
 func (s *adminService) resolveRoleIDs(ctx context.Context, roleIDs []uint64, roleCode string) ([]uint64, error) {
 	ids := make([]uint64, 0, len(roleIDs)+1)
@@ -329,8 +427,16 @@ func toAdminInfo(admin model.Admin) *dto.AdminInfo {
 		Role:               admin.Role,
 		Department:         admin.Department,
 		Position:           admin.Position,
-		ServiceGroupID:     admin.ServiceGroupID,
 		Status:             admin.Status,
+		RealName:           admin.RealName,
+		Phone:              admin.Phone,
+		DepartmentID:       admin.DepartmentID,
+		StaffType:          admin.StaffType,
+		SalesEnabled:       admin.SalesEnabled,
+		JoinedAt:           admin.JoinedAt,
+		ResignedAt:         admin.ResignedAt,
+		IsResigned:         admin.ResignedAt != nil,
+		ServiceGroupID:     admin.ServiceGroupID,
 		MustChangePassword: admin.MustChangePassword,
 		LastLoginIP:        admin.LastLoginIP,
 		LastLoginAt:        admin.LastLoginAt,

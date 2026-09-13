@@ -56,6 +56,13 @@ const (
 	PayoutStatusFailed  string = "failed"  // 打款失败
 )
 
+// 打款业务域（doc86 §2.5）：财务提现（withdrawals.id）与销售提成提现（sales_withdrawals.id）
+// 的 ID 各自从 1 开始，打款单必须按业务域区分，否则 FindByWithdrawID 会串单。
+const (
+	PayoutBizWithdraw      string = "withdraw"       // 财务提现
+	PayoutBizSalesWithdraw string = "sales_withdraw" // 销售提成提现
+)
+
 // 打款模式（与 finance/withdraw 的 PayoutMode* 同值）
 const (
 	PayoutModeManual string = "manual" // 人工打款登记
@@ -192,8 +199,11 @@ func (PaymentRefund) TableName() string { return "payment_refunds" }
 
 // PaymentPayout 打款单：提现审批通过后产生，人工登记或 API 自动打款。
 type PaymentPayout struct {
-	ID          uint64     `gorm:"primaryKey;autoIncrement"`
-	PayoutNo    string     `gorm:"column:payout_no;size:64;not null;uniqueIndex"`
+	ID       uint64 `gorm:"primaryKey;autoIncrement"`
+	PayoutNo string `gorm:"column:payout_no;size:64;not null;uniqueIndex"`
+	// BizType 业务域（withdraw/sales_withdraw，doc86 §2.5）：withdraw_id 在不同业务域会撞号，
+	// 查询与幂等都必须带上本列。
+	BizType     string     `gorm:"column:biz_type;size:32;not null;default:withdraw;index:idx_payment_payouts_biz"`
 	WithdrawID  uint64     `gorm:"column:withdraw_id;not null;default:0;index"`
 	WithdrawNo  string     `gorm:"column:withdraw_no;size:64"`
 	UserID      uint64     `gorm:"column:user_id;not null;index"`

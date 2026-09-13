@@ -57,6 +57,8 @@ type RenewalService interface {
 	SetRenewedHook(hook RenewedHook)
 	// SetPointEarner 注入续费完成后的积分发放钩子（装配层调用，doc36）
 	SetPointEarner(hook RenewalPointHook)
+	// SetSalesOwnerResolver 注入续费订单的销售归属解析（装配层调用，doc86 §3.4）
+	SetSalesOwnerResolver(r SalesOwnerResolver)
 }
 
 // UpstreamRenewer 上游/平台续费执行器（装配层注入，避免生命周期模块依赖 provider 模块）。
@@ -68,6 +70,12 @@ type UpstreamRenewer func(ctx context.Context, inst *syncmodel.Instance, periodC
 // RenewalCashbackHook 续费完成后的推广返现计提钩子。
 // 仅传基础类型，避免生命周期模块反向依赖返现模块。
 type RenewalCashbackHook func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, amount float64, isRenewal bool) error
+
+// SalesOwnerResolver 续费订单的销售归属解析（doc86 §3.4）：装配层注入，
+// 避免 lifecycle 反向依赖 sales 模块。srcOrderID 为实例的来源订单（可能为 0）。
+type SalesOwnerResolver interface {
+	SalesAdminForRenewal(ctx context.Context, userID, srcOrderID uint64) uint64
+}
 
 // lifecycleRenewalGetter 续费完成时按 ID 读取订单（用于获取支付方式快照）。
 type lifecycleRenewalGetter interface {
@@ -103,6 +111,7 @@ type renewalService struct {
 	upstream     UpstreamRenewer      // 可选：上游/平台续费执行器（T5.2）
 	renewedHook  RenewedHook          // 可选：续费完成事件（P6/T6.5 开放平台回调）
 	pointHook    RenewalPointHook     // 可选：续费完成后的积分发放（doc36）
+	salesOwner   SalesOwnerResolver   // 可选：续费订单的销售归属解析（doc86 §3.4）
 	logger       *zap.Logger
 }
 
@@ -130,6 +139,9 @@ func NewRenewalService(
 		logger:       logger,
 	}
 }
+
+// SetSalesOwnerResolver 注入续费订单的销售归属解析器（装配层调用）。
+func (s *renewalService) SetSalesOwnerResolver(r SalesOwnerResolver) { s.salesOwner = r }
 
 // SetOrderReader 注入订单读取器（可选依赖，用于支付钩子读取支付方式）。
 func (s *renewalService) SetOrderReader(r lifecycleRenewalGetter) {
@@ -562,6 +574,10 @@ func (s *renewalService) createPendingRenewal(ctx context.Context, instance *lif
 		Status:         ordermodel.OrderStatusPending,
 		Remark:         remark,
 		OperatorID:     operatorID,
+	}
+	// 销售归属快照（doc86 §3.4）：默认跟源订单（instance.OrderID），可配置改跟现役归属。
+	if s.salesOwner != nil {
+		order.SalesAdminID = s.salesOwner.SalesAdminForRenewal(ctx, instance.UserID, instance.OrderID)
 	}
 	renewal := &lifecyclemodel.InstanceRenewal{
 		RenewalNo:    genRenewalNoLocal(),

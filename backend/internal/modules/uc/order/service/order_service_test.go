@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
+	orderdto "hostsent/backend/internal/modules/admin/order/dto"
+	ordermodel "hostsent/backend/internal/modules/admin/order/model"
 	catalogdto "hostsent/backend/internal/modules/admin/product/catalog/dto"
 )
 
@@ -68,6 +71,59 @@ func TestResolveSkuAllDisabled(t *testing.T) {
 	}
 	if errors.Is(err, ErrProductOffline) {
 		t.Fatalf("不应误用商品下架错误: %v", err)
+	}
+}
+
+// fakeOrderRepo 订单仓储最小实现，仅覆盖 Detail 需要的 FindByID。
+type fakeOrderRepo struct {
+	order *ordermodel.Order
+	err   error
+}
+
+func (f *fakeOrderRepo) Create(context.Context, *ordermodel.Order) error { return nil }
+func (f *fakeOrderRepo) List(context.Context, orderdto.OrderListQuery) ([]ordermodel.Order, int64, error) {
+	return nil, 0, nil
+}
+func (f *fakeOrderRepo) FindByID(context.Context, uint64) (*ordermodel.Order, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.order, nil
+}
+
+// TestDetailOwnership 订单详情归属校验：他人订单与不存在订单一律返回 ErrOrderNotFound，
+// 避免用订单 ID 探测他人数据。
+func TestDetailOwnership(t *testing.T) {
+	paidAt := time.Now()
+	repo := &fakeOrderRepo{order: &ordermodel.Order{
+		ID: 7, OrderNo: "UC1001", UserID: 100, ProductID: 5, ProductName: "云主机",
+		SpecCode: "small", Quantity: 2, Cycle: "monthly",
+		Status: ordermodel.OrderStatusPaid, PayMethod: ordermodel.PayMethodBalance,
+		FinalAmount: 88.8, PayTime: &paidAt,
+	}}
+	svc := &orderService{orderRepo: repo}
+
+	info, err := svc.Detail(context.Background(), 100, 7)
+	if err != nil {
+		t.Fatalf("归属账号应可读详情: %v", err)
+	}
+	if info.SpecCode != "small" || info.Quantity != 2 || info.Cycle != "monthly" {
+		t.Fatalf("规格/数量/周期未透出: %+v", info)
+	}
+	if info.PayTime == "" {
+		t.Fatal("支付时间未透出")
+	}
+
+	if _, err := svc.Detail(context.Background(), 200, 7); !errors.Is(err, ErrOrderNotFound) {
+		t.Fatalf("非归属账号应返回 ErrOrderNotFound, got %v", err)
+	}
+
+	missing := &orderService{orderRepo: &fakeOrderRepo{err: errors.New("record not found")}}
+	if _, err := missing.Detail(context.Background(), 100, 7); !errors.Is(err, ErrOrderNotFound) {
+		t.Fatalf("不存在订单应返回 ErrOrderNotFound, got %v", err)
+	}
+	if _, err := svc.Detail(context.Background(), 100, 0); !errors.Is(err, ErrOrderNotFound) {
+		t.Fatalf("空 ID 应返回 ErrOrderNotFound, got %v", err)
 	}
 }
 

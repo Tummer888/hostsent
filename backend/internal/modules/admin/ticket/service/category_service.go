@@ -16,6 +16,8 @@ import (
 type CategoryService interface {
 	// List 分类列表（管理端含禁用，用户端仅启用）
 	List(ctx context.Context, includeDisabled bool) ([]dto.CategoryInfo, error)
+	// ListForUser 用户端分类列表（S2）：仅启用分类，附当前用户实名状态与前置条件。
+	ListForUser(ctx context.Context, accountID, actorID uint64) (*dto.UserCategoryListResponse, error)
 	Create(ctx context.Context, req dto.CategorySaveRequest) (*dto.CategoryInfo, error)
 	Update(ctx context.Context, id uint64, req dto.CategorySaveRequest) (*dto.CategoryInfo, error)
 	Delete(ctx context.Context, id uint64) error
@@ -24,11 +26,16 @@ type CategoryService interface {
 type categoryService struct {
 	categoryRepo repository.CategoryRepository
 	ticketRepo   repository.TicketRepository
+	precondition repository.PreconditionChecker
 }
 
-// NewCategoryService 创建工单分类业务服务。
-func NewCategoryService(categoryRepo repository.CategoryRepository, ticketRepo repository.TicketRepository) CategoryService {
-	return &categoryService{categoryRepo: categoryRepo, ticketRepo: ticketRepo}
+// NewCategoryService 创建工单分类业务服务。precondition 可为 nil（用户端不回显实名状态）。
+func NewCategoryService(
+	categoryRepo repository.CategoryRepository,
+	ticketRepo repository.TicketRepository,
+	precondition repository.PreconditionChecker,
+) CategoryService {
+	return &categoryService{categoryRepo: categoryRepo, ticketRepo: ticketRepo, precondition: precondition}
 }
 
 func (s *categoryService) List(ctx context.Context, includeDisabled bool) ([]dto.CategoryInfo, error) {
@@ -36,11 +43,46 @@ func (s *categoryService) List(ctx context.Context, includeDisabled bool) ([]dto
 	if err != nil {
 		return nil, err
 	}
+	names := s.departmentNames(ctx, items)
 	infos := make([]dto.CategoryInfo, 0, len(items))
 	for _, item := range items {
-		infos = append(infos, buildCategoryInfo(item))
+		infos = append(infos, buildCategoryInfo(item, names[item.DepartmentID]))
 	}
 	return infos, nil
+}
+
+// ListForUser 用户端分类列表：仅启用分类，附提交前置条件与实名状态，
+// 供前端动态渲染表单（require_binding 时显示关联产品/实例选择器）。
+func (s *categoryService) ListForUser(ctx context.Context, accountID, actorID uint64) (*dto.UserCategoryListResponse, error) {
+	items, err := s.categoryRepo.List(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	realnameOK := false
+	if s.precondition != nil {
+		// 实名按归属账号判定：子账号不具备独立实名主体，跟随主账号；
+		// 归属账号查不到时再按真实操作人兜底。
+		if ok, err := s.precondition.IsRealnameVerified(ctx, accountID); err == nil && ok {
+			realnameOK = true
+		} else if actorID != accountID {
+			if ok, err := s.precondition.IsRealnameVerified(ctx, actorID); err == nil {
+				realnameOK = ok
+			}
+		}
+	}
+	infos := make([]dto.UserCategoryInfo, 0, len(items))
+	for _, item := range items {
+		infos = append(infos, dto.UserCategoryInfo{
+			ID:              item.ID,
+			Name:            item.Name,
+			Code:            item.Code,
+			Description:     item.Description,
+			RequireRealname: item.RequireRealname,
+			RequireBinding:  item.RequireBinding,
+			NeedReview:      item.NeedReview,
+		})
+	}
+	return &dto.UserCategoryListResponse{Items: infos, RealnameOK: realnameOK}, nil
 }
 
 // Create 创建分类：编码唯一性校验。
@@ -54,19 +96,24 @@ func (s *categoryService) Create(ctx context.Context, req dto.CategorySaveReques
 		status = model.CategoryStatusActive
 	}
 	item := &model.TicketCategory{
-		Name:            req.Name,
-		Code:            code,
-		Description:     req.Description,
-		SortOrder:       req.SortOrder,
-		Status:          status,
-		DefaultRoleCode: req.DefaultRoleCode,
-		DefaultGroupID:  optionalID(req.DefaultGroupID),
-		SLAHours:        req.SLAHours,
+		Name:             req.Name,
+		Code:             code,
+		Description:      req.Description,
+		SortOrder:        req.SortOrder,
+		Status:           status,
+		DefaultRoleCode:  req.DefaultRoleCode,
+		DefaultGroupID:   optionalID(req.DefaultGroupID),
+		SLAHours:         req.SLAHours,
+		DepartmentID:     req.DepartmentID,
+		RequireRealname:  req.RequireRealname,
+		RequireBinding:   req.RequireBinding,
+		NeedReview:       req.NeedReview,
+		VisibleRoleCodes: model.EncodeRoleCodes(req.VisibleRoleCodes),
 	}
 	if err := s.categoryRepo.Create(ctx, item); err != nil {
 		return nil, err
 	}
-	info := buildCategoryInfo(*item)
+	info := buildCategoryInfo(*item, s.departmentName(ctx, item.DepartmentID))
 	return &info, nil
 }
 
@@ -87,13 +134,18 @@ func (s *categoryService) Update(ctx context.Context, id uint64, req dto.Categor
 	item.DefaultRoleCode = req.DefaultRoleCode
 	item.DefaultGroupID = optionalID(req.DefaultGroupID)
 	item.SLAHours = req.SLAHours
+	item.DepartmentID = req.DepartmentID
+	item.RequireRealname = req.RequireRealname
+	item.RequireBinding = req.RequireBinding
+	item.NeedReview = req.NeedReview
+	item.VisibleRoleCodes = model.EncodeRoleCodes(req.VisibleRoleCodes)
 	if req.Status != "" {
 		item.Status = req.Status
 	}
 	if err := s.categoryRepo.Update(ctx, item); err != nil {
 		return nil, err
 	}
-	info := buildCategoryInfo(*item)
+	info := buildCategoryInfo(*item, s.departmentName(ctx, item.DepartmentID))
 	return &info, nil
 }
 
@@ -116,23 +168,58 @@ func (s *categoryService) Delete(ctx context.Context, id uint64) error {
 	return s.categoryRepo.Delete(ctx, id)
 }
 
-func buildCategoryInfo(item model.TicketCategory) dto.CategoryInfo {
+// departmentNames 批量取部门 id → 名称（列表避免 N+1）。
+func (s *categoryService) departmentNames(ctx context.Context, items []model.TicketCategory) map[uint64]string {
+	ids := make([]uint64, 0, len(items))
+	for _, item := range items {
+		if item.DepartmentID > 0 {
+			ids = append(ids, item.DepartmentID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	names, err := s.ticketRepo.DepartmentNameMap(ctx, ids)
+	if err != nil {
+		return nil
+	}
+	return names
+}
+
+func (s *categoryService) departmentName(ctx context.Context, id uint64) string {
+	if id == 0 {
+		return ""
+	}
+	names, err := s.ticketRepo.DepartmentNameMap(ctx, []uint64{id})
+	if err != nil {
+		return ""
+	}
+	return names[id]
+}
+
+func buildCategoryInfo(item model.TicketCategory, departmentName string) dto.CategoryInfo {
 	var groupID uint64
 	if item.DefaultGroupID != nil {
 		groupID = *item.DefaultGroupID
 	}
 	return dto.CategoryInfo{
-		ID:              item.ID,
-		Name:            item.Name,
-		Code:            item.Code,
-		Description:     item.Description,
-		SortOrder:       item.SortOrder,
-		Status:          item.Status,
-		DefaultRoleCode: item.DefaultRoleCode,
-		DefaultGroupID:  groupID,
-		SLAHours:        item.SLAHours,
-		CreatedAt:       item.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:       item.UpdatedAt.Format(time.RFC3339),
+		ID:               item.ID,
+		Name:             item.Name,
+		Code:             item.Code,
+		Description:      item.Description,
+		SortOrder:        item.SortOrder,
+		Status:           item.Status,
+		DefaultRoleCode:  item.DefaultRoleCode,
+		DefaultGroupID:   groupID,
+		DepartmentID:     item.DepartmentID,
+		DepartmentName:   departmentName,
+		RequireRealname:  item.RequireRealname,
+		RequireBinding:   item.RequireBinding,
+		NeedReview:       item.NeedReview,
+		VisibleRoleCodes: item.RoleCodeList(),
+		SLAHours:         item.SLAHours,
+		CreatedAt:        item.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:        item.UpdatedAt.Format(time.RFC3339),
 	}
 }
 

@@ -10,6 +10,9 @@
         </div>
       </div>
       <t-space size="small">
+        <t-button v-if="has('ticket:review')" variant="outline" @click="router.push('/tickets/reviews')">
+          复核中心
+        </t-button>
         <t-button variant="outline" :loading="loading" @click="loadTickets">
           <template #icon><RefreshIcon aria-hidden="true" /></template>
           刷新
@@ -58,6 +61,26 @@
           <t-select v-model="filters.status" clearable placeholder="全部状态" :options="ticketStatusOptions" />
         </div>
         <div class="field">
+          <span class="field__label">归属部门</span>
+          <t-select
+            v-model="filters.department_id"
+            clearable
+            filterable
+            placeholder="全部部门"
+            :options="departmentOptions"
+            :loading="departmentLoading"
+          />
+        </div>
+        <div class="field">
+          <span class="field__label">复核状态</span>
+          <t-select
+            v-model="filters.review_status"
+            clearable
+            placeholder="全部复核状态"
+            :options="reviewStatusOptions"
+          />
+        </div>
+        <div class="field">
           <span class="field__label">提交时间</span>
           <t-date-range-picker v-model="filters.dateRange" clearable separator="~" placeholder="开始日期 ~ 结束日期" />
         </div>
@@ -102,15 +125,30 @@
         <template #category="{ row }">
           <t-tag variant="light" size="small" shape="round">{{ row.category_name || row.category }}</t-tag>
         </template>
+        <template #department_name="{ row }">
+          <span v-if="row.department_name" class="cell-strong">{{ row.department_name }}</span>
+          <span v-else class="cell-muted">—</span>
+        </template>
         <template #priority="{ row }">
           <t-tag :theme="ticketPriorityTheme(row.priority)" variant="light" size="small" shape="round">
             {{ ticketPriorityLabel(row.priority) }}
           </t-tag>
         </template>
         <template #status="{ row }">
-          <t-tag :theme="ticketStatusTheme(row.status)" variant="light" size="small" shape="round">
-            {{ ticketStatusLabel(row.status) }}
-          </t-tag>
+          <div class="status-cell">
+            <t-tag :theme="ticketStatusTheme(row.status)" variant="light" size="small" shape="round">
+              {{ ticketStatusLabel(row.status) }}
+            </t-tag>
+            <t-tag
+              v-if="row.review_status === 'pending'"
+              theme="warning"
+              variant="light"
+              size="small"
+              shape="round"
+            >
+              待复核
+            </t-tag>
+          </div>
         </template>
         <template #assigned_name="{ row }">
           <span v-if="row.assigned_name" class="cell-strong">{{ row.assigned_name }}</span>
@@ -168,12 +206,14 @@ import { RefreshIcon, SearchIcon, ServiceIcon } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { closeTicket, claimTicket, getTicketCategories, getTickets } from '@/api/ticket'
+import { getDepartmentList } from '@/api/admin'
 import MobileAction from '@/components/mobile-action/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { usePermission } from '@/composables/usePermission'
 import {
   formatTime,
+  reviewStatusOptions,
   ticketPriorityLabel,
   ticketPriorityOptions,
   ticketPriorityTheme,
@@ -194,6 +234,8 @@ const loading = ref(false)
 const { isMobile } = useIsMobile()
 const total = ref(0)
 const categoryOptions = ref<{ label: string; value: string }[]>([])
+const departmentOptions = ref<{ label: string; value: number }[]>([])
+const departmentLoading = ref(false)
 
 // 工作台视图：空串表示全部
 const viewTabs = [
@@ -202,6 +244,7 @@ const viewTabs = [
   { label: '未分配池', value: 'unassigned' },
   { label: '我参与的', value: 'involved' },
   { label: 'SLA 超时', value: 'sla_breached' },
+  { label: '待复核', value: 'review_pending' },
 ]
 const activeView = ref('')
 
@@ -211,6 +254,8 @@ const filters = reactive<{
   category: string | undefined
   priority: string | undefined
   status: string | undefined
+  department_id: number | undefined
+  review_status: string | undefined
   dateRange: [string, string] | undefined
 }>({
   keyword: undefined,
@@ -218,6 +263,8 @@ const filters = reactive<{
   category: undefined,
   priority: undefined,
   status: undefined,
+  department_id: undefined,
+  review_status: undefined,
   dateRange: undefined,
 })
 
@@ -239,8 +286,9 @@ const columns: PrimaryTableCol<TicketInfo>[] = [
   { colKey: 'user', title: '用户', minWidth: 140 },
   { colKey: 'title', title: '标题', minWidth: 200, ellipsis: true },
   { colKey: 'category', title: '分类', width: 110 },
+  { colKey: 'department_name', title: '归属部门', width: 110 },
   { colKey: 'priority', title: '优先级', width: 90 },
-  { colKey: 'status', title: '状态', width: 100 },
+  { colKey: 'status', title: '状态', width: 140 },
   { colKey: 'assigned_name', title: '处理人', width: 110 },
   { colKey: 'sla', title: 'SLA', width: 80, align: 'center' as const },
   { colKey: 'created_at', title: '提交时间', width: 160 },
@@ -257,6 +305,19 @@ async function loadCategories() {
   }
 }
 
+// 加载部门下拉（S2 数据范围筛选）
+async function loadDepartments() {
+  departmentLoading.value = true
+  try {
+    const data = await getDepartmentList({ status: 'active', flat: 1 })
+    departmentOptions.value = (data.items ?? []).map((item) => ({ label: item.name, value: item.id }))
+  } catch {
+    // 部门下拉加载失败不阻断列表
+  } finally {
+    departmentLoading.value = false
+  }
+}
+
 async function loadTickets() {
   loading.value = true
   try {
@@ -267,6 +328,8 @@ async function loadTickets() {
       category: filters.category,
       priority: filters.priority,
       status: filters.status,
+      review_status: filters.review_status,
+      department_id: filters.department_id,
       start_time: toDateString(startDate) ? `${toDateString(startDate)} 00:00:00` : undefined,
       end_time: toDateString(endDate) ? `${toDateString(endDate)} 23:59:59` : undefined,
       view: activeView.value || undefined,
@@ -331,6 +394,8 @@ function handleResetFilters() {
   filters.category = undefined
   filters.priority = undefined
   filters.status = undefined
+  filters.review_status = undefined
+  filters.department_id = undefined
   filters.dateRange = undefined
   pagination.current = 1
   loadTickets()
@@ -397,6 +462,7 @@ function handleClose(row: TicketInfo) {
 
 onMounted(() => {
   loadCategories()
+  loadDepartments()
   loadTickets()
 })
 </script>
@@ -436,5 +502,12 @@ onMounted(() => {
   background: var(--color-primary);
   color: #ffffff;
   border-color: var(--color-primary);
+}
+
+.status-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 </style>

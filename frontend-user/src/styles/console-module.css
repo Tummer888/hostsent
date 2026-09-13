@@ -1,0 +1,276 @@
+/* ============================================================
+   HostSent · 用户控制台页面骨架契约
+   由 frontend-admin/src/pages/finance/shared.css 移植（去掉财务专有部分）。
+
+   用法：页面根节点写 `<div class="page-body console-module">`。
+   与管理端一致，选择器都以 .console-module 命名空间包裹，不污染其它页面。
+
+   注意（沿用管理端的坑）：布局必须挂在 `.console-module` 自身，
+   不能写成 `.console-module .page-body` —— 同一元素上的后代选择器不匹配。
+   ============================================================ */
+
+@import './stat-card.css';
+
+/* ---------- 页面骨架 ---------- */
+.console-module {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.console-module .page-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+/* ---------- 通用卡片 ---------- */
+.console-module .surface-card {
+  position: relative;
+  border-radius: var(--hs-radius-lg);
+  background: var(--hs-surface-1);
+  border: 1px solid var(--color-border);
+  box-shadow: none;
+}
+
+.console-module .page-header.surface-card {
+  border-color: transparent;
+}
+
+/* ---------- 页头 ---------- */
+.console-module .page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  padding: var(--space-lg) var(--space-xl);
+  flex-wrap: wrap;
+}
+
+.console-module .page-header__main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.console-module .page-header__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.console-module .page-header__chip {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--hs-radius-xl);
+  background: linear-gradient(135deg, #60a5fa, #2563eb);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform var(--hs-duration-fast) var(--hs-ease-out);
+}
+
+.console-module .page-header__chip:hover {
+  transform: translateY(-1px) scale(1.03);
+}
+
+.console-module .page-header__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+
+.console-module .page-header__desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-muted-foreground);
+}
+
+.console-module .page-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+/* ---------- 筛选卡片 / 表格卡片 ---------- */
+.console-module .filter-card,
+.console-module .table-card {
+  padding: var(--space-lg) 20px;
+}
+
+.console-module .filter-card__head,
+.console-module .table-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.console-module .card-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+
+.console-module .table-card__meta {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.console-module .filter-card__grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.console-module .filter-card__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-border);
+}
+
+.console-module .filter-card__actions .t-button {
+  min-width: 88px;
+}
+
+/* 筛选区内的补充说明（如「本接口不支持全量搜索」），比 desc 更轻 */
+.console-module .filter-card__note {
+  margin: var(--space-md) 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--color-muted-foreground);
+}
+
+/* ---------- 表单项 ---------- */
+.console-module .field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.console-module .field__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+}
+
+/* ---------- 表格内常用单元格 ---------- */
+.console-module .action-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.console-module .cell-strong {
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+
+.console-module .cell-sub {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.console-module .time-text {
+  color: var(--color-muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 单元格内「主值 + 副说明」竖排（账单/发票/流水多处使用） */
+.console-module .cell-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+}
+
+.console-module .price-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.console-module .price-cell__main {
+  font-weight: 600;
+  color: var(--color-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.console-module .price-cell__sub {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+  text-decoration: line-through;
+}
+
+.console-module .amount-income {
+  color: var(--color-success);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.console-module .amount-expense {
+  color: var(--color-danger);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 空状态 ---------- */
+.console-module .empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2xl) var(--space-lg);
+}
+
+/* ---------- TDesign 微调（与管理端一致的观感） ---------- */
+.console-module .t-table {
+  background: transparent;
+}
+
+.console-module .t-table th {
+  background: var(--hs-surface-2);
+  font-weight: 600;
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 768px) {
+  .console-module .page-header {
+    padding: var(--space-lg);
+  }
+
+  .console-module .page-header__chip {
+    width: 38px;
+    height: 38px;
+  }
+
+  .console-module .page-header__title {
+    font-size: 18px;
+  }
+
+  .console-module .page-header__actions {
+    width: 100%;
+  }
+
+  .console-module .filter-card,
+  .console-module .table-card {
+    padding: var(--space-lg) var(--space-md);
+  }
+
+  .console-module .filter-card__actions {
+    justify-content: flex-end;
+  }
+}

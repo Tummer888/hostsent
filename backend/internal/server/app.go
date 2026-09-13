@@ -34,6 +34,7 @@ import (
 	reconcilehandler "hostsent/backend/internal/modules/admin/resource/reconcile/handler"
 	synchandler "hostsent/backend/internal/modules/admin/resource/sync/handler"
 	taskqueuehandler "hostsent/backend/internal/modules/admin/resource/taskqueue/handler"
+	saleshandler "hostsent/backend/internal/modules/admin/sales/handler"
 	systemhandler "hostsent/backend/internal/modules/admin/system/handler"
 	tickethandler "hostsent/backend/internal/modules/admin/ticket/handler"
 	"hostsent/backend/internal/modules/admin/user/account/handler"
@@ -41,6 +42,7 @@ import (
 	securityhandler "hostsent/backend/internal/modules/admin/user/security/handler"
 	verificationhandler "hostsent/backend/internal/modules/admin/user/verification/handler"
 	openhandler "hostsent/backend/internal/modules/open/handler"
+	sitehandler "hostsent/backend/internal/modules/site/handler"
 	usercenterhandler "hostsent/backend/internal/modules/uc/auth/handler"
 	userfinancehandler "hostsent/backend/internal/modules/uc/finance/handler"
 	ucinstancehandler "hostsent/backend/internal/modules/uc/instance/handler"
@@ -49,7 +51,6 @@ import (
 	ucorderhandler "hostsent/backend/internal/modules/uc/order/handler"
 	ucproducthandler "hostsent/backend/internal/modules/uc/product/handler"
 	ucreferralhandler "hostsent/backend/internal/modules/uc/referral/handler"
-	ucsitehandler "hostsent/backend/internal/modules/uc/site/handler"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/middleware"
@@ -66,7 +67,9 @@ type App struct {
 	// auditWriter 管理端写操作审计落库（P2-06）。
 	auditWriter middleware.AdminAuditWriter
 
-	adminHandler          *adminhandler.AdminHandler
+	adminHandler *adminhandler.AdminHandler
+	// departmentHandler 组织部门管理（S1 员工体系，doc86）。
+	departmentHandler     *adminhandler.DepartmentHandler
 	userHandler           *handler.UserHandler
 	userDetailHandler     *handler.UserDetailHandler
 	userGroupHandler      *handler.UserGroupHandler
@@ -90,19 +93,23 @@ type App struct {
 	discountPolicyHandler *discounthandler.PolicyHandler
 	promotionHandler      *promotionhandler.PromotionHandler
 	adminReferralHandler  *referralhandler.ReferralHandler
-	orderHandler          *orderhandler.OrderHandler
-	refundHandler         *orderhandler.RefundHandler
-	walletHandler         *finaccounthandler.WalletHandler
-	rechargeHandler       *finrechargehandler.RechargeHandler
-	withdrawHandler       *finwithdrawhandler.WithdrawHandler
-	billHandler           *finbillhandler.BillHandler
-	reconHandler          *finbillhandler.ReconHandler
-	configHandler         *systemhandler.ConfigHandler
-	userFinanceHandler    *userfinancehandler.FinanceHandler
-	ucProductHandler      *ucproducthandler.ProductHandler
-	ucOrderHandler        *ucorderhandler.OrderHandler
-	ucInstanceHandler     *ucinstancehandler.InstanceHandler
-	instanceOpsHandler    *admininstancehandler.InstanceHandler
+	// 销售体系（S4–S6，doc86）：客户归属 / 提成台账 / 提成提现 / 业绩排行。
+	salesCustomerHandler    *saleshandler.CustomerHandler
+	salesCommissionHandler  *saleshandler.CommissionHandler
+	salesPerformanceHandler *saleshandler.PerformanceHandler
+	orderHandler            *orderhandler.OrderHandler
+	refundHandler           *orderhandler.RefundHandler
+	walletHandler           *finaccounthandler.WalletHandler
+	rechargeHandler         *finrechargehandler.RechargeHandler
+	withdrawHandler         *finwithdrawhandler.WithdrawHandler
+	billHandler             *finbillhandler.BillHandler
+	reconHandler            *finbillhandler.ReconHandler
+	configHandler           *systemhandler.ConfigHandler
+	userFinanceHandler      *userfinancehandler.FinanceHandler
+	ucProductHandler        *ucproducthandler.ProductHandler
+	ucOrderHandler          *ucorderhandler.OrderHandler
+	ucInstanceHandler       *ucinstancehandler.InstanceHandler
+	instanceOpsHandler      *admininstancehandler.InstanceHandler
 	// taskQueueHandler 平台动作任务队列（开通/实例动作/续费/同步）只读聚合视图（本轮 S3）。
 	taskQueueHandler *taskqueuehandler.TaskQueueHandler
 	// reconcileHandler 实例对账（本地售价/到期 vs 上游成本/到期）只读比对视图（本轮 S4）。
@@ -115,7 +122,7 @@ type App struct {
 	lifecycleUserHandler  *lifecyclehandler.LifecycleUserHandler
 	notifyAdminHandler    *notifyhandler.AdminHandler
 	notifyUserHandler     *notifyhandler.UserHandler
-	ucSiteHandler         *ucsitehandler.SiteHandler
+	siteHandler           *sitehandler.SiteHandler
 	ucReferralHandler     *ucreferralhandler.ReferralHandler
 	memberHandler         *memberhandler.MemberHandler
 	// memberRepo 同时作为子账号权限解析器供 RequireUserPermission 使用（P4-06）。
@@ -135,6 +142,7 @@ type App struct {
 func NewApp(
 	cfg *config.Config,
 	adminHandler *adminhandler.AdminHandler,
+	departmentHandler *adminhandler.DepartmentHandler,
 	userHandler *handler.UserHandler,
 	userDetailHandler *handler.UserDetailHandler,
 	userGroupHandler *handler.UserGroupHandler,
@@ -158,6 +166,9 @@ func NewApp(
 	discountPolicyHandler *discounthandler.PolicyHandler,
 	promotionHandler *promotionhandler.PromotionHandler,
 	adminReferralHandler *referralhandler.ReferralHandler,
+	salesCustomerHandler *saleshandler.CustomerHandler,
+	salesCommissionHandler *saleshandler.CommissionHandler,
+	salesPerformanceHandler *saleshandler.PerformanceHandler,
 	orderHandler *orderhandler.OrderHandler,
 	refundHandler *orderhandler.RefundHandler,
 	walletHandler *finaccounthandler.WalletHandler,
@@ -181,7 +192,7 @@ func NewApp(
 	lifecycleUserHandler *lifecyclehandler.LifecycleUserHandler,
 	notifyAdminHandler *notifyhandler.AdminHandler,
 	notifyUserHandler *notifyhandler.UserHandler,
-	ucSiteHandler *ucsitehandler.SiteHandler,
+	siteHandler *sitehandler.SiteHandler,
 	ucReferralHandler *ucreferralhandler.ReferralHandler,
 	memberHandler *memberhandler.MemberHandler,
 	memberRepo middleware.SubAccountPermissionResolver,
@@ -196,67 +207,71 @@ func NewApp(
 	jwtIssuer *appauth.JWTIssuer,
 ) *App {
 	return &App{
-		cfg:                   cfg,
-		logger:                logger,
-		jwtIssuer:             jwtIssuer,
-		rbacRepo:              rbacRepo,
-		permCache:             permCache,
-		auditWriter:           auditWriter,
-		adminHandler:          adminHandler,
-		userHandler:           userHandler,
-		userDetailHandler:     userDetailHandler,
-		userGroupHandler:      userGroupHandler,
-		roleHandler:           roleHandler,
-		permissionHandler:     permissionHandler,
-		menuHandler:           menuHandler,
-		securityHandler:       securityHandler,
-		userLevelHandler:      userLevelHandler,
-		verificationHandler:   verificationHandler,
-		providerHandler:       providerHandler,
-		productHandler:        productHandler,
-		syncHandler:           syncHandler,
-		syncFrameworkHandler:  syncFrameworkHandler,
-		userCenterAuthHandler: userCenterAuthHandler,
-		userMenuHandler:       userMenuHandler,
-		prodCategoryHandler:   prodCategoryHandler,
-		prodCatalogHandler:    prodCatalogHandler,
-		specHandler:           specHandler,
-		pricingHandler:        pricingHandler,
-		priceMatrixHandler:    priceMatrixHandler,
-		discountPolicyHandler: discountPolicyHandler,
-		promotionHandler:      promotionHandler,
-		adminReferralHandler:  adminReferralHandler,
-		orderHandler:          orderHandler,
-		refundHandler:         refundHandler,
-		walletHandler:         walletHandler,
-		rechargeHandler:       rechargeHandler,
-		withdrawHandler:       withdrawHandler,
-		billHandler:           billHandler,
-		reconHandler:          reconHandler,
-		configHandler:         configHandler,
-		userFinanceHandler:    userFinanceHandler,
-		ucProductHandler:      ucProductHandler,
-		ucOrderHandler:        ucOrderHandler,
-		ucInstanceHandler:     ucInstanceHandler,
-		instanceOpsHandler:    instanceOpsHandler,
-		taskQueueHandler:      taskQueueHandler,
-		reconcileHandler:      reconcileHandler,
-		ticketHandler:         ticketHandler,
-		ticketCategoryHandler: ticketCategoryHandler,
-		userTicketHandler:     userTicketHandler,
-		expiringHandler:       expiringHandler,
-		lifecycleAdminHandler: lifecycleAdminHandler,
-		lifecycleUserHandler:  lifecycleUserHandler,
-		notifyAdminHandler:    notifyAdminHandler,
-		notifyUserHandler:     notifyUserHandler,
-		ucSiteHandler:         ucSiteHandler,
-		ucReferralHandler:     ucReferralHandler,
-		memberHandler:         memberHandler,
-		memberRepo:            memberRepo,
-		userAuditWriter:       userAuditWriter,
-		open:                  open,
-		payment:               payment,
-		point:                 point,
+		cfg:                     cfg,
+		logger:                  logger,
+		jwtIssuer:               jwtIssuer,
+		rbacRepo:                rbacRepo,
+		permCache:               permCache,
+		auditWriter:             auditWriter,
+		adminHandler:            adminHandler,
+		departmentHandler:       departmentHandler,
+		userHandler:             userHandler,
+		userDetailHandler:       userDetailHandler,
+		userGroupHandler:        userGroupHandler,
+		roleHandler:             roleHandler,
+		permissionHandler:       permissionHandler,
+		menuHandler:             menuHandler,
+		securityHandler:         securityHandler,
+		userLevelHandler:        userLevelHandler,
+		verificationHandler:     verificationHandler,
+		providerHandler:         providerHandler,
+		productHandler:          productHandler,
+		syncHandler:             syncHandler,
+		syncFrameworkHandler:    syncFrameworkHandler,
+		userCenterAuthHandler:   userCenterAuthHandler,
+		userMenuHandler:         userMenuHandler,
+		prodCategoryHandler:     prodCategoryHandler,
+		prodCatalogHandler:      prodCatalogHandler,
+		specHandler:             specHandler,
+		pricingHandler:          pricingHandler,
+		priceMatrixHandler:      priceMatrixHandler,
+		discountPolicyHandler:   discountPolicyHandler,
+		promotionHandler:        promotionHandler,
+		adminReferralHandler:    adminReferralHandler,
+		salesCustomerHandler:    salesCustomerHandler,
+		salesCommissionHandler:  salesCommissionHandler,
+		salesPerformanceHandler: salesPerformanceHandler,
+		orderHandler:            orderHandler,
+		refundHandler:           refundHandler,
+		walletHandler:           walletHandler,
+		rechargeHandler:         rechargeHandler,
+		withdrawHandler:         withdrawHandler,
+		billHandler:             billHandler,
+		reconHandler:            reconHandler,
+		configHandler:           configHandler,
+		userFinanceHandler:      userFinanceHandler,
+		ucProductHandler:        ucProductHandler,
+		ucOrderHandler:          ucOrderHandler,
+		ucInstanceHandler:       ucInstanceHandler,
+		instanceOpsHandler:      instanceOpsHandler,
+		taskQueueHandler:        taskQueueHandler,
+		reconcileHandler:        reconcileHandler,
+		ticketHandler:           ticketHandler,
+		ticketCategoryHandler:   ticketCategoryHandler,
+		userTicketHandler:       userTicketHandler,
+		expiringHandler:         expiringHandler,
+		lifecycleAdminHandler:   lifecycleAdminHandler,
+		lifecycleUserHandler:    lifecycleUserHandler,
+		notifyAdminHandler:      notifyAdminHandler,
+		notifyUserHandler:       notifyUserHandler,
+		siteHandler:             siteHandler,
+		ucReferralHandler:       ucReferralHandler,
+		memberHandler:           memberHandler,
+		memberRepo:              memberRepo,
+		userAuditWriter:         userAuditWriter,
+		open:                    open,
+		payment:                 payment,
+		point:                   point,
 	}
 }
 

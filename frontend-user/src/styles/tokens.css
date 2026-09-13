@@ -1,0 +1,69 @@
+/* ============================================================
+   HostSent · 用户控制台设计 Token（对齐 frontend-admin/src/styles/index.css）
+
+   为什么另建一份：用户端原有的 --color-* / --space-N 是尺寸型变量，
+   管理端已落地的一套是 --hs-*（表面/圆角/阴影/动效）+ --space-{xs..2xl}（间距阶梯）。
+   新页面直接复用管理端的类名与变量名，可以从 admin 的 shared.css 1:1 拷贝骨架，
+   后续两端同步样式时不必再做变量名翻译。
+
+   主题色保持用户端蓝（--color-primary: #2563EB），与管理端绿区分：两端是不同产品面。
+   ============================================================ */
+
+:root {
+  /* ---------- 表面层级 ---------- */
+  --hs-surface-1: #ffffff;
+  --hs-surface-2: #f8fafc;
+  --hs-surface-3: #f1f5f9;
+
+  /* ---------- 间距阶梯（与管理端同名） ---------- */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-2xl: 32px;
+
+  /* ---------- 圆角 ---------- */
+  --hs-radius-sm: 4px;
+  --hs-radius-md: 6px;
+  --hs-radius-lg: 8px;
+  --hs-radius-xl: 10px;
+
+  /* ---------- 阴影 ---------- */
+  --hs-shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --hs-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --hs-shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --hs-shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.12);
+
+  /* ---------- 动效 ---------- */
+  --hs-duration-fast: 150ms;
+  --hs-duration-base: 200ms;
+  --hs-duration-slow: 320ms;
+  --hs-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* ---------- 字体 ---------- */
+  --hs-font-heading: var(--font-sans);
+  --hs-font-body: var(--font-sans);
+  --hs-font-mono: 'Fira Code', 'SFMono-Regular', Consolas, monospace;
+}
+
+/* 深色模式：与管理端保持同样的语义（表面变暗，文字提亮）。 */
+:root.dark,
+:root[theme-mode='dark'] {
+  --hs-surface-1: #111827;
+  --hs-surface-2: #0f172a;
+  --hs-surface-3: #1e293b;
+  --hs-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --hs-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --hs-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --hs-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* 减少动效偏好：关掉入场动画，避免前庭不适。 */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --hs-duration-fast: 0ms;
+    --hs-duration-base: 0ms;
+    --hs-duration-slow: 0ms;
+  }
+}

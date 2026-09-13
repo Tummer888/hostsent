@@ -44,6 +44,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '购买云主机', icon: 'cart', permission: 'order:create' },
       },
       {
+        path: 'cart',
+        name: 'Cart',
+        component: () => import('@/pages/cart/index.vue'),
+        meta: { title: '购物车', icon: 'cart', permission: 'order:create' },
+      },
+      {
         path: 'cloud/images',
         name: 'ImageList',
         component: () => import('@/pages/cloud/images/index.vue'),
@@ -60,6 +66,12 @@ const routes: RouteRecordRaw[] = [
         name: 'OrderList',
         component: () => import('@/pages/order/index.vue'),
         meta: { title: '我的订单', icon: 'order', permission: 'order:view' },
+      },
+      {
+        path: 'order/:id',
+        name: 'OrderDetail',
+        component: () => import('@/pages/order/detail.vue'),
+        meta: { title: '订单详情', hidden: true, permission: 'order:view' },
       },
       {
         path: 'billing',

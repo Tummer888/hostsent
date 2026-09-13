@@ -24,14 +24,23 @@ export const productWireSchema = z.object({
   price: z.number().default(0),
   price_model: z.string().default('fixed'),
   specs: z.string().default(''),
+  // 后端实际字段名是 source_mode（self 自营 / upstream 上游转售）；
+  // provision_mode 是早期契约里的名字，两个都收，避免改名时官网静默丢字段。
+  source_mode: z.string().optional(),
   provision_mode: z.string().default('self'),
   config_options: z.string().default(''),
   featured: z.boolean().default(false),
   created_at: z.string().default(''),
+  // Go 的 nil 切片序列化成 null（不是 []），而 Zod 的 .default() 只对 undefined 生效，
+  // 因此这里必须用 nullish + transform 兜底：否则「未维护周期矩阵」的商品会校验失败，
+  // 详情页 404、列表项被静默丢弃。
+  cycles: z.array(z.string()).nullish().transform((v) => v ?? []),
+  skus: z.array(z.unknown()).nullish().transform((v) => v ?? []),
 })
 
 export const productListWireSchema = z.object({
-  items: z.array(z.unknown()).default([]),
+  // 同上：Go 的 nil 切片是 JSON null，用 nullish 兜底而不是 .default()。
+  items: z.array(z.unknown()).nullish().transform((v) => v ?? []),
   page: z.number().default(1),
   page_size: z.number().default(12),
   total: z.number().default(0),
@@ -62,6 +71,21 @@ export interface Product {
   configOptions: string
   featured: boolean
   createdAt: string
+  /** 商品级可售周期；为空表示按商品级单价下单 */
+  cycles: string[]
+  /** 可售规格；为空表示未拆 SKU */
+  skus: ProductSku[]
+}
+
+/** 可售规格（SKU）：官网只做展示与意图传递，下单与算价仍在用户中心完成。 */
+export interface ProductSku {
+  specCode: string
+  name: string
+  specs: ProductSpecItem[]
+  price: number
+  priceModel: string
+  stock: number
+  cycles: string[]
 }
 
 export interface ProductList {
@@ -158,7 +182,40 @@ export function formatPriceAmount(price: number): string {
 
 type ProductWire = z.infer<typeof productWireSchema>
 
+/**
+ * 解析 SKU 数组。
+ *
+ * 每一项都按「坏的丢掉、好的保留」处理：官网是展示层，一个字段缺失的 SKU
+ * 不该把整个商品详情页打掉（规范 R4）。
+ */
+function parseSkus(raw: unknown, fallbackCycles: string[]): ProductSku[] {
+  if (!Array.isArray(raw)) return []
+  const out: ProductSku[] = []
+  for (const entry of raw) {
+    if (typeof entry !== 'object' || entry === null) continue
+    const record = entry as Record<string, unknown>
+    const code = typeof record.spec_code === 'string' ? record.spec_code : ''
+    const name = typeof record.name === 'string' ? record.name : ''
+    if (!code && !name) continue
+    const cycles = Array.isArray(record.cycles)
+      ? record.cycles.filter((c): c is string => typeof c === 'string' && c !== '')
+      : []
+    out.push({
+      specCode: code,
+      name: name || code,
+      specs: parseSpecs(record.specs),
+      price: typeof record.price === 'number' ? record.price : 0,
+      priceModel: typeof record.price_model === 'string' ? record.price_model : '',
+      stock: typeof record.stock === 'number' ? record.stock : -1,
+      // SKU 无自有周期时回落商品级周期，与后端 Get 的回落口径一致。
+      cycles: cycles.length ? cycles : fallbackCycles,
+    })
+  }
+  return out
+}
+
 function normalizeProduct(wire: ProductWire): Product {
+  const cycles = wire.cycles.filter((c) => c !== '')
   return {
     id: wire.id,
     name: wire.name,
@@ -169,10 +226,12 @@ function normalizeProduct(wire: ProductWire): Product {
     price: wire.price,
     priceModel: wire.price_model,
     specs: parseSpecs(wire.specs),
-    provisionMode: wire.provision_mode,
+    provisionMode: wire.source_mode || wire.provision_mode,
     configOptions: wire.config_options,
     featured: wire.featured,
     createdAt: wire.created_at,
+    cycles,
+    skus: parseSkus(wire.skus, cycles),
   }
 }
 

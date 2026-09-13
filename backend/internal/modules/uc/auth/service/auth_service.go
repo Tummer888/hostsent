@@ -34,6 +34,8 @@ type AuthService interface {
 	SetInviteBinder(binder InviteBinder)
 	// SetDefaultGroupResolver 注入默认用户组解析能力（可选，装配层调用）。
 	SetDefaultGroupResolver(resolver DefaultGroupResolver)
+	// SetSalesOwnerClaimer 注入注册后的销售归属自动认领能力（可选，装配层调用，doc86 S4）。
+	SetSalesOwnerClaimer(claimer SalesOwnerClaimer)
 }
 
 // InviteBinder 注册时的推广邀请关系绑定能力（由返现模块实现，装配层注入）。
@@ -45,6 +47,13 @@ type InviteBinder interface {
 	EnsureInviteCode(ctx context.Context, userID uint64) (string, error)
 	// BindInviter 绑定单级邀请关系（一次性，已有邀请人不覆盖）。
 	BindInviter(ctx context.Context, inviteeID, inviterID uint64) error
+}
+
+// SalesOwnerClaimer 注册后的销售归属自动认领（由销售模块实现，装配层注入）。
+// 抽成接口是为了避免 uc/auth 直接依赖 admin/sales 服务。
+type SalesOwnerClaimer interface {
+	// EnsureAutoClaim 客户无归属时按「客户数最少的在职销售」自动归属；失败/无候选不报错。
+	EnsureAutoClaim(ctx context.Context, userID uint64) error
 }
 
 // DefaultGroupResolver 解析「默认用户组」，注册时兜底归组（由用户组服务实现，装配层注入）。
@@ -61,6 +70,7 @@ type authService struct {
 	logger           *zap.Logger
 	inviteBinder     InviteBinder         // 可选：注册时生成邀请码并绑定邀请关系
 	defaultGroup     DefaultGroupResolver // 可选：注册时兜底归入默认用户组
+	salesClaimer     SalesOwnerClaimer    // 可选：注册后自动归属销售（doc86 S4）
 }
 
 // NewAuthService 创建用户中心认证服务实例。
@@ -76,6 +86,11 @@ func (s *authService) SetInviteBinder(binder InviteBinder) {
 // SetDefaultGroupResolver 注入默认用户组解析能力。
 func (s *authService) SetDefaultGroupResolver(resolver DefaultGroupResolver) {
 	s.defaultGroup = resolver
+}
+
+// SetSalesOwnerClaimer 注入销售归属自动认领能力。
+func (s *authService) SetSalesOwnerClaimer(claimer SalesOwnerClaimer) {
+	s.salesClaimer = claimer
 }
 
 // Login 执行用户登录流程：
@@ -158,7 +173,20 @@ func (s *authService) Register(ctx context.Context, req dto.RegisterRequest) (ui
 
 	// 推广邀请：失败一律不阻断注册（邀请码只影响返现归属，不影响账号可用性）。
 	s.setupInvite(ctx, user.ID, req.InviteCode)
+	// 销售归属自动认领：新客户无归属时按负载补给在职销售；失败同样不阻断注册。
+	s.setupSalesOwner(ctx, user.ID)
 	return user.ID, nil
+}
+
+// setupSalesOwner 注册后自动归属销售（doc86 S4）。
+// 归属失败只影响提成归谁，不影响账号可用性，因此与邀请码同样「只记日志」。
+func (s *authService) setupSalesOwner(ctx context.Context, userID uint64) {
+	if s.salesClaimer == nil {
+		return
+	}
+	if err := s.salesClaimer.EnsureAutoClaim(ctx, userID); err != nil {
+		s.warn("自动归属销售失败", userID, err)
+	}
 }
 
 // resolveDefaultGroupID 解析默认用户组；未配置、解析失败或为 0 都返回 nil（保持未分组，不阻断注册）。

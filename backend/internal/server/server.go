@@ -85,6 +85,7 @@ import (
 	taskqueuehandler "hostsent/backend/internal/modules/admin/resource/taskqueue/handler"
 	taskqueuerepo "hostsent/backend/internal/modules/admin/resource/taskqueue/repository"
 	taskqueueservice "hostsent/backend/internal/modules/admin/resource/taskqueue/service"
+	salesservice "hostsent/backend/internal/modules/admin/sales/service"
 	systemhandler "hostsent/backend/internal/modules/admin/system/handler"
 	systemrepo "hostsent/backend/internal/modules/admin/system/repository"
 	systemservice "hostsent/backend/internal/modules/admin/system/service"
@@ -106,6 +107,8 @@ import (
 	verificationservice "hostsent/backend/internal/modules/admin/user/verification/service"
 	openrepo "hostsent/backend/internal/modules/open/repository"
 	openservice "hostsent/backend/internal/modules/open/service"
+	sitehandler "hostsent/backend/internal/modules/site/handler"
+	siteservice "hostsent/backend/internal/modules/site/service"
 	usercenterhandler "hostsent/backend/internal/modules/uc/auth/handler"
 	usercenterrepo "hostsent/backend/internal/modules/uc/auth/repository"
 	usercenterservice "hostsent/backend/internal/modules/uc/auth/service"
@@ -124,8 +127,6 @@ import (
 	ucproducthandler "hostsent/backend/internal/modules/uc/product/handler"
 	ucproductservice "hostsent/backend/internal/modules/uc/product/service"
 	ucreferralhandler "hostsent/backend/internal/modules/uc/referral/handler"
-	ucsitehandler "hostsent/backend/internal/modules/uc/site/handler"
-	ucsiteservice "hostsent/backend/internal/modules/uc/site/service"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/db"
@@ -136,6 +137,7 @@ import (
 	"hostsent/backend/internal/pkg/observability"
 	"hostsent/backend/internal/pkg/pricing"
 	"hostsent/backend/internal/pkg/specatom"
+	"hostsent/backend/internal/pkg/storage"
 	"hostsent/backend/internal/pkg/upstream"
 	// 各上游适配器通过 init() 注册工厂，须在此空导入以触发注册。
 	_ "hostsent/backend/internal/pkg/upstream/mofangfinance"
@@ -150,6 +152,7 @@ type Server struct {
 	http               *http.Server
 	scheduler          *syncservice.Scheduler
 	lifecycleScheduler *lifecycleservice.LifecycleScheduler
+	salesScheduler     *salesservice.ReleaseScheduler
 	provisionWorker    *orderservice.ProvisionWorker
 	notifyWorker       *openservice.NotifyDeliveryWorker
 	cancel             context.CancelFunc
@@ -171,6 +174,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	ipRegionResolver := netutil.NewHTTPIPRegionResolver()
 	adminRepo := adminrepo.NewAdminRepository(database)
 	rbacRepo := adminrepo.NewRBACRepository(database)
+	// departmentRepo 组织部门（S1 员工体系）：同时作为员工服务的部门名解析器。
+	departmentRepo := adminrepo.NewDepartmentRepository(database)
 	permCache := middleware.NewMemoryPermissionCache()
 	adminAuditRepo := adminrepo.NewAdminAuditRepository(database, logger)
 	userRepo := repository.NewUserRepository(database)
@@ -186,6 +191,10 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	orderRefundRepo := orderrepo.NewRefundRepository(database)
 	// 开通履约任务表（T5.1）：下单只投递任务，工作池异步执行上游开通（约 50s > write_timeout）。
 	provisionTaskRepo := orderrepo.NewProvisionTaskRepository(database)
+	// 销售体系（doc86 S4–S6）：客户归属 / 提成账本 / 提成提现 / 业绩排行。
+	// 只依赖 database 与 logger，故尽早构造：员工离职转派、订单/续费钩子都要用。
+	// 打款端口在支付中心装配完成后回填（见 wireSalesPayout）。
+	salesBundle := buildSalesBundle(database, logger)
 	// 开放平台事件发布器（P6/T6.5）：事件先落 open_notify_deliveries，投递由工作池异步执行；
 	// 只依赖仓储，构造可早于通知中心。
 	openEventPublisher := openservice.NewEventPublisher(
@@ -224,7 +233,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	productRepo := productrepo.NewProductRepository(database)
 	syncRepo := syncrepo.NewSyncRepository(database)
 	syncFwRepo := syncrepo.NewFrameworkRepository(database)
-	adminService := adminservice.NewAdminService(adminRepo, rbacRepo, adminAuditRepo, permCache, jwtIssuer)
+	adminService := adminservice.NewAdminService(adminRepo, rbacRepo, adminAuditRepo, permCache, jwtIssuer, departmentRepo, salesBundle.releaserPort(logger))
+	departmentService := adminservice.NewDepartmentService(departmentRepo, adminRepo)
 	userService := service.NewUserService(
 		userRepo,
 		jwtIssuer,
@@ -309,6 +319,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	scheduler := syncservice.NewScheduler(syncEngine, syncRepo, syncFwRepo, logger)
 	syncFrameworkService := syncservice.NewFrameworkService(syncFwRepo, syncEngine, logger)
 	adminHandler := adminhandler.NewAdminHandler(adminService)
+	departmentHandler := adminhandler.NewDepartmentHandler(departmentService)
 
 	userDetailHandler := handler.NewUserDetailHandler(userDetailService)
 	userGroupHandler := handler.NewUserGroupHandler(userGroupService)
@@ -358,6 +369,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	referralSvc := referralservice.NewReferralService(database, referralRepo, logger)
 	// 注册链路：为新用户生成邀请码并按需绑定邀请人（失败不阻断注册）。
 	userCenterService.SetInviteBinder(referralSvc)
+	// 注册后销售归属自动认领（doc86 S4）：无归属客户按负载补给在职销售，失败不阻断注册。
+	userCenterService.SetSalesOwnerClaimer(salesBundle.customerService)
 	// 返现提现/转出：转出桥接到现金钱包，biz_type=referral_transfer，ref_no=转账号（钱包侧幂等）。
 	referralWithdrawSvc := referralservice.NewWithdrawalService(database, referralRepo,
 		func(ctx context.Context, userID uint64, amount float64, bizType, refNo, remark string) error {
@@ -395,7 +408,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	provisionEnqueuer := orderservice.NewProvisionEnqueuer(provisionTaskRepo, logger)
 	orderService.SetProvisionQueue(provisionEnqueuer)
 	orderService.SetProductSourceModeResolver(buildProductSourceModeResolver(prodCatalogService))
-	// 订单开通成功 → 给邀请人计提返现（失败只记日志，不影响订单）。
+	// 订单开通成功 → 给邀请人计提返现 + 给归属销售计提提成（各自失败只记日志，不影响订单）。
+	// SetCashbackHook 是单槽 setter：两者必须在同一个闭包里串行调用，分别 Set 会互相覆盖。
 	orderService.SetCashbackHook(func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, baseAmount float64, isRenewal bool) error {
 		if err := referralSvc.AccrueForOrder(ctx, referralservice.AccrualInput{
 			OrderID: orderID, OrderNo: orderNo, BuyerUserID: buyerUserID, BaseAmount: baseAmount, IsRenewal: isRenewal,
@@ -404,9 +418,15 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 				zap.Uint64("order_id", orderID), zap.String("order_no", orderNo),
 				zap.Uint64("user_id", buyerUserID), zap.Error(err))
 		}
+		if err := salesBundle.commissionService.AccrueForOrder(ctx, salesservice.AccrualInput{
+			OrderID: orderID, OrderNo: orderNo, BuyerUserID: buyerUserID, BaseAmount: baseAmount, IsRenewal: isRenewal,
+		}); err != nil {
+			logger.Warn("sales commission accrual failed",
+				zap.Uint64("order_id", orderID), zap.String("order_no", orderNo), zap.Error(err))
+		}
 		return nil
 	})
-	// 退款审核通过 → 按退款额占比冲减邀请人返现（失败只记日志，不影响退款）。
+	// 退款审核通过 → 按退款额占比冲减邀请人返现与销售提成（失败只记日志，不影响退款）。
 	orderService.SetRefundHook(func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, paidAmount, refundAmount float64, refundNo string) error {
 		if err := referralSvc.ClawbackForRefund(ctx, referralservice.ClawbackInput{
 			OrderID: orderID, OrderNo: orderNo, BuyerUserID: buyerUserID,
@@ -416,8 +436,18 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 				zap.Uint64("order_id", orderID), zap.String("order_no", orderNo),
 				zap.String("refund_no", refundNo), zap.Error(err))
 		}
+		if err := salesBundle.commissionService.ClawbackForRefund(ctx, salesservice.ClawbackInput{
+			OrderID: orderID, OrderNo: orderNo, BuyerUserID: buyerUserID,
+			PaidAmount: paidAmount, RefundAmount: refundAmount, RefundNo: refundNo,
+		}); err != nil {
+			logger.Warn("sales commission clawback failed",
+				zap.Uint64("order_id", orderID), zap.String("order_no", orderNo),
+				zap.String("refund_no", refundNo), zap.Error(err))
+		}
 		return nil
 	})
+	// 销售归属快照：下单/续费瞬间锁定（doc86 §3.4），改派不影响已成交订单。
+	orderService.SetSalesOwnerResolver(salesBundle.newOrderOwnerPort())
 	orderHandler := orderhandler.NewOrderHandler(orderService)
 	userHandler := handler.NewUserHandler(userService,
 		// 为用户创建订单：余额支付并开通，或仅创建待支付
@@ -456,6 +486,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 				PriceSnapshot:  "[]",
 				Status:         ordermodel.OrderStatusPending,
 			}
+			// 后台代下单同样锁定销售归属快照（doc86 §3.4）：代客成交也计入销售的业绩与提成。
+			order.SalesAdminID = salesBundle.customerService.ResolveForNewOrder(ctx, userID)
 			// 余额支付：扣款 + 标记已支付 + 投递开通任务（T5.1 异步履约）。
 			if payMode == "balance" {
 				if _, err := walletService.Adjust(ctx, accountdto.AdjustRequest{
@@ -588,6 +620,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		provisionEnqueuer,  // 异步开通任务投递（T5.1）
 		provisionTaskRepo,  // 开通任务状态查询（订单列表轮询展示）
 	)
+	// 销售归属快照（doc86 §3.4）：用户中心下单瞬间锁定归属。
+	ucOrderService.SetSalesOwnerResolver(salesBundle.newOrderOwnerPort())
 	ucOrderHandler := ucorderhandler.NewOrderHandler(ucOrderService)
 	// 用户中心主机管理：列表/详情/电源/VNC（复用上游适配器）
 	ucInstanceRepo := ucinstancerepo.NewInstanceRepository(database)
@@ -631,11 +665,22 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	ticketRepo := ticketrepo.NewTicketRepository(database)
 	ticketReplyRepo := ticketrepo.NewReplyRepository(database)
 	ticketCategoryRepo := ticketrepo.NewCategoryRepository(database)
+	ticketAttachmentRepo := ticketrepo.NewAttachmentRepository(database)
+	ticketPreconditionRepo := ticketrepo.NewPreconditionRepository(database)
 	ticketService := ticketservice.NewTicketService(ticketRepo, ticketReplyRepo, ticketCategoryRepo, nil)
-	ticketCategoryService := ticketservice.NewCategoryService(ticketCategoryRepo, ticketRepo)
-	ticketHandler := tickethandler.NewTicketHandler(ticketService)
+	ticketService.SetPreconditionChecker(ticketPreconditionRepo)
+	// 附件本地存储：根目录来自配置（容器内挂卷）；初始化失败不阻断启动，附件接口会明确报错。
+	attachmentStore, storeErr := storage.NewLocalStore(cfg.Storage.Root)
+	if storeErr != nil {
+		logger.Warn("工单附件存储初始化失败，附件功能不可用", zap.String("root", cfg.Storage.Root), zap.Error(storeErr))
+		attachmentStore = nil
+	}
+	ticketAttachmentService := ticketservice.NewAttachmentService(ticketAttachmentRepo, ticketRepo, attachmentStore)
+	ticketService.SetAttachmentService(ticketAttachmentService)
+	ticketCategoryService := ticketservice.NewCategoryService(ticketCategoryRepo, ticketRepo, ticketPreconditionRepo)
+	ticketHandler := tickethandler.NewTicketHandler(ticketService, ticketAttachmentService, ticketCategoryService)
 	ticketCategoryHandler := tickethandler.NewCategoryHandler(ticketCategoryService)
-	userTicketHandler := tickethandler.NewUserTicketHandler(ticketService, ticketCategoryService)
+	userTicketHandler := tickethandler.NewUserTicketHandler(ticketService, ticketCategoryService, ticketAttachmentService)
 	// 生命周期与续费域（doc60）
 	lifecycleRenewalRepo := lifecyclerepo.NewRenewalRepository(database)
 	lifecyclePolicyRepo := lifecyclerepo.NewPolicyRepository(database)
@@ -645,7 +690,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	lifecycleRenewalSvc := lifecycleservice.NewRenewalService(database, lifecycleRenewalRepo, lifecyclePolicyRepo, lifecycleAutoRepo, lifecycleInstanceReader, lifecycleOrderWriter, walletService, pricePipeline, logger)
 	// 续费接上游/平台（T5.2）：链路 A 以上游返回账期为权威，链路 B 回落本地顺延。
 	lifecycleRenewalSvc.SetUpstreamRenewer(buildUpstreamRenewer(providerService, upstreamMgr))
-	// 续费完成 → 给邀请人按续费比率计提返现。
+	// 续费完成 → 给邀请人按续费比率计提返现；同一闭包内串行计提销售提成
+	//（SetCashbackHook 单槽，分别 Set 会互相覆盖）。
 	lifecycleRenewalSvc.SetCashbackHook(func(ctx context.Context, orderID uint64, orderNo string, buyerUserID uint64, amount float64, isRenewal bool) error {
 		if err := referralSvc.AccrueForOrder(ctx, referralservice.AccrualInput{
 			OrderID: orderID, OrderNo: orderNo, BuyerUserID: buyerUserID, BaseAmount: amount, IsRenewal: isRenewal,
@@ -654,8 +700,16 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 				zap.Uint64("order_id", orderID), zap.String("order_no", orderNo),
 				zap.Uint64("user_id", buyerUserID), zap.Error(err))
 		}
+		if err := salesBundle.commissionService.AccrueForOrder(ctx, salesservice.AccrualInput{
+			OrderID: orderID, OrderNo: orderNo, BuyerUserID: buyerUserID, BaseAmount: amount, IsRenewal: isRenewal,
+		}); err != nil {
+			logger.Warn("sales commission renewal accrual failed",
+				zap.Uint64("order_id", orderID), zap.String("order_no", orderNo), zap.Error(err))
+		}
 		return nil
 	})
+	// 销售归属快照：续费跟源订单（doc86 S4）。
+	lifecycleRenewalSvc.SetSalesOwnerResolver(salesBundle.renewalOwnerPort())
 	lifecycleSvc := lifecycleservice.NewLifecycleService(database, lifecyclePolicyRepo, lifecycleInstanceReader, lifecycleRenewalSvc, logger)
 	lifecycleExpiringHandler := lifecyclehandler.NewExpiringHandler(lifecycleSvc)
 	lifecycleAdminHandler := lifecyclehandler.NewLifecycleAdminHandler(lifecycleSvc, lifecycleRenewalSvc)
@@ -681,8 +735,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	notifyAdminHandler := notifyhandler.NewAdminHandler(notifySvc, announceSvc, templateSvc, preferenceSvc)
 	notifyUserHandler := notifyhandler.NewUserHandler(notifySvc, announceSvc, preferenceSvc)
 	// 官网门户公开只读数据（公告等），无需登录；后续 site-content 也落在该模块
-	ucSiteService := ucsiteservice.NewSiteService(announceSvc)
-	ucSiteHandler := ucsitehandler.NewSiteHandler(ucSiteService)
+	siteSvc := siteservice.NewSiteService(announceSvc, configRepo)
+	siteHandler := sitehandler.NewSiteHandler(siteSvc)
 	// 续费完成事件（P6/T6.5）：instance.renewed → 开放平台回调。
 	lifecycleRenewalSvc.SetRenewedHook(buildRenewedNotifier(openEventPublisher))
 	// 生命周期 Notifier 桥接：替换 noopNotifier 为通知中心
@@ -752,8 +806,10 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 实例接口复用实例运维台（电源/暂停/审计）与生命周期续费（双链路，T5.2）。
 	openBundle := buildOpenBundle(cfg, database, ucProductService, ucOrderService, instanceOpsService, lifecycleRenewalSvc, specContractRepo, pricePipeline, logger)
 	// 支付中心（doc35）：渠道管理 + 支付单 + 收银台，并注入提现打款与订单渠道退款钩子。
-	paymentBundle := buildPaymentBundle(cfg, database, walletService, rechargeService, billService, orderService, withdrawService, logger)
-	app := NewApp(cfg, adminHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, ucSiteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, logger, jwtIssuer)
+	paymentBundle := buildPaymentBundle(cfg, database, walletService, rechargeService, billService, orderService, withdrawService, salesBundle.payoutSettler(), logger)
+	// 销售提现打款出口：复用支付中心打款单，biz_type=sales_withdraw（doc86 §2.5）。
+	salesBundle.wireSalesPayout(paymentBundle.payoutService)
+	app := NewApp(cfg, adminHandler, departmentHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, salesBundle.customerHandler, salesBundle.commissionHandler, salesBundle.performanceHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, siteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, logger, jwtIssuer)
 	router := newRouter(app)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
@@ -769,6 +825,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		},
 		scheduler:          scheduler,
 		lifecycleScheduler: lifecycleScheduler,
+		salesScheduler:     salesBundle.scheduler,
 		provisionWorker:    provisionWorker,
 		notifyWorker:       notifyWorker,
 	}, nil
@@ -780,6 +837,7 @@ func (s *Server) Run() error {
 	defer cancel()
 	s.scheduler.Start(ctx)
 	s.lifecycleScheduler.Start(ctx)
+	s.salesScheduler.Start(ctx)
 	s.provisionWorker.Start(ctx)
 	go s.notifyWorker.Start(ctx)
 	s.logger.Info("server starting", zap.String("addr", s.http.Addr), zap.String("name", s.cfg.App.Name))

@@ -16,7 +16,7 @@ export const announcementWireSchema = z.object({
 })
 
 export const announcementListWireSchema = z.object({
-  items: z.array(z.unknown()).default([]),
+  items: z.array(z.unknown()).nullish().transform((v) => v ?? []),
 })
 
 export type AnnouncementLevel = 'info' | 'warning' | 'critical'

@@ -101,6 +101,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&adminmodel.Admin{},
 		&adminmodel.AdminRole{},
 		&adminmodel.AdminAuditLog{},
+		// 组织部门（S1 员工体系，doc86 §1）
+		&adminmodel.Department{},
 		// 资源管理模块核心表（第一阶段）
 		&providermodel.ResourceProvider{},
 		&providermodel.ResourcePool{},
@@ -324,6 +326,10 @@ func SeedDefaults(db *gorm.DB, cfg config.Config) error {
 			return err
 		}
 		if err := seedMenus(tx); err != nil {
+			return err
+		}
+		// S1 员工体系：部门示例数据（仅空表时写入），需在 seedMenus 之后（菜单已就绪）
+		if err := seedDepartments(tx); err != nil {
 			return err
 		}
 		if err := seedSystemConfigs(tx); err != nil {
@@ -673,7 +679,22 @@ func seedDemoFinance(tx *gorm.DB) error {
 // 幂等：按 config_key 查重，已存在则跳过，不覆盖运营期修改。
 func seedSystemConfigs(tx *gorm.DB) error {
 	defaults := []systemmodel.SystemConfig{
-		{ConfigKey: "site_name", ConfigValue: "HostSent 云主机管理系统", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "站点名称", SortOrder: 1, Status: systemmodel.StatusActive},
+		// 品牌与站点配置（doc80 §5.3，group=site）：键名点号命名，值与 frontend-site/shared/schemas/
+		// siteContent.ts 的 DEFAULT_SITE_CONTENT 对齐。公开接口 /api/v1/public/site-content 按白名单读取。
+		{ConfigKey: "site.name", ConfigValue: "宿派云控", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "官网名称", SortOrder: 1, Status: systemmodel.StatusActive},
+		{ConfigKey: "site.slogan", ConfigValue: "高性能、可弹性伸缩的云计算服务", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "品牌标语", SortOrder: 2, Status: systemmodel.StatusActive},
+		{ConfigKey: "site.logo", ConfigValue: "/branding/logo.svg", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "站点 Logo 地址", SortOrder: 3, Status: systemmodel.StatusActive},
+		{ConfigKey: "site.favicon", ConfigValue: "/branding/favicon.svg", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "站点 favicon 地址", SortOrder: 4, Status: systemmodel.StatusActive},
+		{ConfigKey: "site.icp", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "ICP 备案号", SortOrder: 5, Status: systemmodel.StatusActive},
+		{ConfigKey: "site.copyright", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "版权信息", SortOrder: 6, Status: systemmodel.StatusActive},
+		{ConfigKey: "site.license_no", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "增值电信业务经营许可证号", SortOrder: 7, Status: systemmodel.StatusActive},
+		{ConfigKey: "site.license_org", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "代理域名注册服务机构", SortOrder: 8, Status: systemmodel.StatusActive},
+		{ConfigKey: "site.public_security", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "公网安备号", SortOrder: 9, Status: systemmodel.StatusActive},
+		{ConfigKey: "site.contact_phone", ConfigValue: "400-800-1234", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "客服电话", SortOrder: 10, Status: systemmodel.StatusActive},
+		{ConfigKey: "site.contact_email", ConfigValue: "support@hostsent.com", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "客服邮箱", SortOrder: 11, Status: systemmodel.StatusActive},
+		{ConfigKey: "site.contact_address", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "联系地址", SortOrder: 12, Status: systemmodel.StatusActive},
+		{ConfigKey: "theme.primary_color", ConfigValue: "#2b5cff", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "官网主题色（#RRGGBB）", SortOrder: 13, Status: systemmodel.StatusActive},
+		{ConfigKey: "theme.radius", ConfigValue: "10px", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "官网圆角（如 10px）", SortOrder: 14, Status: systemmodel.StatusActive},
 		{ConfigKey: "default_billing_cycle", ConfigValue: "monthly", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupBilling, Description: "默认计费周期", SortOrder: 1, Status: systemmodel.StatusActive},
 		{ConfigKey: "enable_user_register", ConfigValue: "true", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupFeature, Description: "是否开放用户注册", SortOrder: 1, Status: systemmodel.StatusActive},
 		{ConfigKey: "enable_mfa_required", ConfigValue: "false", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupSecurity, Description: "是否强制管理员开启MFA", SortOrder: 1, Status: systemmodel.StatusActive},
@@ -684,6 +705,17 @@ func seedSystemConfigs(tx *gorm.DB) error {
 		{ConfigKey: referralmodel.ConfigKeySubsequent, ConfigValue: "0.05", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupReferral, Description: "后续订单返现比率（0-1）", SortOrder: 3, Status: systemmodel.StatusActive},
 		{ConfigKey: referralmodel.ConfigKeyRenewal, ConfigValue: "0.03", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupReferral, Description: "续费返现比率（0-1）", SortOrder: 4, Status: systemmodel.StatusActive},
 		{ConfigKey: referralmodel.ConfigKeyMinWithdraw, ConfigValue: "50", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupReferral, Description: "返现最低提现金额（元）", SortOrder: 5, Status: systemmodel.StatusActive},
+		// 销售提成（S5，doc86 §3.4）：默认比率与解冻期，运行时由销售模块读取。
+		{ConfigKey: "sales.commission.first_order", ConfigValue: "0.08", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSales, Description: "销售首单提成比率（0-1）", SortOrder: 1, Status: systemmodel.StatusActive},
+		{ConfigKey: "sales.commission.renewal", ConfigValue: "0.03", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSales, Description: "销售续费提成比率（0-1）", SortOrder: 2, Status: systemmodel.StatusActive},
+		{ConfigKey: "sales.commission.release_days", ConfigValue: "30", ValueType: systemmodel.ValueTypeInt, Group: systemmodel.ConfigGroupSales, Description: "提成解冻期（天，自订单支付起算）", SortOrder: 3, Status: systemmodel.StatusActive},
+		{ConfigKey: "sales.commission.min_withdraw", ConfigValue: "100", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSales, Description: "提成最低提现金额（元）", SortOrder: 4, Status: systemmodel.StatusActive},
+		{ConfigKey: "sales.relation.protect_days", ConfigValue: "90", ValueType: systemmodel.ValueTypeInt, Group: systemmodel.ConfigGroupSales, Description: "客户归属保护期（天）", SortOrder: 5, Status: systemmodel.StatusActive},
+		// 以下键为销售模块运行时可选项（缺失时按 model.DefaultRates 兜底），显式落库便于运营调参。
+		{ConfigKey: "sales.enabled", ConfigValue: "true", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupSales, Description: "启用销售提成体系", SortOrder: 6, Status: systemmodel.StatusActive},
+		{ConfigKey: "sales.commission.subsequent", ConfigValue: "0.05", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSales, Description: "销售后续单提成比率（0-1）", SortOrder: 7, Status: systemmodel.StatusActive},
+		{ConfigKey: "sales.renewal_commission_mode", ConfigValue: "follow_order", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSales, Description: "续费提成归属：follow_order 跟单 / follow_owner 跟现役归属", SortOrder: 8, Status: systemmodel.StatusActive},
+		{ConfigKey: "sales.allow_negative", ConfigValue: "true", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupSales, Description: "退款冲减时允许提成余额为负（欠款）", SortOrder: 9, Status: systemmodel.StatusActive},
 	}
 	for _, config := range defaults {
 		var existing systemmodel.SystemConfig
@@ -704,6 +736,13 @@ func seedRoles(tx *gorm.DB) error {
 		{Code: "super_admin", Name: "超级管理员", Scope: usermodel.RoleScopeAdmin, Status: "active"},
 		{Code: "ops_admin", Name: "运维管理员", Scope: usermodel.RoleScopeAdmin, Status: "active"},
 		{Code: "finance_admin", Name: "财务管理员", Scope: usermodel.RoleScopeAdmin, Status: "active"},
+		// —— S1 员工体系：组织职能角色（doc86 §3.1）——
+		// 与员工类型(staff_type)正交：角色决定权限点，员工类型决定业务身份。
+		{Code: "sales", Name: "销售", Scope: usermodel.RoleScopeAdmin, Status: "active"},
+		{Code: "sales_manager", Name: "销售主管", Scope: usermodel.RoleScopeAdmin, Status: "active"},
+		{Code: "support", Name: "客服", Scope: usermodel.RoleScopeAdmin, Status: "active"},
+		{Code: "support_lead", Name: "客服主管", Scope: usermodel.RoleScopeAdmin, Status: "active"},
+		{Code: "tech", Name: "技术", Scope: usermodel.RoleScopeAdmin, Status: "active"},
 		// 客户角色：不进后台权限树（scope=user），本方案不使用，保留兼容历史 seed。
 		{Code: "user", Name: "普通用户", Scope: usermodel.RoleScopeUser, Status: "active"},
 	}
@@ -877,8 +916,7 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "system:user", Name: "创建用户", Code: "user:create", Type: "button", SortOrder: 6, Status: "active"},
 		{ParentCode: "system:user", Name: "编辑用户", Code: "user:update", Type: "button", SortOrder: 7, Status: "active"},
 		{ParentCode: "system:user", Name: "分配用户角色", Code: "user:assign_role", Type: "button", SortOrder: 8, Status: "active"},
-		{ParentCode: "system:user", Name: "代登录用户", Code: "user:impersonate", Type: "button", SortOrder: 9, Status: "active"},
-		// 用户组（折扣来源绑定）
+		{ParentCode: "system:user", Name: "代登录用户", Code: "user:impersonate", Type: "button", SortOrder: 9, Status: "active"}, // 用户组（折扣来源绑定）
 		{ParentCode: "system:user", Name: "用户组", Code: "user:group:list", Type: "menu", SortOrder: 2, Status: "active"},
 		{ParentCode: "user:group:list", Name: "创建用户组", Code: "user:group:create", Type: "button", SortOrder: 1, Status: "active"},
 		{ParentCode: "user:group:list", Name: "编辑用户组", Code: "user:group:update", Type: "button", SortOrder: 2, Status: "active"},
@@ -913,6 +951,24 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "system", Name: "风控事件", Code: "security:risk:list", Type: "menu", SortOrder: 8, Status: "active"},
 		{ParentCode: "system", Name: "黑名单", Code: "security:blacklist:manage", Type: "menu", SortOrder: 9, Status: "active"},
 		{ParentCode: "system", Name: "会话管理", Code: "security:session:manage", Type: "menu", SortOrder: 10, Status: "active"},
+
+		// —— S1 员工体系：组织（部门）与销售中心权限码（doc86 §3.1）——
+		// 部门管理挂在系统管理下，与员工管理同级；超管独占默认分配。
+		{ParentCode: "system", Name: "部门管理", Code: "department:list", Type: "menu", SortOrder: 11, Status: "active"},
+		{ParentCode: "department:list", Name: "新建部门", Code: "department:create", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "department:list", Name: "编辑部门", Code: "department:update", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "department:list", Name: "删除部门", Code: "department:delete", Type: "button", SortOrder: 3, Status: "active"},
+		// 销售中心（独立目录，SortOrder=15 排在积分中心之后）
+		{Name: "销售中心", Code: "sales", Type: "catalog", SortOrder: 15, Status: "active"},
+		{ParentCode: "sales", Name: "客户归属", Code: "sales:customer:list", Type: "menu", SortOrder: 1, Status: "active"},
+		{ParentCode: "sales:customer:list", Name: "绑定/变更归属", Code: "sales:customer:assign", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "sales", Name: "提成台账", Code: "sales:commission:list", Type: "menu", SortOrder: 2, Status: "active"},
+		{ParentCode: "sales:commission:list", Name: "提成提现审核", Code: "sales:commission:audit", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "sales:commission:list", Name: "提成打款登记", Code: "sales:commission:settle", Type: "button", SortOrder: 2, Status: "active"},
+		{ParentCode: "sales", Name: "业绩与排行", Code: "sales:performance:view", Type: "menu", SortOrder: 3, Status: "active"},
+		// 工单复核与内部备注（S2/S3）：挂在工单列表下，作为按钮级权限。
+		{ParentCode: "ticket:list", Name: "工单复核", Code: "ticket:review", Type: "button", SortOrder: 6, Status: "active"},
+		{ParentCode: "ticket:list", Name: "内部备注", Code: "ticket:internal_note", Type: "button", SortOrder: 7, Status: "active"},
 	}
 
 	permissionMap := make(map[string]uint64)
@@ -1052,6 +1108,21 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"point:account",
 			"point:account:adjust",
 			"point:transaction",
+			// S1 员工体系：部门与销售中心（doc86 §3.1）
+			"department:list",
+			"department:create",
+			"department:update",
+			"department:delete",
+			"sales",
+			"sales:customer:list",
+			"sales:customer:assign",
+			"sales:commission:list",
+			"sales:commission:audit",
+			"sales:commission:settle",
+			"sales:performance:view",
+			// 工单复核与内部备注（S2/S3）
+			"ticket:review",
+			"ticket:internal_note",
 		},
 		"ops_admin": {
 			"system:user",
@@ -1145,6 +1216,57 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"referral:cashback:list",
 			"referral:withdraw:list",
 			"referral:withdraw:audit",
+		},
+		// —— S1 员工体系：组织职能角色（doc86 §3.1）——
+		"sales": {
+			"sales",
+			"sales:customer:list",
+			"sales:commission:list",
+			"sales:performance:view",
+		},
+		"sales_manager": {
+			"sales",
+			"sales:customer:list",
+			"sales:customer:assign",
+			"sales:commission:list",
+			"sales:commission:audit",
+			"sales:commission:settle",
+			"sales:performance:view",
+			"department:list",
+		},
+		"support": {
+			"ticket",
+			"ticket:list",
+			"ticket:view",
+			"ticket:reply",
+			"ticket:update",
+			"ticket:internal_note",
+			"ticket:category",
+		},
+		"support_lead": {
+			"ticket",
+			"ticket:list",
+			"ticket:view",
+			"ticket:reply",
+			"ticket:update",
+			"ticket:close",
+			"ticket:assign",
+			"ticket:review",
+			"ticket:internal_note",
+			"ticket:category",
+			"ticket:manage",
+			"ticket:stats",
+			"department:list",
+		},
+		"tech": {
+			"ticket",
+			"ticket:list",
+			"ticket:view",
+			"ticket:reply",
+			"ticket:update",
+			"ticket:internal_note",
+			"resource:instance",
+			"instance:console",
 		},
 		"user": {
 			"system:user",
@@ -1362,11 +1484,19 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/referral", Platform: menumodel.PlatformAdmin, Name: "提现审核", Type: menumodel.TypeMenu, Path: "/referral/withdrawals", Component: "referral/withdrawals/index", Icon: "upload", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/referral", Platform: menumodel.PlatformAdmin, Name: "邀请关系", Type: menumodel.TypeMenu, Path: "/referral/invitees", Component: "referral/invitees/index", Icon: "usergroup", SortOrder: 3, Status: menumodel.StatusActive},
 
+		// —— 销售中心（S1 员工体系：客户归属 / 提成台账 / 提成审核 / 业绩排行）
+		{Platform: menumodel.PlatformAdmin, Name: "销售中心", Type: menumodel.TypeDirectory, Path: "/sales", Icon: "share", SortOrder: 15, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/sales", Platform: menumodel.PlatformAdmin, Name: "客户归属", Type: menumodel.TypeMenu, Path: "/sales/customers", Component: "sales/customers/index", Icon: "usergroup", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/sales", Platform: menumodel.PlatformAdmin, Name: "提成台账", Type: menumodel.TypeMenu, Path: "/sales/commissions", Component: "sales/commissions/index", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/sales", Platform: menumodel.PlatformAdmin, Name: "提成审核", Type: menumodel.TypeMenu, Path: "/sales/withdrawals", Component: "sales/withdrawals/index", Icon: "upload", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/sales", Platform: menumodel.PlatformAdmin, Name: "业绩与排行", Type: menumodel.TypeMenu, Path: "/sales/performance", Component: "sales/performance/index", Icon: "chart-bar", SortOrder: 4, Status: menumodel.StatusActive},
+
 		// —— 工单支持（doc50 §5.3，admin 平台 SortOrder=9）
 		{Platform: menumodel.PlatformAdmin, Name: "工单支持", Type: menumodel.TypeDirectory, Path: "/tickets", Icon: "service", SortOrder: 9, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单列表", Type: menumodel.TypeMenu, Path: "/tickets/list", Component: "ticket/index", Icon: "ticket", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单分类管理", Type: menumodel.TypeMenu, Path: "/tickets/categories", Component: "ticket/categories/index", Icon: "folder", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单统计", Type: menumodel.TypeMenu, Path: "/tickets/stats", Component: "ticket/stats/index", Icon: "chart-bar", SortOrder: 3, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "复核中心", Type: menumodel.TypeMenu, Path: "/tickets/reviews", Component: "ticket/reviews/index", Icon: "verify", SortOrder: 4, Status: menumodel.StatusActive},
 
 		// —— 系统管理（doc40 系统管理模块，二级目录 + 三级叶子）
 		{Platform: menumodel.PlatformAdmin, Name: "系统管理", Type: menumodel.TypeDirectory, Path: "/system", Icon: "setting", SortOrder: 8, Status: menumodel.StatusActive},
@@ -1376,6 +1506,7 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "角色列表", Type: menumodel.TypeMenu, Path: "/system/roles", Component: "system/roles/index", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "权限分配", Type: menumodel.TypeMenu, Path: "/system/permissions", Component: "system/permissions/index", Icon: "lock-on", SortOrder: 3, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "管理员列表", Type: menumodel.TypeMenu, Path: "/system/admins", Component: "system/admins/index", Icon: "user-list", SortOrder: 4, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "部门管理", Type: menumodel.TypeMenu, Path: "/system/departments", Component: "system/departments/index", Icon: "usergroup", SortOrder: 5, Status: menumodel.StatusActive},
 		// 2. 系统配置
 		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeDirectory, Path: "/system/config-center", Icon: "setting", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/system/config-center", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeMenu, Path: "/system/config", Component: "system/config/index", Icon: "setting", SortOrder: 1, Status: menumodel.StatusActive},
@@ -1396,22 +1527,28 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "通知模板", Type: menumodel.TypeMenu, Path: "/notification/templates", Component: "notification/templates/index", Icon: "root-list", SortOrder: 2, Status: menumodel.StatusActive},
 
 		// —— 用户中心菜单（platform=user）
+		// 顺序即侧边栏一级顺序：控制台 → 云产品 → 选购 → 订单 → 费用 → 积分 → 工单 → 成员 → 个人 → 推广。
+		// 注意：/shop 与 /member 原先只有前端路由、没有 seed，导致控制台里点不到交易主入口与成员管理。
 		{Platform: menumodel.PlatformUser, Name: "控制台", Type: menumodel.TypeMenu, Path: "/dashboard", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
 		{Platform: menumodel.PlatformUser, Name: "云产品", Type: menumodel.TypeDirectory, Path: "/cloud", Icon: "cloud", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "user:/cloud", Platform: menumodel.PlatformUser, Name: "我的云主机", Type: menumodel.TypeMenu, Path: "/cloud/instances", Icon: "server", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "user:/cloud", Platform: menumodel.PlatformUser, Name: "镜像管理", Type: menumodel.TypeMenu, Path: "/cloud/images", Icon: "layers", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "user:/cloud", Platform: menumodel.PlatformUser, Name: "续费管理", Type: menumodel.TypeMenu, Path: "/cloud/renewals", Icon: "refresh", SortOrder: 3, Status: menumodel.StatusActive},
-		{Platform: menumodel.PlatformUser, Name: "我的订单", Type: menumodel.TypeMenu, Path: "/order", Icon: "order", SortOrder: 3, Status: menumodel.StatusActive},
-		{Platform: menumodel.PlatformUser, Name: "费用中心", Type: menumodel.TypeMenu, Path: "/billing", Icon: "wallet", SortOrder: 4, Status: menumodel.StatusActive},
+		// 选购与购物车：官网「立即选购」落点，也是交易主入口。
+		{Platform: menumodel.PlatformUser, Name: "云主机选购", Type: menumodel.TypeMenu, Path: "/shop", Icon: "cart", SortOrder: 3, Status: menumodel.StatusActive},
+		{Platform: menumodel.PlatformUser, Name: "我的订单", Type: menumodel.TypeMenu, Path: "/order", Icon: "order", SortOrder: 4, Status: menumodel.StatusActive},
+		{Platform: menumodel.PlatformUser, Name: "费用中心", Type: menumodel.TypeMenu, Path: "/billing", Icon: "wallet", SortOrder: 5, Status: menumodel.StatusActive},
 		// 我的积分（doc36）：积分独立于余额，仅展示获得/消耗，不提供任何支付入口。
-		{Platform: menumodel.PlatformUser, Name: "我的积分", Type: menumodel.TypeMenu, Path: "/points", Icon: "gift", SortOrder: 8, Status: menumodel.StatusActive},
-		{Platform: menumodel.PlatformUser, Name: "工单中心", Type: menumodel.TypeDirectory, Path: "/support", Icon: "service", SortOrder: 5, Status: menumodel.StatusActive},
+		{Platform: menumodel.PlatformUser, Name: "我的积分", Type: menumodel.TypeMenu, Path: "/points", Icon: "gift", SortOrder: 6, Status: menumodel.StatusActive},
+		{Platform: menumodel.PlatformUser, Name: "工单中心", Type: menumodel.TypeDirectory, Path: "/support", Icon: "service", SortOrder: 7, Status: menumodel.StatusActive},
 		{ParentKey: "user:/support", Platform: menumodel.PlatformUser, Name: "我的工单", Type: menumodel.TypeMenu, Path: "/support/tickets", Icon: "ticket", SortOrder: 1, Status: menumodel.StatusActive},
-		{Platform: menumodel.PlatformUser, Name: "个人中心", Type: menumodel.TypeMenu, Path: "/profile", Icon: "user", SortOrder: 6, Status: menumodel.StatusActive},
+		// 成员管理（子账号）：仅主账号可见，前端按 ownerOnly 路径集合过滤（菜单表不含该语义）。
+		{Platform: menumodel.PlatformUser, Name: "成员管理", Type: menumodel.TypeMenu, Path: "/member", Icon: "usergroup", SortOrder: 8, Status: menumodel.StatusActive},
+		{Platform: menumodel.PlatformUser, Name: "个人中心", Type: menumodel.TypeMenu, Path: "/profile", Icon: "user", SortOrder: 9, Status: menumodel.StatusActive},
 		{ParentKey: "user:/profile", Platform: menumodel.PlatformUser, Name: "我的消息", Type: menumodel.TypeMenu, Path: "/profile/messages", Icon: "mail", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "user:/profile", Platform: menumodel.PlatformUser, Name: "通知偏好", Type: menumodel.TypeMenu, Path: "/profile/preferences", Icon: "setting", SortOrder: 2, Status: menumodel.StatusActive},
 		// 推广邀请返现（用户自助；子账号可看，提现与转出后端硬拒）
-		{Platform: menumodel.PlatformUser, Name: "推广邀请", Type: menumodel.TypeDirectory, Path: "/referral", Icon: "share", SortOrder: 7, Status: menumodel.StatusActive},
+		{Platform: menumodel.PlatformUser, Name: "推广邀请", Type: menumodel.TypeDirectory, Path: "/referral", Icon: "share", SortOrder: 10, Status: menumodel.StatusActive},
 		{ParentKey: "user:/referral", Platform: menumodel.PlatformUser, Name: "推广概览", Type: menumodel.TypeMenu, Path: "/referral/overview", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
 		{ParentKey: "user:/referral", Platform: menumodel.PlatformUser, Name: "我的邀请", Type: menumodel.TypeMenu, Path: "/referral/invitees", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "user:/referral", Platform: menumodel.PlatformUser, Name: "返现明细", Type: menumodel.TypeMenu, Path: "/referral/cashbacks", Icon: "money", SortOrder: 3, Status: menumodel.StatusActive},
@@ -1654,9 +1791,31 @@ func seedDemoUserDetails(tx *gorm.DB) error {
 }
 
 // seedTicketCategories 写入默认工单分类（doc50 §6.5）。幂等：按 code 查重跳过。
+// seedDepartments 初始化示例组织架构（S1 员工体系）。
+// 幂等：仅当 departments 表为空时写入，避免覆盖真实运营数据。
+func seedDepartments(tx *gorm.DB) error {
+	var count int64
+	if err := tx.Model(&adminmodel.Department{}).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	defaults := []adminmodel.Department{
+		{Name: "销售部", Code: "sales-dept", Kind: adminmodel.DepartmentKindSales, SortOrder: 1, Status: "active", Remark: "客户拓展与签单"},
+		{Name: "客户服务部", Code: "support-dept", Kind: adminmodel.DepartmentKindSupport, SortOrder: 2, Status: "active", Remark: "工单受理与技术支持"},
+		{Name: "财务部", Code: "finance-dept", Kind: adminmodel.DepartmentKindFinance, SortOrder: 3, Status: "active", Remark: "资金与账务"},
+	}
+	for i := range defaults {
+		if err := tx.Create(&defaults[i]).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func seedTicketCategories(tx *gorm.DB) error {
 	defaults := []ticketmodel.TicketCategory{
-		{Name: "售前咨询", Code: "presales", Description: "产品价格、功能咨询", SortOrder: 1, Status: "active"},
 		{Name: "售后问题", Code: "aftersales", Description: "使用问题、故障报修", SortOrder: 2, Status: "active"},
 		{Name: "账单问题", Code: "billing", Description: "充值、扣费、退款", SortOrder: 3, Status: "active"},
 		{Name: "技术支持", Code: "technical", Description: "配置、部署、API技术", SortOrder: 4, Status: "active"},
@@ -1988,6 +2147,10 @@ func seedNotificationTemplates(tx *gorm.DB) error {
 		{Event: notifymodel.EventTicketReplied, TitleTpl: "工单 {ticket_no} 有新回复", ContentTpl: "您的工单 {ticket_no} 有新的客服回复，请前往工单中心查看。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
 		{Event: notifymodel.EventTicketAssigned, TitleTpl: "工单 {ticket_no} 已指派给您", ContentTpl: "工单 {ticket_no}（{title}）已指派给您，请及时跟进处理。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
 		{Event: notifymodel.EventTicketStatus, TitleTpl: "工单 {ticket_no} 状态更新", ContentTpl: "您的工单 {ticket_no} 状态已更新为 {status}。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
+		// —— S2/S3 工单协同增强 ——
+		{Event: notifymodel.EventTicketTransferred, TitleTpl: "工单 {ticket_no} 已转交专人处理", ContentTpl: "您的工单 {ticket_no}（{title}）已转交专人处理，请耐心等待。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
+		{Event: notifymodel.EventTicketReviewPending, TitleTpl: "工单 {ticket_no} 有待复核回复", ContentTpl: "工单 {ticket_no}（{title}）有回复等待复核，请及时处理。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
+		{Event: notifymodel.EventTicketReviewResult, TitleTpl: "工单 {ticket_no} 回复复核{result}", ContentTpl: "您在工单 {ticket_no} 提交的回复已{result}。{note}", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
 		{Event: notifymodel.EventBalanceLow, TitleTpl: "余额不足预警", ContentTpl: "您的账户余额为 ¥{balance}，低于预警阈值 ¥{threshold}，请及时充值。", InboxOn: true, MailOn: true, Status: notifymodel.TemplateStatusActive},
 		{Event: notifymodel.EventSyncFailed, TitleTpl: "上游同步失败", ContentTpl: "提供商 {provider_name} 同步失败：{reason}，请检查上游连接。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
 		{Event: notifymodel.EventSystem, TitleTpl: "{title}", ContentTpl: "{content}", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},

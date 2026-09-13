@@ -36,6 +36,9 @@ import (
 	"hostsent/backend/internal/pkg/payment"
 )
 
+// PayoutSettleFunc 打款成功后的业务域结算回调（提现单 ID + 打款凭证）。
+type PayoutSettleFunc func(ctx context.Context, withdrawID uint64, channelTx, receiptURL, remark string, operatorID uint64) error
+
 // paymentBundle 支付中心处理器集合（handler 统一挂 App 字段）。
 type paymentBundle struct {
 	channelHandler  *payhandler.ChannelHandler
@@ -48,6 +51,8 @@ type paymentBundle struct {
 	notifyHandler   *payhandler.NotifyHandler
 	// userPaymentHandler 用户端收银台（支付方式/偏好/收款账户/充值/账单支付/提现）。
 	userPaymentHandler *ucpayhandler.PaymentHandler
+	// payoutService 打款能力（装配层回填给销售提现，doc86 §2.5）。
+	payoutService payservice.PayoutService
 }
 
 // buildPaymentBundle 装配支付中心：仓储 → 服务 → 处理器，并完成上下游钩子接线。
@@ -59,6 +64,8 @@ func buildPaymentBundle(
 	bill billservice.BillService,
 	orders orderservice.OrderService,
 	withdraw withdrawservice.WithdrawService,
+	// salesSettler 销售提成提现结算回调（biz_type=sales_withdraw 时调用，doc86 §2.5）。
+	salesSettler PayoutSettleFunc,
 	logger *zap.Logger,
 ) *paymentBundle {
 	// 仓储
@@ -121,13 +128,22 @@ func buildPaymentBundle(
 
 	// 反向接线：在支付中心「打款管理」登记打款完成后，同步 finance 提现单结算冻结资金。
 	// 缺此回调时管理端在打款页操作只改打款单，提现单会停在 approved，冻结永不释放。
-	payoutSvc.SetSettler(func(ctx context.Context, withdrawID uint64, channelTx, receiptURL, remark string, operatorID uint64) error {
-		_, err := withdraw.MarkPaid(ctx, withdrawID, withdrawdto.WithdrawPayoutRequest{
-			ChannelTx:  channelTx,
-			ReceiptURL: receiptURL,
-			Remark:     remark,
-		}, operatorID)
-		return err
+	// 打款单按业务域分发结算：财务提现回 finance，提成提现回 sales（doc86 §2.5）。
+	payoutSvc.SetSettler(func(ctx context.Context, bizType string, withdrawID uint64, channelTx, receiptURL, remark string, operatorID uint64) error {
+		switch bizType {
+		case paymodel.PayoutBizSalesWithdraw:
+			if salesSettler == nil {
+				return nil
+			}
+			return salesSettler(ctx, withdrawID, channelTx, receiptURL, remark, operatorID)
+		default:
+			_, err := withdraw.MarkPaid(ctx, withdrawID, withdrawdto.WithdrawPayoutRequest{
+				ChannelTx:  channelTx,
+				ReceiptURL: receiptURL,
+				Remark:     remark,
+			}, operatorID)
+			return err
+		}
 	})
 
 	// 退款资金出口钩子（doc36 §3.2）：按退款去向分流。
@@ -187,6 +203,7 @@ func buildPaymentBundle(
 		methodHandler:      payhandler.NewMethodHandler(prefSvc, channelSvc),
 		notifyHandler:      payhandler.NewNotifyHandler(orderSvc),
 		userPaymentHandler: userPaymentHandler,
+		payoutService:      payoutSvc,
 	}
 }
 

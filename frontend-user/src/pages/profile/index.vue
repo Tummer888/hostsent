@@ -38,7 +38,7 @@
       </div>
 
       <t-alert theme="warning" class="verify-alert">
-        未完成实名认证，无法正常购买宿派云控的产品和服务
+        未完成实名认证，无法正常购买{{ brandStore.name }}的产品和服务
       </t-alert>
 
       <div class="verify-grid">
@@ -156,7 +156,7 @@
       </div>
 
       <p class="danger-desc">
-        您可以在此注销当前宿派云控账号。账号注销成功后，当前账号内的所有服务将不可用。除法律法规另有规定外，当前账号内的信息、数据将被删除，且无法恢复。
+        您可以在此注销当前{{ brandStore.name }}账号。账号注销成功后，当前账号内的所有服务将不可用。除法律法规另有规定外，当前账号内的信息、数据将被删除，且无法恢复。
       </p>
       <div class="danger-actions">
         <t-button theme="danger" @click="handleCloseAccount">注销</t-button>
@@ -230,11 +230,13 @@ import {
 import type { Component } from 'vue'
 
 import { useUserStore } from '@/store'
+import { useBrandStore } from '@/store/modules/brand'
 import { updateProfile, changePassword } from '@/api/auth'
 
 defineOptions({ name: 'UserProfile' })
 
 const userStore = useUserStore()
+const brandStore = useBrandStore()
 
 // ========== 基本信息 ==========
 const displayName = computed(() => userStore.displayName || '用户')

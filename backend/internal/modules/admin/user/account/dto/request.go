@@ -13,6 +13,10 @@ type UserListQuery struct {
 	UserGroupID uint64 `form:"user_group_id"`
 	// IsSubAccount 按主账号/子账号筛选（P4-10）："true" 仅子账号，"false" 仅主账号，空为全部。
 	IsSubAccount string `form:"is_sub_account"`
+	// SalesAdminID 按归属销售筛选（doc86 §4.1.10，0 表示不筛选）。
+	SalesAdminID uint64 `form:"sales_admin_id"`
+	// UnassignedSales 为 "true" 时仅返回未归属销售的用户；与 SalesAdminID 互斥，未归属优先。
+	UnassignedSales string `form:"unassigned_sales"`
 }
 
 type UserCreateRequest struct {
