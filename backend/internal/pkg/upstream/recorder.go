@@ -290,8 +290,16 @@ func (t *Trace) finish(err error, success bool, code, message string, explicit b
 		}
 		var pe *ProviderError
 		if errors.As(err, &pe) {
-			if code == "" && pe.Code != 0 {
-				code = itoa(pe.Code)
+			if code == "" {
+				// 业务码优先，没有业务码时退到 HTTP 状态码 —— 适配器经常只给
+				// StatusCode（如「请求失败,HTTP状态码:404」），若不回填，
+				// 失败的记录里 error_code 恒为空，按码聚合排障就无从下手。
+				switch {
+				case pe.Code != 0:
+					code = itoa(pe.Code)
+				case pe.StatusCode != 0:
+					code = itoa(pe.StatusCode)
+				}
 			}
 			if pe.Msg != "" {
 				message = pe.Msg
@@ -305,9 +313,20 @@ func (t *Trace) finish(err error, success bool, code, message string, explicit b
 }
 
 // emit 生成并上报一条记录（含无业务判定的结构性往返）。
+//
+// 失败必留码（doc92 §10 场景 2）：业务码由调用方回填，没有业务码时退到 HTTP
+// 状态码；纯传输层失败（DNS/连接被拒/超时）没有码可退，用固定 token "network"
+// —— 宁可给一个可 grep 的类别，也不要让失败记录的错误码恒为空。
 func (t *Trace) emit(call httpCall, success bool, code, message string) {
 	if !captureEnabled() {
 		return
+	}
+	if !success && code == "" {
+		if call.statusCode != 0 {
+			code = itoa(call.statusCode)
+		} else {
+			code = "network"
+		}
 	}
 	if !success && call.err != nil && call.statusCode == 0 {
 		message = firstNonEmpty(message, call.err.Error())

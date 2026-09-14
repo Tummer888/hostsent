@@ -14,6 +14,7 @@ import {
   ControlPlatformIcon,
   DashboardIcon,
   DataCheckedIcon,
+  DeleteIcon,
   DiscountIcon,
   DownloadIcon,
   ErrorCircleIcon,
@@ -120,6 +121,8 @@ const iconMap: Record<string, Component> = {
   // 后端 seed 的 icon 字符串 -> TDesign 组件；未映射会静默丢图标。
   safety: SecuredIcon,
   send: SendIcon,
+  // 日志中心（doc92）的三个菜单：日志中心 / 清理任务 / 保留策略
+  delete: DeleteIcon,
 }
 
 function resolveIcon(name?: string): Component | undefined {

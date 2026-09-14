@@ -50,6 +50,17 @@ services:
       HOSTSENT_REDIS_REQUIRED: "false"
       # 工单附件落盘目录（挂卷持久化，容器重建不丢文件）。
       HOSTSENT_STORAGE_ROOT: /app/uploads
+      # 门户主动缓存失效（doc80 §10.1）：后台保存站点配置/发布内容后回调门户清 Nitro 缓存。
+      # 门户跑在宿主机上（frontend-site，端口 3003），容器内经宿主机网关访问 ——
+      # host.docker.internal 在 Linux 的 docker 引擎里默认不注册，因此用网段网关地址，
+      # 由 compose 的 extra_hosts 注入（见文件底部）。
+      HOSTSENT_REVALIDATE_PORTAL_URL: http://host.docker.internal:3003
+      # 必须与 frontend-site/.env 的 NUXT_INTERNAL_TOKEN 一致，否则门户返回 401。
+      # 留空 = 不启用主动失效（门户按 SWR TTL 自然刷新）。
+      HOSTSENT_REVALIDATE_TOKEN: "${NUXT_INTERNAL_TOKEN:-cbe2929fd39925d1d777ca43648f9614b4052efd141bb8d2}"
+    extra_hosts:
+      # 让容器能解析到宿主机网关；配合宿主机防火墙放行对应端口。
+      - "host.docker.internal:host-gateway"
     volumes:
       - uploads_data:/app/uploads
     depends_on:

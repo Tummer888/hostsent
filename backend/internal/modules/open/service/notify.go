@@ -26,6 +26,7 @@ import (
 	openmodel "hostsent/backend/internal/modules/open/model"
 	openrepo "hostsent/backend/internal/modules/open/repository"
 	"hostsent/backend/internal/pkg/crypto"
+	"hostsent/backend/internal/pkg/jobrun"
 )
 
 // 事件名（标准契约，下游按事件分发）。
@@ -146,14 +147,19 @@ func (w *NotifyDeliveryWorker) Start(ctx context.Context) {
 }
 
 func (w *NotifyDeliveryWorker) runOnce(ctx context.Context) {
-	rows, err := w.repo.ListDue(ctx, 50)
-	if err != nil {
-		w.logger.Warn("open: list due deliveries failed", zap.Error(err))
-		return
-	}
-	for i := range rows {
-		w.deliver(ctx, &rows[i])
-	}
+	// 高频任务（30 秒一轮）：留痕侧空轮不落库（doc92 §7.2）。
+	jobrun.RunErr(ctx, "open_notify_deliver", "notify", jobrun.TriggerScheduled,
+		func(ctx context.Context) (int, int, map[string]any, error) {
+			rows, err := w.repo.ListDue(ctx, 50)
+			if err != nil {
+				w.logger.Warn("open: list due deliveries failed", zap.Error(err))
+				return 0, 0, nil, err
+			}
+			for i := range rows {
+				w.deliver(ctx, &rows[i])
+			}
+			return len(rows), len(rows), map[string]any{"picked": len(rows)}, nil
+		})
 }
 
 // deliver 投递单条事件：成功→success；失败→退避重试或转 dead。

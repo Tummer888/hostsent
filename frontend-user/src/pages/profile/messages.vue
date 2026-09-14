@@ -105,7 +105,10 @@
                 :bordered="false"
               >
                 <div class="ann-header">
-                  <span class="ann-title">{{ ann.title }}</span>
+                  <span class="ann-title">
+                    <t-tag v-if="ann.pinned" theme="primary" variant="light" size="small">置顶</t-tag>
+                    {{ ann.title }}
+                  </span>
                   <t-tag
                     :theme="levelTheme(ann.level)"
                     variant="light"
@@ -115,9 +118,14 @@
                     {{ levelLabel(ann.level) }}
                   </t-tag>
                 </div>
-                <p class="ann-content">{{ ann.content }}</p>
+                <!--
+                  公告正文可能是已净化的富文本（body_format=html）或存量纯文本。
+                  纯文本按文本节点输出：老公告里出现的 `<` 之类字符若按 HTML 渲染会被吃掉。
+                -->
+                <p v-if="ann.body_format !== 'html'" class="ann-content">{{ ann.content }}</p>
+                <div v-else class="ann-content ann-content--html" v-html="ann.content" />
                 <div class="ann-footer">
-                  <span class="time-text">发布时间：{{ formatTime(ann.published_at || ann.created_at) }}</span>
+                  <span class="time-text">发布时间：{{ formatTime(ann.publish_at) }}</span>
                 </div>
               </t-card>
             </div>
@@ -277,8 +285,9 @@ let annLoaded = false
 async function loadAnnouncements() {
   annLoading.value = true
   try {
+    // 契约是 data = { list: [...] }（不是裸数组）；取错形状会静默渲染空态。
     const { data } = await getMyAnnouncements()
-    announcements.value = data ?? []
+    announcements.value = data?.list ?? []
     annLoaded = true
   } catch (error) {
     MessagePlugin.error((error as Error)?.message || '加载公告失败')
@@ -465,6 +474,9 @@ onMounted(() => {
 }
 
 .ann-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: 15px;
   font-weight: 600;
   color: #1e293b;
@@ -481,6 +493,29 @@ onMounted(() => {
   -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* 富文本正文：按块级排版截断，与纯文本的 pre-wrap 不同 */
+.ann-content--html {
+  white-space: normal;
+}
+
+.ann-content--html :deep(p) {
+  margin: 0 0 6px;
+}
+
+.ann-content--html :deep(h2),
+.ann-content--html :deep(h3),
+.ann-content--html :deep(h4) {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.ann-content--html :deep(img) {
+  max-width: 100%;
+  height: auto;
 }
 
 .ann-footer {

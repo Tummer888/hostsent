@@ -24,12 +24,19 @@ const FALLBACK = {
   licence: '',
 } as const
 
-/** 管理端历史扁平键与 doc80 规范点号键都认，前者优先（运营实际维护入口写的是扁平键）。 */
-function pick(items: Record<string, string>, flatKey: string, dottedKey: string): string {
-  const flat = items[flatKey]
-  if (typeof flat === 'string' && flat.trim()) return flat.trim()
+/**
+ * 规范点号键（`site.name`）优先，历史扁平键（`site_name`）作兜底。
+ *
+ * 顺序为什么是这样：两套键并存时，扁平键是 09-05 建库时的旧占位值，点号键才是
+ * 管理端「系统配置 → 站点品牌」维护的当前值（迁移 045 已把扁平键置 disabled 并把值
+ * 迁到点号键）。原先扁平键优先，导致运营改了官网名称、控制台顶栏还是旧名。
+ * 兜底保留扁平键，是为了在尚未执行迁移 045 的环境里仍能读到值。
+ */
+function pick(items: Record<string, string>, dottedKey: string, flatKey: string): string {
   const dotted = items[dottedKey]
   if (typeof dotted === 'string' && dotted.trim()) return dotted.trim()
+  const flat = items[flatKey]
+  if (typeof flat === 'string' && flat.trim()) return flat.trim()
   return ''
 }
 
@@ -38,6 +45,9 @@ export const useBrandStore = defineStore('brand', () => {
   const logo = ref<string>(FALLBACK.logo)
   const copyright = ref<string>(FALLBACK.copyright)
   const icp = ref<string>(FALLBACK.icp)
+  // 客服联系方式：只在配置里存在时展示（帮助面板的兜底联系通道）
+  const contactPhone = ref('')
+  const contactEmail = ref('')
 
   /** Logo 未配置时用品牌名首字做文字标记，避免顶栏出现空方块。 */
   const logoMark = computed(() => (name.value || FALLBACK.name).slice(0, 1).toUpperCase())
@@ -56,15 +66,27 @@ export const useBrandStore = defineStore('brand', () => {
     try {
       const { data } = await getSiteContent()
       const items = data?.items || {}
-      name.value = pick(items, 'site_name', 'site.name') || FALLBACK.name
-      logo.value = pick(items, 'site_logo', 'site.logo')
-      copyright.value = pick(items, 'site_copyright', 'site.copyright')
-      icp.value = pick(items, 'site_icp', 'site.icp')
+      name.value = pick(items, 'site.name', 'site_name') || FALLBACK.name
+      logo.value = pick(items, 'site.logo', 'site_logo')
+      copyright.value = pick(items, 'site.copyright', 'site_copyright')
+      icp.value = pick(items, 'site.icp', 'site_icp')
+      contactPhone.value = pick(items, 'site.contact_phone', 'contact_phone')
+      contactEmail.value = pick(items, 'site.contact_email', 'contact_email')
       loaded = true
     } catch {
       // 品牌信息是装饰性数据：拿不到就用兜底值，不打断登录与页面渲染
     }
   }
 
-  return { name, logo, copyright, icp, logoMark, copyrightText, load }
+  return {
+    name,
+    logo,
+    copyright,
+    icp,
+    contactPhone,
+    contactEmail,
+    logoMark,
+    copyrightText,
+    load,
+  }
 })

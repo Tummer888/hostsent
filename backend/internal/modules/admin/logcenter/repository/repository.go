@@ -51,6 +51,10 @@ type Filter struct {
 	// From/To 时间区间（作用于 src.TimeColumn）；零值表示不限。
 	From time.Time
 	To   time.Time
+	// ToExclusive To 用开区间 `<`（清理场景：与 DeleteBatch 的候选条件逐行一致）。
+	ToExclusive bool
+	// WithGuard 追加源的 DeleteGuard（清理场景：备份范围必须等于删除范围）。
+	WithGuard bool
 	// Keyword 关键词，作用于 src.SearchColumns（ILIKE OR）。
 	Keyword string
 	// Equals 等值筛选：列名 → 值（列名必须是该源 SelectColumns 中的列）。
@@ -66,8 +70,18 @@ func (f Filter) where(src *catalog.Source) (string, []any) {
 		args = append(args, f.From)
 	}
 	if !f.To.IsZero() {
-		clauses = append(clauses, src.TimeColumn+" <= ?")
+		if f.ToExclusive {
+			// 清水分界用开区间：删除候选是 `< watermark`，导出必须与之逐行一致，
+			// 否则恰好等于水位线的那一行会「备份里有、删除不算」，校验行数直接不符。
+			clauses = append(clauses, src.TimeColumn+" < ?")
+		} else {
+			clauses = append(clauses, src.TimeColumn+" <= ?")
+		}
 		args = append(args, f.To)
+	}
+	if f.WithGuard {
+		// 终态保护：清理只删终态行，备份也必须只含终态行（doc92 §0.3 硬约束 6）。
+		clauses = append(clauses, "("+guardedOrTrue(src.DeleteGuard, true)+")")
 	}
 	if kw := strings.TrimSpace(f.Keyword); kw != "" && len(src.SearchColumns) > 0 {
 		ors := make([]string, 0, len(src.SearchColumns))
@@ -402,6 +416,8 @@ type JobRunRepository interface {
 	Finish(ctx context.Context, row *logmodel.JobRunLog) error
 	// CountToday 统计某 job 当日已写入行数（软上限用）。
 	CountToday(ctx context.Context, jobName string) (int64, error)
+	// FailStaleRunning 把停滞的 running 行收成 failed，返回处理行数。
+	FailStaleRunning(ctx context.Context, staleBefore time.Time, reason string) (int64, error)
 }
 
 // ErrJobRunning 同一任务上一轮尚未结束。
@@ -447,6 +463,27 @@ func (r *jobRunRepository) CountToday(ctx context.Context, jobName string) (int6
 		Where("job_name = ? AND created_at::date = current_date", jobName).
 		Count(&total).Error
 	return total, err
+}
+
+// FailStaleRunning 收尾停滞的 running 行。
+//
+// 重入保护依赖 uk_job_run_logs_running（同一 job 至多一条 running）。这个约束的
+// 隐含前提是「running 行最终会被 Finish 收掉」—— 进程在任务执行中途被 kill 时
+// （部署、OOM）这个前提不成立：FinishedAt 永远写不上，该 job 之后每一轮都会被
+// 判重入而跳过，等于永久静默停摆。启动时把超时的 running 收成 failed 即可解除。
+//
+// 阈值取 6 小时：远大于任何一轮任务的正常耗时（最长的是 24 小时一轮的清理，
+// 但它自带状态机与互斥索引），足以避免误伤真正在跑的长任务。
+func (r *jobRunRepository) FailStaleRunning(ctx context.Context, staleBefore time.Time, reason string) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&logmodel.JobRunLog{}).
+		Where("status = ?", logmodel.JobStatusRunning).
+		Where("started_at < ?", staleBefore).
+		Updates(map[string]any{
+			"status":        logmodel.JobStatusFailed,
+			"error_message": reason,
+			"finished_at":   time.Now(),
+		})
+	return res.RowsAffected, res.Error
 }
 
 // isUniqueViolation 判定 Postgres 唯一约束冲突（错误码 23505）。
@@ -664,6 +701,10 @@ type CleanupRepository interface {
 	HasScheduledToday(ctx context.Context) (bool, error)
 	// HasActive 是否存在非终态任务（互斥索引的友好提示路径）。
 	HasActive(ctx context.Context) (bool, error)
+	// FailStaleActive 把停滞的非终态任务置为 failed，返回处理行数。
+	// staleBefore 之前的（或 started_at 为空的）视为停滞，避免误伤其他实例
+	// 正在推进的新任务。
+	FailStaleActive(ctx context.Context, staleBefore time.Time, reason string) (int64, error)
 }
 
 // CleanupListQuery 清理任务列表查询。
@@ -766,6 +807,27 @@ func (r *cleanupRepository) HasActive(ctx context.Context) (bool, error) {
 		Where("status IN ?", logmodel.CleanupActiveStatuses()).
 		Count(&total).Error
 	return total > 0, err
+}
+
+// FailStaleActive 收尾停滞的非终态任务。
+//
+// 为什么必须有这一步：清理状态机靠「非终态行 + 部分唯一索引」实现全局互斥，
+// 隐含前提是「非终态行一定有人在推进」。进程在 exporting/deleting 中途被 kill
+// （部署、OOM、容器重启）时这个前提不成立，残行会把后续所有清理任务永久挡死。
+//
+// 只收「早于 staleBefore」的行：多实例部署下，另一个实例刚创建几秒的新任务
+// 不该被本实例判死。failed 不等于数据丢失 —— 备份文件与任务记录都还在，
+// 人可以从详情页看到原因并重跑。
+func (r *cleanupRepository) FailStaleActive(ctx context.Context, staleBefore time.Time, reason string) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&logmodel.LogCleanupJob{}).
+		Where("status IN ?", logmodel.CleanupActiveStatuses()).
+		Where("started_at IS NULL OR started_at < ?", staleBefore).
+		Updates(map[string]any{
+			"status":        logmodel.CleanupStatusFailed,
+			"error_message": reason,
+			"finished_at":   time.Now(),
+		})
+	return res.RowsAffected, res.Error
 }
 
 // parseTime 宽松解析时间参数（RFC3339 / 空格分隔 / 纯日期）。

@@ -8,12 +8,24 @@ import (
 )
 
 type Config struct {
-	App      AppConfig      `mapstructure:"app"`
-	Auth     AuthConfig     `mapstructure:"auth"`
-	Database DatabaseConfig `mapstructure:"database"`
-	Redis    RedisConfig    `mapstructure:"redis"`
-	Pricing  PricingConfig  `mapstructure:"pricing"`
-	Storage  StorageConfig  `mapstructure:"storage"`
+	App        AppConfig        `mapstructure:"app"`
+	Auth       AuthConfig       `mapstructure:"auth"`
+	Database   DatabaseConfig   `mapstructure:"database"`
+	Redis      RedisConfig      `mapstructure:"redis"`
+	Pricing    PricingConfig    `mapstructure:"pricing"`
+	Storage    StorageConfig    `mapstructure:"storage"`
+	Revalidate RevalidateConfig `mapstructure:"revalidate"`
+}
+
+// RevalidateConfig 门户主动缓存失效（doc80 §10.1）。
+//
+// 门户（frontend-site）的公开页面走 Nitro SWR，缓存存在 Node 进程内存里，Go 侧碰不到，
+// 只能回调门户的内部接口来清。PortalURL 为空时该能力整体空转（纯后端联调环境）。
+type RevalidateConfig struct {
+	// PortalURL 门户基地址，如 http://127.0.0.1:3003。
+	PortalURL string `mapstructure:"portal_url"`
+	// Token 内部接口密钥，必须与门户的 NUXT_INTERNAL_TOKEN 一致。
+	Token string `mapstructure:"token"`
 }
 
 // StorageConfig 本地文件存储配置（工单附件用，S2）。
@@ -120,4 +132,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("pricing.stack_mode", "best")
 	// 附件落盘目录（相对工作目录）；生产用只读根镜像时通过 HOSTSENT_STORAGE_ROOT 覆盖为挂载卷。
 	v.SetDefault("storage.root", "./uploads")
+	// 门户主动缓存失效：默认不配地址（不尝试回调任何外部服务），部署时注入。
+	v.SetDefault("revalidate.portal_url", "")
+	v.SetDefault("revalidate.token", "")
 }

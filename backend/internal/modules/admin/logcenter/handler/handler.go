@@ -6,6 +6,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/url"
 	"strconv"
@@ -22,6 +23,25 @@ import (
 	"hostsent/backend/internal/pkg/response"
 )
 
+// DownloadAudit 一次导出文件下载的留痕信息。
+//
+// 下载是敏感操作（导出含 IP、手机号、上游请求体），必须能回答「谁在什么时候
+// 下走了哪份文件」。审计中间件只覆盖写方法（POST/PUT/DELETE），GET 下载不在
+// 其中，所以这里显式留痕（doc92 §5.3 / 验收场景 26）。
+type DownloadAudit struct {
+	OperatorID   uint64
+	OperatorName string
+	SourceKey    string
+	FileName     string
+	RowCount     int64
+	FileID       uint64
+	IP           string
+	UserAgent    string
+}
+
+// DownloadAuditFunc 下载留痕落库（装配层注入，日志中心不依赖管理端审计模型）。
+type DownloadAuditFunc func(ctx context.Context, entry DownloadAudit)
+
 // Handler 日志中心处理器。
 type Handler struct {
 	query   logservice.QueryService
@@ -30,6 +50,8 @@ type Handler struct {
 	policy  logservice.PolicyService
 	// exportBeforeDelete 读取 log_export_before_delete（页面对 false 时置灰执行按钮）。
 	exportBeforeDelete func() bool
+	// auditDownload 下载留痕（nil 时跳过，仅在未装配审计能力的部署里发生）。
+	auditDownload DownloadAuditFunc
 }
 
 // HandlerDeps 处理器依赖。
@@ -40,6 +62,8 @@ type HandlerDeps struct {
 	Policy  logservice.PolicyService
 	// ExportBeforeDelete 读取 log_export_before_delete（nil 时恒为 true）。
 	ExportBeforeDelete func() bool
+	// AuditDownload 导出文件下载留痕（doc92 §5.3）。
+	AuditDownload DownloadAuditFunc
 }
 
 // NewHandler 创建处理器。
@@ -50,7 +74,7 @@ func NewHandler(deps HandlerDeps) *Handler {
 	}
 	return &Handler{
 		query: deps.Query, export: deps.Export, cleanup: deps.Cleanup,
-		policy: deps.Policy, exportBeforeDelete: fn,
+		policy: deps.Policy, exportBeforeDelete: fn, auditDownload: deps.AuditDownload,
 	}
 }
 
@@ -209,6 +233,15 @@ func (h *Handler) DownloadExportFile(c *gin.Context) {
 		return
 	}
 	defer file.Close()
+	if h.auditDownload != nil {
+		operatorID, operatorName := operatorFromContext(c)
+		h.auditDownload(c.Request.Context(), DownloadAudit{
+			OperatorID: operatorID, OperatorName: operatorName,
+			SourceKey: info.SourceKey, FileName: info.FileName,
+			RowCount: info.RowCount, FileID: info.ID,
+			IP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+		})
+	}
 	// 中文文件名用 RFC 5987 的 filename* 传 UTF-8。
 	c.Header("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(info.FileName))
 	c.DataFromReader(200, info.FileSize, "application/octet-stream", file, nil)

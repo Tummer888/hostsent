@@ -13,31 +13,44 @@ type PublishInput struct {
 
 // AnnouncementCreateRequest 创建公告请求。
 type AnnouncementCreateRequest struct {
-	Title     string `json:"title" binding:"required"`
-	Content   string `json:"content" binding:"required"`
-	Platform  string `json:"platform"` // user/admin/both，默认 user
-	Level     string `json:"level"`    // info/warning/critical，默认 info
-	Popup     bool   `json:"popup"`
-	PublishAt string `json:"publish_at"` // ISO 时间字符串，空=立即发布
+	Title   string `json:"title" binding:"required"`
+	Content string `json:"content" binding:"required"`
+	// BodyFormat 正文格式（迁移 044）：html = 富文本（服务端净化后入库），空/text = 纯文本。
+	BodyFormat string `json:"body_format"`
+	Slug       string `json:"slug"`
+	Platform   string `json:"platform"` // user/admin/both，默认 user
+	Level      string `json:"level"`    // info/warning/critical，默认 info
+	Popup      bool   `json:"popup"`
+	Pinned     bool   `json:"pinned"`
+	PublishAt  string `json:"publish_at"` // ISO 时间字符串，空=立即发布
 }
 
 // AnnouncementUpdateRequest 更新公告请求。
 type AnnouncementUpdateRequest struct {
-	Title    string `json:"title"`
-	Content  string `json:"content"`
-	Platform string `json:"platform"`
-	Level    string `json:"level"`
-	Popup    *bool  `json:"popup"`
+	Title      string `json:"title"`
+	Content    string `json:"content"`
+	BodyFormat string `json:"body_format"`
+	Slug       string `json:"slug"`
+	Platform   string `json:"platform"`
+	Level      string `json:"level"`
+	Popup      *bool  `json:"popup"`
+	Pinned     *bool  `json:"pinned"`
 }
 
 // AnnouncementInfo 公告信息。
 type AnnouncementInfo struct {
-	ID         uint64  `json:"id"`
-	Title      string  `json:"title"`
-	Content    string  `json:"content"`
+	ID      uint64 `json:"id"`
+	Title   string `json:"title"`
+	Content string `json:"content"`
+	// BodyFormat text/html：text 为存量纯文本，html 为服务端已净化的富文本。
+	// 渲染端必须按此字段分支，不能一律当 HTML 处理（会把纯文本里的 < > 吃掉）。
+	BodyFormat string `json:"body_format"`
+	// Slug 门户详情页标识；空串时前端回落到 /announcements/:id。
+	Slug       string  `json:"slug"`
 	Platform   string  `json:"platform"`
 	Level      string  `json:"level"`
 	Popup      bool    `json:"popup"`
+	Pinned     bool    `json:"pinned"`
 	Status     string  `json:"status"`
 	PublishAt  *string `json:"publish_at"`
 	OfflineAt  *string `json:"offline_at"`

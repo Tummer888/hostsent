@@ -11,7 +11,11 @@
           <span class="partners__mark" :class="`partners__mark--${item.variant}`" aria-hidden="true">
             {{ item.name.charAt(0) }}
           </span>
-          <span class="partners__name">{{ item.name }}</span>
+          <span class="partners__text">
+            <span class="partners__name">{{ item.name }}</span>
+            <!-- 关系说明：区分「上游供应商」与「平台自身用的组件」，不让人误读成合作客户 -->
+            <span class="partners__note">{{ item.note }}</span>
+          </span>
         </li>
       </ul>
     </div>
@@ -22,8 +26,8 @@
 import { PARTNERS } from '~/constants/homeContent'
 
 const heading = {
-  title: '已对接的上游与生态',
-  subtitle: '财务与云平台上游各接一次，产品、订单、实例与账单在同一处收敛。',
+  title: '上游对接与运行组件',
+  subtitle: '云资源与财务上游各接一次；下方同时列出平台自身使用的技术组件。',
 }
 </script>
 
@@ -41,7 +45,7 @@ const heading = {
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 196px;
+  width: 208px;
   padding: 14px 16px;
   border: 1px solid var(--site-border);
   border-radius: var(--site-radius);
@@ -80,6 +84,12 @@ const heading = {
   background: linear-gradient(140deg, var(--site-primary) 0%, var(--site-primary-strong) 100%);
 }
 
+.partners__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .partners__name {
   font-size: 13.5px;
   font-weight: 500;
@@ -89,9 +99,18 @@ const heading = {
   text-overflow: ellipsis;
 }
 
+.partners__note {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--site-text-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 @media (max-width: 560px) {
   .partners__tile {
-    width: 168px;
+    width: 176px;
   }
 }
 </style>

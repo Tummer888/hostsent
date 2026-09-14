@@ -81,6 +81,14 @@ var menuPermissionMap = map[string]string{
 	"/product/categories":           "product:category",
 	// T7.4：/product/sync/* 页面已下线（redirect 到资源管理「同步与调度」），映射一并移除。
 
+	// 内容中心（doc100 §7.1）：门户展示型内容。此处漏登记过一次 —— 未登记的路径
+	// 在 FilterByPermissions 里被视为「无需权限」原样返回，等于把内容管理菜单
+	// 对所有角色（含只读客服）敞开，所以这三个路径必须显式登记。
+	// 页脚配置没有独立页面（在「系统管理 → 系统配置」里编辑），故不在此登记。
+	"/content/articles":   "content:article:list",
+	"/content/categories": "content:category:list",
+	"/content/links":      "content:link:list",
+
 	"/orders/list":    "order:list",
 	"/orders/refunds": "order:refunds",
 	"/orders/stats":   "order:stats",
@@ -132,6 +140,10 @@ var menuPermissionMap = map[string]string{
 	"/system/announcements": "notify:announcement",
 	// 验证码配置（doc91 §10.1）：策略影响全站登录，属系统管理域。
 	"/system/captcha": "captcha:config",
+	// 日志中心（doc92 §9.1）：日志含手机号/邮箱/上游请求体，仅超管与运维可见。
+	"/system/logs":         "log:center",
+	"/system/logs/cleanup": "log:cleanup",
+	"/system/logs/policy":  "log:policy",
 
 	"/lifecycle/expiring": "lifecycle:expiring",
 	"/lifecycle/renewals": "lifecycle:renewals",

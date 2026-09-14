@@ -19,7 +19,7 @@
     >
       <!-- 1. 分组/一级菜单栏 (使用动态菜单的顶级节点) -->
       <aside class="group-sidebar">
-        <div class="group-logo">H</div>
+        <div class="group-logo" :title="brandStore.name">{{ brandStore.logoMark }}</div>
         <ul class="group-list">
           <li
             v-for="group in sidebarItems"
@@ -171,25 +171,10 @@
             </t-button>
           </t-tooltip>
 
-          <!-- 语言切换 -->
-          <t-tooltip content="语言切换" placement="bottom">
-            <t-dropdown trigger="click" @click="onLangChange">
-              <t-button variant="text" shape="square" aria-label="语言切换">
-                <template #icon><TranslateIcon /></template>
-              </t-button>
-              <template #dropdown>
-                <t-dropdown-menu>
-                  <t-dropdown-item value="zh-CN">中文</t-dropdown-item>
-                  <t-dropdown-item value="en-US">English</t-dropdown-item>
-                </t-dropdown-menu>
-              </template>
-            </t-dropdown>
-          </t-tooltip>
-
-          <!-- 通知 -->
+          <!-- 通知：未读数取自 /notifications/unread-count，点击进通知记录 -->
           <t-tooltip content="通知" placement="bottom">
-            <t-badge :count="3" size="small" :offset="[-2, 2]">
-              <t-button variant="text" shape="square" aria-label="通知">
+            <t-badge :count="unreadCount" :max-count="99" size="small" :offset="[-2, 2]">
+              <t-button variant="text" shape="square" aria-label="通知" @click="goNotifications">
                 <template #icon>
                   <NotificationIcon />
                 </template>
@@ -208,11 +193,7 @@
             </div>
             <template #dropdown>
               <t-dropdown-menu>
-                <t-dropdown-item value="profile">
-                  <template #icon><UserIcon /></template>
-                  个人资料
-                </t-dropdown-item>
-                <t-dropdown-item value="settings">
+                <t-dropdown-item value="account">
                   <template #icon><SettingIcon /></template>
                   账号设置
                 </t-dropdown-item>
@@ -283,11 +264,55 @@
     <SettingsPanel v-model:visible="settingsVisible" />
     <!-- 首次登录/重置密码后强制改密 -->
     <ForcePasswordChangeDialog />
+
+    <!-- 账号设置：只读信息 + 自助改密（管理端无个人资料页，见 script 内说明） -->
+    <t-dialog
+      v-model:visible="accountDialogVisible"
+      :header="accountPwdMode ? '修改登录密码' : '账号设置'"
+      width="520px"
+      :footer="false"
+    >
+      <template v-if="!accountPwdMode">
+        <dl class="account-info">
+          <div v-for="row in accountFields" :key="row.label" class="account-info__row">
+            <dt class="account-info__label">{{ row.label }}</dt>
+            <dd class="account-info__value">{{ row.value }}</dd>
+          </div>
+        </dl>
+        <p class="account-info__tip">
+          资料字段由超级管理员在「系统管理 → 管理员」中维护；这里只能自助修改登录密码。
+        </p>
+        <div class="account-info__actions">
+          <t-button theme="primary" @click="accountPwdMode = true">修改登录密码</t-button>
+        </div>
+      </template>
+
+      <template v-else>
+        <t-form ref="accountPwdFormRef" :data="accountPwdForm" :rules="accountPwdRules" label-align="top">
+          <t-form-item label="当前密码" name="oldPassword">
+            <t-input v-model="accountPwdForm.oldPassword" type="password" placeholder="请输入当前密码" />
+          </t-form-item>
+          <t-form-item label="新密码" name="newPassword">
+            <t-input v-model="accountPwdForm.newPassword" type="password" placeholder="8-64 位，建议含字母与数字" />
+          </t-form-item>
+          <t-form-item label="确认新密码" name="confirmPassword">
+            <t-input v-model="accountPwdForm.confirmPassword" type="password" placeholder="请再次输入新密码" />
+          </t-form-item>
+        </t-form>
+        <p class="account-info__tip">修改成功后当前登录会失效，需要用新密码重新登录。</p>
+        <div class="account-info__actions">
+          <t-button variant="outline" @click="accountPwdMode = false">返回</t-button>
+          <t-button theme="primary" :loading="accountPwdSubmitting" @click="submitAccountPassword">
+            确认修改
+          </t-button>
+        </div>
+      </template>
+    </t-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
+import { computed, reactive, ref, onMounted, onUnmounted, watch } from 'vue'
 import {
   ChevronDownIcon,
   ChevronLeftIcon,
@@ -303,13 +328,14 @@ import {
   SearchIcon,
   SettingIcon,
   SunnyIcon,
-  TranslateIcon,
-  UserIcon,
 } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
+import type { FormInstanceFunctions, FormRule } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 
+import { getAdminUnreadCount } from '@/api/notification'
 import { navMenu } from '@/permission'
+import { useBrandStore } from '@/store/modules/brand'
 import { useMenuStore } from '@/store/modules/menu'
 import { useSettingsStore } from '@/store/modules/settings'
 import { useUserStore } from '@/store/modules/user'
@@ -324,6 +350,8 @@ const route = useRoute()
 const menuStore = useMenuStore()
 const userStore = useUserStore()
 const settings = useSettingsStore()
+// 品牌名（侧栏 Logo 文字标记）：与登录页/标题后缀同一数据源。
+const brandStore = useBrandStore()
 
 // 主题设置抽屉
 const settingsVisible = ref(false)
@@ -576,14 +604,89 @@ function toggleTheme() {
   settings.toggleDark()
 }
 
-// ---- 语言切换（暂无 i18n，占位提示） ----
-function onLangChange(value: string | number | Record<string, unknown> | undefined) {
-  const key = typeof value === 'object' && value !== null ? String(value.value ?? '') : String(value ?? '')
-  if (key === 'en-US') {
-    MessagePlugin.info('English 界面开发中，当前暂支持中文')
+// ---- 顶部通知 ----
+// 未读数走真实接口（此前是写死的 3）。失败保持 0 而不是编造数字：
+// 角标是「有没有新消息」的提示，假数字会让人白点一次、随后不再信任它。
+const unreadCount = ref(0)
+
+async function loadUnreadCount() {
+  try {
+    const { count } = await getAdminUnreadCount()
+    unreadCount.value = Number(count) || 0
+  } catch {
+    unreadCount.value = 0
+  }
+}
+
+function goNotifications() {
+  router.push('/notification/records')
+}
+
+// ---- 账号设置弹窗 ----
+// 管理端没有独立的个人资料页：当前账号能自助做的只有改密码，其余字段由超管在
+// 「系统管理 → 管理员」维护（后端 /auth/me 也没有更新资料接口）。这里如实展示只读
+// 信息 + 提供改密，而不是跳到一个「开发中」的假页面。
+const accountDialogVisible = ref(false)
+const accountPwdMode = ref(false)
+const accountPwdSubmitting = ref(false)
+const accountPwdFormRef = ref<FormInstanceFunctions | null>(null)
+const accountPwdForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
+
+const accountPwdRules: Record<string, FormRule[]> = {
+  oldPassword: [{ required: true, message: '请输入当前密码', type: 'error' }],
+  newPassword: [
+    { required: true, message: '请输入新密码', type: 'error' },
+    { min: 8, max: 64, message: '密码长度为 8-64 个字符', type: 'error' },
+  ],
+  confirmPassword: [
+    { required: true, message: '请再次输入新密码', type: 'error' },
+    {
+      validator: (val: string) => val === accountPwdForm.newPassword,
+      message: '两次输入的密码不一致',
+      type: 'error',
+    },
+  ],
+}
+
+const accountFields = computed(() => {
+  const info = userStore.userInfo
+  return [
+    { label: '登录账号', value: info.username || '-' },
+    { label: '姓名', value: info.name || '-' },
+    { label: '邮箱', value: info.email || '-' },
+    { label: '手机号', value: info.phone || '-' },
+    { label: '部门', value: info.department || '-' },
+    { label: '岗位', value: info.position || '-' },
+    { label: '角色', value: (info.roles?.length ? info.roles : [info.role]).filter(Boolean).join('、') || '-' },
+  ]
+})
+
+function openAccountDialog() {
+  accountPwdMode.value = false
+  Object.assign(accountPwdForm, { oldPassword: '', newPassword: '', confirmPassword: '' })
+  accountDialogVisible.value = true
+}
+
+async function submitAccountPassword() {
+  const valid = await accountPwdFormRef.value?.validate?.()
+  if (valid !== true) return
+  if (accountPwdForm.newPassword === accountPwdForm.oldPassword) {
+    MessagePlugin.warning('新密码不能与当前密码相同')
     return
   }
-  MessagePlugin.success('已切换为中文')
+  accountPwdSubmitting.value = true
+  try {
+    await userStore.changePassword(accountPwdForm.oldPassword, accountPwdForm.newPassword)
+    MessagePlugin.success('密码修改成功，请重新登录')
+    // 改密后原 token 失效，回登录页重新登录更稳妥（与强制改密弹窗一致）
+    accountDialogVisible.value = false
+    await userStore.logout()
+    await router.replace('/login')
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '密码修改失败，请稍后重试')
+  } finally {
+    accountPwdSubmitting.value = false
+  }
 }
 
 // ---- 已打开页面标签 ----
@@ -721,12 +824,11 @@ function onUserMenuClick(value: string | number | Record<string, unknown> | unde
     router.push('/login')
     return
   }
-  if (key === 'profile') {
-    MessagePlugin.info('个人资料开发中')
-    return
-  }
-  if (key === 'settings') {
-    MessagePlugin.info('账号设置开发中')
+  if (key === 'account') {
+    // 管理端没有独立的「个人资料/账号设置」页。账号真实可做的事只有两件：
+    // 改自己的密码（已有 /auth/change-password），以及由超管在「系统管理 → 管理员」
+    // 里改角色/状态。这里不下钻到假页面，直接打开信息 + 改密的弹窗。
+    openAccountDialog()
   }
 }
 
@@ -738,6 +840,10 @@ watch(
   },
   { immediate: true },
 )
+
+onMounted(() => {
+  void loadUnreadCount()
+})
 </script>
 
 <style scoped>
@@ -1749,5 +1855,52 @@ watch(
 
 .dark .user-chip:hover {
   background: #161616;
+}
+
+/* ---------- 账号设置弹窗 ---------- */
+.account-info {
+  margin: 0;
+  display: grid;
+  gap: 0;
+}
+
+.account-info__row {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--td-component-stroke);
+  font-size: 13px;
+}
+
+.account-info__row:last-child {
+  border-bottom: none;
+}
+
+.account-info__label {
+  width: 96px;
+  flex-shrink: 0;
+  margin: 0;
+  color: var(--td-text-color-secondary);
+}
+
+.account-info__value {
+  margin: 0;
+  color: var(--td-text-color-primary);
+  word-break: break-all;
+}
+
+.account-info__tip {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--td-text-color-placeholder);
+}
+
+.account-info__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
 }
 </style>

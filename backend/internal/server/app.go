@@ -147,6 +147,9 @@ type App struct {
 	// logcenter 日志中心处理器集合（doc92）：统一日志浏览/导出/保留策略/清理引擎，
 	// 以及上游接口采集写入器与任务运行留痕器。
 	logcenter *logcenterBundle
+	// content 内容中心处理器集合（doc100）：新闻/帮助/条款/隐私/分类/友情链接，
+	// 以及供门户公开只读读取的适配器。
+	content *contentBundle
 }
 
 // NewApp 构造装配容器（DI 单一接线点）。
@@ -218,6 +221,7 @@ func NewApp(
 	captchaBundle *captchaBundle,
 	notifyBundle *notifyBundle,
 	logcenterBundle *logcenterBundle,
+	contentBundle *contentBundle,
 	cacheClient *cache.Client,
 	logger *zap.Logger,
 	jwtIssuer *appauth.JWTIssuer,
@@ -292,6 +296,7 @@ func NewApp(
 		captcha:                 captchaBundle,
 		notify:                  notifyBundle,
 		logcenter:               logcenterBundle,
+		content:                 contentBundle,
 	}
 }
 

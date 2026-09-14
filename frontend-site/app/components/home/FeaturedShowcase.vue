@@ -33,15 +33,10 @@
           </p>
         </aside>
 
-        <!-- 右：2×2 链接卡 -->
+        <!-- 右：2×2 链接卡（四张都指向门户上真实存在的页面） -->
         <ul class="featured__links">
           <li v-for="link in FEATURED_LINKS" :key="link.title">
-            <component
-              :is="link.to ? 'NuxtLink' : 'div'"
-              :to="link.to"
-              class="link-card"
-              :class="{ 'is-pending': !link.to }"
-            >
+            <NuxtLink :to="link.to" class="link-card">
               <span class="link-card__head">
                 <span class="link-card__icon"><SiteIcon :name="link.icon" /></span>
                 <span v-if="link.badge" class="link-card__badge">{{ link.badge }}</span>
@@ -49,10 +44,10 @@
               <h4 class="link-card__title">{{ link.title }}</h4>
               <p class="link-card__desc">{{ link.desc }}</p>
               <span class="link-card__more">
-                {{ link.to ? '前往' : '即将上线' }}
-                <SiteIcon :name="link.to ? 'arrow-right' : 'chevron-right'" :stroke-width="1.9" />
+                前往
+                <SiteIcon name="arrow-right" :stroke-width="1.9" />
               </span>
-            </component>
+            </NuxtLink>
           </li>
         </ul>
       </div>
@@ -70,7 +65,7 @@ const site = computed(() => content.value.site)
 
 const heading = {
   title: '上手与支持',
-  subtitle: '从文档到控制台，把开通、排障与自动化接口都放在顺手的位置。',
+  subtitle: '从文档到控制台，把开通、排障与常见问题都放在顺手的位置。',
 }
 
 /** 控制台地址未配置时返回空串，入口降级为不可点，避免造死链。 */
@@ -225,7 +220,7 @@ function entryUrl(path: string): string {
   transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
 }
 
-.link-card:not(.is-pending):hover {
+.link-card:hover {
   transform: translateY(-3px);
   border-color: var(--site-primary-border);
   background: #fff;

@@ -34,39 +34,44 @@
     <section class="panel">
       <div class="panel-head">
         <h3 class="panel-title">实名认证</h3>
-        <span class="panel-sub">使用企业的账号请注意使用个人实名，以免后续人员变动导致账号管理争议</span>
+        <t-link
+          v-if="siteConfigured"
+          theme="primary"
+          hover="color"
+          :href="sitePath('/help')"
+          target="_blank"
+          rel="noopener"
+        >
+          认证说明
+        </t-link>
       </div>
 
-      <t-alert theme="warning" class="verify-alert">
-        未完成实名认证，无法正常购买{{ brandStore.name }}的产品和服务
+      <t-alert v-if="!realnameOk" theme="warning" class="verify-alert">
+        未完成实名认证，无法购买{{ brandStore.name }}的产品和服务，部分工单分类也无法提交。
+      </t-alert>
+      <t-alert v-else theme="success" class="verify-alert">
+        已完成实名认证，可正常购买产品与提交全部工单分类。
       </t-alert>
 
-      <div class="verify-grid">
-        <button class="verify-card" @click="onDevelop('企业认证')">
-          <span class="verify-icon verify-icon--blue"><BuildingIcon size="30" /></span>
-          <div class="verify-body">
-            <strong>企业认证</strong>
-            <span>适用于企业、事业单位等各类组织</span>
-            <span>可享受企业专属优惠权益</span>
-          </div>
-        </button>
+      <p class="verify-desc">
+        实名认证由平台运营在管理端审核。当前平台尚未开放自助提交入口，需要认证请提交工单（分类选择「授权申请」）
+        并附上主体证件信息，由运营人员代为提交与审核。
+      </p>
 
-        <button class="verify-card" @click="onDevelop('个人认证')">
-          <span class="verify-badge">推荐</span>
-          <span class="verify-icon verify-icon--green"><UserIcon size="30" /></span>
-          <div class="verify-body">
-            <strong>个人认证</strong>
-            <span>适用于个人开发者</span>
-            <span>完成认证可购买全部产品，享更多专项福利</span>
-          </div>
-        </button>
+      <div class="danger-actions">
+        <t-button theme="primary" @click="goTicket()">
+          提交认证工单
+        </t-button>
       </div>
     </section>
 
     <!-- ============ 安全设置 ============ -->
+    <!-- 只读概览：真实的二次验证策略在「安全设置」页调整（doc91 场景矩阵），
+         这里不重复实现一套开关，避免出现「两处都能改、行为不一致」。 -->
     <section class="panel">
       <div class="panel-head">
         <h3 class="panel-title">安全设置</h3>
+        <span class="panel-sub">验证通道与关键操作场景在独立页面配置</span>
       </div>
 
       <div class="security-grid">
@@ -88,63 +93,10 @@
               <span v-for="t in item.tags" :key="t" class="security-tag">{{ t }}</span>
             </div>
           </div>
-          <t-button size="small" variant="outline" @click="item.action()">
+          <t-button size="small" variant="outline" @click="go(item.actionPath)">
             {{ item.actionText }}
           </t-button>
         </div>
-      </div>
-    </section>
-
-    <!-- ============ 第三方登录 ============ -->
-    <section class="panel">
-      <div class="panel-head">
-        <h3 class="panel-title">第三方登录</h3>
-      </div>
-
-      <div class="third-grid">
-        <div v-for="item in thirdPartyItems" :key="item.key" class="security-item">
-          <span class="security-icon security-icon--third">
-            <component :is="item.icon" size="20" />
-          </span>
-          <div class="security-body">
-            <div class="security-title">
-              <span class="security-label">{{ item.label }}</span>
-              <span class="security-status" :class="`is-${item.bound ? 'ok' : 'warn'}`">
-                <CheckCircleFilledIcon v-if="item.bound" size="13" />
-                <ErrorCircleFilledIcon v-else size="13" />
-                {{ item.bound ? '已绑定' : '未绑定' }}
-              </span>
-            </div>
-            <p class="security-desc">{{ item.desc }}</p>
-          </div>
-          <t-button size="small" variant="outline" @click="onDevelop(item.label)">
-            {{ item.bound ? '修改' : '绑定' }}
-          </t-button>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ 公众号通知 ============ -->
-    <section class="panel">
-      <div class="panel-head">
-        <h3 class="panel-title">公众号通知</h3>
-      </div>
-
-      <div class="security-item">
-        <span class="security-icon"><NotificationIcon size="20" /></span>
-        <div class="security-body">
-          <div class="security-title">
-            <span class="security-label">开启公众号通知</span>
-            <span class="security-status is-warn">
-              <ErrorCircleFilledIcon size="13" />
-              未绑定
-            </span>
-          </div>
-          <p class="security-desc">
-            当前用户号与公众号绑定后，可前往消息中心，将当前用户设置为消息接收人，即可使用公众号接收消息通知。
-          </p>
-        </div>
-        <t-button size="small" variant="outline" @click="onDevelop('公众号通知')">绑定</t-button>
       </div>
     </section>
 
@@ -152,14 +104,14 @@
     <section class="panel">
       <div class="panel-head">
         <h3 class="panel-title">账号注销</h3>
-        <t-link theme="primary" hover="color" @click="onDevelop('注销帮助文档')">帮助文档</t-link>
       </div>
 
       <p class="danger-desc">
-        您可以在此注销当前{{ brandStore.name }}账号。账号注销成功后，当前账号内的所有服务将不可用。除法律法规另有规定外，当前账号内的信息、数据将被删除，且无法恢复。
+        平台尚未开放自助注销入口（注销涉及余额清算、发票与在管实例的处置，需人工确认）。
+        如需注销当前{{ brandStore.name }}账号，请提交工单说明，运营核对无未结清款项与在管资源后按流程处理。
       </p>
       <div class="danger-actions">
-        <t-button theme="danger" @click="handleCloseAccount">注销</t-button>
+        <t-button theme="default" @click="go('/support/tickets/create')">提交注销申请</t-button>
       </div>
     </section>
 
@@ -209,32 +161,29 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import {
-  BuildingIcon,
   CheckCircleFilledIcon,
   CopyIcon,
   Edit1Icon,
   ErrorCircleFilledIcon,
-  FingerprintIcon,
   LockOnIcon,
-  LogoQqIcon,
-  LogoTwitterIcon,
-  LogoWechatStrokeIcon,
   MailIcon,
   MobileIcon,
-  NotificationIcon,
   SecuredIcon,
-  UserIcon,
 } from 'tdesign-icons-vue-next'
 import type { Component } from 'vue'
 
 import { useUserStore } from '@/store'
 import { useBrandStore } from '@/store/modules/brand'
 import { updateProfile, changePassword } from '@/api/auth'
+import { getTicketCategories } from '@/api/support'
+import { sitePath, siteUrlConfigured } from '@/utils/site'
 
 defineOptions({ name: 'UserProfile' })
 
+const router = useRouter()
 const userStore = useUserStore()
 const brandStore = useBrandStore()
 
@@ -244,9 +193,7 @@ const userInitial = computed(() => (userStore.displayName || '用').slice(0, 1).
 const accountId = computed(() => String(userStore.userInfo?.id ?? '-'))
 const accountTypeLabel = computed(() => (userStore.isSubAccount ? '子账号' : '个人'))
 
-function onDevelop(name: string) {
-  MessagePlugin.info(`${name}功能开发中`)
-}
+const siteConfigured = siteUrlConfigured
 
 async function copyText(value: string, successMessage: string) {
   if (!value || value === '-') {
@@ -262,6 +209,8 @@ async function copyText(value: string, successMessage: string) {
 }
 
 // ========== 安全设置 ==========
+// 这里只做只读概览 + 跳转到真正的安全设置页：
+// 二次验证策略（场景 × 通道）由 /profile/security 统一维护，用户端不该有两套开关。
 interface SecurityItem {
   key: string
   label: string
@@ -271,7 +220,7 @@ interface SecurityItem {
   desc: string
   tags?: string[]
   actionText: string
-  action: () => void
+  actionPath: string
 }
 
 const boundPhone = computed(() => userStore.userInfo?.phone || '')
@@ -293,17 +242,7 @@ const securityItems = computed<SecurityItem[]>(() => [
       ? `${maskPhone(boundPhone.value)} 用于身份验证、信息获取、云产品相关的通知接收`
       : '用于身份验证、信息获取、云产品相关的通知接收',
     actionText: boundPhone.value ? '修改' : '绑定',
-    action: () => openProfileDialog(),
-  },
-  {
-    key: 'mfa',
-    label: '虚拟MFA设备',
-    icon: FingerprintIcon,
-    status: '未绑定',
-    statusType: 'warn',
-    desc: '绑定基于 TOTP 的虚拟 MFA 设备后，可用于身份的二次验证',
-    actionText: '绑定',
-    action: () => onDevelop('虚拟MFA设备'),
+    actionPath: '/profile/security',
   },
   {
     key: 'email',
@@ -311,20 +250,20 @@ const securityItems = computed<SecurityItem[]>(() => [
     icon: MailIcon,
     status: boundEmail.value ? '已绑定' : '未绑定',
     statusType: boundEmail.value ? 'ok' : 'warn',
-    desc: '用于产品相关的通知接收',
+    desc: '用于产品相关的通知接收与关键操作的验证码下发',
     actionText: boundEmail.value ? '修改' : '绑定',
-    action: () => openProfileDialog(),
+    actionPath: '/profile/security',
   },
   {
-    key: 'login-protect',
-    label: '登录保护',
+    key: 'protect',
+    label: '关键操作保护',
     icon: SecuredIcon,
-    status: '已开启',
+    status: '平台已启用',
     statusType: 'ok',
-    desc: '开启登录保护，登录时将进行身份二次验证',
-    tags: ['手机短信验证', '虚拟MFA验证'],
-    actionText: '修改',
-    action: () => onDevelop('登录保护'),
+    desc: '修改密码、绑定手机/邮箱、发起提现、销毁实例等敏感操作会要求二次验证',
+    tags: ['手机短信验证', '邮箱验证'],
+    actionText: '查看',
+    actionPath: '/profile/security',
   },
   {
     key: 'password',
@@ -334,49 +273,34 @@ const securityItems = computed<SecurityItem[]>(() => [
     statusType: 'ok',
     desc: '为了您的账号安全，建议您定期更换密码',
     actionText: '修改',
-    action: () => openPasswordDialog(),
-  },
-  {
-    key: 'operation-protect',
-    label: '操作保护',
-    icon: FingerprintIcon,
-    status: '已开启',
-    statusType: 'ok',
-    desc: '开启操作保护，发生敏感操作时进行身份二次验证',
-    tags: ['手机短信验证'],
-    actionText: '修改',
-    action: () => onDevelop('操作保护'),
+    actionPath: '#password',
   },
 ])
 
-// ========== 第三方登录 ==========
-const thirdPartyItems = [
-  {
-    key: 'wechat',
-    label: '微信',
-    icon: LogoWechatStrokeIcon,
-    bound: true,
-    desc: '绑定微信号与微信绑定后，可使用微信扫码登录',
-  },
-  {
-    key: 'qq',
-    label: 'QQ',
-    icon: LogoQqIcon,
-    bound: false,
-    desc: '绑定 QQ 号后，可使用 QQ 扫码登录',
-  },
-  {
-    key: 'weibo',
-    label: '微博',
-    icon: LogoTwitterIcon,
-    bound: false,
-    desc: '绑定微博账号后，可使用微博扫码登录',
-  },
-]
+// ========== 页面动作 ==========
+function go(path: string) {
+  if (path === '#password') {
+    openPasswordDialog()
+    return
+  }
+  router.push(path)
+}
 
-// ========== 账号注销 ==========
-async function handleCloseAccount() {
-  onDevelop('账号注销')
+// 实名认证与账号注销都走工单（平台无自助入口），跳转前给一句解释
+function goTicket(): void {
+  router.push('/support/tickets/create')
+}
+
+// ========== 实名状态 ==========
+const realnameOk = ref(false)
+
+async function loadRealname() {
+  try {
+    const { data } = await getTicketCategories()
+    realnameOk.value = data?.realname_ok ?? false
+  } catch {
+    realnameOk.value = false
+  }
 }
 
 // ========== 编辑资料 ==========
@@ -468,10 +392,11 @@ async function handleChangePassword() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   if (!userStore.loaded) {
-    userStore.fetchUserInfo()
+    await userStore.fetchUserInfo()
   }
+  await loadRealname()
 })
 </script>
 
@@ -582,82 +507,15 @@ onMounted(() => {
   margin-bottom: 16px;
 }
 
-.verify-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+.verify-desc {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.8;
+  color: #64748b;
 }
 
-.verify-card {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 18px 20px;
-  border: 1px solid #eef1f5;
-  border-radius: 8px;
-  background: #fff;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.verify-card:hover {
-  border-color: #c7dbff;
-  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.08);
-}
-
-.verify-badge {
-  position: absolute;
-  top: -1px;
-  right: 16px;
-  padding: 2px 10px;
-  border-radius: 0 0 6px 6px;
-  background: #52c41a;
-  color: #fff;
-  font-size: 12px;
-}
-
-.verify-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 8px;
-  flex-shrink: 0;
-}
-
-.verify-icon--blue {
-  background: #eff6ff;
-  color: #2563eb;
-}
-
-.verify-icon--green {
-  background: #ecfdf5;
-  color: #10b981;
-}
-
-.verify-body {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.verify-body strong {
-  font-size: 14.5px;
-  color: #1e293b;
-}
-
-.verify-body span {
-  font-size: 12.5px;
-  color: #8b95a8;
-  line-height: 1.5;
-}
-
-/* ========== 安全设置 / 第三方登录 ========== */
-.security-grid,
-.third-grid {
+/* ========== 安全设置 ========== */
+.security-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 40px;
@@ -665,8 +523,7 @@ onMounted(() => {
 
 /* 宽屏下增加列数，减少大片留白 */
 @media (min-width: 1600px) {
-  .security-grid,
-  .third-grid {
+  .security-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
@@ -693,10 +550,6 @@ onMounted(() => {
   background: #f1f5f9;
   color: #64748b;
   flex-shrink: 0;
-}
-
-.security-icon--third {
-  background: #fff;
 }
 
 .security-body {
@@ -780,14 +633,8 @@ onMounted(() => {
 .dark .panel-title,
 .dark .basic-name__text,
 .dark .basic-field__value,
-.dark .verify-body strong,
 .dark .security-label {
   color: #e5e7eb;
-}
-
-.dark .verify-card {
-  background: #141414;
-  border-color: #262626;
 }
 
 .dark .security-icon {
@@ -801,8 +648,7 @@ onMounted(() => {
 
 /* ========== 响应式 ========== */
 @media (max-width: 1024px) {
-  .security-grid,
-  .verify-grid {
+  .security-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 

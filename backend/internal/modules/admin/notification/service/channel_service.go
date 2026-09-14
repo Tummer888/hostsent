@@ -179,12 +179,17 @@ func (s *channelService) Create(ctx context.Context, req notifydto.ChannelCreate
 		Remark:       req.Remark,
 		Status:       notifymodel.ChannelStatusEnabled,
 	}
+	// 同一 category 至多一个默认，这条规则由部分唯一索引
+	// uk_notify_channels_default 兜底。但索引是在 INSERT 的那一刻生效的：
+	// 必须先把旧默认摘掉再插入新行，否则 INSERT 先撞 23505，后面的 ClearDefault
+	// 根本没机会执行 —— 「设第二个默认为默认」永远失败而不是自动切换。
+	if req.IsDefault {
+		if err := s.repo.ClearDefault(ctx, ch.Category, 0); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.repo.Create(ctx, ch); err != nil {
 		return nil, err
-	}
-	// 同一 category 至多一个默认：部分唯一索引会拒绝第二条，先清后置。
-	if req.IsDefault {
-		_ = s.repo.ClearDefault(ctx, ch.Category, ch.ID)
 	}
 	return s.Get(ctx, ch.ID)
 }
@@ -237,11 +242,15 @@ func (s *channelService) Update(ctx context.Context, id uint64, req notifydto.Ch
 	ch.DailyLimit = req.DailyLimit
 	ch.IsDefault = req.IsDefault
 	ch.Remark = req.Remark
+	// 同 Create：部分唯一索引在 UPDATE 时同样先于后续语句生效，必须先把同
+	// category 的旧默认摘掉，否则「把另一个渠道设为默认」直接 23505。
+	if req.IsDefault {
+		if err := s.repo.ClearDefault(ctx, ch.Category, ch.ID); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.repo.Update(ctx, ch); err != nil {
 		return nil, err
-	}
-	if req.IsDefault {
-		_ = s.repo.ClearDefault(ctx, ch.Category, ch.ID)
 	}
 	return s.Get(ctx, id)
 }

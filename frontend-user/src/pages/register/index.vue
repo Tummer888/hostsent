@@ -168,7 +168,26 @@
           
           <div class="form-agreement">
             <t-checkbox v-model="agreed">
-              我已阅读并同意 <a href="#">《服务协议》</a> 和 <a href="#">《隐私政策》</a>
+              我已阅读并同意
+              <!--
+                法律文本只在官网门户维护（同内容多端渲染 = 多端维护，必然漂移）。
+                未配置官网地址时渲染为纯文本，不留一个点了没反应的链接。
+              -->
+              <a
+                v-if="termsUrl"
+                :href="termsUrl"
+                target="_blank"
+                rel="noopener"
+              >《用户条款》</a>
+              <span v-else class="agreement-plain">《用户条款》</span>
+              和
+              <a
+                v-if="privacyUrl"
+                :href="privacyUrl"
+                target="_blank"
+                rel="noopener"
+              >《隐私政策》</a>
+              <span v-else class="agreement-plain">《隐私政策》</span>
             </t-checkbox>
           </div>
           
@@ -233,6 +252,7 @@ import { sendVerifyCode } from '@/api/public'
 import { useUserStore } from '@/store'
 import { useBrandStore } from '@/store/modules/brand'
 import { imageRequired, loadAuthConfig, otpRequired } from '@/utils/captcha-resource'
+import { sitePath } from '@/utils/site'
 
 defineOptions({ name: 'UserRegister' })
 
@@ -248,6 +268,10 @@ const sendingCode = ref(false)
 const countdown = ref(0)
 const agreed = ref(false)
 const captchaKey = ref('')
+
+/** 协议链接指向官网门户的条款/隐私页；未配置官网地址时为空串（渲染成纯文本）。 */
+const termsUrl = sitePath('/terms')
+const privacyUrl = sitePath('/privacy')
 
 /** 图形码/邮箱验证码是否渲染：由 auth-config 决定，总闸关闭时都不显示。 */
 const captchaNeeded = computed(() => imageRequired('user_register'))
@@ -569,6 +593,11 @@ onMounted(() => {
 
 .form-agreement a {
   color: #2563EB;
+}
+
+/* 官网地址未配置时协议名退化为纯文本：不留一个点了没反应的链接 */
+.form-agreement .agreement-plain {
+  color: #64748B;
 }
 
 .register-button {

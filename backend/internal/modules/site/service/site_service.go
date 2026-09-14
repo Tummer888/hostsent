@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	contentdto "hostsent/backend/internal/modules/admin/content/dto"
 	notifydto "hostsent/backend/internal/modules/admin/notification/dto"
 	notifymodel "hostsent/backend/internal/modules/admin/notification/model"
 	systemmodel "hostsent/backend/internal/modules/admin/system/model"
@@ -25,11 +26,34 @@ const (
 	announcementDefaultLimit = 5
 	// announcementMaxLimit 单次请求上限，避免公开接口被当成翻全量数据的入口。
 	announcementMaxLimit = 50
+	// articleDefaultPageSize / articleMaxPageSize 文章列表分页边界。
+	articleDefaultPageSize = 10
+	articleMaxPageSize     = 50
 )
 
 // announcementReader 公告读取能力的最小暴露接口（由装配层注入，避免 site 依赖 admin service 实现）。
 type announcementReader interface {
 	ListPublished(ctx context.Context, platform string) ([]notifydto.AnnouncementInfo, error)
+	// GetPublishedByID 单条已发布公告；不存在返回 (nil, nil)，门户据此判 404 而非把内容删除。
+	GetPublishedByID(ctx context.Context, id uint64) (*notifydto.AnnouncementInfo, error)
+}
+
+// contentReader 内容中心读取能力（由装配层注入 admin/content 的服务实现）。
+//
+// 用最小接口而不是直接依赖 admin/content 的 service 包：site 只声明「我读什么」，
+// 装配层负责把实现塞进来。这样公开只读域与管理写入域在类型层面就是分开的，
+// 将来把内容中心换成别的存储或拆成独立服务，门户侧一行不用改。
+type contentReader interface {
+	// ListPublished 已发布内容分页列表（仅 published 且未下线）。
+	ListPublished(ctx context.Context, kind string, categoryID uint64, page, pageSize int) (contentdto.ArticleListResponse, error)
+	// GetPublished 单篇详情；不存在返回 (nil, nil)。
+	GetPublished(ctx context.Context, kind, slug string) (*contentdto.ArticleInfo, error)
+	// GetPublishedSingleton 该类型唯一一篇已发布内容（条款 / 隐私）。
+	GetPublishedSingleton(ctx context.Context, kind string) (*contentdto.ArticleInfo, error)
+	// ListActiveTree 启用中的分类树（新闻分栏 / 帮助目录）。
+	ListActiveTree(ctx context.Context, kind string) ([]contentdto.CategoryInfo, error)
+	// ListActive 启用中的友情链接。
+	ListActive(ctx context.Context) ([]contentdto.LinkInfo, error)
 }
 
 // configReader 站点配置读取能力（system_configs 表，按分组取）。
@@ -39,20 +63,36 @@ type configReader interface {
 
 // SiteService 官网门户公开数据能力。
 type SiteService interface {
-	// ListAnnouncements 已发布公告，按发布时间倒序，按 limit 截断。
+	// ListAnnouncements 已发布公告，置顶优先再按发布时间倒序，按 limit 截断。
 	ListAnnouncements(ctx context.Context, limit int) ([]dto.AnnouncementItem, error)
+	// GetAnnouncement 单条已发布公告；不存在返回 (nil, nil)。
+	GetAnnouncement(ctx context.Context, id uint64) (*dto.AnnouncementItem, error)
+	// ListArticles 已发布文章分页列表（不含正文）。
+	ListArticles(ctx context.Context, q dto.ArticleListQuery) (dto.ArticleListResponse, error)
+	// GetArticle 单篇已发布文章详情（含已净化正文）；不存在返回 (nil, nil)。
+	GetArticle(ctx context.Context, kind, slug string) (*dto.ArticleDetail, error)
+	// GetSingletonArticle 条款/隐私这类「每类型仅一篇」的详情；不存在返回 (nil, nil)。
+	GetSingletonArticle(ctx context.Context, kind string) (*dto.ArticleDetail, error)
+	// ListCategories 公开分类树（新闻分栏 / 帮助目录树）。
+	ListCategories(ctx context.Context, kind string) (dto.CategoryListResponse, error)
+	// ListFriendlyLinks 启用中的友情链接（按 sort_order）。
+	ListFriendlyLinks(ctx context.Context) (dto.FriendlyLinkListResponse, error)
 	// SiteContent 站点品牌配置（白名单键，扁平 map，仅返回已启用项且非空值）。
 	SiteContent(ctx context.Context) (dto.SiteContentResponse, error)
 }
 
 type siteService struct {
 	announcements announcementReader
+	contents      contentReader
 	configs       configReader
 }
 
-// NewSiteService 创建官网门户公开数据服务；configs 为 nil 时站点配置返回空 map（前端回落默认值）。
-func NewSiteService(announcements announcementReader, configs configReader) SiteService {
-	return &siteService{announcements: announcements, configs: configs}
+// NewSiteService 创建官网门户公开数据服务。
+//
+// contents 为 nil 时内容类接口返回空结果（不报错）—— 门户必须能在内容模块未装配的
+// 环境里正常渲染首页，而不是整站 500。
+func NewSiteService(announcements announcementReader, contents contentReader, configs configReader) SiteService {
+	return &siteService{announcements: announcements, contents: contents, configs: configs}
 }
 
 // publicSiteKeys 站点配置对外白名单。
@@ -94,6 +134,12 @@ var publicSiteKeys = []string{
 	"site.public_security", // 公网安备号
 	"site.contact_address", // 联系地址
 	"site.wechat",          // 公众号名称
+	// 页脚配置化（doc100 §8.2）：栏目 / 服务承诺 / 社交按钮 / 法律行。
+	// 值均为 JSON 字符串，解析与默认值回落由门户 shared/schemas/siteContent.ts 负责。
+	"site.footer_columns",
+	"site.footer_promises",
+	"site.footer_socials",
+	"site.footer_legal_line",
 	// 管理端系统配置页当前写入的历史扁平键（group=base）
 	"site_name",
 	"site_slogan",
@@ -181,6 +227,9 @@ func (s *siteService) ListAnnouncements(ctx context.Context, limit int) ([]dto.A
 	if limit > announcementMaxLimit {
 		limit = announcementMaxLimit
 	}
+	if s.announcements == nil {
+		return []dto.AnnouncementItem{}, nil
+	}
 
 	items, err := s.announcements.ListPublished(ctx, notifymodel.AnnouncementPlatformUser)
 	if err != nil {
@@ -192,16 +241,289 @@ func (s *siteService) ListAnnouncements(ctx context.Context, limit int) ([]dto.A
 
 	out := make([]dto.AnnouncementItem, 0, len(items))
 	for _, it := range items {
-		out = append(out, dto.AnnouncementItem{
-			ID:        it.ID,
-			Title:     it.Title,
-			Content:   it.Content,
-			Level:     it.Level,
-			Popup:     it.Popup,
-			PublishAt: derefString(it.PublishAt),
+		out = append(out, toAnnouncementItem(it))
+	}
+	return out, nil
+}
+
+// GetAnnouncement 单条已发布公告。返回 (nil, nil) 表示不存在/已下线 —— 门户据此 404，
+// 与「服务故障」严格区分，避免搜索引擎把临时故障当成内容删除。
+func (s *siteService) GetAnnouncement(ctx context.Context, id uint64) (*dto.AnnouncementItem, error) {
+	if s.announcements == nil {
+		return nil, nil
+	}
+	item, err := s.announcements.GetPublishedByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if item == nil || item.Platform == notifymodel.AnnouncementPlatformAdmin {
+		// platform=admin 的公告是给管理端看的，不对外；只有 user/both 允许公开读取。
+		return nil, nil
+	}
+	out := toAnnouncementItem(*item)
+	return &out, nil
+}
+
+func toAnnouncementItem(it notifydto.AnnouncementInfo) dto.AnnouncementItem {
+	format := it.BodyFormat
+	if format == "" {
+		format = notifymodel.AnnouncementFormatText
+	}
+	return dto.AnnouncementItem{
+		ID:         it.ID,
+		Title:      it.Title,
+		Content:    it.Content,
+		BodyFormat: format,
+		Level:      it.Level,
+		Popup:      it.Popup,
+		Pinned:     it.Pinned,
+		PublishAt:  derefString(it.PublishAt),
+	}
+}
+
+/* ------------------------------ 内容中心 ------------------------------ */
+
+func (s *siteService) ListArticles(ctx context.Context, q dto.ArticleListQuery) (dto.ArticleListResponse, error) {
+	out := dto.ArticleListResponse{Items: []dto.ArticleItem{}, Page: 1, PageSize: articleDefaultPageSize}
+	if s.contents == nil {
+		return out, nil
+	}
+	kind := normalizeArticleKind(q.Kind)
+	if kind == "" {
+		return out, nil
+	}
+	page, pageSize := normalizeArticlePage(q.Page, q.PageSize)
+
+	resp, err := s.contents.ListPublished(ctx, kind, q.CategoryID, page, pageSize)
+	if err != nil {
+		return out, err
+	}
+	// 分类名/分类 slug 需要另外一张表；一次取全部启用分类做映射，避免逐行查询。
+	categoryByID := map[uint64]contentdto.CategoryInfo{}
+	if cats, cerr := s.contents.ListActiveTree(ctx, kind); cerr == nil {
+		flattenCategories(cats, categoryByID)
+	}
+
+	out.Items = make([]dto.ArticleItem, 0, len(resp.List))
+	for _, it := range resp.List {
+		if it == nil {
+			continue
+		}
+		out.Items = append(out.Items, toArticleItem(*it, categoryByID))
+	}
+	out.Total = resp.Total
+	if resp.Page > 0 {
+		out.Page = resp.Page
+	}
+	if resp.PageSize > 0 {
+		out.PageSize = resp.PageSize
+	}
+	return out, nil
+}
+
+func (s *siteService) GetArticle(ctx context.Context, kind, slug string) (*dto.ArticleDetail, error) {
+	if s.contents == nil {
+		return nil, nil
+	}
+	normalized := normalizeArticleKind(kind)
+	if normalized == "" || strings.TrimSpace(slug) == "" {
+		return nil, nil
+	}
+	item, err := s.contents.GetPublished(ctx, normalized, slug)
+	if err != nil {
+		return nil, err
+	}
+	if item == nil {
+		return nil, nil
+	}
+	categoryByID := map[uint64]contentdto.CategoryInfo{}
+	if cats, cerr := s.contents.ListActiveTree(ctx, normalized); cerr == nil {
+		flattenCategories(cats, categoryByID)
+	}
+	return toArticleDetail(*item, categoryByID), nil
+}
+
+// GetSingletonArticle 取条款/隐私这类「每类型仅一篇」的文档。
+func (s *siteService) GetSingletonArticle(ctx context.Context, kind string) (*dto.ArticleDetail, error) {
+	if s.contents == nil {
+		return nil, nil
+	}
+	normalized := normalizeArticleKind(kind)
+	if normalized == "" {
+		return nil, nil
+	}
+	item, err := s.contents.GetPublishedSingleton(ctx, normalized)
+	if err != nil {
+		return nil, err
+	}
+	if item == nil {
+		return nil, nil
+	}
+	return toArticleDetail(*item, map[uint64]contentdto.CategoryInfo{}), nil
+}
+
+func (s *siteService) ListCategories(ctx context.Context, kind string) (dto.CategoryListResponse, error) {
+	out := dto.CategoryListResponse{Items: []dto.CategoryItem{}}
+	if s.contents == nil {
+		return out, nil
+	}
+	normalized := normalizeArticleKind(kind)
+	if normalized == "" {
+		return out, nil
+	}
+	items, err := s.contents.ListActiveTree(ctx, normalized)
+	if err != nil {
+		return out, err
+	}
+	out.Items = toCategoryItems(items)
+	return out, nil
+}
+
+func (s *siteService) ListFriendlyLinks(ctx context.Context) (dto.FriendlyLinkListResponse, error) {
+	out := dto.FriendlyLinkListResponse{Items: []dto.FriendlyLinkItem{}}
+	if s.contents == nil {
+		return out, nil
+	}
+	items, err := s.contents.ListActive(ctx)
+	if err != nil {
+		return out, err
+	}
+	out.Items = make([]dto.FriendlyLinkItem, 0, len(items))
+	for _, it := range items {
+		out.Items = append(out.Items, dto.FriendlyLinkItem{
+			ID:          it.ID,
+			Name:        it.Name,
+			URL:         it.URL,
+			Logo:        it.Logo,
+			Description: it.Description,
+			OpenInNew:   it.OpenInNew,
 		})
 	}
 	return out, nil
+}
+
+// normalizeArticleKind 收敛公开接口的 kind 入参。
+//
+// 未知 kind 返回空串而不是原样透传：透传会让仓储拼出 WHERE kind='../etc' 这类查询，
+// 虽然不会注入，但会静默返回空列表，掩盖前端拼错参数的问题。
+func normalizeArticleKind(kind string) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "news":
+		return "news"
+	case "help":
+		return "help"
+	case "terms":
+		return "terms"
+	case "privacy":
+		return "privacy"
+	default:
+		return ""
+	}
+}
+
+func normalizeArticlePage(page, pageSize int) (int, int) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > articleMaxPageSize {
+		pageSize = articleDefaultPageSize
+	}
+	return page, pageSize
+}
+
+func toArticleItem(it contentdto.ArticleInfo, categories map[uint64]contentdto.CategoryInfo) dto.ArticleItem {
+	item := dto.ArticleItem{
+		ID:         it.ID,
+		Kind:       it.Kind,
+		Slug:       it.Slug,
+		Title:      it.Title,
+		Summary:    it.Summary,
+		Cover:      it.Cover,
+		Tags:       splitTags(it.Tags),
+		CategoryID: it.CategoryID,
+		Pinned:     it.Pinned,
+		Version:    it.Version,
+		PublishAt:  it.PublishAt,
+		UpdatedAt:  it.UpdatedAt,
+	}
+	if c, ok := categories[it.CategoryID]; ok {
+		item.CategorySlug = c.Slug
+		item.CategoryName = c.Name
+	}
+	return item
+}
+
+func toArticleDetail(it contentdto.ArticleInfo, categories map[uint64]contentdto.CategoryInfo) *dto.ArticleDetail {
+	return &dto.ArticleDetail{
+		ArticleItem: toArticleItem(it, categories),
+		// body_format=text 的存量内容不经过净化，前端按文本节点渲染；
+		// html 已在写入时净化过一次，这里直接透出。
+		Body: it.Body,
+	}
+}
+
+// toCategoryItems 把平铺分类组装成公开树。
+//
+// 与 admin 侧 buildCategoryTree 的差别：这里只保留展示字段（不暴露 status/sort_order），
+// 且父节点缺失时提升为根 —— 不丢弃内容入口。
+func toCategoryItems(items []contentdto.CategoryInfo) []dto.CategoryItem {
+	nodes := make(map[uint64]*dto.CategoryItem, len(items))
+	for _, it := range items {
+		node := &dto.CategoryItem{
+			ID:          it.ID,
+			Slug:        it.Slug,
+			Name:        it.Name,
+			Description: it.Description,
+			Icon:        it.Icon,
+		}
+		nodes[it.ID] = node
+	}
+	roots := make([]dto.CategoryItem, 0, len(items))
+	for _, it := range items {
+		node := nodes[it.ID]
+		if it.ParentID != 0 {
+			if parent, ok := nodes[it.ParentID]; ok && parent != node {
+				parent.Children = append(parent.Children, *node)
+				continue
+			}
+		}
+		roots = append(roots, *node)
+	}
+	return roots
+}
+
+// flattenCategories 把分类树摊平成 id → 分类 的映射（列表项要显示分类名）。
+//
+// 兼容两种入参：装配层注入平铺列表（只有 parent_id）或已组装的树，两种情况都能摊平。
+func flattenCategories(items []contentdto.CategoryInfo, out map[uint64]contentdto.CategoryInfo) {
+	for i := range items {
+		out[items[i].ID] = items[i]
+		flattenCategoryNodes(items[i].Children, out)
+	}
+}
+
+func flattenCategoryNodes(items []*contentdto.CategoryInfo, out map[uint64]contentdto.CategoryInfo) {
+	for _, it := range items {
+		if it == nil {
+			continue
+		}
+		out[it.ID] = *it
+		flattenCategoryNodes(it.Children, out)
+	}
+}
+
+// splitTags 把逗号分隔的标签串切成切片；空串返回空切片（不是 nil）。
+//
+// 返回空切片而非 nil 的原因：JSON 里 nil 切片会序列化成 null，
+// 前端 schema 校验 `z.array()` 会因 null 失败，整条内容被丢弃。
+func splitTags(raw string) []string {
+	out := []string{}
+	for _, part := range strings.Split(raw, ",") {
+		if tag := strings.TrimSpace(part); tag != "" {
+			out = append(out, tag)
+		}
+	}
+	return out
 }
 
 func derefString(value *string) string {

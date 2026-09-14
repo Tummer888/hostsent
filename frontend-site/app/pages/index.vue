@@ -9,8 +9,8 @@
     <!-- 3. 为什么选择我们 -->
     <HomeFeatureSection />
 
-    <!-- 4. 优惠活动货架 -->
-    <HomePromoSection />
+    <!-- 4. 计费方式与优惠（周期价格 / 邀请返利 / 自动续费，均为已上线能力） -->
+    <HomePricingSection />
 
     <!-- 5. 上游与生态 -->
     <HomePartnerLogos />

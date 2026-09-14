@@ -1,0 +1,321 @@
+/* ============================================================
+   HostSent · 内容管理模块共享样式
+   所有选择器均以 .content-module 命名空间包裹，避免影响其他模块。
+   结构与消息中心（notification/shared.css）同构，保持后台视觉一致。
+   ============================================================ */
+
+/* ---------- 页面骨架 ---------- */
+.content-module {
+  --chip-bg: linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8));
+  --content-green: var(--color-primary, var(--color-primary));
+  --content-green-hover: var(--td-brand-color-8);
+  --content-green-soft: var(--td-brand-color-1);
+  --content-green-border: var(--td-brand-color-2);
+}
+
+.content-module .page-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+/* ---------- 通用卡片 ---------- */
+.content-module .surface-card,
+.content-module .stat-card {
+  position: relative;
+  border-radius: var(--hs-radius-lg);
+  background: var(--hs-surface-1);
+  box-shadow: none !important;
+  transition: border-color var(--hs-duration-fast);
+  transform: none;
+}
+
+.content-module .surface-card:hover,
+.content-module .stat-card:hover {
+  border-color: var(--td-brand-color-3);
+  box-shadow: none !important;
+  transform: none;
+}
+
+/* ---------- 页头 ---------- */
+.content-module .page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  padding: var(--space-lg) var(--space-xl);
+  flex-wrap: wrap;
+}
+
+.content-module .page-header__main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.content-module .page-header__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.content-module .page-header__chip {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--hs-radius-xl);
+  background: var(--chip-bg, linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8)));
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.content-module .page-header__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+
+.content-module .page-header__desc {
+  display: none;
+}
+
+/* ---------- 筛选卡片 / 表格卡片 ---------- */
+.content-module .filter-card,
+.content-module .table-card {
+  padding: var(--space-lg) 20px;
+}
+
+.content-module .filter-card__head,
+.content-module .table-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.content-module .card-title {
+  position: relative;
+  margin: 0;
+  padding-left: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+
+.content-module .card-title::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--content-green), var(--td-brand-color-8));
+}
+
+.content-module .table-card__meta {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.content-module .filter-card__grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+/* ---------- 表单项 ---------- */
+.content-module .field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.content-module .field__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+}
+
+/* ---------- 操作列 / 单元格辅助 ---------- */
+.content-module .action-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.content-module .cell-strong {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.content-module .cell-muted {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.content-module .time-text {
+  color: #334155;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.content-module .product-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.content-module .product-sub {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.content-module .tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* ---------- 表单栅格 ---------- */
+.content-module .form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--space-lg);
+}
+
+.content-module .form-grid--single {
+  grid-template-columns: 1fr;
+}
+
+.content-module .form-item--full {
+  grid-column: 1 / -1;
+}
+
+.content-module .field-help {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+@media (max-width: 768px) {
+  .content-module .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- TDesign 细节 ---------- */
+.content-module .t-table__th {
+  background: var(--td-brand-color-1) !important;
+  color: #3f5848 !important;
+  border-bottom-color: var(--content-green-border) !important;
+  font-weight: 600 !important;
+}
+
+.content-module .t-table__tr--hover > .t-table__td,
+.content-module .t-table__row--hover > .t-table__td {
+  background: rgba(22, 163, 74, 0.035) !important;
+  transition: background-color var(--hs-duration-fast);
+}
+
+.content-module .t-button--theme-primary {
+  border-color: var(--content-green);
+  background-color: var(--content-green);
+}
+
+.content-module .t-button--theme-primary:hover,
+.content-module .t-button--theme-primary:focus-visible {
+  border-color: var(--content-green-hover);
+  background-color: var(--content-green-hover);
+}
+
+.content-module .t-switch.t-is-checked {
+  background-color: var(--content-green);
+}
+
+.content-module .t-switch.t-is-checked:hover {
+  background-color: var(--content-green-hover);
+}
+
+.content-module .t-input.t-is-focused,
+.content-module .t-input--focused,
+.content-module .t-textarea__inner:focus,
+.content-module .t-input-number.t-is-focused,
+.content-module .t-select-input.t-is-focused {
+  border-color: var(--content-green) !important;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.1) !important;
+}
+
+.content-module .t-pagination__number.t-is-current {
+  color: #fff;
+  border-color: var(--content-green);
+  background: var(--content-green);
+}
+
+.content-module .t-table__pagination {
+  padding-top: var(--space-md);
+}
+
+/* ---------- 分类树 ---------- */
+.content-module .tree-wrapper {
+  max-height: 560px;
+  overflow: auto;
+}
+
+.content-module .category-node {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.content-module .category-node__name {
+  font-weight: 600;
+  color: #334155;
+}
+
+.content-module .category-node__meta {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.content-module .category-node__actions {
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity var(--hs-duration-fast);
+}
+
+.content-module .category-node:hover .category-node__actions {
+  opacity: 1;
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 768px) {
+  .content-module .page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .content-module .filter-card__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .content-module .category-node__meta {
+    display: none;
+  }
+
+  .content-module .category-node__actions {
+    opacity: 1;
+  }
+}

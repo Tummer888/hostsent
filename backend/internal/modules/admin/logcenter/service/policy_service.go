@@ -27,6 +27,8 @@ type PolicyService interface {
 	EffectiveRetention(ctx context.Context, src *catalog.Source) int
 	// ResolveWatermark 解算删除水位线（doc92 §6.2）。
 	ResolveWatermark(ctx context.Context, src *catalog.Source, requested time.Time) time.Time
+	// SetGlobalDays 刷新全局保留期（log_retention_days 改动后由装配层调用）。
+	SetGlobalDays(days int)
 	Seed(ctx context.Context) error
 }
 
@@ -45,8 +47,8 @@ func NewPolicyService(repo logrepo.PolicyRepository, globalDays int, logger *zap
 	return &policyService{repo: repo, logger: logger, globalDays: globalDays}
 }
 
-// SetGlobalDays 刷新全局保留期（配置热更新时调用）。
-func (s *policyService) setGlobalDays(days int) {
+// SetGlobalDays 刷新全局保留期（log_retention_days 改动后由装配层调用）。
+func (s *policyService) SetGlobalDays(days int) {
 	if days > 0 {
 		s.globalDays = days
 	}

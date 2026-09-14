@@ -31,6 +31,8 @@ type CleanupService interface {
 	Cancel(ctx context.Context, id uint64) error
 	// HasRunToday 当天是否已有调度任务。
 	HasRunToday(ctx context.Context) (bool, error)
+	// ReconcileStale 启动时收尾进程重启前残留的非终态任务。
+	ReconcileStale(ctx context.Context) (int64, error)
 }
 
 // CleanupListQuery 清理任务列表查询参数。
@@ -49,6 +51,8 @@ type CleanupServiceOptions struct {
 	ExportBeforeDelete bool
 	// BatchSize 默认批次（策略行未配置时用）。
 	BatchSize int
+	// StaleAfter 多久没推进视为停滞（默认 30 分钟，与互斥锁 TTL 同量级）。
+	StaleAfter time.Duration
 	// ArchiveCronOverride 归档节奏由策略行决定，这里不用。
 	// Locker 可选分布式锁（Redis 可用时装配）；nil 时仅靠部分唯一索引互斥。
 	Locker Locker
@@ -88,6 +92,9 @@ func NewCleanupService(
 ) CleanupService {
 	if opts.BatchSize <= 0 {
 		opts.BatchSize = 5000
+	}
+	if opts.StaleAfter <= 0 {
+		opts.StaleAfter = 30 * time.Minute
 	}
 	return &cleanupService{
 		queryRepo: queryRepo, cleanupRepo: cleanupRepo, exportRepo: exportRepo,
@@ -386,12 +393,12 @@ func (s *cleanupService) run(ctx context.Context, jobID uint64) error {
 			_ = s.cleanupRepo.Update(ctx, job)
 			file, err := s.exportSvc.CleanupExport(ctx, src, logrepo.Filter{To: before}, job.ID, job.OperatorID, job.OperatorName)
 			if err != nil {
-				return s.fail(ctx, job, fmt.Errorf("导出 %s 失败：%w", key, err))
+				return s.failOrCancel(ctx, job, fmt.Errorf("导出 %s 失败：%w", key, err))
 			}
 			job.Status = logmodel.CleanupStatusVerifying
 			_ = s.cleanupRepo.Update(ctx, job)
 			if err := s.exportSvc.Verify(ctx, file.ID, src, logrepo.Filter{To: before}); err != nil {
-				return s.fail(ctx, job, fmt.Errorf("校验 %s 备份失败：%w", key, err))
+				return s.failOrCancel(ctx, job, fmt.Errorf("校验 %s 备份失败：%w", key, err))
 			}
 			job.ExportFileIDs = encodeUint64s(append(decodeUint64s(job.ExportFileIDs), file.ID))
 			_ = s.cleanupRepo.Update(ctx, job)
@@ -420,7 +427,7 @@ func (s *cleanupService) run(ctx context.Context, jobID uint64) error {
 			n, err := s.queryRepo.DeleteBatch(ctx, src, before, batch)
 			if err != nil {
 				job.DeletedRows += deleted
-				return s.fail(ctx, job, fmt.Errorf("删除 %s 失败：%w", key, err))
+				return s.failOrCancel(ctx, job, fmt.Errorf("删除 %s 失败：%w", key, err))
 			}
 			deleted += n
 			job.DeletedRows += n
@@ -449,17 +456,32 @@ func (s *cleanupService) run(ctx context.Context, jobID uint64) error {
 }
 
 // fail 记录失败原因并落终态（已删批次不回滚，但备份仍在，可回灌）。
+//
+// 落终态时剥掉 ctx 的取消信号：取消是「请求 context 结束」的常见形态，
+// 若沿用被取消的 ctx 写库，UPDATE 必然失败，任务就会永远停在
+// exporting/verifying/deleting —— 而部分唯一索引只认终态，一条卡住的行会把
+// 后续所有清理任务全部挡死。
 func (s *cleanupService) fail(ctx context.Context, job *logmodel.LogCleanupJob, cause error) error {
 	finished := time.Now()
 	job.Status = logmodel.CleanupStatusFailed
 	job.ErrorMessage = truncate(cause.Error(), 1000)
 	job.FinishedAt = &finished
 	// 失败也要落终态，否则部分唯一索引会把后续任务永久挡住。
-	if updateErr := s.cleanupRepo.Update(ctx, job); updateErr != nil {
+	if updateErr := s.cleanupRepo.Update(context.WithoutCancel(ctx), job); updateErr != nil {
 		s.logger.Error("logcenter: persist failed cleanup job failed",
 			zap.Uint64("job_id", job.ID), zap.Error(updateErr))
 	}
 	return cause
+}
+
+// failOrCancel 区分「失败」与「被取消」：导出/删除阶段出错时，若 ctx 已被取消，
+// 那是用户点了取消（或进程在关停），不是故障 —— 落 cancelled，页面不该把主动
+// 取消报成失败（doc92 §6.3 状态机）。
+func (s *cleanupService) failOrCancel(ctx context.Context, job *logmodel.LogCleanupJob, cause error) error {
+	if ctx.Err() != nil {
+		return s.finishCancelled(ctx, job)
+	}
+	return s.fail(ctx, job, cause)
 }
 
 // finishCancelled 取消：停在当前批次，已删批次不回滚。
@@ -539,6 +561,24 @@ func (s *cleanupService) Cancel(ctx context.Context, id uint64) error {
 // HasRunToday 当天是否已有调度任务（doc92 §6.6 的每日语义）。
 func (s *cleanupService) HasRunToday(ctx context.Context) (bool, error) {
 	return s.cleanupRepo.HasScheduledToday(ctx)
+}
+
+// ReconcileStale 启动时收尾上一次进程留下的非终态任务（doc92 硬约束 4 的补丁）。
+//
+// 清理状态机用「非终态行 + 部分唯一索引」做全局互斥，这隐含一个前提：非终态行
+// 一定有人在推进。进程被 kill 时这个前提不成立，残行会把后续所有清理任务永久
+// 挡死。启动时统一置 failed（任务与备份文件都保留，人可从详情页看到并重跑），
+// 互斥索引随之释放。
+func (s *cleanupService) ReconcileStale(ctx context.Context) (int64, error) {
+	n, err := s.cleanupRepo.FailStaleActive(ctx, time.Now().Add(-s.opts.StaleAfter),
+		"进程重启或长时间无进展，任务中断（备份文件仍保留）")
+	if err != nil {
+		return 0, err
+	}
+	if n > 0 {
+		s.logger.Warn("logcenter: reconciled stale cleanup jobs", zap.Int64("rows", n))
+	}
+	return n, nil
 }
 
 // resolveSources 解析请求里的源列表；为空时取全部可清理源。

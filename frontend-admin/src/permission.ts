@@ -13,6 +13,7 @@ import {
   CloudIcon,
   ControlPlatformIcon,
   DashboardIcon,
+  DeleteIcon,
   DiscountIcon,
   ErrorCircleIcon,
   FileIcon,
@@ -48,7 +49,7 @@ import {
 import { MessagePlugin } from 'tdesign-vue-next'
 
 import router from '@/router'
-import { useMenuStore, useUserStore } from '@/store'
+import { useBrandStore, useMenuStore, useUserStore } from '@/store'
 
 function iconWrapper(icon: Component) {
   return shallowRef({
@@ -498,6 +499,17 @@ export const navMenu = [
           { title: '公告管理', path: '/system/announcements', icon: iconWrapper(SoundIcon) },
         ],
       },
+      {
+        // 日志中心（doc92）：全站 26 类日志的统一浏览、清理与保留策略
+        title: '日志中心',
+        path: '/system/log-center',
+        icon: iconWrapper(FileIcon),
+        children: [
+          { title: '日志中心', path: '/system/logs', icon: iconWrapper(FileIcon) },
+          { title: '清理任务', path: '/system/logs/cleanup', icon: iconWrapper(DeleteIcon) },
+          { title: '保留策略', path: '/system/logs/policy', icon: iconWrapper(SettingIcon) },
+        ],
+      },
     ],
   },
   {
@@ -613,6 +625,8 @@ export function setupPermission(app: App<Element>) {
 
   router.beforeEach(async (to, _from, next) => {
     const userStore = useUserStore()
+    // 品牌名（浏览器标题后缀）：一次会话内只拉一次，失败保持兜底值，不阻断路由。
+    void useBrandStore().load()
 
     if (userStore.token) {
       if (to.path === '/login') {
@@ -676,8 +690,7 @@ export function setupPermission(app: App<Element>) {
 
   router.afterEach((to) => {
     if (to.meta?.title) {
-      const suffix = '宿派云控 管理平台'
-      document.title = `${to.meta.title} - ${suffix}`
+      document.title = `${to.meta.title} - ${useBrandStore().titleSuffix}`
     }
   })
 }

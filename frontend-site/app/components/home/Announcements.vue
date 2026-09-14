@@ -1,15 +1,23 @@
 <template>
   <section v-if="visible.length" id="announcements" class="site-section site-section--tight announce">
     <div class="site-container">
-      <SectionHeading :title="home.announceTitle" :subtitle="subtitle" />
+      <SectionHeading
+        :title="home.announceTitle"
+        :subtitle="subtitle"
+        action-label="查看全部"
+        action-to="/announcements"
+      />
 
       <ul class="announce__list">
         <li v-for="item in visible" :key="item.id" class="announce__item">
+          <span v-if="item.pinned" class="announce__pin">置顶</span>
           <span class="announce__tag" :class="`is-${announcementLevelMeta(item.level).tone}`">
             {{ announcementLevelMeta(item.level).label }}
           </span>
           <div class="announce__body">
-            <h3 class="announce__title">{{ item.title }}</h3>
+            <h3 class="announce__title">
+              <NuxtLink :to="`/announcements/${item.id}`">{{ item.title }}</NuxtLink>
+            </h3>
             <p v-if="excerpt(item.content)" class="announce__excerpt">{{ excerpt(item.content) }}</p>
           </div>
           <time class="announce__date">{{ formatAnnouncementDate(item.publishedAt) }}</time>
@@ -87,6 +95,18 @@ const excerpt = (text: string) => announcementExcerpt(text, 90)
 .announce__tag.is-critical {
   background: rgba(220, 38, 38, 0.1);
   color: #b91c1c;
+}
+
+.announce__pin {
+  flex-shrink: 0;
+  margin-top: 2px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--site-primary-soft);
+  color: var(--site-primary-strong);
+  font-size: 12px;
+  line-height: 1.7;
+  font-weight: 600;
 }
 
 .announce__body {

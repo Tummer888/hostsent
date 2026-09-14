@@ -89,3 +89,20 @@ export function sendVerifyCode(data: {
 }): Promise<PublicSendCodeResult> {
   return instance.post('/verify-code/send', data) as Promise<PublicSendCodeResult>
 }
+
+/**
+ * 站点品牌配置（扁平键值对，形如 `{ "site.name": "...", "site_name": "..." }`）。
+ *
+ * 登录页与浏览器标题用它 —— 两者都在拿到令牌之前就要渲染，所以走这个无鉴权实例。
+ */
+export async function getSiteContent(): Promise<Record<string, string>> {
+  // 拦截器已把信封拆成 data，但 axios 的类型仍声明为 AxiosResponse，故此处显式断言。
+  const data = (await instance.get('/site-content')) as unknown as
+    | { items?: Record<string, string> }
+    | Record<string, string>
+    | null
+  if (!data || typeof data !== 'object') return {}
+  // 后端契约是 `data.items`；兼容直接返回键值对的旧形状。
+  const items = (data as { items?: Record<string, string> }).items
+  return items && typeof items === 'object' ? items : (data as Record<string, string>)
+}

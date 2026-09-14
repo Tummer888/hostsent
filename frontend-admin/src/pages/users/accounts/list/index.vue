@@ -1157,8 +1157,10 @@ async function handleImpersonate(row: UserInfo) {
   }
   try {
     const res = await impersonateUser({ user_id: row.id })
-    // 代登录：新窗口打开用户端并携带 user token，绝不在管理端写入用户登录态
-    const base = (import.meta.env.VITE_USER_BASE_URL as string) || 'http://localhost:3001'
+    // 代登录：新窗口打开用户端并携带 user token，绝不在管理端写入用户登录态。
+    // 默认端口取 frontend-user 的实际端口 3002（原值 3001 是历史遗留，用户端从来不在这个端口）；
+    // 生产环境应由 VITE_USER_BASE_URL 显式指定用户端地址。
+    const base = (import.meta.env.VITE_USER_BASE_URL as string) || 'http://localhost:3002'
     const url = `${base.replace(/\/+$/, '')}/?token=${encodeURIComponent(res.token)}`
     window.open(url, '_blank')
     MessagePlugin.success(`已在用户端窗口代为登录 ${row.username}`)

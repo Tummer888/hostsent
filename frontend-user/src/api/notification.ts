@@ -30,13 +30,25 @@ export interface NotificationListResponse {
 }
 
 // 公告信息
+//
+// 契约来源：后端 GET /api/v1/uc/announcements 返回 data = { list: [...] }，
+// 时间字段是 publish_at（与公告 DTO 一致）。此前这里写成裸数组 + published_at，
+// 于是 pages/profile/messages.vue 取 data ?? [] 恒为空、发布时间恒为空 —— 公告 tab 一直白着。
 export interface AnnouncementInfo {
   id: number
   title: string
   content: string
+  /** text 为存量纯文本（按文本节点渲染）；html 为服务端已净化的富文本 */
+  body_format: string
   level: string // info / warning / critical
-  published_at: string
-  created_at: string
+  popup: boolean
+  pinned: boolean
+  publish_at: string
+}
+
+// 公告列表响应：data = { list: [...] }
+export interface AnnouncementListResponse {
+  list: AnnouncementInfo[]
 }
 
 // 通知偏好项
@@ -81,7 +93,7 @@ export const readAll = () => request.post<any, void>('/uc/notifications/read-all
 
 // 查询我的公告列表
 export const getMyAnnouncements = () =>
-  request.get<any, { data: AnnouncementInfo[] }>('/uc/announcements')
+  request.get<any, { data: AnnouncementListResponse }>('/uc/announcements')
 
 // 查询我的通知偏好
 export const getMyPreferences = () =>

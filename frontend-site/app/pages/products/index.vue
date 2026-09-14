@@ -4,7 +4,7 @@
       <div class="site-container">
         <h1 class="products-hero__title">全部产品</h1>
         <p class="products-hero__desc">
-          {{ site.slogan }}。按需开通、弹性计费，挑选适合你业务的产品。
+          {{ site.slogan }}。按周期计价、在线下单，挑选适合你业务的产品。
         </p>
 
         <form class="products-search" @submit.prevent="applySearch">

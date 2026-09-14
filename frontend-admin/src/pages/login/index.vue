@@ -3,11 +3,12 @@
     <div class="login-shell">
       <aside class="login-panel login-panel--brand" aria-label="平台介绍">
         <header class="brand-header">
-          <div class="brand-logo" aria-label="Hostsent 宿派云控">
-            <span class="brand-logo__mark" aria-hidden="true">H</span>
+          <!-- 品牌名来自「系统配置 → 站点品牌」（公开白名单接口），不再写死，否则改名后这里对不上。 -->
+          <div class="brand-logo" :aria-label="`${brandStore.logoMark} ${brandStore.name}`">
+            <span class="brand-logo__mark" aria-hidden="true">{{ brandStore.logoMark }}</span>
             <div class="brand-logo__text">
-              <div class="brand-name">hostsent</div>
-              <div class="brand-tag">宿派云控</div>
+              <div class="brand-name">{{ brandStore.name }}</div>
+              <div class="brand-tag">管理平台</div>
             </div>
           </div>
         </header>
@@ -15,7 +16,7 @@
         <img
           class="brand-illustration"
           :src="loginIllustration"
-          alt="宿派云控产品插画"
+          :alt="`${brandStore.name}产品插画`"
         />
       </aside>
 
@@ -27,10 +28,20 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted } from 'vue'
+
 import AdminLoginForm from './components/AdminLoginForm.vue'
 import loginIllustration from '@/assets/images/login-cnter.png'
+import { useBrandStore } from '@/store'
 
 defineOptions({ name: 'AdminLoginPage' })
+
+const brandStore = useBrandStore()
+
+// 登录页在鉴权之前渲染，品牌名只能走公开接口；失败时 store 保持兜底值。
+onMounted(() => {
+  void brandStore.load()
+})
 </script>
 
 <style scoped lang="css">

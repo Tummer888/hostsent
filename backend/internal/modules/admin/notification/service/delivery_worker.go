@@ -11,6 +11,7 @@ import (
 
 	notifymodel "hostsent/backend/internal/modules/admin/notification/model"
 	notifyrepo "hostsent/backend/internal/modules/admin/notification/repository"
+	"hostsent/backend/internal/pkg/jobrun"
 	"hostsent/backend/internal/pkg/notifier"
 )
 
@@ -86,14 +87,19 @@ func (w *DeliveryWorker) Start(ctx context.Context) {
 func (w *DeliveryWorker) RunOnce(ctx context.Context) { w.runOnce(ctx) }
 
 func (w *DeliveryWorker) runOnce(ctx context.Context) {
-	rows, err := w.repo.ClaimDue(ctx, w.opts.Batch, notifymodel.DeliveryLockTTL)
-	if err != nil {
-		w.logger.Warn("notification delivery: claim due failed", zap.Error(err))
-		return
-	}
-	for i := range rows {
-		w.deliver(ctx, &rows[i])
-	}
+	// 高频任务（15 秒一轮）：留痕侧空轮不落库（doc92 §7.2）。
+	jobrun.RunErr(ctx, "notify_delivery", "notify", jobrun.TriggerScheduled,
+		func(ctx context.Context) (int, int, map[string]any, error) {
+			rows, err := w.repo.ClaimDue(ctx, w.opts.Batch, notifymodel.DeliveryLockTTL)
+			if err != nil {
+				w.logger.Warn("notification delivery: claim due failed", zap.Error(err))
+				return 0, 0, nil, err
+			}
+			for i := range rows {
+				w.deliver(ctx, &rows[i])
+			}
+			return len(rows), len(rows), map[string]any{"picked": len(rows)}, nil
+		})
 }
 
 func (w *DeliveryWorker) deliver(ctx context.Context, row *notifymodel.NotificationDelivery) {

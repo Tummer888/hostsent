@@ -18,6 +18,38 @@ export const featureSchema = z.object({
   desc: z.string().max(120),
 })
 
+/** 页脚服务保障条（`site.footer_promises`）。 */
+export const footerPromiseSchema = z.object({
+  icon: z.string().max(30),
+  title: z.string().min(1).max(20),
+  desc: z.string().max(60),
+})
+
+/**
+ * 页脚社交按钮（`site.footer_socials`）。icon 需是 SiteIcon 内置名，认不出时按钮仍渲染但无图标。
+ *
+ * `url` 是必填语义：没有地址的社交入口在页脚就是「点了没反应」的假按钮
+ *（改造前点一下弹「微信开发中」），组件会把缺 url 的项直接丢掉不渲染。
+ */
+export const footerSocialSchema = z.object({
+  label: z.string().min(1).max(20),
+  icon: z.string().max(30),
+  url: z.string().max(255).catch(''),
+})
+
+/** 页脚栏目（`site.footer_columns`）。to 支持站内路径与站点锚点（`/#contact`）。 */
+export const footerColumnSchema = z.object({
+  title: z.string().min(1).max(30),
+  links: z
+    .array(
+      z.object({
+        label: z.string().min(1).max(40),
+        to: z.string().min(1).max(255),
+      }),
+    )
+    .max(12),
+})
+
 export const siteSectionSchema = z.object({
   name: z.string().min(1).max(50),
   slogan: z.string().max(100),
@@ -36,6 +68,18 @@ export const siteSectionSchema = z.object({
   publicSecurity: z.string().max(100),
   /** 微信公众号名称 */
   wechat: z.string().max(100),
+  /**
+   * 以下四项在数据库里的键是 `site.footer_*`（分组 site，doc100 §8.2），
+   * fromFlatConfig 按点号路径还原后自然落在 site 区块下，因此字段名带 footer 前缀。
+   */
+  /** 页脚服务保障条 */
+  footerPromises: tolerantArray(footerPromiseSchema, 6),
+  /** 页脚社交按钮 */
+  footerSocials: tolerantArray(footerSocialSchema, 8),
+  /** 页脚栏目（标题 + 链接组） */
+  footerColumns: tolerantArray(footerColumnSchema, 6),
+  /** 页脚法律行补充文案（许可证/备案组合），留空不渲染该行 */
+  footerLegalLine: z.string().max(200),
 })
 
 export const themeSectionSchema = z.object({
@@ -85,8 +129,11 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
     logo: '/branding/logo.svg',
     favicon: '/branding/favicon.svg',
     icp: '',
-    contactPhone: '400-800-1234',
-    contactEmail: 'support@hostsent.com',
+    // 联系方式默认留空：代码里放 400-800-1234 / support@hostsent.com 这类示例值，
+    // 上线后会变成官网首页的「售前咨询热线」——一个打不通的号码比不显示更糟，
+    // 用户打不通会直接认定平台是假的。运营在「系统配置 → 站点品牌」里填真实号码。
+    contactPhone: '',
+    contactEmail: '',
     contactAddress: '',
     copyright: '© 2026 Hostsent.com 版权所有',
     // 法务信息默认留空：运营未配置时页脚不渲染该行，
@@ -95,6 +142,26 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
     licenseOrg: '',
     publicSecurity: '',
     wechat: '',
+    // 页脚服务保障条默认值：每一条都对应平台真实机制（工单优先级、余额扣费台账、
+    // 实例与订单的操作留痕、生命周期到期提醒与自动续费）。
+    // 此前这里是「7×24 / 免费备案 / 无忧退订 / 建议反馈」——平台不提供备案与
+    // 无理由退订，「建议反馈」也没有后端入口，属于把做不到的事写成服务承诺。
+    footerPromises: [
+      { icon: 'service', title: '工单支持', desc: '按优先级响应，进度可见' },
+      { icon: 'secured', title: '余额支付', desc: '扣费走账户余额，明细可查' },
+      { icon: 'edit', title: '操作留痕', desc: '订单与实例动作可回溯' },
+      { icon: 'time', title: '到期提醒', desc: '到期前提醒，可自助续费' },
+      { icon: 'rollback', title: '自动续费', desc: '可开启自动续费避免中断' },
+    ],
+    // 社交按钮默认留空：平台没有公众号/QQ 群/开源仓库的公开地址时，
+    // 摆一排点了没反应的图标不如不摆（AppFooter 只渲染带 url 的项）。
+    // 运营在「系统配置 → 站点品牌 → 社交按钮」按 {"label","icon","url"} 填。
+    footerSocials: [],
+    // 栏目文案留空数组：栏目内容与品牌名、真实产品线有关（「关于宿派云控」），
+    // 写进默认值会在运营改名后留下一段对不上的旧品牌名。空数组时组件用
+    // 品牌名动态拼装（见 AppFooter.vue 的 defaultColumns），效果与改造前一致。
+    footerColumns: [],
+    footerLegalLine: '',
   },
   theme: {
     primaryColor: '#2b5cff',
@@ -103,21 +170,27 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
   home: {
     heroTitle: '更强大的一站式云资源平台',
     heroSubtitle:
-      '从产品上架、在线下单到自动开通，全流程在一个后台闭环；已对接魔方财务与魔方云，支持白标转售，几分钟上线你自己的云品牌。',
+      '从产品上架、在线下单到自动开通，全流程在一个后台闭环；已对接魔方云与魔方财务，分钟级交付你自己的云服务。',
     heroImage: '',
     heroPrimaryCta: '立即选购',
     heroPrimaryLink: '/products',
     heroSecondaryCta: '了解产品优势',
     heroSecondaryLink: '/#features',
     featuresTitle: '为什么选择我们',
+    // 四张卡只写平台确实提供的能力：多上游渠道（资源来自魔方云/魔方财务等已接入渠道）、
+    // 支付后自动开通（开通任务队列 + 失败重试与转人工）、周期计费与续费（周期价格矩阵、
+    // 到期提醒、自动续费）、工单支持（四档优先级）。
+    // 此前写的「全闪存/多线 BGP」「DDoS 防护、快照备份」「按量付费、秒级开通」
+    // 都不是本平台能承诺的：资源规格由上游决定，平台没有安全防护与快照模块，
+    // 计费按周期定价而非按量，开通耗时取决于上游接口。
     features: [
-      { icon: 'server', title: '高性能云主机', desc: '全闪存存储与多线 BGP 接入，计算性能稳定可靠。' },
-      { icon: 'shield', title: '安全与合规', desc: 'DDoS 防护、快照备份与细粒度访问控制，数据更安心。' },
-      { icon: 'bolt', title: '弹性伸缩', desc: '按量付费、秒级开通，业务增长时随时扩容。' },
-      { icon: 'support', title: '7×24 技术支持', desc: '工单与智能助手全天候响应，保障业务平稳运行。' },
+      { icon: 'server', title: '多云上游统一交付', desc: '已接入魔方云、魔方财务等上游渠道，产品、订单与实例在同一后台收敛。' },
+      { icon: 'bolt', title: '支付后自动开通', desc: '支付成功即投递开通任务，由上游接口创建实例；异常自动重试并转人工处理。' },
+      { icon: 'refresh', title: '周期计费与续费', desc: '按周期制定价格，支持自助续费与自动续费，到期前有提醒。' },
+      { icon: 'support', title: '工单与全链路留痕', desc: '工单按优先级响应；订单、开通与实例操作全程记录，问题可回溯。' },
     ],
     ctaTitle: '准备好开始了吗？',
-    ctaDesc: '注册即可享受新用户优惠，几分钟内完成你的第一台云主机部署。',
+    ctaDesc: '注册后即可浏览产品与周期价格，几分钟内完成你的第一台云主机下单。',
     featuredTitle: '热门产品',
     featuredLimit: 8,
     announceTitle: '最新公告',
@@ -155,6 +228,25 @@ function parseSection<T>(schema: z.ZodType<T>, defaults: T, raw: unknown): T {
   const merged = deepMerge(defaults, raw)
   const parsed = schema.safeParse(merged)
   return parsed.success ? parsed.data : defaults
+}
+
+/**
+ * 元素级容错的数组校验：坏元素被丢弃，好元素保留。
+ *
+ * 为什么不用裸 `z.array(item).max(n)`：数组里只要有一项填坏（比如运营在页脚栏目
+ * JSON 里漏了 title），整段 safeParse 失败 → 整个 `site` 区块回落默认值，
+ * 连同一区块里填得好好的品牌名、备案号一起丢掉。这类「一处手误全盘失效」
+ * 的失败模式在配置场景里代价太高（doc80 R11：单个坏数据不应影响其它数据）。
+ */
+function tolerantArray<T>(itemSchema: z.ZodType<T>, max: number) {
+  return z.preprocess((raw) => {
+    if (!Array.isArray(raw)) return raw
+    const valid: unknown[] = []
+    for (const entry of raw) {
+      if (itemSchema.safeParse(entry).success) valid.push(entry)
+    }
+    return valid.slice(0, max)
+  }, z.array(itemSchema).max(max))
 }
 
 /**
@@ -233,11 +325,9 @@ function toCamelPath(path: string): string {
 /**
  * 管理端「系统配置」页历史扁平键 → 本 schema 路径的别名表。
  *
- * 为什么必须有这张表：管理端系统配置页（`frontend-admin/src/pages/system/config`）的
- * 「基础配置」分组写的是扁平键 `site_name`，而后端 seed 的 doc80 规范键是 `site.name`。
- * 不映射时 `site_name` 会被 toCamelPath 变成顶层 `siteName` —— 既不落在 `site` 区块下，
- * `siteSectionSchema` 也不会采纳它。结果是运营在后台填的官网名称/Logo/版权全部静默失效
- * （后端白名单原样返回两套键也没用，丢在前端的解析这一步）。
+ * 为什么保留这张表：`site_name` 这类扁平键是建库时的历史键名，后端白名单仍原样返回，
+ * 迁移 045 只把它们置为 disabled 而未删除。保留映射，是为了在尚未执行迁移的库上仍能
+ * 读到运营填过的值，不至于把品牌信息整个丢掉。
  */
 const FLAT_KEY_ALIASES: Record<string, string> = {
   site_name: 'site.name',
@@ -259,9 +349,10 @@ const FLAT_KEY_ALIASES: Record<string, string> = {
  * 扁平键值对（`{ "site.name": "宿派云控", "home.featured_limit": "8" }`）
  * 还原为嵌套结构。键不存在或类型不符时忽略该项，由默认值兜底。
  *
- * 两套键名同时存在时，**管理端扁平键（`site_name`）覆盖规范点号键（`site.name`）**：
- * 运营实际维护入口是管理端系统配置页，它写的正是扁平键，以它为准则「后台改了什么、
- * 官网立刻显示什么」这条预期成立。
+ * 两套键名同时存在时，**规范点号键（`site.name`）覆盖历史扁平键（`site_name`）**：
+ * 点号键是管理端「站点品牌」分组（以及迁移 045 的数据补齐）维护的当前值，扁平键是
+ * 建库时的旧占位值。这里曾写反过顺序 —— 门户首页因此长期显示旧站点名，而不是运营
+ * 在后台改的新名。
  */
 export function fromFlatConfig(flat: unknown): PlainObject {
   if (!isPlainObject(flat)) return {}
@@ -274,17 +365,17 @@ export function fromFlatConfig(flat: unknown): PlainObject {
     setByPath(out, camelPath, value, getByPath(DEFAULT_SITE_CONTENT, camelPath))
   }
 
-  // 第一轮：规范点号键，以及本 schema 已使用的点号路径。
-  // 未命中别名且不含点号的键（如 system_timezone / currency_unit）与本 schema 无关，跳过。
-  for (const [rawPath, value] of Object.entries(flat)) {
-    if (!rawPath.includes('.')) continue
-    write(rawPath, value)
-  }
-  // 第二轮：管理端扁平键，后写以覆盖同名规范键。
+  // 第一轮：历史扁平键（不含点号，不会被下一轮的点号扫描碰到）。
+  // 未命中别名的键（如 system_timezone / currency_unit）与本 schema 无关，跳过。
   for (const [rawPath, value] of Object.entries(flat)) {
     const alias = FLAT_KEY_ALIASES[rawPath]
     if (!alias) continue
     write(alias, value)
+  }
+  // 第二轮：规范点号键，后写以覆盖同义的扁平键。
+  for (const [rawPath, value] of Object.entries(flat)) {
+    if (!rawPath.includes('.')) continue
+    write(rawPath, value)
   }
   return out
 }

@@ -35,7 +35,7 @@ func TestSiteContentWhitelist(t *testing.T) {
 			cfg("unknown.key", "nope", systemmodel.StatusActive),
 		},
 	}}
-	svc := NewSiteService(nil, reader)
+	svc := NewSiteService(nil, nil, reader)
 
 	got, err := svc.SiteContent(context.Background())
 	if err != nil {
@@ -61,7 +61,7 @@ func TestSiteContentSkipsEmptyAndDisabled(t *testing.T) {
 			cfg("site.name", "宿派云控", ""), // 状态为空视为可用（历史行）
 		},
 	}}
-	svc := NewSiteService(nil, reader)
+	svc := NewSiteService(nil, nil, reader)
 
 	got, err := svc.SiteContent(context.Background())
 	if err != nil {
@@ -90,7 +90,7 @@ func TestSiteContentMergesGroups(t *testing.T) {
 			{ConfigKey: "contact_phone", ConfigValue: "400-000-0000", Status: systemmodel.StatusActive},
 		},
 	}}
-	svc := NewSiteService(nil, reader)
+	svc := NewSiteService(nil, nil, reader)
 
 	got, err := svc.SiteContent(context.Background())
 	if err != nil {
@@ -109,7 +109,7 @@ func TestSiteContentMergesGroups(t *testing.T) {
 
 // TestSiteContentDegrades 读取失败与未装配 reader 时返回空 items 而非报错，官网回落默认值。
 func TestSiteContentDegrades(t *testing.T) {
-	failing := NewSiteService(nil, &fakeConfigReader{err: errors.New("db down")})
+	failing := NewSiteService(nil, nil, &fakeConfigReader{err: errors.New("db down")})
 	got, err := failing.SiteContent(context.Background())
 	if err != nil {
 		t.Fatalf("读取失败不应报错: %v", err)
@@ -118,7 +118,7 @@ func TestSiteContentDegrades(t *testing.T) {
 		t.Fatalf("读取失败应返回空 items, got %+v", got.Items)
 	}
 
-	unwired := NewSiteService(nil, nil)
+	unwired := NewSiteService(nil, nil, nil)
 	got, err = unwired.SiteContent(context.Background())
 	if err != nil || len(got.Items) != 0 {
 		t.Fatalf("未装配 reader 应返回空 items, got (%+v,%v)", got.Items, err)

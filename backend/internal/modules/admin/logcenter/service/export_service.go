@@ -153,16 +153,30 @@ func (s *exportService) Export(ctx context.Context, req dto.ExportRequest, opera
 
 // CleanupExport 清理备份导出：固定 jsonl（无损、可回灌）。
 //
+// 备份范围必须与删除候选逐行一致，否则会出现「备份了删不到的」或更糟的
+// 「删了没备份的」。范围归一化统一走 cleanupScope，Verify 用同一函数，
+// 两边的 count 才可能相等（doc92 §10 场景 13：校验阶段比对行数）。
+//
 // 备份不完整就不允许进入删除阶段，所以这里任何错误都要向上抛（调用方整体失败）。
 func (s *exportService) CleanupExport(ctx context.Context, src *catalog.Source, f logrepo.Filter, jobID uint64, operatorID uint64, operatorName string) (*logmodel.LogExportFile, error) {
 	if s.store == nil {
 		return nil, ErrExportUnavailable
 	}
-	// 清理备份必须精确覆盖「将被删除的那段」：用时间上界 + 与删除一致的守卫。
-	f.To = time.Time{}
-	before := f
 	logicalName := buildFileName(src.Key, time.Time{}, time.Time{}, "jsonl")
-	return s.streamExport(ctx, src, before, "jsonl", logicalName, operatorID, operatorName, jobID)
+	return s.streamExport(ctx, src, cleanupScope(f), "jsonl", logicalName, operatorID, operatorName, jobID)
+}
+
+// cleanupScope 把筛选条件归一化成「删除候选范围」，与 DeleteBatch 的
+// `time_column < watermark AND (delete_guard)` 逐行一致：
+//
+//   - 上界改开区间（`<`）—— 恰好等于水位线的那行删除不算，备份也不能算；
+//   - 带上源的 DeleteGuard —— 清理只删终态行（pending/running 受保护）；
+//   - 清空下界 —— 删除没有下界，备份必须覆盖整段历史。
+func cleanupScope(f logrepo.Filter) logrepo.Filter {
+	f.From = time.Time{}
+	f.ToExclusive = true
+	f.WithGuard = true
+	return f
 }
 
 // streamExport 流式导出并落库元数据。
@@ -190,6 +204,11 @@ func (s *exportService) streamExport(
 	}
 	done := make(chan writeResult, 1)
 	go func() {
+		// Save 在读端：它一旦提前返回（目录不可写、磁盘满、建目录失败），
+		// 下面 writeRows 仍会往管道里写，写满管道缓冲后永久阻塞 —— 任务就会
+		// 卡在 exporting 且连取消都无效（写操作不监听 ctx）。收尾时关掉读端，
+		// 让挂起的写立刻收到 ErrClosedPipe，导出失败得以正常上抛。
+		defer pr.Close()
 		rel, size, err := s.store.Save(dir, logicalName, io.TeeReader(pr, hasher), 0)
 		done <- writeResult{rel: rel, size: size, err: err}
 	}()
@@ -198,14 +217,18 @@ func (s *exportService) streamExport(
 	// 关闭写端让 Save 收尾；若写行已有错误也要关，避免 Save 永久阻塞。
 	_ = pw.CloseWithError(writeErr)
 	res := <-done
+	// 存储侧错误优先：它才是根因，写侧拿到的往往只是被连累的 broken pipe。
+	if res.err != nil {
+		if res.rel != "" {
+			_ = s.store.Remove(res.rel)
+		}
+		return nil, fmt.Errorf("logcenter: 写入导出文件失败: %w", res.err)
+	}
 	if writeErr != nil {
 		if res.rel != "" {
 			_ = s.store.Remove(res.rel)
 		}
 		return nil, writeErr
-	}
-	if res.err != nil {
-		return nil, fmt.Errorf("logcenter: 写入导出文件失败: %w", res.err)
 	}
 
 	expires := time.Now().AddDate(0, 0, s.exportDays)
@@ -372,7 +395,7 @@ func (s *exportService) Verify(ctx context.Context, fileID uint64, src *catalog.
 	}
 	// 行数交叉校验：与「将要被删的候选行数」比对，确保备份真的覆盖了删除范围。
 	if src != nil {
-		expected, err := s.queryRepo.Count(ctx, src, f)
+		expected, err := s.queryRepo.Count(ctx, src, cleanupScope(f))
 		if err != nil {
 			return err
 		}

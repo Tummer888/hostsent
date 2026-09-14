@@ -12,6 +12,8 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -23,9 +25,15 @@ import (
 	loghandler "hostsent/backend/internal/modules/admin/logcenter/handler"
 	logrepo "hostsent/backend/internal/modules/admin/logcenter/repository"
 	logservice "hostsent/backend/internal/modules/admin/logcenter/service"
+	adminmodel "hostsent/backend/internal/modules/admin/manager/model"
+	"hostsent/backend/internal/pkg/jobrun"
+	"hostsent/backend/internal/pkg/middleware"
 	"hostsent/backend/internal/pkg/storage"
 	"hostsent/backend/internal/pkg/upstream"
 )
+
+// captureRefreshEvery 采集/保留期配置的刷新间隔。
+const captureRefreshEvery = 60 * time.Second
 
 // logcenterBundle 日志中心处理器与后台组件集合。
 type logcenterBundle struct {
@@ -37,6 +45,8 @@ type logcenterBundle struct {
 	scheduler *logservice.Scheduler
 	// Runner 任务运行留痕器：业务调度点注入使用（doc92 §7.2）。
 	Runner *logservice.Runner
+	// refreshCapture 重新读取采集与保留期相关配置（Server.Run 中周期调用）。
+	refreshCapture func(ctx context.Context)
 }
 
 // logcenterBundleDeps 装配依赖。
@@ -52,7 +62,9 @@ type logcenterBundleDeps struct {
 	StorageRoot string
 	// Locker 可选 Redis 分布式锁（缓存不可用时传 nil）。
 	Locker logservice.Locker
-	Logger *zap.Logger
+	// AuditWriter 管理端审计落库（用于导出文件下载留痕；nil 时跳过）。
+	AuditWriter middleware.AdminAuditWriter
+	Logger      *zap.Logger
 }
 
 // buildLogcenterBundle 装配日志中心。
@@ -120,6 +132,18 @@ func buildLogcenterBundle(deps logcenterBundleDeps) *logcenterBundle {
 	scheduler.SetExportPurger(func(ctx context.Context) (int, error) {
 		return exportSvc.PurgeExpired(ctx, 200)
 	})
+	// 停滞任务收尾：进程被 kill 时留下的非终态行会永久占住互斥索引，使后续
+	// 所有清理（含手工）被拒。启动与周期各收一次（doc92 硬约束 4 的补丁）。
+	scheduler.SetStaleReconciler(cleanupSvc.ReconcileStale)
+	// 每轮 tick 重新读开关：运营在系统配置里关掉 log_cleanup_enabled 后，
+	// 不必重启进程即可生效（doc89 §9.1「改配置不需要发版」）。
+	scheduler.SetFlagReader(func(ctx context.Context) logservice.SchedulerFlags {
+		return logservice.SchedulerFlags{
+			Enabled:            deps.ConfigBoolOr(ctx, "log_cleanup_enabled", true),
+			CleanupHour:        deps.ConfigIntOr(ctx, "log_cleanup_hour", 3),
+			ExportBeforeDelete: deps.ConfigBoolOr(ctx, "log_export_before_delete", true),
+		}
+	})
 
 	handler := loghandler.NewHandler(loghandler.HandlerDeps{
 		Query:   querySvc,
@@ -129,6 +153,26 @@ func buildLogcenterBundle(deps logcenterBundleDeps) *logcenterBundle {
 		// 关闭删除前导出时页面对执行按钮置灰；服务端另有硬拒绝兜底。
 		ExportBeforeDelete: func() bool {
 			return deps.ConfigBoolOr(context.Background(), "log_export_before_delete", true)
+		},
+		// 下载留痕（doc92 §5.3）：GET 不在审计中间件的写方法白名单里，
+		// 而导出文件含 IP / 手机号 / 上游请求体，必须能追溯谁下走了哪份。
+		AuditDownload: func(ctx context.Context, e loghandler.DownloadAudit) {
+			if deps.AuditWriter == nil {
+				return
+			}
+			detail, _ := json.Marshal(map[string]any{
+				"source_key": e.SourceKey, "file_name": e.FileName,
+				"row_count": e.RowCount, "file_id": e.FileID,
+			})
+			payload := string(detail)
+			_ = deps.AuditWriter.CreateAuditLog(ctx, &adminmodel.AdminAuditLog{
+				AdminID: e.OperatorID, AdminName: e.OperatorName,
+				Action: "download", ResourceType: "logs", ResourceID: strconv.FormatUint(e.FileID, 10),
+				Module: "logs", RequestMethod: http.MethodGet,
+				RequestPath:  "/api/v1/admin/logs/export-files/" + strconv.FormatUint(e.FileID, 10) + "/download",
+				ResponseCode: http.StatusOK, Detail: &payload,
+				IP: e.IP, UserAgent: e.UserAgent,
+			})
 		},
 	})
 
@@ -144,7 +188,39 @@ func buildLogcenterBundle(deps logcenterBundleDeps) *logcenterBundle {
 	return &logcenterBundle{
 		handler: handler, policy: policySvc, recorder: recorder,
 		scheduler: scheduler, Runner: runner,
+		refreshCapture: func(ctx context.Context) {
+			upstream.SetCaptureOptions(upstream.CaptureOptions{
+				Enabled:      deps.ConfigBoolOr(ctx, "log_upstream_capture", true),
+				SampleRate:   deps.ConfigIntOr(ctx, "log_upstream_sample_rate", 100),
+				BodyMaxBytes: deps.ConfigIntOr(ctx, "log_upstream_body_max_bytes", 4096),
+			})
+			policySvc.SetGlobalDays(deps.ConfigIntOr(ctx, "log_retention_days", logcatalog.DefaultRetentionDays))
+		},
 	}
+}
+
+// refreshCaptureLoop 周期刷新采集与保留期配置（默认 60 秒）。
+//
+// 这些配置只影响「后续」的采集与水位线解算，不影响已落库数据，因此不需要
+// 在配置变更时做任何回填；轮询读 DB 的代价（8 个键）远低于为此引入配置变更
+// 事件总线的复杂度。没有这个循环，运营关掉 log_upstream_capture 后必须重启
+// 进程才生效 —— 与 doc89 §9.1「改配置不需要发版」相悖。
+func (b *logcenterBundle) startCaptureRefresh(ctx context.Context) {
+	if b == nil || b.refreshCapture == nil {
+		return
+	}
+	go func() {
+		t := time.NewTicker(captureRefreshEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				b.refreshCapture(ctx)
+			}
+		}
+	}()
 }
 
 // logcenterJobRunner 把日志中心的 Runner 适配为中性 jobrun 端点。
@@ -163,7 +239,8 @@ func (l *logcenterJobRunner) Run(ctx context.Context, jobName, jobGroup, trigger
 		}
 		return
 	}
-	l.runner.RunSkipEmpty(ctx, jobName, jobGroup, triggerType, jobrun.ShouldSkipEmpty(jobName), fn)
+	l.runner.RunSkipEmpty(ctx, jobName, jobGroup, triggerType, jobrun.ShouldSkipEmpty(jobName),
+		logservice.JobFunc(fn))
 }
 
 // logcenterConfigReader 适配：整数配置读取（缺失或非法返回 fallback）。

@@ -211,4 +211,29 @@ func TestCaptureTransportError(t *testing.T) {
 	if rec.StatusCode != 0 || !strings.Contains(rec.ErrorMessage, "connection refused") {
 		t.Errorf("unexpected record: %+v", rec)
 	}
+	// 场景 2：失败的记录必须留下可聚合的错误码，即便根本没有 HTTP 响应。
+	if rec.ErrorCode == "" {
+		t.Errorf("failed record must carry an error_code, got %+v", rec)
+	}
+}
+
+// 场景 2：非 2xx 的结构性往返（重试场景里被提前上报的那次）也要带状态码。
+func TestRetryAttemptFailureCarriesStatusCode(t *testing.T) {
+	m := withRecorder(t)
+
+	ctx, tr := NewTrace(context.Background(), "CreateInstance", "")
+	Capture(ctx, "POST", "https://up.example.com/clouds", nil, 401, []byte("unauthorized"), nil, time.Millisecond)
+	Capture(ctx, "POST", "https://up.example.com/clouds", nil, 200, []byte(`{"id":1}`), nil, time.Millisecond)
+	tr.Finish(nil)
+
+	recs := m.all()
+	if len(recs) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(recs))
+	}
+	if recs[0].Success || recs[0].ErrorCode != "401" {
+		t.Errorf("failed first attempt must carry error_code=401, got %+v", recs[0])
+	}
+	if !recs[1].Success || recs[1].ErrorCode != "" {
+		t.Errorf("successful retry must not carry an error_code, got %+v", recs[1])
+	}
 }

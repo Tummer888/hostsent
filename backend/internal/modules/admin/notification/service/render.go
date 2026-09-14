@@ -62,19 +62,34 @@ type siteShellConfig struct {
 }
 
 // loadSiteShell 从 system_configs 读站点名与版权（不硬编码）。
+//
+// 键名优先取 doc80 规范点号键（`site.name` / `site.copyright`），回落历史扁平键
+// （`site_name` / `site_copyright`）—— 迁移 045 之前扁平键是管理端的唯一入口，
+// 迁移执行前的库仍需读得到值。
+//
 // 读失败或未配置时给出中性兜底，保证邮件仍然可读。
 func loadSiteShell(ctx context.Context, repo sysconfigrepo.ConfigRepository) siteShellConfig {
 	cfg := siteShellConfig{SiteName: "HostSent", Copyright: ""}
 	if repo == nil {
 		return cfg
 	}
-	if c, err := repo.FindByKey(ctx, "site_name"); err == nil && strings.TrimSpace(c.ConfigValue) != "" {
-		cfg.SiteName = c.ConfigValue
+	if v := firstConfigValue(ctx, repo, "site.name", "site_name"); strings.TrimSpace(v) != "" {
+		cfg.SiteName = v
 	}
-	if c, err := repo.FindByKey(ctx, "site_copyright"); err == nil {
-		cfg.Copyright = c.ConfigValue
-	}
+	cfg.Copyright = firstConfigValue(ctx, repo, "site.copyright", "site_copyright")
 	return cfg
+}
+
+// firstConfigValue 按顺序返回第一个非空配置值（原文，不裁剪）；全都没有时返回空串。
+func firstConfigValue(ctx context.Context, repo sysconfigrepo.ConfigRepository, keys ...string) string {
+	for _, key := range keys {
+		if c, err := repo.FindByKey(ctx, key); err == nil && c != nil {
+			if strings.TrimSpace(c.ConfigValue) != "" {
+				return c.ConfigValue
+			}
+		}
+	}
+	return ""
 }
 
 // RenderMailShell 给 HTML 邮件正文包一层统一外壳（站点名 + 页脚 + 版权）。

@@ -10,6 +10,7 @@ import (
 	"hostsent/backend/internal/modules/admin/system/dto"
 	"hostsent/backend/internal/modules/admin/system/model"
 	"hostsent/backend/internal/modules/admin/system/repository"
+	"hostsent/backend/internal/pkg/revalidate"
 )
 
 // ErrConfigKeyDuplicate 配置键重复错误（由 Handler 映射为 400 业务错误码）。
@@ -113,15 +114,21 @@ func (s *configService) Update(ctx context.Context, id uint64, req dto.ConfigUpd
 	if err := s.repo.Update(ctx, config); err != nil {
 		return nil, err
 	}
+	notifySiteCache(ctx, config.Group)
 	info := toConfigInfo(*config)
 	return &info, nil
 }
 
 func (s *configService) Delete(ctx context.Context, id uint64) error {
-	if _, err := s.repo.FindByID(ctx, id); err != nil {
+	config, err := s.repo.FindByID(ctx, id)
+	if err != nil {
 		return err
 	}
-	return s.repo.Delete(ctx, id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+	notifySiteCache(ctx, config.Group)
+	return nil
 }
 
 // ListByGroup 按分组查询全部配置项。
@@ -154,8 +161,19 @@ func (s *configService) BatchUpsert(ctx context.Context, req dto.ConfigBatchUpse
 	if err := s.repo.BatchUpsert(ctx, configs); err != nil {
 		return nil, err
 	}
+	notifySiteCache(ctx, req.Group)
 	// 返回该分组保存后的最新配置列表
 	return s.ListByGroup(ctx, req.Group)
+}
+
+// notifySiteCache 站点分组配置变更后通知门户失效缓存。
+//
+// 只对 site 分组通知：门户公开接口的白名单里只有 `site.*` / `home.*` / `theme.*`
+//（三者都落在 site 分组），安全/注册/推广等分组的值不进门户，清了也是白清。
+func notifySiteCache(ctx context.Context, group string) {
+	if group == model.ConfigGroupSite {
+		revalidate.Notify(ctx, revalidate.KeySiteContent)
+	}
 }
 
 // toConfigInfo 将模型实体映射为响应 DTO。

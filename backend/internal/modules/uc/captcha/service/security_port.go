@@ -137,10 +137,17 @@ func (p *SecurityPort) IssueOTPPending(ctx context.Context, scene string, subjec
 		return nil, translateError(err)
 	}
 	// 复用 SendCode 的频控与落库链路：日志脱敏、验证码不落明文都在那一处保证。
+	//
+	// SkipCaptcha 必须为 true：调用方（登录链路）已经在密码校验前用同一个图形码
+	// 过了一次 VerifyImage，图形码是「取一次即销毁」的，这里再验一次必然失败。
+	// 若该场景同时 image_required + otp_required（如 user_register 基线），
+	// 少这个标记会让「图形码正确」的登录直接返回 20010 —— 而且是在二次验证
+	// 下发阶段失败，排查时极易误判成图形码填错。与 ForgotPassword 同口径。
 	resp, err := p.svc.SendCode(ctx, dto.SendCodeRequest{
-		Scene:   scene,
-		Channel: channel,
-		Target:  target,
+		Scene:       scene,
+		Channel:     channel,
+		Target:      target,
+		SkipCaptcha: true,
 	}, toSubject(subject), subject.ID, ip, userAgent)
 	if err != nil {
 		return nil, translateError(err)

@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -16,7 +18,31 @@ type AnnouncementRepository interface {
 	Delete(ctx context.Context, id uint64) error
 	List(ctx context.Context, q AnnouncementListParams) ([]notifymodel.Announcement, int64, error)
 	ListPublished(ctx context.Context, platform string) ([]notifymodel.Announcement, error)
+	// FindPublishedByID 取单条已发布且未下线公告；不存在返回 (nil, nil)，供门户判 404。
+	FindPublishedByID(ctx context.Context, id uint64) (*notifymodel.Announcement, error)
 	ClearOfflineAt(ctx context.Context, id uint64) error
+	// PublishDue 把 publish_at 已到点、仍处于草稿态的公告置为已发布，返回推进条数。
+	// 定时发布调度器（internal/pkg/publishsched）用它，见该包顶部说明。
+	PublishDue(ctx context.Context, now time.Time) (int64, error)
+}
+
+// PublishDue 批量推进到点的草稿公告。
+//
+// 只挑 status=draft 且 publish_at 非空且已到点的行：已发布/已下线的公告不参与，
+// 否则「下线了一条定时公告」会被下一轮扫描重新发布回来。
+// 用 UPDATE ... WHERE 而不是先查后写，是为了在调度器重复触发时不产生竞态。
+func (r *announcementRepository) PublishDue(ctx context.Context, now time.Time) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&notifymodel.Announcement{}).
+		Where("status = ?", notifymodel.AnnouncementDraft).
+		Where("publish_at IS NOT NULL AND publish_at <= ?", now).
+		Updates(map[string]any{
+			"status":     notifymodel.AnnouncementPublished,
+			"offline_at": nil,
+		})
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	return res.RowsAffected, nil
 }
 
 // AnnouncementListParams 公告列表查询参数。
@@ -85,10 +111,27 @@ func (r *announcementRepository) ListPublished(ctx context.Context, platform str
 		Where("platform IN ?", []string{platform, notifymodel.AnnouncementPlatformBoth})
 	// 排除已下线的
 	query = query.Where("offline_at IS NULL")
-	if err := query.Order("publish_at DESC").Find(&items).Error; err != nil {
+	// 置顶优先，其次按发布时间倒序：重要通知必须压过常规公告。
+	if err := query.Order("pinned DESC, publish_at DESC, id DESC").Find(&items).Error; err != nil {
 		return nil, err
 	}
 	return items, nil
+}
+
+// FindPublishedByID 取单条已发布且未下线的公告（门户详情用）。
+// 不存在返回 nil 而不是错误：门户据此判 404，不能把「内容不存在」当成服务故障。
+func (r *announcementRepository) FindPublishedByID(ctx context.Context, id uint64) (*notifymodel.Announcement, error) {
+	var a notifymodel.Announcement
+	err := r.db.WithContext(ctx).
+		Where("id = ? AND status = ? AND offline_at IS NULL", id, notifymodel.AnnouncementPublished).
+		First(&a).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
 }
 
 func (r *announcementRepository) ClearOfflineAt(ctx context.Context, id uint64) error {

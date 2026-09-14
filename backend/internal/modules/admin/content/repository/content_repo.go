@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -46,6 +47,8 @@ type ArticleRepository interface {
 	FindBySlug(ctx context.Context, kind, slug string) (*model.Article, error)
 	// ListPublished 取已发布且未下线的内容，按 pinned DESC, sort_order ASC, publish_at DESC 排序。
 	ListPublished(ctx context.Context, kind string, categoryID uint64, limit int) ([]model.Article, error)
+	// ListPublishedPage 门户公开列表：同 ListPublished 的可见性口径，另带分页与总数。
+	ListPublishedPage(ctx context.Context, kind string, categoryID uint64, page, pageSize int) ([]model.Article, int64, error)
 	// FindPublishedBySlug 取单篇已发布内容；不存在返回 nil（门户据此判 404）。
 	FindPublishedBySlug(ctx context.Context, kind, slug string) (*model.Article, error)
 	// FindPublishedSingleton 取该类型唯一一篇已发布内容（条款/隐私用，这类只应有一篇）。
@@ -55,11 +58,16 @@ type ArticleRepository interface {
 	Create(ctx context.Context, item *model.Article) error
 	Update(ctx context.Context, item *model.Article) error
 	Delete(ctx context.Context, id uint64) error
+	// PublishDue 把 publish_at 已到点、仍处于草稿态的文章置为已发布，返回推进条数。
+	// 定时发布调度器（internal/pkg/publishsched）用它，见该包顶部说明。
+	PublishDue(ctx context.Context, now time.Time) (int64, error)
 }
 
 // CategoryRepository 内容分类数据访问能力。
 type CategoryRepository interface {
 	List(ctx context.Context, q CategoryQuery) ([]model.Category, error)
+	// ListActive 取某类型下全部启用分类（门户按 kind 渲染分栏/目录树）。
+	ListActive(ctx context.Context, kind string) ([]model.Category, error)
 	FindByID(ctx context.Context, id uint64) (*model.Category, error)
 	// FindByIDs 批量取分类名（列表页展示分类名，避免 N+1）。
 	FindByIDs(ctx context.Context, ids []uint64) (map[uint64]model.Category, error)
@@ -139,7 +147,11 @@ func (r *articleRepository) FindBySlug(ctx context.Context, kind, slug string) (
 	return &item, nil
 }
 
-func (r *articleRepository) ListPublished(ctx context.Context, kind string, categoryID uint64, limit int) ([]model.Article, error) {
+// publishedBase 门户可见性口径的公共查询：已发布 + 未下线。
+//
+// 抽出来是为了让「取列表」和「取总数」不可能漂移 —— 两处各写一遍 WHERE，
+// 将来改可见性规则时漏改一处就会让门户把草稿算进总数。
+func (r *articleRepository) publishedBase(ctx context.Context, kind string, categoryID uint64) *gorm.DB {
 	q := r.db.WithContext(ctx).Model(&model.Article{}).
 		Where("status = ?", model.StatusPublished).
 		Where("offline_at IS NULL")
@@ -149,14 +161,38 @@ func (r *articleRepository) ListPublished(ctx context.Context, kind string, cate
 	if categoryID > 0 {
 		q = q.Where("category_id = ?", categoryID)
 	}
+	return q
+}
+
+// publishedOrder 公开列表排序：置顶 → 人工排序 → 发布时间。
+const publishedOrder = "pinned DESC, sort_order ASC, publish_at DESC, id DESC"
+
+func (r *articleRepository) ListPublished(ctx context.Context, kind string, categoryID uint64, limit int) ([]model.Article, error) {
+	q := r.publishedBase(ctx, kind, categoryID)
 	if limit > 0 {
 		q = q.Limit(limit)
 	}
 	var items []model.Article
-	if err := q.Order("pinned DESC, sort_order ASC, publish_at DESC, id DESC").Find(&items).Error; err != nil {
+	if err := q.Order(publishedOrder).Find(&items).Error; err != nil {
 		return nil, err
 	}
 	return items, nil
+}
+
+func (r *articleRepository) ListPublishedPage(ctx context.Context, kind string, categoryID uint64, page, pageSize int) ([]model.Article, int64, error) {
+	var total int64
+	if err := r.publishedBase(ctx, kind, categoryID).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	page, pageSize = normalizePage(page, pageSize)
+	var items []model.Article
+	if err := r.publishedBase(ctx, kind, categoryID).
+		Order(publishedOrder).
+		Offset((page - 1) * pageSize).Limit(pageSize).
+		Find(&items).Error; err != nil {
+		return nil, 0, err
+	}
+	return items, total, nil
 }
 
 func (r *articleRepository) FindPublishedBySlug(ctx context.Context, kind, slug string) (*model.Article, error) {
@@ -214,6 +250,24 @@ func (r *articleRepository) Delete(ctx context.Context, id uint64) error {
 	return r.db.WithContext(ctx).Delete(&model.Article{}, id).Error
 }
 
+// PublishDue 批量推进到点的草稿文章。
+//
+// 只挑 status=draft 且 publish_at 非空且已到点的行：已发布的内容不重发（避免把
+// 「手动下线」的内容下一轮又发出来），已下线的也不动。
+func (r *articleRepository) PublishDue(ctx context.Context, now time.Time) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&model.Article{}).
+		Where("status = ?", model.StatusDraft).
+		Where("publish_at IS NOT NULL AND publish_at <= ?", now).
+		Updates(map[string]any{
+			"status":     model.StatusPublished,
+			"offline_at": nil,
+		})
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	return res.RowsAffected, nil
+}
+
 /* ----------------------------- 分类 ----------------------------- */
 
 type categoryRepository struct{ db *gorm.DB }
@@ -244,6 +298,18 @@ func (r *categoryRepository) FindByID(ctx context.Context, id uint64) (*model.Ca
 		return nil, err
 	}
 	return &item, nil
+}
+
+func (r *categoryRepository) ListActive(ctx context.Context, kind string) ([]model.Category, error) {
+	base := r.db.WithContext(ctx).Model(&model.Category{}).Where("status = ?", model.CategoryStatusActive)
+	if kind != "" {
+		base = base.Where("kind = ?", kind)
+	}
+	var items []model.Category
+	if err := base.Order("parent_id ASC, sort_order ASC, id ASC").Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func (r *categoryRepository) FindByIDs(ctx context.Context, ids []uint64) (map[uint64]model.Category, error) {

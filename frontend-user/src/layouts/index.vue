@@ -66,15 +66,9 @@
             </button>
           </t-tooltip>
 
-          <t-tooltip content="提交工单" placement="bottom">
-            <button class="icon-btn" aria-label="提交工单" @click="router.push('/support/tickets')">
+          <t-tooltip content="帮助中心（官网）" placement="bottom">
+            <button class="icon-btn" aria-label="帮助中心" @click="onHelpEntry">
               <HelpCircleIcon size="18" />
-            </button>
-          </t-tooltip>
-
-          <t-tooltip content="地区与语言" placement="bottom">
-            <button class="icon-btn" aria-label="地区与语言" @click="onRegionClick">
-              <EarthIcon size="18" />
             </button>
           </t-tooltip>
 
@@ -146,38 +140,41 @@
     <!-- 主题设置抽屉 -->
     <SettingsPanel v-model:visible="settingsVisible" />
 
-    <!-- 右侧漂浮浮窗 -->
+    <!-- 右侧漂浮浮窗：只放真实可用的入口，不做「智能助手」这类没有后端的假面板 -->
     <div class="float-dock" :class="{ 'is-open': dockOpen }">
       <transition name="dock-pop">
         <div v-if="dockPanelOpen" class="dock-assistant">
           <div class="dock-assistant__head">
             <span class="dock-assistant__badge">
-              <span class="dock-face dock-face--sm">
-                <i class="dock-face__eye"></i>
-                <i class="dock-face__eye"></i>
-                <i class="dock-face__mouth"></i>
-              </span>
+              <BookIcon size="17" />
             </span>
             <div class="dock-assistant__meta">
-              <strong>智能助手</strong>
-              <span>在线 · 随时为你解答</span>
+              <strong>帮助与支持</strong>
+              <span>先查文档，也可以直接联系我们</span>
             </div>
             <button class="dock-assistant__close" aria-label="关闭" @click="dockPanelOpen = false">
               <CloseIcon size="15" />
             </button>
           </div>
           <div class="dock-assistant__body">
-            <p>你好，我是{{ brandStore.name }}智能助手，可以帮你查资源、看账单、找文档。</p>
             <div class="dock-assistant__quick">
               <button
-                v-for="q in dockQuick"
-                :key="q"
+                v-for="e in dockQuick"
+                :key="e.label"
                 class="dock-quick"
-                @click="onDockQuick(q)"
+                @click="onDockAction(e)"
               >
-                {{ q }}
+                {{ e.label }}
               </button>
             </div>
+            <p v-if="brandStore.contactPhone" class="dock-contact">
+              客服热线
+              <a :href="`tel:${brandStore.contactPhone}`">{{ brandStore.contactPhone }}</a>
+            </p>
+            <p v-if="brandStore.contactEmail" class="dock-contact">
+              邮箱
+              <a :href="`mailto:${brandStore.contactEmail}`">{{ brandStore.contactEmail }}</a>
+            </p>
           </div>
         </div>
       </transition>
@@ -185,15 +182,11 @@
       <div class="dock-actions">
         <button
           class="dock-btn dock-btn--ai"
-          :aria-label="dockPanelOpen ? '收起智能助手' : '打开智能助手'"
-          title="智能助手"
+          :aria-label="dockPanelOpen ? '收起帮助面板' : '打开帮助面板'"
+          title="帮助与支持"
           @click="toggleDockPanel"
         >
-          <span class="dock-face">
-            <i class="dock-face__eye"></i>
-            <i class="dock-face__eye"></i>
-            <i class="dock-face__mouth"></i>
-          </span>
+          <BookIcon size="19" />
         </button>
 
         <button
@@ -212,41 +205,47 @@
           :aria-label="dockOpen ? '收起浮窗' : '展开浮窗'"
           @click="dockOpen = !dockOpen"
         >
-          <ChevronRightIcon v-if="dockOpen" size="19" />
-          <ChevronLeftIcon v-else size="19" />
+        <ChevronRightIcon v-if="dockOpen" size="19" />
+        <ChevronLeftIcon v-else size="19" />
         </button>
       </div>
     </div>
+
+    <!-- 公告弹窗（doc100 Q12）：挂布局上，登录后任意页面进来都会检查一次 -->
+    <AnnouncementPopup />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, type Component } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import {
   BookIcon,
   CartIcon,
-  ChatBubbleIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   CloseIcon,
   ContrastIcon,
-  EarthIcon,
   GridViewIcon,
   HelpCircleIcon,
   MailIcon,
   MenuUnfoldIcon,
   SearchIcon,
+  ServerIcon,
   ServiceIcon,
+  WalletIcon,
 } from 'tdesign-icons-vue-next'
 
 import { useMenuStore, useUserStore, useSettingsStore, useCartStore, useBrandStore } from '@/store'
 import { useMemberStore } from '@/store/modules/member'
 import { getUnreadCount } from '@/api/notification'
+import { openSite } from '@/utils/site'
+import { recordRecentPage } from '@/utils/recent'
 import ProductMenu from '@/components/product-menu/index.vue'
 import SideNav from '@/components/side-nav/index.vue'
 import SettingsPanel from '@/components/settings-panel/index.vue'
+import AnnouncementPopup from '@/components/announcement-popup/index.vue'
 
 defineOptions({ name: 'UserLayout' })
 
@@ -299,21 +298,20 @@ function onHeaderSearch() {
 const userName = computed(() => userStore.displayName || '用户')
 const userInitial = computed(() => (userStore.displayName || '用').slice(0, 1).toUpperCase())
 
-function onRegionClick() {
-  MessagePlugin.info('地区与语言设置开发中')
-}
-
 // ========== 官网门户入口 ==========
 // user 是已登录控制台，官网是另一个独立站点（site，Nuxt SSR，默认 3003）。
+// 帮助文档/新闻/条款都只在门户维护，这里一律外链过去，不在控制台重复实现一份。
 // 未配置 VITE_SITE_URL 时只提示，不做跳转 —— 硬编码一个可能不存在的地址比不跳更糟。
-const siteUrl = import.meta.env.VITE_SITE_URL || ''
-
 function onSiteEntry() {
-  if (!siteUrl) {
-    MessagePlugin.info('官网地址未配置（VITE_SITE_URL）')
-    return
+  if (!openSite('/')) {
+    MessagePlugin.info('官网地址未配置，请联系管理员设置 VITE_SITE_URL')
   }
-  window.open(siteUrl, '_blank', 'noopener')
+}
+
+function onHelpEntry() {
+  if (!openSite('/help')) {
+    MessagePlugin.info('官网地址未配置，请联系管理员设置 VITE_SITE_URL')
+  }
 }
 
 // ========== 未读消息 / 购物车角标 ==========
@@ -381,16 +379,32 @@ function handleLogout() {
 }
 
 // ========== 右侧漂浮浮窗 ==========
+// 只保留能真实到达的入口：原先的「在线客服/在线咨询」没有任何后端（客服台/IM 都没建），
+// 点了只会弹「开发中」，属于 §7 E9 的假入口，这里直接去掉，改成门户帮助中心与工单。
 const dockOpen = ref(true)
 const dockPanelOpen = ref(false)
 
-const dockItems = [
-  { key: 'service', label: '在线客服', icon: ServiceIcon },
-  { key: 'chat', label: '在线咨询', icon: ChatBubbleIcon },
+interface DockItem {
+  key: string
+  label: string
+  icon: Component
+}
+
+const dockItems: DockItem[] = [
+  { key: 'ticket', label: '提交工单', icon: ServiceIcon },
   { key: 'doc', label: '帮助文档', icon: BookIcon },
+  { key: 'messages', label: '我的消息', icon: MailIcon },
 ]
 
-const dockQuick = ['云主机怎么选型？', '如何查看账单？', '提交工单']
+const dockQuick = computed(() => {
+  const items: DockItem[] = [
+    { key: 'ticket', label: '提交工单', icon: ServiceIcon },
+    { key: 'doc', label: '帮助文档', icon: BookIcon },
+    { key: 'billing', label: '费用与账单', icon: WalletIcon },
+    { key: 'instances', label: '我的云主机', icon: ServerIcon },
+  ]
+  return items
+})
 
 function toggleDockPanel() {
   dockPanelOpen.value = !dockPanelOpen.value
@@ -398,15 +412,25 @@ function toggleDockPanel() {
 }
 
 function onDockAction(item: { key: string; label: string }) {
-  if (item.key === 'doc') {
-    router.push('/support')
-    return
+  switch (item.key) {
+    case 'doc':
+      onHelpEntry()
+      return
+    case 'ticket':
+      router.push('/support/tickets/create')
+      return
+    case 'messages':
+      router.push('/profile/messages')
+      return
+    case 'billing':
+      router.push('/billing')
+      return
+    case 'instances':
+      router.push('/cloud/instances')
+      return
+    default:
+      router.push('/support/tickets')
   }
-  MessagePlugin.info(`${item.label}开发中`)
-}
-
-function onDockQuick(question: string) {
-  MessagePlugin.info(`智能助手：${question}`)
 }
 
 // ========== 初始化 ==========
@@ -428,11 +452,17 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', checkMobile)
 })
 
-// 路由切换后收起移动端抽屉
-watch(() => route.path, () => {
-  if (isMobile.value) sideNavOpen.value = false
-  closeUserMenu()
-})
+// 路由切换后收起移动端抽屉，并记录「最近访问」。
+// 记录放在布局而不是各页面里：页面作者不需要记得调它，新页面自动被记录。
+watch(
+  () => route.path,
+  () => {
+    if (isMobile.value) sideNavOpen.value = false
+    closeUserMenu()
+    recordRecentPage(route.path, String(route.meta?.title || ''))
+  },
+  { immediate: true },
+)
 </script>
 
 <style scoped>
@@ -993,50 +1023,7 @@ watch(() => route.path, () => {
   overflow: hidden;
 }
 
-/* 卡通表情 */
-.dock-face {
-  position: relative;
-  display: block;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.92);
-}
-
-.dock-face--sm {
-  width: 22px;
-  height: 22px;
-}
-
-.dock-face__eye {
-  position: absolute;
-  top: 34%;
-  width: 4px;
-  height: 6px;
-  border-radius: 50%;
-  background: #6d28d9;
-}
-
-.dock-face__eye:first-child {
-  left: 27%;
-}
-
-.dock-face__eye:nth-child(2) {
-  right: 27%;
-}
-
-.dock-face__mouth {
-  position: absolute;
-  left: 50%;
-  bottom: 24%;
-  width: 10px;
-  height: 5px;
-  transform: translateX(-50%);
-  border-bottom: 2px solid #6d28d9;
-  border-radius: 0 0 8px 8px;
-}
-
-/* 智能助手面板 */
+/* 帮助面板 */
 .dock-assistant {
   width: 260px;
   border-radius: 14px;
@@ -1113,6 +1100,22 @@ watch(() => route.path, () => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+/* 客服联系方式（配置了才渲染） */
+.dock-contact {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.dock-contact a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.dock-contact a:hover {
+  text-decoration: underline;
 }
 
 .dock-quick {

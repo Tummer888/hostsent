@@ -10,8 +10,12 @@ export const announcementWireSchema = z.object({
   id: z.number().int().nonnegative(),
   title: z.string().min(1),
   content: z.string().default(''),
+  // html 表示服务端已净化的富文本，可直接 v-html；text 是存量纯文本，必须按文本节点输出。
+  // 早期公告没有这个字段，缺失时按 text 处理 —— 那些内容确实是纯文本。
+  body_format: z.string().default('text'),
   level: z.string().default('info'),
   popup: z.boolean().default(false),
+  pinned: z.boolean().default(false),
   publish_at: z.string().default(''),
 })
 
@@ -25,8 +29,11 @@ export interface Announcement {
   id: number
   title: string
   content: string
+  /** true 表示 content 是已净化的 HTML；false 表示纯文本，渲染时不做 HTML 解析。 */
+  isHtml: boolean
   level: AnnouncementLevel
   popup: boolean
+  pinned: boolean
   /** 原始时间串（`2006-01-02 15:04:05`），展示格式化见 `formatAnnouncementDate`。 */
   publishedAt: string
 }
@@ -70,8 +77,10 @@ export function parseAnnouncement(raw: unknown): Announcement | null {
     id: wire.id,
     title: wire.title,
     content: wire.content,
+    isHtml: wire.body_format === 'html',
     level: normalizeLevel(wire.level),
     popup: wire.popup,
+    pinned: wire.pinned,
     publishedAt: wire.publish_at,
   }
 }

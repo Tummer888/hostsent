@@ -5,6 +5,7 @@ import type { Pinia } from 'pinia'
 export { useUserStore } from './modules/user'
 export { useMenuStore } from './modules/menu'
 export { useSettingsStore } from './modules/settings'
+export { useBrandStore } from './modules/brand'
 
 export const pinia: Pinia = createPinia()
 pinia.use(piniaPluginPersistedstate)

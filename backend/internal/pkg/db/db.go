@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	contentmodel "hostsent/backend/internal/modules/admin/content/model"
 	finaccountmodel "hostsent/backend/internal/modules/admin/finance/account/model"
 	finbillmodel "hostsent/backend/internal/modules/admin/finance/bill/model"
 	finrechmodel "hostsent/backend/internal/modules/admin/finance/recharge/model"
@@ -217,6 +218,11 @@ func AutoMigrate(db *gorm.DB) error {
 		&logcentermodel.LogRetentionPolicy{},
 		&logcentermodel.LogExportFile{},
 		&logcentermodel.LogCleanupJob{},
+		// 内容中心（doc100，迁移 044）：新闻/帮助/条款/隐私四类共用 content_articles，
+		// 分类树与友情链接独立成表；公告仍走 notifymodel.Announcement（已增补 pinned/slug/body_format）。
+		&contentmodel.Article{},
+		&contentmodel.Category{},
+		&contentmodel.FriendlyLink{},
 	); err != nil {
 		return err
 	}
@@ -724,11 +730,36 @@ func seedSystemConfigs(tx *gorm.DB) error {
 		{ConfigKey: "site.license_no", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "增值电信业务经营许可证号", SortOrder: 7, Status: systemmodel.StatusActive},
 		{ConfigKey: "site.license_org", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "代理域名注册服务机构", SortOrder: 8, Status: systemmodel.StatusActive},
 		{ConfigKey: "site.public_security", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "公网安备号", SortOrder: 9, Status: systemmodel.StatusActive},
-		{ConfigKey: "site.contact_phone", ConfigValue: "400-800-1234", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "客服电话", SortOrder: 10, Status: systemmodel.StatusActive},
-		{ConfigKey: "site.contact_email", ConfigValue: "support@hostsent.com", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "客服邮箱", SortOrder: 11, Status: systemmodel.StatusActive},
+		{ConfigKey: "site.contact_phone", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "客服电话（留空则官网不展示热线）", SortOrder: 10, Status: systemmodel.StatusActive},
+		{ConfigKey: "site.contact_email", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "客服邮箱（留空则官网不展示邮箱）", SortOrder: 11, Status: systemmodel.StatusActive},
 		{ConfigKey: "site.contact_address", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "联系地址", SortOrder: 12, Status: systemmodel.StatusActive},
 		{ConfigKey: "theme.primary_color", ConfigValue: "#2b5cff", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "官网主题色（#RRGGBB）", SortOrder: 13, Status: systemmodel.StatusActive},
 		{ConfigKey: "theme.radius", ConfigValue: "10px", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "官网圆角（如 10px）", SortOrder: 14, Status: systemmodel.StatusActive},
+		// 首页文案（doc100 §8.2 P1-2 补齐）：这 15 个键此前只在公开白名单里，没落库，
+		// 导致「首页文案可配置」实际是空谈 —— 后台改不到、公开接口也读不到值。
+		// 值刻意留空/与前端 DEFAULT_SITE_CONTENT 一致：留空表示「用代码默认值」，
+		// 一旦运营填写即以库中值为准（前端 resolveSiteContent 逐字段回落）。
+		{ConfigKey: "home.hero_title", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "首页主标题（留空用默认文案）", SortOrder: 20, Status: systemmodel.StatusActive},
+		{ConfigKey: "home.hero_subtitle", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "首页副标题", SortOrder: 21, Status: systemmodel.StatusActive},
+		{ConfigKey: "home.hero_image", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "首页主视觉图地址", SortOrder: 22, Status: systemmodel.StatusActive},
+		{ConfigKey: "home.hero_primary_cta", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "主按钮文案", SortOrder: 23, Status: systemmodel.StatusActive},
+		{ConfigKey: "home.hero_primary_link", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "主按钮链接", SortOrder: 24, Status: systemmodel.StatusActive},
+		{ConfigKey: "home.hero_secondary_cta", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "次按钮文案", SortOrder: 25, Status: systemmodel.StatusActive},
+		{ConfigKey: "home.hero_secondary_link", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "次按钮链接", SortOrder: 26, Status: systemmodel.StatusActive},
+		{ConfigKey: "home.features_title", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "产品优势区块标题", SortOrder: 27, Status: systemmodel.StatusActive},
+		{ConfigKey: "home.features", ConfigValue: "", ValueType: systemmodel.ValueTypeJSON, Group: systemmodel.ConfigGroupSite, Description: `产品优势卡片 JSON：[{"icon","title","desc"}]，留空用默认`, SortOrder: 28, Status: systemmodel.StatusActive},
+		{ConfigKey: "home.cta_title", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "底部行动区标题", SortOrder: 29, Status: systemmodel.StatusActive},
+		{ConfigKey: "home.cta_desc", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "底部行动区描述", SortOrder: 30, Status: systemmodel.StatusActive},
+		{ConfigKey: "home.featured_title", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "推荐商品区块标题", SortOrder: 31, Status: systemmodel.StatusActive},
+		{ConfigKey: "home.featured_limit", ConfigValue: "6", ValueType: systemmodel.ValueTypeInt, Group: systemmodel.ConfigGroupSite, Description: "推荐商品展示数量", SortOrder: 32, Status: systemmodel.StatusActive},
+		{ConfigKey: "home.announce_title", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "公告区块标题", SortOrder: 33, Status: systemmodel.StatusActive},
+		{ConfigKey: "home.announce_limit", ConfigValue: "5", ValueType: systemmodel.ValueTypeInt, Group: systemmodel.ConfigGroupSite, Description: "公告区块展示数量", SortOrder: 34, Status: systemmodel.StatusActive},
+		// 页脚配置化（doc100 §8.2）：此前页脚栏目/服务承诺/社交按钮是 AppFooter.vue 的模块级常量，运营改不动。
+		// JSON 键留空 = 用前端代码默认值，保证「配置没写」与「页面塌掉」不是一回事。
+		{ConfigKey: "site.footer_columns", ConfigValue: "", ValueType: systemmodel.ValueTypeJSON, Group: systemmodel.ConfigGroupSite, Description: `页脚栏目 JSON：[{"title","links":[{"label","to"}]}]，留空用默认`, SortOrder: 40, Status: systemmodel.StatusActive},
+		{ConfigKey: "site.footer_promises", ConfigValue: "", ValueType: systemmodel.ValueTypeJSON, Group: systemmodel.ConfigGroupSite, Description: `服务保障条 JSON：[{"icon","title","desc"}]，留空用默认`, SortOrder: 41, Status: systemmodel.StatusActive},
+		{ConfigKey: "site.footer_socials", ConfigValue: "", ValueType: systemmodel.ValueTypeJSON, Group: systemmodel.ConfigGroupSite, Description: `社交按钮 JSON：[{"label","icon","url"}]，url 须为 http(s) 地址，留空用默认`, SortOrder: 42, Status: systemmodel.StatusActive},
+		{ConfigKey: "site.footer_legal_line", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "页脚法律行补充文案（留空则不渲染）", SortOrder: 43, Status: systemmodel.StatusActive},
 		{ConfigKey: "default_billing_cycle", ConfigValue: "monthly", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupBilling, Description: "默认计费周期", SortOrder: 1, Status: systemmodel.StatusActive},
 		{ConfigKey: "enable_user_register", ConfigValue: "true", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupFeature, Description: "是否开放用户注册", SortOrder: 1, Status: systemmodel.StatusActive},
 		{ConfigKey: "enable_mfa_required", ConfigValue: "false", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupSecurity, Description: "是否强制管理员开启MFA", SortOrder: 1, Status: systemmodel.StatusActive},
@@ -1024,6 +1055,20 @@ func seedPermissions(tx *gorm.DB) error {
 		{ParentCode: "log:center", Name: "日志导出", Code: "log:export", Type: "button", SortOrder: 1, Status: "active"},
 		{ParentCode: "log:center", Name: "日志清理", Code: "log:cleanup", Type: "button", SortOrder: 2, Status: "active"},
 		{ParentCode: "log:center", Name: "保留策略", Code: "log:policy", Type: "menu", SortOrder: 3, Status: "active"},
+
+		// —— doc100 §7.2：内容中心（新闻/帮助/条款/隐私/分类/友情链接/页脚）——
+		// 内容直接影响公网门户，与日志中心同级：默认只给超管与运营。
+		{Name: "内容管理", Code: "content", Type: "catalog", SortOrder: 16, Status: "active"},
+		{ParentCode: "content", Name: "内容文章", Code: "content:article:list", Type: "menu", SortOrder: 1, Status: "active"},
+		{ParentCode: "content:article:list", Name: "编辑发布内容", Code: "content:article:manage", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "content", Name: "内容分类", Code: "content:category:list", Type: "menu", SortOrder: 2, Status: "active"},
+		{ParentCode: "content:category:list", Name: "管理内容分类", Code: "content:category:manage", Type: "button", SortOrder: 1, Status: "active"},
+		{ParentCode: "content", Name: "友情链接", Code: "content:link:list", Type: "menu", SortOrder: 3, Status: "active"},
+		{ParentCode: "content:link:list", Name: "管理友情链接", Code: "content:link:manage", Type: "button", SortOrder: 1, Status: "active"},
+		// 页脚配置没有独立页面：四个 site.footer_* 键在「系统管理 → 系统配置 → 页脚」
+		// 分组里编辑，权限沿用 system:config:*。此前这里留了一对 content:footer:*
+		// 权限码，却没有任何路由、按钮或菜单引用它 —— 既等不到赋值也从不生效的权限，
+		// 只会让配权限的人以为自己控制了什么。故不再 seed，见迁移 048。
 	}
 
 	permissionMap := make(map[string]uint64)
@@ -1158,6 +1203,14 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"notify:sms-template:manage",
 			"notify:broadcast",
 			"notify:delivery",
+			// 内容中心（doc100 §7.2）：超管全量
+			"content",
+			"content:article:list",
+			"content:article:manage",
+			"content:category:list",
+			"content:category:manage",
+			"content:link:list",
+			"content:link:manage",
 			// 推广邀请返现权限
 			"referral",
 			"referral:cashback:list",
@@ -1630,13 +1683,28 @@ func seedMenus(tx *gorm.DB) error {
 		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "消息群发", Type: menumodel.TypeMenu, Path: "/notification/broadcast", Component: "notification/broadcast/index", Icon: "send", SortOrder: 5, Status: menumodel.StatusActive},
 		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "发送日志", Type: menumodel.TypeMenu, Path: "/notification/deliveries", Component: "notification/deliveries/index", Icon: "root-list", SortOrder: 6, Status: menumodel.StatusActive},
 
+		// —— 内容管理（doc100 §7.1，admin 平台 SortOrder=16）
+		// 公告管理仍留在「系统管理 → 安全审计 → 公告管理」，避免动已有权限与用户肌肉记忆；
+		// 这里只收拢门户侧内容（新闻/帮助/条款/隐私/分类/友情链接/页脚）。
+		{Platform: menumodel.PlatformAdmin, Name: "内容管理", Type: menumodel.TypeDirectory, Path: "/content", Icon: "file", SortOrder: 16, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/content", Platform: menumodel.PlatformAdmin, Name: "内容文章", Type: menumodel.TypeMenu, Path: "/content/articles", Component: "content/articles/index", Icon: "file", SortOrder: 1, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/content", Platform: menumodel.PlatformAdmin, Name: "内容分类", Type: menumodel.TypeMenu, Path: "/content/categories", Component: "content/categories/index", Icon: "folder", SortOrder: 2, Status: menumodel.StatusActive},
+		{ParentKey: "admin:/content", Platform: menumodel.PlatformAdmin, Name: "友情链接", Type: menumodel.TypeMenu, Path: "/content/links", Component: "content/links/index", Icon: "link", SortOrder: 3, Status: menumodel.StatusActive},
+		// 公告管理不在此重复挂载：seedMenus 的幂等键是 (platform, path)，同一 path 再写一次
+		// 会把既有菜单从「系统管理 → 安全审计」搬到内容管理下（父级被覆盖）。
+		// 页脚配置也不需要独立页面：页脚键是系统配置，在既有「系统管理 → 系统配置」里编辑。
+
 		// —— 用户中心菜单（platform=user）
 		// 顺序即侧边栏一级顺序：控制台 → 云产品 → 选购 → 订单 → 费用 → 积分 → 工单 → 成员 → 个人 → 推广。
 		// 注意：/shop 与 /member 原先只有前端路由、没有 seed，导致控制台里点不到交易主入口与成员管理。
 		{Platform: menumodel.PlatformUser, Name: "控制台", Type: menumodel.TypeMenu, Path: "/dashboard", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
 		{Platform: menumodel.PlatformUser, Name: "云产品", Type: menumodel.TypeDirectory, Path: "/cloud", Icon: "cloud", SortOrder: 2, Status: menumodel.StatusActive},
 		{ParentKey: "user:/cloud", Platform: menumodel.PlatformUser, Name: "我的云主机", Type: menumodel.TypeMenu, Path: "/cloud/instances", Icon: "server", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "user:/cloud", Platform: menumodel.PlatformUser, Name: "镜像管理", Type: menumodel.TypeMenu, Path: "/cloud/images", Icon: "layers", SortOrder: 2, Status: menumodel.StatusActive},
+		// 镜像管理暂不开放：管理端还没有镜像主数据模块（open 侧 ListImages 是「聚合在售 SKU 的
+		// os 原子」的临时方案，不是镜像主数据），用户侧开放只会给出空壳。保留记录但置 disabled，
+		// 既有库里已被启用过的同 path 记录会在种子幂等分支里被改回 disabled；待管理侧建好镜像
+		// 主数据后改回 active 即可，路由与页面无需重建。
+		{ParentKey: "user:/cloud", Platform: menumodel.PlatformUser, Name: "镜像管理", Type: menumodel.TypeMenu, Path: "/cloud/images", Icon: "layers", SortOrder: 2, Status: menumodel.StatusDisabled},
 		{ParentKey: "user:/cloud", Platform: menumodel.PlatformUser, Name: "续费管理", Type: menumodel.TypeMenu, Path: "/cloud/renewals", Icon: "refresh", SortOrder: 3, Status: menumodel.StatusActive},
 		// 选购与购物车：官网「立即选购」落点，也是交易主入口。
 		{Platform: menumodel.PlatformUser, Name: "云主机选购", Type: menumodel.TypeMenu, Path: "/shop", Icon: "cart", SortOrder: 3, Status: menumodel.StatusActive},

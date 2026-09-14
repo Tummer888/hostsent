@@ -8,7 +8,7 @@ export default defineNuxtConfig({
   // 与后端一致的容器部署方式（SWR 依赖 Node 进程，不能用纯静态托管）
   nitro: { preset: 'node-server' },
 
-  css: ['~/assets/css/main.css'],
+  css: ['~/assets/css/main.css', '~/assets/css/content.css'],
 
   runtimeConfig: {
     // 仅服务端可见：Phase 3 调用内部 revalidate 接口用
@@ -27,7 +27,7 @@ export default defineNuxtConfig({
   // 开发端口固定为 3003，与 scripts/start-frontends.sh 保持一致
   devServer: { port: 3003, host: '0.0.0.0' },
 
-  // 缓存策略：只对公开营销页启用 SWR；含用户态路径一律 no-store
+  // 缓存策略：只对公开营销页与内容页启用 SWR；含用户态路径一律 no-store
   routeRules: {
     '/': {
       swr: 300,
@@ -36,6 +36,28 @@ export default defineNuxtConfig({
     '/products/**': {
       swr: 900,
       headers: { 'cache-control': 'public, s-maxage=900, stale-while-revalidate=3600' },
+    },
+    // 内容页是自然流量的主要来源（doc100 Q9）：交给 SWR 扛住爬虫，TTL 取后端同级
+    '/news/**': {
+      swr: 300,
+      headers: { 'cache-control': 'public, s-maxage=300, stale-while-revalidate=900' },
+    },
+    '/help/**': {
+      swr: 600,
+      headers: { 'cache-control': 'public, s-maxage=600, stale-while-revalidate=1800' },
+    },
+    '/announcements/**': {
+      swr: 300,
+      headers: { 'cache-control': 'public, s-maxage=300, stale-while-revalidate=900' },
+    },
+    // 条款/隐私是法律文本，改动频率极低，缓存可以更长
+    '/terms': {
+      swr: 600,
+      headers: { 'cache-control': 'public, s-maxage=600, stale-while-revalidate=1800' },
+    },
+    '/privacy': {
+      swr: 600,
+      headers: { 'cache-control': 'public, s-maxage=600, stale-while-revalidate=1800' },
     },
     '/campaign/**': {
       // 活动页时间敏感：短 TTL + 活动起止时刻主动 purge

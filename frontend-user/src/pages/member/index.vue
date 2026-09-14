@@ -1,6 +1,6 @@
 <template>
   <div class="member-layout">
-    <!-- ============ 左侧分组导航 ============ -->
+    <!-- ============ 左侧导航 ============ -->
     <aside class="member-sider">
       <button
         class="sider-item"
@@ -10,63 +10,17 @@
         <DashboardIcon size="16" />
         <span>概览</span>
       </button>
-
-      <div class="sider-group">
-        <button
-          class="sider-item sider-item--group"
-          :class="{ 'is-active': view === 'members' }"
-          @click="groupOpen ? null : (groupOpen = true)"
-        >
-          <UserIcon size="16" />
-          <span>用户管理</span>
-          <ChevronDownIcon v-if="groupOpen" size="14" class="sider-arrow" />
-          <ChevronRightIcon v-else size="14" class="sider-arrow" />
-        </button>
-        <div v-show="groupOpen" class="sider-sub">
-          <button
-            class="sider-item sider-item--sub"
-            :class="{ 'is-active': view === 'members' }"
-            @click="switchView('members')"
-          >
-            <span>子用户</span>
-          </button>
-          <button class="sider-item sider-item--sub" @click="onDevelop('消息接收人')">
-            <span>消息接收人</span>
-          </button>
-        </div>
-      </div>
-
-      <button class="sider-item" @click="onDevelop('组管理')">
-        <FolderIcon size="16" />
-        <span>组管理</span>
+      <button
+        class="sider-item"
+        :class="{ 'is-active': view === 'members' }"
+        @click="switchView('members')"
+      >
+        <UserIcon size="16" />
+        <span>子用户</span>
       </button>
-      <button class="sider-item" @click="onDevelop('策略管理')">
-        <SecuredIcon size="16" />
-        <span>策略管理</span>
-      </button>
-      <button class="sider-item" @click="onDevelop('角色管理')">
-        <UsergroupIcon size="16" />
-        <span>角色管理</span>
-      </button>
-      <button class="sider-item" @click="onDevelop('外部账号接入')">
-        <LinkIcon size="16" />
-        <span>外部账号接入</span>
-      </button>
-      <button class="sider-item" @click="onDevelop('操作记录')">
+      <button class="sider-item" @click="openAccountLogs">
         <TimeIcon size="16" />
         <span>操作记录</span>
-      </button>
-      <button class="sider-item" @click="onDevelop('密钥报告')">
-        <KeyIcon size="16" />
-        <span>密钥报告</span>
-      </button>
-      <button class="sider-item" @click="onDevelop('设置')">
-        <SettingIcon size="16" />
-        <span>设置</span>
-      </button>
-      <button class="sider-item" @click="onDevelop('异常行为分析')">
-        <ChartBarIcon size="16" />
-        <span>异常行为分析</span>
       </button>
     </aside>
 
@@ -75,7 +29,7 @@
       <div class="breadcrumb">
         <span>用户中心</span>
         <span class="breadcrumb__sep">/</span>
-        <span class="breadcrumb__current">{{ view === 'overview' ? '概览' : '子用户' }}</span>
+        <span class="breadcrumb__current">{{ pageTitle }}</span>
       </div>
 
       <!-- ---------- 概览 ---------- -->
@@ -85,19 +39,19 @@
         <section class="stat-grid">
           <div class="stat-card">
             <span class="stat-value">{{ pagination.total }}</span>
-            <span class="stat-label">用户数</span>
+            <span class="stat-label">子用户数</span>
           </div>
           <div class="stat-card">
-            <span class="stat-value">0</span>
-            <span class="stat-label">用户组</span>
+            <span class="stat-value">{{ maxSubAccounts > 0 ? maxSubAccounts : '不限' }}</span>
+            <span class="stat-label">子用户上限</span>
           </div>
           <div class="stat-card">
-            <span class="stat-value">0</span>
-            <span class="stat-label">自定义权限策略</span>
+            <span class="stat-value">{{ enabledCount }}</span>
+            <span class="stat-label">已启用</span>
           </div>
           <div class="stat-card">
-            <span class="stat-value">0</span>
-            <span class="stat-label">角色数</span>
+            <span class="stat-value">{{ disabledCount }}</span>
+            <span class="stat-label">已禁用</span>
           </div>
         </section>
 
@@ -108,16 +62,13 @@
               <div class="panel-head">
                 <h3 class="panel-title">子用户登录</h3>
               </div>
+              <p class="panel-desc">
+                子用户使用主账号创建时设定的用户名与密码，在此地址登录。子账号共用主账号的实例、订单与账单。
+              </p>
               <div class="login-row">
                 <span class="login-row__label">登录链接：</span>
                 <span class="login-row__value">{{ loginUrl }}</span>
                 <CopyIcon class="copy-icon" @click="copyText(loginUrl, '登录链接已复制')" />
-              </div>
-              <div class="login-row">
-                <span class="login-row__label">账户别名：</span>
-                <span class="login-row__value">{{ userStore.userInfo?.username || '-' }}</span>
-                <HelpCircleIcon class="help-icon" />
-                <t-link theme="primary" hover="color" @click="onDevelop('账户别名设置')">编辑</t-link>
               </div>
             </section>
 
@@ -137,50 +88,54 @@
                   </span>
                 </li>
               </ul>
+              <p class="guide-foot">
+                主账号自身的 MFA、登录保护与手机/邮箱绑定在
+                <t-link theme="primary" hover="color" @click="go('/profile/security')">安全设置</t-link>
+                中管理。
+              </p>
             </section>
           </div>
 
           <div class="overview-right">
-            <!-- 快捷访问入口 -->
+            <!-- 常用入口 -->
             <section class="panel">
               <div class="panel-head">
-                <h3 class="panel-title">快捷访问入口</h3>
+                <h3 class="panel-title">常用入口</h3>
               </div>
               <div class="quick-grid">
                 <button class="quick-btn" @click="openQuickCreate">新建子用户</button>
-                <button class="quick-btn" @click="onDevelop('新建消息接收人')">新建消息接收人</button>
-                <button class="quick-btn" @click="onDevelop('新建角色')">新建角色</button>
-                <button class="quick-btn" @click="onDevelop('新建用户组')">新建用户组</button>
-                <button class="quick-btn" @click="onDevelop('新建自定义策略')">新建自定义策略</button>
+                <button class="quick-btn" @click="go('/profile/security')">安全设置</button>
+                <button class="quick-btn" @click="go('/support/tickets/create')">提交工单</button>
               </div>
             </section>
 
-            <!-- 上次登录 -->
+            <!-- 可分配权限 -->
             <section class="panel">
               <div class="panel-head">
-                <h3 class="panel-title">上次登录</h3>
+                <h3 class="panel-title">可分配权限</h3>
               </div>
-              <div class="kv-row">
-                <span class="kv-label">上次登录时间：</span>
-                <span class="kv-value">{{ lastLoginTime }}</span>
+              <p class="panel-desc">新建或编辑子用户时可勾选以下权限。</p>
+              <div class="perm-chips">
+                <t-tag v-for="opt in permissionOptions" :key="opt.code" theme="primary" variant="light-outline" size="small">
+                  {{ opt.label }}
+                </t-tag>
+                <span v-if="!permissionOptions.length" class="muted">正在加载权限项…</span>
               </div>
-              <div class="kv-row">
-                <span class="kv-label">上次登录IP：</span>
-                <span class="kv-value">{{ lastLoginIp }}</span>
-              </div>
+              <p class="not-granted">充值、提现、退款与实名认证权限不会授予子账号。</p>
             </section>
 
-            <!-- 安全报告下载 -->
+            <!-- 最近登录 -->
             <section class="panel">
               <div class="panel-head">
-                <h3 class="panel-title">安全报告下载</h3>
+                <h3 class="panel-title">最近登录的子用户</h3>
               </div>
-              <p class="panel-desc">
-                下载您所有子用户的状态和密钥使用情况，您可以每四小时创建一次报告。
-              </p>
-              <t-button variant="outline" size="small" @click="onDevelop('安全报告下载')">
-                下载报告
-              </t-button>
+              <ul v-if="recentLogins.length" class="login-list">
+                <li v-for="m in recentLogins" :key="m.id" class="login-list__item">
+                  <span class="login-list__name">{{ m.name || m.username }}</span>
+                  <span class="login-list__time">{{ formatTime(m.last_login_at!) }}</span>
+                </li>
+              </ul>
+              <p v-else class="panel-desc no-desc">暂无子用户登录记录。</p>
             </section>
           </div>
         </div>
@@ -326,8 +281,18 @@
       </t-space>
     </t-dialog>
 
-    <!-- ============ 成员操作日志 ============ -->
-    <t-dialog v-model:visible="logVisible" :header="`操作日志 · ${currentRow?.username || ''}`" width="720px" :footer="false">
+    <!-- ============ 操作记录（可切换子用户） ============ -->
+    <t-dialog v-model:visible="logVisible" header="操作记录" width="760px" :footer="false">
+      <div class="log-toolbar">
+        <span class="log-toolbar__label">子用户</span>
+        <t-select
+          v-model="logScopeId"
+          :options="memberOptions"
+          placeholder="选择子用户"
+          class="log-toolbar__select"
+          @change="onLogScopeChange"
+        />
+      </div>
       <t-table
         row-key="id"
         :data="logs"
@@ -366,23 +331,15 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
 import {
   AddIcon,
-  ChartBarIcon,
   CheckCircleFilledIcon,
   CheckIcon,
-  ChevronDownIcon,
-  ChevronRightIcon,
   CopyIcon,
   DashboardIcon,
   ErrorCircleFilledIcon,
-  FolderIcon,
-  HelpCircleIcon,
-  KeyIcon,
-  LinkIcon,
-  SecuredIcon,
-  SettingIcon,
   TimeIcon,
   UserIcon,
   UsergroupIcon,
@@ -401,39 +358,45 @@ import {
   type MemberOperationLog,
   type PermissionOption,
 } from '@/api/member'
-import { useUserStore } from '@/store'
 
 defineOptions({ name: 'MemberManage' })
 
-const userStore = useUserStore()
+const router = useRouter()
 
 // ========== 视图切换 ==========
 type ViewKey = 'overview' | 'members'
 const view = ref<ViewKey>('overview')
-const groupOpen = ref(true)
+
+const pageTitle = computed(() => (view.value === 'overview' ? '概览' : '子用户'))
+
+function go(path: string) {
+  void router.push(path)
+}
 
 function switchView(next: ViewKey) {
   view.value = next
-  if (!loaded) void loadMembers()
-}
-
-function onDevelop(name: string) {
-  MessagePlugin.info(`${name}功能开发中`)
 }
 
 // ========== 概览 ==========
 const loginUrl = computed(() => `${window.location.origin}/login`)
 
-const lastLoginTime = ref('-')
-const lastLoginIp = ref('-')
+/** 概览用的全量快照：与列表分页解耦，避免引导项只统计当前页。 */
+const overviewMembers = ref<MemberInfo[]>([])
+
+const enabledCount = computed(() => overviewMembers.value.filter((m) => m.status === 'active').length)
+const disabledCount = computed(() => overviewMembers.value.filter((m) => m.status !== 'active').length)
+
+const recentLogins = computed(() =>
+  overviewMembers.value
+    .filter((m) => !!m.last_login_at)
+    .sort((a, b) => new Date(b.last_login_at!).getTime() - new Date(a.last_login_at!).getTime())
+    .slice(0, 3),
+)
 
 const guideItems = computed(() => [
-  { label: '为主账号开启MFA', done: false },
-  { label: '不要为主账号创建AK密钥', done: true },
-  { label: '使用子用户进行日常工作', done: pagination.total > 0 },
-  { label: '为子用户开启MFA', done: false },
-  { label: '使用用户组进行日常管理', done: false },
-  { label: '创建并绑定自定义策略', done: false },
+  { label: '创建第一个子用户', done: pagination.total > 0 },
+  { label: '为子用户分配权限', done: overviewMembers.value.some((m) => (m.permissions?.length ?? 0) > 0) },
+  { label: '子用户完成首次登录', done: overviewMembers.value.some((m) => !!m.last_login_at) },
 ])
 
 async function copyText(value: string, successMessage: string) {
@@ -451,7 +414,6 @@ async function copyText(value: string, successMessage: string) {
 
 // ========== 成员列表 ==========
 const loading = ref(false)
-const loaded = ref(false)
 const submitting = ref(false)
 const members = ref<MemberInfo[]>([])
 const permissionOptions = ref<PermissionOption[]>([])
@@ -514,11 +476,32 @@ const logVisible = ref(false)
 const logLoading = ref(false)
 const logs = ref<MemberOperationLog[]>([])
 const logPagination = reactive({ current: 1, pageSize: 10, total: 0 })
+const logScopeId = ref<number | null>(null)
 const currentRow = ref<MemberInfo | null>(null)
+
+const memberOptions = computed(() =>
+  overviewMembers.value.map((m) => ({ label: `${m.name || m.username}（${m.username}）`, value: m.id })),
+)
 
 const passwordVisible = ref(false)
 const createdUsername = ref('')
 const createdPassword = ref('')
+
+/** 概览快照：统计卡片、引导项、最近登录、权限项与操作记录下拉都取自它。 */
+async function loadOverview() {
+  try {
+    const { data } = await getMemberList({ page: 1, page_size: 100 })
+    overviewMembers.value = data.items || []
+    pagination.total = data.meta.total
+    maxSubAccounts.value = data.max_sub_accounts || 0
+    if (data.permission_options?.length) {
+      permissionOptions.value = data.permission_options
+    }
+  } catch (error) {
+    // 概览只影响统计与引导，失败不阻塞核心的子用户管理
+    MessagePlugin.error((error as Error)?.message || '加载概览失败')
+  }
+}
 
 async function loadMembers() {
   loading.value = true
@@ -531,7 +514,9 @@ async function loadMembers() {
     })
     members.value = data.items || []
     pagination.total = data.meta.total
-    maxSubAccounts.value = data.max_sub_accounts || 0
+    if (data.max_sub_accounts) {
+      maxSubAccounts.value = data.max_sub_accounts
+    }
     if (data.permission_options?.length) {
       permissionOptions.value = data.permission_options
     }
@@ -539,7 +524,6 @@ async function loadMembers() {
     MessagePlugin.error((error as Error)?.message || '加载成员列表失败')
   } finally {
     loading.value = false
-    loaded.value = true
   }
 }
 
@@ -630,7 +614,7 @@ async function handleSubmit() {
       passwordVisible.value = true
     }
     formVisible.value = false
-    await loadMembers()
+    await Promise.all([loadMembers(), loadOverview()])
   } catch (error) {
     MessagePlugin.error((error as Error)?.message || '保存成员失败')
   } finally {
@@ -645,7 +629,7 @@ async function handlePermissionSubmit() {
     await setMemberPermissions(currentRow.value.id, selectedPermissions())
     MessagePlugin.success('权限已更新')
     permVisible.value = false
-    await loadMembers()
+    await Promise.all([loadMembers(), loadOverview()])
   } catch (error) {
     MessagePlugin.error((error as Error)?.message || '设置权限失败')
   } finally {
@@ -664,7 +648,7 @@ function handleDelete(row: MemberInfo) {
         await deleteMember(row.id)
         MessagePlugin.success('成员已删除')
         dialog.destroy()
-        await loadMembers()
+        await Promise.all([loadMembers(), loadOverview()])
       } catch (error) {
         MessagePlugin.error((error as Error)?.message || '删除成员失败')
       }
@@ -673,24 +657,43 @@ function handleDelete(row: MemberInfo) {
   })
 }
 
-async function openLogs(row: MemberInfo) {
-  currentRow.value = row
+/** 侧栏「操作记录」：没有子用户时接口无法按人查询，直接提示去创建。 */
+function openAccountLogs() {
+  if (!overviewMembers.value.length) {
+    MessagePlugin.info('还没有子用户，创建子用户后可在此查看其操作记录')
+    return
+  }
+  logScopeId.value = overviewMembers.value[0].id
   logPagination.current = 1
   logVisible.value = true
-  await loadLogs()
+  void loadLogs()
+}
+
+function openLogs(row: MemberInfo) {
+  logScopeId.value = row.id
+  logPagination.current = 1
+  logVisible.value = true
+  void loadLogs()
+}
+
+function onLogScopeChange() {
+  logPagination.current = 1
+  void loadLogs()
 }
 
 async function loadLogs() {
-  if (!currentRow.value) return
+  if (!logScopeId.value) return
   logLoading.value = true
   try {
-    const { data } = await getMemberLogs(currentRow.value.id, {
+    const { data } = await getMemberLogs(logScopeId.value, {
       page: logPagination.current,
       page_size: logPagination.pageSize,
     })
     logs.value = data.items || []
     logPagination.total = data.meta.total
   } catch (error) {
+    logs.value = []
+    logPagination.total = 0
     MessagePlugin.error((error as Error)?.message || '加载操作日志失败')
   } finally {
     logLoading.value = false
@@ -708,6 +711,7 @@ function formatTime(value: string): string {
 }
 
 onMounted(() => {
+  void loadOverview()
   void loadMembers()
 })
 </script>
@@ -761,23 +765,6 @@ onMounted(() => {
   background: #eff6ff;
   color: #2563eb;
   font-weight: 600;
-}
-
-.sider-arrow {
-  margin-left: auto;
-  color: #94a3b8;
-}
-
-.sider-sub {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding-left: 14px;
-}
-
-.sider-item--sub {
-  padding: 8px 10px;
-  font-size: 13px;
 }
 
 .member-main {
@@ -887,6 +874,10 @@ onMounted(() => {
   color: #8b95a8;
 }
 
+.panel-desc.no-desc {
+  margin-bottom: 0;
+}
+
 /* ============ 子用户登录 ============ */
 .login-row {
   display: flex;
@@ -908,16 +899,14 @@ onMounted(() => {
   white-space: nowrap;
 }
 
-.copy-icon,
-.help-icon {
+.copy-icon {
   color: #94a3b8;
   cursor: pointer;
   flex-shrink: 0;
   transition: color 0.15s ease;
 }
 
-.copy-icon:hover,
-.help-icon:hover {
+.copy-icon:hover {
   color: #2563eb;
 }
 
@@ -972,6 +961,15 @@ onMounted(() => {
   color: #f59e0b;
 }
 
+.guide-foot {
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid #f1f5f9;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: #8b95a8;
+}
+
 /* ============ 快捷入口 ============ */
 .quick-grid {
   display: flex;
@@ -994,21 +992,56 @@ onMounted(() => {
   background: #d8e8ff;
 }
 
-/* ============ 键值行 ============ */
-.kv-row {
+/* ============ 权限项 ============ */
+.perm-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.not-granted {
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid #f1f5f9;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: #8b95a8;
+}
+
+/* ============ 最近登录 ============ */
+.login-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.login-list__item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 7px 0;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
   font-size: 13px;
+  border-bottom: 1px solid #f1f5f9;
 }
 
-.kv-label {
-  color: #64748b;
+.login-list__item:last-child {
+  border-bottom: none;
 }
 
-.kv-value {
+.login-list__name {
   color: #334155;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.login-list__time {
+  color: #94a3b8;
+  font-size: 12px;
+  flex-shrink: 0;
 }
 
 /* ============ 子用户列表 ============ */
@@ -1107,6 +1140,24 @@ onMounted(() => {
   font-size: 12px;
 }
 
+/* ============ 操作记录弹窗 ============ */
+.log-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.log-toolbar__label {
+  font-size: 13px;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.log-toolbar__select {
+  width: 260px;
+}
+
 .log-pagination {
   display: flex;
   justify-content: flex-end;
@@ -1162,13 +1213,16 @@ onMounted(() => {
   background: #171717;
 }
 
-.dark .guide-item {
-  border-bottom-color: #262626;
+.dark .guide-item,
+.dark .guide-foot,
+.dark .not-granted,
+.dark .login-list__item {
+  border-color: #262626;
 }
 
 .dark .guide-label,
 .dark .login-row__value,
-.dark .kv-value {
+.dark .login-list__name {
   color: #cbd5e1;
 }
 
@@ -1192,6 +1246,8 @@ onMounted(() => {
     width: 100%;
     position: static;
     min-height: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
   }
 
   .member-hero,
@@ -1202,6 +1258,14 @@ onMounted(() => {
 
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .log-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .log-toolbar__select {
+    width: 100%;
   }
 }
 </style>

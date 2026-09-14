@@ -2,12 +2,13 @@
   <div class="console-page">
     <!-- ============ 左主区 ============ -->
     <div class="console-main">
-      <!-- 上层：欢迎卡（标题 + 搜索 + 背景图占位） -->
+      <!-- 上层：欢迎卡（问候 + 搜索 + 真实日期） -->
       <section class="welcome-hero">
         <div class="hero-card__text">
           <h2 class="hero-title">
-            欢迎使用<span class="hero-title__name">{{ brandStore.name }}</span>
+            {{ greeting }}，<span class="hero-title__name">{{ displayName }}</span>
           </h2>
+          <p class="hero-sub">{{ today }} · 欢迎回到{{ brandStore.name }}控制台</p>
           <div class="hero-search">
             <SearchIcon size="16" class="hero-search__icon" />
             <input
@@ -19,44 +20,52 @@
             />
           </div>
         </div>
-        <div class="hero-card__art" aria-hidden="true">
-          <!-- 背景图占位：后续替换为实际插画 -->
-          <div class="hero-art-placeholder">
-            <span class="hero-art-placeholder__text">背景图占位</span>
+        <div class="hero-card__art">
+          <div class="hero-stat">
+            <span class="hero-stat__value">{{ resourceStats.instance }}</span>
+            <span class="hero-stat__label">在管云主机</span>
+          </div>
+          <div class="hero-stat">
+            <span class="hero-stat__value">{{ resourceStats.renewal }}</span>
+            <span class="hero-stat__label">待处理续费</span>
           </div>
         </div>
       </section>
 
-      <!-- 下层：最近访问 + 自定义快捷入口 -->
+      <!-- 下层：最近访问 + 快捷入口 -->
       <section class="welcome-panel">
         <div class="welcome-block">
           <h4 class="welcome-block__title">最近访问</h4>
-          <div class="recent-row">
+          <div v-if="recentPages.length" class="recent-row">
             <button
-              v-for="r in recentVisits"
-              :key="r.title"
+              v-for="r in recentPages"
+              :key="r.path"
               class="recent-chip"
               @click="go(r.path)"
             >
               {{ r.title }}
             </button>
           </div>
+          <p v-else class="welcome-empty">
+            还没有访问记录，去
+            <button class="link-btn" @click="go('/shop')">云主机选购</button>
+            或
+            <button class="link-btn" @click="go('/cloud/instances')">我的云主机</button>
+            看看。
+          </p>
         </div>
 
         <div class="welcome-block">
-          <h4 class="welcome-block__title">自定义快捷入口</h4>
+          <h4 class="welcome-block__title">快捷入口</h4>
           <div class="entry-grid">
             <button
-              v-for="e in customEntries"
-              :key="e.title"
+              v-for="e in quickEntries"
+              :key="e.path"
               class="entry-chip"
               @click="go(e.path)"
             >
+              <component :is="e.icon" size="14" class="entry-chip__icon" />
               {{ e.title }}
-            </button>
-            <button class="entry-chip entry-chip--add" @click="onAddEntry">
-              <AddIcon size="14" />
-              添加入口
             </button>
           </div>
         </div>
@@ -66,9 +75,7 @@
       <section class="panel">
         <header class="panel__head">
           <h3 class="panel__title">我的资源</h3>
-          <button class="panel__more" @click="go('/cloud/instances')">
-            查看全部 <ChevronRightIcon size="14" />
-          </button>
+          <span class="panel__hint">截至 {{ refreshedText }}</span>
         </header>
         <div class="res-grid">
           <div
@@ -86,129 +93,58 @@
         </div>
       </section>
 
-      <!-- 运维监控 + 安全监测 -->
-      <div class="monitor-row">
-        <section class="panel monitor-card">
-          <header class="panel__head">
-            <h3 class="panel__title">运维监控</h3>
-          </header>
-          <div class="monitor-stats">
-            <div v-for="m in monitorStats" :key="m.label" class="monitor-stat">
-              <span class="monitor-stat__label">{{ m.label }}</span>
-              <span class="monitor-stat__value">{{ m.value }}</span>
-            </div>
-          </div>
-          <div class="monitor-note">
-            <div class="monitor-note__head">
-              <InfoCircleFilledIcon size="14" />
-              <span>暂未设置资源监控</span>
-            </div>
-            <p class="monitor-note__desc">
-              设置云监控可以及时快速处理预警情况，保障业务平稳运行。
-              <button class="link-btn" @click="go('/cloud/instances')">立即设置</button>
-            </p>
-          </div>
-        </section>
-
-        <section class="panel monitor-card monitor-card--security">
-          <header class="panel__head">
-            <h3 class="panel__title">安全监测</h3>
-          </header>
-          <div class="security-cols">
-            <div class="security-cols__text">
-              <p class="security-tip">
-                了解更多安全风险信息，查看
-                <button class="link-btn" @click="go('/profile')">安全合规中心</button>
-              </p>
-              <p class="security-score-line">
-                您当前的安全评分为 <strong>安全</strong>
-              </p>
-              <ul class="security-list">
-                <li v-for="s in securityItems" :key="s.label" class="security-list__item">
-                  <component :is="s.icon" size="14" :class="s.ok ? 'is-ok' : 'is-warn'" />
-                  <span>{{ s.label }}</span>
-                </li>
-              </ul>
-              <t-button theme="primary" size="small" class="security-action" @click="go('/profile')">
-                立即处理
-              </t-button>
-            </div>
-            <div class="sec-gauge">
-              <svg viewBox="0 0 160 92" class="sec-gauge__svg" aria-hidden="true">
-                <path d="M14 84 A66 66 0 0 1 146 84" class="sec-gauge__track" />
-                <path
-                  d="M14 84 A66 66 0 0 1 146 84"
-                  class="sec-gauge__value"
-                  :stroke-dasharray="gaugeDash"
-                />
-              </svg>
-              <div class="sec-gauge__center">
-                <span class="sec-gauge__score">{{ securityScore }}</span>
-              </div>
-              <span class="sec-gauge__time">{{ nowText }}</span>
-            </div>
-          </div>
-        </section>
-      </div>
-
-      <!-- 服务推荐 -->
-      <section class="panel">
+      <!-- 服务推荐（后台在售商品中标记「推荐」的） -->
+      <section v-if="promoList.length" class="panel">
         <header class="panel__head">
           <h3 class="panel__title">服务推荐</h3>
+          <button class="panel__more" @click="go('/shop')">
+            全部产品 <ChevronRightIcon size="14" />
+          </button>
         </header>
-        <div class="promo-tabs">
+        <div v-if="promoList.length > 1" class="promo-tabs">
           <button
             v-for="p in promoList"
-            :key="p.key"
+            :key="p.id"
             class="promo-tab"
-            :class="{ 'is-active': activePromo === p.key }"
-            @click="activePromo = p.key"
+            :class="{ 'is-active': activePromoId === p.id }"
+            @click="activePromoId = p.id"
           >
-            {{ p.tab }}
+            {{ p.name }}
           </button>
         </div>
-        <div class="promo">
+        <div v-if="activePromoItem" class="promo">
           <div class="promo__body">
-            <h4 class="promo__title">{{ activePromoItem.title }}</h4>
-            <p class="promo__desc">{{ activePromoItem.desc }}</p>
+            <h4 class="promo__title">{{ activePromoItem.name }}</h4>
+            <p class="promo__desc">{{ activePromoItem.description || promoFallbackDesc }}</p>
             <div class="promo__tags">
-              <span v-for="tag in activePromoItem.tags" :key="tag" class="promo__tag">{{ tag }}</span>
+              <span class="promo__tag">{{ priceLabel(activePromoItem) }}</span>
+              <span v-if="activePromoItem.skus?.length" class="promo__tag">
+                {{ activePromoItem.skus.length }} 个规格可选
+              </span>
+              <span v-else class="promo__tag">标准规格</span>
             </div>
-            <t-button theme="primary" size="small" @click="go(activePromoItem.path)">
-              {{ activePromoItem.cta }}
+            <t-button theme="primary" size="small" @click="goShopProduct(activePromoItem.id)">
+              立即选购
             </t-button>
-          </div>
-          <div class="promo__art" aria-hidden="true">
-            <div class="promo__art-mock">
-              <div class="promo__art-mock__side">
-                <span v-for="n in 4" :key="n" class="promo__art-mock__dot"></span>
-              </div>
-              <div class="promo__art-mock__main">
-                <span class="promo__art-mock__bar promo__art-mock__bar--lg"></span>
-                <span class="promo__art-mock__bar"></span>
-                <span class="promo__art-mock__bar promo__art-mock__bar--sm"></span>
-                <span class="promo__art-mock__label">产品界面占位</span>
-              </div>
-            </div>
           </div>
         </div>
       </section>
 
-      <!-- 学习与开发者资源 -->
+      <!-- 帮助与支持（内容由官网门户承载） -->
       <section class="learn-section">
-        <h3 class="learn-section__title">学习与开发者资源</h3>
+        <h3 class="learn-section__title">帮助与支持</h3>
         <div class="learn-card">
           <div class="learn-col">
-            <h4 class="learn-col__title">文档中心</h4>
+            <h4 class="learn-col__title">文档与公告</h4>
             <p class="learn-col__desc">
-              畅享海量文档、丰富示例代码及专业教程，利用 AI 云构建与管理卓越应用
+              产品文档、新闻资讯与平台公告在官网门户统一维护，控制台只放入口。
             </p>
             <div class="learn-grid">
               <button
                 v-for="l in docLinks"
                 :key="l.label"
                 class="learn-item"
-                @click="go(l.path)"
+                @click="onDocClick(l)"
               >
                 <span class="learn-item__left">
                   <component :is="l.icon" size="16" class="learn-item__icon" />
@@ -220,8 +156,8 @@
           </div>
 
           <div class="learn-col">
-            <h4 class="learn-col__title">开发者资源</h4>
-            <p class="learn-col__desc">开发者所需的任何资源都在这，快速掌握云产品专业玩法。</p>
+            <h4 class="learn-col__title">自助服务</h4>
+            <p class="learn-col__desc">控制台内的常用入口，提交与跟踪问题都在这。</p>
             <div class="learn-grid">
               <button
                 v-for="l in devLinks"
@@ -250,37 +186,34 @@
           <div class="account-card__id">
             <div class="account-card__name-row">
               <span class="account-card__name">{{ displayName }}</span>
-              <span class="account-card__badge">主账号</span>
+              <span class="account-card__badge">{{ memberStore.isSub ? '子账号' : '主账号' }}</span>
             </div>
             <div class="account-card__verify">
-              <span class="verify-item is-ok"><CheckCircleIcon size="13" /> 已认证</span>
-              <span class="verify-item is-ok"><CheckCircleIcon size="13" /> 已绑定</span>
-              <span class="verify-item is-off"><CloseCircleIcon size="13" /> 未绑定</span>
+              <span class="verify-item" :class="realnameOk ? 'is-ok' : 'is-off'">
+                <component :is="realnameOk ? CheckCircleIcon : CloseCircleIcon" size="13" />
+                实名{{ realnameOk ? '已认证' : '未认证' }}
+              </span>
+              <span class="verify-item" :class="bounds.phone ? 'is-ok' : 'is-off'">
+                <component :is="bounds.phone ? CheckCircleIcon : CloseCircleIcon" size="13" />
+                手机{{ bounds.phone ? '已绑定' : '未绑定' }}
+              </span>
             </div>
             <span class="account-card__sub">账号 ID：{{ accountId }}</span>
           </div>
         </div>
 
-        <!-- 未绑定邮箱提醒 -->
-        <div class="account-warning">
+        <!-- 未绑定邮箱提醒（点击进入账户设置，真实可写） -->
+        <div v-if="!bounds.email" class="account-warning">
           <span class="account-warning__left">
             <InfoCircleFilledIcon size="14" />
-            未绑定邮箱
+            未绑定邮箱，将无法接收账单与工单通知
           </span>
-          <button class="account-warning__action" @click="onBindEmail">立即绑定</button>
+          <button class="account-warning__action" @click="go('/profile')">立即绑定</button>
         </div>
         <div class="account-card__stats">
-          <div class="mini-stat">
-            <span class="mini-stat__value">0</span>
-            <span class="mini-stat__label">待支付</span>
-          </div>
-          <div class="mini-stat">
-            <span class="mini-stat__value">0</span>
-            <span class="mini-stat__label">待续费</span>
-          </div>
-          <div class="mini-stat">
-            <span class="mini-stat__value">0</span>
-            <span class="mini-stat__label">我的工单</span>
+          <div v-for="m in miniStats" :key="m.label" class="mini-stat" @click="go(m.path)">
+            <span class="mini-stat__value">{{ m.value }}</span>
+            <span class="mini-stat__label">{{ m.label }}</span>
           </div>
         </div>
       </section>
@@ -294,40 +227,68 @@
         <div class="fee-head">
           <div class="fee-head__info">
             <span class="fee-label">账户余额（元）</span>
-            <span class="fee-head__value">¥ 0.00</span>
+            <span class="fee-head__value">{{ money(balances.balance) }}</span>
           </div>
-          <t-button v-if="memberStore.has('billing:recharge')" theme="primary" size="small" @click="go('/billing/balance')">充值</t-button>
+          <t-button
+            v-if="memberStore.has('billing:recharge')"
+            theme="primary"
+            size="small"
+            @click="go('/billing/balance')"
+          >
+            充值
+          </t-button>
         </div>
         <div class="fee-tiles">
           <div class="fee-tile">
-            <span class="fee-label">可开票金额</span>
-            <span class="fee-tile__value">¥ 49.00</span>
+            <span class="fee-label">待支付订单</span>
+            <span class="fee-tile__value">{{ resourceStats.order }} 笔</span>
           </div>
           <div class="fee-tile">
-            <span class="fee-label">代金券金额</span>
-            <span class="fee-tile__value">¥ 0.00</span>
+            <span class="fee-label">可开票金额</span>
+            <span class="fee-tile__value">{{ money(balances.invoiceable) }}</span>
           </div>
         </div>
       </section>
 
-      <!-- 访问控制 -->
+      <!-- 账户安全（真实取自安全设置接口） -->
       <section class="side-card">
         <header class="side-card__head">
-          <h4 class="side-card__title">访问控制</h4>
-          <div class="side-card__actions">
-            <button class="panel__more" @click="go('/profile')">创建子用户</button>
-            <span class="side-card__sep"></span>
-            <button class="panel__more" @click="go('/profile')">权限管理</button>
-          </div>
+          <h4 class="side-card__title">账户安全</h4>
+          <button class="panel__more" @click="go('/profile/security')">
+            安全设置 <ChevronRightIcon size="13" />
+          </button>
+        </header>
+        <ul class="sec-list">
+          <li v-for="s in securityItems" :key="s.key" class="sec-list__item">
+            <component :is="s.icon" size="15" class="sec-list__icon" />
+            <span class="sec-list__label">{{ s.label }}</span>
+            <span class="sec-list__state" :class="s.ok ? 'is-ok' : 'is-warn'">{{ s.state }}</span>
+          </li>
+        </ul>
+        <p class="sec-note">
+          有 {{ forcedSceneCount }} 项关键操作开启了平台强制的二次验证，无法在用户侧关闭。
+        </p>
+      </section>
+
+      <!-- 成员与协作 -->
+      <section v-if="memberStore.isOwner" class="side-card">
+        <header class="side-card__head">
+          <h4 class="side-card__title">成员与协作</h4>
+          <button class="panel__more" @click="go('/member')">成员管理 <ChevronRightIcon size="13" /></button>
         </header>
         <div class="access-url">
-          <span class="access-url__label">子用户登录：</span>
-          <span class="access-url__value">{{ subAccountUrl }}</span>
+          <span class="access-url__label">子账号登录入口</span>
+          <span class="access-url__value">{{ loginUrl }}</span>
+          <button class="access-url__copy" @click="copyLoginUrl">复制</button>
         </div>
         <div class="access-stats">
-          <div v-for="a in accessStats" :key="a.label" class="access-stat">
-            <span class="access-stat__label">{{ a.label }}</span>
-            <span class="access-stat__value">{{ a.value }}</span>
+          <div class="access-stat">
+            <span class="access-stat__label">成员数</span>
+            <span class="access-stat__value">{{ memberCount }} / {{ memberQuota || '—' }}</span>
+          </div>
+          <div class="access-stat">
+            <span class="access-stat__label">可用权限项</span>
+            <span class="access-stat__value">{{ permissionOptionCount }}</span>
           </div>
         </div>
       </section>
@@ -336,17 +297,27 @@
       <section class="side-card">
         <header class="side-card__head">
           <h4 class="side-card__title">最新公告</h4>
-          <button class="panel__more" @click="go('/support')">更多 <ChevronRightIcon size="13" /></button>
+          <button class="panel__more" @click="go('/profile/messages')">
+            更多 <ChevronRightIcon size="13" />
+          </button>
         </header>
-        <ul class="announce-list">
-          <li v-for="a in announcements" :key="a.title" class="announce-item">
+        <ul v-if="announcements.length" class="announce-list">
+          <li
+            v-for="a in announcements"
+            :key="a.id"
+            class="announce-item"
+            @click="go('/profile/messages')"
+          >
             <div class="announce-item__row">
-              <span class="announce-item__tag" :class="`is-${a.type}`">{{ a.typeLabel }}</span>
+              <span class="announce-item__tag" :class="`is-${a.level || 'info'}`">
+                {{ a.pinned ? '置顶' : levelLabel(a.level) }}
+              </span>
               <span class="announce-item__title">{{ a.title }}</span>
             </div>
-            <span class="announce-item__time">{{ a.date }}</span>
+            <span class="announce-item__time">{{ formatTime(a.publish_at) }}</span>
           </li>
         </ul>
+        <p v-else class="welcome-empty">暂无公告</p>
       </section>
 
       <!-- 常用工具 -->
@@ -355,7 +326,12 @@
           <h4 class="side-card__title">常用工具</h4>
         </header>
         <div class="tool-grid">
-          <button v-for="t in tools" :key="t.label" class="tool-item" @click="go(t.path)">
+          <button
+            v-for="t in tools"
+            :key="t.label"
+            class="tool-item"
+            @click="onToolClick(t)"
+          >
             {{ t.label }}
           </button>
         </div>
@@ -365,36 +341,46 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, type Component } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import {
-  AddIcon,
-  ApiIcon,
   BookOpenIcon,
   BrowseIcon,
   CartIcon,
   CheckCircleIcon,
-  CheckCircleFilledIcon,
-  CloseCircleIcon,
-  CodeIcon,
-  InfoCircleFilledIcon,
   ChevronRightIcon,
-  ErrorCircleFilledIcon,
+  CloseCircleIcon,
   FileIcon,
+  FingerprintIcon,
+  InfoCircleFilledIcon,
   JumpIcon,
-  LayersIcon,
-  PlayCircleIcon,
+  MailIcon,
+  MobileIcon,
+  OrderIcon,
   RefreshIcon,
   SearchIcon,
+  SecuredIcon,
   ServerIcon,
+  ServiceIcon,
   ToolsIcon,
-  VideoIcon,
+  WalletIcon,
 } from 'tdesign-icons-vue-next'
 
 import { useUserStore } from '@/store'
 import { useMemberStore } from '@/store/modules/member'
 import { useBrandStore } from '@/store/modules/brand'
+import { listInstances } from '@/api/cloud'
+import { getMyOrders, getProducts, type ProductInfo } from '@/api/shop'
+import { getRenewalsView } from '@/api/lifecycle'
+import { getMyTickets, getTicketCategories } from '@/api/support'
+import { getBalance, getMyBills, type WalletInfo } from '@/api/finance'
+import { getMyAnnouncements, type AnnouncementInfo } from '@/api/notification'
+import { getMemberList } from '@/api/member'
+import { getSecuritySettings } from '@/api/security'
+import { formatTime } from '@/pages/support/constants'
+import { getRecentPages, type RecentPage } from '@/utils/recent'
+import { openSite, siteUrlConfigured } from '@/utils/site'
 
 defineOptions({ name: 'UserConsole' })
 
@@ -407,9 +393,16 @@ function go(path: string) {
   router.push(path)
 }
 
+function money(value: number | undefined): string {
+  const n = Number(value ?? 0)
+  return `¥ ${n.toFixed(2)}`
+}
+
 const displayName = computed(() => userStore.displayName || '用户')
 const avatarText = computed(() => displayName.value.slice(0, 1).toUpperCase())
-const accountId = computed(() => String(userStore.userInfo?.id ?? '100000000000').padStart(12, '0'))
+// 账号 ID 直接取真实用户 ID：此前用 padStart(12,'0') 把 2 补成「000000000002」，
+// 与个人中心显示的 ID 不一致，看起来像两个账号。
+const accountId = computed(() => String(userStore.userInfo?.id ?? '-'))
 
 const today = new Date().toLocaleDateString('zh-CN', {
   year: 'numeric',
@@ -427,28 +420,227 @@ const greeting = computed(() => {
   return '晚上好'
 })
 
-// ===== 静态占位数据（后续接入后端接口时替换） =====
-const resources = [
-  { key: 'instance', label: '云主机', value: 0, icon: ServerIcon, path: '/cloud/instances' },
-  { key: 'image', label: '镜像', value: 0, icon: LayersIcon, path: '/cloud/images' },
-  { key: 'renewal', label: '待续费', value: 0, icon: RefreshIcon, path: '/cloud/renewals' },
-  { key: 'order', label: '订单', value: 0, icon: CartIcon, path: '/order' },
-]
+// ========== 资源统计（真实接口） ==========
+const resourceStats = ref({ instance: 0, renewal: 0, order: 0, ticket: 0 })
+const balances = ref<{ balance: number; invoiceable: number }>({ balance: 0, invoiceable: 0 })
+const refreshedText = ref('—')
 
-const recentVisits = [
-  { title: '轻量云主机', path: '/cloud/instances' },
-]
+/** 待续费口径与续费管理页一致：已到期、宽限期、暂停，或 30 天内到期。 */
+function countRenewals(items: Array<{ stage?: string; days_left?: number }>): number {
+  return items.filter((i) => {
+    if (i.stage && i.stage !== 'active') return true
+    return typeof i.days_left === 'number' && i.days_left <= 30
+  }).length
+}
 
-// 自定义快捷入口（静态占位；后续可持久化到用户偏好）
-const customEntries = [
-  { title: '云主机 CVM', path: '/shop' },
-  { title: '原生容器', path: '/shop' },
-  { title: '私有网络', path: '/cloud/instances' },
-  { title: '云硬盘', path: '/cloud/instances' },
-  { title: '对象存储', path: '/cloud/images' },
-  { title: '云搜索 Elasticsearch', path: '/shop' },
-  { title: '分布式缓存(兼容Redis)', path: '/shop' },
-]
+async function loadOverview() {
+  // 每个数字独立失败：单接口异常只让对应卡片保持 0，不拖垮整页
+  const [instances, renewals, orders, tickets] = await Promise.allSettled([
+    listInstances(),
+    getRenewalsView(),
+    getMyOrders({ page: 1, page_size: 1 }),
+    getMyTickets({ page: 1, page_size: 1 }),
+  ])
+  resourceStats.value = {
+    instance: instances.status === 'fulfilled' ? (instances.value.data?.items?.length ?? 0) : 0,
+    renewal: renewals.status === 'fulfilled' ? countRenewals(renewals.value.data?.items ?? []) : 0,
+    order: orders.status === 'fulfilled' ? (orders.value.data?.total ?? 0) : 0,
+    ticket: tickets.status === 'fulfilled' ? (tickets.value.data?.meta?.total ?? 0) : 0,
+  }
+  refreshedText.value = formatTime(new Date().toISOString())
+}
+
+const resources = computed(() => [
+  { key: 'instance', label: '云主机', value: resourceStats.value.instance, icon: ServerIcon, path: '/cloud/instances' },
+  { key: 'renewal', label: '待续费', value: resourceStats.value.renewal, icon: RefreshIcon, path: '/cloud/renewals' },
+  { key: 'order', label: '订单', value: resourceStats.value.order, icon: CartIcon, path: '/order' },
+  { key: 'ticket', label: '工单', value: resourceStats.value.ticket, icon: ServiceIcon, path: '/support/tickets' },
+])
+
+const miniStats = computed(() => [
+  { label: '待支付订单', value: pendingOrderCount.value, path: '/order?status=pending' },
+  { label: '待续费', value: resourceStats.value.renewal, path: '/cloud/renewals' },
+  { label: '我的工单', value: resourceStats.value.ticket, path: '/support/tickets' },
+])
+
+// ========== 待支付订单数（迷你统计用真实状态过滤） ==========
+const pendingOrderCount = ref(0)
+
+async function loadPendingOrders() {
+  try {
+    const { data } = await getMyOrders({ status: 'pending', page: 1, page_size: 1 })
+    pendingOrderCount.value = data?.total ?? 0
+  } catch {
+    pendingOrderCount.value = 0
+  }
+}
+
+// ========== 费用：余额 + 可开票金额 ==========
+async function loadBalances() {
+  const [wallet, bills] = await Promise.allSettled([
+    getBalance(),
+    // 可开票口径与后端开票规则一致：账单已结清且未开票（status=paid + invoice_status=none）
+    getMyBills({ status: 'paid', page: 1, page_size: 100 }),
+  ])
+  const balance = wallet.status === 'fulfilled' ? (wallet.value.data as WalletInfo | undefined)?.balance : 0
+  const invoiceable =
+    bills.status === 'fulfilled'
+      ? (bills.value.data?.items ?? [])
+          .filter((b) => b.invoice_status !== 'issued')
+          .reduce((sum, b) => sum + Number(b.total_amount || 0), 0)
+      : 0
+  balances.value = { balance: Number(balance || 0), invoiceable }
+}
+
+// ========== 推荐商品（后台标记 featured 的在售商品） ==========
+const promoList = ref<ProductInfo[]>([])
+const activePromoId = ref<number | null>(null)
+const activePromoItem = computed(
+  () => promoList.value.find((p) => p.id === activePromoId.value) ?? promoList.value[0],
+)
+const promoFallbackDesc = computed(
+  () => `${brandStore.name}在售云主机产品，支持在线购买、按周期计费与自助续费。`,
+)
+
+async function loadPromotions() {
+  try {
+    const { data } = await getProducts({ featured: true, page: 1, page_size: 6 })
+    promoList.value = data?.items ?? []
+    activePromoId.value = promoList.value[0]?.id ?? null
+  } catch {
+    promoList.value = []
+  }
+}
+
+function priceLabel(p: ProductInfo): string {
+  const unit: Record<string, string> = { monthly: '元/月', quarterly: '元/季', annually: '元/年', onetime: '元' }
+  return `${p.price} ${unit[p.price_model] || '元'}`
+}
+
+/** 带商品 ID 跳选购页，由 shop 页的「官网跳转意图」逻辑直接拉起下单面板。 */
+function goShopProduct(id: number) {
+  router.push({ path: '/shop', query: { product: String(id) } })
+}
+
+// ========== 账户绑定与安全（真实接口） ==========
+const bounds = ref({ phone: false, email: false })
+const securityItems = ref<Array<{ key: string; label: string; icon: Component; ok: boolean; state: string }>>([])
+const forcedSceneCount = ref(0)
+
+async function loadSecurity() {
+  try {
+    const { data } = await getSecuritySettings()
+    if (!data) return
+    bounds.value = { phone: data.phone_bound, email: data.email_bound }
+    forcedSceneCount.value = (data.scenes || []).filter((s) => s.platform_forced && s.otp_required).length
+    securityItems.value = [
+      {
+        key: 'phone',
+        label: '绑定手机',
+        icon: MobileIcon,
+        ok: data.phone_bound,
+        state: data.phone_bound ? data.phone_masked || '已绑定' : '未绑定',
+      },
+      {
+        key: 'email',
+        label: '绑定邮箱',
+        icon: MailIcon,
+        ok: data.email_bound,
+        state: data.email_bound ? data.email_masked || '已绑定' : '未绑定',
+      },
+      {
+        key: 'mfa',
+        label: '虚拟 MFA',
+        icon: FingerprintIcon,
+        ok: data.mfa_enabled,
+        state: data.mfa_enabled ? '已开启' : '未开启',
+      },
+      {
+        key: 'protect',
+        label: '关键操作保护',
+        icon: SecuredIcon,
+        ok: forcedSceneCount.value > 0,
+        state: forcedSceneCount.value > 0 ? `${forcedSceneCount.value} 项已启用` : '未启用',
+      },
+    ]
+  } catch {
+    // 安全设置拿不到时不渲染假状态：保留空列表，卡片自身显示提示
+    securityItems.value = []
+  }
+}
+
+// ========== 成员与协作（真实接口，仅主账号） ==========
+const memberCount = ref(0)
+const memberQuota = ref(0)
+const permissionOptionCount = ref(0)
+const loginUrl = computed(() => `${window.location.origin}/login`)
+
+async function loadMembers() {
+  if (!memberStore.isOwner) return
+  try {
+    const { data } = await getMemberList({ page: 1, page_size: 1 })
+    memberCount.value = data?.meta?.total ?? 0
+    memberQuota.value = data?.max_sub_accounts ?? 0
+    permissionOptionCount.value = data?.permission_options?.length ?? 0
+  } catch {
+    memberCount.value = 0
+  }
+}
+
+async function copyLoginUrl() {
+  try {
+    await navigator.clipboard.writeText(loginUrl.value)
+    MessagePlugin.success('登录入口已复制')
+  } catch {
+    MessagePlugin.warning('复制失败，请手动选择内容')
+  }
+}
+
+// ========== 实名状态（复用工单分类接口返回的账号实名标记） ==========
+const realnameOk = ref(false)
+
+async function loadRealname() {
+  try {
+    const { data } = await getTicketCategories()
+    realnameOk.value = data?.realname_ok ?? false
+  } catch {
+    realnameOk.value = false
+  }
+}
+
+// ========== 公告（真实接口） ==========
+const announcements = ref<AnnouncementInfo[]>([])
+
+async function loadAnnouncements() {
+  try {
+    const { data } = await getMyAnnouncements()
+    announcements.value = (data?.list ?? []).slice(0, 5)
+  } catch {
+    announcements.value = []
+  }
+}
+
+function levelLabel(level: string): string {
+  return { info: '公告', warning: '重要', critical: '紧急' }[level] || '公告'
+}
+
+// ========== 最近访问（localStorage，布局层统一记录） ==========
+const recentPages = ref<RecentPage[]>([])
+
+// ========== 快捷入口（全部指向控制台内真实页面） ==========
+const quickEntries = computed(() => {
+  const entries = [
+    { title: '云主机选购', path: '/shop', icon: CartIcon },
+    { title: '我的云主机', path: '/cloud/instances', icon: ServerIcon },
+    { title: '续费管理', path: '/cloud/renewals', icon: RefreshIcon },
+    { title: '我的订单', path: '/order', icon: OrderIcon },
+    { title: '费用中心', path: '/billing', icon: WalletIcon },
+    { title: '提交工单', path: '/support/tickets/create', icon: ServiceIcon },
+  ]
+  return memberStore.isOwner
+    ? [...entries, { title: '成员管理', path: '/member', icon: ToolsIcon }]
+    : entries
+})
 
 const heroKeyword = ref('')
 
@@ -458,141 +650,80 @@ function onHeroSearch() {
   router.push({ path: '/shop', query: { keyword: q } })
 }
 
-function onAddEntry() {
-  MessagePlugin.info('添加快捷入口开发中')
+// ========== 文档入口：门户承载，未配置官网地址时明确提示 ==========
+interface DocLink {
+  label: string
+  icon: Component
+  /** 门户路径（外链新窗口打开） */
+  sitePath?: string
+  /** 控制台内路径 */
+  path?: string
 }
 
-function onBindEmail() {
-  MessagePlugin.info('邮箱绑定开发中')
+const docLinks: DocLink[] = [
+  { label: '帮助中心', icon: BookOpenIcon, sitePath: '/help' },
+  { label: '新闻资讯', icon: FileIcon, sitePath: '/news' },
+  { label: '服务公告', icon: InfoCircleFilledIcon, sitePath: '/announcements' },
+  { label: '用户条款与隐私', icon: SecuredIcon, sitePath: '/terms' },
+]
+
+function onDocClick(link: DocLink) {
+  if (link.path) {
+    go(link.path)
+    return
+  }
+  if (!link.sitePath) return
+  if (!siteUrlConfigured) {
+    MessagePlugin.info('官网地址未配置，请联系管理员在部署环境设置 VITE_SITE_URL')
+    return
+  }
+  openSite(link.sitePath)
 }
-
-const securityScore = 97
-const securityItems = [
-  { label: '暂无告警', ok: true, icon: CheckCircleFilledIcon },
-  { label: '存在 0 台主机未安装防护 Agent', ok: false, icon: ErrorCircleFilledIcon },
-  { label: '暂无漏洞', ok: true, icon: CheckCircleFilledIcon },
-]
-
-// 半圆仪表盘：弧长为半径 66 的半个圆周
-const gaugeLen = Math.PI * 66
-const gaugeDash = computed(() => `${(securityScore / 100) * gaugeLen} ${gaugeLen}`)
-
-const nowText = new Date()
-  .toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
-  .replace(/\//g, '-')
-
-// 运维监控统计（静态占位）
-const monitorStats = [
-  { label: '正在报警', value: 0 },
-  { label: '云资源监控', value: 0 },
-  { label: '自定义监控', value: 0 },
-]
-
-// 服务推荐：按产品切换的 tab 内容（静态占位，后续接入推荐接口）
-const promoList = [
-  {
-    key: 'cvm',
-    tab: '云主机',
-    title: '云主机 CVM',
-    desc: '高性能、可弹性伸缩的计算服务，支持按量付费与包年包月，适配建站、开发测试、企业应用等多种场景。',
-    tags: ['弹性伸缩', '高可用', '安全隔离'],
-    cta: '立即选购',
-    path: '/shop',
-  },
-  {
-    key: 'lighthouse',
-    tab: '轻量云主机',
-    title: '轻量云主机',
-    desc: '开箱即用的轻量应用服务器，固定套餐、流量包月，适合个人开发者与中小企业快速搭建业务。',
-    tags: ['开箱即用', '固定套餐', '成本可控'],
-    cta: '立即选购',
-    path: '/shop',
-  },
-  {
-    key: 'joyagent',
-    tab: 'JoyAgent',
-    title: 'JoyAgent 智能体平台',
-    desc: '面向企业的一站式智能体开发平台，支持多模型接入与可视化编排，快速构建专属 AI 应用。',
-    tags: ['智能编排', '多模型', '低代码'],
-    cta: '立即体验',
-    path: '/shop',
-  },
-  {
-    key: 'joycode',
-    tab: 'JoyCode',
-    title: 'JoyCode 智能编码',
-    desc: 'AI 驱动的智能编码助手，提供代码补全、单元测试生成与代码审查，显著提升研发效率。',
-    tags: ['AI 补全', '代码审查', '团队协作'],
-    cta: '立即体验',
-    path: '/shop',
-  },
-  {
-    key: 'joybuilder',
-    tab: 'JoyBuilder',
-    title: 'JoyBuilder 模型开发平台',
-    desc: 'JoyBuilder 模型开发平台为开发者提供从数据准备、模型训练到推理部署的一站式双工作流 AI 开发服务，支持多种主流框架与高性能分布式训练。',
-    tags: ['一站式', '多框架', '高性能'],
-    cta: '立即体验',
-    path: '/shop',
-  },
-]
-
-const activePromo = ref('joybuilder')
-const activePromoItem = computed(
-  () => promoList.find((p) => p.key === activePromo.value) ?? promoList[0],
-)
-
-// 学习与开发者资源（静态占位）
-const docLinks = [
-  { label: '入门指南', icon: BookOpenIcon, path: '/support' },
-  { label: '课程中心', icon: PlayCircleIcon, path: '/support' },
-  { label: '云智公开课', icon: VideoIcon, path: '/support' },
-  { label: '解决方案实践', icon: FileIcon, path: '/support' },
-]
 
 const devLinks = [
-  { label: 'OpenAPI', icon: ApiIcon, path: '/support' },
-  { label: 'SDK 中心', icon: BrowseIcon, path: '/support' },
-  { label: '示例代码', icon: CodeIcon, path: '/support' },
-  { label: '自助工具', icon: ToolsIcon, path: '/support' },
+  { label: '提交工单', icon: ServiceIcon, path: '/support/tickets/create' },
+  { label: '我的工单', icon: BrowseIcon, path: '/support/tickets' },
+  { label: '我的消息', icon: MailIcon, path: '/profile/messages' },
+  { label: '账户设置', icon: ToolsIcon, path: '/profile' },
 ]
 
-const announcements = [
-  { type: 'update', typeLabel: '产品公告', title: '增强型网络负载均衡全量开放及计费说明', date: '2026-09-09 18:04' },
-  { type: 'update', typeLabel: '产品公告', title: '【重要通知】平台 14 款模型自部署服务下线公告', date: '2026-09-04 10:39' },
-  { type: 'update', typeLabel: '产品公告', title: '【重要通知】DeepSeek-V4-Pro 自部署服务下线及迁移安排', date: '2026-08-27 14:47' },
-  { type: 'update', typeLabel: '产品公告', title: '【重要通知】DeepSeek-V4-Flash-Preview 自部署服务下线及迁移安排', date: '2026-08-11 18:12' },
-  { type: 'notice', typeLabel: '活动公告', title: '备案升级公告', date: '2024-09-02 13:19' },
-]
-
-// 访问控制（静态占位）
-const subAccountUrl = `${window.location.origin}/subaccount/login/308972543164`
-const accessStats = [
-  { label: '用户数', value: 0 },
-  { label: '群组', value: 0 },
-  { label: '角色', value: 3 },
-  { label: '策略', value: 0 },
-]
-
-const tools = computed(() =>
-  [
-    { label: '工单', path: '/support' },
+const tools = computed(() => {
+  const items: Array<{ label: string; path?: string; sitePath?: string }> = [
+    { label: '工单', path: '/support/tickets' },
     { label: '价格计算器', path: '/shop' },
-    { label: '消息中心', path: '/profile' },
-    { label: 'API 密钥', path: '/profile' },
-    { label: '实名认证', path: '/profile', ownerOnly: true },
-    { label: '备案管理', path: '/profile', ownerOnly: true },
+    { label: '消息中心', path: '/profile/messages' },
     { label: '账户设置', path: '/profile' },
-    { label: '帮助文档', path: '/support' },
-  ].filter((item) => !item.ownerOnly || memberStore.isOwner),
-)
+    { label: '安全设置', path: '/profile/security' },
+  ]
+  // 帮助文档只在官网地址已配置时出现：未配置时渲染成不可点的按钮比缺失更糟
+  if (siteUrlConfigured) items.push({ label: '帮助文档', sitePath: '/help' })
+  return items
+})
+
+function onToolClick(item: { label: string; path?: string; sitePath?: string }) {
+  if (item.path) {
+    go(item.path)
+    return
+  }
+  if (item.sitePath) openSite(item.sitePath)
+}
+
+onMounted(async () => {
+  recentPages.value = getRecentPages()
+  if (!userStore.loaded) {
+    await userStore.fetchUserInfo()
+  }
+  await Promise.all([
+    loadOverview(),
+    loadPendingOrders(),
+    loadBalances(),
+    loadPromotions(),
+    loadSecurity(),
+    loadMembers(),
+    loadRealname(),
+    loadAnnouncements(),
+  ])
+})
 </script>
 
 <style scoped>
@@ -638,7 +769,7 @@ const tools = computed(() =>
 }
 
 .hero-title {
-  margin: 0 0 12px;
+  margin: 0 0 6px;
   font-size: 23px;
   font-weight: 700;
   letter-spacing: 0.01em;
@@ -647,6 +778,12 @@ const tools = computed(() =>
 
 .hero-title__name {
   color: #4f46e5;
+}
+
+.hero-sub {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  color: #64748b;
 }
 
 /* 欢迎卡内搜索框 */
@@ -689,34 +826,49 @@ const tools = computed(() =>
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
-/* 背景图占位 */
+/* 欢迎卡右侧：真实资源计数 */
 .hero-card__art {
   flex-shrink: 0;
-}
-
-.hero-art-placeholder {
-  width: 168px;
-  height: 92px;
   display: flex;
+  gap: 12px;
+}
+
+.hero-stat {
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  border-radius: 12px;
-  border: 1px dashed #b9c7ea;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.6), rgba(224, 231, 255, 0.5));
+  gap: 2px;
+  min-width: 96px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid #dbe4fb;
 }
 
-.hero-art-placeholder__text {
+.hero-stat__value {
+  font-size: 22px;
+  font-weight: 700;
+  color: #1d4ed8;
+  line-height: 1.1;
+}
+
+.hero-stat__label {
   font-size: 12px;
-  color: #8a9bc4;
-  letter-spacing: 0.04em;
+  color: #64748b;
 }
 
-/* 最近访问 / 自定义快捷入口 */
+/* 最近访问 / 快捷入口 */
 .welcome-block__title {
   margin: 0 0 12px;
   font-size: 13px;
   font-weight: 500;
   color: #64748b;
+}
+
+.welcome-empty {
+  margin: 0;
+  font-size: 13px;
+  color: #94a3b8;
 }
 
 .recent-row {
@@ -768,23 +920,19 @@ const tools = computed(() =>
   transition: box-shadow 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
+.entry-chip__icon {
+  flex-shrink: 0;
+  color: #94a3b8;
+}
+
 .entry-chip:hover {
   color: var(--color-primary);
   border-color: #dbe4ff;
   box-shadow: 0 4px 12px rgba(37, 99, 235, 0.12);
 }
 
-.entry-chip--add {
-  color: #64748b;
-  border-style: dashed;
-  border-color: #c7d4ef;
-  background: transparent;
-  box-shadow: none;
-}
-
-.entry-chip--add:hover {
+.entry-chip:hover .entry-chip__icon {
   color: var(--color-primary);
-  border-color: var(--color-primary);
 }
 
 /* ---------- 通用面板 ---------- */
@@ -807,6 +955,11 @@ const tools = computed(() =>
   font-size: 15px;
   font-weight: 600;
   color: #1e293b;
+}
+
+.panel__hint {
+  font-size: 12px;
+  color: #94a3b8;
 }
 
 .panel__more {
@@ -883,77 +1036,6 @@ const tools = computed(() =>
   color: #64748b;
 }
 
-/* ---------- 运维监控 + 安全监测 ---------- */
-.monitor-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 16px;
-  align-items: stretch;
-}
-
-.monitor-card {
-  display: flex;
-  flex-direction: column;
-}
-
-.monitor-stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 14px;
-}
-
-.monitor-stat {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 12px 8px;
-  border-radius: 10px;
-  background: #f8fafc;
-  border: 1px solid #eef2f7;
-}
-
-.monitor-stat__label {
-  font-size: 12px;
-  color: #64748b;
-}
-
-.monitor-stat__value {
-  font-size: 20px;
-  font-weight: 700;
-  color: #1e293b;
-  line-height: 1.1;
-}
-
-.monitor-note {
-  margin-top: auto;
-  padding: 12px 14px;
-  border-radius: 10px;
-  background: #f8fafc;
-  border: 1px solid #eef2f7;
-}
-
-.monitor-note__head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #475569;
-}
-
-.monitor-note__head svg {
-  color: #f59e0b;
-}
-
-.monitor-note__desc {
-  margin: 6px 0 0;
-  font-size: 12.5px;
-  line-height: 1.7;
-  color: #94a3b8;
-}
-
 .link-btn {
   border: none;
   background: transparent;
@@ -965,96 +1047,6 @@ const tools = computed(() =>
 
 .link-btn:hover {
   text-decoration: underline;
-}
-
-.security-cols {
-  display: flex;
-  align-items: stretch;
-  justify-content: space-between;
-  gap: 16px;
-  flex: 1;
-}
-
-.security-cols__text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.security-tip {
-  margin: 0 0 6px;
-  font-size: 12.5px;
-  color: #94a3b8;
-}
-
-.security-score-line {
-  margin: 0 0 12px;
-  font-size: 13px;
-  color: #475569;
-}
-
-.security-score-line strong {
-  color: #10b981;
-  font-weight: 600;
-}
-
-.security-action {
-  align-self: flex-start;
-  margin-top: auto;
-}
-
-.sec-gauge {
-  position: relative;
-  width: 150px;
-  flex-shrink: 0;
-  padding-bottom: 18px;
-}
-
-.sec-gauge__svg {
-  width: 150px;
-  height: 86px;
-  overflow: visible;
-}
-
-.sec-gauge__track {
-  fill: none;
-  stroke: #eef2f7;
-  stroke-width: 10;
-  stroke-linecap: round;
-}
-
-.sec-gauge__value {
-  fill: none;
-  stroke: #10b981;
-  stroke-width: 10;
-  stroke-linecap: round;
-}
-
-.sec-gauge__center {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 18px;
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-}
-
-.sec-gauge__score {
-  font-size: 30px;
-  font-weight: 700;
-  color: #10b981;
-  line-height: 1;
-}
-
-.sec-gauge__time {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  text-align: center;
-  font-size: 11px;
-  color: #cbd5e1;
 }
 
 /* ---------- 服务推荐 ---------- */
@@ -1109,7 +1101,7 @@ const tools = computed(() =>
 }
 
 .promo__body {
-  max-width: 560px;
+  max-width: 640px;
   min-width: 0;
 }
 
@@ -1143,68 +1135,7 @@ const tools = computed(() =>
   padding: 2px 10px;
 }
 
-.promo__art {
-  flex-shrink: 0;
-}
-
-.promo__art-mock {
-  display: flex;
-  width: 208px;
-  height: 118px;
-  border-radius: 10px;
-  overflow: hidden;
-  background: #ffffff;
-  border: 1px solid #dbe7fb;
-  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.08);
-}
-
-.promo__art-mock__side {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  padding: 12px 10px;
-  background: #f1f6ff;
-  border-right: 1px solid #e3ecfb;
-}
-
-.promo__art-mock__dot {
-  width: 22px;
-  height: 6px;
-  border-radius: 3px;
-  background: #c7dcfb;
-}
-
-.promo__art-mock__main {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  padding: 12px;
-  flex: 1;
-}
-
-.promo__art-mock__bar {
-  height: 8px;
-  border-radius: 4px;
-  background: #e2ecfc;
-  width: 100%;
-}
-
-.promo__art-mock__bar--lg {
-  height: 26px;
-  background: #d3e4fd;
-}
-
-.promo__art-mock__bar--sm {
-  width: 56%;
-}
-
-.promo__art-mock__label {
-  margin-top: auto;
-  font-size: 11px;
-  color: #9db3d6;
-}
-
-/* ---------- 学习与开发者资源 ---------- */
+/* ---------- 帮助与支持 ---------- */
 .learn-section {
   display: flex;
   flex-direction: column;
@@ -1423,6 +1354,7 @@ const tools = computed(() =>
   font-weight: 600;
   cursor: pointer;
   padding: 0;
+  flex-shrink: 0;
 }
 
 .account-warning__action:hover {
@@ -1443,6 +1375,7 @@ const tools = computed(() =>
   flex-direction: column;
   align-items: center;
   gap: 4px;
+  cursor: pointer;
 }
 
 .mini-stat__value {
@@ -1454,6 +1387,10 @@ const tools = computed(() =>
 .mini-stat__label {
   font-size: 12px;
   color: #94a3b8;
+}
+
+.mini-stat:hover .mini-stat__label {
+  color: var(--color-primary);
 }
 
 /* 费用信息 */
@@ -1508,23 +1445,62 @@ const tools = computed(() =>
   line-height: 1;
 }
 
-/* 访问控制 */
-.side-card__actions {
-  display: inline-flex;
+/* 账户安全 */
+.sec-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sec-list__item {
+  display: flex;
   align-items: center;
   gap: 8px;
+  font-size: 13px;
+  min-width: 0;
 }
 
-.side-card__sep {
-  width: 1px;
-  height: 11px;
-  background: #e2e8f0;
+.sec-list__icon {
+  color: #64748b;
+  flex-shrink: 0;
 }
 
+.sec-list__label {
+  color: #475569;
+  flex-shrink: 0;
+}
+
+.sec-list__state {
+  margin-left: auto;
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sec-list__state.is-ok {
+  color: #10b981;
+}
+
+.sec-list__state.is-warn {
+  color: #f59e0b;
+}
+
+.sec-note {
+  margin: 14px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #94a3b8;
+}
+
+/* 成员与协作 */
 .access-url {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   padding: 9px 12px;
   border-radius: 8px;
   background: #f8fafc;
@@ -1542,11 +1518,27 @@ const tools = computed(() =>
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.access-url__copy {
+  border: none;
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.access-url__copy:hover {
+  text-decoration: underline;
 }
 
 .access-stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin-top: 16px;
 }
@@ -1570,33 +1562,6 @@ const tools = computed(() =>
   font-weight: 700;
   color: #1e293b;
   line-height: 1;
-}
-
-/* 安全 */
-.security-list {
-  list-style: none;
-  margin: 0 0 14px;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-
-.security-list__item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
-  color: #475569;
-}
-
-.security-list__item .is-ok {
-  color: #10b981;
-}
-
-.security-list__item .is-warn {
-  color: #f59e0b;
 }
 
 /* 公告 */
@@ -1634,19 +1599,14 @@ const tools = computed(() =>
   color: #64748b;
 }
 
-.announce-item__tag.is-update {
-  background: #f1f5f9;
-  color: #64748b;
-}
-
-.announce-item__tag.is-notice {
-  background: #ecfdf5;
-  color: #059669;
-}
-
-.announce-item__tag.is-security {
+.announce-item__tag.is-warning {
   background: #fffbeb;
   color: #d97706;
+}
+
+.announce-item__tag.is-critical {
+  background: #fef2f2;
+  color: #dc2626;
 }
 
 .announce-item__title {
@@ -1705,6 +1665,15 @@ const tools = computed(() =>
   border-color: #262626;
 }
 
+.dark .hero-stat {
+  background: rgba(15, 20, 36, 0.7);
+  border-color: #232a44;
+}
+
+.dark .hero-stat__value {
+  color: #93b4fd;
+}
+
 .dark .hero-search__input {
   background: #0f1424;
   border-color: #2a3350;
@@ -1718,12 +1687,6 @@ const tools = computed(() =>
   color: #cbd5e1;
 }
 
-.dark .entry-chip--add {
-  background: transparent;
-  border-color: #2a3350;
-}
-
-/* ---------- 深色模式（账户/费用补充） ---------- */
 .dark .account-card__badge {
   color: #a5b4fc;
   background: #1e1b4b;
@@ -1747,7 +1710,8 @@ const tools = computed(() =>
 
 .dark .fee-head__value,
 .dark .fee-tile__value,
-.dark .access-stat__value {
+.dark .access-stat__value,
+.dark .mini-stat__value {
   color: #e5e7eb;
 }
 
@@ -1759,36 +1723,17 @@ const tools = computed(() =>
 }
 
 .dark .access-url__value,
-.dark .tool-item {
+.dark .tool-item,
+.dark .sec-list__label {
   color: #cbd5e1;
 }
 
-.dark .side-card__sep {
-  background: #2a3350;
-}
-
-.dark .announce-item__tag,
-.dark .announce-item__tag.is-update {
+.dark .announce-item__tag {
   background: #232a44;
   color: #94a3b8;
 }
 
 .dark .announce-item__title {
-  color: #cbd5e1;
-}
-
-/* ---------- 深色模式（监控 / 推荐） ---------- */
-.dark .monitor-stat,
-.dark .monitor-note {
-  background: #0f1424;
-  border-color: #232a44;
-}
-
-.dark .monitor-stat__value {
-  color: #e5e7eb;
-}
-
-.dark .monitor-note__head {
   color: #cbd5e1;
 }
 
@@ -1808,30 +1753,6 @@ const tools = computed(() =>
 .dark .promo__tag {
   background: #0f1424;
   border-color: #2a3350;
-}
-
-.dark .promo__art-mock {
-  background: #0f1424;
-  border-color: #232a44;
-  box-shadow: none;
-}
-
-.dark .promo__art-mock__side {
-  background: #131a2e;
-  border-color: #232a44;
-}
-
-.dark .promo__art-mock__dot,
-.dark .promo__art-mock__bar {
-  background: #2a3350;
-}
-
-.dark .promo__art-mock__bar--lg {
-  background: #33405f;
-}
-
-.dark .sec-gauge__track {
-  stroke: #232a44;
 }
 
 .dark .learn-section__title,
@@ -1884,25 +1805,20 @@ const tools = computed(() =>
   }
 
   .hero-card__art {
-    display: none;
+    width: 100%;
+  }
+
+  .hero-stat {
+    flex: 1;
   }
 
   .res-grid,
-  .entry-grid,
-  .monitor-row {
+  .entry-grid {
     grid-template-columns: 1fr;
-  }
-
-  .access-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .learn-grid {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .security-cols {
-    flex-direction: column;
   }
 
   .promo {

@@ -100,9 +100,10 @@ const site = computed(() => content.value.site)
 /** 只放真实存在的目的地，避免做出点进去 404 的导航。 */
 const NAV_ITEMS = [
   { label: '全部产品', to: '/products' },
+  { label: '新闻资讯', to: '/news' },
+  { label: '帮助中心', to: '/help' },
   { label: '产品优势', to: '/#features' },
-  { label: '优惠活动', to: '/#promos' },
-  { label: '最新公告', to: '/#announcements' },
+  { label: '计费方式', to: '/#pricing' },
   { label: '联系与支持', to: '/#contact' },
 ]
 

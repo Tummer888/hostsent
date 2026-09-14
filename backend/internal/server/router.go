@@ -639,6 +639,41 @@ func newRouter(app *App) *gin.Engine {
 			annGroup.DELETE("/:id", app.perm("notify:manage"), app.notifyAdminHandler.DeleteAnnouncement)
 		}
 
+		// 内容中心（doc100 §7.1）：文章 / 分类 / 友情链接。
+		// 与公告分开的原因：公告带「平台定向 / 等级 / 弹窗」的站内消息语义，归消息中心；
+		// 这里只服务门户侧展示型内容。两套权限码也分开，避免「能发公告」隐含「能改条款」。
+		if app.content != nil {
+			contentArticles := v1.Group("/content/articles")
+			contentArticles.Use(app.adminAuth(), app.adminAudit())
+			{
+				contentArticles.GET("", app.perm("content:article:list"), app.content.articleHandler.List)
+				contentArticles.POST("", app.perm("content:article:manage"), app.content.articleHandler.Create)
+				contentArticles.GET("/:id", app.perm("content:article:list"), app.content.articleHandler.Get)
+				contentArticles.PUT("/:id", app.perm("content:article:manage"), app.content.articleHandler.Update)
+				contentArticles.POST("/:id/publish", app.perm("content:article:manage"), app.content.articleHandler.Publish)
+				contentArticles.POST("/:id/offline", app.perm("content:article:manage"), app.content.articleHandler.Offline)
+				contentArticles.DELETE("/:id", app.perm("content:article:manage"), app.content.articleHandler.Delete)
+			}
+
+			contentCategories := v1.Group("/content/categories")
+			contentCategories.Use(app.adminAuth(), app.adminAudit())
+			{
+				contentCategories.GET("", app.perm("content:category:list"), app.content.categoryHandler.List)
+				contentCategories.POST("", app.perm("content:category:manage"), app.content.categoryHandler.Create)
+				contentCategories.PUT("/:id", app.perm("content:category:manage"), app.content.categoryHandler.Update)
+				contentCategories.DELETE("/:id", app.perm("content:category:manage"), app.content.categoryHandler.Delete)
+			}
+
+			contentLinks := v1.Group("/content/links")
+			contentLinks.Use(app.adminAuth(), app.adminAudit())
+			{
+				contentLinks.GET("", app.perm("content:link:list"), app.content.linkHandler.List)
+				contentLinks.POST("", app.perm("content:link:manage"), app.content.linkHandler.Create)
+				contentLinks.PUT("/:id", app.perm("content:link:manage"), app.content.linkHandler.Update)
+				contentLinks.DELETE("/:id", app.perm("content:link:manage"), app.content.linkHandler.Delete)
+			}
+		}
+
 		// 消息中心 - 通知记录（doc70 §7.1）
 		// 注意：/unread-count 和 /mail-test 固定路径需先于 /:id/resend 注册
 		notifyGroup := v1.Group("/notifications")
@@ -874,8 +909,14 @@ func newRouter(app *App) *gin.Engine {
 	// 用户中心接口一律带用户态，两者不能放同一模块混用缓存策略。
 	publicSite := r.Group("/api/v1/public")
 	{
-		publicSite.GET("/announcements", app.siteHandler.Announcements) // 已发布公告
-		publicSite.GET("/site-content", app.siteHandler.SiteContent)    // 品牌与站点配置（白名单）
+		publicSite.GET("/announcements", app.siteHandler.Announcements)               // 已发布公告
+		publicSite.GET("/announcements/:id", app.siteHandler.AnnouncementDetail)      // 公告详情（门户查看）
+		publicSite.GET("/site-content", app.siteHandler.SiteContent)                  // 品牌与站点配置（白名单）
+		publicSite.GET("/articles", app.siteHandler.Articles)                         // 内容列表（news/help/terms/privacy）
+		publicSite.GET("/articles/:kind/:slug", app.siteHandler.ArticleDetail)        // 内容详情（按 slug）
+		publicSite.GET("/article-singletons/:kind", app.siteHandler.SingletonArticle) // 条款/隐私（每类型一篇）
+		publicSite.GET("/article-categories", app.siteHandler.ArticleCategories)      // 分类树（新闻分栏/帮助目录）
+		publicSite.GET("/friendly-links", app.siteHandler.FriendlyLinks)              // 友情链接
 	}
 
 	// 验证码公开接口（doc91 §3.3）：登录前使用，无需鉴权。

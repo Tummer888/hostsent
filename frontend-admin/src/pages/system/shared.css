@@ -54,6 +54,13 @@
   color: var(--color-foreground);
 }
 
+.system-page .page-header__desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-muted-foreground);
+}
+
 .system-page .t-button--theme-primary {
   border-color: var(--system-green);
   background-color: var(--system-green);

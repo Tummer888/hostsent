@@ -319,10 +319,16 @@ func (s *broadcastService) Send(ctx context.Context, req notifydto.BroadcastRequ
 	}, nil
 }
 
+// siteName 取当前站点名称（群发模板的 {site_name} 变量）。
+//
+// 优先 doc80 规范点号键 `site.name`，回落历史扁平键 `site_name`
+// （与 render.go 的 loadSiteShell 同款：迁移 045 之前扁平键是唯一入口）。
 func (s *broadcastService) siteName(ctx context.Context) string {
 	if s.configReader != nil {
-		if v, ok, err := s.configReader(ctx, "site_name"); err == nil && ok && strings.TrimSpace(v) != "" {
-			return v
+		for _, key := range []string{"site.name", "site_name"} {
+			if v, ok, err := s.configReader(ctx, key); err == nil && ok && strings.TrimSpace(v) != "" {
+				return v
+			}
 		}
 	}
 	return "HostSent"

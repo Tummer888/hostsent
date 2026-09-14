@@ -15,13 +15,17 @@ import (
 )
 
 // 配置键。
+//
+// 键名必须与 seed（internal/pkg/db/captcha_seed.go）和管理端表单（pages/system/config）
+// 写入的键完全一致：`password_require_upper/lower`，不是 `..._uppercase/_lowercase`。
+// 曾经这里写成 `_uppercase`，结果是「后台勾了大小写要求、注册仍然放过」的静默失效。
 const (
 	KeyMinLength     = "password_min_length"
-	KeyRequireUpper  = "password_require_uppercase"
-	KeyRequireLower  = "password_require_lowercase"
-	KeyRequireDigit  = "password_require_digit"
-	KeyRequireSymbol = "password_require_special"
 	KeyMaxLength     = "password_max_length"
+	KeyRequireUpper  = "password_require_upper"
+	KeyRequireLower  = "password_require_lower"
+	KeyRequireDigit  = "password_require_digit"
+	KeyRequireSymbol = "password_require_symbol"
 )
 
 // 默认值：最小 6 位，不做字符种类要求（与现状行为一致，避免升级即失败）。

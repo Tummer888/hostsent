@@ -29,3 +29,10 @@ redis:
 pricing:
   # 多来源折扣叠加模式：best 取最优（默认）/ stack 按顺序叠加
   stack_mode: best
+
+revalidate:
+  # 门户主动缓存失效（doc80 §10.1）：后台保存配置/发布公告后回调门户清 Nitro 缓存，
+  # 让「发布即见」不必等 SWR TTL。留空则不回调（纯后端联调够用）。
+  # portal_url 指向 frontend-site；token 必须与门户的 NUXT_INTERNAL_TOKEN 一致。
+  portal_url: "http://127.0.0.1:3003"
+  token: "cbe2929fd39925d1d777ca43648f9614b4052efd141bb8d2"

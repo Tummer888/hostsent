@@ -25,6 +25,18 @@
       </t-space>
     </header>
 
+    <!--
+      与「折扣活动」同一处如实说明：券的增删改查与发放记录都是完整的，
+      但下单链路没有「选券抵扣」入口（`internal/modules/uc/order` 不读 coupons，
+      `pricing.PromotionRule` 为空实现），所以券不会影响成交价。
+    -->
+    <t-alert
+      theme="warning"
+      title="该配置暂不参与下单计价"
+      message="优惠券可新建与发放，但用户端没有领券/选券入口，也不参与订单结算，当前仅作发放台账留存。上线折扣请用「商品定价 → 折扣策略」。"
+      class="promotion-notice"
+    />
+
     <section class="filter-card surface-card">
       <div class="filter-card__head">
         <h3 class="card-title">筛选条件</h3>
@@ -567,4 +579,9 @@ function handleMobileAction(value: string | number | Record<string, any>, row: C
 
 <style lang="css">
 @import '../../shared.css';
+
+/* 优惠券未接入结算链路的说明条 */
+.promotion-notice {
+  margin-bottom: 16px;
+}
 </style>

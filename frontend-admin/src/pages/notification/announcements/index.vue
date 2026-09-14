@@ -80,6 +80,10 @@
             {{ levelLabel(row.level) }}
           </t-tag>
         </template>
+        <template #pinned="{ row }">
+          <t-tag v-if="row.pinned" theme="primary" variant="light" size="small" shape="round">置顶</t-tag>
+          <span v-else class="cell-muted">—</span>
+        </template>
         <template #popup="{ row }">
           <t-tag v-if="row.popup" theme="primary" variant="light" size="small" shape="round">是</t-tag>
           <t-tag v-else theme="default" variant="light" size="small" shape="round">否</t-tag>
@@ -145,7 +149,7 @@
     <t-drawer
       v-model:visible="formVisible"
       :header="editingId ? '编辑公告' : '新增公告'"
-      size="480px"
+      size="720px"
       :confirm-btn="{ content: '保存', theme: 'primary', loading: saving }"
       :cancel-btn="{ content: '取消' }"
       @confirm="handleSave"
@@ -156,11 +160,7 @@
           <t-input v-model="form.title" placeholder="请输入公告标题" :maxlength="120" />
         </t-form-item>
         <t-form-item label="正文" name="content">
-          <t-textarea
-            v-model="form.content"
-            placeholder="请输入公告正文"
-            :autosize="{ minRows: 4, maxRows: 10 }"
-          />
+          <RichEditor v-model="form.content" placeholder="请输入公告正文" />
         </t-form-item>
         <t-form-item label="平台范围" name="platform">
           <t-select v-model="form.platform" :options="platformOptions" />
@@ -170,6 +170,17 @@
         </t-form-item>
         <t-form-item label="是否弹窗" name="popup">
           <t-switch v-model="form.popup" />
+          <p class="field-help">
+            开启后用户登录控制台时弹一次该公告，关闭后本机不再重复弹出。仅对 user / both 范围生效，admin 范围不弹。
+          </p>
+        </t-form-item>
+        <t-form-item label="置顶" name="pinned">
+          <t-switch v-model="form.pinned" />
+          <p class="field-help">置顶公告在门户与用户中心的公告列表中都排在最前。</p>
+        </t-form-item>
+        <t-form-item label="门户详情标识（slug）" name="slug">
+          <t-input v-model="form.slug" placeholder="留空则按 ID 生成门户链接" :maxlength="120" />
+          <p class="field-help">公告在门户 /announcements 可被查看；填 slug 后地址更可读。</p>
         </t-form-item>
         <t-form-item label="定时发布时间" name="publish_at">
           <t-date-picker
@@ -201,6 +212,7 @@ import {
   type AnnouncementSaveRequest,
 } from '@/api/notification'
 import MobileAction from '@/components/mobile-action/index.vue'
+import RichEditor from '@/components/rich-editor/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
@@ -280,10 +292,15 @@ function formatTime(value?: string): string {
   return value.replace('T', ' ').slice(0, 19)
 }
 
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, '')
+}
+
 const columns: PrimaryTableCol[] = [
   { colKey: 'title', title: '标题', minWidth: 200 },
   { colKey: 'platform', title: '平台', width: 100 },
   { colKey: 'level', title: '级别', width: 90 },
+  { colKey: 'pinned', title: '置顶', width: 80, align: 'center' },
   { colKey: 'popup', title: '弹窗', width: 80, align: 'center' },
   { colKey: 'status', title: '状态', width: 90 },
   { colKey: 'publish_at', title: '发布时间', width: 160 },
@@ -360,25 +377,31 @@ const editingId = ref<number | null>(null)
 const form = reactive<{
   title: string
   content: string
+  slug: string
   platform: 'user' | 'admin' | 'both'
   level: 'info' | 'warning' | 'critical'
   popup: boolean
+  pinned: boolean
   publish_at: string
 }>({
   title: '',
   content: '',
+  slug: '',
   platform: 'user',
   level: 'info',
   popup: false,
+  pinned: false,
   publish_at: '',
 })
 
 function resetForm() {
   form.title = ''
   form.content = ''
+  form.slug = ''
   form.platform = 'user'
   form.level = 'info'
   form.popup = false
+  form.pinned = false
   form.publish_at = ''
 }
 
@@ -391,10 +414,14 @@ function openCreate() {
 function openEdit(row: AnnouncementItem) {
   editingId.value = row.id
   form.title = row.title
+  // 存量纯文本公告（body_format=text）交给编辑器时不做转换：
+  // RichEditor 内部已对「非 HTML 开头」的值按文本段落处理。
   form.content = row.content
+  form.slug = row.slug || ''
   form.platform = row.platform
   form.level = row.level
   form.popup = !!row.popup
+  form.pinned = !!row.pinned
   form.publish_at = row.publish_at ? row.publish_at.replace('T', ' ').slice(0, 19) : ''
   formVisible.value = true
 }
@@ -404,7 +431,7 @@ async function handleSave() {
     MessagePlugin.warning('请输入公告标题')
     return
   }
-  if (!form.content.trim()) {
+  if (!stripHtml(form.content).trim()) {
     MessagePlugin.warning('请输入公告正文')
     return
   }
@@ -413,9 +440,12 @@ async function handleSave() {
     const payload: AnnouncementSaveRequest = {
       title: form.title.trim(),
       content: form.content.trim(),
+      body_format: 'html',
+      slug: form.slug.trim() || undefined,
       platform: form.platform,
       level: form.level,
       popup: form.popup,
+      pinned: form.pinned,
       publish_at: form.publish_at || undefined,
     }
     if (editingId.value) {

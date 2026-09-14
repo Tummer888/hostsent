@@ -859,6 +859,33 @@ const routes: Array<RouteRecordRaw> = [
     ],
   },
   {
+    // 内容管理（doc100 §7.1）：门户展示型内容与公告分开 —— 公告在系统管理/安全审计下。
+    path: '/content',
+    component: () => import('@/layouts/index.vue'),
+    redirect: '/content/articles',
+    meta: { title: '内容管理', role: 'admin' },
+    children: [
+      {
+        path: 'articles',
+        name: 'ContentArticles',
+        component: () => import('@/pages/content/articles/index.vue'),
+        meta: { title: '内容文章', role: 'admin', permission: 'content:article:list' },
+      },
+      {
+        path: 'categories',
+        name: 'ContentCategories',
+        component: () => import('@/pages/content/categories/index.vue'),
+        meta: { title: '内容分类', role: 'admin', permission: 'content:category:list' },
+      },
+      {
+        path: 'links',
+        name: 'ContentLinks',
+        component: () => import('@/pages/content/links/index.vue'),
+        meta: { title: '友情链接', role: 'admin', permission: 'content:link:list' },
+      },
+    ],
+  },
+  {
     path: '/system',
     component: () => import('@/layouts/index.vue'),
     redirect: '/system/menus',
@@ -922,6 +949,27 @@ const routes: Array<RouteRecordRaw> = [
         name: 'SystemAnnouncements',
         component: () => import('@/pages/notification/announcements/index.vue'),
         meta: { title: '公告管理', role: 'admin', permission: 'notify:announcement' },
+      },
+      {
+        // 日志中心（doc92）：26 类日志统一浏览，列与筛选项由后端 catalog 下发
+        path: 'logs',
+        name: 'SystemLogs',
+        component: () => import('@/pages/system/logs/index.vue'),
+        meta: { title: '日志中心', role: 'admin', permission: 'log:center' },
+      },
+      {
+        // 清理任务（doc92）：预演 / 执行 / 任务列表 / 导出文件下载
+        path: 'logs/cleanup',
+        name: 'SystemLogsCleanup',
+        component: () => import('@/pages/system/logs/cleanup/index.vue'),
+        meta: { title: '清理任务', role: 'admin', permission: 'log:cleanup' },
+      },
+      {
+        // 保留策略（doc92）：逐源配置 action / 保留天数 / 批次
+        path: 'logs/policy',
+        name: 'SystemLogsPolicy',
+        component: () => import('@/pages/system/logs/policy/index.vue'),
+        meta: { title: '保留策略', role: 'admin', permission: 'log:policy' },
       },
     ],
   },

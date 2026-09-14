@@ -1,31 +1,38 @@
 <template>
-  <section id="promos" class="site-section site-section--tight promo">
+  <section id="pricing" class="site-section site-section--tight promo">
     <div class="site-container">
       <SectionHeading
         :title="heading.title"
         :subtitle="heading.subtitle"
-        action-label="查看全部活动"
+        action-label="浏览全部产品"
         action-to="/products"
       />
 
       <ul class="site-shelf promo__shelf">
-        <li v-for="item in PROMOS" :key="item.title" class="promo__cell">
+        <li v-for="item in PRICING_CARDS" :key="item.title" class="promo__cell">
+          <!--
+            卡片目的地：站内页走 NuxtLink；用户中心入口走 <a> 拼控制台地址
+            （与 FeaturedShowcase 的控制台入口同一套规则）。控制台地址未配置时
+            降级成不可点的 <div>，而不是造一个点进去 404 的链接。
+          -->
           <component
-            :is="item.to ? 'NuxtLink' : 'div'"
+            :is="cardUrl(item) ? (item.to ? 'NuxtLink' : 'a') : 'div'"
             :to="item.to"
+            :href="item.to ? undefined : cardUrl(item) || undefined"
+            :rel="item.to ? undefined : 'noopener'"
             :aria-current-value="item.to ? ariaCurrentFor(item.to) : undefined"
             class="promo-card"
-            :class="[`promo-card--${item.variant}`, { 'is-pending': !item.to }]"
+            :class="[`promo-card--${item.variant}`, { 'is-pending': !cardUrl(item) }]"
           >
             <span class="promo-card__tag">{{ item.tag }}</span>
             <h3 class="promo-card__title">{{ item.title }}</h3>
             <p class="promo-card__desc">{{ item.desc }}</p>
 
-            <span v-if="item.to" class="promo-card__more">
+            <span v-if="cardUrl(item)" class="promo-card__more">
               查看详情
               <SiteIcon name="arrow-right" :stroke-width="1.9" />
             </span>
-            <span v-else class="promo-card__soon">即将上线</span>
+            <span v-else class="promo-card__soon">需先配置控制台地址</span>
           </component>
         </li>
       </ul>
@@ -34,12 +41,23 @@
 </template>
 
 <script setup lang="ts">
-import { PROMOS } from '~/constants/homeContent'
+import { PRICING_CARDS, type PricingCard } from '~/constants/homeContent'
 import { ariaCurrentFor } from '~/utils/nav'
 
+const { public: publicConfig } = useRuntimeConfig()
+
 const heading = {
-  title: '新用户与长期客户优惠',
-  subtitle: '代金券、首购折扣与续费同价都在这里，活动信息未来由后台活动模块下发。',
+  title: '计费方式与优惠',
+  subtitle: '周期价格、邀请返利与自动续费都是平台已经在跑的能力，入口直达对应页面。',
+}
+
+const consoleBase = computed(() => String(publicConfig.consoleUrl || '').replace(/\/+$/, ''))
+
+/** 解析卡片目的地：站内地址直接返回；控制台相对路径拼控制台地址。 */
+function cardUrl(item: PricingCard): string {
+  if (item.to) return item.to
+  if (!item.consolePath || !consoleBase.value) return ''
+  return `${consoleBase.value}${item.consolePath}`
 }
 </script>
 

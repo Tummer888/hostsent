@@ -67,23 +67,31 @@ const inviteUrl = computed(() => {
   return `${window.location.origin}/register?invite_code=${inviteCode.value}`
 })
 
-// 文案模板目前写在前端（管理侧尚无策展页，见 doc88 清点表 B3）。
-// 品牌名从站点配置取，避免模板里再写死一份品牌。
+/*
+ * 文案模板目前写在前端（管理侧尚无策展页，见 doc88 清点表 B3）。
+ * 品牌名从站点配置取，避免模板里再写死一份品牌。
+ *
+ * 措辞边界：返现是**发给邀请人**的，被邀请人拿不到折扣或赠金
+ *（`AccrueForOrder` 只给 inviter 记账，`coupons` 表为空且下单链路不读券）。
+ * 因此模板里不能写「注册享优惠」「专属折扣」——推广者把这话发给朋友，
+ * 朋友注册后发现没有任何优惠，受损的是推广者本人的信用。
+ * 这里只承诺邀请关系确实会建立（好友注册后归属到你名下并产生返现）。
+ */
 const templates = computed(() => {
   const brand = brandStore.name
   return [
     {
       label: '社群短文案',
-      render: (url: string) => `${brand}新用户福利，通过专属链接注册享优惠：${url}`,
+      render: (url: string) => `我在用${brand}，这是它的注册链接：${url}`,
     },
     {
       label: '邀请码文案',
-      render: (_url: string, code?: string) => `注册${brand}时填写邀请码 ${code || '—'}，即可绑定专属服务与优惠。`,
+      render: (_url: string, code?: string) => `注册${brand}时填邀请码 ${code || '—'}。`,
     },
     {
       label: '长文案',
       render: (url: string) =>
-        `${brand}提供云主机、对象存储与数据库等云产品，专业团队 7×24 支持。通过我的专属链接注册，可享受专属折扣与一对一服务：${url}`,
+        `${brand}是一个云主机订购与运维平台，从选规格到开通都在同一个控制台里完成。用这个链接注册，或在注册时填我的邀请码即可：${url}`,
     },
   ]
 })

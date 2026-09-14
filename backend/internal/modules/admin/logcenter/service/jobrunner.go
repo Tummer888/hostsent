@@ -118,3 +118,30 @@ func (r *Runner) writeAllowed(ctx context.Context, jobName string) bool {
 	}
 	return true
 }
+
+// staleRunningTimeout 多久没结束的 running 行算「进程中断遗留」。
+//
+// 取 6 小时：任何一轮任务的正常耗时都远小于它（最慢的生命周期扫描是 10 分钟一轮），
+// 因此不会误伤真正在跑的长任务，又能让重启后静默停摆的 job 尽快恢复。
+const staleRunningTimeout = 6 * time.Hour
+
+// ReconcileStaleRunning 收尾进程中断遗留的 running 行（启动时调用一次）。
+//
+// 不这样做的后果：uk_job_run_logs_running 保证「同一 job 至多一条 running」，
+// 而这条 running 只在 Finish 成功时才转终态。进程在任务执行中途被 kill，该行
+// 永远停在 running，之后每一轮 Start 都命中唯一索引 → 被当成「上一轮还在跑」
+// 跳过 → 该 job 永久静默停摆，日志里只留一条 warn（doc92 场景 8/9 的另一面）。
+func (r *Runner) ReconcileStaleRunning(ctx context.Context) (int64, error) {
+	if r == nil || r.repo == nil {
+		return 0, nil
+	}
+	n, err := r.repo.FailStaleRunning(ctx, time.Now().Add(-staleRunningTimeout),
+		"进程中断，任务未正常收尾")
+	if err != nil {
+		return 0, err
+	}
+	if n > 0 {
+		r.logger.Warn("job run logs: reconciled stale running rows", zap.Int64("rows", n))
+	}
+	return n, nil
+}

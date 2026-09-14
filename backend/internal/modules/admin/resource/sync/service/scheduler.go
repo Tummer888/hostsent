@@ -9,6 +9,7 @@ import (
 
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	syncrepo "hostsent/backend/internal/modules/admin/resource/sync/repository"
+	"hostsent/backend/internal/pkg/jobrun"
 )
 
 // Scheduler 定时调度器：按「渠道 × scope」多节奏扫描到期调度行并触发对应同步（T3.2）。
@@ -46,11 +47,11 @@ func (s *Scheduler) Start(ctx context.Context) {
 		defer retentionT.Stop()
 		staleT := time.NewTicker(10 * time.Minute)
 		defer staleT.Stop()
-		// 启动即：确保调度行存在、回收僵死任务、清理过保留期数据，
-		// 避免重启后渠道被历史任务长期阻塞。
+		// 启动即：确保调度行存在、回收僵死任务。
+		// 历史数据清理不再由本调度器负责：同步日志/任务/差异/调价事件已纳入
+		// 日志中心统一清理引擎（doc92 §1.3），保留期由逐源策略决定而非硬编码 30 天。
 		s.ensureSchedulesOnce(ctx)
 		s.reapStaleOnce(ctx)
-		s.purgeOnce(ctx)
 		for {
 			select {
 			case <-ctx.Done():
@@ -62,37 +63,50 @@ func (s *Scheduler) Start(ctx context.Context) {
 				s.reapStaleOnce(ctx)
 			case <-retentionT.C:
 				s.ensureSchedulesOnce(ctx)
-				s.purgeOnce(ctx)
 			}
 		}
 	}()
 	s.logger.Info("scheduler started", zap.Duration("interval", s.interval))
 }
 
-// runOnce 扫描到期调度行并逐个触发。同一渠道多个 scope 到期时按 priority 降序
-// 触发（高优先级先跑）；单条失败不影响其他。
+// runOnce 扫描到期调度行并逐个触发，同时留痕 job_run_logs（doc92 §7.2 sync_scan）。
+//
+// 同一渠道多个 scope 到期时按 priority 降序触发（高优先级先跑）；单条失败不影响其他。
 func (s *Scheduler) runOnce(ctx context.Context) {
+	jobrun.Run(ctx, "sync_scan", "sync", jobrun.TriggerScheduled,
+		func(ctx context.Context) (int, int, map[string]any) {
+			due, triggered, skipped := s.scanOnce(ctx)
+			return due, triggered, map[string]any{"due": due, "triggered": triggered, "skipped": skipped}
+		})
+}
+
+// scanOnce 扫描到期调度行并逐个触发，返回 (到期数, 触发数, 跳过数)。
+func (s *Scheduler) scanOnce(ctx context.Context) (dueN, triggered, skipped int) {
 	due, err := s.fwRepo.ListDueSchedules(ctx, time.Now())
 	if err != nil {
 		s.logger.Error("scheduler find due schedules failed", zap.Error(err))
-		return
+		return 0, 0, 0
 	}
+	dueN = len(due)
 	// 同一轮里同一渠道只做一次适配器就绪校验，避免重复构建。
 	ready := map[uint64]bool{}
 	for _, item := range due {
 		if !withinWindow(item, time.Now()) {
 			// 不在允许执行的时间窗内：把下次到期推到窗口起点，不再每小时重试。
 			s.deferToWindow(ctx, item)
+			skipped++
 			continue
 		}
 		if ok, checked := ready[item.ProviderID]; checked {
 			if !ok {
+				skipped++
 				continue
 			}
 		} else {
 			ok := s.engine.CheckProviderReady(ctx, item.ProviderID)
 			ready[item.ProviderID] = ok
 			if !ok {
+				skipped++
 				continue
 			}
 		}
@@ -100,8 +114,12 @@ func (s *Scheduler) runOnce(ctx context.Context) {
 			s.logger.Warn("scheduler trigger sync failed",
 				zap.Uint64("provider_id", item.ProviderID),
 				zap.String("scope", item.Scope), zap.Error(err))
+			skipped++
+			continue
 		}
+		triggered++
 	}
+	return dueN, triggered, skipped
 }
 
 // trigger 触发单条调度：创建任务并立刻推进 next_run_at，
@@ -147,6 +165,10 @@ func (s *Scheduler) deferToWindow(ctx context.Context, item syncmodel.SyncSchedu
 }
 
 // purgeOnce 按保留期分批清理历史同步任务、日志与差异记录（T0.5/T3.5）。
+//
+// Deprecated: 自 doc92 起由日志中心统一清理引擎接管（源 sync_log / sync_task /
+// sync_diff / price_change），保留期改由逐源保留策略决定。本函数与既有单测保留，
+// 但已不再被调度循环调用 —— 行为不丢：同步历史仍被清理，只是换了执行者。
 func (s *Scheduler) purgeOnce(ctx context.Context) {
 	before := time.Now().Add(-s.retention)
 	n, err := s.syncRepo.PurgeSyncDataBefore(ctx, before, 5000)
@@ -168,15 +190,20 @@ func (s *Scheduler) purgeOnce(ctx context.Context) {
 const staleTaskTimeout = time.Hour
 
 // reapStaleOnce 回收僵死任务，解除其对渠道调度的永久阻塞。
+// 10 分钟一轮，只有真回收了任务才有信息量，故报 scanned=n 走空轮不落库。
 func (s *Scheduler) reapStaleOnce(ctx context.Context) {
-	n, err := s.syncRepo.FailStaleTasks(ctx, time.Now().Add(-staleTaskTimeout))
-	if err != nil {
-		s.logger.Error("scheduler reap stale sync tasks failed", zap.Error(err))
-		return
-	}
-	if n > 0 {
-		s.logger.Warn("scheduler reaped stale sync tasks", zap.Int64("rows", n))
-	}
+	jobrun.Run(ctx, "sync_reap_stale", "sync", jobrun.TriggerScheduled,
+		func(ctx context.Context) (int, int, map[string]any) {
+			n, err := s.syncRepo.FailStaleTasks(ctx, time.Now().Add(-staleTaskTimeout))
+			if err != nil {
+				s.logger.Error("scheduler reap stale sync tasks failed", zap.Error(err))
+				return 0, 0, nil
+			}
+			if n > 0 {
+				s.logger.Warn("scheduler reaped stale sync tasks", zap.Int64("rows", n))
+			}
+			return int(n), int(n), map[string]any{"reaped": n}
+		})
 }
 
 // ============================================================================

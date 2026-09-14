@@ -3,7 +3,7 @@
     <div class="admin-login-card__header">
       <h2 class="admin-login-card__title" id="login-heading">管理员登录</h2>
       <p class="admin-login-card__subtitle">
-        欢迎回来，使用管理员账号登录 <span class="accent-word">宿派云控</span> 管理平台。
+        欢迎回来，使用管理员账号登录 <span class="accent-word">{{ brandStore.name }}</span> 管理平台。
       </p>
     </div>
 
@@ -154,26 +154,16 @@
       </t-button>
     </t-form>
 
-    <t-divider align="center" class="alt-divider">安全选项</t-divider>
-
-    <div class="alt-login">
-      <t-tooltip content="密钥登录功能即将上线" placement="top">
-        <button type="button" class="alt-login__item" @click="onKeyLogin">
-          <span class="alt-login__icon" aria-hidden="true">
-            <LockCheckedIcon size="20" />
-          </span>
-          <span class="alt-login__text">密钥登录</span>
-        </button>
-      </t-tooltip>
-      <t-tooltip content="IP 白名单 + 双因子认证" placement="top">
-        <button type="button" class="alt-login__item" @click="onSecurity">
-          <span class="alt-login__icon" aria-hidden="true">
-            <ServiceIcon size="20" />
-          </span>
-          <span class="alt-login__text">安全策略</span>
-        </button>
-      </t-tooltip>
-    </div>
+    <!--
+      安全选项说明（替代原先的两个假入口）：
+      「密钥登录」全仓没有后端（grep passkey|webauthn 零命中），「安全策略」只是一句
+      提示文案 —— 两个按钮点了都只会弹「即将上线」。这里改成如实说明当前登录会走哪些
+      保护，保护本身由「系统管理 → 验证码配置 / 系统配置 → 安全配置」控制（真实能力）。
+    -->
+    <p class="login-security-note">
+      <LockCheckedIcon size="15" aria-hidden="true" />
+      <span>登录保护：图形验证码、短信/邮箱二次验证与失败锁定，按后台安全策略自动生效。</span>
+    </p>
 
     <LoginOTPVerifyDialog
       v-model:visible="otpVisible"
@@ -199,7 +189,6 @@ import {
   LockCheckedIcon,
   LockOnIcon,
   LoginIcon,
-  ServiceIcon,
   ShieldErrorIcon,
   UserIcon,
 } from 'tdesign-icons-vue-next'
@@ -208,7 +197,7 @@ import type { FormInstanceFunctions, FormRule, SubmitContext } from 'tdesign-vue
 
 import CaptchaImage from '@/components/verify/CaptchaImage.vue'
 import LoginOTPVerifyDialog from '@/pages/login/components/LoginOTPVerifyDialog.vue'
-import { useUserStore } from '@/store'
+import { useBrandStore, useUserStore } from '@/store'
 import { imageRequired, loadAuthConfig } from '@/utils/captcha-resource'
 
 defineOptions({ name: 'AdminLoginForm' })
@@ -235,6 +224,8 @@ const otpContext = reactive({ channel: '', targetMasked: '', expireIn: 0 })
 const lastCredentials = ref<{ username: string; password: string } | null>(null)
 
 const userStore = useUserStore()
+// 品牌名由登录页 onMounted 拉取（公开接口），这里只读。
+const brandStore = useBrandStore()
 const router = useRouter()
 const route = useRoute()
 
@@ -438,14 +429,6 @@ async function onSubmitClick() {
   await formRef.value?.submit?.()
 }
 
-function onKeyLogin() {
-  MessagePlugin.info('密钥登录功能正在内测，敬请期待')
-}
-
-function onSecurity() {
-  MessagePlugin.info('默认启用：强密码 + IP 异常检测 + 登录审计 + 失败锁定')
-}
-
 function markTouched(field: FormField) {
   touchedFields.value[field] = true
 }
@@ -646,45 +629,24 @@ onMounted(async () => {
   color: var(--color-muted-foreground);
 }
 
-.alt-login {
+/* 登录保护说明：替代原先两个点了只弹「即将上线」的假入口 */
+.login-security-note {
   display: flex;
-  justify-content: center;
-  gap: 18px;
-}
-
-.alt-login__item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 5px;
-  cursor: pointer;
-  color: var(--color-muted-foreground);
-  background: transparent;
-  border: 0;
-  padding: 5px 8px;
-  border-radius: var(--hs-radius-sm);
-  transition: color var(--hs-duration-fast), background-color var(--hs-duration-fast), transform var(--hs-duration-fast);
-}
-
-.alt-login__item:hover {
-  color: var(--color-foreground);
-  background: var(--hs-surface-3);
-  transform: translateY(-1px);
-}
-
-.alt-login__icon {
-  width: 40px;
-  height: 40px;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 16px 0 0;
+  padding: 10px 12px;
   border-radius: var(--hs-radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   background: var(--hs-surface-2);
-  color: var(--color-primary);
   border: 1px solid var(--color-border);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-muted-foreground);
 }
 
-.alt-login__text {
-  font-size: 11.5px;
+.login-security-note > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--color-primary);
 }
 </style>

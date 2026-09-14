@@ -22,3 +22,12 @@ redis:
 pricing:
   # 多来源折扣叠加模式：best 取最优（默认）/ stack 按顺序叠加
   stack_mode: best
+
+revalidate:
+  # 门户主动缓存失效（doc80 §10.1）：后台保存站点配置/发布内容后回调门户清 Nitro 缓存。
+  # portal_url 指向 frontend-site（容器内访问宿主机需用 host.docker.internal，
+  # 并配合 docker-compose.yml 的 extra_hosts 与宿主机防火墙放行；见实施文档 §6）。
+  # token 必须与 frontend-site 的 NUXT_INTERNAL_TOKEN 一致，否则门户返回 401。
+  # 留空 = 不启用主动失效（门户按 SWR TTL 自然刷新，不会成为无鉴权端点）。
+  portal_url: ""
+  token: ""

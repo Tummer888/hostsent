@@ -31,7 +31,9 @@ const { items } = useProducts({ featured: true, pageSize: HOMEPAGE_FETCH_LIMIT }
 
 const visible = computed(() => items.value.slice(0, home.value.featuredLimit))
 
-const subtitle = computed(() => `${content.value.site.name} 精选的高性价比产品，按需开通、弹性计费`)
+const subtitle = computed(
+  () => `${content.value.site.name} 在后台勾选「推荐」位展示的商品，价格按周期维护`,
+)
 </script>
 
 <style scoped>

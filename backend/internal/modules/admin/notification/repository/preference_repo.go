@@ -2,8 +2,10 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	notifymodel "hostsent/backend/internal/modules/admin/notification/model"
 )
@@ -41,32 +43,40 @@ func (r *preferenceRepository) ListByUser(ctx context.Context, userID uint64) ([
 }
 
 func (r *preferenceRepository) Upsert(ctx context.Context, p *notifymodel.NotificationPreference) error {
-	return r.db.WithContext(ctx).Save(p).Error
+	// 不能走 Save：inbox_on 带 `default:true` 标签，GORM 对「零值 + 有 default」
+	// 的字段在 INSERT 时不会写入该列，DB 默认值 true 会把用户显式关掉的 false 覆盖掉。
+	return r.upsert(ctx, []notifymodel.NotificationPreference{*p})
 }
 
 func (r *preferenceRepository) BatchUpsert(ctx context.Context, items []notifymodel.NotificationPreference) error {
-	for i := range items {
-		var existing notifymodel.NotificationPreference
-		err := r.db.WithContext(ctx).Where("user_id = ? AND event = ?", items[i].UserID, items[i].Event).First(&existing).Error
-		if err == gorm.ErrRecordNotFound {
-			// 使用 Select 强制写入布尔零值，避免 default 覆盖
-			if err := r.db.WithContext(ctx).Select("user_id", "event", "inbox_on", "mail_on", "sms_on").Create(&items[i]).Error; err != nil {
-				return err
-			}
-		} else if err != nil {
-			return err
-		} else {
-			// 使用 Updates + Select 强制更新布尔字段
-			if err := r.db.WithContext(ctx).Model(&existing).
-				Select("inbox_on", "mail_on", "sms_on").
-				Updates(map[string]any{
-					"inbox_on": items[i].InboxOn,
-					"mail_on":  items[i].MailOn,
-					"sms_on":   items[i].SmsOn,
-				}).Error; err != nil {
-				return err
-			}
-		}
+	if len(items) == 0 {
+		return nil
 	}
-	return nil
+	return r.upsert(ctx, items)
+}
+
+// upsert 用 ON CONFLICT DO UPDATE 一次写全三列。
+//
+// 不用 Save/Create 的原因：inbox_on 带 `default:true`，GORM 对「零值 + 有 default」
+// 的字段会从 INSERT 列里剔除，DB 默认值把用户显式关掉的 false 覆盖成 true ——
+// 于是「关掉某事件站内信」永远存不下去（doc90 §11 场景 16 直击此点）。
+// 显式列出三列并由 DB 做冲突更新，布尔零值才能真正落库。
+func (r *preferenceRepository) upsert(ctx context.Context, items []notifymodel.NotificationPreference) error {
+	rows := make([]map[string]any, 0, len(items))
+	for i := range items {
+		rows = append(rows, map[string]any{
+			"user_id":    items[i].UserID,
+			"event":      items[i].Event,
+			"inbox_on":   items[i].InboxOn,
+			"mail_on":    items[i].MailOn,
+			"sms_on":     items[i].SmsOn,
+			"updated_at": time.Now(),
+		})
+	}
+	return r.db.WithContext(ctx).Table("notification_preferences").
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "user_id"}, {Name: "event"}},
+			DoUpdates: clause.AssignmentColumns([]string{"inbox_on", "mail_on", "sms_on", "updated_at"}),
+		}).
+		Create(rows).Error
 }

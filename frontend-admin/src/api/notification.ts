@@ -9,11 +9,17 @@ export interface AnnouncementItem {
   id: number
   title: string
   content: string
+  /** 正文格式（迁移 044）：text=存量纯文本，html=服务端已净化的富文本。 */
+  body_format: 'text' | 'html'
+  /** 门户详情标识；为空时前端回落 id 路径。 */
+  slug: string
   platform: 'user' | 'admin' | 'both'
   level: 'info' | 'warning' | 'critical'
   popup: boolean
+  pinned: boolean
   status: 'draft' | 'published' | 'offline'
   publish_at: string
+  offline_at: string
   created_at: string
   updated_at: string
 }
@@ -36,9 +42,13 @@ export interface AnnouncementListQuery {
 export interface AnnouncementSaveRequest {
   title: string
   content: string
+  /** 提交富文本时为 html；后端会做白名单净化。留空按 text 存。 */
+  body_format?: 'text' | 'html'
+  slug?: string
   platform: 'user' | 'admin' | 'both'
   level: 'info' | 'warning' | 'critical'
   popup: boolean
+  pinned?: boolean
   publish_at?: string
 }
 

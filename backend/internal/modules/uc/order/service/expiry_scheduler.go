@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"hostsent/backend/internal/pkg/jobrun"
 )
 
 // PendingExpireScheduler 待支付订单过期关单调度器（doc88 §6.2）。
@@ -59,19 +61,23 @@ func (s *PendingExpireScheduler) Start(ctx context.Context) {
 
 // runOnce 单轮扫描：读配置 → 关单；失败只记录，不中断调度。
 func (s *PendingExpireScheduler) runOnce(ctx context.Context) {
-	minutes := s.readConf(ctx)
-	if minutes <= 0 {
-		minutes = defaultPayExpireMinutes
-	}
-	// 读接口展示的支付截止时间与关单口径共用同一份配置，这里一并刷新。
-	s.svc.SetPayExpireMinutes(minutes)
-	closed, err := s.svc.ExpirePending(ctx, minutes)
-	if err != nil {
-		s.logger.Error("pending order expire scan failed", zap.Error(err))
-		return
-	}
-	if closed > 0 {
-		s.logger.Info("pending orders closed by expiry",
-			zap.Int("count", closed), zap.Int("expire_minutes", minutes))
-	}
+	jobrun.RunErr(ctx, "order_expire", "order", jobrun.TriggerScheduled,
+		func(ctx context.Context) (int, int, map[string]any, error) {
+			minutes := s.readConf(ctx)
+			if minutes <= 0 {
+				minutes = defaultPayExpireMinutes
+			}
+			// 读接口展示的支付截止时间与关单口径共用同一份配置，这里一并刷新。
+			s.svc.SetPayExpireMinutes(minutes)
+			closed, err := s.svc.ExpirePending(ctx, minutes)
+			if err != nil {
+				s.logger.Error("pending order expire scan failed", zap.Error(err))
+				return 0, 0, nil, err
+			}
+			if closed > 0 {
+				s.logger.Info("pending orders closed by expiry",
+					zap.Int("count", closed), zap.Int("expire_minutes", minutes))
+			}
+			return closed, closed, map[string]any{"closed": closed, "expire_minutes": minutes}, nil
+		})
 }

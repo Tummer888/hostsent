@@ -10,20 +10,15 @@
 
       <ul class="resources__grid">
         <li v-for="item in RESOURCES" :key="item.title">
-          <component
-            :is="item.to ? 'NuxtLink' : 'div'"
-            :to="item.to"
-            class="res-card"
-            :class="{ 'is-pending': !item.to }"
-          >
+          <NuxtLink :to="item.to" class="res-card">
             <PlaceholderArt :variant="item.variant" :icon="item.icon" :label="item.artLabel" />
             <h3 class="res-card__title">{{ item.title }}</h3>
             <p class="res-card__desc">{{ item.desc }}</p>
             <span class="res-card__more">
-              {{ item.to ? '查看' : '即将上线' }}
+              查看
               <SiteIcon name="arrow-right" :stroke-width="1.9" />
             </span>
-          </component>
+          </NuxtLink>
         </li>
       </ul>
     </div>
@@ -35,7 +30,7 @@ import { RESOURCES } from '~/constants/homeContent'
 
 const heading = {
   title: '资源与支持',
-  subtitle: '产品更新、技术分享与落地案例，都在这里沉淀。',
+  subtitle: '产品动态、使用文档、服务公告与条款政策，都在这里沉淀。',
 }
 </script>
 
@@ -64,7 +59,7 @@ const heading = {
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
-.res-card:not(.is-pending):hover {
+.res-card:hover {
   transform: translateY(-3px);
   border-color: var(--site-primary-border);
   box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);

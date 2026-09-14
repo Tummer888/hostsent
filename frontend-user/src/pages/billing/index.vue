@@ -24,21 +24,13 @@
         </div>
       </div>
 
-      <button class="sider-item" @click="onDevelop('成本管理')">
-        <ChartBarIcon size="16" />
-        <span>成本管理</span>
-      </button>
-      <button class="sider-item" @click="onDevelop('订购管理')">
+      <button class="sider-item" @click="router.push('/order')">
         <CartIcon size="16" />
-        <span>订购管理</span>
+        <span>我的订单</span>
       </button>
       <button class="sider-item" @click="router.push('/billing/transactions')">
         <SwapIcon size="16" />
         <span>收支明细</span>
-      </button>
-      <button class="sider-item" @click="onDevelop('导出记录')">
-        <DownloadIcon size="16" />
-        <span>导出记录</span>
       </button>
       <button class="sider-item" @click="router.push('/billing/balance')">
         <WalletIcon size="16" />
@@ -47,10 +39,6 @@
       <button class="sider-item" @click="router.push('/billing/invoices')">
         <FilePasteIcon size="16" />
         <span>发票管理</span>
-      </button>
-      <button class="sider-item" @click="onDevelop('合同管理')">
-        <FileIcon size="16" />
-        <span>合同管理</span>
       </button>
     </aside>
 
@@ -150,14 +138,6 @@
 
             <span class="filter-spacer"></span>
 
-            <t-button variant="outline" size="small" @click="onDevelop('消费总览 PDF')">
-              <template #icon><DownloadIcon /></template>
-              消费总览 PDF
-            </t-button>
-            <t-button variant="outline" size="small" @click="onDevelop('费用汇总 CSV')">
-              <template #icon><DownloadIcon /></template>
-              费用汇总 CSV
-            </t-button>
             <button class="icon-btn" aria-label="刷新" @click="reload">
               <RefreshIcon size="16" />
             </button>
@@ -186,20 +166,6 @@
                 <span class="amount-value">¥{{ formatPrice(summary.listPrice) }}</span>
               </div>
 
-              <div class="amount-card-row">
-                <div class="amount-card amount-card--half">
-                  <span class="amount-label">
-                    优惠金额
-                    <HelpCircleIcon size="13" class="amount-help" />
-                  </span>
-                  <span class="amount-value">¥{{ formatPrice(summary.discount) }}</span>
-                </div>
-                <div class="amount-card amount-card--half">
-                  <span class="amount-label">优惠券金额</span>
-                  <span class="amount-value">¥{{ formatPrice(summary.coupon) }}</span>
-                </div>
-              </div>
-
               <div class="amount-card">
                 <span class="amount-label">调减金额</span>
                 <span class="amount-value">¥{{ formatPrice(summary.adjust) }}</span>
@@ -208,24 +174,17 @@
           </div>
 
           <div class="summary-head">
-            <t-tabs v-model="summaryTab" size="medium">
-              <t-tab-panel value="product" label="产品汇总" />
-              <t-tab-panel value="tag" label="标签汇总" />
-            </t-tabs>
+            <h4 class="summary-title">产品汇总</h4>
             <div class="summary-actions">
-              <button class="icon-btn" aria-label="下载" @click="onDevelop('汇总导出')">
-                <DownloadIcon size="16" />
-              </button>
               <button class="icon-btn" aria-label="刷新" @click="reload">
                 <RefreshIcon size="16" />
               </button>
             </div>
           </div>
 
-          <p class="formula-text">应付金额 = 目录价金额 - 优惠金额 - 调减金额</p>
+          <p class="formula-text">应付金额 = 目录价金额 - 调减金额</p>
 
           <t-table
-            v-if="summaryTab === 'product'"
             row-key="name"
             :data="productRows"
             :columns="productColumns"
@@ -240,9 +199,6 @@
             <template #payable="{ row }">
               <span class="num-cell num-cell--strong">¥{{ formatPrice(row.payable) }}</span>
             </template>
-            <template #discount="{ row }">
-              <span class="num-cell">¥{{ formatPrice(row.discount) }}</span>
-            </template>
             <template #adjust="{ row }">
               <span class="num-cell">¥{{ formatPrice(row.adjust) }}</span>
             </template>
@@ -251,26 +207,6 @@
             </template>
             <template #empty>
               <t-empty description="当前账期暂无消费记录" />
-            </template>
-          </t-table>
-
-          <t-table
-            v-else
-            row-key="name"
-            :data="tagRows"
-            :columns="tagColumns"
-            size="small"
-            :bordered="false"
-            cell-empty-content="—"
-          >
-            <template #listPrice="{ row }">
-              <span class="num-cell">¥{{ formatPrice(row.listPrice) }}</span>
-            </template>
-            <template #payable="{ row }">
-              <span class="num-cell num-cell--strong">¥{{ formatPrice(row.payable) }}</span>
-            </template>
-            <template #empty>
-              <t-empty description="暂无标签汇总数据" />
             </template>
           </t-table>
         </section>
@@ -442,8 +378,6 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   DashboardIcon,
-  DownloadIcon,
-  FileIcon,
   FilePasteIcon,
   HelpCircleIcon,
   LockOnIcon,
@@ -488,7 +422,6 @@ const memberStore = useMemberStore()
 type ViewKey = 'overview' | 'bills'
 const view = ref<ViewKey>('overview')
 const billingOpen = ref(true)
-const summaryTab = ref<'product' | 'tag'>('product')
 
 // ========== 筛选 ==========
 const filter = reactive({
@@ -515,27 +448,27 @@ const filteredBills = computed(() => {
   return bills.value.filter((b) => (b.period || '').startsWith(filter.month))
 })
 
-// 汇总：目录价 = 账单消费合计；调减 = 退款合计；优惠/优惠券暂无数据来源记为 0
+// 汇总：目录价 = 账单消费合计；调减 = 退款合计。
+// 优惠与优惠券不在这里算：账本里没有「券抵扣」字段，先前固定 0 的卡片会让人
+// 以为「我一张券都没用」；算价阶段的优惠在订单详情里（discount_amount）可查。
 const summary = computed(() => {
   const listPrice = filteredBills.value.reduce((sum, b) => sum + Number(b.total_amount || 0), 0)
   const adjust = filteredBills.value.reduce((sum, b) => sum + Number(b.refund_amount || 0), 0)
-  const discount = 0
-  const coupon = 0
-  const payable = Math.max(0, listPrice - discount - adjust)
+  const payable = Math.max(0, listPrice - adjust)
   const paid = filteredBills.value
     .filter((b) => b.status === 'paid')
     .reduce((sum, b) => sum + Number(b.total_amount || 0) - Number(b.refund_amount || 0), 0)
-  return { listPrice, discount, coupon, adjust, payable, paid }
+  return { listPrice, adjust, payable, paid }
 })
 
 // 产品汇总：按消费流水的备注分组
 const productRows = computed(() => {
-  const map = new Map<string, { name: string; listPrice: number; payable: number; discount: number; adjust: number }>()
+  const map = new Map<string, { name: string; listPrice: number; payable: number; adjust: number }>()
   for (const tx of consumeTxs.value) {
     if (tx.type !== 'consume') continue
     const name = tx.remark || txTypeLabel(tx.type) || '其他消费'
     const amount = Number(tx.amount || 0)
-    const row = map.get(name) || { name, listPrice: 0, payable: 0, discount: 0, adjust: 0 }
+    const row = map.get(name) || { name, listPrice: 0, payable: 0, adjust: 0 }
     row.listPrice += amount
     row.payable += amount
     map.set(name, row)
@@ -543,21 +476,12 @@ const productRows = computed(() => {
   return Array.from(map.values()).sort((a, b) => b.payable - a.payable)
 })
 
-const tagRows = computed<{ name: string; listPrice: number; payable: number }[]>(() => [])
-
 const productColumns: PrimaryTableCol<{ name: string }>[] = [
   { colKey: 'name', title: '产品名称', minWidth: 220 },
   { colKey: 'listPrice', title: '目录价金额', width: 140, align: 'right' },
   { colKey: 'payable', title: '应付金额', width: 140, align: 'right' },
-  { colKey: 'discount', title: '优惠金额', width: 120, align: 'right' },
   { colKey: 'adjust', title: '调减金额', width: 120, align: 'right' },
   { colKey: 'operation', title: '操作', width: 100 },
-]
-
-const tagColumns: PrimaryTableCol<{ name: string }>[] = [
-  { colKey: 'name', title: '标签', minWidth: 220 },
-  { colKey: 'listPrice', title: '目录价金额', width: 140, align: 'right' },
-  { colKey: 'payable', title: '应付金额', width: 140, align: 'right' },
 ]
 
 const billColumns: PrimaryTableCol<BillInfo>[] = [
@@ -571,10 +495,6 @@ const billColumns: PrimaryTableCol<BillInfo>[] = [
   { colKey: 'action', title: '操作', width: 110 },
   { colKey: 'created_at', title: '创建时间', width: 170 },
 ]
-
-function onDevelop(name: string) {
-  MessagePlugin.info(`${name}功能开发中`)
-}
 
 async function loadAll() {
   loading.value = true
@@ -867,12 +787,6 @@ onMounted(loadAll)
   gap: 16px;
 }
 
-.amount-card-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
 .amount-label {
   display: inline-flex;
   align-items: center;
@@ -920,8 +834,11 @@ onMounted(loadAll)
   gap: 12px;
 }
 
-.summary-head :deep(.t-tabs__nav) {
-  margin-bottom: 0;
+.summary-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-foreground);
 }
 
 .summary-actions {
@@ -1011,10 +928,6 @@ onMounted(loadAll)
 
   .billing-panel {
     padding: var(--space-lg) var(--space-md);
-  }
-
-  .amount-card-row {
-    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

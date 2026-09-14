@@ -139,6 +139,8 @@ import (
 	"hostsent/backend/internal/pkg/netutil"
 	"hostsent/backend/internal/pkg/observability"
 	"hostsent/backend/internal/pkg/pricing"
+	"hostsent/backend/internal/pkg/publishsched"
+	"hostsent/backend/internal/pkg/revalidate"
 	"hostsent/backend/internal/pkg/specatom"
 	"hostsent/backend/internal/pkg/storage"
 	"hostsent/backend/internal/pkg/upstream"
@@ -179,7 +181,9 @@ type Server struct {
 	deliveryWorker *notifyservice.DeliveryWorker
 	// logcenter 日志中心后台组件（doc92）：上游采集写入器 + 统一清理调度器。
 	logcenter *logcenterBundle
-	cancel    context.CancelFunc
+	// publishScheduler 内容定时发布（公告与内容文章 draft → published）。
+	publishScheduler *publishsched.Scheduler
+	cancel           context.CancelFunc
 }
 
 func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
@@ -205,6 +209,14 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		cacheClient = cache.NewDisabled(logger)
 	}
 	logger.Info("cache initialized", zap.Bool("redis_enabled", cacheClient.Enabled()))
+
+	// 门户主动缓存失效（doc80 §10.1）：后台保存站点配置/发布内容后回调门户清 Nitro 缓存。
+	// 未配地址时整体空转 —— 纯后端环境不该因为门户没起而刷告警。
+	portalRevalidator := revalidate.NewHTTPNotifier(cfg.Revalidate.PortalURL, cfg.Revalidate.Token, logger)
+	revalidate.SetNotifier(portalRevalidator)
+	if portalRevalidator.Enabled() {
+		logger.Info("portal revalidate enabled", zap.String("portal_url", cfg.Revalidate.PortalURL))
+	}
 
 	jwtIssuer := appauth.NewJWTIssuer(cfg.Auth.JWTSecret, cfg.Auth.JWTIssuer, time.Duration(cfg.Auth.JWTExpireHours)*time.Hour)
 	ipRegionResolver := netutil.NewHTTPIPRegionResolver()
@@ -798,8 +810,11 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		Counter:      &notifyRateCounter{cache: cacheClient},
 		Logger:       logger,
 	})
-	// 官网门户公开只读数据（公告等），无需登录；后续 site-content 也落在该模块
-	siteSvc := siteservice.NewSiteService(announceSvc, configRepo)
+	// 内容中心（doc100）：新闻/帮助/条款/隐私/分类/友情链接的管理与门户公开读取。
+	contentBundle := buildContentBundle(database)
+	// 官网门户公开只读数据（公告 + 内容中心），无需登录；site-content 也落在该模块。
+	// 第二个参数是公开读取适配器：site 只声明需要的读方法，装配层注入实现。
+	siteSvc := siteservice.NewSiteService(announceSvc, contentBundle.reader, configRepo)
 	siteHandler := sitehandler.NewSiteHandler(siteSvc)
 	// 续费完成事件（P6/T6.5）：instance.renewed → 开放平台回调。
 	lifecycleRenewalSvc.SetRenewedHook(buildRenewedNotifier(openEventPublisher))
@@ -841,6 +856,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		ConfigBoolOr: logcenterConfigBoolOr(configValueReader),
 		StorageRoot:  cfg.Storage.Root,
 		Locker:       &logcenterRedisLocker{cache: cacheClient},
+		AuditWriter:  adminAuditRepo,
 		Logger:       logger,
 	})
 	// 登录安全端口回填（doc91 C3）：管理端与用户端认证服务都只依赖中性端口，
@@ -921,7 +937,10 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	}, logger)
 	// 销售提现打款出口：复用支付中心打款单，biz_type=sales_withdraw（doc86 §2.5）。
 	salesBundle.wireSalesPayout(paymentBundle.payoutService)
-	app := NewApp(cfg, adminHandler, departmentHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, salesBundle.customerHandler, salesBundle.commissionHandler, salesBundle.performanceHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, siteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, captchaBundle, notifyBundleInst, logcenterBundle, cacheClient, logger, jwtIssuer)
+	// 内容定时发布：管理端「定时发布时间」只在写入时判一次到点，到点后没人推进；
+	// 这条调度把 draft + 已到 publish_at 的公告与文章翻成 published（doc100 §10 第三期 23）。
+	publishScheduler := publishsched.NewScheduler(notifyAnnRepo, contentBundle.articleRepo, logger)
+	app := NewApp(cfg, adminHandler, departmentHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, salesBundle.customerHandler, salesBundle.commissionHandler, salesBundle.performanceHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, siteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, captchaBundle, notifyBundleInst, logcenterBundle, contentBundle, cacheClient, logger, jwtIssuer)
 	router := newRouter(app)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
@@ -943,6 +962,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		notifyWorker:           notifyWorker,
 		deliveryWorker:         notifyBundleInst.worker,
 		logcenter:              logcenterBundle,
+		publishScheduler:       publishScheduler,
 	}, nil
 }
 
@@ -956,6 +976,7 @@ func (s *Server) Run() error {
 	s.salesScheduler.Start(ctx)
 	s.provisionWorker.Start(ctx)
 	go s.notifyWorker.Start(ctx)
+	s.publishScheduler.Start(ctx)
 	if s.deliveryWorker != nil {
 		go s.deliveryWorker.Start(ctx)
 	}
@@ -968,6 +989,15 @@ func (s *Server) Run() error {
 		if s.logcenter.scheduler != nil {
 			s.logcenter.scheduler.Start(ctx)
 		}
+		// 进程中断遗留的 running 任务行会让对应 job 永久被判重入而停摆，
+		// 启动时统一收成 failed（doc92 §7.1 重入保护的补丁）。
+		if s.logcenter.Runner != nil {
+			if _, err := s.logcenter.Runner.ReconcileStaleRunning(ctx); err != nil {
+				s.logger.Warn("logcenter: reconcile stale running job rows failed", zap.Error(err))
+			}
+		}
+		// 采集与保留期配置周期重读：改配置不重启即生效（doc89 §9.1）。
+		s.logcenter.startCaptureRefresh(ctx)
 	}
 	s.logger.Info("server starting", zap.String("addr", s.http.Addr), zap.String("name", s.cfg.App.Name))
 	return s.http.ListenAndServe()

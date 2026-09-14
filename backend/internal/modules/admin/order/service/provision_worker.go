@@ -96,6 +96,12 @@ func (w *ProvisionWorker) Start(ctx context.Context) {
 			w.wg.Add(1)
 			go w.loop(runCtx)
 		}
+		// 租约回收单独一个协程：它包着 jobrun 的重入保护（uk_job_run_logs_running），
+		// 若放进 loop 就是每个 worker 各有一个 1 分钟 ticker —— 多个 ticker 同刻触发，
+		// 后到的那次必然撞唯一索引，被当成「上一轮还在跑」记一条 ERROR + warn 跳过。
+		// 那是假重入：真正需要防的是「本轮执行超过间隔」，而不是 worker 之间的赛跑。
+		w.wg.Add(1)
+		go w.reapLoop(runCtx)
 		w.logger.Info("provision worker started",
 			zap.Int("workers", w.workers), zap.Duration("poll_every", w.pollEvery))
 	})
@@ -120,17 +126,7 @@ func (w *ProvisionWorker) Stop(ctx context.Context) {
 // loop 单协程轮询：领取任务 → 执行 → 记账；无任务时按间隔休眠。
 func (w *ProvisionWorker) loop(ctx context.Context) {
 	defer w.wg.Done()
-	reapT := time.NewTicker(time.Minute)
-	defer reapT.Stop()
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-reapT.C:
-			w.reapStale(ctx)
-		default:
-		}
-
 		task, err := w.store.Claim(ctx, w.lease)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -145,6 +141,21 @@ func (w *ProvisionWorker) loop(ctx context.Context) {
 			continue
 		}
 		w.process(ctx, task)
+	}
+}
+
+// reapLoop 单协程按分钟回收租约过期的 running 任务（全池一份，不随 worker 数放大）。
+func (w *ProvisionWorker) reapLoop(ctx context.Context) {
+	defer w.wg.Done()
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			w.reapStale(ctx)
+		}
 	}
 }
 

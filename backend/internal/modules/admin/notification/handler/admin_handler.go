@@ -50,8 +50,6 @@ func writeNotifyError(err error) *apperrors.AppError {
 		errors.Is(err, notifyservice.ErrNoDeliveryForNotification),
 		errors.Is(err, notifyservice.ErrSmsTemplateInUse):
 		return apperrors.New(20003, err.Error())
-	case errors.Is(err, notifyservice.ErrBroadcastTooMany):
-		return apperrors.New(20005, err.Error())
 	case errors.Is(err, notifyservice.ErrChannelNotConfigured):
 		return apperrors.New(20006, err.Error())
 	case errors.Is(err, notifyservice.ErrInvalidParams),
@@ -59,7 +57,10 @@ func writeNotifyError(err error) *apperrors.AppError {
 		errors.Is(err, notifyservice.ErrUnregisteredVar),
 		errors.Is(err, notifyservice.ErrBroadcastTargetEmpty),
 		errors.Is(err, notifyservice.ErrBroadcastChannelEmpty),
-		errors.Is(err, notifyservice.ErrBroadcastSmsTemplateRequired):
+		errors.Is(err, notifyservice.ErrBroadcastSmsTemplateRequired),
+		// 超出单次群发上限是「参数不合法」，不是「服务商不可用」——沿用 20001
+		// （doc90 §5 与 §11 场景 9 都明确要求 20001）。
+		errors.Is(err, notifyservice.ErrBroadcastTooMany):
 		return apperrors.New(20001, err.Error())
 	default:
 		return apperrors.New(50001, err.Error())

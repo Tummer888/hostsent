@@ -90,14 +90,25 @@ type Notification struct {
 
 func (Notification) TableName() string { return "notifications" }
 
+// 公告正文格式（迁移 044）：text = 纯文本（存量数据），html = 服务端已净化的富文本。
+// 渲染端必须按此字段分支，不能一律当 HTML 渲染 —— 存量纯文本里的 < > 会被吃掉。
+const (
+	AnnouncementFormatText string = "text"
+	AnnouncementFormatHTML string = "html"
+)
+
 // Announcement 公告。
 type Announcement struct {
-	ID         uint64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	Title      string     `gorm:"column:title;size:255;not null" json:"title"`
-	Content    string     `gorm:"column:content;type:text;not null" json:"content"`
+	ID      uint64 `gorm:"primaryKey;autoIncrement" json:"id"`
+	Title   string `gorm:"column:title;size:255;not null" json:"title"`
+	Content string `gorm:"column:content;type:text;not null" json:"content"`
+	// Slug 门户详情页标识（/announcements/:slug）。为空时前端回落到 id 路径。
+	Slug       string     `gorm:"column:slug;size:120;not null;default:''" json:"slug"`
+	BodyFormat string     `gorm:"column:body_format;size:10;not null;default:text" json:"body_format"`
 	Platform   string     `gorm:"column:platform;size:10;not null;default:user" json:"platform"` // user / admin / both
 	Level      string     `gorm:"column:level;size:20;not null;default:info" json:"level"`       // info / warning / critical
 	Popup      bool       `gorm:"column:popup;not null;default:false" json:"popup"`
+	Pinned     bool       `gorm:"column:pinned;not null;default:false" json:"pinned"` // 置顶：列表排序优先于发布时间
 	Status     string     `gorm:"size:20;not null;default:draft;index" json:"status"`
 	PublishAt  *time.Time `gorm:"column:publish_at" json:"publish_at"`
 	OfflineAt  *time.Time `gorm:"column:offline_at" json:"offline_at"`

@@ -25,6 +25,21 @@
       </t-space>
     </header>
 
+    <!--
+      如实告知：促销活动的数据 CRUD 是完整的（能建、能查、能改状态），
+      但下单定价链路里 `pricing` 的 PromotionRule 依赖目前是空实现
+      （internal/pkg/pricing/pricing.go：「当前未接入返回 nil」），
+      因此**这些活动不会影响订单价格**。doc80 §728 把「promotions 预排期」
+      列为未完成项 —— 在没有接入之前，宁可在页面上写清楚，
+      也不让运营以为建了活动用户就能看到折扣（用户端也没有领券/选券入口）。
+    -->
+    <t-alert
+      theme="warning"
+      title="该配置暂不参与下单计价"
+      message="此处维护的折扣活动仅作为配置留存，尚未接入订单定价（用户端也没有领券入口），不会改变实际成交价。上线折扣请用「商品定价 → 折扣策略」。"
+      class="promotion-notice"
+    />
+
     <section class="filter-card surface-card">
       <div class="filter-card__head">
         <h3 class="card-title">筛选条件</h3>
@@ -388,4 +403,9 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
 
 <style lang="css">
 @import '../../shared.css';
+
+/* 促销未接入计价链路的说明条：与下方筛选卡留出间距 */
+.promotion-notice {
+  margin-bottom: 16px;
+}
 </style>
