@@ -31,29 +31,24 @@
       </article>
     </section>
 
-    <section v-if="!isEmbedded" class="filter-card surface-card">
-      <div class="filter-card__head">
-        <h3 class="card-title">筛选条件</h3>
+    <FilterCard v-if="!isEmbedded" :columns="4">
+      <div class="field">
+        <span class="field__label">关键词</span>
+        <t-input v-model="filters.keyword" clearable placeholder="池名 / 上游 ID" @enter="handleSearch" />
       </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">关键词</span>
-          <t-input v-model="filters.keyword" clearable placeholder="池名 / 上游 ID" @enter="handleSearch" />
-        </div>
-        <div class="field">
-          <span class="field__label">所属提供商</span>
-          <t-select v-model="filters.provider_id" clearable placeholder="全部提供商" :options="providerOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">位置（地域）</span>
-          <t-select v-model="filters.region" clearable placeholder="全部地域" :options="regionOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">容量告警</span>
-          <t-select v-model="filters.alert" clearable placeholder="全部资源池" :options="alertOptions" />
-        </div>
+      <div class="field">
+        <span class="field__label">所属提供商</span>
+        <t-select v-model="filters.provider_id" clearable placeholder="全部提供商" :options="providerOptions" />
       </div>
-      <div class="filter-card__actions">
+      <div class="field">
+        <span class="field__label">位置（地域）</span>
+        <t-select v-model="filters.region" clearable placeholder="全部地域" :options="regionOptions" />
+      </div>
+      <div class="field">
+        <span class="field__label">容量告警</span>
+        <t-select v-model="filters.alert" clearable placeholder="全部资源池" :options="alertOptions" />
+      </div>
+      <template #actions>
         <t-space size="small">
           <t-button theme="primary" @click="handleSearch">
             <template #icon>
@@ -63,8 +58,8 @@
           </t-button>
           <t-button variant="outline" @click="handleResetFilters">重置</t-button>
         </t-space>
-      </div>
-    </section>
+      </template>
+    </FilterCard>
 
     <section class="table-card surface-card">
       <div class="table-card__head">
@@ -253,6 +248,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 
 import {
@@ -526,7 +522,6 @@ function handleMobilePageSizeChange(pageSize: number) {
   void applyMobilePage(1, pageSize)
 }
 
-
 function handleSearch() {
   pagination.current = 1
   loadPools()
@@ -599,16 +594,6 @@ function poolTypeTheme(type?: string): 'primary' | 'warning' | 'success' | 'dang
 .resource-module .stat-card__hint {
   font-size: 12px;
   color: var(--color-muted-foreground);
-}
-
-.filter-card__grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-@media (max-width: 1200px) and (min-width: 769px) {
-  .filter-card__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 768px) {

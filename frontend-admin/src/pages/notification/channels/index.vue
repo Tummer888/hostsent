@@ -33,7 +33,7 @@
         <span class="table-card__meta">共 {{ total }} 个渠道</span>
       </div>
 
-      <div class="filter-card__grid filter-card__grid--inline">
+      <FilterCard embedded>
         <div class="field">
           <span class="field__label">渠道类型</span>
           <t-select v-model="filters.type" clearable placeholder="全部类型" :options="typeFilterOptions" />
@@ -46,7 +46,7 @@
           <span class="field__label">关键词</span>
           <t-input v-model="filters.keyword" placeholder="渠道编码 / 名称" clearable @enter="handleSearch" />
         </div>
-        <div class="field field--actions">
+        <template #actions>
           <t-space size="small">
             <t-button theme="primary" @click="handleSearch">
               <template #icon><SearchIcon aria-hidden="true" /></template>
@@ -54,8 +54,8 @@
             </t-button>
             <t-button variant="outline" @click="handleResetFilters">重置</t-button>
           </t-space>
-        </div>
-      </div>
+        </template>
+      </FilterCard>
 
       <t-table
         row-key="id"
@@ -318,6 +318,7 @@ import {
 } from '@/api/notification'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
+import FilterCard from '@/components/filter-card/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
 import {
@@ -690,14 +691,6 @@ onMounted(async () => {
 </script>
 
 <style lang="css" scoped>
-.filter-card__grid--inline {
-  margin-bottom: var(--space-md);
-}
-
-.field--actions {
-  justify-content: flex-end;
-}
-
 .form-hint {
   margin-bottom: var(--space-md);
 }
@@ -734,8 +727,8 @@ onMounted(async () => {
 }
 
 @media (max-width: 768px) {
-  .filter-card__grid--inline {
-    grid-template-columns: 1fr;
+  .test-body {
+    gap: var(--space-sm);
   }
 }
 </style>

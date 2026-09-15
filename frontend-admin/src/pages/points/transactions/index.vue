@@ -20,33 +20,28 @@
       </t-space>
     </header>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__head">
-        <h3 class="card-title">筛选条件</h3>
+    <FilterCard>
+      <div class="field">
+        <span class="field__label">用户 ID</span>
+        <t-input v-model="filters.user_id" placeholder="按用户 ID 筛选" clearable @enter="handleSearch" />
       </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">用户 ID</span>
-          <t-input v-model="filters.user_id" placeholder="按用户 ID 筛选" clearable @enter="handleSearch" />
-        </div>
-        <div class="field">
-          <span class="field__label">流水类型</span>
-          <t-select v-model="filters.type" clearable placeholder="全部类型" :options="pointTxTypeOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">方向</span>
-          <t-select v-model="filters.direction" clearable placeholder="全部方向" :options="pointDirectionOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">开始时间</span>
-          <t-date-picker v-model="filters.start_time" enable-time-picker allow-input clearable placeholder="起始时间" />
-        </div>
-        <div class="field">
-          <span class="field__label">结束时间</span>
-          <t-date-picker v-model="filters.end_time" enable-time-picker allow-input clearable placeholder="结束时间" />
-        </div>
+      <div class="field">
+        <span class="field__label">流水类型</span>
+        <t-select v-model="filters.type" clearable placeholder="全部类型" :options="pointTxTypeOptions" />
       </div>
-      <div class="filter-card__actions">
+      <div class="field">
+        <span class="field__label">积分方向</span>
+        <t-select v-model="filters.direction" clearable placeholder="全部方向" :options="pointDirectionOptions" />
+      </div>
+      <div class="field">
+        <span class="field__label">开始时间</span>
+        <t-date-picker v-model="filters.start_time" enable-time-picker allow-input clearable placeholder="起始时间" />
+      </div>
+      <div class="field">
+        <span class="field__label">结束时间</span>
+        <t-date-picker v-model="filters.end_time" enable-time-picker allow-input clearable placeholder="结束时间" />
+      </div>
+      <template #actions>
         <t-space size="small">
           <t-button theme="primary" @click="handleSearch">
             <template #icon><SearchIcon aria-hidden="true" /></template>
@@ -54,8 +49,8 @@
           </t-button>
           <t-button variant="outline" @click="handleResetFilters">重置</t-button>
         </t-space>
-      </div>
-    </section>
+      </template>
+    </FilterCard>
 
     <section class="table-card surface-card">
       <div class="table-card__head">
@@ -133,6 +128,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 

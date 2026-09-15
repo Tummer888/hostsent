@@ -25,40 +25,35 @@
       </t-space>
     </header>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__head">
-        <h3 class="card-title">选择商品</h3>
+    <FilterCard>
+      <div class="field">
+        <span class="field__label">商品</span>
+        <t-select
+          v-model="productId"
+          :options="productOptions"
+          filterable
+          clearable
+          placeholder="选择要维护周期价格的商品"
+          :loading="productLoading"
+          @change="handleProductChange"
+        />
       </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">商品</span>
-          <t-select
-            v-model="productId"
-            :options="productOptions"
-            filterable
-            clearable
-            placeholder="选择要维护周期价格的商品"
-            :loading="productLoading"
-            @change="handleProductChange"
-          />
-        </div>
-        <div class="field">
-          <span class="field__label">规格（SKU）</span>
-          <t-select
-            v-model="specId"
-            :options="specOptions"
-            clearable
-            placeholder="商品级（不区分规格）"
-            :disabled="!productId || !specOptions.length"
-            @change="reload"
-          />
-        </div>
-        <div class="field">
-          <span class="field__label">币种</span>
-          <t-input v-model="currency" disabled />
-        </div>
+      <div class="field">
+        <span class="field__label">规格（SKU）</span>
+        <t-select
+          v-model="specId"
+          :options="specOptions"
+          clearable
+          placeholder="商品级（不区分规格）"
+          :disabled="!productId || !specOptions.length"
+          @change="reload"
+        />
       </div>
-    </section>
+      <div class="field">
+        <span class="field__label">币种</span>
+        <t-input v-model="currency" disabled />
+      </div>
+    </FilterCard>
 
     <section v-if="productId" class="table-card surface-card">
       <div class="table-card__head">
@@ -162,6 +157,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { computed, onMounted, ref } from 'vue'
 
 import { MoneyIcon, RefreshIcon } from 'tdesign-icons-vue-next'

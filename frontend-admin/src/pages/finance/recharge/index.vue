@@ -25,29 +25,24 @@
       </t-space>
     </header>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__head">
-        <h3 class="card-title">筛选条件</h3>
+    <FilterCard>
+      <div class="field">
+        <span class="field__label">用户 ID</span>
+        <t-input v-model="filters.user_id" placeholder="按用户 ID 筛选" clearable @enter="handleSearch" />
       </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">用户 ID</span>
-          <t-input v-model="filters.user_id" placeholder="按用户 ID 筛选" clearable @enter="handleSearch" />
-        </div>
-        <div class="field">
-          <span class="field__label">状态</span>
-          <t-select v-model="filters.status" clearable placeholder="全部状态" :options="rechargeStatusOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">支付方式</span>
-          <t-select v-model="filters.method" clearable placeholder="全部方式" :options="rechargeMethodOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">创建时间</span>
-          <t-date-range-picker v-model="filters.dateRange" clearable separator="~" placeholder="开始日期 ~ 结束日期" />
-        </div>
+      <div class="field">
+        <span class="field__label">状态</span>
+        <t-select v-model="filters.status" clearable placeholder="全部状态" :options="rechargeStatusOptions" />
       </div>
-      <div class="filter-card__actions">
+      <div class="field">
+        <span class="field__label">支付方式</span>
+        <t-select v-model="filters.method" clearable placeholder="全部方式" :options="rechargeMethodOptions" />
+      </div>
+      <div class="field">
+        <span class="field__label">创建时间</span>
+        <t-date-range-picker v-model="filters.dateRange" clearable separator="~" placeholder="开始日期 ~ 结束日期" />
+      </div>
+      <template #actions>
         <t-space size="small">
           <t-button theme="primary" @click="handleSearch">
             <template #icon>
@@ -57,8 +52,8 @@
           </t-button>
           <t-button variant="outline" @click="handleResetFilters">重置</t-button>
         </t-space>
-      </div>
-    </section>
+      </template>
+    </FilterCard>
 
     <section class="table-card surface-card">
       <div class="table-card__head">
@@ -181,6 +176,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { onMounted, reactive, ref } from 'vue'
 
 import { AddIcon, MoneyIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'

@@ -194,13 +194,13 @@
 
       <!-- ---------- 导出文件 ---------- -->
       <div v-else class="tab-body">
-        <div class="filter-card__grid">
+        <FilterCard embedded>
           <div class="field">
-            <span class="field__label">来源</span>
+            <span class="field__label">日志源</span>
             <t-select v-model="fileFilter.source" clearable placeholder="全部来源" :options="fileSourceOptions" />
           </div>
           <div class="field">
-            <span class="field__label">状态</span>
+            <span class="field__label">文件状态</span>
             <t-select v-model="fileFilter.status" clearable placeholder="全部状态" :options="fileStatusOptions" />
           </div>
           <div class="field">
@@ -214,16 +214,16 @@
               @change="handleFileSearch"
             />
           </div>
-        </div>
-        <div class="filter-card__actions">
-          <t-space size="small">
-            <t-button theme="primary" :loading="filesLoading" @click="handleFileSearch">
-              <template #icon><SearchIcon aria-hidden="true" /></template>
-              查询
-            </t-button>
-            <t-button variant="outline" @click="handleFileReset">重置</t-button>
-          </t-space>
-        </div>
+          <template #actions>
+            <t-space size="small">
+              <t-button theme="primary" :loading="filesLoading" @click="handleFileSearch">
+                <template #icon><SearchIcon aria-hidden="true" /></template>
+                查询
+              </t-button>
+              <t-button variant="outline" @click="handleFileReset">重置</t-button>
+            </t-space>
+          </template>
+        </FilterCard>
 
         <t-table
           row-key="id"
@@ -514,6 +514,7 @@ import {
   type LogExportFileInfo,
 } from '@/api/logcenter'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
+import FilterCard from '@/components/filter-card/index.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import {
   cleanupStatusActive,

@@ -17,28 +17,23 @@
       </t-button>
     </header>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__head">
-        <h3 class="card-title">选择商品</h3>
+    <FilterCard>
+      <div class="field">
+        <span class="field__label">商品</span>
+        <t-select
+          v-model="productId"
+          :options="productOptions"
+          placeholder="请选择商品查看历史记录"
+          filterable
+          :loading="productLoading"
+          @change="handleProductChange"
+        />
       </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">商品</span>
-          <t-select
-            v-model="productId"
-            :options="productOptions"
-            placeholder="请选择商品查看历史记录"
-            filterable
-            :loading="productLoading"
-            @change="handleProductChange"
-          />
-        </div>
-        <div class="field">
-          <span class="field__label">变更类型</span>
-          <t-select v-model="changeType" clearable placeholder="全部类型" :options="changeTypeOptionsRef" />
-        </div>
+      <div class="field">
+        <span class="field__label">变更类型</span>
+        <t-select v-model="changeType" clearable placeholder="全部类型" :options="changeTypeOptionsRef" />
       </div>
-    </section>
+    </FilterCard>
 
     <section class="table-card surface-card">
       <div class="table-card__head">
@@ -81,6 +76,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { computed, onMounted, ref } from 'vue'
 import type { PrimaryTableCol } from 'tdesign-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'

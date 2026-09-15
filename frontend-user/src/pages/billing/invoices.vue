@@ -18,22 +18,20 @@
       </div>
     </header>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__grid">
-        <div class="field">
-          <label class="field__label">申请状态</label>
-          <t-select v-model="filter.status" clearable placeholder="全部状态" :options="invoiceRequestStatusOptions" @change="handleSearch" />
-        </div>
-        <div class="field">
-          <label class="field__label">账单号</label>
-          <t-input v-model="filter.bill_no" placeholder="按账单号查询" clearable @enter="handleSearch" />
-        </div>
+    <FilterCard>
+      <div class="field">
+        <label class="field__label">申请状态</label>
+        <t-select v-model="filter.status" clearable placeholder="全部状态" :options="invoiceRequestStatusOptions" @change="handleSearch" />
       </div>
-      <div class="filter-card__actions">
-        <t-button variant="outline" @click="handleReset">重置</t-button>
+      <div class="field">
+        <label class="field__label">账单号</label>
+        <t-input v-model="filter.bill_no" placeholder="按账单号查询" clearable @enter="handleSearch" />
+      </div>
+      <template #actions>
         <t-button theme="primary" :loading="loading" @click="handleSearch">查询</t-button>
-      </div>
-    </section>
+        <t-button variant="outline" @click="handleReset">重置</t-button>
+      </template>
+    </FilterCard>
 
     <section class="table-card surface-card">
       <div class="table-card__head">
@@ -141,6 +139,7 @@ import {
   invoiceRequestStatusTheme,
   invoiceTypeLabel,
 } from '@/pages/billing/constants'
+import FilterCard from '@/components/filter-card/index.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 

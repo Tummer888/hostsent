@@ -12,17 +12,12 @@
       </div>
     </header>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__head">
-        <h3 class="card-title">选择邀请人</h3>
+    <FilterCard title="选择邀请人">
+      <div class="field">
+        <span class="field__label">邀请人用户 ID</span>
+        <t-input v-model="inviterUserId" placeholder="请输入邀请人用户 ID" clearable @enter="handleSearch" />
       </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">邀请人用户 ID</span>
-          <t-input v-model="inviterUserId" placeholder="请输入邀请人用户 ID" clearable @enter="handleSearch" />
-        </div>
-      </div>
-      <div class="filter-card__actions">
+      <template #actions>
         <t-space size="small">
           <t-button theme="primary" @click="handleSearch">
             <template #icon>
@@ -31,8 +26,8 @@
             查询
           </t-button>
         </t-space>
-      </div>
-    </section>
+      </template>
+    </FilterCard>
 
     <section class="table-card surface-card">
       <div class="table-card__head">
@@ -88,6 +83,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { computed, reactive, ref } from 'vue'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 import { SearchIcon, UsergroupIcon } from 'tdesign-icons-vue-next'

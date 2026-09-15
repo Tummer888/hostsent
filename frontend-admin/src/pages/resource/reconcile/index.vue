@@ -33,28 +33,25 @@
       </article>
     </section>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__head">
-        <h3 class="card-title">筛选条件</h3>
+    <FilterCard :columns="3">
+      <template #head-extra>
         <span class="filter-card__meta">
           到期容差 {{ summary.tolerance_days }} 天 · 毛利率预警线 {{ summary.thin_margin_rate }}%
         </span>
+      </template>
+      <div class="field">
+        <span class="field__label">关键词</span>
+        <t-input v-model="filters.keyword" clearable placeholder="实例名 / 实例号 / 商品名" @enter="handleSearch" />
       </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">关键词</span>
-          <t-input v-model="filters.keyword" clearable placeholder="实例名 / 实例号 / 商品名" @enter="handleSearch" />
-        </div>
-        <div class="field">
-          <span class="field__label">所属渠道</span>
-          <t-select v-model="filters.provider_id" clearable placeholder="全部渠道" :options="providerOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">异常类型</span>
-          <t-select v-model="filters.anomaly" clearable placeholder="全部实例" :options="anomalyOptions" />
-        </div>
+      <div class="field">
+        <span class="field__label">所属渠道</span>
+        <t-select v-model="filters.provider_id" clearable placeholder="全部渠道" :options="providerOptions" />
       </div>
-      <div class="filter-card__actions">
+      <div class="field">
+        <span class="field__label">异常类型</span>
+        <t-select v-model="filters.anomaly" clearable placeholder="全部实例" :options="anomalyOptions" />
+      </div>
+      <template #actions>
         <t-space size="small">
           <t-button theme="primary" @click="handleSearch">
             <template #icon>
@@ -64,8 +61,8 @@
           </t-button>
           <t-button variant="outline" @click="handleResetFilters">重置</t-button>
         </t-space>
-      </div>
-    </section>
+      </template>
+    </FilterCard>
 
     <section class="table-card surface-card">
       <div class="table-card__head">
@@ -243,6 +240,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import { ErrorCircleIcon, RefreshIcon, SearchIcon, VerifyIcon } from 'tdesign-icons-vue-next'
@@ -494,22 +492,6 @@ onMounted(() => {
 .resource-module .filter-card__meta {
   font-size: 12px;
   color: var(--color-muted-foreground);
-}
-
-.filter-card__grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-@media (max-width: 1200px) and (min-width: 769px) {
-  .filter-card__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 768px) {
-  .filter-card__grid {
-    grid-template-columns: repeat(1, minmax(0, 1fr));
-  }
 }
 
 .subject-cell {

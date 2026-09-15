@@ -18,17 +18,12 @@
       </t-space>
     </header>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__head">
-        <h3 class="card-title">场景路由</h3>
+    <FilterCard title="场景路由">
+      <div class="field">
+        <span class="field__label">支付场景</span>
+        <t-select v-model="scene" :options="sceneOptions" @change="loadOptions" />
       </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">支付场景</span>
-          <t-select v-model="scene" :options="sceneOptions" @change="loadOptions" />
-        </div>
-      </div>
-    </section>
+    </FilterCard>
 
     <section class="table-card surface-card">
       <div class="table-card__head">
@@ -86,6 +81,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { computed, onMounted, ref } from 'vue'
 
 import { RefreshIcon, WalletIcon } from 'tdesign-icons-vue-next'

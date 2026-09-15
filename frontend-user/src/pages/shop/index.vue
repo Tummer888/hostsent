@@ -25,29 +25,27 @@
       <t-button size="small" variant="text" @click="clearIntent">知道了</t-button>
     </section>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__grid">
-        <div class="field">
-          <label class="field__label" for="shop-keyword">关键词</label>
-          <t-input
-            id="shop-keyword"
-            v-model="keyword"
-            placeholder="搜索商品名称"
-            clearable
-            @enter="search"
-            @clear="search"
-          />
-        </div>
-        <div class="field">
-          <label class="field__label">只看推荐</label>
-          <t-switch v-model="featuredOnly" @change="search" />
-        </div>
+    <FilterCard>
+      <div class="field">
+        <label class="field__label" for="shop-keyword">关键词</label>
+        <t-input
+          id="shop-keyword"
+          v-model="keyword"
+          placeholder="搜索商品名称"
+          clearable
+          @enter="search"
+          @clear="search"
+        />
       </div>
-      <div class="filter-card__actions">
-        <t-button variant="outline" @click="resetFilter">重置</t-button>
+      <div class="field">
+        <label class="field__label">只看推荐</label>
+        <t-switch v-model="featuredOnly" @change="search" />
+      </div>
+      <template #actions>
         <t-button theme="primary" :loading="loading" @click="search">查询</t-button>
-      </div>
-    </section>
+        <t-button variant="outline" @click="resetFilter">重置</t-button>
+      </template>
+    </FilterCard>
 
     <section v-loading="loading" class="shop-grid">
       <article v-for="p in products" :key="p.id" class="surface-card shop-card">
@@ -212,6 +210,7 @@ import {
   type SkuInfo,
 } from '@/api/shop'
 import PaymentCashier, { type CashierPayment } from '@/components/payment-cashier/index.vue'
+import FilterCard from '@/components/filter-card/index.vue'
 import { useCartStore } from '@/store/modules/cart'
 
 defineOptions({ name: 'Shop' })

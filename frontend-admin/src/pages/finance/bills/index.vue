@@ -25,41 +25,36 @@
       </t-space>
     </header>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__head">
-        <h3 class="card-title">筛选条件</h3>
+    <FilterCard>
+      <div class="field">
+        <span class="field__label">用户账号</span>
+        <t-input v-model="filters.user_keyword" placeholder="用户名或邮箱" clearable @enter="handleSearch" />
       </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">用户账号</span>
-          <t-input v-model="filters.user_keyword" placeholder="用户名或邮箱" clearable @enter="handleSearch" />
-        </div>
-        <div class="field">
-          <span class="field__label">用户 ID</span>
-          <t-input v-model="filters.user_id" placeholder="按用户 ID 筛选" clearable @enter="handleSearch" />
-        </div>
-        <div class="field">
-          <span class="field__label">账单号</span>
-          <t-input v-model="filters.keyword" placeholder="账单号模糊匹配" clearable @enter="handleSearch" />
-        </div>
-        <div class="field">
-          <span class="field__label">账期</span>
-          <t-input v-model="filters.period" placeholder="如 202608" clearable @enter="handleSearch" />
-        </div>
-        <div class="field">
-          <span class="field__label">账单分类</span>
-          <t-select v-model="filters.bill_type" clearable placeholder="全部分类" :options="billTypeOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">状态</span>
-          <t-select v-model="filters.status" clearable placeholder="全部状态" :options="billStatusOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">发票状态</span>
-          <t-select v-model="filters.invoice_status" clearable placeholder="全部" :options="invoiceStatusOptions" />
-        </div>
+      <div class="field">
+        <span class="field__label">用户 ID</span>
+        <t-input v-model="filters.user_id" placeholder="按用户 ID 筛选" clearable @enter="handleSearch" />
       </div>
-      <div class="filter-card__actions">
+      <div class="field">
+        <span class="field__label">账单号</span>
+        <t-input v-model="filters.keyword" placeholder="账单号模糊匹配" clearable @enter="handleSearch" />
+      </div>
+      <div class="field">
+        <span class="field__label">账期</span>
+        <t-input v-model="filters.period" placeholder="如 202608" clearable @enter="handleSearch" />
+      </div>
+      <div class="field">
+        <span class="field__label">账单分类</span>
+        <t-select v-model="filters.bill_type" clearable placeholder="全部分类" :options="billTypeOptions" />
+      </div>
+      <div class="field">
+        <span class="field__label">状态</span>
+        <t-select v-model="filters.status" clearable placeholder="全部状态" :options="billStatusOptions" />
+      </div>
+      <div class="field">
+        <span class="field__label">发票状态</span>
+        <t-select v-model="filters.invoice_status" clearable placeholder="全部" :options="invoiceStatusOptions" />
+      </div>
+      <template #actions>
         <t-space size="small">
           <t-button theme="primary" @click="handleSearch">
             <template #icon>
@@ -69,8 +64,8 @@
           </t-button>
           <t-button variant="outline" @click="handleResetFilters">重置</t-button>
         </t-space>
-      </div>
-    </section>
+      </template>
+    </FilterCard>
 
     <section class="table-card surface-card">
       <div class="table-card__head">
@@ -207,6 +202,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { onMounted, reactive, ref } from 'vue'
 
 import { AddIcon, RefreshIcon, SearchIcon, WalletIcon } from 'tdesign-icons-vue-next'

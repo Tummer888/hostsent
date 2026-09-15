@@ -17,21 +17,16 @@
       </t-button>
     </header>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__head">
-        <h3 class="card-title">筛选条件</h3>
+    <FilterCard :columns="2">
+      <div class="field">
+        <span class="field__label">关键词</span>
+        <t-input v-model="filters.keyword" placeholder="商品名称 / 规格" clearable />
       </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">关键词</span>
-          <t-input v-model="filters.keyword" placeholder="商品名称 / 规格" clearable />
-        </div>
-        <div class="field">
-          <span class="field__label">所属提供商</span>
-          <t-select v-model="filters.provider_id" clearable placeholder="全部提供商" :options="providerOptions" />
-        </div>
+      <div class="field">
+        <span class="field__label">所属提供商</span>
+        <t-select v-model="filters.provider_id" clearable placeholder="全部提供商" :options="providerOptions" />
       </div>
-      <div class="filter-card__actions">
+      <template #actions>
         <t-space size="small">
           <t-button theme="primary" @click="handleSearch">
             <template #icon>
@@ -41,8 +36,8 @@
           </t-button>
           <t-button variant="outline" @click="handleResetFilters">重置</t-button>
         </t-space>
-      </div>
-    </section>
+      </template>
+    </FilterCard>
 
     <section class="table-card surface-card">
       <div class="table-card__head">
@@ -122,6 +117,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { onMounted, reactive, ref } from 'vue'
 
 import { MoneyIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
@@ -246,7 +242,6 @@ function handleMobilePageSizeChange(pageSize: number) {
   void applyMobilePage(1, pageSize)
 }
 
-
 function handleSearch() {
   pagination.current = 1
   loadProducts()
@@ -307,12 +302,7 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
 
 <style scoped lang="css">
 
-/* 桌面端固定列数；窄屏回落到 shared.css 的单列（否则 3×200px 在移动端横向溢出） */
-@media (min-width: 769px) {
-  .filter-card__grid {
-    grid-template-columns: repeat(2, minmax(200px, 1fr));
-  }
-}
+/* 桌面列数由 FilterCard 的 columns 属性给出2 列，见组件内 .filter-card--cols-*。 */
 
 .price-sale {
   font-size: 13px;

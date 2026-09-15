@@ -16,22 +16,20 @@
       </div>
     </header>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__grid">
-        <div class="field">
-          <label class="field__label">流水类型</label>
-          <t-select v-model="filter.type" clearable placeholder="全部类型" :options="txTypeOptions" @change="handleSearch" />
-        </div>
-        <div class="field">
-          <label class="field__label">收支方向</label>
-          <t-select v-model="filter.direction" clearable placeholder="全部方向" :options="directionOptions" @change="handleSearch" />
-        </div>
+    <FilterCard>
+      <div class="field">
+        <label class="field__label">流水类型</label>
+        <t-select v-model="filter.type" clearable placeholder="全部类型" :options="txTypeOptions" @change="handleSearch" />
       </div>
-      <div class="filter-card__actions">
-        <t-button variant="outline" @click="handleReset">重置</t-button>
+      <div class="field">
+        <label class="field__label">收支方向</label>
+        <t-select v-model="filter.direction" clearable placeholder="全部方向" :options="directionOptions" @change="handleSearch" />
+      </div>
+      <template #actions>
         <t-button theme="primary" :loading="loading" @click="handleSearch">查询</t-button>
-      </div>
-    </section>
+        <t-button variant="outline" @click="handleReset">重置</t-button>
+      </template>
+    </FilterCard>
 
     <section class="table-card surface-card">
       <div class="table-card__head">
@@ -109,6 +107,7 @@ import {
   txTypeOptions,
   txTypeTheme,
 } from '@/pages/billing/constants'
+import FilterCard from '@/components/filter-card/index.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 

@@ -50,8 +50,8 @@
 
       <!-- 右：查询与结果 -->
       <div class="browser-main">
-        <section v-if="activeSource" class="filter-card surface-card">
-          <div class="filter-card__head">
+        <FilterCard v-if="activeSource">
+          <template #head-extra>
             <div class="source-desc">
               <span class="card-title">{{ activeSource.display_name }}</span>
               <t-tag :theme="classTheme(activeSource.class)" variant="light" size="small" shape="round">
@@ -63,27 +63,25 @@
                 · 该源另有独立业务页面查看
               </span>
             </div>
+          </template>
+          <div class="field">
+            <span class="field__label">时间区间</span>
+            <t-date-range-picker v-model="dateRange" clearable allow-input @change="handleSearch" />
           </div>
-          <div class="filter-card__grid">
-            <div class="field">
-              <span class="field__label">时间区间</span>
-              <t-date-range-picker v-model="dateRange" clearable allow-input @change="handleSearch" />
-            </div>
-            <div v-if="activeSource.searchable" class="field">
-              <span class="field__label">关键词</span>
-              <t-input v-model="keyword" placeholder="模糊匹配可搜索列" clearable @enter="handleSearch" />
-            </div>
-            <div v-for="filter in filterFields" :key="filter.param" class="field">
-              <span class="field__label">{{ filter.label }}</span>
-              <t-input
-                v-model="filterValues[filter.param]"
-                :placeholder="`按 ${filter.label} 精确筛选`"
-                clearable
-                @enter="handleSearch"
-              />
-            </div>
+          <div v-if="activeSource.searchable" class="field">
+            <span class="field__label">关键词</span>
+            <t-input v-model="keyword" placeholder="模糊匹配可搜索列" clearable @enter="handleSearch" />
           </div>
-          <div class="filter-card__actions">
+          <div v-for="filter in filterFields" :key="filter.param" class="field">
+            <span class="field__label">{{ filter.label }}</span>
+            <t-input
+              v-model="filterValues[filter.param]"
+              :placeholder="`按 ${filter.label} 精确筛选`"
+              clearable
+              @enter="handleSearch"
+            />
+          </div>
+          <template #actions>
             <t-space size="small">
               <t-button theme="primary" :loading="loading" @click="handleSearch">
                 <template #icon><SearchIcon aria-hidden="true" /></template>
@@ -91,8 +89,8 @@
               </t-button>
               <t-button variant="outline" @click="handleReset">重置</t-button>
             </t-space>
-          </div>
-        </section>
+          </template>
+        </FilterCard>
 
         <section class="table-card surface-card">
           <div class="table-card__head">
@@ -213,6 +211,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 

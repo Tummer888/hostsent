@@ -20,72 +20,69 @@
       </t-space>
     </header>
 
-    <section class="filter-card surface-card">
-      <!-- 工作台视图（P2-07）：我的待办 / 未分配池 / 我参与的 / SLA 超时 -->
-      <div class="workbench-tabs" role="tablist" aria-label="工单视图">
-        <button
-          v-for="tab in viewTabs"
-          :key="tab.value"
-          type="button"
-          role="tab"
-          class="workbench-tab"
-          :class="{ 'is-active': activeView === tab.value }"
-          :aria-selected="activeView === tab.value"
-          @click="handleViewChange(tab.value)"
-        >
-          {{ tab.label }}
-        </button>
+    <FilterCard>
+      <template #pre>
+        <!-- 工作台视图（P2-07）：我的待办 / 未分配池 / 我参与的 / SLA 超时 -->
+        <div class="workbench-tabs" role="tablist" aria-label="工单视图">
+          <button
+            v-for="tab in viewTabs"
+            :key="tab.value"
+            type="button"
+            role="tab"
+            class="workbench-tab"
+            :class="{ 'is-active': activeView === tab.value }"
+            :aria-selected="activeView === tab.value"
+            @click="handleViewChange(tab.value)"
+          >
+            {{ tab.label }}
+          </button>
+        </div>
+      </template>
+      <div class="field">
+        <span class="field__label">关键词</span>
+        <t-input v-model="filters.keyword" placeholder="工单号 / 标题" clearable @enter="handleSearch" />
       </div>
-      <div class="filter-card__head">
-        <h3 class="card-title">筛选条件</h3>
+      <div class="field">
+        <span class="field__label">用户账号</span>
+        <t-input v-model="filters.user_keyword" placeholder="用户名 / 邮箱 / 手机号" clearable @enter="handleSearch" />
       </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">关键词</span>
-          <t-input v-model="filters.keyword" placeholder="工单号 / 标题" clearable @enter="handleSearch" />
-        </div>
-        <div class="field">
-          <span class="field__label">用户账号</span>
-          <t-input v-model="filters.user_keyword" placeholder="用户名 / 邮箱 / 手机号" clearable @enter="handleSearch" />
-        </div>
-        <div class="field">
-          <span class="field__label">工单分类</span>
-          <t-select v-model="filters.category" clearable placeholder="全部分类" :options="categoryOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">优先级</span>
-          <t-select v-model="filters.priority" clearable placeholder="全部优先级" :options="ticketPriorityOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">状态</span>
-          <t-select v-model="filters.status" clearable placeholder="全部状态" :options="ticketStatusOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">归属部门</span>
-          <t-select
-            v-model="filters.department_id"
-            clearable
-            filterable
-            placeholder="全部部门"
-            :options="departmentOptions"
-            :loading="departmentLoading"
-          />
-        </div>
-        <div class="field">
-          <span class="field__label">复核状态</span>
-          <t-select
-            v-model="filters.review_status"
-            clearable
-            placeholder="全部复核状态"
-            :options="reviewStatusOptions"
-          />
-        </div>
-        <div class="field">
-          <span class="field__label">提交时间</span>
-          <t-date-range-picker v-model="filters.dateRange" clearable separator="~" placeholder="开始日期 ~ 结束日期" />
-        </div>
+      <div class="field">
+        <span class="field__label">工单分类</span>
+        <t-select v-model="filters.category" clearable placeholder="全部分类" :options="categoryOptions" />
       </div>
-      <div class="filter-card__actions">
+      <div class="field">
+        <span class="field__label">优先级</span>
+        <t-select v-model="filters.priority" clearable placeholder="全部优先级" :options="ticketPriorityOptions" />
+      </div>
+      <div class="field">
+        <span class="field__label">状态</span>
+        <t-select v-model="filters.status" clearable placeholder="全部状态" :options="ticketStatusOptions" />
+      </div>
+      <div class="field">
+        <span class="field__label">归属部门</span>
+        <t-select
+          v-model="filters.department_id"
+          clearable
+          filterable
+          placeholder="全部部门"
+          :options="departmentOptions"
+          :loading="departmentLoading"
+        />
+      </div>
+      <div class="field">
+        <span class="field__label">复核状态</span>
+        <t-select
+          v-model="filters.review_status"
+          clearable
+          placeholder="全部复核状态"
+          :options="reviewStatusOptions"
+        />
+      </div>
+      <div class="field">
+        <span class="field__label">提交时间</span>
+        <t-date-range-picker v-model="filters.dateRange" clearable separator="~" placeholder="开始日期 ~ 结束日期" />
+      </div>
+      <template #actions>
         <t-space size="small">
           <t-button theme="primary" @click="handleSearch">
             <template #icon><SearchIcon aria-hidden="true" /></template>
@@ -93,8 +90,8 @@
           </t-button>
           <t-button variant="outline" @click="handleResetFilters">重置</t-button>
         </t-space>
-      </div>
-    </section>
+      </template>
+    </FilterCard>
 
     <section class="table-card surface-card">
       <div class="table-card__head">
@@ -200,6 +197,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { RefreshIcon, SearchIcon, ServiceIcon } from 'tdesign-icons-vue-next'

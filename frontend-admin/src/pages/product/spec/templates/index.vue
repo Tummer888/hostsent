@@ -17,31 +17,26 @@
       </t-space>
     </header>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__head">
-        <h3 class="card-title">筛选</h3>
+    <FilterCard>
+      <div class="field">
+        <span class="field__label">关键词</span>
+        <t-input v-model="filters.keyword" placeholder="规格名称" clearable @enter="search" />
       </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">关键词</span>
-          <t-input v-model="filters.keyword" placeholder="规格名称" clearable @enter="search" />
-        </div>
-        <div class="field">
-          <span class="field__label">规格族</span>
-          <t-select v-model="filters.spec_family" clearable placeholder="全部" :options="specFamilyOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">状态</span>
-          <t-select v-model="filters.status" clearable placeholder="全部" :options="statusOptions" />
-        </div>
+      <div class="field">
+        <span class="field__label">规格族</span>
+        <t-select v-model="filters.spec_family" clearable placeholder="全部" :options="specFamilyOptions" />
       </div>
-      <div class="filter-card__actions">
+      <div class="field">
+        <span class="field__label">状态</span>
+        <t-select v-model="filters.status" clearable placeholder="全部" :options="statusOptions" />
+      </div>
+      <template #actions>
         <t-space size="small">
           <t-button theme="primary" @click="search"><template #icon><SearchIcon /></template>查询</t-button>
           <t-button variant="outline" @click="resetFilters">重置</t-button>
         </t-space>
-      </div>
-    </section>
+      </template>
+    </FilterCard>
 
     <section class="table-card surface-card">
       <div class="table-card__head">
@@ -119,6 +114,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { onMounted, reactive, ref } from 'vue'
 import { AddIcon, AppIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'

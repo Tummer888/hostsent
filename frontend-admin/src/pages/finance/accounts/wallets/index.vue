@@ -19,17 +19,12 @@
       </t-space>
     </header>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__head">
-        <h3 class="card-title">余额查询</h3>
+    <FilterCard title="余额查询">
+      <div class="field">
+        <span class="field__label">用户 ID</span>
+        <t-input v-model="userId" placeholder="请输入用户 ID" clearable @enter="handleQuery" />
       </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">用户 ID</span>
-          <t-input v-model="userId" placeholder="请输入用户 ID" clearable @enter="handleQuery" />
-        </div>
-      </div>
-      <div class="filter-card__actions">
+      <template #actions>
         <t-space size="small">
           <t-button theme="primary" :loading="loading" @click="handleQuery">
             <template #icon>
@@ -39,8 +34,8 @@
           </t-button>
           <t-button variant="outline" @click="handleReset">重置</t-button>
         </t-space>
-      </div>
-    </section>
+      </template>
+    </FilterCard>
 
     <section v-if="wallet" class="wallet-stat-grid">
       <div class="stat-card surface-card stat-card--success">
@@ -88,6 +83,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { onMounted, ref } from 'vue'
 
 import { MoneyIcon, RefreshIcon, SearchIcon, SwapIcon, TimeIcon, WalletIcon } from 'tdesign-icons-vue-next'

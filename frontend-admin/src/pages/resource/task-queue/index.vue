@@ -33,46 +33,41 @@
       </article>
     </section>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__head">
-        <h3 class="card-title">任务类别</h3>
+    <FilterCard title="任务类别" :columns="4">
+      <template #head-extra>
         <span class="filter-card__meta">未到达上游的任务会标红，便于逐类排障</span>
+      </template>
+      <template #above-fields>
+        <div class="category-bar">
+          <t-radio-group v-model="filters.category" variant="default-filled" @change="handleCategoryChange">
+            <t-radio-button value="">全部（{{ allTotal }}）</t-radio-button>
+            <t-radio-button v-for="cat in categories" :key="cat.category" :value="cat.category">
+              {{ cat.category_name }}（{{ cat.total }}）<template v-if="cat.not_reached">· 未到达 {{ cat.not_reached }}</template>
+            </t-radio-button>
+          </t-radio-group>
+        </div>
+      </template>
+      <div class="field">
+        <span class="field__label">关键词</span>
+        <t-input v-model="filters.keyword" clearable placeholder="主体 / 单号 / 实例标识" @enter="handleSearch" />
       </div>
-      <div class="category-bar">
-        <t-radio-group v-model="filters.category" variant="default-filled" @change="handleCategoryChange">
-          <t-radio-button value="">全部（{{ allTotal }}）</t-radio-button>
-          <t-radio-button v-for="cat in categories" :key="cat.category" :value="cat.category">
-            {{ cat.category_name }}（{{ cat.total }}）<template v-if="cat.not_reached">· 未到达 {{ cat.not_reached }}</template>
-          </t-radio-button>
-        </t-radio-group>
+      <div class="field">
+        <span class="field__label">所属渠道</span>
+        <t-select v-model="filters.provider_id" clearable placeholder="全部渠道" :options="providerOptions" />
       </div>
-
-      <div class="filter-card__head filter-card__head--sub">
-        <h3 class="card-title">筛选条件</h3>
+      <div class="field">
+        <span class="field__label">上游到达状态</span>
+        <t-select v-model="filters.upstream_state" clearable placeholder="全部状态" :options="upstreamStateOptions" />
       </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">关键词</span>
-          <t-input v-model="filters.keyword" clearable placeholder="主体 / 单号 / 实例标识" @enter="handleSearch" />
-        </div>
-        <div class="field">
-          <span class="field__label">所属渠道</span>
-          <t-select v-model="filters.provider_id" clearable placeholder="全部渠道" :options="providerOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">上游到达状态</span>
-          <t-select v-model="filters.upstream_state" clearable placeholder="全部状态" :options="upstreamStateOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">任务状态</span>
-          <t-select v-model="filters.status" clearable placeholder="全部状态" :options="statusOptions" />
-        </div>
-        <div class="field field--wide">
-          <span class="field__label">创建时间</span>
-          <t-date-range-picker v-model="filters.dateRange" clearable separator="~" placeholder="开始日期 ~ 结束日期" />
-        </div>
+      <div class="field">
+        <span class="field__label">任务状态</span>
+        <t-select v-model="filters.status" clearable placeholder="全部状态" :options="statusOptions" />
       </div>
-      <div class="filter-card__actions">
+      <div class="field field--wide">
+        <span class="field__label">创建时间</span>
+        <t-date-range-picker v-model="filters.dateRange" clearable separator="~" placeholder="开始日期 ~ 结束日期" />
+      </div>
+      <template #actions>
         <t-space size="small">
           <t-button theme="primary" @click="handleSearch">
             <template #icon>
@@ -82,8 +77,8 @@
           </t-button>
           <t-button variant="outline" @click="handleResetFilters">重置</t-button>
         </t-space>
-      </div>
-    </section>
+      </template>
+    </FilterCard>
 
     <section class="table-card surface-card">
       <div class="table-card__head">
@@ -241,6 +236,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import {
@@ -590,38 +586,11 @@ onMounted(() => {
   color: var(--color-muted-foreground);
 }
 
-.filter-card__grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.filter-card__grid .field--wide {
-  grid-column: span 2;
-}
-
-@media (max-width: 1200px) and (min-width: 769px) {
-  .filter-card__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 768px) {
-  .filter-card__grid {
-    grid-template-columns: repeat(1, minmax(0, 1fr));
-  }
-
-  .filter-card__grid .field--wide {
-    grid-column: span 1;
-  }
-}
-
-.filter-card__head--sub {
-  border-top: 1px solid var(--color-border);
-  margin-top: 4px;
-  padding-top: 16px;
-}
+/* 列数与跨列宽度由 FilterCard 的 columns 属性统一给出（见组件内
+   .filter-card--cols-*），页面不再自带媒体查询。 */
 
 .category-bar {
-  padding: 0 20px 4px;
+  padding: 0 0 4px;
 }
 
 .category-bar :deep(.t-radio-group) {

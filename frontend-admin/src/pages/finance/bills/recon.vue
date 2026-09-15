@@ -11,17 +11,12 @@
       </div>
     </header>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__head">
-        <h3 class="card-title">对账条件</h3>
+    <FilterCard>
+      <div class="field">
+        <span class="field__label">账期（选填）</span>
+        <t-input v-model="period" placeholder="留空表示全量对账，如 2026-08" clearable @enter="handleReconcile" />
       </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">账期（选填）</span>
-          <t-input v-model="period" placeholder="留空表示全量对账，如 2026-08" clearable @enter="handleReconcile" />
-        </div>
-      </div>
-      <div class="filter-card__actions">
+      <template #actions>
         <t-space size="small">
           <t-button theme="primary" :loading="loading" @click="handleReconcile">
             <template #icon>
@@ -31,8 +26,8 @@
           </t-button>
           <t-button variant="outline" @click="handleReset">重置</t-button>
         </t-space>
-      </div>
-    </section>
+      </template>
+    </FilterCard>
 
     <template v-if="result">
       <div class="recon-grid">
@@ -103,6 +98,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { ref } from 'vue'
 
 import { CheckCircleIcon, SwapIcon, TimeIcon, WalletIcon } from 'tdesign-icons-vue-next'

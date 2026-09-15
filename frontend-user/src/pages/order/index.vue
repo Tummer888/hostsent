@@ -16,19 +16,19 @@
       </div>
     </header>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__grid">
-        <div class="field">
-          <label class="field__label">订单状态</label>
-          <t-select v-model="status" placeholder="全部状态" clearable @change="search">
-            <t-option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value" :label="s.label" />
-          </t-select>
-        </div>
+    <FilterCard>
+      <div class="field">
+        <label class="field__label">订单状态</label>
+        <t-select v-model="status" placeholder="全部状态" clearable @change="search">
+          <t-option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value" :label="s.label" />
+        </t-select>
       </div>
-      <p class="filter-card__note">
-        订单号与商品名检索请到工单中心提交工单；用户侧列表接口只按状态分页（不做全量搜索，避免漏查被误读为「没有订单」）。
-      </p>
-    </section>
+      <template #note>
+        <p class="filter-card__note">
+          订单号与商品名检索请到工单中心提交工单；用户侧列表接口只按状态分页（不做全量搜索，避免漏查被误读为「没有订单」）。
+        </p>
+      </template>
+    </FilterCard>
 
     <section class="table-card surface-card">
       <div class="table-card__head">
@@ -141,6 +141,7 @@ import type { PrimaryTableCol } from 'tdesign-vue-next'
 import { OrderIcon } from 'tdesign-icons-vue-next'
 
 import { getMyOrders, type OrderInfo } from '@/api/shop'
+import FilterCard from '@/components/filter-card/index.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 

@@ -37,52 +37,47 @@
       </div>
     </section>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__head">
-        <h3 class="card-title">筛选条件</h3>
+    <FilterCard>
+      <div class="field">
+        <span class="field__label">关键词</span>
+        <t-input v-model="filters.keyword" placeholder="实例标识 / 名称" clearable @enter="handleSearch" />
       </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">关键词</span>
-          <t-input v-model="filters.keyword" placeholder="实例标识 / 名称" clearable @enter="handleSearch" />
-        </div>
-        <div class="field">
-          <span class="field__label">用户账号</span>
-          <t-input v-model="filters.user_keyword" placeholder="用户名 / 邮箱 / 手机号" clearable @enter="handleSearch" />
-        </div>
-        <div class="field">
-          <span class="field__label">用户 ID</span>
-          <t-input v-model="filters.user_id" placeholder="按用户 ID 筛选" clearable @enter="handleSearch" />
-        </div>
-        <div class="field">
-          <span class="field__label">服务商 ID</span>
-          <t-input v-model="filters.provider_id" placeholder="按服务商 ID 筛选" clearable @enter="handleSearch" />
-        </div>
-        <div class="field">
-          <span class="field__label">状态</span>
-          <t-select v-model="filters.status" clearable placeholder="全部状态" :options="instanceStatusOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">来源</span>
-          <t-select v-model="filters.source_mode" clearable placeholder="全部来源" :options="sourceModeOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">到期状态</span>
-          <t-select v-model="filters.expire_state" placeholder="全部" :options="expireStateOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">临期天数</span>
-          <t-input-number
-            v-model="filters.expire_within_days"
-            :min="1"
-            :max="365"
-            :disabled="filters.expire_state !== 'expiring'"
-            theme="column"
-            placeholder="默认 7 天"
-          />
-        </div>
+      <div class="field">
+        <span class="field__label">用户账号</span>
+        <t-input v-model="filters.user_keyword" placeholder="用户名 / 邮箱 / 手机号" clearable @enter="handleSearch" />
       </div>
-      <div class="filter-card__actions">
+      <div class="field">
+        <span class="field__label">用户 ID</span>
+        <t-input v-model="filters.user_id" placeholder="按用户 ID 筛选" clearable @enter="handleSearch" />
+      </div>
+      <div class="field">
+        <span class="field__label">服务商 ID</span>
+        <t-input v-model="filters.provider_id" placeholder="按服务商 ID 筛选" clearable @enter="handleSearch" />
+      </div>
+      <div class="field">
+        <span class="field__label">状态</span>
+        <t-select v-model="filters.status" clearable placeholder="全部状态" :options="instanceStatusOptions" />
+      </div>
+      <div class="field">
+        <span class="field__label">链路</span>
+        <t-select v-model="filters.source_mode" clearable placeholder="全部链路" :options="sourceModeOptions" />
+      </div>
+      <div class="field">
+        <span class="field__label">到期状态</span>
+        <t-select v-model="filters.expire_state" placeholder="全部" :options="expireStateOptions" />
+      </div>
+      <div class="field">
+        <span class="field__label">临期天数</span>
+        <t-input-number
+          v-model="filters.expire_within_days"
+          :min="1"
+          :max="365"
+          :disabled="filters.expire_state !== 'expiring'"
+          theme="column"
+          placeholder="默认 7 天"
+        />
+      </div>
+      <template #actions>
         <t-space size="small">
           <t-button theme="primary" @click="handleSearch">
             <template #icon>
@@ -92,8 +87,8 @@
           </t-button>
           <t-button variant="outline" @click="handleResetFilters">重置</t-button>
         </t-space>
-      </div>
-    </section>
+      </template>
+    </FilterCard>
 
     <section class="table-card surface-card">
       <div class="table-card__head">
@@ -280,6 +275,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 

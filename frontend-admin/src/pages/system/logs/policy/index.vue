@@ -25,31 +25,29 @@
       </t-space>
     </header>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">分组</span>
-          <t-select v-model="groupFilter" clearable placeholder="全部分组" :options="groupOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">分级</span>
-          <t-select v-model="classFilter" clearable placeholder="全部分级" :options="classOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">动作</span>
-          <t-select v-model="actionFilter" clearable placeholder="全部动作" :options="POLICY_ACTION_OPTIONS" />
-        </div>
-        <div class="field">
-          <span class="field__label">状态</span>
-          <t-select v-model="enabledFilter" clearable placeholder="全部" :options="enabledOptions" />
-        </div>
+    <FilterCard>
+      <div class="field">
+        <span class="field__label">日志分组</span>
+        <t-select v-model="groupFilter" clearable placeholder="全部分组" :options="groupOptions" />
       </div>
-      <div class="filter-card__actions">
+      <div class="field">
+        <span class="field__label">数据分级</span>
+        <t-select v-model="classFilter" clearable placeholder="全部分级" :options="classOptions" />
+      </div>
+      <div class="field">
+        <span class="field__label">清理动作</span>
+        <t-select v-model="actionFilter" clearable placeholder="全部动作" :options="POLICY_ACTION_OPTIONS" />
+      </div>
+      <div class="field">
+        <span class="field__label">启用状态</span>
+        <t-select v-model="enabledFilter" clearable placeholder="全部" :options="enabledOptions" />
+      </div>
+      <template #actions>
         <span class="table-card__meta">
           共 {{ formatNumber(filtered.length) }} 个源 · 其中可清理 {{ cleanableCount }} 个
         </span>
-      </div>
-    </section>
+      </template>
+    </FilterCard>
 
     <section class="surface-card table-card">
       <t-table
@@ -234,6 +232,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 
 import { RefreshIcon, SearchIcon, SettingIcon } from 'tdesign-icons-vue-next'

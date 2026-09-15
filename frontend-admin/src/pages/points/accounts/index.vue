@@ -20,25 +20,20 @@
       </t-space>
     </header>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__head">
-        <h3 class="card-title">筛选条件</h3>
+    <FilterCard>
+      <div class="field">
+        <span class="field__label">用户账号</span>
+        <t-input v-model="filters.user_keyword" placeholder="用户名或邮箱" clearable @enter="handleSearch" />
       </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">用户账号</span>
-          <t-input v-model="filters.user_keyword" placeholder="用户名或邮箱" clearable @enter="handleSearch" />
-        </div>
-        <div class="field">
-          <span class="field__label">用户 ID</span>
-          <t-input v-model="filters.user_id" placeholder="按用户 ID 筛选" clearable @enter="handleSearch" />
-        </div>
-        <div class="field">
-          <span class="field__label">最低可用积分</span>
-          <t-input v-model="filters.min_points" placeholder="如 100" clearable @enter="handleSearch" />
-        </div>
+      <div class="field">
+        <span class="field__label">用户 ID</span>
+        <t-input v-model="filters.user_id" placeholder="按用户 ID 筛选" clearable @enter="handleSearch" />
       </div>
-      <div class="filter-card__actions">
+      <div class="field">
+        <span class="field__label">最低可用积分</span>
+        <t-input v-model="filters.min_points" placeholder="如 100" clearable @enter="handleSearch" />
+      </div>
+      <template #actions>
         <t-space size="small">
           <t-button theme="primary" @click="handleSearch">
             <template #icon><SearchIcon aria-hidden="true" /></template>
@@ -46,8 +41,8 @@
           </t-button>
           <t-button variant="outline" @click="handleResetFilters">重置</t-button>
         </t-space>
-      </div>
-    </section>
+      </template>
+    </FilterCard>
 
     <section class="table-card surface-card">
       <div class="table-card__head">
@@ -156,6 +151,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 

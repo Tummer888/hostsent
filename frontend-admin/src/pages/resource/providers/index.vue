@@ -26,34 +26,29 @@
       </t-space>
     </header>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__head">
-        <h3 class="card-title">筛选条件</h3>
+    <FilterCard :columns="4">
+      <div class="field">
+        <span class="field__label">关键词</span>
+        <t-input
+          v-model="filters.keyword"
+          clearable
+          placeholder="搜索名称 / API 地址"
+          @enter="handleSearch"
+        >
+          <template #prefix-icon>
+            <SearchIcon size="14" aria-hidden="true" />
+          </template>
+        </t-input>
       </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">关键词</span>
-          <t-input
-            v-model="filters.keyword"
-            clearable
-            placeholder="搜索名称 / API 地址"
-            @enter="handleSearch"
-          >
-            <template #prefix-icon>
-              <SearchIcon size="14" aria-hidden="true" />
-            </template>
-          </t-input>
-        </div>
-        <div class="field">
-          <span class="field__label">提供商类型</span>
-          <t-select v-model="filters.provider_type" clearable placeholder="全部类型" :options="typeOptions" />
-        </div>
-        <div class="field">
-          <span class="field__label">状态</span>
-          <t-select v-model="filters.status" clearable placeholder="全部状态" :options="statusFilterOptions" />
-        </div>
+      <div class="field">
+        <span class="field__label">提供商类型</span>
+        <t-select v-model="filters.provider_type" clearable placeholder="全部类型" :options="typeOptions" />
       </div>
-      <div class="filter-card__actions">
+      <div class="field">
+        <span class="field__label">状态</span>
+        <t-select v-model="filters.status" clearable placeholder="全部状态" :options="statusFilterOptions" />
+      </div>
+      <template #actions>
         <t-space size="small">
           <t-button theme="primary" @click="handleSearch">
             <template #icon>
@@ -63,8 +58,8 @@
           </t-button>
           <t-button variant="outline" @click="handleResetFilters">重置</t-button>
         </t-space>
-      </div>
-    </section>
+      </template>
+    </FilterCard>
 
     <section class="table-card surface-card">
       <div class="table-card__head">
@@ -278,6 +273,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -350,7 +346,10 @@ const statusFilterOptions = [
 const filters = reactive({
   keyword: '',
   provider_type: '',
-  status: 0 as number | '',
+  // 默认必须是空串（= 不按状态筛），不能写 0：后端 status 是 int，`status != 0`
+  // 才当作筛选条件，传 0 等于不筛。默认 0 会让下拉显示「禁用」为已选值、
+  // 列表却按「全部」返回，看上去像筛选失效。
+  status: '' as number | '',
 })
 
 const pagination = reactive({
@@ -486,7 +485,6 @@ function handleMobilePageSizeChange(pageSize: number) {
   mobilePage.pageSize = pageSize
   void applyMobilePage(1, pageSize)
 }
-
 
 function handleSearch() {
   pagination.current = 1
@@ -704,12 +702,7 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
   --chip-bg: linear-gradient(135deg, var(--color-primary), var(--td-brand-color-8));
 }
 
-/* 桌面端 4 列等宽；窄屏回落 shared.css 单列（与其它 resource 页面一致） */
-@media (min-width: 769px) {
-  .filter-card__grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
+/* 桌面 4 列、中屏 2 列、窄屏 1 列由 FilterCard 的 columns 属性给出。 */
 
 .resource-cell {
   display: flex;
@@ -755,11 +748,5 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-@media (max-width: 1200px) and (min-width: 769px) {
-  .filter-card__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 </style>

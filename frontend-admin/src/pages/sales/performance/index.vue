@@ -71,35 +71,30 @@
       </article>
     </section>
 
-    <section class="filter-card surface-card">
-      <div class="filter-card__head">
-        <h3 class="card-title">统计周期</h3>
+    <FilterCard title="统计周期">
+      <div class="field">
+        <span class="field__label">周期（月份）</span>
+        <t-date-picker v-model="period" mode="month" clearable allow-input placeholder="默认当月" @change="handleSearch" />
       </div>
-      <div class="filter-card__grid">
-        <div class="field">
-          <span class="field__label">周期（月份）</span>
-          <t-date-picker v-model="period" mode="month" clearable allow-input placeholder="默认当月" @change="handleSearch" />
-        </div>
-        <div class="field">
-          <span class="field__label">部门</span>
-          <t-select
-            v-model="departmentID"
-            clearable
-            filterable
-            placeholder="全部部门"
-            :options="departmentOptions"
-            @change="handleSearch"
-          />
-        </div>
-        <div class="field">
-          <span class="field__label">排序依据</span>
-          <t-radio-group v-model="sortBy" variant="default-filled" @change="handleSearch">
-            <t-radio-button value="amount">销售额</t-radio-button>
-            <t-radio-button value="orders">订单量</t-radio-button>
-          </t-radio-group>
-        </div>
+      <div class="field">
+        <span class="field__label">部门</span>
+        <t-select
+          v-model="departmentID"
+          clearable
+          filterable
+          placeholder="全部部门"
+          :options="departmentOptions"
+          @change="handleSearch"
+        />
       </div>
-    </section>
+      <div class="field">
+        <span class="field__label">排序依据</span>
+        <t-radio-group v-model="sortBy" variant="default-filled" @change="handleSearch">
+          <t-radio-button value="amount">销售额</t-radio-button>
+          <t-radio-button value="orders">订单量</t-radio-button>
+        </t-radio-group>
+      </div>
+    </FilterCard>
 
     <section class="table-card surface-card">
       <div class="table-card__head">
@@ -204,6 +199,7 @@
 </template>
 
 <script setup lang="ts">
+import FilterCard from '@/components/filter-card/index.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 import {
