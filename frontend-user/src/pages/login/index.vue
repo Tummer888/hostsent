@@ -13,13 +13,14 @@
             </div>
             <div class="header-text">
               <h2 class="card-title">{{ brandStore.name }}</h2>
-              <p class="card-subtitle">欢迎回来，请登录账户</p>
+              <p class="card-subtitle">{{ authMode === 'login' ? '欢迎回来，请登录账户' : '创建账号，开启您的云上之旅' }}</p>
             </div>
           </div>
         </div>
 
         <div class="form-area">
-          <t-tabs v-model:value="activeTab" theme="normal" class="login-tabs">
+          <!-- 登录表单：密码/短信/邮箱三通道 -->
+          <t-tabs v-if="authMode === 'login'" v-model:value="activeTab" theme="normal" class="login-tabs">
             <!-- ① 密码登录 -->
             <t-tab-panel value="password" label="密码登录">
               <div class="tab-content-inner">
@@ -206,12 +207,192 @@
             </t-tab-panel>
           </t-tabs>
 
-          <t-button theme="primary" size="large" block class="auth-btn" :loading="loginLoading" @click="handleLogin">
+          <!-- 注册表单：与登录共用同一张卡片，按 authMode 原地切换，不再跳独立页 -->
+          <t-form
+            v-else
+            ref="registerFormRef"
+            :data="registerForm"
+            :rules="registerRules"
+            :label-width="0"
+            class="register-form"
+            @submit="handleRegister"
+          >
+            <t-form-item name="username">
+              <t-input
+                v-model="registerForm.username"
+                placeholder="请输入用户名"
+                size="large"
+                class="custom-input"
+              >
+                <template #prefix-icon>
+                  <UserIcon />
+                </template>
+              </t-input>
+            </t-form-item>
+
+            <t-form-item name="email">
+              <t-input
+                v-model="registerForm.email"
+                placeholder="请输入邮箱地址"
+                size="large"
+                class="custom-input"
+              >
+                <template #prefix-icon>
+                  <MailIcon />
+                </template>
+              </t-input>
+            </t-form-item>
+
+            <!--
+              邮箱验证码行：仅当 user_register 场景 otp_required=true 时渲染。
+              默认策略虽为 true，但 captcha_enabled=false 时总闸未开 → 不渲染，
+              与升级前「注册只填用户名/邮箱/密码」的交互保持一致。
+            -->
+            <t-form-item v-if="registerEmailCodeNeeded" name="emailCode">
+              <div class="captcha-group sms-captcha-row">
+                <t-input
+                  v-model="registerForm.emailCode"
+                  placeholder="请输入邮箱验证码"
+                  size="large"
+                  class="custom-input sms-code-input"
+                  maxlength="6"
+                >
+                  <template #prefix-icon>
+                    <ChatMessageIcon />
+                  </template>
+                </t-input>
+                <t-button
+                  size="small"
+                  variant="outline"
+                  theme="primary"
+                  class="send-code-btn"
+                  :disabled="emailCodeCountdown > 0"
+                  :loading="sendingRegisterCode"
+                  @click="handleSendRegisterEmailCode"
+                >
+                  {{ emailCodeCountdown > 0 ? `${emailCodeCountdown}s` : '获取验证码' }}
+                </t-button>
+              </div>
+            </t-form-item>
+
+            <t-form-item v-if="registerCaptchaNeeded" name="captchaCode">
+              <div class="captcha-group">
+                <t-input
+                  v-model="registerForm.captchaCode"
+                  placeholder="请输入图形验证码"
+                  size="large"
+                  class="custom-input"
+                  maxlength="5"
+                >
+                  <template #prefix-icon>
+                    <ViewListIcon />
+                  </template>
+                </t-input>
+                <CaptchaImage
+                  ref="registerCaptchaRef"
+                  v-model:key="registerCaptchaKey"
+                  v-model:code="registerForm.captchaCode"
+                  scene="user_register"
+                />
+              </div>
+            </t-form-item>
+
+            <t-form-item name="inviteCode">
+              <t-input
+                v-model="registerForm.inviteCode"
+                placeholder="邀请码（选填，由推广链接自动带入）"
+                size="large"
+                class="custom-input"
+                clearable
+              >
+                <template #prefix-icon>
+                  <ShareIcon />
+                </template>
+              </t-input>
+            </t-form-item>
+
+            <t-form-item name="password">
+              <t-input
+                v-model="registerForm.password"
+                :type="showRegPassword ? 'text' : 'password'"
+                placeholder="请输入密码（至少8位）"
+                size="large"
+                class="custom-input"
+              >
+                <template #prefix-icon>
+                  <LockOnIcon />
+                </template>
+                <template #suffix-icon>
+                  <span class="password-toggle" @click="showRegPassword = !showRegPassword">
+                    <BrowseIcon v-if="!showRegPassword" />
+                    <BrowseOffIcon v-else />
+                  </span>
+                </template>
+              </t-input>
+            </t-form-item>
+
+            <t-form-item name="confirmPassword">
+              <t-input
+                v-model="registerForm.confirmPassword"
+                :type="showRegConfirm ? 'text' : 'password'"
+                placeholder="请再次输入密码"
+                size="large"
+                class="custom-input"
+              >
+                <template #prefix-icon>
+                  <LockOnIcon />
+                </template>
+                <template #suffix-icon>
+                  <span class="password-toggle" @click="showRegConfirm = !showRegConfirm">
+                    <BrowseIcon v-if="!showRegConfirm" />
+                    <BrowseOffIcon v-else />
+                  </span>
+                </template>
+              </t-input>
+            </t-form-item>
+
+            <div class="form-agreement">
+              <t-checkbox v-model="agreed">
+                我已阅读并同意
+                <!--
+                  法律文本只在官网门户维护（同内容多端渲染 = 多端维护，必然漂移）。
+                  未配置官网地址时渲染为纯文本，不留一个点了没反应的链接。
+                -->
+                <a v-if="termsUrl" :href="termsUrl" target="_blank" rel="noopener">《用户条款》</a>
+                <span v-else class="agreement-plain">《用户条款》</span>
+                和
+                <a v-if="privacyUrl" :href="privacyUrl" target="_blank" rel="noopener">《隐私政策》</a>
+                <span v-else class="agreement-plain">《隐私政策》</span>
+              </t-checkbox>
+            </div>
+
+            <t-button
+              type="submit"
+              theme="primary"
+              size="large"
+              block
+              class="auth-btn"
+              :loading="registerLoading"
+              :disabled="!agreed"
+            >
+              注 册
+            </t-button>
+          </t-form>
+
+          <t-button
+            v-if="authMode === 'login'"
+            theme="primary"
+            size="large"
+            block
+            class="auth-btn"
+            :loading="loginLoading"
+            @click="handleLogin"
+          >
             登 录
           </t-button>
 
-          <!-- 第三方登录（仅密码登录显示） -->
-          <div v-if="activeTab === 'password'" class="third-party-login">
+          <!-- 第三方登录（仅登录-密码方式显示） -->
+          <div v-if="authMode === 'login' && activeTab === 'password'" class="third-party-login">
             <div class="divider-line">
               <span class="divider-text">其他登录方式</span>
             </div>
@@ -237,20 +418,24 @@
 
         <div class="card-footer">
           <p class="register-hint">
-            还没有账号？<router-link to="/register" class="helper-link">立即注册</router-link>
+            <template v-if="authMode === 'login'">还没有账号？</template>
+            <template v-else>已有账号？</template>
+            <a class="helper-link toggle-mode-link" @click="toggleAuthMode">
+              {{ authMode === 'login' ? '立即注册' : '返回登录' }}
+            </a>
           </p>
           <p>{{ brandStore.copyrightText }}</p>
         </div>
       </div>
 
-      <!-- 右侧切换标签：注册跳独立页（与登录页表单不重复维护两套校验） -->
+      <!-- 右侧切换标签：登录/注册在同一张卡片内原地切换 -->
       <div class="side-tabs">
-        <div class="side-tab active">
+        <div class="side-tab" :class="{ active: authMode === 'login' }" @click="switchAuthMode('login')">
           <UserIcon class="side-tab-icon" />
           <span class="side-tab-label">登录</span>
         </div>
-        <div class="side-tab" @click="goRegister">
-          <UserIcon class="side-tab-icon" />
+        <div class="side-tab" :class="{ active: authMode === 'register' }" @click="switchAuthMode('register')">
+          <UserAddIcon class="side-tab-icon" />
           <span class="side-tab-label">注册</span>
         </div>
       </div>
@@ -276,6 +461,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import {
   CloudIcon,
   UserIcon,
+  UserAddIcon,
   LockOnIcon,
   BrowseIcon,
   BrowseOffIcon,
@@ -283,6 +469,7 @@ import {
   ViewListIcon,
   MailIcon,
   MobileIcon,
+  ShareIcon,
   LogoWechatStrokeIcon,
   LogoQqIcon,
   LogoAlipayIcon,
@@ -295,7 +482,8 @@ import LoginOTPVerifyDialog from '@/pages/login/components/LoginOTPVerifyDialog.
 import { sendVerifyCode } from '@/api/public'
 import { useUserStore } from '@/store'
 import { useBrandStore } from '@/store/modules/brand'
-import { imageRequired, loadAuthConfig, otpChannel } from '@/utils/captcha-resource'
+import { imageRequired, loadAuthConfig, otpChannel, otpRequired } from '@/utils/captcha-resource'
+import { sitePath } from '@/utils/site'
 
 defineOptions({ name: 'UserLogin' })
 
@@ -306,6 +494,8 @@ const router = useRouter()
 const userStore = useUserStore()
 const brandStore = useBrandStore()
 
+/** 卡片当前形态：登录与注册共用同一张卡片，只切换表单，不再跳独立注册页。 */
+const authMode = ref<'login' | 'register'>('login')
 const activeTab = ref<'password' | 'sms' | 'email'>('password')
 const showPassword = ref(false)
 const loginLoading = ref(false)
@@ -333,6 +523,76 @@ const loginForm = reactive({
   email: '',
   emailCode: '',
 })
+
+// —— 注册（原独立注册页并入卡片）——
+const registerFormRef = ref()
+const registerLoading = ref(false)
+const agreed = ref(false)
+const showRegPassword = ref(false)
+const showRegConfirm = ref(false)
+const registerCaptchaKey = ref('')
+const registerCaptchaRef = ref<InstanceType<typeof CaptchaImage> | null>(null)
+const sendingRegisterCode = ref(false)
+const emailCodeCountdown = ref(0)
+
+/** 协议链接指向官网门户的条款/隐私页；未配置官网地址时为空串（渲染成纯文本）。 */
+const termsUrl = sitePath('/terms')
+const privacyUrl = sitePath('/privacy')
+
+const registerForm = reactive({
+  username: '',
+  email: '',
+  inviteCode: '',
+  password: '',
+  confirmPassword: '',
+  emailCode: '',
+  captchaCode: '',
+})
+
+/** 图形码/邮箱验证码是否渲染：由 auth-config 决定，总闸关闭时都不显示。 */
+const registerCaptchaNeeded = computed(() => imageRequired('user_register'))
+const registerEmailCodeNeeded = computed(() => otpRequired('user_register'))
+
+const validateConfirm = (val: string) => {
+  if (val !== registerForm.password) {
+    return '两次输入的密码不一致'
+  }
+  return true
+}
+
+// 图形码/验证码规则随策略动态增删：不渲染的行若留必填规则会永远提交不了。
+const registerRules = computed(() => ({
+  username: [
+    { required: true, message: '请输入用户名', trigger: 'blur' },
+    { min: 3, message: '用户名至少3位', trigger: 'blur' },
+  ],
+  email: [
+    { required: true, message: '请输入邮箱', trigger: 'blur' },
+    { pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: '邮箱格式不正确', trigger: 'blur' },
+  ],
+  password: [
+    { required: true, message: '请输入密码', trigger: 'blur' },
+    { min: 8, message: '密码至少8位', trigger: 'blur' },
+  ],
+  confirmPassword: [
+    { required: true, message: '请再次输入密码', trigger: 'blur' },
+    { validator: validateConfirm, trigger: 'blur' },
+  ],
+  emailCode: registerEmailCodeNeeded.value
+    ? [{ required: true, message: '请输入邮箱验证码', trigger: 'blur' }]
+    : [],
+  captchaCode: registerCaptchaNeeded.value
+    ? [{ required: true, message: '请输入图形验证码', trigger: 'blur' }]
+    : [],
+}))
+
+function switchAuthMode(mode: 'login' | 'register') {
+  authMode.value = mode
+}
+
+function toggleAuthMode() {
+  authMode.value = authMode.value === 'login' ? 'register' : 'login'
+}
 
 // —— 登录二次验证（doc91 §4.6）——
 const otpVisible = ref(false)
@@ -397,6 +657,41 @@ async function handleSendCode(target: 'sms' | 'email') {
       emailCaptchaRef.value?.refresh()
     }
     sending[target] = false
+  }
+}
+
+/** 注册邮箱验证码下发（scene=user_register，服务端在公开白名单内）。 */
+async function handleSendRegisterEmailCode() {
+  if (!registerForm.email.trim()) {
+    MessagePlugin.warning('请先输入邮箱地址')
+    return
+  }
+  if (registerCaptchaNeeded.value && !registerForm.captchaCode.trim()) {
+    MessagePlugin.warning('请先输入图形验证码')
+    return
+  }
+  sendingRegisterCode.value = true
+  try {
+    const res = await sendVerifyCode({
+      scene: 'user_register',
+      channel: 'email',
+      target: registerForm.email.trim(),
+      captcha_key: registerCaptchaKey.value || undefined,
+      captcha_code: registerForm.captchaCode.trim() || undefined,
+    })
+    MessagePlugin.success(`验证码已发送至 ${res.target_masked || registerForm.email.trim()}`)
+    emailCodeCountdown.value = 60
+    const timer = setInterval(() => {
+      emailCodeCountdown.value -= 1
+      if (emailCodeCountdown.value <= 0) clearInterval(timer)
+    }, 1000)
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '验证码发送失败')
+  } finally {
+    // 图形码一次性：无论成败都要换新图。
+    registerForm.captchaCode = ''
+    registerCaptchaRef.value?.refresh()
+    sendingRegisterCode.value = false
   }
 }
 
@@ -485,6 +780,42 @@ async function handleLogin() {
   }
 }
 
+async function handleRegister() {
+  try {
+    const result = await registerFormRef.value?.validate()
+    if (result !== true) return
+
+    registerLoading.value = true
+    await userStore.register({
+      username: registerForm.username,
+      email: registerForm.email,
+      password: registerForm.password,
+      invite_code: registerForm.inviteCode.trim() || undefined,
+      email_code: registerEmailCodeNeeded.value ? registerForm.emailCode.trim() : undefined,
+      captcha_key: registerCaptchaNeeded.value ? registerCaptchaKey.value || undefined : undefined,
+      captcha_code: registerCaptchaNeeded.value ? registerForm.captchaCode.trim() || undefined : undefined,
+    })
+
+    MessagePlugin.success('注册成功，请登录')
+    // 原地切回登录表单并带入用户名；?redirect 继续由登录流程接管。
+    authMode.value = 'login'
+    loginForm.username = registerForm.username
+    loginForm.password = ''
+  } catch (e) {
+    console.error('Register failed:', e)
+    // 注册失败时图形码与邮箱验证码都已被消费，必须刷新。
+    if (registerCaptchaNeeded.value) {
+      registerForm.captchaCode = ''
+      registerCaptchaRef.value?.refresh()
+    }
+    if (registerEmailCodeNeeded.value) {
+      registerForm.emailCode = ''
+    }
+  } finally {
+    registerLoading.value = false
+  }
+}
+
 /** OTP 校验通过 → 换正式令牌。 */
 async function onVerifyOTP(code: string) {
   if (!otpToken.value) return
@@ -525,14 +856,13 @@ async function onResendOTP() {
   }
 }
 
-function goRegister() {
-  router.push('/register')
-}
-
 // 预留：策略里 OTP 默认通道（当前仅用于展示提示，可扩展为默认 tab）。
 void otpChannel
 
 onMounted(() => {
+  // 独立注册页已并入本卡片：/register 重定向到 /login?mode=register，推广邀请码随之带入。
+  if (route.query.mode === 'register') authMode.value = 'register'
+  if (route.query.invite_code) registerForm.inviteCode = String(route.query.invite_code)
   void loadAuthConfig()
 })
 </script>
@@ -812,6 +1142,10 @@ onMounted(() => {
   text-decoration: underline;
 }
 
+.toggle-mode-link {
+  cursor: pointer;
+}
+
 /* 发送验证码按钮 - 通用 */
 .send-code-btn {
   height: 46px !important;
@@ -852,6 +1186,32 @@ onMounted(() => {
   background: #003faa !important;
   transform: translateY(-1px);
   box-shadow: 0 12px 32px rgba(0, 82, 217, 0.4);
+}
+
+/* ============ 注册表单（共用登录卡片） ============ */
+/* 行距与登录表单 .input-group 的 22px 对齐，切换时高度节奏一致 */
+.register-form :deep(.t-form__item) {
+  margin-bottom: 22px;
+}
+
+.form-agreement {
+  margin: -6px 0 8px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.form-agreement a {
+  color: #0052d9;
+  text-decoration: none;
+}
+
+.form-agreement a:hover {
+  text-decoration: underline;
+}
+
+/* 官网地址未配置时协议名退化为纯文本：不留一个点了没反应的链接 */
+.form-agreement .agreement-plain {
+  color: #64748b;
 }
 
 /* 第三方登录 */
@@ -1098,6 +1458,12 @@ onMounted(() => {
   }
 
   .input-group {
+    margin-bottom: 20px;
+    margin-left: 6px;
+    margin-right: 6px;
+  }
+
+  .register-form :deep(.t-form__item) {
     margin-bottom: 20px;
     margin-left: 6px;
     margin-right: 6px;

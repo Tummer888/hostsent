@@ -141,6 +141,9 @@ var sources = []Source{
 		Key: "security_audit", DisplayName: "安全审计日志", Group: GroupAudit,
 		Table: "audit_logs", TimeColumn: "created_at",
 		Class: ClassAudit, Cleanable: false, DefaultRetentionDays: 180,
+		// 原指向 /users/security/audit-logs，该页与「系统管理 → 操作审计」重复（同一张
+		// audit_logs 表、同一权限码），已删除（doc102 §4.1 M2-5），这里跟随合并页。
+		IndependentPage: "/system/audit-logs",
 		SelectColumns: []Column{
 			col("id", "ID", "number", 80),
 			col("operator_id", "操作人ID", "number", 100),

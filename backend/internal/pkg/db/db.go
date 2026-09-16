@@ -56,7 +56,8 @@ type seedPermission struct {
 	Status     string
 }
 
-type seedMenu struct {
+// SeedMenu 描述一条菜单种子；导出供 menu_align_test.go 与运维脚本读取。
+type SeedMenu struct {
 	ParentKey string
 	Platform  string
 	Name      string
@@ -850,243 +851,248 @@ func seedRoles(tx *gorm.DB) error {
 	return nil
 }
 
-func seedPermissions(tx *gorm.DB) error {
-	defaults := []seedPermission{
-		{Name: "系统管理", Code: "system", Type: "catalog", SortOrder: 1, Status: "active"},
-		{Name: "菜单管理", Code: "system:menu", Type: "menu", SortOrder: 1, Status: "active"},
-		{ParentCode: "system:menu", Name: "查看菜单", Code: "menu:view", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "system:menu", Name: "创建菜单", Code: "menu:create", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "system:menu", Name: "更新菜单", Code: "menu:update", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "system:menu", Name: "删除菜单", Code: "menu:delete", Type: "button", SortOrder: 4, Status: "active"},
-		// —— 系统配置（系统管理模块）
-		{Name: "系统配置", Code: "system:config", Type: "menu", SortOrder: 4, Status: "active"},
-		{ParentCode: "system:config", Name: "查看配置", Code: "system:config:view", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "system:config", Name: "创建配置", Code: "system:config:create", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "system:config", Name: "更新配置", Code: "system:config:update", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "system:config", Name: "删除配置", Code: "system:config:delete", Type: "button", SortOrder: 4, Status: "active"},
-		{Name: "用户管理", Code: "system:user", Type: "catalog", SortOrder: 2, Status: "active"},
-		{Name: "用户列表", Code: "system:user:list", Type: "menu", SortOrder: 1, Status: "active"},
-		{ParentCode: "system:user", Name: "查看用户详情", Code: "user:detail", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "system:user", Name: "重置用户密码", Code: "user:reset_password", Type: "button", SortOrder: 4, Status: "active"},
-		{ParentCode: "system:user", Name: "修改用户状态", Code: "user:update_status", Type: "button", SortOrder: 5, Status: "active"},
-		{Name: "角色管理", Code: "system:role", Type: "catalog", SortOrder: 3, Status: "active"},
-		{Name: "角色列表", Code: "system:role:list", Type: "menu", SortOrder: 1, Status: "active"},
-		{ParentCode: "system:role", Name: "创建角色", Code: "role:create", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "system:role", Name: "更新角色", Code: "role:update", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "system:role", Name: "删除角色", Code: "role:delete", Type: "button", SortOrder: 4, Status: "active"},
-		{ParentCode: "system:role", Name: "分配权限", Code: "role:assign_permissions", Type: "button", SortOrder: 5, Status: "active"},
-		{Name: "上游对接", Code: "resource", Type: "catalog", SortOrder: 4, Status: "active"},
-		{ParentCode: "resource", Name: "上游提供商", Code: "resource:provider", Type: "menu", SortOrder: 1, Status: "active"},
-		{ParentCode: "resource:provider", Name: "创建提供商", Code: "provider:create", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "resource:provider", Name: "更新提供商", Code: "provider:update", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "resource:provider", Name: "删除提供商", Code: "provider:delete", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "resource:provider", Name: "测试连接", Code: "provider:test", Type: "button", SortOrder: 4, Status: "active"},
-		{ParentCode: "resource", Name: "上游商品", Code: "resource:product", Type: "menu", SortOrder: 2, Status: "active"},
-		{ParentCode: "resource:product", Name: "更新商品定价", Code: "product:update_price", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "resource:product", Name: "同步商品", Code: "product:sync", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "resource", Name: "同步任务", Code: "resource:sync", Type: "menu", SortOrder: 3, Status: "active"},
-		{ParentCode: "resource:sync", Name: "创建同步任务", Code: "sync:create", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "resource:sync", Name: "查看同步日志", Code: "sync:log", Type: "button", SortOrder: 2, Status: "active"},
-		// P3 同步框架：调度配置 / 调价待确认（L2：新权限码必须登记，否则菜单会被过滤）
-		{ParentCode: "resource:sync", Name: "同步调度配置", Code: "sync:schedule", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "resource:sync", Name: "查看调价事件", Code: "sync:price", Type: "button", SortOrder: 4, Status: "active"},
-		{ParentCode: "resource:sync", Name: "确认调价", Code: "sync:price:confirm", Type: "button", SortOrder: 5, Status: "active"},
-		{ParentCode: "resource", Name: "云主机", Code: "resource:instance", Type: "menu", SortOrder: 4, Status: "active"},
-		{ParentCode: "resource:instance", Name: "实例操作", Code: "instance:action", Type: "button", SortOrder: 1, Status: "active"},
-		// 实例运维台敏感动作细分权限（见 docs/实施计划/61-实例运维管理台实施计划.md §6.1）
-		{ParentCode: "resource:instance", Name: "远程控制台", Code: "instance:console", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "resource:instance", Name: "实例变配", Code: "instance:resize", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "resource:instance", Name: "销毁实例", Code: "instance:destroy", Type: "button", SortOrder: 4, Status: "active"},
-		{Name: "商品销售", Code: "product", Type: "catalog", SortOrder: 5, Status: "active"},
-		{ParentCode: "product", Name: "产品列表", Code: "product:list", Type: "menu", SortOrder: 1, Status: "active"},
-		{ParentCode: "product:list", Name: "创建产品", Code: "product:create", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "product:list", Name: "编辑产品", Code: "product:update", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "product:list", Name: "删除产品", Code: "product:delete", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "product:list", Name: "上下架产品", Code: "product:publish", Type: "button", SortOrder: 4, Status: "active"},
-		{ParentCode: "product", Name: "分类管理", Code: "product:category", Type: "menu", SortOrder: 2, Status: "active"},
-		{ParentCode: "product:category", Name: "创建分类", Code: "product:category:create", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "product:category", Name: "编辑分类", Code: "product:category:update", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "product:category", Name: "删除分类", Code: "product:category:delete", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "product", Name: "定价管理", Code: "product:price", Type: "menu", SortOrder: 3, Status: "active"},
-		{ParentCode: "product:price", Name: "修改价格", Code: "product:price:update", Type: "button", SortOrder: 1, Status: "active"},
-		{Name: "订单管理", Code: "order", Type: "catalog", SortOrder: 6, Status: "active"},
-		{ParentCode: "order", Name: "订单列表", Code: "order:list", Type: "menu", SortOrder: 1, Status: "active"},
-		{ParentCode: "order:list", Name: "取消订单", Code: "order:cancel", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "order:list", Name: "订单备注", Code: "order:remark", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "order:list", Name: "发起退款", Code: "order:refund", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "order:list", Name: "重新开通", Code: "order:activate", Type: "button", SortOrder: 4, Status: "active"},
-		{ParentCode: "order", Name: "退款管理", Code: "order:refunds", Type: "menu", SortOrder: 2, Status: "active"},
-		{ParentCode: "order:refunds", Name: "审核退款", Code: "order:refund:audit", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "order", Name: "订单统计", Code: "order:stats", Type: "menu", SortOrder: 3, Status: "active"},
-		{Name: "财务管理", Code: "finance", Type: "catalog", SortOrder: 7, Status: "active"},
-		{ParentCode: "finance", Name: "钱包/流水", Code: "finance:wallet", Type: "menu", SortOrder: 1, Status: "active"},
-		{ParentCode: "finance:wallet", Name: "人工调账", Code: "finance:adjust", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "finance", Name: "充值管理", Code: "finance:recharge", Type: "menu", SortOrder: 2, Status: "active"},
-		{ParentCode: "finance:recharge", Name: "确认到账", Code: "finance:recharge:approve", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "finance", Name: "提现管理", Code: "finance:withdraw", Type: "menu", SortOrder: 3, Status: "active"},
-		{ParentCode: "finance:withdraw", Name: "审核提现", Code: "finance:withdraw:audit", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "finance", Name: "账单管理", Code: "finance:bill", Type: "menu", SortOrder: 4, Status: "active"},
-		{ParentCode: "finance:bill", Name: "关账", Code: "finance:bill:close", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "finance:bill", Name: "对账", Code: "finance:bill:recon", Type: "button", SortOrder: 2, Status: "active"},
-		// 发票管理（doc36 §3.3）：预埋申请/开票流程，后续可接税务系统自动开票
-		{ParentCode: "finance", Name: "发票管理", Code: "finance:invoice", Type: "menu", SortOrder: 5, Status: "active"},
-		{ParentCode: "finance:invoice", Name: "开票/驳回", Code: "finance:invoice:issue", Type: "button", SortOrder: 1, Status: "active"},
-		// —— 支付中心（doc35）：独立模块（SortOrder 13，独立于财务管理的资金记账）
-		{Name: "支付中心", Code: "payment", Type: "catalog", SortOrder: 13, Status: "active"},
-		{ParentCode: "payment", Name: "支付渠道", Code: "payment:channel", Type: "menu", SortOrder: 1, Status: "active"},
-		{ParentCode: "payment:channel", Name: "管理渠道", Code: "payment:channel:manage", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "payment", Name: "支付方式", Code: "payment:method", Type: "menu", SortOrder: 2, Status: "active"},
-		{ParentCode: "payment", Name: "支付订单", Code: "payment:order", Type: "menu", SortOrder: 3, Status: "active"},
-		{ParentCode: "payment:order", Name: "订单操作", Code: "payment:order:operate", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "payment", Name: "回调日志", Code: "payment:callback", Type: "menu", SortOrder: 4, Status: "active"},
-		{ParentCode: "payment", Name: "渠道退款", Code: "payment:refund", Type: "menu", SortOrder: 5, Status: "active"},
-		{ParentCode: "payment", Name: "打款管理", Code: "payment:payout", Type: "menu", SortOrder: 6, Status: "active"},
-		{ParentCode: "payment:payout", Name: "打款操作", Code: "payment:payout:operate", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "payment", Name: "渠道对账", Code: "payment:recon", Type: "menu", SortOrder: 7, Status: "active"},
-		// —— 积分中心（doc36）：独立于资金账本的积分体系，绝不可作为支付方式
-		{Name: "积分中心", Code: "point", Type: "catalog", SortOrder: 14, Status: "active"},
-		{ParentCode: "point", Name: "积分规则", Code: "point:rule", Type: "menu", SortOrder: 1, Status: "active"},
-		{ParentCode: "point:rule", Name: "维护规则", Code: "point:rule:manage", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "point", Name: "积分账户", Code: "point:account", Type: "menu", SortOrder: 2, Status: "active"},
-		{ParentCode: "point:account", Name: "调整积分", Code: "point:account:adjust", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "point", Name: "积分流水", Code: "point:transaction", Type: "menu", SortOrder: 3, Status: "active"},
-		// —— 工单支持（doc50 §7.4）
-		{Name: "工单支持", Code: "ticket", Type: "catalog", SortOrder: 8, Status: "active"},
-		{ParentCode: "ticket", Name: "工单列表", Code: "ticket:list", Type: "menu", SortOrder: 1, Status: "active"},
-		{ParentCode: "ticket:list", Name: "查看工单", Code: "ticket:view", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "ticket:list", Name: "回复工单", Code: "ticket:reply", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "ticket:list", Name: "分配工单", Code: "ticket:assign", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "ticket:list", Name: "更新状态", Code: "ticket:update", Type: "button", SortOrder: 4, Status: "active"},
-		{ParentCode: "ticket:list", Name: "关闭工单", Code: "ticket:close", Type: "button", SortOrder: 5, Status: "active"},
-		{ParentCode: "ticket", Name: "分类管理", Code: "ticket:category", Type: "menu", SortOrder: 2, Status: "active"},
-		{ParentCode: "ticket:category", Name: "管理分类", Code: "ticket:manage", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "ticket", Name: "工单统计", Code: "ticket:stats", Type: "menu", SortOrder: 3, Status: "active"},
-		// —— 生命周期管理（doc60）
-		{Name: "生命周期管理", Code: "lifecycle", Type: "catalog", SortOrder: 9, Status: "active"},
-		{ParentCode: "lifecycle", Name: "到期管理", Code: "lifecycle:expiring", Type: "menu", SortOrder: 1, Status: "active"},
-		{ParentCode: "lifecycle:expiring", Name: "实例代续费", Code: "lifecycle:renew", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "lifecycle", Name: "续费记录", Code: "lifecycle:renewals", Type: "menu", SortOrder: 2, Status: "active"},
-		{ParentCode: "lifecycle", Name: "生命周期策略", Code: "lifecycle:policy", Type: "menu", SortOrder: 3, Status: "active"},
-		{ParentCode: "lifecycle:policy", Name: "更新策略", Code: "lifecycle:policy:update", Type: "button", SortOrder: 1, Status: "active"},
-		// —— 消息中心（doc70）
-		{Name: "消息中心", Code: "notification", Type: "catalog", SortOrder: 10, Status: "active"},
-		{ParentCode: "notification", Name: "公告管理", Code: "notify:announcement", Type: "menu", SortOrder: 1, Status: "active"},
-		{ParentCode: "notify:announcement", Name: "管理公告", Code: "notify:manage", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "notification", Name: "通知记录", Code: "notify:record", Type: "menu", SortOrder: 2, Status: "active"},
-		{ParentCode: "notify:record", Name: "查看记录", Code: "notify:view", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "notification", Name: "通知模板", Code: "notify:template", Type: "menu", SortOrder: 3, Status: "active"},
-		// —— 消息中心多渠道（doc90 §9.1）
-		{ParentCode: "notification", Name: "渠道配置", Code: "notify:channel", Type: "menu", SortOrder: 4, Status: "active"},
-		{ParentCode: "notify:channel", Name: "编辑渠道", Code: "notify:channel:manage", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "notification", Name: "短信模板", Code: "notify:sms-template", Type: "menu", SortOrder: 5, Status: "active"},
-		{ParentCode: "notify:sms-template", Name: "编辑短信模板", Code: "notify:sms-template:manage", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "notification", Name: "消息群发", Code: "notify:broadcast", Type: "menu", SortOrder: 6, Status: "active"},
-		{ParentCode: "notification", Name: "发送日志", Code: "notify:delivery", Type: "menu", SortOrder: 7, Status: "active"},
-		// —— 推广邀请返现（替代原代理/分销域）
-		{Name: "推广返现", Code: "referral", Type: "catalog", SortOrder: 11, Status: "active"},
-		{ParentCode: "referral", Name: "返现台账", Code: "referral:cashback:list", Type: "menu", SortOrder: 1, Status: "active"},
-		{ParentCode: "referral", Name: "提现管理", Code: "referral:withdraw:list", Type: "menu", SortOrder: 2, Status: "active"},
-		{ParentCode: "referral:withdraw:list", Name: "审核提现", Code: "referral:withdraw:audit", Type: "button", SortOrder: 1, Status: "active"},
+// seedPermissionDefaults 是权限树的唯一定义处（目录 catalog / 菜单 menu / 按钮 button）。
+// 只增不删：seed 遇到已存在的 code 直接跳过，因此删除存量权限码必须同时改这里与迁移
+// （见 migrations/050_menu_tree_normalize.sql 与 doc102 M3）。
+var seedPermissionDefaults = []seedPermission{
+	{Name: "系统管理", Code: "system", Type: "catalog", SortOrder: 1, Status: "active"},
+	{Name: "菜单管理", Code: "system:menu", Type: "menu", SortOrder: 1, Status: "active"},
+	// —— 系统配置（系统管理模块）
+	{Name: "系统配置", Code: "system:config", Type: "menu", SortOrder: 4, Status: "active"},
+	{ParentCode: "system:config", Name: "查看配置", Code: "system:config:view", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "system:config", Name: "创建配置", Code: "system:config:create", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "system:config", Name: "更新配置", Code: "system:config:update", Type: "button", SortOrder: 3, Status: "active"},
+	{ParentCode: "system:config", Name: "删除配置", Code: "system:config:delete", Type: "button", SortOrder: 4, Status: "active"},
+	{Name: "用户管理", Code: "system:user", Type: "catalog", SortOrder: 2, Status: "active"},
+	{Name: "用户列表", Code: "system:user:list", Type: "menu", SortOrder: 1, Status: "active"},
+	{ParentCode: "system:user", Name: "查看用户详情", Code: "user:detail", Type: "button", SortOrder: 3, Status: "active"},
+	{ParentCode: "system:user", Name: "重置用户密码", Code: "user:reset_password", Type: "button", SortOrder: 4, Status: "active"},
+	{ParentCode: "system:user", Name: "修改用户状态", Code: "user:update_status", Type: "button", SortOrder: 5, Status: "active"},
+	{Name: "角色管理", Code: "system:role", Type: "catalog", SortOrder: 3, Status: "active"},
+	{Name: "角色列表", Code: "system:role:list", Type: "menu", SortOrder: 1, Status: "active"},
+	{ParentCode: "system:role", Name: "创建角色", Code: "role:create", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "system:role", Name: "更新角色", Code: "role:update", Type: "button", SortOrder: 3, Status: "active"},
+	{ParentCode: "system:role", Name: "删除角色", Code: "role:delete", Type: "button", SortOrder: 4, Status: "active"},
+	{Name: "上游对接", Code: "resource", Type: "catalog", SortOrder: 4, Status: "active"},
+	{ParentCode: "resource", Name: "上游提供商", Code: "resource:provider", Type: "menu", SortOrder: 1, Status: "active"},
+	{ParentCode: "resource:provider", Name: "创建提供商", Code: "provider:create", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "resource:provider", Name: "更新提供商", Code: "provider:update", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "resource:provider", Name: "删除提供商", Code: "provider:delete", Type: "button", SortOrder: 3, Status: "active"},
+	{ParentCode: "resource:provider", Name: "测试连接", Code: "provider:test", Type: "button", SortOrder: 4, Status: "active"},
+	{ParentCode: "resource", Name: "上游商品", Code: "resource:product", Type: "menu", SortOrder: 2, Status: "active"},
+	{ParentCode: "resource:product", Name: "更新商品定价", Code: "product:update_price", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "resource:product", Name: "同步商品", Code: "product:sync", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "resource", Name: "同步任务", Code: "resource:sync", Type: "menu", SortOrder: 3, Status: "active"},
+	{ParentCode: "resource:sync", Name: "创建同步任务", Code: "sync:create", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "resource:sync", Name: "查看同步日志", Code: "sync:log", Type: "button", SortOrder: 2, Status: "active"},
+	// P3 同步框架：调度配置 / 调价待确认（L2：新权限码必须登记，否则菜单会被过滤）
+	{ParentCode: "resource:sync", Name: "同步调度配置", Code: "sync:schedule", Type: "button", SortOrder: 3, Status: "active"},
+	{ParentCode: "resource:sync", Name: "查看调价事件", Code: "sync:price", Type: "button", SortOrder: 4, Status: "active"},
+	{ParentCode: "resource:sync", Name: "确认调价", Code: "sync:price:confirm", Type: "button", SortOrder: 5, Status: "active"},
+	{ParentCode: "resource", Name: "云主机", Code: "resource:instance", Type: "menu", SortOrder: 4, Status: "active"},
+	{ParentCode: "resource:instance", Name: "实例操作", Code: "instance:action", Type: "button", SortOrder: 1, Status: "active"},
+	// 实例运维台敏感动作细分权限（见 docs/实施计划/61-实例运维管理台实施计划.md §6.1）
+	{ParentCode: "resource:instance", Name: "远程控制台", Code: "instance:console", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "resource:instance", Name: "实例变配", Code: "instance:resize", Type: "button", SortOrder: 3, Status: "active"},
+	{ParentCode: "resource:instance", Name: "销毁实例", Code: "instance:destroy", Type: "button", SortOrder: 4, Status: "active"},
+	{Name: "商品销售", Code: "product", Type: "catalog", SortOrder: 5, Status: "active"},
+	{ParentCode: "product", Name: "产品列表", Code: "product:list", Type: "menu", SortOrder: 1, Status: "active"},
+	{ParentCode: "product:list", Name: "创建产品", Code: "product:create", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "product:list", Name: "编辑产品", Code: "product:update", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "product:list", Name: "删除产品", Code: "product:delete", Type: "button", SortOrder: 3, Status: "active"},
+	{ParentCode: "product:list", Name: "上下架产品", Code: "product:publish", Type: "button", SortOrder: 4, Status: "active"},
+	{ParentCode: "product", Name: "分类管理", Code: "product:category", Type: "menu", SortOrder: 2, Status: "active"},
+	{ParentCode: "product:category", Name: "创建分类", Code: "product:category:create", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "product:category", Name: "编辑分类", Code: "product:category:update", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "product:category", Name: "删除分类", Code: "product:category:delete", Type: "button", SortOrder: 3, Status: "active"},
+	{ParentCode: "product", Name: "修改价格", Code: "product:price:update", Type: "button", SortOrder: 1, Status: "active"},
+	{Name: "订单管理", Code: "order", Type: "catalog", SortOrder: 6, Status: "active"},
+	{ParentCode: "order", Name: "订单列表", Code: "order:list", Type: "menu", SortOrder: 1, Status: "active"},
+	{ParentCode: "order:list", Name: "取消订单", Code: "order:cancel", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "order:list", Name: "订单备注", Code: "order:remark", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "order:list", Name: "发起退款", Code: "order:refund", Type: "button", SortOrder: 3, Status: "active"},
+	{ParentCode: "order:list", Name: "重新开通", Code: "order:activate", Type: "button", SortOrder: 4, Status: "active"},
+	{ParentCode: "order", Name: "退款管理", Code: "order:refunds", Type: "menu", SortOrder: 2, Status: "active"},
+	{ParentCode: "order:refunds", Name: "审核退款", Code: "order:refund:audit", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "order", Name: "订单统计", Code: "order:stats", Type: "menu", SortOrder: 3, Status: "active"},
+	{Name: "财务管理", Code: "finance", Type: "catalog", SortOrder: 7, Status: "active"},
+	{ParentCode: "finance", Name: "钱包/流水", Code: "finance:wallet", Type: "menu", SortOrder: 1, Status: "active"},
+	{ParentCode: "finance:wallet", Name: "人工调账", Code: "finance:adjust", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "finance", Name: "充值管理", Code: "finance:recharge", Type: "menu", SortOrder: 2, Status: "active"},
+	{ParentCode: "finance:recharge", Name: "确认到账", Code: "finance:recharge:approve", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "finance", Name: "提现管理", Code: "finance:withdraw", Type: "menu", SortOrder: 3, Status: "active"},
+	{ParentCode: "finance:withdraw", Name: "审核提现", Code: "finance:withdraw:audit", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "finance", Name: "账单管理", Code: "finance:bill", Type: "menu", SortOrder: 4, Status: "active"},
+	{ParentCode: "finance:bill", Name: "关账", Code: "finance:bill:close", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "finance:bill", Name: "对账", Code: "finance:bill:recon", Type: "button", SortOrder: 2, Status: "active"},
+	// 发票管理（doc36 §3.3）：预埋申请/开票流程，后续可接税务系统自动开票
+	{ParentCode: "finance", Name: "发票管理", Code: "finance:invoice", Type: "menu", SortOrder: 5, Status: "active"},
+	{ParentCode: "finance:invoice", Name: "开票/驳回", Code: "finance:invoice:issue", Type: "button", SortOrder: 1, Status: "active"},
+	// —— 支付中心（doc35）：独立模块（SortOrder 13，独立于财务管理的资金记账）
+	{Name: "支付中心", Code: "payment", Type: "catalog", SortOrder: 13, Status: "active"},
+	{ParentCode: "payment", Name: "支付渠道", Code: "payment:channel", Type: "menu", SortOrder: 1, Status: "active"},
+	{ParentCode: "payment:channel", Name: "管理渠道", Code: "payment:channel:manage", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "payment", Name: "支付方式", Code: "payment:method", Type: "menu", SortOrder: 2, Status: "active"},
+	{ParentCode: "payment", Name: "支付订单", Code: "payment:order", Type: "menu", SortOrder: 3, Status: "active"},
+	{ParentCode: "payment:order", Name: "订单操作", Code: "payment:order:operate", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "payment", Name: "回调日志", Code: "payment:callback", Type: "menu", SortOrder: 4, Status: "active"},
+	{ParentCode: "payment", Name: "渠道退款", Code: "payment:refund", Type: "menu", SortOrder: 5, Status: "active"},
+	{ParentCode: "payment", Name: "打款管理", Code: "payment:payout", Type: "menu", SortOrder: 6, Status: "active"},
+	{ParentCode: "payment:payout", Name: "打款操作", Code: "payment:payout:operate", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "payment", Name: "渠道对账", Code: "payment:recon", Type: "menu", SortOrder: 7, Status: "active"},
+	// —— 积分中心（doc36）：独立于资金账本的积分体系，绝不可作为支付方式
+	{Name: "积分中心", Code: "point", Type: "catalog", SortOrder: 14, Status: "active"},
+	{ParentCode: "point", Name: "积分规则", Code: "point:rule", Type: "menu", SortOrder: 1, Status: "active"},
+	{ParentCode: "point:rule", Name: "维护规则", Code: "point:rule:manage", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "point", Name: "积分账户", Code: "point:account", Type: "menu", SortOrder: 2, Status: "active"},
+	{ParentCode: "point:account", Name: "调整积分", Code: "point:account:adjust", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "point", Name: "积分流水", Code: "point:transaction", Type: "menu", SortOrder: 3, Status: "active"},
+	// —— 工单支持（doc50 §7.4）
+	{Name: "工单支持", Code: "ticket", Type: "catalog", SortOrder: 8, Status: "active"},
+	{ParentCode: "ticket", Name: "工单列表", Code: "ticket:list", Type: "menu", SortOrder: 1, Status: "active"},
+	{ParentCode: "ticket:list", Name: "查看工单", Code: "ticket:view", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "ticket:list", Name: "回复工单", Code: "ticket:reply", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "ticket:list", Name: "分配工单", Code: "ticket:assign", Type: "button", SortOrder: 3, Status: "active"},
+	{ParentCode: "ticket:list", Name: "更新状态", Code: "ticket:update", Type: "button", SortOrder: 4, Status: "active"},
+	{ParentCode: "ticket:list", Name: "关闭工单", Code: "ticket:close", Type: "button", SortOrder: 5, Status: "active"},
+	{ParentCode: "ticket", Name: "工单分类", Code: "ticket:category", Type: "menu", SortOrder: 2, Status: "active"},
+	{ParentCode: "ticket:category", Name: "管理分类", Code: "ticket:manage", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "ticket", Name: "工单统计", Code: "ticket:stats", Type: "menu", SortOrder: 3, Status: "active"},
+	// —— 生命周期管理（doc60）
+	{Name: "生命周期管理", Code: "lifecycle", Type: "catalog", SortOrder: 9, Status: "active"},
+	{ParentCode: "lifecycle", Name: "到期管理", Code: "lifecycle:expiring", Type: "menu", SortOrder: 1, Status: "active"},
+	{ParentCode: "lifecycle:expiring", Name: "实例代续费", Code: "lifecycle:renew", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "lifecycle", Name: "续费记录", Code: "lifecycle:renewals", Type: "menu", SortOrder: 2, Status: "active"},
+	{ParentCode: "lifecycle", Name: "生命周期策略", Code: "lifecycle:policy", Type: "menu", SortOrder: 3, Status: "active"},
+	{ParentCode: "lifecycle:policy", Name: "更新策略", Code: "lifecycle:policy:update", Type: "button", SortOrder: 1, Status: "active"},
+	// —— 消息中心（doc70）
+	{Name: "消息中心", Code: "notification", Type: "catalog", SortOrder: 10, Status: "active"},
+	{ParentCode: "notification", Name: "公告管理", Code: "notify:announcement", Type: "menu", SortOrder: 1, Status: "active"},
+	{ParentCode: "notify:announcement", Name: "管理公告", Code: "notify:manage", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "notification", Name: "通知记录", Code: "notify:record", Type: "menu", SortOrder: 2, Status: "active"},
+	{ParentCode: "notify:record", Name: "查看记录", Code: "notify:view", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "notification", Name: "通知模板", Code: "notify:template", Type: "menu", SortOrder: 3, Status: "active"},
+	// —— 消息中心多渠道（doc90 §9.1）
+	{ParentCode: "notification", Name: "渠道配置", Code: "notify:channel", Type: "menu", SortOrder: 4, Status: "active"},
+	{ParentCode: "notify:channel", Name: "编辑渠道", Code: "notify:channel:manage", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "notification", Name: "短信模板", Code: "notify:sms-template", Type: "menu", SortOrder: 5, Status: "active"},
+	{ParentCode: "notify:sms-template", Name: "编辑短信模板", Code: "notify:sms-template:manage", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "notification", Name: "消息群发", Code: "notify:broadcast", Type: "menu", SortOrder: 6, Status: "active"},
+	{ParentCode: "notification", Name: "发送日志", Code: "notify:delivery", Type: "menu", SortOrder: 7, Status: "active"},
+	// —— 推广邀请返现（替代原代理/分销域）
+	{Name: "推广返现", Code: "referral", Type: "catalog", SortOrder: 11, Status: "active"},
+	{ParentCode: "referral", Name: "返现台账", Code: "referral:cashback:list", Type: "menu", SortOrder: 1, Status: "active"},
+	{ParentCode: "referral", Name: "推广提现", Code: "referral:withdraw:list", Type: "menu", SortOrder: 2, Status: "active"},
+	{ParentCode: "referral:withdraw:list", Name: "推广提现审核", Code: "referral:withdraw:audit", Type: "button", SortOrder: 1, Status: "active"},
 
-		// —— 账号体系与权限分级重构（81/82）补充权限码 ——
-		// 员工管理（超管独占）
-		{ParentCode: "system", Name: "员工管理", Code: "staff:list", Type: "menu", SortOrder: 4, Status: "active"},
-		{ParentCode: "staff:list", Name: "查看员工", Code: "staff:view", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "staff:list", Name: "新建员工", Code: "staff:create", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "staff:list", Name: "编辑员工", Code: "staff:update", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "staff:list", Name: "删除员工", Code: "staff:delete", Type: "button", SortOrder: 4, Status: "active"},
-		{ParentCode: "staff:list", Name: "重置密码", Code: "staff:reset_password", Type: "button", SortOrder: 5, Status: "active"},
-		{ParentCode: "staff:list", Name: "分配角色", Code: "staff:assign_role", Type: "button", SortOrder: 6, Status: "active"},
-		// 权限管理
-		{ParentCode: "system", Name: "权限管理", Code: "system:permission:view", Type: "menu", SortOrder: 5, Status: "active"},
-		{ParentCode: "system:permission:view", Name: "创建权限", Code: "permission:create", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "system:permission:view", Name: "更新权限", Code: "permission:update", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "system:permission:view", Name: "删除权限", Code: "permission:delete", Type: "button", SortOrder: 3, Status: "active"},
-		// 用户管理补充
-		{ParentCode: "system:user", Name: "创建用户", Code: "user:create", Type: "button", SortOrder: 6, Status: "active"},
-		{ParentCode: "system:user", Name: "编辑用户", Code: "user:update", Type: "button", SortOrder: 7, Status: "active"},
-		{ParentCode: "system:user", Name: "分配用户角色", Code: "user:assign_role", Type: "button", SortOrder: 8, Status: "active"},
-		{ParentCode: "system:user", Name: "代登录用户", Code: "user:impersonate", Type: "button", SortOrder: 9, Status: "active"}, // 用户组（折扣来源绑定）
-		{ParentCode: "system:user", Name: "用户组", Code: "user:group:list", Type: "menu", SortOrder: 2, Status: "active"},
-		{ParentCode: "user:group:list", Name: "创建用户组", Code: "user:group:create", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "user:group:list", Name: "编辑用户组", Code: "user:group:update", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "user:group:list", Name: "删除用户组", Code: "user:group:delete", Type: "button", SortOrder: 3, Status: "active"},
-		// 用户等级（消费升级）
-		{ParentCode: "system:user", Name: "用户等级", Code: "level:list", Type: "menu", SortOrder: 3, Status: "active"},
-		{ParentCode: "level:list", Name: "创建等级", Code: "level:create", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "level:list", Name: "编辑等级", Code: "level:update", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "level:list", Name: "删除等级", Code: "level:delete", Type: "button", SortOrder: 3, Status: "active"},
-		// 实名认证
-		{ParentCode: "system:user", Name: "实名认证", Code: "verification:list", Type: "menu", SortOrder: 10, Status: "active"},
-		{ParentCode: "verification:list", Name: "审核实名", Code: "verification:review", Type: "button", SortOrder: 1, Status: "active"},
-		// 产品：规格/定价/促销
-		{ParentCode: "product", Name: "规格管理", Code: "product:spec", Type: "menu", SortOrder: 4, Status: "active"},
-		{ParentCode: "product:spec", Name: "规格模板查看", Code: "spec:template:list", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "product:spec", Name: "规格模板维护", Code: "spec:template:update", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "product:spec", Name: "规格映射查看", Code: "spec:mapping:list", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "product:spec", Name: "规格映射维护", Code: "spec:mapping:update", Type: "button", SortOrder: 4, Status: "active"},
-		{ParentCode: "product:spec", Name: "规格契约查看", Code: "spec:contract:list", Type: "button", SortOrder: 5, Status: "active"},
-		{ParentCode: "product:spec", Name: "规格契约维护", Code: "spec:contract:update", Type: "button", SortOrder: 6, Status: "active"},
-		{ParentCode: "product", Name: "定价管理", Code: "product:pricing", Type: "menu", SortOrder: 5, Status: "active"},
-		{ParentCode: "product:pricing", Name: "定价查看", Code: "pricing:list", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "product:pricing", Name: "定价维护", Code: "pricing:update", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "product", Name: "促销管理", Code: "product:promotion", Type: "menu", SortOrder: 6, Status: "active"},
-		{ParentCode: "product:promotion", Name: "优惠券查看", Code: "promotion:coupon:list", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "product:promotion", Name: "优惠券维护", Code: "promotion:coupon:update", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "product:promotion", Name: "活动查看", Code: "promotion:activity:list", Type: "button", SortOrder: 3, Status: "active"},
-		{ParentCode: "product:promotion", Name: "活动维护", Code: "promotion:activity:update", Type: "button", SortOrder: 4, Status: "active"},
-		// 安全审计（后台）
-		{ParentCode: "system", Name: "登录日志", Code: "security:login-log:list", Type: "menu", SortOrder: 6, Status: "active"},
-		{ParentCode: "system", Name: "用户审计日志", Code: "security:audit:list", Type: "menu", SortOrder: 7, Status: "active"},
-		{ParentCode: "system", Name: "风控事件", Code: "security:risk:list", Type: "menu", SortOrder: 8, Status: "active"},
-		{ParentCode: "system", Name: "黑名单", Code: "security:blacklist:manage", Type: "menu", SortOrder: 9, Status: "active"},
-		{ParentCode: "system", Name: "会话管理", Code: "security:session:manage", Type: "menu", SortOrder: 10, Status: "active"},
+	// —— 账号体系与权限分级重构（81/82）补充权限码 ——
+	// 员工管理（超管独占）
+	{ParentCode: "system", Name: "员工管理", Code: "staff:list", Type: "menu", SortOrder: 4, Status: "active"},
+	{ParentCode: "staff:list", Name: "查看员工", Code: "staff:view", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "staff:list", Name: "新建员工", Code: "staff:create", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "staff:list", Name: "编辑员工", Code: "staff:update", Type: "button", SortOrder: 3, Status: "active"},
+	{ParentCode: "staff:list", Name: "删除员工", Code: "staff:delete", Type: "button", SortOrder: 4, Status: "active"},
+	{ParentCode: "staff:list", Name: "重置密码", Code: "staff:reset_password", Type: "button", SortOrder: 5, Status: "active"},
+	{ParentCode: "staff:list", Name: "分配角色", Code: "staff:assign_role", Type: "button", SortOrder: 6, Status: "active"},
+	// 权限管理
+	{ParentCode: "system", Name: "权限管理", Code: "system:permission:view", Type: "menu", SortOrder: 5, Status: "active"},
+	{ParentCode: "system:permission:view", Name: "创建权限", Code: "permission:create", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "system:permission:view", Name: "更新权限", Code: "permission:update", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "system:permission:view", Name: "删除权限", Code: "permission:delete", Type: "button", SortOrder: 3, Status: "active"},
+	// 用户管理补充
+	{ParentCode: "system:user", Name: "创建用户", Code: "user:create", Type: "button", SortOrder: 6, Status: "active"},
+	{ParentCode: "system:user", Name: "编辑用户", Code: "user:update", Type: "button", SortOrder: 7, Status: "active"},
+	{ParentCode: "system:user", Name: "分配用户角色", Code: "user:assign_role", Type: "button", SortOrder: 8, Status: "active"},
+	{ParentCode: "system:user", Name: "用户组", Code: "user:group:list", Type: "menu", SortOrder: 2, Status: "active"},
+	{ParentCode: "user:group:list", Name: "创建用户组", Code: "user:group:create", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "user:group:list", Name: "编辑用户组", Code: "user:group:update", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "user:group:list", Name: "删除用户组", Code: "user:group:delete", Type: "button", SortOrder: 3, Status: "active"},
+	// 用户等级（消费升级）
+	{ParentCode: "system:user", Name: "用户等级", Code: "level:list", Type: "menu", SortOrder: 3, Status: "active"},
+	{ParentCode: "level:list", Name: "创建等级", Code: "level:create", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "level:list", Name: "编辑等级", Code: "level:update", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "level:list", Name: "删除等级", Code: "level:delete", Type: "button", SortOrder: 3, Status: "active"},
+	// 实名认证
+	{ParentCode: "system:user", Name: "实名认证", Code: "verification:list", Type: "menu", SortOrder: 10, Status: "active"},
+	// 产品：规格/定价/促销
+	{ParentCode: "product", Name: "规格管理", Code: "product:spec", Type: "menu", SortOrder: 4, Status: "active"},
+	{ParentCode: "product:spec", Name: "规格模板查看", Code: "spec:template:list", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "product:spec", Name: "规格模板维护", Code: "spec:template:update", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "product:spec", Name: "规格映射查看", Code: "spec:mapping:list", Type: "button", SortOrder: 3, Status: "active"},
+	{ParentCode: "product:spec", Name: "规格映射维护", Code: "spec:mapping:update", Type: "button", SortOrder: 4, Status: "active"},
+	{ParentCode: "product:spec", Name: "规格契约查看", Code: "spec:contract:list", Type: "button", SortOrder: 5, Status: "active"},
+	{ParentCode: "product:spec", Name: "规格契约维护", Code: "spec:contract:update", Type: "button", SortOrder: 6, Status: "active"},
+	{ParentCode: "product", Name: "定价查看", Code: "pricing:list", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "product", Name: "定价维护", Code: "pricing:update", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "product", Name: "促销管理", Code: "product:promotion", Type: "menu", SortOrder: 6, Status: "active"},
+	{ParentCode: "product:promotion", Name: "优惠券查看", Code: "promotion:coupon:list", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "product:promotion", Name: "优惠券维护", Code: "promotion:coupon:update", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "product:promotion", Name: "活动查看", Code: "promotion:activity:list", Type: "button", SortOrder: 3, Status: "active"},
+	{ParentCode: "product:promotion", Name: "活动维护", Code: "promotion:activity:update", Type: "button", SortOrder: 4, Status: "active"},
+	// 安全审计（后台）
+	{ParentCode: "system", Name: "登录日志", Code: "security:login-log:list", Type: "menu", SortOrder: 6, Status: "active"},
+	{ParentCode: "system", Name: "用户审计日志", Code: "security:audit:list", Type: "menu", SortOrder: 7, Status: "active"},
+	{ParentCode: "system", Name: "风控事件", Code: "security:risk:list", Type: "menu", SortOrder: 8, Status: "active"},
+	{ParentCode: "system", Name: "黑名单", Code: "security:blacklist:manage", Type: "menu", SortOrder: 9, Status: "active"},
+	{ParentCode: "system", Name: "会话管理", Code: "security:session:manage", Type: "menu", SortOrder: 10, Status: "active"},
 
-		// —— S1 员工体系：组织（部门）与销售中心权限码（doc86 §3.1）——
-		// 部门管理挂在系统管理下，与员工管理同级；超管独占默认分配。
-		{ParentCode: "system", Name: "部门管理", Code: "department:list", Type: "menu", SortOrder: 11, Status: "active"},
-		{ParentCode: "department:list", Name: "新建部门", Code: "department:create", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "department:list", Name: "编辑部门", Code: "department:update", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "department:list", Name: "删除部门", Code: "department:delete", Type: "button", SortOrder: 3, Status: "active"},
-		// 销售中心（独立目录，SortOrder=15 排在积分中心之后）
-		{Name: "销售中心", Code: "sales", Type: "catalog", SortOrder: 15, Status: "active"},
-		{ParentCode: "sales", Name: "客户归属", Code: "sales:customer:list", Type: "menu", SortOrder: 1, Status: "active"},
-		{ParentCode: "sales:customer:list", Name: "绑定/变更归属", Code: "sales:customer:assign", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "sales", Name: "提成台账", Code: "sales:commission:list", Type: "menu", SortOrder: 2, Status: "active"},
-		{ParentCode: "sales:commission:list", Name: "提成提现审核", Code: "sales:commission:audit", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "sales:commission:list", Name: "提成打款登记", Code: "sales:commission:settle", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "sales", Name: "业绩与排行", Code: "sales:performance:view", Type: "menu", SortOrder: 3, Status: "active"},
-		// 工单复核与内部备注（S2/S3）：挂在工单列表下，作为按钮级权限。
-		{ParentCode: "ticket:list", Name: "工单复核", Code: "ticket:review", Type: "button", SortOrder: 6, Status: "active"},
-		{ParentCode: "ticket:list", Name: "内部备注", Code: "ticket:internal_note", Type: "button", SortOrder: 7, Status: "active"},
+	// —— S1 员工体系：组织（部门）与销售中心权限码（doc86 §3.1）——
+	// 部门管理挂在系统管理下，与员工管理同级；超管独占默认分配。
+	{ParentCode: "system", Name: "部门管理", Code: "department:list", Type: "menu", SortOrder: 11, Status: "active"},
+	{ParentCode: "department:list", Name: "新建部门", Code: "department:create", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "department:list", Name: "编辑部门", Code: "department:update", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "department:list", Name: "删除部门", Code: "department:delete", Type: "button", SortOrder: 3, Status: "active"},
+	// 销售中心（独立目录，SortOrder=15 排在积分中心之后）
+	{Name: "销售中心", Code: "sales", Type: "catalog", SortOrder: 15, Status: "active"},
+	{ParentCode: "sales", Name: "客户归属", Code: "sales:customer:list", Type: "menu", SortOrder: 1, Status: "active"},
+	{ParentCode: "sales:customer:list", Name: "绑定/变更归属", Code: "sales:customer:assign", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "sales", Name: "提成台账", Code: "sales:commission:list", Type: "menu", SortOrder: 2, Status: "active"},
+	{ParentCode: "sales:commission:list", Name: "提成提现审核", Code: "sales:commission:audit", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "sales:commission:list", Name: "提成打款登记", Code: "sales:commission:settle", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "sales", Name: "业绩与排行", Code: "sales:performance:view", Type: "menu", SortOrder: 3, Status: "active"},
+	// 工单复核与内部备注（S2/S3）：挂在工单列表下，作为按钮级权限。
+	{ParentCode: "ticket:list", Name: "工单复核", Code: "ticket:review", Type: "button", SortOrder: 6, Status: "active"},
+	{ParentCode: "ticket:list", Name: "内部备注", Code: "ticket:internal_note", Type: "button", SortOrder: 7, Status: "active"},
 
-		// —— doc91 §10.1：验证码配置（影响全站登录，默认只给超管与运维）——
-		{ParentCode: "system", Name: "验证码配置", Code: "captcha:config", Type: "menu", SortOrder: 12, Status: "active"},
-		{ParentCode: "captcha:config", Name: "编辑验证码策略", Code: "captcha:config:manage", Type: "button", SortOrder: 1, Status: "active"},
+	// —— doc91 §10.1：验证码配置（影响全站登录，默认只给超管与运维）——
+	{ParentCode: "system", Name: "验证码配置", Code: "captcha:config", Type: "menu", SortOrder: 12, Status: "active"},
+	{ParentCode: "captcha:config", Name: "编辑验证码策略", Code: "captcha:config:manage", Type: "button", SortOrder: 1, Status: "active"},
 
-		// —— doc92 §9.1：日志中心（日志含手机号/邮箱/上游请求体，只给超管与运维）——
-		{ParentCode: "system", Name: "日志中心", Code: "log:center", Type: "menu", SortOrder: 13, Status: "active"},
-		{ParentCode: "log:center", Name: "日志导出", Code: "log:export", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "log:center", Name: "日志清理", Code: "log:cleanup", Type: "button", SortOrder: 2, Status: "active"},
-		{ParentCode: "log:center", Name: "保留策略", Code: "log:policy", Type: "menu", SortOrder: 3, Status: "active"},
+	// —— doc92 §9.1：日志中心（日志含手机号/邮箱/上游请求体，只给超管与运维）——
+	{ParentCode: "system", Name: "日志中心", Code: "log:center", Type: "menu", SortOrder: 13, Status: "active"},
+	{ParentCode: "log:center", Name: "日志导出", Code: "log:export", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "log:center", Name: "日志清理", Code: "log:cleanup", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "log:center", Name: "保留策略", Code: "log:policy", Type: "menu", SortOrder: 3, Status: "active"},
 
-		// —— doc100 §7.2：内容中心（新闻/帮助/条款/隐私/分类/友情链接/页脚）——
-		// 内容直接影响公网门户，与日志中心同级：默认只给超管与运营。
-		{Name: "内容管理", Code: "content", Type: "catalog", SortOrder: 16, Status: "active"},
-		{ParentCode: "content", Name: "内容文章", Code: "content:article:list", Type: "menu", SortOrder: 1, Status: "active"},
-		{ParentCode: "content:article:list", Name: "编辑发布内容", Code: "content:article:manage", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "content", Name: "内容分类", Code: "content:category:list", Type: "menu", SortOrder: 2, Status: "active"},
-		{ParentCode: "content:category:list", Name: "管理内容分类", Code: "content:category:manage", Type: "button", SortOrder: 1, Status: "active"},
-		{ParentCode: "content", Name: "友情链接", Code: "content:link:list", Type: "menu", SortOrder: 3, Status: "active"},
-		{ParentCode: "content:link:list", Name: "管理友情链接", Code: "content:link:manage", Type: "button", SortOrder: 1, Status: "active"},
-		// 页脚配置没有独立页面：四个 site.footer_* 键在「系统管理 → 系统配置 → 页脚」
-		// 分组里编辑，权限沿用 system:config:*。此前这里留了一对 content:footer:*
-		// 权限码，却没有任何路由、按钮或菜单引用它 —— 既等不到赋值也从不生效的权限，
-		// 只会让配权限的人以为自己控制了什么。故不再 seed，见迁移 048。
+	// —— doc100 §7.2：内容中心（新闻/帮助/条款/隐私/分类/友情链接/页脚）——
+	// 内容直接影响公网门户，与日志中心同级：默认只给超管与运营。
+	{Name: "内容管理", Code: "content", Type: "catalog", SortOrder: 16, Status: "active"},
+	{ParentCode: "content", Name: "内容文章", Code: "content:article:list", Type: "menu", SortOrder: 1, Status: "active"},
+	{ParentCode: "content:article:list", Name: "编辑发布内容", Code: "content:article:manage", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "content", Name: "内容分类", Code: "content:category:list", Type: "menu", SortOrder: 2, Status: "active"},
+	{ParentCode: "content:category:list", Name: "管理内容分类", Code: "content:category:manage", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "content", Name: "友情链接", Code: "content:link:list", Type: "menu", SortOrder: 3, Status: "active"},
+	{ParentCode: "content:link:list", Name: "管理友情链接", Code: "content:link:manage", Type: "button", SortOrder: 1, Status: "active"},
+	// 页脚配置没有独立页面：四个 site.footer_* 键在「系统管理 → 系统配置 → 页脚」
+	// 分组里编辑，权限沿用 system:config:*。此前这里留了一对 content:footer:*
+	// 权限码，却没有任何路由、按钮或菜单引用它 —— 既等不到赋值也从不生效的权限，
+	// 只会让配权限的人以为自己控制了什么。故不再 seed，见迁移 048。
+}
+
+// SeedPermissionCodes 返回 seedPermissions 声明的全部权限码（含 catalog/menu 分组节点）。
+// 导出供 menu_align_test.go 断言「前端 meta.permission 引用的码必须已声明」（doc102 断言 7）。
+func SeedPermissionCodes() []string {
+	codes := make([]string, 0, len(seedPermissionDefaults))
+	for _, item := range seedPermissionDefaults {
+		codes = append(codes, item.Code)
 	}
+	return codes
+}
 
+// seedPermissions 把 seedPermissionDefaults 投影到 permissions 表，已存在的 code 直接跳过。
+func seedPermissions(tx *gorm.DB) error {
 	permissionMap := make(map[string]uint64)
-	for _, item := range defaults {
+	for _, item := range seedPermissionDefaults {
 		var parentID uint64
 		if item.ParentCode != "" {
 			pid, ok := permissionMap[item.ParentCode]
@@ -1124,10 +1130,6 @@ func seedRolePermissions(tx *gorm.DB) error {
 		"super_admin": {
 			"system",
 			"system:menu",
-			"menu:view",
-			"menu:create",
-			"menu:update",
-			"menu:delete",
 			"system:config",
 			"system:config:view",
 			"system:config:create",
@@ -1143,7 +1145,6 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"role:create",
 			"role:update",
 			"role:delete",
-			"role:assign_permissions",
 			"resource",
 			"resource:provider",
 			"provider:create",
@@ -1174,7 +1175,6 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"product:category:create",
 			"product:category:update",
 			"product:category:delete",
-			"product:price",
 			"product:price:update",
 			"order",
 			"order:list",
@@ -1290,13 +1290,11 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"product:publish",
 			"product:category",
 			"product:category:update",
-			"product:price",
 			"product:price:update",
 			"product:spec",
 			"spec:template:list",
 			"spec:mapping:list",
 			"spec:contract:list",
-			"product:pricing",
 			"pricing:list",
 			"product:promotion",
 			"promotion:coupon:list",
@@ -1479,273 +1477,226 @@ func seedRolePermissions(tx *gorm.DB) error {
 
 // seedMenus 为各平台写入默认菜单树。
 // 幂等：按唯一键查重跳过已存在菜单，字段变化时同步更新，支持默认菜单结构平滑升级。
+// SeedMenus 返回管理端与用户端菜单的权威定义。任何菜单变更都改这里，
+// 并在同一提交里同步 router / permission_map / navMenu（门禁测试会校验）。
+func SeedMenus() []SeedMenu { return seedMenuDefaults }
+
+// seedMenuDefaults 是菜单树（platform=admin/user）的唯一定义处。
+// seedMenus 只负责把它投影到 menus 表；前端 router.meta.permission、
+// permission_map.go、permission.ts 的 navMenu 都必须与它保持一致。
+var seedMenuDefaults = []SeedMenu{
+	{Platform: menumodel.PlatformAdmin, Name: "仪表盘", Type: menumodel.TypeDirectory, Path: "/dashboard", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/dashboard", Platform: menumodel.PlatformAdmin, Name: "概览", Type: menumodel.TypeMenu, Path: "/dashboard/base", Component: "dashboard/base/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
+	{Platform: menumodel.PlatformAdmin, Name: "用户管理", Type: menumodel.TypeDirectory, Path: "/users", Icon: "user", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "用户总览", Type: menumodel.TypeMenu, Path: "/users/overview", Component: "users/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "账户管理", Type: menumodel.TypeDirectory, Path: "/users/accounts", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/users/accounts", Platform: menumodel.PlatformAdmin, Name: "用户列表", Type: menumodel.TypeMenu, Path: "/users/accounts/list", Component: "users/accounts/list/index", Icon: "user-list", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/users/accounts", Platform: menumodel.PlatformAdmin, Name: "用户组/组织管理", Type: menumodel.TypeMenu, Path: "/users/accounts/groups", Component: "users/accounts/groups/index", Icon: "control-platform", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "用户等级", Type: menumodel.TypeMenu, Path: "/users/levels", Component: "users/levels/index", Icon: "tag", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "安全与风控", Type: menumodel.TypeDirectory, Path: "/users/security", Icon: "key", SortOrder: 4, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/users/security", Platform: menumodel.PlatformAdmin, Name: "登录日志", Type: menumodel.TypeMenu, Path: "/users/security/login-logs", Component: "users/security/login-logs/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/users/security", Platform: menumodel.PlatformAdmin, Name: "异常行为监控", Type: menumodel.TypeMenu, Path: "/users/security/risk", Component: "users/security/risk/index", Icon: "chart-bar", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/users/security", Platform: menumodel.PlatformAdmin, Name: "黑名单管理", Type: menumodel.TypeMenu, Path: "/users/security/blacklist", Component: "users/security/blacklist/index", Icon: "stop", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/users/security", Platform: menumodel.PlatformAdmin, Name: "会话管理", Type: menumodel.TypeMenu, Path: "/users/security/sessions", Component: "users/security/sessions/index", Icon: "refresh", SortOrder: 4, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "实名认证", Type: menumodel.TypeDirectory, Path: "/users/verification", Icon: "verify", SortOrder: 5, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "待审核列表", Type: menumodel.TypeMenu, Path: "/users/verification/pending", Component: "users/verification/pending/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "审核通过列表", Type: menumodel.TypeMenu, Path: "/users/verification/approved", Component: "users/verification/approved/index", Icon: "check-circle", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "审核拒绝列表", Type: menumodel.TypeMenu, Path: "/users/verification/rejected", Component: "users/verification/rejected/index", Icon: "error-circle", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "认证配置", Type: menumodel.TypeMenu, Path: "/users/verification/config", Component: "users/verification/config/index", Icon: "setting", SortOrder: 4, Status: menumodel.StatusActive},
+	{Platform: menumodel.PlatformAdmin, Name: "资源管理", Type: menumodel.TypeDirectory, Path: "/resource", Icon: "resource", SortOrder: 3, Status: menumodel.StatusActive},
+	// 渠道与平台（doc16 §9.2）：上游转售渠道（kind=upstream）与自营平台对接（kind=compute）；
+	// 连接测试内联到列表行内「测试连接」，不再单独成页。
+	{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "渠道与平台", Type: menumodel.TypeDirectory, Path: "/resource/channels", Icon: "cloud", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/resource/channels", Platform: menumodel.PlatformAdmin, Name: "上游转售渠道", Type: menumodel.TypeMenu, Path: "/resource/providers", Component: "resource/providers/index", Icon: "cloud", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/resource/channels", Platform: menumodel.PlatformAdmin, Name: "自营平台对接", Type: menumodel.TypeMenu, Path: "/resource/platforms", Component: "resource/providers/index", Icon: "server", SortOrder: 2, Status: menumodel.StatusActive},
+	// 容量与位置只有一个叶子，取消二级目录（R1），叶子提升为二级。
+	{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "资源池与容量", Type: menumodel.TypeMenu, Path: "/resource/pools", Component: "resource/pools/index", Icon: "layers", SortOrder: 2, Status: menumodel.StatusActive},
+	// 同步与调度（T3.6 合并页）：调度 / 任务 / 日志 / 差异 / 待确认调价多 Tab。
+	// 目录路径 sync-group 原为二级目录，本次压平（R1）后不再保留。
+	{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "同步与调度", Type: menumodel.TypeMenu, Path: "/resource/sync-center", Component: "resource/sync-center/index", Icon: "refresh", SortOrder: 3, Status: menumodel.StatusActive},
+	// 运维（doc16 §9.2）：异常处理 + 任务队列 + 实例对账；模块配置并入系统配置（/system/config）。
+	{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "运维", Type: menumodel.TypeDirectory, Path: "/resource/ops", Icon: "setting", SortOrder: 4, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "异常处理", Type: menumodel.TypeMenu, Path: "/resource/anomalies", Component: "resource/anomalies/index", Icon: "error-circle", SortOrder: 1, Status: menumodel.StatusActive},
+	// 任务队列（S3）：开通履约 / 实例动作 / 续费 / 同步四类任务的「是否到达上游」。
+	{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "任务队列", Type: menumodel.TypeMenu, Path: "/resource/task-queue", Component: "resource/task-queue/index", Icon: "refresh", SortOrder: 2, Status: menumodel.StatusActive},
+	// 实例对账（S4）：本地已开通实例与上游的售价/成本/到期时间比对。
+	{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "实例对账", Type: menumodel.TypeMenu, Path: "/resource/reconcile", Component: "resource/reconcile/index", Icon: "verify", SortOrder: 3, Status: menumodel.StatusActive},
+	// —— 实例管理（一级菜单，跨用户操作、维护与售后）：见 docs/实施计划/61-实例运维管理台实施计划.md
+	// 云主机实例（原「资源管理 → 实例 → 云主机实例」）迁入本域，路径 /resource/instances → /instances/inventory（doc102 §3.3）。
+	// 父级必须排在子项之前，否则 ParentKey 解析取不到父节点会导致 seed 失败。
+	{Platform: menumodel.PlatformAdmin, Name: "实例管理", Type: menumodel.TypeDirectory, Path: "/instances", Icon: "server", SortOrder: 4, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "实例运维台", Type: menumodel.TypeMenu, Path: "/instances/list", Component: "instances/index", Icon: "server", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "云主机实例", Type: menumodel.TypeMenu, Path: "/instances/inventory", Component: "resource/instances/index", Icon: "server", SortOrder: 2, Status: menumodel.StatusActive},
+	// —— 产品管理（面向终端售卖，三层树）
+	{Platform: menumodel.PlatformAdmin, Name: "产品管理", Type: menumodel.TypeDirectory, Path: "/product", Icon: "product", SortOrder: 5, Status: menumodel.StatusActive},
+	// 商品列表（原「商品管理 /product/mgmt」目录只有一个叶子，压平后提升为二级）
+	{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "商品列表", Type: menumodel.TypeMenu, Path: "/product/products", Component: "product/products/index", Icon: "product", SortOrder: 1, Status: menumodel.StatusActive},
+	// 商品对接（doc16 §9.3，T7.2）：商品决策动作归产品管理。
+	// 组件复用资源侧页面（resource/products、resource/pricing），仅菜单与路径归位。
+	{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "商品对接", Type: menumodel.TypeDirectory, Path: "/product/binding", Icon: "cloud", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/product/binding", Platform: menumodel.PlatformAdmin, Name: "上游商品目录", Type: menumodel.TypeMenu, Path: "/product/upstream", Component: "resource/products/index", Icon: "product", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/product/binding", Platform: menumodel.PlatformAdmin, Name: "成本与加价", Type: menumodel.TypeMenu, Path: "/product/cost-pricing", Component: "resource/pricing/index", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
+	// 分类管理（原「商品分类 /product/category」目录压平后提升为二级）
+	{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "分类管理", Type: menumodel.TypeMenu, Path: "/product/categories", Component: "product/categories/index", Icon: "tag", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "规格管理", Type: menumodel.TypeDirectory, Path: "/product/spec", Icon: "layers", SortOrder: 4, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "规格模板", Type: menumodel.TypeMenu, Path: "/product/spec/templates", Component: "product/spec/templates/index", Icon: "catalog", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "自定义规格", Type: menumodel.TypeMenu, Path: "/product/spec/custom", Component: "product/spec/custom/index", Icon: "add", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "规格映射", Type: menumodel.TypeMenu, Path: "/product/spec/mappings", Component: "product/spec/mappings/index", Icon: "link", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "定价与计费", Type: menumodel.TypeDirectory, Path: "/product/pricing-center", Icon: "money", SortOrder: 5, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "商品调价", Type: menumodel.TypeMenu, Path: "/product/pricing", Component: "product/pricing/index", Icon: "money", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "价格计算器", Type: menumodel.TypeMenu, Path: "/product/pricing/calculator", Component: "product/pricing/calculator/index", Icon: "chart-bar", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "价格历史", Type: menumodel.TypeMenu, Path: "/product/pricing/history", Component: "product/pricing/history/index", Icon: "history", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "折扣策略", Type: menumodel.TypeMenu, Path: "/product/pricing/policies", Component: "product/pricing/policies/index", Icon: "discount", SortOrder: 4, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "周期价格", Type: menumodel.TypeMenu, Path: "/product/pricing/matrix", Component: "product/pricing/matrix/index", Icon: "calendar", SortOrder: 5, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "促销管理", Type: menumodel.TypeDirectory, Path: "/product/promotion", Icon: "tag", SortOrder: 6, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/product/promotion", Platform: menumodel.PlatformAdmin, Name: "优惠券管理", Type: menumodel.TypeMenu, Path: "/product/promotion/coupons", Component: "product/promotion/coupons/index", Icon: "ticket", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/product/promotion", Platform: menumodel.PlatformAdmin, Name: "折扣活动", Type: menumodel.TypeMenu, Path: "/product/promotion/activities", Component: "product/promotion/activities/index", Icon: "chart-bar", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/product/promotion", Platform: menumodel.PlatformAdmin, Name: "套餐组合", Type: menumodel.TypeMenu, Path: "/product/promotion/bundles", Component: "product/promotion/bundles/index", Icon: "app", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/product/promotion", Platform: menumodel.PlatformAdmin, Name: "推荐位管理", Type: menumodel.TypeMenu, Path: "/product/promotion/recommends", Component: "product/promotion/recommends/index", Icon: "star", SortOrder: 4, Status: menumodel.StatusActive},
+	// —— 订单管理（doc16）
+	{Platform: menumodel.PlatformAdmin, Name: "订单管理", Type: menumodel.TypeDirectory, Path: "/orders", Icon: "order", SortOrder: 6, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "订单列表", Type: menumodel.TypeMenu, Path: "/orders/list", Component: "order/index", Icon: "order", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "退款管理", Type: menumodel.TypeMenu, Path: "/orders/refunds", Component: "order/refunds/index", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "订单统计", Type: menumodel.TypeMenu, Path: "/orders/stats", Component: "order/stats/index", Icon: "chart-bar", SortOrder: 3, Status: menumodel.StatusActive},
+	// —— 财务管理（doc32，分组树：叶子 + 二级目录）
+	{Platform: menumodel.PlatformAdmin, Name: "财务管理", Type: menumodel.TypeDirectory, Path: "/finance", Icon: "wallet", SortOrder: 7, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务总览", Type: menumodel.TypeMenu, Path: "/finance/overview", Component: "finance/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
+	// 改名「钱包与调账」：与用户管理下的「账户管理」跨域重名（R2）。
+	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "钱包与调账", Type: menumodel.TypeDirectory, Path: "/finance/accounts", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance/accounts", Platform: menumodel.PlatformAdmin, Name: "用户钱包", Type: menumodel.TypeMenu, Path: "/finance/accounts/wallets", Component: "finance/accounts/wallets/index", Icon: "wallet", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance/accounts", Platform: menumodel.PlatformAdmin, Name: "人工调账", Type: menumodel.TypeMenu, Path: "/finance/accounts/adjust", Component: "finance/accounts/adjust", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
+	// 资金流水（原「交易流水 /finance/transactions-center」目录压平后提升为二级）
+	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "资金流水", Type: menumodel.TypeMenu, Path: "/finance/transactions", Component: "finance/transactions/index", Icon: "money", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "充值提现", Type: menumodel.TypeDirectory, Path: "/finance/recharge-center", Icon: "download", SortOrder: 4, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance/recharge-center", Platform: menumodel.PlatformAdmin, Name: "充值管理", Type: menumodel.TypeMenu, Path: "/finance/recharges", Component: "finance/recharge/index", Icon: "download", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance/recharge-center", Platform: menumodel.PlatformAdmin, Name: "提现管理", Type: menumodel.TypeMenu, Path: "/finance/withdrawals", Component: "finance/withdraw/index", Icon: "upload", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "账单管理", Type: menumodel.TypeDirectory, Path: "/finance/bill-center", Icon: "file", SortOrder: 5, Status: menumodel.StatusActive},
+	// 叶子改名「账单列表」：原与父目录同名（R2）。
+	{ParentKey: "admin:/finance/bill-center", Platform: menumodel.PlatformAdmin, Name: "账单列表", Type: menumodel.TypeMenu, Path: "/finance/bills", Component: "finance/bills/index", Icon: "file", SortOrder: 1, Status: menumodel.StatusActive},
+	// 发票管理（doc36 §3.3）：用户申请 → 管理端开票/驳回，预埋税务 API 渠道。
+	{ParentKey: "admin:/finance/bill-center", Platform: menumodel.PlatformAdmin, Name: "发票管理", Type: menumodel.TypeMenu, Path: "/finance/invoices", Component: "finance/invoices/index", Icon: "file", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance/bill-center", Platform: menumodel.PlatformAdmin, Name: "对账中心", Type: menumodel.TypeMenu, Path: "/finance/recon", Component: "finance/bills/recon", Icon: "verify", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务报表", Type: menumodel.TypeMenu, Path: "/finance/report", Component: "finance/report/index", Icon: "chart-bar", SortOrder: 6, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务配置", Type: menumodel.TypeMenu, Path: "/finance/config", Component: "finance/config/index", Icon: "setting", SortOrder: 7, Status: menumodel.StatusActive},
+	// —— 系统管理（doc40 系统管理模块，二级目录 + 三级叶子）
+	{Platform: menumodel.PlatformAdmin, Name: "系统管理", Type: menumodel.TypeDirectory, Path: "/system", Icon: "setting", SortOrder: 8, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "权限管理", Type: menumodel.TypeDirectory, Path: "/system/permission-center", Icon: "lock-on", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "角色列表", Type: menumodel.TypeMenu, Path: "/system/roles", Component: "system/roles/index", Icon: "usergroup", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "权限分配", Type: menumodel.TypeMenu, Path: "/system/permissions", Component: "system/permissions/index", Icon: "lock-on", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "员工管理", Type: menumodel.TypeMenu, Path: "/system/admins", Component: "system/admins/index", Icon: "user-list", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "部门管理", Type: menumodel.TypeMenu, Path: "/system/departments", Component: "system/departments/index", Icon: "usergroup", SortOrder: 4, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "菜单管理", Type: menumodel.TypeMenu, Path: "/system/menus", Component: "system/menus/index", Icon: "menu", SortOrder: 5, Status: menumodel.StatusActive},
+	// 系统配置（原「系统配置 /system/config-center」目录压平后提升为二级）
+	{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeMenu, Path: "/system/config", Component: "system/config/index", Icon: "setting", SortOrder: 2, Status: menumodel.StatusActive},
+	// 验证码配置（doc91 §10.1）：服务商 / 场景策略 / 统计
+	{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "验证码配置", Type: menumodel.TypeMenu, Path: "/system/captcha", Component: "system/captcha/index", Icon: "safety", SortOrder: 3, Status: menumodel.StatusActive},
+	// 操作审计（原「安全审计 /system/audit-center」目录压平后提升为二级）：
+	// 与「用户管理 → 安全与风控 → 操作审计日志」是同一件事，后者已删除并 redirect 到本页。
+	{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "操作审计", Type: menumodel.TypeMenu, Path: "/system/audit-logs", Component: "system/audit-logs/index", Icon: "history", SortOrder: 4, Status: menumodel.StatusActive},
+	// 日志中心（doc92 §9.1）：三个日志叶子原直接挂在 /system 下，本次收进分类目录（R4）。
+	{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "日志中心", Type: menumodel.TypeDirectory, Path: "/system/log-center", Icon: "file", SortOrder: 5, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/system/log-center", Platform: menumodel.PlatformAdmin, Name: "日志浏览", Type: menumodel.TypeMenu, Path: "/system/logs", Component: "system/logs/index", Icon: "file", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/system/log-center", Platform: menumodel.PlatformAdmin, Name: "清理任务", Type: menumodel.TypeMenu, Path: "/system/logs/cleanup", Component: "system/logs/cleanup/index", Icon: "delete", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/system/log-center", Platform: menumodel.PlatformAdmin, Name: "保留策略", Type: menumodel.TypeMenu, Path: "/system/logs/policy", Component: "system/logs/policy/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
+	// —— 工单支持（doc50 §5.3，admin 平台 SortOrder=9）
+	{Platform: menumodel.PlatformAdmin, Name: "工单支持", Type: menumodel.TypeDirectory, Path: "/tickets", Icon: "service", SortOrder: 9, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单列表", Type: menumodel.TypeMenu, Path: "/tickets/list", Component: "ticket/index", Icon: "ticket", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "复核中心", Type: menumodel.TypeMenu, Path: "/tickets/reviews", Component: "ticket/reviews/index", Icon: "verify", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单分类管理", Type: menumodel.TypeMenu, Path: "/tickets/categories", Component: "ticket/categories/index", Icon: "folder", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单统计", Type: menumodel.TypeMenu, Path: "/tickets/stats", Component: "ticket/stats/index", Icon: "chart-bar", SortOrder: 4, Status: menumodel.StatusActive},
+	// —— 生命周期管理（doc60，admin 平台 SortOrder=10）
+	{Platform: menumodel.PlatformAdmin, Name: "生命周期管理", Type: menumodel.TypeDirectory, Path: "/lifecycle", Icon: "history", SortOrder: 10, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/lifecycle", Platform: menumodel.PlatformAdmin, Name: "到期管理", Type: menumodel.TypeMenu, Path: "/lifecycle/expiring", Component: "lifecycle/expiring/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/lifecycle", Platform: menumodel.PlatformAdmin, Name: "续费记录", Type: menumodel.TypeMenu, Path: "/lifecycle/renewals", Component: "lifecycle/renewals/index", Icon: "order", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/lifecycle", Platform: menumodel.PlatformAdmin, Name: "生命周期策略", Type: menumodel.TypeMenu, Path: "/lifecycle/policy", Component: "lifecycle/policy/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
+	// —— 消息中心（doc70/doc90）：6 项叶子保持平级（R4），仅重排 sort_order
+	{Platform: menumodel.PlatformAdmin, Name: "消息中心", Type: menumodel.TypeDirectory, Path: "/notification", Icon: "mail", SortOrder: 11, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "通知模板", Type: menumodel.TypeMenu, Path: "/notification/templates", Component: "notification/templates/index", Icon: "root-list", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "短信模板", Type: menumodel.TypeMenu, Path: "/notification/sms-templates", Component: "notification/sms-templates/index", Icon: "file", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "渠道配置", Type: menumodel.TypeMenu, Path: "/notification/channels", Component: "notification/channels/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "通知记录", Type: menumodel.TypeMenu, Path: "/notification/records", Component: "notification/records/index", Icon: "mail", SortOrder: 4, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "发送日志", Type: menumodel.TypeMenu, Path: "/notification/deliveries", Component: "notification/deliveries/index", Icon: "root-list", SortOrder: 5, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "消息群发", Type: menumodel.TypeMenu, Path: "/notification/broadcast", Component: "notification/broadcast/index", Icon: "send", SortOrder: 6, Status: menumodel.StatusActive},
+	// —— 推广返现（替代原代理/分销域）
+	{Platform: menumodel.PlatformAdmin, Name: "推广返现", Type: menumodel.TypeDirectory, Path: "/referral", Icon: "share", SortOrder: 12, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/referral", Platform: menumodel.PlatformAdmin, Name: "返现台账", Type: menumodel.TypeMenu, Path: "/referral/cashbacks", Component: "referral/cashbacks/index", Icon: "money", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/referral", Platform: menumodel.PlatformAdmin, Name: "提现审核", Type: menumodel.TypeMenu, Path: "/referral/withdrawals", Component: "referral/withdrawals/index", Icon: "upload", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/referral", Platform: menumodel.PlatformAdmin, Name: "邀请关系", Type: menumodel.TypeMenu, Path: "/referral/invitees", Component: "referral/invitees/index", Icon: "usergroup", SortOrder: 3, Status: menumodel.StatusActive},
+	// —— 支付中心（doc35，SortOrder=13）：独立模块，只管收款渠道与打款任务，
+	// 资金记账仍归财务管理（WalletService 是唯一资金入口）。
+	// 8 个平级叶子按 R4 分 3 组；三个分类路径沿用 navMenu 中长期存在的分组路径。
+	{Platform: menumodel.PlatformAdmin, Name: "支付中心", Type: menumodel.TypeDirectory, Path: "/payment", Icon: "money", SortOrder: 13, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "支付概览", Type: menumodel.TypeMenu, Path: "/payment/overview", Component: "payment/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "渠道管理", Type: menumodel.TypeDirectory, Path: "/payment/channel-center", Icon: "link", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/payment/channel-center", Platform: menumodel.PlatformAdmin, Name: "支付渠道", Type: menumodel.TypeMenu, Path: "/payment/channels", Component: "payment/channels/index", Icon: "link", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/payment/channel-center", Platform: menumodel.PlatformAdmin, Name: "支付方式", Type: menumodel.TypeMenu, Path: "/payment/methods", Component: "payment/methods/index", Icon: "wallet", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "交易管理", Type: menumodel.TypeDirectory, Path: "/payment/trade-center", Icon: "order", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/payment/trade-center", Platform: menumodel.PlatformAdmin, Name: "支付订单", Type: menumodel.TypeMenu, Path: "/payment/orders", Component: "payment/orders/index", Icon: "order", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/payment/trade-center", Platform: menumodel.PlatformAdmin, Name: "回调日志", Type: menumodel.TypeMenu, Path: "/payment/callbacks", Component: "payment/callbacks/index", Icon: "mail", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/payment/trade-center", Platform: menumodel.PlatformAdmin, Name: "渠道退款", Type: menumodel.TypeMenu, Path: "/payment/refunds", Component: "payment/refunds/index", Icon: "refresh", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "出款与对账", Type: menumodel.TypeDirectory, Path: "/payment/payout-center", Icon: "verify", SortOrder: 4, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/payment/payout-center", Platform: menumodel.PlatformAdmin, Name: "打款管理", Type: menumodel.TypeMenu, Path: "/payment/payouts", Component: "payment/payouts/index", Icon: "upload", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/payment/payout-center", Platform: menumodel.PlatformAdmin, Name: "渠道对账", Type: menumodel.TypeMenu, Path: "/payment/recon", Component: "payment/recon/index", Icon: "verify", SortOrder: 2, Status: menumodel.StatusActive},
+	// —— 积分中心（doc36，SortOrder=14）：独立于资金账本的积分体系。
+	// 积分不可抵扣、不可提现、不可提现到余额，只能用于活动/权益兑换。
+	{Platform: menumodel.PlatformAdmin, Name: "积分中心", Type: menumodel.TypeDirectory, Path: "/points", Icon: "gift", SortOrder: 14, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/points", Platform: menumodel.PlatformAdmin, Name: "积分概览", Type: menumodel.TypeMenu, Path: "/points/overview", Component: "points/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/points", Platform: menumodel.PlatformAdmin, Name: "积分规则", Type: menumodel.TypeMenu, Path: "/points/rules", Component: "points/rules/index", Icon: "setting", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/points", Platform: menumodel.PlatformAdmin, Name: "积分账户", Type: menumodel.TypeMenu, Path: "/points/accounts", Component: "points/accounts/index", Icon: "usergroup", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/points", Platform: menumodel.PlatformAdmin, Name: "积分流水", Type: menumodel.TypeMenu, Path: "/points/transactions", Component: "points/transactions/index", Icon: "history", SortOrder: 4, Status: menumodel.StatusActive},
+	// —— 销售中心（S1 员工体系：客户归属 / 提成台账 / 提成审核 / 业绩排行）
+	{Platform: menumodel.PlatformAdmin, Name: "销售中心", Type: menumodel.TypeDirectory, Path: "/sales", Icon: "share", SortOrder: 15, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/sales", Platform: menumodel.PlatformAdmin, Name: "客户归属", Type: menumodel.TypeMenu, Path: "/sales/customers", Component: "sales/customers/index", Icon: "usergroup", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/sales", Platform: menumodel.PlatformAdmin, Name: "提成台账", Type: menumodel.TypeMenu, Path: "/sales/commissions", Component: "sales/commissions/index", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/sales", Platform: menumodel.PlatformAdmin, Name: "提成审核", Type: menumodel.TypeMenu, Path: "/sales/withdrawals", Component: "sales/withdrawals/index", Icon: "upload", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/sales", Platform: menumodel.PlatformAdmin, Name: "业绩与排行", Type: menumodel.TypeMenu, Path: "/sales/performance", Component: "sales/performance/index", Icon: "chart-bar", SortOrder: 4, Status: menumodel.StatusActive},
+	// —— 内容管理（doc100 §7.1，admin 平台 SortOrder=16）
+	// 公告管理由「系统管理 → 安全审计」迁入本域（doc102 §4.1 M2-4，推翻 doc100 §7.1 的「保持原位」）；
+	// 权限码 notify:announcement 与后端模块不改（R5 例外），旧路径由 router redirect 兼容。
+	{Platform: menumodel.PlatformAdmin, Name: "内容管理", Type: menumodel.TypeDirectory, Path: "/content", Icon: "file", SortOrder: 16, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/content", Platform: menumodel.PlatformAdmin, Name: "内容文章", Type: menumodel.TypeMenu, Path: "/content/articles", Component: "content/articles/index", Icon: "file", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/content", Platform: menumodel.PlatformAdmin, Name: "内容分类", Type: menumodel.TypeMenu, Path: "/content/categories", Component: "content/categories/index", Icon: "folder", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/content", Platform: menumodel.PlatformAdmin, Name: "友情链接", Type: menumodel.TypeMenu, Path: "/content/links", Component: "content/links/index", Icon: "link", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/content", Platform: menumodel.PlatformAdmin, Name: "公告管理", Type: menumodel.TypeMenu, Path: "/content/announcements", Component: "notification/announcements/index", Icon: "sound", SortOrder: 4, Status: menumodel.StatusActive},
+	// —— 用户中心菜单（platform=user）
+	// 顺序即侧边栏一级顺序：控制台 → 云产品 → 选购 → 订单 → 费用 → 积分 → 工单 → 成员 → 个人 → 推广。
+	{Platform: menumodel.PlatformUser, Name: "控制台", Type: menumodel.TypeMenu, Path: "/dashboard", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
+	{Platform: menumodel.PlatformUser, Name: "云产品", Type: menumodel.TypeDirectory, Path: "/cloud", Icon: "cloud", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "user:/cloud", Platform: menumodel.PlatformUser, Name: "我的云主机", Type: menumodel.TypeMenu, Path: "/cloud/instances", Icon: "server", SortOrder: 1, Status: menumodel.StatusActive},
+	// /cloud/images（镜像管理）菜单行已删除（doc102 §4.1 M2-1，R8）：管理端还没有镜像主数据模块，
+	// 用户侧开放只会给出空壳。页面与路由保留，URL 仍可直达（隐藏页面）。
+	{ParentKey: "user:/cloud", Platform: menumodel.PlatformUser, Name: "续费管理", Type: menumodel.TypeMenu, Path: "/cloud/renewals", Icon: "refresh", SortOrder: 2, Status: menumodel.StatusActive},
+	// 选购与购物车：官网「立即选购」落点，也是交易主入口。
+	{Platform: menumodel.PlatformUser, Name: "云主机选购", Type: menumodel.TypeMenu, Path: "/shop", Icon: "cart", SortOrder: 3, Status: menumodel.StatusActive},
+	{Platform: menumodel.PlatformUser, Name: "我的订单", Type: menumodel.TypeMenu, Path: "/order", Icon: "order", SortOrder: 4, Status: menumodel.StatusActive},
+	{Platform: menumodel.PlatformUser, Name: "费用中心", Type: menumodel.TypeMenu, Path: "/billing", Icon: "wallet", SortOrder: 5, Status: menumodel.StatusActive},
+	// 我的积分（doc36）：积分独立于余额，仅展示获得/消耗，不提供任何支付入口。
+	{Platform: menumodel.PlatformUser, Name: "我的积分", Type: menumodel.TypeMenu, Path: "/points", Icon: "gift", SortOrder: 6, Status: menumodel.StatusActive},
+	{Platform: menumodel.PlatformUser, Name: "工单中心", Type: menumodel.TypeDirectory, Path: "/support", Icon: "service", SortOrder: 7, Status: menumodel.StatusActive},
+	{ParentKey: "user:/support", Platform: menumodel.PlatformUser, Name: "我的工单", Type: menumodel.TypeMenu, Path: "/support/tickets", Icon: "ticket", SortOrder: 1, Status: menumodel.StatusActive},
+	// 成员管理（子账号）：仅主账号可见，前端按 ownerOnly 路径集合过滤（菜单表不含该语义）。
+	{Platform: menumodel.PlatformUser, Name: "成员管理", Type: menumodel.TypeMenu, Path: "/member", Icon: "usergroup", SortOrder: 8, Status: menumodel.StatusActive},
+	{Platform: menumodel.PlatformUser, Name: "个人中心", Type: menumodel.TypeMenu, Path: "/profile", Icon: "user", SortOrder: 9, Status: menumodel.StatusActive},
+	{ParentKey: "user:/profile", Platform: menumodel.PlatformUser, Name: "我的消息", Type: menumodel.TypeMenu, Path: "/profile/messages", Icon: "mail", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "user:/profile", Platform: menumodel.PlatformUser, Name: "通知偏好", Type: menumodel.TypeMenu, Path: "/profile/preferences", Icon: "setting", SortOrder: 2, Status: menumodel.StatusActive},
+	// 安全设置（doc91 §10.1）：账号绑定 / 二次验证 / 关键操作场景开关
+	{ParentKey: "user:/profile", Platform: menumodel.PlatformUser, Name: "安全设置", Type: menumodel.TypeMenu, Path: "/profile/security", Component: "profile/security/index", Icon: "safety", SortOrder: 3, Status: menumodel.StatusActive},
+	// 推广邀请返现（用户自助；子账号可看，提现与转出后端硬拒）
+	{Platform: menumodel.PlatformUser, Name: "推广邀请", Type: menumodel.TypeDirectory, Path: "/referral", Icon: "share", SortOrder: 10, Status: menumodel.StatusActive},
+	{ParentKey: "user:/referral", Platform: menumodel.PlatformUser, Name: "推广概览", Type: menumodel.TypeMenu, Path: "/referral/overview", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "user:/referral", Platform: menumodel.PlatformUser, Name: "我的邀请", Type: menumodel.TypeMenu, Path: "/referral/invitees", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "user:/referral", Platform: menumodel.PlatformUser, Name: "返现明细", Type: menumodel.TypeMenu, Path: "/referral/cashbacks", Icon: "money", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "user:/referral", Platform: menumodel.PlatformUser, Name: "提现与转出", Type: menumodel.TypeMenu, Path: "/referral/withdrawals", Icon: "wallet", SortOrder: 4, Status: menumodel.StatusActive},
+	{ParentKey: "user:/referral", Platform: menumodel.PlatformUser, Name: "推广素材", Type: menumodel.TypeMenu, Path: "/referral/materials", Icon: "share", SortOrder: 5, Status: menumodel.StatusActive},
+}
+
+// seedMenus 把 seedMenuDefaults 投影到 menus 表。
+// 幂等：按 (platform, path) 查重，命中即按字段覆盖，缺失即插入。
+// 覆盖语义是有意的 —— menus 表是 seedMenuDefaults 的投影而非运营数据：
+// 这是唯一可写点，管理端「菜单管理」页只读，写接口已于 doc102 M0 下线。
 func seedMenus(tx *gorm.DB) error {
-	defaults := []seedMenu{
-		{Platform: menumodel.PlatformAdmin, Name: "仪表盘", Type: menumodel.TypeDirectory, Path: "/dashboard", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/dashboard", Platform: menumodel.PlatformAdmin, Name: "概览", Type: menumodel.TypeMenu, Path: "/dashboard/base", Component: "dashboard/base/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
-		{Platform: menumodel.PlatformAdmin, Name: "用户管理", Type: menumodel.TypeDirectory, Path: "/users", Icon: "user", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "用户总览", Type: menumodel.TypeMenu, Path: "/users/overview", Component: "users/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "账户管理", Type: menumodel.TypeDirectory, Path: "/users/accounts", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/users/accounts", Platform: menumodel.PlatformAdmin, Name: "用户列表", Type: menumodel.TypeMenu, Path: "/users/accounts/list", Component: "users/accounts/list/index", Icon: "user-list", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/users/accounts", Platform: menumodel.PlatformAdmin, Name: "用户组/组织管理", Type: menumodel.TypeMenu, Path: "/users/accounts/groups", Component: "users/accounts/groups/index", Icon: "control-platform", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "安全与风控", Type: menumodel.TypeDirectory, Path: "/users/security", Icon: "key", SortOrder: 5, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/users/security", Platform: menumodel.PlatformAdmin, Name: "登录日志", Type: menumodel.TypeMenu, Path: "/users/security/login-logs", Component: "users/security/login-logs/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/users/security", Platform: menumodel.PlatformAdmin, Name: "操作审计日志", Type: menumodel.TypeMenu, Path: "/users/security/audit-logs", Component: "users/security/audit-logs/index", Icon: "file", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/users/security", Platform: menumodel.PlatformAdmin, Name: "异常行为监控", Type: menumodel.TypeMenu, Path: "/users/security/risk", Component: "users/security/risk/index", Icon: "chart-bar", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/users/security", Platform: menumodel.PlatformAdmin, Name: "黑名单管理", Type: menumodel.TypeMenu, Path: "/users/security/blacklist", Component: "users/security/blacklist/index", Icon: "stop", SortOrder: 4, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/users/security", Platform: menumodel.PlatformAdmin, Name: "会话管理", Type: menumodel.TypeMenu, Path: "/users/security/sessions", Component: "users/security/sessions/index", Icon: "refresh", SortOrder: 5, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "用户等级", Type: menumodel.TypeMenu, Path: "/users/levels", Component: "users/levels/index", Icon: "tag", SortOrder: 6, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "实名认证", Type: menumodel.TypeDirectory, Path: "/users/verification", Icon: "verify", SortOrder: 7, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "待审核列表", Type: menumodel.TypeMenu, Path: "/users/verification/pending", Component: "users/verification/pending/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "审核通过列表", Type: menumodel.TypeMenu, Path: "/users/verification/approved", Component: "users/verification/approved/index", Icon: "check-circle", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "审核拒绝列表", Type: menumodel.TypeMenu, Path: "/users/verification/rejected", Component: "users/verification/rejected/index", Icon: "error-circle", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "认证配置", Type: menumodel.TypeMenu, Path: "/users/verification/config", Component: "users/verification/config/index", Icon: "setting", SortOrder: 4, Status: menumodel.StatusActive},
-		{Platform: menumodel.PlatformAdmin, Name: "资源管理", Type: menumodel.TypeDirectory, Path: "/resource", Icon: "resource", SortOrder: 3, Status: menumodel.StatusActive},
-		// —— P7 菜单归位（doc16 §9.2）：渠道与平台 / 容量与位置 / 同步与调度 / 实例 / 运维。
-		// 资源管理只做资源，商品对接页面移入产品管理（T7.2）。
-		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "渠道与平台", Type: menumodel.TypeDirectory, Path: "/resource/channels", Icon: "cloud", SortOrder: 1, Status: menumodel.StatusActive},
-		// 双链路拆分为两页（本轮）：上游转售渠道（kind=upstream）与自营平台对接（kind=compute）。
-		// 连接测试并入列表行内操作，不再单独成页；旧路径保留。
-		{ParentKey: "admin:/resource/channels", Platform: menumodel.PlatformAdmin, Name: "上游转售渠道", Type: menumodel.TypeMenu, Path: "/resource/providers", Component: "resource/providers/index", Icon: "cloud", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/channels", Platform: menumodel.PlatformAdmin, Name: "自营平台对接", Type: menumodel.TypeMenu, Path: "/resource/platforms", Component: "resource/providers/index", Icon: "server", SortOrder: 2, Status: menumodel.StatusActive},
-		// 连接测试页已下线（T-S1）：连通性内联到两个渠道列表的行内「测试连接」，旧菜单隐藏。
-		{ParentKey: "admin:/resource/channels", Platform: menumodel.PlatformAdmin, Name: "连接测试", Type: menumodel.TypeMenu, Path: "/resource/connectivity", Component: "resource/connectivity/index", Icon: "link", SortOrder: 91, Status: menumodel.StatusDisabled},
-		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "容量与位置", Type: menumodel.TypeDirectory, Path: "/resource/capacity", Icon: "layers", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/capacity", Platform: menumodel.PlatformAdmin, Name: "资源池与容量", Type: menumodel.TypeMenu, Path: "/resource/pools", Component: "resource/pools/index", Icon: "layers", SortOrder: 1, Status: menumodel.StatusActive},
-		// —— 同步与调度（T3.6 合并页）：调度 / 任务 / 日志 / 差异 / 待确认调价多 Tab。
-		// 目录路径用 sync-group，叶子保持 /resource/sync-center 与前端路由一致（避免同路径冲突）。
-		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "同步与调度", Type: menumodel.TypeDirectory, Path: "/resource/sync-group", Icon: "refresh", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/sync-group", Platform: menumodel.PlatformAdmin, Name: "同步与调度", Type: menumodel.TypeMenu, Path: "/resource/sync-center", Component: "resource/sync-center/index", Icon: "refresh", SortOrder: 1, Status: menumodel.StatusActive},
-		// 旧重复页面菜单置 disabled 隐藏（前端旧路径保留 redirect，P7/T7.4 下线）。
-		{ParentKey: "admin:/resource/sync-group", Platform: menumodel.PlatformAdmin, Name: "同步任务", Type: menumodel.TypeMenu, Path: "/resource/sync", Component: "resource/sync/index", Icon: "refresh", SortOrder: 91, Status: menumodel.StatusDisabled},
-		{ParentKey: "admin:/resource/sync-group", Platform: menumodel.PlatformAdmin, Name: "同步日志", Type: menumodel.TypeMenu, Path: "/resource/logs", Component: "resource/logs/index", Icon: "history", SortOrder: 92, Status: menumodel.StatusDisabled},
-		{ParentKey: "admin:/resource/sync-group", Platform: menumodel.PlatformAdmin, Name: "对账报告", Type: menumodel.TypeMenu, Path: "/resource/reconciliation", Component: "resource/reconciliation/index", Icon: "verify", SortOrder: 93, Status: menumodel.StatusDisabled},
-		{ParentKey: "admin:/resource/sync-group", Platform: menumodel.PlatformAdmin, Name: "同步监控", Type: menumodel.TypeMenu, Path: "/resource/sync-monitor", Component: "resource/sync-monitor/index", Icon: "data-checked", SortOrder: 94, Status: menumodel.StatusDisabled},
-		// —— 实例
-		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "实例", Type: menumodel.TypeDirectory, Path: "/resource/instance", Icon: "server", SortOrder: 4, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/instance", Platform: menumodel.PlatformAdmin, Name: "云主机实例", Type: menumodel.TypeMenu, Path: "/resource/instances", Component: "resource/instances/index", Icon: "server", SortOrder: 1, Status: menumodel.StatusActive},
-		// —— 实例管理（一级菜单，跨用户操作、维护与售后）：见 docs/实施计划/61-实例运维管理台实施计划.md
-		// 父级必须排在子项之前，否则 ParentKey 解析取不到父节点会导致 seed 失败。
-		{Platform: menumodel.PlatformAdmin, Name: "实例管理", Type: menumodel.TypeDirectory, Path: "/instances", Icon: "server", SortOrder: 4, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "实例运维台", Type: menumodel.TypeMenu, Path: "/instances/list", Component: "instances/index", Icon: "server", SortOrder: 1, Status: menumodel.StatusActive},
-		// —— 运维（doc16 §9.2）：异常处理 + 任务队列 + 实例对账；模块配置并入系统配置（/system/config）。
-		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "运维", Type: menumodel.TypeDirectory, Path: "/resource/ops", Icon: "setting", SortOrder: 5, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "异常处理", Type: menumodel.TypeMenu, Path: "/resource/anomalies", Component: "resource/anomalies/index", Icon: "error-circle", SortOrder: 1, Status: menumodel.StatusActive},
-		// 任务队列（本轮 S3）：开通履约 / 实例动作 / 续费 / 同步四类任务的「是否到达上游」。
-		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "任务队列", Type: menumodel.TypeMenu, Path: "/resource/task-queue", Component: "resource/task-queue/index", Icon: "refresh", SortOrder: 2, Status: menumodel.StatusActive},
-		// 实例对账（本轮 S4）：本地已开通实例与上游的售价/成本/到期时间比对。
-		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "实例对账", Type: menumodel.TypeMenu, Path: "/resource/reconcile", Component: "resource/reconcile/index", Icon: "verify", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "API测试", Type: menumodel.TypeMenu, Path: "/resource/api-test", Component: "resource/api-test/index", Icon: "ai-tool", SortOrder: 91, Status: menumodel.StatusDisabled},
-		{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeMenu, Path: "/resource/settings", Component: "resource/settings/index", Icon: "setting", SortOrder: 92, Status: menumodel.StatusDisabled},
-		// 资源总览/看板并入「容量与位置」看板（doc16 §9.4），旧菜单隐藏。
-		{ParentKey: "admin:/resource/channels", Platform: menumodel.PlatformAdmin, Name: "资源总览", Type: menumodel.TypeMenu, Path: "/resource/dashboard", Component: "resource/dashboard/index", Icon: "dashboard", SortOrder: 95, Status: menumodel.StatusDisabled},
-		// 旧分组目录行（库里残留）置 disabled，避免侧边栏出现空目录。
-		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "资源总览", Type: menumodel.TypeDirectory, Path: "/resource/overview", Icon: "dashboard", SortOrder: 96, Status: menumodel.StatusDisabled},
-		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "上游对接管理", Type: menumodel.TypeDirectory, Path: "/resource/connection", Icon: "cloud", SortOrder: 97, Status: menumodel.StatusDisabled},
-		// 资源商品管理组（doc16 §9.4）移入产品管理「商品对接」（T7.2），旧菜单隐藏、旧路径 redirect。
-		{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "资源商品管理", Type: menumodel.TypeDirectory, Path: "/resource/products-center", Icon: "product", SortOrder: 98, Status: menumodel.StatusDisabled},
-		{ParentKey: "admin:/resource/products-center", Platform: menumodel.PlatformAdmin, Name: "商品列表", Type: menumodel.TypeMenu, Path: "/resource/products", Component: "resource/products/index", Icon: "product", SortOrder: 95, Status: menumodel.StatusDisabled},
-		{ParentKey: "admin:/resource/products-center", Platform: menumodel.PlatformAdmin, Name: "商品同步", Type: menumodel.TypeMenu, Path: "/resource/product-sync", Component: "resource/product-sync/index", Icon: "cloud-download", SortOrder: 96, Status: menumodel.StatusDisabled},
-		{ParentKey: "admin:/resource/products-center", Platform: menumodel.PlatformAdmin, Name: "定价管理", Type: menumodel.TypeMenu, Path: "/resource/pricing", Component: "resource/pricing/index", Icon: "money", SortOrder: 97, Status: menumodel.StatusDisabled},
-
-		// —— 产品管理（面向终端售卖，三层树）
-		{Platform: menumodel.PlatformAdmin, Name: "产品管理", Type: menumodel.TypeDirectory, Path: "/product", Icon: "product", SortOrder: 5, Status: menumodel.StatusActive},
-		// 1. 商品管理
-		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "商品管理", Type: menumodel.TypeDirectory, Path: "/product/mgmt", Icon: "product", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/mgmt", Platform: menumodel.PlatformAdmin, Name: "商品列表", Type: menumodel.TypeMenu, Path: "/product/products", Component: "product/products/index", Icon: "product", SortOrder: 1, Status: menumodel.StatusActive},
-		// 2. 商品对接（doc16 §9.3，T7.2）：商品决策动作归产品管理。
-		// 组件复用资源侧页面（resource/products、resource/pricing），仅菜单与路径归位。
-		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "商品对接", Type: menumodel.TypeDirectory, Path: "/product/binding", Icon: "cloud", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/binding", Platform: menumodel.PlatformAdmin, Name: "上游商品目录", Type: menumodel.TypeMenu, Path: "/product/upstream", Component: "resource/products/index", Icon: "product", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/binding", Platform: menumodel.PlatformAdmin, Name: "成本与加价", Type: menumodel.TypeMenu, Path: "/product/cost-pricing", Component: "resource/pricing/index", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
-		// 3. 规格管理
-		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "规格管理", Type: menumodel.TypeDirectory, Path: "/product/spec", Icon: "layers", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "规格模板", Type: menumodel.TypeMenu, Path: "/product/spec/templates", Component: "product/spec/templates/index", Icon: "catalog", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "自定义规格", Type: menumodel.TypeMenu, Path: "/product/spec/custom", Component: "product/spec/custom/index", Icon: "add", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "规格映射", Type: menumodel.TypeMenu, Path: "/product/spec/mappings", Component: "product/spec/mappings/index", Icon: "link", SortOrder: 3, Status: menumodel.StatusActive},
-		// 4. 定价与计费
-		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "定价与计费", Type: menumodel.TypeDirectory, Path: "/product/pricing-center", Icon: "money", SortOrder: 4, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "商品调价", Type: menumodel.TypeMenu, Path: "/product/pricing", Component: "product/pricing/index", Icon: "money", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "价格计算器", Type: menumodel.TypeMenu, Path: "/product/pricing/calculator", Component: "product/pricing/calculator/index", Icon: "chart-bar", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "价格历史", Type: menumodel.TypeMenu, Path: "/product/pricing/history", Component: "product/pricing/history/index", Icon: "history", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "折扣策略", Type: menumodel.TypeMenu, Path: "/product/pricing/policies", Component: "product/pricing/policies/index", Icon: "discount", SortOrder: 4, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "周期价格", Type: menumodel.TypeMenu, Path: "/product/pricing/matrix", Component: "product/pricing/matrix/index", Icon: "calendar", SortOrder: 5, Status: menumodel.StatusActive},
-		// 5. 促销管理
-		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "促销管理", Type: menumodel.TypeDirectory, Path: "/product/promotion", Icon: "tag", SortOrder: 5, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/promotion", Platform: menumodel.PlatformAdmin, Name: "优惠券管理", Type: menumodel.TypeMenu, Path: "/product/promotion/coupons", Component: "product/promotion/coupons/index", Icon: "ticket", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/promotion", Platform: menumodel.PlatformAdmin, Name: "折扣活动", Type: menumodel.TypeMenu, Path: "/product/promotion/activities", Component: "product/promotion/activities/index", Icon: "chart-bar", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/promotion", Platform: menumodel.PlatformAdmin, Name: "套餐组合", Type: menumodel.TypeMenu, Path: "/product/promotion/bundles", Component: "product/promotion/bundles/index", Icon: "app", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/promotion", Platform: menumodel.PlatformAdmin, Name: "推荐位管理", Type: menumodel.TypeMenu, Path: "/product/promotion/recommends", Component: "product/promotion/recommends/index", Icon: "star", SortOrder: 4, Status: menumodel.StatusActive},
-		// 6. 商品分类
-		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "商品分类", Type: menumodel.TypeDirectory, Path: "/product/category", Icon: "folder", SortOrder: 6, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/product/category", Platform: menumodel.PlatformAdmin, Name: "分类管理", Type: menumodel.TypeMenu, Path: "/product/categories", Component: "product/categories/index", Icon: "tag", SortOrder: 1, Status: menumodel.StatusActive},
-		// 7. 上游商品同步（T7.4 下线：同步任务/日志/差异由资源管理「同步与调度」合并页统一承接，
-		//    见 doc16 §9.1 —— 同步的执行与调度归资源管理，产品管理只留选品与映射入口）
-		{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "上游商品同步", Type: menumodel.TypeDirectory, Path: "/product/sync-center", Icon: "cloud-download", SortOrder: 97, Status: menumodel.StatusDisabled},
-		{ParentKey: "admin:/product/sync-center", Platform: menumodel.PlatformAdmin, Name: "同步任务", Type: menumodel.TypeMenu, Path: "/product/sync/tasks", Component: "product/sync/tasks/index", Icon: "refresh", SortOrder: 91, Status: menumodel.StatusDisabled},
-		{ParentKey: "admin:/product/sync-center", Platform: menumodel.PlatformAdmin, Name: "同步日志", Type: menumodel.TypeMenu, Path: "/product/sync/logs", Component: "product/sync/logs/index", Icon: "history", SortOrder: 92, Status: menumodel.StatusDisabled},
-		{ParentKey: "admin:/product/sync-center", Platform: menumodel.PlatformAdmin, Name: "差异对比", Type: menumodel.TypeMenu, Path: "/product/sync/diff", Component: "product/sync/diff/index", Icon: "data-checked", SortOrder: 93, Status: menumodel.StatusDisabled},
-
-		// —— 订单管理（doc16）
-		{Platform: menumodel.PlatformAdmin, Name: "订单管理", Type: menumodel.TypeDirectory, Path: "/orders", Icon: "order", SortOrder: 6, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "订单列表", Type: menumodel.TypeMenu, Path: "/orders/list", Component: "order/index", Icon: "order", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "退款管理", Type: menumodel.TypeMenu, Path: "/orders/refunds", Component: "order/refunds/index", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "订单统计", Type: menumodel.TypeMenu, Path: "/orders/stats", Component: "order/stats/index", Icon: "chart-bar", SortOrder: 3, Status: menumodel.StatusActive},
-
-		// —— 财务管理（doc32，分组树：叶子 + 二级目录）
-		{Platform: menumodel.PlatformAdmin, Name: "财务管理", Type: menumodel.TypeDirectory, Path: "/finance", Icon: "wallet", SortOrder: 7, Status: menumodel.StatusActive},
-		// 1. 财务总览
-		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务总览", Type: menumodel.TypeMenu, Path: "/finance/overview", Component: "finance/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
-		// 2. 账户管理
-		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "账户管理", Type: menumodel.TypeDirectory, Path: "/finance/accounts", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/finance/accounts", Platform: menumodel.PlatformAdmin, Name: "用户钱包", Type: menumodel.TypeMenu, Path: "/finance/accounts/wallets", Component: "finance/accounts/wallets/index", Icon: "wallet", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/finance/accounts", Platform: menumodel.PlatformAdmin, Name: "人工调账", Type: menumodel.TypeMenu, Path: "/finance/accounts/adjust", Component: "finance/accounts/adjust", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
-		// 3. 交易流水
-		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "交易流水", Type: menumodel.TypeDirectory, Path: "/finance/transactions-center", Icon: "money", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/finance/transactions-center", Platform: menumodel.PlatformAdmin, Name: "资金流水", Type: menumodel.TypeMenu, Path: "/finance/transactions", Component: "finance/transactions/index", Icon: "money", SortOrder: 1, Status: menumodel.StatusActive},
-		// 4. 充值提现
-		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "充值提现", Type: menumodel.TypeDirectory, Path: "/finance/recharge-center", Icon: "download", SortOrder: 4, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/finance/recharge-center", Platform: menumodel.PlatformAdmin, Name: "充值管理", Type: menumodel.TypeMenu, Path: "/finance/recharges", Component: "finance/recharge/index", Icon: "download", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/finance/recharge-center", Platform: menumodel.PlatformAdmin, Name: "提现管理", Type: menumodel.TypeMenu, Path: "/finance/withdrawals", Component: "finance/withdraw/index", Icon: "upload", SortOrder: 2, Status: menumodel.StatusActive},
-		// 5. 账单管理
-		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "账单管理", Type: menumodel.TypeDirectory, Path: "/finance/bill-center", Icon: "file", SortOrder: 5, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/finance/bill-center", Platform: menumodel.PlatformAdmin, Name: "账单管理", Type: menumodel.TypeMenu, Path: "/finance/bills", Component: "finance/bills/index", Icon: "file", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/finance/bill-center", Platform: menumodel.PlatformAdmin, Name: "对账中心", Type: menumodel.TypeMenu, Path: "/finance/recon", Component: "finance/bills/recon", Icon: "verify", SortOrder: 2, Status: menumodel.StatusActive},
-		// 发票管理（doc36 §3.3）：用户申请 → 管理端开票/驳回，预埋税务 API 渠道。
-		{ParentKey: "admin:/finance/bill-center", Platform: menumodel.PlatformAdmin, Name: "发票管理", Type: menumodel.TypeMenu, Path: "/finance/invoices", Component: "finance/invoices/index", Icon: "file", SortOrder: 3, Status: menumodel.StatusActive},
-		// 6. 财务报表
-		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务报表", Type: menumodel.TypeMenu, Path: "/finance/report", Component: "finance/report/index", Icon: "chart-bar", SortOrder: 6, Status: menumodel.StatusActive},
-		// 7. 财务配置
-		{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务配置", Type: menumodel.TypeMenu, Path: "/finance/config", Component: "finance/config/index", Icon: "setting", SortOrder: 7, Status: menumodel.StatusActive},
-
-		// —— 支付中心（doc35，SortOrder=13）：独立模块，只管收款渠道与打款任务，
-		// 资金记账仍归财务管理（WalletService 是唯一资金入口）。
-		{Platform: menumodel.PlatformAdmin, Name: "支付中心", Type: menumodel.TypeDirectory, Path: "/payment", Icon: "money", SortOrder: 13, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "支付概览", Type: menumodel.TypeMenu, Path: "/payment/overview", Component: "payment/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "支付渠道", Type: menumodel.TypeMenu, Path: "/payment/channels", Component: "payment/channels/index", Icon: "link", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "支付方式", Type: menumodel.TypeMenu, Path: "/payment/methods", Component: "payment/methods/index", Icon: "wallet", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "支付订单", Type: menumodel.TypeMenu, Path: "/payment/orders", Component: "payment/orders/index", Icon: "order", SortOrder: 4, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "回调日志", Type: menumodel.TypeMenu, Path: "/payment/callbacks", Component: "payment/callbacks/index", Icon: "mail", SortOrder: 5, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "渠道退款", Type: menumodel.TypeMenu, Path: "/payment/refunds", Component: "payment/refunds/index", Icon: "refresh", SortOrder: 6, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "打款管理", Type: menumodel.TypeMenu, Path: "/payment/payouts", Component: "payment/payouts/index", Icon: "upload", SortOrder: 7, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/payment", Platform: menumodel.PlatformAdmin, Name: "渠道对账", Type: menumodel.TypeMenu, Path: "/payment/recon", Component: "payment/recon/index", Icon: "verify", SortOrder: 8, Status: menumodel.StatusActive},
-
-		// —— 积分中心（doc36，SortOrder=14）：独立于资金账本的积分体系。
-		// 积分不可抵扣、不可提现、不可提现到余额，只能用于活动/权益兑换。
-		{Platform: menumodel.PlatformAdmin, Name: "积分中心", Type: menumodel.TypeDirectory, Path: "/points", Icon: "gift", SortOrder: 14, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/points", Platform: menumodel.PlatformAdmin, Name: "积分概览", Type: menumodel.TypeMenu, Path: "/points/overview", Component: "points/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/points", Platform: menumodel.PlatformAdmin, Name: "积分规则", Type: menumodel.TypeMenu, Path: "/points/rules", Component: "points/rules/index", Icon: "setting", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/points", Platform: menumodel.PlatformAdmin, Name: "积分账户", Type: menumodel.TypeMenu, Path: "/points/accounts", Component: "points/accounts/index", Icon: "usergroup", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/points", Platform: menumodel.PlatformAdmin, Name: "积分流水", Type: menumodel.TypeMenu, Path: "/points/transactions", Component: "points/transactions/index", Icon: "history", SortOrder: 4, Status: menumodel.StatusActive},
-
-		// —— 推广返现（替代原代理/分销域）
-		{Platform: menumodel.PlatformAdmin, Name: "推广返现", Type: menumodel.TypeDirectory, Path: "/referral", Icon: "share", SortOrder: 12, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/referral", Platform: menumodel.PlatformAdmin, Name: "返现台账", Type: menumodel.TypeMenu, Path: "/referral/cashbacks", Component: "referral/cashbacks/index", Icon: "money", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/referral", Platform: menumodel.PlatformAdmin, Name: "提现审核", Type: menumodel.TypeMenu, Path: "/referral/withdrawals", Component: "referral/withdrawals/index", Icon: "upload", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/referral", Platform: menumodel.PlatformAdmin, Name: "邀请关系", Type: menumodel.TypeMenu, Path: "/referral/invitees", Component: "referral/invitees/index", Icon: "usergroup", SortOrder: 3, Status: menumodel.StatusActive},
-
-		// —— 销售中心（S1 员工体系：客户归属 / 提成台账 / 提成审核 / 业绩排行）
-		{Platform: menumodel.PlatformAdmin, Name: "销售中心", Type: menumodel.TypeDirectory, Path: "/sales", Icon: "share", SortOrder: 15, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/sales", Platform: menumodel.PlatformAdmin, Name: "客户归属", Type: menumodel.TypeMenu, Path: "/sales/customers", Component: "sales/customers/index", Icon: "usergroup", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/sales", Platform: menumodel.PlatformAdmin, Name: "提成台账", Type: menumodel.TypeMenu, Path: "/sales/commissions", Component: "sales/commissions/index", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/sales", Platform: menumodel.PlatformAdmin, Name: "提成审核", Type: menumodel.TypeMenu, Path: "/sales/withdrawals", Component: "sales/withdrawals/index", Icon: "upload", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/sales", Platform: menumodel.PlatformAdmin, Name: "业绩与排行", Type: menumodel.TypeMenu, Path: "/sales/performance", Component: "sales/performance/index", Icon: "chart-bar", SortOrder: 4, Status: menumodel.StatusActive},
-
-		// —— 工单支持（doc50 §5.3，admin 平台 SortOrder=9）
-		{Platform: menumodel.PlatformAdmin, Name: "工单支持", Type: menumodel.TypeDirectory, Path: "/tickets", Icon: "service", SortOrder: 9, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单列表", Type: menumodel.TypeMenu, Path: "/tickets/list", Component: "ticket/index", Icon: "ticket", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单分类管理", Type: menumodel.TypeMenu, Path: "/tickets/categories", Component: "ticket/categories/index", Icon: "folder", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单统计", Type: menumodel.TypeMenu, Path: "/tickets/stats", Component: "ticket/stats/index", Icon: "chart-bar", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "复核中心", Type: menumodel.TypeMenu, Path: "/tickets/reviews", Component: "ticket/reviews/index", Icon: "verify", SortOrder: 4, Status: menumodel.StatusActive},
-
-		// —— 系统管理（doc40 系统管理模块，二级目录 + 三级叶子）
-		{Platform: menumodel.PlatformAdmin, Name: "系统管理", Type: menumodel.TypeDirectory, Path: "/system", Icon: "setting", SortOrder: 8, Status: menumodel.StatusActive},
-		// 1. 权限管理
-		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "权限管理", Type: menumodel.TypeDirectory, Path: "/system/permission-center", Icon: "lock-on", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "菜单管理", Type: menumodel.TypeMenu, Path: "/system/menus", Component: "system/menus/index", Icon: "menu", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "角色列表", Type: menumodel.TypeMenu, Path: "/system/roles", Component: "system/roles/index", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "权限分配", Type: menumodel.TypeMenu, Path: "/system/permissions", Component: "system/permissions/index", Icon: "lock-on", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "管理员列表", Type: menumodel.TypeMenu, Path: "/system/admins", Component: "system/admins/index", Icon: "user-list", SortOrder: 4, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "部门管理", Type: menumodel.TypeMenu, Path: "/system/departments", Component: "system/departments/index", Icon: "usergroup", SortOrder: 5, Status: menumodel.StatusActive},
-		// 2. 系统配置
-		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeDirectory, Path: "/system/config-center", Icon: "setting", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/system/config-center", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeMenu, Path: "/system/config", Component: "system/config/index", Icon: "setting", SortOrder: 1, Status: menumodel.StatusActive},
-		// 3. 安全审计
-		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "安全审计", Type: menumodel.TypeDirectory, Path: "/system/audit-center", Icon: "history", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/system/audit-center", Platform: menumodel.PlatformAdmin, Name: "操作审计", Type: menumodel.TypeMenu, Path: "/system/audit-logs", Component: "system/audit-logs/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/system/audit-center", Platform: menumodel.PlatformAdmin, Name: "公告管理", Type: menumodel.TypeMenu, Path: "/system/announcements", Component: "notification/announcements/index", Icon: "sound", SortOrder: 2, Status: menumodel.StatusActive},
-		// 验证码配置（doc91 §10.1）：服务商 / 场景策略 / 统计
-		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "验证码配置", Type: menumodel.TypeMenu, Path: "/system/captcha", Component: "system/captcha/index", Icon: "safety", SortOrder: 12, Status: menumodel.StatusActive},
-		// 日志中心（doc92 §9.1）：统一日志浏览 / 清理任务 / 保留策略
-		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "日志中心", Type: menumodel.TypeMenu, Path: "/system/logs", Component: "system/logs/index", Icon: "file", SortOrder: 13, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "清理任务", Type: menumodel.TypeMenu, Path: "/system/logs/cleanup", Component: "system/logs/cleanup/index", Icon: "delete", SortOrder: 14, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "保留策略", Type: menumodel.TypeMenu, Path: "/system/logs/policy", Component: "system/logs/policy/index", Icon: "setting", SortOrder: 15, Status: menumodel.StatusActive},
-
-		// —— 生命周期管理（doc60，admin 平台 SortOrder=10）
-		{Platform: menumodel.PlatformAdmin, Name: "生命周期管理", Type: menumodel.TypeDirectory, Path: "/lifecycle", Icon: "history", SortOrder: 10, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/lifecycle", Platform: menumodel.PlatformAdmin, Name: "到期管理", Type: menumodel.TypeMenu, Path: "/lifecycle/expiring", Component: "lifecycle/expiring/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/lifecycle", Platform: menumodel.PlatformAdmin, Name: "续费记录", Type: menumodel.TypeMenu, Path: "/lifecycle/renewals", Component: "lifecycle/renewals/index", Icon: "order", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/lifecycle", Platform: menumodel.PlatformAdmin, Name: "生命周期策略", Type: menumodel.TypeMenu, Path: "/lifecycle/policy", Component: "lifecycle/policy/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
-
-		// —— 管理员后台 - 消息中心（doc70，公告管理已归类到系统管理/安全审计）
-		{Platform: menumodel.PlatformAdmin, Name: "消息中心", Type: menumodel.TypeDirectory, Path: "/notification", Icon: "mail", SortOrder: 11, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "通知记录", Type: menumodel.TypeMenu, Path: "/notification/records", Component: "notification/records/index", Icon: "mail", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "通知模板", Type: menumodel.TypeMenu, Path: "/notification/templates", Component: "notification/templates/index", Icon: "root-list", SortOrder: 2, Status: menumodel.StatusActive},
-		// doc90 §9.1：渠道配置 / 短信模板 / 消息群发 / 发送日志
-		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "渠道配置", Type: menumodel.TypeMenu, Path: "/notification/channels", Component: "notification/channels/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "短信模板", Type: menumodel.TypeMenu, Path: "/notification/sms-templates", Component: "notification/sms-templates/index", Icon: "file", SortOrder: 4, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "消息群发", Type: menumodel.TypeMenu, Path: "/notification/broadcast", Component: "notification/broadcast/index", Icon: "send", SortOrder: 5, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "发送日志", Type: menumodel.TypeMenu, Path: "/notification/deliveries", Component: "notification/deliveries/index", Icon: "root-list", SortOrder: 6, Status: menumodel.StatusActive},
-
-		// —— 内容管理（doc100 §7.1，admin 平台 SortOrder=16）
-		// 公告管理仍留在「系统管理 → 安全审计 → 公告管理」，避免动已有权限与用户肌肉记忆；
-		// 这里只收拢门户侧内容（新闻/帮助/条款/隐私/分类/友情链接/页脚）。
-		{Platform: menumodel.PlatformAdmin, Name: "内容管理", Type: menumodel.TypeDirectory, Path: "/content", Icon: "file", SortOrder: 16, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/content", Platform: menumodel.PlatformAdmin, Name: "内容文章", Type: menumodel.TypeMenu, Path: "/content/articles", Component: "content/articles/index", Icon: "file", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/content", Platform: menumodel.PlatformAdmin, Name: "内容分类", Type: menumodel.TypeMenu, Path: "/content/categories", Component: "content/categories/index", Icon: "folder", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "admin:/content", Platform: menumodel.PlatformAdmin, Name: "友情链接", Type: menumodel.TypeMenu, Path: "/content/links", Component: "content/links/index", Icon: "link", SortOrder: 3, Status: menumodel.StatusActive},
-		// 公告管理不在此重复挂载：seedMenus 的幂等键是 (platform, path)，同一 path 再写一次
-		// 会把既有菜单从「系统管理 → 安全审计」搬到内容管理下（父级被覆盖）。
-		// 页脚配置也不需要独立页面：页脚键是系统配置，在既有「系统管理 → 系统配置」里编辑。
-
-		// —— 用户中心菜单（platform=user）
-		// 顺序即侧边栏一级顺序：控制台 → 云产品 → 选购 → 订单 → 费用 → 积分 → 工单 → 成员 → 个人 → 推广。
-		// 注意：/shop 与 /member 原先只有前端路由、没有 seed，导致控制台里点不到交易主入口与成员管理。
-		{Platform: menumodel.PlatformUser, Name: "控制台", Type: menumodel.TypeMenu, Path: "/dashboard", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
-		{Platform: menumodel.PlatformUser, Name: "云产品", Type: menumodel.TypeDirectory, Path: "/cloud", Icon: "cloud", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "user:/cloud", Platform: menumodel.PlatformUser, Name: "我的云主机", Type: menumodel.TypeMenu, Path: "/cloud/instances", Icon: "server", SortOrder: 1, Status: menumodel.StatusActive},
-		// 镜像管理暂不开放：管理端还没有镜像主数据模块（open 侧 ListImages 是「聚合在售 SKU 的
-		// os 原子」的临时方案，不是镜像主数据），用户侧开放只会给出空壳。保留记录但置 disabled，
-		// 既有库里已被启用过的同 path 记录会在种子幂等分支里被改回 disabled；待管理侧建好镜像
-		// 主数据后改回 active 即可，路由与页面无需重建。
-		{ParentKey: "user:/cloud", Platform: menumodel.PlatformUser, Name: "镜像管理", Type: menumodel.TypeMenu, Path: "/cloud/images", Icon: "layers", SortOrder: 2, Status: menumodel.StatusDisabled},
-		{ParentKey: "user:/cloud", Platform: menumodel.PlatformUser, Name: "续费管理", Type: menumodel.TypeMenu, Path: "/cloud/renewals", Icon: "refresh", SortOrder: 3, Status: menumodel.StatusActive},
-		// 选购与购物车：官网「立即选购」落点，也是交易主入口。
-		{Platform: menumodel.PlatformUser, Name: "云主机选购", Type: menumodel.TypeMenu, Path: "/shop", Icon: "cart", SortOrder: 3, Status: menumodel.StatusActive},
-		{Platform: menumodel.PlatformUser, Name: "我的订单", Type: menumodel.TypeMenu, Path: "/order", Icon: "order", SortOrder: 4, Status: menumodel.StatusActive},
-		{Platform: menumodel.PlatformUser, Name: "费用中心", Type: menumodel.TypeMenu, Path: "/billing", Icon: "wallet", SortOrder: 5, Status: menumodel.StatusActive},
-		// 我的积分（doc36）：积分独立于余额，仅展示获得/消耗，不提供任何支付入口。
-		{Platform: menumodel.PlatformUser, Name: "我的积分", Type: menumodel.TypeMenu, Path: "/points", Icon: "gift", SortOrder: 6, Status: menumodel.StatusActive},
-		{Platform: menumodel.PlatformUser, Name: "工单中心", Type: menumodel.TypeDirectory, Path: "/support", Icon: "service", SortOrder: 7, Status: menumodel.StatusActive},
-		{ParentKey: "user:/support", Platform: menumodel.PlatformUser, Name: "我的工单", Type: menumodel.TypeMenu, Path: "/support/tickets", Icon: "ticket", SortOrder: 1, Status: menumodel.StatusActive},
-		// 成员管理（子账号）：仅主账号可见，前端按 ownerOnly 路径集合过滤（菜单表不含该语义）。
-		{Platform: menumodel.PlatformUser, Name: "成员管理", Type: menumodel.TypeMenu, Path: "/member", Icon: "usergroup", SortOrder: 8, Status: menumodel.StatusActive},
-		{Platform: menumodel.PlatformUser, Name: "个人中心", Type: menumodel.TypeMenu, Path: "/profile", Icon: "user", SortOrder: 9, Status: menumodel.StatusActive},
-		{ParentKey: "user:/profile", Platform: menumodel.PlatformUser, Name: "我的消息", Type: menumodel.TypeMenu, Path: "/profile/messages", Icon: "mail", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "user:/profile", Platform: menumodel.PlatformUser, Name: "通知偏好", Type: menumodel.TypeMenu, Path: "/profile/preferences", Icon: "setting", SortOrder: 2, Status: menumodel.StatusActive},
-		// 安全设置（doc91 §10.1）：账号绑定 / 二次验证 / 关键操作场景开关
-		{ParentKey: "user:/profile", Platform: menumodel.PlatformUser, Name: "安全设置", Type: menumodel.TypeMenu, Path: "/profile/security", Component: "profile/security/index", Icon: "safety", SortOrder: 3, Status: menumodel.StatusActive},
-		// 推广邀请返现（用户自助；子账号可看，提现与转出后端硬拒）
-		{Platform: menumodel.PlatformUser, Name: "推广邀请", Type: menumodel.TypeDirectory, Path: "/referral", Icon: "share", SortOrder: 10, Status: menumodel.StatusActive},
-		{ParentKey: "user:/referral", Platform: menumodel.PlatformUser, Name: "推广概览", Type: menumodel.TypeMenu, Path: "/referral/overview", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
-		{ParentKey: "user:/referral", Platform: menumodel.PlatformUser, Name: "我的邀请", Type: menumodel.TypeMenu, Path: "/referral/invitees", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
-		{ParentKey: "user:/referral", Platform: menumodel.PlatformUser, Name: "返现明细", Type: menumodel.TypeMenu, Path: "/referral/cashbacks", Icon: "money", SortOrder: 3, Status: menumodel.StatusActive},
-		{ParentKey: "user:/referral", Platform: menumodel.PlatformUser, Name: "提现与转出", Type: menumodel.TypeMenu, Path: "/referral/withdrawals", Icon: "wallet", SortOrder: 4, Status: menumodel.StatusActive},
-		{ParentKey: "user:/referral", Platform: menumodel.PlatformUser, Name: "推广素材", Type: menumodel.TypeMenu, Path: "/referral/materials", Icon: "share", SortOrder: 5, Status: menumodel.StatusActive},
-	}
-
 	menuMap := make(map[string]uint64)
-	for _, item := range defaults {
+	for _, item := range seedMenuDefaults {
 		var parentID uint64
 		if item.ParentKey != "" {
 			pid, ok := menuMap[item.ParentKey]

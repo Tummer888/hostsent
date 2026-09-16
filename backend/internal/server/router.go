@@ -163,13 +163,14 @@ func newRouter(app *App) *gin.Engine {
 		menus := v1.Group("/menus")
 		menus.Use(app.adminAuth())
 		{
-			// /tree 是侧边栏的数据源，服务端已按当前管理员权限过滤（FilterByPermissions），
-			// 因此只需登录态即可访问；若在此再要求 system:menu，未持有该码的管理员会吃到
-			// 403 并让前端回退到「不过滤」的静态菜单，等于绕过权限控制。
+			// 只读：菜单树是 seed（db.SeedMenus）的投影，管理端写接口已下线（doc102 M0），
+			// 运营改菜单名/层级需改代码并发版。
+			// /tree 只要求登录态，不加 system:menu —— 它是所有管理员侧边栏的数据源，
+			// 服务端已按当前管理员权限过滤（service.FilterByPermissions），不会返回无权限的
+			// 菜单项；若在此再要求 system:menu，未持有该码的角色（ops_admin / finance_admin /
+			// support 等）会吃到 403，前端随即降级渲染「不过滤」的静态 navMenu，
+			// 反而把全部菜单暴露出来（doc102 §4.3 的原建议即为此，已按实测推翻）。
 			menus.GET("/tree", app.menuHandler.Tree)
-			menus.POST("", app.perm("menu:create"), app.menuHandler.CreateMenu)
-			menus.PUT("/:id", app.perm("menu:update"), app.menuHandler.UpdateMenu)
-			menus.DELETE("/:id", app.perm("menu:delete"), app.menuHandler.DeleteMenu)
 		}
 
 		security := v1.Group("/security")

@@ -8,10 +8,10 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '登录', requiresAuth: false },
   },
   {
+    // 独立注册页已并入登录卡片：原地切换表单，不再单独跳页。
+    // 保留 /register 路径重定向；函数式把原查询参数（如推广 ?invite_code=）一并带过去。
     path: '/register',
-    name: 'Register',
-    component: () => import('@/pages/register/index.vue'),
-    meta: { title: '注册', requiresAuth: false },
+    redirect: (to) => ({ path: '/login', query: { ...to.query, mode: 'register' } }),
   },
   {
     path: '/forgot-password',

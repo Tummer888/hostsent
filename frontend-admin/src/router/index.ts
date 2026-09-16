@@ -64,10 +64,12 @@ const routes: Array<RouteRecordRaw> = [
         meta: { title: '登录日志', role: 'admin', permission: 'security:login-log:list' },
       },
       {
+        // 与「系统管理 → 操作审计」是同一件事（后者是前者的超集：双 Tab 含用户审计 + 管理审计），
+        // 重复页已删（doc102 §4.1 M2-5），旧路径保留 redirect。
         path: 'security/audit-logs',
         name: 'UserSecurityAuditLogs',
-        component: () => import('@/pages/users/security/audit-logs/index.vue'),
-        meta: { title: '操作审计日志', role: 'admin', permission: 'security:audit:list' },
+        redirect: '/system/audit-logs',
+        meta: { title: '操作审计', role: 'admin' },
       },
       {
         path: 'security/risk',
@@ -259,10 +261,11 @@ const routes: Array<RouteRecordRaw> = [
         meta: { title: '实例资源', role: 'admin' },
       },
       {
+        // 云主机实例随「实例」二级目录迁入一级域 /instances（doc102 §3.3），旧路径 redirect。
         path: 'instances',
         name: 'ResourceInstances',
-        component: () => import('@/pages/resource/instances/index.vue'),
-        meta: { title: '云主机实例', role: 'admin', permission: 'resource:instance' },
+        redirect: '/instances/inventory',
+        meta: { title: '云主机实例', role: 'admin' },
       },
       // —— 运维 ——
       {
@@ -516,6 +519,13 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/instances/detail.vue'),
         meta: { title: '实例详情', role: 'admin', permission: 'resource:instance', hideInTabs: true },
       },
+      {
+        // 云主机实例（只读资产视图）：原「资源管理 → 实例 → 云主机实例」，doc102 §3.3 迁入本域。
+        path: 'inventory',
+        name: 'InstanceInventory',
+        component: () => import('@/pages/resource/instances/index.vue'),
+        meta: { title: '云主机实例', role: 'admin', permission: 'resource:instance' },
+      },
     ],
   },
   {
@@ -649,7 +659,9 @@ const routes: Array<RouteRecordRaw> = [
         path: 'overview',
         name: 'PaymentOverview',
         component: () => import('@/pages/payment/overview/index.vue'),
-        meta: { title: '支付概览', role: 'admin', permission: 'payment:channel' },
+        // 与 permission_map.go 口径统一为 payment:order（doc102 M3-1）：该页聚合
+        // channels/orders/callbacks/payouts/refunds 五个接口，各自在服务端单独鉴权。
+        meta: { title: '支付概览', role: 'admin', permission: 'payment:order' },
       },
       {
         path: 'channels',
@@ -859,7 +871,7 @@ const routes: Array<RouteRecordRaw> = [
     ],
   },
   {
-    // 内容管理（doc100 §7.1）：门户展示型内容与公告分开 —— 公告在系统管理/安全审计下。
+    // 内容管理（doc100 §7.1）：门户展示型内容 + 公告管理（doc102 §4.1 M2-4 由系统管理迁入）。
     path: '/content',
     component: () => import('@/layouts/index.vue'),
     redirect: '/content/articles',
@@ -882,6 +894,13 @@ const routes: Array<RouteRecordRaw> = [
         name: 'ContentLinks',
         component: () => import('@/pages/content/links/index.vue'),
         meta: { title: '友情链接', role: 'admin', permission: 'content:link:list' },
+      },
+      {
+        // 公告管理（复用 notification 公告服务与权限码）：doc102 §4.1 M2-4 由系统管理迁入。
+        path: 'announcements',
+        name: 'ContentAnnouncements',
+        component: () => import('@/pages/notification/announcements/index.vue'),
+        meta: { title: '公告管理', role: 'admin', permission: 'notify:announcement' },
       },
     ],
   },
@@ -944,11 +963,12 @@ const routes: Array<RouteRecordRaw> = [
         meta: { title: '验证码配置', role: 'admin', permission: 'captcha:config' },
       },
       {
-        // 公告管理（复用 notification 公告服务，归类到系统管理/安全审计）
+        // 公告管理已归位到「内容管理」（doc102 §4.1 M2-4，推翻 doc100 §7.1 的「保持原位」）：
+        // 页面、后端模块与权限码 notify:announcement 都属 notification，旧路径 redirect。
         path: 'announcements',
         name: 'SystemAnnouncements',
-        component: () => import('@/pages/notification/announcements/index.vue'),
-        meta: { title: '公告管理', role: 'admin', permission: 'notify:announcement' },
+        redirect: '/content/announcements',
+        meta: { title: '公告管理', role: 'admin' },
       },
       {
         // 日志中心（doc92）：26 类日志统一浏览，列与筛选项由后端 catalog 下发

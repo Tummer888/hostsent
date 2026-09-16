@@ -21,6 +21,7 @@ import {
   FileIcon,
   FilePasteIcon,
   FolderIcon,
+  GiftIcon,
   HistoryIcon,
   HomeIcon,
   ImageIcon,
@@ -123,6 +124,9 @@ const iconMap: Record<string, Component> = {
   send: SendIcon,
   // 日志中心（doc92）的三个菜单：日志中心 / 清理任务 / 保留策略
   delete: DeleteIcon,
+  // 积分中心（doc102 M4-3）：admin 的 /points 与 user 的 /points 都用 gift，
+  // 此前未映射导致图标静默丢失（resolveIcon 对未映射名返回 undefined，不报错）。
+  gift: GiftIcon,
 }
 
 function resolveIcon(name?: string): Component | undefined {

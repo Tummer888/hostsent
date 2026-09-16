@@ -18,6 +18,15 @@
       </t-space>
     </header>
 
+    <!-- 部分模块无权限时逐条提示，不整页报错（doc102 §7.2 场景 20） -->
+    <t-alert
+      v-if="loadErrorList.length"
+      theme="warning"
+      :message="`以下数据加载失败：${loadErrorList.map((e) => e.label).join('、')}`"
+      :description="loadErrorList.map((e) => `${e.label}：${e.message}`).join('；')"
+      close
+    />
+
     <section class="stat-grid">
       <div class="stat-card surface-card stat-card--success">
         <span class="stat-card__icon"><MoneyIcon size="24" aria-hidden="true" /></span>
@@ -53,7 +62,8 @@
       <section class="table-card surface-card">
         <div class="table-card__head">
           <h3 class="card-title">渠道健康</h3>
-          <span class="table-card__meta">共 {{ channelList.length }} 个渠道</span>
+          <span v-if="loadErrors.channels" class="table-card__meta table-card__meta--error">{{ loadErrors.channels }}</span>
+          <span v-else class="table-card__meta">共 {{ channelList.length }} 个渠道</span>
         </div>
         <t-table row-key="id" :data="channelList" :columns="channelColumns" :loading="loading" size="small" hover cell-empty-content="—">
           <template #channel_code="{ row }">
@@ -111,7 +121,8 @@
       <section class="table-card surface-card">
         <div class="table-card__head">
           <h3 class="card-title">退款单</h3>
-          <span class="table-card__meta">近 {{ refundList.length }} 笔</span>
+          <span v-if="loadErrors.refunds" class="table-card__meta table-card__meta--error">{{ loadErrors.refunds }}</span>
+          <span v-else class="table-card__meta">近 {{ refundList.length }} 笔</span>
         </div>
         <t-table row-key="id" :data="refundList" :columns="refundColumns" :loading="loading" size="small" hover cell-empty-content="—">
           <template #refund_no="{ row }">
@@ -133,7 +144,8 @@
       <section class="table-card surface-card">
         <div class="table-card__head">
           <h3 class="card-title">打款单</h3>
-          <span class="table-card__meta">近 {{ payoutList.length }} 笔</span>
+          <span v-if="loadErrors.payouts" class="table-card__meta table-card__meta--error">{{ loadErrors.payouts }}</span>
+          <span v-else class="table-card__meta">近 {{ payoutList.length }} 笔</span>
         </div>
         <t-table row-key="id" :data="payoutList" :columns="payoutColumns" :loading="loading" size="small" hover cell-empty-content="—">
           <template #payout_no="{ row }">
@@ -156,7 +168,8 @@
     <section class="table-card surface-card">
       <div class="table-card__head">
         <h3 class="card-title">最近回调</h3>
-        <span class="table-card__meta">近 10 条</span>
+        <span v-if="loadErrors.callbacks" class="table-card__meta table-card__meta--error">{{ loadErrors.callbacks }}</span>
+        <span v-else class="table-card__meta">近 10 条</span>
       </div>
       <t-table row-key="id" :data="recentCallbacks" :columns="callbackColumns" :loading="loading" size="small" hover cell-empty-content="—">
         <template #payment_no="{ row }">
@@ -185,7 +198,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 
 import { LinkIcon, MoneyIcon, RefreshIcon, TimeIcon, UploadIcon } from 'tdesign-icons-vue-next'
 import type { PrimaryTableCol } from 'tdesign-vue-next'
@@ -263,29 +276,83 @@ const callbackColumns: PrimaryTableCol<CallbackInfo>[] = [
   { colKey: 'created_at', title: '时间', width: 150 },
 ]
 
+// 五个数据源各自独立加载：该页的菜单权限是 payment:order（doc102 M3-1），
+// 而各接口在服务端按 payment:channel / payment:callback / payment:refund / payment:payout
+// 单独鉴权，持有部分权限的角色会收到 403。用 allSettled 而非 all —— 单个接口 403
+// 只让对应卡片留空并提示，不把整页拖成空白（§7.2 场景 20）。
+const loadErrors = reactive({
+  channels: '',
+  orders: '',
+  callbacks: '',
+  refunds: '',
+  payouts: '',
+})
+
+const loadErrorList = computed(() => {
+  const labels: Record<keyof typeof loadErrors, string> = {
+    channels: '渠道健康',
+    orders: '支付订单',
+    callbacks: '最近回调',
+    refunds: '退款单',
+    payouts: '打款单',
+  }
+  return (Object.keys(loadErrors) as Array<keyof typeof loadErrors>)
+    .filter((key) => loadErrors[key])
+    .map((key) => ({ label: labels[key], message: loadErrors[key] }))
+})
+
+function errorText(reason: unknown) {
+  const message = (reason as Error)?.message
+  return message || '加载失败，可能无该模块权限'
+}
+
 async function loadAll() {
   loading.value = true
+  Object.assign(loadErrors, { channels: '', orders: '', callbacks: '', refunds: '', payouts: '' })
   try {
-    const [channels, orders, callbacks, refunds, payouts] = await Promise.all([
+    const [channels, orders, callbacks, refunds, payouts] = await Promise.allSettled([
       getChannelList({ page: 1, page_size: 100 }),
       getPaymentOrders({ page: 1, page_size: 20 }),
       getCallbacks({ page: 1, page_size: 10 }),
       getRefunds({ page: 1, page_size: 10 }),
       getPayouts({ page: 1, page_size: 10 }),
     ])
-    channelList.value = channels.items || []
-    recentOrders.value = (orders.items || []).slice(0, 10)
-    recentCallbacks.value = callbacks.items || []
-    refundList.value = refunds.items || []
-    payoutList.value = payouts.items || []
 
-    stats.totalChannels = channels.meta.total
-    stats.enabledChannels = channelList.value.filter((c) => c.status === 1).length
-    stats.paidAmount = (orders.items || []).filter((o) => o.status === 'paid').reduce((sum, o) => sum + o.amount, 0)
-    stats.payingCount = (orders.items || []).filter((o) => o.status === 'pending' || o.status === 'paying').length
-    stats.pendingPayouts = payoutList.value.filter((p) => p.status === 'pending' || p.status === 'paying').length
-  } catch (error) {
-    console.error(error)
+    if (channels.status === 'fulfilled') {
+      channelList.value = channels.value.items || []
+      stats.totalChannels = channels.value.meta.total
+      stats.enabledChannels = channelList.value.filter((c) => c.status === 1).length
+    } else {
+      loadErrors.channels = errorText(channels.reason)
+    }
+
+    if (orders.status === 'fulfilled') {
+      const items = orders.value.items || []
+      recentOrders.value = items.slice(0, 10)
+      stats.paidAmount = items.filter((o) => o.status === 'paid').reduce((sum, o) => sum + o.amount, 0)
+      stats.payingCount = items.filter((o) => o.status === 'pending' || o.status === 'paying').length
+    } else {
+      loadErrors.orders = errorText(orders.reason)
+    }
+
+    if (callbacks.status === 'fulfilled') {
+      recentCallbacks.value = callbacks.value.items || []
+    } else {
+      loadErrors.callbacks = errorText(callbacks.reason)
+    }
+
+    if (refunds.status === 'fulfilled') {
+      refundList.value = refunds.value.items || []
+    } else {
+      loadErrors.refunds = errorText(refunds.reason)
+    }
+
+    if (payouts.status === 'fulfilled') {
+      payoutList.value = payouts.value.items || []
+      stats.pendingPayouts = payoutList.value.filter((p) => p.status === 'pending' || p.status === 'paying').length
+    } else {
+      loadErrors.payouts = errorText(payouts.reason)
+    }
   } finally {
     loading.value = false
   }
@@ -305,6 +372,10 @@ onMounted(loadAll)
   display: grid;
   gap: 16px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.table-card__meta--error {
+  color: var(--td-error-color);
 }
 
 @media (max-width: 1200px) {

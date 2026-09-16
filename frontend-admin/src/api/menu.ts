@@ -14,43 +14,11 @@ export interface MenuNode {
   children?: MenuNode[]
 }
 
-export interface MenuCreateRequest {
-  parent_id?: number
-  platform: string
-  name: string
-  type?: string
-  path?: string
-  component?: string
-  icon?: string
-  sort_order?: number
-  status?: string
-}
-
-export type MenuUpdateRequest = MenuCreateRequest & { status: string }
-
+// 只读：菜单由后端 seed 定义（backend/internal/pkg/db/db.go 的 SeedMenus()），
+// 管理端不再提供新增/编辑/删除接口（doc102 M0）。
 export function getMenuTree(platform: string): Promise<MenuNode[]> {
   return request.get<MenuNode[]>({
     url: '/menus/tree',
     params: { platform },
-  })
-}
-
-export function createMenu(data: MenuCreateRequest): Promise<MenuNode> {
-  return request.post<MenuNode>({
-    url: '/menus',
-    data,
-  })
-}
-
-export function updateMenu(id: number, data: MenuUpdateRequest): Promise<MenuNode> {
-  return request.put<MenuNode>({
-    url: `/menus/${id}`,
-    data,
-  })
-}
-
-export function deleteMenu(id: number): Promise<string> {
-  return request.delete<string>({
-    url: `/menus/${id}`,
   })
 }

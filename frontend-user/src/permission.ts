@@ -7,7 +7,8 @@ import { useBrandStore } from './store/modules/brand'
 import { useMemberStore } from './store/modules/member'
 import { useMenuStore } from './store/modules/menu'
 
-const whiteList = ['/login', '/register']
+// 独立注册页已并入登录卡片（/login?mode=register），白名单只剩登录页本身。
+const whiteList = ['/login']
 
 export function setupPermission(app: App) {
   router.beforeEach(async (to, from, next) => {

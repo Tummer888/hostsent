@@ -2,19 +2,19 @@
 package handler
 
 import (
-	"errors"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 
-	"hostsent/backend/internal/modules/admin/menu/dto"
 	"hostsent/backend/internal/modules/admin/menu/service"
 	"hostsent/backend/internal/pkg/middleware"
 )
 
+// MenuHandler 菜单接口处理器。
+//
+// 只读：菜单树是 seed（internal/pkg/db 的 SeedMenus）在 menus 表上的投影，
+// 运营侧的新增/编辑/删除入口已下线（doc102 M0），改菜单要改 seed 并发版。
 type MenuHandler struct {
 	menuService service.MenuService
 }
@@ -46,75 +46,4 @@ func (h *MenuHandler) Tree(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": tree, "timestamp": time.Now().Unix()})
-}
-
-// CreateMenu godoc
-// @Summary 创建菜单节点
-// @Tags 菜单管理
-// @Accept json
-// @Produce json
-// @Param request body dto.MenuCreateRequest true "菜单参数"
-// @Success 200 {object} dto.APIResponse[dto.MenuNode]
-// @Router /api/v1/admin/menus [post]
-func (h *MenuHandler) CreateMenu(c *gin.Context) {
-	var req dto.MenuCreateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
-		return
-	}
-	menu, err := h.menuService.Create(c.Request.Context(), req)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": menu, "timestamp": time.Now().Unix()})
-}
-
-// UpdateMenu godoc
-// @Summary 更新菜单节点
-// @Tags 菜单管理
-// @Accept json
-// @Produce json
-// @Param id path int true "菜单ID"
-// @Param request body dto.MenuUpdateRequest true "菜单参数"
-// @Success 200 {object} dto.APIResponse[dto.MenuNode]
-// @Router /api/v1/admin/menus/{id} [put]
-func (h *MenuHandler) UpdateMenu(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	var req dto.MenuUpdateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
-		return
-	}
-	menu, err := h.menuService.Update(c.Request.Context(), id, req)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"code": 40401, "message": "菜单不存在", "timestamp": time.Now().Unix()})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": menu, "timestamp": time.Now().Unix()})
-}
-
-// DeleteMenu godoc
-// @Summary 删除菜单节点
-// @Description 递归删除菜单及其全部子节点
-// @Tags 菜单管理
-// @Produce json
-// @Param id path int true "菜单ID"
-// @Success 200 {object} dto.APIResponse[string]
-// @Router /api/v1/admin/menus/{id} [delete]
-func (h *MenuHandler) DeleteMenu(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err := h.menuService.Delete(c.Request.Context(), id); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"code": 40401, "message": "菜单不存在", "timestamp": time.Now().Unix()})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": "ok", "timestamp": time.Now().Unix()})
 }
