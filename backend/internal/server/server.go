@@ -302,13 +302,28 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		userRepo,
 		jwtIssuer,
 		func(ctx context.Context, userID uint64, amount float64, remark string, operatorID uint64) error {
+			// 符号决定方向：正数入账、负数扣减。钱包只接受正数金额 + direction，
+			// 因此这里拆符号后传绝对值。
+			direction := 1
+			if amount < 0 {
+				direction = -1
+				amount = -amount
+			}
+			adjusted := remark
+			if adjusted == "" {
+				if direction == 1 {
+					adjusted = "后台人工充值"
+				} else {
+					adjusted = "后台人工扣减"
+				}
+			}
 			_, err := walletService.Adjust(ctx, accountdto.AdjustRequest{
 				UserID:    userID,
 				Type:      "adjust",
-				Direction: 1, // 收入
+				Direction: direction,
 				Amount:    amount,
 				BizKey:    fmt.Sprintf("admin-recharge-%d", userID) + fmt.Sprintf("-%d", time.Now().UnixNano()),
-				Remark:    remark,
+				Remark:    adjusted,
 			}, operatorID)
 			return err
 		},
@@ -514,7 +529,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	orderHandler := orderhandler.NewOrderHandler(orderService)
 	userHandler := handler.NewUserHandler(userService,
 		// 为用户创建订单：余额支付并开通，或仅创建待支付
-		func(ctx context.Context, userID uint64, req userdto.AdminCreateOrderRequest) (*userdto.AdminOrderBrief, error) {
+		func(ctx context.Context, userID uint64, req userdto.AdminCreateOrderRequest, operatorID uint64) (*userdto.AdminOrderBrief, error) {
 			product, err := prodCatalogService.FindByID(ctx, req.ProductID)
 			if err != nil {
 				return nil, err
@@ -548,6 +563,9 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 				DiscountSource: "manual",
 				PriceSnapshot:  "[]",
 				Status:         ordermodel.OrderStatusPending,
+				// 代下单的操作人留痕：orders.operator_id 是「最近操作人」，
+				// 后台客服代客下单时指向管理员，用户自助下单为 0。
+				OperatorID: operatorID,
 			}
 			// 后台代下单同样锁定销售归属快照（doc86 §3.4）：代客成交也计入销售的业绩与提成。
 			order.SalesAdminID = salesBundle.customerService.ResolveForNewOrder(ctx, userID)

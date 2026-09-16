@@ -33,13 +33,25 @@ export interface UserInfo {
   user_level_name?: string
   user_level_code?: string
   region?: string
+  avatar?: string
+  /** 用户分层：free / pro … */
+  tier?: string
   last_login_ip?: string
   last_login_ip_region?: string
   oauth_provider?: string
   oauth_providers?: string[]
+  oauth_openid?: string
   balance?: number
   total_consume_amount?: number
   status: string
+  /** 手机/邮箱验证时间；空表示未验证（迁移 042 落列，此前未接出） */
+  phone_verified_at?: string | null
+  email_verified_at?: string | null
+  /** 推广邀请：邀请码、邀请人 ID 与用户名、绑定时间 */
+  invite_code?: string | null
+  inviter_user_id?: number | null
+  inviter_name?: string
+  invited_at?: string | null
   /** 子账号标识（P4-10） */
   is_sub_account?: boolean
   owner_user_id?: number
@@ -83,12 +95,17 @@ export interface UserListResponse {
   meta: UserListMeta
 }
 
+/**
+ * 用户资料部分更新请求：字段全部可选，缺省 = 不修改，显式传空串 = 清空。
+ * 手机/邮箱非必填（库中 14/40 个用户无手机号，标必填会让这些账号无法保存）。
+ */
 export interface UserUpdateRequest {
   username?: string
   real_name?: string
   phone?: string
   email?: string
   region?: string
+  sub_account_remark?: string
   status?: string
   /** 所属用户组：不传表示不修改，0 表示移出分组，其余为组 ID */
   user_group_id?: number
@@ -146,48 +163,66 @@ export interface UserStatsResponse {
   purchased_count: number
 }
 
-export interface UserPermissionItem {
+/** 实例摘要（聚合返回，字段对齐 instances 权威表） */
+export interface UserInstanceBrief {
   id: number
-  name: string
-  code: string
-  type: string
-  path?: string
-}
-
-export interface UserInstanceItem {
-  id: number
+  instance_id: string
   name: string
   region: string
-  specs: string
+  zone: string
+  cpu: number
+  memory: number
+  disk: number
+  os: string
+  public_ip: string
   status: string
-  expire_at: string
+  billing_mode: string
+  lifecycle_stage: string
+  order_id: number | null
+  source_mode: string
+  /** null 表示未设置到期时间，前端显示「未设置」而非 1970-01-01 */
+  expire_at: string | null
+  created_at: string
 }
 
-export interface UserOrderItem {
+/** 订单摘要（权威表 orders） */
+export interface UserOrderBrief {
   id: number
   order_no: string
-  product: string
+  product_name: string
+  final_amount: number
+  status: string
+  pay_method: string
+  renewal_id: number
+  created_at: string
+  paid_at: string | null
+}
+
+/** 账单摘要（权威表 bills） */
+export interface UserBillBrief {
+  id: number
+  bill_no: string
+  billing_month: string
   amount: number
+  bill_type: string
   status: string
   created_at: string
 }
 
-export interface UserBillItem {
-  id: number
-  billing_month: string
-  amount: number
-  status: string
-}
-
-export interface UserTransactionItem {
+/** 资金流水摘要（权威表 wallet_transactions） */
+export interface UserTransactionBrief {
   id: number
   txn_no: string
   type: string
+  direction: number
   amount: number
+  balance_after: number
+  remark: string
   created_at: string
 }
 
-export interface UserTicketItem {
+/** 工单摘要（权威表 tickets） */
+export interface UserTicketBrief {
   id: number
   ticket_no: string
   title: string
@@ -195,16 +230,54 @@ export interface UserTicketItem {
   priority: string
   status: string
   updated_at: string
+  created_at: string
 }
 
+/** 用户绑定的后台角色（roles.scope='admin'），与客户侧权限语义不同 */
+export interface UserRoleBrief {
+  id: number
+  code: string
+  name: string
+  scope: string
+}
+
+/** 详情页各域计数，供 Tab 徽标与统计卡使用 */
+export interface UserDetailSummary {
+  instance_count: number
+  running_instance_count: number
+  order_count: number
+  order_total_amount: number
+  bill_count: number
+  unpaid_bill_count: number
+  transaction_count: number
+  ticket_count: number
+  open_ticket_count: number
+  login_count: number
+  active_session_count: number
+  risk_event_count: number
+  operation_log_count: number
+  verification_count: number
+}
+
+/**
+ * 用户详情聚合响应。
+ *
+ * 各业务域的完整列表由既有分页接口承担（/orders、/tickets、/instances、
+ * /finance/bills …），聚合只给「资料 + 计数 + 近期若干条」。
+ * degraded 记录采集失败的段名，前端据此在对应 Tab 显示「数据暂不可用」。
+ */
 export interface UserDetailAggregateResponse {
   profile: UserInfo
-  permissions: UserPermissionItem[]
-  instances: UserInstanceItem[]
-  orders: UserOrderItem[]
-  bills: UserBillItem[]
-  transactions: UserTransactionItem[]
-  tickets: UserTicketItem[]
+  rbac_roles: UserRoleBrief[]
+  /** 客户侧权限码（sub_account_permissions，固定枚举） */
+  permissions: string[]
+  summary: UserDetailSummary
+  recent_instances: UserInstanceBrief[]
+  recent_orders: UserOrderBrief[]
+  recent_bills: UserBillBrief[]
+  recent_transactions: UserTransactionBrief[]
+  recent_tickets: UserTicketBrief[]
+  degraded: string[]
 }
 
 export interface RoleInfo {
@@ -359,13 +432,9 @@ export function getUserList(params: UserListQuery): Promise<UserListResponse> {
       user_level_id: params.user_level_id,
       user_group_id: params.user_group_id,
       is_sub_account: params.is_sub_account,
+      sales_admin_id: params.sales_admin_id,
+      unassigned_sales: params.unassigned_sales,
     },
-  })
-}
-
-export function getUserDetail(id: string | number): Promise<UserInfo> {
-  return request.get<UserInfo>({
-    url: `/users/${id}`,
   })
 }
 
@@ -428,13 +497,6 @@ export function assignUserRoles(id: string | number, data: AssignRolesRequest): 
 export function getUserDetailAggregate(id: string | number): Promise<UserDetailAggregateResponse> {
   return request.get<UserDetailAggregateResponse>({
     url: `/users/${id}/detail-aggregate`,
-  })
-}
-
-export function updateUserDetail(id: string | number, data: UserUpdateRequest): Promise<UserInfo> {
-  return request.put<UserInfo>({
-    url: `/users/${id}`,
-    data,
   })
 }
 

@@ -1,0 +1,361 @@
+/* ============================================================
+   HostSent · 用户管理模块共享样式
+   所有选择器均以 .users-module 命名空间包裹，避免影响其他模块。
+   统计卡片复用 ../stat-card.css（.users-module 已加入其 :is() 白名单）。
+   ============================================================ */
+
+.users-module {
+  --users-green: var(--color-primary);
+  --users-green-hover: var(--td-brand-color-8);
+  --users-green-soft: var(--td-brand-color-1);
+  --users-green-border: var(--td-brand-color-2);
+}
+
+/* 根元素同时带 .page-body 与 .users-module，两选择器命中同一元素时
+   后代写法（.users-module .page-body）不会生效，必须直接写给 .users-module。 */
+.users-module.page-body,
+.users-module.page-body .tabs-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.users-module .tabs-section {
+  padding-top: var(--space-md);
+}
+
+/* ---------- 通用卡片 ---------- */
+.users-module .surface-card {
+  position: relative;
+  border-radius: var(--hs-radius-lg);
+  background: var(--hs-surface-1);
+  box-shadow: none;
+  transition: border-color var(--hs-duration-fast);
+}
+
+.users-module .surface-card:hover {
+  border-color: var(--td-brand-color-3);
+}
+
+/* ---------- 页头 ---------- */
+.users-module .page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  padding: var(--space-lg) var(--space-xl);
+  flex-wrap: wrap;
+  overflow: hidden;
+}
+
+.users-module .page-header__main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.users-module .page-header__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.users-module .page-header__chip {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--hs-radius-xl);
+  background: linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8));
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.users-module .page-header__avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.users-module .page-header__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+
+.users-module .page-header__title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.users-module .page-header__desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-muted-foreground);
+}
+
+.users-module .detail-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+/* ---------- 卡片壳 ---------- */
+.users-module .filter-card,
+.users-module .table-card {
+  padding: var(--space-lg) 20px;
+}
+
+.users-module .table-card__head,
+.users-module .filter-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.users-module .card-title {
+  position: relative;
+  margin: 0;
+  padding-left: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+
+.users-module .card-title::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--users-green), var(--td-brand-color-8));
+}
+
+.users-module .table-card__meta {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+/* ---------- 页面级统计卡栅格 ---------- */
+.users-module .stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+/* ---------- 面板内局部统计（余额/冻结/累计收支等） ---------- */
+.users-module .mini-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.users-module .mini-stat {
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--hs-radius-md);
+  background: var(--hs-surface-2, var(--td-bg-color-secondarycontainer));
+}
+
+.users-module .mini-stat__label {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.users-module .mini-stat__value {
+  margin-top: 4px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.users-module .mini-stat__value--income {
+  color: var(--td-success-color-6, #2ba471);
+}
+
+.users-module .mini-stat__value--expense {
+  color: var(--td-error-color-6, #d54941);
+}
+
+/* ---------- 单元格辅助 ---------- */
+.users-module .cell-strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+
+.users-module .cell-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+  word-break: break-all;
+}
+
+.users-module .cell-muted {
+  font-size: 12px;
+  color: var(--color-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.users-module .cell-mono {
+  font-family: var(--hs-font-mono);
+  font-size: 12px;
+  color: var(--color-foreground);
+  word-break: break-all;
+}
+
+.users-module .cell-error {
+  font-size: 12px;
+  color: var(--color-error, #ef4444);
+}
+
+.users-module .time-text {
+  font-size: 12px;
+  color: var(--color-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.users-module .amount-income {
+  color: var(--td-success-color-6, #2ba471);
+  font-variant-numeric: tabular-nums;
+}
+
+.users-module .amount-expense {
+  color: var(--td-error-color-6, #d54941);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 标签组 ---------- */
+.users-module .tag-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.users-module .section-label {
+  margin-bottom: var(--space-sm);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+}
+
+.users-module .section-block + .section-block {
+  margin-top: var(--space-xl);
+}
+
+/* ---------- 面板内部子 Tab ---------- */
+.users-module .sub-tabs {
+  margin-top: var(--space-xs);
+}
+
+/* ---------- 降级提示 ---------- */
+.users-module .degraded-tip {
+  margin-bottom: var(--space-md);
+}
+
+/* ---------- 详情描述块 ---------- */
+.users-module .detail-desc {
+  margin-top: var(--space-xs);
+}
+
+.users-module .empty-state {
+  padding: var(--space-xl) var(--space-md);
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-muted-foreground);
+}
+
+.users-module .empty-state--error {
+  color: var(--color-error, #ef4444);
+}
+
+.users-module .empty-state--compact {
+  padding: var(--space-md);
+}
+
+/* ---------- TDesign 细节对齐 ---------- */
+.users-module .t-table__th {
+  background: var(--users-green-soft) !important;
+  color: var(--color-foreground) !important;
+  border-bottom-color: var(--users-green-border) !important;
+  font-weight: 600 !important;
+}
+
+.users-module .t-table__tr--hover > .t-table__td,
+.users-module .t-table__row--hover > .t-table__td {
+  background: rgba(22, 163, 74, 0.035) !important;
+  transition: background-color var(--hs-duration-fast);
+}
+
+.users-module .t-button--theme-primary {
+  border-color: var(--users-green);
+  background-color: var(--users-green);
+}
+
+.users-module .t-button--theme-primary:hover,
+.users-module .t-button--theme-primary:focus-visible {
+  border-color: var(--users-green-hover);
+  background-color: var(--users-green-hover);
+}
+
+.users-module .t-input.t-is-focused,
+.users-module .t-input--focused,
+.users-module .t-textarea__inner:focus,
+.users-module .t-input-number.t-is-focused,
+.users-module .t-select-input.t-is-focused {
+  border-color: var(--users-green) !important;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.1) !important;
+}
+
+.users-module .t-pagination__number.t-is-current {
+  color: #fff;
+  border-color: var(--users-green);
+  background: var(--users-green);
+}
+
+.users-module .t-table__pagination {
+  padding-top: var(--space-md);
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 1400px) {
+  .users-module .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .users-module .page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .users-module .detail-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 768px) {
+  .users-module .stat-grid,
+  .users-module .mini-stats {
+    grid-template-columns: 1fr;
+  }
+}

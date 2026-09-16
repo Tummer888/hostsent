@@ -21,6 +21,8 @@ type UserRepository interface {
 	UpdateStatus(ctx context.Context, id uint64, status string) error
 	UpdatePassword(ctx context.Context, id uint64, passwordHash string) error
 	GetRoles(ctx context.Context, userID uint64) ([]model.Role, error)
+	// RolesByUserIDs 批量查询 userID → 角色列表，替换列表页逐行 GetRoles 的 N+1。
+	RolesByUserIDs(ctx context.Context, ids []uint64) (map[uint64][]model.Role, error)
 	SetRoles(ctx context.Context, userID uint64, roleIDs []uint64) error
 	Stats(ctx context.Context) (*model.UserStats, error)
 	RegionStats(ctx context.Context) ([]model.RegionStat, error)
@@ -60,10 +62,11 @@ func (r *userRepository) Delete(ctx context.Context, id uint64) error {
 func (r *userRepository) FindByID(ctx context.Context, id uint64) (*model.User, error) {
 	var user model.User
 	if err := r.db.WithContext(ctx).
-		Select("users.*, user_groups.name AS user_group_name, user_levels.name AS user_level_name, user_levels.code AS user_level_code, owner.username AS owner_name, COALESCE(NULLIF(sales.real_name, ''), sales.username, '') AS sales_admin_name").
+		Select("users.*, user_groups.name AS user_group_name, user_levels.name AS user_level_name, user_levels.code AS user_level_code, owner.username AS owner_name, inviter.username AS inviter_name, COALESCE(NULLIF(sales.real_name, ''), sales.username, '') AS sales_admin_name").
 		Joins("LEFT JOIN user_groups ON user_groups.id = users.user_group_id").
 		Joins("LEFT JOIN user_levels ON user_levels.id = users.user_level_id").
 		Joins("LEFT JOIN users AS owner ON owner.id = users.owner_user_id").
+		Joins("LEFT JOIN users AS inviter ON inviter.id = users.inviter_user_id").
 		Joins("LEFT JOIN admins AS sales ON sales.id = users.sales_admin_id").
 		First(&user, "users.id = ?", id).Error; err != nil {
 		return nil, err
@@ -135,10 +138,11 @@ func (r *userRepository) List(ctx context.Context, query dto.UserListQuery) ([]m
 	var users []model.User
 	// total_consume_amount 自 P3-01 起为 users 表落列字段（消费升级服务维护），无需再实时聚合。
 	if err := base.
-		Select("users.*, user_groups.name AS user_group_name, user_levels.name AS user_level_name, user_levels.code AS user_level_code, owner.username AS owner_name, COALESCE(NULLIF(sales.real_name, ''), sales.username, '') AS sales_admin_name").
+		Select("users.*, user_groups.name AS user_group_name, user_levels.name AS user_level_name, user_levels.code AS user_level_code, owner.username AS owner_name, inviter.username AS inviter_name, COALESCE(NULLIF(sales.real_name, ''), sales.username, '') AS sales_admin_name").
 		Joins("LEFT JOIN user_groups ON user_groups.id = users.user_group_id").
 		Joins("LEFT JOIN user_levels ON user_levels.id = users.user_level_id").
 		Joins("LEFT JOIN users AS owner ON owner.id = users.owner_user_id").
+		Joins("LEFT JOIN users AS inviter ON inviter.id = users.inviter_user_id").
 		Joins("LEFT JOIN admins AS sales ON sales.id = users.sales_admin_id").
 		Order("users.id DESC").
 		Offset((page - 1) * pageSize).
@@ -147,16 +151,26 @@ func (r *userRepository) List(ctx context.Context, query dto.UserListQuery) ([]m
 		return nil, 0, err
 	}
 
+	// 角色一次性批量取回：原实现每行调用一次 GetRoles，翻页 10 行即 10 次额外查询。
+	roleMap, err := r.RolesByUserIDs(ctx, userIDs(users))
+	if err != nil {
+		return nil, 0, err
+	}
 	for i := range users {
-		roles, err := r.GetRoles(ctx, users[i].ID)
-		if err != nil {
-			return nil, 0, err
-		}
+		roles := roleMap[users[i].ID]
 		users[i].Role = firstRoleCode(roles)
 		users[i].Roles = roleCodes(roles)
 	}
 
 	return users, total, nil
+}
+
+func userIDs(users []model.User) []uint64 {
+	ids := make([]uint64, 0, len(users))
+	for i := range users {
+		ids = append(ids, users[i].ID)
+	}
+	return ids
 }
 
 func applyUserFilters(db *gorm.DB, query dto.UserListQuery) *gorm.DB {
@@ -261,6 +275,32 @@ func (r *userRepository) GetRoles(ctx context.Context, userID uint64) ([]model.R
 		return nil, err
 	}
 	return roles, nil
+}
+
+// RolesByUserIDs 批量查询多个用户的角色（列表页专用，消除 N+1）。
+// 返回的 map 只包含有角色的用户；无角色用户取到的是 nil 切片，调用方按空处理。
+func (r *userRepository) RolesByUserIDs(ctx context.Context, ids []uint64) (map[uint64][]model.Role, error) {
+	result := make(map[uint64][]model.Role, len(ids))
+	if len(ids) == 0 {
+		return result, nil
+	}
+	var rows []struct {
+		UserID uint64 `gorm:"column:user_id"`
+		model.Role
+	}
+	if err := r.db.WithContext(ctx).
+		Table("user_roles").
+		Select("user_roles.user_id AS user_id, roles.*").
+		Joins("JOIN roles ON roles.id = user_roles.role_id").
+		Where("user_roles.user_id IN ?", ids).
+		Order("user_roles.user_id ASC, roles.id ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		result[row.UserID] = append(result[row.UserID], row.Role)
+	}
+	return result, nil
 }
 
 func (r *userRepository) SetRoles(ctx context.Context, userID uint64, roleIDs []uint64) error {

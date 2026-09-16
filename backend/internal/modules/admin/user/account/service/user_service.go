@@ -3,13 +3,21 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/bcrypt"
 
 	"hostsent/backend/internal/modules/admin/user/account/dto"
 	"hostsent/backend/internal/modules/admin/user/account/model"
 	"hostsent/backend/internal/modules/admin/user/account/repository"
 	pkgauth "hostsent/backend/internal/pkg/auth"
+)
+
+// 用户资料更新的哨兵错误：handler 据此映射 409，而不是把 GORM 原文抛成 500。
+var (
+	ErrUsernameTaken = errors.New("用户名已被占用")
+	ErrEmailTaken    = errors.New("邮箱已被占用")
 )
 
 type UserService interface {
@@ -133,15 +141,36 @@ func (s *userService) FindByID(ctx context.Context, id uint64) (*dto.UserInfo, e
 	return ptrUserInfo(*user), nil
 }
 
+// Update 用户资料部分更新：nil 字段不改，显式空串清空。
+//
+// 原实现是无条件全量赋值（`user.Username = req.Username` …），配合 required 校验
+// 导致「只想改个昵称」也必须把手机邮箱全部带上，且 real_name/region 从未落库。
 func (s *userService) Update(ctx context.Context, id uint64, req dto.UserUpdateRequest) (*dto.UserInfo, error) {
 	user, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	user.Username = req.Username
-	user.Email = req.Email
-	user.Phone = req.Phone
-	user.Status = req.Status
+	if req.Username != nil {
+		user.Username = strings.TrimSpace(*req.Username)
+	}
+	if req.RealName != nil {
+		user.RealName = strings.TrimSpace(*req.RealName)
+	}
+	if req.Email != nil {
+		user.Email = strings.TrimSpace(*req.Email)
+	}
+	if req.Phone != nil {
+		user.Phone = strings.TrimSpace(*req.Phone)
+	}
+	if req.Region != nil {
+		user.Region = strings.TrimSpace(*req.Region)
+	}
+	if req.SubAccountRemark != nil {
+		user.SubAccountRemark = strings.TrimSpace(*req.SubAccountRemark)
+	}
+	if req.Status != nil && strings.TrimSpace(*req.Status) != "" {
+		user.Status = strings.TrimSpace(*req.Status)
+	}
 	// nil 表示不修改分组；0 表示移出分组；其余为组 ID。
 	if req.UserGroupID != nil {
 		if *req.UserGroupID == 0 {
@@ -150,14 +179,53 @@ func (s *userService) Update(ctx context.Context, id uint64, req dto.UserUpdateR
 			user.UserGroupID = req.UserGroupID
 		}
 	}
+	if user.Username == "" {
+		return nil, errors.New("用户名不能为空")
+	}
+	if user.Email == "" {
+		return nil, errors.New("邮箱不能为空")
+	}
 	if err := s.repo.Update(ctx, user); err != nil {
-		return nil, err
+		return nil, mapUserWriteErr(err, user.Username, user.Email)
 	}
 	fresh, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	return ptrUserInfo(*fresh), nil
+}
+
+// mapUserWriteErr 把用户名/邮箱唯一索引冲突翻译成可读的哨兵错误。
+// 用户名与邮箱各有唯一索引，命中时 Postgres 返回 23505，约束名在 Detail 里。
+func mapUserWriteErr(err error, username, email string) error {
+	if !isUniqueViolation(err) {
+		return err
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "idx_users_email"):
+		return ErrEmailTaken
+	case strings.Contains(msg, "idx_users_username"):
+		return ErrUsernameTaken
+	}
+	// 约束名不可得时按内容兜底：错误文本里带着冲突值。
+	if email != "" && strings.Contains(msg, email) {
+		return ErrEmailTaken
+	}
+	return ErrUsernameTaken
+}
+
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23505"
+	}
+	// 找不到 pgx 错误类型时退回文本匹配（驱动被替换时不至于失效）。
+	msg := err.Error()
+	return strings.Contains(msg, "SQLSTATE 23505") || strings.Contains(msg, "duplicate key value")
 }
 
 func (s *userService) UpdateStatus(ctx context.Context, id uint64, status string) error {
@@ -226,12 +294,21 @@ func toUserInfo(user model.User) dto.UserInfo {
 		UserLevelName:      user.UserLevelName,
 		UserLevelCode:      user.UserLevelCode,
 		Region:             user.Region,
+		Avatar:             user.Avatar,
+		Tier:               user.Tier,
 		LastLoginIP:        user.LastLoginIP,
 		LastLoginIPRegion:  user.LastLoginIPRegion,
 		OAuthProvider:      user.OAuthProvider,
+		OAuthOpenID:        user.OAuthOpenID,
 		Balance:            user.Balance,
 		TotalConsumeAmount: user.TotalConsumeAmount,
 		Status:             user.Status,
+		PhoneVerifiedAt:    user.PhoneVerifiedAt,
+		EmailVerifiedAt:    user.EmailVerifiedAt,
+		InviteCode:         user.InviteCode,
+		InviterUserID:      user.InviterUserID,
+		InviterName:        user.InviterName,
+		InvitedAt:          user.InvitedAt,
 		IsSubAccount:       user.IsSubAccount,
 		OwnerUserID:        user.OwnerUserID,
 		OwnerName:          user.OwnerName,
@@ -239,6 +316,7 @@ func toUserInfo(user model.User) dto.UserInfo {
 		SalesAdminID:       user.SalesAdminID,
 		SalesAdminName:     user.SalesAdminName,
 		CreatedAt:          user.CreatedAt,
+		UpdatedAt:          user.UpdatedAt,
 		LastLoginAt:        user.LastLoginAt,
 	}
 }
@@ -312,8 +390,16 @@ func (s *userService) Impersonate(ctx context.Context, id uint64) (*dto.Imperson
 	return &dto.ImpersonateResponse{Token: token, UserInfo: *info}, nil
 }
 
-// Recharge 用户充值（人工调账），委托给注入的 Recharger。
+// ErrInvalidAdjustAmount 调账金额为 0：既不是充值也不是扣减，视为误操作。
+var ErrInvalidAdjustAmount = errors.New("调账金额不能为 0")
+
+// Recharge 用户钱包人工调账，委托给注入的 Recharger。
+// 金额为正表示入账，为负表示扣减 —— 详情页的「调整余额」需要双向能力，
+// 原先固定 direction=1，扣减只能靠负数的语义歧义绕过去。
 func (s *userService) Recharge(ctx context.Context, id uint64, amount float64, remark string, operatorID uint64) error {
+	if amount == 0 {
+		return ErrInvalidAdjustAmount
+	}
 	if s.recharge == nil {
 		return errors.New("充值能力未配置")
 	}

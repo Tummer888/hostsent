@@ -135,6 +135,8 @@ export interface AuditLogListQuery extends Record<string, unknown> {
 export interface RiskEventListQuery extends Record<string, unknown> {
   page?: number
   page_size?: number
+  /** 按用户过滤（后端 applyRiskEventFilters 支持；缺失时该参数会被静默忽略） */
+  user_id?: number
   risk_type?: string
   risk_level?: string
   status?: string

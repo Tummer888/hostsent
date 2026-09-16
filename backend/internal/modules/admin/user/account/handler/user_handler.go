@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,10 +15,11 @@ import (
 type UserHandler struct {
 	userService service.UserService
 	// createOrder 为指定用户创建订单（余额支付/仅创建），由装配层注入。
-	createOrder func(ctx context.Context, userID uint64, req dto.AdminCreateOrderRequest) (*dto.AdminOrderBrief, error)
+	// operatorID 是当前管理员 ID，落到 orders.operator_id 供后续追溯「谁代下的单」。
+	createOrder func(ctx context.Context, userID uint64, req dto.AdminCreateOrderRequest, operatorID uint64) (*dto.AdminOrderBrief, error)
 }
 
-func NewUserHandler(userService service.UserService, createOrder func(ctx context.Context, userID uint64, req dto.AdminCreateOrderRequest) (*dto.AdminOrderBrief, error)) *UserHandler {
+func NewUserHandler(userService service.UserService, createOrder func(ctx context.Context, userID uint64, req dto.AdminCreateOrderRequest, operatorID uint64) (*dto.AdminOrderBrief, error)) *UserHandler {
 	return &UserHandler{userService: userService, createOrder: createOrder}
 }
 
@@ -115,10 +115,13 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 // @Success 200 {object} dto.APIResponse[dto.UserInfo]
 // @Router /api/v1/admin/users/{id} [get]
 func (h *UserHandler) GetUser(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUserID(c)
+	if !ok {
+		return
+	}
 	user, err := h.userService.FindByID(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		respondUserErr(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": user, "timestamp": time.Now().Unix()})
@@ -133,10 +136,13 @@ func (h *UserHandler) GetUser(c *gin.Context) {
 // @Success 200 {object} dto.APIResponse[dto.SubAccountMemberListResponse]
 // @Router /api/v1/admin/users/{id}/members [get]
 func (h *UserHandler) ListMembers(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUserID(c)
+	if !ok {
+		return
+	}
 	result, err := h.userService.ListMembers(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		respondUserErr(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": result, "timestamp": time.Now().Unix()})
@@ -153,15 +159,18 @@ func (h *UserHandler) ListMembers(c *gin.Context) {
 // @Success 200 {object} dto.APIResponse[dto.UserInfo]
 // @Router /api/v1/admin/users/{id} [put]
 func (h *UserHandler) UpdateUser(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUserID(c)
+	if !ok {
+		return
+	}
 	var req dto.UserUpdateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		abortBadRequest(c, err.Error())
 		return
 	}
 	user, err := h.userService.Update(c.Request.Context(), id, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		respondUserErr(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": user, "timestamp": time.Now().Unix()})
@@ -178,14 +187,17 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 // @Success 200 {object} dto.APIResponse[string]
 // @Router /api/v1/admin/users/{id}/status [patch]
 func (h *UserHandler) UpdateUserStatus(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUserID(c)
+	if !ok {
+		return
+	}
 	var req dto.UserStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		abortBadRequest(c, err.Error())
 		return
 	}
 	if err := h.userService.UpdateStatus(c.Request.Context(), id, req.Status); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		respondUserErr(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": "ok", "timestamp": time.Now().Unix()})
@@ -202,14 +214,17 @@ func (h *UserHandler) UpdateUserStatus(c *gin.Context) {
 // @Success 200 {object} dto.APIResponse[string]
 // @Router /api/v1/admin/users/{id}/reset-password [post]
 func (h *UserHandler) ResetPassword(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUserID(c)
+	if !ok {
+		return
+	}
 	var req dto.ResetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		abortBadRequest(c, err.Error())
 		return
 	}
 	if err := h.userService.ResetPassword(c.Request.Context(), id, req.Password); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		respondUserErr(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": "ok", "timestamp": time.Now().Unix()})
@@ -226,14 +241,17 @@ func (h *UserHandler) ResetPassword(c *gin.Context) {
 // @Success 200 {object} dto.APIResponse[string]
 // @Router /api/v1/admin/users/{id}/roles [post]
 func (h *UserHandler) AssignRoles(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUserID(c)
+	if !ok {
+		return
+	}
 	var req dto.AssignRolesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		abortBadRequest(c, err.Error())
 		return
 	}
 	if err := h.userService.AssignRoles(c.Request.Context(), id, req.RoleIDs); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		respondUserErr(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": "ok", "timestamp": time.Now().Unix()})
@@ -247,7 +265,10 @@ func (h *UserHandler) AssignRoles(c *gin.Context) {
 // @Success 200 {object} dto.APIResponse[dto.ImpersonateResponse]
 // @Router /api/v1/admin/users/{id}/impersonate [post]
 func (h *UserHandler) Impersonate(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUserID(c)
+	if !ok {
+		return
+	}
 	resp, err := h.userService.Impersonate(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 40001, "message": err.Error(), "timestamp": time.Now().Unix()})
@@ -265,10 +286,13 @@ func (h *UserHandler) Impersonate(c *gin.Context) {
 // @Success 200 {object} dto.APIResponse[string]
 // @Router /api/v1/admin/users/{id}/recharge [post]
 func (h *UserHandler) Recharge(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUserID(c)
+	if !ok {
+		return
+	}
 	var req dto.RechargeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		abortBadRequest(c, err.Error())
 		return
 	}
 	operatorID := uint64(0)
@@ -276,7 +300,7 @@ func (h *UserHandler) Recharge(c *gin.Context) {
 		operatorID = claims.AdminID
 	}
 	if err := h.userService.Recharge(c.Request.Context(), id, req.Amount, req.Remark, operatorID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		respondUserErr(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": "ok", "timestamp": time.Now().Unix()})
@@ -291,24 +315,26 @@ func (h *UserHandler) Recharge(c *gin.Context) {
 // @Success 200 {object} dto.APIResponse[dto.AdminOrderBrief]
 // @Router /api/v1/admin/users/{id}/orders [post]
 func (h *UserHandler) CreateOrder(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, ok := parseUserID(c)
+	if !ok {
+		return
+	}
 	var req dto.AdminCreateOrderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		abortBadRequest(c, err.Error())
+		return
+	}
+	if h.createOrder == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": "添加订单能力未配置", "timestamp": time.Now().Unix()})
 		return
 	}
 	operatorID := uint64(0)
 	if claims, ok := middleware.GetAdminClaims(c); ok {
 		operatorID = claims.AdminID
 	}
-	_ = operatorID
-	if h.createOrder == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": "添加订单能力未配置", "timestamp": time.Now().Unix()})
-		return
-	}
-	brief, err := h.createOrder(c.Request.Context(), id, req)
+	brief, err := h.createOrder(c.Request.Context(), id, req, operatorID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		respondUserErr(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": brief, "timestamp": time.Now().Unix()})

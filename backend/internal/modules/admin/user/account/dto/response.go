@@ -16,12 +16,24 @@ type UserInfo struct {
 	UserLevelName      string   `json:"user_level_name"`
 	UserLevelCode      string   `json:"user_level_code"`
 	Region             string   `json:"region"`
+	Avatar             string   `json:"avatar"`
+	Tier               string   `json:"tier"`
 	LastLoginIP        string   `json:"last_login_ip"`
 	LastLoginIPRegion  string   `json:"last_login_ip_region"`
 	OAuthProvider      string   `json:"oauth_provider"`
+	OAuthOpenID        string   `json:"oauth_openid"`
 	Balance            float64  `json:"balance"`
 	TotalConsumeAmount float64  `json:"total_consume_amount"`
 	Status             string   `json:"status"`
+	// 手机/邮箱验证时间（nil = 未验证）。迁移 042 已落列，此前从未接出，
+	// 详情页据此渲染认证徽章，而不是靠"字段非空"猜测。
+	PhoneVerifiedAt *time.Time `json:"phone_verified_at"`
+	EmailVerifiedAt *time.Time `json:"email_verified_at"`
+	// 邀请关系（推广）：邀请码、邀请人 ID 与用户名、绑定时间。
+	InviteCode    *string    `json:"invite_code"`
+	InviterUserID *uint64    `json:"inviter_user_id"`
+	InviterName   string     `json:"inviter_name"`
+	InvitedAt     *time.Time `json:"invited_at"`
 	// 子账号标识（P4-10）：是否子账号、归属主账号 ID 与用户名、成员备注。
 	IsSubAccount     bool    `json:"is_sub_account"`
 	OwnerUserID      *uint64 `json:"owner_user_id"`
@@ -31,6 +43,7 @@ type UserInfo struct {
 	SalesAdminID   uint64     `json:"sales_admin_id"`
 	SalesAdminName string     `json:"sales_admin_name"`
 	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 	LastLoginAt    *time.Time `json:"last_login_at,omitempty"`
 }
 

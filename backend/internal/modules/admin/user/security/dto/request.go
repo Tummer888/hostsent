@@ -27,8 +27,11 @@ type AuditLogListQuery struct {
 }
 
 type RiskEventListQuery struct {
-	Page      int    `form:"page"`
-	PageSize  int    `form:"page_size"`
+	Page     int `form:"page"`
+	PageSize int `form:"page_size"`
+	// UserID 按用户过滤；缺这一项时 /security/risk-events?user_id=N 会被静默忽略，
+	// 返回全量数据 —— 详情页「安全」Tab 因此拿到的是别人的风险事件。
+	UserID    uint64 `form:"user_id"`
 	RiskType  string `form:"risk_type"`
 	RiskLevel string `form:"risk_level"`
 	Status    string `form:"status"`

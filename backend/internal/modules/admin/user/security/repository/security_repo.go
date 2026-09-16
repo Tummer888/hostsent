@@ -234,6 +234,9 @@ func applyAuditLogFilters(db *gorm.DB, query dto.AuditLogListQuery) *gorm.DB {
 }
 
 func applyRiskEventFilters(db *gorm.DB, query dto.RiskEventListQuery) *gorm.DB {
+	if query.UserID > 0 {
+		db = db.Where("user_id = ?", query.UserID)
+	}
 	if query.RiskType != "" {
 		db = db.Where("risk_type = ?", query.RiskType)
 	}

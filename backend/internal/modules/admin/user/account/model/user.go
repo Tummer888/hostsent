@@ -13,7 +13,15 @@ type User struct {
 	Region        string  `gorm:"column:region;size:32"`
 	OAuthProvider string  `gorm:"column:oauth_provider;size:32"`
 	OAuthOpenID   string  `gorm:"column:oauth_openid;size:128"`
-	Balance       float64 `gorm:"column:balance;type:decimal(15,2);not null;default:0"`
+	// Avatar 用户头像 URL；与用户中心模型（uc/auth/model.User）共用 users.avatar 列。
+	Avatar string `gorm:"size:255"`
+	// Tier 用户分层（free/pro…）；与用户中心模型共用 users.tier 列。
+	Tier string `gorm:"size:32;not null;default:free"`
+	// PhoneVerifiedAt / EmailVerifiedAt 手机与邮箱的验证时间，为空表示未验证（迁移 042 增列）。
+	// 详情页据此渲染「已验证 / 未验证」徽章 —— 这两个列此前从未接出，属于"有数据但看不见"。
+	PhoneVerifiedAt *time.Time `gorm:"column:phone_verified_at"`
+	EmailVerifiedAt *time.Time `gorm:"column:email_verified_at"`
+	Balance         float64    `gorm:"column:balance;type:decimal(15,2);not null;default:0"`
 	UserGroupID   *uint64 `gorm:"column:user_group_id"`
 	// UserGroupName 用户组名称；由列表/详情查询的 LEFT JOIN 别名带出，非持久化。
 	// 只读权限（->）而非 gorm:"-"：后者会让 GORM 完全忽略该字段，联表别名无处可落，
@@ -38,6 +46,8 @@ type User struct {
 	InviterUserID *uint64 `gorm:"column:inviter_user_id;index:idx_users_inviter_user_id"`
 	// InvitedAt 绑定邀请关系的时间。
 	InvitedAt *time.Time `gorm:"column:invited_at"`
+	// InviterName 邀请人用户名；详情查询联表带出，非持久化（只读权限同上）。
+	InviterName string `gorm:"->;-:migration"`
 	// SalesAdminID 当前归属销售（admins.id），0 表示未归属；权威数据是 staff_sales_relations，
 	// 本列只是快照（doc86 §1.3），归属变更时由销售模块回写。
 	SalesAdminID uint64 `gorm:"column:sales_admin_id;not null;default:0;index:idx_users_sales_admin"`

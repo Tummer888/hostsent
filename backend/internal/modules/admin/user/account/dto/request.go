@@ -30,11 +30,19 @@ type UserCreateRequest struct {
 	UserGroupID *uint64  `json:"user_group_id"`
 }
 
+// UserUpdateRequest 用户资料部分更新。
+//
+// 全部字段为指针：nil = 不修改，显式传空串 = 清空该字段。
+// 原实现把 Username/Email/Phone/Status 全部标 required，而库中 40 个用户有 14 个
+// 无手机号 —— 这些账号在详情页点保存必然 400。手机/邮箱改为「填了就校验、空则存空」。
 type UserUpdateRequest struct {
-	Username string `json:"username" binding:"required"`
-	Email    string `json:"email" binding:"required"`
-	Phone    string `json:"phone" binding:"required"`
-	Status   string `json:"status" binding:"required"`
+	Username         *string `json:"username" binding:"omitempty,min=3,max=64"`
+	RealName         *string `json:"real_name" binding:"omitempty,max=64"`
+	Email            *string `json:"email" binding:"omitempty,email,max=128"`
+	Phone            *string `json:"phone" binding:"omitempty,max=32"`
+	Region           *string `json:"region" binding:"omitempty,max=32"`
+	SubAccountRemark *string `json:"sub_account_remark" binding:"omitempty,max=64"`
+	Status           *string `json:"status" binding:"omitempty,oneof=active disabled pending cancelled"`
 	// UserGroupID 调整用户组：nil 表示不修改，0 表示移出分组（未分组），其余为组 ID。
 	UserGroupID *uint64 `json:"user_group_id"`
 }
@@ -91,10 +99,11 @@ type PermissionUpdateRequest struct {
 	Status    string `json:"status" binding:"required"`
 }
 
-// RechargeRequest 用户充值（人工调账）请求
+// RechargeRequest 用户钱包人工调账请求。
+// Amount 为正表示入账（充值/补偿），为负表示扣减（追回）；0 会被服务拒绝。
 type RechargeRequest struct {
 	Amount float64 `json:"amount" binding:"required"`
-	Remark string  `json:"remark"`
+	Remark string  `json:"remark" binding:"max=255"`
 }
 
 // AdminCreateOrderRequest 为指定用户创建订单。

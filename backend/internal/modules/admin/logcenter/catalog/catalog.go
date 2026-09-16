@@ -133,7 +133,9 @@ var sources = []Source{
 			col("created_at", "时间", "time", 170),
 		},
 		SearchColumns: []string{"actor_name", "module", "action", "target"},
-		FilterColumns: map[string]string{"actor_user_id": "actor_user_id", "module": "module", "action": "action"},
+		// account_user_id 是数据归属账号（成员在谁名下操作），actor_user_id 是操作人本人。
+		// 用户详情页的「操作日志」Tab 按归属账号过滤，缺这一项时过滤器被静默忽略。
+		FilterColumns: map[string]string{"actor_user_id": "actor_user_id", "account_user_id": "account_user_id", "module": "module", "action": "action"},
 	},
 	{
 		Key: "security_audit", DisplayName: "安全审计日志", Group: GroupAudit,

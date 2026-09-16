@@ -87,12 +87,15 @@ func AutoMigrate(db *gorm.DB) error {
 		&usermodel.Role{},
 		&usermodel.Permission{},
 		// 冗余聚合表 user_instances/user_bills/user_transactions 已于 Phase 2
-		// 将读路径收敛到实例/账务权威表并退役（见 migrations 013/014）：
+		// 将读路径收敛到实例/账务权威表并退役（见 migrations 013/014）；
+		// user_orders/user_tickets 同批退役（见 migrations 049）：
 		//   &usermodel.UserInstance{},
 		//   &usermodel.UserBill{},
 		//   &usermodel.UserTransaction{},
-		&usermodel.UserOrder{},
-		&usermodel.UserTicket{},
+		//   &usermodel.UserOrder{},
+		//   &usermodel.UserTicket{},
+		// 不要把 UserOrder/UserTicket 放回 AutoMigrate：每次启动都会重建空的
+		// user_tickets 表，覆盖 migrateLegacyTickets 的归档重命名，使退役表残骸长存。
 		&levelmodel.UserLevel{},
 		&levelmodel.UserLevelChangeLog{},
 		&verificationmodel.VerificationApplication{},
@@ -305,7 +308,18 @@ func migrateLegacyTickets(db *gorm.DB) error {
 		return nil
 	}
 
-	var legacy []usermodel.UserTicket
+	// 扫描目标用局部结构体：UserTicket 模型已随旧表退役一并删除（migrations/049），
+	// 这里只是为了把还可能存在的存量数据搬进 tickets，不需要一个可被 AutoMigrate 的模型。
+	var legacy []struct {
+		TicketNo  string    `gorm:"column:ticket_no"`
+		UserID    uint64    `gorm:"column:user_id"`
+		Title     string    `gorm:"column:title"`
+		Category  string    `gorm:"column:category"`
+		Priority  string    `gorm:"column:priority"`
+		Status    string    `gorm:"column:status"`
+		CreatedAt time.Time `gorm:"column:created_at"`
+		UpdatedAt time.Time `gorm:"column:updated_at"`
+	}
 	if err := db.Table("user_tickets").Find(&legacy).Error; err != nil {
 		return err
 	}
@@ -1414,11 +1428,11 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"resource:instance",
 			"instance:console",
 		},
-		"user": {
-			"system:user",
-			"system:user:list",
-			"user:detail",
-		},
+		// user：客户侧角色。客户不登录后台，不持有任何后台权限码。
+		// 历史种子曾给这个角色挂上 system:user / system:user:list / user:detail，
+		// 导致客户账号详情页渲染出后台权限节点。此处清空；既有绑定由
+		// migrations/049 清理（seed 只增不删）。
+		"user": {},
 	}
 
 	roleIDs := make(map[string]uint64, len(rolePermissionCodes))
@@ -1917,21 +1931,9 @@ func seedDemoUserDetails(tx *gorm.DB) error {
 	}
 
 	// user_instances 已退役（Phase 2 013）：其聚合读路径改走权威表 instances。
-
-	var orderCount int64
-	if err := tx.Model(&usermodel.UserOrder{}).Where("user_id = ?", target.ID).Count(&orderCount).Error; err != nil {
-		return err
-	}
-	if orderCount == 0 {
-		orders := []usermodel.UserOrder{
-			{UserID: target.ID, OrderNo: "OD202608180031", Product: "高主频云主机 4C8G", Amount: 688, Status: "paid"},
-			{UserID: target.ID, OrderNo: "OD202607260014", Product: "对象存储流量包", Amount: 199, Status: "completed"},
-			{UserID: target.ID, OrderNo: "OD202607120003", Product: "云主机续费 2C4G", Amount: 366, Status: "pending"},
-		}
-		if err := tx.Create(&orders).Error; err != nil {
-			return err
-		}
-	}
+	// user_orders 已退役（Phase 2，见 migrations 049）：演示订单不再写旧表。
+	// 这里原先为 user_nw_01 写 3 行 UserOrder，而该用户名在 users 中已不存在，
+	// 结果是每次启动往退役表里写一批 user_id 无法对上任何用户的孤儿行。
 
 	// user_bills 已退役（Phase 2 014）：其聚合读路径改走权威表 bills。
 
