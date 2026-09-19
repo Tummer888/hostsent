@@ -8,27 +8,11 @@ import (
 	"hostsent/backend/internal/modules/admin/user/account/model"
 )
 
-// recentLimit 聚合视图每个业务域最多带回的行数。
-// 详情页各 Tab 的完整列表走各自的分页接口（/orders、/tickets、/instances …），
-// 这里只负责「概览一眼看得到」的近期若干条，因此必须封顶，
-// 否则单用户的流水/订单会随业务增长无上限地拖慢整个详情页。
-const recentLimit = 8
-
 type UserDetailRepository interface {
 	// ListCustomerPermissions 客户侧权限码（子账号权限，固定枚举，落 sub_account_permissions）。
 	ListCustomerPermissions(ctx context.Context, userID uint64) ([]string, error)
 	// ListRbacRolesByUserID 用户绑定的后台角色（user_roles ⋈ roles），只读展示用。
 	ListRbacRolesByUserID(ctx context.Context, userID uint64) ([]model.UserRoleBrief, error)
-	// ListInstancesByUserID 实例权威表 instances 的近期摘要。
-	ListInstancesByUserID(ctx context.Context, userID uint64) ([]model.UserInstanceBrief, error)
-	// ListOrdersByUserID 订单权威表 orders 的近期摘要。
-	ListOrdersByUserID(ctx context.Context, userID uint64) ([]model.UserOrderBrief, error)
-	// ListBillsByUserID 账单权威表 bills 的近期摘要。
-	ListBillsByUserID(ctx context.Context, userID uint64) ([]model.UserBillBrief, error)
-	// ListTransactionsByUserID 资金流水权威表 wallet_transactions 的近期摘要。
-	ListTransactionsByUserID(ctx context.Context, userID uint64) ([]model.UserTransactionBrief, error)
-	// ListTicketsByUserID 工单权威表 tickets 的近期摘要。
-	ListTicketsByUserID(ctx context.Context, userID uint64) ([]model.UserTicketBrief, error)
 	// Counts 各域计数，单条 SQL 取回，供 Tab 徽标与统计卡使用。
 	Counts(ctx context.Context, userID uint64) (*model.UserDetailCounts, error)
 }
@@ -79,110 +63,6 @@ func (r *userDetailRepository) ListRbacRolesByUserID(ctx context.Context, userID
 	}
 	if items == nil {
 		items = []model.UserRoleBrief{}
-	}
-	return items, nil
-}
-
-// ListInstancesByUserID 读实例权威表 instances。
-// 显式列出真实列：原实现只 Select 了 6 列并把 cpu/memory/disk 拼成 specs 字符串、
-// 用 COALESCE 把 NULL 到期时间伪造成 1970-01-01，操作员会把「未设置」误读成真实值。
-func (r *userDetailRepository) ListInstancesByUserID(ctx context.Context, userID uint64) ([]model.UserInstanceBrief, error) {
-	var items []model.UserInstanceBrief
-	err := r.db.WithContext(ctx).
-		Table("instances").
-		Select(`id, instance_id, name, COALESCE(region, '') AS region, COALESCE(zone, '') AS zone,
-			cpu, memory, disk, COALESCE(os, '') AS os, COALESCE(public_ip, '') AS public_ip,
-			status, COALESCE(billing_mode, '') AS billing_mode,
-			COALESCE(lifecycle_stage, '') AS lifecycle_stage, order_id,
-			COALESCE(source_mode, '') AS source_mode, expire_at, created_at`).
-		Where("user_id = ?", userID).
-		Order("id DESC").
-		Limit(recentLimit).
-		Scan(&items).Error
-	if err != nil {
-		return nil, err
-	}
-	if items == nil {
-		items = []model.UserInstanceBrief{}
-	}
-	return items, nil
-}
-
-// ListOrdersByUserID 读订单权威表 orders（user_orders 已于 Phase 2 退役，见 migrations/013、049）。
-func (r *userDetailRepository) ListOrdersByUserID(ctx context.Context, userID uint64) ([]model.UserOrderBrief, error) {
-	var items []model.UserOrderBrief
-	err := r.db.WithContext(ctx).
-		Table("orders").
-		Select(`id, order_no, COALESCE(product_name, '') AS product_name,
-			final_amount, status, COALESCE(pay_method, '') AS pay_method,
-			renewal_id, created_at, pay_time AS paid_at`).
-		Where("user_id = ? AND deleted_at IS NULL", userID).
-		Order("created_at DESC, id DESC").
-		Limit(recentLimit).
-		Scan(&items).Error
-	if err != nil {
-		return nil, err
-	}
-	if items == nil {
-		items = []model.UserOrderBrief{}
-	}
-	return items, nil
-}
-
-// ListBillsByUserID 读账单权威表 bills（user_bills 已于 Phase 2 退役，见 migrations/014）。
-func (r *userDetailRepository) ListBillsByUserID(ctx context.Context, userID uint64) ([]model.UserBillBrief, error) {
-	var items []model.UserBillBrief
-	err := r.db.WithContext(ctx).
-		Table("bills").
-		Select("id, bill_no, period, total_amount, bill_type, status, created_at").
-		Where("user_id = ?", userID).
-		Order("period DESC, id DESC").
-		Limit(recentLimit).
-		Scan(&items).Error
-	if err != nil {
-		return nil, err
-	}
-	if items == nil {
-		items = []model.UserBillBrief{}
-	}
-	return items, nil
-}
-
-// ListTransactionsByUserID 读资金流水权威表 wallet_transactions
-//（user_transactions 已于 Phase 2 退役，见 migrations/014）。
-func (r *userDetailRepository) ListTransactionsByUserID(ctx context.Context, userID uint64) ([]model.UserTransactionBrief, error) {
-	var items []model.UserTransactionBrief
-	err := r.db.WithContext(ctx).
-		Table("wallet_transactions").
-		Select("id, tx_no, type, direction, amount, balance_after, COALESCE(remark, '') AS remark, created_at").
-		Where("user_id = ?", userID).
-		Order("created_at DESC, id DESC").
-		Limit(recentLimit).
-		Scan(&items).Error
-	if err != nil {
-		return nil, err
-	}
-	if items == nil {
-		items = []model.UserTransactionBrief{}
-	}
-	return items, nil
-}
-
-// ListTicketsByUserID 读工单权威表 tickets（user_tickets 已于 Phase 2 退役）。
-func (r *userDetailRepository) ListTicketsByUserID(ctx context.Context, userID uint64) ([]model.UserTicketBrief, error) {
-	var items []model.UserTicketBrief
-	err := r.db.WithContext(ctx).
-		Table("tickets").
-		Select("id, ticket_no, title, category, priority, status, updated_at, created_at").
-		Where("user_id = ?", userID).
-		Order("updated_at DESC, id DESC").
-		Limit(recentLimit).
-		Scan(&items).Error
-	if err != nil {
-		return nil, err
-	}
-	if items == nil {
-		items = []model.UserTicketBrief{}
 	}
 	return items, nil
 }

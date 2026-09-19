@@ -64,6 +64,16 @@ type SessionListQuery struct {
 	EndTime   string `form:"end_time"`
 }
 
+// BlacklistHitListQuery 黑名单命中记录的分页参数。
+//
+// 命中记录是「该黑名单在登录日志里命中的行」，与登录日志同构，
+// 因此分页参数独立成一个小结构，而不是硬编码在仓储里（旧实现写死 1,10，
+// 前端翻页翻不动、总数也不对）。
+type BlacklistHitListQuery struct {
+	Page     int `form:"page"`
+	PageSize int `form:"page_size"`
+}
+
 type RiskEventHandleRequest struct {
 	Note string `json:"note"`
 }

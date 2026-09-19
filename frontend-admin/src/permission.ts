@@ -184,6 +184,7 @@ export const navMenu = [
       { title: '系统配置', path: '/system/config', icon: navIcon('setting') },
       { title: '验证码配置', path: '/system/captcha', icon: navIcon('safety') },
       { title: '操作审计', path: '/system/audit-logs', icon: navIcon('history') },
+      { title: '第三方登录', path: '/system/oauth', icon: navIcon('link') },
       { title: '日志中心', path: '/system/log-center', icon: navIcon('file') },
     ],
   },

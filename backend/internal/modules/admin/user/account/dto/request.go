@@ -7,6 +7,9 @@ type UserListQuery struct {
 	Filter            string `form:"filter"`
 	LastLoginIPRegion string `form:"last_login_ip_region"`
 	Keyword           string `form:"keyword"`
+	// IncludeDeleted 为 true 时连已注销用户一起返回（doc104 §4.3）；
+	// 与 filter=deleted 互斥，前者优先级更高。
+	IncludeDeleted bool `form:"include_deleted"`
 	// UserLevelID 按用户等级筛选（P3-04，0 表示不筛选）。
 	UserLevelID uint64 `form:"user_level_id"`
 	// UserGroupID 按用户组筛选（0 表示不筛选）。
@@ -20,11 +23,13 @@ type UserListQuery struct {
 }
 
 type UserCreateRequest struct {
-	ID          uint64   `json:"id"`
-	Username    string   `json:"username" binding:"required"`
-	Email       string   `json:"email" binding:"required"`
-	Phone       string   `json:"phone" binding:"required,len=11,numeric"`
-	Password    string   `json:"password" binding:"required"`
+	ID       uint64 `json:"id"`
+	Username string `json:"username" binding:"required"`
+	Email    string `json:"email" binding:"required"`
+	Phone    string `json:"phone" binding:"required,len=11,numeric"`
+	// Password 建号密码。补最小长度校验：原实现只有 required，
+	// 运营可以给用户建一个 1 位密码的账号（doc104 §3.1）。
+	Password    string   `json:"password" binding:"required,min=8,max=64"`
 	Status      string   `json:"status"`
 	RoleIDs     []uint64 `json:"role_ids"`
 	UserGroupID *uint64  `json:"user_group_id"`
@@ -47,16 +52,71 @@ type UserUpdateRequest struct {
 	UserGroupID *uint64 `json:"user_group_id"`
 }
 
+// UserStatusRequest 用户状态变更。
+//
+// 补 oneof 枚举校验：原实现只有 required，实测 PATCH /users/:id/status 传 "banana"
+// 会成功落库（doc104 §3.1 F3），与 UserUpdateRequest.Status 的校验强度不一致。
 type UserStatusRequest struct {
-	Status string `json:"status" binding:"required"`
+	Status string `json:"status" binding:"required,oneof=active disabled pending cancelled"`
 }
 
+// ResetPasswordRequest 重置用户密码。
+// Password 补最小长度：原实现只有 required（doc104 §3.1）。
 type ResetPasswordRequest struct {
-	Password string `json:"password" binding:"required"`
+	Password string `json:"password" binding:"required,min=8,max=64"`
 }
 
+// AssignRolesRequest 覆盖用户角色。
+//
+// 用 min=1 而不是 required：validator 对 slice 的 required 只在 nil 上触发，
+// 空数组 `{"role_ids":[]}` 会通过校验并静默清空用户全部角色（实测，doc104 §3.1 F4）。
+// 服务层再兜一层非空判断，防止将来有调用方绕过 binding。
 type AssignRolesRequest struct {
-	RoleIDs []uint64 `json:"role_ids" binding:"required"`
+	RoleIDs []uint64 `json:"role_ids" binding:"required,min=1"`
+}
+
+// UserDeleteRequest 注销（软删除）用户。
+type UserDeleteRequest struct {
+	// Reason 注销原因，落库并进审计；必填以便事后追溯「为什么注销」。
+	Reason string `json:"reason" binding:"required,max=255"`
+	// Force 为 true 时允许绕过「余额非零 / 未结账单 / 未完成工单 / 未完成订单」四项警告。
+	// 在管实例属硬阻断，force 也绕不过（有外键，且必须先释放）。
+	Force bool `json:"force"`
+}
+
+// UserBatchDeleteRequest 批量注销。
+type UserBatchDeleteRequest struct {
+	IDs    []uint64 `json:"ids" binding:"required,min=1,max=100"`
+	Reason string   `json:"reason" binding:"required,max=255"`
+	Force  bool     `json:"force"`
+}
+
+// UserBatchRestoreRequest 批量恢复。
+type UserBatchRestoreRequest struct {
+	IDs []uint64 `json:"ids" binding:"required,min=1,max=100"`
+}
+
+// UserBatchResult 批量操作结果。
+//
+// 沿用既有批量接口的「成功数 + 跳过明细」形态（对齐 notification 的
+// DeliveryRetryResponse），但带原因，便于运营在界面上逐条说明为什么没做成。
+type UserBatchResult struct {
+	Affected int                 `json:"affected"`
+	Skipped  []UserBatchSkipItem `json:"skipped"`
+}
+
+// UserBatchSkipItem 一条被跳过的记录及原因。
+type UserBatchSkipItem struct {
+	ID     uint64 `json:"id"`
+	Reason string `json:"reason"`
+}
+
+// UserPurgeRequest 手工触发留存期清理。
+type UserPurgeRequest struct {
+	// DryRun 为 true 时只统计将被删除的用户，不做任何写操作。
+	DryRun bool `json:"dry_run"`
+	// Limit 单轮上限，0 用服务端默认值（50）。
+	Limit int `json:"limit"`
 }
 
 type RoleCreateRequest struct {

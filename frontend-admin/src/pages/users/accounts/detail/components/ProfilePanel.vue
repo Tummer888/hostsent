@@ -10,6 +10,28 @@
     <div v-if="!profile" class="empty-state empty-state--error">未获取到用户信息</div>
 
     <template v-else>
+      <!-- 注销信息（doc104 §4）：只在已注销时出现。
+           它是 profile 的一部分而不是独立数据段，因此沿用「只有 profile 失败才整页
+           报错」的容错策略 —— 注销态是用户身份的一部分，不该降级成「数据暂不可用」。 -->
+      <section v-if="profile.deleted_at" class="section-block">
+        <div class="section-label">注销信息</div>
+        <t-alert
+          class="deleted-tip"
+          theme="warning"
+          :message="`该账号已于 ${formatDateTime(profile.deleted_at)} 注销，留存期内可恢复；到期后由清理任务硬删除。`"
+        />
+        <t-descriptions :column="descColumn" bordered size="medium" class="detail-desc">
+          <t-descriptions-item label="注销时间">{{ formatDateTime(profile.deleted_at) }}</t-descriptions-item>
+          <t-descriptions-item label="注销前状态">
+            {{ userStatusLabel(profile.status_before_delete || '') || '—' }}
+          </t-descriptions-item>
+          <t-descriptions-item label="操作人">
+            {{ profile.deleted_by_name || (profile.deleted_by ? `管理员 #${profile.deleted_by}` : '系统/用户自助') }}
+          </t-descriptions-item>
+          <t-descriptions-item label="注销原因">{{ profile.delete_reason || '—' }}</t-descriptions-item>
+        </t-descriptions>
+      </section>
+
       <section class="section-block">
         <div class="section-label">账号信息</div>
         <t-descriptions :column="descColumn" bordered size="medium" class="detail-desc">
@@ -161,5 +183,9 @@ const descColumn = computed(() => (props.isMobile ? 1 : 2))
 <style scoped>
 .verify-badge {
   margin-top: 4px;
+}
+
+.deleted-tip {
+  margin-bottom: 12px;
 }
 </style>

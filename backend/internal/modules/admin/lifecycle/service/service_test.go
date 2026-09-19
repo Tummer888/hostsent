@@ -66,8 +66,12 @@ func TestDeriveStageForUser(t *testing.T) {
 // TestNextExpireAt 续费周期计算：按计费周期延长；已过期实例从当前时间起算。
 // 周期口径统一走 pkg/billingcycle（doc25 §8）：修复前 yearly 的 12 被当成年数、
 // hourly/半年度等只能落默认按月，本测试锁定修正后的语义。
+//
+// 时钟必须注入：nextExpireAt 里有「已过期实例从当前时间起算」的兜底，用真实时钟
+// 会让本用例在真实时间越过 testNow+10d 之后突然改测兜底分支而失败（实测该用例在
+// 2026-09-16 12:00 UTC 之后开始红）。注入固定时钟后，未到期分支永远走不到兜底。
 func TestNextExpireAt(t *testing.T) {
-	svc := &renewalService{}
+	svc := &renewalService{now: func() time.Time { return testNow }}
 	base := testNow.Add(10 * 24 * time.Hour) // 未到期实例
 
 	cases := []struct {
@@ -99,13 +103,14 @@ func TestNextExpireAt(t *testing.T) {
 		})
 	}
 
-	// 已过期实例：结果必须不早于当前时间 + 周期（从 now 起算，不落在过去）
+	// 已过期实例：结果必须不早于「注入的当前时间 + 周期」（从 now 起算，不落在过去）。
+	// 期望值同样以 testNow 为基准 —— 用真实 time.Now() 算期望会让断言随执行时刻漂移。
 	expiredBase := testNow.Add(-20 * 24 * time.Hour)
 	got := svc.nextExpireAt(expiredBase, "monthly", 1)
 	if got == nil {
 		t.Fatal("nextExpireAt returned nil")
 	}
-	minExpected := time.Now().AddDate(0, 1, 0).Add(-time.Minute)
+	minExpected := testNow.AddDate(0, 1, 0)
 	if got.Before(minExpected) {
 		t.Errorf("过期实例续费应从 now 起算: got %s, 期望 >= %s", got.Format(time.RFC3339), minExpected.Format(time.RFC3339))
 	}

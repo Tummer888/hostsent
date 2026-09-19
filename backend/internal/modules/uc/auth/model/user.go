@@ -32,7 +32,21 @@ type User struct {
 	// InviterUserID 邀请人用户 ID；单级邀请，注册时一次性绑定。
 	InviterUserID *uint64 `gorm:"column:inviter_user_id;index:idx_users_inviter_user_id"`
 	// InvitedAt 绑定邀请关系的时间。
-	InvitedAt         *time.Time `gorm:"column:invited_at"`
+	InvitedAt *time.Time `gorm:"column:invited_at"`
+	// 软删除与实名信任信号：users 表被 admin 与本模型共同映射，
+	// 列定义必须与 admin/user/account/model.User 保持一致（doc104 §4.1）。
+	// DeletedAt 非空即已注销，status 同时收敛为 cancelled。
+	DeletedAt          *time.Time `gorm:"column:deleted_at;index:idx_users_deleted_at"`
+	DeletedBy          uint64     `gorm:"column:deleted_by;not null;default:0"`
+	DeleteReason       string     `gorm:"column:delete_reason;size:255;not null;default:''"`
+	StatusBeforeDelete string     `gorm:"column:status_before_delete;size:32;not null;default:''"`
+	// RealNameVerifiedAt 实名认证的唯一信任信号；real_name 只是展示名（doc104 §5.3）。
+	RealNameVerifiedAt     *time.Time `gorm:"column:real_name_verified_at"`
+	RealNameVerifiedSource string     `gorm:"column:real_name_verified_source;size:32;not null;default:''"`
+	// PhoneVerifiedAt / EmailVerifiedAt 手机与邮箱验证时间，为空表示未验证。
+	// 第三方登录的解绑守卫要判断「是否还有已验证手机可作为登录方式」，因此必须读出。
+	PhoneVerifiedAt   *time.Time `gorm:"column:phone_verified_at"`
+	EmailVerifiedAt   *time.Time `gorm:"column:email_verified_at"`
 	LastLoginAt       *time.Time `gorm:"column:last_login_at"`                 // 最近登录时间
 	LastLoginIP       string     `gorm:"column:last_login_ip;size:64"`         // 最近登录 IP
 	LastLoginIPRegion string     `gorm:"column:last_login_ip_region;size:128"` // 最近登录 IP 归属地

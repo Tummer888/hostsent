@@ -2,7 +2,10 @@ package handler
 
 import (
 	"context"
+	"encoding/csv"
+	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -81,6 +84,69 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": users, "timestamp": time.Now().Unix()})
+}
+
+// ExportUsers godoc
+// @Summary 导出用户列表 CSV
+// @Description 按与列表相同的筛选条件导出用户为 CSV（最多 1000 条，UTF-8 带 BOM，便于 Excel 打开）
+// @Tags 用户管理
+// @Produce text/csv
+// @Security BearerAuth
+// @Param status query string false "用户状态"
+// @Param filter query string false "快捷筛选（today/pending_real_name/purchased/deleted）"
+// @Param keyword query string false "关键词"
+// @Param user_group_id query int false "用户组ID"
+// @Param user_level_id query int false "用户等级ID"
+// @Success 200 {file} file
+// @Router /api/v1/admin/users/export [get]
+func (h *UserHandler) ExportUsers(c *gin.Context) {
+	var query dto.UserListQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	items, err := h.userService.ExportList(c.Request.Context(), query)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="users-%s.csv"`, time.Now().Format("20060102150405")))
+	// 写入 UTF-8 BOM，保证 Excel 正确识别中文
+	c.Writer.WriteString("\xEF\xBB\xBF")
+
+	w := csv.NewWriter(c.Writer)
+	_ = w.Write([]string{"ID", "用户名", "姓名", "邮箱", "手机号", "状态", "用户组", "用户等级", "归属销售", "登录IP", "IP归属地", "余额", "累计消费", "实名认证", "注销时间", "注册时间"})
+	for _, item := range items {
+		realname := "未实名"
+		if item.RealNameVerifiedAt != nil {
+			realname = "已实名"
+		}
+		deletedAt := ""
+		if item.DeletedAt != nil {
+			deletedAt = item.DeletedAt.Format("2006-01-02 15:04:05")
+		}
+		_ = w.Write([]string{
+			strconv.FormatUint(item.ID, 10),
+			item.Username,
+			item.RealName,
+			item.Email,
+			item.Phone,
+			item.Status,
+			item.UserGroupName,
+			item.UserLevelName,
+			item.SalesAdminName,
+			item.LastLoginIP,
+			item.LastLoginIPRegion,
+			strconv.FormatFloat(item.Balance, 'f', 2, 64),
+			strconv.FormatFloat(item.TotalConsumeAmount, 'f', 2, 64),
+			realname,
+			deletedAt,
+			item.CreatedAt.Format("2006-01-02 15:04:05"),
+		})
+	}
+	w.Flush()
 }
 
 // CreateUser godoc

@@ -20,12 +20,15 @@ func NewUserDetailService(userRepo repository.UserRepository, detailRepo reposit
 	return &userDetailService{userRepo: userRepo, detailRepo: detailRepo}
 }
 
-// GetAggregate 汇集详情页所需的「资料 + 各域计数 + 近期摘要」。
+// GetAggregate 汇集详情页所需的「资料 + 各域计数」。
 //
 // 容错策略（本轮修正）：原实现 6 次顺序查询任一失败即中止，整个详情页 500。
 // 现实是这些域分属不同模块，任何一张表的数据异常都不应该让管理员看不到用户资料。
 // 因此只有 profile（身份本身）失败才返回错误，其余各段失败只记入 Degraded，
 // 前端据此在对应 Tab 显示「数据暂不可用」。
+//
+// 「近期摘要」五个数组已于本轮移除（doc104 §3.3，F20）：它们从未被前端读取，
+// 却让每次详情页加载都多打 5 条带 LIMIT 的查询。各 Tab 的完整列表走各自的分页接口。
 func (s *userDetailService) GetAggregate(ctx context.Context, userID uint64) (*dto.UserDetailAggregateResponse, error) {
 	user, err := s.userRepo.FindByID(ctx, userID)
 	if err != nil {
@@ -33,15 +36,10 @@ func (s *userDetailService) GetAggregate(ctx context.Context, userID uint64) (*d
 	}
 
 	resp := &dto.UserDetailAggregateResponse{
-		Profile:            toUserInfo(*user),
-		RbacRoles:          []dto.UserRoleBrief{},
-		Permissions:        []string{},
-		RecentInstances:    []dto.UserInstanceBrief{},
-		RecentOrders:       []dto.UserOrderBrief{},
-		RecentBills:        []dto.UserBillBrief{},
-		RecentTransactions: []dto.UserTransactionBrief{},
-		RecentTickets:      []dto.UserTicketBrief{},
-		Degraded:           []string{},
+		Profile:     toUserInfo(*user),
+		RbacRoles:   []dto.UserRoleBrief{},
+		Permissions: []string{},
+		Degraded:    []string{},
 	}
 
 	if roles, err := s.detailRepo.ListRbacRolesByUserID(ctx, userID); err != nil {
@@ -78,72 +76,6 @@ func (s *userDetailService) GetAggregate(ctx context.Context, userID uint64) (*d
 			RiskEventCount:     counts.RiskEventCount,
 			OperationLogCount:  counts.OperationLogCount,
 			VerificationCount:  counts.VerificationCount,
-		}
-	}
-
-	if items, err := s.detailRepo.ListInstancesByUserID(ctx, userID); err != nil {
-		resp.Degraded = append(resp.Degraded, "instances")
-	} else {
-		for _, item := range items {
-			resp.RecentInstances = append(resp.RecentInstances, dto.UserInstanceBrief{
-				ID: item.ID, InstanceID: item.InstanceID, Name: item.Name,
-				Region: item.Region, Zone: item.Zone,
-				CPU: item.CPU, Memory: item.Memory, Disk: item.Disk,
-				OS: item.OS, PublicIP: item.PublicIP, Status: item.Status,
-				BillingMode: item.BillingMode, LifecycleStage: item.LifecycleStage,
-				OrderID: item.OrderID, SourceMode: item.SourceMode,
-				ExpireAt: item.ExpireAt, CreatedAt: item.CreatedAt,
-			})
-		}
-	}
-
-	if items, err := s.detailRepo.ListOrdersByUserID(ctx, userID); err != nil {
-		resp.Degraded = append(resp.Degraded, "orders")
-	} else {
-		for _, item := range items {
-			resp.RecentOrders = append(resp.RecentOrders, dto.UserOrderBrief{
-				ID: item.ID, OrderNo: item.OrderNo, ProductName: item.ProductName,
-				FinalAmount: item.FinalAmount, Status: item.Status,
-				PayMethod: item.PayMethod, RenewalID: item.RenewalID,
-				CreatedAt: item.CreatedAt, PaidAt: item.PaidAt,
-			})
-		}
-	}
-
-	if items, err := s.detailRepo.ListBillsByUserID(ctx, userID); err != nil {
-		resp.Degraded = append(resp.Degraded, "bills")
-	} else {
-		for _, item := range items {
-			resp.RecentBills = append(resp.RecentBills, dto.UserBillBrief{
-				ID: item.ID, BillNo: item.BillNo, BillingMonth: item.BillingMonth,
-				Amount: item.Amount, BillType: item.BillType,
-				Status: item.Status, CreatedAt: item.CreatedAt,
-			})
-		}
-	}
-
-	if items, err := s.detailRepo.ListTransactionsByUserID(ctx, userID); err != nil {
-		resp.Degraded = append(resp.Degraded, "transactions")
-	} else {
-		for _, item := range items {
-			resp.RecentTransactions = append(resp.RecentTransactions, dto.UserTransactionBrief{
-				ID: item.ID, TxnNo: item.TxnNo, Type: item.Type,
-				Direction: item.Direction, Amount: item.Amount,
-				BalanceAfter: item.BalanceAfter, Remark: item.Remark,
-				CreatedAt: item.CreatedAt,
-			})
-		}
-	}
-
-	if items, err := s.detailRepo.ListTicketsByUserID(ctx, userID); err != nil {
-		resp.Degraded = append(resp.Degraded, "tickets")
-	} else {
-		for _, item := range items {
-			resp.RecentTickets = append(resp.RecentTickets, dto.UserTicketBrief{
-				ID: item.ID, TicketNo: item.TicketNo, Title: item.Title,
-				Category: item.Category, Priority: item.Priority, Status: item.Status,
-				UpdatedAt: item.UpdatedAt, CreatedAt: item.CreatedAt,
-			})
 		}
 	}
 

@@ -11,6 +11,7 @@ import (
 
 	"hostsent/backend/internal/modules/admin/user/security/dto"
 	"hostsent/backend/internal/modules/admin/user/security/service"
+	"hostsent/backend/internal/pkg/middleware"
 )
 
 type SecurityHandler struct {
@@ -19,6 +20,18 @@ type SecurityHandler struct {
 
 func NewSecurityHandler(service service.SecurityService) *SecurityHandler {
 	return &SecurityHandler{service: service}
+}
+
+// operatorID 取当前管理端操作人 ID。
+//
+// 安全模块的写操作全部要求真实操作人（封禁、踢会话、处置风险事件都要落到具体账号），
+// 此前服务层硬编码 1，导致审计记录全部指向 admin。取不到时返回 0 而不是兜底成 1：
+// 0 在库里是「系统」的约定值，比伪造一个管理员身份诚实。
+func operatorID(c *gin.Context) uint64 {
+	if claims, ok := middleware.GetAdminClaims(c); ok {
+		return claims.AdminID
+	}
+	return 0
 }
 
 // ListLoginLogs godoc
@@ -70,15 +83,57 @@ func (h *SecurityHandler) GetLoginLog(c *gin.Context) {
 }
 
 // ExportLoginLogs godoc
-// @Summary 导出登录日志
+// @Summary 导出登录日志 CSV
+// @Description 按筛选条件导出登录日志为 CSV（最多 1000 条，UTF-8 带 BOM，便于 Excel 打开）
 // @Tags 安全与风控
-// @Accept json
-// @Produce json
+// @Produce text/csv
 // @Security BearerAuth
-// @Success 200 {object} dto.APIResponse[string]
-// @Router /api/v1/admin/security/login-logs/export [post]
+// @Param page_size query int false "导出条数上限" default(1000)
+// @Param user_id query int false "用户ID"
+// @Param username query string false "用户名"
+// @Param result query string false "登录结果"
+// @Param login_type query string false "登录类型"
+// @Param ip query string false "IP地址"
+// @Param risk_flag query string false "风险标记"
+// @Param start_time query string false "开始时间"
+// @Param end_time query string false "结束时间"
+// @Success 200 {file} file
+// @Router /api/v1/admin/security/login-logs/export [get]
 func (h *SecurityHandler) ExportLoginLogs(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": "security-login-logs-export-job", "timestamp": time.Now().Unix()})
+	var query dto.LoginLogListQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	items, err := h.service.ExportLoginLogs(c.Request.Context(), query)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="login-logs-%s.csv"`, time.Now().Format("20060102150405")))
+	// 写入 UTF-8 BOM，保证 Excel 正确识别中文
+	c.Writer.WriteString("\xEF\xBB\xBF")
+
+	w := csv.NewWriter(c.Writer)
+	_ = w.Write([]string{"ID", "用户名", "用户ID", "登录类型", "结果", "失败原因", "IP", "归属地", "平台", "风险标记", "登录时间"})
+	for _, item := range items {
+		_ = w.Write([]string{
+			strconv.FormatUint(item.ID, 10),
+			item.Username,
+			strconv.FormatUint(item.UserID, 10),
+			item.LoginType,
+			item.Result,
+			item.FailureReason,
+			item.IP,
+			item.IPRegion,
+			item.Platform,
+			item.RiskFlag,
+			item.CreatedAt.Format("2006-01-02 15:04:05"),
+		})
+	}
+	w.Flush()
 }
 
 // ListAuditLogs godoc
@@ -246,7 +301,7 @@ func (h *SecurityHandler) IgnoreRiskEvent(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.RiskEventHandleRequest
 	_ = c.ShouldBindJSON(&req)
-	data, err := h.service.IgnoreRiskEvent(c.Request.Context(), id, req)
+	data, err := h.service.IgnoreRiskEvent(c.Request.Context(), id, req, operatorID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
@@ -268,7 +323,7 @@ func (h *SecurityHandler) HandleRiskEvent(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.RiskEventHandleRequest
 	_ = c.ShouldBindJSON(&req)
-	data, err := h.service.HandleRiskEvent(c.Request.Context(), id, req)
+	data, err := h.service.HandleRiskEvent(c.Request.Context(), id, req, operatorID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
@@ -290,7 +345,7 @@ func (h *SecurityHandler) CreateBlacklistFromRisk(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.RiskEventHandleRequest
 	_ = c.ShouldBindJSON(&req)
-	data, err := h.service.CreateBlacklistFromRisk(c.Request.Context(), id, req)
+	data, err := h.service.CreateBlacklistFromRisk(c.Request.Context(), id, req, operatorID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
@@ -312,7 +367,7 @@ func (h *SecurityHandler) RevokeSessionsFromRisk(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.RiskEventHandleRequest
 	_ = c.ShouldBindJSON(&req)
-	data, err := h.service.RevokeSessionsFromRisk(c.Request.Context(), id, req)
+	data, err := h.service.RevokeSessionsFromRisk(c.Request.Context(), id, req, operatorID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
@@ -362,7 +417,7 @@ func (h *SecurityHandler) CreateBlacklist(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
 	}
-	data, err := h.service.CreateBlacklist(c.Request.Context(), req)
+	data, err := h.service.CreateBlacklist(c.Request.Context(), req, operatorID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
@@ -405,7 +460,7 @@ func (h *SecurityHandler) UpdateBlacklist(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
 	}
-	data, err := h.service.UpdateBlacklist(c.Request.Context(), id, req)
+	data, err := h.service.UpdateBlacklist(c.Request.Context(), id, req, operatorID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
@@ -430,7 +485,7 @@ func (h *SecurityHandler) UpdateBlacklistStatus(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
 	}
-	data, err := h.service.UpdateBlacklistStatus(c.Request.Context(), id, req)
+	data, err := h.service.UpdateBlacklistStatus(c.Request.Context(), id, req, operatorID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
@@ -449,7 +504,7 @@ func (h *SecurityHandler) UpdateBlacklistStatus(c *gin.Context) {
 // @Router /api/v1/admin/security/blacklists/{id}/release [post]
 func (h *SecurityHandler) ReleaseBlacklist(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	data, err := h.service.ReleaseBlacklist(c.Request.Context(), id)
+	data, err := h.service.ReleaseBlacklist(c.Request.Context(), id, operatorID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
@@ -459,15 +514,23 @@ func (h *SecurityHandler) ReleaseBlacklist(c *gin.Context) {
 
 // ListBlacklistHits godoc
 // @Summary 黑名单命中记录
+// @Description 按黑名单类型关联登录日志（ip→IP / device→设备指纹 / user→用户名），支持分页
 // @Tags 安全与风控
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "黑名单ID"
+// @Param page query int false "页码" default(1)
+// @Param page_size query int false "每页数量" default(10)
 // @Success 200 {object} dto.APIResponse[dto.ListResponse[dto.LoginLogInfo]]
 // @Router /api/v1/admin/security/blacklists/{id}/hits [get]
 func (h *SecurityHandler) ListBlacklistHits(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	data, err := h.service.ListBlacklistHits(c.Request.Context(), id)
+	var query dto.BlacklistHitListQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	data, err := h.service.ListBlacklistHits(c.Request.Context(), id, query)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
@@ -536,7 +599,7 @@ func (h *SecurityHandler) RevokeSession(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.SessionRevokeRequest
 	_ = c.ShouldBindJSON(&req)
-	data, err := h.service.RevokeSession(c.Request.Context(), id, req)
+	data, err := h.service.RevokeSession(c.Request.Context(), id, req, operatorID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
@@ -559,7 +622,7 @@ func (h *SecurityHandler) BatchRevokeSessions(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
 	}
-	data, err := h.service.BatchRevokeSessions(c.Request.Context(), req)
+	data, err := h.service.BatchRevokeSessions(c.Request.Context(), req, operatorID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
@@ -582,7 +645,7 @@ func (h *SecurityHandler) RevokeUserAllSessions(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
 	}
-	data, err := h.service.RevokeUserAllSessions(c.Request.Context(), req)
+	data, err := h.service.RevokeUserAllSessions(c.Request.Context(), req, operatorID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return

@@ -113,6 +113,13 @@ type renewalService struct {
 	pointHook    RenewalPointHook     // 可选：续费完成后的积分发放（doc36）
 	salesOwner   SalesOwnerResolver   // 可选：续费订单的销售归属解析（doc86 §3.4）
 	logger       *zap.Logger
+	// now 时钟。测试可注入固定值；生产走 time.Now。
+	//
+	// 必须可注入的原因不是「测试洁癖」：nextExpireAt 里有一句「已过期实例从当前
+	// 时间起算」的兜底，它拿真实时钟去和**构造出来的基准时间**比较。测试里基准
+	// 时间是写死的日期，于是这条兜底会在真实时间越过该日期后突然生效，用例从
+	// 「验证周期推进」变成「验证兜底」而失败 —— 一个会自己过期的测试。
+	now func() time.Time
 }
 
 // NewRenewalService 创建续费服务。pricingSvc 为 nil 时续费按「单价 × 期数」计不加折扣。
@@ -137,6 +144,7 @@ func NewRenewalService(
 		walletSvc:    walletSvc,
 		pricingSvc:   pricingSvc,
 		logger:       logger,
+		now:          time.Now,
 	}
 }
 
@@ -748,9 +756,16 @@ func truncateReason(msg string) string {
 // 周期口径统一走 pkg/billingcycle：支持按小时/日/月/季/半年/年/两年/三年，
 // 未知周期回落按月（保持既有兜底语义，存量 billing_mode 行为不变）。
 func (s *renewalService) nextExpireAt(base time.Time, billingMode string, periodCount int) *time.Time {
-	// 已过期实例从当前时间起算，避免续费期落在过去时段
-	if base.Before(time.Now()) {
-		base = time.Now()
+	// 已过期实例从当前时间起算，避免续费期落在过去时段。
+	//
+	// 走 s.now 而不是 time.Now()：这条兜底把「构造出来的基准时间」与真实时钟相比，
+	// 测试里基准是写死的日期，用真实时钟会让用例在某一天之后突然改测兜底分支。
+	now := time.Now()
+	if s.now != nil {
+		now = s.now()
+	}
+	if base.Before(now) {
+		base = now
 	}
 	t := billingcycle.Advance(base, billingMode, periodCount)
 	return &t

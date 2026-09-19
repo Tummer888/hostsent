@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"time"
@@ -261,10 +263,15 @@ func (s *authService) findByLoginTarget(ctx context.Context, loginType, target s
 	return s.repo.FindByEmail(ctx, target)
 }
 
-// finishLogin 登录成功的收尾：更新登录档案 + 清零失败计数 + 写成功日志 + 签发令牌。
+// finishLogin 登录成功的收尾：更新登录档案 + 开会话 + 清零失败计数 + 写成功日志 + 签发令牌。
 func (s *authService) finishLogin(ctx context.Context, user *model.User, loginType, ip, userAgent string) (*dto.LoginResponse, error) {
 	if err := s.updateLoginProfile(ctx, user.ID, ip); err != nil {
 		return nil, err
+	}
+	// 写 user_sessions（doc104 F15）：失败只告警，不影响登录本身。
+	if err := s.openSession(ctx, user, loginType, ip, userAgent); err != nil && s.logger != nil {
+		s.logger.Warn("open user session failed",
+			zap.Uint64("user_id", user.ID), zap.String("login_type", loginType), zap.Error(err))
 	}
 	if s.sec != nil {
 		s.sec.ResetFailure(ctx, user.Username, ip)
@@ -277,6 +284,31 @@ func (s *authService) finishLogin(ctx context.Context, user *model.User, loginTy
 		return nil, err
 	}
 	return s.buildLoginResponse(ctx, latest), nil
+}
+
+// openSession 写一条 user_sessions 记录（doc104 F15）。
+//
+// session_id 与 JWT 无关，只用于安全页展示与「强制下线」定位；真正的令牌
+// 失效靠 user_sessions.status 状态位（见 RevokeSessions）。
+func (s *authService) openSession(ctx context.Context, user *model.User, loginType, ip, userAgent string) error {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return err
+	}
+	ipRegion := ""
+	if s.ipRegionResolver != nil && ip != "" {
+		ipRegion = s.ipRegionResolver.Resolve(ctx, ip)
+	}
+	return s.repo.OpenSession(ctx, repository.SessionInput{
+		SessionID: loginType + "_" + hex.EncodeToString(buf),
+		UserID:    user.ID,
+		Username:  user.Username,
+		Platform:  "web",
+		IP:        ip,
+		IPRegion:  ipRegion,
+		UserAgent: userAgent,
+		LoginAt:   time.Now(),
+	})
 }
 
 // VerifyLoginOTP 完成登录二次验证（doc91 §4.6）。

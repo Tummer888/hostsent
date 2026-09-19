@@ -7,13 +7,29 @@ import (
 
 	"gorm.io/gorm"
 
+	ordermodel "hostsent/backend/internal/modules/admin/order/model"
 	"hostsent/backend/internal/modules/admin/user/account/dto"
 	"hostsent/backend/internal/modules/admin/user/account/model"
 )
 
+// purchasedOrderStatuses 判定「已购」的订单状态集合，与订单域的销售额口径
+// （order/repository 的 paidStatuses）同义：凡成交过（含退款中/已退款）都算买过。
+// 定义在这里而不是引用订单仓储，是因为仓储层的 var 不可导出，
+// 而用户统计与列表筛选必须共用同一份取值，不能各写各的。
+var purchasedOrderStatuses = []string{
+	ordermodel.OrderStatusPaid,
+	ordermodel.OrderStatusProvisioning,
+	ordermodel.OrderStatusActive,
+	ordermodel.OrderStatusRefunding,
+	ordermodel.OrderStatusRefunded,
+	ordermodel.OrderStatusCompleted,
+}
+
 type UserRepository interface {
 	Create(ctx context.Context, user *model.User) error
 	Update(ctx context.Context, user *model.User) error
+	// Delete 已废弃（硬删除无路由）：保留仅为兼容，勿在新代码调用。
+	// 注销走 SoftDelete，到期清理走 PurgeUser。
 	Delete(ctx context.Context, id uint64) error
 	FindByID(ctx context.Context, id uint64) (*model.User, error)
 	FindByUsername(ctx context.Context, username string) (*model.User, error)
@@ -33,6 +49,23 @@ type UserRepository interface {
 	ListSubAccounts(ctx context.Context, ownerID uint64) ([]model.User, error)
 	// PermissionsByUserIDs 批量查询子账号已授予的权限码（P4-10）。
 	PermissionsByUserIDs(ctx context.Context, ids []uint64) (map[uint64][]string, error)
+	// OAuthProvidersByUserIDs 批量查询用户已绑定的第三方渠道（doc104 §6.1）。
+	OAuthProvidersByUserIDs(ctx context.Context, ids []uint64) (map[uint64][]string, error)
+	// —— 软删除与留存期清理（doc104 §4）——
+	// DeletionCheck 注销前置校验的计数汇总（单条 SQL）。
+	DeletionCheck(ctx context.Context, id uint64) (*DeletionCheckRow, error)
+	// SoftDelete 注销（软删除）：写删除标记并把状态收敛为 cancelled。
+	SoftDelete(ctx context.Context, id uint64, operatorID uint64, reason, statusBefore string, now time.Time) error
+	// Restore 恢复已注销用户；restoreStatus 为空时回落 disabled。
+	Restore(ctx context.Context, id uint64, restoreStatus string) error
+	// ListPurgeCandidates 留存期已过的待清理用户。
+	ListPurgeCandidates(ctx context.Context, before time.Time, limit int) ([]model.User, error)
+	// PurgeUser 硬删除一个用户及其全部个人数据（单事务）。
+	PurgeUser(ctx context.Context, id uint64) error
+	// CountDeleted 已注销用户数。
+	CountDeleted(ctx context.Context) (int64, error)
+	// AdminNamesByIDs 批量查询管理员 ID → 显示名（回收站「注销人」列）。
+	AdminNamesByIDs(ctx context.Context, ids []uint64) (map[uint64]string, error)
 }
 
 type userRepository struct {
@@ -62,12 +95,15 @@ func (r *userRepository) Delete(ctx context.Context, id uint64) error {
 func (r *userRepository) FindByID(ctx context.Context, id uint64) (*model.User, error) {
 	var user model.User
 	if err := r.db.WithContext(ctx).
-		Select("users.*, user_groups.name AS user_group_name, user_levels.name AS user_level_name, user_levels.code AS user_level_code, owner.username AS owner_name, inviter.username AS inviter_name, COALESCE(NULLIF(sales.real_name, ''), sales.username, '') AS sales_admin_name").
+		Select("users.*, user_groups.name AS user_group_name, user_levels.name AS user_level_name, user_levels.code AS user_level_code, owner.username AS owner_name, inviter.username AS inviter_name, COALESCE(NULLIF(sales.real_name, ''), sales.username, '') AS sales_admin_name, COALESCE(NULLIF(deleter.real_name, ''), deleter.username, '') AS deleted_by_name").
 		Joins("LEFT JOIN user_groups ON user_groups.id = users.user_group_id").
 		Joins("LEFT JOIN user_levels ON user_levels.id = users.user_level_id").
 		Joins("LEFT JOIN users AS owner ON owner.id = users.owner_user_id").
 		Joins("LEFT JOIN users AS inviter ON inviter.id = users.inviter_user_id").
 		Joins("LEFT JOIN admins AS sales ON sales.id = users.sales_admin_id").
+		// 注销人姓名（详情页「注销信息」段）。adminNamesByIDs 走的是批量接口，
+		// 详情只查一行，单独 JOIN 比再发一次批量查询更省往返。
+		Joins("LEFT JOIN admins AS deleter ON deleter.id = users.deleted_by").
 		First(&user, "users.id = ?", id).Error; err != nil {
 		return nil, err
 	}
@@ -156,13 +192,48 @@ func (r *userRepository) List(ctx context.Context, query dto.UserListQuery) ([]m
 	if err != nil {
 		return nil, 0, err
 	}
+	// 第三方绑定同理批量取回（doc104 §6.1）：前端列表的 oauth_providers 列
+	// 此前读的是一个后端从不生产的字段，图标恒为未绑定态。
+	oauthMap, err := r.OAuthProvidersByUserIDs(ctx, userIDs(users))
+	if err != nil {
+		return nil, 0, err
+	}
+	// 注销人姓名同样批量取回（回收站列表的「注销人」列）。
+	adminNames, err := r.AdminNamesByIDs(ctx, deletedByIDs(users))
+	if err != nil {
+		return nil, 0, err
+	}
 	for i := range users {
 		roles := roleMap[users[i].ID]
 		users[i].Role = firstRoleCode(roles)
 		users[i].Roles = roleCodes(roles)
+		providers := oauthMap[users[i].ID]
+		if providers == nil {
+			providers = []string{}
+		}
+		users[i].OAuthProviders = providers
+		users[i].DeletedByName = adminNames[users[i].DeletedBy]
 	}
 
 	return users, total, nil
+}
+
+// deletedByIDs 提取非零的 deleted_by（0 = 系统或用户自助，无对应管理员）。
+func deletedByIDs(users []model.User) []uint64 {
+	seen := make(map[uint64]struct{}, len(users))
+	ids := make([]uint64, 0, len(users))
+	for i := range users {
+		id := users[i].DeletedBy
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 func userIDs(users []model.User) []uint64 {
@@ -174,6 +245,18 @@ func userIDs(users []model.User) []uint64 {
 }
 
 func applyUserFilters(db *gorm.DB, query dto.UserListQuery) *gorm.DB {
+	// 注销态筛选（doc104 §4.3）：
+	//   默认排除已注销；filter=deleted 只看回收站；include_deleted=true 全看。
+	// 三个开关互斥，include_deleted 优先级最高（回收站翻页时不会因残留参数被放大）。
+	switch {
+	case query.IncludeDeleted:
+		// 不追加条件
+	case strings.EqualFold(strings.TrimSpace(query.Filter), "deleted"):
+		db = db.Where("users.deleted_at IS NOT NULL")
+	default:
+		db = db.Where("users.deleted_at IS NULL")
+	}
+
 	if status := strings.TrimSpace(query.Status); status != "" {
 		db = db.Where("users.status = ?", status)
 	}
@@ -213,7 +296,17 @@ func applyUserFilters(db *gorm.DB, query dto.UserListQuery) *gorm.DB {
 		today := time.Now().Format("2006-01-02")
 		db = db.Where("DATE(users.created_at) = ?", today)
 	case "pending_real_name":
-		db = db.Where("(users.real_name IS NULL OR users.real_name = '')")
+		// 口径统一（doc104 §4.8，F17）：原实现是 `real_name 为空`，而统计卡的
+		// PendingRealName 额外带 status='active'，导致卡片 21 与列表 24 对不上。
+		// 现在两边都用同一个判据：**未实名认证**（real_name_verified_at 为空），
+		// 与 real_name 展示名解耦——改昵称不再等于已实名（§5.3）。
+		db = db.Where("users.real_name_verified_at IS NULL")
+	case "purchased":
+		// 已购用户（doc104 §3.3，F23）：此前 overview 快捷入口把 filter=purchased
+		// 传给列表，而后端 switch 没有这个分支 —— 参数被静默忽略，点进去看到的是
+		// 全部用户。这里补上分支，口径与统计卡的 PurchasedCount 共用
+		// purchasedOrderStatuses。
+		db = db.Where("EXISTS (SELECT 1 FROM orders WHERE orders.user_id = users.id AND orders.deleted_at IS NULL AND orders.status IN ?)", purchasedOrderStatuses)
 	}
 
 	return db
@@ -320,29 +413,48 @@ func (r *userRepository) SetRoles(ctx context.Context, userID uint64, roleIDs []
 func (r *userRepository) Stats(ctx context.Context) (*model.UserStats, error) {
 	var stats model.UserStats
 
-	if err := r.db.WithContext(ctx).Model(&model.User{}).Count(&stats.Total).Error; err != nil {
+	// 统计口径（doc104 §4.8）：除 Deleted 外一律只统计**未注销**用户，
+	// 否则注销后总数/活跃数/余额合计都会虚高。
+	active := r.db.WithContext(ctx).Model(&model.User{}).Where("deleted_at IS NULL")
+
+	if err := active.Session(&gorm.Session{}).Count(&stats.Total).Error; err != nil {
 		return nil, err
 	}
-	if err := r.db.WithContext(ctx).Model(&model.User{}).Where("DATE(created_at) = ?", time.Now().Format("2006-01-02")).Count(&stats.TodayNew).Error; err != nil {
+	if err := active.Session(&gorm.Session{}).Where("DATE(created_at) = ?", time.Now().Format("2006-01-02")).Count(&stats.TodayNew).Error; err != nil {
 		return nil, err
 	}
-	if err := r.db.WithContext(ctx).Model(&model.User{}).Where("status = ?", "active").Count(&stats.Active).Error; err != nil {
+	if err := active.Session(&gorm.Session{}).Where("status = ?", model.StatusActive).Count(&stats.Active).Error; err != nil {
 		return nil, err
 	}
-	if err := r.db.WithContext(ctx).Model(&model.User{}).Where("status = ?", "disabled").Count(&stats.Disabled).Error; err != nil {
+	if err := active.Session(&gorm.Session{}).Where("status = ?", model.StatusDisabled).Count(&stats.Disabled).Error; err != nil {
 		return nil, err
 	}
-	if err := r.db.WithContext(ctx).Model(&model.User{}).Where("status = ? AND (real_name IS NULL OR real_name = '')", "active").Count(&stats.PendingRealName).Error; err != nil {
+	// 待实名：与列表 filter=pending_real_name 同一判据（未认证，而非 real_name 为空）。
+	if err := active.Session(&gorm.Session{}).Where("real_name_verified_at IS NULL").Count(&stats.PendingRealName).Error; err != nil {
 		return nil, err
 	}
-	if err := r.db.WithContext(ctx).Model(&model.User{}).Where("status = ?", "pending").Count(&stats.PendingReview).Error; err != nil {
+	if err := active.Session(&gorm.Session{}).Where("status = ?", model.StatusPending).Count(&stats.PendingReview).Error; err != nil {
 		return nil, err
 	}
-	if err := r.db.WithContext(ctx).Model(&model.User{}).Select("COALESCE(SUM(balance), 0)").Scan(&stats.TotalBalance).Error; err != nil {
+	if err := active.Session(&gorm.Session{}).Select("COALESCE(SUM(balance), 0)").Scan(&stats.TotalBalance).Error; err != nil {
 		return nil, err
 	}
-	if err := r.db.WithContext(ctx).Table("orders").Select("COUNT(DISTINCT user_id)").Scan(&stats.PurchasedCount).Error; err != nil {
-		stats.PurchasedCount = 0
+	// 已购用户数：原实现吞掉错误并置 0，导致统计卡静默显示 0 而无人察觉。
+	// 现在把错误抛出去，让统计接口整体失败而不是给出一个错的数字。
+	// 口径与列表 filter=purchased 共用 purchasedOrderStatuses（doc104 §3.3，F23）：
+	// 两处都限定「订单已成交 + 订单未删除 + 用户未注销」，
+	// 否则卡片数字会大于点进列表后看到的条数。
+	if err := r.db.WithContext(ctx).Table("orders").
+		Joins("JOIN users ON users.id = orders.user_id").
+		Where("orders.deleted_at IS NULL").
+		Where("users.deleted_at IS NULL").
+		Where("orders.status IN ?", purchasedOrderStatuses).
+		Select("COUNT(DISTINCT orders.user_id)").Scan(&stats.PurchasedCount).Error; err != nil {
+		return nil, err
+	}
+	// 已注销用户数（回收站入口展示）。
+	if err := r.db.WithContext(ctx).Model(&model.User{}).Where("deleted_at IS NOT NULL").Count(&stats.Deleted).Error; err != nil {
+		return nil, err
 	}
 
 	return &stats, nil
@@ -355,6 +467,7 @@ func (r *userRepository) RegionStats(ctx context.Context) ([]model.RegionStat, e
 		Model(&model.User{}).
 		Select("last_login_ip_region AS region, COUNT(*) AS count").
 		Where("last_login_ip_region IS NOT NULL AND last_login_ip_region <> ''").
+		Where("deleted_at IS NULL").
 		Group("last_login_ip_region").
 		Order("count DESC").
 		Scan(&rows).Error; err != nil {

@@ -133,6 +133,7 @@ var menuPermissionMap = map[string]string{
 	"/system/menus":       "system:menu",
 	"/system/config":      "system:config:view",
 	"/system/captcha":     "captcha:config",
+	"/system/oauth":       "oauth:config",
 	"/system/audit-logs":  "security:audit:list",
 	// 日志中心（doc92 §9.1）：日志含手机号/邮箱/上游请求体，仅超管与运维可见。
 	"/system/logs":         "log:center",

@@ -40,6 +40,14 @@ func buildTestTree() []dto.MenuNode {
 				{Name: "邀请关系", Path: "/referral/invitees", Type: "menu"},
 			},
 		},
+		{
+			// 系统设置：第三方登录配置页挂在 /system/oauth（doc104 §6.7）。
+			Name: "系统设置", Path: "/system", Type: "directory",
+			Children: []dto.MenuNode{
+				{Name: "第三方登录", Path: "/system/oauth", Type: "menu"},
+				{Name: "验证码配置", Path: "/system/captcha", Type: "menu"},
+			},
+		},
 	}
 }
 
@@ -122,7 +130,36 @@ func TestFilterByPermissions_ReferralSplit(t *testing.T) {
 func TestFilterByPermissions_Super(t *testing.T) {
 	perms := appauth.NewPermissionSet([]string{appauth.SuperPermission})
 	got := FilterByPermissions(buildTestTree(), perms)
-	if len(got) != 3 {
-		t.Fatalf("超管应看到全部 3 个一级目录，实际 %d", len(got))
+	if len(got) != 4 {
+		t.Fatalf("超管应看到全部 4 个一级目录，实际 %d", len(got))
+	}
+}
+
+// 第三方登录配置页（/system/oauth）必须与 oauth:config 一一对应：
+// 有权限时可见、无权限时整条隐藏，且不能与验证码配置（captcha:config）互相串权。
+func TestFilterByPermissions_OAuthConfig(t *testing.T) {
+	perms := appauth.NewPermissionSet([]string{"oauth:config"})
+	got := FilterByPermissions(buildTestTree(), perms)
+
+	if !hasPath(got, "/system/oauth") {
+		t.Fatal("持有 oauth:config 时应保留 /system/oauth")
+	}
+	if hasPath(got, "/system/captcha") {
+		t.Error("未持有 captcha:config，不应看到验证码配置")
+	}
+
+	// 反向：只持验证码权限时不能看到第三方登录配置。
+	only := FilterByPermissions(buildTestTree(), appauth.NewPermissionSet([]string{"captcha:config"}))
+	if hasPath(only, "/system/oauth") {
+		t.Error("未持有 oauth:config，不应看到第三方登录配置")
+	}
+	if !hasPath(only, "/system/captcha") {
+		t.Error("持有 captcha:config 时应保留 /system/captcha")
+	}
+
+	// 两条权限都没有时，/system 目录整体应被移除（不留空目录）。
+	none := FilterByPermissions(buildTestTree(), appauth.NewPermissionSet([]string{"system:user:list"}))
+	if hasPath(none, "/system") {
+		t.Error("系统设置下所有子菜单均无权限，整个目录应被移除")
 	}
 }

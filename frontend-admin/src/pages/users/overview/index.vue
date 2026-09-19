@@ -32,9 +32,15 @@
       <article
         v-for="(stat, idx) in statCards"
         :key="stat.key"
-        class="stat-card surface-card"
-        :class="`stat-card--${stat.variant}`"
+        class="stat-card surface-card stat-card--clickable"
+        :class="[`stat-card--${stat.variant}`, { 'stat-card--clickable': hasFilter(stat) }]"
         :style="{ animationDelay: `${60 + idx * 45}ms` }"
+        :title="stat.desc"
+        :role="hasFilter(stat) ? 'button' : undefined"
+        :tabindex="hasFilter(stat) ? 0 : undefined"
+        @click="goStat(stat)"
+        @keydown.enter="goStat(stat)"
+        @keydown.space.prevent="goStat(stat)"
       >
         <span class="stat-card__icon">
           <component :is="stat.icon" size="22" aria-hidden="true" />
@@ -156,6 +162,8 @@ import type { EChartsOption } from 'echarts'
 
 import {
   ArrowRightIcon,
+  DashboardIcon,
+  DeleteIcon,
   EditIcon,
   ErrorCircleIcon,
   MoneyIcon,
@@ -190,15 +198,13 @@ type StatVariant = 'blue' | 'green' | 'cyan' | 'orange' | 'purple' | 'warning' |
 interface StatCardItem {
   key: keyof UserStatsResponse
   title: string
-  value: number
   variant: StatVariant
-  hint: string
+  // desc 作为卡片 title 提示；filter 是点击卡片后跳转用户列表的查询参数。
   desc: string
   icon: unknown
   filter: Record<string, string>
   displayValue: number
   decimalPlaces: number
-  precision: number
 }
 
 function formatStatValue(stat: StatCardItem) {
@@ -220,6 +226,7 @@ const stats = ref<UserStatsResponse>({
   pending_review: 0,
   total_balance: 0,
   purchased_count: 0,
+  deleted: 0,
 })
 const regionItems = ref<RegionStatItem[]>([])
 
@@ -231,107 +238,93 @@ const statCards = computed<StatCardItem[]>(() => {
     {
       key: 'total_balance',
       title: '用户总余额',
-      value: stats.value.total_balance,
       variant: 'indigo',
-      hint: '累计',
       desc: '平台全部用户账户余额总和',
       icon: MoneyIcon,
       filter: {},
       displayValue: stats.value.total_balance,
       decimalPlaces: 2,
-      precision: 2,
     },
     {
       key: 'total',
       title: '总用户数',
-      value: stats.value.total,
       variant: 'blue',
-      hint: '累计',
       desc: '平台全部注册用户总数',
       icon: UserIcon,
       filter: {},
       displayValue: stats.value.total,
       decimalPlaces: 0,
-      precision: 0,
     },
     {
       key: 'today_new',
       title: '今日新增',
-      value: stats.value.today_new,
       variant: 'green',
-      hint: '今日',
       desc: '当日新增注册用户数量',
       icon: UserAddIcon,
       filter: { filter: 'today' },
       displayValue: stats.value.today_new,
       decimalPlaces: 0,
-      precision: 0,
     },
     {
       key: 'purchased_count',
       title: '已购用户',
-      value: stats.value.purchased_count,
       variant: 'teal',
-      hint: '累计',
       desc: '至少有一条订单的用户数量',
       icon: OrderIcon,
       filter: {},
       displayValue: stats.value.purchased_count,
       decimalPlaces: 0,
-      precision: 0,
     },
     // Row 2
     {
       key: 'pending_real_name',
       title: '待实名',
-      value: stats.value.pending_real_name,
       variant: 'warning',
-      hint: '待认证',
-      desc: '正常账号中尚未实名认证',
+      desc: '尚未实名认证的账号（real_name_verified_at 为空）',
       icon: UserSafetyIcon,
       filter: { filter: 'pending_real_name' },
       displayValue: stats.value.pending_real_name,
       decimalPlaces: 0,
-      precision: 0,
     },
     {
       key: 'pending_review',
       title: '待审核',
-      value: stats.value.pending_review,
       variant: 'purple',
-      hint: '待审核',
       desc: '等待管理员审核的新注册账号',
       icon: UserUnknownIcon,
       filter: { status: 'pending' },
       displayValue: stats.value.pending_review,
       decimalPlaces: 0,
-      precision: 0,
     },
     {
       key: 'disabled',
       title: '冻结用户',
-      value: stats.value.disabled,
       variant: 'orange',
-      hint: '冻结',
       desc: '因风控或违规被冻结的账号',
       icon: UserLockedIcon,
       filter: { status: 'disabled' },
       displayValue: stats.value.disabled,
       decimalPlaces: 0,
-      precision: 0,
+    },
+    {
+      key: 'deleted',
+      title: '已注销',
+      variant: 'orange',
+      desc: '留存期内可从回收站恢复的账号',
+      icon: UserLockedIcon,
+      filter: { filter: 'deleted' },
+      displayValue: stats.value.deleted,
+      decimalPlaces: 0,
     },
     {
       key: 'active',
       title: '活跃用户',
-      value: stats.value.active,
       variant: 'cyan',
-      hint: '正常',
       desc: '状态为正常可登录的账号',
       icon: UserArrowUpIcon,
       filter: { status: 'active' },
       displayValue: stats.value.active,
       decimalPlaces: 0,
-      precision: 0,
     },
   ]
   return items
@@ -413,12 +406,16 @@ interface QuickCandidate {
 }
 
 const entryCandidates: QuickCandidate[] = [
+  // dashboard 在 DEFAULT_QUICK_KEYS 里，此前却不在候选表中 —— 默认快捷入口
+  // 里那一个永远被 activeEntries 过滤掉，用户看到的是三个而不是四个（doc104 §3.3，F23）。
+  { key: 'dashboard', label: '仪表盘', path: '/dashboard/base', icon: DashboardIcon },
   { key: 'users-list', label: '用户列表', path: listPath, icon: UserListIcon },
   { key: 'real-name', label: '待实名', path: `${listPath}?filter=pending_real_name`, icon: UserSafetyIcon },
   { key: 'pending', label: '待审核', path: `${listPath}?status=pending`, icon: UserUnknownIcon },
   { key: 'today-new', label: '今日新增', path: `${listPath}?filter=today`, icon: UserAddIcon },
   { key: 'purchased', label: '已购用户', path: `${listPath}?filter=purchased`, icon: OrderIcon },
   { key: 'disabled', label: '冻结用户', path: `${listPath}?status=disabled`, icon: UserLockedIcon },
+  { key: 'recycle', label: '回收站', path: `${listPath}?filter=deleted`, icon: DeleteIcon },
 ]
 
 const QUICK_STORAGE_KEY = 'hostsent_admin_quick_entries'
@@ -473,12 +470,19 @@ function navigate(path: string) {
   navigateRaw(pathname, query)
 }
 
-function goStat(stat: StatCardItem) {
-  navigateRaw(listPath, stat.filter)
-}
-
 function navigateRaw(pathname: string, query: Record<string, string>) {
   router.push({ path: pathname, query })
+}
+
+// 统计卡点击 → 带筛选跳用户列表。此前卡片没有点击事件（goStat 是死代码），
+// 而 filter 字段已经在数据里定义好了（doc104 §3.3，F23）。
+function hasFilter(stat: StatCardItem) {
+  return Object.keys(stat.filter).length > 0
+}
+
+function goStat(stat: StatCardItem) {
+  if (!hasFilter(stat)) return
+  navigateRaw(listPath, stat.filter)
 }
 
 function onStatusClick(payload: { name: string; seriesType?: string }) {
@@ -511,6 +515,7 @@ async function loadAll() {
       pending_review: s.pending_review ?? 0,
       total_balance: s.total_balance ?? 0,
       purchased_count: s.purchased_count ?? 0,
+      deleted: s.deleted ?? 0,
     }
     regionItems.value = r.items ?? []
   } catch (err) {
@@ -636,6 +641,23 @@ onMounted(() => {
 /* 统计卡片样式统一由 ../stat-card.css 提供（user-overview-page 已加入其命名空间） */
 .user-overview-page .stat-card {
   cursor: default;
+}
+
+/* 有筛选条件的卡片可点击跳列表（无 filter 的余额/总数/已购卡片不加手型与高亮）。 */
+.user-overview-page .stat-card--clickable {
+  cursor: pointer;
+  transition: box-shadow 160ms var(--hs-ease-out), transform 160ms var(--hs-ease-out);
+}
+
+.user-overview-page .stat-card--clickable:hover,
+.user-overview-page .stat-card--clickable:focus-visible {
+  box-shadow: var(--hs-shadow-md);
+  transform: translateY(-2px);
+  outline: none;
+}
+
+.user-overview-page .stat-card--clickable:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-primary), var(--hs-shadow-md);
 }
 
 .chart-grid {

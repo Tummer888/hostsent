@@ -42,7 +42,6 @@ import (
 	"hostsent/backend/internal/modules/admin/user/account/handler"
 	levelhandler "hostsent/backend/internal/modules/admin/user/level/handler"
 	securityhandler "hostsent/backend/internal/modules/admin/user/security/handler"
-	verificationhandler "hostsent/backend/internal/modules/admin/user/verification/handler"
 	openhandler "hostsent/backend/internal/modules/open/handler"
 	sitehandler "hostsent/backend/internal/modules/site/handler"
 	usercenterhandler "hostsent/backend/internal/modules/uc/auth/handler"
@@ -77,13 +76,13 @@ type App struct {
 	departmentHandler     *adminhandler.DepartmentHandler
 	userHandler           *handler.UserHandler
 	userDetailHandler     *handler.UserDetailHandler
+	userDeletionHandler   *handler.UserDeletionHandler
 	userGroupHandler      *handler.UserGroupHandler
 	roleHandler           *handler.RoleHandler
 	permissionHandler     *handler.PermissionHandler
 	menuHandler           *menuhandler.MenuHandler
 	securityHandler       *securityhandler.SecurityHandler
 	userLevelHandler      *levelhandler.UserLevelHandler
-	verificationHandler   *verificationhandler.VerificationHandler
 	providerHandler       *providerhandler.ProviderHandler
 	productHandler        *producthandler.ProductHandler
 	syncHandler           *synchandler.SyncHandler
@@ -150,6 +149,10 @@ type App struct {
 	// content 内容中心处理器集合（doc100）：新闻/帮助/条款/隐私/分类/友情链接，
 	// 以及供门户公开只读读取的适配器。
 	content *contentBundle
+	// verification 实名认证处理器集合（doc104 §5）：后台审核 + 用户端提交共用同一服务。
+	verification *verificationBundle
+	// oauth 第三方登录处理器集合（doc104 §6）：微信/QQ/支付宝。
+	oauth *oauthBundle
 }
 
 // NewApp 构造装配容器（DI 单一接线点）。
@@ -160,13 +163,13 @@ func NewApp(
 	departmentHandler *adminhandler.DepartmentHandler,
 	userHandler *handler.UserHandler,
 	userDetailHandler *handler.UserDetailHandler,
+	userDeletionHandler *handler.UserDeletionHandler,
 	userGroupHandler *handler.UserGroupHandler,
 	roleHandler *handler.RoleHandler,
 	permissionHandler *handler.PermissionHandler,
 	menuHandler *menuhandler.MenuHandler,
 	securityHandler *securityhandler.SecurityHandler,
 	userLevelHandler *levelhandler.UserLevelHandler,
-	verificationHandler *verificationhandler.VerificationHandler,
 	providerHandler *providerhandler.ProviderHandler,
 	productHandler *producthandler.ProductHandler,
 	syncHandler *synchandler.SyncHandler,
@@ -222,6 +225,8 @@ func NewApp(
 	notifyBundle *notifyBundle,
 	logcenterBundle *logcenterBundle,
 	contentBundle *contentBundle,
+	verificationBundle *verificationBundle,
+	oauthBundle *oauthBundle,
 	cacheClient *cache.Client,
 	logger *zap.Logger,
 	jwtIssuer *appauth.JWTIssuer,
@@ -238,13 +243,13 @@ func NewApp(
 		departmentHandler:       departmentHandler,
 		userHandler:             userHandler,
 		userDetailHandler:       userDetailHandler,
+		userDeletionHandler:     userDeletionHandler,
 		userGroupHandler:        userGroupHandler,
 		roleHandler:             roleHandler,
 		permissionHandler:       permissionHandler,
 		menuHandler:             menuHandler,
 		securityHandler:         securityHandler,
 		userLevelHandler:        userLevelHandler,
-		verificationHandler:     verificationHandler,
 		providerHandler:         providerHandler,
 		productHandler:          productHandler,
 		syncHandler:             syncHandler,
@@ -297,12 +302,22 @@ func NewApp(
 		notify:                  notifyBundle,
 		logcenter:               logcenterBundle,
 		content:                 contentBundle,
+		verification:            verificationBundle,
+		oauth:                   oauthBundle,
 	}
 }
 
 // adminAuth 后台管理路由统一鉴权：解析 token 并加载真实角色/权限快照。
 func (a *App) adminAuth() gin.HandlerFunc {
 	return middleware.AdminAuth(a.jwtIssuer, a.cfg.Auth.BearerPrefix, a.rbacRepo, a.permCache)
+}
+
+// userAuth 用户中心路由统一鉴权（普通用户令牌）。
+//
+// 与 adminAuth 对称：装配层里的模块化 Bundle（如 assembly_oauth.go）需要挂
+// 用户端鉴权时不必各自重复拼 middleware.UserAuth 的参数。
+func (a *App) userAuth() gin.HandlerFunc {
+	return middleware.UserAuth(a.jwtIssuer, a.cfg.Auth.BearerPrefix)
 }
 
 // perm 要求任一权限码即可访问（超管 "*" 恒通过）。

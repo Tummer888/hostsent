@@ -1,0 +1,377 @@
+{
+  "/api/v1/admin/users": {
+    "description": "用户列表。筛选参数与 `/api/v1/admin/users/export` 完全同源，导出即「当前筛出来的一批」。",
+    "parameters": [
+      {"$ref": "#/components/parameters/Page"},
+      {"$ref": "#/components/parameters/PageSize"},
+      {"name": "keyword", "in": "query", "schema": {"type": "string"}, "description": "用户名 / 姓名 / 邮箱 / 手机号模糊匹配。"},
+      {"name": "status", "in": "query", "schema": {"type": "string"}},
+      {"name": "filter", "in": "query", "schema": {"type": "string"}, "description": "快捷筛选：today / pending_real_name / purchased / deleted。purchased 与统计卡共用同一套订单状态口径。"},
+      {"name": "user_level_id", "in": "query", "schema": {"type": "integer"}},
+      {"name": "user_group_id", "in": "query", "schema": {"type": "integer"}},
+      {"name": "is_sub_account", "in": "query", "schema": {"type": "boolean"}},
+      {"name": "sales_admin_id", "in": "query", "schema": {"type": "integer"}},
+      {"name": "unassigned_sales", "in": "query", "schema": {"type": "string"}, "description": "只看未归属销售的用户。"},
+      {"name": "last_login_ip_region", "in": "query", "schema": {"type": "string"}},
+      {"name": "include_deleted", "in": "query", "schema": {"type": "boolean"}, "description": "是否包含已注销（软删除）用户。"}
+    ],
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                {"$ref": "#/components/schemas/ApiResponse"},
+                {"type": "object", "properties": {"data": {"type": "object", "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/UserInfo"}}, "meta": {"$ref": "#/components/schemas/ListMeta"}}}}}
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "/api/v1/admin/users/export": {
+    "description": "需 system:user:list（与列表同权限，能看列表就能导出）。查询参数与列表接口一致，固定取第 1 页、最多 1000 行。\n\n**响应不是 JSON 信封**，而是 `text/csv; charset=utf-8` 文件流（带 UTF-8 BOM）。前端必须用 `responseType: 'blob'` 并跳过统一解包。",
+    "parameters": [
+      {"name": "keyword", "in": "query", "schema": {"type": "string"}},
+      {"name": "status", "in": "query", "schema": {"type": "string"}},
+      {"name": "filter", "in": "query", "schema": {"type": "string"}},
+      {"name": "user_level_id", "in": "query", "schema": {"type": "integer"}},
+      {"name": "user_group_id", "in": "query", "schema": {"type": "integer"}},
+      {"name": "is_sub_account", "in": "query", "schema": {"type": "boolean"}},
+      {"name": "sales_admin_id", "in": "query", "schema": {"type": "integer"}},
+      {"name": "unassigned_sales", "in": "query", "schema": {"type": "string"}},
+      {"name": "last_login_ip_region", "in": "query", "schema": {"type": "string"}},
+      {"name": "include_deleted", "in": "query", "schema": {"type": "boolean"}}
+    ],
+    "responses": {
+      "'200'": {
+        "description": "CSV 文件流",
+        "content": {"text/csv": {"schema": {"type": "string", "format": "binary"}}}
+      }
+    }
+  },
+  "/api/v1/admin/users/stats": {
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {
+          "application/json": {
+            "schema": {
+              "allOf": [
+                {"$ref": "#/components/schemas/ApiResponse"},
+                {"type": "object", "properties": {"data": {"$ref": "#/components/schemas/UserStatsResponse"}}}
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "/api/v1/admin/users/batch-delete": {
+    "description": "需 user:delete。软删除（写 deleted_at / deleted_by / delete_reason 并收敛状态），不是物理删除。存在阻断项且未 force 的条目会跳过并出现在 skipped 里。",
+    "request": {"required": true, "content": {"application/json": {"$ref": "#/components/schemas/UserBatchDeleteRequest"}}},
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"$ref": "#/components/schemas/UserBatchResult"}}}]}}}
+      }
+    }
+  },
+  "/api/v1/admin/users/batch-restore": {
+    "description": "需 user:restore。恢复时按 status_before_delete 精确还原状态。",
+    "request": {"required": true, "content": {"application/json": {"$ref": "#/components/schemas/UserBatchRestoreRequest"}}},
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"$ref": "#/components/schemas/UserBatchResult"}}}]}}}
+      }
+    }
+  },
+  "/api/v1/admin/users/purge": {
+    "description": "**仅超级管理员**。留存期清理：硬删除 `deleted_at` 早于留存期截止点的用户，**不可逆**。默认 `dry_run: true` 只返回候选清单；显式传 false 才执行。",
+    "request": {"required": false, "content": {"application/json": {"$ref": "#/components/schemas/UserPurgeRequest"}}},
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"$ref": "#/components/schemas/UserPurgeResponse"}}}]}}}
+      }
+    }
+  },
+  "/api/v1/admin/users/{id}": {
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"$ref": "#/components/schemas/UserInfo"}}}]}}}
+      }
+    }
+  },
+  "/api/v1/admin/users/{id}/deletion-check": {
+    "description": "需 user:delete。返回阻断项与警告项，前端据此决定是否允许提交注销，而不是点完才吃 409。",
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"$ref": "#/components/schemas/UserDeletionCheckResponse"}}}]}}}
+      }
+    }
+  },
+  "/api/v1/admin/users/{id}/detail-aggregate": {
+    "description": "profile + rbac_roles + permissions + summary 计数一次取回。\n\n各 Tab 的列表（订单 / 账单 / 流水 / 工单 / 实例）走各自的实时分页接口，**不在本接口返回** —— 曾经返回的 `recent_*` 数组无人消费，只是每次打开详情页多打 5 次查询，已移除。`degraded` 非空表示某段采集失败，前端应提示计数可能为 0。"
+  },
+  "/api/v1/admin/users/{id}/impersonate": {
+    "description": "**仅超级管理员**。代登录属高危接口，返回的令牌用于在新窗口打开用户控制台。"
+  },
+  "/api/v1/admin/verifications/configs": {
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"type": "array", "items": {"$ref": "#/components/schemas/VerificationConfigInfo"}}}}]}}}
+      }
+    }
+  },
+  "/api/v1/admin/verifications/provider-types": {
+    "description": "描述符驱动前端动态表单。`implemented` 由运行时工厂注册情况计算 —— 只登记了描述符、没有真实适配器的类型恒为 false。",
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"type": "array", "items": {"$ref": "#/components/schemas/VerificationProviderTypeInfo"}}}}]}}}
+      }
+    }
+  },
+  "/api/v1/admin/verifications/providers": {
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"type": "array", "items": {"$ref": "#/components/schemas/VerificationProviderInfo"}}}}]}}}
+      }
+    }
+  },
+  "/api/v1/admin/verifications/providers/{id}/test": {
+    "description": "无论成功失败都返回 HTTP 200 + `{ok, message}`，让前端把失败原因直接展示给运营，而不是落进通用错误提示。"
+  },
+  "/api/v1/admin/verifications/documents/{id}/download": {
+    "description": "证件影像属敏感个人信息，只有申请本人与其审核员可取；不暴露存储路径。",
+    "responses": {
+      "'200'": {
+        "description": "文件流",
+        "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}}
+      }
+    }
+  },
+  "/api/v1/admin/verifications/{id}": {
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"$ref": "#/components/schemas/VerificationDetail"}}}]}}}
+      }
+    }
+  },
+  "/api/v1/admin/verifications/{id}/approve": {
+    "description": "整单通过。通过后写 `users.real_name_verified_at` —— 这是实名状态的**唯一信任信号**。",
+    "request": {"required": false, "content": {"application/json": {"$ref": "#/components/schemas/VerificationReviewRequest"}}}
+  },
+  "/api/v1/admin/verifications/{id}/reject": {
+    "description": "整单驳回。`reject_reason` 必填（服务层与前端各校验一次）。",
+    "request": {"required": true, "content": {"application/json": {"$ref": "#/components/schemas/VerificationReviewRequest"}}}
+  },
+  "/api/v1/admin/verifications/{id}/revoke": {
+    "request": {"required": false, "content": {"application/json": {"$ref": "#/components/schemas/VerificationReviewRequest"}}}
+  },
+  "/api/v1/admin/verifications/{id}/provider-check": {
+    "description": "手动触发三方核验。\n\n`ok=false` **不等于出错** —— 支付宝属跳转式核验，手动触发会返回「该服务商不支持无跳转核验」，这是业务状态，HTTP 仍是 200。",
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"$ref": "#/components/schemas/VerificationProviderCheckResult"}}}]}}}
+      }
+    }
+  },
+  "/api/v1/admin/oauth/provider-types": {
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"type": "array", "items": {"$ref": "#/components/schemas/OAuthProviderTypeInfo"}}}}]}}}
+      }
+    }
+  },
+  "/api/v1/admin/oauth/providers": {
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"type": "array", "items": {"$ref": "#/components/schemas/OAuthProviderInfo"}}}}]}}}
+      }
+    }
+  },
+  "/api/v1/admin/oauth/providers/{provider}": {
+    "description": "凭证语义与支付 / 验证码渠道一致：回传脱敏值表示「未修改」，保留原密文。",
+    "parameters": [
+      {"name": "provider", "in": "path", "required": true, "schema": {"type": "string"}, "description": "wechat / qq / alipay"}
+    ],
+    "request": {"required": true, "content": {"application/json": {"$ref": "#/components/schemas/OAuthProviderUpdateRequest"}}}
+  },
+  "/api/v1/admin/oauth/providers/{provider}/test": {
+    "description": "无论成功失败都返回 HTTP 200 + `{ok, message}`。",
+    "parameters": [
+      {"name": "provider", "in": "path", "required": true, "schema": {"type": "string"}, "description": "wechat / qq / alipay"}
+    ]
+  },
+  "/api/v1/admin/oauth/bindings": {
+    "parameters": [
+      {"$ref": "#/components/parameters/Page"},
+      {"$ref": "#/components/parameters/PageSize"},
+      {"name": "provider", "in": "query", "schema": {"type": "string"}},
+      {"name": "user_id", "in": "query", "schema": {"type": "integer"}},
+      {"name": "status", "in": "query", "schema": {"type": "string"}},
+      {"name": "keyword", "in": "query", "schema": {"type": "string"}}
+    ],
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"$ref": "#/components/schemas/OAuthBindingListResponse"}}}]}}}
+      }
+    }
+  },
+  "/api/v1/admin/security/login-logs/export": {
+    "responses": {
+      "'200'": {
+        "description": "CSV 文件流",
+        "content": {"text/csv": {"schema": {"type": "string", "format": "binary"}}}
+      }
+    }
+  },
+  "/api/v1/admin/security/audit-logs/export": {
+    "responses": {
+      "'200'": {
+        "description": "CSV 文件流",
+        "content": {"text/csv": {"schema": {"type": "string", "format": "binary"}}}
+      }
+    }
+  },
+  "/api/v1/admin/audit-logs": {
+    "description": "与用户安全审计区分：`admin_audit_logs` 记录管理员的写操作（POST/PUT/PATCH/DELETE），登录等白名单路径自动跳过。"
+  },
+  "/api/v1/admin/menus/tree": {
+    "description": "只要求登录态，**不要求 system:menu** —— 它是所有管理员侧边栏的数据源，服务端已按当前管理员权限过滤。若在此再要求该码，未持有它的角色（ops_admin / finance_admin / support 等）会吃到 403，前端随即降级渲染不过滤的静态菜单，反而把全部菜单暴露出来。\n\n菜单是 seed（`db.SeedMenus`）的投影，管理端写接口已下线，改菜单需改代码并发版。",
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"type": "array", "items": {"$ref": "#/components/schemas/MenuNode"}}}}]}}}
+      }
+    }
+  },
+  "/api/v1/admin/system/configs": {
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"type": "array", "items": {"$ref": "#/components/schemas/SystemConfigInfo"}}}}]}}}
+      }
+    }
+  },
+  "/api/v1/admin/user-groups": {
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"$ref": "#/components/schemas/UserGroupListResponse"}}}]}}}
+      }
+    }
+  },
+  "/api/v1/uc/auth/profile": {
+    "description": "改手机 / 邮箱时按字段动态要求验证码。\n\n**本接口不写 `real_name_verified_at`**：改展示名不等于实名认证，实名状态只能由实名审核链路变更（doc104 §5.4 的核心断言）。"
+  },
+  "/api/v1/uc/auth/password": {
+    "description": "关键操作，按验证码策略要求二次验证。"
+  },
+  "/api/v1/uc/verification": {
+    "description": "子账号无独立实名资格，本组接口整体硬拒绝子账号。服务层以 `real_name_verified_at` 为唯一信任信号。",
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"$ref": "#/components/schemas/VerificationUserStatusResponse"}}}]}}}
+      }
+    }
+  },
+  "/api/v1/uc/verification/applications/{id}/authorize": {
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"$ref": "#/components/schemas/VerificationAuthorizeResponse"}}}]}}}
+      }
+    }
+  },
+  "/api/v1/uc/verification/documents/{id}/download": {
+    "responses": {
+      "'200'": {
+        "description": "文件流",
+        "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}}
+      }
+    }
+  },
+  "/api/v1/uc/verification/{provider}/callback": {
+    "description": "**免登录**：用户在支付宝侧完成核验后被重定向回来，此时还没有平台令牌。信任来源是 provider 侧的 certify_id 与申请单上 `ProviderTxnNo` 的比对（服务层校验），不依赖任何客户端参数。",
+    "parameters": [
+      {"name": "provider", "in": "path", "required": true, "schema": {"type": "string"}, "description": "当前仅 alipay。"}
+    ],
+    "responses": {"'302'": "重定向回前端结果页"}
+  },
+  "/api/v1/uc/oauth/providers": {
+    "description": "登录页需要知道「哪几家可用」，不含任何凭证。",
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"type": "array", "items": {"$ref": "#/components/schemas/OAuthPublicProviderInfo"}}}}]}}}
+      }
+    }
+  },
+  "/api/v1/uc/oauth/{provider}/authorize": {
+    "description": "服务端签发 5 分钟有效的签名 state，然后重定向到三方授权页。",
+    "parameters": [
+      {"name": "provider", "in": "path", "required": true, "schema": {"type": "string"}, "description": "wechat / qq / alipay"}
+    ],
+    "responses": {"'302'": "重定向到三方授权页"}
+  },
+  "/api/v1/uc/oauth/{provider}/callback": {
+    "description": "**免登录**：用户在浏览器里被三方重定向过来，此时还没有平台令牌。信任来源是签名 state（校验 state 与渠道是否匹配、是否过期）。\n\n处理成功后重定向回前端并带上 60 秒一次性 ticket，**令牌不进 URL**。",
+    "parameters": [
+      {"name": "provider", "in": "path", "required": true, "schema": {"type": "string"}, "description": "wechat / qq / alipay"}
+    ],
+    "responses": {"'302'": "重定向回前端，携带一次性 ticket"}
+  },
+  "/api/v1/uc/oauth/exchange": {
+    "description": "ticket 为回调后签发的 60 秒一次性票据；`need_bind` 为 true 时 token 为空，应提示用户先用账号密码登录后绑定。",
+    "request": {"required": true, "content": {"application/json": {"$ref": "#/components/schemas/OAuthExchangeRequest"}}},
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"$ref": "#/components/schemas/OAuthExchangeResponse"}}}]}}}
+      }
+    }
+  },
+  "/api/v1/uc/oauth/bindings": {
+    "responses": {
+      "'200'": {
+        "description": "success",
+        "content": {"application/json": {"schema": {"allOf": [{"$ref": "#/components/schemas/ApiResponse"}, {"type": "object", "properties": {"data": {"type": "array", "items": {"$ref": "#/components/schemas/OAuthMyBindingInfo"}}}}]}}}
+      }
+    }
+  },
+  "/api/v1/uc/oauth/{provider}/bind-authorize": {
+    "description": "**需登录** —— 绑定必须落到明确的账号，与登录授权区分。",
+    "parameters": [
+      {"name": "provider", "in": "path", "required": true, "schema": {"type": "string"}, "description": "wechat / qq / alipay"}
+    ],
+    "responses": {"'302'": "重定向到三方授权页"}
+  },
+  "/api/v1/uc/oauth/bindings/{provider}": {
+    "description": "服务端预判解绑守卫，确保解绑后仍有其它登录方式；`can_unbind` 由 `GET /api/v1/uc/oauth/bindings` 一并返回，前端据此禁用按钮。",
+    "parameters": [
+      {"name": "provider", "in": "path", "required": true, "schema": {"type": "string"}, "description": "wechat / qq / alipay"}
+    ]
+  },
+  "/open/v1/instances/{id}": {
+    "responses": {
+      "'200'": "success",
+      "'400'": "D2 安全边界：开放平台无销毁能力，DELETE 显式注册并固定返回业务码 40009「不支持」。"
+    }
+  }
+}

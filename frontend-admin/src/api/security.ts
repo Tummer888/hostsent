@@ -1,3 +1,5 @@
+import type { AxiosResponse } from 'axios'
+
 import { request } from '@/utils/request'
 
 export interface ListMeta {
@@ -208,6 +210,26 @@ export interface SessionRevokeUserAllRequest {
 
 export function getLoginLogList(params: LoginLogListQuery): Promise<ListResponse<LoginLogInfo>> {
   return request.get<ListResponse<LoginLogInfo>>({ url: '/security/login-logs', params })
+}
+
+/**
+ * 导出登录日志 CSV。
+ *
+ * `_skipResultUnwrap` 是必须的：这个接口返回的是文件流而不是 `{code,data,message}`
+ * 信封，不跳过解包会把 CSV 文本当成业务响应解析。
+ */
+export function exportLoginLogs(params: LoginLogListQuery) {
+  return request.get<AxiosResponse<Blob>>({
+    url: '/security/login-logs/export',
+    params,
+    responseType: 'blob',
+    _skipResultUnwrap: true,
+  })
+}
+
+/** 黑名单命中记录（按黑名单类型关联登录日志）。 */
+export function getBlacklistHits(id: number, params: { page?: number; page_size?: number } = {}) {
+  return request.get<ListResponse<LoginLogInfo>>({ url: `/security/blacklists/${id}/hits`, params })
 }
 
 export function getAuditLogList(params: AuditLogListQuery): Promise<ListResponse<AuditLogInfo>> {

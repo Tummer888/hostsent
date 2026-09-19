@@ -44,6 +44,7 @@ import (
 	usercentermodel "hostsent/backend/internal/modules/uc/auth/model"
 	captchamodel "hostsent/backend/internal/modules/uc/captcha/model"
 	membermodel "hostsent/backend/internal/modules/uc/member/model"
+	oauthmodel "hostsent/backend/internal/modules/uc/oauth/model"
 	config "hostsent/backend/internal/pkg/config"
 )
 
@@ -104,6 +105,10 @@ func AutoMigrate(db *gorm.DB) error {
 		&verificationmodel.VerificationDocument{},
 		&verificationmodel.VerificationReviewLog{},
 		&verificationmodel.VerificationConfig{},
+		// 实名核验服务商配置（doc104 §5.5，迁移 051 建表）。
+		&verificationmodel.RealnameProvider{},
+		&oauthmodel.OAuthProvider{},
+		&oauthmodel.UserOAuthBinding{},
 		&menumodel.Menu{},
 		&adminmodel.Admin{},
 		&adminmodel.AdminRole{},
@@ -430,6 +435,18 @@ func SeedDefaults(db *gorm.DB, cfg config.Config) error {
 		}
 		// 日志中心（doc92）：26 源保留策略 seed（数据源即 catalog 注册表）
 		if err := seedLogRetentionPolicies(tx); err != nil {
+			return err
+		}
+		// 第三方登录（doc104 §6）：三家渠道默认停用，等运营填凭证后再启用。
+		if err := seedDefaultOAuthProviders(tx); err != nil {
+			return err
+		}
+		// 实名核验服务商（doc104 §5.5）：manual 内置默认，alipay 待配置。
+		if err := seedDefaultRealnameProvider(tx); err != nil {
+			return err
+		}
+		// 实名配置（doc104 §5.4）：默认值与运行时回落同源。
+		if err := seedVerificationConfigs(tx); err != nil {
 			return err
 		}
 		return nil
@@ -801,6 +818,10 @@ func seedSystemConfigs(tx *gorm.DB) error {
 	defaults = append(defaults, captchaSystemConfigs()...)
 	// 日志中心开关（doc92 §9.1）：与迁移 043 同口径双写。
 	defaults = append(defaults, logSystemConfigs()...)
+	// 用户注销留存期（doc104 §4.1）：与迁移 052 同口径双写。
+	defaults = append(defaults, userDeletionSystemConfigs()...)
+	// 第三方登录回调地址（doc104 §6.4）：与迁移 052 同口径双写。
+	defaults = append(defaults, oauthSystemConfigs()...)
 	for _, config := range defaults {
 		var existing systemmodel.SystemConfig
 		if err := tx.Where("config_key = ?", config.ConfigKey).First(&existing).Error; err == nil {
@@ -1012,8 +1033,16 @@ var seedPermissionDefaults = []seedPermission{
 	{ParentCode: "level:list", Name: "创建等级", Code: "level:create", Type: "button", SortOrder: 1, Status: "active"},
 	{ParentCode: "level:list", Name: "编辑等级", Code: "level:update", Type: "button", SortOrder: 2, Status: "active"},
 	{ParentCode: "level:list", Name: "删除等级", Code: "level:delete", Type: "button", SortOrder: 3, Status: "active"},
-	// 实名认证
+	// 实名认证（doc104 §5）：整单审核。verification:list 是三个列表页与详情页的既有口径，
+	// 本次新增的细粒度码只用在写接口上，存量角色的可见性不受影响。
 	{ParentCode: "system:user", Name: "实名认证", Code: "verification:list", Type: "menu", SortOrder: 10, Status: "active"},
+	{ParentCode: "system:user", Name: "查看实名详情", Code: "verification:detail", Type: "button", SortOrder: 11, Status: "active"},
+	{ParentCode: "system:user", Name: "审核实名申请", Code: "verification:audit", Type: "button", SortOrder: 12, Status: "active"},
+	{ParentCode: "system:user", Name: "实名服务商配置", Code: "verification:config", Type: "button", SortOrder: 13, Status: "active"},
+	// 用户注销与恢复（doc104 §4）：purge 是留存期到期后的物理清除，不可逆，超管独占。
+	{ParentCode: "system:user", Name: "注销用户", Code: "user:delete", Type: "button", SortOrder: 14, Status: "active"},
+	{ParentCode: "system:user", Name: "恢复用户", Code: "user:restore", Type: "button", SortOrder: 15, Status: "active"},
+	{ParentCode: "system:user", Name: "物理清除用户", Code: "user:purge", Type: "button", SortOrder: 16, Status: "active"},
 	// 产品：规格/定价/促销
 	{ParentCode: "product", Name: "规格管理", Code: "product:spec", Type: "menu", SortOrder: 4, Status: "active"},
 	{ParentCode: "product:spec", Name: "规格模板查看", Code: "spec:template:list", Type: "button", SortOrder: 1, Status: "active"},
@@ -1035,6 +1064,9 @@ var seedPermissionDefaults = []seedPermission{
 	{ParentCode: "system", Name: "风控事件", Code: "security:risk:list", Type: "menu", SortOrder: 8, Status: "active"},
 	{ParentCode: "system", Name: "黑名单", Code: "security:blacklist:manage", Type: "menu", SortOrder: 9, Status: "active"},
 	{ParentCode: "system", Name: "会话管理", Code: "security:session:manage", Type: "menu", SortOrder: 10, Status: "active"},
+	// 第三方登录（doc104 §6.7）：渠道配置页 + 绑定关系排查。
+	{ParentCode: "system", Name: "第三方登录", Code: "oauth:config", Type: "menu", SortOrder: 12, Status: "active"},
+	{ParentCode: "oauth:config", Name: "查看绑定关系", Code: "oauth:binding:list", Type: "button", SortOrder: 1, Status: "active"},
 
 	// —— S1 员工体系：组织（部门）与销售中心权限码（doc86 §3.1）——
 	// 部门管理挂在系统管理下，与员工管理同级；超管独占默认分配。
@@ -1260,6 +1292,16 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"log:export",
 			"log:cleanup",
 			"log:policy",
+			// 实名认证与用户注销（doc104 §5/§4）：超管全量，含物理清除。
+			"verification:detail",
+			"verification:audit",
+			"verification:config",
+			"user:delete",
+			"user:restore",
+			"user:purge",
+			// 第三方登录（doc104 §6）：超管配置渠道与排查绑定。
+			"oauth:config",
+			"oauth:binding:list",
 		},
 		"ops_admin": {
 			"system:user",
@@ -1325,6 +1367,13 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"notify:delivery",
 			"notify:record",
 			"notify:view",
+			// 实名审核与用户注销/恢复（doc104 §5/§4）：运维是日常审核人，
+			// 但不授 user:purge（物理清除不可逆）与 oauth:config（涉及渠道密钥）。
+			"verification:detail",
+			"verification:audit",
+			"user:delete",
+			"user:restore",
+			"oauth:binding:list",
 		},
 		"finance_admin": {
 			"system:user",
@@ -1593,6 +1642,8 @@ var seedMenuDefaults = []SeedMenu{
 	// 操作审计（原「安全审计 /system/audit-center」目录压平后提升为二级）：
 	// 与「用户管理 → 安全与风控 → 操作审计日志」是同一件事，后者已删除并 redirect 到本页。
 	{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "操作审计", Type: menumodel.TypeMenu, Path: "/system/audit-logs", Component: "system/audit-logs/index", Icon: "history", SortOrder: 4, Status: menumodel.StatusActive},
+	// 第三方登录（doc104 §6.7）：微信/QQ/支付宝的渠道配置，直接挂 /system 下（不做单叶子目录）。
+	{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "第三方登录", Type: menumodel.TypeMenu, Path: "/system/oauth", Component: "system/oauth/index", Icon: "link", SortOrder: 6, Status: menumodel.StatusActive},
 	// 日志中心（doc92 §9.1）：三个日志叶子原直接挂在 /system 下，本次收进分类目录（R4）。
 	{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "日志中心", Type: menumodel.TypeDirectory, Path: "/system/log-center", Icon: "file", SortOrder: 5, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/system/log-center", Platform: menumodel.PlatformAdmin, Name: "日志浏览", Type: menumodel.TypeMenu, Path: "/system/logs", Component: "system/logs/index", Icon: "file", SortOrder: 1, Status: menumodel.StatusActive},

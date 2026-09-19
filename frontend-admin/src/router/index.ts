@@ -963,6 +963,13 @@ const routes: Array<RouteRecordRaw> = [
         meta: { title: '验证码配置', role: 'admin', permission: 'captcha:config' },
       },
       {
+        // 第三方登录（doc104 §6.7）：微信/QQ/支付宝渠道凭证与启用开关。
+        path: 'oauth',
+        name: 'SystemOAuth',
+        component: () => import('@/pages/system/oauth/index.vue'),
+        meta: { title: '第三方登录', role: 'admin', permission: 'oauth:config' },
+      },
+      {
         // 公告管理已归位到「内容管理」（doc102 §4.1 M2-4，推翻 doc100 §7.1 的「保持原位」）：
         // 页面、后端模块与权限码 notify:announcement 都属 notification，旧路径 redirect。
         path: 'announcements',

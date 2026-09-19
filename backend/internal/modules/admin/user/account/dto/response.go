@@ -45,6 +45,66 @@ type UserInfo struct {
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 	LastLoginAt    *time.Time `json:"last_login_at,omitempty"`
+	// —— 软删除（注销）与实名认证（doc104 §4/§5）——
+	// DeletedAt 非空即已注销；回收站列表与详情页据此渲染「已注销」态。
+	DeletedAt *time.Time `json:"deleted_at"`
+	// DeletedBy / DeletedByName 执行注销的管理员；0 表示系统或用户自助。
+	DeletedBy     uint64 `json:"deleted_by"`
+	DeletedByName string `json:"deleted_by_name"`
+	DeleteReason  string `json:"delete_reason"`
+	// StatusBeforeDelete 注销前的状态，恢复时精确还原（空则回落 disabled）。
+	StatusBeforeDelete string `json:"status_before_delete"`
+	// RealNameVerifiedAt 实名认证的唯一信任信号（nil = 未实名）。
+	// users.real_name 只是展示名，前端不得再用「real_name 非空」判断是否已实名。
+	RealNameVerifiedAt     *time.Time `json:"real_name_verified_at"`
+	RealNameVerifiedSource string     `json:"real_name_verified_source"`
+	// OAuthProviders 已绑定的第三方渠道列表（微信/QQ/支付宝），由 user_oauth_bindings 聚合。
+	OAuthProviders []string `json:"oauth_providers"`
+}
+
+// UserDeletionBlockerItem 一条注销阻断/警告项。
+type UserDeletionBlockerItem struct {
+	Code  string `json:"code"`
+	Label string `json:"label"`
+	Count int64  `json:"count"`
+}
+
+// UserDeletionCheckResponse 注销前置校验结果（doc104 §4.4）。
+//
+// Blockers 非空即硬阻断（force 也绕不过）；Warnings 非空需 force=true 才放行。
+// CanDelete 由服务层算好直接给前端，避免前端自己复述一遍判定逻辑。
+type UserDeletionCheckResponse struct {
+	UserID    uint64                    `json:"user_id"`
+	Username  string                    `json:"username"`
+	CanDelete bool                      `json:"can_delete"`
+	Blockers  []UserDeletionBlockerItem `json:"blockers"`
+	Warnings  []UserDeletionBlockerItem `json:"warnings"`
+}
+
+// UserPurgePreviewItem 待清理用户的一条预览（dry_run 与手工触发共用）。
+type UserPurgePreviewItem struct {
+	ID        uint64     `json:"id"`
+	Username  string     `json:"username"`
+	DeletedAt *time.Time `json:"deleted_at"`
+	Reason    string     `json:"reason"`
+}
+
+// UserPurgeResponse 留存期清理结果（doc104 §4.6）。
+type UserPurgeResponse struct {
+	// RetentionDays 本轮使用的留存天数（来自 user.deletion_retention_days）。
+	RetentionDays int `json:"retention_days"`
+	// Cutoff 早于该时刻注销的用户才进入清理范围。
+	Cutoff time.Time `json:"cutoff"`
+	// DryRun 为 true 时不做任何写操作，只返回 Candidates。
+	DryRun bool `json:"dry_run"`
+	// Candidates 预览列表（dry_run 时最多 Limit 条）。
+	Candidates []UserPurgePreviewItem `json:"candidates"`
+	// Purged 实际硬删除的用户数；dry_run 恒为 0。
+	Purged int `json:"purged"`
+	// Skipped 因仍有在管实例等原因跳过的用户。
+	Skipped []UserBatchSkipItem `json:"skipped"`
+	// HasMore 本轮取满上限，仍有积压待下一轮。
+	HasMore bool `json:"has_more"`
 }
 
 // SubAccountMemberInfo 管理端成员 Tab 展示项（P4-10）。
@@ -87,6 +147,8 @@ type UserStatsResponse struct {
 	PendingReview   int64   `json:"pending_review"`
 	TotalBalance    float64 `json:"total_balance"`
 	PurchasedCount  int64   `json:"purchased_count"`
+	// Deleted 已注销用户数（回收站入口徽标，doc104 §4）。
+	Deleted int64 `json:"deleted"`
 }
 
 type RegionStatItem struct {

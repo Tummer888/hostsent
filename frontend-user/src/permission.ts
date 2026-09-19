@@ -7,8 +7,12 @@ import { useBrandStore } from './store/modules/brand'
 import { useMemberStore } from './store/modules/member'
 import { useMenuStore } from './store/modules/menu'
 
-// 独立注册页已并入登录卡片（/login?mode=register），白名单只剩登录页本身。
-const whiteList = ['/login']
+// 免登录路径白名单：登录页本身 + 第三方登录回调页。
+//
+// /oauth/callback 必须在这里：用户被三方重定向回来时浏览器里还没有平台令牌
+// （令牌要由这一页调 /uc/oauth/exchange 才能换到），若走 requiresAuth 会被守卫
+// 弹回登录页，一次性票据随之作废，用户表现为「授权成功却回到登录页」。
+const whiteList = ['/login', '/oauth/callback']
 
 export function setupPermission(app: App) {
   router.beforeEach(async (to, from, next) => {

@@ -391,26 +391,25 @@
             登 录
           </t-button>
 
-          <!-- 第三方登录（仅登录-密码方式显示） -->
-          <div v-if="authMode === 'login' && activeTab === 'password'" class="third-party-login">
+          <!-- 第三方登录（仅登录-密码方式显示）：渠道来自后端「已启用」列表，
+               未启用的不渲染。此前这里是一组零 @click 的装饰图标（doc104 §6.8）。 -->
+          <div v-if="authMode === 'login' && activeTab === 'password' && oauthProviders.length" class="third-party-login">
             <div class="divider-line">
               <span class="divider-text">其他登录方式</span>
             </div>
             <div class="third-party-icons">
-              <div class="third-party-item" title="微信登录">
-                <LogoWechatStrokeIcon class="third-party-icon wechat" />
-              </div>
-              <div class="third-party-item" title="QQ登录">
-                <LogoQqIcon class="third-party-icon qq" />
-              </div>
-              <div class="third-party-item" title="支付宝登录">
-                <LogoAlipayIcon class="third-party-icon alipay" />
-              </div>
-              <div class="third-party-item" title="企业微信登录">
-                <LogoWecomIcon class="third-party-icon wecom" />
-              </div>
-              <div class="third-party-item" title="GitHub登录">
-                <LogoGithubIcon class="third-party-icon github" />
+              <div
+                v-for="item in oauthProviders"
+                :key="item.provider"
+                class="third-party-item"
+                :class="{ 'third-party-item--loading': oauthLoading === item.provider }"
+                :title="`${item.name}登录`"
+                role="button"
+                tabindex="0"
+                @click="handleOAuthLogin(item.provider)"
+                @keydown.enter="handleOAuthLogin(item.provider)"
+              >
+                <component :is="oauthIcon(item)" class="third-party-icon" :class="item.provider" />
               </div>
             </div>
           </div>
@@ -480,6 +479,7 @@ import {
 import CaptchaImage from '@/components/verify/CaptchaImage.vue'
 import LoginOTPVerifyDialog from '@/pages/login/components/LoginOTPVerifyDialog.vue'
 import { sendVerifyCode } from '@/api/public'
+import { getOAuthAuthorizeUrl, getOAuthProviders, type PublicOAuthProvider } from '@/api/oauth'
 import { useUserStore } from '@/store'
 import { useBrandStore } from '@/store/modules/brand'
 import { imageRequired, loadAuthConfig, otpChannel, otpRequired } from '@/utils/captcha-resource'
@@ -716,6 +716,53 @@ async function afterLogin(outcome: { needOTP: boolean; otpToken?: string; otpCha
   await finishLogin()
 }
 
+// ========== 第三方登录（doc104 §6.8）==========
+const oauthProviders = ref<PublicOAuthProvider[]>([])
+const oauthLoading = ref('')
+
+// 后端返回的 icon 是描述符里的语义名（wechat/qq/alipay），前端映射到图标组件。
+// 未知渠道回落一个通用图标而不是报错：后端新增渠道时前端不该整块渲染失败。
+function oauthIcon(item: PublicOAuthProvider) {
+  const map: Record<string, unknown> = {
+    wechat: LogoWechatStrokeIcon,
+    qq: LogoQqIcon,
+    alipay: LogoAlipayIcon,
+    wecom: LogoWecomIcon,
+    github: LogoGithubIcon,
+  }
+  return map[item.icon || item.provider] || LogoWechatStrokeIcon
+}
+
+async function loadOAuthProviders() {
+  try {
+    const { data } = await getOAuthProviders()
+    oauthProviders.value = data || []
+  } catch {
+    // 渠道列表拉不到时静默隐藏整块：登录主路径（账号密码）必须照常可用。
+    oauthProviders.value = []
+  }
+}
+
+async function handleOAuthLogin(provider: string) {
+  if (oauthLoading.value) return
+  oauthLoading.value = provider
+  try {
+    // invite_code 透传给后端签进 state：推广链接进来的用户走第三方注册时
+    // 邀请归属不能丢，否则返现关系断在这里。
+    const inviteCode = typeof route.query.invite_code === 'string' ? route.query.invite_code : undefined
+    const { data } = await getOAuthAuthorizeUrl(provider, inviteCode)
+    if (!data?.authorize_url) {
+      MessagePlugin.error('该登录方式暂不可用')
+      return
+    }
+    window.location.href = data.authorize_url
+  } catch (e) {
+    MessagePlugin.error((e as Error)?.message || '该登录方式暂不可用')
+  } finally {
+    oauthLoading.value = ''
+  }
+}
+
 async function handleLogin() {
   loginLoading.value = true
   try {
@@ -864,6 +911,7 @@ onMounted(() => {
   if (route.query.mode === 'register') authMode.value = 'register'
   if (route.query.invite_code) registerForm.inviteCode = String(route.query.invite_code)
   void loadAuthConfig()
+  void loadOAuthProviders()
 })
 </script>
 

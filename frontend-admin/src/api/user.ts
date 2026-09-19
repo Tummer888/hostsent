@@ -1,3 +1,5 @@
+import type { AxiosResponse } from 'axios'
+
 import type { LoginResponse } from '@/api/auth'
 import { request } from '@/utils/request'
 
@@ -17,6 +19,8 @@ export interface UserListQuery {
   sales_admin_id?: number
   /** 仅看未归属销售的用户（doc86 §4.1.10），'true' 生效 */
   unassigned_sales?: string
+  /** 连已注销用户一起返回（doc104 §4.3）；与 filter=deleted 互斥，前者优先 */
+  include_deleted?: boolean
 }
 
 export interface UserInfo {
@@ -63,6 +67,21 @@ export interface UserInfo {
   created_at: string
   last_login_at?: string
   updated_at?: string
+  // —— 软删除（注销）与实名认证（doc104 §4/§5）——
+  /** 非空即已注销；回收站列表与详情页据此渲染「已注销」态 */
+  deleted_at?: string | null
+  /** 执行注销的管理员 ID；0 表示系统或用户自助 */
+  deleted_by?: number
+  deleted_by_name?: string
+  delete_reason?: string
+  /** 注销前的状态，恢复时精确还原（空则回落 disabled） */
+  status_before_delete?: string
+  /**
+   * 实名认证的唯一信任信号（空 = 未实名）。
+   * real_name 只是展示名，不得再用「real_name 非空」判断是否已实名。
+   */
+  real_name_verified_at?: string | null
+  real_name_verified_source?: string
 }
 
 /** 管理端成员（子账号）项（P4-10） */
@@ -161,76 +180,8 @@ export interface UserStatsResponse {
   total_balance: number
   /** 已购用户数 */
   purchased_count: number
-}
-
-/** 实例摘要（聚合返回，字段对齐 instances 权威表） */
-export interface UserInstanceBrief {
-  id: number
-  instance_id: string
-  name: string
-  region: string
-  zone: string
-  cpu: number
-  memory: number
-  disk: number
-  os: string
-  public_ip: string
-  status: string
-  billing_mode: string
-  lifecycle_stage: string
-  order_id: number | null
-  source_mode: string
-  /** null 表示未设置到期时间，前端显示「未设置」而非 1970-01-01 */
-  expire_at: string | null
-  created_at: string
-}
-
-/** 订单摘要（权威表 orders） */
-export interface UserOrderBrief {
-  id: number
-  order_no: string
-  product_name: string
-  final_amount: number
-  status: string
-  pay_method: string
-  renewal_id: number
-  created_at: string
-  paid_at: string | null
-}
-
-/** 账单摘要（权威表 bills） */
-export interface UserBillBrief {
-  id: number
-  bill_no: string
-  billing_month: string
-  amount: number
-  bill_type: string
-  status: string
-  created_at: string
-}
-
-/** 资金流水摘要（权威表 wallet_transactions） */
-export interface UserTransactionBrief {
-  id: number
-  txn_no: string
-  type: string
-  direction: number
-  amount: number
-  balance_after: number
-  remark: string
-  created_at: string
-}
-
-/** 工单摘要（权威表 tickets） */
-export interface UserTicketBrief {
-  id: number
-  ticket_no: string
-  title: string
-  category: string
-  priority: string
-  status: string
-  updated_at: string
-  created_at: string
+  /** 已注销用户数（回收站入口徽标，doc104 §4） */
+  deleted: number
 }
 
 /** 用户绑定的后台角色（roles.scope='admin'），与客户侧权限语义不同 */
@@ -263,7 +214,7 @@ export interface UserDetailSummary {
  * 用户详情聚合响应。
  *
  * 各业务域的完整列表由既有分页接口承担（/orders、/tickets、/instances、
- * /finance/bills …），聚合只给「资料 + 计数 + 近期若干条」。
+ * /finance/bills …），聚合只给「资料 + 计数」。
  * degraded 记录采集失败的段名，前端据此在对应 Tab 显示「数据暂不可用」。
  */
 export interface UserDetailAggregateResponse {
@@ -272,11 +223,6 @@ export interface UserDetailAggregateResponse {
   /** 客户侧权限码（sub_account_permissions，固定枚举） */
   permissions: string[]
   summary: UserDetailSummary
-  recent_instances: UserInstanceBrief[]
-  recent_orders: UserOrderBrief[]
-  recent_bills: UserBillBrief[]
-  recent_transactions: UserTransactionBrief[]
-  recent_tickets: UserTicketBrief[]
   degraded: string[]
 }
 
@@ -435,6 +381,31 @@ export function getUserList(params: UserListQuery): Promise<UserListResponse> {
       sales_admin_id: params.sales_admin_id,
       unassigned_sales: params.unassigned_sales,
     },
+  })
+}
+
+/**
+ * 导出用户列表 CSV。
+ *
+ * `_skipResultUnwrap` 是必须的：这个接口返回文件流而不是 `{code,data,message}`
+ * 信封，不跳过解包会把 CSV 文本当成业务响应解析。
+ */
+export function exportUsers(params: UserListQuery) {
+  return request.get<AxiosResponse<Blob>>({
+    url: '/users/export',
+    params: {
+      status: params.status,
+      filter: params.filter,
+      last_login_ip_region: params.last_login_ip_region,
+      keyword: params.keyword,
+      user_level_id: params.user_level_id,
+      user_group_id: params.user_group_id,
+      is_sub_account: params.is_sub_account,
+      sales_admin_id: params.sales_admin_id,
+      unassigned_sales: params.unassigned_sales,
+    },
+    responseType: 'blob',
+    _skipResultUnwrap: true,
   })
 }
 
@@ -674,6 +645,127 @@ export interface AdminOrderBrief {
 export function createUserOrder(id: string | number, data: AdminOrderCreateRequest): Promise<AdminOrderBrief> {
   return request.post<AdminOrderBrief>({
     url: `/users/${id}/orders`,
+    data,
+  })
+}
+
+// ===== 注销 / 恢复 / 留存期清理（doc104 §4）=====
+
+/** 注销原因，必填以便事后追溯；Force 绕过余额/账单/工单/订单四项警告（在管实例是硬阻断，绕不过） */
+export interface UserDeleteRequest {
+  reason: string
+  force?: boolean
+}
+
+export interface UserBatchDeleteRequest {
+  ids: number[]
+  reason: string
+  force?: boolean
+}
+
+export interface UserBatchRestoreRequest {
+  ids: number[]
+}
+
+/** 批量结果：成功数 + 逐条跳过原因（单条失败不影响其余） */
+export interface UserBatchResult {
+  affected: number
+  skipped: UserBatchSkipItem[]
+}
+
+export interface UserBatchSkipItem {
+  id: number
+  reason: string
+}
+
+export interface UserDeletionBlockerItem {
+  code: string
+  label: string
+  count: number
+}
+
+/**
+ * 注销前置校验结果。
+ * blockers 非空即硬阻断（force 也绕不过）；warnings 非空需 force=true 才放行。
+ * can_delete 由服务端算好直接给前端，避免前端复述一遍判定逻辑。
+ */
+export interface UserDeletionCheckResponse {
+  user_id: number
+  username: string
+  can_delete: boolean
+  blockers: UserDeletionBlockerItem[]
+  warnings: UserDeletionBlockerItem[]
+}
+
+export interface UserPurgeRequest {
+  /** true 只统计将被删除的用户，不做任何写操作 */
+  dry_run?: boolean
+  /** 单轮上限，0 用服务端默认值（50） */
+  limit?: number
+}
+
+export interface UserPurgePreviewItem {
+  id: number
+  username: string
+  deleted_at: string | null
+  reason: string
+}
+
+export interface UserPurgeResponse {
+  /** 本轮使用的留存天数（来自 user.deletion_retention_days） */
+  retention_days: number
+  /** 早于该时刻注销的用户才进入清理范围 */
+  cutoff: string
+  dry_run: boolean
+  candidates: UserPurgePreviewItem[]
+  /** 实际硬删除的用户数；dry_run 恒为 0 */
+  purged: number
+  skipped: UserBatchSkipItem[]
+  /** 本轮取满上限，仍有积压待下一轮 */
+  has_more: boolean
+}
+
+/** 注销前置校验：弹窗据此决定禁用确认按钮还是要求勾选强制 */
+export function getUserDeletionCheck(id: string | number): Promise<UserDeletionCheckResponse> {
+  return request.get<UserDeletionCheckResponse>({
+    url: `/users/${id}/deletion-check`,
+  })
+}
+
+/** 注销用户（软删除，状态收敛为 cancelled） */
+export function deleteUser(id: string | number, data: UserDeleteRequest): Promise<string> {
+  return request.delete<string>({
+    url: `/users/${id}`,
+    data,
+  })
+}
+
+/** 恢复已注销用户，状态还原为注销前的快照 */
+export function restoreUser(id: string | number): Promise<string> {
+  return request.post<string>({
+    url: `/users/${id}/restore`,
+    data: {},
+  })
+}
+
+export function batchDeleteUsers(data: UserBatchDeleteRequest): Promise<UserBatchResult> {
+  return request.post<UserBatchResult>({
+    url: '/users/batch-delete',
+    data,
+  })
+}
+
+export function batchRestoreUsers(data: UserBatchRestoreRequest): Promise<UserBatchResult> {
+  return request.post<UserBatchResult>({
+    url: '/users/batch-restore',
+    data,
+  })
+}
+
+/** 留存期清理（硬删除，仅超管）。dry_run 预览不写库 */
+export function purgeUsers(data: UserPurgeRequest): Promise<UserPurgeResponse> {
+  return request.post<UserPurgeResponse>({
+    url: '/users/purge',
     data,
   })
 }

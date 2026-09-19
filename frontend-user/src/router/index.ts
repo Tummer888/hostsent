@@ -20,6 +20,15 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '找回密码', requiresAuth: false },
   },
   {
+    // 第三方登录回调（doc104 §6.4）：后端 302 到这里并带一次性 ticket，
+    // 本页调 /uc/oauth/exchange 换成正式令牌后再跳首页。
+    // requiresAuth: false —— 此刻浏览器里还没有令牌（见 permission.ts 白名单）。
+    path: '/oauth/callback',
+    name: 'OAuthCallback',
+    component: () => import('@/pages/oauth/callback.vue'),
+    meta: { title: '登录中', requiresAuth: false },
+  },
+  {
     path: '/',
     component: () => import('@/layouts/index.vue'),
     redirect: '/dashboard',

@@ -1,5 +1,14 @@
 <template>
   <div class="tabs-section">
+    <!-- 聚合接口的 orders/bills/transactions/summary 任一段失败时给出提示：
+         degraded 此前只被传入、从未渲染，运营看到的是「订单（0）」而不知是采集失败。 -->
+    <t-alert
+      v-if="degraded"
+      class="degraded-tip"
+      theme="warning"
+      message="订单/账单/流水摘要采集失败，上方的计数与合计可能为 0；下方各页签为实时查询结果。"
+    />
+
     <div class="mini-stats">
       <div class="mini-stat">
         <div class="mini-stat__label">钱包余额（元）</div>

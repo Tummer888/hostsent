@@ -11,7 +11,7 @@
       </div>
       <div class="list-header__actions">
         <t-button class="page-btn page-btn--ghost" variant="outline" @click="router.push('/users/accounts/list')">查看用户列表</t-button>
-        <t-button class="page-btn" theme="primary" @click="openCreate">
+        <t-button v-permission="'user:group:create'" class="page-btn" theme="primary" @click="openCreate">
           <template #icon>
             <AddIcon aria-hidden="true" />
           </template>
@@ -165,12 +165,12 @@
             @select="(value) => handleMobileAction(value, row)"
           />
           <t-space v-else size="small">
-            <t-link theme="primary" hover="color" @click="openEdit(row.id)">编辑</t-link>
+            <t-link v-permission="'user:group:update'" theme="primary" hover="color" @click="openEdit(row.id)">编辑</t-link>
             <t-tooltip v-if="row.is_default" content="默认用户组不可删除，请先取消默认标记">
               <t-link theme="default" disabled>删除</t-link>
             </t-tooltip>
             <t-popconfirm v-else content="确认删除该用户组？" @confirm="handleDelete(row)">
-              <t-link theme="danger" hover="color">删除</t-link>
+              <t-link v-permission="'user:group:delete'" theme="danger" hover="color">删除</t-link>
             </t-popconfirm>
           </t-space>
         </template>

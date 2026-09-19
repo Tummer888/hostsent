@@ -6,18 +6,37 @@
           <div class="list-header__icon">
             <UserIcon size="22" aria-hidden="true" />
           </div>
-          <h2 class="list-header__title">用户列表</h2>
+          <h2 class="list-header__title">{{ isRecycleView ? '用户回收站' : '用户列表' }}</h2>
           <t-tag v-if="activeFilterLabel" class="page-chip" theme="primary" variant="light" shape="round">
             {{ activeFilterLabel }}
           </t-tag>
         </div>
       </div>
       <div class="list-header__actions">
-        <t-button class="page-btn page-btn--ghost" variant="outline" @click="openCreate">
+        <!-- 用户列表 / 回收站（doc104 §4）：回收站不是一个新菜单，而是同一列表的
+             filter=deleted 视图 —— 两边的列、筛选、分页语义完全一致，独立成页只会
+             多出一份需要同步维护的表格。 -->
+        <t-radio-group v-model="currentView" variant="default-filled" class="view-switch" @change="handleViewChange">
+          <t-radio-button value="active">用户列表</t-radio-button>
+          <t-radio-button value="recycle">回收站</t-radio-button>
+        </t-radio-group>
+        <t-button v-if="!isRecycleView && canCreate" class="page-btn page-btn--ghost" variant="outline" @click="openCreate">
           <template #icon>
             <AddIcon aria-hidden="true" />
           </template>
           新增用户
+        </t-button>
+        <t-button v-if="isRecycleView && canPurge" class="page-btn page-btn--ghost" variant="outline" @click="openPurgeDialog">
+          <template #icon>
+            <DeleteIcon aria-hidden="true" />
+          </template>
+          留存期清理
+        </t-button>
+        <t-button class="page-btn page-btn--ghost" variant="outline" :loading="exporting" @click="handleExportCSV">
+          <template #icon>
+            <DownloadIcon aria-hidden="true" />
+          </template>
+          导出 CSV
         </t-button>
         <t-button class="page-btn" variant="outline" :loading="loading" @click="reload">
           <template #icon>
@@ -51,7 +70,7 @@
           </t-input>
         </div>
 
-        <div class="toolbar-field">
+        <div v-if="!isRecycleView" class="toolbar-field">
           <span class="toolbar-field__label">用户状态</span>
           <t-select
             v-model="filters.status"
@@ -63,7 +82,7 @@
           />
         </div>
 
-        <div class="toolbar-field">
+        <div v-if="!isRecycleView" class="toolbar-field">
           <span class="toolbar-field__label">快捷筛选</span>
           <t-select
             v-model="filters.filter"
@@ -149,7 +168,27 @@
 
     <section class="table-panel surface-card">
       <div class="table-panel__head">
-        <h3 class="table-panel__title">用户数据</h3>
+        <h3 class="table-panel__title">{{ isRecycleView ? '已注销用户（留存期内可恢复）' : '用户数据' }}</h3>
+        <t-space v-if="selectedIds.length" size="small">
+          <span class="selection-hint">已选 {{ selectedIds.length }} 个</span>
+          <template v-if="isRecycleView">
+            <t-button v-if="canRestore" size="small" theme="primary" :loading="batchSubmitting" @click="handleBatchRestore">
+              批量恢复
+            </t-button>
+          </template>
+          <template v-else>
+            <t-button v-if="canUpdate" size="small" variant="outline" :loading="batchSubmitting" @click="handleBatchStatus('disabled')">
+              批量冻结
+            </t-button>
+            <t-button v-if="canUpdate" size="small" variant="outline" :loading="batchSubmitting" @click="handleBatchStatus('active')">
+              批量解冻
+            </t-button>
+            <t-button v-if="canDelete" size="small" theme="danger" :loading="batchSubmitting" @click="openBatchDeleteDialog">
+              批量注销
+            </t-button>
+          </template>
+          <t-button size="small" variant="text" @click="clearSelection">取消选择</t-button>
+        </t-space>
       </div>
 
       <div v-if="errorMessage" class="error-banner" role="alert">
@@ -174,6 +213,8 @@
           table-layout="fixed"
           cell-empty-content="—"
           class="user-table"
+          :selected-row-keys="selectedIds"
+          @select-change="handleSelectChange"
           @page-change="handlePageChange"
         >
           <template #title-id>
@@ -309,6 +350,14 @@
             </t-tag>
           </template>
 
+          <template #deleted_at="{ row }">
+            <div class="user-cell">
+              <span class="time-text">{{ row.deleted_at ? formatDateTime(row.deleted_at) : '—' }}</span>
+              <span v-if="row.delete_reason" class="cell-sub" :title="row.delete_reason">{{ row.delete_reason }}</span>
+              <span class="cell-sub">操作人：{{ row.deleted_by_name || '系统/自助' }}</span>
+            </div>
+          </template>
+
           <template #balance="{ row }">
             <div class="money-cell">
               <span class="money">{{ formatMoney(row.balance) }}</span>
@@ -347,24 +396,33 @@
                 </t-button>
               </t-dropdown>
               <t-space v-else size="small">
-                <t-link theme="primary" hover="color" @click="goUserDetail(row)">详情</t-link>
-                <t-link theme="primary" hover="color" @click="handleRecharge(row)">充值</t-link>
-                <t-link theme="primary" hover="color" @click="handleAddOrder(row)">订单</t-link>
-                <t-link theme="primary" hover="color" @click="handleImpersonate(row)">登录</t-link>
-                <t-popconfirm
-                  :content="row.status === 'active' ? '确认冻结该用户？' : '确认解冻该用户？'"
-                  @confirm="toggleStatus(row)"
-                >
-                  <t-link :theme="row.status === 'active' ? 'warning' : 'primary'" hover="color">
-                    {{ row.status === 'active' ? '冻结' : '解冻' }}
-                  </t-link>
-                </t-popconfirm>
+                <template v-if="isRecycleView">
+                  <t-link theme="primary" hover="color" @click="goUserDetail(row)">详情</t-link>
+                  <t-popconfirm content="确认恢复该用户？状态将还原为注销前的状态。" @confirm="restoreUserRow(row)">
+                    <t-link theme="primary" hover="color">恢复</t-link>
+                  </t-popconfirm>
+                </template>
+                <template v-else>
+                  <t-link theme="primary" hover="color" @click="goUserDetail(row)">详情</t-link>
+                  <t-link theme="primary" hover="color" @click="handleRecharge(row)">充值</t-link>
+                  <t-link theme="primary" hover="color" @click="handleAddOrder(row)">订单</t-link>
+                  <t-link theme="primary" hover="color" @click="handleImpersonate(row)">登录</t-link>
+                  <t-popconfirm
+                    :content="row.status === 'active' ? '确认冻结该用户？' : '确认解冻该用户？'"
+                    @confirm="toggleStatus(row)"
+                  >
+                    <t-link :theme="row.status === 'active' ? 'warning' : 'primary'" hover="color">
+                      {{ row.status === 'active' ? '冻结' : '解冻' }}
+                    </t-link>
+                  </t-popconfirm>
+                  <t-link v-if="canDelete" theme="danger" hover="color" @click="openDeleteDialog(row)">注销</t-link>
+                </template>
               </t-space>
             </div>
           </template>
 
           <template #empty>
-            <t-empty description="当前筛选条件下暂无用户数据" />
+            <t-empty :description="isRecycleView ? '回收站暂无已注销用户' : '当前筛选条件下暂无用户数据'" />
           </template>
         </t-table>
 
@@ -487,6 +545,131 @@
         </t-form-item>
       </t-form>
     </t-dialog>
+
+    <!-- 注销确认（doc104 §4.4）：先拉 deletion-check 再弹窗。
+         blockers 非空 = 硬阻断（在管实例，force 也绕不过），直接禁用确认按钮；
+         warnings 非空 = 需勾选「强制注销」才放行。 -->
+    <t-dialog
+      v-model:visible="deleteVisible"
+      header="注销用户"
+      width="560px"
+      :confirm-btn="{ content: '确认注销', theme: 'danger', loading: deleteSubmitting, disabled: !canConfirmDelete }"
+      :cancel-btn="{ content: '取消' }"
+      @confirm="handleDeleteConfirm"
+      @close="deleteVisible = false"
+    >
+      <t-loading :loading="deleteCheckLoading" size="small">
+        <div class="danger-note">
+          注销为<b>软删除</b>：用户即刻无法登录，数据在留存期内保留，可由回收站恢复；
+          留存期到期后由清理任务<b>彻底删除</b>，届时不可恢复。
+        </div>
+
+        <div class="detail-row">
+          <span class="detail-row__label">目标用户</span>
+          <span class="detail-row__value">{{ deleteTarget?.username }}（ID {{ deleteTarget?.id }}）</span>
+        </div>
+
+        <template v-if="deleteCheck">
+          <div v-if="deleteCheck.blockers.length" class="check-block check-block--danger">
+            <div class="check-block__title">存在阻断项，无法注销</div>
+            <ul class="check-list">
+              <li v-for="item in deleteCheck.blockers" :key="item.code">
+                {{ item.label }}：<b>{{ item.count }}</b> 项 —— 请先释放后再注销
+              </li>
+            </ul>
+          </div>
+
+          <div v-if="deleteCheck.warnings.length" class="check-block check-block--warning">
+            <div class="check-block__title">存在未结清事项，需强制注销</div>
+            <ul class="check-list">
+              <li v-for="item in deleteCheck.warnings" :key="item.code">
+                {{ item.label }}：<b>{{ item.count }}</b> 项
+              </li>
+            </ul>
+            <t-checkbox v-model="deleteForce">我已确认上述影响，执行强制注销</t-checkbox>
+          </div>
+
+          <div v-if="!deleteCheck.blockers.length && !deleteCheck.warnings.length" class="check-block check-block--ok">
+            前置校验通过，无阻断项与未结清事项。
+          </div>
+        </template>
+
+        <t-form label-align="top" :data="deleteForm" class="delete-form" @submit.prevent>
+          <t-form-item label="注销原因（必填，写入留痕）" name="reason" :rules="[{ required: true, message: '请填写注销原因' }]">
+            <t-textarea
+              v-model="deleteForm.reason"
+              :autosize="{ minRows: 2, maxRows: 4 }"
+              maxlength="255"
+              placeholder="如：用户主动申请注销 / 违规账号处置"
+            />
+          </t-form-item>
+        </t-form>
+      </t-loading>
+    </t-dialog>
+
+    <!-- 批量注销：逐条走同一套校验，跳过项在结果里逐条回显。 -->
+    <t-dialog
+      v-model:visible="batchDeleteVisible"
+      header="批量注销"
+      width="520px"
+      :confirm-btn="{ content: `确认注销 ${selectedIds.length} 个用户`, theme: 'danger', loading: batchSubmitting }"
+      :cancel-btn="{ content: '取消' }"
+      @confirm="handleBatchDeleteConfirm"
+      @close="batchDeleteVisible = false"
+    >
+      <div class="danger-note">
+        将逐个注销选中的 <b>{{ selectedIds.length }}</b> 个用户。存在在管实例的用户会被跳过并逐条返回原因；
+        其余未结清事项需勾选强制。
+      </div>
+      <t-checkbox v-model="batchForce" class="batch-force">强制注销（忽略余额/账单/工单/订单警告）</t-checkbox>
+      <t-form label-align="top" :data="deleteForm" @submit.prevent>
+        <t-form-item label="注销原因（必填）" name="reason" :rules="[{ required: true, message: '请填写注销原因' }]">
+          <t-textarea v-model="deleteForm.reason" :autosize="{ minRows: 2, maxRows: 4 }" maxlength="255" placeholder="批量注销的统一原因" />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
+
+    <!-- 留存期清理（doc104 §4.6）：先 dry_run 预览再执行，且执行按钮需二次确认。 -->
+    <t-dialog
+      v-model:visible="purgeVisible"
+      header="留存期清理（硬删除）"
+      width="680px"
+      :footer="false"
+      @close="purgeVisible = false"
+    >
+      <t-alert theme="error" class="purge-alert">
+        本操作会<b>彻底删除</b>留存期已过的已注销用户及其全部个人数据，<b>不可恢复</b>。
+        默认先预览，确认无误后再执行。
+      </t-alert>
+
+      <div v-if="purgeResult" class="purge-meta">
+        <span>留存期：<b>{{ purgeResult.retention_days }}</b> 天</span>
+        <span>截止时刻：{{ formatDateTime(purgeResult.cutoff) }}</span>
+        <span>候选：<b>{{ purgeResult.candidates.length }}</b> 个{{ purgeResult.has_more ? '（本轮取满上限，仍有积压）' : '' }}</span>
+      </div>
+
+      <t-table
+        v-if="purgeResult?.candidates.length"
+        :data="purgeResult.candidates"
+        :columns="purgeColumns"
+        row-key="id"
+        size="small"
+        max-height="320"
+      />
+      <t-empty v-else-if="purgeResult" description="没有留存期已过的用户，无需清理" />
+
+      <div class="purge-actions">
+        <t-button variant="outline" :loading="purgeLoading" @click="runPurge(true)">重新预览</t-button>
+        <t-button
+          theme="danger"
+          :loading="purgeLoading"
+          :disabled="!purgeResult?.candidates.length"
+          @click="handlePurgeExecute"
+        >
+          执行清理
+        </t-button>
+      </div>
+    </t-dialog>
   </div>
 </template>
 
@@ -498,6 +681,8 @@ import {
   AddIcon,
   ArrowDownIcon,
   ArrowUpIcon,
+  DeleteIcon,
+  DownloadIcon,
   ErrorCircleIcon,
   LogoAndroidIcon,
   LogoAppleFilledIcon,
@@ -509,13 +694,43 @@ import {
   SearchIcon,
   UserIcon,
 } from 'tdesign-icons-vue-next'
-import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import { DialogPlugin, MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
-import { createUser, createUserOrder, getRegionStats, getRoleList, getUserGroupList, getUserLevelList, getUserList, impersonateUser, rechargeUser, updateUserStatus, type RegionStatItem, type RoleInfo, type UserCreateRequest, type UserGroupInfo, type UserInfo, type UserLevelInfo, type UserListQuery } from '@/api/user'
+import {
+  batchDeleteUsers,
+  batchRestoreUsers,
+  createUser,
+  createUserOrder,
+  deleteUser,
+  exportUsers,
+  getRegionStats,
+  getRoleList,
+  getUserDeletionCheck,
+  getUserGroupList,
+  getUserLevelList,
+  getUserList,
+  impersonateUser,
+  purgeUsers,
+  rechargeUser,
+  restoreUser,
+  updateUserStatus,
+  type RegionStatItem,
+  type RoleInfo,
+  type UserCreateRequest,
+  type UserDeletionCheckResponse,
+  type UserGroupInfo,
+  type UserInfo,
+  type UserLevelInfo,
+  type UserListQuery,
+  type UserPurgePreviewItem,
+  type UserPurgeResponse,
+} from '@/api/user'
 import { getProductList as getUcProductList } from '@/api/product'
 import { getSalesCandidates } from '@/api/sales'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
+import { useUserStore } from '@/store'
 import type { SalesCandidateInfo } from '@/types/interface'
+import { USER_CONSOLE_URL } from '@/utils/config'
 
 defineOptions({ name: 'UserAccountsList' })
 
@@ -523,6 +738,16 @@ type SortOrder = 'asc' | 'desc'
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
+
+// 权限门控（doc104 §3.3 F18）：此前本页零门控，任何能进用户列表的角色都能看到
+// 新增/注销等入口。v-permission 只做体验优化，真正的越权防护在后端。
+const canCreate = computed(() => userStore.hasPermission('user:create'))
+const canUpdate = computed(() => userStore.hasPermission('user:update_status'))
+const canDelete = computed(() => userStore.hasPermission('user:delete'))
+const canRestore = computed(() => userStore.hasPermission('user:restore'))
+// 硬删除不可逆，后端用 superOnly，前端同样只对超管展示入口。
+const canPurge = computed(() => userStore.isSuperAdmin)
 
 const loading = ref(false)
 const errorMessage = ref('')
@@ -542,6 +767,43 @@ const dragState = {
   startScrollLeft: 0,
 }
 
+// 视图模式（doc104 §4.3）：'active' = 常规列表（后端默认排除已注销）；
+// 'recycle' = 回收站，落到 filter=deleted。用 URL 的 filter 作为唯一真相，
+// 这样刷新、前进后退、分享链接都能还原同一个视图。
+const currentView = ref<'active' | 'recycle'>('active')
+const isRecycleView = computed(() => currentView.value === 'recycle')
+
+// 行选择（批量操作，doc104 §3.3 F19）
+const selectedIds = ref<number[]>([])
+const batchSubmitting = ref(false)
+
+// 注销（软删除）
+const deleteVisible = ref(false)
+const deleteCheckLoading = ref(false)
+const deleteSubmitting = ref(false)
+const deleteTarget = ref<UserInfo | null>(null)
+const deleteCheck = ref<UserDeletionCheckResponse | null>(null)
+const deleteForce = ref(false)
+const deleteForm = reactive<{ reason: string }>({ reason: '' })
+
+const batchDeleteVisible = ref(false)
+const batchForce = ref(false)
+
+// 留存期清理（硬删除）
+const purgeVisible = ref(false)
+const purgeLoading = ref(false)
+const purgeResult = ref<UserPurgeResponse | null>(null)
+
+const purgeColumns: PrimaryTableCol<UserPurgePreviewItem>[] = [
+  { colKey: 'id', title: 'ID', width: 90 },
+  { colKey: 'username', title: '用户名', minWidth: 160 },
+  { colKey: 'deleted_at', title: '注销时间', width: 180 },
+  { colKey: 'reason', title: '注销原因', minWidth: 200 },
+]
+
+// 阻断项存在时确认按钮必须禁用 —— 否则用户点下去只会收到一个 409。
+const canConfirmDelete = computed(() => !!deleteCheck.value && deleteCheck.value.blockers.length === 0)
+
 const filters = reactive<UserListQuery>({
   page: 1,
   page_size: 10,
@@ -554,6 +816,7 @@ const filters = reactive<UserListQuery>({
   is_sub_account: '',
   sales_admin_id: undefined,
   unassigned_sales: '',
+  include_deleted: false,
 })
 
 const pagination = reactive({
@@ -624,6 +887,7 @@ const statusOptions = [
 const quickFilterOptions = [
   { label: '今日新增', value: 'today' },
   { label: '待实名', value: 'pending_real_name' },
+  { label: '已购用户', value: 'purchased' },
   // 未归属销售（doc86 §4.1.10）：对应后端 unassigned_sales=1
   { label: '未归属销售', value: 'unassigned_sales' },
 ]
@@ -635,16 +899,22 @@ const statusLabelMap: Record<string, string> = {
   cancelled: '已注销',
 }
 
+// 兜底角色名映射（doc104 §3.3，F22）：原表里 agent/member/finance/operator/guest
+// 在 roles 表里根本不存在，而真实存在的 ops_admin/finance_admin/sales_manager/
+// support_lead/tech 反而没有 —— 这些角色的用户列表里显示的是原始 code。
+// 现在按 roles 表实际取值补齐；运行时优先用接口返回的 roles.name，
+// 这张表只在接口未加载或角色已被删除时兜底。
 const roleLabelMap: Record<string, string> = {
-  super_admin: '超级管理员',
   admin: '管理员',
+  super_admin: '超级管理员',
+  ops_admin: '运维管理员',
+  finance_admin: '财务管理员',
   user: '普通用户',
-  agent: '代理',
-  member: '会员',
-  finance: '财务',
-  operator: '运营',
+  sales: '销售',
+  sales_manager: '销售主管',
   support: '客服',
-  guest: '访客',
+  support_lead: '客服主管',
+  tech: '技术',
   unassigned: '未分配',
 }
 
@@ -710,8 +980,10 @@ const salesFilterOptions = computed(() => [
 ])
 
 const activeFilterLabel = computed(() => {
+  if (isRecycleView.value) return '回收站'
   if (filters.filter === 'today') return '今日新增'
   if (filters.filter === 'pending_real_name') return '待实名认证'
+  if (filters.filter === 'purchased') return '已购用户'
   if (filters.filter === 'unassigned_sales') return '未归属销售'
   if (filters.status) return statusLabelMap[filters.status] || filters.status
   if (filters.last_login_ip_region) return filters.last_login_ip_region
@@ -732,28 +1004,42 @@ const sortedTableData = computed(() => {
   return [...tableData.value].sort((left, right) => (Number(left.id || 0) - Number(right.id || 0)) * orderFactor)
 })
 
-const columns = computed<PrimaryTableCol<UserInfo>[]>(() => [
-  { colKey: 'id', title: 'ID', width: 92 },
-  { colKey: 'username', title: '账号信息', minWidth: 260 },
-  { colKey: 'real_name', title: '实名信息', minWidth: 220 },
-  { colKey: 'balance', title: '账户余额', width: 130, align: 'right' },
-  { colKey: 'total_consume_amount', title: '总消费金额', width: 150, align: 'right' },
-  { colKey: 'role', title: '角色', minWidth: 180 },
-  { colKey: 'user_level_name', title: '用户等级', width: 130 },
-  { colKey: 'user_group_name', title: '用户组', minWidth: 180 },
-  { colKey: 'sales_admin_name', title: '归属销售', minWidth: 150 },
-  { colKey: 'last_login_ip', title: '登录 IP', minWidth: 220 },
-  { colKey: 'oauth_provider', title: '第三方登录', minWidth: 180 },
-  { colKey: 'status', title: '状态', width: 110 },
-  { colKey: 'last_login_at', title: '最近登录', width: 180 },
-  {
-    colKey: 'action',
-    title: '操作',
-    width: isMobile.value ? 70 : 260,
-    fixed: 'right' as const,
-    align: 'center' as const,
-  },
-])
+const columns = computed<PrimaryTableCol<UserInfo>[]>(() => {
+  const base: PrimaryTableCol<UserInfo>[] = []
+  // 行选择列只在有批量操作权限时出现（回收站=恢复，列表=冻结/注销）。
+  if (isRecycleView.value ? canRestore.value : canUpdate.value || canDelete.value) {
+    base.push({ colKey: 'row-select', type: 'multiple', width: 46, fixed: 'left' as const })
+  }
+  base.push(
+    { colKey: 'id', title: 'ID', width: 92 },
+    { colKey: 'username', title: '账号信息', minWidth: 260 },
+    { colKey: 'real_name', title: '实名信息', minWidth: 220 },
+    { colKey: 'balance', title: '账户余额', width: 130, align: 'right' as const },
+    { colKey: 'total_consume_amount', title: '总消费金额', width: 150, align: 'right' as const },
+    { colKey: 'role', title: '角色', minWidth: 180 },
+    { colKey: 'user_level_name', title: '用户等级', width: 130 },
+    { colKey: 'user_group_name', title: '用户组', minWidth: 180 },
+    { colKey: 'sales_admin_name', title: '归属销售', minWidth: 150 },
+    { colKey: 'last_login_ip', title: '登录 IP', minWidth: 220 },
+    { colKey: 'oauth_provider', title: '第三方登录', minWidth: 180 },
+    { colKey: 'status', title: '状态', width: 110 },
+  )
+  if (isRecycleView.value) {
+    // 回收站独有：注销时间 + 原因 + 操作人。常规列表不展示（全是「—」没意义）。
+    base.push({ colKey: 'deleted_at', title: '注销信息', minWidth: 260 })
+  }
+  base.push(
+    { colKey: 'last_login_at', title: '最近登录', width: 180 },
+    {
+      colKey: 'action',
+      title: '操作',
+      width: isMobile.value ? 70 : 260,
+      fixed: 'right' as const,
+      align: 'center' as const,
+    },
+  )
+  return base
+})
 
 function syncFiltersFromRoute() {
   const query = route.query as Record<string, string | undefined>
@@ -768,6 +1054,10 @@ function syncFiltersFromRoute() {
   filters.is_sub_account = query.is_sub_account === 'true' || query.is_sub_account === 'false' ? query.is_sub_account : ''
   filters.sales_admin_id = query.sales_admin_id ? Number(query.sales_admin_id) : undefined
   filters.unassigned_sales = query.unassigned_sales === 'true' ? 'true' : ''
+  filters.include_deleted = query.include_deleted === 'true'
+  currentView.value = filters.filter === 'deleted' ? 'recycle' : 'active'
+  // 换视图后旧选择已不适用（行对象都换了），必须清空。
+  selectedIds.value = []
   pagination.current = filters.page
   pagination.pageSize = filters.page_size
 }
@@ -789,7 +1079,13 @@ function buildQuery() {
   if (filters.page && filters.page !== 1) query.page = String(filters.page)
   if (filters.page_size && filters.page_size !== 10) query.page_size = String(filters.page_size)
   if (filters.status) query.status = filters.status
-  if (filters.filter) query.filter = filters.filter
+  // 回收站视图固定写 filter=deleted（而不是把 '' 也写进去），保证 URL 可分享可还原。
+  if (isRecycleView.value) {
+    query.filter = 'deleted'
+  } else if (filters.filter) {
+    query.filter = filters.filter
+  }
+  if (filters.include_deleted) query.include_deleted = 'true'
   if (filters.last_login_ip_region) query.last_login_ip_region = filters.last_login_ip_region
   if (filters.keyword) query.keyword = filters.keyword
   if (filters.user_level_id) query.user_level_id = String(filters.user_level_id)
@@ -802,6 +1098,20 @@ function buildQuery() {
     query.sales_admin_id = String(filters.sales_admin_id)
   }
   return query
+}
+
+// 视图切换：清掉与另一视图冲突的筛选（回收站里的 status=cancelled 与快捷筛选
+// 都没有意义），再走统一的路由驱动重载。
+async function handleViewChange(value: string | number | boolean) {
+  const next = value === 'recycle' ? 'recycle' : 'active'
+  currentView.value = next
+  filters.page = 1
+  filters.status = ''
+  filters.filter = next === 'recycle' ? 'deleted' : ''
+  filters.include_deleted = false
+  selectedIds.value = []
+  pagination.current = 1
+  await replaceRouteQuery()
 }
 
 function toggleIdSort() {
@@ -853,25 +1163,55 @@ async function loadUserLevelOptions() {
   }
 }
 
+// buildListParams 把筛选状态翻译成列表/导出接口共用的查询参数。
+// 导出必须与列表用同一份参数，否则「界面上筛出来的」和「导出的」会对不上。
+function buildListParams(): UserListQuery {
+  // 「未归属销售」既可由快捷筛选触发，也可由「归属销售=未归属(0)」触发。
+  const onlyUnassigned = filters.filter === 'unassigned_sales' || filters.sales_admin_id === 0
+  return {
+    page: filters.page,
+    page_size: filters.page_size,
+    status: filters.status || undefined,
+    filter: filters.filter && filters.filter !== 'unassigned_sales' ? filters.filter : undefined,
+    last_login_ip_region: filters.last_login_ip_region || undefined,
+    keyword: filters.keyword || undefined,
+    user_level_id: filters.user_level_id || undefined,
+    user_group_id: filters.user_group_id || undefined,
+    is_sub_account: filters.is_sub_account || undefined,
+    sales_admin_id: !onlyUnassigned && filters.sales_admin_id ? filters.sales_admin_id : undefined,
+    unassigned_sales: onlyUnassigned ? 'true' : undefined,
+    include_deleted: filters.include_deleted || undefined,
+  }
+}
+
+const exporting = ref(false)
+
+async function handleExportCSV() {
+  exporting.value = true
+  try {
+    const response = await exportUsers(buildListParams())
+    const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8' })
+    const objectUrl = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = objectUrl
+    link.download = `users-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(objectUrl)
+    MessagePlugin.success('导出成功')
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '导出失败')
+  } finally {
+    exporting.value = false
+  }
+}
+
 async function loadUsers() {
   loading.value = true
   errorMessage.value = ''
   try {
-    // 「未归属销售」既可由快捷筛选触发，也可由「归属销售=未归属(0)」触发。
-    const onlyUnassigned = filters.filter === 'unassigned_sales' || filters.sales_admin_id === 0
-    const data = await getUserList({
-      page: filters.page,
-      page_size: filters.page_size,
-      status: filters.status || undefined,
-      filter: filters.filter && filters.filter !== 'unassigned_sales' ? filters.filter : undefined,
-      last_login_ip_region: filters.last_login_ip_region || undefined,
-      keyword: filters.keyword || undefined,
-      user_level_id: filters.user_level_id || undefined,
-      user_group_id: filters.user_group_id || undefined,
-      is_sub_account: filters.is_sub_account || undefined,
-      sales_admin_id: !onlyUnassigned && filters.sales_admin_id ? filters.sales_admin_id : undefined,
-      unassigned_sales: onlyUnassigned ? 'true' : undefined,
-    })
+    const data = await getUserList(buildListParams())
     tableData.value = data.items || []
     pagination.current = data.meta.page
     pagination.pageSize = data.meta.page_size
@@ -916,7 +1256,9 @@ async function handleReset() {
   filters.page = 1
   filters.page_size = 10
   filters.status = ''
-  filters.filter = ''
+  // 重置保留当前视图：在回收站点「重置」应回到「回收站第一页无筛选」，
+  // 而不是把用户弹回常规列表。
+  filters.filter = isRecycleView.value ? 'deleted' : ''
   filters.last_login_ip_region = ''
   filters.keyword = ''
   filters.user_level_id = undefined
@@ -924,6 +1266,8 @@ async function handleReset() {
   filters.is_sub_account = ''
   filters.sales_admin_id = undefined
   filters.unassigned_sales = ''
+  filters.include_deleted = false
+  selectedIds.value = []
   sortOrder.value = 'desc'
   pagination.current = 1
   pagination.pageSize = 10
@@ -979,7 +1323,11 @@ function roleTagTheme(role: string): 'danger' | 'warning' | 'primary' | 'default
 
 function formatRoleLabel(role: string) {
   const normalizedRole = String(role || '').trim().toLowerCase()
-  return roleLabelMap[normalizedRole] || roleLabelMap[role] || role || '未分配'
+  if (!normalizedRole) return '未分配'
+  // 接口返回的角色中文名是权威来源；静态表只兜底未加载 / 角色已删除的情况。
+  const fromApi = roleOptions.value.find((item) => item.code?.toLowerCase() === normalizedRole)
+  if (fromApi?.name) return fromApi.name
+  return roleLabelMap[normalizedRole] || role || '未分配'
 }
 
 function formatMoney(value: number) {
@@ -1117,12 +1465,19 @@ async function handleOrderConfirm() {
 }
 
 function buildMobileActionOptions(row: UserInfo) {
+  if (isRecycleView.value) {
+    return [
+      { content: '详情', value: 'detail' },
+      ...(canRestore.value ? [{ content: '恢复', value: 'restore' }] : []),
+    ]
+  }
   return [
     { content: '详情', value: 'detail' },
     { content: '充值', value: 'recharge' },
     { content: '订单', value: 'order' },
     { content: '登录', value: 'impersonate', disabled: row.status !== 'active' },
     { content: row.status === 'active' ? '冻结' : '解冻', value: 'toggle-status' },
+    ...(canDelete.value ? [{ content: '注销', value: 'delete' }] : []),
   ]
 }
 
@@ -1147,6 +1502,14 @@ function handleMobileActionClick(data: string | number | Record<string, any> | {
   }
   if (value === 'toggle-status') {
     void toggleStatus(row)
+    return
+  }
+  if (value === 'restore') {
+    void restoreUserRow(row)
+    return
+  }
+  if (value === 'delete') {
+    void openDeleteDialog(row)
   }
 }
 
@@ -1158,10 +1521,8 @@ async function handleImpersonate(row: UserInfo) {
   try {
     const res = await impersonateUser({ user_id: row.id })
     // 代登录：新窗口打开用户端并携带 user token，绝不在管理端写入用户登录态。
-    // 默认端口取 frontend-user 的实际端口 3002（原值 3001 是历史遗留，用户端从来不在这个端口）；
-    // 生产环境应由 VITE_USER_BASE_URL 显式指定用户端地址。
-    const base = (import.meta.env.VITE_USER_BASE_URL as string) || 'http://localhost:3002'
-    const url = `${base.replace(/\/+$/, '')}/?token=${encodeURIComponent(res.token)}`
+    // 用户端地址统一由 utils/config 解析（VITE_USER_BASE_URL），不在页面里写兜底端口。
+    const url = `${USER_CONSOLE_URL}/?token=${encodeURIComponent(res.token)}`
     window.open(url, '_blank')
     MessagePlugin.success(`已在用户端窗口代为登录 ${row.username}`)
   } catch (error) {
@@ -1228,6 +1589,196 @@ function initFormData(): UserCreateRequest {
     role_ids: [],
     user_group_id: undefined,
   }
+}
+
+// ===== 行选择与批量操作（doc104 §3.3 F19）=====
+
+function handleSelectChange(keys: Array<string | number>) {
+  selectedIds.value = keys.map((key) => Number(key)).filter((id) => Number.isFinite(id) && id > 0)
+}
+
+function clearSelection() {
+  selectedIds.value = []
+}
+
+// 批量冻结/解冻：后端没有批量状态接口，逐个调 PATCH /users/:id/status。
+// 用 Promise.allSettled 而不是 all —— 一条失败不该让其余回滚（它们已经生效了）。
+async function handleBatchStatus(status: 'active' | 'disabled') {
+  if (!selectedIds.value.length) return
+  const label = status === 'active' ? '解冻' : '冻结'
+  batchSubmitting.value = true
+  try {
+    const results = await Promise.allSettled(selectedIds.value.map((id) => updateUserStatus(id, { status })))
+    const ok = results.filter((item) => item.status === 'fulfilled').length
+    const failed = results.length - ok
+    if (failed === 0) {
+      MessagePlugin.success(`已${label} ${ok} 个用户`)
+    } else {
+      MessagePlugin.warning(`已${label} ${ok} 个，${failed} 个失败`)
+    }
+    selectedIds.value = []
+    await loadUsers()
+  } finally {
+    batchSubmitting.value = false
+  }
+}
+
+// ===== 注销（软删除）=====
+
+// 打开注销确认框：先拉前置校验，再决定能否提交。
+// 不用 t-popconfirm 是因为校验结果是异步的，且需要在弹窗里渲染明细。
+async function openDeleteDialog(row: UserInfo) {
+  deleteTarget.value = row
+  deleteCheck.value = null
+  deleteForce.value = false
+  deleteForm.reason = ''
+  deleteVisible.value = true
+  deleteCheckLoading.value = true
+  try {
+    deleteCheck.value = await getUserDeletionCheck(row.id)
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '注销前置校验失败')
+    deleteVisible.value = false
+  } finally {
+    deleteCheckLoading.value = false
+  }
+}
+
+async function handleDeleteConfirm() {
+  const target = deleteTarget.value
+  if (!target) return
+  if (!deleteForm.reason.trim()) {
+    MessagePlugin.warning('请填写注销原因')
+    return
+  }
+  // 有警告项时必须显式勾选强制，否则后端会回 40903（这里提前拦住少一次往返）。
+  if (deleteCheck.value?.warnings.length && !deleteForce.value) {
+    MessagePlugin.warning('存在未结清事项，请勾选强制注销')
+    return
+  }
+  deleteSubmitting.value = true
+  try {
+    await deleteUser(target.id, { reason: deleteForm.reason.trim(), force: deleteForce.value })
+    MessagePlugin.success(`已注销 ${target.username}`)
+    deleteVisible.value = false
+    await loadUsers()
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '注销失败')
+  } finally {
+    deleteSubmitting.value = false
+  }
+}
+
+function openBatchDeleteDialog() {
+  if (!selectedIds.value.length) return
+  deleteForm.reason = ''
+  batchForce.value = false
+  batchDeleteVisible.value = true
+}
+
+async function handleBatchDeleteConfirm() {
+  if (!deleteForm.reason.trim()) {
+    MessagePlugin.warning('请填写注销原因')
+    return
+  }
+  batchSubmitting.value = true
+  try {
+    const resp = await batchDeleteUsers({
+      ids: selectedIds.value,
+      reason: deleteForm.reason.trim(),
+      force: batchForce.value,
+    })
+    const skipped = resp.skipped || []
+    if (skipped.length) {
+      // 逐条展示跳过原因：批量里最常见的失败是「在管实例」，运营需要知道是哪几个。
+      const detail = skipped.map((item) => `#${item.id} ${item.reason}`).join('；')
+      MessagePlugin.warning(`已注销 ${resp.affected} 个，跳过 ${skipped.length} 个：${detail}`)
+    } else {
+      MessagePlugin.success(`已注销 ${resp.affected} 个用户`)
+    }
+    batchDeleteVisible.value = false
+    selectedIds.value = []
+    await loadUsers()
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '批量注销失败')
+  } finally {
+    batchSubmitting.value = false
+  }
+}
+
+// ===== 恢复 =====
+
+async function restoreUserRow(row: UserInfo) {
+  try {
+    await restoreUser(row.id)
+    MessagePlugin.success(`已恢复 ${row.username}`)
+    await loadUsers()
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '恢复失败')
+  }
+}
+
+async function handleBatchRestore() {
+  if (!selectedIds.value.length) return
+  batchSubmitting.value = true
+  try {
+    const resp = await batchRestoreUsers({ ids: selectedIds.value })
+    const skipped = resp.skipped || []
+    if (skipped.length) {
+      const detail = skipped.map((item) => `#${item.id} ${item.reason}`).join('；')
+      MessagePlugin.warning(`已恢复 ${resp.affected} 个，跳过 ${skipped.length} 个：${detail}`)
+    } else {
+      MessagePlugin.success(`已恢复 ${resp.affected} 个用户`)
+    }
+    selectedIds.value = []
+    await loadUsers()
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '批量恢复失败')
+  } finally {
+    batchSubmitting.value = false
+  }
+}
+
+// ===== 留存期清理（硬删除，仅超管）=====
+
+async function openPurgeDialog() {
+  purgeResult.value = null
+  purgeVisible.value = true
+  // 一律先 dry_run：运营必须先看清这一轮会删掉谁。
+  await runPurge(true)
+}
+
+async function runPurge(dryRun: boolean) {
+  purgeLoading.value = true
+  try {
+    purgeResult.value = await purgeUsers({ dry_run: dryRun })
+    if (!dryRun) {
+      const skipped = purgeResult.value.skipped?.length || 0
+      MessagePlugin.success(`已彻底删除 ${purgeResult.value.purged} 个用户${skipped ? `，跳过 ${skipped} 个` : ''}`)
+      await loadUsers()
+    }
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '清理失败')
+  } finally {
+    purgeLoading.value = false
+  }
+}
+
+// 执行清理前再确认一次：这是全系统唯一的不可逆硬删除入口。
+function handlePurgeExecute() {
+  const count = purgeResult.value?.candidates.length || 0
+  if (!count) return
+  const dialog = DialogPlugin.confirm({
+    header: '确认彻底删除',
+    body: `将彻底删除 ${count} 个用户及其全部个人数据，此操作不可恢复。确认继续？`,
+    confirmBtn: { content: '确认删除', theme: 'danger' },
+    cancelBtn: { content: '取消' },
+    onConfirm: async () => {
+      dialog.destroy()
+      await runPurge(false)
+    },
+    onClose: () => dialog.destroy(),
+  })
 }
 
 function openCreate() {
@@ -1385,6 +1936,122 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+.view-switch {
+  flex-shrink: 0;
+}
+
+.selection-hint {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.table-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.cell-sub {
+  display: block;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.danger-note {
+  padding: 10px 12px;
+  border-radius: var(--hs-radius-md);
+  background: var(--td-error-color-1);
+  color: var(--td-error-color-7);
+  font-size: 13px;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+.detail-row {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.detail-row__label {
+  color: var(--color-muted-foreground);
+  flex-shrink: 0;
+}
+
+.detail-row__value {
+  color: var(--color-foreground);
+  font-weight: 600;
+}
+
+.check-block {
+  padding: 10px 12px;
+  border-radius: var(--hs-radius-md);
+  font-size: 13px;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+.check-block--danger {
+  background: var(--td-error-color-1);
+  color: var(--td-error-color-7);
+}
+
+.check-block--warning {
+  background: var(--td-warning-color-1);
+  color: var(--td-warning-color-7);
+}
+
+.check-block--ok {
+  background: var(--td-success-color-1);
+  color: var(--td-success-color-7);
+}
+
+.check-block__title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.check-list {
+  margin: 0 0 6px;
+  padding-left: 18px;
+}
+
+.delete-form {
+  margin-top: 8px;
+}
+
+.batch-force {
+  margin-bottom: 12px;
+}
+
+.purge-alert {
+  margin-bottom: 12px;
+}
+
+.purge-meta {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--color-muted-foreground);
+  margin-bottom: 12px;
+}
+
+.purge-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
 }
 
 .toolbar {

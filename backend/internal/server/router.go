@@ -94,6 +94,9 @@ func newRouter(app *App) *gin.Engine {
 		users.Use(app.adminAuth())
 		{
 			users.GET("", app.perm("system:user:list"), app.userHandler.ListUsers)
+			// 导出必须与列表同权限：能看列表就能导出，且导出走同一套筛选条件。
+			// 静态段 /export 注册在 /:id 之前，避免被参数路由吞掉。
+			users.GET("/export", app.perm("system:user:list"), app.userHandler.ExportUsers)
 			users.POST("", app.perm("user:create"), app.userHandler.CreateUser)
 			users.GET("/stats", app.perm("system:user:list"), app.userHandler.GetStats)
 			users.GET("/region-stats", app.perm("system:user:list"), app.userHandler.GetRegionStats)
@@ -108,6 +111,16 @@ func newRouter(app *App) *gin.Engine {
 			users.POST(":id/impersonate", app.superOnly(), app.userHandler.Impersonate)
 			users.POST(":id/recharge", app.perm("finance:adjust"), app.userHandler.Recharge)
 			users.POST(":id/orders", app.perm("user:create"), app.userHandler.CreateOrder)
+			// —— 注销 / 恢复 / 留存期清理（doc104 §4）——
+			// 注意：批量路由必须注册在 ":id" 之前语义上才不冲突，gin 的路由树
+			// 对静态段与参数段能正确分流（/users/batch-delete 不会命中 /users/:id）。
+			users.GET(":id/deletion-check", app.perm("user:delete"), app.userDeletionHandler.CheckDeletion)
+			users.DELETE(":id", app.perm("user:delete"), app.userDeletionHandler.DeleteUser)
+			users.POST(":id/restore", app.perm("user:restore"), app.userDeletionHandler.RestoreUser)
+			users.POST("/batch-delete", app.perm("user:delete"), app.userDeletionHandler.BatchDeleteUsers)
+			users.POST("/batch-restore", app.perm("user:restore"), app.userDeletionHandler.BatchRestoreUsers)
+			// 留存期清理是硬删除，属不可逆高危操作，仅超管。
+			users.POST("/purge", app.superOnly(), app.userDeletionHandler.PurgeUsers)
 		}
 
 		userGroups := v1.Group("/user-groups")
@@ -143,12 +156,40 @@ func newRouter(app *App) *gin.Engine {
 			userLevels.DELETE("/:id", app.perm("level:delete"), app.userLevelHandler.Delete)
 		}
 
-		verifications := v1.Group("/verifications")
-		verifications.Use(app.adminAuth())
-		{
-			verifications.GET("/pending", app.perm("verification:list"), app.verificationHandler.ListPending)
-			verifications.GET("/approved", app.perm("verification:list"), app.verificationHandler.ListApproved)
-			verifications.GET("/rejected", app.perm("verification:list"), app.verificationHandler.ListRejected)
+		// 实名认证（doc104 §5.7）：整单审核 + 三方核验 + 服务商与配置维护。
+		// 审核类接口要求 verification:audit（通过/驳回/撤销/三方核验都改状态），
+		// 只读列表与详情用 verification:list/detail；服务商与策略配置用 verification:config。
+		if app.verification != nil {
+			verifications := v1.Group("/verifications")
+			verifications.Use(app.adminAuth())
+			{
+				verifications.GET("/pending", app.perm("verification:list"), app.verification.adminHandler.ListPending)
+				verifications.GET("/approved", app.perm("verification:list"), app.verification.adminHandler.ListApproved)
+				verifications.GET("/rejected", app.perm("verification:list"), app.verification.adminHandler.ListRejected)
+
+				verifications.GET("/configs", app.perm("verification:config"), app.verification.adminHandler.ListConfigs)
+				verifications.POST("/configs", app.perm("verification:config"), app.verification.adminHandler.UpsertConfig)
+				verifications.DELETE("/configs/:id", app.perm("verification:config"), app.verification.adminHandler.DeleteConfig)
+				verifications.GET("/provider-types", app.perm("verification:config"), app.verification.adminHandler.ProviderTypes)
+				verifications.GET("/providers", app.perm("verification:config"), app.verification.adminHandler.ListProviders)
+				verifications.POST("/providers", app.perm("verification:config"), app.verification.adminHandler.UpsertProvider)
+				verifications.DELETE("/providers/:id", app.perm("verification:config"), app.verification.adminHandler.DeleteProvider)
+				// 连通性测试：无论成功失败都返回 HTTP 200 + {ok,message}，
+				// 让前端把失败原因直接展示给运营，而不是落进通用错误提示。
+				verifications.POST("/providers/:id/test", app.perm("verification:config"), app.verification.adminHandler.TestProvider)
+				// 审核员下载材料（doc104 §5.7）：与用户端同一条服务逻辑，
+				// 只是 manageView=true 允许取任意申请下的材料。
+				verifications.GET("/documents/:id/download", app.perm("verification:detail"), app.verification.adminHandler.DownloadDocument)
+
+				// 静态段与动态段在 Gin 里是兄弟节点，注册顺序不影响匹配；
+				// 这里仍按「静态在前、动态在后」排列，便于人工核对路径全集。
+				verifications.GET("/:id", app.perm("verification:detail"), app.verification.adminHandler.Detail)
+				verifications.GET("/:id/logs", app.perm("verification:detail"), app.verification.adminHandler.ReviewLogs)
+				verifications.POST("/:id/approve", app.perm("verification:audit"), app.verification.adminHandler.Approve)
+				verifications.POST("/:id/reject", app.perm("verification:audit"), app.verification.adminHandler.Reject)
+				verifications.POST("/:id/revoke", app.perm("verification:audit"), app.verification.adminHandler.Revoke)
+				verifications.POST("/:id/provider-check", app.perm("verification:audit"), app.verification.adminHandler.ProviderCheck)
+			}
 		}
 
 		permissions := v1.Group("/permissions")
@@ -807,6 +848,34 @@ func newRouter(app *App) *gin.Engine {
 		ucAuth.PUT("/profile", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.UpdateProfile)                                                   // 更新资料（改手机/邮箱时按字段动态要求验证）
 		ucAuth.PUT("/password", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userRequireVerification("password_change"), app.userCenterAuthHandler.ChangePassword) // 修改密码
 	}
+
+	// 用户端实名认证（doc104 §5.7）：状态查询、提交、本人申请历史与三方核验跳转。
+	// 实名绑定的是自然人主体，子账号不具备独立实名资格，故整体挂 rejectSub 硬拒绝；
+	// 服务层再以 real_name_verified_at 为唯一信任信号，不受展示名影响。
+	ucVerification := r.Group("/api/v1/uc/verification")
+	ucVerification.Use(middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub())
+	{
+		ucVerification.GET("", app.verification.userHandler.Status)
+		ucVerification.POST("", app.verification.userHandler.Submit)
+		ucVerification.GET("/applications", app.verification.userHandler.ListMine)
+		ucVerification.GET("/applications/:id", app.verification.userHandler.Detail)
+		ucVerification.POST("/applications/:id/authorize", app.verification.userHandler.Authorize)
+		// 材料上传/下载（doc104 §5.7）：走鉴权端点而不是暴露存储路径 ——
+		// 证件影像属敏感个人信息，只有申请本人与其审核员可取。
+		ucVerification.POST("/applications/:id/documents", app.verification.userHandler.UploadDocument)
+		ucVerification.GET("/documents/:id/download", app.verification.userHandler.DownloadDocument)
+	}
+
+	// 实名三方核验回调：用户在支付宝侧完成核验后被重定向回来，此时还没有平台令牌，
+	// 因此这条必须在免登录路径上；信任来源是 provider 侧的 certify_id + 申请单上的
+	// ProviderTxnNo 比对（服务层校验），不依赖任何客户端参数。
+	ucVerificationCallback := r.Group("/api/v1/uc/verification")
+	{
+		ucVerificationCallback.GET("/:provider/callback", app.verification.userHandler.ProviderCallback)
+	}
+
+	// 第三方登录（doc104 §6）：登录页授权入口与免登录回调在 registerOAuthRoutes 内注册。
+	registerOAuthRoutes(v1, r.Group("/api/v1/uc"), app.oauth, app)
 
 	// 用户中心菜单：普通用户控制台侧边栏（platform=user）
 	ucMenu := r.Group("/api/v1/uc/menus")

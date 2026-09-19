@@ -43,7 +43,7 @@ func NewMemberRepository(db *gorm.DB) MemberRepository {
 func (r *memberRepository) List(ctx context.Context, ownerID uint64, query dto.MemberListQuery) ([]model.Member, int64, error) {
 	page, pageSize := normalizePage(query.Page, query.PageSize)
 	base := r.db.WithContext(ctx).Model(&model.Member{}).
-		Where("owner_user_id = ? AND is_sub_account = true", ownerID)
+		Where("owner_user_id = ? AND is_sub_account = true AND deleted_at IS NULL", ownerID)
 	if status := strings.TrimSpace(query.Status); status != "" {
 		base = base.Where("status = ?", status)
 	}
@@ -62,9 +62,11 @@ func (r *memberRepository) List(ctx context.Context, ownerID uint64, query dto.M
 	return items, total, nil
 }
 
+// 注销（软删除）的账号不参与成员管理：既不该出现在成员列表里，也不该占用
+// username/email/phone。与 uc/auth 仓储保持同一口径。
 func (r *memberRepository) FindByID(ctx context.Context, id uint64) (*model.Member, error) {
 	var item model.Member
-	if err := r.db.WithContext(ctx).First(&item, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", id).First(&item).Error; err != nil {
 		return nil, err
 	}
 	return &item, nil
@@ -72,7 +74,7 @@ func (r *memberRepository) FindByID(ctx context.Context, id uint64) (*model.Memb
 
 func (r *memberRepository) FindByUsername(ctx context.Context, username string) (*model.Member, error) {
 	var item model.Member
-	if err := r.db.WithContext(ctx).Where("username = ?", username).First(&item).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("username = ? AND deleted_at IS NULL", username).First(&item).Error; err != nil {
 		return nil, err
 	}
 	return &item, nil
@@ -80,7 +82,7 @@ func (r *memberRepository) FindByUsername(ctx context.Context, username string) 
 
 func (r *memberRepository) FindByEmail(ctx context.Context, email string) (*model.Member, error) {
 	var item model.Member
-	if err := r.db.WithContext(ctx).Where("email = ?", email).First(&item).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("email = ? AND deleted_at IS NULL", email).First(&item).Error; err != nil {
 		return nil, err
 	}
 	return &item, nil
@@ -88,7 +90,7 @@ func (r *memberRepository) FindByEmail(ctx context.Context, email string) (*mode
 
 func (r *memberRepository) FindByPhone(ctx context.Context, phone string) (*model.Member, error) {
 	var item model.Member
-	if err := r.db.WithContext(ctx).Where("phone = ?", phone).First(&item).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("phone = ? AND deleted_at IS NULL", phone).First(&item).Error; err != nil {
 		return nil, err
 	}
 	return &item, nil
@@ -105,7 +107,7 @@ func (r *memberRepository) UpdateProfileFields(ctx context.Context, id uint64, f
 func (r *memberRepository) CountSubAccounts(ctx context.Context, ownerID uint64) (int64, error) {
 	var count int64
 	err := r.db.WithContext(ctx).Model(&model.Member{}).
-		Where("owner_user_id = ? AND is_sub_account = true", ownerID).
+		Where("owner_user_id = ? AND is_sub_account = true AND deleted_at IS NULL", ownerID).
 		Count(&count).Error
 	return count, err
 }

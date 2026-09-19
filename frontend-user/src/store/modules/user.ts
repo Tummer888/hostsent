@@ -97,6 +97,16 @@ export const useUserStore = defineStore('user', () => {
     localStorage.removeItem('user_token')
   }
 
+  /**
+   * 第三方登录换票成功后写入会话（doc104 §6.4）。
+   *
+   * 复用 applySession：回调页拿到的是与密码登录同构的令牌 + 用户摘要，
+   * 单独再写一遍容易漏掉 loaded 标记，导致守卫以为用户信息还没加载。
+   */
+  function applyOAuthSession(data: { token: string; user?: UserInfo }) {
+    applySession(data)
+  }
+
   return {
     token,
     userInfo,
@@ -110,5 +120,6 @@ export const useUserStore = defineStore('user', () => {
     register,
     fetchUserInfo,
     logout,
+    applyOAuthSession,
   }
 })

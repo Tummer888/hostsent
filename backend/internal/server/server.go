@@ -104,9 +104,6 @@ import (
 	securityhandler "hostsent/backend/internal/modules/admin/user/security/handler"
 	securityrepo "hostsent/backend/internal/modules/admin/user/security/repository"
 	securityservice "hostsent/backend/internal/modules/admin/user/security/service"
-	verificationhandler "hostsent/backend/internal/modules/admin/user/verification/handler"
-	verificationrepo "hostsent/backend/internal/modules/admin/user/verification/repository"
-	verificationservice "hostsent/backend/internal/modules/admin/user/verification/service"
 	openrepo "hostsent/backend/internal/modules/open/repository"
 	openservice "hostsent/backend/internal/modules/open/service"
 	sitehandler "hostsent/backend/internal/modules/site/handler"
@@ -164,6 +161,15 @@ import (
 	_ "hostsent/backend/internal/pkg/captcha/provider/geetest"
 	_ "hostsent/backend/internal/pkg/captcha/provider/netease"
 	_ "hostsent/backend/internal/pkg/captcha/provider/tencent"
+	// 第三方登录适配器以 init() 登记描述符与工厂（doc104 §6.3）：
+	// wechat/qq/alipay 三家都走标准 OAuth2 授权码流程，凭证由运营在后台配置。
+	_ "hostsent/backend/internal/pkg/oauth/provider/alipay"
+	_ "hostsent/backend/internal/pkg/oauth/provider/qq"
+	_ "hostsent/backend/internal/pkg/oauth/provider/wechat"
+	// 实名核验适配器（doc104 §5.5）：manual 为人工审核兜底（恒可用），
+	// alipay 为跳转式核验（无跳转核验不支持，ProviderCheck 会返回业务失败而非报错）。
+	_ "hostsent/backend/internal/pkg/realname/provider/alipay"
+	_ "hostsent/backend/internal/pkg/realname/provider/manual"
 )
 
 type Server struct {
@@ -175,8 +181,10 @@ type Server struct {
 	// pendingExpireScheduler 待支付订单过期关单（doc88 §6.2）。
 	pendingExpireScheduler *ucorderservice.PendingExpireScheduler
 	salesScheduler         *salesservice.ReleaseScheduler
-	provisionWorker        *orderservice.ProvisionWorker
-	notifyWorker           *openservice.NotifyDeliveryWorker
+	// userPurgeScheduler 用户留存期清理（doc104 §4.6）：到期硬删除已注销用户。
+	userPurgeScheduler *service.PurgeScheduler
+	provisionWorker    *orderservice.ProvisionWorker
+	notifyWorker       *openservice.NotifyDeliveryWorker
 	// deliveryWorker 通知投递队列工作器（doc90 N4）：邮件/短信排队投递与重试。
 	deliveryWorker *notifyservice.DeliveryWorker
 	// logcenter 日志中心后台组件（doc92）：上游采集写入器 + 统一清理调度器。
@@ -288,7 +296,6 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		return item.ConfigValue, true, nil
 	}
 	levelRepo := levelrepo.NewUserLevelRepository(database)
-	verificationRepo := verificationrepo.NewVerificationRepository(database)
 	upstreamMgr := upstream.GetProviderManager()
 	providerRepo := providerrepo.NewProviderRepository(database)
 	poolRepo := providerrepo.NewPoolRepository(database)
@@ -329,6 +336,16 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		},
 	)
 	userDetailService := service.NewUserDetailService(userRepo, userDetailRepo)
+	// 用户注销 / 恢复 / 留存期清理（doc104 §4）。留存期从 system_configs 读，
+	// 缺失或非法回落 180 天；读配置失败也回落，不让清理任务因配置中心异常而停摆。
+	userDeletionService := service.NewDeletionService(userRepo, func(ctx context.Context, key string, fallback int) int {
+		raw, ok, err := configValueReader(ctx, key)
+		if err != nil || !ok {
+			return fallback
+		}
+		return service.ParseRetentionDays(raw, fallback)
+	})
+	userPurgeScheduler := service.NewPurgeScheduler(userDeletionService, logger)
 	userGroupService := service.NewUserGroupService(userGroupRepo)
 	// 默认用户组兜底：后台建号（admin user）未指定分组时归入 is_default 组。
 	userService.SetDefaultGroupProvider(userGroupService)
@@ -339,7 +356,6 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	userLevelService := levelservice.NewUserLevelService(levelRepo)
 	// 消费升级服务（P3-03）：订单支付成功后累加累计消费并重算等级（只升不降）。
 	levelUpgradeService := levelservice.NewLevelUpgradeService(levelRepo)
-	verificationService := verificationservice.NewVerificationService(verificationRepo)
 	// 用户中心模块：独立的数据访问、认证服务与处理器（与后台管理模块解耦）
 	userCenterRepo := usercenterrepo.NewUserRepository(database)
 	userCenterService := usercenterservice.NewAuthService(userCenterRepo, jwtIssuer, ipRegionResolver, logger)
@@ -406,7 +422,6 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	menuHandler := menuhandler.NewMenuHandler(menuService)
 	securityHandler := securityhandler.NewSecurityHandler(securityService)
 	userLevelHandler := levelhandler.NewUserLevelHandler(userLevelService)
-	verificationHandler := verificationhandler.NewVerificationHandler(verificationService)
 	providerHandler := providerhandler.NewProviderHandler(providerService)
 	productHandler := producthandler.NewProductHandler(productService)
 	syncHandler := synchandler.NewSyncHandler(syncService)
@@ -603,6 +618,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		},
 	)
 	refundHandler := orderhandler.NewRefundHandler(orderService)
+	userDeletionHandler := handler.NewUserDeletionHandler(userDeletionService)
 	// 定价与计费（pricing 子域）
 	pricingRepo := pricingrepo.NewPricingRepository(database)
 	pricingService := pricingservice.NewPricingService(pricingRepo)
@@ -883,6 +899,17 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		adminService.SetSecurityDeps(captchaBundle.port, ipRegionResolver)
 		userCenterService.SetSecurityPort(captchaBundle.port)
 	}
+	// 实名认证（doc104 §5）：整单审核状态机 + 三方核验 + 用户端提交。
+	// 二次验证经 VerifyPort 端口接验证码策略，验证码模块不可用时不阻断实名提交；
+	// 材料上传复用与工单附件同一个本地存储实例（attachmentStore 可能为 nil）。
+	verificationBundle := buildVerificationBundle(cfg, database, captchaBundle, attachmentStore, logger)
+	// 第三方登录（doc104 §6）：微信/QQ/支付宝的授权、绑定、自动注册与回调。
+	// 回调基地址与前端回跳地址优先读系统配置（部署域名各异，写死等于每次部署改代码），
+	// 这里给的只是配置缺失时的兜底值。
+	oauthBundle := buildOAuthBundle(cfg, database, cacheClient, jwtIssuer, configValueReader,
+		referralSvc, userGroupService,
+		fmt.Sprintf("http://127.0.0.1:%d/api/v1/uc/oauth", cfg.App.Port),
+		"/oauth/callback", logger)
 	// 续费完成积分：lifecycle 侧独立发放，幂等键为订单号。
 	lifecycleRenewalSvc.SetPointEarner(func(ctx context.Context, orderID uint64, orderNo string, userID uint64, amount float64) {
 		pointEarner(ctx, userID, "order", orderNo, amount, true)
@@ -958,7 +985,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 内容定时发布：管理端「定时发布时间」只在写入时判一次到点，到点后没人推进；
 	// 这条调度把 draft + 已到 publish_at 的公告与文章翻成 published（doc100 §10 第三期 23）。
 	publishScheduler := publishsched.NewScheduler(notifyAnnRepo, contentBundle.articleRepo, logger)
-	app := NewApp(cfg, adminHandler, departmentHandler, userHandler, userDetailHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, verificationHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, salesBundle.customerHandler, salesBundle.commissionHandler, salesBundle.performanceHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, siteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, captchaBundle, notifyBundleInst, logcenterBundle, contentBundle, cacheClient, logger, jwtIssuer)
+	app := NewApp(cfg, adminHandler, departmentHandler, userHandler, userDetailHandler, userDeletionHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, salesBundle.customerHandler, salesBundle.commissionHandler, salesBundle.performanceHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, siteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, captchaBundle, notifyBundleInst, logcenterBundle, contentBundle, verificationBundle, oauthBundle, cacheClient, logger, jwtIssuer)
 	router := newRouter(app)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
@@ -976,6 +1003,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		lifecycleScheduler:     lifecycleScheduler,
 		pendingExpireScheduler: pendingExpireScheduler,
 		salesScheduler:         salesBundle.scheduler,
+		userPurgeScheduler:     userPurgeScheduler,
 		provisionWorker:        provisionWorker,
 		notifyWorker:           notifyWorker,
 		deliveryWorker:         notifyBundleInst.worker,
@@ -992,6 +1020,7 @@ func (s *Server) Run() error {
 	s.lifecycleScheduler.Start(ctx)
 	s.pendingExpireScheduler.Start(ctx)
 	s.salesScheduler.Start(ctx)
+	s.userPurgeScheduler.Start(ctx)
 	s.provisionWorker.Start(ctx)
 	go s.notifyWorker.Start(ctx)
 	s.publishScheduler.Start(ctx)

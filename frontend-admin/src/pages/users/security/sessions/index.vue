@@ -17,8 +17,8 @@
   >
     <template #header-actions>
       <t-space>
-        <t-button variant="outline" @click="batchRevoke">批量失效</t-button>
-        <t-button theme="primary" @click="revokeAll">失效用户全部会话</t-button>
+        <t-button v-permission="'security:session:manage'" variant="outline" @click="batchRevoke">批量失效</t-button>
+        <t-button v-permission="'security:session:manage'" theme="primary" @click="revokeAll">失效用户全部会话</t-button>
       </t-space>
     </template>
 
@@ -34,28 +34,36 @@
         </div>
         <div class="field">
           <span class="field__label">状态</span>
-          <t-select v-model="filters.status" clearable :options="statusOptions" placeholder="状态" />
+          <t-select v-model="filters.status" clearable :options="SESSION_STATUS_OPTIONS" placeholder="状态" />
         </div>
         <div class="field">
           <span class="field__label">平台</span>
-          <t-select v-model="filters.platform" clearable :options="platformOptions" placeholder="平台" />
+          <t-select v-model="filters.platform" clearable :options="SESSION_PLATFORM_OPTIONS" placeholder="平台" />
         </div>
         <div class="field">
           <span class="field__label">风险标记</span>
-          <t-select v-model="filters.risk_flag" clearable :options="riskOptions" placeholder="风险标记" />
+          <t-select v-model="filters.risk_flag" clearable :options="RISK_FLAG_OPTIONS" placeholder="风险标记" />
+        </div>
+        <div class="field">
+          <span class="field__label">登录时间</span>
+          <t-date-range-picker v-model="dateRange" clearable allow-input @change="handleDateChange" />
         </div>
       </div>
     </template>
 
+    <template #platform="{ row }">
+      {{ SESSION_PLATFORM_LABEL[row.platform] || row.platform || '—' }}
+    </template>
+
     <template #status="{ row }">
       <t-tag :theme="securityStatusTagTheme[row.status] || 'default'" variant="light-outline">
-        {{ statusLabel[row.status] || row.status || '—' }}
+        {{ SESSION_STATUS_LABEL[row.status] || row.status || '—' }}
       </t-tag>
     </template>
 
     <template #risk_flag="{ row }">
       <t-tag :theme="securityRiskTagTheme[row.risk_flag] || 'default'" variant="light-outline">
-        {{ riskLabel[row.risk_flag] || row.risk_flag || '—' }}
+        {{ RISK_FLAG_LABEL[row.risk_flag] || row.risk_flag || '—' }}
       </t-tag>
     </template>
 
@@ -72,7 +80,7 @@
     </template>
 
     <template #operation="{ row }">
-      <t-link v-if="!isMobile" theme="primary" @click="revokeOne(row)">失效</t-link>
+      <t-link v-if="!isMobile" v-permission="'security:session:manage'" theme="primary" @click="revokeOne(row)">失效</t-link>
       <MobileAction
         v-else
         :options="[{ content: '失效', value: 'revoke' }]"
@@ -100,13 +108,25 @@ import {
 import MobileAction from '@/components/mobile-action/index.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import SecurityListPage from '../SecurityListPage.vue'
-import { formatSecurityTime, securityRiskTagTheme, securityStatusTagTheme } from '../shared'
+import {
+  RISK_FLAG_LABEL,
+  RISK_FLAG_OPTIONS,
+  SESSION_PLATFORM_LABEL,
+  SESSION_PLATFORM_OPTIONS,
+  SESSION_STATUS_LABEL,
+  SESSION_STATUS_OPTIONS,
+  applyDateRange,
+  formatSecurityTime,
+  securityRiskTagTheme,
+  securityStatusTagTheme,
+} from '../shared'
 
 defineOptions({ name: 'UserSecuritySessions' })
 
 const loading = ref(false)
 const errorMessage = ref('')
 const tableData = ref<SessionInfo[]>([])
+const dateRange = ref<string[]>([])
 
 const filters = reactive<SessionListQuery>({
   page: 1,
@@ -126,35 +146,6 @@ const pagination = reactive({
   showPageSize: true,
   pageSizeOptions: [10, 20, 50],
 })
-
-const statusOptions = [
-  { label: '在线', value: 'online' },
-  { label: '已失效', value: 'revoked' },
-  { label: '过期', value: 'expired' },
-]
-
-const platformOptions = [
-  { label: '后台', value: 'admin' },
-  { label: '前台', value: 'user' },
-]
-
-const riskOptions = [
-  { label: '低风险', value: 'low' },
-  { label: '高风险', value: 'high' },
-  { label: '严重风险', value: 'critical' },
-]
-
-const statusLabel: Record<string, string> = {
-  online: '在线',
-  revoked: '已失效',
-  expired: '过期',
-}
-
-const riskLabel: Record<string, string> = {
-  low: '低风险',
-  high: '高风险',
-  critical: '严重风险',
-}
 
 const { isMobile } = useIsMobile()
 
@@ -190,6 +181,10 @@ async function loadData() {
   }
 }
 
+function handleDateChange(value: unknown) {
+  applyDateRange(filters, value)
+}
+
 function handleSearch() {
   pagination.current = 1
   void loadData()
@@ -201,6 +196,9 @@ function handleReset() {
   filters.platform = ''
   filters.ip = ''
   filters.risk_flag = ''
+  filters.start_time = undefined
+  filters.end_time = undefined
+  dateRange.value = []
   pagination.current = 1
   pagination.pageSize = 10
   void loadData()
@@ -218,7 +216,8 @@ async function revokeOne(row: SessionInfo) {
 }
 
 async function batchRevoke() {
-  const ids = tableData.value.filter((item) => item.status === 'online').slice(0, 3).map((item) => item.id)
+  // 只挑仍在线的会话（库里 active 才是有效会话，online 是旧前端编的值）。
+  const ids = tableData.value.filter((item) => item.status === 'active').slice(0, 3).map((item) => item.id)
   if (!ids.length) return
   await batchRevokeSessions({ ids })
   await loadData()

@@ -13,29 +13,35 @@ import (
 	"hostsent/backend/internal/modules/admin/user/security/repository"
 )
 
+// SecurityService 安全与风控管理服务。
+//
+// 所有写操作都要求调用方显式传入 operatorID（管理端操作人 ID），而不是在服务内部
+// 取一个常量。此前这里硬编码 1，导致封禁、踢会话、处置风险事件全部记在 admin 名下，
+// 审计链路形同虚设（doc104 F5）。
 type SecurityService interface {
 	ListLoginLogs(ctx context.Context, query dto.LoginLogListQuery) (*dto.ListResponse[dto.LoginLogInfo], error)
 	GetLoginLog(ctx context.Context, id uint64) (*dto.LoginLogInfo, error)
+	ExportLoginLogs(ctx context.Context, query dto.LoginLogListQuery) ([]dto.LoginLogInfo, error)
 	ListAuditLogs(ctx context.Context, query dto.AuditLogListQuery) (*dto.ListResponse[dto.AuditLogInfo], error)
 	GetAuditLog(ctx context.Context, id uint64) (*dto.AuditLogInfo, error)
 	ListRiskEvents(ctx context.Context, query dto.RiskEventListQuery) (*dto.ListResponse[dto.RiskEventInfo], error)
 	GetRiskEvent(ctx context.Context, id uint64) (*dto.RiskEventInfo, error)
-	IgnoreRiskEvent(ctx context.Context, id uint64, req dto.RiskEventHandleRequest) (*dto.RiskEventInfo, error)
-	HandleRiskEvent(ctx context.Context, id uint64, req dto.RiskEventHandleRequest) (*dto.RiskEventInfo, error)
-	CreateBlacklistFromRisk(ctx context.Context, id uint64, req dto.RiskEventHandleRequest) (*dto.BlacklistInfo, error)
-	RevokeSessionsFromRisk(ctx context.Context, id uint64, req dto.RiskEventHandleRequest) (*dto.ListResponse[dto.SessionInfo], error)
+	IgnoreRiskEvent(ctx context.Context, id uint64, req dto.RiskEventHandleRequest, operatorID uint64) (*dto.RiskEventInfo, error)
+	HandleRiskEvent(ctx context.Context, id uint64, req dto.RiskEventHandleRequest, operatorID uint64) (*dto.RiskEventInfo, error)
+	CreateBlacklistFromRisk(ctx context.Context, id uint64, req dto.RiskEventHandleRequest, operatorID uint64) (*dto.BlacklistInfo, error)
+	RevokeSessionsFromRisk(ctx context.Context, id uint64, req dto.RiskEventHandleRequest, operatorID uint64) (*dto.ListResponse[dto.SessionInfo], error)
 	ListBlacklists(ctx context.Context, query dto.BlacklistListQuery) (*dto.ListResponse[dto.BlacklistInfo], error)
-	CreateBlacklist(ctx context.Context, req dto.BlacklistCreateRequest) (*dto.BlacklistInfo, error)
+	CreateBlacklist(ctx context.Context, req dto.BlacklistCreateRequest, operatorID uint64) (*dto.BlacklistInfo, error)
 	GetBlacklist(ctx context.Context, id uint64) (*dto.BlacklistInfo, error)
-	UpdateBlacklist(ctx context.Context, id uint64, req dto.BlacklistUpdateRequest) (*dto.BlacklistInfo, error)
-	UpdateBlacklistStatus(ctx context.Context, id uint64, req dto.BlacklistStatusRequest) (*dto.BlacklistInfo, error)
-	ReleaseBlacklist(ctx context.Context, id uint64) (*dto.BlacklistInfo, error)
-	ListBlacklistHits(ctx context.Context, id uint64) (*dto.ListResponse[dto.LoginLogInfo], error)
+	UpdateBlacklist(ctx context.Context, id uint64, req dto.BlacklistUpdateRequest, operatorID uint64) (*dto.BlacklistInfo, error)
+	UpdateBlacklistStatus(ctx context.Context, id uint64, req dto.BlacklistStatusRequest, operatorID uint64) (*dto.BlacklistInfo, error)
+	ReleaseBlacklist(ctx context.Context, id uint64, operatorID uint64) (*dto.BlacklistInfo, error)
+	ListBlacklistHits(ctx context.Context, id uint64, query dto.BlacklistHitListQuery) (*dto.ListResponse[dto.LoginLogInfo], error)
 	ListSessions(ctx context.Context, query dto.SessionListQuery) (*dto.ListResponse[dto.SessionInfo], error)
 	GetSession(ctx context.Context, id uint64) (*dto.SessionInfo, error)
-	RevokeSession(ctx context.Context, id uint64, req dto.SessionRevokeRequest) (*dto.SessionInfo, error)
-	BatchRevokeSessions(ctx context.Context, req dto.SessionBatchRevokeRequest) (*dto.ListResponse[dto.SessionInfo], error)
-	RevokeUserAllSessions(ctx context.Context, req dto.SessionRevokeUserAllRequest) (*dto.ListResponse[dto.SessionInfo], error)
+	RevokeSession(ctx context.Context, id uint64, req dto.SessionRevokeRequest, operatorID uint64) (*dto.SessionInfo, error)
+	BatchRevokeSessions(ctx context.Context, req dto.SessionBatchRevokeRequest, operatorID uint64) (*dto.ListResponse[dto.SessionInfo], error)
+	RevokeUserAllSessions(ctx context.Context, req dto.SessionRevokeUserAllRequest, operatorID uint64) (*dto.ListResponse[dto.SessionInfo], error)
 }
 
 type securityService struct {
@@ -65,6 +71,23 @@ func (s *securityService) GetLoginLog(ctx context.Context, id uint64) (*dto.Logi
 	}
 	result := toLoginLogInfo(*item)
 	return &result, nil
+}
+
+// ExportLoginLogs 导出登录日志（与审计日志导出口径一致：按筛选条件取前 N 条）。
+//
+// 导出走与列表相同的仓储查询，因此「界面上筛出来的」与「导出的」必然一致——
+// 旧实现返回一个常量字符串，导出的其实是一句作业名，用户拿到手里是个空文件。
+func (s *securityService) ExportLoginLogs(ctx context.Context, query dto.LoginLogListQuery) ([]dto.LoginLogInfo, error) {
+	// 上限 1000 条：与审计日志导出一致，避免一次拉爆内存。
+	if query.PageSize <= 0 || query.PageSize > 1000 {
+		query.PageSize = 1000
+	}
+	query.Page = 1
+	resp, err := s.ListLoginLogs(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Items, nil
 }
 
 func (s *securityService) ListAuditLogs(ctx context.Context, query dto.AuditLogListQuery) (*dto.ListResponse[dto.AuditLogInfo], error) {
@@ -109,15 +132,15 @@ func (s *securityService) GetRiskEvent(ctx context.Context, id uint64) (*dto.Ris
 	return &result, nil
 }
 
-func (s *securityService) IgnoreRiskEvent(ctx context.Context, id uint64, req dto.RiskEventHandleRequest) (*dto.RiskEventInfo, error) {
-	return s.updateRiskEventStatus(ctx, id, "ignored", req.Note)
+func (s *securityService) IgnoreRiskEvent(ctx context.Context, id uint64, req dto.RiskEventHandleRequest, operatorID uint64) (*dto.RiskEventInfo, error) {
+	return s.updateRiskEventStatus(ctx, id, "ignored", req.Note, operatorID)
 }
 
-func (s *securityService) HandleRiskEvent(ctx context.Context, id uint64, req dto.RiskEventHandleRequest) (*dto.RiskEventInfo, error) {
-	return s.updateRiskEventStatus(ctx, id, "handled", req.Note)
+func (s *securityService) HandleRiskEvent(ctx context.Context, id uint64, req dto.RiskEventHandleRequest, operatorID uint64) (*dto.RiskEventInfo, error) {
+	return s.updateRiskEventStatus(ctx, id, "handled", req.Note, operatorID)
 }
 
-func (s *securityService) CreateBlacklistFromRisk(ctx context.Context, id uint64, req dto.RiskEventHandleRequest) (*dto.BlacklistInfo, error) {
+func (s *securityService) CreateBlacklistFromRisk(ctx context.Context, id uint64, req dto.RiskEventHandleRequest, operatorID uint64) (*dto.BlacklistInfo, error) {
 	event, err := s.repo.GetRiskEvent(ctx, id)
 	if err != nil {
 		return nil, notFoundMessage(err, "风险事件不存在")
@@ -127,11 +150,11 @@ func (s *securityService) CreateBlacklistFromRisk(ctx context.Context, id uint64
 		Type:        firstNonEmpty(detectBlacklistType(event), "ip"),
 		TargetValue: firstNonEmpty(event.IP, event.Username, event.DeviceFingerprint),
 		Status:      "active",
-		Source:      "system",
+		Source:      "risk_event",
 		Reason:      firstNonEmpty(req.Note, event.Summary, "由风险事件自动拉黑"),
 		EffectiveAt: now,
-		CreatedBy:   1,
-		UpdatedBy:   1,
+		CreatedBy:   operatorID,
+		UpdatedBy:   operatorID,
 	}
 	if err := s.repo.CreateBlacklist(ctx, item); err != nil {
 		return nil, err
@@ -140,7 +163,7 @@ func (s *securityService) CreateBlacklistFromRisk(ctx context.Context, id uint64
 	return &result, nil
 }
 
-func (s *securityService) RevokeSessionsFromRisk(ctx context.Context, id uint64, req dto.RiskEventHandleRequest) (*dto.ListResponse[dto.SessionInfo], error) {
+func (s *securityService) RevokeSessionsFromRisk(ctx context.Context, id uint64, req dto.RiskEventHandleRequest, operatorID uint64) (*dto.ListResponse[dto.SessionInfo], error) {
 	event, err := s.repo.GetRiskEvent(ctx, id)
 	if err != nil {
 		return nil, notFoundMessage(err, "风险事件不存在")
@@ -153,7 +176,7 @@ func (s *securityService) RevokeSessionsFromRisk(ctx context.Context, id uint64,
 	for i := range sessions {
 		sessions[i].Status = "revoked"
 		sessions[i].RevokedReason = firstNonEmpty(req.Note, fmt.Sprintf("风险事件 #%d 处置", id))
-		revokedBy := uint64(1)
+		revokedBy := operatorID
 		now := time.Now()
 		sessions[i].RevokedBy = &revokedBy
 		sessions[i].RevokedAt = &now
@@ -177,7 +200,7 @@ func (s *securityService) ListBlacklists(ctx context.Context, query dto.Blacklis
 	return newListResponse(result, query.Page, query.PageSize, total), nil
 }
 
-func (s *securityService) CreateBlacklist(ctx context.Context, req dto.BlacklistCreateRequest) (*dto.BlacklistInfo, error) {
+func (s *securityService) CreateBlacklist(ctx context.Context, req dto.BlacklistCreateRequest, operatorID uint64) (*dto.BlacklistInfo, error) {
 	now := time.Now()
 	expiredAt, err := parseOptionalTime(req.ExpiredAt)
 	if err != nil {
@@ -191,8 +214,8 @@ func (s *securityService) CreateBlacklist(ctx context.Context, req dto.Blacklist
 		Reason:      req.Reason,
 		EffectiveAt: now,
 		ExpiredAt:   expiredAt,
-		CreatedBy:   1,
-		UpdatedBy:   1,
+		CreatedBy:   operatorID,
+		UpdatedBy:   operatorID,
 	}
 	if err := s.repo.CreateBlacklist(ctx, item); err != nil {
 		return nil, err
@@ -210,7 +233,7 @@ func (s *securityService) GetBlacklist(ctx context.Context, id uint64) (*dto.Bla
 	return &result, nil
 }
 
-func (s *securityService) UpdateBlacklist(ctx context.Context, id uint64, req dto.BlacklistUpdateRequest) (*dto.BlacklistInfo, error) {
+func (s *securityService) UpdateBlacklist(ctx context.Context, id uint64, req dto.BlacklistUpdateRequest, operatorID uint64) (*dto.BlacklistInfo, error) {
 	item, err := s.repo.GetBlacklist(ctx, id)
 	if err != nil {
 		return nil, notFoundMessage(err, "黑名单不存在")
@@ -228,7 +251,7 @@ func (s *securityService) UpdateBlacklist(ctx context.Context, id uint64, req dt
 		}
 		item.ExpiredAt = expiredAt
 	}
-	item.UpdatedBy = 1
+	item.UpdatedBy = operatorID
 	item.UpdatedAt = time.Now()
 	if err := s.repo.UpdateBlacklist(ctx, item); err != nil {
 		return nil, err
@@ -237,16 +260,21 @@ func (s *securityService) UpdateBlacklist(ctx context.Context, id uint64, req dt
 	return &result, nil
 }
 
-func (s *securityService) UpdateBlacklistStatus(ctx context.Context, id uint64, req dto.BlacklistStatusRequest) (*dto.BlacklistInfo, error) {
-	return s.UpdateBlacklist(ctx, id, dto.BlacklistUpdateRequest{Status: req.Status})
+func (s *securityService) UpdateBlacklistStatus(ctx context.Context, id uint64, req dto.BlacklistStatusRequest, operatorID uint64) (*dto.BlacklistInfo, error) {
+	return s.UpdateBlacklist(ctx, id, dto.BlacklistUpdateRequest{Status: req.Status}, operatorID)
 }
 
-func (s *securityService) ReleaseBlacklist(ctx context.Context, id uint64) (*dto.BlacklistInfo, error) {
-	return s.UpdateBlacklist(ctx, id, dto.BlacklistUpdateRequest{Status: "inactive", Reason: "人工解除"})
+func (s *securityService) ReleaseBlacklist(ctx context.Context, id uint64, operatorID uint64) (*dto.BlacklistInfo, error) {
+	return s.UpdateBlacklist(ctx, id, dto.BlacklistUpdateRequest{Status: "inactive", Reason: "人工解除"}, operatorID)
 }
 
-func (s *securityService) ListBlacklistHits(ctx context.Context, id uint64) (*dto.ListResponse[dto.LoginLogInfo], error) {
-	items, total, err := s.repo.ListBlacklistHits(ctx, id)
+// ListBlacklistHits 黑名单命中记录。
+//
+// 命中 = 登录日志里与该黑名单 target 对得上的行。关联键必须按黑名单类型走：
+// 拿黑名单行的 ID 去比 login_logs.user_id（旧实现）永远匹配不到任何东西，
+// 页面上因此恒为空。
+func (s *securityService) ListBlacklistHits(ctx context.Context, id uint64, query dto.BlacklistHitListQuery) (*dto.ListResponse[dto.LoginLogInfo], error) {
+	items, total, err := s.repo.ListBlacklistHits(ctx, id, query)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +282,7 @@ func (s *securityService) ListBlacklistHits(ctx context.Context, id uint64) (*dt
 	for _, item := range items {
 		result = append(result, toLoginLogInfo(item))
 	}
-	return newListResponse(result, 1, 10, total), nil
+	return newListResponse(result, query.Page, query.PageSize, total), nil
 }
 
 func (s *securityService) ListSessions(ctx context.Context, query dto.SessionListQuery) (*dto.ListResponse[dto.SessionInfo], error) {
@@ -278,13 +306,13 @@ func (s *securityService) GetSession(ctx context.Context, id uint64) (*dto.Sessi
 	return &result, nil
 }
 
-func (s *securityService) RevokeSession(ctx context.Context, id uint64, req dto.SessionRevokeRequest) (*dto.SessionInfo, error) {
+func (s *securityService) RevokeSession(ctx context.Context, id uint64, req dto.SessionRevokeRequest, operatorID uint64) (*dto.SessionInfo, error) {
 	item, err := s.repo.GetSession(ctx, id)
 	if err != nil {
 		return nil, notFoundMessage(err, "会话不存在")
 	}
 	now := time.Now()
-	revokedBy := uint64(1)
+	revokedBy := operatorID
 	item.Status = "revoked"
 	item.RevokedReason = firstNonEmpty(req.Reason, "管理员强制下线")
 	item.RevokedBy = &revokedBy
@@ -297,8 +325,8 @@ func (s *securityService) RevokeSession(ctx context.Context, id uint64, req dto.
 	return &result, nil
 }
 
-func (s *securityService) BatchRevokeSessions(ctx context.Context, req dto.SessionBatchRevokeRequest) (*dto.ListResponse[dto.SessionInfo], error) {
-	items, err := s.repo.BatchRevokeSessions(ctx, req.IDs, firstNonEmpty(req.Reason, "批量失效"), 1)
+func (s *securityService) BatchRevokeSessions(ctx context.Context, req dto.SessionBatchRevokeRequest, operatorID uint64) (*dto.ListResponse[dto.SessionInfo], error) {
+	items, err := s.repo.BatchRevokeSessions(ctx, req.IDs, firstNonEmpty(req.Reason, "批量失效"), operatorID)
 	if err != nil {
 		return nil, err
 	}
@@ -309,8 +337,8 @@ func (s *securityService) BatchRevokeSessions(ctx context.Context, req dto.Sessi
 	return newListResponse(result, 1, len(result), int64(len(result))), nil
 }
 
-func (s *securityService) RevokeUserAllSessions(ctx context.Context, req dto.SessionRevokeUserAllRequest) (*dto.ListResponse[dto.SessionInfo], error) {
-	items, err := s.repo.RevokeUserAllSessions(ctx, req.UserID, firstNonEmpty(req.Reason, "仅保留当前会话"), 1)
+func (s *securityService) RevokeUserAllSessions(ctx context.Context, req dto.SessionRevokeUserAllRequest, operatorID uint64) (*dto.ListResponse[dto.SessionInfo], error) {
+	items, err := s.repo.RevokeUserAllSessions(ctx, req.UserID, firstNonEmpty(req.Reason, "仅保留当前会话"), operatorID)
 	if err != nil {
 		return nil, err
 	}
@@ -321,13 +349,13 @@ func (s *securityService) RevokeUserAllSessions(ctx context.Context, req dto.Ses
 	return newListResponse(result, 1, len(result), int64(len(result))), nil
 }
 
-func (s *securityService) updateRiskEventStatus(ctx context.Context, id uint64, status string, note string) (*dto.RiskEventInfo, error) {
+func (s *securityService) updateRiskEventStatus(ctx context.Context, id uint64, status string, note string, operatorID uint64) (*dto.RiskEventInfo, error) {
 	item, err := s.repo.GetRiskEvent(ctx, id)
 	if err != nil {
 		return nil, notFoundMessage(err, "风险事件不存在")
 	}
 	now := time.Now()
-	handledBy := uint64(1)
+	handledBy := operatorID
 	item.Status = status
 	item.HandleNote = note
 	item.HandledBy = &handledBy

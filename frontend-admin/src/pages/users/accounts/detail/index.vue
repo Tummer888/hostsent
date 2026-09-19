@@ -73,7 +73,7 @@
         >
           创建订单
         </t-button>
-        <t-dropdown :options="moreActions" trigger="click" @click="onMoreAction">
+        <t-dropdown v-if="moreActions.length" :options="moreActions" trigger="click" @click="onMoreAction">
           <t-button variant="outline" :disabled="!profile">
             更多
             <template #suffix><ChevronDownIcon aria-hidden="true" /></template>
@@ -227,6 +227,7 @@ import {
 import { getUserDetailAggregate, updateUserStatus, type UserDetailSummary, type UserInfo, type UserRoleBrief } from '@/api/user'
 import { formatAmount, userStatusLabel, userStatusTheme, userTierLabel, userTierTheme } from '@/pages/users/constants'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { useUserStore } from '@/store'
 
 import ProfilePanel from './components/ProfilePanel.vue'
 import AssetsPanel from './components/AssetsPanel.vue'
@@ -293,11 +294,16 @@ const orderVisible = ref(false)
 const rolesVisible = ref(false)
 const salesVisible = ref(false)
 
-const moreActions = [
-  { content: '重置密码', value: 'reset' },
-  { content: '分配后台角色', value: 'roles' },
-  { content: '归属销售', value: 'sales' },
-]
+// 更多操作按权限裁剪（doc104 §3.3 F18）：此前三项对所有能进详情页的角色可见，
+// 点开弹窗后才在提交时吃 403。权限码与后端路由逐一对应。
+const userStore = useUserStore()
+const moreActions = computed(() => {
+  const items: { content: string; value: string }[] = []
+  if (userStore.hasPermission('user:reset_password')) items.push({ content: '重置密码', value: 'reset' })
+  if (userStore.hasPermission('user:assign_role')) items.push({ content: '分配后台角色', value: 'roles' })
+  if (userStore.hasPermission('sales:customer:assign')) items.push({ content: '归属销售', value: 'sales' })
+  return items
+})
 
 function onMoreAction(data: { value: string | number }) {
   switch (data.value) {
