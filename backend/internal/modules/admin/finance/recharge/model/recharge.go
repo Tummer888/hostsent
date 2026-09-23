@@ -10,6 +10,13 @@ const (
 	RechargeStatusFailed  string = "failed"  // 失败
 )
 
+// 充值方式。manual 为线下/人工（管理端代充值、财务登记）。
+const (
+	RechargeMethodAlipay string = "alipay"
+	RechargeMethodWechat string = "wechat"
+	RechargeMethodManual string = "manual"
+)
+
 // Recharge 充值单。
 type Recharge struct {
 	ID         uint64  `gorm:"primaryKey;autoIncrement"`

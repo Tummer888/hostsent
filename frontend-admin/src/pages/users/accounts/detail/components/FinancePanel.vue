@@ -116,6 +116,10 @@
           <template #total_amount="{ row }">
             <span class="cell-muted">¥{{ formatAmount(row.total_amount) }}</span>
           </template>
+          <template #recharge_amount="{ row }">
+            <span v-if="row.recharge_amount > 0" class="cell-muted">¥{{ formatAmount(row.recharge_amount) }}</span>
+            <span v-else class="cell-muted">—</span>
+          </template>
           <template #status="{ row }">
             <t-tag :theme="billStatusTheme(row.status)" variant="light" size="small" shape="round">
               {{ billStatusLabel(row.status) }}
@@ -328,6 +332,7 @@ const billColumns: PrimaryTableCol<BillInfo>[] = [
   { colKey: 'period', title: '账期', width: 100 },
   { colKey: 'bill_type', title: '类型', width: 110 },
   { colKey: 'total_amount', title: '金额', width: 110 },
+  { colKey: 'recharge_amount', title: '充值', width: 100 },
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'invoice_status', title: '开票', width: 100 },
   { colKey: 'op', title: '操作', width: 90, fixed: 'right' },

@@ -45,7 +45,7 @@ type UserService interface {
 	// 让代登录在安全页留下可审计的痕迹（doc104 F15 的同口径延伸）。
 	Impersonate(ctx context.Context, req ImpersonateRequest) (*dto.ImpersonateResponse, error)
 	// Recharge 用户充值（人工调账）
-	Recharge(ctx context.Context, id uint64, amount float64, remark string, operatorID uint64) error
+	Recharge(ctx context.Context, id uint64, amount float64, remark string, operatorID uint64) (*RechargeResult, error)
 	// ListMembers 查询某主账号名下的成员（子账号）及权限（P4-10）
 	ListMembers(ctx context.Context, ownerID uint64) (*dto.SubAccountMemberListResponse, error)
 	// SetDefaultGroupProvider 注入默认用户组解析能力（可选，装配层调用）。
@@ -56,8 +56,22 @@ type UserService interface {
 	SetLogger(logger *zap.Logger)
 }
 
-// Recharger 充值能力适配器（由装配层注入，内部调用财务钱包调账）。
-type Recharger func(ctx context.Context, userID uint64, amount float64, remark string, operatorID uint64) error
+// Recharger 充值能力适配器（由装配层注入）。
+//
+// 正数走充值单链路（登记 + 到账 + 归集当期账单），负数走人工调账扣减；
+// 由装配层按符号分流 —— 用户模块不该知道充值单与账单的存在。
+type Recharger func(ctx context.Context, userID uint64, amount float64, remark string, operatorID uint64) (*RechargeResult, error)
+
+// RechargeResult 一次人工充值/调账产生的可追溯单号。
+//
+// 只回单号不回金额：金额调用方本来就知道，运营需要的是「去财务哪个页面能查到
+// 这一笔」——正数是充值单号（充值管理页），负数是流水号（资金流水页）。
+type RechargeResult struct {
+	// RechargeNo 充值单号（正数充值时有值）。
+	RechargeNo string
+	// TxNo 资金流水号（扣减调账时有值）。
+	TxNo string
+}
 
 // DefaultGroupProvider 提供默认用户组 ID（由用户组服务实现，装配层注入）；
 // 返回 0 表示未配置默认组，此时新用户保持未分组。
@@ -600,15 +614,17 @@ func (s *userService) ActivityOverview(ctx context.Context, limit, windowHours i
 // ErrInvalidAdjustAmount 调账金额为 0：既不是充值也不是扣减，视为误操作。
 var ErrInvalidAdjustAmount = errors.New("调账金额不能为 0")
 
-// Recharge 用户钱包人工调账，委托给注入的 Recharger。
-// 金额为正表示入账，为负表示扣减 —— 详情页的「调整余额」需要双向能力，
-// 原先固定 direction=1，扣减只能靠负数的语义歧义绕过去。
-func (s *userService) Recharge(ctx context.Context, id uint64, amount float64, remark string, operatorID uint64) error {
+// Recharge 用户钱包人工充值 / 调账，委托给注入的 Recharger。
+//
+// 金额为正表示充值（会生成充值单并归集当期账单），为负表示扣减（人工调账）。
+// 详情页的「调整余额」需要双向能力，原先固定 direction=1，扣减只能靠负数的
+// 语义歧义绕过去。
+func (s *userService) Recharge(ctx context.Context, id uint64, amount float64, remark string, operatorID uint64) (*RechargeResult, error) {
 	if amount == 0 {
-		return ErrInvalidAdjustAmount
+		return nil, ErrInvalidAdjustAmount
 	}
 	if s.recharge == nil {
-		return errors.New("充值能力未配置")
+		return nil, errors.New("充值能力未配置")
 	}
 	return s.recharge(ctx, id, amount, remark, operatorID)
 }

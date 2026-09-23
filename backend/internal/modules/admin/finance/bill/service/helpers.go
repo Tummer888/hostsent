@@ -62,6 +62,7 @@ func buildBillInfo(b billmodel.Bill) dto.BillInfo {
 		RenewalAmount:       b.RenewalAmount,
 		ChannelRefundAmount: b.ChannelRefundAmount,
 		RefundFeeAmount:     b.RefundFeeAmount,
+		RechargeAmount:      b.RechargeAmount,
 		NetAmount:           money.Round2(b.TotalAmount - b.RefundFeeAmount),
 		PaidAmount:          float64(b.PaidAmountFen) / 100,
 		PaidMethod:          b.PaidMethod,

@@ -160,6 +160,12 @@ export interface UserRechargeRequest {
   remark?: string
 }
 
+/** 人工充值/调账结果：回可追溯单号（充值回充值单号，扣减回流水号）。 */
+export interface UserRechargeResponse {
+  recharge_no?: string
+  tx_no?: string
+}
+
 /** 用户总览统计响应 */
 export interface UserStatsResponse {
   /** 总用户数 */
@@ -466,8 +472,8 @@ export function impersonateUser(data: AdminImpersonateRequest): Promise<LoginRes
   })
 }
 
-export function rechargeUser(id: string | number, data: UserRechargeRequest): Promise<string> {
-  return request.post<string>({
+export function rechargeUser(id: string | number, data: UserRechargeRequest): Promise<UserRechargeResponse> {
+  return request.post<UserRechargeResponse>({
     url: `/users/${id}/recharge`,
     data,
   })

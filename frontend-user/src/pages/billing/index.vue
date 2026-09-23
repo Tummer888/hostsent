@@ -253,6 +253,12 @@
                 </span>
               </div>
             </template>
+            <template #recharge_amount="{ row }">
+              <div class="cell-main">
+                <span class="num-cell">¥ {{ formatPrice(row.recharge_amount || 0) }}</span>
+                <span class="cell-sub">已充入余额，不计应结</span>
+              </div>
+            </template>
             <template #refund_amount="{ row }">
               <div class="cell-main">
                 <span class="num-cell">¥ {{ formatPrice(row.refund_amount) }}</span>
@@ -488,6 +494,7 @@ const billColumns: PrimaryTableCol<BillInfo>[] = [
   { colKey: 'period', title: '账期', width: 100 },
   { colKey: 'bill_no', title: '账单号 / 分类', minWidth: 190 },
   { colKey: 'total_amount', title: '消费金额', width: 140 },
+  { colKey: 'recharge_amount', title: '充值金额', width: 150 },
   { colKey: 'refund_amount', title: '退款金额', width: 140 },
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'paid_method', title: '支付方式', width: 150 },

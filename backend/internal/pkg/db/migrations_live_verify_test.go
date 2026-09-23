@@ -10,6 +10,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
+	finbillmodel "hostsent/backend/internal/modules/admin/finance/bill/model"
 	discountmodel "hostsent/backend/internal/modules/admin/product/discount/model"
 	referralmodel "hostsent/backend/internal/modules/admin/referral/model"
 	usergroupmodel "hostsent/backend/internal/modules/admin/user/account/model"
@@ -64,6 +65,14 @@ func TestLivePhaseMigrations(t *testing.T) {
 				"referral_withdrawals":  {"id", "withdraw_no", "user_id", "amount", "channel", "account", "status", "audit_by", "audit_by_name", "audited_at", "remark", "created_at", "updated_at"},
 			},
 			indexes: []string{"uk_referral_user", "uk_referral_tx_no", "uk_referral_biz", "uk_referral_wd_no", "uk_users_invite_code", "idx_users_inviter_user_id"},
+		},
+		{
+			// 054 只加一列：账单的「本期充值合计」。充值此前完全没有账单口径，
+			// 这一列是充值侧与账单侧唯一的对接点，模型与 DDL 必须一致。
+			name:    "054_bill_recharge_amount",
+			file:    "../../../migrations/054_bill_recharge_amount.sql",
+			models:  []interface{}{&finbillmodel.Bill{}},
+			columns: map[string][]string{"bills": {"recharge_amount"}},
 		},
 	}
 

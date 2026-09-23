@@ -41,6 +41,8 @@ type BillInfo struct {
 	RenewalAmount       float64 `json:"renewal_amount"`
 	ChannelRefundAmount float64 `json:"channel_refund_amount"`
 	RefundFeeAmount     float64 `json:"refund_fee_amount"`
+	// RechargeAmount 本期充值合计。与应结口径无关（充值不是欠款），仅作展示与对账。
+	RechargeAmount float64 `json:"recharge_amount"`
 	// 扣点后计入口径 = 应结 + 原路退款扣点（供收入统计使用，doc36 §3.2）。
 	NetAmount float64 `json:"net_amount"`
 	// 支付方式描述（doc34 F-11）：结清时记录实收金额、方式与渠道实例。

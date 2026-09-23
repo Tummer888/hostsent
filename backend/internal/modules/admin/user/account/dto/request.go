@@ -158,11 +158,22 @@ type PermissionUpdateRequest struct {
 	Status    string `json:"status" binding:"required"`
 }
 
-// RechargeRequest 用户钱包人工调账请求。
-// Amount 为正表示入账（充值/补偿），为负表示扣减（追回）；0 会被服务拒绝。
+// RechargeRequest 用户钱包人工充值 / 调账请求。
+// Amount 为正表示充值（生成充值单并入账，同时归集当期账单），为负表示扣减（追回）；
+// 0 会被服务拒绝。
 type RechargeRequest struct {
 	Amount float64 `json:"amount" binding:"required"`
 	Remark string  `json:"remark" binding:"max=255"`
+}
+
+// RechargeResponse 人工充值/调账结果：回可追溯单号，运营据此去财务页面核对。
+//
+// 充值回充值单号（财务「充值管理」页可查、用户端「我的充值单」可见），
+// 扣减回资金流水号（「资金流水」页可查）。此前接口固定返回字符串 "ok"，
+// 运营充完钱没有任何可核对的凭据。
+type RechargeResponse struct {
+	RechargeNo string `json:"recharge_no,omitempty"`
+	TxNo       string `json:"tx_no,omitempty"`
 }
 
 // AdminCreateOrderRequest 为指定用户创建订单。

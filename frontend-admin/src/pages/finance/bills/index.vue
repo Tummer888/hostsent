@@ -101,6 +101,10 @@
             <span class="price-sub">
               消费 {{ formatPrice(row.consume_amount) }} · 续费 {{ formatPrice(row.renewal_amount) }}
             </span>
+            <!-- 充值不计入应结：充值是用户把钱打进平台，不是欠款，所以单独一行展示 -->
+            <span v-if="row.recharge_amount > 0" class="price-sub">
+              本期充值 ¥{{ formatPrice(row.recharge_amount) }}
+            </span>
             <!-- 原路退回扣点只在收入统计基数上再扣一次：账单应结与票面仍是 total_amount -->
             <span v-if="row.refund_fee_amount > 0" class="price-sub">
               收入口径 ¥{{ formatPrice(row.net_amount) }}（含扣点 {{ formatPrice(row.refund_fee_amount) }}）

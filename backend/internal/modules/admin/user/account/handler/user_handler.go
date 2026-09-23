@@ -362,11 +362,11 @@ func (h *UserHandler) Impersonate(c *gin.Context) {
 
 // Recharge godoc
 // @Summary 用户充值
-// @Description 给指定用户钱包人工充值（收入）
+// @Description 给指定用户人工充值（正数生成充值单并入账、负数人工扣减）
 // @Tags 用户管理
 // @Param id path int true "用户ID"
 // @Param request body dto.RechargeRequest true "充值参数"
-// @Success 200 {object} dto.APIResponse[string]
+// @Success 200 {object} dto.APIResponse[dto.RechargeResponse]
 // @Router /api/v1/admin/users/{id}/recharge [post]
 func (h *UserHandler) Recharge(c *gin.Context) {
 	id, ok := parseUserID(c)
@@ -382,11 +382,15 @@ func (h *UserHandler) Recharge(c *gin.Context) {
 	if claims, ok := middleware.GetAdminClaims(c); ok {
 		operatorID = claims.AdminID
 	}
-	if err := h.userService.Recharge(c.Request.Context(), id, req.Amount, req.Remark, operatorID); err != nil {
+	result, err := h.userService.Recharge(c.Request.Context(), id, req.Amount, req.Remark, operatorID)
+	if err != nil {
 		respondUserErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": "ok", "timestamp": time.Now().Unix()})
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": dto.RechargeResponse{
+		RechargeNo: result.RechargeNo,
+		TxNo:       result.TxNo,
+	}, "timestamp": time.Now().Unix()})
 }
 
 // CreateOrder godoc

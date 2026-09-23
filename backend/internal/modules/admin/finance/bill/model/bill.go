@@ -15,7 +15,7 @@ const (
 	BillTypeConsumption string = "consumption" // 产品消费
 	BillTypeRenewal     string = "renewal"     // 续费消费
 	BillTypeMixed       string = "mixed"       // 消费 + 续费混合
-	BillTypeRecharge    string = "recharge"    // 充值（预埋：B 端对账口径）
+	BillTypeRecharge    string = "recharge"    // 充值（当期只有充值、无消费/续费）
 )
 
 // Bill 账单：按账期归集消费与退款，形成对账口径。
@@ -27,6 +27,9 @@ const (
 //
 // 余额退回不减少消费口径（资金仍在平台内）；原路退回本金从账单应结金额冲减，
 // 渠道扣点属平台成本不进票面，只在收入统计基数是再扣一次。
+//
+// RechargeAmount 是唯一不参与应结的金额列：充值是用户把钱打进平台，不是欠款，
+// 计进 total_amount 会让应结金额虚高。它只作展示与对账（见 054 迁移）。
 type Bill struct {
 	ID           uint64  `gorm:"primaryKey;autoIncrement"`
 	BillNo       string  `gorm:"column:bill_no;size:64;uniqueIndex;not null"`
@@ -41,6 +44,8 @@ type Bill struct {
 	RenewalAmount       float64 `gorm:"column:renewal_amount;type:decimal(15,2);not null;default:0"`
 	ChannelRefundAmount float64 `gorm:"column:channel_refund_amount;type:decimal(15,2);not null;default:0"`
 	RefundFeeAmount     float64 `gorm:"column:refund_fee_amount;type:decimal(15,2);not null;default:0"`
+	// 本期充值合计（不参与 total_amount 应结口径，见结构体注释与迁移 054）。
+	RechargeAmount float64 `gorm:"column:recharge_amount;type:decimal(15,2);not null;default:0"`
 	// 支付方式描述（doc34 F-11 / doc35）：账单结清时记录实际收款方式与渠道实例。
 	PaidAmountFen int64      `gorm:"column:paid_amount_fen;not null;default:0"`
 	PaidMethod    string     `gorm:"column:paid_method;size:32;not null;default:''"`

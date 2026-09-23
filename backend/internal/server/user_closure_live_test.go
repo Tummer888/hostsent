@@ -334,8 +334,10 @@ func (h *liveHarness) cleanupUser(id uint64) {
 	h.db.Exec("DELETE FROM sales_commission_transactions WHERE customer_user_id = ?", id)
 	for _, table := range []string{
 		"verification_applications", "user_oauth_bindings", "user_sessions", "login_logs",
-		"user_roles", "sub_account_permissions", "wallet_accounts", "user_operation_logs",
+		"user_roles", "sub_account_permissions", "user_operation_logs",
 		"staff_sales_relations", "orders", "payment_orders", "notifications",
+		// 人工充值链路产生的三张表（充值单 / 资金流水 / 账单），一并按 user_id 清。
+		"wallet_transactions", "wallet_accounts", "bills", "recharges",
 	} {
 		h.db.Exec("DELETE FROM "+table+" WHERE user_id = ?", id)
 	}
@@ -1673,6 +1675,149 @@ func TestLiveExpireStaleSessionsRewritesStatus(t *testing.T) {
 	if keptStatus != "revoked" || keptReason != "人工撤销" {
 		t.Errorf("revoked 行被回写覆盖: status=%q reason=%q，期望 revoked/人工撤销", keptStatus, keptReason)
 	}
+}
+
+// TestLiveManualRechargeCreatesBill 覆盖「用户列表 → 人工代充值」的完整落账。
+//
+// 此前这个入口只调钱包人工调账，写一条 type=adjust 的流水就结束：充值单表没有行、
+// 账单里没有充值额，运营在「充值管理」与「账单」两个页面都查不到刚充的钱。
+// 本用例锁死三件事必须同时发生：
+//  1. 生成充值单（success + manual），充值单号回给调用方；
+//  2. 写 type=recharge 的资金流水，ref_no 即充值单号（幂等键一致）；
+//  3. 归集当期账单的 recharge_amount，且**不计入** total_amount 应结。
+//
+// 反向守卫（同一用例内）：负数金额是人工扣减，不该生成充值单。
+func TestLiveManualRechargeCreatesBill(t *testing.T) {
+	h := newLiveHarness(t)
+	admin := h.loginAdmin()
+	id, username := h.registerUser("manualrecharge")
+
+	// 充值前：三张表都该是空的。
+	if n := rechargeRowCount(t, h, id); n != 0 {
+		t.Fatalf("充值前不该有充值单，实际 %d 条", n)
+	}
+
+	status, body := h.do(http.MethodPost, fmt.Sprintf("/api/v1/admin/users/%d/recharge", id), admin,
+		map[string]any{"amount": 120, "remark": "联调用例：人工代充值"})
+	if status != http.StatusOK || digNumber(body, "code") != 0 {
+		t.Fatalf("人工代充值失败: HTTP %d %v", status, body)
+	}
+	rechargeNo := digString(body, "data", "recharge_no")
+	if rechargeNo == "" {
+		t.Fatalf("充值响应必须回充值单号（运营凭此去充值管理页核对），实际 %v", body)
+	}
+
+	// 1. 充值单落库且已到账。
+	var rcMethod, rcStatus, rcRemark string
+	var rcAmount float64
+	h.db.Raw("SELECT method, status, amount, remark FROM recharges WHERE recharge_no = ?", rechargeNo).
+		Row().Scan(&rcMethod, &rcStatus, &rcAmount, &rcRemark)
+	if rcStatus != "success" {
+		t.Errorf("充值单状态 = %q，期望 success（人工代充值应即时到账）", rcStatus)
+	}
+	if rcMethod != "manual" {
+		t.Errorf("充值单方式 = %q，期望 manual（线下款记成线上渠道会污染渠道统计）", rcMethod)
+	}
+	if rcAmount != 120 {
+		t.Errorf("充值单金额 = %v，期望 120", rcAmount)
+	}
+
+	// 2. 资金流水：类型必须是 recharge 而不是 adjust，ref_no 与充值单号一致。
+	var txType, txRefNo string
+	var txAmount float64
+	h.db.Raw("SELECT type, ref_no, amount FROM wallet_transactions WHERE user_id = ? ORDER BY id DESC LIMIT 1", id).
+		Row().Scan(&txType, &txRefNo, &txAmount)
+	if txType != "recharge" {
+		t.Errorf("流水类型 = %q，期望 recharge（走调账会算进 adjust 口径，充值统计失真）", txType)
+	}
+	if txRefNo != rechargeNo {
+		t.Errorf("流水 ref_no = %q，期望与充值单号 %q 一致（幂等键）", txRefNo, rechargeNo)
+	}
+	if txAmount != 120 {
+		t.Errorf("流水金额 = %v，期望 120", txAmount)
+	}
+
+	// 3. 账单：充值额单独成列，不进应结。
+	period := time.Now().Format("200601")
+	var billNo, billType string
+	var billTotal, billRecharge float64
+	h.db.Raw(`SELECT bill_no, bill_type, total_amount, recharge_amount FROM bills
+		WHERE user_id = ? AND period = ?`, id, period).Row().Scan(&billNo, &billType, &billTotal, &billRecharge)
+	if billNo == "" {
+		t.Fatal("人工代充值未生成当期账单（这正是本次修复的核心缺陷）")
+	}
+	if billRecharge != 120 {
+		t.Errorf("账单 recharge_amount = %v，期望 120", billRecharge)
+	}
+	if billTotal != 0 {
+		t.Errorf("账单 total_amount = %v，期望 0：充值是把钱打进平台，不该计入应结", billTotal)
+	}
+	if billType != "recharge" {
+		t.Errorf("账单分类 = %q，期望 recharge（当期只有充值）", billType)
+	}
+
+	// 用户端「我的充值单」必须能看到——这是用户核对充值的唯一入口。
+	userToken := h.loginUser(username, liveUserPassword)
+	if status, body := h.do(http.MethodGet, "/api/v1/uc/finance/recharges", userToken, nil); status != http.StatusOK {
+		t.Fatalf("用户端充值单列表失败: HTTP %d %v", status, body)
+	} else if !containsRechargeNo(body, rechargeNo) {
+		t.Errorf("用户端充值单列表里没有 %s：%v", rechargeNo, body)
+	}
+
+	// 同账期再充 30：账单 upsert 累加，不新增第二张账单。
+	if status, body := h.do(http.MethodPost, fmt.Sprintf("/api/v1/admin/users/%d/recharge", id), admin,
+		map[string]any{"amount": 30}); status != http.StatusOK || digNumber(body, "code") != 0 {
+		t.Fatalf("第二次充值失败: HTTP %d %v", status, body)
+	}
+	var billCount int64
+	h.db.Raw("SELECT COUNT(*) FROM bills WHERE user_id = ? AND period = ?", id, period).Scan(&billCount)
+	if billCount != 1 {
+		t.Errorf("同账期账单数 = %d，期望 1（应按 user_id+period upsert）", billCount)
+	}
+	h.db.Raw("SELECT recharge_amount FROM bills WHERE user_id = ? AND period = ?", id, period).Scan(&billRecharge)
+	if billRecharge != 150 {
+		t.Errorf("累加后 recharge_amount = %v，期望 150", billRecharge)
+	}
+
+	// 反向守卫：负数走人工扣减，不生成充值单。
+	status, body = h.do(http.MethodPost, fmt.Sprintf("/api/v1/admin/users/%d/recharge", id), admin,
+		map[string]any{"amount": -20, "remark": "联调用例：追回"})
+	if status != http.StatusOK || digNumber(body, "code") != 0 {
+		t.Fatalf("人工扣减失败: HTTP %d %v", status, body)
+	}
+	if txNo := digString(body, "data", "tx_no"); txNo == "" {
+		t.Errorf("扣减响应应回流水号，实际 %v", body)
+	}
+	if n := rechargeRowCount(t, h, id); n != 2 {
+		t.Errorf("扣减不该生成充值单，期望仍是 2 条，实际 %d 条", n)
+	}
+	var adjustCount int64
+	h.db.Raw("SELECT COUNT(*) FROM wallet_transactions WHERE user_id = ? AND type = 'adjust' AND direction = -1", id).
+		Scan(&adjustCount)
+	if adjustCount != 1 {
+		t.Errorf("扣减流水数 = %d，期望 1 条 type=adjust 的支出", adjustCount)
+	}
+}
+
+func rechargeRowCount(t *testing.T, h *liveHarness, userID uint64) int64 {
+	t.Helper()
+	var n int64
+	h.db.Raw("SELECT COUNT(*) FROM recharges WHERE user_id = ?", userID).Scan(&n)
+	return n
+}
+
+// containsRechargeNo 判断用户端充值单列表里是否有指定单号。
+func containsRechargeNo(body map[string]any, rechargeNo string) bool {
+	for _, item := range digSlice(body, "data", "items") {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if digString(obj, "recharge_no") == rechargeNo {
+			return true
+		}
+	}
+	return false
 }
 
 // onlineUserPresent 判断某用户是否出现在总览页的在线用户里。

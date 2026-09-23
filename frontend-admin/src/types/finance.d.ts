@@ -173,6 +173,8 @@ export interface BillInfo {
   channel_refund_amount: number
   /** 原路退回渠道扣点（真金流出） */
   refund_fee_amount: number
+  /** 本期充值合计（不参与应结口径，仅展示与对账） */
+  recharge_amount: number
   /** 扣点后计入口径 = 应结 + 原路退款扣点 */
   net_amount: number
   /** 结清时记录的实收金额与支付方式 */

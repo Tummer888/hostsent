@@ -74,6 +74,8 @@ export interface BillInfo {
   renewal_amount?: number
   channel_refund_amount?: number
   refund_fee_amount?: number
+  // 本期充值合计：不参与应结口径（充值不是欠款），仅作展示与对账。
+  recharge_amount?: number
   // 支付方式描述（doc34 F-11）：结清时记录实收金额与所用方式/渠道。
   paid_amount?: number
   paid_method?: string

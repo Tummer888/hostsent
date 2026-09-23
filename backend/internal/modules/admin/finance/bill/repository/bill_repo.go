@@ -50,7 +50,7 @@ func (r *billRepository) Upsert(ctx context.Context, b *model.Bill) error {
 		DoUpdates: clause.AssignmentColumns([]string{
 			"total_amount", "refund_amount", "detail",
 			"bill_type", "consume_amount", "renewal_amount",
-			"channel_refund_amount", "refund_fee_amount", "updated_at",
+			"channel_refund_amount", "refund_fee_amount", "recharge_amount", "updated_at",
 		}),
 	}).Create(b).Error
 }

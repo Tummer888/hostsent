@@ -478,7 +478,7 @@
 
     <t-dialog
       v-model:visible="rechargeVisible"
-      header="用户充值"
+      header="人工代充值"
       width="460px"
       :confirm-btn="{ content: '确认充值', theme: 'primary', loading: rechargeSubmitting }"
       :cancel-btn="{ content: '取消' }"
@@ -495,6 +495,10 @@
         <t-form-item label="备注" name="remark">
           <t-textarea v-model="rechargeForm.remark" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="选填，记录本次充值说明" />
         </t-form-item>
+        <p class="form-hint">
+          确认后立即到账：生成充值单（财务「充值管理」可查、用户端「我的充值单」可见），
+          写入资金流水，并归集该用户当期账单的充值额。此操作不可撤销。
+        </p>
       </t-form>
     </t-dialog>
 
@@ -1758,11 +1762,13 @@ async function handleRechargeConfirm() {
   }
   rechargeSubmitting.value = true
   try {
-    await rechargeUser(rechargeForm.user_id, {
+    const result = await rechargeUser(rechargeForm.user_id, {
       amount: rechargeForm.amount,
       remark: rechargeForm.remark || undefined,
     })
-    MessagePlugin.success('充值成功')
+    // 带上充值单号：运营充完钱需要凭单号去「充值管理」核对，只提示「充值成功」
+    // 等于让人凭时间戳去列表里翻。
+    MessagePlugin.success(result?.recharge_no ? `充值成功，充值单号 ${result.recharge_no}` : '充值成功')
     rechargeVisible.value = false
     await loadUsers()
   } catch (error) {
@@ -2570,5 +2576,12 @@ onBeforeUnmount(() => {
 .status-radio-group :deep(.t-radio-button) {
   min-width: 96px;
   text-align: center;
+}
+
+.form-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-muted-foreground);
 }
 </style>

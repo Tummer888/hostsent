@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	accountservice "hostsent/backend/internal/modules/admin/finance/account/service"
@@ -18,6 +19,10 @@ import (
 // RechargeService 充值到账能力。
 type RechargeService interface {
 	Create(ctx context.Context, req dto.RechargeCreateRequest, operatorID uint64) (*dto.RechargeInfo, error)
+	// CreateAndApprove 登记并立即确认到账（管理端「用户列表 → 充值」用）。
+	// 与 Create + Approve 两次调用等价，但只暴露一个入口：调用方拿不到中间态，
+	// 也就不会出现「登记成功、确认失败」后只剩一张 pending 单而无人察觉。
+	CreateAndApprove(ctx context.Context, req dto.RechargeCreateRequest, operatorID uint64) (*dto.RechargeInfo, error)
 	Approve(ctx context.Context, id uint64, req dto.RechargeApproveRequest, operatorID uint64) (*dto.RechargeInfo, error)
 	ApproveByNo(ctx context.Context, rechargeNo string, req dto.RechargeApproveRequest, operatorID uint64) (*dto.RechargeInfo, error)
 	// BindPaymentOrder 绑定支付单（在线充值走支付中心时登记，不改变状态）。
@@ -25,16 +30,39 @@ type RechargeService interface {
 	// FindByNo 按充值单号读取（支付成功事件回查用）。
 	FindByNo(ctx context.Context, rechargeNo string) (*dto.RechargeInfo, error)
 	List(ctx context.Context, q dto.RechargeListQuery) (*dto.RechargeListResponse, error)
+	// SetBillGenerator 注入账单归集能力（装配层调用，见 BillGenerator）。
+	SetBillGenerator(gen BillGenerator)
+	// SetLogger 注入日志器（可选）；未注入时账单归集失败只静默忽略。
+	SetLogger(logger *zap.Logger)
 }
+
+// BillGenerator 充值到账后归集当期账单（由装配层注入账单服务实现）。
+//
+// 为什么抽成端口而不是直接 import 账单服务：充值只该知道「这笔钱到账了，
+// 去把当期账归集一下」，不该知道账单怎么算。装配层知道两边，模块之间不必知道
+// —— 与 bill.ChannelRefundReader 同一形态。
+type BillGenerator func(ctx context.Context, userID uint64, period string) error
 
 type rechargeService struct {
 	rechargeRepo repository.RechargeRepository
 	wallet       accountservice.WalletService
+	billGen      BillGenerator
+	logger       *zap.Logger
 }
 
 // NewRechargeService 创建充值服务。
 func NewRechargeService(rechargeRepo repository.RechargeRepository, wallet accountservice.WalletService) RechargeService {
 	return &rechargeService{rechargeRepo: rechargeRepo, wallet: wallet}
+}
+
+// SetBillGenerator 注入账单归集能力（装配层调用）。
+func (s *rechargeService) SetBillGenerator(gen BillGenerator) {
+	s.billGen = gen
+}
+
+// SetLogger 注入日志器（可选，装配层调用）。
+func (s *rechargeService) SetLogger(logger *zap.Logger) {
+	s.logger = logger
 }
 
 // Create 线下充值登记（状态 pending，需人工确认到账）。
@@ -54,6 +82,23 @@ func (s *rechargeService) Create(ctx context.Context, req dto.RechargeCreateRequ
 		return nil, err
 	}
 	return s.rechargeInfo(ctx, rc.ID)
+}
+
+// CreateAndApprove 登记并立即确认到账：管理端人工代充值的入口。
+//
+// 方法固定 manual：管理端当场收到的就是线下款（现金/转账），method 记成
+// alipay/wechat 会让「充值管理」按渠道统计时把线下款算进线上渠道。
+func (s *rechargeService) CreateAndApprove(ctx context.Context, req dto.RechargeCreateRequest, operatorID uint64) (*dto.RechargeInfo, error) {
+	if req.Method == "" {
+		req.Method = model.RechargeMethodManual
+	}
+	created, err := s.Create(ctx, req, operatorID)
+	if err != nil {
+		return nil, err
+	}
+	return s.Approve(ctx, created.ID, dto.RechargeApproveRequest{
+		Remark: req.Remark,
+	}, operatorID)
 }
 
 // Approve 手工确认到账（幂等）：pending→success 并调用账务核心入账。
@@ -82,6 +127,11 @@ func (s *rechargeService) ApproveByNo(ctx context.Context, rechargeNo string, re
 }
 
 // doApprove 幂等确认充值单到账：pending→success，并调用账务核心入账。
+//
+// 入账成功后归集当期账单：充值额此前只躺在资金流水里，账单侧完全看不到，
+// 运营在「账单」页对不上「充值管理」页的数。归集放在入账之后、且失败只记日志
+// 不回滚 —— 钱已经进了用户余额，把到账改回失败会造成账实不符；
+// 账单是可重算的派生数据，漏了补一次即可（管理端有「生成账单」按钮）。
 func (s *rechargeService) doApprove(ctx context.Context, rc *model.Recharge, req dto.RechargeApproveRequest, operatorID uint64) error {
 	if rc.Status == model.RechargeStatusSuccess {
 		return nil // 幂等：已到账
@@ -100,7 +150,7 @@ func (s *rechargeService) doApprove(ctx context.Context, rc *model.Recharge, req
 		return err
 	}
 	// 调用账务核心入账（幂等键 = 充值单号）
-	_, err := s.wallet.Change(ctx, accountservice.ChangeRequest{
+	if _, err := s.wallet.Change(ctx, accountservice.ChangeRequest{
 		UserID:     rc.UserID,
 		Type:       transmodel.TxTypeRecharge,
 		Direction:  transmodel.DirectionIncome,
@@ -109,8 +159,30 @@ func (s *rechargeService) doApprove(ctx context.Context, rc *model.Recharge, req
 		BizType:    "recharge",
 		Remark:     rc.Remark,
 		OperatorID: operatorID,
-	})
-	return err
+	}); err != nil {
+		return err
+	}
+	s.generateBill(ctx, rc)
+	return nil
+}
+
+// generateBill 归集充值所属账期的账单。
+//
+// 账期按 PaidAt 取（到账时间），而不是 CreatedAt：跨月补确认的充值单
+// （上月登记、本月到账）若按登记时间归集，钱会落在已经关账的账期里，
+// 用户当期账单反而看不到这笔充值。
+func (s *rechargeService) generateBill(ctx context.Context, rc *model.Recharge) {
+	if s.billGen == nil || rc.PaidAt == nil {
+		return
+	}
+	period := rc.PaidAt.Format("200601")
+	if err := s.billGen(ctx, rc.UserID, period); err != nil && s.logger != nil {
+		s.logger.Warn("recharge: generate bill after approve failed",
+			zap.Uint64("user_id", rc.UserID),
+			zap.String("recharge_no", rc.RechargeNo),
+			zap.String("period", period),
+			zap.Error(err))
+	}
 }
 
 // BindPaymentOrder 绑定支付单：在线充值下单后登记支付单 ID 与渠道编码，状态仍为 pending，

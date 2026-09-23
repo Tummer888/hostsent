@@ -21,7 +21,9 @@ import (
 	finbillhandler "hostsent/backend/internal/modules/admin/finance/bill/handler"
 	finbillrepo "hostsent/backend/internal/modules/admin/finance/bill/repository"
 	finbillservice "hostsent/backend/internal/modules/admin/finance/bill/service"
+	finrechargedto "hostsent/backend/internal/modules/admin/finance/recharge/dto"
 	finrechargehandler "hostsent/backend/internal/modules/admin/finance/recharge/handler"
+	finrechargemodel "hostsent/backend/internal/modules/admin/finance/recharge/model"
 	finrechargerepo "hostsent/backend/internal/modules/admin/finance/recharge/repository"
 	finrechargeservice "hostsent/backend/internal/modules/admin/finance/recharge/service"
 	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
@@ -274,6 +276,14 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	billService := finbillservice.NewBillService(billRepo, walletTxRepo)
 	// 原路退回扣点来源（doc36 §3.2）：财务侧不 import 订单模块，由装配层注入退款仓储实现。
 	billService.SetChannelRefundReader(orderRefundRepo.SumChannelRefund)
+	// 充值到账后归集当期账单：充值侧不 import 账单模块，同样由装配层接线。
+	// 缺此接线时人工代充值只写资金流水，账单页看不到这笔充值（doc36 §3.4 的
+	// bill_type=recharge 长期无数据即由此而来）。
+	rechargeService.SetBillGenerator(func(ctx context.Context, userID uint64, period string) error {
+		_, err := billService.GenerateForUser(ctx, userID, period)
+		return err
+	})
+	rechargeService.SetLogger(logger)
 	reconService := finbillservice.NewReconService(walletRepo, walletTxRepo)
 	walletHandler := finaccounthandler.NewWalletHandler(walletService)
 	rechargeHandler := finrechargehandler.NewRechargeHandler(rechargeService)
@@ -312,23 +322,38 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	userService := service.NewUserService(
 		userRepo,
 		jwtIssuer,
-		func(ctx context.Context, userID uint64, amount float64, remark string, operatorID uint64) error {
-			// 符号决定方向：正数入账、负数扣减。钱包只接受正数金额 + direction，
-			// 因此这里拆符号后传绝对值。
-			direction := 1
-			if amount < 0 {
-				direction = -1
-				amount = -amount
+		func(ctx context.Context, userID uint64, amount float64, remark string, operatorID uint64) (*service.RechargeResult, error) {
+			// 正数走充值单链路：登记 → 立即确认到账。这样一笔人工代充值会同时
+			// 留下充值单（财务「充值管理」可查、用户端「我的充值单」可见）与
+			// 资金流水，并由充值服务在到账后归集当期账单。
+			//
+			// 此前正数也走 Adjust 人工调账，只写一条 type=adjust 的流水：
+			// 财务查不到充值单、账单里也没有充值额，同一个人工操作在三个页面
+			// 各说各话。Adjust 保留给负数（追回/纠正）——那才是真正的调账。
+			if amount > 0 {
+				adjusted := remark
+				if adjusted == "" {
+					adjusted = "后台人工充值"
+				}
+				info, err := rechargeService.CreateAndApprove(ctx, finrechargedto.RechargeCreateRequest{
+					UserID: userID,
+					Amount: amount,
+					Method: finrechargemodel.RechargeMethodManual,
+					Remark: adjusted,
+				}, operatorID)
+				if err != nil {
+					return nil, err
+				}
+				return &service.RechargeResult{RechargeNo: info.RechargeNo}, nil
 			}
+			// 负数：扣减（追回/纠正），走人工调账。
+			direction := -1
+			amount = -amount
 			adjusted := remark
 			if adjusted == "" {
-				if direction == 1 {
-					adjusted = "后台人工充值"
-				} else {
-					adjusted = "后台人工扣减"
-				}
+				adjusted = "后台人工扣减"
 			}
-			_, err := walletService.Adjust(ctx, accountdto.AdjustRequest{
+			tr, err := walletService.Adjust(ctx, accountdto.AdjustRequest{
 				UserID:    userID,
 				Type:      "adjust",
 				Direction: direction,
@@ -336,7 +361,10 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 				BizKey:    fmt.Sprintf("admin-recharge-%d", userID) + fmt.Sprintf("-%d", time.Now().UnixNano()),
 				Remark:    adjusted,
 			}, operatorID)
-			return err
+			if err != nil {
+				return nil, err
+			}
+			return &service.RechargeResult{TxNo: tr.TxNo}, nil
 		},
 	)
 	userDetailService := service.NewUserDetailService(userRepo, userDetailRepo)
