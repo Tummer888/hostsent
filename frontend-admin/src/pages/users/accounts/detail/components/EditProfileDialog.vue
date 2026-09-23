@@ -38,6 +38,15 @@
           placeholder="不修改请保持原值；清空表示移出分组"
         />
       </t-form-item>
+      <t-form-item label="用户等级" name="user_level_id">
+        <t-select
+          v-model="form.user_level_id"
+          :options="levelOptions"
+          filterable
+          placeholder="请选择会员等级"
+          :tips="'等级平时由累计消费自动升级（只升不降），这里可人工调整，调整会写入等级变更记录。'"
+        />
+      </t-form-item>
       <t-form-item label="备注" name="sub_account_remark">
         <t-input v-model="form.sub_account_remark" placeholder="选填，用于区分成员用途" />
       </t-form-item>
@@ -53,7 +62,13 @@ import { reactive, ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import type { FormInstanceFunctions, FormRule } from 'tdesign-vue-next'
 
-import { getUserGroupList, updateUser, type UserInfo, type UserUpdateRequest } from '@/api/user'
+import {
+  getUserGroupList,
+  getUserLevelList,
+  updateUser,
+  type UserInfo,
+  type UserUpdateRequest,
+} from '@/api/user'
 import { userStatusOptions } from '@/pages/users/constants'
 
 const props = defineProps<{
@@ -79,6 +94,7 @@ watch(visible, (value) => emit('update:modelValue', value))
 const formRef = ref<FormInstanceFunctions>()
 const submitting = ref(false)
 const groupOptions = ref<{ label: string; value: number }[]>([])
+const levelOptions = ref<{ label: string; value: number }[]>([])
 const statusOptions = userStatusOptions.map((item) => ({ label: item.label, value: item.value }))
 
 const form = reactive<{
@@ -90,6 +106,7 @@ const form = reactive<{
   status: string
   sub_account_remark: string
   user_group_id: number | undefined
+  user_level_id: number | undefined
 }>({
   username: '',
   real_name: '',
@@ -99,6 +116,7 @@ const form = reactive<{
   status: 'active',
   sub_account_remark: '',
   user_group_id: undefined,
+  user_level_id: undefined,
 })
 
 // 只有「填了什么才校验什么」：空字符串视为清空，不触发格式规则。
@@ -120,7 +138,9 @@ function syncForm() {
   form.status = p?.status || 'active'
   form.sub_account_remark = p?.sub_account_remark || ''
   form.user_group_id = p?.user_group_id ?? undefined
+  form.user_level_id = p?.user_level_id ?? undefined
   void loadGroups()
+  void loadLevels()
 }
 
 async function loadGroups() {
@@ -133,6 +153,21 @@ async function loadGroups() {
     }))
   } catch {
     MessagePlugin.error('加载用户组失败')
+  }
+}
+
+// 只列启用中的等级：把用户改到已停用等级上，用户端会显示一个运营已下线的等级，
+// 而自动升级（只升不降）又不会把他从那里挪走。
+async function loadLevels() {
+  if (levelOptions.value.length) return
+  try {
+    const data = await getUserLevelList({ page: 1, page_size: 200, status: 'active' })
+    levelOptions.value = (data.items || []).map((item) => ({
+      label: item.upgrade_threshold > 0 ? `${item.name}（消费满 ${item.upgrade_threshold}）` : item.name,
+      value: item.id,
+    }))
+  } catch {
+    MessagePlugin.error('加载用户等级失败')
   }
 }
 
@@ -161,6 +196,10 @@ async function handleSubmit() {
   const currentGroup = p.user_group_id ?? 0
   const nextGroup = form.user_group_id ?? 0
   if (nextGroup !== currentGroup) payload.user_group_id = nextGroup
+  // 等级不允许清空：0/undefined 都表示「不修改」，与后端的 *uint64 语义一致。
+  if (form.user_level_id && form.user_level_id !== (p.user_level_id ?? 0)) {
+    payload.user_level_id = form.user_level_id
+  }
 
   if (!Object.keys(payload).length) {
     MessagePlugin.info('没有需要保存的修改')

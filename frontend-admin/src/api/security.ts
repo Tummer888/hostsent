@@ -24,6 +24,8 @@ export interface LoginLogInfo {
   user_agent: string
   device_fingerprint: string
   platform: string
+  /** 登录主体域：user（客户）/ admin（员工后台）。两个 ID 空间共用 user_id 且会撞号 */
+  subject_type: string
   risk_flag: string
   created_at: string
 }
@@ -98,6 +100,8 @@ export interface SessionInfo {
   last_active_at: string
   expired_at: string
   status: string
+  /** 会话主体域：user（客户）/ admin（员工后台），语义同 LoginLogInfo.subject_type */
+  subject_type: string
   risk_flag: string
   revoked_reason?: string
   revoked_by: number
@@ -115,6 +119,8 @@ export interface LoginLogListQuery extends Record<string, unknown> {
   login_type?: string
   ip?: string
   risk_flag?: string
+  /** 主体域过滤：客户详情面板必须传 user，否则同 ID 的员工后台登录会混进来 */
+  subject_type?: 'user' | 'admin'
   start_time?: string
   end_time?: string
 }
@@ -165,6 +171,8 @@ export interface SessionListQuery extends Record<string, unknown> {
   platform?: string
   ip?: string
   risk_flag?: string
+  /** 主体域过滤，语义同 LoginLogListQuery.subject_type */
+  subject_type?: 'user' | 'admin'
   start_time?: string
   end_time?: string
 }

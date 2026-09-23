@@ -77,8 +77,13 @@ func newImpersonationRecorder(db *gorm.DB, sessionTTL time.Duration) accountserv
 				IP:            in.IP,
 				UserAgent:     truncateUTF8(in.UserAgent, 255),
 				Platform:      impersonatePlatform,
-				RiskFlag:      "normal",
-				CreatedAt:     now,
+				// 主体域留在客户侧：代登录描述的是「某个客户账号现在有登录态」，
+				// 必须继续出现在客户详情的安全面板与在线用户里，否则强制下线
+				// 找不到目标。platform='admin' 只用于让运营一眼分辨是自己代的，
+				// 不参与域判定。
+				SubjectType: securitymodel.SubjectTypeUser,
+				RiskFlag:    "normal",
+				CreatedAt:   now,
 			}).Error; err != nil {
 				return err
 			}
@@ -94,6 +99,7 @@ func newImpersonationRecorder(db *gorm.DB, sessionTTL time.Duration) accountserv
 				LastActiveAt: now,
 				ExpiredAt:    expiredAt,
 				Status:       "active",
+				SubjectType:  securitymodel.SubjectTypeUser,
 				RiskFlag:     "normal",
 				CreatedAt:    now,
 				UpdatedAt:    now,

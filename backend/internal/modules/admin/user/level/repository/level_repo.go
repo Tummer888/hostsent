@@ -3,6 +3,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"gorm.io/gorm"
@@ -87,9 +88,28 @@ func (r *userLevelRepository) Update(ctx context.Context, item *model.UserLevel)
 	return r.db.WithContext(ctx).Save(item).Error
 }
 
+// Delete 删除等级，但拒绝删除仍有用户绑定的等级。
+//
+// users.user_level_id 没有外键约束，删掉等级不会报错，只会让这些用户变成
+// 「等级 ID 指向不存在的行」：详情页等级列显示为空，子账号上限读到 0
+// （0 = 不限制），于是删一个等级会静默放开一批用户的成员数上限。
+// 消费升级侧还会因此把它们当成「无等级」，从最低级重新往上爬。
 func (r *userLevelRepository) Delete(ctx context.Context, id uint64) error {
+	var bound int64
+	if err := r.db.WithContext(ctx).
+		Table("users").
+		Where("user_level_id = ?", id).
+		Count(&bound).Error; err != nil {
+		return err
+	}
+	if bound > 0 {
+		return ErrLevelInUse
+	}
 	return r.db.WithContext(ctx).Delete(&model.UserLevel{}, id).Error
 }
+
+// ErrLevelInUse 等级仍有用户绑定，不能删除。
+var ErrLevelInUse = errors.New("该等级下仍有用户，无法删除，请先把这些用户调整到其他等级")
 
 // FindBestByThreshold 取满足门槛的最高权重等级；没有满足条件的等级时返回 gorm.ErrRecordNotFound。
 func (r *userLevelRepository) FindBestByThreshold(ctx context.Context, amount float64) (*model.UserLevel, error) {

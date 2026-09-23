@@ -74,6 +74,8 @@ type CreateUserInput struct {
 	// 只能通过第三方登录进入（用户后续可自助设置密码）。
 	PasswordHash string
 	UserGroupID  *uint64
+	// UserLevelID 起始等级（会员体系最低一级）；nil = 不设等级。
+	UserLevelID *uint64
 }
 
 // InviteBinder 邀请码解析与绑定（装配层注入 admin/referral 能力）。
@@ -85,6 +87,12 @@ type InviteBinder interface {
 // DefaultGroupResolver 默认用户组解析（自动注册时归组，复用 R5 的解析器）。
 type DefaultGroupResolver interface {
 	DefaultGroupID(ctx context.Context) (uint64, error)
+}
+
+// DefaultLevelResolver 起始等级解析（自动注册时挂最低会员等级）。
+// 由 uc/auth 的仓储实现，装配层注入；返回 0 表示无可用等级。
+type DefaultLevelResolver interface {
+	DefaultLevelID(ctx context.Context) (uint64, error)
 }
 
 // ConfigReader 读系统配置原文（键不存在返回 ok=false）。
@@ -111,6 +119,8 @@ type Service interface {
 	SetInviteBinder(binder InviteBinder)
 	// SetDefaultGroupResolver 注入默认用户组解析能力（可选）。
 	SetDefaultGroupResolver(resolver DefaultGroupResolver)
+	// SetDefaultLevelResolver 注入起始等级解析能力（可选）。
+	SetDefaultLevelResolver(resolver DefaultLevelResolver)
 }
 
 // CallbackResult 回调处理结果（handler 据此决定重定向地址）。
@@ -141,6 +151,7 @@ type service struct {
 
 	inviteBinder InviteBinder
 	defaultGroup DefaultGroupResolver
+	defaultLevel DefaultLevelResolver
 }
 
 // Deps 服务依赖。
@@ -184,6 +195,7 @@ func New(d Deps) Service {
 
 func (s *service) SetInviteBinder(binder InviteBinder)            { s.inviteBinder = binder }
 func (s *service) SetDefaultGroupResolver(r DefaultGroupResolver) { s.defaultGroup = r }
+func (s *service) SetDefaultLevelResolver(r DefaultLevelResolver) { s.defaultLevel = r }
 
 // configBool 读布尔配置，缺失/非法回落 fallback（口径与 doc91 开关一致）。
 func (s *service) configBool(ctx context.Context, key string, fallback bool) bool {
@@ -774,11 +786,20 @@ func (s *service) autoRegister(ctx context.Context, provider string, ext *oauthp
 			groupID = &id
 		}
 	}
+	// 起始等级与密码注册同口径：自动注册的账号也要有最低会员等级，
+	// 否则第三方登录进来的用户在后台详情页显示为「无等级」。
+	var levelID *uint64
+	if s.defaultLevel != nil {
+		if id, err := s.defaultLevel.DefaultLevelID(ctx); err == nil && id > 0 {
+			levelID = &id
+		}
+	}
 	userID, err := s.users.CreateOAuthUser(ctx, CreateUserInput{
 		Username:     username,
 		Email:        email,
 		PasswordHash: hash,
 		UserGroupID:  groupID,
+		UserLevelID:  levelID,
 	})
 	if err != nil {
 		return 0, err

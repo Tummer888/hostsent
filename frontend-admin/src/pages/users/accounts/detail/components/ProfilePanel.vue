@@ -54,11 +54,6 @@
           <t-descriptions-item v-if="profile.is_sub_account" label="归属主账号">
             {{ profile.owner_name || profile.owner_user_id || '—' }}
           </t-descriptions-item>
-          <t-descriptions-item label="用户分层">
-            <t-tag :theme="userTierTheme(profile.tier || '')" variant="light" size="small" shape="round">
-              {{ userTierLabel(profile.tier || '') }}
-            </t-tag>
-          </t-descriptions-item>
           <t-descriptions-item label="备注">{{ profile.sub_account_remark || '—' }}</t-descriptions-item>
           <t-descriptions-item label="邀请码">
             <span class="cell-mono">{{ profile.invite_code || '—' }}</span>
@@ -118,6 +113,10 @@
             {{ profile.user_level_name || '—' }}
             <span v-if="profile.user_level_code" class="cell-sub">（{{ profile.user_level_code }}）</span>
           </t-descriptions-item>
+          <t-descriptions-item label="累计消费">
+            <span class="cell-strong">¥{{ formatAmount(profile.total_consume_amount || 0) }}</span>
+            <span class="cell-sub">等级按累计消费自动升级（只升不降）</span>
+          </t-descriptions-item>
           <t-descriptions-item label="归属销售">
             <span v-if="profile.sales_admin_id">
               {{ profile.sales_admin_name || profile.sales_admin_id }}
@@ -132,7 +131,7 @@
         <t-descriptions :column="descColumn" bordered size="medium" class="detail-desc">
           <t-descriptions-item label="登录时间">{{ formatDateTime(profile.last_login_at) }}</t-descriptions-item>
           <t-descriptions-item label="登录 IP">{{ profile.last_login_ip || '—' }}</t-descriptions-item>
-          <t-descriptions-item label="后台角色">
+          <t-descriptions-item label="客户角色">
             <div v-if="rbacRoles.length" class="tag-group">
               <t-tag v-for="role in rbacRoles" :key="role.id" theme="primary" variant="light" size="small" shape="round">
                 {{ role.name }}（{{ role.code }}）
@@ -150,12 +149,11 @@
 import { computed } from 'vue'
 
 import {
+  formatAmount,
   formatDateTime,
   oauthProviderLabel,
   userStatusLabel,
   userStatusTheme,
-  userTierLabel,
-  userTierTheme,
 } from '@/pages/users/constants'
 import type { UserInfo, UserRoleBrief } from '@/api/user'
 

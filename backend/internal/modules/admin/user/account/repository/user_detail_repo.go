@@ -47,15 +47,17 @@ func (r *userDetailRepository) ListCustomerPermissions(ctx context.Context, user
 	return codes, nil
 }
 
-// ListRbacRolesByUserID 读用户绑定的后台角色。仅作只读展示，说明"这个账号在后台
-// 被授予了什么角色"，不作为客户侧权限解释。
+// ListRbacRolesByUserID 读用户绑定的角色（客户域）。
+//
+// 只返回 roles.scope='user'：员工角色由 admin_roles 承载，客户账号因历史污染
+// 绑过 super_admin 时不该在客户详情里被显示成「超级管理员」。
 func (r *userDetailRepository) ListRbacRolesByUserID(ctx context.Context, userID uint64) ([]model.UserRoleBrief, error) {
 	var items []model.UserRoleBrief
 	err := r.db.WithContext(ctx).
 		Table("user_roles").
 		Select("roles.id AS id, roles.code AS code, roles.name AS name, roles.scope AS scope").
 		Joins("JOIN roles ON roles.id = user_roles.role_id").
-		Where("user_roles.user_id = ?", userID).
+		Where("user_roles.user_id = ? AND roles.scope = ?", userID, model.RoleScopeUser).
 		Order("roles.id ASC").
 		Scan(&items).Error
 	if err != nil {
@@ -83,9 +85,9 @@ func (r *userDetailRepository) Counts(ctx context.Context, userID uint64) (*mode
 			(SELECT COUNT(*) FROM wallet_transactions WHERE user_id = ?)                                  AS transaction_count,
 			(SELECT COUNT(*) FROM tickets WHERE user_id = ?)                                              AS ticket_count,
 			(SELECT COUNT(*) FROM tickets WHERE user_id = ? AND status IN ('open','in_progress','waiting_user')) AS open_ticket_count,
-			(SELECT COUNT(*) FROM login_logs WHERE user_id = ?)                                           AS login_count,
+			(SELECT COUNT(*) FROM login_logs WHERE user_id = ? AND subject_type = 'user')                 AS login_count,
 			(SELECT COUNT(*) FROM user_sessions
-				WHERE user_id = ? AND status = 'active'
+				WHERE user_id = ? AND subject_type = 'user' AND status = 'active'
 					AND (expired_at IS NULL OR expired_at > NOW()))                                       AS active_session_count,
 			(SELECT COUNT(*) FROM risk_events WHERE user_id = ?)                                          AS risk_event_count,
 			(SELECT COUNT(*) FROM user_operation_logs WHERE account_user_id = ?)                          AS operation_log_count,

@@ -20,6 +20,12 @@ import (
 var (
 	ErrUsernameTaken = errors.New("用户名已被占用")
 	ErrEmailTaken    = errors.New("邮箱已被占用")
+	// ErrLevelAssignUnavailable 装配层未注入等级调整能力，改等级请求无法处理。
+	ErrLevelAssignUnavailable = errors.New("用户等级调整能力未配置")
+	// ErrLevelNotFound 目标等级不存在。
+	ErrLevelNotFound = errors.New("用户等级不存在")
+	// ErrLevelDisabled 目标等级已停用。
+	ErrLevelDisabled = errors.New("目标等级已停用，不能指派")
 )
 
 type UserService interface {
@@ -52,8 +58,24 @@ type UserService interface {
 	SetDefaultGroupProvider(provider DefaultGroupProvider)
 	// SetLoginRecorder 注入代登录审计写入能力（可选，装配层调用）。
 	SetLoginRecorder(recorder LoginRecorder)
+	// SetRoleScopeValidator 注入角色作用域校验能力（可选，装配层调用）。
+	SetRoleScopeValidator(validator RoleScopeValidator)
+	// SetLevelAssigner 注入用户等级调整能力（可选，装配层调用）。
+	SetLevelAssigner(assigner LevelAssigner)
+	// SetDefaultUserRoleProvider 注入默认客户角色解析能力（可选，装配层调用）。
+	SetDefaultUserRoleProvider(provider DefaultUserRoleProvider)
 	// SetLogger 注入日志器（可选，装配层调用）。
 	SetLogger(logger *zap.Logger)
+}
+
+// RoleScopeValidator 校验一组角色 ID 是否全部属于指定作用域（由 roleService 实现）。
+//
+// 定义成端口而不是直接调 roleService：用户建号/改角色时若把后台角色（scope=admin）
+// 绑到客户账号，该账号会在用户端菜单/权限上拿到员工语义的角色，而员工侧的
+// admin_roles 又完全不认这条绑定 —— 两端各说各话。跨域必须挡在服务层，
+// 不能只靠前端下拉过滤。
+type RoleScopeValidator interface {
+	ValidateScope(ctx context.Context, roleIDs []uint64, want string) error
 }
 
 // Recharger 充值能力适配器（由装配层注入）。
@@ -123,11 +145,72 @@ type userService struct {
 	recharge     Recharger
 	defaultGroup DefaultGroupProvider
 	loginRecord  LoginRecorder
+	roleScopes   RoleScopeValidator
+	levels       LevelAssigner
+	defaultRole  DefaultUserRoleProvider
 	logger       *zap.Logger
 }
 
 func NewUserService(repo repository.UserRepository, jwtIssuer *pkgauth.JWTIssuer, recharge Recharger) UserService {
 	return &userService{repo: repo, jwtIssuer: jwtIssuer, recharge: recharge}
+}
+
+// LevelAssigner 用户等级调整能力（由用户等级服务实现，装配层注入）。
+//
+// 抽成端口而不是直接调 levelService：account 模块不该依赖 level 模块，
+// 而等级调整必须走 level 服务的校验与留痕（写 user_level_change_logs），
+// 不能在这里直接改 users.user_level_id。
+type LevelAssigner interface {
+	// AssignLevel 手工调整用户等级并写变更日志。
+	AssignLevel(ctx context.Context, userID, levelID uint64) error
+	// DefaultLevelID 起始等级（启用中权重最低的一级）；无可用等级返回 0。
+	DefaultLevelID(ctx context.Context) (uint64, error)
+	// CheckAssignable 校验等级存在且启用中，供建号时先验后写。
+	CheckAssignable(ctx context.Context, levelID uint64) error
+}
+
+// DefaultUserRoleProvider 提供客户默认角色（roles.code='user'）ID；
+// 返回 0 表示角色缺失，调用方按「不挂角色」处理（不阻断建号）。
+type DefaultUserRoleProvider interface {
+	DefaultUserRoleID(ctx context.Context) (uint64, error)
+}
+
+// SetDefaultUserRoleProvider 注入默认客户角色解析能力（可选，装配层调用）。
+func (s *userService) SetDefaultUserRoleProvider(provider DefaultUserRoleProvider) {
+	s.defaultRole = provider
+}
+
+// resolveDefaultLevelID 解析起始等级；无可用等级/查询失败时返回 nil（不设等级）。
+func (s *userService) resolveDefaultLevelID(ctx context.Context) *uint64 {
+	if s.levels == nil {
+		return nil
+	}
+	id, err := s.levels.DefaultLevelID(ctx)
+	if err != nil || id == 0 {
+		return nil
+	}
+	return &id
+}
+
+// defaultUserRoleID 解析默认客户角色 ID；未装配或缺失时返回 0。
+func (s *userService) defaultUserRoleID(ctx context.Context) (uint64, error) {
+	if s.defaultRole == nil {
+		return 0, nil
+	}
+	return s.defaultRole.DefaultUserRoleID(ctx)
+}
+
+// SetLevelAssigner 注入等级调整能力（可选，装配层调用）。
+//
+// 未注入时 Update 会拒绝「改等级」的请求（返回 ErrLevelAssignUnavailable），
+// 而不是静默忽略：静默忽略会让运营以为保存成功，实际等级没变。
+func (s *userService) SetLevelAssigner(assigner LevelAssigner) {
+	s.levels = assigner
+}
+
+// SetRoleScopeValidator 注入角色作用域校验能力（可选，装配层调用）。
+func (s *userService) SetRoleScopeValidator(validator RoleScopeValidator) {
+	s.roleScopes = validator
 }
 
 // SetLoginRecorder 注入代登录审计写入能力（可选，装配层调用）。
@@ -212,16 +295,41 @@ func (s *userService) Create(ctx context.Context, req dto.UserCreateRequest) (*d
 	if err != nil {
 		return nil, err
 	}
-	user := &model.User{ID: req.ID, Username: req.Username, Email: req.Email, Phone: req.Phone, PasswordHash: string(hash), Status: req.Status, UserGroupID: req.UserGroupID}
+	user := &model.User{ID: req.ID, Username: req.Username, Email: req.Email, Phone: req.Phone, PasswordHash: string(hash), Status: req.Status, UserGroupID: req.UserGroupID, UserLevelID: req.UserLevelID}
+	// 建号即校验角色域：客户账号只能挂客户角色（scope=user）。
+	// 改造前后台「新建用户」的角色下拉直接调 /admin/roles（返回的是后台角色），
+	// 建出来的客户号会挂上 super_admin 之类的员工角色（实测 users.id=12 即如此）。
+	// 校验放在落库之前：被拒的角色列表不该留下一条没有角色的用户行。
+	if err := s.validateUserRoles(ctx, req.RoleIDs); err != nil {
+		return nil, err
+	}
 	// 未指定分组时归入默认组（未配置默认组则保持未分组）。
 	if user.UserGroupID == nil {
 		user.UserGroupID = s.resolveDefaultGroupID(ctx)
 	}
+	// 未指定等级时给起始等级：后台建出来的客户号同样是客户，不该停在「无等级」。
+	// 无等级会让子账号上限读到 0（=不限制）且用户端显示无等级。
+	// 显式指定的等级先校验存在且启用中（放在落库之前，与角色域校验同一条理由）。
+	if user.UserLevelID == nil {
+		user.UserLevelID = s.resolveDefaultLevelID(ctx)
+	} else if s.levels != nil {
+		if err := s.levels.CheckAssignable(ctx, *user.UserLevelID); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.repo.Create(ctx, user); err != nil {
 		return nil, err
 	}
-	if len(req.RoleIDs) > 0 {
-		if err := s.repo.SetRoles(ctx, user.ID, req.RoleIDs); err != nil {
+	// 未指定角色时挂「普通用户」：与注册链路同一口径，否则后台建的客户号
+	// 在用户列表的「客户角色」列是空的，运营无法从界面确认它是普通客户。
+	roleIDs := req.RoleIDs
+	if len(roleIDs) == 0 {
+		if id, rerr := s.defaultUserRoleID(ctx); rerr == nil && id > 0 {
+			roleIDs = []uint64{id}
+		}
+	}
+	if len(roleIDs) > 0 {
+		if err := s.repo.SetRoles(ctx, user.ID, roleIDs); err != nil {
 			return nil, err
 		}
 	}
@@ -281,6 +389,21 @@ func (s *userService) Update(ctx context.Context, id uint64, req dto.UserUpdateR
 			user.UserGroupID = req.UserGroupID
 		}
 	}
+	// 等级调整走等级服务（校验 + 写变更日志），不在 user 行上直写。
+	//
+	// 分两步：先只校验（不落库），把资料更新做掉，最后才真正改等级。
+	// 反过来先改等级的话，资料更新失败（用户名冲突等）会让这次「报错的请求」
+	// 已经改掉了等级 —— 等级是权益授予依据，不该在返回失败时静默变化。
+	// 两步之间不是事务（两侧仓储各自持有连接），所以校验必须放在最前面，
+	// 让「等级非法」这类必然失败在写任何东西之前就被挡住。
+	if req.UserLevelID != nil {
+		if s.levels == nil {
+			return nil, ErrLevelAssignUnavailable
+		}
+		if err := s.levels.CheckAssignable(ctx, *req.UserLevelID); err != nil {
+			return nil, err
+		}
+	}
 	if user.Username == "" {
 		return nil, errors.New("用户名不能为空")
 	}
@@ -289,6 +412,11 @@ func (s *userService) Update(ctx context.Context, id uint64, req dto.UserUpdateR
 	}
 	if err := s.repo.Update(ctx, user); err != nil {
 		return nil, mapUserWriteErr(err, user.Username, user.Email)
+	}
+	if req.UserLevelID != nil {
+		if err := s.levels.AssignLevel(ctx, id, *req.UserLevelID); err != nil {
+			return nil, err
+		}
 	}
 	fresh, err := s.repo.FindByID(ctx, id)
 	if err != nil {
@@ -394,7 +522,21 @@ func (s *userService) AssignRoles(ctx context.Context, userID uint64, roleIDs []
 	if err := rejectIfDeleted(user); err != nil {
 		return err
 	}
+	if err := s.validateUserRoles(ctx, roleIDs); err != nil {
+		return err
+	}
 	return s.repo.SetRoles(ctx, userID, roleIDs)
+}
+
+// validateUserRoles 校验待绑定的角色全部属于客户域（scope=user）。
+//
+// 未注入校验器时放行：装配层漏注入不该让「分配角色」整体不可用，但会把
+// 越域绑定留在库里 —— 因此装配层必须调用 SetRoleScopeValidator（见 server.go）。
+func (s *userService) validateUserRoles(ctx context.Context, roleIDs []uint64) error {
+	if s.roleScopes == nil || len(roleIDs) == 0 {
+		return nil
+	}
+	return s.roleScopes.ValidateScope(ctx, roleIDs, model.RoleScopeUser)
 }
 
 // ErrEmptyRoleList 角色列表为空：会清空用户全部角色，属误操作。

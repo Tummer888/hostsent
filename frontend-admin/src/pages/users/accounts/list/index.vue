@@ -463,6 +463,15 @@
               :options="userGroupSelectOptions"
             />
           </t-form-item>
+          <t-form-item label="用户等级" name="user_level_id">
+            <t-select
+              v-model="formData.user_level_id"
+              clearable
+              filterable
+              placeholder="留空则用起始等级（白银会员）"
+              :options="userLevelSelectOptions"
+            />
+          </t-form-item>
           <t-form-item label="初始密码" name="password">
             <t-input v-model="formData.password" type="password" placeholder="建议包含字母与数字，至少8位" />
           </t-form-item>
@@ -831,6 +840,7 @@ const formData = reactive<UserCreateRequest>({
   status: 'active',
   role_ids: [],
   user_group_id: undefined,
+  user_level_id: undefined,
 })
 
 const rules: Record<string, FormRule[]> = {
@@ -933,6 +943,16 @@ const userGroupSelectOptions = computed(() =>
   userGroupOptions.value
     .filter((item) => item.status !== 'disabled')
     .map((item) => ({ label: item.name, value: item.id })),
+)
+
+// 建号时的等级下拉：只列启用中的等级，留空则由后端给起始等级。
+const userLevelSelectOptions = computed(() =>
+  userLevelOptions.value
+    .filter((item) => item.status === 'active')
+    .map((item) => ({
+      label: item.upgrade_threshold > 0 ? `${item.name}（消费满 ${item.upgrade_threshold}）` : item.name,
+      value: item.id,
+    })),
 )
 
 // 用户组筛选：包含已禁用组（便于排查历史归属），并标注代理组与默认组
@@ -1105,7 +1125,10 @@ async function replaceRouteQuery() {
 
 async function loadRoleOptions() {
   try {
-    roleOptions.value = await getRoleList()
+    // 客户账号只能挂客户角色（roles.scope=user）。改造前这里拿的是后台角色列表，
+    // 「新建用户」的角色下拉会列出 超级管理员/运维 等员工角色，建出来的客户号
+    // 挂着员工角色（实测 users.id=12 即如此）。后端现在也会拒绝跨域绑定。
+    roleOptions.value = await getRoleList('user')
   } catch {
     roleOptions.value = []
   }
@@ -1548,6 +1571,7 @@ function initFormData(): UserCreateRequest {
     status: 'active',
     role_ids: [],
     user_group_id: undefined,
+    user_level_id: undefined,
   }
 }
 
@@ -1790,6 +1814,8 @@ async function handleCreateUser() {
       phone: formData.phone,
       password: formData.password,
       status: formData.status,
+      // 留空则后端给起始等级（白银会员）；显式选中的等级才上报。
+      user_level_id: formData.user_level_id || undefined,
     })
     MessagePlugin.success('用户创建成功')
     dialogVisible.value = false

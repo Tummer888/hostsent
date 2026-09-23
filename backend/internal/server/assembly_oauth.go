@@ -42,6 +42,7 @@ func buildOAuthBundle(
 	configReader oauthservice.ConfigReader,
 	inviteBinder oauthservice.InviteBinder,
 	defaultGroup oauthservice.DefaultGroupResolver,
+	defaultLevel oauthservice.DefaultLevelResolver,
 	callbackBase, frontendCallback string,
 	logger *zap.Logger,
 ) *oauthBundle {
@@ -62,6 +63,7 @@ func buildOAuthBundle(
 	})
 	svc.SetInviteBinder(inviteBinder)
 	svc.SetDefaultGroupResolver(defaultGroup)
+	svc.SetDefaultLevelResolver(defaultLevel)
 	return &oauthBundle{
 		adminHandler: oauthhandler.NewAdminHandler(svc),
 		userHandler:  oauthhandler.NewUserHandler(svc),
@@ -107,9 +109,12 @@ func (r *oauthUserRepo) FindByEmail(ctx context.Context, email string) (*oauthse
 
 // CreateOAuthUser 创建第三方登录自动注册用户。
 //
-// 列写全了 status/tier/user_group_id，因为 users 的 status 与 tier 都是
+// 列写全了 status/tier/user_group_id/user_level_id，因为 users 的 status 与 tier 都是
 // NOT NULL DEFAULT，靠默认值虽然也能建出来，但显式写入让「第三方注册用户
 // 的初始状态」在代码里可见，不依赖迁移里的默认值是否被改过。
+//
+// 建号后补挂「普通用户」角色（roles.code='user'）：与密码注册同一口径，
+// 否则第三方登录进来的账号在用户列表的「客户角色」列恒为空。
 func (r *oauthUserRepo) CreateOAuthUser(ctx context.Context, in oauthservice.CreateUserInput) (uint64, error) {
 	user := &authmodel.User{
 		Username:     in.Username,
@@ -118,9 +123,19 @@ func (r *oauthUserRepo) CreateOAuthUser(ctx context.Context, in oauthservice.Cre
 		Status:       "active",
 		Tier:         "free",
 		UserGroupID:  in.UserGroupID,
+		UserLevelID:  in.UserLevelID,
 	}
 	if err := r.db.WithContext(ctx).Create(user).Error; err != nil {
 		return 0, err
+	}
+	// 角色绑定失败不阻断建号：角色只影响展示与客户侧权限语义，账号本身可用。
+	var role struct {
+		ID uint64
+	}
+	if err := r.db.WithContext(ctx).Table("roles").Select("id").Where("code = ?", "user").Limit(1).Scan(&role).Error; err == nil && role.ID > 0 {
+		r.db.WithContext(ctx).Exec(
+			`INSERT INTO user_roles (user_id, role_id) VALUES (?, ?) ON CONFLICT (user_id, role_id) DO NOTHING`,
+			user.ID, role.ID)
 	}
 	return user.ID, nil
 }

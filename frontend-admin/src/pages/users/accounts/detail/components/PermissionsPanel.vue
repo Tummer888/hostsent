@@ -29,16 +29,17 @@
     </section>
 
     <section class="section-block">
-      <div class="section-label">后台角色绑定</div>
+      <div class="section-label">客户角色绑定</div>
       <p class="section-hint">
-        这里是后台 RBAC 角色（roles.scope=admin），只读展示；客户账号不应持有任何后台权限码。
+        这里是客户角色（roles.scope=user，如「普通用户」）。员工角色（scope=admin）
+        由员工管理维护，不在此处展示 —— 客户账号持有员工角色不会获得任何后台权限。
       </p>
       <div v-if="rbacRoles.length" class="tag-group">
         <t-tag v-for="role in rbacRoles" :key="role.id" theme="primary" variant="light" shape="round">
           {{ role.name }}（{{ role.code }}）· {{ roleScopeLabel(role.scope) }}
         </t-tag>
       </div>
-      <div v-else class="empty-state empty-state--compact">该账号未绑定任何后台角色</div>
+      <div v-else class="empty-state empty-state--compact">该账号未绑定任何客户角色</div>
     </section>
 
     <section v-if="!profile?.is_sub_account" class="section-block">

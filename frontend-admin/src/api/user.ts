@@ -126,6 +126,8 @@ export interface UserUpdateRequest {
   status?: string
   /** 所属用户组：不传表示不修改，0 表示移出分组，其余为组 ID */
   user_group_id?: number
+  /** 用户等级（会员体系）：不传表示不修改，其余为等级 ID */
+  user_level_id?: number
 }
 
 export interface UserCreateRequest {
@@ -137,6 +139,8 @@ export interface UserCreateRequest {
   status: string
   role_ids?: number[]
   user_group_id?: number
+  /** 用户等级：留空则由后端给起始等级（白银会员） */
+  user_level_id?: number
 }
 
 export interface UserStatusRequest {
@@ -188,7 +192,7 @@ export interface UserStatsResponse {
   deleted: number
 }
 
-/** 用户绑定的后台角色（roles.scope='admin'），与客户侧权限语义不同 */
+/** 用户绑定的客户角色（roles.scope='user'），与员工侧 admin_roles 是两套绑定 */
 export interface UserRoleBrief {
   id: number
   code: string
@@ -556,9 +560,17 @@ export function deleteUserLevel(id: string | number): Promise<string> {
   })
 }
 
-export function getRoleList(): Promise<RoleInfo[]> {
+/**
+ * 角色列表。
+ *
+ * scope 决定取哪一套角色树（roles.scope）：'admin' 后台员工角色，'user' 客户角色。
+ * 不传时后端按 admin 处理（历史行为）。员工建号必须传 admin、客户建号/分配角色
+ * 必须传 user —— 两侧的角色不能互相出现，后端也会拒绝跨域绑定。
+ */
+export function getRoleList(scope?: 'admin' | 'user'): Promise<RoleInfo[]> {
   return request.get<RoleInfo[]>({
     url: '/roles',
+    params: scope ? { scope } : undefined,
   })
 }
 

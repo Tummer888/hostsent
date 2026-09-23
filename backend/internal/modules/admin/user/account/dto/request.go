@@ -32,6 +32,8 @@ type UserCreateRequest struct {
 	Status      string   `json:"status"`
 	RoleIDs     []uint64 `json:"role_ids"`
 	UserGroupID *uint64  `json:"user_group_id"`
+	// UserLevelID 建号时的用户等级；不传则由服务层给起始等级（最低权重的一级）。
+	UserLevelID *uint64 `json:"user_level_id"`
 }
 
 // UserUpdateRequest 用户资料部分更新。
@@ -49,6 +51,10 @@ type UserUpdateRequest struct {
 	Status           *string `json:"status" binding:"omitempty,oneof=active disabled pending cancelled"`
 	// UserGroupID 调整用户组：nil 表示不修改，0 表示移出分组（未分组），其余为组 ID。
 	UserGroupID *uint64 `json:"user_group_id"`
+	// UserLevelID 调整用户等级（会员体系）：nil 表示不修改，其余为等级 ID。
+	// 与用户组不同，0 不是合法取值 —— 每个客户账号都应当有等级，
+	// 「清空等级」会让子账号上限读到 0（=不限制）且用户端显示无等级。
+	UserLevelID *uint64 `json:"user_level_id"`
 }
 
 // UserStatusRequest 用户状态变更。

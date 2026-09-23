@@ -42,30 +42,13 @@ export function userStatusTheme(status: string): string {
   }
 }
 
-// ---------- 用户分层 ----------
-
-export const userTierOptions = [
-  { label: '免费', value: 'free' },
-  { label: '专业', value: 'pro' },
-  { label: '企业', value: 'enterprise' },
-]
-
-export function userTierLabel(tier: string): string {
-  const found = userTierOptions.find((item) => item.value === tier)
-  return found ? found.label : tier || '—'
-}
-
-export function userTierTheme(tier: string): string {
-  switch (tier) {
-    case 'pro':
-      return 'primary'
-    case 'enterprise':
-      return 'warning'
-    case 'free':
-    default:
-      return defaultTheme
-  }
-}
+// ---------- 用户分层（users.tier）----------
+//
+// 分层列已退役：全库 tier 恒为 'free'，没有写入路径，也没有任何功能消费它。
+// 「用户等级」已由 user_levels（白银…王者）承担，两者并存只会让详情页同时显示
+// 「免费」与「钻石会员」两个互相矛盾的标签 —— 原来的 userTierLabel/userTierTheme
+// 已随详情页的那两个标签一并移除。后端 tier 字段仍在响应里（列未删、通知广播
+// 的筛选参数仍在读它），保留字段但不在此处给文案。
 
 // ---------- OAuth 渠道 ----------
 

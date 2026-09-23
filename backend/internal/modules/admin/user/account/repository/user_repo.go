@@ -40,6 +40,8 @@ type UserRepository interface {
 	// RolesByUserIDs 批量查询 userID → 角色列表，替换列表页逐行 GetRoles 的 N+1。
 	RolesByUserIDs(ctx context.Context, ids []uint64) (map[uint64][]model.Role, error)
 	SetRoles(ctx context.Context, userID uint64, roleIDs []uint64) error
+	// DefaultUserRoleID 客户默认角色（roles.code='user'）ID；缺失返回 0。
+	DefaultUserRoleID(ctx context.Context) (uint64, error)
 	Stats(ctx context.Context) (*model.UserStats, error)
 	UpdateLoginProfile(ctx context.Context, id uint64, ip string, loginAt time.Time) error
 	// NamesByIDs 批量查询用户 ID → 用户名，用于订单/实例的「操作人」列（P4-09）。
@@ -355,13 +357,17 @@ func (r *userRepository) UpdatePassword(ctx context.Context, id uint64, password
 	return r.db.WithContext(ctx).Model(&model.User{}).Where("id = ?", id).Update("password_hash", passwordHash).Error
 }
 
+// GetRoles 取用户绑定的角色。
+//
+// 只返回客户域角色（roles.scope='user'）：员工角色由 admin_roles 承载，客户账号
+// 即使因历史污染绑过 super_admin 之类，也不该在用户列表/详情里显示成它的角色。
 func (r *userRepository) GetRoles(ctx context.Context, userID uint64) ([]model.Role, error) {
 	var roles []model.Role
 	if err := r.db.WithContext(ctx).
 		Table("roles").
 		Select("roles.*").
 		Joins("JOIN user_roles ON user_roles.role_id = roles.id").
-		Where("user_roles.user_id = ?", userID).
+		Where("user_roles.user_id = ? AND roles.scope = ?", userID, model.RoleScopeUser).
 		Order("roles.id ASC").
 		Scan(&roles).Error; err != nil {
 		return nil, err
@@ -384,7 +390,7 @@ func (r *userRepository) RolesByUserIDs(ctx context.Context, ids []uint64) (map[
 		Table("user_roles").
 		Select("user_roles.user_id AS user_id, roles.*").
 		Joins("JOIN roles ON roles.id = user_roles.role_id").
-		Where("user_roles.user_id IN ?", ids).
+		Where("user_roles.user_id IN ? AND roles.scope = ?", ids, model.RoleScopeUser).
 		Order("user_roles.user_id ASC, roles.id ASC").
 		Scan(&rows).Error; err != nil {
 		return nil, err
@@ -407,6 +413,18 @@ func (r *userRepository) SetRoles(ctx context.Context, userID uint64, roleIDs []
 		}
 		return nil
 	})
+}
+
+// DefaultUserRoleID 取客户默认角色（roles.code='user'）ID；缺失返回 0。
+func (r *userRepository) DefaultUserRoleID(ctx context.Context) (uint64, error) {
+	var id uint64
+	err := r.db.WithContext(ctx).
+		Table("roles").
+		Select("id").
+		Where("code = ?", "user").
+		Limit(1).
+		Scan(&id).Error
+	return id, err
 }
 
 func (r *userRepository) Stats(ctx context.Context) (*model.UserStats, error) {
@@ -498,8 +516,12 @@ func (r *userRepository) ActivityOverview(ctx context.Context, limit, windowHour
 	// LastActiveAt 目前只在开会话那一刻写入（全仓没有心跳更新路径），所以它表示的是
 	// 「本次会话开始活跃的时间」而非「最后一次活跃时间」。这里如实按会话状态判定，
 	// 并在返回里带上 last_active_at 让前端展示真实语义，不额外编造新鲜度窗口。
+	// subject_type 过滤不可省：user_sessions.user_id 同时承载 users.id 与 admins.id
+	// （员工后台会话），两个 ID 空间会撞号。只靠 JOIN users 挡不住 ——
+	// admins.id=19 的会话会被 JOIN 到 users.id=19 上，凭空多出一个「在线用户」。
 	onlineBase := r.db.WithContext(ctx).Table("user_sessions AS s").
 		Joins("JOIN users AS u ON u.id = s.user_id AND u.deleted_at IS NULL").
+		Where("s.subject_type = ?", "user").
 		Where("s.status = ?", "active").
 		Where("s.expired_at IS NULL OR s.expired_at > ?", time.Now())
 	if err := onlineBase.Session(&gorm.Session{}).Count(&out.OnlineTotal).Error; err != nil {
@@ -539,7 +561,7 @@ func (r *userRepository) ActivityOverview(ctx context.Context, limit, windowHour
 // 条数取 8：卡片高度与用户状态分布图对齐，再多就要滚动，而概览页的价值在
 // 「一眼看出异常」而不是完整列表 —— 完整列表在安全页与用户列表都有。
 const (
-	defaultActivityLimit   = 8
+	defaultActivityLimit     = 8
 	defaultRecentWindowHours = 24
 )
 

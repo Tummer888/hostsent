@@ -77,7 +77,7 @@ func (s *levelUpgradeService) Recalculate(ctx context.Context, userID uint64) (b
 		ToLevelCode:        target.Code,
 		TotalConsumeAmount: totalConsume,
 		BenefitsSnapshot:   target.Benefits,
-		Reason:             "consume_upgrade",
+		Reason:             model.ReasonConsumeUpgrade,
 	}
 	if current != nil {
 		log.FromLevelID = &current.ID

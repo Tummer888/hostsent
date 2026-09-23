@@ -181,7 +181,9 @@ const pagedRoles = computed(() => {
 async function loadRoles() {
   loading.value = true
   try {
-    roles.value = await getRoleList()
+    // 本页只维护后台员工角色（roles.scope=admin）；客户角色（scope=user）
+    // 由客户账号侧使用，不在这棵权限树里增删改。
+    roles.value = await getRoleList('admin')
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载角色失败')
   } finally {

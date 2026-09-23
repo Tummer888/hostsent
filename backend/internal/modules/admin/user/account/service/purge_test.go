@@ -115,6 +115,9 @@ func (f *fakeUserRepo) RolesByUserIDs(context.Context, []uint64) (map[uint64][]m
 func (f *fakeUserRepo) SetRoles(context.Context, uint64, []uint64) error {
 	return errUnexpectedRepoCall
 }
+func (f *fakeUserRepo) DefaultUserRoleID(context.Context) (uint64, error) {
+	return 0, errUnexpectedRepoCall
+}
 func (f *fakeUserRepo) Stats(context.Context) (*model.UserStats, error) {
 	return nil, errUnexpectedRepoCall
 }

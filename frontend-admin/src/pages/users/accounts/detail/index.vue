@@ -21,8 +21,14 @@
             <t-tag v-if="profile?.is_sub_account" theme="warning" variant="light" size="small" shape="round">
               子账号
             </t-tag>
-            <t-tag v-if="profile?.tier" :theme="userTierTheme(profile.tier)" variant="light" size="small" shape="round">
-              {{ userTierLabel(profile.tier) }}
+            <t-tag
+              v-if="profile?.user_level_name"
+              theme="primary"
+              variant="light"
+              size="small"
+              shape="round"
+            >
+              {{ profile.user_level_name }}
             </t-tag>
           </div>
           <p class="page-header__desc">
@@ -225,7 +231,7 @@ import {
 } from 'tdesign-icons-vue-next'
 
 import { getUserDetailAggregate, updateUserStatus, type UserDetailSummary, type UserInfo, type UserRoleBrief } from '@/api/user'
-import { formatAmount, userStatusLabel, userStatusTheme, userTierLabel, userTierTheme } from '@/pages/users/constants'
+import { formatAmount, userStatusLabel, userStatusTheme } from '@/pages/users/constants'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useUserStore } from '@/store'
 
@@ -300,7 +306,7 @@ const userStore = useUserStore()
 const moreActions = computed(() => {
   const items: { content: string; value: string }[] = []
   if (userStore.hasPermission('user:reset_password')) items.push({ content: '重置密码', value: 'reset' })
-  if (userStore.hasPermission('user:assign_role')) items.push({ content: '分配后台角色', value: 'roles' })
+  if (userStore.hasPermission('user:assign_role')) items.push({ content: '分配客户角色', value: 'roles' })
   if (userStore.hasPermission('sales:customer:assign')) items.push({ content: '归属销售', value: 'sales' })
   return items
 })

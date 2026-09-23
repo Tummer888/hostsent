@@ -41,6 +41,10 @@
           <t-select v-model="filters.login_type" clearable :options="LOGIN_TYPE_OPTIONS" placeholder="登录类型" />
         </div>
         <div class="field">
+          <span class="field__label">登录主体</span>
+          <t-select v-model="filters.subject_type" clearable :options="SUBJECT_TYPE_OPTIONS" placeholder="全部主体" />
+        </div>
+        <div class="field">
           <span class="field__label">风险标记</span>
           <t-select v-model="filters.risk_flag" clearable :options="RISK_FLAG_OPTIONS" placeholder="风险标记" />
         </div>
@@ -59,6 +63,12 @@
 
     <template #login_type="{ row }">
       {{ LOGIN_TYPE_LABEL[row.login_type] || row.login_type || '—' }}
+    </template>
+
+    <template #subject_type="{ row }">
+      <t-tag :theme="row.subject_type === 'admin' ? 'warning' : 'primary'" variant="light-outline">
+        {{ SUBJECT_TYPE_LABEL[row.subject_type] || row.subject_type || '客户' }}
+      </t-tag>
     </template>
 
     <template #platform="{ row }">
@@ -92,6 +102,8 @@ import {
   LOGIN_TYPE_OPTIONS,
   RISK_FLAG_LABEL,
   RISK_FLAG_OPTIONS,
+  SUBJECT_TYPE_LABEL,
+  SUBJECT_TYPE_OPTIONS,
   applyDateRange,
   formatSecurityTime,
   securityRiskTagTheme,
@@ -114,6 +126,7 @@ const filters = reactive<LoginLogListQuery>({
   result: '',
   login_type: '',
   risk_flag: '',
+  subject_type: undefined,
 })
 
 const pagination = reactive({
@@ -132,6 +145,7 @@ const resultOptions = [
 
 const columns: PrimaryTableCol<LoginLogInfo>[] = [
   { colKey: 'username', title: '用户名', minWidth: 140 },
+  { colKey: 'subject_type', title: '主体', width: 100 },
   { colKey: 'login_type', title: '类型', width: 110 },
   { colKey: 'result', title: '结果', width: 100 },
   { colKey: 'ip', title: 'IP 地址', width: 130 },
@@ -196,6 +210,7 @@ function handleReset() {
   filters.result = ''
   filters.login_type = ''
   filters.risk_flag = ''
+  filters.subject_type = undefined
   filters.start_time = undefined
   filters.end_time = undefined
   dateRange.value = []

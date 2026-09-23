@@ -272,6 +272,9 @@ async function loadLoginLogs() {
   try {
     const data = await getLoginLogList({
       user_id: props.userId,
+      // 必须限定客户域：login_logs.user_id 混用 users.id 与 admins.id（实测 7 组撞号），
+      // 不传 subject_type 会把同 ID 员工的后台登录当成这个客户的登录记录。
+      subject_type: 'user',
       page: loginPagination.current,
       page_size: loginPagination.pageSize,
     })
@@ -325,6 +328,9 @@ async function loadSessions() {
   try {
     const data = await getSessionList({
       user_id: props.userId,
+      // 同 loadLoginLogs：会话表也混用两个 ID 空间，客户面板只看客户域。
+      // 代登录会话（platform=admin）的 subject_type 是 user，仍会出现在这里。
+      subject_type: 'user',
       page: sessionPagination.current,
       page_size: sessionPagination.pageSize,
     })

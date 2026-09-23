@@ -91,8 +91,12 @@ var purgeTables = []struct {
 	{"user_operation_logs", "account_user_id"},
 	{"user_oauth_bindings", "user_id"},
 	// 安全与日志（属于用户个人数据，随用户删除）
-	{"login_logs", "user_id"},
-	{"user_sessions", "user_id"},
+	//
+	// login_logs / user_sessions 用 subject_user 伪列而不是裸 user_id：这两张表的
+	// user_id 同时承载 users.id 与 admins.id（员工后台登录），两个 ID 空间会撞号，
+	// 按裸 user_id 删会连带删掉 ID 相同的员工登录记录与后台会话。
+	{"login_logs", "subject_user"},
+	{"user_sessions", "subject_user"},
 	{"risk_events", "user_id"},
 	// 开放平台
 	{"open_apps", "owner_user_id"},
@@ -257,6 +261,11 @@ func (r *userRepository) PurgeUser(ctx context.Context, id uint64) error {
 					continue
 				}
 				if err := tx.Exec("DELETE FROM "+t.table+" WHERE payment_no IN ?", paymentNos).Error; err != nil {
+					return err
+				}
+			case "subject_user":
+				// 只在客户域内删：同 ID 的员工后台登录记录/会话必须保留。
+				if err := tx.Exec("DELETE FROM "+t.table+" WHERE user_id = ? AND subject_type = 'user'", id).Error; err != nil {
 					return err
 				}
 			default:

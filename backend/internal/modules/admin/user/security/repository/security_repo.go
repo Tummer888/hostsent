@@ -201,10 +201,15 @@ func (r *securityRepository) BatchRevokeSessions(ctx context.Context, ids []uint
 //
 // 只动 status='active' 的行：已 revoked 的行有独立的操作人留痕（谁踢的、为什么），
 // 已 expired 的行是自然到期。把它们一起覆盖成「本次操作撤销」会让审计线索失真。
+//
+// 限定 subject_type='user'：本方法由用户详情的「强制下线」触发，目标必须是客户
+// 会话。user_id 同时承载 admins.id，不加域过滤会把 ID 相同的员工后台会话一起踢掉。
 func (r *securityRepository) RevokeUserAllSessions(ctx context.Context, userID uint64, reason string, revokedBy uint64) ([]model.Session, error) {
 	now := time.Now()
 	var sessions []model.Session
-	if err := r.db.WithContext(ctx).Where("user_id = ? AND status = ?", userID, "active").Find(&sessions).Error; err != nil {
+	if err := r.db.WithContext(ctx).
+		Where("user_id = ? AND status = ? AND subject_type = ?", userID, "active", model.SubjectTypeUser).
+		Find(&sessions).Error; err != nil {
 		return nil, err
 	}
 	for i := range sessions {
@@ -267,6 +272,9 @@ func (r *securityRepository) ExpireStaleSessions(ctx context.Context, limit int)
 func applyLoginLogFilters(db *gorm.DB, query dto.LoginLogListQuery) *gorm.DB {
 	if query.UserID > 0 {
 		db = db.Where("user_id = ?", query.UserID)
+	}
+	if query.SubjectType != "" {
+		db = db.Where("subject_type = ?", strings.TrimSpace(query.SubjectType))
 	}
 	if query.Username != "" {
 		db = db.Where("username ILIKE ?", "%"+strings.TrimSpace(query.Username)+"%")
@@ -355,6 +363,9 @@ func applyBlacklistFilters(db *gorm.DB, query dto.BlacklistListQuery) *gorm.DB {
 func applySessionFilters(db *gorm.DB, query dto.SessionListQuery) *gorm.DB {
 	if query.UserID > 0 {
 		db = db.Where("user_id = ?", query.UserID)
+	}
+	if query.SubjectType != "" {
+		db = db.Where("subject_type = ?", strings.TrimSpace(query.SubjectType))
 	}
 	if query.Username != "" {
 		db = db.Where("username ILIKE ?", "%"+strings.TrimSpace(query.Username)+"%")

@@ -41,6 +41,10 @@
           <t-select v-model="filters.platform" clearable :options="SESSION_PLATFORM_OPTIONS" placeholder="平台" />
         </div>
         <div class="field">
+          <span class="field__label">会话主体</span>
+          <t-select v-model="filters.subject_type" clearable :options="SUBJECT_TYPE_OPTIONS" placeholder="全部主体" />
+        </div>
+        <div class="field">
           <span class="field__label">风险标记</span>
           <t-select v-model="filters.risk_flag" clearable :options="RISK_FLAG_OPTIONS" placeholder="风险标记" />
         </div>
@@ -53,6 +57,12 @@
 
     <template #platform="{ row }">
       {{ SESSION_PLATFORM_LABEL[row.platform] || row.platform || '—' }}
+    </template>
+
+    <template #subject_type="{ row }">
+      <t-tag :theme="row.subject_type === 'admin' ? 'warning' : 'primary'" variant="light-outline">
+        {{ SUBJECT_TYPE_LABEL[row.subject_type] || row.subject_type || '客户' }}
+      </t-tag>
     </template>
 
     <template #status="{ row }">
@@ -115,6 +125,8 @@ import {
   SESSION_PLATFORM_OPTIONS,
   SESSION_STATUS_LABEL,
   SESSION_STATUS_OPTIONS,
+  SUBJECT_TYPE_LABEL,
+  SUBJECT_TYPE_OPTIONS,
   applyDateRange,
   formatSecurityTime,
   securityRiskTagTheme,
@@ -136,6 +148,7 @@ const filters = reactive<SessionListQuery>({
   platform: '',
   ip: '',
   risk_flag: '',
+  subject_type: undefined,
 })
 
 const pagination = reactive({
@@ -151,6 +164,7 @@ const { isMobile } = useIsMobile()
 
 const columns = computed<PrimaryTableCol<SessionInfo>[]>(() => [
   { colKey: 'username', title: '用户名', width: 120 },
+  { colKey: 'subject_type', title: '主体', width: 100 },
   { colKey: 'platform', title: '平台', width: 90 },
   { colKey: 'ip', title: 'IP 地址', width: 130 },
   { colKey: 'device_fingerprint', title: '设备指纹', minWidth: 180, ellipsis: true },
@@ -195,6 +209,7 @@ function handleReset() {
   filters.platform = ''
   filters.ip = ''
   filters.risk_flag = ''
+  filters.subject_type = undefined
   filters.start_time = undefined
   filters.end_time = undefined
   dateRange.value = []

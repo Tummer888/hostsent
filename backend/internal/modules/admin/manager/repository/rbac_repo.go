@@ -34,6 +34,8 @@ type RBACRepository interface {
 	FindRoleCodesByIDs(ctx context.Context, roleIDs []uint64) ([]string, error)
 	// FindRoleIDsByCodes 按角色 code 批量取 ID（用于兼容旧的单 role 字符串入参）。
 	FindRoleIDsByCodes(ctx context.Context, codes []string) ([]uint64, error)
+	// FindRoleScopesByIDs 按角色 ID 批量取 scope（ID → scope），供跨域校验用。
+	FindRoleScopesByIDs(ctx context.Context, roleIDs []uint64) (map[uint64]string, error)
 }
 
 type rbacRepository struct {
@@ -194,6 +196,32 @@ func (r *rbacRepository) FindRoleIDsByCodes(ctx context.Context, codes []string)
 		return nil, err
 	}
 	return ids, nil
+}
+
+// FindRoleScopesByIDs 按角色 ID 批量取 scope。
+//
+// 客户角色（scope=user）不属于后台员工权限树（doc81 §4.1），员工建号/改角色
+// 必须把它挡掉 —— 改造前只能靠前端过滤，直接调接口仍能把客户角色绑到员工身上。
+func (r *rbacRepository) FindRoleScopesByIDs(ctx context.Context, roleIDs []uint64) (map[uint64]string, error) {
+	out := make(map[uint64]string, len(roleIDs))
+	if len(roleIDs) == 0 {
+		return out, nil
+	}
+	var rows []roleRow
+	if err := r.db.WithContext(ctx).
+		Model(&roleRow{}).
+		Where("id IN ?", roleIDs).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		scope := row.Scope
+		if scope == "" {
+			scope = "admin"
+		}
+		out[row.ID] = scope
+	}
+	return out, nil
 }
 
 // roleRow 仅用于按列投影 roles 表，避免引入 account model 包。

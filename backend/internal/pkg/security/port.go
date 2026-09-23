@@ -159,6 +159,12 @@ const (
 	LoginResultFailed  = "failed"
 )
 
+// 登录主体域（与 login_logs.subject_type / user_sessions.subject_type 口径一致）。
+const (
+	SubjectTypeUser  = "user"
+	SubjectTypeAdmin = "admin"
+)
+
 // LoginLogEntry 一条登录日志。
 type LoginLogEntry struct {
 	UserID        uint64
@@ -169,6 +175,10 @@ type LoginLogEntry struct {
 	IP            string
 	UserAgent     string
 	Platform      string
+	// SubjectType 登录主体域（login_logs.subject_type）：空值按客户域落库。
+	// 管理端登录必须显式传 admin —— login_logs.user_id 承载两个 ID 空间的值
+	// （users.id 与 admins.id），不区分域的话员工后台登录会被算到撞号的客户头上。
+	SubjectType string
 }
 
 // Target 账号的验证码接收目标。

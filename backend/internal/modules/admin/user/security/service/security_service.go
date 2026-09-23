@@ -512,6 +512,7 @@ func toLoginLogInfo(item model.LoginLog) dto.LoginLogInfo {
 		UserAgent:         item.UserAgent,
 		DeviceFingerprint: item.DeviceFingerprint,
 		Platform:          item.Platform,
+		SubjectType:       item.SubjectType,
 		RiskFlag:          item.RiskFlag,
 		CreatedAt:         item.CreatedAt,
 	}
@@ -596,6 +597,7 @@ func toSessionInfo(item model.Session) dto.SessionInfo {
 		LoginAt:           item.LoginAt,
 		LastActiveAt:      item.LastActiveAt,
 		Status:            item.Status,
+		SubjectType:       item.SubjectType,
 		RiskFlag:          item.RiskFlag,
 		RevokedReason:     item.RevokedReason,
 		CreatedAt:         item.CreatedAt,

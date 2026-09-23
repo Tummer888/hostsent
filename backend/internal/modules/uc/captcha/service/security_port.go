@@ -224,6 +224,7 @@ func (p *SecurityPort) Log(ctx context.Context, entry security.LoginLogEntry) {
 		IP:            entry.IP,
 		UserAgent:     entry.UserAgent,
 		Platform:      entry.Platform,
+		SubjectType:   entry.SubjectType,
 	})
 }
 

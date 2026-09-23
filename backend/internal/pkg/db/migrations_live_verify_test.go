@@ -15,6 +15,8 @@ import (
 	referralmodel "hostsent/backend/internal/modules/admin/referral/model"
 	usergroupmodel "hostsent/backend/internal/modules/admin/user/account/model"
 	usergrouprepo "hostsent/backend/internal/modules/admin/user/account/repository"
+	levelmodel "hostsent/backend/internal/modules/admin/user/level/model"
+	securitymodel "hostsent/backend/internal/modules/admin/user/security/model"
 )
 
 // 迁移与模型双写一致性验证（R1/R4）：针对真实库确认
@@ -85,6 +87,31 @@ func TestLivePhaseMigrations(t *testing.T) {
 				"bills": {"source_type", "source_no", "recharge_amount"},
 			},
 			indexes: []string{"uk_bills_user_period", "uk_bills_source"},
+		},
+		{
+			// 056 是员工域 / 客户域分离的收口：roles.scope 纠正 + 登录日志与会话
+			// 的域判别列。subject_type 让「员工后台登录」不再被算进同 ID 的客户
+			// 详情（admins 与 users 有 7 组撞号），代登录仍留在客户域。
+			name:   "056_staff_user_domain_split",
+			file:   "../../../migrations/056_staff_user_domain_split.sql",
+			models: []interface{}{&securitymodel.LoginLog{}, &securitymodel.Session{}},
+			columns: map[string][]string{
+				"login_logs":    {"subject_type"},
+				"user_sessions": {"subject_type"},
+			},
+			indexes: []string{"idx_login_logs_subject_user", "idx_user_sessions_subject_user"},
+		},
+		{
+			// 057 把用户等级重规划为六级会员阶梯（白银→…→王者），并做两件兜底：
+			// user_level_id 为空的行落到最低等级、一条角色都没有的客户账号补
+			// roles.code='user'。断言迁移可重复执行且收敛结果唯一（不新增等级行）。
+			name:   "057_user_level_membership_ladder",
+			file:   "../../../migrations/057_user_level_membership_ladder.sql",
+			models: []interface{}{&levelmodel.UserLevel{}},
+			columns: map[string][]string{
+				"user_levels": {"name", "code", "weight", "status", "upgrade_threshold", "max_sub_accounts", "benefits"},
+			},
+			indexes: []string{"idx_user_levels_code", "idx_user_levels_name"},
 		},
 	}
 

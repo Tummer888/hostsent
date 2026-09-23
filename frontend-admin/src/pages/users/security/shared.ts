@@ -142,12 +142,31 @@ export const SESSION_PLATFORM_LABEL: Record<string, string> = {
   web: 'Web',
   mobile: '移动端',
   desktop: '桌面端',
-  admin: '管理端代登录',
+  // platform=admin 只说明「这条记录由管理端产生」，不等于员工域：
+  // 员工后台登录（subject_type=admin）与代登录（subject_type=user）都是这个值。
+  admin: '管理端',
 }
 
 /** 登录日志的 platform 与会话同源（含 admin），这里保持一份独立常量便于日后分叉。 */
 export const LOGIN_PLATFORM_LABEL: Record<string, string> = {
   ...SESSION_PLATFORM_LABEL,
+}
+
+/**
+ * 登录主体域。
+ *
+ * login_logs / user_sessions 的 user_id 混用 users.id 与 admins.id（两个 ID 空间
+ * 有撞号），只按 user_id 查会把员工的后台登录算到同 ID 客户头上。subject_type
+ * 是唯一的域判别依据，筛选与展示都必须带上它。
+ */
+export const SUBJECT_TYPE_OPTIONS = [
+  { label: '客户', value: 'user' },
+  { label: '员工后台', value: 'admin' },
+]
+
+export const SUBJECT_TYPE_LABEL: Record<string, string> = {
+  user: '客户',
+  admin: '员工后台',
 }
 
 /** 黑名单类型 / 来源 / 状态。 */

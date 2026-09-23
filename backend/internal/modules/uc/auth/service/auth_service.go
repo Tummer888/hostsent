@@ -474,10 +474,23 @@ func (s *authService) Register(ctx context.Context, req dto.RegisterRequest, ip,
 		Status:       "active",
 		Tier:         "free",
 		UserGroupID:  s.resolveDefaultGroupID(ctx),
+		UserLevelID:  s.resolveDefaultLevelID(ctx),
 	}
 
 	if err := s.repo.Create(ctx, user); err != nil {
 		return 0, err
+	}
+
+	// 注册即挂「普通用户」角色（roles.code='user'，scope=user）。
+	// 此前注册只写 users 行、不写 user_roles：新账号在用户列表的「客户角色」列是空的，
+	// 运营无法从界面看出它是普通客户，也不符合「注册即获得客户角色」的口径。
+	// 失败不阻断注册：角色缺失只影响展示，账号本身可用。
+	if roleID, rerr := s.repo.DefaultUserRoleID(ctx); rerr == nil && roleID > 0 {
+		if berr := s.repo.BindRole(ctx, user.ID, roleID); berr != nil {
+			s.warn("注册绑定默认客户角色失败", user.ID, berr)
+		}
+	} else if rerr != nil {
+		s.warn("查询默认客户角色失败", user.ID, rerr)
 	}
 
 	// ⑤ 注册即完成邮箱验证：上面的 OTP 校验已经证明邮箱可用。
@@ -639,6 +652,24 @@ func (s *authService) resolveDefaultGroupID(ctx context.Context) *uint64 {
 	id, err := s.defaultGroup.DefaultGroupID(ctx)
 	if err != nil {
 		s.warn("解析默认用户组失败", 0, err)
+		return nil
+	}
+	if id == 0 {
+		return nil
+	}
+	return &id
+}
+
+// resolveDefaultLevelID 解析新账号的起始等级（会员体系最低一级，当前为白银会员）。
+//
+// 注册必须带上等级：没有等级的账号在用户端与后台详情页都显示为「无等级」，
+// 子账号上限读到 0（=不限制），而消费升级又只在「已升级」时才写等级 ——
+// 于是一个从未消费的新用户会长期停在无等级态。
+// 查询失败不阻断注册（等级只影响权益展示，不影响账号可用性）。
+func (s *authService) resolveDefaultLevelID(ctx context.Context) *uint64 {
+	id, err := s.repo.DefaultLevelID(ctx)
+	if err != nil {
+		s.warn("解析默认用户等级失败", 0, err)
 		return nil
 	}
 	if id == 0 {

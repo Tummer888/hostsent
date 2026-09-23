@@ -9,8 +9,11 @@ type LoginLogListQuery struct {
 	LoginType string `form:"login_type"`
 	IP        string `form:"ip"`
 	RiskFlag  string `form:"risk_flag"`
-	StartTime string `form:"start_time"`
-	EndTime   string `form:"end_time"`
+	// SubjectType 登录主体域（user/admin）。留空表示不限 —— 全局安全页需要
+	// 同时看到两类；客户详情面板必须显式传 user，否则会串到 ID 相同的员工记录上。
+	SubjectType string `form:"subject_type"`
+	StartTime   string `form:"start_time"`
+	EndTime     string `form:"end_time"`
 }
 
 type AuditLogListQuery struct {
@@ -52,16 +55,18 @@ type BlacklistListQuery struct {
 }
 
 type SessionListQuery struct {
-	Page      int    `form:"page"`
-	PageSize  int    `form:"page_size"`
-	UserID    uint64 `form:"user_id"`
-	Username  string `form:"username"`
-	Status    string `form:"status"`
-	Platform  string `form:"platform"`
-	IP        string `form:"ip"`
-	RiskFlag  string `form:"risk_flag"`
-	StartTime string `form:"start_time"`
-	EndTime   string `form:"end_time"`
+	Page     int    `form:"page"`
+	PageSize int    `form:"page_size"`
+	UserID   uint64 `form:"user_id"`
+	Username string `form:"username"`
+	Status   string `form:"status"`
+	Platform string `form:"platform"`
+	IP       string `form:"ip"`
+	RiskFlag string `form:"risk_flag"`
+	// SubjectType 会话主体域（user/admin），语义同 LoginLogListQuery。
+	SubjectType string `form:"subject_type"`
+	StartTime   string `form:"start_time"`
+	EndTime     string `form:"end_time"`
 }
 
 // BlacklistHitListQuery 黑名单命中记录的分页参数。

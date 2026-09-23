@@ -260,7 +260,9 @@ async function loadDepartments() {
 async function loadRoles() {
   roleLoading.value = true
   try {
-    const roles = await getRoleList()
+    const roles = await getRoleList('admin')
+    // 再过滤一次 scope：scope 列在存量库上取到过错值（roles.id=7 曾是 admin），
+    // 双保险避免客户角色混进「可提交角色」。
     roleOptions.value = (roles ?? [])
       .filter((role: RoleInfo) => role.scope !== 'user')
       .map((role: RoleInfo) => ({ label: role.name, value: role.code }))

@@ -129,7 +129,9 @@ const selectedRole = computed(() => roles.value.find((role) => role.id === selec
 async function load() {
   loading.value = true;
   try {
-    const [rolesList, permissionTree] = await Promise.all([getRoleList(), getPermissionTree()]);
+    // 权限树只属于后台员工角色（roles.scope=admin）：客户角色没有后台权限码，
+    // 混进这个选择器会让人以为客户角色也能分配后台菜单权限。
+    const [rolesList, permissionTree] = await Promise.all([getRoleList('admin'), getPermissionTree()]);
     roles.value = rolesList;
     treeData.value = permissionTree;
 

@@ -435,11 +435,15 @@ const columns = computed<PrimaryTableCol<AdminInfo>[]>(() => [
 ]);
 
 /**
- * 加载角色列表（用于多选）
+ * 加载角色列表（用于多选）。
+ *
+ * 显式传 scope=admin：员工只能挂后台角色。后端 /roles 不传 scope 时按 admin 处理，
+ * 但这里写明意图 —— 客户角色（scope=user）出现在员工建号下拉里是历史缺陷，
+ * 后端也会直接拒绝跨域绑定。
  */
 async function loadRoles() {
   try {
-    const items = await getRoleList();
+    const items = await getRoleList('admin');
     roleList.value = items;
     roleOptions.value = items
       .filter((item) => item.status === 'active')

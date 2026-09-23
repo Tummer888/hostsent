@@ -28,6 +28,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -626,8 +627,12 @@ func TestLiveUserPurgeRetention(t *testing.T) {
 		VALUES (?, ?, ?, '', '', '', 'active', NOW())`, id, liveOAuthType, "purge-openid").Error; err != nil {
 		t.Fatalf("造绑定数据失败: %v", err)
 	}
-	if err := h.db.Exec(`INSERT INTO user_roles (user_id, role_id) VALUES (?, 7)`, id).Error; err != nil {
-		t.Fatalf("造角色数据失败: %v", err)
+	// 角色关联不再手工造：注册链路已默认绑定 roles.code='user'，
+	// 硬删除必须把这条注册时就存在的关联一并清掉。
+	var roleCount int64
+	h.db.Raw("SELECT COUNT(*) FROM user_roles WHERE user_id = ?", id).Scan(&roleCount)
+	if roleCount == 0 {
+		t.Fatalf("注册后应有默认客户角色关联")
 	}
 
 	// 订单 + 明细（order_items 无 user_id，必须经 orders 反查）
@@ -1289,15 +1294,21 @@ func TestLiveAssignRolesEmptyGuard(t *testing.T) {
 	admin := h.loginAdmin()
 	id, _ := h.registerUser("roleguard")
 
+	// 注册链路会默认绑定 roles.code='user'，所以基线不是 0：先取快照，
+	// 断言空请求既没有新增也没有清空角色。
+	before := liveUserRoleIDs(t, h, id)
+	if len(before) == 0 {
+		t.Fatalf("注册后应有默认客户角色，实际无角色关联")
+	}
+
 	status, body := h.do(http.MethodPost, fmt.Sprintf("/api/v1/admin/users/%d/roles", id), admin,
 		map[string]any{"role_ids": []uint64{}})
 	if status != http.StatusBadRequest {
 		t.Fatalf("空角色列表应返回 400，实际 HTTP %d %v", status, body)
 	}
-	var n int64
-	h.db.Raw("SELECT COUNT(*) FROM user_roles WHERE user_id = ?", id).Scan(&n)
-	if n != 0 {
-		t.Errorf("空请求写入了 %d 条角色关联", n)
+	after := liveUserRoleIDs(t, h, id)
+	if !reflect.DeepEqual(before, after) {
+		t.Errorf("空请求改动了角色关联：请求前 %v，请求后 %v", before, after)
 	}
 
 	// 非空仍应放行
@@ -1306,10 +1317,20 @@ func TestLiveAssignRolesEmptyGuard(t *testing.T) {
 	if status != http.StatusOK || digNumber(body, "code") != 0 {
 		t.Fatalf("合法角色分配被拒: HTTP %d %v", status, body)
 	}
-	h.db.Raw("SELECT COUNT(*) FROM user_roles WHERE user_id = ? AND role_id = 7", id).Scan(&n)
-	if n != 1 {
-		t.Errorf("角色未落库: count=%d", n)
+	if after = liveUserRoleIDs(t, h, id); !reflect.DeepEqual(after, []uint64{7}) {
+		t.Errorf("角色未落库或未收敛: %v", after)
 	}
+}
+
+// liveUserRoleIDs 读取用户的角色 ID 集合（升序），用于比较请求前后的角色关联。
+func liveUserRoleIDs(t *testing.T, h *liveHarness, userID uint64) []uint64 {
+	t.Helper()
+	var ids []uint64
+	if err := h.db.Raw("SELECT role_id FROM user_roles WHERE user_id = ? ORDER BY role_id", userID).
+		Scan(&ids).Error; err != nil {
+		t.Fatalf("读取用户角色失败: %v", err)
+	}
+	return ids
 }
 
 // TestLiveUserUpdatePartialAndConflict 覆盖 doc104 §10.5 的 R1 与 R2。

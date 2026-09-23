@@ -21,18 +21,22 @@ type APIResponse[T any] struct {
 }
 
 type LoginLogInfo struct {
-	ID                uint64    `json:"id"`
-	UserID            uint64    `json:"user_id"`
-	Username          string    `json:"username"`
-	LoginType         string    `json:"login_type"`
-	Result            string    `json:"result"`
-	FailureReason     string    `json:"failure_reason,omitempty"`
-	IP                string    `json:"ip"`
-	UserAgent         string    `json:"user_agent"`
-	DeviceFingerprint string    `json:"device_fingerprint"`
-	Platform          string    `json:"platform"`
-	RiskFlag          string    `json:"risk_flag"`
-	CreatedAt         time.Time `json:"created_at"`
+	ID                uint64 `json:"id"`
+	UserID            uint64 `json:"user_id"`
+	Username          string `json:"username"`
+	LoginType         string `json:"login_type"`
+	Result            string `json:"result"`
+	FailureReason     string `json:"failure_reason,omitempty"`
+	IP                string `json:"ip"`
+	UserAgent         string `json:"user_agent"`
+	DeviceFingerprint string `json:"device_fingerprint"`
+	Platform          string `json:"platform"`
+	// SubjectType 登录主体域：user（客户）/ admin（员工后台）。
+	// 两个 ID 空间共用 user_id 列且有撞号，前端展示必须带上它才不会把
+	// 「员工后台登录」读成「同 ID 客户的登录」。
+	SubjectType string    `json:"subject_type"`
+	RiskFlag    string    `json:"risk_flag"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type AuditLogInfo struct {
@@ -93,22 +97,24 @@ type BlacklistInfo struct {
 }
 
 type SessionInfo struct {
-	ID                uint64     `json:"id"`
-	SessionID         string     `json:"session_id"`
-	UserID            uint64     `json:"user_id"`
-	Username          string     `json:"username"`
-	Platform          string     `json:"platform"`
-	IP                string     `json:"ip"`
-	UserAgent         string     `json:"user_agent"`
-	DeviceFingerprint string     `json:"device_fingerprint"`
-	LoginAt           time.Time  `json:"login_at"`
-	LastActiveAt      time.Time  `json:"last_active_at"`
-	ExpiredAt         time.Time  `json:"expired_at"`
-	Status            string     `json:"status"`
-	RiskFlag          string     `json:"risk_flag"`
-	RevokedReason     string     `json:"revoked_reason,omitempty"`
-	RevokedBy         uint64     `json:"revoked_by"`
-	RevokedAt         *time.Time `json:"revoked_at,omitempty"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	ID                uint64    `json:"id"`
+	SessionID         string    `json:"session_id"`
+	UserID            uint64    `json:"user_id"`
+	Username          string    `json:"username"`
+	Platform          string    `json:"platform"`
+	IP                string    `json:"ip"`
+	UserAgent         string    `json:"user_agent"`
+	DeviceFingerprint string    `json:"device_fingerprint"`
+	LoginAt           time.Time `json:"login_at"`
+	LastActiveAt      time.Time `json:"last_active_at"`
+	ExpiredAt         time.Time `json:"expired_at"`
+	Status            string    `json:"status"`
+	// SubjectType 会话主体域：user（客户）/ admin（员工后台），语义同 LoginLogInfo。
+	SubjectType   string     `json:"subject_type"`
+	RiskFlag      string     `json:"risk_flag"`
+	RevokedReason string     `json:"revoked_reason,omitempty"`
+	RevokedBy     uint64     `json:"revoked_by"`
+	RevokedAt     *time.Time `json:"revoked_at,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 }

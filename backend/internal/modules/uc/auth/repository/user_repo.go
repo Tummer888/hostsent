@@ -22,6 +22,12 @@ type UserRepository interface {
 	FindByID(ctx context.Context, id uint64) (*model.User, error)
 	// Create 创建新用户记录。
 	Create(ctx context.Context, user *model.User) error
+	// DefaultLevelID 起始等级（启用中权重最低的一级）；无可用等级时返回 0。
+	DefaultLevelID(ctx context.Context) (uint64, error)
+	// DefaultUserRoleID 客户默认角色（roles.code='user'）ID；缺失返回 0。
+	DefaultUserRoleID(ctx context.Context) (uint64, error)
+	// BindRole 绑定客户角色关系（幂等）。
+	BindRole(ctx context.Context, userID, roleID uint64) error
 	// UpdateLoginProfile 更新用户登录档案（最近登录 IP、时间）。
 	UpdateLoginProfile(ctx context.Context, id uint64, ip string, loginAt time.Time) error
 	// UpdateProfile 更新用户基本资料（显示名、邮箱、手机、头像）。
@@ -99,6 +105,45 @@ func (r *userRepository) FindByID(ctx context.Context, id uint64) (*model.User, 
 
 func (r *userRepository) Create(ctx context.Context, user *model.User) error {
 	return r.db.WithContext(ctx).Create(user).Error
+}
+
+// DefaultLevelID 返回起始等级：启用中、权重最低的一级。
+//
+// 用「权重最低」而不是写死某个 code：等级是运营可改名/可增删的配置，
+// 写死 code 会让运营改名当天注册链路整条断掉。无可用等级时返回 0，
+// 调用方按「不设等级」处理（不阻断注册）。
+func (r *userRepository) DefaultLevelID(ctx context.Context) (uint64, error) {
+	var id uint64
+	err := r.db.WithContext(ctx).
+		Table("user_levels").
+		Select("id").
+		Where("status = ?", "active").
+		Order("weight asc, id asc").
+		Limit(1).
+		Scan(&id).Error
+	return id, err
+}
+
+// DefaultUserRoleID 返回客户默认角色（roles.code='user'）的 ID；缺失返回 0。
+func (r *userRepository) DefaultUserRoleID(ctx context.Context) (uint64, error) {
+	var id uint64
+	err := r.db.WithContext(ctx).
+		Table("roles").
+		Select("id").
+		Where("code = ?", "user").
+		Limit(1).
+		Scan(&id).Error
+	return id, err
+}
+
+// BindRole 绑定一条客户角色关系（幂等：重复绑定不报错）。
+func (r *userRepository) BindRole(ctx context.Context, userID, roleID uint64) error {
+	if userID == 0 || roleID == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Exec(
+		`INSERT INTO user_roles (user_id, role_id) VALUES (?, ?) ON CONFLICT (user_id, role_id) DO NOTHING`,
+		userID, roleID).Error
 }
 
 func (r *userRepository) UpdateLoginProfile(ctx context.Context, id uint64, ip string, loginAt time.Time) error {
@@ -245,8 +290,8 @@ func (r *userRepository) OpenSession(ctx context.Context, in SessionInput) error
 		expiredAt = in.ExpiredAt
 	}
 	return r.db.WithContext(ctx).Exec(`INSERT INTO user_sessions
-		(session_id, user_id, username, platform, ip, user_agent, login_at, last_active_at, expired_at, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`,
+		(session_id, user_id, username, platform, ip, user_agent, login_at, last_active_at, expired_at, status, subject_type, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'user', NOW(), NOW())`,
 		in.SessionID, in.UserID, in.Username, platform,
 		in.IP, truncateBytes(in.UserAgent, 255), loginAt, loginAt, expiredAt).Error
 }

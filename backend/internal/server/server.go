@@ -394,6 +394,10 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	userService.SetLoginRecorder(newImpersonationRecorder(database, jwtIssuer.ExpireIn()))
 	userService.SetLogger(logger)
 	roleService := service.NewRoleService(roleRepo, permCache)
+	// 跨域拦截：后台「新建用户 / 分配角色」只能挂客户角色（scope=user）。
+	// 员工角色由 admin_roles 承载，绑到 users 上用户在两端都拿不到正确语义，
+	// 而员工侧也完全不认这条绑定 —— 必须挡在服务层，不能只靠前端下拉过滤。
+	userService.SetRoleScopeValidator(roleService)
 	permissionService := service.NewPermissionService(permissionRepo)
 	menuService := menuservice.NewMenuService(menuRepo)
 	securityService := securityservice.NewSecurityService(securityRepo)
@@ -404,6 +408,10 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	userLevelService := levelservice.NewUserLevelService(levelRepo)
 	// 消费升级服务（P3-03）：订单支付成功后累加累计消费并重算等级（只升不降）。
 	levelUpgradeService := levelservice.NewLevelUpgradeService(levelRepo)
+	// 用户详情页改等级：account 侧只声明端口，等级校验与变更留痕都在 level 服务里。
+	userService.SetLevelAssigner(newLevelAssignerAdapter(userLevelService))
+	// 建号默认角色：后台建出来的客户号也要挂「普通用户」，与注册链路同口径。
+	userService.SetDefaultUserRoleProvider(userRepo)
 	// 用户中心模块：独立的数据访问、认证服务与处理器（与后台管理模块解耦）
 	userCenterRepo := usercenterrepo.NewUserRepository(database)
 	userCenterService := usercenterservice.NewAuthService(userCenterRepo, jwtIssuer, logger)
@@ -958,7 +966,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 回调基地址与前端回跳地址优先读系统配置（部署域名各异，写死等于每次部署改代码），
 	// 这里给的只是配置缺失时的兜底值。
 	oauthBundle := buildOAuthBundle(cfg, database, cacheClient, jwtIssuer, configValueReader,
-		referralSvc, userGroupService,
+		referralSvc, userGroupService, userCenterRepo,
 		fmt.Sprintf("http://127.0.0.1:%d/api/v1/uc/oauth", cfg.App.Port),
 		"/oauth/callback", logger)
 	// 续费完成积分：lifecycle 侧独立发放，幂等键为订单号。

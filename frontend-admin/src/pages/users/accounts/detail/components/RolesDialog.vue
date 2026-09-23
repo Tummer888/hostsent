@@ -1,7 +1,7 @@
 <template>
   <t-dialog
     v-model:visible="visible"
-    header="分配后台角色"
+    header="分配客户角色"
     width="480px"
     :confirm-btn="{ content: '保存角色', theme: 'primary', loading: submitting }"
     :cancel-btn="{ content: '取消' }"
@@ -20,12 +20,13 @@
           multiple
           clearable
           filterable
-          placeholder="不选择表示解除全部后台角色"
+          placeholder="不选择表示解除全部客户角色"
         />
       </t-form-item>
       <p class="form-hint">
-        这里分配的是<strong>后台</strong>角色（roles.scope=admin）。客户账号默认不需要任何后台角色；
-        客户侧权限（查看实例/下单等）是固定枚举，在「角色与权限」页只读展示，不在此处调整。
+        这里分配的是<strong>客户</strong>角色（roles.scope=user，如「普通用户」）。
+        员工角色（超级管理员/运维等）由员工管理维护，绑到客户账号上不会生效，
+        后端也会直接拒绝。客户侧权限（查看实例/下单等）是固定枚举，在「角色与权限」页只读展示，不在此处调整。
       </p>
     </t-form>
   </t-dialog>
@@ -67,7 +68,9 @@ watch(visible, (value) => emit('update:modelValue', value))
 async function loadRoles() {
   loading.value = true
   try {
-    const roles: RoleInfo[] = await getRoleList()
+    // 只列客户角色（roles.scope=user）：本弹窗给客户账号分配角色，
+    // 员工角色（scope=admin）出现在这里会让人误以为客户号能拿到后台权限。
+    const roles: RoleInfo[] = await getRoleList('user')
     roleOptions.value = (roles || []).map((role) => ({
       label: `${role.name}（${role.code}）`,
       value: role.id,

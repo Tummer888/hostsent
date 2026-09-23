@@ -1,6 +1,11 @@
 package model
 
-// UserRoleBrief 用户绑定的后台角色（user_roles ⋈ roles），只读展示用。
+// UserRoleBrief 用户绑定的角色（user_roles ⋈ roles），只读展示用。
+//
+// 改造前只读 user_roles 不过滤 scope，客户账号一旦被跨域绑上后台角色（如
+// super_admin），详情页就会把它显示成「超级管理员」。读侧现在限定
+// roles.scope='user'（见 userDetailRepository.ListRbacRolesByUserID），
+// 本结构保留 Scope 字段用于展示时标注。
 type UserRoleBrief struct {
 	ID    uint64 `gorm:"column:id"`
 	Code  string `gorm:"column:code"`

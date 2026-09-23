@@ -102,6 +102,9 @@ func (s *adminService) loginFail(ctx context.Context, username, ip, userAgent, r
 		IP:            ip,
 		UserAgent:     userAgent,
 		Platform:      "admin",
+		// 主体域必须显式标记：login_logs.user_id 对员工是 admins.id，
+		// 与 users.id 撞号，不标记就会被算进撞号客户的登录记录里。
+		SubjectType: security.SubjectTypeAdmin,
 	})
 }
 
@@ -172,6 +175,7 @@ func (s *adminService) Login(ctx context.Context, req dto.AdminLoginRequest, ip,
 			UserID: admin.ID, Username: admin.Username, LoginType: "password",
 			Result: security.LoginResultSuccess, IP: ip,
 			UserAgent: userAgent, Platform: "admin",
+			SubjectType: security.SubjectTypeAdmin,
 		})
 	}
 	return s.issueAdminLogin(ctx, admin)
@@ -426,12 +430,20 @@ func (s *adminService) Update(ctx context.Context, id uint64, req dto.AdminUpdat
 	}
 	// 兼容旧前端：传了单 role code 时同步为唯一角色（多角色走 SetRoles）。
 	if req.Role != "" {
-		if ids, rerr := s.rbac.FindRoleIDsByCodes(ctx, []string{req.Role}); rerr == nil && len(ids) > 0 {
-			if err := s.rbac.ReplaceAdminRoles(ctx, id, ids); err != nil {
-				return nil, err
-			}
-			admin.Role = req.Role
+		ids, rerr := s.rbac.FindRoleIDsByCodes(ctx, []string{req.Role})
+		if rerr != nil {
+			return nil, rerr
 		}
+		if len(ids) == 0 {
+			return nil, errors.New("角色不存在")
+		}
+		if err := s.ensureStaffRoles(ctx, ids); err != nil {
+			return nil, err
+		}
+		if err := s.rbac.ReplaceAdminRoles(ctx, id, ids); err != nil {
+			return nil, err
+		}
+		admin.Role = req.Role
 	}
 	// Save 会写全量列：显式 Select 保证零值（如清空 phone、关闭 sales_enabled）也能落库。
 	if err := s.repo.Update(ctx, admin); err != nil {
@@ -477,12 +489,8 @@ func (s *adminService) SetRoles(ctx context.Context, id uint64, roleIDs []uint64
 	if _, err := s.repo.FindByID(ctx, id); err != nil {
 		return err
 	}
-	valid, err := s.rbac.FindRoleCodesByIDs(ctx, roleIDs)
-	if err != nil {
+	if err := s.ensureStaffRoles(ctx, roleIDs); err != nil {
 		return err
-	}
-	if len(valid) == 0 {
-		return errors.New("角色不存在")
 	}
 	if err := s.rbac.ReplaceAdminRoles(ctx, id, roleIDs); err != nil {
 		return err
@@ -527,6 +535,11 @@ func (s *adminService) Resign(ctx context.Context, id uint64, req dto.AdminResig
 }
 
 // resolveRoleIDs 合并 role_ids 与兼容的 role code 入参，得到最终角色 ID 集合。
+//
+// 解析完立即做作用域校验：客户角色（roles.scope=user）不属于后台员工权限树
+// （doc81 §4.1），一旦绑到员工身上，该员工会经 admin_roles → role_permissions
+// 拿到客户角色的权限集（虽然当前为空，但语义上已是越域）。改造前这道校验只在
+// 前端下拉里做，直接调接口即可绕过。
 func (s *adminService) resolveRoleIDs(ctx context.Context, roleIDs []uint64, roleCode string) ([]uint64, error) {
 	ids := make([]uint64, 0, len(roleIDs)+1)
 	ids = append(ids, roleIDs...)
@@ -537,8 +550,42 @@ func (s *adminService) resolveRoleIDs(ctx context.Context, roleIDs []uint64, rol
 		}
 		ids = append(ids, extra...)
 	}
+	if err := s.ensureStaffRoles(ctx, ids); err != nil {
+		return nil, err
+	}
 	return ids, nil
 }
+
+// ensureStaffRoles 拒绝把客户角色分配给员工。
+//
+// 同时兜住「角色不存在」：改造前 SetRoles 只用 FindRoleCodesByIDs 判「至少有一个
+// 有效」，混合传入「一个有效 + 一个不存在」时会整体通过，不存在的 ID 被静默忽略，
+// 调用方以为全部绑定成功。
+func (s *adminService) ensureStaffRoles(ctx context.Context, roleIDs []uint64) error {
+	if len(roleIDs) == 0 {
+		return nil
+	}
+	scopes, err := s.rbac.FindRoleScopesByIDs(ctx, roleIDs)
+	if err != nil {
+		return err
+	}
+	for _, id := range roleIDs {
+		if id == 0 {
+			continue
+		}
+		scope, ok := scopes[id]
+		if !ok {
+			return errors.New("角色不存在")
+		}
+		if scope != model.RoleScopeAdmin {
+			return ErrRoleScopeNotStaff
+		}
+	}
+	return nil
+}
+
+// ErrRoleScopeNotStaff 选中的角色属于客户侧，不能分配给员工。
+var ErrRoleScopeNotStaff = errors.New("选中的角色是客户角色，不能分配给员工")
 
 func mustRoleCodes(ctx context.Context, rbac repository.RBACRepository, roleIDs []uint64) []string {
 	codes, err := rbac.FindRoleCodesByIDs(ctx, roleIDs)

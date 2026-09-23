@@ -49,12 +49,21 @@ type LoginLogEntry struct {
 	IP            string
 	UserAgent     string
 	Platform      string
+	// SubjectType 登录主体域（login_logs.subject_type）：空值按客户域落库。
+	// 管理端登录必须显式传 admin，见 security.LoginLogEntry 的同名注释。
+	SubjectType string
 }
 
 // 登录结果常量（与 login_logs.result 口径一致）。
 const (
 	LoginResultSuccess = "success"
 	LoginResultFailed  = "failed"
+)
+
+// 登录主体域常量（与 login_logs.subject_type 口径一致，见 pkg/security 同名常量）。
+const (
+	SubjectTypeUser  = "user"
+	SubjectTypeAdmin = "admin"
 )
 
 // NewLoginGuard 创建登录守卫。

@@ -58,8 +58,8 @@ func (s *service) recordLogin(ctx context.Context, userID uint64, username, prov
 		return nil
 	}
 	return s.db.WithContext(ctx).Exec(`INSERT INTO login_logs
-		(user_id, username, login_type, result, ip, user_agent, platform, created_at)
-		VALUES (?, ?, ?, 'success', ?, ?, 'web', NOW())`,
+		(user_id, username, login_type, result, ip, user_agent, platform, subject_type, created_at)
+		VALUES (?, ?, ?, 'success', ?, ?, 'web', 'user', NOW())`,
 		userID, username, provider, ip, truncate(userAgent, 255)).Error
 }
 
@@ -90,8 +90,8 @@ func (s *service) openSession(ctx context.Context, userID uint64, username, prov
 		expiredAt = now.Add(ttl)
 	}
 	if err := s.db.WithContext(ctx).Exec(`INSERT INTO user_sessions
-		(session_id, user_id, username, platform, ip, user_agent, login_at, last_active_at, expired_at, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`,
+		(session_id, user_id, username, platform, ip, user_agent, login_at, last_active_at, expired_at, status, subject_type, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'user', NOW(), NOW())`,
 		sessionID, userID, username, provider, ip, truncate(userAgent, 255), now, now, expiredAt).Error; err != nil {
 		return "", err
 	}

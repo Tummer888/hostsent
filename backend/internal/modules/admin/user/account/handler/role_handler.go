@@ -21,13 +21,14 @@ func NewRoleHandler(roleService service.RoleService) *RoleHandler {
 
 // ListRoles godoc
 // @Summary 角色列表
-// @Description 获取角色列表
+// @Description 获取角色列表；scope 缺省或 admin 只返回后台角色，传 user 返回客户角色
 // @Tags 角色管理
 // @Produce json
+// @Param scope query string false "角色作用域（admin/user），缺省为 admin"
 // @Success 200 {object} dto.APIResponse[[]dto.RoleInfo]
 // @Router /api/v1/admin/roles [get]
 func (h *RoleHandler) ListRoles(c *gin.Context) {
-	roles, err := h.roleService.List(c.Request.Context())
+	roles, err := h.roleService.List(c.Request.Context(), c.Query("scope"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return

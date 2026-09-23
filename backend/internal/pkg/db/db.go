@@ -855,8 +855,15 @@ func seedRoles(tx *gorm.DB) error {
 	for _, role := range defaults {
 		var existing usermodel.Role
 		if err := tx.Where("code = ?", role.Code).First(&existing).Error; err == nil {
-			// 幂等：补齐缺失的 scope，避免老库升级后后台权限树混入客户角色。
-			if existing.Scope == "" {
+			// 幂等：纠正 scope 漂移。
+			//
+			// 原先只在 scope 为空时回填，非空的错值永远不会被修 —— 实测线上
+			// roles.id=7（code='user'）是 scope='admin'，重启后端也不自愈，
+			// 于是「普通用户」被当成后台角色返回给员工建号的角色下拉
+			// （迁移 056 用 SQL 纠正了存量，这里保证今后不再复发）。
+			// scope 不可由后台修改（RoleCreateRequest 固定 admin，Update 拒绝 user），
+			// 因此以 seed 为准覆盖是安全的。
+			if existing.Scope != role.Scope {
 				if err := tx.Model(&existing).Update("scope", role.Scope).Error; err != nil {
 					return err
 				}
@@ -2163,7 +2170,10 @@ func seedDemoSessions(tx *gorm.DB, users map[string]usermodel.User) error {
 	revokedAt := now.Add(-40 * time.Minute)
 	revokedBy := users["admin"].ID
 	sessions := []securitymodel.Session{
-		{SessionID: "sess_admin_001", UserID: users["admin"].ID, Username: "admin", Platform: "web", IP: "127.0.0.1", UserAgent: "Chrome 139 / macOS", DeviceFingerprint: "fp-admin-01", LoginAt: now.Add(-8 * time.Hour), LastActiveAt: now.Add(-5 * time.Minute), ExpiredAt: &expiresA, Status: "active", RiskFlag: "normal", CreatedAt: now.Add(-8 * time.Hour), UpdatedAt: now.Add(-5 * time.Minute)},
+		// sess_admin_001 的 user_id 来自 admins 表（loadSecuritySeedUsers 把 admin
+		// 映射成 usermodel.User 以便演示数据引用操作人）。它必须显式落在 admin 域，
+		// 否则这条员工会话会被当成同 ID 客户的登录态（subject_type 默认 'user'）。
+		{SessionID: "sess_admin_001", UserID: users["admin"].ID, Username: "admin", Platform: "web", SubjectType: securitymodel.SubjectTypeAdmin, IP: "127.0.0.1", UserAgent: "Chrome 139 / macOS", DeviceFingerprint: "fp-admin-01", LoginAt: now.Add(-8 * time.Hour), LastActiveAt: now.Add(-5 * time.Minute), ExpiredAt: &expiresA, Status: "active", RiskFlag: "normal", CreatedAt: now.Add(-8 * time.Hour), UpdatedAt: now.Add(-5 * time.Minute)},
 		{SessionID: "sess_east_001", UserID: users["user_east_01"].ID, Username: "user_east_01", Platform: "web", IP: "101.32.10.12", UserAgent: "Chrome 139 / macOS", DeviceFingerprint: "fp-east-01", LoginAt: now.Add(-6 * time.Hour), LastActiveAt: now.Add(-25 * time.Minute), ExpiredAt: &expiresB, Status: "active", RiskFlag: "normal", CreatedAt: now.Add(-6 * time.Hour), UpdatedAt: now.Add(-25 * time.Minute)},
 		{SessionID: "sess_north_001", UserID: users["user_north_01"].ID, Username: "user_north_01", Platform: "web", IP: "43.132.88.9", UserAgent: "Chrome 139 / Windows", DeviceFingerprint: "fp-north-02", LoginAt: now.Add(-3 * time.Hour), LastActiveAt: now.Add(-2 * time.Hour), ExpiredAt: &expiresC, Status: "revoked", RiskFlag: "brute_force", RevokedReason: "异地风险登录", RevokedBy: &revokedBy, RevokedAt: &revokedAt, CreatedAt: now.Add(-3 * time.Hour), UpdatedAt: revokedAt},
 		{SessionID: "sess_south_001", UserID: users["user_south_01"].ID, Username: "user_south_01", Platform: "mobile", IP: "119.29.22.7", UserAgent: "Mobile Safari / iOS", DeviceFingerprint: "fp-south-new", LoginAt: now.Add(-9 * time.Hour), LastActiveAt: now.Add(-7 * time.Hour), ExpiredAt: &expiresD, Status: "expired", RiskFlag: "device_change", CreatedAt: now.Add(-9 * time.Hour), UpdatedAt: now.Add(-7 * time.Hour)},
@@ -2210,12 +2220,19 @@ func seedDefaultUserGroup(tx *gorm.DB) error {
 	return tx.Create(&group).Error
 }
 
-// seedUserLevels 注入默认用户等级。
+// seedUserLevels 注入默认用户等级（会员成长体系）。
 //
-// 等级是「消费升级」的载体：按累计消费自动升级（只升不降），不参与折扣计算。
-// 原先与等级同模块的资源配额（模板/上限/调整记录）已移除，见 migrations/017。
-// 升级门槛升级为按累计消费（P3-02）：standard 0 / business 10000 / enterprise 50000，
-// 子账号上限分别为 1 / 5 / 20；门槛为示例值，运营可在「用户等级」页调整。
+// 等级是「消费升级」的载体：按累计消费自动升级（只升不降），不参与折扣计算
+// （折扣的唯一来源是用户组，见 doc81 D3）。原先与等级同模块的资源配额
+// （模板/上限/调整记录）已移除，见 migrations/017。
+//
+// 六级会员阶梯：白银 → 黄金 → 铂金 → 钻石 → 星耀 → 王者，
+// 门槛 0 / 1000 / 5000 / 20000 / 50000 / 200000，子账号上限 1/2/5/10/20/50。
+// 门槛是运营示例值，可在「用户等级」页调整；此处只在缺级时补齐，不覆盖运营改过的值。
+//
+// 只增不改的边界：本函数对已存在的等级**只补空值**（门槛/上限为 0、权益为空时），
+// 名称与文案的变更由 migrations/057 承担 —— 启动期 seed 覆盖运营配置会让
+// 「改了名称，重启后被打回去」成为长期困扰。
 func seedUserLevels(tx *gorm.DB) error {
 	admin, err := loadAdminAsUser(tx)
 	if err != nil {
@@ -2223,8 +2240,8 @@ func seedUserLevels(tx *gorm.DB) error {
 	}
 	levels := []levelmodel.UserLevel{
 		{
-			Name:             "标准用户",
-			Code:             "standard",
+			Name:             "白银会员",
+			Code:             "silver",
 			Weight:           10,
 			Status:           "active",
 			FeatureFlags:     "snapshot,backup",
@@ -2232,35 +2249,77 @@ func seedUserLevels(tx *gorm.DB) error {
 			UpgradeThreshold: 0,
 			MaxSubAccounts:   1,
 			Benefits:         `{"benefits":["基础工单支持","每周自动备份"]}`,
-			Description:      "默认用户等级",
+			Description:      "会员体系起点等级",
 			CreatedBy:        admin.ID,
 			UpdatedBy:        admin.ID,
 		},
 		{
-			Name:             "企业用户",
-			Code:             "business",
+			Name:             "黄金会员",
+			Code:             "gold",
 			Weight:           20,
 			Status:           "active",
-			FeatureFlags:     "snapshot,backup,ha,custom-image",
-			UpgradeCondition: "累计消费满 10000 元",
-			UpgradeThreshold: 10000,
-			MaxSubAccounts:   5,
-			Benefits:         `{"benefits":["高优先级工单","每日自动备份","自定义镜像"]}`,
-			Description:      "企业大客户等级",
+			FeatureFlags:     "snapshot,backup,daily-backup",
+			UpgradeCondition: "累计消费满 1000 元",
+			UpgradeThreshold: 1000,
+			MaxSubAccounts:   2,
+			Benefits:         `{"benefits":["优先工单支持","每日自动备份"]}`,
+			Description:      "成长型会员等级",
 			CreatedBy:        admin.ID,
 			UpdatedBy:        admin.ID,
 		},
 		{
-			Name:             "高级企业",
-			Code:             "enterprise",
+			Name:             "铂金会员",
+			Code:             "platinum",
 			Weight:           30,
 			Status:           "active",
-			FeatureFlags:     "snapshot,backup,ha,custom-image,dedicated-support",
+			FeatureFlags:     "snapshot,backup,daily-backup,custom-image",
+			UpgradeCondition: "累计消费满 5000 元",
+			UpgradeThreshold: 5000,
+			MaxSubAccounts:   5,
+			Benefits:         `{"benefits":["高优先级工单","每日自动备份","自定义镜像"]}`,
+			Description:      "进阶会员等级",
+			CreatedBy:        admin.ID,
+			UpdatedBy:        admin.ID,
+		},
+		{
+			Name:             "钻石会员",
+			Code:             "diamond",
+			Weight:           40,
+			Status:           "active",
+			FeatureFlags:     "snapshot,backup,daily-backup,custom-image",
+			UpgradeCondition: "累计消费满 20000 元",
+			UpgradeThreshold: 20000,
+			MaxSubAccounts:   10,
+			Benefits:         `{"benefits":["专属客服通道","每日自动备份","自定义镜像","快照保留 30 天"]}`,
+			Description:      "高价值会员等级",
+			CreatedBy:        admin.ID,
+			UpdatedBy:        admin.ID,
+		},
+		{
+			Name:             "星耀会员",
+			Code:             "star",
+			Weight:           50,
+			Status:           "active",
+			FeatureFlags:     "snapshot,backup,daily-backup,custom-image,sla",
 			UpgradeCondition: "累计消费满 50000 元",
 			UpgradeThreshold: 50000,
 			MaxSubAccounts:   20,
-			Benefits:         `{"benefits":["专属客户经理","SLA 保障","每日自动备份","自定义镜像"]}`,
-			Description:      "高级企业等级",
+			Benefits:         `{"benefits":["专属客户经理","SLA 保障","自定义镜像"]}`,
+			Description:      "重点客户会员等级",
+			CreatedBy:        admin.ID,
+			UpdatedBy:        admin.ID,
+		},
+		{
+			Name:             "王者会员",
+			Code:             "king",
+			Weight:           60,
+			Status:           "active",
+			FeatureFlags:     "snapshot,backup,daily-backup,custom-image,sla,dedicated-support",
+			UpgradeCondition: "累计消费满 200000 元",
+			UpgradeThreshold: 200000,
+			MaxSubAccounts:   50,
+			Benefits:         `{"benefits":["一对一专属服务","最高 SLA 保障","全部高级权益"]}`,
+			Description:      "最高会员等级",
 			CreatedBy:        admin.ID,
 			UpdatedBy:        admin.ID,
 		},
@@ -2294,7 +2353,53 @@ func seedUserLevels(tx *gorm.DB) error {
 			return err
 		}
 	}
-	return nil
+
+	// 补齐历史遗留：没有等级的用户落到最低等级。
+	//
+	// 与「注册即获得最低等级」同一口径。迁移 057 已做过一次回填，这里再做一次是因为
+	// 期间可能有别的路径（导入、脚本、旧版本写入）造出 user_level_id 为空的行；
+	// 空等级在用户端会被渲染成「无等级」，且子账号上限读到 0（=不限制）。
+	if err := backfillUserLevels(tx); err != nil {
+		return err
+	}
+	// 补齐客户角色：没有客户角色的客户账号补上 roles.code='user'。
+	return backfillUserRoles(tx)
+}
+
+// backfillUserLevels 把 user_level_id 为空的用户落到最低权重等级。
+//
+// 只动空值：已有等级的用户绝不被重算 —— 等级是权益授予依据，静默改写等于撤销权益。
+func backfillUserLevels(tx *gorm.DB) error {
+	var lowest levelmodel.UserLevel
+	if err := tx.Where("status = ?", "active").Order("weight asc, id asc").First(&lowest).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil
+		}
+		return err
+	}
+	return tx.Model(&usermodel.User{}).
+		Where("user_level_id IS NULL").
+		Update("user_level_id", lowest.ID).Error
+}
+
+// backfillUserRoles 给没有任何客户角色的用户补上 roles.code='user'。
+//
+// 只处理「一条角色都没有」的账号：已经有角色的用户可能是运营显式分配的
+// （例如挂过 ops_admin），补默认角色会改变其权限语义。
+func backfillUserRoles(tx *gorm.DB) error {
+	var role usermodel.Role
+	if err := tx.Where("code = ?", "user").First(&role).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil
+		}
+		return err
+	}
+	return tx.Exec(`
+		INSERT INTO user_roles (user_id, role_id)
+		SELECT u.id, ?
+		FROM users u
+		WHERE NOT EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id)
+		ON CONFLICT (user_id, role_id) DO NOTHING`, role.ID).Error
 }
 
 // backfillUserConsumeTotals 将 users.total_consume_amount 落列的历史数据补齐（P3-01）。
