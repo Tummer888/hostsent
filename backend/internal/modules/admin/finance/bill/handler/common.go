@@ -38,7 +38,7 @@ func writeError(err error) *apperrors.AppError {
 	case errors.Is(err, service.ErrStatusConflict), errors.Is(err, service.ErrInvoiceStatusConflict):
 		return apperrors.New(20003, err.Error())
 	case errors.Is(err, service.ErrBillNotInvoicable), errors.Is(err, service.ErrAlreadyInvoiced),
-		errors.Is(err, service.ErrInvoicePending):
+		errors.Is(err, service.ErrInvoicePending), errors.Is(err, service.ErrBillZeroAmountNotInvoicable):
 		return apperrors.New(20001, err.Error())
 	default:
 		return apperrors.New(50001, err.Error())

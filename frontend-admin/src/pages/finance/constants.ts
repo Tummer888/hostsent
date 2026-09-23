@@ -41,12 +41,18 @@ export const billStatusOptions = [
   { label: '已关账', value: 'closed' },
 ]
 
-// 账单分类（doc36 §3.4）：按消费构成区分充值/购买/续费。
+// 账单分类（doc36 §3.4）：按期账单按消费构成区分购买/续费；充值账单为逐笔凭证。
 export const billTypeOptions = [
   { label: '产品购买', value: 'consumption' },
   { label: '产品续费', value: 'renewal' },
   { label: '购买+续费', value: 'mixed' },
-  { label: '余额充值', value: 'recharge' },
+  { label: '充值账单', value: 'recharge' },
+]
+
+// 账单来源：按期归集的消费账单 vs 逐笔开的充值账单。
+export const billSourceOptions = [
+  { label: '消费账单（按期）', value: 'period' },
+  { label: '充值账单（逐笔）', value: 'recharge' },
 ]
 
 // 发票状态（doc36 §3.3）。

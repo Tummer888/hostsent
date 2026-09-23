@@ -14,9 +14,15 @@ import (
 
 // BillRepository 账单数据访问。
 type BillRepository interface {
+	// Upsert 幂等写入按期账单（source_type=period）：一个用户一个账期一张。
 	Upsert(ctx context.Context, b *model.Bill) error
+	// UpsertRechargeBill 幂等写入单笔充值账单（source_type=recharge）。
+	// 幂等键是充值单号而不是账期：同一账期充几笔就开几张账单。
+	UpsertRechargeBill(ctx context.Context, b *model.Bill) error
 	FindByID(ctx context.Context, id uint64) (*model.Bill, error)
 	FindByUserPeriod(ctx context.Context, userID uint64, period string) (*model.Bill, error)
+	// FindBySourceNo 按来源单据号读取（充值账单以充值单号回查）。
+	FindBySourceNo(ctx context.Context, sourceType, sourceNo string) (*model.Bill, error)
 	List(ctx context.Context, q dto.BillListQuery) ([]model.Bill, int64, error)
 	Close(ctx context.Context, id uint64) error
 	// MarkPaid 记录账单收款方式并置为已结清（doc34 F-11：账单须描述所用支付方式）。
@@ -40,18 +46,38 @@ func NewBillRepository(db *gorm.DB) BillRepository {
 	return &billRepository{db: db}
 }
 
-// Upsert 依据 (user_id, period) 唯一约束幂等写入账单。
+// Upsert 依据 (user_id, period) 唯一约束幂等写入按期账单。
+//
+// 唯一索引带 WHERE source_type = 'period' 谓词（055 迁移）：同账期可以并存多张
+// 充值账单，所以冲突目标必须写出同样的谓词，PostgreSQL 才认得出该用哪个索引。
 //
 // 重算只更新金额与分类，不覆盖 status/paid_*：账单一旦结清或关账，
 // 重新生成（口径调整、补算）不得把它打回未结，否则会丢失收款与发票依据。
 func (r *billRepository) Upsert(ctx context.Context, b *model.Bill) error {
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "user_id"}, {Name: "period"}},
+		TargetWhere: clause.Where{Exprs: []clause.Expression{
+			clause.Expr{SQL: "source_type = ?", Vars: []interface{}{model.SourceTypePeriod}},
+		}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"total_amount", "refund_amount", "detail",
 			"bill_type", "consume_amount", "renewal_amount",
 			"channel_refund_amount", "refund_fee_amount", "recharge_amount", "updated_at",
 		}),
+	}).Create(b).Error
+}
+
+// UpsertRechargeBill 依据 (source_type, source_no) 唯一约束幂等写入单笔充值账单。
+//
+// 冲突时 DO NOTHING 而不是覆盖金额：充值账单是「这笔钱已到账」的凭证，
+// 到账那一刻金额就定死了，重复到账回调（渠道重试）不该改动已开出的凭证。
+func (r *billRepository) UpsertRechargeBill(ctx context.Context, b *model.Bill) error {
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "source_type"}, {Name: "source_no"}},
+		TargetWhere: clause.Where{Exprs: []clause.Expression{
+			clause.Expr{SQL: "source_no <> ''"},
+		}},
+		DoNothing: true,
 	}).Create(b).Error
 }
 
@@ -65,7 +91,21 @@ func (r *billRepository) FindByID(ctx context.Context, id uint64) (*model.Bill, 
 
 func (r *billRepository) FindByUserPeriod(ctx context.Context, userID uint64, period string) (*model.Bill, error) {
 	var b model.Bill
-	if err := r.db.WithContext(ctx).Where("user_id = ? AND period = ?", userID, period).First(&b).Error; err != nil {
+	err := r.db.WithContext(ctx).
+		Where("user_id = ? AND period = ? AND source_type = ?", userID, period, model.SourceTypePeriod).
+		First(&b).Error
+	if err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
+func (r *billRepository) FindBySourceNo(ctx context.Context, sourceType, sourceNo string) (*model.Bill, error) {
+	var b model.Bill
+	err := r.db.WithContext(ctx).
+		Where("source_type = ? AND source_no = ?", sourceType, sourceNo).
+		First(&b).Error
+	if err != nil {
 		return nil, err
 	}
 	return &b, nil
@@ -112,6 +152,9 @@ func (r *billRepository) listQuery(ctx context.Context, q dto.BillListQuery, isC
 	}
 	if q.BillType != "" {
 		base = base.Where("bill_type = ?", q.BillType)
+	}
+	if q.SourceType != "" {
+		base = base.Where("source_type = ?", q.SourceType)
 	}
 	if q.InvoiceStatus != "" {
 		base = base.Where("invoice_status = ?", q.InvoiceStatus)

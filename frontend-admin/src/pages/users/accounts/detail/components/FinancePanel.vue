@@ -114,7 +114,8 @@
             <span>{{ billTypeLabel(row.bill_type) }}</span>
           </template>
           <template #total_amount="{ row }">
-            <span class="cell-muted">¥{{ formatAmount(row.total_amount) }}</span>
+            <span v-if="isRechargeBill(row)" class="cell-muted">不计应结</span>
+            <span v-else class="cell-muted">¥{{ formatAmount(row.total_amount) }}</span>
           </template>
           <template #recharge_amount="{ row }">
             <span v-if="row.recharge_amount > 0" class="cell-muted">¥{{ formatAmount(row.recharge_amount) }}</span>
@@ -342,11 +343,16 @@ const billTypeLabels: Record<string, string> = {
   consumption: '产品购买',
   renewal: '产品续费',
   mixed: '购买+续费',
-  recharge: '余额充值',
+  recharge: '充值账单',
 }
 
 function billTypeLabel(type: string): string {
   return billTypeLabels[type] || type || '—'
+}
+
+// isRechargeBill 单笔充值账单：逐笔开、无应结金额，金额列改看充值额。
+function isRechargeBill(row: BillInfo): boolean {
+  return row.source_type === 'recharge' || row.bill_type === 'recharge'
 }
 
 const invoiceStatusLabels: Record<string, string> = {

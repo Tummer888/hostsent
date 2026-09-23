@@ -74,6 +74,18 @@ func TestLivePhaseMigrations(t *testing.T) {
 			models:  []interface{}{&finbillmodel.Bill{}},
 			columns: map[string][]string{"bills": {"recharge_amount"}},
 		},
+		{
+			// 055 把账单拆成两类来源：按期消费账单（user_id+period 唯一）与
+			// 逐笔充值账单（source_type+source_no 唯一）。两个唯一索引都必须带
+			// WHERE 谓词，否则同账期的第二笔充值无处落脚。
+			name:   "055_bill_source_split",
+			file:   "../../../migrations/055_bill_source_split.sql",
+			models: []interface{}{&finbillmodel.Bill{}},
+			columns: map[string][]string{
+				"bills": {"source_type", "source_no", "recharge_amount"},
+			},
+			indexes: []string{"uk_bills_user_period", "uk_bills_source"},
+		},
 	}
 
 	for _, tc := range cases {

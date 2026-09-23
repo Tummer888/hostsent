@@ -11,8 +11,10 @@ type BillListQuery struct {
 	Status        string `form:"status" json:"status"`
 	BillType      string `form:"bill_type" json:"bill_type"`
 	InvoiceStatus string `form:"invoice_status" json:"invoice_status"`
-	Page          int    `form:"page" json:"page"`
-	PageSize      int    `form:"page_size" json:"page_size"`
+	// SourceType 按账单来源筛选：period 消费账单 / recharge 充值账单；空为全部。
+	SourceType string `form:"source_type" json:"source_type"`
+	Page       int    `form:"page" json:"page"`
+	PageSize   int    `form:"page_size" json:"page_size"`
 }
 
 // ReconcileRequest 触发对账请求
@@ -35,13 +37,18 @@ type BillInfo struct {
 	TotalAmount  float64 `json:"total_amount"`
 	RefundAmount float64 `json:"refund_amount"`
 	Status       string  `json:"status"`
+	// 来源（period 消费账单 / recharge 充值账单）与来源单据号（充值账单记充值单号）。
+	// 前端据此区分两类账单：充值账单是逐笔凭证，不是按期应结单。
+	SourceType string `json:"source_type"`
+	SourceNo   string `json:"source_no"`
 	// 分类与拆分（doc36 §3.4）
 	BillType            string  `json:"bill_type"`
 	ConsumeAmount       float64 `json:"consume_amount"`
 	RenewalAmount       float64 `json:"renewal_amount"`
 	ChannelRefundAmount float64 `json:"channel_refund_amount"`
 	RefundFeeAmount     float64 `json:"refund_fee_amount"`
-	// RechargeAmount 本期充值合计。与应结口径无关（充值不是欠款），仅作展示与对账。
+	// RechargeAmount 该账单承载的充值金额。与应结口径无关（充值不是欠款），仅作展示与对账。
+	// 按期账单恒为 0；充值账单等于该笔充值金额。
 	RechargeAmount float64 `json:"recharge_amount"`
 	// 扣点后计入口径 = 应结 + 原路退款扣点（供收入统计使用，doc36 §3.2）。
 	NetAmount float64 `json:"net_amount"`

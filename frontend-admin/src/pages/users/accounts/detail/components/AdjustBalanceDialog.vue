@@ -33,6 +33,9 @@
       </t-form-item>
       <p class="form-hint">
         提交后不可撤销，将按「{{ form.direction === 1 ? '收入' : '支出' }}」写入 wallet_transactions 并同步更新用户余额。
+        <template v-if="form.direction === 1">
+          正数按充值处理：生成充值单，并为本次充值单独开一张充值账单。
+        </template>
       </p>
     </t-form>
   </t-dialog>

@@ -36,12 +36,22 @@ type RechargeService interface {
 	SetLogger(logger *zap.Logger)
 }
 
-// BillGenerator 充值到账后归集当期账单（由装配层注入账单服务实现）。
+// BillGenerator 充值到账后开单笔充值账单（由装配层注入账单服务实现）。
 //
 // 为什么抽成端口而不是直接 import 账单服务：充值只该知道「这笔钱到账了，
-// 去把当期账归集一下」，不该知道账单怎么算。装配层知道两边，模块之间不必知道
-// —— 与 bill.ChannelRefundReader 同一形态。
-type BillGenerator func(ctx context.Context, userID uint64, period string) error
+// 去开一张属于这笔充值的账单」，不该知道账单怎么算。装配层知道两边，
+// 模块之间不必知道 —— 与 bill.ChannelRefundReader 同一形态。
+type BillGenerator func(ctx context.Context, in RechargeBill) error
+
+// RechargeBill 开一张充值账单所需的全部事实。只传基础类型：
+// 账单模块不必知道充值单的结构，也就不会反向依赖充值模块。
+type RechargeBill struct {
+	UserID     uint64
+	RechargeNo string
+	Amount     float64
+	Method     string
+	PaidAt     time.Time
+}
 
 type rechargeService struct {
 	rechargeRepo repository.RechargeRepository
@@ -128,8 +138,8 @@ func (s *rechargeService) ApproveByNo(ctx context.Context, rechargeNo string, re
 
 // doApprove 幂等确认充值单到账：pending→success，并调用账务核心入账。
 //
-// 入账成功后归集当期账单：充值额此前只躺在资金流水里，账单侧完全看不到，
-// 运营在「账单」页对不上「充值管理」页的数。归集放在入账之后、且失败只记日志
+// 入账成功后开一张本笔充值的独立账单：充值额此前只躺在资金流水里，账单侧完全看不到，
+// 运营在「账单」页对不上「充值管理」页的数。开单放在入账之后、且失败只记日志
 // 不回滚 —— 钱已经进了用户余额，把到账改回失败会造成账实不符；
 // 账单是可重算的派生数据，漏了补一次即可（管理端有「生成账单」按钮）。
 func (s *rechargeService) doApprove(ctx context.Context, rc *model.Recharge, req dto.RechargeApproveRequest, operatorID uint64) error {
@@ -166,21 +176,29 @@ func (s *rechargeService) doApprove(ctx context.Context, rc *model.Recharge, req
 	return nil
 }
 
-// generateBill 归集充值所属账期的账单。
+// generateBill 为本笔充值开一张独立账单。
 //
 // 账期按 PaidAt 取（到账时间），而不是 CreatedAt：跨月补确认的充值单
-// （上月登记、本月到账）若按登记时间归集，钱会落在已经关账的账期里，
-// 用户当期账单反而看不到这笔充值。
+// （上月登记、本月到账）若按登记时间归档，账单会落在已经关账的账期里。
+//
+// 一笔充值一张账单，幂等键是充值单号（账单模块侧），所以这里不需要先查是否已开过：
+// 渠道重复回调到 ApproveByNo 时，doApprove 在状态判断处就已幂等返回。
 func (s *rechargeService) generateBill(ctx context.Context, rc *model.Recharge) {
 	if s.billGen == nil || rc.PaidAt == nil {
 		return
 	}
-	period := rc.PaidAt.Format("200601")
-	if err := s.billGen(ctx, rc.UserID, period); err != nil && s.logger != nil {
+	err := s.billGen(ctx, RechargeBill{
+		UserID:     rc.UserID,
+		RechargeNo: rc.RechargeNo,
+		Amount:     rc.Amount,
+		Method:     rc.Method,
+		PaidAt:     *rc.PaidAt,
+	})
+	if err != nil && s.logger != nil {
 		s.logger.Warn("recharge: generate bill after approve failed",
 			zap.Uint64("user_id", rc.UserID),
 			zap.String("recharge_no", rc.RechargeNo),
-			zap.String("period", period),
+			zap.String("period", rc.PaidAt.Format("200601")),
 			zap.Error(err))
 	}
 }

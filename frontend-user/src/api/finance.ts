@@ -68,13 +68,18 @@ export interface BillInfo {
   total_amount: number
   refund_amount: number
   status: string
+  // 账单来源：period 按期消费账单 / recharge 单笔充值账单。
+  source_type?: string
+  // 来源单据号：充值账单记充值单号，可与「我的充值单」逐笔对上。
+  source_no?: string
   // 分类与拆分（doc36 §3.4）：充值/购买/续费与扣点口径。
   bill_type?: string
   consume_amount?: number
   renewal_amount?: number
   channel_refund_amount?: number
   refund_fee_amount?: number
-  // 本期充值合计：不参与应结口径（充值不是欠款），仅作展示与对账。
+  // 该账单承载的充值金额：不参与应结口径（充值不是欠款）。
+  // 按期账单恒为 0，充值账单等于该笔充值额。
   recharge_amount?: number
   // 支付方式描述（doc34 F-11）：结清时记录实收金额与所用方式/渠道。
   paid_amount?: number

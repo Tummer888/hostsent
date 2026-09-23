@@ -147,6 +147,8 @@ export interface BillListQuery {
   keyword?: string
   period?: string
   status?: string
+  /** 账单来源：period 消费账单 / recharge 充值账单 */
+  source_type?: string
   /** 账单分类：consumption / renewal / mixed / recharge */
   bill_type?: string
   /** 发票状态：none / applied / issued */
@@ -163,6 +165,10 @@ export interface BillInfo {
   total_amount: number
   refund_amount: number
   status: string
+  /** 账单来源：period 按期消费账单 / recharge 单笔充值账单 */
+  source_type?: string
+  /** 来源单据号：充值账单记充值单号（recharge_no） */
+  source_no?: string
   /** 账单分类（doc36 §3.4） */
   bill_type: string
   /** 普通消费（正） */
@@ -173,7 +179,7 @@ export interface BillInfo {
   channel_refund_amount: number
   /** 原路退回渠道扣点（真金流出） */
   refund_fee_amount: number
-  /** 本期充值合计（不参与应结口径，仅展示与对账） */
+  /** 该账单承载的充值金额（不参与应结口径）。按期账单恒为 0，充值账单等于该笔充值额 */
   recharge_amount: number
   /** 扣点后计入口径 = 应结 + 原路退款扣点 */
   net_amount: number

@@ -243,10 +243,17 @@
                 <t-tag :theme="billTypeTheme(row.bill_type)" variant="light" size="small" shape="round">
                   {{ billTypeLabel(row.bill_type) }}
                 </t-tag>
+                <!-- 充值账单逐笔开单：挂出充值单号，可与「我的充值单」逐笔核对 -->
+                <span v-if="isRechargeBill(row)" class="cell-sub">充值单 {{ row.source_no }}</span>
               </div>
             </template>
             <template #total_amount="{ row }">
-              <div class="cell-main">
+              <!-- 充值账单没有应结概念：这笔钱是我充进平台的，不是欠款 -->
+              <div v-if="isRechargeBill(row)" class="cell-main">
+                <span class="num-cell">—</span>
+                <span class="cell-sub">充值不计应结</span>
+              </div>
+              <div v-else class="cell-main">
                 <span class="num-cell num-cell--strong">¥ {{ formatPrice(row.total_amount) }}</span>
                 <span v-if="(row.channel_refund_amount || 0) > 0" class="cell-sub">
                   原路退回 ¥{{ formatPrice(row.channel_refund_amount) }}
@@ -254,13 +261,17 @@
               </div>
             </template>
             <template #recharge_amount="{ row }">
-              <div class="cell-main">
-                <span class="num-cell">¥ {{ formatPrice(row.recharge_amount || 0) }}</span>
-                <span class="cell-sub">已充入余额，不计应结</span>
+              <div v-if="isRechargeBill(row)" class="cell-main">
+                <span class="num-cell num-cell--strong">¥ {{ formatPrice(row.recharge_amount || 0) }}</span>
+                <span class="cell-sub">已充入余额</span>
               </div>
+              <span v-else class="time-text">—</span>
             </template>
             <template #refund_amount="{ row }">
-              <div class="cell-main">
+              <div v-if="isRechargeBill(row)" class="cell-main">
+                <span class="num-cell">—</span>
+              </div>
+              <div v-else class="cell-main">
                 <span class="num-cell">¥ {{ formatPrice(row.refund_amount) }}</span>
                 <span v-if="(row.refund_fee_amount || 0) > 0" class="cell-sub">
                   扣点 ¥{{ formatPrice(row.refund_fee_amount) }}
@@ -595,8 +606,15 @@ const invoiceForm = reactive<{ invoice_type: string; title: string; tax_no: stri
 
 // 只有已结清且未开票（或曾被驳回）的账单可申请开票。
 function canApplyInvoice(row: BillInfo): boolean {
+  if (isRechargeBill(row)) return false // 充值账单没有应结金额，票面为 0，不给开票入口
   if (row.status !== 'paid') return false
   return !row.invoice_status || row.invoice_status === 'none' || row.invoice_status === 'rejected'
+}
+
+// isRechargeBill 判断是否为单笔充值账单：逐笔开、到账即结清、不计应结。
+// 金额列与操作列都按这个分叉，否则用户会把充值凭证当成一张待缴的欠款单。
+function isRechargeBill(row: BillInfo): boolean {
+  return row.source_type === 'recharge' || row.bill_type === 'recharge'
 }
 
 function openInvoiceDialog(row: BillInfo) {

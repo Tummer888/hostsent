@@ -10,9 +10,21 @@ import (
 	"hostsent/backend/internal/pkg/money"
 )
 
-// genBillNo 生成账单号，如 20260908BILL00001。
+// genBillNo 生成按期账单号，如 20260908BILL00001。
 func genBillNo() string {
 	return fmt.Sprintf("BILL%s%05d", time.Now().Format("20060102150405"), rand.Intn(100000))
+}
+
+// genRechargeBillNo 生成充值账单号：BILLR + 充值单号后 8 位。
+//
+// 不带随机后缀：充值账单号要能从充值单号推出来，运营拿任一单号都能对上另一张；
+// 随机数会让两个号之间失去可核对的关系。长度可控（充值单号固定 RC + 时间戳 + 序号）。
+func genRechargeBillNo(rechargeNo string) string {
+	suffix := rechargeNo
+	if len(suffix) > 8 {
+		suffix = suffix[len(suffix)-8:]
+	}
+	return "BILLR" + suffix
 }
 
 // periodRange 将账期（如 202608）解析为起止时间（当月 1 日 00:00:00 ~ 月末 23:59:59）。
@@ -57,6 +69,8 @@ func buildBillInfo(b billmodel.Bill) dto.BillInfo {
 		TotalAmount:         b.TotalAmount,
 		RefundAmount:        b.RefundAmount,
 		Status:              b.Status,
+		SourceType:          defaultSourceType(b.SourceType),
+		SourceNo:            b.SourceNo,
 		BillType:            b.BillType,
 		ConsumeAmount:       b.ConsumeAmount,
 		RenewalAmount:       b.RenewalAmount,
@@ -113,6 +127,14 @@ func formatTimePtr(t *time.Time) string {
 func defaultInvoiceStatus(s string) string {
 	if s == "" {
 		return billmodel.InvoiceStatusNone
+	}
+	return s
+}
+
+// defaultSourceType 兼容旧行：列为空时按按期账单处理（055 之前只有这一种）。
+func defaultSourceType(s string) string {
+	if s == "" {
+		return billmodel.SourceTypePeriod
 	}
 	return s
 }

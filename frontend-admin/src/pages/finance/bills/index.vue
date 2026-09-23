@@ -43,6 +43,10 @@
         <t-input v-model="filters.period" placeholder="如 202608" clearable @enter="handleSearch" />
       </div>
       <div class="field">
+        <span class="field__label">账单来源</span>
+        <t-select v-model="filters.source_type" clearable placeholder="全部来源" :options="billSourceOptions" />
+      </div>
+      <div class="field">
         <span class="field__label">账单分类</span>
         <t-select v-model="filters.bill_type" clearable placeholder="全部分类" :options="billTypeOptions" />
       </div>
@@ -92,18 +96,21 @@
                 {{ billTypeLabel(row.bill_type) }}
               </t-tag>
             </span>
+            <!-- 充值账单逐笔开单：把充值单号挂出来，运营可与「充值管理」逐笔核对 -->
+            <span v-if="isRechargeBill(row)" class="price-sub">充值单 {{ row.source_no }}</span>
           </div>
         </template>
 
         <template #total_amount="{ row }">
-          <div class="price-cell">
+          <!-- 充值账单没有应结概念：这笔钱是平台收到的，不是用户欠的 -->
+          <div v-if="isRechargeBill(row)" class="price-cell">
+            <span class="price-main">¥{{ formatPrice(row.recharge_amount) }}</span>
+            <span class="price-sub">充值金额 · 已到账，不计应结</span>
+          </div>
+          <div v-else class="price-cell">
             <span class="price-main">¥{{ formatPrice(row.total_amount) }}</span>
             <span class="price-sub">
               消费 {{ formatPrice(row.consume_amount) }} · 续费 {{ formatPrice(row.renewal_amount) }}
-            </span>
-            <!-- 充值不计入应结：充值是用户把钱打进平台，不是欠款，所以单独一行展示 -->
-            <span v-if="row.recharge_amount > 0" class="price-sub">
-              本期充值 ¥{{ formatPrice(row.recharge_amount) }}
             </span>
             <!-- 原路退回扣点只在收入统计基数上再扣一次：账单应结与票面仍是 total_amount -->
             <span v-if="row.refund_fee_amount > 0" class="price-sub">
@@ -113,7 +120,8 @@
         </template>
 
         <template #refund_amount="{ row }">
-          <div class="price-cell">
+          <span v-if="isRechargeBill(row)" class="price-sub">—</span>
+          <div v-else class="price-cell">
             <span class="price-main">¥{{ formatPrice(row.refund_amount) }}</span>
             <span v-if="row.channel_refund_amount > 0" class="price-sub">
               原路 ¥{{ formatPrice(row.channel_refund_amount) }} · 扣点 ¥{{ formatPrice(row.refund_fee_amount) }}
@@ -214,6 +222,7 @@ import { DialogPlugin, MessagePlugin, type PageInfo, type PrimaryTableCol } from
 
 import { closeBill, generateBill, getBillList } from '@/api/finance'
 import {
+  billSourceOptions,
   billStatusLabel,
   billStatusOptions,
   billStatusTheme,
@@ -245,6 +254,7 @@ const filters = reactive<{
   user_id: string | undefined
   keyword: string | undefined
   period: string | undefined
+  source_type: string | undefined
   bill_type: string | undefined
   status: string | undefined
   invoice_status: string | undefined
@@ -253,6 +263,7 @@ const filters = reactive<{
   user_id: undefined,
   keyword: undefined,
   period: undefined,
+  source_type: undefined,
   bill_type: undefined,
   status: undefined,
   invoice_status: undefined,
@@ -297,6 +308,12 @@ const columns: PrimaryTableCol<BillInfo>[] = [
   },
 ]
 
+// isRechargeBill 判断是否为单笔充值账单：充值账单逐笔开、已到账、没有应结金额，
+// 表格里的金额列与操作列都要按这个分叉，否则运营会把充值凭证当成一张欠款单。
+function isRechargeBill(row: BillInfo): boolean {
+  return row.source_type === 'recharge' || row.bill_type === 'recharge'
+}
+
 async function loadBills() {
   loading.value = true
   try {
@@ -305,6 +322,7 @@ async function loadBills() {
       user_id: filters.user_id ? Number(filters.user_id) : undefined,
       keyword: filters.keyword,
       period: filters.period,
+      source_type: filters.source_type,
       bill_type: filters.bill_type,
       status: filters.status,
       invoice_status: filters.invoice_status,
@@ -362,6 +380,7 @@ function handleResetFilters() {
   filters.user_id = undefined
   filters.keyword = undefined
   filters.period = undefined
+  filters.source_type = undefined
   filters.bill_type = undefined
   filters.status = undefined
   filters.invoice_status = undefined

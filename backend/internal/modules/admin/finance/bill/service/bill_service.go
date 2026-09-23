@@ -22,6 +22,9 @@ type BillService interface {
 	Close(ctx context.Context, id uint64) error
 	// GenerateForUser 归集某用户在指定账期（如 202608）的消费/退款，生成（upsert）账单。
 	GenerateForUser(ctx context.Context, userID uint64, period string) (*billmodel.Bill, error)
+	// GenerateRechargeBill 为单笔已到账充值开独立账单：一笔充值一张，幂等键 = 充值单号。
+	// 已开过则直接返回既有账单（渠道重复回调不该被当成失败）。
+	GenerateRechargeBill(ctx context.Context, in RechargeBillInput) (*billmodel.Bill, error)
 	// FindByID 读取账单（支付前校验应结金额）。
 	FindByID(ctx context.Context, id uint64) (*billmodel.Bill, error)
 	// MarkPaid 账单结清并登记支付方式（由支付单 paid 事件触发，幂等）。
@@ -54,6 +57,17 @@ type BillPointHook func(ctx context.Context, userID uint64, billNo string, amoun
 // ChannelRefundReader 读取账期内原路退回（channel 模式）的本金与渠道扣点。
 // 财务模块不 import 订单模块，由装配层注入订单退款仓储的实现（userID=0 为全平台）。
 type ChannelRefundReader func(ctx context.Context, userID uint64, start, end *time.Time) (principal, fee float64, err error)
+
+// RechargeBillInput 单笔充值开账所需的全部事实（由充值侧在到账后提供）。
+//
+// 只传基础类型：账单模块不需要知道充值单长什么样，也就不必 import 充值模块。
+type RechargeBillInput struct {
+	UserID     uint64
+	RechargeNo string
+	Amount     float64
+	Method     string
+	PaidAt     time.Time
+}
 
 type billService struct {
 	billRepo repository.BillRepository
@@ -105,7 +119,7 @@ func (s *billService) Close(ctx context.Context, id uint64) error {
 	return s.billRepo.Close(ctx, id)
 }
 
-// GenerateForUser 归集某用户在指定账期的消费/退款与分类拆分，生成（upsert）账单。
+// GenerateForUser 归集某用户在指定账期的消费/退款与分类拆分，生成（upsert）按期账单。
 //
 // 口径（doc36 §3.2/§3.4）：
 //
@@ -113,12 +127,14 @@ func (s *billService) Close(ctx context.Context, id uint64) error {
 //	renewal_amount  = 续费订单消费（正）
 //	refund_amount   = 余额退回（正，消费口径不变：钱仍在平台内）
 //	channel_refund_amount / refund_fee_amount = 原路退回本金 / 渠道扣点（真金流出平台）
-//	recharge_amount = 本期充值合计（正，**不计入应结**）
+//	recharge_amount = 恒为 0（充值走单笔账单，见 GenerateRechargeBill）
 //	total_amount    = consume + renewal - channel_refund（账单金额：本金口径）
 //	net_amount      = total_amount - refund_fee_amount（收入统计基数：再扣渠道扣点）
 //
-// 充值单独成列而不并入 total_amount：充值是用户把钱打进平台，不是欠款，
-// 计进应结会让账单金额虚高（用户看到「欠款」里含自己充的钱）。
+// 本期充值额不在这里归集：同一账期充几笔就有几张充值账单（各自带充值单号），
+// 把钱汇总进这一行会让用户拿到的凭证只有一个「本期充值合计」，对不上逐笔充值单。
+// 这里把 recharge_amount 明确写 0，是为了让按期账单永远不承载充值额 ——
+// 否则重算时旧值会赖在行上，与充值账单重复计数。
 func (s *billService) GenerateForUser(ctx context.Context, userID uint64, period string) (*billmodel.Bill, error) {
 	start, end, err := periodRange(period)
 	if err != nil {
@@ -133,18 +149,13 @@ func (s *billService) GenerateForUser(ctx context.Context, userID uint64, period
 	if err != nil {
 		return nil, err
 	}
-	rechargeSum, err := s.txRepo.SumByType(ctx, userID, []string{transmodel.TxTypeRecharge}, start, end)
-	if err != nil {
-		return nil, err
-	}
 	// 分类拆分：普通消费 vs 续费消费；原路退款本金与扣点需按退款单拆分。
 	purchase, renewalConsume, err := s.txRepo.SumConsumeSplit(ctx, userID, start, end)
 	if err != nil {
 		return nil, err
 	}
-	consume := money.Round2(-consumeSum)  // 消费为正数
-	refund := money.Round2(refundSum)     // 余额退回为正数（原路退回不产生钱包流水）
-	recharge := money.Round2(rechargeSum) // 充值为收入（+），取正数
+	consume := money.Round2(-consumeSum) // 消费为正数
+	refund := money.Round2(refundSum)    // 余额退回为正数（原路退回不产生钱包流水）
 
 	// 原路退回部分：从订单退款单拆出本金与扣点（doc36 §3.2）。
 	channelRefund, refundFee := s.splitChannelRefund(ctx, userID, start, end)
@@ -160,27 +171,78 @@ func (s *billService) GenerateForUser(ctx context.Context, userID uint64, period
 		"consume": consume, "refund": refund,
 		"purchase": purchase, "renewal": renewalConsume,
 		"channel_refund": channelRefund, "refund_fee": refundFee,
-		"recharge": recharge,
 	})
 	b := &billmodel.Bill{
 		BillNo:              genBillNo(),
 		UserID:              userID,
 		Period:              period,
+		SourceType:          billmodel.SourceTypePeriod,
 		TotalAmount:         total,
 		RefundAmount:        refund,
 		Status:              billmodel.BillStatusUnpaid,
-		BillType:            classifyBill(purchase, renewalConsume, recharge),
+		BillType:            classifyBill(purchase, renewalConsume),
 		ConsumeAmount:       money.Round2(purchase),
 		RenewalAmount:       money.Round2(renewalConsume),
 		ChannelRefundAmount: channelRefund,
 		RefundFeeAmount:     refundFee,
-		RechargeAmount:      recharge,
+		RechargeAmount:      0,
 		Detail:              string(detail),
 	}
 	if err := s.billRepo.Upsert(ctx, b); err != nil {
 		return nil, err
 	}
 	return s.billRepo.FindByUserPeriod(ctx, userID, period)
+}
+
+// GenerateRechargeBill 为单笔已到账充值开独立账单：一笔充值一张。
+//
+// 与按期账单的差别不只是幂等键（充值单号 vs 账期），还有「谁是事实来源」：
+// 按期账单是从资金流水重算出来的派生数据，充值账单记的是充值单到账那一刻的事实，
+// 所以金额直接取调用方给的值，不再回头去流水里求和 —— 重算不会改变已开出的凭证。
+//
+// 状态直接置 paid、并回填实收与支付方式：钱在充值到账时就已进平台，
+// 这张账单描述的是「已收到的这笔钱」，没有待结过程，也就没有「去支付」入口。
+func (s *billService) GenerateRechargeBill(ctx context.Context, in RechargeBillInput) (*billmodel.Bill, error) {
+	if in.RechargeNo == "" {
+		return nil, ErrRechargeNoRequired
+	}
+	if in.Amount <= 0 {
+		return nil, ErrRechargeAmountInvalid
+	}
+	amount := money.Round2(in.Amount)
+	paidAt := in.PaidAt
+	if paidAt.IsZero() {
+		paidAt = time.Now()
+	}
+	detail, _ := json.Marshal(map[string]any{
+		"recharge":    amount,
+		"recharge_no": in.RechargeNo,
+		"method":      in.Method,
+	})
+	b := &billmodel.Bill{
+		BillNo:         genRechargeBillNo(in.RechargeNo),
+		UserID:         in.UserID,
+		Period:         paidAt.Format("200601"),
+		SourceType:     billmodel.SourceTypeRecharge,
+		SourceNo:       in.RechargeNo,
+		TotalAmount:    0, // 充值不是欠款，不进应结
+		Status:         billmodel.BillStatusPaid,
+		BillType:       billmodel.BillTypeRecharge,
+		RechargeAmount: amount,
+		PaidAmountFen:  int64(money.Round2(amount * 100)),
+		PaidMethod:     in.Method,
+		PaidAt:         &paidAt,
+		Detail:         string(detail),
+	}
+	if err := s.billRepo.UpsertRechargeBill(ctx, b); err != nil {
+		return nil, err
+	}
+	// 回读而不是直接返回 b：重复到账时落库的是先开的那张，返回它才对得上账。
+	existing, err := s.billRepo.FindBySourceNo(ctx, billmodel.SourceTypeRecharge, in.RechargeNo)
+	if err != nil {
+		return nil, err
+	}
+	return existing, nil
 }
 
 // splitChannelRefund 读取账期内原路退回（refund_mode='channel'）的本金与渠道扣点。
@@ -199,12 +261,12 @@ func (s *billService) splitChannelRefund(ctx context.Context, userID uint64, sta
 	return money.Round2(principal), money.Round2(fee)
 }
 
-// classifyBill 依据金额构成判定账单分类。
+// classifyBill 依据消费构成判定按期账单的分类。
 //
-// recharge 只在当期**没有任何消费/续费**时才作为分类：有消费时账单主体仍是
-// 消费，充其量是「本期还充过钱」，把分类改成 recharge 会让运营在账单列表里
-// 误以为这张账单是充值单。充值额本身有独立列，不需要靠分类表达。
-func classifyBill(purchase, renewal, recharge float64) string {
+// 只回答「这张消费账单是什么钱」：充值是独立账单（bill_type=recharge 由
+// GenerateRechargeBill 直接写死），不参与这里的判定 —— 一张按期账单上
+// 既没有充值额也不该被分类成充值，否则运营会把消费账单误读成充值凭证。
+func classifyBill(purchase, renewal float64) string {
 	switch {
 	case renewal > 0 && purchase > 0:
 		return billmodel.BillTypeMixed
@@ -212,8 +274,6 @@ func classifyBill(purchase, renewal, recharge float64) string {
 		return billmodel.BillTypeRenewal
 	case purchase > 0:
 		return billmodel.BillTypeConsumption
-	case recharge > 0:
-		return billmodel.BillTypeRecharge
 	default:
 		return billmodel.BillTypeConsumption
 	}
@@ -266,6 +326,11 @@ func (s *billService) RequestInvoice(ctx context.Context, userID uint64, req dto
 	}
 	if b.Status != billmodel.BillStatusPaid {
 		return nil, ErrBillNotInvoicable
+	}
+	// 应结金额为 0 的账单开不出有意义的票：充值账单（total_amount=0，充值是平台收到的钱）
+	// 与空壳账单都属此类，前端已隐藏入口，服务端同样拒绝，避免绕过前端落一张 0 元申请。
+	if money.Round2(b.TotalAmount) <= 0 {
+		return nil, ErrBillZeroAmountNotInvoicable
 	}
 	if b.InvoiceStatus == billmodel.InvoiceStatusIssued {
 		return nil, ErrAlreadyInvoiced

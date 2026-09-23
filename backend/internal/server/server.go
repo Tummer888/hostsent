@@ -276,11 +276,19 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	billService := finbillservice.NewBillService(billRepo, walletTxRepo)
 	// 原路退回扣点来源（doc36 §3.2）：财务侧不 import 订单模块，由装配层注入退款仓储实现。
 	billService.SetChannelRefundReader(orderRefundRepo.SumChannelRefund)
-	// 充值到账后归集当期账单：充值侧不 import 账单模块，同样由装配层接线。
+	// 充值到账后开单笔充值账单：充值侧不 import 账单模块，同样由装配层接线。
 	// 缺此接线时人工代充值只写资金流水，账单页看不到这笔充值（doc36 §3.4 的
 	// bill_type=recharge 长期无数据即由此而来）。
-	rechargeService.SetBillGenerator(func(ctx context.Context, userID uint64, period string) error {
-		_, err := billService.GenerateForUser(ctx, userID, period)
+	// 一笔充值一张账单（幂等键 = 充值单号），不并入当期消费账单：并进一张后
+	// 用户拿到的凭证只剩一个「本期充值合计」，对不上「我的充值单」的逐笔记录。
+	rechargeService.SetBillGenerator(func(ctx context.Context, in finrechargeservice.RechargeBill) error {
+		_, err := billService.GenerateRechargeBill(ctx, finbillservice.RechargeBillInput{
+			UserID:     in.UserID,
+			RechargeNo: in.RechargeNo,
+			Amount:     in.Amount,
+			Method:     in.Method,
+			PaidAt:     in.PaidAt,
+		})
 		return err
 	})
 	rechargeService.SetLogger(logger)
@@ -424,6 +432,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 			case errors.Is(err, finbillservice.ErrBillNotFound):
 				return apperrors.New(20002, err.Error())
 			case errors.Is(err, finbillservice.ErrBillNotInvoicable),
+				errors.Is(err, finbillservice.ErrBillZeroAmountNotInvoicable),
 				errors.Is(err, finbillservice.ErrAlreadyInvoiced),
 				errors.Is(err, finbillservice.ErrInvoicePending),
 				errors.Is(err, finbillservice.ErrInvoiceNotFound),

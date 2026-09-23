@@ -15,7 +15,20 @@ const (
 	BillTypeConsumption string = "consumption" // 产品消费
 	BillTypeRenewal     string = "renewal"     // 续费消费
 	BillTypeMixed       string = "mixed"       // 消费 + 续费混合
-	BillTypeRecharge    string = "recharge"    // 充值（当期只有充值、无消费/续费）
+	BillTypeRecharge    string = "recharge"    // 充值账单（单笔充值，见 SourceTypeRecharge）
+)
+
+// 账单来源：决定「一张账单代表什么」，也是唯一约束的划分依据。
+//
+//	period   按期归集的消费账单：一个用户一个账期一张，重复生成覆盖（uk_bills_user_period）。
+//	recharge 单笔充值账单：一笔充值一张，SourceNo 记充值单号，逐笔可追溯（uk_bills_source）。
+//
+// 为什么充值要单独成账而不是并进当期消费账单：两笔充值并进一张账单后，
+// 用户拿到的凭证只有一个「本期充值合计」，对不上「我的充值单」里的逐笔记录，
+// 也看不出哪笔钱对应哪次到账（见 055 迁移）。
+const (
+	SourceTypePeriod   string = "period"
+	SourceTypeRecharge string = "recharge"
 )
 
 // Bill 账单：按账期归集消费与退款，形成对账口径。
@@ -30,6 +43,10 @@ const (
 //
 // RechargeAmount 是唯一不参与应结的金额列：充值是用户把钱打进平台，不是欠款，
 // 计进 total_amount 会让应结金额虚高。它只作展示与对账（见 054 迁移）。
+//
+// 两种来源各自记账（见 SourceType 注释与 055 迁移）：SourceType=period 的行
+// recharge_amount 恒为 0，充值额只出现在 SourceType=recharge 的单笔账单上 ——
+// 同一笔钱不在两处重复计数，且每笔充值都有自己的凭证。
 type Bill struct {
 	ID           uint64  `gorm:"primaryKey;autoIncrement"`
 	BillNo       string  `gorm:"column:bill_no;size:64;uniqueIndex;not null"`
@@ -38,13 +55,18 @@ type Bill struct {
 	TotalAmount  float64 `gorm:"column:total_amount;type:decimal(15,2);not null;default:0"`  // 本期应结
 	RefundAmount float64 `gorm:"column:refund_amount;type:decimal(15,2);not null;default:0"` // 本期退款合计（余额+原路）
 	Status       string  `gorm:"size:20;not null;default:unpaid"`                            // unpaid/paid/closed
+	// 来源（period/recharge）：唯一约束按来源分流，见 SourceType 注释与 055 迁移。
+	SourceType string `gorm:"column:source_type;size:20;not null;default:period"`
+	// SourceNo 来源单据号：充值账单记充值单号（recharge_no），按期账单为空。
+	SourceNo string `gorm:"column:source_no;size:64;not null;default:''"`
 	// 分类与拆分（doc36 §3.4）
 	BillType            string  `gorm:"column:bill_type;size:20;not null;default:consumption"`
 	ConsumeAmount       float64 `gorm:"column:consume_amount;type:decimal(15,2);not null;default:0"`
 	RenewalAmount       float64 `gorm:"column:renewal_amount;type:decimal(15,2);not null;default:0"`
 	ChannelRefundAmount float64 `gorm:"column:channel_refund_amount;type:decimal(15,2);not null;default:0"`
 	RefundFeeAmount     float64 `gorm:"column:refund_fee_amount;type:decimal(15,2);not null;default:0"`
-	// 本期充值合计（不参与 total_amount 应结口径，见结构体注释与迁移 054）。
+	// 充值金额（不参与 total_amount 应结口径，见结构体注释与迁移 054）。
+	// 按期账单恒为 0；充值账单等于该笔充值金额。
 	RechargeAmount float64 `gorm:"column:recharge_amount;type:decimal(15,2);not null;default:0"`
 	// 支付方式描述（doc34 F-11 / doc35）：账单结清时记录实际收款方式与渠道实例。
 	PaidAmountFen int64      `gorm:"column:paid_amount_fen;not null;default:0"`

@@ -129,6 +129,7 @@ export function getBillList(params: BillListQuery): Promise<BillListResponse> {
       keyword: params.keyword,
       period: params.period,
       status: params.status,
+      source_type: params.source_type,
       bill_type: params.bill_type,
       invoice_status: params.invoice_status,
       page: params.page,
