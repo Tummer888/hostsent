@@ -298,11 +298,11 @@ export function formatAmount(value: number | null | undefined): string {
   return Number(value || 0).toFixed(2)
 }
 
-/** ISO 时间 → YYYY-MM-DD HH:mm。 */
+/** ISO 时间 → YYYY-MM-DD HH:mm。可空时间列的 Go 零值（0001-01-01）折成「—」。 */
 export function formatDateTime(value?: string | null): string {
   if (!value) return '—'
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
+  if (Number.isNaN(date.getTime()) || date.getFullYear() <= 1) return '—'
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }

@@ -19,7 +19,6 @@ type UserInfo struct {
 	Avatar             string   `json:"avatar"`
 	Tier               string   `json:"tier"`
 	LastLoginIP        string   `json:"last_login_ip"`
-	LastLoginIPRegion  string   `json:"last_login_ip_region"`
 	OAuthProvider      string   `json:"oauth_provider"`
 	OAuthOpenID        string   `json:"oauth_openid"`
 	Balance            float64  `json:"balance"`
@@ -151,14 +150,34 @@ type UserStatsResponse struct {
 	Deleted int64 `json:"deleted"`
 }
 
-type RegionStatItem struct {
-	Region string `json:"region"`
-	Count  int64  `json:"count"`
+// OnlineUserItem 在线用户一行（总览页卡片）。
+type OnlineUserItem struct {
+	UserID     uint64     `json:"user_id"`
+	Username   string     `json:"username"`
+	Platform   string     `json:"platform"`
+	IP         string     `json:"ip"`
+	SessionID  string     `json:"session_id"`
+	LoginAt    time.Time  `json:"login_at"`
+	LastActive time.Time  `json:"last_active_at"`
+	ExpiredAt  *time.Time `json:"expired_at"`
 }
 
-type RegionStatsResponse struct {
-	Items []RegionStatItem `json:"items"`
-	Total int64            `json:"total"`
+// RecentLoginItem 最近登录用户一行（总览页卡片）。
+type RecentLoginItem struct {
+	UserID      uint64    `json:"user_id"`
+	Username    string    `json:"username"`
+	IP          string    `json:"ip"`
+	LastLoginAt time.Time `json:"last_login_at"`
+	Status      string    `json:"status"`
+}
+
+// UserActivityOverviewResponse 总览页活动统计（替代原登录 IP 归属地分布）。
+type UserActivityOverviewResponse struct {
+	OnlineTotal       int64             `json:"online_total"`
+	OnlineUsers       []OnlineUserItem  `json:"online_users"`
+	RecentTotal       int64             `json:"recent_total"`
+	RecentUsers       []RecentLoginItem `json:"recent_users"`
+	RecentWindowHours int               `json:"recent_window_hours"`
 }
 
 type RoleInfo struct {

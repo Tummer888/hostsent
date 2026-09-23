@@ -370,9 +370,13 @@ function handleLogout() {
     onConfirm: () => {
       dialog.destroy()
       closeUserMenu()
-      userStore.logout()
-      MessagePlugin.success('已退出登录')
-      router.replace('/login')
+      // 先撤销服务端会话再跳转：只清本地的话，那条会话会一直挂在安全页的
+      // 「在线用户」里直到令牌自然过期（默认 24 小时）。
+      // 撤销失败不阻断退出（store 内已兜底），所以用 finally 而不是 then。
+      void userStore.logoutRemote().finally(() => {
+        MessagePlugin.success('已退出登录')
+        router.replace('/login')
+      })
     },
     onClose: () => dialog.destroy(),
   })

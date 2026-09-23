@@ -180,7 +180,7 @@ func TestStateSigner_RejectsExpired(t *testing.T) {
 func TestStateSigner_AudienceIsolation(t *testing.T) {
 	s := NewStateSigner("secret", "hostsent-test")
 
-	ticket, err := s.IssueTicket(7, "wechat", false, "n")
+	ticket, err := s.IssueTicket(7, "wechat", ModeLogin, false, "", "n")
 	if err != nil {
 		t.Fatalf("签发 ticket 失败: %v", err)
 	}
@@ -231,10 +231,12 @@ func TestStateSigner_RejectsWrongSigningMethod(t *testing.T) {
 	}
 }
 
-// ticket 往返：needBind 标记必须原样带出，前端据此决定跳绑定页还是直接登录。
+// ticket 往返：needBind、mode 与 session_id 都必须原样带出 ——
+// needBind 决定前端提示「先去注册」，mode 决定「登录还是绑定」，
+// session_id 是换票时签进令牌的 sid（会话校验依据）。三者任一丢失都会错判。
 func TestStateSigner_TicketRoundTrip(t *testing.T) {
 	s := NewStateSigner("secret", "hostsent-test")
-	ticket, err := s.IssueTicket(99, "alipay", true, "n2")
+	ticket, err := s.IssueTicket(99, "alipay", ModeLogin, true, "oauth_alipay_abc", "n2")
 	if err != nil {
 		t.Fatalf("签发 ticket 失败: %v", err)
 	}
@@ -244,6 +246,50 @@ func TestStateSigner_TicketRoundTrip(t *testing.T) {
 	}
 	if claims.UserID != 99 || claims.Provider != "alipay" || !claims.NeedBind {
 		t.Fatalf("ticket 声明往返不一致: %+v", claims)
+	}
+	if claims.Mode != ModeLogin {
+		t.Fatalf("ticket 未带出 mode: %+v", claims)
+	}
+	if claims.SessionID != "oauth_alipay_abc" {
+		t.Fatalf("ticket 未带出 session_id: %+v", claims)
+	}
+}
+
+// 绑定票据必须带 ModeBind，且 mode 缺失/非法一律拒绝 ——
+// 换票侧靠这个字段区分登录与绑定，靠「token 是否为空」去猜会误报。
+func TestStateSigner_BindTicketMode(t *testing.T) {
+	s := NewStateSigner("secret", "hostsent-test")
+	ticket, err := s.IssueTicket(5, "wechat", ModeBind, false, "", "n3")
+	if err != nil {
+		t.Fatalf("签发绑定 ticket 失败: %v", err)
+	}
+	claims, err := s.ParseTicket(ticket)
+	if err != nil {
+		t.Fatalf("解析绑定 ticket 失败: %v", err)
+	}
+	if claims.Mode != ModeBind {
+		t.Fatalf("绑定 ticket 的 mode = %q，期望 %q", claims.Mode, ModeBind)
+	}
+	if claims.SessionID != "" {
+		t.Fatalf("绑定不该带 session_id，实际 %q", claims.SessionID)
+	}
+
+	// mode 缺失的票据必须被拒（否则换票侧只能靠猜）。
+	noMode := jwt.NewWithClaims(jwt.SigningMethodHS256, TicketClaims{
+		UserID:   5,
+		Provider: "wechat",
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "hostsent-test",
+			Audience:  jwt.ClaimStrings{AudienceOAuthTicket},
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute)),
+		},
+	})
+	raw, err := noMode.SignedString([]byte("secret"))
+	if err != nil {
+		t.Fatalf("构造无 mode 票据失败: %v", err)
+	}
+	if _, err := s.ParseTicket(raw); err == nil {
+		t.Fatal("缺少 mode 的票据必须被拒")
 	}
 }
 

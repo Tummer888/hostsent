@@ -21,7 +21,6 @@ export interface LoginLogInfo {
   result: string
   failure_reason?: string
   ip: string
-  ip_region: string
   user_agent: string
   device_fingerprint: string
   platform: string
@@ -93,7 +92,6 @@ export interface SessionInfo {
   username: string
   platform: string
   ip: string
-  ip_region: string
   user_agent: string
   device_fingerprint: string
   login_at: string

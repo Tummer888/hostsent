@@ -34,6 +34,14 @@ export interface MyOAuthBinding {
 export interface OAuthExchangeResult {
   token: string
   need_bind: boolean
+  /**
+   * 绑定流程完成（非登录）。
+   *
+   * 后端把「绑定」也走同一条 ticket → exchange 链路（回调是免登录入口，
+   * 只有票据能安全带回结果）。此时 token 为空，前端必须回个人中心刷新绑定列表，
+   * 而不是当登录成功处理 —— 否则用户会看到一个空会话的「已登录」状态。
+   */
+  bind_done?: boolean
   provider: string
   user?: {
     id: number

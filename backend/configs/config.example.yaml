@@ -5,6 +5,16 @@ app:
   port: 8080
   read_timeout: 10
   write_timeout: 10
+  # 可信反向代理网段（CIDR），逗号分隔。只有直连对端落在这里面时，gin 才采信
+  # X-Forwarded-For / X-Real-IP 还原客户端 IP；否则一律记对端地址。
+  #
+  # 留空/不配 = 仅信任回环（127.0.0.1/8、::1）。生产必须显式加上真实入口
+  # （宿主机 nginx 所在网段、云负载均衡回源段）。**绝不要写 0.0.0.0/0**：
+  # 该 IP 同时是登录失败锁定（failIPKey）的键，全信任等于开放伪造与绕过。
+  # 可用 HOSTSENT_APP_TRUSTED_PROXIES=10.1.2.0/24,10.1.3.0/24 覆盖。
+  trusted_proxies:
+    - 127.0.0.1/8
+    - ::1
 
 auth:
   bearer_prefix: Bearer

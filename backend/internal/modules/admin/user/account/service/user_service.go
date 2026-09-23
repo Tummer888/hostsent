@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 
 	"hostsent/backend/internal/modules/admin/user/account/dto"
@@ -36,15 +37,23 @@ type UserService interface {
 	// 在全库留下的引用变成悬空行。注销一律走 DeletionService.SoftDelete，
 	// 到期清理走 DeletionService.Purge。留一个同名入口只会让「哪个才是注销」永久含糊。
 	GetStats(ctx context.Context) (*dto.UserStatsResponse, error)
-	GetRegionStats(ctx context.Context) (*dto.RegionStatsResponse, error)
-	// Impersonate 代登录：按用户 ID 签发用户端 token（仅 active 用户）
-	Impersonate(ctx context.Context, id uint64) (*dto.ImpersonateResponse, error)
+	// ActivityOverview 总览页活动统计：在线用户 + 最近登录用户（含 IP）。
+	// 替代原 GetRegionStats（IP 归属地分布已整体下线）。
+	ActivityOverview(ctx context.Context, limit, windowHours int) (*dto.UserActivityOverviewResponse, error)
+	// Impersonate 代登录：按用户 ID 签发用户端 token（仅 active 用户）。
+	// 除签发令牌外，还会补写 login_logs 与 user_sessions（platform=admin），
+	// 让代登录在安全页留下可审计的痕迹（doc104 F15 的同口径延伸）。
+	Impersonate(ctx context.Context, req ImpersonateRequest) (*dto.ImpersonateResponse, error)
 	// Recharge 用户充值（人工调账）
 	Recharge(ctx context.Context, id uint64, amount float64, remark string, operatorID uint64) error
 	// ListMembers 查询某主账号名下的成员（子账号）及权限（P4-10）
 	ListMembers(ctx context.Context, ownerID uint64) (*dto.SubAccountMemberListResponse, error)
 	// SetDefaultGroupProvider 注入默认用户组解析能力（可选，装配层调用）。
 	SetDefaultGroupProvider(provider DefaultGroupProvider)
+	// SetLoginRecorder 注入代登录审计写入能力（可选，装配层调用）。
+	SetLoginRecorder(recorder LoginRecorder)
+	// SetLogger 注入日志器（可选，装配层调用）。
+	SetLogger(logger *zap.Logger)
 }
 
 // Recharger 充值能力适配器（由装配层注入，内部调用财务钱包调账）。
@@ -56,15 +65,65 @@ type DefaultGroupProvider interface {
 	DefaultGroupID(ctx context.Context) (uint64, error)
 }
 
+// LoginRecorder 代登录的审计写入能力（由装配层注入，直接落 login_logs /
+// user_sessions 两张表）。
+//
+// 为什么不让本服务直接持有 *gorm.DB 写这两张表：login_logs / user_sessions 的
+// 模型归属 admin/user/security 模块，直接 import 会让 account 模块反向依赖
+// security 模块。抽成函数端口与 Recharger 同形态 —— 装配层知道两边，模块之间不必知道。
+//
+// 返回新建会话的 session_id：代登录令牌必须带上 sid 才能被会话校验放行，
+// 而会话行是这里写的 —— 只有本端口知道 id 是什么。返回空串表示未写会话
+// （loginRecord 未装配，或表不可用），此时调用方应放弃签发令牌。
+type LoginRecorder func(ctx context.Context, in ImpersonationRecord) (string, error)
+
+// ImpersonationRecord 一次代登录要落库的审计事实。
+//
+// AdminID/AdminName 由 handler 从管理端 claims 取出后填入：服务层只负责
+// 「谁被代登录 + 从哪来」，不参与管理端身份解析。
+type ImpersonationRecord struct {
+	UserID    uint64
+	Username  string
+	AdminID   uint64
+	AdminName string
+	IP        string
+	UserAgent string
+}
+
+// ImpersonateRequest 代登录入参。
+type ImpersonateRequest struct {
+	// UserID 被代登录的用户。
+	UserID uint64
+	// AdminID / AdminName 发起代登录的管理员（落 login_logs.failure_reason，
+	// 现有表结构没有 operator 列，用该列承载「谁代的」是唯一不新增迁移的做法）。
+	AdminID   uint64
+	AdminName string
+	// IP / UserAgent 管理端请求的来源，落会话与登录日志。
+	IP        string
+	UserAgent string
+}
+
 type userService struct {
 	repo         repository.UserRepository
 	jwtIssuer    *pkgauth.JWTIssuer
 	recharge     Recharger
 	defaultGroup DefaultGroupProvider
+	loginRecord  LoginRecorder
+	logger       *zap.Logger
 }
 
 func NewUserService(repo repository.UserRepository, jwtIssuer *pkgauth.JWTIssuer, recharge Recharger) UserService {
 	return &userService{repo: repo, jwtIssuer: jwtIssuer, recharge: recharge}
+}
+
+// SetLoginRecorder 注入代登录审计写入能力（可选，装配层调用）。
+func (s *userService) SetLoginRecorder(recorder LoginRecorder) {
+	s.loginRecord = recorder
+}
+
+// SetLogger 注入日志器（可选，装配层调用）；未注入时审计失败只静默忽略。
+func (s *userService) SetLogger(logger *zap.Logger) {
+	s.logger = logger
 }
 
 // SetDefaultGroupProvider 注入默认用户组解析能力（可选，装配层调用）。
@@ -345,20 +404,6 @@ func (s *userService) GetStats(ctx context.Context) (*dto.UserStatsResponse, err
 	}, nil
 }
 
-func (s *userService) GetRegionStats(ctx context.Context) (*dto.RegionStatsResponse, error) {
-	rows, err := s.repo.RegionStats(ctx)
-	if err != nil {
-		return nil, err
-	}
-	items := make([]dto.RegionStatItem, 0, len(rows))
-	var total int64
-	for _, r := range rows {
-		items = append(items, dto.RegionStatItem{Region: r.Region, Count: r.Count})
-		total += r.Count
-	}
-	return &dto.RegionStatsResponse{Items: items, Total: total}, nil
-}
-
 func toUserInfo(user model.User) dto.UserInfo {
 	return dto.UserInfo{
 		ID:                     user.ID,
@@ -377,7 +422,6 @@ func toUserInfo(user model.User) dto.UserInfo {
 		Avatar:                 user.Avatar,
 		Tier:                   user.Tier,
 		LastLoginIP:            user.LastLoginIP,
-		LastLoginIPRegion:      user.LastLoginIPRegion,
 		OAuthProvider:          user.OAuthProvider,
 		OAuthOpenID:            user.OAuthOpenID,
 		Balance:                user.Balance,
@@ -460,8 +504,20 @@ func ptrUserInfo(user model.User) *dto.UserInfo {
 }
 
 // Impersonate 代登录：按用户 ID 签发用户端 JWT。
-func (s *userService) Impersonate(ctx context.Context, id uint64) (*dto.ImpersonateResponse, error) {
-	user, err := s.repo.FindByID(ctx, id)
+//
+// 除签发令牌外还补写 login_logs（login_type=impersonate）与 user_sessions
+// （platform=admin）：代登录本质是「管理员以用户身份进入用户中心」，
+// 是权限最大的一次操作，不落痕就等于安全页看不到任何迹象 ——
+// 既无法回答「这个用户的会话是哪来的」，也让「强制下线」对该会话失效。
+//
+// 顺序是「先写会话、再签令牌」：令牌里的 sid 必须是真实存在的会话，
+// 中间件会拿它查 user_sessions，查不到就 401。反过来先签令牌再补会话的话，
+// 补写失败会签出一张立刻不可用的令牌。
+//
+// 审计写入失败**阻断**代登录（与登录链路的 openSession 同口径）：没有会话
+// 就没有可撤销的登录态，而代登录恰恰是权限最大、最需要能撤销的一次操作。
+func (s *userService) Impersonate(ctx context.Context, req ImpersonateRequest) (*dto.ImpersonateResponse, error) {
+	user, err := s.repo.FindByID(ctx, req.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -471,20 +527,74 @@ func (s *userService) Impersonate(ctx context.Context, id uint64) (*dto.Imperson
 	if s.jwtIssuer == nil {
 		return nil, errors.New("代登录能力未配置")
 	}
-	info, err := s.FindByID(ctx, id)
+	if s.loginRecord == nil {
+		return nil, errors.New("代登录审计未配置")
+	}
+	info, err := s.FindByID(ctx, req.UserID)
 	if err != nil {
 		return nil, err
+	}
+	sessionID, err := s.loginRecord(ctx, ImpersonationRecord{
+		UserID:    user.ID,
+		Username:  user.Username,
+		AdminID:   req.AdminID,
+		AdminName: req.AdminName,
+		IP:        req.IP,
+		UserAgent: req.UserAgent,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if sessionID == "" {
+		return nil, errors.New("代登录会话未创建，请稍后重试")
 	}
 	// 代登录同样带上归属信息（P4-03），子账号被代登录时权限语义与本人登录一致。
 	ownerID := uint64(0)
 	if user.OwnerUserID != nil {
 		ownerID = *user.OwnerUserID
 	}
-	token, err := s.jwtIssuer.GenerateUserFull(user.Username, user.ID, "", ownerID, user.IsSubAccount)
+	token, err := s.jwtIssuer.GenerateUserSession(user.Username, user.ID, user.Tier, ownerID, user.IsSubAccount, sessionID)
 	if err != nil {
 		return nil, err
 	}
 	return &dto.ImpersonateResponse{Token: token, UserInfo: *info}, nil
+}
+
+// ActivityOverview 总览页活动统计（在线用户 + 最近登录用户，含 IP）。
+func (s *userService) ActivityOverview(ctx context.Context, limit, windowHours int) (*dto.UserActivityOverviewResponse, error) {
+	data, err := s.repo.ActivityOverview(ctx, limit, windowHours)
+	if err != nil {
+		return nil, err
+	}
+	resp := &dto.UserActivityOverviewResponse{
+		OnlineTotal:       data.OnlineTotal,
+		OnlineUsers:       make([]dto.OnlineUserItem, 0, len(data.OnlineUsers)),
+		RecentTotal:       data.RecentTotal,
+		RecentUsers:       make([]dto.RecentLoginItem, 0, len(data.RecentUsers)),
+		RecentWindowHours: data.RecentWindowHours,
+	}
+	for _, row := range data.OnlineUsers {
+		resp.OnlineUsers = append(resp.OnlineUsers, dto.OnlineUserItem{
+			UserID:     row.UserID,
+			Username:   row.Username,
+			Platform:   row.Platform,
+			IP:         row.IP,
+			SessionID:  row.SessionID,
+			LoginAt:    row.LoginAt,
+			LastActive: row.LastActive,
+			ExpiredAt:  row.ExpiredAt,
+		})
+	}
+	for _, row := range data.RecentUsers {
+		resp.RecentUsers = append(resp.RecentUsers, dto.RecentLoginItem{
+			UserID:      row.UserID,
+			Username:    row.Username,
+			IP:          row.IP,
+			LastLoginAt: row.LastLoginAt,
+			Status:      row.Status,
+		})
+	}
+	return resp, nil
 }
 
 // ErrInvalidAdjustAmount 调账金额为 0：既不是充值也不是扣减，视为误操作。

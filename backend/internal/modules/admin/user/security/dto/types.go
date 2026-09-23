@@ -28,7 +28,6 @@ type LoginLogInfo struct {
 	Result            string    `json:"result"`
 	FailureReason     string    `json:"failure_reason,omitempty"`
 	IP                string    `json:"ip"`
-	IPRegion          string    `json:"ip_region"`
 	UserAgent         string    `json:"user_agent"`
 	DeviceFingerprint string    `json:"device_fingerprint"`
 	Platform          string    `json:"platform"`
@@ -100,7 +99,6 @@ type SessionInfo struct {
 	Username          string     `json:"username"`
 	Platform          string     `json:"platform"`
 	IP                string     `json:"ip"`
-	IPRegion          string     `json:"ip_region"`
 	UserAgent         string     `json:"user_agent"`
 	DeviceFingerprint string     `json:"device_fingerprint"`
 	LoginAt           time.Time  `json:"login_at"`

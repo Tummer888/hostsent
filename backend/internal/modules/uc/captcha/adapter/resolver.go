@@ -133,10 +133,10 @@ func (r *LoginLogRecorder) RecordLogin(ctx context.Context, e service.LoginLogEn
 		platform = "web"
 	}
 	return r.db.WithContext(ctx).Exec(`INSERT INTO login_logs
-		(user_id, username, login_type, result, failure_reason, ip, ip_region, user_agent, platform, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+		(user_id, username, login_type, result, failure_reason, ip, user_agent, platform, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
 		e.UserID, e.Username, e.LoginType, e.Result, e.FailureReason,
-		e.IP, e.IPRegion, truncate(e.UserAgent, 255), platform).Error
+		e.IP, truncate(e.UserAgent, 255), platform).Error
 }
 
 // CountRecentFailures 统计窗口内失败次数（Redis 降级路径）。

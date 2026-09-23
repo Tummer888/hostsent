@@ -153,7 +153,13 @@
 
       <div class="third-grid">
         <div v-for="item in oauthItems" :key="item.provider" class="security-item">
-          <span class="security-icon security-icon--third">
+          <!-- 图标按「是否已绑定」区分明暗：未绑定用中性灰，已绑定用该渠道的品牌色。
+               此前两者都是 .security-icon 的同一份灰色（.security-icon--third 只改了背景），
+               用户根本看不出哪几个已经绑好，只能靠右侧的文字徽章。 -->
+          <span
+            class="security-icon security-icon--third"
+            :class="[oauthBrandClass(item), item.binding ? 'is-bound' : 'is-unbound']"
+          >
             <component :is="oauthIcon(item.provider, item.icon)" size="20" />
           </span>
           <div class="security-body">
@@ -164,6 +170,9 @@
                 <ErrorCircleFilledIcon v-else size="13" />
                 {{ item.binding ? '已绑定' : '未绑定' }}
               </span>
+              <!-- 主绑定：users.oauth_provider 快照指向的那一条（后端已返回 is_primary，
+                   此前前端未消费）。换绑/解绑时这一条要额外小心，值得显式标出来。 -->
+              <span v-if="item.binding?.is_primary" class="security-status is-primary">主绑定</span>
             </div>
             <p class="security-desc">{{ oauthDesc(item) }}</p>
           </div>
@@ -401,6 +410,7 @@ import {
   CopyIcon,
   Edit1Icon,
   ErrorCircleFilledIcon,
+  LinkIcon,
   LockOnIcon,
   LogoAlipayIcon,
   LogoGithubIcon,
@@ -902,7 +912,19 @@ function oauthIcon(provider: string, icon: string) {
     wecom: LogoWecomIcon,
     github: LogoGithubIcon,
   }
-  return map[icon || provider] || LogoWechatStrokeIcon
+  // 兜底用中性链环图标而不是微信图标：此前未知渠道会渲染成「微信」，
+  // 运营新配一个渠道后用户会看到一个名不副实的微信 logo。
+  return map[icon || provider] || LinkIcon
+}
+
+// 品牌色的类名取自 icon 语义名而不是 provider 名：运营把某个渠道的 icon
+// 配成 alipay 时，颜色必须跟着图标走，否则会出现「支付宝图标配微信绿」。
+// 未登记品牌色的渠道返回空串，落到 .security-icon 的默认灰。
+const OAUTH_BRAND_KEYS = new Set(['wechat', 'qq', 'alipay', 'wecom', 'github'])
+
+function oauthBrandClass(item: OAuthItem) {
+  const key = item.icon || item.provider
+  return OAUTH_BRAND_KEYS.has(key) ? `oauth-${key}` : ''
 }
 
 function oauthDesc(item: OAuthItem) {
@@ -1304,6 +1326,35 @@ onMounted(async () => {
   background: #fff;
 }
 
+/* 第三方图标的明暗区分。
+   已绑定 = 该渠道品牌色（图标是 currentColor 的 SVG，改 color 即改填充）；
+   未绑定 = 中性灰，并且降低不透明度。
+   此前两者共用 .security-icon 的 #64748b，用户无法从图标看出绑定状态。 */
+.security-icon--third.is-unbound {
+  color: #cbd5e1;
+  opacity: 0.75;
+}
+
+.security-icon--third.is-bound.oauth-wechat {
+  color: #07c160;
+}
+
+.security-icon--third.is-bound.oauth-qq {
+  color: #12b7f5;
+}
+
+.security-icon--third.is-bound.oauth-alipay {
+  color: #1677ff;
+}
+
+.security-icon--third.is-bound.oauth-wecom {
+  color: #0052d9;
+}
+
+.security-icon--third.is-bound.oauth-github {
+  color: #24292e;
+}
+
 /* ========== 安全设置 ========== */
 .security-grid {
   display: grid;
@@ -1379,6 +1430,15 @@ onMounted(async () => {
   color: #f59e0b;
 }
 
+/* 主绑定标记：中性色，与「已绑定」的绿色区分开（它说的是身份，不是状态）。 */
+.security-status.is-primary {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 12px;
+}
+
 .security-desc {
   margin: 0;
   font-size: 12.5px;
@@ -1431,6 +1491,12 @@ onMounted(async () => {
 .dark .security-icon {
   background: #1f1f1f;
   color: #94a3b8;
+}
+
+/* 深色下未绑定的第三方图标要压得更暗才有「未启用」的观感：
+   .dark .security-icon 的 #94a3b8 是给通用图标用的正常亮度。 */
+.dark .security-icon--third.is-unbound {
+  color: #475569;
 }
 
 .dark .security-item {

@@ -177,7 +177,6 @@ var sources = []Source{
 			col("result", "结果", "enum", 90, false),
 			col("failure_reason", "失败原因", "text", 0, true),
 			maskedCol("ip", "IP", 130),
-			col("ip_region", "归属地", "text", 140),
 			col("user_agent", "UserAgent", "text", 0, true),
 			col("platform", "平台", "text", 110),
 			col("created_at", "时间", "time", 170),

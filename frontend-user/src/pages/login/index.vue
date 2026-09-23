@@ -409,7 +409,7 @@
                 @click="handleOAuthLogin(item.provider)"
                 @keydown.enter="handleOAuthLogin(item.provider)"
               >
-                <component :is="oauthIcon(item)" class="third-party-icon" :class="item.provider" />
+                <component :is="oauthIcon(item)" class="third-party-icon" :class="oauthKey(item)" />
               </div>
             </div>
           </div>
@@ -474,6 +474,7 @@ import {
   LogoAlipayIcon,
   LogoWecomIcon,
   LogoGithubIcon,
+  LinkIcon,
 } from 'tdesign-icons-vue-next'
 
 import CaptchaImage from '@/components/verify/CaptchaImage.vue'
@@ -721,7 +722,8 @@ const oauthProviders = ref<PublicOAuthProvider[]>([])
 const oauthLoading = ref('')
 
 // 后端返回的 icon 是描述符里的语义名（wechat/qq/alipay），前端映射到图标组件。
-// 未知渠道回落一个通用图标而不是报错：后端新增渠道时前端不该整块渲染失败。
+// 未知渠道回落一个通用链环图标而不是微信图标：回落成微信会让「运营新配的渠道」
+// 在登录页显示成一个名不副实的微信 logo，用户点进去才发现是别家。
 function oauthIcon(item: PublicOAuthProvider) {
   const map: Record<string, unknown> = {
     wechat: LogoWechatStrokeIcon,
@@ -730,7 +732,17 @@ function oauthIcon(item: PublicOAuthProvider) {
     wecom: LogoWecomIcon,
     github: LogoGithubIcon,
   }
-  return map[item.icon || item.provider] || LogoWechatStrokeIcon
+  return map[item.icon || item.provider] || LinkIcon
+}
+
+// 品牌色的 CSS 类名取自 icon 语义名而不是 provider 名：运营把某个渠道的 icon
+// 配成 alipay 时，颜色必须跟着图标走，否则会出现「支付宝图标配微信绿」。
+// 未登记品牌色的渠道不带类，落到 .third-party-icon 的中性灰。
+const OAUTH_BRAND_KEYS = new Set(['wechat', 'qq', 'alipay', 'wecom', 'github'])
+
+function oauthKey(item: PublicOAuthProvider) {
+  const key = item.icon || item.provider
+  return OAUTH_BRAND_KEYS.has(key) ? key : ''
 }
 
 async function loadOAuthProviders() {
@@ -1316,8 +1328,10 @@ onMounted(() => {
   box-shadow: 0 6px 16px rgba(0, 82, 217, 0.15);
 }
 
+/* 未登记品牌色的渠道用中性灰（图标是 currentColor 的 SVG，改 color 即改填充）。 */
 .third-party-icon {
   font-size: 20px;
+  color: #64748b;
 }
 
 .third-party-icon.wechat {

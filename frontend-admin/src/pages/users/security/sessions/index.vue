@@ -153,7 +153,6 @@ const columns = computed<PrimaryTableCol<SessionInfo>[]>(() => [
   { colKey: 'username', title: '用户名', width: 120 },
   { colKey: 'platform', title: '平台', width: 90 },
   { colKey: 'ip', title: 'IP 地址', width: 130 },
-  { colKey: 'ip_region', title: '归属地', minWidth: 120 },
   { colKey: 'device_fingerprint', title: '设备指纹', minWidth: 180, ellipsis: true },
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'risk_flag', title: '风险', width: 110 },

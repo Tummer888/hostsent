@@ -41,8 +41,7 @@ type UserRepository interface {
 	RolesByUserIDs(ctx context.Context, ids []uint64) (map[uint64][]model.Role, error)
 	SetRoles(ctx context.Context, userID uint64, roleIDs []uint64) error
 	Stats(ctx context.Context) (*model.UserStats, error)
-	RegionStats(ctx context.Context) ([]model.RegionStat, error)
-	UpdateLoginProfile(ctx context.Context, id uint64, ip string, ipRegion string, loginAt time.Time) error
+	UpdateLoginProfile(ctx context.Context, id uint64, ip string, loginAt time.Time) error
 	// NamesByIDs 批量查询用户 ID → 用户名，用于订单/实例的「操作人」列（P4-09）。
 	NamesByIDs(ctx context.Context, ids []uint64) (map[uint64]string, error)
 	// ListSubAccounts 查询某主账号名下的全部子账号（P4-10）。
@@ -66,6 +65,9 @@ type UserRepository interface {
 	CountDeleted(ctx context.Context) (int64, error)
 	// AdminNamesByIDs 批量查询管理员 ID → 显示名（回收站「注销人」列）。
 	AdminNamesByIDs(ctx context.Context, ids []uint64) (map[uint64]string, error)
+	// ActivityOverview 总览页活动统计：在线用户（user_sessions）与最近登录用户
+	// （users.last_login_*）。替代原「登录 IP 归属地分布」。
+	ActivityOverview(ctx context.Context, limit, windowHours int) (*model.UserActivityOverview, error)
 }
 
 type userRepository struct {
@@ -259,9 +261,6 @@ func applyUserFilters(db *gorm.DB, query dto.UserListQuery) *gorm.DB {
 
 	if status := strings.TrimSpace(query.Status); status != "" {
 		db = db.Where("users.status = ?", status)
-	}
-	if ipRegion := strings.TrimSpace(query.LastLoginIPRegion); ipRegion != "" {
-		db = db.Where("users.last_login_ip_region = ?", ipRegion)
 	}
 	if keyword := strings.TrimSpace(query.Keyword); keyword != "" {
 		like := "%" + keyword + "%"
@@ -460,30 +459,89 @@ func (r *userRepository) Stats(ctx context.Context) (*model.UserStats, error) {
 	return &stats, nil
 }
 
-// RegionStats 按登录 IP 归属地聚合用户数，仅统计 last_login_ip_region 非空的用户，按数量倒序返回。
-func (r *userRepository) RegionStats(ctx context.Context) ([]model.RegionStat, error) {
-	var rows []model.RegionStat
-	if err := r.db.WithContext(ctx).
-		Model(&model.User{}).
-		Select("last_login_ip_region AS region, COUNT(*) AS count").
-		Where("last_login_ip_region IS NOT NULL AND last_login_ip_region <> ''").
-		Where("deleted_at IS NULL").
-		Group("last_login_ip_region").
-		Order("count DESC").
-		Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	return rows, nil
-}
-
-func (r *userRepository) UpdateLoginProfile(ctx context.Context, id uint64, ip string, ipRegion string, loginAt time.Time) error {
+func (r *userRepository) UpdateLoginProfile(ctx context.Context, id uint64, ip string, loginAt time.Time) error {
 	updates := map[string]any{
-		"last_login_at":        loginAt,
-		"last_login_ip":        ip,
-		"last_login_ip_region": ipRegion,
+		"last_login_at": loginAt,
+		"last_login_ip": ip,
 	}
 	return r.db.WithContext(ctx).Model(&model.User{}).Where("id = ?", id).Updates(updates).Error
 }
+
+// ActivityOverview 总览页活动统计（在线用户 + 最近登录用户）。
+//
+// 为什么放在用户仓储而不是安全仓储：安全页的会话列表是「管理动作」视角
+// （踢人、按风险筛），这里是「运营概览」视角（谁在线、谁刚登录）。共用一张表
+// 但读法完全不同，硬塞进安全仓储只会让那边的接口长出概览专用的排序与限额。
+//
+// 两个口径都只统计**未注销**用户，否则注销账号会一直挂在「在线用户」里，
+// 而用户已经登不进去了（软删除与 status=cancelled 都不会自动改会话状态）。
+func (r *userRepository) ActivityOverview(ctx context.Context, limit, windowHours int) (*model.UserActivityOverview, error) {
+	if limit <= 0 {
+		limit = defaultActivityLimit
+	}
+	if windowHours <= 0 {
+		windowHours = defaultRecentWindowHours
+	}
+	out := &model.UserActivityOverview{
+		OnlineUsers:       []model.OnlineUserRow{},
+		RecentUsers:       []model.RecentLoginRow{},
+		RecentWindowHours: windowHours,
+	}
+
+	// —— 在线用户 ——
+	// 「在线」= 会话**有效**，即 status='active' 且未过期（expired_at 为 NULL 或未到）。
+	// 只看 status 是不够的：过期时间到了之后没有任何东西会把 status 改掉，
+	// 会话会永远留在 active 里，在线数只增不减（实测确认）。
+	// 这与 pkg/sessionguard 的判据必须一致 —— 那是「令牌还能不能用」的唯一口径，
+	// 两边不一致会出现「显示在线但请求 401」。
+	//
+	// LastActiveAt 目前只在开会话那一刻写入（全仓没有心跳更新路径），所以它表示的是
+	// 「本次会话开始活跃的时间」而非「最后一次活跃时间」。这里如实按会话状态判定，
+	// 并在返回里带上 last_active_at 让前端展示真实语义，不额外编造新鲜度窗口。
+	onlineBase := r.db.WithContext(ctx).Table("user_sessions AS s").
+		Joins("JOIN users AS u ON u.id = s.user_id AND u.deleted_at IS NULL").
+		Where("s.status = ?", "active").
+		Where("s.expired_at IS NULL OR s.expired_at > ?", time.Now())
+	if err := onlineBase.Session(&gorm.Session{}).Count(&out.OnlineTotal).Error; err != nil {
+		return nil, err
+	}
+	if err := onlineBase.Session(&gorm.Session{}).
+		Select("s.user_id, s.username, s.platform, s.ip, s.session_id, s.login_at, s.last_active_at, s.expired_at").
+		Order("s.last_active_at DESC, s.id DESC").
+		Limit(limit).
+		Scan(&out.OnlineUsers).Error; err != nil {
+		return nil, err
+	}
+
+	// —— 最近登录用户 ——
+	// users.last_login_at 是「最后一次成功登录」的权威快照（登录链路每次成功都回写），
+	// 比扫 login_logs 便宜得多，且天然去重到「每用户一行」。
+	recentBase := r.db.WithContext(ctx).Model(&model.User{}).
+		Where("deleted_at IS NULL").
+		Where("last_login_at IS NOT NULL").
+		Where("last_login_at >= ?", time.Now().Add(-time.Duration(windowHours)*time.Hour))
+	if err := recentBase.Session(&gorm.Session{}).Count(&out.RecentTotal).Error; err != nil {
+		return nil, err
+	}
+	if err := recentBase.Session(&gorm.Session{}).
+		Select("id AS user_id, username, last_login_ip AS ip, last_login_at, status").
+		Order("last_login_at DESC").
+		Limit(limit).
+		Scan(&out.RecentUsers).Error; err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+// 总览两张卡的默认展示条数与「最近登录」的统计窗口。
+//
+// 条数取 8：卡片高度与用户状态分布图对齐，再多就要滚动，而概览页的价值在
+// 「一眼看出异常」而不是完整列表 —— 完整列表在安全页与用户列表都有。
+const (
+	defaultActivityLimit   = 8
+	defaultRecentWindowHours = 24
+)
 
 func firstRoleCode(roles []model.Role) string {
 	if len(roles) == 0 {

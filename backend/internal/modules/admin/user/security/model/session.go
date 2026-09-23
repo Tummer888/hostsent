@@ -9,7 +9,6 @@ type Session struct {
 	Username          string     `gorm:"size:64;not null;index"`
 	Platform          string     `gorm:"size:32;not null;index"`
 	IP                string     `gorm:"column:ip;size:64;index"`
-	IPRegion          string     `gorm:"column:ip_region;size:128"`
 	UserAgent         string     `gorm:"column:user_agent;size:255"`
 	DeviceFingerprint string     `gorm:"column:device_fingerprint;size:255"`
 	LoginAt           time.Time  `gorm:"column:login_at;not null;index"`

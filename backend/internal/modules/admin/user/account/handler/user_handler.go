@@ -13,6 +13,7 @@ import (
 	"hostsent/backend/internal/modules/admin/user/account/dto"
 	"hostsent/backend/internal/modules/admin/user/account/service"
 	"hostsent/backend/internal/pkg/middleware"
+	"hostsent/backend/internal/pkg/netutil"
 )
 
 type UserHandler struct {
@@ -42,20 +43,24 @@ func (h *UserHandler) GetStats(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": stats, "timestamp": time.Now().Unix()})
 }
 
-// GetRegionStats godoc
-// @Summary 用户登录 IP 归属地分布
-// @Description 获取用户按登录 IP 归属地分布的统计
+// GetActivityOverview godoc
+// @Summary 用户活动总览
+// @Description 返回当前在线用户与最近登录用户（含 IP），替代原「登录 IP 归属地分布」。
 // @Tags 用户管理
 // @Produce json
-// @Success 200 {object} dto.APIResponse[dto.RegionStatsResponse]
-// @Router /api/v1/admin/users/region-stats [get]
-func (h *UserHandler) GetRegionStats(c *gin.Context) {
-	stats, err := h.userService.GetRegionStats(c.Request.Context())
+// @Param limit query int false "每张卡片返回条数" default(8)
+// @Param window_hours query int false "最近登录统计窗口（小时）" default(24)
+// @Success 200 {object} dto.APIResponse[dto.UserActivityOverviewResponse]
+// @Router /api/v1/admin/users/activity-overview [get]
+func (h *UserHandler) GetActivityOverview(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	windowHours, _ := strconv.Atoi(c.Query("window_hours"))
+	data, err := h.userService.ActivityOverview(c.Request.Context(), limit, windowHours)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": stats, "timestamp": time.Now().Unix()})
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
 }
 
 // ListUsers godoc
@@ -117,7 +122,7 @@ func (h *UserHandler) ExportUsers(c *gin.Context) {
 	c.Writer.WriteString("\xEF\xBB\xBF")
 
 	w := csv.NewWriter(c.Writer)
-	_ = w.Write([]string{"ID", "用户名", "姓名", "邮箱", "手机号", "状态", "用户组", "用户等级", "归属销售", "登录IP", "IP归属地", "余额", "累计消费", "实名认证", "注销时间", "注册时间"})
+	_ = w.Write([]string{"ID", "用户名", "姓名", "邮箱", "手机号", "状态", "用户组", "用户等级", "归属销售", "登录IP", "余额", "累计消费", "实名认证", "注销时间", "注册时间"})
 	for _, item := range items {
 		realname := "未实名"
 		if item.RealNameVerifiedAt != nil {
@@ -138,7 +143,6 @@ func (h *UserHandler) ExportUsers(c *gin.Context) {
 			item.UserLevelName,
 			item.SalesAdminName,
 			item.LastLoginIP,
-			item.LastLoginIPRegion,
 			strconv.FormatFloat(item.Balance, 'f', 2, 64),
 			strconv.FormatFloat(item.TotalConsumeAmount, 'f', 2, 64),
 			realname,
@@ -335,7 +339,20 @@ func (h *UserHandler) Impersonate(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.userService.Impersonate(c.Request.Context(), id)
+	// 管理员身份从管理端 claims 取，落进 login_logs.failure_reason（「代登录：xxx」），
+	// 让安全页能回答「这条代登录是谁发起的」。claims 缺失（理论上不可能，
+	// 路由已挂 adminAuth + superOnly）时仍继续，只把发起人留空。
+	adminID, adminName := uint64(0), ""
+	if claims, ok := middleware.GetAdminClaims(c); ok && claims != nil {
+		adminID, adminName = claims.AdminID, claims.Username
+	}
+	resp, err := h.userService.Impersonate(c.Request.Context(), service.ImpersonateRequest{
+		UserID:    id,
+		AdminID:   adminID,
+		AdminName: adminName,
+		IP:        netutil.ClientIP(c),
+		UserAgent: c.GetHeader("User-Agent"),
+	})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 40001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return

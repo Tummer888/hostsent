@@ -2,6 +2,11 @@
   <div class="oauth-callback">
     <div class="oauth-callback__card">
       <t-loading v-if="phase === 'loading'" size="large" text="正在完成登录…" />
+      <template v-else-if="phase === 'bind_done'">
+        <h2 class="oauth-callback__title">{{ providerLabel }}账号绑定成功</h2>
+        <p class="oauth-callback__desc">已回到个人中心，可在「第三方登录」中查看绑定状态。</p>
+        <t-button theme="primary" @click="goProfile">前往个人中心</t-button>
+      </template>
       <template v-else-if="phase === 'need_bind'">
         <h2 class="oauth-callback__title">该{{ providerLabel }}账号尚未注册</h2>
         <p class="oauth-callback__desc">
@@ -36,7 +41,7 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 
-type Phase = 'loading' | 'need_bind' | 'error'
+type Phase = 'loading' | 'need_bind' | 'bind_done' | 'error'
 const phase = ref<Phase>('loading')
 const errorMessage = ref('')
 
@@ -67,6 +72,10 @@ function goLogin() {
   router.replace({ path: '/login', query: { redirect: String(route.query.redirect || '/') } })
 }
 
+function goProfile() {
+  router.replace('/profile')
+}
+
 onMounted(async () => {
   const error = String(route.query.error || '')
   if (error) {
@@ -82,6 +91,17 @@ onMounted(async () => {
   }
   try {
     const { data } = await exchangeOAuthTicket(ticket)
+    // 顺序有意义：bind_done 优先于 need_bind 判断。
+    // 绑定流程的票据里 need_bind 恒为 false、token 恒为空，若先判 token 为空
+    // 会把它误报成「该账号尚未注册」，用户明明刚绑定成功却看到失败提示。
+    if (data.bind_done) {
+      // 用户本就处于登录态（绑定必须已登录才能发起），因此这里**不动本地会话**，
+      // 只是回个人中心刷新绑定列表。留一小段停留让用户看见结果，
+      // 卡上的按钮是兜底（自动跳转被拦截时仍能手动过去）。
+      phase.value = 'bind_done'
+      window.setTimeout(goProfile, 1200)
+      return
+    }
     if (data.need_bind || !data.token) {
       phase.value = 'need_bind'
       return

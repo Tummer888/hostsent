@@ -191,13 +191,22 @@ func (h *AuthHandler) UserInfo(c *gin.Context) {
 
 // Logout 用户登出
 // @Summary 用户登出
-// @Description JWT 为无状态，登出由前端清除 token，后端仅返回成功确认
+// @Description 撤销当前令牌对应的会话，使其立即失效（其他设备的登录不受影响）
 // @Tags 用户中心-认证
 // @Produce json
 // @Security BearerAuth
 // @Success 200 {object} response.Body
 // @Router /api/v1/uc/auth/logout [post]
 func (h *AuthHandler) Logout(c *gin.Context) {
+	// 会话句柄取自令牌本身：登出只该结束「这一个」登录态。
+	// 拿不到 claims（理论上不会，路由已挂 UserAuth）时仍然返回成功 ——
+	// 登出的客户端预期是「一定成功」，报错只会让前端卡在退出流程里。
+	if claims, ok := middleware.GetUserClaims(c); ok && claims != nil {
+		if err := h.authService.Logout(c.Request.Context(), claims.SessionID); err != nil {
+			response.Error(c, apperrors.New(50001, err.Error()))
+			return
+		}
+	}
 	response.SuccessMessage(c, "登出成功")
 }
 

@@ -94,18 +94,6 @@
         </div>
 
         <div class="toolbar-field">
-          <span class="toolbar-field__label">登录 IP 归属地</span>
-          <t-select
-            v-model="filters.last_login_ip_region"
-            class="unified-control"
-            clearable
-            filterable
-            placeholder="全部归属地"
-            :options="regionOptions"
-          />
-        </div>
-
-        <div class="toolbar-field">
           <span class="toolbar-field__label">用户等级</span>
           <t-select
             v-model="filters.user_level_id"
@@ -306,10 +294,10 @@
             <div v-if="row.sales_admin_name" class="price-cell">
               <span class="user-cell__name user-cell__name--secondary">{{ row.sales_admin_name }}</span>
             </div>
-            <span v-else class="text-muted">
-              未归属
-              <t-link class="page-link" theme="primary" hover="color" @click="goSalesAssign(row)">分配</t-link>
-            </span>
+            <!-- 这里只做状态展示：销售归属在用户详情页的「销售归属」面板里完成。
+                 原先进位一个「分配」链接跳到销售客户页，那条路径并不真正执行分配
+                 （只是把用户名当关键词带过去），点完看起来「没生效」，已移除。 -->
+            <span v-else class="text-muted">未归属</span>
           </template>
 
           <template #user_level_name="{ row }">
@@ -320,12 +308,7 @@
           </template>
 
           <template #last_login_ip="{ row }">
-            <div class="ip-cell">
-              <span class="ip-cell__value">{{ row.last_login_ip || '未记录' }}</span>
-              <span class="ip-cell__region" :class="{ 'ip-cell__region--muted': !row.last_login_ip_region }">
-                {{ row.last_login_ip_region || '未解析' }}
-              </span>
-            </div>
+            <span class="ip-cell__value">{{ row.last_login_ip || '未记录' }}</span>
           </template>
 
           <template #oauth_provider="{ row }">
@@ -703,7 +686,6 @@ import {
   createUserOrder,
   deleteUser,
   exportUsers,
-  getRegionStats,
   getRoleList,
   getUserDeletionCheck,
   getUserGroupList,
@@ -714,7 +696,6 @@ import {
   rechargeUser,
   restoreUser,
   updateUserStatus,
-  type RegionStatItem,
   type RoleInfo,
   type UserCreateRequest,
   type UserDeletionCheckResponse,
@@ -752,7 +733,6 @@ const canPurge = computed(() => userStore.isSuperAdmin)
 const loading = ref(false)
 const errorMessage = ref('')
 const tableData = ref<UserInfo[]>([])
-const regionItems = ref<RegionStatItem[]>([])
 const roleOptions = ref<RoleInfo[]>([])
 const userGroupOptions = ref<UserGroupInfo[]>([])
 const userLevelOptions = ref<UserLevelInfo[]>([])
@@ -809,7 +789,6 @@ const filters = reactive<UserListQuery>({
   page_size: 10,
   status: '',
   filter: '',
-  last_login_ip_region: '',
   keyword: '',
   user_level_id: undefined,
   user_group_id: undefined,
@@ -926,11 +905,6 @@ const oauthProviders = [
   { key: 'android', label: 'Android', icon: LogoAndroidIcon },
 ] as const
 
-const regionOptions = computed(() => [
-  { label: '全部归属地', value: '' },
-  ...regionItems.value.map((item) => ({ label: `${item.region} (${item.count})`, value: item.region })),
-])
-
 const levelOptions = computed(() => [
   { label: '全部等级', value: undefined },
   ...userLevelOptions.value
@@ -986,7 +960,6 @@ const activeFilterLabel = computed(() => {
   if (filters.filter === 'purchased') return '已购用户'
   if (filters.filter === 'unassigned_sales') return '未归属销售'
   if (filters.status) return statusLabelMap[filters.status] || filters.status
-  if (filters.last_login_ip_region) return filters.last_login_ip_region
   if (filters.user_group_id) {
     const group = userGroupOptions.value.find((item) => item.id === filters.user_group_id)
     return `用户组: ${group?.name || filters.user_group_id}`
@@ -1047,7 +1020,6 @@ function syncFiltersFromRoute() {
   filters.page_size = toPositiveInt(query.page_size, 10)
   filters.status = query.status || ''
   filters.filter = query.filter || ''
-  filters.last_login_ip_region = query.last_login_ip_region || ''
   filters.keyword = query.keyword || ''
   filters.user_level_id = query.user_level_id ? Number(query.user_level_id) : undefined
   filters.user_group_id = query.user_group_id ? Number(query.user_group_id) : undefined
@@ -1086,7 +1058,6 @@ function buildQuery() {
     query.filter = filters.filter
   }
   if (filters.include_deleted) query.include_deleted = 'true'
-  if (filters.last_login_ip_region) query.last_login_ip_region = filters.last_login_ip_region
   if (filters.keyword) query.keyword = filters.keyword
   if (filters.user_level_id) query.user_level_id = String(filters.user_level_id)
   if (filters.user_group_id) query.user_group_id = String(filters.user_group_id)
@@ -1127,15 +1098,6 @@ async function replaceRouteQuery() {
   await router.replace({ query: buildQuery() })
 }
 
-async function loadRegions() {
-  try {
-    const data = await getRegionStats()
-    regionItems.value = data.items || []
-  } catch {
-    regionItems.value = []
-  }
-}
-
 async function loadRoleOptions() {
   try {
     roleOptions.value = await getRoleList()
@@ -1173,7 +1135,6 @@ function buildListParams(): UserListQuery {
     page_size: filters.page_size,
     status: filters.status || undefined,
     filter: filters.filter && filters.filter !== 'unassigned_sales' ? filters.filter : undefined,
-    last_login_ip_region: filters.last_login_ip_region || undefined,
     keyword: filters.keyword || undefined,
     user_level_id: filters.user_level_id || undefined,
     user_group_id: filters.user_group_id || undefined,
@@ -1243,7 +1204,7 @@ async function loadSalesOptions() {
 }
 
 async function loadAll() {
-  await Promise.all([loadRegions(), loadRoleOptions(), loadUserGroupOptions(), loadUserLevelOptions(), loadSalesOptions(), loadUsers()])
+  await Promise.all([loadRoleOptions(), loadUserGroupOptions(), loadUserLevelOptions(), loadSalesOptions(), loadUsers()])
 }
 
 async function handleSearch() {
@@ -1259,7 +1220,6 @@ async function handleReset() {
   // 重置保留当前视图：在回收站点「重置」应回到「回收站第一页无筛选」，
   // 而不是把用户弹回常规列表。
   filters.filter = isRecycleView.value ? 'deleted' : ''
-  filters.last_login_ip_region = ''
   filters.keyword = ''
   filters.user_level_id = undefined
   filters.user_group_id = undefined
@@ -1390,11 +1350,6 @@ function goUserDetail(row: UserInfo) {
     path: '/users/accounts/detail',
     query: { id: String(row.id) },
   })
-}
-
-// 未归属行内「分配」：跳客户归属页并带上该用户名做关键词（doc86 §4.1.10）
-function goSalesAssign(row: UserInfo) {
-  router.push({ path: '/sales/customers', query: { keyword: row.username } })
 }
 
 function handleRecharge(row: UserInfo) {
@@ -2166,12 +2121,6 @@ onBeforeUnmount(() => {
 .id-cell,
 .user-cell,
 .money-cell,
-.ip-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
 .user-cell--primary {
   gap: 8px;
 }
@@ -2326,16 +2275,6 @@ onBeforeUnmount(() => {
   color: #0f172a;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-}
-
-.ip-cell__region {
-  color: #475569;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.ip-cell__region--muted {
-  color: var(--color-muted-foreground);
 }
 
 .money {

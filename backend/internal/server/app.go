@@ -56,6 +56,7 @@ import (
 	"hostsent/backend/internal/pkg/cache"
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/middleware"
+	"hostsent/backend/internal/pkg/sessionguard"
 )
 
 // App 装配层依赖容器：newRouter 只接收 *App，handler/service 从字段取用。
@@ -65,6 +66,9 @@ type App struct {
 	jwtIssuer *appauth.JWTIssuer
 	// cache 统一缓存端口（Redis + 进程内降级，doc89 §3.3）：验证码/限流/锁的共享依赖。
 	cache *cache.Client
+	// sessionGuard 会话有效性校验（令牌 sid → user_sessions 状态）：
+	// 用户端鉴权中间件与所有撤销路径共用同一份缓存视图，撤销才能「立即」生效。
+	sessionGuard *sessionguard.Guard
 	// RBAC：员工多角色仓储 + 权限快照缓存（鉴权与权限中间件共用）。
 	rbacRepo  adminrepo.RBACRepository
 	permCache middleware.PermissionCache
@@ -228,6 +232,7 @@ func NewApp(
 	verificationBundle *verificationBundle,
 	oauthBundle *oauthBundle,
 	cacheClient *cache.Client,
+	sessionGuard *sessionguard.Guard,
 	logger *zap.Logger,
 	jwtIssuer *appauth.JWTIssuer,
 ) *App {
@@ -236,6 +241,7 @@ func NewApp(
 		logger:                  logger,
 		jwtIssuer:               jwtIssuer,
 		cache:                   cacheClient,
+		sessionGuard:            sessionGuard,
 		rbacRepo:                rbacRepo,
 		permCache:               permCache,
 		auditWriter:             auditWriter,
@@ -312,12 +318,15 @@ func (a *App) adminAuth() gin.HandlerFunc {
 	return middleware.AdminAuth(a.jwtIssuer, a.cfg.Auth.BearerPrefix, a.rbacRepo, a.permCache)
 }
 
-// userAuth 用户中心路由统一鉴权（普通用户令牌）。
+// userAuth 用户中心路由统一鉴权（普通用户令牌 + 会话有效性校验）。
 //
 // 与 adminAuth 对称：装配层里的模块化 Bundle（如 assembly_oauth.go）需要挂
 // 用户端鉴权时不必各自重复拼 middleware.UserAuth 的参数。
+//
+// 必须传 sessionGuard：会话校验缺失时 UserAuth 会一律 401，整个用户端都会挂 ——
+// 这正是想要的失败方式（安全原语校验不了 = 不通过），但前提是装配层真的接上了。
 func (a *App) userAuth() gin.HandlerFunc {
-	return middleware.UserAuth(a.jwtIssuer, a.cfg.Auth.BearerPrefix)
+	return middleware.UserAuth(a.jwtIssuer, a.cfg.Auth.BearerPrefix, a.sessionGuard, a.logger)
 }
 
 // perm 要求任一权限码即可访问（超管 "*" 恒通过）。

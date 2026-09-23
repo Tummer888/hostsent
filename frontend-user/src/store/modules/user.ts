@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import {
   login as loginApi,
+  logout as logoutApi,
   register as registerApi,
   getUserInfo,
   verifyLoginOTP,
@@ -90,11 +91,38 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
+  /**
+   * 清除本地会话状态（纯本地，不调后端）。
+   *
+   * 刻意保持同步且不发请求：401 拦截器也会调它，若这里再发请求，
+   * 令牌已失效时会形成「401 → logout → 又 401」的回环。
+   * 用户主动退出请用 logoutRemote。
+   */
   function logout() {
     token.value = ''
     userInfo.value = {}
     loaded.value = false
     localStorage.removeItem('user_token')
+  }
+
+  /**
+   * 主动退出登录：先让后端撤销当前会话，再清本地。
+   *
+   * 顺序不能反 —— 清掉本地令牌后就再也拿不到 sid，服务端那条会话会一直挂在
+   * 「在线用户」里直到 JWT 自然过期（默认 24 小时），安全页看起来像用户还在线。
+   *
+   * 后端撤销失败不阻断退出：本地必须能退出去（否则用户被锁在一个已失效的
+   * 令牌上），失败只记日志。撤销接口本身也不需要有效令牌就返回成功。
+   */
+  async function logoutRemote() {
+    if (token.value) {
+      try {
+        await logoutApi()
+      } catch (e) {
+        console.warn('撤销登录会话失败，仅清理本地状态:', e)
+      }
+    }
+    logout()
   }
 
   /**
@@ -120,6 +148,7 @@ export const useUserStore = defineStore('user', () => {
     register,
     fetchUserInfo,
     logout,
+    logoutRemote,
     applyOAuthSession,
   }
 })

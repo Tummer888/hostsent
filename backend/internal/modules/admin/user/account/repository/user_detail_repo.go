@@ -84,7 +84,9 @@ func (r *userDetailRepository) Counts(ctx context.Context, userID uint64) (*mode
 			(SELECT COUNT(*) FROM tickets WHERE user_id = ?)                                              AS ticket_count,
 			(SELECT COUNT(*) FROM tickets WHERE user_id = ? AND status IN ('open','in_progress','waiting_user')) AS open_ticket_count,
 			(SELECT COUNT(*) FROM login_logs WHERE user_id = ?)                                           AS login_count,
-			(SELECT COUNT(*) FROM user_sessions WHERE user_id = ? AND status = 'active')                  AS active_session_count,
+			(SELECT COUNT(*) FROM user_sessions
+				WHERE user_id = ? AND status = 'active'
+					AND (expired_at IS NULL OR expired_at > NOW()))                                       AS active_session_count,
 			(SELECT COUNT(*) FROM risk_events WHERE user_id = ?)                                          AS risk_event_count,
 			(SELECT COUNT(*) FROM user_operation_logs WHERE account_user_id = ?)                          AS operation_log_count,
 			(SELECT COUNT(*) FROM verification_applications WHERE user_id = ?)                            AS verification_count

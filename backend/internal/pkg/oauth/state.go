@@ -55,8 +55,18 @@ type StateClaims struct {
 type TicketClaims struct {
 	UserID   uint64 `json:"user_id"`
 	Provider string `json:"provider"`
+	// Mode 本次流程的用途（login / bind）。换票时要靠它区分「登录成功」与
+	// 「绑定完成」：绑定不签发令牌，误当登录处理会向用户展示错误的提示。
+	Mode string `json:"mode"`
 	// NeedBind 该第三方账号尚未绑定任何平台用户，且未开启自动注册。
 	NeedBind bool `json:"need_bind,omitempty"`
+	// SessionID 回调时已开好的 user_sessions.session_id（仅 ModeLogin）。
+	//
+	// 换票时签发的访问令牌必须绑定这个会话（中间件据此校验有效性），
+	// 所以会话在**回调阶段**就落库、把 id 装进票据，而不是换票时再开 ——
+	// 换票接口是免登录的，那时再开会话就得把「谁」的信息从票据里读回来，
+	// 多一次信任传递。
+	SessionID string `json:"sid,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -124,12 +134,18 @@ func (s *StateSigner) ParseState(tokenStr string) (*StateClaims, error) {
 }
 
 // IssueTicket 签发回调结果票据。
-func (s *StateSigner) IssueTicket(userID uint64, provider string, needBind bool, nonce string) (string, error) {
+//
+// mode 必须显式传入（ModeLogin / ModeBind）：换票接口是免登录的，它唯一能
+// 区分「登录」与「绑定」的依据就是票据里的这个字段。靠「sessionID 是否为空」
+// 之类的旁证去推断，会在任何一处调整后悄悄把绑定当登录处理。
+func (s *StateSigner) IssueTicket(userID uint64, provider, mode string, needBind bool, sessionID, nonce string) (string, error) {
 	now := time.Now()
 	claims := TicketClaims{
-		UserID:   userID,
-		Provider: provider,
-		NeedBind: needBind,
+		UserID:    userID,
+		Provider:  provider,
+		Mode:      mode,
+		NeedBind:  needBind,
+		SessionID: sessionID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    s.issuer,
 			Audience:  jwt.ClaimStrings{AudienceOAuthTicket},
@@ -157,6 +173,11 @@ func (s *StateSigner) ParseTicket(tokenStr string) (*TicketClaims, error) {
 	}
 	if !audienceHas(claims.Audience, AudienceOAuthTicket) {
 		return nil, fmt.Errorf("%w: 票据 audience 不符", ErrInvalidState)
+	}
+	// mode 必填：换票侧靠它区分「登录」与「绑定」，缺失就无从判断。
+	// 票据 TTL 只有 60 秒，升级瞬间在途的旧票据重新发起即可，无需兼容。
+	if claims.Mode != ModeLogin && claims.Mode != ModeBind {
+		return nil, fmt.Errorf("%w: 票据用途缺失或非法", ErrInvalidState)
 	}
 	return claims, nil
 }

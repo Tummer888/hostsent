@@ -5,6 +5,20 @@ app:
   port: 8080
   read_timeout: 10
   write_timeout: 10
+  # 可信反向代理网段（CIDR），逗号分隔。只有直连对端落在这里面，gin 才会采信
+  # X-Forwarded-For / X-Real-IP 还原客户端 IP；否则一律记对端地址。
+  #
+  # 这里必须包含本机回环与 docker 网段：前端 dev server（3000/3002）与容器网关
+  # 都在其中，否则用户 IP 会退化成「代理 IP」（实测就是 172.18.0.1）。
+  # 生产部署时把宿主机 nginx / 云负载均衡的**真实入口网段**替换进来，
+  # 千万不要写 0.0.0.0/0 —— 那等于让任何调用方用 X-Forwarded-For 伪造自己的 IP，
+  # 而该 IP 同时是登录失败锁定（failIPKey）的键，可直接绕过撞库防护。
+  trusted_proxies:
+    - 127.0.0.1/8
+    - ::1
+    - 172.16.0.0/12
+    - 10.0.0.0/8
+    - 192.168.0.0/16
 
 auth:
   bearer_prefix: Bearer

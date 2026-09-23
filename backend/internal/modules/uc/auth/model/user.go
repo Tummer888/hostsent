@@ -49,7 +49,6 @@ type User struct {
 	EmailVerifiedAt   *time.Time `gorm:"column:email_verified_at"`
 	LastLoginAt       *time.Time `gorm:"column:last_login_at"`                 // 最近登录时间
 	LastLoginIP       string     `gorm:"column:last_login_ip;size:64"`         // 最近登录 IP
-	LastLoginIPRegion string     `gorm:"column:last_login_ip_region;size:128"` // 最近登录 IP 归属地
 	CreatedAt         time.Time  `gorm:"autoCreateTime"`                       // 创建时间
 	UpdatedAt         time.Time  `gorm:"autoUpdateTime"`                       // 更新时间
 }

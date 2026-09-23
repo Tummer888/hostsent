@@ -10,7 +10,6 @@ type LoginLog struct {
 	Result            string    `gorm:"size:32;not null;index"`
 	FailureReason     string    `gorm:"column:failure_reason;size:255"`
 	IP                string    `gorm:"column:ip;size:64;not null;index"`
-	IPRegion          string    `gorm:"column:ip_region;size:128"`
 	UserAgent         string    `gorm:"column:user_agent;size:255"`
 	DeviceFingerprint string    `gorm:"column:device_fingerprint;size:255"`
 	Platform          string    `gorm:"size:32;not null;index"`

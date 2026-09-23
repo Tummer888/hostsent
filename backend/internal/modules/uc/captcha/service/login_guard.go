@@ -47,7 +47,6 @@ type LoginLogEntry struct {
 	Result        string
 	FailureReason string
 	IP            string
-	IPRegion      string
 	UserAgent     string
 	Platform      string
 }

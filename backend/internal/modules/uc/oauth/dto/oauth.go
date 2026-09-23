@@ -131,11 +131,17 @@ type ExchangeRequest struct {
 
 // ExchangeResponse 换票结果。
 //
-// NeedBind 为 true 时 Token 为空：该第三方账号尚未注册且平台未开自动注册，
-// 前端应提示用户「先用账号密码登录后绑定」。
+// 三种结果互斥：
+//   - NeedBind=true：该第三方账号尚未注册且平台未开自动注册，前端提示
+//     「先用账号密码登录后绑定」，Token 为空；
+//   - BindDone=true：这是**绑定**流程的回调（用户本就已登录），Token 为空，
+//     前端应回到个人中心刷新绑定列表，而不是当登录成功处理；
+//   - 其余：登录成功，Token 有效。
 type ExchangeResponse struct {
 	Token    string `json:"token"`
 	NeedBind bool   `json:"need_bind"`
+	// BindDone 绑定流程完成（非登录）。
+	BindDone bool   `json:"bind_done,omitempty"`
 	Provider string `json:"provider"`
 	// User 登录成功时的用户摘要（与 /uc/auth/me 同构的最小集）。
 	User *ExchangeUser `json:"user,omitempty"`

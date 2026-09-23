@@ -108,7 +108,7 @@ type User struct {
 	OwnerName         string     `gorm:"->;-:migration"`
 	LastLoginAt       *time.Time `gorm:"column:last_login_at"`
 	LastLoginIP       string     `gorm:"column:last_login_ip;size:64"`
-	LastLoginIPRegion string     `gorm:"column:last_login_ip_region;size:128"`
+
 	Role              string     `gorm:"-"`
 	Roles             []string   `gorm:"-"`
 	CreatedAt         time.Time  `gorm:"autoCreateTime"`
@@ -129,6 +129,49 @@ type UserStats struct {
 	Deleted int64 `json:"deleted"`
 }
 
+// OnlineUserRow / RecentLoginRow 是总览页「在线用户 / 最近登录用户」两张卡的
+// 数据行。二者字段接近但不合并成一个类型：在线态要「会话标识 + 最近活跃」，
+// 最近登录态要「上次登录时间 + 当前账号状态」，合并只会让两边都多出用不上的空列。
+//
+// 两行都带原始 IP —— 这是运营排查「这个账号从哪登进来的」唯一可核对的字段，
+// 脱敏后反而失去价值；访问控制由接口权限（system:user:list）承担。
+type OnlineUserRow struct {
+	UserID     uint64     `gorm:"column:user_id" json:"user_id"`
+	Username   string     `gorm:"column:username" json:"username"`
+	Platform   string     `gorm:"column:platform" json:"platform"`
+	IP         string     `gorm:"column:ip" json:"ip"`
+	SessionID  string     `gorm:"column:session_id" json:"session_id"`
+	LoginAt    time.Time  `gorm:"column:login_at" json:"login_at"`
+	LastActive time.Time  `gorm:"column:last_active_at" json:"last_active_at"`
+	ExpiredAt  *time.Time `gorm:"column:expired_at" json:"expired_at"`
+}
+
+// RecentLoginRow 最近登录用户（取自 users.last_login_*，即「最后一次成功登录」）。
+type RecentLoginRow struct {
+	UserID      uint64    `gorm:"column:user_id" json:"user_id"`
+	Username    string    `gorm:"column:username" json:"username"`
+	IP          string    `gorm:"column:ip" json:"ip"`
+	LastLoginAt time.Time `gorm:"column:last_login_at" json:"last_login_at"`
+	Status      string    `gorm:"column:status" json:"status"`
+}
+
+// UserActivityOverview 总览页活动统计（替代原「登录 IP 归属地分布」）。
+//
+// 数据源刻意选本地事实（user_sessions / users.last_login_*），不再依赖任何
+// 外部 IP 归属地服务：会话与登录档案都是平台自己写下的事实，可复现、可核对。
+type UserActivityOverview struct {
+	// OnlineTotal 当前有效会话数（user_sessions.status='active'）。
+	OnlineTotal int64 `json:"online_total"`
+	// OnlineUsers 在线用户明细，按最近活跃倒序。
+	OnlineUsers []OnlineUserRow `json:"online_users"`
+	// RecentTotal 最近窗口内有成功登录的用户数。
+	RecentTotal int64 `json:"recent_total"`
+	// RecentUsers 最近登录用户明细，按登录时间倒序。
+	RecentUsers []RecentLoginRow `json:"recent_users"`
+	// RecentWindowHours 最近登录的统计窗口（小时），前端展示口径用。
+	RecentWindowHours int `json:"recent_window_hours"`
+}
+
 // UserDeletionCheck 注销前置校验结果（doc104 §4.4）。
 // 任一 Blockers 非空即不可注销；Warnings 非空时需 force=true 才放行。
 type UserDeletionCheck struct {
@@ -143,12 +186,6 @@ type UserDeletionBlocker struct {
 	Code  string `json:"code"`
 	Label string `json:"label"`
 	Count int64  `json:"count"`
-}
-
-// RegionStat 登录 IP 归属地分布聚合项。
-type RegionStat struct {
-	Region string `json:"region"`
-	Count  int64  `json:"count"`
 }
 
 func (User) TableName() string {

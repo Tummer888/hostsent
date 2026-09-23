@@ -58,6 +58,17 @@ type AppConfig struct {
 	ReadTimeout  int    `mapstructure:"read_timeout"`
 	WriteTimeout int    `mapstructure:"write_timeout"`
 	EncryptKey   string `mapstructure:"encrypt_key"`
+	// TrustedProxies 可信反向代理网段（CIDR 或 IP），逗号分隔。
+	//
+	// 决定 gin 是否采信 X-Forwarded-For / X-Real-IP：只有直连对端落在这里面时，
+	// 这些头部才会被用来还原客户端 IP，否则一律忽略并记对端地址。
+	//
+	// 默认 127.0.0.1/8 + ::1：开发态前端 dev server 直连本机后端，需要它才认
+	// vite 转发过来的 X-Forwarded-For（见各 vite.config.ts 的 xfwd）。
+	// 生产部署必须显式追加实际入口（宿主机 nginx / 云负载均衡网段），否则
+	// 用户 IP 会退化成「代理的 IP」；反之若把 0.0.0.0/0 写进来，
+	// 任意调用方都能用 X-Forwarded-For 伪造自己的 IP。
+	TrustedProxies []string `mapstructure:"trusted_proxies"`
 }
 
 type AuthConfig struct {
@@ -101,7 +112,36 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
 
+	// trusted_proxies 用 []string 接，而 viper 的 AutomaticEnv 对**切片**不做自动
+	// 绑定：HOSTSENT_APP_TRUSTED_PROXIES 只在 Unmarshal 时才会被读成
+	// `[a b c]` 这类字符串切片字面量，写 "10.1.2.0/24,10.1.3.0/24" 会 unmarshal
+	// 失败或落成单个元素。容器化部署靠环境变量注入，这里显式解析一遍，
+	// 两种写法（逗号分隔 / YAML 字面量）都认。
+	if raw := strings.TrimSpace(v.GetString("app.trusted_proxies")); raw != "" {
+		if proxies := parseTrustedProxies(raw); len(proxies) > 0 {
+			cfg.App.TrustedProxies = proxies
+		}
+	}
+
 	return &cfg, nil
+}
+
+// parseTrustedProxies 解析可信代理配置，兼容三种写法：
+//   - YAML 字面量切片：`[127.0.0.1/8, ::1]`（viper 读环境变量时也会长这样）
+//   - 逗号/分号分隔：`10.1.2.0/24,10.1.3.0/24`
+//   - 空格分隔：`10.1.2.0/24 10.1.3.0/24`
+func parseTrustedProxies(raw string) []string {
+	trimmed := strings.Trim(strings.TrimSpace(raw), "[]")
+	fields := strings.FieldsFunc(trimmed, func(r rune) bool {
+		return r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n'
+	})
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		if f = strings.Trim(strings.TrimSpace(f), `"'`); f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 func setDefaults(v *viper.Viper) {
@@ -112,6 +152,12 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("app.read_timeout", 10)
 	v.SetDefault("app.write_timeout", 10)
 	v.SetDefault("app.encrypt_key", "hostsent-encrypt-key")
+	// 可信代理默认只含回环：开发态 vite dev server 直连本机后端要认 X-Forwarded-For。
+	// 默认值刻意不含 docker 网段/私网全段 —— 默认必须是「不信任任何转发头」的保守
+	// 口径，否则任何能直连后端的人都能用 X-Forwarded-For 伪造 IP（该值同时是登录
+	// 失败锁定的键）。容器/生产环境由 configs/config.yaml 或
+	// HOSTSENT_APP_TRUSTED_PROXIES 显式声明真实入口。
+	v.SetDefault("app.trusted_proxies", []string{"127.0.0.1/8", "::1"})
 	v.SetDefault("auth.bearer_prefix", "Bearer")
 	v.SetDefault("auth.jwt_secret", "hostsent-dev-secret")
 	v.SetDefault("auth.jwt_issuer", "hostsent-backend")

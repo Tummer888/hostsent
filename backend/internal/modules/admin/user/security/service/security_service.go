@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"hostsent/backend/internal/modules/admin/user/security/dto"
@@ -42,14 +43,58 @@ type SecurityService interface {
 	RevokeSession(ctx context.Context, id uint64, req dto.SessionRevokeRequest, operatorID uint64) (*dto.SessionInfo, error)
 	BatchRevokeSessions(ctx context.Context, req dto.SessionBatchRevokeRequest, operatorID uint64) (*dto.ListResponse[dto.SessionInfo], error)
 	RevokeUserAllSessions(ctx context.Context, req dto.SessionRevokeUserAllRequest, operatorID uint64) (*dto.ListResponse[dto.SessionInfo], error)
+	// ExpireStaleSessions 把已过期的 active 会话收成 expired（定时任务调用）。
+	// 返回本轮处理的会话数。
+	ExpireStaleSessions(ctx context.Context, limit int) (int, error)
+	// SetSessionInvalidator 注入会话缓存失效能力（可选，装配层调用）。
+	SetSessionInvalidator(invalidator SessionInvalidator)
+}
+
+// SessionInvalidator 让会话有效性缓存立即失效（由 pkg/sessionguard.Guard 实现）。
+//
+// 「强制下线」要真正生效，光把 user_sessions.status 改成 revoked 不够：
+// 请求链路上还有一层会话校验缓存（pkg/sessionguard），不失效它的话，
+// 被踢的令牌最多还能再用 5 分钟（positiveTTL）。
+// 用中性接口而不是直接依赖 sessionguard 包，保持 admin 模块不反向依赖 pkg 具体实现。
+type SessionInvalidator interface {
+	Invalidate(ctx context.Context, sessionIDs ...string)
 }
 
 type securityService struct {
-	repo repository.SecurityRepository
+	repo        repository.SecurityRepository
+	invalidator SessionInvalidator // 可选：撤销会话后立即失效其校验缓存
+	logger      *zap.Logger
 }
 
 func NewSecurityService(repo repository.SecurityRepository) SecurityService {
-	return &securityService{repo: repo}
+	return &securityService{repo: repo, logger: zap.NewNop()}
+}
+
+// SetSessionInvalidator 注入会话缓存失效能力（装配层调用）。
+func (s *securityService) SetSessionInvalidator(invalidator SessionInvalidator) {
+	s.invalidator = invalidator
+}
+
+// invalidateSessions 让一批已撤销会话的校验缓存立即失效。
+//
+// 失败不返回错误：撤销本身已经落库，缓存删不掉最坏只是延迟到 TTL 自然过期，
+// 不该让「强制下线」这个动作整体失败。
+func (s *securityService) invalidateSessions(ctx context.Context, sessionIDs []string) {
+	if s.invalidator == nil || len(sessionIDs) == 0 {
+		return
+	}
+	s.invalidator.Invalidate(ctx, sessionIDs...)
+}
+
+// sessionIDsOf 从会话行里取出 session_id 列表（撤销后调用失效用）。
+func sessionIDsOf(sessions []model.Session) []string {
+	ids := make([]string, 0, len(sessions))
+	for i := range sessions {
+		if sessions[i].SessionID != "" {
+			ids = append(ids, sessions[i].SessionID)
+		}
+	}
+	return ids
 }
 
 func (s *securityService) ListLoginLogs(ctx context.Context, query dto.LoginLogListQuery) (*dto.ListResponse[dto.LoginLogInfo], error) {
@@ -168,11 +213,14 @@ func (s *securityService) RevokeSessionsFromRisk(ctx context.Context, id uint64,
 	if err != nil {
 		return nil, notFoundMessage(err, "风险事件不存在")
 	}
-	sessions, total, err := s.repo.ListSessions(ctx, dto.SessionListQuery{UserID: event.UserID, Page: 1, PageSize: 100})
+	sessions, total, err := s.repo.ListSessions(ctx, dto.SessionListQuery{UserID: event.UserID, Status: "active", Page: 1, PageSize: 100})
 	if err != nil {
 		return nil, err
 	}
+	// 只处置仍在线的会话：已 revoked / expired 的行再改一次会覆盖首次的操作人留痕，
+	// 让「这条会话是谁在什么时候踢的」永久失真。
 	result := make([]dto.SessionInfo, 0, len(sessions))
+	revokedIDs := make([]string, 0, len(sessions))
 	for i := range sessions {
 		sessions[i].Status = "revoked"
 		sessions[i].RevokedReason = firstNonEmpty(req.Note, fmt.Sprintf("风险事件 #%d 处置", id))
@@ -183,8 +231,12 @@ func (s *securityService) RevokeSessionsFromRisk(ctx context.Context, id uint64,
 		if err := s.repo.UpdateSession(ctx, &sessions[i]); err != nil {
 			return nil, err
 		}
+		if sessions[i].SessionID != "" {
+			revokedIDs = append(revokedIDs, sessions[i].SessionID)
+		}
 		result = append(result, toSessionInfo(sessions[i]))
 	}
+	s.invalidateSessions(ctx, revokedIDs)
 	return newListResponse(result, 1, len(result), total), nil
 }
 
@@ -311,6 +363,13 @@ func (s *securityService) RevokeSession(ctx context.Context, id uint64, req dto.
 	if err != nil {
 		return nil, notFoundMessage(err, "会话不存在")
 	}
+	// 已失效/已过期的会话直接原样返回，不覆盖首次的操作人留痕。
+	// 重复点击（页面停留后重试、双开标签页）不该把「谁在什么时候踢的」
+	// 改成后一次操作，那会让审计链路指向错误的人。
+	if item.Status != "active" {
+		result := toSessionInfo(*item)
+		return &result, nil
+	}
 	now := time.Now()
 	revokedBy := operatorID
 	item.Status = "revoked"
@@ -321,6 +380,8 @@ func (s *securityService) RevokeSession(ctx context.Context, id uint64, req dto.
 	if err := s.repo.UpdateSession(ctx, item); err != nil {
 		return nil, err
 	}
+	// 撤销后立即失效校验缓存，否则被踢的令牌还能再用最多 positiveTTL（5 分钟）。
+	s.invalidateSessions(ctx, []string{item.SessionID})
 	result := toSessionInfo(*item)
 	return &result, nil
 }
@@ -330,6 +391,7 @@ func (s *securityService) BatchRevokeSessions(ctx context.Context, req dto.Sessi
 	if err != nil {
 		return nil, err
 	}
+	s.invalidateSessions(ctx, sessionIDsOf(items))
 	result := make([]dto.SessionInfo, 0, len(items))
 	for _, item := range items {
 		result = append(result, toSessionInfo(item))
@@ -342,6 +404,7 @@ func (s *securityService) RevokeUserAllSessions(ctx context.Context, req dto.Ses
 	if err != nil {
 		return nil, err
 	}
+	s.invalidateSessions(ctx, sessionIDsOf(items))
 	result := make([]dto.SessionInfo, 0, len(items))
 	for _, item := range items {
 		result = append(result, toSessionInfo(item))
@@ -349,8 +412,20 @@ func (s *securityService) RevokeUserAllSessions(ctx context.Context, req dto.Ses
 	return newListResponse(result, 1, len(result), int64(len(result))), nil
 }
 
-func (s *securityService) updateRiskEventStatus(ctx context.Context, id uint64, status string, note string, operatorID uint64) (*dto.RiskEventInfo, error) {
-	item, err := s.repo.GetRiskEvent(ctx, id)
+// ExpireStaleSessions 把已过期的 active 会话收成 expired（定时任务调用）。
+//
+// 顺带失效缓存：这些会话本来就已过期，sessionguard 查库也会判无效，
+// 但缓存里可能还留着 5 分钟前写入的 "1"，不删就还有一段「过期却放行」的窗口。
+func (s *securityService) ExpireStaleSessions(ctx context.Context, limit int) (int, error) {
+	sessionIDs, err := s.repo.ExpireStaleSessions(ctx, limit)
+	if err != nil {
+		return 0, err
+	}
+	s.invalidateSessions(ctx, sessionIDs)
+	return len(sessionIDs), nil
+}
+
+func (s *securityService) updateRiskEventStatus(ctx context.Context, id uint64, status string, note string, operatorID uint64) (*dto.RiskEventInfo, error) {	item, err := s.repo.GetRiskEvent(ctx, id)
 	if err != nil {
 		return nil, notFoundMessage(err, "风险事件不存在")
 	}
@@ -434,7 +509,6 @@ func toLoginLogInfo(item model.LoginLog) dto.LoginLogInfo {
 		Result:            item.Result,
 		FailureReason:     item.FailureReason,
 		IP:                item.IP,
-		IPRegion:          item.IPRegion,
 		UserAgent:         item.UserAgent,
 		DeviceFingerprint: item.DeviceFingerprint,
 		Platform:          item.Platform,
@@ -517,7 +591,6 @@ func toSessionInfo(item model.Session) dto.SessionInfo {
 		Username:          item.Username,
 		Platform:          item.Platform,
 		IP:                item.IP,
-		IPRegion:          item.IPRegion,
 		UserAgent:         item.UserAgent,
 		DeviceFingerprint: item.DeviceFingerprint,
 		LoginAt:           item.LoginAt,

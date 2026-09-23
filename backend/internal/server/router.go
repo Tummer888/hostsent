@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/middleware"
@@ -15,6 +16,17 @@ func newRouter(app *App) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
+	// 可信代理声明：决定 ClientIP 是否采信 X-Forwarded-For。
+	// 不声明时 gin 走内置默认（信任全部私有网段），在容器网络里会把
+	// docker 网关地址当代理、把真实公网 IP 丢掉。详见 netutil.ClientIP 的注释：
+	// IP 不只是日志字段，还是登录失败锁定（failIPKey）的键。
+	if err := r.SetTrustedProxies(app.cfg.App.TrustedProxies); err != nil {
+		// 配置写错不该让服务起不来，但必须留下明确告警：静默降级会让所有用户
+		// 在日志里显示成同一个代理 IP，排查时毫无线索。
+		app.logger.Warn("invalid trusted_proxies, falling back to loopback only",
+			zap.Error(err), zap.Strings("configured", app.cfg.App.TrustedProxies))
+		_ = r.SetTrustedProxies([]string{"127.0.0.1/8", "::1"})
+	}
 	r.Use(gin.Recovery(), middleware.Logger(app.logger), cors.Default())
 	// 用户中心限流（doc91 §9.1）：仅对 /api/v1/uc 前缀生效，挂全局以保证不漏挂。
 	r.Use(app.ucRateLimit())
@@ -99,7 +111,9 @@ func newRouter(app *App) *gin.Engine {
 			users.GET("/export", app.perm("system:user:list"), app.userHandler.ExportUsers)
 			users.POST("", app.perm("user:create"), app.userHandler.CreateUser)
 			users.GET("/stats", app.perm("system:user:list"), app.userHandler.GetStats)
-			users.GET("/region-stats", app.perm("system:user:list"), app.userHandler.GetRegionStats)
+			// 总览页活动统计（在线用户 / 最近登录用户）。与 /stats 同权限，
+			// 静态段同样必须注册在 /:id 之前。
+			users.GET("/activity-overview", app.perm("system:user:list"), app.userHandler.GetActivityOverview)
 			users.GET(":id", app.perm("user:detail"), app.userHandler.GetUser)
 			users.GET(":id/members", app.perm("user:detail"), app.userHandler.ListMembers)
 			users.GET(":id/detail-aggregate", app.perm("user:detail"), app.userDetailHandler.GetAggregate)
@@ -843,17 +857,17 @@ func newRouter(app *App) *gin.Engine {
 		ucAuth.POST("/register", app.userCenterAuthHandler.Register)                                                                                                                     // 注册
 		ucAuth.POST("/forgot-password", app.userCenterAuthHandler.ForgotPassword)                                                                                                        // 忘记密码（下发验证码）
 		ucAuth.POST("/reset-password", app.userCenterAuthHandler.ResetPassword)                                                                                                          // 重置密码
-		ucAuth.POST("/logout", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.Logout)                                                          // 登出
-		ucAuth.GET("/userinfo", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.UserInfo)                                                       // 用户信息
-		ucAuth.PUT("/profile", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.UpdateProfile)                                                   // 更新资料（改手机/邮箱时按字段动态要求验证）
-		ucAuth.PUT("/password", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userRequireVerification("password_change"), app.userCenterAuthHandler.ChangePassword) // 修改密码
+		ucAuth.POST("/logout", app.userAuth(), app.userCenterAuthHandler.Logout)                                                          // 登出
+		ucAuth.GET("/userinfo", app.userAuth(), app.userCenterAuthHandler.UserInfo)                                                       // 用户信息
+		ucAuth.PUT("/profile", app.userAuth(), app.userCenterAuthHandler.UpdateProfile)                                                   // 更新资料（改手机/邮箱时按字段动态要求验证）
+		ucAuth.PUT("/password", app.userAuth(), app.userRequireVerification("password_change"), app.userCenterAuthHandler.ChangePassword) // 修改密码
 	}
 
 	// 用户端实名认证（doc104 §5.7）：状态查询、提交、本人申请历史与三方核验跳转。
 	// 实名绑定的是自然人主体，子账号不具备独立实名资格，故整体挂 rejectSub 硬拒绝；
 	// 服务层再以 real_name_verified_at 为唯一信任信号，不受展示名影响。
 	ucVerification := r.Group("/api/v1/uc/verification")
-	ucVerification.Use(middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub())
+	ucVerification.Use(app.userAuth(), app.rejectSub())
 	{
 		ucVerification.GET("", app.verification.userHandler.Status)
 		ucVerification.POST("", app.verification.userHandler.Submit)
@@ -879,7 +893,7 @@ func newRouter(app *App) *gin.Engine {
 
 	// 用户中心菜单：普通用户控制台侧边栏（platform=user）
 	ucMenu := r.Group("/api/v1/uc/menus")
-	ucMenu.Use(middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
+	ucMenu.Use(app.userAuth())
 	{
 		ucMenu.GET("/tree", app.userMenuHandler.Tree) // 菜单树
 	}
@@ -892,15 +906,15 @@ func newRouter(app *App) *gin.Engine {
 		ucAuthCompat.POST("/register", app.userCenterAuthHandler.Register)
 		ucAuthCompat.POST("/forgot-password", app.userCenterAuthHandler.ForgotPassword) // 忘记密码
 		ucAuthCompat.POST("/reset-password", app.userCenterAuthHandler.ResetPassword)   // 重置密码
-		ucAuthCompat.POST("/logout", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.Logout)
-		ucAuthCompat.GET("/userinfo", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.UserInfo)
-		ucAuthCompat.PUT("/profile", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userCenterAuthHandler.UpdateProfile)                                                   // 更新资料
-		ucAuthCompat.PUT("/password", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userRequireVerification("password_change"), app.userCenterAuthHandler.ChangePassword) // 修改密码
+		ucAuthCompat.POST("/logout", app.userAuth(), app.userCenterAuthHandler.Logout)
+		ucAuthCompat.GET("/userinfo", app.userAuth(), app.userCenterAuthHandler.UserInfo)
+		ucAuthCompat.PUT("/profile", app.userAuth(), app.userCenterAuthHandler.UpdateProfile)                                                   // 更新资料
+		ucAuthCompat.PUT("/password", app.userAuth(), app.userRequireVerification("password_change"), app.userCenterAuthHandler.ChangePassword) // 修改密码
 	}
 
 	// 兼容 frontend-user 项目 baseURL=/api/v1 时的 /menus/tree 路径（同处理器）
 	ucMenuCompat := r.Group("/api/v1/menus")
-	ucMenuCompat.Use(middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix))
+	ucMenuCompat.Use(app.userAuth())
 	{
 		ucMenuCompat.GET("/tree", app.userMenuHandler.Tree) // 菜单树
 	}
@@ -909,17 +923,17 @@ func newRouter(app *App) *gin.Engine {
 	// 子账号可看账单（billing:view），但充值属资金入口，硬编码拒绝（P4-06）。
 	ucFinance := r.Group("/api/v1/uc/finance")
 	{
-		ucFinance.GET("/balance", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.Balance)           // 我的余额
-		ucFinance.GET("/transactions", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.Transactions) // 我的资金流水
-		ucFinance.POST("/recharge", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.userFinanceHandler.CreateRecharge)                        // 发起充值（子账号拒绝）
-		ucFinance.GET("/recharges", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.Recharges)       // 我的充值单（doc34 F-07）
-		ucFinance.GET("/bills", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.Bills)               // 我的账单
+		ucFinance.GET("/balance", app.userAuth(), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.Balance)           // 我的余额
+		ucFinance.GET("/transactions", app.userAuth(), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.Transactions) // 我的资金流水
+		ucFinance.POST("/recharge", app.userAuth(), app.rejectSub(), app.userFinanceHandler.CreateRecharge)                        // 发起充值（子账号拒绝）
+		ucFinance.GET("/recharges", app.userAuth(), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.Recharges)       // 我的充值单（doc34 F-07）
+		ucFinance.GET("/bills", app.userAuth(), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.Bills)               // 我的账单
 		// 发票（doc36 §3.3）：查看与申请均属账单域，子账号可读可申请（不涉及资金出入）。
-		ucFinance.GET("/invoices", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.MyInvoices) // 我的发票申请
-		ucFinance.POST("/invoices", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.userFinanceHandler.ApplyInvoice)                    // 申请开票（子账号拒绝）
+		ucFinance.GET("/invoices", app.userAuth(), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.MyInvoices) // 我的发票申请
+		ucFinance.POST("/invoices", app.userAuth(), app.rejectSub(), app.userFinanceHandler.ApplyInvoice)                    // 申请开票（子账号拒绝）
 		// 发票取件与邮件下发（doc36 §3.3 预埋）：下载已可用（取文件地址），邮件下发本轮返回明确未接入。
-		ucFinance.GET("/invoices/:id/download", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.InvoiceDownload)
-		ucFinance.POST("/invoices/:id/email", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.InvoiceEmail)
+		ucFinance.GET("/invoices/:id/download", app.userAuth(), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.InvoiceDownload)
+		ucFinance.POST("/invoices/:id/email", app.userAuth(), app.userPerm(appauth.PermBillingView), app.userFinanceHandler.InvoiceEmail)
 		// 注：原未鉴权充值回调 POST /uc/finance/recharge/callback 已下线（doc34 F-01）。
 		// 充值到账改由支付中心统一回调 /api/v1/payment/notify/:channel_code 验签后驱动。
 	}
@@ -928,26 +942,26 @@ func newRouter(app *App) *gin.Engine {
 	ucPayment := r.Group("/api/v1/uc/payment")
 	{
 		// 查看类（账单域权限即可）
-		ucPayment.GET("/methods", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.payment.userPaymentHandler.Methods)
-		ucPayment.GET("/preferences", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.payment.userPaymentHandler.Preferences)
-		ucPayment.PUT("/preferences", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.payment.userPaymentHandler.SavePreferences)
-		ucPayment.GET("/accounts", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.payment.userPaymentHandler.Accounts)
-		ucPayment.GET("/withdrawals", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.payment.userPaymentHandler.Withdrawals)
-		ucPayment.GET("/orders/:payment_no", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.payment.userPaymentHandler.Order)
+		ucPayment.GET("/methods", app.userAuth(), app.userPerm(appauth.PermBillingView), app.payment.userPaymentHandler.Methods)
+		ucPayment.GET("/preferences", app.userAuth(), app.userPerm(appauth.PermBillingView), app.payment.userPaymentHandler.Preferences)
+		ucPayment.PUT("/preferences", app.userAuth(), app.userPerm(appauth.PermBillingView), app.payment.userPaymentHandler.SavePreferences)
+		ucPayment.GET("/accounts", app.userAuth(), app.userPerm(appauth.PermBillingView), app.payment.userPaymentHandler.Accounts)
+		ucPayment.GET("/withdrawals", app.userAuth(), app.userPerm(appauth.PermBillingView), app.payment.userPaymentHandler.Withdrawals)
+		ucPayment.GET("/orders/:payment_no", app.userAuth(), app.userPerm(appauth.PermBillingView), app.payment.userPaymentHandler.Order)
 		// 资金入口（子账号硬拒绝，P4-06）
-		ucPayment.POST("/accounts", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.payment.userPaymentHandler.CreateAccount)
-		ucPayment.PUT("/accounts/:id/default", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.payment.userPaymentHandler.SetDefaultAccount)
-		ucPayment.POST("/recharge", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.payment.userPaymentHandler.Recharge)
-		ucPayment.POST("/bills/pay", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.payment.userPaymentHandler.PayBill)
-		ucPayment.POST("/withdrawals", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.userRequireVerification("withdraw_apply"), app.payment.userPaymentHandler.Withdraw)
+		ucPayment.POST("/accounts", app.userAuth(), app.rejectSub(), app.payment.userPaymentHandler.CreateAccount)
+		ucPayment.PUT("/accounts/:id/default", app.userAuth(), app.rejectSub(), app.payment.userPaymentHandler.SetDefaultAccount)
+		ucPayment.POST("/recharge", app.userAuth(), app.rejectSub(), app.payment.userPaymentHandler.Recharge)
+		ucPayment.POST("/bills/pay", app.userAuth(), app.rejectSub(), app.payment.userPaymentHandler.PayBill)
+		ucPayment.POST("/withdrawals", app.userAuth(), app.rejectSub(), app.userRequireVerification("withdraw_apply"), app.payment.userPaymentHandler.Withdraw)
 	}
 
 	// 用户中心积分（doc36）：只读展示，积分不可抵扣、不可提现、不可转入余额。
 	// 复用账单域权限（billing:view），子账号可读（积分归主账号）。
 	ucPoints := r.Group("/api/v1/uc/points")
 	{
-		ucPoints.GET("", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.point.userHandler.Overview)                  // 我的积分
-		ucPoints.GET("/transactions", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.point.userHandler.Transactions) // 我的积分流水
+		ucPoints.GET("", app.userAuth(), app.userPerm(appauth.PermBillingView), app.point.userHandler.Overview)                  // 我的积分
+		ucPoints.GET("/transactions", app.userAuth(), app.userPerm(appauth.PermBillingView), app.point.userHandler.Transactions) // 我的积分流水
 	}
 
 	// 支付渠道异步回调（免登录，唯一信任来源为渠道验签；取代原未鉴权充值回调）。
@@ -959,12 +973,12 @@ func newRouter(app *App) *gin.Engine {
 	// 用户中心推广返现：查看邀请码/邀请人/返现明细属账单域，申请提现与转入余额为资金入口（子账号拒绝）。
 	ucReferral := r.Group("/api/v1/uc/referral")
 	{
-		ucReferral.GET("/profile", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Profile)                                       // 我的推广概览
-		ucReferral.GET("/invitees", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Invitees)                                     // 我的邀请
-		ucReferral.GET("/cashbacks", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Cashbacks)                                   // 返现明细
-		ucReferral.GET("/withdrawals", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Withdrawals)                               // 我的提现记录
-		ucReferral.POST("/withdrawals", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.userRequireVerification("withdraw_apply"), app.ucReferralHandler.ApplyWithdrawal) // 申请提现
-		ucReferral.POST("/transfer", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.rejectSub(), app.ucReferralHandler.Transfer)                                                          // 转入现金余额
+		ucReferral.GET("/profile", app.userAuth(), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Profile)                                       // 我的推广概览
+		ucReferral.GET("/invitees", app.userAuth(), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Invitees)                                     // 我的邀请
+		ucReferral.GET("/cashbacks", app.userAuth(), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Cashbacks)                                   // 返现明细
+		ucReferral.GET("/withdrawals", app.userAuth(), app.userPerm(appauth.PermBillingView), app.ucReferralHandler.Withdrawals)                               // 我的提现记录
+		ucReferral.POST("/withdrawals", app.userAuth(), app.rejectSub(), app.userRequireVerification("withdraw_apply"), app.ucReferralHandler.ApplyWithdrawal) // 申请提现
+		ucReferral.POST("/transfer", app.userAuth(), app.rejectSub(), app.ucReferralHandler.Transfer)                                                          // 转入现金余额
 	}
 
 	// 用户中心商品：上架商品公开可浏览（无需登录）
@@ -1001,7 +1015,7 @@ func newRouter(app *App) *gin.Engine {
 
 		// 用户端安全设置（doc91 §4.4/§4.5）：需登录；子账号也能看自己的设置。
 		ucSecurity := r.Group("/api/v1/uc/security")
-		ucSecurity.Use(middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userAudit())
+		ucSecurity.Use(app.userAuth(), app.userAudit())
 		{
 			ucSecurity.GET("/settings", app.captcha.userHandler.GetSettings)
 			ucSecurity.PUT("/settings", app.captcha.userHandler.UpdateSettings)
@@ -1014,7 +1028,7 @@ func newRouter(app *App) *gin.Engine {
 	// 用户中心订单：下单（余额支付即时开通 / 渠道支付落待支付单）+ 我的订单（需登录）
 	// 子账号下单需 order:create，查看需 order:view（P4-06）。
 	ucOrders := r.Group("/api/v1/uc/orders")
-	ucOrders.Use(middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userAudit())
+	ucOrders.Use(app.userAuth(), app.userAudit())
 	{
 		ucOrders.POST("", app.userPerm(appauth.PermOrderCreate), app.ucOrderHandler.Create)
 		ucOrders.GET("", app.userPerm(appauth.PermOrderView), app.ucOrderHandler.List)
@@ -1031,7 +1045,7 @@ func newRouter(app *App) *gin.Engine {
 	// 用户中心主机管理：列表/详情/电源操作/VNC（需登录）
 	// 查看需 instance:view，电源/VNC 需 instance:operate（P4-06）。
 	ucInstances := r.Group("/api/v1/uc/instances")
-	ucInstances.Use(middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userAudit())
+	ucInstances.Use(app.userAuth(), app.userAudit())
 	{
 		ucInstances.GET("", app.userPerm(appauth.PermInstanceView), app.ucInstanceHandler.List)                // 我的主机列表
 		ucInstances.GET("/:id", app.userPerm(appauth.PermInstanceView), app.ucInstanceHandler.Detail)          // 主机详情
@@ -1047,20 +1061,20 @@ func newRouter(app *App) *gin.Engine {
 	ucSupport := r.Group("/api/v1/uc/support")
 	ucSupport.Use(app.userAudit())
 	{
-		ucSupport.GET("/tickets", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermTicketView), app.userTicketHandler.List)                     // 我的工单列表
-		ucSupport.POST("/tickets", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermTicketSubmit), app.userTicketHandler.Create)                // 提交工单
-		ucSupport.GET("/ticket-categories", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermTicketView), app.userTicketHandler.ListCategories) // 可用工单分类
-		ucSupport.GET("/tickets/:id", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermTicketView), app.userTicketHandler.Get)                  // 工单详情（含回复）
-		ucSupport.POST("/tickets/:id/replies", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermTicketSubmit), app.userTicketHandler.Reply)     // 追加工单回复
-		ucSupport.POST("/tickets/:id/cancel", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermTicketSubmit), app.userTicketHandler.Cancel)     // 取消工单
+		ucSupport.GET("/tickets", app.userAuth(), app.userPerm(appauth.PermTicketView), app.userTicketHandler.List)                     // 我的工单列表
+		ucSupport.POST("/tickets", app.userAuth(), app.userPerm(appauth.PermTicketSubmit), app.userTicketHandler.Create)                // 提交工单
+		ucSupport.GET("/ticket-categories", app.userAuth(), app.userPerm(appauth.PermTicketView), app.userTicketHandler.ListCategories) // 可用工单分类
+		ucSupport.GET("/tickets/:id", app.userAuth(), app.userPerm(appauth.PermTicketView), app.userTicketHandler.Get)                  // 工单详情（含回复）
+		ucSupport.POST("/tickets/:id/replies", app.userAuth(), app.userPerm(appauth.PermTicketSubmit), app.userTicketHandler.Reply)     // 追加工单回复
+		ucSupport.POST("/tickets/:id/cancel", app.userAuth(), app.userPerm(appauth.PermTicketSubmit), app.userTicketHandler.Cancel)     // 取消工单
 		// S2 附件：上传需提交权，下载需查看权；服务端再按工单归属与内部标记鉴权。
-		ucSupport.POST("/tickets/:id/attachments", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermTicketSubmit), app.userTicketHandler.UploadAttachment)
-		ucSupport.GET("/attachments/:id/download", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userPerm(appauth.PermTicketView), app.userTicketHandler.DownloadAttachment)
+		ucSupport.POST("/tickets/:id/attachments", app.userAuth(), app.userPerm(appauth.PermTicketSubmit), app.userTicketHandler.UploadAttachment)
+		ucSupport.GET("/attachments/:id/download", app.userAuth(), app.userPerm(appauth.PermTicketView), app.userTicketHandler.DownloadAttachment)
 	}
 
 	// 用户中心成员（子账号，P4-07）：仅主账号可管理，服务层再校验一次 IsSub。
 	ucMembers := r.Group("/api/v1/uc/members")
-	ucMembers.Use(middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.userAudit())
+	ucMembers.Use(app.userAuth(), app.userAudit())
 	{
 		ucMembers.GET("", app.memberHandler.List)                           // 我的成员列表
 		ucMembers.POST("", app.memberHandler.Create)                        // 新建成员
@@ -1075,23 +1089,23 @@ func newRouter(app *App) *gin.Engine {
 	ucLifecycle := r.Group("/api/v1/uc")
 	ucLifecycle.Use(app.userAudit())
 	{
-		ucLifecycle.GET("/instances/renewals", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.lifecycleUserHandler.RenewalsView)          // 续费管理聚合视图
-		ucLifecycle.POST("/instances/:id/renew", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.lifecycleUserHandler.Renew)               // 手动续费
-		ucLifecycle.PUT("/instances/:id/auto-renew", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.lifecycleUserHandler.ToggleAutoRenew) // 自动续费开关
-		ucLifecycle.GET("/renewals", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.lifecycleUserHandler.Records)                         // 我的续费记录
-		ucLifecycle.GET("/renewals/:id", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.lifecycleUserHandler.Detail)                      // 续费记录详情
+		ucLifecycle.GET("/instances/renewals", app.userAuth(), app.lifecycleUserHandler.RenewalsView)          // 续费管理聚合视图
+		ucLifecycle.POST("/instances/:id/renew", app.userAuth(), app.lifecycleUserHandler.Renew)               // 手动续费
+		ucLifecycle.PUT("/instances/:id/auto-renew", app.userAuth(), app.lifecycleUserHandler.ToggleAutoRenew) // 自动续费开关
+		ucLifecycle.GET("/renewals", app.userAuth(), app.lifecycleUserHandler.Records)                         // 我的续费记录
+		ucLifecycle.GET("/renewals/:id", app.userAuth(), app.lifecycleUserHandler.Detail)                      // 续费记录详情
 	}
 
 	// 用户中心消息中心（doc70 §7.2）
 	ucNotify := r.Group("/api/v1/uc")
 	{
-		ucNotify.GET("/notifications/unread-count", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.notifyUserHandler.UserUnreadCount)
-		ucNotify.GET("/notifications", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.notifyUserHandler.UserList)
-		ucNotify.GET("/notifications/:id", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.notifyUserHandler.UserDetail)
-		ucNotify.POST("/notifications/read-all", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.notifyUserHandler.UserReadAll)
-		ucNotify.GET("/announcements", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.notifyUserHandler.UserAnnouncements)
-		ucNotify.GET("/notification-preferences", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.notifyUserHandler.UserGetPrefs)
-		ucNotify.PUT("/notification-preferences", middleware.UserAuth(app.jwtIssuer, app.cfg.Auth.BearerPrefix), app.notifyUserHandler.UserUpdatePrefs)
+		ucNotify.GET("/notifications/unread-count", app.userAuth(), app.notifyUserHandler.UserUnreadCount)
+		ucNotify.GET("/notifications", app.userAuth(), app.notifyUserHandler.UserList)
+		ucNotify.GET("/notifications/:id", app.userAuth(), app.notifyUserHandler.UserDetail)
+		ucNotify.POST("/notifications/read-all", app.userAuth(), app.notifyUserHandler.UserReadAll)
+		ucNotify.GET("/announcements", app.userAuth(), app.notifyUserHandler.UserAnnouncements)
+		ucNotify.GET("/notification-preferences", app.userAuth(), app.notifyUserHandler.UserGetPrefs)
+		ucNotify.PUT("/notification-preferences", app.userAuth(), app.notifyUserHandler.UserUpdatePrefs)
 	}
 
 	// 开放平台（P6/T6.1）：对外前缀 /open/v1，独立中间件链：

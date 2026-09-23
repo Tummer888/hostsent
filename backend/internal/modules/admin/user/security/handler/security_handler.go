@@ -117,7 +117,7 @@ func (h *SecurityHandler) ExportLoginLogs(c *gin.Context) {
 	c.Writer.WriteString("\xEF\xBB\xBF")
 
 	w := csv.NewWriter(c.Writer)
-	_ = w.Write([]string{"ID", "用户名", "用户ID", "登录类型", "结果", "失败原因", "IP", "归属地", "平台", "风险标记", "登录时间"})
+	_ = w.Write([]string{"ID", "用户名", "用户ID", "登录类型", "结果", "失败原因", "IP", "平台", "风险标记", "登录时间"})
 	for _, item := range items {
 		_ = w.Write([]string{
 			strconv.FormatUint(item.ID, 10),
@@ -127,7 +127,6 @@ func (h *SecurityHandler) ExportLoginLogs(c *gin.Context) {
 			item.Result,
 			item.FailureReason,
 			item.IP,
-			item.IPRegion,
 			item.Platform,
 			item.RiskFlag,
 			item.CreatedAt.Format("2006-01-02 15:04:05"),

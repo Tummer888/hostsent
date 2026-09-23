@@ -22,8 +22,8 @@ type UserRepository interface {
 	FindByID(ctx context.Context, id uint64) (*model.User, error)
 	// Create 创建新用户记录。
 	Create(ctx context.Context, user *model.User) error
-	// UpdateLoginProfile 更新用户登录档案（最近登录 IP、归属地、时间）。
-	UpdateLoginProfile(ctx context.Context, id uint64, ip, ipRegion string, loginAt time.Time) error
+	// UpdateLoginProfile 更新用户登录档案（最近登录 IP、时间）。
+	UpdateLoginProfile(ctx context.Context, id uint64, ip string, loginAt time.Time) error
 	// UpdateProfile 更新用户基本资料（显示名、邮箱、手机、头像）。
 	UpdateProfile(ctx context.Context, id uint64, name, email, phone, avatar string) error
 	// UpdatePassword 更新用户密码哈希。
@@ -35,7 +35,11 @@ type UserRepository interface {
 	// MarkVerified 写回邮箱/手机验证时间（channel=email/sms，doc91 C3）。
 	MarkVerified(ctx context.Context, id uint64, channel string, verifiedAt time.Time) error
 	// RevokeSessions 撤销该用户全部有效会话（改密/重置密码后调用，doc91 §5.5）。
-	RevokeSessions(ctx context.Context, id uint64, reason string) error
+	// 返回被撤销的 session_id 列表，供调用方失效会话缓存（否则撤销要等缓存 TTL 才生效）。
+	RevokeSessions(ctx context.Context, id uint64, reason string) ([]string, error)
+	// RevokeSession 撤销单个会话（登出：只结束当前这一个登录态，不踢掉其他设备）。
+	// 返回是否真的撤销了一行（会话不存在/已失效时为 false，不算错误）。
+	RevokeSession(ctx context.Context, sessionID, reason string) (bool, error)
 	// OpenSession 登录成功后开一条会话记录（doc104 F15）。
 	OpenSession(ctx context.Context, in SessionInput) error
 }
@@ -47,9 +51,14 @@ type SessionInput struct {
 	Username  string
 	Platform  string
 	IP        string
-	IPRegion  string
 	UserAgent string
 	LoginAt   time.Time
+	// ExpiredAt 会话过期时间（一般 = LoginAt + JWT 有效期）。
+	//
+	// 必须写：此前该列恒为 NULL，而「在线」是靠 status='active' 判的，
+	// 于是用户只要登录过一次就永远算在线。写入后「有效会话」= status 为 active
+	// 且 expired_at 未到期，在线数才会自然回落。
+	ExpiredAt time.Time
 }
 
 type userRepository struct {
@@ -92,11 +101,10 @@ func (r *userRepository) Create(ctx context.Context, user *model.User) error {
 	return r.db.WithContext(ctx).Create(user).Error
 }
 
-func (r *userRepository) UpdateLoginProfile(ctx context.Context, id uint64, ip, ipRegion string, loginAt time.Time) error {
+func (r *userRepository) UpdateLoginProfile(ctx context.Context, id uint64, ip string, loginAt time.Time) error {
 	return r.db.WithContext(ctx).Model(&model.User{}).Where("id = ?", id).Updates(map[string]any{
-		"last_login_at":        loginAt,
-		"last_login_ip":        ip,
-		"last_login_ip_region": ipRegion,
+		"last_login_at": loginAt,
+		"last_login_ip": ip,
 	}).Error
 }
 
@@ -157,17 +165,60 @@ func (r *userRepository) MarkVerified(ctx context.Context, id uint64, channel st
 //
 // 表 user_sessions 由安全模块维护（migration 004）；这里只做状态置位，
 // 不做级联删除，保留审计线索。无有效会话时影响 0 行，不算失败。
-func (r *userRepository) RevokeSessions(ctx context.Context, id uint64, reason string) error {
+//
+// 返回被撤销的 session_id：调用方（认证服务）据此失效会话缓存，
+// 否则「撤销」要等缓存 TTL 到期才真正生效，而 doc91 §9 要求立即生效。
+func (r *userRepository) RevokeSessions(ctx context.Context, id uint64, reason string) ([]string, error) {
 	if strings.TrimSpace(reason) == "" {
 		reason = "password_reset"
 	}
-	return r.db.WithContext(ctx).Table("user_sessions").
+	var sessionIDs []string
+	if err := r.db.WithContext(ctx).Table("user_sessions").
+		Where("user_id = ? AND status = ?", id, "active").
+		Pluck("session_id", &sessionIDs).Error; err != nil {
+		return nil, err
+	}
+	if len(sessionIDs) == 0 {
+		return nil, nil
+	}
+	if err := r.db.WithContext(ctx).Table("user_sessions").
 		Where("user_id = ? AND status = ?", id, "active").
 		Updates(map[string]any{
 			"status":         "revoked",
 			"revoked_reason": reason,
 			"revoked_at":     time.Now(),
-		}).Error
+		}).Error; err != nil {
+		return nil, err
+	}
+	return sessionIDs, nil
+}
+
+// RevokeSession 撤销单个会话（登出）。
+//
+// 与 RevokeSessions 的区别：登出只结束当前这个登录态，其他设备的登录不受影响 ——
+// 「在一台机器上点退出，手机也被踢下线」是明确的错误行为。
+//
+// 返回是否真的更新了一行：会话不存在或已失效时返回 (false, nil)。
+// 登出接口对这两种情况一视同仁（都返回成功），避免把「会话是否存在于服务端」
+// 这个信息暴露给调用方。
+func (r *userRepository) RevokeSession(ctx context.Context, sessionID, reason string) (bool, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return false, nil
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "logout"
+	}
+	res := r.db.WithContext(ctx).Table("user_sessions").
+		Where("session_id = ? AND status = ?", sessionID, "active").
+		Updates(map[string]any{
+			"status":         "revoked",
+			"revoked_reason": reason,
+			"revoked_at":     time.Now(),
+		})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
 }
 
 // OpenSession 写一条 user_sessions（doc104 F15）。
@@ -187,11 +238,17 @@ func (r *userRepository) OpenSession(ctx context.Context, in SessionInput) error
 	if loginAt.IsZero() {
 		loginAt = time.Now()
 	}
+	// expired_at 必须写：为 NULL 时「在线」判定只能靠 status 状态位，
+	// 而状态位没有任何自动回收路径，用户登录一次就永久算在线（实测过）。
+	var expiredAt any
+	if !in.ExpiredAt.IsZero() {
+		expiredAt = in.ExpiredAt
+	}
 	return r.db.WithContext(ctx).Exec(`INSERT INTO user_sessions
-		(session_id, user_id, username, platform, ip, ip_region, user_agent, login_at, last_active_at, status, created_at, updated_at)
+		(session_id, user_id, username, platform, ip, user_agent, login_at, last_active_at, expired_at, status, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`,
 		in.SessionID, in.UserID, in.Username, platform,
-		in.IP, in.IPRegion, truncateBytes(in.UserAgent, 255), loginAt, loginAt).Error
+		in.IP, truncateBytes(in.UserAgent, 255), loginAt, loginAt, expiredAt).Error
 }
 
 // truncateBytes 按字节截断到 UTF-8 字符边界（DB 列有长度上限，超长会整条 INSERT 失败）。

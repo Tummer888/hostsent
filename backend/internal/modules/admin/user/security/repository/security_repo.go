@@ -30,6 +30,7 @@ type SecurityRepository interface {
 	UpdateSession(ctx context.Context, session *model.Session) error
 	BatchRevokeSessions(ctx context.Context, ids []uint64, reason string, revokedBy uint64) ([]model.Session, error)
 	RevokeUserAllSessions(ctx context.Context, userID uint64, reason string, revokedBy uint64) ([]model.Session, error)
+	ExpireStaleSessions(ctx context.Context, limit int) ([]string, error)
 }
 
 type securityRepository struct {
@@ -180,7 +181,8 @@ func (r *securityRepository) BatchRevokeSessions(ctx context.Context, ids []uint
 	if len(ids) == 0 {
 		return sessions, nil
 	}
-	if err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&sessions).Error; err != nil {
+	// 只取 active：已失效/已过期的行再「撤销」一次会覆盖掉首次的操作人留痕。
+	if err := r.db.WithContext(ctx).Where("id IN ? AND status = ?", ids, "active").Find(&sessions).Error; err != nil {
 		return nil, err
 	}
 	for i := range sessions {
@@ -195,10 +197,14 @@ func (r *securityRepository) BatchRevokeSessions(ctx context.Context, ids []uint
 	return sessions, nil
 }
 
+// RevokeUserAllSessions 撤销某用户全部**有效**会话。
+//
+// 只动 status='active' 的行：已 revoked 的行有独立的操作人留痕（谁踢的、为什么），
+// 已 expired 的行是自然到期。把它们一起覆盖成「本次操作撤销」会让审计线索失真。
 func (r *securityRepository) RevokeUserAllSessions(ctx context.Context, userID uint64, reason string, revokedBy uint64) ([]model.Session, error) {
 	now := time.Now()
 	var sessions []model.Session
-	if err := r.db.WithContext(ctx).Where("user_id = ?", userID).Find(&sessions).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("user_id = ? AND status = ?", userID, "active").Find(&sessions).Error; err != nil {
 		return nil, err
 	}
 	for i := range sessions {
@@ -211,6 +217,51 @@ func (r *securityRepository) RevokeUserAllSessions(ctx context.Context, userID u
 		}
 	}
 	return sessions, nil
+}
+
+// ExpireStaleSessions 把已过期的 active 会话收成 expired，返回被收的 session_id。
+//
+// 为什么需要回写：expired_at 是会话的「有效期终点」，status 是「当前状态」，
+// 两者必须一致。没有这条回写，expired_at 到点后 status 仍停在 active，
+// 会话表会永久堆积「看起来还活着」的行 —— 安全页的会话列表与用户详情的
+// 「有效会话数」都会长期虚高（在线口径已按 expired_at 过滤，但 status 列本身
+// 仍在骗人，运营按状态筛选/导出时拿到的是错的数据）。
+//
+// 只处理 status='active' 的行：revoked（人工撤销）有独立的语义与操作人留痕，
+// 不能被这个批处理覆盖成 expired，否则「谁踢的」就丢了。
+func (r *securityRepository) ExpireStaleSessions(ctx context.Context, limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	var ids []uint64
+	if err := r.db.WithContext(ctx).Model(&model.Session{}).
+		Where("status = ?", "active").
+		Where("expired_at IS NOT NULL AND expired_at <= ?", time.Now()).
+		Order("id").
+		Limit(limit).
+		Pluck("id", &ids).Error; err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	// 逐行回写而不是一条 UPDATE ... RETURNING：需要拿到 session_id 去失效缓存，
+	// 而 GORM 的 UPDATE 不回传旧值。批量上限 500，代价可控。
+	var sessions []model.Session
+	if err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&sessions).Error; err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	sessionIDs := make([]string, 0, len(sessions))
+	for i := range sessions {
+		if err := r.db.WithContext(ctx).Model(&model.Session{}).
+			Where("id = ? AND status = ?", sessions[i].ID, "active").
+			Updates(map[string]any{"status": "expired", "updated_at": now}).Error; err != nil {
+			return nil, err
+		}
+		sessionIDs = append(sessionIDs, sessions[i].SessionID)
+	}
+	return sessionIDs, nil
 }
 
 func applyLoginLogFilters(db *gorm.DB, query dto.LoginLogListQuery) *gorm.DB {
@@ -310,6 +361,13 @@ func applySessionFilters(db *gorm.DB, query dto.SessionListQuery) *gorm.DB {
 	}
 	if query.Status != "" {
 		db = db.Where("status = ?", query.Status)
+		// 筛「在线」时必须连过期一起判：expired_at 到点后 status 要等回写调度器
+		// （最多 10 分钟）才变成 expired，这段窗口里只看 status 会把已失效的会话
+		// 列成在线 —— 而「在线」对运营的含义就是「这个登录态现在还能用」，
+		// 口径必须与 pkg/sessionguard、总览页在线统计一致。
+		if query.Status == "active" {
+			db = db.Where("expired_at IS NULL OR expired_at > ?", time.Now())
+		}
 	}
 	if query.Platform != "" {
 		db = db.Where("platform = ?", query.Platform)

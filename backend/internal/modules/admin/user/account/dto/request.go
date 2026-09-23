@@ -5,7 +5,6 @@ type UserListQuery struct {
 	PageSize          int    `form:"page_size"`
 	Status            string `form:"status"`
 	Filter            string `form:"filter"`
-	LastLoginIPRegion string `form:"last_login_ip_region"`
 	Keyword           string `form:"keyword"`
 	// IncludeDeleted 为 true 时连已注销用户一起返回（doc104 §4.3）；
 	// 与 filter=deleted 互斥，前者优先级更高。

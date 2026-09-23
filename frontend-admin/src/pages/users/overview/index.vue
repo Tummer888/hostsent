@@ -106,25 +106,78 @@
       </article>
     </section>
 
-    <article class="panel-card surface-card" aria-labelledby="region-chart-title">
-      <header class="panel-card__head">
-        <div>
-          <h3 id="region-chart-title" class="panel-card__title">用户登录 IP 归属地分布</h3>
+    <!-- 在线用户 / 最近登录用户（替代原「登录 IP 归属地分布」）。
+         归属地依赖外部 IP 反查服务，同一 IP 在不同时间可能得到不同结果，
+         作为统计维度不可复现；在线态与最近登录都是平台自己写下的事实。 -->
+    <section class="activity-grid" aria-label="用户活动统计">
+      <article class="panel-card surface-card" aria-labelledby="online-title">
+        <header class="panel-card__head">
+          <div>
+            <h3 id="online-title" class="panel-card__title">在线用户</h3>
+            <p class="panel-card__sub">当前有效登录会话，按最近活跃排序</p>
+          </div>
+          <span class="panel-card__badge">{{ activity.online_total }} 个会话</span>
+        </header>
+        <t-loading v-if="loading" size="small" text="加载中..." class="chart-loading" />
+        <div v-else-if="activity.online_users.length" class="activity-list">
+          <div
+            v-for="row in activity.online_users"
+            :key="row.session_id"
+            class="activity-row activity-row--clickable"
+            role="button"
+            tabindex="0"
+            :title="`查看 ${row.username} 的详情`"
+            @click="goUser(row.user_id)"
+            @keydown.enter="goUser(row.user_id)"
+          >
+            <div class="activity-row__main">
+              <span class="activity-row__name">{{ row.username }}</span>
+              <span class="activity-row__meta">
+                {{ platformLabel(row.platform) }} · {{ formatDateTime(row.last_active_at) }}
+              </span>
+            </div>
+            <span class="activity-row__ip" :title="row.ip || '未记录'">{{ row.ip || '未记录' }}</span>
+          </div>
         </div>
-      </header>
-      <t-loading v-if="loading" size="small" text="加载中..." class="chart-loading" />
-      <EChart
-        v-else-if="!errorMessage && regionItems.length"
-        :option="regionBarOption"
-        :height="300"
-        class="chart-canvas"
-        @click="onRegionClick"
-      />
-      <div v-else class="chart-empty">
-        <ErrorCircleIcon size="22" aria-hidden="true" />
-        <span>暂无数据</span>
-      </div>
-    </article>
+        <div v-else class="chart-empty">
+          <ErrorCircleIcon size="22" aria-hidden="true" />
+          <span>当前没有在线会话</span>
+        </div>
+      </article>
+
+      <article class="panel-card surface-card" aria-labelledby="recent-login-title">
+        <header class="panel-card__head">
+          <div>
+            <h3 id="recent-login-title" class="panel-card__title">最近登录用户</h3>
+            <p class="panel-card__sub">最近 {{ activity.recent_window_hours }} 小时内有成功登录</p>
+          </div>
+          <span class="panel-card__badge">{{ activity.recent_total }} 人</span>
+        </header>
+        <t-loading v-if="loading" size="small" text="加载中..." class="chart-loading" />
+        <div v-else-if="activity.recent_users.length" class="activity-list">
+          <div
+            v-for="row in activity.recent_users"
+            :key="row.user_id"
+            class="activity-row activity-row--clickable"
+            role="button"
+            tabindex="0"
+            :title="`查看 ${row.username} 的详情`"
+            @click="goUser(row.user_id)"
+            @keydown.enter="goUser(row.user_id)"
+          >
+            <div class="activity-row__main">
+              <span class="activity-row__name">{{ row.username }}</span>
+              <span class="activity-row__meta">{{ formatDateTime(row.last_login_at) }}</span>
+            </div>
+            <span class="activity-row__ip" :title="row.ip || '未记录'">{{ row.ip || '未记录' }}</span>
+          </div>
+        </div>
+        <div v-else class="chart-empty">
+          <ErrorCircleIcon size="22" aria-hidden="true" />
+          <span>该时段内没有登录记录</span>
+        </div>
+      </article>
+    </section>
 
     <t-dialog
       v-model:visible="editorVisible"
@@ -180,7 +233,13 @@ import {
 
 
 import EChart from '@/components/EChart.vue'
-import { getRegionStats, getUserStats, type RegionStatItem, type UserStatsResponse } from '@/api/user'
+import { formatDateTime } from '../constants'
+import {
+  getActivityOverview,
+  getUserStats,
+  type UserActivityOverviewResponse,
+  type UserStatsResponse,
+} from '@/api/user'
 
 defineOptions({ name: 'UserOverview' })
 
@@ -228,7 +287,13 @@ const stats = ref<UserStatsResponse>({
   purchased_count: 0,
   deleted: 0,
 })
-const regionItems = ref<RegionStatItem[]>([])
+const activity = ref<UserActivityOverviewResponse>({
+  online_total: 0,
+  online_users: [],
+  recent_total: 0,
+  recent_users: [],
+  recent_window_hours: 24,
+})
 
 const listPath = '/users/accounts/list'
 
@@ -357,47 +422,6 @@ const statusPieOption = computed<EChartsOption>(() => ({
   ],
 }))
 
-const regionBarOption = computed<EChartsOption>(() => {
-  const items = regionItems.value
-  const regions = items.map((i) => i.region)
-  const counts = items.map((i) => i.count)
-  const maxCount = Math.max(...counts, 1)
-  return {
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    grid: { left: 8, right: 40, top: 16, bottom: 16, containLabel: true },
-    xAxis: { type: 'value', axisLabel: { color: '#94a3b8' }, splitLine: { lineStyle: { color: '#eef2f7' } } },
-    yAxis: {
-      type: 'category',
-      data: regions.slice().reverse(),
-      axisLine: { show: false },
-      axisTick: { show: false },
-      axisLabel: { color: '#475569', fontSize: 12 },
-    },
-    series: [
-      {
-        type: 'bar',
-        data: counts.slice().reverse().map((v) => ({
-          value: v,
-          itemStyle: {
-            color: {
-              type: 'linear',
-              x: 0, y: 0, x2: 1, y2: 0,
-              colorStops: [
-                { offset: 0, color: v > maxCount * 0.7 ? '#16a34a' : v > maxCount * 0.4 ? '#a7f3d0' : '#16a34a' },
-                { offset: 1, color: v > maxCount * 0.7 ? '#16a34a' : v > maxCount * 0.4 ? '#16a34a' : '#16a34a' },
-              ],
-            },
-          },
-        })),
-        barWidth: 18,
-        itemStyle: { borderRadius: [0, 6, 6, 0] },
-        emphasis: { itemStyle: { color: '#16a34a' } },
-        label: { show: true, position: 'right', color: '#475569', fontSize: 12 },
-      },
-    ],
-  }
-})
-
 interface QuickCandidate {
   key: string
   label: string
@@ -496,16 +520,31 @@ function onStatusClick(payload: { name: string; seriesType?: string }) {
   if (filter) void navigateRaw(listPath, filter)
 }
 
-function onRegionClick(payload: { name: string; seriesType?: string }) {
-  if (payload.seriesType !== 'bar') return
-  if (payload.name) void navigateRaw(listPath, { last_login_ip_region: payload.name })
+// 活动卡片点击 → 该用户详情页。此前归属地柱状图点击是跳列表并按归属地筛选，
+// 现在没有归属地维度了，逐行点击直接进详情更符合「看到异常就要查这个人」的意图。
+function goUser(userId: number) {
+  if (!userId) return
+  void router.push({ path: '/users/accounts/detail', query: { id: String(userId) } })
+}
+
+// 会话平台取值到中文标签；未在表内的原样显示（后端已出现过 admin/oauth provider 名）。
+const platformLabels: Record<string, string> = {
+  web: '网页',
+  mobile: '手机',
+  desktop: '桌面端',
+  admin: '管理端代登录',
+}
+
+function platformLabel(platform: string) {
+  if (!platform) return '未知来源'
+  return platformLabels[platform] || platform
 }
 
 async function loadAll() {
   loading.value = true
   errorMessage.value = ''
   try {
-    const [s, r] = await Promise.all([getUserStats(), getRegionStats()])
+    const [s, a] = await Promise.all([getUserStats(), getActivityOverview()])
     stats.value = {
       total: s.total ?? 0,
       today_new: s.today_new ?? 0,
@@ -517,7 +556,13 @@ async function loadAll() {
       purchased_count: s.purchased_count ?? 0,
       deleted: s.deleted ?? 0,
     }
-    regionItems.value = r.items ?? []
+    activity.value = {
+      online_total: a.online_total ?? 0,
+      online_users: a.online_users ?? [],
+      recent_total: a.recent_total ?? 0,
+      recent_users: a.recent_users ?? [],
+      recent_window_hours: a.recent_window_hours ?? 24,
+    }
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : '获取用户统计失败，请稍后重试'
   } finally {
@@ -716,6 +761,91 @@ onMounted(() => {
   padding: 16px 16px 16px;
 }
 
+/* ===== 在线用户 / 最近登录用户 两张并排卡片 ===== */
+.activity-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.panel-card__sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.panel-card__badge {
+  flex-shrink: 0;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #15803d;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-height: 0;
+}
+
+.activity-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+  border-radius: var(--hs-radius-sm);
+  transition: background-color var(--hs-duration-fast);
+}
+
+.activity-row--clickable {
+  cursor: pointer;
+}
+
+.activity-row--clickable:hover,
+.activity-row--clickable:focus-visible {
+  background: var(--hs-surface-3);
+  outline: none;
+}
+
+.activity-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.activity-row__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-row__meta {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+/* IP 用等宽字体：这是运营要逐个字符核对的字段，比例字体下 1/l、0/O 极易看错。 */
+.activity-row__ip {
+  flex-shrink: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: #475569;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .quick-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -822,7 +952,8 @@ onMounted(() => {
   .stat-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-  .chart-grid {
+  .chart-grid,
+  .activity-grid {
     grid-template-columns: 1fr;
   }
   .quick-grid {
@@ -834,7 +965,8 @@ onMounted(() => {
   .stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .chart-grid {
+  .chart-grid,
+  .activity-grid {
     grid-template-columns: 1fr;
   }
   .quick-grid {

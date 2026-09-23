@@ -41,6 +41,8 @@ import (
 	ticketrepo "hostsent/backend/internal/modules/admin/ticket/repository"
 	accountdto "hostsent/backend/internal/modules/admin/user/account/dto"
 	accountrepo "hostsent/backend/internal/modules/admin/user/account/repository"
+	securityrepo "hostsent/backend/internal/modules/admin/user/security/repository"
+	securityservice "hostsent/backend/internal/modules/admin/user/security/service"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/config"
 	oauthpkg "hostsent/backend/internal/pkg/oauth"
@@ -279,11 +281,25 @@ func (h *liveHarness) loginUser(username, password string) string {
 //
 // 用在「密码已被清空 / 登录被拒」但仍需要调用需登录接口的场景：JWT 是无状态的，
 // 只要密钥与签发者一致，中间件就会认。这是测试专用手段，不进生产代码路径。
+//
+// 必须同时插一条 user_sessions：令牌里的 sid 会被 UserAuth 拿去查会话，
+// 会话不存在（或不是 active）就 401 —— 只签令牌不建会话，接口一律不可用。
 func (h *liveHarness) userToken(id uint64, username string) string {
 	h.t.Helper()
 	issuer := appauth.NewJWTIssuer(h.cfg.Auth.JWTSecret, h.cfg.Auth.JWTIssuer,
 		time.Duration(h.cfg.Auth.JWTExpireHours)*time.Hour)
-	token, err := issuer.GenerateUserFull(username, id, "free", 0, false)
+	sessionID := fmt.Sprintf("test_sess_%d_%d", id, time.Now().UnixNano())
+	now := time.Now()
+	expiredAt := now.Add(issuer.ExpireIn())
+	if h.db != nil {
+		if err := h.db.Exec(`INSERT INTO user_sessions
+			(session_id, user_id, username, platform, ip, user_agent, login_at, last_active_at, expired_at, status, created_at, updated_at)
+			VALUES (?, ?, ?, 'web', '127.0.0.1', 'live-test', ?, ?, ?, 'active', NOW(), NOW())`,
+			sessionID, id, username, now, now, expiredAt).Error; err != nil {
+			h.t.Fatalf("写入测试会话失败: %v", err)
+		}
+	}
+	token, err := issuer.GenerateUserSession(username, id, "free", 0, false, sessionID)
 	if err != nil {
 		h.t.Fatalf("签发用户令牌失败: %v", err)
 	}
@@ -352,6 +368,11 @@ func digNumber(body map[string]any, keys ...string) float64 {
 
 func digSlice(body map[string]any, keys ...string) []any {
 	v, _ := digValue(body, keys...).([]any)
+	return v
+}
+
+func digBool(body map[string]any, keys ...string) bool {
+	v, _ := digValue(body, keys...).(bool)
 	return v
 }
 
@@ -1092,6 +1113,30 @@ func TestLiveOAuthBindAndLogin(t *testing.T) {
 		t.Fatalf("绑定行未写入：count=%d", ownerBinding)
 	}
 
+	// 绑定流程的票据换票必须回 bind_done 而不是当登录成功。
+	//
+	// 绑定走的是同一条 ticket → exchange 链路（回调是免登录入口，只有票据能
+	// 安全带回结果）。若前端把它当登录处理，会给已登录用户写一个空 token 的
+	// 「已登录」状态；若后端不区分，这里返回的 token 就是空的，前端只能猜。
+	bindTicket := queryParam(t, redirectURL, "ticket")
+	if bindTicket == "" {
+		t.Fatal("绑定回调缺少一次性票据")
+	}
+	status, body = h.do(http.MethodPost, "/api/v1/uc/oauth/exchange", "", map[string]any{"ticket": bindTicket})
+	if status != http.StatusOK || digNumber(body, "code") != 0 {
+		t.Fatalf("绑定票据换票失败: HTTP %d %v", status, body)
+	}
+	if !digBool(body, "data", "bind_done") {
+		t.Errorf("绑定流程应回 bind_done=true，实际 %v", body)
+	}
+	if tok := digString(body, "data", "token"); tok != "" {
+		t.Errorf("绑定流程不该签发令牌，实际拿到 %q", tok)
+	}
+	// 绑定不该影响发起绑定的那个登录态。
+	if status, _ := h.do(http.MethodGet, "/api/v1/uc/auth/userinfo", ownerToken, nil); status != http.StatusOK {
+		t.Errorf("绑定后原登录态失效了: HTTP %d", status)
+	}
+
 	// 我的绑定列表：解绑守卫预判为 true（该用户还有密码这一种方式）
 	status, body = h.do(http.MethodGet, "/api/v1/uc/oauth/bindings", ownerToken, nil)
 	if status != http.StatusOK {
@@ -1477,6 +1522,176 @@ func TestLiveSecurityOperatorIdentity(t *testing.T) {
 	if storedStatus != "revoked" {
 		t.Errorf("会话状态 = %q，期望 revoked", storedStatus)
 	}
+}
+
+// TestLiveSessionRevokeKillsToken 覆盖「强制下线必须让令牌立即失效」。
+//
+// 这是本轮修复的核心回归点。此前 user_sessions.status 被撤销后，请求链路上
+// 没有任何地方读它（JWT 无状态、没有 token_version），实测同一个令牌在
+// 「撤销全部会话」之后照样能调通 /uc/auth/userinfo —— 安全页的强制下线
+// 只是个装饰。现在令牌里带 sid，中间件每次请求校验会话有效性。
+//
+// 断言的是**行为**而不是实现：撤销后同一个令牌必须 401，且在线统计要跟着降。
+func TestLiveSessionRevokeKillsToken(t *testing.T) {
+	h := newLiveHarness(t)
+	admin := h.loginAdmin()
+	id, username := h.registerUser("revoketoken")
+	token := h.loginUser(username, liveUserPassword)
+
+	// 前置：令牌与它绑定的会话都可用。
+	if status, body := h.do(http.MethodGet, "/api/v1/uc/auth/userinfo", token, nil); status != http.StatusOK {
+		t.Fatalf("登录后令牌应可用: HTTP %d %v", status, body)
+	}
+	var sessionKey string
+	h.db.Raw("SELECT session_id FROM user_sessions WHERE user_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1", id).
+		Scan(&sessionKey)
+	if sessionKey == "" {
+		t.Fatal("登录未写入 user_sessions（登录日志/会话记录缺失是 doc104 F15 的回归）")
+	}
+	if !h.onlineUserPresent(admin, id) {
+		t.Fatal("登录后该用户应出现在在线统计里")
+	}
+
+	// 撤销该用户全部会话（管理员「强制下线」走的就是这个接口）。
+	status, body := h.do(http.MethodPost, "/api/v1/admin/security/sessions/revoke-user-all", admin,
+		map[string]any{"user_id": id, "reason": "联调用例：强制下线"})
+	if status != http.StatusOK || digNumber(body, "code") != 0 {
+		t.Fatalf("强制下线失败: HTTP %d %v", status, body)
+	}
+
+	// 核心断言：同一个令牌必须立刻不可用（不允许有缓存 TTL 的窗口）。
+	if status, body := h.do(http.MethodGet, "/api/v1/uc/auth/userinfo", token, nil); status != http.StatusUnauthorized {
+		t.Fatalf("撤销后令牌必须 401，实际 HTTP %d %v（强制下线未生效）", status, body)
+	}
+	// 在线统计必须同步下降：撤销的会话不该继续算作在线。
+	if h.onlineUserPresent(admin, id) {
+		t.Error("撤销后该用户仍出现在在线统计里（在线口径未按会话有效性过滤）")
+	}
+}
+
+// TestLiveLogoutRevokesOwnSession 覆盖登出只结束当前会话。
+//
+// 登出必须真正撤销服务端会话：只清本地令牌的话，那条会话会一直挂在安全页的
+// 「在线用户」里直到 JWT 自然过期（默认 24 小时），看起来像用户还在线。
+func TestLiveLogoutRevokesOwnSession(t *testing.T) {
+	h := newLiveHarness(t)
+	id, username := h.registerUser("logoutrevoke")
+	token := h.loginUser(username, liveUserPassword)
+
+	if status, body := h.do(http.MethodPost, "/api/v1/uc/auth/logout", token, nil); status != http.StatusOK {
+		t.Fatalf("登出失败: HTTP %d %v", status, body)
+	}
+
+	var status2 string
+	h.db.Raw("SELECT status FROM user_sessions WHERE user_id = ? ORDER BY id DESC LIMIT 1", id).Scan(&status2)
+	if status2 != "revoked" {
+		t.Errorf("登出后会话状态 = %q，期望 revoked", status2)
+	}
+	if status, _ := h.do(http.MethodGet, "/api/v1/uc/auth/userinfo", token, nil); status != http.StatusUnauthorized {
+		t.Errorf("登出后旧令牌必须 401，实际 HTTP %d", status)
+	}
+}
+
+// TestLiveExpiredSessionIsOffline 覆盖「过期会话不算在线、也不能用」。
+//
+// 会话过期有两条独立路径，都要成立：
+//   - 令牌仍然合法（JWT 未到期），但会话行已过期 → 中间件按会话判据拒绝；
+//   - 在线统计按 expired_at 过滤，不把过期会话算成在线。
+//
+// 用例直接把会话行的 expired_at 改到过去来模拟「已过期但 status 还没被回写」，
+// 这正是回写调度器上线前会长期存在的真实状态。
+func TestLiveExpiredSessionIsOffline(t *testing.T) {
+	h := newLiveHarness(t)
+	admin := h.loginAdmin()
+	id, username := h.registerUser("expiredsess")
+	token := h.loginUser(username, liveUserPassword)
+
+	// 先把该用户的会话标记为「已过期但状态仍 active」。
+	mustExec(t, h, `UPDATE user_sessions SET expired_at = NOW() - INTERVAL '1 hour'
+		WHERE user_id = ? AND status = 'active'`, id)
+
+	if status, body := h.do(http.MethodGet, "/api/v1/uc/auth/userinfo", token, nil); status != http.StatusUnauthorized {
+		t.Fatalf("过期会话的令牌必须 401，实际 HTTP %d %v", status, body)
+	}
+	if h.onlineUserPresent(admin, id) {
+		t.Error("过期会话不应计入在线用户")
+	}
+
+	// 会话列表按「在线」筛选时同样不该出现（口径必须与中间件一致）。
+	status, body := h.do(http.MethodGet, "/api/v1/admin/security/sessions?user_id="+fmt.Sprint(id)+"&status=active", admin, nil)
+	if status != http.StatusOK {
+		t.Fatalf("查询会话列表失败: HTTP %d %v", status, body)
+	}
+	if n := len(digSlice(body, "data", "items")); n != 0 {
+		t.Errorf("按「在线」筛选返回了 %d 条已过期会话，期望 0 条", n)
+	}
+}
+
+// TestLiveExpireStaleSessionsRewritesStatus 覆盖过期回写把 status 收成 expired。
+//
+// 没有这条回写，expired_at 到点后 status 会永远停在 active，
+// 安全页按状态筛选/导出、用户详情的「有效会话数」都会长期虚高。
+func TestLiveExpireStaleSessionsRewritesStatus(t *testing.T) {
+	h := newLiveHarness(t)
+	id, username := h.registerUser("expirewrite")
+	h.loginUser(username, liveUserPassword)
+	mustExec(t, h, `UPDATE user_sessions SET expired_at = NOW() - INTERVAL '1 hour'
+		WHERE user_id = ? AND status = 'active'`, id)
+
+	// 直接用仓储 + 服务跑回写，而不是拿应用内部那个实例：
+	// liveApp 用 sync.Once 共享一份应用，往里塞测试数据再触发它的调度器
+	// 会影响同进程内其它用例。这里关心的是回写逻辑本身（仓储 SQL + 状态判定），
+	// 用同一张表、同一个库，结论等价。缓存失效由 TestLiveExpiredSessionIsOffline 覆盖。
+	svc := securityservice.NewSecurityService(securityrepo.NewSecurityRepository(h.db))
+	n, err := svc.ExpireStaleSessions(context.Background(), 500)
+	if err != nil {
+		t.Fatalf("过期回写失败: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("应至少回写一条过期会话")
+	}
+	var status2 string
+	h.db.Raw("SELECT status FROM user_sessions WHERE user_id = ? ORDER BY id DESC LIMIT 1", id).Scan(&status2)
+	if status2 != "expired" {
+		t.Errorf("回写后状态 = %q，期望 expired", status2)
+	}
+
+	// 反向守卫：revoked 的行不能被这个批处理覆盖成 expired —— 那会丢掉
+	// 「谁在什么时候踢的」这条审计线索。
+	otherID, otherName := h.registerUser("expirekeeprevoked")
+	key := fmt.Sprintf("zzlive_keeprevoked_%d", rand.Intn(1_000_000))
+	mustExec(t, h, `INSERT INTO user_sessions
+		(session_id, user_id, username, platform, ip, user_agent, login_at, last_active_at, expired_at, status, revoked_reason, revoked_at)
+		VALUES (?, ?, ?, 'web', '127.0.0.1', 'live-test', NOW(), NOW(), NOW() - INTERVAL '1 hour', 'revoked', '人工撤销', NOW())`,
+		key, otherID, otherName)
+	if _, err := svc.ExpireStaleSessions(context.Background(), 500); err != nil {
+		t.Fatalf("第二轮过期回写失败: %v", err)
+	}
+	var keptStatus, keptReason string
+	h.db.Raw("SELECT status, COALESCE(revoked_reason, '') FROM user_sessions WHERE session_id = ?", key).
+		Row().Scan(&keptStatus, &keptReason)
+	if keptStatus != "revoked" || keptReason != "人工撤销" {
+		t.Errorf("revoked 行被回写覆盖: status=%q reason=%q，期望 revoked/人工撤销", keptStatus, keptReason)
+	}
+}
+
+// onlineUserPresent 判断某用户是否出现在总览页的在线用户里。
+func (h *liveHarness) onlineUserPresent(adminToken string, userID uint64) bool {
+	h.t.Helper()
+	status, body := h.do(http.MethodGet, "/api/v1/admin/users/activity-overview?limit=50", adminToken, nil)
+	if status != http.StatusOK {
+		h.t.Fatalf("查询在线统计失败: HTTP %d %v", status, body)
+	}
+	for _, item := range digSlice(body, "data", "online_users") {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if uint64(digNumber(obj, "user_id")) == userID {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------- 用例内的小工具 ----------

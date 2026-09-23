@@ -132,7 +132,6 @@
         <t-descriptions :column="descColumn" bordered size="medium" class="detail-desc">
           <t-descriptions-item label="登录时间">{{ formatDateTime(profile.last_login_at) }}</t-descriptions-item>
           <t-descriptions-item label="登录 IP">{{ profile.last_login_ip || '—' }}</t-descriptions-item>
-          <t-descriptions-item label="IP 归属地">{{ profile.last_login_ip_region || '—' }}</t-descriptions-item>
           <t-descriptions-item label="后台角色">
             <div v-if="rbacRoles.length" class="tag-group">
               <t-tag v-for="role in rbacRoles" :key="role.id" theme="primary" variant="light" size="small" shape="round">

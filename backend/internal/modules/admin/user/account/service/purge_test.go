@@ -118,11 +118,11 @@ func (f *fakeUserRepo) SetRoles(context.Context, uint64, []uint64) error {
 func (f *fakeUserRepo) Stats(context.Context) (*model.UserStats, error) {
 	return nil, errUnexpectedRepoCall
 }
-func (f *fakeUserRepo) RegionStats(context.Context) ([]model.RegionStat, error) {
-	return nil, errUnexpectedRepoCall
-}
-func (f *fakeUserRepo) UpdateLoginProfile(context.Context, uint64, string, string, time.Time) error {
+func (f *fakeUserRepo) UpdateLoginProfile(context.Context, uint64, string, time.Time) error {
 	return errUnexpectedRepoCall
+}
+func (f *fakeUserRepo) ActivityOverview(context.Context, int, int) (*model.UserActivityOverview, error) {
+	return nil, errUnexpectedRepoCall
 }
 func (f *fakeUserRepo) NamesByIDs(context.Context, []uint64) (map[uint64]string, error) {
 	return nil, errUnexpectedRepoCall

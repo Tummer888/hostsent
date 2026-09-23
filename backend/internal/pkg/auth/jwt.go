@@ -52,6 +52,15 @@ type UserClaims struct {
 	OwnerUserID uint64 `json:"owner_user_id,omitempty"`
 	// IsSub 是否子账号。
 	IsSub bool `json:"is_sub,omitempty"`
+	// SessionID 该令牌对应的 user_sessions.session_id。
+	//
+	// 这是「强制下线」能真正生效的前提：JWT 本身无状态，签发后无法撤回，
+	// 只能靠令牌里带一个可被服务端查证的句柄。中间件据此查会话是否仍有效
+	// （存在 + status=active + 未过期），管理员踢人或用户登出后请求立即 401。
+	//
+	// 刻意用 omitempty 而不是必填：旧令牌没有该字段，中间件对缺字段的令牌
+	// 一律拒绝（见 middleware.UserAuth），这样「升级前的令牌」不会变成绕过口。
+	SessionID string `json:"sid,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -67,6 +76,15 @@ func NewJWTIssuer(secret string, issuer string, expireIn time.Duration) *JWTIssu
 		issuer:    issuer,
 		expireIn:  expireIn,
 	}
+}
+
+// ExpireIn 返回访问令牌有效期。
+//
+// 开会话时要用它写 user_sessions.expired_at：会话的「有效」与令牌的「未过期」
+// 必须同步，否则会出现「令牌还能用但会话已判过期」（用户被莫名踢下线）
+// 或反过来的「令牌过期了会话仍算在线」（在线数虚高）这两种矛盾状态。
+func (j *JWTIssuer) ExpireIn() time.Duration {
+	return j.expireIn
 }
 
 // Generate 生成兼容旧接口的 Claims token（默认不设 UserType，视为管理员）。
@@ -88,20 +106,24 @@ func (j *JWTIssuer) GenerateAdmin(username string, adminID uint64, role string) 
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(j.secretKey)
 }
 
-// GenerateUser 生成普通用户 token（主账号场景，等价于 GenerateUserFull 的子账号参数为空）。
-func (j *JWTIssuer) GenerateUser(username string, userID uint64, tier string) (string, error) {
-	return j.GenerateUserFull(username, userID, tier, 0, false)
-}
-
-// GenerateUserFull 生成带归属信息的普通用户 token（P4-03）。
-// ownerUserID/isSub 为子账号信息：主账号传 0/false，子账号传主账号 ID 与 true。
-func (j *JWTIssuer) GenerateUserFull(username string, userID uint64, tier string, ownerUserID uint64, isSub bool) (string, error) {
+// GenerateUserSession 生成绑定了会话句柄的普通用户 token（强制下线的前提）。
+//
+// 这是**唯一**的用户令牌签发入口。此前还有 GenerateUser / GenerateUserFull
+// 两个不带会话句柄的版本，现在已删除：它们签出的令牌因 sid 为空会被中间件
+// 一律拒绝，留着只会让调用方拿到一枚「必然 401」的令牌却看不到任何报错。
+// 删掉后误用会直接编译失败，被逼着先去 user_sessions 开会话。
+//
+// sessionID 必须非空且对应的会话已在 user_sessions 里落库（存在 + active +
+// 未过期），中间件每次请求都会校验。顺序不能反：先签令牌再补会话，
+// 补写失败就会签出一张立刻不可用的令牌。
+func (j *JWTIssuer) GenerateUserSession(username string, userID uint64, tier string, ownerUserID uint64, isSub bool, sessionID string) (string, error) {
 	claims := UserClaims{
 		UserID:           userID,
 		Username:         username,
 		Tier:             tier,
 		OwnerUserID:      ownerUserID,
 		IsSub:            isSub,
+		SessionID:        sessionID,
 		RegisteredClaims: j.buildRegisteredClaims(time.Now()),
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(j.secretKey)

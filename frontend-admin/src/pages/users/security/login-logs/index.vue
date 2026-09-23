@@ -135,7 +135,6 @@ const columns: PrimaryTableCol<LoginLogInfo>[] = [
   { colKey: 'login_type', title: '类型', width: 110 },
   { colKey: 'result', title: '结果', width: 100 },
   { colKey: 'ip', title: 'IP 地址', width: 130 },
-  { colKey: 'ip_region', title: '归属地', minWidth: 120 },
   { colKey: 'platform', title: '平台', width: 100 },
   { colKey: 'risk_flag', title: '风险', width: 110 },
   { colKey: 'failure_reason', title: '失败原因', minWidth: 150, ellipsis: true },

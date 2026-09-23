@@ -1,10 +1,12 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	appauth "hostsent/backend/internal/pkg/auth"
 	apperrors "hostsent/backend/internal/pkg/errors"
@@ -121,8 +123,23 @@ func adminIDFromContext(c *gin.Context, issuer *appauth.JWTIssuer, bearerPrefix 
 	return 0, false
 }
 
-// UserAuth 普通用户专用鉴权：仅接受 UserClaims。
-func UserAuth(jwtIssuer *appauth.JWTIssuer, bearerPrefix string) gin.HandlerFunc {
+// SessionChecker 会话有效性校验端口（由 pkg/sessionguard 实现）。
+//
+// 抽成接口而不是直接依赖 sessionguard：middleware 不该知道会话是怎么查的，
+// 测试里也就能塞一个「全放行/全拒绝」的假实现。
+type SessionChecker interface {
+	IsActive(ctx context.Context, sessionID string) (bool, error)
+}
+
+// UserAuth 普通用户专用鉴权：仅接受 UserClaims，并校验令牌绑定的会话仍有效。
+//
+// 会话校验是「强制下线」生效的前提：JWT 无状态，撤销只能靠服务端查证令牌里的
+// sid。checker 为 nil 时**不放行**（返回 401 并告警）—— 安全原语「校验不了」
+// 必须等于「不通过」，否则忘装配就成了全站绕过。这与图形码降级即放行的取舍相反。
+func UserAuth(jwtIssuer *appauth.JWTIssuer, bearerPrefix string, checker SessionChecker, logger *zap.Logger) gin.HandlerFunc {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return func(c *gin.Context) {
 		tokenStr, ok := extractBearerToken(c, bearerPrefix)
 		if !ok {
@@ -132,6 +149,33 @@ func UserAuth(jwtIssuer *appauth.JWTIssuer, bearerPrefix string) gin.HandlerFunc
 
 		userClaims, err := jwtIssuer.ParseUser(tokenStr)
 		if err != nil {
+			unauthorized(c)
+			return
+		}
+
+		if checker == nil {
+			// 装配缺失属于部署事故，必须留下明确日志而不是静默 401。
+			logger.Error("user auth: session checker not configured, rejecting request",
+				zap.String("path", c.FullPath()))
+			unauthorized(c)
+			return
+		}
+		// 令牌必须带会话句柄：旧令牌（升级前签发）没有 sid，一律拒绝，
+		// 让所有在线用户在部署后重新登录一次，而不是留下一条永久可用的旁路。
+		if userClaims.SessionID == "" {
+			unauthorized(c)
+			return
+		}
+		active, err := checker.IsActive(c.Request.Context(), userClaims.SessionID)
+		if err != nil {
+			// 查库失败与「会话无效」对客户端是同一个结果，但日志里要能区分。
+			logger.Warn("user auth: session check failed",
+				zap.String("session_id", userClaims.SessionID), zap.Error(err))
+			unauthorized(c)
+			return
+		}
+		if !active {
+			// 会话已被撤销/过期/清理：令牌立即失效（doc91 §9 强制下线）。
 			unauthorized(c)
 			return
 		}

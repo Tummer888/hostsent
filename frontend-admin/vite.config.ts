@@ -45,6 +45,10 @@ export default defineConfig({
       '/api/v1': {
         target: 'http://127.0.0.1:8080',
         changeOrigin: true,
+        // 转发真实客户端 IP：后端只在「直连对端可信」时才采信 X-Forwarded-For
+        // （见 netutil.ClientIP / app.trusted_proxies），不打开 xfwd 的话后端
+        // 只能看到 dev server 自己的地址，登录日志里所有用户都是同一个 IP。
+        xfwd: true,
       },
     },
   },

@@ -133,11 +133,11 @@ import (
 	apperrors "hostsent/backend/internal/pkg/errors"
 	"hostsent/backend/internal/pkg/middleware"
 	"hostsent/backend/internal/pkg/model"
-	"hostsent/backend/internal/pkg/netutil"
 	"hostsent/backend/internal/pkg/observability"
 	"hostsent/backend/internal/pkg/pricing"
 	"hostsent/backend/internal/pkg/publishsched"
 	"hostsent/backend/internal/pkg/revalidate"
+	"hostsent/backend/internal/pkg/sessionguard"
 	"hostsent/backend/internal/pkg/specatom"
 	"hostsent/backend/internal/pkg/storage"
 	"hostsent/backend/internal/pkg/upstream"
@@ -183,6 +183,8 @@ type Server struct {
 	salesScheduler         *salesservice.ReleaseScheduler
 	// userPurgeScheduler 用户留存期清理（doc104 §4.6）：到期硬删除已注销用户。
 	userPurgeScheduler *service.PurgeScheduler
+	// sessionExpireScheduler 会话过期状态回写：expired_at 到点后把 status 收成 expired。
+	sessionExpireScheduler *securityservice.SessionExpireScheduler
 	provisionWorker    *orderservice.ProvisionWorker
 	notifyWorker       *openservice.NotifyDeliveryWorker
 	// deliveryWorker 通知投递队列工作器（doc90 N4）：邮件/短信排队投递与重试。
@@ -227,7 +229,9 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	}
 
 	jwtIssuer := appauth.NewJWTIssuer(cfg.Auth.JWTSecret, cfg.Auth.JWTIssuer, time.Duration(cfg.Auth.JWTExpireHours)*time.Hour)
-	ipRegionResolver := netutil.NewHTTPIPRegionResolver()
+	// 会话有效性守卫：令牌里的 sid → user_sessions 状态，带缓存 + 撤销时显式失效。
+	// 这是「强制下线/登出/改密撤销」能真正生效的唯一环节（JWT 本身不可撤回）。
+	sessionGuard := sessionguard.New(sessionguard.NewGormStore(database), cacheClient, logger)
 	adminRepo := adminrepo.NewAdminRepository(database)
 	rbacRepo := adminrepo.NewRBACRepository(database)
 	// departmentRepo 组织部门（S1 员工体系）：同时作为员工服务的部门名解析器。
@@ -349,16 +353,26 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	userGroupService := service.NewUserGroupService(userGroupRepo)
 	// 默认用户组兜底：后台建号（admin user）未指定分组时归入 is_default 组。
 	userService.SetDefaultGroupProvider(userGroupService)
+	// 代登录审计：补写 login_logs + user_sessions，让代登录在安全页可追溯、可强制下线。
+	// 会话 expired_at 与令牌有效期对齐，否则在线用户里会挂着到期却仍 active 的会话。
+	userService.SetLoginRecorder(newImpersonationRecorder(database, jwtIssuer.ExpireIn()))
+	userService.SetLogger(logger)
 	roleService := service.NewRoleService(roleRepo, permCache)
 	permissionService := service.NewPermissionService(permissionRepo)
 	menuService := menuservice.NewMenuService(menuRepo)
 	securityService := securityservice.NewSecurityService(securityRepo)
+	// 强制下线要真正生效：撤销会话后立即失效 sessionguard 的校验缓存，
+	// 否则被踢的令牌还能再用最多 positiveTTL（5 分钟）。
+	securityService.SetSessionInvalidator(sessionGuard)
+	sessionExpireScheduler := securityservice.NewSessionExpireScheduler(securityService, logger)
 	userLevelService := levelservice.NewUserLevelService(levelRepo)
 	// 消费升级服务（P3-03）：订单支付成功后累加累计消费并重算等级（只升不降）。
 	levelUpgradeService := levelservice.NewLevelUpgradeService(levelRepo)
 	// 用户中心模块：独立的数据访问、认证服务与处理器（与后台管理模块解耦）
 	userCenterRepo := usercenterrepo.NewUserRepository(database)
-	userCenterService := usercenterservice.NewAuthService(userCenterRepo, jwtIssuer, ipRegionResolver, logger)
+	userCenterService := usercenterservice.NewAuthService(userCenterRepo, jwtIssuer, logger)
+	// 用户侧撤销（登出/改密）同样要失效校验缓存，与管理员踢人走同一条失效通道。
+	userCenterService.SetSessionInvalidator(sessionGuard)
 	// 默认用户组兜底：用户自助注册未指定分组时归入 is_default 组。
 	userCenterService.SetDefaultGroupResolver(userGroupService)
 	userCenterAuthHandler := usercenterhandler.NewAuthHandler(userCenterService)
@@ -896,7 +910,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 登录安全端口回填（doc91 C3）：管理端与用户端认证服务都只依赖中性端口，
 	// 不 import 验证码模块，admin → uc 的反向依赖不存在。
 	if captchaBundle != nil && captchaBundle.port != nil {
-		adminService.SetSecurityDeps(captchaBundle.port, ipRegionResolver)
+		adminService.SetSecurityDeps(captchaBundle.port)
 		userCenterService.SetSecurityPort(captchaBundle.port)
 	}
 	// 实名认证（doc104 §5）：整单审核状态机 + 三方核验 + 用户端提交。
@@ -985,7 +999,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 内容定时发布：管理端「定时发布时间」只在写入时判一次到点，到点后没人推进；
 	// 这条调度把 draft + 已到 publish_at 的公告与文章翻成 published（doc100 §10 第三期 23）。
 	publishScheduler := publishsched.NewScheduler(notifyAnnRepo, contentBundle.articleRepo, logger)
-	app := NewApp(cfg, adminHandler, departmentHandler, userHandler, userDetailHandler, userDeletionHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, salesBundle.customerHandler, salesBundle.commissionHandler, salesBundle.performanceHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, siteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, captchaBundle, notifyBundleInst, logcenterBundle, contentBundle, verificationBundle, oauthBundle, cacheClient, logger, jwtIssuer)
+	app := NewApp(cfg, adminHandler, departmentHandler, userHandler, userDetailHandler, userDeletionHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, salesBundle.customerHandler, salesBundle.commissionHandler, salesBundle.performanceHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, siteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, captchaBundle, notifyBundleInst, logcenterBundle, contentBundle, verificationBundle, 	oauthBundle, cacheClient, sessionGuard, logger, jwtIssuer)
 	router := newRouter(app)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
@@ -1004,6 +1018,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		pendingExpireScheduler: pendingExpireScheduler,
 		salesScheduler:         salesBundle.scheduler,
 		userPurgeScheduler:     userPurgeScheduler,
+		sessionExpireScheduler: sessionExpireScheduler,
 		provisionWorker:        provisionWorker,
 		notifyWorker:           notifyWorker,
 		deliveryWorker:         notifyBundleInst.worker,
@@ -1021,6 +1036,7 @@ func (s *Server) Run() error {
 	s.pendingExpireScheduler.Start(ctx)
 	s.salesScheduler.Start(ctx)
 	s.userPurgeScheduler.Start(ctx)
+	s.sessionExpireScheduler.Start(ctx)
 	s.provisionWorker.Start(ctx)
 	go s.notifyWorker.Start(ctx)
 	s.publishScheduler.Start(ctx)

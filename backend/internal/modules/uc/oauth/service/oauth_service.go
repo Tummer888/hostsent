@@ -649,12 +649,19 @@ func (s *service) handleBind(ctx context.Context, provider string, ext *oauthpkg
 	return s.issueBindTicket(ctx, provider, userID)
 }
 
+// issueBindTicket 签发「绑定完成」票据。
+//
+// mode=ModeBind、sessionID 传空：绑定不是登录，不该开新会话，也不签发访问令牌 ——
+// 用户本来就是登录状态，绑完只是回到个人中心。
+//
+// mode 必须显式标记而不是留给换票侧靠「token 为空」去猜：换票接口是免登录的，
+// 一旦猜错就会给刚绑定成功的用户弹出「该账号尚未注册」。
 func (s *service) issueBindTicket(ctx context.Context, provider string, userID uint64) (*CallbackResult, error) {
 	nonce, err := randomNonce()
 	if err != nil {
 		return nil, err
 	}
-	ticket, err := s.signer.IssueTicket(userID, provider, false, nonce)
+	ticket, err := s.signer.IssueTicket(userID, provider, oauthpkg.ModeBind, false, "", nonce)
 	if err != nil {
 		return nil, err
 	}
@@ -686,8 +693,15 @@ func (s *service) handleLogin(ctx context.Context, provider string, ext *oauthpk
 		_ = s.repo.UpdateBindingLogin(ctx, binding.ID, now)
 		_ = s.repo.UpdateBindingProfile(ctx, binding.ID, ext.Nickname, ext.Avatar, ext.UnionID)
 		_ = s.recordLogin(ctx, user.ID, user.Username, provider, ip, userAgent)
-		_ = s.openSession(ctx, user.ID, user.Username, provider, ip, userAgent)
-		return s.issueLoginTicket(ctx, provider, user.ID, false)
+		// 会话先开好、再把 session_id 装进票据：换票时要签进访问令牌的 sid，
+		// 而换票接口是免登录的，那时再开会话就得从票据里把「谁」读回来。
+		sessionID, err := s.openSession(ctx, user.ID, user.Username, provider, ip, userAgent)
+		if err != nil {
+			s.logger.Error("oauth open session failed",
+				zap.Uint64("user_id", user.ID), zap.String("provider", provider), zap.Error(err))
+			return &CallbackResult{RedirectURL: s.redirectToFrontend(ctx, "", provider, "login_failed")}, nil
+		}
+		return s.issueLoginTicket(ctx, provider, user.ID, sessionID, false)
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		s.logger.Warn("find oauth binding failed", zap.Error(err))
@@ -729,8 +743,13 @@ func (s *service) handleLogin(ctx context.Context, provider string, ext *oauthpk
 		return &CallbackResult{RedirectURL: s.redirectToFrontend(ctx, "", provider, "user_not_found")}, nil
 	}
 	_ = s.recordLogin(ctx, user.ID, user.Username, provider, ip, userAgent)
-	_ = s.openSession(ctx, user.ID, user.Username, provider, ip, userAgent)
-	return s.issueLoginTicket(ctx, provider, userID, false)
+	sessionID, err := s.openSession(ctx, user.ID, user.Username, provider, ip, userAgent)
+	if err != nil {
+		s.logger.Error("oauth open session failed",
+			zap.Uint64("user_id", user.ID), zap.String("provider", provider), zap.Error(err))
+		return &CallbackResult{RedirectURL: s.redirectToFrontend(ctx, "", provider, "login_failed")}, nil
+	}
+	return s.issueLoginTicket(ctx, provider, userID, sessionID, false)
 }
 
 // autoRegister 自动注册第三方账号用户。
@@ -795,12 +814,16 @@ func (s *service) uniqueUsername(ctx context.Context, provider, openid string) s
 	return base + "_" + randomSuffix()
 }
 
-func (s *service) issueLoginTicket(ctx context.Context, provider string, userID uint64, needBind bool) (*CallbackResult, error) {
+// issueLoginTicket 签发「登录（或需绑定）」票据。
+//
+// needBind 只影响前端提示（该账号尚未注册）；mode 恒为 ModeLogin ——
+// 换票侧靠 mode 区分登录与绑定，靠 needBind 区分登录成功与「先去注册」。
+func (s *service) issueLoginTicket(ctx context.Context, provider string, userID uint64, sessionID string, needBind bool) (*CallbackResult, error) {
 	nonce, err := randomNonce()
 	if err != nil {
 		return nil, err
 	}
-	ticket, err := s.signer.IssueTicket(userID, provider, needBind, nonce)
+	ticket, err := s.signer.IssueTicket(userID, provider, oauthpkg.ModeLogin, needBind, sessionID, nonce)
 	if err != nil {
 		return nil, err
 	}
@@ -828,6 +851,13 @@ func (s *service) Exchange(ctx context.Context, ticket string) (*dto.ExchangeRes
 	if claims.NeedBind {
 		return &dto.ExchangeResponse{NeedBind: true, Provider: claims.Provider}, nil
 	}
+	// 绑定完成票据：没有会话、也不签发令牌。前端据此回个人中心而不是「登录成功」。
+	//
+	// 必须显式区分，否则绑定场景会落进「need_bind」分支，向用户展示
+	// 「该账号尚未注册，请先用账号密码登录」——绑定刚成功却被告知没注册。
+	if claims.Mode == oauthpkg.ModeBind {
+		return &dto.ExchangeResponse{BindDone: true, Provider: claims.Provider}, nil
+	}
 	user, err := s.users.FindByID(ctx, claims.UserID)
 	if err != nil {
 		return nil, errors.New("用户不存在")
@@ -835,11 +865,16 @@ func (s *service) Exchange(ctx context.Context, ticket string) (*dto.ExchangeRes
 	if user.DeletedAt != nil || user.Status != "active" {
 		return nil, errors.New("账号状态不可用，请联系客服")
 	}
+	// 令牌必须绑定回调阶段开好的会话：中间件会查这个 sid 是否仍有效，
+	// 空 sid 的令牌一用就 401（强制下线能生效的前提）。
+	if claims.SessionID == "" {
+		return nil, errors.New("登录会话缺失，请重新发起登录")
+	}
 	ownerID := uint64(0)
 	if user.OwnerUserID != nil {
 		ownerID = *user.OwnerUserID
 	}
-	token, err := s.jwtIssuer.GenerateUserFull(user.Username, user.ID, "free", ownerID, user.IsSubAccount)
+	token, err := s.jwtIssuer.GenerateUserSession(user.Username, user.ID, "free", ownerID, user.IsSubAccount, claims.SessionID)
 	if err != nil {
 		return nil, err
 	}

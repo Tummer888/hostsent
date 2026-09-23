@@ -16,7 +16,6 @@ import (
 	"hostsent/backend/internal/modules/uc/auth/model"
 	"hostsent/backend/internal/modules/uc/auth/repository"
 	appauth "hostsent/backend/internal/pkg/auth"
-	"hostsent/backend/internal/pkg/netutil"
 	"hostsent/backend/internal/pkg/security"
 )
 
@@ -40,8 +39,16 @@ type AuthService interface {
 	UpdateProfile(ctx context.Context, userID uint64, req dto.UpdateProfileRequest) (*dto.UserInfo, error)
 	// ChangePassword 修改密码：校验旧密码后写入新密码哈希。
 	ChangePassword(ctx context.Context, userID uint64, req dto.ChangePasswordRequest) error
+	// Logout 登出：撤销当前会话，使其令牌立即失效。
+	//
+	// 此前是空实现（只返回成功、什么都不做）：JWT 无状态，前端删本地 token
+	// 后服务端仍认这枚令牌，直到自然过期。现在令牌带会话句柄，登出必须真的撤销。
+	Logout(ctx context.Context, sessionID string) error
 	// SetSecurityPort 注入登录安全端口（图形码/OTP/锁定/登录日志，doc91 C3）。
 	SetSecurityPort(port security.Port)
+	// SetSessionInvalidator 注入会话缓存失效能力（可选，装配层调用）。
+	// 不注入时会话撤销仍写库，只是要等缓存 TTL 才生效。
+	SetSessionInvalidator(invalidator SessionInvalidator)
 	// SetInviteBinder 注入推广邀请关系绑定能力（可选，装配层调用）。
 	SetInviteBinder(binder InviteBinder)
 	// SetDefaultGroupResolver 注入默认用户组解析能力（可选，装配层调用）。
@@ -75,21 +82,29 @@ type DefaultGroupResolver interface {
 	DefaultGroupID(ctx context.Context) (uint64, error)
 }
 
+// SessionInvalidator 让会话有效性缓存立即失效（由 pkg/sessionguard.Guard 实现）。
+//
+// 抽成接口是为了避免 uc/auth 依赖 pkg/sessionguard 的具体类型，测试里也好替换。
+// 不注入时撤销仍会写库，只是要等缓存 TTL 到期才被中间件看到 —— 功能可用但不「立即」。
+type SessionInvalidator interface {
+	Invalidate(ctx context.Context, sessionIDs ...string)
+}
+
 type authService struct {
-	repo             repository.UserRepository
-	jwtIssuer        *appauth.JWTIssuer
-	ipRegionResolver netutil.IPRegionResolver
-	logger           *zap.Logger
-	inviteBinder     InviteBinder         // 可选：注册时生成邀请码并绑定邀请关系
-	defaultGroup     DefaultGroupResolver // 可选：注册时兜底归入默认用户组
-	salesClaimer     SalesOwnerClaimer    // 可选：注册后自动归属销售（doc86 S4）
+	repo         repository.UserRepository
+	jwtIssuer    *appauth.JWTIssuer
+	logger       *zap.Logger
+	inviteBinder InviteBinder         // 可选：注册时生成邀请码并绑定邀请关系
+	defaultGroup DefaultGroupResolver // 可选：注册时兜底归入默认用户组
+	salesClaimer SalesOwnerClaimer    // 可选：注册后自动归属销售（doc86 S4）
+	invalidator  SessionInvalidator   // 可选：撤销会话后立即失效其校验缓存
 	// sec 登录安全端口（doc91 C3）；未装配时登录行为与升级前完全一致。
 	sec security.Port
 }
 
 // NewAuthService 创建用户中心认证服务实例。
-func NewAuthService(repo repository.UserRepository, jwtIssuer *appauth.JWTIssuer, ipRegionResolver netutil.IPRegionResolver, logger *zap.Logger) AuthService {
-	return &authService{repo: repo, jwtIssuer: jwtIssuer, ipRegionResolver: ipRegionResolver, logger: logger}
+func NewAuthService(repo repository.UserRepository, jwtIssuer *appauth.JWTIssuer, logger *zap.Logger) AuthService {
+	return &authService{repo: repo, jwtIssuer: jwtIssuer, logger: logger}
 }
 
 // SetSecurityPort 注入登录安全端口（doc91 C3，装配层调用）。
@@ -110,6 +125,39 @@ func (s *authService) SetDefaultGroupResolver(resolver DefaultGroupResolver) {
 // SetSalesOwnerClaimer 注入销售归属自动认领能力。
 func (s *authService) SetSalesOwnerClaimer(claimer SalesOwnerClaimer) {
 	s.salesClaimer = claimer
+}
+
+// SetSessionInvalidator 注入会话缓存失效能力（装配层调用）。
+func (s *authService) SetSessionInvalidator(invalidator SessionInvalidator) {
+	s.invalidator = invalidator
+}
+
+// invalidateSessions 让一批会话的校验缓存立即失效。
+//
+// 失败/未装配只告警：撤销本身已经落库，最坏结果是缓存 TTL 内仍被判为有效。
+// 让撤销整体失败去换「缓存一定删掉」是错的取舍 —— 撤销才是安全动作本身。
+func (s *authService) invalidateSessions(ctx context.Context, sessionIDs []string) {
+	if s.invalidator == nil || len(sessionIDs) == 0 {
+		return
+	}
+	s.invalidator.Invalidate(ctx, sessionIDs...)
+}
+
+// Logout 登出：撤销当前会话，使这枚令牌立即失效。
+//
+// 只撤销令牌自己那一条会话（其他设备不受影响）。撤销失败只告警：
+// 前端无论如何都会清掉本地 token，服务端没撤成功最多是这枚令牌能用到自然过期，
+// 但不该因此让用户看到「退出失败」。
+func (s *authService) Logout(ctx context.Context, sessionID string) error {
+	revoked, err := s.repo.RevokeSession(ctx, sessionID, "logout")
+	if err != nil {
+		s.warn("登出撤销会话失败", 0, err)
+		return nil
+	}
+	if revoked {
+		s.invalidateSessions(ctx, []string{sessionID})
+	}
+	return nil
 }
 
 // Login 执行用户登录（doc91 §5.3）。
@@ -268,10 +316,18 @@ func (s *authService) finishLogin(ctx context.Context, user *model.User, loginTy
 	if err := s.updateLoginProfile(ctx, user.ID, ip); err != nil {
 		return nil, err
 	}
-	// 写 user_sessions（doc104 F15）：失败只告警，不影响登录本身。
-	if err := s.openSession(ctx, user, loginType, ip, userAgent); err != nil && s.logger != nil {
-		s.logger.Warn("open user session failed",
-			zap.Uint64("user_id", user.ID), zap.String("login_type", loginType), zap.Error(err))
+	// 开会话：从「失败只告警」改成「失败即登录失败」。
+	//
+	// 原因不是会话记录本身有多重要，而是令牌必须绑定会话句柄（sid）才能被
+	// 中间件接受 —— 没有会话就没有 sid，签出来的令牌一用就 401。
+	// 与其发一枚注定用不了的令牌，不如让用户看到登录失败并重试。
+	sessionID, err := s.openSession(ctx, user, loginType, ip, userAgent)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("open user session failed, aborting login",
+				zap.Uint64("user_id", user.ID), zap.String("login_type", loginType), zap.Error(err))
+		}
+		return nil, errors.New("登录失败，请稍后重试")
 	}
 	if s.sec != nil {
 		s.sec.ResetFailure(ctx, user.Username, ip)
@@ -283,32 +339,44 @@ func (s *authService) finishLogin(ctx context.Context, user *model.User, loginTy
 	if err != nil {
 		return nil, err
 	}
-	return s.buildLoginResponse(ctx, latest), nil
+	return s.buildLoginResponse(ctx, latest, sessionID), nil
 }
 
-// openSession 写一条 user_sessions 记录（doc104 F15）。
+// openSession 写一条 user_sessions 记录并返回其 session_id（doc104 F15）。
 //
-// session_id 与 JWT 无关，只用于安全页展示与「强制下线」定位；真正的令牌
-// 失效靠 user_sessions.status 状态位（见 RevokeSessions）。
-func (s *authService) openSession(ctx context.Context, user *model.User, loginType, ip, userAgent string) error {
+// session_id 现在有实质作用：它会被签进 JWT 的 sid，中间件每次请求据此查证
+// 会话是否仍有效。因此必须先落库再签发令牌，顺序不能反。
+//
+// expired_at 与 JWT 有效期对齐：两者不一致会出现「令牌还能用但会话已判过期」
+// （用户被莫名踢下线）或「令牌过期了会话仍算在线」（在线数虚高）。
+func (s *authService) openSession(ctx context.Context, user *model.User, loginType, ip, userAgent string) (string, error) {
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
-		return err
+		return "", err
 	}
-	ipRegion := ""
-	if s.ipRegionResolver != nil && ip != "" {
-		ipRegion = s.ipRegionResolver.Resolve(ctx, ip)
+	sessionID := loginType + "_" + hex.EncodeToString(buf)
+	now := time.Now()
+	ttl := time.Duration(0)
+	if s.jwtIssuer != nil {
+		ttl = s.jwtIssuer.ExpireIn()
 	}
-	return s.repo.OpenSession(ctx, repository.SessionInput{
-		SessionID: loginType + "_" + hex.EncodeToString(buf),
+	expiredAt := time.Time{}
+	if ttl > 0 {
+		expiredAt = now.Add(ttl)
+	}
+	if err := s.repo.OpenSession(ctx, repository.SessionInput{
+		SessionID: sessionID,
 		UserID:    user.ID,
 		Username:  user.Username,
 		Platform:  "web",
 		IP:        ip,
-		IPRegion:  ipRegion,
 		UserAgent: userAgent,
-		LoginAt:   time.Now(),
-	})
+		LoginAt:   now,
+		ExpiredAt: expiredAt,
+	}); err != nil {
+		return "", err
+	}
+	return sessionID, nil
 }
 
 // VerifyLoginOTP 完成登录二次验证（doc91 §4.6）。
@@ -518,8 +586,12 @@ func (s *authService) ResetPassword(ctx context.Context, req dto.ResetPasswordRe
 		return err
 	}
 	// 改密后撤销全部历史会话（JWT 无状态，靠 user_sessions 状态位失效）。
-	if err := s.repo.RevokeSessions(ctx, target.UserID, "password_reset"); err != nil {
+	// 撤销后立刻失效会话缓存：否则旧令牌在缓存 TTL 内仍能通过校验，
+	// 「改密踢下线」就会变成「最多 5 分钟后才踢下线」。
+	if revoked, err := s.repo.RevokeSessions(ctx, target.UserID, "password_reset"); err != nil {
 		s.warn("撤销会话失败", target.UserID, err)
+	} else {
+		s.invalidateSessions(ctx, revoked)
 	}
 	// 重置即验证了该通道可用。
 	_ = s.repo.MarkVerified(ctx, target.UserID, channel, time.Now())
@@ -532,13 +604,9 @@ func (s *authService) logLogin(ctx context.Context, userID uint64, username, log
 	if s.sec == nil {
 		return
 	}
-	ipRegion := ""
-	if s.ipRegionResolver != nil && ip != "" {
-		ipRegion = s.ipRegionResolver.Resolve(ctx, ip)
-	}
 	s.sec.Log(ctx, security.LoginLogEntry{
 		UserID: userID, Username: username, LoginType: loginType,
-		Result: result, FailureReason: reason, IP: ip, IPRegion: ipRegion,
+		Result: result, FailureReason: reason, IP: ip,
 		UserAgent: userAgent, Platform: "web",
 	})
 }
@@ -629,13 +697,16 @@ func (s *authService) UserInfo(ctx context.Context, userID uint64) (*dto.UserInf
 	return &info, nil
 }
 
-// buildLoginResponse 组装登录响应，签发带归属信息的普通用户 JWT（P4-03）。
-func (s *authService) buildLoginResponse(ctx context.Context, user *model.User) *dto.LoginResponse {
+// buildLoginResponse 组装登录响应，签发带归属信息与会话句柄的普通用户 JWT（P4-03）。
+//
+// sessionID 由 openSession 生成并已落库，这里只负责签进令牌 —— 中间件会用它
+// 校验会话是否仍有效，所以空 sessionID 意味着令牌一用就 401。
+func (s *authService) buildLoginResponse(ctx context.Context, user *model.User, sessionID string) *dto.LoginResponse {
 	ownerID := uint64(0)
 	if user.OwnerUserID != nil {
 		ownerID = *user.OwnerUserID
 	}
-	token, err := s.jwtIssuer.GenerateUserFull(user.Username, user.ID, user.Tier, ownerID, user.IsSubAccount)
+	token, err := s.jwtIssuer.GenerateUserSession(user.Username, user.ID, user.Tier, ownerID, user.IsSubAccount, sessionID)
 	if err != nil {
 		return nil
 	}
@@ -686,13 +757,9 @@ func (s *authService) toUserInfo(ctx context.Context, user *model.User) dto.User
 	return info
 }
 
-// updateLoginProfile 解析 IP 归属地并更新用户的登录档案。
+// updateLoginProfile 更新用户的登录档案（最近登录时间/IP）。归属地解析已整体下线。
 func (s *authService) updateLoginProfile(ctx context.Context, userID uint64, ip string) error {
-	ipRegion := ""
-	if s.ipRegionResolver != nil && ip != "" {
-		ipRegion = s.ipRegionResolver.Resolve(ctx, ip)
-	}
-	return s.repo.UpdateLoginProfile(ctx, userID, ip, ipRegion, time.Now())
+	return s.repo.UpdateLoginProfile(ctx, userID, ip, time.Now())
 }
 
 // UpdateProfile 更新当前用户基本资料：

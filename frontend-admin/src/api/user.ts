@@ -8,7 +8,6 @@ export interface UserListQuery {
   page_size?: number
   status?: string
   filter?: string
-  last_login_ip_region?: string
   keyword?: string
   user_level_id?: number
   /** 用户组筛选，0 或空表示不筛选 */
@@ -41,7 +40,6 @@ export interface UserInfo {
   /** 用户分层：free / pro … */
   tier?: string
   last_login_ip?: string
-  last_login_ip_region?: string
   oauth_provider?: string
   oauth_providers?: string[]
   oauth_openid?: string
@@ -314,14 +312,40 @@ export interface UserGroupListResponse {
   meta: UserListMeta
 }
 
-export interface RegionStatItem {
-  region: string
-  count: number
+/** 在线用户一行（总览页卡片）：来自 user_sessions 的有效会话。 */
+export interface OnlineUserItem {
+  user_id: number
+  username: string
+  platform: string
+  ip: string
+  session_id: string
+  login_at: string
+  last_active_at: string
+  expired_at?: string | null
 }
 
-export interface RegionStatsResponse {
-  items: RegionStatItem[]
-  total: number
+/** 最近登录用户一行（总览页卡片）：来自 users.last_login_*。 */
+export interface RecentLoginItem {
+  user_id: number
+  username: string
+  ip: string
+  last_login_at: string
+  status: string
+}
+
+/**
+ * 总览页活动统计。
+ *
+ * 替代原「登录 IP 归属地分布」：归属地依赖外部 IP 反查服务（不可复现、
+ * 同一 IP 不同时间可能不同结果），而在线/最近登录都是平台自己写下的事实。
+ */
+export interface UserActivityOverviewResponse {
+  online_total: number
+  online_users: OnlineUserItem[]
+  recent_total: number
+  recent_users: RecentLoginItem[]
+  /** 最近登录的统计窗口（小时），用于卡片副标题文案。 */
+  recent_window_hours: number
 }
 
 export interface UserLevelListQuery {
@@ -373,7 +397,6 @@ export function getUserList(params: UserListQuery): Promise<UserListResponse> {
       page_size: params.page_size,
       status: params.status,
       filter: params.filter,
-      last_login_ip_region: params.last_login_ip_region,
       keyword: params.keyword,
       user_level_id: params.user_level_id,
       user_group_id: params.user_group_id,
@@ -396,7 +419,6 @@ export function exportUsers(params: UserListQuery) {
     params: {
       status: params.status,
       filter: params.filter,
-      last_login_ip_region: params.last_login_ip_region,
       keyword: params.keyword,
       user_level_id: params.user_level_id,
       user_group_id: params.user_group_id,
@@ -477,9 +499,22 @@ export function getUserStats(): Promise<UserStatsResponse> {
   })
 }
 
-export function getRegionStats(): Promise<RegionStatsResponse> {
-  return request.get<RegionStatsResponse>({
-    url: '/users/region-stats',
+/**
+ * 总览页活动统计：在线用户 + 最近登录用户（含 IP）。
+ *
+ * limit 控制两张卡片各自返回的明细条数（后端默认 8）；
+ * window_hours 是「最近登录」的统计窗口（后端默认 24 小时）。
+ */
+export function getActivityOverview(params?: {
+  limit?: number
+  window_hours?: number
+}): Promise<UserActivityOverviewResponse> {
+  return request.get<UserActivityOverviewResponse>({
+    url: '/users/activity-overview',
+    params: {
+      limit: params?.limit,
+      window_hours: params?.window_hours,
+    },
   })
 }
 

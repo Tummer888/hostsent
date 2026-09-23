@@ -63,23 +63,39 @@ func (s *service) recordLogin(ctx context.Context, userID uint64, username, prov
 		userID, username, provider, ip, truncate(userAgent, 255)).Error
 }
 
-// openSession 为第三方登录开一条会话记录（doc104 §6.5，F15）。
+// openSession 为第三方登录开一条会话记录（doc104 §6.5，F15），返回 session_id。
 //
 // 不写会话的话，「登录日志有记录但会话列表是空的」——运营在安全页排查
 // 「这个用户现在有哪些登录态」时会看到空白，且「强制下线」对该会话无效。
-func (s *service) openSession(ctx context.Context, userID uint64, username, provider, ip, userAgent string) error {
+//
+// 返回值现在是必需的：会话 id 会装进回调票据，换票时签进访问令牌的 sid，
+// 中间件据此校验会话有效性（强制下线能立即生效的前提）。
+// expired_at 与 JWT 有效期对齐，见 authService.openSession 的同类注释。
+func (s *service) openSession(ctx context.Context, userID uint64, username, provider, ip, userAgent string) (string, error) {
 	if s.db == nil {
-		return nil
+		return "", nil
 	}
-	sessionID, err := randomNonce()
+	nonce, err := randomNonce()
 	if err != nil {
-		return err
+		return "", err
 	}
+	sessionID := "oauth_" + provider + "_" + nonce
 	now := time.Now()
-	return s.db.WithContext(ctx).Exec(`INSERT INTO user_sessions
-		(session_id, user_id, username, platform, ip, user_agent, login_at, last_active_at, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`,
-		"oauth_"+provider+"_"+sessionID, userID, username, provider, ip, truncate(userAgent, 255), now, now).Error
+	ttl := time.Duration(0)
+	if s.jwtIssuer != nil {
+		ttl = s.jwtIssuer.ExpireIn()
+	}
+	var expiredAt any
+	if ttl > 0 {
+		expiredAt = now.Add(ttl)
+	}
+	if err := s.db.WithContext(ctx).Exec(`INSERT INTO user_sessions
+		(session_id, user_id, username, platform, ip, user_agent, login_at, last_active_at, expired_at, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`,
+		sessionID, userID, username, provider, ip, truncate(userAgent, 255), now, now, expiredAt).Error; err != nil {
+		return "", err
+	}
+	return sessionID, nil
 }
 
 // truncate 按字节截断（DB 列有长度上限，超长会整条 INSERT 失败）。

@@ -30,8 +30,7 @@
             <span>{{ loginTypeLabel(row.login_type) }}</span>
           </template>
           <template #ip="{ row }">
-            <div>{{ row.ip || '—' }}</div>
-            <div class="cell-sub">{{ row.ip_region || '—' }}</div>
+            <span>{{ row.ip || '—' }}</span>
           </template>
           <template #user_agent="{ row }">
             <span class="cell-sub">{{ row.user_agent || '—' }}</span>
@@ -87,8 +86,7 @@
             <span>{{ platformLabel(row.platform) }}</span>
           </template>
           <template #ip="{ row }">
-            <div>{{ row.ip || '—' }}</div>
-            <div class="cell-sub">{{ row.ip_region || '—' }}</div>
+            <span>{{ row.ip || '—' }}</span>
           </template>
           <template #status="{ row }">
             <t-tag :theme="sessionStatusTheme(row.status)" variant="light" size="small" shape="round">
@@ -225,6 +223,7 @@ import {
   sessionStatusLabel,
   sessionStatusTheme,
 } from '@/pages/users/constants'
+import { LOGIN_TYPE_LABEL } from '@/pages/users/security/shared'
 import type { LoginLogInfo, RiskEventInfo, SessionInfo } from '@/api/security'
 import type { UserDetailSummary } from '@/api/user'
 
@@ -237,17 +236,11 @@ const props = defineProps<{
 
 const subTab = ref<'logins' | 'sessions' | 'risks'>('logins')
 
-const loginTypeLabels: Record<string, string> = {
-  password: '密码登录',
-  sms: '短信登录',
-  oauth: '第三方登录',
-  wechat: '微信',
-  qq: 'QQ',
-  refresh: '令牌续期',
-}
-
+// 复用安全页共享的映射表，避免详情面板与登录日志页对同一个 login_type
+// 给出两种文案（历史上这里写过一份自己的表，sms 一处叫「短信登录」、
+// 一处叫「手机验证码」）。缺失的 provider 名由 LOGIN_TYPE_LABEL 兜底原样返回。
 function loginTypeLabel(type: string): string {
-  return loginTypeLabels[type] || type || '—'
+  return LOGIN_TYPE_LABEL[type] || type || '—'
 }
 
 const platformLabels: Record<string, string> = {
@@ -270,7 +263,7 @@ const loginColumns: PrimaryTableCol<LoginLogInfo>[] = [
   { colKey: 'created_at', title: '时间', width: 150 },
   { colKey: 'result', title: '结果', width: 120 },
   { colKey: 'login_type', title: '方式', width: 110 },
-  { colKey: 'ip', title: 'IP / 归属地', minWidth: 170 },
+  { colKey: 'ip', title: 'IP', minWidth: 150 },
   { colKey: 'user_agent', title: '客户端', minWidth: 180 },
 ]
 
@@ -320,7 +313,7 @@ const sessionPagination = reactive({ current: 1, pageSize: 20, total: 0, showJum
 const sessionMobile = reactive({ current: 1, pageSize: 10, total: 0 })
 const sessionColumns: PrimaryTableCol<SessionInfo>[] = [
   { colKey: 'platform', title: '平台', width: 100 },
-  { colKey: 'ip', title: 'IP / 归属地', minWidth: 170 },
+  { colKey: 'ip', title: 'IP', minWidth: 150 },
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'login_at', title: '登录时间', width: 150 },
   { colKey: 'last_active_at', title: '最近活跃', width: 150 },

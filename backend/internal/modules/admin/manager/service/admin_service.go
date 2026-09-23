@@ -14,7 +14,6 @@ import (
 	"hostsent/backend/internal/modules/admin/manager/repository"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/middleware"
-	"hostsent/backend/internal/pkg/netutil"
 	"hostsent/backend/internal/pkg/security"
 )
 
@@ -37,7 +36,7 @@ type AdminService interface {
 	// ListAuditLogs 管理端操作审计查询（P2-06）。
 	ListAuditLogs(ctx context.Context, query dto.AdminAuditLogQuery) (*dto.AdminAuditLogResponse, error)
 	// SetSecurityDeps 注入登录安全端口（doc91 C3，装配层在 captcha 装配后调用）。
-	SetSecurityDeps(port security.Port, ipRegion netutil.IPRegionResolver)
+	SetSecurityDeps(port security.Port)
 }
 
 // DepartmentNameResolver 部门名解析（由部门仓储实现）。
@@ -63,8 +62,6 @@ type adminService struct {
 	salesReleaser SalesReleaser
 	// sec 登录安全端口（图形码/OTP/锁定/登录日志），doc91 C3；未装配时全部放行。
 	sec security.Port
-	// ipRegion 登录日志的 IP 归属地解析，可为 nil。
-	ipRegion netutil.IPRegionResolver
 }
 
 func NewAdminService(
@@ -86,9 +83,8 @@ func NewAdminService(
 //
 // 抽成 setter 而不是构造参数：Login 与 admin 的其余职责无关，且既有装配顺序
 // （captchaBundle 在 adminService 之后构建）决定了端口只能后置注入。
-func (s *adminService) SetSecurityDeps(port security.Port, ipRegion netutil.IPRegionResolver) {
+func (s *adminService) SetSecurityDeps(port security.Port) {
 	s.sec = port
-	s.ipRegion = ipRegion
 }
 
 // loginFail 记录一次登录失败：写 login_logs + 失败计数（doc91 §9.1）。
@@ -104,18 +100,9 @@ func (s *adminService) loginFail(ctx context.Context, username, ip, userAgent, r
 		Result:        security.LoginResultFailed,
 		FailureReason: reason,
 		IP:            ip,
-		IPRegion:      s.resolveIPRegion(ctx, ip),
 		UserAgent:     userAgent,
 		Platform:      "admin",
 	})
-}
-
-// resolveIPRegion IP 归属地（解析器未装配时返回空串）。
-func (s *adminService) resolveIPRegion(ctx context.Context, ip string) string {
-	if s.ipRegion == nil || ip == "" {
-		return ""
-	}
-	return s.ipRegion.Resolve(ctx, ip)
 }
 
 // Login 管理端登录（doc91 §5.2）。
@@ -184,7 +171,7 @@ func (s *adminService) Login(ctx context.Context, req dto.AdminLoginRequest, ip,
 		s.sec.Log(ctx, security.LoginLogEntry{
 			UserID: admin.ID, Username: admin.Username, LoginType: "password",
 			Result: security.LoginResultSuccess, IP: ip,
-			IPRegion: s.resolveIPRegion(ctx, ip), UserAgent: userAgent, Platform: "admin",
+			UserAgent: userAgent, Platform: "admin",
 		})
 	}
 	return s.issueAdminLogin(ctx, admin)
@@ -249,7 +236,7 @@ func (s *adminService) VerifyLoginOTP(ctx context.Context, req dto.AdminVerifyOT
 	s.sec.Log(ctx, security.LoginLogEntry{
 		UserID: admin.ID, Username: admin.Username, LoginType: "password",
 		Result: security.LoginResultSuccess, IP: ip,
-		IPRegion: s.resolveIPRegion(ctx, ip), UserAgent: userAgent, Platform: "admin",
+		UserAgent: userAgent, Platform: "admin",
 	})
 	return s.issueAdminLogin(ctx, admin)
 }

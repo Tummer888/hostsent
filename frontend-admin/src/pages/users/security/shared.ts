@@ -23,17 +23,36 @@ export const securityStatusTagTheme: Record<string, string> = {
 // 自己编的中文别名（例如登录类型写 admin/user、会话状态写 online），与库里对不上，
 // 选中后一律返回空列表。展示文案统一走 *_LABEL 映射，筛选与渲染不会再次分叉。
 
-/** 登录日志 login_type（uc/auth 实际写入 password/sms/email）。 */
+/**
+ * 登录日志 login_type。
+ *
+ * 除 uc/auth 写入的 password/sms/email 外，还有两条真实来源：
+ *   - oauth：uc/oauth 登录时写的是 provider 名（wechat/qq/alipay/…）；
+ *   - impersonate：管理端代登录（见 server/assembly_impersonation.go）。
+ * 少列这两类会让安全页显示原始英文值，且按类型筛选时选不到它们。
+ */
 export const LOGIN_TYPE_OPTIONS = [
   { label: '账号密码', value: 'password' },
   { label: '手机验证码', value: 'sms' },
   { label: '邮箱验证码', value: 'email' },
+  { label: '代登录', value: 'impersonate' },
+  { label: '微信', value: 'wechat' },
+  { label: 'QQ', value: 'qq' },
+  { label: '支付宝', value: 'alipay' },
+  { label: '企业微信', value: 'wecom' },
+  { label: 'GitHub', value: 'github' },
 ]
 
 export const LOGIN_TYPE_LABEL: Record<string, string> = {
   password: '账号密码',
   sms: '手机验证码',
   email: '邮箱验证码',
+  impersonate: '代登录',
+  wechat: '微信',
+  qq: 'QQ',
+  alipay: '支付宝',
+  wecom: '企业微信',
+  github: 'GitHub',
 }
 
 /** 登录日志 / 会话的 risk_flag。 */
@@ -105,26 +124,30 @@ export const SESSION_STATUS_LABEL: Record<string, string> = {
   expired: '已过期',
 }
 
-/** 会话平台：真实值是终端类型（web/mobile/desktop），不是「前台/后台」。 */
+/**
+ * 会话平台：真实值是终端类型（web/mobile/desktop），不是「前台/后台」。
+ *
+ * admin 是管理端代登录写下的会话（见 server/assembly_impersonation.go）——
+ * 代登录会真的开一条用户会话，运营必须能在列表里把它与用户自己的登录区分开，
+ * 否则「这个用户当前有几个登录态」会把管理员的排查行为算进去。
+ */
 export const SESSION_PLATFORM_OPTIONS = [
   { label: 'Web', value: 'web' },
   { label: '移动端', value: 'mobile' },
   { label: '桌面端', value: 'desktop' },
+  { label: '管理端代登录', value: 'admin' },
 ]
 
 export const SESSION_PLATFORM_LABEL: Record<string, string> = {
   web: 'Web',
   mobile: '移动端',
   desktop: '桌面端',
+  admin: '管理端代登录',
 }
 
-/**
- * 登录日志的 platform 与会话同源，但多一个 admin（管理端登录）。
- * 会话表里没有 admin —— 后台登录不建用户会话，所以两张表的取值不完全重合。
- */
+/** 登录日志的 platform 与会话同源（含 admin），这里保持一份独立常量便于日后分叉。 */
 export const LOGIN_PLATFORM_LABEL: Record<string, string> = {
   ...SESSION_PLATFORM_LABEL,
-  admin: '管理端',
 }
 
 /** 黑名单类型 / 来源 / 状态。 */
@@ -183,10 +206,13 @@ export function applyDateRange(
   target.end_time = range[1]
 }
 
+// 零值时间（Go time.Time 零值序列化成 "0001-01-01T00:00:00Z"）在 JS 里是合法日期，
+// 直接 toLocaleString 会渲染成 "1/1/1 00:00:00"。可空的时间列（如会话 expired_at）
+// 空值就是这么过来的，必须在这里折成「—」，否则页面上会出现公元 1 年的过期时间。
 export function formatSecurityTime(value?: string) {
   if (!value) return '—'
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
+  if (Number.isNaN(date.getTime()) || date.getFullYear() <= 1) return '—'
   return date.toLocaleString('zh-CN', { hour12: false })
 }
 

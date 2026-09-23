@@ -16,6 +16,8 @@ export default defineConfig({
       '/api': {
         target: 'http://127.0.0.1:8080',
         changeOrigin: true,
+        // 同 frontend-admin：让后端拿到浏览器真实来源地址而不是 dev server 地址。
+        xfwd: true,
       },
     },
   },
