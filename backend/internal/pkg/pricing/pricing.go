@@ -2,8 +2,9 @@
 //
 // 职责边界：
 //   - 基础价来自 product_pricing（读不到回落 products.price），见 P5-02；
-//   - 折扣来源按 D3 定稿顺序叠加：代理价 → 用户组策略 → 促销/优惠券 → 管理员手动改价；
-//   - 用户等级**不参与**算价（D3），等级只决定消费升级与子账号上限。
+//   - 折扣来源：代理等级折扣（doc108）→ 促销/优惠券 → 管理员手动改价；
+//   - 用户等级**不参与**算价（D3），等级只决定消费升级与子账号上限；
+//   - 用户组**不参与**算价（doc108 修订），只做客户分类。
 //
 // 叠加模式由全局配置 pricing.stack_mode 决定：
 //   - best（默认）：只取优惠幅度最大的一条规则；
@@ -80,9 +81,11 @@ type Deps struct {
 	// 返回 found=false 表示未建矩阵，回落旧口径（存量行为不变）。
 	// 返回 error 表示矩阵存在但该周期不可售，调用方应直接拒绝下单（不静默降级）。
 	CycleBasePrice func(ctx context.Context, in ResolveInput) (unitPrice float64, categoryID uint64, found bool, err error)
-	// AgentRule 代理价（P6 接入 agent_levels.price_policy_id，当前可为 nil）。
+	// AgentRule 代理等级折扣（doc108）：用户 → agent_level_id → agent_level_discounts。
+	// 这是当前**唯一**在用的折扣来源；为 nil 表示不打折。
 	AgentRule func(ctx context.Context, userID, productID, categoryID uint64) (*Rule, error)
-	// GroupRule 用户组策略（user_groups.price_policy_id）。
+	// GroupRule 用户组策略：已随 doc108 下线（用户组不再打折），保留字段以便未来
+	// 接入其他来源时复用该槽位；装配层不再注入。
 	GroupRule func(ctx context.Context, userID, productID, categoryID uint64) (*Rule, error)
 	// PromotionRule 促销/优惠券（当前未接入返回 nil）。
 	PromotionRule func(ctx context.Context, in ResolveInput, amount float64) (*Rule, error)

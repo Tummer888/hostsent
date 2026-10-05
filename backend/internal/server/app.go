@@ -40,6 +40,7 @@ import (
 	systemhandler "hostsent/backend/internal/modules/admin/system/handler"
 	tickethandler "hostsent/backend/internal/modules/admin/ticket/handler"
 	"hostsent/backend/internal/modules/admin/user/account/handler"
+	agentlevelhandler "hostsent/backend/internal/modules/admin/user/agentlevel/handler"
 	levelhandler "hostsent/backend/internal/modules/admin/user/level/handler"
 	securityhandler "hostsent/backend/internal/modules/admin/user/security/handler"
 	openhandler "hostsent/backend/internal/modules/open/handler"
@@ -87,6 +88,7 @@ type App struct {
 	menuHandler           *menuhandler.MenuHandler
 	securityHandler       *securityhandler.SecurityHandler
 	userLevelHandler      *levelhandler.UserLevelHandler
+	agentLevelHandler     *agentlevelhandler.AgentLevelHandler
 	providerHandler       *providerhandler.ProviderHandler
 	productHandler        *producthandler.ProductHandler
 	syncHandler           *synchandler.SyncHandler
@@ -174,6 +176,7 @@ func NewApp(
 	menuHandler *menuhandler.MenuHandler,
 	securityHandler *securityhandler.SecurityHandler,
 	userLevelHandler *levelhandler.UserLevelHandler,
+	agentLevelHandler *agentlevelhandler.AgentLevelHandler,
 	providerHandler *providerhandler.ProviderHandler,
 	productHandler *producthandler.ProductHandler,
 	syncHandler *synchandler.SyncHandler,
@@ -256,6 +259,7 @@ func NewApp(
 		menuHandler:             menuHandler,
 		securityHandler:         securityHandler,
 		userLevelHandler:        userLevelHandler,
+		agentLevelHandler:       agentLevelHandler,
 		providerHandler:         providerHandler,
 		productHandler:          productHandler,
 		syncHandler:             syncHandler,

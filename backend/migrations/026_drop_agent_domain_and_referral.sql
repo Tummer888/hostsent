@@ -139,7 +139,13 @@ BEGIN
     IF to_regclass('public.distribution_agents') IS NOT NULL THEN
         EXECUTE 'CREATE TABLE IF NOT EXISTS retired_distribution_agents_20260910 AS SELECT * FROM distribution_agents';
     END IF;
-    IF to_regclass('public.agent_levels') IS NOT NULL THEN
+    -- 只快照「旧结构」（带 price_policy_id）的 agent_levels；doc108 的新表同名但无关，
+    -- 若在新库上补跑本迁移把新表快照进 retired_* 会污染退役快照。
+    IF to_regclass('public.agent_levels') IS NOT NULL
+       AND EXISTS (
+           SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'agent_levels' AND column_name = 'price_policy_id'
+       ) THEN
         EXECUTE 'CREATE TABLE IF NOT EXISTS retired_agent_levels_20260910 AS SELECT * FROM agent_levels';
     END IF;
     IF to_regclass('public.distribution_subordinates') IS NOT NULL THEN
@@ -157,7 +163,23 @@ DROP TABLE IF EXISTS distribution_commissions;
 DROP TABLE IF EXISTS distribution_settlements;
 DROP TABLE IF EXISTS distribution_subordinates;
 DROP TABLE IF EXISTS distribution_agents;
-DROP TABLE IF EXISTS agent_levels;
+
+-- agent_levels 这个名字被 doc108 重新启用了（迁移 059 建的新表：代理等级 + 折扣矩阵）。
+-- 因此这里不能无条件 DROP：本迁移在 live 校验里会被重复执行，无条件 DROP 会把新表连数据一起删掉。
+-- 用「老结构才退役」的判据把两者分开——老表带 price_policy_id 列，新表没有。
+DO $$
+BEGIN
+    IF to_regclass('public.agent_levels') IS NOT NULL
+       AND EXISTS (
+           SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'agent_levels' AND column_name = 'price_policy_id'
+       ) THEN
+        DROP TABLE agent_levels;
+        RAISE NOTICE '026：退役旧 agent_levels（含 price_policy_id 的老结构）';
+    ELSIF to_regclass('public.agent_levels') IS NOT NULL THEN
+        RAISE NOTICE '026：agent_levels 已是 doc108 的新结构（无 price_policy_id），保留不动';
+    END IF;
+END $$;
 
 COMMIT;
 
@@ -167,6 +189,9 @@ COMMIT;
 --      CREATE TABLE distribution_agents AS SELECT * FROM retired_distribution_agents_20260910;（逐表同理）
 --      注意：快照表不含主键/索引定义，重建后需补 PK、唯一键与序列（参考 001_init_schema.sql）。
 --   2) 折扣回到代理线：从 git 历史恢复 distribution/uc agent 模块与 server 装配（提交见本次重构）。
---   3) 返现体系：DROP TABLE referral_withdrawals / referral_transactions / referral_accounts;
+--   3) 若线上仍是 doc108 前的旧 agent_levels（带 price_policy_id），回滚需重建：
+--      CREATE TABLE agent_levels AS SELECT * FROM retired_agent_levels_20260910;（再补 PK/唯一键/序列）
+--      注意：勿覆盖 doc108 新结构的 agent_levels —— 两者同名但语义不同。
+--   4) 返现体系：DROP TABLE referral_withdrawals / referral_transactions / referral_accounts;
 --      ALTER TABLE users DROP COLUMN IF EXISTS invite_code, DROP COLUMN IF EXISTS inviter_user_id, DROP COLUMN IF EXISTS invited_at;
 -- ============================================================================

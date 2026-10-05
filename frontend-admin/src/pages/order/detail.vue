@@ -53,7 +53,7 @@
               <t-descriptions-item label="算价快照">
                 <div class="price-cell">
                   <span class="price-sub">原价 ¥{{ formatPrice(order.original_amount) }}</span>
-                  <span class="price-sub">优惠 ¥{{ formatPrice(order.discount_amount) }}{{ order.discount_source ? `（${order.discount_source}）` : '' }}</span>
+                  <span class="price-sub">优惠 ¥{{ formatPrice(order.discount_amount) }}{{ order.discount_source ? `（${discountSourceLabel(order.discount_source)}）` : '' }}</span>
                   <span class="price-sub">实付 ¥{{ formatPrice(order.final_amount) }}</span>
                 </div>
               </t-descriptions-item>
@@ -212,6 +212,7 @@ import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-n
 
 import { activateOrder, cancelOrder, createOrderRefund, getOrderDetail, updateOrderRemark } from '@/api/order'
 import {
+  discountSourceLabel,
   formatPrice,
   formatTime,
   orderStatusLabel,

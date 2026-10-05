@@ -99,9 +99,10 @@ func (r *userRepository) Delete(ctx context.Context, id uint64) error {
 func (r *userRepository) FindByID(ctx context.Context, id uint64) (*model.User, error) {
 	var user model.User
 	if err := r.db.WithContext(ctx).
-		Select("users.*, user_groups.name AS user_group_name, user_levels.name AS user_level_name, user_levels.code AS user_level_code, user_levels.icon AS user_level_icon, user_levels.color AS user_level_color, user_levels.weight AS user_level_weight, owner.username AS owner_name, inviter.username AS inviter_name, COALESCE(NULLIF(sales.real_name, ''), sales.username, '') AS sales_admin_name, COALESCE(NULLIF(deleter.real_name, ''), deleter.username, '') AS deleted_by_name").
+		Select("users.*, user_groups.name AS user_group_name, user_levels.name AS user_level_name, user_levels.code AS user_level_code, user_levels.icon AS user_level_icon, user_levels.color AS user_level_color, user_levels.weight AS user_level_weight, agent_levels.name AS agent_level_name, agent_levels.code AS agent_level_code, owner.username AS owner_name, inviter.username AS inviter_name, COALESCE(NULLIF(sales.real_name, ''), sales.username, '') AS sales_admin_name, COALESCE(NULLIF(deleter.real_name, ''), deleter.username, '') AS deleted_by_name").
 		Joins("LEFT JOIN user_groups ON user_groups.id = users.user_group_id").
 		Joins("LEFT JOIN user_levels ON user_levels.id = users.user_level_id").
+		Joins("LEFT JOIN agent_levels ON agent_levels.id = users.agent_level_id").
 		Joins("LEFT JOIN users AS owner ON owner.id = users.owner_user_id").
 		Joins("LEFT JOIN users AS inviter ON inviter.id = users.inviter_user_id").
 		Joins("LEFT JOIN admins AS sales ON sales.id = users.sales_admin_id").
@@ -178,9 +179,10 @@ func (r *userRepository) List(ctx context.Context, query dto.UserListQuery) ([]m
 	var users []model.User
 	// total_consume_amount 自 P3-01 起为 users 表落列字段（消费升级服务维护），无需再实时聚合。
 	if err := base.
-		Select("users.*, user_groups.name AS user_group_name, user_levels.name AS user_level_name, user_levels.code AS user_level_code, user_levels.icon AS user_level_icon, user_levels.color AS user_level_color, user_levels.weight AS user_level_weight, owner.username AS owner_name, inviter.username AS inviter_name, COALESCE(NULLIF(sales.real_name, ''), sales.username, '') AS sales_admin_name").
+		Select("users.*, user_groups.name AS user_group_name, user_levels.name AS user_level_name, user_levels.code AS user_level_code, user_levels.icon AS user_level_icon, user_levels.color AS user_level_color, user_levels.weight AS user_level_weight, agent_levels.name AS agent_level_name, agent_levels.code AS agent_level_code, owner.username AS owner_name, inviter.username AS inviter_name, COALESCE(NULLIF(sales.real_name, ''), sales.username, '') AS sales_admin_name").
 		Joins("LEFT JOIN user_groups ON user_groups.id = users.user_group_id").
 		Joins("LEFT JOIN user_levels ON user_levels.id = users.user_level_id").
+		Joins("LEFT JOIN agent_levels ON agent_levels.id = users.agent_level_id").
 		Joins("LEFT JOIN users AS owner ON owner.id = users.owner_user_id").
 		Joins("LEFT JOIN users AS inviter ON inviter.id = users.inviter_user_id").
 		Joins("LEFT JOIN admins AS sales ON sales.id = users.sales_admin_id").
@@ -273,6 +275,15 @@ func applyUserFilters(db *gorm.DB, query dto.UserListQuery) *gorm.DB {
 	}
 	if query.UserGroupID > 0 {
 		db = db.Where("users.user_group_id = ?", query.UserGroupID)
+	}
+	if query.AgentLevelID > 0 {
+		db = db.Where("users.agent_level_id = ?", query.AgentLevelID)
+	}
+	switch query.IsAgent {
+	case "true":
+		db = db.Where("users.agent_level_id IS NOT NULL")
+	case "false":
+		db = db.Where("users.agent_level_id IS NULL")
 	}
 	// 主账号 / 子账号筛选（P4-10）。
 	switch strings.TrimSpace(query.IsSubAccount) {

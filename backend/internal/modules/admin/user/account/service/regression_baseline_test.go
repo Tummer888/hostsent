@@ -206,6 +206,10 @@ func (f *fakeUserGroupRepo) List(context.Context, dto.UserGroupListQuery) ([]mod
 	return nil, 0, errUnexpectedRepoCall
 }
 
+func (f *fakeUserGroupRepo) MemberCounts(context.Context) (map[uint64]int64, error) {
+	return nil, nil
+}
+
 func (f *fakeUserGroupRepo) FindByID(_ context.Context, id uint64) (*model.UserGroup, error) {
 	if f.findErr != nil {
 		return nil, f.findErr

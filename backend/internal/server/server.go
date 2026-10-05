@@ -100,6 +100,9 @@ import (
 	"hostsent/backend/internal/modules/admin/user/account/handler"
 	"hostsent/backend/internal/modules/admin/user/account/repository"
 	"hostsent/backend/internal/modules/admin/user/account/service"
+	agentlevelhandler "hostsent/backend/internal/modules/admin/user/agentlevel/handler"
+	agentlevelrepo "hostsent/backend/internal/modules/admin/user/agentlevel/repository"
+	agentlevelservice "hostsent/backend/internal/modules/admin/user/agentlevel/service"
 	levelhandler "hostsent/backend/internal/modules/admin/user/level/handler"
 	levelrepo "hostsent/backend/internal/modules/admin/user/level/repository"
 	levelservice "hostsent/backend/internal/modules/admin/user/level/service"
@@ -187,8 +190,8 @@ type Server struct {
 	userPurgeScheduler *service.PurgeScheduler
 	// sessionExpireScheduler 会话过期状态回写：expired_at 到点后把 status 收成 expired。
 	sessionExpireScheduler *securityservice.SessionExpireScheduler
-	provisionWorker    *orderservice.ProvisionWorker
-	notifyWorker       *openservice.NotifyDeliveryWorker
+	provisionWorker        *orderservice.ProvisionWorker
+	notifyWorker           *openservice.NotifyDeliveryWorker
 	// deliveryWorker 通知投递队列工作器（doc90 N4）：邮件/短信排队投递与重试。
 	deliveryWorker *notifyservice.DeliveryWorker
 	// logcenter 日志中心后台组件（doc92）：上游采集写入器 + 统一清理调度器。
@@ -406,6 +409,12 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	securityService.SetSessionInvalidator(sessionGuard)
 	sessionExpireScheduler := securityservice.NewSessionExpireScheduler(securityService, logger)
 	userLevelService := levelservice.NewUserLevelService(levelRepo)
+	// 代理等级（doc108）：折扣的唯一来源。用户组只做分类，不再绑定折扣策略。
+	agentLevelRepo := agentlevelrepo.NewAgentLevelRepository(database)
+	agentLevelService := agentlevelservice.NewAgentLevelService(agentLevelRepo)
+	agentLevelHandler := agentlevelhandler.NewAgentLevelHandler(agentLevelService)
+	// 用户详情页/建号设代理等级：account 侧只声明端口，校验在 agentlevel 服务里。
+	userService.SetAgentLevelValidator(newAgentLevelValidatorAdapter(agentLevelService))
 	// 消费升级服务（P3-03）：订单支付成功后累加累计消费并重算等级（只升不降）。
 	levelUpgradeService := levelservice.NewLevelUpgradeService(levelRepo)
 	// 用户详情页改等级：account 侧只声明端口，等级校验与变更留痕都在 level 服务里。
@@ -749,8 +758,9 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 			}
 			return price, 0, true, nil
 		},
-		// 用户组策略 = 这客户打几折（D3 唯一折扣来源）。
-		GroupRule: discountPolicyService.RuleForUserGroup,
+		// 代理等级折扣 = 这代理打几折（doc108 唯一折扣来源）。
+		// 用户组已不再参与算价（只做客户分类），因此此处不再注入 GroupRule。
+		AgentRule: agentLevelService.RuleForUser,
 		// 促销/优惠券暂不在管线内（缺少选券入参）。
 	}, cfg.Pricing.StackMode)
 	// 用户中心订单：余额支付下单 + 复用履约适配器开通上游
@@ -1044,7 +1054,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 内容定时发布：管理端「定时发布时间」只在写入时判一次到点，到点后没人推进；
 	// 这条调度把 draft + 已到 publish_at 的公告与文章翻成 published（doc100 §10 第三期 23）。
 	publishScheduler := publishsched.NewScheduler(notifyAnnRepo, contentBundle.articleRepo, logger)
-	app := NewApp(cfg, adminHandler, departmentHandler, userHandler, userDetailHandler, userDeletionHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, salesBundle.customerHandler, salesBundle.commissionHandler, salesBundle.performanceHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, siteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, captchaBundle, notifyBundleInst, logcenterBundle, contentBundle, verificationBundle, 	oauthBundle, cacheClient, sessionGuard, logger, jwtIssuer)
+	app := NewApp(cfg, adminHandler, departmentHandler, userHandler, userDetailHandler, userDeletionHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, agentLevelHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, salesBundle.customerHandler, salesBundle.commissionHandler, salesBundle.performanceHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, siteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, captchaBundle, notifyBundleInst, logcenterBundle, contentBundle, verificationBundle, oauthBundle, cacheClient, sessionGuard, logger, jwtIssuer)
 	router := newRouter(app)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)

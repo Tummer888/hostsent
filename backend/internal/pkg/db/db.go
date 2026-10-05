@@ -37,6 +37,7 @@ import (
 	systemmodel "hostsent/backend/internal/modules/admin/system/model"
 	ticketmodel "hostsent/backend/internal/modules/admin/ticket/model"
 	usermodel "hostsent/backend/internal/modules/admin/user/account/model"
+	agentlevelmodel "hostsent/backend/internal/modules/admin/user/agentlevel/model"
 	levelmodel "hostsent/backend/internal/modules/admin/user/level/model"
 	securitymodel "hostsent/backend/internal/modules/admin/user/security/model"
 	verificationmodel "hostsent/backend/internal/modules/admin/user/verification/model"
@@ -75,6 +76,9 @@ func AutoMigrate(db *gorm.DB) error {
 		&usermodel.User{},
 		&usercentermodel.User{}, // 用户中心模型，与 usermodel.User 共用 users 表，补齐 avatar/tier 列
 		&usermodel.UserGroup{},
+		// 代理等级与折扣矩阵（doc108）：折扣的唯一来源，用户组已不再参与算价。
+		&agentlevelmodel.AgentLevel{},
+		&agentlevelmodel.AgentLevelDiscount{},
 		&usermodel.SubAccountPermission{},
 		&membermodel.OperationLog{},
 		// 推广邀请返现（独立于现金钱包的三表）
@@ -1040,6 +1044,11 @@ var seedPermissionDefaults = []seedPermission{
 	{ParentCode: "level:list", Name: "创建等级", Code: "level:create", Type: "button", SortOrder: 1, Status: "active"},
 	{ParentCode: "level:list", Name: "编辑等级", Code: "level:update", Type: "button", SortOrder: 2, Status: "active"},
 	{ParentCode: "level:list", Name: "删除等级", Code: "level:delete", Type: "button", SortOrder: 3, Status: "active"},
+	// 代理等级（doc108）：折扣的唯一来源，与「用户等级」（消费升级）是两套阶梯。
+	{ParentCode: "system:user", Name: "代理等级", Code: "agent_level:list", Type: "menu", SortOrder: 4, Status: "active"},
+	{ParentCode: "agent_level:list", Name: "创建代理等级", Code: "agent_level:create", Type: "button", SortOrder: 1, Status: "active"},
+	{ParentCode: "agent_level:list", Name: "编辑代理等级", Code: "agent_level:update", Type: "button", SortOrder: 2, Status: "active"},
+	{ParentCode: "agent_level:list", Name: "删除代理等级", Code: "agent_level:delete", Type: "button", SortOrder: 3, Status: "active"},
 	// 实名认证（doc104 §5）：整单审核。verification:list 是三个列表页与详情页的既有口径，
 	// 本次新增的细粒度码只用在写接口上，存量角色的可见性不受影响。
 	{ParentCode: "system:user", Name: "实名认证", Code: "verification:list", Type: "menu", SortOrder: 10, Status: "active"},
@@ -1309,6 +1318,11 @@ func seedRolePermissions(tx *gorm.DB) error {
 			// 第三方登录（doc104 §6）：超管配置渠道与排查绑定。
 			"oauth:config",
 			"oauth:binding:list",
+			// 代理等级与折扣矩阵（doc108）：折扣的唯一来源，超管全量。
+			"agent_level:list",
+			"agent_level:create",
+			"agent_level:update",
+			"agent_level:delete",
 		},
 		"ops_admin": {
 			"system:user",
@@ -1317,6 +1331,7 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"user:update_status",
 			"user:group:list",
 			"level:list",
+			"agent_level:list",
 			"verification:list",
 			"system:role",
 			"system:role:list",
@@ -1547,7 +1562,7 @@ var seedMenuDefaults = []SeedMenu{
 	{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "用户总览", Type: menumodel.TypeMenu, Path: "/users/overview", Component: "users/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "账户管理", Type: menumodel.TypeDirectory, Path: "/users/accounts", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/users/accounts", Platform: menumodel.PlatformAdmin, Name: "用户列表", Type: menumodel.TypeMenu, Path: "/users/accounts/list", Component: "users/accounts/list/index", Icon: "user-list", SortOrder: 1, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/users/accounts", Platform: menumodel.PlatformAdmin, Name: "用户组/组织管理", Type: menumodel.TypeMenu, Path: "/users/accounts/groups", Component: "users/accounts/groups/index", Icon: "control-platform", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/users/accounts", Platform: menumodel.PlatformAdmin, Name: "用户组管理", Type: menumodel.TypeMenu, Path: "/users/accounts/groups", Component: "users/accounts/groups/index", Icon: "control-platform", SortOrder: 2, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "用户等级", Type: menumodel.TypeMenu, Path: "/users/levels", Component: "users/levels/index", Icon: "tag", SortOrder: 3, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "安全与风控", Type: menumodel.TypeDirectory, Path: "/users/security", Icon: "key", SortOrder: 4, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/users/security", Platform: menumodel.PlatformAdmin, Name: "登录日志", Type: menumodel.TypeMenu, Path: "/users/security/login-logs", Component: "users/security/login-logs/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
@@ -2188,8 +2203,8 @@ func seedDemoSessions(tx *gorm.DB, users map[string]usermodel.User) error {
 // 分组时归入该组，因此必须有且只有一个默认组，否则兜底能力形同虚设。
 //
 // 处理顺序：已存在默认组 → 不动数据；已存在 code=default 的组 → 提升为默认；
-// 其余情况 → 新建「默认用户组」。只新增/标记，绝不改动既有组的折扣策略，
-// 因此对存量数据的算价零影响（新建的默认组不绑定 price_policy_id）。
+// 其余情况 → 新建「默认用户组」。用户组自 doc108 起是纯分类、不承载折扣
+// （price_policy_id 已随 migration 059 删除），所以这里的建组动作对算价零影响。
 func seedDefaultUserGroup(tx *gorm.DB) error {
 	var defaultCount int64
 	if err := tx.Model(&usermodel.UserGroup{}).Where("is_default = ?", true).Count(&defaultCount).Error; err != nil {
@@ -2212,7 +2227,7 @@ func seedDefaultUserGroup(tx *gorm.DB) error {
 	group := usermodel.UserGroup{
 		Name:        "默认用户组",
 		Code:        "default",
-		Description: "新用户未指定分组时的兜底分组，可在用户组管理中调整默认组与折扣策略。",
+		Description: "新用户未指定分组时的兜底分组，可在用户组管理中调整归属与默认标记。",
 		Status:      "active",
 		SortOrder:   1,
 		IsDefault:   true,
@@ -2223,7 +2238,8 @@ func seedDefaultUserGroup(tx *gorm.DB) error {
 // seedUserLevels 注入默认用户等级（会员成长体系）。
 //
 // 等级是「消费升级」的载体：按累计消费自动升级（只升不降），不参与折扣计算
-// （折扣的唯一来源是用户组，见 doc81 D3）。原先与等级同模块的资源配额
+// （折扣的唯一来源是代理等级，见 doc108；doc81 D3 的"用户组是折扣来源"已作废）。
+// 原先与等级同模块的资源配额
 // （模板/上限/调整记录）已移除，见 migrations/017。
 //
 // 六级会员阶梯：白银 → 黄金 → 铂金 → 钻石 → 星耀 → 王者，

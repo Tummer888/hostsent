@@ -26,6 +26,12 @@ var (
 	ErrLevelNotFound = errors.New("用户等级不存在")
 	// ErrLevelDisabled 目标等级已停用。
 	ErrLevelDisabled = errors.New("目标等级已停用，不能指派")
+	// ErrAgentLevelUnavailable 装配层未注入代理等级校验能力，改代理等级请求无法处理。
+	ErrAgentLevelUnavailable = errors.New("代理等级能力未配置")
+	// ErrAgentLevelNotFound 目标代理等级不存在。
+	ErrAgentLevelNotFound = errors.New("代理等级不存在")
+	// ErrAgentLevelDisabled 目标代理等级已停用。
+	ErrAgentLevelDisabled = errors.New("目标代理等级已停用，不能指派")
 )
 
 type UserService interface {
@@ -64,6 +70,8 @@ type UserService interface {
 	SetLevelAssigner(assigner LevelAssigner)
 	// SetDefaultUserRoleProvider 注入默认客户角色解析能力（可选，装配层调用）。
 	SetDefaultUserRoleProvider(provider DefaultUserRoleProvider)
+	// SetAgentLevelValidator 注入代理等级校验能力（可选，装配层调用，doc108）。
+	SetAgentLevelValidator(validator AgentLevelValidator)
 	// SetLogger 注入日志器（可选，装配层调用）。
 	SetLogger(logger *zap.Logger)
 }
@@ -148,6 +156,7 @@ type userService struct {
 	roleScopes   RoleScopeValidator
 	levels       LevelAssigner
 	defaultRole  DefaultUserRoleProvider
+	agentLevels  AgentLevelValidator
 	logger       *zap.Logger
 }
 
@@ -211,6 +220,23 @@ func (s *userService) SetLevelAssigner(assigner LevelAssigner) {
 // SetRoleScopeValidator 注入角色作用域校验能力（可选，装配层调用）。
 func (s *userService) SetRoleScopeValidator(validator RoleScopeValidator) {
 	s.roleScopes = validator
+}
+
+// AgentLevelValidator 代理等级校验能力（由代理等级服务实现，装配层注入）。
+//
+// 抽成端口同 LevelAssigner：account 模块不该依赖 agentlevel 模块。
+// 代理等级是折扣的授予依据（doc108），写错等级会让用户按错误价格下单，
+// 因此在落库前必须先验存在且启用 —— 这也是改造前 user_group_id 缺失的那道校验。
+type AgentLevelValidator interface {
+	// CheckAssignable 校验代理等级存在且启用（levelID=0 视为非法）。
+	CheckAssignable(ctx context.Context, levelID uint64) error
+}
+
+// SetAgentLevelValidator 注入代理等级校验能力（可选，装配层调用）。
+// 未注入时 Update 会拒绝「改代理等级」的请求（返回 ErrAgentLevelUnavailable），
+// 而不是静默忽略：静默忽略会让运营以为设成了代理，实际没设。
+func (s *userService) SetAgentLevelValidator(validator AgentLevelValidator) {
+	s.agentLevels = validator
 }
 
 // SetLoginRecorder 注入代登录审计写入能力（可选，装配层调用）。
@@ -295,7 +321,7 @@ func (s *userService) Create(ctx context.Context, req dto.UserCreateRequest) (*d
 	if err != nil {
 		return nil, err
 	}
-	user := &model.User{ID: req.ID, Username: req.Username, Email: req.Email, Phone: req.Phone, PasswordHash: string(hash), Status: req.Status, UserGroupID: req.UserGroupID, UserLevelID: req.UserLevelID}
+	user := &model.User{ID: req.ID, Username: req.Username, Email: req.Email, Phone: req.Phone, PasswordHash: string(hash), Status: req.Status, UserGroupID: req.UserGroupID, UserLevelID: req.UserLevelID, AgentLevelID: req.AgentLevelID}
 	// 建号即校验角色域：客户账号只能挂客户角色（scope=user）。
 	// 改造前后台「新建用户」的角色下拉直接调 /admin/roles（返回的是后台角色），
 	// 建出来的客户号会挂上 super_admin 之类的员工角色（实测 users.id=12 即如此）。
@@ -314,6 +340,16 @@ func (s *userService) Create(ctx context.Context, req dto.UserCreateRequest) (*d
 		user.UserLevelID = s.resolveDefaultLevelID(ctx)
 	} else if s.levels != nil {
 		if err := s.levels.CheckAssignable(ctx, *user.UserLevelID); err != nil {
+			return nil, err
+		}
+	}
+	// 代理等级是可选授予（nil = 非代理）；给了就必须先验存在且启用，
+	// 与角色/等级同一条理由：被拒的值不该留下一条已落库的用户行。
+	if user.AgentLevelID != nil {
+		if s.agentLevels == nil {
+			return nil, ErrAgentLevelUnavailable
+		}
+		if err := s.agentLevels.CheckAssignable(ctx, *user.AgentLevelID); err != nil {
 			return nil, err
 		}
 	}
@@ -402,6 +438,22 @@ func (s *userService) Update(ctx context.Context, id uint64, req dto.UserUpdateR
 		}
 		if err := s.levels.CheckAssignable(ctx, *req.UserLevelID); err != nil {
 			return nil, err
+		}
+	}
+	// 代理等级：nil 不修改，0 取消代理身份，其余为等级 ID。
+	// 与用户组不同，0 是合法取值（"取消代理"），非 0 必须先验存在且启用 ——
+	// 代理等级决定拿货价，挂到禁用/不存在的等级上会让折扣静默失效。
+	if req.AgentLevelID != nil {
+		if *req.AgentLevelID == 0 {
+			user.AgentLevelID = nil
+		} else {
+			if s.agentLevels == nil {
+				return nil, ErrAgentLevelUnavailable
+			}
+			if err := s.agentLevels.CheckAssignable(ctx, *req.AgentLevelID); err != nil {
+				return nil, err
+			}
+			user.AgentLevelID = req.AgentLevelID
 		}
 	}
 	if user.Username == "" {
@@ -577,6 +629,9 @@ func toUserInfo(user model.User) dto.UserInfo {
 		UserLevelIcon:          user.UserLevelIcon,
 		UserLevelColor:         user.UserLevelColor,
 		UserLevelWeight:        user.UserLevelWeight,
+		AgentLevelID:           user.AgentLevelID,
+		AgentLevelName:         user.AgentLevelName,
+		AgentLevelCode:         user.AgentLevelCode,
 		Region:                 user.Region,
 		Avatar:                 user.Avatar,
 		Tier:                   user.Tier,

@@ -14,6 +14,8 @@ type CategoryCreateRequest struct {
 	Icon      string `json:"icon"`
 	SortOrder int    `json:"sort_order"`
 	Status    int    `json:"status"`
+	// CostRate 分类拿货折扣率（doc108，如 0.6=六折）；0=未配置。
+	CostRate float64 `json:"cost_rate"`
 }
 
 // CategoryUpdateRequest 更新分类
@@ -23,17 +25,21 @@ type CategoryUpdateRequest struct {
 	Icon      string `json:"icon"`
 	SortOrder int    `json:"sort_order"`
 	Status    int    `json:"status"`
+	// CostRate 分类拿货折扣率（doc108，如 0.6=六折）；0=未配置。
+	CostRate float64 `json:"cost_rate"`
 }
 
 // CategoryInfo 分类信息（含子分类树）
 type CategoryInfo struct {
-	ID        uint64          `json:"id"`
-	ParentID  uint64          `json:"parent_id"`
-	Name      string          `json:"name"`
-	Icon      string          `json:"icon"`
-	SortOrder int             `json:"sort_order"`
-	Status    int             `json:"status"`
-	Children  []*CategoryInfo `json:"children,omitempty"`
+	ID        uint64 `json:"id"`
+	ParentID  uint64 `json:"parent_id"`
+	Name      string `json:"name"`
+	Icon      string `json:"icon"`
+	SortOrder int    `json:"sort_order"`
+	Status    int    `json:"status"`
+	// CostRate 分类拿货折扣率（0=未配置）；代理折扣的毛利校验基准。
+	CostRate float64         `json:"cost_rate"`
+	Children []*CategoryInfo `json:"children,omitempty"`
 }
 
 // CategoryListResponse 分类树响应

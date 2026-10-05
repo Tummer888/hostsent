@@ -4,6 +4,8 @@ package service
 import (
 	"context"
 	"errors"
+	"math"
+	"sort"
 
 	"hostsent/backend/internal/modules/admin/product/category/dto"
 	"hostsent/backend/internal/modules/admin/product/category/model"
@@ -51,6 +53,7 @@ func (s *categoryService) Create(ctx context.Context, req dto.CategoryCreateRequ
 		Icon:      req.Icon,
 		SortOrder: req.SortOrder,
 		Status:    req.Status,
+		CostRate:  normalizeCostRate(req.CostRate),
 	}
 	// 默认启用
 	if item.Status == 0 {
@@ -80,6 +83,7 @@ func (s *categoryService) Update(ctx context.Context, id uint64, req dto.Categor
 	item.Name = req.Name
 	item.Icon = req.Icon
 	item.SortOrder = req.SortOrder
+	item.CostRate = normalizeCostRate(req.CostRate)
 	item.Status = req.Status
 	if err := s.repo.Update(ctx, item); err != nil {
 		return nil, err
@@ -109,6 +113,9 @@ func buildCategoryTree(items []model.ProductCategory) []*dto.CategoryInfo {
 			Icon:      item.Icon,
 			SortOrder: item.SortOrder,
 			Status:    item.Status,
+			// CostRate 必须随树下发：分类管理页的编辑弹窗直接用树节点回显，
+			// 漏掉这一项会让「编辑一次分类」把拿货成本率静默清零。
+			CostRate: item.CostRate,
 		}
 	}
 
@@ -121,7 +128,24 @@ func buildCategoryTree(items []model.ProductCategory) []*dto.CategoryInfo {
 		if parent, ok := nodes[node.ParentID]; ok {
 			parent.Children = append(parent.Children, node)
 		} else {
+			// 父级不在结果里（被过滤/数据异常）：按顶级处理，避免分类凭空消失。
 			roots = append(roots, node)
+		}
+	}
+	// nodes 是 map，遍历顺序随机 —— 不排序的话同一份分类每次请求顺序都不同，
+	// 下拉、树、折扣矩阵行的顺序会「每次刷新都不一样」，这是分类选择难用的根因。
+	sortByOrder := func(items []*dto.CategoryInfo) {
+		sort.SliceStable(items, func(i, j int) bool {
+			if items[i].SortOrder != items[j].SortOrder {
+				return items[i].SortOrder < items[j].SortOrder
+			}
+			return items[i].ID < items[j].ID
+		})
+	}
+	sortByOrder(roots)
+	for _, node := range roots {
+		if len(node.Children) > 0 {
+			sortByOrder(node.Children)
 		}
 	}
 	return roots
@@ -135,5 +159,17 @@ func buildCategoryInfo(item model.ProductCategory) dto.CategoryInfo {
 		Icon:      item.Icon,
 		SortOrder: item.SortOrder,
 		Status:    item.Status,
+		CostRate:  item.CostRate,
 	}
+}
+
+// normalizeCostRate 归一成本率：只接受 (0, 1]，其余一律归 0（未配置）。
+//
+// 成本率是代理折扣的毛利校验基准，配错会把"亏本"判成"还有毛利"：
+// 大于 1 的成本率意味着卖一单亏一单，直接归 0（跳过校验）比静默接受安全。
+func normalizeCostRate(raw float64) float64 {
+	if raw <= 0 || raw > 1 {
+		return 0
+	}
+	return math.Round(raw*10000) / 10000
 }

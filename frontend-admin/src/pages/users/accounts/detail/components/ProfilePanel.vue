@@ -118,6 +118,13 @@
             />
             <span v-if="profile.user_level_code" class="cell-sub">（{{ profile.user_level_code }}）</span>
           </t-descriptions-item>
+          <t-descriptions-item label="代理等级">
+            <t-tag v-if="profile.agent_level_id" theme="warning" variant="light" size="small" shape="round">
+              {{ profile.agent_level_name || `#${profile.agent_level_id}` }}
+            </t-tag>
+            <span v-else>非代理</span>
+            <span class="cell-sub">{{ profile.agent_level_id ? '享受代理折扣' : '不享受折扣' }}</span>
+          </t-descriptions-item>
           <t-descriptions-item label="累计消费">
             <span class="cell-strong">¥{{ formatAmount(profile.total_consume_amount || 0) }}</span>
             <span class="cell-sub">等级按累计消费自动升级（只升不降）</span>

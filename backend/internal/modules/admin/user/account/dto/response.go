@@ -3,32 +3,37 @@ package dto
 import "time"
 
 type UserInfo struct {
-	ID                 uint64   `json:"id"`
-	Username           string   `json:"username"`
-	RealName           string   `json:"real_name"`
-	Role               string   `json:"role"`
-	Roles              []string `json:"roles"`
-	Email              string   `json:"email"`
-	Phone              string   `json:"phone"`
-	UserGroupID        *uint64  `json:"user_group_id"`
-	UserGroupName      string   `json:"user_group_name"`
-	UserLevelID        *uint64  `json:"user_level_id"`
-	UserLevelName      string   `json:"user_level_name"`
-	UserLevelCode      string   `json:"user_level_code"`
+	ID            uint64   `json:"id"`
+	Username      string   `json:"username"`
+	RealName      string   `json:"real_name"`
+	Role          string   `json:"role"`
+	Roles         []string `json:"roles"`
+	Email         string   `json:"email"`
+	Phone         string   `json:"phone"`
+	UserGroupID   *uint64  `json:"user_group_id"`
+	UserGroupName string   `json:"user_group_name"`
+	UserLevelID   *uint64  `json:"user_level_id"`
+	UserLevelName string   `json:"user_level_name"`
+	UserLevelCode string   `json:"user_level_code"`
 	// UserLevelIcon / UserLevelColor 等级的图标 key 与主题色（运营可配，空 = 前端按权重回落）。
 	UserLevelIcon  string `json:"user_level_icon"`
 	UserLevelColor string `json:"user_level_color"`
 	// UserLevelWeight 等级权重；颜色为空时前端按它推导兜底色，需与用户端同源。
-	UserLevelWeight int    `json:"user_level_weight"`
-	Region             string   `json:"region"`
-	Avatar             string   `json:"avatar"`
-	Tier               string   `json:"tier"`
-	LastLoginIP        string   `json:"last_login_ip"`
-	OAuthProvider      string   `json:"oauth_provider"`
-	OAuthOpenID        string   `json:"oauth_openid"`
-	Balance            float64  `json:"balance"`
-	TotalConsumeAmount float64  `json:"total_consume_amount"`
-	Status             string   `json:"status"`
+	UserLevelWeight int `json:"user_level_weight"`
+	// AgentLevelID 代理等级（doc108）：nil = 非代理。折扣的唯一来源。
+	AgentLevelID *uint64 `json:"agent_level_id"`
+	// AgentLevelName / AgentLevelCode 代理等级名称与编码（联表带出）。
+	AgentLevelName     string  `json:"agent_level_name"`
+	AgentLevelCode     string  `json:"agent_level_code"`
+	Region             string  `json:"region"`
+	Avatar             string  `json:"avatar"`
+	Tier               string  `json:"tier"`
+	LastLoginIP        string  `json:"last_login_ip"`
+	OAuthProvider      string  `json:"oauth_provider"`
+	OAuthOpenID        string  `json:"oauth_openid"`
+	Balance            float64 `json:"balance"`
+	TotalConsumeAmount float64 `json:"total_consume_amount"`
+	Status             string  `json:"status"`
 	// 手机/邮箱验证时间（nil = 未验证）。迁移 042 已落列，此前从未接出，
 	// 详情页据此渲染认证徽章，而不是靠"字段非空"猜测。
 	PhoneVerifiedAt *time.Time `json:"phone_verified_at"`

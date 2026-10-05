@@ -118,6 +118,30 @@
         </div>
 
         <div class="toolbar-field">
+          <span class="toolbar-field__label">代理等级</span>
+          <t-select
+            v-model="filters.is_agent"
+            class="unified-control"
+            clearable
+            placeholder="全部（含非代理）"
+            :options="agentFilterOptions"
+          />
+        </div>
+
+        <div class="toolbar-field">
+          <span class="toolbar-field__label">代理等级归属</span>
+          <t-select
+            v-model="filters.agent_level_id"
+            class="unified-control"
+            clearable
+            filterable
+            placeholder="全部代理等级"
+            :options="agentLevelFilterOptions"
+            :disabled="filters.is_agent === 'false'"
+          />
+        </div>
+
+        <div class="toolbar-field">
           <span class="toolbar-field__label">账号类型</span>
           <t-select
             v-model="filters.is_sub_account"
@@ -309,6 +333,13 @@
             />
           </template>
 
+          <template #agent_level_name="{ row }">
+            <t-tag v-if="row.agent_level_id" theme="warning" variant="light" size="small" shape="round">
+              {{ row.agent_level_name || `#${row.agent_level_id}` }}
+            </t-tag>
+            <span v-else class="text-muted">非代理</span>
+          </template>
+
           <template #last_login_ip="{ row }">
             <span class="ip-cell__value">{{ row.last_login_ip || '未记录' }}</span>
           </template>
@@ -472,6 +503,15 @@
               filterable
               placeholder="留空则用起始等级（白银会员）"
               :options="userLevelSelectOptions"
+            />
+          </t-form-item>
+          <t-form-item label="代理等级" name="agent_level_id">
+            <t-select
+              v-model="formData.agent_level_id"
+              clearable
+              filterable
+              placeholder="留空 = 非代理（无折扣）"
+              :options="agentLevelSelectOptions"
             />
           </t-form-item>
           <t-form-item label="初始密码" name="password">
@@ -722,6 +762,7 @@ import {
   type UserPurgePreviewItem,
   type UserPurgeResponse,
 } from '@/api/user'
+import { getAgentLevelList, type AgentLevelInfo } from '@/api/agent-level'
 import { getProductList as getUcProductList } from '@/api/product'
 import { getSalesCandidates } from '@/api/sales'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
@@ -753,6 +794,7 @@ const tableData = ref<UserInfo[]>([])
 const roleOptions = ref<RoleInfo[]>([])
 const userGroupOptions = ref<UserGroupInfo[]>([])
 const userLevelOptions = ref<UserLevelInfo[]>([])
+const agentLevelOptions = ref<AgentLevelInfo[]>([])
 const salesOptions = ref<SalesCandidateInfo[]>([])
 const sortOrder = ref<SortOrder>('desc')
 const isMobile = ref(false)
@@ -809,6 +851,8 @@ const filters = reactive<UserListQuery>({
   keyword: '',
   user_level_id: undefined,
   user_group_id: undefined,
+  agent_level_id: undefined,
+  is_agent: '',
   is_sub_account: '',
   sales_admin_id: undefined,
   unassigned_sales: '',
@@ -844,6 +888,7 @@ const formData = reactive<UserCreateRequest>({
   role_ids: [],
   user_group_id: undefined,
   user_level_id: undefined,
+  agent_level_id: undefined,
 })
 
 const rules: Record<string, FormRule[]> = {
@@ -930,6 +975,21 @@ const levelOptions = computed(() => [
     .map((item) => ({ label: item.name, value: item.id })),
 ])
 
+// 代理身份筛选：三态。is_agent 与 agent_level_id 同时给时以后端为准（AND）。
+const agentFilterOptions = [
+  { label: '全部（含非代理）', value: '' },
+  { label: '仅代理', value: 'true' },
+  { label: '仅非代理', value: 'false' },
+]
+
+const agentLevelFilterOptions = computed(() => [
+  { label: '全部代理等级', value: undefined },
+  ...agentLevelOptions.value.map((item) => ({
+    label: item.status === 'disabled' ? `${item.name}（已停用）` : item.name,
+    value: item.id,
+  })),
+])
+
 // 账号类型筛选（P4-10）：主账号 / 子账号
 const accountTypeOptions = [
   { label: '主账号', value: 'false' },
@@ -958,12 +1018,18 @@ const userLevelSelectOptions = computed(() =>
     })),
 )
 
-// 用户组筛选：包含已禁用组（便于排查历史归属），并标注代理组与默认组
+// 建号时的代理等级下拉：只列启用中的等级（停用等级后端会拒绝指派）。
+const agentLevelSelectOptions = computed(() =>
+  agentLevelOptions.value
+    .filter((item) => item.status === 'active')
+    .map((item) => ({ label: item.name, value: item.id })),
+)
+
+// 用户组筛选：包含已禁用组（便于排查历史归属），并标注默认组
 const userGroupFilterOptions = computed(() => [
   { label: '全部用户组', value: undefined },
   ...userGroupOptions.value.map((item) => {
     const suffix: string[] = []
-    if (item.is_agent_group) suffix.push('代理')
     if (item.is_default) suffix.push('默认')
     if (item.status === 'disabled') suffix.push('已禁用')
     const label = suffix.length > 0 ? `${item.name}（${suffix.join('·')}）` : item.name
@@ -991,6 +1057,12 @@ const activeFilterLabel = computed(() => {
   if (filters.user_group_id) {
     const group = userGroupOptions.value.find((item) => item.id === filters.user_group_id)
     return `用户组: ${group?.name || filters.user_group_id}`
+  }
+  if (filters.is_agent === 'true') return '仅代理'
+  if (filters.is_agent === 'false') return '仅非代理'
+  if (filters.agent_level_id) {
+    const level = agentLevelOptions.value.find((item) => item.id === filters.agent_level_id)
+    return `代理等级: ${level?.name || filters.agent_level_id}`
   }
   if (filters.sales_admin_id) {
     const sales = salesOptions.value.find((item) => item.admin_id === filters.sales_admin_id)
@@ -1020,6 +1092,7 @@ const columns = computed<PrimaryTableCol<UserInfo>[]>(() => {
     { colKey: 'role', title: '角色', minWidth: 180 },
     { colKey: 'user_level_name', title: '用户等级', width: 130 },
     { colKey: 'user_group_name', title: '用户组', minWidth: 180 },
+    { colKey: 'agent_level_name', title: '代理等级', width: 130 },
     { colKey: 'sales_admin_name', title: '归属销售', minWidth: 150 },
     { colKey: 'last_login_ip', title: '登录 IP', minWidth: 220 },
     { colKey: 'oauth_provider', title: '第三方登录', minWidth: 180 },
@@ -1051,6 +1124,8 @@ function syncFiltersFromRoute() {
   filters.keyword = query.keyword || ''
   filters.user_level_id = query.user_level_id ? Number(query.user_level_id) : undefined
   filters.user_group_id = query.user_group_id ? Number(query.user_group_id) : undefined
+  filters.agent_level_id = query.agent_level_id ? Number(query.agent_level_id) : undefined
+  filters.is_agent = query.is_agent === 'true' || query.is_agent === 'false' ? query.is_agent : ''
   filters.is_sub_account = query.is_sub_account === 'true' || query.is_sub_account === 'false' ? query.is_sub_account : ''
   filters.sales_admin_id = query.sales_admin_id ? Number(query.sales_admin_id) : undefined
   filters.unassigned_sales = query.unassigned_sales === 'true' ? 'true' : ''
@@ -1089,6 +1164,8 @@ function buildQuery() {
   if (filters.keyword) query.keyword = filters.keyword
   if (filters.user_level_id) query.user_level_id = String(filters.user_level_id)
   if (filters.user_group_id) query.user_group_id = String(filters.user_group_id)
+  if (filters.agent_level_id) query.agent_level_id = String(filters.agent_level_id)
+  if (filters.is_agent) query.is_agent = filters.is_agent
   if (filters.is_sub_account) query.is_sub_account = filters.is_sub_account
   // 「归属销售=未归属(0)」与快捷筛选「未归属销售」统一收敛为 unassigned_sales=true
   if (filters.filter === 'unassigned_sales' || filters.sales_admin_id === 0) {
@@ -1156,6 +1233,16 @@ async function loadUserLevelOptions() {
   }
 }
 
+// 代理等级筛选/建号下拉：要覆盖已停用等级，否则历史代理的等级名会显示成裸 ID。
+async function loadAgentLevelOptions() {
+  try {
+    const data = await getAgentLevelList({ page: 1, page_size: 200 })
+    agentLevelOptions.value = data.items || []
+  } catch {
+    agentLevelOptions.value = []
+  }
+}
+
 // buildListParams 把筛选状态翻译成列表/导出接口共用的查询参数。
 // 导出必须与列表用同一份参数，否则「界面上筛出来的」和「导出的」会对不上。
 function buildListParams(): UserListQuery {
@@ -1169,6 +1256,8 @@ function buildListParams(): UserListQuery {
     keyword: filters.keyword || undefined,
     user_level_id: filters.user_level_id || undefined,
     user_group_id: filters.user_group_id || undefined,
+    agent_level_id: filters.agent_level_id || undefined,
+    is_agent: filters.is_agent || undefined,
     is_sub_account: filters.is_sub_account || undefined,
     sales_admin_id: !onlyUnassigned && filters.sales_admin_id ? filters.sales_admin_id : undefined,
     unassigned_sales: onlyUnassigned ? 'true' : undefined,
@@ -1235,7 +1324,14 @@ async function loadSalesOptions() {
 }
 
 async function loadAll() {
-  await Promise.all([loadRoleOptions(), loadUserGroupOptions(), loadUserLevelOptions(), loadSalesOptions(), loadUsers()])
+  await Promise.all([
+    loadRoleOptions(),
+    loadUserGroupOptions(),
+    loadUserLevelOptions(),
+    loadAgentLevelOptions(),
+    loadSalesOptions(),
+    loadUsers(),
+  ])
 }
 
 async function handleSearch() {
@@ -1254,6 +1350,8 @@ async function handleReset() {
   filters.keyword = ''
   filters.user_level_id = undefined
   filters.user_group_id = undefined
+  filters.agent_level_id = undefined
+  filters.is_agent = ''
   filters.is_sub_account = ''
   filters.sales_admin_id = undefined
   filters.unassigned_sales = ''
@@ -1575,6 +1673,7 @@ function initFormData(): UserCreateRequest {
     role_ids: [],
     user_group_id: undefined,
     user_level_id: undefined,
+    agent_level_id: undefined,
   }
 }
 
@@ -1819,6 +1918,8 @@ async function handleCreateUser() {
       status: formData.status,
       // 留空则后端给起始等级（白银会员）；显式选中的等级才上报。
       user_level_id: formData.user_level_id || undefined,
+      // 留空 = 非代理（无折扣）。建号默认不授予代理身份，与后端语义一致。
+      agent_level_id: formData.agent_level_id || undefined,
     })
     MessagePlugin.success('用户创建成功')
     dialogVisible.value = false

@@ -21,9 +21,10 @@ type PolicyService interface {
 	Update(ctx context.Context, id uint64, req dto.PolicyRequest) (*dto.PolicyInfo, error)
 	Delete(ctx context.Context, id uint64) error
 	// RuleForProduct 解析策略对指定商品/分类生效的折扣规则；不生效返回 nil（P5-03）。
+	//
+	// 注意：doc108 之后价格策略**不再挂在用户组上**（用户组只做分类），
+	// 本方法目前只作为策略规则解析的公共能力保留，供后续接入其它折扣来源。
 	RuleForProduct(ctx context.Context, policyID, productID, categoryID uint64) (*pricing.Rule, error)
-	// RuleForUserGroup 解析用户所属用户组的折扣规则，供算价管线 GroupRule 使用。
-	RuleForUserGroup(ctx context.Context, userID, productID, categoryID uint64) (*pricing.Rule, error)
 }
 
 type policyService struct {
@@ -177,18 +178,6 @@ func (s *policyService) ruleForPolicy(ctx context.Context, policyID, productID, 
 		return nil, nil
 	}
 	return rule, nil
-}
-
-// RuleForUserGroup 组合「用户 → 用户组 → 策略 → 规则」链路。
-func (s *policyService) RuleForUserGroup(ctx context.Context, userID, productID, categoryID uint64) (*pricing.Rule, error) {
-	policyID, err := s.repo.GroupPolicyIDForUser(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	if policyID == 0 {
-		return nil, nil
-	}
-	return s.RuleForProduct(ctx, policyID, productID, categoryID)
 }
 
 func (s *policyService) saveItems(ctx context.Context, policyID uint64, reqItems []dto.PolicyItemRequest) error {

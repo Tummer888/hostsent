@@ -47,6 +47,15 @@
           :tips="'等级平时由累计消费自动升级（只升不降），这里可人工调整，调整会写入等级变更记录。'"
         />
       </t-form-item>
+      <t-form-item label="代理等级" name="agent_level_id">
+        <t-select
+          v-model="form.agent_level_id"
+          :options="agentLevelOptions"
+          filterable
+          placeholder="请选择代理等级"
+          :tips="'普通客户选「非代理」；只有代理才享受折扣，折扣按代理等级的商品矩阵计算。'"
+        />
+      </t-form-item>
       <t-form-item label="备注" name="sub_account_remark">
         <t-input v-model="form.sub_account_remark" placeholder="选填，用于区分成员用途" />
       </t-form-item>
@@ -62,6 +71,7 @@ import { reactive, ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import type { FormInstanceFunctions, FormRule } from 'tdesign-vue-next'
 
+import { getAgentLevelList } from '@/api/agent-level'
 import {
   getUserGroupList,
   getUserLevelList,
@@ -95,6 +105,8 @@ const formRef = ref<FormInstanceFunctions>()
 const submitting = ref(false)
 const groupOptions = ref<{ label: string; value: number }[]>([])
 const levelOptions = ref<{ label: string; value: number }[]>([])
+// 0 = 非代理（无折扣）。后端 *uint64 语义：0 表示取消代理身份。
+const agentLevelOptions = ref<{ label: string; value: number }[]>([{ label: '非代理（无折扣）', value: 0 }])
 const statusOptions = userStatusOptions.map((item) => ({ label: item.label, value: item.value }))
 
 const form = reactive<{
@@ -107,6 +119,7 @@ const form = reactive<{
   sub_account_remark: string
   user_group_id: number | undefined
   user_level_id: number | undefined
+  agent_level_id: number
 }>({
   username: '',
   real_name: '',
@@ -117,6 +130,7 @@ const form = reactive<{
   sub_account_remark: '',
   user_group_id: undefined,
   user_level_id: undefined,
+  agent_level_id: 0,
 })
 
 // 只有「填了什么才校验什么」：空字符串视为清空，不触发格式规则。
@@ -139,8 +153,10 @@ function syncForm() {
   form.sub_account_remark = p?.sub_account_remark || ''
   form.user_group_id = p?.user_group_id ?? undefined
   form.user_level_id = p?.user_level_id ?? undefined
+  form.agent_level_id = p?.agent_level_id ?? 0
   void loadGroups()
   void loadLevels()
+  void loadAgentLevels()
 }
 
 async function loadGroups() {
@@ -148,7 +164,7 @@ async function loadGroups() {
   try {
     const data = await getUserGroupList({ page: 1, page_size: 200 })
     groupOptions.value = (data.items || []).map((item) => ({
-      label: item.is_agent_group ? `${item.name}（代理组）` : item.name,
+      label: item.name,
       value: item.id,
     }))
   } catch {
@@ -168,6 +184,19 @@ async function loadLevels() {
     }))
   } catch {
     MessagePlugin.error('加载用户等级失败')
+  }
+}
+
+// 只列启用中的代理等级：已停用的等级不能新指派（后端 CheckAssignable 会拒绝）。
+async function loadAgentLevels() {
+  try {
+    const data = await getAgentLevelList({ page: 1, page_size: 200, status: 'active' })
+    agentLevelOptions.value = [
+      { label: '非代理（无折扣）', value: 0 },
+      ...(data.items || []).map((item) => ({ label: item.name, value: item.id })),
+    ]
+  } catch {
+    MessagePlugin.error('加载代理等级失败')
   }
 }
 
@@ -199,6 +228,10 @@ async function handleSubmit() {
   // 等级不允许清空：0/undefined 都表示「不修改」，与后端的 *uint64 语义一致。
   if (form.user_level_id && form.user_level_id !== (p.user_level_id ?? 0)) {
     payload.user_level_id = form.user_level_id
+  }
+  // 代理等级可以清空：这里发 0 表示取消代理身份（后端 *uint64 语义）。
+  if (form.agent_level_id !== (p.agent_level_id ?? 0)) {
+    payload.agent_level_id = form.agent_level_id
   }
 
   if (!Object.keys(payload).length) {

@@ -186,9 +186,11 @@ function payAmount(row: OrderInfo): number {
   return row.final_amount || row.paid_amount
 }
 
-/** 折扣来源中文标签（P5-06）：折扣仅由用户组价格策略承载。 */
+/** 折扣来源中文标签：agent=代理等级折扣（doc108 起唯一折扣来源）；
+ *  group 保留是为了历史订单——doc108 之前用户组价格策略产生的订单仍写着 group。 */
 function sourceLabel(source: string): string {
   const map: Record<string, string> = {
+    agent: '代理折扣',
     group: '用户组折扣',
     promotion: '促销优惠',
     manual: '人工改价',

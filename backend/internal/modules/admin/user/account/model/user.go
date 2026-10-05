@@ -90,6 +90,12 @@ type User struct {
 	// UserLevelWeight 等级权重，同样联表带出。等级未配颜色时前端靠它按档位推导兜底色，
 	// 不下发的话两端会各自按 0 推导，同一等级在管理端和用户端是两个颜色。
 	UserLevelWeight int `gorm:"->;-:migration"`
+	// AgentLevelID 代理等级（doc108）：NULL = 非代理（普通客户，无折扣）。
+	// 折扣的唯一来源，替代改造前 user_groups.price_policy_id 的职责。
+	AgentLevelID *uint64 `gorm:"column:agent_level_id"`
+	// AgentLevelName / AgentLevelCode 代理等级联表带出，非持久化（只读权限同上）。
+	AgentLevelName string `gorm:"->;-:migration"`
+	AgentLevelCode string `gorm:"->;-:migration"`
 	// TotalConsumeAmount 累计消费额（P3-01 起落列持久化，不再靠实时聚合子查询）。
 	TotalConsumeAmount float64 `gorm:"column:total_consume_amount;type:decimal(15,2);not null;default:0"`
 	// OwnerUserID 子账号归属的主账号 ID；主账号为 NULL（P4-01）。
@@ -112,14 +118,14 @@ type User struct {
 	// SalesAdminName 归属销售名；列表/详情联表带出，非持久化（只读权限同上）。
 	SalesAdminName string `gorm:"->;-:migration"`
 	// OwnerName 子账号归属主账号用户名；列表/详情联表带出，非持久化（P4-10，只读权限同上）。
-	OwnerName         string     `gorm:"->;-:migration"`
-	LastLoginAt       *time.Time `gorm:"column:last_login_at"`
-	LastLoginIP       string     `gorm:"column:last_login_ip;size:64"`
+	OwnerName   string     `gorm:"->;-:migration"`
+	LastLoginAt *time.Time `gorm:"column:last_login_at"`
+	LastLoginIP string     `gorm:"column:last_login_ip;size:64"`
 
-	Role              string     `gorm:"-"`
-	Roles             []string   `gorm:"-"`
-	CreatedAt         time.Time  `gorm:"autoCreateTime"`
-	UpdatedAt         time.Time  `gorm:"autoUpdateTime"`
+	Role      string    `gorm:"-"`
+	Roles     []string  `gorm:"-"`
+	CreatedAt time.Time `gorm:"autoCreateTime"`
+	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 }
 
 // UserStats 用户统计聚合结果，字段与 users 表对齐，不映射单独表。

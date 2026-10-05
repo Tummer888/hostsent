@@ -12,6 +12,10 @@ export interface UserListQuery {
   user_level_id?: number
   /** 用户组筛选，0 或空表示不筛选 */
   user_group_id?: number
+  /** 代理等级筛选（doc108），0 或空表示不筛选 */
+  agent_level_id?: number
+  /** 代理身份筛选（doc108）：'true' 仅代理，'false' 仅非代理，空为全部 */
+  is_agent?: string
   /** 主账号/子账号筛选（P4-10）：'true' 仅子账号，'false' 仅主账号，空为全部 */
   is_sub_account?: string
   /** 归属销售筛选（doc86 §4.1.10），0 或空表示不筛选 */
@@ -40,6 +44,10 @@ export interface UserInfo {
   user_level_color?: string
   /** 等级权重：颜色留空时徽章按它推导兜底色 */
   user_level_weight?: number
+  /** 代理等级（doc108）：null/空 = 非代理。折扣的唯一来源。 */
+  agent_level_id?: number | null
+  agent_level_name?: string
+  agent_level_code?: string
   region?: string
   avatar?: string
   /** 用户分层：free / pro … */
@@ -133,6 +141,8 @@ export interface UserUpdateRequest {
   user_group_id?: number
   /** 用户等级（会员体系）：不传表示不修改，其余为等级 ID */
   user_level_id?: number
+  /** 代理等级（doc108）：不传不修改，0 取消代理身份，其余为等级 ID */
+  agent_level_id?: number
 }
 
 export interface UserCreateRequest {
@@ -146,6 +156,8 @@ export interface UserCreateRequest {
   user_group_id?: number
   /** 用户等级：留空则由后端给起始等级（白银会员） */
   user_level_id?: number
+  /** 代理等级（doc108）：留空 = 非代理（普通客户） */
+  agent_level_id?: number
 }
 
 export interface UserStatusRequest {
@@ -293,19 +305,22 @@ export interface UserGroupListQuery {
   page_size?: number
   status?: string
   keyword?: string
-  /** 组类型三态：'' 全部，'true' 仅代理组，'false' 仅普通组 */
-  is_agent_group?: string
 }
 
+/**
+ * 用户组：**纯分类**（doc108），不含任何折扣字段。
+ *
+ * 折扣由代理等级承载（见 api/agent-level.ts）：改用户组不会影响任何订单价格。
+ */
 export interface UserGroupInfo {
   id: number
   name: string
   code: string
+  /** 组内成员数（未注销客户）。 */
+  member_count: number
   status: string
   sort_order: number
-  price_policy_id?: number
   is_default: boolean
-  is_agent_group: boolean
   description?: string
   created_at: string
   updated_at: string
@@ -316,9 +331,7 @@ export interface UserGroupRequest {
   code: string
   status: string
   sort_order: number
-  price_policy_id?: number
   is_default?: boolean
-  is_agent_group?: boolean
   description?: string
 }
 
@@ -421,6 +434,8 @@ export function getUserList(params: UserListQuery): Promise<UserListResponse> {
       keyword: params.keyword,
       user_level_id: params.user_level_id,
       user_group_id: params.user_group_id,
+      agent_level_id: params.agent_level_id,
+      is_agent: params.is_agent,
       is_sub_account: params.is_sub_account,
       sales_admin_id: params.sales_admin_id,
       unassigned_sales: params.unassigned_sales,
@@ -443,6 +458,8 @@ export function exportUsers(params: UserListQuery) {
       keyword: params.keyword,
       user_level_id: params.user_level_id,
       user_group_id: params.user_group_id,
+      agent_level_id: params.agent_level_id,
+      is_agent: params.is_agent,
       is_sub_account: params.is_sub_account,
       sales_admin_id: params.sales_admin_id,
       unassigned_sales: params.unassigned_sales,
@@ -658,7 +675,6 @@ export function getUserGroupList(params: UserGroupListQuery): Promise<UserGroupL
       page_size: params.page_size,
       status: params.status,
       keyword: params.keyword,
-      is_agent_group: params.is_agent_group,
     },
   })
 }

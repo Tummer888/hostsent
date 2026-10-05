@@ -287,6 +287,8 @@ export interface SaleProductCategoryCreateRequest {
   icon?: string
   sort_order?: number
   status?: number
+  /** 分类级拿货折扣率（doc108），如 0.6 = 六折进货；0 = 未配置（跳过毛利校验）。 */
+  cost_rate?: number
 }
 
 export type SaleProductCategoryUpdateRequest = SaleProductCategoryCreateRequest
@@ -298,6 +300,8 @@ export interface SaleProductCategoryInfo {
   icon: string
   sort_order: number
   status: number
+  /** 分类级拿货折扣率（doc108）；0 = 未配置。代理折扣的毛利校验基准。 */
+  cost_rate?: number
   children?: SaleProductCategoryInfo[]
 }
 

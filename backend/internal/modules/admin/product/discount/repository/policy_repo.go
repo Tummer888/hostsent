@@ -19,8 +19,6 @@ type PricePolicyRepository interface {
 	Delete(ctx context.Context, id uint64) error
 	Items(ctx context.Context, policyID uint64) ([]model.PricePolicyItem, error)
 	ReplaceItems(ctx context.Context, policyID uint64, items []model.PricePolicyItem) error
-	// GroupPolicyIDForUser 返回用户所属用户组绑定的折扣策略 ID（0 表示未绑定）。
-	GroupPolicyIDForUser(ctx context.Context, userID uint64) (uint64, error)
 }
 
 type pricePolicyRepository struct {
@@ -110,23 +108,4 @@ func (r *pricePolicyRepository) ReplaceItems(ctx context.Context, policyID uint6
 		}
 		return tx.Create(&items).Error
 	})
-}
-
-// GroupPolicyIDForUser 通过 users.user_group_id 反查用户组绑定的折扣策略。
-func (r *pricePolicyRepository) GroupPolicyIDForUser(ctx context.Context, userID uint64) (uint64, error) {
-	var policyID *uint64
-	err := r.db.WithContext(ctx).
-		Table("users").
-		Select("user_groups.price_policy_id").
-		Joins("JOIN user_groups ON user_groups.id = users.user_group_id").
-		Where("users.id = ?", userID).
-		Limit(1).
-		Scan(&policyID).Error
-	if err != nil {
-		return 0, err
-	}
-	if policyID == nil {
-		return 0, nil
-	}
-	return *policyID, nil
 }

@@ -4,22 +4,44 @@
       <div class="list-header__main">
         <div class="list-header__title-row">
           <h2 class="list-header__title">用户组管理</h2>
-          <t-tag v-if="activeFilterLabel" class="page-chip" theme="primary" variant="light" shape="round">
+          <span class="list-header__hint">
+            {{ isAgentTab ? '代理分组：代理拿货折扣的唯一来源，按等级配折扣' : '客户分组：仅用于用户分类与统计，不影响价格' }}
+          </span>
+          <t-tag v-if="!isAgentTab && activeFilterLabel" class="page-chip" theme="primary" variant="light" shape="round">
             {{ activeFilterLabel }}
           </t-tag>
         </div>
       </div>
       <div class="list-header__actions">
-        <t-button class="page-btn page-btn--ghost" variant="outline" @click="router.push('/users/accounts/list')">查看用户列表</t-button>
-        <t-button v-permission="'user:group:create'" class="page-btn" theme="primary" @click="openCreate">
+        <!-- 两类分组分区切换：客户分组（分类统计） / 代理分组（按等级配折扣） -->
+        <t-radio-group v-model="activeTab" variant="default-filled" size="small" class="type-switch">
+          <t-radio-button value="customer">客户分组（{{ customerTotal }}）</t-radio-button>
+          <t-radio-button v-if="canManageAgents" value="agent">代理分组</t-radio-button>
+        </t-radio-group>
+        <t-button
+          v-if="!isAgentTab"
+          class="page-btn page-btn--ghost"
+          variant="outline"
+          @click="router.push('/users/accounts/list')"
+        >
+          查看用户列表
+        </t-button>
+        <t-button v-if="!isAgentTab" v-permission="'user:group:create'" class="page-btn" theme="primary" @click="openCreate">
           <template #icon>
             <AddIcon aria-hidden="true" />
           </template>
           新增用户组
         </t-button>
+        <t-button v-else v-permission="'agent_level:create'" class="page-btn" theme="primary" @click="agentPanelRef?.openCreate()">
+          <template #icon>
+            <AddIcon aria-hidden="true" />
+          </template>
+          新建代理等级
+        </t-button>
       </div>
     </header>
 
+    <template v-if="!isAgentTab">
     <section class="toolbar surface-card">
       <div class="toolbar__header">
         <h3 class="toolbar__title">筛选条件</h3>
@@ -34,20 +56,6 @@
             <t-button class="page-btn page-btn--ghost" variant="outline" @click="handleReset">重置</t-button>
           </t-space>
         </div>
-      </div>
-
-      <div class="toolbar__segment">
-        <span class="toolbar-field__label">分组类型</span>
-        <t-radio-group
-          v-model="filters.is_agent_group"
-          variant="default-filled"
-          class="type-switch"
-          @change="handleTypeChange"
-        >
-          <t-radio-button value="">全部</t-radio-button>
-          <t-radio-button value="false">普通用户组</t-radio-button>
-          <t-radio-button value="true">代理用户组</t-radio-button>
-        </t-radio-group>
       </div>
 
       <div class="toolbar__grid toolbar__grid--groups">
@@ -134,25 +142,17 @@
           <span class="sort-text">{{ row.sort_order }}</span>
         </template>
 
-        <template #price_policy_id="{ row }">
-          <span v-if="row.price_policy_id" class="sort-text">
-            {{ policyNameMap[row.price_policy_id] || `策略 #${row.price_policy_id}` }}
-          </span>
-          <span v-else class="group-cell__desc">未绑定</span>
-        </template>
-
         <template #is_default="{ row }">
           <t-tag v-if="row.is_default" theme="primary" variant="light" size="small" shape="round">默认组</t-tag>
           <span v-else class="group-cell__desc">—</span>
         </template>
 
-        <template #is_agent_group="{ row }">
-          <t-tag v-if="row.is_agent_group" theme="warning" variant="light" size="small" shape="round">代理组</t-tag>
-          <t-tag v-else theme="default" variant="light" size="small" shape="round">普通组</t-tag>
-        </template>
-
         <template #created_at="{ row }">
           <span class="time-text">{{ formatDateTime(row.created_at) }}</span>
+        </template>
+
+        <template #member_count="{ row }">
+          <t-link theme="primary" hover="color" @click="goMembers(row)">{{ row.member_count }} 人</t-link>
         </template>
 
         <template #operation="{ row }">
@@ -189,6 +189,10 @@
         @page-size="handleMobilePageSizeChange"
       />
     </section>
+    </template>
+
+    <!-- 代理分组：复用代理等级面板（矩阵单格可点击设置折扣 + 阶梯填充 + 等级管理） -->
+    <AgentLevelPanel v-else ref="agentPanelRef" />
 
     <t-dialog
       v-model:visible="dialogVisible"
@@ -215,19 +219,9 @@
               <t-radio-button value="disabled">禁用</t-radio-button>
             </t-radio-group>
           </t-form-item>
-          <t-form-item class="form-grid__full" label="折扣策略绑定" name="price_policy_id">
-            <t-select
-              v-model="formData.price_policy_id"
-              :options="policyOptions"
-              clearable
-              filterable
-              placeholder="选择折扣策略（不选则不打折）"
-            />
-          </t-form-item>
         </div>
         <div class="form-flags">
           <t-checkbox v-model="formData.is_default" :disabled="editingIsDefault">设为默认用户组</t-checkbox>
-          <t-checkbox v-model="formData.is_agent_group">标记为代理用户组</t-checkbox>
           <p v-if="editingIsDefault" class="form-tip">默认组只能转移不能取消：在另一个用户组上勾选「设为默认」即可切换。</p>
         </div>
         <t-form-item label="描述" name="description">
@@ -250,6 +244,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { AddIcon, ErrorCircleIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
+import AgentLevelPanel from '@/pages/users/agents/AgentLevelPanel.vue'
+import { usePermission } from '@/composables/usePermission'
 import {
   createUserGroup,
   deleteUserGroup,
@@ -260,7 +256,6 @@ import {
   type UserGroupListQuery,
   type UserGroupRequest,
 } from '@/api/user'
-import { getPricePolicyList } from '@/api/product'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
@@ -275,6 +270,25 @@ const router = useRouter()
 
 const loading = ref(false)
 const { isMobile } = useIsMobile()
+
+// 分区：customer = 客户分组（分类统计），agent = 代理分组（折扣等级）。
+// 与路由 query.tab 双向同步，两个分区可以分享 URL。
+const activeTab = ref<'customer' | 'agent'>('customer')
+const isAgentTab = computed(() => activeTab.value === 'agent')
+const agentPanelRef = ref<InstanceType<typeof AgentLevelPanel> | null>(null)
+// 没有代理等级查看权限的角色：整块「代理分组」分区不出现，避免点进去全是 403。
+const canManageAgents = usePermission().has('agent_level:list')
+const customerTotal = computed(() => pagination.total)
+
+function syncTabFromRoute() {
+  const query = route.query as Record<string, string | undefined>
+  activeTab.value = query.tab === 'agent' && canManageAgents ? 'agent' : 'customer'
+}
+
+function goMembers(row: UserGroupInfo) {
+  // 成员下钻：直接落到用户列表并带上用户组筛选，复用既有列表能力而不是另建一页。
+  void router.push({ path: '/users/accounts/list', query: { user_group_id: String(row.id) } })
+}
 const submitting = ref(false)
 const errorMessage = ref('')
 const dialogVisible = ref(false)
@@ -288,7 +302,6 @@ const filters = reactive<UserGroupListQuery>({
   page_size: 10,
   status: '',
   keyword: '',
-  is_agent_group: '',
 })
 
 const pagination = reactive({
@@ -312,30 +325,10 @@ const initFormData = (): UserGroupRequest => ({
   description: '',
   status: 'active',
   sort_order: 0,
-  price_policy_id: undefined,
   is_default: false,
-  is_agent_group: false,
 })
 
 const formData = reactive<UserGroupRequest>(initFormData())
-
-// 折扣策略下拉（P5-06）：用户组绑定后即成为该组用户的折扣来源。
-const policyOptions = ref<{ label: string; value: number }[]>([])
-const policyNameMap = ref<Record<number, string>>({})
-
-async function loadPolicies() {
-  try {
-    const data = await getPricePolicyList({ page: 1, page_size: 200, status: 'active' })
-    const map: Record<number, string> = {}
-    policyOptions.value = (data.items || []).map((item) => {
-      map[item.id] = item.name
-      return { label: item.name, value: item.id }
-    })
-    policyNameMap.value = map
-  } catch {
-    /* 策略加载失败不阻塞用户组列表 */
-  }
-}
 
 const statusOptions = [
   { label: '全部状态', value: '' },
@@ -358,24 +351,15 @@ const columns = computed<PrimaryTableCol<UserGroupInfo>[]>(() => [
   { colKey: 'id', title: 'ID', width: 96 },
   { colKey: 'name', title: '用户组', minWidth: 260 },
   { colKey: 'code', title: '编码', minWidth: 180 },
-  { colKey: 'price_policy_id', title: '折扣策略', width: 120 },
+  { colKey: 'member_count', title: '成员数', width: 100 },
   { colKey: 'is_default', title: '默认组', width: 100, align: 'center' },
-  { colKey: 'is_agent_group', title: '分组类型', width: 110, align: 'center' },
   { colKey: 'sort_order', title: '排序', width: 90, align: 'center' },
   { colKey: 'status', title: '状态', width: 110 },
   { colKey: 'created_at', title: '创建时间', width: 180 },
   { colKey: 'operation', title: '操作', width: isMobile.value ? 70 : 140, fixed: 'right' },
 ])
 
-const typeLabelMap: Record<string, string> = {
-  true: '代理用户组',
-  false: '普通用户组',
-}
-
 const activeFilterLabel = computed(() => {
-  if (filters.is_agent_group && typeLabelMap[filters.is_agent_group]) {
-    return typeLabelMap[filters.is_agent_group]
-  }
   if (filters.status) return statusLabelMap[filters.status] || filters.status
   if (filters.keyword) return `搜索: ${filters.keyword}`
   return ''
@@ -397,18 +381,17 @@ function syncFiltersFromRoute() {
   filters.page_size = toPositiveInt(query.page_size, 10)
   filters.status = query.status || ''
   filters.keyword = query.keyword || ''
-  filters.is_agent_group = query.is_agent_group === 'true' || query.is_agent_group === 'false' ? query.is_agent_group : ''
   pagination.current = filters.page
   pagination.pageSize = filters.page_size
 }
 
 function buildQuery() {
   const query: Record<string, string> = {}
+  if (activeTab.value === 'agent') query.tab = 'agent'
   if (filters.page && filters.page !== 1) query.page = String(filters.page)
   if (filters.page_size && filters.page_size !== 10) query.page_size = String(filters.page_size)
   if (filters.status) query.status = filters.status
   if (filters.keyword) query.keyword = filters.keyword
-  if (filters.is_agent_group) query.is_agent_group = filters.is_agent_group
   return query
 }
 
@@ -430,7 +413,6 @@ async function loadGroups() {
       page_size: filters.page_size,
       status: filters.status || undefined,
       keyword: filters.keyword || undefined,
-      is_agent_group: filters.is_agent_group || undefined,
     })
     tableData.value = data.items || []
     pagination.current = data.meta.page
@@ -455,18 +437,11 @@ async function handleSearch() {
   await replaceRouteQuery()
 }
 
-async function handleTypeChange() {
-  filters.page = 1
-  pagination.current = 1
-  await replaceRouteQuery()
-}
-
 async function handleReset() {
   filters.page = 1
   filters.page_size = 10
   filters.status = ''
   filters.keyword = ''
-  filters.is_agent_group = ''
   pagination.current = 1
   pagination.pageSize = 10
   await replaceRouteQuery()
@@ -527,9 +502,7 @@ async function openEdit(id: number) {
       description: data.description || '',
       status: data.status || 'active',
       sort_order: Number(data.sort_order || 0),
-      price_policy_id: data.price_policy_id ?? undefined,
       is_default: Boolean(data.is_default),
-      is_agent_group: Boolean(data.is_agent_group),
     })
     dialogVisible.value = true
   } catch (error) {
@@ -551,9 +524,7 @@ async function handleSubmit() {
     description: (formData.description || '').trim(),
     status: formData.status,
     sort_order: Number(formData.sort_order || 0),
-    price_policy_id: formData.price_policy_id ? Number(formData.price_policy_id) : undefined,
     is_default: Boolean(formData.is_default),
-    is_agent_group: Boolean(formData.is_agent_group),
   }
 
   submitting.value = true
@@ -606,14 +577,17 @@ function formatDateTime(value: string) {
 watch(
   () => route.query,
   async () => {
-    syncFiltersFromRoute()
-    await loadGroups()
+    syncTabFromRoute()
+    if (!isAgentTab.value) {
+      syncFiltersFromRoute()
+      await loadGroups()
+    }
   },
 )
 
 onMounted(async () => {
-  syncFiltersFromRoute()
-  loadPolicies()
+  syncTabFromRoute()
+  // 客户分组的数量常驻加载：直接落在代理分区时，切换条上的「客户分组（N）」也要有数。
   await loadGroups()
 })
 function handleMobileAction(value: string | number | Record<string, any>, row: UserGroupInfo) {
@@ -672,6 +646,22 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
   color: var(--color-foreground);
 }
 
+.list-header__actions .type-switch {
+  margin-right: 4px;
+}
+
+:deep(.type-switch .t-radio-button) {
+  padding: 0 14px;
+}
+
+.list-header__hint {
+  font-size: 13px;
+  color: var(--color-muted-foreground);
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--td-brand-color-1);
+}
+
 .list-header__actions {
   display: flex;
   gap: 12px;
@@ -703,14 +693,6 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
 .toolbar__actions {
   display: flex;
   justify-content: flex-end;
-}
-
-.toolbar__segment {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
 }
 
 .toolbar__grid {
@@ -966,15 +948,13 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
   border-color: #fecaca;
 }
 
-:deep(.status-switch .t-radio-button),
-:deep(.type-switch .t-radio-button) {
+:deep(.status-switch .t-radio-button) {
   border-color: var(--td-brand-color-2);
   color: var(--color-muted-foreground);
   background: #ffffff;
 }
 
-:deep(.status-switch .t-radio-button.t-is-checked),
-:deep(.type-switch .t-radio-button.t-is-checked) {
+:deep(.status-switch .t-radio-button.t-is-checked) {
   color: var(--td-brand-color-8);
   background: #ecfdf5;
   border-color: var(--td-brand-color-3);

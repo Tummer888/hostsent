@@ -1,11 +1,11 @@
 package dto
 
 type UserListQuery struct {
-	Page              int    `form:"page"`
-	PageSize          int    `form:"page_size"`
-	Status            string `form:"status"`
-	Filter            string `form:"filter"`
-	Keyword           string `form:"keyword"`
+	Page     int    `form:"page"`
+	PageSize int    `form:"page_size"`
+	Status   string `form:"status"`
+	Filter   string `form:"filter"`
+	Keyword  string `form:"keyword"`
 	// IncludeDeleted 为 true 时连已注销用户一起返回（doc104 §4.3）；
 	// 与 filter=deleted 互斥，前者优先级更高。
 	IncludeDeleted bool `form:"include_deleted"`
@@ -13,6 +13,10 @@ type UserListQuery struct {
 	UserLevelID uint64 `form:"user_level_id"`
 	// UserGroupID 按用户组筛选（0 表示不筛选）。
 	UserGroupID uint64 `form:"user_group_id"`
+	// AgentLevelID 按代理等级筛选（0 表示不筛选）（doc108）。
+	AgentLevelID uint64 `form:"agent_level_id"`
+	// IsAgent 按代理身份筛选："true" 仅代理，"false" 仅非代理，空为全部。
+	IsAgent string `form:"is_agent"`
 	// IsSubAccount 按主账号/子账号筛选（P4-10）："true" 仅子账号，"false" 仅主账号，空为全部。
 	IsSubAccount string `form:"is_sub_account"`
 	// SalesAdminID 按归属销售筛选（doc86 §4.1.10，0 表示不筛选）。
@@ -34,6 +38,9 @@ type UserCreateRequest struct {
 	UserGroupID *uint64  `json:"user_group_id"`
 	// UserLevelID 建号时的用户等级；不传则由服务层给起始等级（最低权重的一级）。
 	UserLevelID *uint64 `json:"user_level_id"`
+	// AgentLevelID 建号时的代理等级（doc108）；不传 = 非代理（普通客户）。
+	// 建号默认不授予代理身份 —— 代理是运营显式授予的商务关系，不该被"顺手带出来"。
+	AgentLevelID *uint64 `json:"agent_level_id"`
 }
 
 // UserUpdateRequest 用户资料部分更新。
@@ -55,6 +62,10 @@ type UserUpdateRequest struct {
 	// 与用户组不同，0 不是合法取值 —— 每个客户账号都应当有等级，
 	// 「清空等级」会让子账号上限读到 0（=不限制）且用户端显示无等级。
 	UserLevelID *uint64 `json:"user_level_id"`
+	// AgentLevelID 调整代理等级（doc108，折扣的唯一来源）：nil 不修改，
+	// 0 表示取消代理身份（回到普通客户），其余为代理等级 ID。
+	// 与用户等级相反，0 在这里是合法且有意义的取值。
+	AgentLevelID *uint64 `json:"agent_level_id"`
 }
 
 // UserStatusRequest 用户状态变更。

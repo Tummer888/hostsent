@@ -84,6 +84,17 @@
         <t-form-item label="展示顺序" name="sort_order">
           <t-input-number v-model="form.sort_order" :min="0" placeholder="数值越小越靠前" />
         </t-form-item>
+        <t-form-item label="拿货折扣率" name="cost_rate">
+          <t-input-number
+            v-model="form.cost_rate"
+            :min="0"
+            :max="1"
+            :step="0.05"
+            :decimal-places="4"
+            placeholder="如 0.6 = 六折进货；0 = 未配置"
+          />
+          <p class="form-hint">用于代理折扣的毛利校验：等级折扣率不得低于此值，否则判为亏本。0 = 不校验。</p>
+        </t-form-item>
         <t-form-item label="状态" name="status">
           <t-radio-group v-model="form.status">
             <t-radio :value="1">启用</t-radio>
@@ -121,11 +132,18 @@ const dialogVisible = ref(false)
 type FormMode = 'create' | 'edit'
 const formMode = ref<FormMode>('create')
 
-const form = reactive<{ parent_id: number | undefined; name: string; sort_order: number; status: number }>({
+const form = reactive<{
+  parent_id: number | undefined
+  name: string
+  sort_order: number
+  status: number
+  cost_rate: number
+}>({
   parent_id: undefined,
   name: '',
   sort_order: 0,
   status: 1,
+  cost_rate: 0,
 })
 
 let editingId = 0
@@ -193,6 +211,7 @@ function openCreate(parent: { id: number; name: string } | null) {
   form.name = ''
   form.sort_order = 0
   form.status = 1
+  form.cost_rate = 0
   dialogVisible.value = true
 }
 
@@ -204,6 +223,7 @@ function openEdit(node: SaleProductCategoryInfo) {
   form.name = node.name
   form.sort_order = node.sort_order
   form.status = node.status
+  form.cost_rate = node.cost_rate || 0
   dialogVisible.value = true
 }
 
@@ -220,6 +240,7 @@ async function handleSubmit() {
         name: form.name.trim(),
         sort_order: form.sort_order,
         status: form.status,
+        cost_rate: form.cost_rate || 0,
       })
       MessagePlugin.success('分类已创建')
     } else {
@@ -228,6 +249,7 @@ async function handleSubmit() {
         name: form.name.trim(),
         sort_order: form.sort_order,
         status: form.status,
+        cost_rate: form.cost_rate || 0,
       })
       MessagePlugin.success('分类已更新')
     }

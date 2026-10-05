@@ -279,8 +279,10 @@ function ruleLabel(r: PriceRule): string {
   return r.code ? `${source} · ${r.code} ${value}` : `${source} ${value}`
 }
 
+// agent=代理等级折扣；group 是 doc108 之前的用户组策略折扣，历史订单仍在用。
 function sourceLabel(source: string): string {
   const map: Record<string, string> = {
+    agent: '代理折扣',
     group: '用户组折扣',
     promotion: '促销优惠',
     manual: '人工改价',

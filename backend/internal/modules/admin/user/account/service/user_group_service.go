@@ -41,9 +41,15 @@ func (s *userGroupService) List(ctx context.Context, query dto.UserGroupListQuer
 	if err != nil {
 		return nil, err
 	}
+	memberCounts, err := s.repo.MemberCounts(ctx)
+	if err != nil {
+		return nil, err
+	}
 	respItems := make([]dto.UserGroupInfo, 0, len(items))
 	for _, item := range items {
-		respItems = append(respItems, toUserGroupInfo(item))
+		info := toUserGroupInfo(item)
+		info.MemberCount = memberCounts[item.ID]
+		respItems = append(respItems, info)
 	}
 	return &dto.UserGroupListResponse{
 		Items: respItems,
@@ -66,14 +72,12 @@ func (s *userGroupService) Create(ctx context.Context, req dto.UserGroupCreateRe
 		status = "active"
 	}
 	item := &model.UserGroup{
-		Name:          req.Name,
-		Code:          req.Code,
-		Description:   req.Description,
-		Status:        status,
-		SortOrder:     req.SortOrder,
-		PricePolicyID: req.PricePolicyID,
-		IsDefault:     req.IsDefault,
-		IsAgentGroup:  req.IsAgentGroup,
+		Name:        req.Name,
+		Code:        req.Code,
+		Description: req.Description,
+		Status:      status,
+		SortOrder:   req.SortOrder,
+		IsDefault:   req.IsDefault,
 	}
 	// 默认组唯一性由仓储在同一事务内「先清后写」维护，此处无需再单独清理。
 	if err := s.repo.Create(ctx, item); err != nil {
@@ -98,9 +102,7 @@ func (s *userGroupService) Update(ctx context.Context, id uint64, req dto.UserGr
 	item.Description = req.Description
 	item.Status = req.Status
 	item.SortOrder = req.SortOrder
-	item.PricePolicyID = req.PricePolicyID
 	item.IsDefault = req.IsDefault
-	item.IsAgentGroup = req.IsAgentGroup
 	if err := s.repo.Update(ctx, item); err != nil {
 		return nil, err
 	}
@@ -126,16 +128,14 @@ func (s *userGroupService) DefaultGroupID(ctx context.Context) (uint64, error) {
 
 func toUserGroupInfo(item model.UserGroup) dto.UserGroupInfo {
 	return dto.UserGroupInfo{
-		ID:            item.ID,
-		Name:          item.Name,
-		Code:          item.Code,
-		Description:   item.Description,
-		Status:        item.Status,
-		SortOrder:     item.SortOrder,
-		PricePolicyID: item.PricePolicyID,
-		IsDefault:     item.IsDefault,
-		IsAgentGroup:  item.IsAgentGroup,
-		CreatedAt:     item.CreatedAt,
-		UpdatedAt:     item.UpdatedAt,
+		ID:          item.ID,
+		Name:        item.Name,
+		Code:        item.Code,
+		Description: item.Description,
+		Status:      item.Status,
+		SortOrder:   item.SortOrder,
+		IsDefault:   item.IsDefault,
+		CreatedAt:   item.CreatedAt,
+		UpdatedAt:   item.UpdatedAt,
 	}
 }

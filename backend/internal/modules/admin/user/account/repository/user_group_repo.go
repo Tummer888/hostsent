@@ -12,6 +12,8 @@ import (
 
 type UserGroupRepository interface {
 	List(ctx context.Context, query dto.UserGroupListQuery) ([]model.UserGroup, int64, error)
+	// MemberCounts 各用户组的成员数（未注销客户），一次聚合避免列表页 N+1。
+	MemberCounts(ctx context.Context) (map[uint64]int64, error)
 	FindByID(ctx context.Context, id uint64) (*model.UserGroup, error)
 	Create(ctx context.Context, group *model.UserGroup) error
 	Update(ctx context.Context, group *model.UserGroup) error
@@ -49,13 +51,6 @@ func (r *userGroupRepository) List(ctx context.Context, query dto.UserGroupListQ
 		like := "%" + keyword + "%"
 		base = base.Where("name ILIKE ? OR code ILIKE ? OR description ILIKE ?", like, like, like)
 	}
-	switch strings.TrimSpace(query.IsAgentGroup) {
-	case "true":
-		base = base.Where("is_agent_group = ?", true)
-	case "false":
-		base = base.Where("is_agent_group = ?", false)
-	}
-
 	var total int64
 	if err := base.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -66,6 +61,27 @@ func (r *userGroupRepository) List(ctx context.Context, query dto.UserGroupListQ
 		return nil, 0, err
 	}
 	return items, total, nil
+}
+
+func (r *userGroupRepository) MemberCounts(ctx context.Context) (map[uint64]int64, error) {
+	type row struct {
+		UserGroupID uint64
+		Cnt         int64
+	}
+	var rows []row
+	if err := r.db.WithContext(ctx).
+		Table("users").
+		Select("user_group_id, COUNT(*) AS cnt").
+		Where("user_group_id IS NOT NULL AND deleted_at IS NULL").
+		Group("user_group_id").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	counts := make(map[uint64]int64, len(rows))
+	for _, item := range rows {
+		counts[item.UserGroupID] = item.Cnt
+	}
+	return counts, nil
 }
 
 func (r *userGroupRepository) FindByID(ctx context.Context, id uint64) (*model.UserGroup, error) {

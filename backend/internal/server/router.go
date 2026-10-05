@@ -170,6 +170,24 @@ func newRouter(app *App) *gin.Engine {
 			userLevels.DELETE("/:id", app.perm("level:delete"), app.userLevelHandler.Delete)
 		}
 
+		// 代理等级（doc108）：折扣的唯一来源。矩阵与阶梯填充是「批量写折扣」的入口，
+		// 写操作用 update 权限；只读视图用 list。
+		agentLevels := v1.Group("/agent-levels")
+		agentLevels.Use(app.adminAuth())
+		{
+			agentLevels.GET("", app.perm("agent_level:list"), app.agentLevelHandler.List)
+			agentLevels.POST("", app.perm("agent_level:create"), app.agentLevelHandler.Create)
+			// 静态段必须注册在 /:id 之前，否则 "matrix" 会被当成 id 命中。
+			agentLevels.GET("/matrix", app.perm("agent_level:list"), app.agentLevelHandler.Matrix)
+			agentLevels.POST("/ladder/preview", app.perm("agent_level:list"), app.agentLevelHandler.PreviewLadder)
+			agentLevels.POST("/ladder/apply", app.perm("agent_level:update"), app.agentLevelHandler.ApplyLadder)
+			// 单格折扣更新：静态段必须注册在 /:id 之前。
+			agentLevels.PUT("/discount", app.perm("agent_level:update"), app.agentLevelHandler.UpdateCell)
+			agentLevels.GET("/:id", app.perm("agent_level:list"), app.agentLevelHandler.Get)
+			agentLevels.PUT("/:id", app.perm("agent_level:update"), app.agentLevelHandler.Update)
+			agentLevels.DELETE("/:id", app.perm("agent_level:delete"), app.agentLevelHandler.Delete)
+		}
+
 		// 实名认证（doc104 §5.7）：整单审核 + 三方核验 + 服务商与配置维护。
 		// 审核类接口要求 verification:audit（通过/驳回/撤销/三方核验都改状态），
 		// 只读列表与详情用 verification:list/detail；服务商与策略配置用 verification:config。
@@ -852,11 +870,11 @@ func newRouter(app *App) *gin.Engine {
 	// 用户中心（普通用户自助）：独立模块 internal/modules/uc/auth
 	ucAuth := r.Group("/api/v1/uc/auth")
 	{
-		ucAuth.POST("/login", app.userCenterAuthHandler.Login)                                                                                                                           // 登录
-		ucAuth.POST("/login/verify-otp", app.userCenterAuthHandler.VerifyLoginOTP)                                                                                                       // 登录二次验证
-		ucAuth.POST("/register", app.userCenterAuthHandler.Register)                                                                                                                     // 注册
-		ucAuth.POST("/forgot-password", app.userCenterAuthHandler.ForgotPassword)                                                                                                        // 忘记密码（下发验证码）
-		ucAuth.POST("/reset-password", app.userCenterAuthHandler.ResetPassword)                                                                                                          // 重置密码
+		ucAuth.POST("/login", app.userCenterAuthHandler.Login)                                                                            // 登录
+		ucAuth.POST("/login/verify-otp", app.userCenterAuthHandler.VerifyLoginOTP)                                                        // 登录二次验证
+		ucAuth.POST("/register", app.userCenterAuthHandler.Register)                                                                      // 注册
+		ucAuth.POST("/forgot-password", app.userCenterAuthHandler.ForgotPassword)                                                         // 忘记密码（下发验证码）
+		ucAuth.POST("/reset-password", app.userCenterAuthHandler.ResetPassword)                                                           // 重置密码
 		ucAuth.POST("/logout", app.userAuth(), app.userCenterAuthHandler.Logout)                                                          // 登出
 		ucAuth.GET("/userinfo", app.userAuth(), app.userCenterAuthHandler.UserInfo)                                                       // 用户信息
 		ucAuth.PUT("/profile", app.userAuth(), app.userCenterAuthHandler.UpdateProfile)                                                   // 更新资料（改手机/邮箱时按字段动态要求验证）

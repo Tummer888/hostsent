@@ -15,6 +15,7 @@ import (
 	referralmodel "hostsent/backend/internal/modules/admin/referral/model"
 	usergroupmodel "hostsent/backend/internal/modules/admin/user/account/model"
 	usergrouprepo "hostsent/backend/internal/modules/admin/user/account/repository"
+	agentlevelmodel "hostsent/backend/internal/modules/admin/user/agentlevel/model"
 	levelmodel "hostsent/backend/internal/modules/admin/user/level/model"
 	securitymodel "hostsent/backend/internal/modules/admin/user/security/model"
 )
@@ -124,6 +125,22 @@ func TestLivePhaseMigrations(t *testing.T) {
 				"user_levels": {"icon", "color"},
 			},
 		},
+		{
+			// 059 是 doc108 的落地点：代理独立成「等级 + 折扣矩阵」，用户组退回纯分类。
+			// 断言三件事：新表列集合与模型一致、users.agent_level_id 存在、
+			// user_groups 的 price_policy_id / is_agent_group 两列确实已消失
+			// （模型侧也已移除，否则 AutoMigrate 会把它们加回来）。
+			name:   "059_agent_levels_and_group_purify",
+			file:   "../../../migrations/059_agent_levels_and_group_purify.sql",
+			models: []interface{}{&agentlevelmodel.AgentLevel{}, &agentlevelmodel.AgentLevelDiscount{}},
+			columns: map[string][]string{
+				"agent_levels":          {"id", "name", "code", "weight", "status", "description", "created_at", "updated_at"},
+				"agent_level_discounts": {"id", "agent_level_id", "target_type", "target_id", "discount_rate", "created_at", "updated_at"},
+				"users":                 {"agent_level_id"},
+				"product_categories":    {"cost_rate"},
+			},
+			indexes: []string{"uk_agent_levels_code", "uk_agent_level_discounts", "idx_agent_level_discounts_target", "idx_users_agent_level_id"},
+		},
 	}
 
 	for _, tc := range cases {
@@ -147,6 +164,50 @@ func TestLivePhaseMigrations(t *testing.T) {
 				assertIndex(t, db, idx)
 			}
 		})
+	}
+}
+
+// TestLiveAgentMenuMergedIntoGroups 验证 060：二级菜单「代理等级」已并入
+// 用户组管理页的代理分组分区，独立菜单行不复存在；agent_level:* 权限码保留
+// （分区内的按钮与接口仍按它鉴权）。
+func TestLiveAgentMenuMergedIntoGroups(t *testing.T) {
+	dsn := os.Getenv("LIVE_DB_DSN")
+	if dsn == "" {
+		dsn = "host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable"
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+
+	sqlBytes, err := os.ReadFile("../../../migrations/060_merge_agent_menu_into_groups.sql")
+	if err != nil {
+		t.Fatalf("读取迁移文件失败: %v", err)
+	}
+	for i := 1; i <= 2; i++ {
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			t.Fatalf("第 %d 次执行迁移失败: %v", i, err)
+		}
+	}
+
+	var menus int64
+	if err := db.Raw(
+		"SELECT count(*) FROM menus WHERE platform = 'admin' AND path = '/users/agents'",
+	).Scan(&menus).Error; err != nil {
+		t.Fatalf("查询代理等级菜单失败: %v", err)
+	}
+	if menus != 0 {
+		t.Errorf("独立菜单 /users/agents 应已并入用户组管理，仍存在 %d 行", menus)
+	}
+
+	var perms int64
+	if err := db.Raw(
+		"SELECT count(*) FROM permissions WHERE code LIKE 'agent_level:%'",
+	).Scan(&perms).Error; err != nil {
+		t.Fatalf("查询 agent_level 权限失败: %v", err)
+	}
+	if perms < 4 {
+		t.Errorf("agent_level:* 权限码应保留，实际 %d 个", perms)
 	}
 }
 
@@ -235,14 +296,16 @@ func TestLiveDefaultUserGroupSeeded(t *testing.T) {
 		t.Errorf("seedDefaultUserGroup 后默认用户组应恰好一个，实际 %d", defaults)
 	}
 
-	var seededWithPolicy int64
+	// doc108 起用户组不再承载折扣：price_policy_id 列已由迁移 059 删除，
+	// 因此这里改为断言列不存在（比"值为空"更强的保证：结构上就不可能绑折扣）。
+	var policyCols int64
 	if err := db.Raw(
-		"SELECT count(*) FROM user_groups WHERE code = 'default' AND price_policy_id IS NOT NULL",
-	).Scan(&seededWithPolicy).Error; err != nil {
-		t.Fatalf("查询默认组折扣策略失败: %v", err)
+		"SELECT count(*) FROM information_schema.columns WHERE table_name = 'user_groups' AND column_name IN ('price_policy_id','is_agent_group')",
+	).Scan(&policyCols).Error; err != nil {
+		t.Fatalf("查询 user_groups 折扣列失败: %v", err)
 	}
-	if seededWithPolicy != 0 {
-		t.Errorf("code=default 的默认用户组不应绑定折扣策略，实际 %d 个", seededWithPolicy)
+	if policyCols != 0 {
+		t.Errorf("user_groups 不应再有 price_policy_id / is_agent_group 列，实际仍有 %d 列", policyCols)
 	}
 }
 

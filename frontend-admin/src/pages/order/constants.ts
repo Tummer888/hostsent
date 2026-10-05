@@ -149,6 +149,19 @@ export function formatTime(value: string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
+// 折扣来源中文标签：agent=代理等级折扣（doc108 起唯一折扣来源）；
+// group 是 doc108 之前用户组价格策略产生的历史订单，需要保留映射。
+export function discountSourceLabel(source?: string): string {
+  if (!source) return '—'
+  const map: Record<string, string> = {
+    agent: '代理折扣',
+    group: '用户组折扣（历史）',
+    promotion: '促销优惠',
+    manual: '人工改价',
+  }
+  return map[source] || source
+}
+
 // 将日期选择器输入统一规范为 YYYY-MM-DD 字符串
 export function toDateString(value: unknown): string {
   if (!value) return ''
