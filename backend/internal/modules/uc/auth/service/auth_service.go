@@ -785,6 +785,19 @@ func (s *authService) toUserInfo(ctx context.Context, user *model.User) dto.User
 	} else {
 		info.Permissions = []string{}
 	}
+	// 会员等级：名称/图标/配色由运营在管理端配置。读失败不影响登录与用户信息
+	// 主流程（徽章缺失只是少一个展示），因此这里只吞掉错误不向上抛。
+	if brief, err := s.repo.LevelOf(ctx, user.ID); err == nil && brief != nil {
+		info.UserLevel = &dto.UserLevelBrief{
+			ID:               brief.ID,
+			Name:             brief.Name,
+			Code:             brief.Code,
+			Icon:             brief.Icon,
+			Color:            brief.Color,
+			Weight:           brief.Weight,
+			UpgradeThreshold: brief.UpgradeThreshold,
+		}
+	}
 	return info
 }
 

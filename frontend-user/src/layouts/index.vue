@@ -99,6 +99,14 @@
                 <div class="user-menu__meta">
                   <strong>{{ userName }}</strong>
                   <span>@{{ userStore.userInfo?.username || '-' }}</span>
+                  <LevelBadge
+                    v-if="userStore.userLevel"
+                    :name="userStore.userLevel.name"
+                    :icon="userStore.userLevel.icon"
+                    :color="userStore.userLevel.color"
+                    :weight="userStore.userLevel.weight"
+                    size="small"
+                  />
                 </div>
               </div>
 
@@ -243,6 +251,7 @@ import { getUnreadCount } from '@/api/notification'
 import { openSite } from '@/utils/site'
 import { recordRecentPage } from '@/utils/recent'
 import ProductMenu from '@/components/product-menu/index.vue'
+import LevelBadge from '@/components/level-badge/index.vue'
 import SideNav from '@/components/side-nav/index.vue'
 import SettingsPanel from '@/components/settings-panel/index.vue'
 import AnnouncementPopup from '@/components/announcement-popup/index.vue'

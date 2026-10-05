@@ -110,7 +110,12 @@
             <span v-if="profile.user_group_id" class="cell-sub">ID {{ profile.user_group_id }}</span>
           </t-descriptions-item>
           <t-descriptions-item label="用户等级">
-            {{ profile.user_level_name || '—' }}
+            <LevelBadge
+              :name="profile.user_level_name"
+              :icon="profile.user_level_icon"
+              :color="profile.user_level_color"
+              :weight="profile.user_level_weight"
+            />
             <span v-if="profile.user_level_code" class="cell-sub">（{{ profile.user_level_code }}）</span>
           </t-descriptions-item>
           <t-descriptions-item label="累计消费">
@@ -156,6 +161,7 @@ import {
   userStatusTheme,
 } from '@/pages/users/constants'
 import type { UserInfo, UserRoleBrief } from '@/api/user'
+import LevelBadge from '@/components/level-badge/index.vue'
 
 const props = withDefaults(
   defineProps<{

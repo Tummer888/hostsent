@@ -15,6 +15,11 @@ type UserInfo struct {
 	UserLevelID        *uint64  `json:"user_level_id"`
 	UserLevelName      string   `json:"user_level_name"`
 	UserLevelCode      string   `json:"user_level_code"`
+	// UserLevelIcon / UserLevelColor 等级的图标 key 与主题色（运营可配，空 = 前端按权重回落）。
+	UserLevelIcon  string `json:"user_level_icon"`
+	UserLevelColor string `json:"user_level_color"`
+	// UserLevelWeight 等级权重；颜色为空时前端按它推导兜底色，需与用户端同源。
+	UserLevelWeight int    `json:"user_level_weight"`
 	Region             string   `json:"region"`
 	Avatar             string   `json:"avatar"`
 	Tier               string   `json:"tier"`

@@ -22,7 +22,11 @@ type CreateRequest struct {
 	UpgradeThreshold float64 `json:"upgrade_threshold"`
 	MaxSubAccounts   int     `json:"max_sub_accounts"`
 	Benefits         string  `json:"benefits"`
-	Description      string  `json:"description"`
+	// Icon 图标目录 key（可选，如 star-filled）；Color 主题色 #RRGGBB（可选）。
+	// 都允许留空：留空时前端按权重推导默认图标与色阶，老数据无需回填。
+	Icon        string `json:"icon"`
+	Color       string `json:"color"`
+	Description string `json:"description"`
 }
 
 // UpdateRequest 表示更新用户等级时提交的参数。
@@ -36,6 +40,8 @@ type UpdateRequest struct {
 	UpgradeThreshold float64 `json:"upgrade_threshold"`
 	MaxSubAccounts   int     `json:"max_sub_accounts"`
 	Benefits         string  `json:"benefits"`
+	Icon             string  `json:"icon"`
+	Color            string  `json:"color"`
 	Description      string  `json:"description"`
 }
 
@@ -51,6 +57,8 @@ type Info struct {
 	UpgradeThreshold float64   `json:"upgrade_threshold"`
 	MaxSubAccounts   int       `json:"max_sub_accounts"`
 	Benefits         string    `json:"benefits"`
+	Icon             string    `json:"icon"`
+	Color            string    `json:"color"`
 	Description      string    `json:"description"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`

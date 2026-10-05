@@ -82,6 +82,8 @@ func (s *userLevelService) Create(ctx context.Context, req dto.CreateRequest) (*
 		UpgradeThreshold: req.UpgradeThreshold,
 		MaxSubAccounts:   req.MaxSubAccounts,
 		Benefits:         normalizeBenefits(req.Benefits),
+		Icon:             normalizeIcon(req.Icon),
+		Color:            normalizeColor(req.Color),
 		Description:      req.Description,
 	}
 	if err := s.repo.Create(ctx, item); err != nil {
@@ -105,6 +107,8 @@ func (s *userLevelService) Update(ctx context.Context, id uint64, req dto.Update
 	item.UpgradeThreshold = req.UpgradeThreshold
 	item.MaxSubAccounts = req.MaxSubAccounts
 	item.Benefits = normalizeBenefits(req.Benefits)
+	item.Icon = normalizeIcon(req.Icon)
+	item.Color = normalizeColor(req.Color)
 	item.Description = req.Description
 	if err := s.repo.Update(ctx, item); err != nil {
 		return nil, err
@@ -247,6 +251,64 @@ var (
 	ErrLevelDisabled = errors.New("目标等级已停用，不能指派")
 )
 
+// normalizeIcon 归一图标标识：只接受图标目录 key 的字符集，其余一律丢弃。
+//
+// 图标 key 会原样进入前端组件解析（`${key}-filled` → 图标组件），因此这里挡的是
+// 拼接注入口：带上 `<`、`/`、空白之类的值在前端要么解析不出图标，要么被当成
+// 组件名注入。规范化成小写连字符形式，非法即空（前端回落到按权重推导的默认图标）。
+func normalizeIcon(raw string) string {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
+		return ""
+	}
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
+			continue
+		default:
+			return ""
+		}
+	}
+	// 长度上限与列定义对齐（64）；超长值几乎必然是误填，直接丢弃而不是截断。
+	if len(value) > 64 {
+		return ""
+	}
+	return value
+}
+
+// normalizeColor 归一十六进制颜色：接受 #RGB / #RRGGBB（大小写不限），统一成大写 #RRGGBB。
+//
+// 这个值会被写进 inline style（`color: <value>`），不校验就等于允许把任意 CSS
+// 塞进页面（例如 `red;background:url(...)`）。只放行 # 开头的 3/6 位十六进制，
+// 3 位自动展开成 6 位；非法即空，前端回落到默认色阶。
+func normalizeColor(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
+	}
+	if !strings.HasPrefix(value, "#") {
+		// 不带 # 的裸十六进制也接受，方便运营从设计稿里直接粘贴。
+		value = "#" + value
+	}
+	hex := strings.ToLower(value[1:])
+	for _, r := range hex {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'f':
+			continue
+		default:
+			return ""
+		}
+	}
+	switch len(hex) {
+	case 3:
+		return "#" + strings.ToUpper(string([]byte{hex[0], hex[0], hex[1], hex[1], hex[2], hex[2]}))
+	case 6:
+		return "#" + strings.ToUpper(hex)
+	default:
+		return ""
+	}
+}
+
 func normalizeMeta(page, pageSize int) (int, int) {
 	if page < 1 {
 		page = 1
@@ -272,6 +334,8 @@ func toInfo(item model.UserLevel) dto.Info {
 		UpgradeThreshold: item.UpgradeThreshold,
 		MaxSubAccounts:   item.MaxSubAccounts,
 		Benefits:         item.Benefits,
+		Icon:             item.Icon,
+		Color:            item.Color,
 		Description:      item.Description,
 		CreatedAt:        item.CreatedAt,
 		UpdatedAt:        item.UpdatedAt,

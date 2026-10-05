@@ -2230,9 +2230,12 @@ func seedDefaultUserGroup(tx *gorm.DB) error {
 // 门槛 0 / 1000 / 5000 / 20000 / 50000 / 200000，子账号上限 1/2/5/10/20/50。
 // 门槛是运营示例值，可在「用户等级」页调整；此处只在缺级时补齐，不覆盖运营改过的值。
 //
-// 只增不改的边界：本函数对已存在的等级**只补空值**（门槛/上限为 0、权益为空时），
-// 名称与文案的变更由 migrations/057 承担 —— 启动期 seed 覆盖运营配置会让
-// 「改了名称，重启后被打回去」成为长期困扰。
+// 只增不改的边界：本函数对已存在的等级**只补空值**（门槛/上限为 0、权益为空、
+// 图标/配色为空时），名称与文案的变更由 migrations/057 承担 —— 启动期 seed 覆盖
+// 运营配置会让「改了名称，重启后被打回去」成为长期困扰。
+//
+// 图标与配色（migration 058 落列）同样只补空：让六个内置等级开箱就有区分度，
+// 同时保证运营在「用户等级」页配过的值重启不被还原。
 func seedUserLevels(tx *gorm.DB) error {
 	admin, err := loadAdminAsUser(tx)
 	if err != nil {
@@ -2250,6 +2253,8 @@ func seedUserLevels(tx *gorm.DB) error {
 			MaxSubAccounts:   1,
 			Benefits:         `{"benefits":["基础工单支持","每周自动备份"]}`,
 			Description:      "会员体系起点等级",
+			Icon:             "star-filled",
+			Color:            "#8C9AAF",
 			CreatedBy:        admin.ID,
 			UpdatedBy:        admin.ID,
 		},
@@ -2264,6 +2269,8 @@ func seedUserLevels(tx *gorm.DB) error {
 			MaxSubAccounts:   2,
 			Benefits:         `{"benefits":["优先工单支持","每日自动备份"]}`,
 			Description:      "成长型会员等级",
+			Icon:             "star-1-filled",
+			Color:            "#E6A23C",
 			CreatedBy:        admin.ID,
 			UpdatedBy:        admin.ID,
 		},
@@ -2278,6 +2285,8 @@ func seedUserLevels(tx *gorm.DB) error {
 			MaxSubAccounts:   5,
 			Benefits:         `{"benefits":["高优先级工单","每日自动备份","自定义镜像"]}`,
 			Description:      "进阶会员等级",
+			Icon:             "certificate-filled",
+			Color:            "#3BA9C4",
 			CreatedBy:        admin.ID,
 			UpdatedBy:        admin.ID,
 		},
@@ -2292,6 +2301,8 @@ func seedUserLevels(tx *gorm.DB) error {
 			MaxSubAccounts:   10,
 			Benefits:         `{"benefits":["专属客服通道","每日自动备份","自定义镜像","快照保留 30 天"]}`,
 			Description:      "高价值会员等级",
+			Icon:             "user-vip-filled",
+			Color:            "#7B61FF",
 			CreatedBy:        admin.ID,
 			UpdatedBy:        admin.ID,
 		},
@@ -2306,6 +2317,8 @@ func seedUserLevels(tx *gorm.DB) error {
 			MaxSubAccounts:   20,
 			Benefits:         `{"benefits":["专属客户经理","SLA 保障","自定义镜像"]}`,
 			Description:      "重点客户会员等级",
+			Icon:             "sun-rising-filled",
+			Color:            "#FF7A45",
 			CreatedBy:        admin.ID,
 			UpdatedBy:        admin.ID,
 		},
@@ -2320,6 +2333,8 @@ func seedUserLevels(tx *gorm.DB) error {
 			MaxSubAccounts:   50,
 			Benefits:         `{"benefits":["一对一专属服务","最高 SLA 保障","全部高级权益"]}`,
 			Description:      "最高会员等级",
+			Icon:             "palace-filled",
+			Color:            "#E63946",
 			CreatedBy:        admin.ID,
 			UpdatedBy:        admin.ID,
 		},
@@ -2339,6 +2354,15 @@ func seedUserLevels(tx *gorm.DB) error {
 			}
 			if existing.Benefits == "" && level.Benefits != "" {
 				updates["benefits"] = level.Benefits
+			}
+			// 图标与配色同样只补空：运营一旦配过就归他管（重启不还原）。
+			// 六个内置等级留空时在这里拿到默认配色，用户端与管理端开箱即有区分度；
+			// 运营自建的等级不会被这句碰到，其空值由前端按权重推导兜底。
+			if existing.Icon == "" && level.Icon != "" {
+				updates["icon"] = level.Icon
+			}
+			if existing.Color == "" && level.Color != "" {
+				updates["color"] = level.Color
 			}
 			if len(updates) > 0 {
 				if err := tx.Model(&levelmodel.UserLevel{}).Where("id = ?", existing.ID).Updates(updates).Error; err != nil {

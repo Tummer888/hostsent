@@ -13,7 +13,17 @@
       <div class="basic-info">
         <t-avatar :size="48" class="basic-avatar">{{ userInitial }}</t-avatar>
         <div class="basic-name">
-          <span class="basic-name__text">{{ displayName }}</span>
+          <span class="basic-name__row">
+            <span class="basic-name__text">{{ displayName }}</span>
+            <LevelBadge
+              v-if="userStore.userLevel"
+              :name="userStore.userLevel.name"
+              :icon="userStore.userLevel.icon"
+              :color="userStore.userLevel.color"
+              :weight="userStore.userLevel.weight"
+              size="medium"
+            />
+          </span>
           <span class="basic-name__id">
             账号ID: {{ accountId }}
             <CopyIcon class="copy-icon" @click="copyText(accountId, '账号ID已复制')" />
@@ -446,6 +456,7 @@ import {
 } from '@/api/verification'
 import { getVerificationRequirement, sendSecurityVerification, verifySecurityCode } from '@/api/security'
 import CaptchaImage from '@/components/verify/CaptchaImage.vue'
+import LevelBadge from '@/components/level-badge/index.vue'
 import { sitePath, siteUrlConfigured } from '@/utils/site'
 
 defineOptions({ name: 'UserProfile' })
@@ -1144,6 +1155,13 @@ onMounted(async () => {
   flex-direction: column;
   gap: 6px;
   min-width: 180px;
+}
+
+.basic-name__row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .basic-name__text {

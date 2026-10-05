@@ -35,6 +35,11 @@ export interface UserInfo {
   user_level_id?: number
   user_level_name?: string
   user_level_code?: string
+  /** 等级图标 key 与主题色（运营在「用户等级」页配置），用于渲染等级徽章 */
+  user_level_icon?: string
+  user_level_color?: string
+  /** 等级权重：颜色留空时徽章按它推导兜底色 */
+  user_level_weight?: number
   region?: string
   avatar?: string
   /** 用户分层：free / pro … */
@@ -376,6 +381,10 @@ export interface UserLevelInfo {
   upgrade_threshold: number
   max_sub_accounts: number
   benefits?: string
+  /** 图标 key（图标目录，如 star-filled）；空 = 前端按权重回落默认图标。 */
+  icon?: string
+  /** 主题色 #RRGGBB；空 = 前端按权重回落默认色阶。 */
+  color?: string
   description?: string
   created_at: string
   updated_at: string
@@ -391,6 +400,8 @@ export interface UserLevelRequest {
   upgrade_threshold?: number
   max_sub_accounts?: number
   benefits?: string
+  icon?: string
+  color?: string
   description?: string
 }
 

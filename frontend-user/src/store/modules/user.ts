@@ -18,7 +18,19 @@ interface UserInfo {
   phone?: string
   avatar?: string
   role?: string
+  /** 用户分层，恒为 free；已退役，会员等级见 user_level */
   tier?: string
+  /** 会员等级（运营在管理端配置图标与配色）；未设等级时后端不返回该字段 */
+  user_level?: {
+    id: number
+    name: string
+    code: string
+    icon: string
+    color: string
+    /** 等级权重：颜色留空时徽章按它推导兜底色，与管理端取自同一列 */
+    weight: number
+    upgrade_threshold: number
+  }
   /** 子账号信息（P4-09）：是否子账号、归属主账号 ID/用户名、备注 */
   is_sub_account?: boolean
   owner_user_id?: number
@@ -37,6 +49,8 @@ export const useUserStore = defineStore('user', () => {
   const displayName = computed(() => userInfo.value.name || userInfo.value.username || '用户')
   const isSubAccount = computed(() => Boolean(userInfo.value.is_sub_account))
   const permissions = computed<string[]>(() => userInfo.value.permissions || [])
+  /** 当前会员等级；未设等级时为 undefined（顶栏与个人中心据 presence 决定是否渲染徽章）。 */
+  const userLevel = computed(() => userInfo.value.user_level)
 
   /**
    * 密码登录（doc91 §5.3）。
@@ -143,6 +157,7 @@ export const useUserStore = defineStore('user', () => {
     displayName,
     isSubAccount,
     permissions,
+    userLevel,
     login,
     loginVerifyOTP,
     register,

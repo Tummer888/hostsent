@@ -113,6 +113,17 @@ func TestLivePhaseMigrations(t *testing.T) {
 			},
 			indexes: []string{"idx_user_levels_code", "idx_user_levels_name"},
 		},
+		{
+			// 058 给等级加 icon / color 两列：运营在管理端自定义图标与配色，
+			// 用户端按同一套值渲染等级徽章。两列 NOT NULL DEFAULT ''，
+			// 空值语义是「按权重回落默认」而非「未回填」，故不回填存量行。
+			name:   "058_user_level_icon_color",
+			file:   "../../../migrations/058_user_level_icon_color.sql",
+			models: []interface{}{&levelmodel.UserLevel{}},
+			columns: map[string][]string{
+				"user_levels": {"icon", "color"},
+			},
+		},
 	}
 
 	for _, tc := range cases {

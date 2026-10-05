@@ -57,8 +57,12 @@ type UserInfo struct {
 	Phone    string `json:"phone"`
 	Avatar   string `json:"avatar"`
 	Role     string `json:"role"` // 用户中心角色，固定为 "user"
-	Tier     string `json:"tier"` // 用户等级（标准用户 standard / 企业用户 business / 免费 free）
+	Tier     string `json:"tier"` // 用户分层，恒为 free；已退役（会员等级见 user_level_*）
 	Status   string `json:"status"`
+	// —— 会员等级（用户端徽章）——
+	// 等级的名称/图标/配色由运营在管理端配置，用户端按这里返回的值渲染徽章。
+	// UserLevel 为 nil 表示未设等级，此时前端不渲染徽章。
+	UserLevel *UserLevelBrief `json:"user_level,omitempty"`
 	// —— 子账号信息（P4-03）——
 	IsSubAccount bool   `json:"is_sub_account"`          // 是否子账号
 	OwnerUserID  uint64 `json:"owner_user_id,omitempty"` // 子账号归属的主账号 ID
@@ -66,6 +70,23 @@ type UserInfo struct {
 	Remark       string `json:"remark,omitempty"`        // 子账号备注
 	// Permissions 子账号已授予的客户侧权限码；主账号为空数组（前端据此隐藏入口，P4-09）。
 	Permissions []string `json:"permissions"`
+}
+
+// UserLevelBrief 用户中心侧的会员等级摘要。
+//
+// 与 admin 侧 dto.Info 相比砍掉了运营配置细节（权益、子账号上限、变更审计），
+// 用户端只需要渲染徽章与「再消费多少升级」。
+type UserLevelBrief struct {
+	ID    uint64 `json:"id"`
+	Name  string `json:"name"`
+	Code  string `json:"code"`
+	Icon  string `json:"icon"`
+	Color string `json:"color"`
+	// Weight 等级权重；Color 为空时前端按它推导兜底色，必须与 admin 侧同值，
+	// 否则同一个等级在管理端和用户端会渲染成两个颜色。
+	Weight int `json:"weight"`
+	// UpgradeThreshold 本级门槛（累计消费 ≥ 该值即达本级）。
+	UpgradeThreshold float64 `json:"upgrade_threshold"`
 }
 
 // LoginResponse 用户中心登录响应，结构对齐前端 LoginResponse：

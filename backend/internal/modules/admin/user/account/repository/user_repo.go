@@ -99,7 +99,7 @@ func (r *userRepository) Delete(ctx context.Context, id uint64) error {
 func (r *userRepository) FindByID(ctx context.Context, id uint64) (*model.User, error) {
 	var user model.User
 	if err := r.db.WithContext(ctx).
-		Select("users.*, user_groups.name AS user_group_name, user_levels.name AS user_level_name, user_levels.code AS user_level_code, owner.username AS owner_name, inviter.username AS inviter_name, COALESCE(NULLIF(sales.real_name, ''), sales.username, '') AS sales_admin_name, COALESCE(NULLIF(deleter.real_name, ''), deleter.username, '') AS deleted_by_name").
+		Select("users.*, user_groups.name AS user_group_name, user_levels.name AS user_level_name, user_levels.code AS user_level_code, user_levels.icon AS user_level_icon, user_levels.color AS user_level_color, user_levels.weight AS user_level_weight, owner.username AS owner_name, inviter.username AS inviter_name, COALESCE(NULLIF(sales.real_name, ''), sales.username, '') AS sales_admin_name, COALESCE(NULLIF(deleter.real_name, ''), deleter.username, '') AS deleted_by_name").
 		Joins("LEFT JOIN user_groups ON user_groups.id = users.user_group_id").
 		Joins("LEFT JOIN user_levels ON user_levels.id = users.user_level_id").
 		Joins("LEFT JOIN users AS owner ON owner.id = users.owner_user_id").
@@ -178,7 +178,7 @@ func (r *userRepository) List(ctx context.Context, query dto.UserListQuery) ([]m
 	var users []model.User
 	// total_consume_amount 自 P3-01 起为 users 表落列字段（消费升级服务维护），无需再实时聚合。
 	if err := base.
-		Select("users.*, user_groups.name AS user_group_name, user_levels.name AS user_level_name, user_levels.code AS user_level_code, owner.username AS owner_name, inviter.username AS inviter_name, COALESCE(NULLIF(sales.real_name, ''), sales.username, '') AS sales_admin_name").
+		Select("users.*, user_groups.name AS user_group_name, user_levels.name AS user_level_name, user_levels.code AS user_level_code, user_levels.icon AS user_level_icon, user_levels.color AS user_level_color, user_levels.weight AS user_level_weight, owner.username AS owner_name, inviter.username AS inviter_name, COALESCE(NULLIF(sales.real_name, ''), sales.username, '') AS sales_admin_name").
 		Joins("LEFT JOIN user_groups ON user_groups.id = users.user_group_id").
 		Joins("LEFT JOIN user_levels ON user_levels.id = users.user_level_id").
 		Joins("LEFT JOIN users AS owner ON owner.id = users.owner_user_id").

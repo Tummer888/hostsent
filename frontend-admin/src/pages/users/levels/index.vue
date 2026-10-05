@@ -43,7 +43,12 @@
       >
         <template #name="{ row }">
           <div class="primary-cell">
-            <strong>{{ row.name }}</strong>
+            <LevelBadge
+              :name="row.name"
+              :icon="row.icon"
+              :color="row.color"
+              :weight="row.weight"
+            />
             <span>{{ row.code }}</span>
           </div>
         </template>
@@ -94,17 +99,17 @@
     <t-dialog
       v-model:visible="dialogVisible"
       :header="editing ? '编辑用户等级' : '新建用户等级'"
-      width="620px"
+      width="680px"
       :confirm-loading="submitting"
       @confirm="handleSubmit"
     >
       <t-form ref="formRef" :data="form" :rules="rules" label-align="top">
         <div class="form-grid">
           <t-form-item label="等级名称" name="name">
-            <t-input v-model="form.name" placeholder="如：企业用户" />
+            <t-input v-model="form.name" placeholder="如：钻石会员" />
           </t-form-item>
           <t-form-item label="等级编码" name="code">
-            <t-input v-model="form.code" placeholder="如：business" />
+            <t-input v-model="form.code" placeholder="如：diamond" />
           </t-form-item>
           <t-form-item label="权重" name="weight">
             <t-input-number v-model="form.weight" :min="0" :step="1" theme="normal" />
@@ -119,6 +124,38 @@
             <t-input-number v-model="form.max_sub_accounts" :min="0" :step="1" theme="normal" />
           </t-form-item>
         </div>
+        <div class="form-grid">
+          <t-form-item label="等级图标" name="icon">
+            <LevelIconPicker v-model="form.icon" />
+          </t-form-item>
+          <t-form-item label="等级颜色" name="color">
+            <div class="color-field">
+              <t-color-picker
+                v-model="form.color"
+                :color-modes="['monochrome']"
+                format="HEX"
+                clearable
+                :swatch-colors="levelColorSwatches"
+                :recent-colors="false"
+                placeholder="留空则按权重用默认色"
+              />
+              <span v-if="colorInvalid" class="color-field__hint">
+                当前值不是合法十六进制颜色，保存时会被忽略
+              </span>
+            </div>
+          </t-form-item>
+        </div>
+        <t-form-item label="效果预览" name="__preview">
+          <div class="preview-row">
+            <LevelBadge
+              :name="form.name || '等级名称'"
+              :icon="form.icon"
+              :color="form.color"
+              :weight="form.weight"
+            />
+            <span class="preview-row__hint">用户端与管理端按同一套图标与配色显示</span>
+          </div>
+        </t-form-item>
         <t-form-item label="权益（每行一条）" name="benefits">
           <t-textarea v-model="benefitsText" :autosize="{ minRows: 3, maxRows: 6 }" placeholder="高优先级工单&#10;每日自动备份" />
         </t-form-item>
@@ -154,6 +191,9 @@ import {
 } from '@/api/user'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
+import LevelBadge from '@/components/level-badge/index.vue'
+import LevelIconPicker from '@/components/level-badge/LevelIconPicker.vue'
+import { levelColorSwatches } from '@/components/level-badge/icons'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { usePermission } from '@/composables/usePermission'
 import { useIsMobile } from '@/composables/useIsMobile'
@@ -215,11 +255,21 @@ function emptyForm(): UserLevelRequest {
     upgrade_threshold: 0,
     max_sub_accounts: 0,
     benefits: '',
+    icon: '',
+    color: '',
     description: '',
   }
 }
 
 const form = reactive<UserLevelRequest>(emptyForm())
+
+// 颜色输入框允许手打，手打出非法值时不静默丢弃：后端会归一为空（回落默认色阶），
+// 运营看到的是「我配了颜色但没生效」。这里提前提示，避免反复试。
+const colorInvalid = computed(() => {
+  const value = (form.color || '').trim()
+  if (!value) return false
+  return !/^#?[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(value)
+})
 
 const rules: Record<string, FormRule[]> = {
   name: [{ required: true, message: '请输入等级名称', type: 'error' }],
@@ -307,6 +357,8 @@ function openEdit(row: UserLevelInfo) {
     upgrade_threshold: row.upgrade_threshold || 0,
     max_sub_accounts: row.max_sub_accounts || 0,
     benefits: row.benefits || '',
+    icon: row.icon || '',
+    color: row.color || '',
     description: row.description || '',
   })
   benefitsText.value = parseBenefits(row.benefits).join('\n')
@@ -347,7 +399,7 @@ async function handleSubmit() {
 function handleDelete(row: UserLevelInfo) {
   const dialog = DialogPlugin.confirm({
     header: '删除等级',
-    body: `确认删除等级「${row.name}」？已属于该等级的用户不会被自动降级。`,
+    body: `确认删除等级「${row.name}」？该等级下若仍有用户，删除会被拒绝，请先把这些用户调整到其他等级。`,
     confirmBtn: { content: '确认删除', theme: 'danger' },
     cancelBtn: { content: '取消' },
     onConfirm: async () => {
@@ -471,6 +523,30 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 20px;
+}
+
+.color-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.color-field__hint {
+  font-size: 12px;
+  color: var(--td-warning-color, #e37318);
+}
+
+.preview-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.preview-row__hint {
+  font-size: 12px;
+  color: var(--color-muted-foreground, #888);
 }
 
 @media (max-width: 768px) {

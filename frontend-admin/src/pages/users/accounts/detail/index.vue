@@ -21,15 +21,13 @@
             <t-tag v-if="profile?.is_sub_account" theme="warning" variant="light" size="small" shape="round">
               子账号
             </t-tag>
-            <t-tag
+            <LevelBadge
               v-if="profile?.user_level_name"
-              theme="primary"
-              variant="light"
-              size="small"
-              shape="round"
-            >
-              {{ profile.user_level_name }}
-            </t-tag>
+              :name="profile.user_level_name"
+              :icon="profile.user_level_icon"
+              :color="profile.user_level_color"
+              :weight="profile.user_level_weight"
+            />
           </div>
           <p class="page-header__desc">
             用户 ID {{ userId || '—' }} · {{ profile?.email || '无邮箱' }} · {{ profile?.phone || '无手机号' }}
@@ -232,6 +230,7 @@ import {
 
 import { getUserDetailAggregate, updateUserStatus, type UserDetailSummary, type UserInfo, type UserRoleBrief } from '@/api/user'
 import { formatAmount, userStatusLabel, userStatusTheme } from '@/pages/users/constants'
+import LevelBadge from '@/components/level-badge/index.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useUserStore } from '@/store'
 

@@ -24,6 +24,8 @@ type UserRepository interface {
 	Create(ctx context.Context, user *model.User) error
 	// DefaultLevelID 起始等级（启用中权重最低的一级）；无可用等级时返回 0。
 	DefaultLevelID(ctx context.Context) (uint64, error)
+	// LevelOf 读取用户当前等级的展示信息（名称/图标/配色/门槛）；无等级返回 nil。
+	LevelOf(ctx context.Context, userID uint64) (*LevelBrief, error)
 	// DefaultUserRoleID 客户默认角色（roles.code='user'）ID；缺失返回 0。
 	DefaultUserRoleID(ctx context.Context) (uint64, error)
 	// BindRole 绑定客户角色关系（幂等）。
@@ -48,6 +50,21 @@ type UserRepository interface {
 	RevokeSession(ctx context.Context, sessionID, reason string) (bool, error)
 	// OpenSession 登录成功后开一条会话记录（doc104 F15）。
 	OpenSession(ctx context.Context, in SessionInput) error
+}
+
+// LevelBrief 用户当前等级的展示信息（用户端会员徽章用）。
+//
+// 用户端只需要「叫什么、什么图标、什么颜色」，不需要等级的运营配置细节
+// （门槛、权益、子账号上限另走 member 接口），因此单独一个精简结构。
+type LevelBrief struct {
+	ID     uint64 `json:"id"`
+	Name   string `json:"name"`
+	Code   string `json:"code"`
+	Icon   string `json:"icon"`
+	Color  string `json:"color"`
+	Weight int    `json:"weight"`
+	// UpgradeThreshold 该等级的消费门槛；用户端据此显示「再消费 X 元升级」。
+	UpgradeThreshold float64 `json:"upgrade_threshold"`
 }
 
 // SessionInput 开会话所需的字段（对应 user_sessions 的 NOT NULL 列）。
@@ -122,6 +139,28 @@ func (r *userRepository) DefaultLevelID(ctx context.Context) (uint64, error) {
 		Limit(1).
 		Scan(&id).Error
 	return id, err
+}
+
+// LevelOf 读取用户当前等级的展示信息（名称/图标/配色/门槛）。
+//
+// 无等级（user_level_id 为空，或指向已删除的行）返回 (nil, nil)：用户端据此
+// 不渲染徽章，而不是显示一个空白标签。等级行被删的兜底 JOIN 会落空，
+// 与「未设等级」同一条路径处理。
+func (r *userRepository) LevelOf(ctx context.Context, userID uint64) (*LevelBrief, error) {
+	var brief LevelBrief
+	err := r.db.WithContext(ctx).
+		Table("user_levels").
+		Select("user_levels.id, user_levels.name, user_levels.code, user_levels.icon, user_levels.color, user_levels.weight, user_levels.upgrade_threshold").
+		Joins("JOIN users ON users.user_level_id = user_levels.id").
+		Where("users.id = ?", userID).
+		Take(&brief).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &brief, nil
 }
 
 // DefaultUserRoleID 返回客户默认角色（roles.code='user'）的 ID；缺失返回 0。

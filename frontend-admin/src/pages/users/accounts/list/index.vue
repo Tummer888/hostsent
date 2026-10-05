@@ -301,10 +301,12 @@
           </template>
 
           <template #user_level_name="{ row }">
-            <t-tag v-if="row.user_level_name" theme="primary" variant="light-outline" size="small" shape="round">
-              {{ row.user_level_name }}
-            </t-tag>
-            <span v-else class="text-muted">未分级</span>
+            <LevelBadge
+              :name="row.user_level_name"
+              :icon="row.user_level_icon"
+              :color="row.user_level_color"
+              :weight="row.user_level_weight"
+            />
           </template>
 
           <template #last_login_ip="{ row }">
@@ -723,6 +725,7 @@ import {
 import { getProductList as getUcProductList } from '@/api/product'
 import { getSalesCandidates } from '@/api/sales'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
+import LevelBadge from '@/components/level-badge/index.vue'
 import { useUserStore } from '@/store'
 import type { SalesCandidateInfo } from '@/types/interface'
 import { USER_CONSOLE_URL } from '@/utils/config'

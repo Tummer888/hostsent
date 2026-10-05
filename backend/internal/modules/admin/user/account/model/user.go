@@ -83,6 +83,13 @@ type User struct {
 	// UserLevelName / UserLevelCode 列表查询联表带出，非持久化字段（同上，需只读权限）。
 	UserLevelName string `gorm:"->;-:migration"`
 	UserLevelCode string `gorm:"->;-:migration"`
+	// UserLevelIcon / UserLevelColor 等级的图标 key 与主题色，同样联表带出。
+	// 后台用户列表与详情按这两个值渲染等级徽章，与用户端共用一套配色。
+	UserLevelIcon  string `gorm:"->;-:migration"`
+	UserLevelColor string `gorm:"->;-:migration"`
+	// UserLevelWeight 等级权重，同样联表带出。等级未配颜色时前端靠它按档位推导兜底色，
+	// 不下发的话两端会各自按 0 推导，同一等级在管理端和用户端是两个颜色。
+	UserLevelWeight int `gorm:"->;-:migration"`
 	// TotalConsumeAmount 累计消费额（P3-01 起落列持久化，不再靠实时聚合子查询）。
 	TotalConsumeAmount float64 `gorm:"column:total_consume_amount;type:decimal(15,2);not null;default:0"`
 	// OwnerUserID 子账号归属的主账号 ID；主账号为 NULL（P4-01）。
