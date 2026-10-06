@@ -27,6 +27,7 @@ import (
 	cataloghandler "hostsent/backend/internal/modules/admin/product/catalog/handler"
 	categoryhandler "hostsent/backend/internal/modules/admin/product/category/handler"
 	discounthandler "hostsent/backend/internal/modules/admin/product/discount/handler"
+	flashdiscounthandler "hostsent/backend/internal/modules/admin/product/flashdiscount/handler"
 	pricinghandler "hostsent/backend/internal/modules/admin/product/pricing/handler"
 	promotionhandler "hostsent/backend/internal/modules/admin/product/promotion/handler"
 	spechandler "hostsent/backend/internal/modules/admin/product/spec/handler"
@@ -103,7 +104,9 @@ type App struct {
 	priceMatrixHandler    *pricinghandler.PriceMatrixHandler
 	discountPolicyHandler *discounthandler.PolicyHandler
 	promotionHandler      *promotionhandler.PromotionHandler
-	adminReferralHandler  *referralhandler.ReferralHandler
+	// flashDiscountHandler 限时活动折扣（doc108 §8J）：面向用户的营销折扣，真参与算价。
+	flashDiscountHandler *flashdiscounthandler.Handler
+	adminReferralHandler *referralhandler.ReferralHandler
 	// 销售体系（S4–S6，doc86）：客户归属 / 提成台账 / 提成提现 / 业绩排行。
 	salesCustomerHandler    *saleshandler.CustomerHandler
 	salesCommissionHandler  *saleshandler.CommissionHandler
@@ -192,6 +195,7 @@ func NewApp(
 	priceMatrixHandler *pricinghandler.PriceMatrixHandler,
 	discountPolicyHandler *discounthandler.PolicyHandler,
 	promotionHandler *promotionhandler.PromotionHandler,
+	flashDiscountHandler *flashdiscounthandler.Handler,
 	adminReferralHandler *referralhandler.ReferralHandler,
 	salesCustomerHandler *saleshandler.CustomerHandler,
 	salesCommissionHandler *saleshandler.CommissionHandler,
@@ -276,6 +280,7 @@ func NewApp(
 		priceMatrixHandler:      priceMatrixHandler,
 		discountPolicyHandler:   discountPolicyHandler,
 		promotionHandler:        promotionHandler,
+		flashDiscountHandler:    flashDiscountHandler,
 		adminReferralHandler:    adminReferralHandler,
 		salesCustomerHandler:    salesCustomerHandler,
 		salesCommissionHandler:  salesCommissionHandler,

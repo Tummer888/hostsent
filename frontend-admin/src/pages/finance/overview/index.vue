@@ -117,7 +117,7 @@ onMounted(load)
 @import '../shared.css';
 
 .finance-module .tx-in {
-  color: #2ba471;
+  color: var(--td-success-color-6, #2ba471);
   font-weight: 600;
 }
 .finance-module .tx-out {

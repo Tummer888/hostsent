@@ -11,40 +11,21 @@
         </div>
       </div>
       <div class="list-header__actions">
-        <!-- 四分区：客户分组 / 商品分组（分类+商品集合） / 代理分组（归属） / 折扣设置（折扣组×代理分组） -->
+        <!-- 四个分区按操作顺序排成一条线：①代理分组(管人) → ②商品分组(管商品) → ③折扣组(谁拿几折) → ④生效矩阵(实际生效) -->
         <t-radio-group v-model="activeTab" variant="default-filled" size="small" class="type-switch">
           <t-radio-button value="customer">客户分组（{{ customerTotal }}）</t-radio-button>
           <template v-if="canManageAgents">
-            <t-radio-button value="products">商品分组</t-radio-button>
-            <t-radio-button value="agent">代理分组</t-radio-button>
-            <t-radio-button value="discount">折扣设置</t-radio-button>
+            <t-radio-button value="agent">①代理分组</t-radio-button>
+            <t-radio-button value="products">②商品分组</t-radio-button>
+            <t-radio-button value="discount">③折扣组</t-radio-button>
+            <t-radio-button value="matrix">④生效矩阵</t-radio-button>
           </template>
         </t-radio-group>
-        <t-button
-          v-if="activeTab === 'customer'"
-          class="page-btn page-btn--ghost"
-          variant="outline"
-          @click="router.push('/users/accounts/list')"
-        >
-          查看用户列表
-        </t-button>
         <t-button v-if="activeTab === 'customer'" v-permission="'user:group:create'" class="page-btn" theme="primary" @click="openCreate">
           <template #icon>
             <AddIcon aria-hidden="true" />
           </template>
           新增用户组
-        </t-button>
-        <t-button
-          v-else-if="activeTab === 'products'"
-          v-permission="'agent_level:create'"
-          class="page-btn"
-          theme="primary"
-          @click="productGroupRef?.openCreate()"
-        >
-          <template #icon>
-            <AddIcon aria-hidden="true" />
-          </template>
-          新建商品分组
         </t-button>
         <t-button
           v-else-if="activeTab === 'agent'"
@@ -59,12 +40,31 @@
           新建代理分组
         </t-button>
         <t-button
-          v-else
-          class="page-btn page-btn--ghost"
-          variant="outline"
-          @click="goAgentTab"
+          v-else-if="activeTab === 'products'"
+          v-permission="'agent_level:create'"
+          class="page-btn"
+          theme="primary"
+          @click="productGroupRef?.openCreate()"
         >
-          去配置代理分组
+          <template #icon>
+            <AddIcon aria-hidden="true" />
+          </template>
+          新建商品分组
+        </t-button>
+        <t-button
+          v-else-if="activeTab === 'discount'"
+          v-permission="'agent_level:create'"
+          class="page-btn"
+          theme="primary"
+          @click="schemePanelRef?.openCreate()"
+        >
+          <template #icon>
+            <AddIcon aria-hidden="true" />
+          </template>
+          新建折扣组
+        </t-button>
+        <t-button v-else class="page-btn page-btn--ghost" variant="outline" @click="goDiscountTab">
+          去配置折扣组
         </t-button>
       </div>
     </header>
@@ -219,17 +219,17 @@
     </section>
     </template>
 
-    <!-- 商品分组：分类+商品的命名集合（doc108 §8I），折扣设置里的纵向一行 -->
-    <ProductGroupPanel v-else-if="activeTab === 'products'" ref="productGroupRef" @changed="onSchemeChanged" />
-
-    <!-- 代理分组：代理等级 + 归属管理（哪个代理属于哪个分组），折扣矩阵的列轴 -->
+    <!-- ① 代理分组：代理等级 + 归属管理（哪个代理属于哪个分组），折扣矩阵的列轴 -->
     <AgentGroupPanel v-else-if="activeTab === 'agent'" ref="agentGroupRef" @changed="onSchemeChanged" />
 
-    <!-- 折扣设置：折扣组（行）× 代理分组（列）二维表格 + 生效矩阵/阶梯填充/分组管理 -->
-    <div v-else class="discount-stack">
-      <SchemePanel ref="schemePanelRef" @changed="onSchemeChanged" />
-      <AgentLevelPanel ref="agentPanelRef" />
-    </div>
+    <!-- ② 商品分组：分类/单个商品的命名集合，折扣组的绑定对象 -->
+    <ProductGroupPanel v-else-if="activeTab === 'products'" ref="productGroupRef" @changed="onSchemeChanged" />
+
+    <!-- ③ 折扣组：一行一个组，绑定一个商品分组；列 = 代理分组，格 = 折扣率 -->
+    <SchemePanel v-else-if="activeTab === 'discount'" ref="schemePanelRef" @changed="onSchemeChanged" />
+
+    <!-- ④ 生效矩阵：此刻真实生效的折扣（③「应用」后的结果）+ 阶梯填充 + 单格微调 -->
+    <AgentLevelPanel v-else ref="agentPanelRef" />
 
     <t-dialog
       v-model:visible="dialogVisible"
@@ -311,18 +311,19 @@ const router = useRouter()
 const loading = ref(false)
 const { isMobile } = useIsMobile()
 
-// 分区：customer = 客户分组（分类统计），products = 商品分组，agent = 代理分组（归属），
-// discount = 折扣设置（折扣组 × 代理分组）。与路由 query.tab 双向同步，四个分区可分享 URL。
-const activeTab = ref<'customer' | 'products' | 'agent' | 'discount'>('customer')
+// 分区：customer = 客户分组（分类统计）；其余四个是代理折扣的配置链路，按操作顺序排列 ——
+// agent(①管人) → products(②管商品) → discount(③谁拿几折) → matrix(④实际生效)。
+const activeTab = ref<'customer' | 'products' | 'agent' | 'discount' | 'matrix'>('customer')
 const agentPanelRef = ref<InstanceType<typeof AgentLevelPanel> | null>(null)
 const agentGroupRef = ref<InstanceType<typeof AgentGroupPanel> | null>(null)
 const productGroupRef = ref<InstanceType<typeof ProductGroupPanel> | null>(null)
 const schemePanelRef = ref<InstanceType<typeof SchemePanel> | null>(null)
 
 const headerHint = computed(() => {
-  if (activeTab.value === 'products') return '商品分组：把分类/单个商品划成命名集合，供折扣组绑定'
-  if (activeTab.value === 'agent') return '代理分组：定义代理归属（哪个代理属于哪个分组），折扣矩阵的列轴'
-  if (activeTab.value === 'discount') return '折扣设置：折扣组（行）× 代理分组（列），绑定商品分组后一键应用'
+  if (activeTab.value === 'agent') return '① 代理分组：谁属于哪个分组（权重越大折扣越优），折扣矩阵的列轴'
+  if (activeTab.value === 'products') return '② 商品分组：哪些分类/单个商品算一组，折扣组的绑定对象'
+  if (activeTab.value === 'discount') return '③ 折扣组：一行一个组，绑定一个商品分组；列是代理分组，格填折扣率'
+  if (activeTab.value === 'matrix') return '④ 生效矩阵：此刻真实生效的折扣（③「应用」后的结果），可单格微调'
   return '客户分组：仅用于用户分类与统计，不影响价格'
 })
 
@@ -331,9 +332,9 @@ function onSchemeChanged() {
   void agentPanelRef.value?.reload?.()
 }
 
-// 「折扣设置」分区只做折扣，代理分组的增删改在「代理分组」分区：这里是页头直达的入口。
-function goAgentTab() {
-  activeTab.value = 'agent'
+// 「生效矩阵」是只读总览，改折扣要去「折扣组」分区：这里是页头直达的入口。
+function goDiscountTab() {
+  activeTab.value = 'discount'
   void replaceRouteQuery()
 }
 
@@ -341,20 +342,35 @@ function goAgentTab() {
 const canManageAgents = usePermission().has('agent_level:list')
 const customerTotal = computed(() => pagination.total)
 
+// 分区与 URL 的对应。矩阵分区写 tab=matrix；tab=agent 是历史链接（曾指折扣设置），
+// 保留映到 discount，存量书签不会打开错误的分区。
+const TAB_QUERY: Record<string, string> = {
+  customer: '',
+  agent: 'agent',
+  products: 'products',
+  discount: 'discount',
+  matrix: 'matrix',
+}
+const QUERY_TAB: Record<string, 'customer' | 'products' | 'agent' | 'discount' | 'matrix'> = {
+  agent: 'agent',
+  products: 'products',
+  discount: 'discount',
+  matrix: 'matrix',
+}
+
 function syncTabFromRoute() {
   const query = route.query as Record<string, string | undefined>
-  const wanted = query.tab
-  // 新分区「代理分组」用 tab=agent-group；tab=agent 是历史链接（当时指向折扣设置），
-  // 保留映到 discount，两个值不混用，存量书签也不会打开错误的分区。
-  if (canManageAgents && wanted === 'agent-group') {
-    activeTab.value = 'agent'
+  const wanted = query.tab || ''
+  if (canManageAgents && QUERY_TAB[wanted]) {
+    activeTab.value = QUERY_TAB[wanted]
     return
   }
-  if (canManageAgents && (wanted === 'products' || wanted === 'discount' || wanted === 'agent')) {
-    activeTab.value = wanted === 'agent' ? 'discount' : wanted
-  } else {
-    activeTab.value = 'customer'
+  // 历史链接兼容：?tab=agent-group（上一轮代理分组用过的值）与 ?tab=agent（更早指向折扣设置）。
+  if (canManageAgents && (wanted === 'agent-group' || wanted === 'agent')) {
+    activeTab.value = wanted === 'agent-group' ? 'agent' : 'discount'
+    return
   }
+  activeTab.value = 'customer'
 }
 
 function goMembers(row: UserGroupInfo) {
@@ -461,8 +477,8 @@ function syncFiltersFromRoute() {
 function buildQuery() {
   const query: Record<string, string> = {}
   if (activeTab.value !== 'customer') {
-    // 代理分组分区写 agent-group：tab=agent 是历史链接（曾指折扣设置），不重用该值。
-    query.tab = activeTab.value === 'agent' ? 'agent-group' : activeTab.value
+    const tab = TAB_QUERY[activeTab.value]
+    if (tab) query.tab = tab
   }
   if (filters.page && filters.page !== 1) query.page = String(filters.page)
   if (filters.page_size && filters.page_size !== 10) query.page_size = String(filters.page_size)
@@ -698,7 +714,7 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
   justify-content: space-between;
   gap: 20px;
   padding: 20px 24px;
-  border-color: #d1fae5;
+  border-color: var(--td-brand-color-2);
 }
 
 .list-header__main {
@@ -720,12 +736,6 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
   font-size: 22px;
   font-weight: 700;
   color: var(--color-foreground);
-}
-
-.discount-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
 }
 
 .list-header__actions .type-switch {
@@ -783,7 +793,9 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
 }
 
 .toolbar__grid--groups {
-  grid-template-columns: minmax(260px, 2fr) minmax(180px, 1fr);
+  /* 只有 2 个字段，fr 弹性列会把输入框摊满整卡（宽屏 900px+）；
+     列宽封顶到与用户列表页同视觉尺度，多余空间留白。 */
+  grid-template-columns: minmax(260px, 380px) minmax(180px, 260px);
 }
 
 .toolbar-field {
@@ -864,7 +876,7 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
   padding: 0 10px;
   border: 1px solid var(--td-brand-color-3);
   border-radius: 999px;
-  background: #ecfdf5;
+  background: var(--td-brand-color-1);
   color: var(--td-brand-color-8);
   font-size: 12px;
   font-weight: 600;
@@ -915,7 +927,7 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
 :deep(.page-btn--ghost) {
   color: var(--color-primary);
   border-color: var(--td-brand-color-3);
-  background: #ecfdf5;
+  background: var(--td-brand-color-1);
 }
 
 :deep(.page-btn--ghost:hover),
@@ -927,7 +939,7 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
 
 :deep(.page-chip.t-tag--primary.t-tag--variant-light) {
   color: var(--td-brand-color-8);
-  background: #ecfdf5;
+  background: var(--td-brand-color-1);
   border-color: var(--td-brand-color-3);
 }
 
@@ -960,7 +972,7 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
 :deep(.unified-control .t-input:focus-within),
 :deep(.unified-control .t-select__wrap:focus-within) {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.10);
+  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.10);
 }
 
 :deep(.group-table .t-table) {
@@ -969,7 +981,9 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
 
 :deep(.group-table .t-table__header th) {
   color: var(--color-muted-foreground);
-  background: #f8fffb;
+  /* 同用户列表：表头需不透明，避免固定列在横向滚动时透视其它列标题 */
+  background-color: var(--hs-surface-1);
+  background-image: linear-gradient(rgba(var(--color-primary-rgb), 0.03), rgba(var(--color-primary-rgb), 0.03));
   font-weight: 600;
   border-bottom-color: var(--td-brand-color-2);
 }
@@ -981,35 +995,7 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
 }
 
 :deep(.group-table .t-table__row--hover td) {
-  background: rgba(22, 163, 74, 0.03);
-}
-
-:deep(.group-table .t-table__pagination) {
-  padding-top: 16px;
-}
-
-:deep(.group-table .t-pagination__number),
-:deep(.group-table .t-pagination__btn) {
-  min-width: 32px;
-  height: 32px;
-  border-radius: var(--hs-radius-md);
-  border-color: var(--td-brand-color-2);
-  background: #ffffff;
-}
-
-:deep(.group-table .t-pagination__number.t-is-current) {
-  color: var(--td-brand-color-8);
-  border-color: var(--td-brand-color-3);
-  background: #ecfdf5;
-  font-weight: 700;
-}
-
-:deep(.group-table .t-pagination__select-input .t-input),
-:deep(.group-table .t-pagination__size .t-select__wrap),
-:deep(.group-table .t-pagination .t-input) {
-  border-radius: var(--hs-radius-md);
-  border-color: var(--td-brand-color-2);
-  background: #ffffff;
+  background: rgba(var(--color-primary-rgb), 0.03);
 }
 
 :deep(.status-tag) {
@@ -1020,7 +1006,7 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
 
 :deep(.status-tag--active) {
   color: var(--td-brand-color-8);
-  background: #ecfdf5;
+  background: var(--td-brand-color-1);
   border-color: var(--td-brand-color-3);
 }
 
@@ -1038,7 +1024,7 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
 
 :deep(.status-switch .t-radio-button.t-is-checked) {
   color: var(--td-brand-color-8);
-  background: #ecfdf5;
+  background: var(--td-brand-color-1);
   border-color: var(--td-brand-color-3);
 }
 

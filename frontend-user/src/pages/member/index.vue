@@ -1166,9 +1166,9 @@ onMounted(() => {
 
 .password-box {
   padding: 12px 14px;
-  border: 1px dashed #86efac;
+  border: 1px dashed var(--td-brand-color-3);
   border-radius: 8px;
-  background: #f0fdf4;
+  background: var(--td-brand-color-1);
   font-family: ui-monospace, Menlo, Consolas, monospace;
   font-size: 16px;
   letter-spacing: 1px;

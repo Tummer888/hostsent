@@ -536,6 +536,16 @@ func newRouter(app *App) *gin.Engine {
 					promotions.PUT("/:id", app.perm("promotion:activity:update"), app.promotionHandler.UpdatePromotion)
 					promotions.DELETE("/:id", app.perm("promotion:activity:update"), app.promotionHandler.DeletePromotion)
 				}
+				// 限时活动折扣（doc108 §8J）：面向**普通用户**的营销折扣，真实参与算价。
+				// 与代理拿货折扣（agent-levels）是两条互不叠加的线：代理用户不参与活动折扣。
+				flashDiscounts := promoGroup.Group("/flash-discounts")
+				{
+					flashDiscounts.GET("", app.perm("promotion:activity:list"), app.flashDiscountHandler.List)
+					flashDiscounts.POST("", app.perm("promotion:activity:update"), app.flashDiscountHandler.Create)
+					flashDiscounts.GET("/:id", app.perm("promotion:activity:list"), app.flashDiscountHandler.Get)
+					flashDiscounts.PUT("/:id", app.perm("promotion:activity:update"), app.flashDiscountHandler.Update)
+					flashDiscounts.DELETE("/:id", app.perm("promotion:activity:update"), app.flashDiscountHandler.Delete)
+				}
 			}
 		}
 

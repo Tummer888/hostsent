@@ -1565,7 +1565,7 @@ onMounted(() => {
 .navbar-search__input:focus {
   border-color: var(--color-primary);
   background: #ffffff;
-  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.12);
+  box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.12);
 }
 
 .navbar-search__dropdown {

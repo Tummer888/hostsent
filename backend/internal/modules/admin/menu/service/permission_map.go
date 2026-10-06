@@ -28,10 +28,8 @@ var menuPermissionMap = map[string]string{
 	"/users/levels": "level:list",
 	// 代理等级（doc108）：折扣的唯一来源，与用户等级是两套阶梯。
 
-	"/users/verification/pending":  "verification:list",
-	"/users/verification/approved": "verification:list",
-	"/users/verification/rejected": "verification:list",
-	"/users/verification/config":   "verification:list",
+	"/users/verification/list":   "verification:list",
+	"/users/verification/config": "verification:list",
 
 	"/referral/cashbacks":   "referral:cashback:list",
 	"/referral/invitees":    "referral:cashback:list",

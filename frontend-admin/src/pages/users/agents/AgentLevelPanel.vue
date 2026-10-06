@@ -3,8 +3,9 @@
     <!-- 折扣矩阵：行 = 目标（全站/分类/商品例外），列 = 代理分组 -->
     <section class="matrix-card surface-card">
       <p class="panel-desc">
-        代理拿货折扣的唯一来源：行是折扣目标（全站兜底 / 商品分类 / 单个商品），列是<strong>代理分组</strong>（按权重降序，最左最优先）。
-        <strong>点击任意单元格</strong>即可设置该分组在该目标上的折扣率。
+        <strong>④ 生效矩阵</strong>：代理拿货折扣此刻<strong>真实生效</strong>的值。行是折扣目标（全站兜底 / 商品分类 / 单个商品），
+        列是代理分组（按权重降序，最左最优先）。<strong>点击任意单元格</strong>可直接微调该格。
+        这里显示的是③折扣组「应用」后的结果，不是配置草稿。
       </p>
 
       <div class="card-head">

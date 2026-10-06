@@ -124,7 +124,7 @@ onMounted(() => {
   font-weight: 700;
   color: #ffffff;
   background: linear-gradient(135deg, var(--color-primary) 0%, var(--td-brand-color-6) 100%);
-  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.28);
+  box-shadow: 0 4px 12px rgba(var(--color-primary-rgb), 0.28);
 }
 
 .brand-logo__text {
@@ -191,13 +191,13 @@ onMounted(() => {
   background: var(--color-primary);
   border: 0;
   color: #ffffff;
-  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.22);
+  box-shadow: 0 4px 12px rgba(var(--color-primary-rgb), 0.22);
 }
 
 :deep(.submit-btn:hover) {
   background: var(--td-brand-color-8);
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(22, 163, 74, 0.3);
+  box-shadow: 0 6px 16px rgba(var(--color-primary-rgb), 0.3);
 }
 
 :deep(.submit-btn:active) {

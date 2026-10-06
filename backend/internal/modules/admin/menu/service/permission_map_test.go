@@ -28,7 +28,9 @@ func buildTestTree() []dto.MenuNode {
 				}},
 				{Name: "用户等级", Path: "/users/levels", Type: "menu"},
 				{Name: "实名认证", Path: "/users/verification", Type: "directory", Children: []dto.MenuNode{
-					{Name: "待审核", Path: "/users/verification/pending", Type: "menu"},
+					// 路径与真实菜单表一致（/users/verification/list）；旧的 pending/approved/rejected
+					// 三个路径已不存在，permission_map 同步收敛到 list 后这里也要跟上。
+					{Name: "审核列表", Path: "/users/verification/list", Type: "menu"},
 				}},
 			},
 		},
@@ -84,7 +86,7 @@ func TestFilterByPermissions_NarrowUserPerms(t *testing.T) {
 	}
 	for _, unexpected := range []string{
 		"/users/security/login-logs", "/users/security/sessions",
-		"/users/levels", "/users/verification/pending", "/referral/cashbacks",
+		"/users/levels", "/users/verification/list", "/referral/cashbacks",
 	} {
 		if hasPath(got, unexpected) {
 			t.Errorf("无权限却保留了 %s", unexpected)

@@ -624,7 +624,60 @@ onMounted(() => {
 
 .page-header,
 .main-card {
-  padding: 18px 20px;
+  padding: var(--space-lg) var(--space-xl);
+}
+
+/* 页头与用户模块基准保持一致（同 users/shared.css / SecurityListPage）：
+   主题色渐变底 + 白色图标，标题 22px/700 前景色，描述 13px 弱化色。
+   容器必须是 flex（space-between 把右侧按钮推到行尾），否则标题/描述/按钮
+   会堆叠在一起显得拥挤。 */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  flex-wrap: wrap;
+}
+
+.page-header__main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.page-header__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.page-header__chip {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--hs-radius-xl);
+  background: linear-gradient(135deg, var(--td-brand-color-6), var(--color-primary));
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.page-header__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--color-foreground);
+}
+
+.page-header__desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-muted-foreground);
 }
 
 .tab-body {

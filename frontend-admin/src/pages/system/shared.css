@@ -116,7 +116,7 @@
 .system-page .t-input-number.t-is-focused,
 .system-page .t-select-input.t-is-focused {
   border-color: var(--system-green) !important;
-  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.1) !important;
+  box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.1) !important;
 }
 
 .system-page .t-table {
@@ -136,7 +136,7 @@
 
 .system-page .t-table__tr--hover > .t-table__td,
 .system-page .t-table__row--hover > .t-table__td {
-  background: rgba(22, 163, 74, 0.035) !important;
+  background: rgba(var(--color-primary-rgb), 0.035) !important;
 }
 
 .system-page .t-table__pagination {

@@ -312,7 +312,7 @@
 .finance-module .t-input-number.t-is-focused,
 .finance-module .t-select-input.t-is-focused {
   border-color: var(--finance-green) !important;
-  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.1) !important;
+  box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.1) !important;
 }
 
 .finance-module .t-table {

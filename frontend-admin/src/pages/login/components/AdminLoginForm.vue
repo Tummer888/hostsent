@@ -566,7 +566,7 @@ onMounted(async () => {
 }
 
 :deep(.t-input--focused) {
-  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.16);
+  box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.16);
 }
 
 .captcha-row {
@@ -611,13 +611,13 @@ onMounted(async () => {
   color: #ffffff;
   border-radius: var(--hs-radius-md);
   transition: background-color var(--hs-duration-fast), transform var(--hs-duration-fast), box-shadow var(--hs-duration-fast);
-  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.22);
+  box-shadow: 0 4px 12px rgba(var(--color-primary-rgb), 0.22);
 }
 
 .submit-btn:hover {
   background: var(--td-brand-color-8);
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(22, 163, 74, 0.32);
+  box-shadow: 0 6px 16px rgba(var(--color-primary-rgb), 0.32);
 }
 
 .submit-btn:active {

@@ -1,6 +1,7 @@
 <template>
   <div class="security-page">
-    <header class="security-page__header surface-card">
+    <!-- noHeader：多列表合并进同一页时由外层渲染统一页头（实名认证审核三合一，doc 无编号，用户反馈） -->
+    <header v-if="!noHeader" class="security-page__header surface-card">
       <div class="security-page__heading">
         <span v-if="!$slots['header-leading']" class="security-page__chip">
           <component :is="icon ?? AppIcon" size="22" aria-hidden="true" />
@@ -90,6 +91,8 @@ defineProps<{
   pagination: PaginationProps
   /** 页头标题前的图标（不传则用通用图标） */
   icon?: Component
+  /** 不渲染本组件的页头卡（外层已有统一页头时使用） */
+  noHeader?: boolean
 }>()
 
 defineEmits<{
@@ -114,6 +117,8 @@ const { isMobile } = useIsMobile()
 .security-page__table {
   padding: 18px 20px;
   border-radius: var(--hs-radius-lg);
+  background: var(--hs-surface-1);
+  border-color: var(--td-brand-color-2);
   box-shadow: none;
 }
 
@@ -172,6 +177,29 @@ const { isMobile } = useIsMobile()
   min-width: 0;
 }
 
+/* 筛选控件与用户列表页（unified-control）同款：浅灰控件底、统一描边与品牌色聚焦环。
+   放在外壳组件里一次覆盖四个安全页与三个实名认证列表页（t-select / 日期区间
+   内部都是 .t-input，无需各页再加类名）。 */
+.security-page__toolbar :deep(.t-input),
+.security-page__toolbar :deep(.t-input__wrap),
+.security-page__toolbar :deep(.t-input-adornment),
+.security-page__toolbar :deep(.t-input__suffix),
+.security-page__toolbar :deep(.t-select__wrap) {
+  background: var(--hs-surface-2);
+}
+
+.security-page__toolbar :deep(.t-input),
+.security-page__toolbar :deep(.t-select__wrap) {
+  border-color: var(--color-border);
+  border-radius: var(--hs-radius-md);
+}
+
+.security-page__toolbar :deep(.t-input:focus-within),
+.security-page__toolbar :deep(.t-select__wrap:focus-within) {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.1);
+}
+
 .security-page__toolbar :deep(.filter-grid .field__label) {
   font-size: 12px;
   font-weight: 600;
@@ -187,8 +215,10 @@ const { isMobile } = useIsMobile()
 }
 
 .security-page :deep(.t-table__th) {
-  background: rgba(0, 168, 112, 0.07);
-  color: #176b50;
+  /* 表头需不透明：固定列是 sticky 单元格，半透明底会在横向滚动时透视其它列标题 */
+  background-color: var(--hs-surface-1);
+  background-image: linear-gradient(rgba(var(--color-primary-rgb), 0.07), rgba(var(--color-primary-rgb), 0.07));
+  color: var(--td-brand-color-8);
   font-weight: 600;
 }
 

@@ -16,11 +16,23 @@
       <div class="toolbar__grid">
         <div class="toolbar-field">
           <span class="toolbar-field__label">关键词</span>
-          <t-input v-model="filters.keyword" clearable placeholder="搜索等级名称 / 编码" @enter="handleSearch" />
+          <t-input
+            v-model="filters.keyword"
+            class="unified-control"
+            clearable
+            placeholder="搜索等级名称 / 编码"
+            @enter="handleSearch"
+          />
         </div>
         <div class="toolbar-field">
           <span class="toolbar-field__label">状态</span>
-          <t-select v-model="filters.status" clearable placeholder="全部状态" :options="statusOptions" />
+          <t-select
+            v-model="filters.status"
+            class="unified-control"
+            clearable
+            placeholder="全部状态"
+            :options="statusOptions"
+          />
         </div>
       </div>
       <div class="toolbar__actions">
@@ -502,6 +514,62 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--td-brand-color-1);
+}
+
+/* 筛选卡对齐用户列表页（accounts/list）：白底卡片 + 关键词占宽列的栅格，
+   输入框不再按块级铺满整卡。 */
+.toolbar {
+  background: var(--hs-surface-1);
+}
+
+.toolbar__grid {
+  display: grid;
+  /* 只有 2 个字段，不能用 fr 弹性列摊满整卡（宽屏下输入框会被拉到 900px+）；
+     列宽封顶到与用户列表页同视觉尺度，多余空间留白。 */
+  grid-template-columns: minmax(260px, 380px) minmax(180px, 260px);
+  gap: 14px;
+}
+
+.toolbar-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.toolbar-field__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+}
+
+@media (max-width: 768px) {
+  .toolbar__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 筛选控件与用户列表页同款（unified-control）：浅灰控件底 + 品牌色聚焦环。 */
+:deep(.unified-control .t-input),
+:deep(.unified-control .t-input__wrap),
+:deep(.unified-control .t-input-adornment),
+:deep(.unified-control .t-input__suffix),
+:deep(.unified-control .t-select__wrap) {
+  background: var(--hs-surface-2);
+}
+
+:deep(.unified-control .t-input),
+:deep(.unified-control .t-select__wrap) {
+  border-color: var(--color-border);
+  border-radius: var(--hs-radius-md);
+}
+
+:deep(.unified-control.t-is-focused .t-input),
+:deep(.unified-control.t-is-focused .t-select__wrap),
+:deep(.unified-control .t-input:focus-within),
+:deep(.unified-control .t-select__wrap:focus-within) {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.1);
 }
 
 .page-title {

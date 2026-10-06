@@ -381,7 +381,7 @@ onMounted(() => {
   gap: 6px;
   padding: 3px 10px;
   border-radius: var(--hs-radius-xl);
-  background: #ecfdf5;
+  background: var(--td-brand-color-1);
   border: 1px solid var(--td-brand-color-3);
   margin-bottom: 10px;
 }
@@ -391,13 +391,13 @@ onMounted(() => {
   height: 6px;
   border-radius: 50%;
   background: var(--color-primary);
-  box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.5);
+  box-shadow: 0 0 0 0 rgba(var(--color-primary-rgb), 0.5);
   animation: statusPulse 2.4s ease-in-out infinite;
 }
 
 @keyframes statusPulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.5); }
-  70% { box-shadow: 0 0 0 6px rgba(22, 163, 74, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--color-primary-rgb), 0.5); }
+  70% { box-shadow: 0 0 0 6px rgba(var(--color-primary-rgb), 0); }
 }
 
 .hero-label {
@@ -446,7 +446,7 @@ onMounted(() => {
   background: var(--color-primary);
   border: 0;
   color: #ffffff;
-  box-shadow: 0 3px 10px rgba(22, 163, 74, 0.22);
+  box-shadow: 0 3px 10px rgba(var(--color-primary-rgb), 0.22);
   transition:
     background-color var(--hs-duration-fast),
     transform var(--hs-duration-fast),
@@ -456,7 +456,7 @@ onMounted(() => {
 .hero-btn--primary:hover {
   background: var(--td-brand-color-8);
   transform: translateY(-1px);
-  box-shadow: 0 5px 14px rgba(22, 163, 74, 0.3);
+  box-shadow: 0 5px 14px rgba(var(--color-primary-rgb), 0.3);
 }
 
 .hero-btn--outline {

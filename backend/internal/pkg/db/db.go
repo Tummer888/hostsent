@@ -27,6 +27,7 @@ import (
 	catalogmodel "hostsent/backend/internal/modules/admin/product/catalog/model"
 	categorymodel "hostsent/backend/internal/modules/admin/product/category/model"
 	discountmodel "hostsent/backend/internal/modules/admin/product/discount/model"
+	flashdiscountmodel "hostsent/backend/internal/modules/admin/product/flashdiscount/model"
 	pricingmodel "hostsent/backend/internal/modules/admin/product/pricing/model"
 	promotionmodel "hostsent/backend/internal/modules/admin/product/promotion/model"
 	specmodel "hostsent/backend/internal/modules/admin/product/spec/model"
@@ -163,6 +164,10 @@ func AutoMigrate(db *gorm.DB) error {
 		&promotionmodel.Coupon{},
 		&promotionmodel.CouponGrant{},
 		&promotionmodel.Promotion{},
+		// 限时活动折扣（doc108 §8J）：面向**普通用户**的营销折扣，按生效窗口实时命中；
+		// 与面向代理的拿货折扣（agent_levels/agent_level_discounts）是两条互不叠加的线。
+		&flashdiscountmodel.FlashDiscount{},
+		&flashdiscountmodel.FlashDiscountItem{},
 		// 订单管理
 		&ordermodel.Order{},
 		&ordermodel.OrderItem{},
@@ -1574,10 +1579,9 @@ var seedMenuDefaults = []SeedMenu{
 	{ParentKey: "admin:/users/security", Platform: menumodel.PlatformAdmin, Name: "黑名单管理", Type: menumodel.TypeMenu, Path: "/users/security/blacklist", Component: "users/security/blacklist/index", Icon: "stop", SortOrder: 3, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/users/security", Platform: menumodel.PlatformAdmin, Name: "会话管理", Type: menumodel.TypeMenu, Path: "/users/security/sessions", Component: "users/security/sessions/index", Icon: "refresh", SortOrder: 4, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "实名认证", Type: menumodel.TypeDirectory, Path: "/users/verification", Icon: "verify", SortOrder: 5, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "待审核列表", Type: menumodel.TypeMenu, Path: "/users/verification/pending", Component: "users/verification/pending/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "审核通过列表", Type: menumodel.TypeMenu, Path: "/users/verification/approved", Component: "users/verification/approved/index", Icon: "check-circle", SortOrder: 2, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "审核拒绝列表", Type: menumodel.TypeMenu, Path: "/users/verification/rejected", Component: "users/verification/rejected/index", Icon: "error-circle", SortOrder: 3, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "认证配置", Type: menumodel.TypeMenu, Path: "/users/verification/config", Component: "users/verification/config/index", Icon: "setting", SortOrder: 4, Status: menumodel.StatusActive},
+	// 待审核/审核通过/审核拒绝三个列表已合并为一页页签切换（用户反馈），旧路径 router redirect。
+	{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "审核列表", Type: menumodel.TypeMenu, Path: "/users/verification/list", Component: "users/verification/list/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/users/verification", Platform: menumodel.PlatformAdmin, Name: "认证配置", Type: menumodel.TypeMenu, Path: "/users/verification/config", Component: "users/verification/config/index", Icon: "setting", SortOrder: 2, Status: menumodel.StatusActive},
 	{Platform: menumodel.PlatformAdmin, Name: "资源管理", Type: menumodel.TypeDirectory, Path: "/resource", Icon: "resource", SortOrder: 3, Status: menumodel.StatusActive},
 	// 渠道与平台（doc16 §9.2）：上游转售渠道（kind=upstream）与自营平台对接（kind=compute）；
 	// 连接测试内联到列表行内「测试连接」，不再单独成页。
@@ -1621,7 +1625,10 @@ var seedMenuDefaults = []SeedMenu{
 	{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "商品调价", Type: menumodel.TypeMenu, Path: "/product/pricing", Component: "product/pricing/index", Icon: "money", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "价格计算器", Type: menumodel.TypeMenu, Path: "/product/pricing/calculator", Component: "product/pricing/calculator/index", Icon: "chart-bar", SortOrder: 2, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "价格历史", Type: menumodel.TypeMenu, Path: "/product/pricing/history", Component: "product/pricing/history/index", Icon: "history", SortOrder: 3, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "折扣策略", Type: menumodel.TypeMenu, Path: "/product/pricing/policies", Component: "product/pricing/policies/index", Icon: "discount", SortOrder: 4, Status: menumodel.StatusActive},
+	// 「折扣策略」(/product/pricing/policies) 已随 doc108 §8J 下线：
+	// 它对应的 price_policies 自迁移 059 起就不再参与算价，页面上却写着
+	// 「上线折扣请用折扣策略」，把运营往一个不生效的地方带。
+	// 面向用户的限时折扣见「促销管理 → 折扣活动」，面向代理的拿货价见「用户组管理」。
 	{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "周期价格", Type: menumodel.TypeMenu, Path: "/product/pricing/matrix", Component: "product/pricing/matrix/index", Icon: "calendar", SortOrder: 5, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "促销管理", Type: menumodel.TypeDirectory, Path: "/product/promotion", Icon: "tag", SortOrder: 6, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/product/promotion", Platform: menumodel.PlatformAdmin, Name: "优惠券管理", Type: menumodel.TypeMenu, Path: "/product/promotion/coupons", Component: "product/promotion/coupons/index", Icon: "ticket", SortOrder: 1, Status: menumodel.StatusActive},

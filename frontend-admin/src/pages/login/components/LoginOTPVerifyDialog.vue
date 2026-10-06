@@ -263,9 +263,9 @@ watch(
 }
 
 .otp-cell:focus {
-  border-color: #16a34a;
+  border-color: var(--td-brand-color);
   background: #fff;
-  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.16);
+  box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.16);
 }
 
 .otp-cell:disabled {
@@ -286,7 +286,7 @@ watch(
   border: 0;
   padding: 0;
   font-size: 12px;
-  color: #16a34a;
+  color: var(--td-brand-color);
   cursor: pointer;
 }
 

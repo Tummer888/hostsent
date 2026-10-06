@@ -77,6 +77,9 @@ export function applyThemeColor(hexInput: string) {
   setVar('--color-primary', hex)
   setVar('--color-accent', hex)
   setVar('--color-ring', hex)
+  // RGB 三元组：CSS 里用 rgba(var(--color-primary-rgb), α) 派生半透明品牌色
+  // （表头底色、行悬停、聚焦光圈），切主题时随之联动。
+  setVar('--color-primary-rgb', `${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)}`)
   scale.forEach((c, idx) => setVar(`--td-brand-color-${idx + 1}`, c))
   setVar('--td-brand-color', hex)
   setVar('--td-brand-color-hover', scale[7])

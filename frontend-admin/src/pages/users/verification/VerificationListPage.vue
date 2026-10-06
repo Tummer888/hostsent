@@ -2,6 +2,7 @@
   <SecurityListPage
     :title="title"
     :icon="icon"
+    :no-header="noHeader"
     :table-title="tableTitle"
     :total="pagination.total"
     :data="tableData"
@@ -228,6 +229,7 @@ const props = defineProps<{
   emptyText: string
   fetcher: (params: VerificationListQuery) => Promise<{ items: VerificationInfo[]; meta: { total: number } }>
   icon?: Component
+  noHeader?: boolean
 }>()
 
 defineOptions({ name: 'VerificationListPage' })

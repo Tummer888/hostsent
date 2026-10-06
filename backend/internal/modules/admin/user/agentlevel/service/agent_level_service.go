@@ -55,6 +55,11 @@ type AgentLevelService interface {
 
 	// RuleForUser 解析用户的代理折扣规则，供算价管线 AgentRule 使用（P5-03）。
 	RuleForUser(ctx context.Context, userID, productID, categoryID uint64) (*pricing.Rule, error)
+	// IsAgent 该用户是否代理（agent_level_id 非空即代理，不看等级是否停用）。
+	//
+	// 与 RuleForUser 的区别是「身份」与「价格」：活动折扣要判断的是「这用户算不算代理」
+	// —— 等级停用的代理仍然是代理（只是暂时没有折扣），不该因为等级停用就被活动折扣收编。
+	IsAgent(ctx context.Context, userID uint64) (bool, error)
 	// CheckAssignable 校验代理等级存在且启用（给用户分配前的先验）。
 	CheckAssignable(ctx context.Context, levelID uint64) error
 
@@ -600,6 +605,19 @@ func (s *agentLevelService) RuleForUser(ctx context.Context, userID, productID, 
 		Type:   pricing.TypeRate,
 		Value:  normalized,
 	}, nil
+}
+
+// IsAgent 该用户是否代理。判据就是 users.agent_level_id 非空 ——
+// 等级即使被停用，这仍是一个「登记在册的代理」，活动折扣不该把他当成普通用户。
+func (s *agentLevelService) IsAgent(ctx context.Context, userID uint64) (bool, error) {
+	if userID == 0 {
+		return false, nil
+	}
+	levelID, err := s.repo.LevelIDOfUser(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	return levelID > 0, nil
 }
 
 // CheckAssignable 校验代理等级存在且启用（给用户分配代理身份前的先验）。

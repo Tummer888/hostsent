@@ -18,6 +18,9 @@
   --color-destructive: #EF4444;
   --color-on-destructive: #FFFFFF;
   --color-ring: #16A34A;
+  /* 主色的 RGB 三元组：供 rgba(var(--color-primary-rgb), α) 写法派生任意透明度的品牌色
+     （表头底色、行悬停、聚焦光圈等）。主题切换时由 utils/theme.ts 以同名变量覆盖。 */
+  --color-primary-rgb: 22, 163, 74;
 
   /* TDesign 品牌色阶默认值（绿色；主题设置运行时以同名变量内联覆盖） */
   --td-brand-color-1: #f0fdf4;

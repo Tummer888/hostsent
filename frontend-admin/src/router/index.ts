@@ -96,22 +96,27 @@ const routes: Array<RouteRecordRaw> = [
         meta: { title: '用户等级管理', role: 'admin', permission: 'level:list' },
       },
       {
+        // 待审核 / 审核通过 / 审核拒绝三个列表合并为一页页签切换（用户反馈），
+        // 旧路径 redirect 到对应页签，书签不失效。
+        path: 'verification/list',
+        name: 'UserVerificationList',
+        component: () => import('@/pages/users/verification/list/index.vue'),
+        meta: { title: '实名认证审核', role: 'admin', permission: 'verification:list' },
+      },
+      {
         path: 'verification/pending',
-        name: 'UserVerificationPending',
-        component: () => import('@/pages/users/verification/pending/index.vue'),
-        meta: { title: '实名认证待审核', role: 'admin', permission: 'verification:list' },
+        redirect: '/users/verification/list?tab=pending',
+        meta: { title: '实名认证待审核', role: 'admin' },
       },
       {
         path: 'verification/approved',
-        name: 'UserVerificationApproved',
-        component: () => import('@/pages/users/verification/approved/index.vue'),
-        meta: { title: '实名认证审核通过', role: 'admin', permission: 'verification:list' },
+        redirect: '/users/verification/list?tab=approved',
+        meta: { title: '实名认证审核通过', role: 'admin' },
       },
       {
         path: 'verification/rejected',
-        name: 'UserVerificationRejected',
-        component: () => import('@/pages/users/verification/rejected/index.vue'),
-        meta: { title: '实名认证审核拒绝', role: 'admin', permission: 'verification:list' },
+        redirect: '/users/verification/list?tab=rejected',
+        meta: { title: '实名认证审核拒绝', role: 'admin' },
       },
       {
         path: 'verification/config',
@@ -398,12 +403,9 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/product/pricing/history/index.vue'),
         meta: { title: '价格历史', role: 'admin', permission: 'pricing:list' },
       },
-      {
-        path: 'pricing/policies',
-        name: 'ProductPricingPolicies',
-        component: () => import('@/pages/product/pricing/policies/index.vue'),
-        meta: { title: '折扣策略', role: 'admin', permission: 'pricing:list' },
-      },
+      // 「折扣策略」(pricing/policies) 已随 doc108 §8J 下线：它对应的 price_policies
+      // 自迁移 059 起就不再参与算价，页面还写着「上线折扣请用折扣策略」，把运营带偏。
+      // 面向用户的限时折扣见「促销管理 → 折扣活动」。
       {
         path: 'pricing/matrix',
         name: 'ProductPricingMatrix',

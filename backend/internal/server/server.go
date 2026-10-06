@@ -61,6 +61,9 @@ import (
 	discounthandler "hostsent/backend/internal/modules/admin/product/discount/handler"
 	discountrepo "hostsent/backend/internal/modules/admin/product/discount/repository"
 	discountservice "hostsent/backend/internal/modules/admin/product/discount/service"
+	flashdiscounthandler "hostsent/backend/internal/modules/admin/product/flashdiscount/handler"
+	flashdiscountrepo "hostsent/backend/internal/modules/admin/product/flashdiscount/repository"
+	flashdiscountservice "hostsent/backend/internal/modules/admin/product/flashdiscount/service"
 	pricinghandler "hostsent/backend/internal/modules/admin/product/pricing/handler"
 	pricingrepo "hostsent/backend/internal/modules/admin/product/pricing/repository"
 	pricingservice "hostsent/backend/internal/modules/admin/product/pricing/service"
@@ -710,10 +713,17 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 详情页带周期价格矩阵的可售周期（doc25），用户端据此渲染周期选择。
 	ucProductService := ucproductservice.NewProductService(prodCatalogService, NewUCCycleReader(priceMatrixService))
 	ucProductHandler := ucproducthandler.NewProductHandler(ucProductService)
-	// 折扣策略（discount 子域，P5-01/P5-06）
+	// 折扣策略（discount 子域，P5-01/P5-06）：**已退役**，仅保留接口与页面外的兼容，
+	// 算价链路不再读取它（折扣来源已迁到代理等级与限时活动折扣，见 doc108）。
 	discountPolicyRepo := discountrepo.NewPricePolicyRepository(database)
 	discountPolicyService := discountservice.NewPolicyService(discountPolicyRepo)
 	discountPolicyHandler := discounthandler.NewPolicyHandler(discountPolicyService)
+	// 限时活动折扣（doc108 §8J）：面向**普通用户**的营销折扣，按生效窗口实时命中。
+	// 注入 AgentChecker（agentLevelService.IsAgent）以实现「代理不参与活动折扣」。
+	// 必须构造在 pricePipeline 之前：PromotionRule 要引用它。
+	flashDiscountRepo := flashdiscountrepo.NewRepository(database)
+	flashDiscountService := flashdiscountservice.NewService(flashDiscountRepo, agentLevelService)
+	flashDiscountHandler := flashdiscounthandler.NewHandler(flashDiscountService)
 	// 统一算价管线（P5-03）：基础价读 product_pricing 回落 products.price；折扣来源按序注入。
 	pricePipeline := pricing.NewService(pricing.Deps{
 		BasePrice: func(ctx context.Context, productID uint64) (float64, uint64, error) {
@@ -766,7 +776,11 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		// 代理等级折扣 = 这代理打几折（doc108 唯一折扣来源）。
 		// 用户组已不再参与算价（只做客户分类），因此此处不再注入 GroupRule。
 		AgentRule: agentLevelService.RuleForUser,
-		// 促销/优惠券暂不在管线内（缺少选券入参）。
+		// 限时活动折扣（doc108 §8J）：面向**普通用户**的营销活动，按生效窗口实时命中。
+		// 内部先判「是不是代理」——代理只走 AgentRule，不参与活动，两条线互不叠加。
+		PromotionRule: func(ctx context.Context, in pricing.ResolveInput, _ float64) (*pricing.Rule, error) {
+			return flashDiscountService.RuleForUser(ctx, in.UserID, in.ProductID)
+		},
 	}, cfg.Pricing.StackMode)
 	// 用户中心订单：余额支付下单 + 复用履约适配器开通上游
 	// ensureOpenable：下单前校验商品能否直连开通，财务型上游（账单推送制）不支持单次开通，先拒绝避免误扣款。
@@ -1059,7 +1073,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 内容定时发布：管理端「定时发布时间」只在写入时判一次到点，到点后没人推进；
 	// 这条调度把 draft + 已到 publish_at 的公告与文章翻成 published（doc100 §10 第三期 23）。
 	publishScheduler := publishsched.NewScheduler(notifyAnnRepo, contentBundle.articleRepo, logger)
-	app := NewApp(cfg, adminHandler, departmentHandler, userHandler, userDetailHandler, userDeletionHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, agentLevelHandler, schemeHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, adminReferralHandler, salesBundle.customerHandler, salesBundle.commissionHandler, salesBundle.performanceHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, siteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, captchaBundle, notifyBundleInst, logcenterBundle, contentBundle, verificationBundle, oauthBundle, cacheClient, sessionGuard, logger, jwtIssuer)
+	app := NewApp(cfg, adminHandler, departmentHandler, userHandler, userDetailHandler, userDeletionHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, agentLevelHandler, schemeHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, flashDiscountHandler, adminReferralHandler, salesBundle.customerHandler, salesBundle.commissionHandler, salesBundle.performanceHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, siteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, captchaBundle, notifyBundleInst, logcenterBundle, contentBundle, verificationBundle, oauthBundle, cacheClient, sessionGuard, logger, jwtIssuer)
 	router := newRouter(app)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)

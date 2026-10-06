@@ -1988,7 +1988,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 20px;
   padding: 18px 20px;
-  border-color: #d1fae5;
+  border-color: var(--td-brand-color-2);
 }
 
 .list-header__icon {
@@ -2444,7 +2444,7 @@ onBeforeUnmount(() => {
 :deep(.page-btn--ghost) {
   color: var(--color-primary);
   border-color: var(--td-brand-color-3);
-  background: #ecfdf5;
+  background: var(--td-brand-color-1);
 }
 
 :deep(.page-btn--ghost:hover),
@@ -2458,7 +2458,7 @@ onBeforeUnmount(() => {
 :deep(.role-tag.t-tag--primary.t-tag--variant-light),
 :deep(.copy-tag.t-tag--primary.t-tag--variant-light) {
   color: var(--td-brand-color-8);
-  background: #ecfdf5;
+  background: var(--td-brand-color-1);
   border-color: var(--td-brand-color-3);
 }
 
@@ -2530,7 +2530,7 @@ onBeforeUnmount(() => {
 :deep(.unified-control .t-input:focus-within),
 :deep(.unified-control .t-select__wrap:focus-within) {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.10);
+  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.10);
 }
 
 
@@ -2541,7 +2541,10 @@ onBeforeUnmount(() => {
 
 :deep(.user-table .t-table__header th) {
   color: var(--color-muted-foreground);
-  background: #f8fffb;
+  /* 表头必须不透明：固定列（多选框/操作）是 sticky 单元格，自身无背景，
+     半透明底会让横向滚动时其它列标题从底下透出来。用「白底 + 品牌色叠加层」等效原色。 */
+  background-color: var(--hs-surface-1);
+  background-image: linear-gradient(rgba(var(--color-primary-rgb), 0.03), rgba(var(--color-primary-rgb), 0.03));
   font-weight: 600;
   border-bottom-color: var(--td-brand-color-2);
   transition: background-color var(--hs-duration-fast), color var(--hs-duration-fast);
@@ -2559,53 +2562,7 @@ onBeforeUnmount(() => {
 }
 
 :deep(.user-table .t-table__row--hover td) {
-  background: rgba(22, 163, 74, 0.03);
-}
-
-:deep(.user-table .t-table__pagination) {
-  padding-top: 16px;
-}
-
-:deep(.user-table .t-pagination) {
-  color: var(--color-muted-foreground);
-}
-
-:deep(.user-table .t-pagination__number),
-:deep(.user-table .t-pagination__btn) {
-  min-width: 32px;
-  height: 32px;
-  border-radius: var(--hs-radius-md);
-  border-color: var(--td-brand-color-2);
-  background: #ffffff;
-  transition: background-color var(--hs-duration-fast), border-color var(--hs-duration-fast), color var(--hs-duration-fast);
-}
-
-:deep(.user-table .t-pagination__number:hover),
-:deep(.user-table .t-pagination__btn:not(.t-is-disabled):hover) {
-  color: var(--td-brand-color-8);
-  border-color: var(--td-brand-color-3);
-  background: var(--td-brand-color-1);
-}
-
-:deep(.user-table .t-pagination__number.t-is-current) {
-  color: var(--td-brand-color-8);
-  border-color: var(--td-brand-color-3);
-  background: #ecfdf5;
-  font-weight: 700;
-}
-
-:deep(.user-table .t-pagination__select-input .t-input),
-:deep(.user-table .t-pagination__size .t-select__wrap),
-:deep(.user-table .t-pagination .t-input) {
-  border-radius: var(--hs-radius-md);
-  border-color: var(--td-brand-color-2);
-  background: #ffffff;
-}
-
-:deep(.user-table .t-pagination .t-input:focus-within),
-:deep(.user-table .t-pagination .t-select__wrap:focus-within) {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.10);
+  background: rgba(var(--color-primary-rgb), 0.03);
 }
 
 :deep(.status-tag) {
@@ -2616,7 +2573,7 @@ onBeforeUnmount(() => {
 
 :deep(.status-tag--active) {
   color: var(--td-brand-color-8);
-  background: #ecfdf5;
+  background: var(--td-brand-color-1);
   border-color: var(--td-brand-color-3);
 }
 

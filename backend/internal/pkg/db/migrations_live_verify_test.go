@@ -12,6 +12,7 @@ import (
 
 	finbillmodel "hostsent/backend/internal/modules/admin/finance/bill/model"
 	discountmodel "hostsent/backend/internal/modules/admin/product/discount/model"
+	flashdiscountmodel "hostsent/backend/internal/modules/admin/product/flashdiscount/model"
 	referralmodel "hostsent/backend/internal/modules/admin/referral/model"
 	usergroupmodel "hostsent/backend/internal/modules/admin/user/account/model"
 	usergrouprepo "hostsent/backend/internal/modules/admin/user/account/repository"
@@ -162,6 +163,24 @@ func TestLivePhaseMigrations(t *testing.T) {
 				"uk_product_groups_code", "uk_product_group_items", "idx_product_group_items_target",
 				"uk_discount_schemes_code", "idx_discount_schemes_group",
 				"uk_discount_scheme_items", "idx_discount_scheme_items_level",
+			},
+		},
+		{
+			// 062 是 §8J 的落地点：面向**用户**的限时活动折扣。
+			// 算价通过 pricing.Deps.PromotionRule 命中它，且代理用户不参与（见 service）。
+			name: "062_flash_discounts",
+			file: "../../../migrations/062_flash_discounts.sql",
+			models: []interface{}{
+				&flashdiscountmodel.FlashDiscount{},
+				&flashdiscountmodel.FlashDiscountItem{},
+			},
+			columns: map[string][]string{
+				"flash_discounts":      {"id", "name", "code", "description", "discount_type", "discount_value", "scope", "start_at", "end_at", "status", "remark", "created_at", "updated_at"},
+				"flash_discount_items": {"id", "discount_id", "target_type", "target_id", "created_at"},
+			},
+			indexes: []string{
+				"uk_flash_discounts_code", "idx_flash_discounts_window",
+				"uk_flash_discount_items", "idx_flash_discount_items_target",
 			},
 		},
 	}

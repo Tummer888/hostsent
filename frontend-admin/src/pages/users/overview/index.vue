@@ -656,7 +656,7 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 4px 10px rgba(34, 197, 94, 0.25);
+  box-shadow: 0 4px 10px rgba(var(--color-primary-rgb), 0.25);
 }
 
 .overview-header__text {
@@ -778,8 +778,8 @@ onMounted(() => {
   flex-shrink: 0;
   padding: 2px 10px;
   border-radius: 999px;
-  background: #ecfdf5;
-  color: #15803d;
+  background: var(--td-brand-color-1);
+  color: var(--td-brand-color-8);
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
@@ -871,7 +871,7 @@ onMounted(() => {
 }
 
 .quick-btn:hover {
-  background: #ecfdf5;
+  background: var(--td-brand-color-1);
   border-color: var(--td-brand-color-4);
   transform: translateY(-1px);
 }

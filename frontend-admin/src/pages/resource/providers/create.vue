@@ -539,7 +539,7 @@ onMounted(() => {
 
 .type-card--active {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.18);
+  box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.18);
 }
 
 .type-card__icon {
@@ -642,7 +642,7 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(22, 163, 74, 0.12);
+  background: rgba(var(--color-primary-rgb), 0.12);
   color: var(--color-primary);
 }
 

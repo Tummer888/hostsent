@@ -3,10 +3,11 @@
     <section class="scheme-card surface-card">
       <div class="scheme-head">
         <div>
-          <h3 class="scheme-title">折扣组</h3>
+          <h3 class="scheme-title">③ 折扣组（谁拿几折）</h3>
           <p class="scheme-desc">
-            一行 = 一个折扣组（如「6折组」），列是<strong>代理分组</strong>；绑定一个商品分组后点「应用」，
-            折扣率即展开写入该分组内全部分类/商品（受成本线与代理分组权重单调性约束）。
+            一行 = 一个折扣组，绑定<strong>一个商品分组</strong>（②）；列是<strong>代理分组</strong>（①），
+            每格填该分组在这个商品分组上的折扣率。最高权重分组填锚点，其余可用「阶梯填充」一键铺开。
+            点「应用」后才写入折扣矩阵生效（受成本线与权重单调性约束）。
           </p>
         </div>
         <t-button v-permission="'agent_level:create'" theme="primary" @click="openCreate">新建折扣组</t-button>
@@ -63,6 +64,14 @@
                   <t-space size="6px">
                     <t-link
                       v-permission="'agent_level:update'"
+                      theme="default"
+                      hover="color"
+                      @click="openLadder(row)"
+                    >
+                      阶梯填充
+                    </t-link>
+                    <t-link
+                      v-permission="'agent_level:update'"
                       theme="primary"
                       hover="color"
                       :disabled="row.saving"
@@ -104,6 +113,54 @@
         <t-form-item label="绑定商品分组" name="product_group_id">
           <t-select v-model="form.product_group_id" :options="groupOptions" clearable filterable placeholder="可先不绑，应用前必须绑定" />
         </t-form-item>
+      </t-form>
+    </t-dialog>
+    <!-- 阶梯填充：填好最高权重的锚点，一次把本行其余代理分组按步长铺满 -->
+    <t-dialog
+      v-model:visible="ladderVisible"
+      :header="`阶梯填充 · ${ladderRow?.draft.name || ''}`"
+      width="520px"
+      :confirm-btn="{ content: '填入本行', theme: 'primary' }"
+      @confirm="applyLadder"
+    >
+      <t-form label-align="top">
+        <p class="ladder-note">
+          按代理分组权重从高到低依次展开：权重最高的分组取「锚点折扣」，每降一级增加一个「步长」。
+          例如锚点 0.50、步长 0.05 → 五折 0.50、六折 0.55、七折 0.60。
+        </p>
+        <div class="ladder-form">
+          <t-form-item label="锚点折扣（最高权重分组）">
+            <t-input-number
+              v-model="ladder.anchor"
+              :min="0"
+              :max="1"
+              :step="0.01"
+              :precision="2"
+              theme="normal"
+              style="width: 100%"
+            />
+          </t-form-item>
+          <t-form-item label="每级递增">
+            <t-input-number
+              v-model="ladder.step"
+              :min="0"
+              :max="1"
+              :step="0.01"
+              :precision="2"
+              theme="normal"
+              style="width: 100%"
+            />
+          </t-form-item>
+        </div>
+        <div v-if="ladderPreview.length" class="ladder-preview">
+          <span v-for="cell in ladderPreview" :key="cell.id" class="ladder-chip">
+            {{ cell.name }} {{ cell.rate.toFixed(2) }}
+          </span>
+        </div>
+        <p class="ladder-note ladder-note--warn">
+          这里只填入本行草稿，仍需点该行的「保存」才写入折扣组，再点「应用」才生效到商品。
+          成本线与权重单调性由后端在保存 / 应用时校验。
+        </p>
       </t-form>
     </t-dialog>
   </div>
@@ -301,7 +358,49 @@ async function handleCreate() {
 
 onMounted(loadData)
 
-defineExpose({ reload: loadData })
+// —— 行内阶梯填充 ——
+//
+// 运营按档位建组时（五折组 / 六折组…），逐个分组填折扣率很啰嗦，而「五折用户 5 折、
+// 六折用户 6 折、七折用户 7 折」本质就是一条等差阶梯。这里只填本行草稿，不动库：
+// 保存与应用仍走既有入口，成本线与单调性校验因此不用重复实现一遍。
+const ladderVisible = ref(false)
+const ladderRow = ref<SchemeRow | null>(null)
+const ladder = reactive({ anchor: 0.5, step: 0.05 })
+
+// 阶梯按权重降序展开；activeLevels 本身就是后端按 weight desc 下发的。
+const ladderPreview = computed(() =>
+  activeLevels.value.map((level, index) => ({
+    id: level.id,
+    name: level.name,
+    rate: Math.min(1, Number((ladder.anchor + index * ladder.step).toFixed(4))),
+  })),
+)
+
+function openLadder(row: SchemeRow) {
+  ladderRow.value = row
+  // 以该行已填的最高权重分组值作为锚点起点，减少重复输入。
+  const first = activeLevels.value[0]
+  const current = first ? Number(row.draft.rates[first.id] || 0) : 0
+  ladder.anchor = current > 0 ? current : 0.5
+  ladder.step = 0.05
+  ladderVisible.value = true
+}
+
+function applyLadder() {
+  const row = ladderRow.value
+  if (!row) return
+  if (activeLevels.value.length === 0) {
+    MessagePlugin.warning('还没有启用中的代理分组')
+    return
+  }
+  for (const cell of ladderPreview.value) {
+    row.draft.rates[cell.id] = cell.rate
+  }
+  MessagePlugin.success('已填入本行草稿，记得点「保存」')
+  ladderVisible.value = false
+}
+
+defineExpose({ openCreate, reload: loadData })
 </script>
 
 <style scoped>
@@ -390,6 +489,45 @@ defineExpose({ reload: loadData })
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.ladder-note {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--color-muted-foreground);
+}
+
+.ladder-note--warn {
+  margin: 12px 0 0;
+  color: var(--td-warning-color, #e37318);
+}
+
+.ladder-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+
+.ladder-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ladder-chip {
+  padding: 2px 10px;
+  border: 1px solid var(--td-brand-color-3, #a6c8ff);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--td-brand-color, #0052d9);
+}
+
+@media (max-width: 640px) {
+  .ladder-form {
+    grid-template-columns: 1fr;
+  }
 }
 
 .level-head__meta {
