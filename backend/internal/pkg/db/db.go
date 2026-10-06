@@ -79,6 +79,10 @@ func AutoMigrate(db *gorm.DB) error {
 		// 代理等级与折扣矩阵（doc108）：折扣的唯一来源，用户组已不再参与算价。
 		&agentlevelmodel.AgentLevel{},
 		&agentlevelmodel.AgentLevelDiscount{},
+		&agentlevelmodel.ProductGroup{},
+		&agentlevelmodel.ProductGroupItem{},
+		&agentlevelmodel.DiscountScheme{},
+		&agentlevelmodel.DiscountSchemeItem{},
 		&usermodel.SubAccountPermission{},
 		&membermodel.OperationLog{},
 		// 推广邀请返现（独立于现金钱包的三表）

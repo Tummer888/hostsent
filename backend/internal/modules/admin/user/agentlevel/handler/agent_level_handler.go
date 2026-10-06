@@ -207,6 +207,79 @@ func (h *AgentLevelHandler) ApplyLadder(c *gin.Context) {
 	success(c, data)
 }
 
+// —— 代理分组成员（归属管理）——
+//
+// 「代理分组」= 代理等级（doc108）；归属即 users.agent_level_id。这一组接口
+// 让运营在同一个面板里显式管理「哪个代理属于哪个分组」，而不是逐个用户去详情页改。
+
+// ListMembers godoc
+// @Summary 代理分组成员列表（?unassigned=true 列未归属账号）
+// @Tags 代理分组
+// @Produce json
+// @Param id path int true "代理分组ID"
+// @Param page query int false "页码" default(1)
+// @Param page_size query int false "每页数量" default(10)
+// @Param keyword query string false "关键词"
+// @Param unassigned query bool false "仅列未归属任何分组的账号（忽略 id）"
+// @Success 200 {object} dto.APIResponse[dto.MemberListResponse]
+// @Router /api/v1/admin/agent-levels/{id}/members [get]
+func (h *AgentLevelHandler) ListMembers(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	var query dto.MemberListQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+	data, err := h.service.ListMembers(c.Request.Context(), id, query)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"code": 40401, "message": "代理分组不存在", "timestamp": time.Now().Unix()})
+			return
+		}
+		serverError(c, err.Error())
+		return
+	}
+	success(c, data)
+}
+
+// AssignMembers godoc
+// @Summary 批量纳入本代理分组（可含从其它分组转入）
+// @Tags 代理分组
+// @Accept json
+// @Produce json
+// @Param id path int true "代理分组ID"
+// @Param request body dto.MemberAssignRequest true "成员参数"
+// @Success 200 {object} dto.APIResponse[dto.MemberAssignResponse]
+// @Router /api/v1/admin/agent-levels/{id}/members [post]
+func (h *AgentLevelHandler) AssignMembers(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	var req dto.MemberAssignRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+	// action=remove 复用同一个入口：调用方按语义传参，服务层按语义落到不同的
+	// 仓储动作（置为 NULL 而不是再建一条"移出"路径）。
+	var (
+		data *dto.MemberAssignResponse
+		err  error
+	)
+	if req.Action == dto.MemberActionRemove {
+		data, err = h.service.RemoveMembers(c.Request.Context(), id, req.UserIDs)
+	} else {
+		data, err = h.service.AssignMembers(c.Request.Context(), id, req.UserIDs)
+	}
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"code": 40401, "message": "代理分组不存在", "timestamp": time.Now().Unix()})
+			return
+		}
+		writeBusinessError(c, err)
+		return
+	}
+	success(c, data)
+}
+
 // writeBusinessError 把业务错误映射成 409（可自解状态），其余回落 500。
 //
 // 折扣率低于成本、单调性冲突这类都是"运营能自己改对"的状态冲突，回落 500

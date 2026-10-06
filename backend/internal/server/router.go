@@ -181,8 +181,30 @@ func newRouter(app *App) *gin.Engine {
 			agentLevels.GET("/matrix", app.perm("agent_level:list"), app.agentLevelHandler.Matrix)
 			agentLevels.POST("/ladder/preview", app.perm("agent_level:list"), app.agentLevelHandler.PreviewLadder)
 			agentLevels.POST("/ladder/apply", app.perm("agent_level:update"), app.agentLevelHandler.ApplyLadder)
+			// 商品分组 × 折扣组（doc108 §8I）：录入组织层，应用时展开进逐格矩阵。
+			// 静态段全部注册在 /:id 之前。
+			productGroups := agentLevels.Group("/product-groups")
+			{
+				productGroups.GET("", app.perm("agent_level:list"), app.schemeHandler.ListGroups)
+				productGroups.POST("", app.perm("agent_level:create"), app.schemeHandler.CreateGroup)
+				productGroups.PUT("/:id", app.perm("agent_level:update"), app.schemeHandler.UpdateGroup)
+				productGroups.DELETE("/:id", app.perm("agent_level:delete"), app.schemeHandler.DeleteGroup)
+			}
+			discountSchemes := agentLevels.Group("/discount-schemes")
+			{
+				discountSchemes.GET("", app.perm("agent_level:list"), app.schemeHandler.ListSchemes)
+				discountSchemes.POST("", app.perm("agent_level:create"), app.schemeHandler.CreateScheme)
+				discountSchemes.POST("/:id/apply", app.perm("agent_level:update"), app.schemeHandler.ApplyScheme)
+				discountSchemes.PUT("/:id", app.perm("agent_level:update"), app.schemeHandler.UpdateScheme)
+				discountSchemes.DELETE("/:id", app.perm("agent_level:delete"), app.schemeHandler.DeleteScheme)
+			}
+
 			// 单格折扣更新：静态段必须注册在 /:id 之前。
 			agentLevels.PUT("/discount", app.perm("agent_level:update"), app.agentLevelHandler.UpdateCell)
+			// 代理分组成员（归属管理）：把账号纳入/移出某个代理分组。
+			// 纳入 = 设置 users.agent_level_id，移出 = 置空（取消代理身份）。
+			agentLevels.GET("/:id/members", app.perm("agent_level:list"), app.agentLevelHandler.ListMembers)
+			agentLevels.POST("/:id/members", app.perm("agent_level:update"), app.agentLevelHandler.AssignMembers)
 			agentLevels.GET("/:id", app.perm("agent_level:list"), app.agentLevelHandler.Get)
 			agentLevels.PUT("/:id", app.perm("agent_level:update"), app.agentLevelHandler.Update)
 			agentLevels.DELETE("/:id", app.perm("agent_level:delete"), app.agentLevelHandler.Delete)

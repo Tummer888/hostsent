@@ -4,44 +4,72 @@
       <div class="list-header__main">
         <div class="list-header__title-row">
           <h2 class="list-header__title">用户组管理</h2>
-          <span class="list-header__hint">
-            {{ isAgentTab ? '代理分组：代理拿货折扣的唯一来源，按等级配折扣' : '客户分组：仅用于用户分类与统计，不影响价格' }}
-          </span>
-          <t-tag v-if="!isAgentTab && activeFilterLabel" class="page-chip" theme="primary" variant="light" shape="round">
+          <span class="list-header__hint">{{ headerHint }}</span>
+          <t-tag v-if="activeTab === 'customer' && activeFilterLabel" class="page-chip" theme="primary" variant="light" shape="round">
             {{ activeFilterLabel }}
           </t-tag>
         </div>
       </div>
       <div class="list-header__actions">
-        <!-- 两类分组分区切换：客户分组（分类统计） / 代理分组（按等级配折扣） -->
+        <!-- 四分区：客户分组 / 商品分组（分类+商品集合） / 代理分组（归属） / 折扣设置（折扣组×代理分组） -->
         <t-radio-group v-model="activeTab" variant="default-filled" size="small" class="type-switch">
           <t-radio-button value="customer">客户分组（{{ customerTotal }}）</t-radio-button>
-          <t-radio-button v-if="canManageAgents" value="agent">代理分组</t-radio-button>
+          <template v-if="canManageAgents">
+            <t-radio-button value="products">商品分组</t-radio-button>
+            <t-radio-button value="agent">代理分组</t-radio-button>
+            <t-radio-button value="discount">折扣设置</t-radio-button>
+          </template>
         </t-radio-group>
         <t-button
-          v-if="!isAgentTab"
+          v-if="activeTab === 'customer'"
           class="page-btn page-btn--ghost"
           variant="outline"
           @click="router.push('/users/accounts/list')"
         >
           查看用户列表
         </t-button>
-        <t-button v-if="!isAgentTab" v-permission="'user:group:create'" class="page-btn" theme="primary" @click="openCreate">
+        <t-button v-if="activeTab === 'customer'" v-permission="'user:group:create'" class="page-btn" theme="primary" @click="openCreate">
           <template #icon>
             <AddIcon aria-hidden="true" />
           </template>
           新增用户组
         </t-button>
-        <t-button v-else v-permission="'agent_level:create'" class="page-btn" theme="primary" @click="agentPanelRef?.openCreate()">
+        <t-button
+          v-else-if="activeTab === 'products'"
+          v-permission="'agent_level:create'"
+          class="page-btn"
+          theme="primary"
+          @click="productGroupRef?.openCreate()"
+        >
           <template #icon>
             <AddIcon aria-hidden="true" />
           </template>
-          新建代理等级
+          新建商品分组
+        </t-button>
+        <t-button
+          v-else-if="activeTab === 'agent'"
+          v-permission="'agent_level:create'"
+          class="page-btn"
+          theme="primary"
+          @click="agentGroupRef?.openCreate()"
+        >
+          <template #icon>
+            <AddIcon aria-hidden="true" />
+          </template>
+          新建代理分组
+        </t-button>
+        <t-button
+          v-else
+          class="page-btn page-btn--ghost"
+          variant="outline"
+          @click="goAgentTab"
+        >
+          去配置代理分组
         </t-button>
       </div>
     </header>
 
-    <template v-if="!isAgentTab">
+    <template v-if="activeTab === 'customer'">
     <section class="toolbar surface-card">
       <div class="toolbar__header">
         <h3 class="toolbar__title">筛选条件</h3>
@@ -191,8 +219,17 @@
     </section>
     </template>
 
-    <!-- 代理分组：复用代理等级面板（矩阵单格可点击设置折扣 + 阶梯填充 + 等级管理） -->
-    <AgentLevelPanel v-else ref="agentPanelRef" />
+    <!-- 商品分组：分类+商品的命名集合（doc108 §8I），折扣设置里的纵向一行 -->
+    <ProductGroupPanel v-else-if="activeTab === 'products'" ref="productGroupRef" @changed="onSchemeChanged" />
+
+    <!-- 代理分组：代理等级 + 归属管理（哪个代理属于哪个分组），折扣矩阵的列轴 -->
+    <AgentGroupPanel v-else-if="activeTab === 'agent'" ref="agentGroupRef" @changed="onSchemeChanged" />
+
+    <!-- 折扣设置：折扣组（行）× 代理分组（列）二维表格 + 生效矩阵/阶梯填充/分组管理 -->
+    <div v-else class="discount-stack">
+      <SchemePanel ref="schemePanelRef" @changed="onSchemeChanged" />
+      <AgentLevelPanel ref="agentPanelRef" />
+    </div>
 
     <t-dialog
       v-model:visible="dialogVisible"
@@ -244,7 +281,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { AddIcon, ErrorCircleIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
+import AgentGroupPanel from '@/pages/users/agents/AgentGroupPanel.vue'
 import AgentLevelPanel from '@/pages/users/agents/AgentLevelPanel.vue'
+import ProductGroupPanel from '@/pages/users/agents/ProductGroupPanel.vue'
+import SchemePanel from '@/pages/users/agents/SchemePanel.vue'
 import { usePermission } from '@/composables/usePermission'
 import {
   createUserGroup,
@@ -271,24 +311,57 @@ const router = useRouter()
 const loading = ref(false)
 const { isMobile } = useIsMobile()
 
-// 分区：customer = 客户分组（分类统计），agent = 代理分组（折扣等级）。
-// 与路由 query.tab 双向同步，两个分区可以分享 URL。
-const activeTab = ref<'customer' | 'agent'>('customer')
-const isAgentTab = computed(() => activeTab.value === 'agent')
+// 分区：customer = 客户分组（分类统计），products = 商品分组，agent = 代理分组（归属），
+// discount = 折扣设置（折扣组 × 代理分组）。与路由 query.tab 双向同步，四个分区可分享 URL。
+const activeTab = ref<'customer' | 'products' | 'agent' | 'discount'>('customer')
 const agentPanelRef = ref<InstanceType<typeof AgentLevelPanel> | null>(null)
+const agentGroupRef = ref<InstanceType<typeof AgentGroupPanel> | null>(null)
+const productGroupRef = ref<InstanceType<typeof ProductGroupPanel> | null>(null)
+const schemePanelRef = ref<InstanceType<typeof SchemePanel> | null>(null)
+
+const headerHint = computed(() => {
+  if (activeTab.value === 'products') return '商品分组：把分类/单个商品划成命名集合，供折扣组绑定'
+  if (activeTab.value === 'agent') return '代理分组：定义代理归属（哪个代理属于哪个分组），折扣矩阵的列轴'
+  if (activeTab.value === 'discount') return '折扣设置：折扣组（行）× 代理分组（列），绑定商品分组后一键应用'
+  return '客户分组：仅用于用户分类与统计，不影响价格'
+})
+
+// 折扣组/商品分组/代理分组变化后刷新生效矩阵（AgentLevelPanel 暴露 reload 能力）。
+function onSchemeChanged() {
+  void agentPanelRef.value?.reload?.()
+}
+
+// 「折扣设置」分区只做折扣，代理分组的增删改在「代理分组」分区：这里是页头直达的入口。
+function goAgentTab() {
+  activeTab.value = 'agent'
+  void replaceRouteQuery()
+}
+
 // 没有代理等级查看权限的角色：整块「代理分组」分区不出现，避免点进去全是 403。
 const canManageAgents = usePermission().has('agent_level:list')
 const customerTotal = computed(() => pagination.total)
 
 function syncTabFromRoute() {
   const query = route.query as Record<string, string | undefined>
-  activeTab.value = query.tab === 'agent' && canManageAgents ? 'agent' : 'customer'
+  const wanted = query.tab
+  // 新分区「代理分组」用 tab=agent-group；tab=agent 是历史链接（当时指向折扣设置），
+  // 保留映到 discount，两个值不混用，存量书签也不会打开错误的分区。
+  if (canManageAgents && wanted === 'agent-group') {
+    activeTab.value = 'agent'
+    return
+  }
+  if (canManageAgents && (wanted === 'products' || wanted === 'discount' || wanted === 'agent')) {
+    activeTab.value = wanted === 'agent' ? 'discount' : wanted
+  } else {
+    activeTab.value = 'customer'
+  }
 }
 
 function goMembers(row: UserGroupInfo) {
   // 成员下钻：直接落到用户列表并带上用户组筛选，复用既有列表能力而不是另建一页。
   void router.push({ path: '/users/accounts/list', query: { user_group_id: String(row.id) } })
 }
+
 const submitting = ref(false)
 const errorMessage = ref('')
 const dialogVisible = ref(false)
@@ -387,7 +460,10 @@ function syncFiltersFromRoute() {
 
 function buildQuery() {
   const query: Record<string, string> = {}
-  if (activeTab.value === 'agent') query.tab = 'agent'
+  if (activeTab.value !== 'customer') {
+    // 代理分组分区写 agent-group：tab=agent 是历史链接（曾指折扣设置），不重用该值。
+    query.tab = activeTab.value === 'agent' ? 'agent-group' : activeTab.value
+  }
   if (filters.page && filters.page !== 1) query.page = String(filters.page)
   if (filters.page_size && filters.page_size !== 10) query.page_size = String(filters.page_size)
   if (filters.status) query.status = filters.status
@@ -578,7 +654,7 @@ watch(
   () => route.query,
   async () => {
     syncTabFromRoute()
-    if (!isAgentTab.value) {
+    if (activeTab.value === 'customer') {
       syncFiltersFromRoute()
       await loadGroups()
     }
@@ -587,7 +663,7 @@ watch(
 
 onMounted(async () => {
   syncTabFromRoute()
-  // 客户分组的数量常驻加载：直接落在代理分区时，切换条上的「客户分组（N）」也要有数。
+  // 客户分组的数量常驻加载：落在其它分区时，切换条上的「客户分组（N）」也要有数。
   await loadGroups()
 })
 function handleMobileAction(value: string | number | Record<string, any>, row: UserGroupInfo) {
@@ -644,6 +720,12 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
   font-size: 22px;
   font-weight: 700;
   color: var(--color-foreground);
+}
+
+.discount-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .list-header__actions .type-switch {

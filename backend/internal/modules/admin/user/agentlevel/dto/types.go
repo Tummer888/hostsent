@@ -124,6 +124,10 @@ type MatrixColumn struct {
 type MatrixResponse struct {
 	Columns []MatrixColumn `json:"columns"`
 	Rows    []MatrixRow    `json:"rows"`
+	// ProductRows 商品例外行（doc108 §8E）：只列**配置过商品级折扣**的商品。
+	// 商品级阶梯应用后运营必须能直接在矩阵上看到"所有等级都排好了"，
+	// 否则看起来像只改了一个等级。
+	ProductRows []MatrixRow `json:"product_rows"`
 }
 
 // LadderPreviewRequest 阶梯填充预览：按"锚点 + 步长"展开各等级的折扣率。

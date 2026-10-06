@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -46,6 +47,9 @@ type AgentLevelService interface {
 	PreviewLadder(ctx context.Context, req dto.LadderPreviewRequest) (*dto.LadderPreviewResponse, error)
 	// ApplyLadder 把展开结果写入指定目标下的所有等级（逐格 upsert 后统一校验）。
 	ApplyLadder(ctx context.Context, req dto.ApplyLadderRequest) (*dto.MatrixResponse, error)
+	// ApplyRateCells 把一批折扣格写入逐格矩阵（折扣组应用与阶梯填充共用的唯一入口：
+	// 先整批校验成本/目标/单调性，再统一 upsert，保证不会"写一半被拒"）。
+	ApplyRateCells(ctx context.Context, cells []model.AgentLevelDiscount) (*dto.MatrixResponse, error)
 	// UpdateCell 更新矩阵单格（折扣率 0 = 清除该格），供矩阵上直接微调一格。
 	UpdateCell(ctx context.Context, req dto.CellUpdateRequest) (*dto.MatrixResponse, error)
 
@@ -53,6 +57,14 @@ type AgentLevelService interface {
 	RuleForUser(ctx context.Context, userID, productID, categoryID uint64) (*pricing.Rule, error)
 	// CheckAssignable 校验代理等级存在且启用（给用户分配前的先验）。
 	CheckAssignable(ctx context.Context, levelID uint64) error
+
+	// —— 代理分组成员（归属管理）——
+	// ListMembers 列出该代理分组下的账号；query.Unassigned=true 时跨分组列未归属账号。
+	ListMembers(ctx context.Context, levelID uint64, query dto.MemberListQuery) (*dto.MemberListResponse, error)
+	// AssignMembers 批量纳入本分组（可含从其它分组转入）。
+	AssignMembers(ctx context.Context, levelID uint64, userIDs []uint64) (*dto.MemberAssignResponse, error)
+	// RemoveMembers 批量移出本分组（取消代理身份）。
+	RemoveMembers(ctx context.Context, levelID uint64, userIDs []uint64) (*dto.MemberAssignResponse, error)
 }
 
 type agentLevelService struct {
@@ -264,7 +276,46 @@ func (s *agentLevelService) Matrix(ctx context.Context) (*dto.MatrixResponse, er
 			Cells:      s.buildCells(columns, cellIndex, configured, model.TargetCategory, id),
 		})
 	}
-	return &dto.MatrixResponse{Columns: columns, Rows: rows}, nil
+
+	// 商品例外行：有任一商品级折扣的商品才出现（商品可能上千，不能全列）。
+	// 商品级阶梯应用后，这一段就是"每个等级都排好了"的直接证据。
+	productIDSet := map[uint64]struct{}{}
+	for _, item := range all {
+		if item.TargetType == model.TargetProduct && item.TargetID > 0 {
+			productIDSet[item.TargetID] = struct{}{}
+		}
+	}
+	productIDs := make([]uint64, 0, len(productIDSet))
+	for id := range productIDSet {
+		productIDs = append(productIDs, id)
+	}
+	sort.Slice(productIDs, func(i, j int) bool { return productIDs[i] < productIDs[j] })
+	var productRows []dto.MatrixRow
+	if len(productIDs) > 0 {
+		productNames, err := s.repo.ProductNames(ctx, productIDs)
+		if err != nil {
+			return nil, err
+		}
+		productCosts, err := s.repo.ProductCostRates(ctx, productIDs)
+		if err != nil {
+			return nil, err
+		}
+		productRows = make([]dto.MatrixRow, 0, len(productIDs))
+		for _, id := range productIDs {
+			name := productNames[id]
+			if name == "" {
+				name = fmt.Sprintf("商品 #%d（已删除）", id)
+			}
+			productRows = append(productRows, dto.MatrixRow{
+				TargetType: model.TargetProduct,
+				TargetID:   id,
+				TargetName: name,
+				CostRate:   productCosts[id],
+				Cells:      s.buildCells(columns, cellIndex, configured, model.TargetProduct, id),
+			})
+		}
+	}
+	return &dto.MatrixResponse{Columns: columns, Rows: rows, ProductRows: productRows}, nil
 }
 
 func (s *agentLevelService) buildCells(columns []dto.MatrixColumn, index map[string]float64, configured map[string]bool, targetType string, targetID uint64) []dto.MatrixCell {
@@ -366,10 +417,6 @@ func (s *agentLevelService) ApplyLadder(ctx context.Context, req dto.ApplyLadder
 	if err != nil {
 		return nil, err
 	}
-	cost, err := s.costRateOfTarget(ctx, targetType, req.TargetID)
-	if err != nil {
-		return nil, err
-	}
 	next := make([]model.AgentLevelDiscount, 0, len(preview.Cells))
 	for _, cell := range preview.Cells {
 		next = append(next, model.AgentLevelDiscount{
@@ -379,37 +426,54 @@ func (s *agentLevelService) ApplyLadder(ctx context.Context, req dto.ApplyLadder
 			DiscountRate: cell.DiscountRate,
 		})
 	}
-	// 成本校验在写入前统一做一次，避免"写了一半被拒"。
-	for _, item := range next {
-		if err := s.checkRateAgainstCost(item.DiscountRate, cost); err != nil {
+	return s.ApplyRateCells(ctx, next)
+}
+
+// ApplyRateCells 把一批折扣格写入逐格矩阵。
+//
+// 折扣组应用（§8I）与阶梯填充共用这条唯一入口：先整批校验（成本线 / 目标存在 /
+// 预期态单调性），全部通过后统一 upsert —— 任何一格违规都整批拒绝，不会写一半。
+// 只处理启用中的等级；引用停用/不存在等级的格子整批拒绝，避免静默丢配置。
+func (s *agentLevelService) ApplyRateCells(ctx context.Context, cells []model.AgentLevelDiscount) (*dto.MatrixResponse, error) {
+	if len(cells) == 0 {
+		return s.Matrix(ctx)
+	}
+	levels, err := s.repo.ListAllActive(ctx)
+	if err != nil {
+		return nil, err
+	}
+	weightOf := make(map[uint64]int, len(levels))
+	for _, level := range levels {
+		weightOf[level.ID] = level.Weight
+	}
+	pending := make([]pendingCell, 0, len(cells))
+	for i := range cells {
+		if _, ok := weightOf[cells[i].AgentLevelID]; !ok {
+			return nil, fmt.Errorf("%w（等级 #%d 未启用或不存在）", ErrInvalidAssignTarget, cells[i].AgentLevelID)
+		}
+		cost, err := s.costRateOfTarget(ctx, cells[i].TargetType, cells[i].TargetID)
+		if err != nil {
 			return nil, err
 		}
-	}
-	if err := s.repo.ValidateTargetRefs(ctx, next); err != nil {
-		return nil, err
-	}
-	// 逐级展开天然单调（rate = anchor + i*step，i 按权重降序递增），但仍走一次
-	// 预期状态校验：其它目标的既有格子（商品例外、别的分类）要一起看，
-	// 避免"这个分类对了、跨分类的阶梯关系被搞坏了"。
-	applyCells := make([]pendingCell, 0, len(next))
-	weightByID := make(map[uint64]int, len(preview.Cells))
-	for _, cell := range preview.Cells {
-		weightByID[cell.AgentLevelID] = cell.Weight
-	}
-	for i := range next {
-		applyCells = append(applyCells, pendingCell{
-			LevelID:    next[i].AgentLevelID,
-			Weight:     weightByID[next[i].AgentLevelID],
-			TargetType: next[i].TargetType,
-			TargetID:   next[i].TargetID,
-			Rate:       next[i].DiscountRate,
+		if err := s.checkRateAgainstCost(cells[i].DiscountRate, cost); err != nil {
+			return nil, err
+		}
+		pending = append(pending, pendingCell{
+			LevelID:    cells[i].AgentLevelID,
+			Weight:     weightOf[cells[i].AgentLevelID],
+			TargetType: cells[i].TargetType,
+			TargetID:   cells[i].TargetID,
+			Rate:       cells[i].DiscountRate,
 		})
 	}
-	if err := s.validateMonotonic(ctx, applyCells, nil); err != nil {
+	if err := s.repo.ValidateTargetRefs(ctx, cells); err != nil {
 		return nil, err
 	}
-	for i := range next {
-		if err := s.repo.UpsertDiscount(ctx, &next[i]); err != nil {
+	if err := s.validateMonotonic(ctx, pending, nil); err != nil {
+		return nil, err
+	}
+	for i := range cells {
+		if err := s.repo.UpsertDiscount(ctx, &cells[i]); err != nil {
 			return nil, err
 		}
 	}
@@ -551,6 +615,157 @@ func (s *agentLevelService) CheckAssignable(ctx context.Context, levelID uint64)
 		return ErrLevelDisabled
 	}
 	return nil
+}
+
+// —— 代理分组成员（归属管理）——
+//
+// 归属即 users.agent_level_id：面板上的「代理分组」就是在管这条归属。
+// 纳入分组不校验等级是否启用 —— 停用只是「不再参与算价」，把一个代理先归到
+// 某个分组（哪怕该组暂时停用）是合理的运营动作，不该被接口挡住。
+
+// ListMembers 列出该代理分组的成员；query.Unassigned=true 时列出未归属账号。
+func (s *agentLevelService) ListMembers(ctx context.Context, levelID uint64, query dto.MemberListQuery) (*dto.MemberListResponse, error) {
+	if !query.Unassigned {
+		// 未归属列表与分组无关（一个分组都没建时也该能看候选池）；只有查具体成员时才校验分组。
+		if _, err := s.repo.FindByID(ctx, levelID); err != nil {
+			return nil, err
+		}
+	}
+	rows, total, err := s.repo.ListMembers(ctx, levelID, query)
+	if err != nil {
+		return nil, err
+	}
+	unassigned, err := s.repo.CountUnassigned(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]dto.AgentMemberInfo, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, dto.AgentMemberInfo{
+			ID:             row.ID,
+			Username:       row.Username,
+			RealName:       row.RealName,
+			Email:          row.Email,
+			Phone:          row.Phone,
+			Status:         row.Status,
+			AgentLevelID:   row.AgentLevelID,
+			AgentLevelName: row.AgentLevelName,
+			CreatedAt:      formatTime(row.CreatedAt),
+		})
+	}
+	return &dto.MemberListResponse{
+		Items: items,
+		Meta: dto.ListMeta{
+			Page:     normalizeMetaPage(query.Page),
+			PageSize: normalizeMetaSize(query.PageSize),
+			Total:    total,
+		},
+		UnassignedTotal: unassigned,
+	}, nil
+}
+
+// AssignMembers 把一批账号纳入本分组（覆盖原有归属，即从别组转入）。
+func (s *agentLevelService) AssignMembers(ctx context.Context, levelID uint64, userIDs []uint64) (*dto.MemberAssignResponse, error) {
+	if _, err := s.repo.FindByID(ctx, levelID); err != nil {
+		return nil, err
+	}
+	skipped, err := s.filterExisting(ctx, userIDs)
+	if err != nil {
+		return nil, err
+	}
+	ids := validIDs(userIDs, skipped)
+	changed, err := s.repo.AssignMembers(ctx, levelID, ids)
+	if err != nil {
+		return nil, err
+	}
+	return &dto.MemberAssignResponse{Changed: int(changed), Skipped: skipped}, nil
+}
+
+// RemoveMembers 把一批账号移出本分组（agent_level_id 置空 = 取消代理身份）。
+func (s *agentLevelService) RemoveMembers(ctx context.Context, levelID uint64, userIDs []uint64) (*dto.MemberAssignResponse, error) {
+	if _, err := s.repo.FindByID(ctx, levelID); err != nil {
+		return nil, err
+	}
+	skipped, err := s.filterExisting(ctx, userIDs)
+	if err != nil {
+		return nil, err
+	}
+	ids := validIDs(userIDs, skipped)
+	changed, err := s.repo.ClearMembers(ctx, levelID, ids)
+	if err != nil {
+		return nil, err
+	}
+	// 少改的那几条 = 已经不在本分组（被别的分组收走、或本来就是非代理）。
+	// 逐条回显原因，避免运营以为"点了移出却没生效"。
+	if remaining := int64(len(ids)) - changed; remaining > 0 {
+		skipped = append(skipped, dto.MemberAssignSkip{
+			UserID: 0,
+			Reason: fmt.Sprintf("另有 %d 个账号已不在本分组，未做改动", remaining),
+		})
+	}
+	return &dto.MemberAssignResponse{Changed: int(changed), Skipped: skipped}, nil
+}
+
+// filterExisting 挑出不存在/已注销的账号，作为可回显的跳过项。
+func (s *agentLevelService) filterExisting(ctx context.Context, userIDs []uint64) ([]dto.MemberAssignSkip, error) {
+	unique := dedupeIDs(userIDs)
+	existing, err := s.repo.ExistingUserIDs(ctx, unique)
+	if err != nil {
+		return nil, err
+	}
+	skipped := make([]dto.MemberAssignSkip, 0)
+	for _, id := range unique {
+		if _, ok := existing[id]; !ok {
+			skipped = append(skipped, dto.MemberAssignSkip{UserID: id, Reason: "账号不存在或已注销"})
+		}
+	}
+	return skipped, nil
+}
+
+// dedupeIDs 去重并保序。
+func dedupeIDs(ids []uint64) []uint64 {
+	seen := make(map[uint64]struct{}, len(ids))
+	out := make([]uint64, 0, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+// validIDs 去掉被跳过的账号，返回可提交的 ID 列表。
+func validIDs(ids []uint64, skipped []dto.MemberAssignSkip) []uint64 {
+	if len(skipped) == 0 {
+		return dedupeIDs(ids)
+	}
+	bad := make(map[uint64]struct{}, len(skipped))
+	for _, item := range skipped {
+		bad[item.UserID] = struct{}{}
+	}
+	out := make([]uint64, 0, len(ids))
+	for _, id := range dedupeIDs(ids) {
+		if _, ok := bad[id]; ok {
+			continue
+		}
+		out = append(out, id)
+	}
+	return out
+}
+
+func normalizeMetaPage(page int) int {
+	p, _ := normalizeMeta(page, 0)
+	return p
+}
+
+func normalizeMetaSize(pageSize int) int {
+	_, size := normalizeMeta(0, pageSize)
+	return size
 }
 
 // —— 内部辅助 ——

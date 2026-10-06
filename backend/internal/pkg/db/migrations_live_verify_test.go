@@ -141,6 +141,29 @@ func TestLivePhaseMigrations(t *testing.T) {
 			},
 			indexes: []string{"uk_agent_levels_code", "uk_agent_level_discounts", "idx_agent_level_discounts_target", "idx_users_agent_level_id"},
 		},
+		{
+			// 061 是 §8I 的落地点：商品分组（分类/商品集合）× 折扣组（等级→费率）。
+			// 两张新表是录入组织层，算价仍只认 agent_level_discounts 逐格矩阵。
+			name: "061_product_groups_and_discount_schemes",
+			file: "../../../migrations/061_product_groups_and_discount_schemes.sql",
+			models: []interface{}{
+				&agentlevelmodel.ProductGroup{},
+				&agentlevelmodel.ProductGroupItem{},
+				&agentlevelmodel.DiscountScheme{},
+				&agentlevelmodel.DiscountSchemeItem{},
+			},
+			columns: map[string][]string{
+				"product_groups":        {"id", "name", "code", "description", "status", "created_at", "updated_at"},
+				"product_group_items":   {"id", "group_id", "target_type", "target_id", "created_at"},
+				"discount_schemes":      {"id", "name", "code", "product_group_id", "status", "created_at", "updated_at"},
+				"discount_scheme_items": {"id", "scheme_id", "agent_level_id", "discount_rate", "created_at", "updated_at"},
+			},
+			indexes: []string{
+				"uk_product_groups_code", "uk_product_group_items", "idx_product_group_items_target",
+				"uk_discount_schemes_code", "idx_discount_schemes_group",
+				"uk_discount_scheme_items", "idx_discount_scheme_items_level",
+			},
+		},
 	}
 
 	for _, tc := range cases {

@@ -89,6 +89,7 @@ type App struct {
 	securityHandler       *securityhandler.SecurityHandler
 	userLevelHandler      *levelhandler.UserLevelHandler
 	agentLevelHandler     *agentlevelhandler.AgentLevelHandler
+	schemeHandler         *agentlevelhandler.SchemeHandler
 	providerHandler       *providerhandler.ProviderHandler
 	productHandler        *producthandler.ProductHandler
 	syncHandler           *synchandler.SyncHandler
@@ -177,6 +178,7 @@ func NewApp(
 	securityHandler *securityhandler.SecurityHandler,
 	userLevelHandler *levelhandler.UserLevelHandler,
 	agentLevelHandler *agentlevelhandler.AgentLevelHandler,
+	schemeHandler *agentlevelhandler.SchemeHandler,
 	providerHandler *providerhandler.ProviderHandler,
 	productHandler *producthandler.ProductHandler,
 	syncHandler *synchandler.SyncHandler,
@@ -260,6 +262,7 @@ func NewApp(
 		securityHandler:         securityHandler,
 		userLevelHandler:        userLevelHandler,
 		agentLevelHandler:       agentLevelHandler,
+		schemeHandler:           schemeHandler,
 		providerHandler:         providerHandler,
 		productHandler:          productHandler,
 		syncHandler:             syncHandler,

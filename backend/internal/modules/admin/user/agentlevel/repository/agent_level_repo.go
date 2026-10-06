@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
@@ -38,6 +39,21 @@ type AgentLevelRepository interface {
 
 	// MemberCounts 各等级的代理用户数（一次聚合，避免列表页 N+1）。
 	MemberCounts(ctx context.Context) (map[uint64]int64, error)
+
+	// —— 代理分组成员（归属管理）——
+	// ListMembers 列出某代理分组下的代理账号；unassigned=true 时跨分组列出
+	// 「尚未归属任何分组」的账号（批量纳入分组的候选池）。
+	ListMembers(ctx context.Context, levelID uint64, query dto.MemberListQuery) ([]MemberRow, int64, error)
+	// CountUnassigned 未归属任何代理分组的账号总数。
+	CountUnassigned(ctx context.Context) (int64, error)
+	// AssignMembers 把一批账号的归属设为本分组（含从其它分组转过来）。
+	AssignMembers(ctx context.Context, levelID uint64, userIDs []uint64) (int64, error)
+	// ClearMembers 把一批账号移出本分组（agent_level_id 置 NULL = 取消代理身份）。
+	// 仅影响当前确实属于本分组的账号，避免误伤已转到别组的账号。
+	ClearMembers(ctx context.Context, levelID uint64, userIDs []uint64) (int64, error)
+	// ExistingUserIDs 过滤出确实存在且未注销的用户 ID（批量调整前的存在性校验，
+	// 让「账号不存在/已注销」成为一个可回显的跳过项，而不是静默少改了几条）。
+	ExistingUserIDs(ctx context.Context, userIDs []uint64) (map[uint64]struct{}, error)
 
 	// —— 折扣矩阵 ——
 	Discounts(ctx context.Context, levelID uint64) ([]model.AgentLevelDiscount, error)
@@ -212,6 +228,104 @@ func (r *agentLevelRepository) MemberCounts(ctx context.Context) (map[uint64]int
 		counts[item.AgentLevelID] = item.Cnt
 	}
 	return counts, nil
+}
+
+// —— 代理分组成员（归属管理）——
+//
+// 归属关系存在 users.agent_level_id（无外键，与 user_group_id 一致），读写都在这里。
+// 面向界面的一层语义：一个账号要么属于某个代理分组，要么还不是代理（NULL）。
+
+// MemberRow 成员列表的一行（联表带出分组名，避免逐行二次查询）。
+type MemberRow struct {
+	ID             uint64
+	Username       string
+	RealName       string
+	Email          string
+	Phone          string
+	Status         string
+	AgentLevelID   *uint64
+	AgentLevelName string
+	CreatedAt      time.Time
+}
+
+func (r *agentLevelRepository) ListMembers(ctx context.Context, levelID uint64, query dto.MemberListQuery) ([]MemberRow, int64, error) {
+	page, pageSize := normalizePage(query.Page, query.PageSize)
+	base := r.db.WithContext(ctx).Table("users").Where("users.deleted_at IS NULL")
+	if query.Unassigned {
+		base = base.Where("users.agent_level_id IS NULL")
+	} else {
+		base = base.Where("users.agent_level_id = ?", levelID)
+	}
+	if keyword := strings.TrimSpace(query.Keyword); keyword != "" {
+		like := "%" + keyword + "%"
+		base = base.Where("users.username ILIKE ? OR users.email ILIKE ? OR users.phone ILIKE ? OR users.real_name ILIKE ?", like, like, like, like)
+	}
+	var total int64
+	if err := base.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []MemberRow
+	if err := base.
+		Select("users.id, users.username, users.real_name, users.email, users.phone, users.status, users.agent_level_id, agent_levels.name AS agent_level_name, users.created_at").
+		Joins("LEFT JOIN agent_levels ON agent_levels.id = users.agent_level_id").
+		Order("users.id DESC").
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
+		Scan(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+	return rows, total, nil
+}
+
+func (r *agentLevelRepository) CountUnassigned(ctx context.Context) (int64, error) {
+	var total int64
+	err := r.db.WithContext(ctx).
+		Table("users").
+		Where("agent_level_id IS NULL AND deleted_at IS NULL").
+		Count(&total).Error
+	return total, err
+}
+
+func (r *agentLevelRepository) AssignMembers(ctx context.Context, levelID uint64, userIDs []uint64) (int64, error) {
+	if len(userIDs) == 0 {
+		return 0, nil
+	}
+	res := r.db.WithContext(ctx).
+		Table("users").
+		Where("id IN ? AND deleted_at IS NULL", userIDs).
+		Update("agent_level_id", levelID)
+	return res.RowsAffected, res.Error
+}
+
+func (r *agentLevelRepository) ClearMembers(ctx context.Context, levelID uint64, userIDs []uint64) (int64, error) {
+	if len(userIDs) == 0 {
+		return 0, nil
+	}
+	// 只清「确实属于本分组」的账号：界面上的选择可能因为别人刚改过归属而过期，
+	// 直接按 ID 清会把已经转到别组的代理一起踢出代理体系。
+	res := r.db.WithContext(ctx).
+		Table("users").
+		Where("id IN ? AND agent_level_id = ? AND deleted_at IS NULL", userIDs, levelID).
+		Update("agent_level_id", nil)
+	return res.RowsAffected, res.Error
+}
+
+func (r *agentLevelRepository) ExistingUserIDs(ctx context.Context, userIDs []uint64) (map[uint64]struct{}, error) {
+	out := make(map[uint64]struct{}, len(userIDs))
+	if len(userIDs) == 0 {
+		return out, nil
+	}
+	var ids []uint64
+	if err := r.db.WithContext(ctx).
+		Table("users").
+		Where("id IN ? AND deleted_at IS NULL", userIDs).
+		Pluck("id", &ids).Error; err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
+		out[id] = struct{}{}
+	}
+	return out, nil
 }
 
 func (r *agentLevelRepository) DeleteDiscount(ctx context.Context, levelID uint64, targetType string, targetID uint64) error {

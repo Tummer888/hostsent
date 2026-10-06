@@ -86,6 +86,8 @@ export interface AgentMatrixRow {
 export interface AgentMatrixResponse {
   columns: AgentMatrixColumn[]
   rows: AgentMatrixRow[]
+  /** 商品例外行：只列配置过商品级折扣的商品（商品级阶梯的直接证据）。 */
+  product_rows: AgentMatrixRow[]
 }
 
 export interface AgentLadderPreviewRequest {
@@ -193,5 +195,166 @@ export function applyAgentLadder(data: AgentLadderApplyRequest): Promise<AgentMa
   return request.post<AgentMatrixResponse>({
     url: '/agent-levels/ladder/apply',
     data,
+  })
+}
+
+// —— 商品分组 × 折扣组（doc108 §8I）——
+
+export type ProductGroupTargetType = 'category' | 'product'
+
+export interface ProductGroupItem {
+  target_type: ProductGroupTargetType
+  target_id: number
+  target_name?: string
+}
+
+export interface ProductGroupInfo {
+  id: number
+  name: string
+  code: string
+  description?: string
+  status: string
+  item_count: number
+  items: ProductGroupItem[]
+  created_at: string
+  updated_at: string
+}
+
+export interface ProductGroupRequest {
+  name: string
+  code: string
+  description?: string
+  status?: string
+  /** nil（不传）= 不改成员；传（含空数组）= 整体覆盖。 */
+  items?: Array<{ target_type: ProductGroupTargetType; target_id: number }>
+}
+
+export interface SchemeItem {
+  agent_level_id: number
+  agent_level_name?: string
+  agent_level_weight?: number
+  discount_rate: number
+}
+
+export interface SchemeInfo {
+  id: number
+  name: string
+  code: string
+  description?: string
+  status: string
+  product_group_id: number
+  product_group_name?: string
+  item_count: number
+  items: SchemeItem[]
+  created_at: string
+  updated_at: string
+}
+
+export interface SchemeRequest {
+  name: string
+  code: string
+  description?: string
+  status?: string
+  product_group_id?: number
+  /** nil（不传）= 不改费率；传（含空数组）= 整体覆盖。 */
+  items?: Array<{ agent_level_id: number; discount_rate: number }>
+}
+
+export function getProductGroupList(): Promise<{ items: ProductGroupInfo[] }> {
+  return request.get({ url: '/agent-levels/product-groups' })
+}
+
+export function createProductGroup(data: ProductGroupRequest): Promise<ProductGroupInfo> {
+  return request.post<ProductGroupInfo>({ url: '/agent-levels/product-groups', data })
+}
+
+export function updateProductGroup(id: number, data: ProductGroupRequest): Promise<ProductGroupInfo> {
+  return request.put<ProductGroupInfo>({ url: `/agent-levels/product-groups/${id}`, data })
+}
+
+export function deleteProductGroup(id: number): Promise<string> {
+  return request.delete<string>({ url: `/agent-levels/product-groups/${id}` })
+}
+
+export function getSchemeList(): Promise<{ items: SchemeInfo[] }> {
+  return request.get({ url: '/agent-levels/discount-schemes' })
+}
+
+export function createScheme(data: SchemeRequest): Promise<SchemeInfo> {
+  return request.post<SchemeInfo>({ url: '/agent-levels/discount-schemes', data })
+}
+
+export function updateScheme(id: number, data: SchemeRequest): Promise<SchemeInfo> {
+  return request.put<SchemeInfo>({ url: `/agent-levels/discount-schemes/${id}`, data })
+}
+
+export function deleteScheme(id: number): Promise<string> {
+  return request.delete<string>({ url: `/agent-levels/discount-schemes/${id}` })
+}
+
+/** 应用折扣组：展开写入绑定商品分组下的全部目标，返回生效矩阵。 */
+export function applyScheme(id: number): Promise<AgentMatrixResponse> {
+  return request.post<AgentMatrixResponse>({ url: `/agent-levels/discount-schemes/${id}/apply` })
+}
+
+// —— 代理分组成员（归属管理）：代理分组 = 代理等级，归属 = users.agent_level_id ——
+
+export interface AgentMemberInfo {
+  id: number
+  username: string
+  real_name?: string
+  email?: string
+  phone?: string
+  status: string
+  /** null = 尚未归属任何代理分组。 */
+  agent_level_id?: number | null
+  agent_level_name?: string
+  created_at: string
+}
+
+export interface AgentMemberListQuery {
+  page?: number
+  page_size?: number
+  keyword?: string
+  /** true = 列「尚未归属任何分组」的账号（跨分组候选池，忽略 ID）。 */
+  unassigned?: boolean
+}
+
+export interface AgentMemberListResponse {
+  items: AgentMemberInfo[]
+  meta: { page: number; page_size: number; total: number }
+  /** 未归属任何代理分组的账号总数。 */
+  unassigned_total: number
+}
+
+export interface AgentMemberAssignResponse {
+  changed: number
+  skipped: Array<{ user_id: number; reason: string }>
+}
+
+export function getAgentGroupMembers(
+  id: number,
+  params: AgentMemberListQuery = {},
+): Promise<AgentMemberListResponse> {
+  return request.get<AgentMemberListResponse>({
+    url: `/agent-levels/${id}/members`,
+    params: {
+      page: params.page,
+      page_size: params.page_size,
+      keyword: params.keyword,
+      unassigned: params.unassigned ? 'true' : undefined,
+    },
+  })
+}
+
+/** 批量纳入 / 移出本代理分组；action=remove 表示取消这些账号的代理身份。 */
+export function assignAgentGroupMembers(
+  id: number,
+  userIDs: number[],
+  action: 'assign' | 'remove',
+): Promise<AgentMemberAssignResponse> {
+  return request.post<AgentMemberAssignResponse>({
+    url: `/agent-levels/${id}/members`,
+    data: { user_ids: userIDs, action },
   })
 }
