@@ -1,5 +1,5 @@
 <template>
-  <div class="level-page">
+  <div class="level-page users-module">
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
@@ -12,36 +12,35 @@
       </t-space>
     </header>
 
-    <section class="toolbar surface-card">
-      <div class="toolbar__grid">
-        <div class="toolbar-field">
-          <span class="toolbar-field__label">关键词</span>
-          <t-input
-            v-model="filters.keyword"
-            class="unified-control"
-            clearable
-            placeholder="搜索等级名称 / 编码"
-            @enter="handleSearch"
-          />
-        </div>
-        <div class="toolbar-field">
-          <span class="toolbar-field__label">状态</span>
-          <t-select
-            v-model="filters.status"
-            class="unified-control"
-            clearable
-            placeholder="全部状态"
-            :options="statusOptions"
-          />
-        </div>
+    <FilterCard :primary-count="1" :columns="2">
+      <!-- 关键词必须是第一个直接子元素：窄屏折叠时它是唯一保留的主筛选项 -->
+      <div class="field">
+        <span class="field__label">关键词</span>
+        <t-input
+          v-model="filters.keyword"
+          class="unified-control"
+          clearable
+          placeholder="搜索等级名称 / 编码"
+          @enter="handleSearch"
+        />
       </div>
-      <div class="toolbar__actions">
+      <div class="field">
+        <span class="field__label">状态</span>
+        <t-select
+          v-model="filters.status"
+          class="unified-control"
+          clearable
+          placeholder="全部状态"
+          :options="statusOptions"
+        />
+      </div>
+      <template #actions>
         <t-space>
           <t-button theme="primary" @click="handleSearch">查询</t-button>
           <t-button variant="outline" @click="handleReset">重置</t-button>
         </t-space>
-      </div>
-    </section>
+      </template>
+    </FilterCard>
 
     <section class="table-panel surface-card">
       <t-table
@@ -201,6 +200,7 @@ import {
   type UserLevelListQuery,
   type UserLevelRequest,
 } from '@/api/user'
+import FilterCard from '@/components/filter-card/index.vue'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import LevelBadge from '@/components/level-badge/index.vue'
@@ -503,50 +503,24 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
 }
 
 .page-header,
-.toolbar,
+.filter-card,
 .table-panel {
   padding: 16px 20px;
 }
 
-.toolbar__actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid var(--td-brand-color-1);
-}
-
-/* 筛选卡对齐用户列表页（accounts/list）：白底卡片 + 关键词占宽列的栅格，
-   输入框不再按块级铺满整卡。 */
-.toolbar {
-  background: var(--hs-surface-1);
-}
-
-.toolbar__grid {
-  display: grid;
-  /* 只有 2 个字段，不能用 fr 弹性列摊满整卡（宽屏下输入框会被拉到 900px+）；
-     列宽封顶到与用户列表页同视觉尺度，多余空间留白。 */
-  grid-template-columns: minmax(260px, 380px) minmax(180px, 260px);
-  gap: 14px;
-}
-
-.toolbar-field {
+/* 筛选卡字段：对齐统一 FilterCard 的 .field 写法
+   （users/shared.css 暂无 .field 规则，本页自足补齐）。 */
+.field {
   display: flex;
   flex-direction: column;
   gap: 8px;
   min-width: 0;
 }
 
-.toolbar-field__label {
+.field__label {
   font-size: 12px;
   font-weight: 600;
   color: var(--color-muted-foreground);
-}
-
-@media (max-width: 768px) {
-  .toolbar__grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* 筛选控件与用户列表页同款（unified-control）：浅灰控件底 + 品牌色聚焦环。 */

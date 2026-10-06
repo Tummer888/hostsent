@@ -1,5 +1,5 @@
 <template>
-  <div class="user-list-page">
+  <div class="page-body users-module user-list-page">
     <header class="list-header surface-card">
       <div class="list-header__main">
         <div class="list-header__title-row">
@@ -47,125 +47,122 @@
       </div>
     </header>
 
-    <section class="toolbar surface-card">
-      <div class="toolbar__header">
-        <div>
-          <h3 class="toolbar__title">筛选条件</h3>
-        </div>
+    <!--
+      统一筛选卡：字段必须是 .filter-card__grid 的直接子元素，窄屏折叠规则
+      （:nth-child(n+2) 隐藏）挂在直接子元素上。关键词是最常用的主筛选，
+      必须排第一，窄屏才不会被折叠（primary-count=1 只保留它）。
+    -->
+    <FilterCard :primary-count="1">
+      <div class="field">
+        <span class="field__label">关键词</span>
+        <t-input
+          v-model="filters.keyword"
+          class="unified-control"
+          clearable
+          placeholder="搜索用户名 / 姓名 / 邮箱 / 手机号"
+          @enter="handleSearch"
+        >
+          <template #prefix-icon>
+            <SearchIcon />
+          </template>
+        </t-input>
       </div>
 
-      <div class="toolbar__grid">
-        <div class="toolbar-field toolbar-field--keyword">
-          <span class="toolbar-field__label">关键词</span>
-          <t-input
-            v-model="filters.keyword"
-            class="unified-control"
-            clearable
-            placeholder="搜索用户名 / 姓名 / 邮箱 / 手机号"
-            @enter="handleSearch"
-          >
-            <template #prefix-icon>
-              <SearchIcon />
-            </template>
-          </t-input>
-        </div>
-
-        <div v-if="!isRecycleView" class="toolbar-field">
-          <span class="toolbar-field__label">用户状态</span>
-          <t-select
-            v-model="filters.status"
-            class="unified-control"
-            clearable
-            filterable
-            placeholder="全部状态"
-            :options="statusOptions"
-          />
-        </div>
-
-        <div v-if="!isRecycleView" class="toolbar-field">
-          <span class="toolbar-field__label">快捷筛选</span>
-          <t-select
-            v-model="filters.filter"
-            class="unified-control"
-            clearable
-            placeholder="快捷筛选"
-            :options="quickFilterOptions"
-          />
-        </div>
-
-        <div class="toolbar-field">
-          <span class="toolbar-field__label">用户等级</span>
-          <t-select
-            v-model="filters.user_level_id"
-            class="unified-control"
-            clearable
-            filterable
-            placeholder="全部等级"
-            :options="levelOptions"
-          />
-        </div>
-
-        <div class="toolbar-field">
-          <span class="toolbar-field__label">用户组</span>
-          <t-select
-            v-model="filters.user_group_id"
-            class="unified-control"
-            clearable
-            filterable
-            placeholder="全部用户组"
-            :options="userGroupFilterOptions"
-          />
-        </div>
-
-        <div class="toolbar-field">
-          <span class="toolbar-field__label">代理等级</span>
-          <t-select
-            v-model="filters.is_agent"
-            class="unified-control"
-            clearable
-            placeholder="全部（含非代理）"
-            :options="agentFilterOptions"
-          />
-        </div>
-
-        <div class="toolbar-field">
-          <span class="toolbar-field__label">代理等级归属</span>
-          <t-select
-            v-model="filters.agent_level_id"
-            class="unified-control"
-            clearable
-            filterable
-            placeholder="全部代理等级"
-            :options="agentLevelFilterOptions"
-            :disabled="filters.is_agent === 'false'"
-          />
-        </div>
-
-        <div class="toolbar-field">
-          <span class="toolbar-field__label">账号类型</span>
-          <t-select
-            v-model="filters.is_sub_account"
-            class="unified-control"
-            clearable
-            placeholder="全部账号"
-            :options="accountTypeOptions"
-          />
-        </div>
-
-        <div class="toolbar-field">
-          <span class="toolbar-field__label">归属销售</span>
-          <t-select
-            v-model="filters.sales_admin_id"
-            class="unified-control"
-            clearable
-            filterable
-            placeholder="全部销售"
-            :options="salesFilterOptions"
-          />
-        </div>
+      <div v-if="!isRecycleView" class="field">
+        <span class="field__label">用户状态</span>
+        <t-select
+          v-model="filters.status"
+          class="unified-control"
+          clearable
+          filterable
+          placeholder="全部状态"
+          :options="statusOptions"
+        />
       </div>
 
-      <div class="toolbar__actions">
+      <div v-if="!isRecycleView" class="field">
+        <span class="field__label">快捷筛选</span>
+        <t-select
+          v-model="filters.filter"
+          class="unified-control"
+          clearable
+          placeholder="快捷筛选"
+          :options="quickFilterOptions"
+        />
+      </div>
+
+      <div class="field">
+        <span class="field__label">用户等级</span>
+        <t-select
+          v-model="filters.user_level_id"
+          class="unified-control"
+          clearable
+          filterable
+          placeholder="全部等级"
+          :options="levelOptions"
+        />
+      </div>
+
+      <div class="field">
+        <span class="field__label">用户组</span>
+        <t-select
+          v-model="filters.user_group_id"
+          class="unified-control"
+          clearable
+          filterable
+          placeholder="全部用户组"
+          :options="userGroupFilterOptions"
+        />
+      </div>
+
+      <div class="field">
+        <span class="field__label">代理等级</span>
+        <t-select
+          v-model="filters.is_agent"
+          class="unified-control"
+          clearable
+          placeholder="全部（含非代理）"
+          :options="agentFilterOptions"
+        />
+      </div>
+
+      <div class="field">
+        <span class="field__label">代理等级归属</span>
+        <t-select
+          v-model="filters.agent_level_id"
+          class="unified-control"
+          clearable
+          filterable
+          placeholder="全部代理等级"
+          :options="agentLevelFilterOptions"
+          :disabled="filters.is_agent === 'false'"
+        />
+      </div>
+
+      <div class="field">
+        <span class="field__label">账号类型</span>
+        <t-select
+          v-model="filters.is_sub_account"
+          class="unified-control"
+          clearable
+          placeholder="全部账号"
+          :options="accountTypeOptions"
+        />
+      </div>
+
+      <div class="field">
+        <span class="field__label">归属销售</span>
+        <t-select
+          v-model="filters.sales_admin_id"
+          class="unified-control"
+          clearable
+          filterable
+          placeholder="全部销售"
+          :options="salesFilterOptions"
+        />
+      </div>
+
+      <template #actions>
         <t-space>
           <t-button class="page-btn" theme="primary" @click="handleSearch">
             <template #icon>
@@ -175,8 +172,8 @@
           </t-button>
           <t-button class="page-btn page-btn--ghost" variant="outline" @click="handleReset">重置</t-button>
         </t-space>
-      </div>
-    </section>
+      </template>
+    </FilterCard>
 
     <section class="table-panel surface-card">
       <div class="table-panel__head">
@@ -765,6 +762,7 @@ import {
 import { getAgentLevelList, type AgentLevelInfo } from '@/api/agent-level'
 import { getProductList as getUcProductList } from '@/api/product'
 import { getSalesCandidates } from '@/api/sales'
+import FilterCard from '@/components/filter-card/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import LevelBadge from '@/components/level-badge/index.vue'
 import { useUserStore } from '@/store'
@@ -1969,6 +1967,15 @@ onBeforeUnmount(() => {
 })
 </script>
 
+<style>
+/*
+ * 用户模块共享样式（.users-module .filter-card 外壳内边距、.surface-card 卡底、
+ * TDesign 细节对齐）。路由懒加载下 detail 页里的引入不会覆盖到本页，
+ * 与 accounts/detail/index.vue 同款方式各引一次，Vite 会去重。
+ */
+@import '../../shared.css';
+</style>
+
 <style scoped lang="css">
 .user-list-page {
   display: flex;
@@ -1977,7 +1984,6 @@ onBeforeUnmount(() => {
 }
 
 .list-header,
-.toolbar,
 .table-panel {
   border-radius: var(--hs-radius-lg);
 }
@@ -2146,21 +2152,9 @@ onBeforeUnmount(() => {
   margin-top: 16px;
 }
 
-.toolbar {
-  padding: 18px 20px;
-  background: var(--hs-surface-1);
-  border-color: var(--td-brand-color-2);
-}
+/* 筛选卡外壳（surface-card 底、圆角、内边距）由 users/shared.css 的
+   .users-module .filter-card / .surface-card 规则提供，本页不再自写。 */
 
-.toolbar__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
-.toolbar__title,
 .table-panel__title {
   margin: 0;
   font-size: 16px;
@@ -2168,31 +2162,16 @@ onBeforeUnmount(() => {
   color: var(--color-foreground);
 }
 
-.toolbar__actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--td-brand-color-1);
-}
-
-.toolbar__grid {
-  display: grid;
-  grid-template-columns: minmax(260px, 2fr) repeat(6, minmax(150px, 1fr));
-  gap: 14px;
-}
-
-.toolbar-field {
+/* 字段写在页面 scoped 里：.field 元素是本页插槽内容，带本页 scope 属性。
+   users/shared.css 目前没有 .users-module .field 规则，先在本页兜底。 */
+.field {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.toolbar-field--keyword {
   min-width: 0;
 }
 
-.toolbar-field__label {
+.field__label {
   font-size: 12px;
   font-weight: 600;
   color: var(--color-muted-foreground);
@@ -2596,17 +2575,7 @@ onBeforeUnmount(() => {
   border-color: #e2e8f0;
 }
 
-@media (max-width: 1400px) {
-  .toolbar__grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 1200px) {
-  .toolbar__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .table-panel__head {
     flex-direction: column;
     align-items: stretch;
@@ -2614,17 +2583,11 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 768px) {
-  .list-header,
-  .toolbar__header {
+  .list-header {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .toolbar__grid {
-    grid-template-columns: 1fr;
-  }
-
-  .toolbar__actions,
   .list-header__actions {
     justify-content: flex-start;
   }

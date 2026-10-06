@@ -16,27 +16,25 @@
     :icon="ChartBarIcon"
   >
     <template #filters>
-      <div class="filter-grid">
-        <div class="field">
-          <span class="field__label">风险类型</span>
-          <t-select v-model="filters.risk_type" clearable :options="RISK_TYPE_OPTIONS" placeholder="风险类型" />
-        </div>
-        <div class="field">
-          <span class="field__label">风险等级</span>
-          <t-select v-model="filters.risk_level" clearable :options="RISK_LEVEL_OPTIONS" placeholder="风险等级" />
-        </div>
-        <div class="field">
-          <span class="field__label">处置状态</span>
-          <t-select v-model="filters.status" clearable :options="RISK_STATUS_OPTIONS" placeholder="处置状态" />
-        </div>
-        <div class="field">
-          <span class="field__label">关键词</span>
-          <t-input v-model="filters.keyword" clearable placeholder="关键词 / 用户名 / IP" />
-        </div>
-        <div class="field">
-          <span class="field__label">发生时间</span>
-          <t-date-range-picker v-model="dateRange" clearable allow-input @change="handleDateChange" />
-        </div>
+      <div class="field">
+        <span class="field__label">风险类型</span>
+        <t-select v-model="filters.risk_type" clearable :options="RISK_TYPE_OPTIONS" placeholder="风险类型" />
+      </div>
+      <div class="field">
+        <span class="field__label">风险等级</span>
+        <t-select v-model="filters.risk_level" clearable :options="RISK_LEVEL_OPTIONS" placeholder="风险等级" />
+      </div>
+      <div class="field">
+        <span class="field__label">处置状态</span>
+        <t-select v-model="filters.status" clearable :options="RISK_STATUS_OPTIONS" placeholder="处置状态" />
+      </div>
+      <div class="field">
+        <span class="field__label">关键词</span>
+        <t-input v-model="filters.keyword" clearable placeholder="关键词 / 用户名 / IP" />
+      </div>
+      <div class="field field--wide">
+        <span class="field__label">发生时间</span>
+        <t-date-range-picker v-model="dateRange" clearable allow-input @change="handleDateChange" />
       </div>
     </template>
 
@@ -251,23 +249,3 @@ function handleMobileAction(value: string | number | Record<string, any>, row: R
   }
 }
 </script>
-
-<style scoped>
-.filter-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
-@media (max-width: 1200px) {
-  .filter-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 768px) {
-  .filter-grid {
-    grid-template-columns: 1fr;
-  }
-}
-</style>

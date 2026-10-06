@@ -45,15 +45,16 @@ type ProductGroupItem struct {
 // TableName 指定表名。
 func (ProductGroupItem) TableName() string { return "product_group_items" }
 
-// DiscountScheme 折扣组：绑定一个商品分组 + 每个代理等级一个折扣率。
+// DiscountScheme 折扣组：绑定**多个**商品分组 + 每个代理分组一个折扣率。
+//
+// 绑定关系在 discount_scheme_groups 关联表（一个折扣组 N 个分组）：
+// 多个商品分组共用同一套费率阶梯时只维护一个折扣组，不必把费率抄多份。
 type DiscountScheme struct {
 	ID          uint64 `gorm:"primaryKey;autoIncrement"`
 	Name        string `gorm:"size:64;not null"`
 	Code        string `gorm:"size:64;not null;uniqueIndex:uk_discount_schemes_code"`
 	Description string `gorm:"size:255"`
-	// ProductGroupID 绑定的商品分组（可空 = 未绑定，应用前必须绑定）。
-	ProductGroupID *uint64 `gorm:"column:product_group_id"`
-	Status         string  `gorm:"size:32;not null;default:active"`
+	Status      string `gorm:"size:32;not null;default:active"`
 
 	CreatedAt time.Time `gorm:"autoCreateTime"`
 	UpdatedAt time.Time `gorm:"autoUpdateTime"`
@@ -64,6 +65,23 @@ type DiscountScheme struct {
 
 // TableName 指定表名。
 func (DiscountScheme) TableName() string { return "discount_schemes" }
+
+// DiscountSchemeGroup 折扣组与商品分组的绑定（doc108 §8K）。
+//
+// 两条唯一约束缺一不可：
+//   - (scheme_id, group_id)：同一折扣组里不重复绑同一个分组；
+//   - (group_id)：一个分组至多被一个折扣组绑定 —— 这是「分组是可复用命名集合」的前提，
+//     否则两个折扣组会往同一批商品上写价，矩阵上谁覆盖谁说不清。
+type DiscountSchemeGroup struct {
+	ID       uint64 `gorm:"primaryKey;autoIncrement"`
+	SchemeID uint64 `gorm:"column:scheme_id;not null;uniqueIndex:uk_discount_scheme_groups"`
+	GroupID  uint64 `gorm:"column:group_id;not null;uniqueIndex:uk_discount_scheme_groups;uniqueIndex:uk_discount_scheme_groups_group"`
+
+	CreatedAt time.Time `gorm:"autoCreateTime"`
+}
+
+// TableName 指定表名。
+func (DiscountSchemeGroup) TableName() string { return "discount_scheme_groups" }
 
 // DiscountSchemeItem 折扣组的等级费率：应用时展开为该等级在分组内全部目标的格子。
 type DiscountSchemeItem struct {

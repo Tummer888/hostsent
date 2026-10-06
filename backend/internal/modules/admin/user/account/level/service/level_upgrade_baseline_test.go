@@ -17,9 +17,9 @@ import (
 
 	"gorm.io/gorm"
 
-	"hostsent/backend/internal/modules/admin/user/level/dto"
-	"hostsent/backend/internal/modules/admin/user/level/model"
-	"hostsent/backend/internal/modules/admin/user/level/repository"
+	"hostsent/backend/internal/modules/admin/user/account/level/dto"
+	"hostsent/backend/internal/modules/admin/user/account/level/model"
+	"hostsent/backend/internal/modules/admin/user/account/level/repository"
 )
 
 // errUnexpectedLevelRepoCall 测试未预期的仓储调用。

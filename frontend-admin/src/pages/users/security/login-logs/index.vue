@@ -23,35 +23,33 @@
     </template>
 
     <template #filters>
-      <div class="filter-grid">
-        <div class="field">
-          <span class="field__label">用户名</span>
-          <t-input v-model="filters.username" clearable placeholder="用户名" />
-        </div>
-        <div class="field">
-          <span class="field__label">IP 地址</span>
-          <t-input v-model="filters.ip" clearable placeholder="IP 地址" />
-        </div>
-        <div class="field">
-          <span class="field__label">登录结果</span>
-          <t-select v-model="filters.result" clearable :options="resultOptions" placeholder="登录结果" />
-        </div>
-        <div class="field">
-          <span class="field__label">登录类型</span>
-          <t-select v-model="filters.login_type" clearable :options="LOGIN_TYPE_OPTIONS" placeholder="登录类型" />
-        </div>
-        <div class="field">
-          <span class="field__label">登录主体</span>
-          <t-select v-model="filters.subject_type" clearable :options="SUBJECT_TYPE_OPTIONS" placeholder="全部主体" />
-        </div>
-        <div class="field">
-          <span class="field__label">风险标记</span>
-          <t-select v-model="filters.risk_flag" clearable :options="RISK_FLAG_OPTIONS" placeholder="风险标记" />
-        </div>
-        <div class="field">
-          <span class="field__label">登录时间</span>
-          <t-date-range-picker v-model="dateRange" clearable allow-input @change="handleDateChange" />
-        </div>
+      <div class="field">
+        <span class="field__label">用户名</span>
+        <t-input v-model="filters.username" clearable placeholder="用户名" />
+      </div>
+      <div class="field">
+        <span class="field__label">IP 地址</span>
+        <t-input v-model="filters.ip" clearable placeholder="IP 地址" />
+      </div>
+      <div class="field">
+        <span class="field__label">登录结果</span>
+        <t-select v-model="filters.result" clearable :options="resultOptions" placeholder="登录结果" />
+      </div>
+      <div class="field">
+        <span class="field__label">登录类型</span>
+        <t-select v-model="filters.login_type" clearable :options="LOGIN_TYPE_OPTIONS" placeholder="登录类型" />
+      </div>
+      <div class="field">
+        <span class="field__label">登录主体</span>
+        <t-select v-model="filters.subject_type" clearable :options="SUBJECT_TYPE_OPTIONS" placeholder="全部主体" />
+      </div>
+      <div class="field">
+        <span class="field__label">风险标记</span>
+        <t-select v-model="filters.risk_flag" clearable :options="RISK_FLAG_OPTIONS" placeholder="风险标记" />
+      </div>
+      <div class="field field--wide">
+        <span class="field__label">登录时间</span>
+        <t-date-range-picker v-model="dateRange" clearable allow-input @change="handleDateChange" />
       </div>
     </template>
 
@@ -229,23 +227,3 @@ onMounted(() => {
   void loadData()
 })
 </script>
-
-<style scoped>
-.filter-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-@media (max-width: 1200px) {
-  .filter-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 768px) {
-  .filter-grid {
-    grid-template-columns: 1fr;
-  }
-}
-</style>

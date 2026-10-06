@@ -7,9 +7,9 @@ import (
 	"errors"
 	"strings"
 
-	"hostsent/backend/internal/modules/admin/user/level/dto"
-	"hostsent/backend/internal/modules/admin/user/level/model"
-	"hostsent/backend/internal/modules/admin/user/level/repository"
+	"hostsent/backend/internal/modules/admin/user/account/level/dto"
+	"hostsent/backend/internal/modules/admin/user/account/level/model"
+	"hostsent/backend/internal/modules/admin/user/account/level/repository"
 )
 
 // UserLevelService 定义用户等级的业务能力。

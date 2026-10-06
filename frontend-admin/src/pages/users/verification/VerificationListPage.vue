@@ -17,23 +17,21 @@
     @page-change="handlePageChange"
   >
     <template #filters>
-      <div class="filter-grid">
-        <div class="field">
-          <span class="field__label">用户名</span>
-          <t-input v-model="filters.username" clearable placeholder="用户名" />
-        </div>
-        <div class="field">
-          <span class="field__label">认证类型</span>
-          <t-select v-model="filters.verification_type" clearable :options="typeOptions" placeholder="认证类型" />
-        </div>
-        <div class="field">
-          <span class="field__label">审核人</span>
-          <t-input v-model="filters.reviewer_name" clearable placeholder="审核人" />
-        </div>
-        <div class="field">
-          <span class="field__label">关键词</span>
-          <t-input v-model="filters.keyword" clearable placeholder="关键词 / 主体 / 姓名" />
-        </div>
+      <div class="field">
+        <span class="field__label">用户名</span>
+        <t-input v-model="filters.username" clearable placeholder="用户名" />
+      </div>
+      <div class="field">
+        <span class="field__label">认证类型</span>
+        <t-select v-model="filters.verification_type" clearable :options="typeOptions" placeholder="认证类型" />
+      </div>
+      <div class="field">
+        <span class="field__label">审核人</span>
+        <t-input v-model="filters.reviewer_name" clearable placeholder="审核人" />
+      </div>
+      <div class="field">
+        <span class="field__label">关键词</span>
+        <t-input v-model="filters.keyword" clearable placeholder="关键词 / 主体 / 姓名" />
       </div>
     </template>
 
@@ -501,12 +499,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.filter-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
 .drawer-loading {
   padding: 48px 0;
   display: flex;
@@ -615,14 +607,7 @@ onMounted(() => {
   font-weight: 600;
 }
 
-@media (max-width: 1200px) {
-  .filter-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 768px) {
-  .filter-grid,
   .detail-grid {
     grid-template-columns: 1fr;
   }

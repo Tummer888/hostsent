@@ -14,10 +14,10 @@ import (
 	discountmodel "hostsent/backend/internal/modules/admin/product/discount/model"
 	flashdiscountmodel "hostsent/backend/internal/modules/admin/product/flashdiscount/model"
 	referralmodel "hostsent/backend/internal/modules/admin/referral/model"
+	levelmodel "hostsent/backend/internal/modules/admin/user/account/level/model"
 	usergroupmodel "hostsent/backend/internal/modules/admin/user/account/model"
 	usergrouprepo "hostsent/backend/internal/modules/admin/user/account/repository"
 	agentlevelmodel "hostsent/backend/internal/modules/admin/user/agentlevel/model"
-	levelmodel "hostsent/backend/internal/modules/admin/user/level/model"
 	securitymodel "hostsent/backend/internal/modules/admin/user/security/model"
 )
 
@@ -181,6 +181,23 @@ func TestLivePhaseMigrations(t *testing.T) {
 			indexes: []string{
 				"uk_flash_discounts_code", "idx_flash_discounts_window",
 				"uk_flash_discount_items", "idx_flash_discount_items_target",
+			},
+		},
+		{
+			// 063 把折扣组的商品分组绑定从单值列换成关联表（doc108 §8K）：
+			// 一个折扣组可绑多个商品分组共用同一套费率，一个分组仍只归一个折扣组。
+			name: "064_scheme_multi_groups",
+			file: "../../../migrations/064_scheme_multi_groups.sql",
+			models: []interface{}{
+				&agentlevelmodel.DiscountScheme{},
+				&agentlevelmodel.DiscountSchemeGroup{},
+			},
+			columns: map[string][]string{
+				"discount_scheme_groups": {"id", "scheme_id", "group_id", "created_at"},
+			},
+			indexes: []string{
+				"uk_discount_scheme_groups",       // (scheme_id, group_id)
+				"uk_discount_scheme_groups_group", // (group_id)：一个分组只归一个折扣组
 			},
 		},
 	}

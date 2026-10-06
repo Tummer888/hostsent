@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"hostsent/backend/internal/modules/admin/user/agentlevel/dto"
@@ -26,6 +27,11 @@ var (
 	ErrSchemeNoRates = errors.New("折扣组内没有大于 0 的折扣率，无需应用")
 	// ErrInvalidRate 折扣率非法。
 	ErrInvalidRate = errors.New("折扣率必须是 0 到 1 之间的数值")
+	// ErrTargetConflict 本折扣组要写的目标已被别的折扣组占用。
+	//
+	// 为什么必须拦：同一个 (代理分组, 目标) 单元格只有一个值，两个折扣组都写它时后应用的
+	// 静默覆盖前面的，矩阵上只看得到一个数字、查不出是谁写的，运营会以为两套折扣都在生效。
+	ErrTargetConflict = errors.New("该折扣组绑定的商品与其它折扣组重叠，无法应用")
 )
 
 // normalizeSchemeStatus 归一状态值。
@@ -203,6 +209,24 @@ func (s *productGroupService) Delete(ctx context.Context, id uint64) error {
 	return s.repo.DeleteGroup(ctx, id)
 }
 
+// dedupeUint64 去重并保序（0 视为无效丢弃）。
+// 目标唯一键复用同包 targetKey（agent_level_service.go，格式 type:id）。
+func dedupeUint64(ids []uint64) []uint64 {
+	seen := make(map[uint64]struct{}, len(ids))
+	out := make([]uint64, 0, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
 // —— 折扣组 ——
 
 type discountSchemeService struct {
@@ -261,12 +285,35 @@ func (s *discountSchemeService) schemeInfo(ctx context.Context, scheme model.Dis
 		CreatedAt:   scheme.CreatedAt.Format("2006-01-02 15:04:05"),
 		UpdatedAt:   scheme.UpdatedAt.Format("2006-01-02 15:04:05"),
 	}
-	if scheme.ProductGroupID != nil {
-		info.ProductGroupID = *scheme.ProductGroupID
-		if group, err := s.repo.FindGroupByID(ctx, *scheme.ProductGroupID); err == nil {
-			info.ProductGroupName = group.Name
-		}
+	groupIDs, err := s.repo.SchemeGroupIDs(ctx, scheme.ID)
+	if err != nil {
+		return nil, err
 	}
+	info.ProductGroupIDs = groupIDs
+	info.ProductGroups = make([]dto.SchemeGroupInfo, 0, len(groupIDs))
+	for _, groupID := range groupIDs {
+		group, err := s.repo.FindGroupByID(ctx, groupID)
+		if err != nil {
+			// 分组被删（无外键的悬空绑定）：仍然列出，标出来让运营能解绑。
+			info.ProductGroups = append(info.ProductGroups, dto.SchemeGroupInfo{
+				ID:   groupID,
+				Name: fmt.Sprintf("分组 #%d（已删除）", groupID),
+			})
+			continue
+		}
+		info.ProductGroups = append(info.ProductGroups, dto.SchemeGroupInfo{
+			ID:        group.ID,
+			Name:      group.Name,
+			Code:      group.Code,
+			ItemCount: group.ItemCount,
+		})
+	}
+	// 展开后的去重目标数：这就是「应用」时会写入的格子数基数（× 有费率的代理分组数）。
+	targets, err := s.repo.SchemeTargets(ctx, scheme.ID)
+	if err != nil {
+		return nil, err
+	}
+	info.TargetCount = int64(len(targets))
 	items, err := s.repo.SchemeItems(ctx, scheme.ID)
 	if err != nil {
 		return nil, err
@@ -316,26 +363,31 @@ func buildSchemeItems(req []dto.SchemeItemRequest) ([]model.DiscountSchemeItem, 
 	return items, nil
 }
 
-// checkGroupBindable 一个商品分组至多被一个折扣组绑定（截图中每行绑定一个分组的语义）。
-func (s *discountSchemeService) checkGroupBindable(ctx context.Context, groupID uint64, excludeSchemeID uint64) error {
-	if groupID == 0 {
-		return nil
+// checkGroupsBindable 校验一批商品分组可以绑到本折扣组：
+//   - 分组必须存在；
+//   - 一个分组至多被一个折扣组绑定（沿用既有约束，避免两个折扣组抢同一批商品）。
+//
+// 返回去重后的分组 ID（保持调用方顺序）。
+func (s *discountSchemeService) checkGroupsBindable(ctx context.Context, groupIDs []uint64, excludeSchemeID uint64) ([]uint64, error) {
+	ids := dedupeUint64(groupIDs)
+	for _, groupID := range ids {
+		if _, err := s.repo.FindGroupByID(ctx, groupID); err != nil {
+			return nil, fmt.Errorf("%w：商品分组 #%d 不存在", ErrInvalidAssignTarget, groupID)
+		}
+		bound, err := s.repo.CountSchemesOnGroup(ctx, groupID, excludeSchemeID)
+		if err != nil {
+			return nil, err
+		}
+		if bound > 0 {
+			return nil, fmt.Errorf("%w（分组 #%d 已属于其它折扣组，请先从那一组解绑）", repository.ErrGroupBound, groupID)
+		}
 	}
-	if _, err := s.repo.FindGroupByID(ctx, groupID); err != nil {
-		return fmt.Errorf("%w：商品分组不存在", ErrInvalidAssignTarget)
-	}
-	bound, err := s.repo.CountSchemesOnGroup(ctx, groupID, excludeSchemeID)
-	if err != nil {
-		return err
-	}
-	if bound > 0 {
-		return repository.ErrGroupBound
-	}
-	return nil
+	return ids, nil
 }
 
 func (s *discountSchemeService) Create(ctx context.Context, req dto.SchemeRequest) (*dto.SchemeInfo, error) {
-	if err := s.checkGroupBindable(ctx, req.ProductGroupID, 0); err != nil {
+	groupIDs, err := s.checkGroupsBindable(ctx, req.ProductGroupIDs, 0)
+	if err != nil {
 		return nil, err
 	}
 	items, err := buildSchemeItems(req.Items)
@@ -348,10 +400,7 @@ func (s *discountSchemeService) Create(ctx context.Context, req dto.SchemeReques
 		Description: req.Description,
 		Status:      normalizeSchemeStatus(req.Status),
 	}
-	if req.ProductGroupID > 0 {
-		scheme.ProductGroupID = &req.ProductGroupID
-	}
-	if err := s.repo.CreateScheme(ctx, scheme, items); err != nil {
+	if err := s.repo.CreateScheme(ctx, scheme, items, groupIDs); err != nil {
 		return nil, err
 	}
 	return s.FindByID(ctx, scheme.ID)
@@ -362,64 +411,89 @@ func (s *discountSchemeService) Update(ctx context.Context, id uint64, req dto.S
 	if err != nil {
 		return nil, err
 	}
-	if err := s.checkGroupBindable(ctx, req.ProductGroupID, id); err != nil {
-		return nil, err
+	// 绑定分组为 nil 表示不改；非 nil（含空数组）整体覆盖。
+	// 覆盖时若已有绑定关系被移除，那些商品上的旧折扣**留着不动**（改的是归属，
+	// 不是矩阵），要清掉请去生效矩阵或重新应用。
+	var groupIDs []uint64
+	replaceGroups := req.ProductGroupIDs != nil
+	if replaceGroups {
+		groupIDs, err = s.checkGroupsBindable(ctx, req.ProductGroupIDs, id)
+		if err != nil {
+			return nil, err
+		}
 	}
 	var items []model.DiscountSchemeItem
-	replace := false
+	replaceItems := false
 	if req.Items != nil {
 		items, err = buildSchemeItems(req.Items)
 		if err != nil {
 			return nil, err
 		}
-		replace = true
+		replaceItems = true
 	}
 	scheme.Name = strings.TrimSpace(req.Name)
 	scheme.Code = strings.TrimSpace(req.Code)
 	scheme.Description = req.Description
 	scheme.Status = normalizeSchemeStatus(req.Status)
-	if req.ProductGroupID > 0 {
-		scheme.ProductGroupID = &req.ProductGroupID
-	} else {
-		scheme.ProductGroupID = nil
-	}
-	if err := s.repo.UpdateScheme(ctx, scheme, items, replace); err != nil {
+	if err := s.repo.UpdateScheme(ctx, scheme, items, replaceItems, groupIDs, replaceGroups); err != nil {
 		return nil, err
 	}
 	return s.FindByID(ctx, id)
 }
 
 func (s *discountSchemeService) Delete(ctx context.Context, id uint64) error {
+	if _, err := s.repo.FindSchemeByID(ctx, id); err != nil {
+		return err
+	}
+	// 删除只清掉「配置」，不动已写入的矩阵 —— 矩阵是算价的唯一真相，
+	// 删一条配置不该让在售商品的价格凭空变化（要改价请去生效矩阵或重新应用）。
 	return s.repo.DeleteScheme(ctx, id)
 }
 
-// Apply 把折扣组展开写入绑定的商品分组：折扣组（等级→费率）× 商品分组（分类/商品集合）
-// = 逐格矩阵，复用 ApplyRateCells 的成本线/单调性/目标校验。
+// Apply 把折扣组展开写入它绑定的**全部分组**：
+// 折扣组（代理分组→费率）× 绑定的商品分组（并集去重后的目标集合）= 逐格矩阵。
+//
+// 去重与冲突校验都在这里收口：
+//   - 组内去重：同一单品被两个绑定分组各包含一次（一个按分类、一个按单品）时只写一格，
+//     否则会撞 agent_level_discounts 的唯一索引让整次应用失败；
+//   - 跨组冲突：若本组要写的目标同时被**别的折扣组**绑定，拒绝应用 ——
+//     同一格被两个折扣组先后写入，后应用的静默覆盖前面，矩阵上看不出是谁写的。
 func (s *discountSchemeService) Apply(ctx context.Context, id uint64) (*dto.MatrixResponse, error) {
 	scheme, err := s.repo.FindSchemeByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if scheme.ProductGroupID == nil || *scheme.ProductGroupID == 0 {
-		return nil, ErrSchemeNoGroup
-	}
-	groupItems, err := s.repo.GroupItems(ctx, *scheme.ProductGroupID)
+	groupIDs, err := s.repo.SchemeGroupIDs(ctx, scheme.ID)
 	if err != nil {
 		return nil, err
 	}
-	if len(groupItems) == 0 {
+	if len(groupIDs) == 0 {
+		return nil, ErrSchemeNoGroup
+	}
+	targets, err := s.repo.SchemeTargets(ctx, scheme.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(targets) == 0 {
 		return nil, ErrSchemeGroupEmpty
+	}
+	conflicts, err := s.crossSchemeConflicts(ctx, scheme.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(conflicts) > 0 {
+		return nil, fmt.Errorf("%w：%s", ErrTargetConflict, strings.Join(conflicts, "；"))
 	}
 	schemeItems, err := s.repo.SchemeItems(ctx, scheme.ID)
 	if err != nil {
 		return nil, err
 	}
-	cells := make([]model.AgentLevelDiscount, 0, len(schemeItems)*len(groupItems))
+	cells := make([]model.AgentLevelDiscount, 0, len(schemeItems)*len(targets))
 	for _, item := range schemeItems {
 		if item.DiscountRate <= 0 {
-			continue // 0 = 该等级在此方案不打折，应用时跳过
+			continue // 0 = 该代理分组在此方案不打折，应用时跳过
 		}
-		for _, target := range groupItems {
+		for _, target := range targets {
 			cells = append(cells, model.AgentLevelDiscount{
 				AgentLevelID: item.AgentLevelID,
 				TargetType:   target.TargetType,
@@ -432,4 +506,94 @@ func (s *discountSchemeService) Apply(ctx context.Context, id uint64) (*dto.Matr
 		return nil, ErrSchemeNoRates
 	}
 	return s.levels.ApplyRateCells(ctx, cells)
+}
+
+// crossSchemeConflicts 报出「本组要写的目标同时属于别的折扣组」的具体冲突。
+//
+// 用目标展开后的交集判断，而不是「分组是否相同」：两个分组名字与成员都不同，
+// 但一个按分类、一个按单品，仍可能落在同一格上（分组 A 含分类「对象存储」、
+// 分组 B 含单品「对象存储 100GB」）。这种重叠在配置阶段看不出来，只有展开才暴露，
+// 所以这道校验放在「应用」这个真正要写矩阵的时刻。
+func (s *discountSchemeService) crossSchemeConflicts(ctx context.Context, schemeID uint64) ([]string, error) {
+	sets, err := s.repo.SchemeTargetSets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	mine := make(map[string]struct{}, len(sets[schemeID]))
+	// 收集冲突目标，稍后统一解析名字。
+	collisions := make(map[string]uint64) // targetKey → 抢占它的折扣组 ID
+	for _, row := range sets[schemeID] {
+		mine[targetKey(row.TargetType, row.TargetID)] = struct{}{}
+	}
+	if len(mine) == 0 {
+		return nil, nil
+	}
+	categoryIDs := make([]uint64, 0)
+	productIDs := make([]uint64, 0)
+	for otherID, rows := range sets {
+		if otherID == schemeID {
+			continue
+		}
+		for _, row := range rows {
+			key := targetKey(row.TargetType, row.TargetID)
+			if _, ok := mine[key]; !ok {
+				continue
+			}
+			if _, ok := collisions[key]; ok {
+				continue
+			}
+			collisions[key] = otherID
+			switch row.TargetType {
+			case model.GroupTargetCategory:
+				categoryIDs = append(categoryIDs, row.TargetID)
+			case model.GroupTargetProduct:
+				productIDs = append(productIDs, row.TargetID)
+			}
+		}
+	}
+	if len(collisions) == 0 {
+		return nil, nil
+	}
+	names, err := s.repo.SchemeNames(ctx)
+	if err != nil {
+		return nil, err
+	}
+	categoryNames, err := s.repo.CategoryNames(ctx, categoryIDs)
+	if err != nil {
+		return nil, err
+	}
+	productNames, err := s.repo.ProductNames(ctx, productIDs)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(collisions))
+	for key, otherID := range collisions {
+		parts := strings.SplitN(key, ":", 2)
+		var id uint64
+		if _, err := fmt.Sscan(parts[1], &id); err != nil {
+			continue
+		}
+		out = append(out, fmt.Sprintf("「%s」已被折扣组「%s」占用",
+			targetLabel(parts[0], id, categoryNames, productNames), names[otherID]))
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// targetLabel 生成目标描述（有名字表时用名字，否则退回类型 + ID）。
+func targetLabel(targetType string, targetID uint64, categoryNames, productNames map[uint64]string) string {
+	switch targetType {
+	case model.GroupTargetCategory:
+		if name := categoryNames[targetID]; name != "" {
+			return "分类·" + name
+		}
+		return fmt.Sprintf("分类 #%d", targetID)
+	case model.GroupTargetProduct:
+		if name := productNames[targetID]; name != "" {
+			return "商品·" + name
+		}
+		return fmt.Sprintf("商品 #%d", targetID)
+	default:
+		return fmt.Sprintf("%s #%d", targetType, targetID)
+	}
 }

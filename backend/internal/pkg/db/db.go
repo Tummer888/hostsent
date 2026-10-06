@@ -37,9 +37,9 @@ import (
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	systemmodel "hostsent/backend/internal/modules/admin/system/model"
 	ticketmodel "hostsent/backend/internal/modules/admin/ticket/model"
+	levelmodel "hostsent/backend/internal/modules/admin/user/account/level/model"
 	usermodel "hostsent/backend/internal/modules/admin/user/account/model"
 	agentlevelmodel "hostsent/backend/internal/modules/admin/user/agentlevel/model"
-	levelmodel "hostsent/backend/internal/modules/admin/user/level/model"
 	securitymodel "hostsent/backend/internal/modules/admin/user/security/model"
 	verificationmodel "hostsent/backend/internal/modules/admin/user/verification/model"
 	openmodel "hostsent/backend/internal/modules/open/model"
@@ -84,6 +84,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&agentlevelmodel.ProductGroupItem{},
 		&agentlevelmodel.DiscountScheme{},
 		&agentlevelmodel.DiscountSchemeItem{},
+		// 折扣组 ↔ 商品分组（doc108 §8K）：一个折扣组可绑多个商品分组，共用同一套费率。
+		&agentlevelmodel.DiscountSchemeGroup{},
 		&usermodel.SubAccountPermission{},
 		&membermodel.OperationLog{},
 		// 推广邀请返现（独立于现金钱包的三表）
@@ -1572,7 +1574,9 @@ var seedMenuDefaults = []SeedMenu{
 	{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "账户管理", Type: menumodel.TypeDirectory, Path: "/users/accounts", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/users/accounts", Platform: menumodel.PlatformAdmin, Name: "用户列表", Type: menumodel.TypeMenu, Path: "/users/accounts/list", Component: "users/accounts/list/index", Icon: "user-list", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/users/accounts", Platform: menumodel.PlatformAdmin, Name: "用户组管理", Type: menumodel.TypeMenu, Path: "/users/accounts/groups", Component: "users/accounts/groups/index", Icon: "control-platform", SortOrder: 2, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "用户等级", Type: menumodel.TypeMenu, Path: "/users/levels", Component: "users/levels/index", Icon: "tag", SortOrder: 3, Status: menumodel.StatusActive},
+	// 用户等级从 /users 一级子项归入「账户管理」（归属调整，API/权限码不变），旧路径 router redirect。
+	{ParentKey: "admin:/users/accounts", Platform: menumodel.PlatformAdmin, Name: "用户等级", Type: menumodel.TypeMenu, Path: "/users/accounts/levels", Component: "users/accounts/levels/index", Icon: "tag", SortOrder: 3, Status: menumodel.StatusActive},
+
 	{ParentKey: "admin:/users", Platform: menumodel.PlatformAdmin, Name: "安全与风控", Type: menumodel.TypeDirectory, Path: "/users/security", Icon: "key", SortOrder: 4, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/users/security", Platform: menumodel.PlatformAdmin, Name: "登录日志", Type: menumodel.TypeMenu, Path: "/users/security/login-logs", Component: "users/security/login-logs/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/users/security", Platform: menumodel.PlatformAdmin, Name: "异常行为监控", Type: menumodel.TypeMenu, Path: "/users/security/risk", Component: "users/security/risk/index", Icon: "chart-bar", SortOrder: 2, Status: menumodel.StatusActive},

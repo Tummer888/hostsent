@@ -23,35 +23,33 @@
     </template>
 
     <template #filters>
-      <div class="filter-grid">
-        <div class="field">
-          <span class="field__label">用户名</span>
-          <t-input v-model="filters.username" clearable placeholder="用户名" />
-        </div>
-        <div class="field">
-          <span class="field__label">IP 地址</span>
-          <t-input v-model="filters.ip" clearable placeholder="IP 地址" />
-        </div>
-        <div class="field">
-          <span class="field__label">状态</span>
-          <t-select v-model="filters.status" clearable :options="SESSION_STATUS_OPTIONS" placeholder="状态" />
-        </div>
-        <div class="field">
-          <span class="field__label">平台</span>
-          <t-select v-model="filters.platform" clearable :options="SESSION_PLATFORM_OPTIONS" placeholder="平台" />
-        </div>
-        <div class="field">
-          <span class="field__label">会话主体</span>
-          <t-select v-model="filters.subject_type" clearable :options="SUBJECT_TYPE_OPTIONS" placeholder="全部主体" />
-        </div>
-        <div class="field">
-          <span class="field__label">风险标记</span>
-          <t-select v-model="filters.risk_flag" clearable :options="RISK_FLAG_OPTIONS" placeholder="风险标记" />
-        </div>
-        <div class="field">
-          <span class="field__label">登录时间</span>
-          <t-date-range-picker v-model="dateRange" clearable allow-input @change="handleDateChange" />
-        </div>
+      <div class="field">
+        <span class="field__label">用户名</span>
+        <t-input v-model="filters.username" clearable placeholder="用户名" />
+      </div>
+      <div class="field">
+        <span class="field__label">IP 地址</span>
+        <t-input v-model="filters.ip" clearable placeholder="IP 地址" />
+      </div>
+      <div class="field">
+        <span class="field__label">状态</span>
+        <t-select v-model="filters.status" clearable :options="SESSION_STATUS_OPTIONS" placeholder="状态" />
+      </div>
+      <div class="field">
+        <span class="field__label">平台</span>
+        <t-select v-model="filters.platform" clearable :options="SESSION_PLATFORM_OPTIONS" placeholder="平台" />
+      </div>
+      <div class="field">
+        <span class="field__label">会话主体</span>
+        <t-select v-model="filters.subject_type" clearable :options="SUBJECT_TYPE_OPTIONS" placeholder="全部主体" />
+      </div>
+      <div class="field">
+        <span class="field__label">风险标记</span>
+        <t-select v-model="filters.risk_flag" clearable :options="RISK_FLAG_OPTIONS" placeholder="风险标记" />
+      </div>
+      <div class="field field--wide">
+        <span class="field__label">登录时间</span>
+        <t-date-range-picker v-model="dateRange" clearable allow-input @change="handleDateChange" />
       </div>
     </template>
 
@@ -252,23 +250,3 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
   if (action === 'revoke') void revokeOne(row)
 }
 </script>
-
-<style scoped>
-.filter-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 12px;
-}
-
-@media (max-width: 1200px) {
-  .filter-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 768px) {
-  .filter-grid {
-    grid-template-columns: 1fr;
-  }
-}
-</style>

@@ -18,13 +18,16 @@
       <div class="security-page__toolbar-head">
         <h3 class="security-page__section-title">筛选条件</h3>
       </div>
-      <slot name="filters" />
-      <div class="security-page__toolbar-actions">
-        <t-space>
-          <t-button theme="primary" @click="$emit('search')">查询</t-button>
-          <t-button variant="outline" @click="$emit('reset')">重置</t-button>
-        </t-space>
-      </div>
+      <!-- 统一筛选卡（embedded：外壳由上方 surface-card 提供），窄屏自动折叠只留主筛选字段 -->
+      <FilterCard embedded :primary-count="1">
+        <slot name="filters" />
+        <template #actions>
+          <t-space>
+            <t-button theme="primary" @click="$emit('search')">查询</t-button>
+            <t-button variant="outline" @click="$emit('reset')">重置</t-button>
+          </t-space>
+        </template>
+      </FilterCard>
     </section>
 
     <section class="security-page__table surface-card">
@@ -77,6 +80,7 @@ import type { PageInfo, PaginationProps, PrimaryTableCol } from 'tdesign-vue-nex
 import { AppIcon } from 'tdesign-icons-vue-next'
 
 import MobilePagination from '@/components/mobile-pagination/index.vue'
+import FilterCard from '@/components/filter-card/index.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 
 defineProps<{
@@ -170,7 +174,8 @@ const { isMobile } = useIsMobile()
   gap: 12px;
 }
 
-.security-page__toolbar :deep(.filter-grid .field) {
+/* 字段来自各页 #filters 插槽，直接是 FilterCard 栅格（.filter-card__grid）的子元素 */
+.security-page__toolbar :deep(.filter-card__grid > .field) {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -200,18 +205,10 @@ const { isMobile } = useIsMobile()
   box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.1);
 }
 
-.security-page__toolbar :deep(.filter-grid .field__label) {
+.security-page__toolbar :deep(.filter-card__grid > .field .field__label) {
   font-size: 12px;
   font-weight: 600;
   color: var(--color-muted-foreground);
-}
-
-.security-page__toolbar-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid var(--td-brand-color-1);
 }
 
 .security-page :deep(.t-table__th) {
@@ -244,10 +241,6 @@ const { isMobile } = useIsMobile()
   .security-page__table-head {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .security-page__toolbar-actions {
-    justify-content: flex-end;
   }
 }
 </style>

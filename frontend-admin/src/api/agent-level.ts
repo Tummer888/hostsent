@@ -236,14 +236,24 @@ export interface SchemeItem {
   discount_rate: number
 }
 
+export interface SchemeGroupInfo {
+  id: number
+  name: string
+  code?: string
+  item_count: number
+}
+
 export interface SchemeInfo {
   id: number
   name: string
   code: string
   description?: string
   status: string
-  product_group_id: number
-  product_group_name?: string
+  /** 绑定的商品分组（可多个，共用同一套费率阶梯）。 */
+  product_group_ids: number[]
+  product_groups: SchemeGroupInfo[]
+  /** 绑定分组展开去重后的目标数（应用时写入的格数基数）。 */
+  target_count: number
   item_count: number
   items: SchemeItem[]
   created_at: string
@@ -255,7 +265,8 @@ export interface SchemeRequest {
   code: string
   description?: string
   status?: string
-  product_group_id?: number
+  /** nil（不传）= 不改绑定；传（含空数组）= 整体覆盖。 */
+  product_group_ids?: number[]
   /** nil（不传）= 不改费率；传（含空数组）= 整体覆盖。 */
   items?: Array<{ agent_level_id: number; discount_rate: number }>
 }

@@ -5,9 +5,10 @@
         <div>
           <h3 class="scheme-title">③ 折扣组（谁拿几折）</h3>
           <p class="scheme-desc">
-            一行 = 一个折扣组，绑定<strong>一个商品分组</strong>（②）；列是<strong>代理分组</strong>（①），
-            每格填该分组在这个商品分组上的折扣率。最高权重分组填锚点，其余可用「阶梯填充」一键铺开。
-            点「应用」后才写入折扣矩阵生效（受成本线与权重单调性约束）。
+            一行 = 一个折扣组，可绑定<strong>一个或多个商品分组</strong>（②），它们共用这一行的费率阶梯；
+            列是<strong>代理分组</strong>（①），每格填该代理分组在这些商品上的折扣率。
+            最高权重分组填锚点，其余可用「阶梯填充」一键铺开；点「应用」后才写入折扣矩阵生效。
+            <strong>同一商品只能归一个折扣组</strong>，重叠时应用会被拒绝（避免两组互相覆盖）。
           </p>
         </div>
         <t-button v-permission="'agent_level:create'" theme="primary" @click="openCreate">新建折扣组</t-button>
@@ -36,15 +37,20 @@
               <tr v-for="row in rows" :key="row.id">
                 <td class="scheme-table__name">
                   <t-input v-model="row.draft.name" size="small" placeholder="组名称" class="scheme-name-input" />
+                  <span v-if="row.draft.group_ids.length" class="scheme-row-meta">
+                    {{ row.draft.group_ids.length }} 个分组 · {{ row.targetCount }} 个目标
+                  </span>
                 </td>
                 <td class="scheme-table__group">
                   <t-select
-                    v-model="row.draft.product_group_id"
-                    :options="groupOptions"
+                    v-model="row.draft.group_ids"
+                    :options="groupOptionsFor(row)"
                     size="small"
+                    multiple
                     clearable
                     filterable
-                    placeholder="无"
+                    :min-collapsed-num="2"
+                    placeholder="可多选"
                     class="scheme-group-select"
                   />
                 </td>
@@ -79,7 +85,10 @@
                     >
                       保存
                     </t-link>
-                    <t-popconfirm content="把该组的折扣率写入绑定商品分组下的全部分类/商品？" @confirm="applyRow(row)">
+                    <t-popconfirm
+                      content="把该组费率写入所绑商品分组下的全部分类/商品？（分组间目标会去重；与其它折扣组重叠时会被拒绝）"
+                      @confirm="applyRow(row)"
+                    >
                       <t-link v-permission="'agent_level:update'" theme="primary" hover="color" :disabled="row.applying">
                         应用
                       </t-link>
@@ -110,8 +119,16 @@
         <t-form-item label="编码" name="code">
           <t-input v-model="form.code" placeholder="如：scheme_60" />
         </t-form-item>
-        <t-form-item label="绑定商品分组" name="product_group_id">
-          <t-select v-model="form.product_group_id" :options="groupOptions" clearable filterable placeholder="可先不绑，应用前必须绑定" />
+        <t-form-item label="绑定商品分组" name="product_group_ids">
+          <t-select
+            v-model="form.group_ids"
+            :options="groupOptions"
+            multiple
+            clearable
+            filterable
+            :min-collapsed-num="3"
+            placeholder="可多选：多个分组共用本组费率（同一分组只能归一个折扣组）"
+          />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -195,9 +212,11 @@ interface SchemeRow {
   status: string
   saving: boolean
   applying: boolean
+  /** 绑定分组展开后的去重目标数（后端算好下发，保存后会刷新）。 */
+  targetCount: number
   draft: {
     name: string
-    product_group_id: number | undefined
+    group_ids: number[]
     rates: Record<number, number>
   }
 }
@@ -216,11 +235,40 @@ const groupOptions = computed(() =>
   })),
 )
 
+/**
+ * 行内分组下拉：把「已被别的折扣组占用的分组」标出来并禁用。
+ *
+ * 一个商品分组只归一个折扣组是硬约束（后端唯一索引兜底），在下拉里提前拦住
+ * 比让运营选完、保存时才吃到 409 更省事；本行已选的仍可取消。
+ */
+function groupOptionsFor(row: SchemeRow) {
+  return groupOptions.value.map((option) => {
+    const owner = groupOwners.value[option.value]
+    if (owner && owner !== row.id) {
+      return { ...option, disabled: true, label: `${option.label}（已被「${ownerName(owner)}」绑定）` }
+    }
+    return option
+  })
+}
+
+function ownerName(schemeId: number): string {
+  return rows.value.find((item) => item.id === schemeId)?.draft.name || `折扣组 #${schemeId}`
+}
+
 const formRef = ref<FormInstanceFunctions>()
-const form = reactive<{ name: string; code: string; product_group_id: number | undefined }>({
+const form = reactive<{ name: string; code: string; group_ids: number[] }>({
   name: '',
   code: '',
-  product_group_id: undefined,
+  group_ids: [],
+})
+
+// 分组 → 占用它的折扣组 ID（由已加载的折扣组反推，不做额外接口）。
+const groupOwners = computed<Record<number, number>>(() => {
+  const out: Record<number, number> = {}
+  for (const row of rows.value) {
+    for (const id of row.draft.group_ids) out[id] = row.id
+  }
+  return out
 })
 
 const rules: Record<string, FormRule[]> = {
@@ -261,9 +309,10 @@ function toRow(scheme: SchemeInfo): SchemeRow {
     status: scheme.status,
     saving: false,
     applying: false,
+    targetCount: scheme.target_count || 0,
     draft: {
       name: scheme.name,
-      product_group_id: scheme.product_group_id || undefined,
+      group_ids: [...(scheme.product_group_ids || [])],
       rates,
     },
   }
@@ -277,7 +326,8 @@ function payloadOf(row: SchemeRow) {
     code: row.code,
     description: row.description,
     status: row.status,
-    product_group_id: row.draft.product_group_id || 0,
+    // 数组 = 整体覆盖绑定关系（空数组即解绑全部分组）。
+    product_group_ids: row.draft.group_ids,
     // items 非空数组 = 整体覆盖（含停用等级的历史费率，避免保存把库里的清掉）
     items,
   }
@@ -310,8 +360,12 @@ async function applyRow(row: SchemeRow) {
   row.applying = true
   try {
     await updateScheme(row.id, payloadOf(row))
-    await applyScheme(row.id)
-    MessagePlugin.success('已应用：折扣率已写入绑定商品分组下的全部分类/商品')
+    const matrix = await applyScheme(row.id)
+    // 应用会把折扣写进矩阵；这里的行内目标数同步一下，运营能立刻看到「写了几格」。
+    MessagePlugin.success(
+      `已应用：${row.draft.group_ids.length} 个商品分组、${matrix.rows.length + (matrix.product_rows?.length || 0)} 行目标已写入折扣矩阵`,
+    )
+    await loadData()
     emit('changed')
   } catch (error) {
     MessagePlugin.error((error as Error)?.message || '应用失败')
@@ -331,7 +385,7 @@ async function deleteRow(row: SchemeRow) {
 }
 
 function openCreate() {
-  Object.assign(form, { name: '', code: '', product_group_id: undefined })
+  Object.assign(form, { name: '', code: '', group_ids: [] })
   dialogVisible.value = true
 }
 
@@ -343,12 +397,13 @@ async function handleCreate() {
     await createScheme({
       name: form.name,
       code: form.code,
-      product_group_id: form.product_group_id || 0,
+      product_group_ids: form.group_ids,
       items: activeLevels.value.map((level) => ({ agent_level_id: level.id, discount_rate: 0 })),
     })
-    MessagePlugin.success('折扣组已创建，请在表格中填写各等级折扣率')
+    MessagePlugin.success('折扣组已创建，请在表格中填写各代理分组的折扣率')
     dialogVisible.value = false
     await loadData()
+    emit('changed')
   } catch (error) {
     MessagePlugin.error((error as Error)?.message || '创建失败')
   } finally {
@@ -475,6 +530,13 @@ defineExpose({ openCreate, reload: loadData })
 
 .scheme-name-input {
   width: 150px;
+}
+
+.scheme-row-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--color-muted-foreground);
 }
 
 .scheme-group-select {

@@ -90,10 +90,16 @@ const routes: Array<RouteRecordRaw> = [
         meta: { title: '会话管理', role: 'admin', permission: 'security:session:manage' },
       },
       {
-        path: 'levels',
+        // 用户等级归入「账户管理」子模块（归属调整，API/权限码不变），旧路径 redirect。
+        path: 'accounts/levels',
         name: 'UserLevels',
-        component: () => import('@/pages/users/levels/index.vue'),
+        component: () => import('@/pages/users/accounts/levels/index.vue'),
         meta: { title: '用户等级管理', role: 'admin', permission: 'level:list' },
+      },
+      {
+        path: 'levels',
+        redirect: '/users/accounts/levels',
+        meta: { title: '用户等级管理', role: 'admin' },
       },
       {
         // 待审核 / 审核通过 / 审核拒绝三个列表合并为一页页签切换（用户反馈），

@@ -8,8 +8,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"hostsent/backend/internal/modules/admin/user/level/dto"
-	"hostsent/backend/internal/modules/admin/user/level/model"
+	"hostsent/backend/internal/modules/admin/user/account/level/dto"
+	"hostsent/backend/internal/modules/admin/user/account/level/model"
 )
 
 // UserLevelRepository 定义用户等级的持久化操作。

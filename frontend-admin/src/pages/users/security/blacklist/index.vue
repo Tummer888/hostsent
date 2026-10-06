@@ -20,27 +20,25 @@
     </template>
 
     <template #filters>
-      <div class="filter-grid">
-        <div class="field">
-          <span class="field__label">类型</span>
-          <t-select v-model="filters.type" clearable :options="BLACKLIST_TYPE_OPTIONS" placeholder="类型" />
-        </div>
-        <div class="field">
-          <span class="field__label">状态</span>
-          <t-select v-model="filters.status" clearable :options="BLACKLIST_STATUS_OPTIONS" placeholder="状态" />
-        </div>
-        <div class="field">
-          <span class="field__label">来源</span>
-          <t-select v-model="filters.source" clearable :options="BLACKLIST_SOURCE_OPTIONS" placeholder="来源" />
-        </div>
-        <div class="field">
-          <span class="field__label">命中值关键词</span>
-          <t-input v-model="filters.keyword" clearable placeholder="命中值关键词" />
-        </div>
-        <div class="field">
-          <span class="field__label">生效时间</span>
-          <t-date-range-picker v-model="dateRange" clearable allow-input @change="handleDateChange" />
-        </div>
+      <div class="field">
+        <span class="field__label">类型</span>
+        <t-select v-model="filters.type" clearable :options="BLACKLIST_TYPE_OPTIONS" placeholder="类型" />
+      </div>
+      <div class="field">
+        <span class="field__label">状态</span>
+        <t-select v-model="filters.status" clearable :options="BLACKLIST_STATUS_OPTIONS" placeholder="状态" />
+      </div>
+      <div class="field">
+        <span class="field__label">来源</span>
+        <t-select v-model="filters.source" clearable :options="BLACKLIST_SOURCE_OPTIONS" placeholder="来源" />
+      </div>
+      <div class="field">
+        <span class="field__label">命中值关键词</span>
+        <t-input v-model="filters.keyword" clearable placeholder="命中值关键词" />
+      </div>
+      <div class="field field--wide">
+        <span class="field__label">生效时间</span>
+        <t-date-range-picker v-model="dateRange" clearable allow-input @change="handleDateChange" />
       </div>
     </template>
 
@@ -430,23 +428,3 @@ function handleMobileAction(value: string | number | Record<string, any>, row: B
   }
 }
 </script>
-
-<style scoped>
-.filter-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 12px;
-}
-
-@media (max-width: 1200px) {
-  .filter-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 768px) {
-  .filter-grid {
-    grid-template-columns: 1fr;
-  }
-}
-</style>

@@ -37,31 +37,29 @@
     </template>
 
     <template #filters>
-      <div class="filter-grid">
-        <div class="field">
-          <span class="field__label">操作人</span>
-          <t-input v-model="filters.operator" clearable placeholder="操作人" />
-        </div>
-        <div class="field">
-          <span class="field__label">模块</span>
-          <t-input v-model="filters.module" clearable placeholder="模块" />
-        </div>
-        <div class="field">
-          <span class="field__label">动作</span>
-          <t-select v-model="filters.action" clearable :options="actionOptions" placeholder="动作" />
-        </div>
-        <div class="field">
-          <span class="field__label">结果</span>
-          <t-select v-model="filters.result" clearable :options="resultOptions" placeholder="结果" />
-        </div>
-        <div class="field">
-          <span class="field__label">资源类型</span>
-          <t-input v-model="filters.resource_type" clearable placeholder="资源类型" />
-        </div>
-        <div class="field">
-          <span class="field__label">资源 ID</span>
-          <t-input v-model="filters.resource_id" clearable placeholder="资源 ID" />
-        </div>
+      <div class="field">
+        <span class="field__label">操作人</span>
+        <t-input v-model="filters.operator" clearable placeholder="操作人" />
+      </div>
+      <div class="field">
+        <span class="field__label">模块</span>
+        <t-input v-model="filters.module" clearable placeholder="模块" />
+      </div>
+      <div class="field">
+        <span class="field__label">动作</span>
+        <t-select v-model="filters.action" clearable :options="actionOptions" placeholder="动作" />
+      </div>
+      <div class="field">
+        <span class="field__label">结果</span>
+        <t-select v-model="filters.result" clearable :options="resultOptions" placeholder="结果" />
+      </div>
+      <div class="field">
+        <span class="field__label">资源类型</span>
+        <t-input v-model="filters.resource_type" clearable placeholder="资源类型" />
+      </div>
+      <div class="field">
+        <span class="field__label">资源 ID</span>
+        <t-input v-model="filters.resource_id" clearable placeholder="资源 ID" />
       </div>
     </template>
 
@@ -125,24 +123,27 @@
       <!-- 管理操作审计（P2-06）：新表 admin_audit_logs，记录后台写操作 -->
       <t-tab-panel value="admin" label="管理操作审计">
         <t-card :bordered="false" class="admin-audit-card">
-          <div class="filter-grid">
+          <!-- 统一筛选卡（embedded）：窄屏折叠只留主筛选「关键词」，其余收进更多筛选 -->
+          <FilterCard embedded :primary-count="1">
             <div class="field">
-          <span class="field__label">关键词</span>
-          <t-input v-model="adminFilters.keyword" clearable placeholder="操作人 / 路径" @enter="handleAdminSearch" />
-        </div>
+              <span class="field__label">关键词</span>
+              <t-input v-model="adminFilters.keyword" clearable placeholder="操作人 / 路径" @enter="handleAdminSearch" />
+            </div>
             <div class="field">
-          <span class="field__label">资源类型</span>
-          <t-input v-model="adminFilters.resource_type" clearable placeholder="资源类型（如 users）" />
-        </div>
+              <span class="field__label">资源类型</span>
+              <t-input v-model="adminFilters.resource_type" clearable placeholder="资源类型（如 users）" />
+            </div>
             <div class="field">
-          <span class="field__label">动作</span>
-          <t-input v-model="adminFilters.action" clearable placeholder="动作（如 create）" />
-        </div>
-          </div>
-          <div class="admin-audit-actions">
-            <t-button theme="primary" @click="handleAdminSearch">查询</t-button>
-            <t-button variant="outline" @click="handleAdminReset">重置</t-button>
-          </div>
+              <span class="field__label">动作</span>
+              <t-input v-model="adminFilters.action" clearable placeholder="动作（如 create）" />
+            </div>
+            <template #actions>
+              <t-space>
+                <t-button theme="primary" @click="handleAdminSearch">查询</t-button>
+                <t-button variant="outline" @click="handleAdminReset">重置</t-button>
+              </t-space>
+            </template>
+          </FilterCard>
 
           <t-table
             row-key="id"
@@ -237,6 +238,7 @@ import {
 import { request } from '@/utils/request'
 
 import MobileAction from '@/components/mobile-action/index.vue'
+import FilterCard from '@/components/filter-card/index.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import SecurityListPage from '../../users/security/SecurityListPage.vue'
 import { formatSecurityTime } from '../../users/security/shared'
@@ -493,33 +495,18 @@ watch(activeTab, (tab) => {
   padding: 4px 0 0;
 }
 
-.filter-grid .field {
+/* 管理操作审计页签的字段：直接是 FilterCard 栅格（.filter-card__grid）的子元素 */
+.admin-audit-card :deep(.filter-card__grid > .field) {
   display: flex;
   flex-direction: column;
   gap: 8px;
   min-width: 0;
 }
 
-.filter-grid .field__label {
+.admin-audit-card :deep(.filter-card__grid > .field .field__label) {
   font-size: 12px;
   font-weight: 600;
   color: var(--color-muted-foreground);
-}
-
-.admin-audit-card .filter-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: center;
-  margin-bottom: 0;
-}
-
-.admin-audit-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 14px;
-  padding-top: 14px;
-  margin-bottom: 16px;
-  border-top: 1px solid var(--td-brand-color-1);
 }
 
 .admin-audit-table {
@@ -530,30 +517,6 @@ watch(activeTab, (tab) => {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
-}
-
-@media (max-width: 1200px) {
-  .admin-audit-card .filter-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-.filter-grid {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 12px;
-}
-
-@media (max-width: 1200px) {
-  .filter-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 768px) {
-  .filter-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .payload-block {

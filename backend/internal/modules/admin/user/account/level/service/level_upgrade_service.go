@@ -7,8 +7,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"hostsent/backend/internal/modules/admin/user/level/model"
-	"hostsent/backend/internal/modules/admin/user/level/repository"
+	"hostsent/backend/internal/modules/admin/user/account/level/model"
+	"hostsent/backend/internal/modules/admin/user/account/level/repository"
 )
 
 // LevelUpgradeService 按累计消费维护用户等级（P3-03）。

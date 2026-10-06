@@ -31,15 +31,48 @@
       </t-space>
     </header>
 
-    <FilterCard>
-      <div class="field">
-        <span class="field__label">关键词</span>
-        <t-input v-model="filters.keyword" placeholder="产品名称 / SKU 编码" clearable @enter="handleSearch" />
-      </div>
-      <div class="field">
-        <span class="field__label">分类</span>
-        <t-select v-model="filters.category_id" clearable placeholder="全部分类" :options="categoryOptions" />
-      </div>
+    <div class="products-layout">
+      <!-- 分类导航：点节点 = 过滤该分类及其整棵子树（后端已支持子树展开）；移动端隐藏，用筛选卡里的分类下拉 -->
+      <aside v-if="!isMobile" class="products-aside surface-card">
+        <div class="products-aside__head">
+          <h3 class="card-title">分类导航</h3>
+          <t-link theme="primary" hover="color" class="products-aside__all" @click="selectAllCategories">全部产品</t-link>
+        </div>
+        <t-input v-model="treeKeyword" size="small" clearable placeholder="搜索分类">
+          <template #prefix-icon>
+            <SearchIcon aria-hidden="true" />
+          </template>
+        </t-input>
+        <div class="products-aside__tree">
+          <t-tree
+            v-model:expanded="asideExpanded"
+            :data="filteredAsideTree"
+            :keys="{ label: 'name', value: 'id', children: 'children' }"
+            activable
+            :actived="activeTreeKeys"
+            line
+            :expand-level="1"
+            @active="onTreeActive"
+          >
+            <template #label="{ node }">
+              <span class="aside-node" :class="{ 'aside-node--disabled': node.data.status !== 1 }">
+                {{ node.data.name }}{{ node.data.status !== 1 ? '（停用）' : '' }}
+              </span>
+            </template>
+          </t-tree>
+        </div>
+      </aside>
+
+      <div class="products-main">
+        <FilterCard>
+          <div class="field">
+            <span class="field__label">关键词</span>
+            <t-input v-model="filters.keyword" placeholder="产品名称 / SKU 编码" clearable @enter="handleSearch" />
+          </div>
+          <div v-if="isMobile" class="field">
+            <span class="field__label">分类</span>
+            <t-select v-model="filters.category_id" clearable placeholder="全部分类" :options="categoryOptions" />
+          </div>
       <div class="field">
         <span class="field__label">状态</span>
         <t-select v-model="filters.status" clearable placeholder="全部状态" :options="productStatusOptions" />
@@ -64,7 +97,13 @@
     <section class="table-card surface-card">
       <div class="table-card__head">
         <h3 class="card-title">产品列表</h3>
-        <span class="table-card__meta">共 {{ pagination.total }} 个产品</span>
+        <div class="table-card__meta products-crumb-wrap">
+          <span v-if="activeCategoryPath.length" class="products-crumb">
+            分类：{{ activeCategoryPath.map((n) => n.name).join(' / ') }}
+            <t-link theme="primary" hover="color" @click="selectAllCategories">查看全部</t-link>
+          </span>
+          <span>共 {{ pagination.total }} 个产品</span>
+        </div>
       </div>
       <t-table
         row-key="id"
@@ -161,6 +200,8 @@
         @page-size="handleMobilePageSizeChange"
       />
     </section>
+      </div>
+    </div>
 
     <t-dialog
       v-model:visible="priceVisible"
@@ -236,8 +277,8 @@
 
 <script setup lang="ts">
 import FilterCard from '@/components/filter-card/index.vue'
-import { onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import { AddIcon, AppIcon, CloudIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
@@ -245,6 +286,7 @@ import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-n
 import {
   batchCloneProductFromUpstream,
   deleteProduct,
+  getProductCategoryList,
   getProductList,
   publishProduct,
   unpublishProduct,
@@ -252,7 +294,7 @@ import {
 } from '@/api/product'
 import { getProductList as getResourceProductList, getProviderList } from '@/api/admin'
 import { formatPrice, priceModelLabel, productStatusOptions, sourceModeOptions, sourceModeTag, statusTag } from '@/pages/product/constants'
-import type { ProductInfo, ProviderInfo, SaleProductInfo } from '@/types/interface'
+import type { ProductInfo, ProviderInfo, SaleProductCategoryInfo, SaleProductInfo } from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
@@ -263,6 +305,7 @@ import { useMobilePagination } from '@/composables/useMobilePagination'
 defineOptions({ name: 'ProductProducts' })
 
 const router = useRouter()
+const route = useRoute()
 
 const productList = ref<SaleProductInfo[]>([])
 const loading = ref(false)
@@ -294,6 +337,76 @@ const columns: PrimaryTableCol<SaleProductInfo>[] = [
     align: 'center' as const,
   },
 ]
+
+// ===== 分类导航（左树右表）：树只负责定位，表格保持服务端分页 =====
+const asideTree = ref<SaleProductCategoryInfo[]>([])
+const asideExpanded = ref<Array<string | number>>([])
+const treeKeyword = ref('')
+
+// 按名称过滤导航树：仅后代命中时保留「祖先 → 命中项」链
+const filteredAsideTree = computed(() => {
+  const kw = treeKeyword.value.trim().toLowerCase()
+  if (!kw) return asideTree.value
+  const walk = (nodes: SaleProductCategoryInfo[]): SaleProductCategoryInfo[] => {
+    const out: SaleProductCategoryInfo[] = []
+    for (const node of nodes) {
+      const children = node.children?.length ? walk(node.children) : []
+      if (node.name.toLowerCase().includes(kw)) out.push(node)
+      else if (children.length) out.push({ ...node, children })
+    }
+    return out
+  }
+  return walk(asideTree.value)
+})
+
+
+// 从根到当前选中分类的路径（面包屑用）
+const activeCategoryPath = computed<SaleProductCategoryInfo[]>(() => {
+  const target = filters.category_id
+  if (!target) return []
+  const path: SaleProductCategoryInfo[] = []
+  const walk = (nodes: SaleProductCategoryInfo[]): boolean => {
+    for (const node of nodes) {
+      path.push(node)
+      if (node.id === target) return true
+      if (node.children?.length && walk(node.children)) return true
+      path.pop()
+    }
+    return false
+  }
+  walk(asideTree.value)
+  return path
+})
+
+const activeTreeKeys = computed(() => (filters.category_id ? [filters.category_id] : []))
+
+async function loadCategoryTree() {
+  try {
+    const data = await getProductCategoryList()
+    asideTree.value = data.items
+    // 从 URL 直进时展开选中节点的祖先链，否则深层节点看不见
+    if (filters.category_id) {
+      asideExpanded.value = activeCategoryPath.value.map((n) => n.id)
+    }
+  } catch {
+    // 导航树加载失败不阻断列表：分类下拉（移动端）与「全部产品」仍可用
+  }
+}
+
+function onTreeActive(value: Array<string | number>) {
+  const id = value.length ? Number(value[value.length - 1]) : undefined
+  selectCategory(id && id > 0 ? id : undefined)
+}
+
+function selectCategory(id: number | undefined) {
+  filters.category_id = id
+  resetPage()
+  router.replace({ query: { ...route.query, category_id: id ? String(id) : undefined } })
+}
+
+function selectAllCategories() {
+  selectCategory(undefined)
+}
 
 async function loadProducts() {
   loading.value = true
@@ -520,9 +633,25 @@ async function handleSavePrice() {
 }
 
 onMounted(() => {
+  const q = Number(route.query.category_id)
+  if (q > 0) filters.category_id = q
   loadCategories()
+  loadCategoryTree()
   loadProducts()
 })
+
+// 浏览器前进/后退时同步分类过滤（selectCategory 的 replace 会触发本 watch，但值相同直接跳过）
+watch(
+  () => route.query.category_id,
+  (value) => {
+    const id = Number(value)
+    const next = value && id > 0 ? id : undefined
+    if (next !== filters.category_id) {
+      filters.category_id = next
+      resetPage()
+    }
+  },
+)
 
 // 移动端操作下拉分发
 function handleMobileAction(value: string | number | Record<string, any>, row: SaleProductInfo) {
@@ -612,5 +741,77 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
 .clone-item__price {
   color: var(--td-warning-color, #e37318);
   font-size: 12px;
+}
+.products-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.products-aside {
+  flex: 0 0 248px;
+  position: sticky;
+  top: 76px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 14px;
+  max-height: calc(100vh - 100px);
+}
+
+.products-aside__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.products-aside__all {
+  font-size: 13px;
+}
+
+.products-aside__tree {
+  overflow: auto;
+  min-height: 120px;
+}
+
+.aside-node {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aside-node--disabled {
+  color: var(--color-muted-foreground);
+}
+
+.products-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg, 16px);
+}
+
+.products-crumb-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.products-crumb {
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+
+@media (max-width: 900px) {
+  .products-layout {
+    display: block;
+  }
+
+  .products-aside {
+    display: none;
+  }
 }
 </style>

@@ -1,24 +1,35 @@
 <template>
   <div class="agent-panel">
-    <!-- 折扣矩阵：行 = 目标（全站/分类/商品例外），列 = 代理分组 -->
     <section class="matrix-card surface-card">
-      <p class="panel-desc">
-        <strong>④ 生效矩阵</strong>：代理拿货折扣此刻<strong>真实生效</strong>的值。行是折扣目标（全站兜底 / 商品分类 / 单个商品），
-        列是代理分组（按权重降序，最左最优先）。<strong>点击任意单元格</strong>可直接微调该格。
-        这里显示的是③折扣组「应用」后的结果，不是配置草稿。
-      </p>
-
       <div class="card-head">
-        <h3 class="card-title">折扣矩阵</h3>
-        <span class="card-hint">
-          单元格为折扣率（0.85 = 八五折，<strong>越小越优惠</strong>）；空 = 未配置（不打折）。
-          括号内为毛利率，低于 0 表示亏本，后端会拒绝保存。
-        </span>
+        <div class="card-head__main">
+          <h3 class="card-title">④ 生效矩阵</h3>
+          <p class="card-hint">
+            这里显示的是③折扣组「应用」后<strong>此刻真实生效</strong>的折扣率，不是配置草稿。
+            行 = 折扣目标，列 = 代理分组（按权重降序，最左最优先）。点任意单元格可直接微调这一格。
+          </p>
+        </div>
+        <div class="card-head__actions">
+          <t-input
+            v-model="targetKeyword"
+            size="small"
+            clearable
+            placeholder="搜索目标名称"
+            class="target-search"
+          />
+          <t-radio-group v-model="viewMode" variant="default-filled" size="small">
+            <t-radio-button value="all">全部</t-radio-button>
+            <t-radio-button value="configured">只看已配置</t-radio-button>
+          </t-radio-group>
+        </div>
       </div>
 
       <t-loading :loading="matrixLoading" size="small">
         <div v-if="matrix.columns.length === 0" class="empty-hint">
-          还没有启用中的代理分组，先到「代理分组」分区创建分组后再配折扣。
+          还没有启用中的代理分组，先到「① 代理分组」分区创建分组后再配折扣。
+        </div>
+        <div v-else-if="visibleRows.length === 0" class="empty-hint">
+          当前筛选下没有可显示的目标。
         </div>
         <div v-else class="matrix-scroll">
           <table class="matrix-table">
@@ -34,44 +45,58 @@
               </tr>
             </thead>
             <tbody>
-              <template v-for="(entry, idx) in matrixRenderList" :key="entry.kind === 'section' ? `section-${idx}` : rowKey(entry.row!)">
+              <template v-for="entry in visibleRows" :key="entry.kind === 'section' ? `section-${entry.key}` : entry.key">
                 <tr v-if="entry.kind === 'section'" class="matrix-section-row">
                   <td :colspan="matrix.columns.length + 1" class="matrix-section-cell">
-                    商品例外阶梯（{{ entry.count }} 个商品）· 命中优先级高于分类与全站
+                    <span>{{ entry.label }}</span>
+                    <t-link
+                      v-if="entry.section === 'products'"
+                      theme="primary"
+                      hover="color"
+                      class="matrix-section-toggle"
+                      @click="showProductRows = !showProductRows"
+                    >
+                      {{ showProductRows ? '收起' : `展开 ${entry.count} 个` }}
+                    </t-link>
                   </td>
                 </tr>
                 <tr v-else>
-                <td class="matrix-table__row-head">
-                  <t-tag v-if="entry.row!.target_type === 'product'" theme="warning" variant="light" size="small" shape="round" class="row-head__badge">
-                    商品
-                  </t-tag>
-                  <span class="row-head__name">{{ entry.row!.target_name }}</span>
-                  <span v-if="entry.row!.cost_rate > 0" class="row-head__cost">
-                    成本 {{ rateText(entry.row!.cost_rate) }}
-                  </span>
-                </td>
-                <td
-                  v-for="cell in entry.row!.cells"
-                  :key="cell.agent_level_id"
-                  class="matrix-table__cell"
-                  :class="{ 'is-editable': canEditCells }"
-                  :title="canEditCells ? '点击设置该分组在此目标的折扣率' : ''"
-                  @click="openCellEdit(entry.row!, cell)"
-                >
-                  <div v-if="cell.configured" class="cell-value">
-                    <span class="cell-value__rate">{{ rateText(cell.discount_rate) }}</span>
-                    <span
-                      v-if="entry.row!.cost_rate > 0"
-                      class="cell-value__margin"
-                      :class="{ 'is-loss': cell.discount_rate < entry.row!.cost_rate }"
+                  <td class="matrix-table__row-head">
+                    <t-tag
+                      v-if="entry.row!.target_type === 'product'"
+                      theme="warning"
+                      variant="light"
+                      size="small"
+                      shape="round"
+                      class="row-head__badge"
                     >
-                      {{ marginText(cell.discount_rate, entry.row!.cost_rate) }}
+                      商品
+                    </t-tag>
+                    <span class="row-head__name" :title="entry.row!.target_name">{{ entry.row!.target_name }}</span>
+                    <span v-if="entry.row!.cost_rate > 0" class="row-head__cost">
+                      成本 {{ rateText(entry.row!.cost_rate) }}
                     </span>
-                  </div>
-                  <span v-else class="cell-empty" :class="{ 'cell-empty--action': canEditCells }">
-                    {{ canEditCells ? '＋ 设置' : '—' }}
-                  </span>
-                </td>
+                  </td>
+                  <td
+                    v-for="cell in entry.row!.cells"
+                    :key="cell.agent_level_id"
+                    class="matrix-table__cell"
+                    :class="{ 'is-editable': canEditCells, 'is-loss': isLossCell(entry.row!, cell) }"
+                    :title="cellTitle(entry.row!, cell)"
+                    @click="openCellEdit(entry.row!, cell)"
+                  >
+                    <template v-if="cell.configured">
+                      <span class="cell-rate">{{ shortRate(cell.discount_rate) }}</span>
+                      <span
+                        v-if="entry.row!.cost_rate > 0"
+                        class="cell-margin"
+                        :class="{ 'is-loss': cell.discount_rate < entry.row!.cost_rate }"
+                      >
+                        {{ shortMargin(cell.discount_rate, entry.row!.cost_rate) }}
+                      </span>
+                    </template>
+                    <span v-else class="cell-empty">{{ canEditCells ? '＋' : '—' }}</span>
+                  </td>
                 </tr>
               </template>
             </tbody>
@@ -79,88 +104,10 @@
         </div>
       </t-loading>
 
-      <!-- 阶梯填充：锚点 + 步长 → 一键写入某目标下的所有代理分组 -->
-      <div class="ladder">
-        <div class="ladder__head">
-          <h4 class="ladder__title">阶梯填充</h4>
-          <span class="ladder__hint">按「最优分组折扣 + 每级递增」一次配好一个目标的全部代理分组（全站 / 分类 / 单个商品）；商品阶梯优先于分类和全站</span>
-        </div>
-        <div class="ladder__form">
-          <div class="ladder__field">
-            <span class="ladder__label">目标</span>
-            <t-select v-model="ladder.target_type" :options="targetTypeOptions" class="ladder__control" />
-          </div>
-          <div v-if="ladder.target_type === 'category'" class="ladder__field">
-            <span class="ladder__label">分类</span>
-            <t-select
-              v-model="ladder.target_id"
-              :options="categoryOptions"
-              filterable
-              placeholder="选择分类"
-              class="ladder__control"
-            />
-          </div>
-          <div v-if="ladder.target_type === 'product'" class="ladder__field">
-            <span class="ladder__label">商品</span>
-            <t-select
-              v-model="ladder.target_id"
-              :options="productOptions"
-              filterable
-              placeholder="选择商品（在售）"
-              class="ladder__control ladder__control--wide"
-            />
-          </div>
-          <div class="ladder__field">
-            <span class="ladder__label">最优分组折扣率</span>
-            <t-input-number
-              v-model="ladder.anchor_rate"
-              :min="0"
-              :max="1"
-              :step="0.01"
-              :precision="2"
-              theme="normal"
-              class="ladder__control"
-              @change="refreshPreview"
-            />
-          </div>
-          <div class="ladder__field">
-            <span class="ladder__label">每级递增</span>
-            <t-input-number
-              v-model="ladder.step"
-              :min="0"
-              :max="1"
-              :step="0.01"
-              :precision="2"
-              theme="normal"
-              class="ladder__control"
-              @change="refreshPreview"
-            />
-          </div>
-          <t-button
-            v-permission="'agent_level:update'"
-            class="ladder__apply"
-            theme="primary"
-            variant="outline"
-            :loading="applying"
-            @click="handleApplyLadder"
-          >
-            应用到该目标
-          </t-button>
-        </div>
-        <div v-if="ladderPreview.length" class="ladder__preview">
-          <span
-            v-for="cell in ladderPreview"
-            :key="cell.agent_level_id"
-            class="ladder__chip"
-            :class="{ 'is-loss': !cell.feasible }"
-          >
-            {{ cell.name }} {{ rateText(cell.discount_rate) }}
-          </span>
-        </div>
-        <ul v-if="ladderWarnings.length" class="ladder__warnings">
-          <li v-for="warning in ladderWarnings" :key="warning">{{ warning }}</li>
-        </ul>
-      </div>
+      <p class="panel-foot">
+        折扣率越小越优惠；每格下方小字是毛利率（低于 0 会亏本，后端拒绝保存）。
+        <strong>批量配置请用「③ 折扣组」</strong>——那里按商品分组整批写；本页只做单格微调。
+      </p>
     </section>
 
     <!-- 单格折扣编辑：矩阵上点任意格子直接改这一格 -->
@@ -205,16 +152,13 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 
 import {
-  applyAgentLadder,
   getAgentMatrix,
-  previewAgentLadder,
   updateAgentCell,
   type AgentDiscountTargetType,
-  type AgentLadderPreviewCell,
+  type AgentMatrixCell,
   type AgentMatrixResponse,
   type AgentMatrixRow,
 } from '@/api/agent-level'
-import { getProductCategoryList, getProductList } from '@/api/product'
 import { usePermission } from '@/composables/usePermission'
 
 defineOptions({ name: 'AgentLevelPanel' })
@@ -222,80 +166,73 @@ defineOptions({ name: 'AgentLevelPanel' })
 const { has } = usePermission()
 
 const matrixLoading = ref(false)
-const applying = ref(false)
 const matrix = ref<AgentMatrixResponse>({ columns: [], rows: [], product_rows: [] })
 
-const targetTypeOptions = [
-  { label: '全站兜底', value: 'all' },
-  { label: '按分类', value: 'category' },
-  { label: '单个商品', value: 'product' },
-]
+// 矩阵行数 = 全站 1 + 启用分类 N + 已配置商品 M。分类/商品一多就眼花，
+// 因此给「搜索 + 只看已配置」两个收窄工具，并把商品段做成可折叠。
+const targetKeyword = ref('')
+const viewMode = ref<'all' | 'configured'>('all')
+const showProductRows = ref(false)
 
-// —— 阶梯填充状态 ——
-const ladder = reactive({
-  target_type: 'all' as AgentDiscountTargetType,
-  target_id: 0,
-  anchor_rate: 0.7,
-  step: 0.05,
-})
-const ladderPreview = ref<AgentLadderPreviewCell[]>([])
-const ladderWarnings = ref<string[]>([])
+type MatrixRenderEntry =
+  | { kind: 'section'; key: string; section: 'products'; label: string; count: number }
+  | { kind: 'row'; key: string; row: AgentMatrixRow }
 
-// —— 分类 / 商品下拉（真实数据，不造模拟项）——
-const categoryOptions = ref<{ label: string; value: number }[]>([])
-const productOptions = ref<{ label: string; value: number }[]>([])
+const rowOf = (row: AgentMatrixRow): AgentMatrixRow => row
 
-interface CategoryNode {
-  id: number
-  name: string
-  status?: number
-  children?: unknown[]
+/** 该行是否有任一已配置的格子（用于「只看已配置」）。 */
+function hasConfigured(row: AgentMatrixRow): boolean {
+  return row.cells.some((cell) => cell.configured)
 }
 
-async function loadCategoryOptions() {
-  try {
-    const data = await getProductCategoryList()
-    const flat: { label: string; value: number }[] = []
-    // 只列启用中的分类：给停用分类配折扣不会生效（矩阵不列、算价不命中），
-    // 列出来只会让运营配一个「看起来配了、实际没用」的折扣。
-    const walk = (items: CategoryNode[], depth: number) => {
-      for (const item of items) {
-        if (item.status !== undefined && item.status !== 1) continue
-        // 子分类用可见的树形前缀，纯空格缩进在下拉里几乎看不出来。
-        const prefix = depth === 0 ? '' : `${'　'.repeat(depth - 1)}└ `
-        flat.push({ label: `${prefix}${item.name}`, value: item.id })
-        if (Array.isArray(item.children) && item.children.length) {
-          walk(item.children as CategoryNode[], depth + 1)
-        }
+function matchesKeyword(row: AgentMatrixRow): boolean {
+  const keyword = targetKeyword.value.trim().toLowerCase()
+  if (!keyword) return true
+  return (row.target_name || '').toLowerCase().includes(keyword)
+}
+
+/** 渲染序列：全站 + 分类 → 商品段分隔行 → 商品行（可折叠）。 */
+const visibleRows = computed<MatrixRenderEntry[]>(() => {
+  const list: MatrixRenderEntry[] = []
+  for (const row of matrix.value.rows) {
+    if (viewMode.value === 'configured' && !hasConfigured(row) && row.target_type !== 'all') continue
+    if (!matchesKeyword(row)) continue
+    list.push({ kind: 'row', key: `${row.target_type}:${row.target_id}`, row: rowOf(row) })
+  }
+  const products = matrix.value.product_rows || []
+  // 商品行本身只有「配过商品级折扣」的（商品可能上千，矩阵不全列），因此
+  // 「只看已配置」对商品段不构成收窄，仍要与分类段一样受搜索词约束。
+  const matchedProducts = products.filter(matchesKeyword)
+  // 分隔行始终显示当入口（否则收起后就没有再展开的地方了），行本身按展开状态追加。
+  if (matchedProducts.length) {
+    list.push({
+      kind: 'section',
+      key: 'products',
+      section: 'products',
+      label: `商品例外阶梯（${matchedProducts.length} 个商品）· 命中优先级高于分类与全站`,
+      count: matchedProducts.length,
+    })
+    if (showProductRows.value) {
+      for (const row of matchedProducts) {
+        list.push({ kind: 'row', key: `${row.target_type}:${row.target_id}`, row: rowOf(row) })
       }
     }
-    walk((data.items || []) as unknown as CategoryNode[], 0)
-    categoryOptions.value = flat
-  } catch {
-    categoryOptions.value = []
   }
+  return list
+})
+
+function shortRate(rate: number): string {
+  // 矩阵里只显示纯数值（0.85）——「八五折」这种口语展开留给单格弹窗与列表，
+  // 否则每格两行文字（数值 + 折数）在小列宽下会挤成一团。
+  return rate.toFixed(2)
 }
 
-async function loadProductOptions() {
-  try {
-    // 全量商品（含未上架）：对接期/未上架的商品也要能预配折扣，只做标注不做过滤；
-    // 在售排前、未上架排后并带「（已下架）」后缀。取前 500 条足够覆盖当前规模。
-    const data = await getProductList({ page: 1, page_size: 500 } as never)
-    const items = (data.items || []) as Array<{ id: number; name: string; status?: number }>
-    const onSale: { label: string; value: number }[] = []
-    const offShelf: { label: string; value: number }[] = []
-    for (const item of items) {
-      const entry = { label: item.status === 1 ? item.name : `${item.name}（已下架）`, value: item.id }
-      ;(item.status === 1 ? onSale : offShelf).push(entry)
-    }
-    productOptions.value = [...onSale, ...offShelf]
-  } catch {
-    productOptions.value = []
-  }
+function shortMargin(rate: number, cost: number): string {
+  const margin = (rate - cost) * 100
+  return `${margin >= 0 ? '+' : ''}${margin.toFixed(0)}%`
 }
 
 function rateText(rate: number): string {
-  // 0.85 → 「0.85（八五折）」；中文折数的口语表达比裸小数好读。
   const discount = (rate * 10).toFixed(1).replace(/\.0$/, '')
   return `${rate.toFixed(2)}（${discount}折）`
 }
@@ -306,21 +243,15 @@ function marginText(rate: number, cost: number): string {
   return `毛利 ${margin >= 0 ? '' : '-'}${Math.abs(margin).toFixed(1)}%`
 }
 
-type MatrixRenderEntry = { kind: 'section'; count: number } | { kind: 'row'; row: AgentMatrixRow }
+function isLossCell(row: AgentMatrixRow, cell: AgentMatrixCell): boolean {
+  return Boolean(cell.configured) && row.cost_rate > 0 && cell.discount_rate < row.cost_rate
+}
 
-/** 矩阵渲染序列：分类/全站行 → 「商品例外阶梯」分隔行 → 商品行（同一张表，列对齐不跳）。 */
-const matrixRenderList = computed<MatrixRenderEntry[]>(() => {
-  const list: MatrixRenderEntry[] = matrix.value.rows.map((row) => ({ kind: 'row', row }))
-  const products = matrix.value.product_rows || []
-  if (products.length) {
-    list.push({ kind: 'section', count: products.length })
-    for (const row of products) list.push({ kind: 'row', row })
-  }
-  return list
-})
-
-function rowKey(row: { target_type: string; target_id: number }): string {
-  return `${row.target_type}:${row.target_id}`
+function cellTitle(row: AgentMatrixRow, cell: AgentMatrixCell): string {
+  if (!canEditCells.value) return ''
+  if (!cell.configured) return '点击设置该代理分组在此目标的折扣率'
+  const margin = row.cost_rate > 0 ? `，${marginText(cell.discount_rate, row.cost_rate)}` : ''
+  return `当前 ${rateText(cell.discount_rate)}${margin}；点击修改`
 }
 
 async function loadMatrix() {
@@ -328,60 +259,12 @@ async function loadMatrix() {
   try {
     const data = await getAgentMatrix()
     matrix.value = data
+    // 商品例外行很少（只有配过的商品），有就该看得到，默认展开。
+    if ((data.product_rows || []).length) showProductRows.value = true
   } catch (error) {
     MessagePlugin.error((error as Error)?.message || '加载折扣矩阵失败')
   } finally {
     matrixLoading.value = false
-  }
-}
-
-async function refreshPreview() {
-  if (matrix.value.columns.length === 0) {
-    ladderPreview.value = []
-    ladderWarnings.value = []
-    return
-  }
-  try {
-    // 成本基准由服务端按目标解析（商品级 = cost_price÷price），预览与保存同一条口径，
-    // 避免「预览说没事、保存被拦」。
-    const data = await previewAgentLadder({
-      anchor_rate: ladder.anchor_rate,
-      step: ladder.step,
-      target_type: ladder.target_type,
-      target_id: ladder.target_type === 'all' ? 0 : ladder.target_id,
-    })
-    ladderPreview.value = data.cells || []
-    ladderWarnings.value = data.warnings || []
-  } catch (error) {
-    ladderPreview.value = []
-    ladderWarnings.value = [(error as Error)?.message || '预览失败']
-  }
-}
-
-async function handleApplyLadder() {
-  if (ladder.target_type === 'category' && !ladder.target_id) {
-    MessagePlugin.error('请先选择分类')
-    return
-  }
-  if (ladder.target_type === 'product' && !ladder.target_id) {
-    MessagePlugin.error('请先选择商品')
-    return
-  }
-  applying.value = true
-  try {
-    const data = await applyAgentLadder({
-      target_type: ladder.target_type,
-      target_id: ladder.target_type === 'all' ? 0 : ladder.target_id,
-      anchor_rate: ladder.anchor_rate,
-      step: ladder.step,
-    })
-    matrix.value = data
-    MessagePlugin.success('折扣已按阶梯写入')
-    await refreshPreview()
-  } catch (error) {
-    MessagePlugin.error((error as Error)?.message || '应用失败')
-  } finally {
-    applying.value = false
   }
 }
 
@@ -426,7 +309,7 @@ const cellSiblingsText = computed(() => {
     const col = matrix.value.columns.find((c) => c.agent_level_id === cell.agent_level_id)
     parts.push(`${col?.name || `分组#${cell.agent_level_id}`} ${rateText(cell.discount_rate)}`)
   }
-  if (!parts.length) return '该目标其它代理分组暂未配置折扣；可用「阶梯填充」一次配齐'
+  if (!parts.length) return '该目标其它代理分组暂未配置折扣；可到「③ 折扣组」按商品分组整批配'
   return `其它分组：${parts.join(' · ')}`
 })
 
@@ -471,12 +354,9 @@ async function handleCellSave() {
   }
 }
 
-onMounted(async () => {
-  await Promise.all([loadMatrix(), loadCategoryOptions(), loadProductOptions()])
-  await refreshPreview()
-})
+onMounted(loadMatrix)
 
-// 宿主页（用户组管理 → 折扣设置）：代理分组或折扣组变化后经 reload 刷新生效矩阵。
+// 宿主页（用户组管理 → ④ 生效矩阵）：代理分组或折扣组变化后经 reload 刷新生效矩阵。
 defineExpose({ reload: loadMatrix })
 </script>
 
@@ -497,18 +377,32 @@ defineExpose({ reload: loadMatrix })
   padding: 16px 20px;
 }
 
-.panel-desc {
-  margin: 0 0 12px;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--color-muted-foreground);
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
 }
 
-.card-head {
+.card-head__main {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-bottom: 12px;
+  min-width: 260px;
+  flex: 1;
+}
+
+.card-head__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.target-search {
+  width: 200px;
 }
 
 .card-title {
@@ -518,6 +412,7 @@ defineExpose({ reload: loadMatrix })
 
 .card-hint {
   font-size: 12px;
+  line-height: 1.6;
   color: var(--color-muted-foreground);
 }
 
@@ -528,11 +423,15 @@ defineExpose({ reload: loadMatrix })
 }
 
 .matrix-scroll {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: 62vh;
+  border: 1px solid var(--td-component-stroke, #e7e7e7);
+  border-radius: var(--hs-radius-md, 6px);
 }
 
 .matrix-table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   width: 100%;
   min-width: 520px;
   font-size: 13px;
@@ -540,16 +439,38 @@ defineExpose({ reload: loadMatrix })
 
 .matrix-table th,
 .matrix-table td {
-  border: 1px solid var(--td-component-stroke, #e7e7e7);
-  padding: 8px 10px;
+  border-bottom: 1px solid var(--td-component-stroke, #e7e7e7);
+  border-right: 1px solid var(--td-component-stroke, #e7e7e7);
+  padding: 6px 8px;
   text-align: center;
   white-space: nowrap;
 }
 
+.matrix-table th:last-child,
+.matrix-table td:last-child {
+  border-right: none;
+}
+
+/* 表头吸顶：行多了滚动时仍知道每一列是哪个代理分组。 */
+.matrix-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--td-bg-color-container-hover, #f8f9fa);
+}
+
 .matrix-table__corner,
 .matrix-table__row-head {
+  position: sticky;
+  left: 0;
+  z-index: 1;
   text-align: left;
   background: var(--td-bg-color-container-hover, #f8f9fa);
+  max-width: 240px;
+}
+
+.matrix-table__corner {
+  z-index: 3;
 }
 
 .col-head {
@@ -568,7 +489,7 @@ defineExpose({ reload: loadMatrix })
 }
 
 .matrix-section-row td {
-  padding: 8px 10px;
+  padding: 6px 10px;
   text-align: left;
   font-size: 12px;
   font-weight: 600;
@@ -576,49 +497,29 @@ defineExpose({ reload: loadMatrix })
   background: var(--td-brand-color-1, #f2f7ff);
 }
 
-.cell-siblings {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--color-muted-foreground);
+.matrix-section-toggle {
+  margin-left: 10px;
+  font-weight: 400;
 }
 
 .row-head__badge {
   margin-right: 6px;
 }
 
+.row-head__name {
+  font-weight: 500;
+}
+
 .row-head__cost {
   display: block;
   font-size: 11px;
   color: var(--td-warning-color, #e37318);
-  margin-top: 2px;
+  margin-top: 1px;
 }
 
-.cell-value {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.cell-value__rate {
-  font-weight: 600;
-}
-
-.cell-value__margin {
-  font-size: 11px;
-  color: var(--td-success-color, #2ba471);
-}
-
-.cell-value__margin.is-loss {
-  color: var(--td-error-color, #d54941);
-}
-
-.cell-empty {
-  color: var(--color-muted-foreground);
-}
-
-.cell-empty--action {
-  color: var(--td-brand-color, #0052d9);
+.matrix-table__cell {
+  cursor: default;
+  min-width: 84px;
 }
 
 .matrix-table__cell.is-editable {
@@ -627,6 +528,29 @@ defineExpose({ reload: loadMatrix })
 
 .matrix-table__cell.is-editable:hover {
   background: var(--td-brand-color-1, #f2f7ff);
+}
+
+.matrix-table__cell.is-loss {
+  background: rgba(213, 73, 65, 0.06);
+}
+
+.cell-rate {
+  font-weight: 600;
+}
+
+/* 毛利率作为折扣率下方的小字：既保留可判断性，又不占列宽。 */
+.cell-margin {
+  display: block;
+  font-size: 11px;
+  color: var(--td-success-color, #2ba471);
+}
+
+.cell-margin.is-loss {
+  color: var(--td-error-color, #d54941);
+}
+
+.cell-empty {
+  color: var(--color-muted-foreground);
 }
 
 .cell-margin-preview {
@@ -639,81 +563,11 @@ defineExpose({ reload: loadMatrix })
   color: var(--td-error-color, #d54941);
 }
 
-.ladder {
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid var(--td-brand-color-1);
-}
-
-.ladder__head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.ladder__title {
+.cell-siblings {
   margin: 0;
-  font-size: 15px;
-}
-
-.ladder__hint {
   font-size: 12px;
+  line-height: 1.6;
   color: var(--color-muted-foreground);
-}
-
-.ladder__form {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-top: 10px;
-}
-
-.ladder__field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.ladder__label {
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-}
-
-.ladder__control {
-  width: 160px;
-}
-
-.ladder__control--wide {
-  width: 240px;
-}
-
-.ladder__preview {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.ladder__chip {
-  padding: 2px 10px;
-  border: 1px solid var(--td-brand-color-3, #a6c8ff);
-  border-radius: 999px;
-  font-size: 12px;
-  color: var(--td-brand-color, #0052d9);
-}
-
-.ladder__chip.is-loss {
-  border-color: var(--td-error-color, #d54941);
-  color: var(--td-error-color, #d54941);
-}
-
-.ladder__warnings {
-  margin: 8px 0 0;
-  padding-left: 18px;
-  font-size: 12px;
-  color: var(--td-error-color, #d54941);
 }
 
 .field-hint {
@@ -723,8 +577,15 @@ defineExpose({ reload: loadMatrix })
   color: var(--color-muted-foreground);
 }
 
+.panel-foot {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-muted-foreground);
+}
+
 @media (max-width: 768px) {
-  .ladder__control {
+  .target-search {
     width: 100%;
   }
 }

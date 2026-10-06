@@ -34,6 +34,7 @@
     <!--
       移动端折叠开关。只在「窄屏 + 字段数超过保留数」时出现 ——
       字段本来就只有一两个的页面不该多出一个点了没反应的按钮。
+      右下角一行小字 + 箭头，刻意不带任何计数文案（用户反馈）。
     -->
     <button
       v-if="toggleVisible"
@@ -43,15 +44,8 @@
       :aria-controls="gridId"
       @click="expanded = !expanded"
     >
-      <ChevronDownIcon class="filter-card__toggle-icon" size="16" aria-hidden="true" />
-      <span>{{ expanded ? '收起筛选' : `更多筛选（${hiddenCount}）` }}</span>
-      <!--
-        折叠区里已有生效条件时必须说出来：否则用户在宽屏设好的条件，窄屏下看不见
-        却仍在生效，排查时只会认为「结果不对」，而不是想到去展开筛选区。
-      -->
-      <span v-if="!expanded && hiddenActiveCount > 0" class="filter-card__toggle-badge">
-        {{ hiddenActiveCount }} 项已生效
-      </span>
+      <span>{{ expanded ? '收起高级搜索' : '高级搜索' }}</span>
+      <ChevronDownIcon class="filter-card__toggle-icon" size="14" aria-hidden="true" />
     </button>
 
     <div v-if="hasActions" class="filter-card__actions">
@@ -135,7 +129,6 @@ const { isMobile } = useIsMobile()
 
 const gridRef = ref<HTMLElement | null>(null)
 const fieldCount = ref(0)
-const hiddenActiveCount = ref(0)
 const expanded = ref(false)
 // aria-controls 要一个稳定 id；useId 在多次挂载间不撞号，且 SSR/CSR 一致。
 const gridId = useId()
@@ -156,56 +149,16 @@ const rootClass = computed(() => [
 ])
 
 /**
- * 数折叠区里有多少个已填值的条件。
- *
- * 读渲染后的 DOM 而不是业务数据：筛选条件是各页自己的响应式对象，形状
- * （字符串 / 数字 / 区间数组 / 布尔）五花八门，组件拿不到也不需要知道。
- *
- * 判定依据（按 TDesign 控件的实际表现）：
- * - 输入框与下拉：值都镜像在 `input.t-input__inner` 的 value 上，包括
- *   t-select（选中后显示的是选项文案）与 t-date-range-picker（显示区间）。
- * - 复选框 / 单选按钮：input.checked。
- * - 开关与单选按钮组：状态不落在 input 上，改判 `.t-is-checked`。
- *
- * 注意「有没有值」不能写成「值真不真」：`provider.status = 0`（禁用）是合法
- * 筛选值，用真值判断会把它当成没设置。
- *
- * 漏判的后果只是角标少一个数字，不影响筛选本身，因此这个启发式够用。
+ * 数一数栅格里的字段个数：决定要不要显示折叠开关（字段 ≤ 保留数时不显示）。
+ * 字段数会随页面数据变化（如「分类」下拉只在部分形态下出现），
+ * 用 MutationObserver 跟随，否则按钮的出现时机停在首次渲染的结果。
  */
 function measure() {
   const grid = gridRef.value
   if (!grid) return
   fieldCount.value = grid.children.length
-
-  if (!isMobile.value) {
-    hiddenActiveCount.value = 0
-    return
-  }
-
-  let active = 0
-  for (let i = props.primaryCount; i < grid.children.length; i += 1) {
-    const el = grid.children[i] as HTMLElement | undefined
-    if (!el) continue
-    let filled = false
-    for (const input of Array.from(el.querySelectorAll<HTMLInputElement>('input'))) {
-      if (input.type === 'checkbox' || input.type === 'radio') {
-        if (input.checked) {
-          filled = true
-          break
-        }
-      } else if (input.value.trim() !== '') {
-        filled = true
-        break
-      }
-    }
-    if (!filled && el.querySelector('.t-is-checked')) filled = true
-    if (filled) active += 1
-  }
-  hiddenActiveCount.value = active
 }
 
-// 字段数量会随页面数据变化（如「分类」下拉只在 news/help 两种内容形态下出现），
-// 用 MutationObserver 跟随，否则按钮上的数量会停在首次渲染的结果。
 let observer: MutationObserver | null = null
 
 onMounted(async () => {
@@ -290,35 +243,29 @@ watch(
 /* ---------- 折叠开关（仅窄屏出现） ---------- */
 .filter-card__toggle {
   display: none;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
   width: 100%;
-  min-height: 40px;
-  margin-top: 12px;
-  padding: 0 12px;
-  border: 1px dashed var(--color-border, #e2e8f0);
-  border-radius: var(--hs-radius-md, 6px);
-  background: var(--hs-surface-2, #f8fafc);
-  color: var(--color-muted-foreground, #64748b);
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 2px;
+  padding: 6px 0 0;
+  border: 0;
+  background: none;
+  color: var(--td-brand-color, #16a34a);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition:
-    color var(--hs-duration-fast, 150ms),
-    border-color var(--hs-duration-fast, 150ms),
-    background var(--hs-duration-fast, 150ms);
+  transition: color var(--hs-duration-fast, 150ms);
 }
 
 .filter-card__toggle:hover {
-  color: var(--td-brand-color, #16a34a);
-  border-color: var(--td-brand-color-4, #86efac);
-  background: var(--td-brand-color-1, #f0fdf4);
+  color: var(--td-brand-color-8, #15803d);
 }
 
 .filter-card__toggle:focus-visible {
   outline: 2px solid var(--td-brand-color-4, #86efac);
-  outline-offset: 1px;
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .filter-card__toggle-icon {
@@ -328,16 +275,6 @@ watch(
 
 .filter-card--open .filter-card__toggle-icon {
   transform: rotate(180deg);
-}
-
-/* 折叠区里已有生效条件时的提示角标 */
-.filter-card__toggle-badge {
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--td-brand-color-1, #f0fdf4);
-  color: var(--td-brand-color-7, #16a34a);
-  font-size: 11.5px;
-  font-weight: 600;
 }
 
 /* ---------- 中屏降列 ---------- */

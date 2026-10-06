@@ -9,9 +9,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"hostsent/backend/internal/modules/admin/user/level/dto"
-	levelrepo "hostsent/backend/internal/modules/admin/user/level/repository"
-	"hostsent/backend/internal/modules/admin/user/level/service"
+	"hostsent/backend/internal/modules/admin/user/account/level/dto"
+	levelrepo "hostsent/backend/internal/modules/admin/user/account/level/repository"
+	"hostsent/backend/internal/modules/admin/user/account/level/service"
 )
 
 // UserLevelHandler 提供用户等级相关的 HTTP 接口。

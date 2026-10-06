@@ -26,7 +26,7 @@ func buildTestTree() []dto.MenuNode {
 					{Name: "登录日志", Path: "/users/security/login-logs", Type: "menu"},
 					{Name: "会话管理", Path: "/users/security/sessions", Type: "menu"},
 				}},
-				{Name: "用户等级", Path: "/users/levels", Type: "menu"},
+				{Name: "用户等级", Path: "/users/accounts/levels", Type: "menu"},
 				{Name: "实名认证", Path: "/users/verification", Type: "directory", Children: []dto.MenuNode{
 					// 路径与真实菜单表一致（/users/verification/list）；旧的 pending/approved/rejected
 					// 三个路径已不存在，permission_map 同步收敛到 list 后这里也要跟上。
@@ -86,7 +86,7 @@ func TestFilterByPermissions_NarrowUserPerms(t *testing.T) {
 	}
 	for _, unexpected := range []string{
 		"/users/security/login-logs", "/users/security/sessions",
-		"/users/levels", "/users/verification/list", "/referral/cashbacks",
+		"/users/accounts/levels", "/users/verification/list", "/referral/cashbacks",
 	} {
 		if hasPath(got, unexpected) {
 			t.Errorf("无权限却保留了 %s", unexpected)
@@ -102,8 +102,8 @@ func TestFilterByPermissions_LevelOnly(t *testing.T) {
 	perms := appauth.NewPermissionSet([]string{"level:list"})
 	got := FilterByPermissions(buildTestTree(), perms)
 
-	if !hasPath(got, "/users/levels") {
-		t.Fatal("持有 level:list 时应保留 /users/levels")
+	if !hasPath(got, "/users/accounts/levels") {
+		t.Fatal("持有 level:list 时应保留 /users/accounts/levels")
 	}
 	if hasPath(got, "/users/overview") {
 		t.Error("未持有 system:user:list，不应看到用户总览")

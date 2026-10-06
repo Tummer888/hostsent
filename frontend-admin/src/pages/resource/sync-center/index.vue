@@ -32,7 +32,10 @@
       <t-tabs v-model="activeTab" theme="card" @change="handleTabChange">
         <!-- 1. 调度配置 -->
         <t-tab-panel value="schedules" label="调度配置">
-          <div class="tab-toolbar">
+          <FilterCard embedded class="tab-filters" :primary-count="1">
+            <template #head-extra>
+              <span class="filter-card__meta">共 {{ scheduleList.length }} 条调度</span>
+            </template>
             <div class="field">
               <span class="field__label">所属渠道</span>
               <t-select
@@ -43,8 +46,7 @@
                 @change="loadSchedules"
               />
             </div>
-            <span class="tab-toolbar__meta">共 {{ scheduleList.length }} 条调度</span>
-          </div>
+          </FilterCard>
           <t-table
             row-key="id"
             :data="scheduleList"
@@ -116,7 +118,7 @@
 
         <!-- 2. 同步任务 -->
         <t-tab-panel value="tasks" label="同步任务">
-          <div class="tab-toolbar">
+          <FilterCard embedded class="tab-filters" :primary-count="1">
             <div class="field">
               <span class="field__label">所属渠道</span>
               <t-select v-model="taskFilter.provider_id" clearable placeholder="全部渠道" :options="providerOptions" />
@@ -129,13 +131,13 @@
               <span class="field__label">状态</span>
               <t-select v-model="taskFilter.status" clearable placeholder="全部状态" :options="taskStatusOptions" />
             </div>
-          </div>
-          <div class="tab-toolbar__actions">
-            <t-space size="small">
-              <t-button theme="primary" @click="searchTasks">查询</t-button>
-              <t-button variant="outline" @click="resetTaskFilters">重置</t-button>
-            </t-space>
-          </div>
+            <template #actions>
+              <t-space size="small">
+                <t-button theme="primary" @click="searchTasks">查询</t-button>
+                <t-button variant="outline" @click="resetTaskFilters">重置</t-button>
+              </t-space>
+            </template>
+          </FilterCard>
           <t-table
             row-key="id"
             :data="taskList"
@@ -223,7 +225,7 @@
             </article>
           </div>
 
-          <div class="tab-toolbar">
+          <FilterCard embedded class="tab-filters" :primary-count="1">
             <div class="field">
               <span class="field__label">所属渠道</span>
               <t-select v-model="diffFilter.provider_id" clearable placeholder="全部渠道" :options="providerOptions" @change="loadDiffs" />
@@ -236,7 +238,7 @@
               <span class="field__label">差异动作</span>
               <t-select v-model="diffFilter.action" clearable placeholder="全部动作" :options="diffActionOptions" @change="loadDiffs" />
             </div>
-          </div>
+          </FilterCard>
 
           <t-table
             row-key="id"
@@ -286,7 +288,7 @@
 
         <!-- 5. 待确认调价 -->
         <t-tab-panel value="prices" label="待确认调价">
-          <div class="tab-toolbar">
+          <FilterCard embedded class="tab-filters" :primary-count="1">
             <div class="field">
               <span class="field__label">所属渠道</span>
               <t-select v-model="priceFilter.provider_id" clearable placeholder="全部渠道" :options="providerOptions" @change="searchPrices" />
@@ -295,15 +297,17 @@
               <span class="field__label">状态</span>
               <t-select v-model="priceFilter.status" clearable placeholder="全部状态" :options="priceStatusOptions" @change="searchPrices" />
             </div>
-            <t-space size="small">
-              <t-button theme="primary" :disabled="!selectedPriceIds.length" @click="openHandleDialog('confirm')">
-                批量确认
-              </t-button>
-              <t-button theme="danger" variant="outline" :disabled="!selectedPriceIds.length" @click="openHandleDialog('reject')">
-                批量驳回
-              </t-button>
-            </t-space>
-          </div>
+            <template #actions>
+              <t-space size="small">
+                <t-button theme="primary" :disabled="!selectedPriceIds.length" @click="openHandleDialog('confirm')">
+                  批量确认
+                </t-button>
+                <t-button theme="danger" variant="outline" :disabled="!selectedPriceIds.length" @click="openHandleDialog('reject')">
+                  批量驳回
+                </t-button>
+              </t-space>
+            </template>
+          </FilterCard>
 
           <p class="notice-line">
             上游改价幅度超过渠道阈值时进入「待确认」，确认前<strong>不会改动售价</strong>；
@@ -481,6 +485,7 @@ import type {
   SyncScheduleInfo,
   SyncTaskInfo,
 } from '@/types/interface'
+import FilterCard from '@/components/filter-card/index.vue'
 import MobileAction from '@/components/mobile-action/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
@@ -1114,32 +1119,14 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
   color: var(--color-muted-foreground);
 }
 
-.tab-toolbar {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--space-md);
-  flex-wrap: wrap;
-  padding: var(--space-md) 0 var(--space-lg);
+/* 各 Tab 的筛选区统一收进 FilterCard（embedded 模式，不画自己的卡片外壳）；
+   补回原手写工具栏与 Tab 导航 / 表格之间的呼吸间距。 */
+.tab-filters {
+  margin: var(--space-md) 0 var(--space-lg);
 }
 
-.tab-toolbar__actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid var(--td-brand-color-1);
-  margin-bottom: 14px;
-}
-
-.tab-toolbar .field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 180px;
-}
-
-.tab-toolbar__meta {
-  margin-left: auto;
+/* head-extra 里的统计口径（与 reconcile / task-queue 同款）。 */
+.resource-module .filter-card__meta {
   font-size: 12px;
   color: var(--color-muted-foreground);
 }

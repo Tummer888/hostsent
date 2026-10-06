@@ -1,5 +1,5 @@
 <template>
-  <div class="group-page">
+  <div class="group-page users-module">
     <header class="list-header surface-card">
       <div class="list-header__main">
         <div class="list-header__title-row">
@@ -70,50 +70,46 @@
     </header>
 
     <template v-if="activeTab === 'customer'">
-    <section class="toolbar surface-card">
-      <div class="toolbar__header">
-        <h3 class="toolbar__title">筛选条件</h3>
-        <div class="toolbar__actions">
-          <t-space>
-            <t-button class="page-btn" theme="primary" @click="handleSearch">
-              <template #icon>
-                <SearchIcon aria-hidden="true" />
-              </template>
-              查询
-            </t-button>
-            <t-button class="page-btn page-btn--ghost" variant="outline" @click="handleReset">重置</t-button>
-          </t-space>
-        </div>
+    <FilterCard :primary-count="1" :columns="2">
+      <!-- 关键词必须是第一个直接子元素：窄屏折叠时它是唯一保留的主筛选项 -->
+      <div class="field">
+        <span class="field__label">关键词</span>
+        <t-input
+          v-model="filters.keyword"
+          class="unified-control"
+          clearable
+          placeholder="搜索名称 / 编码 / 描述"
+          @enter="handleSearch"
+        >
+          <template #prefix-icon>
+            <SearchIcon />
+          </template>
+        </t-input>
       </div>
 
-      <div class="toolbar__grid toolbar__grid--groups">
-        <div class="toolbar-field toolbar-field--keyword">
-          <span class="toolbar-field__label">关键词</span>
-          <t-input
-            v-model="filters.keyword"
-            class="unified-control"
-            clearable
-            placeholder="搜索名称 / 编码 / 描述"
-            @enter="handleSearch"
-          >
-            <template #prefix-icon>
-              <SearchIcon />
+      <div class="field">
+        <span class="field__label">状态</span>
+        <t-select
+          v-model="filters.status"
+          class="unified-control"
+          clearable
+          placeholder="全部状态"
+          :options="statusOptions"
+        />
+      </div>
+
+      <template #actions>
+        <t-space>
+          <t-button class="page-btn" theme="primary" @click="handleSearch">
+            <template #icon>
+              <SearchIcon aria-hidden="true" />
             </template>
-          </t-input>
-        </div>
-
-        <div class="toolbar-field">
-          <span class="toolbar-field__label">状态</span>
-          <t-select
-            v-model="filters.status"
-            class="unified-control"
-            clearable
-            placeholder="全部状态"
-            :options="statusOptions"
-          />
-        </div>
-      </div>
-    </section>
+            查询
+          </t-button>
+          <t-button class="page-btn page-btn--ghost" variant="outline" @click="handleReset">重置</t-button>
+        </t-space>
+      </template>
+    </FilterCard>
 
     <section class="table-panel surface-card">
       <div class="table-panel__head">
@@ -296,6 +292,7 @@ import {
   type UserGroupListQuery,
   type UserGroupRequest,
 } from '@/api/user'
+import FilterCard from '@/components/filter-card/index.vue'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
@@ -703,7 +700,7 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
 }
 
 .list-header,
-.toolbar,
+.filter-card,
 .table-panel {
   border-radius: var(--hs-radius-lg);
 }
@@ -760,21 +757,14 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
   flex-wrap: wrap;
 }
 
-.toolbar {
-  padding: 18px 20px;
+/* 筛选卡：外壳与内边距对齐 users/shared.css 的 .users-module .filter-card
+   （该文件由用户详情页引入，本页未整体加载，这里按同值自足补齐）。 */
+.filter-card {
+  padding: var(--space-lg) 20px;
   background: var(--hs-surface-1);
   border-color: var(--td-brand-color-2);
 }
 
-.toolbar__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
-.toolbar__title,
 .table-panel__title {
   margin: 0;
   font-size: 16px;
@@ -782,33 +772,14 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
   color: var(--color-foreground);
 }
 
-.toolbar__actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.toolbar__grid {
-  display: grid;
-  gap: 14px;
-}
-
-.toolbar__grid--groups {
-  /* 只有 2 个字段，fr 弹性列会把输入框摊满整卡（宽屏 900px+）；
-     列宽封顶到与用户列表页同视觉尺度，多余空间留白。 */
-  grid-template-columns: minmax(260px, 380px) minmax(180px, 260px);
-}
-
-.toolbar-field {
+.field {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.toolbar-field--keyword {
   min-width: 0;
 }
 
-.toolbar-field__label {
+.field__label {
   font-size: 12px;
   font-weight: 600;
   color: var(--color-muted-foreground);
@@ -1029,26 +1000,22 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
 }
 
 @media (max-width: 1200px) {
-  .table-panel__head,
-  .toolbar__header {
+  .table-panel__head {
     flex-direction: column;
     align-items: stretch;
   }
 }
 
 @media (max-width: 768px) {
-  .list-header,
-  .toolbar__header {
+  .list-header {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .toolbar__grid--groups,
   .form-grid {
     grid-template-columns: 1fr;
   }
 
-  .toolbar__actions,
   .list-header__actions {
     justify-content: flex-start;
   }

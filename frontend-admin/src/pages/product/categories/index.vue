@@ -30,38 +30,73 @@
     <section class="table-card surface-card">
       <div class="table-card__head">
         <h3 class="card-title">分类树</h3>
-        <span class="table-card__meta">共 {{ total }} 个分类</span>
-      </div>
-      <t-loading :loading="loading">
-        <div class="tree-wrapper">
-          <t-tree
-            v-model:expanded="expandedKeys"
-            :data="treeData"
-            line
-            row-key="id"
-            :keys="{ label: 'name', value: 'id', children: 'children' }"
-            :default-expand-all="true"
-          >
-            <template #label="{ node }">
-              <div class="category-node">
-                <span class="category-node__name">{{ node.data.name }}</span>
-                <t-tag
-                  v-if="node.data.status !== 1"
-                  :theme="node.data.status === 0 ? 'default' : 'danger'"
-                  variant="light"
-                  size="small"
-                >{{ statusTag(node.data.status).text }}</t-tag>
-                <span class="category-node__meta">排序 {{ node.data.sort_order }}</span>
-                <t-space size="small" class="category-node__actions">
-                  <t-link theme="primary" hover="color" @click.stop="openCreate(node.data)">添加子分类</t-link>
-                  <t-link theme="primary" hover="color" @click.stop="openEdit(node.data)">编辑</t-link>
-                  <t-link theme="danger" hover="color" @click.stop="handleDelete(node.data)">删除</t-link>
-                </t-space>
-              </div>
+        <div class="tree-toolbar">
+          <span class="table-card__meta">
+            {{ keyword ? `匹配 ${matchCount} / 共 ${total} 个分类` : `共 ${total} 个分类` }}
+            <template v-if="levelStats.length && !keyword">
+              <span v-for="stat in levelStats" :key="stat.level" class="category-lv-stat">
+                <i class="category-lv-dot" :class="`category-lv-dot--${stat.level}`" />{{ stat.label }} {{ stat.count }}
+              </span>
             </template>
-          </t-tree>
+          </span>
+          <t-input
+            v-model="keyword"
+            class="tree-toolbar__search"
+            clearable
+            placeholder="搜索分类名称"
+            @clear="onFilterCleared"
+          >
+            <template #prefix-icon>
+              <SearchIcon aria-hidden="true" />
+            </template>
+          </t-input>
         </div>
-      </t-loading>
+      </div>
+
+      <t-enhanced-table
+        ref="tableRef"
+        row-key="id"
+        :data="filteredTree"
+        :columns="columns"
+        :tree="{ childrenKey: 'children', defaultExpandAll: true, indent: 28 }"
+        :loading="loading"
+        size="small"
+        hover
+        table-layout="fixed"
+        :min-width="720"
+        cell-empty-content="—"
+        :pagination="null"
+        :empty="keyword ? '没有匹配的分类，换个关键词试试' : '暂无分类，点击右上角「新建分类」创建'"
+        :row-class-name="rowLevelClass"
+      >
+        <template #name="{ row }">
+          <div class="category-name">
+            <span class="category-lv" :class="`category-lv--${levelOf(row)}`">{{ levelLabel(levelOf(row)) }}</span>
+            <span class="category-name__text" :class="`category-name__text--l${levelOf(row)}`">{{ row.name }}</span>
+            <t-tag v-if="row.children?.length" size="small" variant="outline" theme="default" class="category-name__count">
+              {{ row.children.length }} 个子分类
+            </t-tag>
+          </div>
+        </template>
+        <template #cost_rate="{ row }">
+          <span v-if="row.cost_rate" class="category-rate">{{ rateLabel(row.cost_rate) }}</span>
+          <span v-else class="cell-muted">未配置</span>
+        </template>
+        <template #status="{ row }">
+          <t-tag
+            :theme="row.status === 1 ? 'success' : row.status === 0 ? 'default' : 'danger'"
+            variant="light"
+            size="small"
+          >{{ statusTag(row.status).text }}</t-tag>
+        </template>
+        <template #op="{ row }">
+          <t-space size="small" class="category-actions">
+            <t-link theme="primary" hover="color" @click="openCreate(row)">添加子分类</t-link>
+            <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
+            <t-link theme="danger" hover="color" @click="handleDelete(row)">删除</t-link>
+          </t-space>
+        </template>
+      </t-enhanced-table>
     </section>
 
     <t-dialog
@@ -107,10 +142,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 
-import { AddIcon, AppIcon, RefreshIcon } from 'tdesign-icons-vue-next'
-import { DialogPlugin, MessagePlugin, type TreeOptionData } from 'tdesign-vue-next'
+import { AddIcon, AppIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
+import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import {
   createProductCategory,
@@ -124,10 +159,14 @@ import type { SaleProductCategoryInfo } from '@/types/interface'
 defineOptions({ name: 'ProductCategories' })
 
 const treeData = ref<SaleProductCategoryInfo[]>([])
-const expandedKeys = ref<Array<string | number>>([])
 const loading = ref(false)
 const saving = ref(false)
 const dialogVisible = ref(false)
+
+// 树表实例：全部展开/收起走 EnhancedTable 的实例方法
+const tableRef = ref<{ expandAll: () => void; foldAll: () => void } | null>(null)
+
+const keyword = ref('')
 
 type FormMode = 'create' | 'edit'
 const formMode = ref<FormMode>('create')
@@ -147,9 +186,93 @@ const form = reactive<{
 })
 
 let editingId = 0
-let originalParentId = 0
 
 const total = computed(() => countNodes(treeData.value))
+
+// ===== 层级视觉：颜色按「深度」区分（一级主题色，二级蓝，三级紫，四级青，更深用灰） =====
+// chip 底/字色与左侧色点共用一套色板；一级走品牌色变量，随主题切换联动。
+const LEVEL_COUNT = 4
+
+const depthMap = computed(() => {
+  const map = new Map<number, number>()
+  const walk = (nodes: SaleProductCategoryInfo[], depth: number) => {
+    for (const node of nodes) {
+      map.set(node.id, depth)
+      if (node.children?.length) walk(node.children, depth + 1)
+    }
+  }
+  walk(treeData.value, 0)
+  return map
+})
+
+function levelOf(row: SaleProductCategoryInfo): number {
+  return Math.min((depthMap.value.get(row.id) ?? 0) + 1, 5)
+}
+
+function levelLabel(level: number): string {
+  return level <= LEVEL_COUNT ? `${['一', '二', '三', '四'][level - 1]}级` : `${level}级`
+}
+
+const rowLevelClass = ({ row }: { row: SaleProductCategoryInfo }): string =>
+  levelOf(row) === 1 ? 'cat-row--l1' : ''
+
+const levelStats = computed(() => {
+  const counts = new Map<number, number>()
+  for (const depth of depthMap.value.values()) {
+    counts.set(depth + 1, (counts.get(depth + 1) ?? 0) + 1)
+  }
+  return [...counts.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([level, count]) => ({ level, count, label: levelLabel(level) }))
+})
+
+// 按名称过滤：命中节点保留其完整子树；仅后代命中时保留「祖先 → 命中后代」的链
+const filteredTree = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  if (!kw) return treeData.value
+  const walk = (nodes: SaleProductCategoryInfo[]): SaleProductCategoryInfo[] => {
+    const out: SaleProductCategoryInfo[] = []
+    for (const node of nodes) {
+      const children = node.children?.length ? walk(node.children) : []
+      if (node.name.toLowerCase().includes(kw)) {
+        out.push(node)
+      } else if (children.length) {
+        out.push({ ...node, children })
+      }
+    }
+    return out
+  }
+  return walk(treeData.value)
+})
+
+const matchCount = computed(() => countNodes(filteredTree.value))
+
+// 关键词变化时自动全展开：过滤结果必须是完整可见的，否则“匹配 3 个”却只看得见 1 个
+watch(keyword, () => {
+  void nextTick(() => tableRef.value?.expandAll())
+})
+
+function onFilterCleared() {
+  keyword.value = ''
+}
+
+const columns: PrimaryTableCol<SaleProductCategoryInfo>[] = [
+  {
+    colKey: 'name',
+    title: '分类',
+    minWidth: 280,
+    cell: 'name',
+  },
+  { colKey: 'sort_order', title: '排序', width: 90, align: 'center' },
+  { colKey: 'cost_rate', title: '拿货折扣率', width: 120, cell: 'cost_rate' },
+  { colKey: 'status', title: '状态', width: 90, cell: 'status' },
+  { colKey: 'op', title: '操作', width: 210, cell: 'op' },
+]
+
+function rateLabel(rate: number): string {
+  const zhe = rate * 10
+  return `${Number.isInteger(zhe) ? zhe : zhe.toFixed(1)} 折`
+}
 
 const parentOptions = computed(() => {
   const options: { label: string; value: number }[] = []
@@ -174,21 +297,12 @@ function countNodes(nodes: SaleProductCategoryInfo[]): number {
   return n
 }
 
-function getAllNodeIds(nodes: SaleProductCategoryInfo[]): Array<string | number> {
-  const ids: Array<string | number> = []
-  for (const node of nodes) {
-    ids.push(node.id)
-    if (node.children?.length) ids.push(...getAllNodeIds(node.children))
-  }
-  return ids
-}
-
 function expandAll() {
-  expandedKeys.value = getAllNodeIds(treeData.value)
+  tableRef.value?.expandAll()
 }
 
 function collapseAll() {
-  expandedKeys.value = []
+  tableRef.value?.foldAll()
 }
 
 async function loadData() {
@@ -206,7 +320,6 @@ async function loadData() {
 function openCreate(parent: { id: number; name: string } | null) {
   formMode.value = 'create'
   editingId = 0
-  originalParentId = 0
   form.parent_id = parent ? parent.id : undefined
   form.name = ''
   form.sort_order = 0
@@ -218,7 +331,6 @@ function openCreate(parent: { id: number; name: string } | null) {
 function openEdit(node: SaleProductCategoryInfo) {
   formMode.value = 'edit'
   editingId = node.id
-  originalParentId = node.parent_id
   form.parent_id = node.parent_id
   form.name = node.name
   form.sort_order = node.sort_order
@@ -289,41 +401,148 @@ onMounted(loadData)
 </style>
 
 <style lang="css" scoped>
-.tree-wrapper {
-  max-height: 560px;
-  overflow: auto;
-}
-
-.category-node {
+.tree-toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.tree-toolbar__search {
+  width: 220px;
+}
+
+.category-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
 }
 
-.category-node__name {
-  font-weight: 600;
-  color: #334155;
+/* 层级徽标：一级绿（品牌色）、二级蓝、三级紫、四级青、更深灰 */
+.category-lv {
+  flex-shrink: 0;
+  min-width: 34px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 16px;
 }
 
-.category-node__meta {
-  font-size: 12px;
+.category-lv--1 {
+  background: var(--td-brand-color-1);
+  color: var(--td-brand-color-8);
+}
+
+.category-lv--2 {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.category-lv--3 {
+  background: #f5f3ff;
+  color: #6d28d9;
+}
+
+.category-lv--4 {
+  background: #ecfeff;
+  color: #0e7490;
+}
+
+.category-lv--5 {
+  background: var(--hs-surface-3);
   color: var(--color-muted-foreground);
 }
 
-.category-node__actions {
-  margin-left: auto;
-  opacity: 0;
-  transition: opacity var(--hs-duration-fast);
+/* 名称字重/颜色随层级递减，形成第二重视觉层级 */
+.category-name__text--l1 {
+  font-weight: 700;
+  color: var(--td-brand-color-8);
 }
 
-.category-node:hover .category-node__actions {
-  opacity: 1;
+.category-name__text--l2 {
+  font-weight: 600;
+  color: var(--color-foreground);
 }
 
-@media (max-width: 768px) {
-  .category-node__meta {
-    display: none;
-  }
+.category-name__text--l3,
+.category-name__text--l4,
+.category-name__text--l5 {
+  font-weight: 500;
+  color: var(--color-foreground);
+}
+
+/* 一级行整行铺极浅品牌色底，子分类保持白底 —— 组与组的分界一眼可见 */
+:deep(.cat-row--l1 > td) {
+  background: rgba(var(--color-primary-rgb), 0.035);
+}
+
+:deep(.cat-row--l1:hover > td) {
+  background: var(--td-brand-color-1);
+}
+
+/* 卡片头的分级统计 */
+.category-lv-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 10px;
+}
+
+.category-lv-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.category-lv-dot--1 {
+  background: var(--td-brand-color-6);
+}
+
+.category-lv-dot--2 {
+  background: #3b82f6;
+}
+
+.category-lv-dot--3 {
+  background: #8b5cf6;
+}
+
+.category-lv-dot--4 {
+  background: #06b6d4;
+}
+
+.category-lv-dot--5 {
+  background: var(--color-muted-foreground);
+}
+
+.category-name__text {
+  font-weight: 600;
+  color: var(--color-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category-name__count {
+  flex-shrink: 0;
+  color: var(--color-muted-foreground);
+}
+
+.category-rate {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+
+.cell-muted {
+  color: var(--color-muted-foreground);
+}
+
+.category-actions {
+  white-space: nowrap;
 }
 </style>

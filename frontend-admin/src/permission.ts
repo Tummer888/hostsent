@@ -113,7 +113,6 @@ export const navMenu = [
     children: [
       { title: '用户总览', path: '/users/overview', icon: navIcon('dashboard') },
       { title: '账户管理', path: '/users/accounts', icon: navIcon('usergroup') },
-      { title: '用户等级', path: '/users/levels', icon: navIcon('tag') },
       { title: '安全与风控', path: '/users/security', icon: navIcon('key') },
       { title: '实名认证', path: '/users/verification', icon: navIcon('verify') },
     ],

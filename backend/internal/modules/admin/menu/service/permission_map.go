@@ -25,7 +25,7 @@ var menuPermissionMap = map[string]string{
 	"/users/security/blacklist":  "security:blacklist:manage",
 	"/users/security/sessions":   "security:session:manage",
 
-	"/users/levels": "level:list",
+	"/users/accounts/levels": "level:list",
 	// 代理等级（doc108）：折扣的唯一来源，与用户等级是两套阶梯。
 
 	"/users/verification/list":   "verification:list",

@@ -12,6 +12,7 @@ import (
 
 	"hostsent/backend/internal/modules/admin/product/catalog/dto"
 	"hostsent/backend/internal/modules/admin/product/catalog/model"
+	categorymodel "hostsent/backend/internal/modules/admin/product/category/model"
 )
 
 // ProductRepository 定义商品数据访问能力。
@@ -76,7 +77,13 @@ func (r *productRepository) List(ctx context.Context, query dto.ProductListQuery
 		base = base.Where("name ILIKE ? OR code ILIKE ?", like, like)
 	}
 	if query.CategoryID > 0 {
-		base = base.Where("category_id = ?", query.CategoryID)
+		// 分类导航点父节点时应看到整棵子树的货：把所选分类展开为「自身 + 全部子孙」再过滤。
+		// 分类表量级很小（几十行），一次读入内存构建父子映射即可，不值得递归 SQL。
+		ids, err := r.categorySubtreeIDs(ctx, query.CategoryID)
+		if err != nil {
+			return nil, 0, err
+		}
+		base = base.Where("category_id IN ?", ids)
 	}
 	if query.Status != nil {
 		base = base.Where("status = ?", *query.Status)
@@ -98,6 +105,29 @@ func (r *productRepository) List(ctx context.Context, query dto.ProductListQuery
 		return nil, 0, err
 	}
 	return items, total, nil
+}
+
+// categorySubtreeIDs 返回给定分类及其全部子孙的 ID（产品列表按分类导航用）。
+func (r *productRepository) categorySubtreeIDs(ctx context.Context, rootID uint64) ([]uint64, error) {
+	var cats []categorymodel.ProductCategory
+	if err := r.db.WithContext(ctx).Select("id", "parent_id").Find(&cats).Error; err != nil {
+		return nil, err
+	}
+	children := make(map[uint64][]uint64, len(cats))
+	for _, c := range cats {
+		children[c.ParentID] = append(children[c.ParentID], c.ID)
+	}
+	ids := []uint64{rootID}
+	queue := []uint64{rootID}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, child := range children[cur] {
+			ids = append(ids, child)
+			queue = append(queue, child)
+		}
+	}
+	return ids, nil
 }
 
 func (r *productRepository) FindByID(ctx context.Context, id uint64) (*model.Product, error) {

@@ -13,9 +13,9 @@ import (
 
 	"gorm.io/gorm"
 
-	"hostsent/backend/internal/modules/admin/user/level/dto"
-	"hostsent/backend/internal/modules/admin/user/level/model"
-	"hostsent/backend/internal/modules/admin/user/level/repository"
+	"hostsent/backend/internal/modules/admin/user/account/level/dto"
+	"hostsent/backend/internal/modules/admin/user/account/level/model"
+	"hostsent/backend/internal/modules/admin/user/account/level/repository"
 )
 
 // fakeAssignRepo 只实现人工调整链路用到的四个方法，其余调用立刻炸出来。
