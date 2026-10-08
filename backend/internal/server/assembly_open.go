@@ -10,10 +10,10 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	lifecyclemodel "hostsent/backend/internal/modules/admin/instance/lifecycle/model"
+	lifecycleservice "hostsent/backend/internal/modules/admin/instance/lifecycle/service"
 	instancemodel "hostsent/backend/internal/modules/admin/instance/model"
 	instanceservice "hostsent/backend/internal/modules/admin/instance/service"
-	lifecyclemodel "hostsent/backend/internal/modules/admin/lifecycle/model"
-	lifecycleservice "hostsent/backend/internal/modules/admin/lifecycle/service"
 	specrepo "hostsent/backend/internal/modules/admin/product/spec/repository"
 	openhandler "hostsent/backend/internal/modules/open/handler"
 	openrepo "hostsent/backend/internal/modules/open/repository"

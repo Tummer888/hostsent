@@ -496,7 +496,7 @@ watch(activeTab, (tab) => {
 }
 
 /* 管理操作审计页签的字段：直接是 FilterCard 栅格（.filter-card__grid）的子元素 */
-.admin-audit-card :deep(.filter-card__grid > .field) {
+.admin-audit-card :deep(:where(.filter-card__grid > .field)) {
   display: flex;
   flex-direction: column;
   gap: 8px;

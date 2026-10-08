@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-import { applyRadius, applyThemeColor, DEFAULT_THEME_COLOR } from '@/utils/theme'
+import { applyRadius, applyThemeColor, DEFAULT_THEME_COLOR, migrateThemeColor } from '@/utils/theme'
 
 // 色彩方案：浅色 / 深色 / 跟随系统
 export type ColorScheme = 'light' | 'dark' | 'auto'
@@ -69,6 +69,7 @@ export const useSettingsStore = defineStore('settings', {
       else root.removeAttribute('theme-mode')
     },
     applyAll() {
+      this.themeColor = migrateThemeColor(this.themeColor)
       applyThemeColor(this.themeColor)
       applyRadius(this.radius)
       this.applyColorScheme()

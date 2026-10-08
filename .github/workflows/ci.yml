@@ -21,6 +21,14 @@ jobs:
         run: go build ./...
       - name: Vet
         run: go vet ./...
+      - name: Format
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt found unformatted files:"
+            echo "$unformatted"
+            exit 1
+          fi
       - name: Test
         run: go test ./...
 

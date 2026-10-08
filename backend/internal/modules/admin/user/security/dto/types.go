@@ -59,25 +59,32 @@ type AuditLogInfo struct {
 }
 
 type RiskEventInfo struct {
-	ID                uint64     `json:"id"`
-	RiskType          string     `json:"risk_type"`
-	RiskLevel         string     `json:"risk_level"`
-	UserID            uint64     `json:"user_id"`
-	Username          string     `json:"username"`
-	IP                string     `json:"ip"`
-	DeviceFingerprint string     `json:"device_fingerprint"`
-	RuleCode          string     `json:"rule_code"`
-	Summary           string     `json:"summary"`
-	DetailPayload     string     `json:"detail_payload"`
-	OccurCount        int        `json:"occur_count"`
-	FirstOccurredAt   time.Time  `json:"first_occurred_at"`
-	LastOccurredAt    time.Time  `json:"last_occurred_at"`
-	Status            string     `json:"status"`
-	HandledBy         uint64     `json:"handled_by"`
-	HandledAt         *time.Time `json:"handled_at,omitempty"`
-	HandleNote        string     `json:"handle_note,omitempty"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	ID        uint64 `json:"id"`
+	RiskType  string `json:"risk_type"`
+	RiskLevel string `json:"risk_level"`
+	UserID    uint64 `json:"user_id"`
+	Username  string `json:"username"`
+	// SubjectType 事件主体域：user（客户）/ admin（员工后台）。
+	// 与登录日志同口径 —— user_id 列承载两个 ID 空间，不带上它就无法区分
+	// 「客户 7 号」与「员工 7 号」。
+	SubjectType       string    `json:"subject_type"`
+	IP                string    `json:"ip"`
+	DeviceFingerprint string    `json:"device_fingerprint"`
+	RuleCode          string    `json:"rule_code"`
+	Summary           string    `json:"summary"`
+	DetailPayload     string    `json:"detail_payload"`
+	OccurCount        int       `json:"occur_count"`
+	FirstOccurredAt   time.Time `json:"first_occurred_at"`
+	LastOccurredAt    time.Time `json:"last_occurred_at"`
+	Status            string    `json:"status"`
+	HandledBy         uint64    `json:"handled_by"`
+	// HandledByName 处置人账号名（由服务层从 admins 表补全）。
+	// 只回 ID 的话页面上只能显示一个数字，运营无法判断是谁处置的。
+	HandledByName string     `json:"handled_by_name"`
+	HandledAt     *time.Time `json:"handled_at,omitempty"`
+	HandleNote    string     `json:"handle_note,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
 type BlacklistInfo struct {
@@ -91,9 +98,18 @@ type BlacklistInfo struct {
 	ExpiredAt   *time.Time `json:"expired_at,omitempty"`
 	HitCount    int        `json:"hit_count"`
 	CreatedBy   uint64     `json:"created_by"`
-	UpdatedBy   uint64     `json:"updated_by"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	// CreatedByName / UpdatedByName 操作人账号名（服务层补全，同 HandledByName）。
+	CreatedByName string `json:"created_by_name"`
+	UpdatedByName string `json:"updated_by_name"`
+	UpdatedBy     uint64 `json:"updated_by"`
+	// RuntimeStatus 运行态：active / inactive / expired / pending。
+	//
+	// 与 status 分开：status 是运营开关（启用/停用），RuntimeStatus 叠加了
+	// 生效时间与失效时间。只显示 status 的话，一条限时黑名单到期后页面上
+	// 仍写「启用」，运营会以为还在拦人 —— 而它早就放行了。
+	RuntimeStatus string    `json:"runtime_status"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type SessionInfo struct {

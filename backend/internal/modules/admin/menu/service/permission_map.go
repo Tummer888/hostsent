@@ -51,6 +51,11 @@ var menuPermissionMap = map[string]string{
 	"/instances":           "resource:instance",
 	"/instances/list":      "resource:instance",
 	"/instances/inventory": "resource:instance",
+	// 生命周期与续费（doc60）整域并入本域（迁移 066）：路径 /lifecycle/* → /instances/lifecycle/*，
+	// 权限码不变。
+	"/instances/lifecycle/expiring": "lifecycle:expiring",
+	"/instances/lifecycle/renewals": "lifecycle:renewals",
+	"/instances/lifecycle/policy":   "lifecycle:policy",
 
 	"/product/products": "product:list",
 	// T7.2 商品对接（doc16 §9.3）：组件复用资源侧页面，权限沿用资源商品口径。
@@ -138,10 +143,6 @@ var menuPermissionMap = map[string]string{
 	"/system/logs":         "log:center",
 	"/system/logs/cleanup": "log:cleanup",
 	"/system/logs/policy":  "log:policy",
-
-	"/lifecycle/expiring": "lifecycle:expiring",
-	"/lifecycle/renewals": "lifecycle:renewals",
-	"/lifecycle/policy":   "lifecycle:policy",
 
 	"/notification/records":       "notify:record",
 	"/notification/templates":     "notify:template",

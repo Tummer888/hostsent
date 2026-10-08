@@ -25,13 +25,13 @@ type PriceMatrixItem struct {
 
 // PriceMatrixResponse 商品（或某 SKU）的完整周期价格矩阵。
 type PriceMatrixResponse struct {
-	ProductID    uint64            `json:"product_id"`
-	SpecID       uint64            `json:"spec_id"`
-	ProductName  string            `json:"product_name"`
-	Currency     string            `json:"currency"`
-	SourceMode   string            `json:"source_mode"`
-	UpstreamCycles []string        `json:"upstream_cycles"` // 上游可提供的周期（来自渠道能力声明）
-	Items        []PriceMatrixItem `json:"items"`
+	ProductID      uint64            `json:"product_id"`
+	SpecID         uint64            `json:"spec_id"`
+	ProductName    string            `json:"product_name"`
+	Currency       string            `json:"currency"`
+	SourceMode     string            `json:"source_mode"`
+	UpstreamCycles []string          `json:"upstream_cycles"` // 上游可提供的周期（来自渠道能力声明）
+	Items          []PriceMatrixItem `json:"items"`
 }
 
 // PriceMatrixSaveRequest 整表保存：提交的行 upsert，未提交的档位删除。

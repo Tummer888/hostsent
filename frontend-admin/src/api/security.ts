@@ -55,6 +55,13 @@ export interface RiskEventInfo {
   risk_level: string
   user_id: number
   username: string
+  /**
+   * 事件主体域：user（客户）/ admin（员工后台）。
+   *
+   * user_id 承载 users.id 与 admins.id 两个 ID 空间且会撞号，
+   * 不带上它就无法区分「客户 7 号」与「员工 7 号」。
+   */
+  subject_type: string
   ip: string
   device_fingerprint: string
   rule_code: string
@@ -65,6 +72,8 @@ export interface RiskEventInfo {
   last_occurred_at: string
   status: string
   handled_by: number
+  /** 处置人账号名（后端批量补全，避免页面只显示一个数字 ID）。 */
+  handled_by_name: string
   handled_at?: string
   handle_note?: string
   created_at: string
@@ -82,7 +91,17 @@ export interface BlacklistInfo {
   expired_at?: string
   hit_count: number
   created_by: number
+  created_by_name: string
   updated_by: number
+  updated_by_name: string
+  /**
+   * 运行态：active / inactive / expired / pending。
+   *
+   * 与 status 分开：status 只是运营开关，运行态还叠加了生效/失效时间。
+   * 一条限时黑名单到期后 status 仍是 active 但**已经不再拦截**，
+   * 只看 status 会以为还封着。
+   */
+  runtime_status: string
   created_at: string
   updated_at: string
 }
@@ -181,12 +200,24 @@ export interface RiskHandleRequest {
   note?: string
 }
 
+/** 手动调整风险等级（doc06 §4.3「手动升级风险等级」）。 */
+export interface RiskLevelRequest {
+  /** low / medium / high / critical。 */
+  risk_level: string
+  /** 调整原因，写进处置说明。 */
+  note?: string
+}
+
 export interface BlacklistCreateRequest {
   type: string
   target_value: string
   status?: string
   source?: string
   reason?: string
+  /**
+   * 失效时间（"YYYY-MM-DD HH:mm:ss"）。**留空表示永久生效** ——
+   * doc06 §4.4 关键规则 2 要求同时支持永久与限时两种模式。
+   */
   expired_at?: string
 }
 
@@ -244,6 +275,18 @@ export function getAuditLogList(params: AuditLogListQuery): Promise<ListResponse
 
 export function getRiskEventList(params: RiskEventListQuery): Promise<ListResponse<RiskEventInfo>> {
   return request.get<ListResponse<RiskEventInfo>>({ url: '/security/risk-events', params })
+}
+
+/** 风险事件汇总（待处理 / 已处置 / 已忽略 / 总数），复用列表的筛选条件。 */
+export function getRiskEventStats(
+  params: Omit<RiskEventListQuery, 'page' | 'page_size' | 'status'> = {},
+): Promise<Record<string, number>> {
+  return request.get<Record<string, number>>({ url: '/security/risk-events/stats', params })
+}
+
+/** 手动调整风险等级（只改等级，不改处置状态）。 */
+export function updateRiskEventLevel(id: number, data: RiskLevelRequest): Promise<RiskEventInfo> {
+  return request.post<RiskEventInfo>({ url: `/security/risk-events/${id}/level`, data })
 }
 
 export function ignoreRiskEvent(id: number, data: RiskHandleRequest = {}): Promise<RiskEventInfo> {

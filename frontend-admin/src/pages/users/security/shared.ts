@@ -15,6 +15,8 @@ export const securityStatusTagTheme: Record<string, string> = {
   inactive: 'default',
   revoked: 'danger',
   expired: 'warning',
+  /** 黑名单运行态「拦截中」：与 active 同色，但语义是「叠加时间后仍在拦」。 */
+  blocked: 'danger',
 }
 
 // —— 枚举取值对齐（doc104 F7）——
@@ -75,12 +77,30 @@ export const RISK_TYPE_OPTIONS = [
   { label: '暴力破解', value: 'brute_force' },
   { label: '可疑 IP', value: 'suspicious_ip' },
   { label: '设备变更', value: 'device_change' },
+  // 高频操作：规则引擎的 LOGIN_BURST 写的就是这个类型。此前枚举里没有它，
+  // 命中后列表只能显示原始英文值，用下拉也筛不到这类事件。
+  { label: '高频操作', value: 'high_frequency' },
 ]
 
 export const RISK_TYPE_LABEL: Record<string, string> = {
   brute_force: '暴力破解',
   suspicious_ip: '可疑 IP',
   device_change: '设备变更',
+  high_frequency: '高频操作',
+}
+
+/**
+ * 风险规则编码 → 可读名称。
+ *
+ * 「规则编码」列此前直接显示 LOGIN_FAIL_THRESHOLD 这类常量，运营看不出
+ * 到底命中哪条规则；映射后一眼能读懂，原始编码仍保留在详情里供排查。
+ */
+export const RISK_RULE_LABEL: Record<string, string> = {
+  LOGIN_FAIL_THRESHOLD: '连续登录失败超阈值',
+  DEVICE_FINGERPRINT_CHANGED: '设备指纹变更',
+  NEW_IP_LOGIN: '新 IP 登录',
+  IP_MULTI_ACCOUNT_FAIL: '同 IP 多账号失败（撞库）',
+  LOGIN_BURST: '登录频率异常',
 }
 
 /** 风险等级（critical 保留给未来的严重级）。 */
@@ -174,12 +194,40 @@ export const BLACKLIST_TYPE_OPTIONS = [
   { label: 'IP', value: 'ip' },
   { label: '账号', value: 'user' },
   { label: '设备', value: 'device' },
+  // doc06 §4.4 要求的手机号 / 邮箱两类：验证码登录的账号目标就是它们，
+  // 撞库时封 IP 会连坐同出口的正常用户，封手机号/邮箱才精准。
+  { label: '手机号', value: 'phone' },
+  { label: '邮箱', value: 'email' },
 ]
 
 export const BLACKLIST_TYPE_LABEL: Record<string, string> = {
   ip: 'IP',
   user: '账号',
   device: '设备',
+  phone: '手机号',
+  email: '邮箱',
+}
+
+/** 黑名单运行态（status 叠加生效/失效时间后的真实状态）。 */
+export const BLACKLIST_RUNTIME_OPTIONS = [
+  { label: '拦截中', value: 'active' },
+  { label: '未生效', value: 'pending' },
+  { label: '已过期', value: 'expired' },
+  { label: '已停用', value: 'inactive' },
+]
+
+export const BLACKLIST_RUNTIME_LABEL: Record<string, string> = {
+  active: '拦截中',
+  pending: '未生效',
+  expired: '已过期',
+  inactive: '已停用',
+}
+
+export const BLACKLIST_RUNTIME_THEME: Record<string, string> = {
+  active: 'success',
+  pending: 'warning',
+  expired: 'default',
+  inactive: 'default',
 }
 
 export const BLACKLIST_SOURCE_OPTIONS = [

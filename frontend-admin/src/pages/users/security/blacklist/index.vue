@@ -50,9 +50,11 @@
       {{ BLACKLIST_SOURCE_LABEL[row.source] || row.source || '—' }}
     </template>
 
+    <!-- 状态列展示**运行态**而不是运营开关：一条限时黑名单到期后 status 仍是
+         active，但实际已经不再拦截；只显示开关会让运营以为还封着。 -->
     <template #status="{ row }">
-      <t-tag :theme="securityStatusTagTheme[row.status] || 'default'" variant="light-outline">
-        {{ BLACKLIST_STATUS_LABEL[row.status] || row.status || '—' }}
+      <t-tag :theme="BLACKLIST_RUNTIME_THEME[statusOf(row)] || 'default'" variant="light-outline">
+        {{ BLACKLIST_RUNTIME_LABEL[statusOf(row)] || statusOf(row) }}
       </t-tag>
     </template>
 
@@ -61,7 +63,19 @@
     </template>
 
     <template #expired_at="{ row }">
-      {{ formatSecurityTime(row.expired_at) }}
+      <!-- 永久生效与限时生效的区分必须显式写出来：空白会被读成「还没填」。 -->
+      <span v-if="row.expired_at">{{ formatSecurityTime(row.expired_at) }}</span>
+      <span v-else class="permanent-hint">永久生效</span>
+    </template>
+
+    <template #created_by="{ row }">
+      {{ row.created_by_name || (row.created_by ? `#${row.created_by}` : '—') }}
+    </template>
+
+    <!-- 创建时间要走 formatSecurityTime：后端给的是 RFC3339，
+         直接渲染会显示成 2026-10-06T12:33:14.971674Z 这种带时区的原始串。 -->
+    <template #created_at="{ row }">
+      {{ formatSecurityTime(row.created_at) }}
     </template>
 
     <template #hit_count="{ row }">
@@ -100,10 +114,32 @@
   >
     <t-form :data="formData" label-align="top" colonless>
       <t-form-item label="类型">
-        <t-select v-model="formData.type" :options="BLACKLIST_TYPE_OPTIONS" placeholder="请选择类型" />
+        <t-select v-model="formData.type" :options="BLACKLIST_TYPE_OPTIONS" :disabled="!!editingId" placeholder="请选择类型" />
       </t-form-item>
       <t-form-item label="命中值">
-        <t-input v-model="formData.target_value" placeholder="IP / 用户名 / 设备指纹" />
+        <t-input
+          v-model="formData.target_value"
+          :disabled="!!editingId"
+          :placeholder="targetPlaceholder"
+        />
+      </t-form-item>
+      <!-- 生效模式：永久 / 限时。限时用「多少天后失效」输入，
+           比让运营自己算日期少一类错（doc06 §4.4 关键规则 2）。 -->
+      <t-form-item label="生效方式">
+        <t-radio-group v-model="expiryMode" variant="default-filled">
+          <t-radio-button value="permanent">永久生效</t-radio-button>
+          <t-radio-button value="limited">限时生效</t-radio-button>
+        </t-radio-group>
+      </t-form-item>
+      <t-form-item v-if="expiryMode === 'limited'" label="失效时间">
+        <t-date-picker
+          v-model="formData.expired_at"
+          enable-time-picker
+          allow-input
+          clearable
+          placeholder="选择失效时间"
+          style="width: 100%"
+        />
       </t-form-item>
       <t-form-item label="来源">
         <t-select v-model="formData.source" :options="BLACKLIST_SOURCE_OPTIONS" placeholder="请选择来源" />
@@ -178,6 +214,8 @@ import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
 import SecurityListPage from '../SecurityListPage.vue'
 import {
+  BLACKLIST_RUNTIME_LABEL,
+  BLACKLIST_RUNTIME_THEME,
   BLACKLIST_SOURCE_LABEL,
   BLACKLIST_SOURCE_OPTIONS,
   BLACKLIST_STATUS_LABEL,
@@ -227,7 +265,35 @@ const formData = reactive<BlacklistCreateRequest>({
   status: 'active',
   source: 'manual',
   reason: '',
+  expired_at: '',
 })
+
+// expiryMode 生效方式：永久（expired_at 留空）或限时。
+const expiryMode = ref<'permanent' | 'limited'>('permanent')
+
+// targetPlaceholder 按类型给命中值的填写示例。
+//
+// 占位文案写死「IP / 用户名 / 设备指纹」时，运营选「手机号」仍会看到 IP 的提示，
+// 填错值就等于白拉黑一条。
+const targetPlaceholder = computed(() => {
+  switch (formData.type) {
+    case 'user':
+      return '账号用户名，如 user_north_01'
+    case 'device':
+      return '设备指纹，如 fp-north-02'
+    case 'phone':
+      return '手机号，如 13800001111'
+    case 'email':
+      return '邮箱地址，如 user@example.com'
+    default:
+      return 'IP 地址，如 43.132.88.9'
+  }
+})
+
+// statusOf 优先用后端给的运行态；缺失时按 status 兜底（老后端兼容）。
+function statusOf(row: BlacklistInfo): string {
+  return row.runtime_status || row.status || 'inactive'
+}
 
 // —— 命中记录抽屉 ——
 const hitsVisible = ref(false)
@@ -262,11 +328,13 @@ const columns = computed<PrimaryTableCol<BlacklistInfo>[]>(() => [
   { colKey: 'type', title: '类型', width: 90 },
   { colKey: 'target_value', title: '命中值', minWidth: 180, ellipsis: true },
   { colKey: 'status', title: '状态', width: 100 },
-  { colKey: 'source', title: '来源', width: 110 },
-  { colKey: 'reason', title: '原因', minWidth: 200, ellipsis: true },
+  { colKey: 'source', title: '来源', width: 100 },
+  { colKey: 'reason', title: '原因', minWidth: 180, ellipsis: true },
   { colKey: 'hit_count', title: '命中次数', width: 100 },
-  { colKey: 'effective_at', title: '生效时间', width: 180 },
-  { colKey: 'expired_at', title: '失效时间', width: 180 },
+  { colKey: 'created_by', title: '创建人', width: 110 },
+  { colKey: 'created_at', title: '创建时间', width: 170 },
+  { colKey: 'effective_at', title: '生效时间', width: 170 },
+  { colKey: 'expired_at', title: '失效时间', width: 170 },
   { colKey: 'operation', title: '操作', width: isMobile.value ? 70 : 240, fixed: 'right' },
 ])
 
@@ -323,6 +391,8 @@ function resetForm() {
   formData.status = 'active'
   formData.source = 'manual'
   formData.reason = ''
+  formData.expired_at = ''
+  expiryMode.value = 'permanent'
 }
 
 function openCreate() {
@@ -337,7 +407,21 @@ function openEdit(row: BlacklistInfo) {
   formData.status = row.status
   formData.source = row.source
   formData.reason = row.reason
+  // 编辑时回显失效时间：后端给的是 RFC3339，日期组件要 "YYYY-MM-DD HH:mm:ss"。
+  formData.expired_at = row.expired_at ? toDatePickerValue(row.expired_at) : ''
+  expiryMode.value = row.expired_at ? 'limited' : 'permanent'
   dialogVisible.value = true
+}
+
+// toDatePickerValue 把 RFC3339 转成日期组件用的本地时间字符串。
+//
+// 直接用后端原值（2026-10-07T08:00:00Z）在日期组件里会被当成本地时间解析，
+// 相差一个时区偏移，运营看到的时间比实际早/晚 8 小时。
+function toDatePickerValue(raw: string): string {
+  const date = new Date(raw)
+  if (Number.isNaN(date.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
 
 async function loadHits() {
@@ -375,22 +459,34 @@ async function submitForm() {
     MessagePlugin.warning('请输入命中值')
     return
   }
+  // 限时生效必须给时间：不给就等于「选了这个模式但实际永久」，页面与库不一致。
+  if (!editingId.value && expiryMode.value === 'limited' && !formData.expired_at) {
+    MessagePlugin.warning('请选择失效时间，或改为永久生效')
+    return
+  }
   submitting.value = true
   try {
     if (editingId.value) {
       await updateBlacklist(editingId.value, {
         status: formData.status,
         reason: formData.reason,
+        // 类型与命中值是黑名单的身份：改动等于换了一条记录，
+        // 因此编辑时不允许改这两项（后端也没有对应字段）。
+        expired_at: expiryMode.value === 'limited' ? formData.expired_at : '',
       })
     } else {
       await createBlacklist({
         ...formData,
         target_value: formData.target_value.trim(),
+        // 永久生效必须显式传空串而不是传当前值：后端把空串理解为「无失效时间」。
+        expired_at: expiryMode.value === 'limited' ? formData.expired_at : '',
       })
     }
     dialogVisible.value = false
     resetForm()
     await loadData()
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '保存黑名单失败')
   } finally {
     submitting.value = false
   }
@@ -428,3 +524,11 @@ function handleMobileAction(value: string | number | Record<string, any>, row: B
   }
 }
 </script>
+
+<style scoped lang="css">
+/* 「永久生效」：与具体时间区分开，空白会被读成「还没填」。 */
+.permanent-hint {
+  color: var(--color-muted-foreground);
+  font-size: 12px;
+}
+</style>

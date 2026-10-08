@@ -32,11 +32,11 @@ import (
 	finwithdrawrepo "hostsent/backend/internal/modules/admin/finance/withdraw/repository"
 	finwithdrawservice "hostsent/backend/internal/modules/admin/finance/withdraw/service"
 	instancehandler "hostsent/backend/internal/modules/admin/instance/handler"
+	lifecyclehandler "hostsent/backend/internal/modules/admin/instance/lifecycle/handler"
+	lifecyclerepo "hostsent/backend/internal/modules/admin/instance/lifecycle/repository"
+	lifecycleservice "hostsent/backend/internal/modules/admin/instance/lifecycle/service"
 	instancerepo "hostsent/backend/internal/modules/admin/instance/repository"
 	instanceservice "hostsent/backend/internal/modules/admin/instance/service"
-	lifecyclehandler "hostsent/backend/internal/modules/admin/lifecycle/handler"
-	lifecyclerepo "hostsent/backend/internal/modules/admin/lifecycle/repository"
-	lifecycleservice "hostsent/backend/internal/modules/admin/lifecycle/service"
 	adminhandler "hostsent/backend/internal/modules/admin/manager/handler"
 	adminrepo "hostsent/backend/internal/modules/admin/manager/repository"
 	adminservice "hostsent/backend/internal/modules/admin/manager/service"
@@ -101,14 +101,14 @@ import (
 	ticketservice "hostsent/backend/internal/modules/admin/ticket/service"
 	userdto "hostsent/backend/internal/modules/admin/user/account/dto"
 	"hostsent/backend/internal/modules/admin/user/account/handler"
+	levelhandler "hostsent/backend/internal/modules/admin/user/account/level/handler"
+	levelrepo "hostsent/backend/internal/modules/admin/user/account/level/repository"
+	levelservice "hostsent/backend/internal/modules/admin/user/account/level/service"
 	"hostsent/backend/internal/modules/admin/user/account/repository"
 	"hostsent/backend/internal/modules/admin/user/account/service"
 	agentlevelhandler "hostsent/backend/internal/modules/admin/user/agentlevel/handler"
 	agentlevelrepo "hostsent/backend/internal/modules/admin/user/agentlevel/repository"
 	agentlevelservice "hostsent/backend/internal/modules/admin/user/agentlevel/service"
-	levelhandler "hostsent/backend/internal/modules/admin/user/account/level/handler"
-	levelrepo "hostsent/backend/internal/modules/admin/user/account/level/repository"
-	levelservice "hostsent/backend/internal/modules/admin/user/account/level/service"
 	securityhandler "hostsent/backend/internal/modules/admin/user/security/handler"
 	securityrepo "hostsent/backend/internal/modules/admin/user/security/repository"
 	securityservice "hostsent/backend/internal/modules/admin/user/security/service"
@@ -411,6 +411,12 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 否则被踢的令牌还能再用最多 positiveTTL（5 分钟）。
 	securityService.SetSessionInvalidator(sessionGuard)
 	sessionExpireScheduler := securityservice.NewSessionExpireScheduler(securityService, logger)
+	// 风控（doc06 §4.3/§4.4）：规则引擎只写风险事件、绝不阻断登录；黑名单守卫会
+	// 阻断，因此是独立组件、判定逐条可解释。两者都在装配层构造，经中性接口注入
+	// 用户端与管理端登录链路 —— uc/auth 与 admin/manager 都不 import 安全模块。
+	riskRepo := securityrepo.NewRiskRepository(database)
+	riskEngine := securityservice.NewRiskEngine(riskRepo, configValueReader)
+	blacklistGuard := securityservice.NewBlacklistGuard(riskRepo)
 	userLevelService := levelservice.NewUserLevelService(levelRepo)
 	// 代理等级（doc108）：折扣的唯一来源。用户组只做分类，不再绑定折扣策略。
 	agentLevelRepo := agentlevelrepo.NewAgentLevelRepository(database)
@@ -987,6 +993,13 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		adminService.SetSecurityDeps(captchaBundle.port)
 		userCenterService.SetSecurityPort(captchaBundle.port)
 	}
+	// 风控回填（doc06）：黑名单与规则引擎同样只经中性接口注入，两个认证服务
+	// 都不 import 安全模块。未装配时黑名单恒放行、规则引擎不上报 —— 缺能力
+	// 不会演变成「谁都登不上」或「页面刷满告警」。
+	userCenterService.SetBlacklistChecker(blacklistGuard)
+	userCenterService.SetLoginObserver(riskEngine)
+	adminService.SetBlacklistChecker(blacklistGuard)
+	adminService.SetLoginObserver(riskEngine)
 	// 实名认证（doc104 §5）：整单审核状态机 + 三方核验 + 用户端提交。
 	// 二次验证经 VerifyPort 端口接验证码策略，验证码模块不可用时不阻断实名提交；
 	// 材料上传复用与工单附件同一个本地存储实例（attachmentStore 可能为 nil）。

@@ -3,9 +3,9 @@
     <section class="pg-card surface-card">
       <div class="pg-head">
         <div>
-          <h3 class="pg-title">商品分组</h3>
+          <h3 class="pg-title">② 商品分组（管商品，不管人）</h3>
           <p class="pg-desc">
-            把分类和/或单个商品划成命名集合；在「折扣设置」分区把折扣组绑定到商品分组后一键应用。
+            把分类和/或单个商品划成命名集合；到「③ 折扣组」把折扣组绑定到商品分组后一键应用。
           </p>
         </div>
         <t-button v-permission="'agent_level:create'" theme="primary" @click="openCreate">新建商品分组</t-button>

@@ -122,7 +122,7 @@
         <t-form-item label="绑定商品分组" name="product_group_ids">
           <t-select
             v-model="form.group_ids"
-            :options="groupOptions"
+            :options="groupOptionsFor(null)"
             multiple
             clearable
             filterable
@@ -241,10 +241,11 @@ const groupOptions = computed(() =>
  * 一个商品分组只归一个折扣组是硬约束（后端唯一索引兜底），在下拉里提前拦住
  * 比让运营选完、保存时才吃到 409 更省事；本行已选的仍可取消。
  */
-function groupOptionsFor(row: SchemeRow) {
+function groupOptionsFor(row: SchemeRow | null) {
   return groupOptions.value.map((option) => {
     const owner = groupOwners.value[option.value]
-    if (owner && owner !== row.id) {
+    // row=null 是「新建折扣组」弹窗：还没有自己的 ID，任何已被占用的分组都不能选。
+    if (owner && owner !== row?.id) {
       return { ...option, disabled: true, label: `${option.label}（已被「${ownerName(owner)}」绑定）` }
     }
     return option

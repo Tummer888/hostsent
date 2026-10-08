@@ -3,10 +3,10 @@
     <section class="ag-card surface-card">
       <div class="ag-head">
         <div>
-          <h3 class="ag-title">代理分组</h3>
+          <h3 class="ag-title">① 代理分组（管人）</h3>
           <p class="ag-desc">
-            一行 = 一个代理分组（也就是拿货折扣的档位）。<strong>归属</strong>决定某个代理属于哪个分组：
-            在「折扣设置」里，行是折扣组（绑定商品分组）、列就是这里的代理分组，格子里填折扣率。
+            一行 = 一个代理分组（也就是拿货折扣的档位）。<strong>归属</strong>决定某个代理属于哪个分组。
+            在「③ 折扣组」里，行是折扣组（绑定商品分组）、列就是这里的代理分组，格子里填折扣率。
           </p>
         </div>
         <div class="ag-head__actions">
@@ -264,7 +264,7 @@ async function handleSubmit() {
       MessagePlugin.success('代理分组已更新')
     } else {
       await createAgentLevel(payload)
-      MessagePlugin.success('代理分组已创建，可在「折扣设置」里配折扣')
+      MessagePlugin.success('代理分组已创建，可到「③ 折扣组」配折扣')
     }
     formVisible.value = false
     await loadGroups()

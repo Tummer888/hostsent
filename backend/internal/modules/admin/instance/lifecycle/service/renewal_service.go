@@ -13,9 +13,9 @@ import (
 
 	accountservice "hostsent/backend/internal/modules/admin/finance/account/service"
 	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
-	lifecycledto "hostsent/backend/internal/modules/admin/lifecycle/dto"
-	lifecyclemodel "hostsent/backend/internal/modules/admin/lifecycle/model"
-	lifecyclerepo "hostsent/backend/internal/modules/admin/lifecycle/repository"
+	lifecycledto "hostsent/backend/internal/modules/admin/instance/lifecycle/dto"
+	lifecyclemodel "hostsent/backend/internal/modules/admin/instance/lifecycle/model"
+	lifecyclerepo "hostsent/backend/internal/modules/admin/instance/lifecycle/repository"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	"hostsent/backend/internal/pkg/billingcycle"

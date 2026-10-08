@@ -1,6 +1,7 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig, type InternalAxiosRequestConfig } from 'axios'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useUserStore } from '@/store'
+import { getDeviceFingerprint } from '@/utils/device-fingerprint'
 
 const request: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080/api/v1',
@@ -12,6 +13,12 @@ request.interceptors.request.use(
     const userStore = useUserStore()
     if (userStore.token) {
       config.headers.Authorization = `Bearer ${userStore.token}`
+    }
+    // 每个请求都带设备指纹：服务端只在登录链路上用它（设备变更规则、按设备拉黑），
+    // 但登录接口本身也走这个实例，统一注入比在 auth.ts 里单独加一次更不容易漏。
+    const fingerprint = getDeviceFingerprint()
+    if (fingerprint) {
+      config.headers['X-Device-Fingerprint'] = fingerprint
     }
     return config
   },

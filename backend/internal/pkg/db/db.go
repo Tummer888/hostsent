@@ -15,8 +15,8 @@ import (
 	finrechmodel "hostsent/backend/internal/modules/admin/finance/recharge/model"
 	fintransmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
 	finwithdrawmodel "hostsent/backend/internal/modules/admin/finance/withdraw/model"
+	lifecyclemodel "hostsent/backend/internal/modules/admin/instance/lifecycle/model"
 	instancemodel "hostsent/backend/internal/modules/admin/instance/model"
-	lifecyclemodel "hostsent/backend/internal/modules/admin/lifecycle/model"
 	logcentermodel "hostsent/backend/internal/modules/admin/logcenter/model"
 	adminmodel "hostsent/backend/internal/modules/admin/manager/model"
 	menumodel "hostsent/backend/internal/modules/admin/menu/model"
@@ -837,6 +837,8 @@ func seedSystemConfigs(tx *gorm.DB) error {
 	defaults = append(defaults, userDeletionSystemConfigs()...)
 	// 第三方登录回调地址（doc104 §6.4）：与迁移 052 同口径双写。
 	defaults = append(defaults, oauthSystemConfigs()...)
+	// 风控规则开关与阈值（doc06 §4.3/§4.4）：与迁移 065 同口径双写。
+	defaults = append(defaults, riskSystemConfigs()...)
 	for _, config := range defaults {
 		var existing systemmodel.SystemConfig
 		if err := tx.Where("config_key = ?", config.ConfigKey).First(&existing).Error; err == nil {
@@ -1610,6 +1612,13 @@ var seedMenuDefaults = []SeedMenu{
 	{Platform: menumodel.PlatformAdmin, Name: "实例管理", Type: menumodel.TypeDirectory, Path: "/instances", Icon: "server", SortOrder: 4, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "实例运维台", Type: menumodel.TypeMenu, Path: "/instances/list", Component: "instances/index", Icon: "server", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "云主机实例", Type: menumodel.TypeMenu, Path: "/instances/inventory", Component: "resource/instances/index", Icon: "server", SortOrder: 2, Status: menumodel.StatusActive},
+	// 生命周期与续费（doc60）整域并入本域（迁移 066）：二级目录 + 3 个叶子，
+	// 路径 /lifecycle/* → /instances/lifecycle/*（归属调整，HTTP API / 权限码不变），
+	// 旧路径由 router redirect 兼容。
+	{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "生命周期管理", Type: menumodel.TypeDirectory, Path: "/instances/lifecycle", Icon: "history", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/instances/lifecycle", Platform: menumodel.PlatformAdmin, Name: "到期管理", Type: menumodel.TypeMenu, Path: "/instances/lifecycle/expiring", Component: "instances/lifecycle/expiring/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/instances/lifecycle", Platform: menumodel.PlatformAdmin, Name: "续费记录", Type: menumodel.TypeMenu, Path: "/instances/lifecycle/renewals", Component: "instances/lifecycle/renewals/index", Icon: "order", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/instances/lifecycle", Platform: menumodel.PlatformAdmin, Name: "生命周期策略", Type: menumodel.TypeMenu, Path: "/instances/lifecycle/policy", Component: "instances/lifecycle/policy/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
 	// —— 产品管理（面向终端售卖，三层树）
 	{Platform: menumodel.PlatformAdmin, Name: "产品管理", Type: menumodel.TypeDirectory, Path: "/product", Icon: "product", SortOrder: 5, Status: menumodel.StatusActive},
 	// 商品列表（原「商品管理 /product/mgmt」目录只有一个叶子，压平后提升为二级）
@@ -1692,11 +1701,7 @@ var seedMenuDefaults = []SeedMenu{
 	{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "复核中心", Type: menumodel.TypeMenu, Path: "/tickets/reviews", Component: "ticket/reviews/index", Icon: "verify", SortOrder: 2, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单分类管理", Type: menumodel.TypeMenu, Path: "/tickets/categories", Component: "ticket/categories/index", Icon: "folder", SortOrder: 3, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单统计", Type: menumodel.TypeMenu, Path: "/tickets/stats", Component: "ticket/stats/index", Icon: "chart-bar", SortOrder: 4, Status: menumodel.StatusActive},
-	// —— 生命周期管理（doc60，admin 平台 SortOrder=10）
-	{Platform: menumodel.PlatformAdmin, Name: "生命周期管理", Type: menumodel.TypeDirectory, Path: "/lifecycle", Icon: "history", SortOrder: 10, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/lifecycle", Platform: menumodel.PlatformAdmin, Name: "到期管理", Type: menumodel.TypeMenu, Path: "/lifecycle/expiring", Component: "lifecycle/expiring/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/lifecycle", Platform: menumodel.PlatformAdmin, Name: "续费记录", Type: menumodel.TypeMenu, Path: "/lifecycle/renewals", Component: "lifecycle/renewals/index", Icon: "order", SortOrder: 2, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/lifecycle", Platform: menumodel.PlatformAdmin, Name: "生命周期策略", Type: menumodel.TypeMenu, Path: "/lifecycle/policy", Component: "lifecycle/policy/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
+	// 原「生命周期管理」一级域（doc60）已并入「实例管理」，见上方 admin:/instances 块。
 	// —— 消息中心（doc70/doc90）：6 项叶子保持平级（R4），仅重排 sort_order
 	{Platform: menumodel.PlatformAdmin, Name: "消息中心", Type: menumodel.TypeDirectory, Path: "/notification", Icon: "mail", SortOrder: 11, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/notification", Platform: menumodel.PlatformAdmin, Name: "通知模板", Type: menumodel.TypeMenu, Path: "/notification/templates", Component: "notification/templates/index", Icon: "root-list", SortOrder: 1, Status: menumodel.StatusActive},

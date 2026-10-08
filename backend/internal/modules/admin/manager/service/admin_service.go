@@ -18,9 +18,10 @@ import (
 )
 
 type AdminService interface {
-	Login(ctx context.Context, req dto.AdminLoginRequest, ip, userAgent string) (*dto.AdminLoginResponse, error)
+	// Login 管理端登录。deviceFingerprint 由 handler 从 X-Device-Fingerprint 采集（可空）。
+	Login(ctx context.Context, req dto.AdminLoginRequest, ip, userAgent, deviceFingerprint string) (*dto.AdminLoginResponse, error)
 	// VerifyLoginOTP 完成登录二次验证，成功返回正式令牌（doc91 §5.2）。
-	VerifyLoginOTP(ctx context.Context, req dto.AdminVerifyOTPRequest, ip, userAgent string) (*dto.AdminLoginResponse, error)
+	VerifyLoginOTP(ctx context.Context, req dto.AdminVerifyOTPRequest, ip, userAgent, deviceFingerprint string) (*dto.AdminLoginResponse, error)
 	Me(ctx context.Context, adminID uint64) (*dto.AdminInfo, error)
 	ChangePassword(ctx context.Context, adminID uint64, req dto.AdminChangePasswordRequest) error
 	List(ctx context.Context, query dto.AdminListQuery) (*dto.AdminListResponse, error)
@@ -37,6 +38,10 @@ type AdminService interface {
 	ListAuditLogs(ctx context.Context, query dto.AdminAuditLogQuery) (*dto.AdminAuditLogResponse, error)
 	// SetSecurityDeps 注入登录安全端口（doc91 C3，装配层在 captcha 装配后调用）。
 	SetSecurityDeps(port security.Port)
+	// SetBlacklistChecker 注入黑名单校验（doc06 §4.4，装配层调用，可选）。
+	SetBlacklistChecker(checker security.BlacklistChecker)
+	// SetLoginObserver 注入登录风险观察者（doc06 §4.3，装配层调用，可选）。
+	SetLoginObserver(observer security.LoginObserver)
 }
 
 // DepartmentNameResolver 部门名解析（由部门仓储实现）。
@@ -62,6 +67,23 @@ type adminService struct {
 	salesReleaser SalesReleaser
 	// sec 登录安全端口（图形码/OTP/锁定/登录日志），doc91 C3；未装配时全部放行。
 	sec security.Port
+	// blacklist 黑名单校验（doc06 §4.4）；未装配时恒放行。
+	blacklist security.BlacklistChecker
+	// observer 风控规则引擎（doc06 §4.3）；未装配时不上报任何信号。
+	observer security.LoginObserver
+}
+
+// SetBlacklistChecker 注入黑名单校验能力（装配层调用，可选）。
+//
+// 员工后台登录同样要过黑名单：撞库攻击者不区分客户与员工入口，
+// 而员工账号一旦得手影响面远大于单个客户。
+func (s *adminService) SetBlacklistChecker(checker security.BlacklistChecker) {
+	s.blacklist = checker
+}
+
+// SetLoginObserver 注入登录风险观察者（装配层调用，可选）。
+func (s *adminService) SetLoginObserver(observer security.LoginObserver) {
+	s.observer = observer
 }
 
 func NewAdminService(
@@ -87,43 +109,72 @@ func (s *adminService) SetSecurityDeps(port security.Port) {
 	s.sec = port
 }
 
-// loginFail 记录一次登录失败：写 login_logs + 失败计数（doc91 §9.1）。
+// loginFail 记录一次登录失败：写 login_logs + 失败计数 + 上报风控信号（doc91 §9.1）。
 // 账号不存在也照写，便于运营发现撞库（不暴露账号是否存在给调用方）。
-func (s *adminService) loginFail(ctx context.Context, username, ip, userAgent, reason string) {
-	if s.sec == nil {
-		return
+func (s *adminService) loginFail(ctx context.Context, username, ip, userAgent, reason string, deviceFingerprint ...string) {
+	if s.sec != nil {
+		s.sec.RecordFailure(ctx, username, ip)
+		s.sec.Log(ctx, security.LoginLogEntry{
+			Username:      username,
+			LoginType:     "password",
+			Result:        security.LoginResultFailed,
+			FailureReason: reason,
+			IP:            ip,
+			UserAgent:     userAgent,
+			Platform:      "admin",
+			// 失败尝试同样要记设备指纹：否则按设备拉黑/按设备查命中记录时，
+			// 员工入口的失败记录全部是空值，风控看得见的只有成功那一半。
+			DeviceFingerprint: firstDevice(deviceFingerprint),
+			// 主体域必须显式标记：login_logs.user_id 对员工是 admins.id，
+			// 与 users.id 撞号，不标记就会被算进撞号客户的登录记录里。
+			SubjectType: security.SubjectTypeAdmin,
+		})
 	}
-	s.sec.RecordFailure(ctx, username, ip)
-	s.sec.Log(ctx, security.LoginLogEntry{
-		Username:      username,
-		LoginType:     "password",
-		Result:        security.LoginResultFailed,
-		FailureReason: reason,
-		IP:            ip,
-		UserAgent:     userAgent,
-		Platform:      "admin",
-		// 主体域必须显式标记：login_logs.user_id 对员工是 admins.id，
-		// 与 users.id 撞号，不标记就会被算进撞号客户的登录记录里。
-		SubjectType: security.SubjectTypeAdmin,
-	})
+	if s.observer != nil {
+		s.observer.Observe(ctx, security.LoginSignal{
+			Username: username, IP: ip, UserAgent: userAgent,
+			DeviceFingerprint: firstDevice(deviceFingerprint),
+			SubjectType:       security.SubjectTypeAdmin,
+			LoginType:         "password", Success: false, FailureReason: reason,
+			At: time.Now(),
+		})
+	}
+}
+
+// firstDevice 取可变参数里的设备指纹（兼容既有的 4 参调用点）。
+func firstDevice(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
 }
 
 // Login 管理端登录（doc91 §5.2）。
 //
-// 顺序：锁定检查 → 图形码（策略要求时）→ 账号/密码 → 二次验证。
+// 顺序：黑名单 → 锁定检查 → 图形码（策略要求时）→ 账号/密码 → 二次验证。
 // 二次验证命中时**不签发访问令牌**，只返回待验证令牌。
-func (s *adminService) Login(ctx context.Context, req dto.AdminLoginRequest, ip, userAgent string) (*dto.AdminLoginResponse, error) {
+//
+// 黑名单校验同样放在最前（doc06 §4.4 关键规则 1）：撞库攻击者不区分
+// 客户与员工入口，而员工账号一旦得手影响面远大于单个客户，这一层不能省。
+func (s *adminService) Login(ctx context.Context, req dto.AdminLoginRequest, ip, userAgent, deviceFingerprint string) (*dto.AdminLoginResponse, error) {
+	// ⓪ 黑名单：命中直接拒绝，连图形码都不下发。
+	if s.blacklist != nil {
+		if err := s.blacklist.Check(ctx, req.Username, ip, deviceFingerprint); err != nil {
+			s.loginFail(ctx, req.Username, ip, userAgent, "blacklist", deviceFingerprint)
+			return nil, err
+		}
+	}
 	// ① 锁定检查：默认 login_fail_lock=false，行为与升级前一致。
 	if s.sec != nil {
 		if err := s.sec.CheckLocked(ctx, req.Username, ip); err != nil {
-			s.loginFail(ctx, req.Username, ip, userAgent, "locked")
+			s.loginFail(ctx, req.Username, ip, userAgent, "locked", deviceFingerprint)
 			return nil, err
 		}
 	}
 	// ② 图形码：策略要求时必须先过（admin_login 默认不要求）。
 	if s.sec != nil && s.sec.EffectiveImageRequired(ctx, security.SceneAdminLogin, security.Subject{IsAdmin: true}) {
 		if err := s.sec.VerifyImage(ctx, security.SceneAdminLogin, req.CaptchaKey, req.CaptchaCode); err != nil {
-			s.loginFail(ctx, req.Username, ip, userAgent, "captcha")
+			s.loginFail(ctx, req.Username, ip, userAgent, "captcha", deviceFingerprint)
 			return nil, err
 		}
 	}
@@ -131,19 +182,19 @@ func (s *adminService) Login(ctx context.Context, req dto.AdminLoginRequest, ip,
 	admin, err := s.repo.FindByUsername(ctx, req.Username)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			s.loginFail(ctx, req.Username, ip, userAgent, "user_not_found")
+			s.loginFail(ctx, req.Username, ip, userAgent, "user_not_found", deviceFingerprint)
 			return nil, security.ErrInvalidCredential
 		}
 		return nil, err
 	}
 
 	if admin.Status != "active" {
-		s.loginFail(ctx, req.Username, ip, userAgent, "disabled")
+		s.loginFail(ctx, req.Username, ip, userAgent, "disabled", deviceFingerprint)
 		return nil, security.ErrLoginDisabled
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(admin.PasswordHash), []byte(req.Password)); err != nil {
-		s.loginFail(ctx, req.Username, ip, userAgent, "bad_password")
+		s.loginFail(ctx, req.Username, ip, userAgent, "bad_password", deviceFingerprint)
 		return nil, security.ErrInvalidCredential
 	}
 
@@ -168,14 +219,31 @@ func (s *adminService) Login(ctx context.Context, req dto.AdminLoginRequest, ip,
 	if err := s.repo.UpdateLoginProfile(ctx, admin.ID, ip, time.Now()); err != nil {
 		return nil, err
 	}
-	// ④ 成功：清零失败计数 + 写成功日志。
+	// ④ 成功：清零失败计数 + 写成功日志 + 上报风控信号。
+	//
+	// at 必须在写日志**之前**取：风控信号里的 At 是历史设备/IP 查询的时间上界
+	// （见 security.LoginSignal.At），若在写日志之后取，本次登录自己落下的那行
+	// 就落在上界之内，「新设备」在写日志的瞬间变成「常用设备」，设备变更规则永不触发。
+	at := time.Now()
 	if s.sec != nil {
 		s.sec.ResetFailure(ctx, req.Username, ip)
 		s.sec.Log(ctx, security.LoginLogEntry{
 			UserID: admin.ID, Username: admin.Username, LoginType: "password",
 			Result: security.LoginResultSuccess, IP: ip,
 			UserAgent: userAgent, Platform: "admin",
-			SubjectType: security.SubjectTypeAdmin,
+			// 成功登录的设备指纹必须落库：它是「历史常用设备」的唯一来源，
+			// 不写进去设备变更规则永远没有可比对的基线（首次登录会被反复当成新设备）。
+			DeviceFingerprint: deviceFingerprint,
+			SubjectType:       security.SubjectTypeAdmin,
+		})
+	}
+	if s.observer != nil {
+		s.observer.Observe(ctx, security.LoginSignal{
+			Username: admin.Username, UserID: admin.ID, IP: ip, UserAgent: userAgent,
+			DeviceFingerprint: deviceFingerprint,
+			SubjectType:       security.SubjectTypeAdmin,
+			LoginType:         "password", Success: true,
+			At: at,
 		})
 	}
 	return s.issueAdminLogin(ctx, admin)
@@ -214,7 +282,7 @@ func (s *adminService) issueAdminLogin(ctx context.Context, admin *model.Admin) 
 }
 
 // VerifyLoginOTP 完成管理端登录二次验证（doc91 §5.2）。
-func (s *adminService) VerifyLoginOTP(ctx context.Context, req dto.AdminVerifyOTPRequest, ip, userAgent string) (*dto.AdminLoginResponse, error) {
+func (s *adminService) VerifyLoginOTP(ctx context.Context, req dto.AdminVerifyOTPRequest, ip, userAgent, deviceFingerprint string) (*dto.AdminLoginResponse, error) {
 	if s.sec == nil {
 		return nil, security.ErrInvalidOTPToken
 	}
@@ -236,12 +304,26 @@ func (s *adminService) VerifyLoginOTP(ctx context.Context, req dto.AdminVerifyOT
 	if err := s.repo.UpdateLoginProfile(ctx, admin.ID, ip, time.Now()); err != nil {
 		return nil, err
 	}
+	// 同上：信号时刻先于日志落库，避免本次登录自己被算作「历史设备」。
+	at := time.Now()
 	s.sec.ResetFailure(ctx, admin.Username, ip)
 	s.sec.Log(ctx, security.LoginLogEntry{
 		UserID: admin.ID, Username: admin.Username, LoginType: "password",
 		Result: security.LoginResultSuccess, IP: ip,
 		UserAgent: userAgent, Platform: "admin",
+		// 同上：OTP 验证通过后的这条成功日志同样要带设备指纹。
+		DeviceFingerprint: deviceFingerprint,
+		SubjectType:       security.SubjectTypeAdmin,
 	})
+	if s.observer != nil {
+		s.observer.Observe(ctx, security.LoginSignal{
+			Username: admin.Username, UserID: admin.ID, IP: ip, UserAgent: userAgent,
+			DeviceFingerprint: deviceFingerprint,
+			SubjectType:       security.SubjectTypeAdmin,
+			LoginType:         "password", Success: true,
+			At: at,
+		})
+	}
 	return s.issueAdminLogin(ctx, admin)
 }
 

@@ -22,7 +22,7 @@ type ProductInfo struct {
 	ProductType   string  `json:"product_type"`
 	Price         float64 `json:"price"`
 	PriceModel    string  `json:"price_model"`
-	Specs         string  `json:"specs"` // JSON 字符串（wire 层 `specs` 类型统一为 string；内容为商品展示规格）
+	Specs         string  `json:"specs"`       // JSON 字符串（wire 层 `specs` 类型统一为 string；内容为商品展示规格）
 	SourceMode    string  `json:"source_mode"` // self 自营 / upstream 上游转售（D6）
 	ConfigOptions string  `json:"config_options"`
 	Featured      bool    `json:"featured"`

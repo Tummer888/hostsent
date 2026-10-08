@@ -8,7 +8,7 @@
         <div class="page-header__text">
           <h2 class="page-header__title">周期价格</h2>
           <p class="page-header__desc">
-            商品 × 规格 × 计费周期的价格矩阵。价格直接存折后价，用户组/代理折扣由「折扣策略」在下单时二次叠加。
+            商品 × 规格 × 计费周期的价格矩阵。格子里存的是折后价，代理折扣与限时活动折扣在其上按身份二选一叠加。
           </p>
         </div>
       </div>

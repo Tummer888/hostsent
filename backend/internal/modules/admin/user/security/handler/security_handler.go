@@ -286,6 +286,61 @@ func (h *SecurityHandler) GetRiskEvent(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
 }
 
+// CountRiskEvents godoc
+// @Summary 风险事件汇总（待处理 / 已处置 / 已忽略 / 总数）
+// @Tags 安全与风控
+// @Produce json
+// @Security BearerAuth
+// @Param risk_type query string false "风险类型"
+// @Param risk_level query string false "风险等级"
+// @Param keyword query string false "关键词"
+// @Param start_time query string false "开始时间"
+// @Param end_time query string false "结束时间"
+// @Success 200 {object} dto.APIResponse[map[string]int64]
+// @Router /api/v1/admin/security/risk-events/stats [get]
+func (h *SecurityHandler) CountRiskEvents(c *gin.Context) {
+	var query dto.RiskEventListQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	// 状态由汇总接口自己按固定几档枚举，忽略调用方传入的 status：
+	// 带着某个状态来问「各状态各多少条」是无意义的组合。
+	query.Status = ""
+	data, err := h.service.CountRiskEvents(c.Request.Context(), query)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+}
+
+// UpdateRiskEventLevel godoc
+// @Summary 手动调整风险等级
+// @Description 只改等级、不改处置状态；等级非法返回 400
+// @Tags 安全与风控
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path int true "风险事件ID"
+// @Param request body dto.RiskEventLevelRequest true "等级与原因"
+// @Success 200 {object} dto.APIResponse[dto.RiskEventInfo]
+// @Router /api/v1/admin/security/risk-events/{id}/level [post]
+func (h *SecurityHandler) UpdateRiskEventLevel(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	var req dto.RiskEventLevelRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	data, err := h.service.UpdateRiskEventLevel(c.Request.Context(), id, req, operatorID(c))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+}
+
 // IgnoreRiskEvent godoc
 // @Summary 忽略风险事件
 // @Tags 安全与风控

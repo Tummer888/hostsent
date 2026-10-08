@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	lifecyclemodel "hostsent/backend/internal/modules/admin/lifecycle/model"
-	lifecyclerepo "hostsent/backend/internal/modules/admin/lifecycle/repository"
+	lifecyclemodel "hostsent/backend/internal/modules/admin/instance/lifecycle/model"
+	lifecyclerepo "hostsent/backend/internal/modules/admin/instance/lifecycle/repository"
 )
 
 // testPolicy 测试策略：宽限期 7 天、销毁保留期 30 天。

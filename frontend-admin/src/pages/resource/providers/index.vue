@@ -92,29 +92,58 @@
         </template>
 
         <template #connectivity="{ row }">
-          <span class="conn-cell">
-            <t-tag
-              v-if="connState(row.id).status === 'testing'"
-              theme="primary"
-              variant="light"
-              size="small"
-              shape="round"
-            >
-              测试中…
-            </t-tag>
-            <t-tag
-              v-else-if="connState(row.id).status === 'ok'"
-              theme="success"
-              variant="light"
-              size="small"
-              shape="round"
-            >
-              连通正常
-            </t-tag>
-            <t-tooltip v-else-if="connState(row.id).status === 'fail'" :content="connState(row.id).message" placement="top">
-              <t-tag theme="danger" variant="light" size="small" shape="round">连接失败</t-tag>
+          <t-tooltip :content="connTooltip(connState(row.id), row)" :disabled="connState(row.id).status === 'idle'" placement="top">
+            <span class="conn-cell">
+              <span class="conn-signal" :class="`conn-signal--${signalTier(connState(row.id))}`">
+                <i v-for="n in 3" :key="n" :class="{ 'is-on': n <= signalBars(connState(row.id)) }" />
+              </span>
+              <t-tag
+                v-if="connState(row.id).status === 'testing'"
+                theme="primary"
+                variant="light"
+                size="small"
+                shape="round"
+              >
+                测试中…
+              </t-tag>
+              <t-tag
+                v-else-if="connState(row.id).status === 'ok'"
+                theme="success"
+                variant="light"
+                size="small"
+                shape="round"
+              >
+                {{ connLatencyLabel(connState(row.id)) }}
+              </t-tag>
+              <t-tag v-else-if="connState(row.id).status === 'fail'" theme="danger" variant="light" size="small" shape="round">
+                连接失败
+              </t-tag>
+              <t-tag v-else theme="default" variant="light" size="small" shape="round">未测试</t-tag>
+            </span>
+          </t-tooltip>
+        </template>
+
+        <!-- 列头即「一键测试」入口：并发测试当前页全部渠道，运行中以旋转圆圈 + 进度提示。
+             注意 TDesign 的列头插槽名 = col.title 字面量（useTableHeader.renderTitle 用
+             slots[col.title] 查找），与单元格插槽用 colKey 不同；改列标题时必须同步改这里。 -->
+        <template #连通性>
+          <span class="conn-head">
+            <span class="conn-head__text">连通性</span>
+            <t-tooltip :content="testAllHint" placement="top">
+              <t-button
+                class="conn-head__btn"
+                size="small"
+                variant="text"
+                :disabled="testingAll || !providerList.length"
+                @click="handleTestAll"
+              >
+                <template #icon>
+                  <LoadingIcon v-if="testingAll" class="conn-head__spin" />
+                  <LinkIcon v-else />
+                </template>
+                <span class="conn-head__label">{{ testingAll ? `${testDone}/${testTotal}` : '一键测试' }}</span>
+              </t-button>
             </t-tooltip>
-            <t-tag v-else theme="default" variant="light" size="small" shape="round">未测试</t-tag>
           </span>
         </template>
 
@@ -224,51 +253,83 @@
       :on-confirm="handleSaveDialog"
       @close="handleDialogClose"
     >
+      <!-- 分块编辑：原先把基本信息/凭证/能力矩阵堆在一屏，680px 宽下必须上下滚动才能看全。
+           改为标题切换后每次只显示一块，弹窗高度稳定，也避免"漏看凭证区"这类误操作。
+           t-form 仍包在 tabs 外层：t-form-item 通过 provide/inject 注册到祖先表单，
+           面板设 destroy-on-hide=false 保证切走的面板不卸载，否则在别的标签页点保存
+           会跳过名称/地址这类必填校验（t-form 只校验已挂载的表单项）。 -->
       <t-form ref="formRef" :data="formData" :rules="rules" label-align="top">
-        <CapabilityMatrix
-          v-if="editingDescriptor"
-          :descriptor="editingDescriptor"
-          :title="`${typeLabel(formData.provider_type)} 能力矩阵`"
-          class="dialog-matrix"
-        />
-        <div class="form-grid">
-          <t-form-item label="提供商名称" name="name">
-            <t-input v-model="formData.name" placeholder="例如：华东 OpenStack" maxlength="50" />
-          </t-form-item>
-          <t-form-item label="类型" name="provider_type">
-            <t-input :model-value="typeLabel(formData.provider_type)" disabled />
-          </t-form-item>
-          <t-form-item label="API 地址" name="api_endpoint">
-            <t-input v-model="formData.api_endpoint" placeholder="https://api.example.com" />
-          </t-form-item>
-          <t-form-item label="区域" name="region">
-            <t-input v-model="formData.region" placeholder="例如：cn-east-1" />
-          </t-form-item>
-          <t-form-item label="同步间隔（秒）" name="sync_interval">
-            <t-input-number v-model="formData.sync_interval" :min="0" :step="60" placeholder="默认 3600" />
-          </t-form-item>
-          <t-form-item label="启用实例同步" name="sync_enabled">
-            <t-switch v-model="formData.sync_enabled" />
-          </t-form-item>
-          <t-form-item label="运维平台地址" name="ops_console_url" class="form-item--full">
-            <t-input v-model="formData.ops_console_url" placeholder="上游/平台运维控制台地址，留空则不显示跳转入口" />
-          </t-form-item>
-        </div>
-        <CredentialFormFields
-          v-if="editingCredentialFields.length"
-          v-model="formData.credentials"
-          :fields="editingCredentialFields"
-        />
-        <div v-else class="form-grid">
-          <t-form-item label="API 密钥" name="api_key">
-            <t-input v-model="formData.api_key" type="password" placeholder="留空表示不修改" />
-          </t-form-item>
-          <t-form-item label="API 密码" name="api_secret">
-            <t-input v-model="formData.api_secret" type="password" placeholder="留空表示不修改" />
-          </t-form-item>
-        </div>
+        <t-tabs v-model="editTab" theme="card" size="small" class="edit-tabs">
+          <t-tab-panel value="basic" label="基本信息" :destroy-on-hide="false">
+            <div class="form-grid">
+              <t-form-item label="提供商名称" name="name">
+                <t-input v-model="formData.name" placeholder="例如：华东 OpenStack" maxlength="50" />
+              </t-form-item>
+              <t-form-item label="类型" name="provider_type">
+                <t-input :model-value="typeLabel(formData.provider_type)" disabled />
+              </t-form-item>
+              <t-form-item label="API 地址" name="api_endpoint">
+                <t-input v-model="formData.api_endpoint" placeholder="https://api.example.com" />
+              </t-form-item>
+              <t-form-item label="区域" name="region">
+                <t-input v-model="formData.region" placeholder="例如：cn-east-1" />
+              </t-form-item>
+              <t-form-item label="运维平台地址" name="ops_console_url" class="form-item--full">
+                <t-input v-model="formData.ops_console_url" placeholder="上游/平台运维控制台地址，留空则不显示跳转入口" />
+              </t-form-item>
+            </div>
+          </t-tab-panel>
+
+          <t-tab-panel value="sync" label="同步与调度" :destroy-on-hide="false">
+            <div class="form-grid">
+              <t-form-item label="同步间隔（秒）" name="sync_interval">
+                <t-input-number v-model="formData.sync_interval" :min="0" :step="60" placeholder="默认 3600" />
+              </t-form-item>
+              <t-form-item label="启用实例同步" name="sync_enabled">
+                <t-switch v-model="formData.sync_enabled" />
+              </t-form-item>
+            </div>
+            <t-alert
+              theme="info"
+              message="同步间隔决定调度器多久拉起一次该渠道的同步任务；关闭「启用实例同步」后实例范围不再参与调度。"
+            />
+          </t-tab-panel>
+
+          <t-tab-panel value="credential" label="凭证" :destroy-on-hide="false">
+            <CredentialFormFields
+              v-if="editingCredentialFields.length"
+              v-model="formData.credentials"
+              :fields="editingCredentialFields"
+            />
+            <div v-else class="form-grid">
+              <t-form-item label="API 密钥" name="api_key">
+                <t-input v-model="formData.api_key" type="password" placeholder="留空表示不修改" />
+              </t-form-item>
+              <t-form-item label="API 密码" name="api_secret">
+                <t-input v-model="formData.api_secret" type="password" placeholder="留空表示不修改" />
+              </t-form-item>
+            </div>
+            <t-alert
+              theme="warning"
+              class="edit-tab-alert"
+              :message="editingCredentialFields.length
+                ? '凭证字段留空或保持脱敏回显表示不修改；修改后将重新加密落库。'
+                : 'API 密钥/密码留空表示保持原值不变。'"
+            />
+          </t-tab-panel>
+
+          <t-tab-panel value="capability" label="能力矩阵" :destroy-on-hide="false">
+            <CapabilityMatrix
+              v-if="editingDescriptor"
+              :descriptor="editingDescriptor"
+              :title="`${typeLabel(formData.provider_type)} 能力矩阵`"
+            />
+            <t-empty v-else description="该类型暂无能力描述符" />
+          </t-tab-panel>
+        </t-tabs>
       </t-form>
     </t-dialog>
+
   </div>
 </template>
 
@@ -277,7 +338,7 @@ import FilterCard from '@/components/filter-card/index.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { AddIcon, CloudIcon, RefreshIcon, SearchIcon, ServerIcon } from 'tdesign-icons-vue-next'
+import { AddIcon, CloudIcon, LinkIcon, LoadingIcon, RefreshIcon, SearchIcon, ServerIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import {
@@ -327,11 +388,68 @@ const typeKindMap = ref<Record<string, string>>({})
 
 // 行内连接测试状态：把「连接测试」页的职责收敛到列表一行一组状态。
 type ConnStatus = 'idle' | 'testing' | 'ok' | 'fail'
-const connResults = ref<Record<number, { status: ConnStatus; message: string; latency?: number }>>({})
+type ConnResult = { status: ConnStatus; message: string; latency?: number }
+const connResults = ref<Record<number, ConnResult>>({})
 
-function connState(id: number) {
+// 一键测试的运行态：done/total 驱动列头的进度文案，testingAll 期间禁用重复点击与行内单测。
+const testingAll = ref(false)
+const testDone = ref(0)
+const testTotal = ref(0)
+// 并发上限：上游 HealthCheck 是登录往返，渠道数通常个位数，4 路足够把总耗时压到单次往返量级，
+// 又不至于把上游登录接口打出限流（渠道凭证可能指向同一台上游）。
+const TEST_CONCURRENCY = 4
+
+function connState(id: number): ConnResult {
   return connResults.value[id] || { status: 'idle' as ConnStatus, message: '' }
 }
+
+// 信号格：0 格未测试，1-3 格按延迟档位，直观表达"连通质量"而不只是通/不通；
+// 失败给满格但按 down 配色（红），与"未测试"的全灰区分开。
+function signalBars(conn: ConnResult): number {
+  if (conn.status === 'fail') return 3
+  if (conn.status !== 'ok' || typeof conn.latency !== 'number') return 0
+  if (conn.latency < 500) return 3
+  if (conn.latency < 1500) return 2
+  return 1
+}
+
+function signalTier(conn: ConnResult): 'idle' | 'good' | 'fair' | 'poor' | 'down' {
+  if (conn.status === 'fail') return 'down'
+  if (conn.status === 'testing') return 'idle'
+  switch (signalBars(conn)) {
+    case 3:
+      return 'good'
+    case 2:
+      return 'fair'
+    case 1:
+      return 'poor'
+    default:
+      return 'idle'
+  }
+}
+
+function connLatencyLabel(conn: ConnResult): string {
+  return typeof conn.latency === 'number' ? `${conn.latency} ms` : '连通正常'
+}
+
+function connTooltip(conn: ConnResult, row: ProviderInfo): string {
+  switch (conn.status) {
+    case 'testing':
+      return `正在测试「${row.name}」…`
+    case 'ok':
+      return `「${row.name}」连通正常${typeof conn.latency === 'number' ? `，握手耗时 ${conn.latency} ms` : ''}`
+    case 'fail':
+      return `「${row.name}」连接失败：${conn.message}`
+    default:
+      return ''
+  }
+}
+
+const testAllHint = computed(() => {
+  if (testingAll.value) return `正在并发测试（${testDone.value}/${testTotal.value}），最多 ${TEST_CONCURRENCY} 路并行`
+  if (!providerList.value.length) return '当前页没有可测试的渠道'
+  return `并发测试当前页 ${providerList.value.length} 个渠道的连接`
+})
 
 const statusLabelMap: Record<number, string> = {
   1: '启用',
@@ -401,24 +519,35 @@ function formatTime(value: string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-const columns: PrimaryTableCol<ProviderInfo>[] = [
-  { colKey: 'name', title: '名称', minWidth: 200 },
-  { colKey: 'provider_type', title: '类型', width: 120 },
-  { colKey: 'api_endpoint', title: 'API 地址', minWidth: 220, ellipsis: true },
-  { colKey: 'connectivity', title: '连通性', width: 110 },
-  { colKey: 'status', title: '状态', width: 90 },
-  { colKey: 'sync_state', title: '同步状态', width: 110 },
-  { colKey: 'resources', title: '资源概览', minWidth: 220 },
-  { colKey: 'ops_url', title: '运维入口', width: 100 },
-  { colKey: 'last_sync_at', title: '最后同步', width: 160 },
-  {
-    colKey: 'action',
-    title: '操作',
-    width: isMobile.value ? 70 : 300,
-    fixed: 'right' as const,
-    align: 'center' as const,
-  },
-]
+// 列的可见性依赖链路：资源概览（CPU/内存/磁盘配额）只对自营平台有意义——自营类型在能力
+// 描述符里声明 pool/region 同步范围，容量由资源池同步写入；上游转售渠道的目录、定价与生命
+// 周期全在上游，本地没有容量字段（描述符只声明 catalog/price/instance），渲染出来恒为 0/0。
+const columns = computed<PrimaryTableCol<ProviderInfo>[]>(() => {
+  const base: PrimaryTableCol<ProviderInfo>[] = [
+    { colKey: 'name', title: '名称', minWidth: 200 },
+    { colKey: 'provider_type', title: '类型', width: 120 },
+    { colKey: 'api_endpoint', title: 'API 地址', minWidth: 220, ellipsis: true },
+    // 宽度按列头（「连通性」+ 一键测试按钮）取值，行内只有信号格 + 延迟标签，列头更宽。
+    { colKey: 'connectivity', title: '连通性', width: 200 },
+    { colKey: 'status', title: '状态', width: 90 },
+    { colKey: 'sync_state', title: '同步状态', width: 110 },
+  ]
+  if (isCompute.value) {
+    base.push({ colKey: 'resources', title: '资源概览', minWidth: 220 })
+  }
+  base.push(
+    { colKey: 'ops_url', title: '运维入口', width: 100 },
+    { colKey: 'last_sync_at', title: '最后同步', width: 160 },
+    {
+      colKey: 'action',
+      title: '操作',
+      width: isMobile.value ? 70 : 300,
+      fixed: 'right' as const,
+      align: 'center' as const,
+    },
+  )
+  return base
+})
 
 async function loadTypes() {
   try {
@@ -507,31 +636,83 @@ function goCreate() {
   router.push({ path: '/resource/providers/create', query: { kind: channelKind.value } })
 }
 
-async function handleTestConnection(row: ProviderInfo) {
-  connResults.value = { ...connResults.value, [row.id]: { status: 'testing', message: '' } }
+function setConnResult(id: number, result: ConnResult) {
+  // 整体替换而不是原地改键：connResults 是普通对象 ref，新增键不会触发依赖收集。
+  connResults.value = { ...connResults.value, [id]: result }
+}
+
+// 单渠道测试：返回结果供调用方汇总，不在这里弹提示（一键测试只要一条汇总提示）。
+// latency 只统计真实请求往返，MIN_TEST_VISIBLE_MS 只用于让「测试中」图标可被肉眼看到，
+// 不作为延迟计入信号档位。
+const MIN_TEST_VISIBLE_MS = 350
+
+async function runConnectionTest(row: ProviderInfo): Promise<ConnResult> {
+  setConnResult(row.id, { status: 'testing', message: '' })
   const startedAt = Date.now()
   try {
     const result = await testConnection(row.id)
     const latency = Date.now() - startedAt
+    await holdTestingVisible(startedAt)
     if (result.success) {
-      connResults.value = {
-        ...connResults.value,
-        [row.id]: { status: 'ok', message: result.message || 'ok', latency },
-      }
-      MessagePlugin.success(`「${row.name}」连接正常（${latency} ms）`)
-    } else {
-      connResults.value = {
-        ...connResults.value,
-        [row.id]: { status: 'fail', message: result.message, latency },
-      }
-      MessagePlugin.error(`「${row.name}」连接失败：${result.message}`)
+      const ok: ConnResult = { status: 'ok', message: result.message || 'ok', latency }
+      setConnResult(row.id, ok)
+      return ok
     }
+    const fail: ConnResult = { status: 'fail', message: result.message, latency }
+    setConnResult(row.id, fail)
+    return fail
   } catch (error) {
-    connResults.value = {
-      ...connResults.value,
-      [row.id]: { status: 'fail', message: (error as Error).message || '连接测试失败' },
+    await holdTestingVisible(startedAt)
+    const fail: ConnResult = { status: 'fail', message: (error as Error).message || '连接测试失败' }
+    setConnResult(row.id, fail)
+    return fail
+  }
+}
+
+function holdTestingVisible(startedAt: number) {
+  const rest = MIN_TEST_VISIBLE_MS - (Date.now() - startedAt)
+  return rest > 0 ? new Promise((resolve) => setTimeout(resolve, rest)) : Promise.resolve()
+}
+
+async function handleTestConnection(row: ProviderInfo) {
+  if (testingAll.value) return
+  const result = await runConnectionTest(row)
+  if (result.status === 'ok') {
+    MessagePlugin.success(`「${row.name}」连接正常（${result.latency} ms）`)
+  } else {
+    MessagePlugin.error(`「${row.name}」连接失败：${result.message}`)
+  }
+}
+
+// 一键测试：并发跑完当前页全部渠道，逐行回填状态与信号格，最后给一条汇总。
+async function handleTestAll() {
+  if (testingAll.value) return
+  const rows = [...providerList.value]
+  if (!rows.length) return
+  testingAll.value = true
+  testDone.value = 0
+  testTotal.value = rows.length
+  const results: Record<number, ConnResult> = {}
+  let cursor = 0
+  // 工作池：N 个 worker 抢同一个游标。cursor++ 与读取之间没有 await，单线程下不会重复取号。
+  const workers = Array.from({ length: Math.min(TEST_CONCURRENCY, rows.length) }, async () => {
+    while (cursor < rows.length) {
+      const row = rows[cursor++]
+      results[row.id] = await runConnectionTest(row)
+      testDone.value += 1
     }
-    MessagePlugin.error((error as Error).message || '连接测试失败')
+  })
+  try {
+    await Promise.all(workers)
+  } finally {
+    testingAll.value = false
+  }
+  const okCount = Object.values(results).filter((item) => item.status === 'ok').length
+  const failCount = rows.length - okCount
+  if (failCount === 0) {
+    MessagePlugin.success(`一键测试完成：${rows.length} 个渠道全部连通正常`)
+  } else {
+    MessagePlugin.warning(`一键测试完成：${okCount} 个连通，${failCount} 个失败（悬停「连接失败」查看原因）`)
   }
 }
 
@@ -578,6 +759,8 @@ const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
 const editingDescriptor = ref<CapabilityDescriptor | null>(null)
 const formRef = ref<FormInstanceFunctions | null>(null)
+// 编辑弹窗内的分块标签页：每次只渲染一块，避免 680px 弹窗需要上下滚动。
+const editTab = ref('basic')
 
 const editingCredentialFields = computed(() => editingDescriptor.value?.credential_schema || [])
 
@@ -609,6 +792,8 @@ const rules: Record<string, FormRule[]> = {
 function openEditDialog(row: ProviderInfo) {
   editingId.value = row.id
   editingDescriptor.value = row.capabilities || null
+  // 每次打开都回到第一块，避免上次停留在「能力矩阵」时打开以为内容缺失。
+  editTab.value = 'basic'
   Object.assign(formData, {
     name: row.name,
     provider_type: row.provider_type,
@@ -704,6 +889,89 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
 
 /* 桌面 4 列、中屏 2 列、窄屏 1 列由 FilterCard 的 columns 属性给出。 */
 
+/* —— 连通性：信号格 + 状态标签，列头挂「一键测试」 —— */
+.conn-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.conn-head__text {
+  font-weight: 600;
+}
+
+.conn-head__btn {
+  --td-brand-color: var(--color-primary);
+  height: auto;
+  padding: 0 2px;
+  font-size: 12px;
+}
+
+.conn-head__label {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* 测试中：圆圈持续旋转，作为"正在跑"的直观信号 */
+.conn-head__spin {
+  animation: conn-spin 0.9s linear infinite;
+}
+
+@keyframes conn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.conn-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 三格信号条：由矮到高，点亮格数代表延迟档位；未测试全灰，失败满格但走红（down 配色）。 */
+.conn-signal {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+
+.conn-signal i {
+  width: 3px;
+  border-radius: 1px;
+  background: var(--color-border);
+  transition: background-color 0.2s ease;
+}
+
+.conn-signal i:nth-child(1) {
+  height: 4px;
+}
+
+.conn-signal i:nth-child(2) {
+  height: 8px;
+}
+
+.conn-signal i:nth-child(3) {
+  height: 12px;
+}
+
+.conn-signal--good i.is-on {
+  background: #16a34a;
+}
+
+.conn-signal--fair i.is-on {
+  background: #d97706;
+}
+
+.conn-signal--poor i.is-on {
+  background: #ea580c;
+}
+
+.conn-signal--down i.is-on {
+  background: var(--color-destructive);
+}
+
 .resource-cell {
   display: flex;
   flex-direction: column;
@@ -733,8 +1001,14 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
   grid-column: 1 / -1;
 }
 
-.dialog-matrix {
-  margin-bottom: var(--space-lg);
+/* 编辑弹窗分块：标题切换下方内容固定高度，避免弹窗随内容长短跳动。 */
+.edit-tabs :deep(.t-tabs__content) {
+  min-height: 260px;
+  padding-top: var(--space-md);
+}
+
+.edit-tab-alert {
+  margin-top: var(--space-md);
 }
 
 .name-cell {

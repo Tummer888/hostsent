@@ -13,9 +13,9 @@ type PricingQuery struct {
 	ProductID   uint64 `form:"product_id" json:"product_id"`
 	BillingMode string `form:"billing_mode" json:"billing_mode"`
 	// Status 指针区分「未传」与「显式筛 status=0」
-	Status *int `form:"status" json:"status"`
-	Page        int    `form:"page" json:"page"`
-	PageSize    int    `form:"page_size" json:"page_size"`
+	Status   *int `form:"status" json:"status"`
+	Page     int  `form:"page" json:"page"`
+	PageSize int  `form:"page_size" json:"page_size"`
 }
 
 // PricingRequest 创建/更新价格策略

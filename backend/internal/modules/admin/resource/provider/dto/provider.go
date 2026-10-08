@@ -219,15 +219,15 @@ type PoolListResponse struct {
 
 // PoolCapacitySummary 资源池容量汇总。
 type PoolCapacitySummary struct {
-	TotalPools    int `json:"total_pools"`
-	OnlinePools   int `json:"online_pools"`
-	TotalCPU      int `json:"total_cpu"`
-	UsedCPU       int `json:"used_cpu"`
-	TotalMemory   int `json:"total_memory"`
-	UsedMemory    int `json:"used_memory"`
-	TotalDisk     int `json:"total_disk"`
-	UsedDisk      int `json:"used_disk"`
-	WarningPools   int `json:"warning_pools"`  // 用量≥60%
-	DangerPools    int `json:"danger_pools"`   // 用量≥80%
+	TotalPools     int `json:"total_pools"`
+	OnlinePools    int `json:"online_pools"`
+	TotalCPU       int `json:"total_cpu"`
+	UsedCPU        int `json:"used_cpu"`
+	TotalMemory    int `json:"total_memory"`
+	UsedMemory     int `json:"used_memory"`
+	TotalDisk      int `json:"total_disk"`
+	UsedDisk       int `json:"used_disk"`
+	WarningPools   int `json:"warning_pools"` // 用量≥60%
+	DangerPools    int `json:"danger_pools"`  // 用量≥80%
 	UnlocatedPools int `json:"unlocated_pools"`
 }

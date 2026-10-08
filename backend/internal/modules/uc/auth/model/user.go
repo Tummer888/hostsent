@@ -45,12 +45,12 @@ type User struct {
 	RealNameVerifiedSource string     `gorm:"column:real_name_verified_source;size:32;not null;default:''"`
 	// PhoneVerifiedAt / EmailVerifiedAt 手机与邮箱验证时间，为空表示未验证。
 	// 第三方登录的解绑守卫要判断「是否还有已验证手机可作为登录方式」，因此必须读出。
-	PhoneVerifiedAt   *time.Time `gorm:"column:phone_verified_at"`
-	EmailVerifiedAt   *time.Time `gorm:"column:email_verified_at"`
-	LastLoginAt       *time.Time `gorm:"column:last_login_at"`                 // 最近登录时间
-	LastLoginIP       string     `gorm:"column:last_login_ip;size:64"`         // 最近登录 IP
-	CreatedAt         time.Time  `gorm:"autoCreateTime"`                       // 创建时间
-	UpdatedAt         time.Time  `gorm:"autoUpdateTime"`                       // 更新时间
+	PhoneVerifiedAt *time.Time `gorm:"column:phone_verified_at"`
+	EmailVerifiedAt *time.Time `gorm:"column:email_verified_at"`
+	LastLoginAt     *time.Time `gorm:"column:last_login_at"`         // 最近登录时间
+	LastLoginIP     string     `gorm:"column:last_login_ip;size:64"` // 最近登录 IP
+	CreatedAt       time.Time  `gorm:"autoCreateTime"`               // 创建时间
+	UpdatedAt       time.Time  `gorm:"autoUpdateTime"`               // 更新时间
 }
 
 func (User) TableName() string {

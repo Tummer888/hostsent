@@ -135,6 +135,11 @@ export const navMenu = [
     children: [
       { title: '实例运维台', path: '/instances/list', icon: navIcon('server') },
       { title: '云主机实例', path: '/instances/inventory', icon: navIcon('server') },
+      // 生命周期与续费（doc60）已归入本域（迁移 066）：在后端菜单里是「生命周期管理」二级目录，
+      // 兜底菜单按本文件「只保留一级域 + 直接子项」的约定压平列出。
+      { title: '到期管理', path: '/instances/lifecycle/expiring', icon: navIcon('history') },
+      { title: '续费记录', path: '/instances/lifecycle/renewals', icon: navIcon('order') },
+      { title: '生命周期策略', path: '/instances/lifecycle/policy', icon: navIcon('setting') },
     ],
   },
   {
@@ -196,16 +201,6 @@ export const navMenu = [
       { title: '复核中心', path: '/tickets/reviews', icon: navIcon('verify') },
       { title: '工单分类管理', path: '/tickets/categories', icon: navIcon('folder') },
       { title: '工单统计', path: '/tickets/stats', icon: navIcon('chart-bar') },
-    ],
-  },
-  {
-    title: '生命周期管理',
-    path: '/lifecycle',
-    icon: navIcon('history'),
-    children: [
-      { title: '到期管理', path: '/lifecycle/expiring', icon: navIcon('history') },
-      { title: '续费记录', path: '/lifecycle/renewals', icon: navIcon('order') },
-      { title: '生命周期策略', path: '/lifecycle/policy', icon: navIcon('setting') },
     ],
   },
   {

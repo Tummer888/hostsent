@@ -75,7 +75,12 @@ type SessionInput struct {
 	Platform  string
 	IP        string
 	UserAgent string
-	LoginAt   time.Time
+	// DeviceFingerprint 客户端上报的设备指纹（可空）。
+	//
+	// 会话列表是运营判断「这个登录态是不是本人」的第一现场；只填 IP 时，
+	// 同一 NAT 出口下的所有会话看起来完全一样，无法区分。
+	DeviceFingerprint string
+	LoginAt           time.Time
 	// ExpiredAt 会话过期时间（一般 = LoginAt + JWT 有效期）。
 	//
 	// 必须写：此前该列恒为 NULL，而「在线」是靠 status='active' 判的，
@@ -329,10 +334,11 @@ func (r *userRepository) OpenSession(ctx context.Context, in SessionInput) error
 		expiredAt = in.ExpiredAt
 	}
 	return r.db.WithContext(ctx).Exec(`INSERT INTO user_sessions
-		(session_id, user_id, username, platform, ip, user_agent, login_at, last_active_at, expired_at, status, subject_type, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'user', NOW(), NOW())`,
+		(session_id, user_id, username, platform, ip, user_agent, device_fingerprint, login_at, last_active_at, expired_at, status, subject_type, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'user', NOW(), NOW())`,
 		in.SessionID, in.UserID, in.Username, platform,
-		in.IP, truncateBytes(in.UserAgent, 255), loginAt, loginAt, expiredAt).Error
+		in.IP, truncateBytes(in.UserAgent, 255), truncateBytes(in.DeviceFingerprint, 255),
+		loginAt, loginAt, expiredAt).Error
 }
 
 // truncateBytes 按字节截断到 UTF-8 字符边界（DB 列有长度上限，超长会整条 INSERT 失败）。

@@ -83,13 +83,25 @@ type RiskEventHandleRequest struct {
 	Note string `json:"note"`
 }
 
+// RiskEventLevelRequest 手动调整风险等级（doc06 §4.3「手动升级风险等级」）。
+type RiskEventLevelRequest struct {
+	// RiskLevel 目标等级：low / medium / high / critical。
+	RiskLevel string `json:"risk_level" binding:"required"`
+	// Note 调整原因（写进 handle_note，页面「处置说明」列可见）。
+	Note string `json:"note"`
+}
+
+// BlacklistCreateRequest 新增黑名单。
+//
+// 永久生效与限时生效靠 ExpiredAt 区分（空 = 永久），doc06 §4.4 关键规则 2。
 type BlacklistCreateRequest struct {
 	Type        string `json:"type" binding:"required"`
 	TargetValue string `json:"target_value" binding:"required"`
 	Status      string `json:"status"`
 	Source      string `json:"source"`
 	Reason      string `json:"reason"`
-	ExpiredAt   string `json:"expired_at"`
+	// ExpiredAt 失效时间（RFC3339 或 "2006-01-02 15:04:05"）；空 = 永久生效。
+	ExpiredAt string `json:"expired_at"`
 }
 
 type BlacklistUpdateRequest struct {

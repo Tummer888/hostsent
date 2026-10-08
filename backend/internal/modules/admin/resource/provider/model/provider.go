@@ -63,9 +63,9 @@ type ResourceProvider struct {
 	PriceChangeThreshold float64 `gorm:"column:price_change_threshold;type:numeric(10,4);not null;default:0.05"`
 	// OpsConsoleURL 上游/平台侧运维控制台地址；后台一键跳转（容量与位置、任务队列排障用）。
 	OpsConsoleURL string         `gorm:"column:ops_console_url;size:255;not null;default:''"`
-	CreatedAt      time.Time      `gorm:"autoCreateTime"`
-	UpdatedAt      time.Time      `gorm:"autoUpdateTime"`
-	DeletedAt      gorm.DeletedAt `gorm:"index"`
+	CreatedAt     time.Time      `gorm:"autoCreateTime"`
+	UpdatedAt     time.Time      `gorm:"autoUpdateTime"`
+	DeletedAt     gorm.DeletedAt `gorm:"index"`
 }
 
 // TableName 指定表名

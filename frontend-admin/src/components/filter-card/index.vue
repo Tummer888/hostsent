@@ -221,6 +221,25 @@ watch(
   grid-column: span 2;
 }
 
+/* 日期区间触发器（.t-date-range-picker > .t-range-input）默认按内容宽度布局，
+   在窄屏 300px 左右的字段列里会向右溢出卡片（移动端错位问题）。
+   让触发器撑满所在列、内部两个日期输入允许收缩 —— 宽窄屏都适用。 */
+:is(.filter-card, .filter-embed) .t-date-range-picker {
+  display: flex;
+  width: 100%;
+}
+
+:is(.filter-card, .filter-embed) .t-date-range-picker .t-range-input__inner {
+  min-width: 0;
+}
+
+:is(.filter-card, .filter-embed) .t-date-range-picker .t-input,
+:is(.filter-card, .filter-embed) .t-date-range-picker .t-input__wrap {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+}
+
 /* 与字段同排的操作格（渠道配置等把按钮放进栅格的页面）。 */
 .filter-card__grid > .field--actions {
   display: flex;

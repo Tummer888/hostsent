@@ -9,9 +9,9 @@ import (
 
 	"go.uber.org/zap"
 
+	lifecyclerepo "hostsent/backend/internal/modules/admin/instance/lifecycle/repository"
+	lifecycleservice "hostsent/backend/internal/modules/admin/instance/lifecycle/service"
 	instanceservice "hostsent/backend/internal/modules/admin/instance/service"
-	lifecyclerepo "hostsent/backend/internal/modules/admin/lifecycle/repository"
-	lifecycleservice "hostsent/backend/internal/modules/admin/lifecycle/service"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
 	orderservice "hostsent/backend/internal/modules/admin/order/service"
 	catalogservice "hostsent/backend/internal/modules/admin/product/catalog/service"

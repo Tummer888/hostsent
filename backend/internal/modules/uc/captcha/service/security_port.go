@@ -216,15 +216,16 @@ func (p *SecurityPort) Log(ctx context.Context, entry security.LoginLogEntry) {
 		return
 	}
 	p.guard.Log(ctx, LoginLogEntry{
-		UserID:        entry.UserID,
-		Username:      entry.Username,
-		LoginType:     entry.LoginType,
-		Result:        entry.Result,
-		FailureReason: entry.FailureReason,
-		IP:            entry.IP,
-		UserAgent:     entry.UserAgent,
-		Platform:      entry.Platform,
-		SubjectType:   entry.SubjectType,
+		UserID:            entry.UserID,
+		Username:          entry.Username,
+		LoginType:         entry.LoginType,
+		Result:            entry.Result,
+		FailureReason:     entry.FailureReason,
+		IP:                entry.IP,
+		UserAgent:         entry.UserAgent,
+		DeviceFingerprint: entry.DeviceFingerprint,
+		Platform:          entry.Platform,
+		SubjectType:       entry.SubjectType,
 	})
 }
 

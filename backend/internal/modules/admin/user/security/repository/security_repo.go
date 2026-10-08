@@ -31,6 +31,13 @@ type SecurityRepository interface {
 	BatchRevokeSessions(ctx context.Context, ids []uint64, reason string, revokedBy uint64) ([]model.Session, error)
 	RevokeUserAllSessions(ctx context.Context, userID uint64, reason string, revokedBy uint64) ([]model.Session, error)
 	ExpireStaleSessions(ctx context.Context, limit int) ([]string, error)
+	// AdminNames 批量取管理员账号名（风险事件的处置人、黑名单的创建/更新人）。
+	//
+	// 页面只回 ID 的话运营看到的是「处置人 3」这种无从判断的数字；
+	// 逐个查会变成 N+1（一页 10 条事件就是 10 次查询），所以一次性批量取。
+	AdminNames(ctx context.Context, ids []uint64) (map[uint64]string, error)
+	// CountRiskEvents 按状态统计风险事件数（页面汇总卡片用）。
+	CountRiskEvents(ctx context.Context, query dto.RiskEventListQuery) (map[string]int64, error)
 }
 
 type securityRepository struct {
@@ -267,6 +274,68 @@ func (r *securityRepository) ExpireStaleSessions(ctx context.Context, limit int)
 		sessionIDs = append(sessionIDs, sessions[i].SessionID)
 	}
 	return sessionIDs, nil
+}
+
+// AdminNames 批量取管理员账号名（处置人 / 创建人 / 更新人显示用）。
+//
+// 不 join users：风险事件与黑名单的操作人一定是**员工**（管理端接口鉴权决定的），
+// 去 users 表查会拿不到人（两个 ID 空间还会撞号）。
+func (r *securityRepository) AdminNames(ctx context.Context, ids []uint64) (map[uint64]string, error) {
+	out := make(map[uint64]string, len(ids))
+	unique := make([]uint64, 0, len(ids))
+	seen := make(map[uint64]struct{}, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	if len(unique) == 0 {
+		return out, nil
+	}
+	type row struct {
+		ID       uint64
+		Username string
+	}
+	var rows []row
+	if err := r.db.WithContext(ctx).Table("admins").
+		Select("id, username").Where("id IN ?", unique).Scan(&rows).Error; err != nil {
+		return out, err
+	}
+	for _, item := range rows {
+		out[item.ID] = item.Username
+	}
+	return out, nil
+}
+
+// CountRiskEvents 按状态统计风险事件（页面汇总卡片）。
+//
+// 复用 applyRiskEventFilters：汇总数与列表数必须同一个口径，
+// 否则会出现「卡片说 3 条待处理、列表筛出来 5 条」这种对不上的情况。
+func (r *securityRepository) CountRiskEvents(ctx context.Context, query dto.RiskEventListQuery) (map[string]int64, error) {
+	out := map[string]int64{}
+	for _, status := range []string{"pending", "handled", "ignored"} {
+		scoped := query
+		scoped.Status = status
+		base := applyRiskEventFilters(r.db.WithContext(ctx).Model(&model.RiskEvent{}), scoped)
+		var n int64
+		if err := base.Count(&n).Error; err != nil {
+			return out, err
+		}
+		out[status] = n
+	}
+	// 总数按调用方传入的筛选（通常是「全部状态」）算，与列表页的 total 对齐。
+	base := applyRiskEventFilters(r.db.WithContext(ctx).Model(&model.RiskEvent{}), query)
+	var total int64
+	if err := base.Count(&total).Error; err != nil {
+		return out, err
+	}
+	out["total"] = total
+	return out, nil
 }
 
 func applyLoginLogFilters(db *gorm.DB, query dto.LoginLogListQuery) *gorm.DB {

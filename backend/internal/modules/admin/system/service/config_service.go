@@ -169,7 +169,7 @@ func (s *configService) BatchUpsert(ctx context.Context, req dto.ConfigBatchUpse
 // notifySiteCache 站点分组配置变更后通知门户失效缓存。
 //
 // 只对 site 分组通知：门户公开接口的白名单里只有 `site.*` / `home.*` / `theme.*`
-//（三者都落在 site 分组），安全/注册/推广等分组的值不进门户，清了也是白清。
+// （三者都落在 site 分组），安全/注册/推广等分组的值不进门户，清了也是白清。
 func notifySiteCache(ctx context.Context, group string) {
 	if group == model.ConfigGroupSite {
 		revalidate.Notify(ctx, revalidate.KeySiteContent)

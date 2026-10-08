@@ -13,9 +13,9 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	lifecycledto "hostsent/backend/internal/modules/admin/lifecycle/dto"
-	lifecyclemodel "hostsent/backend/internal/modules/admin/lifecycle/model"
-	lifecyclerepo "hostsent/backend/internal/modules/admin/lifecycle/repository"
+	lifecycledto "hostsent/backend/internal/modules/admin/instance/lifecycle/dto"
+	lifecyclemodel "hostsent/backend/internal/modules/admin/instance/lifecycle/model"
+	lifecyclerepo "hostsent/backend/internal/modules/admin/instance/lifecycle/repository"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	"hostsent/backend/internal/pkg/upstream"
 )

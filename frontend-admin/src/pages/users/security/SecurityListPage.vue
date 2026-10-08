@@ -175,7 +175,7 @@ const { isMobile } = useIsMobile()
 }
 
 /* 字段来自各页 #filters 插槽，直接是 FilterCard 栅格（.filter-card__grid）的子元素 */
-.security-page__toolbar :deep(.filter-card__grid > .field) {
+.security-page__toolbar :deep(:where(.filter-card__grid > .field)) {
   display: flex;
   flex-direction: column;
   gap: 8px;

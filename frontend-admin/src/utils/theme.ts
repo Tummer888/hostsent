@@ -10,7 +10,7 @@ export interface ThemePreset {
 // 预设主题色（首个为系统默认绿）
 export const PRESET_THEME_COLORS: ThemePreset[] = [
   { name: '默认绿', value: '#16a34a' },
-  { name: '蓝', value: '#2563eb' },
+  { name: '蓝', value: '#2981ff' },
   { name: '靛蓝', value: '#4f46e5' },
   { name: '紫', value: '#7c3aed' },
   { name: '品红', value: '#db2777' },
@@ -20,6 +20,16 @@ export const PRESET_THEME_COLORS: ThemePreset[] = [
 ]
 
 export const DEFAULT_THEME_COLOR = PRESET_THEME_COLORS[0].value
+
+// 预设换色后的存量迁移：老用户持久化里存的是旧值，读出来时映射到新预设，
+// 否则「蓝」的色板高亮态会失配、已选用户停留在旧色。
+export const LEGACY_THEME_COLOR_MAP: Record<string, string> = {
+  '#2563eb': '#2981ff',
+}
+
+export function migrateThemeColor(hex: string): string {
+  return LEGACY_THEME_COLOR_MAP[hex.toLowerCase()] ?? hex
+}
 
 // 归一化 hex：支持 #abc / #aabbcc；非法时返回 fallback
 export function normalizeHex(input: string, fallback = DEFAULT_THEME_COLOR): string {

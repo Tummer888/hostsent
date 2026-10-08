@@ -10,6 +10,7 @@ import axios from 'axios'
 import router from '@/router'
 import { useUserStore } from '@/store'
 import type { Result } from '@/types/axios'
+import { getDeviceFingerprint } from '@/utils/device-fingerprint'
 
 declare module 'axios' {
   interface AxiosRequestConfig {
@@ -41,6 +42,12 @@ instance.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const userStore = useUserStore()
   if (userStore.token && config.headers) {
     config.headers.Authorization = `Bearer ${userStore.token}`
+  }
+  // 每个请求都带设备指纹：服务端只在登录链路上用它（设备变更规则、按设备拉黑），
+  // 但登录接口本身也走这个实例，统一注入比在 auth.ts 里单独加一次更不容易漏。
+  const fingerprint = getDeviceFingerprint()
+  if (fingerprint && config.headers) {
+    config.headers['X-Device-Fingerprint'] = fingerprint
   }
   const method = (config.method || 'GET').toUpperCase()
   if (method !== 'GET' && router.currentRoute.value.fullPath) {

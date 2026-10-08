@@ -48,7 +48,11 @@ type LoginLogEntry struct {
 	FailureReason string
 	IP            string
 	UserAgent     string
-	Platform      string
+	// DeviceFingerprint 客户端上报的设备指纹（可空）。落 login_logs 有两个用途：
+	// 风险规则的「设备变更」判定要拿历史成功登录的设备做基线；黑名单按设备类型
+	// 拉黑时，「命中记录」正是按这一列关联的。不落就是两条能力同时失效。
+	DeviceFingerprint string
+	Platform          string
 	// SubjectType 登录主体域（login_logs.subject_type）：空值按客户域落库。
 	// 管理端登录必须显式传 admin，见 security.LoginLogEntry 的同名注释。
 	SubjectType string

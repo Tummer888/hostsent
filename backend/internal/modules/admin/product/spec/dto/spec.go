@@ -19,9 +19,9 @@ type SpecTemplateQuery struct {
 	Keyword    string `form:"keyword" json:"keyword"`
 	SpecFamily string `form:"spec_family" json:"spec_family"`
 	// Status 指针区分「未传」与「显式筛 status=0（停用）」
-	Status *int `form:"status" json:"status"`
-	Page       int    `form:"page" json:"page"`
-	PageSize   int    `form:"page_size" json:"page_size"`
+	Status   *int `form:"status" json:"status"`
+	Page     int  `form:"page" json:"page"`
+	PageSize int  `form:"page_size" json:"page_size"`
 }
 
 // SpecTemplateRequest 创建/更新规格模板

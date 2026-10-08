@@ -5,8 +5,8 @@ package handler
 import (
 	"github.com/gin-gonic/gin"
 
-	lifecycledto "hostsent/backend/internal/modules/admin/lifecycle/dto"
-	lifecycleservice "hostsent/backend/internal/modules/admin/lifecycle/service"
+	lifecycledto "hostsent/backend/internal/modules/admin/instance/lifecycle/dto"
+	lifecycleservice "hostsent/backend/internal/modules/admin/instance/lifecycle/service"
 	apperrors "hostsent/backend/internal/pkg/errors"
 	"hostsent/backend/internal/pkg/middleware"
 	"hostsent/backend/internal/pkg/response"

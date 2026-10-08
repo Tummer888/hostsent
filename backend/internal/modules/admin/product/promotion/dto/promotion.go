@@ -13,9 +13,9 @@ type CouponQuery struct {
 	Keyword    string `form:"keyword" json:"keyword"`
 	CouponType string `form:"coupon_type" json:"coupon_type"`
 	// Status 指针区分「未传」与「显式筛 status=0（停用）」
-	Status *int `form:"status" json:"status"`
-	Page       int    `form:"page" json:"page"`
-	PageSize   int    `form:"page_size" json:"page_size"`
+	Status   *int `form:"status" json:"status"`
+	Page     int  `form:"page" json:"page"`
+	PageSize int  `form:"page_size" json:"page_size"`
 }
 
 // CouponRequest 创建/更新优惠券
@@ -99,9 +99,9 @@ type PromotionQuery struct {
 	Keyword       string `form:"keyword" json:"keyword"`
 	PromotionType string `form:"promotion_type" json:"promotion_type"`
 	// Status 指针区分「未传」与「显式筛 status=0（停用）」
-	Status *int `form:"status" json:"status"`
-	Page          int    `form:"page" json:"page"`
-	PageSize      int    `form:"page_size" json:"page_size"`
+	Status   *int `form:"status" json:"status"`
+	Page     int  `form:"page" json:"page"`
+	PageSize int  `form:"page_size" json:"page_size"`
 }
 
 // PromotionRequest 创建/更新促销活动

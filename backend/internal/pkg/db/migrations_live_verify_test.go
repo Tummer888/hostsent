@@ -200,6 +200,24 @@ func TestLivePhaseMigrations(t *testing.T) {
 				"uk_discount_scheme_groups_group", // (group_id)：一个分组只归一个折扣组
 			},
 		},
+		{
+			// 065 补齐风控的两处结构缺口（doc06 §4.3/§4.4）：
+			//   - risk_events.subject_type：user_id 承载 users.id 与 admins.id
+			//     两个 ID 空间且会撞号，不区分域会把员工异常记到客户头上；
+			//   - login_logs 的设备指纹索引 + 规则引擎的两个查询索引。
+			// 默认值 'user' 必须与模型一致，否则 AutoMigrate 会尝试改列。
+			name:   "065_risk_engine",
+			file:   "../../../migrations/065_risk_engine.sql",
+			models: []interface{}{&securitymodel.RiskEvent{}, &securitymodel.LoginLog{}},
+			columns: map[string][]string{
+				"risk_events": {"subject_type"},
+			},
+			indexes: []string{
+				"idx_risk_events_subject_user",
+				"idx_risk_events_rule_open",
+				"idx_login_logs_device_fingerprint",
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -267,6 +285,73 @@ func TestLiveAgentMenuMergedIntoGroups(t *testing.T) {
 	}
 	if perms < 4 {
 		t.Errorf("agent_level:* 权限码应保留，实际 %d 个", perms)
+	}
+}
+
+// TestLiveLifecycleMergedIntoInstances 验证 066：生命周期管理整域并入实例管理。
+//   - 迁移文件可重复执行（幂等）；
+//   - 旧一级域菜单 /lifecycle（含 3 个叶子）已删除，不残留重复入口；
+//   - 新的 /instances/lifecycle 目录与 3 个叶子已由 seed 插入；
+//   - lifecycle:* 权限码保留（接口仍按它鉴权）。
+//
+// 顺序要求：先跑迁移，再重启后端 —— 新行由 seed 在启动时插入，
+// 未重启时本用例会在「新菜单未插入」处失败，这是预期的提示。
+func TestLiveLifecycleMergedIntoInstances(t *testing.T) {
+	dsn := os.Getenv("LIVE_DB_DSN")
+	if dsn == "" {
+		dsn = "host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable"
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+
+	sqlBytes, err := os.ReadFile("../../../migrations/066_merge_lifecycle_into_instances.sql")
+	if err != nil {
+		t.Fatalf("读取迁移文件失败: %v", err)
+	}
+	for i := 1; i <= 2; i++ {
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			t.Fatalf("第 %d 次执行迁移失败: %v", i, err)
+		}
+	}
+
+	var oldMenus int64
+	if err := db.Raw(
+		"SELECT count(*) FROM menus WHERE platform = 'admin' AND (path = '/lifecycle' OR path LIKE '/lifecycle/%')",
+	).Scan(&oldMenus).Error; err != nil {
+		t.Fatalf("查询旧生命周期菜单失败: %v", err)
+	}
+	if oldMenus != 0 {
+		t.Errorf("旧一级域菜单 /lifecycle* 应已删除，仍存在 %d 行", oldMenus)
+	}
+
+	wantPaths := []string{
+		"/instances/lifecycle",
+		"/instances/lifecycle/expiring",
+		"/instances/lifecycle/renewals",
+		"/instances/lifecycle/policy",
+	}
+	for _, p := range wantPaths {
+		var n int64
+		if err := db.Raw(
+			"SELECT count(*) FROM menus WHERE platform = 'admin' AND path = ? AND status = 'active'", p,
+		).Scan(&n).Error; err != nil {
+			t.Fatalf("查询菜单 %s 失败: %v", p, err)
+		}
+		if n != 1 {
+			t.Errorf("菜单 %s 应存在且唯一（seed 需在后端重启后写入），实际 %d 行", p, n)
+		}
+	}
+
+	var perms int64
+	if err := db.Raw(
+		"SELECT count(*) FROM permissions WHERE code LIKE 'lifecycle%'",
+	).Scan(&perms).Error; err != nil {
+		t.Fatalf("查询 lifecycle 权限失败: %v", err)
+	}
+	if perms < 6 {
+		t.Errorf("lifecycle:* 权限码应保留，实际 %d 个", perms)
 	}
 }
 

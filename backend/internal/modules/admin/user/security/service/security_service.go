@@ -27,8 +27,15 @@ type SecurityService interface {
 	GetAuditLog(ctx context.Context, id uint64) (*dto.AuditLogInfo, error)
 	ListRiskEvents(ctx context.Context, query dto.RiskEventListQuery) (*dto.ListResponse[dto.RiskEventInfo], error)
 	GetRiskEvent(ctx context.Context, id uint64) (*dto.RiskEventInfo, error)
+	// CountRiskEvents 风险事件汇总（待处理 / 已处置 / 已忽略 / 总数）。
+	CountRiskEvents(ctx context.Context, query dto.RiskEventListQuery) (map[string]int64, error)
 	IgnoreRiskEvent(ctx context.Context, id uint64, req dto.RiskEventHandleRequest, operatorID uint64) (*dto.RiskEventInfo, error)
 	HandleRiskEvent(ctx context.Context, id uint64, req dto.RiskEventHandleRequest, operatorID uint64) (*dto.RiskEventInfo, error)
+	// UpdateRiskEventLevel 手动升级 / 下调风险等级（doc06 §4.3 操作建议）。
+	//
+	// 规则引擎只能按固定阈值定级；真实场景里「连续 5 次失败」在促销日可能纯属正常，
+	// 而运营一眼看出某条事件其实很严重 —— 必须允许人工改级，且留处置痕迹。
+	UpdateRiskEventLevel(ctx context.Context, id uint64, req dto.RiskEventLevelRequest, operatorID uint64) (*dto.RiskEventInfo, error)
 	CreateBlacklistFromRisk(ctx context.Context, id uint64, req dto.RiskEventHandleRequest, operatorID uint64) (*dto.BlacklistInfo, error)
 	RevokeSessionsFromRisk(ctx context.Context, id uint64, req dto.RiskEventHandleRequest, operatorID uint64) (*dto.ListResponse[dto.SessionInfo], error)
 	ListBlacklists(ctx context.Context, query dto.BlacklistListQuery) (*dto.ListResponse[dto.BlacklistInfo], error)
@@ -162,8 +169,19 @@ func (s *securityService) ListRiskEvents(ctx context.Context, query dto.RiskEven
 		return nil, err
 	}
 	result := make([]dto.RiskEventInfo, 0, len(items))
-	for _, item := range items {
-		result = append(result, toRiskEventInfo(item))
+	handledByIDs := make([]uint64, 0, len(items))
+	for i := range items {
+		result = append(result, toRiskEventInfo(items[i]))
+		if items[i].HandledBy != nil {
+			handledByIDs = append(handledByIDs, *items[i].HandledBy)
+		}
+	}
+	// 批量补处置人账号名：一页 10 条逐个查会变成 10 次查询（N+1），
+	// 而这是运营每翻一页都会走的路径。
+	if names, err := s.repo.AdminNames(ctx, handledByIDs); err == nil {
+		for i := range result {
+			result[i].HandledByName = names[result[i].HandledBy]
+		}
 	}
 	return newListResponse(result, query.Page, query.PageSize, total), nil
 }
@@ -174,7 +192,17 @@ func (s *securityService) GetRiskEvent(ctx context.Context, id uint64) (*dto.Ris
 		return nil, notFoundMessage(err, "风险事件不存在")
 	}
 	result := toRiskEventInfo(*item)
+	if item.HandledBy != nil {
+		if names, err := s.repo.AdminNames(ctx, []uint64{*item.HandledBy}); err == nil {
+			result.HandledByName = names[*item.HandledBy]
+		}
+	}
 	return &result, nil
+}
+
+// CountRiskEvents 风险事件汇总（页面顶部卡片）。
+func (s *securityService) CountRiskEvents(ctx context.Context, query dto.RiskEventListQuery) (map[string]int64, error) {
+	return s.repo.CountRiskEvents(ctx, query)
 }
 
 func (s *securityService) IgnoreRiskEvent(ctx context.Context, id uint64, req dto.RiskEventHandleRequest, operatorID uint64) (*dto.RiskEventInfo, error) {
@@ -183,6 +211,48 @@ func (s *securityService) IgnoreRiskEvent(ctx context.Context, id uint64, req dt
 
 func (s *securityService) HandleRiskEvent(ctx context.Context, id uint64, req dto.RiskEventHandleRequest, operatorID uint64) (*dto.RiskEventInfo, error) {
 	return s.updateRiskEventStatus(ctx, id, "handled", req.Note, operatorID)
+}
+
+// UpdateRiskEventLevel 手动调整风险等级（doc06 §4.3「手动升级风险等级」）。
+//
+// 只改等级、不动状态：升级等级是「这条要重点看」的标记，不等于已经处置。
+// 若顺手把状态改成 handled，运营刚提级的那条就会从「待处理」里消失，
+// 反而丢了待办。等级调整仍记处置人与时间（可追溯是谁改的）。
+func (s *securityService) UpdateRiskEventLevel(ctx context.Context, id uint64, req dto.RiskEventLevelRequest, operatorID uint64) (*dto.RiskEventInfo, error) {
+	level := strings.ToLower(strings.TrimSpace(req.RiskLevel))
+	if !isValidRiskLevel(level) {
+		return nil, fmt.Errorf("风险等级非法：%s", req.RiskLevel)
+	}
+	item, err := s.repo.GetRiskEvent(ctx, id)
+	if err != nil {
+		return nil, notFoundMessage(err, "风险事件不存在")
+	}
+	now := time.Now()
+	operator := operatorID
+	item.RiskLevel = level
+	if strings.TrimSpace(req.Note) != "" {
+		item.HandleNote = req.Note
+	}
+	item.HandledBy = &operator
+	item.HandledAt = &now
+	item.UpdatedAt = now
+	if err := s.repo.UpdateRiskEvent(ctx, item); err != nil {
+		return nil, err
+	}
+	result := toRiskEventInfo(*item)
+	if names, err := s.repo.AdminNames(ctx, []uint64{operatorID}); err == nil {
+		result.HandledByName = names[operatorID]
+	}
+	return &result, nil
+}
+
+func isValidRiskLevel(level string) bool {
+	for _, v := range model.RiskLevels() {
+		if v == level {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *securityService) CreateBlacklistFromRisk(ctx context.Context, id uint64, req dto.RiskEventHandleRequest, operatorID uint64) (*dto.BlacklistInfo, error) {
@@ -246,23 +316,44 @@ func (s *securityService) ListBlacklists(ctx context.Context, query dto.Blacklis
 		return nil, err
 	}
 	result := make([]dto.BlacklistInfo, 0, len(items))
-	for _, item := range items {
-		result = append(result, toBlacklistInfo(item))
+	operatorIDs := make([]uint64, 0, len(items)*2)
+	for i := range items {
+		result = append(result, toBlacklistInfo(items[i]))
+		operatorIDs = append(operatorIDs, items[i].CreatedBy, items[i].UpdatedBy)
+	}
+	if names, err := s.repo.AdminNames(ctx, operatorIDs); err == nil {
+		for i := range result {
+			result[i].CreatedByName = names[result[i].CreatedBy]
+			result[i].UpdatedByName = names[result[i].UpdatedBy]
+		}
 	}
 	return newListResponse(result, query.Page, query.PageSize, total), nil
 }
 
 func (s *securityService) CreateBlacklist(ctx context.Context, req dto.BlacklistCreateRequest, operatorID uint64) (*dto.BlacklistInfo, error) {
+	kind := strings.ToLower(strings.TrimSpace(req.Type))
+	if !model.IsBlacklistType(kind) {
+		return nil, fmt.Errorf("黑名单类型非法：%s", req.Type)
+	}
+	target := strings.TrimSpace(req.TargetValue)
+	if target == "" {
+		return nil, fmt.Errorf("命中值不能为空")
+	}
 	now := time.Now()
 	expiredAt, err := parseOptionalTime(req.ExpiredAt)
 	if err != nil {
 		return nil, err
 	}
+	// 失效时间早于生效时间没有任何意义，且会让这条黑名单「一创建就过期」——
+	// 运营却以为已经封上了。直接拒绝比静默接受安全。
+	if expiredAt != nil && !expiredAt.After(now) {
+		return nil, fmt.Errorf("失效时间必须晚于当前时间")
+	}
 	item := &model.Blacklist{
-		Type:        req.Type,
-		TargetValue: req.TargetValue,
-		Status:      firstNonEmpty(req.Status, "active"),
-		Source:      firstNonEmpty(req.Source, "manual"),
+		Type:        kind,
+		TargetValue: target,
+		Status:      firstNonEmpty(req.Status, model.BlacklistStatusActive),
+		Source:      firstNonEmpty(req.Source, model.BlacklistSourceManual),
 		Reason:      req.Reason,
 		EffectiveAt: now,
 		ExpiredAt:   expiredAt,
@@ -270,9 +361,18 @@ func (s *securityService) CreateBlacklist(ctx context.Context, req dto.Blacklist
 		UpdatedBy:   operatorID,
 	}
 	if err := s.repo.CreateBlacklist(ctx, item); err != nil {
+		// (type, target_value) 上有唯一索引：重复添加同一目标此前会抛原始 SQL 错误
+		// （页面上是一串英文），现在翻译成可操作的中文提示。
+		if isDuplicateKey(err) {
+			return nil, fmt.Errorf("该类型的命中值已存在（%s：%s），请直接编辑已有记录", kind, target)
+		}
 		return nil, err
 	}
 	result := toBlacklistInfo(*item)
+	if names, err := s.repo.AdminNames(ctx, []uint64{operatorID}); err == nil {
+		result.CreatedByName = names[operatorID]
+		result.UpdatedByName = names[operatorID]
+	}
 	return &result, nil
 }
 
@@ -282,6 +382,10 @@ func (s *securityService) GetBlacklist(ctx context.Context, id uint64) (*dto.Bla
 		return nil, notFoundMessage(err, "黑名单不存在")
 	}
 	result := toBlacklistInfo(*item)
+	if names, err := s.repo.AdminNames(ctx, []uint64{item.CreatedBy, item.UpdatedBy}); err == nil {
+		result.CreatedByName = names[item.CreatedBy]
+		result.UpdatedByName = names[item.UpdatedBy]
+	}
 	return &result, nil
 }
 
@@ -291,6 +395,9 @@ func (s *securityService) UpdateBlacklist(ctx context.Context, id uint64, req dt
 		return nil, notFoundMessage(err, "黑名单不存在")
 	}
 	if req.Status != "" {
+		if req.Status != model.BlacklistStatusActive && req.Status != model.BlacklistStatusInactive {
+			return nil, fmt.Errorf("黑名单状态非法：%s", req.Status)
+		}
 		item.Status = req.Status
 	}
 	if req.Reason != "" {
@@ -301,6 +408,10 @@ func (s *securityService) UpdateBlacklist(ctx context.Context, id uint64, req dt
 		if err != nil {
 			return nil, err
 		}
+		// 更新允许把失效时间改到过去：这等价于「立刻失效」，是运营提前解除
+		// 限时黑名单最直接的做法（比先停用再删除更贴近意图）。
+		// 新增时则拒绝已过去的时间 —— 那是配置填错了，静默接受会让运营
+		// 以为封上了，而实际从未生效过。
 		item.ExpiredAt = expiredAt
 	}
 	item.UpdatedBy = operatorID
@@ -309,6 +420,10 @@ func (s *securityService) UpdateBlacklist(ctx context.Context, id uint64, req dt
 		return nil, err
 	}
 	result := toBlacklistInfo(*item)
+	if names, err := s.repo.AdminNames(ctx, []uint64{item.CreatedBy, item.UpdatedBy}); err == nil {
+		result.CreatedByName = names[item.CreatedBy]
+		result.UpdatedByName = names[item.UpdatedBy]
+	}
 	return &result, nil
 }
 
@@ -425,7 +540,8 @@ func (s *securityService) ExpireStaleSessions(ctx context.Context, limit int) (i
 	return len(sessionIDs), nil
 }
 
-func (s *securityService) updateRiskEventStatus(ctx context.Context, id uint64, status string, note string, operatorID uint64) (*dto.RiskEventInfo, error) {	item, err := s.repo.GetRiskEvent(ctx, id)
+func (s *securityService) updateRiskEventStatus(ctx context.Context, id uint64, status string, note string, operatorID uint64) (*dto.RiskEventInfo, error) {
+	item, err := s.repo.GetRiskEvent(ctx, id)
 	if err != nil {
 		return nil, notFoundMessage(err, "风险事件不存在")
 	}
@@ -465,6 +581,19 @@ func notFoundMessage(err error, message string) error {
 
 func errorsIsRecordNotFound(err error) bool {
 	return err == gorm.ErrRecordNotFound || strings.Contains(err.Error(), gorm.ErrRecordNotFound.Error())
+}
+
+// isDuplicateKey 判断是否为唯一约束冲突（pgx 23505）。
+//
+// 用错误文本而不是驱动类型断言：仓储层已经把驱动错误包过一层，
+// 引入 pgconn 只为判一个错误码会让本模块多一个直连驱动的依赖。
+func isDuplicateKey(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "duplicate key") || strings.Contains(msg, "23505") ||
+		strings.Contains(msg, "unique constraint")
 }
 
 func parseOptionalTime(value string) (*time.Time, error) {
@@ -540,12 +669,14 @@ func toAuditLogInfo(item model.AuditLog) dto.AuditLogInfo {
 }
 
 func toRiskEventInfo(item model.RiskEvent) dto.RiskEventInfo {
+	subject := firstNonEmpty(item.SubjectType, model.SubjectTypeUser)
 	result := dto.RiskEventInfo{
 		ID:                item.ID,
 		RiskType:          item.RiskType,
 		RiskLevel:         item.RiskLevel,
 		UserID:            item.UserID,
 		Username:          item.Username,
+		SubjectType:       subject,
 		IP:                item.IP,
 		DeviceFingerprint: item.DeviceFingerprint,
 		RuleCode:          item.RuleCode,
@@ -566,21 +697,40 @@ func toRiskEventInfo(item model.RiskEvent) dto.RiskEventInfo {
 	return result
 }
 
+// blacklistRuntimeStatus 推导黑名单运行态。
+//
+// 与 status 分开的原因：status 是运营开关，运行态还要叠加生效/失效时间。
+// 一条限时黑名单到期后 status 仍是 active，但**实际已经不再拦截** ——
+// 页面若只显示 status，运营会以为封着，而攻击者早已能登录。
+func blacklistRuntimeStatus(item model.Blacklist, now time.Time) string {
+	if item.Status != model.BlacklistStatusActive {
+		return model.BlacklistStatusInactive
+	}
+	if item.EffectiveAt.After(now) {
+		return "pending"
+	}
+	if item.ExpiredAt != nil && !item.ExpiredAt.After(now) {
+		return "expired"
+	}
+	return model.BlacklistStatusActive
+}
+
 func toBlacklistInfo(item model.Blacklist) dto.BlacklistInfo {
 	return dto.BlacklistInfo{
-		ID:          item.ID,
-		Type:        item.Type,
-		TargetValue: item.TargetValue,
-		Status:      item.Status,
-		Source:      item.Source,
-		Reason:      item.Reason,
-		EffectiveAt: item.EffectiveAt,
-		ExpiredAt:   item.ExpiredAt,
-		HitCount:    item.HitCount,
-		CreatedBy:   item.CreatedBy,
-		UpdatedBy:   item.UpdatedBy,
-		CreatedAt:   item.CreatedAt,
-		UpdatedAt:   item.UpdatedAt,
+		ID:            item.ID,
+		Type:          item.Type,
+		TargetValue:   item.TargetValue,
+		Status:        item.Status,
+		Source:        item.Source,
+		Reason:        item.Reason,
+		EffectiveAt:   item.EffectiveAt,
+		ExpiredAt:     item.ExpiredAt,
+		HitCount:      item.HitCount,
+		CreatedBy:     item.CreatedBy,
+		UpdatedBy:     item.UpdatedBy,
+		RuntimeStatus: blacklistRuntimeStatus(item, time.Now()),
+		CreatedAt:     item.CreatedAt,
+		UpdatedAt:     item.UpdatedAt,
 	}
 }
 

@@ -146,7 +146,13 @@
               </t-form-item>
             </div>
 
-            <t-descriptions v-if="!editing" :column="3" bordered size="small" class="resource-summary">
+            <t-descriptions
+              v-if="!editing && isCompute"
+              :column="3"
+              bordered
+              size="small"
+              class="resource-summary"
+            >
               <t-descriptions-item label="CPU 配额">{{ detail.used_cpu }} / {{ detail.total_cpu }}</t-descriptions-item>
               <t-descriptions-item label="内存配额">{{ detail.used_memory }} / {{ detail.total_memory }}</t-descriptions-item>
               <t-descriptions-item label="磁盘配额">{{ detail.used_disk }} / {{ detail.total_disk }}</t-descriptions-item>
@@ -176,24 +182,85 @@
         <PoolPanel :provider-id="providerId" />
       </template>
 
-      <!-- 同步日志 -->
+      <!-- 同步日志：按当前渠道过滤 /resource/sync/logs，展示最近若干次同步的结果与耗时。
+           日志由同步引擎每完成一个 scope 任务写一行（writeLog），是排障的第一手材料。 -->
       <template v-else-if="activeTab === 'logs'">
-        <t-empty description="同步日志将在阶段四实现" />
-        <p class="logs-hint">当前阶段为同步日志占位，功能将在资源同步模块中提供。</p>
+        <div class="logs-head">
+          <div class="logs-head__meta">
+            <span>共 {{ logTotal }} 条同步日志</span>
+            <span v-if="logLastAt" class="logs-head__time">最近一次：{{ formatTime(logLastAt) }}</span>
+          </div>
+          <t-space size="small">
+            <t-select
+              v-model="logStatus"
+              size="small"
+              clearable
+              placeholder="全部状态"
+              :options="logStatusOptions"
+              style="width: 130px"
+              @change="reloadLogs"
+            />
+            <t-button size="small" variant="outline" :loading="logLoading" @click="reloadLogs">
+              <template #icon>
+                <RefreshIcon />
+              </template>
+              刷新
+            </t-button>
+          </t-space>
+        </div>
+
+        <t-table
+          row-key="id"
+          :data="logList"
+          :columns="logColumns"
+          :loading="logLoading"
+          size="small"
+          hover
+          table-layout="fixed"
+          cell-empty-content="—"
+          :pagination="logPagination"
+          @page-change="handleLogPageChange"
+        >
+          <template #sync_type="{ row }">
+            <t-tag :theme="scopeTheme(row.sync_type)" variant="light" size="small" shape="round">
+              {{ scopeLabel(row.sync_type) }}
+            </t-tag>
+          </template>
+          <template #result="{ row }">
+            <span class="cell-num">{{ row.success_count }} / {{ row.total_count }}</span>
+          </template>
+          <template #status="{ row }">
+            <t-tag :theme="logStatusTheme(row.status)" variant="light" size="small" shape="round">
+              {{ logStatusLabel(row.status) }}
+            </t-tag>
+          </template>
+          <template #error_message="{ row }">
+            <t-tooltip v-if="row.error_message" :content="row.error_message" placement="top">
+              <span class="cell-error">{{ row.error_message }}</span>
+            </t-tooltip>
+            <span v-else class="cell-muted">—</span>
+          </template>
+          <template #created_at="{ row }">
+            <span class="cell-muted">{{ formatTime(row.created_at) }}</span>
+          </template>
+          <template #empty>
+            <t-empty description="暂无同步日志（该渠道可能从未触发过同步）" />
+          </template>
+        </t-table>
       </template>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { CloudIcon } from 'tdesign-icons-vue-next'
-import { MessagePlugin, type FormInstanceFunctions, type FormRule } from 'tdesign-vue-next'
+import { CloudIcon, RefreshIcon } from 'tdesign-icons-vue-next'
+import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
-import { getProviderDetail, getProviderTypes, resumeProviderSync, testConnection, updateProvider } from '@/api/admin'
-import type { ProviderField, ProviderInfo, ProviderTypeItem } from '@/types/interface'
+import { getProviderDetail, getProviderTypes, getSyncLogList, resumeProviderSync, testConnection, updateProvider } from '@/api/admin'
+import type { ProviderField, ProviderInfo, ProviderTypeItem, SyncLogInfo } from '@/types/interface'
 import PoolPanel from '@/pages/resource/pools/index.vue'
 import CapabilityMatrix from './components/CapabilityMatrix.vue'
 import CredentialFormFields from './components/CredentialFormFields.vue'
@@ -206,6 +273,9 @@ const router = useRouter()
 const providerId = computed(() => Number(route.params.id))
 // 详情页归属哪个渠道列表：按渠道链路回跳（自营平台 / 上游转售），避免跨页跳错。
 const listPath = computed(() => (detail.value?.kind === 'compute' ? '/resource/platforms' : '/resource/providers'))
+// 自营平台（compute）才有本地容量概念，配额概览同理只在自营链路展示；
+// 上游转售渠道的容量权威在上游，本地字段恒为 0。
+const isCompute = computed(() => detail.value?.kind === 'compute')
 const detail = ref<ProviderInfo | null>(null)
 const loading = ref(false)
 const saving = ref(false)
@@ -215,6 +285,98 @@ const editing = ref(false)
 const activeTab = ref('basic')
 const typeList = ref<ProviderTypeItem[]>([])
 const formRef = ref<FormInstanceFunctions | null>(null)
+
+// —— 同步日志（按当前渠道过滤）——
+// 同步范围（scope）的展示名与配色跟同步中心保持一致，避免同一概念两处叫法不同。
+const SCOPE_LABELS: Record<string, string> = {
+  catalog: '商品目录',
+  price: '价格',
+  pool: '资源池',
+  region: '区域',
+  instance: '实例',
+}
+const LOG_STATUS_LABELS: Record<string, string> = {
+  pending: '待执行',
+  running: '执行中',
+  success: '成功',
+  failed: '失败',
+  skipped: '已跳过',
+}
+const logStatusOptions = [
+  { label: '成功', value: 'success' },
+  { label: '失败', value: 'failed' },
+  { label: '已跳过', value: 'skipped' },
+]
+
+const logList = ref<SyncLogInfo[]>([])
+const logLoading = ref(false)
+const logStatus = ref<string>('')
+const logTotal = ref(0)
+const logPagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
+const logColumns: PrimaryTableCol<SyncLogInfo>[] = [
+  { colKey: 'sync_type', title: '同步范围', width: 110 },
+  { colKey: 'result', title: '成功/总数', width: 110 },
+  { colKey: 'status', title: '状态', width: 100 },
+  { colKey: 'error_message', title: '错误信息', minWidth: 200, ellipsis: true },
+  { colKey: 'task_id', title: '任务 ID', width: 90 },
+  { colKey: 'created_at', title: '时间', minWidth: 160 },
+]
+const logLastAt = computed(() => (logList.value.length ? logList.value[0].created_at : ''))
+
+function scopeLabel(scope: string): string {
+  return SCOPE_LABELS[scope] || scope || '—'
+}
+
+function scopeTheme(scope: string): string {
+  if (scope === 'catalog') return 'primary'
+  if (scope === 'price') return 'warning'
+  if (scope === 'pool') return 'success'
+  if (scope === 'region') return 'default'
+  if (scope === 'instance') return 'danger'
+  return 'default'
+}
+
+function logStatusLabel(status: string): string {
+  return LOG_STATUS_LABELS[status] || status || '—'
+}
+
+function logStatusTheme(status: string): string {
+  if (status === 'success') return 'success'
+  if (status === 'failed') return 'danger'
+  if (status === 'running') return 'warning'
+  return 'default'
+}
+
+async function loadLogs() {
+  if (!providerId.value) return
+  logLoading.value = true
+  try {
+    const data = await getSyncLogList({
+      provider_id: providerId.value,
+      status: logStatus.value || undefined,
+      page: logPagination.current,
+      page_size: logPagination.pageSize,
+    })
+    logList.value = data.items
+    logTotal.value = data.meta.total
+    logPagination.total = data.meta.total
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '加载同步日志失败')
+  } finally {
+    logLoading.value = false
+  }
+}
+
+function reloadLogs() {
+  logPagination.current = 1
+  loadLogs()
+}
+
+function handleLogPageChange(pageInfo: PageInfo) {
+  logPagination.current = pageInfo.current
+  logPagination.pageSize = pageInfo.pageSize
+  loadLogs()
+}
 
 // 凭证字段由渠道能力描述符驱动（落库的脱敏值据此回显）。
 const credentialFields = computed<ProviderField[]>(() => detail.value?.capabilities?.credential_schema || [])
@@ -379,6 +541,12 @@ onMounted(() => {
   loadTypes()
   loadDetail()
 })
+
+// 切到「同步日志」时才拉取：日志表按 provider 过滤，详情页首屏没必要预载。
+// 从日志页切走再回来会重新拉一次，保证看到的是最新一条同步结果。
+watch(activeTab, (tab) => {
+  if (tab === 'logs') loadLogs()
+})
 </script>
 
 <style lang="css">
@@ -462,11 +630,39 @@ onMounted(() => {
   padding: var(--space-md) var(--space-lg) 0;
 }
 
-.logs-hint {
-  margin: var(--space-md) 0 0;
-  text-align: center;
+.logs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.logs-head__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
   font-size: 13px;
   color: var(--color-muted-foreground);
+}
+
+.cell-num {
+  font-family: var(--hs-font-mono);
+}
+
+.cell-muted {
+  color: var(--color-muted-foreground);
+}
+
+/* 错误信息单行截断，完整内容走 tooltip（同步失败原因常含上游返回的长 JSON）。 */
+.cell-error {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  color: var(--td-error-color);
 }
 
 @media (max-width: 1200px) {

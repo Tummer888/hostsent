@@ -7,8 +7,8 @@ import (
 
 	"go.uber.org/zap"
 
-	lifecyclemodel "hostsent/backend/internal/modules/admin/lifecycle/model"
-	lifecyclerepo "hostsent/backend/internal/modules/admin/lifecycle/repository"
+	lifecyclemodel "hostsent/backend/internal/modules/admin/instance/lifecycle/model"
+	lifecyclerepo "hostsent/backend/internal/modules/admin/instance/lifecycle/repository"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	"hostsent/backend/internal/pkg/upstream"
 )

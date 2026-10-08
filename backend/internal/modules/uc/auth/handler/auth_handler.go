@@ -41,7 +41,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.authService.Login(c.Request.Context(), req, netutil.ClientIP(c), c.GetHeader("User-Agent"))
+	resp, err := h.authService.Login(c.Request.Context(), req, netutil.ClientIP(c),
+		c.GetHeader("User-Agent"), deviceFingerprint(c))
 	if err != nil {
 		writeSecurityError(c, err)
 		return
@@ -66,7 +67,8 @@ func (h *AuthHandler) VerifyLoginOTP(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.authService.VerifyLoginOTP(c.Request.Context(), req, netutil.ClientIP(c), c.GetHeader("User-Agent"))
+	resp, err := h.authService.VerifyLoginOTP(c.Request.Context(), req, netutil.ClientIP(c),
+		c.GetHeader("User-Agent"), deviceFingerprint(c))
 	if err != nil {
 		writeSecurityError(c, err)
 		return
@@ -122,6 +124,16 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	}
 
 	response.SuccessMessage(c, "密码重置成功")
+}
+
+// deviceFingerprint 采集客户端上报的设备指纹（可空）。
+//
+// 用请求头而不是 body 字段：登录三种方式的 body 结构各不相同（password/sms/email），
+// 把指纹塞进每个 DTO 会让三处都要改，而它本质上是「这次请求来自哪台设备」的
+// 传输层特征，与登录参数无关。前端未上报时为空 —— 风险规则里设备类判定
+// 会整体跳过（拿空串当指纹会让所有无指纹的登录互相「设备变更」）。
+func deviceFingerprint(c *gin.Context) string {
+	return c.GetHeader("X-Device-Fingerprint")
 }
 
 // writeSecurityError 把安全域错误映射为业务错误码（20010/20011/20014/20015/20016 等）。

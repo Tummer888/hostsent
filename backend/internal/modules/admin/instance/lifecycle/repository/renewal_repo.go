@@ -8,7 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
-	lifecyclemodel "hostsent/backend/internal/modules/admin/lifecycle/model"
+	lifecyclemodel "hostsent/backend/internal/modules/admin/instance/lifecycle/model"
 )
 
 // RenewalRepository 续费记录仓库。

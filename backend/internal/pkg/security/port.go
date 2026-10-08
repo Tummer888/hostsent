@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // Subject 策略解算主体：用户或管理员。
@@ -122,7 +123,10 @@ func CodeOf(err error) int {
 	}
 	var limited *ErrRateLimited
 	var locked *ErrLoginLocked
+	var blocked *ErrBlacklisted
 	switch {
+	case errors.As(err, &blocked):
+		return CodeBlacklisted
 	case errors.As(err, &limited):
 		if limited.Daily {
 			return CodeSendDailyLimit
@@ -175,10 +179,121 @@ type LoginLogEntry struct {
 	IP            string
 	UserAgent     string
 	Platform      string
+	// DeviceFingerprint 客户端上报的设备指纹（可空）。
+	//
+	// 落 login_logs 有两个用途，缺一即两条能力同时失效：
+	//   - 风险规则的「设备变更」判定要拿历史成功登录的设备做基线；
+	//   - 黑名单按设备类型拉黑时，「命中记录」正是按这一列关联的。
+	DeviceFingerprint string
 	// SubjectType 登录主体域（login_logs.subject_type）：空值按客户域落库。
 	// 管理端登录必须显式传 admin —— login_logs.user_id 承载两个 ID 空间的值
 	// （users.id 与 admins.id），不区分域的话员工后台登录会被算到撞号的客户头上。
 	SubjectType string
+}
+
+// —— 风控（异常行为监控 + 黑名单）中性类型 ——
+
+// 黑名单类型（与 blacklists.type 口径一致，doc06 §4.4）。
+//
+// phone / email 是 doc06 要求而此前前端枚举缺失的两类：短信/邮箱验证码登录
+// 的账号目标就是手机号与邮箱，撞库时封 IP 会连带正常用户，封手机号/邮箱才精准。
+const (
+	BlacklistTypeIP     = "ip"
+	BlacklistTypeUser   = "user"
+	BlacklistTypeDevice = "device"
+	BlacklistTypePhone  = "phone"
+	BlacklistTypeEmail  = "email"
+)
+
+// 黑名单命中时的业务错误码（沿用安全域码段 200xx，前端按提示语渲染）。
+const (
+	// CodeBlacklisted 命中黑名单，拒绝本次登录。
+	CodeBlacklisted = 20018
+)
+
+// ErrBlacklisted 命中黑名单。
+type ErrBlacklisted struct {
+	// Scope 命中的维度：ip / user / device / phone / email。
+	Scope string
+	// Reason 拉黑原因（可空，运营填写的原文）。
+	Reason string
+}
+
+func (e *ErrBlacklisted) Error() string {
+	if e == nil {
+		return "该账号或来源已被限制登录"
+	}
+	// 不把 reason 直接拼进面向用户的提示：那是运营写的内部备注（可能含
+	// 「撞库」「盗号」这类判断），回给攻击者等于免费的情报。
+	return "该账号或来源已被限制登录，如有疑问请联系客服"
+}
+
+// 登录风险信号：一次登录尝试的时点特征。
+//
+// 判定放在实现侧（captcha 模块的 LoginSignals），消费方（uc/auth、admin/manager）
+// 只负责采集并透传。刻意不传密码、验证码等敏感字段 —— 信号是给规则引擎做统计的，
+// 不是登录凭据的副本。
+type LoginSignal struct {
+	// Username 登录账号名。
+	Username string
+	// UserID 解析到的用户/管理员 ID；账号不存在时为 0。
+	//
+	// 为 0 时仍然要上报 —— 撞库正是「大批不存在的账号」这种形态，
+	// 拿不到 user_id 只是没法归因到某个客户，IP 维度的规则照样要生效。
+	UserID uint64
+	// IP 客户端地址（已由 netutil.ClientIP 解析过可信代理想象）。
+	IP string
+	// DeviceFingerprint 设备指纹；前端未上报时为空，此时设备类规则整体跳过
+	// （拿空串当指纹会让所有无指纹的登录互相「设备变更」，是纯粹的误报源）。
+	DeviceFingerprint string
+	// SubjectType user / admin（见 SubjectType* 常量）。
+	SubjectType string
+	// LoginType password / sms / email / oauth / impersonate…
+	LoginType string
+	// Success 本次是否登录成功。
+	Success bool
+	// FailureReason 失败原因（bad_password / user_not_found / captcha / locked…）。
+	FailureReason string
+	// UserAgent 原始 UA（规则引擎按 UA 变化辅助判断异常设备）。
+	UserAgent string
+	// At 本次尝试的起始时刻。
+	//
+	// 规则引擎的「历史常用设备 / 常用 IP」必须只统计**这次尝试之前**的记录：
+	// 登录日志是在判定之前落库的（这样失败计数才能把本次算进去，与「失败 5 次
+	// 就报警」的直觉一致），因此历史查询必须带上时间上界，否则本次登录自己写的
+	// 那行会立刻进入「常用」，设备变更规则永远不会触发。
+	At time.Time
+}
+
+// BlacklistHit 一次黑名单命中的上报（供实现侧累加 hit_count 并留痕）。
+type BlacklistHit struct {
+	// Type 命中的黑名单类型。
+	Type string
+	// TargetValue 命中的命中值。
+	TargetValue string
+	// Username 触发本次命中的账号（留痕用）。
+	Username string
+	// IP 触发时的客户端地址。
+	IP string
+	// DeviceFingerprint 触发时的设备指纹。
+	DeviceFingerprint string
+}
+
+// BlacklistChecker 黑名单校验能力（由 admin/user/security 的黑名单守卫实现）。
+//
+// 单独抽一个接口而不是塞进 Port：实现方不同（Port 由 uc/captcha 实现，
+// 本接口由 admin 侧实现），装配层用组合适配器把两者拼成一个 Port，
+// 这样 uc/captcha 不需要 import admin（该模块的自我约束是「不依赖任何业务模块」）。
+type BlacklistChecker interface {
+	Check(ctx context.Context, account, ip, deviceFingerprint string) error
+}
+
+// LoginObserver 登录信号观察者（由 admin/user/security 的风险规则引擎实现）。
+//
+// Observe 必须**永不返回错误**也不需要返回值：它是旁路的，规则引擎的任何
+// 失败都不该让登录失败。这一点在接口签名上直接表达出来。
+type LoginObserver interface {
+	Observe(ctx context.Context, sig LoginSignal)
 }
 
 // Target 账号的验证码接收目标。

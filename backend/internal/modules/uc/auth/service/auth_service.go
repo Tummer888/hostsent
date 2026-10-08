@@ -24,9 +24,12 @@ import (
 type AuthService interface {
 	// Login 用户登录（doc91 §5.3）：password / sms / email 三种方式。
 	// 返回 NeedOTP=true 时不签发访问令牌，需再调 VerifyLoginOTP。
-	Login(ctx context.Context, req dto.LoginRequest, ip, userAgent string) (*dto.LoginResponse, error)
+	//
+	// deviceFingerprint 由 handler 从 X-Device-Fingerprint 头采集（可空）：
+	// 风控的「设备变更」规则需要它，空值表示前端未上报（此时设备类规则整体跳过）。
+	Login(ctx context.Context, req dto.LoginRequest, ip, userAgent, deviceFingerprint string) (*dto.LoginResponse, error)
 	// VerifyLoginOTP 完成登录二次验证，成功返回正式令牌（doc91 §4.6）。
-	VerifyLoginOTP(ctx context.Context, req dto.VerifyOTPRequest, ip, userAgent string) (*dto.LoginResponse, error)
+	VerifyLoginOTP(ctx context.Context, req dto.VerifyOTPRequest, ip, userAgent, deviceFingerprint string) (*dto.LoginResponse, error)
 	// Register 用户注册：图形码 → 邮箱 OTP → 唯一性/加密/创建 → 写 email_verified_at。
 	Register(ctx context.Context, req dto.RegisterRequest, ip, userAgent string) (uint64, error)
 	// ForgotPassword 忘记密码：下发 OTP，恒定返回 sent=true（防账号枚举）。
@@ -55,6 +58,10 @@ type AuthService interface {
 	SetDefaultGroupResolver(resolver DefaultGroupResolver)
 	// SetSalesOwnerClaimer 注入注册后的销售归属自动认领能力（可选，装配层调用，doc86 S4）。
 	SetSalesOwnerClaimer(claimer SalesOwnerClaimer)
+	// SetBlacklistChecker 注入登录前置的黑名单校验能力（可选，装配层调用，doc06 §4.4）。
+	SetBlacklistChecker(checker security.BlacklistChecker)
+	// SetLoginObserver 注入登录风险观察者（可选，装配层调用，doc06 §4.3）。
+	SetLoginObserver(observer security.LoginObserver)
 }
 
 // InviteBinder 注册时的推广邀请关系绑定能力（由返现模块实现，装配层注入）。
@@ -100,6 +107,20 @@ type authService struct {
 	invalidator  SessionInvalidator   // 可选：撤销会话后立即失效其校验缓存
 	// sec 登录安全端口（doc91 C3）；未装配时登录行为与升级前完全一致。
 	sec security.Port
+	// blacklist 黑名单校验（doc06 §4.4）；未装配时恒放行。
+	blacklist security.BlacklistChecker
+	// observer 风控规则引擎（doc06 §4.3）；未装配时不上报任何信号。
+	observer security.LoginObserver
+}
+
+// SetBlacklistChecker 注入黑名单校验能力（装配层调用，可选）。
+func (s *authService) SetBlacklistChecker(checker security.BlacklistChecker) {
+	s.blacklist = checker
+}
+
+// SetLoginObserver 注入登录风险观察者（装配层调用，可选）。
+func (s *authService) SetLoginObserver(observer security.LoginObserver) {
+	s.observer = observer
 }
 
 // NewAuthService 创建用户中心认证服务实例。
@@ -160,42 +181,97 @@ func (s *authService) Logout(ctx context.Context, sessionID string) error {
 	return nil
 }
 
+// loginAttempt 一次登录尝试的上下文（时点特征）。
+//
+// 串成一结构而不是给每个内部方法加 5 个参数：登录链路里「记日志 + 上报风控信号」
+// 几乎每个分支都要用同一组字段（账号/IP/UA/设备指纹/方式），
+// 逐层传参会让函数签名膨胀到看不出主线逻辑。
+type loginAttempt struct {
+	Username  string
+	UserID    uint64
+	LoginType string
+	IP        string
+	UserAgent string
+	DeviceFP  string
+	Subject   string // user / admin
+}
+
 // Login 执行用户登录（doc91 §5.3）。
 //
 // 三种 login_type：
-//   - password：图形码（user_login）→ 锁定检查 → 密码 → 二次验证（user_login）
-//   - sms：图形码（user_login_sms）→ 锁定检查 → 按手机号查用户 → 消费短信 OTP → 发 token
+//   - password：黑名单 → 图形码（user_login）→ 锁定检查 → 密码 → 二次验证（user_login）
+//   - sms：黑名单 → 图形码（user_login_sms）→ 锁定检查 → 按手机号查用户 → 消费短信 OTP → 发 token
 //   - email：同上，按邮箱登录（user_login_email）
 //
 // sms/email 场景的 OTP 是一次性登录凭据，与二次验证的 OTP 场景 key 隔离，
 // 因此不存在「拿二次验证的码走短信登录」这类跨场景重放。
-func (s *authService) Login(ctx context.Context, req dto.LoginRequest, ip, userAgent string) (*dto.LoginResponse, error) {
+//
+// 黑名单校验放在最前（doc06 §4.4 关键规则 1「命中逻辑应尽量前置」）：被拉黑的
+// 来源连图形码都不该浪费一次下发，更不该有机会验密码。
+func (s *authService) Login(ctx context.Context, req dto.LoginRequest, ip, userAgent, deviceFingerprint string) (*dto.LoginResponse, error) {
 	loginType := strings.ToLower(strings.TrimSpace(req.LoginType))
 	if loginType == "" {
 		loginType = dto.LoginTypePassword
 	}
-	if loginType == dto.LoginTypeSMS || loginType == dto.LoginTypeEmail {
-		return s.loginByCode(ctx, loginType, req, ip, userAgent)
+	// 账号名按登录方式取：短信登录传的是手机号、邮箱登录传的是邮箱，
+	// 黑名单要拿这个值去比对 phone/email 类型的条目。
+	account := strings.TrimSpace(req.Username)
+	if loginType == dto.LoginTypeSMS {
+		account = strings.TrimSpace(req.Phone)
+	} else if loginType == dto.LoginTypeEmail {
+		account = strings.TrimSpace(req.Email)
 	}
-	return s.loginByPassword(ctx, req, ip, userAgent)
+	attempt := loginAttempt{
+		Username:  account,
+		LoginType: loginType,
+		IP:        ip,
+		UserAgent: userAgent,
+		DeviceFP:  strings.TrimSpace(deviceFingerprint),
+		Subject:   security.SubjectTypeUser,
+	}
+	if err := s.checkBlacklist(ctx, attempt); err != nil {
+		return nil, err
+	}
+	if loginType == dto.LoginTypeSMS || loginType == dto.LoginTypeEmail {
+		return s.loginByCode(ctx, loginType, req, attempt)
+	}
+	return s.loginByPassword(ctx, req, attempt)
+}
+
+// checkBlacklist 登录前置的黑名单校验；命中时记一条失败登录日志（留痕）。
+//
+// 未装配黑名单能力时恒放行 —— 保证「能力没接上」不会演变成「谁都不能登录」。
+func (s *authService) checkBlacklist(ctx context.Context, attempt loginAttempt) error {
+	if s.blacklist == nil || attempt.Username == "" {
+		return nil
+	}
+	err := s.blacklist.Check(ctx, attempt.Username, attempt.IP, attempt.DeviceFP)
+	if err == nil {
+		return nil
+	}
+	// 命中（或实现侧内部错误）都记一条失败日志：命中记录抽屉正是按黑名单的
+	// type/target_value 关联登录日志得来的，不写这条日志抽屉永远是空的。
+	s.recordLogin(ctx, attempt, security.LoginResultFailed, "blacklist")
+	return err
 }
 
 // loginByPassword 账号密码登录。
-func (s *authService) loginByPassword(ctx context.Context, req dto.LoginRequest, ip, userAgent string) (*dto.LoginResponse, error) {
+func (s *authService) loginByPassword(ctx context.Context, req dto.LoginRequest, attempt loginAttempt) (*dto.LoginResponse, error) {
 	account := strings.TrimSpace(req.Username)
+	attempt.Username = account
 	if account == "" || req.Password == "" {
 		return nil, errors.New("用户名和密码不能为空")
 	}
 	if s.sec != nil {
 		// ① 锁定检查（默认关，行为与升级前一致）。
-		if err := s.sec.CheckLocked(ctx, account, ip); err != nil {
-			s.logLogin(ctx, 0, account, "password", security.LoginResultFailed, "locked", ip, userAgent)
+		if err := s.sec.CheckLocked(ctx, account, attempt.IP); err != nil {
+			s.recordLogin(ctx, attempt, security.LoginResultFailed, "locked")
 			return nil, err
 		}
 		// ② 图形码（user_login 场景要求时）。
 		if s.sec.EffectiveImageRequired(ctx, security.SceneUserLogin, security.Subject{}) {
 			if err := s.sec.VerifyImage(ctx, security.SceneUserLogin, req.CaptchaKey, req.CaptchaCode); err != nil {
-				s.logLogin(ctx, 0, account, "password", security.LoginResultFailed, "captcha", ip, userAgent)
+				s.recordLogin(ctx, attempt, security.LoginResultFailed, "captcha")
 				return nil, err
 			}
 		}
@@ -204,26 +280,27 @@ func (s *authService) loginByPassword(ctx context.Context, req dto.LoginRequest,
 	user, err := s.repo.FindByUsername(ctx, account)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			s.failLogin(ctx, account, "password", "user_not_found", ip, userAgent)
+			s.failLogin(ctx, attempt, "user_not_found")
 			return nil, security.ErrInvalidCredential // 不暴露用户是否存在
 		}
 		return nil, err
 	}
+	attempt.UserID = user.ID
 
 	if user.Status != "active" {
-		s.failLogin(ctx, account, "password", "disabled", ip, userAgent)
+		s.failLogin(ctx, attempt, "disabled")
 		return nil, security.ErrLoginDisabled
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		s.failLogin(ctx, account, "password", "bad_password", ip, userAgent)
+		s.failLogin(ctx, attempt, "bad_password")
 		return nil, security.ErrInvalidCredential
 	}
 
 	// ③ 二次验证：命中则不签发令牌，只返回待验证令牌。
 	if s.sec != nil {
 		if required, _ := s.sec.EffectiveOTP(ctx, security.SceneUserLogin, security.Subject{ID: user.ID}); required {
-			pending, perr := s.sec.IssueOTPPending(ctx, security.SceneUserLogin, security.Subject{ID: user.ID}, ip, userAgent)
+			pending, perr := s.sec.IssueOTPPending(ctx, security.SceneUserLogin, security.Subject{ID: user.ID}, attempt.IP, attempt.UserAgent)
 			if perr != nil {
 				return nil, perr
 			}
@@ -237,29 +314,31 @@ func (s *authService) loginByPassword(ctx context.Context, req dto.LoginRequest,
 		}
 	}
 
-	return s.finishLogin(ctx, user, "password", ip, userAgent)
+	return s.finishLogin(ctx, user, attempt.withUser(user, "password"))
 }
 
 // loginByCode 短信/邮箱验证码登录：验证码即登录凭据，不再走二次验证。
-func (s *authService) loginByCode(ctx context.Context, loginType string, req dto.LoginRequest, ip, userAgent string) (*dto.LoginResponse, error) {
+func (s *authService) loginByCode(ctx context.Context, loginType string, req dto.LoginRequest, attempt loginAttempt) (*dto.LoginResponse, error) {
 	scene := security.SceneUserLoginSMS
 	rawTarget := strings.TrimSpace(req.Phone)
 	if loginType == dto.LoginTypeEmail {
 		scene = security.SceneUserLoginEmail
 		rawTarget = strings.TrimSpace(req.Email)
 	}
+	attempt.Username = rawTarget
+	attempt.LoginType = loginType
 	if rawTarget == "" || strings.TrimSpace(req.Code) == "" {
 		return nil, errors.New("请填写登录账号与验证码")
 	}
 	if s.sec != nil {
-		if err := s.sec.CheckLocked(ctx, rawTarget, ip); err != nil {
-			s.logLogin(ctx, 0, rawTarget, loginType, security.LoginResultFailed, "locked", ip, userAgent)
+		if err := s.sec.CheckLocked(ctx, rawTarget, attempt.IP); err != nil {
+			s.recordLogin(ctx, attempt, security.LoginResultFailed, "locked")
 			return nil, err
 		}
 		// 图形码先于验证码校验：防脚本批量试码（两个登录场景基线都开图形码）。
 		if s.sec.EffectiveImageRequired(ctx, scene, security.Subject{}) {
 			if err := s.sec.VerifyImage(ctx, scene, req.CaptchaKey, req.CaptchaCode); err != nil {
-				s.logLogin(ctx, 0, rawTarget, loginType, security.LoginResultFailed, "captcha", ip, userAgent)
+				s.recordLogin(ctx, attempt, security.LoginResultFailed, "captcha")
 				return nil, err
 			}
 		}
@@ -269,33 +348,34 @@ func (s *authService) loginByCode(ctx context.Context, loginType string, req dto
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// 未绑定/不存在都按同一提示，避免枚举手机号与邮箱。
-			s.failLogin(ctx, rawTarget, loginType, "user_not_found", ip, userAgent)
+			s.failLogin(ctx, attempt, "user_not_found")
 			return nil, security.ErrTargetUnbound
 		}
 		return nil, err
 	}
+	attempt.UserID = user.ID
 	if user.Status != "active" {
-		s.failLogin(ctx, rawTarget, loginType, "disabled", ip, userAgent)
+		s.failLogin(ctx, attempt, "disabled")
 		return nil, security.ErrLoginDisabled
 	}
 	// 未绑定目标：手机号为空/邮箱为空时不能走验证码登录。
 	if (loginType == dto.LoginTypeSMS && strings.TrimSpace(user.Phone) == "") ||
 		(loginType == dto.LoginTypeEmail && strings.TrimSpace(user.Email) == "") {
-		s.failLogin(ctx, rawTarget, loginType, "target_unbound", ip, userAgent)
+		s.failLogin(ctx, attempt, "target_unbound")
 		return nil, security.ErrTargetUnbound
 	}
 
 	if s.sec != nil {
 		// 消费一次性登录凭据：场景 key 与二次验证隔离，不可重放。
 		if err := s.sec.VerifyOTP(ctx, scene, rawTarget, req.Code); err != nil {
-			s.failLogin(ctx, rawTarget, loginType, "bad_code", ip, userAgent)
+			s.failLogin(ctx, attempt, "bad_code")
 			return nil, err
 		}
 	}
 
 	// 验证码登录成功即视为已验证该联系方式（用户已持有该手机/邮箱）。
 	_ = s.repo.MarkVerified(ctx, user.ID, loginType, time.Now())
-	return s.finishLogin(ctx, user, loginType, ip, userAgent)
+	return s.finishLogin(ctx, user, attempt.withUser(user, loginType))
 }
 
 // findByLoginTarget 按登录目标查用户：手机号优先，其次邮箱（用户可能用邮箱登录但填了手机）。
@@ -312,8 +392,8 @@ func (s *authService) findByLoginTarget(ctx context.Context, loginType, target s
 }
 
 // finishLogin 登录成功的收尾：更新登录档案 + 开会话 + 清零失败计数 + 写成功日志 + 签发令牌。
-func (s *authService) finishLogin(ctx context.Context, user *model.User, loginType, ip, userAgent string) (*dto.LoginResponse, error) {
-	if err := s.updateLoginProfile(ctx, user.ID, ip); err != nil {
+func (s *authService) finishLogin(ctx context.Context, user *model.User, attempt loginAttempt) (*dto.LoginResponse, error) {
+	if err := s.updateLoginProfile(ctx, user.ID, attempt.IP); err != nil {
 		return nil, err
 	}
 	// 开会话：从「失败只告警」改成「失败即登录失败」。
@@ -321,18 +401,18 @@ func (s *authService) finishLogin(ctx context.Context, user *model.User, loginTy
 	// 原因不是会话记录本身有多重要，而是令牌必须绑定会话句柄（sid）才能被
 	// 中间件接受 —— 没有会话就没有 sid，签出来的令牌一用就 401。
 	// 与其发一枚注定用不了的令牌，不如让用户看到登录失败并重试。
-	sessionID, err := s.openSession(ctx, user, loginType, ip, userAgent)
+	sessionID, err := s.openSession(ctx, user, attempt.LoginType, attempt.IP, attempt.UserAgent, attempt.DeviceFP)
 	if err != nil {
 		if s.logger != nil {
 			s.logger.Error("open user session failed, aborting login",
-				zap.Uint64("user_id", user.ID), zap.String("login_type", loginType), zap.Error(err))
+				zap.Uint64("user_id", user.ID), zap.String("login_type", attempt.LoginType), zap.Error(err))
 		}
 		return nil, errors.New("登录失败，请稍后重试")
 	}
 	if s.sec != nil {
-		s.sec.ResetFailure(ctx, user.Username, ip)
+		s.sec.ResetFailure(ctx, user.Username, attempt.IP)
 	}
-	s.logLogin(ctx, user.ID, user.Username, loginType, security.LoginResultSuccess, "", ip, userAgent)
+	s.recordLogin(ctx, attempt.withUser(user, attempt.LoginType), security.LoginResultSuccess, "")
 
 	// 重新读取以获取最新登录档案
 	latest, err := s.repo.FindByID(ctx, user.ID)
@@ -342,6 +422,21 @@ func (s *authService) finishLogin(ctx context.Context, user *model.User, loginTy
 	return s.buildLoginResponse(ctx, latest, sessionID), nil
 }
 
+// withUser 补全账号身份（查到用户后调用）。
+func (a loginAttempt) withUser(user *model.User, loginType string) loginAttempt {
+	if user != nil {
+		a.UserID = user.ID
+		a.Username = user.Username
+	}
+	if loginType != "" {
+		a.LoginType = loginType
+	}
+	if a.Subject == "" {
+		a.Subject = security.SubjectTypeUser
+	}
+	return a
+}
+
 // openSession 写一条 user_sessions 记录并返回其 session_id（doc104 F15）。
 //
 // session_id 现在有实质作用：它会被签进 JWT 的 sid，中间件每次请求据此查证
@@ -349,7 +444,7 @@ func (s *authService) finishLogin(ctx context.Context, user *model.User, loginTy
 //
 // expired_at 与 JWT 有效期对齐：两者不一致会出现「令牌还能用但会话已判过期」
 // （用户被莫名踢下线）或「令牌过期了会话仍算在线」（在线数虚高）。
-func (s *authService) openSession(ctx context.Context, user *model.User, loginType, ip, userAgent string) (string, error) {
+func (s *authService) openSession(ctx context.Context, user *model.User, loginType, ip, userAgent, deviceFingerprint string) (string, error) {
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
@@ -371,8 +466,11 @@ func (s *authService) openSession(ctx context.Context, user *model.User, loginTy
 		Platform:  "web",
 		IP:        ip,
 		UserAgent: userAgent,
-		LoginAt:   now,
-		ExpiredAt: expiredAt,
+		// 设备指纹落 user_sessions 与落 login_logs 同等重要：会话列表是运营
+		// 判断「这个登录态是不是他的人」的第一现场，空着就只能看到 IP。
+		DeviceFingerprint: deviceFingerprint,
+		LoginAt:           now,
+		ExpiredAt:         expiredAt,
 	}); err != nil {
 		return "", err
 	}
@@ -383,7 +481,7 @@ func (s *authService) openSession(ctx context.Context, user *model.User, loginTy
 //
 // 端口层已校验 JWT 的 aud=otp_pending 与 jti 一次性；这里再确认场景确实
 // 是用户端登录场景，防止把其它用途的待验证令牌拿来换登录。
-func (s *authService) VerifyLoginOTP(ctx context.Context, req dto.VerifyOTPRequest, ip, userAgent string) (*dto.LoginResponse, error) {
+func (s *authService) VerifyLoginOTP(ctx context.Context, req dto.VerifyOTPRequest, ip, userAgent, deviceFingerprint string) (*dto.LoginResponse, error) {
 	if s.sec == nil {
 		return nil, security.ErrInvalidOTPToken
 	}
@@ -405,7 +503,15 @@ func (s *authService) VerifyLoginOTP(ctx context.Context, req dto.VerifyOTPReque
 	if pending.Channel == security.ChannelSMS {
 		_ = s.repo.MarkVerified(ctx, user.ID, security.ChannelSMS, time.Now())
 	}
-	return s.finishLogin(ctx, user, "password", ip, userAgent)
+	return s.finishLogin(ctx, user, loginAttempt{
+		Username:  user.Username,
+		UserID:    user.ID,
+		LoginType: "password",
+		IP:        ip,
+		UserAgent: userAgent,
+		DeviceFP:  strings.TrimSpace(deviceFingerprint),
+		Subject:   security.SubjectTypeUser,
+	})
 }
 
 // Register 执行用户注册（doc91 §5.4）。
@@ -608,29 +714,58 @@ func (s *authService) ResetPassword(ctx context.Context, req dto.ResetPasswordRe
 	}
 	// 重置即验证了该通道可用。
 	_ = s.repo.MarkVerified(ctx, target.UserID, channel, time.Now())
-	s.logLogin(ctx, target.UserID, target.Username, "password", security.LoginResultSuccess, "", ip, userAgent)
+	s.recordLogin(ctx, loginAttempt{
+		Username: target.Username, UserID: target.UserID, LoginType: "password",
+		IP: ip, UserAgent: userAgent, Subject: security.SubjectTypeUser,
+	}, security.LoginResultSuccess, "")
 	return nil
 }
 
-// logLogin 写一条登录日志（成功与失败都写，doc91 C6）。
-func (s *authService) logLogin(ctx context.Context, userID uint64, username, loginType, result, reason, ip, userAgent string) {
-	if s.sec == nil {
-		return
+// recordLogin 写一条登录日志 + 上报风控信号。
+//
+// 两个动作绑在一处是刻意的：日志是「发生过什么」的事实记录，风控信号是
+// 「这件事算不算异常」的判据输入 —— 它们必须来自同一次尝试的同一组字段。
+// 拆成两处调用迟早会出现「记了日志但没上报」或反之，而这两种偏差在页面上
+// 都表现为「规则不灵」，极难排查。
+//
+// 顺序也重要：先落日志再上报。失败计数类规则要把**本次**失败算进去
+// （「第 5 次失败就报警」是运营的直觉），而历史设备/IP 类规则靠信号里的
+// At（= 此刻）把自己刚写的那行排除掉。两者是同一个时刻的两面，
+// 因此 At 必须在这一步取，不能等到 Observe 内部再取。
+//
+// 未装配安全端口时整体跳过：升级当天行为与此前完全一致（doc91 硬约束）。
+func (s *authService) recordLogin(ctx context.Context, attempt loginAttempt, result, reason string) {
+	at := time.Now()
+	if s.sec != nil {
+		s.sec.Log(ctx, security.LoginLogEntry{
+			UserID: attempt.UserID, Username: attempt.Username, LoginType: attempt.LoginType,
+			Result: result, FailureReason: reason, IP: attempt.IP,
+			UserAgent: attempt.UserAgent, DeviceFingerprint: attempt.DeviceFP, Platform: "web",
+			SubjectType: security.SubjectTypeUser,
+		})
 	}
-	s.sec.Log(ctx, security.LoginLogEntry{
-		UserID: userID, Username: username, LoginType: loginType,
-		Result: result, FailureReason: reason, IP: ip,
-		UserAgent: userAgent, Platform: "web",
-	})
+	if s.observer != nil {
+		s.observer.Observe(ctx, security.LoginSignal{
+			Username:          attempt.Username,
+			UserID:            attempt.UserID,
+			IP:                attempt.IP,
+			DeviceFingerprint: attempt.DeviceFP,
+			SubjectType:       security.SubjectTypeUser,
+			LoginType:         attempt.LoginType,
+			Success:           result == security.LoginResultSuccess,
+			FailureReason:     reason,
+			UserAgent:         attempt.UserAgent,
+			At:                at,
+		})
+	}
 }
 
-// failLogin 记录一次登录失败（计数 + 日志）。
-func (s *authService) failLogin(ctx context.Context, username, loginType, reason, ip, userAgent string) {
-	if s.sec == nil {
-		return
+// failLogin 记录一次登录失败（计数 + 日志 + 风控信号）。
+func (s *authService) failLogin(ctx context.Context, attempt loginAttempt, reason string) {
+	if s.sec != nil {
+		s.sec.RecordFailure(ctx, attempt.Username, attempt.IP)
 	}
-	s.sec.RecordFailure(ctx, username, ip)
-	s.logLogin(ctx, 0, username, loginType, security.LoginResultFailed, reason, ip, userAgent)
+	s.recordLogin(ctx, attempt, security.LoginResultFailed, reason)
 }
 
 // setupSalesOwner 注册后自动归属销售（doc86 S4）。

@@ -9,9 +9,9 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	lifecycledto "hostsent/backend/internal/modules/admin/lifecycle/dto"
-	lifecyclemodel "hostsent/backend/internal/modules/admin/lifecycle/model"
-	lifecyclerepo "hostsent/backend/internal/modules/admin/lifecycle/repository"
+	lifecycledto "hostsent/backend/internal/modules/admin/instance/lifecycle/dto"
+	lifecyclemodel "hostsent/backend/internal/modules/admin/instance/lifecycle/model"
+	lifecyclerepo "hostsent/backend/internal/modules/admin/instance/lifecycle/repository"
 )
 
 // Notifier 通知中心联动点（通知展示与投递由通知中心模块承接）。

@@ -40,7 +40,8 @@ func (h *AdminHandler) Login(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.adminService.Login(c.Request.Context(), req, netutil.ClientIP(c), c.GetHeader("User-Agent"))
+	resp, err := h.adminService.Login(c.Request.Context(), req, netutil.ClientIP(c),
+		c.GetHeader("User-Agent"), c.GetHeader("X-Device-Fingerprint"))
 	if err != nil {
 		writeSecurityError(c, err)
 		return
@@ -66,7 +67,8 @@ func (h *AdminHandler) VerifyLoginOTP(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.adminService.VerifyLoginOTP(c.Request.Context(), req, netutil.ClientIP(c), c.GetHeader("User-Agent"))
+	resp, err := h.adminService.VerifyLoginOTP(c.Request.Context(), req, netutil.ClientIP(c),
+		c.GetHeader("User-Agent"), c.GetHeader("X-Device-Fingerprint"))
 	if err != nil {
 		writeSecurityError(c, err)
 		return

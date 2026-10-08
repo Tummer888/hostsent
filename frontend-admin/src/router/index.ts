@@ -534,6 +534,30 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/resource/instances/index.vue'),
         meta: { title: '云主机实例', role: 'admin', permission: 'resource:instance' },
       },
+      {
+        // 生命周期管理（doc60）整域并入实例管理（迁移 066）：目录只做分组，落地页在 expiring。
+        path: 'lifecycle',
+        redirect: '/instances/lifecycle/expiring',
+        meta: { title: '生命周期管理', role: 'admin' },
+      },
+      {
+        path: 'lifecycle/expiring',
+        name: 'LifecycleExpiring',
+        component: () => import('@/pages/instances/lifecycle/expiring/index.vue'),
+        meta: { title: '到期管理', role: 'admin', permission: 'lifecycle:expiring' },
+      },
+      {
+        path: 'lifecycle/renewals',
+        name: 'LifecycleRenewals',
+        component: () => import('@/pages/instances/lifecycle/renewals/index.vue'),
+        meta: { title: '续费记录', role: 'admin', permission: 'lifecycle:renewals' },
+      },
+      {
+        path: 'lifecycle/policy',
+        name: 'LifecyclePolicy',
+        component: () => import('@/pages/instances/lifecycle/policy/index.vue'),
+        meta: { title: '生命周期策略', role: 'admin', permission: 'lifecycle:policy' },
+      },
     ],
   },
   {
@@ -808,31 +832,27 @@ const routes: Array<RouteRecordRaw> = [
       },
     ],
   },
+  // 生命周期管理整域并入「实例管理」（迁移 066）：页面/菜单已迁到 /instances/lifecycle，
+  // 旧路径保留 redirect 兼容书签与已保存的页签（归属调整，API/权限码不变）。
   {
     path: '/lifecycle',
-    component: () => import('@/layouts/index.vue'),
-    redirect: '/lifecycle/expiring',
+    redirect: '/instances/lifecycle/expiring',
     meta: { title: '生命周期管理' },
-    children: [
-      {
-        path: 'expiring',
-        name: 'LifecycleExpiring',
-        component: () => import('@/pages/lifecycle/expiring/index.vue'),
-        meta: { title: '到期管理', role: 'admin', permission: 'lifecycle:expiring' },
-      },
-      {
-        path: 'renewals',
-        name: 'LifecycleRenewals',
-        component: () => import('@/pages/lifecycle/renewals/index.vue'),
-        meta: { title: '续费记录', role: 'admin', permission: 'lifecycle:renewals' },
-      },
-      {
-        path: 'policy',
-        name: 'LifecyclePolicy',
-        component: () => import('@/pages/lifecycle/policy/index.vue'),
-        meta: { title: '生命周期策略', role: 'admin', permission: 'lifecycle:policy' },
-      },
-    ],
+  },
+  {
+    path: '/lifecycle/expiring',
+    redirect: '/instances/lifecycle/expiring',
+    meta: { title: '到期管理' },
+  },
+  {
+    path: '/lifecycle/renewals',
+    redirect: '/instances/lifecycle/renewals',
+    meta: { title: '续费记录' },
+  },
+  {
+    path: '/lifecycle/policy',
+    redirect: '/instances/lifecycle/policy',
+    meta: { title: '生命周期策略' },
   },
   {
     path: '/notification',
