@@ -6,7 +6,7 @@ import (
 
 	logcatalog "hostsent/backend/internal/modules/admin/logcenter/catalog"
 	logcentermodel "hostsent/backend/internal/modules/admin/logcenter/model"
-	systemmodel "hostsent/backend/internal/modules/admin/system/model"
+	systemmodel "hostsent/backend/internal/modules/admin/system/config/model"
 )
 
 // logSystemConfigs 日志中心相关开关默认值（doc89 §9.1 日志部分）。

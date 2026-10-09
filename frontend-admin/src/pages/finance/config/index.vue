@@ -7,107 +7,121 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">财务配置</h2>
+          <p class="page-header__desc">
+            只列运行时真正读取的参数；每项标注生效点，保存后对相应接口立即生效
+          </p>
         </div>
       </div>
+      <t-space size="small">
+        <t-button variant="outline" :loading="loading" @click="load">
+          <template #icon><RefreshIcon aria-hidden="true" /></template>
+          刷新
+        </t-button>
+      </t-space>
     </header>
 
+    <section v-for="group in groups" :key="group.key" class="form-card surface-card">
+      <div class="table-card__head">
+        <h3 class="card-title">{{ group.label }}</h3>
+        <span class="table-card__meta">config_group = {{ group.key }}</span>
+      </div>
+      <p class="group-hint">{{ group.hint }}</p>
+
+      <div class="setting-list">
+        <div v-for="item in group.items" :key="item.key" class="setting-item">
+          <div class="setting-item__main">
+            <div class="setting-item__title">
+              <span>{{ item.label }}</span>
+              <t-tag variant="light" size="small" shape="round" theme="default">{{ item.key }}</t-tag>
+            </div>
+            <p class="setting-item__desc">{{ item.description }}</p>
+            <p class="setting-item__usage">{{ item.usage }}</p>
+          </div>
+          <div class="setting-item__control">
+            <t-switch v-if="item.value_type === 'bool'" v-model="formValues[item.key]" />
+            <t-input-number
+              v-else
+              v-model="formValues[item.key]"
+              theme="column"
+              :min="item.min"
+              :max="item.max || undefined"
+              :precision="2"
+              style="width: 170px"
+            />
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="form-card surface-card">
-      <h3 class="card-title">财务参数</h3>
-      <t-form label-align="top" :data="form" @submit.prevent="save">
-        <div class="form-grid">
-          <t-form-item label="默认计费周期" name="billing">
-            <t-select v-model="form.billing" :options="[{label:'按小时',value:'hourly'},{label:'按月',value:'monthly'},{label:'按年',value:'yearly'}]" />
-          </t-form-item>
-          <t-form-item label="税率（%）" name="tax">
-            <t-input-number v-model="form.tax" :min="0" :max="100" :precision="2" theme="column" />
-          </t-form-item>
-          <t-form-item label="对账差异阈值（元）" name="reconThreshold">
-            <t-input-number v-model="form.reconThreshold" :min="0" :precision="2" theme="column" />
-          </t-form-item>
-          <t-form-item label="余额预警阈值（元）" name="balanceWarning">
-            <t-input-number v-model="form.balanceWarning" :min="0" :precision="2" theme="column" />
-          </t-form-item>
-        </div>
-        <t-form-item label="允许人工调账" name="manualAdjust">
-          <t-switch v-model="form.manualAdjust" />
-        </t-form-item>
-        <div class="form-footer">
+      <div class="form-footer">
+        <span class="form-footer__hint">
+          比率类参数为 0-1 小数（如 0.10 = 10%）；保存只写白名单键，未列出的系统配置不受影响。
+        </span>
+        <t-space size="small">
           <t-button variant="outline" @click="load">重置</t-button>
-          <t-button theme="primary" type="submit">保存配置</t-button>
-        </div>
-      </t-form>
+          <t-button theme="primary" :loading="saving" @click="save">保存参数</t-button>
+        </t-space>
+      </div>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive } from 'vue'
-import { SettingIcon } from 'tdesign-icons-vue-next'
+import { onMounted, reactive, ref } from 'vue'
+
+import { RefreshIcon, SettingIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
 
-import { createConfig, getConfigList, updateConfig } from '@/api/system'
-import type { SystemConfigInfo } from '@/api/system'
+import { getFinanceSettings, saveFinanceSettings } from '@/api/finance'
+import type { FinanceSettingGroup } from '@/types/interface'
 
 defineOptions({ name: 'FinanceConfig' })
 
-const form = reactive({
-  billing: 'monthly',
-  tax: 6,
-  reconThreshold: 0.01,
-  balanceWarning: 50,
-  manualAdjust: true,
-})
+const loading = ref(false)
+const saving = ref(false)
+const groups = ref<FinanceSettingGroup[]>([])
+const formValues = reactive<Record<string, string | number | boolean>>({})
 
-let configMap: Record<string, SystemConfigInfo> = {}
-
-const entries: { key: string; value: () => string; type: 'string' | 'json' | 'bool' | 'int' }[] = [
-  { key: 'finance_billing_cycle', value: () => form.billing, type: 'string' },
-  { key: 'finance_tax_rate', value: () => String(form.tax), type: 'int' },
-  { key: 'finance_recon_threshold', value: () => String(form.reconThreshold), type: 'int' },
-  { key: 'finance_balance_warning', value: () => String(form.balanceWarning), type: 'int' },
-  { key: 'finance_manual_adjust_enabled', value: () => String(form.manualAdjust), type: 'bool' },
-]
+function applyGroups(list: FinanceSettingGroup[]) {
+  groups.value = list
+  for (const group of list) {
+    for (const item of group.items) {
+      formValues[item.key] = item.value_type === 'bool' ? item.value === 'true' : Number(item.value)
+    }
+  }
+}
 
 async function load() {
+  loading.value = true
   try {
-    const data = await getConfigList({ page: 1 })
-    configMap = {}
-    for (const it of data.items) configMap[it.config_key] = it
-    if (configMap['finance_billing_cycle']) form.billing = configMap['finance_billing_cycle'].config_value
-    if (configMap['finance_tax_rate']) form.tax = Number(configMap['finance_tax_rate'].config_value)
-    if (configMap['finance_recon_threshold']) form.reconThreshold = Number(configMap['finance_recon_threshold'].config_value)
-    if (configMap['finance_balance_warning']) form.balanceWarning = Number(configMap['finance_balance_warning'].config_value)
-    if (configMap['finance_manual_adjust_enabled']) form.manualAdjust = configMap['finance_manual_adjust_enabled'].config_value === 'true'
-  } catch {
-    /* 未初始化时保持默认值 */
+    const data = await getFinanceSettings()
+    applyGroups(data.groups)
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '加载财务参数失败')
+    groups.value = []
+  } finally {
+    loading.value = false
   }
 }
 
 async function save() {
+  saving.value = true
   try {
-    for (const e of entries) {
-      const cfg = configMap[e.key]
-      if (cfg) {
-        await updateConfig(cfg.id, {
-          config_value: e.value(),
-          value_type: cfg.value_type,
-          config_group: cfg.config_group,
-          description: cfg.description,
-          status: cfg.status,
-        })
-      } else {
-        await createConfig({
-          config_key: e.key,
-          config_value: e.value(),
-          value_type: e.type,
-          config_group: 'finance',
-          status: 'active',
-        })
+    const payload: Record<string, string> = {}
+    for (const group of groups.value) {
+      for (const item of group.items) {
+        const value = formValues[item.key]
+        payload[item.key] = item.value_type === 'bool' ? String(Boolean(value)) : String(value ?? item.default_value)
       }
     }
-    MessagePlugin.success('财务配置已保存')
+    const data = await saveFinanceSettings(payload)
+    applyGroups(data.groups)
+    MessagePlugin.success('财务参数已保存，相关接口即时生效')
   } catch (error) {
     MessagePlugin.error((error as Error).message || '保存失败')
+  } finally {
+    saving.value = false
   }
 }
 
@@ -116,4 +130,78 @@ onMounted(load)
 
 <style lang="css">
 @import '../shared.css';
+
+.finance-module .form-card {
+  padding: var(--space-lg) var(--space-xl) var(--space-xl);
+}
+
+.finance-module .group-hint {
+  margin: 0;
+  padding: 4px 0 var(--space-sm);
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--color-muted-foreground);
+}
+
+.finance-module .setting-list {
+  display: grid;
+  gap: var(--space-md);
+  padding-top: var(--space-sm);
+}
+
+.finance-module .setting-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xl);
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--hs-radius-md, 8px);
+  background: var(--hs-surface-2);
+}
+
+.finance-module .setting-item__main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.finance-module .setting-item__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.finance-module .setting-item__desc {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--color-muted-foreground);
+}
+
+.finance-module .setting-item__usage {
+  margin: 0;
+  font-size: 12px;
+  color: var(--finance-green);
+}
+
+.finance-module .setting-item__control {
+  flex-shrink: 0;
+}
+
+.finance-module .form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  flex-wrap: wrap;
+}
+
+.finance-module .form-footer__hint {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
 </style>

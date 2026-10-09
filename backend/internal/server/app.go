@@ -16,6 +16,9 @@ import (
 	finaccounthandler "hostsent/backend/internal/modules/admin/finance/account/handler"
 	finbillhandler "hostsent/backend/internal/modules/admin/finance/bill/handler"
 	finrechargehandler "hostsent/backend/internal/modules/admin/finance/recharge/handler"
+	referralhandler "hostsent/backend/internal/modules/admin/finance/referral/handler"
+	finsettingshandler "hostsent/backend/internal/modules/admin/finance/settings/handler"
+	finstatshandler "hostsent/backend/internal/modules/admin/finance/stats/handler"
 	finwithdrawhandler "hostsent/backend/internal/modules/admin/finance/withdraw/handler"
 	admininstancehandler "hostsent/backend/internal/modules/admin/instance/handler"
 	lifecyclehandler "hostsent/backend/internal/modules/admin/instance/lifecycle/handler"
@@ -30,13 +33,12 @@ import (
 	pricinghandler "hostsent/backend/internal/modules/admin/product/pricing/handler"
 	promotionhandler "hostsent/backend/internal/modules/admin/product/promotion/handler"
 	spechandler "hostsent/backend/internal/modules/admin/product/spec/handler"
-	referralhandler "hostsent/backend/internal/modules/admin/referral/handler"
 	producthandler "hostsent/backend/internal/modules/admin/resource/product/handler"
 	providerhandler "hostsent/backend/internal/modules/admin/resource/provider/handler"
 	reconcilehandler "hostsent/backend/internal/modules/admin/resource/reconcile/handler"
 	synchandler "hostsent/backend/internal/modules/admin/resource/sync/handler"
 	taskqueuehandler "hostsent/backend/internal/modules/admin/resource/taskqueue/handler"
-	systemhandler "hostsent/backend/internal/modules/admin/system/handler"
+	systemhandler "hostsent/backend/internal/modules/admin/system/config/handler"
 	notifyhandler "hostsent/backend/internal/modules/admin/system/notification/handler"
 	saleshandler "hostsent/backend/internal/modules/admin/system/sales/handler"
 	tickethandler "hostsent/backend/internal/modules/admin/ticket/handler"
@@ -118,6 +120,8 @@ type App struct {
 	withdrawHandler         *finwithdrawhandler.WithdrawHandler
 	billHandler             *finbillhandler.BillHandler
 	reconHandler            *finbillhandler.ReconHandler
+	financeStatsHandler     *finstatshandler.StatsHandler
+	financeSettingsHandler  *finsettingshandler.SettingsHandler
 	configHandler           *systemhandler.ConfigHandler
 	userFinanceHandler      *userfinancehandler.FinanceHandler
 	ucProductHandler        *ucproducthandler.ProductHandler
@@ -207,6 +211,8 @@ func NewApp(
 	withdrawHandler *finwithdrawhandler.WithdrawHandler,
 	billHandler *finbillhandler.BillHandler,
 	reconHandler *finbillhandler.ReconHandler,
+	financeStatsHandler *finstatshandler.StatsHandler,
+	financeSettingsHandler *finsettingshandler.SettingsHandler,
 	configHandler *systemhandler.ConfigHandler,
 	userFinanceHandler *userfinancehandler.FinanceHandler,
 	ucProductHandler *ucproducthandler.ProductHandler,
@@ -292,6 +298,8 @@ func NewApp(
 		withdrawHandler:         withdrawHandler,
 		billHandler:             billHandler,
 		reconHandler:            reconHandler,
+		financeStatsHandler:     financeStatsHandler,
+		financeSettingsHandler:  financeSettingsHandler,
 		configHandler:           configHandler,
 		userFinanceHandler:      userFinanceHandler,
 		ucProductHandler:        ucProductHandler,

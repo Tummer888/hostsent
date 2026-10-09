@@ -72,6 +72,14 @@ type ProductService interface {
 	// SetCyclePriceWriter 注入周期价格矩阵写入能力（doc25 §5）。
 	// 装配层在价格矩阵服务就绪后调用（构造顺序上 catalog 先于 pricing，故不放构造函数）。
 	SetCyclePriceWriter(w CyclePriceWriter)
+	// SetSpecTemplateReader 注入规格模板读取能力（自营链路按模板生成 SKU）。
+	// 同上：模板仓储在装配顺序上晚于 catalog 服务构建。
+	SetSpecTemplateReader(r SpecTemplateReader)
+	// SetSpecBindingWriter 注入 SKU 平台绑定写入能力（按模板生成 SKU 时同步落绑定）。
+	SetSpecBindingWriter(w SpecBindingWriter)
+	// GenerateSpecFromTemplate 按规格模板为自营商品生成一个 SKU 并建立平台绑定。
+	// 这是自营链路的关键动作：模板（含平台写参数）→ 已确认绑定的 SKU，之后才可能上架。
+	GenerateSpecFromTemplate(ctx context.Context, productID uint64, req dto.SpecTemplateGenerateRequest, operatorID uint64, operatorName string) (*dto.SpecTemplateGenerateResult, error)
 }
 
 // ProvisionRequest 订单履约时构建的上游开通请求（由订单模块消费）。
@@ -120,6 +128,36 @@ type SpecExternalBindingReader interface {
 	HasConfirmedBindingForExternal(ctx context.Context, providerType, externalID string) (bool, error)
 }
 
+// SpecTemplateReader 规格模板读取（自营链路按模板生成 SKU 用）。
+// 由 spec 模板仓储实现；未装配时"按模板生成 SKU"能力不可用（接口显式报错）。
+type SpecTemplateReader interface {
+	// SpecTemplateByID 取模板的原子取值与平台写参数 JSON（无模板返回 os.ErrNotExist）。
+	SpecTemplateByID(ctx context.Context, id uint64) (*SpecTemplateSnapshot, error)
+}
+
+// SpecTemplateSnapshot 模板快照（只含 catalog 侧关心的字段，避免反向依赖 spec 模型）。
+type SpecTemplateSnapshot struct {
+	ID             uint64
+	Name           string
+	SpecFamily     string
+	CPU            int
+	Memory         float64
+	Disk           int
+	Bandwidth      int
+	DiskType       string
+	OS             string
+	Price          float64
+	SpecValues     string // 原子 key → 取值 JSON
+	PlatformParams string // 平台写参数 JSON
+}
+
+// SpecBindingWriter 写入 SKU 的平台绑定（自营链路按模板生成 SKU 时）。
+// 由 spec 契约服务实现；未装配时生成的 SKU 不带平台绑定（上架门禁会拦下）。
+type SpecBindingWriter interface {
+	// UpsertConfirmedProductSpecBinding 为某 SKU 幂等写入出站绑定并置 confirmed。
+	UpsertConfirmedProductSpecBinding(ctx context.Context, productSpecID uint64, specTemplateID uint64, platformParams string, operatorID uint64, remark string) error
+}
+
 // UpstreamSpecRegistrar 登记上游规格快照（代理链路，T4.3）。
 // 用函数类型而非接口：调用方（装配层）负责把 spec 契约服务适配成该签名，
 // 避免 catalog 反向依赖 spec/dto 的快照结构。未注入时克隆流程跳过登记（不阻断）。
@@ -163,6 +201,10 @@ type productService struct {
 	bindingReader SpecBindingReader
 	// specRegistrar 用于克隆时登记上游规格快照（T4.3）
 	specRegistrar UpstreamSpecRegistrar
+	// templateReader 读取规格模板（自营链路按模板生成 SKU）
+	templateReader SpecTemplateReader
+	// bindingWriter 写入 SKU 平台绑定（按模板生成 SKU 时同步置 confirmed）
+	bindingWriter SpecBindingWriter
 	// cycleWriter 用于上游调价确认后按周期重算矩阵（doc25 §5）
 	cycleWriter CyclePriceWriter
 }
@@ -193,6 +235,16 @@ func NewProductService(repo repository.ProductRepository, readers ...interface{}
 // SetCyclePriceWriter 注入周期价格矩阵写入能力（doc25 §5）。
 func (s *productService) SetCyclePriceWriter(w CyclePriceWriter) {
 	s.cycleWriter = w
+}
+
+// SetSpecTemplateReader 注入规格模板读取能力（自营按模板生成 SKU）。
+func (s *productService) SetSpecTemplateReader(r SpecTemplateReader) {
+	s.templateReader = r
+}
+
+// SetSpecBindingWriter 注入 SKU 平台绑定写入能力。
+func (s *productService) SetSpecBindingWriter(w SpecBindingWriter) {
+	s.bindingWriter = w
 }
 
 func (s *productService) List(ctx context.Context, query dto.ProductListQuery) (*dto.ProductListResponse, error) {
@@ -233,6 +285,12 @@ func (s *productService) Create(ctx context.Context, req dto.ProductCreateReques
 	if err != nil {
 		return nil, err
 	}
+	// 链路不可在新建表单里挑（用户反馈）：上游转售商品的链路与上游绑定由
+	// 「导入上游商品」（clone/batch）确定，走本接口只会建出"自营外壳 + 上游字段"的
+	// 半成品——履约时既没有上游资源商品可读，也没有平台可下单。
+	if sourceMode == model.SourceModeUpstream {
+		return nil, errors.New("上游转售商品请在「导入上游商品」中创建（需绑定上游提供商与上游资源商品）")
+	}
 	item := &model.Product{
 		Code:             strings.TrimSpace(req.Code),
 		Name:             strings.TrimSpace(req.Name),
@@ -262,6 +320,16 @@ func (s *productService) Create(ctx context.Context, req dto.ProductCreateReques
 	if item.Status == 0 {
 		item.Status = model.ProductStatusDraft
 	}
+	// 先校验选中的规格模板（自营链路）：**在落库前**查一遍，避免出现
+	// "商品建好了但规格全失败"的半成品——那种情况下运营只能删掉商品重来。
+	if len(req.SpecTemplates) > 0 {
+		if sourceMode != model.SourceModeSelf {
+			return nil, errors.New("仅自营商品可以在建品时选择规格模板")
+		}
+		if err := s.precheckSpecTemplates(ctx, req.SpecTemplates); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.repo.Create(ctx, item); err != nil {
 		return nil, err
 	}
@@ -273,7 +341,84 @@ func (s *productService) Create(ctx context.Context, req dto.ProductCreateReques
 		OperatorID:   operatorID,
 		OperatorName: operatorName,
 	})
+	// 建品即生成规格（自营链路）：把选中的模板逐个生成 SKU 并落平台绑定。
+	// 商品行已存在，单个模板失败不回滚商品（运营可在详情页重试），但会把原因带回前端。
+	if len(req.SpecTemplates) > 0 {
+		generated, genErr := s.generateSpecsFromTemplates(ctx, item.ID, req.SpecTemplates, operatorID, operatorName)
+		info, ferr := s.FindByID(ctx, item.ID)
+		if ferr != nil {
+			return nil, ferr
+		}
+		info.GeneratedSpecs = generated
+		if genErr != nil {
+			info.SpecTemplateNotice = genErr.Error()
+		}
+		return info, nil
+	}
 	return s.FindByID(ctx, item.ID)
+}
+
+// precheckSpecTemplates 建品前预校验模板选择：模板存在、且能落到合法的原子取值与平台参数。
+// 不预校验的后果是"商品建成、规格失败"的半成品，客户侧看起来像商品坏了。
+func (s *productService) precheckSpecTemplates(ctx context.Context, selections []dto.ProductSpecTemplateSelection) error {
+	if s.templateReader == nil {
+		return errors.New("规格模板能力未装配，无法在建品时生成规格")
+	}
+	seen := make(map[uint64]struct{}, len(selections))
+	for _, sel := range selections {
+		if sel.SpecTemplateID == 0 {
+			return errors.New("规格模板选择非法：缺少模板 ID")
+		}
+		if _, dup := seen[sel.SpecTemplateID]; dup {
+			return fmt.Errorf("规格模板 %d 被重复选择", sel.SpecTemplateID)
+		}
+		seen[sel.SpecTemplateID] = struct{}{}
+		tpl, err := s.templateReader.SpecTemplateByID(ctx, sel.SpecTemplateID)
+		if err != nil {
+			return fmt.Errorf("规格模板 %d 不存在：%w", sel.SpecTemplateID, err)
+		}
+		specValues := strings.TrimSpace(string(sel.SpecValues))
+		if specValues == "" {
+			specValues = strings.TrimSpace(tpl.SpecValues)
+		}
+		if specValues == "" {
+			specValues = deriveSpecValuesFromTemplate(tpl)
+		}
+		if err := validateSpecJSON(specValues); err != nil {
+			return fmt.Errorf("规格模板「%s」：%w", tpl.Name, err)
+		}
+		platformParams := strings.TrimSpace(string(sel.PlatformParams))
+		if platformParams == "" {
+			platformParams = strings.TrimSpace(tpl.PlatformParams)
+		}
+		if platformParams != "" && !json.Valid([]byte(platformParams)) {
+			return fmt.Errorf("规格模板「%s」的平台参数不是合法 JSON", tpl.Name)
+		}
+	}
+	return nil
+}
+
+// generateSpecsFromTemplates 逐个模板生成 SKU（复用 GenerateSpecFromTemplate 的同一套规则）。
+// 任一模板失败即中止并把已生成的数量与原因带回前端，避免错误被静默吞掉。
+func (s *productService) generateSpecsFromTemplates(ctx context.Context, productID uint64, selections []dto.ProductSpecTemplateSelection, operatorID uint64, operatorName string) ([]dto.ProductSpecInfo, error) {
+	out := make([]dto.ProductSpecInfo, 0, len(selections))
+	for _, sel := range selections {
+		result, err := s.GenerateSpecFromTemplate(ctx, productID, dto.SpecTemplateGenerateRequest{
+			SpecTemplateID: sel.SpecTemplateID,
+			SpecCode:       sel.SpecCode,
+			Name:           sel.Name,
+			Price:          sel.Price,
+			CostPrice:      sel.CostPrice,
+			Stock:          sel.Stock,
+			SpecValues:     sel.SpecValues,
+			PlatformParams: sel.PlatformParams,
+		}, operatorID, operatorName)
+		if err != nil {
+			return out, fmt.Errorf("模板 %d 生成规格失败：%w", sel.SpecTemplateID, err)
+		}
+		out = append(out, result.Spec)
+	}
+	return out, nil
 }
 
 func (s *productService) Update(ctx context.Context, id uint64, req dto.ProductUpdateRequest, operatorID uint64, operatorName string) (*dto.ProductInfo, error) {
@@ -295,12 +440,25 @@ func (s *productService) Update(ctx context.Context, id uint64, req dto.ProductU
 	item.SortOrder = req.SortOrder
 	item.Status = req.Status
 	// 链路判据（D6）：指针为 nil 表示未传，保持原值；显式改动会同时影响上架门禁与履约分派。
+	// 但禁止把商品改成"上游转售"：该链路的目录/定价/生命周期都在上游，链路切换必须
+	// 连同上游绑定一起建立（走「导入上游商品」），单改一个字段只会造出无法履约的商品。
 	if req.SourceMode != nil {
 		sourceMode, err := normalizeSourceMode(*req.SourceMode)
 		if err != nil {
 			return nil, err
 		}
+		if sourceMode == model.SourceModeUpstream && item.SourceMode != model.SourceModeUpstream {
+			return nil, errors.New("不能把自营商品改为上游转售链路；请使用「导入上游商品」创建代理商品")
+		}
 		item.SourceMode = sourceMode
+	}
+	// 平台渠道改绑（自营链路）：代理商品的渠道由导入决定，不接受此处改写，
+	// 否则会把"上游资源商品 + 别的平台渠道"配成一对无法履约的组合。
+	if req.SourceProviderID != nil {
+		if item.SourceMode == model.SourceModeUpstream {
+			return nil, errors.New("代理商品的上游渠道由导入流程决定，不能在此修改")
+		}
+		item.SourceProviderID = *req.SourceProviderID
 	}
 	// 上游加价规则与透传标记（T4.3）：指针为 nil 表示未传，保持原值。
 	if req.UpstreamMarkupType != nil {
@@ -764,6 +922,179 @@ func (s *productService) UpdateSpec(ctx context.Context, productID, specID uint6
 	})
 	info := buildProductSpecInfo(*item)
 	return &info, nil
+}
+
+// GenerateSpecFromTemplate 按规格模板为自营商品生成 SKU 并建立平台绑定（自营链路打通）。
+//
+// 做三件事，且全部幂等/可重试：
+//  1. 从模板取原子取值（模板未填则按 CPU/内存/磁盘等推导）写入 SKU 的 Specs；
+//  2. 从模板取平台写参数（请求可覆盖），写入该 SKU 的 confirmed 出站绑定；
+//  3. 记一条商品变更历史，便于运营追溯"这条 SKU 是哪个模板生成的"。
+//
+// 仅自营链路可用：代理商品的规格由上游决定，不该由本地模板凭空生成。
+func (s *productService) GenerateSpecFromTemplate(ctx context.Context, productID uint64, req dto.SpecTemplateGenerateRequest, operatorID uint64, operatorName string) (*dto.SpecTemplateGenerateResult, error) {
+	product, err := s.repo.FindByID(ctx, productID)
+	if err != nil {
+		return nil, err
+	}
+	if s.isUpstreamChain(product) {
+		return nil, errors.New("代理（上游转售）商品的规格由上游决定，不能按本地模板生成 SKU")
+	}
+	if req.SpecTemplateID == 0 {
+		return nil, errors.New("请选择规格模板")
+	}
+	if s.templateReader == nil {
+		return nil, errors.New("规格模板能力未装配，无法按模板生成 SKU")
+	}
+	tpl, err := s.templateReader.SpecTemplateByID(ctx, req.SpecTemplateID)
+	if err != nil {
+		return nil, fmt.Errorf("规格模板不存在：%w", err)
+	}
+
+	// SKU 编码：优先取请求，其次按模板名派生（同名模板重复生成时自动加后缀，避免撞唯一索引）。
+	specCode := strings.TrimSpace(req.SpecCode)
+	if specCode == "" {
+		specCode = deriveSpecCode(tpl)
+	}
+	if existing, ferr := s.repo.FindSpecByCode(ctx, productID, specCode); ferr == nil && existing != nil {
+		specCode = specCode + "-" + strconv.FormatInt(time.Now().Unix()%100000, 10)
+	} else if ferr != nil && !errors.Is(ferr, gorm.ErrRecordNotFound) {
+		return nil, ferr
+	}
+
+	// 原子取值：请求覆盖 > 模板 spec_values > 模板结构化字段推导。
+	specValues := strings.TrimSpace(string(req.SpecValues))
+	if specValues == "" {
+		specValues = strings.TrimSpace(tpl.SpecValues)
+	}
+	if specValues == "" {
+		specValues = deriveSpecValuesFromTemplate(tpl)
+	}
+	if err := validateSpecJSON(specValues); err != nil {
+		return nil, err
+	}
+
+	// 平台写参数：请求覆盖 > 模板 platform_params。
+	platformParams := strings.TrimSpace(string(req.PlatformParams))
+	if platformParams == "" {
+		platformParams = strings.TrimSpace(tpl.PlatformParams)
+	}
+	if platformParams != "" && !json.Valid([]byte(platformParams)) {
+		return nil, errors.New("平台参数必须是合法 JSON")
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = strings.TrimSpace(tpl.Name)
+	}
+	price := req.Price
+	if price <= 0 {
+		price = tpl.Price
+	}
+	if price <= 0 {
+		price = product.Price
+	}
+	stock := req.Stock
+	if stock == 0 {
+		stock = -1
+	}
+
+	item := &model.ProductSpec{
+		ProductID:      productID,
+		SpecCode:       specCode,
+		Name:           name,
+		Specs:          specValues,
+		PriceModel:     firstNonEmptyStr(product.PriceModel, model.PriceModelFixed),
+		Price:          price,
+		CostPrice:      req.CostPrice,
+		Stock:          stock,
+		SpecTemplateID: tpl.ID,
+		Status:         model.ProductSpecEnabled,
+	}
+	if err := s.repo.CreateSpec(ctx, item); err != nil {
+		return nil, err
+	}
+
+	result := &dto.SpecTemplateGenerateResult{
+		Spec:                buildProductSpecInfo(*item),
+		BoundPlatformParams: json.RawMessage(platformParams),
+	}
+	// 平台绑定：模板未配平台参数时跳过（生成后仍可由运营在详情页手工绑定）。
+	if platformParams != "" {
+		if s.bindingWriter == nil {
+			result.Notice = "已生成规格，但平台绑定能力未装配，请在详情页手工建立绑定"
+		} else {
+			confirm := req.Confirm == nil || *req.Confirm
+			_ = confirm // 绑定写入实现统一置 confirmed（自营链路模板即人工确认过的映射）
+			remark := "按规格模板生成：" + tpl.Name
+			if err := s.bindingWriter.UpsertConfirmedProductSpecBinding(ctx, item.ID, tpl.ID, platformParams, operatorID, remark); err != nil {
+				result.Notice = "已生成规格，但平台绑定写入失败：" + err.Error()
+			}
+		}
+	} else {
+		result.Notice = "已生成规格，但模板未配置平台参数，请在详情页完成平台绑定后才能上架"
+	}
+
+	s.repo.AddHistory(ctx, &model.ProductHistory{
+		ProductID: productID, ChangeType: model.ChangeTypeUpdate,
+		NewValue: item.SpecCode, OperatorID: operatorID, OperatorName: operatorName,
+		Remark: fmt.Sprintf("按规格模板「%s」生成规格变体：%s", tpl.Name, item.Name),
+	})
+	// 回填绑定状态，供前端直接展示（fillSpecBinding 以切片元素为单位改写，故取回切片第 0 项）。
+	infos := []dto.ProductSpecInfo{buildProductSpecInfo(*item)}
+	s.fillSpecBinding(ctx, infos)
+	result.Spec = infos[0]
+	return result, nil
+}
+
+// deriveSpecCode 由模板派生 SKU 编码：规格族-核数/内存/磁盘（同模板重复生成由调用方加后缀）。
+func deriveSpecCode(tpl *SpecTemplateSnapshot) string {
+	parts := make([]string, 0, 2)
+	if family := strings.TrimSpace(tpl.SpecFamily); family != "" {
+		parts = append(parts, family)
+	}
+	cpu := tpl.CPU
+	if cpu <= 0 {
+		cpu = 1
+	}
+	mem := int(tpl.Memory)
+	if mem <= 0 {
+		mem = 1
+	}
+	parts = append(parts, fmt.Sprintf("%dc%dg", cpu, mem))
+	if tpl.Disk > 0 {
+		parts = append(parts, fmt.Sprintf("%dg", tpl.Disk))
+	}
+	return strings.Join(parts, "-")
+}
+
+// deriveSpecValuesFromTemplate 模板未填 spec_values 时，按结构化字段推导原子取值 JSON。
+func deriveSpecValuesFromTemplate(tpl *SpecTemplateSnapshot) string {
+	m := map[string]any{}
+	if tpl.CPU > 0 {
+		m[specatom.KeyCPU] = tpl.CPU
+	}
+	if tpl.Memory > 0 {
+		// 模板内存以 GB 记，原子字典口径为 MB。
+		m[specatom.KeyMemory] = int(tpl.Memory * 1024)
+	}
+	if tpl.Disk > 0 {
+		m[specatom.KeyDisk] = tpl.Disk
+	}
+	if tpl.Bandwidth > 0 {
+		m[specatom.KeyBandwidth] = tpl.Bandwidth
+	}
+	if tpl.DiskType != "" {
+		m[specatom.KeyDiskType] = tpl.DiskType
+	}
+	if tpl.OS != "" {
+		m[specatom.KeyOS] = tpl.OS
+	}
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 // DeleteSpec 删除 SKU（归属校验）。

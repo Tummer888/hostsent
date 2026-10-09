@@ -18,6 +18,12 @@ const (
 	SpecTemplateEnabled  int = 1 // 启用
 )
 
+// 规格模板来源（product_spec_templates.source，T2.5）
+const (
+	SpecTemplateSourceSelf     = "self"     // 平台自建
+	SpecTemplateSourceImported = "imported" // 由上游规格归一而来
+)
+
 // SpecMapping 状态
 const (
 	SpecMappingUnmapped int = 0 // 待映射
@@ -25,22 +31,32 @@ const (
 )
 
 // SpecTemplate 规格模板：面向不同场景（计算/内存/存储等）的规格预设。
+// 自营链路把它当作"可复用的固定规格"：新建商品时直接引用模板生成 SKU，
+// 改掉少量参数即可上架，避免每个商品从零手填原子取值与平台字段。
 type SpecTemplate struct {
-	ID          uint64    `gorm:"primaryKey;autoIncrement"`
-	Name        string    `gorm:"size:100;not null"`                                  // 规格名称，如"通用型-2核4G"
-	SpecFamily  string    `gorm:"column:spec_family;size:20;default:'general';index"` // 规格族
-	CPU         int       `gorm:"column:cpu;default:1"`                               // CPU 核数
-	Memory      float64   `gorm:"column:memory;type:decimal(8,2);default:1"`          // 内存 GB
-	Disk        int       `gorm:"column:disk;default:40"`                             // 系统盘 GB
-	DiskType    string    `gorm:"column:disk_type;size:20;default:'ssd'"`             // 磁盘类型
-	Bandwidth   int       `gorm:"column:bandwidth;default:0"`                         // 带宽 Mbps，0 表示不限
-	OS          string    `gorm:"column:os;size:50"`                                  // 操作系统
-	Description string    `gorm:"type:text"`                                          // 适用场景描述
-	Price       float64   `gorm:"column:price;type:decimal(10,2)"`                    // 参考售价
-	SortOrder   int       `gorm:"column:sort_order;default:0"`                        // 排序
-	Status      int       `gorm:"default:1;index"`                                    // 状态
-	CreatedAt   time.Time `gorm:"autoCreateTime"`
-	UpdatedAt   time.Time `gorm:"autoUpdateTime"`
+	ID          uint64  `gorm:"primaryKey;autoIncrement"`
+	Name        string  `gorm:"size:100;not null"`                                  // 规格名称，如"通用型-2核4G"
+	SpecFamily  string  `gorm:"column:spec_family;size:20;default:'general';index"` // 规格族
+	CPU         int     `gorm:"column:cpu;default:1"`                               // CPU 核数
+	Memory      float64 `gorm:"column:memory;type:decimal(8,2);default:1"`          // 内存 GB
+	Disk        int     `gorm:"column:disk;default:40"`                             // 系统盘 GB
+	DiskType    string  `gorm:"column:disk_type;size:20;default:'ssd'"`             // 磁盘类型
+	Bandwidth   int     `gorm:"column:bandwidth;default:0"`                         // 带宽 Mbps，0 表示不限
+	OS          string  `gorm:"column:os;size:50"`                                  // 操作系统
+	Description string  `gorm:"type:text"`                                          // 适用场景描述
+	Price       float64 `gorm:"column:price;type:decimal(10,2)"`                    // 参考售价
+	SortOrder   int     `gorm:"column:sort_order;default:0"`                        // 排序
+	Status      int     `gorm:"default:1;index"`                                    // 状态
+	// SpecValues 原子 key → 取值 JSON（如 {"compute.cpu":2,"placement.region":"1"}）；
+	// 留空时由 CPU/Memory/Disk/Bandwidth/OS/DiskType 推导（specatom.ToMap 口径）。
+	SpecValues string `gorm:"column:spec_values;type:jsonb"`
+	// PlatformParams 平台写参数 JSON（如 {"area":"1","node":"2","os":"12","store":"2"}）；
+	// 生成 SKU 时原样写入 spec_bindings.platform_params 并置 confirmed。
+	PlatformParams string `gorm:"column:platform_params;type:jsonb"`
+	// Source 模板来源：self 自建 / imported 上游归一（T2.5）。
+	Source    string    `gorm:"column:source;size:16;default:'self'"`
+	CreatedAt time.Time `gorm:"autoCreateTime"`
+	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 }
 
 // TableName 指定表名

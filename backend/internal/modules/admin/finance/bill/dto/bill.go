@@ -80,6 +80,7 @@ type ReconcileResponse struct {
 	WalletBalance float64 `json:"wallet_balance"` // 钱包当前余额合计
 	Diff          float64 `json:"diff"`           // 账实差异（应为 0）
 	Status        string  `json:"status"`         // ok/suspicious
+	Tolerance     float64 `json:"tolerance"`      // 判定容差（元，财务配置 finance.recon_tolerance）
 }
 
 // —— 发票（doc36 §3.3）——

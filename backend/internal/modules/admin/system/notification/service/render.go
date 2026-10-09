@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	sysconfigrepo "hostsent/backend/internal/modules/admin/system/repository"
+	sysconfigrepo "hostsent/backend/internal/modules/admin/system/config/repository"
 )
 
 // varPattern 模板变量占位符：{var_name}。

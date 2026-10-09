@@ -171,12 +171,16 @@ export const navMenu = [
     icon: navIcon('wallet'),
     children: [
       { title: '财务总览', path: '/finance/overview', icon: navIcon('dashboard') },
-      { title: '钱包与调账', path: '/finance/accounts', icon: navIcon('usergroup') },
-      { title: '资金流水', path: '/finance/transactions', icon: navIcon('money') },
+      // 资金管理组（迁移 073）：资金流水与用户钱包、人工调账同组 —— 余额与余额变动是同一件事；
+      // 流水从域根叶子改为组内叶子，兜底菜单按「一级域 + 直接子项」只列到该组。
+      { title: '资金管理', path: '/finance/accounts', icon: navIcon('wallet') },
       { title: '充值提现', path: '/finance/recharge-center', icon: navIcon('download') },
-      { title: '账单管理', path: '/finance/bill-center', icon: navIcon('file') },
+      { title: '账单与对账', path: '/finance/bill-center', icon: navIcon('file') },
       { title: '财务报表', path: '/finance/report', icon: navIcon('chart-bar') },
       { title: '财务配置', path: '/finance/config', icon: navIcon('setting') },
+      // 推广返现（doc84）与积分中心（doc36）并入本域（迁移 070），其下叶子由后端菜单树下发。
+      { title: '推广返现', path: '/finance/referral', icon: navIcon('share') },
+      { title: '积分中心', path: '/finance/points', icon: navIcon('gift') },
     ],
   },
   {
@@ -185,10 +189,9 @@ export const navMenu = [
     icon: navIcon('setting'),
     children: [
       { title: '权限管理', path: '/system/permission-center', icon: navIcon('lock-on') },
+      // 系统配置组（迁移 071）：验证码配置 / 第三方登录 / 操作审计 已收进该二级目录，
+      // 兜底菜单按「一级域 + 直接子项」约定只列到分组，其下 4 个叶子由后端菜单树下发。
       { title: '系统配置', path: '/system/config', icon: navIcon('setting') },
-      { title: '验证码配置', path: '/system/captcha', icon: navIcon('safety') },
-      { title: '操作审计', path: '/system/audit-logs', icon: navIcon('history') },
-      { title: '第三方登录', path: '/system/oauth', icon: navIcon('link') },
       { title: '日志中心', path: '/system/log-center', icon: navIcon('file') },
       // 支付中心（doc35）整域并入本域（迁移 067）：兜底菜单按「一级域 + 直接子项」约定
       // 只列到二级分组，其下 8 个叶子由后端菜单树下发。
@@ -196,6 +199,8 @@ export const navMenu = [
       // 消息中心（doc70/doc90）与销售中心（doc86）同批并入本域（迁移 068），其下叶子由后端下发。
       { title: '消息中心', path: '/system/notification', icon: navIcon('mail') },
       { title: '销售中心', path: '/system/sales', icon: navIcon('share') },
+      // 内容管理（doc100）并入本域（迁移 069）。
+      { title: '内容管理', path: '/system/content', icon: navIcon('file') },
     ],
   },
   {
@@ -207,38 +212,6 @@ export const navMenu = [
       { title: '复核中心', path: '/tickets/reviews', icon: navIcon('verify') },
       { title: '工单分类管理', path: '/tickets/categories', icon: navIcon('folder') },
       { title: '工单统计', path: '/tickets/stats', icon: navIcon('chart-bar') },
-    ],
-  },
-  {
-    title: '推广返现',
-    path: '/referral',
-    icon: navIcon('share'),
-    children: [
-      { title: '返现台账', path: '/referral/cashbacks', icon: navIcon('money') },
-      { title: '提现审核', path: '/referral/withdrawals', icon: navIcon('upload') },
-      { title: '邀请关系', path: '/referral/invitees', icon: navIcon('usergroup') },
-    ],
-  },
-  {
-    title: '积分中心',
-    path: '/points',
-    icon: navIcon('gift'),
-    children: [
-      { title: '积分概览', path: '/points/overview', icon: navIcon('dashboard') },
-      { title: '积分规则', path: '/points/rules', icon: navIcon('setting') },
-      { title: '积分账户', path: '/points/accounts', icon: navIcon('usergroup') },
-      { title: '积分流水', path: '/points/transactions', icon: navIcon('history') },
-    ],
-  },
-  {
-    title: '内容管理',
-    path: '/content',
-    icon: navIcon('file'),
-    children: [
-      { title: '内容文章', path: '/content/articles', icon: navIcon('file') },
-      { title: '内容分类', path: '/content/categories', icon: navIcon('folder') },
-      { title: '友情链接', path: '/content/links', icon: navIcon('link') },
-      { title: '公告管理', path: '/content/announcements', icon: navIcon('sound') },
     ],
   },
 ]

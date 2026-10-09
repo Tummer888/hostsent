@@ -13,8 +13,8 @@ import (
 	"sort"
 	"strings"
 
-	contentdto "hostsent/backend/internal/modules/admin/content/dto"
-	systemmodel "hostsent/backend/internal/modules/admin/system/model"
+	systemmodel "hostsent/backend/internal/modules/admin/system/config/model"
+	contentdto "hostsent/backend/internal/modules/admin/system/content/dto"
 	notifydto "hostsent/backend/internal/modules/admin/system/notification/dto"
 	notifymodel "hostsent/backend/internal/modules/admin/system/notification/model"
 

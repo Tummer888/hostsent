@@ -30,7 +30,10 @@ jobs:
             exit 1
           fi
       - name: Test
-        run: go test ./...
+        # -count=1 关掉测试结果缓存：menu_align_test.go 读 frontend-admin 的 router/index.ts、
+        # permission.ts 与 pages/，live 用例读 migrations/*.sql —— 这些都不是 Go 源码、
+        # 不进 cache key。前端单独改动时若吃到缓存，「菜单四处对齐」「迁移幂等」会假通过。
+        run: go test -count=1 ./...
 
   frontend-admin:
     name: Admin Frontend (vue-tsc + build)

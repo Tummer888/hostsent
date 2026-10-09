@@ -208,6 +208,28 @@ func (h *ProviderHandler) ListPools(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// PlatformResources godoc
+// @Summary 读取平台可售资源目录（区域/节点/存储/镜像）
+// @Description 供自营商品的规格模板配置平台参数（area/node/os/store），把规格映射到平台真实取值。
+// @Tags 资源管理-上游提供商
+// @Security BearerAuth
+// @Param id path int true "提供商 ID"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/resource/providers/{id}/resources [get]
+func (h *ProviderHandler) PlatformResources(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.providerService.PlatformResources(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, resp)
+}
+
 // GetPool godoc
 // @Summary 查询资源池详情
 // @Tags 资源管理-上游提供商

@@ -11,9 +11,9 @@ import (
 	"gorm.io/gorm"
 
 	finbillmodel "hostsent/backend/internal/modules/admin/finance/bill/model"
+	referralmodel "hostsent/backend/internal/modules/admin/finance/referral/model"
 	discountmodel "hostsent/backend/internal/modules/admin/product/discount/model"
 	flashdiscountmodel "hostsent/backend/internal/modules/admin/product/flashdiscount/model"
-	referralmodel "hostsent/backend/internal/modules/admin/referral/model"
 	levelmodel "hostsent/backend/internal/modules/admin/user/account/level/model"
 	usergroupmodel "hostsent/backend/internal/modules/admin/user/account/model"
 	usergrouprepo "hostsent/backend/internal/modules/admin/user/account/repository"
@@ -510,14 +510,17 @@ func TestLiveSalesAndNotificationMergedIntoSystem(t *testing.T) {
 		}
 	}
 
-	var annComp string
+	// 公告管理页面随 notification 模块搬迁：任何菜单都不应再指向旧页面目录
+	// （菜单路径本身在迁移 069 会从 /content/announcements 改到 /system/content/announcements，
+	//  这里只锁定「页面目录不再等于模块旧归属」，不依赖具体路径）。
+	var staleComp int64
 	if err := db.Raw(
-		"SELECT component FROM menus WHERE platform = 'admin' AND path = '/content/announcements'",
-	).Scan(&annComp).Error; err != nil {
-		t.Fatalf("查询公告管理菜单失败: %v", err)
+		"SELECT count(*) FROM menus WHERE platform = 'admin' AND component = 'notification/announcements/index'",
+	).Scan(&staleComp).Error; err != nil {
+		t.Fatalf("查询公告管理旧组件引用失败: %v", err)
 	}
-	if annComp != "system/notification/announcements/index" {
-		t.Errorf("公告管理 component 应随 notification 模块搬迁（doc102 M2-4），实际 %q", annComp)
+	if staleComp != 0 {
+		t.Errorf("不应再有菜单指向 notification/announcements/index（页面已随模块迁入 system/），实际 %d 行", staleComp)
 	}
 
 	for _, code := range []string{"sales:%", "notify:%"} {
@@ -530,6 +533,357 @@ func TestLiveSalesAndNotificationMergedIntoSystem(t *testing.T) {
 		if n < 4 {
 			t.Errorf("%s 权限码应保留，实际 %d 个", code, n)
 		}
+	}
+}
+
+// TestLiveContentMergedIntoSystem 验证 069：内容管理整域并入系统管理。
+//   - 迁移文件可重复执行（幂等）；
+//   - 旧一级域 /content（含 4 个叶子）已删除，不残留重复入口；
+//   - 新的 /system/content 二级目录与 4 个叶子已由 seed 插入；
+//   - 公告管理沿用 notify:announcement 且页面仍指向 notification 模块目录；
+//   - content:* 权限码保留（接口仍按它们鉴权）。
+//
+// 顺序要求：先跑迁移，再重启后端 —— 新行由 seed 在启动时插入，
+// 未重启时本用例会在「新菜单未插入」处失败，这是预期的提示。
+func TestLiveContentMergedIntoSystem(t *testing.T) {
+	dsn := os.Getenv("LIVE_DB_DSN")
+	if dsn == "" {
+		dsn = "host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable"
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+
+	sqlBytes, err := os.ReadFile("../../../migrations/069_merge_content_into_system.sql")
+	if err != nil {
+		t.Fatalf("读取迁移文件失败: %v", err)
+	}
+	for i := 1; i <= 2; i++ {
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			t.Fatalf("第 %d 次执行迁移失败: %v", i, err)
+		}
+	}
+
+	var oldMenus int64
+	if err := db.Raw(
+		"SELECT count(*) FROM menus WHERE platform = 'admin' AND (path = '/content' OR path LIKE '/content/%')",
+	).Scan(&oldMenus).Error; err != nil {
+		t.Fatalf("查询旧内容菜单失败: %v", err)
+	}
+	if oldMenus != 0 {
+		t.Errorf("旧一级域菜单 /content* 应已删除，仍存在 %d 行", oldMenus)
+	}
+
+	wantPaths := []string{
+		"/system/content",
+		"/system/content/articles",
+		"/system/content/categories",
+		"/system/content/links",
+		"/system/content/announcements",
+	}
+	for _, p := range wantPaths {
+		var n int64
+		if err := db.Raw(
+			"SELECT count(*) FROM menus WHERE platform = 'admin' AND path = ? AND status = 'active'", p,
+		).Scan(&n).Error; err != nil {
+			t.Fatalf("查询菜单 %s 失败: %v", p, err)
+		}
+		if n != 1 {
+			t.Errorf("菜单 %s 应存在且唯一（seed 需在后端重启后写入），实际 %d 行", p, n)
+		}
+	}
+
+	var annComp string
+	if err := db.Raw(
+		"SELECT component FROM menus WHERE platform = 'admin' AND path = '/system/content/announcements'",
+	).Scan(&annComp).Error; err != nil {
+		t.Fatalf("查询公告管理菜单失败: %v", err)
+	}
+	if annComp != "system/notification/announcements/index" {
+		t.Errorf("公告管理页面应仍归 notification 模块（doc102 M2-4），实际 %q", annComp)
+	}
+
+	var perms int64
+	if err := db.Raw(
+		"SELECT count(*) FROM permissions WHERE code LIKE 'content%'",
+	).Scan(&perms).Error; err != nil {
+		t.Fatalf("查询 content 权限失败: %v", err)
+	}
+	if perms < 4 {
+		t.Errorf("content:* 权限码应保留，实际 %d 个", perms)
+	}
+}
+
+// TestLiveReferralAndPointsMergedIntoFinance 验证 070：推广返现与积分中心
+// 整域并入财务管理。
+//   - 迁移文件可重复执行（幂等）；
+//   - 旧 admin 一级域 /referral、/points（含各自叶子）已删除；
+//   - 用户端（platform=user）同名的 /points 与 /referral 及其子项必须原样保留；
+//   - 新的 /finance/{referral,points} 二级目录与各自叶子已由 seed 插入；
+//   - referral:* / point:* 权限码保留（接口仍按它们鉴权）。
+//
+// 顺序要求：先跑迁移，再重启后端 —— 新行由 seed 在启动时插入，
+// 未重启时本用例会在「新菜单未插入」处失败，这是预期的提示。
+func TestLiveReferralAndPointsMergedIntoFinance(t *testing.T) {
+	dsn := os.Getenv("LIVE_DB_DSN")
+	if dsn == "" {
+		dsn = "host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable"
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+
+	sqlBytes, err := os.ReadFile("../../../migrations/070_merge_referral_and_points_into_finance.sql")
+	if err != nil {
+		t.Fatalf("读取迁移文件失败: %v", err)
+	}
+	for i := 1; i <= 2; i++ {
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			t.Fatalf("第 %d 次执行迁移失败: %v", i, err)
+		}
+	}
+
+	var oldAdminMenus int64
+	if err := db.Raw(
+		`SELECT count(*) FROM menus WHERE platform = 'admin'
+		   AND (path = '/referral' OR path LIKE '/referral/%'
+		     OR path = '/points' OR path LIKE '/points/%')`,
+	).Scan(&oldAdminMenus).Error; err != nil {
+		t.Fatalf("查询旧推广/积分菜单失败: %v", err)
+	}
+	if oldAdminMenus != 0 {
+		t.Errorf("旧 admin 一级域菜单 /referral*、/points* 应已删除，仍存在 %d 行", oldAdminMenus)
+	}
+
+	// 用户端同名菜单不能被误删（迁移只作用于 admin）。
+	for _, p := range []string{"/points", "/referral", "/referral/overview", "/referral/invitees", "/referral/materials"} {
+		var n int64
+		if err := db.Raw(
+			"SELECT count(*) FROM menus WHERE platform = 'user' AND path = ? AND status = 'active'", p,
+		).Scan(&n).Error; err != nil {
+			t.Fatalf("查询用户端菜单 %s 失败: %v", p, err)
+		}
+		if n != 1 {
+			t.Errorf("用户端菜单 %s 应原样保留，实际 %d 行", p, n)
+		}
+	}
+
+	wantPaths := []string{
+		"/finance/referral",
+		"/finance/referral/cashbacks",
+		"/finance/referral/withdrawals",
+		"/finance/referral/invitees",
+		"/finance/points",
+		"/finance/points/overview",
+		"/finance/points/rules",
+		"/finance/points/accounts",
+		"/finance/points/transactions",
+	}
+	for _, p := range wantPaths {
+		var n int64
+		if err := db.Raw(
+			"SELECT count(*) FROM menus WHERE platform = 'admin' AND path = ? AND status = 'active'", p,
+		).Scan(&n).Error; err != nil {
+			t.Fatalf("查询菜单 %s 失败: %v", p, err)
+		}
+		if n != 1 {
+			t.Errorf("菜单 %s 应存在且唯一（seed 需在后端重启后写入），实际 %d 行", p, n)
+		}
+	}
+
+	for _, code := range []string{"referral:%", "point:%"} {
+		var n int64
+		if err := db.Raw(
+			"SELECT count(*) FROM permissions WHERE code LIKE ?", code,
+		).Scan(&n).Error; err != nil {
+			t.Fatalf("查询 %s 权限失败: %v", code, err)
+		}
+		if n < 3 {
+			t.Errorf("%s 权限码应保留，实际 %d 个", code, n)
+		}
+	}
+}
+
+// TestLiveSystemSettingsGroupedUnderConfig 验证 071：系统配置升级为二级目录，
+// 验证码配置 / 第三方登录 / 操作审计 收进同组。
+//   - 迁移文件可重复执行（幂等）；
+//   - 三条旧一级叶子路径已删除；
+//   - /system/config 就地升级为 directory（无 component），且仍唯一；
+//   - 四个新叶子（basic / captcha / oauth / audit-logs）已由 seed 插入且组件正确；
+//   - 权限码全部保留（system:config:* / captcha:* / oauth:* / security:audit:list）。
+//
+// 顺序要求：先跑迁移，再重启后端 —— 新行由 seed 在启动时插入，
+// 未重启时本用例会在「新菜单未插入」处失败，这是预期的提示。
+func TestLiveSystemSettingsGroupedUnderConfig(t *testing.T) {
+	dsn := os.Getenv("LIVE_DB_DSN")
+	if dsn == "" {
+		dsn = "host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable"
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+
+	sqlBytes, err := os.ReadFile("../../../migrations/071_group_system_settings_under_config.sql")
+	if err != nil {
+		t.Fatalf("读取迁移文件失败: %v", err)
+	}
+	for i := 1; i <= 2; i++ {
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			t.Fatalf("第 %d 次执行迁移失败: %v", i, err)
+		}
+	}
+
+	var oldMenus int64
+	if err := db.Raw(
+		"SELECT count(*) FROM menus WHERE platform = 'admin' AND path IN ('/system/captcha','/system/oauth')",
+	).Scan(&oldMenus).Error; err != nil {
+		t.Fatalf("查询旧入口失败: %v", err)
+	}
+	if oldMenus != 0 {
+		t.Errorf("旧一级叶子 /system/{captcha,oauth} 应已删除，仍存在 %d 行", oldMenus)
+	}
+
+	// 操作审计：本迁移删的是「直接挂 /system 下」的旧行；迁移 072 会让同一路径
+	// 以日志中心子项的身份重新出现，故这里断言「不得再是 /system 的直接子项」。
+	var auditUnderSystem int64
+	if err := db.Raw(
+		`SELECT count(*) FROM menus m JOIN menus p ON p.id = m.parent_id
+		  WHERE m.platform = 'admin' AND m.path = '/system/audit-logs' AND p.path = '/system'`,
+	).Scan(&auditUnderSystem).Error; err != nil {
+		t.Fatalf("查询操作审计归属失败: %v", err)
+	}
+	if auditUnderSystem != 0 {
+		t.Errorf("/system/audit-logs 不应再直挂 /system（迁移 072 已改挂日志中心），实际 %d 行", auditUnderSystem)
+	}
+
+	// 分组节点：就地升级为目录，且只能有一行。
+	var groupType, groupComp string
+	var groupCount int64
+	if err := db.Raw(
+		"SELECT count(*) FROM menus WHERE platform = 'admin' AND path = '/system/config'",
+	).Scan(&groupCount).Error; err != nil {
+		t.Fatalf("查询 /system/config 失败: %v", err)
+	}
+	if groupCount != 1 {
+		t.Fatalf("/system/config 应唯一，实际 %d 行", groupCount)
+	}
+	if err := db.Raw(
+		"SELECT type, COALESCE(component,'') FROM menus WHERE platform = 'admin' AND path = '/system/config'",
+	).Row().Scan(&groupType, &groupComp); err != nil {
+		t.Fatalf("读取 /system/config 行失败: %v", err)
+	}
+	if groupType != "directory" || groupComp != "" {
+		t.Errorf("/system/config 应为目录且无组件，实际 type=%q component=%q", groupType, groupComp)
+	}
+
+	// 操作审计在迁移 072 已改挂日志中心，故不在此列（由 072 的用例负责）。
+	wantComponents := map[string]string{
+		"/system/config/basic":   "system/config/index",
+		"/system/config/captcha": "system/captcha/index",
+		"/system/config/oauth":   "system/oauth/index",
+	}
+	for p, comp := range wantComponents {
+		var got string
+		if err := db.Raw(
+			"SELECT component FROM menus WHERE platform = 'admin' AND path = ? AND status = 'active'", p,
+		).Scan(&got).Error; err != nil {
+			t.Fatalf("查询菜单 %s 失败: %v", p, err)
+		}
+		if got != comp {
+			t.Errorf("菜单 %s 的 component 应为 %q，实际 %q", p, comp, got)
+		}
+	}
+
+	for _, code := range []string{"system:config:%", "captcha:%", "oauth:%"} {
+		var n int64
+		if err := db.Raw("SELECT count(*) FROM permissions WHERE code LIKE ?", code).Scan(&n).Error; err != nil {
+			t.Fatalf("查询 %s 权限失败: %v", code, err)
+		}
+		if n < 1 {
+			t.Errorf("%s 权限码应保留，实际 %d 个", code, n)
+		}
+	}
+	var auditPerms int64
+	if err := db.Raw(
+		"SELECT count(*) FROM permissions WHERE code = 'security:audit:list'",
+	).Scan(&auditPerms).Error; err != nil {
+		t.Fatalf("查询 security:audit:list 失败: %v", err)
+	}
+	if auditPerms < 1 {
+		t.Error("security:audit:list 权限码应保留（操作审计页在本组内仍用它鉴权）")
+	}
+}
+
+// TestLiveAuditLogsUnderLogCenter 验证 072：操作审计由「系统配置」组改挂「日志中心」，
+// 并恢复原路径 /system/audit-logs。
+//   - 迁移文件可重复执行（幂等）；
+//   - 071 建立的 /system/config/audit-logs 已删除；
+//   - /system/audit-logs 唯一，且 parent 是 /system/log-center、component 未变；
+//   - security:audit:list 权限码保留（接口与用户管理侧同一入口共用）。
+func TestLiveAuditLogsUnderLogCenter(t *testing.T) {
+	dsn := os.Getenv("LIVE_DB_DSN")
+	if dsn == "" {
+		dsn = "host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable"
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+
+	sqlBytes, err := os.ReadFile("../../../migrations/072_move_audit_logs_to_log_center.sql")
+	if err != nil {
+		t.Fatalf("读取迁移文件失败: %v", err)
+	}
+	for i := 1; i <= 2; i++ {
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			t.Fatalf("第 %d 次执行迁移失败: %v", i, err)
+		}
+	}
+
+	var stale int64
+	if err := db.Raw(
+		"SELECT count(*) FROM menus WHERE platform = 'admin' AND path = '/system/config/audit-logs'",
+	).Scan(&stale).Error; err != nil {
+		t.Fatalf("查询旧路径失败: %v", err)
+	}
+	if stale != 0 {
+		t.Errorf("/system/config/audit-logs 应已删除，仍存在 %d 行", stale)
+	}
+
+	var parentPath, component string
+	var n int64
+	if err := db.Raw(
+		"SELECT count(*) FROM menus WHERE platform = 'admin' AND path = '/system/audit-logs'",
+	).Scan(&n).Error; err != nil {
+		t.Fatalf("查询 /system/audit-logs 失败: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("/system/audit-logs 应唯一（seed 需在后端重启后写入），实际 %d 行", n)
+	}
+	if err := db.Raw(
+		`SELECT p.path, m.component FROM menus m JOIN menus p ON p.id = m.parent_id
+		  WHERE m.platform = 'admin' AND m.path = '/system/audit-logs'`,
+	).Row().Scan(&parentPath, &component); err != nil {
+		t.Fatalf("读取操作审计行失败: %v", err)
+	}
+	if parentPath != "/system/log-center" {
+		t.Errorf("操作审计的父级应为 /system/log-center，实际 %q", parentPath)
+	}
+	if component != "system/audit-logs/index" {
+		t.Errorf("操作审计 component 应为 system/audit-logs/index，实际 %q", component)
+	}
+
+	var perms int64
+	if err := db.Raw(
+		"SELECT count(*) FROM permissions WHERE code = 'security:audit:list'",
+	).Scan(&perms).Error; err != nil {
+		t.Fatalf("查询 security:audit:list 失败: %v", err)
+	}
+	if perms < 1 {
+		t.Error("security:audit:list 权限码应保留")
 	}
 }
 
@@ -775,5 +1129,137 @@ func assertIndex(t *testing.T, db *gorm.DB, name string) {
 	}
 	if count != 1 {
 		t.Fatalf("期望索引 %s 存在，实际 %d", name, count)
+	}
+}
+
+// TestLiveFinanceModuleReorg 验证 073 财务模块整理迁移：
+//   - 迁移文件可重复执行（幂等）；
+//   - 资金流水改挂「资金管理」组（/finance/accounts）且组内排序为 流水1/钱包2/调账3；
+//   - 目录改名生效：/finance/accounts=资金管理、/finance/bill-center=账单与对账；
+//   - 5 个历史死键清零，且新键（finance.adjust_enabled 等）已由 seed 就位并归 finance 分组；
+//   - 财务参数页权限码 finance:config 已登记且已授 finance_admin。
+func TestLiveFinanceModuleReorg(t *testing.T) {
+	dsn := os.Getenv("LIVE_DB_DSN")
+	if dsn == "" {
+		dsn = "host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable"
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+
+	sqlBytes, err := os.ReadFile("../../../migrations/073_finance_module_reorg.sql")
+	if err != nil {
+		t.Fatalf("读取迁移文件失败: %v", err)
+	}
+	for i := 1; i <= 2; i++ {
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			t.Fatalf("第 %d 次执行迁移失败: %v", i, err)
+		}
+	}
+
+	// ① 资金流水改挂资金管理组
+	var parentPath, name string
+	var sortOrder int
+	if err := db.Raw(
+		`SELECT p.path, m.name, m.sort_order FROM menus m JOIN menus p ON p.id = m.parent_id
+		  WHERE m.platform = 'admin' AND m.path = '/finance/transactions'`,
+	).Row().Scan(&parentPath, &name, &sortOrder); err != nil {
+		t.Fatalf("读取资金流水行失败: %v", err)
+	}
+	if parentPath != "/finance/accounts" {
+		t.Errorf("资金流水的父级应为 /finance/accounts，实际 %q", parentPath)
+	}
+	if name != "资金流水" {
+		t.Errorf("资金流水名称不应变化，实际 %q", name)
+	}
+	if sortOrder != 1 {
+		t.Errorf("资金流水在组内应排第 1，实际 %d", sortOrder)
+	}
+
+	// 组内其余叶子排序：钱包 2 / 调账 3
+	for path, want := range map[string]int{"/finance/accounts/wallets": 2, "/finance/accounts/adjust": 3} {
+		var got int
+		if err := db.Raw(
+			"SELECT sort_order FROM menus WHERE platform = 'admin' AND path = ?", path,
+		).Scan(&got).Error; err != nil {
+			t.Fatalf("读取 %s 排序失败: %v", path, err)
+		}
+		if got != want {
+			t.Errorf("%s 的 sort_order 应为 %d，实际 %d", path, want, got)
+		}
+	}
+
+	// ② 目录改名
+	for path, want := range map[string]string{
+		"/finance/accounts":    "资金管理",
+		"/finance/bill-center": "账单与对账",
+	} {
+		var got string
+		if err := db.Raw(
+			"SELECT name FROM menus WHERE platform = 'admin' AND path = ?", path,
+		).Scan(&got).Error; err != nil {
+			t.Fatalf("读取 %s 名称失败: %v", path, err)
+		}
+		if got != want {
+			t.Errorf("%s 的名称应为 %q，实际 %q", path, want, got)
+		}
+	}
+
+	// ③ 死键清零
+	var deadCount int64
+	if err := db.Raw(
+		"SELECT count(*) FROM system_configs WHERE config_key IN ('finance_billing_cycle','finance_tax_rate','finance_recon_threshold','finance_balance_warning','finance_manual_adjust_enabled')",
+	).Scan(&deadCount).Error; err != nil {
+		t.Fatalf("查询死键失败: %v", err)
+	}
+	if deadCount != 0 {
+		t.Errorf("5 个历史死键应已清除，仍存在 %d 个", deadCount)
+	}
+
+	// ④ 新键就位（seed 写入 finance 分组）
+	for _, key := range []string{"finance.adjust_enabled", "finance.recon_tolerance", "finance.balance_warning"} {
+		var group, value string
+		if err := db.Raw(
+			"SELECT config_group, config_value FROM system_configs WHERE config_key = ?", key,
+		).Row().Scan(&group, &value); err != nil {
+			t.Fatalf("读取 %s 失败（需先重启后端写入 seed）: %v", key, err)
+		}
+		if group != "finance" {
+			t.Errorf("%s 的分组应为 finance，实际 %q", key, group)
+		}
+		if value == "" {
+			t.Errorf("%s 的取值不应为空", key)
+		}
+	}
+
+	// ⑤ 财务参数权限码与授权
+	var permCount int64
+	if err := db.Raw("SELECT count(*) FROM permissions WHERE code = 'finance:config'").Scan(&permCount).Error; err != nil {
+		t.Fatalf("查询 finance:config 失败: %v", err)
+	}
+	if permCount != 1 {
+		t.Errorf("finance:config 权限码应唯一存在，实际 %d 行", permCount)
+	}
+	var grantCount int64
+	if err := db.Raw(
+		`SELECT count(*) FROM role_permissions rp
+		   JOIN roles r ON r.id = rp.role_id
+		   JOIN permissions p ON p.id = rp.permission_id
+		  WHERE r.code = 'finance_admin' AND p.code = 'finance:config'`,
+	).Scan(&grantCount).Error; err != nil {
+		t.Fatalf("查询 finance_admin 授权失败: %v", err)
+	}
+	if grantCount < 1 {
+		t.Error("finance_admin 应已获得 finance:config 授权")
+	}
+
+	// 财务参数接口的三条路由权限码均在权限目录中（finance:wallet/finance:config）
+	var walletPerm int64
+	if err := db.Raw("SELECT count(*) FROM permissions WHERE code = 'finance:wallet'").Scan(&walletPerm).Error; err != nil {
+		t.Fatalf("查询 finance:wallet 失败: %v", err)
+	}
+	if walletPerm < 1 {
+		t.Error("finance:wallet 权限码应存在（统计接口与流水导出沿用）")
 	}
 }

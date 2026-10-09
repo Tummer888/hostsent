@@ -1,7 +1,12 @@
+import type { AxiosResponse } from 'axios'
+
 import { request } from '@/utils/request'
 
 import type {
   AdjustRequest,
+  FinanceSettingsResponse,
+  FinanceStatsQuery,
+  FinanceStatsResponse,
   BillGenerateRequest,
   BillInfo,
   BillListQuery,
@@ -39,6 +44,7 @@ export function getTransactionList(params: TransactionListQuery): Promise<Transa
     url: '/finance/transactions',
     params: {
       user_id: params.user_id,
+      keyword: params.keyword,
       type: params.type,
       direction: params.direction,
       start_time: params.start_time,
@@ -46,6 +52,57 @@ export function getTransactionList(params: TransactionListQuery): Promise<Transa
       page: params.page,
       page_size: params.page_size,
     },
+  })
+}
+
+/**
+ * 导出流水明细 CSV（同筛选条件，后端最多 20000 条）。
+ *
+ * `_skipResultUnwrap` 是必须的：该接口返回文件流而不是 `{code,data,message}` 信封，
+ * 不跳过解包会把 CSV 文本当业务响应解析（与登录日志导出同一处理）。
+ */
+export function exportTransactions(params: TransactionListQuery) {
+  return request.get<AxiosResponse<Blob>>({
+    url: '/finance/transactions/export',
+    params: {
+      user_id: params.user_id,
+      keyword: params.keyword,
+      type: params.type,
+      direction: params.direction,
+      start_time: params.start_time,
+      end_time: params.end_time,
+    },
+    responseType: 'blob',
+    _skipResultUnwrap: true,
+  })
+}
+
+// ===== 财务统计 / 参数 =====
+
+// getFinanceStats 财务统计聚合（总览与报表共用；全部为数据库侧全量聚合）。
+export function getFinanceStats(params: FinanceStatsQuery): Promise<FinanceStatsResponse> {
+  return request.get<FinanceStatsResponse>({
+    url: '/finance/stats',
+    params: {
+      start_time: params.start_time,
+      end_time: params.end_time,
+      granularity: params.granularity,
+    },
+  })
+}
+
+// getFinanceSettings 财务参数列表（可写项 + 只读速查项）。
+export function getFinanceSettings(): Promise<FinanceSettingsResponse> {
+  return request.get<FinanceSettingsResponse>({
+    url: '/finance/settings',
+  })
+}
+
+// saveFinanceSettings 保存财务参数（白名单键，key → 原文值）。
+export function saveFinanceSettings(items: Record<string, string>): Promise<FinanceSettingsResponse> {
+  return request.put<FinanceSettingsResponse>({
+    url: '/finance/settings',
+    data: { items },
   })
 }
 

@@ -35,19 +35,22 @@ func buildTestTree() []dto.MenuNode {
 			},
 		},
 		{
-			Name: "推广返现", Path: "/referral", Type: "directory",
+			Name: "推广返现", Path: "/finance/referral", Type: "directory",
 			Children: []dto.MenuNode{
-				{Name: "返现台账", Path: "/referral/cashbacks", Type: "menu"},
-				{Name: "提现审核", Path: "/referral/withdrawals", Type: "menu"},
-				{Name: "邀请关系", Path: "/referral/invitees", Type: "menu"},
+				{Name: "返现台账", Path: "/finance/referral/cashbacks", Type: "menu"},
+				{Name: "提现审核", Path: "/finance/referral/withdrawals", Type: "menu"},
+				{Name: "邀请关系", Path: "/finance/referral/invitees", Type: "menu"},
 			},
 		},
 		{
-			// 系统设置：第三方登录配置页挂在 /system/oauth（doc104 §6.7）。
+			// 系统设置：验证码配置与第三方登录收在同级目录下（迁移 071：/system/captcha、
+			// /system/oauth → /system/config/{captcha,oauth}），夹具随真实菜单表收敛。
 			Name: "系统设置", Path: "/system", Type: "directory",
 			Children: []dto.MenuNode{
-				{Name: "第三方登录", Path: "/system/oauth", Type: "menu"},
-				{Name: "验证码配置", Path: "/system/captcha", Type: "menu"},
+				{Name: "系统配置", Path: "/system/config", Type: "directory", Children: []dto.MenuNode{
+					{Name: "验证码配置", Path: "/system/config/captcha", Type: "menu"},
+					{Name: "第三方登录", Path: "/system/config/oauth", Type: "menu"},
+				}},
 			},
 		},
 	}
@@ -86,13 +89,13 @@ func TestFilterByPermissions_NarrowUserPerms(t *testing.T) {
 	}
 	for _, unexpected := range []string{
 		"/users/security/login-logs", "/users/security/sessions",
-		"/users/accounts/levels", "/users/verification/list", "/referral/cashbacks",
+		"/users/accounts/levels", "/users/verification/list", "/finance/referral/cashbacks",
 	} {
 		if hasPath(got, unexpected) {
 			t.Errorf("无权限却保留了 %s", unexpected)
 		}
 	}
-	if hasPath(got, "/referral") {
+	if hasPath(got, "/finance/referral") {
 		t.Error("推广返现下所有子菜单均无权限，整个目录应被移除")
 	}
 }
@@ -118,12 +121,12 @@ func TestFilterByPermissions_ReferralSplit(t *testing.T) {
 	perms := appauth.NewPermissionSet([]string{"referral:cashback:list"})
 	got := FilterByPermissions(buildTestTree(), perms)
 
-	for _, want := range []string{"/referral/cashbacks", "/referral/invitees"} {
+	for _, want := range []string{"/finance/referral/cashbacks", "/finance/referral/invitees"} {
 		if !hasPath(got, want) {
 			t.Errorf("应保留 %s", want)
 		}
 	}
-	if hasPath(got, "/referral/withdrawals") {
+	if hasPath(got, "/finance/referral/withdrawals") {
 		t.Error("未持有 referral:withdraw:list，不应看到提现审核")
 	}
 }
@@ -137,25 +140,25 @@ func TestFilterByPermissions_Super(t *testing.T) {
 	}
 }
 
-// 第三方登录配置页（/system/oauth）必须与 oauth:config 一一对应：
+// 第三方登录配置页（/system/config/oauth）必须与 oauth:config 一一对应：
 // 有权限时可见、无权限时整条隐藏，且不能与验证码配置（captcha:config）互相串权。
 func TestFilterByPermissions_OAuthConfig(t *testing.T) {
 	perms := appauth.NewPermissionSet([]string{"oauth:config"})
 	got := FilterByPermissions(buildTestTree(), perms)
 
-	if !hasPath(got, "/system/oauth") {
+	if !hasPath(got, "/system/config/oauth") {
 		t.Fatal("持有 oauth:config 时应保留 /system/oauth")
 	}
-	if hasPath(got, "/system/captcha") {
+	if hasPath(got, "/system/config/captcha") {
 		t.Error("未持有 captcha:config，不应看到验证码配置")
 	}
 
 	// 反向：只持验证码权限时不能看到第三方登录配置。
 	only := FilterByPermissions(buildTestTree(), appauth.NewPermissionSet([]string{"captcha:config"}))
-	if hasPath(only, "/system/oauth") {
+	if hasPath(only, "/system/config/oauth") {
 		t.Error("未持有 oauth:config，不应看到第三方登录配置")
 	}
-	if !hasPath(only, "/system/captcha") {
+	if !hasPath(only, "/system/config/captcha") {
 		t.Error("持有 captcha:config 时应保留 /system/captcha")
 	}
 

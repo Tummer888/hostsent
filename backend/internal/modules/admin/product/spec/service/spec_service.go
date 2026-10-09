@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -58,18 +59,21 @@ func (s *specTemplateService) FindByID(ctx context.Context, id uint64) (*dto.Spe
 
 func (s *specTemplateService) Create(ctx context.Context, req dto.SpecTemplateRequest) (*dto.SpecTemplateInfo, error) {
 	item := &model.SpecTemplate{
-		Name:        strings.TrimSpace(req.Name),
-		SpecFamily:  defaultString(req.SpecFamily, model.SpecFamilyGeneral),
-		CPU:         req.CPU,
-		Memory:      req.Memory,
-		Disk:        req.Disk,
-		DiskType:    defaultString(req.DiskType, "ssd"),
-		Bandwidth:   req.Bandwidth,
-		OS:          req.OS,
-		Description: req.Description,
-		Price:       req.Price,
-		SortOrder:   req.SortOrder,
-		Status:      req.Status,
+		Name:           strings.TrimSpace(req.Name),
+		SpecFamily:     defaultString(req.SpecFamily, model.SpecFamilyGeneral),
+		CPU:            req.CPU,
+		Memory:         req.Memory,
+		Disk:           req.Disk,
+		DiskType:       defaultString(req.DiskType, "ssd"),
+		Bandwidth:      req.Bandwidth,
+		OS:             req.OS,
+		Description:    req.Description,
+		Price:          req.Price,
+		SortOrder:      req.SortOrder,
+		Status:         req.Status,
+		SpecValues:     normalizeJSON(req.SpecValues),
+		PlatformParams: normalizeJSON(req.PlatformParams),
+		Source:         model.SpecTemplateSourceSelf,
 	}
 	if item.CPU < 1 {
 		item.CPU = 1
@@ -106,10 +110,23 @@ func (s *specTemplateService) Update(ctx context.Context, id uint64, req dto.Spe
 	item.Price = req.Price
 	item.SortOrder = req.SortOrder
 	item.Status = req.Status
+	// 原子取值与平台参数：空值即"清空"（运营显式删除映射），与指针语义无关，
+	// 因为模板编辑表单始终回传完整 JSON。
+	item.SpecValues = normalizeJSON(req.SpecValues)
+	item.PlatformParams = normalizeJSON(req.PlatformParams)
 	if err := s.repo.Update(ctx, item); err != nil {
 		return nil, err
 	}
 	return s.FindByID(ctx, id)
+}
+
+// normalizeJSON 归一前端回传的 JSON 片段：空/null 落为空串（列值 NULL），非法 JSON 原样保留由仓储报错。
+func normalizeJSON(raw json.RawMessage) string {
+	s := strings.TrimSpace(string(raw))
+	if s == "" || s == "null" {
+		return ""
+	}
+	return s
 }
 
 func (s *specTemplateService) Delete(ctx context.Context, id uint64) error {
@@ -230,22 +247,34 @@ func (s *specMappingService) Delete(ctx context.Context, id uint64) error {
 
 func buildSpecTemplateInfo(item model.SpecTemplate) dto.SpecTemplateInfo {
 	return dto.SpecTemplateInfo{
-		ID:          item.ID,
-		Name:        item.Name,
-		SpecFamily:  item.SpecFamily,
-		CPU:         item.CPU,
-		Memory:      item.Memory,
-		Disk:        item.Disk,
-		DiskType:    item.DiskType,
-		Bandwidth:   item.Bandwidth,
-		OS:          item.OS,
-		Description: item.Description,
-		Price:       item.Price,
-		SortOrder:   item.SortOrder,
-		Status:      item.Status,
-		CreatedAt:   item.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:   item.UpdatedAt.Format(time.RFC3339),
+		ID:             item.ID,
+		Name:           item.Name,
+		SpecFamily:     item.SpecFamily,
+		CPU:            item.CPU,
+		Memory:         item.Memory,
+		Disk:           item.Disk,
+		DiskType:       item.DiskType,
+		Bandwidth:      item.Bandwidth,
+		OS:             item.OS,
+		Description:    item.Description,
+		Price:          item.Price,
+		SortOrder:      item.SortOrder,
+		Status:         item.Status,
+		SpecValues:     json.RawMessage(nullableJSON(item.SpecValues)),
+		PlatformParams: json.RawMessage(nullableJSON(item.PlatformParams)),
+		Source:         defaultString(item.Source, model.SpecTemplateSourceSelf),
+		CreatedAt:      item.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:      item.UpdatedAt.Format(time.RFC3339),
 	}
+}
+
+// nullableJSON 把库里的 JSONB 文本转成可序列化的 RawMessage 取值：空串输出 null。
+func nullableJSON(v string) string {
+	s := strings.TrimSpace(v)
+	if s == "" || s == "null" {
+		return "null"
+	}
+	return s
 }
 
 func buildSpecMappingInfo(item model.SpecMapping) dto.SpecMappingInfo {

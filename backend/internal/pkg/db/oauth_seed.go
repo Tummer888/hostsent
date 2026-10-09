@@ -5,7 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
-	systemmodel "hostsent/backend/internal/modules/admin/system/model"
+	systemmodel "hostsent/backend/internal/modules/admin/system/config/model"
 	verificationmodel "hostsent/backend/internal/modules/admin/user/verification/model"
 	oauthmodel "hostsent/backend/internal/modules/uc/oauth/model"
 	oauthpkg "hostsent/backend/internal/pkg/oauth"

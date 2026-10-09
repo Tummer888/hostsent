@@ -68,6 +68,7 @@ const routes: Array<RouteRecordRaw> = [
         // 重复页已删（doc102 §4.1 M2-5），旧路径保留 redirect。
         path: 'security/audit-logs',
         name: 'UserSecurityAuditLogs',
+        // 直指最终落点：操作审计归属「日志中心」组（迁移 072），路径沿用原 /system/audit-logs。
         redirect: '/system/audit-logs',
         meta: { title: '操作审计', role: 'admin' },
       },
@@ -611,7 +612,13 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/finance/overview/index.vue'),
         meta: { title: '财务总览', role: 'admin', permission: 'finance:wallet' },
       },
-      // —— 账户管理 ——
+      // —— 账户管理（资金管理组，迁移 073：资金流水改挂本组） ——
+      {
+        path: 'transactions',
+        name: 'FinanceTransactions',
+        component: () => import('@/pages/finance/transactions/index.vue'),
+        meta: { title: '资金流水', role: 'admin', permission: 'finance:wallet' },
+      },
       {
         path: 'accounts/wallets',
         name: 'FinanceWallets',
@@ -623,13 +630,6 @@ const routes: Array<RouteRecordRaw> = [
         name: 'FinanceAdjust',
         component: () => import('@/pages/finance/accounts/adjust.vue'),
         meta: { title: '人工调账', role: 'admin', permission: 'finance:adjust' },
-      },
-      // —— 交易流水 ——
-      {
-        path: 'transactions',
-        name: 'FinanceTransactions',
-        component: () => import('@/pages/finance/transactions/index.vue'),
-        meta: { title: '资金流水', role: 'admin', permission: 'finance:wallet' },
       },
       // —— 充值提现 ——
       {
@@ -649,7 +649,7 @@ const routes: Array<RouteRecordRaw> = [
         path: 'bills',
         name: 'FinanceBills',
         component: () => import('@/pages/finance/bills/index.vue'),
-        meta: { title: '账单管理', role: 'admin', permission: 'finance:bill' },
+        meta: { title: '账单列表', role: 'admin', permission: 'finance:bill' },
       },
       {
         path: 'recon',
@@ -676,7 +676,61 @@ const routes: Array<RouteRecordRaw> = [
         path: 'config',
         name: 'FinanceConfig',
         component: () => import('@/pages/finance/config/index.vue'),
-        meta: { title: '财务配置', role: 'admin', permission: 'finance:wallet' },
+        meta: { title: '财务配置', role: 'admin', permission: 'finance:config' },
+      },
+      // 推广返现（doc84）整域并入财务管理（迁移 070）：作为「推广返现」二级目录的子模块。
+      {
+        path: 'referral',
+        redirect: '/finance/referral/cashbacks',
+        meta: { title: '推广返现', role: 'admin' },
+      },
+      {
+        path: 'referral/cashbacks',
+        name: 'ReferralCashbacks',
+        component: () => import('@/pages/finance/referral/cashbacks/index.vue'),
+        meta: { title: '返现台账', role: 'admin', permission: 'referral:cashback:list' },
+      },
+      {
+        path: 'referral/invitees',
+        name: 'ReferralInvitees',
+        component: () => import('@/pages/finance/referral/invitees/index.vue'),
+        meta: { title: '邀请关系', role: 'admin', permission: 'referral:cashback:list' },
+      },
+      {
+        path: 'referral/withdrawals',
+        name: 'ReferralWithdrawals',
+        component: () => import('@/pages/finance/referral/withdrawals/index.vue'),
+        meta: { title: '提现审核', role: 'admin', permission: 'referral:withdraw:list' },
+      },
+      // 积分中心（doc36）整域并入财务管理（迁移 070）：作为「积分中心」二级目录的子模块。
+      {
+        path: 'points',
+        redirect: '/finance/points/overview',
+        meta: { title: '积分中心', role: 'admin' },
+      },
+      {
+        path: 'points/overview',
+        name: 'PointsOverview',
+        component: () => import('@/pages/finance/points/overview/index.vue'),
+        meta: { title: '积分概览', role: 'admin', permission: 'point:account' },
+      },
+      {
+        path: 'points/rules',
+        name: 'PointsRules',
+        component: () => import('@/pages/finance/points/rules/index.vue'),
+        meta: { title: '积分规则', role: 'admin', permission: 'point:rule' },
+      },
+      {
+        path: 'points/accounts',
+        name: 'PointsAccounts',
+        component: () => import('@/pages/finance/points/accounts/index.vue'),
+        meta: { title: '积分账户', role: 'admin', permission: 'point:account' },
+      },
+      {
+        path: 'points/transactions',
+        name: 'PointsTransactions',
+        component: () => import('@/pages/finance/points/transactions/index.vue'),
+        meta: { title: '积分流水', role: 'admin', permission: 'point:transaction' },
       },
     ],
   },
@@ -754,64 +808,53 @@ const routes: Array<RouteRecordRaw> = [
     redirect: '/system/sales/performance',
     meta: { title: '业绩排行' },
   },
+  // 推广返现、积分中心整域并入「财务管理」（迁移 070）：页面/菜单已迁到 /finance/referral/*、
+  // /finance/points/*，旧路径保留 redirect 兼容书签与已保存的页签（归属调整，权限码不变）。
+  // 注意：用户端（frontend-user）另有同名的 /referral 与 /points 路由，与此互不影响。
   {
     path: '/referral',
-    component: () => import('@/layouts/index.vue'),
-    redirect: '/referral/cashbacks',
+    redirect: '/finance/referral/cashbacks',
     meta: { title: '推广返现' },
-    children: [
-      {
-        path: 'cashbacks',
-        name: 'ReferralCashbacks',
-        component: () => import('@/pages/referral/cashbacks/index.vue'),
-        meta: { title: '返现台账', role: 'admin', permission: 'referral:cashback:list' },
-      },
-      {
-        path: 'invitees',
-        name: 'ReferralInvitees',
-        component: () => import('@/pages/referral/invitees/index.vue'),
-        meta: { title: '邀请关系', role: 'admin', permission: 'referral:cashback:list' },
-      },
-      {
-        path: 'withdrawals',
-        name: 'ReferralWithdrawals',
-        component: () => import('@/pages/referral/withdrawals/index.vue'),
-        meta: { title: '提现审核', role: 'admin', permission: 'referral:withdraw:list' },
-      },
-    ],
   },
   {
-    // 积分中心（docs/实施计划/36）：独立于资金账本的积分体系。
+    path: '/referral/cashbacks',
+    redirect: '/finance/referral/cashbacks',
+    meta: { title: '返现台账' },
+  },
+  {
+    path: '/referral/invitees',
+    redirect: '/finance/referral/invitees',
+    meta: { title: '邀请关系' },
+  },
+  {
+    path: '/referral/withdrawals',
+    redirect: '/finance/referral/withdrawals',
+    meta: { title: '提现审核' },
+  },
+  {
     path: '/points',
-    component: () => import('@/layouts/index.vue'),
-    redirect: '/points/overview',
+    redirect: '/finance/points/overview',
     meta: { title: '积分中心' },
-    children: [
-      {
-        path: 'overview',
-        name: 'PointsOverview',
-        component: () => import('@/pages/points/overview/index.vue'),
-        meta: { title: '积分概览', role: 'admin', permission: 'point:account' },
-      },
-      {
-        path: 'rules',
-        name: 'PointsRules',
-        component: () => import('@/pages/points/rules/index.vue'),
-        meta: { title: '积分规则', role: 'admin', permission: 'point:rule' },
-      },
-      {
-        path: 'accounts',
-        name: 'PointsAccounts',
-        component: () => import('@/pages/points/accounts/index.vue'),
-        meta: { title: '积分账户', role: 'admin', permission: 'point:account' },
-      },
-      {
-        path: 'transactions',
-        name: 'PointsTransactions',
-        component: () => import('@/pages/points/transactions/index.vue'),
-        meta: { title: '积分流水', role: 'admin', permission: 'point:transaction' },
-      },
-    ],
+  },
+  {
+    path: '/points/overview',
+    redirect: '/finance/points/overview',
+    meta: { title: '积分概览' },
+  },
+  {
+    path: '/points/rules',
+    redirect: '/finance/points/rules',
+    meta: { title: '积分规则' },
+  },
+  {
+    path: '/points/accounts',
+    redirect: '/finance/points/accounts',
+    meta: { title: '积分账户' },
+  },
+  {
+    path: '/points/transactions',
+    redirect: '/finance/points/transactions',
+    meta: { title: '积分流水' },
   },
   // 生命周期管理整域并入「实例管理」（迁移 066）：页面/菜单已迁到 /instances/lifecycle，
   // 旧路径保留 redirect 兼容书签与已保存的页签（归属调整，API/权限码不变）。
@@ -872,39 +915,32 @@ const routes: Array<RouteRecordRaw> = [
     redirect: '/system/notification/deliveries',
     meta: { title: '发送日志' },
   },
+  // 内容管理（doc100 §7.1）整域并入「系统管理」（迁移 069）：页面/菜单已迁到
+  // /system/content/*，旧路径保留 redirect 兼容书签与已保存的页签（归属调整，权限码不变）。
   {
-    // 内容管理（doc100 §7.1）：门户展示型内容 + 公告管理（doc102 §4.1 M2-4 由系统管理迁入）。
     path: '/content',
-    component: () => import('@/layouts/index.vue'),
-    redirect: '/content/articles',
-    meta: { title: '内容管理', role: 'admin' },
-    children: [
-      {
-        path: 'articles',
-        name: 'ContentArticles',
-        component: () => import('@/pages/content/articles/index.vue'),
-        meta: { title: '内容文章', role: 'admin', permission: 'content:article:list' },
-      },
-      {
-        path: 'categories',
-        name: 'ContentCategories',
-        component: () => import('@/pages/content/categories/index.vue'),
-        meta: { title: '内容分类', role: 'admin', permission: 'content:category:list' },
-      },
-      {
-        path: 'links',
-        name: 'ContentLinks',
-        component: () => import('@/pages/content/links/index.vue'),
-        meta: { title: '友情链接', role: 'admin', permission: 'content:link:list' },
-      },
-      {
-        // 公告管理（复用 notification 公告服务与权限码）：doc102 §4.1 M2-4 由系统管理迁入。
-        path: 'announcements',
-        name: 'ContentAnnouncements',
-        component: () => import('@/pages/system/notification/announcements/index.vue'),
-        meta: { title: '公告管理', role: 'admin', permission: 'notify:announcement' },
-      },
-    ],
+    redirect: '/system/content/articles',
+    meta: { title: '内容管理' },
+  },
+  {
+    path: '/content/articles',
+    redirect: '/system/content/articles',
+    meta: { title: '内容文章' },
+  },
+  {
+    path: '/content/categories',
+    redirect: '/system/content/categories',
+    meta: { title: '内容分类' },
+  },
+  {
+    path: '/content/links',
+    redirect: '/system/content/links',
+    meta: { title: '友情链接' },
+  },
+  {
+    path: '/content/announcements',
+    redirect: '/system/content/announcements',
+    meta: { title: '公告管理' },
   },
   {
     path: '/system',
@@ -943,40 +979,67 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/system/departments/index.vue'),
         meta: { title: '部门管理', role: 'admin', permission: 'department:list' },
       },
+      // 系统配置组（迁移 071）：原 /system/config、/system/captcha、/system/oauth 收进同一
+      // 二级目录，运营在一处完成系统设置（操作审计同期收进、迁移 072 已改挂日志中心）。
+      // 目录本身只做分组，落地页是基础配置；旧路径都保留 redirect 兼容书签。
       {
-        // 系统配置：键值型配置项的增删改查
         path: 'config',
-        name: 'SystemConfig',
-        component: () => import('@/pages/system/config/index.vue'),
-        meta: { title: '系统配置', role: 'admin', permission: 'system:config:view' },
+        redirect: '/system/config/basic',
+        meta: { title: '系统配置', role: 'admin' },
       },
       {
-        // 操作审计：管理员操作日志查询与 CSV 导出
-        path: 'audit-logs',
-        name: 'SystemAuditLogs',
-        component: () => import('@/pages/system/audit-logs/index.vue'),
-        meta: { title: '操作审计', role: 'admin', permission: 'security:audit:list' },
+        // 基础配置：键值型配置项的增删改查（原 /system/config 页面）
+        path: 'config/basic',
+        name: 'SystemConfig',
+        component: () => import('@/pages/system/config/index.vue'),
+        meta: { title: '基础配置', role: 'admin', permission: 'system:config:view' },
       },
       {
         // 验证码配置（doc91）：服务商 / 场景策略 / 统计
-        path: 'captcha',
+        path: 'config/captcha',
         name: 'SystemCaptcha',
         component: () => import('@/pages/system/captcha/index.vue'),
         meta: { title: '验证码配置', role: 'admin', permission: 'captcha:config' },
       },
       {
         // 第三方登录（doc104 §6.7）：微信/QQ/支付宝渠道凭证与启用开关。
-        path: 'oauth',
+        path: 'config/oauth',
         name: 'SystemOAuth',
         component: () => import('@/pages/system/oauth/index.vue'),
         meta: { title: '第三方登录', role: 'admin', permission: 'oauth:config' },
+      },
+      {
+        // 操作审计在迁移 072 改挂「日志中心」并恢复原路径 /system/audit-logs；
+        // 这里只保留短暂存在过的 /system/config/audit-logs 作为兼容跳转。
+        path: 'config/audit-logs',
+        redirect: '/system/audit-logs',
+        meta: { title: '操作审计', role: 'admin' },
+      },
+      {
+        path: 'captcha',
+        redirect: '/system/config/captcha',
+        meta: { title: '验证码配置', role: 'admin' },
+      },
+      {
+        path: 'oauth',
+        redirect: '/system/config/oauth',
+        meta: { title: '第三方登录', role: 'admin' },
+      },
+      {
+        // 操作审计（admin 平台）：管理员操作日志查询与 CSV 导出。
+        // 归属「日志中心」组（迁移 072），与日志浏览/清理任务/保留策略同组，语义上都是日志查看。
+        path: 'audit-logs',
+        name: 'SystemAuditLogs',
+        component: () => import('@/pages/system/audit-logs/index.vue'),
+        meta: { title: '操作审计', role: 'admin', permission: 'security:audit:list' },
       },
       {
         // 公告管理已归位到「内容管理」（doc102 §4.1 M2-4，推翻 doc100 §7.1 的「保持原位」）：
         // 页面、后端模块与权限码 notify:announcement 都属 notification，旧路径 redirect。
         path: 'announcements',
         name: 'SystemAnnouncements',
-        redirect: '/content/announcements',
+        // 直指最终落点：公告管理随内容管理并入系统域（迁移 069）。
+        redirect: '/system/content/announcements',
         meta: { title: '公告管理', role: 'admin' },
       },
       {
@@ -1130,6 +1193,38 @@ const routes: Array<RouteRecordRaw> = [
         name: 'SalesPerformance',
         component: () => import('@/pages/system/sales/performance/index.vue'),
         meta: { title: '业绩排行', role: 'admin', permission: 'sales:performance:view' },
+      },
+      // 内容管理（doc100 §7.1）整域并入系统管理（迁移 069）：作为「内容管理」二级目录的子模块。
+      {
+        path: 'content',
+        redirect: '/system/content/articles',
+        meta: { title: '内容管理', role: 'admin' },
+      },
+      {
+        path: 'content/articles',
+        name: 'ContentArticles',
+        component: () => import('@/pages/system/content/articles/index.vue'),
+        meta: { title: '内容文章', role: 'admin', permission: 'content:article:list' },
+      },
+      {
+        path: 'content/categories',
+        name: 'ContentCategories',
+        component: () => import('@/pages/system/content/categories/index.vue'),
+        meta: { title: '内容分类', role: 'admin', permission: 'content:category:list' },
+      },
+      {
+        path: 'content/links',
+        name: 'ContentLinks',
+        component: () => import('@/pages/system/content/links/index.vue'),
+        meta: { title: '友情链接', role: 'admin', permission: 'content:link:list' },
+      },
+      {
+        // 公告管理（复用 notification 公告服务与权限码）：页面仍随 notification 模块放在
+        // pages/system/notification/announcements（doc102 §4.1 M2-4），菜单随内容管理迁移。
+        path: 'content/announcements',
+        name: 'ContentAnnouncements',
+        component: () => import('@/pages/system/notification/announcements/index.vue'),
+        meta: { title: '公告管理', role: 'admin', permission: 'notify:announcement' },
       },
     ],
   },

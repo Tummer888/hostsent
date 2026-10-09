@@ -91,7 +91,7 @@
       />
     </section>
 
-    <t-dialog v-model:visible="dialogVisible" :header="form.id ? '编辑规格模板' : '新增规格模板'" width="560px"
+    <t-dialog v-model:visible="dialogVisible" :header="form.id ? '编辑规格模板' : '新增规格模板'" width="720px"
       :confirm-btn="{ content: '保存', theme: 'primary' }" :cancel-btn="{ content: '取消' }" @confirm="save" @close="closeDialog">
       <t-form label-align="top" :data="form" @submit.prevent>
         <div class="form-grid">
@@ -108,6 +108,48 @@
         </div>
         <t-form-item label="操作系统" name="os"><t-input v-model="form.os" placeholder="如：Linux / Windows" /></t-form-item>
         <t-form-item label="适用场景" name="description"><t-textarea v-model="form.description" :autosize="{ minRows: 2, maxRows: 4 }" /></t-form-item>
+
+        <!-- 平台映射：自营商品按模板生成 SKU 时，这些参数直接写入该 SKU 的平台绑定 -->
+        <t-divider>平台映射（自营开通参数）</t-divider>
+        <t-alert theme="info" message="选择平台渠道后可下拉选取真实区域/节点/存储/镜像，参数会写入生成的 SKU 平台绑定；不配置则生成的 SKU 需手工绑定后才能上架。" />
+        <div class="form-grid">
+          <t-form-item label="平台渠道">
+            <t-select
+              v-model="platform.providerId"
+              clearable
+              placeholder="请选择算力平台渠道"
+              :options="platformOptions"
+              :loading="resourceLoading"
+              @change="onPlatformChange"
+            />
+          </t-form-item>
+          <t-form-item label="区域 area">
+            <t-select v-model="platformParams.area" clearable placeholder="平台区域 ID" :options="areaOptions" />
+          </t-form-item>
+          <t-form-item label="节点 node">
+            <t-select v-model="platformParams.node" clearable placeholder="平台节点 ID" :options="nodeOptions" />
+          </t-form-item>
+          <t-form-item label="存储 store">
+            <t-select v-model="platformParams.store" clearable placeholder="系统盘所在存储（可选）" :options="storeOptions" />
+          </t-form-item>
+          <t-form-item label="镜像 os">
+            <t-select v-model="platformParams.os" clearable placeholder="平台镜像 ID" :options="imageOptions" />
+          </t-form-item>
+        </div>
+        <t-form-item label="平台参数 JSON（高级：上一行未覆盖的键）">
+          <t-textarea
+            v-model="form.platform_params"
+            :autosize="{ minRows: 2, maxRows: 6 }"
+            placeholder='如 {"network_type":"normal","ip_num":1,"traffic_quota":0}'
+          />
+        </t-form-item>
+        <t-form-item label="原子取值 JSON（高级：留空按 CPU/内存/磁盘自动推导）">
+          <t-textarea
+            v-model="form.spec_values"
+            :autosize="{ minRows: 3, maxRows: 8 }"
+            placeholder='如 {"compute.cpu":2,"compute.memory":4096,"storage.system.size":60}'
+          />
+        </t-form-item>
       </t-form>
     </t-dialog>
   </div>
@@ -115,12 +157,13 @@
 
 <script setup lang="ts">
 import FilterCard from '@/components/filter-card/index.vue'
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { AddIcon, AppIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { createSpecTemplate, deleteSpecTemplate, getSpecTemplateList, updateSpecTemplate } from '@/api/product'
-import type { SpecTemplateInfo } from '@/types/interface'
+import { getProviderList, getProviderPlatformResources } from '@/api/admin'
+import type { PlatformResourceItem, ProviderInfo, SpecTemplateInfo } from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
@@ -198,32 +241,173 @@ function resetFilters() {
 }
 
 const dialogVisible = ref(false)
-const form = reactive<{ id: number; name: string; spec_family: string; cpu: number; memory: number; disk: number; bandwidth: number; disk_type: string; os: string; price: number; sort_order: number; description: string; status: number }>(emptyForm())
+const form = reactive<{
+  id: number
+  name: string
+  spec_family: string
+  cpu: number
+  memory: number
+  disk: number
+  bandwidth: number
+  disk_type: string
+  os: string
+  price: number
+  sort_order: number
+  description: string
+  status: number
+  spec_values: string
+  platform_params: string
+}>(emptyForm())
 
 function emptyForm() {
-  return { id: 0, name: '', spec_family: 'general', cpu: 2, memory: 4, disk: 50, bandwidth: 5, disk_type: 'ssd', os: '', price: 0, sort_order: 0, description: '', status: 1 }
+  return {
+    id: 0, name: '', spec_family: 'general', cpu: 2, memory: 4, disk: 50, bandwidth: 5,
+    disk_type: 'ssd', os: '', price: 0, sort_order: 0, description: '', status: 1,
+    spec_values: '', platform_params: '',
+  }
 }
+
+// ===== 平台映射（自营开通参数）：选渠道后拉取真实区域/节点/存储/镜像 =====
+const platformOptions = ref<{ label: string; value: number }[]>([])
+const platform = reactive<{ providerId: number | undefined }>({ providerId: undefined })
+const platformParams = reactive<{ area?: string; node?: string; store?: string; os?: string }>({
+  area: undefined, node: undefined, store: undefined, os: undefined,
+})
+const resources = ref<{ areas: PlatformResourceItem[]; nodes: PlatformResourceItem[]; stores: PlatformResourceItem[]; images: PlatformResourceItem[] }>({
+  areas: [], nodes: [], stores: [], images: [],
+})
+const resourceLoading = ref(false)
+
+/** 仅保留启用项的下拉选项（平台返回 offline 的取值不该再被选进新规格）。 */
+function toOptions(items: PlatformResourceItem[]): { label: string; value: string }[] {
+  return items
+    .filter((item) => !item.status || item.status === 'active')
+    .map((item) => ({ label: `${item.label}（${item.value}）`, value: item.value }))
+}
+
+const areaOptions = computed(() => toOptions(resources.value.areas))
+const imageOptions = computed(() => toOptions(resources.value.images))
+// 节点/存储按所选区域过滤（魔方云的 node/store 都挂在 area 下）。
+const nodeOptions = computed(() => {
+  const area = platformParams.area
+  const items = area ? resources.value.nodes.filter((n) => !n.parent_id || n.parent_id === area) : resources.value.nodes
+  return toOptions(items)
+})
+const storeOptions = computed(() => {
+  const area = platformParams.area
+  const items = area ? resources.value.stores.filter((s) => !s.parent_id || s.parent_id === area) : resources.value.stores
+  return toOptions(items)
+})
+
+async function loadPlatformOptions() {
+  try {
+    const data = await getProviderList({ page_size: 100 })
+    platformOptions.value = data.items
+      .filter((item: ProviderInfo) => item.kind === 'compute')
+      .map((item: ProviderInfo) => ({ label: `${item.name}（${item.provider_type}）`, value: item.id }))
+  } catch {
+    platformOptions.value = []
+  }
+}
+
+async function onPlatformChange(providerId?: number | string) {
+  const id = Number(providerId)
+  resources.value = { areas: [], nodes: [], stores: [], images: [] }
+  if (!id) return
+  resourceLoading.value = true
+  try {
+    resources.value = await getProviderPlatformResources(id)
+  } catch (error) {
+    MessagePlugin.warning((error as Error).message || '该渠道未提供平台资源目录，可手工填写平台参数 JSON')
+  } finally {
+    resourceLoading.value = false
+  }
+}
+
+/** 把「渠道 + 下拉选择」与「高级 JSON」合并成最终落库的平台参数。 */
+function buildPlatformParams(): Record<string, unknown> | null {
+  let advanced: Record<string, unknown> = {}
+  if (form.platform_params.trim()) {
+    try {
+      const parsed = JSON.parse(form.platform_params)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) advanced = parsed as Record<string, unknown>
+    } catch {
+      MessagePlugin.warning('平台参数 JSON 非法')
+      return null
+    }
+  }
+  const merged: Record<string, unknown> = { ...advanced }
+  for (const key of ['area', 'node', 'store', 'os'] as const) {
+    const value = platformParams[key]
+    if (value) merged[key] = value
+  }
+  return Object.keys(merged).length ? merged : null
+}
+
+function buildSpecValues(): Record<string, unknown> | null {
+  if (!form.spec_values.trim()) return null
+  try {
+    const parsed = JSON.parse(form.spec_values)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>
+  } catch {
+    MessagePlugin.warning('原子取值 JSON 非法')
+    return null
+  }
+  MessagePlugin.warning('原子取值必须是 JSON 对象')
+  return null
+}
+
 function openCreate() {
   Object.assign(form, emptyForm())
+  platform.providerId = undefined
+  Object.assign(platformParams, { area: undefined, node: undefined, store: undefined, os: undefined })
+  resources.value = { areas: [], nodes: [], stores: [], images: [] }
   dialogVisible.value = true
 }
+
 function openEdit(row: SpecTemplateInfo) {
   Object.assign(form, {
     id: row.id, name: row.name, spec_family: row.spec_family, cpu: row.cpu, memory: row.memory,
     disk: row.disk, bandwidth: row.bandwidth, disk_type: row.disk_type, os: row.os,
     price: row.price, sort_order: row.sort_order, description: row.description, status: row.status,
+    spec_values: row.spec_values ? JSON.stringify(row.spec_values, null, 2) : '',
+    platform_params: row.platform_params ? JSON.stringify(row.platform_params, null, 2) : '',
   })
+  // 平台下拉回填：把已知键从 JSON 拉到下拉控件，剩余键留在「高级 JSON」里。
+  const params = (row.platform_params || {}) as Record<string, unknown>
+  platform.providerId = undefined
+  Object.assign(platformParams, {
+    area: params.area != null ? String(params.area) : undefined,
+    node: params.node != null ? String(params.node) : undefined,
+    store: params.store != null ? String(params.store) : undefined,
+    os: params.os != null ? String(params.os) : undefined,
+  })
+  const rest: Record<string, unknown> = { ...params }
+  for (const key of ['area', 'node', 'store', 'os']) delete rest[key]
+  form.platform_params = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : ''
   dialogVisible.value = true
 }
+
 function closeDialog() {
   dialogVisible.value = false
 }
+
 async function save() {
+  if (!form.name.trim()) {
+    MessagePlugin.warning('请输入规格名称')
+    return
+  }
+  const platformParamsPayload = buildPlatformParams()
+  if (platformParamsPayload === null && form.platform_params.trim()) return
+  const specValuesPayload = buildSpecValues()
+  if (specValuesPayload === null && form.spec_values.trim()) return
   try {
     const payload = {
       name: form.name, spec_family: form.spec_family, cpu: form.cpu, memory: form.memory, disk: form.disk,
       bandwidth: form.bandwidth, disk_type: form.disk_type, os: form.os, price: form.price,
       sort_order: form.sort_order, description: form.description, status: form.status,
+      spec_values: specValuesPayload,
+      platform_params: platformParamsPayload,
     }
     if (form.id) {
       await updateSpecTemplate(form.id, payload)
@@ -256,7 +440,10 @@ async function remove(row: SpecTemplateInfo) {
   })
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  loadPlatformOptions()
+})
 
 // 移动端操作下拉分发
 function handleMobileAction(value: string | number | Record<string, any>, row: SpecTemplateInfo) {

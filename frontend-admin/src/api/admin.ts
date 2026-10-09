@@ -21,6 +21,7 @@ import type {
   ProviderListQuery,
   ProviderListResponse,
   ProviderTypeItem,
+  PlatformResources,
   ProviderUpdateRequest,
   ReconcileListQuery,
   ReconcileListResponse,
@@ -383,6 +384,13 @@ export function testConnection(id: number): Promise<TestConnectionResult> {
 export function resumeProviderSync(id: number): Promise<ProviderInfo> {
   return request.post<ProviderInfo>({
     url: `/resource/providers/${id}/sync/resume`,
+  })
+}
+
+/** 平台可售资源目录（区域/节点/存储/镜像）：自营规格模板配置平台参数用 */
+export function getProviderPlatformResources(id: number): Promise<PlatformResources> {
+  return request.get<PlatformResources>({
+    url: `/resource/providers/${id}/resources`,
   })
 }
 

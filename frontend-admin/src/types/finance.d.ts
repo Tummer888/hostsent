@@ -12,6 +12,8 @@ export interface WalletInfo {
 
 export interface TransactionListQuery {
   user_id?: number
+  /** 关键词：流水号 / 订单号 / 关联单号 / 用户名（财务对账最常用入口） */
+  keyword?: string
   type?: string
   direction?: number
   start_time?: string
@@ -24,7 +26,10 @@ export interface TransactionInfo {
   id: number
   tx_no: string
   user_id: number
+  username?: string
   type: string
+  /** 业务标识（幂等键，排查重复记账用） */
+  biz_type?: string
   direction: number // 1=收入 -1=支出
   amount: number
   balance_before: number
@@ -37,9 +42,19 @@ export interface TransactionInfo {
   created_at: string
 }
 
+/** 当前筛选条件下的汇总（全量、非当前页）：冻结/解冻不计入收支口径。 */
+export interface TransactionSummary {
+  income_total: number
+  expense_total: number
+  net_total: number
+  tx_count: number
+  internal_count: number
+}
+
 export interface TransactionListResponse {
   items: TransactionInfo[]
   meta: ListMeta
+  summary: TransactionSummary
 }
 
 export interface AdjustRequest {
@@ -266,4 +281,127 @@ export interface ReconcileResponse {
   wallet_balance: number
   diff: number
   status: string
+  /** 判定容差（元，来自财务配置 finance.recon_tolerance） */
+  tolerance: number
+}
+
+// ===== 财务统计（总览 / 报表共用聚合） =====
+
+export interface FinanceStatsQuery {
+  start_time?: string
+  end_time?: string
+  /** day=按日 / month=按月（跨度 > 366 天时后端自动按月） */
+  granularity?: 'day' | 'month'
+}
+
+export interface FinanceStatsRange {
+  start_time: string
+  end_time: string
+  granularity: 'day' | 'month'
+}
+
+export interface FinanceStatsSummary {
+  income_total: number
+  expense_total: number
+  net_total: number
+  tx_count: number
+  /** 笔均变动金额 */
+  avg_amount: number
+  /** 冻结/解冻内部划转笔数（不计入收支） */
+  internal_count: number
+}
+
+export interface FinanceStatsTrendPoint {
+  period: string
+  income: number
+  expense: number
+  net: number
+  count: number
+}
+
+export interface FinanceStatsTypeRow {
+  type: string
+  income: number
+  expense: number
+  net: number
+  count: number
+  /** 冻结/解冻：可用↔冻结内部划转，不计入收支口径 */
+  internal: boolean
+}
+
+export interface FinanceStatsBillStatusRow {
+  status: string
+  count: number
+  amount: number
+}
+
+export interface FinanceStatsBills {
+  count: number
+  total_amount: number
+  refund_amount: number
+  net_amount: number
+  recharge_count: number
+  recharge_amount: number
+  by_status: FinanceStatsBillStatusRow[]
+  /** 全量未结（不受区间限制） */
+  unpaid_count: number
+  unpaid_amount: number
+}
+
+export interface FinanceStatsPending {
+  recharge_pending_count: number
+  recharge_pending_amount: number
+  withdraw_pending_count: number
+  withdraw_pending_amount: number
+  withdraw_paying_count: number
+  withdraw_paying_amount: number
+  invoice_pending_count: number
+}
+
+export interface FinanceStatsWallet {
+  balance_total: number
+  frozen_total: number
+  count: number
+  low_balance_threshold: number
+  low_balance_count: number
+  low_balance_amount: number
+}
+
+export interface FinanceStatsResponse {
+  range: FinanceStatsRange
+  summary: FinanceStatsSummary
+  trend: FinanceStatsTrendPoint[]
+  type_breakdown: FinanceStatsTypeRow[]
+  bills: FinanceStatsBills
+  pending: FinanceStatsPending
+  wallet: FinanceStatsWallet
+  /** 口径说明（页脚直接展示） */
+  caliber: string
+}
+
+// ===== 财务参数（/finance/settings 白名单读写） =====
+
+export interface FinanceSettingItem {
+  key: string
+  label: string
+  description: string
+  value_type: 'bool' | 'number'
+  value: string
+  default_value: string
+  /** 该参数在哪里生效（写清消费点） */
+  usage: string
+  min: number
+  max: number
+}
+
+export interface FinanceSettingGroup {
+  /** 落库的 config_group（finance / referral） */
+  key: string
+  label: string
+  hint: string
+  items: FinanceSettingItem[]
+}
+
+export interface FinanceSettingsResponse {
+  groups: FinanceSettingGroup[]
 }

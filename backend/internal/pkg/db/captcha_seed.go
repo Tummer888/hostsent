@@ -5,7 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
-	systemmodel "hostsent/backend/internal/modules/admin/system/model"
+	systemmodel "hostsent/backend/internal/modules/admin/system/config/model"
 	captchamodel "hostsent/backend/internal/modules/uc/captcha/model"
 )
 

@@ -36,12 +36,33 @@ type ProductCreateRequest struct {
 	SortOrder        int     `json:"sort_order"`
 	Status           int     `json:"status"`
 	// SourceMode 链路判据（D6 单一判据）：self 自营 / upstream 上游转售；空值归一为 self。
-	// 此前 DTO 缺该字段，导致前端选了链路也被静默丢弃（只能建出自营商品），见 doc23 P0-1。
+	// 注意：本接口只接 self——上游转售商品必须走「导入上游商品」（见 service.Create 守卫）。
 	SourceMode string `json:"source_mode"`
+	// SpecTemplates 建品同时选定的规格模板（自营链路）：每个模板生成一个带平台绑定的 SKU。
+	// 这是「新建商品就能预选配好的规格」的入口——运营不必先建商品再去详情页生成规格。
+	SpecTemplates []ProductSpecTemplateSelection `json:"spec_templates"`
 	// 上游加价规则与"仅透传"标记（T4.3）：代理商品改上游价后按此规则重算售价。
 	UpstreamMarkupType  string  `json:"upstream_markup_type"`
 	UpstreamMarkupValue float64 `json:"upstream_markup_value"`
 	SpecPassthrough     bool    `json:"spec_passthrough"`
+}
+
+// ProductSpecTemplateSelection 建品时选定一个规格模板（含就地调整后的参数）。
+type ProductSpecTemplateSelection struct {
+	SpecTemplateID uint64 `json:"spec_template_id" binding:"required"`
+	// SpecCode / Name 覆盖从模板派生的 SKU 编码与名称（留空自动派生）。
+	SpecCode string `json:"spec_code"`
+	Name     string `json:"name"`
+	// Price / CostPrice 覆盖售价与成本价；Price 为 0 时回落模板参考售价，再回落商品售价。
+	Price     float64 `json:"price"`
+	CostPrice float64 `json:"cost_price"`
+	Stock     int     `json:"stock"`
+	// SpecValues 就地调整后的原子取值 JSON（如 {"compute.cpu":4,...}）；
+	// 留空则原样用模板值（再空则按模板 CPU/内存/磁盘推导）。
+	SpecValues json.RawMessage `json:"spec_values"`
+	// PlatformParams 就地调整后的平台写参数 JSON（area/node/os/store 等）；
+	// 留空则原样用模板值。为空（且模板也为空）时该 SKU 不带平台绑定，无法上架。
+	PlatformParams json.RawMessage `json:"platform_params"`
 }
 
 // ProductCloneRequest 从上游商品克隆创建销售商品
@@ -84,6 +105,9 @@ type ProductUpdateRequest struct {
 	Status        int     `json:"status"`
 	// SourceMode 链路判据（D6）：指针区分"未传"（保持原值）与"显式改链路"。
 	SourceMode *string `json:"source_mode"`
+	// SourceProviderID 自营商品绑定的平台渠道（T4.2）：指针区分"未传"与"显式改绑"。
+	// 代理商品的 source_provider_id 由导入流程决定，不接受本字段改写。
+	SourceProviderID *uint64 `json:"source_provider_id"`
 	// 上游加价规则与"仅透传"标记（T4.3）；省略则保持原值（指针区分"未传"与"清空"）。
 	UpstreamMarkupType  *string  `json:"upstream_markup_type"`
 	UpstreamMarkupValue *float64 `json:"upstream_markup_value"`
@@ -130,6 +154,10 @@ type ProductInfo struct {
 	Status          int    `json:"status"`
 	CreatedAt       string `json:"created_at"`
 	UpdatedAt       string `json:"updated_at"`
+	// GeneratedSpecs 建品时按模板生成的 SKU（仅 Create 响应带值，供前端提示"建了什么"）。
+	GeneratedSpecs []ProductSpecInfo `json:"generated_specs,omitempty"`
+	// SpecTemplateNotice 建品时规格生成的部分失败原因（商品已建，规格可到详情页重试）。
+	SpecTemplateNotice string `json:"spec_template_notice,omitempty"`
 }
 
 // ProductListResponse 产品列表响应
@@ -195,4 +223,32 @@ type ProductSpecRequest struct {
 //   - source=self：source_key 为平台参数名（如 area/os/store），开通时直接作为写参数下发。
 type ProductConfigOptionsRequest struct {
 	Groups []json.RawMessage `json:"groups"`
+}
+
+// SpecTemplateGenerateRequest 按规格模板为自营商品生成 SKU 并建立平台绑定。
+// 自营链路打通的关键动作：模板（含平台写参数）+ 商品 → 已确认绑定的 SKU。
+type SpecTemplateGenerateRequest struct {
+	SpecTemplateID uint64 `json:"spec_template_id" binding:"required"`
+	// SpecCode / Name 覆盖从模板派生的 SKU 编码与名称；为空按模板自动生成。
+	SpecCode string `json:"spec_code"`
+	Name     string `json:"name"`
+	// Price / CostPrice 覆盖 SKU 售价与成本价；为 0 时依次回落到模板参考售价、商品售价。
+	Price     float64 `json:"price"`
+	CostPrice float64 `json:"cost_price"`
+	Stock     int     `json:"stock"`
+	// PlatformParams 覆盖模板的平台参数（如换 area/node）；为空则原样用模板值。
+	PlatformParams json.RawMessage `json:"platform_params"`
+	// SpecValues 覆盖模板的原子取值；为空则原样用模板值（再空则按模板配置字段推导）。
+	SpecValues json.RawMessage `json:"spec_values"`
+	// Confirm 是否直接把绑定置为 confirmed（默认 true）。
+	Confirm *bool `json:"confirm"`
+}
+
+// SpecTemplateGenerateResult 按模板生成 SKU 的结果。
+type SpecTemplateGenerateResult struct {
+	Spec ProductSpecInfo `json:"spec"`
+	// BoundPlatformParams 实际写入绑定的平台参数 JSON（为空表示未建立绑定）。
+	BoundPlatformParams json.RawMessage `json:"bound_platform_params"`
+	// Notice 非空表示已生成 SKU 但需人工补充的事项（如平台绑定能力未装配、模板缺平台参数）。
+	Notice string `json:"notice,omitempty"`
 }

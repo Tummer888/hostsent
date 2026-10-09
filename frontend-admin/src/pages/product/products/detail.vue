@@ -83,6 +83,9 @@
               <h3 class="card-title">规格变体</h3>
               <t-space size="small">
                 <span class="table-card__meta">共 {{ specs.length }} 个规格</span>
+                <t-button v-if="!isUpstreamChain" size="small" variant="outline" @click="openGenerateDialog">
+                  按规格模板生成
+                </t-button>
                 <t-button size="small" theme="primary" @click="openSpecDialog()">新增规格</t-button>
               </t-space>
             </div>
@@ -248,6 +251,48 @@
       </t-form>
     </t-dialog>
 
+    <!-- 按规格模板生成 SKU（自营链路打通：模板含平台写参数 → SKU + 已确认绑定） -->
+    <t-dialog
+      v-model:visible="generateVisible"
+      header="按规格模板生成规格"
+      width="600px"
+      :confirm-btn="{ content: '生成', theme: 'primary', loading: generateSaving }"
+      @confirm="submitGenerate"
+    >
+      <t-form label-align="top" :data="generateForm">
+        <t-form-item label="规格模板" required>
+          <t-select
+            v-model="generateForm.spec_template_id"
+            placeholder="请选择已配置平台参数的规格模板"
+            :options="templateOptions"
+            @change="onTemplateChange"
+          />
+        </t-form-item>
+        <div class="form-grid">
+          <t-form-item label="规格编码（留空自动生成）">
+            <t-input v-model="generateForm.spec_code" placeholder="如 general-2c4g-50g" />
+          </t-form-item>
+          <t-form-item label="规格名称（留空取模板名）">
+            <t-input v-model="generateForm.name" placeholder="如 通用型 2核4G" />
+          </t-form-item>
+          <t-form-item label="销售价（元）">
+            <t-input-number v-model="generateForm.price" :min="0" :precision="2" theme="column" placeholder="0 = 取模板参考售价" />
+          </t-form-item>
+          <t-form-item label="成本价（元）">
+            <t-input-number v-model="generateForm.cost_price" :min="0" :precision="2" theme="column" />
+          </t-form-item>
+        </div>
+        <t-form-item label="平台参数（可覆盖模板值）">
+          <t-textarea
+            v-model="generateForm.platform_params"
+            :autosize="{ minRows: 2, maxRows: 6 }"
+            placeholder='留空即用模板参数，如 {"area":"1","node":"2","os":"12"}'
+          />
+        </t-form-item>
+        <t-alert v-if="selectedTemplateHint" theme="info" :message="selectedTemplateHint" />
+      </t-form>
+    </t-dialog>
+
     <!-- 平台绑定 -->
     <t-dialog
       v-model:visible="bindingDialogVisible"
@@ -339,6 +384,7 @@ import {
   confirmSpecBinding,
   createProductSpec,
   deleteProductSpec,
+  generateProductSpecFromTemplate,
   getProductConfigOptions,
   getProductDetail,
   getProductHistory,
@@ -371,6 +417,7 @@ import type {
   SpecAtomInfo,
   SpecBindingInfo,
   SpecBindingUpsertRequest,
+  SpecTemplateInfo,
 } from '@/types/interface'
 
 defineOptions({ name: 'ProductProductsDetail' })
@@ -655,6 +702,90 @@ async function confirmBinding(row: SpecBindingInfo) {
     await loadSpecs()
   } catch (error) {
     MessagePlugin.error((error as Error).message || '确认失败')
+  }
+}
+
+// ---------- 按规格模板生成 SKU（自营链路打通） ----------
+
+const generateVisible = ref(false)
+const generateSaving = ref(false)
+const generateForm = reactive<{
+  spec_template_id: number | undefined
+  spec_code: string
+  name: string
+  price: number
+  cost_price: number
+  platform_params: string
+}>({ spec_template_id: undefined, spec_code: '', name: '', price: 0, cost_price: 0, platform_params: '' })
+// 模板列表（生成下拉用）：带平台参数与参考售价，便于选择时给出提示。
+const generateTemplates = ref<SpecTemplateInfo[]>([])
+
+const selectedTemplateHint = computed(() => {
+  const tpl = generateTemplates.value.find((item) => item.id === generateForm.spec_template_id)
+  if (!tpl) return ''
+  const platform = tpl.platform_params ? JSON.stringify(tpl.platform_params) : '未配置'
+  return `模板「${tpl.name}」：原子取值 ${tpl.spec_values ? JSON.stringify(tpl.spec_values) : '按 CPU/内存/磁盘推导'}；平台参数 ${platform}。`
+})
+
+async function openGenerateDialog() {
+  generateForm.spec_template_id = undefined
+  generateForm.spec_code = ''
+  generateForm.name = ''
+  generateForm.price = 0
+  generateForm.cost_price = 0
+  generateForm.platform_params = ''
+  generateVisible.value = true
+  try {
+    const data = await getSpecTemplateList({ page: 1, page_size: 100, status: 1 })
+    generateTemplates.value = data.items
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '加载规格模板失败')
+  }
+}
+
+function onTemplateChange(value?: number | string) {
+  const tpl = generateTemplates.value.find((item) => item.id === Number(value))
+  if (!tpl) return
+  if (!generateForm.name) generateForm.name = tpl.name
+  if (!generateForm.price && tpl.price > 0) generateForm.price = tpl.price
+}
+
+async function submitGenerate() {
+  if (!generateForm.spec_template_id) {
+    MessagePlugin.warning('请选择规格模板')
+    return
+  }
+  let platformParams: Record<string, unknown> | undefined
+  if (generateForm.platform_params.trim()) {
+    try {
+      platformParams = JSON.parse(generateForm.platform_params)
+    } catch {
+      MessagePlugin.warning('平台参数必须是合法 JSON')
+      return
+    }
+  }
+  generateSaving.value = true
+  try {
+    const result = await generateProductSpecFromTemplate(Number(route.params.id), {
+      spec_template_id: generateForm.spec_template_id,
+      spec_code: generateForm.spec_code.trim() || undefined,
+      name: generateForm.name.trim() || undefined,
+      price: generateForm.price,
+      cost_price: generateForm.cost_price,
+      platform_params: platformParams,
+    })
+    if (result.notice) {
+      MessagePlugin.warning(result.notice)
+    } else {
+      MessagePlugin.success('规格已生成并完成平台绑定')
+    }
+    generateVisible.value = false
+    await loadSpecs()
+    await loadHistory()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '生成规格失败')
+  } finally {
+    generateSaving.value = false
   }
 }
 

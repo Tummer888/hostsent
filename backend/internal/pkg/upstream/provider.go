@@ -116,6 +116,30 @@ type AccountReader interface {
 	GetAccountInfo(ctx context.Context) (*AccountInfo, error)
 }
 
+// PlatformResourceReader 平台资源目录读取能力（自营规格配置用）。
+// 自营商品的规格必须映射到"平台确实存在的取值"（区域/节点/存储/镜像）；
+// 没有这份目录，运营只能靠记忆手填 ID，规格映射就形同虚设。
+type PlatformResourceReader interface {
+	ListPlatformResources(ctx context.Context) (*PlatformResources, error)
+}
+
+// PlatformResources 平台可售资源的取值目录。
+type PlatformResources struct {
+	Areas  []PlatformResourceItem `json:"areas"`
+	Nodes  []PlatformResourceItem `json:"nodes"`
+	Stores []PlatformResourceItem `json:"stores"`
+	Images []PlatformResourceItem `json:"images"`
+}
+
+// PlatformResourceItem 单个平台资源项。ParentID 表达层级（节点属于区域、存储属于区域、
+// 镜像属于镜像组）；Value 是下发到平台的原始取值（魔方云的 area/node/os/store 均为数字 ID）。
+type PlatformResourceItem struct {
+	Value    string `json:"value"`
+	Label    string `json:"label"`
+	ParentID string `json:"parent_id,omitempty"`
+	Status   string `json:"status,omitempty"`
+}
+
 // ProviderConfig 提供商配置
 type ProviderConfig struct {
 	ID          uint   `json:"id"`

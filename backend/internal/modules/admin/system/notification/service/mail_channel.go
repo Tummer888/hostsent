@@ -7,9 +7,9 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	sysconfigrepo "hostsent/backend/internal/modules/admin/system/config/repository"
 	notifymodel "hostsent/backend/internal/modules/admin/system/notification/model"
 	notifyrepo "hostsent/backend/internal/modules/admin/system/notification/repository"
-	sysconfigrepo "hostsent/backend/internal/modules/admin/system/repository"
 	"hostsent/backend/internal/pkg/notifier"
 )
 

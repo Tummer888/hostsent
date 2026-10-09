@@ -1,7 +1,7 @@
 package db
 
 import (
-	systemmodel "hostsent/backend/internal/modules/admin/system/model"
+	systemmodel "hostsent/backend/internal/modules/admin/system/config/model"
 )
 
 // riskSystemConfigs 风控规则开关与阈值默认值（doc06 §4.3/§4.4，迁移 065 同口径双写）。

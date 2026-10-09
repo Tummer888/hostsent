@@ -316,6 +316,8 @@ func newRouter(app *App) *gin.Engine {
 				providers.DELETE("/:id", app.perm("provider:delete"), app.providerHandler.Delete)
 				providers.POST("/:id/test", app.perm("provider:test"), app.providerHandler.TestConnection)
 				providers.POST("/:id/sync/resume", app.perm("provider:update"), app.providerHandler.ResumeSync)
+				// 平台可售资源目录（区域/节点/存储/镜像）：自营规格模板配置平台参数用。
+				providers.GET("/:id/resources", app.perm("resource:provider"), app.providerHandler.PlatformResources)
 			}
 
 			// 资源池
@@ -452,6 +454,8 @@ func newRouter(app *App) *gin.Engine {
 				prodProducts.GET("/:id/specs", app.perm("product:list"), app.prodCatalogHandler.ListSpecs)
 				// SKU 规格变体维护（T4.1）：商品下挂规格矩阵，下单按 SKU 计价与开通。
 				prodProducts.POST("/:id/specs", app.perm("product:update"), app.prodCatalogHandler.CreateSpec)
+				// 自营链路打通：按规格模板生成 SKU 并同步落平台绑定（模板含平台写参数）。
+				prodProducts.POST("/:id/specs/generate", app.perm("product:update"), app.prodCatalogHandler.GenerateSpecFromTemplate)
 				prodProducts.PUT("/:id/specs/:specId", app.perm("product:update"), app.prodCatalogHandler.UpdateSpec)
 				prodProducts.DELETE("/:id/specs/:specId", app.perm("product:update"), app.prodCatalogHandler.DeleteSpec)
 				// 可配置项维护（T4.4）：source=upstream 走上游配置 id，source=self 直接下发平台参数名。
@@ -611,9 +615,16 @@ func newRouter(app *App) *gin.Engine {
 		financeGroup := v1.Group("/finance")
 		financeGroup.Use(app.adminAuth())
 		{
+			// 财务统计与参数（本轮整理）：总览与报表共用同一聚合口径，避免各自前端累加；
+			// 参数接口按白名单读写财务键，财务角色无需 system:config:*。
+			financeGroup.GET("/stats", app.perm("finance:wallet"), app.financeStatsHandler.Stats)
+			financeGroup.GET("/settings", app.perm("finance:config"), app.financeSettingsHandler.List)
+			financeGroup.PUT("/settings", app.perm("finance:config"), app.financeSettingsHandler.Update)
 			// 钱包/流水
 			financeGroup.GET("/wallets/:user_id", app.perm("finance:wallet"), app.walletHandler.Balance)
 			financeGroup.GET("/transactions", app.perm("finance:wallet"), app.walletHandler.ListTransactions)
+			// 明细导出（CSV）：与列表同筛选条件，条数封顶 20000。
+			financeGroup.GET("/transactions/export", app.perm("finance:wallet"), app.walletHandler.ExportTransactions)
 			financeGroup.POST("/transactions/adjust", app.perm("finance:adjust"), app.walletHandler.Adjust)
 			// 充值
 			financeGroup.POST("/recharges", app.perm("finance:recharge"), app.rechargeHandler.Create)

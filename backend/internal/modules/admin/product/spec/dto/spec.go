@@ -38,6 +38,10 @@ type SpecTemplateRequest struct {
 	Price       float64 `json:"price"`
 	SortOrder   int     `json:"sort_order"`
 	Status      int     `json:"status"`
+	// SpecValues 原子 key → 取值 JSON；留空时由 CPU/Memory/Disk/Bandwidth/OS/DiskType 推导。
+	SpecValues json.RawMessage `json:"spec_values"`
+	// PlatformParams 平台写参数 JSON（如 area/node/os/store）；生成 SKU 时写入平台绑定。
+	PlatformParams json.RawMessage `json:"platform_params"`
 }
 
 // SpecTemplateInfo 规格模板信息
@@ -55,8 +59,14 @@ type SpecTemplateInfo struct {
 	Price       float64 `json:"price"`
 	SortOrder   int     `json:"sort_order"`
 	Status      int     `json:"status"`
-	CreatedAt   string  `json:"created_at"`
-	UpdatedAt   string  `json:"updated_at"`
+	// SpecValues 原子取值 JSON（可能为空：此时按 CPU/内存/磁盘推导展示）。
+	SpecValues json.RawMessage `json:"spec_values"`
+	// PlatformParams 平台写参数 JSON（为空表示该模板尚未完成平台映射）。
+	PlatformParams json.RawMessage `json:"platform_params"`
+	// Source 模板来源：self 自建 / imported 上游归一。
+	Source    string `json:"source"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 // SpecTemplateListResponse 规格模板列表响应

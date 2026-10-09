@@ -303,7 +303,23 @@ func (p *MoFangYunProvider) call(ctx context.Context, op, method, path string, f
 		}
 	}
 	if status < 200 || status >= 300 {
-		return &upstream.ProviderError{Op: op, StatusCode: status, Msg: "请求失败,HTTP状态码:" + strconv.Itoa(status)}
+		// 面板在 4xx 时同样用 {"error":"..."} 说明原因（如"镜像不可用"、"主机名已存在"），
+		// 只回 HTTP 状态码会把可定位的业务原因丢掉，排障时无从下手。
+		var probe struct {
+			Error interface{} `json:"error"`
+			Msg   string      `json:"msg"`
+		}
+		_ = json.Unmarshal(body, &probe)
+		detail := ""
+		if probe.Error != nil {
+			detail = fmt.Sprintf("%v", probe.Error)
+		} else if probe.Msg != "" {
+			detail = probe.Msg
+		}
+		if detail == "" {
+			detail = "请求失败,HTTP状态码:" + strconv.Itoa(status)
+		}
+		return &upstream.ProviderError{Op: op, StatusCode: status, Msg: detail}
 	}
 	// 与源码 basecurl 一致：响应含 error 字段即业务失败。
 	var probe struct {
@@ -377,8 +393,11 @@ func (p *MoFangYunProvider) CreateInstance(ctx context.Context, req *model.Creat
 		clientID = id
 	}
 	form.Set("client", clientID)
-	form.Set("hostname", firstNonEmpty(req.Name, opts["hostname"]))
-	rootpass := firstNonEmpty(req.Password, opts["rootpass"], randStr(8))
+	// 主机名规则由面板强校验（实测：必须英文大小写字母开头，只允许字母/数字/_ - .，6 位以上）。
+	// 商品名/订单名是中文（如"魔方云测试 2核4G"）时直接下发会被 400 拒绝，
+	// 因此合法则原样用，否则按时间戳生成唯一主机名。
+	form.Set("hostname", sanitizeHostname(firstNonEmpty(opts["hostname"], req.Name)))
+	rootpass := firstNonEmpty(req.Password, opts["rootpass"], randPassword(12))
 	form.Set("rootpass", rootpass)
 
 	// 规格与可配置项透传（保留创建时必填校验交给上游判断）。
@@ -390,22 +409,25 @@ func (p *MoFangYunProvider) CreateInstance(ctx context.Context, req *model.Creat
 	// 数据盘：other_data_disk 传数组，需按表单数组语法展开。
 	expandOtherDataDisk(form, req.Extra)
 
+	// 创建响应实测为 {"num":1,"id":"2","taskid":"1192",...}：id 是**字符串**，
+	// 历史上按 int64 解析会在成功后被 JSON 解码错误掩盖成"开通失败"。
 	var created struct {
-		ID int64 `json:"id"`
+		ID json.RawMessage `json:"id"`
 	}
 	if err := p.call(ctx, "CreateInstance", http.MethodPost, "/clouds", form, &created); err != nil {
 		return nil, err
 	}
-	if created.ID == 0 {
+	createdID := rawIDString(created.ID)
+	if createdID == "" || createdID == "0" {
 		return nil, &upstream.ProviderError{Op: "CreateInstance", Msg: "魔方云开通请求已提交但未返回云主机 ID"}
 	}
-	inst, err := p.GetInstance(ctx, strconv.FormatInt(created.ID, 10))
+	inst, err := p.GetInstance(ctx, createdID)
 	if err != nil {
 		// 详情失败不回滚开通，仅返回最小可用信息。
 		return &model.StandardInstance{
 			ProviderType: ProviderType,
 			ProviderID:   p.config.ID,
-			UpstreamID:   strconv.FormatInt(created.ID, 10),
+			UpstreamID:   createdID,
 			Name:         firstNonEmpty(req.Name, opts["hostname"]),
 			Status:       model.InstanceStatusCreating,
 		}, nil
@@ -657,10 +679,170 @@ func (p *MoFangYunProvider) ListPools(ctx context.Context) ([]*upstream.Standard
 
 // GetAccountInfo 魔方云为资源管理系统，无账户余额概念，本适配器不实现 AccountReader。
 
-// ensureCloudUser 确保魔方云侧用户存在并返回用户 ID（参考源码 createAccount 的建用户逻辑）。
+// ListPlatformResources 拉取平台可售资源目录（自营规格配置用）：
+// 区域 GET /areas、节点 GET /nodes、存储 GET /stores、镜像 GET /image。
+// 参考源码 getArea/getOs 与 docs/魔方云对接魔方财务.html 的配置项参数表：
+// area/node 必传其一，os 必传，store 为系统盘所在存储（可选，不传随机）。
+func (p *MoFangYunProvider) ListPlatformResources(ctx context.Context) (*upstream.PlatformResources, error) {
+	out := &upstream.PlatformResources{}
+
+	var areas struct {
+		Data []struct {
+			ID          int64  `json:"id"`
+			Name        string `json:"name"`
+			CountryCode string `json:"country_code"`
+			Status      int    `json:"status"`
+		} `json:"data"`
+	}
+	if err := p.call(ctx, "ListPlatformResources", http.MethodGet, "/areas",
+		url.Values{"sort": {"asc"}, "list_type": {"all"}}, &areas); err != nil {
+		return nil, err
+	}
+	for _, a := range areas.Data {
+		out.Areas = append(out.Areas, upstream.PlatformResourceItem{
+			Value:  strconv.FormatInt(a.ID, 10),
+			Label:  platformLabel(strconv.FormatInt(a.ID, 10), a.CountryCode, a.Name),
+			Status: platformStatus(a.Status),
+		})
+	}
+
+	var nodes struct {
+		Data []struct {
+			ID     int64  `json:"id"`
+			Name   string `json:"name"`
+			AreaID int64  `json:"area_id"`
+			Status int    `json:"status"`
+		} `json:"data"`
+	}
+	if err := p.call(ctx, "ListPlatformResources", http.MethodGet, "/nodes",
+		url.Values{"per_page": {"9999"}}, &nodes); err == nil {
+		for _, n := range nodes.Data {
+			out.Nodes = append(out.Nodes, upstream.PlatformResourceItem{
+				Value:    strconv.FormatInt(n.ID, 10),
+				Label:    n.Name,
+				ParentID: strconv.FormatInt(n.AreaID, 10),
+				Status:   platformStatus(n.Status),
+			})
+		}
+	}
+
+	var stores struct {
+		Data []struct {
+			ID       int64  `json:"id"`
+			Name     string `json:"name"`
+			ShowName string `json:"show_name"`
+			AreaID   int64  `json:"area_id"`
+			Type     string `json:"type"`
+			Enable   int    `json:"enable"`
+		} `json:"data"`
+	}
+	if err := p.call(ctx, "ListPlatformResources", http.MethodGet, "/stores",
+		url.Values{"per_page": {"9999"}}, &stores); err == nil {
+		for _, s := range stores.Data {
+			out.Stores = append(out.Stores, upstream.PlatformResourceItem{
+				Value:    strconv.FormatInt(s.ID, 10),
+				Label:    firstNonEmpty(s.ShowName, s.Name, s.Type),
+				ParentID: strconv.FormatInt(s.AreaID, 10),
+				Status:   platformStatus(s.Enable),
+			})
+		}
+	}
+
+	var images struct {
+		Data []struct {
+			ID     int64  `json:"id"`
+			Name   string `json:"name"`
+			Status int    `json:"status"`
+			Group  struct {
+				ID   int64  `json:"id"`
+				Name string `json:"name"`
+			} `json:"group"`
+			// Info 镜像在各节点上的可用性：node_id + status（1=已下载可用）。
+			// 实测（测试节点）：仅顶层 status=1 的镜像在节点上未必可用，直接下发会被
+			// 面板拒绝（"镜像不可用，请在镜像管理中下载该镜像"），因此必须按节点判可用性。
+			Info []struct {
+				NodeID   int64 `json:"node_id"`
+				Download int   `json:"download"`
+				Status   int   `json:"status"`
+			} `json:"info"`
+		} `json:"data"`
+	}
+	if err := p.call(ctx, "ListPlatformResources", http.MethodGet, "/image",
+		url.Values{"per_page": {"9999"}, "sort": {"asc"}}, &images); err == nil {
+		for _, img := range images.Data {
+			// 与源码 getOs 同口径：跳过救援镜像（数量多且不可作常规系统）。
+			if isRescueImage(img.Name) {
+				continue
+			}
+			label := img.Name
+			if img.Group.Name != "" {
+				label = img.Group.Name + " / " + img.Name
+			}
+			// 逐个节点铺开：同一镜像在不同节点上的可用性不同，按 (镜像, 节点) 各出一项，
+			// 让规格模板能把 image 与 node 一起映射（platform_params 里的 os+node 组合）。
+			emitted := false
+			for _, info := range img.Info {
+				if info.NodeID == 0 {
+					continue
+				}
+				emitted = true
+				out.Images = append(out.Images, upstream.PlatformResourceItem{
+					Value:    strconv.FormatInt(img.ID, 10),
+					Label:    label,
+					ParentID: strconv.FormatInt(info.NodeID, 10),
+					Status:   platformImageStatus(img.Status, info.Status),
+				})
+			}
+			if !emitted {
+				out.Images = append(out.Images, upstream.PlatformResourceItem{
+					Value:  strconv.FormatInt(img.ID, 10),
+					Label:  label,
+					Status: platformImageStatus(img.Status, 0),
+				})
+			}
+		}
+	}
+	return out, nil
+}
+
+// platformImageStatus 镜像在某节点上的可用性：顶层 status=1 且该节点 status=1 才算可用。
+// 不可用的镜像仍会返回（status=offline），由前端置灰——直接隐藏会让运营不知道为什么镜像缺失。
+func platformImageStatus(topStatus, nodeStatus int) string {
+	if topStatus == 1 && nodeStatus == 1 {
+		return "active"
+	}
+	return "offline"
+}
+
+// platformLabel 组合"ID|国家码^名称"展示名（与源码 getArea 的配置项口径一致）。
+func platformLabel(id, countryCode, name string) string {
+	if countryCode == "" {
+		return id + "^" + name
+	}
+	return id + "|" + countryCode + "^" + name
+}
+
+// platformStatus 平台状态的统一展示：1/0 转 active/offline，其余原样。
+func platformStatus(status int) string {
+	if status == 1 {
+		return "active"
+	}
+	return "offline"
+}
+
+// isRescueImage 判断是否为救援镜像（源码 getOs 的同口径：文件名含 Rescue）。
+func isRescueImage(name string) bool {
+	return strings.Contains(strings.ToLower(name), "rescue")
+}
+
+// ensureCloudUser 确保魔方云侧用户存在并返回用户 ID。
+// 实测（测试节点 v3 面板）差异：源码用的 GET /user/check 在该版本返回 404，
+// 而 POST /user 成功时会直接返回新用户 id，失败时返回 error（如"用户名已存在"）。
+// 因此这里按"POST 取 id → 失败再按用户名在 GET /user 列表里回查"处理，
+// 同时保留 /user/check 作为旧版本面板的兼容分支。
 func (p *MoFangYunProvider) ensureCloudUser(ctx context.Context, opts map[string]string) (string, error) {
 	username := firstNonEmpty(opts["cloud_username"], p.config.UserPrefix+firstNonEmpty(opts["username"], fmt.Sprintf("hs%d", time.Now().Unix())))
-	password := firstNonEmpty(opts["cloud_password"], randStr(8))
+	password := firstNonEmpty(opts["cloud_password"], randPassword(12))
 	userForm := url.Values{}
 	userForm.Set("username", username)
 	userForm.Set("email", firstNonEmpty(opts["email"], username+"@hostsent.local"))
@@ -675,23 +857,54 @@ func (p *MoFangYunProvider) ensureCloudUser(ctx context.Context, opts map[string
 		}
 		userForm.Set("rid", rid)
 	}
-	if err := p.call(ctx, "CreateInstance", http.MethodPost, "/user", userForm, nil); err != nil {
-		// 用户可能已存在，继续走 /user/check 校验。
-		_ = err
+	// 1) 直接建用户；成功响应体带 id（可能是字符串或数字）。
+	var created struct {
+		ID json.RawMessage `json:"id"`
 	}
+	if err := p.call(ctx, "CreateInstance", http.MethodPost, "/user", userForm, &created); err == nil {
+		if id := rawIDString(created.ID); id != "" && id != "0" {
+			return id, nil
+		}
+	}
+	// 2) 已存在（或响应无 id）：旧面板走 /user/check，新面板按用户名回查列表。
 	var checked struct {
 		Data struct {
 			ID int64 `json:"id"`
 		} `json:"data"`
 		Msg string `json:"msg"`
 	}
-	if err := p.call(ctx, "CreateInstance", http.MethodGet, "/user/check", url.Values{"username": {username}}, &checked); err != nil {
+	if err := p.call(ctx, "CreateInstance", http.MethodGet, "/user/check", url.Values{"username": {username}}, &checked); err == nil && checked.Data.ID > 0 {
+		return strconv.FormatInt(checked.Data.ID, 10), nil
+	}
+	var listed struct {
+		Data []struct {
+			ID       json.RawMessage `json:"id"`
+			Username string          `json:"username"`
+		} `json:"data"`
+	}
+	// 列表接口的过滤参数不生效（实测返回全部用户），因此在客户端按用户名精确匹配。
+	if err := p.call(ctx, "CreateInstance", http.MethodGet, "/user",
+		url.Values{"username": {username}, "per_page": {"9999"}}, &listed); err != nil {
 		return "", err
 	}
-	if checked.Data.ID == 0 {
-		return "", &upstream.ProviderError{Op: "CreateInstance", Msg: firstNonEmpty(checked.Msg, "魔方云用户创建失败")}
+	for _, u := range listed.Data {
+		if u.Username != username {
+			continue
+		}
+		if id := rawIDString(u.ID); id != "" && id != "0" {
+			return id, nil
+		}
 	}
-	return strconv.FormatInt(checked.Data.ID, 10), nil
+	return "", &upstream.ProviderError{Op: "CreateInstance", Msg: "魔方云用户创建失败：" + firstNonEmpty(checked.Msg, username)}
+}
+
+// rawIDString 把可能是字符串或数字的 id 字段统一为十进制字符串。
+func rawIDString(raw json.RawMessage) string {
+	s := strings.Trim(strings.TrimSpace(string(raw)), `"`)
+	if s == "" || s == "null" {
+		return ""
+	}
+	return s
 }
 
 // waitStatus 轮询云主机状态直到达到期望值或超时。
@@ -818,18 +1031,37 @@ func expandOtherDataDisk(form url.Values, extra map[string]interface{}) {
 }
 
 // buildInstance 将魔方云云主机详情（扁平对象）映射为标准实例。
+//
+// 读取侧字段名与写入侧不对称（docs/实施计划/17 §6.1），且实测与文档略有差异，
+// 以测试节点 v3 面板为准：
+//
+//	cpu=核数、memory=GB（**写入侧是 MB**，这里换算）、disk[] 中 type=system 的 size=系统盘 GB、
+//	bw_group[0].in_bw=带宽 Mbps、area_name/node_name=区域/可用区、os_name=镜像文件名。
+//
+// 这些字段不填，实例列表与对账页的规格列就是空白，对账口径也随之失真。
 func buildInstance(detail map[string]interface{}) *model.StandardInstance {
 	id := jsonStr(detail, "id")
 	inst := &model.StandardInstance{
 		ProviderType: ProviderType,
 		UpstreamID:   id,
 		Name:         jsonStr(detail, "hostname"),
-		PublicIP:     jsonStr(detail, "mainip"),
+		PublicIP:     firstNonEmpty(jsonStr(detail, "mainip"), firstIPOf(detail, "ip")),
+		PrivateIP:    firstIPOf(detail, "ipv6"),
+		Region:       jsonStr(detail, "area_name"),
+		Zone:         jsonStr(detail, "node_name"),
 		Status:       model.InstanceStatusRunning,
 		RawData:      detail,
 	}
-	// 附加 IP：ip[] 为公网列表，ipv6[] 为 v6 列表；主 IP 之外的第一个不作为私有 IP 处理，
-	// 保留在 RawData 中即可。
+	inst.Specs.CPU = jsonInt(detail, "cpu")
+	// 面板 memory 单位为 GB，标准规格统一 MB。
+	inst.Specs.Memory = jsonInt(detail, "memory") * 1024
+	inst.Specs.Disk, inst.Specs.DiskType = systemDiskOf(detail)
+	inst.Specs.Bandwidth = bwGroupOf(detail)
+	inst.Specs.OS = trimImageSuffix(jsonStr(detail, "os_name"))
+	if inst.PublicIP == "" {
+		inst.PublicIP = firstNonEmpty(jsonStr(detail, "mainip"), firstIPOf(detail, "ip"))
+	}
+	// 附加 IP：osuser/port 供控制台连接信息展示。
 	if v := jsonStr(detail, "osuser"); v != "" {
 		inst.RawData["osuser"] = v
 	}
@@ -841,6 +1073,89 @@ func buildInstance(detail map[string]interface{}) *model.StandardInstance {
 		inst.Status = mapCloudStatus(s)
 	}
 	return inst
+}
+
+// systemDiskOf 从 disk[] 取系统盘容量与介质类型（type=system）。
+func systemDiskOf(detail map[string]interface{}) (int, string) {
+	raw, ok := detail["disk"].([]interface{})
+	if !ok {
+		return 0, ""
+	}
+	for _, item := range raw {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if jsonStr(m, "type") != "system" {
+			continue
+		}
+		return jsonInt(m, "size"), jsonStr(m, "fs_type")
+	}
+	return 0, ""
+}
+
+// bwGroupOf 从 bw_group[] 取带宽（Mbps）；无分组时回退 in_bw/out_bw。
+func bwGroupOf(detail map[string]interface{}) int {
+	if raw, ok := detail["bw_group"].([]interface{}); ok && len(raw) > 0 {
+		if m, ok := raw[0].(map[string]interface{}); ok {
+			if bw := jsonInt(m, "in_bw"); bw > 0 {
+				return bw
+			}
+			return jsonInt(m, "out_bw")
+		}
+	}
+	if bw := jsonInt(detail, "in_bw"); bw > 0 {
+		return bw
+	}
+	return jsonInt(detail, "out_bw")
+}
+
+// firstIPOf 从 ip 数组（元素为字符串或对象）取第一个地址。
+func firstIPOf(detail map[string]interface{}, key string) string {
+	raw, ok := detail[key].([]interface{})
+	if !ok || len(raw) == 0 {
+		return ""
+	}
+	switch v := raw[0].(type) {
+	case string:
+		return v
+	case map[string]interface{}:
+		return firstNonEmpty(jsonStr(v, "ip"), jsonStr(v, "address"), jsonStr(v, "value"))
+	}
+	return fmt.Sprintf("%v", raw[0])
+}
+
+// trimImageSuffix 去掉镜像文件扩展名，只留可读名称（如 CentOS-7.9.2111-x64.qcow2 → CentOS-7.9.2111-x64）。
+func trimImageSuffix(name string) string {
+	for _, suffix := range []string{".qcow2", ".raw", ".vhd", ".img"} {
+		name = strings.TrimSuffix(name, suffix)
+	}
+	return name
+}
+
+// jsonInt 从 map 取整数值（兼容 json.Number / float64 / 数字字符串）。
+func jsonInt(m map[string]interface{}, key string) int {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return 0
+	}
+	switch t := v.(type) {
+	case float64:
+		return int(t)
+	case int:
+		return t
+	case int64:
+		return int(t)
+	case json.Number:
+		if i, err := t.Int64(); err == nil {
+			return int(i)
+		}
+	case string:
+		if i, err := strconv.Atoi(strings.TrimSpace(t)); err == nil {
+			return i
+		}
+	}
+	return 0
 }
 
 // mapCloudStatus 将魔方云状态映射为标准实例状态（参考源码 getCloudStatus）。
@@ -891,12 +1206,91 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-// randStr 生成随机小写字母数字串（用于魔方云用户/密码），与源码 randStr 等价的简化实现。
+// sanitizeHostname 生成面板可接受的云主机名。
+// 面板规则（实测）：字母开头，只允许字母/数字/_ - .，6 位及以上。
+// 中文商品名、含空格或过短的名字一律回退为带时间戳的唯一主机名，避免开通被 400 拒绝。
+func sanitizeHostname(name string) string {
+	name = strings.TrimSpace(name)
+	if isValidHostname(name) {
+		return name
+	}
+	// 取合法字符拼前缀（保留可读性），不足或为空则统一前缀。
+	var b strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			b.WriteRune(r)
+		}
+		if b.Len() >= 20 {
+			break
+		}
+	}
+	prefix := b.String()
+	prefix = strings.TrimLeft(prefix, "-_.")
+	if len(prefix) == 0 || !isHostnameStart(prefix[0]) {
+		prefix = "hs"
+	}
+	prefix = prefix[:min(len(prefix), 20)]
+	return fmt.Sprintf("%s-%d", prefix, time.Now().Unix()%10000000)
+}
+
+// isValidHostname 校验面板主机名规则。
+func isValidHostname(name string) bool {
+	if len(name) < 6 || len(name) > 64 {
+		return false
+	}
+	if !isHostnameStart(name[0]) {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '_', c == '.':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// isHostnameStart 首位必须是英文字母。
+func isHostnameStart(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+// randStr 生成随机小写字母数字串（主机名等宽松场景用）。
 func randStr(n int) string {
 	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
 	b := make([]byte, n)
 	for i := range b {
 		b[i] = letters[rand.Intn(len(letters))]
+	}
+	return string(b)
+}
+
+// randPassword 生成满足魔方云密码策略的随机密码（rootpass / 云用户密码）：
+// 实测策略要求 6 位以上、且同时包含大写字母、小写字母与数字，
+// 否则面板直接 400（"密码必须…包含小写字母，大写字母，数字"），开通静默失败。
+func randPassword(n int) string {
+	const (
+		lower = "abcdefghijkmnopqrstuvwxyz"
+		upper = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+		digit = "23456789"
+		all   = lower + upper + digit
+	)
+	if n < 8 {
+		n = 8
+	}
+	b := make([]byte, n)
+	// 前三位各取一类，保证策略命中；其余随机填充后打乱位置。
+	b[0] = lower[rand.Intn(len(lower))]
+	b[1] = upper[rand.Intn(len(upper))]
+	b[2] = digit[rand.Intn(len(digit))]
+	for i := 3; i < n; i++ {
+		b[i] = all[rand.Intn(len(all))]
+	}
+	for i := n - 1; i > 0; i-- {
+		j := rand.Intn(i + 1)
+		b[i], b[j] = b[j], b[i]
 	}
 	return string(b)
 }

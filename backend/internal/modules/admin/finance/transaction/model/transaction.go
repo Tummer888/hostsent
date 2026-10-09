@@ -11,6 +11,9 @@ const (
 	TxTypeCommission string = "commission" // 佣金（分销入账）
 	TxTypeSettlement string = "settlement" // 结算（分销/提现出账）
 	TxTypeAdjust     string = "adjust"     // 调账（赠送/扣减）
+	// TxTypeAdminOrder 后台代客下单扣款（管理端余额支付路径）。
+	// 历史实现直接写字面量 "order"，库中已存在该类型，但模型无常量、前端也无标签。
+	TxTypeAdminOrder string = "order" // 后台代下单扣款
 	// TxTypeReferralTransfer 推广返现转入现金余额（收入）。
 	TxTypeReferralTransfer string = "referral_transfer"
 	// TxTypeFreeze 冻结（可用余额→冻结余额；提现申请/预授权）。

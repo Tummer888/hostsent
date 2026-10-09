@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	systemmodel "hostsent/backend/internal/modules/admin/system/model"
+	systemmodel "hostsent/backend/internal/modules/admin/system/config/model"
 )
 
 // fakeConfigReader 站点配置写入测试替身：按分组返回预置行。

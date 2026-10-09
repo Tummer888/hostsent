@@ -4,13 +4,22 @@
 
 <script setup lang="ts">
 import * as echarts from 'echarts/core'
-import { BarChart, PieChart } from 'echarts/charts'
+import { BarChart, LineChart, PieChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TitleComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { EChartsOption } from 'echarts'
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 
-echarts.use([CanvasRenderer, PieChart, BarChart, TooltipComponent, LegendComponent, GridComponent, TitleComponent])
+echarts.use([
+  CanvasRenderer,
+  PieChart,
+  BarChart,
+  LineChart,
+  TooltipComponent,
+  LegendComponent,
+  GridComponent,
+  TitleComponent,
+])
 
 defineOptions({ name: 'EChart' })
 

@@ -10,7 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	pointdto "hostsent/backend/internal/modules/admin/point/dto"
+	pointdto "hostsent/backend/internal/modules/admin/finance/point/dto"
 	apperrors "hostsent/backend/internal/pkg/errors"
 	"hostsent/backend/internal/pkg/middleware"
 	"hostsent/backend/internal/pkg/response"

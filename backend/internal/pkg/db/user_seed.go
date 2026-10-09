@@ -1,7 +1,7 @@
 package db
 
 import (
-	systemmodel "hostsent/backend/internal/modules/admin/system/model"
+	systemmodel "hostsent/backend/internal/modules/admin/system/config/model"
 )
 
 // userDeletionSystemConfigs 用户注销与留存期相关开关（doc104 §4.1）。

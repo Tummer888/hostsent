@@ -26,6 +26,14 @@ import (
 	finrechargemodel "hostsent/backend/internal/modules/admin/finance/recharge/model"
 	finrechargerepo "hostsent/backend/internal/modules/admin/finance/recharge/repository"
 	finrechargeservice "hostsent/backend/internal/modules/admin/finance/recharge/service"
+	referralhandler "hostsent/backend/internal/modules/admin/finance/referral/handler"
+	referralrepo "hostsent/backend/internal/modules/admin/finance/referral/repository"
+	referralservice "hostsent/backend/internal/modules/admin/finance/referral/service"
+	finsettingshandler "hostsent/backend/internal/modules/admin/finance/settings/handler"
+	finsettingsservice "hostsent/backend/internal/modules/admin/finance/settings/service"
+	finstatshandler "hostsent/backend/internal/modules/admin/finance/stats/handler"
+	finstatsrepo "hostsent/backend/internal/modules/admin/finance/stats/repository"
+	finstatsservice "hostsent/backend/internal/modules/admin/finance/stats/service"
 	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
 	fintransactionrepo "hostsent/backend/internal/modules/admin/finance/transaction/repository"
 	finwithdrawhandler "hostsent/backend/internal/modules/admin/finance/withdraw/handler"
@@ -68,9 +76,6 @@ import (
 	spechandler "hostsent/backend/internal/modules/admin/product/spec/handler"
 	specrepo "hostsent/backend/internal/modules/admin/product/spec/repository"
 	specservice "hostsent/backend/internal/modules/admin/product/spec/service"
-	referralhandler "hostsent/backend/internal/modules/admin/referral/handler"
-	referralrepo "hostsent/backend/internal/modules/admin/referral/repository"
-	referralservice "hostsent/backend/internal/modules/admin/referral/service"
 	producthandler "hostsent/backend/internal/modules/admin/resource/product/handler"
 	productrepo "hostsent/backend/internal/modules/admin/resource/product/repository"
 	productservice "hostsent/backend/internal/modules/admin/resource/product/service"
@@ -87,15 +92,15 @@ import (
 	taskqueuehandler "hostsent/backend/internal/modules/admin/resource/taskqueue/handler"
 	taskqueuerepo "hostsent/backend/internal/modules/admin/resource/taskqueue/repository"
 	taskqueueservice "hostsent/backend/internal/modules/admin/resource/taskqueue/service"
-	systemhandler "hostsent/backend/internal/modules/admin/system/handler"
+	systemhandler "hostsent/backend/internal/modules/admin/system/config/handler"
+	systemrepo "hostsent/backend/internal/modules/admin/system/config/repository"
+	systemservice "hostsent/backend/internal/modules/admin/system/config/service"
 	notifydto "hostsent/backend/internal/modules/admin/system/notification/dto"
 	notifyhandler "hostsent/backend/internal/modules/admin/system/notification/handler"
 	notifymodel "hostsent/backend/internal/modules/admin/system/notification/model"
 	notifyrepo "hostsent/backend/internal/modules/admin/system/notification/repository"
 	notifyservice "hostsent/backend/internal/modules/admin/system/notification/service"
-	systemrepo "hostsent/backend/internal/modules/admin/system/repository"
 	salesservice "hostsent/backend/internal/modules/admin/system/sales/service"
-	systemservice "hostsent/backend/internal/modules/admin/system/service"
 	tickethandler "hostsent/backend/internal/modules/admin/ticket/handler"
 	ticketrepo "hostsent/backend/internal/modules/admin/ticket/repository"
 	ticketservice "hostsent/backend/internal/modules/admin/ticket/service"
@@ -135,6 +140,7 @@ import (
 	ucproductservice "hostsent/backend/internal/modules/uc/product/service"
 	ucreferralhandler "hostsent/backend/internal/modules/uc/referral/handler"
 	appauth "hostsent/backend/internal/pkg/auth"
+	"hostsent/backend/internal/pkg/billingcycle"
 	"hostsent/backend/internal/pkg/cache"
 	"hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/db"
@@ -304,6 +310,12 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	withdrawHandler := finwithdrawhandler.NewWithdrawHandler(withdrawService)
 	billHandler := finbillhandler.NewBillHandler(billService)
 	reconHandler := finbillhandler.NewReconHandler(reconService)
+	// 财务统计（总览/报表数据源）与财务参数（system_configs finance 分组白名单）。
+	// 两者的配置读取/写入统一走下面的 configStore/configValueReader，财务子域不 import 系统配置模块。
+	financeStatsService := finstatsservice.NewStatsService(finstatsrepo.NewStatsRepository(database))
+	financeSettingsService := finsettingsservice.NewSettingsService(newFinanceConfigStore(database))
+	financeStatsHandler := finstatshandler.NewStatsHandler(financeStatsService)
+	financeSettingsHandler := finsettingshandler.NewSettingsHandler(financeSettingsService)
 	// 系统配置
 	configRepo := systemrepo.NewConfigRepository(database)
 	configService := systemservice.NewConfigService(configRepo)
@@ -323,6 +335,13 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		}
 		return item.ConfigValue, true, nil
 	}
+	// 财务配置接线（finance 分组）：
+	//   调账开关 → 账务核心（Adjust 前置校验）；对账容差 → 对账中心；余额预警 → 财务统计。
+	// 键缺失/非法时各服务各自回默认值，不会因配置问题锁死入口。
+	walletService.SetConfigReader(configValueReader)
+	reconService.SetConfigReader(configValueReader)
+	financeStatsService.SetConfigReader(configValueReader)
+
 	levelRepo := levelrepo.NewUserLevelRepository(database)
 	upstreamMgr := upstream.GetProviderManager()
 	providerRepo := providerrepo.NewProviderRepository(database)
@@ -669,7 +688,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 			// 余额支付：扣款 + 标记已支付 + 投递开通任务（T5.1 异步履约）。
 			if payMode == "balance" {
 				if _, err := walletService.Adjust(ctx, accountdto.AdjustRequest{
-					UserID: userID, Type: "order", Direction: -1, Amount: price,
+					UserID: userID, Type: transmodel.TxTypeAdminOrder, Direction: -1, Amount: price,
 					BizKey: fmt.Sprintf("admin-order-%d", now.UnixNano()),
 					Remark: fmt.Sprintf("后台为用户下单：%s（%s）", product.Name, cycle),
 				}, userID); err != nil {
@@ -846,6 +865,9 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	specMappingService := specservice.NewSpecMappingService(specMappingRepo)
 	// specContractService 已在上方随 catalog 服务构造（见 prodCatalogService 处）。
 	specHandler := spechandler.NewSpecHandler(specTemplateService, specMappingService, specContractService)
+	// 自营链路打通：catalog 服务按规格模板生成 SKU 并落平台绑定（装配顺序上模板/契约服务在本行之后才就绪）。
+	prodCatalogService.SetSpecTemplateReader(NewSpecTemplateReader(specTemplateService))
+	prodCatalogService.SetSpecBindingWriter(NewSpecBindingWriter(specContractService))
 	// 促销管理（promotion 子域）
 	couponRepo := promotionrepo.NewCouponRepository(database)
 	couponGrantRepo := promotionrepo.NewCouponGrantRepository(database)
@@ -1086,7 +1108,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 内容定时发布：管理端「定时发布时间」只在写入时判一次到点，到点后没人推进；
 	// 这条调度把 draft + 已到 publish_at 的公告与文章翻成 published（doc100 §10 第三期 23）。
 	publishScheduler := publishsched.NewScheduler(notifyAnnRepo, contentBundle.articleRepo, logger)
-	app := NewApp(cfg, adminHandler, departmentHandler, userHandler, userDetailHandler, userDeletionHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, agentLevelHandler, schemeHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, flashDiscountHandler, adminReferralHandler, salesBundle.customerHandler, salesBundle.commissionHandler, salesBundle.performanceHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, siteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, captchaBundle, notifyBundleInst, logcenterBundle, contentBundle, verificationBundle, oauthBundle, cacheClient, sessionGuard, logger, jwtIssuer)
+	app := NewApp(cfg, adminHandler, departmentHandler, userHandler, userDetailHandler, userDeletionHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, agentLevelHandler, schemeHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, flashDiscountHandler, adminReferralHandler, salesBundle.customerHandler, salesBundle.commissionHandler, salesBundle.performanceHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, financeStatsHandler, financeSettingsHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, siteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, captchaBundle, notifyBundleInst, logcenterBundle, contentBundle, verificationBundle, oauthBundle, cacheClient, sessionGuard, logger, jwtIssuer)
 	router := newRouter(app)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
@@ -1344,8 +1366,36 @@ func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order
 	if !inst.ExpireAt.IsZero() {
 		exp := inst.ExpireAt
 		row.ExpireAt = &exp
+	} else if base, cycles, ok := orderBillingPeriod(order); ok {
+		// 上游未返回账期时按订单周期本地起算（自营平台普遍不返回 expire_at）。
+		// 没有这一步，实例的 expire_at 恒为 NULL，生命周期推进器（到期暂停/宽限/销毁）
+		// 永远筛不到它——"账单计费→到期暂停"这条链路就是断的。
+		exp := billingcycle.Advance(base, cycles, 1)
+		row.ExpireAt = &exp
 	}
 	return row
+}
+
+// orderBillingPeriod 由订单推出计费起算时间与周期编码：
+// 起算时间取支付时间（缺失回退下单时间），周期取 cycle（缺失回退 price_model）。
+// 识别不出周期或一次性买断（onetime）时不产生账期，交由上游/人工处理。
+func orderBillingPeriod(order *ordermodel.Order) (time.Time, string, bool) {
+	cycle := order.Cycle
+	if cycle == "" {
+		cycle = order.PriceModel
+	}
+	code := billingcycle.Normalize(cycle)
+	if !billingcycle.IsValid(code) || code == billingcycle.Onetime {
+		return time.Time{}, "", false
+	}
+	base := order.CreatedAt
+	if order.PayTime != nil {
+		base = *order.PayTime
+	}
+	if base.IsZero() {
+		return time.Time{}, "", false
+	}
+	return base, code, true
 }
 
 // specsFromOrder 解析订单的规格快照（SKU 原子取值 JSON）为标准规格；解析失败返回 nil。

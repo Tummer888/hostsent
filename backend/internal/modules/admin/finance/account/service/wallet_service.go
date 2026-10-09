@@ -3,12 +3,15 @@ package service
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 
 	"gorm.io/gorm"
 
 	accountdto "hostsent/backend/internal/modules/admin/finance/account/dto"
 	accountmodel "hostsent/backend/internal/modules/admin/finance/account/model"
 	accountrepo "hostsent/backend/internal/modules/admin/finance/account/repository"
+	settingsmodel "hostsent/backend/internal/modules/admin/finance/settings/model"
 	transdto "hostsent/backend/internal/modules/admin/finance/transaction/dto"
 	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
 	transrepo "hostsent/backend/internal/modules/admin/finance/transaction/repository"
@@ -46,8 +49,10 @@ type WalletService interface {
 	Balance(ctx context.Context, userID uint64) (*accountdto.WalletInfo, error)
 	// Change 通用资金变动（收入/支出），事务 + 行锁 + 幂等
 	Change(ctx context.Context, req ChangeRequest) (*transmodel.WalletTransaction, error)
-	// ListTransactions 资金流水分页
+	// ListTransactions 资金流水分页（含筛选口径汇总）
 	ListTransactions(ctx context.Context, q transdto.TransactionListQuery) (*transdto.TransactionListResponse, error)
+	// ExportTransactions 导出筛选后的流水明细（按时间正序，limit 条封顶）
+	ExportTransactions(ctx context.Context, q transdto.TransactionListQuery, limit int) ([]transdto.TransactionInfo, error)
 	// Adjust 人工调账（赠送/扣减）
 	Adjust(ctx context.Context, req accountdto.AdjustRequest, operatorID uint64) (*transdto.TransactionInfo, error)
 	// Freeze 冻结：可用余额 → 冻结余额（提现申请/预授权），不计入累计支出
@@ -56,17 +61,32 @@ type WalletService interface {
 	Unfreeze(ctx context.Context, req FreezeRequest) (*transmodel.WalletTransaction, error)
 	// SettleFrozen 结算冻结：冻结余额 → 真实支出（打款成功），计入累计支出
 	SettleFrozen(ctx context.Context, req FreezeRequest) (*transmodel.WalletTransaction, error)
+	// SetConfigReader 注入配置读取器（finance.adjust_enabled）：装配层接线
+	SetConfigReader(reader ConfigReader)
 }
+
+// ConfigReader 读取 system_configs 原文（键不存在返回 ok=false，不报错，沿用装配层注入约定）。
+type ConfigReader func(ctx context.Context, key string) (string, bool, error)
+
+// ConfigKeyAdjustEnabled 人工调账开关（键定义见 settings/model，唯一定义处）。
+const ConfigKeyAdjustEnabled = settingsmodel.ConfigKeyAdjustEnabled
 
 type walletService struct {
 	db         *gorm.DB
 	walletRepo accountrepo.WalletRepository
 	txRepo     transrepo.TransactionRepository
+	// configReader 读财务配置；未注入时按「允许调账」处理。
+	configReader ConfigReader
 }
 
 // NewWalletService 创建账务核心服务。
 func NewWalletService(db *gorm.DB, walletRepo accountrepo.WalletRepository, txRepo transrepo.TransactionRepository) WalletService {
 	return &walletService{db: db, walletRepo: walletRepo, txRepo: txRepo}
+}
+
+// SetConfigReader 注入配置读取器（装配层提供，避免账务核心 import 系统配置模块）。
+func (s *walletService) SetConfigReader(reader ConfigReader) {
+	s.configReader = reader
 }
 
 func (s *walletService) Balance(ctx context.Context, userID uint64) (*accountdto.WalletInfo, error) {
@@ -294,16 +314,50 @@ func (s *walletService) ListTransactions(ctx context.Context, q transdto.Transac
 	if err != nil {
 		return nil, err
 	}
+	// 汇总与列表同口径（同一组筛选条件、全量、非当前页），页面汇总条因此不会与明细互相矛盾。
+	summary, err := s.txRepo.Summary(ctx, q)
+	if err != nil {
+		return nil, err
+	}
 	page := normalizePage(q.Page)
 	pageSize := normalizePageSize(q.PageSize)
 	resp := make([]transdto.TransactionInfo, 0, len(items))
 	for _, item := range items {
-		resp = append(resp, buildTransactionInfo(item))
+		resp = append(resp, buildTransactionInfo(item.WalletTransaction, item.Username))
 	}
-	return &transdto.TransactionListResponse{Items: resp, Meta: transdto.ListMeta{Page: page, PageSize: pageSize, Total: total}}, nil
+	return &transdto.TransactionListResponse{
+		Items:   resp,
+		Meta:    transdto.ListMeta{Page: page, PageSize: pageSize, Total: total},
+		Summary: buildTransactionSummary(*summary),
+	}, nil
+}
+
+// ExportTransactions 导出筛选后的流水明细（按时间正序、条数封顶），供财务留档与外部对账。
+func (s *walletService) ExportTransactions(ctx context.Context, q transdto.TransactionListQuery, limit int) ([]transdto.TransactionInfo, error) {
+	rows, err := s.txRepo.ListForExport(ctx, q, limit)
+	if err != nil {
+		return nil, err
+	}
+	resp := make([]transdto.TransactionInfo, 0, len(rows))
+	for _, item := range rows {
+		resp = append(resp, buildTransactionInfo(item.WalletTransaction, item.Username))
+	}
+	return resp, nil
+}
+
+func buildTransactionSummary(row transrepo.TransactionSummaryRow) transdto.TransactionSummary {
+	return transdto.TransactionSummary{
+		IncomeTotal: money.Round2(row.Income), ExpenseTotal: money.Round2(row.Expense),
+		NetTotal:      money.Round2(row.Income - row.Expense),
+		TxCount:       row.Count,
+		InternalCount: row.InternalCount,
+	}
 }
 
 func (s *walletService) Adjust(ctx context.Context, req accountdto.AdjustRequest, operatorID uint64) (*transdto.TransactionInfo, error) {
+	if !s.adjustEnabled(ctx) {
+		return nil, ErrAdjustDisabled
+	}
 	txType := req.Type
 	if txType == "" {
 		txType = transmodel.TxTypeAdjust
@@ -321,8 +375,25 @@ func (s *walletService) Adjust(ctx context.Context, req accountdto.AdjustRequest
 	if err != nil {
 		return nil, err
 	}
-	info := buildTransactionInfo(*tr)
+	info := buildTransactionInfo(*tr, "")
 	return &info, nil
+}
+
+// adjustEnabled 人工调账开关：读财务配置（finance.adjust_enabled），
+// 键缺失、读取失败或取值非法时按「允许」处理，避免配置问题把账务入口锁死。
+func (s *walletService) adjustEnabled(ctx context.Context) bool {
+	if s.configReader == nil {
+		return true
+	}
+	raw, ok, err := s.configReader(ctx, ConfigKeyAdjustEnabled)
+	if err != nil || !ok {
+		return true
+	}
+	enabled, err := strconv.ParseBool(strings.TrimSpace(raw))
+	if err != nil {
+		return true
+	}
+	return enabled
 }
 
 // normalizePage/normalizePageSize 复用 repository 中的分页归一化逻辑。

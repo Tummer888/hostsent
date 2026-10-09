@@ -14,4 +14,6 @@ var (
 	ErrBizExist = errors.New("重复记账")
 	// ErrWalletNotFound 钱包不存在
 	ErrWalletNotFound = errors.New("钱包不存在")
+	// ErrAdjustDisabled 人工调账已被财务配置关闭（finance.adjust_enabled=false）
+	ErrAdjustDisabled = errors.New("人工调账已关闭，请在财务配置中开启")
 )

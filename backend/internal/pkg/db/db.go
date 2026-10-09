@@ -9,10 +9,12 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	contentmodel "hostsent/backend/internal/modules/admin/content/model"
 	finaccountmodel "hostsent/backend/internal/modules/admin/finance/account/model"
 	finbillmodel "hostsent/backend/internal/modules/admin/finance/bill/model"
+	pointmodel "hostsent/backend/internal/modules/admin/finance/point/model"
 	finrechmodel "hostsent/backend/internal/modules/admin/finance/recharge/model"
+	referralmodel "hostsent/backend/internal/modules/admin/finance/referral/model"
+	finsettingsmodel "hostsent/backend/internal/modules/admin/finance/settings/model"
 	fintransmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
 	finwithdrawmodel "hostsent/backend/internal/modules/admin/finance/withdraw/model"
 	lifecyclemodel "hostsent/backend/internal/modules/admin/instance/lifecycle/model"
@@ -21,7 +23,6 @@ import (
 	adminmodel "hostsent/backend/internal/modules/admin/manager/model"
 	menumodel "hostsent/backend/internal/modules/admin/menu/model"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
-	pointmodel "hostsent/backend/internal/modules/admin/point/model"
 	catalogmodel "hostsent/backend/internal/modules/admin/product/catalog/model"
 	categorymodel "hostsent/backend/internal/modules/admin/product/category/model"
 	discountmodel "hostsent/backend/internal/modules/admin/product/discount/model"
@@ -29,11 +30,11 @@ import (
 	pricingmodel "hostsent/backend/internal/modules/admin/product/pricing/model"
 	promotionmodel "hostsent/backend/internal/modules/admin/product/promotion/model"
 	specmodel "hostsent/backend/internal/modules/admin/product/spec/model"
-	referralmodel "hostsent/backend/internal/modules/admin/referral/model"
 	productmodel "hostsent/backend/internal/modules/admin/resource/product/model"
 	providermodel "hostsent/backend/internal/modules/admin/resource/provider/model"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
-	systemmodel "hostsent/backend/internal/modules/admin/system/model"
+	systemmodel "hostsent/backend/internal/modules/admin/system/config/model"
+	contentmodel "hostsent/backend/internal/modules/admin/system/content/model"
 	notifymodel "hostsent/backend/internal/modules/admin/system/notification/model"
 	paymentmodel "hostsent/backend/internal/modules/admin/system/payment/model"
 	ticketmodel "hostsent/backend/internal/modules/admin/ticket/model"
@@ -812,6 +813,12 @@ func seedSystemConfigs(tx *gorm.DB) error {
 		{ConfigKey: "enable_user_register", ConfigValue: "true", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupFeature, Description: "是否开放用户注册", SortOrder: 1, Status: systemmodel.StatusActive},
 		{ConfigKey: "enable_mfa_required", ConfigValue: "false", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupSecurity, Description: "是否强制管理员开启MFA", SortOrder: 1, Status: systemmodel.StatusActive},
 		{ConfigKey: "order_expire_minutes", ConfigValue: "30", ValueType: systemmodel.ValueTypeInt, Group: systemmodel.ConfigGroupOrder, Description: "待支付订单过期时间(分钟)", SortOrder: 1, Status: systemmodel.StatusActive},
+		// 财务参数（财务配置页 /finance/config 维护，均由财经子域运行时读取）：
+		// 历史遗留的 5 个 finance_* 键（billing_cycle/tax_rate/recon_threshold/balance_warning/
+		// manual_adjust_enabled）整仓零引用、改了不生效，已由迁移 073 清除，不再种回。
+		{ConfigKey: finsettingsmodel.ConfigKeyAdjustEnabled, ConfigValue: finsettingsmodel.DefaultAdjustEnabled, ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupFinance, Description: "允许人工调账（关闭后调账接口直接拒绝）", SortOrder: 1, Status: systemmodel.StatusActive},
+		{ConfigKey: finsettingsmodel.ConfigKeyReconTolerance, ConfigValue: finsettingsmodel.DefaultReconTolerance, ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupFinance, Description: "对账差异容差（元，超过判为可疑）", SortOrder: 2, Status: systemmodel.StatusActive},
+		{ConfigKey: finsettingsmodel.ConfigKeyBalanceWarning, ConfigValue: finsettingsmodel.DefaultBalanceWarning, ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupFinance, Description: "余额预警阈值（元，总览统计低余额钱包）", SortOrder: 3, Status: systemmodel.StatusActive},
 		// 推广邀请返现：全局三档比率 + 最低提现金额 + 开关（返现模块运行时读取）
 		{ConfigKey: referralmodel.ConfigKeyEnabled, ConfigValue: "true", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupReferral, Description: "启用推广邀请返现", SortOrder: 1, Status: systemmodel.StatusActive},
 		{ConfigKey: referralmodel.ConfigKeyFirstOrder, ConfigValue: "0.10", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupReferral, Description: "首单返现比率（0-1）", SortOrder: 2, Status: systemmodel.StatusActive},
@@ -962,6 +969,9 @@ var seedPermissionDefaults = []seedPermission{
 	{ParentCode: "order:refunds", Name: "审核退款", Code: "order:refund:audit", Type: "button", SortOrder: 1, Status: "active"},
 	{ParentCode: "order", Name: "订单统计", Code: "order:stats", Type: "menu", SortOrder: 3, Status: "active"},
 	{Name: "财务管理", Code: "finance", Type: "catalog", SortOrder: 7, Status: "active"},
+	// 财务参数页（/finance/config）独立权限码：财务角色可调自己的参数，
+	// 而不必被授 system:config:*（那会连带放开整站配置）。
+	{ParentCode: "finance", Name: "财务参数", Code: "finance:config", Type: "menu", SortOrder: 0, Status: "active"},
 	{ParentCode: "finance", Name: "钱包/流水", Code: "finance:wallet", Type: "menu", SortOrder: 1, Status: "active"},
 	{ParentCode: "finance:wallet", Name: "人工调账", Code: "finance:adjust", Type: "button", SortOrder: 1, Status: "active"},
 	{ParentCode: "finance", Name: "充值管理", Code: "finance:recharge", Type: "menu", SortOrder: 2, Status: "active"},
@@ -1422,6 +1432,7 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"order:refund:audit",
 			"order:stats",
 			"finance",
+			"finance:config",
 			"finance:wallet",
 			"finance:adjust",
 			"finance:recharge",
@@ -1655,18 +1666,22 @@ var seedMenuDefaults = []SeedMenu{
 	{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "退款管理", Type: menumodel.TypeMenu, Path: "/orders/refunds", Component: "order/refunds/index", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "订单统计", Type: menumodel.TypeMenu, Path: "/orders/stats", Component: "order/stats/index", Icon: "chart-bar", SortOrder: 3, Status: menumodel.StatusActive},
 	// —— 财务管理（doc32，分组树：叶子 + 二级目录）
+	//
+	// 本轮整理（迁移 073）：资金流水改挂「资金管理」组 —— 余额与余额变动（钱包/调账/流水）
+	// 是同一件事的三个视角，此前「资金流水」孤悬在域根，与钱包/调账割裂；
+	// 组名由「钱包与调账」改为「资金管理」。路径不变（沿用 /finance/recharges 挂在
+	// /finance/recharge-center 下的既有先例），权限码不变。
+	// 目录「账单管理」改名「账单与对账」：其下同时挂着账单、发票与对账中心，旧名以偏概全。
 	{Platform: menumodel.PlatformAdmin, Name: "财务管理", Type: menumodel.TypeDirectory, Path: "/finance", Icon: "wallet", SortOrder: 7, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务总览", Type: menumodel.TypeMenu, Path: "/finance/overview", Component: "finance/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
-	// 改名「钱包与调账」：与用户管理下的「账户管理」跨域重名（R2）。
-	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "钱包与调账", Type: menumodel.TypeDirectory, Path: "/finance/accounts", Icon: "usergroup", SortOrder: 2, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/finance/accounts", Platform: menumodel.PlatformAdmin, Name: "用户钱包", Type: menumodel.TypeMenu, Path: "/finance/accounts/wallets", Component: "finance/accounts/wallets/index", Icon: "wallet", SortOrder: 1, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/finance/accounts", Platform: menumodel.PlatformAdmin, Name: "人工调账", Type: menumodel.TypeMenu, Path: "/finance/accounts/adjust", Component: "finance/accounts/adjust", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
-	// 资金流水（原「交易流水 /finance/transactions-center」目录压平后提升为二级）
-	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "资金流水", Type: menumodel.TypeMenu, Path: "/finance/transactions", Component: "finance/transactions/index", Icon: "money", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "资金管理", Type: menumodel.TypeDirectory, Path: "/finance/accounts", Icon: "wallet", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance/accounts", Platform: menumodel.PlatformAdmin, Name: "资金流水", Type: menumodel.TypeMenu, Path: "/finance/transactions", Component: "finance/transactions/index", Icon: "money", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance/accounts", Platform: menumodel.PlatformAdmin, Name: "用户钱包", Type: menumodel.TypeMenu, Path: "/finance/accounts/wallets", Component: "finance/accounts/wallets/index", Icon: "wallet", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance/accounts", Platform: menumodel.PlatformAdmin, Name: "人工调账", Type: menumodel.TypeMenu, Path: "/finance/accounts/adjust", Component: "finance/accounts/adjust", Icon: "money", SortOrder: 3, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "充值提现", Type: menumodel.TypeDirectory, Path: "/finance/recharge-center", Icon: "download", SortOrder: 4, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance/recharge-center", Platform: menumodel.PlatformAdmin, Name: "充值管理", Type: menumodel.TypeMenu, Path: "/finance/recharges", Component: "finance/recharge/index", Icon: "download", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance/recharge-center", Platform: menumodel.PlatformAdmin, Name: "提现管理", Type: menumodel.TypeMenu, Path: "/finance/withdrawals", Component: "finance/withdraw/index", Icon: "upload", SortOrder: 2, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "账单管理", Type: menumodel.TypeDirectory, Path: "/finance/bill-center", Icon: "file", SortOrder: 5, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "账单与对账", Type: menumodel.TypeDirectory, Path: "/finance/bill-center", Icon: "file", SortOrder: 5, Status: menumodel.StatusActive},
 	// 叶子改名「账单列表」：原与父目录同名（R2）。
 	{ParentKey: "admin:/finance/bill-center", Platform: menumodel.PlatformAdmin, Name: "账单列表", Type: menumodel.TypeMenu, Path: "/finance/bills", Component: "finance/bills/index", Icon: "file", SortOrder: 1, Status: menumodel.StatusActive},
 	// 发票管理（doc36 §3.3）：用户申请 → 管理端开票/驳回，预埋税务 API 渠道。
@@ -1674,6 +1689,20 @@ var seedMenuDefaults = []SeedMenu{
 	{ParentKey: "admin:/finance/bill-center", Platform: menumodel.PlatformAdmin, Name: "对账中心", Type: menumodel.TypeMenu, Path: "/finance/recon", Component: "finance/bills/recon", Icon: "verify", SortOrder: 3, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务报表", Type: menumodel.TypeMenu, Path: "/finance/report", Component: "finance/report/index", Icon: "chart-bar", SortOrder: 6, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务配置", Type: menumodel.TypeMenu, Path: "/finance/config", Component: "finance/config/index", Icon: "setting", SortOrder: 7, Status: menumodel.StatusActive},
+	// —— 推广返现（doc84）整域并入本域（迁移 070）：作为「推广返现」二级目录的子模块，
+	// 路径 /referral/* → /finance/referral/*（权限码 referral:* 不变），旧路径由 router redirect 兼容。
+	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "推广返现", Type: menumodel.TypeDirectory, Path: "/finance/referral", Icon: "share", SortOrder: 8, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance/referral", Platform: menumodel.PlatformAdmin, Name: "返现台账", Type: menumodel.TypeMenu, Path: "/finance/referral/cashbacks", Component: "finance/referral/cashbacks/index", Icon: "money", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance/referral", Platform: menumodel.PlatformAdmin, Name: "提现审核", Type: menumodel.TypeMenu, Path: "/finance/referral/withdrawals", Component: "finance/referral/withdrawals/index", Icon: "upload", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance/referral", Platform: menumodel.PlatformAdmin, Name: "邀请关系", Type: menumodel.TypeMenu, Path: "/finance/referral/invitees", Component: "finance/referral/invitees/index", Icon: "usergroup", SortOrder: 3, Status: menumodel.StatusActive},
+	// —— 积分中心（doc36）整域并入本域（迁移 070）：作为「积分中心」二级目录的子模块，
+	// 路径 /points/* → /finance/points/*（权限码 point:* 不变），旧路径由 router redirect 兼容。
+	// 用户端另有同名 /points（我的积分），platform=user 单独一套，不受影响。
+	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "积分中心", Type: menumodel.TypeDirectory, Path: "/finance/points", Icon: "gift", SortOrder: 9, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance/points", Platform: menumodel.PlatformAdmin, Name: "积分概览", Type: menumodel.TypeMenu, Path: "/finance/points/overview", Component: "finance/points/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance/points", Platform: menumodel.PlatformAdmin, Name: "积分规则", Type: menumodel.TypeMenu, Path: "/finance/points/rules", Component: "finance/points/rules/index", Icon: "setting", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance/points", Platform: menumodel.PlatformAdmin, Name: "积分账户", Type: menumodel.TypeMenu, Path: "/finance/points/accounts", Component: "finance/points/accounts/index", Icon: "usergroup", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance/points", Platform: menumodel.PlatformAdmin, Name: "积分流水", Type: menumodel.TypeMenu, Path: "/finance/points/transactions", Component: "finance/points/transactions/index", Icon: "history", SortOrder: 4, Status: menumodel.StatusActive},
 	// —— 系统管理（doc40 系统管理模块，二级目录 + 三级叶子）
 	{Platform: menumodel.PlatformAdmin, Name: "系统管理", Type: menumodel.TypeDirectory, Path: "/system", Icon: "setting", SortOrder: 8, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "权限管理", Type: menumodel.TypeDirectory, Path: "/system/permission-center", Icon: "lock-on", SortOrder: 1, Status: menumodel.StatusActive},
@@ -1682,20 +1711,27 @@ var seedMenuDefaults = []SeedMenu{
 	{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "员工管理", Type: menumodel.TypeMenu, Path: "/system/admins", Component: "system/admins/index", Icon: "user-list", SortOrder: 3, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "部门管理", Type: menumodel.TypeMenu, Path: "/system/departments", Component: "system/departments/index", Icon: "usergroup", SortOrder: 4, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/system/permission-center", Platform: menumodel.PlatformAdmin, Name: "菜单管理", Type: menumodel.TypeMenu, Path: "/system/menus", Component: "system/menus/index", Icon: "menu", SortOrder: 5, Status: menumodel.StatusActive},
-	// 系统配置（原「系统配置 /system/config-center」目录压平后提升为二级）
-	{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeMenu, Path: "/system/config", Component: "system/config/index", Icon: "setting", SortOrder: 2, Status: menumodel.StatusActive},
+	// 系统配置（迁移 071 由单叶子升级为二级目录）：把「验证码配置 / 第三方登录 / 操作审计」
+	// 三个设置类入口收进同一组，/system 一级列表从 10 项降到 7 项，运营在一处就能完成系统设置。
+	// 原 /system/config 页面（基础配置）迁到 /system/config/basic，旧路径由 router redirect 兼容。
+	// 注：操作审计语义上偏「日志/审计查看」，与日志中心同源；按用户要求收在本组，
+	// 后续若要并入日志中心，只需改本块与 permission_map。
+	{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "系统配置", Type: menumodel.TypeDirectory, Path: "/system/config", Icon: "setting", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/system/config", Platform: menumodel.PlatformAdmin, Name: "基础配置", Type: menumodel.TypeMenu, Path: "/system/config/basic", Component: "system/config/index", Icon: "setting", SortOrder: 1, Status: menumodel.StatusActive},
 	// 验证码配置（doc91 §10.1）：服务商 / 场景策略 / 统计
-	{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "验证码配置", Type: menumodel.TypeMenu, Path: "/system/captcha", Component: "system/captcha/index", Icon: "safety", SortOrder: 3, Status: menumodel.StatusActive},
-	// 操作审计（原「安全审计 /system/audit-center」目录压平后提升为二级）：
-	// 与「用户管理 → 安全与风控 → 操作审计日志」是同一件事，后者已删除并 redirect 到本页。
-	{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "操作审计", Type: menumodel.TypeMenu, Path: "/system/audit-logs", Component: "system/audit-logs/index", Icon: "history", SortOrder: 4, Status: menumodel.StatusActive},
-	// 第三方登录（doc104 §6.7）：微信/QQ/支付宝的渠道配置，直接挂 /system 下（不做单叶子目录）。
-	{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "第三方登录", Type: menumodel.TypeMenu, Path: "/system/oauth", Component: "system/oauth/index", Icon: "link", SortOrder: 6, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/system/config", Platform: menumodel.PlatformAdmin, Name: "验证码配置", Type: menumodel.TypeMenu, Path: "/system/config/captcha", Component: "system/captcha/index", Icon: "safety", SortOrder: 2, Status: menumodel.StatusActive},
+	// 第三方登录（doc104 §6.7）：微信/QQ/支付宝的渠道配置。
+	{ParentKey: "admin:/system/config", Platform: menumodel.PlatformAdmin, Name: "第三方登录", Type: menumodel.TypeMenu, Path: "/system/config/oauth", Component: "system/oauth/index", Icon: "link", SortOrder: 3, Status: menumodel.StatusActive},
 	// 日志中心（doc92 §9.1）：三个日志叶子原直接挂在 /system 下，本次收进分类目录（R4）。
 	{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "日志中心", Type: menumodel.TypeDirectory, Path: "/system/log-center", Icon: "file", SortOrder: 5, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/system/log-center", Platform: menumodel.PlatformAdmin, Name: "日志浏览", Type: menumodel.TypeMenu, Path: "/system/logs", Component: "system/logs/index", Icon: "file", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/system/log-center", Platform: menumodel.PlatformAdmin, Name: "清理任务", Type: menumodel.TypeMenu, Path: "/system/logs/cleanup", Component: "system/logs/cleanup/index", Icon: "delete", SortOrder: 2, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/system/log-center", Platform: menumodel.PlatformAdmin, Name: "保留策略", Type: menumodel.TypeMenu, Path: "/system/logs/policy", Component: "system/logs/policy/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
+	// 操作审计（原「安全审计 /system/audit-center」）：与「用户管理 → 安全与风控 → 操作审计日志」
+	// 是同一件事，后者已删除并 redirect 到本页。迁移 072 由「系统配置」组改挂日志中心
+	// （语义上它是审计查看、与日志浏览同源），并**恢复原路径 /system/audit-logs** —— 路径从未
+	// 对外长期变更过，故无需 redirect；权限码 security:audit:list 不变。
+	{ParentKey: "admin:/system/log-center", Platform: menumodel.PlatformAdmin, Name: "操作审计", Type: menumodel.TypeMenu, Path: "/system/audit-logs", Component: "system/audit-logs/index", Icon: "history", SortOrder: 4, Status: menumodel.StatusActive},
 	// —— 支付中心（doc35）整域并入本域（迁移 067）：作为「支付中心」二级目录的子模块，
 	// 只管收款渠道与打款任务，资金记账仍归财务管理（WalletService 是唯一资金入口）。
 	// 路径 /payment/* → /system/payment/*（归属调整，HTTP API / 权限码不变），旧路径由 router redirect 兼容。
@@ -1725,6 +1761,15 @@ var seedMenuDefaults = []SeedMenu{
 	{ParentKey: "admin:/system/sales", Platform: menumodel.PlatformAdmin, Name: "提成台账", Type: menumodel.TypeMenu, Path: "/system/sales/commissions", Component: "system/sales/commissions/index", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/system/sales", Platform: menumodel.PlatformAdmin, Name: "提成审核", Type: menumodel.TypeMenu, Path: "/system/sales/withdrawals", Component: "system/sales/withdrawals/index", Icon: "upload", SortOrder: 3, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/system/sales", Platform: menumodel.PlatformAdmin, Name: "业绩与排行", Type: menumodel.TypeMenu, Path: "/system/sales/performance", Component: "system/sales/performance/index", Icon: "chart-bar", SortOrder: 4, Status: menumodel.StatusActive},
+	// —— 内容管理（doc100 §7.1）整域并入本域（迁移 069）：作为「内容管理」二级目录的子模块。
+	// 路径 /content/* → /system/content/*（权限码 content:* 不变），旧路径由 router redirect 兼容。
+	// 公告管理的页面随 notification 模块放在 pages/system/notification/announcements
+	// （doc102 §4.1 M2-4 的 R5 例外：菜单归内容管理，页面/模块/权限码 notify:announcement 归 notification）。
+	{ParentKey: "admin:/system", Platform: menumodel.PlatformAdmin, Name: "内容管理", Type: menumodel.TypeDirectory, Path: "/system/content", Icon: "file", SortOrder: 10, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/system/content", Platform: menumodel.PlatformAdmin, Name: "内容文章", Type: menumodel.TypeMenu, Path: "/system/content/articles", Component: "system/content/articles/index", Icon: "file", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/system/content", Platform: menumodel.PlatformAdmin, Name: "内容分类", Type: menumodel.TypeMenu, Path: "/system/content/categories", Component: "system/content/categories/index", Icon: "folder", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/system/content", Platform: menumodel.PlatformAdmin, Name: "友情链接", Type: menumodel.TypeMenu, Path: "/system/content/links", Component: "system/content/links/index", Icon: "link", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/system/content", Platform: menumodel.PlatformAdmin, Name: "公告管理", Type: menumodel.TypeMenu, Path: "/system/content/announcements", Component: "system/notification/announcements/index", Icon: "sound", SortOrder: 4, Status: menumodel.StatusActive},
 	// —— 工单支持（doc50 §5.3，admin 平台 SortOrder=9）
 	{Platform: menumodel.PlatformAdmin, Name: "工单支持", Type: menumodel.TypeDirectory, Path: "/tickets", Icon: "service", SortOrder: 9, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/tickets", Platform: menumodel.PlatformAdmin, Name: "工单列表", Type: menumodel.TypeMenu, Path: "/tickets/list", Component: "ticket/index", Icon: "ticket", SortOrder: 1, Status: menumodel.StatusActive},
@@ -1734,27 +1779,13 @@ var seedMenuDefaults = []SeedMenu{
 	// 原「生命周期管理」一级域（doc60）已并入「实例管理」，见上方 admin:/instances 块。
 	// 原「消息中心」一级域（doc70/doc90）已并入「系统管理」（迁移 068），见上方 admin:/system 块。
 	// —— 推广返现（替代原代理/分销域）
-	{Platform: menumodel.PlatformAdmin, Name: "推广返现", Type: menumodel.TypeDirectory, Path: "/referral", Icon: "share", SortOrder: 12, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/referral", Platform: menumodel.PlatformAdmin, Name: "返现台账", Type: menumodel.TypeMenu, Path: "/referral/cashbacks", Component: "referral/cashbacks/index", Icon: "money", SortOrder: 1, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/referral", Platform: menumodel.PlatformAdmin, Name: "提现审核", Type: menumodel.TypeMenu, Path: "/referral/withdrawals", Component: "referral/withdrawals/index", Icon: "upload", SortOrder: 2, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/referral", Platform: menumodel.PlatformAdmin, Name: "邀请关系", Type: menumodel.TypeMenu, Path: "/referral/invitees", Component: "referral/invitees/index", Icon: "usergroup", SortOrder: 3, Status: menumodel.StatusActive},
 	// —— 支付中心（doc35）已整域并入「系统管理」（迁移 067），见下方 admin:/system 块。
 	// —— 积分中心（doc36，SortOrder=14）：独立于资金账本的积分体系。
 	// 积分不可抵扣、不可提现、不可提现到余额，只能用于活动/权益兑换。
-	{Platform: menumodel.PlatformAdmin, Name: "积分中心", Type: menumodel.TypeDirectory, Path: "/points", Icon: "gift", SortOrder: 14, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/points", Platform: menumodel.PlatformAdmin, Name: "积分概览", Type: menumodel.TypeMenu, Path: "/points/overview", Component: "points/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/points", Platform: menumodel.PlatformAdmin, Name: "积分规则", Type: menumodel.TypeMenu, Path: "/points/rules", Component: "points/rules/index", Icon: "setting", SortOrder: 2, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/points", Platform: menumodel.PlatformAdmin, Name: "积分账户", Type: menumodel.TypeMenu, Path: "/points/accounts", Component: "points/accounts/index", Icon: "usergroup", SortOrder: 3, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/points", Platform: menumodel.PlatformAdmin, Name: "积分流水", Type: menumodel.TypeMenu, Path: "/points/transactions", Component: "points/transactions/index", Icon: "history", SortOrder: 4, Status: menumodel.StatusActive},
 	// 原「销售中心」一级域（S1 员工体系）已并入「系统管理」（迁移 068），见上方 admin:/system 块。
-	// —— 内容管理（doc100 §7.1，admin 平台 SortOrder=16）
-	// 公告管理由「系统管理 → 安全审计」迁入本域（doc102 §4.1 M2-4，推翻 doc100 §7.1 的「保持原位」）；
-	// 权限码 notify:announcement 与后端模块不改（R5 例外），旧路径由 router redirect 兼容。
-	{Platform: menumodel.PlatformAdmin, Name: "内容管理", Type: menumodel.TypeDirectory, Path: "/content", Icon: "file", SortOrder: 16, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/content", Platform: menumodel.PlatformAdmin, Name: "内容文章", Type: menumodel.TypeMenu, Path: "/content/articles", Component: "content/articles/index", Icon: "file", SortOrder: 1, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/content", Platform: menumodel.PlatformAdmin, Name: "内容分类", Type: menumodel.TypeMenu, Path: "/content/categories", Component: "content/categories/index", Icon: "folder", SortOrder: 2, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/content", Platform: menumodel.PlatformAdmin, Name: "友情链接", Type: menumodel.TypeMenu, Path: "/content/links", Component: "content/links/index", Icon: "link", SortOrder: 3, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/content", Platform: menumodel.PlatformAdmin, Name: "公告管理", Type: menumodel.TypeMenu, Path: "/content/announcements", Component: "system/notification/announcements/index", Icon: "sound", SortOrder: 4, Status: menumodel.StatusActive},
+	// 原「内容管理」一级域（doc100 §7.1）已并入「系统管理」（迁移 069），见上方 admin:/system 块。
+	// 公告管理原由「系统管理 → 安全审计」迁入内容域（doc102 §4.1 M2-4）：权限码 notify:announcement
+	// 与后端模块不改（R5 例外），页面随 notification 放在 pages/system/notification/announcements。
 	// —— 用户中心菜单（platform=user）
 	// 顺序即侧边栏一级顺序：控制台 → 云产品 → 选购 → 订单 → 费用 → 积分 → 工单 → 成员 → 个人 → 推广。
 	{Platform: menumodel.PlatformUser, Name: "控制台", Type: menumodel.TypeMenu, Path: "/dashboard", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},

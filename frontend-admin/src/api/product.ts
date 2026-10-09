@@ -28,6 +28,8 @@ import type {
   SpecMappingQuery,
   SpecMappingRequest,
   SpecTemplateInfo,
+  SpecTemplateGenerateRequest,
+  SpecTemplateGenerateResult,
   SpecTemplateListResponse,
   SpecTemplateQuery,
   SpecTemplateRequest,
@@ -246,6 +248,17 @@ export function updateSpecTemplate(id: number, data: SpecTemplateRequest): Promi
 
 export function deleteSpecTemplate(id: number): Promise<string> {
   return request.delete<string>({ url: `/product/spec/templates/${id}` })
+}
+
+/** 按规格模板为自营商品生成 SKU 并同步建立平台绑定（自营链路打通） */
+export function generateProductSpecFromTemplate(
+  id: number,
+  data: SpecTemplateGenerateRequest,
+): Promise<SpecTemplateGenerateResult> {
+  return request.post<SpecTemplateGenerateResult>({
+    url: `/product/products/${id}/specs/generate`,
+    data,
+  })
 }
 
 // ===== 产品管理 - 规格映射 =====

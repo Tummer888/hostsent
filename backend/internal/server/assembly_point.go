@@ -17,9 +17,9 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	pointhandler "hostsent/backend/internal/modules/admin/point/handler"
-	pointrepo "hostsent/backend/internal/modules/admin/point/repository"
-	pointservice "hostsent/backend/internal/modules/admin/point/service"
+	pointhandler "hostsent/backend/internal/modules/admin/finance/point/handler"
+	pointrepo "hostsent/backend/internal/modules/admin/finance/point/repository"
+	pointservice "hostsent/backend/internal/modules/admin/finance/point/service"
 	ucpointhandler "hostsent/backend/internal/modules/uc/point/handler"
 	apperrors "hostsent/backend/internal/pkg/errors"
 )

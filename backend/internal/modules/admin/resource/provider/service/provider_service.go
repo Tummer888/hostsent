@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -29,6 +30,10 @@ type ProviderService interface {
 	TestConnection(ctx context.Context, id uint64) (*dto.TestConnectionResult, error)
 	ListPools(ctx context.Context, query dto.PoolListQuery) (*dto.PoolListResponse, error)
 	FindPool(ctx context.Context, id uint64) (*dto.PoolInfo, error)
+	// PlatformResources 读取平台可售资源目录（区域/节点/存储/镜像），
+	// 供自营商品的规格模板配置平台参数（T4.2 平台映射）。
+	// 该渠道/适配器不支持时返回 ErrPlatformResourcesUnsupported。
+	PlatformResources(ctx context.Context, id uint64) (*upstream.PlatformResources, error)
 	// BuildProviderConfig 根据提供商 ID 构建适配器配置（密钥解密注入），供同步引擎复用
 	BuildProviderConfig(ctx context.Context, id uint64) (*upstream.ProviderConfig, error)
 	// ResumeSync 解除同步熔断并清零失败计数（后台「一键恢复」）
@@ -628,6 +633,32 @@ func (s *providerService) FindPool(ctx context.Context, id uint64) (*dto.PoolInf
 		info.ProviderOpsURL = meta.OpsConsoleURL
 	}
 	return &info, nil
+}
+
+// ErrPlatformResourcesUnsupported 该渠道类型/适配器不提供平台资源目录读取能力。
+var ErrPlatformResourcesUnsupported = errors.New("该渠道未提供平台资源目录读取能力")
+
+// PlatformResources 读取平台可售资源目录（区域/节点/存储/镜像）。
+// 自营商品的规格模板需要把 area/node/os/store 映射到平台真实取值，
+// 没有这份目录运营只能手填 ID。
+func (s *providerService) PlatformResources(ctx context.Context, id uint64) (*upstream.PlatformResources, error) {
+	item, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := s.buildProviderConfigStrict(item)
+	if err != nil {
+		return nil, err
+	}
+	provider, err := s.upmgr.Build(item.ProviderType, cfg)
+	if err != nil {
+		return nil, err
+	}
+	reader, ok := provider.(upstream.PlatformResourceReader)
+	if !ok {
+		return nil, fmt.Errorf("%w：%s", ErrPlatformResourcesUnsupported, item.ProviderType)
+	}
+	return reader.ListPlatformResources(ctx)
 }
 
 func (s *providerService) buildProviderInfo(item model.ResourceProvider) dto.ProviderInfo {

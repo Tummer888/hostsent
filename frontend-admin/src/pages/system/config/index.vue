@@ -6,15 +6,35 @@
           <SettingIcon size="22" aria-hidden="true" />
         </span>
         <div class="page-header__text">
-          <h2 class="page-header__title">系统配置</h2>
+          <h2 class="page-header__title">基础配置</h2>
           <p class="page-header__desc">
             这里只放后端真正读取的开关。邮件/站内信/短信正文不在此维护 ——
             请到<t-link theme="primary" hover="color" @click="goNotificationTemplates">消息中心 → 通知模板</t-link
-            >配置，短信正文另见<t-link theme="primary" hover="color" @click="goSmsTemplates">短信模板</t-link>。
+            >配置，短信正文另见<t-link theme="primary" hover="color" @click="goSmsTemplates">短信模板</t-link
+            >；返现与提成等资金参数已迁至<t-link theme="primary" hover="color" @click="goFinanceConfig"
+              >财务管理 → 财务配置</t-link
+            >。
           </p>
         </div>
       </div>
     </header>
+
+    <!-- 同组入口（迁移 071）：验证码/第三方登录/操作审计与本页同属「系统配置」二级目录，
+         侧栏里是兄弟项；本页顶部再给一次入口，省得回侧栏翻。 -->
+    <nav class="sibling-entry" aria-label="系统配置同组入口">
+      <t-button
+        v-for="entry in siblingEntries"
+        :key="entry.path"
+        class="sibling-entry__btn"
+        variant="outline"
+        size="small"
+        @click="router.push(entry.path)"
+      >
+        <template #icon><component :is="entry.icon" /></template>
+        {{ entry.label }}
+      </t-button>
+      <span class="sibling-entry__hint">同属「系统管理 → 系统配置」</span>
+    </nav>
 
     <section class="form-card surface-card">
       <t-tabs v-model="activeGroup" @change="onTabChange">
@@ -95,10 +115,10 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, type Component } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { SettingIcon } from 'tdesign-icons-vue-next'
+import { LinkIcon, SecuredIcon, SettingIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
 
 import { batchSaveConfigs, getConfigListByGroup } from '@/api/system'
@@ -110,7 +130,18 @@ const router = useRouter()
 
 /** 模板正文不在本页维护：跳消息中心的两个真实承载页（doc91 §13 第 1 条）。 */
 const goNotificationTemplates = () => router.push('/system/notification/templates')
+/** 返现/提成等资金参数在财务配置维护（迁移 073）。入口仅跳转，越权由目标页与后端权限码拦截。 */
+const goFinanceConfig = () => router.push('/finance/config')
 const goSmsTemplates = () => router.push('/system/notification/sms-templates')
+
+/** 同组入口（迁移 071）：这两页与本页同属「系统管理 → 系统配置」二级目录，权限各自独立
+ *  （captcha:config / oauth:config），侧栏会按权限过滤，
+ *  故本页入口只做导航、不做鉴权 —— 无权限者点进去由路由守卫与接口各自拦。
+ *  操作审计不在此列：它在迁移 072 归入了「日志中心」组（日志查看类）。 */
+const siblingEntries: Array<{ label: string; path: string; icon: Component }> = [
+  { label: '验证码配置', path: '/system/config/captcha', icon: SecuredIcon },
+  { label: '第三方登录', path: '/system/config/oauth', icon: LinkIcon },
+]
 
 /** 字段类型 */
 type FieldType = 'input' | 'textarea' | 'number' | 'switch' | 'select'
@@ -254,17 +285,8 @@ const groups: ConfigGroup[] = [
       { key: 'register_enabled', label: '开放注册', type: 'switch', valueType: 'bool', default: true, hint: '关闭后注册接口返回「注册已关闭」，存量账号不受影响' },
     ],
   },
-  {
-    value: 'referral',
-    label: '推广返现',
-    fields: [
-      { key: 'referral.enabled', label: '启用推广邀请返现', type: 'switch', valueType: 'bool', default: true, hint: '关闭后停止计提返现，且用户无法提现或转入余额' },
-      { key: 'referral.first_order_rate', label: '首单返现比率', type: 'number', valueType: 'decimal', default: 0.1, min: 0, max: 1, step: 0.01, hint: '0-1 之间的小数，如 0.1 表示返 10%；基数为被邀请人订单实付金额' },
-      { key: 'referral.subsequent_rate', label: '后续订单返现比率', type: 'number', valueType: 'decimal', default: 0.05, min: 0, max: 1, step: 0.01, hint: '被邀请人首单之后的每次成功订单适用' },
-      { key: 'referral.renewal_rate', label: '续费返现比率', type: 'number', valueType: 'decimal', default: 0.03, min: 0, max: 1, step: 0.01, hint: '被邀请人续费订单适用' },
-      { key: 'referral.min_withdraw_amount', label: '最低提现金额（元）', type: 'number', valueType: 'decimal', default: 50, min: 0, step: 1, hint: '单笔返现提现申请的最低金额' },
-    ],
-  },
+  // 「推广返现」tab 于迁移 073 下线：参数仍真实生效（referral.* 运行时读取），
+  // 但编辑入口收拢到「财务管理 → 财务配置」，避免同一组键两处可写、以哪处为准说不清。
 ]
 
 const activeGroup = ref<string>(groups[0].value)
@@ -380,6 +402,24 @@ onMounted(() => {
   font-size: 20px;
   font-weight: 600;
   line-height: 1.4;
+}
+
+/* 同组入口：一排描边按钮 + 尾部来源说明，弱化处理，不抢底部配置表单的注意力。 */
+.sibling-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.sibling-entry__btn {
+  flex: 0 0 auto;
+}
+
+.sibling-entry__hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
 }
 
 .form-card {

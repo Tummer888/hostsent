@@ -14,10 +14,10 @@ import (
 
 	"gorm.io/gorm"
 
-	contentdto "hostsent/backend/internal/modules/admin/content/dto"
-	contenthandler "hostsent/backend/internal/modules/admin/content/handler"
-	contentrepo "hostsent/backend/internal/modules/admin/content/repository"
-	contentservice "hostsent/backend/internal/modules/admin/content/service"
+	contentdto "hostsent/backend/internal/modules/admin/system/content/dto"
+	contenthandler "hostsent/backend/internal/modules/admin/system/content/handler"
+	contentrepo "hostsent/backend/internal/modules/admin/system/content/repository"
+	contentservice "hostsent/backend/internal/modules/admin/system/content/service"
 )
 
 // contentBundle 内容中心处理器与公开读取适配器集合。

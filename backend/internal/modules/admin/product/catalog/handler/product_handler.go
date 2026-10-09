@@ -347,6 +347,33 @@ func (h *ProductHandler) CreateSpec(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// GenerateSpecFromTemplate godoc
+// @Summary 按规格模板为自营商品生成 SKU 并建立平台绑定
+// @Tags 产品管理-商品
+// @Security BearerAuth
+// @Param id path int true "商品 ID"
+// @Param request body dto.SpecTemplateGenerateRequest true "生成参数"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/product/catalog/products/{id}/specs/generate [post]
+func (h *ProductHandler) GenerateSpecFromTemplate(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	var req dto.SpecTemplateGenerateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	operatorID, operatorName := operatorFromContext(c)
+	resp, err := h.productService.GenerateSpecFromTemplate(c.Request.Context(), id, req, operatorID, operatorName)
+	if err != nil {
+		response.Error(c, specError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
 // UpdateSpec godoc
 // @Summary 更新商品规格变体（SKU）
 // @Tags 产品管理-商品

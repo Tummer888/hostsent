@@ -28,13 +28,15 @@ func buildWalletInfo(acc *accountmodel.WalletAccount) *accountdto.WalletInfo {
 	}
 }
 
-// buildTransactionInfo 构建资金流水 DTO。
-func buildTransactionInfo(tx transmodel.WalletTransaction) transdto.TransactionInfo {
+// buildTransactionInfo 构建资金流水 DTO（含用户名，对账时不必再按 ID 反查）。
+func buildTransactionInfo(tx transmodel.WalletTransaction, username string) transdto.TransactionInfo {
 	return transdto.TransactionInfo{
 		ID:            tx.ID,
 		TxNo:          tx.TxNo,
 		UserID:        tx.UserID,
+		Username:      username,
 		Type:          tx.Type,
+		BizType:       tx.BizType,
 		Direction:     tx.Direction,
 		Amount:        tx.Amount,
 		BalanceBefore: tx.BalanceBefore,

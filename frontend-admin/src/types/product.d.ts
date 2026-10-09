@@ -331,6 +331,10 @@ export interface SpecTemplateRequest {
   price?: number
   sort_order?: number
   status?: number
+  /** 原子 key → 取值 JSON（自营规格模板核心）；留空由 CPU/内存/磁盘等推导 */
+  spec_values?: Record<string, unknown> | null
+  /** 平台写参数 JSON（魔方云 area/node/os/store），生成 SKU 时写入平台绑定 */
+  platform_params?: Record<string, unknown> | null
 }
 
 export interface SpecTemplateInfo {
@@ -347,8 +351,48 @@ export interface SpecTemplateInfo {
   price: number
   sort_order: number
   status: number
+  /** 原子取值 JSON（可能为 null：按 CPU/内存/磁盘推导展示） */
+  spec_values: Record<string, unknown> | null
+  /** 平台写参数 JSON（为 null 表示该模板尚未完成平台映射） */
+  platform_params: Record<string, unknown> | null
+  /** 模板来源：self 自建 / imported 上游归一 */
+  source: string
   created_at: string
   updated_at: string
+}
+
+/** 按规格模板为自营商品生成 SKU 并建立平台绑定 */
+export interface SpecTemplateGenerateRequest {
+  spec_template_id: number
+  spec_code?: string
+  name?: string
+  price?: number
+  cost_price?: number
+  stock?: number
+  platform_params?: Record<string, unknown> | null
+  spec_values?: Record<string, unknown> | null
+  confirm?: boolean
+}
+
+export interface SpecTemplateGenerateResult {
+  spec: SaleProductSpecInfo
+  bound_platform_params: Record<string, unknown> | null
+  notice?: string
+}
+
+/** 平台可售资源项（区域/节点/存储/镜像） */
+export interface PlatformResourceItem {
+  value: string
+  label: string
+  parent_id?: string
+  status?: string
+}
+
+export interface PlatformResources {
+  areas: PlatformResourceItem[]
+  nodes: PlatformResourceItem[]
+  stores: PlatformResourceItem[]
+  images: PlatformResourceItem[]
 }
 
 export interface SpecTemplateListResponse {

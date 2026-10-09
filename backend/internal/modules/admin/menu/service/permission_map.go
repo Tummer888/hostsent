@@ -31,10 +31,6 @@ var menuPermissionMap = map[string]string{
 	"/users/verification/list":   "verification:list",
 	"/users/verification/config": "verification:list",
 
-	"/referral/cashbacks":   "referral:cashback:list",
-	"/referral/invitees":    "referral:cashback:list",
-	"/referral/withdrawals": "referral:withdraw:list",
-
 	"/resource/providers": "resource:provider",
 	// 双链路拆页（本轮 S1）：自营平台对接与上游转售渠道同权限口径。
 	"/resource/platforms": "resource:provider",
@@ -77,16 +73,6 @@ var menuPermissionMap = map[string]string{
 	"/product/promotion/recommends": "promotion:activity:list",
 	"/product/categories":           "product:category",
 
-	// 内容中心（doc100 §7.1）：门户展示型内容。此处漏登记过一次 —— 未登记的路径
-	// 在 FilterByPermissions 里被视为「无需权限」原样返回，等于把内容管理菜单
-	// 对所有角色（含只读客服）敞开，所以这四个路径必须显式登记。
-	// 公告管理（doc102 §4.1 M2-4）由系统管理迁入本域，权限码仍是 notify:announcement。
-	// 页脚配置没有独立页面（在「系统管理 → 系统配置」里编辑），故不在此登记。
-	"/content/articles":      "content:article:list",
-	"/content/categories":    "content:category:list",
-	"/content/links":         "content:link:list",
-	"/content/announcements": "notify:announcement",
-
 	"/orders/list":    "order:list",
 	"/orders/refunds": "order:refunds",
 	"/orders/stats":   "order:stats",
@@ -102,7 +88,20 @@ var menuPermissionMap = map[string]string{
 	// 发票管理（doc36 §3.3）：与账单同域，开票动作由 finance:invoice:issue 细分。
 	"/finance/invoices": "finance:invoice",
 	"/finance/report":   "finance:wallet",
-	"/finance/config":   "finance:wallet",
+	// 财务参数页独立权限码（本轮整理）：财务角色可自行调参，不必被授 system:config:*。
+	// 资金流水改挂 /finance/accounts 目录（迁移 073）不改路径，因此本表键不变。
+	"/finance/config": "finance:config",
+	// 推广返现（doc84）整域并入财务管理（迁移 070）：路径 /referral/* → /finance/referral/*，
+	// 权限码不变。
+	"/finance/referral/cashbacks":   "referral:cashback:list",
+	"/finance/referral/invitees":    "referral:cashback:list",
+	"/finance/referral/withdrawals": "referral:withdraw:list",
+	// 积分中心（doc36）整域并入财务管理（迁移 070）：路径 /points/* → /finance/points/*，
+	// 权限码不变。用户端同名的 /points 菜单不查本表（FilterByPermissions 仅 admin 平台）。
+	"/finance/points/overview":     "point:account",
+	"/finance/points/rules":        "point:rule",
+	"/finance/points/accounts":     "point:account",
+	"/finance/points/transactions": "point:transaction",
 
 	"/tickets/list":       "ticket:list",
 	"/tickets/categories": "ticket:category",
@@ -115,14 +114,18 @@ var menuPermissionMap = map[string]string{
 	"/system/admins":      "staff:list",
 	"/system/departments": "department:list",
 	"/system/menus":       "system:menu",
-	"/system/config":      "system:config:view",
-	"/system/captcha":     "captcha:config",
-	"/system/oauth":       "oauth:config",
-	"/system/audit-logs":  "security:audit:list",
+	// 系统配置组（迁移 071/072）：原 /system/config、/system/captcha、/system/oauth 收进同一目录，
+	// 路径改为 /system/config/*，权限码不变。操作审计（security:audit:list）同期收进本组，
+	// 迁移 072 又改挂「日志中心」，并恢复原路径 /system/audit-logs（见日志中心分组）。
+	"/system/config/basic":   "system:config:view",
+	"/system/config/captcha": "captcha:config",
+	"/system/config/oauth":   "oauth:config",
 	// 日志中心（doc92 §9.1）：日志含手机号/邮箱/上游请求体，仅超管与运维可见。
 	"/system/logs":         "log:center",
 	"/system/logs/cleanup": "log:cleanup",
 	"/system/logs/policy":  "log:policy",
+	// 操作审计页与「用户管理 → 安全与风控」共用 security:audit:list（同一件事的两个入口）。
+	"/system/audit-logs": "security:audit:list",
 	// 支付中心（doc35）整域并入系统管理（迁移 067）：路径 /payment/* → /system/payment/*，
 	// 权限码不变。支付概览聚合 5 个接口（channels/orders/callbacks/payouts/refunds），
 	// 口径与 router.meta.permission 统一为 payment:order（doc102 M3-1）。
@@ -149,12 +152,16 @@ var menuPermissionMap = map[string]string{
 	"/system/sales/commissions": "sales:commission:list",
 	"/system/sales/withdrawals": "sales:commission:audit",
 	"/system/sales/performance": "sales:performance:view",
-
-	// 积分中心（doc36）：独立账本，规则/账户/流水三个叶子。
-	"/points/overview":     "point:account",
-	"/points/rules":        "point:rule",
-	"/points/accounts":     "point:account",
-	"/points/transactions": "point:transaction",
+	// 内容管理（doc100 §7.1）整域并入系统管理（迁移 069）：路径 /content/* → /system/content/*，
+	// 权限码不变。公告管理沿用 notify:announcement（doc102 §4.1 M2-4 的 R5 例外）。
+	// 门户展示型内容漏登记过一次 —— 未登记的路径在 FilterByPermissions 里被视为
+	// 「无需权限」原样返回，等于把内容管理菜单对所有角色（含只读客服）敞开，
+	// 所以这四个路径必须显式登记。页脚配置没有独立页面（在「系统管理 → 系统配置」里编辑），
+	// 故不在此登记。
+	"/system/content/articles":      "content:article:list",
+	"/system/content/categories":    "content:category:list",
+	"/system/content/links":         "content:link:list",
+	"/system/content/announcements": "notify:announcement",
 }
 
 // PermissionMap 返回菜单路径 → 权限码的只读副本。导出供对齐门禁测试

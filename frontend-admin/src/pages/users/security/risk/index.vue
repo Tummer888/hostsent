@@ -1,20 +1,33 @@
 <template>
-  <div class="risk-page">
+  <div class="risk-page users-module">
     <!-- 汇总卡片：运营打开页面先要知道「有没有需要处理的」。
-         与列表共用同一套筛选条件，卡片数与筛出来的列表永远对得上。 -->
-    <div class="risk-summary">
-      <button
-        v-for="card in summaryCards"
+         与列表共用同一套筛选条件，卡片数与筛出来的列表永远对得上。
+         样式复用 users/overview 的 .stat-card（白底 + 左上角彩色光晕 + 渐变色图标块），
+         由 stat-card.css 统一提供，本页只负责栅格与选中态。 -->
+    <section class="risk-summary" aria-label="风险事件汇总">
+      <article
+        v-for="(card, idx) in summaryCards"
         :key="card.status || 'all'"
-        type="button"
-        class="risk-summary__card"
-        :class="{ 'is-active': filters.status === card.status }"
+        class="stat-card stat-card--clickable"
+        :class="[`stat-card--${card.variant}`, { 'is-active': filters.status === card.status }]"
+        :style="{ animationDelay: `${60 + idx * 45}ms` }"
+        role="button"
+        tabindex="0"
+        :aria-pressed="filters.status === card.status"
+        :title="card.hint"
         @click="toggleStatusFilter(card.status)"
+        @keydown.enter="toggleStatusFilter(card.status)"
+        @keydown.space.prevent="toggleStatusFilter(card.status)"
       >
-        <span class="risk-summary__value" :class="`is-${card.tone}`">{{ card.count }}</span>
-        <span class="risk-summary__label">{{ card.label }}</span>
-      </button>
-    </div>
+        <span class="stat-card__icon">
+          <component :is="card.icon" size="22" aria-hidden="true" />
+        </span>
+        <div class="stat-card__info">
+          <span class="stat-card__value">{{ card.count }}</span>
+          <span class="stat-card__label">{{ card.label }}</span>
+        </div>
+      </article>
+    </section>
 
     <SecurityListPage
       title="异常行为监控"
@@ -404,7 +417,13 @@
 </template>
 
 <script setup lang="ts">
-import { ChartBarIcon } from 'tdesign-icons-vue-next'
+import {
+  ChartBarIcon,
+  CheckCircleIcon,
+  ErrorCircleIcon,
+  MinusCircleIcon,
+  TimeIcon,
+} from 'tdesign-icons-vue-next'
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
@@ -475,12 +494,43 @@ const pagination = reactive({
 })
 
 // 汇总卡片：点一下即按该状态筛选（再点一次取消）。比让运营去下拉里选更直接。
+//
+// variant 只负责配色（由 stat-card.css 的 .stat-card--* 提供渐变与光晕），
+// 与状态语义对应：待处理=橙色告警、已处置=绿色、已忽略=灰、全部=品牌蓝。
 const stats = ref<Record<string, number>>({})
 const summaryCards = computed(() => [
-  { status: 'pending', label: '待处理', count: stats.value.pending ?? 0, tone: 'pending' },
-  { status: 'handled', label: '已处置', count: stats.value.handled ?? 0, tone: 'handled' },
-  { status: 'ignored', label: '已忽略', count: stats.value.ignored ?? 0, tone: 'ignored' },
-  { status: '', label: '全部', count: stats.value.total ?? 0, tone: 'total' },
+  {
+    status: 'pending',
+    label: '待处理',
+    count: stats.value.pending ?? 0,
+    variant: 'orange',
+    icon: TimeIcon,
+    hint: '还没关闭的待办，优先看这里',
+  },
+  {
+    status: 'handled',
+    label: '已处置',
+    count: stats.value.handled ?? 0,
+    variant: 'green',
+    icon: CheckCircleIcon,
+    hint: '已确认并关闭的事件',
+  },
+  {
+    status: 'ignored',
+    label: '已忽略',
+    count: stats.value.ignored ?? 0,
+    variant: 'default',
+    icon: MinusCircleIcon,
+    hint: '判定为误报、不再跟踪的事件',
+  },
+  {
+    status: '',
+    label: '全部',
+    count: stats.value.total ?? 0,
+    variant: 'blue',
+    icon: ChartBarIcon,
+    hint: '全部风险事件（清除状态筛选）',
+  },
 ])
 
 const { isMobile } = useIsMobile()
@@ -920,6 +970,14 @@ function handleMobileAction(value: string | number | Record<string, any>, row: R
 }
 </script>
 
+<style lang="css">
+/* 统计卡片基线（白底 + 左上角光晕 + 渐变图标块）与用户总览共用一份：
+   @/pages/stat-card.css 用 :is() 聚合各页命名空间，本页根节点带 .users-module，
+   已在白名单里。放在非 scoped 块，与用户总览的写法一致 —— 这份基线是全站共享的，
+   不该被某一页的 scoped 属性改写。 */
+@import '../../../stat-card.css';
+</style>
+
 <style scoped lang="css">
 .risk-page {
   display: flex;
@@ -933,47 +991,39 @@ function handleMobileAction(value: string | number | Record<string, any>, row: R
   margin-bottom: 16px;
 }
 
-.risk-summary__card {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 14px 16px;
-  border: 1px solid var(--td-brand-color-2);
-  border-radius: var(--hs-radius-lg);
-  background: var(--hs-surface-1);
-  text-align: left;
+.risk-summary .stat-card {
   cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: box-shadow 160ms var(--hs-ease-out), transform 160ms var(--hs-ease-out);
 }
 
-.risk-summary__card:hover {
-  border-color: var(--color-primary);
+.risk-summary .stat-card:hover,
+.risk-summary .stat-card:focus-visible {
+  box-shadow: var(--hs-shadow-md);
+  transform: translateY(-2px);
+  outline: none;
 }
 
 /* 选中态：与筛选下拉的 status 双向同步（点卡片即筛选，再点取消）。 */
-.risk-summary__card.is-active {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.1);
+.risk-summary .stat-card.is-active {
+  box-shadow: 0 0 0 2px var(--color-primary), var(--hs-shadow-md);
 }
 
-.risk-summary__value {
-  font-size: 24px;
-  font-weight: 700;
-  line-height: 1.2;
-  color: var(--color-foreground);
+.risk-summary .stat-card.is-active:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-primary), var(--hs-shadow-md);
 }
 
-.risk-summary__value.is-pending {
-  color: var(--td-warning-color-6, #e37318);
+/* 栅格断点与用户总览保持一致：1200 → 3 列不够整齐，故 900 起直接 2 列。 */
+@media (max-width: 900px) {
+  .risk-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
-.risk-summary__value.is-handled {
-  color: var(--td-success-color-6, #2ba471);
-}
-
-.risk-summary__label {
-  font-size: 12px;
-  color: var(--color-muted-foreground);
+@media (max-width: 640px) {
+  .risk-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
 }
 
 .subject-badge {

@@ -7,7 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	referraldto "hostsent/backend/internal/modules/admin/referral/dto"
+	referraldto "hostsent/backend/internal/modules/admin/finance/referral/dto"
 	apperrors "hostsent/backend/internal/pkg/errors"
 	"hostsent/backend/internal/pkg/middleware"
 	"hostsent/backend/internal/pkg/response"
