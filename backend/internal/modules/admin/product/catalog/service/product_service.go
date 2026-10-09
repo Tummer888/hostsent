@@ -951,18 +951,13 @@ func (s *productService) GenerateSpecFromTemplate(ctx context.Context, productID
 		return nil, fmt.Errorf("规格模板不存在：%w", err)
 	}
 
-	// SKU 编码：优先取请求，其次按模板名派生（同名模板重复生成时自动加后缀，避免撞唯一索引）。
+	// SKU 编码：优先取请求（建品页会带出预览值），其次按模板名派生。
 	specCode := strings.TrimSpace(req.SpecCode)
 	if specCode == "" {
 		specCode = deriveSpecCode(tpl)
 	}
-	if existing, ferr := s.repo.FindSpecByCode(ctx, productID, specCode); ferr == nil && existing != nil {
-		specCode = specCode + "-" + strconv.FormatInt(time.Now().Unix()%100000, 10)
-	} else if ferr != nil && !errors.Is(ferr, gorm.ErrRecordNotFound) {
-		return nil, ferr
-	}
-
-	// 原子取值：请求覆盖 > 模板 spec_values > 模板结构化字段推导。
+	// 请求带了原子取值时，编码按**实际取值**重算（而非模板值）：
+	// 否则"模板是 2C4G、就地改成 4C8G"会生成一个名不副实的 general-2c4g-30g。
 	specValues := strings.TrimSpace(string(req.SpecValues))
 	if specValues == "" {
 		specValues = strings.TrimSpace(tpl.SpecValues)
@@ -972,6 +967,18 @@ func (s *productService) GenerateSpecFromTemplate(ctx context.Context, productID
 	}
 	if err := validateSpecJSON(specValues); err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(req.SpecCode) == "" {
+		specCode = deriveSpecCodeFromValues(tpl.SpecFamily, specValues, specCode)
+	}
+	if strings.TrimSpace(req.SpecCode) == "" {
+		specCode = deriveSpecCodeFromValues(tpl.SpecFamily, specValues, specCode)
+	}
+	// 派生后仍需判重：编码由取值决定时，同商品下同规格生成的编码会命中已有 SKU。
+	if existing, ferr := s.repo.FindSpecByCode(ctx, productID, specCode); ferr == nil && existing != nil {
+		specCode = specCode + "-" + strconv.FormatInt(time.Now().Unix()%100000, 10)
+	} else if ferr != nil && !errors.Is(ferr, gorm.ErrRecordNotFound) {
+		return nil, ferr
 	}
 
 	// 平台写参数：请求覆盖 > 模板 platform_params。
@@ -1066,6 +1073,56 @@ func deriveSpecCode(tpl *SpecTemplateSnapshot) string {
 		parts = append(parts, fmt.Sprintf("%dg", tpl.Disk))
 	}
 	return strings.Join(parts, "-")
+}
+
+// deriveSpecCodeFromValues 按**实际原子取值**派生 SKU 编码（建品页就地改配置时用）：
+// 模板是 2C4G、运营改成 4C8G，编码也必须跟着变成 4c8g，否则编码与配置自相矛盾。
+// 取值解析不出核数/内存时回落到 fallback（按模板结构派生值）。
+func deriveSpecCodeFromValues(family, specValuesJSON, fallback string) string {
+	var m map[string]any
+	if err := json.Unmarshal([]byte(specValuesJSON), &m); err != nil {
+		return fallback
+	}
+	out := make([]string, 0, 3)
+	if family = strings.TrimSpace(family); family != "" {
+		out = append(out, family)
+	}
+	cpu := valueAsInt(m, specatom.KeyCPU)
+	memMB := valueAsInt(m, specatom.KeyMemory)
+	if cpu <= 0 || memMB <= 0 {
+		return fallback
+	}
+	out = append(out, fmt.Sprintf("%dc%dg", cpu, memMB/1024))
+	if disk := valueAsInt(m, specatom.KeyDisk); disk > 0 {
+		out = append(out, fmt.Sprintf("%dg", disk))
+	}
+	return strings.Join(out, "-")
+}
+
+// valueAsInt 取原子取值的整数值（兼容 float64/json.Number/字符串）。
+func valueAsInt(m map[string]any, key string) int {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return 0
+	}
+	switch t := v.(type) {
+	case float64:
+		return int(t)
+	case int:
+		return t
+	case int64:
+		return int(t)
+	case json.Number:
+		if i, err := t.Int64(); err == nil {
+			return int(i)
+		}
+	case string:
+		var f float64
+		if _, err := fmt.Sscanf(strings.TrimSpace(t), "%g", &f); err == nil {
+			return int(f)
+		}
+	}
+	return 0
 }
 
 // deriveSpecValuesFromTemplate 模板未填 spec_values 时，按结构化字段推导原子取值 JSON。

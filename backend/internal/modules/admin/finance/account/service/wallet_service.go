@@ -105,10 +105,10 @@ func (s *walletService) Balance(ctx context.Context, userID uint64) (*accountdto
 // 同一 (user_id, biz_type, ref_no) 来源只记一次账，重复调用返回已有流水（幂等）。
 func (s *walletService) Change(ctx context.Context, req ChangeRequest) (*transmodel.WalletTransaction, error) {
 	if req.Amount <= 0 {
-		return nil, ErrInsufficientBalance
+		return nil, ErrInvalidAmount
 	}
 	if req.Direction != transmodel.DirectionIncome && req.Direction != transmodel.DirectionExpense {
-		return nil, ErrStatusConflict
+		return nil, ErrInvalidDirection
 	}
 
 	var result *transmodel.WalletTransaction
@@ -212,7 +212,7 @@ func (s *walletService) SettleFrozen(ctx context.Context, req FreezeRequest) (*t
 //	settle  ：frozen    -= amount（available 不变，累计支出 += amount）
 func (s *walletService) moveFrozen(ctx context.Context, req FreezeRequest, action string) (*transmodel.WalletTransaction, error) {
 	if req.Amount <= 0 {
-		return nil, ErrInsufficientBalance
+		return nil, ErrInvalidAmount
 	}
 	bizType := req.BizType
 	if bizType == "" {

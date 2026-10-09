@@ -30,8 +30,16 @@ function goBack() {
 async function handleSubmit(payload: SaleProductCreateRequest) {
   submitting.value = true
   try {
-    await createProduct(payload)
-    MessagePlugin.success('产品已创建')
+    const created = await createProduct(payload)
+    const generated = created.generated_specs?.length || 0
+    if (created.spec_template_notice) {
+      // 商品已建但规格没全成：留在列表页让运营进详情页补，不要假装成功。
+      MessagePlugin.warning(`产品已创建，但规格生成有问题：${created.spec_template_notice}`)
+    } else if (generated > 0) {
+      MessagePlugin.success(`产品已创建，并生成 ${generated} 个规格（平台绑定已确认）`)
+    } else {
+      MessagePlugin.success('产品已创建')
+    }
     router.push('/product/products')
   } catch (error) {
     MessagePlugin.error((error as Error).message || '创建产品失败')

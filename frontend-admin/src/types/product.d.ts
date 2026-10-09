@@ -37,6 +37,27 @@ export interface SaleProductCreateRequest {
   upstream_markup_value?: number
   // 代理商品「仅透传」标记：上游规格未归一确认时放行上架。
   spec_passthrough?: boolean
+  /**
+   * 建品同时选定的规格模板（自营链路）：每个模板生成一个带平台绑定的 SKU。
+   * 这是「新建商品就能预选配好的规格」的入口。
+   */
+  spec_templates?: SaleProductSpecTemplateSelection[]
+}
+
+/** 建品时选定一个规格模板（含就地调整后的参数） */
+export interface SaleProductSpecTemplateSelection {
+  spec_template_id: number
+  /** 覆盖从模板派生的 SKU 编码与名称（留空自动派生） */
+  spec_code?: string
+  name?: string
+  /** 售价；为 0 时回落模板参考售价，再回落商品售价 */
+  price?: number
+  cost_price?: number
+  stock?: number
+  /** 就地调整后的原子取值 JSON（compute.cpu / compute.memory(MB) / storage.system.size …） */
+  spec_values?: Record<string, unknown> | null
+  /** 就地调整后的平台写参数 JSON（area/node/os/store）；留空用模板值 */
+  platform_params?: Record<string, unknown> | null
 }
 
 export interface SaleProductCloneRequest {
@@ -63,6 +84,8 @@ export interface SaleProductBatchCloneRequest {
 export interface SaleProductUpdateRequest {
   name: string
   category_id?: number
+  /** 自营商品的平台渠道（改绑）：省略=保持原值；代理商品不允许改 */
+  source_provider_id?: number
   product_type?: string
   description?: string
   cover_image?: string
@@ -116,6 +139,10 @@ export interface SaleProductInfo {
   status: number
   created_at: string
   updated_at: string
+  /** 建品时按模板生成的 SKU（仅创建响应带值） */
+  generated_specs?: SaleProductSpecInfo[]
+  /** 建品时规格生成的部分失败原因（商品已建，规格可到详情页重试） */
+  spec_template_notice?: string
 }
 
 export interface SaleProductListResponse {

@@ -221,9 +221,11 @@
             <t-select
               v-model="specForm.spec_template_id"
               clearable
-              placeholder="可选，引用标准规格模板"
+              placeholder="选模板可自动带出规格编码/名称/取值（仍可改）"
               :options="templateOptions"
+              @change="onSpecTemplateChange"
             />
+            <span class="form-hint">选中模板会自动填好规格编码、名称与原子取值，你只需微调。</span>
           </t-form-item>
           <t-form-item label="排序">
             <t-input-number v-model="specForm.sort_order" :min="0" theme="column" />
@@ -430,6 +432,8 @@ const specs = ref<SaleProductSpecInfo[]>([])
 const history = ref<SaleProductHistoryInfo[]>([])
 const specAtoms = ref<SpecAtomInfo[]>([])
 const templateOptions = ref<{ label: string; value: number }[]>([])
+// 模板详情（选模板时带出规格参数用）：只用来回填表单，不作为落库依据。
+const specTemplateDetails = ref<SpecTemplateInfo[]>([])
 const loading = ref(false)
 const activeTab = ref('base')
 
@@ -521,6 +525,44 @@ function openSpecDialog(row?: SaleProductSpecInfo) {
   specForm.sort_order = row?.sort_order || 0
   specForm.status = row?.status ?? 1
   specDialogVisible.value = true
+}
+
+/**
+ * 选中规格模板时自动带出规格编码/名称/原子取值（可改）——此前模板下拉只是个"引用标记"，
+ * 选了之后下面还要手写 JSON，模板等于白配。
+ */
+function onSpecTemplateChange(value?: number | string) {
+  const id = Number(value)
+  if (!id) return
+  const tpl = specTemplateDetails.value.find((item) => item.id === id)
+  if (!tpl) return
+  if (!specForm.spec_code.trim()) specForm.spec_code = deriveSpecCodeFromTemplate(tpl)
+  if (!specForm.name.trim()) specForm.name = tpl.name
+  if (!specForm.price && tpl.price > 0) specForm.price = tpl.price
+  if (!specForm.specs.trim()) specForm.specs = JSON.stringify(deriveSpecValuesFromTemplate(tpl), null, 2)
+  MessagePlugin.info(`已按模板「${tpl.name}」带出规格参数，可按需修改`)
+}
+
+/** 由模板派生 SKU 编码：规格族-核数/内存/磁盘（与后端 deriveSpecCode 同口径）。 */
+function deriveSpecCodeFromTemplate(tpl: SpecTemplateInfo): string {
+  const parts: string[] = []
+  if (tpl.spec_family) parts.push(tpl.spec_family)
+  parts.push(`${tpl.cpu || 1}c${Math.round(tpl.memory || 1)}g`)
+  if (tpl.disk > 0) parts.push(`${tpl.disk}g`)
+  return parts.join('-')
+}
+
+/** 模板未填 spec_values 时按结构化字段推导原子取值（内存 GB→MB，与字典口径一致）。 */
+function deriveSpecValuesFromTemplate(tpl: SpecTemplateInfo): Record<string, unknown> {
+  if (tpl.spec_values && Object.keys(tpl.spec_values).length) return tpl.spec_values
+  const out: Record<string, unknown> = {}
+  if (tpl.cpu > 0) out['compute.cpu'] = tpl.cpu
+  if (tpl.memory > 0) out['compute.memory'] = Math.round(tpl.memory * 1024)
+  if (tpl.disk > 0) out['storage.system.size'] = tpl.disk
+  if (tpl.bandwidth > 0) out['network.bandwidth'] = tpl.bandwidth
+  if (tpl.disk_type) out['storage.system.type'] = tpl.disk_type
+  if (tpl.os) out['image.os'] = tpl.os
+  return out
 }
 
 async function submitSpec() {
@@ -846,8 +888,11 @@ async function loadAtomsAndTemplates() {
   }
   try {
     const data = await getSpecTemplateList({ page: 1, page_size: 100 })
-    templateOptions.value = data.items.map((item) => ({ label: item.name, value: item.id }))
+    // 只列启用中的模板：停用模板不该再被选来生成新规格。
+    specTemplateDetails.value = data.items.filter((item) => item.status === 1)
+    templateOptions.value = specTemplateDetails.value.map((item) => ({ label: item.name, value: item.id }))
   } catch {
+    specTemplateDetails.value = []
     templateOptions.value = []
   }
 }

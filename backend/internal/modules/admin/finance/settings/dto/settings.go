@@ -7,12 +7,12 @@ package dto
 
 // SettingItem 单个财务参数项。
 type SettingItem struct {
-	Key          string  `json:"key"`
-	Label        string  `json:"label"`
-	Description  string  `json:"description"`
-	ValueType    string  `json:"value_type"` // bool/number
-	Value        string  `json:"value"`
-	DefaultValue string  `json:"default_value"`
+	Key          string `json:"key"`
+	Label        string `json:"label"`
+	Description  string `json:"description"`
+	ValueType    string `json:"value_type"` // bool/number
+	Value        string `json:"value"`
+	DefaultValue string `json:"default_value"`
 	// Usage 该参数在哪里生效（写清消费点，便于核对不是装饰表单）。
 	Usage string  `json:"usage"`
 	Min   float64 `json:"min"`

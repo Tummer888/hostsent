@@ -6,7 +6,7 @@
           <WalletIcon size="22" aria-hidden="true" />
         </span>
         <div class="page-header__text">
-          <h2 class="page-header__title">账单管理</h2>
+          <h2 class="page-header__title">账单列表</h2>
         </div>
       </div>
       <t-space size="small">

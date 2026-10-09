@@ -45,6 +45,8 @@ func writeError(err error) *apperrors.AppError {
 		return apperrors.New(30006, err.Error())
 	case errors.Is(err, service.ErrAdjustDisabled):
 		return apperrors.New(30007, err.Error())
+	case errors.Is(err, service.ErrInvalidAmount), errors.Is(err, service.ErrInvalidDirection):
+		return apperrors.New(20001, err.Error())
 	default:
 		return apperrors.New(50001, err.Error())
 	}

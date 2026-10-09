@@ -644,7 +644,7 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/finance/withdraw/index.vue'),
         meta: { title: '提现管理', role: 'admin', permission: 'finance:withdraw' },
       },
-      // —— 账单管理 ——
+      // —— 账单与对账（迁移 073：目录改名，叶子不变） ——
       {
         path: 'bills',
         name: 'FinanceBills',

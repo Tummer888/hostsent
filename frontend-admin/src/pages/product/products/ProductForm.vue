@@ -55,17 +55,14 @@
           <t-form-item label="产品类型" name="product_type">
             <t-select v-model="form.product_type" clearable placeholder="请选择类型" :options="productTypeOptions" />
           </t-form-item>
-          <t-form-item
-            label="平台渠道"
-            name="source_provider_id"
-            :rules="platformRules"
-          >
+          <t-form-item label="平台渠道" name="source_provider_id" :rules="platformRules">
             <t-select
               v-model="form.source_provider_id"
               placeholder="请选择自营平台渠道（魔方云等）"
               :options="platformOptions"
               :loading="platformLoading"
               clearable
+              @change="onPlatformChange"
             />
             <span class="form-hint">云主机必须绑定一个「算力平台」渠道，开通/暂停/销毁将下发到该平台。</span>
           </t-form-item>
@@ -77,6 +74,7 @@
           </t-form-item>
           <t-form-item label="销售价（元）" name="price">
             <t-input-number v-model="form.price" :min="0" :precision="2" theme="column" placeholder="请输入销售价" />
+            <span class="form-hint">规格模板自带参考售价时以模板为准，此价用于「仅本地/虚拟商品」。</span>
           </t-form-item>
           <t-form-item label="成本价（元）" name="cost_price">
             <t-input-number v-model="form.cost_price" :min="0" :precision="2" theme="column" placeholder="请输入成本价" />
@@ -102,20 +100,118 @@
           <t-textarea v-model="form.description" :autosize="{ minRows: 2, maxRows: 5 }" placeholder="选填，产品简介" />
         </t-form-item>
 
-        <t-form-item label="平台参数 JSON（开通默认值）" name="config_options">
+        <!-- ===== 平台参数：下拉选真实取值，不再手写 JSON ===== -->
+        <t-divider>平台参数（商品级开通默认值）</t-divider>
+        <t-alert
+          theme="info"
+          message="此处是商品级默认参数；下面每个 SKU 的绑定优先级更高。选好平台渠道后可下拉选取平台上真实存在的区域/节点/存储/镜像。"
+        />
+        <div class="form-grid">
+          <t-form-item label="区域 area">
+            <t-select
+              v-model="platformParams.area"
+              clearable
+              placeholder="平台区域"
+              :options="areaOptions"
+              :disabled="!form.source_provider_id"
+            />
+          </t-form-item>
+          <t-form-item label="节点 node">
+            <t-select
+              v-model="platformParams.node"
+              clearable
+              placeholder="平台节点"
+              :options="nodeOptions"
+              :disabled="!form.source_provider_id"
+            />
+          </t-form-item>
+          <t-form-item label="存储 store">
+            <t-select
+              v-model="platformParams.store"
+              clearable
+              placeholder="系统盘所在存储（可选）"
+              :options="storeOptions"
+              :disabled="!form.source_provider_id"
+            />
+          </t-form-item>
+          <t-form-item label="镜像 os">
+            <t-select
+              v-model="platformParams.os"
+              clearable
+              placeholder="平台镜像"
+              :options="imageOptions"
+              :disabled="!form.source_provider_id"
+            />
+          </t-form-item>
+        </div>
+        <t-form-item label="其他平台参数（高级，JSON）">
           <t-textarea
-            v-model="form.config_options"
-            :autosize="{ minRows: 3, maxRows: 8 }"
-            placeholder='选填，如 {"area":"1","node":"2","network_type":"normal","ip_num":1}。留空则由「规格变体」的平台绑定下发。'
+            v-model="extraParamsText"
+            :autosize="{ minRows: 2, maxRows: 6 }"
+            placeholder='上面四个下拉之外的键，如 {"network_type":"normal","ip_num":1,"traffic_quota":0}'
           />
-          <span class="form-hint">
-            此处填写的键会作为开通默认值；具体 SKU 的「平台绑定」优先级更高，可在此商品下逐个规格覆盖。
-          </span>
         </t-form-item>
 
-        <t-alert v-if="mode === 'create'" theme="info">
+        <!-- ===== 规格配置：建品时直接选模板生成 SKU（自营链路） ===== -->
+        <template v-if="mode === 'create'">
+          <t-divider>规格配置</t-divider>
+          <t-form-item label="配置方式">
+            <t-radio-group v-model="specMode" variant="default-filled">
+              <t-radio-button value="template">按规格模板生成 SKU（推荐）</t-radio-button>
+              <t-radio-button value="later">稍后在详情页配置</t-radio-button>
+            </t-radio-group>
+          </t-form-item>
+
+          <template v-if="specMode === 'template'">
+            <t-alert v-if="!templateRows.length" theme="warning" message="还没有规格模板。请先到「产品管理 → 规格管理 → 规格模板」新建模板并配好平台映射。" />
+            <div v-else class="tpl-list">
+              <div class="tpl-list__head">
+                <span>勾选要生成的规格；每行可直接改 CPU/内存/系统盘/带宽与区域/节点/存储/镜像。</span>
+                <t-space size="small">
+                  <span class="tpl-list__count">已选 {{ selectedTemplateCount }} / {{ templateRows.length }}</span>
+                  <t-link theme="primary" hover="color" @click="selectAllTemplates">全选</t-link>
+                  <t-link theme="primary" hover="color" @click="clearAllTemplates">清空</t-link>
+                </t-space>
+              </div>
+              <div v-for="row in templateRows" :key="row.tpl.id" class="tpl-row" :class="{ 'tpl-row--on': row.selected }">
+                <div class="tpl-row__head">
+                  <t-checkbox v-model="row.selected" @change="onRowToggle(row)">
+                    <span class="tpl-row__name">{{ row.tpl.name }}</span>
+                  </t-checkbox>
+                  <span class="tpl-row__meta">
+                    {{ row.tpl.spec_family || 'general' }}
+                    <template v-if="row.tpl.platform_params"> · 已配平台映射</template>
+                    <template v-else> · <em class="tpl-row__warn">模板缺少平台映射</em></template>
+                  </span>
+                </div>
+                <div v-if="row.selected" class="tpl-row__body">
+                  <div class="tpl-row__fields">
+                    <label class="tpl-field">CPU（核）<t-input-number v-model="row.cpu" :min="1" theme="column" /></label>
+                    <label class="tpl-field">内存（GB）<t-input-number v-model="row.memoryGb" :min="1" theme="column" /></label>
+                    <label class="tpl-field">系统盘（GB）<t-input-number v-model="row.disk" :min="1" theme="column" /></label>
+                    <label class="tpl-field">带宽（Mbps）<t-input-number v-model="row.bandwidth" :min="0" theme="column" /></label>
+                    <label class="tpl-field">销售价（元）<t-input-number v-model="row.price" :min="0" :precision="2" theme="column" /></label>
+                  </div>
+                  <div class="tpl-row__fields">
+                    <label class="tpl-field">区域 area<t-select v-model="row.area" clearable placeholder="沿用模板" :options="areaOptions" /></label>
+                    <label class="tpl-field">节点 node<t-select v-model="row.node" clearable placeholder="沿用模板" :options="nodeOptionsFor(row.area)" /></label>
+                    <label class="tpl-field">存储 store<t-select v-model="row.store" clearable placeholder="沿用模板" :options="storeOptionsFor(row.area)" /></label>
+                    <label class="tpl-field">镜像 os<t-select v-model="row.os" clearable placeholder="沿用模板" :options="imageOptions" /></label>
+                  </div>
+                  <div class="tpl-row__gen">
+                    SKU 编码 <code>{{ row.tpl.id ? previewSpecCode(row) : '—' }}</code> · 原子取值
+                    <code>{{ JSON.stringify(buildSpecValues(row)) }}</code>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+          <t-alert v-else theme="info" message="商品建好后，到详情页「规格变体 → 按规格模板生成」逐个生成；未生成 SKU 前无法上架。" />
+        </template>
+
+        <t-alert v-else theme="info">
           <template #message>
-            创建后请到商品详情页的「规格变体」中，用「规格模板」批量生成 SKU 并确认平台绑定，否则无法上架。
+            规格在商品详情页「规格变体」中维护；本页只改基础信息与平台参数。
           </template>
         </t-alert>
 
@@ -134,7 +230,8 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { AddIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
 
-import { getProviderList } from '@/api/admin'
+import { getProviderList, getProviderPlatformResources } from '@/api/admin'
+import { getSpecTemplateList } from '@/api/product'
 import {
   markupLabel,
   priceModelOptions,
@@ -142,7 +239,14 @@ import {
   productTypeOptions,
 } from '@/pages/product/constants'
 import { useCategoryOptions } from '@/composables/useCategoryOptions'
-import type { ProviderInfo, SaleProductCreateRequest, SaleProductInfo } from '@/types/interface'
+import type {
+  PlatformResourceItem,
+  ProviderInfo,
+  SaleProductCreateRequest,
+  SaleProductInfo,
+  SaleProductSpecTemplateSelection,
+  SpecTemplateInfo,
+} from '@/types/interface'
 
 const props = defineProps<{
   mode: 'create' | 'edit'
@@ -162,13 +266,13 @@ const isUpstream = computed(() => props.initial?.source_mode === 'upstream')
 const pageTitle = computed(() => (props.mode === 'create' ? '新建自营产品' : '编辑产品'))
 const headerDesc = computed(() =>
   props.mode === 'create'
-    ? '自营商品：平台渠道在本表单绑定，规格通过「规格模板」生成 SKU 后映射到平台字段。'
-    : '自营商品：链路固定为自营，平台渠道与规格映射在详情页维护。',
+    ? '自营商品：选平台渠道 + 勾规格模板，创建后即为可上架商品（规格与平台映射一步到位）。'
+    : '自营商品：链路固定为自营，平台参数可在此调整，规格在详情页维护。',
 )
 
 const { categoryOptions, loadCategories } = useCategoryOptions()
 
-// 平台渠道下拉：只列「算力平台」（kind=compute），上游转售渠道不出现在自营商品表单里。
+// ===== 平台渠道与平台资源目录 =====
 const platformOptions = ref<{ label: string; value: number }[]>([])
 const platformLoading = ref(false)
 
@@ -186,6 +290,222 @@ async function loadPlatformOptions() {
   }
 }
 
+const resources = ref<{
+  areas: PlatformResourceItem[]
+  nodes: PlatformResourceItem[]
+  stores: PlatformResourceItem[]
+  images: PlatformResourceItem[]
+}>({ areas: [], nodes: [], stores: [], images: [] })
+
+/** 只保留启用项：平台返回 offline 的取值不该再被选进新规格。 */
+function toOptions(items: PlatformResourceItem[]): { label: string; value: string }[] {
+  return items
+    .filter((item) => !item.status || item.status === 'active')
+    .map((item) => ({ label: `${item.label}（${item.value}）`, value: item.value }))
+}
+
+const areaOptions = computed(() => toOptions(resources.value.areas))
+const imageOptions = computed(() => toOptions(resources.value.images))
+// 节点/存储挂在区域下：给行级过滤用，行未选区域时用商品级区域的过滤结果。
+function filterByArea(items: PlatformResourceItem[], area?: string) {
+  if (!area) return items
+  return items.filter((item) => !item.parent_id || item.parent_id === area)
+}
+function nodeOptionsFor(area?: string) {
+  return toOptions(filterByArea(resources.value.nodes, area || platformParams.area))
+}
+function storeOptionsFor(area?: string) {
+  return toOptions(filterByArea(resources.value.stores, area || platformParams.area))
+}
+const nodeOptions = computed(() => nodeOptionsFor())
+const storeOptions = computed(() => storeOptionsFor())
+
+async function loadPlatformResources(providerId?: number) {
+  const id = Number(providerId)
+  resources.value = { areas: [], nodes: [], stores: [], images: [] }
+  if (!id) return
+  try {
+    resources.value = await getProviderPlatformResources(id)
+  } catch (error) {
+    MessagePlugin.warning((error as Error).message || '该渠道未提供平台资源目录，可用「其他平台参数」手工填写')
+  }
+}
+
+function onPlatformChange(value?: number | string) {
+  const id = Number(value)
+  // 换渠道后旧参数多半对新平台无效：清空下拉选择，避免跨平台脏值。
+  Object.assign(platformParams, { area: undefined, node: undefined, store: undefined, os: undefined })
+  void loadPlatformResources(id)
+}
+
+// ===== 商品级平台参数（后端字段 config_options，这里用下拉 + 高级 JSON 组合编辑）=====
+const platformParams = reactive<{ area?: string; node?: string; store?: string; os?: string }>({
+  area: undefined, node: undefined, store: undefined, os: undefined,
+})
+const extraParamsText = ref('')
+const PLATFORM_KEYS = ['area', 'node', 'store', 'os'] as const
+
+/** 把 config_options JSON 拆成「四个下拉 + 高级 JSON」；未知键留在高级里不丢。 */
+function splitConfigOptions(raw: string) {
+  let parsed: Record<string, unknown> = {}
+  if (raw && raw.trim()) {
+    try {
+      const obj = JSON.parse(raw)
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) parsed = obj as Record<string, unknown>
+    } catch {
+      // 非法 JSON 原样留在高级文本框里，保存时由后端校验报错，不静默丢弃运营输入
+      extraParamsText.value = raw
+      Object.assign(platformParams, { area: undefined, node: undefined, store: undefined, os: undefined })
+      return
+    }
+  }
+  const rest: Record<string, unknown> = { ...parsed }
+  for (const key of PLATFORM_KEYS) {
+    const v = parsed[key]
+    platformParams[key] = v == null || v === '' ? undefined : String(v)
+    delete rest[key]
+  }
+  extraParamsText.value = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : ''
+}
+
+/** 把下拉与高级 JSON 合并回 config_options 字符串。 */
+function composeConfigOptions(): string | null {
+  let extra: Record<string, unknown> = {}
+  if (extraParamsText.value.trim()) {
+    try {
+      const obj = JSON.parse(extraParamsText.value)
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+        MessagePlugin.warning('「其他平台参数」必须是 JSON 对象')
+        return null
+      }
+      extra = obj as Record<string, unknown>
+    } catch {
+      MessagePlugin.warning('「其他平台参数」JSON 格式非法')
+      return null
+    }
+  }
+  const merged: Record<string, unknown> = { ...extra }
+  for (const key of PLATFORM_KEYS) {
+    if (platformParams[key]) merged[key] = platformParams[key]
+  }
+  return Object.keys(merged).length ? JSON.stringify(merged) : ''
+}
+
+// ===== 规格模板选择（建品即生成 SKU）=====
+type TemplateRow = {
+  tpl: SpecTemplateInfo
+  selected: boolean
+  cpu: number
+  memoryGb: number
+  disk: number
+  bandwidth: number
+  price: number
+  costPrice: number
+  area?: string
+  node?: string
+  store?: string
+  os?: string
+  /** 模板里 CPU/内存/磁盘/带宽之外的原子取值（如网络流量），原样保留不丢 */
+  extraSpecValues: Record<string, unknown>
+  /** 模板里 area/node/store/os 之外的平台参数，原样保留不丢 */
+  extraPlatformParams: Record<string, unknown>
+}
+
+const specMode = ref<'template' | 'later'>('template')
+const templateRows = ref<TemplateRow[]>([])
+const selectedTemplateCount = computed(() => templateRows.value.filter((r) => r.selected).length)
+
+function buildRow(tpl: SpecTemplateInfo): TemplateRow {
+  const specValues = (tpl.spec_values || {}) as Record<string, unknown>
+  const platformParamsOfTpl = (tpl.platform_params || {}) as Record<string, unknown>
+
+  const pickNumber = (keys: string[], fallback: number): number => {
+    for (const key of keys) {
+      const v = specValues[key]
+      if (v != null && v !== '' && Number(v) > 0) return Number(v)
+    }
+    return fallback
+  }
+  // 原子字典里内存单位是 MB，模板结构化字段是 GB —— 两边都归一到 GB 展示。
+  const memoryMb = pickNumber(['compute.memory'], 0)
+  const row: TemplateRow = {
+    tpl,
+    selected: false,
+    cpu: pickNumber(['compute.cpu'], tpl.cpu || 1),
+    memoryGb: memoryMb > 0 ? Math.round(memoryMb / 1024) : Math.round(tpl.memory || 1),
+    disk: pickNumber(['storage.system.size'], tpl.disk || 40),
+    bandwidth: pickNumber(['network.bandwidth'], tpl.bandwidth || 0),
+    price: tpl.price || 0,
+    costPrice: 0,
+    area: platformParamsOfTpl.area != null ? String(platformParamsOfTpl.area) : undefined,
+    node: platformParamsOfTpl.node != null ? String(platformParamsOfTpl.node) : undefined,
+    store: platformParamsOfTpl.store != null ? String(platformParamsOfTpl.store) : undefined,
+    os: platformParamsOfTpl.os != null ? String(platformParamsOfTpl.os) : undefined,
+    extraSpecValues: {},
+    extraPlatformParams: {},
+  }
+  const consumedSpecKeys = new Set(['compute.cpu', 'compute.memory', 'storage.system.size', 'network.bandwidth'])
+  for (const [k, v] of Object.entries(specValues)) {
+    if (!consumedSpecKeys.has(k) && v != null && v !== '') row.extraSpecValues[k] = v
+  }
+  for (const [k, v] of Object.entries(platformParamsOfTpl)) {
+    if (!(PLATFORM_KEYS as readonly string[]).includes(k) && v != null && v !== '') row.extraPlatformParams[k] = v
+  }
+  return row
+}
+
+async function loadTemplates() {
+  try {
+    const data = await getSpecTemplateList({ page: 1, page_size: 100, status: 1 })
+    templateRows.value = data.items.map(buildRow)
+  } catch {
+    templateRows.value = []
+  }
+}
+
+/** 勾选时把区域补成商品级区域，省得运营每行都选一遍。 */
+function onRowToggle(row: TemplateRow) {
+  if (row.selected && !row.area && platformParams.area) row.area = platformParams.area
+}
+
+function selectAllTemplates() {
+  for (const row of templateRows.value) {
+    row.selected = true
+    onRowToggle(row)
+  }
+}
+function clearAllTemplates() {
+  for (const row of templateRows.value) row.selected = false
+}
+
+/** 由行内参数组装原子取值 JSON（内存 GB→MB 与字典口径对齐）。 */
+function buildSpecValues(row: TemplateRow): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...row.extraSpecValues }
+  if (row.cpu > 0) out['compute.cpu'] = row.cpu
+  if (row.memoryGb > 0) out['compute.memory'] = row.memoryGb * 1024
+  if (row.disk > 0) out['storage.system.size'] = row.disk
+  if (row.bandwidth > 0) out['network.bandwidth'] = row.bandwidth
+  if (row.area) out['placement.region'] = row.area
+  return out
+}
+
+function buildPlatformParams(row: TemplateRow): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...row.extraPlatformParams }
+  if (row.area) out.area = row.area
+  if (row.node) out.node = row.node
+  if (row.store) out.store = row.store
+  if (row.os) out.os = row.os
+  return out
+}
+
+function previewSpecCode(row: TemplateRow): string {
+  const parts: string[] = []
+  if (row.tpl.spec_family) parts.push(row.tpl.spec_family)
+  parts.push(`${row.cpu || 1}c${row.memoryGb || 1}g`)
+  if (row.disk > 0) parts.push(`${row.disk}g`)
+  return parts.join('-')
+}
+
 const form = reactive({
   code: '',
   name: '',
@@ -197,7 +517,6 @@ const form = reactive({
   price: 0,
   cost_price: 0,
   source_provider_id: undefined as number | undefined,
-  config_options: '',
   stock: -1,
   sort_order: 0,
   status: 0,
@@ -213,29 +532,60 @@ const platformRules = computed(() =>
 
 watch(
   () => props.initial,
-  (initial) => {
-    if (initial) {
-      form.code = initial.code
-      form.name = initial.name
-      form.category_id = initial.category_id || undefined
-      form.product_type = initial.product_type
-      form.description = initial.description || ''
-      form.cover_image = initial.cover_image || ''
-      form.price_model = initial.price_model
-      form.price = initial.price
-      form.cost_price = initial.cost_price
-      form.source_provider_id = initial.source_provider_id || undefined
-      form.config_options = initial.config_options || ''
-      form.stock = initial.stock
-      form.sort_order = initial.sort_order
-      form.status = initial.status
-    }
+  async (initial) => {
+    if (!initial) return
+    form.code = initial.code
+    form.name = initial.name
+    form.category_id = initial.category_id || undefined
+    form.product_type = initial.product_type
+    form.description = initial.description || ''
+    form.cover_image = initial.cover_image || ''
+    form.price_model = initial.price_model
+    form.price = initial.price
+    form.cost_price = initial.cost_price
+    form.source_provider_id = initial.source_provider_id || undefined
+    form.stock = initial.stock
+    form.sort_order = initial.sort_order
+    form.status = initial.status
+    splitConfigOptions(initial.config_options || '')
+    // 编辑既有商品时把平台资源目录也拉起来，让下拉能回显与改选。
+    if (form.source_provider_id) await loadPlatformResources(form.source_provider_id)
   },
   { immediate: true },
 )
 
 function handleCancel() {
   emit('cancel')
+}
+
+function buildSpecTemplatePayload(): SaleProductSpecTemplateSelection[] | null {
+  if (props.mode !== 'create' || specMode.value !== 'template') return []
+  const rows = templateRows.value.filter((r) => r.selected)
+  if (!rows.length) {
+    MessagePlugin.warning('请勾选至少一个规格模板，或改选「稍后在详情页配置」')
+    return null
+  }
+  const payload: SaleProductSpecTemplateSelection[] = []
+  for (const row of rows) {
+    const platformParamsOfRow = buildPlatformParams(row)
+    if (!Object.keys(platformParamsOfRow).length) {
+      MessagePlugin.warning(`规格「${row.tpl.name}」没有平台参数（模板未配映射且未就地选择），生成后无法上架`)
+      return null
+    }
+    payload.push({
+      spec_template_id: row.tpl.id,
+      // 带上预览编码：后端在"请求未给编码"时会按模板结构派生，就地改过的配置会生成
+      // 名不副实的编码（如模板 2C4G 改成 4C8G 却叫 general-2c4g-30g）。
+      spec_code: previewSpecCode(row),
+      name: `${row.tpl.name}（${row.cpu || 1}核${row.memoryGb || 1}G）`,
+      spec_values: buildSpecValues(row),
+      platform_params: platformParamsOfRow,
+      price: row.price,
+      cost_price: row.costPrice,
+      stock: form.stock,
+    })
+  }
+  return payload
 }
 
 function buildPayload(): SaleProductCreateRequest | null {
@@ -253,6 +603,10 @@ function buildPayload(): SaleProductCreateRequest | null {
     MessagePlugin.warning('请选择自营平台渠道')
     return null
   }
+  const configOptions = composeConfigOptions()
+  if (configOptions === null) return null
+  const specTemplates = buildSpecTemplatePayload()
+  if (specTemplates === null) return null
   // 自营专属 payload：链路恒为 self，不携带任何上游转售字段（source_product_id / 加价 / 仅透传）。
   return {
     code: props.mode === 'create' ? form.code.trim() : form.code,
@@ -267,10 +621,11 @@ function buildPayload(): SaleProductCreateRequest | null {
     source_mode: 'self',
     source_product_id: 0,
     source_provider_id: form.source_provider_id,
-    config_options: form.config_options,
+    config_options: configOptions,
     stock: form.stock,
     sort_order: form.sort_order,
     status: form.status,
+    spec_templates: specTemplates.length ? specTemplates : undefined,
     upstream_markup_type: '',
     upstream_markup_value: 0,
     spec_passthrough: false,
@@ -292,6 +647,8 @@ function handleSubmitUpstream() {
     MessagePlugin.warning('请输入产品名称')
     return
   }
+  const configOptions = composeConfigOptions()
+  if (configOptions === null) return
   const payload: SaleProductCreateRequest = {
     code: props.initial.code,
     name: form.name.trim(),
@@ -305,7 +662,7 @@ function handleSubmitUpstream() {
     source_mode: 'upstream',
     source_product_id: props.initial.source_product_id,
     source_provider_id: props.initial.source_provider_id,
-    config_options: form.config_options,
+    config_options: configOptions,
     stock: form.stock,
     sort_order: form.sort_order,
     status: form.status,
@@ -319,6 +676,7 @@ function handleSubmitUpstream() {
 onMounted(() => {
   loadCategories()
   loadPlatformOptions()
+  if (props.mode === 'create') void loadTemplates()
 })
 </script>
 
@@ -337,5 +695,92 @@ onMounted(() => {
   margin: 0;
   color: var(--td-text-color-secondary, #999);
   font-size: 13px;
+}
+
+.tpl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tpl-list__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--td-text-color-secondary, #666);
+}
+
+.tpl-list__count {
+  font-weight: 600;
+  color: var(--td-text-color-primary, #333);
+}
+
+.tpl-row {
+  border: 1px solid var(--td-component-border, #e0e0e0);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--td-bg-color-container, #fff);
+}
+
+.tpl-row--on {
+  border-color: var(--td-brand-color, #0052d9);
+  box-shadow: 0 0 0 1px rgba(0, 82, 217, 0.12);
+}
+
+.tpl-row__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tpl-row__name {
+  font-weight: 600;
+}
+
+.tpl-row__meta {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #999);
+}
+
+.tpl-row__warn {
+  color: var(--td-warning-color, #e37318);
+  font-style: normal;
+}
+
+.tpl-row__body {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tpl-row__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px 12px;
+}
+
+.tpl-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
+}
+
+.tpl-row__gen {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #999);
+  word-break: break-all;
+}
+
+.tpl-row__gen code {
+  font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
+  color: var(--td-text-color-primary, #333);
 }
 </style>
