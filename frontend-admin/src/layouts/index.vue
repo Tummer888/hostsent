@@ -619,7 +619,7 @@ async function loadUnreadCount() {
 }
 
 function goNotifications() {
-  router.push('/notification/records')
+  router.push('/system/notification/records')
 }
 
 // ---- 账号设置弹窗 ----

@@ -109,8 +109,8 @@ defineOptions({ name: 'SystemConfig' })
 const router = useRouter()
 
 /** 模板正文不在本页维护：跳消息中心的两个真实承载页（doc91 §13 第 1 条）。 */
-const goNotificationTemplates = () => router.push('/notification/templates')
-const goSmsTemplates = () => router.push('/notification/sms-templates')
+const goNotificationTemplates = () => router.push('/system/notification/templates')
+const goSmsTemplates = () => router.push('/system/notification/sms-templates')
 
 /** 字段类型 */
 type FieldType = 'input' | 'textarea' | 'number' | 'switch' | 'select'

@@ -14,8 +14,8 @@ import (
 	billdto "hostsent/backend/internal/modules/admin/finance/bill/dto"
 	rechdto "hostsent/backend/internal/modules/admin/finance/recharge/dto"
 	withdrawdto "hostsent/backend/internal/modules/admin/finance/withdraw/dto"
-	paydto "hostsent/backend/internal/modules/admin/payment/dto"
-	paymodel "hostsent/backend/internal/modules/admin/payment/model"
+	paydto "hostsent/backend/internal/modules/admin/system/payment/dto"
+	paymodel "hostsent/backend/internal/modules/admin/system/payment/model"
 )
 
 // ErrBillNotPayable 账单不可支付（不属于本人 / 已结清 / 已关账）。

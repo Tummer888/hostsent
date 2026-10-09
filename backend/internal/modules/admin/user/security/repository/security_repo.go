@@ -30,6 +30,13 @@ type SecurityRepository interface {
 	UpdateSession(ctx context.Context, session *model.Session) error
 	BatchRevokeSessions(ctx context.Context, ids []uint64, reason string, revokedBy uint64) ([]model.Session, error)
 	RevokeUserAllSessions(ctx context.Context, userID uint64, reason string, revokedBy uint64) ([]model.Session, error)
+	// RevokeActiveSessionsOfSubject 撤销某主体（域 + 用户 ID）的全部有效会话。
+	//
+	// 与 RevokeUserAllSessions 的区别：后者写死 subject_type='user'（用户详情页的
+	// 「强制下线」专用）。风险事件的「失效会话」必须按事件自己的主体域来踢 ——
+	// 对一条 subject_type='admin' 的事件用只查 user 域的实现，会去踢 ID 相同的
+	// **客户**会话（user_id 承载两个 ID 空间且会撞号），运营点了半天踢错了人。
+	RevokeActiveSessionsOfSubject(ctx context.Context, subjectType string, userID uint64, reason string, revokedBy uint64) ([]model.Session, error)
 	ExpireStaleSessions(ctx context.Context, limit int) ([]string, error)
 	// AdminNames 批量取管理员账号名（风险事件的处置人、黑名单的创建/更新人）。
 	//
@@ -38,6 +45,17 @@ type SecurityRepository interface {
 	AdminNames(ctx context.Context, ids []uint64) (map[uint64]string, error)
 	// CountRiskEvents 按状态统计风险事件数（页面汇总卡片用）。
 	CountRiskEvents(ctx context.Context, query dto.RiskEventListQuery) (map[string]int64, error)
+
+	// —— 处置流水（doc06 §4.3 处置联动）——
+
+	// CreateRiskEventAction 追加一条处置流水。
+	CreateRiskEventAction(ctx context.Context, action *model.RiskEventAction) error
+	// ListRiskEventActions 取某事件的全部处置流水（最近的在最前）。
+	ListRiskEventActions(ctx context.Context, eventID uint64) ([]model.RiskEventAction, error)
+	// ListRiskEventActionsByEvents 批量取一批事件各自的处置流水（列表页动作摘要）。
+	//
+	// 一页 10 条事件逐个查会变成 10 次查询，而列表是运营每翻一页都会走的路径。
+	ListRiskEventActionsByEvents(ctx context.Context, eventIDs []uint64) (map[uint64][]model.RiskEventAction, error)
 }
 
 type securityRepository struct {
@@ -231,6 +249,34 @@ func (r *securityRepository) RevokeUserAllSessions(ctx context.Context, userID u
 	return sessions, nil
 }
 
+// RevokeActiveSessionsOfSubject 撤销某主体（域 + 用户 ID）的全部有效会话。
+//
+// 主体域必须由调用方给出，不能在这里兜底成 'user'：事件的 subject_type 才是
+// 唯一答案，兜底会把员工事件踢到 ID 相同的客户会话上（撞号）。
+func (r *securityRepository) RevokeActiveSessionsOfSubject(ctx context.Context, subjectType string, userID uint64, reason string, revokedBy uint64) ([]model.Session, error) {
+	now := time.Now()
+	subject := strings.TrimSpace(subjectType)
+	if subject == "" {
+		subject = model.SubjectTypeUser
+	}
+	var sessions []model.Session
+	if err := r.db.WithContext(ctx).
+		Where("user_id = ? AND status = ? AND subject_type = ?", userID, "active", subject).
+		Find(&sessions).Error; err != nil {
+		return nil, err
+	}
+	for i := range sessions {
+		sessions[i].Status = "revoked"
+		sessions[i].RevokedReason = reason
+		sessions[i].RevokedBy = &revokedBy
+		sessions[i].RevokedAt = &now
+		if err := r.db.WithContext(ctx).Save(&sessions[i]).Error; err != nil {
+			return nil, err
+		}
+	}
+	return sessions, nil
+}
+
 // ExpireStaleSessions 把已过期的 active 会话收成 expired，返回被收的 session_id。
 //
 // 为什么需要回写：expired_at 是会话的「有效期终点」，status 是「当前状态」，
@@ -338,6 +384,59 @@ func (r *securityRepository) CountRiskEvents(ctx context.Context, query dto.Risk
 	return out, nil
 }
 
+// —— 处置流水 ——
+
+func (r *securityRepository) CreateRiskEventAction(ctx context.Context, action *model.RiskEventAction) error {
+	return r.db.WithContext(ctx).Create(action).Error
+}
+
+func (r *securityRepository) ListRiskEventActions(ctx context.Context, eventID uint64) ([]model.RiskEventAction, error) {
+	var items []model.RiskEventAction
+	if err := r.db.WithContext(ctx).
+		Where("event_id = ?", eventID).
+		Order("id DESC").
+		Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// ListRiskEventActionsByEvents 批量取处置流水并按事件分组。
+//
+// 一组事件一次查完再在内存里分组：列表页一页 10 条，逐条查就是 10 次往返。
+func (r *securityRepository) ListRiskEventActionsByEvents(ctx context.Context, eventIDs []uint64) (map[uint64][]model.RiskEventAction, error) {
+	out := make(map[uint64][]model.RiskEventAction, len(eventIDs))
+	if len(eventIDs) == 0 {
+		return out, nil
+	}
+	unique := make([]uint64, 0, len(eventIDs))
+	seen := make(map[uint64]struct{}, len(eventIDs))
+	for _, id := range eventIDs {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	if len(unique) == 0 {
+		return out, nil
+	}
+	var items []model.RiskEventAction
+	if err := r.db.WithContext(ctx).
+		Where("event_id IN ?", unique).
+		Order("id DESC").
+		Find(&items).Error; err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		out[item.EventID] = append(out[item.EventID], item)
+	}
+	return out, nil
+}
+
 func applyLoginLogFilters(db *gorm.DB, query dto.LoginLogListQuery) *gorm.DB {
 	if query.UserID > 0 {
 		db = db.Where("user_id = ?", query.UserID)
@@ -405,6 +504,15 @@ func applyRiskEventFilters(db *gorm.DB, query dto.RiskEventListQuery) *gorm.DB {
 	if query.Keyword != "" {
 		keyword := "%" + strings.TrimSpace(query.Keyword) + "%"
 		db = db.Where("username ILIKE ? OR ip ILIKE ? OR summary ILIKE ?", keyword, keyword, keyword)
+	}
+	// 按「已做动作」筛：用子查询而不是 join，避免同一事件有多个动作时出现重复行
+	// （join 后一条事件会按动作数翻倍，分页总数就对不上了）。
+	if action := strings.TrimSpace(query.Action); action != "" {
+		sub := db.Session(&gorm.Session{NewDB: true}).
+			Table("risk_event_actions").
+			Select("event_id").
+			Where("action = ?", action)
+		db = db.Where("id IN (?)", sub)
 	}
 	// 风险事件按「最后一次发生」筛时间：运营关心的是「最近还在发生吗」，
 	// 用 first_occurred_at 会把持续发生的旧事件筛掉。

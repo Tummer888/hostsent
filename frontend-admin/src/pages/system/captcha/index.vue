@@ -413,7 +413,7 @@ import {
   type CaptchaSceneStat,
 } from '@/api/captcha'
 import CredentialFields from '@/components/credential-fields/index.vue'
-import { formatTime, fenToYuan } from '@/pages/notification/constants'
+import { formatTime, fenToYuan } from '@/pages/system/notification/constants'
 import { useUserStore } from '@/store'
 
 defineOptions({ name: 'SystemCaptcha' })

@@ -1,5 +1,5 @@
-// 类型定义（拆分自 interface.d.ts：payment 域 · 支付中心）
-// 对应后端 internal/modules/admin/payment/dto/payment.go 与 pkg/payment 契约层。
+// 类型定义（拆分自 interface.d.ts：payment 域 · 支付中心，迁移 067 起模块位于 admin/system/payment）
+// 对应后端 internal/modules/admin/system/payment/dto/payment.go 与 pkg/payment 契约层。
 import type { ListMeta } from './common'
 
 // ===== 契约层：能力描述符 =====

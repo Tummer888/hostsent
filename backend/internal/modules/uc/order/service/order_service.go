@@ -17,9 +17,9 @@ import (
 	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
 	orderdto "hostsent/backend/internal/modules/admin/order/dto"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
-	paydto "hostsent/backend/internal/modules/admin/payment/dto"
-	paymodel "hostsent/backend/internal/modules/admin/payment/model"
 	catalogdto "hostsent/backend/internal/modules/admin/product/catalog/dto"
+	paydto "hostsent/backend/internal/modules/admin/system/payment/dto"
+	paymodel "hostsent/backend/internal/modules/admin/system/payment/model"
 	"hostsent/backend/internal/pkg/billingcycle"
 	"hostsent/backend/internal/pkg/pricing"
 

@@ -131,6 +131,38 @@ export const RISK_STATUS_LABEL: Record<string, string> = {
   handled: '已处置',
 }
 
+/**
+ * 风险事件的处置动作（risk_event_actions.action）。
+ *
+ * 与处置状态分开：状态回答「待办关掉没有」，动作回答「做过哪些管控」。
+ * 拉黑、失效会话不改变状态，却必须让运营一眼看到已经做过 —— 改造前这两个动作
+ * 没有任何回显，点完页面什么都不变，看起来像没生效。
+ */
+export const RISK_ACTION_OPTIONS = [
+  { label: '拉黑', value: 'blacklist' },
+  { label: '失效会话', value: 'revoke_sessions' },
+  { label: '处置', value: 'handle' },
+  { label: '忽略', value: 'ignore' },
+  { label: '调整等级', value: 'level' },
+]
+
+export const RISK_ACTION_LABEL: Record<string, string> = {
+  blacklist: '拉黑',
+  revoke_sessions: '失效会话',
+  handle: '处置',
+  ignore: '忽略',
+  level: '调整等级',
+}
+
+/** 动作标签配色：管控类（黑名单/踢会话）用警示色，便于与「看过了」区分。 */
+export const RISK_ACTION_THEME: Record<string, string> = {
+  blacklist: 'danger',
+  revoke_sessions: 'warning',
+  handle: 'success',
+  ignore: 'default',
+  level: 'primary',
+}
+
 /** 会话状态：库里只有 active / revoked / expired 三种（没有 online）。 */
 export const SESSION_STATUS_OPTIONS = [
   { label: '在线', value: 'active' },

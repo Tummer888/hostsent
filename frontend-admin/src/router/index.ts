@@ -680,98 +680,79 @@ const routes: Array<RouteRecordRaw> = [
       },
     ],
   },
+  // 支付中心整域并入「系统管理」（迁移 067）：页面/菜单已迁到 /system/payment/*，
+  // 旧路径保留 redirect 兼容书签与已保存的页签（归属调整，HTTP API / 权限码不变）。
   {
-    // 支付中心（doc35）：与财务管理并列的独立模块 —— 财务管账本，支付管钱进出的通道。
     path: '/payment',
-    component: () => import('@/layouts/index.vue'),
-    redirect: '/payment/overview',
+    redirect: '/system/payment/overview',
     meta: { title: '支付中心' },
-    children: [
-      {
-        path: 'overview',
-        name: 'PaymentOverview',
-        component: () => import('@/pages/payment/overview/index.vue'),
-        // 与 permission_map.go 口径统一为 payment:order（doc102 M3-1）：该页聚合
-        // channels/orders/callbacks/payouts/refunds 五个接口，各自在服务端单独鉴权。
-        meta: { title: '支付概览', role: 'admin', permission: 'payment:order' },
-      },
-      {
-        path: 'channels',
-        name: 'PaymentChannels',
-        component: () => import('@/pages/payment/channels/index.vue'),
-        meta: { title: '支付渠道', role: 'admin', permission: 'payment:channel' },
-      },
-      {
-        path: 'methods',
-        name: 'PaymentMethods',
-        component: () => import('@/pages/payment/methods/index.vue'),
-        meta: { title: '支付方式', role: 'admin', permission: 'payment:method' },
-      },
-      {
-        path: 'orders',
-        name: 'PaymentOrders',
-        component: () => import('@/pages/payment/orders/index.vue'),
-        meta: { title: '支付订单', role: 'admin', permission: 'payment:order' },
-      },
-      {
-        path: 'callbacks',
-        name: 'PaymentCallbacks',
-        component: () => import('@/pages/payment/callbacks/index.vue'),
-        meta: { title: '回调日志', role: 'admin', permission: 'payment:callback' },
-      },
-      {
-        path: 'refunds',
-        name: 'PaymentRefunds',
-        component: () => import('@/pages/payment/refunds/index.vue'),
-        meta: { title: '渠道退款', role: 'admin', permission: 'payment:refund' },
-      },
-      {
-        path: 'payouts',
-        name: 'PaymentPayouts',
-        component: () => import('@/pages/payment/payouts/index.vue'),
-        meta: { title: '打款管理', role: 'admin', permission: 'payment:payout' },
-      },
-      {
-        path: 'recon',
-        name: 'PaymentRecon',
-        component: () => import('@/pages/payment/recon/index.vue'),
-        meta: { title: '渠道对账', role: 'admin', permission: 'payment:recon' },
-      },
-    ],
   },
   {
-    // 销售中心（doc86 S4–S6）：客户归属 / 提成台账 / 提成审核 / 业绩排行。
-    // meta.permission 与 backend permission_map.go、db.go seedMenus 四处对齐。
+    path: '/payment/overview',
+    redirect: '/system/payment/overview',
+    meta: { title: '支付概览' },
+  },
+  {
+    path: '/payment/channels',
+    redirect: '/system/payment/channels',
+    meta: { title: '支付渠道' },
+  },
+  {
+    path: '/payment/methods',
+    redirect: '/system/payment/methods',
+    meta: { title: '支付方式' },
+  },
+  {
+    path: '/payment/orders',
+    redirect: '/system/payment/orders',
+    meta: { title: '支付订单' },
+  },
+  {
+    path: '/payment/callbacks',
+    redirect: '/system/payment/callbacks',
+    meta: { title: '回调日志' },
+  },
+  {
+    path: '/payment/refunds',
+    redirect: '/system/payment/refunds',
+    meta: { title: '渠道退款' },
+  },
+  {
+    path: '/payment/payouts',
+    redirect: '/system/payment/payouts',
+    meta: { title: '打款管理' },
+  },
+  {
+    path: '/payment/recon',
+    redirect: '/system/payment/recon',
+    meta: { title: '渠道对账' },
+  },
+  // 销售中心（doc86 S4–S6）整域并入「系统管理」（迁移 068）：页面/菜单已迁到
+  // /system/sales/*，旧路径保留 redirect 兼容书签与已保存的页签（归属调整，权限码不变）。
+  {
     path: '/sales',
-    component: () => import('@/layouts/index.vue'),
-    redirect: '/sales/customers',
+    redirect: '/system/sales/customers',
     meta: { title: '销售中心' },
-    children: [
-      {
-        path: 'customers',
-        name: 'SalesCustomers',
-        component: () => import('@/pages/sales/customers/index.vue'),
-        meta: { title: '客户归属', role: 'admin', permission: 'sales:customer:list' },
-      },
-      {
-        path: 'commissions',
-        name: 'SalesCommissions',
-        component: () => import('@/pages/sales/commissions/index.vue'),
-        meta: { title: '提成台账', role: 'admin', permission: 'sales:commission:list' },
-      },
-      {
-        path: 'withdrawals',
-        name: 'SalesWithdrawals',
-        component: () => import('@/pages/sales/withdrawals/index.vue'),
-        meta: { title: '提成审核', role: 'admin', permission: 'sales:commission:audit' },
-      },
-      {
-        path: 'performance',
-        name: 'SalesPerformance',
-        component: () => import('@/pages/sales/performance/index.vue'),
-        meta: { title: '业绩排行', role: 'admin', permission: 'sales:performance:view' },
-      },
-    ],
+  },
+  {
+    path: '/sales/customers',
+    redirect: '/system/sales/customers',
+    meta: { title: '客户归属' },
+  },
+  {
+    path: '/sales/commissions',
+    redirect: '/system/sales/commissions',
+    meta: { title: '提成台账' },
+  },
+  {
+    path: '/sales/withdrawals',
+    redirect: '/system/sales/withdrawals',
+    meta: { title: '提成审核' },
+  },
+  {
+    path: '/sales/performance',
+    redirect: '/system/sales/performance',
+    meta: { title: '业绩排行' },
   },
   {
     path: '/referral',
@@ -854,49 +835,42 @@ const routes: Array<RouteRecordRaw> = [
     redirect: '/instances/lifecycle/policy',
     meta: { title: '生命周期策略' },
   },
+  // 消息中心（doc70/doc90）整域并入「系统管理」（迁移 068）：页面/菜单已迁到
+  // /system/notification/*，旧路径保留 redirect 兼容书签与已保存的页签（归属调整，权限码不变）。
   {
     path: '/notification',
-    component: () => import('@/layouts/index.vue'),
-    redirect: '/notification/records',
-    meta: { title: '消息中心', role: 'admin' },
-    children: [
-      {
-        path: 'records',
-        name: 'NotifyRecords',
-        component: () => import('@/pages/notification/records/index.vue'),
-        meta: { title: '通知记录', role: 'admin', permission: 'notify:record' },
-      },
-      {
-        path: 'templates',
-        name: 'NotifyTemplates',
-        component: () => import('@/pages/notification/templates/index.vue'),
-        meta: { title: '通知模板', role: 'admin', permission: 'notify:template' },
-      },
-      {
-        path: 'channels',
-        name: 'NotifyChannels',
-        component: () => import('@/pages/notification/channels/index.vue'),
-        meta: { title: '渠道配置', role: 'admin', permission: 'notify:channel' },
-      },
-      {
-        path: 'sms-templates',
-        name: 'NotifySmsTemplates',
-        component: () => import('@/pages/notification/sms-templates/index.vue'),
-        meta: { title: '短信模板', role: 'admin', permission: 'notify:sms-template' },
-      },
-      {
-        path: 'broadcast',
-        name: 'NotifyBroadcast',
-        component: () => import('@/pages/notification/broadcast/index.vue'),
-        meta: { title: '消息群发', role: 'admin', permission: 'notify:broadcast' },
-      },
-      {
-        path: 'deliveries',
-        name: 'NotifyDeliveries',
-        component: () => import('@/pages/notification/deliveries/index.vue'),
-        meta: { title: '发送日志', role: 'admin', permission: 'notify:delivery' },
-      },
-    ],
+    redirect: '/system/notification/records',
+    meta: { title: '消息中心' },
+  },
+  {
+    path: '/notification/records',
+    redirect: '/system/notification/records',
+    meta: { title: '通知记录' },
+  },
+  {
+    path: '/notification/templates',
+    redirect: '/system/notification/templates',
+    meta: { title: '通知模板' },
+  },
+  {
+    path: '/notification/channels',
+    redirect: '/system/notification/channels',
+    meta: { title: '渠道配置' },
+  },
+  {
+    path: '/notification/sms-templates',
+    redirect: '/system/notification/sms-templates',
+    meta: { title: '短信模板' },
+  },
+  {
+    path: '/notification/broadcast',
+    redirect: '/system/notification/broadcast',
+    meta: { title: '消息群发' },
+  },
+  {
+    path: '/notification/deliveries',
+    redirect: '/system/notification/deliveries',
+    meta: { title: '发送日志' },
   },
   {
     // 内容管理（doc100 §7.1）：门户展示型内容 + 公告管理（doc102 §4.1 M2-4 由系统管理迁入）。
@@ -927,7 +901,7 @@ const routes: Array<RouteRecordRaw> = [
         // 公告管理（复用 notification 公告服务与权限码）：doc102 §4.1 M2-4 由系统管理迁入。
         path: 'announcements',
         name: 'ContentAnnouncements',
-        component: () => import('@/pages/notification/announcements/index.vue'),
+        component: () => import('@/pages/system/notification/announcements/index.vue'),
         meta: { title: '公告管理', role: 'admin', permission: 'notify:announcement' },
       },
     ],
@@ -1025,6 +999,137 @@ const routes: Array<RouteRecordRaw> = [
         name: 'SystemLogsPolicy',
         component: () => import('@/pages/system/logs/policy/index.vue'),
         meta: { title: '保留策略', role: 'admin', permission: 'log:policy' },
+      },
+      // 支付中心（doc35）整域并入系统管理（迁移 067）：作为「支付中心」二级目录的子模块，
+      // 目录只做分组、不做落地页，默认落在 overview。原 /payment/* 保留 redirect 兼容书签。
+      // 注意：侧栏只渲染「一级域 + 二级分组 + 叶子」三层，因此原渠道/交易/出款三个二级分类
+      // 已压平到本层 —— 再嵌一层的话第四层叶子的路径在侧栏点不到。
+      {
+        path: 'payment',
+        redirect: '/system/payment/overview',
+        meta: { title: '支付中心', role: 'admin' },
+      },
+      {
+        path: 'payment/overview',
+        name: 'PaymentOverview',
+        component: () => import('@/pages/system/payment/overview/index.vue'),
+        // 与 permission_map.go 口径统一为 payment:order（doc102 M3-1）：该页聚合
+        // channels/orders/callbacks/payouts/refunds 五个接口，各自在服务端单独鉴权。
+        meta: { title: '支付概览', role: 'admin', permission: 'payment:order' },
+      },
+      {
+        path: 'payment/channels',
+        name: 'PaymentChannels',
+        component: () => import('@/pages/system/payment/channels/index.vue'),
+        meta: { title: '支付渠道', role: 'admin', permission: 'payment:channel' },
+      },
+      {
+        path: 'payment/methods',
+        name: 'PaymentMethods',
+        component: () => import('@/pages/system/payment/methods/index.vue'),
+        meta: { title: '支付方式', role: 'admin', permission: 'payment:method' },
+      },
+      {
+        path: 'payment/orders',
+        name: 'PaymentOrders',
+        component: () => import('@/pages/system/payment/orders/index.vue'),
+        meta: { title: '支付订单', role: 'admin', permission: 'payment:order' },
+      },
+      {
+        path: 'payment/callbacks',
+        name: 'PaymentCallbacks',
+        component: () => import('@/pages/system/payment/callbacks/index.vue'),
+        meta: { title: '回调日志', role: 'admin', permission: 'payment:callback' },
+      },
+      {
+        path: 'payment/refunds',
+        name: 'PaymentRefunds',
+        component: () => import('@/pages/system/payment/refunds/index.vue'),
+        meta: { title: '渠道退款', role: 'admin', permission: 'payment:refund' },
+      },
+      {
+        path: 'payment/payouts',
+        name: 'PaymentPayouts',
+        component: () => import('@/pages/system/payment/payouts/index.vue'),
+        meta: { title: '打款管理', role: 'admin', permission: 'payment:payout' },
+      },
+      {
+        path: 'payment/recon',
+        name: 'PaymentRecon',
+        component: () => import('@/pages/system/payment/recon/index.vue'),
+        meta: { title: '渠道对账', role: 'admin', permission: 'payment:recon' },
+      },
+      // 消息中心（doc70/doc90）整域并入系统管理（迁移 068）：作为「消息中心」二级目录的子模块。
+      {
+        path: 'notification',
+        redirect: '/system/notification/records',
+        meta: { title: '消息中心', role: 'admin' },
+      },
+      {
+        path: 'notification/records',
+        name: 'NotifyRecords',
+        component: () => import('@/pages/system/notification/records/index.vue'),
+        meta: { title: '通知记录', role: 'admin', permission: 'notify:record' },
+      },
+      {
+        path: 'notification/templates',
+        name: 'NotifyTemplates',
+        component: () => import('@/pages/system/notification/templates/index.vue'),
+        meta: { title: '通知模板', role: 'admin', permission: 'notify:template' },
+      },
+      {
+        path: 'notification/channels',
+        name: 'NotifyChannels',
+        component: () => import('@/pages/system/notification/channels/index.vue'),
+        meta: { title: '渠道配置', role: 'admin', permission: 'notify:channel' },
+      },
+      {
+        path: 'notification/sms-templates',
+        name: 'NotifySmsTemplates',
+        component: () => import('@/pages/system/notification/sms-templates/index.vue'),
+        meta: { title: '短信模板', role: 'admin', permission: 'notify:sms-template' },
+      },
+      {
+        path: 'notification/broadcast',
+        name: 'NotifyBroadcast',
+        component: () => import('@/pages/system/notification/broadcast/index.vue'),
+        meta: { title: '消息群发', role: 'admin', permission: 'notify:broadcast' },
+      },
+      {
+        path: 'notification/deliveries',
+        name: 'NotifyDeliveries',
+        component: () => import('@/pages/system/notification/deliveries/index.vue'),
+        meta: { title: '发送日志', role: 'admin', permission: 'notify:delivery' },
+      },
+      // 销售中心（doc86）整域并入系统管理（迁移 068）：作为「销售中心」二级目录的子模块。
+      {
+        path: 'sales',
+        redirect: '/system/sales/customers',
+        meta: { title: '销售中心', role: 'admin' },
+      },
+      {
+        path: 'sales/customers',
+        name: 'SalesCustomers',
+        component: () => import('@/pages/system/sales/customers/index.vue'),
+        meta: { title: '客户归属', role: 'admin', permission: 'sales:customer:list' },
+      },
+      {
+        path: 'sales/commissions',
+        name: 'SalesCommissions',
+        component: () => import('@/pages/system/sales/commissions/index.vue'),
+        meta: { title: '提成台账', role: 'admin', permission: 'sales:commission:list' },
+      },
+      {
+        path: 'sales/withdrawals',
+        name: 'SalesWithdrawals',
+        component: () => import('@/pages/system/sales/withdrawals/index.vue'),
+        meta: { title: '提成审核', role: 'admin', permission: 'sales:commission:audit' },
+      },
+      {
+        path: 'sales/performance',
+        name: 'SalesPerformance',
+        component: () => import('@/pages/system/sales/performance/index.vue'),
+        meta: { title: '业绩排行', role: 'admin', permission: 'sales:performance:view' },
       },
     ],
   },

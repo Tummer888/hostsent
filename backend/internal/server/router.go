@@ -285,6 +285,8 @@ func newRouter(app *App) *gin.Engine {
 			security.POST("/risk-events/:id/level", app.perm("security:risk:list"), app.securityHandler.UpdateRiskEventLevel)
 			security.POST("/risk-events/:id/blacklist", app.perm("security:blacklist:manage"), app.securityHandler.CreateBlacklistFromRisk)
 			security.POST("/risk-events/:id/revoke-sessions", app.perm("security:session:manage"), app.securityHandler.RevokeSessionsFromRisk)
+			// 处置时间线：详情抽屉显示「谁在什么时候做了什么」。
+			security.GET("/risk-events/:id/actions", app.perm("security:risk:list"), app.securityHandler.ListRiskEventActions)
 			security.GET("/blacklists", app.perm("security:blacklist:manage"), app.securityHandler.ListBlacklists)
 			security.POST("/blacklists", app.perm("security:blacklist:manage"), app.securityHandler.CreateBlacklist)
 			security.GET("/blacklists/:id", app.perm("security:blacklist:manage"), app.securityHandler.GetBlacklist)

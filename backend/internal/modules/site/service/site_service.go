@@ -14,9 +14,9 @@ import (
 	"strings"
 
 	contentdto "hostsent/backend/internal/modules/admin/content/dto"
-	notifydto "hostsent/backend/internal/modules/admin/notification/dto"
-	notifymodel "hostsent/backend/internal/modules/admin/notification/model"
 	systemmodel "hostsent/backend/internal/modules/admin/system/model"
+	notifydto "hostsent/backend/internal/modules/admin/system/notification/dto"
+	notifymodel "hostsent/backend/internal/modules/admin/system/notification/model"
 
 	"hostsent/backend/internal/modules/site/dto"
 )

@@ -13,9 +13,9 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	saleshandler "hostsent/backend/internal/modules/admin/sales/handler"
-	salesrepo "hostsent/backend/internal/modules/admin/sales/repository"
-	salesservice "hostsent/backend/internal/modules/admin/sales/service"
+	saleshandler "hostsent/backend/internal/modules/admin/system/sales/handler"
+	salesrepo "hostsent/backend/internal/modules/admin/system/sales/repository"
+	salesservice "hostsent/backend/internal/modules/admin/system/sales/service"
 )
 
 // salesBundle 销售体系处理器集合（admin 端）。

@@ -76,6 +76,15 @@ export interface RiskEventInfo {
   handled_by_name: string
   handled_at?: string
   handle_note?: string
+  /**
+   * 已执行过的处置动作码（去重）：level / handle / ignore / blacklist / revoke_sessions。
+   *
+   * 与 status 是两个维度：status 只说「待办关掉没有」，而拉黑、失效会话这类管控
+   * 动作不改变待办状态，却必须让运营一眼看到「这条已经管控过了」。
+   */
+  actions?: string[]
+  /** 处置动作的中文摘要（如「拉黑 · 失效会话」），列表页直接展示。 */
+  action_summary?: string
   created_at: string
   updated_at: string
 }
@@ -165,6 +174,12 @@ export interface RiskEventListQuery extends Record<string, unknown> {
   risk_type?: string
   risk_level?: string
   status?: string
+  /**
+   * 按「已执行过的处置动作」筛选：blacklist / revoke_sessions / handle / ignore / level。
+   *
+   * 与 status 互补：status 筛「待办关掉没有」，action 筛「做没做过某类管控」。
+   */
+  action?: string
   keyword?: string
   start_time?: string
   end_time?: string
@@ -196,8 +211,50 @@ export interface SessionListQuery extends Record<string, unknown> {
   end_time?: string
 }
 
+/**
+ * 关闭待办（处置 / 忽略）的请求体。
+ *
+ * 处置与忽略只回答「这条待办关掉没有」，与「要不要同时做管控」是两件事：
+ * 大部分事件看一眼就知道没事（忽略即可），但确认有问题的那些，运营希望
+ * 一次点完「处置 + 拉黑 + 踢会话」，而不是关完单再去列表里重新找到它。
+ */
 export interface RiskHandleRequest {
   note?: string
+  /** 同时把该事件来源加入黑名单。 */
+  blacklist?: boolean
+  /** 拉黑维度：ip / user / device / phone / email；留空由后端按事件推断。 */
+  blacklist_type?: string
+  /** 同时强制下线该主体（仅客户域支持）。 */
+  revoke_sessions?: boolean
+}
+
+/** 从风险事件拉黑（管控动作，不改变待办状态，除非 close_event）。 */
+export interface RiskBlacklistRequest {
+  /** 拉黑维度；留空按事件可用字段推断（IP → 设备 → 账号）。 */
+  type?: string
+  note?: string
+  /** 同时把这条待办关成「已处置」。 */
+  close_event?: boolean
+}
+
+/** 从风险事件失效会话（管控动作，不改变待办状态，除非 close_event）。 */
+export interface RiskRevokeRequest {
+  note?: string
+  /** 同时把这条待办关成「已处置」。 */
+  close_event?: boolean
+}
+
+/** 一条处置流水（详情抽屉的处置时间线）。 */
+export interface RiskEventActionInfo {
+  id: number
+  /** level / handle / ignore / blacklist / revoke_sessions。 */
+  action: string
+  operator_id: number
+  operator_name: string
+  note: string
+  /** 动作结果 JSON 快照（拉黑维度与值、失效会话数、等级变更前后）。 */
+  detail: string
+  created_at: string
 }
 
 /** 手动调整风险等级（doc06 §4.3「手动升级风险等级」）。 */
@@ -206,6 +263,10 @@ export interface RiskLevelRequest {
   risk_level: string
   /** 调整原因，写进处置说明。 */
   note?: string
+  /** 调级的同时关掉待办（默认 false，仅标记不结案）。 */
+  close_event?: boolean
+  /** 配合 close_event：handled（已处置）/ ignored（已忽略）。 */
+  close_as?: string
 }
 
 export interface BlacklistCreateRequest {
@@ -284,11 +345,12 @@ export function getRiskEventStats(
   return request.get<Record<string, number>>({ url: '/security/risk-events/stats', params })
 }
 
-/** 手动调整风险等级（只改等级，不改处置状态）。 */
+/** 手动调整风险等级（默认只改等级，不改处置状态）。 */
 export function updateRiskEventLevel(id: number, data: RiskLevelRequest): Promise<RiskEventInfo> {
   return request.post<RiskEventInfo>({ url: `/security/risk-events/${id}/level`, data })
 }
 
+/** 关闭待办：处置 / 忽略，可同时附带管控动作（拉黑、失效会话）。 */
 export function ignoreRiskEvent(id: number, data: RiskHandleRequest = {}): Promise<RiskEventInfo> {
   return request.post<RiskEventInfo>({ url: `/security/risk-events/${id}/ignore`, data })
 }
@@ -297,12 +359,23 @@ export function handleRiskEvent(id: number, data: RiskHandleRequest = {}): Promi
   return request.post<RiskEventInfo>({ url: `/security/risk-events/${id}/handle`, data })
 }
 
-export function blacklistRiskEvent(id: number, data: RiskHandleRequest = {}): Promise<BlacklistInfo> {
+/**
+ * 从风险事件拉黑来源（管控动作，不改变待办状态，除非传 close_event）。
+ *
+ * type 留空时后端按事件可用字段推断（IP → 设备 → 账号）。
+ */
+export function blacklistRiskEvent(id: number, data: RiskBlacklistRequest = {}): Promise<BlacklistInfo> {
   return request.post<BlacklistInfo>({ url: `/security/risk-events/${id}/blacklist`, data })
 }
 
-export function revokeRiskEventSessions(id: number, data: RiskHandleRequest = {}): Promise<ListResponse<SessionInfo>> {
+/** 失效该事件主体的全部有效会话（同样不改待办状态，除非传 close_event）。 */
+export function revokeRiskEventSessions(id: number, data: RiskRevokeRequest = {}): Promise<ListResponse<SessionInfo>> {
   return request.post<ListResponse<SessionInfo>>({ url: `/security/risk-events/${id}/revoke-sessions`, data })
+}
+
+/** 风险事件处置时间线（谁在什么时候做了什么）。 */
+export function getRiskEventActions(id: number): Promise<ListResponse<RiskEventActionInfo>> {
+  return request.get<ListResponse<RiskEventActionInfo>>({ url: `/security/risk-events/${id}/actions` })
 }
 
 export function getBlacklistList(params: BlacklistListQuery): Promise<ListResponse<BlacklistInfo>> {

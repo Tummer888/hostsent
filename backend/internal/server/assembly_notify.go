@@ -19,9 +19,9 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	notifyhandler "hostsent/backend/internal/modules/admin/notification/handler"
-	notifyrepo "hostsent/backend/internal/modules/admin/notification/repository"
-	notifyservice "hostsent/backend/internal/modules/admin/notification/service"
+	notifyhandler "hostsent/backend/internal/modules/admin/system/notification/handler"
+	notifyrepo "hostsent/backend/internal/modules/admin/system/notification/repository"
+	notifyservice "hostsent/backend/internal/modules/admin/system/notification/service"
 	"hostsent/backend/internal/pkg/cache"
 )
 

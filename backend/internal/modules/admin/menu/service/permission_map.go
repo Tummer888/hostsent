@@ -104,31 +104,11 @@ var menuPermissionMap = map[string]string{
 	"/finance/report":   "finance:wallet",
 	"/finance/config":   "finance:wallet",
 
-	// 支付中心（doc35）：渠道/支付方式/支付单/回调/退款/打款/对账独立模块。
-	// 支付概览聚合 5 个接口（channels/orders/callbacks/payouts/refunds），
-	// 口径与 router.meta.permission 统一为 payment:order（doc102 M3-1）。
-	"/payment/overview":  "payment:order",
-	"/payment/channels":  "payment:channel",
-	"/payment/methods":   "payment:method",
-	"/payment/orders":    "payment:order",
-	"/payment/callbacks": "payment:callback",
-	"/payment/refunds":   "payment:refund",
-	"/payment/payouts":   "payment:payout",
-	"/payment/recon":     "payment:recon",
-
 	"/tickets/list":       "ticket:list",
 	"/tickets/categories": "ticket:category",
 	"/tickets/stats":      "ticket:stats",
 	// 复核中心（S3 双人复核）：与回复复核同一权限码。
 	"/tickets/reviews": "ticket:review",
-
-	// 销售中心（S1/S4–S6）：客户归属 / 提成台账 / 提成审核 / 业绩排行。
-	// 提成审核页同时服务主管审核，菜单权限取审核码；销售的自助入口在台账页按钮级，
-	// 后端 GET /sales/withdrawals 仍用 sales:commission:list 放行本人查询（doc86 §5 注 2）。
-	"/sales/customers":   "sales:customer:list",
-	"/sales/commissions": "sales:commission:list",
-	"/sales/withdrawals": "sales:commission:audit",
-	"/sales/performance": "sales:performance:view",
 
 	"/system/roles":       "system:role:list",
 	"/system/permissions": "system:permission:view",
@@ -143,13 +123,32 @@ var menuPermissionMap = map[string]string{
 	"/system/logs":         "log:center",
 	"/system/logs/cleanup": "log:cleanup",
 	"/system/logs/policy":  "log:policy",
-
-	"/notification/records":       "notify:record",
-	"/notification/templates":     "notify:template",
-	"/notification/channels":      "notify:channel",
-	"/notification/sms-templates": "notify:sms-template",
-	"/notification/broadcast":     "notify:broadcast",
-	"/notification/deliveries":    "notify:delivery",
+	// 支付中心（doc35）整域并入系统管理（迁移 067）：路径 /payment/* → /system/payment/*，
+	// 权限码不变。支付概览聚合 5 个接口（channels/orders/callbacks/payouts/refunds），
+	// 口径与 router.meta.permission 统一为 payment:order（doc102 M3-1）。
+	"/system/payment/overview":  "payment:order",
+	"/system/payment/channels":  "payment:channel",
+	"/system/payment/methods":   "payment:method",
+	"/system/payment/orders":    "payment:order",
+	"/system/payment/callbacks": "payment:callback",
+	"/system/payment/refunds":   "payment:refund",
+	"/system/payment/payouts":   "payment:payout",
+	"/system/payment/recon":     "payment:recon",
+	// 消息中心（doc70/doc90）整域并入系统管理（迁移 068）：路径 /notification/* →
+	// /system/notification/*，权限码不变。
+	"/system/notification/records":       "notify:record",
+	"/system/notification/templates":     "notify:template",
+	"/system/notification/channels":      "notify:channel",
+	"/system/notification/sms-templates": "notify:sms-template",
+	"/system/notification/broadcast":     "notify:broadcast",
+	"/system/notification/deliveries":    "notify:delivery",
+	// 销售中心（S1/S4–S6）整域并入系统管理（迁移 068）：路径 /sales/* → /system/sales/*。
+	// 提成审核页同时服务主管审核，菜单权限取审核码；销售的自助入口在台账页按钮级，
+	// 后端 GET /sales/withdrawals 仍用 sales:commission:list 放行本人查询（doc86 §5 注 2）。
+	"/system/sales/customers":   "sales:customer:list",
+	"/system/sales/commissions": "sales:commission:list",
+	"/system/sales/withdrawals": "sales:commission:audit",
+	"/system/sales/performance": "sales:performance:view",
 
 	// 积分中心（doc36）：独立账本，规则/账户/流水三个叶子。
 	"/points/overview":     "point:account",

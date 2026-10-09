@@ -13,7 +13,7 @@
             <router-link class="header-link" to="/users/security/login-logs">登录日志</router-link>、
             <router-link class="header-link" to="/system/audit-logs">操作审计</router-link>、
             <router-link class="header-link" to="/resource/sync-center">同步中心</router-link>、
-            <router-link class="header-link" to="/payment/callbacks">支付回调</router-link>。
+            <router-link class="header-link" to="/system/payment/callbacks">支付回调</router-link>。
           </p>
         </div>
       </div>

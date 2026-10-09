@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	withdrawdto "hostsent/backend/internal/modules/admin/finance/withdraw/dto"
-	paydto "hostsent/backend/internal/modules/admin/payment/dto"
+	paydto "hostsent/backend/internal/modules/admin/system/payment/dto"
 	"hostsent/backend/internal/modules/uc/payment/service"
 	apperrors "hostsent/backend/internal/pkg/errors"
 	"hostsent/backend/internal/pkg/middleware"

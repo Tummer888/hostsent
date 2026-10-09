@@ -387,21 +387,24 @@ func (h *SecurityHandler) HandleRiskEvent(c *gin.Context) {
 
 // CreateBlacklistFromRisk godoc
 // @Summary 风险事件加入黑名单
+// @Description 可指定拉黑维度（type，留空按事件可用字段推断）；close_event=true 时同时关闭待办
 // @Tags 安全与风控
 // @Accept json
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "风险事件ID"
-// @Param request body dto.RiskEventHandleRequest false "处理备注"
+// @Param request body dto.RiskEventBlacklistRequest false "拉黑维度与原因"
 // @Success 200 {object} dto.APIResponse[dto.BlacklistInfo]
 // @Router /api/v1/admin/security/risk-events/{id}/blacklist [post]
 func (h *SecurityHandler) CreateBlacklistFromRisk(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	var req dto.RiskEventHandleRequest
+	var req dto.RiskEventBlacklistRequest
 	_ = c.ShouldBindJSON(&req)
 	data, err := h.service.CreateBlacklistFromRisk(c.Request.Context(), id, req, operatorID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		// 拉黑失败的原因都是可操作的（维度没数据、已在黑名单里），按业务错误回 400，
+		// 前端才能把原因原样弹给运营；500 一律被前端压成「请求失败」，看不出该改什么。
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
@@ -409,21 +412,40 @@ func (h *SecurityHandler) CreateBlacklistFromRisk(c *gin.Context) {
 
 // RevokeSessionsFromRisk godoc
 // @Summary 风险事件失效会话
+// @Description 按事件主体域撤销该主体全部有效会话；close_event=true 时同时关闭待办；员工主体不支持，返回 400
 // @Tags 安全与风控
 // @Accept json
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "风险事件ID"
-// @Param request body dto.RiskEventHandleRequest false "处理备注"
+// @Param request body dto.RiskEventRevokeRequest false "处理备注"
 // @Success 200 {object} dto.APIResponse[dto.ListResponse[dto.SessionInfo]]
 // @Router /api/v1/admin/security/risk-events/{id}/revoke-sessions [post]
 func (h *SecurityHandler) RevokeSessionsFromRisk(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	var req dto.RiskEventHandleRequest
+	var req dto.RiskEventRevokeRequest
 	_ = c.ShouldBindJSON(&req)
 	data, err := h.service.RevokeSessionsFromRisk(c.Request.Context(), id, req, operatorID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+}
+
+// ListRiskEventActions godoc
+// @Summary 风险事件处置时间线
+// @Tags 安全与风控
+// @Produce json
+// @Security BearerAuth
+// @Param id path int true "风险事件ID"
+// @Success 200 {object} dto.APIResponse[dto.ListResponse[dto.RiskEventActionInfo]]
+// @Router /api/v1/admin/security/risk-events/{id}/actions [get]
+func (h *SecurityHandler) ListRiskEventActions(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	data, err := h.service.ListRiskEventActions(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})

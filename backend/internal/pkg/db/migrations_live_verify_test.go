@@ -218,6 +218,21 @@ func TestLivePhaseMigrations(t *testing.T) {
 				"idx_login_logs_device_fingerprint",
 			},
 		},
+		{
+			// 068 新增风险事件处置流水表（doc06 §4.3 处置联动）。
+			//
+			// 改造前 risk_events 只有一列 handle_note / handled_by，任何一次操作都会
+			// 覆盖上一次的痕迹；而且「拉黑」「失效会话」两个动作根本不写回事件 ——
+			// 运营点完页面状态不变，看起来像没生效。本表把每个动作记成一行，
+			// 形成事件下的处置时间线。
+			name:   "068_risk_event_actions",
+			file:   "../../../migrations/068_risk_event_actions.sql",
+			models: []interface{}{&securitymodel.RiskEventAction{}},
+			columns: map[string][]string{
+				"risk_event_actions": {"id", "event_id", "action", "operator_id", "note", "detail", "created_at"},
+			},
+			indexes: []string{"idx_risk_event_actions_event"},
+		},
 	}
 
 	for _, tc := range cases {
@@ -352,6 +367,169 @@ func TestLiveLifecycleMergedIntoInstances(t *testing.T) {
 	}
 	if perms < 6 {
 		t.Errorf("lifecycle:* 权限码应保留，实际 %d 个", perms)
+	}
+}
+
+// TestLivePaymentMergedIntoSystem 验证 067：支付中心整域并入系统管理。
+//   - 迁移文件可重复执行（幂等）；
+//   - 旧一级域 /payment（含 3 个二级分类与 8 个叶子）已删除，不残留重复入口；
+//   - 新的 /system/payment 二级目录与 8 个叶子已由 seed 插入；
+//   - payment:* 权限码保留（接口仍按它鉴权）。
+//
+// 顺序要求：先跑迁移，再重启后端 —— 新行由 seed 在启动时插入，
+// 未重启时本用例会在「新菜单未插入」处失败，这是预期的提示。
+func TestLivePaymentMergedIntoSystem(t *testing.T) {
+	dsn := os.Getenv("LIVE_DB_DSN")
+	if dsn == "" {
+		dsn = "host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable"
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+
+	sqlBytes, err := os.ReadFile("../../../migrations/067_merge_payment_into_system.sql")
+	if err != nil {
+		t.Fatalf("读取迁移文件失败: %v", err)
+	}
+	for i := 1; i <= 2; i++ {
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			t.Fatalf("第 %d 次执行迁移失败: %v", i, err)
+		}
+	}
+
+	var oldMenus int64
+	if err := db.Raw(
+		"SELECT count(*) FROM menus WHERE platform = 'admin' AND (path = '/payment' OR path LIKE '/payment/%')",
+	).Scan(&oldMenus).Error; err != nil {
+		t.Fatalf("查询旧支付中心菜单失败: %v", err)
+	}
+	if oldMenus != 0 {
+		t.Errorf("旧一级域菜单 /payment* 应已删除，仍存在 %d 行", oldMenus)
+	}
+
+	wantPaths := []string{
+		"/system/payment",
+		"/system/payment/overview",
+		"/system/payment/channels",
+		"/system/payment/methods",
+		"/system/payment/orders",
+		"/system/payment/callbacks",
+		"/system/payment/refunds",
+		"/system/payment/payouts",
+		"/system/payment/recon",
+	}
+	for _, p := range wantPaths {
+		var n int64
+		if err := db.Raw(
+			"SELECT count(*) FROM menus WHERE platform = 'admin' AND path = ? AND status = 'active'", p,
+		).Scan(&n).Error; err != nil {
+			t.Fatalf("查询菜单 %s 失败: %v", p, err)
+		}
+		if n != 1 {
+			t.Errorf("菜单 %s 应存在且唯一（seed 需在后端重启后写入），实际 %d 行", p, n)
+		}
+	}
+
+	var perms int64
+	if err := db.Raw(
+		"SELECT count(*) FROM permissions WHERE code LIKE 'payment%'",
+	).Scan(&perms).Error; err != nil {
+		t.Fatalf("查询 payment 权限失败: %v", err)
+	}
+	if perms < 8 {
+		t.Errorf("payment:* 权限码应保留，实际 %d 个", perms)
+	}
+}
+
+// TestLiveSalesAndNotificationMergedIntoSystem 验证 068：销售中心与消息中心
+// 整域并入系统管理。
+//   - 迁移文件可重复执行（幂等）；
+//   - 旧一级域 /sales、/notification（含各自叶子）已删除，不残留重复入口；
+//   - 新的 /system/{sales,notification} 二级目录与各自叶子已由 seed 插入；
+//   - 公告管理页面随 notification 模块搬迁，seed 的 component 指向新目录；
+//   - sales:* / notify:* 权限码保留（接口仍按它们鉴权）。
+//
+// 顺序要求：先跑迁移，再重启后端 —— 新行由 seed 在启动时插入，
+// 未重启时本用例会在「新菜单未插入」处失败，这是预期的提示。
+func TestLiveSalesAndNotificationMergedIntoSystem(t *testing.T) {
+	dsn := os.Getenv("LIVE_DB_DSN")
+	if dsn == "" {
+		dsn = "host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable"
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+
+	sqlBytes, err := os.ReadFile("../../../migrations/068_merge_sales_and_notification_into_system.sql")
+	if err != nil {
+		t.Fatalf("读取迁移文件失败: %v", err)
+	}
+	for i := 1; i <= 2; i++ {
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			t.Fatalf("第 %d 次执行迁移失败: %v", i, err)
+		}
+	}
+
+	var oldMenus int64
+	if err := db.Raw(
+		`SELECT count(*) FROM menus WHERE platform = 'admin'
+		   AND (path = '/sales' OR path LIKE '/sales/%'
+		     OR path = '/notification' OR path LIKE '/notification/%')`,
+	).Scan(&oldMenus).Error; err != nil {
+		t.Fatalf("查询旧销售/消息菜单失败: %v", err)
+	}
+	if oldMenus != 0 {
+		t.Errorf("旧一级域菜单 /sales*、/notification* 应已删除，仍存在 %d 行", oldMenus)
+	}
+
+	wantPaths := []string{
+		"/system/notification",
+		"/system/notification/records",
+		"/system/notification/templates",
+		"/system/notification/channels",
+		"/system/notification/sms-templates",
+		"/system/notification/broadcast",
+		"/system/notification/deliveries",
+		"/system/sales",
+		"/system/sales/customers",
+		"/system/sales/commissions",
+		"/system/sales/withdrawals",
+		"/system/sales/performance",
+	}
+	for _, p := range wantPaths {
+		var n int64
+		if err := db.Raw(
+			"SELECT count(*) FROM menus WHERE platform = 'admin' AND path = ? AND status = 'active'", p,
+		).Scan(&n).Error; err != nil {
+			t.Fatalf("查询菜单 %s 失败: %v", p, err)
+		}
+		if n != 1 {
+			t.Errorf("菜单 %s 应存在且唯一（seed 需在后端重启后写入），实际 %d 行", p, n)
+		}
+	}
+
+	var annComp string
+	if err := db.Raw(
+		"SELECT component FROM menus WHERE platform = 'admin' AND path = '/content/announcements'",
+	).Scan(&annComp).Error; err != nil {
+		t.Fatalf("查询公告管理菜单失败: %v", err)
+	}
+	if annComp != "system/notification/announcements/index" {
+		t.Errorf("公告管理 component 应随 notification 模块搬迁（doc102 M2-4），实际 %q", annComp)
+	}
+
+	for _, code := range []string{"sales:%", "notify:%"} {
+		var n int64
+		if err := db.Raw(
+			"SELECT count(*) FROM permissions WHERE code LIKE ?", code,
+		).Scan(&n).Error; err != nil {
+			t.Fatalf("查询 %s 权限失败: %v", code, err)
+		}
+		if n < 4 {
+			t.Errorf("%s 权限码应保留，实际 %d 个", code, n)
+		}
 	}
 }
 

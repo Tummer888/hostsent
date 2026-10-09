@@ -190,6 +190,12 @@ export const navMenu = [
       { title: '操作审计', path: '/system/audit-logs', icon: navIcon('history') },
       { title: '第三方登录', path: '/system/oauth', icon: navIcon('link') },
       { title: '日志中心', path: '/system/log-center', icon: navIcon('file') },
+      // 支付中心（doc35）整域并入本域（迁移 067）：兜底菜单按「一级域 + 直接子项」约定
+      // 只列到二级分组，其下 8 个叶子由后端菜单树下发。
+      { title: '支付中心', path: '/system/payment', icon: navIcon('money') },
+      // 消息中心（doc70/doc90）与销售中心（doc86）同批并入本域（迁移 068），其下叶子由后端下发。
+      { title: '消息中心', path: '/system/notification', icon: navIcon('mail') },
+      { title: '销售中心', path: '/system/sales', icon: navIcon('share') },
     ],
   },
   {
@@ -204,19 +210,6 @@ export const navMenu = [
     ],
   },
   {
-    title: '消息中心',
-    path: '/notification',
-    icon: navIcon('mail'),
-    children: [
-      { title: '通知模板', path: '/notification/templates', icon: navIcon('root-list') },
-      { title: '短信模板', path: '/notification/sms-templates', icon: navIcon('file') },
-      { title: '渠道配置', path: '/notification/channels', icon: navIcon('setting') },
-      { title: '通知记录', path: '/notification/records', icon: navIcon('mail') },
-      { title: '发送日志', path: '/notification/deliveries', icon: navIcon('root-list') },
-      { title: '消息群发', path: '/notification/broadcast', icon: navIcon('send') },
-    ],
-  },
-  {
     title: '推广返现',
     path: '/referral',
     icon: navIcon('share'),
@@ -224,17 +217,6 @@ export const navMenu = [
       { title: '返现台账', path: '/referral/cashbacks', icon: navIcon('money') },
       { title: '提现审核', path: '/referral/withdrawals', icon: navIcon('upload') },
       { title: '邀请关系', path: '/referral/invitees', icon: navIcon('usergroup') },
-    ],
-  },
-  {
-    title: '支付中心',
-    path: '/payment',
-    icon: navIcon('money'),
-    children: [
-      { title: '支付概览', path: '/payment/overview', icon: navIcon('dashboard') },
-      { title: '渠道管理', path: '/payment/channel-center', icon: navIcon('link') },
-      { title: '交易管理', path: '/payment/trade-center', icon: navIcon('order') },
-      { title: '出款与对账', path: '/payment/payout-center', icon: navIcon('verify') },
     ],
   },
   {
@@ -246,17 +228,6 @@ export const navMenu = [
       { title: '积分规则', path: '/points/rules', icon: navIcon('setting') },
       { title: '积分账户', path: '/points/accounts', icon: navIcon('usergroup') },
       { title: '积分流水', path: '/points/transactions', icon: navIcon('history') },
-    ],
-  },
-  {
-    title: '销售中心',
-    path: '/sales',
-    icon: navIcon('share'),
-    children: [
-      { title: '客户归属', path: '/sales/customers', icon: navIcon('usergroup') },
-      { title: '提成台账', path: '/sales/commissions', icon: navIcon('money') },
-      { title: '提成审核', path: '/sales/withdrawals', icon: navIcon('upload') },
-      { title: '业绩与排行', path: '/sales/performance', icon: navIcon('chart-bar') },
     ],
   },
   {
