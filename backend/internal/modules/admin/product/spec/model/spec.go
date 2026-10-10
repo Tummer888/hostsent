@@ -30,19 +30,27 @@ const (
 	SpecMappingMapped   int = 1 // 已映射
 )
 
-// SpecTemplate 规格模板：面向不同场景（计算/内存/存储等）的规格预设。
-// 自营链路把它当作"可复用的固定规格"：新建商品时直接引用模板生成 SKU，
-// 改掉少量参数即可上架，避免每个商品从零手填原子取值与平台字段。
+// SpecTemplate 配置档：面向某个对接平台的一组可选规格取值。
+//
+// 自营链路的用法：运营在「平台配置项」里选好平台（魔方云），勾选每个参数允许的取值
+// （CPU 2核/4核/8核、内存 4G/8G、一组镜像…），存成一个配置档（如「2核4G」）；
+// 新建商品时勾选档位即生成 1 个 SKU + N 个客户可选配置项。
+//
+// 兼容说明：
+//   - CPU/Memory/Disk/Bandwidth/OS 五个结构化字段保留，作为档位的"基线值"
+//     （生成 SKU 时取它作为默认下发值），并为老模板（无 option_selections）兜底；
+//   - SpecFamily 保留列但不再写入（默认 general），UI 与 SKU 编码都不再使用；
+//   - SpecValues/PlatformParams 原样保留：前者是原子取值 JSON，后者是平台写参数 JSON。
 type SpecTemplate struct {
 	ID          uint64  `gorm:"primaryKey;autoIncrement"`
-	Name        string  `gorm:"size:100;not null"`                                  // 规格名称，如"通用型-2核4G"
-	SpecFamily  string  `gorm:"column:spec_family;size:20;default:'general';index"` // 规格族
-	CPU         int     `gorm:"column:cpu;default:1"`                               // CPU 核数
-	Memory      float64 `gorm:"column:memory;type:decimal(8,2);default:1"`          // 内存 GB
-	Disk        int     `gorm:"column:disk;default:40"`                             // 系统盘 GB
+	Name        string  `gorm:"size:100;not null"`                                  // 档位名，如"2核4G"
+	SpecFamily  string  `gorm:"column:spec_family;size:20;default:'general';index"` // 已弃用：保留列，不再写入
+	CPU         int     `gorm:"column:cpu;default:1"`                               // 基线 CPU 核数
+	Memory      float64 `gorm:"column:memory;type:decimal(8,2);default:1"`          // 基线内存 GB
+	Disk        int     `gorm:"column:disk;default:40"`                             // 基线系统盘 GB
 	DiskType    string  `gorm:"column:disk_type;size:20;default:'ssd'"`             // 磁盘类型
-	Bandwidth   int     `gorm:"column:bandwidth;default:0"`                         // 带宽 Mbps，0 表示不限
-	OS          string  `gorm:"column:os;size:50"`                                  // 操作系统
+	Bandwidth   int     `gorm:"column:bandwidth;default:0"`                         // 基线带宽 Mbps，0 表示不限
+	OS          string  `gorm:"column:os;size:50"`                                  // 基线操作系统
 	Description string  `gorm:"type:text"`                                          // 适用场景描述
 	Price       float64 `gorm:"column:price;type:decimal(10,2)"`                    // 参考售价
 	SortOrder   int     `gorm:"column:sort_order;default:0"`                        // 排序
@@ -53,6 +61,16 @@ type SpecTemplate struct {
 	// PlatformParams 平台写参数 JSON（如 {"area":"1","node":"2","os":"12","store":"2"}）；
 	// 生成 SKU 时原样写入 spec_bindings.platform_params 并置 confirmed。
 	PlatformParams string `gorm:"column:platform_params;type:jsonb"`
+	// ProviderType 档位归属的平台（mofangyun / ...）；空表示未绑定平台（旧模板）。
+	ProviderType string `gorm:"column:provider_type;size:64;not null;default:'';index"`
+	// OptionSelections 每参数勾选的可选值（T4.5），形如：
+	//   {"cpu":{"values":["2","4"]},"bw":{"range":[1,100],"default":"10"}}
+	// 建品时据此生成客户可选配置项；空表示按基线值生成单一 SKU（旧行为）。
+	OptionSelections string `gorm:"column:option_selections;type:jsonb"`
+	// NameTemplate / DescriptionTemplate 商品名与描述的渲染模板，
+	// 如 "{cpu}核{memory}G {os}"，用档位展开后的取值填充。
+	NameTemplate        string `gorm:"column:name_template;size:255;not null;default:''"`
+	DescriptionTemplate string `gorm:"column:description_template;type:text;not null;default:''"`
 	// Source 模板来源：self 自建 / imported 上游归一（T2.5）。
 	Source    string    `gorm:"column:source;size:16;default:'self'"`
 	CreatedAt time.Time `gorm:"autoCreateTime"`

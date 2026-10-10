@@ -87,6 +87,8 @@ func init() {
 		},
 		RateLimit:      upstream.RateLimitSpec{QPS: 5, Burst: 10},
 		SupportsPaging: false,
+		// 平台配置项目录（T4.5）：驱动后台「平台配置项」与「配置档」界面。
+		OptionCatalog: optionCatalog(),
 		FieldDictionary: map[string]any{
 			"source": "实测（依据 mofangyun/provider.go 与 17 号文档 §6.1）",
 			"write": []string{
@@ -407,7 +409,13 @@ func (p *MoFangYunProvider) CreateInstance(ctx context.Context, req *model.Creat
 		}
 	}
 	// 数据盘：other_data_disk 传数组，需按表单数组语法展开。
-	expandOtherDataDisk(form, req.Extra)
+	// 优先用已翻译的 data_disk_size（文档口径 "30,1" 已归一为 size + data_disk_store），
+	// Extra 显式给了数组形态时仍走 expandOtherDataDisk。
+	if strings.TrimSpace(opts["data_disk_size"]) != "" {
+		expandDataDisk(form, opts)
+	} else {
+		expandOtherDataDisk(form, req.Extra)
+	}
 
 	// 创建响应实测为 {"num":1,"id":"2","taskid":"1192",...}：id 是**字符串**，
 	// 历史上按 int64 解析会在成功后被 JSON 解码错误掩盖成"开通失败"。
@@ -778,6 +786,8 @@ func (p *MoFangYunProvider) ListPlatformResources(ctx context.Context) (*upstrea
 			if img.Group.Name != "" {
 				label = img.Group.Name + " / " + img.Name
 			}
+			// Group 既是展示前缀，也是用户侧分组下拉的分组标签（Ubuntu/Windows/CentOS）。
+			groupName := img.Group.Name
 			// 逐个节点铺开：同一镜像在不同节点上的可用性不同，按 (镜像, 节点) 各出一项，
 			// 让规格模板能把 image 与 node 一起映射（platform_params 里的 os+node 组合）。
 			emitted := false
@@ -790,6 +800,7 @@ func (p *MoFangYunProvider) ListPlatformResources(ctx context.Context) (*upstrea
 					Value:    strconv.FormatInt(img.ID, 10),
 					Label:    label,
 					ParentID: strconv.FormatInt(info.NodeID, 10),
+					Group:    groupName,
 					Status:   platformImageStatus(img.Status, info.Status),
 				})
 			}
@@ -797,6 +808,7 @@ func (p *MoFangYunProvider) ListPlatformResources(ctx context.Context) (*upstrea
 				out.Images = append(out.Images, upstream.PlatformResourceItem{
 					Value:  strconv.FormatInt(img.ID, 10),
 					Label:  label,
+					Group:  groupName,
 					Status: platformImageStatus(img.Status, 0),
 				})
 			}
@@ -930,7 +942,7 @@ var cloudOptionKeys = []string{
 	"data_read_iops_sec", "data_write_iops_sec", "vpc", "vpc_name", "traffic_type",
 	"in_bw", "out_bw", "ip_num", "traffic_quota", "backup_num", "snap_num", "flow_limit",
 	"bw", "flow_way", "bind_mac", "cpu_limit", "port", "cpu_model", "rid", "ipv6_num",
-	"type", "niccard", "link_clone", "reset_flow_day", "store",
+	"type", "niccard", "link_clone", "reset_flow_day", "store", "gpu_num",
 }
 
 // collectOptions 归一化创建参数：优先取 Extra["configoptions"]（与财务 configoptions 同形），
@@ -986,6 +998,10 @@ func collectOptions(extra map[string]interface{}) map[string]string {
 	if opts["traffic_quota"] == "" && opts["flow_limit"] != "" {
 		opts["traffic_quota"] = opts["flow_limit"]
 	}
+	// 文档口径键 → 平台写键的统一翻译（rid/bind_mac/reset_flow_day/
+	// 磁盘性能四件套/系统盘 lin:win:/数据盘 size,store），见 option_alias.go。
+	// 放在这里而不是各调用点，保证 CreateInstance / ResizeInstance 走同一套口径。
+	applyOptionAliases(opts)
 	return opts
 }
 

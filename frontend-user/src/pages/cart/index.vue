@@ -43,6 +43,9 @@
                 {{ cycleLabel(it.cycle) }}
               </t-tag>
             </div>
+            <p v-if="it.selectionLabels.length" class="cart-item__options">
+              {{ it.selectionLabels.join(' · ') }}
+            </p>
           </div>
 
           <div class="cart-item__price price-cell">
@@ -214,6 +217,8 @@ async function refreshQuotes() {
         specCode: it.specCode,
         cycle: it.cycle,
         quantity: it.quantity,
+        // 选配项随行保存：重算价格必须带上，否则「4核」会按默认「2核」算。
+        configSelections: it.selections,
       })
       if (data) next[it.key] = data
     } catch {
@@ -268,6 +273,7 @@ async function settle() {
         specCode: it.specCode,
         cycle: it.cycle,
         quantity: it.quantity,
+        configSelections: it.selections,
         payMode: 'balance',
       })
       if (data?.id) lastOrderId = data.id
@@ -307,6 +313,7 @@ async function settleByChannel() {
         specCode: it.specCode,
         cycle: it.cycle,
         quantity: it.quantity,
+        configSelections: it.selections,
         payMode: 'channel',
       })
       if (!data?.id) {
@@ -462,6 +469,17 @@ onMounted(refreshQuotes)
   align-items: center;
   gap: var(--space-xs);
   flex-wrap: wrap;
+}
+
+/* 选配摘要：一行小字，收起时不挤占主信息 */
+.cart-item__options {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cart-item__amount {

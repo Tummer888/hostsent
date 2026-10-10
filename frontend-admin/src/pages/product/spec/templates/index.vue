@@ -4,7 +4,11 @@
       <div class="page-header__main">
         <span class="page-header__chip"><AppIcon size="22" aria-hidden="true" /></span>
         <div class="page-header__text">
-          <h2 class="page-header__title">规格模板</h2>
+          <h2 class="page-header__title">规格模板（配置档）</h2>
+          <p class="page-header__desc">
+            先选对接平台，再勾选该平台每个参数允许的取值；新建商品时选用档位即生成
+            1 个 SKU + 客户可选配置项。
+          </p>
         </div>
       </div>
       <t-space size="small">
@@ -12,7 +16,7 @@
           <template #icon><RefreshIcon /></template>刷新
         </t-button>
         <t-button theme="primary" @click="openCreate">
-          <template #icon><AddIcon /></template>新增模板
+          <template #icon><AddIcon /></template>新增档位
         </t-button>
       </t-space>
     </header>
@@ -20,11 +24,11 @@
     <FilterCard>
       <div class="field">
         <span class="field__label">关键词</span>
-        <t-input v-model="filters.keyword" placeholder="规格名称" clearable @enter="search" />
+        <t-input v-model="filters.keyword" placeholder="档位名称" clearable @enter="search" />
       </div>
       <div class="field">
-        <span class="field__label">规格族</span>
-        <t-select v-model="filters.spec_family" clearable placeholder="全部" :options="specFamilyOptions" />
+        <span class="field__label">平台</span>
+        <t-select v-model="filters.provider_type" clearable placeholder="全部" :options="platformTypeOptions" />
       </div>
       <div class="field">
         <span class="field__label">状态</span>
@@ -40,7 +44,7 @@
 
     <section class="table-card surface-card">
       <div class="table-card__head">
-        <h3 class="card-title">规格模板列表</h3>
+        <h3 class="card-title">档位列表</h3>
         <span class="table-card__meta">共 {{ pagination.total }} 条</span>
       </div>
       <t-table
@@ -55,30 +59,42 @@
         @page-change="handlePageChange"
       >
         <template #spec="{ row }">
-          <div class="product-cell"><span class="cell-strong">{{ row.name }}</span><span class="product-sub">{{ familyLabel(row.spec_family) }}</span></div>
+          <div class="product-cell">
+            <span class="cell-strong">{{ row.name }}</span>
+            <span class="product-sub">
+              {{ row.provider_type || '未绑定平台' }}
+              <template v-if="selectionCount(row)"> · {{ selectionCount(row) }} 个可选参数</template>
+            </span>
+          </div>
         </template>
         <template #specs="{ row }">
           <span>{{ row.cpu }}核 / {{ row.memory }}G / {{ row.disk }}G</span>
         </template>
         <template #bandwidth="{ row }"><span>{{ row.bandwidth === 0 ? '不限' : row.bandwidth + ' Mbps' }}</span></template>
+        <template #platform="{ row }">
+          <t-tag v-if="row.platform_params" theme="success" variant="light" size="small" shape="round">已配映射</t-tag>
+          <t-tag v-else theme="warning" variant="light" size="small" shape="round">缺平台映射</t-tag>
+        </template>
         <template #status="{ row }"><t-tag :theme="row.status === 1 ? 'success' : 'default'" variant="light" size="small" shape="round">{{ row.status === 1 ? '启用' : '停用' }}</t-tag></template>
         <template #action="{ row }">
-<div class="action-cell">
+          <div class="action-cell">
             <MobileAction
               v-if="isMobile"
               :options="buildMobileActionOptions([
                 { content: '编辑', value: 'edit', theme: 'default' },
+                { content: '复制', value: 'clone', theme: 'default' },
                 { content: '删除', value: 'delete', theme: 'error' },
               ])"
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
               <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
+              <t-link theme="primary" hover="color" @click="cloneTemplate(row)">复制</t-link>
               <t-link theme="danger" hover="color" @click="remove(row)">删除</t-link>
             </template>
           </div>
         </template>
-        <template #empty><t-empty description="暂无规格模板，请新增" /></template>
+        <template #empty><t-empty description="暂无档位，请新增" /></template>
       </t-table>
 
       <MobilePagination
@@ -91,81 +107,183 @@
       />
     </section>
 
-    <t-dialog v-model:visible="dialogVisible" :header="form.id ? '编辑规格模板' : '新增规格模板'" width="720px"
-      :confirm-btn="{ content: '保存', theme: 'primary' }" :cancel-btn="{ content: '取消' }" @confirm="save" @close="closeDialog">
+    <!-- ===== 配置档编辑：左目录勾选、右预览 ===== -->
+    <t-dialog
+      v-model:visible="dialogVisible"
+      :header="form.id ? `编辑档位：${form.name || '未命名'}` : '新增档位'"
+      width="1080px"
+      :confirm-btn="{ content: '保存', theme: 'primary' }"
+      :cancel-btn="{ content: '取消' }"
+      @confirm="save"
+      @close="closeDialog"
+    >
       <t-form label-align="top" :data="form" @submit.prevent>
         <div class="form-grid">
-          <t-form-item label="规格名称" name="name"><t-input v-model="form.name" placeholder="如：通用型-2核4G" /></t-form-item>
-          <t-form-item label="规格族" name="spec_family"><t-select v-model="form.spec_family" :options="specFamilyOptions" /></t-form-item>
-          <t-form-item label="CPU（核）" name="cpu"><t-input-number v-model="form.cpu" :min="1" theme="column" /></t-form-item>
-          <t-form-item label="内存（GB）" name="memory"><t-input-number v-model="form.memory" :min="1" :precision="1" theme="column" /></t-form-item>
-          <t-form-item label="系统盘（GB）" name="disk"><t-input-number v-model="form.disk" :min="1" theme="column" /></t-form-item>
-          <t-form-item label="带宽（Mbps）" name="bandwidth"><t-input-number v-model="form.bandwidth" :min="0" theme="column" /></t-form-item>
-          <t-form-item label="磁盘类型" name="disk_type"><t-select v-model="form.disk_type" :options="diskTypeOptions" /></t-form-item>
-          <t-form-item label="参考售价（元）" name="price"><t-input-number v-model="form.price" :min="0" :precision="2" theme="column" /></t-form-item>
-          <t-form-item label="排序" name="sort_order"><t-input-number v-model="form.sort_order" theme="column" /></t-form-item>
-          <t-form-item label="状态" name="status"><t-select v-model="form.status" :options="statusOptions" /></t-form-item>
-        </div>
-        <t-form-item label="操作系统" name="os"><t-input v-model="form.os" placeholder="如：Linux / Windows" /></t-form-item>
-        <t-form-item label="适用场景" name="description"><t-textarea v-model="form.description" :autosize="{ minRows: 2, maxRows: 4 }" /></t-form-item>
-
-        <!-- 平台映射：自营商品按模板生成 SKU 时，这些参数直接写入该 SKU 的平台绑定 -->
-        <t-divider>平台映射（自营开通参数）</t-divider>
-        <t-alert theme="info" message="选择平台渠道后可下拉选取真实区域/节点/存储/镜像，参数会写入生成的 SKU 平台绑定；不配置则生成的 SKU 需手工绑定后才能上架。" />
-        <div class="form-grid">
-          <t-form-item label="平台渠道">
+          <t-form-item label="对接平台" name="providerId">
             <t-select
-              v-model="platform.providerId"
-              clearable
-              placeholder="请选择算力平台渠道"
+              v-model="providerId"
+              placeholder="选择算力平台渠道"
               :options="platformOptions"
-              :loading="resourceLoading"
+              :loading="platformLoading"
               @change="onPlatformChange"
             />
           </t-form-item>
-          <t-form-item label="区域 area">
-            <t-select v-model="platformParams.area" clearable placeholder="平台区域 ID" :options="areaOptions" />
+          <t-form-item label="档位名称" name="name">
+            <t-input v-model="form.name" placeholder="如 2核4G / 入门型" />
           </t-form-item>
-          <t-form-item label="节点 node">
-            <t-select v-model="platformParams.node" clearable placeholder="平台节点 ID" :options="nodeOptions" />
+          <t-form-item label="参考售价（元）" name="price">
+            <t-input-number v-model="form.price" :min="0" :precision="2" theme="column" />
           </t-form-item>
-          <t-form-item label="存储 store">
-            <t-select v-model="platformParams.store" clearable placeholder="系统盘所在存储（可选）" :options="storeOptions" />
+          <t-form-item label="排序" name="sort_order">
+            <t-input-number v-model="form.sort_order" theme="column" />
           </t-form-item>
-          <t-form-item label="镜像 os">
-            <t-select v-model="platformParams.os" clearable placeholder="平台镜像 ID" :options="imageOptions" />
+          <t-form-item label="状态" name="status">
+            <t-select v-model="form.status" :options="statusOptions" />
           </t-form-item>
         </div>
-        <t-form-item label="平台参数 JSON（高级：上一行未覆盖的键）">
-          <t-textarea
-            v-model="form.platform_params"
-            :autosize="{ minRows: 2, maxRows: 6 }"
-            placeholder='如 {"network_type":"normal","ip_num":1,"traffic_quota":0}'
-          />
+
+        <t-form-item label="预置档位（一键填基线，再按需改）">
+          <t-space size="small" break-line>
+            <t-button v-for="p in presets" :key="p.name" size="small" variant="outline" @click="applyPreset(p)">
+              {{ p.name }}
+            </t-button>
+            <t-button size="small" theme="primary" variant="outline" @click="openMultiCpuMem">
+              开放多选：CPU 2/4/8核 · 内存 4/8G
+            </t-button>
+          </t-space>
         </t-form-item>
-        <t-form-item label="原子取值 JSON（高级：留空按 CPU/内存/磁盘自动推导）">
-          <t-textarea
-            v-model="form.spec_values"
-            :autosize="{ minRows: 3, maxRows: 8 }"
-            placeholder='如 {"compute.cpu":2,"compute.memory":4096,"storage.system.size":60}'
-          />
-        </t-form-item>
+
+        <t-alert v-if="!providerId" theme="warning" message="请先选择对接平台，才能读到该平台的配置项目录。" />
+        <t-alert v-else-if="!catalog.length" theme="info" message="该平台暂无配置项目录，请先到「产品管理 → 规格管理 → 平台配置项」同步目录。" />
+
+        <template v-if="providerId && catalog.length">
+          <t-divider>
+            平台配置项
+            <span class="divider-hint">已开 {{ enabledCount }} 项 · 多选取值会成为客户可选配置项</span>
+          </t-divider>
+
+          <div v-for="grp in catalogGroups" :key="grp.name" class="opt-block">
+            <div class="opt-block__head">{{ grp.name || '未分组' }}</div>
+            <div v-for="row in grp.rows" :key="row.spec.option_key" class="opt-row" :class="{ 'opt-row--on': row.enabled }">
+              <div class="opt-row__head">
+                <t-checkbox v-model="row.enabled">
+                  <span class="opt-row__name">{{ row.spec.label || row.spec.option_key }}</span>
+                </t-checkbox>
+                <span class="opt-row__meta">
+                  <code>{{ row.spec.option_key }}</code>
+                  <t-tag v-if="row.spec.required" theme="error" variant="light" size="small" shape="round">必选</t-tag>
+                  <span v-if="row.spec.unit">单位 {{ row.spec.unit }}</span>
+                  <span v-if="row.spec.default_value">默认 {{ row.spec.default_value }}</span>
+                </span>
+              </div>
+              <p v-if="row.spec.help" class="opt-row__help">{{ row.spec.help }}</p>
+
+              <div v-if="row.enabled" class="opt-row__body">
+                <template v-if="isQtyOption(row.spec)">
+                  <div class="opt-inline">
+                    <label class="opt-field">
+                      最小
+                      <t-input-number v-model="row.rangeMin" :min="0" theme="column" />
+                    </label>
+                    <label class="opt-field">
+                      最大
+                      <t-input-number v-model="row.rangeMax" :min="0" theme="column" />
+                    </label>
+                    <label class="opt-field">
+                      默认值
+                      <t-input-number v-model="row.defaultNumber" theme="column" />
+                    </label>
+                  </div>
+                </template>
+                <template v-else>
+                  <t-select
+                    v-model="row.values"
+                    multiple
+                    clearable
+                    filterable
+                    :placeholder="row.spec.value_source === 'manual' ? '手工填写取值（输入后回车添加）' : '选择允许客户选取的值'"
+                    :options="valueOptions(row)"
+                    :loading="resourceLoading"
+                    :creatable="row.spec.value_source === 'manual'"
+                    @change="onValuesChange(row)"
+                  />
+                  <div class="opt-inline">
+                    <label class="opt-field">
+                      默认值
+                      <t-select v-model="row.default" clearable placeholder="默认选中" :options="selectedValueOptions(row)" />
+                    </label>
+                    <label class="opt-field">
+                      分组（用户侧下拉分组）
+                      <t-input v-model="row.groupLabel" placeholder="如 Ubuntu / Windows" />
+                    </label>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <t-divider>平台映射（生成 SKU 时下发的基线参数）</t-divider>
+          <div class="form-grid">
+            <t-form-item label="数据中心 area">
+              <t-select v-model="platformParams.area" clearable placeholder="平台区域" :options="areaOptions" />
+            </t-form-item>
+            <t-form-item label="节点 node">
+              <t-select v-model="platformParams.node" clearable placeholder="平台节点" :options="nodeOptions" />
+            </t-form-item>
+            <t-form-item label="存储 store">
+              <t-select v-model="platformParams.store" clearable placeholder="系统盘存储（可选）" :options="storeOptions" />
+            </t-form-item>
+            <t-form-item label="镜像 os">
+              <t-select v-model="platformParams.os" clearable placeholder="平台镜像" :options="imageOptions" />
+            </t-form-item>
+          </div>
+          <t-form-item label="其他平台参数（高级 JSON）">
+            <t-textarea v-model="extraParamsText" :autosize="{ minRows: 2, maxRows: 5 }"
+              placeholder='上面四下拉之外的键，如 {"network_type":"normal","ip_num":1}' />
+          </t-form-item>
+
+          <t-divider>名称与描述模板</t-divider>
+          <t-form-item label="商品名模板">
+            <t-input v-model="form.name_template" placeholder="{cpu}核{memory}G {os}" />
+          </t-form-item>
+          <t-form-item label="描述模板">
+            <t-textarea v-model="form.description_template" :autosize="{ minRows: 2, maxRows: 4 }"
+              placeholder="{cpu}核{memory}GB 内存 / {disk}GB 系统盘 / {bw}Mbps 带宽" />
+          </t-form-item>
+          <t-alert theme="info">
+            <template #message>
+              <div>预览（按基线取值展开）：</div>
+              <div class="preview-line">商品名：<strong>{{ previewName || '—' }}</strong></div>
+              <div class="preview-line">SKU 编码：<code>{{ previewCode || '—' }}</code></div>
+              <div class="preview-line">描述：{{ previewDesc || '—' }}</div>
+              <div class="preview-line">平台参数：<code>{{ previewPlatformParams }}</code></div>
+            </template>
+          </t-alert>
+        </template>
       </t-form>
     </t-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import FilterCard from '@/components/filter-card/index.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
+
 import { AddIcon, AppIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 
-import { createSpecTemplate, deleteSpecTemplate, getSpecTemplateList, updateSpecTemplate } from '@/api/product'
+import { createSpecTemplate, deleteSpecTemplate, getOptionCatalog, getSpecTemplateList, updateSpecTemplate } from '@/api/product'
 import { getProviderList, getProviderPlatformResources } from '@/api/admin'
-import type { PlatformResourceItem, ProviderInfo, SpecTemplateInfo } from '@/types/interface'
+import type {
+  OptionSpecInfo,
+  OptionValueItem,
+  PlatformResourceItem,
+  ProviderInfo,
+  SpecOptionSelections,
+  SpecTemplateInfo,
+} from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
+import FilterCard from '@/components/filter-card/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useMobilePagination } from '@/composables/useMobilePagination'
@@ -176,39 +294,29 @@ const items = ref<SpecTemplateInfo[]>([])
 const loading = ref(false)
 const { isMobile } = useIsMobile()
 
-const filters = reactive<{ keyword?: string; spec_family?: string; status?: number }>({})
+const filters = reactive<{ keyword?: string; provider_type?: string; status?: number }>({})
 
 const { pagination, mobilePage, applyTotal, handlePageChange, goMobilePage, handleMobilePageSizeChange, resetPage } =
   useMobilePagination(load)
 
-const specFamilyOptions = [
-  { label: '通用型', value: 'general' },
-  { label: '计算型', value: 'compute' },
-  { label: '内存型', value: 'memory' },
-  { label: '存储型', value: 'storage' },
-  { label: 'GPU型', value: 'gpu' },
-]
-const diskTypeOptions = [
-  { label: 'SSD', value: 'ssd' },
-  { label: 'HDD', value: 'hdd' },
-]
 const statusOptions = [
   { label: '启用', value: 1 },
   { label: '停用', value: 0 },
 ]
 
 const columns: PrimaryTableCol<SpecTemplateInfo>[] = [
-  { colKey: 'spec', title: '规格', minWidth: 180 },
-  { colKey: 'specs', title: '配置', width: 150 },
+  { colKey: 'spec', title: '档位', minWidth: 200 },
+  { colKey: 'specs', title: '基线配置', width: 160 },
   { colKey: 'bandwidth', title: '带宽', width: 100 },
-  { colKey: 'os', title: '操作系统', width: 120 },
+  { colKey: 'platform', title: '平台映射', width: 110 },
   { colKey: 'price', title: '参考售价', width: 100 },
   { colKey: 'status', title: '状态', width: 90 },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 120, fixed: 'right' as const, align: 'center' as const },
+  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 170, fixed: 'right' as const, align: 'center' as const },
 ]
 
-function familyLabel(v: string): string {
-  return specFamilyOptions.find((o) => o.value === v)?.label || v
+function selectionCount(row: SpecTemplateInfo): number {
+  const sel = (row.option_selections || {}) as SpecOptionSelections
+  return Object.keys(sel).length
 }
 
 async function load() {
@@ -216,7 +324,7 @@ async function load() {
   try {
     const data = await getSpecTemplateList({
       keyword: filters.keyword,
-      spec_family: filters.spec_family,
+      provider_type: filters.provider_type,
       status: filters.status,
       page: pagination.current,
       page_size: pagination.pageSize,
@@ -235,88 +343,69 @@ function search() {
 }
 function resetFilters() {
   filters.keyword = undefined
-  filters.spec_family = undefined
+  filters.provider_type = undefined
   filters.status = undefined
   resetPage()
 }
 
-const dialogVisible = ref(false)
-const form = reactive<{
-  id: number
-  name: string
-  spec_family: string
-  cpu: number
-  memory: number
-  disk: number
-  bandwidth: number
-  disk_type: string
-  os: string
-  price: number
-  sort_order: number
-  description: string
-  status: number
-  spec_values: string
-  platform_params: string
-}>(emptyForm())
-
-function emptyForm() {
-  return {
-    id: 0, name: '', spec_family: 'general', cpu: 2, memory: 4, disk: 50, bandwidth: 5,
-    disk_type: 'ssd', os: '', price: 0, sort_order: 0, description: '', status: 1,
-    spec_values: '', platform_params: '',
-  }
-}
-
-// ===== 平台映射（自营开通参数）：选渠道后拉取真实区域/节点/存储/镜像 =====
+// ===== 平台渠道与资源目录 =====
 const platformOptions = ref<{ label: string; value: number }[]>([])
-const platform = reactive<{ providerId: number | undefined }>({ providerId: undefined })
-const platformParams = reactive<{ area?: string; node?: string; store?: string; os?: string }>({
-  area: undefined, node: undefined, store: undefined, os: undefined,
-})
-const resources = ref<{ areas: PlatformResourceItem[]; nodes: PlatformResourceItem[]; stores: PlatformResourceItem[]; images: PlatformResourceItem[] }>({
-  areas: [], nodes: [], stores: [], images: [],
-})
+const platformTypeOptions = ref<{ label: string; value: string }[]>([])
+const platformLoading = ref(false)
+const providerId = ref<number | undefined>(undefined)
+const providerType = ref('')
+
+const resources = ref<{
+  areas: PlatformResourceItem[]
+  nodes: PlatformResourceItem[]
+  stores: PlatformResourceItem[]
+  images: PlatformResourceItem[]
+}>({ areas: [], nodes: [], stores: [], images: [] })
 const resourceLoading = ref(false)
 
-/** 仅保留启用项的下拉选项（平台返回 offline 的取值不该再被选进新规格）。 */
-function toOptions(items: PlatformResourceItem[]): { label: string; value: string }[] {
-  return items
+function toOptions(list: PlatformResourceItem[]): { label: string; value: string }[] {
+  return list
     .filter((item) => !item.status || item.status === 'active')
     .map((item) => ({ label: `${item.label}（${item.value}）`, value: item.value }))
 }
 
 const areaOptions = computed(() => toOptions(resources.value.areas))
 const imageOptions = computed(() => toOptions(resources.value.images))
-// 节点/存储按所选区域过滤（魔方云的 node/store 都挂在 area 下）。
-const nodeOptions = computed(() => {
-  const area = platformParams.area
-  const items = area ? resources.value.nodes.filter((n) => !n.parent_id || n.parent_id === area) : resources.value.nodes
-  return toOptions(items)
-})
-const storeOptions = computed(() => {
-  const area = platformParams.area
-  const items = area ? resources.value.stores.filter((s) => !s.parent_id || s.parent_id === area) : resources.value.stores
-  return toOptions(items)
-})
+function filterByArea(list: PlatformResourceItem[], area?: string) {
+  if (!area) return list
+  return list.filter((item) => !item.parent_id || item.parent_id === area)
+}
+const nodeOptions = computed(() => toOptions(filterByArea(resources.value.nodes, platformParams.area)))
+const storeOptions = computed(() => toOptions(filterByArea(resources.value.stores, platformParams.area)))
 
 async function loadPlatformOptions() {
+  platformLoading.value = true
   try {
     const data = await getProviderList({ page_size: 100 })
-    platformOptions.value = data.items
-      .filter((item: ProviderInfo) => item.kind === 'compute')
-      .map((item: ProviderInfo) => ({ label: `${item.name}（${item.provider_type}）`, value: item.id }))
+    const compute = data.items.filter((item: ProviderInfo) => item.kind === 'compute')
+    platformOptions.value = compute.map((item: ProviderInfo) => ({
+      label: `${item.name}（${item.provider_type}）`, value: item.id,
+    }))
+    const seen = new Set<string>()
+    platformTypeOptions.value = compute
+      .map((item: ProviderInfo) => item.provider_type)
+      .filter((t: string) => (seen.has(t) ? false : (seen.add(t), true)))
+      .map((t: string) => ({ label: t, value: t }))
   } catch {
     platformOptions.value = []
+    platformTypeOptions.value = []
+  } finally {
+    platformLoading.value = false
   }
 }
 
-async function onPlatformChange(providerId?: number | string) {
-  const id = Number(providerId)
+async function loadPlatformResources(id?: number) {
+  const pid = Number(id)
   resources.value = { areas: [], nodes: [], stores: [], images: [] }
-  if (!id) return
+  if (!pid) return
   resourceLoading.value = true
   try {
-    resources.value = await getProviderPlatformResources(id)
+    resources.value = await getProviderPlatformResources(pid)
   } catch (error) {
     MessagePlugin.warning((error as Error).message || '该渠道未提供平台资源目录，可手工填写平台参数 JSON')
   } finally {
@@ -324,58 +413,311 @@ async function onPlatformChange(providerId?: number | string) {
   }
 }
 
-/** 把「渠道 + 下拉选择」与「高级 JSON」合并成最终落库的平台参数。 */
+// ===== 配置档表单 =====
+type OptionRow = {
+  spec: OptionSpecInfo
+  enabled: boolean
+  values: string[]
+  rangeMin: number
+  rangeMax: number
+  defaultNumber: number | null
+  default: string
+  groupLabel: string
+}
+
+const dialogVisible = ref(false)
+const catalog = ref<OptionSpecInfo[]>([])
+const rows = ref<OptionRow[]>([])
+const extraParamsText = ref('')
+const platformParams = reactive<{ area?: string; node?: string; store?: string; os?: string }>({
+  area: undefined, node: undefined, store: undefined, os: undefined,
+})
+const PLATFORM_KEYS = ['area', 'node', 'store', 'os'] as const
+
+const form = reactive<{
+  id: number
+  name: string
+  price: number
+  sort_order: number
+  status: number
+  disk: number
+  disk_type: string
+  os: string
+  name_template: string
+  description_template: string
+}>(emptyForm())
+
+function emptyForm() {
+  return {
+    id: 0, name: '', price: 0, sort_order: 0, status: 1,
+    disk: 40, disk_type: 'ssd', os: '',
+    name_template: '{cpu}核{memory}G {os}',
+    description_template: '{cpu}核{memory}GB 内存 / {disk}GB 系统盘 / {bw}Mbps 带宽',
+  }
+}
+
+const presets = [
+  { name: '2核4G', cpu: '2', memory: '4096', disk: 40, bw: 5 },
+  { name: '4核4G', cpu: '4', memory: '4096', disk: 60, bw: 10 },
+  { name: '8核8G', cpu: '8', memory: '8192', disk: 80, bw: 20 },
+]
+
+const enabledCount = computed(() => rows.value.filter((r) => r.enabled).length)
+
+const catalogGroups = computed(() => {
+  const out: { name: string; rows: OptionRow[] }[] = []
+  for (const row of rows.value) {
+    const name = row.spec.group_name || ''
+    let g = out.find((x) => x.name === name)
+    if (!g) {
+      g = { name, rows: [] }
+      out.push(g)
+    }
+    g.rows.push(row)
+  }
+  return out
+})
+
+function isQtyOption(spec: OptionSpecInfo): boolean {
+  return spec.widget === 'qty' || spec.min_value != null || spec.max_value != null
+}
+
+function valueOptions(row: OptionRow): { label: string; value: string }[] {
+  const list: OptionValueItem[] = row.spec.values || []
+  return list.map((v) => ({
+    label: v.group_label ? `${v.group_label} / ${v.label || v.value}` : (v.label || v.value),
+    value: v.value,
+  }))
+}
+
+function selectedValueOptions(row: OptionRow): { label: string; value: string }[] {
+  return valueOptions(row).filter((o) => row.values.includes(o.value))
+}
+
+function onValuesChange(row: OptionRow) {
+  if (row.default && !row.values.includes(row.default)) row.default = ''
+  if (!row.default && row.values.length === 1) row.default = row.values[0]
+}
+
+function baselineOf(key: string): string | undefined {
+  const row = rows.value.find((r) => r.spec.option_key === key)
+  if (!row || !row.enabled) return undefined
+  if (isQtyOption(row.spec)) {
+    return row.defaultNumber != null ? String(row.defaultNumber) : (row.spec.default_value || undefined)
+  }
+  return row.default || row.values[0]
+}
+
+function baselineCpu(): number {
+  const v = Number(baselineOf('cpu'))
+  return Number.isFinite(v) && v > 0 ? v : 1
+}
+function baselineMemoryGb(): number {
+  const v = Number(baselineOf('memory'))
+  // 目录里内存按 MB 存（1024=1G）。
+  return Number.isFinite(v) && v > 0 ? Math.max(1, Math.round(v / 1024)) : 1
+}
+function baselineBw(): number {
+  const v = Number(baselineOf('bw') ?? baselineOf('in_bw'))
+  return Number.isFinite(v) && v > 0 ? v : 0
+}
+
+function renderTemplate(tpl: string): string {
+  if (!tpl) return ''
+  const osLabel = (() => {
+    const osValue = baselineOf('os')
+    if (!osValue) return form.os || ''
+    const hit = (resources.value.images || []).find((i) => i.value === osValue)
+    return hit ? (hit.label.split(' / ').pop() || hit.label) : osValue
+  })()
+  const vars: Record<string, string> = {
+    '{cpu}': String(baselineCpu()),
+    '{memory}': String(baselineMemoryGb()),
+    '{disk}': String(form.disk || 40),
+    '{bw}': String(baselineBw()),
+    '{os}': osLabel,
+  }
+  // 用 split/join 而非 replaceAll：项目 tsconfig 的 target 低于 es2021。
+  return Object.entries(vars).reduce((acc, [key, val]) => acc.split(key).join(val), tpl)
+}
+
+const previewName = computed(() => renderTemplate(form.name_template))
+const previewDesc = computed(() => renderTemplate(form.description_template))
+const previewCode = computed(() => {
+  const parts: string[] = []
+  parts.push(`${baselineCpu()}c${baselineMemoryGb()}g`)
+  if (form.disk > 0) parts.push(`${form.disk}g`)
+  return `mfy-${parts.join('-')}`
+})
+const previewPlatformParams = computed(() => {
+  const merged = buildPlatformParams()
+  return merged ? JSON.stringify(merged) : '—'
+})
+
+function applyPreset(p: (typeof presets)[number]) {
+  for (const row of rows.value) {
+    const key = row.spec.option_key
+    if (key === 'cpu' && !isQtyOption(row.spec)) {
+      row.enabled = true
+      if (!row.values.includes(p.cpu)) row.values = [p.cpu]
+      row.default = p.cpu
+    } else if (key === 'memory' && !isQtyOption(row.spec)) {
+      row.enabled = true
+      if (!row.values.includes(p.memory)) row.values = [p.memory]
+      row.default = p.memory
+    }
+  }
+  form.disk = p.disk
+  form.name = form.name || p.name
+  const bw = rows.value.find((r) => r.spec.option_key === 'bw')
+  if (bw) {
+    bw.enabled = true
+    bw.defaultNumber = p.bw
+    bw.rangeMin = bw.rangeMin || 1
+    bw.rangeMax = bw.rangeMax || 100
+  }
+  // 必选项默认勾上，省得漏配导致开通被平台拒。
+  for (const row of rows.value) {
+    if (row.spec.required && !isQtyOption(row.spec) && !row.enabled && row.spec.values?.length) {
+      row.enabled = true
+      row.values = [row.spec.values[0].value]
+      row.default = row.values[0]
+    }
+  }
+}
+
+function openMultiCpuMem() {
+  const cpu = rows.value.find((r) => r.spec.option_key === 'cpu')
+  if (cpu) {
+    cpu.enabled = true
+    const preferred = ['2', '4', '8'].filter((v) => (cpu.spec.values || []).some((x) => x.value === v))
+    cpu.values = preferred.length ? preferred : cpu.values
+    cpu.default = cpu.values[0] || ''
+  }
+  const mem = rows.value.find((r) => r.spec.option_key === 'memory')
+  if (mem) {
+    mem.enabled = true
+    const preferred = ['4096', '8192'].filter((v) => (mem.spec.values || []).some((x) => x.value === v))
+    mem.values = preferred.length ? preferred : mem.values
+    mem.default = mem.values[0] || ''
+  }
+  MessagePlugin.success('已开放 CPU/内存多选，客户侧可在档位内自选')
+}
+
+function buildOptionSelections(): SpecOptionSelections {
+  const out: SpecOptionSelections = {}
+  for (const row of rows.value) {
+    if (!row.enabled) continue
+    const key = row.spec.option_key
+    if (isQtyOption(row.spec)) {
+      const min = row.rangeMin ?? row.spec.min_value ?? 0
+      const max = row.rangeMax ?? row.spec.max_value ?? 0
+      const def = row.defaultNumber != null ? String(row.defaultNumber) : row.spec.default_value
+      out[key] = { range: [Number(min), Number(max)], default: def || undefined }
+      continue
+    }
+    if (!row.values.length) continue
+    out[key] = { values: [...row.values], default: row.default || row.values[0] }
+    if (row.groupLabel.trim()) out[key].group_label = row.groupLabel.trim()
+  }
+  return out
+}
+
 function buildPlatformParams(): Record<string, unknown> | null {
-  let advanced: Record<string, unknown> = {}
-  if (form.platform_params.trim()) {
+  let extra: Record<string, unknown> = {}
+  if (extraParamsText.value.trim()) {
     try {
-      const parsed = JSON.parse(form.platform_params)
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) advanced = parsed as Record<string, unknown>
+      const parsed = JSON.parse(extraParamsText.value)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        extra = parsed as Record<string, unknown>
+      } else {
+        MessagePlugin.warning('「其他平台参数」必须是 JSON 对象')
+        return null
+      }
     } catch {
-      MessagePlugin.warning('平台参数 JSON 非法')
+      MessagePlugin.warning('「其他平台参数」JSON 格式非法')
       return null
     }
   }
-  const merged: Record<string, unknown> = { ...advanced }
-  for (const key of ['area', 'node', 'store', 'os'] as const) {
-    const value = platformParams[key]
-    if (value) merged[key] = value
+  const merged: Record<string, unknown> = { ...extra }
+  for (const key of PLATFORM_KEYS) {
+    if (platformParams[key]) merged[key] = platformParams[key]
   }
   return Object.keys(merged).length ? merged : null
 }
 
-function buildSpecValues(): Record<string, unknown> | null {
-  if (!form.spec_values.trim()) return null
-  try {
-    const parsed = JSON.parse(form.spec_values)
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>
-  } catch {
-    MessagePlugin.warning('原子取值 JSON 非法')
-    return null
-  }
-  MessagePlugin.warning('原子取值必须是 JSON 对象')
-  return null
+function buildSpecValues(): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  const cpu = baselineCpu()
+  const memMb = Number(baselineOf('memory'))
+  const bw = baselineBw()
+  if (cpu > 0) out['compute.cpu'] = cpu
+  if (Number.isFinite(memMb) && memMb > 0) out['compute.memory'] = memMb
+  if (form.disk > 0) out['storage.system.size'] = form.disk
+  if (bw > 0) out['network.bandwidth'] = bw
+  if (platformParams.area) out['placement.region'] = platformParams.area
+  return out
 }
 
-function openCreate() {
+function buildRow(spec: OptionSpecInfo, selections: SpecOptionSelections): OptionRow {
+  const sel = selections[spec.option_key]
+  const qty = isQtyOption(spec)
+  const row: OptionRow = {
+    spec,
+    enabled: !!sel,
+    values: sel?.values ? [...sel.values] : [],
+    rangeMin: sel?.range?.[0] ?? spec.min_value ?? 0,
+    rangeMax: sel?.range?.[1] ?? spec.max_value ?? 0,
+    defaultNumber: null,
+    default: sel?.default || '',
+    groupLabel: sel?.group_label || '',
+  }
+  if (qty) {
+    const defStr = sel?.default || spec.default_value || ''
+    const defNum = Number(defStr)
+    row.defaultNumber = Number.isFinite(defNum) && defStr !== '' ? defNum : null
+  }
+  return row
+}
+
+async function loadCatalog(type: string): Promise<OptionSpecInfo[]> {
+  if (!type) return []
+  try {
+    return await getOptionCatalog({ provider_type: type, provider_id: providerId.value })
+  } catch {
+    return []
+  }
+}
+
+async function openCreate() {
   Object.assign(form, emptyForm())
-  platform.providerId = undefined
+  rows.value = []
+  catalog.value = []
+  providerId.value = undefined
+  providerType.value = ''
   Object.assign(platformParams, { area: undefined, node: undefined, store: undefined, os: undefined })
   resources.value = { areas: [], nodes: [], stores: [], images: [] }
+  extraParamsText.value = ''
   dialogVisible.value = true
 }
 
-function openEdit(row: SpecTemplateInfo) {
+async function openEdit(row: SpecTemplateInfo) {
   Object.assign(form, {
-    id: row.id, name: row.name, spec_family: row.spec_family, cpu: row.cpu, memory: row.memory,
-    disk: row.disk, bandwidth: row.bandwidth, disk_type: row.disk_type, os: row.os,
-    price: row.price, sort_order: row.sort_order, description: row.description, status: row.status,
-    spec_values: row.spec_values ? JSON.stringify(row.spec_values, null, 2) : '',
-    platform_params: row.platform_params ? JSON.stringify(row.platform_params, null, 2) : '',
+    id: row.id,
+    name: row.name,
+    price: row.price,
+    sort_order: row.sort_order,
+    status: row.status,
+    disk: row.disk,
+    disk_type: row.disk_type || 'ssd',
+    os: row.os || '',
+    name_template: row.name_template || '{cpu}核{memory}G {os}',
+    description_template: row.description_template || '{cpu}核{memory}GB 内存 / {disk}GB 系统盘 / {bw}Mbps 带宽',
   })
-  // 平台下拉回填：把已知键从 JSON 拉到下拉控件，剩余键留在「高级 JSON」里。
+  providerType.value = row.provider_type || ''
+  const hit = platformOptions.value.find((o) => o.label.includes(`（${row.provider_type}）`))
+  providerId.value = hit?.value
   const params = (row.platform_params || {}) as Record<string, unknown>
-  platform.providerId = undefined
   Object.assign(platformParams, {
     area: params.area != null ? String(params.area) : undefined,
     node: params.node != null ? String(params.node) : undefined,
@@ -383,9 +725,35 @@ function openEdit(row: SpecTemplateInfo) {
     os: params.os != null ? String(params.os) : undefined,
   })
   const rest: Record<string, unknown> = { ...params }
-  for (const key of ['area', 'node', 'store', 'os']) delete rest[key]
-  form.platform_params = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : ''
+  for (const key of PLATFORM_KEYS) delete rest[key]
+  extraParamsText.value = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : ''
+
+  if (providerId.value) await loadPlatformResources(providerId.value)
+  catalog.value = await loadCatalog(providerType.value)
+  const selections = (row.option_selections || {}) as SpecOptionSelections
+  rows.value = catalog.value.map((spec) => buildRow(spec, selections))
   dialogVisible.value = true
+}
+
+async function cloneTemplate(row: SpecTemplateInfo) {
+  await openEdit(row)
+  form.id = 0
+  form.name = `${row.name}（副本）`
+  MessagePlugin.info('已按该档位预填，改名后保存即可')
+}
+
+async function onPlatformChange(value?: number | string) {
+  const pid = Number(value)
+  const hit = platformOptions.value.find((o) => o.value === pid)
+  if (hit) {
+    const match = hit.label.match(/（([^）]+)）/)
+    providerType.value = match ? match[1] : ''
+  }
+  Object.assign(platformParams, { area: undefined, node: undefined, store: undefined, os: undefined })
+  await loadPlatformResources(pid)
+  // 换平台后旧勾选对新平台无效，全部重置（避免跨平台脏值）。
+  catalog.value = await loadCatalog(providerType.value)
+  rows.value = catalog.value.map((spec) => buildRow(spec, {}))
 }
 
 function closeDialog() {
@@ -394,21 +762,43 @@ function closeDialog() {
 
 async function save() {
   if (!form.name.trim()) {
-    MessagePlugin.warning('请输入规格名称')
+    MessagePlugin.warning('请输入档位名称')
+    return
+  }
+  if (!providerType.value) {
+    MessagePlugin.warning('请选择对接平台')
     return
   }
   const platformParamsPayload = buildPlatformParams()
-  if (platformParamsPayload === null && form.platform_params.trim()) return
-  const specValuesPayload = buildSpecValues()
-  if (specValuesPayload === null && form.spec_values.trim()) return
+  if (platformParamsPayload === null) return
+  const selections = buildOptionSelections()
+  if (!Object.keys(selections).length) {
+    MessagePlugin.warning('请至少勾选一个配置项，否则该档位无法生成客户可选配置')
+    return
+  }
+  if (!platformParamsPayload.area && !platformParamsPayload.node) {
+    MessagePlugin.warning('请至少选择数据中心或节点（平台要求二者至少传一个）')
+    return
+  }
+  const payload = {
+    name: form.name.trim(),
+    provider_type: providerType.value,
+    cpu: baselineCpu(),
+    memory: baselineMemoryGb(),
+    disk: form.disk,
+    disk_type: form.disk_type,
+    bandwidth: baselineBw(),
+    os: form.os,
+    price: form.price,
+    sort_order: form.sort_order,
+    status: form.status,
+    spec_values: buildSpecValues(),
+    platform_params: platformParamsPayload,
+    option_selections: selections,
+    name_template: form.name_template,
+    description_template: form.description_template,
+  }
   try {
-    const payload = {
-      name: form.name, spec_family: form.spec_family, cpu: form.cpu, memory: form.memory, disk: form.disk,
-      bandwidth: form.bandwidth, disk_type: form.disk_type, os: form.os, price: form.price,
-      sort_order: form.sort_order, description: form.description, status: form.status,
-      spec_values: specValuesPayload,
-      platform_params: platformParamsPayload,
-    }
     if (form.id) {
       await updateSpecTemplate(form.id, payload)
     } else {
@@ -421,9 +811,10 @@ async function save() {
     MessagePlugin.error((error as Error).message || '保存失败')
   }
 }
-async function remove(row: SpecTemplateInfo) {
+
+function remove(row: SpecTemplateInfo) {
   const dialog = DialogPlugin.confirm({
-    header: '删除规格模板',
+    header: '删除档位',
     body: `确认删除「${row.name}」？删除后不可恢复。`,
     theme: 'danger',
     confirmBtn: { content: '删除', theme: 'danger' },
@@ -440,25 +831,122 @@ async function remove(row: SpecTemplateInfo) {
   })
 }
 
+function handleMobileAction(value: string | number | Record<string, unknown>, row: SpecTemplateInfo) {
+  const action = typeof value === 'string' || typeof value === 'number'
+    ? String(value)
+    : String((value as { value?: string })?.value ?? '')
+  switch (action) {
+    case 'edit':
+      void openEdit(row)
+      break
+    case 'clone':
+      void cloneTemplate(row)
+      break
+    case 'delete':
+      remove(row)
+      break
+  }
+}
+
 onMounted(() => {
   load()
   loadPlatformOptions()
 })
-
-// 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: SpecTemplateInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
-  switch (action) {
-    case 'edit':
-      openEdit(row)
-      break
-    case 'delete':
-      void remove(row)
-      break
-  }
-}
 </script>
 
 <style lang="css">
 @import '../../shared.css';
+</style>
+
+<style scoped>
+.divider-hint {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: normal;
+  color: var(--td-text-color-secondary, #888);
+}
+
+.opt-block {
+  margin-bottom: 14px;
+}
+
+.opt-block__head {
+  font-weight: 600;
+  padding: 4px 2px;
+  border-bottom: 1px solid var(--td-component-stroke, #e7e7e7);
+  margin-bottom: 8px;
+}
+
+.opt-row {
+  border: 1px solid var(--td-component-border, #e0e0e0);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: var(--td-bg-color-container, #fff);
+}
+
+.opt-row--on {
+  border-color: var(--td-brand-color, #0052d9);
+  box-shadow: 0 0 0 1px rgba(0, 82, 217, 0.1);
+}
+
+.opt-row__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.opt-row__name {
+  font-weight: 600;
+}
+
+.opt-row__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #888);
+}
+
+.opt-row__meta code {
+  font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
+}
+
+.opt-row__help {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #999);
+}
+
+.opt-row__body {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.opt-inline {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px 12px;
+}
+
+.opt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
+}
+
+.preview-line {
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+.preview-line code {
+  font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
+}
 </style>

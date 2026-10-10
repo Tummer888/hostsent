@@ -115,7 +115,11 @@ type CapabilityDescriptor struct {
 	RateLimit        RateLimitSpec  `json:"rate_limit"`
 	SupportsPaging   bool           `json:"supports_paging"`
 	FieldDictionary  map[string]any `json:"field_dictionary,omitempty"` // 平台字段字典（D5 预埋，值可含"待核"标记）
-	Implemented      bool           `json:"implemented"`                // 适配器是否已注册（运行时计算，非落库）
+	// OptionCatalog 本平台支持的可配置项目录（T4.5 规格配置化）：
+	// 每个参数带中文名、必选标记、默认值、取值来源与数量约束，
+	// 驱动后台「平台配置项」与「配置档」界面；为空表示该平台不参与配置化规格。
+	OptionCatalog []ConfigOptionSpec `json:"option_catalog,omitempty"`
+	Implemented   bool               `json:"implemented"` // 适配器是否已注册（运行时计算，非落库）
 }
 
 // HasOperation 判断是否声明了某能力操作。

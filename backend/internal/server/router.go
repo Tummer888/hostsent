@@ -491,6 +491,20 @@ func newRouter(app *App) *gin.Engine {
 				specGroup.GET("/bindings", app.perm("spec:contract:list"), app.specHandler.ListBindings)
 				specGroup.POST("/bindings", app.perm("spec:contract:update"), app.specHandler.UpsertBinding)
 				specGroup.POST("/bindings/:id/confirm", app.perm("spec:contract:update"), app.specHandler.ConfirmBinding)
+
+				// 平台配置项目录与取值库（T4.5 规格配置化）：
+				// 按对接平台（魔方云）声明可配置项，运营改默认值/必选并维护可选值（含镜像批量入库）。
+				// 静态路由须排在 /option-catalog/:id 之前，避免被参数路由吞并。
+				specGroup.GET("/option-catalog", app.perm("spec:option:list"), app.specHandler.ListOptionCatalog)
+				specGroup.POST("/option-catalog", app.perm("spec:option:update"), app.specHandler.CreateOptionSpec)
+				specGroup.POST("/option-catalog/sync", app.perm("spec:option:update"), app.specHandler.SyncOptionCatalog)
+				specGroup.PUT("/option-catalog/:id", app.perm("spec:option:update"), app.specHandler.UpdateOptionSpec)
+				specGroup.DELETE("/option-catalog/:id", app.perm("spec:option:update"), app.specHandler.DeleteOptionSpec)
+				specGroup.GET("/option-values", app.perm("spec:option:list"), app.specHandler.ListOptionValues)
+				specGroup.POST("/option-values", app.perm("spec:option:update"), app.specHandler.UpsertOptionValue)
+				specGroup.POST("/option-values/import", app.perm("spec:option:update"), app.specHandler.ImportOptionValues)
+				specGroup.POST("/option-values/refresh", app.perm("spec:option:update"), app.specHandler.RefreshOptionValues)
+				specGroup.DELETE("/option-values/:id", app.perm("spec:option:update"), app.specHandler.DeleteOptionValue)
 			}
 
 			// 定价与计费（pricing 子域）

@@ -64,7 +64,7 @@
           <h3 class="card-title">收支趋势</h3>
           <span class="table-card__meta">{{ rangeLabel }} · 收入 / 支出 / 净额</span>
         </div>
-        <EChart v-if="trend.length" :option="trendOption" height="300" />
+        <EChart v-if="trend.length" :option="trendOption" :height="300" />
         <div v-else class="chart-empty"><t-empty description="所选期间暂无流水" /></div>
       </div>
 
@@ -280,7 +280,9 @@ const trendOption = computed<EChartsOption>(() => {
   return {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (v: unknown) => `¥${Number(v ?? 0).toFixed(2)}` },
     legend: { top: 0, icon: 'circle', textStyle: { color: '#64748b', fontSize: 12 } },
-    grid: { left: 8, right: 8, top: 36, bottom: 8, containLabel: true },
+    // echarts 6：containLabel 已废弃，等价写法是 outerBoundsMode/outerBoundsContain
+    // （少了这层约束，y 轴金额标签会贴着画布左缘被裁掉）。
+    grid: { left: 8, right: 8, top: 36, bottom: 8, outerBoundsMode: 'same', outerBoundsContain: 'axisLabel' },
     xAxis: {
       type: 'category',
       data: labels,

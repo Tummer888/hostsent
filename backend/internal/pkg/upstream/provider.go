@@ -132,11 +132,13 @@ type PlatformResources struct {
 }
 
 // PlatformResourceItem 单个平台资源项。ParentID 表达层级（节点属于区域、存储属于区域、
-// 镜像属于镜像组）；Value 是下发到平台的原始取值（魔方云的 area/node/os/store 均为数字 ID）。
+// 镜像属于节点）；Value 是下发到平台的原始取值（魔方云的 area/node/os/store 均为数字 ID）。
+// Group 是资源自身的分组名（镜像家族 Ubuntu/Windows/CentOS），取值入库时作为 group_label。
 type PlatformResourceItem struct {
 	Value    string `json:"value"`
 	Label    string `json:"label"`
 	ParentID string `json:"parent_id,omitempty"`
+	Group    string `json:"group,omitempty"`
 	Status   string `json:"status,omitempty"`
 }
 

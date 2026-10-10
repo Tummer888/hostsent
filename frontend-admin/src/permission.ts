@@ -151,6 +151,7 @@ export const navMenu = [
       { title: '商品对接', path: '/product/binding', icon: navIcon('cloud') },
       { title: '分类管理', path: '/product/categories', icon: navIcon('tag') },
       { title: '规格管理', path: '/product/spec', icon: navIcon('layers') },
+      { title: '平台配置项', path: '/product/spec/option-catalog', icon: navIcon('layers') },
       { title: '定价与计费', path: '/product/pricing-center', icon: navIcon('money') },
       { title: '促销管理', path: '/product/promotion', icon: navIcon('tag') },
     ],
@@ -171,8 +172,9 @@ export const navMenu = [
     icon: navIcon('wallet'),
     children: [
       { title: '财务总览', path: '/finance/overview', icon: navIcon('dashboard') },
-      // 资金管理组（迁移 073）：资金流水与用户钱包、人工调账同组 —— 余额与余额变动是同一件事；
+      // 资金管理组（迁移 073）：资金流水与人工调账同组 —— 余额变动与人工干预是同一件事；
       // 流水从域根叶子改为组内叶子，兜底菜单按「一级域 + 直接子项」只列到该组。
+      // （组内原「用户钱包」页已由迁移 074 下线，兜底菜单本来就只列到组，无需改动。）
       { title: '资金管理', path: '/finance/accounts', icon: navIcon('wallet') },
       { title: '充值提现', path: '/finance/recharge-center', icon: navIcon('download') },
       { title: '账单与对账', path: '/finance/bill-center', icon: navIcon('file') },

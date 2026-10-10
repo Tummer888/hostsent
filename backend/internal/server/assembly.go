@@ -35,8 +35,8 @@ func buildOrderProvisionDeps(
 	events *openservice.EventPublisher,
 ) orderservice.ProvisionDeps {
 	return orderservice.ProvisionDeps{
-		BuildProvisionRequest: func(ctx context.Context, productID uint64, name, specSnapshot, specCode string) (interface{}, error) {
-			return catalog.BuildProvisionRequest(ctx, productID, name, specSnapshot, specCode)
+		BuildProvisionRequest: func(ctx context.Context, productID uint64, name, specSnapshot, specCode string, selections map[string]string) (interface{}, error) {
+			return catalog.BuildProvisionRequest(ctx, productID, name, specSnapshot, specCode, selections)
 		},
 		BuildProviderConfig: provider.BuildProviderConfig,
 		CreateInstance: func(ctx context.Context, cfg *upstream.ProviderConfig, req *pkgmodel.CreateInstanceRequest) (*pkgmodel.StandardInstance, error) {
@@ -101,7 +101,7 @@ func buildOrderProvisionDeps(
 // 财务型上游等不支持单次开通的场景先行拒绝，避免误扣款。
 func buildEnsureOpenable(catalog catalogservice.ProductService, provider providerservice.ProviderService) func(ctx context.Context, productID uint64) error {
 	return func(ctx context.Context, productID uint64) error {
-		preq, err := catalog.BuildProvisionRequest(ctx, productID, "", "", "")
+		preq, err := catalog.BuildProvisionRequest(ctx, productID, "", "", "", nil)
 		if err != nil {
 			return err
 		}

@@ -22,6 +22,9 @@ type CreateRequest struct {
 	Cycle string `json:"cycle"`
 	// PayMode 支付方式：balance（默认）/ channel。空值按 balance 处理，保证存量调用方行为不变。
 	PayMode string `json:"pay_mode"`
+	// ConfigSelections 客户选配项选择（T4.5）：配置项参数名 → 选中取值
+	// （如 {"cpu":"4","os":"12","ip_num":"2"}）。留空表示全部按默认值。
+	ConfigSelections map[string]string `json:"config_selections"`
 	// ChannelMeta 开放平台代客下单渠道信息（P6/T6.3）。仅由 open 模块程序化注入，
 	// json:"-" 保证 UC 自有 HTTP 路由无法伪造渠道标记。
 	ChannelMeta ChannelMeta `json:"-"`
@@ -65,6 +68,10 @@ type OrderInfo struct {
 	SpecCode string `json:"spec_code"`
 	Quantity int    `json:"quantity"`
 	Cycle    string `json:"cycle"`
+	// ConfigSelections 下单时选定的客户选配项（T4.5），详情页展示与售后核对用。
+	ConfigSelections map[string]string `json:"config_selections,omitempty"`
+	// OptionAmount 选配项加价小计（T4.5），用于把「档位价 + 选配」拆开展示。
+	OptionAmount float64 `json:"option_amount,omitempty"`
 	// PayTime 支付时间（RFC3339，未支付为空串）；列表不保证填充，详情页用于展示。
 	PayTime string `json:"pay_time"`
 	// 算价明细（P5-04/P5-06）：原价、优惠、实付与折扣来源，用于订单列表/详情展示。
@@ -117,18 +124,36 @@ type QuoteRequest struct {
 	Quantity int    `json:"quantity"`
 	// Cycle 计费周期（doc25）；与下单口径一致，留空回落商品 price_model。
 	Cycle string `json:"cycle"`
+	// ConfigSelections 客户选配项选择（T4.5）：与下单口径一致。
+	ConfigSelections map[string]string `json:"config_selections"`
 }
 
 // QuoteInfo 预结算价格明细。
 type QuoteInfo struct {
-	SpecCode       string         `json:"spec_code"`
-	Cycle          string         `json:"cycle"`
-	OriginalAmount float64        `json:"original_amount"`
-	DiscountAmount float64        `json:"discount_amount"`
-	FinalAmount    float64        `json:"final_amount"`
-	PolicyID       *uint64        `json:"price_policy_id"`
-	Source         string         `json:"discount_source"`
-	Snapshot       []pricing.Rule `json:"price_snapshot"`
+	SpecCode       string  `json:"spec_code"`
+	Cycle          string  `json:"cycle"`
+	OriginalAmount float64 `json:"original_amount"`
+	DiscountAmount float64 `json:"discount_amount"`
+	FinalAmount    float64 `json:"final_amount"`
+	// OptionAmount 选配项加价小计（T4.5）：已含在 OriginalAmount 内，前端逐项展示用。
+	OptionAmount float64 `json:"option_amount"`
+	// Options 已选选项明细（参数名 / 选中值 / 加价），供预结算页展示加价来源。
+	Options  []SelectedOption `json:"options"`
+	PolicyID *uint64          `json:"price_policy_id"`
+	Source   string           `json:"discount_source"`
+	Snapshot []pricing.Rule   `json:"price_snapshot"`
+}
+
+// SelectedOption 单个已选配置项的加价明细。
+type SelectedOption struct {
+	OptionKey   string  `json:"option_key"`
+	OptionName  string  `json:"option_name"`
+	Value       string  `json:"value"`
+	ValueName   string  `json:"value_name"`
+	Quantity    float64 `json:"quantity"`
+	UnitPrice   float64 `json:"unit_price"`
+	Amount      float64 `json:"amount"`
+	IsDefaulted bool    `json:"is_defaulted"`
 }
 
 // ListQuery 我的订单查询。

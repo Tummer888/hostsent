@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	catalogdto "hostsent/backend/internal/modules/admin/product/catalog/dto"
+	catalogservice "hostsent/backend/internal/modules/admin/product/catalog/service"
 
 	"hostsent/backend/internal/modules/uc/product/dto"
 )
@@ -19,6 +20,8 @@ type catalogReader interface {
 	FindByID(ctx context.Context, id uint64) (*catalogdto.ProductInfo, error)
 	// ListSpecs 商品下的 SKU 列表（T4.1）：详情页展示可售规格。
 	ListSpecs(ctx context.Context, productID uint64) ([]catalogdto.ProductSpecInfo, error)
+	// CustomerOptions 商品对客户开放的选配项（T4.5）：详情页渲染选配控件。
+	CustomerOptions(ctx context.Context, productID uint64) ([]catalogservice.CustomerOptionGroup, error)
 }
 
 // cycleReader 周期价格矩阵读取能力（doc25）：商品级与 SKU 级可售周期。
@@ -114,6 +117,43 @@ func (s *productService) Get(ctx context.Context, id uint64) (*dto.ProductInfo, 
 				Stock:      sp.Stock,
 				Cycles:     cycles,
 			})
+		}
+	}
+	// 客户可选配置项（T4.5）：档位之外可自选的参数，前端据此渲染控件并算加价。
+	if groups, err := s.catalog.CustomerOptions(ctx, id); err == nil {
+		for _, g := range groups {
+			if len(g.Options) == 0 {
+				continue
+			}
+			group := dto.OptionGroup{Options: make([]dto.Option, 0, len(g.Options))}
+			for _, o := range g.Options {
+				opt := dto.Option{
+					OptionKey:    o.OptionKey,
+					Name:         o.Name,
+					Widget:       o.Widget,
+					Required:     o.Required,
+					DefaultValue: o.DefaultValue,
+					Unit:         o.Unit,
+					Help:         o.Help,
+					MinValue:     o.MinValue,
+					MaxValue:     o.MaxValue,
+					UnitPrice:    o.UnitPrice,
+				}
+				for _, v := range o.Values {
+					opt.Values = append(opt.Values, dto.OptionItem{
+						Value:          v.Value,
+						Label:          v.Label,
+						GroupLabel:     v.Group,
+						Default:        v.Default,
+						PriceMonthly:   v.PriceMonthly,
+						PriceQuarterly: v.PriceQuarterly,
+						PriceAnnually:  v.PriceAnnually,
+						PriceOnetime:   v.PriceOnetime,
+					})
+				}
+				group.Options = append(group.Options, opt)
+			}
+			info.OptionGroups = append(info.OptionGroups, group)
 		}
 	}
 	return &info, nil

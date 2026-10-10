@@ -14,6 +14,41 @@ export interface SkuInfo {
   cycles: string[]
 }
 
+/** 一个可选配置项的取值（含加价）。 */
+export interface OptionItem {
+  value: string
+  label: string
+  /** 分组标签（Ubuntu/Windows/CentOS）：有值时按分组渲染下拉 */
+  group_label?: string
+  /** 是否该配置项的默认取值 */
+  is_default: boolean
+  price_monthly: number
+  price_quarterly: number
+  price_annually: number
+  price_onetime: number
+}
+
+/** 客户可选配置项：按 widget 渲染控件（select/group_select 下拉、radio 按钮组、qty 步进器、bool 开关）。 */
+export interface ProductOption {
+  /** 平台参数名，下单时作为 configSelections 的键 */
+  option_key: string
+  name: string
+  widget: string
+  required: boolean
+  default_value: string
+  unit: string
+  help: string
+  min_value: number | null
+  max_value: number | null
+  /** 数量型选项的每单位加价（元）；枚举型加价随 Values 逐项给出 */
+  unit_price?: number
+  values: OptionItem[]
+}
+
+export interface ProductOptionGroup {
+  options: ProductOption[]
+}
+
 export interface ProductInfo {
   id: number
   name: string
@@ -33,6 +68,8 @@ export interface ProductInfo {
   cycles: string[]
   /** 商品下挂的规格；空数组表示未拆 SKU，按商品级价格下单 */
   skus: SkuInfo[]
+  /** 客户可选配置项（自营）：档位之外可自选的参数，选中加价并入结算金额 */
+  option_groups: ProductOptionGroup[]
 }
 
 export interface ProductListResponse {
@@ -82,6 +119,18 @@ export interface OrderInfo {
   remark?: string
 }
 
+/** 单个已选配置项的加价明细（预结算返回）。 */
+export interface SelectedOption {
+  option_key: string
+  option_name: string
+  value: string
+  value_name: string
+  quantity: number
+  unit_price: number
+  amount: number
+  is_defaulted: boolean
+}
+
 /** 预结算价格明细（P5-05）。 */
 export interface QuoteInfo {
   spec_code: string
@@ -89,6 +138,10 @@ export interface QuoteInfo {
   original_amount: number
   discount_amount: number
   final_amount: number
+  /** 选配项加价小计，已含在 original_amount 内 */
+  option_amount?: number
+  /** 已选选项明细，用于逐项展示加价来源 */
+  options?: SelectedOption[]
   price_policy_id: number | null
   discount_source: string
   price_snapshot: Array<{ source: string; code: string; type: string; value: number }>
@@ -107,6 +160,8 @@ export interface CreateOrderParams {
   specCode?: string
   cycle?: string
   quantity?: number
+  /** 客户选配项选择：配置项参数名 → 选中取值（如 cpu=4、os=62）。 */
+  configSelections?: Record<string, string>
   /** 支付方式：balance 余额支付（默认，下单即开通）/ channel 渠道支付（落待支付单去收银台）。 */
   payMode?: 'balance' | 'channel'
 }
@@ -141,6 +196,9 @@ function normalizeProduct(p: ProductInfo): ProductInfo {
     ...p,
     cycles: Array.isArray(p.cycles) ? p.cycles : [],
     skus: Array.isArray(p.skus) ? p.skus.map((s) => ({ ...s, cycles: Array.isArray(s.cycles) ? s.cycles : [] })) : [],
+    option_groups: (Array.isArray(p.option_groups) ? p.option_groups : [])
+      .map((g) => ({ ...g, options: Array.isArray(g.options) ? g.options : [] }))
+      .filter((g) => g.options.length > 0),
   }
 }
 
@@ -163,6 +221,7 @@ export function createOrder({
   specCode = '',
   cycle = '',
   quantity = 1,
+  configSelections,
   payMode,
 }: CreateOrderParams) {
   return request.post<any, { data: OrderInfo }>('/uc/orders', {
@@ -170,6 +229,8 @@ export function createOrder({
     spec_code: specCode,
     cycle,
     quantity,
+    // 选配项选择：键为平台参数名。无选配时不传，保持存量请求体不变。
+    config_selections: configSelections && Object.keys(configSelections).length ? configSelections : undefined,
     // 留空由后端按 balance 处理（存量调用方不变）；channel 时订单落待支付，去收银台付款。
     pay_mode: payMode || undefined,
   })
@@ -191,12 +252,14 @@ export function quoteOrder({
   specCode = '',
   cycle = '',
   quantity = 1,
+  configSelections,
 }: CreateOrderParams) {
   return request.post<any, { data: QuoteInfo }>('/uc/orders/quote', {
     product_id: productId,
     spec_code: specCode,
     cycle,
     quantity,
+    config_selections: configSelections && Object.keys(configSelections).length ? configSelections : undefined,
   })
 }
 

@@ -153,6 +153,9 @@ func AutoMigrate(db *gorm.DB) error {
 		// 产品管理-规格管理（spec 子域）
 		&specmodel.SpecTemplate{},
 		&specmodel.SpecMapping{},
+		// 平台配置项目录与平台取值库（T4.5 规格配置化）
+		&specmodel.ProviderOptionSpec{},
+		&specmodel.PlatformOptionValue{},
 		// 规格契约（P2/T2.5）：原子字典 / 外部规格快照 / 双向绑定
 		&specmodel.SpecAtom{},
 		&specmodel.ExternalSpec{},
@@ -288,6 +291,11 @@ func backfillAdminRoles(db *gorm.DB) error {
 // 口径：price_model=fixed → onetime（一次性买断），其余（hourly/monthly/空）按
 // billingcycle.Normalize 归一，无法识别回落 monthly。幂等：仅当该商品在
 // product_prices 中尚无任何行时才回填，运营已维护矩阵的商品不被覆盖。
+//
+// 排除 price<=0 的商品：按 SKU/配置档定价的商品商品级价格恒为 0，回填会写出一行
+// 0 元周期价——而周期基质价在算价里优先级最高（CycleBasePrice > SpecBasePrice），
+// 之后无论选哪个 SKU 都会被算成 0 元，整条自营定价链路失效。真正的免费商品
+// 由运营在周期价格矩阵里显式建 0 元行维护。
 func backfillProductPrices(db *gorm.DB) error {
 	if !db.Migrator().HasTable("products") || !db.Migrator().HasTable("product_prices") {
 		return nil
@@ -305,6 +313,7 @@ func backfillProductPrices(db *gorm.DB) error {
 			'存量单价回填（单档）', NOW(), NOW()
 		FROM products p
 		WHERE p.deleted_at IS NULL
+		  AND COALESCE(p.price, 0) > 0
 		  AND NOT EXISTS (SELECT 1 FROM product_prices pp WHERE pp.product_id = p.id)
 		ON CONFLICT (product_id, product_spec_id, cycle, currency) DO NOTHING`).Error
 }
@@ -1091,6 +1100,9 @@ var seedPermissionDefaults = []seedPermission{
 	{ParentCode: "product:spec", Name: "规格映射维护", Code: "spec:mapping:update", Type: "button", SortOrder: 4, Status: "active"},
 	{ParentCode: "product:spec", Name: "规格契约查看", Code: "spec:contract:list", Type: "button", SortOrder: 5, Status: "active"},
 	{ParentCode: "product:spec", Name: "规格契约维护", Code: "spec:contract:update", Type: "button", SortOrder: 6, Status: "active"},
+	// 平台配置项目录（T4.5）：按对接平台维护可配置项与取值库（镜像批量入库）。
+	{ParentCode: "product:spec", Name: "平台配置项查看", Code: "spec:option:list", Type: "button", SortOrder: 7, Status: "active"},
+	{ParentCode: "product:spec", Name: "平台配置项维护", Code: "spec:option:update", Type: "button", SortOrder: 8, Status: "active"},
 	{ParentCode: "product", Name: "定价查看", Code: "pricing:list", Type: "button", SortOrder: 1, Status: "active"},
 	{ParentCode: "product", Name: "定价维护", Code: "pricing:update", Type: "button", SortOrder: 2, Status: "active"},
 	{ParentCode: "product", Name: "促销管理", Code: "product:promotion", Type: "menu", SortOrder: 6, Status: "active"},
@@ -1383,6 +1395,7 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"spec:template:list",
 			"spec:mapping:list",
 			"spec:contract:list",
+			"spec:option:list",
 			"pricing:list",
 			"product:promotion",
 			"promotion:coupon:list",
@@ -1646,6 +1659,8 @@ var seedMenuDefaults = []SeedMenu{
 	{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "规格模板", Type: menumodel.TypeMenu, Path: "/product/spec/templates", Component: "product/spec/templates/index", Icon: "catalog", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "自定义规格", Type: menumodel.TypeMenu, Path: "/product/spec/custom", Component: "product/spec/custom/index", Icon: "add", SortOrder: 2, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "规格映射", Type: menumodel.TypeMenu, Path: "/product/spec/mappings", Component: "product/spec/mappings/index", Icon: "link", SortOrder: 3, Status: menumodel.StatusActive},
+	// 平台配置项目录（T4.5）：按对接平台维护可配置项与取值库（镜像批量入库）。
+	{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "平台配置项", Type: menumodel.TypeMenu, Path: "/product/spec/option-catalog", Component: "product/spec/option-catalog/index", Icon: "layers", SortOrder: 4, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "定价与计费", Type: menumodel.TypeDirectory, Path: "/product/pricing-center", Icon: "money", SortOrder: 5, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "商品调价", Type: menumodel.TypeMenu, Path: "/product/pricing", Component: "product/pricing/index", Icon: "money", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "价格计算器", Type: menumodel.TypeMenu, Path: "/product/pricing/calculator", Component: "product/pricing/calculator/index", Icon: "chart-bar", SortOrder: 2, Status: menumodel.StatusActive},
@@ -1676,8 +1691,10 @@ var seedMenuDefaults = []SeedMenu{
 	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务总览", Type: menumodel.TypeMenu, Path: "/finance/overview", Component: "finance/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "资金管理", Type: menumodel.TypeDirectory, Path: "/finance/accounts", Icon: "wallet", SortOrder: 2, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance/accounts", Platform: menumodel.PlatformAdmin, Name: "资金流水", Type: menumodel.TypeMenu, Path: "/finance/transactions", Component: "finance/transactions/index", Icon: "money", SortOrder: 1, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/finance/accounts", Platform: menumodel.PlatformAdmin, Name: "用户钱包", Type: menumodel.TypeMenu, Path: "/finance/accounts/wallets", Component: "finance/accounts/wallets/index", Icon: "wallet", SortOrder: 2, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/finance/accounts", Platform: menumodel.PlatformAdmin, Name: "人工调账", Type: menumodel.TypeMenu, Path: "/finance/accounts/adjust", Component: "finance/accounts/adjust", Icon: "money", SortOrder: 3, Status: menumodel.StatusActive},
+	// 「用户钱包」页已下线（迁移 074）：单用户余额在「用户管理 → 用户详情 → 财务」查看
+	// （FinancePanel 复用同一 GET /finance/wallets/:user_id 接口），余额变动在「资金流水」按用户检索。
+	// 该页前端页面/路由/菜单已删除，后端接口保留给用户详情页使用。
+	{ParentKey: "admin:/finance/accounts", Platform: menumodel.PlatformAdmin, Name: "人工调账", Type: menumodel.TypeMenu, Path: "/finance/accounts/adjust", Component: "finance/accounts/adjust", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "充值提现", Type: menumodel.TypeDirectory, Path: "/finance/recharge-center", Icon: "download", SortOrder: 4, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance/recharge-center", Platform: menumodel.PlatformAdmin, Name: "充值管理", Type: menumodel.TypeMenu, Path: "/finance/recharges", Component: "finance/recharge/index", Icon: "download", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance/recharge-center", Platform: menumodel.PlatformAdmin, Name: "提现管理", Type: menumodel.TypeMenu, Path: "/finance/withdrawals", Component: "finance/withdraw/index", Icon: "upload", SortOrder: 2, Status: menumodel.StatusActive},

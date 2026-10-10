@@ -114,7 +114,7 @@ func TestBuildProvisionRequestMergesSkuAtoms(t *testing.T) {
 	svc := &productService{repo: repo, providerReader: &fakeProviderReader{typ: "mofangyun"}}
 	spec := `{"compute.cpu":2,"compute.memory":4096,"placement.region":"hk"}`
 
-	req, err := svc.BuildProvisionRequest(context.Background(), 7, "vm", spec, "")
+	req, err := svc.BuildProvisionRequest(context.Background(), 7, "vm", spec, "", nil)
 	if err != nil {
 		t.Fatalf("BuildProvisionRequest: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestBuildProvisionRequestNoSpecKeepsLegacy(t *testing.T) {
 	repo := &fakeProductRepo{}
 	repo.findByID = &model.Product{ID: 8, SourceMode: model.SourceModeSelf, ConfigOptions: `{"cpu":4}`}
 	svc := &productService{repo: repo, providerReader: &fakeProviderReader{typ: "mofangyun"}}
-	req, err := svc.BuildProvisionRequest(context.Background(), 8, "vm", "", "")
+	req, err := svc.BuildProvisionRequest(context.Background(), 8, "vm", "", "", nil)
 	if err != nil {
 		t.Fatalf("BuildProvisionRequest: %v", err)
 	}

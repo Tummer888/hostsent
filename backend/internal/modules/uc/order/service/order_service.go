@@ -18,6 +18,7 @@ import (
 	orderdto "hostsent/backend/internal/modules/admin/order/dto"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
 	catalogdto "hostsent/backend/internal/modules/admin/product/catalog/dto"
+	catalogservice "hostsent/backend/internal/modules/admin/product/catalog/service"
 	paydto "hostsent/backend/internal/modules/admin/system/payment/dto"
 	paymodel "hostsent/backend/internal/modules/admin/system/payment/model"
 	"hostsent/backend/internal/pkg/billingcycle"
@@ -102,6 +103,11 @@ type (
 		DecrementSpecStock(ctx context.Context, specID uint64, qty int) (int64, error)
 		IncrementSpecStock(ctx context.Context, specID uint64, qty int) (int64, error)
 	}
+	// optionPricingPort 客户选配项校验与计价（T4.5）：由 admin catalog 服务实现。
+	optionPricingPort interface {
+		// ResolveOptionPricing 校验选择并返回加价小计与归一后的选择；商品无选配项时原样回传。
+		ResolveOptionPricing(ctx context.Context, productID uint64, cycle string, selections map[string]string) (*catalogservice.OptionPricing, error)
+	}
 	// prepayPort 收银台发起支付（支付中心 Prepay）。
 	prepayPort interface {
 		Prepay(ctx context.Context, userID uint64, req paydto.PrepayRequest) (*paydto.OrderInfo, error)
@@ -134,6 +140,8 @@ type OrderService interface {
 	SetPayExpireMinutes(minutes int)
 	// SetCashierPorts 注入收银台能力（支付中心 Prepay 与未支付单关闭）。
 	SetCashierPorts(prepay prepayPort, closer pendingPaymentCloser)
+	// SetOptionPricingPort 注入选配项校验与计价能力（T4.5，装配层调用）。
+	SetOptionPricingPort(p optionPricingPort)
 	// SetSalesOwnerResolver 注入销售归属解析（装配层调用，doc86 §3.4）。
 	SetSalesOwnerResolver(r salesOwnerResolver)
 }
@@ -152,6 +160,7 @@ type orderService struct {
 	consumeRecorder func(userID uint64, amount float64)               // 累计消费/等级重算（P3-03，装配层异步化）
 	actorNames      actorNameLookup                                   // 操作人用户名解析（P4-09），可为 nil
 	sku             productSkuPort                                    // SKU 读取与库存（T4.1），可为 nil（无 SKU 的商品照旧下单）
+	optionPricing   optionPricingPort                                 // 选配项校验与计价（T4.5），可为 nil（无选配项的商品照旧下单）
 	salesOwner      salesOwnerResolver                                // 销售归属解析（doc86 §3.4），可为 nil（不记归属）
 	prepay          prepayPort                                        // 收银台发起支付（支付中心），可为 nil（未装配时不可线上支付）
 	pendingPayments pendingPaymentCloser                              // 关闭未支付支付单，可为 nil
@@ -199,13 +208,41 @@ func (s *orderService) SetCashierPorts(prepay prepayPort, closer pendingPaymentC
 	s.pendingPayments = closer
 }
 
+// SetOptionPricingPort 注入选配项校验与计价能力（T4.5，装配层调用）。
+// 未注入时选配项不参与算价与校验（存量商品无选配项，行为不变）。
+func (s *orderService) SetOptionPricingPort(p optionPricingPort) { s.optionPricing = p }
+
+// resolveOptionPricing 校验客户选择并返回归一后的选择与加价小计（T4.5）。
+// 未装配选配计价能力时原样回传（存量商品与服务不受影响）。
+func (s *orderService) resolveOptionPricing(ctx context.Context, productID uint64, cycle string, selections map[string]string) (*catalogservice.OptionPricing, error) {
+	if s.optionPricing == nil {
+		out := map[string]string{}
+		for k, v := range selections {
+			out[k] = v
+		}
+		return &catalogservice.OptionPricing{Selections: out}, nil
+	}
+	result, err := s.optionPricing.ResolveOptionPricing(ctx, productID, cycle, selections)
+	if err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return &catalogservice.OptionPricing{Selections: map[string]string{}}, nil
+	}
+	if result.Selections == nil {
+		result.Selections = map[string]string{}
+	}
+	return result, nil
+}
+
 // SetSalesOwnerResolver 注入销售归属解析器（装配层调用，避免改构造签名影响既有装配点）。
 func (s *orderService) SetSalesOwnerResolver(r salesOwnerResolver) { s.salesOwner = r }
 
 // resolveQuote 调用统一算价管线；未注入管线时回落为「商品单价 × 数量」不打折（P5-04）。
 // specCode 非空时按 SKU 定价（管线内 SKU 有定价则覆盖商品级基础价）；
-// cycle 非空时按周期价格矩阵取基数（矩阵未建则回落上述单价，doc25）。
-func (s *orderService) resolveQuote(ctx context.Context, userID uint64, product *catalogdto.ProductInfo, specCode, cycle string, qty int) (*pricing.Quote, error) {
+// cycle 非空时按周期价格矩阵取基数（矩阵未建则回落上述单价，doc25）；
+// selections 为客户选配项选择（T4.5），管线据此叠加选项加价（先加价、再打折）。
+func (s *orderService) resolveQuote(ctx context.Context, userID uint64, product *catalogdto.ProductInfo, specCode, cycle string, qty int, selections map[string]string) (*pricing.Quote, error) {
 	if s.pricing == nil {
 		amount := round2(product.Price * float64(qty))
 		return &pricing.Quote{
@@ -216,11 +253,12 @@ func (s *orderService) resolveQuote(ctx context.Context, userID uint64, product 
 		}, nil
 	}
 	return s.pricing.Resolve(ctx, pricing.ResolveInput{
-		UserID:    userID,
-		ProductID: product.ID,
-		SpecCode:  specCode,
-		Cycle:     cycle,
-		Quantity:  qty,
+		UserID:           userID,
+		ProductID:        product.ID,
+		SpecCode:         specCode,
+		Cycle:            cycle,
+		Quantity:         qty,
+		ConfigSelections: selections,
 	})
 }
 
@@ -341,11 +379,23 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 	if err != nil {
 		return nil, err
 	}
-	// 统一算价管线（P5-03/P5-04）：原价、优惠、实付与折扣来源一并落库。
-	// 周期价格矩阵存在时以其价为基数；该周期未开放则算价报错，订单不落库、不扣款。
-	quote, err := s.resolveQuote(ctx, userID, product, specCode, cycle, qty)
+	// 客户选配项（T4.5）：校验取值合法性并归一选择（补齐必选项默认值）。
+	// 归一后的 selections 才是落库与履约依据——客户只填了必选项之外的部分时，
+	// 平台上仍需收到必选项的取值，否则开通会被平台拒绝。
+	pricingResult, err := s.resolveOptionPricing(ctx, req.ProductID, cycle, req.ConfigSelections)
 	if err != nil {
 		return nil, err
+	}
+	selections := pricingResult.Selections
+	// 统一算价管线（P5-03/P5-04）：原价、优惠、实付与折扣来源一并落库。
+	// 周期价格矩阵存在时以其价为基数；该周期未开放则算价报错，订单不落库、不扣款。
+	quote, err := s.resolveQuote(ctx, userID, product, specCode, cycle, qty, selections)
+	if err != nil {
+		return nil, err
+	}
+	// 选项加价小计：未装配算价管线时兜底用选配计价结果（否则前端展示的加价会丢）。
+	if quote.OptionAmount == 0 && pricingResult.Amount > 0 {
+		quote.OptionAmount = pricingResult.Amount
 	}
 	amount := quote.FinalAmount
 	if amount <= 0 {
@@ -399,12 +449,14 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 	}
 	now := time.Now()
 	order := &ordermodel.Order{
-		OrderNo:        genOrderNo(userID),
-		UserID:         userID,
-		ProductID:      product.ID,
-		ProductName:    product.Name,
-		Specs:          specsSnapshot,
-		SpecCode:       specCode,
+		OrderNo:     genOrderNo(userID),
+		UserID:      userID,
+		ProductID:   product.ID,
+		ProductName: product.Name,
+		Specs:       specsSnapshot,
+		SpecCode:    specCode,
+		// 客户选配项快照（T4.5）：履约的唯一真源（worker 重读订单即可取到）。
+		ConfigOptions:  selectionsJSON(selections),
 		Quantity:       qty,
 		PriceModel:     product.PriceModel,
 		Cycle:          cycle,
@@ -419,7 +471,9 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 		PayMethod:      ordermodel.PayMethodBalance,
 		PaidAmount:     amount,
 		PayTime:        &now,
-		OperatorID:     actorID, // 真实操作人（子账号下单可追溯，P4-09）
+		// 选项加价小计落 price_snapshot 之外的量：orders 无独立列，随选配明细一起在
+		// order_items 体现（行级 Amount 已含加价），此处不再新增列以免迁移面扩大。
+		OperatorID: actorID, // 真实操作人（子账号下单可追溯，P4-09）
 	}
 	if useChannel {
 		// 未收款：不写 paid_amount/pay_method/pay_time，避免未付款的订单混进销售额口径
@@ -455,6 +509,7 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 			ProductName:    product.Name,
 			SpecCode:       specCode,
 			Specs:          specsSnapshot,
+			ConfigOptions:  selectionsJSON(selections),
 			Cycle:          cycle,
 			Price:          itemPrice,
 			Quantity:       qty,
@@ -829,6 +884,13 @@ func fromAdminOrder(o ordermodel.Order, actorNames map[uint64]string) dto.OrderI
 		CreatedAt:      o.CreatedAt.Format(time.RFC3339),
 		Remark:         o.Remark,
 	}
+	// 客户选配项选择回显（T4.5）：详情页展示「所选配置」，售后核对也看这个。
+	if strings.TrimSpace(o.ConfigOptions) != "" {
+		var selections map[string]string
+		if err := json.Unmarshal([]byte(o.ConfigOptions), &selections); err == nil && len(selections) > 0 {
+			info.ConfigSelections = selections
+		}
+	}
 	if o.PayTime != nil {
 		info.PayTime = o.PayTime.Format(time.RFC3339)
 	}
@@ -868,9 +930,17 @@ func (s *orderService) Quote(ctx context.Context, userID uint64, req dto.QuoteRe
 	if err != nil {
 		return nil, err
 	}
-	quote, err := s.resolveQuote(ctx, userID, product, specCode, cycle, qty)
+	// 选配项校验与计价（T4.5）：与下单同一套规则，保证预结算金额就是成交金额。
+	pricingResult, err := s.resolveOptionPricing(ctx, req.ProductID, cycle, req.ConfigSelections)
 	if err != nil {
 		return nil, err
+	}
+	quote, err := s.resolveQuote(ctx, userID, product, specCode, cycle, qty, pricingResult.Selections)
+	if err != nil {
+		return nil, err
+	}
+	if quote.OptionAmount == 0 && pricingResult.Amount > 0 {
+		quote.OptionAmount = pricingResult.Amount
 	}
 	return &dto.QuoteInfo{
 		SpecCode:       specCode,
@@ -878,10 +948,45 @@ func (s *orderService) Quote(ctx context.Context, userID uint64, req dto.QuoteRe
 		OriginalAmount: quote.OriginalAmount,
 		DiscountAmount: quote.DiscountAmount,
 		FinalAmount:    quote.FinalAmount,
+		OptionAmount:   quote.OptionAmount,
+		Options:        toSelectedOptions(pricingResult.Items),
 		PolicyID:       quote.PolicyID,
 		Source:         quote.Source,
 		Snapshot:       quote.Snapshot,
 	}, nil
+}
+
+// toSelectedOptions 把选配计价明细映射为预结算返回结构。
+func toSelectedOptions(items []catalogservice.OptionPricingItem) []dto.SelectedOption {
+	if len(items) == 0 {
+		return []dto.SelectedOption{}
+	}
+	out := make([]dto.SelectedOption, 0, len(items))
+	for _, it := range items {
+		out = append(out, dto.SelectedOption{
+			OptionKey:   it.OptionKey,
+			OptionName:  it.OptionName,
+			Value:       it.Value,
+			ValueName:   it.ValueName,
+			Quantity:    it.Quantity,
+			UnitPrice:   it.UnitPrice,
+			Amount:      it.Amount,
+			IsDefaulted: it.IsDefaulted,
+		})
+	}
+	return out
+}
+
+// selectionsJSON 把客户选配项选择序列化为 JSONB 文本；空选择返回空串（列落 NULL）。
+func selectionsJSON(selections map[string]string) string {
+	if len(selections) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(selections)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 // snapshotJSON 将命中规则序列化为 JSONB 文本；空快照存空数组。

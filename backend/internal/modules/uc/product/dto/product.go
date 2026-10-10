@@ -33,6 +33,42 @@ type ProductInfo struct {
 	// Skus 商品下挂的可售规格（T4.1）。空数组表示该商品未拆 SKU，按商品级价格下单。
 	// 下单时把选中项的 spec_code 传给 POST /uc/orders 的 spec_code 字段。
 	Skus []SkuInfo `json:"skus"`
+	// OptionGroups 客户可选配置项（T4.5）：档位之外可自选的参数（操作系统/CPU 档/带宽…）。
+	// 前端按每个 option 的 widget 渲染控件，选中加价并入预结算金额。
+	OptionGroups []OptionGroup `json:"option_groups"`
+}
+
+// OptionGroup 一组可选配置项（当前只有一个分组，保留结构便于以后分区）。
+type OptionGroup struct {
+	Options []Option `json:"options"`
+}
+
+// Option 客户可见的一个可选配置项。
+type Option struct {
+	OptionKey    string       `json:"option_key"` // 平台参数名，下单时作为 config_selections 的键
+	Name         string       `json:"name"`
+	Widget       string       `json:"widget"` // select|radio|qty|bool|group_select
+	Required     bool         `json:"required"`
+	DefaultValue string       `json:"default_value"`
+	Unit         string       `json:"unit"`
+	Help         string       `json:"help"`
+	MinValue     *float64     `json:"min_value"`
+	MaxValue     *float64     `json:"max_value"`
+	// UnitPrice 数量型选项的每单位加价（元）；枚举型加价在 Values 里逐项给出。
+	UnitPrice float64      `json:"unit_price"`
+	Values    []OptionItem `json:"values"`
+}
+
+// OptionItem 一个可选值及其加价。
+type OptionItem struct {
+	Value          string  `json:"value"`
+	Label          string  `json:"label"`
+	GroupLabel     string  `json:"group_label,omitempty"` // 分组（Ubuntu/Windows），前端做分组下拉
+	Default        bool    `json:"is_default"`
+	PriceMonthly   float64 `json:"price_monthly"`
+	PriceQuarterly float64 `json:"price_quarterly"`
+	PriceAnnually  float64 `json:"price_annually"`
+	PriceOnetime   float64 `json:"price_onetime"`
 }
 
 // SkuInfo 用户可见的规格变体（不含成本价）。

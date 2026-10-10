@@ -48,6 +48,9 @@ func (r *specTemplateRepository) List(ctx context.Context, query dto.SpecTemplat
 	if query.SpecFamily != "" {
 		base = base.Where("spec_family = ?", query.SpecFamily)
 	}
+	if query.ProviderType != "" {
+		base = base.Where("provider_type = ?", query.ProviderType)
+	}
 	if query.Status != nil {
 		base = base.Where("status = ?", *query.Status)
 	}
@@ -56,7 +59,8 @@ func (r *specTemplateRepository) List(ctx context.Context, query dto.SpecTemplat
 		return nil, 0, err
 	}
 	var items []model.SpecTemplate
-	if err := base.Order("spec_family asc, sort_order asc, id asc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&items).Error; err != nil {
+	// 按归属平台分组展示（配置档的天然归类维度），旧模板 provider_type 为空排最后。
+	if err := base.Order("provider_type asc, sort_order asc, id asc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&items).Error; err != nil {
 		return nil, 0, err
 	}
 	return items, total, nil

@@ -391,6 +391,13 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/product/spec/mappings/index.vue'),
         meta: { title: '规格映射', role: 'admin', permission: 'spec:mapping:list' },
       },
+      {
+        // 平台配置项目录（T4.5）：按对接平台维护可配置项与取值库（镜像批量入库）
+        path: 'spec/option-catalog',
+        name: 'ProductSpecOptionCatalog',
+        component: () => import('@/pages/product/spec/option-catalog/index.vue'),
+        meta: { title: '平台配置项', role: 'admin', permission: 'spec:option:list' },
+      },
       // —— 定价与计费（pricing）——
       {
         path: 'pricing',
@@ -620,12 +627,6 @@ const routes: Array<RouteRecordRaw> = [
         meta: { title: '资金流水', role: 'admin', permission: 'finance:wallet' },
       },
       {
-        path: 'accounts/wallets',
-        name: 'FinanceWallets',
-        component: () => import('@/pages/finance/accounts/wallets/index.vue'),
-        meta: { title: '用户钱包', role: 'admin', permission: 'finance:wallet' },
-      },
-      {
         path: 'accounts/adjust',
         name: 'FinanceAdjust',
         component: () => import('@/pages/finance/accounts/adjust.vue'),
@@ -670,6 +671,13 @@ const routes: Array<RouteRecordRaw> = [
         name: 'FinanceReport',
         component: () => import('@/pages/finance/report/index.vue'),
         meta: { title: '财务报表', role: 'admin', permission: 'finance:wallet' },
+      },
+      // 用户钱包页已下线（迁移 074，2026-10-09）：单用户余额在「用户管理 → 用户详情 → 财务」查看，
+      // 余额变动在「资金流水」按用户/关键词检索。旧路径保留 redirect，避免书签落到未知路由白屏。
+      {
+        path: 'accounts/wallets',
+        redirect: '/finance/transactions',
+        meta: { title: '资金流水', role: 'admin' },
       },
       // —— 财务配置 ——
       {

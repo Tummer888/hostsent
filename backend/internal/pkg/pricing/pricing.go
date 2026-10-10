@@ -51,9 +51,12 @@ type Quote struct {
 	OriginalAmount float64 `json:"original_amount"`
 	DiscountAmount float64 `json:"discount_amount"`
 	FinalAmount    float64 `json:"final_amount"`
-	PolicyID       *uint64 `json:"price_policy_id"`
-	Source         string  `json:"discount_source"`
-	Snapshot       []Rule  `json:"price_snapshot"`
+	// OptionAmount 客户选配项加价小计（T4.5）。已含在 OriginalAmount 里，
+	// 单独回传是为了订单/预结算页能把「档位价 + 选配」拆开展示。
+	OptionAmount float64 `json:"option_amount"`
+	PolicyID     *uint64 `json:"price_policy_id"`
+	Source       string  `json:"discount_source"`
+	Snapshot     []Rule  `json:"price_snapshot"`
 }
 
 // ResolveInput 算价入参。
@@ -66,6 +69,10 @@ type ResolveInput struct {
 	// Cycle 计费周期（doc25）：月付/季付/年付等规范值。非空且矩阵有该档时，
 	// 以矩阵价为基数（已含上游周期折扣，属"折后价"），再交给折扣规则二次叠加。
 	Cycle string
+	// ConfigSelections 客户选配项选择（T4.5）：配置项参数名 → 选中取值。
+	// 只用于决定取哪一档选项价（Deps.OptionPrice 内按 key/value 查表），
+	// 单件数量型选项的数量也读这里（如 ip_num=2）。
+	ConfigSelections map[string]string
 	// ManualAmount 非 nil 时为管理员手动改价，直接作为实付金额（最高优先级）。
 	ManualAmount *float64
 }
@@ -89,6 +96,12 @@ type Deps struct {
 	GroupRule func(ctx context.Context, userID, productID, categoryID uint64) (*Rule, error)
 	// PromotionRule 促销/优惠券（当前未接入返回 nil）。
 	PromotionRule func(ctx context.Context, in ResolveInput, amount float64) (*Rule, error)
+	// OptionPrice 可选：客户选配项加价总额（T4.5）。
+	// 由调用方（装配层）按商品配置项子表算出：入参是本次选择与订单周期、数量，
+	// 返回值为「所有已选选项的加价小计」。把它放在这里而不是让 pricing 依赖商品目录，
+	// 是为了保持算价管线对商品子域零依赖（与 SpecBasePrice 同法）。
+	// 加价并入基数后参与折扣，即「先加价、再打折」，与线下报价口径一致。
+	OptionPrice func(ctx context.Context, in ResolveInput) (float64, error)
 }
 
 // Service 统一算价服务。
@@ -151,13 +164,26 @@ func (s *Service) Resolve(ctx context.Context, in ResolveInput) (*Quote, error) 
 	if unitPrice < 0 {
 		unitPrice = 0
 	}
-	original := round2(unitPrice * float64(qty))
+	// 选配项加价（T4.5）：并入基数后再打折。选项价与数量已在 OptionPrice 内算好
+	// （数量型选项按选中数量 × 单价），因此这里只做一次加法，不再乘 qty。
+	optionAmount := 0.0
+	if s.deps.OptionPrice != nil && len(in.ConfigSelections) > 0 {
+		amount, err := s.deps.OptionPrice(ctx, in)
+		if err != nil {
+			return nil, err
+		}
+		if amount > 0 {
+			optionAmount = round2(amount)
+		}
+	}
+	original := round2(unitPrice*float64(qty) + optionAmount)
 
 	// 管理员手动改价优先级最高，直接覆盖折扣管线。
 	if in.ManualAmount != nil {
 		final := round2(math.Max(0, *in.ManualAmount))
 		return &Quote{
 			OriginalAmount: original,
+			OptionAmount:   optionAmount,
 			DiscountAmount: round2(math.Max(0, original-final)),
 			FinalAmount:    final,
 			Source:         SourceManual,
@@ -199,6 +225,7 @@ func (s *Service) Resolve(ctx context.Context, in ResolveInput) (*Quote, error) 
 	if len(rules) == 0 {
 		return &Quote{
 			OriginalAmount: original,
+			OptionAmount:   optionAmount,
 			DiscountAmount: 0,
 			FinalAmount:    original,
 			Snapshot:       []Rule{},
@@ -214,6 +241,7 @@ func (s *Service) Resolve(ctx context.Context, in ResolveInput) (*Quote, error) 
 		last := rules[len(rules)-1]
 		return &Quote{
 			OriginalAmount: original,
+			OptionAmount:   optionAmount,
 			DiscountAmount: round2(math.Max(0, original-final)),
 			FinalAmount:    final,
 			PolicyID:       policyIDOf(last),
@@ -233,6 +261,7 @@ func (s *Service) Resolve(ctx context.Context, in ResolveInput) (*Quote, error) 
 	final := round2(math.Max(0, original-bestDiscount))
 	return &Quote{
 		OriginalAmount: original,
+		OptionAmount:   optionAmount,
 		DiscountAmount: round2(math.Max(0, original-final)),
 		FinalAmount:    final,
 		PolicyID:       policyIDOf(best),

@@ -10,6 +10,8 @@ type OrderItem struct {
 	ProductName string `gorm:"column:product_name;size:128;not null"`
 	SpecCode    string `gorm:"column:spec_code;size:64"`
 	Specs       string `gorm:"type:text"`
+	// ConfigOptions 行级选配项快照（T4.5）：与订单头对应，便于按行核对与售后。
+	ConfigOptions string `gorm:"column:config_options;type:jsonb"`
 	// Cycle 行级计费周期快照（doc25 §3.3）。
 	Cycle    string  `gorm:"column:cycle;size:20"`
 	Price    float64 `gorm:"type:decimal(15,2);not null;default:0"`

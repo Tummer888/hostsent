@@ -15,6 +15,8 @@ type OpenOrderRequest struct {
 	Cycle string `json:"cycle"`
 	// CustomerRef 下游自己的终端客户标识（代客下单，落 orders.channel_customer_ref）。
 	CustomerRef string `json:"customer_ref"`
+	// ConfigSelections 客户选配项选择（T4.5）：参数名 → 取值，与用户中心下单口径一致。
+	ConfigSelections map[string]string `json:"config_selections"`
 	// ClientRequestID 幂等键，由 handler 从 X-Client-Request-Id 头注入。
 	ClientRequestID string `json:"-"`
 }

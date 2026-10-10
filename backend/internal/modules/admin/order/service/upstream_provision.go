@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"hostsent/backend/internal/modules/admin/order/model"
 	pkgmodel "hostsent/backend/internal/pkg/model"
@@ -15,7 +17,8 @@ type ProvisionDeps struct {
 	// BuildProvisionRequest 按商品解析上游开通请求（product/catalog 服务实现）。
 	// specSnapshot 为下单时落库的规格快照（SKU 原子取值 JSON，T4.1），可为空；
 	// specCode 为所选 SKU 编码（T4.2），用于回查已确认的平台绑定参数，可为空。
-	BuildProvisionRequest func(ctx context.Context, productID uint64, name, specSnapshot, specCode string) (interface{}, error)
+	// selections 为客户选配项选择（T4.5，参数名 → 取值），优先级最高，可为空。
+	BuildProvisionRequest func(ctx context.Context, productID uint64, name, specSnapshot, specCode string, selections map[string]string) (interface{}, error)
 	// BuildProviderConfig 按提供商 ID 构建适配器配置（含解密密钥与提供商类型）。
 	BuildProviderConfig func(ctx context.Context, providerID uint64) (*upstream.ProviderConfig, error)
 	// CreateInstance 创建上游实例：由装配层用 cfg 实例化 provider 并调用。
@@ -107,7 +110,9 @@ func (a *UpstreamProvisionAdapter) provision(ctx context.Context, order *model.O
 	if a.deps.BuildProvisionRequest == nil || a.deps.CreateInstance == nil || a.deps.BuildProviderConfig == nil {
 		return nil, nil
 	}
-	raw, err := a.deps.BuildProvisionRequest(ctx, order.ProductID, order.ProductName, order.Specs, order.SpecCode)
+	// 客户选配项（T4.5）：下单时的选择落库在 orders.config_options，
+	// 优先级高于 SKU 平台绑定与商品默认参数（客户实际购买决定）。
+	raw, err := a.deps.BuildProvisionRequest(ctx, order.ProductID, order.ProductName, order.Specs, order.SpecCode, orderConfigSelections(order))
 	if err != nil {
 		return nil, fmt.Errorf("构建开通请求失败: %w", err)
 	}
@@ -137,6 +142,24 @@ func orderBillingCycle(order *model.Order) string {
 		return order.Cycle
 	}
 	return order.PriceModel
+}
+
+// orderConfigSelections 解析订单落库的客户选配项选择（T4.5）。
+// 解析失败返回 nil：履约不应因这个可选字段的脏数据而中断，
+// 后续 BuildProvisionRequest 会退回档位基线参数。
+func orderConfigSelections(order *model.Order) map[string]string {
+	raw := strings.TrimSpace(order.ConfigOptions)
+	if raw == "" {
+		return nil
+	}
+	var out map[string]string
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // advanceLegacy 无上游商品的订单：直接推进状态（与 DefaultProvisionAdapter 一致）。

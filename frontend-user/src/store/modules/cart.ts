@@ -16,7 +16,7 @@ import { computed, ref, watch } from 'vue'
 const STORAGE_KEY = 'console_cart'
 
 export interface CartItem {
-  /** 同一商品的不同规格是两行，key 由商品 + 规格 + 周期三者拼成 */
+  /** 同一商品的不同规格是两行，key 由商品 + 规格 + 周期 + 选配指纹拼成 */
   key: string
   productId: number
   productName: string
@@ -27,11 +27,32 @@ export interface CartItem {
   quantity: number
   unitPrice: number
   priceModel: string
+  /** 选配项选择（参数名 → 取值）；无选配的商品为空对象 */
+  selections: Record<string, string>
+  /** 选配的文字摘要（「4核 · Ubuntu 22.04」），仅用于展示，避免回查商品详情 */
+  selectionLabels: string[]
   addedAt: number
 }
 
-export function cartItemKey(productId: number, specCode: string, cycle: string): string {
-  return `${productId}::${specCode || '-'}::${cycle || '-'}`
+/**
+ * 选配指纹：按键排序后拼接，保证同样的选择总是生成同样的 key。
+ * 用于购物车行去重 —— 同商品同规格但 CPU 档不同是两行。
+ */
+function selectionFingerprint(selections: Record<string, string> | undefined): string {
+  if (!selections) return '-'
+  const keys = Object.keys(selections).filter((k) => selections[k] !== '')
+  if (!keys.length) return '-'
+  keys.sort()
+  return keys.map((k) => `${k}=${selections[k]}`).join(',')
+}
+
+export function cartItemKey(
+  productId: number,
+  specCode: string,
+  cycle: string,
+  selections?: Record<string, string>,
+): string {
+  return `${productId}::${specCode || '-'}::${cycle || '-'}::${selectionFingerprint(selections)}`
 }
 
 function load(): CartItem[] {
@@ -40,10 +61,18 @@ function load(): CartItem[] {
     if (!raw) return []
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed.filter(
-      (it): it is CartItem =>
-        !!it && typeof it.productId === 'number' && typeof it.key === 'string',
-    )
+    return parsed
+      .filter(
+        (it): it is CartItem =>
+          !!it && typeof it.productId === 'number' && typeof it.key === 'string',
+      )
+      // 旧版本存的购物车行没有 selections 字段，补齐成空对象，
+      // 否则结算算价与 cartItemKey 会拿到 undefined（历史数据不做二次迁移）。
+      .map((it) => ({
+        ...it,
+        selections: it.selections && typeof it.selections === 'object' ? it.selections : {},
+        selectionLabels: Array.isArray(it.selectionLabels) ? it.selectionLabels : [],
+      }))
   } catch {
     // 存储被手工改坏时按空车处理，不让整个控制台崩在解析上
     return []
@@ -70,9 +99,9 @@ export const useCartStore = defineStore('cart', () => {
 
   watch(items, persist, { deep: true })
 
-  /** 加入购物车：已存在同商品同规格同周期则累加数量。 */
+  /** 加入购物车：已存在同商品同规格同周期同选配则累加数量。 */
   function add(item: Omit<CartItem, 'key' | 'addedAt'>) {
-    const key = cartItemKey(item.productId, item.specCode, item.cycle)
+    const key = cartItemKey(item.productId, item.specCode, item.cycle, item.selections)
     const existing = items.value.find((it) => it.key === key)
     if (existing) {
       existing.quantity += item.quantity

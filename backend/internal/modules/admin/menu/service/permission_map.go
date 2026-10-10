@@ -55,14 +55,16 @@ var menuPermissionMap = map[string]string{
 
 	"/product/products": "product:list",
 	// T7.2 商品对接（doc16 §9.3）：组件复用资源侧页面，权限沿用资源商品口径。
-	"/product/upstream":           "resource:product",
-	"/product/cost-pricing":       "product:update_price",
-	"/product/spec/templates":     "spec:template:list",
-	"/product/spec/custom":        "spec:template:list",
-	"/product/spec/mappings":      "spec:mapping:list",
-	"/product/pricing":            "pricing:list",
-	"/product/pricing/calculator": "pricing:list",
-	"/product/pricing/history":    "pricing:list",
+	"/product/upstream":       "resource:product",
+	"/product/cost-pricing":   "product:update_price",
+	"/product/spec/templates": "spec:template:list",
+	"/product/spec/custom":    "spec:template:list",
+	"/product/spec/mappings":  "spec:mapping:list",
+	// 平台配置项目录（T4.5）：按对接平台维护可配置项与取值库。
+	"/product/spec/option-catalog": "spec:option:list",
+	"/product/pricing":             "pricing:list",
+	"/product/pricing/calculator":  "pricing:list",
+	"/product/pricing/history":     "pricing:list",
 	// 周期价格矩阵（doc25）：与折扣策略同权限口径（定价查看/维护）。
 	"/product/pricing/matrix": "pricing:list",
 	// 折扣策略此前漏登记 → 菜单对所有角色可见（doc23 问题清单）。
@@ -77,14 +79,13 @@ var menuPermissionMap = map[string]string{
 	"/orders/refunds": "order:refunds",
 	"/orders/stats":   "order:stats",
 
-	"/finance/overview":         "finance:wallet",
-	"/finance/accounts/wallets": "finance:wallet",
-	"/finance/accounts/adjust":  "finance:adjust",
-	"/finance/transactions":     "finance:wallet",
-	"/finance/recharges":        "finance:recharge",
-	"/finance/withdrawals":      "finance:withdraw",
-	"/finance/bills":            "finance:bill",
-	"/finance/recon":            "finance:bill",
+	"/finance/overview":        "finance:wallet",
+	"/finance/accounts/adjust": "finance:adjust",
+	"/finance/transactions":    "finance:wallet",
+	"/finance/recharges":       "finance:recharge",
+	"/finance/withdrawals":     "finance:withdraw",
+	"/finance/bills":           "finance:bill",
+	"/finance/recon":           "finance:bill",
 	// 发票管理（doc36 §3.3）：与账单同域，开票动作由 finance:invoice:issue 细分。
 	"/finance/invoices": "finance:invoice",
 	"/finance/report":   "finance:wallet",

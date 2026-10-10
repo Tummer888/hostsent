@@ -11,16 +11,22 @@ import (
 	"hostsent/backend/internal/pkg/response"
 )
 
-// SpecHandler 规格管理入口（规格模板 + 规格映射 + 规格契约）。
+// SpecHandler 规格管理入口（规格模板/配置档 + 规格映射 + 规格契约 + 平台配置项目录）。
 type SpecHandler struct {
 	templateService service.SpecTemplateService
 	mappingService  service.SpecMappingService
 	contractService service.SpecContractService
+	optionService   service.SpecOptionService
 }
 
 // NewSpecHandler 创建规格管理入口。
 func NewSpecHandler(templateService service.SpecTemplateService, mappingService service.SpecMappingService, contractService service.SpecContractService) *SpecHandler {
 	return &SpecHandler{templateService: templateService, mappingService: mappingService, contractService: contractService}
+}
+
+// SetOptionService 注入平台配置项目录服务（装配层调用；未注入时相关路由返回明确错误）。
+func (h *SpecHandler) SetOptionService(svc service.SpecOptionService) {
+	h.optionService = svc
 }
 
 // ===== 规格模板 =====

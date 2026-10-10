@@ -32,18 +32,21 @@ func (a *specTemplateReaderAdapter) SpecTemplateByID(ctx context.Context, id uin
 		return nil, nil
 	}
 	return &service.SpecTemplateSnapshot{
-		ID:             item.ID,
-		Name:           item.Name,
-		SpecFamily:     item.SpecFamily,
-		CPU:            item.CPU,
-		Memory:         item.Memory,
-		Disk:           item.Disk,
-		Bandwidth:      item.Bandwidth,
-		DiskType:       item.DiskType,
-		OS:             item.OS,
-		Price:          item.Price,
-		SpecValues:     rawJSONString(item.SpecValues),
-		PlatformParams: rawJSONString(item.PlatformParams),
+		ID:               item.ID,
+		Name:             item.Name,
+		SpecFamily:       item.SpecFamily,
+		CPU:              item.CPU,
+		Memory:           item.Memory,
+		Disk:             item.Disk,
+		Bandwidth:        item.Bandwidth,
+		DiskType:         item.DiskType,
+		OS:               item.OS,
+		Price:            item.Price,
+		SpecValues:       rawJSONString(item.SpecValues),
+		PlatformParams:   rawJSONString(item.PlatformParams),
+		ProviderType:     item.ProviderType,
+		OptionSelections: rawJSONString(item.OptionSelections),
+		NameTemplate:     item.NameTemplate,
 	}, nil
 }
 

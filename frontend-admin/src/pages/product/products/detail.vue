@@ -132,26 +132,132 @@
           </div>
         </t-tab-panel>
 
-        <t-tab-panel value="config" label="可配置项">
+        <t-tab-panel value="config" label="可选配置项">
           <div class="tabs-section">
             <div class="table-card__head">
-              <h3 class="card-title">可配置项</h3>
+              <h3 class="card-title">可选配置项</h3>
               <span class="table-card__meta">
-                source=upstream 走上游配置 id；source=self 直接作为平台写参数下发
+                客户下单时可选的参数；source=self 时按 option_key 直接下发平台
               </span>
             </div>
-            <t-alert
-              theme="info"
-              message="配置组 JSON 结构与上游 config_groups 对齐；group.options[].source/source_key 可标注来源。保存为覆盖式写入。"
-            />
+            <t-alert theme="info" message="建品勾选档位时已自动生成；此处可改取值、分组与加价。「从平台配置项目录添加」可补参数。" />
+
+            <t-space size="small" class="cfg-toolbar">
+              <t-button size="small" theme="primary" variant="outline" @click="openCatalogPicker">
+                从平台配置项目录添加
+              </t-button>
+              <t-button size="small" variant="outline" @click="addBlankOption">新增自定义参数</t-button>
+              <t-button size="small" variant="outline" @click="advancedVisible = !advancedVisible">
+                {{ advancedVisible ? '隐藏' : '显示' }}高级 JSON
+              </t-button>
+            </t-space>
+
+            <t-table
+              row-key="rowKey"
+              :data="configOptionRows"
+              :columns="configColumns"
+              size="small"
+              hover
+              cell-empty-content="—"
+            >
+              <template #opt_key="{ row }">
+                <div class="product-cell">
+                  <span class="cell-strong">{{ row.option_name || '（未命名）' }}</span>
+                  <span class="product-sub"><code>{{ row.source_key || row.option_key || '—' }}</code></span>
+                </div>
+              </template>
+              <template #opt_widget="{ row }">
+                <t-select
+                  v-model="row.widget"
+                  size="small"
+                  :options="widgetOptions"
+                  @change="onWidgetChange(row)"
+                />
+              </template>
+              <template #opt_required="{ row }">
+                <t-switch v-model="row.required" size="small" />
+              </template>
+              <template #opt_default="{ row }">
+                <t-input
+                  v-model="row.default_value"
+                  size="small"
+                  placeholder="默认值"
+                />
+              </template>
+              <template #opt_values="{ row }">
+                <t-link theme="primary" hover="color" @click="toggleExpand(row)">
+                  {{ (row.sub || []).length }} 个取值
+                </t-link>
+                <span v-if="row.min_value != null" class="product-sub">
+                  {{ row.min_value }}~{{ row.max_value }} {{ row.unit }}
+                </span>
+              </template>
+              <template #opt_action="{ row }">
+                <div class="action-cell">
+                  <t-link theme="primary" hover="color" @click="toggleExpand(row)">
+                    {{ expandedKey === row.rowKey ? '收起' : '取值' }}
+                  </t-link>
+                  <t-link theme="danger" hover="color" @click="removeConfigOption(row)">删除</t-link>
+                </div>
+              </template>
+              <template #empty><t-empty description="暂无选配项，建品时勾选规格档位会自动生成" /></template>
+            </t-table>
+
+            <!-- 取值明细：展开行内编辑（值/显示名/分组/加价） -->
+            <div v-for="row in configOptionRows" :key="'detail-' + row.rowKey">
+              <div v-if="expandedKey === row.rowKey" class="cfg-detail">
+                <div class="cfg-detail__head">
+                  <span class="cell-strong">{{ row.option_name }} 的取值</span>
+                  <t-button size="small" variant="outline" @click="addSub(row)">添加取值</t-button>
+                </div>
+                <t-table
+                  row-key="subKey"
+                  :data="row.sub || []"
+                  :columns="subColumns"
+                  size="small"
+                  cell-empty-content="—"
+                >
+                  <template #sub_label="{ row: sub }">
+                    <t-input v-model="sub.option_name" size="small" @change="syncAdvancedFromRows" />
+                  </template>
+                  <template #sub_value="{ row: sub }">
+                    <t-input v-model="sub.source_key" size="small" placeholder="下发值" @change="syncAdvancedFromRows" />
+                  </template>
+                  <template #sub_group="{ row: sub }">
+                    <t-input v-model="sub.group_label" size="small" placeholder="Ubuntu/Windows" @change="syncAdvancedFromRows" />
+                  </template>
+                  <template #sub_price="{ row: sub }">
+                    <t-input-number
+                      :model-value="subPricing(sub).monthly ?? 0"
+                      size="small"
+                      :min="0"
+                      :precision="2"
+                      theme="column"
+                      @change="(v: string | number) => setSubPrice(sub, v)"
+                    />
+                  </template>
+                  <template #sub_default="{ row: sub }">
+                    <t-radio :checked="!!sub.is_default" @change="setSubDefault(row, sub)" />
+                  </template>
+                  <template #sub_action="{ row: sub }">
+                    <t-link theme="danger" hover="color" @click="removeSub(row, sub)">删除</t-link>
+                  </template>
+                </t-table>
+              </div>
+            </div>
+
             <t-textarea
+              v-if="advancedVisible"
               v-model="configOptionsText"
+              class="cfg-advanced"
               :autosize="{ minRows: 8, maxRows: 24 }"
-              placeholder='[{"name":"平台参数","options":[{"option_name":"node","source":"self","source_key":"node","sub":[{"option_name":"一区","source":"self","source_key":"zone-a"}]}]}]'
+              placeholder='[{"name":"客户选配","options":[{"option_name":"CPU","source":"self","source_key":"cpu","widget":"radio","sub":[{"option_name":"2核","source":"self","source_key":"2"}]}]}]'
+              @blur="applyAdvancedJSON"
             />
+
             <div class="form-footer">
               <t-button variant="outline" @click="loadConfigOptions">重置</t-button>
-              <t-button theme="primary" :loading="configSaving" @click="saveConfigOptions">保存可配置项</t-button>
+              <t-button theme="primary" :loading="configSaving" @click="saveConfigOptions">保存可选配置项</t-button>
             </div>
           </div>
         </t-tab-panel>
@@ -372,6 +478,44 @@
         </t-form>
       </div>
     </t-dialog>
+
+    <!-- 平台配置项目录选择器：从目录添加可选配置项 -->
+    <t-dialog
+      v-model:visible="pickerVisible"
+      header="从平台配置项目录添加"
+      width="720px"
+      :footer="false"
+      @close="pickerVisible = false"
+    >
+      <t-alert theme="info" message="目录来自「产品管理 → 规格管理 → 平台配置项」，按商品绑定的平台渠道加载。" />
+      <t-table
+        row-key="option_key"
+        :data="pickerItems"
+        :loading="pickerLoading"
+        :columns="pickerColumns"
+        size="small"
+        hover
+        max-height="420"
+        cell-empty-content="—"
+      >
+        <template #p_option="{ row }">
+          <div class="product-cell">
+            <span class="cell-strong">{{ row.label || row.option_key }}</span>
+            <span class="product-sub">
+              <code>{{ row.option_key }}</code>
+              <t-tag v-if="row.required" theme="error" variant="light" size="small" shape="round">必选</t-tag>
+            </span>
+          </div>
+        </template>
+        <template #p_values="{ row }">
+          <span>{{ (row.values || []).length }} 个取值</span>
+        </template>
+        <template #p_action="{ row }">
+          <t-link theme="primary" hover="color" @click="addFromCatalog(row)">添加</t-link>
+        </template>
+        <template #empty><t-empty description="目录为空，请先到「平台配置项」页同步" /></template>
+      </t-table>
+    </t-dialog>
   </div>
 </template>
 
@@ -387,6 +531,7 @@ import {
   createProductSpec,
   deleteProductSpec,
   generateProductSpecFromTemplate,
+  getOptionCatalog,
   getProductConfigOptions,
   getProductDetail,
   getProductHistory,
@@ -398,6 +543,7 @@ import {
   updateProductSpec,
   upsertSpecBinding,
 } from '@/api/product'
+import { getProviderList } from '@/api/admin'
 import {
   bindingStatusTag,
   changeTypeLabel,
@@ -411,7 +557,11 @@ import {
 } from '@/pages/product/constants'
 import { useCategoryOptions } from '@/composables/useCategoryOptions'
 import type {
+  OptionSpecInfo,
+  ProviderInfo,
   SaleProductConfigGroup,
+  SaleProductConfigOption,
+  SaleProductConfigSub,
   SaleProductHistoryInfo,
   SaleProductInfo,
   SaleProductSpecInfo,
@@ -831,43 +981,285 @@ async function submitGenerate() {
   }
 }
 
-// ---------- 可配置项 ----------
+// ---------- 可选配置项（结构化编辑器）----------
+//
+// 后端仍以 config_groups 数组收发（与上游克隆链路共用），但这里给运营的是表格：
+// 每个参数一行，展开行内改取值/分组/加价。JSON 文本框降级为「高级」入口，
+// 两边通过 rowsToGroups / groupsToRows 双向同步，避免运营手写整段 JSON。
+
+type ConfigSubRow = SaleProductConfigSub & { subKey: string; pricings?: { monthly?: number }[] }
+// 用 Omit 换掉 sub 的类型：表格行需要 subKey 做 row-key，直接用交叉会与基类型里的 sub 冲突。
+type ConfigOptionRow = Omit<SaleProductConfigOption, 'sub'> & { rowKey: string; sub: ConfigSubRow[] }
 
 const configOptionsText = ref('')
 const configSaving = ref(false)
+const advancedVisible = ref(false)
+const expandedKey = ref('')
+const configOptionRows = ref<ConfigOptionRow[]>([])
+
+let rowSeq = 0
+function nextKey(prefix: string): string {
+  rowSeq += 1
+  return `${prefix}-${rowSeq}`
+}
+
+const widgetOptions = [
+  { label: '下拉（可分组）', value: 'select' },
+  { label: '单选（按钮组）', value: 'radio' },
+  { label: '数量（步进器）', value: 'qty' },
+  { label: '开关', value: 'bool' },
+]
+
+const configColumns: PrimaryTableCol<ConfigOptionRow>[] = [
+  { colKey: 'opt_key', title: '参数', minWidth: 180 },
+  { colKey: 'opt_widget', title: '控件', width: 150 },
+  { colKey: 'opt_required', title: '必选', width: 70 },
+  { colKey: 'opt_default', title: '默认值', width: 130 },
+  { colKey: 'opt_values', title: '取值', minWidth: 130 },
+  { colKey: 'opt_action', title: '操作', width: 130, align: 'center' as const },
+]
+
+const subColumns: PrimaryTableCol<ConfigSubRow>[] = [
+  { colKey: 'sub_label', title: '显示名', minWidth: 160 },
+  { colKey: 'sub_value', title: '下发值', width: 120 },
+  { colKey: 'sub_group', title: '分组', width: 130 },
+  { colKey: 'sub_price', title: '加价(元/月)', width: 140 },
+  { colKey: 'sub_default', title: '默认', width: 70 },
+  { colKey: 'sub_action', title: '操作', width: 70, align: 'center' as const },
+]
+
+function groupsToRows(groups: SaleProductConfigGroup[]): ConfigOptionRow[] {
+  const out: ConfigOptionRow[] = []
+  for (const g of groups || []) {
+    for (const opt of g.options || []) {
+      out.push({
+        ...opt,
+        rowKey: nextKey('opt'),
+        sub: (opt.sub || []).map((s) => ({ ...s, subKey: nextKey('sub') })),
+      })
+    }
+  }
+  return out
+}
+
+function subPricing(sub: ConfigSubRow): { monthly?: number } {
+  const p = (sub.pricings || [])[0]
+  return p || {}
+}
+
+function setSubPrice(sub: ConfigSubRow, value: string | number) {
+  const monthly = Number(value) || 0
+  sub.pricings = [{ monthly }]
+  syncAdvancedFromRows()
+}
+
+function setSubDefault(row: ConfigOptionRow, target: ConfigSubRow) {
+  // 每参数只保留一个默认（用户侧预选靠它）。
+  for (const sub of row.sub) sub.is_default = sub.subKey === target.subKey
+  const hit = row.sub.find((s) => s.subKey === target.subKey)
+  row.default_value = hit ? (hit.source_key || '') : ''
+  syncAdvancedFromRows()
+}
+
+function addSub(row: ConfigOptionRow) {
+  row.sub = row.sub || []
+  row.sub.push({ option_name: '', source_key: '', source: 'self', group_label: '', hidden: 0, subKey: nextKey('sub') })
+  expandedKey.value = row.rowKey
+  syncAdvancedFromRows()
+}
+
+function removeSub(row: ConfigOptionRow, target: ConfigSubRow) {
+  row.sub = (row.sub || []).filter((s) => s.subKey !== target.subKey)
+  syncAdvancedFromRows()
+}
+
+function addBlankOption() {
+  configOptionRows.value.push({
+    rowKey: nextKey('opt'),
+    option_name: '',
+    option_type: 2,
+    source: 'self',
+    source_key: '',
+    option_key: '',
+    widget: 'radio',
+    required: false,
+    default_value: '',
+    hidden: 0,
+    sort_order: configOptionRows.value.length,
+    sub: [],
+  })
+}
+
+function removeConfigOption(row: ConfigOptionRow) {
+  configOptionRows.value = configOptionRows.value.filter((r) => r.rowKey !== row.rowKey)
+  syncAdvancedFromRows()
+}
+
+/** 先选控件再定 option_type：用户侧按 widget 渲染，option_type 只作兼容口径。 */
+function onWidgetChange(row: ConfigOptionRow) {
+  const map: Record<string, number> = { select: 1, radio: 2, bool: 3, qty: 4 }
+  row.option_type = map[row.widget || 'select'] ?? 1
+  syncAdvancedFromRows()
+}
+
+function toggleExpand(row: ConfigOptionRow) {
+  expandedKey.value = expandedKey.value === row.rowKey ? '' : row.rowKey
+}
+
+/** 把表格行回写成 config_groups（保存与高级 JSON 同步共用）。 */
+function rowsToGroups(): SaleProductConfigGroup[] {
+  const options: SaleProductConfigOption[] = configOptionRows.value.map((row, idx) => ({
+    option_name: row.option_name,
+    option_type: row.option_type ?? 1,
+    source: 'self',
+    source_key: row.source_key || row.option_key || '',
+    provider_type: row.provider_type,
+    option_key: row.option_key || row.source_key || '',
+    widget: row.widget || 'select',
+    required: !!row.required,
+    default_value: row.default_value || '',
+    widget_group: row.widget_group,
+    min_value: row.min_value ?? null,
+    max_value: row.max_value ?? null,
+    unit: row.unit,
+    help: row.help,
+    hidden: row.hidden ?? 0,
+    sort_order: row.sort_order ?? idx,
+    sub: (row.sub || []).map((s, sIdx) => ({
+      option_name: s.option_name,
+      source: 'self',
+      source_key: s.source_key,
+      group_label: s.group_label,
+      is_default: !!s.is_default,
+      hidden: s.hidden ?? 0,
+      sort_order: sIdx,
+      pricings: [{ monthly: subPricing(s).monthly ?? 0 }],
+    })),
+  }))
+  if (!options.length) return []
+  return [{ name: '客户选配', description: '按配置档生成 / 手工维护', options }]
+}
+
+function syncAdvancedFromRows() {
+  const groups = rowsToGroups()
+  configOptionsText.value = groups.length ? JSON.stringify(groups, null, 2) : ''
+}
+
+/** 高级 JSON 编辑后回灌表格（运营手改 JSON 时表格要跟着变）。 */
+function applyAdvancedJSON() {
+  const raw = configOptionsText.value.trim()
+  if (!raw) {
+    configOptionRows.value = []
+    return
+  }
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) throw new Error('not array')
+    configOptionRows.value = groupsToRows(parsed as SaleProductConfigGroup[])
+    MessagePlugin.success('已按 JSON 刷新表格')
+  } catch {
+    MessagePlugin.warning('JSON 结构非法（应为 config_groups 数组），表格保持原样')
+  }
+}
 
 async function loadConfigOptions() {
   try {
     const groups = await getProductConfigOptions(Number(route.params.id))
-    configOptionsText.value = groups && groups.length ? JSON.stringify(groups, null, 2) : ''
+    configOptionRows.value = groupsToRows(groups || [])
+    syncAdvancedFromRows()
   } catch (error) {
-    MessagePlugin.error((error as Error).message || '加载可配置项失败')
+    MessagePlugin.error((error as Error).message || '加载可选配置项失败')
   }
 }
 
 async function saveConfigOptions() {
-  let groups: SaleProductConfigGroup[] = []
-  if (configOptionsText.value.trim()) {
-    try {
-      const parsed = JSON.parse(configOptionsText.value)
-      if (!Array.isArray(parsed)) throw new Error('not array')
-      groups = parsed as SaleProductConfigGroup[]
-    } catch {
-      MessagePlugin.warning('可配置项必须是 JSON 数组（config_groups 结构）')
-      return
-    }
-  }
+  const groups = rowsToGroups()
   configSaving.value = true
   try {
     await saveProductConfigOptions(Number(route.params.id), groups)
-    MessagePlugin.success('可配置项已保存')
+    MessagePlugin.success('可选配置项已保存')
     await loadConfigOptions()
     await loadHistory()
   } catch (error) {
-    MessagePlugin.error((error as Error).message || '保存可配置项失败')
+    MessagePlugin.error((error as Error).message || '保存可选配置项失败')
   } finally {
     configSaving.value = false
   }
+}
+
+// ---------- 从平台配置项目录添加参数 ----------
+
+const pickerVisible = ref(false)
+const pickerLoading = ref(false)
+const pickerItems = ref<OptionSpecInfo[]>([])
+
+const pickerColumns: PrimaryTableCol<OptionSpecInfo>[] = [
+  { colKey: 'p_option', title: '配置项', minWidth: 200 },
+  { colKey: 'p_values', title: '可选值', width: 110 },
+  { colKey: 'unit', title: '单位', width: 80 },
+  { colKey: 'p_action', title: '操作', width: 80, align: 'center' as const },
+]
+
+async function openCatalogPicker() {
+  pickerVisible.value = true
+  pickerLoading.value = true
+  try {
+    // 自营商品用商品绑定的平台渠道反查平台类型；未绑定则列全部平台类型（按 mofangyun 兜底）。
+    let providerType = ''
+    if (product.value?.source_provider_id) {
+      const data = await getProviderList({ page_size: 100 })
+      const hit = data.items.find((p: ProviderInfo) => p.id === product.value?.source_provider_id)
+      providerType = hit?.provider_type || ''
+    }
+    pickerItems.value = await getOptionCatalog({
+      provider_type: providerType || 'mofangyun',
+      provider_id: product.value?.source_provider_id,
+    })
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '加载平台配置项目录失败')
+    pickerItems.value = []
+  } finally {
+    pickerLoading.value = false
+  }
+}
+
+function addFromCatalog(spec: OptionSpecInfo) {
+  if (configOptionRows.value.some((r) => (r.option_key || r.source_key) === spec.option_key)) {
+    MessagePlugin.warning(`已存在参数 ${spec.option_key}`)
+    return
+  }
+  const isQty = spec.widget === 'qty' || spec.min_value != null
+  configOptionRows.value.push({
+    rowKey: nextKey('opt'),
+    option_name: spec.label || spec.option_key,
+    option_type: isQty ? 4 : spec.widget === 'radio' ? 2 : 1,
+    source: 'self',
+    source_key: spec.option_key,
+    provider_type: spec.provider_type,
+    option_key: spec.option_key,
+    widget: isQty ? 'qty' : (spec.widget || 'select'),
+    required: !!spec.required,
+    default_value: spec.default_value || '',
+    widget_group: spec.group_name,
+    min_value: spec.min_value ?? null,
+    max_value: spec.max_value ?? null,
+    unit: spec.unit,
+    help: spec.help,
+    hidden: 0,
+    sort_order: spec.sort_order ?? configOptionRows.value.length,
+    sub: (spec.values || []).map((v) => ({
+      option_name: v.label || v.value,
+      source: 'self',
+      source_key: v.value,
+      group_label: v.group_label || '',
+      is_default: false,
+      hidden: v.status === 'offline' ? 1 : 0,
+      pricings: [{ monthly: 0 }],
+      subKey: nextKey('sub'),
+    })),
+  })
+  syncAdvancedFromRows()
+  MessagePlugin.success(`已添加参数 ${spec.label || spec.option_key}`)
 }
 
 // ---------- 基础数据 ----------

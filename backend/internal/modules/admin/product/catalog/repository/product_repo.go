@@ -47,6 +47,9 @@ type ProductRepository interface {
 	AllConfigGroupsByProductID(ctx context.Context, productID uint64) ([]interface{}, error)
 	// SelfConfigParams 读取 source=self 的配置项，返回"平台参数名 → 选中值"（T4.4 自营可配置项）。
 	SelfConfigParams(ctx context.Context, productID uint64) (map[string]string, error)
+	// SelfConfigOptionRows 读取 source=self 的配置项原始行（含子项），供用户侧选配
+	// 渲染与选项计价使用（T4.5）：需要全部可选值与加价，而不是首个取值。
+	SelfConfigOptionRows(ctx context.Context, productID uint64) ([]*model.ProductConfigOption, error)
 }
 
 type productRepository struct {
@@ -258,21 +261,36 @@ type configOption struct {
 	QtyMaximum int    `json:"qty_maximum"`
 	UpstreamID int64  `json:"upstream_id"`
 	// Source/SourceKey 配置项来源（T4.4）：upstream（默认）或 self；self 时 SourceKey 是平台参数名。
-	Source    string      `json:"source,omitempty"`
-	SourceKey string      `json:"source_key,omitempty"`
-	Hidden    int         `json:"hidden"`
-	SortOrder int         `json:"sort_order"`
-	Sub       []configSub `json:"sub"`
+	Source    string `json:"source,omitempty"`
+	SourceKey string `json:"source_key,omitempty"`
+	// ---- T4.5 客户选配渲染与计价（自营配置档生成）----
+	ProviderType string      `json:"provider_type,omitempty"`
+	OptionKey    string      `json:"option_key,omitempty"` // 平台参数名（下发给魔方云的键）
+	Widget       string      `json:"widget,omitempty"`     // select|radio|qty|bool
+	Label        string      `json:"label,omitempty"`      // 中文名（CPU/操作系统）
+	Required     bool        `json:"required,omitempty"`   // 客户必选
+	DefaultValue string      `json:"default_value,omitempty"`
+	WidgetGroup  string      `json:"widget_group,omitempty"` // 分组标签
+	MinValue     *float64    `json:"min_value,omitempty"`
+	MaxValue     *float64    `json:"max_value,omitempty"`
+	Unit         string      `json:"unit,omitempty"`
+	Help         string      `json:"help,omitempty"`
+	Hidden       int         `json:"hidden"`
+	SortOrder    int         `json:"sort_order"`
+	Sub          []configSub `json:"sub"`
 }
 
 type configSub struct {
-	ID         int64         `json:"id"`
-	OptionName string        `json:"option_name"`
-	QtyMinimum int           `json:"qty_minimum"`
-	QtyMaximum int           `json:"qty_maximum"`
-	UpstreamID int64         `json:"upstream_id"`
-	Source     string        `json:"source,omitempty"`
-	SourceKey  string        `json:"source_key,omitempty"`
+	ID         int64  `json:"id"`
+	OptionName string `json:"option_name"`
+	QtyMinimum int    `json:"qty_minimum"`
+	QtyMaximum int    `json:"qty_maximum"`
+	UpstreamID int64  `json:"upstream_id"`
+	Source     string `json:"source,omitempty"`
+	SourceKey  string `json:"source_key,omitempty"`
+	// GroupLabel/IsDefault 用户侧分组下拉与默认选中（T4.5）。
+	GroupLabel string        `json:"group_label,omitempty"`
+	IsDefault  bool          `json:"is_default,omitempty"`
 	Hidden     int           `json:"hidden"`
 	SortOrder  int           `json:"sort_order"`
 	Pricings   []configPrice `json:"pricings"`
@@ -353,13 +371,23 @@ func buildConfigOptionRows(parsed []configGroup, productID uint64) []*model.Prod
 		for _, opt := range g.Options {
 			source, sourceKey := normalizeConfigSource(opt.Source, opt.SourceKey, opt.UpstreamID)
 			option := &model.ProductConfigOption{
-				ProductID:   productID,
-				UpstreamKey: opt.UpstreamID,
-				Source:      source,
-				SourceKey:   sourceKey,
-				OptionName:  opt.OptionName,
-				OptionType:  intOr(opt.OptionType, 1),
-				SortOrder:   opt.SortOrder,
+				ProductID:    productID,
+				UpstreamKey:  opt.UpstreamID,
+				Source:       source,
+				SourceKey:    sourceKey,
+				OptionName:   opt.OptionName,
+				OptionType:   intOr(opt.OptionType, 1),
+				ProviderType: opt.ProviderType,
+				OptionKey:    firstNonEmptyStr(opt.OptionKey, sourceKey),
+				Widget:       opt.Widget,
+				Required:     opt.Required,
+				DefaultValue: opt.DefaultValue,
+				WidgetGroup:  opt.WidgetGroup,
+				MinValue:     opt.MinValue,
+				MaxValue:     opt.MaxValue,
+				Unit:         opt.Unit,
+				Help:         opt.Help,
+				SortOrder:    opt.SortOrder,
 			}
 			for _, sub := range opt.Sub {
 				price := firstPrice(sub.Pricings)
@@ -374,6 +402,8 @@ func buildConfigOptionRows(parsed []configGroup, productID uint64) []*model.Prod
 					PriceAnnually:  float64(price.Annually),
 					PriceQuarterly: float64(price.Quarterly),
 					PriceOnetime:   float64(price.Onetime),
+					GroupLabel:     sub.GroupLabel,
+					IsDefault:      sub.IsDefault,
 					SortOrder:      sub.SortOrder,
 				})
 			}
@@ -481,6 +511,23 @@ func (r *productRepository) SelfConfigParams(ctx context.Context, productID uint
 	return out, nil
 }
 
+// SelfConfigOptionRows 读取 source=self 的配置项原始行（含子项）。
+// 与 SelfConfigParams 的区别：后者只取"首个可见取值"用于开通兜底，前者要完整
+// 可选值与加价，供用户侧选配界面渲染与选项计价（T4.5）。
+func (r *productRepository) SelfConfigOptionRows(ctx context.Context, productID uint64) ([]*model.ProductConfigOption, error) {
+	var options []*model.ProductConfigOption
+	if err := r.db.WithContext(ctx).
+		Preload("Subs", func(db *gorm.DB) *gorm.DB {
+			return db.Order("sort_order asc, id asc")
+		}).
+		Where("product_id = ? AND source = ?", productID, model.ConfigSourceSelf).
+		Order("sort_order asc, id asc").
+		Find(&options).Error; err != nil {
+		return nil, err
+	}
+	return options, nil
+}
+
 // parseConfigGroups 把 config_groups（接口切片，来自 extractConfigGroups 或上游镜像结构）解析为内部类型。
 func parseConfigGroups(groups []interface{}) ([]configGroup, error) {
 	var parsed []configGroup
@@ -502,12 +549,23 @@ func buildConfigGroups(options []*model.ProductConfigOption) []interface{} {
 	group := &configGroup{Options: make([]configOption, 0, len(options))}
 	for _, opt := range options {
 		copt := configOption{
-			OptionName: opt.OptionName,
-			OptionType: opt.OptionType,
-			UpstreamID: opt.UpstreamKey,
-			Source:     opt.Source,
-			SourceKey:  opt.SourceKey,
-			Sub:        make([]configSub, 0, len(opt.Subs)),
+			OptionName:   opt.OptionName,
+			OptionType:   opt.OptionType,
+			UpstreamID:   opt.UpstreamKey,
+			Source:       opt.Source,
+			SourceKey:    opt.SourceKey,
+			ProviderType: opt.ProviderType,
+			OptionKey:    opt.OptionKey,
+			Widget:       opt.Widget,
+			Label:        opt.OptionName,
+			Required:     opt.Required,
+			DefaultValue: opt.DefaultValue,
+			WidgetGroup:  opt.WidgetGroup,
+			MinValue:     opt.MinValue,
+			MaxValue:     opt.MaxValue,
+			Unit:         opt.Unit,
+			Help:         opt.Help,
+			Sub:          make([]configSub, 0, len(opt.Subs)),
 		}
 		for _, sub := range opt.Subs {
 			copt.Sub = append(copt.Sub, configSub{
@@ -515,6 +573,8 @@ func buildConfigGroups(options []*model.ProductConfigOption) []interface{} {
 				UpstreamID: sub.UpstreamKey,
 				Source:     sub.Source,
 				SourceKey:  sub.SourceKey,
+				GroupLabel: sub.GroupLabel,
+				IsDefault:  sub.IsDefault,
 				Hidden:     sub.Hidden,
 				SortOrder:  sub.SortOrder,
 				Pricings: []configPrice{{
@@ -546,4 +606,14 @@ func intOr(v int, def int) int {
 		return def
 	}
 	return v
+}
+
+// firstNonEmptyStr 返回第一个非空（去空白后）字符串。
+func firstNonEmptyStr(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }

@@ -63,6 +63,40 @@ type ProductSpecTemplateSelection struct {
 	// PlatformParams 就地调整后的平台写参数 JSON（area/node/os/store 等）；
 	// 留空则原样用模板值。为空（且模板也为空）时该 SKU 不带平台绑定，无法上架。
 	PlatformParams json.RawMessage `json:"platform_params"`
+	// OptionOverrides 就地覆盖的客户选配项（T4.5）：参数名 → 可选值及加价。
+	// 留空时由模板 option_selections + 平台配置项目录自动生成。
+	OptionOverrides []ProductOptionOverride `json:"option_overrides"`
+}
+
+// ProductOptionOverride 建品时就地调整某个客户选配项。
+// 只覆盖"可选值与加价"；控件类型/必选/单位等默认取平台配置项目录。
+type ProductOptionOverride struct {
+	OptionKey  string               `json:"option_key" binding:"required"`
+	Label      string               `json:"label"`
+	Widget     string               `json:"widget"`
+	Required   bool                 `json:"required"`
+	Default    string               `json:"default"`
+	Unit       string               `json:"unit"`
+	GroupLabel string               `json:"group_label"`
+	Help       string               `json:"help"`
+	MinValue   *float64             `json:"min_value"`
+	MaxValue   *float64             `json:"max_value"`
+	SortOrder  int                  `json:"sort_order"`
+	Values     []ProductOptionValue `json:"values"`
+}
+
+// ProductOptionValue 一个客户可选值及其加价。
+type ProductOptionValue struct {
+	Value   string `json:"value" binding:"required"`
+	Label   string `json:"label"`
+	Group   string `json:"group_label"`
+	Default bool   `json:"is_default"`
+	Hidden  bool   `json:"hidden"`
+	// 四周期加价；均为 0 表示该取值不加价（不影响算价）。
+	PriceMonthly   float64 `json:"price_monthly"`
+	PriceQuarterly float64 `json:"price_quarterly"`
+	PriceAnnually  float64 `json:"price_annually"`
+	PriceOnetime   float64 `json:"price_onetime"`
 }
 
 // ProductCloneRequest 从上游商品克隆创建销售商品

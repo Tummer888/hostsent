@@ -1177,8 +1177,9 @@ func TestLiveFinanceModuleReorg(t *testing.T) {
 		t.Errorf("资金流水在组内应排第 1，实际 %d", sortOrder)
 	}
 
-	// 组内其余叶子排序：钱包 2 / 调账 3
-	for path, want := range map[string]int{"/finance/accounts/wallets": 2, "/finance/accounts/adjust": 3} {
+	// 组内其余叶子排序：原来断言「钱包 2 / 调账 3」；用户钱包行已由迁移 074 删除，
+	// 这里只校验本迁移自身的产物 —— 人工调账在组内排第 3（074 会把空洞补成 2）。
+	for path, want := range map[string]int{"/finance/accounts/adjust": 3} {
 		var got int
 		if err := db.Raw(
 			"SELECT sort_order FROM menus WHERE platform = 'admin' AND path = ?", path,
@@ -1261,5 +1262,86 @@ func TestLiveFinanceModuleReorg(t *testing.T) {
 	}
 	if walletPerm < 1 {
 		t.Error("finance:wallet 权限码应存在（统计接口与流水导出沿用）")
+	}
+}
+
+// TestLiveFinanceWalletsPageRemoved 验证 074 下线「用户钱包」页迁移：
+//   - 迁移文件可重复执行（幂等）；
+//   - 菜单行 /finance/accounts/wallets 已删除，且 seed 不再声明该路径（重建也不会回来）；
+//   - 资金管理组只剩「资金流水(1)」「人工调账(2)」，排序连续、目录仍满足 R1（≥2 叶子）；
+//   - 接口与权限码保留：GET /finance/wallets/:user_id 走 finance:wallet，用户详情页财务面板依赖它。
+func TestLiveFinanceWalletsPageRemoved(t *testing.T) {
+	dsn := os.Getenv("LIVE_DB_DSN")
+	if dsn == "" {
+		dsn = "host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable"
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+
+	sqlBytes, err := os.ReadFile("../../../migrations/074_remove_finance_wallets_page.sql")
+	if err != nil {
+		t.Fatalf("读取迁移文件失败: %v", err)
+	}
+	for i := 1; i <= 2; i++ {
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			t.Fatalf("第 %d 次执行迁移失败: %v", i, err)
+		}
+	}
+
+	// ① 菜单行已删除
+	var wallets int64
+	if err := db.Raw(
+		"SELECT count(*) FROM menus WHERE platform = 'admin' AND path = '/finance/accounts/wallets'",
+	).Scan(&wallets).Error; err != nil {
+		t.Fatalf("查询用户钱包菜单行失败: %v", err)
+	}
+	if wallets != 0 {
+		t.Errorf("/finance/accounts/wallets 菜单行应已删除，仍有 %d 行", wallets)
+	}
+
+	// ② seed 不再声明该路径（否则重启后端会把它插回来）
+	for _, item := range SeedMenus() {
+		if item.Platform == "admin" && item.Path == "/finance/accounts/wallets" {
+			t.Error("seed 仍在声明 /finance/accounts/wallets，重启后会重新插入")
+		}
+	}
+
+	// ③ 组内两个叶子且排序连续
+	rows, err := db.Raw(
+		`SELECT m.path, m.sort_order FROM menus m JOIN menus p ON p.id = m.parent_id
+		  WHERE m.platform = 'admin' AND p.path = '/finance/accounts' ORDER BY m.sort_order`,
+	).Rows()
+	if err != nil {
+		t.Fatalf("查询资金管理组叶子失败: %v", err)
+	}
+	defer rows.Close()
+	got := map[string]int{}
+	for rows.Next() {
+		var path string
+		var order int
+		if err := rows.Scan(&path, &order); err != nil {
+			t.Fatalf("扫描行失败: %v", err)
+		}
+		got[path] = order
+	}
+	if len(got) != 2 {
+		t.Errorf("资金管理组应只剩 2 个叶子（R1 仍成立），实际 %d 个: %v", len(got), got)
+	}
+	if got["/finance/transactions"] != 1 {
+		t.Errorf("资金流水应排第 1，实际 %d", got["/finance/transactions"])
+	}
+	if got["/finance/accounts/adjust"] != 2 {
+		t.Errorf("人工调账应排第 2（空洞补齐），实际 %d", got["/finance/accounts/adjust"])
+	}
+
+	// ④ 接口与权限码保留
+	var permCount int64
+	if err := db.Raw("SELECT count(*) FROM permissions WHERE code = 'finance:wallet'").Scan(&permCount).Error; err != nil {
+		t.Fatalf("查询 finance:wallet 失败: %v", err)
+	}
+	if permCount != 1 {
+		t.Errorf("finance:wallet 权限码应保留（用户详情页财务面板与统计接口共用），实际 %d 行", permCount)
 	}
 }

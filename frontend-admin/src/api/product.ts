@@ -33,6 +33,13 @@ import type {
   SpecTemplateListResponse,
   SpecTemplateQuery,
   SpecTemplateRequest,
+  OptionSpecInfo,
+  OptionSpecRequest,
+  OptionCatalogSyncResult,
+  OptionValueItem,
+  OptionValueImportRequest,
+  OptionValueImportResult,
+  OptionValueRefreshRequest,
   PricingInfo,
   PricingListResponse,
   PricingQuery,
@@ -259,6 +266,79 @@ export function generateProductSpecFromTemplate(
     url: `/product/products/${id}/specs/generate`,
     data,
   })
+}
+
+// ===== 产品管理 - 平台配置项目录与取值库（T4.5 规格配置化）=====
+
+/** 查询平台配置项目录（适配器声明 ∪ 数据库覆盖，含取值库中的可选值） */
+export function getOptionCatalog(params: {
+  provider_type?: string
+  provider_id?: number
+  include_hidden?: boolean
+}): Promise<OptionSpecInfo[]> {
+  return request.get<OptionSpecInfo[]>({ url: '/product/spec/option-catalog', params })
+}
+
+/** 把适配器声明的配置项目录幂等导入数据库（不覆盖运营改过的行） */
+export function syncOptionCatalog(providerType: string): Promise<OptionCatalogSyncResult> {
+  return request.post<OptionCatalogSyncResult>({
+    url: '/product/spec/option-catalog/sync',
+    data: { provider_type: providerType },
+  })
+}
+
+/** 新增自定义平台配置项 */
+export function createOptionSpec(data: OptionSpecRequest): Promise<OptionSpecInfo> {
+  return request.post<OptionSpecInfo>({ url: '/product/spec/option-catalog', data })
+}
+
+/** 修改平台配置项 */
+export function updateOptionSpec(id: number, data: OptionSpecRequest): Promise<OptionSpecInfo> {
+  return request.put<OptionSpecInfo>({ url: `/product/spec/option-catalog/${id}`, data })
+}
+
+/** 删除平台配置项（连同其取值） */
+export function deleteOptionSpec(id: number): Promise<string> {
+  return request.delete<string>({ url: `/product/spec/option-catalog/${id}` })
+}
+
+/** 查询平台取值库（某配置项允许的取值） */
+export function getOptionValues(params: {
+  provider_type?: string
+  provider_id?: number
+  option_key?: string
+  include_offline?: boolean
+}): Promise<OptionValueItem[]> {
+  return request.get<OptionValueItem[]>({ url: '/product/spec/option-values', params })
+}
+
+/** 新增/更新一条平台取值 */
+export function upsertOptionValue(data: {
+  provider_type?: string
+  option_key: string
+  value: string
+  label?: string
+  parent_value?: string
+  group_label?: string
+  status?: string
+  sort_order?: number
+}): Promise<OptionValueItem> {
+  return request.post<OptionValueItem>({ url: '/product/spec/option-values', data })
+}
+
+/** 批量导入平台取值（镜像类型直接入库入口） */
+export function importOptionValues(data: OptionValueImportRequest): Promise<OptionValueImportResult> {
+  return request.post<OptionValueImportResult>({ url: '/product/spec/option-values/import', data })
+}
+
+/** 从平台实时刷新取值库（镜像/区域/节点/存储） */
+export function refreshOptionValues(data: OptionValueRefreshRequest): Promise<OptionValueImportResult> {
+  return request.post<OptionValueImportResult>({ url: '/product/spec/option-values/refresh', data })
+}
+
+/** 删除一条平台取值 */
+export function deleteOptionValue(id: number): Promise<string> {
+  return request.delete<string>({ url: `/product/spec/option-values/${id}` })
 }
 
 // ===== 产品管理 - 规格映射 =====

@@ -179,9 +179,10 @@
                     <span class="tpl-row__name">{{ row.tpl.name }}</span>
                   </t-checkbox>
                   <span class="tpl-row__meta">
-                    {{ row.tpl.spec_family || 'general' }}
+                    {{ row.tpl.provider_type || '未绑定平台' }}
                     <template v-if="row.tpl.platform_params"> · 已配平台映射</template>
                     <template v-else> · <em class="tpl-row__warn">模板缺少平台映射</em></template>
+                    <template v-if="row.options.length"> · {{ row.options.length }} 个可选参数</template>
                   </span>
                 </div>
                 <div v-if="row.selected" class="tpl-row__body">
@@ -197,6 +198,39 @@
                     <label class="tpl-field">节点 node<t-select v-model="row.node" clearable placeholder="沿用模板" :options="nodeOptionsFor(row.area)" /></label>
                     <label class="tpl-field">存储 store<t-select v-model="row.store" clearable placeholder="沿用模板" :options="storeOptionsFor(row.area)" /></label>
                     <label class="tpl-field">镜像 os<t-select v-model="row.os" clearable placeholder="沿用模板" :options="imageOptions" /></label>
+                  </div>
+                  <!-- 客户可选配置项：勾选=开放给客户自选；不勾=只用基线值 -->
+                  <div v-if="row.options.length" class="tpl-options">
+                    <div class="tpl-options__head">
+                      客户可选配置项（勾选即开放，可设加价；不勾选只按基线值开通）
+                    </div>
+                    <div v-for="opt in row.options" :key="opt.key" class="tpl-opt">
+                      <t-checkbox v-model="opt.enabled">
+                        <code>{{ opt.key }}</code>
+                      </t-checkbox>
+                      <template v-if="opt.enabled">
+                        <template v-if="opt.isRange">
+                          <label class="tpl-field tpl-field--inline">
+                            范围
+                            <t-input-number v-model="opt.rangeMin" :min="0" theme="column" />
+                            ~
+                            <t-input-number v-model="opt.rangeMax" :min="0" theme="column" />
+                          </label>
+                          <label class="tpl-field tpl-field--inline">
+                            默认
+                            <t-input-number v-model="opt.defaultNumber" theme="column" />
+                          </label>
+                        </template>
+                        <div v-else class="tpl-opt__values">
+                          <div v-for="v in opt.values" :key="v.value" class="tpl-opt__value">
+                            <t-radio :checked="v.isDefault" @change="setDefaultValue(opt, v.value)" />
+                            <span class="tpl-opt__label">{{ v.group ? v.group + ' / ' : '' }}{{ v.label }}</span>
+                            <t-input-number v-model="v.price" :min="0" :precision="2" theme="column" class="tpl-opt__price" />
+                            <span class="tpl-opt__unit">元/月</span>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
                   </div>
                   <div class="tpl-row__gen">
                     SKU 编码 <code>{{ row.tpl.id ? previewSpecCode(row) : '—' }}</code> · 原子取值
@@ -244,6 +278,7 @@ import type {
   ProviderInfo,
   SaleProductCreateRequest,
   SaleProductInfo,
+  SaleProductOptionOverride,
   SaleProductSpecTemplateSelection,
   SpecTemplateInfo,
 } from '@/types/interface'
@@ -391,7 +426,20 @@ function composeConfigOptions(): string | null {
   return Object.keys(merged).length ? JSON.stringify(merged) : ''
 }
 
-// ===== 规格模板选择（建品即生成 SKU）=====
+// ===== 规格模板选择（建品即生成 SKU + 客户可选配置项）=====
+/** 客户可选配置项：档位勾选的某个参数，及其取值与加价。 */
+type OptionRow = {
+  key: string
+  /** 是否开放给客户选；不开放则只用基线值（默认取第一个取值）。 */
+  enabled: boolean
+  /** 数量型（带宽/盘/IP 数）用区间表达，没有离散取值。 */
+  isRange: boolean
+  rangeMin: number
+  rangeMax: number
+  defaultNumber: number | null
+  values: { value: string; label: string; group: string; price: number; isDefault: boolean }[]
+}
+
 type TemplateRow = {
   tpl: SpecTemplateInfo
   selected: boolean
@@ -405,6 +453,8 @@ type TemplateRow = {
   node?: string
   store?: string
   os?: string
+  /** 客户可选配置项（由档位 option_selections 展开，可改加价与开放与否）。 */
+  options: OptionRow[]
   /** 模板里 CPU/内存/磁盘/带宽之外的原子取值（如网络流量），原样保留不丢 */
   extraSpecValues: Record<string, unknown>
   /** 模板里 area/node/store/os 之外的平台参数，原样保留不丢 */
@@ -414,6 +464,37 @@ type TemplateRow = {
 const specMode = ref<'template' | 'later'>('template')
 const templateRows = ref<TemplateRow[]>([])
 const selectedTemplateCount = computed(() => templateRows.value.filter((r) => r.selected).length)
+
+/** 由档位 option_selections 展开客户可选配置项（基线取值落到 enabled=false 的行）。 */
+function buildOptionRows(tpl: SpecTemplateInfo): OptionRow[] {
+  const sel = (tpl.option_selections || {}) as Record<
+    string,
+    { values?: string[]; range?: number[]; default?: string; group_label?: string }
+  >
+  const out: OptionRow[] = []
+  for (const [key, cfg] of Object.entries(sel)) {
+    if (Array.isArray(cfg?.range) && cfg.range.length === 2) {
+      const defStr = cfg.default ?? ''
+      const defNum = Number(defStr)
+      out.push({
+        key, enabled: true, isRange: true,
+        rangeMin: cfg.range[0], rangeMax: cfg.range[1],
+        defaultNumber: defStr !== '' && Number.isFinite(defNum) ? defNum : null,
+        values: [],
+      })
+      continue
+    }
+    const values = (cfg?.values || []).map((v) => ({
+      value: v,
+      label: v,
+      group: cfg?.group_label || '',
+      price: 0,
+      isDefault: cfg?.default === v,
+    }))
+    if (values.length) out.push({ key, enabled: true, isRange: false, rangeMin: 0, rangeMax: 0, defaultNumber: null, values })
+  }
+  return out
+}
 
 function buildRow(tpl: SpecTemplateInfo): TemplateRow {
   const specValues = (tpl.spec_values || {}) as Record<string, unknown>
@@ -441,6 +522,7 @@ function buildRow(tpl: SpecTemplateInfo): TemplateRow {
     node: platformParamsOfTpl.node != null ? String(platformParamsOfTpl.node) : undefined,
     store: platformParamsOfTpl.store != null ? String(platformParamsOfTpl.store) : undefined,
     os: platformParamsOfTpl.os != null ? String(platformParamsOfTpl.os) : undefined,
+    options: buildOptionRows(tpl),
     extraSpecValues: {},
     extraPlatformParams: {},
   }
@@ -452,6 +534,42 @@ function buildRow(tpl: SpecTemplateInfo): TemplateRow {
     if (!(PLATFORM_KEYS as readonly string[]).includes(k) && v != null && v !== '') row.extraPlatformParams[k] = v
   }
   return row
+}
+
+/** 组装请求里的 option_overrides（只带开放给客户的参数与其取值加价）。 */
+function buildOptionOverrides(row: TemplateRow): SaleProductOptionOverride[] | undefined {
+  const out: SaleProductOptionOverride[] = []
+  for (const opt of row.options) {
+    if (!opt.enabled) continue
+    if (opt.isRange) {
+      out.push({
+        option_key: opt.key,
+        min_value: opt.rangeMin,
+        max_value: opt.rangeMax,
+        default: opt.defaultNumber != null ? String(opt.defaultNumber) : undefined,
+        values: [],
+      })
+      continue
+    }
+    const values = opt.values.map((v) => ({
+      value: v.value,
+      label: v.label,
+      group_label: v.group || undefined,
+      is_default: v.isDefault,
+      price_monthly: v.price,
+    }))
+    out.push({
+      option_key: opt.key,
+      default: (opt.values.find((v) => v.isDefault) || opt.values[0])?.value,
+      values,
+    })
+  }
+  return out.length ? out : undefined
+}
+
+/** 单选默认值：同一参数只能有一个默认（TDesign 没有原生 radio，用点击切换）。 */
+function setDefaultValue(opt: OptionRow, value: string) {
+  for (const v of opt.values) v.isDefault = v.value === value
 }
 
 async function loadTemplates() {
@@ -499,8 +617,10 @@ function buildPlatformParams(row: TemplateRow): Record<string, unknown> {
 }
 
 function previewSpecCode(row: TemplateRow): string {
+  // 编码不再带「规格族」前缀（用户要求去掉 通用型/计算型 这类分组）：
+  // 用平台类型 + 核/内存/盘 表达，与档位实际取值一致。
   const parts: string[] = []
-  if (row.tpl.spec_family) parts.push(row.tpl.spec_family)
+  if (row.tpl.provider_type) parts.push(row.tpl.provider_type)
   parts.push(`${row.cpu || 1}c${row.memoryGb || 1}g`)
   if (row.disk > 0) parts.push(`${row.disk}g`)
   return parts.join('-')
@@ -580,6 +700,8 @@ function buildSpecTemplatePayload(): SaleProductSpecTemplateSelection[] | null {
       name: `${row.tpl.name}（${row.cpu || 1}核${row.memoryGb || 1}G）`,
       spec_values: buildSpecValues(row),
       platform_params: platformParamsOfRow,
+      // 客户可选配置项：只带开放给客户的参数（含取值加价），后端按档位目录补齐控件元数据。
+      option_overrides: buildOptionOverrides(row),
       price: row.price,
       cost_price: row.costPrice,
       stock: form.stock,
@@ -782,5 +904,56 @@ onMounted(() => {
 .tpl-row__gen code {
   font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
   color: var(--td-text-color-primary, #333);
+}
+
+.tpl-options {
+  border-top: 1px dashed var(--td-component-stroke, #e7e7e7);
+  padding-top: 8px;
+}
+
+.tpl-options__head {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #888);
+  margin-bottom: 6px;
+}
+
+.tpl-opt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.tpl-opt code {
+  font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
+}
+
+.tpl-opt__values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tpl-opt__value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.tpl-opt__price {
+  width: 110px;
+}
+
+.tpl-opt__unit {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #888);
+}
+
+.tpl-field--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
 }
 </style>

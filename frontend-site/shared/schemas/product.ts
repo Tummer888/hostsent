@@ -36,6 +36,9 @@ export const productWireSchema = z.object({
   // 详情页 404、列表项被静默丢弃。
   cycles: z.array(z.string()).nullish().transform((v) => v ?? []),
   skus: z.array(z.unknown()).nullish().transform((v) => v ?? []),
+  // 客户可选配置项（自营商品）：官网只做「选择 + 传递意图」，不渲染加价也不下单，
+  // 但要让访客在选购页看到「有哪些参数可选」，因此这里也解析出来。
+  option_groups: z.array(z.unknown()).nullish().transform((v) => v ?? []),
 })
 
 export const productListWireSchema = z.object({
@@ -75,6 +78,38 @@ export interface Product {
   cycles: string[]
   /** 可售规格；为空表示未拆 SKU */
   skus: ProductSku[]
+  /** 客户可选配置项分组（自营商品）；官网展示 + 传递选择意图 */
+  optionGroups: ProductOptionGroup[]
+}
+
+/** 一组客户可选配置项（与 uc/product dto.OptionGroup 对应）。 */
+export interface ProductOptionGroup {
+  options: ProductOption[]
+}
+
+/** 一个可选配置项；官网按下拉/按钮组渲染，选中结果拼进跳转链接。 */
+export interface ProductOption {
+  /** 平台参数名，作为跳转链接 config 参数的键 */
+  optionKey: string
+  name: string
+  widget: string
+  required: boolean
+  defaultValue: string
+  unit: string
+  help: string
+  minValue: number | null
+  maxValue: number | null
+  values: ProductOptionItem[]
+}
+
+/** 一个可选值及加价（官网只展示「+¥x」的提示，不算价）。 */
+export interface ProductOptionItem {
+  value: string
+  label: string
+  /** 分组标签（Ubuntu/Windows/CentOS） */
+  groupLabel: string
+  isDefault: boolean
+  priceMonthly: number
 }
 
 /** 可售规格（SKU）：官网只做展示与意图传递，下单与算价仍在用户中心完成。 */
@@ -112,6 +147,58 @@ function normalizeSpecValue(value: unknown): string {
   } catch {
     return ''
   }
+}
+
+/**
+ * 解析客户可选配置项分组。
+ *
+ * 与 parseSkus 同样的「坏的丢掉、好的保留」策略：官网是展示层，
+ * 一个字段缺失的配置项不该打掉整个商品详情页（规范 R4）。
+ */
+function parseOptionGroups(raw: unknown): ProductOptionGroup[] {
+  if (!Array.isArray(raw)) return []
+  const groups: ProductOptionGroup[] = []
+  for (const groupEntry of raw) {
+    if (typeof groupEntry !== 'object' || groupEntry === null) continue
+    const rawOptions = (groupEntry as Record<string, unknown>).options
+    if (!Array.isArray(rawOptions)) continue
+    const options: ProductOption[] = []
+    for (const optionEntry of rawOptions) {
+      if (typeof optionEntry !== 'object' || optionEntry === null) continue
+      const record = optionEntry as Record<string, unknown>
+      const key = typeof record.option_key === 'string' ? record.option_key : ''
+      if (!key) continue
+      const rawValues = Array.isArray(record.values) ? record.values : []
+      const values: ProductOptionItem[] = []
+      for (const valueEntry of rawValues) {
+        if (typeof valueEntry !== 'object' || valueEntry === null) continue
+        const item = valueEntry as Record<string, unknown>
+        const value = typeof item.value === 'string' ? item.value : ''
+        if (!value) continue
+        values.push({
+          value,
+          label: typeof item.label === 'string' ? item.label : value,
+          groupLabel: typeof item.group_label === 'string' ? item.group_label : '',
+          isDefault: item.is_default === true,
+          priceMonthly: typeof item.price_monthly === 'number' ? item.price_monthly : 0,
+        })
+      }
+      options.push({
+        optionKey: key,
+        name: typeof record.name === 'string' ? record.name : key,
+        widget: typeof record.widget === 'string' ? record.widget : 'select',
+        required: record.required === true,
+        defaultValue: typeof record.default_value === 'string' ? record.default_value : '',
+        unit: typeof record.unit === 'string' ? record.unit : '',
+        help: typeof record.help === 'string' ? record.help : '',
+        minValue: typeof record.min_value === 'number' ? record.min_value : null,
+        maxValue: typeof record.max_value === 'number' ? record.max_value : null,
+        values,
+      })
+    }
+    if (options.length) groups.push({ options })
+  }
+  return groups
 }
 
 /**
@@ -232,6 +319,7 @@ function normalizeProduct(wire: ProductWire): Product {
     createdAt: wire.created_at,
     cycles,
     skus: parseSkus(wire.skus, cycles),
+    optionGroups: parseOptionGroups(wire.option_groups),
   }
 }
 

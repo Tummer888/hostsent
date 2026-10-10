@@ -18,6 +18,8 @@ type fakeProductRepo struct {
 	// specs 供 ListSpecs 返回（T4.2 门禁用例）；specByCode 供 FindSpecByCode 命中。
 	specs      []model.ProductSpec
 	specByCode map[string]*model.ProductSpec
+	// configOptions 供 SelfConfigOptionRows 返回（T4.5 选配项用例）。
+	configOptions []*model.ProductConfigOption
 }
 
 func (f *fakeProductRepo) List(context.Context, dto.ProductListQuery) ([]model.Product, int64, error) {
@@ -72,6 +74,9 @@ func (f *fakeProductRepo) IncrementSpecStock(context.Context, uint64, int) (int6
 }
 func (f *fakeProductRepo) SelfConfigParams(context.Context, uint64) (map[string]string, error) {
 	return nil, nil
+}
+func (f *fakeProductRepo) SelfConfigOptionRows(context.Context, uint64) ([]*model.ProductConfigOption, error) {
+	return f.configOptions, nil
 }
 func (f *fakeProductRepo) AllConfigGroupsByProductID(context.Context, uint64) ([]interface{}, error) {
 	return nil, nil

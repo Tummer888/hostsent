@@ -14,17 +14,19 @@ type ListMeta struct {
 	Total    int64 `json:"total"`
 }
 
-// SpecTemplateQuery 规格模板列表查询
+// SpecTemplateQuery 规格模板（配置档）列表查询
 type SpecTemplateQuery struct {
 	Keyword    string `form:"keyword" json:"keyword"`
 	SpecFamily string `form:"spec_family" json:"spec_family"`
+	// ProviderType 按归属平台筛选（配置档改造后的主筛选维度）。
+	ProviderType string `form:"provider_type" json:"provider_type"`
 	// Status 指针区分「未传」与「显式筛 status=0（停用）」
 	Status   *int `form:"status" json:"status"`
 	Page     int  `form:"page" json:"page"`
 	PageSize int  `form:"page_size" json:"page_size"`
 }
 
-// SpecTemplateRequest 创建/更新规格模板
+// SpecTemplateRequest 创建/更新规格模板（配置档）
 type SpecTemplateRequest struct {
 	Name        string  `json:"name" binding:"required"`
 	SpecFamily  string  `json:"spec_family"`
@@ -42,9 +44,17 @@ type SpecTemplateRequest struct {
 	SpecValues json.RawMessage `json:"spec_values"`
 	// PlatformParams 平台写参数 JSON（如 area/node/os/store）；生成 SKU 时写入平台绑定。
 	PlatformParams json.RawMessage `json:"platform_params"`
+	// ProviderType 档位归属的平台类型（mofangyun 等）。
+	ProviderType string `json:"provider_type"`
+	// OptionSelections 每参数勾选的可选值 JSON，形如
+	// {"cpu":{"values":["2","4"]},"bw":{"range":[1,100],"default":"10"}}。
+	OptionSelections json.RawMessage `json:"option_selections"`
+	// NameTemplate / DescriptionTemplate 商品名与描述的渲染模板，如 "{cpu}核{memory}G {os}"。
+	NameTemplate        string `json:"name_template"`
+	DescriptionTemplate string `json:"description_template"`
 }
 
-// SpecTemplateInfo 规格模板信息
+// SpecTemplateInfo 规格模板（配置档）信息
 type SpecTemplateInfo struct {
 	ID          uint64  `json:"id"`
 	Name        string  `json:"name"`
@@ -63,6 +73,13 @@ type SpecTemplateInfo struct {
 	SpecValues json.RawMessage `json:"spec_values"`
 	// PlatformParams 平台写参数 JSON（为空表示该模板尚未完成平台映射）。
 	PlatformParams json.RawMessage `json:"platform_params"`
+	// ProviderType 档位归属的平台类型。
+	ProviderType string `json:"provider_type"`
+	// OptionSelections 每参数勾选的可选值 JSON。
+	OptionSelections json.RawMessage `json:"option_selections"`
+	// NameTemplate / DescriptionTemplate 名称与描述渲染模板。
+	NameTemplate        string `json:"name_template"`
+	DescriptionTemplate string `json:"description_template"`
 	// Source 模板来源：self 自建 / imported 上游归一。
 	Source    string `json:"source"`
 	CreatedAt string `json:"created_at"`

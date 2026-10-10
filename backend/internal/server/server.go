@@ -806,6 +806,19 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		PromotionRule: func(ctx context.Context, in pricing.ResolveInput, _ float64) (*pricing.Rule, error) {
 			return flashDiscountService.RuleForUser(ctx, in.UserID, in.ProductID)
 		},
+		// 客户选配项加价（T4.5）：按订单周期取选中取值的加价小计。
+		// 走 catalog 服务的统一计价实现——与下单时校验、履约传参用的是同一套规则，
+		// 保证「预结算 = 下单 = 开通」三处口径一致。
+		OptionPrice: func(ctx context.Context, in pricing.ResolveInput) (float64, error) {
+			result, err := prodCatalogService.ResolveOptionPricing(ctx, in.ProductID, in.Cycle, in.ConfigSelections)
+			if err != nil {
+				return 0, err
+			}
+			if result == nil {
+				return 0, nil
+			}
+			return result.Amount, nil
+		},
 	}, cfg.Pricing.StackMode)
 	// 用户中心订单：余额支付下单 + 复用履约适配器开通上游
 	// ensureOpenable：下单前校验商品能否直连开通，财务型上游（账单推送制）不支持单次开通，先拒绝避免误扣款。
@@ -864,10 +877,20 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	specTemplateService := specservice.NewSpecTemplateService(specTemplateRepo)
 	specMappingService := specservice.NewSpecMappingService(specMappingRepo)
 	// specContractService 已在上方随 catalog 服务构造（见 prodCatalogService 处）。
+	// 平台配置项目录（T4.5）：适配器声明 → 取值库 → 配置档。渠道类型/平台资源读取
+	// 通过装配适配器注入，spec 子域不反向依赖 resource 子域。
+	specOptionRepo := specrepo.NewSpecOptionRepository(database)
+	specOptionService := specservice.NewSpecOptionService(specOptionRepo,
+		NewProviderTypeReader(providerService), NewPlatformResourceReader(providerService))
 	specHandler := spechandler.NewSpecHandler(specTemplateService, specMappingService, specContractService)
+	specHandler.SetOptionService(specOptionService)
+	// 配置档按平台校验勾选取值：目录服务作为校验器注入模板服务。
+	specTemplateService.SetOptionCatalog(specOptionService)
 	// 自营链路打通：catalog 服务按规格模板生成 SKU 并落平台绑定（装配顺序上模板/契约服务在本行之后才就绪）。
 	prodCatalogService.SetSpecTemplateReader(NewSpecTemplateReader(specTemplateService))
 	prodCatalogService.SetSpecBindingWriter(NewSpecBindingWriter(specContractService))
+	// T4.5：建品按配置档生成客户选配项时，从平台配置项目录取控件元数据与可选值标签。
+	prodCatalogService.SetSpecOptionCatalog(NewSpecOptionCatalogReader(specOptionService))
 	// 促销管理（promotion 子域）
 	couponRepo := promotionrepo.NewCouponRepository(database)
 	couponGrantRepo := promotionrepo.NewCouponGrantRepository(database)
@@ -1091,6 +1114,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 用户中心订单 ← 支付中心（doc88 §6.2）：待支付订单发起收银台支付；
 	// 取消/超时关单时同步关闭未支付支付单，避免用户付款打到已作废的订单上。
 	ucOrderService.SetCashierPorts(paymentBundle.orderService, paymentBundle.orderService)
+	// 选配项校验与计价（T4.5）：同一个 catalog 服务实例，保证与算价管线同一套规则。
+	ucOrderService.SetOptionPricingPort(prodCatalogService)
 	// 待支付订单过期关单调度器：有效期每轮从系统配置 order_expire_minutes 重读（改配置无需重启）。
 	pendingExpireScheduler := ucorderservice.NewPendingExpireScheduler(ucOrderService, func(ctx context.Context) int {
 		item, err := configService.GetByKey(ctx, "order_expire_minutes")

@@ -121,6 +121,115 @@
           </t-radio-group>
         </div>
 
+        <!--
+          客户选配项：档位之外的参数（操作系统/CPU 档/带宽/数据盘…）。
+          控件类型由后端按 widget 下发：group_select 分组下拉（OS 按 Ubuntu/Windows）、
+          radio 按钮组（CPU 2核/4核/8核）、qty 步进器、bool 开关、select 普通下拉。
+          每项旁实时显示加价；最终金额仍以 quoteOrder 的结果为准。
+        -->
+        <div v-if="allOptions.length" class="buy__field buy__field--options">
+          <span class="buy__label">
+            配置选项
+            <em class="buy__label-hint">不改动即按档位默认配置</em>
+          </span>
+
+          <div class="buy__options">
+            <div v-for="opt in allOptions" :key="opt.option_key" class="buy__option">
+              <div class="buy__option-head">
+                <span class="buy__option-name">
+                  {{ opt.name }}
+                  <em v-if="opt.required" class="buy__option-required">必选</em>
+                  <em v-if="opt.unit" class="buy__option-unit">/{{ opt.unit }}</em>
+                </span>
+                <span v-if="optionSurcharge(opt) > 0" class="buy__option-add">
+                  +¥{{ optionSurcharge(opt).toFixed(2) }}
+                </span>
+              </div>
+
+              <!-- 分组下拉：操作系统按镜像家族（Ubuntu / Windows / CentOS）分组 -->
+              <t-select
+                v-if="optionWidget(opt) === 'group_select'"
+                :model-value="selection[opt.option_key] || undefined"
+                :placeholder="optionPlaceholder(opt)"
+                :clearable="!opt.required"
+                @change="(v: SelectValue) => setSelection(opt, v)"
+              >
+                <t-option-group
+                  v-for="g in groupedValues(opt)"
+                  :key="g.label"
+                  :label="g.label"
+                  divider
+                >
+                  <t-option
+                    v-for="it in g.items"
+                    :key="it.value"
+                    :value="it.value"
+                    :label="optionItemLabel(opt, it)"
+                  />
+                </t-option-group>
+              </t-select>
+
+              <!-- 普通下拉：区域/节点/存储等来源为平台资源列表的取值 -->
+              <t-select
+                v-else-if="optionWidget(opt) === 'select'"
+                :model-value="selection[opt.option_key] || undefined"
+                :placeholder="optionPlaceholder(opt)"
+                :clearable="!opt.required"
+                @change="(v: SelectValue) => setSelection(opt, v)"
+              >
+                <t-option
+                  v-for="it in opt.values"
+                  :key="it.value"
+                  :value="it.value"
+                  :label="optionItemLabel(opt, it)"
+                />
+              </t-select>
+
+              <!-- 按钮组：CPU 2核/4核/8核、网络类型这类少量离散取值 -->
+              <t-radio-group
+                v-else-if="optionWidget(opt) === 'radio'"
+                :model-value="selection[opt.option_key]"
+                variant="default-filled"
+                @change="(v: string | number | boolean) => setSelectionValue(opt, v)"
+              >
+                <t-radio-button v-for="it in opt.values" :key="it.value" :value="it.value">
+                  {{ it.label }}
+                  <em v-if="itemAddPrice(opt, it) > 0" class="buy__option-add-inline">
+                    +¥{{ itemAddPrice(opt, it).toFixed(2) }}
+                  </em>
+                </t-radio-button>
+              </t-radio-group>
+
+              <!-- 开关：二值参数（如 IP-MAC 绑定） -->
+              <t-switch
+                v-else-if="optionWidget(opt) === 'bool'"
+                :model-value="selection[opt.option_key]"
+                :custom-value="boolValues(opt)"
+                @change="(v: SwitchValue) => setSelectionValue(opt, v)"
+              />
+
+              <!-- 步进器：带宽/数据盘/IP 数量这类数量型参数，超出档位内含量才加价 -->
+              <div v-else-if="optionWidget(opt) === 'qty'" class="buy__option-qty">
+                <t-input-number
+                  :model-value="numberValue(opt)"
+                  :min="opt.min_value ?? 0"
+                  :max="opt.max_value ?? undefined"
+                  :step="1"
+                  theme="normal"
+                  @change="(v: NumericValue) => setSelectionValue(opt, v ?? '')"
+                />
+                <span v-if="opt.unit" class="buy__option-qty-unit">{{ opt.unit }}</span>
+              </div>
+
+              <p v-if="opt.help" class="buy__option-help">{{ opt.help }}</p>
+            </div>
+          </div>
+
+          <p v-if="missingRequired.length" class="buy__warn">
+            请选择：{{ missingRequired.map((o) => o.name).join('、') }}
+          </p>
+        </div>
+
         <div class="buy__field">
           <span class="buy__label">数量</span>
           <t-input-number v-model="quantity" :min="1" :max="99" theme="normal" @change="refreshQuote" />
@@ -143,9 +252,20 @@
 
         <div v-loading="quoteLoading" class="buy__prices">
           <div v-if="quote" class="buy__rows">
+            <!--
+              档位价 = 原价 − 选配加价：后端 original_amount 已含选配，若直接叫「商品原价」
+              再单列一行加价，读起来像 119 + 60 = 179。拆开写才能与应付金额对上。
+            -->
             <div class="buy__row">
-              <span>商品原价</span>
-              <span>¥{{ quote.original_amount.toFixed(2) }}</span>
+              <span>档位价{{ selectedSku ? ` · ${selectedSku.name}` : '' }}</span>
+              <span>¥{{ baseAmount.toFixed(2) }}</span>
+            </div>
+            <div v-if="(quote.option_amount ?? 0) > 0" class="buy__row buy__row--option">
+              <span>
+                配置选项加价
+                <em class="buy__row-detail">{{ optionSummary }}</em>
+              </span>
+              <span>+¥{{ (quote.option_amount ?? 0).toFixed(2) }}</span>
             </div>
             <div v-if="quote.discount_amount > 0" class="buy__row buy__row--discount">
               <span>
@@ -160,6 +280,7 @@
               <span>应付金额</span>
               <span>¥{{ quote.final_amount.toFixed(2) }}</span>
             </div>
+            <p v-if="quantity > 1" class="buy__row-note">以上为单台价格，共 {{ quantity }} 台</p>
           </div>
           <t-empty v-else-if="!quoteLoading" description="价格计算失败，请稍后重试" />
         </div>
@@ -167,13 +288,13 @@
 
       <template #footer>
         <div class="buy__footer">
-          <t-button variant="outline" :disabled="!current" @click="addCurrentToCart">加入购物车</t-button>
+          <t-button variant="outline" :disabled="!current || !quote" @click="addCurrentToCart">加入购物车</t-button>
           <div class="buy__footer-right">
             <t-button variant="outline" @click="buyVisible = false">取消</t-button>
             <t-button
               theme="primary"
               :loading="submitting"
-              :disabled="!quote || soldOut"
+              :disabled="!quote || soldOut || missingRequired.length > 0"
               @click="submitOrder"
             >
               {{ payMode === 'balance' ? '余额支付并开通' : '提交订单并支付' }}            </t-button>
@@ -205,13 +326,25 @@ import {
   getProducts,
   payOrder,
   quoteOrder,
+  type OptionItem,
   type ProductInfo,
+  type ProductOption,
   type QuoteInfo,
   type SkuInfo,
 } from '@/api/shop'
 import PaymentCashier, { type CashierPayment } from '@/components/payment-cashier/index.vue'
 import FilterCard from '@/components/filter-card/index.vue'
-import { useCartStore } from '@/store/modules/cart'
+import { useCartStore, cartItemKey } from '@/store/modules/cart'
+
+/**
+ * 控件回调的取值类型。
+ *
+ * TDesign 回调参数类型不都在包根导出（InputNumberValue 只在 es/input-number/type
+ * 里），这里按契约就地声明，避免为几个别名深引内部路径。
+ */
+type SelectValue = string | number | boolean
+type SwitchValue = string | number | boolean
+type NumericValue = number | string | undefined
 
 defineOptions({ name: 'Shop' })
 
@@ -246,6 +379,198 @@ const submitting = ref(false)
 /** 支付方式：balance 余额支付（默认，下单即开通）/ channel 在线支付（下单后去收银台）。 */
 const payMode = ref<'balance' | 'channel'>('balance')
 
+// ========== 客户选配项 ==========
+/** 选配项选择：平台参数名 → 取值（下单时原样传给 config_selections）。 */
+const selection = ref<Record<string, string>>({})
+
+/** 商品下所有可选项（当前后端只给一个分组，展平后逐项渲染）。 */
+const allOptions = computed<ProductOption[]>(() =>
+  (current.value?.option_groups ?? []).flatMap((g) => g.options),
+)
+
+/** 归一控件类型：后端已判好，这里只兜底（老数据可能没有 widget）。 */
+function optionWidget(opt: ProductOption): string {
+  if (opt.widget) return opt.widget
+  if (opt.min_value !== null || opt.max_value !== null) return 'qty'
+  return 'select'
+}
+
+/** 分组下拉的取值分组；无 group_label 的取值归入「其他」，保证不丢项。 */
+const groupedValues = (opt: ProductOption) => {
+  const groups: Array<{ label: string; items: OptionItem[] }> = []
+  for (const it of opt.values) {
+    const label = it.group_label || '其他'
+    let group = groups.find((g) => g.label === label)
+    if (!group) {
+      group = { label, items: [] }
+      groups.push(group)
+    }
+    group.items.push(it)
+  }
+  return groups
+}
+
+/** 开关型的两端取值：后端按 [关, 开] 顺序给枚举值（如 0/1、不开启/开启绑定）。 */
+function boolValues(opt: ProductOption): SwitchValue[] {
+  const values = opt.values.map((v) => v.value)
+  if (values.length >= 2) return [values[0], values[1]]
+  return [0, 1]
+}
+
+/**
+ * 数量型输入框的回显值（数字）。
+ *
+ * 输入框要求 number，而 selection 里存的是字符串；空值时回落到默认值，
+ * 使「未改动配置」也显示档位内含的默认数量（如带宽默认 10M）。
+ */
+function numberValue(opt: ProductOption): number {
+  const raw = selection.value[opt.option_key]
+  if (raw !== undefined && raw !== '') {
+    const n = Number(raw)
+    if (!Number.isNaN(n)) return n
+  }
+  const def = Number(opt.default_value)
+  if (opt.default_value !== '' && !Number.isNaN(def)) return def
+  return opt.min_value ?? 0
+}
+
+/** 下拉展示名：带加价时拼在名称后，避免选中后看不出多花了多少。 */
+function optionItemLabel(opt: ProductOption, it: OptionItem): string {
+  const add = itemAddPrice(opt, it)
+  return add > 0 ? `${it.label}（+¥${add.toFixed(2)}）` : it.label
+}
+
+function optionPlaceholder(opt: ProductOption): string {
+  return opt.required ? `请选择${opt.name}` : `按平台默认（可选）`
+}
+
+/**
+ * 某取值在当前计费周期下的加价。
+ *
+ * 与后端 priceForCycle 同口径：季/年/一次性优先取该列，未维护时回落月度。
+ * 仅用于界面上的「+¥x」，真实金额以 quoteOrder 为准。
+ */
+function itemAddPrice(opt: ProductOption, it: OptionItem): number {
+  const cycle = selectedCycle.value
+  if (cycle === 'quarterly' && it.price_quarterly > 0) return it.price_quarterly
+  if (cycle === 'annually' && it.price_annually > 0) return it.price_annually
+  if (cycle === 'onetime' && it.price_onetime > 0) return it.price_onetime
+  void opt
+  return it.price_monthly
+}
+
+/**
+ * 某项当前选择的加价（界面展示用）。
+ *
+ * 枚举型取所选取值；数量型按「超出档位内含量的部分 × 每单位加价」估，
+ * 与后端 ResolveOptionPricing 的口径一致（默认值以内不加价）。
+ */
+function optionSurcharge(opt: ProductOption): number {
+  const widget = optionWidget(opt)
+  if (widget === 'qty') {
+    const unit = opt.unit_price ?? 0
+    if (unit <= 0) return 0
+    const def = opt.default_value !== '' ? Number(opt.default_value) : opt.min_value ?? 0
+    const base = Number.isNaN(def) ? opt.min_value ?? 0 : def
+    const billable = numberValue(opt) - base
+    return billable > 0 ? billable * unit : 0
+  }
+  const chosen = selection.value[opt.option_key] || opt.default_value
+  const item = opt.values.find((v) => v.value === chosen)
+  return item ? itemAddPrice(opt, item) : 0
+}
+
+/**
+ * 默认选择：必选项回填默认值/首个可选值，非必选项留空表示「按平台默认」。
+ * 回填后立即参与预结算，界面上的加价与应付金额从一开始就与下单一致。
+ */
+function applyDefaultSelection() {
+  const next: Record<string, string> = {}
+  for (const opt of allOptions.value) {
+    const widget = optionWidget(opt)
+    if (widget === 'qty') {
+      // 数量型：填默认值，便于用户看到「当前是几」并在此基础上下调/上调。
+      next[opt.option_key] = numberValue(opt).toString()
+      continue
+    }
+    if (opt.required) {
+      const preferred =
+        opt.values.find((v) => v.value === opt.default_value) ??
+        opt.values.find((v) => v.is_default) ??
+        opt.values[0]
+      if (preferred) next[opt.option_key] = preferred.value
+      continue
+    }
+    if (opt.default_value) next[opt.option_key] = opt.default_value
+  }
+  selection.value = next
+}
+
+/** 未选中的必选项（枚举型才算；数量型有默认值，不会缺）。 */
+const missingRequired = computed<ProductOption[]>(() =>
+  allOptions.value.filter((opt) => {
+    if (!opt.required || optionWidget(opt) === 'qty') return false
+    return !selection.value[opt.option_key]
+  }),
+)
+
+/** 提交给后端的选配：丢掉空值，避免把「未选」当作显式空值下发。 */
+const cleanSelections = computed<Record<string, string>>(() => {
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(selection.value)) {
+    if (v !== undefined && v !== '') out[k] = String(v)
+  }
+  return out
+})
+
+/**
+ * 档位价 = 原价 − 选配加价。
+ *
+ * 后端 original_amount 已经把选配加价算进去了（先加价再打折），所以单列一行
+ * 加价时必须把它从原价里扣掉，否则「档位价 + 加价」会比应付金额大出一截。
+ */
+const baseAmount = computed(() => {
+  const original = quote.value?.original_amount ?? 0
+  const optionAmount = quote.value?.option_amount ?? 0
+  return Math.max(0, Math.round((original - optionAmount) * 100) / 100)
+})
+
+/** 已选配置的摘要（「8核 · 带宽 20Mbps」），挂在加价行后说明加价从哪来。 */
+const optionSummary = computed(() => {
+  const parts = selectionLabels.value.filter((label) => {
+    // 只有真正产生加价的项才值得列出来，避免把默认配置也念一遍。
+    const opt = allOptions.value.find((o) => label.startsWith(o.name))
+    return !!opt && optionSurcharge(opt) > 0
+  })
+  return parts.length ? `（${parts.join(' · ')}）` : ''
+})
+
+/** 选配的文字摘要，用于购物车展示（不必回查商品详情）。 */
+const selectionLabels = computed<string[]>(() =>
+  allOptions.value
+    .map((opt) => {
+      const raw = selection.value[opt.option_key]
+      if (!raw) return ''
+      if (optionWidget(opt) === 'qty') return `${opt.name} ${raw}${opt.unit || ''}`
+      const item = opt.values.find((v) => v.value === raw)
+      return item ? `${opt.name} ${item.label}` : `${opt.name} ${raw}`
+    })
+    .filter((s) => s !== ''),
+)
+
+function setSelection(opt: ProductOption, value: SelectValue) {
+  setSelectionValue(opt, value)
+}
+
+/** 统一写入选择：控件回调可能给字符串/数字/布尔，一律按字符串存（下发参数是字符串）。 */
+function setSelectionValue(opt: ProductOption, value: SelectValue | NumericValue | null) {
+  selection.value = {
+    ...selection.value,
+    [opt.option_key]: value === null || value === undefined ? '' : String(value),
+  }
+  refreshQuote()
+}
+
 // ========== 收银台（在线支付） ==========
 const cashierVisible = ref(false)
 /** 已提交的待支付订单 ID：关闭收银台不删单，由用户在列表继续支付或后端超时关单。 */
@@ -267,7 +592,7 @@ async function onCashierPaid() {
   const orderId = pendingOrderId.value
   pendingOrderId.value = 0
   if (current.value) {
-    cartStore.remove(`${current.value.id}::${selectedSpec.value || '-'}::${selectedCycle.value || '-'}`)
+    cartStore.remove(cartItemKey(current.value.id, selectedSpec.value, selectedCycle.value, cleanSelections.value))
   }
   MessagePlugin.success('支付完成，资源开通中')
   if (orderId) router.push(`/order/${orderId}`)
@@ -368,12 +693,13 @@ function resetFilter() {
 }
 
 // ========== 购买流程 ==========
-async function openBuy(product: ProductInfo, specCode = '', cycle = '') {
-  // 列表里的商品不带 skus/cycles（列表接口不下发），拉一次详情再开弹窗。
+async function openBuy(product: ProductInfo, specCode = '', cycle = '', preselect: Record<string, string> = {}) {
+  // 列表里的商品不带 skus/cycles/option_groups（列表接口不下发），拉一次详情再开弹窗。
   current.value = product
   buyVisible.value = true
   quote.value = null
   quantity.value = 1
+  selection.value = {}
 
   try {
     const { data } = await getProductDetail(product.id)
@@ -389,7 +715,18 @@ async function openBuy(product: ProductInfo, specCode = '', cycle = '') {
   const available = cycles.length ? cycles : current.value?.cycles ?? []
   selectedCycle.value = cycle && available.includes(cycle) ? cycle : available[0] || ''
 
-  refreshQuote()
+  // 用默认值预填选配项；来自官网的意图里带的选择覆盖在默认值之上。
+  applyDefaultSelection()
+  if (Object.keys(preselect).length) {
+    const known = new Set(allOptions.value.map((o) => o.option_key))
+    const merged = { ...selection.value }
+    for (const [k, v] of Object.entries(preselect)) {
+      if (v !== '' && known.has(k)) merged[k] = v
+    }
+    selection.value = merged
+  }
+
+  await refreshQuote()
 }
 
 async function refreshQuote() {
@@ -401,6 +738,7 @@ async function refreshQuote() {
       specCode: selectedSpec.value,
       cycle: selectedCycle.value,
       quantity: quantity.value,
+      configSelections: cleanSelections.value,
     })
     quote.value = data
   } catch {
@@ -416,6 +754,10 @@ async function submitOrder() {
     MessagePlugin.warning('所选规格已售罄')
     return
   }
+  if (missingRequired.value.length) {
+    MessagePlugin.warning(`请先选择：${missingRequired.value.map((o) => o.name).join('、')}`)
+    return
+  }
   submitting.value = true
   try {
     const { data } = await createOrder({
@@ -423,13 +765,11 @@ async function submitOrder() {
       specCode: selectedSpec.value,
       cycle: selectedCycle.value,
       quantity: quantity.value,
+      configSelections: cleanSelections.value,
       payMode: payMode.value,
     })
     buyVisible.value = false
-    cartStore.remove(
-      // 下单成功后把同商品同规格同周期的购物车行移除，避免重复结算
-      `${current.value.id}::${selectedSpec.value || '-'}::${selectedCycle.value || '-'}`,
-    )
+    cartStore.remove(cartItemKey(current.value.id, selectedSpec.value, selectedCycle.value, cleanSelections.value))
 
     // 渠道支付：订单已落待支付，接着拉起收银台；付款成功由后端回调开通。
     // 这里不跳转到详情页 —— 用户还没付钱，跳走会让他找不到收银台。
@@ -451,6 +791,10 @@ async function submitOrder() {
 
 function addCurrentToCart() {
   if (!current.value) return
+  if (missingRequired.value.length) {
+    MessagePlugin.warning(`请先选择：${missingRequired.value.map((o) => o.name).join('、')}`)
+    return
+  }
   const sku = selectedSku.value
   cartStore.add({
     productId: current.value.id,
@@ -464,6 +808,8 @@ function addCurrentToCart() {
       ? quote.value.final_amount / quantity.value
       : sku?.price || current.value.price,
     priceModel: current.value.price_model,
+    selections: cleanSelections.value,
+    selectionLabels: selectionLabels.value,
   })
   MessagePlugin.success('已加入购物车')
   buyVisible.value = false
@@ -482,17 +828,39 @@ async function consumeIntent() {
 
   const spec = String(route.query.spec ?? '')
   const cycle = String(route.query.cycle ?? '')
+  const preselect = parseIntentConfig(route.query.config)
 
   try {
     const { data } = await getProductDetail(productId)
     if (!data) return
     intentProductName.value = data.name
     // 商品已下架时详情接口直接报错，这里自然走不到
-    await openBuy(data, spec, cycle)
+    await openBuy(data, spec, cycle, preselect)
   } catch {
     MessagePlugin.warning('官网带来的商品不可购买，可能已下架')
     clearIntent()
   }
+}
+
+/**
+ * 解析官网带来的选配意图（`config=cpu:4,os:62`）。
+ *
+ * 官网页面对配置项只做「选择 + 传递」，参数名与取值仍是平台口径；
+ * 这里只是把意图交回购买弹窗做预填，真正的校验与算价仍在后端。
+ * 无法识别的片段直接丢弃（不阻断整次跳转）。
+ */
+function parseIntentConfig(raw: unknown): Record<string, string> {
+  const text = String(Array.isArray(raw) ? raw[0] : raw ?? '')
+  const out: Record<string, string> = {}
+  if (!text) return out
+  for (const pair of text.split(',')) {
+    const idx = pair.indexOf(':')
+    if (idx <= 0) continue
+    const key = pair.slice(0, idx).trim()
+    const value = pair.slice(idx + 1).trim()
+    if (key && value) out[key] = value
+  }
+  return out
 }
 
 onMounted(async () => {
@@ -670,6 +1038,121 @@ onMounted(async () => {
   font-style: normal;
   opacity: 0.75;
   font-size: 12px;
+}
+
+/* ============ 选配项 ============ */
+.buy__label-hint {
+  margin-left: 6px;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.buy__options {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 320px;
+  padding-right: 4px;
+  overflow-y: auto;
+}
+
+.buy__option {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.buy__option-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.buy__option-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+
+.buy__option-required {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.buy__option-unit {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--color-muted-foreground);
+}
+
+.buy__option-add {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.buy__option-add-inline {
+  margin-left: 4px;
+  font-style: normal;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.buy__option-qty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.buy__option-qty-unit {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.buy__option-help {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--color-muted-foreground);
+}
+
+/* 选配项里的按钮组允许换行：CPU 档位较多时窄屏不至于横向溢出 */
+.buy__option :deep(.t-radio-group) {
+  flex-wrap: wrap;
+}
+
+.buy__option :deep(.t-select) {
+  width: 100%;
+}
+
+.buy__row--option {
+  color: var(--color-foreground);
+}
+
+.buy__row-detail {
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--color-muted-foreground);
+}
+
+.buy__row-note {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--color-muted-foreground);
+  text-align: right;
 }
 
 .buy__warn {

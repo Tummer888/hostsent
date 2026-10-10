@@ -58,6 +58,8 @@ export interface SaleProductSpecTemplateSelection {
   spec_values?: Record<string, unknown> | null
   /** 就地调整后的平台写参数 JSON（area/node/os/store）；留空用模板值 */
   platform_params?: Record<string, unknown> | null
+  /** 就地覆盖的客户选配项（T4.5）：留空按档位 option_selections 自动生成 */
+  option_overrides?: SaleProductOptionOverride[]
 }
 
 export interface SaleProductCloneRequest {
@@ -194,6 +196,10 @@ export interface SaleProductConfigSub {
   source_key?: string
   hidden?: number
   sort_order?: number
+  /** 分组标签（Ubuntu/Windows/CentOS），用户侧分组下拉用（T4.5） */
+  group_label?: string
+  /** 该取值是否为客户默认选中项（T4.5） */
+  is_default?: boolean
   pricings?: Array<{
     monthly?: number
     annually?: number
@@ -212,6 +218,20 @@ export interface SaleProductConfigOption {
   source_key?: string
   hidden?: number
   sort_order?: number
+  // ---- T4.5 客户选配渲染与计价 ----
+  provider_type?: string
+  option_key?: string
+  /** select | radio | qty | bool | group_select */
+  widget?: string
+  /** 客户下单必选 */
+  required?: boolean
+  default_value?: string
+  /** 分组标签（同组下拉的分组名） */
+  widget_group?: string
+  min_value?: number | null
+  max_value?: number | null
+  unit?: string
+  help?: string
   sub?: SaleProductConfigSub[]
 }
 
@@ -340,6 +360,8 @@ export interface SpecTemplateQuery {
   [key: string]: unknown
   keyword?: string
   spec_family?: string
+  /** 按归属平台筛选（配置档改造后的主筛选维度） */
+  provider_type?: string
   status?: number
   page?: number
   page_size?: number
@@ -362,6 +384,14 @@ export interface SpecTemplateRequest {
   spec_values?: Record<string, unknown> | null
   /** 平台写参数 JSON（魔方云 area/node/os/store），生成 SKU 时写入平台绑定 */
   platform_params?: Record<string, unknown> | null
+  /** 档位归属的平台类型（mofangyun 等） */
+  provider_type?: string
+  /** 每参数勾选的可选值（T4.5）：建品时据此生成客户选配项 */
+  option_selections?: SpecOptionSelections | null
+  /** 商品名渲染模板，如 "{cpu}核{memory}G {os}" */
+  name_template?: string
+  /** 描述渲染模板 */
+  description_template?: string
 }
 
 export interface SpecTemplateInfo {
@@ -382,6 +412,13 @@ export interface SpecTemplateInfo {
   spec_values: Record<string, unknown> | null
   /** 平台写参数 JSON（为 null 表示该模板尚未完成平台映射） */
   platform_params: Record<string, unknown> | null
+  /** 归属平台类型 */
+  provider_type: string
+  /** 每参数勾选的可选值（可能为 null：老模板未配置） */
+  option_selections: SpecOptionSelections | null
+  /** 商品名/描述渲染模板 */
+  name_template: string
+  description_template: string
   /** 模板来源：self 自建 / imported 上游归一 */
   source: string
   created_at: string
@@ -412,6 +449,8 @@ export interface PlatformResourceItem {
   value: string
   label: string
   parent_id?: string
+  /** 资源自身分组名（镜像家族 Ubuntu/Windows/CentOS） */
+  group?: string
   status?: string
 }
 
@@ -420,6 +459,131 @@ export interface PlatformResources {
   nodes: PlatformResourceItem[]
   stores: PlatformResourceItem[]
   images: PlatformResourceItem[]
+}
+
+// ===== 平台配置项目录与取值库（T4.5 规格配置化）=====
+
+/** 平台配置项的一个可选值 */
+export interface OptionValueItem {
+  value: string
+  label: string
+  group_label?: string
+  parent_value?: string
+  status?: string
+  origin?: string
+}
+
+/** 平台配置项（目录项） */
+export interface OptionSpecInfo {
+  id: number
+  provider_type: string
+  option_key: string
+  label: string
+  group_name: string
+  required: boolean
+  default_value: string
+  widget: string
+  value_source: string
+  options?: unknown
+  min_value?: number | null
+  max_value?: number | null
+  step_value?: number | null
+  unit: string
+  help: string
+  multi_value: boolean
+  hidden: boolean
+  sort_order: number
+  source: string
+  values?: OptionValueItem[]
+}
+
+export interface OptionSpecRequest {
+  provider_type?: string
+  option_key: string
+  label?: string
+  group_name?: string
+  required?: boolean
+  default_value?: string
+  widget?: string
+  value_source?: string
+  options?: unknown
+  min_value?: number | null
+  max_value?: number | null
+  step_value?: number | null
+  unit?: string
+  help?: string
+  multi_value?: boolean
+  hidden?: boolean
+  sort_order?: number
+}
+
+export interface OptionCatalogSyncResult {
+  provider_type: string
+  declared: number
+  created: number
+  skipped: number
+}
+
+export interface OptionValueImportRequest {
+  provider_type?: string
+  option_key: string
+  replace?: boolean
+  items: OptionValueItem[]
+}
+
+export interface OptionValueImportResult {
+  option_key: string
+  created: number
+  updated: number
+  offlined: number
+}
+
+export interface OptionValueRefreshRequest {
+  provider_type?: string
+  provider_id: number
+  option_keys?: string[]
+}
+
+/** 配置档里单个参数的勾选结果 */
+export interface SpecOptionSelection {
+  /** 离散多选取值 */
+  values?: string[]
+  /** 数量型区间 [min, max] */
+  range?: number[]
+  /** 默认值（与平台写参数口径一致） */
+  default?: string
+  group_label?: string
+}
+
+/** 配置档勾选的参数 → 勾选结果 */
+export type SpecOptionSelections = Record<string, SpecOptionSelection>
+
+/** 建品时就地覆盖的客户选配项 */
+export interface SaleProductOptionOverride {
+  option_key: string
+  label?: string
+  widget?: string
+  required?: boolean
+  default?: string
+  unit?: string
+  group_label?: string
+  help?: string
+  min_value?: number | null
+  max_value?: number | null
+  sort_order?: number
+  values?: SaleProductOptionValue[]
+}
+
+export interface SaleProductOptionValue {
+  value: string
+  label?: string
+  group_label?: string
+  is_default?: boolean
+  hidden?: boolean
+  price_monthly?: number
+  price_quarterly?: number
+  price_annually?: number
+  price_onetime?: number
 }
 
 export interface SpecTemplateListResponse {

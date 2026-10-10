@@ -56,7 +56,15 @@ type ProductService interface {
 	// BuildProvisionRequest 按商品供货模式构建上游开通请求（供订单履约联动用）。
 	// specSnapshot 为所选 SKU 的规格快照（原子取值 JSON，T4.1）；specCode 为所选 SKU 编码
 	// （T4.2），用于回查该 SKU 已确认的平台绑定参数。两者均可为空。
-	BuildProvisionRequest(ctx context.Context, productID uint64, name, specSnapshot, specCode string) (*ProvisionRequest, error)
+	// selections 为客户选配项选择（T4.5，参数名 → 取值），优先级最高——它代表客户
+	// 实际购买决定，必须覆盖档位基线与商品默认值。
+	BuildProvisionRequest(ctx context.Context, productID uint64, name, specSnapshot, specCode string, selections map[string]string) (*ProvisionRequest, error)
+	// CustomerOptions 按商品 + 周期返回客户可选配置项（T4.5，用户侧选配界面用）。
+	// 只返回 source=self 的自营配置项；代理商品的选配项由上游目录决定，不在此暴露。
+	CustomerOptions(ctx context.Context, productID uint64) ([]CustomerOptionGroup, error)
+	// ResolveOptionPricing 按客户选择算出选配加价小计与逐项明细（T4.5，算价与预结算用）。
+	// selections 中的取值会按商品配置项校验（取值不存在则报错），未选中的必选项报错。
+	ResolveOptionPricing(ctx context.Context, productID uint64, cycle string, selections map[string]string) (*OptionPricing, error)
 	// FindSpec 按商品 + 规格编码取启用中的 SKU（下单/算价用，T4.1）。
 	FindSpec(ctx context.Context, productID uint64, specCode string) (*dto.ProductSpecInfo, error)
 	// DecrementSpecStock / IncrementSpecStock SKU 库存原子增减（下单扣减、失败回补，T4.1）。
@@ -77,6 +85,9 @@ type ProductService interface {
 	SetSpecTemplateReader(r SpecTemplateReader)
 	// SetSpecBindingWriter 注入 SKU 平台绑定写入能力（按模板生成 SKU 时同步落绑定）。
 	SetSpecBindingWriter(w SpecBindingWriter)
+	// SetSpecOptionCatalog 注入平台配置项目录读取能力（T4.5）。
+	// 建品按配置档生成客户选配项时，用目录取控件类型/必选/单位与取值标签。
+	SetSpecOptionCatalog(r SpecOptionCatalogReader)
 	// GenerateSpecFromTemplate 按规格模板为自营商品生成一个 SKU 并建立平台绑定。
 	// 这是自营链路的关键动作：模板（含平台写参数）→ 已确认绑定的 SKU，之后才可能上架。
 	GenerateSpecFromTemplate(ctx context.Context, productID uint64, req dto.SpecTemplateGenerateRequest, operatorID uint64, operatorName string) (*dto.SpecTemplateGenerateResult, error)
@@ -90,6 +101,67 @@ type ProvisionRequest struct {
 	Name          string                 `json:"name"`
 	ConfigOptions map[string]interface{} `json:"config_options"`
 	BillingMode   string                 `json:"billing_mode"`
+}
+
+// ===== 客户选配项（T4.5）：用户侧渲染与计价 =====
+
+// CustomerOptionGroup 客户可见的一组可选配置项。
+// 与 config_groups 的区别：这是给**用户侧**渲染用的扁平结构，只含自营项，
+// 且取值已带好展示名/分组/加价，前端不需要再解析平台 ID。
+type CustomerOptionGroup struct {
+	Options []CustomerOption `json:"options"`
+}
+
+// CustomerOption 客户可见的一个可选配置项。
+type CustomerOption struct {
+	OptionKey    string               `json:"option_key"` // 平台参数名（下发给魔方云的键）
+	Name         string               `json:"name"`       // 中文名
+	Widget       string               `json:"widget"`     // select|radio|qty|bool|group_select
+	Required     bool                 `json:"required"`
+	DefaultValue string               `json:"default_value"`
+	Unit         string               `json:"unit"`
+	Help         string               `json:"help"`
+	MinValue     *float64             `json:"min_value"`
+	MaxValue     *float64             `json:"max_value"`
+	// UnitPrice 数量型选项的「每单位加价」（元）。枚举型的加价随取值逐项下发，
+	// 数量型没有离散取值可挂价格，故单独给出，供前端实时估算超量加价。
+	UnitPrice float64              `json:"unit_price"`
+	Values    []CustomerOptionItem `json:"values"`
+}
+
+// CustomerOptionItem 客户可见的一个可选值。
+type CustomerOptionItem struct {
+	Value   string `json:"value"` // 下发给平台的取值
+	Label   string `json:"label"` // 展示名
+	Group   string `json:"group_label,omitempty"`
+	Default bool   `json:"is_default"`
+	// 四周期加价（元）；均为 0 表示不加价。
+	PriceMonthly   float64 `json:"price_monthly"`
+	PriceQuarterly float64 `json:"price_quarterly"`
+	PriceAnnually  float64 `json:"price_annually"`
+	PriceOnetime   float64 `json:"price_onetime"`
+}
+
+// OptionPricing 选配计价结果。
+type OptionPricing struct {
+	// Amount 选配加价小计（已按数量型选项的数量折算）。
+	Amount float64 `json:"amount"`
+	// Items 逐项明细，供预结算页展示加价来源。
+	Items []OptionPricingItem `json:"items"`
+	// Selections 归一后的选择（含补齐的默认值），履约时以此为准。
+	Selections map[string]string `json:"selections"`
+}
+
+// OptionPricingItem 单项选配的计价明细。
+type OptionPricingItem struct {
+	OptionKey   string  `json:"option_key"`
+	OptionName  string  `json:"option_name"`
+	Value       string  `json:"value"`
+	ValueName   string  `json:"value_name"`
+	Quantity    float64 `json:"quantity"`
+	UnitPrice   float64 `json:"unit_price"`
+	Amount      float64 `json:"amount"`
+	IsDefaulted bool    `json:"is_defaulted"`
 }
 
 // ResourceProductReader 上游资源商品读取接口（由 resource/product 仓储实现，避免包循环）。
@@ -149,6 +221,44 @@ type SpecTemplateSnapshot struct {
 	Price          float64
 	SpecValues     string // 原子 key → 取值 JSON
 	PlatformParams string // 平台写参数 JSON
+	// ProviderType 档位归属的平台类型（mofangyun 等），用于生成客户选配项时取配置项目录。
+	ProviderType string
+	// OptionSelections 档位勾选的可选值 JSON（T4.5）：
+	// {"cpu":{"values":["2","4"]},"bw":{"range":[1,100],"default":"10"}}
+	OptionSelections string
+	// NameTemplate 商品名渲染模板（"{cpu}核{memory}G {os}"）。
+	NameTemplate string
+}
+
+// SpecOptionCatalogReader 平台配置项目录读取能力（生成客户选配项用）。
+// 由 spec 配置项目录服务适配实现；未装配时只按档位 option_selections 生成（无控件元数据）。
+type SpecOptionCatalogReader interface {
+	// OptionCatalogByProvider 取某平台的配置项目录（含取值库中的可选值）。
+	OptionCatalogByProvider(ctx context.Context, providerType string) ([]SpecOptionMeta, error)
+}
+
+// SpecOptionMeta 目录项快照（catalog 侧只关心渲染与取值元数据）。
+type SpecOptionMeta struct {
+	OptionKey    string
+	Label        string
+	Widget       string
+	Required     bool
+	Default      string
+	Unit         string
+	GroupName    string
+	Help         string
+	ProviderType string
+	MinValue     *float64
+	MaxValue     *float64
+	SortOrder    int
+	Values       []SpecOptionValueMeta
+}
+
+// SpecOptionValueMeta 取值快照。
+type SpecOptionValueMeta struct {
+	Value      string
+	Label      string
+	GroupLabel string
 }
 
 // SpecBindingWriter 写入 SKU 的平台绑定（自营链路按模板生成 SKU 时）。
@@ -207,6 +317,8 @@ type productService struct {
 	bindingWriter SpecBindingWriter
 	// cycleWriter 用于上游调价确认后按周期重算矩阵（doc25 §5）
 	cycleWriter CyclePriceWriter
+	// optionCatalog 平台配置项目录（生成客户选配项时取控件元数据与取值）
+	optionCatalog SpecOptionCatalogReader
 }
 
 // NewProductService 创建商品业务服务。
@@ -245,6 +357,12 @@ func (s *productService) SetSpecTemplateReader(r SpecTemplateReader) {
 // SetSpecBindingWriter 注入 SKU 平台绑定写入能力。
 func (s *productService) SetSpecBindingWriter(w SpecBindingWriter) {
 	s.bindingWriter = w
+}
+
+// SetSpecOptionCatalog 注入平台配置项目录读取能力（T4.5）：
+// 建品按档位生成客户选配项时，用目录取控件类型/必选/单位与可选值。
+func (s *productService) SetSpecOptionCatalog(r SpecOptionCatalogReader) {
+	s.optionCatalog = r
 }
 
 func (s *productService) List(ctx context.Context, query dto.ProductListQuery) (*dto.ProductListResponse, error) {
@@ -400,8 +518,13 @@ func (s *productService) precheckSpecTemplates(ctx context.Context, selections [
 
 // generateSpecsFromTemplates 逐个模板生成 SKU（复用 GenerateSpecFromTemplate 的同一套规则）。
 // 任一模板失败即中止并把已生成的数量与原因带回前端，避免错误被静默吞掉。
+// 生成 SKU 后，按档位勾选的多值参数同步生成客户可选配置项（T4.5）。
 func (s *productService) generateSpecsFromTemplates(ctx context.Context, productID uint64, selections []dto.ProductSpecTemplateSelection, operatorID uint64, operatorName string) ([]dto.ProductSpecInfo, error) {
 	out := make([]dto.ProductSpecInfo, 0, len(selections))
+	// 客户选配项跨档位合并：多个档位共享同一参数（如都开放 2核/4核）时取并集，
+	// 避免后一个档位覆盖前一个档位开放给客户的取值。
+	merged := map[string]*optionAccumulator{}
+	order := make([]string, 0, 8)
 	for _, sel := range selections {
 		result, err := s.GenerateSpecFromTemplate(ctx, productID, dto.SpecTemplateGenerateRequest{
 			SpecTemplateID: sel.SpecTemplateID,
@@ -417,8 +540,97 @@ func (s *productService) generateSpecsFromTemplates(ctx context.Context, product
 			return out, fmt.Errorf("模板 %d 生成规格失败：%w", sel.SpecTemplateID, err)
 		}
 		out = append(out, result.Spec)
+		// 收集该档位要开放给客户的选配项（目录元数据 + 勾选取值）。
+		tpl, terr := s.templateReader.SpecTemplateByID(ctx, sel.SpecTemplateID)
+		if terr != nil || tpl == nil {
+			continue
+		}
+		s.collectOptionAccumulators(ctx, tpl, merged, &order)
 	}
+	// 就地覆盖（建品页可改取值与加价）：以请求为准合并进累加器。
+	for _, sel := range selections {
+		for _, ov := range sel.OptionOverrides {
+			acc := merged[ov.OptionKey]
+			if acc == nil {
+				acc = &optionAccumulator{meta: SpecOptionMeta{OptionKey: ov.OptionKey, Label: ov.Label, Widget: ov.Widget, Unit: ov.Unit}}
+				merged[ov.OptionKey] = acc
+				order = append(order, ov.OptionKey)
+			}
+			acc.applyOverride(ov)
+		}
+	}
+	if len(order) == 0 {
+		return out, nil
+	}
+	// 落库：覆盖式写入商品全部 source=self 的配置项（与上游克隆链路共用同一张表）。
+	groups := buildGroupsFromAccumulators(order, merged)
+	if err := s.repo.SaveConfigOptions(ctx, productID, groups); err != nil {
+		return out, fmt.Errorf("生成客户选配项失败：%w", err)
+	}
+	s.repo.AddHistory(ctx, &model.ProductHistory{
+		ProductID: productID, ChangeType: model.ChangeTypeUpdate,
+		OperatorID: operatorID, OperatorName: operatorName,
+		Remark: fmt.Sprintf("按配置档生成 %d 个客户选配项", len(order)),
+	})
 	return out, nil
+}
+
+// collectOptionAccumulators 把某档位勾选的多值参数并入累加器（含目录元数据）。
+func (s *productService) collectOptionAccumulators(ctx context.Context, tpl *SpecTemplateSnapshot, merged map[string]*optionAccumulator, order *[]string) {
+	sel := parseOptionSelections(tpl.OptionSelections)
+	if len(sel) == 0 {
+		return
+	}
+	// 取平台配置项目录（控件类型/必选/单位/取值标签）。
+	metas := map[string]SpecOptionMeta{}
+	if s.optionCatalog != nil && strings.TrimSpace(tpl.ProviderType) != "" {
+		if list, err := s.optionCatalog.OptionCatalogByProvider(ctx, tpl.ProviderType); err == nil {
+			for _, m := range list {
+				metas[m.OptionKey] = m
+			}
+		}
+	}
+	for _, key := range sortedOptionKeys(sel) {
+		values := sel[key]
+		meta, ok := metas[key]
+		if !ok {
+			// 目录未覆盖（旧模板 / 自定义参数）：用参数名当标签，控件选中单选。
+			meta = SpecOptionMeta{OptionKey: key, Label: key, Widget: SpecWidgetSelect}
+		}
+		meta.ProviderType = tpl.ProviderType
+		acc := merged[key]
+		if acc == nil {
+			acc = &optionAccumulator{meta: meta}
+			merged[key] = acc
+			*order = append(*order, key)
+		}
+		acc.addValues(values, meta)
+	}
+}
+
+// buildGroupsFromAccumulators 把累加器转成 config_groups 结构（与上游 config_groups 同形）。
+func buildGroupsFromAccumulators(order []string, merged map[string]*optionAccumulator) []interface{} {
+	options := make([]map[string]interface{}, 0, len(order))
+	for _, key := range order {
+		acc := merged[key]
+		if acc == nil {
+			continue
+		}
+		// 数量型即使没有离散取值也要生成（客户需要能改这个数）；
+		// 单选型没有取值则跳过——客户没得选，档位基线值已随 SKU 下发。
+		if len(acc.values) == 0 && !acc.isRange {
+			continue
+		}
+		options = append(options, acc.toConfigOption())
+	}
+	if len(options) == 0 {
+		return nil
+	}
+	return []interface{}{map[string]interface{}{
+		"name":        "客户选配",
+		"description": "按配置档自动生成",
+		"options":     options,
+	}}
 }
 
 func (s *productService) Update(ctx context.Context, id uint64, req dto.ProductUpdateRequest, operatorID uint64, operatorName string) (*dto.ProductInfo, error) {
@@ -1496,7 +1708,7 @@ func firstNonEmptyStr(vals ...string) string {
 // clone 模式：读取 source_product_id 对应的上游资源商品规格作为基础参数
 // （cpu/memory/system_disk_size/os/area 等），再用本商品 ConfigOptions 覆盖补全。
 // specCode 非空时读取该 SKU 的 confirmed 平台绑定（T4.2），作为最高优先级的写参数。
-func (s *productService) BuildProvisionRequest(ctx context.Context, productID uint64, name, specSnapshot, specCode string) (*ProvisionRequest, error) {
+func (s *productService) BuildProvisionRequest(ctx context.Context, productID uint64, name, specSnapshot, specCode string, selections map[string]string) (*ProvisionRequest, error) {
 	item, err := s.repo.FindByID(ctx, productID)
 	if err != nil {
 		return nil, err
@@ -1547,7 +1759,7 @@ func (s *productService) BuildProvisionRequest(ctx context.Context, productID ui
 		opts[k] = v
 	}
 	// SKU 已确认平台绑定（T4.2）：schema 与 area/node/store/flavor 等最终参数，
-	// 优先级最高（人工确认过，覆盖上面所有推导值）。
+	// 优先级次高（人工确认过，覆盖上面所有推导值）。
 	if code := strings.TrimSpace(specCode); code != "" && s.bindingReader != nil {
 		if spec, serr := s.repo.FindSpecByCode(ctx, item.ID, code); serr == nil && spec != nil {
 			if raw, berr := s.bindingReader.ConfirmedPlatformParamsByProductSpec(ctx, spec.ID); berr == nil && raw != "" {
@@ -1557,8 +1769,57 @@ func (s *productService) BuildProvisionRequest(ctx context.Context, productID ui
 			}
 		}
 	}
+	// 客户选配项（T4.5）：优先级最高——它代表客户实际购买决定，必须覆盖档位基线与
+	// 商品默认值。只转发"该商品确实开放的配置项"的取值，避免把任意键塞进平台请求。
+	if len(selections) > 0 {
+		for k, v := range s.sanitizeSelections(ctx, item.ID, selections) {
+			opts[k] = v
+		}
+	}
 	req.ConfigOptions = opts
 	return req, nil
+}
+
+// sanitizeSelections 过滤客户选择：只保留该商品 source=self 配置项里确实存在的
+// 「参数名 → 取值」组合。下单时 ResolveOptionPricing 已校验过一遍，这里是履约侧的
+// 兜底（订单可能是历史数据，或运营事后删过配置项）。
+func (s *productService) sanitizeSelections(ctx context.Context, productID uint64, selections map[string]string) map[string]string {
+	rows, err := s.repo.SelfConfigOptionRows(ctx, productID)
+	if err != nil || len(rows) == 0 {
+		return selections
+	}
+	allowed := make(map[string]configSelectionRule, len(rows))
+	for _, row := range rows {
+		key := customerOptionKey(row)
+		if key == "" {
+			continue
+		}
+		rule := configSelectionRule{qty: customerWidget(row) == optionWidgetQty}
+		rule.values = map[string]bool{}
+		for _, sub := range row.Subs {
+			rule.values[customerSubValue(sub)] = true
+		}
+		allowed[key] = rule
+	}
+	out := make(map[string]string, len(selections))
+	for k, v := range selections {
+		rule, ok := allowed[k]
+		if !ok {
+			continue
+		}
+		// 数量型没有离散候选值（子项只是占位）：只要键对就放行，
+		// 区间校验在计价环节已做过。枚举型必须命中候选取值，否则丢弃。
+		if rule.qty || rule.values[v] {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// configSelectionRule 履约侧过滤客户选择的规则：枚举看候选值，数量型只看键。
+type configSelectionRule struct {
+	qty    bool
+	values map[string]bool
 }
 
 // selfConfigParams 读取商品的自营配置项（source=self）；失败返回 nil（不阻断开通）。

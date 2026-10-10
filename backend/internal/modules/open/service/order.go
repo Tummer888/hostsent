@@ -69,6 +69,8 @@ func (s *OpenOrderService) Create(ctx context.Context, app *openrepo.ResolvedApp
 		SpecCode:  req.SpecCode,
 		Quantity:  req.Quantity,
 		Cycle:     req.Cycle,
+		// 代客下单同样支持选配（T4.5）：下游应用按商品 option_groups 传选择。
+		ConfigSelections: req.ConfigSelections,
 		ChannelMeta: ucorderdto.ChannelMeta{
 			Channel:            ordermodel.OrderChannelOpen,
 			OpenAppID:          app.App.ID,
