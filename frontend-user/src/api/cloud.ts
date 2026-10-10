@@ -75,3 +75,74 @@ export function destroyInstance(id: number, confirmMark: string, reason?: string
     headers: verifyTicket ? { 'X-Verify-Ticket': verifyTicket } : undefined,
   })
 }
+
+// ---- 维护类自助操作（与后端 /uc/instances/* 一一对应）----
+
+/** 重装系统；返回平台新签发的初始凭据（只返回一次，前端必须提示立即保存）。 */
+export interface ReinstallResult {
+  username?: string
+  password?: string
+}
+
+export function reinstallInstance(
+  id: number,
+  data: {
+    os: string
+    port?: number
+    format_data_disk?: boolean
+    system_disk_size?: number
+    reason?: string
+  },
+  verifyTicket?: string,
+) {
+  return request.post<any, { data: ReinstallResult }>(`/uc/instances/${id}/reinstall`, data, {
+    headers: verifyTicket ? { 'X-Verify-Ticket': verifyTicket } : undefined,
+  })
+}
+
+export function resetInstancePassword(id: number, password: string) {
+  return request.post<any, { data: unknown }>(`/uc/instances/${id}/reset-password`, { password })
+}
+
+export function rescueInstance(id: number, system: number, tempPassword: string) {
+  return request.post<any, { data: unknown }>(`/uc/instances/${id}/rescue`, {
+    system,
+    temp_password: tempPassword,
+  })
+}
+
+export function exitRescueInstance(id: number) {
+  return request.post<any, { data: unknown }>(`/uc/instances/${id}/exit-rescue`)
+}
+
+export interface SnapshotInfo {
+  id: string
+  name: string
+  type: string
+  size: string
+  status: number
+  disk_id: string
+  disk_name: string
+  create_time: string
+  remarks: string
+}
+
+export function listInstanceSnapshots(id: number, type?: string) {
+  return request.get<any, { data: SnapshotInfo[] }>(`/uc/instances/${id}/snapshots`, { params: { type } })
+}
+
+export function createInstanceSnapshot(id: number, data: { type?: string; name?: string; disk_id?: string }) {
+  return request.post<any, { data: unknown }>(`/uc/instances/${id}/snapshots`, data)
+}
+
+export function deleteInstanceSnapshot(id: number, snapshotId: string) {
+  return request.delete<any, { data: unknown }>(`/uc/instances/${id}/snapshots/${snapshotId}`)
+}
+
+export function restoreInstanceSnapshot(id: number, snapshotId: string, confirmMark: string, verifyTicket?: string) {
+  return request.post<any, { data: unknown }>(
+    `/uc/instances/${id}/snapshots/restore`,
+    { snapshot_id: snapshotId, confirm_mark: confirmMark },
+    { headers: verifyTicket ? { 'X-Verify-Ticket': verifyTicket } : undefined },
+  )
+}

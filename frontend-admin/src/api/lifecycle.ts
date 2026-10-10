@@ -64,6 +64,8 @@ export interface LifecyclePolicy {
   auto_enforce: boolean
   // 预演开关（默认 true）：总开关开启时，true 仍只计算不下发。
   enforce_dry_run: boolean
+  // 退款审核通过后对关联实例的动作：none（默认）/ suspend / destroy（仅全额退款生效）。
+  refund_action: string
   updated_at: string
 }
 
@@ -74,6 +76,7 @@ export interface PolicyUpdateRequest {
   destroy_keep_days?: number
   auto_enforce?: boolean
   enforce_dry_run?: boolean
+  refund_action?: string
 }
 
 // 到期处置预演单条结果

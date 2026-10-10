@@ -466,51 +466,52 @@ export interface CostItemRequest {
   status?: string
 }
 
-/** 单渠道月度台账行：期初 + 期间充值 − 期末 = 期间消耗。 */
+/**
+ * 单渠道上游台账行（全部自动取数：余额=抓取快照，消耗/充值=上游账本流水）。
+ * 手工录入余额/充值已下线：账本同步替代了手工记账（doc111 §5.4）。
+ */
 export interface UpstreamLedgerRow {
   provider_id: number
   provider_name: string
   provider_type: string
-  /** 期初余额 = 该月首日之前最近一条快照（上月末口径）；无历史快照时为 null */
-  opening_balance: number | null
-  opening_date: string
-  /** 期间充值合计（正=充值，负=退还） */
-  topup_total: number
-  closing_balance: number | null
-  closing_date: string
-  /** 期间消耗；缺期初或期末快照时为 null（页面提示补录） */
-  consumption: number | null
-  /** 期末快照不是本月数据时为 true（消耗是「截至该日」的估算值） */
-  estimated: boolean
-  /** 本月完全无快照（期初/期末取自历史数据，需尽快录入） */
-  missing_snapshot: boolean
-  /** 最新一条快照余额（不限月份） */
+  /** 最新余额快照（每日自动抓取；当月无快照时为 null） */
   latest_balance: number | null
   latest_date: string
   currency: string
-  /** 本月流水口径消耗（净额）；null=该渠道账本不可作准 */
-  ledger_consumption: number | null
-  /** 本月账本条目数（0=账本已同步但本月无流水） */
-  ledger_entries: number
-  /** 本月取数来源：ledger（流水）/ snapshot（快照推算）/ none */
+  /** 期间消耗（流水净额 = amount − refund_amount）；null=该渠道无账本数据 */
+  consumption: number | null
+  /** 期间消费笔数（账本已同步但本月无流水时为 0） */
+  consumption_entries: number
+  /** 期间充值合计（流水口径）；null=该渠道无账本数据 */
+  topup_total: number | null
+  /** 取数来源：ledger（账本流水）/ none（未接入或尚未同步账本） */
   cost_source: string
-  /** 两种口径差额 = 流水 − 快照（都有值时给出；非 0 需人工核查） */
-  ledger_diff: number | null
 }
 
 export interface UpstreamLedgerResponse {
   month: string
   rows: UpstreamLedgerRow[]
-  /** 全部渠道期间消耗合计（流水优先、快照兜底，见每行 cost_source） */
+  /** 全部渠道期间消耗合计（只统计有账本数据的渠道） */
   total_consumption: number
+  /** 全部渠道期间充值合计（只统计有账本数据的渠道） */
+  total_topup: number
   /** 支持自动抓取余额的渠道 ID（适配器实现了账户余额读取） */
-  snapshot_supported_providers: number[]
+  balance_supported_providers: number[]
   /** 支持同步上游账本的渠道 ID（适配器实现了账本读取：消费/充值流水） */
   ledger_supported_providers: number[]
   /** 最近一次账本同步时间（RFC3339，空=未同步过） */
   ledger_synced_at: string
   /** 上游余额水位告警（余额 < 未来 30 天到期金额 / < 配置阈值） */
   alerts: BalanceAlert[]
+}
+
+/** 一次余额抓取的结果（落库后的当日快照）。 */
+export interface CostBalanceSnapshotInfo {
+  provider_id: number
+  provider_name: string
+  snapshot_date: string
+  balance: number
+  currency: string
 }
 
 /** 上游余额水位告警。level: ok | warning | critical | unknown（取数失败）。 */
@@ -587,66 +588,6 @@ export interface CostLedgerEntryListResponse {
   topup_total: number
 }
 
-export interface CostSnapshotRequest {
-  provider_id: number
-  /** YYYY-MM-DD，空=今天；同一渠道同日重复录入会覆盖 */
-  snapshot_date?: string
-  balance?: number
-  remark?: string
-}
-
-export interface CostTopupRequest {
-  provider_id: number
-  /** YYYY-MM-DD，空=今天 */
-  occurred_on?: string
-  /** 正=充值，负=渠道退款/冲正 */
-  amount?: number
-  remark?: string
-}
-
-export interface CostSnapshotInfo {
-  id: number
-  provider_id: number
-  provider_name: string
-  snapshot_date: string
-  balance: number
-  currency: string
-  /** manual=人工录入，auto=抓取 */
-  source: string
-  remark: string
-  created_at: string
-}
-
-export interface CostTopupInfo {
-  id: number
-  provider_id: number
-  provider_name: string
-  occurred_on: string
-  amount: number
-  remark: string
-  operator_id: number
-  created_at: string
-}
-
-export interface CostBalanceRecordQuery {
-  /** 0/不传=全部渠道 */
-  provider_id?: number
-  /** YYYY-MM，空=不限月份 */
-  month?: string
-  page?: number
-  page_size?: number
-}
-
-export interface CostSnapshotListResponse {
-  items: CostSnapshotInfo[]
-  meta: ListMeta
-}
-
-export interface CostTopupListResponse {
-  items: CostTopupInfo[]
-  meta: ListMeta
-}
-
 /** 成本构成行：auto=true 为系统按数据自动计算，false 来自成本项配置。 */
 export interface CostLine {
   key: string
@@ -707,14 +648,8 @@ export interface CostOverviewResponse {
   caliber: string
   /** 未配置成本项时的提示（避免「成本为 0」被误读） */
   unconfigured_hint: string
-  /** 流水口径：上游账本消费净额合计（主口径） */
-  upstream_cost_ledger: number
-  /** 快照推算口径：期初 + 充值 − 期末（核对口径） */
-  upstream_cost_snapshot: number
-  /** 上游成本取数来源：ledger / snapshot / mixed / none */
+  /** 上游成本取数来源：ledger（有渠道同步了账本）/ none（无账本数据） */
   upstream_cost_source: string
-  /** 差额 = 流水 − 快照（只对两种口径都有的渠道累计；非 0 需核查） */
-  upstream_ledger_diff: number
   /** 最近一次账本同步时间（RFC3339，空=未同步过） */
   ledger_synced_at: string
   /** 上游余额水位告警 */

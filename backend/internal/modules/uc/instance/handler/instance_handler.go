@@ -191,3 +191,257 @@ func pathUint(c *gin.Context, key string) uint64 {
 	v, _ := strconv.ParseUint(c.Param(key), 10, 64)
 	return v
 }
+
+// writeMaintenanceError 维护类操作错误映射：归属类错误与"不支持"分开提示，
+// 其余按通用错误返回（上游原文保留，便于用户把原因转给客服）。
+func writeMaintenanceError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, service.ErrInstanceNotFoundOrDenied):
+		response.Error(c, apperrors.New(20002, err.Error()))
+	case errors.Is(err, service.ErrMaintenanceUnsupported):
+		response.Error(c, apperrors.New(20003, err.Error()))
+	default:
+		response.Error(c, apperrors.New(50001, err.Error()))
+	}
+}
+
+// Reinstall godoc
+// @Summary 重装系统（可换镜像）
+// @Tags 用户中心-主机
+// @Security BearerAuth
+// @Param id path uint true "主机记录ID"
+// @Param body body dto.ReinstallRequest true "目标镜像与选项"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/instances/{id}/reinstall [post]
+func (h *InstanceHandler) Reinstall(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, apperrors.New(10001, "unauthorized"))
+		return
+	}
+	id := pathUint(c, "id")
+	if id == 0 {
+		response.Error(c, apperrors.New(20001, "参数错误"))
+		return
+	}
+	var req dto.ReinstallRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	res, err := h.instanceService.Reinstall(c.Request.Context(), userID,
+		middleware.ActorUserID(c), middleware.ActorUsername(c), id, &req)
+	if err != nil {
+		writeMaintenanceError(c, err)
+		return
+	}
+	response.Success(c, res)
+}
+
+// ResetPassword godoc
+// @Summary 重置登录密码
+// @Tags 用户中心-主机
+// @Security BearerAuth
+// @Param id path uint true "主机记录ID"
+// @Param body body dto.ResetPasswordRequest true "新密码"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/instances/{id}/reset-password [post]
+func (h *InstanceHandler) ResetPassword(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, apperrors.New(10001, "unauthorized"))
+		return
+	}
+	id := pathUint(c, "id")
+	if id == 0 {
+		response.Error(c, apperrors.New(20001, "参数错误"))
+		return
+	}
+	var req dto.ResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	if err := h.instanceService.ResetPassword(c.Request.Context(), userID,
+		middleware.ActorUserID(c), middleware.ActorUsername(c), id, &req); err != nil {
+		writeMaintenanceError(c, err)
+		return
+	}
+	response.SuccessMessage(c, "密码已重置")
+}
+
+// Rescue godoc
+// @Summary 进入救援系统
+// @Tags 用户中心-主机
+// @Security BearerAuth
+// @Param id path uint true "主机记录ID"
+// @Param body body dto.RescueRequest true "救援系统类型与临时密码"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/instances/{id}/rescue [post]
+func (h *InstanceHandler) Rescue(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, apperrors.New(10001, "unauthorized"))
+		return
+	}
+	id := pathUint(c, "id")
+	if id == 0 {
+		response.Error(c, apperrors.New(20001, "参数错误"))
+		return
+	}
+	var req dto.RescueRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	if err := h.instanceService.Rescue(c.Request.Context(), userID,
+		middleware.ActorUserID(c), middleware.ActorUsername(c), id, &req); err != nil {
+		writeMaintenanceError(c, err)
+		return
+	}
+	response.SuccessMessage(c, "已发起进入救援系统")
+}
+
+// ExitRescue godoc
+// @Summary 退出救援系统
+// @Tags 用户中心-主机
+// @Security BearerAuth
+// @Param id path uint true "主机记录ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/instances/{id}/exit-rescue [post]
+func (h *InstanceHandler) ExitRescue(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, apperrors.New(10001, "unauthorized"))
+		return
+	}
+	id := pathUint(c, "id")
+	if id == 0 {
+		response.Error(c, apperrors.New(20001, "参数错误"))
+		return
+	}
+	if err := h.instanceService.ExitRescue(c.Request.Context(), userID,
+		middleware.ActorUserID(c), middleware.ActorUsername(c), id); err != nil {
+		writeMaintenanceError(c, err)
+		return
+	}
+	response.SuccessMessage(c, "已发起退出救援系统")
+}
+
+// Snapshots godoc
+// @Summary 快照/备份列表
+// @Tags 用户中心-主机
+// @Security BearerAuth
+// @Param id path uint true "主机记录ID"
+// @Param type query string false "snap/backup，空为全部"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/instances/{id}/snapshots [get]
+func (h *InstanceHandler) Snapshots(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, apperrors.New(10001, "unauthorized"))
+		return
+	}
+	id := pathUint(c, "id")
+	if id == 0 {
+		response.Error(c, apperrors.New(20001, "参数错误"))
+		return
+	}
+	rows, err := h.instanceService.Snapshots(c.Request.Context(), userID, id, c.Query("type"))
+	if err != nil {
+		writeMaintenanceError(c, err)
+		return
+	}
+	response.Success(c, rows)
+}
+
+// CreateSnapshot godoc
+// @Summary 创建快照/备份
+// @Tags 用户中心-主机
+// @Security BearerAuth
+// @Param id path uint true "主机记录ID"
+// @Param body body dto.SnapshotCreateRequest true "类型/名称/磁盘"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/instances/{id}/snapshots [post]
+func (h *InstanceHandler) CreateSnapshot(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, apperrors.New(10001, "unauthorized"))
+		return
+	}
+	id := pathUint(c, "id")
+	if id == 0 {
+		response.Error(c, apperrors.New(20001, "参数错误"))
+		return
+	}
+	var req dto.SnapshotCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	if err := h.instanceService.CreateSnapshot(c.Request.Context(), userID,
+		middleware.ActorUserID(c), middleware.ActorUsername(c), id, &req); err != nil {
+		writeMaintenanceError(c, err)
+		return
+	}
+	response.SuccessMessage(c, "快照创建指令已提交")
+}
+
+// DeleteSnapshot godoc
+// @Summary 删除快照/备份
+// @Tags 用户中心-主机
+// @Security BearerAuth
+// @Param id path uint true "主机记录ID"
+// @Param snapshotId path string true "快照ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/instances/{id}/snapshots/{snapshotId} [delete]
+func (h *InstanceHandler) DeleteSnapshot(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, apperrors.New(10001, "unauthorized"))
+		return
+	}
+	id := pathUint(c, "id")
+	if id == 0 {
+		response.Error(c, apperrors.New(20001, "参数错误"))
+		return
+	}
+	if err := h.instanceService.DeleteSnapshot(c.Request.Context(), userID,
+		middleware.ActorUserID(c), middleware.ActorUsername(c), id, c.Param("snapshotId")); err != nil {
+		writeMaintenanceError(c, err)
+		return
+	}
+	response.SuccessMessage(c, "快照已删除")
+}
+
+// RestoreSnapshot godoc
+// @Summary 用快照恢复（覆盖当前系统盘）
+// @Tags 用户中心-主机
+// @Security BearerAuth
+// @Param id path uint true "主机记录ID"
+// @Param body body dto.SnapshotRestoreRequest true "快照与二次确认"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/instances/{id}/snapshots/restore [post]
+func (h *InstanceHandler) RestoreSnapshot(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, apperrors.New(10001, "unauthorized"))
+		return
+	}
+	id := pathUint(c, "id")
+	if id == 0 {
+		response.Error(c, apperrors.New(20001, "参数错误"))
+		return
+	}
+	var req dto.SnapshotRestoreRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	if err := h.instanceService.RestoreSnapshot(c.Request.Context(), userID,
+		middleware.ActorUserID(c), middleware.ActorUsername(c), id, &req); err != nil {
+		writeMaintenanceError(c, err)
+		return
+	}
+	response.SuccessMessage(c, "恢复指令已提交")
+}

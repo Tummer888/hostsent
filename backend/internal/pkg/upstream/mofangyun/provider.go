@@ -16,11 +16,16 @@
 //
 // 核心动作映射：
 //   - 健康检查：登录成功即可达（等价 testLink）。
-//   - 开机/关机/重启：POST /clouds/{id}/on | /off | /reboot（强制对应 /hardoff、/hard_reboot）。
+//   - 开机/关机/重启：POST /clouds/{id}/on | /off | /reboot（硬动作 /hardoff、/hard_reboot）。
 //   - 详情/状态：GET /clouds/{id} 与 GET /clouds/{id}/status。
 //   - 创建：POST /user 建用户 → GET /user/check 校验 → POST /clouds 下发云主机。
 //   - 删除：DELETE /clouds/{id}（404 视为已删除）。
 //   - 升配：参考源码 upgrade()——先关机（软关机失败转硬关机）再 PUT /clouds/{id}，完成后恢复原电源状态。
+//   - 控制台：POST /clouds/{id}/vnc（注意是 POST；GET 会 404，实测确认）。
+//   - 重装：PUT /clouds/{id}/reinstall；重置密码：PUT /clouds/{id}/password。
+//   - 救援：POST/DELETE /clouds/{id}/rescue；快照备份：/disks/{id}/snapshots、/snapshots/{id}。
+//   - 硬件：PUT /clouds/{id}/bw（带宽）、PUT /clouds/{id}/ip（加 IP）、
+//     PUT /clouds/{id}/ipv6（加 IPv6）、POST /clouds/{id}/disks（挂数据盘）。
 package mofangyun
 
 import (
@@ -60,6 +65,9 @@ func init() {
 			upstream.OpProvision, upstream.OpStart, upstream.OpStop, upstream.OpRestart,
 			upstream.OpVNC, upstream.OpResize, upstream.OpDestroy,
 			upstream.OpSuspend, upstream.OpUnsuspend,
+			// 维护类（实测面板接口均存在）：重装 / 重置密码 / 救援 / 快照备份 / 硬件变更。
+			upstream.OpReinstall, upstream.OpResetPassword, upstream.OpRescue, upstream.OpSnapshot,
+			upstream.OpBandwidth, upstream.OpAddIP, upstream.OpAttachDisk,
 		},
 		RenewMode:   upstream.RenewModeNone, // 续费为本地账期 + 平台延期，尚未提供独立续费接口
 		DestroyMode: upstream.DestroyModeImmediate,
@@ -444,6 +452,15 @@ func (p *MoFangYunProvider) CreateInstance(ctx context.Context, req *model.Creat
 }
 
 // ListInstances 拉取魔方云云主机列表。filters 支持 per_page/page/status/area/node。
+//
+// 响应有两种形态，必须都认（实测面板给的是分页包裹形态）：
+//
+//	{"data":[{...}],"meta":{...}}   分页包裹（当前面板实测）
+//	[{...},{...}]                   裸数组（旧版/部分网关）
+//
+// 只按裸数组解会在分页形态下报 "cannot unmarshal object into Go value of type
+// []map[string]interface {}"，表现为"实例列表全空"——线上很难发现，因此这里用
+// json.RawMessage 先取原始字节再按形状分派。
 func (p *MoFangYunProvider) ListInstances(ctx context.Context, filters map[string]string) ([]*model.StandardInstance, error) {
 	form := url.Values{}
 	form.Set("per_page", firstNonEmpty(filters["per_page"], "100"))
@@ -453,10 +470,11 @@ func (p *MoFangYunProvider) ListInstances(ctx context.Context, filters map[strin
 			form.Set(key, v)
 		}
 	}
-	var rows []map[string]interface{}
-	if err := p.call(ctx, "ListInstances", http.MethodGet, "/clouds", form, &rows); err != nil {
+	var raw json.RawMessage
+	if err := p.call(ctx, "ListInstances", http.MethodGet, "/clouds", form, &raw); err != nil {
 		return nil, err
 	}
+	rows := decodeInstanceRows(raw)
 	instances := make([]*model.StandardInstance, 0, len(rows))
 	for _, row := range rows {
 		inst := buildInstance(row)
@@ -464,6 +482,47 @@ func (p *MoFangYunProvider) ListInstances(ctx context.Context, filters map[strin
 		instances = append(instances, inst)
 	}
 	return instances, nil
+}
+
+// decodeInstanceRows 把实例列表响应归一成行数组：裸数组直接用，分页包裹取 data。
+// 两者都不是时返回空（不报错）：分页外壳变化不该让整个同步任务失败。
+func decodeInstanceRows(raw json.RawMessage) []map[string]interface{} {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return nil
+	}
+	// 裸数组
+	var list []map[string]interface{}
+	if strings.HasPrefix(trimmed, "[") {
+		if err := json.Unmarshal(raw, &list); err == nil {
+			return list
+		}
+		return nil
+	}
+	// 分页包裹：{"data":[...], "meta":{...}}（data 也可能是 {"data":[...]} 的双层包裹）
+	var shell struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &shell); err != nil {
+		return nil
+	}
+	inner := strings.TrimSpace(string(shell.Data))
+	if inner == "" || inner == "null" {
+		return nil
+	}
+	if strings.HasPrefix(inner, "[") {
+		if err := json.Unmarshal(shell.Data, &list); err == nil {
+			return list
+		}
+		return nil
+	}
+	var nested struct {
+		Data []map[string]interface{} `json:"data"`
+	}
+	if err := json.Unmarshal(shell.Data, &nested); err == nil {
+		return nested.Data
+	}
+	return nil
 }
 
 // GetInstance 拉取单台云主机详情并映射标准实例。
@@ -535,6 +594,11 @@ func (p *MoFangYunProvider) UnsuspendInstance(ctx context.Context, instanceID st
 }
 
 // VNC 获取远程控制台：GET /clouds/{id}/vnc。
+// VNC 获取远程控制台：POST /clouds/{id}/vnc。
+//
+// 实测（测试面板）：**GET 返回 404「请求地址有误」，POST 返回 200 且带 vnc_url/token/vnc_pass**。
+// 源码 DcimCloud::vnc() 的 curl() 默认方法就是 POST，本适配器此前写成 GET，控制台一直打不开。
+//
 // 上游可能返回外链（vnc_url_http/vnc_url_https，External=true）或 websocket 地址
 // （vnc_url=ws/wss + token + vnc_pass，需前端用 noVNC 连接，External=false）。
 func (p *MoFangYunProvider) VNC(ctx context.Context, instanceID string) (upstream.VNCResult, error) {
@@ -545,7 +609,7 @@ func (p *MoFangYunProvider) VNC(ctx context.Context, instanceID string) (upstrea
 		VncPass     string `json:"vnc_pass"`
 		Token       string `json:"token"`
 	}
-	if err := p.call(ctx, "VNC", http.MethodGet, "/clouds/"+instanceID+"/vnc", nil, &resp); err != nil {
+	if err := p.call(ctx, "VNC", http.MethodPost, "/clouds/"+instanceID+"/vnc", url.Values{}, &resp); err != nil {
 		return upstream.VNCResult{}, err
 	}
 	if resp.VncURLHTTP != "" || resp.VncURLHTTPS != "" {
@@ -567,6 +631,202 @@ func (p *MoFangYunProvider) VNC(ctx context.Context, instanceID string) (upstrea
 		link += sep + "token=" + resp.Token
 	}
 	return upstream.VNCResult{URL: link, Password: resp.VncPass, External: false}, nil
+}
+
+// HardStopInstance 硬关机：POST /clouds/{id}/hardoff（参考源码 hardOff）。
+func (p *MoFangYunProvider) HardStopInstance(ctx context.Context, instanceID string) error {
+	return p.call(ctx, "HardStopInstance", http.MethodPost, "/clouds/"+instanceID+"/hardoff", url.Values{}, nil)
+}
+
+// HardRestartInstance 硬重启：POST /clouds/{id}/hard_reboot（参考源码 hardReboot）。
+//
+// 此前服务层把"硬重启"实现成硬关+开机，中间会经历一次完整断电；平台本就有独立指令，
+// 走它既快又与面板行为一致。
+func (p *MoFangYunProvider) HardRestartInstance(ctx context.Context, instanceID string) error {
+	return p.call(ctx, "HardRestartInstance", http.MethodPost, "/clouds/"+instanceID+"/hard_reboot", url.Values{}, nil)
+}
+
+// ReinstallInstance 重装系统：PUT /clouds/{id}/reinstall（参考源码 reinstall）。
+//
+// 参数与源码一致：os（目标镜像）+ 可选 port / format_data_disk / system_disk_size。
+// 平台在响应里返回重装后生成的新初始凭据（user/password），必须带回给调用方回写，
+// 否则客户重装完就登不上机器（源码也是在这里写回 host.password/username）。
+func (p *MoFangYunProvider) ReinstallInstance(ctx context.Context, req *upstream.ReinstallRequest) (*upstream.ReinstallResult, error) {
+	if req == nil || strings.TrimSpace(req.ProviderInstanceID) == "" {
+		return nil, &upstream.ProviderError{Op: "ReinstallInstance", Msg: "缺少上游云主机ID"}
+	}
+	if strings.TrimSpace(req.OS) == "" {
+		return nil, &upstream.ProviderError{Op: "ReinstallInstance", Msg: "缺少目标镜像 ID（os）"}
+	}
+	form := url.Values{}
+	form.Set("os", strings.TrimSpace(req.OS))
+	if req.Port > 0 && req.Port <= 65535 {
+		form.Set("port", strconv.Itoa(req.Port))
+	}
+	if req.FormatDataDisk {
+		form.Set("format_data_disk", "1")
+	} else {
+		form.Set("format_data_disk", "0")
+	}
+	if req.SystemDiskSize > 0 {
+		form.Set("system_disk_size", strconv.Itoa(req.SystemDiskSize))
+	}
+	var resp struct {
+		User     string `json:"user"`
+		Password string `json:"password"`
+	}
+	if err := p.call(ctx, "ReinstallInstance", http.MethodPut, "/clouds/"+req.ProviderInstanceID+"/reinstall", form, &resp); err != nil {
+		return nil, err
+	}
+	return &upstream.ReinstallResult{Username: resp.User, Password: resp.Password}, nil
+}
+
+// ResetInstancePassword 重置登录密码：PUT /clouds/{id}/password（参考源码 CrackPassword）。
+func (p *MoFangYunProvider) ResetInstancePassword(ctx context.Context, instanceID, newPassword string) error {
+	if strings.TrimSpace(newPassword) == "" {
+		return &upstream.ProviderError{Op: "ResetInstancePassword", Msg: "新密码不能为空"}
+	}
+	return p.call(ctx, "ResetInstancePassword", http.MethodPut, "/clouds/"+instanceID+"/password",
+		url.Values{"password": {newPassword}}, nil)
+}
+
+// RescueInstance 进入救援系统：POST /clouds/{id}/rescue（type=救援系统类型，temp_pass=临时密码）。
+func (p *MoFangYunProvider) RescueInstance(ctx context.Context, instanceID string, system int, tempPassword string) error {
+	if system != 1 && system != 2 {
+		return &upstream.ProviderError{Op: "RescueInstance", Msg: "救援系统类型错误（1 或 2）"}
+	}
+	if strings.TrimSpace(tempPassword) == "" {
+		return &upstream.ProviderError{Op: "RescueInstance", Msg: "请输入临时密码"}
+	}
+	return p.call(ctx, "RescueInstance", http.MethodPost, "/clouds/"+instanceID+"/rescue",
+		url.Values{"type": {strconv.Itoa(system)}, "temp_pass": {tempPassword}}, nil)
+}
+
+// ExitRescueInstance 退出救援系统：DELETE /clouds/{id}/rescue。
+func (p *MoFangYunProvider) ExitRescueInstance(ctx context.Context, instanceID string) error {
+	return p.call(ctx, "ExitRescueInstance", http.MethodDelete, "/clouds/"+instanceID+"/rescue", url.Values{}, nil)
+}
+
+// ListSnapshots 列出实例的快照/备份：GET /clouds/{id}/snapshots。
+// snapshotType 非空时本地按 type 过滤（平台接口一次性返回两类）。
+func (p *MoFangYunProvider) ListSnapshots(ctx context.Context, instanceID, snapshotType string) ([]upstream.SnapshotInfo, error) {
+	var resp struct {
+		Data []struct {
+			ID         int64       `json:"id"`
+			DiskID     int64       `json:"diskid"`
+			Name       string      `json:"name"`
+			Size       interface{} `json:"size"`
+			Type       string      `json:"type"`
+			Status     int         `json:"status"`
+			DiskName   string      `json:"disk_name"`
+			CreateTime string      `json:"create_time"`
+			Remarks    string      `json:"remarks"`
+		} `json:"data"`
+	}
+	if err := p.call(ctx, "ListSnapshots", http.MethodGet, "/clouds/"+instanceID+"/snapshots",
+		url.Values{"page": {"1"}, "per_page": {"9999"}}, &resp); err != nil {
+		return nil, err
+	}
+	want := strings.TrimSpace(snapshotType)
+	out := make([]upstream.SnapshotInfo, 0, len(resp.Data))
+	for _, s := range resp.Data {
+		if want != "" && s.Type != want {
+			continue
+		}
+		out = append(out, upstream.SnapshotInfo{
+			ID:         strconv.FormatInt(s.ID, 10),
+			Name:       s.Name,
+			Type:       s.Type,
+			Size:       fmt.Sprintf("%v", s.Size),
+			Status:     s.Status,
+			DiskID:     strconv.FormatInt(s.DiskID, 10),
+			DiskName:   s.DiskName,
+			CreateTime: s.CreateTime,
+			Remarks:    s.Remarks,
+		})
+	}
+	return out, nil
+}
+
+// CreateSnapshot 创建快照/备份：POST /disks/{diskID}/snapshots（type=snap|backup, name=名称）。
+// 参考源码 createSnap/createBackup：快照挂在磁盘上，因此 diskID 必填。
+func (p *MoFangYunProvider) CreateSnapshot(ctx context.Context, req *upstream.CreateSnapshotRequest) error {
+	if req == nil || strings.TrimSpace(req.DiskID) == "" {
+		return &upstream.ProviderError{Op: "CreateSnapshot", Msg: "缺少磁盘 ID（快照挂在磁盘上）"}
+	}
+	typ := strings.TrimSpace(req.Type)
+	if typ == "" {
+		typ = upstream.SnapshotTypeSnap
+	}
+	if typ != upstream.SnapshotTypeSnap && typ != upstream.SnapshotTypeBackup {
+		return &upstream.ProviderError{Op: "CreateSnapshot", Msg: "快照类型只能是 snap 或 backup"}
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = fmt.Sprintf("hs-%s-%d", typ, time.Now().Unix())
+	}
+	return p.call(ctx, "CreateSnapshot", http.MethodPost, "/disks/"+req.DiskID+"/snapshots",
+		url.Values{"type": {typ}, "name": {name}}, nil)
+}
+
+// DeleteSnapshot 删除快照/备份：DELETE /snapshots/{id}。
+func (p *MoFangYunProvider) DeleteSnapshot(ctx context.Context, snapshotID string) error {
+	return p.call(ctx, "DeleteSnapshot", http.MethodDelete, "/snapshots/"+snapshotID, url.Values{}, nil)
+}
+
+// RestoreSnapshot 用快照/备份恢复：POST /snapshots/{id}/restore?hostid={实例ID}。
+func (p *MoFangYunProvider) RestoreSnapshot(ctx context.Context, instanceID, snapshotID string) error {
+	return p.call(ctx, "RestoreSnapshot", http.MethodPost, "/snapshots/"+snapshotID+"/restore",
+		url.Values{"hostid": {instanceID}}, nil)
+}
+
+// UpdateBandwidth 修改带宽：PUT /clouds/{id}/bw（参考源码 upgrade 分支）。
+// 单方向为 0 表示不改该方向（平台按传入字段覆盖，缺省即保持）。
+func (p *MoFangYunProvider) UpdateBandwidth(ctx context.Context, instanceID string, inBw, outBw int) error {
+	form := url.Values{}
+	if inBw > 0 {
+		form.Set("in_bw", strconv.Itoa(inBw))
+	}
+	if outBw > 0 {
+		form.Set("out_bw", strconv.Itoa(outBw))
+	}
+	if len(form) == 0 {
+		return &upstream.ProviderError{Op: "UpdateBandwidth", Msg: "至少需要一个方向的带宽值"}
+	}
+	return p.call(ctx, "UpdateBandwidth", http.MethodPut, "/clouds/"+instanceID+"/bw", form, nil)
+}
+
+// AddIPs 增加 IP：PUT /clouds/{id}/ip（num=数量，ip_group=可选 IP 分组 ID）。
+func (p *MoFangYunProvider) AddIPs(ctx context.Context, instanceID string, num int, ipGroup string) error {
+	if num <= 0 {
+		return &upstream.ProviderError{Op: "AddIPs", Msg: "IP 数量必须大于 0"}
+	}
+	form := url.Values{"num": {strconv.Itoa(num)}}
+	if strings.TrimSpace(ipGroup) != "" {
+		form.Set("ip_group", strings.TrimSpace(ipGroup))
+	}
+	return p.call(ctx, "AddIPs", http.MethodPut, "/clouds/"+instanceID+"/ip", form, nil)
+}
+
+// AddIPv6 增加 IPv6：PUT /clouds/{id}/ipv6（num=数量）。平台未启用 IPv6 时会明确报错。
+func (p *MoFangYunProvider) AddIPv6(ctx context.Context, instanceID string, num int) error {
+	if num <= 0 {
+		return &upstream.ProviderError{Op: "AddIPv6", Msg: "IPv6 数量必须大于 0"}
+	}
+	return p.call(ctx, "AddIPv6", http.MethodPut, "/clouds/"+instanceID+"/ipv6",
+		url.Values{"num": {strconv.Itoa(num)}}, nil)
+}
+
+// AttachDataDisk 挂载数据盘：POST /clouds/{id}/disks（size=GB, store=存储 ID, driver=virtio）。
+func (p *MoFangYunProvider) AttachDataDisk(ctx context.Context, instanceID string, sizeGB int, store string) error {
+	if sizeGB <= 0 {
+		return &upstream.ProviderError{Op: "AttachDataDisk", Msg: "数据盘大小必须大于 0"}
+	}
+	form := url.Values{"size": {strconv.Itoa(sizeGB)}, "driver": {"virtio"}}
+	if strings.TrimSpace(store) != "" {
+		form.Set("store", strings.TrimSpace(store))
+	}
+	return p.call(ctx, "AttachDataDisk", http.MethodPost, "/clouds/"+instanceID+"/disks", form, nil)
 }
 
 // DeleteInstance 删除云主机：DELETE /clouds/{id}；404 视为已删除（与源码 terminate 一致）。

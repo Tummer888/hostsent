@@ -18,6 +18,9 @@
 -- 幂等：全部 CREATE ... IF NOT EXISTS 与 CREATE INDEX IF NOT EXISTS，重复执行无副作用。
 -- 双写：运行时建表由 db.go 的 AutoMigrate（costmodel 三个模型）完成，本文件是版本留痕，
 --   两条路径的列/索引/默认值必须一致（migrations_live_verify_test.go 有对应 live 校验）。
+-- 注（2026-10-10，迁移 082）：upstream_balance_topups 已由 082 删除 —— 手工充值记录被
+--   上游账本同步取代（消费/充值都由 upstream_ledger_entries 自动同步，doc111 §5.4）；
+--   本文件该段 DDL 仅作版本留痕，全新库按 078 → 082 依次执行后即为最终状态。
 -- 顺序：本迁移可随时执行；表为空时页面给出「尚未录入」引导，不做数据回填。
 -- 回滚：DROP TABLE upstream_balance_topups, upstream_balance_snapshots, cost_items;
 --   （三张表均为新增，无其它模块外键依赖。）

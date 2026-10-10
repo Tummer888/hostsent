@@ -24,6 +24,17 @@ const (
 	ActionRemark     = "remark"
 	ActionSuspend    = "suspend"
 	ActionUnsuspend  = "unsuspend"
+	// 维护类动作（平台接口实测存在，映射见 mofangyun/provider.go 头部注释）。
+	ActionReinstall     = "reinstall"      // 重装系统（可换镜像）
+	ActionResetPassword = "reset_password" // 重置登录密码
+	ActionRescue        = "rescue"         // 进入救援系统
+	ActionExitRescue    = "exit_rescue"    // 退出救援系统
+	ActionSnapCreate    = "snapshot_create"
+	ActionSnapDelete    = "snapshot_delete"
+	ActionSnapRestore   = "snapshot_restore"
+	ActionBandwidth     = "bandwidth"
+	ActionAddIP         = "add_ip"
+	ActionAttachDisk    = "attach_disk"
 	// ActionStage 生命周期阶段推进（T5.4 自动扫描落阶段，无上游动作时记录阶段变化）。
 	ActionStage = "stage"
 )

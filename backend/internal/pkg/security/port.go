@@ -43,8 +43,12 @@ const (
 	SceneAPIKeyView      = "apikey_view"
 	SceneInstanceDestroy = "instance_destroy"
 	SceneInstanceResize  = "instance_resize"
-	SceneAdminGrant      = "admin_grant_change"
-	SceneRealnameSubmit  = "realname_submit"
+	// 重装系统会格式化系统盘（可选格式化数据盘）；快照恢复会覆盖当前系统盘。
+	// 二者都是"执行了就回不去"的动作，比变配更需要二次验证。
+	SceneInstanceReinstall       = "instance_reinstall"
+	SceneInstanceSnapshotRestore = "instance_snapshot_restore"
+	SceneAdminGrant              = "admin_grant_change"
+	SceneRealnameSubmit          = "realname_submit"
 )
 
 // 通道常量（与 uc/captcha/model 的 Channel* 一致）。

@@ -47,6 +47,9 @@ type OrderService interface {
 	// SetChannelRefundHook 注入渠道退款钩子（装配层调用）：退款审核通过后原路退回，
 	// 无渠道支付记录时钩子实现回落为余额回补。
 	SetChannelRefundHook(hook OrderChannelRefundHook)
+	// SetInstanceRefundHook 注入实例侧退款钩子（装配层调用，doc61 §8 第 2 条）：
+	// 退款审核通过后按策略（lifecycle_policies.refund_action）暂停/销毁关联实例。
+	SetInstanceRefundHook(hook OrderInstanceRefundHook)
 	// 退款管理
 	ListRefunds(ctx context.Context, q dto.RefundListQuery) (*dto.RefundListResponse, error)
 	FindRefund(ctx context.Context, id uint64) (*dto.RefundInfo, error)
@@ -70,6 +73,16 @@ type OrderRefundHook func(ctx context.Context, orderID uint64, orderNo string, b
 // 返回 channelRefundNo 供退款单回填（无渠道退款时为空串）。
 type OrderChannelRefundHook func(ctx context.Context, orderID uint64, orderNo string, orderRefundNo string, userID uint64, amount, fee float64, mode string) (channelRefundNo string, err error)
 
+// OrderInstanceRefundHook 退款审核通过后的「实例侧」钩子（doc61 §8 第 2 条）。
+//
+// 职责单一：判断该订单是否有关联实例，并按策略（lifecycle_policies.refund_action）
+// 决定暂停/销毁。是否动作由**策略**决定，钩子实现不硬编码规则 —— doc61 只说
+// 「按规则停服/销毁」却没定义规则，这里把规则外置为可配置项，默认 none（不动作）。
+//
+// fullRefund 表示本次退款是否已覆盖订单全部实付：按常理只有全额退款才谈得上处置实例，
+// 部分退款（补偿）不应动客户在用的机器；是否采纳由钩子实现按策略决定。
+type OrderInstanceRefundHook func(ctx context.Context, orderID uint64, orderNo string, userID uint64, refundAmount, paidAmount float64, fullRefund bool, refundNo string) error
+
 // ProvisionQueue 异步开通任务队列（T5.1，由 ProvisionEnqueuer 实现）。
 // 订单模块只依赖这一最小接口，避免与 uc/装配层形成反向依赖。
 type ProvisionQueue interface {
@@ -91,6 +104,8 @@ type orderService struct {
 	refundHook OrderRefundHook
 	// channelRefundHook 可选：退款审核通过后走渠道原路退回（doc35 S1），为 nil 时跳过。
 	channelRefundHook OrderChannelRefundHook
+	// instanceRefundHook 可选：退款审核通过后按策略处置关联实例（doc61 §8），为 nil 时跳过。
+	instanceRefundHook OrderInstanceRefundHook
 	// salesOwner 可选：后台代下单时解析销售归属快照（doc86 §3.4），为 nil 时快照落 0。
 	salesOwner SalesOwnerResolver
 }
@@ -133,6 +148,11 @@ func (s *orderService) SetProductSourceModeResolver(fn func(ctx context.Context,
 // SetChannelRefundHook 注入渠道退款钩子（装配层调用）。
 func (s *orderService) SetChannelRefundHook(hook OrderChannelRefundHook) {
 	s.channelRefundHook = hook
+}
+
+// SetInstanceRefundHook 注入实例侧退款钩子（装配层调用，doc61 §8）。
+func (s *orderService) SetInstanceRefundHook(hook OrderInstanceRefundHook) {
+	s.instanceRefundHook = hook
 }
 
 // MarkPaidByChannel 支付中心确认到账：pending→paid，记录渠道支付方式与渠道交易号。
@@ -518,6 +538,19 @@ func (s *orderService) ApproveRefund(ctx context.Context, id uint64, operatorID 
 				refund.ChannelRefundStatus = model.ChannelRefundStatusFailed
 			}
 			_ = s.refundRepo.Update(ctx, refund)
+		}
+	}
+	// 退款审核通过 → 按策略处置关联实例（doc61 §8 第 2 条）。
+	// 放在资金出口之后：先保证钱已退回，再谈机器；钩子实现按 lifecycle_policies.refund_action
+	// 决定是否暂停/销毁，默认 none（不动作）。失败不回滚退款审核结果（人工跟进）。
+	// fullRefund 由本次退款是否覆盖全部实付推算，只有全额退款才谈得上处置实例。
+	if s.instanceRefundHook != nil {
+		if order, err := s.orderRepo.FindByID(ctx, refund.OrderID); err == nil {
+			effective, perr := s.refundRepo.SumEffective(ctx, order.ID)
+			fullRefund := perr == nil && order.PaidAmount > 0 && effective >= order.PaidAmount
+			// 与既有 refundHook 同一约定：失败只记日志（钩子实现持有 logger），不回滚退款审核。
+			_ = s.instanceRefundHook(ctx, order.ID, order.OrderNo, order.UserID,
+				refund.Amount, order.PaidAmount, fullRefund, refund.RefundNo)
 		}
 	}
 	return s.FindRefund(ctx, refund.ID)

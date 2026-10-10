@@ -143,6 +143,22 @@
   color: var(--color-muted-foreground);
 }
 
+/* ---------- 批量运维结果弹窗 ---------- */
+.instances-module .batch-result {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.instances-module .batch-result__summary {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--hs-surface-2, #f4f6fa);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-foreground, #1e293b);
+}
+
 .instances-module .filter-card__grid {
   display: grid;
   gap: 14px;
@@ -494,4 +510,37 @@
   .instances-module .stat-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* 维护类操作弹窗（重装/重置密码/救援/快照/硬件）：
+   表单行内的提示条与工具栏。命名与页面既有 dlg-* 前缀无关，避免互相覆盖。 */
+.instances-module .dlg-alert {
+  margin-bottom: 12px;
+}
+
+.instances-module .dlg-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  width: 100%;
+}
+
+.instances-module .dlg-grow {
+  flex: 1;
+}
+
+.instances-module .dlg-select {
+  width: 110px;
+}
+
+.instances-module .dlg-unit {
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+}
+
+.instances-module .dlg-confirm-tip {
+  margin: 0 0 8px;
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
 }

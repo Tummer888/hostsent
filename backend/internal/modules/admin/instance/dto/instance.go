@@ -101,6 +101,9 @@ type StatsResponse struct {
 }
 
 // Capabilities 上游对当前实例支持的操作能力（前端据此置灰按钮）。
+//
+// 与 upstream.CapabilityDescriptor 的关系：描述符是**渠道级**声明（"这个平台能做什么"），
+// 这里是**实例级**结果（当前实例的渠道实际能做什么），由类型断言 + 描述符共同得出。
 type Capabilities struct {
 	Power     bool `json:"power"`
 	Console   bool `json:"console"`
@@ -109,6 +112,13 @@ type Capabilities struct {
 	Reinstall bool `json:"reinstall"`
 	// Suspend 是否支持暂停/恢复（T5.5）：平台暂停态或退化为关机/开机皆算支持。
 	Suspend bool `json:"suspend"`
+	// 维护类（实测平台接口存在，见 mofangyun/provider.go 头部映射）。
+	ResetPassword bool `json:"reset_password"` // 重置登录密码
+	Rescue        bool `json:"rescue"`         // 救援系统（进/出）
+	Snapshot      bool `json:"snapshot"`       // 磁盘快照 / 备份
+	Bandwidth     bool `json:"bandwidth"`      // 带宽直改
+	AddIP         bool `json:"add_ip"`         // 增加 IP / IPv6
+	AttachDisk    bool `json:"attach_disk"`    // 挂载数据盘
 }
 
 // DetailInfo 实例详情。
@@ -128,6 +138,95 @@ type VNCResult struct {
 	URL      string `json:"url"`
 	Password string `json:"password"`
 	External bool   `json:"external"`
+}
+
+// ReinstallRequest 重装系统请求（可换镜像；FormatDataDisk 危险需显式传 true）。
+type ReinstallRequest struct {
+	OS string `json:"os" binding:"required"`
+	// Port 重装后的自定义端口（>0 生效；SSH/RDP）。
+	Port int `json:"port"`
+	// FormatDataDisk 是否同时格式化数据盘（数据将丢失，默认 false）。
+	FormatDataDisk bool `json:"format_data_disk"`
+	// SystemDiskSize 目标系统盘大小（>0 生效）。
+	SystemDiskSize int    `json:"system_disk_size"`
+	Reason         string `json:"reason"`
+}
+
+// ReinstallResult 重装结果：平台为 新系统 生成的初始凭据。
+//
+// 只在此处一次性回传，不落库（本库 instances 表没有凭据列，开通时也不落盘）；
+// 前端必须提示运营/客户立即保存，否则只能去平台面板重置。
+type ReinstallResult struct {
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+}
+
+// ResetPasswordRequest 重置实例登录密码请求。
+type ResetPasswordRequest struct {
+	Password string `json:"password" binding:"required"`
+}
+
+// RescueRequest 进入救援系统请求。
+type RescueRequest struct {
+	// System 救援系统类型（平台口径：魔方云 1/2）。
+	System int `json:"system" binding:"required"`
+	// TempPassword 救援系统的临时密码。
+	TempPassword string `json:"temp_password" binding:"required"`
+}
+
+// SnapshotCreateRequest 创建快照/备份请求。
+type SnapshotCreateRequest struct {
+	// Type snap（快照）| backup（备份）；空视为 snap。
+	Type string `json:"type"`
+	// Name 快照名称；空由适配器生成。
+	Name string `json:"name"`
+	// DiskID 目标磁盘 ID（平台侧）；空则由服务层取实例的系统盘。
+	DiskID string `json:"disk_id"`
+}
+
+// SnapshotRestoreRequest 用快照/备份恢复请求（高危：会覆盖当前系统盘）。
+type SnapshotRestoreRequest struct {
+	// SnapshotID 快照 ID。
+	SnapshotID string `json:"snapshot_id" binding:"required"`
+	// ConfirmMark 二次确认（须等于实例标识或记录 ID）。
+	ConfirmMark string `json:"confirm_mark" binding:"required"`
+}
+
+// SnapshotInfo 快照/备份条目（下发给前端展示）。
+type SnapshotInfo struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	Size       string `json:"size"`
+	Status     int    `json:"status"`
+	DiskID     string `json:"disk_id"`
+	DiskName   string `json:"disk_name"`
+	CreateTime string `json:"create_time"`
+	Remarks    string `json:"remarks"`
+}
+
+// BandwidthRequest 带宽直改请求（Mbps；0 表示不改该方向）。
+type BandwidthRequest struct {
+	InBw   int    `json:"in_bw"`
+	OutBw  int    `json:"out_bw"`
+	Reason string `json:"reason"`
+}
+
+// AddIPRequest 增加 IP / IPv6 请求。
+type AddIPRequest struct {
+	// Version 4 或 6；空视为 4。
+	Version int `json:"version"`
+	// Num 增加数量（>0）。
+	Num int `json:"num" binding:"required"`
+	// IPGroup 平台 IP 分组 ID（可选，空由平台决定）。
+	IPGroup string `json:"ip_group"`
+}
+
+// AttachDiskRequest 挂载数据盘请求。
+type AttachDiskRequest struct {
+	SizeGB int    `json:"size_gb" binding:"required"`
+	Store  string `json:"store"`
+	Reason string `json:"reason"`
 }
 
 // ResizeRequest 变配请求（仅提交需变更的字段）。
@@ -150,9 +249,55 @@ type SuspendRequest struct {
 	Reason string `json:"reason"`
 }
 
+// BatchActionRequest 批量运维请求（doc61 P1：列表页多选后一次性下发）。
+//
+// Action 取值与单实例接口一致：on/off/hard_off/reboot/hard_reboot（电源）、
+// sync（回源刷新）、suspend/unsuspend（平台暂停态）。
+type BatchActionRequest struct {
+	Action string   `json:"action" binding:"required"`
+	IDs    []uint64 `json:"ids" binding:"required"`
+	Reason string   `json:"reason"`
+}
+
+// BatchActionItem 批量操作中的单实例结果。
+//
+// Status 三态：success（已下发）/ skipped（无需或不可能执行，如已在目标状态、上游缺能力）/
+// failed（真实失败，如上游不可达）。skipped 不计入失败，避免运维被"已在运行中"这类
+// 无害结果误导为事故。
+type BatchActionItem struct {
+	ID           uint64 `json:"id"`
+	InstanceMark string `json:"instance_mark"`
+	Name         string `json:"name"`
+	Status       string `json:"status"`
+	Message      string `json:"message"`
+	BeforeStatus string `json:"before_status"`
+	AfterStatus  string `json:"after_status"`
+}
+
+// BatchActionResponse 批量运维响应（逐台结果，供前端按行回显）。
+type BatchActionResponse struct {
+	Total     int               `json:"total"`
+	Succeeded int               `json:"succeeded"`
+	Failed    int               `json:"failed"`
+	Skipped   int               `json:"skipped"`
+	Items     []BatchActionItem `json:"items"`
+}
+
 // RemarkRequest 管理员备注请求。
 type RemarkRequest struct {
 	Remark string `json:"remark"`
+}
+
+// RefundInstanceRequest 退款联动处置请求（订单侧钩子 → 实例运维台内部调用）。
+type RefundInstanceRequest struct {
+	OrderID      uint64  `json:"order_id"`
+	OrderNo      string  `json:"order_no"`
+	UserID       uint64  `json:"user_id"`
+	RefundNo     string  `json:"refund_no"`
+	RefundAmount float64 `json:"refund_amount"`
+	PaidAmount   float64 `json:"paid_amount"`
+	// FullRefund 本次退款是否已覆盖订单全部实付：只有全额退款才谈得上处置实例。
+	FullRefund bool `json:"full_refund"`
 }
 
 // OperationItem 操作流水项。

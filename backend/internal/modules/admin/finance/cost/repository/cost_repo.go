@@ -21,27 +21,10 @@ type CostRepository interface {
 	UpdateItem(ctx context.Context, item *model.CostItem) error
 	DeleteItem(ctx context.Context, id uint64) error
 
-	// —— 余额快照 ——
+	// —— 余额快照（只用于展示当前余额与水位告警） ——
 	UpsertSnapshot(ctx context.Context, item *model.UpstreamBalanceSnapshot) error
-	FindSnapshot(ctx context.Context, id uint64) (*model.UpstreamBalanceSnapshot, error)
-	DeleteSnapshot(ctx context.Context, id uint64) error
-	// LatestSnapshotBefore 该日期（不含）之前最近一条快照，用于期初余额。
-	LatestSnapshotBefore(ctx context.Context, providerID uint64, before time.Time) (*model.UpstreamBalanceSnapshot, error)
 	// LatestSnapshot 不限时间的最新一条快照（余额水位告警取当前余额）。
 	LatestSnapshot(ctx context.Context, providerID uint64) (*model.UpstreamBalanceSnapshot, error)
-	// ListSnapshotsInRange 区间内（右开）全部快照，按日期升序（月度台账与趋势共用一份历史）。
-	ListSnapshotsInRange(ctx context.Context, providerID uint64, start, end time.Time) ([]model.UpstreamBalanceSnapshot, error)
-	// ListSnapshots 快照分页列表（倒序，台账页明细核查与纠错用；providerID=0 不限渠道，start/end 零值不限时间）。
-	ListSnapshots(ctx context.Context, providerID uint64, start, end time.Time, offset, limit int) ([]model.UpstreamBalanceSnapshot, int64, error)
-
-	// —— 充值记录 ——
-	CreateTopup(ctx context.Context, item *model.UpstreamBalanceTopup) error
-	FindTopup(ctx context.Context, id uint64) (*model.UpstreamBalanceTopup, error)
-	DeleteTopup(ctx context.Context, id uint64) error
-	// ListTopupsInRange 区间内（右开）全部充值记录，按日期升序（台账推算与趋势共用）。
-	ListTopupsInRange(ctx context.Context, providerID uint64, start, end time.Time) ([]model.UpstreamBalanceTopup, error)
-	// ListTopups 充值记录分页列表（倒序；providerID=0 不限渠道，start/end 零值不限时间）。
-	ListTopups(ctx context.Context, providerID uint64, start, end time.Time, offset, limit int) ([]model.UpstreamBalanceTopup, int64, error)
 
 	// —— 上游账本流水（消费/充值，doc111 §5.2） ——
 	// UpsertLedgerEntries 批量幂等写入：同 (provider_id, kind, external_id) 覆盖金额/退款/类型。
@@ -126,7 +109,7 @@ func (r *costRepository) DeleteItem(ctx context.Context, id uint64) error {
 }
 
 func (r *costRepository) UpsertSnapshot(ctx context.Context, item *model.UpstreamBalanceSnapshot) error {
-	// (provider_id, snapshot_date) 唯一：同日重复录入按覆盖处理（同一天只有一个余额真值）。
+	// (provider_id, snapshot_date) 唯一：同日重复抓取按覆盖处理（同一天只有一个余额真值）。
 	return r.db.WithContext(ctx).Clauses().Transaction(func(tx *gorm.DB) error {
 		var existing model.UpstreamBalanceSnapshot
 		err := tx.Where("provider_id = ? AND snapshot_date = ?", item.ProviderID, item.SnapshotDate).First(&existing).Error
@@ -146,29 +129,6 @@ func (r *costRepository) UpsertSnapshot(ctx context.Context, item *model.Upstrea
 	})
 }
 
-func (r *costRepository) FindSnapshot(ctx context.Context, id uint64) (*model.UpstreamBalanceSnapshot, error) {
-	var item model.UpstreamBalanceSnapshot
-	if err := r.db.WithContext(ctx).First(&item, id).Error; err != nil {
-		return nil, err
-	}
-	return &item, nil
-}
-
-func (r *costRepository) DeleteSnapshot(ctx context.Context, id uint64) error {
-	return r.db.WithContext(ctx).Delete(&model.UpstreamBalanceSnapshot{}, id).Error
-}
-
-func (r *costRepository) LatestSnapshotBefore(ctx context.Context, providerID uint64, before time.Time) (*model.UpstreamBalanceSnapshot, error) {
-	var item model.UpstreamBalanceSnapshot
-	err := r.db.WithContext(ctx).
-		Where("provider_id = ? AND snapshot_date < ?", providerID, before).
-		Order("snapshot_date desc").First(&item).Error
-	if err != nil {
-		return nil, err
-	}
-	return &item, nil
-}
-
 func (r *costRepository) LatestSnapshot(ctx context.Context, providerID uint64) (*model.UpstreamBalanceSnapshot, error) {
 	var item model.UpstreamBalanceSnapshot
 	err := r.db.WithContext(ctx).
@@ -178,90 +138,6 @@ func (r *costRepository) LatestSnapshot(ctx context.Context, providerID uint64) 
 		return nil, err
 	}
 	return &item, nil
-}
-
-func (r *costRepository) ListSnapshotsInRange(ctx context.Context, providerID uint64, start, end time.Time) ([]model.UpstreamBalanceSnapshot, error) {
-	items := make([]model.UpstreamBalanceSnapshot, 0, 32)
-	err := r.db.WithContext(ctx).
-		Where("provider_id = ? AND snapshot_date >= ? AND snapshot_date < ?", providerID, start, end).
-		Order("snapshot_date asc, id asc").
-		Find(&items).Error
-	if err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-func (r *costRepository) ListSnapshots(ctx context.Context, providerID uint64, start, end time.Time, offset, limit int) ([]model.UpstreamBalanceSnapshot, int64, error) {
-	base := r.db.WithContext(ctx).Model(&model.UpstreamBalanceSnapshot{})
-	if providerID > 0 {
-		base = base.Where("provider_id = ?", providerID)
-	}
-	if !start.IsZero() {
-		base = base.Where("snapshot_date >= ?", start)
-	}
-	if !end.IsZero() {
-		base = base.Where("snapshot_date < ?", end)
-	}
-	var total int64
-	if err := base.Count(&total).Error; err != nil {
-		return nil, 0, err
-	}
-	var items []model.UpstreamBalanceSnapshot
-	if err := base.Order("snapshot_date desc, id desc").Offset(offset).Limit(limit).Find(&items).Error; err != nil {
-		return nil, 0, err
-	}
-	return items, total, nil
-}
-
-func (r *costRepository) CreateTopup(ctx context.Context, item *model.UpstreamBalanceTopup) error {
-	return r.db.WithContext(ctx).Create(item).Error
-}
-
-func (r *costRepository) FindTopup(ctx context.Context, id uint64) (*model.UpstreamBalanceTopup, error) {
-	var item model.UpstreamBalanceTopup
-	if err := r.db.WithContext(ctx).First(&item, id).Error; err != nil {
-		return nil, err
-	}
-	return &item, nil
-}
-
-func (r *costRepository) DeleteTopup(ctx context.Context, id uint64) error {
-	return r.db.WithContext(ctx).Delete(&model.UpstreamBalanceTopup{}, id).Error
-}
-
-func (r *costRepository) ListTopupsInRange(ctx context.Context, providerID uint64, start, end time.Time) ([]model.UpstreamBalanceTopup, error) {
-	items := make([]model.UpstreamBalanceTopup, 0, 16)
-	err := r.db.WithContext(ctx).
-		Where("provider_id = ? AND occurred_on >= ? AND occurred_on < ?", providerID, start, end).
-		Order("occurred_on asc, id asc").
-		Find(&items).Error
-	if err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-func (r *costRepository) ListTopups(ctx context.Context, providerID uint64, start, end time.Time, offset, limit int) ([]model.UpstreamBalanceTopup, int64, error) {
-	base := r.db.WithContext(ctx).Model(&model.UpstreamBalanceTopup{})
-	if providerID > 0 {
-		base = base.Where("provider_id = ?", providerID)
-	}
-	if !start.IsZero() {
-		base = base.Where("occurred_on >= ?", start)
-	}
-	if !end.IsZero() {
-		base = base.Where("occurred_on < ?", end)
-	}
-	var total int64
-	if err := base.Count(&total).Error; err != nil {
-		return nil, 0, err
-	}
-	var items []model.UpstreamBalanceTopup
-	if err := base.Order("occurred_on desc, id desc").Offset(offset).Limit(limit).Find(&items).Error; err != nil {
-		return nil, 0, err
-	}
-	return items, total, nil
 }
 
 // ===== 上游账本流水 =====
@@ -288,8 +164,14 @@ func (r *costRepository) SumLedgerAmount(ctx context.Context, providerID uint64,
 		// 消费按净额：退款冲回的金额不计成本（与收入侧的退款口径一致）。
 		expr = "COALESCE(SUM(amount - refund_amount), 0)"
 	}
-	query := r.db.WithContext(ctx).Model(&model.UpstreamLedgerEntry{}).
-		Where("kind = ? AND occurred_at >= ? AND occurred_at < ?", kind, start, end)
+	query := r.db.WithContext(ctx).Model(&model.UpstreamLedgerEntry{}).Where("kind = ?", kind)
+	// 零值时间表示不加区间过滤（与 ListLedger 一致）：直接拼 zero time 会把区间比成空集，合计恒为 0。
+	if !start.IsZero() {
+		query = query.Where("occurred_at >= ?", start)
+	}
+	if !end.IsZero() {
+		query = query.Where("occurred_at < ?", end)
+	}
 	if providerID > 0 {
 		query = query.Where("provider_id = ?", providerID)
 	}
@@ -301,8 +183,14 @@ func (r *costRepository) SumLedgerAmount(ctx context.Context, providerID uint64,
 }
 
 func (r *costRepository) ListLedgerInRange(ctx context.Context, providerID uint64, kind string, start, end time.Time) ([]model.UpstreamLedgerEntry, error) {
-	query := r.db.WithContext(ctx).Model(&model.UpstreamLedgerEntry{}).
-		Where("kind = ? AND occurred_at >= ? AND occurred_at < ?", kind, start, end)
+	query := r.db.WithContext(ctx).Model(&model.UpstreamLedgerEntry{}).Where("kind = ?", kind)
+	// 零值时间表示不加区间过滤（与 ListLedger 一致）：直接拼 zero time 会把区间比成空集，合计恒为 0。
+	if !start.IsZero() {
+		query = query.Where("occurred_at >= ?", start)
+	}
+	if !end.IsZero() {
+		query = query.Where("occurred_at < ?", end)
+	}
 	if providerID > 0 {
 		query = query.Where("provider_id = ?", providerID)
 	}

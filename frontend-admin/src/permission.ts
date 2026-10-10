@@ -180,7 +180,7 @@ export const navMenu = [
       { title: '资金管理', path: '/finance/accounts', icon: navIcon('wallet') },
       // 成本管理（doc111）：月度成本/利润核算 + 成本项配置 + 上游余额台账，叶子由后端菜单树下发。
       { title: '成本管理', path: '/finance/cost', icon: navIcon('chart-bar') },
-      { title: '充值提现', path: '/finance/recharge-center', icon: navIcon('download') },
+      // 「充值提现」目录已由迁移 083 撤销：充值管理挂资金管理、提现管理挂推广返现（兜底菜单只列到组）。
       { title: '账单与对账', path: '/finance/bill-center', icon: navIcon('file') },
       { title: '财务报表', path: '/finance/report', icon: navIcon('chart-bar') },
       { title: '财务配置', path: '/finance/config', icon: navIcon('setting') },

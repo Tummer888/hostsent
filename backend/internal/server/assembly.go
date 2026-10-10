@@ -9,6 +9,8 @@ import (
 
 	"go.uber.org/zap"
 
+	instancedto "hostsent/backend/internal/modules/admin/instance/dto"
+	lifecyclemodel "hostsent/backend/internal/modules/admin/instance/lifecycle/model"
 	lifecyclerepo "hostsent/backend/internal/modules/admin/instance/lifecycle/repository"
 	lifecycleservice "hostsent/backend/internal/modules/admin/instance/lifecycle/service"
 	instanceservice "hostsent/backend/internal/modules/admin/instance/service"
@@ -192,11 +194,60 @@ func buildLifecycleAdvancer(
 }
 
 // stageActionRecorderBridge 把实例运维服务的审计写入适配为生命周期模块的 StageActionRecorder。
-//
 // 两个模块不能互相 import（实例运维 → 生命周期方向已存在），故用最小接口桥接；
 // 动作名与阶段值均为字符串，转换不涉及业务语义。
 type stageActionRecorderBridge struct {
 	svc instanceservice.InstanceService
+}
+
+// buildRefundInstanceHook 组装退款审核通过后的实例侧处置钩子（doc61 §8 第 2 条）。
+//
+// 钩子只做转译：把订单侧的基础类型搬成实例域的入参，规则判断（策略/全额判定）在
+// 实例服务内完成。失败只记日志 —— 退款审核结果不因实例侧问题回滚。
+func buildRefundInstanceHook(svc instanceservice.InstanceService, logger *zap.Logger) orderservice.OrderInstanceRefundHook {
+	return func(ctx context.Context, orderID uint64, orderNo string, userID uint64, refundAmount, paidAmount float64, fullRefund bool, refundNo string) error {
+		if svc == nil {
+			return nil
+		}
+		err := svc.DisposeOnRefund(ctx, &instancedto.RefundInstanceRequest{
+			OrderID:      orderID,
+			OrderNo:      orderNo,
+			UserID:       userID,
+			RefundNo:     refundNo,
+			RefundAmount: refundAmount,
+			PaidAmount:   paidAmount,
+			FullRefund:   fullRefund,
+		})
+		if err != nil && logger != nil {
+			logger.Warn("instance refund dispose failed",
+				zap.Uint64("order_id", orderID), zap.String("order_no", orderNo),
+				zap.String("refund_no", refundNo), zap.Error(err))
+		}
+		return err
+	}
+}
+
+// buildRefundPolicyReader 读取退款后实例处置策略（lifecycle_policies.refund_action）。
+// 读取失败或值为空一律回落 none：处置线上实例是不可逆动作，配置不可用时必须选「不动作」。
+func buildRefundPolicyReader(policyRepo lifecyclerepo.PolicyRepository, logger *zap.Logger) func(ctx context.Context) string {
+	return func(ctx context.Context) string {
+		if policyRepo == nil {
+			return lifecyclemodel.RefundActionNone
+		}
+		policy, err := policyRepo.Get(ctx)
+		if err != nil || policy == nil {
+			if logger != nil {
+				logger.Warn("read refund action policy failed, fallback to none", zap.Error(err))
+			}
+			return lifecyclemodel.RefundActionNone
+		}
+		switch policy.RefundAction {
+		case lifecyclemodel.RefundActionSuspend, lifecyclemodel.RefundActionDestroy:
+			return policy.RefundAction
+		default:
+			return lifecyclemodel.RefundActionNone
+		}
+	}
 }
 
 // RecordStageAction 写一条系统操作人流水；未注入实例服务时静默跳过（无审计源）。

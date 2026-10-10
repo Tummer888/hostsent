@@ -137,6 +137,16 @@ func (s *lifecycleService) UpdatePolicy(ctx context.Context, req *lifecycledto.P
 	if req.EnforceDryRun != nil {
 		policy.EnforceDryRun = *req.EnforceDryRun
 	}
+	if req.RefundAction != "" {
+		switch req.RefundAction {
+		case lifecyclemodel.RefundActionNone,
+			lifecyclemodel.RefundActionSuspend,
+			lifecyclemodel.RefundActionDestroy:
+			policy.RefundAction = req.RefundAction
+		default:
+			return nil, ErrPolicyInvalid
+		}
+	}
 	if err := s.policyRepo.Update(ctx, policy); err != nil {
 		return nil, err
 	}
@@ -434,6 +444,17 @@ func buildPolicyResponse(policy *lifecyclemodel.LifecyclePolicy) *lifecycledto.P
 		DestroyKeepDays:  policy.DestroyKeepDays,
 		AutoEnforce:      policy.AutoEnforce,
 		EnforceDryRun:    policy.EnforceDryRun,
+		RefundAction:     normalizeRefundAction(policy.RefundAction),
 		UpdatedAt:        policy.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
+// normalizeRefundAction 存量行该列为空时对外统一呈现 none。
+func normalizeRefundAction(v string) string {
+	switch v {
+	case lifecyclemodel.RefundActionSuspend, lifecyclemodel.RefundActionDestroy:
+		return v
+	default:
+		return lifecyclemodel.RefundActionNone
 	}
 }

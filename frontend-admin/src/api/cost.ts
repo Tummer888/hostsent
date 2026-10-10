@@ -2,7 +2,7 @@ import { request } from '@/utils/request'
 
 import type {
   BalanceAlert,
-  CostBalanceRecordQuery,
+  CostBalanceSnapshotInfo,
   CostLedgerEntryListQuery,
   CostLedgerEntryListResponse,
   CostLedgerSyncRequest,
@@ -12,19 +12,14 @@ import type {
   CostItemListResponse,
   CostItemRequest,
   CostOverviewResponse,
-  CostSnapshotInfo,
-  CostSnapshotListResponse,
-  CostSnapshotRequest,
-  CostTopupInfo,
-  CostTopupListResponse,
-  CostTopupRequest,
   UpstreamLedgerResponse,
 } from '@/types/interface'
 
 // ===== 成本管理（doc111）=====
 //
-// 口径：收入=服务收入（消费 − 退款）；成本=上游余额消耗（期初+充值−期末）+ 成本项配置
+// 口径：收入=服务收入（消费 − 退款）；成本=上游账本消费流水 + 成本项配置
 // + 用户佣金入账 + 推广返现计提；利润=收入−成本。周期按自然月。
+// 上游成本与余额全部自动取数（账本同步 + 每日抓取快照），没有手工录入入口。
 // 页面页脚展示后端返回的 caliber 原文，前端不另写一份口径文案。
 
 /** 成本总览：月度收入/成本/利润与利润率、成本构成、上游台账、近 12 月趋势。 */
@@ -61,55 +56,11 @@ export function deleteCostItem(id: number): Promise<void> {
   return request.delete<void>({ url: `/cost/items/${id}` })
 }
 
-/** 上游余额台账：各渠道期初/充值/消耗/期末 + 支持抓取的渠道清单。 */
+/** 上游余额台账：各渠道最新余额 + 期间消耗/充值（全部自动取数）。 */
 export function getCostLedger(params: { month?: string } = {}): Promise<UpstreamLedgerResponse> {
   return request.get<UpstreamLedgerResponse>({
     url: '/cost/balances',
     params: { month: params.month },
-  })
-}
-
-/** 录入余额快照（同一渠道同日重复录入会覆盖）。 */
-export function saveCostSnapshot(data: CostSnapshotRequest): Promise<CostSnapshotInfo> {
-  return request.post<CostSnapshotInfo>({ url: '/cost/balances/snapshot', data })
-}
-
-export function deleteCostSnapshot(id: number): Promise<void> {
-  return request.delete<void>({ url: `/cost/balances/snapshots/${id}` })
-}
-
-/** 录入上游充值/退还记录（正=充值，负=渠道退款冲正）。 */
-export function saveCostTopup(data: CostTopupRequest): Promise<CostTopupInfo> {
-  return request.post<CostTopupInfo>({ url: '/cost/balances/topup', data })
-}
-
-export function deleteCostTopup(id: number): Promise<void> {
-  return request.delete<void>({ url: `/cost/balances/topups/${id}` })
-}
-
-/** 余额快照明细（分页，台账核对与纠错用）。 */
-export function getCostSnapshots(params: CostBalanceRecordQuery): Promise<CostSnapshotListResponse> {
-  return request.get<CostSnapshotListResponse>({
-    url: '/cost/balances/snapshots',
-    params: {
-      provider_id: params.provider_id,
-      month: params.month,
-      page: params.page,
-      page_size: params.page_size,
-    },
-  })
-}
-
-/** 上游充值明细（分页）。 */
-export function getCostTopups(params: CostBalanceRecordQuery): Promise<CostTopupListResponse> {
-  return request.get<CostTopupListResponse>({
-    url: '/cost/balances/topups',
-    params: {
-      provider_id: params.provider_id,
-      month: params.month,
-      page: params.page,
-      page_size: params.page_size,
-    },
   })
 }
 
@@ -142,12 +93,11 @@ export function getCostBalanceAlerts(): Promise<BalanceAlert[]> {
 }
 
 /**
- * 抓取渠道余额并落当日快照。
- * 渠道适配器未实现账户余额读取时后端返回 30008 与可读提示（请手工录入快照），
- * 页面只对「支持抓取」的渠道开放该按钮，此接口用于该白名单内的渠道。
+ * 抓取渠道余额并落当日快照（余额展示与水位告警的数据源，每日也会自动抓一次）。
+ * 渠道适配器未实现账户余额读取时后端返回 30008；页面只对「支持抓取」的渠道开放该按钮。
  */
-export function fetchCostBalance(providerId: number): Promise<CostSnapshotInfo> {
-  return request.post<CostSnapshotInfo>({
+export function fetchCostBalance(providerId: number): Promise<CostBalanceSnapshotInfo> {
+  return request.post<CostBalanceSnapshotInfo>({
     url: '/cost/balances/fetch',
     data: { provider_id: providerId },
   })

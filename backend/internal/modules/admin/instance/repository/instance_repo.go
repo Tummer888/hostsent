@@ -46,11 +46,17 @@ func (r *InstanceRow) InstanceMark() string {
 type InstanceRepository interface {
 	List(ctx context.Context, query *dto.ListQuery) ([]InstanceRow, int64, error)
 	FindByID(ctx context.Context, id uint64) (*InstanceRow, error)
+	// FindByOrderID 按来源订单查实例（退款联动用；查不到返回 ErrNotFound，非云主机订单属正常）。
+	FindByOrderID(ctx context.Context, orderID uint64) (*InstanceRow, error)
 	Stats(ctx context.Context, withinDays int) (*dto.StatsResponse, error)
 	UpdateRemark(ctx context.Context, id uint64, remark string) error
 	UpdateStatus(ctx context.Context, id uint64, status string) error
 	ApplySync(ctx context.Context, id uint64, status, publicIP, privateIP, rawData string, syncedAt time.Time) error
 	UpdateSpecs(ctx context.Context, id uint64, cpu, memory, disk int, diskType string) error
+	// UpdateBandwidth 带宽直改后回写本地快照（Mbps）。
+	UpdateBandwidth(ctx context.Context, id uint64, bandwidth int) error
+	// UpdateDisk 挂载数据盘后回写本地磁盘容量（GB）。
+	UpdateDisk(ctx context.Context, id uint64, disk int) error
 	// UpdateLifecycleStage 落库生命周期阶段（T5.4/T5.5：手动暂停/恢复与推进器共用）。
 	UpdateLifecycleStage(ctx context.Context, id uint64, stage string) error
 }
@@ -157,6 +163,33 @@ func (r *instanceRepository) FindByID(ctx context.Context, id uint64) (*Instance
 	return &row, nil
 }
 
+// FindByOrderID 按来源订单查询该订单开通的实例（退款联动用）。
+//
+// instances.order_id 由开通成功时写入（buildRecordedInstance）；存量行为 0，查不到即返回
+// ErrNotFound，调用方据此跳过（退款不是每单都有实例，非云主机订单本就没有）。
+func (r *instanceRepository) FindByOrderID(ctx context.Context, orderID uint64) (*InstanceRow, error) {
+	if orderID == 0 {
+		return nil, ErrNotFound
+	}
+	var row InstanceRow
+	err := r.db.WithContext(ctx).
+		Table("instances AS instances").
+		Select(instanceSelect).
+		Joins("LEFT JOIN users AS u ON u.id = instances.user_id").
+		Joins("LEFT JOIN users AS a ON a.id = instances.actor_user_id").
+		Joins("LEFT JOIN resource_providers AS p ON p.id = instances.provider_id").
+		Where("instances.order_id = ?", orderID).
+		Order("instances.id DESC").
+		Take(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
 // Stats 全局概览统计（不受列表筛选影响）。
 func (r *instanceRepository) Stats(ctx context.Context, withinDays int) (*dto.StatsResponse, error) {
 	if withinDays <= 0 {
@@ -237,6 +270,27 @@ func (r *instanceRepository) UpdateSpecs(ctx context.Context, id uint64, cpu, me
 	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
 		Where("id = ?", id).
 		Updates(updates).Error
+}
+
+// UpdateBandwidth 带宽直改后回写本地快照（Mbps）。
+func (r *instanceRepository) UpdateBandwidth(ctx context.Context, id uint64, bandwidth int) error {
+	if bandwidth <= 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("id = ?", id).
+		Update("bandwidth", bandwidth).Error
+}
+
+// UpdateDisk 挂载数据盘后回写本地磁盘容量（GB）。
+// 上游是"在原系统盘基础上新挂一块"，所以调用方传入的是新总量。
+func (r *instanceRepository) UpdateDisk(ctx context.Context, id uint64, disk int) error {
+	if disk <= 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("id = ?", id).
+		Update("disk", disk).Error
 }
 
 // UpdateLifecycleStage 落库生命周期阶段（T5.4/T5.5）。同步流程不覆盖该列，

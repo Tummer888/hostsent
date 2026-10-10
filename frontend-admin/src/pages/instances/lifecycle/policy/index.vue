@@ -68,6 +68,19 @@
             </p>
             <t-switch v-model="form.enforce_dry_run" :disabled="!form.auto_enforce" />
           </div>
+          <div class="policy-item">
+            <div class="policy-item__head">
+              <h4>全额退款后处置实例</h4>
+              <t-tag :theme="form.refund_action === 'none' ? 'default' : 'warning'" variant="light" size="small" shape="round">
+                {{ refundActionHint }}
+              </t-tag>
+            </div>
+            <p class="policy-item__desc">
+              订单<strong>全额退款</strong>审核通过后对该订单开通的实例执行的动作；部分退款（补偿）一律不动机器。
+              默认「不做任何动作」，退款只走资金链路。
+            </p>
+            <t-select v-model="form.refund_action" :options="refundActionOptions" style="width: 220px" />
+          </div>
         </div>
 
         <div class="policy-flow">
@@ -93,7 +106,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { SaveIcon, SettingIcon } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 
@@ -110,6 +123,20 @@ const form = reactive({
   destroy_keep_days: 30,
   auto_enforce: false,
   enforce_dry_run: true,
+  refund_action: 'none',
+})
+
+// 退款后处置选项：文案写清后果，避免运营把「销毁」当成普通下拉项随手选。
+const refundActionOptions = [
+  { label: '不做任何动作（仅退款）', value: 'none' },
+  { label: '暂停实例（可恢复）', value: 'suspend' },
+  { label: '销毁实例（不可逆）', value: 'destroy' },
+]
+
+const refundActionHint = computed(() => {
+  if (form.refund_action === 'suspend') return '全额退款→暂停'
+  if (form.refund_action === 'destroy') return '全额退款→销毁'
+  return '仅退款'
 })
 
 async function loadPolicy() {
@@ -122,6 +149,7 @@ async function loadPolicy() {
     form.destroy_keep_days = policy.destroy_keep_days ?? 30
     form.auto_enforce = !!policy.auto_enforce
     form.enforce_dry_run = policy.enforce_dry_run ?? true
+    form.refund_action = policy.refund_action || 'none'
   } catch (e) {
     MessagePlugin.error((e as Error).message || '加载策略失败')
   } finally {
@@ -168,6 +196,7 @@ async function doSave() {
       destroy_keep_days: form.destroy_keep_days,
       auto_enforce: form.auto_enforce,
       enforce_dry_run: form.enforce_dry_run,
+      refund_action: form.refund_action,
     })
     MessagePlugin.success(msg || '策略已更新')
   } catch (e) {

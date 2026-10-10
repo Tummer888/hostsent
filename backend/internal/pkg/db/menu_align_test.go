@@ -495,3 +495,38 @@ func TestMenuAlign_DirectoryArity(t *testing.T) {
 		t.Errorf("以下一级域没有启用子节点（侧边栏会是空目录）：\n  %s", strings.Join(childless, "\n  "))
 	}
 }
+
+// ---------- 断言 9：后端路由用的权限码必须在 permissions 种子里声明 ----------
+//
+// 背景（本次审计发现的真实缺口）：原门禁只校验**前端** router/index.ts 的 meta.permission，
+// 后端 internal/server/router.go 的 app.perm("...") 完全在门禁之外——加一条路由时写错权限码
+// （或用了没登记的码），编译通过、测试全绿，运行时该接口对所有角色 403，
+// 而权限页上也找不到这个码可授予。这条断言把后端路由纳入机械校验。
+
+var routerPermRe = regexp.MustCompile(`app\.perm\(\s*"([^"]+)"`)
+
+func TestMenuAlign_RouterPermsDeclared(t *testing.T) {
+	root := repoRoot(t)
+	src := readFile(t, filepath.Join(root, "backend", "internal", "server", "router.go"))
+
+	declared := map[string]bool{}
+	for _, code := range db.SeedPermissionCodes() {
+		declared[code] = true
+	}
+
+	seen := map[string]bool{}
+	var undeclared []string
+	for _, m := range routerPermRe.FindAllStringSubmatch(src, -1) {
+		code := m[1]
+		if declared[code] || seen[code] {
+			continue
+		}
+		seen[code] = true
+		undeclared = append(undeclared, code)
+	}
+	if len(undeclared) > 0 {
+		sort.Strings(undeclared)
+		t.Errorf("router.go 的 app.perm 引用了未在 seedPermissionDefaults 声明的权限码"+
+			"（该接口将对所有角色 403，且权限页上无法授予）：\n  %s", strings.Join(undeclared, "\n  "))
+	}
+}

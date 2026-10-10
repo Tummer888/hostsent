@@ -1,7 +1,8 @@
 // Package model 提供成本管理子域的数据模型。
 //
 // 三个口径来源（见 service 层口径说明与 doc111）：
-//   - 上游余额消耗：靠「余额快照 + 充值记录」推算，不依赖上游是否开放资金接口；
+//   - 上游成本：上游账本流水（消费/充值，适配器能读账本的渠道全自动同步）；
+//     余额快照只用于展示当前余额与「余额水位告警」，不再参与成本推算；
 //   - 自营/固定成本：成本项配置（母机月费、员工工资、机房带宽…按需增删）；
 //   - 收入：复用财务统计的服务收入口径（消费 − 退款），不在此重复定义 SQL。
 package model
@@ -45,10 +46,9 @@ const (
 	LedgerKindTopup   string = "topup"   // 充值/入账
 )
 
-// 快照来源。
+// 快照来源（当前只可能是自动抓取：手工录入已下线，见 doc111 §5.4）。
 const (
-	SnapshotSourceManual string = "manual" // 人工录入
-	SnapshotSourceAuto   string = "auto"   // 定时/手动抓取
+	SnapshotSourceAuto string = "auto" // 定时/手动触发抓取
 )
 
 // CostItem 成本项配置。
@@ -82,9 +82,9 @@ func (CostItem) TableName() string { return "cost_items" }
 
 // UpstreamBalanceSnapshot 上游渠道余额快照。
 //
-// 同一渠道同一天只保留一条（唯一索引）：重复抓取/修正直接覆盖，避免同一天多值。
-// 月度口径用「上月末最近一条 = 期初」「本月最后一条 = 期末」推算消耗，
-// 因此不要求月初/月末当天一定有快照。
+// 唯一用途是「当前余额」：台账页展示水位、低余额告警取数。
+// 同一渠道同一天只保留一条（唯一索引）：重复抓取直接覆盖，避免同一天多值。
+// 每日由调度器自动抓一次（finance.cost_snapshot_hour），页面也可手动触发抓取。
 type UpstreamBalanceSnapshot struct {
 	ID         uint64 `gorm:"primaryKey;autoIncrement"`
 	ProviderID uint64 `gorm:"column:provider_id;not null;index:idx_ub_snapshot_provider_date,priority:1"`
@@ -92,7 +92,7 @@ type UpstreamBalanceSnapshot struct {
 	SnapshotDate time.Time `gorm:"column:snapshot_date;type:date;not null;uniqueIndex:uk_ub_snapshot_provider_date,priority:2;index:idx_ub_snapshot_provider_date,priority:2"`
 	Balance      float64   `gorm:"type:decimal(15,2);not null;default:0"`
 	Currency     string    `gorm:"size:8;not null;default:'CNY'"`
-	Source       string    `gorm:"size:16;not null;default:manual"`
+	Source       string    `gorm:"size:16;not null;default:auto"`
 	Remark       string    `gorm:"size:255;not null;default:''"`
 	CreatedAt    time.Time `gorm:"autoCreateTime"`
 	UpdatedAt    time.Time `gorm:"autoUpdateTime"`
@@ -101,32 +101,10 @@ type UpstreamBalanceSnapshot struct {
 // TableName 指定表名。
 func (UpstreamBalanceSnapshot) TableName() string { return "upstream_balance_snapshots" }
 
-// UpstreamBalanceTopup 上游渠道充值/退还记录。
-//
-// 只记「资金流入上游」的金额（含退款为负），用于把余额差还原成消耗：
-//
-//	期间消耗 = 期初余额 + 期间充值合计 − 期末余额
-type UpstreamBalanceTopup struct {
-	ID         uint64    `gorm:"primaryKey;autoIncrement"`
-	ProviderID uint64    `gorm:"column:provider_id;not null;index:idx_ub_topup_provider_date,priority:1"`
-	OccurredOn time.Time `gorm:"column:occurred_on;type:date;not null;index:idx_ub_topup_provider_date,priority:2"`
-	// Amount 正=向渠道充值，负=渠道退款/冲正。
-	Amount     float64   `gorm:"type:decimal(15,2);not null;default:0"`
-	Remark     string    `gorm:"size:255;not null;default:''"`
-	OperatorID uint64    `gorm:"column:operator_id;not null;default:0"`
-	CreatedAt  time.Time `gorm:"autoCreateTime"`
-	UpdatedAt  time.Time `gorm:"autoUpdateTime"`
-}
-
-// TableName 指定表名。
-func (UpstreamBalanceTopup) TableName() string { return "upstream_balance_topups" }
-
 // UpstreamLedgerEntry 上游账本流水（消费 / 充值）。
 //
-// 与「余额快照」互补，两者缺一不可：
-//   - 账本给明细：每一笔扣款/充值的时间、金额、类型与上游账单号，月度成本直接按流水归集，
-//     可逐笔核对、可回填历史；
-//   - 快照给总额：期初 + 充值 − 期末 = 消耗，用来校验账本有没有漏拉（差额即待查项）。
+// 上游成本的唯一自动来源：每一笔扣款/充值的时间、金额、类型与上游账单号都落库，
+// 月度成本直接按流水归集，可逐笔核对、可回填历史（首次全量、之后按 ID 断点增量）。
 //
 // 幂等：以 (provider_id, kind, external_id) 唯一，重复同步只更新金额/类型/时间，
 // 不会产生重复行；因此「每天同步一次」与「全量回填」是同一个写入口。

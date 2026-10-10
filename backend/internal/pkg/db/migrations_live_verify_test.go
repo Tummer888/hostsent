@@ -235,25 +235,38 @@ func TestLivePhaseMigrations(t *testing.T) {
 			indexes: []string{"idx_risk_event_actions_event"},
 		},
 		{
-			// 078 建成本管理三表（doc111）：成本项配置 / 上游余额快照 / 上游充值记录。
+			// 078 建成本管理表（doc111）：成本项配置 / 上游余额快照。
 			// 快照表的 (provider_id, snapshot_date) 唯一键是「同渠道同日只有一个余额真值」
-			// 的保证（重复抓取走覆盖），台账推算「期初+充值−期末=消耗」依赖它；
-			// 模型与 DDL 的列/索引必须一致，否则启动期 AutoMigrate 会去改表。
+			// 的保证（重复抓取走覆盖）；模型与 DDL 的列/索引必须一致，
+			// 否则启动期 AutoMigrate 会去改表。
+			// 注：078 同时建过 upstream_balance_topups，该表已由 082 删除
+			// （手工充值记录被账本同步取代），故不在此断言 —— 见 082 的用例。
 			name:   "078_cost_management",
 			file:   "../../../migrations/078_cost_management.sql",
-			models: []interface{}{&costmodel.CostItem{}, &costmodel.UpstreamBalanceSnapshot{}, &costmodel.UpstreamBalanceTopup{}},
+			models: []interface{}{&costmodel.CostItem{}, &costmodel.UpstreamBalanceSnapshot{}},
 			columns: map[string][]string{
 				"cost_items":                 {"id", "name", "category", "amount", "cycle", "occurred_on", "effective_from", "effective_to", "subject", "remark", "status", "operator_id", "created_at", "updated_at"},
 				"upstream_balance_snapshots": {"id", "provider_id", "snapshot_date", "balance", "currency", "source", "remark", "created_at", "updated_at"},
-				"upstream_balance_topups":    {"id", "provider_id", "occurred_on", "amount", "remark", "operator_id", "created_at", "updated_at"},
 			},
 			indexes: []string{
 				"uk_ub_snapshot_provider_date",
 				"idx_ub_snapshot_provider_date",
-				"idx_ub_topup_provider_date",
 				"idx_cost_items_category",
 				"idx_cost_items_status",
 			},
+		},
+		{
+			// 081 建上游账本流水表（doc111 §5.2）：消费/充值逐笔落库，是上游成本的
+			// 主口径（余额快照降为对账口径）。唯一键 (provider_id, kind, external_id)
+			// 同时承担三件事：幂等 upsert、全量回填去重、增量同步断点（MAX(external_id)）。
+			// downstream 写入不依赖外键，删渠道历史数据由成本模块自行清理。
+			name:   "081_upstream_ledger",
+			file:   "../../../migrations/081_upstream_ledger.sql",
+			models: []interface{}{&costmodel.UpstreamLedgerEntry{}},
+			columns: map[string][]string{
+				"upstream_ledger_entries": {"id", "provider_id", "kind", "external_id", "occurred_at", "amount", "refund_amount", "category", "ref_no", "description", "currency", "created_at", "updated_at"},
+			},
+			indexes: []string{"uk_up_ledger_ext", "idx_up_ledger_provider_time"},
 		},
 	}
 
@@ -278,6 +291,123 @@ func TestLivePhaseMigrations(t *testing.T) {
 				assertIndex(t, db, idx)
 			}
 		})
+	}
+}
+
+// TestLiveDropUpstreamBalanceTopups 验证 082：手工充值记录表已删除（doc111 §5.4）。
+//
+// 该表曾是「期初余额 + 手工充值 − 期末余额」推算口径的输入；上游账本同步上线后
+// 消费与充值都自动落 upstream_ledger_entries，手工录入的前后端入口全部下线，
+// 082 将这张表删除。用例双跑迁移文件确认幂等，并断言表确实不存在。
+func TestLiveDropUpstreamBalanceTopups(t *testing.T) {
+	dsn := os.Getenv("LIVE_DB_DSN")
+	if dsn == "" {
+		dsn = "host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable"
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+	sqlBytes, err := os.ReadFile("../../../migrations/082_drop_upstream_balance_topups.sql")
+	if err != nil {
+		t.Fatalf("读取迁移文件失败: %v", err)
+	}
+	for i := 1; i <= 2; i++ {
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			t.Fatalf("第 %d 次执行迁移失败: %v", i, err)
+		}
+	}
+	var count int64
+	if err := db.Raw("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'upstream_balance_topups'").Scan(&count).Error; err != nil {
+		t.Fatalf("查询表是否存在失败: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("upstream_balance_topups 应已被 082 删除，实际仍存在")
+	}
+}
+
+// TestLiveMoveRechargeWithdrawMenus 验证 083：财务菜单归位（doc102 §11.11）。
+//
+// 「充值提现」目录撤销：充值管理 → 资金管理、提现管理 → 推广返现；
+// 路径与权限码不变，只改归属、排序与页面组件。用例双跑迁移文件确认幂等，
+// 并断言：两个叶子的父级/排序正确、旧目录行已清、/finance 一级域排序无空洞。
+// 注意：本用例只跑迁移文件（不跑 seed），因此校验的是迁移自身的效果；
+// 后端启动时 seed 会按 (platform, path) 覆盖到同一状态（门禁另有四处对齐断言锁定）。
+func TestLiveMoveRechargeWithdrawMenus(t *testing.T) {
+	dsn := os.Getenv("LIVE_DB_DSN")
+	if dsn == "" {
+		dsn = "host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable"
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+	sqlBytes, err := os.ReadFile("../../../migrations/084_move_recharge_withdraw_menus.sql")
+	if err != nil {
+		t.Fatalf("读取迁移文件失败: %v", err)
+	}
+	for i := 1; i <= 2; i++ {
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			t.Fatalf("第 %d 次执行迁移失败: %v", i, err)
+		}
+	}
+
+	type row struct {
+		Path      string
+		Name      string
+		Parent    string
+		SortOrder int
+	}
+	var rows []row
+	if err := db.Raw(`SELECT m.path, m.name, COALESCE(p.path, '') AS parent, m.sort_order
+		FROM menus m LEFT JOIN menus p ON p.id = m.parent_id
+		WHERE m.platform = 'admin' AND m.path IN ('/finance/recharges', '/finance/withdrawals')
+		ORDER BY m.path`).Scan(&rows).Error; err != nil {
+		t.Fatalf("查询菜单失败: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("两个叶子应都存在，实际查到 %d 条", len(rows))
+	}
+	want := map[string]struct {
+		parent string
+		sort   int
+	}{
+		"/finance/recharges":   {parent: "/finance/accounts", sort: 3},
+		"/finance/withdrawals": {parent: "/finance/referral", sort: 4},
+	}
+	for _, r := range rows {
+		w, ok := want[r.Path]
+		if !ok {
+			t.Fatalf("出现未预期的路径 %s", r.Path)
+		}
+		if r.Parent != w.parent || r.SortOrder != w.sort {
+			t.Errorf("%s 应挂在 %s 排序 %d，实际 %s 排序 %d", r.Path, w.parent, w.sort, r.Parent, r.SortOrder)
+		}
+	}
+
+	var residual int64
+	if err := db.Raw(`SELECT count(*) FROM menus WHERE platform = 'admin' AND path LIKE '/finance/recharge-center%'`).Scan(&residual).Error; err != nil {
+		t.Fatalf("查询旧目录残留失败: %v", err)
+	}
+	if residual != 0 {
+		t.Errorf("「充值提现」目录应已删除，实际残留 %d 行", residual)
+	}
+
+	// /finance 一级域排序应为 1..8 连续（补位后无空洞）。
+	var sorts []int
+	if err := db.Raw(`SELECT sort_order FROM menus WHERE platform = 'admin'
+		AND parent_id = (SELECT id FROM menus WHERE platform = 'admin' AND path = '/finance')
+		ORDER BY sort_order`).Scan(&sorts).Error; err != nil {
+		t.Fatalf("查询 /finance 子节点失败: %v", err)
+	}
+	if len(sorts) == 0 {
+		t.Fatalf("/finance 下应至少有一个子节点")
+	}
+	for i, s := range sorts {
+		if s != i+1 {
+			t.Errorf("/finance 子节点排序应为 1..%d 连续，实际 %v", len(sorts), sorts)
+			break
+		}
 	}
 }
 
@@ -1330,7 +1460,7 @@ func TestLiveFinanceWalletsPageRemoved(t *testing.T) {
 		}
 	}
 
-	// ③ 组内两个叶子且排序连续
+	// ③ 组内叶子且排序连续（迁移 084 后又迁入「充值管理」，故为 3 个）
 	rows, err := db.Raw(
 		`SELECT m.path, m.sort_order FROM menus m JOIN menus p ON p.id = m.parent_id
 		  WHERE m.platform = 'admin' AND p.path = '/finance/accounts' ORDER BY m.sort_order`,
@@ -1348,14 +1478,17 @@ func TestLiveFinanceWalletsPageRemoved(t *testing.T) {
 		}
 		got[path] = order
 	}
-	if len(got) != 2 {
-		t.Errorf("资金管理组应只剩 2 个叶子（R1 仍成立），实际 %d 个: %v", len(got), got)
+	if len(got) != 3 {
+		t.Errorf("资金管理组应有 3 个叶子（迁移 084 迁入充值管理），实际 %d 个: %v", len(got), got)
 	}
 	if got["/finance/transactions"] != 1 {
 		t.Errorf("资金流水应排第 1，实际 %d", got["/finance/transactions"])
 	}
 	if got["/finance/accounts/adjust"] != 2 {
 		t.Errorf("人工调账应排第 2（空洞补齐），实际 %d", got["/finance/accounts/adjust"])
+	}
+	if got["/finance/recharges"] != 3 {
+		t.Errorf("充值管理应排第 3（迁移 084 从充值提现目录迁入），实际 %d", got["/finance/recharges"])
 	}
 
 	// ④ 接口与权限码保留

@@ -146,131 +146,6 @@ func (h *CostHandler) Ledger(c *gin.Context) {
 	response.Success(c, resp)
 }
 
-// SaveSnapshot godoc
-// @Summary 录入上游余额快照（同日覆盖）
-// @Tags 财务管理-成本
-// @Security BearerAuth
-// @Param request body dto.SnapshotRequest true "快照"
-// @Success 200 {object} response.Body
-// @Router /api/v1/admin/cost/balances/snapshot [post]
-func (h *CostHandler) SaveSnapshot(c *gin.Context) {
-	var req dto.SnapshotRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperrors.New(20001, err.Error()))
-		return
-	}
-	resp, err := h.costService.SaveSnapshot(c.Request.Context(), req)
-	if err != nil {
-		response.Error(c, writeError(err))
-		return
-	}
-	response.Success(c, resp)
-}
-
-// DeleteSnapshot godoc
-// @Summary 删除余额快照
-// @Tags 财务管理-成本
-// @Security BearerAuth
-// @Param id path int true "快照 ID"
-// @Success 200 {object} response.Body
-// @Router /api/v1/admin/cost/balances/snapshots/{id} [delete]
-func (h *CostHandler) DeleteSnapshot(c *gin.Context) {
-	id, ok := pathID(c, "id")
-	if !ok {
-		return
-	}
-	if err := h.costService.DeleteSnapshot(c.Request.Context(), id); err != nil {
-		response.Error(c, writeError(err))
-		return
-	}
-	response.SuccessMessage(c, "success")
-}
-
-// SaveTopup godoc
-// @Summary 录入上游充值/退还记录
-// @Tags 财务管理-成本
-// @Security BearerAuth
-// @Param request body dto.TopupRequest true "充值记录"
-// @Success 200 {object} response.Body
-// @Router /api/v1/admin/cost/balances/topup [post]
-func (h *CostHandler) SaveTopup(c *gin.Context) {
-	var req dto.TopupRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, apperrors.New(20001, err.Error()))
-		return
-	}
-	operatorID, _ := operatorFromContext(c)
-	resp, err := h.costService.SaveTopup(c.Request.Context(), req, operatorID)
-	if err != nil {
-		response.Error(c, writeError(err))
-		return
-	}
-	response.Success(c, resp)
-}
-
-// DeleteTopup godoc
-// @Summary 删除上游充值记录
-// @Tags 财务管理-成本
-// @Security BearerAuth
-// @Param id path int true "充值记录 ID"
-// @Success 200 {object} response.Body
-// @Router /api/v1/admin/cost/balances/topups/{id} [delete]
-func (h *CostHandler) DeleteTopup(c *gin.Context) {
-	id, ok := pathID(c, "id")
-	if !ok {
-		return
-	}
-	if err := h.costService.DeleteTopup(c.Request.Context(), id); err != nil {
-		response.Error(c, writeError(err))
-		return
-	}
-	response.SuccessMessage(c, "success")
-}
-
-// ListSnapshots godoc
-// @Summary 余额快照明细（分页，含渠道名）
-// @Tags 财务管理-成本
-// @Security BearerAuth
-// @Param provider_id query int false "渠道 ID（0=全部）"
-// @Param month query string false "月份 YYYY-MM（空=不限）"
-// @Success 200 {object} response.Body
-// @Router /api/v1/admin/cost/balances/snapshots [get]
-func (h *CostHandler) ListSnapshots(c *gin.Context) {
-	var query dto.BalanceRecordQuery
-	if err := c.ShouldBindQuery(&query); err != nil {
-		response.Error(c, apperrors.New(20001, err.Error()))
-		return
-	}
-	resp, err := h.costService.ListSnapshots(c.Request.Context(), query)
-	if err != nil {
-		response.Error(c, writeError(err))
-		return
-	}
-	response.Success(c, resp)
-}
-
-// ListTopups godoc
-// @Summary 上游充值记录明细（分页，含渠道名）
-// @Tags 财务管理-成本
-// @Security BearerAuth
-// @Param provider_id query int false "渠道 ID（0=全部）"
-// @Param month query string false "月份 YYYY-MM（空=不限）"
-// @Success 200 {object} response.Body
-// @Router /api/v1/admin/cost/balances/topups [get]
-func (h *CostHandler) ListTopups(c *gin.Context) {
-	var query dto.BalanceRecordQuery
-	if err := c.ShouldBindQuery(&query); err != nil {
-		response.Error(c, apperrors.New(20001, err.Error()))
-		return
-	}
-	resp, err := h.costService.ListTopups(c.Request.Context(), query)
-	if err != nil {
-		response.Error(c, writeError(err))
-		return
-	}
-	response.Success(c, resp)
-}
-
 // SyncLedger godoc
 // @Summary 同步上游账本（消费/充值流水）
 // @Tags 财务管理-成本
@@ -334,11 +209,11 @@ func (h *CostHandler) BalanceAlerts(c *gin.Context) {
 // @Summary 抓取渠道余额并落当日快照
 // @Tags 财务管理-成本
 // @Security BearerAuth
-// @Param request body dto.SnapshotRequest true "provider_id 必填"
+// @Param request body dto.BalanceFetchRequest true "provider_id 必填"
 // @Success 200 {object} response.Body
 // @Router /api/v1/admin/cost/balances/fetch [post]
 func (h *CostHandler) FetchBalance(c *gin.Context) {
-	var req dto.SnapshotRequest
+	var req dto.BalanceFetchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, apperrors.New(20001, err.Error()))
 		return
@@ -372,14 +247,13 @@ func operatorFromContext(c *gin.Context) (uint64, string) {
 // writeError 将成本子域业务错误映射为统一错误码。
 func writeError(err error) *apperrors.AppError {
 	switch {
-	case errors.Is(err, service.ErrItemNotFound), errors.Is(err, service.ErrSnapshotNotFound),
-		errors.Is(err, service.ErrTopupNotFound), errors.Is(err, service.ErrProviderNotFound):
+	case errors.Is(err, service.ErrItemNotFound), errors.Is(err, service.ErrProviderNotFound):
 		return apperrors.New(20002, err.Error())
 	case errors.Is(err, service.ErrInvalidItem):
 		return apperrors.New(20001, err.Error())
 	case errors.Is(err, service.ErrBalanceUnsupported), errors.Is(err, service.ErrLedgerUnsupported):
-		// 30008：能力不支持（渠道适配器未实现账户余额读取），与参数错误区分开，
-		// 前端据此提示「手工录入」而不是报「参数错误」。
+		// 30008：能力不支持（渠道适配器未实现余额/账本读取），与参数错误区分开，
+		// 前端据此把对应按钮置灰而不是报「参数错误」。
 		return apperrors.New(30008, err.Error())
 	default:
 		return apperrors.New(50001, err.Error())

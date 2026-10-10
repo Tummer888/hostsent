@@ -3,12 +3,15 @@
 // 口径（doc111 §3，页面页脚同文展示，代码与文档必须一致）：
 //
 //	收入  服务收入 = 期间消费 − 期间退款（营业收入）；资金口径收入仅作参考。
-//	成本  ① 上游余额消耗 = 期初余额 + 期间充值 − 期末余额（余额快照推算，多退少补在充值记录里冲正）；
+//	成本  ① 上游账本消费流水（余额支付的开通/续费 − 对应退款，由适配器自动同步，逐笔可查；
+//	          未接入账本的渠道不计入自动成本，可用成本项配置登记）；
 //	      ② 成本项配置（母机月费 / 员工工资 / 机房带宽…按月计入，一次性项计入发生月）；
 //	      ③ 用户佣金入账（资金流水 type=commission 收入合计）；
 //	      ④ 推广返现计提（返现台账 cashback + renewal_cashback − refund_clawback）。
 //	利润  利润 = 服务收入 − 成本合计；利润率 = 利润 / 服务收入。
 //	周期  自然月 [月初 00:00, 次月月初)；当月为「至今」视图，固定成本另按天摊到截至日。
+//
+// 余额快照不参与成本推算：只用于展示当前余额与低余额/到期告警（doc111 §5.4）。
 package service
 
 import (
@@ -37,16 +40,12 @@ var (
 	ErrItemNotFound = errors.New("成本项不存在")
 	// ErrInvalidItem 成本项参数非法。
 	ErrInvalidItem = errors.New("成本项参数非法")
-	// ErrSnapshotNotFound 余额快照不存在。
-	ErrSnapshotNotFound = errors.New("余额快照不存在")
-	// ErrTopupNotFound 充值记录不存在。
-	ErrTopupNotFound = errors.New("上游充值记录不存在")
 	// ErrProviderNotFound 渠道不存在或不可用。
 	ErrProviderNotFound = errors.New("渠道不存在")
 	// ErrBalanceUnsupported 该渠道不支持自动查询余额（适配器未实现 AccountReader）。
-	ErrBalanceUnsupported = errors.New("该渠道类型暂不支持自动查询余额，请手工录入快照")
+	ErrBalanceUnsupported = errors.New("该渠道类型暂不支持自动查询余额")
 	// ErrLedgerUnsupported 该渠道不支持读取上游账本（适配器未实现 FinanceLedgerReader）。
-	ErrLedgerUnsupported = errors.New("该渠道类型暂不支持读取上游账本（消费/充值流水），请手工录入")
+	ErrLedgerUnsupported = errors.New("该渠道类型暂不支持读取上游账本（消费/充值流水）")
 )
 
 // ConfigReader 读取 system_configs 原文（键不存在返回 ok=false）。
@@ -87,7 +86,7 @@ type UpstreamRef struct {
 	Name         string
 	ProviderType string
 	// BalanceSupported 该渠道适配器是否实现账户余额读取（AccountReader）。
-	// 由装配层在列举时判定（纯类型断言，无副作用）；不支持时页面只提供手工录入。
+	// 由装配层在列举时判定（纯类型断言，无副作用）；不支持时页面把「抓取余额」按钮置灰。
 	BalanceSupported bool
 	// LedgerSupported 该渠道适配器是否实现上游账本读取（FinanceLedgerReader）：可同步消费/充值流水。
 	LedgerSupported bool
@@ -124,17 +123,10 @@ type CostService interface {
 	UpdateItem(ctx context.Context, id uint64, req dto.CostItemRequest, operatorID uint64) (*dto.CostItemInfo, error)
 	DeleteItem(ctx context.Context, id uint64) error
 
-	// Ledger 上游余额台账（各渠道期初/充值/消耗/期末 + 最近快照与充值）。
+	// Ledger 上游余额台账（各渠道最新余额 + 期间消耗/充值，全部自动取数）。
 	Ledger(ctx context.Context, month string) (*dto.UpstreamLedgerResponse, error)
-	SaveSnapshot(ctx context.Context, req dto.SnapshotRequest) (*dto.SnapshotInfo, error)
-	DeleteSnapshot(ctx context.Context, id uint64) error
-	SaveTopup(ctx context.Context, req dto.TopupRequest, operatorID uint64) (*dto.TopupInfo, error)
-	DeleteTopup(ctx context.Context, id uint64) error
-	// ListSnapshots/ListTopups 快照与充值记录明细（分页，用于核对与纠错）。
-	ListSnapshots(ctx context.Context, q dto.BalanceRecordQuery) (*dto.SnapshotListResponse, error)
-	ListTopups(ctx context.Context, q dto.BalanceRecordQuery) (*dto.TopupListResponse, error)
 	// FetchBalance 抓取渠道余额并落当日快照（source=auto）。
-	FetchBalance(ctx context.Context, providerID uint64) (*dto.SnapshotInfo, error)
+	FetchBalance(ctx context.Context, providerID uint64) (*dto.BalanceSnapshotInfo, error)
 	// SnapshotHour 每日自动快照执行小时（财务配置 finance.cost_snapshot_hour）。
 	SnapshotHour(ctx context.Context) int
 
@@ -169,6 +161,8 @@ type costService struct {
 	// dueMu/dueCache 上游到期清单缓存：台账页与总览页都会算告警，避免每次刷新都打上游。
 	dueMu    sync.Mutex
 	dueCache map[uint64]dueCacheEntry
+	// balanceCache 无余额快照渠道的现场抓取结果缓存（同上，命中即不重复打上游）。
+	balanceCache map[uint64]balanceCacheEntry
 }
 
 // dueCacheEntry 到期清单缓存项。
@@ -235,24 +229,27 @@ func (s *costService) Overview(ctx context.Context, month string) (*dto.CostOver
 		}
 	}
 
-	// 上游台账（当月 + 近 12 月趋势共用同一份历史，避免逐月重复查询）。
-	histories, err := s.loadHistories(ctx, refs, trendStart(start), asOfEnd)
-	if err != nil {
-		return nil, err
-	}
-	rows, snapshotTotal := buildLedger(histories, start, end, asOfEnd)
-
-	// 上游账本（流水口径）：一次装载窗口内全部消费条目，当月合计与逐月趋势共用。
+	// 上游账本（流水口径）：一次装载趋势窗口内的消费条目，当月合计与逐月趋势共用；
+	// 充值只关心当月（台账行展示用），单独按本月装载。
 	ledgerEntries, err := s.repo.ListLedgerInRange(ctx, 0, model.LedgerKindConsume, trendStart(start), asOfEnd)
 	if err != nil {
 		return nil, err
 	}
-	// 双口径合并：已同步账本的渠道用流水（主口径），其余用快照推算（兜底）。
+	topupEntries, err := s.repo.ListLedgerInRange(ctx, 0, model.LedgerKindTopup, start, end)
+	if err != nil {
+		return nil, err
+	}
+	// 只有「适配器支持账本 + 已同步过流水」的渠道才敢把「本月无流水」当成 0 成本。
 	ledgerAuthority, err := s.ledgerAuthority(ctx, refs)
 	if err != nil {
 		return nil, err
 	}
-	upstreamTotal, ledgerTotal, ledgerDiff, costSource := applyLedgerToRows(rows, aggregateLedger(ledgerEntries, start, end), ledgerAuthority)
+	rows, err := s.buildLedgerRows(ctx, refs)
+	if err != nil {
+		return nil, err
+	}
+	upstreamTotal, _, costSource := applyLedgerToRows(
+		rows, aggregateLedger(ledgerEntries, start, end), aggregateLedger(topupEntries, start, end), ledgerAuthority)
 
 	// 成本项：整月口径 + 按天摊到截至日（当月才有意义）。
 	items, err := s.repo.ListAllActiveItems(ctx)
@@ -287,7 +284,7 @@ func (s *costService) Overview(ctx context.Context, month string) (*dto.CostOver
 		},
 	}
 
-	trend, err := s.buildTrend(ctx, histories, items, start, aggregateLedgerByMonth(ledgerEntries), ledgerAuthority)
+	trend, err := s.buildTrend(ctx, items, start, aggregateLedgerByMonth(ledgerEntries), ledgerAuthority)
 	if err != nil {
 		return nil, err
 	}
@@ -323,12 +320,9 @@ func (s *costService) Overview(ctx context.Context, month string) (*dto.CostOver
 		Trend:            trend,
 		Caliber:          caliberText(),
 
-		UpstreamCostLedger:   money.Round2(ledgerTotal),
-		UpstreamCostSnapshot: money.Round2(snapshotTotal),
-		UpstreamCostSource:   costSource,
-		UpstreamLedgerDiff:   money.Round2(ledgerDiff),
-		LedgerSyncedAt:       syncedAt,
-		BalanceAlerts:        alerts,
+		UpstreamCostSource: costSource,
+		LedgerSyncedAt:     syncedAt,
+		BalanceAlerts:      alerts,
 	}
 	if len(items) == 0 {
 		resp.UnconfiguredHint = "尚未配置任何成本项：母机月费、人力、机房带宽等固定成本请到「成本项配置」添加，否则成本只含上游消耗与佣金/返现自动项。"
@@ -337,8 +331,8 @@ func (s *costService) Overview(ctx context.Context, month string) (*dto.CostOver
 }
 
 func caliberText() string {
-	return "口径：收入=服务收入（期间消费 − 期间退款）；上游成本优先取上游账本消费流水（余额支付的开通/续费 − 对应退款，逐笔可查），" +
-		"未接入账本的渠道用余额快照推算（期初 + 充值 − 期末），两者差额列在台账供核查；另含成本项配置 + 用户佣金入账 + 推广返现计提；" +
+	return "口径：收入=服务收入（期间消费 − 期间退款）；上游成本取上游账本消费流水（余额支付的开通/续费 − 对应退款，逐笔可查），" +
+		"未接入账本的渠道不计入自动成本（可用成本项配置登记）；另含成本项配置 + 用户佣金入账 + 推广返现计提；" +
 		"利润=收入−成本，利润率=利润/收入。周期按自然月；当月为「至今」视图，固定成本另给按天摊分后的利润与利润率。"
 }
 
@@ -420,7 +414,7 @@ func (s *costService) DeleteItem(ctx context.Context, id uint64) error {
 	return s.repo.DeleteItem(ctx, id)
 }
 
-// —— 上游余额台账 ——
+// —— 上游余额台账（全自动取数：余额=抓取快照，消耗/充值=账本流水） ——
 
 func (s *costService) Ledger(ctx context.Context, month string) (*dto.UpstreamLedgerResponse, error) {
 	start, end, _, _ := resolveMonth(month, s.now())
@@ -428,15 +422,12 @@ func (s *costService) Ledger(ctx context.Context, month string) (*dto.UpstreamLe
 	if err != nil {
 		return nil, err
 	}
-	// 台账按整月展示（不受「至今」影响），当月靠 Estimated 标注截至日。
-	asOfEnd := end
-	histories, err := s.loadHistories(ctx, refs, start, asOfEnd)
+	// 当月（自然月整月）的消费与充值流水：页面的「期间」即所选月份。
+	consumeEntries, err := s.repo.ListLedgerInRange(ctx, 0, model.LedgerKindConsume, start, end)
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := buildLedger(histories, start, end, asOfEnd)
-	// 账本（流水口径）：页面消耗以流水为主口径，快照推算同时给出用于核对。
-	ledgerEntries, err := s.repo.ListLedgerInRange(ctx, 0, model.LedgerKindConsume, start, end)
+	topupEntries, err := s.repo.ListLedgerInRange(ctx, 0, model.LedgerKindTopup, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -444,16 +435,21 @@ func (s *costService) Ledger(ctx context.Context, month string) (*dto.UpstreamLe
 	if err != nil {
 		return nil, err
 	}
-	total, _, _, _ := applyLedgerToRows(rows, aggregateLedger(ledgerEntries, start, end), ledgerAuthority)
+	rows, err := s.buildLedgerRows(ctx, refs)
+	if err != nil {
+		return nil, err
+	}
+	total, topupTotal, _ := applyLedgerToRows(
+		rows, aggregateLedger(consumeEntries, start, end), aggregateLedger(topupEntries, start, end), ledgerAuthority)
 
 	supported := make([]uint64, 0, len(refs))
 	ledgerSupported := make([]uint64, 0, len(refs))
-	for _, history := range histories {
-		if history.ref.BalanceSupported {
-			supported = append(supported, history.ref.ID)
+	for _, ref := range refs {
+		if ref.BalanceSupported {
+			supported = append(supported, ref.ID)
 		}
-		if history.ref.LedgerSupported {
-			ledgerSupported = append(ledgerSupported, history.ref.ID)
+		if ref.LedgerSupported {
+			ledgerSupported = append(ledgerSupported, ref.ID)
 		}
 	}
 	// 余额水位告警是辅助信息：取不到不影响台账出数（失败会以 level=unknown 显式返回）。
@@ -463,127 +459,45 @@ func (s *costService) Ledger(ctx context.Context, month string) (*dto.UpstreamLe
 		syncedAt = latest.Format(time.RFC3339)
 	}
 	return &dto.UpstreamLedgerResponse{
-		Month:                      start.Format("2006-01"),
-		Rows:                       rows,
-		TotalConsumption:           money.Round2(total),
-		SnapshotSupportedProviders: supported,
-		LedgerSupportedProviders:   ledgerSupported,
-		LedgerSyncedAt:             syncedAt,
-		Alerts:                     alerts,
+		Month:                     start.Format("2006-01"),
+		Rows:                      rows,
+		TotalConsumption:          money.Round2(total),
+		TotalTopup:                money.Round2(topupTotal),
+		BalanceSupportedProviders: supported,
+		LedgerSupportedProviders:  ledgerSupported,
+		LedgerSyncedAt:            syncedAt,
+		Alerts:                    alerts,
 	}, nil
 }
 
-func (s *costService) SaveSnapshot(ctx context.Context, req dto.SnapshotRequest) (*dto.SnapshotInfo, error) {
-	// 渠道必须存在（避免给不存在的 channel 记余额）。
-	refs, err := s.accountProviders(ctx)
-	if err != nil {
-		return nil, err
+// buildLedgerRows 组装台账行：每渠道一条，先填最新余额（快照），流水字段由 applyLedgerToRows 补齐。
+func (s *costService) buildLedgerRows(ctx context.Context, refs []UpstreamRef) ([]dto.UpstreamLedgerRow, error) {
+	rows := make([]dto.UpstreamLedgerRow, 0, len(refs))
+	for _, ref := range refs {
+		row := dto.UpstreamLedgerRow{
+			ProviderID:   ref.ID,
+			ProviderName: ref.Name,
+			ProviderType: ref.ProviderType,
+			Currency:     "CNY",
+		}
+		snap, err := s.repo.LatestSnapshot(ctx, ref.ID)
+		if err == nil {
+			value := snap.Balance
+			row.LatestBalance = &value
+			row.LatestDate = snap.SnapshotDate.Format("2006-01-02")
+			if snap.Currency != "" {
+				row.Currency = snap.Currency
+			}
+		} else if !isNotFound(err) {
+			return nil, err
+		}
+		rows = append(rows, row)
 	}
-	ref, ok := findRef(refs, req.ProviderID)
-	if !ok {
-		return nil, ErrProviderNotFound
-	}
-	date, err := parseDate(req.SnapshotDate)
-	if err != nil {
-		return nil, ErrInvalidItem
-	}
-	snapshot := &model.UpstreamBalanceSnapshot{
-		ProviderID:   req.ProviderID,
-		SnapshotDate: date,
-		Balance:      money.Round2(req.Balance),
-		Currency:     "CNY",
-		Source:       model.SnapshotSourceManual,
-		Remark:       strings.TrimSpace(req.Remark),
-	}
-	if err := s.repo.UpsertSnapshot(ctx, snapshot); err != nil {
-		return nil, err
-	}
-	info := buildSnapshotInfo(*snapshot, ref.Name)
-	return &info, nil
-}
-
-func (s *costService) DeleteSnapshot(ctx context.Context, id uint64) error {
-	if _, err := s.repo.FindSnapshot(ctx, id); err != nil {
-		return ErrSnapshotNotFound
-	}
-	return s.repo.DeleteSnapshot(ctx, id)
-}
-
-func (s *costService) SaveTopup(ctx context.Context, req dto.TopupRequest, operatorID uint64) (*dto.TopupInfo, error) {
-	refs, err := s.accountProviders(ctx)
-	if err != nil {
-		return nil, err
-	}
-	ref, ok := findRef(refs, req.ProviderID)
-	if !ok {
-		return nil, ErrProviderNotFound
-	}
-	if req.Amount == 0 {
-		return nil, ErrInvalidItem
-	}
-	date, err := parseDate(req.OccurredOn)
-	if err != nil {
-		return nil, ErrInvalidItem
-	}
-	topup := &model.UpstreamBalanceTopup{
-		ProviderID: req.ProviderID,
-		OccurredOn: date,
-		Amount:     money.Round2(req.Amount),
-		Remark:     strings.TrimSpace(req.Remark),
-		OperatorID: operatorID,
-	}
-	if err := s.repo.CreateTopup(ctx, topup); err != nil {
-		return nil, err
-	}
-	info := buildTopupInfo(*topup, ref.Name)
-	return &info, nil
-}
-
-func (s *costService) DeleteTopup(ctx context.Context, id uint64) error {
-	if _, err := s.repo.FindTopup(ctx, id); err != nil {
-		return ErrTopupNotFound
-	}
-	return s.repo.DeleteTopup(ctx, id)
-}
-
-func (s *costService) ListSnapshots(ctx context.Context, q dto.BalanceRecordQuery) (*dto.SnapshotListResponse, error) {
-	page, pageSize := normalizePage(q.Page), normalizePageSize(q.PageSize)
-	start, end := monthWindow(q.Month)
-	items, total, err := s.repo.ListSnapshots(ctx, q.ProviderID, start, end, (page-1)*pageSize, pageSize)
-	if err != nil {
-		return nil, err
-	}
-	names := s.providerNames(ctx)
-	respItems := make([]dto.SnapshotInfo, 0, len(items))
-	for _, item := range items {
-		respItems = append(respItems, buildSnapshotInfo(item, names[item.ProviderID]))
-	}
-	return &dto.SnapshotListResponse{
-		Items: respItems,
-		Meta:  dto.ListMeta{Page: page, PageSize: pageSize, Total: total},
-	}, nil
-}
-
-func (s *costService) ListTopups(ctx context.Context, q dto.BalanceRecordQuery) (*dto.TopupListResponse, error) {
-	page, pageSize := normalizePage(q.Page), normalizePageSize(q.PageSize)
-	start, end := monthWindow(q.Month)
-	items, total, err := s.repo.ListTopups(ctx, q.ProviderID, start, end, (page-1)*pageSize, pageSize)
-	if err != nil {
-		return nil, err
-	}
-	names := s.providerNames(ctx)
-	respItems := make([]dto.TopupInfo, 0, len(items))
-	for _, item := range items {
-		respItems = append(respItems, buildTopupInfo(item, names[item.ProviderID]))
-	}
-	return &dto.TopupListResponse{
-		Items: respItems,
-		Meta:  dto.ListMeta{Page: page, PageSize: pageSize, Total: total},
-	}, nil
+	return rows, nil
 }
 
 // FetchBalance 抓取渠道余额并落当日快照；适配器未实现 AccountReader 时给出可读提示。
-func (s *costService) FetchBalance(ctx context.Context, providerID uint64) (*dto.SnapshotInfo, error) {
+func (s *costService) FetchBalance(ctx context.Context, providerID uint64) (*dto.BalanceSnapshotInfo, error) {
 	if s.upstream == nil {
 		return nil, ErrBalanceUnsupported
 	}
@@ -595,7 +509,22 @@ func (s *costService) FetchBalance(ctx context.Context, providerID uint64) (*dto
 	if !ok {
 		return nil, ErrProviderNotFound
 	}
-	balance, currency, err := s.upstream.FetchBalance(ctx, providerID)
+	snap, err := s.fetchAndStoreBalance(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	return &dto.BalanceSnapshotInfo{
+		ProviderID:   ref.ID,
+		ProviderName: ref.Name,
+		SnapshotDate: snap.SnapshotDate.Format("2006-01-02"),
+		Balance:      snap.Balance,
+		Currency:     snap.Currency,
+	}, nil
+}
+
+// fetchAndStoreBalance 向上游取当前余额并落当日快照（同一天多条抓取覆盖同一行）。
+func (s *costService) fetchAndStoreBalance(ctx context.Context, ref UpstreamRef) (*model.UpstreamBalanceSnapshot, error) {
+	balance, currency, err := s.upstream.FetchBalance(ctx, ref.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -603,7 +532,7 @@ func (s *costService) FetchBalance(ctx context.Context, providerID uint64) (*dto
 		currency = "CNY"
 	}
 	snapshot := &model.UpstreamBalanceSnapshot{
-		ProviderID:   providerID,
+		ProviderID:   ref.ID,
 		SnapshotDate: dayStart(s.now()),
 		Balance:      money.Round2(balance),
 		Currency:     currency,
@@ -613,8 +542,7 @@ func (s *costService) FetchBalance(ctx context.Context, providerID uint64) (*dto
 	if err := s.repo.UpsertSnapshot(ctx, snapshot); err != nil {
 		return nil, err
 	}
-	info := buildSnapshotInfo(*snapshot, ref.Name)
-	return &info, nil
+	return snapshot, nil
 }
 
 // RunAutoSnapshots 每日自动快照：只抓「具备余额读取能力」的渠道（BalanceSupported），
@@ -635,27 +563,11 @@ func (s *costService) RunAutoSnapshots(ctx context.Context) (saved, skipped, fai
 			skipped++
 			continue
 		}
-		balance, currency, err := s.upstream.FetchBalance(ctx, ref.ID)
-		if err != nil {
+		if _, err := s.fetchAndStoreBalance(ctx, ref); err != nil {
 			if errors.Is(err, ErrBalanceUnsupported) {
 				skipped++
 				continue
 			}
-			failed++
-			continue
-		}
-		if currency == "" {
-			currency = "CNY"
-		}
-		snapshot := &model.UpstreamBalanceSnapshot{
-			ProviderID:   ref.ID,
-			SnapshotDate: dayStart(s.now()),
-			Balance:      money.Round2(balance),
-			Currency:     currency,
-			Source:       model.SnapshotSourceAuto,
-			Remark:       "每日自动抓取",
-		}
-		if err := s.repo.UpsertSnapshot(ctx, snapshot); err != nil {
 			failed++
 			continue
 		}
@@ -664,14 +576,7 @@ func (s *costService) RunAutoSnapshots(ctx context.Context) (saved, skipped, fai
 	return saved, skipped, failed
 }
 
-// —— 内部：历史装载与月度推算 ——
-
-type upstreamHistory struct {
-	ref          UpstreamRef
-	snapshots    []model.UpstreamBalanceSnapshot // 窗口内，日期升序
-	beforeWindow *model.UpstreamBalanceSnapshot  // 窗口前最近一条（第一个月的期初）
-	topups       []model.UpstreamBalanceTopup    // 窗口内，日期升序
-}
+// —— 内部：渠道装载 ——
 
 func (s *costService) accountProviders(ctx context.Context) ([]UpstreamRef, error) {
 	if s.upstream == nil {
@@ -680,118 +585,10 @@ func (s *costService) accountProviders(ctx context.Context) ([]UpstreamRef, erro
 	return s.upstream.ListAccountProviders(ctx)
 }
 
-// loadHistories 一次装载窗口内全部快照与充值（月度台账与 12 月趋势共用，避免逐月查询）。
-func (s *costService) loadHistories(ctx context.Context, refs []UpstreamRef, start, end time.Time) ([]upstreamHistory, error) {
-	histories := make([]upstreamHistory, 0, len(refs))
-	for _, ref := range refs {
-		snapshots, err := s.repo.ListSnapshotsInRange(ctx, ref.ID, start, end)
-		if err != nil {
-			return nil, err
-		}
-		before, err := s.repo.LatestSnapshotBefore(ctx, ref.ID, start)
-		if err != nil && !isNotFound(err) {
-			return nil, err
-		}
-		topups, err := s.repo.ListTopupsInRange(ctx, ref.ID, start, end)
-		if err != nil {
-			return nil, err
-		}
-		histories = append(histories, upstreamHistory{
-			ref:          ref,
-			snapshots:    snapshots,
-			beforeWindow: before,
-			topups:       topups,
-		})
-	}
-	return histories, nil
-}
-
-// ledgerOf 单渠道的单月推算：期初 = 上月最后一条；期末 = 本月最后一条。
-// 本月无快照时不推算消耗（consumption=nil），由页面提示录入。
-func ledgerOf(history upstreamHistory, start, end, asOfEnd time.Time) dto.UpstreamLedgerRow {
-	row := dto.UpstreamLedgerRow{
-		ProviderID:   history.ref.ID,
-		ProviderName: history.ref.Name,
-		ProviderType: history.ref.ProviderType,
-		Currency:     "CNY",
-	}
-	// 期初：窗口内第一个月之前的快照，或窗口内该月之前的最后一条。
-	var opening *model.UpstreamBalanceSnapshot
-	if history.beforeWindow != nil {
-		opening = history.beforeWindow
-	}
-	for i := range history.snapshots {
-		snap := history.snapshots[i]
-		if snap.SnapshotDate.Before(start) {
-			opening = &history.snapshots[i]
-		}
-	}
-	// 期末：本月内最后一条（升序装载，取最后一个落在月内的）。
-	var closing *model.UpstreamBalanceSnapshot
-	for i := range history.snapshots {
-		snap := history.snapshots[i]
-		if !snap.SnapshotDate.Before(start) && snap.SnapshotDate.Before(end) {
-			closing = &history.snapshots[i]
-		}
-	}
-	// 最新一条（不限月份）：窗口内最后一条快照。
-	if len(history.snapshots) > 0 {
-		latest := history.snapshots[len(history.snapshots)-1]
-		value := latest.Balance
-		row.LatestBalance = &value
-		row.LatestDate = latest.SnapshotDate.Format("2006-01-02")
-		row.Currency = latest.Currency
-	}
-	if opening != nil {
-		value := opening.Balance
-		row.OpeningBalance = &value
-		row.OpeningDate = opening.SnapshotDate.Format("2006-01-02")
-	}
-	// 充值合计：本月内。
-	topupTotal := 0.0
-	for _, topup := range history.topups {
-		if !topup.OccurredOn.Before(start) && topup.OccurredOn.Before(end) {
-			topupTotal += topup.Amount
-		}
-	}
-	row.TopupTotal = money.Round2(topupTotal)
-	if closing != nil {
-		value := closing.Balance
-		row.ClosingBalance = &value
-		row.ClosingDate = closing.SnapshotDate.Format("2006-01-02")
-		row.Currency = closing.Currency
-		// 快照日期早于截至日 → 消耗是「截至该日」的估算值。
-		if closing.SnapshotDate.Before(asOfEnd.AddDate(0, 0, -1)) {
-			row.Estimated = true
-		}
-		if opening != nil {
-			consumption := money.Round2(opening.Balance + topupTotal - closing.Balance)
-			row.Consumption = &consumption
-		}
-	} else {
-		row.MissingSnapshot = true
-		row.Estimated = true
-	}
-	return row
-}
-
-func buildLedger(histories []upstreamHistory, start, end, asOfEnd time.Time) ([]dto.UpstreamLedgerRow, float64) {
-	rows := make([]dto.UpstreamLedgerRow, 0, len(histories))
-	total := 0.0
-	for _, history := range histories {
-		row := ledgerOf(history, start, end, asOfEnd)
-		if row.Consumption != nil {
-			total += *row.Consumption
-		}
-		rows = append(rows, row)
-	}
-	return rows, money.Round2(total)
-}
-
-// buildTrend 近 12 月趋势：收入来自统计服务，上游成本按「流水优先、快照兜底」逐月取数
-// （与总览同一规则，见 applyLedgerToRows）。
+// buildTrend 近 12 月趋势：收入来自统计服务，上游成本按「该月账本消费流水净额」逐月归集
+// （只有已同步账本的渠道计入；当月无流水即 0，与总览同一规则）。
 // 收入窗口：历史月按整月，仅「当前自然月」截到今天（否则历史月会把今天的收入算进去）。
-func (s *costService) buildTrend(ctx context.Context, histories []upstreamHistory, items []model.CostItem, endMonthStart time.Time, monthlyLedger map[uint64]map[string]ledgerAgg, ledgerAuthority map[uint64]bool) ([]dto.CostTrendPoint, error) {
+func (s *costService) buildTrend(ctx context.Context, items []model.CostItem, endMonthStart time.Time, monthlyLedger map[uint64]map[string]ledgerAgg, ledgerAuthority map[uint64]bool) ([]dto.CostTrendPoint, error) {
 	now := s.now()
 	currentMonthStart, _ := monthRange(now)
 	points := make([]dto.CostTrendPoint, 0, trendMonths)
@@ -812,15 +609,15 @@ func (s *costService) buildTrend(ctx context.Context, histories []upstreamHistor
 				return nil, err
 			}
 		}
-		monthRows, _ := buildLedger(histories, monthStart, monthEnd, monthEnd)
 		monthKey := monthStart.Format("2006-01")
-		monthAgg := make(map[uint64]ledgerAgg, len(histories))
-		for _, history := range histories {
-			if agg, ok := monthlyLedger[history.ref.ID][monthKey]; ok {
-				monthAgg[history.ref.ID] = agg
+		upstreamTotal := 0.0
+		for providerID, byMonth := range monthlyLedger {
+			if !ledgerAuthority[providerID] {
+				continue
 			}
+			upstreamTotal += byMonth[monthKey].Sum
 		}
-		upstreamTotal, _, _, _ := applyLedgerToRows(monthRows, monthAgg, ledgerAuthority)
+		upstreamTotal = money.Round2(upstreamTotal)
 		fixed := monthItemsTotal(items, monthStart)
 		costTotal := money.Round2(upstreamTotal + fixed + revenue.CommissionTotal + referralCost)
 		profit := money.Round2(revenue.ServiceRevenue - costTotal)
@@ -1008,24 +805,31 @@ func (s *costService) BalanceAlerts(ctx context.Context) ([]dto.BalanceAlert, er
 		if !ref.BalanceSupported {
 			continue
 		}
-		snap, serr := s.repo.LatestSnapshot(ctx, ref.ID)
-		if serr != nil {
-			if isNotFound(serr) {
-				continue // 还没有任何余额快照：页面以「缺快照」引导录入，不重复告警
-			}
-			return nil, serr
+		// 余额优先取最近快照；一条快照都没有时（新部署、每日任务还没跑）现场抓一次并落库 ——
+		// 手工录入已下线，不能指望运营先补一条，否则告警会静默缺席。
+		balance, currency, berr := s.latestBalance(ctx, ref)
+		if berr != nil {
+			alerts = append(alerts, dto.BalanceAlert{
+				ProviderID:   ref.ID,
+				ProviderName: ref.Name,
+				Level:        "unknown",
+				Currency:     "CNY",
+				Threshold:    threshold,
+				Message:      fmt.Sprintf("余额获取失败：%v", berr),
+			})
+			continue
 		}
 		alert := dto.BalanceAlert{
 			ProviderID:   ref.ID,
 			ProviderName: ref.Name,
-			Balance:      money.Round2(snap.Balance),
-			Currency:     snap.Currency,
+			Balance:      money.Round2(balance),
+			Currency:     currency,
 			Threshold:    threshold,
 		}
 		dues, derr := s.dueHosts(ctx, ref.ID)
 		if derr != nil {
 			alert.Level = "unknown"
-			alert.Message = fmt.Sprintf("到期金额获取失败：%v（当前余额 %.2f）", derr, snap.Balance)
+			alert.Message = fmt.Sprintf("到期金额获取失败：%v（当前余额 %.2f）", derr, balance)
 			alerts = append(alerts, alert)
 			continue
 		}
@@ -1033,20 +837,61 @@ func (s *costService) BalanceAlerts(ctx context.Context) ([]dto.BalanceAlert, er
 		alert.DueWithin30d = money.Round2(due)
 		alert.DueCount = count
 		switch {
-		case due > 0 && snap.Balance < due:
+		case due > 0 && balance < due:
 			alert.Level = "critical"
 			alert.Message = fmt.Sprintf("余额 %.2f 不足以支付未来 %d 天内的续费 %.2f（%d 台主机，含已到期未付），请尽快充值",
-				snap.Balance, dueWindowDays, due, count)
-		case threshold > 0 && snap.Balance < threshold:
+				balance, dueWindowDays, due, count)
+		case threshold > 0 && balance < threshold:
 			alert.Level = "warning"
-			alert.Message = fmt.Sprintf("余额 %.2f 低于低水位阈值 %.2f，建议充值", snap.Balance, threshold)
+			alert.Message = fmt.Sprintf("余额 %.2f 低于低水位阈值 %.2f，建议充值", balance, threshold)
 		default:
 			alert.Level = "ok"
-			alert.Message = fmt.Sprintf("余额 %.2f，未来 %d 天内续费 %.2f（%d 台主机）", snap.Balance, dueWindowDays, due, count)
+			alert.Message = fmt.Sprintf("余额 %.2f，未来 %d 天内续费 %.2f（%d 台主机）", balance, dueWindowDays, due, count)
 		}
 		alerts = append(alerts, alert)
 	}
 	return alerts, nil
+}
+
+// latestBalance 取渠道当前余额：优先最近快照；一条快照都没有时现场抓一次并落库。
+// 现场抓取的成功/失败结果缓存 dueCacheTTL——渠道不可达时不至于每次刷新页面都去打一次上游。
+func (s *costService) latestBalance(ctx context.Context, ref UpstreamRef) (balance float64, currency string, err error) {
+	snap, serr := s.repo.LatestSnapshot(ctx, ref.ID)
+	if serr == nil {
+		return snap.Balance, snap.Currency, nil
+	}
+	if !isNotFound(serr) {
+		return 0, "", serr
+	}
+	s.dueMu.Lock()
+	if s.balanceCache == nil {
+		s.balanceCache = make(map[uint64]balanceCacheEntry)
+	}
+	if cached, found := s.balanceCache[ref.ID]; found && s.now().Sub(cached.at) < dueCacheTTL {
+		s.dueMu.Unlock()
+		return cached.balance, cached.currency, cached.err
+	}
+	s.dueMu.Unlock()
+
+	if served, ferr := s.fetchAndStoreBalance(ctx, ref); ferr != nil {
+		err = ferr
+		currency = "CNY"
+	} else {
+		balance, currency = served.Balance, served.Currency
+	}
+
+	s.dueMu.Lock()
+	s.balanceCache[ref.ID] = balanceCacheEntry{at: s.now(), balance: balance, currency: currency, err: err}
+	s.dueMu.Unlock()
+	return balance, currency, err
+}
+
+// balanceCacheEntry 无快照渠道的现场抓取结果（含失败；只用于告警取数）。
+type balanceCacheEntry struct {
+	at       time.Time
+	balance  float64
+	currency string
+	err      error
 }
 
 // balanceWarningThreshold 低水位阈值（财务配置 finance.upstream_balance_warning；缺失/非法=0 不启用）。
@@ -1088,10 +933,10 @@ func (s *costService) dueHosts(ctx context.Context, providerID uint64) ([]upstre
 	return dues, err
 }
 
-// —— 双口径工具 ——
+// —— 流水口径工具 ——
 
 // ledgerAuthority 该渠道的账本是否可作准：适配器支持账本 **且** 已同步过至少一条记录。
-// 只有「已同步过」才敢把「本月无流水」当成「本月零成本」；否则退回快照推算。
+// 只有「已同步过」才敢把「本月无流水」当成「本月零成本」，否则该渠道本期不出数。
 func (s *costService) ledgerAuthority(ctx context.Context, refs []UpstreamRef) (map[uint64]bool, error) {
 	out := make(map[uint64]bool, len(refs))
 	for _, ref := range refs {
@@ -1115,7 +960,8 @@ type ledgerAgg struct {
 	Count int
 }
 
-// aggregateLedger 区间内按渠道聚合消费净额。
+// aggregateLedger 区间内按渠道聚合消费净额（kind=consume 时 Sum = Σ(amount − refund_amount)，
+// kind=topup 时 Sum = Σamount —— 退款字段对充值恒为 0，不需要分支）。
 func aggregateLedger(entries []model.UpstreamLedgerEntry, start, end time.Time) map[uint64]ledgerAgg {
 	out := make(map[uint64]ledgerAgg, 8)
 	for _, entry := range entries {
@@ -1146,52 +992,37 @@ func aggregateLedgerByMonth(entries []model.UpstreamLedgerEntry) map[uint64]map[
 	return out
 }
 
-// applyLedgerToRows 把账本口径落到台账行并算出上游成本合计（页面与文档同文规则）：
+// applyLedgerToRows 把流水口径落到台账行并算合计（页面与文档同文规则）：
 //
-//	① 渠道已同步过账本（authoritative）→ 本月成本一律以流水为准：有流水取流水净额，
-//	   没有条目就是 0——这是「本月确实没消费」的真相，不能退回快照推算
-//	   （否则漏记充值的月份会被推算成负数成本）；
-//	② 渠道未接入/尚未同步账本 → 用快照推算兜底（期初 + 充值 − 期末）；
-//	③ 两者都没有 → none（页面提示「缺快照/待同步」）。
+//	① 渠道已同步过账本（authoritative）→ 消耗/充值一律以流水为准：有流水取净额，
+//	   没有条目就是 0——这是「本期确实没消费」的真相，不能拿别的口径顶替；
+//	② 渠道未接入账本或尚未同步 → 消耗/充值保持 null、来源记 none
+//	   （页面据此提示「未接入账本/待同步」，该渠道成本可用成本项配置登记）。
 //
-// 返回值：cost=合并成本；ledgerTotal=流水合计；diff=流水−快照（只对「两种口径都有」的渠道累计，才可比）；
-// source=ledger / snapshot / mixed / none（页面据此标注口径来源）。
-func applyLedgerToRows(rows []dto.UpstreamLedgerRow, ledger map[uint64]ledgerAgg, authoritative map[uint64]bool) (cost, ledgerTotal, diff float64, source string) {
-	ledgerOnly, snapshotOnly := 0, 0
+// 返回值：cost=本期上游成本合计；topupTotal=本期充值合计；source=ledger（有渠道出数）/ none。
+func applyLedgerToRows(rows []dto.UpstreamLedgerRow, consume, topup map[uint64]ledgerAgg, authoritative map[uint64]bool) (cost, topupTotal float64, source string) {
+	ledgerRows := 0
 	for i := range rows {
-		if authoritative[rows[i].ProviderID] {
-			agg := ledger[rows[i].ProviderID] // 本月没有条目时为零值：流水口径下的 0
-			sum := money.Round2(agg.Sum)
-			rows[i].LedgerConsumption = &sum
-			rows[i].LedgerEntries = agg.Count
-			rows[i].CostSource = "ledger"
-			cost += sum
-			ledgerTotal += sum
-			ledgerOnly++
-			if rows[i].Consumption != nil {
-				diff += sum - *rows[i].Consumption
-			}
+		if !authoritative[rows[i].ProviderID] {
+			rows[i].CostSource = "none"
 			continue
 		}
-		if rows[i].Consumption != nil {
-			rows[i].CostSource = "snapshot"
-			cost += *rows[i].Consumption
-			snapshotOnly++
-			continue
-		}
-		rows[i].CostSource = "none"
+		sum := money.Round2(consume[rows[i].ProviderID].Sum)
+		rows[i].Consumption = &sum
+		rows[i].ConsumptionEntries = consume[rows[i].ProviderID].Count
+		top := money.Round2(topup[rows[i].ProviderID].Sum)
+		rows[i].TopupTotal = &top
+		rows[i].CostSource = "ledger"
+		cost += sum
+		topupTotal += top
+		ledgerRows++
 	}
-	switch {
-	case ledgerOnly > 0 && snapshotOnly > 0:
-		source = "mixed"
-	case ledgerOnly > 0:
+	if ledgerRows > 0 {
 		source = "ledger"
-	case snapshotOnly > 0:
-		source = "snapshot"
-	default:
+	} else {
 		source = "none"
 	}
-	return money.Round2(cost), money.Round2(ledgerTotal), money.Round2(diff), source
+	return money.Round2(cost), money.Round2(topupTotal), source
 }
 
 // upstreamLineCopy 上游成本行的标签与来源说明（口径变化时页面与文档一致）。
@@ -1200,15 +1031,9 @@ func upstreamLineCopy(source string) (label, usage string) {
 	case "ledger":
 		return "上游余额消耗（流水）",
 			"上游账本消费流水净额（余额支付的开通/续费 − 对应退款），可在「上游余额台账 → 上游流水」逐笔核对"
-	case "mixed":
-		return "上游余额消耗（流水 + 快照推算）",
-			"有账本的渠道取流水净额，其余渠道取快照推算（期初 + 充值 − 期末）；两类渠道见台账「取数来源」列"
-	case "snapshot":
-		return "上游余额消耗（快照推算）",
-			"各渠道余额快照推算：期初 + 期间充值 − 期末（无本月快照的渠道不计入）；该渠道未接入上游账本"
 	default:
 		return "上游余额消耗",
-			"暂无数据：既没有上游账本流水，也没有可推算的余额快照"
+			"未接入上游账本（无自动成本）；如需登记该渠道成本，请用「成本项配置」"
 	}
 }
 
@@ -1401,33 +1226,6 @@ func buildItemInfo(item model.CostItem, monthStart time.Time) dto.CostItemInfo {
 		info.EffectiveTo = item.EffectiveTo.Format("2006-01-02")
 	}
 	return info
-}
-
-func buildSnapshotInfo(item model.UpstreamBalanceSnapshot, providerName string) dto.SnapshotInfo {
-	return dto.SnapshotInfo{
-		ID:           item.ID,
-		ProviderID:   item.ProviderID,
-		ProviderName: providerName,
-		SnapshotDate: item.SnapshotDate.Format("2006-01-02"),
-		Balance:      item.Balance,
-		Currency:     item.Currency,
-		Source:       item.Source,
-		Remark:       item.Remark,
-		CreatedAt:    item.CreatedAt.Format(time.RFC3339),
-	}
-}
-
-func buildTopupInfo(item model.UpstreamBalanceTopup, providerName string) dto.TopupInfo {
-	return dto.TopupInfo{
-		ID:           item.ID,
-		ProviderID:   item.ProviderID,
-		ProviderName: providerName,
-		OccurredOn:   item.OccurredOn.Format("2006-01-02"),
-		Amount:       item.Amount,
-		Remark:       item.Remark,
-		OperatorID:   item.OperatorID,
-		CreatedAt:    item.CreatedAt.Format(time.RFC3339),
-	}
 }
 
 // providerNames 渠道 ID→名称（列表展示用；渠道列举失败时返回 nil，页面退化为只显示 ID）。

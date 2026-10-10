@@ -22,11 +22,11 @@ import (
 	finbillrepo "hostsent/backend/internal/modules/admin/finance/bill/repository"
 	finbillservice "hostsent/backend/internal/modules/admin/finance/bill/service"
 	costservice "hostsent/backend/internal/modules/admin/finance/cost/service"
-	finrechargedto "hostsent/backend/internal/modules/admin/finance/recharge/dto"
-	finrechargehandler "hostsent/backend/internal/modules/admin/finance/recharge/handler"
-	finrechargemodel "hostsent/backend/internal/modules/admin/finance/recharge/model"
-	finrechargerepo "hostsent/backend/internal/modules/admin/finance/recharge/repository"
-	finrechargeservice "hostsent/backend/internal/modules/admin/finance/recharge/service"
+	finrechargedto "hostsent/backend/internal/modules/admin/finance/account/recharge/dto"
+	finrechargehandler "hostsent/backend/internal/modules/admin/finance/account/recharge/handler"
+	finrechargemodel "hostsent/backend/internal/modules/admin/finance/account/recharge/model"
+	finrechargerepo "hostsent/backend/internal/modules/admin/finance/account/recharge/repository"
+	finrechargeservice "hostsent/backend/internal/modules/admin/finance/account/recharge/service"
 	referralhandler "hostsent/backend/internal/modules/admin/finance/referral/handler"
 	referralrepo "hostsent/backend/internal/modules/admin/finance/referral/repository"
 	referralservice "hostsent/backend/internal/modules/admin/finance/referral/service"
@@ -37,9 +37,9 @@ import (
 	finstatsservice "hostsent/backend/internal/modules/admin/finance/stats/service"
 	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
 	fintransactionrepo "hostsent/backend/internal/modules/admin/finance/transaction/repository"
-	finwithdrawhandler "hostsent/backend/internal/modules/admin/finance/withdraw/handler"
-	finwithdrawrepo "hostsent/backend/internal/modules/admin/finance/withdraw/repository"
-	finwithdrawservice "hostsent/backend/internal/modules/admin/finance/withdraw/service"
+	finwithdrawhandler "hostsent/backend/internal/modules/admin/finance/referral/walletwithdraw/handler"
+	finwithdrawrepo "hostsent/backend/internal/modules/admin/finance/referral/walletwithdraw/repository"
+	finwithdrawservice "hostsent/backend/internal/modules/admin/finance/referral/walletwithdraw/service"
 	instancehandler "hostsent/backend/internal/modules/admin/instance/handler"
 	lifecyclehandler "hostsent/backend/internal/modules/admin/instance/lifecycle/handler"
 	lifecyclerepo "hostsent/backend/internal/modules/admin/instance/lifecycle/repository"
@@ -871,8 +871,15 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	instanceOpsHandler := instancehandler.NewInstanceHandler(instanceOpsService)
 	// 用户侧自助销毁（doc91 §6.4）：薄委派给运维台，销毁逻辑（能力分派/流水/事件）不重写。
 	ucInstanceService.SetDestructor(instanceOpsService)
+	// 用户侧维护类自助（重装/重置密码/救援/快照）：同样委派运维台。
+	// 归属校验在 UC 侧用带 user_id 的查询完成，委派后复用运维台的能力分派与操作流水。
+	ucInstanceService.SetOperator(instanceOpsService)
 	// 实例操作事件（P6/T6.5）：电源/暂停恢复/阶段推进 → instance.status_changed。
 	instanceOpsService.SetEventListener(buildInstanceEventListener(openEventPublisher))
+	// 退款后实例处置策略（doc61 §8 第 2 条）：读 lifecycle_policies.refund_action，
+	// 读不到一律 none（不动作）。装配在此处（lifecyclePolicyRepo 构造于下方生命周期域块），
+	// 因此延迟到该块之后再 SetRefundPolicyReader。
+	// 退款钩子实体见下方 orderService.SetInstanceRefundHook（同处依赖 instanceOpsService）。
 	// 规格管理（spec 子域）
 	specTemplateRepo := specrepo.NewSpecTemplateRepository(database)
 	specMappingRepo := specrepo.NewSpecMappingRepository(database)
@@ -1003,6 +1010,11 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 生命周期阶段推进器注入（T5.4）：能力缺失告警复用开通失败告警通道。
 	lifecycleAdvancer.SetCapabilityNotifier(buildStageCapabilityNotifier(notifySvc, logger))
 	lifecycleSvc.SetStageAdvancer(lifecycleAdvancer)
+	// 退款 → 实例联动（doc61 §8 第 2 条）：策略从生命周期策略读（默认 none），
+	// 处置动作走实例运维台（能力分派/流水/事件一并具备）。装配在此处因为需要
+	// instanceOpsService 与 lifecyclePolicyRepo 同时在作用域内。
+	instanceOpsService.SetRefundPolicyReader(buildRefundPolicyReader(lifecyclePolicyRepo, logger))
+	orderService.SetInstanceRefundHook(buildRefundInstanceHook(instanceOpsService, logger))
 	// 工单 Notifier 桥接（P2-04）：回复/状态通知用户，指派通知员工
 	ticketService.SetNotifier(&ticketNotifierBridge{notifySvc: notifySvc, logger: logger})
 	// 调价待确认通知桥接（T3.4）：上游改价超阈值时提醒运维处理

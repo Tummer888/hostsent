@@ -1,14 +1,25 @@
 import { request } from '@/utils/request'
 
 import type {
+  InstanceAddIPRequest,
+  InstanceAttachDiskRequest,
+  InstanceBandwidthRequest,
+  InstanceBatchActionRequest,
+  InstanceBatchActionResponse,
   InstanceDestroyRequest,
   InstanceDetail,
   InstanceOpsListQuery,
   InstanceOpsListResponse,
   InstancePowerRequest,
   InstanceRelatedResponse,
+  InstanceReinstallRequest,
+  InstanceReinstallResult,
   InstanceRemarkUpdateRequest,
+  InstanceRescueRequest,
   InstanceResizeRequest,
+  InstanceSnapshotCreateRequest,
+  InstanceSnapshotInfo,
+  InstanceSnapshotRestoreRequest,
   InstanceStatsResponse,
   InstanceVNCResponse,
   OperationListQuery,
@@ -125,5 +136,92 @@ export function getInstanceOperationLogs(params: OperationLogQuery): Promise<Ope
   return request.get<OperationLogListResponse>({
     url: '/instances/operations',
     params: { ...params },
+  })
+}
+
+// 批量运维（开机/关机/重启/同步/暂停/恢复），返回逐台结果
+export function batchInstanceAction(data: InstanceBatchActionRequest): Promise<InstanceBatchActionResponse> {
+  return request.post<InstanceBatchActionResponse>({
+    url: '/instances/batch',
+    data,
+  })
+}
+
+// ---- 维护类操作（平台接口实测存在：重装/重置密码/救援/快照/硬件）----
+
+/** 重装系统；返回平台新签发的初始凭据（只此一次，页面必须提示立即保存）。 */
+export function reinstallInstance(id: number, data: InstanceReinstallRequest): Promise<InstanceReinstallResult> {
+  return request.post<InstanceReinstallResult>({
+    url: `/instances/${id}/reinstall`,
+    data,
+  })
+}
+
+export function resetInstancePassword(id: number, password: string): Promise<string> {
+  return request.post<string>({
+    url: `/instances/${id}/reset-password`,
+    data: { password },
+  })
+}
+
+export function rescueInstance(id: number, data: InstanceRescueRequest): Promise<string> {
+  return request.post<string>({
+    url: `/instances/${id}/rescue`,
+    data,
+  })
+}
+
+export function exitRescueInstance(id: number): Promise<string> {
+  return request.post<string>({
+    url: `/instances/${id}/exit-rescue`,
+  })
+}
+
+export function getInstanceSnapshots(id: number, type?: string): Promise<InstanceSnapshotInfo[]> {
+  return request.get<InstanceSnapshotInfo[]>({
+    url: `/instances/${id}/snapshots`,
+    params: { type },
+  })
+}
+
+export function createInstanceSnapshot(id: number, data: InstanceSnapshotCreateRequest): Promise<string> {
+  return request.post<string>({
+    url: `/instances/${id}/snapshots`,
+    data,
+  })
+}
+
+export function deleteInstanceSnapshot(id: number, snapshotId: string): Promise<string> {
+  return request.delete<string>({
+    url: `/instances/${id}/snapshots/${snapshotId}`,
+  })
+}
+
+/** 用快照恢复（覆盖系统盘，需二次确认）。 */
+export function restoreInstanceSnapshot(id: number, data: InstanceSnapshotRestoreRequest): Promise<string> {
+  return request.post<string>({
+    url: `/instances/${id}/snapshots/restore`,
+    data,
+  })
+}
+
+export function updateInstanceBandwidth(id: number, data: InstanceBandwidthRequest): Promise<string> {
+  return request.put<string>({
+    url: `/instances/${id}/bandwidth`,
+    data,
+  })
+}
+
+export function addInstanceIP(id: number, data: InstanceAddIPRequest): Promise<string> {
+  return request.post<string>({
+    url: `/instances/${id}/ips`,
+    data,
+  })
+}
+
+export function attachInstanceDisk(id: number, data: InstanceAttachDiskRequest): Promise<string> {
+  return request.post<string>({
+    url: `/instances/${id}/disks`,
+    data,
   })
 }

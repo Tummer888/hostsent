@@ -93,7 +93,25 @@
     <section class="table-card surface-card">
       <div class="table-card__head">
         <h3 class="card-title">实例列表</h3>
-        <span class="table-card__meta">共 {{ total }} 台实例</span>
+        <t-space size="small" align="center">
+          <!-- 批量运维（doc61 P1）：勾选后出现动作条，逐台结果在弹窗里回显 -->
+          <template v-if="selectedIds.length">
+            <span class="table-card__meta">已选 {{ selectedIds.length }} 台</span>
+            <t-button
+              v-for="act in batchActions"
+              :key="act.value"
+              size="small"
+              :theme="act.theme"
+              variant="outline"
+              :loading="batchRunning"
+              @click="handleBatch(act.value, act.label, act.needConfirm)"
+            >
+              {{ act.label }}
+            </t-button>
+            <t-button size="small" variant="text" @click="clearSelection">清空</t-button>
+          </template>
+          <span v-else class="table-card__meta">共 {{ total }} 台实例</span>
+        </t-space>
       </div>
       <t-table
         row-key="id"
@@ -104,7 +122,9 @@
         hover
         table-layout="fixed"
         cell-empty-content="—"
+        :selected-row-keys="selectedIds"
         :pagination="isMobile ? undefined : pagination"
+        @select-change="handleSelectChange"
         @page-change="handlePageChange"
       >
         <template #name="{ row }">
@@ -216,6 +236,19 @@
                     <t-dropdown-item :disabled="syncingId === row.id" @click="handleSync(row)">
                       {{ syncingId === row.id ? '同步中…' : '同步刷新' }}
                     </t-dropdown-item>
+                    <!-- 硬电源（断电级）：软电源在行内已有，这里只补危险动作，同样走二次确认 -->
+                    <t-dropdown-item
+                      :disabled="poweringId === row.id"
+                      @click="handlePower(row, 'hard_off')"
+                    >
+                      强制关机
+                    </t-dropdown-item>
+                    <t-dropdown-item
+                      :disabled="poweringId === row.id"
+                      @click="handlePower(row, 'hard_reboot')"
+                    >
+                      强制重启
+                    </t-dropdown-item>
                     <!-- 暂停/恢复（T5.5）：缺能力时置灰，避免点出一个必定失败的动作 -->
                     <t-dropdown-item
                       v-if="row.lifecycle_stage === 'suspended'"
@@ -271,6 +304,45 @@
     </t-dialog>
 
     <t-dialog
+      v-model:visible="batchResult.visible"
+      :header="`${batchResult.label}结果`"
+      width="640px"
+      :footer="false"
+      @close="batchResult.visible = false"
+    >
+      <div v-if="batchResult.data" class="batch-result">
+        <p class="batch-result__summary">
+          成功 {{ batchResult.data.succeeded }} 台 · 跳过 {{ batchResult.data.skipped }} 台 · 失败
+          {{ batchResult.data.failed }} 台
+        </p>
+        <t-table
+          row-key="id"
+          :data="batchResult.data.items"
+          :columns="batchResultColumns"
+          size="small"
+          :pagination="undefined"
+          table-layout="fixed"
+          cell-empty-content="—"
+        >
+          <template #instance="{ row }">
+            <div>
+              <span class="cell-strong">{{ row.name || '—' }}</span>
+              <div class="cell-sub">{{ row.instance_mark || '—' }}</div>
+            </div>
+          </template>
+          <template #status="{ row }">
+            <t-tag :theme="batchStatusTheme(row.status)" variant="light" size="small" shape="round">
+              {{ batchStatusLabel(row.status) }}
+            </t-tag>
+          </template>
+          <template #message="{ row }">
+            <span :class="{ 'op-error': row.status === 'failed' }" class="cell-muted">{{ row.message || '—' }}</span>
+          </template>
+        </t-table>
+      </div>
+    </t-dialog>
+
+    <t-dialog
       v-model:visible="vnc.visible"
       :header="`远程控制台 · ${vnc.name}`"
       width="80%"
@@ -311,6 +383,7 @@ import {
   getInstanceList,
   getInstanceStats,
   getInstanceVNC,
+  batchInstanceAction,
   powerInstance,
   suspendInstance,
   syncInstance,
@@ -327,7 +400,7 @@ import {
   powerActionTips,
 } from '@/pages/instances/constants'
 import { sourceModeOptions } from '@/pages/product/constants'
-import type { InstanceItem, InstanceStatsResponse } from '@/types/interface'
+import type { InstanceBatchActionItem, InstanceBatchActionResponse, InstanceItem, InstanceStatsResponse } from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
@@ -398,22 +471,48 @@ const mobilePage = reactive({
   pageSize: 10,
   total: 0,
 })
-const columns: PrimaryTableCol<InstanceItem>[] = [
-  { colKey: 'name', title: '实例', minWidth: 200 },
-  { colKey: 'user', title: '归属用户', minWidth: 170 },
-  { colKey: 'spec', title: '规格', minWidth: 190 },
-  { colKey: 'public_ip', title: '公网 IP', width: 140 },
-  { colKey: 'provider_name', title: '服务商', minWidth: 130 },
-  { colKey: 'status', title: '状态 / 到期', width: 170 },
-  { colKey: 'actor_name', title: '操作人', width: 100 },
-  {
-    colKey: 'action',
-    title: '操作',
-    width: isMobile.value ? 70 : 300,
-    fixed: 'right' as const,
-    align: 'center' as const,
-  },
+// 表格列：批量多选列只在桌面端且具备操作权限时出现（移动端多选按钮会挤压操作列）。
+const columns = computed<PrimaryTableCol<InstanceItem>[]>(() => {
+  const base: PrimaryTableCol<InstanceItem>[] = [
+    { colKey: 'name', title: '实例', minWidth: 200 },
+    { colKey: 'user', title: '归属用户', minWidth: 170 },
+    { colKey: 'spec', title: '规格', minWidth: 190 },
+    { colKey: 'public_ip', title: '公网 IP', width: 140 },
+    { colKey: 'provider_name', title: '服务商', minWidth: 130 },
+    { colKey: 'status', title: '状态 / 到期', width: 170 },
+    { colKey: 'actor_name', title: '操作人', width: 100 },
+    {
+      colKey: 'action',
+      title: '操作',
+      width: isMobile.value ? 70 : 300,
+      fixed: 'right' as const,
+      align: 'center' as const,
+    },
+  ]
+  if (!isMobile.value && has('instance:action')) {
+    base.unshift({ colKey: 'row-select', type: 'multiple', width: 46, fixed: 'left' as const })
+  }
+  return base
+})
+
+// 批量结果弹窗的列（只读回显，不提供操作）。
+const batchResultColumns: PrimaryTableCol<InstanceBatchActionItem>[] = [
+  { colKey: 'instance', title: '实例', minWidth: 170 },
+  { colKey: 'status', title: '结果', width: 90 },
+  { colKey: 'message', title: '说明', minWidth: 220 },
 ]
+
+function batchStatusLabel(status: string): string {
+  if (status === 'success') return '成功'
+  if (status === 'skipped') return '跳过'
+  return '失败'
+}
+
+function batchStatusTheme(status: string): string {
+  if (status === 'success') return 'success'
+  if (status === 'skipped') return 'default'
+  return 'danger'
+}
 
 function expireText(row: InstanceItem): string {
   if (!row.expire_at || row.expire_state === 'none') return '未设到期'
@@ -539,7 +638,6 @@ function handlePower(row: InstanceItem, action: string) {
     onClose: () => dialog.destroy(),
   })
 }
-
 async function doPower(row: InstanceItem, action: string) {
   poweringId.value = row.id
   try {
@@ -646,6 +744,73 @@ function isHttp(url: string): boolean {
 }
 
 onMounted(loadAll)
+
+// —— 批量运维（doc61 P1）——
+const selectedIds = ref<number[]>([])
+const batchRunning = ref(false)
+const batchResult = reactive<{ visible: boolean; label: string; data: InstanceBatchActionResponse | null }>({
+  visible: false,
+  label: '',
+  data: null,
+})
+
+// 批量动作清单：needConfirm 的会先弹二次确认（破坏性动作）。
+const batchActions = [
+  { label: '批量开机', value: 'on', theme: 'default', needConfirm: false },
+  { label: '批量关机', value: 'off', theme: 'warning', needConfirm: true },
+  { label: '批量重启', value: 'reboot', theme: 'primary', needConfirm: true },
+  { label: '批量硬关机', value: 'hard_off', theme: 'danger', needConfirm: true },
+  { label: '批量硬重启', value: 'hard_reboot', theme: 'danger', needConfirm: true },
+  { label: '批量同步', value: 'sync', theme: 'default', needConfirm: false },
+]
+
+function handleSelectChange(keys: Array<string | number>) {
+  selectedIds.value = keys.map((k) => Number(k)).filter((id) => Number.isFinite(id) && id > 0)
+}
+
+function clearSelection() {
+  selectedIds.value = []
+}
+
+function handleBatch(action: string, label: string, needConfirm: boolean) {
+  if (!selectedIds.value.length) return
+  if (!needConfirm) {
+    void doBatch(action, label)
+    return
+  }
+  const dialog = DialogPlugin.confirm({
+    header: label,
+    body: `确认对选中的 ${selectedIds.value.length} 台实例执行「${label}」？${powerActionTips[action] || ''}`,
+    confirmBtn: { content: `确认${label}`, theme: action.startsWith('hard_') ? 'danger' : 'warning' },
+    cancelBtn: { content: '再想想' },
+    onConfirm: async () => {
+      dialog.destroy()
+      await doBatch(action, label)
+    },
+    onClose: () => dialog.destroy(),
+  })
+}
+
+async function doBatch(action: string, label: string) {
+  batchRunning.value = true
+  try {
+    const resp = await batchInstanceAction({ action, ids: [...selectedIds.value] })
+    showBatchResult(label, resp)
+    clearSelection()
+    loadAll()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || `${label}失败`)
+  } finally {
+    batchRunning.value = false
+  }
+}
+
+// 逐台结果用弹窗列出：批量动作难免部分成功，只弹一句"成功"会让运维漏看失败项。
+function showBatchResult(label: string, resp: InstanceBatchActionResponse) {
+  batchResult.label = label
+  batchResult.data = resp
+  batchResult.visible = true
+}
 
 // 移动端操作下拉分发
 function handleMobileAction(value: string | number | Record<string, any>, row: InstanceItem) {

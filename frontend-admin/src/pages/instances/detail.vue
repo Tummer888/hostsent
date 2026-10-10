@@ -58,6 +58,27 @@
         >
           重启
         </t-button>
+        <!-- 硬电源（断电级）：独立指令下发，不是"软关再开"。危险动作故用 danger 且需二次确认 -->
+        <t-button
+          v-permission="'instance:action'"
+          variant="outline"
+          theme="danger"
+          :disabled="powerDisabled('hard_off')"
+          :title="powerTitle('hard_off')"
+          @click="handlePower('hard_off')"
+        >
+          强制关机
+        </t-button>
+        <t-button
+          v-permission="'instance:action'"
+          variant="outline"
+          theme="danger"
+          :disabled="powerDisabled('hard_reboot')"
+          :title="powerTitle('hard_reboot')"
+          @click="handlePower('hard_reboot')"
+        >
+          强制重启
+        </t-button>
         <t-button
           v-permission="'instance:console'"
           variant="outline"
@@ -101,6 +122,15 @@
         >
           变配
         </t-button>
+        <!-- 维护类（平台接口实测存在）：重装 / 重置密码 / 救援 / 快照 / 硬件。
+             用下拉收纳，避免操作栏被十几个按钮撑爆；每一项仍按自己的权限码与能力位置灰。 -->
+        <t-dropdown
+          :options="maintenanceOptions"
+          trigger="click"
+          @click="onMaintenancePick"
+        >
+          <t-button variant="outline" :disabled="maintenanceDisabled">维护 ▾</t-button>
+        </t-dropdown>
         <t-button v-permission="'lifecycle:renew'" variant="outline" @click="openRenewDialog">续费</t-button>
         <t-button
           v-permission="'instance:destroy'"
@@ -467,6 +497,181 @@
         </t-empty>
       </div>
     </t-dialog>
+
+    <!-- 维护类操作弹窗：重装 / 重置密码 / 救援 / 快照 / 硬件 -->
+    <t-dialog
+      v-model:visible="reinstall.visible"
+      header="重装系统"
+      :confirm-btn="{ content: '发起重装', theme: 'danger' }"
+      :confirm-disabled="!reinstall.os"
+      destroy-on-close
+      @confirm="handleReinstall"
+    >
+      <t-alert theme="warning" class="dlg-alert" message="重装会清空系统盘（可选同时格式化数据盘），操作不可撤销。" />
+      <t-form label-align="top">
+        <t-form-item label="目标镜像 ID">
+          <t-input v-model="reinstall.os" placeholder="平台镜像 ID；财务型上游填配置子项 ID（商品配置里的 os 选项 upstream_id）" />
+        </t-form-item>
+        <t-form-item label="自定义端口（可选，SSH/RDP）">
+          <t-input-number v-model="reinstall.port" :min="0" :max="65535" theme="column" />
+        </t-form-item>
+        <t-form-item label="系统盘大小 GB（可选）">
+          <t-input-number v-model="reinstall.system_disk_size" :min="0" theme="column" />
+        </t-form-item>
+        <t-form-item label="同时格式化数据盘（数据将丢失）">
+          <t-switch v-model="reinstall.format_data_disk" />
+        </t-form-item>
+        <t-form-item label="原因（可选）">
+          <t-input v-model="reinstall.reason" placeholder="写入操作流水" />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
+
+    <t-dialog
+      v-model:visible="resetPwd.visible"
+      header="重置实例登录密码"
+      :confirm-btn="{ content: '重置密码', theme: 'danger' }"
+      :confirm-disabled="!resetPwd.password"
+      destroy-on-close
+      @confirm="handleResetPassword"
+    >
+      <t-alert theme="info" class="dlg-alert" message="系统与数据保留，仅更换登录密码。运行中的实例可能被强制重启。" />
+      <t-form label-align="top">
+        <t-form-item label="新密码">
+          <t-input v-model="resetPwd.password" type="password" placeholder="建议 12 位以上，含大小写与符号" />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
+
+    <t-dialog
+      v-model:visible="rescue.visible"
+      header="进入救援系统"
+      :confirm-btn="{ content: '进入救援' }"
+      :confirm-disabled="!rescue.temp_password"
+      destroy-on-close
+      @confirm="handleRescue"
+    >
+      <t-alert
+        theme="warning"
+        class="dlg-alert"
+        message="进入救援后系统变为临时系统，处理完请务必点「退出救援」回到原系统。"
+      />
+      <t-form label-align="top">
+        <t-form-item label="救援系统类型">
+          <t-radio-group v-model="rescue.system" variant="default-filled">
+            <t-radio-button :value="1">类型 1</t-radio-button>
+            <t-radio-button :value="2">类型 2</t-radio-button>
+          </t-radio-group>
+        </t-form-item>
+        <t-form-item label="临时密码">
+          <t-input v-model="rescue.temp_password" type="password" />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
+
+    <t-dialog
+      v-model:visible="snap.visible"
+      header="快照与备份"
+      width="680px"
+      :footer="false"
+      destroy-on-close
+      @close="snap.visible = false"
+    >
+      <t-space class="dlg-toolbar">
+        <t-input v-model="snap.name" placeholder="快照名称（留空自动生成）" class="dlg-grow" />
+        <t-select v-model="snap.type" :options="snapTypeOptions" class="dlg-select" />
+        <t-button theme="primary" :loading="snap.loading" @click="handleCreateSnapshot">创建</t-button>
+        <t-button variant="outline" :loading="snap.loading" @click="loadSnapshots(false)">刷新</t-button>
+      </t-space>
+      <t-table
+        row-key="id"
+        :data="snap.rows"
+        :columns="snapColumns"
+        :loading="snap.loading"
+        size="small"
+        cell-empty-content="暂无快照"
+      >
+        <template #snap_action="{ row }">
+          <t-space size="small">
+            <t-link theme="warning" hover="color" @click="openRestoreSnapshot(row)">恢复</t-link>
+            <t-link theme="danger" hover="color" @click="handleDeleteSnapshot(row)">删除</t-link>
+          </t-space>
+        </template>
+      </t-table>
+    </t-dialog>
+
+    <t-dialog
+      v-model:visible="snap.restoreVisible"
+      header="用快照恢复实例"
+      :confirm-btn="{ content: '确认恢复', theme: 'danger' }"
+      :confirm-disabled="snap.restoreMark.trim() !== (instanceData?.instance_id || '')"
+      destroy-on-close
+      @confirm="handleRestoreSnapshot"
+    >
+      <t-alert theme="warning" class="dlg-alert" message="恢复会覆盖当前系统盘，盘上数据将回到快照时刻。请输入实例标识确认。" />
+      <p class="dlg-confirm-tip">
+        请输入实例标识 <code>{{ instanceData?.instance_id }}</code>
+      </p>
+      <t-input v-model="snap.restoreMark" placeholder="实例标识" />
+    </t-dialog>
+
+    <t-dialog
+      v-model:visible="hw.visible"
+      header="硬件变更"
+      :footer="false"
+      destroy-on-close
+      @close="hw.visible = false"
+    >
+      <t-form label-align="top">
+        <t-form-item label="带宽（Mbps · 0 表示不改该方向）">
+          <t-space>
+            <t-input-number v-model="hw.in_bw" :min="0" theme="column" />
+            <span class="dlg-unit">流入</span>
+            <t-input-number v-model="hw.out_bw" :min="0" theme="column" />
+            <span class="dlg-unit">流出</span>
+            <t-button size="small" theme="primary" :disabled="!hw.in_bw && !hw.out_bw" @click="handleSetBandwidth">
+              提交
+            </t-button>
+          </t-space>
+        </t-form-item>
+        <t-form-item label="增加 IP">
+          <t-space>
+            <t-radio-group v-model="hw.ip_version" variant="default-filled">
+              <t-radio-button :value="4">IPv4</t-radio-button>
+              <t-radio-button :value="6">IPv6</t-radio-button>
+            </t-radio-group>
+            <t-input-number v-model="hw.ip_num" :min="1" theme="column" />
+            <t-input v-model="hw.ip_group" placeholder="IP 分组 ID（可选）" />
+            <t-button size="small" theme="primary" :disabled="!hw.ip_num" @click="handleAddIP">提交</t-button>
+          </t-space>
+        </t-form-item>
+        <t-form-item label="挂载数据盘（GB）">
+          <t-space>
+            <t-input-number v-model="hw.disk_size" :min="1" theme="column" />
+            <t-input v-model="hw.store" placeholder="存储 ID（可选）" />
+            <t-button size="small" theme="primary" :disabled="!hw.disk_size" @click="handleAttachDisk">提交</t-button>
+          </t-space>
+        </t-form-item>
+      </t-form>
+    </t-dialog>
+
+    <!-- 重装后平台签发的新凭据：只显示这一次，必须提示立即保存 -->
+    <t-dialog
+      v-model:visible="credential.visible"
+      header="重装已受理 · 请立即保存新凭据"
+      :confirm-btn="{ content: '我已保存' }"
+      :close-btn="false"
+      destroy-on-close
+      @confirm="credential.visible = false"
+    >
+      <t-alert theme="warning" class="dlg-alert" message="平台新签发的登录凭据只显示这一次，本系统不保存；关闭后只能去平台面板重置。" />
+      <t-descriptions :column="1" bordered size="small">
+        <t-descriptions-item label="用户名">{{ credential.username || '—' }}</t-descriptions-item>
+        <t-descriptions-item label="新密码">
+          <code class="cell-strong">{{ credential.password || '（平台未返回，沿用原密码）' }}</code>
+        </t-descriptions-item>
+      </t-descriptions>
+    </t-dialog>
   </div>
 </template>
 
@@ -478,16 +683,27 @@ import { RefreshIcon, ServerIcon } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import {
+  addInstanceIP,
+  attachInstanceDisk,
+  createInstanceSnapshot,
+  deleteInstanceSnapshot,
   destroyInstance,
+  exitRescueInstance,
   getInstanceDetail,
   getInstanceOperations,
   getInstanceRelated,
+  getInstanceSnapshots,
   getInstanceVNC,
   powerInstance,
+  reinstallInstance,
+  resetInstancePassword,
   resizeInstance,
+  rescueInstance,
+  restoreInstanceSnapshot,
   suspendInstance,
   syncInstance,
   unsuspendInstance,
+  updateInstanceBandwidth,
   updateInstanceRemark,
 } from '@/api/instance'
 import { renewInstance } from '@/api/lifecycle'
@@ -507,11 +723,13 @@ import {
 import type {
   InstanceDetail,
   InstanceRelatedResponse,
+  InstanceSnapshotInfo,
   OperationItem,
   RelatedOrder,
   RelatedRenewal,
   RelatedTicket,
 } from '@/types/interface'
+import { usePermission } from '@/composables/usePermission'
 
 defineOptions({ name: 'InstanceDetail' })
 
@@ -901,6 +1119,367 @@ function copyVncPassword() {
 
 function isHttp(url: string): boolean {
   return /^https?:/i.test(url)
+}
+
+// ===== 维护类操作（平台接口实测存在）=====
+//
+// 统一入口是一枚「维护 ▾」下拉：操作栏已经有 9 个按钮，再加 6 个会挤成一团。
+// 每个子项各自带权限码（用 v-permission 不适用于下拉项，故在 options 里显式过滤）
+// 与能力位（平台不支持时置灰并说明原因）。
+
+const { has: hasPerm } = usePermission()
+
+const maintenanceOptions = computed(() => {
+  const caps = instanceData.value?.capabilities
+  const opts: { content: string; value: string; disabled?: boolean }[] = []
+  if (hasPerm('instance:reinstall')) {
+    opts.push({ content: '重装系统', value: 'reinstall', disabled: !caps?.reinstall })
+  }
+  if (hasPerm('instance:password')) {
+    opts.push({ content: '重置密码', value: 'resetpwd', disabled: !caps?.reset_password })
+  }
+  if (hasPerm('instance:rescue')) {
+    opts.push({ content: '进入救援系统', value: 'rescue', disabled: !caps?.rescue })
+    opts.push({ content: '退出救援系统', value: 'exitrescue', disabled: !caps?.rescue })
+  }
+  if (hasPerm('instance:snapshot')) {
+    opts.push({ content: '快照与备份', value: 'snapshot', disabled: !caps?.snapshot })
+  }
+  if (hasPerm('instance:hardware')) {
+    opts.push({ content: '硬件变更', value: 'hardware', disabled: !caps?.bandwidth && !caps?.add_ip && !caps?.attach_disk })
+  }
+  return opts
+})
+
+const maintenanceDisabled = computed(() => maintenanceOptions.value.length === 0)
+
+function onMaintenancePick(data: { value: string; disabled?: boolean }) {
+  if (data.disabled) {
+    MessagePlugin.warning('当前服务商不支持该操作')
+    return
+  }
+  switch (data.value) {
+    case 'reinstall':
+      reinstall.os = ''
+      reinstall.port = 0
+      reinstall.system_disk_size = 0
+      reinstall.format_data_disk = false
+      reinstall.reason = ''
+      reinstall.visible = true
+      break
+    case 'resetpwd':
+      resetPwd.password = ''
+      resetPwd.visible = true
+      break
+    case 'rescue':
+      rescue.system = 1
+      rescue.temp_password = ''
+      rescue.visible = true
+      break
+    case 'exitrescue':
+      handleExitRescue()
+      break
+    case 'snapshot':
+      snap.name = ''
+      snap.type = 'snap'
+      snap.visible = true
+      loadSnapshots(true)
+      break
+    case 'hardware':
+      hw.visible = true
+      break
+  }
+}
+
+// —— 重装 ——
+const reinstall = reactive<{
+  visible: boolean
+  os: string
+  port: number
+  system_disk_size: number
+  format_data_disk: boolean
+  reason: string
+  loading: boolean
+}>({ visible: false, os: '', port: 0, system_disk_size: 0, format_data_disk: false, reason: '', loading: false })
+
+// 重装后平台签发的新凭据（只此一次展示）
+const credential = reactive<{ visible: boolean; username: string; password: string }>({
+  visible: false,
+  username: '',
+  password: '',
+})
+
+async function handleReinstall() {
+  if (!reinstall.os) {
+    MessagePlugin.warning('请填写目标镜像 ID')
+    return
+  }
+  reinstall.loading = true
+  try {
+    const res = await reinstallInstance(instanceId, {
+      os: reinstall.os.trim(),
+      port: reinstall.port || undefined,
+      system_disk_size: reinstall.system_disk_size || undefined,
+      format_data_disk: reinstall.format_data_disk,
+      reason: reinstall.reason || undefined,
+    })
+    reinstall.visible = false
+    if (res?.password || res?.username) {
+      credential.username = res.username || ''
+      credential.password = res.password || ''
+      credential.visible = true
+    } else {
+      MessagePlugin.success('重装指令已提交')
+    }
+    reloadAll()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '重装失败')
+  } finally {
+    reinstall.loading = false
+  }
+}
+
+// —— 重置密码 ——
+const resetPwd = reactive<{ visible: boolean; password: string; loading: boolean }>({
+  visible: false,
+  password: '',
+  loading: false,
+})
+
+async function handleResetPassword() {
+  if (!resetPwd.password) {
+    MessagePlugin.warning('请输入新密码')
+    return
+  }
+  resetPwd.loading = true
+  try {
+    await resetInstancePassword(instanceId, resetPwd.password)
+    MessagePlugin.success('密码已重置')
+    resetPwd.visible = false
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '重置密码失败')
+  } finally {
+    resetPwd.loading = false
+  }
+}
+
+// —— 救援系统 ——
+const rescue = reactive<{ visible: boolean; system: number; temp_password: string; loading: boolean }>({
+  visible: false,
+  system: 1,
+  temp_password: '',
+  loading: false,
+})
+
+async function handleRescue() {
+  if (!rescue.temp_password) {
+    MessagePlugin.warning('请输入临时密码')
+    return
+  }
+  rescue.loading = true
+  try {
+    await rescueInstance(instanceId, { system: rescue.system, temp_password: rescue.temp_password })
+    MessagePlugin.success('已发起进入救援系统')
+    rescue.visible = false
+    reloadAll()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '进入救援系统失败')
+  } finally {
+    rescue.loading = false
+  }
+}
+
+async function handleExitRescue() {
+  const dialog = DialogPlugin.confirm({
+    header: '退出救援系统',
+    body: '确认退出救援系统？实例将回到原系统。',
+    theme: 'warning',
+    onConfirm: async () => {
+      try {
+        await exitRescueInstance(instanceId)
+        MessagePlugin.success('已发起退出救援系统')
+        reloadAll()
+      } catch (error) {
+        MessagePlugin.error((error as Error).message || '退出救援系统失败')
+      } finally {
+        dialog.hide()
+      }
+    },
+  })
+}
+
+// —— 快照与备份 ——
+const snapTypeOptions = [
+  { label: '快照', value: 'snap' },
+  { label: '备份', value: 'backup' },
+]
+
+const snapColumns: PrimaryTableCol[] = [
+  { colKey: 'name', title: '名称', minWidth: 180 },
+  { colKey: 'type', title: '类型', width: 80 },
+  { colKey: 'size', title: '大小', width: 90 },
+  { colKey: 'create_time', title: '创建时间', width: 170 },
+  { colKey: 'snap_action', title: '操作', width: 130, align: 'center' as const },
+]
+
+const snap = reactive<{
+  visible: boolean
+  loading: boolean
+  rows: InstanceSnapshotInfo[]
+  name: string
+  type: string
+  restoreVisible: boolean
+  restoreMark: string
+  restoreId: string
+}>({
+  visible: false,
+  loading: false,
+  rows: [],
+  name: '',
+  type: 'snap',
+  restoreVisible: false,
+  restoreMark: '',
+  restoreId: '',
+})
+
+async function loadSnapshots(withLoading = true) {
+  if (withLoading) snap.loading = true
+  try {
+    snap.rows = (await getInstanceSnapshots(instanceId)) || []
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '加载快照失败')
+  } finally {
+    snap.loading = false
+  }
+}
+
+async function handleCreateSnapshot() {
+  snap.loading = true
+  try {
+    await createInstanceSnapshot(instanceId, { type: snap.type, name: snap.name || undefined })
+    MessagePlugin.success('快照创建指令已提交（面板异步执行，稍后刷新查看）')
+    snap.name = ''
+    setTimeout(() => loadSnapshots(false), 5000)
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '创建快照失败')
+  } finally {
+    snap.loading = false
+  }
+}
+
+function openRestoreSnapshot(row: InstanceSnapshotInfo) {
+  snap.restoreId = row.id
+  snap.restoreMark = ''
+  snap.restoreVisible = true
+}
+
+async function handleRestoreSnapshot() {
+  try {
+    await restoreInstanceSnapshot(instanceId, { snapshot_id: snap.restoreId, confirm_mark: snap.restoreMark.trim() })
+    MessagePlugin.success('恢复指令已提交')
+    snap.restoreVisible = false
+    reloadAll()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '恢复失败')
+  }
+}
+
+async function handleDeleteSnapshot(row: InstanceSnapshotInfo) {
+  const dialog = DialogPlugin.confirm({
+    header: '删除快照',
+    body: `确认删除「${row.name}」？删除后无法用它恢复。`,
+    theme: 'danger',
+    onConfirm: async () => {
+      try {
+        await deleteInstanceSnapshot(instanceId, row.id)
+        MessagePlugin.success('快照已删除')
+        loadSnapshots()
+      } catch (error) {
+        MessagePlugin.error((error as Error).message || '删除失败')
+      } finally {
+        dialog.hide()
+      }
+    },
+  })
+}
+
+// —— 硬件变更 ——
+const hw = reactive<{
+  visible: boolean
+  in_bw: number
+  out_bw: number
+  ip_version: number
+  ip_num: number
+  ip_group: string
+  disk_size: number
+  store: string
+  loading: boolean
+}>({
+  visible: false,
+  in_bw: 0,
+  out_bw: 0,
+  ip_version: 4,
+  ip_num: 0,
+  ip_group: '',
+  disk_size: 0,
+  store: '',
+  loading: false,
+})
+
+async function handleSetBandwidth() {
+  if (!hw.in_bw && !hw.out_bw) {
+    MessagePlugin.warning('至少填一个方向的带宽')
+    return
+  }
+  hw.loading = true
+  try {
+    await updateInstanceBandwidth(instanceId, { in_bw: hw.in_bw, out_bw: hw.out_bw })
+    MessagePlugin.success('带宽已修改')
+    hw.in_bw = 0
+    hw.out_bw = 0
+    loadDetail()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '修改带宽失败')
+  } finally {
+    hw.loading = false
+  }
+}
+
+async function handleAddIP() {
+  if (!hw.ip_num) {
+    MessagePlugin.warning('请输入数量')
+    return
+  }
+  hw.loading = true
+  try {
+    await addInstanceIP(instanceId, { version: hw.ip_version, num: hw.ip_num, ip_group: hw.ip_group || undefined })
+    MessagePlugin.success('IP 增加指令已提交')
+    hw.ip_num = 0
+    hw.ip_group = ''
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '增加 IP 失败')
+  } finally {
+    hw.loading = false
+  }
+}
+
+async function handleAttachDisk() {
+  if (!hw.disk_size) {
+    MessagePlugin.warning('请输入数据盘容量')
+    return
+  }
+  hw.loading = true
+  try {
+    await attachInstanceDisk(instanceId, { size_gb: hw.disk_size, store: hw.store || undefined })
+    MessagePlugin.success('数据盘挂载指令已提交')
+    hw.disk_size = 0
+    hw.store = ''
+    loadDetail()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '挂载数据盘失败')
+  } finally {
+    hw.loading = false
+  }
 }
 
 onMounted(() => {

@@ -121,18 +121,19 @@
         <span class="cost-detail-item__label">推广返现计提</span>
         <span class="cost-detail-item__value">¥{{ formatPrice(overview.referral_cost) }}</span>
       </div>
-      <div class="cost-detail-item" title="流水口径＝上游账本消费；快照口径＝期初+充值−期末">
-        <span class="cost-detail-item__label">上游消耗·流水 / 快照</span>
-        <span class="cost-detail-item__value">
-          ¥{{ formatPrice(overview.upstream_cost_ledger) }}
-          <span class="cell-muted">/ ¥{{ formatPrice(overview.upstream_cost_snapshot) }}</span>
+      <div class="cost-detail-item" title="上游账本消费流水净额（余额支付的开通/续费 − 对应退款），逐笔可在台账页核对">
+        <span class="cost-detail-item__label">
+          上游消耗·账本流水
+          <t-tag
+            :theme="overview.upstream_cost_source === 'ledger' ? 'primary' : 'default'"
+            variant="light"
+            size="small"
+            shape="round"
+          >
+            {{ overview.upstream_cost_source === 'ledger' ? '已同步' : '无账本数据' }}
+          </t-tag>
         </span>
-      </div>
-      <div v-if="overview.upstream_ledger_diff" class="cost-detail-item">
-        <span class="cost-detail-item__label">两口径差额（待核查）</span>
-        <span class="cost-detail-item__value" :class="overview.upstream_ledger_diff > 0 ? 'amount-expense' : 'amount-income'">
-          {{ formatAmount(overview.upstream_ledger_diff) }}
-        </span>
+        <span class="cost-detail-item__value">¥{{ formatPrice(overview.upstream_cost) }}</span>
       </div>
       <div class="cost-detail-item">
         <span class="cost-detail-item__label">资金口径收入（参考）</span>
@@ -151,7 +152,7 @@
           <span class="table-card__meta">{{ month }} · 合计 ¥{{ formatPrice(overview.cost_total) }}</span>
         </div>
         <EChart v-if="hasCost" :option="costOption" :height="280" />
-        <div v-else class="chart-empty"><t-empty description="本月暂无成本数据（先录入上游余额与成本项）" /></div>
+        <div v-else class="chart-empty"><t-empty description="本月暂无成本数据（上游账本未同步、未配置成本项）" /></div>
 
         <ul class="cost-line-list">
           <li v-for="line in overview.cost_lines" :key="line.key" class="cost-line">
@@ -183,7 +184,7 @@
       <div class="table-card__head">
         <h3 class="card-title">上游渠道余额消耗</h3>
         <t-link theme="primary" class="view-all-link" @click="router.push('/finance/cost/upstreams')">
-          去录入余额 / 查看台账
+          查看上游台账
           <template #suffix><ChevronRightIcon size="14" /></template>
         </t-link>
       </div>
@@ -202,41 +203,33 @@
             <span class="cell-muted">{{ row.provider_type || '—' }}</span>
           </div>
         </template>
-        <template #opening="{ row }">
+        <template #latest_balance="{ row }">
           <div class="price-cell">
-            <span class="price-main">{{ moneyText(row.opening_balance) }}</span>
-            <span class="price-sub">{{ row.opening_date || '无历史快照' }}</span>
+            <span class="price-main">{{ moneyText(row.latest_balance) }}</span>
+            <span class="price-sub">{{ row.latest_date || '暂无快照' }}</span>
+          </div>
+        </template>
+        <template #consumption="{ row }">
+          <div class="price-cell">
+            <span v-if="row.consumption !== null" class="cell-strong">¥{{ formatPrice(row.consumption) }}</span>
+            <span v-else class="cell-muted">—</span>
+            <span v-if="row.cost_source === 'ledger'" class="price-sub">{{ row.consumption_entries }} 笔流水</span>
+            <span v-else class="price-sub">无账本数据</span>
           </div>
         </template>
         <template #topup_total="{ row }">
-          <span :class="row.topup_total >= 0 ? 'amount-income' : 'amount-expense'">
-            {{ formatAmount(row.topup_total) }}
-          </span>
-        </template>
-        <template #consumption="{ row }">
-          <span v-if="row.consumption === null" class="cell-muted">待补录</span>
-          <span v-else class="cell-strong">¥{{ formatPrice(row.consumption) }}</span>
-        </template>
-        <template #closing="{ row }">
-          <div class="price-cell">
-            <span class="price-main">{{ moneyText(row.closing_balance) }}</span>
-            <span class="price-sub">{{ row.closing_date || '本月无快照' }}</span>
-          </div>
+          <span v-if="row.topup_total !== null" class="amount-income">{{ formatAmount(row.topup_total) }}</span>
+          <span v-else class="cell-muted">—</span>
         </template>
         <template #cost_source="{ row }">
           <t-tag
-            :theme="row.cost_source === 'ledger' ? 'primary' : row.cost_source === 'snapshot' ? 'warning' : 'default'"
+            :theme="row.cost_source === 'ledger' ? 'primary' : 'default'"
             variant="light"
             size="small"
             shape="round"
           >
-            {{ row.cost_source === 'ledger' ? '账本流水' : row.cost_source === 'snapshot' ? '快照推算' : '无数据' }}
+            {{ row.cost_source === 'ledger' ? '账本流水' : '未接入账本' }}
           </t-tag>
-        </template>
-        <template #status="{ row }">
-          <t-tag v-if="row.missing_snapshot" theme="danger" variant="light" size="small" shape="round">缺本月快照</t-tag>
-          <t-tag v-else-if="row.estimated" theme="warning" variant="light" size="small" shape="round">截至日估算</t-tag>
-          <t-tag v-else theme="success" variant="light" size="small" shape="round">已覆盖整月</t-tag>
         </template>
         <template #empty><t-empty description="暂无上游渠道（上游转售渠道在「资源管理 → 渠道管理」维护）" /></template>
       </t-table>
@@ -298,10 +291,7 @@ function emptyOverview(): CostOverviewResponse {
     trend: [],
     caliber: '',
     unconfigured_hint: '',
-    upstream_cost_ledger: 0,
-    upstream_cost_snapshot: 0,
     upstream_cost_source: 'none',
-    upstream_ledger_diff: 0,
     ledger_synced_at: '',
     balance_alerts: [],
   }
@@ -319,13 +309,10 @@ const hasCost = computed(() => overview.value.cost_lines.some((line) => line.amo
 
 const upstreamColumns: PrimaryTableCol<UpstreamLedgerRow>[] = [
   { colKey: 'provider_name', title: '渠道', minWidth: 170 },
-  { colKey: 'opening', title: '期初余额', width: 150 },
-  { colKey: 'topup_total', title: '期间充值', width: 120 },
-  { colKey: 'consumption', title: '期间消耗', width: 120 },
-  { colKey: 'cost_source', title: '取数来源', width: 110 },
-  { colKey: 'closing', title: '期末余额', width: 150 },
+  { colKey: 'consumption', title: '期间消耗（流水）', width: 170 },
+  { colKey: 'topup_total', title: '期间充值', width: 130 },
+  { colKey: 'cost_source', title: '取数来源', width: 120 },
   { colKey: 'latest_balance', title: '最新余额', width: 150 },
-  { colKey: 'status', title: '数据状态', width: 130 },
 ]
 
 /** 成本构成：横条更利于比较金额量级（自动项与配置项同图不同色）。 */

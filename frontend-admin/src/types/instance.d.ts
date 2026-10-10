@@ -83,6 +83,13 @@ export interface InstanceCapabilities {
   destroy: boolean
   reinstall: boolean
   suspend: boolean
+  /** 维护类（平台接口实测存在）：重置密码 / 救援系统 / 快照 / 硬件变更 */
+  reset_password: boolean
+  rescue: boolean
+  snapshot: boolean
+  bandwidth: boolean
+  add_ip: boolean
+  attach_disk: boolean
 }
 
 export interface InstanceDetail extends InstanceItem {
@@ -198,6 +205,31 @@ export interface InstanceDestroyRequest {
   reason?: string
 }
 
+// 批量运维（doc61 P1）：逐台结果三态 —— success / skipped（无需执行）/ failed（真实失败）
+export interface InstanceBatchActionRequest {
+  action: string
+  ids: number[]
+  reason?: string
+}
+
+export interface InstanceBatchActionItem {
+  id: number
+  instance_mark: string
+  name: string
+  status: string
+  message: string
+  before_status: string
+  after_status: string
+}
+
+export interface InstanceBatchActionResponse {
+  total: number
+  succeeded: number
+  failed: number
+  skipped: number
+  items: InstanceBatchActionItem[]
+}
+
 export interface RelatedOrder {
   id: number
   order_no: string
@@ -235,4 +267,71 @@ export interface InstanceRelatedResponse {
   orders: RelatedOrder[]
   renewals: RelatedRenewal[]
   tickets: RelatedTicket[]
+}
+
+// ---- 维护类操作请求/响应（与后端 admin/instance/dto 同形）----
+
+export interface InstanceReinstallRequest {
+  os: string
+  port?: number
+  /** 是否同时格式化数据盘（数据将丢失） */
+  format_data_disk?: boolean
+  system_disk_size?: number
+  reason?: string
+}
+
+/** 平台重装后签发的初始凭据；只返回一次，不落库。 */
+export interface InstanceReinstallResult {
+  username?: string
+  password?: string
+}
+
+export interface InstanceRescueRequest {
+  /** 救援系统类型（平台口径：魔方云 1/2） */
+  system: number
+  temp_password: string
+}
+
+export interface InstanceSnapshotCreateRequest {
+  /** snap（快照）| backup（备份）；空视为 snap */
+  type?: string
+  name?: string
+  /** 目标磁盘 ID；空则后端取系统盘 */
+  disk_id?: string
+}
+
+export interface InstanceSnapshotRestoreRequest {
+  snapshot_id: string
+  confirm_mark: string
+}
+
+export interface InstanceSnapshotInfo {
+  id: string
+  name: string
+  type: string
+  size: string
+  status: number
+  disk_id: string
+  disk_name: string
+  create_time: string
+  remarks: string
+}
+
+export interface InstanceBandwidthRequest {
+  in_bw: number
+  out_bw: number
+  reason?: string
+}
+
+export interface InstanceAddIPRequest {
+  /** 4 或 6；空视为 4 */
+  version?: number
+  num: number
+  ip_group?: string
+}
+
+export interface InstanceAttachDiskRequest {
+  size_gb: number
+  store?: string
+  reason?: string
 }

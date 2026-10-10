@@ -368,6 +368,27 @@ func (h *InstanceHandler) Unsuspend(c *gin.Context) {
 	response.SuccessMessage(c, "实例已恢复")
 }
 
+// BatchAction 批量运维（开机/关机/重启/同步/暂停/恢复）。
+// @Summary 批量实例运维
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param body body dto.BatchActionRequest true "批量动作与实例 ID 列表"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/batch [post]
+func (h *InstanceHandler) BatchAction(c *gin.Context) {
+	var req dto.BatchActionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	resp, err := h.svc.BatchAction(c.Request.Context(), operator(c), &req)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
 // Destroy 销毁实例。
 // @Summary 销毁实例（需二次确认实例标识）
 // @Tags 管理端-实例运维
@@ -391,4 +412,266 @@ func (h *InstanceHandler) Destroy(c *gin.Context) {
 		return
 	}
 	response.SuccessMessage(c, "实例已销毁")
+}
+
+// Reinstall 重装系统。
+// @Summary 重装实例系统（可换镜像；返回平台新签发的初始凭据）
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Param body body dto.ReinstallRequest true "目标镜像与选项"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/reinstall [post]
+func (h *InstanceHandler) Reinstall(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var req dto.ReinstallRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	res, err := h.svc.Reinstall(c.Request.Context(), operator(c), id, &req)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	// 凭据只在此处一次性返回，前端必须提示立即保存（本库不落库）。
+	response.Success(c, res)
+}
+
+// ResetPassword 重置实例登录密码。
+// @Summary 重置实例登录密码（不重装）
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Param body body dto.ResetPasswordRequest true "新密码"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/reset-password [post]
+func (h *InstanceHandler) ResetPassword(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var req dto.ResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	if err := h.svc.ResetPassword(c.Request.Context(), operator(c), id, &req); err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.SuccessMessage(c, "密码已重置")
+}
+
+// Rescue 进入救援系统。
+// @Summary 进入实例救援系统
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Param body body dto.RescueRequest true "救援系统类型与临时密码"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/rescue [post]
+func (h *InstanceHandler) Rescue(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var req dto.RescueRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	if err := h.svc.Rescue(c.Request.Context(), operator(c), id, &req); err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.SuccessMessage(c, "已发起进入救援系统")
+}
+
+// ExitRescue 退出救援系统。
+// @Summary 退出实例救援系统
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/exit-rescue [post]
+func (h *InstanceHandler) ExitRescue(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	if err := h.svc.ExitRescue(c.Request.Context(), operator(c), id); err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.SuccessMessage(c, "已发起退出救援系统")
+}
+
+// Snapshots 列出快照/备份。
+// @Summary 实例快照/备份列表
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Param type query string false "snap/backup，空为全部"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/snapshots [get]
+func (h *InstanceHandler) Snapshots(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	rows, err := h.svc.Snapshots(c.Request.Context(), id, c.Query("type"))
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, rows)
+}
+
+// CreateSnapshot 创建快照/备份。
+// @Summary 创建实例快照/备份
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Param body body dto.SnapshotCreateRequest true "类型/名称/磁盘"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/snapshots [post]
+func (h *InstanceHandler) CreateSnapshot(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var req dto.SnapshotCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	if err := h.svc.CreateSnapshot(c.Request.Context(), operator(c), id, &req); err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.SuccessMessage(c, "快照创建指令已提交")
+}
+
+// DeleteSnapshot 删除快照/备份。
+// @Summary 删除实例快照/备份
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Param snapshotId path string true "快照 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/snapshots/{snapshotId} [delete]
+func (h *InstanceHandler) DeleteSnapshot(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	if err := h.svc.DeleteSnapshot(c.Request.Context(), operator(c), id, c.Param("snapshotId")); err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.SuccessMessage(c, "快照已删除")
+}
+
+// RestoreSnapshot 用快照/备份恢复实例（高危，需二次确认）。
+// @Summary 用快照恢复实例（覆盖当前系统盘）
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Param body body dto.SnapshotRestoreRequest true "快照与二次确认"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/snapshots/restore [post]
+func (h *InstanceHandler) RestoreSnapshot(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var req dto.SnapshotRestoreRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	if err := h.svc.RestoreSnapshot(c.Request.Context(), operator(c), id, &req); err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.SuccessMessage(c, "恢复指令已提交")
+}
+
+// SetBandwidth 带宽直改。
+// @Summary 修改实例带宽（上下行）
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Param body body dto.BandwidthRequest true "带宽（Mbps）"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/bandwidth [put]
+func (h *InstanceHandler) SetBandwidth(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var req dto.BandwidthRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	if err := h.svc.SetBandwidth(c.Request.Context(), operator(c), id, &req); err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.SuccessMessage(c, "带宽已修改")
+}
+
+// AddIP 增加 IP / IPv6。
+// @Summary 为实例增加 IP 或 IPv6
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Param body body dto.AddIPRequest true "版本与数量"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/ips [post]
+func (h *InstanceHandler) AddIP(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var req dto.AddIPRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	if err := h.svc.AddIP(c.Request.Context(), operator(c), id, &req); err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.SuccessMessage(c, "IP 增加指令已提交")
+}
+
+// AttachDataDisk 挂载数据盘。
+// @Summary 为实例挂载数据盘
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Param body body dto.AttachDiskRequest true "容量与存储"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/disks [post]
+func (h *InstanceHandler) AttachDataDisk(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var req dto.AttachDiskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	if err := h.svc.AttachDataDisk(c.Request.Context(), operator(c), id, &req); err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.SuccessMessage(c, "数据盘挂载指令已提交")
 }

@@ -2,13 +2,13 @@ package server
 
 // 成本管理装配（doc111）：
 //
-//   - handler：成本总览 / 成本项配置 / 上游余额台账；
-//   - 每日快照调度器：按财务配置 finance.cost_snapshot_hour（默认 3 点）抓取上游余额并落快照；
-//   - 依赖注入端口：收入口径（财务统计服务）、返现计提（返现仓储）、上游账户余额（资源渠道服务）。
+//   - handler：成本总览 / 成本项配置 / 上游余额台账（全自动取数：余额=抓取快照，消耗/充值=账本流水）；
+//   - 每日同步调度器：按财务配置 finance.cost_snapshot_hour（默认 3 点）抓余额快照 + 增量同步账本 + 水位告警；
+//   - 依赖注入端口：收入口径（财务统计服务）、返现计提（返现仓储）、上游余额与账本（资源渠道服务）。
 //
 // 依赖方向：成本模块不 import 资源渠道模块与返现模块 —— 三者都通过本文件用小接口接进来，
-// 与「账务核心不 import 订单模块」同一取舍；上游接口本身不提供余额时，
-// 抓取返回 ErrBalanceUnsupported，页面引导手工录入（见 doc111 §5）。
+// 与「账务核心不 import 订单模块」同一取舍；上游接口本身不提供余额/账本能力时，
+// 抓取返回 ErrBalanceUnsupported / ErrLedgerUnsupported，页面把对应按钮置灰（见 doc111 §5）。
 
 import (
 	"context"
@@ -89,7 +89,7 @@ func (a upstreamAccountAdapter) ListAccountProviders(ctx context.Context) ([]cos
 }
 
 // FetchBalance 抓取余额：把渠道模块的「能力不支持」错误翻译成成本模块的同义错误，
-// 由 handler 映射为 30008 并在前端提示手工录入。
+// 由 handler 映射为 30008，前端据此把「抓取余额」按钮置灰。
 func (a upstreamAccountAdapter) FetchBalance(ctx context.Context, providerID uint64) (float64, string, error) {
 	info, err := a.providers.AccountBalance(ctx, providerID)
 	if err != nil {

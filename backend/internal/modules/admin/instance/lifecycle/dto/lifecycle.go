@@ -115,8 +115,11 @@ type PolicyResponse struct {
 	// AutoEnforce 到期阶段自动执行总开关（默认 false：只派生阶段、不动上游）。
 	AutoEnforce bool `json:"auto_enforce"`
 	// EnforceDryRun 预演开关（默认 true）：即使总开关开启，也只计算将要执行的动作而不落上游。
-	EnforceDryRun bool   `json:"enforce_dry_run"`
-	UpdatedAt     string `json:"updated_at"`
+	EnforceDryRun bool `json:"enforce_dry_run"`
+	// RefundAction 退款审核通过后对关联实例的动作：none（默认）/ suspend / destroy。
+	// 仅对**全额退款**生效（部分退款属补偿，不动机器）。
+	RefundAction string `json:"refund_action"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
 // PolicyUpdateRequest 更新生命周期策略请求
@@ -127,6 +130,7 @@ type PolicyUpdateRequest struct {
 	DestroyKeepDays  *int   `json:"destroy_keep_days"`
 	AutoEnforce      *bool  `json:"auto_enforce"`
 	EnforceDryRun    *bool  `json:"enforce_dry_run"`
+	RefundAction     string `json:"refund_action"`
 }
 
 // EnforcementPreviewItem 到期处置预演单条结果（dry-run 报告）。

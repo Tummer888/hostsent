@@ -1,5 +1,5 @@
 -- ============================================================================
--- 079_upstream_ledger.sql
+-- 081_upstream_ledger.sql
 -- 上游账本流水（成本管理 doc111 §5.2）：把上游的「消费流水」与「充值流水」落库，
 -- 让月度上游成本从「余额差推算」升级为「流水归集」——逐笔可查、可回填历史、
 -- 并与余额快照互校（差额即待查项）。
@@ -54,4 +54,4 @@ COMMIT;
 --   同步后可核对流水口径与余额口径：
 --   SELECT kind, count(*), SUM(amount) FROM upstream_ledger_entries
 --    WHERE provider_id = 7 GROUP BY kind;
---   期望：consume 138 笔 / topup 29 笔（haika 实测，2025-03 至 2026-10）
+--   期望：consume 139 笔 / ¥7,236.92、topup 29 笔 / ¥8,012.00（haika 实测，2025-03 至 2026-10）

@@ -14,11 +14,11 @@ import (
 	finbillmodel "hostsent/backend/internal/modules/admin/finance/bill/model"
 	costmodel "hostsent/backend/internal/modules/admin/finance/cost/model"
 	pointmodel "hostsent/backend/internal/modules/admin/finance/point/model"
-	finrechmodel "hostsent/backend/internal/modules/admin/finance/recharge/model"
+	finrechmodel "hostsent/backend/internal/modules/admin/finance/account/recharge/model"
 	referralmodel "hostsent/backend/internal/modules/admin/finance/referral/model"
 	finsettingsmodel "hostsent/backend/internal/modules/admin/finance/settings/model"
 	fintransmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
-	finwithdrawmodel "hostsent/backend/internal/modules/admin/finance/withdraw/model"
+	finwithdrawmodel "hostsent/backend/internal/modules/admin/finance/referral/walletwithdraw/model"
 	lifecyclemodel "hostsent/backend/internal/modules/admin/instance/lifecycle/model"
 	instancemodel "hostsent/backend/internal/modules/admin/instance/model"
 	logcentermodel "hostsent/backend/internal/modules/admin/logcenter/model"
@@ -200,11 +200,11 @@ func AutoMigrate(db *gorm.DB) error {
 		&finbillmodel.Bill{},
 		// 发票申请（doc36 §3.3）：预埋渠道/外部单号/文件地址，后续接税务 API。
 		&finbillmodel.InvoiceRequest{},
-		// 成本管理（doc111）：成本项配置 / 上游余额快照 / 上游充值记录
+		// 成本管理（doc111）：成本项配置 / 上游余额快照（余额展示与水位告警）。
+		// 上游充值记录表（078 建）已由迁移 082 删除：手工记账被账本同步取代。
 		&costmodel.CostItem{},
 		&costmodel.UpstreamBalanceSnapshot{},
-		&costmodel.UpstreamBalanceTopup{},
-		// 上游账本流水（doc111 §5.2）：消费/充值明细，月度成本主口径
+		// 上游账本流水（doc111 §5.2）：消费/充值明细，上游成本唯一自动口径
 		&costmodel.UpstreamLedgerEntry{},
 		// 支付中心（迁移 038，doc35）：渠道类型/渠道实例/支付单/回调日志/退款单/
 		// 打款单/用户收款账户/支付方式偏好/渠道对账记录
@@ -1103,6 +1103,13 @@ var seedPermissionDefaults = []seedPermission{
 	{ParentCode: "resource:instance", Name: "远程控制台", Code: "instance:console", Type: "button", SortOrder: 2, Status: "active"},
 	{ParentCode: "resource:instance", Name: "实例变配", Code: "instance:resize", Type: "button", SortOrder: 3, Status: "active"},
 	{ParentCode: "resource:instance", Name: "销毁实例", Code: "instance:destroy", Type: "button", SortOrder: 4, Status: "active"},
+	// 维护类动作细分（平台接口实测存在）：重装会清系统盘、快照恢复会覆盖系统盘，
+	// 单独授权才能做到"只给客服重启权、不给重装权"。
+	{ParentCode: "resource:instance", Name: "重装系统", Code: "instance:reinstall", Type: "button", SortOrder: 5, Status: "active"},
+	{ParentCode: "resource:instance", Name: "重置密码", Code: "instance:password", Type: "button", SortOrder: 6, Status: "active"},
+	{ParentCode: "resource:instance", Name: "救援系统", Code: "instance:rescue", Type: "button", SortOrder: 7, Status: "active"},
+	{ParentCode: "resource:instance", Name: "快照备份", Code: "instance:snapshot", Type: "button", SortOrder: 8, Status: "active"},
+	{ParentCode: "resource:instance", Name: "硬件变更", Code: "instance:hardware", Type: "button", SortOrder: 9, Status: "active"},
 	{Name: "商品销售", Code: "product", Type: "catalog", SortOrder: 5, Status: "active"},
 	{ParentCode: "product", Name: "产品列表", Code: "product:list", Type: "menu", SortOrder: 1, Status: "active"},
 	{ParentCode: "product:list", Name: "创建产品", Code: "product:create", Type: "button", SortOrder: 1, Status: "active"},
@@ -1402,6 +1409,11 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"instance:console",
 			"instance:resize",
 			"instance:destroy",
+			"instance:reinstall",
+			"instance:password",
+			"instance:rescue",
+			"instance:snapshot",
+			"instance:hardware",
 			"product",
 			"product:list",
 			"product:create",
@@ -1538,6 +1550,10 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"instance:action",
 			// 运维需要控制台排障，但不授予变配/销毁（见 61 实施计划 §6.1）。
 			"instance:console",
+			// 排障要用的维护动作：重置密码 / 救援系统 / 快照（不授予重装与销毁 —— 会丢系统盘）。
+			"instance:password",
+			"instance:rescue",
+			"instance:snapshot",
 			"product",
 			"product:list",
 			"product:update",
@@ -1691,6 +1707,10 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"ticket:internal_note",
 			"resource:instance",
 			"instance:console",
+			// 技术支持复现问题常要重置密码/进救援系统/打快照，但不该有重装与销毁权。
+			"instance:password",
+			"instance:rescue",
+			"instance:snapshot",
 		},
 		// user：客户侧角色。客户不登录后台，不持有任何后台权限码。
 		// 历史种子曾给这个角色挂上 system:user / system:user:list / user:detail，
@@ -1844,10 +1864,10 @@ var seedMenuDefaults = []SeedMenu{
 	{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "订单统计", Type: menumodel.TypeMenu, Path: "/orders/stats", Component: "order/stats/index", Icon: "chart-bar", SortOrder: 3, Status: menumodel.StatusActive},
 	// —— 财务管理（doc32，分组树：叶子 + 二级目录）
 	//
-	// 本轮整理（迁移 073）：资金流水改挂「资金管理」组 —— 余额与余额变动（钱包/调账/流水）
-	// 是同一件事的三个视角，此前「资金流水」孤悬在域根，与钱包/调账割裂；
-	// 组名由「钱包与调账」改为「资金管理」。路径不变（沿用 /finance/recharges 挂在
-	// /finance/recharge-center 下的既有先例），权限码不变。
+	// 本轮整理（迁移 084）：充值管理改挂「资金管理」、提现管理改挂「推广返现」，
+	// 原「充值提现」二级目录整体撤销（其下只有这两个叶子，无独立语义）。
+	// 与迁移 073 同一取舍：**路径不变**（/finance/recharges、/finance/withdrawals）——
+	// 链接/收藏/权限映射稳定，只改归属与展示位置；权限码同样不变。
 	// 目录「账单管理」改名「账单与对账」：其下同时挂着账单、发票与对账中心，旧名以偏概全。
 	{Platform: menumodel.PlatformAdmin, Name: "财务管理", Type: menumodel.TypeDirectory, Path: "/finance", Icon: "wallet", SortOrder: 7, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务总览", Type: menumodel.TypeMenu, Path: "/finance/overview", Component: "finance/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
@@ -1857,33 +1877,37 @@ var seedMenuDefaults = []SeedMenu{
 	// （FinancePanel 复用同一 GET /finance/wallets/:user_id 接口），余额变动在「资金流水」按用户检索。
 	// 该页前端页面/路由/菜单已删除，后端接口保留给用户详情页使用。
 	{ParentKey: "admin:/finance/accounts", Platform: menumodel.PlatformAdmin, Name: "人工调账", Type: menumodel.TypeMenu, Path: "/finance/accounts/adjust", Component: "finance/accounts/adjust", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
+	// 充值管理（迁移 084 从 /finance/recharge-center 移入）：充值是「钱进钱包」的上游一步，
+	// 与资金流水/人工调账同属资金管理；组件与后端子域都随之迁到 accounts / account/recharge。
+	{ParentKey: "admin:/finance/accounts", Platform: menumodel.PlatformAdmin, Name: "充值管理", Type: menumodel.TypeMenu, Path: "/finance/recharges", Component: "finance/accounts/recharges/index", Icon: "download", SortOrder: 3, Status: menumodel.StatusActive},
 	// 成本管理（doc111）：月度成本/利润核算 + 成本项配置 + 上游余额台账。
 	// 排序 3 补的是迁移 073 把资金流水收进「资金管理」后空出来的槽位，位置在资金管理之后。
 	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "成本管理", Type: menumodel.TypeDirectory, Path: "/finance/cost", Icon: "chart-bar", SortOrder: 3, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance/cost", Platform: menumodel.PlatformAdmin, Name: "成本总览", Type: menumodel.TypeMenu, Path: "/finance/cost/overview", Component: "finance/cost/overview/index", Icon: "chart-bar", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance/cost", Platform: menumodel.PlatformAdmin, Name: "成本项配置", Type: menumodel.TypeMenu, Path: "/finance/cost/items", Component: "finance/cost/items/index", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance/cost", Platform: menumodel.PlatformAdmin, Name: "上游余额台账", Type: menumodel.TypeMenu, Path: "/finance/cost/upstreams", Component: "finance/cost/upstreams/index", Icon: "wallet", SortOrder: 3, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "充值提现", Type: menumodel.TypeDirectory, Path: "/finance/recharge-center", Icon: "download", SortOrder: 4, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/finance/recharge-center", Platform: menumodel.PlatformAdmin, Name: "充值管理", Type: menumodel.TypeMenu, Path: "/finance/recharges", Component: "finance/recharge/index", Icon: "download", SortOrder: 1, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/finance/recharge-center", Platform: menumodel.PlatformAdmin, Name: "提现管理", Type: menumodel.TypeMenu, Path: "/finance/withdrawals", Component: "finance/withdraw/index", Icon: "upload", SortOrder: 2, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "账单与对账", Type: menumodel.TypeDirectory, Path: "/finance/bill-center", Icon: "file", SortOrder: 5, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "账单与对账", Type: menumodel.TypeDirectory, Path: "/finance/bill-center", Icon: "file", SortOrder: 4, Status: menumodel.StatusActive},
 	// 叶子改名「账单列表」：原与父目录同名（R2）。
 	{ParentKey: "admin:/finance/bill-center", Platform: menumodel.PlatformAdmin, Name: "账单列表", Type: menumodel.TypeMenu, Path: "/finance/bills", Component: "finance/bills/index", Icon: "file", SortOrder: 1, Status: menumodel.StatusActive},
 	// 发票管理（doc36 §3.3）：用户申请 → 管理端开票/驳回，预埋税务 API 渠道。
 	{ParentKey: "admin:/finance/bill-center", Platform: menumodel.PlatformAdmin, Name: "发票管理", Type: menumodel.TypeMenu, Path: "/finance/invoices", Component: "finance/invoices/index", Icon: "file", SortOrder: 2, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance/bill-center", Platform: menumodel.PlatformAdmin, Name: "对账中心", Type: menumodel.TypeMenu, Path: "/finance/recon", Component: "finance/bills/recon", Icon: "verify", SortOrder: 3, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务报表", Type: menumodel.TypeMenu, Path: "/finance/report", Component: "finance/report/index", Icon: "chart-bar", SortOrder: 6, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务配置", Type: menumodel.TypeMenu, Path: "/finance/config", Component: "finance/config/index", Icon: "setting", SortOrder: 7, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务报表", Type: menumodel.TypeMenu, Path: "/finance/report", Component: "finance/report/index", Icon: "chart-bar", SortOrder: 5, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "财务配置", Type: menumodel.TypeMenu, Path: "/finance/config", Component: "finance/config/index", Icon: "setting", SortOrder: 6, Status: menumodel.StatusActive},
 	// —— 推广返现（doc84）整域并入本域（迁移 070）：作为「推广返现」二级目录的子模块，
 	// 路径 /referral/* → /finance/referral/*（权限码 referral:* 不变），旧路径由 router redirect 兼容。
-	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "推广返现", Type: menumodel.TypeDirectory, Path: "/finance/referral", Icon: "share", SortOrder: 8, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "推广返现", Type: menumodel.TypeDirectory, Path: "/finance/referral", Icon: "share", SortOrder: 7, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance/referral", Platform: menumodel.PlatformAdmin, Name: "返现台账", Type: menumodel.TypeMenu, Path: "/finance/referral/cashbacks", Component: "finance/referral/cashbacks/index", Icon: "money", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance/referral", Platform: menumodel.PlatformAdmin, Name: "提现审核", Type: menumodel.TypeMenu, Path: "/finance/referral/withdrawals", Component: "finance/referral/withdrawals/index", Icon: "upload", SortOrder: 2, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance/referral", Platform: menumodel.PlatformAdmin, Name: "邀请关系", Type: menumodel.TypeMenu, Path: "/finance/referral/invitees", Component: "finance/referral/invitees/index", Icon: "usergroup", SortOrder: 3, Status: menumodel.StatusActive},
+	// 提现管理（迁移 084 从 /finance/recharge-center 移入）：返现提现（上一条「提现审核」，
+	// referral_withdrawals）与钱包提现（本页，withdrawals）在业务上是同一批运营动作，
+	// 集中在本域处理；后端子域与页面组件也随之迁到 referral/walletwithdraw 与 referral/wallet-withdrawals。
+	{ParentKey: "admin:/finance/referral", Platform: menumodel.PlatformAdmin, Name: "提现管理", Type: menumodel.TypeMenu, Path: "/finance/withdrawals", Component: "finance/referral/wallet-withdrawals/index", Icon: "upload", SortOrder: 4, Status: menumodel.StatusActive},
 	// —— 积分中心（doc36）整域并入本域（迁移 070）：作为「积分中心」二级目录的子模块，
 	// 路径 /points/* → /finance/points/*（权限码 point:* 不变），旧路径由 router redirect 兼容。
 	// 用户端另有同名 /points（我的积分），platform=user 单独一套，不受影响。
-	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "积分中心", Type: menumodel.TypeDirectory, Path: "/finance/points", Icon: "gift", SortOrder: 9, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "积分中心", Type: menumodel.TypeDirectory, Path: "/finance/points", Icon: "gift", SortOrder: 8, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance/points", Platform: menumodel.PlatformAdmin, Name: "积分概览", Type: menumodel.TypeMenu, Path: "/finance/points/overview", Component: "finance/points/overview/index", Icon: "dashboard", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance/points", Platform: menumodel.PlatformAdmin, Name: "积分规则", Type: menumodel.TypeMenu, Path: "/finance/points/rules", Component: "finance/points/rules/index", Icon: "setting", SortOrder: 2, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance/points", Platform: menumodel.PlatformAdmin, Name: "积分账户", Type: menumodel.TypeMenu, Path: "/finance/points/accounts", Component: "finance/points/accounts/index", Icon: "usergroup", SortOrder: 3, Status: menumodel.StatusActive},

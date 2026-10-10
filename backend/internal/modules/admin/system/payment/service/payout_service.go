@@ -14,7 +14,7 @@ import (
 )
 
 // PayoutService 打款能力：人工登记 / 渠道接口双模。
-// 实现 finance/withdraw 的 PayoutPort 最小接口（装配层注入）。
+// 实现 finance/referral/walletwithdraw 的 PayoutPort 最小接口（装配层注入）。
 // bizType 区分业务域（withdraw/sales_withdraw，doc86 §2.5）：
 // 两类提现单 ID 各自从 1 开始，不带业务域会串单。
 type PayoutService interface {

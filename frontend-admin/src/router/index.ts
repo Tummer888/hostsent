@@ -666,17 +666,20 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/finance/cost/upstreams/index.vue'),
         meta: { title: '上游余额台账', role: 'admin', permission: 'finance:cost:balance' },
       },
-      // —— 充值提现 ——
+      // —— 充值管理 / 提现管理（迁移 083：原「充值提现」目录撤销） ——
+      // 归属改挂「资金管理」与「推广返现」，URL 不变（与迁移 073 同一取舍：
+      // 链接/收藏/权限映射稳定）；页面组件随域迁到 accounts/recharges 与
+      // referral/wallet-withdrawals。
       {
         path: 'recharges',
         name: 'FinanceRecharges',
-        component: () => import('@/pages/finance/recharge/index.vue'),
+        component: () => import('@/pages/finance/accounts/recharges/index.vue'),
         meta: { title: '充值管理', role: 'admin', permission: 'finance:recharge' },
       },
       {
         path: 'withdrawals',
         name: 'FinanceWithdrawals',
-        component: () => import('@/pages/finance/withdraw/index.vue'),
+        component: () => import('@/pages/finance/referral/wallet-withdrawals/index.vue'),
         meta: { title: '提现管理', role: 'admin', permission: 'finance:withdraw' },
       },
       // —— 账单与对账（迁移 073：目录改名，叶子不变） ——

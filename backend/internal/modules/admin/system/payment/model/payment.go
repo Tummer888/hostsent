@@ -63,7 +63,7 @@ const (
 	PayoutBizSalesWithdraw string = "sales_withdraw" // 销售提成提现
 )
 
-// 打款模式（与 finance/withdraw 的 PayoutMode* 同值）
+// 打款模式（与 finance/referral/walletwithdraw 的 PayoutMode* 同值）
 const (
 	PayoutModeManual string = "manual" // 人工打款登记
 	PayoutModeAPI    string = "api"    // 渠道接口自动打款

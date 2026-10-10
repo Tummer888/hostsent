@@ -22,68 +22,61 @@ func TestLedgerKindConstantsAlign(t *testing.T) {
 
 func floatPtr(v float64) *float64 { return &v }
 
-// TestApplyLedgerToRows 双口径合并规则：
-//   - 账本可作准的渠道（已同步过历史条目）一律用流水：本月 0 条目就是 0 成本，不退回快照推算
-//     （否则漏记充值的月份会被推算成负数成本）；
-//   - 账本不可作准的渠道用快照推算兜底；
-//   - 差额只对「两种口径都有」的渠道累计（跨口径相加没有可比性）；
-//   - source 反映渠道构成：全流水 / 全推算 / 混合 / 皆无。
+// TestApplyLedgerToRows 流水口径落行规则：
+//   - 账本可作准的渠道（已同步过历史条目）消耗/充值一律取流水：本期 0 条目就是 0
+//     （「本期确实没消费」），不拿别的口径顶替；
+//   - 未接入账本或尚未同步的渠道两者为 null、来源记 none（页面提示，成本可用成本项配置登记）；
+//   - source 反映是否有渠道出数：ledger / none。
 func TestApplyLedgerToRows(t *testing.T) {
 	rows := []dto.UpstreamLedgerRow{
-		{ProviderID: 7, Consumption: floatPtr(100)}, // 账本可作准 → 流水 90
-		{ProviderID: 9, Consumption: floatPtr(50)},  // 账本不可作准 → 快照 50
-		{ProviderID: 11}, // 两者皆无 → none
-		{ProviderID: 13, Consumption: floatPtr(20)}, // 账本可作准但本月 0 条目 → 流水口径 0
+		{ProviderID: 7},  // 账本可作准 → 流水 90 / 充值 800
+		{ProviderID: 9},  // 未同步账本 → none
+		{ProviderID: 13}, // 账本可作准但本月 0 条目 → 流水口径 0
 	}
-	ledger := map[uint64]ledgerAgg{7: {Sum: 90, Count: 3}}
+	consume := map[uint64]ledgerAgg{7: {Sum: 90, Count: 3}}
+	topup := map[uint64]ledgerAgg{7: {Sum: 800, Count: 2}}
 	authoritative := map[uint64]bool{7: true, 13: true}
 
-	cost, ledgerTotal, diff, source := applyLedgerToRows(rows, ledger, authoritative)
+	cost, topupTotal, source := applyLedgerToRows(rows, consume, topup, authoritative)
 
-	if rows[0].CostSource != "ledger" || rows[0].LedgerConsumption == nil || *rows[0].LedgerConsumption != 90 {
-		t.Errorf("7 号渠道应取流水 90，实际 source=%s ledger=%v", rows[0].CostSource, rows[0].LedgerConsumption)
+	if rows[0].CostSource != "ledger" || rows[0].Consumption == nil || *rows[0].Consumption != 90 || rows[0].ConsumptionEntries != 3 {
+		t.Errorf("7 号渠道应取流水 90（3 笔），实际 source=%s consumption=%v entries=%d",
+			rows[0].CostSource, rows[0].Consumption, rows[0].ConsumptionEntries)
 	}
-	if rows[1].CostSource != "snapshot" {
-		t.Errorf("9 号渠道应取快照，实际 %s", rows[1].CostSource)
+	if rows[0].TopupTotal == nil || *rows[0].TopupTotal != 800 {
+		t.Errorf("7 号渠道期间充值应为 800，实际 %v", rows[0].TopupTotal)
 	}
-	if rows[2].CostSource != "none" {
-		t.Errorf("无数据渠道 source 应为 none，实际 %s", rows[2].CostSource)
+	if rows[1].CostSource != "none" || rows[1].Consumption != nil || rows[1].TopupTotal != nil {
+		t.Errorf("9 号渠道无账本数据应为 none 且消耗/充值为 null，实际 source=%s consumption=%v topup=%v",
+			rows[1].CostSource, rows[1].Consumption, rows[1].TopupTotal)
 	}
-	if rows[3].CostSource != "ledger" || rows[3].LedgerConsumption == nil || *rows[3].LedgerConsumption != 0 {
-		t.Errorf("13 号渠道账本可作准，本月 0 条目应记为流水 0，实际 source=%s ledger=%v",
-			rows[3].CostSource, rows[3].LedgerConsumption)
+	if rows[2].CostSource != "ledger" || rows[2].Consumption == nil || *rows[2].Consumption != 0 {
+		t.Errorf("13 号渠道账本可作准，本月 0 条目应记为流水 0，实际 source=%s consumption=%v",
+			rows[2].CostSource, rows[2].Consumption)
 	}
-	if cost != 140 { // 90（流水）+ 50（快照）+ 0（流水口径的零）
-		t.Errorf("合并成本 = %v, want 140", cost)
+	if cost != 90 { // 90（7 号流水）+ 0（13 号流水口径的零）
+		t.Errorf("上游成本合计 = %v, want 90", cost)
 	}
-	if ledgerTotal != 90 {
-		t.Errorf("流水合计 = %v, want 90", ledgerTotal)
+	if topupTotal != 800 {
+		t.Errorf("充值合计 = %v, want 800", topupTotal)
 	}
-	if diff != -30 { // (90 − 100) + (0 − 20)
-		t.Errorf("差额 = %v, want -30", diff)
-	}
-	if source != "mixed" {
-		t.Errorf("source = %q, want mixed", source)
+	if source != "ledger" {
+		t.Errorf("source = %q, want ledger", source)
 	}
 
-	// 全流水 / 全推算 / 皆无 三种构成
-	onlyLedger := []dto.UpstreamLedgerRow{{ProviderID: 7, Consumption: floatPtr(100)}}
-	if _, _, _, src := applyLedgerToRows(onlyLedger, map[uint64]ledgerAgg{7: {Sum: 90, Count: 1}}, map[uint64]bool{7: true}); src != "ledger" {
-		t.Errorf("全流水 source = %q, want ledger", src)
+	// 无渠道出数 → none
+	if _, _, src := applyLedgerToRows([]dto.UpstreamLedgerRow{{ProviderID: 9}}, nil, nil, nil); src != "none" {
+		t.Errorf("无账本渠道 source = %q, want none", src)
 	}
-	onlySnapshot := []dto.UpstreamLedgerRow{{ProviderID: 9, Consumption: floatPtr(50)}}
-	if _, _, _, src := applyLedgerToRows(onlySnapshot, nil, nil); src != "snapshot" {
-		t.Errorf("全推算 source = %q, want snapshot", src)
-	}
-	if _, _, _, src := applyLedgerToRows(nil, nil, nil); src != "none" {
-		t.Errorf("无数据 source = %q, want none", src)
+	if _, _, src := applyLedgerToRows(nil, nil, nil, nil); src != "none" {
+		t.Errorf("空渠道 source = %q, want none", src)
 	}
 }
 
 // TestUpstreamLineCopy 口径来源决定页面文案（不同来源必须给不同标签，避免口径含糊）。
 func TestUpstreamLineCopy(t *testing.T) {
 	seen := map[string]string{}
-	for _, source := range []string{"ledger", "mixed", "snapshot", "none"} {
+	for _, source := range []string{"ledger", "none"} {
 		label, usage := upstreamLineCopy(source)
 		if label == "" || usage == "" {
 			t.Errorf("source=%s 的文案不完整：%q / %q", source, label, usage)

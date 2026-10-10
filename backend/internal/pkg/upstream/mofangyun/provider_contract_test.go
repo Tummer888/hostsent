@@ -125,3 +125,63 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
+// TestDecodeInstanceRows_BothShapes 实例列表响应两种形态都必须认。
+//
+// 实测事故：适配器原来只按裸数组解析，而线上面板返回 {"data":[...],"meta":{...}}，
+// 结果 ListInstances 直接报 json 解析错误 → 实例同步/对账全空，且错误信息
+// 看着像"面板坏了"。这条用例把两种形态都钉住。
+func TestDecodeInstanceRows_BothShapes(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want int
+	}{
+		{"分页包裹", `{"data":[{"id":1,"hostname":"a"},{"id":2,"hostname":"b"}],"meta":{"total":2}}`, 2},
+		{"裸数组", `[{"id":3,"hostname":"c"}]`, 1},
+		{"双层包裹", `{"data":{"data":[{"id":4,"hostname":"d"}]}}`, 1},
+		{"空对象", `{}`, 0},
+		{"空数组", `[]`, 0},
+		{"null", `null`, 0},
+		{"空串", ``, 0},
+		{"非法 JSON 不 panic", `{"data":"oops"}`, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := decodeInstanceRows(json.RawMessage(c.raw))
+			if len(got) != c.want {
+				t.Errorf("decodeInstanceRows(%s) = %d 行, want %d", c.raw, len(got), c.want)
+			}
+		})
+	}
+}
+
+// TestContract_ListInstances_PagedShape 走完整调用链验证分页形态可用。
+func TestContract_ListInstances_PagedShape(t *testing.T) {
+	p := newMockProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/login":
+			_, _ = w.Write([]byte("token"))
+		case "/v1/clouds":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"data": []map[string]interface{}{
+					{"id": "11", "hostname": "p1", "status": "on"},
+					{"id": "12", "hostname": "p2", "status": "off"},
+				},
+				"meta": map[string]interface{}{"total": 2},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	list, err := p.ListInstances(context.Background(), map[string]string{"per_page": "2"})
+	if err != nil {
+		t.Fatalf("ListInstances（分页形态）失败: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("得到 %d 台, want 2", len(list))
+	}
+	if list[0].UpstreamID != "11" || list[1].UpstreamID != "12" {
+		t.Errorf("解析结果不对: %+v", list)
+	}
+}

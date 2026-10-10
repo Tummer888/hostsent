@@ -12,9 +12,9 @@ import (
 
 	accountmodel "hostsent/backend/internal/modules/admin/finance/account/model"
 	billmodel "hostsent/backend/internal/modules/admin/finance/bill/model"
-	rechargemodel "hostsent/backend/internal/modules/admin/finance/recharge/model"
+	rechargemodel "hostsent/backend/internal/modules/admin/finance/account/recharge/model"
 	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
-	withdrawmodel "hostsent/backend/internal/modules/admin/finance/withdraw/model"
+	withdrawmodel "hostsent/backend/internal/modules/admin/finance/referral/walletwithdraw/model"
 )
 
 // internalTxTypes 冻结/解冻：可用余额 ↔ 冻结余额的内部划转，

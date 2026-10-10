@@ -3,8 +3,8 @@
 // 口径（与 doc111 保持一致，页面页脚直接展示）：
 //   - 收入：服务收入 = 期间消费 − 期间退款（订单口径，与「资金口径收入」区分：
 //     后者含充值/提现等资金搬运，不能当营收）；资金口径作为参考值一并返回。
-//   - 成本：① 上游余额消耗（快照推算）② 成本项配置（母机月费/工资/机房…）
-//     ③ 用户佣金入账 ④ 推广返现计提。
+//   - 成本：① 上游账本消费流水（余额支付的开通/续费 − 对应退款，适配器自动同步）
+//     ② 成本项配置（母机月费/工资/机房…）③ 用户佣金入账 ④ 推广返现计提。
 //   - 利润 = 服务收入 − 成本合计；利润率 = 利润 / 服务收入。
 //   - 周期：按自然月（月初 00:00 至次月月初，右开区间）。
 package dto
@@ -65,52 +65,59 @@ type CostItemRequest struct {
 
 // —— 上游余额台账 ——
 
-// UpstreamLedgerRow 单渠道的月度余额台账行。
+// UpstreamLedgerRow 单渠道的上游台账行。
+//
+// 全部数据自动来源：余额 = 最近一次抓取的快照；消耗/充值 = 上游账本流水（按自然月归集）。
+// 渠道适配器没有账本能力时消耗/充值为 null（成本需用「成本项配置」登记）。
 type UpstreamLedgerRow struct {
 	ProviderID   uint64 `json:"provider_id"`
 	ProviderName string `json:"provider_name"`
 	ProviderType string `json:"provider_type"`
-	// OpeningBalance 期初余额 = 该月首日之前最近一条快照（上月末口径）。
-	OpeningBalance *float64 `json:"opening_balance"`
-	OpeningDate    string   `json:"opening_date"`
-	// TopupTotal 期间充值合计（正=充值，负=退还）。
-	TopupTotal float64 `json:"topup_total"`
-	// ClosingBalance 期末余额 = 该月最后一条快照；本月无快照时取最新快照并标注 AsOf。
-	ClosingBalance *float64 `json:"closing_balance"`
-	ClosingDate    string   `json:"closing_date"`
-	// Consumption 期间消耗 = 期初 + 充值 − 期末（缺任一快照时为 null）。
+	// LatestBalance 最新余额快照（每日自动抓取 + 页面手动触发抓取），当月无快照时为 null。
+	LatestBalance *float64 `json:"latest_balance"`
+	LatestDate    string   `json:"latest_date"`
+	Currency      string   `json:"currency"`
+	// Consumption 期间消耗（流水口径净额 = amount − refund_amount）；渠道无账本数据时为 null。
+	// 已同步过账本的渠道当月无流水即 0（确实没有消费），不会用别的口径顶替。
 	Consumption *float64 `json:"consumption"`
-	// Estimated 期末快照不是本月数据时为 true（消耗为「截至 AsOf」的估算值）。
-	Estimated bool `json:"estimated"`
-	// MissingSnapshot 本月完全无快照（期初/期末取自历史数据，需尽快录入）。
-	MissingSnapshot bool     `json:"missing_snapshot"`
-	LatestBalance   *float64 `json:"latest_balance"` // 最新一条快照余额（不限月份）
-	LatestDate      string   `json:"latest_date"`
-	Currency        string   `json:"currency"`
-	// —— 上游账本（流水口径，doc111 §5.2）——
-	// LedgerConsumption 该月流水口径消耗（净额，只统计已同步到账本的渠道）。
-	LedgerConsumption *float64 `json:"ledger_consumption"`
-	LedgerEntries     int      `json:"ledger_entries"`
-	// CostSource 本月成本取数来源：ledger（流水）/ snapshot（快照推算）/ none（两者皆无）。
+	// ConsumptionEntries 期间消费笔数。
+	ConsumptionEntries int `json:"consumption_entries"`
+	// TopupTotal 期间充值合计（流水口径，正=充值）；渠道无账本数据时为 null。
+	TopupTotal *float64 `json:"topup_total"`
+	// CostSource 期间成本的取数来源：ledger（账本流水）/ none（未接入或尚未同步账本）。
 	CostSource string `json:"cost_source"`
-	// LedgerDiff 两种口径差额 = 流水 − 快照（都有值时给出；非 0 即需人工核查）。
-	LedgerDiff *float64 `json:"ledger_diff"`
 }
 
 // UpstreamLedgerResponse 上游余额台账响应。
 type UpstreamLedgerResponse struct {
 	Month string              `json:"month"`
 	Rows  []UpstreamLedgerRow `json:"rows"`
-	// TotalConsumption 全部渠道期间消耗合计（只统计可推算的行）。
+	// TotalConsumption 全部渠道期间消耗合计（只统计有账本数据的渠道）。
 	TotalConsumption float64 `json:"total_consumption"`
-	// SnapshotSupportedProviders 支持自动抓取余额的渠道 ID（适配器实现 AccountReader）。
-	SnapshotSupportedProviders []uint64 `json:"snapshot_supported_providers"`
+	// TotalTopup 全部渠道期间充值合计（只统计有账本数据的渠道）。
+	TotalTopup float64 `json:"total_topup"`
+	// BalanceSupportedProviders 支持自动抓取余额的渠道 ID（适配器实现 AccountReader）。
+	BalanceSupportedProviders []uint64 `json:"balance_supported_providers"`
 	// LedgerSupportedProviders 支持同步上游账本的渠道 ID（适配器实现 FinanceLedgerReader）。
 	LedgerSupportedProviders []uint64 `json:"ledger_supported_providers"`
 	// LedgerSyncedAt 最近一次账本同步时间（RFC3339，空=未同步过）。
 	LedgerSyncedAt string `json:"ledger_synced_at"`
 	// Alerts 上游余额水位告警（余额 < 未来 30 天到期金额，或 < 配置阈值）。
 	Alerts []BalanceAlert `json:"alerts"`
+}
+
+// BalanceSnapshotInfo 一次余额抓取的结果（落库后的当日快照）。
+type BalanceSnapshotInfo struct {
+	ProviderID   uint64  `json:"provider_id"`
+	ProviderName string  `json:"provider_name"`
+	SnapshotDate string  `json:"snapshot_date"`
+	Balance      float64 `json:"balance"`
+	Currency     string  `json:"currency"`
+}
+
+// BalanceFetchRequest 余额抓取请求。
+type BalanceFetchRequest struct {
+	ProviderID uint64 `json:"provider_id" binding:"required"`
 }
 
 // BalanceAlert 上游余额水位告警。
@@ -200,67 +207,6 @@ type LedgerEntryListResponse struct {
 	TopupTotal       float64 `json:"topup_total"`
 }
 
-// SnapshotRequest 余额快照录入请求。
-type SnapshotRequest struct {
-	ProviderID   uint64  `form:"provider_id" json:"provider_id" binding:"required"`
-	SnapshotDate string  `form:"snapshot_date" json:"snapshot_date"`
-	Balance      float64 `form:"balance" json:"balance"`
-	Remark       string  `form:"remark" json:"remark"`
-}
-
-// TopupRequest 上游充值记录请求。
-type TopupRequest struct {
-	ProviderID uint64  `form:"provider_id" json:"provider_id" binding:"required"`
-	OccurredOn string  `form:"occurred_on" json:"occurred_on"`
-	Amount     float64 `form:"amount" json:"amount"`
-	Remark     string  `form:"remark" json:"remark"`
-}
-
-// SnapshotInfo 余额快照（列表展示）。
-type SnapshotInfo struct {
-	ID           uint64  `json:"id"`
-	ProviderID   uint64  `json:"provider_id"`
-	ProviderName string  `json:"provider_name"`
-	SnapshotDate string  `json:"snapshot_date"`
-	Balance      float64 `json:"balance"`
-	Currency     string  `json:"currency"`
-	Source       string  `json:"source"`
-	Remark       string  `json:"remark"`
-	CreatedAt    string  `json:"created_at"`
-}
-
-// TopupInfo 充值记录（列表展示）。
-type TopupInfo struct {
-	ID           uint64  `json:"id"`
-	ProviderID   uint64  `json:"provider_id"`
-	ProviderName string  `json:"provider_name"`
-	OccurredOn   string  `json:"occurred_on"`
-	Amount       float64 `json:"amount"`
-	Remark       string  `json:"remark"`
-	OperatorID   uint64  `json:"operator_id"`
-	CreatedAt    string  `json:"created_at"`
-}
-
-// BalanceRecordQuery 快照/充值记录查询（台账页明细核查；provider_id=0 不限渠道，month 空=不限月份）。
-type BalanceRecordQuery struct {
-	ProviderID uint64 `form:"provider_id"`
-	Month      string `form:"month"`
-	Page       int    `form:"page"`
-	PageSize   int    `form:"page_size"`
-}
-
-// SnapshotListResponse 余额快照列表响应。
-type SnapshotListResponse struct {
-	Items []SnapshotInfo `json:"items"`
-	Meta  ListMeta       `json:"meta"`
-}
-
-// TopupListResponse 充值记录列表响应。
-type TopupListResponse struct {
-	Items []TopupInfo `json:"items"`
-	Meta  ListMeta    `json:"meta"`
-}
-
 // —— 成本总览 ——
 
 // CostLine 成本构成行（自动项与配置项同构，来源字段区分）。
@@ -309,15 +255,8 @@ type CostOverviewResponse struct {
 	// ProfitToDate/ProfitRateToDate 用按天摊后的固定成本计算的利润与利润率（月中参考）。
 	ProfitToDate     float64 `json:"profit_to_date"`
 	ProfitRateToDate float64 `json:"profit_rate_to_date"`
-	// —— 上游成本的两个口径（doc111 §5.2）——
-	// UpstreamCostLedger 流水口径：上游账本消费净额合计（主口径，逐笔可查）。
-	UpstreamCostLedger float64 `json:"upstream_cost_ledger"`
-	// UpstreamCostSnapshot 快照推算口径：期初 + 充值 − 期末（核对口径）。
-	UpstreamCostSnapshot float64 `json:"upstream_cost_snapshot"`
-	// UpstreamCostSource 本总额取数来源：ledger（所有渠道都有流水）/ snapshot / mixed / none。
+	// UpstreamCostSource 上游成本取数来源：ledger（有渠道同步了账本）/ none（无账本数据）。
 	UpstreamCostSource string `json:"upstream_cost_source"`
-	// UpstreamLedgerDiff 差额 = 流水 − 快照（非 0 需核查：信用额支付/面板内其它扣费/快照缺失）。
-	UpstreamLedgerDiff float64 `json:"upstream_ledger_diff"`
 	// LedgerSyncedAt 最近一次账本同步时间（RFC3339，空=未同步过）。
 	LedgerSyncedAt string `json:"ledger_synced_at"`
 	// BalanceAlerts 上游余额水位告警。

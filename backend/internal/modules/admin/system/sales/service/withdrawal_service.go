@@ -18,7 +18,7 @@ import (
 )
 
 // PayoutPort 打款能力最小接口（由支付中心实现，装配层注入）。
-// 与 finance/withdraw 的 PayoutPort 同形，bizType 固定传 sales_withdraw（doc86 §2.5）。
+// 与 finance/referral/walletwithdraw 的 PayoutPort 同形，bizType 固定传 sales_withdraw（doc86 §2.5）。
 type PayoutPort interface {
 	CreatePayout(ctx context.Context, bizType string, withdrawID uint64, withdrawNo string, userID uint64, amount float64, mode string) (payoutID uint64, payoutNo string, actualMode string, err error)
 	StatusByNo(ctx context.Context, payoutNo string) (string, error)

@@ -12,8 +12,8 @@ import (
 	"strings"
 
 	billdto "hostsent/backend/internal/modules/admin/finance/bill/dto"
-	rechdto "hostsent/backend/internal/modules/admin/finance/recharge/dto"
-	withdrawdto "hostsent/backend/internal/modules/admin/finance/withdraw/dto"
+	rechdto "hostsent/backend/internal/modules/admin/finance/account/recharge/dto"
+	withdrawdto "hostsent/backend/internal/modules/admin/finance/referral/walletwithdraw/dto"
 	paydto "hostsent/backend/internal/modules/admin/system/payment/dto"
 	paymodel "hostsent/backend/internal/modules/admin/system/payment/model"
 )

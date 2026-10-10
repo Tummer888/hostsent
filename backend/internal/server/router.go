@@ -397,11 +397,26 @@ func newRouter(app *App) *gin.Engine {
 			instanceOps.GET("/:id/related", app.perm("resource:instance"), app.instanceOpsHandler.Related)
 			instanceOps.POST("/:id/sync", app.perm("instance:action"), app.instanceOpsHandler.Sync)
 			instanceOps.POST("/:id/power", app.perm("instance:action"), app.instanceOpsHandler.Power)
+			// 批量运维（doc61 P1）：静态段 /batch 须先于 /:id 注册。
+			instanceOps.POST("/batch", app.perm("instance:action"), app.instanceOpsHandler.BatchAction)
 			instanceOps.POST("/:id/suspend", app.perm("instance:action"), app.instanceOpsHandler.Suspend)
 			instanceOps.POST("/:id/unsuspend", app.perm("instance:action"), app.instanceOpsHandler.Unsuspend)
 			instanceOps.PUT("/:id/remark", app.perm("instance:action"), app.instanceOpsHandler.SetRemark)
 			instanceOps.POST("/:id/vnc", app.perm("instance:console"), app.instanceOpsHandler.VNC)
 			instanceOps.POST("/:id/resize", app.perm("instance:resize"), app.adminRequireVerification("instance_resize"), app.instanceOpsHandler.Resize)
+			// 维护类操作（平台接口实测存在）：各拆独立权限码，避免"能重启就能重装"。
+			// 会丢失数据的动作（重装格式化 / 快照恢复）另加二次验证。
+			instanceOps.POST("/:id/reinstall", app.perm("instance:reinstall"), app.adminRequireVerification("instance_reinstall"), app.instanceOpsHandler.Reinstall)
+			instanceOps.POST("/:id/reset-password", app.perm("instance:password"), app.instanceOpsHandler.ResetPassword)
+			instanceOps.POST("/:id/rescue", app.perm("instance:rescue"), app.instanceOpsHandler.Rescue)
+			instanceOps.POST("/:id/exit-rescue", app.perm("instance:rescue"), app.instanceOpsHandler.ExitRescue)
+			instanceOps.GET("/:id/snapshots", app.perm("instance:snapshot"), app.instanceOpsHandler.Snapshots)
+			instanceOps.POST("/:id/snapshots", app.perm("instance:snapshot"), app.instanceOpsHandler.CreateSnapshot)
+			instanceOps.DELETE("/:id/snapshots/:snapshotId", app.perm("instance:snapshot"), app.instanceOpsHandler.DeleteSnapshot)
+			instanceOps.POST("/:id/snapshots/restore", app.perm("instance:snapshot"), app.adminRequireVerification("instance_snapshot_restore"), app.instanceOpsHandler.RestoreSnapshot)
+			instanceOps.PUT("/:id/bandwidth", app.perm("instance:hardware"), app.instanceOpsHandler.SetBandwidth)
+			instanceOps.POST("/:id/ips", app.perm("instance:hardware"), app.instanceOpsHandler.AddIP)
+			instanceOps.POST("/:id/disks", app.perm("instance:hardware"), app.instanceOpsHandler.AttachDataDisk)
 			instanceOps.DELETE("/:id", app.perm("instance:destroy"), app.adminRequireVerification("instance_destroy"), app.instanceOpsHandler.Destroy)
 		}
 
@@ -680,16 +695,9 @@ func newRouter(app *App) *gin.Engine {
 			costGroup.POST("/items", app.perm("finance:cost:item"), app.costHandler.CreateItem)
 			costGroup.PUT("/items/:id", app.perm("finance:cost:item"), app.costHandler.UpdateItem)
 			costGroup.DELETE("/items/:id", app.perm("finance:cost:item"), app.costHandler.DeleteItem)
-			// 上游余额台账：期初/充值/消耗/期末 + 快照与充值录入
+			// 上游余额台账（doc111 §5）：余额=自动抓取快照，消耗/充值=上游账本流水，全部自动取数
 			costGroup.GET("/balances", app.perm("finance:cost:balance"), app.costHandler.Ledger)
-			costGroup.POST("/balances/snapshot", app.perm("finance:cost:balance"), app.costHandler.SaveSnapshot)
-			costGroup.DELETE("/balances/snapshots/:id", app.perm("finance:cost:balance"), app.costHandler.DeleteSnapshot)
-			costGroup.POST("/balances/topup", app.perm("finance:cost:balance"), app.costHandler.SaveTopup)
-			costGroup.DELETE("/balances/topups/:id", app.perm("finance:cost:balance"), app.costHandler.DeleteTopup)
-			// 快照 / 充值明细（分页，含渠道名）：台账核对与纠错
-			costGroup.GET("/balances/snapshots", app.perm("finance:cost:balance"), app.costHandler.ListSnapshots)
-			costGroup.GET("/balances/topups", app.perm("finance:cost:balance"), app.costHandler.ListTopups)
-			// 一键抓取渠道余额（适配器未实现 AccountReader 时返回 30008，页面引导手工录入）
+			// 一键抓取渠道余额（适配器未实现 AccountReader 时返回 30008）
 			costGroup.POST("/balances/fetch", app.perm("finance:cost:balance"), app.costHandler.FetchBalance)
 			// 上游账本（doc111 §5.2）：消费/充值流水同步与明细、余额水位告警
 			costGroup.POST("/balances/sync-ledger", app.perm("finance:cost:balance"), app.costHandler.SyncLedger)
@@ -1164,6 +1172,16 @@ func newRouter(app *App) *gin.Engine {
 		ucInstances.GET("/:id", app.userPerm(appauth.PermInstanceView), app.ucInstanceHandler.Detail)          // 主机详情
 		ucInstances.POST("/:id/power", app.userPerm(appauth.PermInstanceOperate), app.ucInstanceHandler.Power) // 电源操作
 		ucInstances.POST("/:id/vnc", app.userPerm(appauth.PermInstanceOperate), app.ucInstanceHandler.VNC)     // 远程控制台
+		// 维护类自助操作（重装/重置密码/救援/快照）：写入操作，需 instance:operate。
+		// 重装允许格式化数据盘、快照恢复会覆盖系统盘 —— 两者按管理端口径加二次验证。
+		ucInstances.POST("/:id/reinstall", app.userPerm(appauth.PermInstanceOperate), app.userRequireVerification("instance_reinstall"), app.ucInstanceHandler.Reinstall)
+		ucInstances.POST("/:id/reset-password", app.userPerm(appauth.PermInstanceOperate), app.ucInstanceHandler.ResetPassword)
+		ucInstances.POST("/:id/rescue", app.userPerm(appauth.PermInstanceOperate), app.ucInstanceHandler.Rescue)
+		ucInstances.POST("/:id/exit-rescue", app.userPerm(appauth.PermInstanceOperate), app.ucInstanceHandler.ExitRescue)
+		ucInstances.GET("/:id/snapshots", app.userPerm(appauth.PermInstanceView), app.ucInstanceHandler.Snapshots)
+		ucInstances.POST("/:id/snapshots", app.userPerm(appauth.PermInstanceOperate), app.ucInstanceHandler.CreateSnapshot)
+		ucInstances.DELETE("/:id/snapshots/:snapshotId", app.userPerm(appauth.PermInstanceOperate), app.ucInstanceHandler.DeleteSnapshot)
+		ucInstances.POST("/:id/snapshots/restore", app.userPerm(appauth.PermInstanceOperate), app.userRequireVerification("instance_snapshot_restore"), app.ucInstanceHandler.RestoreSnapshot)
 		// 自助销毁（doc91 §6.4）：不可逆，子账号硬拒绝 + instance_destroy 二次验证票据。
 		// 默认 otp_required=false，升级当天这条新路由不阻断任何人。
 		ucInstances.DELETE("/:id", app.rejectSub(), app.userPerm(appauth.PermInstanceOperate), app.userRequireVerification("instance_destroy"), app.ucInstanceHandler.Destroy)

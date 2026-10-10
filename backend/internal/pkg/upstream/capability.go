@@ -39,18 +39,23 @@ const (
 
 // 能力操作（开通前校验用；与类型断言一一对应，另含后续补齐的续费/重装）。
 const (
-	OpProvision = "provision" // 开通
-	OpRenew     = "renew"     // 续费
-	OpStart     = "start"
-	OpStop      = "stop"
-	OpRestart   = "restart"
-	OpVNC       = "vnc"
-	OpResize    = "resize"
-	OpReinstall = "reinstall"
-	OpDestroy   = "destroy"
-	OpSnapshot  = "snapshot"
-	OpSuspend   = "suspend"   // 欠费/违规暂停
-	OpUnsuspend = "unsuspend" // 恢复
+	OpProvision     = "provision" // 开通
+	OpRenew         = "renew"     // 续费
+	OpStart         = "start"
+	OpStop          = "stop"
+	OpRestart       = "restart"
+	OpVNC           = "vnc"
+	OpResize        = "resize"
+	OpReinstall     = "reinstall"      // 重装系统（可换镜像）
+	OpResetPassword = "reset_password" // 重置实例登录密码（不重装）
+	OpRescue        = "rescue"         // 救援系统（进/出）
+	OpDestroy       = "destroy"
+	OpSnapshot      = "snapshot"    // 磁盘快照 / 备份
+	OpSuspend       = "suspend"     // 欠费/违规暂停
+	OpUnsuspend     = "unsuspend"   // 恢复
+	OpBandwidth     = "bandwidth"   // 带宽直改
+	OpAddIP         = "add_ip"      // 增加 IP / IPv6
+	OpAttachDisk    = "attach_disk" // 挂载数据盘
 )
 
 // 续费模式：order=上游下单续费，direct=直接延期，none=不支持。
@@ -228,5 +233,32 @@ func CapabilitiesOf(p Provider) CapabilityDescriptor {
 			d.DestroyMode = DestroyModeImmediate
 		}
 	}
+	// 实例维护类能力（重装/重置密码/救援/快照/硬件变更）：有接口即算有该操作，
+	// 后台据此决定按钮是否可用，避免"按钮能点但点了报错"。
+	if _, ok := p.(InstanceReinstall); ok {
+		d.Operations = append(d.Operations, OpReinstall)
+	}
+	if _, ok := p.(InstancePasswordReset); ok {
+		d.Operations = append(d.Operations, OpResetPassword)
+	}
+	if _, ok := p.(InstanceRescue); ok {
+		d.Operations = append(d.Operations, OpRescue)
+	}
+	if _, ok := p.(InstanceSnapshot); ok {
+		d.Operations = append(d.Operations, OpSnapshot)
+	}
+	if _, ok := p.(InstanceHardware); ok {
+		d.Operations = append(d.Operations, OpBandwidth, OpAddIP, OpAttachDisk)
+	}
 	return d
+}
+
+// SupportsOperation 某描述符是否声明了某操作（开通前校验/按钮门禁用）。
+func SupportsOperation(d CapabilityDescriptor, op string) bool {
+	for _, o := range d.Operations {
+		if o == op {
+			return true
+		}
+	}
+	return false
 }

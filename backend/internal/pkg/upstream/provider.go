@@ -99,6 +99,126 @@ type InstanceTermination interface {
 	TerminateInstance(ctx context.Context, instanceID, reason string) error
 }
 
+// InstancePowerHard 实例硬电源能力（诚恳版：硬关/硬重启是独立指令，不是"软关再开"）。
+//
+// 与 InstanceControl.Stop(force=true) 的区别：force 只是"尽量硬一点"，本接口明确表达
+// "这条指令就是硬关"。平台有独立接口时实现它，分派层优先走这里；
+// 没实现时由服务层退化为硬关+开机（语义等价但中间态可见）。
+type InstancePowerHard interface {
+	HardStopInstance(ctx context.Context, instanceID string) error
+	HardRestartInstance(ctx context.Context, instanceID string) error
+}
+
+// InstanceReinstall 实例重装系统能力。
+//
+// 平台侧重装是一个长任务；返回的 ReinstallResult.Password/Username 是平台为新系统
+// 生成的初始凭据（部分平台返回），调用方应回写本地实例记录，否则客户改完系统就登不上。
+type InstanceReinstall interface {
+	ReinstallInstance(ctx context.Context, req *ReinstallRequest) (*ReinstallResult, error)
+}
+
+// ReinstallRequest 重装请求。
+type ReinstallRequest struct {
+	// ProviderInstanceID 平台侧实例号。
+	ProviderInstanceID string
+	// OS 目标镜像 ID（平台口径，与开通时的 os 同源）。
+	OS string
+	// Port 重装后的自定义端口（>0 才下发；SSH/RDP 端口）。
+	Port int
+	// FormatDataDisk 是否同时格式化数据盘（危险：数据盘数据将丢失）。
+	FormatDataDisk bool
+	// SystemDiskSize 目标系统盘大小（>0 才下发）。
+	SystemDiskSize int
+	// Extra 平台特有参数原样透传。
+	Extra map[string]interface{}
+}
+
+// ReinstallResult 重装结果。
+type ReinstallResult struct {
+	// Password / Username 平台重装后生成的新初始凭据；为空表示平台未返回（保持原凭据）。
+	Password string
+	Username string
+	// Raw 平台原始响应（排障用）。
+	Raw map[string]interface{}
+}
+
+// InstancePasswordReset 实例登录密码重置能力（改 root/administrator 密码，不重装）。
+type InstancePasswordReset interface {
+	ResetInstancePassword(ctx context.Context, instanceID, newPassword string) error
+}
+
+// InstanceRescue 救援系统能力：用救援镜像临时启动，用于系统损坏时救数据/修配置。
+//
+// 与 Stop/Start 的语义差别：救援态下客户拿到的是**临时系统**，必须显式退出救援
+// 才会回到原系统，所以 ExitRescueInstance 与 RescueInstance 成对出现。
+type InstanceRescue interface {
+	// RescueInstance 进入救援系统。system 为救援系统类型（平台口径，魔方云 1/2）。
+	RescueInstance(ctx context.Context, instanceID string, system int, tempPassword string) error
+	// ExitRescueInstance 退出救援系统。
+	ExitRescueInstance(ctx context.Context, instanceID string) error
+}
+
+// InstanceSnapshot 磁盘快照与备份能力。
+//
+// 快照（snapshot）与备份（backup）在平台侧是同一套接口的两种 type，因此合并到一个能力里；
+// 恢复快照会覆盖当前系统盘，属高危动作，由服务层单独授权。
+type InstanceSnapshot interface {
+	// ListSnapshots 列出实例的磁盘快照/备份（type 为空表示两类都返回）。
+	ListSnapshots(ctx context.Context, instanceID, snapshotType string) ([]SnapshotInfo, error)
+	// CreateSnapshot 创建快照/备份。snapshotType 取 SnapshotTypeSnap / SnapshotTypeBackup。
+	CreateSnapshot(ctx context.Context, req *CreateSnapshotRequest) error
+	// DeleteSnapshot 删除快照/备份（按快照 ID，非实例 ID）。
+	DeleteSnapshot(ctx context.Context, snapshotID string) error
+	// RestoreSnapshot 用快照/备份恢复实例（覆盖当前系统盘）。
+	RestoreSnapshot(ctx context.Context, instanceID, snapshotID string) error
+}
+
+// 快照类型（平台口径 type=snap|backup）。
+const (
+	SnapshotTypeSnap   = "snap"
+	SnapshotTypeBackup = "backup"
+)
+
+// CreateSnapshotRequest 创建快照/备份请求。
+type CreateSnapshotRequest struct {
+	// ProviderInstanceID 平台侧实例号（用于取系统盘）。
+	ProviderInstanceID string
+	// DiskID 目标磁盘 ID（平台侧；快照挂在磁盘上）。
+	DiskID string
+	// Type SnapshotTypeSnap / SnapshotTypeBackup。
+	Type string
+	// Name 快照名称。
+	Name string
+}
+
+// SnapshotInfo 快照/备份条目。
+type SnapshotInfo struct {
+	ID         string
+	Name       string
+	Type       string // snap / backup
+	Size       string
+	Status     int
+	DiskID     string
+	DiskName   string
+	CreateTime string
+	Remarks    string
+}
+
+// InstanceHardware 实例硬件直读/直改能力（带宽/扩展 IP/IPv6/数据盘）。
+//
+// 这些不是"电源类"动作，而是与平台资源直接交互的硬件变更；平台各自接口差异大，
+// 因此单独成接口，分派层按能力提供，不做跨平台语义归一。
+type InstanceHardware interface {
+	// UpdateBandwidth 修改上下行带宽（Mbps）。单方向为 0 表示不改该方向。
+	UpdateBandwidth(ctx context.Context, instanceID string, inBw, outBw int) error
+	// AddIPs 增加 IP：num 个，ipGroup 可选（平台 IP 分组 ID，空则由平台决定）。
+	AddIPs(ctx context.Context, instanceID string, num int, ipGroup string) error
+	// AddIPv6 增加 IPv6 地址数量。
+	AddIPv6(ctx context.Context, instanceID string, num int) error
+	// AttachDataDisk 挂载一块数据盘（GB）；store 为空由平台决定。
+	AttachDataDisk(ctx context.Context, instanceID string, sizeGB int, store string) error
+}
+
 // InstanceLifecycle 实例全生命周期能力：开通 + 电源控制 + 管理维护的组合。
 type InstanceLifecycle interface {
 	InstanceProvisioning

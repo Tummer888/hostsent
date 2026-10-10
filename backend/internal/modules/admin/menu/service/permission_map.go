@@ -86,8 +86,9 @@ var menuPermissionMap = map[string]string{
 	"/finance/overview":        "finance:wallet",
 	"/finance/accounts/adjust": "finance:adjust",
 	"/finance/transactions":    "finance:wallet",
-	"/finance/recharges":       "finance:recharge",
-	"/finance/withdrawals":     "finance:withdraw",
+	// 充值管理/提现管理（迁移 084 改挂资金管理/推广返现，路径与权限码均不变）。
+	"/finance/recharges":   "finance:recharge",
+	"/finance/withdrawals": "finance:withdraw",
 	"/finance/bills":           "finance:bill",
 	"/finance/recon":           "finance:bill",
 	// 发票管理（doc36 §3.3）：与账单同域，开票动作由 finance:invoice:issue 细分。

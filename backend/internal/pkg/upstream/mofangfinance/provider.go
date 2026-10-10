@@ -64,6 +64,9 @@ func init() {
 			upstream.OpProvision, upstream.OpRenew,
 			upstream.OpStart, upstream.OpStop, upstream.OpRestart, upstream.OpVNC,
 			upstream.OpSuspend, upstream.OpUnsuspend, upstream.OpDestroy,
+			// 维护类：上游 /provision/default 支持 func=reinstall|crack_pass，
+			// 源码 Host::reinstall / Host::crackPass 的 zjmf_api 分支即走这两条指令。
+			upstream.OpReinstall, upstream.OpResetPassword,
 		},
 		// zjmf_api 分支：续费走 /host/renew + /apply_credit（上游下单），终止走 /host/cancel（立即生效）。
 		RenewMode:   upstream.RenewModeOrder,
@@ -841,6 +844,18 @@ func (p *MoFangFinanceProvider) CreateInstance(ctx context.Context, req *model.C
 	password := firstNonEmpty(req.Password, randPassword())
 	billingCycle := normalizeBillingCycle(req.BillingMode)
 	configOpt := buildCartConfigOption(req.Extra)
+	// 币种：上游结算要求 currencyid 为该账号（clients.currency）生效的币种 id。
+	// 源码 Host::createFinal 用 `/user_info` 的 user.currency；固定写 1 只有在账号
+	// 恰好用默认币种时才正确，账号换过币种就会按错误价格结算甚至直接失败。
+	currencyID := p.accountCurrencyID(ctx)
+
+	// 0) 清空上游购物车（源码 Host::createFinal 下单前的固定动作）。
+	// 结算走 cart_data 显式覆盖购物车，因此这一步不是正确性必需；但上游购物车是
+	// 按账号会话累积的，重试/中断后残留的商品会在上游后台"购物车"里碍事。
+	// 失败只忽略：真正的下单结果以 cart/settle 为准。
+	_ = p.call(ctx, "CreateInstance", http.MethodPost, "cart/clear", url.Values{
+		"downstream_url": {""}, "downstream_token": {""}, "downstream_id": {""},
+	}, nil)
 
 	// 1) 加入购物车
 	addForm := url.Values{}
@@ -848,10 +863,15 @@ func (p *MoFangFinanceProvider) CreateInstance(ctx context.Context, req *model.C
 	addForm.Set("billingcycle", billingCycle)
 	addForm.Set("host", host)
 	addForm.Set("password", password)
-	addForm.Set("currencyid", "1")
+	addForm.Set("currencyid", currencyID)
 	addForm.Set("qty", "1")
 	for k, v := range configOpt {
 		addForm.Set("configoption["+k+"]", v)
+	}
+	// 自定义字段：上游商品若把必填项做成 customfield，不传会被结算拒绝
+	// （源码 createFinal 从 customfieldsvalues 取 upstream_id → value 原样透传）。
+	for k, v := range customFieldsFromExtra(req.Extra) {
+		addForm.Set("customfield["+k+"]", v)
 	}
 	if err := p.call(ctx, "CreateInstance", http.MethodPost, "cart/add_to_shop", addForm, nil); err != nil {
 		return nil, err
@@ -866,10 +886,13 @@ func (p *MoFangFinanceProvider) CreateInstance(ctx context.Context, req *model.C
 	settleForm.Set("cart_data[billingcycle]", billingCycle)
 	settleForm.Set("cart_data[host]", host)
 	settleForm.Set("cart_data[password]", password)
-	settleForm.Set("cart_data[currencyid]", "1")
+	settleForm.Set("cart_data[currencyid]", currencyID)
 	settleForm.Set("cart_data[qty]", "1")
 	for k, v := range configOpt {
 		settleForm.Set("cart_data[configoptions]["+k+"]", v)
+	}
+	for k, v := range customFieldsFromExtra(req.Extra) {
+		settleForm.Set("cart_data[customfield]["+k+"]", v)
 	}
 	var settleData struct {
 		InvoiceID int64   `json:"invoiceid"`
@@ -1021,6 +1044,68 @@ func (p *MoFangFinanceProvider) RestartInstance(ctx context.Context, instanceID 
 	return p.provisionCmd(ctx, "RestartInstance", instanceID, "reboot")
 }
 
+// HardStopInstance 硬关机：POST /provision/default（func=hard_off）。
+// 与 StopInstance(force=true) 等价，单独暴露是为了让「强制关机」这个入口无论走
+// InstanceControl 还是 InstancePowerHard 都落到同一条上游指令。
+func (p *MoFangFinanceProvider) HardStopInstance(ctx context.Context, instanceID string) error {
+	return p.provisionCmd(ctx, "HardStopInstance", instanceID, "hard_off")
+}
+
+// HardRestartInstance 硬重启：POST /provision/default（func=hard_reboot）。
+//
+// 上游本就有独立硬重启指令（源码 Host::hardReboot 的 zjmf_api 分支），此前适配器未实现
+// InstancePowerHard，服务层只好退化为"硬关 + 开机"两步，中间会经历一次完整断电，
+// 与面板行为不一致且多一次失败面。这里直接下发 hard_reboot。
+func (p *MoFangFinanceProvider) HardRestartInstance(ctx context.Context, instanceID string) error {
+	return p.provisionCmd(ctx, "HardRestartInstance", instanceID, "hard_reboot")
+}
+
+// ReinstallInstance 重装系统：POST /provision/default（func=reinstall）。
+//
+// 参数取自源码 Host::reinstall 的 zjmf_api 分支：os 是**上游配置子项 id**（而非系统名），
+// 另可带 port / format_data_disk。ReinstallRequest.OS 在本适配器里即该子项 id
+// （调用方从商品配置项 sub.upstream_key 取得）。
+//
+// 上游重装是异步长任务，本方法返回 nil 只代表"已受理"，不返回新凭据：
+// 凭据由上游在重装完成后写入主机记录，本系统不落盘（项目内 instances 表无凭据列）。
+func (p *MoFangFinanceProvider) ReinstallInstance(ctx context.Context, req *upstream.ReinstallRequest) (*upstream.ReinstallResult, error) {
+	if req == nil || strings.TrimSpace(req.ProviderInstanceID) == "" {
+		return nil, &upstream.ProviderError{Op: "ReinstallInstance", Msg: "缺少上游主机ID"}
+	}
+	os := strings.TrimSpace(req.OS)
+	if os == "" {
+		return nil, &upstream.ProviderError{Op: "ReinstallInstance", Msg: "缺少目标镜像（上游配置子项 id）"}
+	}
+	form := url.Values{}
+	form.Set("id", req.ProviderInstanceID)
+	form.Set("func", "reinstall")
+	form.Set("os", os)
+	form.Set("is_api", "1")
+	if req.Port > 0 && req.Port <= 65535 {
+		form.Set("port", strconv.Itoa(req.Port))
+	}
+	if req.FormatDataDisk {
+		form.Set("format_data_disk", "1")
+	} else {
+		form.Set("format_data_disk", "0")
+	}
+	if err := p.call(ctx, "ReinstallInstance", http.MethodPost, "provision/default", form, nil); err != nil {
+		return nil, err
+	}
+	return &upstream.ReinstallResult{}, nil
+}
+
+// ResetInstancePassword 重置登录密码：POST /provision/default（func=crack_pass）。
+// 源码 Host::crackPass 的 zjmf_api 分支：{id, func=crack_pass, password, is_api=1}。
+func (p *MoFangFinanceProvider) ResetInstancePassword(ctx context.Context, instanceID, newPassword string) error {
+	if strings.TrimSpace(newPassword) == "" {
+		return &upstream.ProviderError{Op: "ResetInstancePassword", Msg: "新密码不能为空"}
+	}
+	return p.call(ctx, "ResetInstancePassword", http.MethodPost, "provision/default", url.Values{
+		"id": {instanceID}, "func": {"crack_pass"}, "password": {newPassword}, "is_api": {"1"},
+	}, nil)
+}
+
 // VNC 获取远程控制台：POST /provision/default（func=vnc），返回上游 noVNC 地址。
 func (p *MoFangFinanceProvider) VNC(ctx context.Context, instanceID string) (upstream.VNCResult, error) {
 	var resp struct {
@@ -1136,10 +1221,29 @@ func (p *MoFangFinanceProvider) RenewInstance(ctx context.Context, req *upstream
 	return res, nil
 }
 
-// DeleteInstance / ResizeInstance / ListPools / GetAccountInfo 在「财务对接财务」模式下
-// 不由本适配器直接提供（删除/升降配走上游订单，魔方财务无资源池与账户资源统计），
-// 因此 MoFangFinanceProvider 不再实现 InstanceAdministration / PoolReader / AccountReader
-// 能力接口。消费方通过类型断言按需取用，失败即返回「上游不支持」。
+// DeleteInstance / ResizeInstance / ListInstances / ListPools 在「财务对接财务」模式下
+// 不由本适配器直接提供（删除走 /host/cancel、升降配走上游订单/upgrade/*，魔方财务无
+// 资源池概念），因此 MoFangFinanceProvider 不实现 InstanceAdministration / PoolReader。
+// 消费方通过类型断言按需取用，失败即返回「上游不支持」。
+//
+// 已实现的能力接口（编译期断言，改动时能立即发现契约漂移）：
+// Provider / ProductCatalog / InstanceProvisioning / InstanceControl / InstanceRenewal /
+// InstanceSuspension / InstanceTermination / InstancePowerHard / InstanceReinstall /
+// InstancePasswordReset / AccountReader / FinanceLedgerReader。
+var (
+	_ upstream.Provider              = (*MoFangFinanceProvider)(nil)
+	_ upstream.ProductCatalog        = (*MoFangFinanceProvider)(nil)
+	_ upstream.InstanceProvisioning  = (*MoFangFinanceProvider)(nil)
+	_ upstream.InstanceControl       = (*MoFangFinanceProvider)(nil)
+	_ upstream.InstanceRenewal       = (*MoFangFinanceProvider)(nil)
+	_ upstream.InstanceSuspension    = (*MoFangFinanceProvider)(nil)
+	_ upstream.InstanceTermination   = (*MoFangFinanceProvider)(nil)
+	_ upstream.InstancePowerHard     = (*MoFangFinanceProvider)(nil)
+	_ upstream.InstanceReinstall     = (*MoFangFinanceProvider)(nil)
+	_ upstream.InstancePasswordReset = (*MoFangFinanceProvider)(nil)
+	_ upstream.AccountReader         = (*MoFangFinanceProvider)(nil)
+	_ upstream.FinanceLedgerReader   = (*MoFangFinanceProvider)(nil)
+)
 
 // notSupported 返回能力不支持错误（用于运行期分支：如资源型上游下的 GetProduct/CreateInstance）。
 func (p *MoFangFinanceProvider) notSupported(op, msg string) error {
@@ -1225,6 +1329,51 @@ func normalizeBillingCycle(cycle string) string {
 	default:
 		return "monthly"
 	}
+}
+
+// accountCurrencyID 读取上游账号生效币种 id（GET cart/credit → data.currency.id），
+// 供 cart 下单使用。读取失败回落 "1"（上游默认币种）：下单流程不能因为一个
+// 只影响取价的字段而完全中断，且多数账号就是默认币种。
+func (p *MoFangFinanceProvider) accountCurrencyID(ctx context.Context) string {
+	var data struct {
+		Currency struct {
+			ID int64 `json:"id"`
+		} `json:"currency"`
+	}
+	if err := p.call(ctx, "accountCurrencyID", http.MethodGet, "cart/credit", nil, &data); err != nil {
+		return "1"
+	}
+	if data.Currency.ID <= 0 {
+		return "1"
+	}
+	return strconv.FormatInt(data.Currency.ID, 10)
+}
+
+// customFieldsFromExtra 读取 extra.customfield（上游自定义字段：字段 upstream_id → 值）。
+// 支持 map[string]string、map[string]interface{} 与 JSON 文本三种形态。
+func customFieldsFromExtra(extra map[string]interface{}) map[string]string {
+	out := map[string]string{}
+	if extra == nil {
+		return out
+	}
+	switch raw := extra["customfield"].(type) {
+	case map[string]string:
+		for k, v := range raw {
+			out[k] = v
+		}
+	case map[string]interface{}:
+		for k, v := range raw {
+			out[k] = fmt.Sprintf("%v", v)
+		}
+	case string:
+		var m map[string]interface{}
+		if err := json.Unmarshal([]byte(raw), &m); err == nil {
+			for k, v := range m {
+				out[k] = fmt.Sprintf("%v", v)
+			}
+		}
+	}
+	return out
 }
 
 // buildCartConfigOption 从开通请求的 configoption（显式覆盖）或 config_groups（上游配置组）

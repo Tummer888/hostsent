@@ -58,3 +58,58 @@ type DestroyRequest struct {
 	ConfirmMark string `json:"confirm_mark" binding:"required"`
 	Reason      string `json:"reason"`
 }
+
+// ReinstallRequest 用户侧重装系统请求。
+type ReinstallRequest struct {
+	OS string `json:"os" binding:"required"`
+	// Port 重装后的自定义端口（>0 生效）。
+	Port int `json:"port"`
+	// FormatDataDisk 是否同时格式化数据盘（数据将丢失，默认 false）。
+	FormatDataDisk bool `json:"format_data_disk"`
+	// SystemDiskSize 目标系统盘大小（>0 生效）。
+	SystemDiskSize int    `json:"system_disk_size"`
+	Reason         string `json:"reason"`
+}
+
+// ReinstallResult 重装结果：平台新签发的初始凭据（一次性展示，不落库）。
+type ReinstallResult struct {
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+}
+
+// ResetPasswordRequest 用户侧重置登录密码请求。
+type ResetPasswordRequest struct {
+	Password string `json:"password" binding:"required"`
+}
+
+// RescueRequest 用户侧进入救援系统请求。
+type RescueRequest struct {
+	System       int    `json:"system" binding:"required"`
+	TempPassword string `json:"temp_password" binding:"required"`
+}
+
+// SnapshotCreateRequest 用户侧创建快照/备份请求。
+type SnapshotCreateRequest struct {
+	Type   string `json:"type"`
+	Name   string `json:"name"`
+	DiskID string `json:"disk_id"`
+}
+
+// SnapshotRestoreRequest 用户侧快照恢复请求（高危，需二次确认）。
+type SnapshotRestoreRequest struct {
+	SnapshotID  string `json:"snapshot_id" binding:"required"`
+	ConfirmMark string `json:"confirm_mark" binding:"required"`
+}
+
+// SnapshotInfo 快照/备份条目。
+type SnapshotInfo struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	Size       string `json:"size"`
+	Status     int    `json:"status"`
+	DiskID     string `json:"disk_id"`
+	DiskName   string `json:"disk_name"`
+	CreateTime string `json:"create_time"`
+	Remarks    string `json:"remarks"`
+}

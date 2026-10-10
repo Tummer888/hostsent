@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	withdrawdto "hostsent/backend/internal/modules/admin/finance/withdraw/dto"
+	withdrawdto "hostsent/backend/internal/modules/admin/finance/referral/walletwithdraw/dto"
 	paydto "hostsent/backend/internal/modules/admin/system/payment/dto"
 	"hostsent/backend/internal/modules/uc/payment/service"
 	apperrors "hostsent/backend/internal/pkg/errors"

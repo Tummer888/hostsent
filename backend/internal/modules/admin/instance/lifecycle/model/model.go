@@ -79,10 +79,26 @@ type LifecyclePolicy struct {
 	AutoEnforce bool `gorm:"column:auto_enforce;not null;default:false" json:"auto_enforce"`
 	// EnforceDryRun 预演开关：AutoEnforce 已开启时，true 表示仍只计算并记录将要执行的动作，
 	// 不真正调用上游。默认 true，保证首次开启总开关也不会立即动线上实例。
-	EnforceDryRun bool      `gorm:"column:enforce_dry_run;not null;default:true" json:"enforce_dry_run"`
-	Status        string    `gorm:"size:32;not null;default:active" json:"status"`
-	UpdatedAt     time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	EnforceDryRun bool `gorm:"column:enforce_dry_run;not null;default:true" json:"enforce_dry_run"`
+	// RefundAction 订单退款审核通过后对关联实例的动作（doc61 §8 第 2 条）。
+	//
+	// 取值 none（默认）/ suspend / destroy。默认 none 是刻意的：doc61 只说「按规则停服/销毁」
+	// 却从未定义规则，而退款既可能全额（客户不要机器了）也可能部分（补偿）；自动销毁线上实例
+	// 属不可逆动作，必须由运营显式选择后才生效。
+	RefundAction string    `gorm:"column:refund_action;size:16;not null;default:none" json:"refund_action"`
+	Status       string    `gorm:"size:32;not null;default:active" json:"status"`
+	UpdatedAt    time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
+
+// 退款后实例动作取值（LifecyclePolicy.RefundAction）。
+const (
+	// RefundActionNone 不做任何动作（默认）：退款只走资金链路，实例状态由生命周期推进器另行判定。
+	RefundActionNone = "none"
+	// RefundActionSuspend 退款通过后暂停实例（可恢复，适合待人工确认的退款）。
+	RefundActionSuspend = "suspend"
+	// RefundActionDestroy 退款通过后销毁实例（不可逆，适合全额退款且客户确认不再使用）。
+	RefundActionDestroy = "destroy"
+)
 
 // TableName 指定表名
 func (LifecyclePolicy) TableName() string { return "lifecycle_policies" }

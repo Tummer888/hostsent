@@ -97,10 +97,10 @@ var groups = []groupSpec{
 			{
 				key:         costservice.ConfigKeySnapshotHour,
 				label:       "上游余额自动快照小时",
-				description: "每天该时点后首次抓取各渠道余额并落快照（0-23 整点）；抓不到的渠道手工录入",
+				description: "每天该时点后首次抓取各渠道余额并落快照（0-23 整点），随后增量同步上游账本并检查余额水位；不支持余额读取的渠道自动跳过",
 				valueType:   "number",
 				defaultVal:  settingsmodel.DefaultSnapshotHour,
-				usage:       "生效点：成本管理每日自动快照任务（跨天只执行一次，改到已过时点则次日生效）",
+				usage:       "生效点：成本管理每日自动同步任务（余额快照 + 账本增量 + 水位告警；跨天只执行一次，改到已过时点则次日生效）",
 				max:         23,
 			},
 			{

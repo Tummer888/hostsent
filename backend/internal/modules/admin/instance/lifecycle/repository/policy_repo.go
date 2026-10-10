@@ -62,6 +62,7 @@ func ensureDefaultPolicy(tx *gorm.DB) (*lifecyclemodel.LifecyclePolicy, error) {
 		DestroyKeepDays: 30,
 		AutoEnforce:     false,
 		EnforceDryRun:   true,
+		RefundAction:    lifecyclemodel.RefundActionNone,
 		Status:          "active",
 	}
 	if err := tx.Create(&policy).Error; err != nil {
