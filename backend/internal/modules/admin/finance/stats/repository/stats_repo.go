@@ -11,10 +11,10 @@ import (
 	"gorm.io/gorm"
 
 	accountmodel "hostsent/backend/internal/modules/admin/finance/account/model"
-	billmodel "hostsent/backend/internal/modules/admin/finance/bill/model"
 	rechargemodel "hostsent/backend/internal/modules/admin/finance/account/recharge/model"
-	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
+	billmodel "hostsent/backend/internal/modules/admin/finance/bill/model"
 	withdrawmodel "hostsent/backend/internal/modules/admin/finance/referral/walletwithdraw/model"
+	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
 )
 
 // internalTxTypes 冻结/解冻：可用余额 ↔ 冻结余额的内部划转，

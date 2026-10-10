@@ -8,10 +8,10 @@ import (
 	"gorm.io/gorm"
 
 	accountservice "hostsent/backend/internal/modules/admin/finance/account/service"
-	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
 	"hostsent/backend/internal/modules/admin/finance/referral/walletwithdraw/dto"
 	"hostsent/backend/internal/modules/admin/finance/referral/walletwithdraw/model"
 	"hostsent/backend/internal/modules/admin/finance/referral/walletwithdraw/repository"
+	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
 )
 
 // PayoutPort 打款能力最小接口（由支付中心实现，装配层注入）。
