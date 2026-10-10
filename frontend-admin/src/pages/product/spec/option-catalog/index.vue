@@ -68,72 +68,84 @@
         </span>
       </div>
 
-      <div v-for="group in groupedItems" :key="group.name" class="opt-group">
-        <div class="opt-group__head">
-          <span class="opt-group__name">{{ group.name || '未分组' }}</span>
-          <span class="opt-group__count">{{ group.items.length }} 项</span>
-        </div>
-        <t-table
-          row-key="option_key"
-          :data="group.items"
-          :columns="columns"
-          size="small"
-          hover
-          cell-empty-content="—"
-        >
-          <template #option="{ row }">
-            <div class="product-cell">
-              <span class="cell-strong">{{ row.label || row.option_key }}</span>
-              <span class="product-sub">
-                <code>{{ row.option_key }}</code>
-                <t-tag v-if="row.required" theme="error" variant="light" size="small" shape="round">必选</t-tag>
-                <t-tag v-if="row.multi_value" theme="primary" variant="light" size="small" shape="round">可多选</t-tag>
-                <t-tag v-if="row.hidden" theme="default" variant="light" size="small" shape="round">已隐藏</t-tag>
-                <t-tag v-if="!row.id" theme="warning" variant="light" size="small" shape="round">未入库</t-tag>
-              </span>
-            </div>
-          </template>
-          <template #widget="{ row }">
-            {{ widgetLabel(row.widget) }}
-            <span v-if="row.unit" class="opt-unit">/ {{ row.unit }}</span>
-          </template>
-          <template #values="{ row }">
-            <t-link theme="primary" hover="color" @click="openValues(row)">
-              {{ (row.values || []).length }} 个取值
-            </t-link>
-            <span v-if="row.min_value != null || row.max_value != null" class="product-sub">
-              范围 {{ row.min_value ?? '—' }} ~ {{ row.max_value ?? '—' }}
+      <!--
+        分组用标签页切换、只渲染当前一组的那张表。
+        之前每组各挂一张 t-table 一路往下堆，35 个配置项要划 3000px 才到底，
+        每张表还各带一行表头。标签在这里同时充当「分组筛选」和「表头只出现一次」。
+      -->
+      <t-tabs v-model="activeGroup" theme="card" size="medium" class="opt-tabs">
+        <t-tab-panel v-for="tab in groupTabs" :key="tab.key" :value="tab.key" :label="tab.label" />
+      </t-tabs>
+
+      <t-table
+        row-key="option_key"
+        :data="visibleItems"
+        :columns="columns"
+        :loading="loading"
+        size="small"
+        hover
+        cell-empty-content="—"
+      >
+        <template #option="{ row }">
+          <div class="product-cell">
+            <span class="cell-strong">{{ row.label || row.option_key }}</span>
+            <span class="product-sub">
+              <code>{{ row.option_key }}</code>
+              <t-tag v-if="row.required" theme="error" variant="light" size="small" shape="round">必选</t-tag>
+              <t-tag v-if="row.multi_value" theme="primary" variant="light" size="small" shape="round">可多选</t-tag>
+              <t-tag v-if="row.hidden" theme="default" variant="light" size="small" shape="round">已隐藏</t-tag>
+              <t-tag v-if="!row.id" theme="warning" variant="light" size="small" shape="round">未入库</t-tag>
             </span>
-          </template>
-          <template #default_value="{ row }">
-            <span>{{ row.default_value || '—' }}</span>
-          </template>
-          <template #source="{ row }">
-            <t-tag :theme="row.source === 'custom' ? 'primary' : 'default'" variant="light" size="small" shape="round">
-              {{ row.source === 'custom' ? '自定义' : '适配器' }}
-            </t-tag>
-          </template>
-          <template #action="{ row }">
-            <div class="action-cell">
-              <MobileAction
-                v-if="isMobile"
-                :options="buildMobileActionOptions([
-                  { content: '编辑', value: 'edit', theme: 'default' },
-                  { content: '取值', value: 'values', theme: 'default' },
-                  { content: '删除', value: 'delete', theme: 'error' },
-                ])"
-                @select="(value) => handleMobileAction(value, row)"
-              />
-              <template v-else>
-                <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
-                <t-link theme="primary" hover="color" @click="openValues(row)">取值</t-link>
-                <t-link v-if="row.id" theme="danger" hover="color" @click="removeSpec(row)">删除</t-link>
-              </template>
-            </div>
-          </template>
-          <template #empty><t-empty description="暂无配置项" /></template>
-        </t-table>
-      </div>
+            <!-- 说明文字直接铺在列表里：这一页就是用来核对「每个参数怎么填」的，
+                 藏进编辑弹窗等于每次都要点一次才看得到。 -->
+            <span v-if="row.help" class="opt-help">{{ row.help }}</span>
+            <span v-if="helpEntries(row).length" class="opt-valuehint">
+              <span v-for="e in helpEntries(row)" :key="e.value" class="opt-valuehint__item">
+                <code>{{ e.value }}</code> {{ e.text }}
+              </span>
+            </span>
+          </div>
+        </template>
+        <template #widget="{ row }">
+          {{ widgetLabel(row.widget) }}
+          <span v-if="row.unit" class="opt-unit">/ {{ row.unit }}</span>
+        </template>
+        <template #values="{ row }">
+          <t-link theme="primary" hover="color" @click="openValues(row)">
+            {{ (row.values || []).length }} 个取值
+          </t-link>
+          <span v-if="row.min_value != null || row.max_value != null" class="product-sub">
+            范围 {{ row.min_value ?? '—' }} ~ {{ row.max_value ?? '—' }}
+          </span>
+        </template>
+        <template #default_value="{ row }">
+          <span>{{ row.default_value || '平台决定' }}</span>
+        </template>
+        <template #source="{ row }">
+          <t-tag :theme="row.source === 'custom' ? 'primary' : 'default'" variant="light" size="small" shape="round">
+            {{ row.source === 'custom' ? '自定义' : '适配器' }}
+          </t-tag>
+        </template>
+        <template #action="{ row }">
+          <div class="action-cell">
+            <MobileAction
+              v-if="isMobile"
+              :options="buildMobileActionOptions([
+                { content: '编辑', value: 'edit', theme: 'default' },
+                { content: '取值', value: 'values', theme: 'default' },
+                { content: '删除', value: 'delete', theme: 'error' },
+              ])"
+              @select="(value) => handleMobileAction(value, row)"
+            />
+            <template v-else>
+              <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
+              <t-link theme="primary" hover="color" @click="openValues(row)">取值</t-link>
+              <t-link v-if="row.id" theme="danger" hover="color" @click="removeSpec(row)">删除</t-link>
+            </template>
+          </div>
+        </template>
+        <template #empty><t-empty description="该分组下暂无配置项" /></template>
+      </t-table>
     </section>
 
     <!-- 编辑配置项 -->
@@ -196,12 +208,16 @@
         <t-form-item label="说明">
           <t-textarea v-model="form.help" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="取值从哪来、怎么填" />
         </t-form-item>
-        <t-form-item v-if="form.value_source === 'static'" label="静态枚举（每行一个：值|显示名）">
+        <t-form-item v-if="form.value_source === 'static'" label="静态枚举（每行一个：值|显示名|含义）">
           <t-textarea
             v-model="optionsText"
             :autosize="{ minRows: 3, maxRows: 10 }"
-            placeholder="2|2核&#10;4|4核&#10;8|8核"
+            placeholder="2|2核|2 核&#10;4|4核|4 核&#10;8|8核|8 核"
           />
+          <span class="form-hint">
+            第三段是可选的「这个值表示什么」，用于 -1 不开通 / 0 不限量 这类看不出含义的取值，
+            会随选项一起展示给客户。
+          </span>
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -216,7 +232,7 @@
     >
       <t-alert theme="info" message="取值 = 下发给平台的原始值；镜像/区域/节点/存储可用「从平台刷新取值」批量灌入，也可手工添加或批量导入。" />
       <div class="values-toolbar">
-        <t-input v-model="newValue" placeholder="值|显示名（如 12|Ubuntu 22.04）" @enter="addValue" />
+        <t-input v-model="newValue" placeholder="值|显示名|含义（如 -1|不开通|该云主机不能创建快照）" @enter="addValue" />
         <t-input v-model="newGroup" placeholder="分组（Ubuntu/Windows，选填）" />
         <t-button theme="primary" :loading="valueSaving" @click="addValue">添加</t-button>
       </div>
@@ -231,6 +247,12 @@
       >
         <template #ivalue="{ row }">
           <code>{{ row.value }}</code>
+        </template>
+        <template #ilabel="{ row }">
+          <div class="product-cell">
+            <span>{{ row.label }}</span>
+            <span v-if="valueHelp(row)" class="opt-valuehint__item">{{ valueHelp(row) }}</span>
+          </div>
         </template>
         <template #istatus="{ row }">
           <t-tag :theme="row.status === 'active' ? 'success' : 'default'" variant="light" size="small" shape="round">
@@ -256,7 +278,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 
 import { AddIcon, AppIcon, RefreshIcon } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
@@ -309,23 +331,37 @@ const valueSourceOptions = [
   { label: '平台镜像', value: 'images' },
 ]
 
-const columns: PrimaryTableCol<OptionSpecInfo>[] = [
+const columns = computed<PrimaryTableCol<OptionSpecInfo>[]>(() => [
   { colKey: 'option', title: '配置项', minWidth: 200 },
   { colKey: 'widget', title: '控件', width: 110 },
   { colKey: 'values', title: '可选值', minWidth: 150 },
   { colKey: 'default_value', title: '默认值', width: 110 },
   { colKey: 'source', title: '来源', width: 90 },
   { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 170, fixed: 'right' as const, align: 'center' as const },
-]
+])
 
 const valueColumns: PrimaryTableCol<OptionValueItem>[] = [
   { colKey: 'ivalue', title: '值', width: 100 },
-  { colKey: 'label', title: '显示名', minWidth: 200 },
+  { colKey: 'ilabel', title: '显示名 / 含义', minWidth: 240 },
   { colKey: 'group_label', title: '分组', width: 110 },
   { colKey: 'istatus', title: '状态', width: 80 },
   { colKey: 'iorigin', title: '来源', width: 90 },
   { colKey: 'iaction', title: '操作', width: 80, align: 'center' as const },
 ]
+
+/** helpEntries 把取值含义表摊成 [{value, text}]，值按原顺序（默认值排最前）。 */
+function helpEntries(row: OptionSpecInfo): { value: string; text: string }[] {
+  const map = row.options_help
+  if (!map || typeof map !== 'object') return []
+  return Object.entries(map).map(([value, text]) => ({ value, text: String(text) }))
+}
+
+/** valueHelp 取某取值在取值库弹窗里的含义（目录项的含义表按值查）。 */
+function valueHelp(row: OptionValueItem): string {
+  const map = current.value?.options_help
+  if (!map || typeof map !== 'object') return ''
+  return String((map as Record<string, string>)[row.value] ?? '')
+}
 
 function widgetLabel(w: string): string {
   return widgetOptions.find((o) => o.value === w)?.label || w || '下拉'
@@ -343,19 +379,46 @@ const filtered = computed(() => {
 
 const inDbCount = computed(() => filtered.value.filter((it) => !!it.id).length)
 
-/** 按 group_name 分组展示，保持后端排序（分组名 + sort_order）。 */
-const groupedItems = computed(() => {
-  const groups: { name: string; items: OptionSpecInfo[] }[] = []
+// 分组标签页：'all' 看全量，其余每个 value 是一个 group_name。
+// 目录项本来就按 group_name 排好序（后端 order by group_name, sort_order），
+// 这里一次遍历就切出全部分组，不再对每个 item 反查分组。
+const ALL_GROUP = '__all__'
+const activeGroup = ref(ALL_GROUP)
+
+const groups = computed(() => {
+  const map = new Map<string, OptionSpecInfo[]>()
   for (const it of filtered.value) {
     const name = it.group_name || ''
-    let g = groups.find((x) => x.name === name)
-    if (!g) {
-      g = { name, items: [] }
-      groups.push(g)
-    }
-    g.items.push(it)
+    const list = map.get(name)
+    if (list) list.push(it)
+    else map.set(name, [it])
   }
-  return groups
+  return [...map.entries()].map(([name, items]) => ({ name, items }))
+})
+
+const groupTabs = computed(() => [
+  { key: ALL_GROUP, label: `全部（${filtered.value.length}）` },
+  ...groups.value.map((g) => ({ key: g.name, label: `${g.name || '未分组'}（${g.items.length}）` })),
+])
+
+const visibleItems = computed(() => {
+  if (activeGroup.value === ALL_GROUP) return filtered.value
+  return groups.value.find((g) => g.name === activeGroup.value)?.items || []
+})
+
+// 关键词把当前分组筛空、或切换平台后目录里没有该分组时，落回「全部」，
+// 关键词把当前分组筛空、或切换平台后目录里没有该分组时，落回「全部」，
+// 免得标签停在空分组上看起来像没数据。
+watch(groups, (list) => {
+  if (activeGroup.value !== ALL_GROUP && !list.some((g) => g.name === activeGroup.value)) {
+    activeGroup.value = ALL_GROUP
+  }
+})
+
+// 重新载入目录（切平台/同步/增删配置项）后回到「全部」：
+// 分组可能整组变更，停在旧分组上看到的是上一份目录的残影。
+watch(loading, (now, before) => {
+  if (before && !now) activeGroup.value = ALL_GROUP
 })
 
 async function loadProviders() {
@@ -507,9 +570,15 @@ function openEdit(row: OptionSpecInfo) {
     hidden: row.hidden,
     help: row.help,
   })
-  // 静态枚举回填成「值|显示名」多行文本。
+  // 静态枚举回填成「值|显示名|含义」多行文本；含义取自取值含义表。
   const opts = Array.isArray(row.options) ? (row.options as { value: string; label: string }[]) : []
-  optionsText.value = opts.map((o) => `${o.value}|${o.label}`).join('\n')
+  const vh = (row.options_help || {}) as Record<string, string>
+  optionsText.value = opts
+    .map((o) => {
+      const note = vh[o.value]
+      return note ? `${o.value}|${o.label}|${note}` : `${o.value}|${o.label}`
+    })
+    .join('\n')
   dialogVisible.value = true
 }
 
@@ -517,15 +586,20 @@ function closeDialog() {
   dialogVisible.value = false
 }
 
-/** 解析「值|显示名」多行文本为静态枚举数组。 */
-function parseOptionsText(): { value: string; label: string }[] | undefined {
+/** 解析「值|显示名|含义」多行文本：返回枚举数组 + 取值含义表。 */
+function parseOptionsText(): { options?: { value: string; label: string }[]; help?: Record<string, string> } {
   const lines = optionsText.value.split('\n').map((l) => l.trim()).filter(Boolean)
-  if (!lines.length) return undefined
-  return lines.map((line) => {
-    const idx = line.indexOf('|')
-    if (idx < 0) return { value: line, label: line }
-    return { value: line.slice(0, idx).trim(), label: line.slice(idx + 1).trim() }
-  })
+  if (!lines.length) return {}
+  const options: { value: string; label: string }[] = []
+  const help: Record<string, string> = {}
+  for (const line of lines) {
+    const parts = line.split('|').map((p) => p.trim())
+    const value = parts[0]
+    if (!value) continue
+    options.push({ value, label: parts[1] || value })
+    if (parts[2]) help[value] = parts[2]
+  }
+  return { options, help: Object.keys(help).length ? help : undefined }
 }
 
 async function saveSpec() {
@@ -533,6 +607,7 @@ async function saveSpec() {
     MessagePlugin.warning('请填写参数名')
     return
   }
+  const parsed = form.value_source === 'static' ? parseOptionsText() : {}
   const payload = {
     provider_type: providerType.value.trim() || undefined,
     option_key: form.option_key.trim(),
@@ -549,7 +624,8 @@ async function saveSpec() {
     multi_value: form.multi_value,
     hidden: form.hidden,
     help: form.help,
-    options: form.value_source === 'static' ? parseOptionsText() : undefined,
+    options: parsed.options,
+    options_help: parsed.help ?? null,
   }
   try {
     if (form.id) {
@@ -634,9 +710,11 @@ async function addValue() {
     MessagePlugin.warning('请输入取值')
     return
   }
-  const idx = raw.indexOf('|')
-  const value = idx < 0 ? raw : raw.slice(0, idx).trim()
-  const label = idx < 0 ? raw : raw.slice(idx + 1).trim()
+  // 支持「值|显示名|含义」三段；只给值/显示名也允许。
+  const parts = raw.split('|').map((p) => p.trim())
+  const value = parts[0]
+  const label = parts[1] || value
+  const note = parts[2] || ''
   valueSaving.value = true
   try {
     await upsertOptionValue({
@@ -646,10 +724,36 @@ async function addValue() {
       label,
       group_label: newGroup.value.trim(),
     })
+    // 第三段是「这个值表示什么」，写进目录项的取值含义表
+    // （下单页与详情页都按它解释特殊值）。
+    if (note) {
+      const merged = { ...((current.value.options_help || {}) as Record<string, string>), [value]: note }
+      await updateOptionSpec(current.value.id, {
+        provider_type: providerType.value.trim() || undefined,
+        option_key: current.value.option_key,
+        label: current.value.label,
+        group_name: current.value.group_name,
+        widget: current.value.widget,
+        value_source: current.value.value_source,
+        unit: current.value.unit,
+        default_value: current.value.default_value,
+        sort_order: current.value.sort_order,
+        min_value: current.value.min_value ?? null,
+        max_value: current.value.max_value ?? null,
+        required: current.value.required,
+        multi_value: current.value.multi_value,
+        hidden: current.value.hidden,
+        help: current.value.help,
+        options: current.value.options ?? null,
+        options_help: merged,
+      })
+    }
     MessagePlugin.success('已添加')
     newValue.value = ''
-    await loadValues()
     await load()
+    const fresh = items.value.find((it) => it.option_key === current.value?.option_key)
+    if (fresh) current.value = fresh
+    await loadValues()
   } catch (error) {
     MessagePlugin.error((error as Error).message || '添加失败')
   } finally {
@@ -714,31 +818,39 @@ onMounted(async () => {
 </style>
 
 <style scoped>
-.opt-group {
-  margin-bottom: 18px;
-}
-
-.opt-group__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 2px;
-  border-bottom: 1px solid var(--td-component-stroke, #e7e7e7);
-  margin-bottom: 8px;
-}
-
-.opt-group__name {
-  font-weight: 600;
-}
-
-.opt-group__count {
-  font-size: 12px;
-  color: var(--td-text-color-secondary, #888);
+.opt-tabs {
+  margin-bottom: 12px;
 }
 
 .opt-unit {
   font-size: 12px;
   color: var(--td-text-color-secondary, #888);
+}
+
+/* 说明与取值含义直接铺在列表里（这一页就是用来核对怎么填的）。 */
+.opt-help {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--td-text-color-secondary, #888);
+}
+
+.opt-valuehint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin-top: 2px;
+}
+
+.opt-valuehint__item {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder, #999);
+}
+
+.opt-valuehint__item code {
+  margin-right: 4px;
+  font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
 }
 
 .product-sub code {
@@ -751,5 +863,12 @@ onMounted(async () => {
   grid-template-columns: 2fr 1fr auto;
   gap: 8px;
   margin: 12px 0;
+}
+
+/* 窄屏下取值库工具栏挤成一条，字段各占一行、按钮靠右。 */
+@media (max-width: 768px) {
+  .values-toolbar {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

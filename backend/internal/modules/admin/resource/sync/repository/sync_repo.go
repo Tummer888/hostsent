@@ -218,10 +218,14 @@ func (r *syncRepository) UpsertInstances(ctx context.Context, items []model.Inst
 }
 
 // CountInstancesByProductUser 统计某用户已开通某商品（instances）的实例数，用于开通幂等判断。
+//
+// 匹配列是 sell_product_id（= products.id），与订单 orders.product_id 同一命名空间。
+// 注意：instances 的旧兼容列 product_id 已于迁移 035 退役，禁止再引用，否则查询直接报错，
+// 幂等护栏静默失效（订购重试会重复向上游下单）。
 func (r *syncRepository) CountInstancesByProductUser(ctx context.Context, userID, productID uint64) (int64, error) {
 	var count int64
 	err := r.db.WithContext(ctx).Model(&model.Instance{}).
-		Where("user_id = ? AND product_id = ?", userID, productID).
+		Where("user_id = ? AND sell_product_id = ?", userID, productID).
 		Count(&count).Error
 	return count, err
 }

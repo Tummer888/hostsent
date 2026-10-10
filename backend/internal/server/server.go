@@ -21,6 +21,7 @@ import (
 	finbillhandler "hostsent/backend/internal/modules/admin/finance/bill/handler"
 	finbillrepo "hostsent/backend/internal/modules/admin/finance/bill/repository"
 	finbillservice "hostsent/backend/internal/modules/admin/finance/bill/service"
+	costservice "hostsent/backend/internal/modules/admin/finance/cost/service"
 	finrechargedto "hostsent/backend/internal/modules/admin/finance/recharge/dto"
 	finrechargehandler "hostsent/backend/internal/modules/admin/finance/recharge/handler"
 	finrechargemodel "hostsent/backend/internal/modules/admin/finance/recharge/model"
@@ -195,6 +196,8 @@ type Server struct {
 	// pendingExpireScheduler 待支付订单过期关单（doc88 §6.2）。
 	pendingExpireScheduler *ucorderservice.PendingExpireScheduler
 	salesScheduler         *salesservice.ReleaseScheduler
+	// costScheduler 上游余额快照每日自动抓取（doc111 §5）。
+	costScheduler *costservice.SnapshotScheduler
 	// userPurgeScheduler 用户留存期清理（doc104 §4.6）：到期硬删除已注销用户。
 	userPurgeScheduler *service.PurgeScheduler
 	// sessionExpireScheduler 会话过期状态回写：expired_at 到点后把 status 收成 expired。
@@ -565,6 +568,10 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	userCenterService.SetInviteBinder(referralSvc)
 	// 注册后销售归属自动认领（doc86 S4）：无归属客户按负载补给在职销售，失败不阻断注册。
 	userCenterService.SetSalesOwnerClaimer(salesBundle.customerService)
+	// 成本管理（doc111）：月度成本/利润核算 + 上游余额台账 + 每日余额快照。
+	// 依赖方向：成本模块不 import 资源渠道与返现模块，三者经装配层小接口接入。
+	costBundle := buildCostBundle(database, providerService, providerRepo, referralRepo, financeStatsService, configValueReader, logger)
+
 	// 返现提现/转出：转出桥接到现金钱包，biz_type=referral_transfer，ref_no=转账号（钱包侧幂等）。
 	referralWithdrawSvc := referralservice.NewWithdrawalService(database, referralRepo,
 		func(ctx context.Context, userID uint64, amount float64, bizType, refNo, remark string) error {
@@ -1133,7 +1140,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 	// 内容定时发布：管理端「定时发布时间」只在写入时判一次到点，到点后没人推进；
 	// 这条调度把 draft + 已到 publish_at 的公告与文章翻成 published（doc100 §10 第三期 23）。
 	publishScheduler := publishsched.NewScheduler(notifyAnnRepo, contentBundle.articleRepo, logger)
-	app := NewApp(cfg, adminHandler, departmentHandler, userHandler, userDetailHandler, userDeletionHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, agentLevelHandler, schemeHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, flashDiscountHandler, adminReferralHandler, salesBundle.customerHandler, salesBundle.commissionHandler, salesBundle.performanceHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, financeStatsHandler, financeSettingsHandler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, siteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, captchaBundle, notifyBundleInst, logcenterBundle, contentBundle, verificationBundle, oauthBundle, cacheClient, sessionGuard, logger, jwtIssuer)
+	app := NewApp(cfg, adminHandler, departmentHandler, userHandler, userDetailHandler, userDeletionHandler, userGroupHandler, roleHandler, permissionHandler, menuHandler, securityHandler, userLevelHandler, agentLevelHandler, schemeHandler, providerHandler, productHandler, syncHandler, syncFrameworkHandler, userCenterAuthHandler, userMenuHandler, prodCategoryHandler, prodCatalogHandler, specHandler, pricingHandler, priceMatrixHandler, discountPolicyHandler, promotionHandler, flashDiscountHandler, adminReferralHandler, salesBundle.customerHandler, salesBundle.commissionHandler, salesBundle.performanceHandler, orderHandler, refundHandler, walletHandler, rechargeHandler, withdrawHandler, billHandler, reconHandler, financeStatsHandler, financeSettingsHandler, costBundle.handler, configHandler, userFinanceHandler, ucProductHandler, ucOrderHandler, ucInstanceHandler, instanceOpsHandler, taskQueueHandler, reconcileHandler, ticketHandler, ticketCategoryHandler, userTicketHandler, lifecycleExpiringHandler, lifecycleAdminHandler, lifecycleUserHandler, notifyAdminHandler, notifyUserHandler, siteHandler, ucReferralHandler, memberHandler, memberRepo, memberRepo, rbacRepo, permCache, adminAuditRepo, openBundle, paymentBundle, pointBundle, captchaBundle, notifyBundleInst, logcenterBundle, contentBundle, verificationBundle, oauthBundle, cacheClient, sessionGuard, logger, jwtIssuer)
 	router := newRouter(app)
 
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
@@ -1151,6 +1158,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		lifecycleScheduler:     lifecycleScheduler,
 		pendingExpireScheduler: pendingExpireScheduler,
 		salesScheduler:         salesBundle.scheduler,
+		costScheduler:          costBundle.scheduler,
 		userPurgeScheduler:     userPurgeScheduler,
 		sessionExpireScheduler: sessionExpireScheduler,
 		provisionWorker:        provisionWorker,
@@ -1169,6 +1177,9 @@ func (s *Server) Run() error {
 	s.lifecycleScheduler.Start(ctx)
 	s.pendingExpireScheduler.Start(ctx)
 	s.salesScheduler.Start(ctx)
+	if s.costScheduler != nil {
+		s.costScheduler.Start(ctx)
+	}
 	s.userPurgeScheduler.Start(ctx)
 	s.sessionExpireScheduler.Start(ctx)
 	s.provisionWorker.Start(ctx)

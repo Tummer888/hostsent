@@ -270,11 +270,18 @@ export function generateProductSpecFromTemplate(
 
 // ===== 产品管理 - 平台配置项目录与取值库（T4.5 规格配置化）=====
 
-/** 查询平台配置项目录（适配器声明 ∪ 数据库覆盖，含取值库中的可选值） */
+/**
+ * 查询平台配置项目录（适配器声明 ∪ 数据库覆盖，含取值库中的可选值）。
+ *
+ * `with_live` 默认关闭：平台来源取值（镜像/区域/节点/存储）直接用库里已有的，
+ * 只在明确要求实时补全时才读一次上游（1~2 秒的网络调用）。常规打开页面/切换平台
+ * 都不要传；要取新镜像走「从平台刷新取值」。
+ */
 export function getOptionCatalog(params: {
   provider_type?: string
   provider_id?: number
   include_hidden?: boolean
+  with_live?: boolean
 }): Promise<OptionSpecInfo[]> {
   return request.get<OptionSpecInfo[]>({ url: '/product/spec/option-catalog', params })
 }

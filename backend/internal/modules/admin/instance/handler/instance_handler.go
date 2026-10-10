@@ -179,6 +179,35 @@ func (h *InstanceHandler) Related(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// OperationLogs 全局操作流水（跨实例审计视图）。
+// @Summary 实例操作流水（全局）
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param keyword query string false "实例标识/操作人/用户名"
+// @Param action query string false "动作"
+// @Param operator_type query string false "操作人类型：admin/user/system"
+// @Param result query string false "结果：success/failed/skipped"
+// @Param user_id query int false "归属用户 ID"
+// @Param start_time query string false "开始时间"
+// @Param end_time query string false "结束时间"
+// @Param page query int false "页码"
+// @Param page_size query int false "每页数量"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/operations [get]
+func (h *InstanceHandler) OperationLogs(c *gin.Context) {
+	var query dto.OperationLogQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	resp, err := h.svc.OperationLogs(c.Request.Context(), &query)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
 // Sync 单实例回源刷新。
 // @Summary 回源刷新实例状态
 // @Tags 管理端-实例运维
@@ -287,7 +316,7 @@ func (h *InstanceHandler) SetRemark(c *gin.Context) {
 		response.Error(c, apperrors.New(20001, err.Error()))
 		return
 	}
-	if err := h.svc.SetRemark(c.Request.Context(), id, req.Remark); err != nil {
+	if err := h.svc.SetRemark(c.Request.Context(), operator(c), id, req.Remark); err != nil {
 		response.Error(c, writeError(err))
 		return
 	}

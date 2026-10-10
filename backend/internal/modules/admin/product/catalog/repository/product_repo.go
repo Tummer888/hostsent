@@ -264,20 +264,22 @@ type configOption struct {
 	Source    string `json:"source,omitempty"`
 	SourceKey string `json:"source_key,omitempty"`
 	// ---- T4.5 客户选配渲染与计价（自营配置档生成）----
-	ProviderType string      `json:"provider_type,omitempty"`
-	OptionKey    string      `json:"option_key,omitempty"` // 平台参数名（下发给魔方云的键）
-	Widget       string      `json:"widget,omitempty"`     // select|radio|qty|bool
-	Label        string      `json:"label,omitempty"`      // 中文名（CPU/操作系统）
-	Required     bool        `json:"required,omitempty"`   // 客户必选
-	DefaultValue string      `json:"default_value,omitempty"`
-	WidgetGroup  string      `json:"widget_group,omitempty"` // 分组标签
-	MinValue     *float64    `json:"min_value,omitempty"`
-	MaxValue     *float64    `json:"max_value,omitempty"`
-	Unit         string      `json:"unit,omitempty"`
-	Help         string      `json:"help,omitempty"`
-	Hidden       int         `json:"hidden"`
-	SortOrder    int         `json:"sort_order"`
-	Sub          []configSub `json:"sub"`
+	ProviderType string   `json:"provider_type,omitempty"`
+	OptionKey    string   `json:"option_key,omitempty"` // 平台参数名（下发给魔方云的键）
+	Widget       string   `json:"widget,omitempty"`     // select|radio|qty|bool
+	Label        string   `json:"label,omitempty"`      // 中文名（CPU/操作系统）
+	Required     bool     `json:"required,omitempty"`   // 客户必选
+	DefaultValue string   `json:"default_value,omitempty"`
+	WidgetGroup  string   `json:"widget_group,omitempty"` // 分组标签
+	MinValue     *float64 `json:"min_value,omitempty"`
+	MaxValue     *float64 `json:"max_value,omitempty"`
+	Unit         string   `json:"unit,omitempty"`
+	Help         string   `json:"help,omitempty"`
+	// OptionsHelp 取值含义表（JSON 对象文本：值 → 含义），解释特殊值。
+	OptionsHelp string      `json:"options_help,omitempty"`
+	Hidden      int         `json:"hidden"`
+	SortOrder   int         `json:"sort_order"`
+	Sub         []configSub `json:"sub"`
 }
 
 type configSub struct {
@@ -288,8 +290,9 @@ type configSub struct {
 	UpstreamID int64  `json:"upstream_id"`
 	Source     string `json:"source,omitempty"`
 	SourceKey  string `json:"source_key,omitempty"`
-	// GroupLabel/IsDefault 用户侧分组下拉与默认选中（T4.5）。
+	// GroupLabel/Help/IsDefault 用户侧分组下拉、取值含义与默认选中（T4.5）。
 	GroupLabel string        `json:"group_label,omitempty"`
+	Help       string        `json:"help,omitempty"`
 	IsDefault  bool          `json:"is_default,omitempty"`
 	Hidden     int           `json:"hidden"`
 	SortOrder  int           `json:"sort_order"`
@@ -387,6 +390,7 @@ func buildConfigOptionRows(parsed []configGroup, productID uint64) []*model.Prod
 				MaxValue:     opt.MaxValue,
 				Unit:         opt.Unit,
 				Help:         opt.Help,
+				OptionsHelp:  nullableJSONText(opt.OptionsHelp),
 				SortOrder:    opt.SortOrder,
 			}
 			for _, sub := range opt.Sub {
@@ -403,6 +407,7 @@ func buildConfigOptionRows(parsed []configGroup, productID uint64) []*model.Prod
 					PriceQuarterly: float64(price.Quarterly),
 					PriceOnetime:   float64(price.Onetime),
 					GroupLabel:     sub.GroupLabel,
+					Help:           sub.Help,
 					IsDefault:      sub.IsDefault,
 					SortOrder:      sub.SortOrder,
 				})
@@ -411,6 +416,23 @@ func buildConfigOptionRows(parsed []configGroup, productID uint64) []*model.Prod
 		}
 	}
 	return rows
+}
+
+// nullableJSONText 归一写入 jsonb 列的文本：空串/{} 返回 nil（空串不是合法 jsonb，落库报 22P02）。
+func nullableJSONText(s string) *string {
+	t := strings.TrimSpace(s)
+	if t == "" || t == "null" || t == "{}" {
+		return nil
+	}
+	return &t
+}
+
+// jsonTextOrEmpty 读 jsonb 列时转回纯文本（NULL → 空串），供 config_groups 视图使用。
+func jsonTextOrEmpty(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // normalizeConfigSource 归一配置项来源：source 仅接受 upstream/self，其余回落 upstream；
@@ -565,6 +587,7 @@ func buildConfigGroups(options []*model.ProductConfigOption) []interface{} {
 			MaxValue:     opt.MaxValue,
 			Unit:         opt.Unit,
 			Help:         opt.Help,
+			OptionsHelp:  jsonTextOrEmpty(opt.OptionsHelp),
 			Sub:          make([]configSub, 0, len(opt.Subs)),
 		}
 		for _, sub := range opt.Subs {
@@ -574,6 +597,7 @@ func buildConfigGroups(options []*model.ProductConfigOption) []interface{} {
 				Source:     sub.Source,
 				SourceKey:  sub.SourceKey,
 				GroupLabel: sub.GroupLabel,
+				Help:       sub.Help,
 				IsDefault:  sub.IsDefault,
 				Hidden:     sub.Hidden,
 				SortOrder:  sub.SortOrder,

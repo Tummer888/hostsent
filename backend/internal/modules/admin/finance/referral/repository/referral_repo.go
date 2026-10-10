@@ -4,6 +4,7 @@ package repository
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -66,6 +67,9 @@ type ReferralRepository interface {
 	CreateTx(db *gorm.DB, tx *model.ReferralTransaction) error
 	ListTxRows(ctx context.Context, f TxFilter) ([]TxRow, int64, error)
 	SumTxAmount(ctx context.Context, userID, orderID uint64, types ...string) (float64, error)
+	// SumAccrual 期间计提净额 = cashback + renewal_cashback − refund_clawback（退款冲减为正的成本减少）。
+	// 供成本管理模块核算「推广返现计提」成本，避免成本模块直读本域台账表。
+	SumAccrual(ctx context.Context, start, end time.Time) (float64, error)
 	ExistsIncomeForInvitee(ctx context.Context, inviteeUserID uint64) (bool, error)
 
 	// —— 邀请关系（单级，落在 users.inviter_user_id）——
@@ -185,6 +189,24 @@ func (r *referralRepository) ListTxRows(ctx context.Context, f TxFilter) ([]TxRo
 }
 
 // SumTxAmount 汇总指定订单下若干类型的台账金额（绝对值）。
+// SumAccrual 期间计提净额：收入类计提（cashback / renewal_cashback）减去退款冲减。
+func (r *referralRepository) SumAccrual(ctx context.Context, start, end time.Time) (float64, error) {
+	var row struct {
+		Accrual  float64 `gorm:"column:accrual"`
+		Clawback float64 `gorm:"column:clawback"`
+	}
+	err := r.db.WithContext(ctx).Model(&model.ReferralTransaction{}).
+		Where("created_at >= ? AND created_at < ?", start, end).
+		Where("type IN ?", []string{model.TxTypeCashback, model.TxTypeRenewalCashback, model.TxTypeRefundClawback}).
+		Select(`COALESCE(SUM(CASE WHEN direction = 1 THEN amount ELSE 0 END), 0) AS accrual,
+			COALESCE(SUM(CASE WHEN direction = -1 THEN amount ELSE 0 END), 0) AS clawback`).
+		Scan(&row).Error
+	if err != nil {
+		return 0, err
+	}
+	return row.Accrual - row.Clawback, nil
+}
+
 func (r *referralRepository) SumTxAmount(ctx context.Context, userID, orderID uint64, types ...string) (float64, error) {
 	if len(types) == 0 {
 		return 0, nil

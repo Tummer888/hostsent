@@ -43,6 +43,52 @@ export const operationActionLabels: Record<string, string> = {
   destroy: '销毁',
   remark: '备注',
   suspend: '暂停',
+  unsuspend: '恢复',
+  stage: '阶段推进',
+}
+
+// 操作结果筛选项（全局操作流水页）
+export const operationResultOptions = [
+  { label: '成功', value: 'success' },
+  { label: '失败', value: 'failed' },
+  { label: '未执行', value: 'skipped' },
+]
+
+export const operationResultLabels: Record<string, string> = {
+  success: '成功',
+  failed: '失败',
+  skipped: '未执行',
+}
+
+export const operationActionOptions = Object.entries(operationActionLabels).map(([value, label]) => ({ value, label }))
+
+export const operatorTypeOptions = [
+  { label: '管理员', value: 'admin' },
+  { label: '用户', value: 'user' },
+  { label: '系统', value: 'system' },
+]
+
+// 生命周期阶段（与后端 lifecyclemodel.Stage* 一致）
+export const lifecycleStageLabels: Record<string, string> = {
+  active: '服务中',
+  grace: '宽限期',
+  suspended: '已暂停',
+  destroyed: '已销毁',
+}
+
+export const lifecycleStageThemes: Record<string, string> = {
+  active: 'success',
+  grace: 'warning',
+  suspended: 'danger',
+  destroyed: 'default',
+}
+
+// 到期处置动作
+export const enforcementActionLabels: Record<string, string> = {
+  mark: '登记宽限',
+  suspend: '暂停实例',
+  destroy: '销毁实例',
+  unsuspend: '恢复实例',
 }
 
 export const operatorTypeLabels: Record<string, string> = {
@@ -104,6 +150,22 @@ export function powerActionTheme(action: string): string {
 
 export function operationActionLabel(action: string): string {
   return operationActionLabels[action] || action || '—'
+}
+
+export function operationResultLabel(result: string): string {
+  return operationResultLabels[result] || result || '—'
+}
+
+export function lifecycleStageLabel(stage: string): string {
+  return lifecycleStageLabels[stage] || stage || '—'
+}
+
+export function lifecycleStageTheme(stage: string): string {
+  return lifecycleStageThemes[stage] || defaultTheme
+}
+
+export function enforcementActionLabel(action: string): string {
+  return enforcementActionLabels[action] || action || '—'
 }
 
 export function operatorTypeLabel(type: string): string {

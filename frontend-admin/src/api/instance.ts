@@ -13,6 +13,8 @@ import type {
   InstanceVNCResponse,
   OperationListQuery,
   OperationListResponse,
+  OperationLogListResponse,
+  OperationLogQuery,
 } from '@/types/interface'
 
 // ===== 实例运维台（跨用户实例运维） =====
@@ -102,5 +104,26 @@ export function destroyInstance(id: number, data: InstanceDestroyRequest): Promi
   return request.delete<string>({
     url: `/instances/${id}`,
     data,
+  })
+}
+
+export function suspendInstance(id: number, reason?: string): Promise<string> {
+  return request.post<string>({
+    url: `/instances/${id}/suspend`,
+    data: { reason },
+  })
+}
+
+export function unsuspendInstance(id: number): Promise<string> {
+  return request.post<string>({
+    url: `/instances/${id}/unsuspend`,
+  })
+}
+
+// 全局操作流水（跨实例审计视图）
+export function getInstanceOperationLogs(params: OperationLogQuery): Promise<OperationLogListResponse> {
+  return request.get<OperationLogListResponse>({
+    url: '/instances/operations',
+    params: { ...params },
   })
 }

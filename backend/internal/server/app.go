@@ -15,6 +15,7 @@ import (
 
 	finaccounthandler "hostsent/backend/internal/modules/admin/finance/account/handler"
 	finbillhandler "hostsent/backend/internal/modules/admin/finance/bill/handler"
+	costhandler "hostsent/backend/internal/modules/admin/finance/cost/handler"
 	finrechargehandler "hostsent/backend/internal/modules/admin/finance/recharge/handler"
 	referralhandler "hostsent/backend/internal/modules/admin/finance/referral/handler"
 	finsettingshandler "hostsent/backend/internal/modules/admin/finance/settings/handler"
@@ -122,6 +123,7 @@ type App struct {
 	reconHandler            *finbillhandler.ReconHandler
 	financeStatsHandler     *finstatshandler.StatsHandler
 	financeSettingsHandler  *finsettingshandler.SettingsHandler
+	costHandler             *costhandler.CostHandler
 	configHandler           *systemhandler.ConfigHandler
 	userFinanceHandler      *userfinancehandler.FinanceHandler
 	ucProductHandler        *ucproducthandler.ProductHandler
@@ -213,6 +215,7 @@ func NewApp(
 	reconHandler *finbillhandler.ReconHandler,
 	financeStatsHandler *finstatshandler.StatsHandler,
 	financeSettingsHandler *finsettingshandler.SettingsHandler,
+	costHandler *costhandler.CostHandler,
 	configHandler *systemhandler.ConfigHandler,
 	userFinanceHandler *userfinancehandler.FinanceHandler,
 	ucProductHandler *ucproducthandler.ProductHandler,
@@ -300,6 +303,7 @@ func NewApp(
 		reconHandler:            reconHandler,
 		financeStatsHandler:     financeStatsHandler,
 		financeSettingsHandler:  financeSettingsHandler,
+		costHandler:             costHandler,
 		configHandler:           configHandler,
 		userFinanceHandler:      userFinanceHandler,
 		ucProductHandler:        ucProductHandler,

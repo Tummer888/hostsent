@@ -101,13 +101,22 @@ type AutoRenewToggleRequest struct {
 	PeriodCount int  `json:"period_count"` // 自动续费周期数，默认 1
 }
 
+// EnforceRequest 手动单实例到期处置请求。
+type EnforceRequest struct {
+	Reason string `json:"reason"`
+}
+
 // PolicyResponse 生命周期策略
 type PolicyResponse struct {
 	RemindDays       string `json:"remind_days"`
 	AutoRenewDefault bool   `json:"auto_renew_default"`
 	GraceDays        int    `json:"grace_days"`
 	DestroyKeepDays  int    `json:"destroy_keep_days"`
-	UpdatedAt        string `json:"updated_at"`
+	// AutoEnforce 到期阶段自动执行总开关（默认 false：只派生阶段、不动上游）。
+	AutoEnforce bool `json:"auto_enforce"`
+	// EnforceDryRun 预演开关（默认 true）：即使总开关开启，也只计算将要执行的动作而不落上游。
+	EnforceDryRun bool   `json:"enforce_dry_run"`
+	UpdatedAt     string `json:"updated_at"`
 }
 
 // PolicyUpdateRequest 更新生命周期策略请求
@@ -116,6 +125,38 @@ type PolicyUpdateRequest struct {
 	AutoRenewDefault *bool  `json:"auto_renew_default"`
 	GraceDays        *int   `json:"grace_days"`
 	DestroyKeepDays  *int   `json:"destroy_keep_days"`
+	AutoEnforce      *bool  `json:"auto_enforce"`
+	EnforceDryRun    *bool  `json:"enforce_dry_run"`
+}
+
+// EnforcementPreviewItem 到期处置预演单条结果（dry-run 报告）。
+type EnforcementPreviewItem struct {
+	InstanceID   uint64 `json:"instance_id"`
+	InstanceMark string `json:"instance_mark"`
+	Name         string `json:"name"`
+	UserID       uint64 `json:"user_id"`
+	Username     string `json:"username"`
+	ProviderID   uint64 `json:"provider_id"`
+	Stage        string `json:"stage"`        // 当前生命周期阶段
+	TargetStage  string `json:"target_stage"` // 本次将推进到的阶段
+	Action       string `json:"action"`       // suspend / destroy / unsuspend / mark
+	Reason       string `json:"reason"`       // 判定依据（人话）
+	ExpireAt     string `json:"expire_at"`
+	DaysLeft     int    `json:"days_left"`
+	// CapabilityMissing 上游缺该能力时置位，提示「仅标记、需人工跟进」。
+	CapabilityMissing bool `json:"capability_missing"`
+}
+
+// EnforcementPreviewResponse 到期处置预演报告。
+type EnforcementPreviewResponse struct {
+	// Enabled/DryRun 回显当前策略闸门状态，前端据此提示「这是预演还是真执行」。
+	Enabled bool `json:"enabled"`
+	DryRun  bool `json:"dry_run"`
+	Total   int  `json:"total"`
+	// StageCounts 按目标阶段计数（grace/suspended/destroyed/active）。
+	StageCounts map[string]int           `json:"stage_counts"`
+	Items       []EnforcementPreviewItem `json:"items"`
+	GeneratedAt string                   `json:"generated_at"`
 }
 
 // UserInstanceRenewalItem 用户续费管理聚合视图项

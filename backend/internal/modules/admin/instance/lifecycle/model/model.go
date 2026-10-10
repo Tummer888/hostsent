@@ -69,13 +69,19 @@ func (InstanceRenewal) TableName() string { return "instance_renewals" }
 
 // LifecyclePolicy 生命周期全局策略（单行表，ID=1）
 type LifecyclePolicy struct {
-	ID               uint64    `gorm:"primaryKey" json:"id"`
-	RemindDays       string    `gorm:"column:remind_days;size:64;not null;default:'7,3,1'" json:"remind_days"` // 到期前提醒天数，逗号分隔
-	AutoRenewDefault bool      `gorm:"column:auto_renew_default;not null;default:false" json:"auto_renew_default"`
-	GraceDays        int       `gorm:"column:grace_days;not null;default:7" json:"grace_days"`                // 宽限期天数
-	DestroyKeepDays  int       `gorm:"column:destroy_keep_days;not null;default:30" json:"destroy_keep_days"` // 暂停后保留天数
-	Status           string    `gorm:"size:32;not null;default:active" json:"status"`
-	UpdatedAt        time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	ID               uint64 `gorm:"primaryKey" json:"id"`
+	RemindDays       string `gorm:"column:remind_days;size:64;not null;default:'7,3,1'" json:"remind_days"` // 到期前提醒天数，逗号分隔
+	AutoRenewDefault bool   `gorm:"column:auto_renew_default;not null;default:false" json:"auto_renew_default"`
+	GraceDays        int    `gorm:"column:grace_days;not null;default:7" json:"grace_days"`                // 宽限期天数
+	DestroyKeepDays  int    `gorm:"column:destroy_keep_days;not null;default:30" json:"destroy_keep_days"` // 暂停后保留天数
+	// AutoEnforce 到期阶段自动执行总开关（doc61 §8.4 要求默认 dry-run）。
+	// false 时推进器只落库阶段、不触发任何上游暂停/销毁动作；运维须显式开启才会真实执行。
+	AutoEnforce bool `gorm:"column:auto_enforce;not null;default:false" json:"auto_enforce"`
+	// EnforceDryRun 预演开关：AutoEnforce 已开启时，true 表示仍只计算并记录将要执行的动作，
+	// 不真正调用上游。默认 true，保证首次开启总开关也不会立即动线上实例。
+	EnforceDryRun bool      `gorm:"column:enforce_dry_run;not null;default:true" json:"enforce_dry_run"`
+	Status        string    `gorm:"size:32;not null;default:active" json:"status"`
+	UpdatedAt     time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
 
 // TableName 指定表名

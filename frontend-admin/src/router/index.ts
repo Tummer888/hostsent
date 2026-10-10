@@ -380,10 +380,10 @@ const routes: Array<RouteRecordRaw> = [
         meta: { title: '规格模板', role: 'admin', permission: 'spec:template:list' },
       },
       {
+        // 「自定义规格」路由已随 077 下线：该页与规格模板（配置档）重复且只能存出废档位，
+        // 现在统一走 spec/templates。旧链接回落到规格模板列表，避免收藏夹/历史记录 404。
         path: 'spec/custom',
-        name: 'ProductSpecCustom',
-        component: () => import('@/pages/product/spec/custom/index.vue'),
-        meta: { title: '自定义规格', role: 'admin', permission: 'spec:template:list' },
+        redirect: '/product/spec/templates',
       },
       {
         path: 'spec/mappings',
@@ -543,6 +543,13 @@ const routes: Array<RouteRecordRaw> = [
         meta: { title: '云主机实例', role: 'admin', permission: 'resource:instance' },
       },
       {
+        // 全局操作流水（跨实例审计视图）：doc61 P1。
+        path: 'operations',
+        name: 'InstanceOperations',
+        component: () => import('@/pages/instances/operations/index.vue'),
+        meta: { title: '操作流水', role: 'admin', permission: 'resource:instance' },
+      },
+      {
         // 生命周期管理（doc60）整域并入实例管理（迁移 066）：目录只做分组，落地页在 expiring。
         path: 'lifecycle',
         redirect: '/instances/lifecycle/expiring',
@@ -565,6 +572,13 @@ const routes: Array<RouteRecordRaw> = [
         name: 'LifecyclePolicy',
         component: () => import('@/pages/instances/lifecycle/policy/index.vue'),
         meta: { title: '生命周期策略', role: 'admin', permission: 'lifecycle:policy' },
+      },
+      {
+        // 到期处置（doc61 §8.4）：预演报告 + 手动单实例执行。
+        path: 'lifecycle/enforcement',
+        name: 'LifecycleEnforcement',
+        component: () => import('@/pages/instances/lifecycle/enforcement/index.vue'),
+        meta: { title: '到期处置', role: 'admin', permission: 'lifecycle:enforce' },
       },
     ],
   },
@@ -631,6 +645,26 @@ const routes: Array<RouteRecordRaw> = [
         name: 'FinanceAdjust',
         component: () => import('@/pages/finance/accounts/adjust.vue'),
         meta: { title: '人工调账', role: 'admin', permission: 'finance:adjust' },
+      },
+      // —— 成本管理（doc111）：月度成本/利润核算、成本项配置、上游余额台账 ——
+      // 目录排序 3（补迁移 073 把资金流水收进「资金管理」后空出的槽位）。
+      {
+        path: 'cost/overview',
+        name: 'FinanceCostOverview',
+        component: () => import('@/pages/finance/cost/overview/index.vue'),
+        meta: { title: '成本总览', role: 'admin', permission: 'finance:cost:overview' },
+      },
+      {
+        path: 'cost/items',
+        name: 'FinanceCostItems',
+        component: () => import('@/pages/finance/cost/items/index.vue'),
+        meta: { title: '成本项配置', role: 'admin', permission: 'finance:cost:item' },
+      },
+      {
+        path: 'cost/upstreams',
+        name: 'FinanceCostUpstreams',
+        component: () => import('@/pages/finance/cost/upstreams/index.vue'),
+        meta: { title: '上游余额台账', role: 'admin', permission: 'finance:cost:balance' },
       },
       // —— 充值提现 ——
       {

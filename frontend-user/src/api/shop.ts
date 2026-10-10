@@ -20,6 +20,8 @@ export interface OptionItem {
   label: string
   /** 分组标签（Ubuntu/Windows/CentOS）：有值时按分组渲染下拉 */
   group_label?: string
+  /** 该取值的一句话含义（-1 不开通 / 0 不限量 / auto 随机端口），随该取值展示 */
+  help?: string
   /** 是否该配置项的默认取值 */
   is_default: boolean
   price_monthly: number

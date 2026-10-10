@@ -111,62 +111,102 @@
     <t-dialog
       v-model:visible="dialogVisible"
       :header="form.id ? `编辑档位：${form.name || '未命名'}` : '新增档位'"
-      width="1080px"
+      :width="isMobile ? '94vw' : '900px'"
       :confirm-btn="{ content: '保存', theme: 'primary' }"
       :cancel-btn="{ content: '取消' }"
       @confirm="save"
       @close="closeDialog"
     >
       <t-form label-align="top" :data="form" @submit.prevent>
-        <div class="form-grid">
-          <t-form-item label="对接平台" name="providerId">
-            <t-select
-              v-model="providerId"
-              placeholder="选择算力平台渠道"
-              :options="platformOptions"
-              :loading="platformLoading"
-              @change="onPlatformChange"
+        <!--
+          弹窗内容按分类切成子页。之前一份配置档的全部内容 —— 基础字段、预置档位、
+          4 个分组的几十个配置项、平台映射、模板与预览 —— 顺着一条长表单铺下来，
+          找一个参数要滚好几屏。这里用标签页当小导航，一屏只留一类内容。
+        -->
+        <!--
+          导航分两行：第一行是「档位本身 + 各配置项分组」（配什么），
+          第二行是「平台映射 + 名称与描述」（映射与输出什么）。7 个标签挤一行时
+          彼此贴太近、边界不清，分开之后一眼能分清两类内容。
+        -->
+        <template v-if="providerId">
+          <t-tabs v-model="activeSection" theme="card" size="small" class="dialog-tabs">
+            <t-tab-panel value="basic" label="档位信息" />
+            <t-tab-panel
+              v-for="grp in catalogGroups"
+              :key="grpTabValue(grp.name)"
+              :value="grpTabValue(grp.name)"
+              :label="`${grp.name || '未分组'}（${grp.enabled}/${grp.rows.length}）`"
             />
-          </t-form-item>
-          <t-form-item label="档位名称" name="name">
-            <t-input v-model="form.name" placeholder="如 2核4G / 入门型" />
-          </t-form-item>
-          <t-form-item label="参考售价（元）" name="price">
-            <t-input-number v-model="form.price" :min="0" :precision="2" theme="column" />
-          </t-form-item>
-          <t-form-item label="排序" name="sort_order">
-            <t-input-number v-model="form.sort_order" theme="column" />
-          </t-form-item>
-          <t-form-item label="状态" name="status">
-            <t-select v-model="form.status" :options="statusOptions" />
-          </t-form-item>
-        </div>
+          </t-tabs>
+          <t-tabs v-model="activeSection" theme="card" size="small" class="dialog-tabs dialog-tabs--sub">
+            <t-tab-panel value="mapping" label="平台映射" />
+            <t-tab-panel value="template" label="名称与描述" />
+          </t-tabs>
+        </template>
 
-        <t-form-item label="预置档位（一键填基线，再按需改）">
-          <t-space size="small" break-line>
-            <t-button v-for="p in presets" :key="p.name" size="small" variant="outline" @click="applyPreset(p)">
-              {{ p.name }}
-            </t-button>
-            <t-button size="small" theme="primary" variant="outline" @click="openMultiCpuMem">
-              开放多选：CPU 2/4/8核 · 内存 4/8G
-            </t-button>
-          </t-space>
-        </t-form-item>
+        <!-- 档位信息 -->
+        <template v-if="activeSection === 'basic'">
+          <!-- 6 个字段刚好排满两列三行；「系统盘基线」同时喂给 {disk} 占位符与
+               spec_values.storage.system.size，所以必须和 CPU/内存 放在一起改。 -->
+          <div class="form-grid">
+            <t-form-item label="对接平台" name="providerId">
+              <t-select
+                v-model="providerId"
+                placeholder="选择算力平台渠道"
+                :options="platformOptions"
+                :loading="platformLoading"
+                @change="onPlatformChange"
+              />
+            </t-form-item>
+            <t-form-item label="档位名称" name="name">
+              <t-input v-model="form.name" placeholder="如 2核4G / 入门型" />
+            </t-form-item>
+            <t-form-item label="系统盘（GB）" name="disk">
+              <t-input-number v-model="form.disk" :min="0" theme="column" :style="{ width: '100%' }" />
+            </t-form-item>
+            <t-form-item label="参考售价（元）" name="price">
+              <t-input-number v-model="form.price" :min="0" :precision="2" theme="column" :style="{ width: '100%' }" />
+            </t-form-item>
+            <t-form-item label="排序" name="sort_order">
+              <t-input-number v-model="form.sort_order" theme="column" :style="{ width: '100%' }" />
+            </t-form-item>
+            <t-form-item label="状态" name="status">
+              <t-select v-model="form.status" :options="statusOptions" />
+            </t-form-item>
+          </div>
 
-        <t-alert v-if="!providerId" theme="warning" message="请先选择对接平台，才能读到该平台的配置项目录。" />
-        <t-alert v-else-if="!catalog.length" theme="info" message="该平台暂无配置项目录，请先到「产品管理 → 规格管理 → 平台配置项」同步目录。" />
+          <t-form-item label="预置档位（一键填基线，再按需改）">
+            <t-space size="small" break-line>
+              <t-button v-for="p in presets" :key="p.name" size="small" variant="outline" @click="applyPreset(p)">
+                {{ p.name }}
+              </t-button>
+              <t-button size="small" theme="primary" variant="outline" @click="openMultiCpuMem">
+                开放多选：CPU 2/4/8核 · 内存 4/8G
+              </t-button>
+            </t-space>
+          </t-form-item>
 
-        <template v-if="providerId && catalog.length">
-          <t-divider>
-            平台配置项
-            <span class="divider-hint">已开 {{ enabledCount }} 项 · 多选取值会成为客户可选配置项</span>
-          </t-divider>
+          <div class="section-hint">
+            已开 <strong>{{ enabledCount }}</strong> 个配置项；多选取值会生成客户可选配置项。
+          </div>
+        </template>
 
-          <div v-for="grp in catalogGroups" :key="grp.name" class="opt-block">
-            <div class="opt-block__head">{{ grp.name || '未分组' }}</div>
-            <div v-for="row in grp.rows" :key="row.spec.option_key" class="opt-row" :class="{ 'opt-row--on': row.enabled }">
+        <!-- 各分组的平台配置项：一次只渲染当前分组 -->
+        <template v-for="grp in catalogGroups" :key="grpTabValue(grp.name)">
+          <template v-if="activeSection === grpTabValue(grp.name)">
+            <div class="section-hint">
+              本分组已开 <strong>{{ grp.enabled }}</strong> / {{ grp.rows.length }} 项 ·
+              多选取值会成为客户可选配置项
+            </div>
+
+            <div
+              v-for="row in grp.rows"
+              :key="row.spec.option_key"
+              class="opt-row"
+              :class="{ 'opt-row--on': row.enabled, 'opt-row--collapsed': !isExpanded(row) }"
+            >
               <div class="opt-row__head">
-                <t-checkbox v-model="row.enabled">
+                <t-checkbox v-model="row.enabled" @change="onEnabledChange(row)">
                   <span class="opt-row__name">{{ row.spec.label || row.spec.option_key }}</span>
                 </t-checkbox>
                 <span class="opt-row__meta">
@@ -174,55 +214,81 @@
                   <t-tag v-if="row.spec.required" theme="error" variant="light" size="small" shape="round">必选</t-tag>
                   <span v-if="row.spec.unit">单位 {{ row.spec.unit }}</span>
                   <span v-if="row.spec.default_value">默认 {{ row.spec.default_value }}</span>
+                  <t-link class="opt-row__toggle" size="small" @click="toggleExpand(row)">
+                    {{ isExpanded(row) ? '收起' : '展开' }}
+                  </t-link>
                 </span>
               </div>
-              <p v-if="row.spec.help" class="opt-row__help">{{ row.spec.help }}</p>
 
-              <div v-if="row.enabled" class="opt-row__body">
-                <template v-if="isQtyOption(row.spec)">
-                  <div class="opt-inline">
-                    <label class="opt-field">
-                      最小
-                      <t-input-number v-model="row.rangeMin" :min="0" theme="column" />
-                    </label>
-                    <label class="opt-field">
-                      最大
-                      <t-input-number v-model="row.rangeMax" :min="0" theme="column" />
-                    </label>
-                    <label class="opt-field">
-                      默认值
-                      <t-input-number v-model="row.defaultNumber" theme="column" />
-                    </label>
-                  </div>
-                </template>
-                <template v-else>
-                  <t-select
-                    v-model="row.values"
-                    multiple
-                    clearable
-                    filterable
-                    :placeholder="row.spec.value_source === 'manual' ? '手工填写取值（输入后回车添加）' : '选择允许客户选取的值'"
-                    :options="valueOptions(row)"
-                    :loading="resourceLoading"
-                    :creatable="row.spec.value_source === 'manual'"
-                    @change="onValuesChange(row)"
-                  />
-                  <div class="opt-inline">
-                    <label class="opt-field">
-                      默认值
-                      <t-select v-model="row.default" clearable placeholder="默认选中" :options="selectedValueOptions(row)" />
-                    </label>
-                    <label class="opt-field">
-                      分组（用户侧下拉分组）
-                      <t-input v-model="row.groupLabel" placeholder="如 Ubuntu / Windows" />
-                    </label>
-                  </div>
-                </template>
-              </div>
+              <!--
+                收起态只留一行「这一项配了什么」。34 个配置项每个都有一段说明文字，
+                全铺出来光说明就占掉好几屏，所以说明随控件一起收在展开态里。
+              -->
+              <p v-if="!isExpanded(row) && row.enabled" class="opt-row__summary">{{ rowSummary(row) }}</p>
+
+              <template v-else-if="isExpanded(row)">
+                <p v-if="row.spec.help" class="opt-row__help">{{ row.spec.help }}</p>
+
+                <div v-if="row.enabled" class="opt-row__body">
+                  <template v-if="isQtyOption(row.spec)">
+                    <div class="opt-inline">
+                      <label class="opt-field">
+                        最小
+                        <t-input-number v-model="row.rangeMin" :min="0" theme="column" />
+                      </label>
+                      <label class="opt-field">
+                        最大
+                        <t-input-number v-model="row.rangeMax" :min="0" theme="column" />
+                      </label>
+                      <label class="opt-field">
+                        默认值
+                        <t-input-number v-model="row.defaultNumber" theme="column" />
+                      </label>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <t-select
+                      v-model="row.values"
+                      multiple
+                      clearable
+                      filterable
+                      :placeholder="row.spec.value_source === 'manual' ? '手工填写取值（输入后回车添加）' : '选择允许客户选取的值'"
+                      :options="valueOptions(row)"
+                      :loading="resourceLoading"
+                      :creatable="row.spec.value_source === 'manual'"
+                      @change="onValuesChange(row)"
+                    />
+                    <div class="opt-inline">
+                      <label class="opt-field">
+                        默认值
+                        <t-select v-model="row.default" clearable placeholder="默认选中" :options="selectedValueOptions(row)" />
+                      </label>
+                      <label class="opt-field">
+                        分组（用户侧下拉分组）
+                        <t-input v-model="row.groupLabel" placeholder="如 Ubuntu / Windows" />
+                      </label>
+                    </div>
+                    <!-- 取值含义：
+                         -1/0/auto 这类值光看取值看不出含义，选完就把目录里的说明列出来；
+                         数量型没有候选取值，改提示文档给的平台默认口径。 -->
+                    <div v-if="rowValuesHelp(row).length" class="opt-valuehint">
+                      <span v-for="e in rowValuesHelp(row)" :key="e.value" class="opt-valuehint__item">
+                        <code>{{ e.value }}</code> {{ e.text }}
+                      </span>
+                    </div>
+                    <p v-else-if="row.spec.default_value" class="opt-row__help">
+                      平台未传递时的默认：{{ row.spec.default_value }}
+                    </p>
+                  </template>
+                </div>
+              </template>
             </div>
-          </div>
+          </template>
+        </template>
 
-          <t-divider>平台映射（生成 SKU 时下发的基线参数）</t-divider>
+        <!-- 平台映射 -->
+        <template v-if="activeSection === 'mapping'">
+          <div class="section-hint">生成 SKU 时下发给平台的基线参数（区域与节点至少填一个）。</div>
           <div class="form-grid">
             <t-form-item label="数据中心 area">
               <t-select v-model="platformParams.area" clearable placeholder="平台区域" :options="areaOptions" />
@@ -241,8 +307,11 @@
             <t-textarea v-model="extraParamsText" :autosize="{ minRows: 2, maxRows: 5 }"
               placeholder='上面四下拉之外的键，如 {"network_type":"normal","ip_num":1}' />
           </t-form-item>
+        </template>
 
-          <t-divider>名称与描述模板</t-divider>
+        <!-- 名称与描述 -->
+        <template v-if="activeSection === 'template'">
+          <div class="section-hint">模板里的 {cpu}/{memory} 等占位符按「平台映射」与配置项的基线取值展开。</div>
           <t-form-item label="商品名模板">
             <t-input v-model="form.name_template" placeholder="{cpu}核{memory}G {os}" />
           </t-form-item>
@@ -260,6 +329,9 @@
             </template>
           </t-alert>
         </template>
+
+        <t-alert v-if="!providerId" theme="warning" message="请先选择对接平台，才能读到该平台的配置项目录。" />
+        <t-alert v-else-if="!catalog.length" theme="info" message="该平台暂无配置项目录，请先到「产品管理 → 规格管理 → 平台配置项」同步目录。" />
       </t-form>
     </t-dialog>
   </div>
@@ -428,6 +500,12 @@ type OptionRow = {
 const dialogVisible = ref(false)
 const catalog = ref<OptionSpecInfo[]>([])
 const rows = ref<OptionRow[]>([])
+// 弹窗内的子页导航：'basic' / 'group:<分组名>' / 'mapping' / 'template'。
+// 第一次选平台后落到「档位信息」，换平台会重置回这里（旧的 group:xxx 对新平台无意义）。
+const activeSection = ref('basic')
+// 已展开编辑的配置项（option_key）。默认全部收起，一屏能看到全部分组内容；
+// 展开状态是纯 UI 状态，不进 rows，避免混进保存载荷。
+const expandedKeys = ref<string[]>([])
 const extraParamsText = ref('')
 const platformParams = reactive<{ area?: string; node?: string; store?: string; os?: string }>({
   area: undefined, node: undefined, store: undefined, os: undefined,
@@ -465,29 +543,122 @@ const presets = [
 const enabledCount = computed(() => rows.value.filter((r) => r.enabled).length)
 
 const catalogGroups = computed(() => {
-  const out: { name: string; rows: OptionRow[] }[] = []
+  const out: { name: string; rows: OptionRow[]; enabled: number }[] = []
   for (const row of rows.value) {
     const name = row.spec.group_name || ''
     let g = out.find((x) => x.name === name)
     if (!g) {
-      g = { name, rows: [] }
+      g = { name, rows: [], enabled: 0 }
       out.push(g)
     }
     g.rows.push(row)
+    if (row.enabled) g.enabled += 1
   }
   return out
 })
+
+/** 分组名 → 标签页 value。分组名可能为空串（未分组），空值不能当 tab value 用。 */
+function grpTabValue(name: string): string {
+  return `group:${name}`
+}
+
+// ===== 配置项行的展开/收起 =====
+// 勾上勾选时自动展开，省得「勾了却看不到要配什么」再点一次；取消勾选则收起。
+function isExpanded(row: OptionRow): boolean {
+  return expandedKeys.value.includes(row.spec.option_key)
+}
+
+function toggleExpand(row: OptionRow) {
+  const key = row.spec.option_key
+  expandedKeys.value = isExpanded(row)
+    ? expandedKeys.value.filter((k) => k !== key)
+    : [...expandedKeys.value, key]
+}
+
+function onEnabledChange(row: OptionRow) {
+  if (row.enabled) {
+    if (!isExpanded(row)) expandedKeys.value = [...expandedKeys.value, row.spec.option_key]
+  } else {
+    expandedKeys.value = expandedKeys.value.filter((k) => k !== row.spec.option_key)
+  }
+}
+
+function resetExpanded() {
+  expandedKeys.value = []
+}
+
+/** 收起态的一行摘要：数量型给范围，多选型给标签名。 */
+function rowSummary(row: OptionRow): string {
+  if (isQtyOption(row.spec)) {
+    const unit = row.spec.unit ? ` ${row.spec.unit}` : ''
+    const def = row.defaultNumber != null ? `，默认 ${row.defaultNumber}${unit}` : ''
+    return `取值范围 ${row.rangeMin} – ${row.rangeMax}${unit}${def}`
+  }
+  if (!row.values.length) return '已开但未选值，保存时会跳过'
+  const labelOf = new Map(valueOptions(row).map((o) => [o.value, o.label]))
+  const names = row.values.map((v) => labelOf.get(v) || v)
+  const head = names.slice(0, 4).join('、')
+  const more = names.length > 4 ? ` 等 ${names.length} 项` : ''
+  const def = row.default ? `，默认 ${labelOf.get(row.default) || row.default}` : ''
+  return `可选：${head}${more}${def}`
+}
+
+/** rowValuesHelp 已选取值里能查到含义的那些（-1 不开通 / 0 不限量 / auto 随机端口）。 */
+function rowValuesHelp(row: OptionRow): { value: string; text: string }[] {
+  const map = (row.spec.options_help || {}) as Record<string, string>
+  return row.values
+    .filter((v) => map[v])
+    .map((v) => ({ value: v, text: String(map[v]) }))
+}
 
 function isQtyOption(spec: OptionSpecInfo): boolean {
   return spec.widget === 'qty' || spec.min_value != null || spec.max_value != null
 }
 
+/**
+ * valueOptions 配置档里的候选取值。
+ * - static：目录声明里的 options（cpu/memory 这类静态枚举）；
+ * - manual：库里/目录里带候选值的（port 的 auto），运营还能在控件里新建；
+ * - 平台来源（images/areas/nodes/stores）：库里的取值（含分组）。
+ * 三处合并去重，不只看 values，否则 manual 项的 options 会整个丢掉（port 就只剩空）。
+ */
 function valueOptions(row: OptionRow): { label: string; value: string }[] {
-  const list: OptionValueItem[] = row.spec.values || []
-  return list.map((v) => ({
-    label: v.group_label ? `${v.group_label} / ${v.label || v.value}` : (v.label || v.value),
-    value: v.value,
-  }))
+  const labelOf = (label: string, value: string) => (label && label !== value ? `${label}（${value}）` : value)
+  const out = new Map<string, string>()
+  const push = (value: string, label: string) => {
+    if (!value || out.has(value)) return
+    out.set(value, labelOf(label, value))
+  }
+  for (const v of row.spec.values || []) {
+    push(v.value, v.group_label ? `${v.group_label} / ${v.label || v.value}` : v.label || v.value)
+  }
+  for (const o of specStaticOptions(row.spec)) {
+    push(o.value, o.label)
+  }
+  return [...out.entries()].map(([value, label]) => ({ label, value }))
+}
+
+/** specStaticOptions 解析目录项自带的 options（可能是数组或 JSON 字符串，或已解析对象）。 */
+function specStaticOptions(spec: OptionSpecInfo): { value: string; label: string }[] {
+  const raw = spec.options as unknown
+  if (!raw) return []
+  if (Array.isArray(raw)) {
+    return raw
+      .map((o) => {
+        const item = o as { value?: unknown; label?: unknown }
+        const value = item.value != null ? String(item.value) : ''
+        return { value, label: item.label != null ? String(item.label) : value }
+      })
+      .filter((o) => o.value)
+  }
+  if (typeof raw === 'string') {
+    try {
+      return specStaticOptions({ ...spec, options: JSON.parse(raw) })
+    } catch {
+      return []
+    }
+  }
+  return []
 }
 
 function selectedValueOptions(row: OptionRow): { label: string; value: string }[] {
@@ -584,6 +755,12 @@ function applyPreset(p: (typeof presets)[number]) {
       row.default = row.values[0]
     }
   }
+  expandKeys(['cpu', 'memory', 'bw'])
+}
+
+/** 把指定配置项加入展开态（预置填充后让改动可见）。 */
+function expandKeys(keys: string[]) {
+  expandedKeys.value = [...new Set([...expandedKeys.value, ...keys])]
 }
 
 function openMultiCpuMem() {
@@ -602,6 +779,7 @@ function openMultiCpuMem() {
     mem.default = mem.values[0] || ''
   }
   MessagePlugin.success('已开放 CPU/内存多选，客户侧可在档位内自选')
+  expandKeys(['cpu', 'memory'])
 }
 
 function buildOptionSelections(): SpecOptionSelections {
@@ -695,6 +873,8 @@ async function openCreate() {
   catalog.value = []
   providerId.value = undefined
   providerType.value = ''
+  activeSection.value = 'basic'
+  resetExpanded()
   Object.assign(platformParams, { area: undefined, node: undefined, store: undefined, os: undefined })
   resources.value = { areas: [], nodes: [], stores: [], images: [] }
   extraParamsText.value = ''
@@ -732,6 +912,10 @@ async function openEdit(row: SpecTemplateInfo) {
   catalog.value = await loadCatalog(providerType.value)
   const selections = (row.option_selections || {}) as SpecOptionSelections
   rows.value = catalog.value.map((spec) => buildRow(spec, selections))
+  activeSection.value = 'basic'
+  // 打开时全部收起：一屏能看到这个分组所有的配置项，每行带一句摘要说明配了什么；
+  // 要改哪项点「展开」即可。默认把已开的项全展开反而又把弹窗撑长了。
+  resetExpanded()
   dialogVisible.value = true
 }
 
@@ -750,6 +934,8 @@ async function onPlatformChange(value?: number | string) {
     providerType.value = match ? match[1] : ''
   }
   Object.assign(platformParams, { area: undefined, node: undefined, store: undefined, os: undefined })
+  activeSection.value = 'basic'
+  resetExpanded()
   await loadPlatformResources(pid)
   // 换平台后旧勾选对新平台无效，全部重置（避免跨平台脏值）。
   catalog.value = await loadCatalog(providerType.value)
@@ -859,35 +1045,38 @@ onMounted(() => {
 </style>
 
 <style scoped>
-.divider-hint {
-  margin-left: 8px;
-  font-size: 12px;
-  font-weight: normal;
-  color: var(--td-text-color-secondary, #888);
+.dialog-tabs {
+  margin-bottom: 8px;
 }
 
-.opt-block {
+/* 第二行导航（平台映射 / 名称与描述）与上一行之间留一截空白，
+   让「配什么」和「映射/输出成什么」一眼分得开。 */
+.dialog-tabs--sub {
   margin-bottom: 14px;
 }
 
-.opt-block__head {
-  font-weight: 600;
-  padding: 4px 2px;
-  border-bottom: 1px solid var(--td-component-stroke, #e7e7e7);
-  margin-bottom: 8px;
+.section-hint {
+  margin-bottom: 10px;
+  font-size: 12.5px;
+  color: var(--td-text-color-secondary, #888);
 }
 
 .opt-row {
   border: 1px solid var(--td-component-border, #e0e0e0);
   border-radius: 6px;
-  padding: 8px 10px;
-  margin-bottom: 8px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
   background: var(--td-bg-color-container, #fff);
 }
 
 .opt-row--on {
   border-color: var(--td-brand-color, #0052d9);
   box-shadow: 0 0 0 1px rgba(0, 82, 217, 0.1);
+}
+
+/* 收起态收紧行高：一屏能多看几条，展开编辑时再回到常规间距。 */
+.opt-row--collapsed {
+  padding: 4px 10px;
 }
 
 .opt-row__head {
@@ -914,10 +1103,39 @@ onMounted(() => {
   font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
 }
 
+.opt-row__toggle {
+  font-size: 12px;
+}
+
+.opt-row__summary {
+  margin: 2px 0 0 24px;
+  font-size: 12.5px;
+  color: var(--td-text-color-placeholder, #999);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .opt-row__help {
   margin: 4px 0 0;
   font-size: 12px;
   color: var(--td-text-color-secondary, #999);
+}
+
+.opt-valuehint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+}
+
+.opt-valuehint__item {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder, #999);
+}
+
+.opt-valuehint__item code {
+  margin-right: 4px;
+  font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
 }
 
 .opt-row__body {
@@ -948,5 +1166,16 @@ onMounted(() => {
 
 .preview-line code {
   font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
+}
+
+/* 窄屏下弹窗几乎满宽，配置项内的多列网格塌成一列。 */
+@media (max-width: 768px) {
+  .opt-inline {
+    grid-template-columns: 1fr;
+  }
+
+  .opt-row__summary {
+    white-space: normal;
+  }
 }
 </style>

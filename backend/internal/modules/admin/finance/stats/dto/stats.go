@@ -106,3 +106,15 @@ type StatsWalletSummary struct {
 	LowBalanceCount     int64   `json:"low_balance_count"`     // 低于阈值的钱包数
 	LowBalanceAmount    float64 `json:"low_balance_amount"`    // 低于阈值钱包的余额合计
 }
+
+// Revenue 期间收入口径（成本/利润模块复用，避免两处各写一份 SQL 造成口径漂移）。
+//
+// 服务收入 = 期间消费 − 期间退款：这是「营业收入」；
+// 资金口径收入（FundIncome）含充值/提现等资金搬运，只作参考，不能当营收。
+type Revenue struct {
+	ServiceRevenue  float64 `json:"service_revenue"`
+	FundIncome      float64 `json:"fund_income"`
+	ConsumeTotal    float64 `json:"consume_total"`
+	RefundTotal     float64 `json:"refund_total"`
+	CommissionTotal float64 `json:"commission_total"`
+}

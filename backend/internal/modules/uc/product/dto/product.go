@@ -45,15 +45,15 @@ type OptionGroup struct {
 
 // Option 客户可见的一个可选配置项。
 type Option struct {
-	OptionKey    string       `json:"option_key"` // 平台参数名，下单时作为 config_selections 的键
-	Name         string       `json:"name"`
-	Widget       string       `json:"widget"` // select|radio|qty|bool|group_select
-	Required     bool         `json:"required"`
-	DefaultValue string       `json:"default_value"`
-	Unit         string       `json:"unit"`
-	Help         string       `json:"help"`
-	MinValue     *float64     `json:"min_value"`
-	MaxValue     *float64     `json:"max_value"`
+	OptionKey    string   `json:"option_key"` // 平台参数名，下单时作为 config_selections 的键
+	Name         string   `json:"name"`
+	Widget       string   `json:"widget"` // select|radio|qty|bool|group_select
+	Required     bool     `json:"required"`
+	DefaultValue string   `json:"default_value"`
+	Unit         string   `json:"unit"`
+	Help         string   `json:"help"`
+	MinValue     *float64 `json:"min_value"`
+	MaxValue     *float64 `json:"max_value"`
 	// UnitPrice 数量型选项的每单位加价（元）；枚举型加价在 Values 里逐项给出。
 	UnitPrice float64      `json:"unit_price"`
 	Values    []OptionItem `json:"values"`
@@ -61,9 +61,12 @@ type Option struct {
 
 // OptionItem 一个可选值及其加价。
 type OptionItem struct {
-	Value          string  `json:"value"`
-	Label          string  `json:"label"`
-	GroupLabel     string  `json:"group_label,omitempty"` // 分组（Ubuntu/Windows），前端做分组下拉
+	Value      string `json:"value"`
+	Label      string `json:"label"`
+	GroupLabel string `json:"group_label,omitempty"` // 分组（Ubuntu/Windows），前端做分组下拉
+	// Help 该取值的一句话含义（-1 不开通 / 0 不限量 / auto 随机端口）。
+	// -1/0/auto 这类取值光看取值读不出含义，购买页必须在选中后把履约结果讲清楚。
+	Help           string  `json:"help,omitempty"`
 	Default        bool    `json:"is_default"`
 	PriceMonthly   float64 `json:"price_monthly"`
 	PriceQuarterly float64 `json:"price_quarterly"`

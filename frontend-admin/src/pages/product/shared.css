@@ -264,15 +264,35 @@
   transition: background-color var(--hs-duration-fast);
 }
 
-.product-module .t-button--theme-primary {
+/* 只给实底按钮上主色：outline/text 变体在 TDesign 里本来就是「浅底 + 主色字」，
+   不加 :not() 会被这条规则刷成同样的实底，文字与背景同色等于按钮看不见
+   （「同步适配器目录」这类 primary+outline 按钮就是被这样吃掉的）。 */
+.product-module .t-button--theme-primary:not(.t-button--variant-outline):not(.t-button--variant-text) {
   border-color: var(--product-green);
   background-color: var(--product-green);
 }
 
-.product-module .t-button--theme-primary:hover,
-.product-module .t-button--theme-primary:focus-visible {
+.product-module .t-button--theme-primary:not(.t-button--variant-outline):not(.t-button--variant-text):hover,
+.product-module .t-button--theme-primary:not(.t-button--variant-outline):not(.t-button--variant-text):focus-visible {
   border-color: var(--product-green-hover);
   background-color: var(--product-green-hover);
+}
+
+.product-module .t-button--theme-primary.t-button--variant-outline,
+.product-module .t-button--theme-primary.t-button--variant-text,
+.product-module .t-link--theme-primary {
+  color: var(--product-green);
+}
+
+.product-module .t-button--theme-primary.t-button--variant-outline {
+  border-color: var(--product-green-border);
+  background: var(--product-green-soft);
+}
+
+.product-module .t-button--theme-primary.t-button--variant-outline:hover,
+.product-module .t-button--theme-primary.t-button--variant-outline:focus-visible {
+  border-color: var(--product-green);
+  background: var(--product-green-soft);
 }
 
 .product-module .t-switch.t-is-checked {

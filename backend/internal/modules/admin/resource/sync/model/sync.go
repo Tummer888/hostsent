@@ -89,10 +89,17 @@ type Instance struct {
 	// UpstreamOrderID 上游订单号（链路 A 续费/对账用）。
 	UpstreamOrderID string `gorm:"column:upstream_order_id;size:128"`
 	// LifecycleStage 生命周期阶段（T5.4 推进器使用）。
-	LifecycleStage string     `gorm:"column:lifecycle_stage;size:24"`
-	CreatedAt      time.Time  `gorm:"autoCreateTime"`
-	ExpireAt       *time.Time `gorm:"column:expire_at"`
-	UpdatedAt      time.Time  `gorm:"autoUpdateTime"`
+	LifecycleStage string `gorm:"column:lifecycle_stage;size:24"`
+	// EnforceAttempts 到期阶段强制执行连续失败次数（doc61 §8.4 退避）。
+	// 推进器动作失败时自增，成功后归零；用于指数退避与「持续失败」告警。
+	EnforceAttempts int `gorm:"column:enforce_attempts;not null;default:0"`
+	// EnforceNextAt 下一次允许重试的时间（退避闸门）；为空表示可立即处理。
+	EnforceNextAt *time.Time `gorm:"column:enforce_next_at"`
+	// LastEnforceError 最近一次强制执行失败原因（截断），供运维在列表/详情直接看到。
+	LastEnforceError string     `gorm:"column:last_enforce_error;size:500"`
+	CreatedAt        time.Time  `gorm:"autoCreateTime"`
+	ExpireAt         *time.Time `gorm:"column:expire_at"`
+	UpdatedAt        time.Time  `gorm:"autoUpdateTime"`
 }
 
 // TableName 指定表名

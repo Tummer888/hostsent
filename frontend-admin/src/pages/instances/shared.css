@@ -389,8 +389,10 @@
 .instances-module .vnc-wrap {
   height: 62vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 10px;
 }
 
 .instances-module .vnc-frame {
@@ -399,6 +401,27 @@
   border: 1px solid var(--td-component-border);
   border-radius: 6px;
   background: #000;
+}
+
+/* VNC 控制台密码条：上游单独返回密码时供运营复制 */
+.instances-module .vnc-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--hs-surface-2, #f4f6fa);
+  font-size: 13px;
+}
+.instances-module .vnc-meta__label {
+  color: var(--td-text-color-placeholder);
+}
+.instances-module .vnc-meta__value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--td-text-color-primary);
 }
 
 /* ---------- TDesign 表格细节优化 ---------- */

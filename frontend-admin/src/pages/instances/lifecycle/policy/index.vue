@@ -46,6 +46,28 @@
             <p class="policy-item__desc">实例暂停后保留数据的天数，超过后系统自动销毁且不可恢复。</p>
             <t-input-number v-model="form.destroy_keep_days" :min="1" :max="365" theme="column" style="width: 160px" />
           </div>
+          <div class="policy-item">
+            <div class="policy-item__head">
+              <h4>自动执行阶段动作</h4>
+              <t-tag :theme="form.auto_enforce ? 'warning' : 'default'" variant="light" size="small" shape="round">
+                {{ form.auto_enforce ? '已开启' : '已关闭' }}
+              </t-tag>
+            </div>
+            <p class="policy-item__desc">
+              关闭时（默认）到期阶段只做登记与提醒，<b>不会</b>自动暂停或销毁实例。开启后系统才会对到期实例下发暂停/销毁。
+            </p>
+            <t-switch v-model="form.auto_enforce" />
+          </div>
+          <div class="policy-item">
+            <div class="policy-item__head">
+              <h4>预演模式（Dry-run）</h4>
+              <t-tag variant="light" size="small" shape="round">安全阀</t-tag>
+            </div>
+            <p class="policy-item__desc">
+              开启时（默认）即使总开关已打开，系统也只计算并记录将要执行的动作，不真正下发上游。确认影响面后再关闭本项。
+            </p>
+            <t-switch v-model="form.enforce_dry_run" :disabled="!form.auto_enforce" />
+          </div>
         </div>
 
         <div class="policy-flow">
@@ -73,7 +95,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { SaveIcon, SettingIcon } from 'tdesign-icons-vue-next'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 
 import { getLifecyclePolicy, updateLifecyclePolicy } from '@/api/lifecycle'
 
@@ -86,6 +108,8 @@ const form = reactive({
   auto_renew_default: false,
   grace_days: 7,
   destroy_keep_days: 30,
+  auto_enforce: false,
+  enforce_dry_run: true,
 })
 
 async function loadPolicy() {
@@ -96,6 +120,8 @@ async function loadPolicy() {
     form.auto_renew_default = !!policy.auto_renew_default
     form.grace_days = policy.grace_days ?? 7
     form.destroy_keep_days = policy.destroy_keep_days ?? 30
+    form.auto_enforce = !!policy.auto_enforce
+    form.enforce_dry_run = policy.enforce_dry_run ?? true
   } catch (e) {
     MessagePlugin.error((e as Error).message || '加载策略失败')
   } finally {
@@ -114,6 +140,25 @@ async function handleSave() {
     MessagePlugin.warning('提醒天数格式不正确，示例：7,3,1')
     return
   }
+  // 关闭预演 = 系统将真实下发暂停/销毁，属不可逆动作，保存前必须显式确认。
+  if (form.auto_enforce && !form.enforce_dry_run) {
+    const dialog = DialogPlugin.confirm({
+      header: '确认开启真实执行？',
+      body: '关闭预演模式后，系统将对已过期的实例真实下发暂停、对超过保留期的实例真实销毁，该操作不可撤销。请确认已通过「到期处置」页核对影响面。',
+      confirmBtn: { content: '我已确认，保存', theme: 'danger' },
+      cancelBtn: { content: '返回' },
+      onConfirm: () => {
+        dialog.destroy()
+        void doSave()
+      },
+      onClose: () => dialog.destroy(),
+    })
+    return
+  }
+  await doSave()
+}
+
+async function doSave() {
   saving.value = true
   try {
     const msg = await updateLifecyclePolicy({
@@ -121,6 +166,8 @@ async function handleSave() {
       auto_renew_default: form.auto_renew_default,
       grace_days: form.grace_days,
       destroy_keep_days: form.destroy_keep_days,
+      auto_enforce: form.auto_enforce,
+      enforce_dry_run: form.enforce_dry_run,
     })
     MessagePlugin.success(msg || '策略已更新')
   } catch (e) {

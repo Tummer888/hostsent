@@ -31,6 +31,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -89,10 +90,11 @@ func init() {
 		SupportsPaging: false,
 		FieldDictionary: map[string]any{
 			"source": "实测（依据 mofangfinance/provider.go 与上游源码 app/zjmf.php、app/common/logic/Host.php）",
-			"paths": []string{"cart/all", "cart/get_product_config", "api/product/proinfo",
+			"paths": []string{"cart/all", "cart/get_product_config", "cart/credit", "credit_record",
+				"v1/transactions/funds", "v1/hosts", "api/product/proinfo",
 				"host/header", "/dcim/on", "/dcim/off", "/dcim/reboot",
 				"/host/renew", "/apply_credit", "/host/cancel", "/provision/default"},
-			"note": "登录换 JWT（Bearer），status=405 表示 JWT 失效需重登；续费=host/renew+apply_credit(1001)；暂停/恢复=provision/default func=suspend|unsuspend；终止=host/cancel type=Immediate",
+			"note": "登录换 JWT（Bearer），status=405 表示 JWT 失效需重登；余额=cart/credit；账本=credit_record(消费)+v1/transactions/funds(充值)+v1/hosts(到期金额)（成本管理口径，doc111 §5.2）；续费=host/renew+apply_credit(1001)；暂停/恢复=provision/default func=suspend|unsuspend；终止=host/cancel type=Immediate",
 		},
 	})
 }
@@ -338,6 +340,189 @@ func (p *MoFangFinanceProvider) callOnce(ctx context.Context, base, jwt, method,
 func (p *MoFangFinanceProvider) HealthCheck(ctx context.Context) error {
 	_, err := p.login(ctx, true)
 	return err
+}
+
+// GetAccountInfo 读取「我方（下游账号）在该上游的账户余额」（AccountReader，doc111 §5）。
+//
+// 协议取自上游源码：
+//
+//	GET {base}/cart/credit        （Bearer JWT）
+//	  data.credit      客户余额（clients.credit；上游以 decimal 存储，JSON 可能是字符串 "199.00"）
+//	  data.currency    币种 {id, code, prefix, suffix}；客户未设币种且无默认币种时为 []
+//
+// 对应旧 PHP 项目的取余额实现
+// （app/admin/controller/ZjmfFinanceApiController::upstreamCredit() →
+// zjmfCurl($id, "cart/credit", [], 30, "GET")），服务端实现为
+// app/home/controller/CartController::getCredit() —— 它按 JWT 里的客户 uid 取 clients.credit，
+// 而 /zjmf_api_login 正是以客户身份签发 JWT，因此这里拿到的就是「我方在上游的余额」。
+// 资源型登录（/resource_login，type=agent）同样是客户身份，一并适用。
+//
+// 与其它读接口一样只读不动账：成本管理用它落余额快照，再由快照推算消耗。
+func (p *MoFangFinanceProvider) GetAccountInfo(ctx context.Context) (*upstream.AccountInfo, error) {
+	var data struct {
+		// Credit 用指针区分「上游返回 0」与「响应里根本没有这个字段」：
+		// 后者多半是账号没开通客户余额权限，静默落 0 会被成本台账读成「钱花光了」。
+		Credit   *FlexFloat      `json:"credit"`
+		Currency json.RawMessage `json:"currency"`
+	}
+	if err := p.call(ctx, "GetAccountInfo", http.MethodGet, "cart/credit", nil, &data); err != nil {
+		return nil, err
+	}
+	if data.Credit == nil {
+		return nil, &upstream.ProviderError{Op: "GetAccountInfo", Msg: "上游未返回余额字段（cart/credit 响应缺少 credit），请确认该 API 账号具备客户余额权限"}
+	}
+	return &upstream.AccountInfo{
+		Balance:  float64(*data.Credit),
+		Currency: accountCurrency(data.Currency),
+	}, nil
+}
+
+// accountCurrency 解析 cart/credit 的 data.currency：取 ISO 码并大写；
+// 上游在客户未设币种且无默认币种时返回 []（空数组），此时回落 CNY。
+func accountCurrency(raw json.RawMessage) string {
+	if len(raw) > 0 {
+		var cur struct {
+			Code string `json:"code"`
+		}
+		if err := json.Unmarshal(raw, &cur); err == nil {
+			if code := strings.ToUpper(strings.TrimSpace(cur.Code)); code != "" {
+				return code
+			}
+		}
+	}
+	return "CNY"
+}
+
+// ListConsumptionRecords 余额支付消费流水（成本管理主口径）。
+//
+// 上游接口：GET /credit_record（home/user_invoice/creditRecord，非 openapi 路由）
+//
+//	→ data.accounts[] = {id, relid(上游账单号), create_time, description(余额支付),
+//	                     type(订购产品/续费), amount, refund[](关联退款行，金额为负)}
+//
+// 服务端 SQL 只看 descriptions 含 "Credit Applied to Invoice #" / "... to Renew Invoice #" 的行，
+// 因此返回的就是「本账号用余额支付的每一笔开通/续费」。
+//
+// 分页：上游按 page/limit 返回并在 data.total 给总数（实测 limit=60 稳定）。
+func (p *MoFangFinanceProvider) ListConsumptionRecords(ctx context.Context, page, limit int) ([]upstream.LedgerEntry, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 60
+	}
+	var resp struct {
+		Total    int            `json:"total"`
+		Accounts []CreditRecord `json:"accounts"`
+	}
+	if err := p.call(ctx, "ListConsumptionRecords", http.MethodGet, "credit_record", url.Values{
+		"page":  {strconv.Itoa(page)},
+		"limit": {strconv.Itoa(limit)},
+	}, &resp); err != nil {
+		return nil, 0, err
+	}
+	out := make([]upstream.LedgerEntry, 0, len(resp.Accounts))
+	for _, item := range resp.Accounts {
+		entry := upstream.LedgerEntry{
+			ExternalID:  strconv.FormatInt(item.ID, 10),
+			Kind:        upstream.LedgerKindConsume,
+			OccurredAt:  time.Unix(item.CreateTime, 0).UTC(),
+			Amount:      math.Round(float64(item.Amount)*100) / 100,
+			Category:    item.Type,
+			RefNo:       strconv.FormatInt(item.RelID, 10),
+			Description: item.Description,
+		}
+		// 退款行金额为负，取绝对值累计为本笔的已退金额（消费净额 = amount − refund）。
+		for _, line := range item.Refund {
+			if line.Amount < 0 {
+				entry.RefundAmount += -float64(line.Amount)
+			} else {
+				entry.RefundAmount += float64(line.Amount)
+			}
+		}
+		entry.RefundAmount = math.Round(entry.RefundAmount*100) / 100
+		out = append(out, entry)
+	}
+	return out, resp.Total, nil
+}
+
+// ListTopupRecords 充值/入账流水。
+//
+// 上游接口：GET /v1/transactions/funds（openapi/Invoices/accountsRecord）
+//
+//	→ data.accounts[] = {id, invoice_id, pay_time, payment_zh, description, type, amount_in, trans_id}
+//
+// 描述区分为「用户充值」「人工入账」，支付方式在 payment_zh（支付宝支付…）。
+func (p *MoFangFinanceProvider) ListTopupRecords(ctx context.Context, page, limit int) ([]upstream.LedgerEntry, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 60
+	}
+	var resp struct {
+		Total    int           `json:"total"`
+		Accounts []TopupRecord `json:"accounts"`
+	}
+	if err := p.call(ctx, "ListTopupRecords", http.MethodGet, "v1/transactions/funds", url.Values{
+		"page":  {strconv.Itoa(page)},
+		"limit": {strconv.Itoa(limit)},
+	}, &resp); err != nil {
+		return nil, 0, err
+	}
+	out := make([]upstream.LedgerEntry, 0, len(resp.Accounts))
+	for _, item := range resp.Accounts {
+		desc := item.Description
+		if item.PaymentZh != "" {
+			desc = strings.TrimSpace(desc + " " + item.PaymentZh)
+		}
+		out = append(out, upstream.LedgerEntry{
+			ExternalID:  strconv.FormatInt(item.ID, 10),
+			Kind:        upstream.LedgerKindTopup,
+			OccurredAt:  time.Unix(int64(item.PayTime), 0).UTC(),
+			Amount:      math.Round(float64(item.AmountIn)*100) / 100,
+			Category:    item.Description,
+			RefNo:       item.TransID,
+			Description: desc,
+		})
+	}
+	return out, resp.Total, nil
+}
+
+// ListDueHosts 上游主机清单的续费信息（余额水位告警：余额够不够付未来 30 天的续费）。
+//
+// 上游接口：GET /v1/hosts（openapi/Host/getHosts）→ data.host[] 每台机带
+// amount（下一期续费金额）、nextduedate（到期时间戳）、domainstatus。
+// 本方法只取告警需要的字段，不落实例同步（实例台账走同步引擎，职责分离）。
+func (p *MoFangFinanceProvider) ListDueHosts(ctx context.Context) ([]upstream.DueHost, error) {
+	const perPage = 100
+	out := make([]upstream.DueHost, 0, 32)
+	for page := 1; page <= 20; page++ {
+		var resp struct {
+			Total int            `json:"total"`
+			Host  []UpstreamHost `json:"host"`
+		}
+		if err := p.call(ctx, "ListDueHosts", http.MethodGet, "v1/hosts", url.Values{
+			"page":  {strconv.Itoa(page)},
+			"limit": {strconv.Itoa(perPage)},
+		}, &resp); err != nil {
+			return nil, err
+		}
+		for _, h := range resp.Host {
+			out = append(out, upstream.DueHost{
+				UpstreamID:  strconv.FormatInt(h.ID, 10),
+				ProductName: h.ProductName,
+				Domain:      h.Domain,
+				Amount:      math.Round(float64(h.Amount)*100) / 100,
+				NextDueAt:   time.Unix(int64(h.NextDueDate), 0).UTC(),
+				Status:      h.DomainStatus,
+			})
+		}
+		if len(resp.Host) == 0 || len(out) >= resp.Total {
+			break
+		}
+	}
+	return out, nil
 }
 
 // ListProducts 拉取上游商品列表并补全价格/规格/分类（全量商品接口）。

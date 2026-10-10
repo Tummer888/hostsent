@@ -47,13 +47,11 @@ WHERE platform = 'admin' AND path IN ('/support', '/support/tickets');
 DELETE FROM menus
 WHERE platform = 'user' AND path LIKE '/user/%';
 
--- 6. 补齐「用户等级」菜单（挂在 /users 下，权限 level:list）
-INSERT INTO menus (parent_id, platform, name, type, path, component, icon, sort_order, status, created_at, updated_at)
-SELECT p.id, 'admin', '用户等级', 'menu', '/users/levels', 'users/levels/index', 'tag', 6, 'active', now(), now()
-FROM menus p
-WHERE p.platform = 'admin' AND p.path = '/users'
-  AND NOT EXISTS (
-    SELECT 1 FROM menus WHERE platform = 'admin' AND path = '/users/levels'
-  );
+-- 6. 用户等级旧路径清理：063 已将「用户等级」归入「账户管理」
+--    （/users/accounts/levels），旧路径 /users/levels 不再保留菜单，
+--    防止重放本迁移把 063 已删除的旧菜单再次插回（否则侧边栏会出现
+--    两个「用户等级」入口）。
+DELETE FROM menus
+WHERE platform = 'admin' AND path = '/users/levels';
 
 COMMIT;

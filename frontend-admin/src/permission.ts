@@ -135,11 +135,13 @@ export const navMenu = [
     children: [
       { title: '实例运维台', path: '/instances/list', icon: navIcon('server') },
       { title: '云主机实例', path: '/instances/inventory', icon: navIcon('server') },
+      { title: '操作流水', path: '/instances/operations', icon: navIcon('history') },
       // 生命周期与续费（doc60）已归入本域（迁移 066）：在后端菜单里是「生命周期管理」二级目录，
       // 兜底菜单按本文件「只保留一级域 + 直接子项」的约定压平列出。
       { title: '到期管理', path: '/instances/lifecycle/expiring', icon: navIcon('history') },
       { title: '续费记录', path: '/instances/lifecycle/renewals', icon: navIcon('order') },
       { title: '生命周期策略', path: '/instances/lifecycle/policy', icon: navIcon('setting') },
+      { title: '到期处置', path: '/instances/lifecycle/enforcement', icon: navIcon('verify') },
     ],
   },
   {
@@ -176,6 +178,8 @@ export const navMenu = [
       // 流水从域根叶子改为组内叶子，兜底菜单按「一级域 + 直接子项」只列到该组。
       // （组内原「用户钱包」页已由迁移 074 下线，兜底菜单本来就只列到组，无需改动。）
       { title: '资金管理', path: '/finance/accounts', icon: navIcon('wallet') },
+      // 成本管理（doc111）：月度成本/利润核算 + 成本项配置 + 上游余额台账，叶子由后端菜单树下发。
+      { title: '成本管理', path: '/finance/cost', icon: navIcon('chart-bar') },
       { title: '充值提现', path: '/finance/recharge-center', icon: navIcon('download') },
       { title: '账单与对账', path: '/finance/bill-center', icon: navIcon('file') },
       { title: '财务报表', path: '/finance/report', icon: navIcon('chart-bar') },

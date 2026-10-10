@@ -359,31 +359,6 @@ onMounted(loadTransactions)
 <style lang="css">
 @import '../shared.css';
 
-.finance-module .summary-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-xl);
-  padding: var(--space-md) var(--space-xl);
-}
-
-.finance-module .summary-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 140px;
-}
-
-.finance-module .summary-item__label {
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-}
-
-.finance-module .summary-item__value {
-  font-size: 18px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
 .finance-module .tx-no-cell,
 .finance-module .user-cell {
   display: flex;

@@ -101,9 +101,10 @@ func (s *specOptionService) ListCatalog(ctx context.Context, q dto.OptionCatalog
 	if err != nil {
 		return nil, err
 	}
-	// 平台来源的配置项（镜像/区域/节点/存储）在库为空时补一次实时读取，
-	// 否则运营第一次打开页面看不到任何镜像可勾。
-	if q.ProviderID != 0 && s.platform != nil {
+	// 平台来源的配置项（镜像/区域/节点/存储）默认只用库里的取值。
+	// 实时读取上游是 1~2 秒的网络调用，只在显式要求（with_live=1）时才做：
+	// 页面首次打开不再被上游拖慢；要取新镜像走「从平台刷新取值」入库。
+	if q.WithLive && q.ProviderID != 0 && s.platform != nil {
 		if err := s.fillLiveValues(ctx, q.ProviderID, infos); err != nil {
 			// 平台不可达不该让整个目录读取失败：库里已有的取值继续返回。
 			_ = err
@@ -126,8 +127,10 @@ func (s *specOptionService) catalogByProvider(ctx context.Context, providerType 
 	keys := make([]string, 0, len(specs))
 	for _, sp := range specs {
 		info := buildOptionSpecInfo(sp)
-		// 静态枚举：options 列存着候选值，直接当可选值下发给前端（不落取值库）。
-		if info.ValueSource == upstream.ValueSourceStatic && len(info.Values) == 0 {
+		// 目录行自带候选值时先当可选值下发给前端（不落取值库）。
+		// 静态枚举（cpu/memory/type…）本来就是这么用的；manual 来源但带候选值的
+		// （如 port 的 auto 加可自定义端口号）也一并给出，省得运营手打一遍。
+		if len(info.Values) == 0 {
 			info.Values = parseStaticOptions(info.Options)
 		}
 		infos = append(infos, info)
@@ -306,6 +309,7 @@ func (s *specOptionService) CreateSpec(ctx context.Context, req dto.OptionSpecRe
 		StepValue:    req.StepValue,
 		Unit:         req.Unit,
 		Help:         req.Help,
+		OptionsHelp:  rawToStringPtr(req.OptionsHelp),
 		MultiValue:   req.MultiValue,
 		Hidden:       req.Hidden,
 		SortOrder:    req.SortOrder,
@@ -343,6 +347,9 @@ func (s *specOptionService) UpdateSpec(ctx context.Context, id uint64, req dto.O
 	item.StepValue = req.StepValue
 	item.Unit = req.Unit
 	item.Help = req.Help
+	if len(req.OptionsHelp) > 0 {
+		item.OptionsHelp = rawToStringPtr(req.OptionsHelp)
+	}
 	item.MultiValue = req.MultiValue
 	item.Hidden = req.Hidden
 	item.SortOrder = req.SortOrder
@@ -584,6 +591,7 @@ func specToModel(providerType string, spec upstream.ConfigOptionSpec) *model.Pro
 		StepValue:    spec.Step,
 		Unit:         spec.Unit,
 		Help:         spec.Help,
+		OptionsHelp:  optionsHelpToJSONPtr(spec.OptionsHelp),
 		MultiValue:   spec.MultiValue,
 		SortOrder:    spec.SortOrder,
 		Source:       model.OptionSpecSourceAdapter,
@@ -596,9 +604,8 @@ func fromAdapterCatalog(providerType string, catalog []upstream.ConfigOptionSpec
 	for _, spec := range catalog {
 		item := specToModel(providerType, spec)
 		info := buildOptionSpecInfo(*item)
-		if info.ValueSource == upstream.ValueSourceStatic {
-			info.Values = optionsToItems(spec.Options)
-		}
+		// 声明里带候选值的一律先给出（static 枚举，以及 manual 但给了建议值的如 port）。
+		info.Values = optionsToItems(spec.Options)
 		if !includeHidden && info.Hidden {
 			continue
 		}
@@ -624,6 +631,7 @@ func buildOptionSpecInfo(item model.ProviderOptionSpec) dto.OptionSpecInfo {
 		StepValue:    item.StepValue,
 		Unit:         item.Unit,
 		Help:         item.Help,
+		OptionsHelp:  nullableJSONPtr(item.OptionsHelp),
 		MultiValue:   item.MultiValue,
 		Hidden:       item.Hidden,
 		SortOrder:    item.SortOrder,
@@ -667,6 +675,16 @@ func optionsToJSON(options []upstream.FieldOption) string {
 func optionsToJSONPtr(options []upstream.FieldOption) *string {
 	s := optionsToJSON(options)
 	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// optionsHelpToJSONPtr 适配器声明的 OptionsHelp 已是 JSON 对象文本，直接落库。
+// 空串 / {} 落 NULL：空串不是合法 jsonb，会报 22P02。
+func optionsHelpToJSONPtr(raw string) *string {
+	s := strings.TrimSpace(raw)
+	if s == "" || s == "null" || s == "{}" {
 		return nil
 	}
 	return &s

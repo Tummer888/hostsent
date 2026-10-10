@@ -34,6 +34,19 @@ type ProviderService interface {
 	// 供自营商品的规格模板配置平台参数（T4.2 平台映射）。
 	// 该渠道/适配器不支持时返回 ErrPlatformResourcesUnsupported。
 	PlatformResources(ctx context.Context, id uint64) (*upstream.PlatformResources, error)
+	// AccountBalance 读取渠道账户余额（财务型上游的 API 账户余额），供成本管理的
+	// 上游余额快照采集使用。
+	// 该渠道/适配器不支持时返回 ErrAccountBalanceUnsupported（前端据此引导手工录入）。
+	AccountBalance(ctx context.Context, id uint64) (*upstream.AccountInfo, error)
+	// SupportsAccountBalance 该渠道是否具备账户余额读取能力（纯类型断言，无网络调用、无副作用）。
+	SupportsAccountBalance(id uint64, providerType string) bool
+	// SupportsUpstreamLedger 该渠道是否具备上游账本读取能力（消费/充值流水，纯类型断言）。
+	SupportsUpstreamLedger(id uint64, providerType string) bool
+	// LedgerPage 读取上游账本分页：kind=consume 消费流水 / topup 充值流水（doc111 §5.2）。
+	// 渠道不具备能力时返回 ErrUpstreamLedgerUnsupported（前端据此引导手工录入）。
+	LedgerPage(ctx context.Context, id uint64, kind string, page, limit int) ([]upstream.LedgerEntry, int, error)
+	// DueHosts 上游主机的续费信息（到期金额/到期日），用于上游余额水位告警。
+	DueHosts(ctx context.Context, id uint64) ([]upstream.DueHost, error)
 	// BuildProviderConfig 根据提供商 ID 构建适配器配置（密钥解密注入），供同步引擎复用
 	BuildProviderConfig(ctx context.Context, id uint64) (*upstream.ProviderConfig, error)
 	// ResumeSync 解除同步熔断并清零失败计数（后台「一键恢复」）
@@ -638,6 +651,15 @@ func (s *providerService) FindPool(ctx context.Context, id uint64) (*dto.PoolInf
 // ErrPlatformResourcesUnsupported 该渠道类型/适配器不提供平台资源目录读取能力。
 var ErrPlatformResourcesUnsupported = errors.New("该渠道未提供平台资源目录读取能力")
 
+// ErrAccountBalanceUnsupported 该渠道类型/适配器不提供账户余额读取能力。
+// 现状：魔方财务已实现（GET cart/credit，doc111 §5.1）；魔方云是资源系统、无账户余额概念。
+// 其余渠道（openstack/proxmox/aws/aliyun）在本版本没有适配器，一律走手工录入快照。
+var ErrAccountBalanceUnsupported = errors.New("该渠道类型暂不支持自动查询余额，请手工录入快照")
+
+// ErrUpstreamLedgerUnsupported 该渠道未实现上游账本读取（FinanceLedgerReader）。
+// 现状：魔方财务已实现（credit_record / v1/transactions/funds / v1/hosts，doc111 §5.2）。
+var ErrUpstreamLedgerUnsupported = errors.New("该渠道类型暂不支持读取上游账本（消费/充值流水），请手工录入")
+
 // PlatformResources 读取平台可售资源目录（区域/节点/存储/镜像）。
 // 自营商品的规格模板需要把 area/node/os/store 映射到平台真实取值，
 // 没有这份目录运营只能手填 ID。
@@ -659,6 +681,97 @@ func (s *providerService) PlatformResources(ctx context.Context, id uint64) (*up
 		return nil, fmt.Errorf("%w：%s", ErrPlatformResourcesUnsupported, item.ProviderType)
 	}
 	return reader.ListPlatformResources(ctx)
+}
+
+// AccountBalance 读取渠道账户余额：适配器实现 upstream.AccountReader 时可用。
+func (s *providerService) AccountBalance(ctx context.Context, id uint64) (*upstream.AccountInfo, error) {
+	item, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := s.buildProviderConfigStrict(item)
+	if err != nil {
+		return nil, err
+	}
+	provider, err := s.upmgr.Build(item.ProviderType, cfg)
+	if err != nil {
+		return nil, err
+	}
+	reader, ok := provider.(upstream.AccountReader)
+	if !ok {
+		return nil, fmt.Errorf("%w：%s", ErrAccountBalanceUnsupported, item.ProviderType)
+	}
+	return reader.GetAccountInfo(ctx)
+}
+
+// SupportsAccountBalance 能力探测：用工厂构造一次适配器做类型断言。
+// 构造过程不发起网络请求、不解密凭证，因此可安全用于列表页的能力标记。
+func (s *providerService) SupportsAccountBalance(id uint64, providerType string) bool {
+	provider, err := s.upmgr.Build(providerType, &upstream.ProviderConfig{ID: uint(id), Type: providerType})
+	if err != nil {
+		return false
+	}
+	_, supports := provider.(upstream.AccountReader)
+	return supports
+}
+
+// SupportsUpstreamLedger 能力探测：与 SupportsAccountBalance 同一套路（纯类型断言，无副作用）。
+func (s *providerService) SupportsUpstreamLedger(id uint64, providerType string) bool {
+	provider, err := s.upmgr.Build(providerType, &upstream.ProviderConfig{ID: uint(id), Type: providerType})
+	if err != nil {
+		return false
+	}
+	_, supports := provider.(upstream.FinanceLedgerReader)
+	return supports
+}
+
+// LedgerPage 读取上游账本（消费/充值流水）分页。
+func (s *providerService) LedgerPage(ctx context.Context, id uint64, kind string, page, limit int) ([]upstream.LedgerEntry, int, error) {
+	item, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, 0, err
+	}
+	cfg, err := s.buildProviderConfigStrict(item)
+	if err != nil {
+		return nil, 0, err
+	}
+	provider, err := s.upmgr.Build(item.ProviderType, cfg)
+	if err != nil {
+		return nil, 0, err
+	}
+	reader, ok := provider.(upstream.FinanceLedgerReader)
+	if !ok {
+		return nil, 0, fmt.Errorf("%w：%s", ErrUpstreamLedgerUnsupported, item.ProviderType)
+	}
+	switch kind {
+	case upstream.LedgerKindConsume:
+		return reader.ListConsumptionRecords(ctx, page, limit)
+	case upstream.LedgerKindTopup:
+		return reader.ListTopupRecords(ctx, page, limit)
+	default:
+		return nil, 0, fmt.Errorf("%w：未知账本类型 %s", ErrUpstreamLedgerUnsupported, kind)
+	}
+}
+
+// DueHosts 上游主机的续费信息（余额水位告警用）。
+func (s *providerService) DueHosts(ctx context.Context, id uint64) ([]upstream.DueHost, error) {
+	item, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := s.buildProviderConfigStrict(item)
+	if err != nil {
+		return nil, err
+	}
+	provider, err := s.upmgr.Build(item.ProviderType, cfg)
+	if err != nil {
+		return nil, err
+	}
+	reader, ok := provider.(upstream.FinanceLedgerReader)
+	if !ok {
+		return nil, fmt.Errorf("%w：%s", ErrUpstreamLedgerUnsupported, item.ProviderType)
+	}
+	return reader.ListDueHosts(ctx)
 }
 
 func (s *providerService) buildProviderInfo(item model.ResourceProvider) dto.ProviderInfo {

@@ -114,15 +114,15 @@ type CustomerOptionGroup struct {
 
 // CustomerOption 客户可见的一个可选配置项。
 type CustomerOption struct {
-	OptionKey    string               `json:"option_key"` // 平台参数名（下发给魔方云的键）
-	Name         string               `json:"name"`       // 中文名
-	Widget       string               `json:"widget"`     // select|radio|qty|bool|group_select
-	Required     bool                 `json:"required"`
-	DefaultValue string               `json:"default_value"`
-	Unit         string               `json:"unit"`
-	Help         string               `json:"help"`
-	MinValue     *float64             `json:"min_value"`
-	MaxValue     *float64             `json:"max_value"`
+	OptionKey    string   `json:"option_key"` // 平台参数名（下发给魔方云的键）
+	Name         string   `json:"name"`       // 中文名
+	Widget       string   `json:"widget"`     // select|radio|qty|bool|group_select
+	Required     bool     `json:"required"`
+	DefaultValue string   `json:"default_value"`
+	Unit         string   `json:"unit"`
+	Help         string   `json:"help"`
+	MinValue     *float64 `json:"min_value"`
+	MaxValue     *float64 `json:"max_value"`
 	// UnitPrice 数量型选项的「每单位加价」（元）。枚举型的加价随取值逐项下发，
 	// 数量型没有离散取值可挂价格，故单独给出，供前端实时估算超量加价。
 	UnitPrice float64              `json:"unit_price"`
@@ -131,9 +131,11 @@ type CustomerOption struct {
 
 // CustomerOptionItem 客户可见的一个可选值。
 type CustomerOptionItem struct {
-	Value   string `json:"value"` // 下发给平台的取值
-	Label   string `json:"label"` // 展示名
-	Group   string `json:"group_label,omitempty"`
+	Value string `json:"value"` // 下发给平台的取值
+	Label string `json:"label"` // 展示名
+	Group string `json:"group_label,omitempty"`
+	// Help 该取值的一句话含义（-1 不开通 / 0 不限量 / auto 随机端口）。
+	Help    string `json:"help,omitempty"`
 	Default bool   `json:"is_default"`
 	// 四周期加价（元）；均为 0 表示不加价。
 	PriceMonthly   float64 `json:"price_monthly"`
@@ -239,14 +241,17 @@ type SpecOptionCatalogReader interface {
 
 // SpecOptionMeta 目录项快照（catalog 侧只关心渲染与取值元数据）。
 type SpecOptionMeta struct {
-	OptionKey    string
-	Label        string
-	Widget       string
-	Required     bool
-	Default      string
-	Unit         string
-	GroupName    string
-	Help         string
+	OptionKey string
+	Label     string
+	Widget    string
+	Required  bool
+	Default   string
+	Unit      string
+	GroupName string
+	Help      string
+	// OptionsHelp 取值含义表（JSON 对象文本：值 → 含义）。随配置项一起带进
+	// product_config_options，供商品详情页与用户侧解释特殊值（-1/0/auto 等）。
+	OptionsHelp  string
 	ProviderType string
 	MinValue     *float64
 	MaxValue     *float64
@@ -259,6 +264,8 @@ type SpecOptionValueMeta struct {
 	Value      string
 	Label      string
 	GroupLabel string
+	// Help 该取值的含义（取自目录项的 OptionsHelp；取不到为空）。
+	Help string
 }
 
 // SpecBindingWriter 写入 SKU 的平台绑定（自营链路按模板生成 SKU 时）。

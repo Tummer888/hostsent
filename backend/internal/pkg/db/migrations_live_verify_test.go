@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	finbillmodel "hostsent/backend/internal/modules/admin/finance/bill/model"
+	costmodel "hostsent/backend/internal/modules/admin/finance/cost/model"
 	referralmodel "hostsent/backend/internal/modules/admin/finance/referral/model"
 	discountmodel "hostsent/backend/internal/modules/admin/product/discount/model"
 	flashdiscountmodel "hostsent/backend/internal/modules/admin/product/flashdiscount/model"
@@ -232,6 +233,27 @@ func TestLivePhaseMigrations(t *testing.T) {
 				"risk_event_actions": {"id", "event_id", "action", "operator_id", "note", "detail", "created_at"},
 			},
 			indexes: []string{"idx_risk_event_actions_event"},
+		},
+		{
+			// 078 建成本管理三表（doc111）：成本项配置 / 上游余额快照 / 上游充值记录。
+			// 快照表的 (provider_id, snapshot_date) 唯一键是「同渠道同日只有一个余额真值」
+			// 的保证（重复抓取走覆盖），台账推算「期初+充值−期末=消耗」依赖它；
+			// 模型与 DDL 的列/索引必须一致，否则启动期 AutoMigrate 会去改表。
+			name:   "078_cost_management",
+			file:   "../../../migrations/078_cost_management.sql",
+			models: []interface{}{&costmodel.CostItem{}, &costmodel.UpstreamBalanceSnapshot{}, &costmodel.UpstreamBalanceTopup{}},
+			columns: map[string][]string{
+				"cost_items":                 {"id", "name", "category", "amount", "cycle", "occurred_on", "effective_from", "effective_to", "subject", "remark", "status", "operator_id", "created_at", "updated_at"},
+				"upstream_balance_snapshots": {"id", "provider_id", "snapshot_date", "balance", "currency", "source", "remark", "created_at", "updated_at"},
+				"upstream_balance_topups":    {"id", "provider_id", "occurred_on", "amount", "remark", "operator_id", "created_at", "updated_at"},
+			},
+			indexes: []string{
+				"uk_ub_snapshot_provider_date",
+				"idx_ub_snapshot_provider_date",
+				"idx_ub_topup_provider_date",
+				"idx_cost_items_category",
+				"idx_cost_items_status",
+			},
 		},
 	}
 
@@ -1049,7 +1071,7 @@ func TestLiveUserGroupDefaultSwitch(t *testing.T) {
 // TestLiveResidualMenuCleanup 验证 027 菜单清理迁移：
 //   - 迁移文件可重复执行（R4 幂等）；
 //   - 清理后不再存在任何无页面/重复/退役的残留菜单路径；
-//   - /users/levels 恰好一行且为 active。
+//   - /users/levels 不再存在（063 已归入 /users/accounts/levels）。
 func TestLiveResidualMenuCleanup(t *testing.T) {
 	dsn := os.Getenv("LIVE_DB_DSN")
 	if dsn == "" {
@@ -1097,8 +1119,8 @@ func TestLiveResidualMenuCleanup(t *testing.T) {
 	if n := count("SELECT count(*) FROM menus WHERE platform = 'admin' AND path = '/users/accounts/detail'"); n != 0 {
 		t.Errorf("用户详情菜单应下线，仍有 %d 行", n)
 	}
-	if n := count("SELECT count(*) FROM menus WHERE platform = 'admin' AND path = '/users/levels' AND status = 'active'"); n != 1 {
-		t.Errorf("期望 /users/levels 恰好一行 active，实际 %d", n)
+	if n := count("SELECT count(*) FROM menus WHERE platform = 'admin' AND path = '/users/levels'"); n != 0 {
+		t.Errorf("旧路径 /users/levels 应已清理（063 归入账户管理），实际 %d 行", n)
 	}
 }
 
@@ -1343,5 +1365,130 @@ func TestLiveFinanceWalletsPageRemoved(t *testing.T) {
 	}
 	if permCount != 1 {
 		t.Errorf("finance:wallet 权限码应保留（用户详情页财务面板与统计接口共用），实际 %d 行", permCount)
+	}
+}
+
+// TestLiveCostManagementSeed 验证成本管理（doc111）的菜单与权限四处对齐：
+//   - seed 声明「成本管理」二级目录 + 3 个叶子（总览 / 成本项配置 / 上游余额台账）；
+//   - 库中目录与叶子已就位、排序 1/2/3、组件路径与前端页面目录一致；
+//   - 权限码 finance:cost:overview / item / balance 三个齐备，且 finance_admin 已授权；
+//   - 成本管理目录满足 R1（≥2 启用叶子才留目录）。
+//
+// 顺序要求：先重启后端让 seed 生效，再跑本用例；未重启时会在「菜单未插入」处失败。
+func TestLiveCostManagementSeed(t *testing.T) {
+	dsn := os.Getenv("LIVE_DB_DSN")
+	if dsn == "" {
+		dsn = "host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable"
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+
+	// ① seed 必须声明目录与 3 个叶子（否则新环境重建不出来）
+	wantSeed := map[string]string{
+		"/finance/cost":           "",
+		"/finance/cost/overview":  "finance/cost/overview/index",
+		"/finance/cost/items":     "finance/cost/items/index",
+		"/finance/cost/upstreams": "finance/cost/upstreams/index",
+	}
+	declared := map[string]string{}
+	for _, item := range SeedMenus() {
+		if item.Platform != "admin" {
+			continue
+		}
+		if _, ok := wantSeed[item.Path]; ok {
+			declared[item.Path] = item.Component
+		}
+	}
+	for path, component := range wantSeed {
+		got, ok := declared[path]
+		if !ok {
+			t.Errorf("seed 未声明成本管理菜单 %s", path)
+			continue
+		}
+		if got != component {
+			t.Errorf("seed 菜单 %s 组件应为 %q，实际 %q", path, component, got)
+		}
+	}
+
+	// ② 库中已就位：目录是 directory、叶子排序连续、R1 成立
+	var dirType string
+	var dirName string
+	if err := db.Raw(
+		"SELECT type, name FROM menus WHERE platform = 'admin' AND path = '/finance/cost'",
+	).Row().Scan(&dirType, &dirName); err != nil {
+		t.Fatalf("查询 /finance/cost 目录失败（seed 需在后端重启后写入）: %v", err)
+	}
+	if dirType != "directory" {
+		t.Errorf("/finance/cost 应为二级目录，实际 type=%s", dirType)
+	}
+	if dirName != "成本管理" {
+		t.Errorf("/finance/cost 名称应为「成本管理」，实际 %q", dirName)
+	}
+
+	rows, err := db.Raw(
+		`SELECT m.path, m.sort_order, m.component FROM menus m JOIN menus p ON p.id = m.parent_id
+		  WHERE m.platform = 'admin' AND p.path = '/finance/cost' AND m.status = 'active'
+		  ORDER BY m.sort_order`,
+	).Rows()
+	if err != nil {
+		t.Fatalf("查询成本管理叶子失败: %v", err)
+	}
+	defer rows.Close()
+	type leaf struct {
+		order     int
+		component string
+	}
+	got := map[string]leaf{}
+	for rows.Next() {
+		var path, component string
+		var order int
+		if err := rows.Scan(&path, &order, &component); err != nil {
+			t.Fatalf("扫描行失败: %v", err)
+		}
+		got[path] = leaf{order: order, component: component}
+	}
+	if len(got) < 2 {
+		t.Errorf("成本管理目录应满足 R1（≥2 启用叶子），实际 %d 个: %v", len(got), got)
+	}
+	wantOrder := map[string]int{"/finance/cost/overview": 1, "/finance/cost/items": 2, "/finance/cost/upstreams": 3}
+	for path, order := range wantOrder {
+		l, ok := got[path]
+		if !ok {
+			t.Errorf("成本管理叶子 %s 未入库", path)
+			continue
+		}
+		if l.order != order {
+			t.Errorf("叶子 %s 排序应为 %d，实际 %d", path, order, l.order)
+		}
+		if l.component != wantSeed[path] {
+			t.Errorf("叶子 %s 组件应为 %q，实际 %q", path, wantSeed[path], l.component)
+		}
+	}
+
+	// ③ 权限码齐备
+	for _, code := range []string{"finance:cost:overview", "finance:cost:item", "finance:cost:balance"} {
+		var n int64
+		if err := db.Raw("SELECT count(*) FROM permissions WHERE code = ?", code).Scan(&n).Error; err != nil {
+			t.Fatalf("查询权限码 %s 失败: %v", code, err)
+		}
+		if n != 1 {
+			t.Errorf("权限码 %s 应存在且唯一，实际 %d 行", code, n)
+		}
+	}
+
+	// ④ finance_admin 已获授权（成本页默认对财务管理员可见）
+	var granted int64
+	if err := db.Raw(
+		`SELECT count(*) FROM role_permissions rp
+		   JOIN roles r ON r.id = rp.role_id
+		   JOIN permissions p ON p.id = rp.permission_id
+		  WHERE r.code = 'finance_admin' AND p.code LIKE 'finance:cost:%'`,
+	).Scan(&granted).Error; err != nil {
+		t.Fatalf("查询 finance_admin 授权失败: %v", err)
+	}
+	if granted < 3 {
+		t.Errorf("finance_admin 应获 3 个 finance:cost:* 权限，实际 %d 个", granted)
 	}
 }

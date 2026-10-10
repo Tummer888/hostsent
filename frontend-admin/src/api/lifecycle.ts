@@ -60,6 +60,10 @@ export interface LifecyclePolicy {
   auto_renew_default: boolean
   grace_days: number
   destroy_keep_days: number
+  // 到期阶段自动执行总开关（默认 false：只派生阶段、不动上游）。
+  auto_enforce: boolean
+  // 预演开关（默认 true）：总开关开启时，true 仍只计算不下发。
+  enforce_dry_run: boolean
   updated_at: string
 }
 
@@ -68,6 +72,34 @@ export interface PolicyUpdateRequest {
   auto_renew_default?: boolean
   grace_days?: number
   destroy_keep_days?: number
+  auto_enforce?: boolean
+  enforce_dry_run?: boolean
+}
+
+// 到期处置预演单条结果
+export interface EnforcementPreviewItem {
+  instance_id: number
+  instance_mark: string
+  name: string
+  user_id: number
+  username: string
+  provider_id: number
+  stage: string
+  target_stage: string
+  action: string
+  reason: string
+  expire_at: string
+  days_left: number
+  capability_missing: boolean
+}
+
+export interface EnforcementPreviewResponse {
+  enabled: boolean
+  dry_run: boolean
+  total: number
+  stage_counts: Record<string, number>
+  items: EnforcementPreviewItem[]
+  generated_at: string
 }
 
 export interface ExpiringListQuery {
@@ -124,4 +156,18 @@ export function updateLifecyclePolicy(data: PolicyUpdateRequest): Promise<string
 // 手动触发生命周期扫描
 export function triggerLifecycleScan(): Promise<string> {
   return request.post<string>({ url: '/lifecycle/scan' })
+}
+
+// 到期处置预演报告（dry-run，只读）
+export function previewEnforcement(): Promise<EnforcementPreviewResponse> {
+  return request.get<EnforcementPreviewResponse>({ url: '/lifecycle/enforcement/preview' })
+}
+
+// 手动对单实例执行一次阶段处置（真实下发上游，需二次验证票据）
+export function enforceInstance(id: number, reason?: string, verifyTicket?: string): Promise<{ action: string }> {
+  return request.post<{ action: string }>({
+    url: `/lifecycle/enforcement/${id}/run`,
+    data: { reason },
+    headers: verifyTicket ? { 'X-Verify-Ticket': verifyTicket } : undefined,
+  })
 }

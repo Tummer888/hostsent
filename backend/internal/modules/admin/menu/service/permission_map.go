@@ -47,19 +47,23 @@ var menuPermissionMap = map[string]string{
 	"/instances":           "resource:instance",
 	"/instances/list":      "resource:instance",
 	"/instances/inventory": "resource:instance",
+	// 全局操作流水（跨实例审计视图，doc61 P1）。
+	"/instances/operations": "resource:instance",
 	// 生命周期与续费（doc60）整域并入本域（迁移 066）：路径 /lifecycle/* → /instances/lifecycle/*，
 	// 权限码不变。
 	"/instances/lifecycle/expiring": "lifecycle:expiring",
 	"/instances/lifecycle/renewals": "lifecycle:renewals",
 	"/instances/lifecycle/policy":   "lifecycle:policy",
+	// 到期处置（doc61 §8.4）：预演报告与手动单实例执行。
+	"/instances/lifecycle/enforcement": "lifecycle:enforce",
 
 	"/product/products": "product:list",
 	// T7.2 商品对接（doc16 §9.3）：组件复用资源侧页面，权限沿用资源商品口径。
 	"/product/upstream":       "resource:product",
 	"/product/cost-pricing":   "product:update_price",
 	"/product/spec/templates": "spec:template:list",
-	"/product/spec/custom":    "spec:template:list",
-	"/product/spec/mappings":  "spec:mapping:list",
+	// /product/spec/custom 已随 077 下线（菜单与页面一并移除），此处不再登记。
+	"/product/spec/mappings": "spec:mapping:list",
 	// 平台配置项目录（T4.5）：按对接平台维护可配置项与取值库。
 	"/product/spec/option-catalog": "spec:option:list",
 	"/product/pricing":             "pricing:list",
@@ -89,6 +93,10 @@ var menuPermissionMap = map[string]string{
 	// 发票管理（doc36 §3.3）：与账单同域，开票动作由 finance:invoice:issue 细分。
 	"/finance/invoices": "finance:invoice",
 	"/finance/report":   "finance:wallet",
+	// 成本管理（doc111）：总览/成本项/上游余额台账三页三码。
+	"/finance/cost/overview":  "finance:cost:overview",
+	"/finance/cost/items":     "finance:cost:item",
+	"/finance/cost/upstreams": "finance:cost:balance",
 	// 财务参数页独立权限码（本轮整理）：财务角色可自行调参，不必被授 system:config:*。
 	// 资金流水改挂 /finance/accounts 目录（迁移 073）不改路径，因此本表键不变。
 	"/finance/config": "finance:config",

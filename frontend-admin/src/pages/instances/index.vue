@@ -165,6 +165,7 @@
                 { content: '重启', value: 'power-reboot', hidden: () => !has('instance:action'), disabled: () => row.power_status !== 'on' || poweringId === row.id },
                 { content: '控制台', value: 'vnc', hidden: () => !has('instance:console'), disabled: () => row.status !== 'running' },
                 { content: '同步刷新', value: 'sync', hidden: () => !has('instance:action'), disabled: () => syncingId === row.id },
+                { content: row.lifecycle_stage === 'suspended' ? '恢复服务' : '暂停服务', value: 'toggle-suspend', hidden: () => !has('instance:action') },
                 { content: '备注', value: 'remark', hidden: () => !has('instance:action') },
               ])"
               @select="(value) => handleMobileAction(value, row)"
@@ -214,6 +215,21 @@
                   <t-dropdown-menu>
                     <t-dropdown-item :disabled="syncingId === row.id" @click="handleSync(row)">
                       {{ syncingId === row.id ? '同步中…' : '同步刷新' }}
+                    </t-dropdown-item>
+                    <!-- 暂停/恢复（T5.5）：缺能力时置灰，避免点出一个必定失败的动作 -->
+                    <t-dropdown-item
+                      v-if="row.lifecycle_stage === 'suspended'"
+                      :disabled="actioningId === row.id"
+                      @click="handleUnsuspend(row)"
+                    >
+                      恢复服务
+                    </t-dropdown-item>
+                    <t-dropdown-item
+                      v-else
+                      :disabled="actioningId === row.id"
+                      @click="handleSuspend(row)"
+                    >
+                      暂停服务
                     </t-dropdown-item>
                     <t-dropdown-item @click="openRemarkDialog(row)">备注</t-dropdown-item>
                   </t-dropdown-menu>
@@ -296,7 +312,9 @@ import {
   getInstanceStats,
   getInstanceVNC,
   powerInstance,
+  suspendInstance,
   syncInstance,
+  unsuspendInstance,
   updateInstanceRemark,
 } from '@/api/instance'
 import {
@@ -327,6 +345,7 @@ const { has } = usePermission()
 const total = ref(0)
 const syncingId = ref(0)
 const poweringId = ref(0)
+const actioningId = ref(0)
 
 const stats = reactive<InstanceStatsResponse>({
   total: 0,
@@ -547,6 +566,43 @@ async function handleSync(row: InstanceItem) {
   }
 }
 
+// —— 暂停/恢复（T5.5 平台暂停态）——
+async function handleSuspend(row: InstanceItem) {
+  const dialog = DialogPlugin.confirm({
+    header: '暂停实例服务',
+    body: `确认暂停实例「${row.name || row.instance_id}」？暂停后平台侧实例将停止服务，用户需续费或联系客服才能恢复。`,
+    confirmBtn: { content: '确认暂停', theme: 'danger' },
+    cancelBtn: { content: '再想想' },
+    onConfirm: async () => {
+      dialog.destroy()
+      actioningId.value = row.id
+      try {
+        await suspendInstance(row.id)
+        MessagePlugin.success('实例已暂停')
+        loadAll()
+      } catch (error) {
+        MessagePlugin.error((error as Error).message || '暂停失败')
+      } finally {
+        actioningId.value = 0
+      }
+    },
+    onClose: () => dialog.destroy(),
+  })
+}
+
+async function handleUnsuspend(row: InstanceItem) {
+  actioningId.value = row.id
+  try {
+    await unsuspendInstance(row.id)
+    MessagePlugin.success('实例已恢复')
+    loadAll()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '恢复失败')
+  } finally {
+    actioningId.value = 0
+  }
+}
+
 const remarkVisible = ref(false)
 const remarkForm = reactive<{ id: number; remark: string }>({ id: 0, remark: '' })
 
@@ -612,6 +668,13 @@ function handleMobileAction(value: string | number | Record<string, any>, row: I
       break
     case 'sync':
       void handleSync(row)
+      break
+    case 'toggle-suspend':
+      if (row.lifecycle_stage === 'suspended') {
+        void handleUnsuspend(row)
+      } else {
+        void handleSuspend(row)
+      }
       break
     case 'remark':
       openRemarkDialog(row)

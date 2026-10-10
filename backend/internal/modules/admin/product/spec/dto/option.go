@@ -32,10 +32,12 @@ type OptionSpecInfo struct {
 	StepValue    *float64        `json:"step_value"`
 	Unit         string          `json:"unit"`
 	Help         string          `json:"help"`
-	MultiValue   bool            `json:"multi_value"`
-	Hidden       bool            `json:"hidden"`
-	SortOrder    int             `json:"sort_order"`
-	Source       string          `json:"source"`
+	// OptionsHelp 取值含义表（JSON 对象：值 → 含义），前端按取值展示。
+	OptionsHelp json.RawMessage `json:"options_help"`
+	MultiValue  bool            `json:"multi_value"`
+	Hidden      bool            `json:"hidden"`
+	SortOrder   int             `json:"sort_order"`
+	Source      string          `json:"source"`
 	// Values 取值库中该配置项的可选值（仅当 ValueSource 不是 static 时返回）。
 	Values []OptionValueItem `json:"values,omitempty"`
 }
@@ -56,15 +58,20 @@ type OptionSpecRequest struct {
 	StepValue    *float64        `json:"step_value"`
 	Unit         string          `json:"unit"`
 	Help         string          `json:"help"`
-	MultiValue   bool            `json:"multi_value"`
-	Hidden       bool            `json:"hidden"`
-	SortOrder    int             `json:"sort_order"`
+	// OptionsHelp 取值含义表；新增/修改时由前端回传 JSON 对象文本。
+	OptionsHelp json.RawMessage `json:"options_help"`
+	MultiValue  bool            `json:"multi_value"`
+	Hidden      bool            `json:"hidden"`
+	SortOrder   int             `json:"sort_order"`
 }
 
 // OptionCatalogQuery 目录查询参数：按平台类型或渠道 ID（渠道 ID 用于未知平台时反查类型）。
 type OptionCatalogQuery struct {
 	ProviderType string `form:"provider_type" json:"provider_type"`
 	ProviderID   uint64 `form:"provider_id" json:"provider_id"`
+	// WithLive 是否额外做一次平台实时读取来补全平台来源的取值（镜像/区域/节点/存储）。
+	// 默认 false：实时读取是上游网络调用，只在运营明确要求时触发，避免每次打开页面都等 1~2 秒。
+	WithLive bool `form:"with_live" json:"with_live"`
 }
 
 // OptionCatalogSyncRequest 把适配器声明的目录幂等导入指定平台。

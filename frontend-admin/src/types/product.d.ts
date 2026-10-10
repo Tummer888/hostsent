@@ -198,6 +198,8 @@ export interface SaleProductConfigSub {
   sort_order?: number
   /** 分组标签（Ubuntu/Windows/CentOS），用户侧分组下拉用（T4.5） */
   group_label?: string
+  /** 该取值的一句话含义（-1 不开通 / 0 不限量 / auto 随机端口），随该取值下发给用户侧（T4.5） */
+  help?: string
   /** 该取值是否为客户默认选中项（T4.5） */
   is_default?: boolean
   pricings?: Array<{
@@ -490,6 +492,8 @@ export interface OptionSpecInfo {
   step_value?: number | null
   unit: string
   help: string
+  /** 取值含义表：每个取值（尤其 -1/0/auto 等特殊值）分别表示什么 */
+  options_help?: Record<string, string> | null
   multi_value: boolean
   hidden: boolean
   sort_order: number
@@ -512,6 +516,7 @@ export interface OptionSpecRequest {
   step_value?: number | null
   unit?: string
   help?: string
+  options_help?: Record<string, string> | null
   multi_value?: boolean
   hidden?: boolean
   sort_order?: number

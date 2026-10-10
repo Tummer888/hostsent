@@ -169,3 +169,73 @@ type OpenapiProdetailResp struct {
 // 响应结构（OpenapiProductsResp/OpenapiFirstGroup/OpenapiGroup/OpenapiProduct/
 // OpenapiProductsConfigResp/OpenapiProductConfig）已被 api/product/proinfo 与
 // api/product/prodetail 取代且无任何消费方引用，故删除。见 00 规划 Phase 0 T0.1。
+
+// CreditRecord 余额支付流水（GET /credit_record → home/user_invoice/creditRecord）。
+//
+// 这是上游对「我方账户消费」的权威记录：每笔余额支付的开通/续费一行，
+// relid 是上游账单号，create_time 是秒级时间戳。@refund 为关联的退款行
+// （描述形如 "Credit Removed from Invoice #x"，金额为负）。
+type CreditRecord struct {
+	ID          int64      `json:"id"`
+	RelID       int64      `json:"relid"`       // 上游账单号
+	CreateTime  int64      `json:"create_time"` // 秒级时间戳
+	Description string     `json:"description"` // 上游归一后的中文（余额支付）
+	Type        string     `json:"type"`        // 订购产品 / 续费
+	Amount      FlexFloat  `json:"amount"`      // 正数
+	Refund      RefundList `json:"refund"`
+}
+
+// RefundLine 与某笔消费关联的退款行（金额为负）。
+type RefundLine struct {
+	ID     int64     `json:"id"`
+	Amount FlexFloat `json:"amount"`
+}
+
+// RefundList 退款行集合：上游在「无退款」时返回空对象 `{}`、有退款时返回数组，
+// 两种形态都要能吃下（实测 haika 返回的是 {}，写成 []RefundLine 会整页同步失败）。
+type RefundList []RefundLine
+
+// UnmarshalJSON 兼容 []、{}、null 与单个对象四种形态。
+func (r *RefundList) UnmarshalJSON(b []byte) error {
+	trimmed := strings.TrimSpace(string(b))
+	if trimmed == "" || trimmed == "null" || trimmed == "{}" || trimmed == "[]" {
+		*r = nil
+		return nil
+	}
+	var arr []RefundLine
+	if err := json.Unmarshal(b, &arr); err == nil {
+		*r = arr
+		return nil
+	}
+	var one RefundLine
+	if err := json.Unmarshal(b, &one); err == nil {
+		*r = RefundList{one}
+		return nil
+	}
+	// 未知形态不阻塞整页同步：退款只是消费的补充信息，缺了不影响成本口径。
+	*r = nil
+	return nil
+}
+
+// TopupRecord 充值/入账流水（GET /v1/transactions/funds → openapi/Invoices/accountsRecord）。
+type TopupRecord struct {
+	ID          int64     `json:"id"`
+	InvoiceID   int64     `json:"invoice_id"`
+	PayTime     FlexFloat `json:"pay_time"` // 秒级时间戳（上游偶尔以字符串返回）
+	PaymentZh   string    `json:"payment_zh"`
+	Description string    `json:"description"` // 用户充值 / 人工入账
+	Type        string    `json:"type"`        // recharge 等
+	AmountIn    FlexFloat `json:"amount_in"`
+	TransID     string    `json:"trans_id"`
+}
+
+// UpstreamHost 上游主机（GET /v1/hosts → openapi/Host/getHosts）。
+// 只取余额水位告警需要的字段：续费金额与到期日。
+type UpstreamHost struct {
+	ID           int64     `json:"id"`
+	Domain       string    `json:"domain"`
+	ProductName  string    `json:"product_name"`
+	Amount       FlexFloat `json:"amount"`       // 下一期续费金额
+	NextDueDate  FlexFloat `json:"nextduedate"`  // 到期时间（秒级时间戳）
+	DomainStatus string    `json:"domainstatus"` // Active / Suspended
+}

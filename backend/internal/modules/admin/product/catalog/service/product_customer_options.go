@@ -102,6 +102,7 @@ func (s *productService) CustomerOptions(ctx context.Context, productID uint64) 
 				Value:          value,
 				Label:          firstNonEmptyStr(sub.OptionName, value),
 				Group:          sub.GroupLabel,
+				Help:           sub.Help,
 				Default:        sub.IsDefault,
 				PriceMonthly:   sub.PriceMonthly,
 				PriceQuarterly: sub.PriceQuarterly,

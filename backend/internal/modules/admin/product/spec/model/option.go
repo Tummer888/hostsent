@@ -35,27 +35,30 @@ const (
 
 // ProviderOptionSpec 平台可配置项声明。
 type ProviderOptionSpec struct {
-	ID           uint64    `gorm:"primaryKey;autoIncrement"`
-	ProviderType string    `gorm:"column:provider_type;size:64;not null;uniqueIndex:uk_provider_option_specs"`
-	OptionKey    string    `gorm:"column:option_key;size:64;not null;uniqueIndex:uk_provider_option_specs"`
-	Label        string    `gorm:"size:128;not null;default:''"`
-	GroupName    string    `gorm:"column:group_name;size:64;not null;default:''"`
-	Required     bool      `gorm:"not null;default:false"`
-	DefaultValue string    `gorm:"column:default_value;size:255;not null;default:''"`
-	Widget       string    `gorm:"size:32;not null;default:'select'"`
-	ValueSource  string    `gorm:"column:value_source;size:32;not null;default:'static'"`
-	Options      *string   `gorm:"type:jsonb"` // 静态枚举 [{label,value}]；nil 落 NULL（空串不是合法 jsonb）
-	MinValue     *float64  `gorm:"column:min_value;type:numeric(16,4)"`
-	MaxValue     *float64  `gorm:"column:max_value;type:numeric(16,4)"`
-	StepValue    *float64  `gorm:"column:step_value;type:numeric(16,4)"`
-	Unit         string    `gorm:"size:16;not null;default:''"`
-	Help         string    `gorm:"type:text;not null;default:''"`
-	MultiValue   bool      `gorm:"column:multi_value;not null;default:false"`
-	Hidden       bool      `gorm:"not null;default:false"`
-	SortOrder    int       `gorm:"column:sort_order;not null;default:0"`
-	Source       string    `gorm:"size:16;not null;default:'adapter'"`
-	CreatedAt    time.Time `gorm:"autoCreateTime"`
-	UpdatedAt    time.Time `gorm:"autoUpdateTime"`
+	ID           uint64   `gorm:"primaryKey;autoIncrement"`
+	ProviderType string   `gorm:"column:provider_type;size:64;not null;uniqueIndex:uk_provider_option_specs"`
+	OptionKey    string   `gorm:"column:option_key;size:64;not null;uniqueIndex:uk_provider_option_specs"`
+	Label        string   `gorm:"size:128;not null;default:''"`
+	GroupName    string   `gorm:"column:group_name;size:64;not null;default:''"`
+	Required     bool     `gorm:"not null;default:false"`
+	DefaultValue string   `gorm:"column:default_value;size:255;not null;default:''"`
+	Widget       string   `gorm:"size:32;not null;default:'select'"`
+	ValueSource  string   `gorm:"column:value_source;size:32;not null;default:'static'"`
+	Options      *string  `gorm:"type:jsonb"` // 静态枚举 [{label,value}]；nil 落 NULL（空串不是合法 jsonb）
+	MinValue     *float64 `gorm:"column:min_value;type:numeric(16,4)"`
+	MaxValue     *float64 `gorm:"column:max_value;type:numeric(16,4)"`
+	StepValue    *float64 `gorm:"column:step_value;type:numeric(16,4)"`
+	Unit         string   `gorm:"size:16;not null;default:''"`
+	Help         string   `gorm:"type:text;not null;default:''"`
+	// OptionsHelp 取值含义表（JSON 对象：值 → 含义）。特殊值（-1/0/auto/不支持）
+	// 光看取值看不出含义，必须把文档口径的说明挂到值上。
+	OptionsHelp *string   `gorm:"column:options_help;type:jsonb"`
+	MultiValue  bool      `gorm:"column:multi_value;not null;default:false"`
+	Hidden      bool      `gorm:"not null;default:false"`
+	SortOrder   int       `gorm:"column:sort_order;not null;default:0"`
+	Source      string    `gorm:"size:16;not null;default:'adapter'"`
+	CreatedAt   time.Time `gorm:"autoCreateTime"`
+	UpdatedAt   time.Time `gorm:"autoUpdateTime"`
 }
 
 func (ProviderOptionSpec) TableName() string { return "provider_option_specs" }

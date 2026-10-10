@@ -31,6 +31,9 @@ const (
 // StatsService 财务统计能力。
 type StatsService interface {
 	Stats(ctx context.Context, q dto.StatsQuery) (*dto.StatsResponse, error)
+	// RevenueOf 期间收入口径（服务收入 = 消费 − 退款，另附资金口径与佣金）。
+	// 成本/利润模块复用本方法取收入，保证与财务总览/报表同口径。
+	RevenueOf(ctx context.Context, start, end time.Time) (*dto.Revenue, error)
 	// SetConfigReader 注入配置读取器（finance.balance_warning）：装配层接线。
 	SetConfigReader(reader ConfigReader)
 }
@@ -167,6 +170,38 @@ func (s *statsService) Stats(ctx context.Context, q dto.StatsQuery) (*dto.StatsR
 			LowBalanceAmount:    money.Round2(lowAmount),
 		},
 		Caliber: caliberText(clamped),
+	}, nil
+}
+
+// RevenueOf 期间收入口径：一次类型分布聚合 + 一次总额聚合，取消费/退款/佣金与资金口径收入。
+func (s *statsService) RevenueOf(ctx context.Context, start, end time.Time) (*dto.Revenue, error) {
+	summary, err := s.repo.TxSummary(ctx, start, end)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.repo.TxByType(ctx, start, end)
+	if err != nil {
+		return nil, err
+	}
+	var consume, refund, commission float64
+	for _, row := range rows {
+		switch row.Type {
+		case transmodel.TxTypeConsume:
+			consume += row.Expense
+		case transmodel.TxTypeRefund:
+			refund += row.Income
+		case transmodel.TxTypeCommission:
+			commission += row.Income
+		}
+	}
+	consume = money.Round2(consume)
+	refund = money.Round2(refund)
+	return &dto.Revenue{
+		ServiceRevenue:  money.Round2(consume - refund),
+		FundIncome:      money.Round2(summary.Income),
+		ConsumeTotal:    consume,
+		RefundTotal:     refund,
+		CommissionTotal: money.Round2(commission),
 	}, nil
 }
 

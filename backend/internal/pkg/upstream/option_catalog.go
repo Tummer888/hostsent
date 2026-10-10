@@ -67,6 +67,10 @@ type ConfigOptionSpec struct {
 	Unit string `json:"unit,omitempty"`
 	// Help 注释性标注：取值从哪来、怎么填、与其它参数的关系。
 	Help string `json:"help,omitempty"`
+	// OptionsHelp 取值含义表（JSON 对象：值 → 含义）。特殊值（-1/0/auto 等）从取值
+	// 本身看不懂，必须把文档口径的说明挂到每个值上，后台与客户端才不用回头查文档。
+	// 形如 {"-1":"不能创建快照","0":"不限量"}。
+	OptionsHelp string `json:"options_help,omitempty"`
 	// MultiValue 配置档里是否允许多选（如 CPU 2核/4核/8核 同时提供给客户选）。
 	MultiValue bool `json:"multi_value"`
 	// SortOrder 排序，0 表示按声明顺序。

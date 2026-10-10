@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 
 	catalogservice "hostsent/backend/internal/modules/admin/product/catalog/service"
 	specservice "hostsent/backend/internal/modules/admin/product/spec/service"
@@ -78,6 +80,7 @@ func (a *specOptionCatalogAdapter) OptionCatalogByProvider(ctx context.Context, 
 			Unit:         info.Unit,
 			GroupName:    info.GroupName,
 			Help:         info.Help,
+			OptionsHelp:  optionsHelpText(info.OptionsHelp),
 			ProviderType: info.ProviderType,
 			MinValue:     info.MinValue,
 			MaxValue:     info.MaxValue,
@@ -91,4 +94,14 @@ func (a *specOptionCatalogAdapter) OptionCatalogByProvider(ctx context.Context, 
 		out = append(out, meta)
 	}
 	return out, nil
+}
+
+// optionsHelpText 把目录项里的取值含义表（jsonb）转成纯文本，供 catalog 侧快照。
+// nil / 空 / null 都归一为空串。
+func optionsHelpText(raw json.RawMessage) string {
+	s := strings.TrimSpace(string(raw))
+	if s == "" || s == "null" || s == "{}" {
+		return ""
+	}
+	return s
 }

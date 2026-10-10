@@ -211,6 +211,8 @@ func (b *stageActionRecorderBridge) RecordStageAction(ctx context.Context, in li
 		Action:       in.Action,
 		FromStage:    in.FromStage,
 		ToStage:      in.ToStage,
+		Result:       in.Result,
+		Message:      in.Message,
 		Err:          in.Err,
 	})
 }

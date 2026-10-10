@@ -29,11 +29,15 @@ type ProductConfigOption struct {
 	Required     bool   `gorm:"column:required;not null;default:false"`           // 客户下单必选
 	DefaultValue string `gorm:"column:default_value;size:255;not null;default:''"`
 	// WidgetGroup 同组下拉的分组标签（操作系统家族 Ubuntu/Windows），空则平铺。
-	WidgetGroup string    `gorm:"column:widget_group;size:128;not null;default:''"`
-	MinValue    *float64  `gorm:"column:min_value;type:numeric(16,4)"` // 数量型下限
-	MaxValue    *float64  `gorm:"column:max_value;type:numeric(16,4)"` // 数量型上限
-	Unit        string    `gorm:"column:unit;size:16;not null;default:''"`
-	Help        string    `gorm:"column:help;type:text;not null;default:''"`
+	WidgetGroup string   `gorm:"column:widget_group;size:128;not null;default:''"`
+	MinValue    *float64 `gorm:"column:min_value;type:numeric(16,4)"` // 数量型下限
+	MaxValue    *float64 `gorm:"column:max_value;type:numeric(16,4)"` // 数量型上限
+	Unit        string   `gorm:"column:unit;size:16;not null;default:''"`
+	Help        string   `gorm:"column:help;type:text;not null;default:''"`
+	// OptionsHelp 取值含义表（JSON 对象文本：值 → 含义），来自平台配置项目录，
+	// 供商品详情页与用户侧解释特殊值（-1 不开通 / 0 不限量 / auto 随机端口）。
+	// 指针类型：空串不是合法 jsonb（22P02），没有含义表时必须落 NULL。
+	OptionsHelp *string   `gorm:"column:options_help;type:jsonb"`
 	SortOrder   int       `gorm:"column:sort_order;default:0"`
 	CreatedAt   time.Time `gorm:"autoCreateTime"`
 	UpdatedAt   time.Time `gorm:"autoUpdateTime"`
@@ -61,6 +65,8 @@ type ProductConfigOptionSub struct {
 	PriceOnetime   float64 `gorm:"column:price_onetime;type:decimal(15,2);default:0"`
 	// GroupLabel 分组标签（Ubuntu/Windows/CentOS），用户侧分组下拉用。
 	GroupLabel string `gorm:"column:group_label;size:128;not null;default:''"`
+	// Help 该取值的一句话含义（特殊值解释，来自目录项的取值含义表）。
+	Help string `gorm:"column:help;size:255;not null;default:''"`
 	// IsDefault 该值是否为客户默认选中项（每配置项宜只有一个）。
 	IsDefault bool      `gorm:"column:is_default;not null;default:false"`
 	SortOrder int       `gorm:"column:sort_order;default:0"`

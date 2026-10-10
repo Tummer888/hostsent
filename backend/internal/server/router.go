@@ -390,6 +390,8 @@ func newRouter(app *App) *gin.Engine {
 		{
 			instanceOps.GET("", app.perm("resource:instance"), app.instanceOpsHandler.List)
 			instanceOps.GET("/stats", app.perm("resource:instance"), app.instanceOpsHandler.Stats)
+			// 全局操作流水（跨实例审计视图）：静态段须先于 /:id。
+			instanceOps.GET("/operations", app.perm("resource:instance"), app.instanceOpsHandler.OperationLogs)
 			instanceOps.GET("/:id", app.perm("resource:instance"), app.instanceOpsHandler.Detail)
 			instanceOps.GET("/:id/operations", app.perm("resource:instance"), app.instanceOpsHandler.Operations)
 			instanceOps.GET("/:id/related", app.perm("resource:instance"), app.instanceOpsHandler.Related)
@@ -418,6 +420,10 @@ func newRouter(app *App) *gin.Engine {
 			lifecycleGroup.GET("/policy", app.perm("lifecycle:policy"), app.lifecycleAdminHandler.GetPolicy)
 			lifecycleGroup.PUT("/policy", app.perm("lifecycle:policy:update"), app.lifecycleAdminHandler.UpdatePolicy)
 			lifecycleGroup.POST("/scan", app.perm("lifecycle:policy:update"), app.lifecycleAdminHandler.ScanOnce)
+			// 到期处置（doc61 §8.4）：预演只读；手动单实例执行属高危写，需二次验证。
+			// 复用既有 instance_destroy 场景（处置可能含销毁），不新增验证场景码。
+			lifecycleGroup.GET("/enforcement/preview", app.perm("lifecycle:enforce"), app.lifecycleAdminHandler.PreviewEnforcement)
+			lifecycleGroup.POST("/enforcement/:id/run", app.perm("lifecycle:enforce"), app.adminRequireVerification("instance_destroy"), app.lifecycleAdminHandler.EnforceInstance)
 		}
 
 		// 产品管理（面向终端售卖）
@@ -661,6 +667,34 @@ func newRouter(app *App) *gin.Engine {
 			financeGroup.GET("/invoices", app.perm("finance:invoice"), app.billHandler.Invoices)
 			financeGroup.POST("/invoices/:id/issue", app.perm("finance:invoice:issue"), app.billHandler.IssueInvoice)
 			financeGroup.POST("/invoices/:id/reject", app.perm("finance:invoice:issue"), app.billHandler.RejectInvoice)
+		}
+
+		// 成本管理（doc111）：月度成本/利润核算、成本项配置、上游余额台账
+		costGroup := v1.Group("/cost")
+		costGroup.Use(app.adminAuth())
+		{
+			// 成本总览：月度收入/成本/利润与利润率、成本构成、近 12 月趋势
+			costGroup.GET("/overview", app.perm("finance:cost:overview"), app.costHandler.Overview)
+			// 成本项配置（母机月费 / 人力 / 机房带宽…）
+			costGroup.GET("/items", app.perm("finance:cost:item"), app.costHandler.ListItems)
+			costGroup.POST("/items", app.perm("finance:cost:item"), app.costHandler.CreateItem)
+			costGroup.PUT("/items/:id", app.perm("finance:cost:item"), app.costHandler.UpdateItem)
+			costGroup.DELETE("/items/:id", app.perm("finance:cost:item"), app.costHandler.DeleteItem)
+			// 上游余额台账：期初/充值/消耗/期末 + 快照与充值录入
+			costGroup.GET("/balances", app.perm("finance:cost:balance"), app.costHandler.Ledger)
+			costGroup.POST("/balances/snapshot", app.perm("finance:cost:balance"), app.costHandler.SaveSnapshot)
+			costGroup.DELETE("/balances/snapshots/:id", app.perm("finance:cost:balance"), app.costHandler.DeleteSnapshot)
+			costGroup.POST("/balances/topup", app.perm("finance:cost:balance"), app.costHandler.SaveTopup)
+			costGroup.DELETE("/balances/topups/:id", app.perm("finance:cost:balance"), app.costHandler.DeleteTopup)
+			// 快照 / 充值明细（分页，含渠道名）：台账核对与纠错
+			costGroup.GET("/balances/snapshots", app.perm("finance:cost:balance"), app.costHandler.ListSnapshots)
+			costGroup.GET("/balances/topups", app.perm("finance:cost:balance"), app.costHandler.ListTopups)
+			// 一键抓取渠道余额（适配器未实现 AccountReader 时返回 30008，页面引导手工录入）
+			costGroup.POST("/balances/fetch", app.perm("finance:cost:balance"), app.costHandler.FetchBalance)
+			// 上游账本（doc111 §5.2）：消费/充值流水同步与明细、余额水位告警
+			costGroup.POST("/balances/sync-ledger", app.perm("finance:cost:balance"), app.costHandler.SyncLedger)
+			costGroup.GET("/balances/entries", app.perm("finance:cost:balance"), app.costHandler.ListLedgerEntries)
+			costGroup.GET("/balances/alerts", app.perm("finance:cost:balance"), app.costHandler.BalanceAlerts)
 		}
 
 		// 支付中心（doc35）：渠道配置 / 支付单 / 回调 / 退款 / 打款 / 对账 / 支付方式

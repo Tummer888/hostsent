@@ -53,6 +53,10 @@ export interface InstanceItem {
   days_left: number
   expire_state: string
   last_synced_at: string
+  // 到期处置退避状态（doc61 §8.4）
+  enforce_attempts: number
+  enforce_next_at: string
+  last_enforce_error: string
   created_at: string
   updated_at: string
 }
@@ -78,6 +82,7 @@ export interface InstanceCapabilities {
   resize: boolean
   destroy: boolean
   reinstall: boolean
+  suspend: boolean
 }
 
 export interface InstanceDetail extends InstanceItem {
@@ -105,6 +110,60 @@ export interface OperationItem {
 export interface OperationListQuery {
   page?: number
   page_size?: number
+}
+
+// 全局操作流水（跨实例审计视图）
+export interface OperationLogQuery {
+  keyword?: string
+  action?: string
+  operator_type?: string
+  result?: string
+  user_id?: number
+  start_time?: string
+  end_time?: string
+  page?: number
+  page_size?: number
+}
+
+export interface OperationLogItem extends OperationItem {
+  instance_name: string
+  username: string
+}
+
+export interface OperationLogListResponse {
+  items: OperationLogItem[]
+  meta: ListMeta
+}
+
+// 到期处置（doc61 §8.4）：预演报告与策略闸门
+export interface LifecyclePolicyEnforce {
+  auto_enforce: boolean
+  enforce_dry_run: boolean
+}
+
+export interface EnforcementPreviewItem {
+  instance_id: number
+  instance_mark: string
+  name: string
+  user_id: number
+  username: string
+  provider_id: number
+  stage: string
+  target_stage: string
+  action: string
+  reason: string
+  expire_at: string
+  days_left: number
+  capability_missing: boolean
+}
+
+export interface EnforcementPreviewResponse {
+  enabled: boolean
+  dry_run: boolean
+  total: number
+  stage_counts: Record<string, number>
+  items: EnforcementPreviewItem[]
+  generated_at: string
 }
 
 export interface OperationListResponse {

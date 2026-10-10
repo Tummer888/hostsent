@@ -3,6 +3,7 @@ package handler
 
 import (
 	"errors"
+	"io"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -39,8 +40,11 @@ func writeLifecycleError(err error) *apperrors.AppError {
 		errors.Is(err, lifecycleservice.ErrRenewalNotFound):
 		return apperrors.New(20002, err.Error())
 	case errors.Is(err, lifecycleservice.ErrStatusNotAllowed),
+		errors.Is(err, lifecycleservice.ErrStageNotActionable),
 		errors.Is(err, lifecycleservice.ErrPolicyInvalid):
 		return apperrors.New(20003, err.Error())
+	case errors.Is(err, lifecycleservice.ErrCapabilityUnsupported):
+		return apperrors.New(20004, err.Error())
 	case errors.Is(err, lifecycleservice.ErrInvalidPeriod):
 		return apperrors.New(20001, err.Error())
 	case errors.Is(err, lifecycleservice.ErrPermissionDenied):
@@ -220,4 +224,44 @@ func (h *LifecycleAdminHandler) ScanOnce(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"status": "ok"})
+}
+
+// PreviewEnforcement 到期处置预演（dry-run 报告，只读）。
+// @Summary 到期处置预演报告
+// @Tags 生命周期管理-到期处置
+// @Security BearerAuth
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/lifecycle/enforcement/preview [get]
+func (h *LifecycleAdminHandler) PreviewEnforcement(c *gin.Context) {
+	resp, err := h.lifecycleSvc.PreviewEnforcement(c.Request.Context())
+	if err != nil {
+		response.Error(c, writeLifecycleError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// EnforceInstance 手动对单实例执行一次阶段处置（真实下发上游）。
+// @Summary 手动执行单实例到期处置
+// @Tags 生命周期管理-到期处置
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Param body body dto.EnforceRequest false "处置原因"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/lifecycle/enforcement/{id}/run [post]
+func (h *LifecycleAdminHandler) EnforceInstance(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var req lifecycledto.EnforceRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		// reason 可选：空 body 视为未填原因。
+	}
+	action, err := h.lifecycleSvc.EnforceInstance(c.Request.Context(), id, req.Reason)
+	if err != nil {
+		response.Error(c, writeLifecycleError(err))
+		return
+	}
+	response.Success(c, gin.H{"action": action})
 }

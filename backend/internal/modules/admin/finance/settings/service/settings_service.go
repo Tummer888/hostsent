@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	costservice "hostsent/backend/internal/modules/admin/finance/cost/service"
 	referralmodel "hostsent/backend/internal/modules/admin/finance/referral/model"
 	"hostsent/backend/internal/modules/admin/finance/settings/dto"
 	settingsmodel "hostsent/backend/internal/modules/admin/finance/settings/model"
@@ -83,6 +84,24 @@ var groups = []groupSpec{
 				defaultVal:  settingsmodel.DefaultReconTolerance,
 				usage:       "生效点：对账中心 POST /api/v1/admin/finance/bills/recon 的 status 判定",
 				max:         1000,
+			},
+			{
+				key:         costservice.ConfigKeyBalanceWarning,
+				label:       "上游余额低水位阈值",
+				description: "上游账户余额低于该金额时在成本台账/总览提示充值（元）；0=不启用固定阈值，仅按到期金额判断",
+				valueType:   "number",
+				defaultVal:  "0",
+				usage:       "生效点：成本管理「上游余额台账」与「成本总览」的余额水位告警（余额 < 未来 30 天到期金额恒为 critical）",
+				max:         100000000,
+			},
+			{
+				key:         costservice.ConfigKeySnapshotHour,
+				label:       "上游余额自动快照小时",
+				description: "每天该时点后首次抓取各渠道余额并落快照（0-23 整点）；抓不到的渠道手工录入",
+				valueType:   "number",
+				defaultVal:  settingsmodel.DefaultSnapshotHour,
+				usage:       "生效点：成本管理每日自动快照任务（跨天只执行一次，改到已过时点则次日生效）",
+				max:         23,
 			},
 			{
 				key:         ConfigKeyBalanceWarning,

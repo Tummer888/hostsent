@@ -46,7 +46,7 @@ type InstanceService interface {
 	VNC(ctx context.Context, op Operator, id uint64) (*dto.VNCResult, error)
 	Sync(ctx context.Context, op Operator, id uint64) (*dto.DetailInfo, error)
 	Resize(ctx context.Context, op Operator, id uint64, req *dto.ResizeRequest) error
-	SetRemark(ctx context.Context, id uint64, remark string) error
+	SetRemark(ctx context.Context, op Operator, id uint64, remark string) error
 	Destroy(ctx context.Context, op Operator, id uint64, req *dto.DestroyRequest) error
 	// Suspend / Unsuspend 暂停/恢复实例（T5.5 按能力分派）。
 	Suspend(ctx context.Context, op Operator, id uint64, reason string) error
@@ -56,6 +56,8 @@ type InstanceService interface {
 	// SetEventListener 注入实例操作事件监听（P6/T6.5 开放平台回调；装配层调用，可为 nil）。
 	SetEventListener(fn func(ctx context.Context, evt InstanceEvent))
 	Operations(ctx context.Context, id uint64, query *dto.OperationListQuery) (*dto.OperationListResponse, error)
+	// OperationLogs 全局操作流水（跨实例审计视图）。
+	OperationLogs(ctx context.Context, query *dto.OperationLogQuery) (*dto.OperationLogListResponse, error)
 	Related(ctx context.Context, id uint64) (*dto.RelatedInfo, error)
 }
 
@@ -293,15 +295,22 @@ func (s *instanceService) Resize(ctx context.Context, op Operator, id uint64, re
 }
 
 // SetRemark 写管理员内部备注（同步流程不会覆盖该字段）。
-func (s *instanceService) SetRemark(ctx context.Context, id uint64, remark string) error {
-	if _, err := s.repo.FindByID(ctx, id); err != nil {
+func (s *instanceService) SetRemark(ctx context.Context, op Operator, id uint64, remark string) error {
+	row, err := s.repo.FindByID(ctx, id)
+	if err != nil {
 		return s.wrapNotFound(err)
 	}
 	remark = strings.TrimSpace(remark)
 	if len(remark) > 255 {
 		remark = remark[:255]
 	}
-	return s.repo.UpdateRemark(ctx, id, remark)
+	if err := s.repo.UpdateRemark(ctx, id, remark); err != nil {
+		return err
+	}
+	// 备注也属实例语义操作，必须留痕（doc61「有操作必有记录」）。
+	s.record(ctx, row, op, model.ActionRemark,
+		map[string]any{"remark": remark}, row.Status, row.Status, nil)
+	return nil
 }
 
 // Destroy 销毁实例（T5.5 按能力分派：优先 InstanceTermination，退化 InstanceAdministration.Delete）。
@@ -409,7 +418,11 @@ type StageActionInput struct {
 	Action       string
 	FromStage    string
 	ToStage      string
-	Err          error
+	// Result 显式结果：success / failed / skipped；为空按 Err 推导。
+	Result string
+	// Message 补充说明（能力缺失/预演/仅标记等），落 params.message。
+	Message string
+	Err     error
 }
 
 // RecordStageAction 以系统操作人身份写入一条实例运维流水（T5.4）。
@@ -423,6 +436,10 @@ func (s *instanceService) RecordStageAction(ctx context.Context, in StageActionI
 		// 无阶段变化且无动作：无需落库。
 		return nil
 	}
+	result := in.Result
+	if result == "" {
+		result = model.ResultSuccess
+	}
 	entry := &model.Operation{
 		InstanceID:   in.InstanceID,
 		InstanceMark: in.InstanceMark,
@@ -431,7 +448,12 @@ func (s *instanceService) RecordStageAction(ctx context.Context, in StageActionI
 		Action:       action,
 		BeforeStatus: in.FromStage,
 		AfterStatus:  in.ToStage,
-		Result:       model.ResultSuccess,
+		Result:       result,
+	}
+	if in.Message != "" {
+		if raw, err := json.Marshal(map[string]any{"message": in.Message}); err == nil {
+			entry.Params = string(raw)
+		}
 	}
 	if in.Err != nil {
 		entry.Result = model.ResultFailed
@@ -509,7 +531,53 @@ func (s *instanceService) Operations(ctx context.Context, id uint64, query *dto.
 	}, nil
 }
 
-// Related 实例关联的订单/续费/工单。
+// OperationLogs 全局操作流水分页（跨实例审计视图）。
+func (s *instanceService) OperationLogs(ctx context.Context, query *dto.OperationLogQuery) (*dto.OperationLogListResponse, error) {
+	if query == nil {
+		query = &dto.OperationLogQuery{}
+	}
+	rows, total, err := s.opRepo.ListGlobal(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	page, pageSize := query.Page, query.PageSize
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	items := make([]dto.OperationLogItem, 0, len(rows))
+	for i := range rows {
+		it := &rows[i]
+		items = append(items, dto.OperationLogItem{
+			OperationItem: dto.OperationItem{
+				ID:           it.ID,
+				InstanceID:   it.InstanceID,
+				InstanceMark: it.InstanceMark,
+				UserID:       it.UserID,
+				OperatorType: it.OperatorType,
+				OperatorID:   it.OperatorID,
+				OperatorName: it.OperatorName,
+				Action:       it.Action,
+				Params:       it.Params,
+				BeforeStatus: it.BeforeStatus,
+				AfterStatus:  it.AfterStatus,
+				Result:       it.Result,
+				ErrorMessage: it.ErrorMessage,
+				CreatedAt:    it.CreatedAt.Format(time.RFC3339),
+			},
+			Username: it.Username,
+		})
+	}
+	return &dto.OperationLogListResponse{
+		Items: items,
+		Meta:  dto.ListMeta{Page: page, PageSize: pageSize, Total: total},
+	}, nil
+}
 func (s *instanceService) Related(ctx context.Context, id uint64) (*dto.RelatedInfo, error) {
 	row, err := s.repo.FindByID(ctx, id)
 	if err != nil {
@@ -597,6 +665,9 @@ func (s *instanceService) toItem(row *repository.InstanceRow, withinDays int) dt
 		DaysLeft:           daysLeft,
 		ExpireState:        state,
 		LastSyncedAt:       fmtTimePtr(row.LastSyncedAt),
+		EnforceAttempts:    row.EnforceAttempts,
+		EnforceNextAt:      fmtTimePtr(row.EnforceNextAt),
+		LastEnforceError:   row.LastEnforceError,
 		CreatedAt:          row.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:          row.UpdatedAt.Format(time.RFC3339),
 	}

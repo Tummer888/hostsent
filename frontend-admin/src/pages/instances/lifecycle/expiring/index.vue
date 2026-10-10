@@ -93,13 +93,19 @@
           <t-tag v-else theme="default" variant="light" size="small" shape="round">未开启</t-tag>
         </template>
         <template #action="{ row }">
-            <MobileAction
-              v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '代续费', value: 'renew', theme: 'default' },
-              ])"
-              @select="(value) => handleMobileAction(value, row)"
-            />
+          <MobileAction
+            v-if="isMobile"
+            :options="buildMobileActionOptions([
+              { content: '代续费', value: 'renew', theme: 'default' },
+            ])"
+            @select="(value) => handleMobileAction(value, row)"
+          />
+          <template v-else>
+            <t-link v-permission="'lifecycle:renew'" theme="primary" hover="color" @click="openRenew(row)">
+              代续费
+            </t-link>
+            <t-link theme="primary" hover="color" @click="openInstance(row)">详情</t-link>
+          </template>
         </template>
         <template #empty>
           <t-empty description="暂无到期实例" />
@@ -153,6 +159,7 @@
 <script setup lang="ts">
 import FilterCard from '@/components/filter-card/index.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { HistoryIcon, RefreshIcon, RocketIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
@@ -163,6 +170,8 @@ import { useIsMobile } from '@/composables/useIsMobile'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 
 defineOptions({ name: 'LifecycleExpiring' })
+
+const router = useRouter()
 
 const loading = ref(false)
 const { isMobile } = useIsMobile()
@@ -314,6 +323,11 @@ function openRenew(row: ExpiringInstanceItem) {
   renewForm.amount = 0
   renewForm.remark = ''
   renewVisible.value = true
+}
+
+// 跳实例运维台详情（到期管理页只做筛选与代续费，运维动作在详情页完成）。
+function openInstance(row: ExpiringInstanceItem) {
+  router.push(`/instances/detail/${row.id}`)
 }
 
 async function submitRenew() {

@@ -8,6 +8,12 @@ package model
 // 配置分组：可写财务参数统一落 system_configs 的该分组。
 const ConfigGroup = "finance"
 
+// 其他财务配置键（键的唯一定义处仍在各消费方模块，默认值集中在此供 seed 与配置页共用）。
+const (
+	// DefaultSnapshotHour 上游余额自动快照小时（0-23），与成本模块 defaultSnapshotHour 一致。
+	DefaultSnapshotHour = "3"
+)
+
 // 财务参数键。
 const (
 	// ConfigKeyAdjustEnabled 允许人工调账：关闭后调账接口直接拒绝。

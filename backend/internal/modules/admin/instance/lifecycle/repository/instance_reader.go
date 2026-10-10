@@ -36,11 +36,20 @@ type InstanceReader interface {
 	ResolveProduct(ctx context.Context, inst *syncmodel.Instance) (name string, unitPrice float64, err error)
 	// ListStageCandidates 生命周期推进器候选：expire_at 落在窗口内且 lifecycle_stage 不等于目标阶段（T5.4）。
 	// lifecycle_stage 为 NULL 的存量行也会被选出（由推进器"只落阶段、不触发上游动作"做种子化）。
+	// 退避闸门：enforce_next_at 非空且未到期的实例不返回（失败退避，见 doc61 §8.4）。
 	ListStageCandidates(ctx context.Context, window *StageWindow, stage string, limit int) ([]syncmodel.Instance, error)
 	// ListActiveResetCandidates 续费后需回退到 active 的实例：expire_at > now 且 stage 非空且不等于 active。
 	ListActiveResetCandidates(ctx context.Context, now time.Time, limit int) ([]syncmodel.Instance, error)
+	// ListStageCandidatesWithUser / ListActiveResetCandidatesWithUser 为到期处置预演报告用的同口径查询，
+	// 附带用户名，且**不受退避闸门限制**（预演要看见全部将被处理的实例）。
+	ListStageCandidatesWithUser(ctx context.Context, window *StageWindow, stage string, limit int) ([]InstanceWithUser, error)
+	ListActiveResetCandidatesWithUser(ctx context.Context, now time.Time, limit int) ([]InstanceWithUser, error)
 	// UpdateLifecycleStage 落库生命周期阶段（T5.4 推进器的唯一写入点）。
 	UpdateLifecycleStage(ctx context.Context, id uint64, stage string) error
+	// MarkEnforceFailure 记录一次强制执行失败：自增退避计数、写失败原因、设置下次可重试时间。
+	MarkEnforceFailure(ctx context.Context, id uint64, errMsg string, nextAt time.Time, attempts int) error
+	// ClearEnforce 清零退避状态（动作成功或人为重置后调用）。
+	ClearEnforce(ctx context.Context, id uint64) error
 }
 
 type instanceReader struct {
@@ -136,16 +145,45 @@ func (r *instanceReader) UpdateLifecycleStage(ctx context.Context, id uint64, st
 		Update("lifecycle_stage", stage).Error
 }
 
+// MarkEnforceFailure 记录一次强制执行失败（doc61 §8.4 退避）：
+// 覆盖式写入失败原因与下次重试时间，并落库累计次数（由调用方按指数退避算好传入）。
+func (r *instanceReader) MarkEnforceFailure(ctx context.Context, id uint64, errMsg string, nextAt time.Time, attempts int) error {
+	if len(errMsg) > 500 {
+		errMsg = errMsg[:500]
+	}
+	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"enforce_attempts":   attempts,
+			"enforce_next_at":    nextAt,
+			"last_enforce_error": errMsg,
+		}).Error
+}
+
+// ClearEnforce 清零退避状态（动作成功或运维手动重置后调用）。
+func (r *instanceReader) ClearEnforce(ctx context.Context, id uint64) error {
+	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"enforce_attempts":   0,
+			"enforce_next_at":    nil,
+			"last_enforce_error": "",
+		}).Error
+}
+
 // ListStageCandidates 列出目标阶段的候选实例（T5.4）：
 // expire_at 落在窗口内，且 lifecycle_stage 尚未等于目标阶段（含 NULL 存量行）。
 // 按 expire_at 升序（越早到期越先处理），limit 控制单轮处理量避免长事务。
+// 退避闸门：enforce_next_at 非空且大于当前时间（连续失败后退避中）的实例跳过，
+// 避免对同一失败实例每 10 分钟无脑重试（doc61 §8.4）。
 func (r *instanceReader) ListStageCandidates(ctx context.Context, window *StageWindow, stage string, limit int) ([]syncmodel.Instance, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200
 	}
 	tx := r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
 		Where("expire_at IS NOT NULL").
-		Where("(lifecycle_stage IS NULL OR lifecycle_stage <> ?)", stage)
+		Where("(lifecycle_stage IS NULL OR lifecycle_stage <> ?)", stage).
+		Where("(enforce_next_at IS NULL OR enforce_next_at <= now())")
 	if window != nil {
 		if window.ExpireAfter != nil {
 			tx = tx.Where("expire_at > ?", *window.ExpireAfter)
@@ -174,6 +212,45 @@ func (r *instanceReader) ListActiveResetCandidates(ctx context.Context, now time
 		Order("expire_at ASC").
 		Limit(limit).
 		Find(&items).Error
+	return items, err
+}
+
+// ListStageCandidatesWithUser 到期处置预演用：与 ListStageCandidates 同口径但带用户名、
+// 且不受退避闸门限制（预演需看到全部候选，否则运维会误以为没有待处理实例）。
+func (r *instanceReader) ListStageCandidatesWithUser(ctx context.Context, window *StageWindow, stage string, limit int) ([]InstanceWithUser, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	tx := r.instanceListQuery().WithContext(ctx).
+		Where("i.expire_at IS NOT NULL").
+		Where("(i.lifecycle_stage IS NULL OR i.lifecycle_stage <> ?)", stage)
+	if window != nil {
+		if window.ExpireAfter != nil {
+			tx = tx.Where("i.expire_at > ?", *window.ExpireAfter)
+		}
+		if window.ExpireBefore != nil {
+			tx = tx.Where("i.expire_at <= ?", *window.ExpireBefore)
+		}
+	}
+	var items []InstanceWithUser
+	if err := tx.Order("i.expire_at ASC").Limit(limit).Scan(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// ListActiveResetCandidatesWithUser 预演用：与 ListActiveResetCandidates 同口径但带用户名。
+func (r *instanceReader) ListActiveResetCandidatesWithUser(ctx context.Context, now time.Time, limit int) ([]InstanceWithUser, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	var items []InstanceWithUser
+	err := r.instanceListQuery().WithContext(ctx).
+		Where("i.expire_at IS NOT NULL AND i.expire_at > ?", now).
+		Where("i.lifecycle_stage IS NOT NULL AND i.lifecycle_stage <> ?", "active").
+		Order("i.expire_at ASC").
+		Limit(limit).
+		Scan(&items).Error
 	return items, err
 }
 

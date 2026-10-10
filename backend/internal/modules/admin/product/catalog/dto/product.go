@@ -87,9 +87,11 @@ type ProductOptionOverride struct {
 
 // ProductOptionValue 一个客户可选值及其加价。
 type ProductOptionValue struct {
-	Value   string `json:"value" binding:"required"`
-	Label   string `json:"label"`
-	Group   string `json:"group_label"`
+	Value string `json:"value" binding:"required"`
+	Label string `json:"label"`
+	Group string `json:"group_label"`
+	// Help 该取值的一句话含义（特殊值如 -1 不开通 / 0 不限量 必须带给客户）。
+	Help    string `json:"help"`
 	Default bool   `json:"is_default"`
 	Hidden  bool   `json:"hidden"`
 	// 四周期加价；均为 0 表示该取值不加价（不影响算价）。

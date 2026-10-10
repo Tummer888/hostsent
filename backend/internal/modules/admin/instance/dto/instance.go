@@ -70,8 +70,12 @@ type InstanceItem struct {
 	DaysLeft           int    `json:"days_left"`
 	ExpireState        string `json:"expire_state"`
 	LastSyncedAt       string `json:"last_synced_at"`
-	CreatedAt          string `json:"created_at"`
-	UpdatedAt          string `json:"updated_at"`
+	// 到期处置退避状态（doc61 §8.4）：连续失败次数、下次重试时间、最近失败原因。
+	EnforceAttempts  int    `json:"enforce_attempts"`
+	EnforceNextAt    string `json:"enforce_next_at"`
+	LastEnforceError string `json:"last_enforce_error"`
+	CreatedAt        string `json:"created_at"`
+	UpdatedAt        string `json:"updated_at"`
 }
 
 // ListResponse 实例列表响应。
@@ -179,6 +183,32 @@ type OperationListQuery struct {
 type OperationListResponse struct {
 	Items []OperationItem `json:"items"`
 	Meta  ListMeta        `json:"meta"`
+}
+
+// OperationLogQuery 全局操作流水查询（跨实例审计视图）。
+type OperationLogQuery struct {
+	Keyword      string `form:"keyword" json:"keyword"`             // 实例标识 / 操作人 / 用户名
+	Action       string `form:"action" json:"action"`               // 动作：power_on/power_off/.../suspend/destroy/stage
+	OperatorType string `form:"operator_type" json:"operator_type"` // admin/user/system
+	Result       string `form:"result" json:"result"`               // success/failed/skipped
+	UserID       uint64 `form:"user_id" json:"user_id"`
+	StartTime    string `form:"start_time" json:"start_time"`
+	EndTime      string `form:"end_time" json:"end_time"`
+	Page         int    `form:"page" json:"page"`
+	PageSize     int    `form:"page_size" json:"page_size"`
+}
+
+// OperationLogItem 全局操作流水项。
+type OperationLogItem struct {
+	OperationItem
+	InstanceName string `json:"instance_name"`
+	Username     string `json:"username"`
+}
+
+// OperationLogListResponse 全局操作流水响应。
+type OperationLogListResponse struct {
+	Items []OperationLogItem `json:"items"`
+	Meta  ListMeta           `json:"meta"`
 }
 
 // RelatedOrderItem 关联订单项。

@@ -221,7 +221,7 @@
                 <span v-if="opt.unit" class="buy__option-qty-unit">{{ opt.unit }}</span>
               </div>
 
-              <p v-if="opt.help" class="buy__option-help">{{ opt.help }}</p>
+              <p v-if="optionHelpText(opt)" class="buy__option-help">{{ optionHelpText(opt) }}</p>
             </div>
           </div>
 
@@ -442,6 +442,24 @@ function optionItemLabel(opt: ProductOption, it: OptionItem): string {
 
 function optionPlaceholder(opt: ProductOption): string {
   return opt.required ? `请选择${opt.name}` : `按平台默认（可选）`
+}
+
+/**
+ * 配置项下方的说明：固定说明 + 当前所选取值的含义。
+ *
+ * -1/0/auto 这类取值光看取值（或光看显示名）读不出含义，必须把履约时实际会
+ * 发生什么讲清楚（-1 = 不能创建快照、0 = 不限量）。目录里的 OptionsHelp 已随
+ * 每个取值下发，这里按当前选择拼在固定说明后面。
+ */
+function optionHelpText(opt: ProductOption): string {
+  const parts: string[] = []
+  if (opt.help) parts.push(opt.help)
+  const raw = selection.value[opt.option_key]
+  if (raw) {
+    const hit = opt.values.find((v) => v.value === raw)
+    if (hit?.help) parts.push(`${hit.label}：${hit.help}`)
+  }
+  return parts.join(' ')
 }
 
 /**

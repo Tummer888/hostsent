@@ -1,6 +1,7 @@
 package db
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 
 	finaccountmodel "hostsent/backend/internal/modules/admin/finance/account/model"
 	finbillmodel "hostsent/backend/internal/modules/admin/finance/bill/model"
+	costmodel "hostsent/backend/internal/modules/admin/finance/cost/model"
 	pointmodel "hostsent/backend/internal/modules/admin/finance/point/model"
 	finrechmodel "hostsent/backend/internal/modules/admin/finance/recharge/model"
 	referralmodel "hostsent/backend/internal/modules/admin/finance/referral/model"
@@ -49,6 +51,8 @@ import (
 	membermodel "hostsent/backend/internal/modules/uc/member/model"
 	oauthmodel "hostsent/backend/internal/modules/uc/oauth/model"
 	config "hostsent/backend/internal/pkg/config"
+	"hostsent/backend/internal/pkg/integration"
+	"hostsent/backend/internal/pkg/upstream"
 )
 
 type seedPermission struct {
@@ -196,6 +200,12 @@ func AutoMigrate(db *gorm.DB) error {
 		&finbillmodel.Bill{},
 		// 发票申请（doc36 §3.3）：预埋渠道/外部单号/文件地址，后续接税务 API。
 		&finbillmodel.InvoiceRequest{},
+		// 成本管理（doc111）：成本项配置 / 上游余额快照 / 上游充值记录
+		&costmodel.CostItem{},
+		&costmodel.UpstreamBalanceSnapshot{},
+		&costmodel.UpstreamBalanceTopup{},
+		// 上游账本流水（doc111 §5.2）：消费/充值明细，月度成本主口径
+		&costmodel.UpstreamLedgerEntry{},
 		// 支付中心（迁移 038，doc35）：渠道类型/渠道实例/支付单/回调日志/退款单/
 		// 打款单/用户收款账户/支付方式偏好/渠道对账记录
 		&paymentmodel.PaymentType{},
@@ -436,6 +446,12 @@ func SeedDefaults(db *gorm.DB, cfg config.Config) error {
 		if err := seedUpstreamData(tx); err != nil {
 			return err
 		}
+		// 平台配置项目录（T4.5）：适配器声明的标签/说明/取值含义会随版本更新，
+		// 启动时对已入库的适配器行做一次「声明为准」的刷新
+		// （运营手工改过的自定义项、温标文字不动；后台的临时调整重启会被覆盖）。
+		if err := seedProviderOptionCatalog(tx); err != nil {
+			return err
+		}
 		if err := seedDemoOrders(tx); err != nil {
 			return err
 		}
@@ -481,6 +497,134 @@ func SeedDefaults(db *gorm.DB, cfg config.Config) error {
 
 // seedUpstreamData 为资源管理模块写入演示业务数据（提供商/资源池/商品/实例/同步任务/日志）。
 // 幂等：仅当尚无任何上游提供商时写入，避免重复与覆盖真实运营数据。
+// seedProviderOptionCatalog 把适配器声明的平台配置项目录在启动时对齐到库里。
+//
+// 与 option_service.SyncCatalog 的「只补缺失、不动已有行」不同，这里是**声明为准**的刷新：
+// 标签/说明（Help）/取值含义（OptionsHelp）/控件/区间/单位/排序这些描述性字段以
+// 适配器声明为准覆盖，运营改过的会被刷回去 —— 因为它们是代码的一部分，
+// 改这些应当改声明而不是改库（后台上的临时调整重启会被覆盖，页面文案里已写明）。
+//
+// 只处理 source='adapter' 且 option_key 存在于声明里的行：运营新增的自定义项、
+// 以及适配器已下线的项都保持原样（下线项要留档，不能因为声明里没了就删）。
+// 逐字段 diff 后只在真变化时 Save，避免每次启动都写 34 行。
+func seedProviderOptionCatalog(tx *gorm.DB) error {
+	type declRow struct {
+		label, group, def, widget, valueSource, unit, help, optionsHelp string
+		options                                                         string
+		minValue, maxValue, stepValue                                   *float64
+		required, multiValue                                            bool
+		sortOrder                                                       int
+	}
+
+	now := time.Now()
+	for _, providerType := range upstream.RegisteredDescriptorTypes() {
+		declared := upstream.OptionCatalogOf(providerType)
+		if len(declared) == 0 {
+			continue
+		}
+		want := make(map[string]declRow, len(declared))
+		for _, spec := range declared {
+			want[spec.Key] = declRow{
+				label: spec.Label, group: spec.Group, def: spec.Default,
+				widget:      seedFirstNonEmpty(spec.Widget, upstream.ConfigWidgetSelect),
+				valueSource: seedFirstNonEmpty(spec.ValueSource, upstream.ValueSourceStatic),
+				unit:        spec.Unit, help: spec.Help, optionsHelp: spec.OptionsHelp,
+				options:  marshalFieldOptions(spec.Options),
+				minValue: spec.MinValue, maxValue: spec.MaxValue, stepValue: spec.Step,
+				required: spec.Required, multiValue: spec.MultiValue, sortOrder: spec.SortOrder,
+			}
+		}
+
+		var rows []specmodel.ProviderOptionSpec
+		if err := tx.Where("provider_type = ? AND source = ?",
+			providerType, specmodel.OptionSpecSourceAdapter).Find(&rows).Error; err != nil {
+			return err
+		}
+		for i := range rows {
+			row := rows[i]
+			w, ok := want[row.OptionKey]
+			if !ok {
+				continue // 声明里已下线的项：留档，不删
+			}
+			optionsHelp := nullableText(w.optionsHelp)
+			if row.Label == w.label && row.GroupName == w.group && row.DefaultValue == w.def &&
+				row.Widget == w.widget && row.ValueSource == w.valueSource && row.Unit == w.unit &&
+				row.Help == w.help && equalTextPtr(row.OptionsHelp, optionsHelp) &&
+				equalTextPtr(row.Options, nullableText(w.options)) &&
+				equalFloatPtr(row.MinValue, w.minValue) && equalFloatPtr(row.MaxValue, w.maxValue) &&
+				equalFloatPtr(row.StepValue, w.stepValue) &&
+				row.Required == w.required && row.MultiValue == w.multiValue && row.SortOrder == w.sortOrder {
+				continue
+			}
+			row.Label = w.label
+			row.GroupName = w.group
+			row.DefaultValue = w.def
+			row.Widget = w.widget
+			row.ValueSource = w.valueSource
+			row.Unit = w.unit
+			row.Help = w.help
+			row.OptionsHelp = optionsHelp
+			row.Options = nullableText(w.options)
+			row.MinValue = w.minValue
+			row.MaxValue = w.maxValue
+			row.StepValue = w.stepValue
+			row.Required = w.required
+			row.MultiValue = w.multiValue
+			row.SortOrder = w.sortOrder
+			row.UpdatedAt = now
+			if err := tx.Save(&row).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// seedFirstNonEmpty 取第一个非空字符串（本地小工具，避免与各子域同名函数混淆）。
+func seedFirstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// marshalFieldOptions 把静态枚举转成库里 options 列的 JSON 文本；空返回空串。
+func marshalFieldOptions(opts []integration.FieldOption) string {
+	if len(opts) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(opts)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// nullableText 空文本落 NULL（jsonb 列不接受空串）。
+func nullableText(s string) *string {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "null" || s == "{}" {
+		return nil
+	}
+	return &s
+}
+
+func equalTextPtr(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return strings.TrimSpace(*a) == strings.TrimSpace(*b)
+}
+
+func equalFloatPtr(a, b *float64) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
 func seedUpstreamData(tx *gorm.DB) error {
 	var providerCount int64
 	if err := tx.Model(&providermodel.ResourceProvider{}).Count(&providerCount).Error; err != nil {
@@ -827,6 +971,8 @@ func seedSystemConfigs(tx *gorm.DB) error {
 		// manual_adjust_enabled）整仓零引用、改了不生效，已由迁移 073 清除，不再种回。
 		{ConfigKey: finsettingsmodel.ConfigKeyAdjustEnabled, ConfigValue: finsettingsmodel.DefaultAdjustEnabled, ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupFinance, Description: "允许人工调账（关闭后调账接口直接拒绝）", SortOrder: 1, Status: systemmodel.StatusActive},
 		{ConfigKey: finsettingsmodel.ConfigKeyReconTolerance, ConfigValue: finsettingsmodel.DefaultReconTolerance, ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupFinance, Description: "对账差异容差（元，超过判为可疑）", SortOrder: 2, Status: systemmodel.StatusActive},
+		{ConfigKey: "finance.cost_snapshot_hour", ConfigValue: finsettingsmodel.DefaultSnapshotHour, ValueType: systemmodel.ValueTypeInt, Group: systemmodel.ConfigGroupFinance, Description: "上游余额自动快照小时（0-23 整点，成本管理）", SortOrder: 4, Status: systemmodel.StatusActive},
+		{ConfigKey: "finance.upstream_balance_warning", ConfigValue: "0", ValueType: systemmodel.ValueTypeInt, Group: systemmodel.ConfigGroupFinance, Description: "上游余额低水位阈值（元；0=仅按到期金额判断，成本管理）", SortOrder: 5, Status: systemmodel.StatusActive},
 		{ConfigKey: finsettingsmodel.ConfigKeyBalanceWarning, ConfigValue: finsettingsmodel.DefaultBalanceWarning, ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupFinance, Description: "余额预警阈值（元，总览统计低余额钱包）", SortOrder: 3, Status: systemmodel.StatusActive},
 		// 推广邀请返现：全局三档比率 + 最低提现金额 + 开关（返现模块运行时读取）
 		{ConfigKey: referralmodel.ConfigKeyEnabled, ConfigValue: "true", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupReferral, Description: "启用推广邀请返现", SortOrder: 1, Status: systemmodel.StatusActive},
@@ -981,6 +1127,11 @@ var seedPermissionDefaults = []seedPermission{
 	// 财务参数页（/finance/config）独立权限码：财务角色可调自己的参数，
 	// 而不必被授 system:config:*（那会连带放开整站配置）。
 	{ParentCode: "finance", Name: "财务参数", Code: "finance:config", Type: "menu", SortOrder: 0, Status: "active"},
+	// 成本管理（doc111）：成本总览 / 成本项配置 / 上游余额台账三码分开 ——
+	// 成本项含工资等敏感配置，与「看数」权限应可分离。
+	{ParentCode: "finance", Name: "成本总览", Code: "finance:cost:overview", Type: "menu", SortOrder: 6, Status: "active"},
+	{ParentCode: "finance", Name: "成本项配置", Code: "finance:cost:item", Type: "menu", SortOrder: 7, Status: "active"},
+	{ParentCode: "finance", Name: "上游余额台账", Code: "finance:cost:balance", Type: "menu", SortOrder: 8, Status: "active"},
 	{ParentCode: "finance", Name: "钱包/流水", Code: "finance:wallet", Type: "menu", SortOrder: 1, Status: "active"},
 	{ParentCode: "finance:wallet", Name: "人工调账", Code: "finance:adjust", Type: "button", SortOrder: 1, Status: "active"},
 	{ParentCode: "finance", Name: "充值管理", Code: "finance:recharge", Type: "menu", SortOrder: 2, Status: "active"},
@@ -1030,6 +1181,8 @@ var seedPermissionDefaults = []seedPermission{
 	{ParentCode: "lifecycle", Name: "续费记录", Code: "lifecycle:renewals", Type: "menu", SortOrder: 2, Status: "active"},
 	{ParentCode: "lifecycle", Name: "生命周期策略", Code: "lifecycle:policy", Type: "menu", SortOrder: 3, Status: "active"},
 	{ParentCode: "lifecycle:policy", Name: "更新策略", Code: "lifecycle:policy:update", Type: "button", SortOrder: 1, Status: "active"},
+	// 到期处置（doc61 §8.4）：预演只读 + 手动单实例执行；执行属高危动作，单独授权。
+	{ParentCode: "lifecycle", Name: "到期处置", Code: "lifecycle:enforce", Type: "menu", SortOrder: 4, Status: "active"},
 	// —— 消息中心（doc70）
 	{Name: "消息中心", Code: "notification", Type: "catalog", SortOrder: 10, Status: "active"},
 	{ParentCode: "notification", Name: "公告管理", Code: "notify:announcement", Type: "menu", SortOrder: 1, Status: "active"},
@@ -1287,6 +1440,7 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"lifecycle:renewals",
 			"lifecycle:policy",
 			"lifecycle:policy:update",
+			"lifecycle:enforce",
 			// 消息中心权限（doc70）
 			"notification",
 			"notify:announcement",
@@ -1446,6 +1600,9 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"order:stats",
 			"finance",
 			"finance:config",
+			"finance:cost:overview",
+			"finance:cost:item",
+			"finance:cost:balance",
 			"finance:wallet",
 			"finance:adjust",
 			"finance:recharge",
@@ -1637,13 +1794,16 @@ var seedMenuDefaults = []SeedMenu{
 	{Platform: menumodel.PlatformAdmin, Name: "实例管理", Type: menumodel.TypeDirectory, Path: "/instances", Icon: "server", SortOrder: 4, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "实例运维台", Type: menumodel.TypeMenu, Path: "/instances/list", Component: "instances/index", Icon: "server", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "云主机实例", Type: menumodel.TypeMenu, Path: "/instances/inventory", Component: "resource/instances/index", Icon: "server", SortOrder: 2, Status: menumodel.StatusActive},
+	// 全局操作流水（跨实例审计视图）：谁在什么时候对哪台机器做了什么、成功还是失败。
+	{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "操作流水", Type: menumodel.TypeMenu, Path: "/instances/operations", Component: "instances/operations/index", Icon: "history", SortOrder: 3, Status: menumodel.StatusActive},
 	// 生命周期与续费（doc60）整域并入本域（迁移 066）：二级目录 + 3 个叶子，
 	// 路径 /lifecycle/* → /instances/lifecycle/*（归属调整，HTTP API / 权限码不变），
 	// 旧路径由 router redirect 兼容。
-	{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "生命周期管理", Type: menumodel.TypeDirectory, Path: "/instances/lifecycle", Icon: "history", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "生命周期管理", Type: menumodel.TypeDirectory, Path: "/instances/lifecycle", Icon: "history", SortOrder: 4, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/instances/lifecycle", Platform: menumodel.PlatformAdmin, Name: "到期管理", Type: menumodel.TypeMenu, Path: "/instances/lifecycle/expiring", Component: "instances/lifecycle/expiring/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/instances/lifecycle", Platform: menumodel.PlatformAdmin, Name: "续费记录", Type: menumodel.TypeMenu, Path: "/instances/lifecycle/renewals", Component: "instances/lifecycle/renewals/index", Icon: "order", SortOrder: 2, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/instances/lifecycle", Platform: menumodel.PlatformAdmin, Name: "生命周期策略", Type: menumodel.TypeMenu, Path: "/instances/lifecycle/policy", Component: "instances/lifecycle/policy/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/instances/lifecycle", Platform: menumodel.PlatformAdmin, Name: "到期处置", Type: menumodel.TypeMenu, Path: "/instances/lifecycle/enforcement", Component: "instances/lifecycle/enforcement/index", Icon: "verify", SortOrder: 4, Status: menumodel.StatusActive},
 	// —— 产品管理（面向终端售卖，三层树）
 	{Platform: menumodel.PlatformAdmin, Name: "产品管理", Type: menumodel.TypeDirectory, Path: "/product", Icon: "product", SortOrder: 5, Status: menumodel.StatusActive},
 	// 商品列表（原「商品管理 /product/mgmt」目录只有一个叶子，压平后提升为二级）
@@ -1657,10 +1817,12 @@ var seedMenuDefaults = []SeedMenu{
 	{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "分类管理", Type: menumodel.TypeMenu, Path: "/product/categories", Component: "product/categories/index", Icon: "tag", SortOrder: 3, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "规格管理", Type: menumodel.TypeDirectory, Path: "/product/spec", Icon: "layers", SortOrder: 4, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "规格模板", Type: menumodel.TypeMenu, Path: "/product/spec/templates", Component: "product/spec/templates/index", Icon: "catalog", SortOrder: 1, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "自定义规格", Type: menumodel.TypeMenu, Path: "/product/spec/custom", Component: "product/spec/custom/index", Icon: "add", SortOrder: 2, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "规格映射", Type: menumodel.TypeMenu, Path: "/product/spec/mappings", Component: "product/spec/mappings/index", Icon: "link", SortOrder: 3, Status: menumodel.StatusActive},
+	// 「自定义规格」页（/product/spec/custom）已随 077 下线：它写的是废弃的 spec_family，
+	// 且不落 provider_type/option_selections，存出来的档位选不到平台配置项、生成不了 SKU，
+	// 与「规格模板（配置档）」重复。建品链路唯一入口是上面的规格模板页。
+	{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "规格映射", Type: menumodel.TypeMenu, Path: "/product/spec/mappings", Component: "product/spec/mappings/index", Icon: "link", SortOrder: 2, Status: menumodel.StatusActive},
 	// 平台配置项目录（T4.5）：按对接平台维护可配置项与取值库（镜像批量入库）。
-	{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "平台配置项", Type: menumodel.TypeMenu, Path: "/product/spec/option-catalog", Component: "product/spec/option-catalog/index", Icon: "layers", SortOrder: 4, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/product/spec", Platform: menumodel.PlatformAdmin, Name: "平台配置项", Type: menumodel.TypeMenu, Path: "/product/spec/option-catalog", Component: "product/spec/option-catalog/index", Icon: "layers", SortOrder: 3, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/product", Platform: menumodel.PlatformAdmin, Name: "定价与计费", Type: menumodel.TypeDirectory, Path: "/product/pricing-center", Icon: "money", SortOrder: 5, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "商品调价", Type: menumodel.TypeMenu, Path: "/product/pricing", Component: "product/pricing/index", Icon: "money", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/product/pricing-center", Platform: menumodel.PlatformAdmin, Name: "价格计算器", Type: menumodel.TypeMenu, Path: "/product/pricing/calculator", Component: "product/pricing/calculator/index", Icon: "chart-bar", SortOrder: 2, Status: menumodel.StatusActive},
@@ -1695,6 +1857,12 @@ var seedMenuDefaults = []SeedMenu{
 	// （FinancePanel 复用同一 GET /finance/wallets/:user_id 接口），余额变动在「资金流水」按用户检索。
 	// 该页前端页面/路由/菜单已删除，后端接口保留给用户详情页使用。
 	{ParentKey: "admin:/finance/accounts", Platform: menumodel.PlatformAdmin, Name: "人工调账", Type: menumodel.TypeMenu, Path: "/finance/accounts/adjust", Component: "finance/accounts/adjust", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
+	// 成本管理（doc111）：月度成本/利润核算 + 成本项配置 + 上游余额台账。
+	// 排序 3 补的是迁移 073 把资金流水收进「资金管理」后空出来的槽位，位置在资金管理之后。
+	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "成本管理", Type: menumodel.TypeDirectory, Path: "/finance/cost", Icon: "chart-bar", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance/cost", Platform: menumodel.PlatformAdmin, Name: "成本总览", Type: menumodel.TypeMenu, Path: "/finance/cost/overview", Component: "finance/cost/overview/index", Icon: "chart-bar", SortOrder: 1, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance/cost", Platform: menumodel.PlatformAdmin, Name: "成本项配置", Type: menumodel.TypeMenu, Path: "/finance/cost/items", Component: "finance/cost/items/index", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/finance/cost", Platform: menumodel.PlatformAdmin, Name: "上游余额台账", Type: menumodel.TypeMenu, Path: "/finance/cost/upstreams", Component: "finance/cost/upstreams/index", Icon: "wallet", SortOrder: 3, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance", Platform: menumodel.PlatformAdmin, Name: "充值提现", Type: menumodel.TypeDirectory, Path: "/finance/recharge-center", Icon: "download", SortOrder: 4, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance/recharge-center", Platform: menumodel.PlatformAdmin, Name: "充值管理", Type: menumodel.TypeMenu, Path: "/finance/recharges", Component: "finance/recharge/index", Icon: "download", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/finance/recharge-center", Platform: menumodel.PlatformAdmin, Name: "提现管理", Type: menumodel.TypeMenu, Path: "/finance/withdrawals", Component: "finance/withdraw/index", Icon: "upload", SortOrder: 2, Status: menumodel.StatusActive},

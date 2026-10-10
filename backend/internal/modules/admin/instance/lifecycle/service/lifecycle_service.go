@@ -37,6 +37,10 @@ type LifecycleService interface {
 	ListExpiring(ctx context.Context, q *lifecycledto.ExpiringListQuery) (*lifecycledto.ExpiringListResponse, error)
 	// RunScanOnce 手动触发一轮扫描（提醒 + 自动续费 + 阶段推进），供运维接口调用
 	RunScanOnce(ctx context.Context) error
+	// PreviewEnforcement 到期处置预演报告（只读，不写库、不调上游，doc61 §8.4）
+	PreviewEnforcement(ctx context.Context) (*lifecycledto.EnforcementPreviewResponse, error)
+	// EnforceInstance 手动对单实例执行一次阶段处置（绕过自动执行总开关，真实下发上游）
+	EnforceInstance(ctx context.Context, instanceID uint64, reason string) (string, error)
 	// SetNotifier 注入通知实现（通知中心模块就绪后替换空实现）
 	SetNotifier(n Notifier)
 	// SetStageAdvancer 注入生命周期阶段推进器（T5.4 落库幂等推进），可选
@@ -46,6 +50,10 @@ type LifecycleService interface {
 // StageAdvancer 生命周期阶段推进器（T5.4）：宽限→暂停→销毁落库并触发一次上游动作。
 type StageAdvancer interface {
 	AdvanceOnce(ctx context.Context) (int, error)
+	// PreviewEnforcement 到期处置预演（只读）。
+	PreviewEnforcement(ctx context.Context) ([]PreviewAction, error)
+	// EnforceOne 手动单实例阶段处置。
+	EnforceOne(ctx context.Context, instanceID uint64, reason string) (string, error)
 }
 
 type lifecycleService struct {
@@ -123,10 +131,66 @@ func (s *lifecycleService) UpdatePolicy(ctx context.Context, req *lifecycledto.P
 		}
 		policy.DestroyKeepDays = *req.DestroyKeepDays
 	}
+	if req.AutoEnforce != nil {
+		policy.AutoEnforce = *req.AutoEnforce
+	}
+	if req.EnforceDryRun != nil {
+		policy.EnforceDryRun = *req.EnforceDryRun
+	}
 	if err := s.policyRepo.Update(ctx, policy); err != nil {
 		return nil, err
 	}
 	return buildPolicyResponse(policy), nil
+}
+
+// PreviewEnforcement 到期处置预演报告（doc61 §8.4）：只读，不回写、不下发上游。
+func (s *lifecycleService) PreviewEnforcement(ctx context.Context) (*lifecycledto.EnforcementPreviewResponse, error) {
+	policy, err := s.loadPolicy(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resp := &lifecycledto.EnforcementPreviewResponse{
+		Enabled:     policy.AutoEnforce,
+		DryRun:      policy.EnforceDryRun,
+		StageCounts: map[string]int{},
+		Items:       []lifecycledto.EnforcementPreviewItem{},
+		GeneratedAt: time.Now().Format(time.RFC3339),
+	}
+	if s.advancer == nil {
+		return resp, nil
+	}
+	actions, err := s.advancer.PreviewEnforcement(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range actions {
+		resp.StageCounts[a.TargetStage]++
+		resp.Items = append(resp.Items, lifecycledto.EnforcementPreviewItem{
+			InstanceID:        a.InstanceID,
+			InstanceMark:      a.InstanceMark,
+			Name:              a.Name,
+			UserID:            a.UserID,
+			Username:          a.Username,
+			ProviderID:        a.ProviderID,
+			Stage:             a.Stage,
+			TargetStage:       a.TargetStage,
+			Action:            a.Action,
+			Reason:            a.Reason,
+			ExpireAt:          formatTime(a.ExpireAt),
+			DaysLeft:          a.DaysLeft,
+			CapabilityMissing: a.CapabilityMissing,
+		})
+	}
+	resp.Total = len(resp.Items)
+	return resp, nil
+}
+
+// EnforceInstance 手动对单实例执行阶段处置（运维显式操作，真实下发上游）。
+func (s *lifecycleService) EnforceInstance(ctx context.Context, instanceID uint64, reason string) (string, error) {
+	if s.advancer == nil {
+		return "", ErrStageNotActionable
+	}
+	return s.advancer.EnforceOne(ctx, instanceID, reason)
 }
 
 // DeriveStage 生命周期派生状态（不落库到 instances.status，避免与上游同步冲突）：
@@ -368,6 +432,8 @@ func buildPolicyResponse(policy *lifecyclemodel.LifecyclePolicy) *lifecycledto.P
 		AutoRenewDefault: policy.AutoRenewDefault,
 		GraceDays:        policy.GraceDays,
 		DestroyKeepDays:  policy.DestroyKeepDays,
+		AutoEnforce:      policy.AutoEnforce,
+		EnforceDryRun:    policy.EnforceDryRun,
 		UpdatedAt:        policy.UpdatedAt.Format(time.RFC3339),
 	}
 }

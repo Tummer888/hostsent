@@ -74,11 +74,12 @@ func sortedOptionKeys(sel map[string]optionSelection) []string {
 	return keys
 }
 
-// optionValue 已确定可取的一个值（含展示名/分组/加价）。
+// optionValue 已确定可取的一个值（含展示名/分组/含义/加价）。
 type optionValue struct {
 	Value   string
 	Label   string
 	Group   string
+	Help    string
 	Default bool
 	Hidden  bool
 	Monthly float64
@@ -144,6 +145,9 @@ func (a *optionAccumulator) addValues(sel optionSelection, meta SpecOptionMeta) 
 			if a.values[idx].Group == "" {
 				a.values[idx].Group = groupForValue(meta, v, sel.GroupLabel)
 			}
+			if a.values[idx].Help == "" {
+				a.values[idx].Help = optionValueHelp(meta, v)
+			}
 			continue
 		}
 		a.seen[v] = len(a.values)
@@ -151,6 +155,7 @@ func (a *optionAccumulator) addValues(sel optionSelection, meta SpecOptionMeta) 
 			Value: v,
 			Label: labelForValue(meta, v),
 			Group: groupForValue(meta, v, sel.GroupLabel),
+			Help:  optionValueHelp(meta, v),
 		})
 	}
 	// 控件：目录推荐优先，多取值时按目录能力降级/升级。
@@ -164,6 +169,19 @@ func (a *optionAccumulator) addValues(sel optionSelection, meta SpecOptionMeta) 
 	if hasGroup(a.values) {
 		a.meta.Widget = SpecWidgetGroupSelect
 	}
+}
+
+// optionValueHelp 取某取值的一句话含义：来自目录项的 OptionsHelp（值 → 含义）。
+// 特殊值（-1 不开通 / 0 不限量 / auto 随机端口）光看取值看不出含义，必须带给客户。
+func optionValueHelp(meta SpecOptionMeta, value string) string {
+	if strings.TrimSpace(meta.OptionsHelp) == "" {
+		return ""
+	}
+	var m map[string]string
+	if err := json.Unmarshal([]byte(meta.OptionsHelp), &m); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(m[value])
 }
 
 // applyOverride 建品页就地覆盖：以请求为准（取值、加价、控件、必选、默认）。
@@ -216,6 +234,7 @@ func (a *optionAccumulator) applyOverride(ov dto.ProductOptionOverride) {
 			Value:   val,
 			Label:   firstNonEmptyStr(strings.TrimSpace(v.Label), val),
 			Group:   strings.TrimSpace(v.Group),
+			Help:    strings.TrimSpace(v.Help),
 			Default: v.Default,
 			Hidden:  v.Hidden,
 			Monthly: v.PriceMonthly,
@@ -267,6 +286,7 @@ func (a *optionAccumulator) toConfigOption() map[string]interface{} {
 		"max_value":     a.meta.MaxValue,
 		"unit":          a.meta.Unit,
 		"help":          a.meta.Help,
+		"options_help":  a.meta.OptionsHelp,
 		"sort_order":    a.meta.SortOrder,
 		"hidden":        0,
 	}
@@ -281,6 +301,7 @@ func (a *optionAccumulator) toConfigOption() map[string]interface{} {
 			"source":      "self",
 			"source_key":  v.Value,
 			"group_label": v.Group,
+			"help":        v.Help,
 			"is_default":  v.Default,
 			"hidden":      hidden,
 			"pricings": []map[string]interface{}{{

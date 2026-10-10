@@ -119,6 +119,23 @@ func createLifecycleInstance(t *testing.T, db *gorm.DB, mark string, expireAt ti
 	return id
 }
 
+// enableLiveEnforcement 打开策略闸门（自动执行 + 关闭预演），使推进器真实下发上游动作。
+// 返回恢复函数：用例结束（含失败）后务必复原，避免污染开发库策略。
+func enableLiveEnforcement(t *testing.T, db *gorm.DB) func() {
+	t.Helper()
+	execSQL(t, db, "UPDATE lifecycle_policies SET auto_enforce = TRUE, enforce_dry_run = FALSE WHERE id = 1")
+	restored := false
+	restore := func() {
+		if restored {
+			return
+		}
+		restored = true
+		execSQL(t, db, "UPDATE lifecycle_policies SET auto_enforce = FALSE, enforce_dry_run = TRUE WHERE id = 1")
+	}
+	t.Cleanup(restore)
+	return restore
+}
+
 // TestLiveLifecycleAdvancer 验证 T5.4 阶段推进：
 // 宽限只落阶段不调上游；暂停/销毁各调一次上游并落阶段；重复扫描不再调上游；续费后回退 active。
 func TestLiveLifecycleAdvancer(t *testing.T) {
@@ -129,6 +146,7 @@ func TestLiveLifecycleAdvancer(t *testing.T) {
 	ctx := context.Background()
 	restore := isolateInstances(t, db)
 	defer restore()
+	enableLiveEnforcement(t, db)
 
 	policyRepo := lifecyclerepo.NewPolicyRepository(db)
 	instanceRepo := lifecyclerepo.NewInstanceReader(db)
@@ -209,6 +227,7 @@ func TestLiveLifecycleCapabilityMissing(t *testing.T) {
 	ctx := context.Background()
 	restore := isolateInstances(t, db)
 	defer restore()
+	enableLiveEnforcement(t, db)
 
 	policyRepo := lifecyclerepo.NewPolicyRepository(db)
 	instanceRepo := lifecyclerepo.NewInstanceReader(db)
@@ -257,6 +276,125 @@ func (b *bareProvider) GetName() string                   { return "bare" }
 func (b *bareProvider) HealthCheck(context.Context) error { return nil }
 func (b *bareProvider) Capabilities() upstream.CapabilityDescriptor {
 	return upstream.CapabilityDescriptor{Kind: "compute"}
+}
+
+// TestLiveLifecycleEnforcementGate 验证 doc61 §8.4 的闸门与预演：
+// 总开关关闭（默认）时，暂停/销毁候选**不得**下发上游、也不得落阶段；
+// 预演报告仍要能看见这些候选（否则运维无从判断影响面）。
+func TestLiveLifecycleEnforcementGate(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(liveLifecycleDSN()), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+	ctx := context.Background()
+	restore := isolateInstances(t, db)
+	defer restore()
+
+	// 显式关闭闸门（该用例不改用 enableLiveEnforcement）。
+	execSQL(t, db, "UPDATE lifecycle_policies SET auto_enforce = FALSE, enforce_dry_run = TRUE WHERE id = 1")
+	t.Cleanup(func() {
+		execSQL(t, db, "UPDATE lifecycle_policies SET auto_enforce = FALSE, enforce_dry_run = TRUE WHERE id = 1")
+	})
+
+	policyRepo := lifecyclerepo.NewPolicyRepository(db)
+	instanceRepo := lifecyclerepo.NewInstanceReader(db)
+	policy, err := policyRepo.Get(ctx)
+	if err != nil {
+		t.Fatalf("读取策略失败: %v", err)
+	}
+
+	now := time.Now()
+	suspID := createLifecycleInstance(t, db, fmt.Sprintf("p5-gate-%d", now.UnixNano()%1e6), now.AddDate(0, 0, -(policy.GraceDays+3)), "self")
+
+	fp := &fakeLifecycleProvider{}
+	adv := NewLifecycleAdvancer(instanceRepo, policyRepo, func(context.Context, uint64) (upstream.Provider, error) {
+		return fp, nil
+	}, &stageRecordCollector{}, zap.NewNop())
+
+	stageOf := func(id uint64) string {
+		var st string
+		if err := db.Raw("SELECT COALESCE(lifecycle_stage,'') FROM instances WHERE id = ?", id).Scan(&st).Error; err != nil {
+			t.Fatalf("读取阶段失败: %v", err)
+		}
+		return st
+	}
+
+	if _, err := adv.AdvanceOnce(ctx); err != nil {
+		t.Fatalf("闸门关闭时推进不应报错: %v", err)
+	}
+	if len(fp.suspended) != 0 || len(fp.terminated) != 0 {
+		t.Fatalf("闸门关闭时不得下发上游动作: suspend=%d terminate=%d", len(fp.suspended), len(fp.terminated))
+	}
+	if got := stageOf(suspID); got == lifecyclemodel.StageSuspended {
+		t.Fatalf("闸门关闭时不得落暂停阶段（否则会在开启闸门后被当成已处理而漏掉），实际 %q", got)
+	}
+
+	// 预演报告必须仍能看见该候选，且动作标为 suspend。
+	preview, err := adv.PreviewEnforcement(ctx)
+	if err != nil {
+		t.Fatalf("预演失败: %v", err)
+	}
+	found := false
+	for _, a := range preview {
+		if a.InstanceID == suspID {
+			found = true
+			if a.Action != "suspend" {
+				t.Fatalf("预演动作期望 suspend，实际 %q", a.Action)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("预演报告应包含待处置实例 id=%d", suspID)
+	}
+}
+
+// TestLiveEnforceOne 验证手动单实例处置（运维显式点击，绕过总开关）：真实下发上游并落阶段。
+func TestLiveEnforceOne(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(liveLifecycleDSN()), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+	ctx := context.Background()
+	restore := isolateInstances(t, db)
+	defer restore()
+	// 保持闸门关闭：手动执行必须能绕过它。
+	execSQL(t, db, "UPDATE lifecycle_policies SET auto_enforce = FALSE, enforce_dry_run = TRUE WHERE id = 1")
+	t.Cleanup(func() {
+		execSQL(t, db, "UPDATE lifecycle_policies SET auto_enforce = FALSE, enforce_dry_run = TRUE WHERE id = 1")
+	})
+
+	policyRepo := lifecyclerepo.NewPolicyRepository(db)
+	instanceRepo := lifecyclerepo.NewInstanceReader(db)
+	policy, err := policyRepo.Get(ctx)
+	if err != nil {
+		t.Fatalf("读取策略失败: %v", err)
+	}
+
+	now := time.Now()
+	suspID := createLifecycleInstance(t, db, fmt.Sprintf("p5-one-%d", now.UnixNano()%1e6), now.AddDate(0, 0, -(policy.GraceDays+3)), "self")
+
+	fp := &fakeLifecycleProvider{}
+	adv := NewLifecycleAdvancer(instanceRepo, policyRepo, func(context.Context, uint64) (upstream.Provider, error) {
+		return fp, nil
+	}, &stageRecordCollector{}, zap.NewNop())
+
+	action, err := adv.EnforceOne(ctx, suspID, "客户已确认不再续费")
+	if err != nil {
+		t.Fatalf("手动处置应成功: %v", err)
+	}
+	if action != "suspend" {
+		t.Fatalf("手动处置动作期望 suspend，实际 %q", action)
+	}
+	if len(fp.suspended) != 1 {
+		t.Fatalf("手动处置应调用上游暂停 1 次，实际 %d", len(fp.suspended))
+	}
+	var st string
+	if err := db.Raw("SELECT COALESCE(lifecycle_stage,'') FROM instances WHERE id = ?", suspID).Scan(&st).Error; err != nil {
+		t.Fatalf("读取阶段失败: %v", err)
+	}
+	if st != lifecyclemodel.StageSuspended {
+		t.Fatalf("手动处置后阶段期望 suspended，实际 %q", st)
+	}
 }
 
 // TestLiveRenewalDualChain 验证 T5.2 双链路续费语义：

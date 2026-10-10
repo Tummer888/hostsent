@@ -67,6 +67,27 @@
         >
           控制台
         </t-button>
+        <!-- 暂停/恢复（T5.5）：按当前生命周期阶段二选一展示 -->
+        <t-button
+          v-if="instanceData?.lifecycle_stage === 'suspended'"
+          v-permission="'instance:action'"
+          variant="outline"
+          :loading="actioning"
+          @click="handleUnsuspend"
+        >
+          恢复服务
+        </t-button>
+        <t-button
+          v-else
+          v-permission="'instance:action'"
+          variant="outline"
+          :disabled="!instanceData?.capabilities?.suspend"
+          :title="capabilityTitle(instanceData?.capabilities?.suspend)"
+          :loading="actioning"
+          @click="handleSuspend"
+        >
+          暂停服务
+        </t-button>
         <t-button v-permission="'instance:action'" variant="outline" :loading="syncing" @click="handleSync">
           同步刷新
         </t-button>
@@ -140,6 +161,11 @@
                   {{ instanceStatusLabel(instanceData.status) }}
                 </t-tag>
               </t-descriptions-item>
+              <t-descriptions-item label="生命周期阶段">
+                <t-tag :theme="lifecycleStageTheme(instanceData.lifecycle_stage)" variant="light" size="small" shape="round">
+                  {{ lifecycleStageLabel(instanceData.lifecycle_stage) }}
+                </t-tag>
+              </t-descriptions-item>
               <t-descriptions-item label="电源状态">{{ powerStatusText(instanceData.power_status) }}</t-descriptions-item>
               <t-descriptions-item label="到期时间">
                 <span :class="expireClass(instanceData)">
@@ -150,6 +176,15 @@
                 </span>
               </t-descriptions-item>
               <t-descriptions-item label="最近回源时间">{{ formatTime(instanceData.last_synced_at) }}</t-descriptions-item>
+              <t-descriptions-item v-if="instanceData.enforce_attempts > 0 || instanceData.last_enforce_error" label="到期处置">
+                <span class="expire-danger">连续失败 {{ instanceData.enforce_attempts }} 次</span>
+                <div class="cell-sub" v-if="instanceData.enforce_next_at">
+                  下次重试：{{ formatTime(instanceData.enforce_next_at) }}
+                </div>
+                <div class="cell-sub op-error" v-if="instanceData.last_enforce_error">
+                  {{ instanceData.last_enforce_error }}
+                </div>
+              </t-descriptions-item>
               <t-descriptions-item label="创建时间">{{ formatTime(instanceData.created_at) }}</t-descriptions-item>
               <t-descriptions-item label="更新时间">{{ formatTime(instanceData.updated_at) }}</t-descriptions-item>
               <t-descriptions-item label="管理员备注">{{ instanceData.remark || '—' }}</t-descriptions-item>
@@ -419,6 +454,11 @@
       @close="vnc.visible = false"
     >
       <div class="vnc-wrap">
+        <div v-if="vnc.password" class="vnc-meta">
+          <span class="vnc-meta__label">控制台密码</span>
+          <code class="vnc-meta__value">{{ vnc.password }}</code>
+          <t-button size="small" variant="text" theme="primary" @click="copyVncPassword">复制</t-button>
+        </div>
         <iframe v-if="vnc.url && isHttp(vnc.url)" :src="vnc.url" class="vnc-frame" frameborder="0" />
         <t-empty v-else description="控制台地址无法内嵌显示，请点击打开">
           <template #action>
@@ -445,7 +485,9 @@ import {
   getInstanceVNC,
   powerInstance,
   resizeInstance,
+  suspendInstance,
   syncInstance,
+  unsuspendInstance,
   updateInstanceRemark,
 } from '@/api/instance'
 import { renewInstance } from '@/api/lifecycle'
@@ -455,6 +497,8 @@ import {
   formatTime,
   instanceStatusLabel,
   instanceStatusTheme,
+  lifecycleStageLabel,
+  lifecycleStageTheme,
   operationActionLabel,
   operatorTypeLabel,
   powerActionLabel,
@@ -478,6 +522,7 @@ const instanceId = Number(route.params.id)
 const instanceData = ref<InstanceDetail | null>(null)
 const loading = ref(false)
 const syncing = ref(false)
+const actioning = ref(false)
 const activeTab = ref('overview')
 
 const operations = ref<OperationItem[]>([])
@@ -680,6 +725,44 @@ async function handleSync() {
   }
 }
 
+// —— 暂停/恢复（T5.5）——
+function handleSuspend() {
+  const name = instanceData.value?.name || instanceData.value?.instance_id || ''
+  const dialog = DialogPlugin.confirm({
+    header: '暂停实例服务',
+    body: `确认暂停实例「${name}」？暂停后平台侧实例将停止服务，用户需续费或联系客服才能恢复。`,
+    confirmBtn: { content: '确认暂停', theme: 'danger' },
+    cancelBtn: { content: '再想想' },
+    onConfirm: async () => {
+      dialog.destroy()
+      actioning.value = true
+      try {
+        await suspendInstance(instanceId)
+        MessagePlugin.success('实例已暂停')
+        reloadAll()
+      } catch (error) {
+        MessagePlugin.error((error as Error).message || '暂停失败')
+      } finally {
+        actioning.value = false
+      }
+    },
+    onClose: () => dialog.destroy(),
+  })
+}
+
+async function handleUnsuspend() {
+  actioning.value = true
+  try {
+    await unsuspendInstance(instanceId)
+    MessagePlugin.success('实例已恢复')
+    reloadAll()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '恢复失败')
+  } finally {
+    actioning.value = false
+  }
+}
+
 const remarkVisible = ref(false)
 const remarkForm = reactive<{ remark: string }>({ remark: '' })
 
@@ -808,6 +891,12 @@ async function handleVnc() {
 
 function openVnc() {
   window.open(vnc.url, '_blank')
+}
+
+function copyVncPassword() {
+  if (!vnc.password) return
+  void navigator.clipboard?.writeText(vnc.password)
+  MessagePlugin.success('控制台密码已复制')
 }
 
 function isHttp(url: string): boolean {

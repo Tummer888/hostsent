@@ -32,6 +32,8 @@ const (
 const (
 	ResultSuccess = "success"
 	ResultFailed  = "failed"
+	// ResultSkipped 未真正下发上游的情况：自动执行总开关关闭、预演、上游缺能力仅标记。
+	ResultSkipped = "skipped"
 )
 
 // Operation 实例运维操作流水（管理端/用户端/系统自动操作统一落库）。

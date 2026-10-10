@@ -116,6 +116,60 @@ type AccountReader interface {
 	GetAccountInfo(ctx context.Context) (*AccountInfo, error)
 }
 
+// FinanceLedgerReader 上游财务账本读取能力（成本管理 doc111 §5.2）。
+//
+// 与 AccountReader（只给当前余额）的区别：账本给的是**可归集的流水**——
+// 每一笔扣款/充值的时间、金额、类型与上游账单号，因此月度成本不必再靠余额差推算，
+// 逐笔可查、可回填历史、可与余额快照互校。
+type FinanceLedgerReader interface {
+	// ListConsumptionRecords 消费流水（余额支付的开通/续费），按时间倒序分页。
+	ListConsumptionRecords(ctx context.Context, page, limit int) ([]LedgerEntry, int, error)
+	// ListTopupRecords 充值/入账流水，按时间倒序分页。
+	ListTopupRecords(ctx context.Context, page, limit int) ([]LedgerEntry, int, error)
+	// ListDueHosts 上游主机清单中与「待付」相关的信息（续费金额 + 到期日），用于余额水位告警。
+	ListDueHosts(ctx context.Context) ([]DueHost, error)
+}
+
+// 账本条目方向。
+const (
+	// LedgerKindConsume 消费（钱从上游账户花出去）。
+	LedgerKindConsume = "consume"
+	// LedgerKindTopup 充值/入账（钱进上游账户）。
+	LedgerKindTopup = "topup"
+)
+
+// LedgerEntry 上游账本条目（消费或充值）。
+type LedgerEntry struct {
+	// ExternalID 上游记录 ID（字符串化；与 ProviderID+Kind 组成唯一键，重复同步即幂等）。
+	ExternalID string
+	// Kind LedgerKindConsume / LedgerKindTopup。
+	Kind string
+	// OccurredAt 发生时间（上游给的是秒级时间戳，已转 UTC）。
+	OccurredAt time.Time
+	// Amount 金额（正数）。
+	Amount float64
+	// RefundAmount 该笔对应的退款金额（正数=已冲回；消费净额 = Amount − RefundAmount）。
+	RefundAmount float64
+	// Category 上游给的类型（订购产品 / 续费 / 用户充值 / 人工入账…），仅作展示与分组。
+	Category string
+	// RefNo 上游账单号 / 交易号（对账用）。
+	RefNo string
+	// Description 上游描述原文。
+	Description string
+}
+
+// DueHost 上游主机的续费信息（余额水位告警用）。
+type DueHost struct {
+	UpstreamID  string
+	ProductName string
+	Domain      string
+	// Amount 下一期续费金额（上游口径）。
+	Amount float64
+	// NextDueAt 到期时间。
+	NextDueAt time.Time
+	Status    string
+}
+
 // PlatformResourceReader 平台资源目录读取能力（自营规格配置用）。
 // 自营商品的规格必须映射到"平台确实存在的取值"（区域/节点/存储/镜像）；
 // 没有这份目录，运营只能靠记忆手填 ID，规格映射就形同虚设。

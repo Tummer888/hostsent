@@ -77,3 +77,21 @@ func TestCreateInstanceLive(t *testing.T) {
 	}
 	t.Logf("re-fetch host_id=%s domainstatus-aware status=%s", got.UpstreamID, got.Status)
 }
+
+// TestGetAccountInfoLive 只读验证「取我方在上游的账户余额」链路（GET cart/credit）。
+// 与开通用例共用 LIVE_ZJMF 与凭据：余额查询不动账、不产生费用，但需要真实 API 账号，
+// 因此同样用该开关显式启用（成本管理「上游余额台账」的抓取余额走的就是这条链路，doc111 §5）。
+func TestGetAccountInfoLive(t *testing.T) {
+	p := liveZjmfProvider(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+
+	info, err := p.GetAccountInfo(ctx)
+	if err != nil {
+		t.Fatalf("GetAccountInfo failed: %v", err)
+	}
+	if info.Currency == "" {
+		t.Errorf("currency 为空，应回落 CNY")
+	}
+	t.Logf("上游账户余额 balance=%.2f currency=%s", info.Balance, info.Currency)
+}
