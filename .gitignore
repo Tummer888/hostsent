@@ -19,3 +19,6 @@ node_modules
 /skill
 /.zcode
 __pycache__/
+/backend/configs/config.yaml
+/frontend-user/.env
+/frontend-admin/.env
