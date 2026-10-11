@@ -614,7 +614,7 @@ func TestLiveSalesAndNotificationMergedIntoSystem(t *testing.T) {
 		t.Fatalf("连接 DB 失败: %v", err)
 	}
 
-	sqlBytes, err := os.ReadFile("../../../migrations/068_merge_sales_and_notification_into_system.sql")
+	sqlBytes, err := os.ReadFile("../../../migrations/086_merge_sales_and_notification_into_system.sql")
 	if err != nil {
 		t.Fatalf("读取迁移文件失败: %v", err)
 	}

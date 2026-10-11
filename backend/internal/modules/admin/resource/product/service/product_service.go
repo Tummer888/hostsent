@@ -1,4 +1,9 @@
 // Package service 提供上游商品管理模块的业务编排。
+//
+// 命名澄清：本模块管理「上游资源商品」（resource_products 表，来自供应商
+// 同步镜像，含成本价/同步状态），与 admin/product/catalog 的「终端销售商品」
+// （products 表，含定价/规格/SKU）是两个域——后者才是面向客户售卖的商品目录。
+// 两者的关联经 catalog.Product.SourceProductID/SourceProviderID 建立引用。
 package service
 
 import (

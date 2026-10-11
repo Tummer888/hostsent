@@ -1,3 +1,8 @@
+// Command server 是 HostSent 后端唯一的生产服务入口。
+//
+// 职责仅限：加载配置 → 初始化日志/数据库 → 装配 internal/server 并监听。
+// 业务模块一律在 internal/server 装配层接入，不要在 main 里写业务构造。
+// 辅助工具入口见 cmd/openapp、cmd/ucgatewaymock，说明见仓库根 README。
 package main
 
 import (

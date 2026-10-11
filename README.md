@@ -2,6 +2,28 @@
 
 HostSent 是一个云主机管理系统，面向云资源的售卖、管理、监控与售后场景，覆盖从官网门户、商品选购、下单支付，到实例开通、生命周期管理、财务结算与售后的完整业务闭环。
 
+## 架构总览
+
+```mermaid
+flowchart LR
+    subgraph 前端
+        A[frontend-admin<br/>管理端 :3000]
+        U[frontend-user<br/>用户端 :3002]
+        S[frontend-site<br/>官网 :3003]
+    end
+    subgraph 后端
+        B[Go API Server :8080<br/>Gin + GORM]
+    end
+    D[(PostgreSQL)]
+    X[上游系统<br/>魔方财务 / 魔方云]
+
+    A -->|/api/v1/admin| B
+    U -->|/api/v1/uc| B
+    S -->|/api/v1/site + BFF| B
+    B --> D
+    B -->|出站适配器| X
+```
+
 ## 功能特性
 
 - **门户与商城**：Nuxt 官网（商品展示 / 公告 / 帮助 / 新闻）、用户端商城与购物车、多周期定价与限时折扣
@@ -32,21 +54,44 @@ hostsent/
 │   ├── cmd/server/           # 入口
 │   ├── internal/
 │   │   ├── modules/
-│   │   │   ├── admin/        # 管理端模块：user / product / resource / finance / instance / system / sales ...
-│   │   │   ├── uc/           # 用户端模块：auth / order / payment / instance / finance / oauth ...
+│   │   │   ├── admin/        # 管理端模块（见下「模块地图」）
+│   │   │   ├── uc/           # 用户端模块（见下「模块地图」）
 │   │   │   └── site/         # 官网开放接口
 │   │   ├── server/           # 路由注册与模块装配
-│   │   └── pkg/              # upstream / payment / oauth / captcha / notifier / credentials / specatom ...
-│   ├── configs/              # config.yaml（config.example.yaml 为模板）
+│   │   └── pkg/              # upstream / payment / oauth / captcha / notifier ...
+│   ├── configs/              # config.yaml（config.example.yaml 为模板，不入库）
 │   ├── migrations/           # 迁移与数据演进记录（见下文「数据库迁移」）
 │   └── docs/openapi.yaml     # 生成的 OpenAPI 文档（勿手改）
 ├── frontend-admin/           # 管理端（Vite + TDesign，:3000）
 ├── frontend-user/            # 用户端（Vite + TDesign，:3002）
 ├── frontend-site/            # 官网（Nuxt，:3003）
 ├── scripts/                  # start-frontends.sh 等脚本，日志在 scripts/logs/
-├── docs/                     # 架构文档、实施计划、上游对接文档
+├── docs/                     # 架构文档、实施计划（不入库）
 └── .github/workflows/ci.yml  # CI
 ```
+
+## 模块地图
+
+后端每个模块遵循统一分层：`dto`（传输对象）→ `model`（GORM 模型）→ `repository`（数据访问）→ `service`（业务逻辑）→ `handler`（HTTP 接口），并在 `internal/server/` 完成装配。
+
+| 域 | 模块 |
+| --- | --- |
+| `admin/` 管理端 | `user`（账号/等级/实名）· `product`（商品目录/SKU/限时折扣）· `resource`（供应商/同步中心）· `finance`（账单/充值/提现/成本/积分/返利/价格矩阵）· `instance`（实例/生命周期）· `order` · `system`（支付/通知/内容/日志中心/员工/验证码）· `sales`（业绩/佣金）· `manager`（部门/员工）· `menu` · `ticket` · `logcenter` |
+| `uc/` 用户端 | `auth` · `member` · `product`（商城）· `order` · `payment`（收银台）· `finance`（钱包/账单）· `instance`（云主机）· `oauth` · `point` · `referral` · `captcha` · `menu` |
+| `site/` 官网 | 商品 / 公告 / 帮助 / 新闻等开放接口（Nuxt BFF 同源代理） |
+
+`internal/pkg/` 关键能力包：
+
+| 包 | 职责 |
+| --- | --- |
+| `upstream` | 上游适配器（mofangfinance / mofangyun）、ProviderManager 工厂、能力分发 |
+| `payment` / `alipay` | 支付契约层与渠道实现 |
+| `credentials` / `crypto` / `mask` | 凭证 AES-256-GCM 加密、脱敏 |
+| `transport` | 出站 HTTP 统一封装（超时 / 重试 / 记录） |
+| `specatom` / `pricing` / `billingcycle` | 规格原子化、多级定价、计费周期 |
+| `oauth` / `realname` / `captcha` / `passwordpolicy` | 第三方登录 / 实名 / 验证码 / 密码策略 |
+| `notifier` / `publishsched` / `revalidate` / `jobrun` | 多渠道通知、定时发布、前台按需再验证、任务执行记录 |
+| `cache` / `storage` / `observability` / `logger` | 缓存（local/redis）、对象存储、可观测性、日志 |
 
 ## 快速开始
 
@@ -60,7 +105,7 @@ hostsent/
 ```bash
 # 1. 准备配置
 cp backend/configs/config.example.yaml backend/configs/config.yaml
-#    编辑数据库 / JWT / 支付 / 上游等配置
+#    编辑数据库 / JWT / 上游等配置（config.yaml 不入库）
 
 # 2. 启动 PostgreSQL（或使用现成实例）
 cd backend && docker compose up -d
@@ -68,6 +113,16 @@ cd backend && docker compose up -d
 # 3. 启动服务
 cd backend && go run ./cmd/server   # 监听 :8080
 ```
+
+`config.yaml` 主要配置段：
+
+| 段 | 说明 |
+| --- | --- |
+| `app` | 服务端口等基础项 |
+| `auth` | JWT 密钥、登录安全（失败锁定）等 |
+| `database` / `redis` | PostgreSQL 连接、Redis 连接 |
+| `pricing` | 定价相关参数 |
+| `revalidate` | 官网缓存主动失效接口的共享 token（与官网 `NUXT_INTERNAL_TOKEN` 一致） |
 
 ### 前端（一键启动三个前端）
 
@@ -79,11 +134,11 @@ cd backend && go run ./cmd/server   # 监听 :8080
 
 脚本会自动释放端口、缺 `node_modules` 时先 `npm install`，日志写入 `scripts/logs/`。开发代理统一指向本地后端 `http://127.0.0.1:8080`。
 
-| 应用 | 地址 |
-| --- | --- |
-| 管理端 frontend-admin | http://localhost:3000 |
-| 用户端 frontend-user | http://localhost:3002 |
-| 官网 frontend-site | http://localhost:3003 |
+| 应用 | 地址 | 环境变量模板 |
+| --- | --- | --- |
+| 管理端 frontend-admin | http://localhost:3000 | `.env.example`（`VITE_USER_BASE_URL` 用户端地址） |
+| 用户端 frontend-user | http://localhost:3002 | `.env.example`（`VITE_API_URL`） |
+| 官网 frontend-site | http://localhost:3003 | `.env.example`（`NUXT_PUBLIC_*`、`NUXT_INTERNAL_TOKEN`） |
 
 ## 数据库迁移
 
@@ -108,12 +163,23 @@ go test -count=1 ./...                                   # 全量单测
 go test -tags live -run TestXxx ./internal/pkg/db/...    # live 测试（build tag: live）
 ```
 
+部分 live 测试（真机联调）通过环境变量开启，未设置时自动跳过，例如魔方财务：`LIVE_ZJMF=1`、`ZJMF_USER`、`ZJMF_PASS`。
+
 前端类型检查：
 
 ```bash
 cd frontend-admin && npx vue-tsc --noEmit
 cd frontend-user  && npx vue-tsc --noEmit
 ```
+
+## 工具命令
+
+除生产入口 `cmd/server` 外，`backend/cmd/` 还提供两个辅助工具：
+
+| 入口 | 用途 |
+| --- | --- |
+| `go run ./cmd/openapp` | 开放平台应用管理 CLI：open_apps 的建应用 / 启停 / 重置密钥 / 回调与 IP 白名单设置（密钥经 AES 加密落库，明文仅创建时打印一次） |
+| `go run ./cmd/ucgatewaymock` | 支付宝开放平台模拟器，供 `scripts/e2e_user_closure.py` 等用户端闭环 E2E 联调使用，无需真实支付宝环境 |
 
 ## CI
 
@@ -132,7 +198,14 @@ cd frontend-user  && npx vue-tsc --noEmit
 - **mofangfinance**（魔方财务 / 智简魔方）：`createApi` 注册凭证、`inputProduct` 导入商品、价格行无损承载与折扣换算
 - **mofangyun**（魔方云 / dcimcloud）：服务器接入、能力分发与选项目录取值映射
 
-凭证（api_key / api_secret）经 AES-256-GCM 加密落库，对外脱敏展示；出站调用统一走 `pkg/transport`。对接参考文档见 `docs/魔方云对接魔方财务.html` 与 `docs/实施计划/`。
+统一约定：
+
+- 适配器实现 `upstream.Provider` 接口，经 `ProviderManager` 按类型工厂化创建，支持同类型多供应商
+- 凭证（api_key / api_secret）经 AES-256-GCM 加密落库，对外脱敏展示
+- 出站调用统一走 `pkg/transport`，调用记录进入日志中心的上游调用台账
+- 真机联调测试以 build tag `live` 隔离，凭证走环境变量，不硬编码
+
+对接参考文档见 `docs/魔方云对接魔方财务.html` 与 `docs/实施计划/`（本地文档，不入库）。
 
 ## 文档
 
