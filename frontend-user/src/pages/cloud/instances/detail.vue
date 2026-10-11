@@ -22,6 +22,12 @@
           <template #icon><t-icon name="refresh" /></template>
           重启
         </t-button>
+        <t-button theme="danger" variant="outline" :disabled="instance.power_status === 'off'" @click="onPower('hard_off', true)">
+          强制关机
+        </t-button>
+        <t-button theme="danger" variant="outline" :disabled="instance.power_status !== 'on'" @click="onPower('hard_reboot', true)">
+          强制重启
+        </t-button>
         <t-button theme="primary" :disabled="instance.status !== 'running'" @click="onVNC">
           <template #icon><t-icon name="screen-zoom" /></template>
           VNC 控制台
@@ -254,7 +260,7 @@
       </t-alert>
       <div class="destroy-body">
         <p class="destroy-tip">用户名：<code>{{ credential.username || '—' }}</code></p>
-        <p class="destroy-tip">新密码：<code>{{ credential.password || '（平台未返回，沿用原密码）' }}</code></p>
+        <p class="destroy-tip">新密码：<code>{{ credential.password || '（平台未返回，请改用「重置密码」或到平台面板查看）' }}</code></p>
       </div>
     </t-dialog>
   </div>
@@ -264,7 +270,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 
 import { destroyInstance, getInstance, powerInstance, vncInstance, type InstanceInfo } from '@/api/cloud'
 import {
@@ -312,8 +318,27 @@ async function load(live = false) {
   instance.value = res.data
 }
 
-async function onPower(action: 'on' | 'off' | 'reboot') {
-  const label = { on: '开机', off: '关机', reboot: '重启' }[action]
+async function onPower(action: 'on' | 'off' | 'reboot' | 'hard_off' | 'hard_reboot', needConfirm = false) {
+  const label = { on: '开机', off: '关机', reboot: '重启', hard_off: '强制关机', hard_reboot: '强制重启' }[action]
+  if (needConfirm) {
+    // 硬电源 = 断电级动作，先确认再发指令；取消即什么都不做。
+    const dialog = DialogPlugin.confirm({
+      header: label,
+      body: `${label}等同于断电，可能造成数据损坏，确认继续？`,
+      confirmBtn: { content: `确认${label}`, theme: 'danger' },
+      cancelBtn: { content: '取消' },
+      onConfirm: () => {
+        dialog.destroy()
+        void doPower(action, label)
+      },
+      onClose: () => dialog.destroy(),
+    })
+    return
+  }
+  await doPower(action, label)
+}
+
+async function doPower(action: 'on' | 'off' | 'reboot' | 'hard_off' | 'hard_reboot', label: string) {
   try {
     await powerInstance(Number(route.params.id), action)
     MessagePlugin.success(`${label}指令已发送`)

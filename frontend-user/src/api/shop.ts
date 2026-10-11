@@ -72,6 +72,33 @@ export interface ProductInfo {
   skus: SkuInfo[]
   /** 客户可选配置项（自营）：档位之外可自选的参数，选中加价并入结算金额 */
   option_groups: ProductOptionGroup[]
+  /**
+   * 对接链路信息（source_mode=upstream 时有值）：配置箱据此把上游固定配置展示为只读，
+   * 并提示是否可续费与开通选项（主机名 / 随机密码 / 端口）。
+   */
+  upstream_chain?: UpstreamChain | null
+}
+
+/** 对接商品的客户可见链路信息（不含上游价格、渠道等内部口径） */
+export interface UpstreamChain {
+  /** 是否整机固定配置（上游全部配置项都只有一个取值） */
+  fixed_config: boolean
+  /** 是否可续费；false 时不要展示续费入口 */
+  renewable: boolean
+  renew_note: string
+  options: UpstreamChainOption[]
+  /** 下单说明（主机名可自定义 / 密码随机 / 端口由上游分配） */
+  order_notes?: string[]
+}
+
+export interface UpstreamChainOption {
+  key: string
+  /** 中文名（CPU / 内存 / 操作系统…） */
+  name: string
+  /** true=上游固定配置，本地不可改 */
+  locked: boolean
+  /** 锁定时的唯一取值 */
+  value: string
 }
 
 export interface ProductListResponse {
@@ -201,6 +228,10 @@ function normalizeProduct(p: ProductInfo): ProductInfo {
     option_groups: (Array.isArray(p.option_groups) ? p.option_groups : [])
       .map((g) => ({ ...g, options: Array.isArray(g.options) ? g.options : [] }))
       .filter((g) => g.options.length > 0),
+    // 对接链路：老后端不带该字段时归一为 null（页面按自营口径渲染）。
+    upstream_chain: p.upstream_chain
+      ? { ...p.upstream_chain, options: Array.isArray(p.upstream_chain.options) ? p.upstream_chain.options : [] }
+      : null,
   }
 }
 

@@ -145,6 +145,63 @@ export interface SaleProductInfo {
   generated_specs?: SaleProductSpecInfo[]
   /** 建品时规格生成的部分失败原因（商品已建，规格可到详情页重试） */
   spec_template_notice?: string
+  /** 上游对接信息（仅 source_mode=upstream，且读到上游镜像时有值） */
+  upstream?: SaleProductUpstreamInfo
+}
+
+/**
+ * 对接商品的上游对接信息：详情页据此区分自营与对接两条链路的配置逻辑。
+ * 价格三口径：list_price 上游标价、cost_price 代理价（我方采购价）、product.price 本地售价。
+ */
+export interface SaleProductUpstreamInfo {
+  provider_id: number
+  provider_name: string
+  provider_type: string
+  upstream_id: string
+  group_id: number
+  /** 上游商品分组（分类）：与导入弹窗同一口径（上游 cart/all） */
+  group_name: string
+  /** 上游标价 */
+  list_price: number
+  /** 代理价（采购价，已含上游给的代理折扣） */
+  cost_price: number
+  /** 折扣描述，如「代理折扣 70%（应付标价的 70%）」 */
+  discount_desc: string
+  /** 各周期标价 / 采购价（周期 → 金额） */
+  list_cycles: Record<string, number> | null
+  cost_cycles: Record<string, number> | null
+  /** 是否可续费（上游一次性/免费商品不可续费） */
+  renewable: boolean
+  renew_note: string
+  /** 上游富文本商品描述 */
+  description: string
+  /** 上游付费类型（recurring/onetime/free） */
+  pay_type: string
+  /** 是否整机固定配置（上游全部配置项都只有一个取值） */
+  fixed_config: boolean
+  /** 上游配置项清单（含锁定状态） */
+  options: SaleProductUpstreamOption[]
+}
+
+/** 上游配置项及锁定状态：locked=true 表示上游固定配置，本地不可改（改了开通报错） */
+export interface SaleProductUpstreamOption {
+  option_name: string
+  key: string
+  locked: boolean
+  value: string
+  sub_count: number
+}
+
+/** 批量导入结果：成功项 + 失败项（逐条原因） */
+export interface SaleProductBatchCloneResponse {
+  items: SaleProductInfo[]
+  failed: SaleProductBatchCloneFailure[]
+}
+
+export interface SaleProductBatchCloneFailure {
+  source_product_id: number
+  name: string
+  reason: string
 }
 
 export interface SaleProductListResponse {

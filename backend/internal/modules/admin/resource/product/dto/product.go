@@ -22,27 +22,29 @@ type ProductPriceRequest struct {
 
 // ProductInfo 商品信息
 type ProductInfo struct {
-	ID         uint64  `json:"id"`
-	ProviderID uint64  `json:"provider_id"`
-	UpstreamID string  `json:"upstream_id"`
-	Name       string  `json:"name"`
-	GroupID    int64   `json:"group_id"`
-	GroupName  string  `json:"group_name"`
-	CPU        int     `json:"cpu"`
-	Memory     int     `json:"memory"`
-	Disk       int     `json:"disk"`
-	DiskType   string  `json:"disk_type"`
-	Bandwidth  int     `json:"bandwidth"`
-	OS         string  `json:"os"`
-	Region     string  `json:"region"`
-	Zone       string  `json:"zone"`
-	Specs      string  `json:"specs"`
-	RawSpecs   string  `json:"raw_specs"`
-	CostPrice  float64 `json:"cost_price"`
-	SalePrice  float64 `json:"sale_price"`
-	Status     int     `json:"status"`
-	CreatedAt  string  `json:"created_at"`
-	UpdatedAt  string  `json:"updated_at"`
+	ID         uint64 `json:"id"`
+	ProviderID uint64 `json:"provider_id"`
+	UpstreamID string `json:"upstream_id"`
+	Name       string `json:"name"`
+	GroupID    int64  `json:"group_id"`
+	GroupName  string `json:"group_name"`
+	CPU        int    `json:"cpu"`
+	Memory     int    `json:"memory"`
+	Disk       int    `json:"disk"`
+	DiskType   string `json:"disk_type"`
+	Bandwidth  int    `json:"bandwidth"`
+	OS         string `json:"os"`
+	Region     string `json:"region"`
+	Zone       string `json:"zone"`
+	Specs      string `json:"specs"`
+	// RawSpecs 上游原始快照（含 config_groups/描述/双价周期，单商品 10KB 量级）。
+	// 仅详情接口返回；列表接口留空，避免一次拉全量商品时把正文全带上。
+	RawSpecs  string  `json:"raw_specs,omitempty"`
+	CostPrice float64 `json:"cost_price"`
+	SalePrice float64 `json:"sale_price"`
+	Status    int     `json:"status"`
+	CreatedAt string  `json:"created_at"`
+	UpdatedAt string  `json:"updated_at"`
 }
 
 // ProductListResponse 商品列表响应

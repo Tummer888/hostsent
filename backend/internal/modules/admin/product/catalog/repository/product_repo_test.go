@@ -62,19 +62,24 @@ func TestParseConfigGroups(t *testing.T) {
 
 // TestBuildConfigGroupsMatchesUpstream 验证子表行重建的 config_groups 结构与上游
 // mofangfinance.ConfigGroup 完全契约兼容（供 buildCartConfigOption 消费）。
+// 列口径：upstream_key 列 = 上游自身 id（下单键），source_key 列 = 上游再上一层 id（链路参考）。
 func TestBuildConfigGroupsMatchesUpstream(t *testing.T) {
 	rows := []*model.ProductConfigOption{
 		{
-			ProductID: 7, UpstreamKey: 710549, OptionName: "cpu", OptionType: 2, SortOrder: 0,
+			ProductID: 7, UpstreamKey: 159899, SourceKey: "710549", Source: model.ConfigSourceUpstream,
+			OptionName: "cpu|CPU", OptionType: 2, SortOrder: 0,
 			Subs: []model.ProductConfigOptionSub{
-				{UpstreamKey: 4387511, OptionName: "4核", Hidden: 0, SortOrder: 0,
+				{UpstreamKey: 321187, SourceKey: "4387511", Source: model.ConfigSourceUpstream,
+					OptionName: "16|16核", Hidden: 0, SortOrder: 0,
 					PriceMonthly: 0, PriceAnnually: 99, PriceQuarterly: 0, PriceOnetime: 0},
 			},
 		},
 		{
-			ProductID: 7, UpstreamKey: 710550, OptionName: "memory", OptionType: 2, SortOrder: 1,
+			ProductID: 7, UpstreamKey: 159900, SourceKey: "710550", Source: model.ConfigSourceUpstream,
+			OptionName: "memory|内存", OptionType: 2, SortOrder: 1,
 			Subs: []model.ProductConfigOptionSub{
-				{UpstreamKey: 4387512, OptionName: "8G", Hidden: 1, SortOrder: 0,
+				{UpstreamKey: 321188, SourceKey: "4387516", Source: model.ConfigSourceUpstream,
+					OptionName: "16384|16G", Hidden: 1, SortOrder: 0,
 					PriceMonthly: 19.5, PriceAnnually: 195, PriceQuarterly: 0, PriceOnetime: 0},
 			},
 		},
@@ -96,11 +101,14 @@ func TestBuildConfigGroupsMatchesUpstream(t *testing.T) {
 		t.Fatalf("重建组/选项数量错误: %+v", groups)
 	}
 	cpu := groups[0].Options[0]
-	if cpu.UpstreamID != 710549 || cpu.OptionName != "cpu" || len(cpu.Sub) != 1 || cpu.Sub[0].UpstreamID != 4387511 {
+	if cpu.ID != 159899 || cpu.UpstreamID != 710549 || cpu.OptionName != "cpu|CPU" || len(cpu.Sub) != 1 {
 		t.Errorf("cpu 重建错误: %+v", cpu)
 	}
+	if cpu.Sub[0].ID != 321187 || cpu.Sub[0].UpstreamID != 4387511 {
+		t.Errorf("cpu 子项 id 口径错误: %+v", cpu.Sub[0])
+	}
 	mem := groups[0].Options[1]
-	if mem.Sub[0].Hidden != 1 || float64(mem.Sub[0].Pricings[0].Monthly) != 19.5 {
+	if mem.ID != 159900 || mem.Sub[0].Hidden != 1 || float64(mem.Sub[0].Pricings[0].Monthly) != 19.5 {
 		t.Errorf("memory 重建错误: %+v", mem)
 	}
 }
@@ -152,11 +160,24 @@ func TestConfigGroupsRoundTrip(t *testing.T) {
 	if cpu.UpstreamID != 710549 || cpu.OptionName != "cpu" || cpu.OptionType != 2 || len(cpu.Sub) != 1 {
 		t.Errorf("cpu 重建错误: %+v", cpu)
 	}
+	// id 必须是上游自身 id（cart configoption 的键）：上游 ConfigOptions::filterConfigOptions
+	// 只认自身 id，用 upstream_id 会被整段过滤 → 按上游默认配置开通。
+	if cpu.ID != 10 {
+		t.Errorf("cpu.ID = %d, want 10（上游自身 id，下单键）", cpu.ID)
+	}
+	if cpu.Sub[0].ID != 100 {
+		t.Errorf("cpu 子项 ID = %d, want 100（上游自身子项 id，下单取值）", cpu.Sub[0].ID)
+	}
 	if cpu.Sub[0].UpstreamID != 4387511 || float64(cpu.Sub[0].Pricings[0].Annually) != 99 {
 		t.Errorf("cpu 子项/价格重建错误: %+v", cpu.Sub)
 	}
+	// 重建结果直接喂给下单参数构建（适配器 buildCartConfigOption 取 id / sub.id，
+	// 见 mofangfinance::TestBuildCartConfigOptionFromGroups）：两侧 id 口径必须一致。
 	mem := rebuilt[0].Options[1]
 	if mem.UpstreamID != 710550 || len(mem.Sub) != 1 || mem.Sub[0].Hidden != 0 || float64(mem.Sub[0].Pricings[0].Monthly) != 19.5 {
 		t.Errorf("memory 重建错误: %+v", mem)
+	}
+	if mem.ID != 11 || mem.Sub[0].ID != 200 {
+		t.Errorf("memory 自身 id 丢失: option=%d sub=%d", mem.ID, mem.Sub[0].ID)
 	}
 }

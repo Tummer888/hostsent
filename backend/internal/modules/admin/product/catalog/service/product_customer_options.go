@@ -23,6 +23,9 @@ const (
 	optionWidgetRadio  = catalogmodel.ConfigWidgetRadio
 	optionWidgetQty    = catalogmodel.ConfigWidgetQty
 	optionWidgetBool   = catalogmodel.ConfigWidgetBool
+	// optionWidgetText 文本输入（对接商品的开通选项，如主机名）：无候选取值，
+	// 客户填什么就下发什么，不参与加价。
+	optionWidgetText = catalogmodel.ConfigWidgetText
 	// optionWidgetGroupSelect 分组下拉（按取值自带的 group_label 分组，如操作系统家族）。
 	optionWidgetGroupSelect = "group_select"
 )
@@ -114,8 +117,9 @@ func (s *productService) CustomerOptions(ctx context.Context, productID uint64) 
 		if grouped && widget == optionWidgetSelect {
 			opt.Widget = optionWidgetGroupSelect
 		}
-		// 枚举型没有任何可见取值时跳过（客户没得选）；数量型即便无取值也要下发。
-		if len(opt.Values) == 0 && opt.Widget != optionWidgetQty {
+		// 枚举型没有任何可见取值时跳过（客户没得选）；数量型与文本型即便无取值也要下发
+		// （数量型靠区间，文本型靠客户自由填写）。
+		if len(opt.Values) == 0 && opt.Widget != optionWidgetQty && opt.Widget != optionWidgetText {
 			continue
 		}
 		options = append(options, opt)
@@ -202,6 +206,14 @@ func (s *productService) ResolveOptionPricing(ctx context.Context, productID uin
 						Amount:     amount,
 					})
 				}
+			}
+			continue
+		}
+
+		// 文本型：无候选值，客户填什么就下发什么（留空表示用默认/自动生成），不参与加价。
+		if widget == optionWidgetText {
+			if chosen != "" {
+				result.Selections[key] = chosen
 			}
 			continue
 		}

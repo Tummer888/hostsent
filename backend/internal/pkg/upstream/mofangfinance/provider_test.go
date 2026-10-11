@@ -87,10 +87,10 @@ func TestLeadingInt(t *testing.T) {
 }
 
 // TestUpstreamPrice 验证上游售价归一化：pricings 的金额字段来自上游常为字符串
-// （如 "0.00"/"88.00"），FlexFloat 需兼容字符串与数字，且上月付优先。
+// （如 "0.00"/"88.00"），PricingRow 需兼容字符串与数字，且月付优先。
 func TestUpstreamPrice(t *testing.T) {
-	// 金额字段为字符串（兼容 FlexFloat 解析）。
-	var prs []ProductPricing
+	// 金额字段为字符串（兼容字符串/数字两种下发形态）。
+	var prs []PricingRow
 	if err := json.Unmarshal([]byte(`[
 		{"monthly":"88.00","annually":"960.00","quarterly":"264.00","onetime":"0.00"},
 		{"monthly":"0","annually":"1200.00","quarterly":"300.00","onetime":"0"}
@@ -101,8 +101,8 @@ func TestUpstreamPrice(t *testing.T) {
 	if got, want := upstreamPrice(prs[:1]), 88.00; got != want {
 		t.Errorf("upstreamPrice monthly = %v, want %v", got, want)
 	}
-	// 第二项：monthly 为 0/空，退到 annual 下一位，季付/年付需 year 优先于 quarterly？逻辑是 quarterly 优先于 annually。
-	// 依实现：monthly -> quarterly -> annually -> onetime，故第二项应取 quarterly=300。
+	// 第二项：monthly 为 0/空，退到下一位（实现顺序 monthly -> quarterly -> annually -> onetime），
+	// 故第二项应取 quarterly=300。
 	if got, want := upstreamPrice(prs[1:]), 300.00; got != want {
 		t.Errorf("upstreamPrice quarterly = %v, want %v", got, want)
 	}

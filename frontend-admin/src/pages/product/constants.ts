@@ -107,3 +107,43 @@ export function bindingStatusTag(status?: string): {
       return { theme: 'default', text: '未绑定' }
   }
 }
+
+// ---------- 计费周期标签（上游对接商品的付费周期展示） ----------
+
+const billingCycleLabels: Record<string, string> = {
+  hourly: '按小时',
+  daily: '按天',
+  monthly: '月付',
+  quarterly: '季付',
+  semiannually: '半年付',
+  annually: '年付',
+  biennially: '两年付',
+  triennially: '三年付',
+  onetime: '一次性',
+  free: '免费',
+  ontrial: '试用',
+}
+
+export function billingCycleLabel(cycle: string): string {
+  return billingCycleLabels[cycle] || cycle || '—'
+}
+
+/** 周期顺序（展示用：短周期在前，一次性在最后） */
+export const billingCycleOrder = [
+  'monthly',
+  'quarterly',
+  'semiannually',
+  'annually',
+  'biennially',
+  'triennially',
+  'onetime',
+]
+
+/** 把「周期 → 金额」映射按固定顺序拍平成数组（未知周期排在末尾，按字典序） */
+export function cycleEntries(map?: Record<string, number> | null): { cycle: string; label: string; amount: number }[] {
+  if (!map) return []
+  const keys = Object.keys(map)
+  const known = billingCycleOrder.filter((c) => keys.includes(c))
+  const rest = keys.filter((c) => !billingCycleOrder.includes(c)).sort()
+  return [...known, ...rest].map((cycle) => ({ cycle, label: billingCycleLabel(cycle), amount: map[cycle] }))
+}

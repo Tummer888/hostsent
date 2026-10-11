@@ -98,13 +98,26 @@ func NewFrameworkRepository(db *gorm.DB) FrameworkRepository {
 
 // ---------------------------------------------------------------- schedules
 
+// ListDueSchedules 返回到期且**渠道仍可调度**的调度行。
+//
+// 渠道侧条件必须在这里判：等价于 FindDueProviders 的口径（sync_enabled / status /
+// sync_paused / deleted_at）。曾漏判导致熔断与停用的渠道仍被每 60 秒触发、持续刷失败日志
+// （实测 provider 1/16/17 累计数万条）——CheckProviderReady 只能拦住"适配器构建失败"，
+// 拦不住 sync_paused 与已删除渠道。
 func (r *frameworkRepository) ListDueSchedules(ctx context.Context, now time.Time) ([]model.SyncSchedule, error) {
 	var items []model.SyncSchedule
 	err := r.db.WithContext(ctx).
-		Where("enabled = ?", true).
-		Where("next_run_at IS NULL OR next_run_at <= ?", now).
-		Order("priority desc, next_run_at asc nulls first, id asc").
-		Find(&items).Error
+		Table("sync_schedules AS s").
+		Joins("JOIN resource_providers AS p ON p.id = s.provider_id").
+		Where("s.enabled = ?", true).
+		Where("s.next_run_at IS NULL OR s.next_run_at <= ?", now).
+		Where("p.sync_enabled = ?", true).
+		Where("p.status = ?", 1).
+		Where("p.sync_paused = ?", false).
+		Where("p.deleted_at IS NULL").
+		Select("s.*").
+		Order("s.priority desc, s.next_run_at asc nulls first, s.id asc").
+		Scan(&items).Error
 	return items, err
 }
 

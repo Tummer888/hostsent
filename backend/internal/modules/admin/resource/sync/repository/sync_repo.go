@@ -26,6 +26,10 @@ type SyncRepository interface {
 	FindInstanceByID(ctx context.Context, id uint64) (*model.Instance, error)
 	UpsertInstances(ctx context.Context, items []model.Instance) error
 	CountInstancesByProductUser(ctx context.Context, userID, productID uint64) (int64, error)
+	// ExistingInstanceLinks 同步前回查既有归属（保留自营链路的 user_id/source_mode）。
+	ExistingInstanceLinks(ctx context.Context, instanceIDs []string) (map[string]InstanceLinkage, error)
+	// PlatformOwnerUserID 平台自持实例的归属账号（无单可挂时使用；0 表示无可用账号）。
+	PlatformOwnerUserID(ctx context.Context) (uint64, error)
 	// PurgeSyncDataBefore 分批清理 before 之前的同步任务与日志，返回删除总行数
 	PurgeSyncDataBefore(ctx context.Context, before time.Time, batchSize int) (int64, error)
 	// FailStaleTasks 将超时仍处于 pending/running 的任务标记为 failed，避免僵死任务永久阻塞调度
@@ -228,6 +232,67 @@ func (r *syncRepository) CountInstancesByProductUser(ctx context.Context, userID
 		Where("user_id = ? AND sell_product_id = ?", userID, productID).
 		Count(&count).Error
 	return count, err
+}
+
+// InstanceLinkage 某上游实例号在本地的既有归属与链路语义。
+type InstanceLinkage struct {
+	UserID     uint64
+	SourceMode string
+	// UpstreamProductID 既有上游资源商品绑定；自营实例为 0，同步不得覆盖。
+	UpstreamProductID uint64
+}
+
+// ExistingInstanceLinks 批量查 instance_id → 既有归属与链路语义。
+//
+// 用途：同步只应"发现"上游实例，不应把我方经订单开通的自营实例改写成上游链路、
+// 也不应改掉它的归属用户——那会让实例从用户控制台消失、续费/生命周期错挂。
+// 因此 upsert 前回查既有行，命中则把 user_id / source_mode / upstream_product_id
+// 恢复为原值（这三列都在 UpsertInstances 的更新列或NOT NULL 约束上）。
+func (r *syncRepository) ExistingInstanceLinks(ctx context.Context, instanceIDs []string) (map[string]InstanceLinkage, error) {
+	out := make(map[string]InstanceLinkage, len(instanceIDs))
+	if len(instanceIDs) == 0 {
+		return out, nil
+	}
+	type row struct {
+		InstanceID        string
+		UserID            uint64
+		SourceMode        string
+		UpstreamProductID uint64
+	}
+	var rows []row
+	if err := r.db.WithContext(ctx).Model(&model.Instance{}).
+		Select("instance_id, user_id, source_mode, upstream_product_id").
+		Where("instance_id IN ?", instanceIDs).
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, item := range rows {
+		out[item.InstanceID] = InstanceLinkage{
+			UserID:            item.UserID,
+			SourceMode:        item.SourceMode,
+			UpstreamProductID: item.UpstreamProductID,
+		}
+	}
+	return out, nil
+}
+
+// PlatformOwnerUserID 返回"平台自持实例"的归属账号：上游新增、我方无订单可挂的实例
+// （典型是面板上人工开的机器）需要有合法 user_id——instances.user_id 是全库唯一指向
+// users 的外键，同步写 0 会直接撞 23503，整个实例同步任务失败（实测 provider 19 连续
+// 数十次 23503）。
+//
+// 选号规则（不新建账号，避免与既有 69 行用户数据口径冲突）：
+//  1. 优先取 id 最小的正常账号（status=active、非子账号、未注销）——平台自持资源挂首个账号；
+//  2. 一个都没有时返回 0，由调用方把该实例登记为差异并跳过，绝不写入非法 user_id。
+func (r *syncRepository) PlatformOwnerUserID(ctx context.Context) (uint64, error) {
+	var id uint64
+	err := r.db.WithContext(ctx).Table("users").
+		Select("id").
+		Where("status = ? AND deleted_at IS NULL AND is_sub_account = ?", "active", false).
+		Order("id asc").
+		Limit(1).
+		Pluck("id", &id).Error
+	return id, err
 }
 
 // PurgeSyncDataBefore 分批删除 before 之前的同步日志与任务，返回删除总行数。

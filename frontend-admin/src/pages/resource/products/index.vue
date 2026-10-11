@@ -82,8 +82,13 @@
 
         <template #price="{ row }">
           <div class="price-cell">
-            <span class="price-sale">¥{{ formatPrice(row.sale_price) }}</span>
-            <span class="price-cost">成本 ¥{{ formatPrice(row.cost_price) }}</span>
+            <span class="price-sale">标价 ¥{{ formatPrice(row.sale_price) }}</span>
+            <span class="price-cost">
+              代理价 ¥{{ formatPrice(row.cost_price) }}
+              <em v-if="row.sale_price > row.cost_price && row.sale_price > 0" class="price-off">
+                {{ Math.round((row.cost_price / row.sale_price) * 100) }}%
+              </em>
+            </span>
           </div>
         </template>
 
@@ -128,27 +133,35 @@
     <t-dialog
       v-model:visible="detailVisible"
       :header="detailProduct ? `商品详情 · ${detailProduct.name}` : '商品详情'"
-      width="600px"
+      width="640px"
       :footer="false"
       @close="detailVisible = false"
     >
       <t-descriptions v-if="detailProduct" :column="2" bordered size="small">
         <t-descriptions-item label="商品名称">{{ detailProduct.name }}</t-descriptions-item>
         <t-descriptions-item label="上游 ID">{{ detailProduct.upstream_id || '—' }}</t-descriptions-item>
+        <t-descriptions-item label="上游分组">
+          <t-tag v-if="detailProduct.group_name" theme="primary" variant="light" size="small" shape="round">{{ detailProduct.group_name }}</t-tag>
+          <span v-else>未分类</span>
+        </t-descriptions-item>
         <t-descriptions-item label="规格">{{ detailProduct.cpu }}核 / {{ formatMemory(detailProduct.memory) }} / {{ formatDisk(detailProduct.disk) }} {{ detailProduct.bandwidth }}Mbps</t-descriptions-item>
         <t-descriptions-item label="磁盘类型">{{ detailProduct.disk_type || '—' }}</t-descriptions-item>
         <t-descriptions-item label="操作系统">{{ detailProduct.os || '—' }}</t-descriptions-item>
         <t-descriptions-item label="区域/可用区">{{ detailProduct.region }}{{ detailProduct.zone ? ' / ' + detailProduct.zone : '' }}</t-descriptions-item>
-        <t-descriptions-item label="原始规格">{{ detailProduct.raw_specs || '—' }}</t-descriptions-item>
-        <t-descriptions-item label="规格明细">{{ detailProduct.specs || '—' }}</t-descriptions-item>
-        <t-descriptions-item label="销售价">¥{{ formatPrice(detailProduct.sale_price) }}</t-descriptions-item>
-        <t-descriptions-item label="成本价">¥{{ formatPrice(detailProduct.cost_price) }}</t-descriptions-item>
+        <t-descriptions-item label="上游标价">¥{{ formatPrice(detailProduct.sale_price) }}</t-descriptions-item>
+        <t-descriptions-item label="代理价（采购价）">¥{{ formatPrice(detailProduct.cost_price) }}</t-descriptions-item>
         <t-descriptions-item label="状态">
           <t-tag :theme="detailProduct.status === 1 ? 'success' : 'default'" variant="light" size="small" shape="round">
             {{ detailProduct.status === 1 ? '上架中' : '已下架' }}
           </t-tag>
         </t-descriptions-item>
         <t-descriptions-item label="更新时间">{{ formatTime(detailProduct.updated_at) }}</t-descriptions-item>
+        <t-descriptions-item label="规格明细" :span="2">
+          <pre class="raw-pre">{{ detailProduct.specs || '—' }}</pre>
+        </t-descriptions-item>
+        <t-descriptions-item label="上游原始快照（config_groups / 双价周期 / 描述）" :span="2">
+          <pre class="raw-pre">{{ detailProduct.raw_specs || '—' }}</pre>
+        </t-descriptions-item>
       </t-descriptions>
     </t-dialog>
 
@@ -162,11 +175,11 @@
       @close="priceVisible = false"
     >
       <t-form label-align="top" :data="priceForm" @submit.prevent>
-        <t-form-item label="销售价（元）" name="sale_price">
-          <t-input-number v-model="priceForm.sale_price" :min="0" :precision="2" theme="column" placeholder="请输入销售价" />
+        <t-form-item label="上游标价（元）" name="sale_price">
+          <t-input-number v-model="priceForm.sale_price" :min="0" :precision="2" theme="column" placeholder="上游公示价" />
         </t-form-item>
-        <t-form-item label="成本价（元）" name="cost_price">
-          <t-input-number v-model="priceForm.cost_price" :min="0" :precision="2" theme="column" placeholder="请输入成本价" />
+        <t-form-item label="代理价（采购价，元）" name="cost_price">
+          <t-input-number v-model="priceForm.cost_price" :min="0" :precision="2" theme="column" placeholder="上游标价扣除代理折扣后的采购价" />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -180,7 +193,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { AppIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
-import { getProductList, getProviderList, updateProductPrice } from '@/api/admin'
+import { getProductDetail, getProductList, getProviderList, updateProductPrice } from '@/api/admin'
 import type { ProductInfo, ProviderInfo } from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
@@ -330,10 +343,23 @@ function handleResetFilters() {
 
 const detailVisible = ref(false)
 const detailProduct = ref<ProductInfo | null>(null)
+const detailLoading = ref(false)
 
-function openDetailDialog(row: ProductInfo) {
+/**
+ * 详情弹窗按需拉单个商品：列表接口已不带 raw_specs（单条 10KB 量级，整表会放大到 MB），
+ * 上游原始快照只有详情才需要。
+ */
+async function openDetailDialog(row: ProductInfo) {
   detailProduct.value = row
   detailVisible.value = true
+  detailLoading.value = true
+  try {
+    detailProduct.value = await getProductDetail(row.id)
+  } catch {
+    // 详情拉取失败时保留列表行数据（仍能看基础字段），不打断查看。
+  } finally {
+    detailLoading.value = false
+  }
 }
 
 const priceVisible = ref(false)
@@ -425,5 +451,26 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
 .price-cost {
   font-size: 12px;
   color: var(--color-muted-foreground);
+}
+
+/* 代理折扣标签：代理价 ÷ 标价的百分比，一眼看出上游给的折扣力度 */
+.price-off {
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: rgba(43, 164, 113, 0.12);
+  color: #2ba471;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.raw-pre {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 12px;
+  line-height: 1.5;
 }
 </style>

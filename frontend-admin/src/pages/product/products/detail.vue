@@ -262,6 +262,117 @@
           </div>
         </t-tab-panel>
 
+        <!-- 上游对接：仅对接商品展示。把「上游标价 / 代理价 / 折扣 / 固定配置 / 可否续费」
+             与「上游配置项锁定状态」集中在一个页签，运营一眼分清自营与对接两条链路的配置逻辑。 -->
+        <t-tab-panel v-if="isUpstreamChain" value="upstream" label="上游对接">
+          <div class="tabs-section">
+            <div class="table-card__head">
+              <h3 class="card-title">上游对接</h3>
+              <span class="table-card__meta">上游商品 ID：{{ product?.upstream?.upstream_id || '—' }}</span>
+            </div>
+
+            <t-alert
+              v-if="product?.upstream"
+              :theme="product.upstream.fixed_config ? 'warning' : 'info'"
+              :message="product.upstream.fixed_config
+                ? '该商品由上游固定配置（规格不可修改）：配置箱按上游商品参数开通，本地改动不会生效，改动锁定项还会导致开通失败。'
+                : '该商品配置来自上游商品：未锁定项（多个取值可选）可在上游允许范围内选择，锁定项为上游固定配置不可修改。'"
+            />
+            <t-empty v-else description="未读取到上游商品镜像（可能未同步或上游已删除）" />
+
+            <template v-if="product?.upstream">
+              <t-descriptions :column="2" bordered size="medium" class="detail-desc">
+                <t-descriptions-item label="上游提供商">
+                  {{ product.upstream.provider_name || '—' }}
+                  <t-tag v-if="product.upstream.provider_type" class="inline-tag" theme="default" variant="light" size="small" shape="round">
+                    {{ product.upstream.provider_type }}
+                  </t-tag>
+                </t-descriptions-item>
+                <t-descriptions-item label="上游商品 ID">{{ product.upstream.upstream_id || '—' }}</t-descriptions-item>
+                <t-descriptions-item label="上游分组（分类）">
+                  <t-tag v-if="product.upstream.group_name" theme="primary" variant="light" size="small" shape="round">
+                    {{ product.upstream.group_name }}
+                  </t-tag>
+                  <span v-else>未分类（上游未公示分组）</span>
+                </t-descriptions-item>
+                <t-descriptions-item label="上游付费类型">
+                  <span>{{ upstreamPayTypeLabel(product.upstream.pay_type) }}</span>
+                </t-descriptions-item>
+                <t-descriptions-item label="上游标价">¥{{ formatPrice(product.upstream.list_price) }}</t-descriptions-item>
+                <t-descriptions-item label="代理价（采购价）">¥{{ formatPrice(product.upstream.cost_price) }}</t-descriptions-item>
+                <t-descriptions-item label="折扣">{{ product.upstream.discount_desc || '—' }}</t-descriptions-item>
+                <t-descriptions-item label="毛利率">
+                  <span>{{ grossMarginText }}</span>
+                </t-descriptions-item>
+                <t-descriptions-item label="是否可续费">
+                  <t-tag :theme="product.upstream.renewable ? 'success' : 'danger'" variant="light" size="small" shape="round">
+                    {{ product.upstream.renewable ? '可续费' : '不可续费' }}
+                  </t-tag>
+                  <span v-if="!product.upstream.renewable" class="inline-hint">{{ product.upstream.renew_note }}</span>
+                </t-descriptions-item>
+                <t-descriptions-item label="配置形态">
+                  <t-tag :theme="product.upstream.fixed_config ? 'warning' : 'primary'" variant="light" size="small" shape="round">
+                    {{ product.upstream.fixed_config ? '整机固定配置' : '部分可选' }}
+                  </t-tag>
+                </t-descriptions-item>
+              </t-descriptions>
+
+              <div class="table-card__head">
+                <h3 class="card-title">付费周期（上游）</h3>
+                <span class="table-card__meta">标价即上游公示价；代理价已含上游给本账号的折扣</span>
+              </div>
+              <t-table
+                row-key="cycle"
+                :data="upstreamCycleRows"
+                :columns="upstreamCycleColumns"
+                size="small"
+                hover
+                cell-empty-content="—"
+              >
+                <template #empty><t-empty description="上游未下发周期价格（可能只有一次性或免费周期）" /></template>
+              </t-table>
+
+              <div class="table-card__head">
+                <h3 class="card-title">配置箱参数（上游）</h3>
+                <span class="table-card__meta">
+                  锁定项为上游固定配置，本地只读；未锁定项有多个取值，可在上游允许范围内选择
+                </span>
+              </div>
+              <t-table
+                row-key="key"
+                :data="product.upstream.options"
+                :columns="upstreamOptionColumns"
+                size="small"
+                hover
+                cell-empty-content="—"
+              >
+                <template #up_status="{ row }">
+                  <t-tag :theme="row.locked ? 'warning' : 'success'" variant="light" size="small" shape="round">
+                    {{ row.locked ? '固定不可改' : `${row.sub_count} 个取值可选` }}
+                  </t-tag>
+                </template>
+                <template #up_value="{ row }">
+                  <span>{{ row.value || '—' }}</span>
+                  <span v-if="!row.locked" class="inline-hint">以下单时选择为准</span>
+                </template>
+                <template #empty><t-empty description="上游商品未下发配置项" /></template>
+              </t-table>
+
+              <template v-if="product.upstream.description">
+                <div class="table-card__head">
+                  <h3 class="card-title">上游商品描述</h3>
+                  <span class="table-card__meta">
+                    上游下发的富文本原文（含样式标签）；前台按纯文本展示，避免把上游内容当可信 HTML
+                  </span>
+                </div>
+                <!-- 不渲染上游 HTML（v-html 会把供应商内容当可信 HTML 引入后台会话），
+                     这里转成纯文本预览：与用户侧看到的内容一致。 -->
+                <pre class="upstream-desc">{{ decodedUpstreamDescription }}</pre>
+              </template>
+            </template>
+          </div>
+        </t-tab-panel>
+
         <t-tab-panel value="history" label="变更历史">
           <div class="tabs-section">
             <div class="table-card__head">
@@ -546,7 +657,9 @@ import {
 import { getProviderList } from '@/api/admin'
 import {
   bindingStatusTag,
+  billingCycleLabel,
   changeTypeLabel,
+  cycleEntries,
   formatPrice,
   formatTime,
   markupLabel,
@@ -566,6 +679,7 @@ import type {
   SaleProductInfo,
   SaleProductSpecInfo,
   SaleProductSpecRequest,
+  SaleProductUpstreamOption,
   SpecAtomInfo,
   SpecBindingInfo,
   SpecBindingUpsertRequest,
@@ -590,6 +704,73 @@ const activeTab = ref('base')
 const { categoryName, loadCategories } = useCategoryOptions()
 
 const isUpstreamChain = computed(() => product.value?.source_mode === 'upstream')
+
+// ===== 上游对接页签（仅对接商品）=====
+const upstreamCycleColumns: PrimaryTableCol<{ cycle: string; label: string; amount: number }>[] = [
+  { colKey: 'label', title: '周期', width: 120 },
+  { colKey: 'amount', title: '上游标价（元）', width: 160 },
+  { colKey: 'cost', title: '代理价（元）', width: 160 },
+]
+
+const upstreamOptionColumns: PrimaryTableCol<SaleProductUpstreamOption>[] = [
+  { colKey: 'option_name', title: '上游配置项', minWidth: 150 },
+  { colKey: 'up_status', title: '可变性', width: 130 },
+  { colKey: 'up_value', title: '取值', minWidth: 180 },
+]
+
+/** 上游各周期标价/代理价合并成一张表（周期 → 标价 + 代理价）。 */
+const upstreamCycleRows = computed(() => {
+  const up = product.value?.upstream
+  if (!up) return []
+  const list = up.list_cycles || {}
+  const cost = up.cost_cycles || {}
+  const cycles = Array.from(new Set([...Object.keys(list), ...Object.keys(cost)]))
+  return cycleEntries(
+    cycles.reduce<Record<string, number>>((acc, cycle) => {
+      acc[cycle] = list[cycle] ?? 0
+      return acc
+    }, {}),
+  ).map((row) => ({ ...row, cost: cost[row.cycle] ?? 0 }))
+})
+
+/** 毛利率：本地售价 vs 代理价（保本线）。代理价缺失时不展示。 */
+const grossMarginText = computed(() => {
+  const up = product.value?.upstream
+  const price = product.value?.price ?? 0
+  if (!up || up.cost_price <= 0 || price <= 0) return '—'
+  const margin = ((price - up.cost_price) / price) * 100
+  return `${margin.toFixed(1)}%（售价 ¥${formatPrice(price)} / 代理价 ¥${formatPrice(up.cost_price)}）`
+})
+
+/** 上游描述（转义 HTML 原文）→ 纯文本预览：解实体、去标签、压缩空行。 */
+const decodedUpstreamDescription = computed(() => decodeHtmlTextToPlainText(product.value?.upstream?.description))
+
+function decodeHtmlTextToPlainText(raw?: string): string {
+  if (!raw) return ''
+  const decoded = String(raw)
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+  return decoded
+    // 样式/脚本连同内容丢弃，其余标签换成空串（标签本身不是卖点内容）
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(div|p|li|tr|h[1-4])>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .split('\n')
+    .map((line) => line.replace(/[ \t\u00a0]+/g, ' ').trim())
+    .filter((line) => line !== '')
+    .join('\n')
+}
+
+function upstreamPayTypeLabel(payType: string): string {
+  const found = String(payType || '').match(/"pay_type"\s*:\s*"([^"]+)"/)
+  const value = found ? found[1] : payType
+  return billingCycleLabel(value)
+}
 
 const specColumns: PrimaryTableCol<SaleProductSpecInfo>[] = [
   { colKey: 'spec_code', title: '规格编码', minWidth: 120 },

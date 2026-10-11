@@ -105,10 +105,10 @@
       @close="priceVisible = false"
     >
       <t-form label-align="top" :data="priceForm" @submit.prevent>
-        <t-form-item label="销售价（元）" name="sale_price">
+        <t-form-item label="上游标价（元）" name="sale_price">
           <t-input-number v-model="priceForm.sale_price" :min="0" :precision="2" theme="column" placeholder="请输入销售价" />
         </t-form-item>
-        <t-form-item label="成本价（元）" name="cost_price">
+        <t-form-item label="代理价（采购价，元）" name="cost_price">
           <t-input-number v-model="priceForm.cost_price" :min="0" :precision="2" theme="column" placeholder="请输入成本价" />
         </t-form-item>
       </t-form>
@@ -170,19 +170,29 @@ function formatPrice(value: number): string {
   return Number(value || 0).toFixed(2)
 }
 
+/**
+ * 折扣率 = 代理价 ÷ 上游标价（越低说明上游给的折扣越深）。
+ * 口径（2026-10 上游对接修复）：sale_price = 上游标价，cost_price = 代理价（我方采购价）。
+ * 函数名沿用 marginPercent 以保持模板槽位不变。
+ */
 function marginPercent(row: ProductInfo): string {
-  if (!row.sale_price) return '—'
-  return `${(((row.sale_price - row.cost_price) / row.sale_price) * 100).toFixed(1)}%`
+  if (!row.sale_price || row.cost_price <= 0) return '—'
+  return `${((row.cost_price / row.sale_price) * 100).toFixed(1)}%`
 }
 
 const columns: PrimaryTableCol<ProductInfo>[] = [
   { colKey: 'name', title: '商品', minWidth: 170 },
   { colKey: 'specs', title: '规格', minWidth: 160 },
-  { colKey: 'sale_price', title: '销售价', width: 110 },
-  { colKey: 'cost_price', title: '成本价', width: 110 },
-  { colKey: 'margin', title: '毛利率', width: 90 },
+  { colKey: 'sale_price', title: '上游标价', width: 110 },
+  { colKey: 'cost_price', title: '代理价（采购）', width: 130 },
+  { colKey: 'margin', title: '折扣率', width: 90 },
   { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 90, fixed: 'right' as const, align: 'center' as const },
 ]
+
+/**
+ * 折扣率列槽位名沿用 margin（列 key 与模板槽位保持一致，避免大改模板）。
+ * 含义：代理价/标价 × 100%，越低说明上游给的折扣越深。
+ */
 
 async function loadProducts() {
   loading.value = true

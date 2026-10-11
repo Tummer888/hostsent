@@ -43,6 +43,9 @@ type ProductRepository interface {
 	SaveConfigOptions(ctx context.Context, productID uint64, groups []interface{}) error
 	// ConfigGroupsByProductID 读取商品的配置组，重建为 config_groups 结构（供上游下单使用）。
 	ConfigGroupsByProductID(ctx context.Context, productID uint64) ([]interface{}, error)
+	// SaveSelfOptionRows 幂等保存 source=self 的客户选配项：只重建自营行，上游镜像行原样保留。
+	// 用途：导入对接商品时默认注入「主机名」等开通选项，而不动上游配置项。
+	SaveSelfOptionRows(ctx context.Context, productID uint64, rows []*model.ProductConfigOption) error
 	// AllConfigGroupsByProductID 读取商品全部配置组（含 source=self），供配置项管理页展示/编辑（T4.4）。
 	AllConfigGroupsByProductID(ctx context.Context, productID uint64) ([]interface{}, error)
 	// SelfConfigParams 读取 source=self 的配置项，返回"平台参数名 → 选中值"（T4.4 自营可配置项）。
@@ -366,16 +369,60 @@ func (r *productRepository) SaveConfigOptions(ctx context.Context, productID uin
 	})
 }
 
+// SaveSelfOptionRows 幂等保存 source=self 的客户选配项：只删自营行再插入，上游镜像行不受影响。
+// 与 SaveConfigOptions 的区别：后者是"整表覆盖"（管理端配置项编辑页语义），
+// 本方法供导入流程注入默认开通选项（如主机名）使用，不能碰上游 configoption 镜像行。
+func (r *productRepository) SaveSelfOptionRows(ctx context.Context, productID uint64, rows []*model.ProductConfigOption) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		sub := tx.Model(&model.ProductConfigOption{}).Select("id").
+			Where("product_id = ? AND source = ?", productID, model.ConfigSourceSelf)
+		if err := tx.Where("option_id IN (?)", sub).Delete(&model.ProductConfigOptionSub{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("product_id = ? AND source = ?", productID, model.ConfigSourceSelf).
+			Delete(&model.ProductConfigOption{}).Error; err != nil {
+			return err
+		}
+		for _, row := range rows {
+			if row == nil {
+				continue
+			}
+			copyRow := *row
+			copyRow.ID = 0
+			copyRow.ProductID = productID
+			copyRow.Source = model.ConfigSourceSelf
+			subs := copyRow.Subs
+			copyRow.Subs = nil
+			if err := tx.Omit("Subs").Create(&copyRow).Error; err != nil {
+				return err
+			}
+			for i := range subs {
+				subs[i].ID = 0
+				subs[i].OptionID = copyRow.ID
+				if err := tx.Create(&subs[i]).Error; err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
 // buildConfigOptionRows 把解析后的 config_groups 组织为商品配置项（含子项）行，便于落库。
-// 来源规则（T4.4）：显式 source/source_key 优先；缺省按 upstream + upstream_id 派生。
+//
+// upstream_key 落库口径（2026-10-10 修正）：存**上游自身 id**（option.id / sub.id），
+// 它是向上游 cart 下单的 configoption 键（上游 ConfigOptions::filterConfigOptions 只认自身 id）。
+// 上游的 upstream_id（上游再上一层的 id）改存 source_key，仅作链路参考。
+// 历史实现把 upstream_id 当键存，导致：原生商品（upstream_id=0）参数整体丢失，
+// 转售商品（upstream_id≠0）键错被上游过滤 → 按上游默认配置开通。见 provider.go::buildCartConfigOption。
 func buildConfigOptionRows(parsed []configGroup, productID uint64) []*model.ProductConfigOption {
 	rows := make([]*model.ProductConfigOption, 0)
 	for _, g := range parsed {
 		for _, opt := range g.Options {
-			source, sourceKey := normalizeConfigSource(opt.Source, opt.SourceKey, opt.UpstreamID)
+			source, sourceKey := normalizeConfigSource(opt.Source, opt.SourceKey, opt.UpstreamID, opt.ID)
 			option := &model.ProductConfigOption{
 				ProductID:    productID,
-				UpstreamKey:  opt.UpstreamID,
+				UpstreamKey:  upstreamCartKey(opt.ID, opt.UpstreamID),
 				Source:       source,
 				SourceKey:    sourceKey,
 				OptionName:   opt.OptionName,
@@ -395,9 +442,9 @@ func buildConfigOptionRows(parsed []configGroup, productID uint64) []*model.Prod
 			}
 			for _, sub := range opt.Sub {
 				price := firstPrice(sub.Pricings)
-				subSource, subSourceKey := normalizeConfigSource(sub.Source, sub.SourceKey, sub.UpstreamID)
+				subSource, subSourceKey := normalizeConfigSource(sub.Source, sub.SourceKey, sub.UpstreamID, sub.ID)
 				option.Subs = append(option.Subs, model.ProductConfigOptionSub{
-					UpstreamKey:    sub.UpstreamID,
+					UpstreamKey:    upstreamCartKey(sub.ID, sub.UpstreamID),
 					Source:         subSource,
 					SourceKey:      subSourceKey,
 					OptionName:     sub.OptionName,
@@ -435,9 +482,13 @@ func jsonTextOrEmpty(s *string) string {
 	return *s
 }
 
-// normalizeConfigSource 归一配置项来源：source 仅接受 upstream/self，其余回落 upstream；
-// source_key 为空时用上游 id 派生（自营项无上游 id 则留空，由 option_name 兜底）。
-func normalizeConfigSource(source, sourceKey string, upstreamID int64) (string, string) {
+// normalizeConfigSource 归一配置项来源：source 仅接受 upstream/self，其余按下列顺序推断：
+//  1. 有上游自身 id 或 upstream_id → upstream（来自上游镜像的配置项，
+//     原生商品 upstream_id 为 0 但有自身 id，历史实现据此误判成 self 而整套丢参）；
+//  2. 否则视为 self（运营在商品详情页手工新增的平台参数项）。
+//
+// source_key：explicit 优先；upstream 且未指定时取 upstream_id（上游再上一层的 id，仅作链路参考）。
+func normalizeConfigSource(source, sourceKey string, upstreamID, ownID int64) (string, string) {
 	sourceKey = strings.TrimSpace(sourceKey)
 	switch strings.TrimSpace(source) {
 	case model.ConfigSourceSelf:
@@ -448,14 +499,31 @@ func normalizeConfigSource(source, sourceKey string, upstreamID int64) (string, 
 		}
 		return model.ConfigSourceUpstream, sourceKey
 	}
-	if upstreamID != 0 {
-		if sourceKey == "" {
+	if upstreamID != 0 || ownID != 0 {
+		if sourceKey == "" && upstreamID != 0 {
 			sourceKey = strconv.FormatInt(upstreamID, 10)
 		}
 		return model.ConfigSourceUpstream, sourceKey
 	}
 	// 无上游 id 且未显式声明来源：视为自营平台参数项。
 	return model.ConfigSourceSelf, sourceKey
+}
+
+// upstreamCartKey 取向上游 cart 下单的配置项键：优先上游自身 id，缺失退回 upstream_id。
+func upstreamCartKey(ownID, upstreamID int64) int64 {
+	if ownID != 0 {
+		return ownID
+	}
+	return upstreamID
+}
+
+// parseIDOrZero 把 source_key（可能存的是数字 id，也可能是平台参数名）解析为 id，非数字返回 0。
+func parseIDOrZero(s string) int64 {
+	v, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return v
 }
 
 // ConfigGroupsByProductID 读取商品配置子表，重建为 config_groups 数组（结构对齐上游 ConfigGroup）。
@@ -564,6 +632,12 @@ func parseConfigGroups(groups []interface{}) ([]configGroup, error) {
 }
 
 // buildConfigGroups 把商品配置子表行重建为 config_groups 数组（结构对齐上游 ConfigGroup）。
+//
+// id / upstream_id 双字段口径（2026-10-10 修正）：
+//   - id          = 上游自身配置项 id（cart configoption 的键，下发给上游必须用它）；
+//   - upstream_id = 上游再上一层的 id（仅链路参考，来自 source_key）。
+//
+// upstream_key 列存的是前者，source_key 列存的是后者，故重建时各归其位。
 func buildConfigGroups(options []*model.ProductConfigOption) []interface{} {
 	if len(options) == 0 {
 		return nil
@@ -571,9 +645,10 @@ func buildConfigGroups(options []*model.ProductConfigOption) []interface{} {
 	group := &configGroup{Options: make([]configOption, 0, len(options))}
 	for _, opt := range options {
 		copt := configOption{
+			ID:           opt.UpstreamKey,
 			OptionName:   opt.OptionName,
 			OptionType:   opt.OptionType,
-			UpstreamID:   opt.UpstreamKey,
+			UpstreamID:   parseIDOrZero(opt.SourceKey),
 			Source:       opt.Source,
 			SourceKey:    opt.SourceKey,
 			ProviderType: opt.ProviderType,
@@ -592,8 +667,9 @@ func buildConfigGroups(options []*model.ProductConfigOption) []interface{} {
 		}
 		for _, sub := range opt.Subs {
 			copt.Sub = append(copt.Sub, configSub{
+				ID:         sub.UpstreamKey,
 				OptionName: sub.OptionName,
-				UpstreamID: sub.UpstreamKey,
+				UpstreamID: parseIDOrZero(sub.SourceKey),
 				Source:     sub.Source,
 				SourceKey:  sub.SourceKey,
 				GroupLabel: sub.GroupLabel,

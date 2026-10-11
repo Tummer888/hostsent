@@ -5,6 +5,7 @@ import type {
   SaleProductCategoryInfo,
   SaleProductCategoryListResponse,
   SaleProductBatchCloneRequest,
+  SaleProductBatchCloneResponse,
   SaleProductCategoryUpdateRequest,
   SaleProductCloneRequest,
   SaleProductCreateRequest,
@@ -110,8 +111,8 @@ export function getProductList(params: SaleProductListQuery): Promise<SaleProduc
   })
 }
 
-export function batchCloneProductFromUpstream(data: SaleProductBatchCloneRequest): Promise<SaleProductInfo[]> {
-  return request.post<SaleProductInfo[]>({
+export function batchCloneProductFromUpstream(data: SaleProductBatchCloneRequest): Promise<SaleProductBatchCloneResponse> {
+  return request.post<SaleProductBatchCloneResponse>({
     url: '/product/products/clone/batch',
     data,
   })

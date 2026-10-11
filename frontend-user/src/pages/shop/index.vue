@@ -99,7 +99,20 @@
     >
       <div v-if="current" class="buy">
         <div class="buy__product">{{ current.name }}</div>
-        <p class="buy__desc">{{ current.description }}</p>
+        <p v-if="descriptionText" class="buy__desc">{{ descriptionText }}</p>
+
+        <!-- 对接商品：上游固定配置只读展示（上游商品已定规格，改也开不出来） -->
+        <div v-if="lockedUpstreamOptions.length" class="buy__field buy__field--fixed">
+          <span class="buy__label">
+            固定配置
+            <em class="buy__label-hint">上游已定规格，不可修改</em>
+          </span>
+          <div class="buy__fixed">
+            <span v-for="opt in lockedUpstreamOptions" :key="opt.key" class="buy__fixed-item">
+              {{ opt.name }}：<strong>{{ opt.value || '—' }}</strong>
+            </span>
+          </div>
+        </div>
 
         <div v-if="current.skus.length" class="buy__field">
           <span class="buy__label">规格</span>
@@ -119,6 +132,7 @@
               {{ cycleLabel(c) }}
             </t-radio-button>
           </t-radio-group>
+          <p v-if="renewNote" class="buy__hint buy__hint--warn">{{ renewNote }}</p>
         </div>
 
         <!--
@@ -221,6 +235,19 @@
                 <span v-if="opt.unit" class="buy__option-qty-unit">{{ opt.unit }}</span>
               </div>
 
+              <!-- 文本输入：对接商品的开通选项（主机名），留空自动生成，可一键随机 -->
+              <div v-else-if="optionWidget(opt) === 'text'" class="buy__option-text">
+                <t-input
+                  :model-value="selection[opt.option_key] || ''"
+                  :placeholder="optionPlaceholder(opt)"
+                  clearable
+                  @change="(v: string) => setSelectionValue(opt, v)"
+                />
+                <t-button v-if="opt.option_key === 'hostname'" size="small" variant="outline" @click="randomHostname(opt)">
+                  随机
+                </t-button>
+              </div>
+
               <p v-if="optionHelpText(opt)" class="buy__option-help">{{ optionHelpText(opt) }}</p>
             </div>
           </div>
@@ -248,6 +275,14 @@
                 : '提交后生成待支付订单，用支付宝/微信/线下转账等方式完成支付；到账后自动开通。'
             }}
           </p>
+        </div>
+
+        <!-- 开通说明：主机名/密码/端口这类"下单时看不见但会被问"的事项讲清楚 -->
+        <div v-if="upstreamOrderNotes.length" class="buy__field">
+          <span class="buy__label">开通说明</span>
+          <ul class="buy__notes">
+            <li v-for="note in upstreamOrderNotes" :key="note">{{ note }}</li>
+          </ul>
         </div>
 
         <div v-loading="quoteLoading" class="buy__prices">
@@ -335,6 +370,7 @@ import {
 import PaymentCashier, { type CashierPayment } from '@/components/payment-cashier/index.vue'
 import FilterCard from '@/components/filter-card/index.vue'
 import { useCartStore, cartItemKey } from '@/store/modules/cart'
+import { htmlToPlainText } from '@/utils/rich-text'
 
 /**
  * 控件回调的取值类型。
@@ -635,6 +671,33 @@ const selectedSku = computed<SkuInfo | undefined>(() =>
 
 /** 周期来源：选中规格的自有周期优先，否则回落商品级周期。 */
 const selectableCycles = computed(() => selectedSku.value?.cycles?.length ? selectedSku.value.cycles : current.value?.cycles ?? [])
+
+// ========== 商品描述与对接链路（上游固定配置 / 开通说明） ==========
+
+/**
+ * 商品描述：上游描述是富文本 HTML，用户侧不渲染 HTML（避免把上游内容当可信 HTML），
+ * 统一转成纯文本展示；本地描述为空时自然为空串。
+ */
+const descriptionText = computed(() => htmlToPlainText(current.value?.description))
+
+/** 上游固定配置（只读展示）：锁定项表示上游商品已定死，本地不可改。 */
+const lockedUpstreamOptions = computed(() => (current.value?.upstream_chain?.options ?? []).filter((o) => o.locked))
+
+/** 不可续费提示（上游一次性/免费商品）；可续费时为空。 */
+const renewNote = computed(() => {
+  const chain = current.value?.upstream_chain
+  if (!chain || chain.renewable) return ''
+  return chain.renew_note || '该商品不支持续费'
+})
+
+/** 开通说明：主机名可自定义 / 密码随机生成 / 端口由上游分配。 */
+const upstreamOrderNotes = computed(() => current.value?.upstream_chain?.order_notes ?? [])
+
+/** 随机主机名：与后端 safeHostname 规则一致（字母开头 + 小写字母数字连字符）。 */
+function randomHostname(opt: ProductOption) {
+  const suffix = Math.random().toString(36).slice(2, 8)
+  setSelectionValue(opt, `hs-${suffix}`)
+}
 
 const soldOut = computed(() => selectedSku.value?.stock === 0)
 
@@ -1185,6 +1248,53 @@ onMounted(async () => {
   font-size: 12px;
   line-height: 1.6;
   color: var(--color-muted-foreground);
+}
+
+/* 不可续费 / 交付限制这类提示：灰底 + 警示色左条，避免被忽略 */
+.buy__hint--warn {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-left: 3px solid var(--td-warning-color, #e37318);
+  background: rgba(227, 115, 24, 0.08);
+  color: var(--td-warning-color-7, #a05a12);
+}
+
+/* 上游固定配置：只读展示，视觉上区别于可选控件（虚线框 + 灰底） */
+.buy__fixed {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 8px 10px;
+  border: 1px dashed var(--td-component-stroke, #ddd);
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer, #f5f5f5);
+  font-size: 12.5px;
+  color: var(--color-muted-foreground);
+}
+
+.buy__fixed-item strong {
+  color: var(--td-text-color-primary, #222);
+  font-weight: 600;
+}
+
+/* 开通说明列表 */
+.buy__notes {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--color-muted-foreground);
+}
+
+/* 文本型选配项（主机名）：输入框 + 随机按钮同行 */
+.buy__option-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.buy__option-text :deep(.t-input__wrap) {
+  flex: 1;
 }
 
 .buy__prices {

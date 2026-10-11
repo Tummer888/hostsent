@@ -43,7 +43,11 @@ func (s *productService) List(ctx context.Context, query dto.ProductListQuery) (
 	}
 	respItems := make([]dto.ProductInfo, 0, len(items))
 	for _, item := range items {
-		respItems = append(respItems, buildProductInfo(item))
+		// 列表不带 raw_specs：上游商品是非结构化正文（config_groups/描述/双价周期），
+		// 单条 10KB 量级，全量列表（245 条）会白白放大 3MB+；详情接口按需取。
+		info := buildProductInfo(item)
+		info.RawSpecs = ""
+		respItems = append(respItems, info)
 	}
 	return &dto.ProductListResponse{Items: respItems, Meta: dto.ListMeta{Page: page, PageSize: pageSize, Total: total}}, nil
 }

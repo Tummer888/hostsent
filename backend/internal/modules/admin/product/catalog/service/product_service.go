@@ -51,8 +51,9 @@ type ProductService interface {
 	DeleteSpec(ctx context.Context, productID, specID uint64, operatorID uint64, operatorName string) error
 	// CloneFromUpstream 从上游资源商品克隆创建销售商品（对接魔方财务商品导入）
 	CloneFromUpstream(ctx context.Context, req dto.ProductCloneRequest, operatorID uint64, operatorName string) (*dto.ProductInfo, error)
-	// CloneFromUpstreamBatch 批量从上游商品克隆创建销售商品（按百分比定价）
-	CloneFromUpstreamBatch(ctx context.Context, req dto.ProductBatchCloneRequest, operatorID uint64, operatorName string) ([]dto.ProductInfo, error)
+	// CloneFromUpstreamBatch 批量从上游商品克隆创建销售商品（按百分比定价）。
+	// 返回逐条结果：成功项 + 失败项（原因），避免"部分失败"被当成全部成功。
+	CloneFromUpstreamBatch(ctx context.Context, req dto.ProductBatchCloneRequest, operatorID uint64, operatorName string) (*dto.ProductBatchCloneResponse, error)
 	// BuildProvisionRequest 按商品供货模式构建上游开通请求（供订单履约联动用）。
 	// specSnapshot 为所选 SKU 的规格快照（原子取值 JSON，T4.1）；specCode 为所选 SKU 编码
 	// （T4.2），用于回查该 SKU 已确认的平台绑定参数。两者均可为空。
@@ -101,6 +102,9 @@ type ProvisionRequest struct {
 	Name          string                 `json:"name"`
 	ConfigOptions map[string]interface{} `json:"config_options"`
 	BillingMode   string                 `json:"billing_mode"`
+	// StrippedLockedKeys 本次被履约守卫剔除的本地覆盖键（对接商品的锁定配置项）。
+	// 仅作留痕：说明本地某处改了上游固定配置，但没有传下去（避免开通与售卖不一致）。
+	StrippedLockedKeys []string `json:"stripped_locked_keys,omitempty"`
 }
 
 // ===== 客户选配项（T4.5）：用户侧渲染与计价 =====
@@ -398,6 +402,9 @@ func (s *productService) FindByID(ctx context.Context, id uint64) (*dto.ProductI
 		return nil, err
 	}
 	info := buildProductInfo(*item)
+	// 对接商品：附上游对接信息（渠道/上游分类/标价与代理价/折扣/周期/固定配置/可续费），
+	// 详情页据此区分「自营」与「对接」两条链路的配置逻辑。非对接链路为 nil。
+	info.Upstream = s.upstreamInfoFor(ctx, item)
 	return &info, nil
 }
 
@@ -1423,10 +1430,15 @@ func (s *productService) CloneFromUpstream(ctx context.Context, req dto.ProductC
 				item.Name = rp.Name
 			}
 			if item.CostPrice == 0 {
-				item.CostPrice = rp.CostPrice
+				// 成本价 = 代理价（上游标价 × 代理折扣）；sale_price 是上游标价，只能兜底。
+				item.CostPrice = cloneCostBaseline(rp)
 			}
 			if item.Price == 0 {
 				item.Price = rp.SalePrice
+			}
+			if item.Description == "" {
+				// 商品描述缺省取上游富文本描述（详情页卖点图文来源）。
+				item.Description = parseUpstreamRawSpecs(rp.RawSpecs).Description
 			}
 			if item.Specs == "" {
 				specJSON, _ := json.Marshal(buildCloneBaseOptions(rp))
@@ -1452,6 +1464,8 @@ func (s *productService) CloneFromUpstream(ctx context.Context, req dto.ProductC
 	if len(cloneGroups) > 0 {
 		_ = s.repo.SaveConfigOptions(ctx, item.ID, cloneGroups)
 	}
+	// 开通选项（主机名可自定义）：与批量导入同口径，只注入自营项，不动上游配置项。
+	_ = s.repo.SaveSelfOptionRows(ctx, item.ID, defaultUpstreamSelfOptions())
 	// 按上游 product_pricings 生成初始周期价格矩阵（doc25 §5）：
 	// 倍率取"定价 / 成本"（运营实际采用的毛利口径），成本缺失时按原价转售。
 	s.seedCloneCyclePrices(ctx, *item, cloneRawSpecs, cloneRatio(item.CostPrice, item.Price))
@@ -1474,7 +1488,7 @@ func cloneRatio(cost, price float64) float64 {
 // CloneFromUpstreamBatch 批量从上游商品克隆创建销售商品（按百分比定价）。
 // 每个上游商品的售价（resource_products.sale_price，即上游结算价）作为成本基线，
 // 销售价 = 成本 × price_percent/100（price_percent 小于等于 0 时按 100 处理，即原价）。
-func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.ProductBatchCloneRequest, operatorID uint64, operatorName string) ([]dto.ProductInfo, error) {
+func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.ProductBatchCloneRequest, operatorID uint64, operatorName string) (*dto.ProductBatchCloneResponse, error) {
 	pct := req.PricePercent
 	if pct <= 0 {
 		pct = 100
@@ -1483,10 +1497,14 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 	if status == 0 {
 		status = model.ProductStatusDraft
 	}
-	results := make([]dto.ProductInfo, 0, len(req.SourceProductIDs))
+	resp := &dto.ProductBatchCloneResponse{
+		Items:  make([]dto.ProductInfo, 0, len(req.SourceProductIDs)),
+		Failed: make([]dto.ProductBatchCloneFailure, 0),
+	}
 	for _, pid := range req.SourceProductIDs {
-		// 读取上游商品，取名称/规格/售价
+		// 读取上游商品：名称/描述/规格/采购价（代理价）
 		name := ""
+		description := ""
 		specs := ""
 		cost := 0.0
 		rawSpecs := ""
@@ -1494,7 +1512,12 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 		if s.resourceReader != nil {
 			if rp, err := s.resourceReader.FindByID(ctx, pid); err == nil {
 				name = rp.Name
-				cost = rp.SalePrice // 上游售价作为成本基线
+				// 商品描述取上游富文本描述：本地商品此前描述恒为空，前台商品详情页
+				// 无内容可展示（上游 16核16G 之类的卖点图文都在这里）。
+				description = parseUpstreamRawSpecs(rp.RawSpecs).Description
+				// 成本基线取代理价（cost_price，上游标价扣除代理折扣后的我方采购价）；
+				// 上游未给折扣时 cost_price 即标价，两者一致。
+				cost = cloneCostBaseline(rp)
 				rawSpecs = rp.RawSpecs
 				specJSON, _ := json.Marshal(buildCloneBaseOptions(rp))
 				specs = string(specJSON)
@@ -1508,6 +1531,7 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 			Name:             firstNonEmptyStr(name, ""),
 			CategoryID:       req.CategoryID,
 			ProductType:      "cloud_host",
+			Description:      description,
 			SourceProductID:  pid,
 			SourceProviderID: req.SourceProviderID,
 			SourceMode:       model.SourceModeUpstream,
@@ -1518,12 +1542,19 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 			Status:           status,
 		}
 		if err := s.repo.Create(ctx, item); err != nil {
-			// 单个失败不阻塞整批：记录后继续
+			// 单个失败不阻塞整批，但必须如实回报（编码重复是最常见的一种：
+			// 同一上游商品导入过第二次）。见 ProductBatchCloneResponse 注释。
+			resp.Failed = append(resp.Failed, dto.ProductBatchCloneFailure{
+				SourceProductID: pid, Name: item.Name, Reason: batchCloneFailureReason(err),
+			})
 			continue
 		}
 		if len(groups) > 0 {
 			_ = s.repo.SaveConfigOptions(ctx, item.ID, groups)
 		}
+		// 开通选项（主机名可自定义）：对接商品默认注入一项「主机名」，客户下单时可填，
+		// 留空即按标准规则随机生成。issue 见 doc：商品详情页需完整体现主机名/随机密码/端口。
+		_ = s.repo.SaveSelfOptionRows(ctx, item.ID, defaultUpstreamSelfOptions())
 		// 按上游 product_pricings 生成初始周期价格矩阵（doc25 §5），倍率即本次定价百分比。
 		s.seedCloneCyclePrices(ctx, *item, rawSpecs, pct/100)
 		s.repo.AddHistory(ctx, &model.ProductHistory{
@@ -1532,10 +1563,36 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 			Remark: fmt.Sprintf("批量导入上游商品（定价 %.0f%%）", pct),
 		})
 		if info, err := s.FindByID(ctx, item.ID); err == nil {
-			results = append(results, *info)
+			resp.Items = append(resp.Items, *info)
+		} else {
+			resp.Failed = append(resp.Failed, dto.ProductBatchCloneFailure{
+				SourceProductID: pid, Name: item.Name, Reason: "商品已创建但读取详情失败：" + err.Error(),
+			})
 		}
 	}
-	return results, nil
+	return resp, nil
+}
+
+// batchCloneFailureReason 把建库错误翻译成运营能看懂的原因。
+func batchCloneFailureReason(err error) string {
+	msg := err.Error()
+	if strings.Contains(msg, "duplicate key") || strings.Contains(msg, "23505") {
+		return "该上游商品已导入过（商品编码重复），如需刷新请到商品详情页同步或删除后重新导入"
+	}
+	return msg
+}
+
+// cloneCostBaseline 取克隆导入的成本基线：
+// 资源商品的 cost_price 是代理价（上游标价 × 折扣），sale_price 是上游标价。
+// 历史数据可能只有 sale_price（早期同步未取折扣），此时按标价兜底。
+func cloneCostBaseline(rp *resourceproductmodel.ResourceProduct) float64 {
+	if rp == nil {
+		return 0
+	}
+	if rp.CostPrice > 0 {
+		return rp.CostPrice
+	}
+	return rp.SalePrice
 }
 
 // buildUpstreamSpecSnapshot 组装上游规格快照（T4.3）：
@@ -1783,6 +1840,12 @@ func (s *productService) BuildProvisionRequest(ctx context.Context, productID ui
 			opts[k] = v
 		}
 	}
+	// 对接商品（source_mode=upstream）最后一道守卫：上游锁定配置项（只有一个可见取值，
+	// 如固定四核8G）拒绝一切本地覆盖——改了必然与上游商品不符，开通必错。
+	// 放在所有合并之后，保证「锁定即不可改」是不变量，而不是靠各入口自觉。
+	if stripped := stripLockedUpstreamOptions(opts, s.upstreamOptionLocks(ctx, item)); len(stripped) > 0 {
+		req.StrippedLockedKeys = stripped
+	}
 	req.ConfigOptions = opts
 	return req, nil
 }
@@ -1801,7 +1864,7 @@ func (s *productService) sanitizeSelections(ctx context.Context, productID uint6
 		if key == "" {
 			continue
 		}
-		rule := configSelectionRule{qty: customerWidget(row) == optionWidgetQty}
+		rule := configSelectionRule{freeform: isFreeformWidget(customerWidget(row))}
 		rule.values = map[string]bool{}
 		for _, sub := range row.Subs {
 			rule.values[customerSubValue(sub)] = true
@@ -1814,19 +1877,25 @@ func (s *productService) sanitizeSelections(ctx context.Context, productID uint6
 		if !ok {
 			continue
 		}
-		// 数量型没有离散候选值（子项只是占位）：只要键对就放行，
-		// 区间校验在计价环节已做过。枚举型必须命中候选取值，否则丢弃。
-		if rule.qty || rule.values[v] {
+		// 自由填写型（数量/文本）没有离散候选值：只要键对就放行，
+		// 区间/格式校验在计价与适配器侧完成。枚举型必须命中候选取值，否则丢弃。
+		if rule.freeform || rule.values[v] {
 			out[k] = v
 		}
 	}
 	return out
 }
 
-// configSelectionRule 履约侧过滤客户选择的规则：枚举看候选值，数量型只看键。
+// configSelectionRule 履约侧过滤客户选择的规则：枚举看候选值，自由填写型只看键。
 type configSelectionRule struct {
-	qty    bool
-	values map[string]bool
+	// freeform 自由填写型（数量型 / 文本型）：无候选值可比，键对即放行。
+	freeform bool
+	values   map[string]bool
+}
+
+// isFreeformWidget 判断控件是否为自由填写型（数量/文本，无候选取值）。
+func isFreeformWidget(widget string) bool {
+	return widget == optionWidgetQty || widget == optionWidgetText
 }
 
 // selfConfigParams 读取商品的自营配置项（source=self）；失败返回 nil（不阻断开通）。

@@ -228,7 +228,7 @@
     <t-dialog
       v-model:visible="cloneVisible"
       header="从上游商品导入"
-      width="720px"
+      width="760px"
       :confirm-btn="{ content: `导入选中的 ${selectedProductIds.size} 个商品`, theme: 'primary', disabled: !selectedProductIds.size, loading: cloneSubmitting }"
       :cancel-btn="{ content: '取消' }"
       @confirm="handleCloneConfirm"
@@ -239,18 +239,30 @@
           <t-form-item label="上游提供商" name="source_provider_id">
             <t-select v-model="cloneForm.source_provider_id" :options="providerOptions" placeholder="请选择上游提供商" @change="handleProviderChange" />
           </t-form-item>
-          <t-form-item label="定价百分比 (%)" name="price_percent">
-            <t-input-number v-model="cloneForm.price_percent" :min="100" :step="10" theme="column" placeholder="售价 = 上游售价 × 百分比" />
-            <span class="clone-tip">销售价 = 上游售价 × N%</span>
+          <t-form-item label="归入本地分类" name="category_id">
+            <t-select v-model="cloneForm.category_id" :options="categoryOptions" clearable placeholder="不选则落「未分类」" />
+            <span class="clone-tip">导入前先选分类，避免导入后全部落在「未分类」再去逐个改。</span>
           </t-form-item>
+        </div>
+        <t-form-item label="定价百分比 (%)" name="price_percent">
+          <t-input-number v-model="cloneForm.price_percent" :min="100" :step="10" theme="column" placeholder="销售价 = 代理价 × 百分比" />
+          <span class="clone-tip">
+            销售价 = 代理价 × N%。代理价是上游标价扣除代理折扣后的我方采购价；上游未给折扣时两者相同。
+          </span>
+        </t-form-item>
+
+        <div class="clone-summary">
+          <span>上游商品 {{ providerProducts.length }} 个</span>
+          <span v-if="discountHint" class="clone-summary__hint">{{ discountHint }}</span>
         </div>
 
         <div class="clone-groups">
-          <div v-if="!groupList.length" class="clone-empty">请先选择上游提供商，加载商品分组</div>
+          <div v-if="cloneLoading" class="clone-empty">正在加载上游商品…</div>
+          <div v-else-if="!groupList.length" class="clone-empty">请先选择上游提供商，加载商品分组</div>
           <div v-for="group in groupList" :key="group.id" class="clone-group">
             <div class="clone-group__head">
               <t-checkbox :checked="isGroupChecked(group)" @change="() => toggleGroup(group)">
-                {{ group.name || '未分类' }}
+                {{ group.name || '未分类（上游未公示分组）' }}
               </t-checkbox>
               <span class="clone-group__count">{{ group.items.length }} 个</span>
             </div>
@@ -264,7 +276,12 @@
                 <span class="clone-item">
                   <span class="clone-item__name">{{ item.name }}</span>
                   <span class="clone-item__spec">{{ formatProductSpec(item) }}</span>
-                  <span class="clone-item__price">¥{{ formatPrice(item.sale_price) }}</span>
+                  <span class="clone-item__price">
+                    代理价 ¥{{ formatPrice(item.cost_price) }}
+                    <em v-if="item.sale_price > item.cost_price" class="clone-item__list">
+                      标价 ¥{{ formatPrice(item.sale_price) }}
+                    </em>
+                  </span>
                 </span>
               </t-checkbox>
             </div>
@@ -444,21 +461,32 @@ function handleCreate() {
   router.push('/product/products/create')
 }
 
-// ===== 上游商品导入（克隆，按分组多选 + 百分设定价） =====
+// ===== 上游商品导入（克隆：按上游分组多选 + 本地分类 + 按代理价百分比定价） =====
 const cloneVisible = ref(false)
 const cloneSubmitting = ref(false)
+const cloneLoading = ref(false)
 const providerOptions = ref<{ label: string; value: number }[]>([])
 // 分组结构：group_id → 组名 + 商品列表
 const groupList = ref<{ id: number; name: string; items: ProductInfo[] }[]>([])
 const providerProducts = ref<ProductInfo[]>([])
 const selectedProductIds = ref<Set<number>>(new Set())
-const cloneForm = reactive<{ source_provider_id: number | undefined; price_percent: number }>({
+const cloneForm = reactive<{ source_provider_id: number | undefined; category_id: number | undefined; price_percent: number }>({
   source_provider_id: undefined,
+  category_id: undefined,
   price_percent: 120,
+})
+
+/** 优惠提示：上游给本账号的代理折扣说明（取自商品镜像的折扣描述）。 */
+const discountHint = computed(() => {
+  const hit = providerProducts.value.find((item) => item.cost_price > 0 && item.sale_price > item.cost_price)
+  if (!hit) return ''
+  const off = Math.round((hit.cost_price / hit.sale_price) * 100)
+  return `${hit.group_name || '该分组'} 等商品的代理价约为标价的 ${off}%（导入按代理价计算成本）`
 })
 
 async function handleClone() {
   cloneForm.source_provider_id = undefined
+  cloneForm.category_id = undefined
   cloneForm.price_percent = 120
   selectedProductIds.value = new Set()
   groupList.value = []
@@ -476,12 +504,17 @@ async function handleProviderChange() {
   providerProducts.value = []
   selectedProductIds.value = new Set()
   if (!cloneForm.source_provider_id) return
+  cloneLoading.value = true
   try {
-    const data = await getResourceProductList({ provider_id: cloneForm.source_provider_id, page_size: 100 })
+    // 一次拉全量（列表接口上限 500，且不再携带 raw_specs 大字段）：
+    // 此前固定 page_size=100 导致上游商品多于 100 时后一半根本选不到。
+    const data = await getResourceProductList({ provider_id: cloneForm.source_provider_id, page_size: 500 })
     providerProducts.value = data.items
     groupList.value = buildCloneGroups(data.items)
   } catch {
     MessagePlugin.error('加载上游商品失败')
+  } finally {
+    cloneLoading.value = false
   }
 }
 
@@ -539,14 +572,37 @@ async function handleCloneConfirm() {
   }
   cloneSubmitting.value = true
   try {
-    await batchCloneProductFromUpstream({
+    const result = await batchCloneProductFromUpstream({
       source_provider_id: cloneForm.source_provider_id,
       source_product_ids: Array.from(selectedProductIds.value),
+      category_id: cloneForm.category_id,
       price_percent: cloneForm.price_percent,
     })
-    MessagePlugin.success(`已导入 ${selectedProductIds.value.size} 个上游商品`)
-    cloneVisible.value = false
-    loadProducts()
+    const imported = result?.items?.length ?? 0
+    const failed = result?.failed ?? []
+    if (imported > 0) {
+      MessagePlugin.success(`已导入 ${imported} 个上游商品`)
+    }
+    if (failed.length > 0) {
+      // 逐条失败此前被静默吞掉（接口一律返回成功），这里把原因摊开：
+      // 最常见的是「该上游商品已导入过」（商品编码 cpy-<渠道>-<上游商品> 已存在）。
+      const detail = failed
+        .slice(0, 3)
+        .map((f) => `${f.name || `#${f.source_product_id}`}：${f.reason}`)
+        .join('；')
+      MessagePlugin.warning(
+        imported > 0
+          ? `${failed.length} 个未导入：${detail}${failed.length > 3 ? ' 等' : ''}`
+          : `导入失败：${detail}${failed.length > 3 ? ' 等' : ''}`,
+      )
+    }
+    if (imported === 0 && failed.length === 0) {
+      MessagePlugin.warning('没有可导入的商品，请检查选择')
+    }
+    if (imported > 0) {
+      cloneVisible.value = false
+      loadProducts()
+    }
   } catch (error) {
     MessagePlugin.error((error as Error).message || '导入失败')
   } finally {
@@ -741,6 +797,26 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
 .clone-item__price {
   color: var(--td-warning-color, #e37318);
   font-size: 12px;
+}
+.clone-item__list {
+  margin-left: 6px;
+  color: var(--td-text-color-placeholder, #bbb);
+  font-style: normal;
+  text-decoration: line-through;
+}
+.clone-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #999);
+}
+.clone-summary__hint {
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--td-success-color-1, #e8f8f2);
+  color: var(--td-success-color, #2ba471);
 }
 .products-layout {
   display: flex;

@@ -276,7 +276,11 @@ func (p *MoFangFinanceProvider) callShell(ctx context.Context, op, method, path 
 			tr.FinishBusiness(err, false, "", "")
 			return
 		}
-		success := status < 400 && (shell.Status == StatusOK || shell.Code == StatusOK)
+		// 业务成功码有两个：200（通用成功）与 1001（余额支付完成，仅 apply_credit/cart/settle
+		// 的 0 元单返回）。若漏掉 1001，"支付成功"会被采集成失败记录 —— 而这张表正是
+		// 运维排查开通问题的入口，误报失败会把排查引向错误方向。
+		success := status < 400 && (shell.Status == StatusOK || shell.Code == StatusOK ||
+			shell.Status == StatusPaidSuccess || shell.Code == StatusPaidSuccess)
 		code := ""
 		if shell.Status != 0 {
 			code = strconv.Itoa(shell.Status)
@@ -528,12 +532,20 @@ func (p *MoFangFinanceProvider) ListDueHosts(ctx context.Context) ([]upstream.Du
 	return out, nil
 }
 
-// ListProducts 拉取上游商品列表并补全价格/规格/分类（全量商品接口）。
-// 财务型上游：
-//  1. GET api/product/proinfo            —— 全量商品 id（不过滤 hidden/retired）；
-//  2. GET api/product/prodetail?pids[]=   —— 分批(<500)拉取完整详情：product_pricings（售价）+ config_groups（CPU/内存/系统盘等开通规格）。
+// ListProducts 拉取上游商品列表并补全分类/价格/规格（全量商品接口）。
 //
-// 这解决了此前 v1/products 仅返回前台可见商品（显示不全）、v1/productsconfig 对部分商品拿不到配置（参数缺失）的问题。
+// 财务型上游（对齐上游自身下游对接逻辑 app/zjmf.php 的 getZjmfUpstreamProducts +
+// getZjmfUpstreamProductConfig + upstreamBates）：
+//  1. GET cart/all                     —— 商品分组（分类名）与分组归属；
+//  2. GET api/product/proinfo          —— 全量商品 id（不过滤 hidden/retired）；
+//  3. GET api/product/prodetail?pids[]= —— 分批(<500)拉取完整详情：product_pricings（标价）、
+//     config_groups（CPU/内存/系统盘等开通规格）、customfields、advanced、pay_type、description；
+//  4. GET cart/get_product_config?pid=  —— 每个分组取一次 flag（本客户折扣），批量换算代理价。
+//
+// 价格口径（对齐上游 zjmf.php::upstreamBates）：
+//   - cost_price = 折后价（我方实际采购价，raw_specs.product_pricings）；
+//   - sale_price = 上游标价（raw_specs.product_pricings_list），供展示与折扣对比。
+//
 // 资源型上游：GET resource/agentproductsarray（data 兼容数组/包裹两种形态）。
 func (p *MoFangFinanceProvider) ListProducts(ctx context.Context) ([]*model.StandardProduct, error) {
 	products := make([]*model.StandardProduct, 0, 16)
@@ -555,29 +567,169 @@ func (p *MoFangFinanceProvider) ListProducts(ctx context.Context) ([]*model.Stan
 		return products, nil
 	}
 
-	// 1) 全量商品 id
+	// 1) 商品分组（分类）：cart/all 是客户端商品目录，含分组名与分组归属；
+	// 隐藏分组的商品不在其中，其 group_name 留空（前端显示「未分类」，不臆造分类名）。
+	groups := p.fetchCartGroups(ctx)
+
+	// 2) 全量商品 id
 	var proinfo OpenapiProinfoResp
 	if err := p.call(ctx, "ListProducts", http.MethodGet, "api/product/proinfo", nil, &proinfo); err != nil {
 		return nil, err
 	}
-	// 2) 分批拉取完整详情（价格 + 配置规格）
+	// 3) 分批拉取完整详情（价格 + 配置规格）
 	details := p.fetchAllDetails(ctx, proinfo.Info)
+
+	// 4) 每个分组探一次本客户折扣（flag 只取决于客户分组 × 商品分组，
+	//    同组商品折扣一致，故按 gid 采样即可，避免逐商品请求上游）。
+	flags := p.fetchGroupDiscounts(ctx, details)
+
 	for pid, d := range details {
 		spec := parseCloudSpecs(d.ConfigGroups)
 		if spec.OS == "" {
 			spec.OS = d.Type
 		}
-		price := upstreamPrice(d.ProductPricings)
+		flag := flags[d.GID]
+		listRows := d.ProductPricings
+		costRows := scalePricingRows(listRows, flag)
 		products = append(products, &model.StandardProduct{
 			ProviderType: ProviderType, UpstreamID: pid, Name: d.Name,
-			CostPrice: price, SalePrice: price, Specs: spec, Status: "active",
-			RawSpecs: map[string]interface{}{
-				"gid": d.GID, "type": d.Type, "description": d.Description,
-				"product_pricings": d.ProductPricings, "config_groups": d.ConfigGroups,
-			},
+			CostPrice: upstreamPrice(costRows), SalePrice: upstreamPrice(listRows),
+			Specs: spec, Status: "active",
+			RawSpecs: buildProductRawSpecs(d, groups[d.GID], listRows, costRows, flag),
 		})
 	}
 	return products, nil
+}
+
+// fetchCartGroups 拉取商品分组（分类）：返回 gid → 分组名。
+// 失败不影响商品列表（只是分类名缺失），故只做降级返回。
+func (p *MoFangFinanceProvider) fetchCartGroups(ctx context.Context) map[int64]string {
+	var resp CartAllResp
+	if err := p.call(ctx, "ListProducts", http.MethodGet, "cart/all", nil, &resp); err != nil {
+		return nil
+	}
+	out := make(map[int64]string, len(resp.Products))
+	for _, g := range resp.Products {
+		if g.ID == 0 || strings.TrimSpace(g.Name) == "" {
+			continue
+		}
+		out[g.ID] = strings.TrimSpace(g.Name)
+	}
+	return out
+}
+
+// discountProbeConcurrency 分组折扣探测并发度（上游限流保守取值）。
+const discountProbeConcurrency = 6
+
+// fetchGroupDiscounts 逐分组探测本客户折扣：每个 gid 取一个代表商品调
+// cart/get_product_config 读 flag。返回 gid → 折扣；探测失败的 gid 视为无折扣。
+func (p *MoFangFinanceProvider) fetchGroupDiscounts(ctx context.Context, details map[string]UpstreamProductDetail) map[int64]SaleFlag {
+	// gid → 代表商品 pid（同组任取一个即可，折扣只与分组相关）。
+	rep := map[int64]string{}
+	for pid, d := range details {
+		if _, ok := rep[d.GID]; !ok {
+			rep[d.GID] = pid
+		}
+	}
+	out := make(map[int64]SaleFlag, len(rep))
+	if len(rep) == 0 {
+		return out
+	}
+	type result struct {
+		gid  int64
+		flag SaleFlag
+	}
+	ch := make(chan result, len(rep))
+	sem := make(chan struct{}, discountProbeConcurrency)
+	var wg sync.WaitGroup
+	for gid, pid := range rep {
+		wg.Add(1)
+		go func(gid int64, pid string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			var resp CartProductConfigResp
+			if err := p.call(ctx, "ListProducts", http.MethodGet, "cart/get_product_config",
+				url.Values{"pid": {pid}}, &resp); err != nil {
+				ch <- result{gid: gid}
+				return
+			}
+			ch <- result{gid: gid, flag: resp.Flag}
+		}(gid, pid)
+	}
+	wg.Wait()
+	close(ch)
+	for r := range ch {
+		if r.flag.Enabled() {
+			out[r.gid] = r.flag
+		}
+	}
+	return out
+}
+
+// scalePricingRows 按折扣换算全部标价行；无折扣时原样返回（避免无谓克隆）。
+func scalePricingRows(rows []PricingRow, flag SaleFlag) []PricingRow {
+	if !flag.Enabled() {
+		return rows
+	}
+	out := make([]PricingRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.Scale(flag.Factor()))
+	}
+	return out
+}
+
+// buildProductRawSpecs 组装资源商品原始规格快照（落 resource_products.raw_specs）。
+//
+// 下游消费者契约（勿随意改名）：
+//   - gid / group_name：分类（resource_products.group_id / group_name 由此派生）；
+//   - product_pricings：我方采购价（折后）——周期价格矩阵与成本由此推导；
+//   - product_pricings_list / list_price：上游标价，供展示与折扣对比；
+//   - config_groups：开通参数（含选项/子项的上游 id，下单时必须用它们）；
+//   - description：上游富文本描述；pay_type：可售周期与是否可续费。
+func buildProductRawSpecs(d UpstreamProductDetail, groupName string, listRows, costRows []PricingRow, flag SaleFlag) map[string]interface{} {
+	raw := map[string]interface{}{
+		"gid":                   d.GID,
+		"type":                  d.Type,
+		"description":           d.Description,
+		"product_pricings":      costRows,
+		"product_pricings_list": listRows,
+		"list_price":            rowPrice(listRows, "monthly"),
+		"cost_price_monthly":    rowPrice(costRows, "monthly"),
+		"config_groups":         d.ConfigGroups,
+		"customfields":          d.CustomFields,
+		"advanced":              d.Advanced,
+		"config_links":          d.ConfigLinks,
+		"pay_type":              d.PayType,
+		"upstream_api_type":     d.APIType,
+		"hidden":                d.Hidden,
+		"retired":               d.Retired,
+		"stock_control":         d.StockControl,
+		"qty":                   d.Qty,
+	}
+	if groupName != "" {
+		raw["group_name"] = groupName
+	}
+	if d.UpstreamPID > 0 {
+		raw["upstream_pid"] = d.UpstreamPID
+	}
+	if d.UpstreamPriceType != "" {
+		raw["upstream_price_type"] = d.UpstreamPriceType
+		raw["upstream_price_value"] = d.UpstreamPriceValue
+	}
+	raw["upstream_discount"] = map[string]interface{}{
+		"type": float64(flag.Type), "bates": float64(flag.Bates), "desc": flag.DiscountDesc(),
+	}
+	return raw
+}
+
+// rowPrice 读取首行的指定周期价格（无则 0）。
+func rowPrice(rows []PricingRow, key string) float64 {
+	if len(rows) == 0 {
+		return 0
+	}
+	v, _ := rows[0].Num(key)
+	return v
 }
 
 // detailBatchSize prodetail 单次最大商品数（上游 concurrent=500）。
@@ -609,8 +761,17 @@ func (p *MoFangFinanceProvider) fetchAllDetails(ctx context.Context, infos []str
 	return out
 }
 
-// upstreamPrice 取上游售价：优先 monthly，其次 quarterly/annually/onetime。
-func upstreamPrice(prs []ProductPricing) float64 {
+// upstreamPrice 取上游代表价：优先 monthly，其次 quarterly/semiannually/annually/onetime。
+// 入参为 pricing 原始行（PricingRow）；旧调用方若传 ProductPricing，见 upstreamPriceLegacy。
+func upstreamPrice(rows []PricingRow) float64 {
+	if len(rows) == 0 {
+		return 0
+	}
+	return rows[0].HeadlinePrice()
+}
+
+// upstreamPriceLegacy 兼容旧版 pricing 结构（无原始行时兜底）。
+func upstreamPriceLegacy(prs []ProductPricing) float64 {
 	if len(prs) == 0 {
 		return 0
 	}
@@ -787,7 +948,9 @@ func leadingInt(s string) int {
 	return n
 }
 
-// GetProduct 拉取单个上游商品配置（v1/productsconfig，product_id）。
+// GetProduct 拉取单个上游商品配置（api/product/prodetail，product_id）。
+// 与 ListProducts 同口径：分类名（cart/all）与代理折扣（cart/get_product_config 的 flag）一并取回，
+// 保证「新建商品前预览上游商品」看到的价格就是采购价。
 func (p *MoFangFinanceProvider) GetProduct(ctx context.Context, upstreamID string) (*model.StandardProduct, error) {
 	if p.isResource() {
 		return nil, p.notSupported("GetProduct", "资源型上游请使用 ListProducts 获取商品列表")
@@ -806,22 +969,30 @@ func (p *MoFangFinanceProvider) GetProduct(ctx context.Context, upstreamID strin
 	if spec.OS == "" {
 		spec.OS = d.Type
 	}
+	groups := p.fetchCartGroups(ctx)
+	flag := p.fetchGroupDiscount(ctx, upstreamID)
+	listRows := d.ProductPricings
+	costRows := scalePricingRows(listRows, flag)
 	return &model.StandardProduct{
 		ProviderType: ProviderType,
 		UpstreamID:   upstreamID,
 		Name:         d.Name,
 		Specs:        spec,
-		CostPrice:    upstreamPrice(d.ProductPricings),
-		SalePrice:    upstreamPrice(d.ProductPricings),
-		RawSpecs: map[string]interface{}{
-			"gid":              d.GID,
-			"type":             d.Type,
-			"description":      d.Description,
-			"product_pricings": d.ProductPricings,
-			"config_groups":    d.ConfigGroups,
-		},
-		Status: "active",
+		CostPrice:    upstreamPrice(costRows),
+		SalePrice:    upstreamPrice(listRows),
+		RawSpecs:     buildProductRawSpecs(d, groups[d.GID], listRows, costRows, flag),
+		Status:       "active",
 	}, nil
+}
+
+// fetchGroupDiscount 探测单个商品的客户折扣（flag）；失败或无折扣返回零值。
+func (p *MoFangFinanceProvider) fetchGroupDiscount(ctx context.Context, pid string) SaleFlag {
+	var resp CartProductConfigResp
+	if err := p.call(ctx, "GetProduct", http.MethodGet, "cart/get_product_config",
+		url.Values{"pid": {pid}}, &resp); err != nil {
+		return SaleFlag{}
+	}
+	return resp.Flag
 }
 
 // CreateInstance 「财务对接财务」开通：由本系统（下游）向上游魔方财务下单。
@@ -840,8 +1011,10 @@ func (p *MoFangFinanceProvider) CreateInstance(ctx context.Context, req *model.C
 	if pid == "" {
 		return nil, &upstream.ProviderError{Op: "CreateInstance", Msg: "商品未绑定上游商品ID（upstream_pid），无法在财务上游下单"}
 	}
-	host := safeHostname(req.Name)
-	password := firstNonEmpty(req.Password, randPassword())
+	// 主机名/密码：客户在商品详情页可自定义主机名（extra.hostname，走客户选配项下发），
+	// 未指定时按标准规则生成；密码同理（extra.root_password 仅内部调用方使用，默认随机强密码）。
+	host := safeHostname(firstNonEmpty(strFromMap(req.Extra, "hostname"), req.Name))
+	password := firstNonEmpty(req.Password, strFromMap(req.Extra, "root_password"), randPassword())
 	billingCycle := normalizeBillingCycle(req.BillingMode)
 	configOpt := buildCartConfigOption(req.Extra)
 	// 币种：上游结算要求 currencyid 为该账号（clients.currency）生效的币种 id。
@@ -898,11 +1071,26 @@ func (p *MoFangFinanceProvider) CreateInstance(ctx context.Context, req *model.C
 		InvoiceID int64   `json:"invoiceid"`
 		HostID    []int64 `json:"hostid"`
 	}
-	if err := p.call(ctx, "CreateInstance", http.MethodPost, "cart/settle", settleForm, &settleData); err != nil {
+	// cart/settle 有两条成功返回形态（源码 CartController::settle）：
+	//   total>0 → status 200 + data.invoiceid（待支付）；
+	//   total=0（免费/一次性 0 元）→ status 1001 + data.hostid（已开通）。
+	// 因此这里不能只认 200（p.call 的行为），否则 0 元商品会被判成"接口调用失败"。
+	settleShell, settleHTTP, settleBody, err := p.callShell(ctx, "CreateInstance", http.MethodPost, "cart/settle", settleForm)
+	if err != nil {
 		return nil, err
 	}
-	if settleData.InvoiceID == 0 {
-		return nil, &upstream.ProviderError{Op: "CreateInstance", Msg: "上游结算成功但未返回账单ID"}
+	if settleHTTP >= 400 {
+		return nil, &upstream.ProviderError{Op: "CreateInstance", StatusCode: settleHTTP, Msg: firstNonEmpty(settleShell.Msg, strings.TrimSpace(string(settleBody)))}
+	}
+	if settleShell.Status != StatusOK && settleShell.Code != StatusOK && settleShell.Status != StatusPaidSuccess && settleShell.Code != StatusPaidSuccess {
+		return nil, &upstream.ProviderError{Op: "CreateInstance", Code: settleShell.Status, Msg: firstNonEmpty(settleShell.Msg, "上游结算失败")}
+	}
+	if err := p.unmarshalData("CreateInstance", settleShell, &settleData); err != nil {
+		return nil, err
+	}
+	// 0 元单（免费/一次性 0 元）结算即开通：只有 hostid 没有 invoiceid，属正常。
+	if settleData.InvoiceID == 0 && firstInt(settleData.HostID) == 0 {
+		return nil, &upstream.ProviderError{Op: "CreateInstance", Msg: "上游结算成功但未返回账单ID或主机ID"}
 	}
 
 	// 3) 用上游余额支付并开通（status 1001 支付完成）
@@ -924,8 +1112,11 @@ func (p *MoFangFinanceProvider) CreateInstance(ctx context.Context, req *model.C
 		if httpStatus >= 400 {
 			return nil, &upstream.ProviderError{Op: "CreateInstance", StatusCode: httpStatus, Msg: firstNonEmpty(shell.Msg, strings.TrimSpace(string(body)))}
 		}
-		if shell.Status != StatusPaidSuccess && shell.Status != StatusOK && shell.Code != StatusOK {
-			return nil, &upstream.ProviderError{Op: "CreateInstance", Code: shell.Status, Msg: firstNonEmpty(shell.Msg, "上游余额支付失败")}
+		// 只认 1001：上游用 200 表示"余额不足，账单未清、主机不会开通"
+		// （PayController::applyCredit 的 else 分支）。若此处接受 200，我们会把
+		// "没付成钱"当成成功，随后取不到 hostid 才报错，错误信息会指向错误方向。
+		if shell.Status != StatusPaidSuccess && shell.Code != StatusPaidSuccess {
+			return nil, &upstream.ProviderError{Op: "CreateInstance", Code: shell.Status, Msg: firstNonEmpty(shell.Msg, "上游余额支付未完成（余额不足或账单未结清）")}
 		}
 		var payData struct {
 			HostID []int64 `json:"hostid"`
@@ -1203,8 +1394,10 @@ func (p *MoFangFinanceProvider) RenewInstance(ctx context.Context, req *upstream
 	if httpStatus >= 400 {
 		return nil, &upstream.ProviderError{Op: "RenewInstance", StatusCode: httpStatus, Msg: firstNonEmpty(shell.Msg, strings.TrimSpace(string(body)))}
 	}
-	if shell.Status != StatusPaidSuccess && shell.Status != StatusOK && shell.Code != StatusOK {
-		return nil, &upstream.ProviderError{Op: "RenewInstance", Code: shell.Status, Msg: firstNonEmpty(shell.Msg, "上游续费余额支付失败")}
+	// 只认 1001：200 表示"余额不足，账单未清"（源码 Host::renew 也把 200 当失败处理），
+	// 接受它会把"没续上"记成"续费成功"。
+	if shell.Status != StatusPaidSuccess && shell.Code != StatusPaidSuccess {
+		return nil, &upstream.ProviderError{Op: "RenewInstance", Code: shell.Status, Msg: firstNonEmpty(shell.Msg, "上游续费余额支付未完成（余额不足或账单未结清）")}
 	}
 
 	res := &upstream.RenewResult{
@@ -1377,7 +1570,13 @@ func customFieldsFromExtra(extra map[string]interface{}) map[string]string {
 }
 
 // buildCartConfigOption 从开通请求的 configoption（显式覆盖）或 config_groups（上游配置组）
-// 构建 cart 下单所需的 configoption[option.upstream_id] = sub.upstream_id 映射。
+// 构建 cart 下单所需的 configoption[option.id] = sub.id 映射。
+//
+// 键必须是**上游自己的** product_config_options.id / _sub.id：上游
+// common/logic/ConfigOptions.php::filterConfigOptions 只按 option 自身 id 匹配请求键，
+// 且取值必须是该 option 下的 sub id。曾经误用 upstream_id（那是上游再上一层的 id，
+// 且原生商品该字段为 0），会导致参数被过滤后按上游默认值开通——配置与售卖不一致。
+// 仅当 id 缺失（0）时才退回 upstream_id，保证老数据仍可下单。
 func buildCartConfigOption(extra map[string]interface{}) map[string]string {
 	out := map[string]string{}
 	// 显式 configoption 覆盖优先（键=上游选项ID，值=上游子项ID或数量）
@@ -1397,17 +1596,31 @@ func buildCartConfigOption(extra map[string]interface{}) map[string]string {
 	}
 	for _, g := range groups {
 		for _, opt := range g.Options {
-			if opt.UpstreamID == 0 {
+			key := cartOptionKey(opt.ID, opt.UpstreamID)
+			if key == "" {
 				continue
 			}
 			sub := pickConfigSub(opt, extra)
-			if sub == nil || sub.UpstreamID == 0 {
+			if sub == nil {
 				continue
 			}
-			out[strconv.FormatInt(opt.UpstreamID, 10)] = strconv.FormatInt(sub.UpstreamID, 10)
+			if val := cartOptionKey(sub.ID, sub.UpstreamID); val != "" {
+				out[key] = val
+			}
 		}
 	}
 	return out
+}
+
+// cartOptionKey 取购物车下单键：优先上游自身 id，缺失时退回 upstream_id。
+func cartOptionKey(ownID, upstreamID int64) string {
+	if ownID != 0 {
+		return strconv.FormatInt(ownID, 10)
+	}
+	if upstreamID != 0 {
+		return strconv.FormatInt(upstreamID, 10)
+	}
+	return ""
 }
 
 // pickConfigSub 从配置项可选值中选取一个作为默认开通值（单值取首个可见项，多值匹配期望规格）。

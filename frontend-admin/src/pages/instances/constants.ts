@@ -45,6 +45,16 @@ export const operationActionLabels: Record<string, string> = {
   suspend: '暂停',
   unsuspend: '恢复',
   stage: '阶段推进',
+  reinstall: '重装系统',
+  reset_password: '重置密码',
+  rescue: '进入救援',
+  exit_rescue: '退出救援',
+  snapshot_create: '创建快照',
+  snapshot_delete: '删除快照',
+  snapshot_restore: '快照恢复',
+  bandwidth: '改带宽',
+  add_ip: '增加 IP',
+  attach_disk: '挂载数据盘',
 }
 
 // 操作结果筛选项（全局操作流水页）

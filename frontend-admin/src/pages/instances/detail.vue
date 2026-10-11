@@ -507,10 +507,17 @@
       destroy-on-close
       @confirm="handleReinstall"
     >
-      <t-alert theme="warning" class="dlg-alert" message="重装会清空系统盘（可选同时格式化数据盘），操作不可撤销。" />
+      <t-alert theme="warning" class="dlg-alert" message="重装会清空系统盘（可选同时格式化数据盘），操作不可撤销。财务型上游的镜像值是上游配置子项 ID。" />
       <t-form label-align="top">
-        <t-form-item label="目标镜像 ID">
-          <t-input v-model="reinstall.os" placeholder="平台镜像 ID；财务型上游填配置子项 ID（商品配置里的 os 选项 upstream_id）" />
+        <t-form-item label="目标镜像（可选列表也可手填 ID）">
+          <t-select
+            v-model="reinstall.os"
+            filterable
+            clearable
+            creatable
+            :options="mirrorOptions"
+            placeholder="选择平台已装镜像，或直接填上游配置子项 ID"
+          />
         </t-form-item>
         <t-form-item label="自定义端口（可选，SSH/RDP）">
           <t-input-number v-model="reinstall.port" :min="0" :max="65535" theme="column" />
@@ -665,10 +672,16 @@
       @confirm="credential.visible = false"
     >
       <t-alert theme="warning" class="dlg-alert" message="平台新签发的登录凭据只显示这一次，本系统不保存；关闭后只能去平台面板重置。" />
+      <t-alert
+        v-if="!credential.password"
+        theme="info"
+        class="dlg-alert"
+        message="该服务商（如魔方财务）重装为异步任务且不回传新凭据：新密码由平台在重装完成后写入主机，请稍后到平台面板或「重置密码」获取。"
+      />
       <t-descriptions :column="1" bordered size="small">
         <t-descriptions-item label="用户名">{{ credential.username || '—' }}</t-descriptions-item>
         <t-descriptions-item label="新密码">
-          <code class="cell-strong">{{ credential.password || '（平台未返回，沿用原密码）' }}</code>
+          <code class="cell-strong">{{ credential.password || '（平台未返回，请改用「重置密码」或到平台面板查看）' }}</code>
         </t-descriptions-item>
       </t-descriptions>
     </t-dialog>
@@ -707,6 +720,7 @@ import {
   updateInstanceRemark,
 } from '@/api/instance'
 import { renewInstance } from '@/api/lifecycle'
+import { getProviderPlatformResources } from '@/api/admin'
 import {
   expireStateLabel,
   formatPrice,
@@ -1166,6 +1180,7 @@ function onMaintenancePick(data: { value: string; disabled?: boolean }) {
       reinstall.format_data_disk = false
       reinstall.reason = ''
       reinstall.visible = true
+      loadMirrorOptions()
       break
     case 'resetpwd':
       resetPwd.password = ''
@@ -1201,6 +1216,31 @@ const reinstall = reactive<{
   reason: string
   loading: boolean
 }>({ visible: false, os: '', port: 0, system_disk_size: 0, format_data_disk: false, reason: '', loading: false })
+
+// 可选镜像：优先读平台资源目录（魔方云返回已装镜像）；财务型上游没有镜像目录
+// （os 是上游配置子项 id），此时列表为空，运营直接手填 ID。
+const mirrorOptions = ref<Array<{ label: string; value: string }>>([])
+const mirrorLoaded = ref(false)
+
+async function loadMirrorOptions() {
+  if (mirrorLoaded.value) return
+  mirrorLoaded.value = true
+  const providerID = instanceData.value?.provider_id
+  if (!providerID) return
+  try {
+    const res = await getProviderPlatformResources(providerID)
+    const images = res?.images || []
+    mirrorOptions.value = images
+      .filter((img) => img.value)
+      .map((img) => ({
+        label: `${img.group ? `${img.group} · ` : ''}${img.label || img.value}${img.status ? `（${img.status}）` : ''}`,
+        value: img.value,
+      }))
+  } catch {
+    // 资源目录不可用（渠道不支持/上游离线）不阻塞重装：留空让运营手填。
+    mirrorOptions.value = []
+  }
+}
 
 // 重装后平台签发的新凭据（只此一次展示）
 const credential = reactive<{ visible: boolean; username: string; password: string }>({

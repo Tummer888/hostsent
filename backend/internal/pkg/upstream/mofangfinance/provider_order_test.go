@@ -7,7 +7,10 @@ import (
 )
 
 // configGroups308 收录上游 宁波电信 16-16 30Mbps（upstream_pid=308）的 config_groups 片段，
-// 用于验证 buildCartConfigOption 能依据 config_groups 还原 configoption[option_upstream_id] = sub_upstream_id。
+// 用于验证 buildCartConfigOption 能依据 config_groups 还原
+// configoption[option.id] = sub.id（上游自身 id，不是 upstream_id）。
+// 依据：上游 common/logic/ConfigOptions.php::filterConfigOptions 只按 option 自身 id
+// 匹配请求键，取值必须是该 option 下的 sub.id；误用 upstream_id 会被过滤掉并按上游默认值开通。
 const configGroups308 = `[
   {"id":26945,"name":"宁波电信高防一区 16H16G配置项组","options":[
     {"id":159897,"option_name":"area|区域","option_type":12,"upstream_id":710547,"sub":[
@@ -32,11 +35,11 @@ func TestBuildCartConfigOptionFromGroups(t *testing.T) {
 	extra := map[string]interface{}{"config_groups": groups}
 	got := buildCartConfigOption(extra)
 	want := map[string]string{
-		"710547": "4387466",
-		"710548": "4387467", // os 多值：未指定 os 时取首个可见项（CentOS）
-		"710549": "4387511",
-		"710550": "4387516",
-		"710551": "4387526",
+		"159897": "321169",
+		"159898": "321170", // os 多值：未指定 os 时取首个可见项（CentOS）
+		"159899": "321187",
+		"159900": "321188",
+		"159901": "321189",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("configoption mismatch:\n got=%v\nwant=%v", got, want)
@@ -53,8 +56,26 @@ func TestBuildCartConfigOptionOsMatch(t *testing.T) {
 		"os":            "debian",
 	}
 	got := buildCartConfigOption(extra)
-	if got["710548"] != "4387468" {
-		t.Fatalf("expected os=debian -> sub 4387468, got %q", got["710548"])
+	if got["159898"] != "321171" {
+		t.Fatalf("expected os=debian -> sub 321171, got %q", got["159898"])
+	}
+}
+
+// TestBuildCartConfigOptionNativeProduct 覆盖上游原生商品（upstream_id 全 0）：
+// 键取 option.id / sub.id，历史误用 upstream_id 时这类商品会整个丢参。
+func TestBuildCartConfigOptionNativeProduct(t *testing.T) {
+	// 实测形态：上游 新人特惠·香港 4-4（pid=552）的 cpu 配置项。
+	fixture := `[{"id":27650,"name":"配置项组","options":[
+	  {"id":164026,"option_name":"cpu|CPU","option_type":6,"upstream_id":0,"sub":[
+	    {"id":566823,"option_name":"4|4核","upstream_id":0,"hidden":0}]}
+	]}]`
+	var groups []ConfigGroup
+	if err := json.Unmarshal([]byte(fixture), &groups); err != nil {
+		t.Fatalf("unmarshal config groups failed: %v", err)
+	}
+	got := buildCartConfigOption(map[string]interface{}{"config_groups": groups})
+	if got["164026"] != "566823" {
+		t.Fatalf("expected 164026 -> 566823, got %v", got)
 	}
 }
 

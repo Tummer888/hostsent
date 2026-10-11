@@ -79,6 +79,9 @@ const (
 	ConfigWidgetRadio  = "radio"  // 单选（按钮组）
 	ConfigWidgetQty    = "qty"    // 数量（步进器）
 	ConfigWidgetBool   = "bool"   // 开关
+	// ConfigWidgetText 文本输入（2026-10 对接商品开通选项：主机名等自由填写值）。
+	// 无候选取值（Subs 为空），履约时取值原样下发平台，不参与加价。
+	ConfigWidgetText = "text"
 )
 
 // TableName 指定表名

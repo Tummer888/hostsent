@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 
 	catalogdto "hostsent/backend/internal/modules/admin/product/catalog/dto"
 	catalogservice "hostsent/backend/internal/modules/admin/product/catalog/service"
@@ -87,6 +88,8 @@ func (s *productService) Get(ctx context.Context, id uint64) (*dto.ProductInfo, 
 		return nil, ErrProductOffline
 	}
 	info := fromAdmin(*item)
+	// 对接链路信息（配置箱只读展示 + 可续费提示）：只透出展示口径，代理价/成本不外泄。
+	info.Upstream = upstreamChainFor(item.Upstream)
 	// 周期矩阵（doc25）：商品级可售周期 + 各 SKU 自有周期，供用户端渲染周期选择。
 	var productCycles []string
 	cyclesBySpec := map[uint64][]string{}
@@ -177,4 +180,46 @@ func fromAdmin(it catalogdto.ProductInfo) dto.ProductInfo {
 		Featured:      it.Featured,
 		CreatedAt:     it.CreatedAt,
 	}
+}
+
+// upstreamChainFor 把管理端的上游对接信息裁剪为客户可见版本：
+// 保留「是否固定配置 / 是否可续费 / 各配置项锁定状态 / 下单说明」，
+// 剔除上游标价、代理价、折扣与渠道等内部口径（客户看到的只有本平台的售价）。
+func upstreamChainFor(up *catalogdto.ProductUpstreamInfo) *dto.UpstreamChain {
+	if up == nil {
+		return nil
+	}
+	chain := &dto.UpstreamChain{
+		FixedConfig: up.FixedConfig,
+		Renewable:   up.Renewable,
+		RenewNote:   up.RenewNote,
+		OrderNotes: []string{
+			"主机名可自定义（留空由系统自动生成）",
+			"初始密码由系统随机生成，开通后可在主机详情重置",
+			"端口由上游随机分配，开通后随主机下发",
+		},
+	}
+	for _, opt := range up.Options {
+		chain.Options = append(chain.Options, dto.UpstreamChainOption{
+			Key:    opt.Key,
+			Name:   upstreamOptionLabel(opt.OptionName, opt.Key),
+			Locked: opt.Locked,
+			Value:  opt.Value,
+		})
+	}
+	return chain
+}
+
+// upstreamOptionLabel 取配置项的中文名：上游下发形如「cpu|CPU」，取竖线后的说明部分。
+func upstreamOptionLabel(optionName, key string) string {
+	name := strings.TrimSpace(optionName)
+	if idx := strings.Index(name, "|"); idx >= 0 {
+		if label := strings.TrimSpace(name[idx+1:]); label != "" {
+			return label
+		}
+	}
+	if name != "" {
+		return name
+	}
+	return key
 }

@@ -20,6 +20,8 @@ type fakeProductRepo struct {
 	specByCode map[string]*model.ProductSpec
 	// configOptions 供 SelfConfigOptionRows 返回（T4.5 选配项用例）。
 	configOptions []*model.ProductConfigOption
+	// configGroups 供 ConfigGroupsByProductID / AllConfigGroupsByProductID 返回（履约守卫用例）。
+	configGroups []interface{}
 }
 
 func (f *fakeProductRepo) List(context.Context, dto.ProductListQuery) ([]model.Product, int64, error) {
@@ -51,8 +53,11 @@ func (f *fakeProductRepo) ListBySourceProductID(context.Context, uint64) ([]mode
 	return f.items, nil
 }
 func (f *fakeProductRepo) SaveConfigOptions(context.Context, uint64, []interface{}) error { return nil }
+func (f *fakeProductRepo) SaveSelfOptionRows(context.Context, uint64, []*model.ProductConfigOption) error {
+	return nil
+}
 func (f *fakeProductRepo) ConfigGroupsByProductID(context.Context, uint64) ([]interface{}, error) {
-	return nil, nil
+	return f.configGroups, nil
 }
 func (f *fakeProductRepo) FindSpecByCode(_ context.Context, _ uint64, code string) (*model.ProductSpec, error) {
 	if sp, ok := f.specByCode[code]; ok {
@@ -79,7 +84,7 @@ func (f *fakeProductRepo) SelfConfigOptionRows(context.Context, uint64) ([]*mode
 	return f.configOptions, nil
 }
 func (f *fakeProductRepo) AllConfigGroupsByProductID(context.Context, uint64) ([]interface{}, error) {
-	return nil, nil
+	return f.configGroups, nil
 }
 
 // TestApplyConfirmedPriceKeepsSalePriceWithoutMarkup 无加价规则时只更新成本，售价不变。

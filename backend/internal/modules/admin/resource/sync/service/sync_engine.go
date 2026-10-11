@@ -619,6 +619,15 @@ func (e *SyncEngine) syncPoolsInternal(ctx context.Context, task *syncmodel.Sync
 }
 
 // syncInstances 拉取上游实例并幂等写入 instances。
+//
+// 归属语义（本次修复的真实故障）：上游实例号对面板而言是"面板用户 id"，本地要的是
+// users 表主键，两者不同空间。mofangyun 适配器不填 StandardInstance.UserID，
+// 于是新实例写库就是 user_id=0 → fk_instances_user 23503，整个实例同步任务连败
+// （实测 provider 19 连续 21+ 条失败、provider 1 累计 7000+ 条）。
+//
+// 因此：新实例一律经 PlatformOwnerUserID 落到合法账号；一个可用账号都没有时登记差异并
+// 跳过该行，绝不用非法 user_id 把整批同步拖崩。既有行沿用原 user_id/source_mode，
+// 避免把我方订单开通的自营实例改标成"上游发现"。
 func (e *SyncEngine) syncInstances(ctx context.Context, task *syncmodel.SyncTask, provider upstream.Provider) error {
 	admin, ok := provider.(upstream.InstanceAdministration)
 	if !ok {
@@ -628,14 +637,74 @@ func (e *SyncEngine) syncInstances(ctx context.Context, task *syncmodel.SyncTask
 	if err != nil {
 		return err
 	}
+	ids := make([]string, 0, len(items))
+	for _, it := range items {
+		ids = append(ids, it.UpstreamID)
+	}
+	existing, err := e.syncRepo.ExistingInstanceLinks(ctx, ids)
+	if err != nil {
+		return err
+	}
+	// 平台自持账号懒查一次，避免逐行查库。
+	var ownerUserID uint64
+	var ownerResolved bool
+
 	rows := make([]syncmodel.Instance, 0, len(items))
 	keep := make([]string, 0, len(items))
+	diffs := make([]syncmodel.SyncDiff, 0)
+	skipped := 0
 	for _, it := range items {
-		rows = append(rows, e.convertInstance(task.ProviderID, it))
+		row := e.convertInstance(task.ProviderID, it)
+		if prev, ok := existing[it.UpstreamID]; ok && prev.UserID > 0 {
+			// 本地已有归属：沿用原归属与链路语义。user_id / source_mode 必须写回原值
+			// —— 否则同步会把经我方订单开通的自营实例改标成"上游发现"，
+			// 实例会从用户控制台与自营对账口径里消失。
+			row.UserID = prev.UserID
+			if prev.SourceMode != "" {
+				row.SourceMode = prev.SourceMode
+			}
+			if prev.UpstreamProductID != 0 {
+				row.UpstreamProductID = prev.UpstreamProductID
+			}
+			rows = append(rows, row)
+			keep = append(keep, it.UpstreamID)
+			continue
+		}
+		if row.UserID == 0 {
+			if !ownerResolved {
+				ownerUserID, err = e.syncRepo.PlatformOwnerUserID(ctx)
+				if err != nil {
+					return err
+				}
+				ownerResolved = true
+			}
+			if ownerUserID == 0 {
+				diffs = append(diffs, syncmodel.SyncDiff{
+					TaskID: task.ID, ProviderID: task.ProviderID, Scope: syncmodel.ScopeInstance,
+					Action: syncmodel.DiffMissing, ExternalID: it.UpstreamID, NewValue: it.Name,
+					Disposition: syncmodel.DiffDispositionSkipped,
+					Remark:      "无可用归属账号，跳过写入（请先在用户管理中建立正常账号）",
+				})
+				skipped++
+				continue
+			}
+			row.UserID = ownerUserID
+		}
+		rows = append(rows, row)
 		keep = append(keep, it.UpstreamID)
 	}
+
 	if err := e.syncRepo.UpsertInstances(ctx, rows); err != nil {
 		return err
+	}
+	if len(diffs) > 0 {
+		if derr := e.frameworkRepo.CreateDiffs(ctx, diffs); derr != nil {
+			e.logger.Warn("写入实例同步差异失败", zap.Uint64("provider_id", task.ProviderID), zap.Error(derr))
+		}
+	}
+	if skipped > 0 {
+		e.logger.Warn("部分上游实例无归属账号被跳过",
+			zap.Uint64("provider_id", task.ProviderID), zap.Int("skipped", skipped))
 	}
 	if e.fullSyncDue(ctx, task.ProviderID, syncmodel.ScopeInstance) {
 		offline, oerr := e.frameworkRepo.MarkInstancesOffline(ctx, task.ProviderID, keep)
@@ -650,7 +719,7 @@ func (e *SyncEngine) syncInstances(ctx context.Context, task *syncmodel.SyncTask
 		e.touchCursor(ctx, task.ProviderID, syncmodel.ScopeInstance, len(items), false)
 	}
 	task.TotalCount = len(items)
-	task.SuccessCount = len(items)
+	task.SuccessCount = len(rows)
 	return nil
 }
 

@@ -37,8 +37,10 @@ func (r *productRepository) List(ctx context.Context, query dto.ProductListQuery
 	if pageSize <= 0 {
 		pageSize = 10
 	}
-	if pageSize > 100 {
-		pageSize = 100
+	// 单次上限 500：导入上游商品弹窗要一次列全（haika 实测 245 条），
+	// 旧的 100 条上限会让运营看不到后一半商品。列表响应已不带 raw_specs，500 条也是百 KB 级。
+	if pageSize > 500 {
+		pageSize = 500
 	}
 
 	base := r.db.WithContext(ctx).Model(&model.ResourceProduct{})

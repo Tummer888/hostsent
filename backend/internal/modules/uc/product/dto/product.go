@@ -36,6 +36,32 @@ type ProductInfo struct {
 	// OptionGroups 客户可选配置项（T4.5）：档位之外可自选的参数（操作系统/CPU 档/带宽…）。
 	// 前端按每个 option 的 widget 渲染控件，选中加价并入预结算金额。
 	OptionGroups []OptionGroup `json:"option_groups"`
+	// Upstream 对接链路信息（source_mode=upstream 时有值）：配置箱据此把上游固定配置
+	// 展示为只读（"该商品由上游固定配置，不可修改"），并提示是否可续费。
+	// 只含展示口径，不含代理价/成本等内部数据。
+	Upstream *UpstreamChain `json:"upstream_chain,omitempty"`
+}
+
+// UpstreamChain 对接商品的客户可见链路信息。
+type UpstreamChain struct {
+	// FixedConfig 是否整机固定配置（上游全部配置项都只有一个取值）。
+	FixedConfig bool `json:"fixed_config"`
+	// Renewable 是否可续费；false 时前端不展示续费入口，RenewNote 说明原因。
+	Renewable bool   `json:"renewable"`
+	RenewNote string `json:"renew_note"`
+	// Options 上游配置项（展示名 + 是否锁定 + 锁定值）。
+	Options []UpstreamChainOption `json:"options"`
+	// OrderNotes 下单说明（主机名可自定义 / 密码随机 / 端口由上游分配等），购买页展示。
+	OrderNotes []string `json:"order_notes"`
+}
+
+// UpstreamChainOption 上游配置项的客户可见信息。
+type UpstreamChainOption struct {
+	// Name 上游配置项键（cpu/memory/os…）；Label 中文名；Locked 是否固定不可改。
+	Key    string `json:"key"`
+	Name   string `json:"name"`
+	Locked bool   `json:"locked"`
+	Value  string `json:"value"` // 锁定时的唯一取值（展示用）
 }
 
 // OptionGroup 一组可选配置项（当前只有一个分组，保留结构便于以后分区）。

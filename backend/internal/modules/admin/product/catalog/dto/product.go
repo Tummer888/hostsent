@@ -124,6 +124,22 @@ type ProductBatchCloneRequest struct {
 	Status           int      `json:"status"`                                // 默认草稿
 }
 
+// ProductBatchCloneResponse 批量导入结果：成功项 + 失败项（逐条原因）。
+//
+// 为什么要有失败清单：导入按上游商品逐条建品，编码重复（同一上游商品已导入过）
+// 等失败此前被静默跳过，接口仍返回成功，运营会以为"导进来了"。
+type ProductBatchCloneResponse struct {
+	Items  []ProductInfo              `json:"items"`
+	Failed []ProductBatchCloneFailure `json:"failed"`
+}
+
+// ProductBatchCloneFailure 单条导入失败的原因。
+type ProductBatchCloneFailure struct {
+	SourceProductID uint64 `json:"source_product_id"`
+	Name            string `json:"name"`
+	Reason          string `json:"reason"`
+}
+
 // ProductUpdateRequest 更新产品
 type ProductUpdateRequest struct {
 	Name          string  `json:"name" binding:"required"`
@@ -194,6 +210,54 @@ type ProductInfo struct {
 	GeneratedSpecs []ProductSpecInfo `json:"generated_specs,omitempty"`
 	// SpecTemplateNotice 建品时规格生成的部分失败原因（商品已建，规格可到详情页重试）。
 	SpecTemplateNotice string `json:"spec_template_notice,omitempty"`
+	// Upstream 上游对接信息（仅 source_mode=upstream，且能读到上游镜像时有值）。
+	// 详情页据此展示：渠道 / 上游商品与分类 / 标价与代理价 / 折扣 / 各周期价 / 固定配置与不可续费。
+	Upstream *ProductUpstreamInfo `json:"upstream,omitempty"`
+}
+
+// ProductUpstreamInfo 对接商品的上游对接信息（商品详情页展示口径）。
+type ProductUpstreamInfo struct {
+	ProviderID   uint64 `json:"provider_id"`
+	ProviderName string `json:"provider_name"`
+	ProviderType string `json:"provider_type"`
+	// UpstreamID 上游商品 ID（resource_products.upstream_id）。
+	UpstreamID string `json:"upstream_id"`
+	// GroupID/GroupName 上游商品分组（分类）：与导入弹窗同一口径（上游 cart/all）。
+	GroupID   int64  `json:"group_id"`
+	GroupName string `json:"group_name"`
+	// ListPrice 上游标价；CostPrice 代理价（我方采购价，已含上游给本账号的代理折扣）。
+	ListPrice float64 `json:"list_price"`
+	CostPrice float64 `json:"cost_price"`
+	// DiscountDesc 折扣描述（如「代理折扣 70%（应付标价的 70%）」）。
+	DiscountDesc string `json:"discount_desc"`
+	// ListCycles/CostCycles 各周期标价与采购价（周期 → 金额），配置箱展示付费周期用。
+	ListCycles map[string]float64 `json:"list_cycles"`
+	CostCycles map[string]float64 `json:"cost_cycles"`
+	// Renewable 是否可续费：上游一次性/免费商品不可续费，本地不提供续费入口。
+	Renewable bool   `json:"renewable"`
+	RenewNote string `json:"renew_note"`
+	// Description 上游富文本商品描述（本地描述为空时展示）。
+	Description string `json:"description"`
+	// PayType 上游付费类型原文（recurring/onetime/free）。
+	PayType string `json:"pay_type"`
+	// FixedConfig 是否整机固定配置（上游全部配置项都只有一个可见取值）。
+	FixedConfig bool `json:"fixed_config"`
+	// Options 上游配置项清单（含锁定状态）：锁定项本地不可改，开通参数由上游商品决定。
+	Options []ProductUpstreamOption `json:"options"`
+}
+
+// ProductUpstreamOption 上游配置项及其锁定状态。
+// 锁定（Locked）＝上游该配置项只有一个可见取值（如「固定四核8G」），
+// 本地任何修改都必然与上游商品不符 → 开通必然出错，故前端只读展示、履约侧拒绝覆盖。
+type ProductUpstreamOption struct {
+	// OptionName 上游配置项展示名（如 cpu|CPU）。
+	OptionName string `json:"option_name"`
+	// Key 归一化键（cpu/memory/os/bw/area/network_type…），履约守卫据此识别覆盖请求。
+	Key string `json:"key"`
+	// Locked 是否锁定；Value 为锁定时的唯一取值（展示用）。
+	Locked   bool   `json:"locked"`
+	Value    string `json:"value"`
+	SubCount int    `json:"sub_count"`
 }
 
 // ProductListResponse 产品列表响应
