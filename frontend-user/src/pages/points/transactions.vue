@@ -69,6 +69,7 @@ import { onMounted, reactive, ref } from 'vue'
 
 import { RefreshIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import { TTable } from '@/plugins/tdesign-heavy'
 
 import { getMyPointTransactions, type PointTransactionInfo } from '@/api/point'
 import {

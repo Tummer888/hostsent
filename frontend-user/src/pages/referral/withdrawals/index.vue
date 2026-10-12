@@ -129,6 +129,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
+import { TTable } from '@/plugins/tdesign-heavy'
 import type { PrimaryTableCol } from 'tdesign-vue-next'
 import { RefreshIcon } from 'tdesign-icons-vue-next'
 

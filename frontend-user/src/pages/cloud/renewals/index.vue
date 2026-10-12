@@ -141,6 +141,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { RefreshIcon } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import { TTable } from '@/plugins/tdesign-heavy'
 
 import {
   getMyRenewalDetail,

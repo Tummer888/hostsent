@@ -129,6 +129,7 @@ import { useRouter } from 'vue-router'
 
 import { FilePasteIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import { TTable } from '@/plugins/tdesign-heavy'
 
 import { downloadInvoice, emailInvoice, getMyInvoices, type InvoiceInfo } from '@/api/finance'
 import {

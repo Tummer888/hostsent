@@ -1,5 +1,6 @@
 import type { App } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
+import type { RouteRecordNormalized } from 'vue-router'
 
 import router from './router'
 import { useUserStore } from './store'
@@ -13,6 +14,21 @@ import { useMenuStore } from './store/modules/menu'
 // （令牌要由这一页调 /uc/oauth/exchange 才能换到），若走 requiresAuth 会被守卫
 // 弹回登录页，一次性票据随之作废，用户表现为「授权成功却回到登录页」。
 const whiteList = ['/login', '/oauth/callback']
+
+/**
+ * 预热目标路由的懒加载组件。
+ *
+ * Vue Router 是「先跑完全局守卫、再去加载目标路由的异步组件」，而下面的守卫又在等
+ * 用户信息/菜单两个接口，首屏就变成了「接口往返 → 再下 chunk」的串行瀑布。
+ * 这里提前触发动态 import：chunk 下载与接口请求并行，模块本身会被路由复用，不会重复下载。
+ */
+function warmRouteChunks(matched: RouteRecordNormalized[]) {
+  matched.forEach((record) => {
+    Object.values(record.components || {}).forEach((component) => {
+      if (typeof component === 'function') void (component as () => Promise<unknown>)()
+    })
+  })
+}
 
 export function setupPermission(app: App) {
   router.beforeEach(async (to, from, next) => {
@@ -42,20 +58,21 @@ export function setupPermission(app: App) {
     }
 
     // 用户信息与菜单是权限判定与页面渲染的前置数据，未加载时先补齐。
-    if (!userStore.loaded) {
-      try {
-        await userStore.fetchUserInfo()
-      } catch (e) {
-        console.error('Failed to load user info:', e)
-      }
-    }
-    if (!menuStore.loaded) {
-      try {
-        await menuStore.loadMenus('user')
-      } catch (e) {
-        console.error('Failed to load menus:', e)
-      }
-    }
+    // 两者互不依赖：并行拉取（并同时预热目标页面 chunk）比串行少一到两个往返，
+    // 首屏关键路径上的这点等待直接体现在「白屏时长」上。
+    warmRouteChunks(to.matched)
+    await Promise.all([
+      userStore.loaded
+        ? Promise.resolve()
+        : userStore.fetchUserInfo().catch((e) => {
+            console.error('Failed to load user info:', e)
+          }),
+      menuStore.loaded
+        ? Promise.resolve()
+        : menuStore.loadMenus('user').catch((e) => {
+            console.error('Failed to load menus:', e)
+          }),
+    ])
 
     // 子账号无权进入主账号专属页面（如成员管理）。前端仅拦入口，后端仍会拒绝。
     if (to.meta?.ownerOnly && userStore.isSubAccount) {

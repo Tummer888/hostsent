@@ -109,6 +109,7 @@ import { useRouter } from 'vue-router'
 
 import { RefreshIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
+import { TTable } from '@/plugins/tdesign-heavy'
 
 import { getMyPoints, type PointOverview, type PointRuleInfo, type PointTransactionInfo } from '@/api/point'
 import {

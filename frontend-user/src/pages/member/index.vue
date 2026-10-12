@@ -345,6 +345,7 @@ import {
   UsergroupIcon,
 } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
+import { TTable } from '@/plugins/tdesign-heavy'
 import type { FormInstanceFunctions, FormRule, PageInfo, PrimaryTableCol } from 'tdesign-vue-next'
 
 import {

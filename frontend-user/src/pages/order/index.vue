@@ -138,6 +138,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { PrimaryTableCol } from 'tdesign-vue-next'
+import { TTable } from '@/plugins/tdesign-heavy'
 import { OrderIcon } from 'tdesign-icons-vue-next'
 
 import { getMyOrders, type OrderInfo } from '@/api/shop'

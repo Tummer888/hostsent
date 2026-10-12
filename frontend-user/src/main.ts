@@ -1,10 +1,10 @@
 import { createApp } from 'vue'
-import TDesign from 'tdesign-vue-next'
 import 'tdesign-vue-next/es/style/index.css'
 
 import App from './App.vue'
 import { permission } from './directives/permission'
 import { setupPermission } from './permission'
+import { setupTDesign } from './plugins/tdesign'
 import router from './router'
 import { pinia, useSettingsStore } from './store'
 import './styles/index.css'
@@ -27,7 +27,8 @@ app.use(pinia)
 // 用户端主题设置不依赖路由/登录态，先应用可避免首屏闪烁
 useSettingsStore().init()
 app.use(router)
-app.use(TDesign)
+// 按需注册（见 plugins/tdesign.ts）：替代全量 app.use(TDesign)，首屏少下一大批未用组件。
+setupTDesign(app)
 app.directive('permission', permission)
 setupPermission(app)
 app.mount('#app')

@@ -53,6 +53,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import type { PrimaryTableCol } from 'tdesign-vue-next'
+import { TTable } from '@/plugins/tdesign-heavy'
 import { RefreshIcon } from 'tdesign-icons-vue-next'
 
 import { getReferralCashbacks, type CashbackInfo } from '@/api/referral'

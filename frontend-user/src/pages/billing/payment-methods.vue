@@ -256,6 +256,7 @@ import { useRouter } from 'vue-router'
 
 import { AddIcon, CheckCircleIcon, MoneyIcon, RefreshIcon, WalletIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import { TTable } from '@/plugins/tdesign-heavy'
 
 import {
   createPayoutAccount,

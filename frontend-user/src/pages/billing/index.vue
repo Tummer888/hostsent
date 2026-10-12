@@ -404,6 +404,7 @@ import {
   WalletIcon,
 } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
+import { TDatePicker, TTable } from '@/plugins/tdesign-heavy'
 
 import {
   getBalance,

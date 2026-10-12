@@ -216,6 +216,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 
 import { LockOnIcon, MailIcon, MobileIcon, SaveIcon, SecuredIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
+import { TTable } from '@/plugins/tdesign-heavy'
 
 import {
   getSecuritySettings,

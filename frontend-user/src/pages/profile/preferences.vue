@@ -99,6 +99,7 @@ import { onMounted, ref } from 'vue'
 
 import { RefreshIcon, SaveIcon, SettingIcon, LockOnIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
+import { TTable } from '@/plugins/tdesign-heavy'
 
 import {
   getMyPreferences,

@@ -271,6 +271,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
+import { TTable } from '@/plugins/tdesign-heavy'
 
 import { destroyInstance, getInstance, powerInstance, vncInstance, type InstanceInfo } from '@/api/cloud'
 import {
@@ -294,6 +295,9 @@ const instance = ref<InstanceInfo | null>(null)
 
 const statusText = computed(() => {
   const s = instance.value?.status
+  // 已销毁优先：终态下上游可能仍回 running（软删残留），只读 status 会把已终止的
+  // 机器显示成「运行中」。
+  if (s === 'deleted') return '已销毁'
   if (s === 'running') return '运行中'
   if (s === 'stopped') return '已关机'
   if (s === 'creating') return '创建中'

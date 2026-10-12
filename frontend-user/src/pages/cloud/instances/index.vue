@@ -61,6 +61,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
+import { TTable } from '@/plugins/tdesign-heavy'
 import type { PrimaryTableCol } from 'tdesign-vue-next'
 
 import { listInstances, powerInstance, vncInstance, type InstanceInfo } from '@/api/cloud'
@@ -83,12 +84,16 @@ const columns: PrimaryTableCol<InstanceInfo>[] = [
 ]
 
 function statusText(row: InstanceInfo): string {
+  // 已销毁优先：终态下上游状态可能仍是 running（软删残留），只读 status 会把
+  // 已终止的机器显示成「运行中」。
+  if (row.status === 'deleted') return '已销毁'
   if (row.status === 'running') return '运行中'
   if (row.status === 'stopped') return '已关机'
   if (row.status === 'creating') return '创建中'
   return row.status || '未知'
 }
 function statusTheme(row: InstanceInfo): 'success' | 'warning' | 'default' | 'danger' {
+  if (row.status === 'deleted') return 'default'
   if (row.status === 'running') return 'success'
   if (row.status === 'creating') return 'warning'
   if (row.status === 'stopped') return 'default'

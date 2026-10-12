@@ -81,6 +81,7 @@ import { useRouter } from 'vue-router'
 
 import { AddIcon, RefreshIcon, ServiceIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import { TTable } from '@/plugins/tdesign-heavy'
 
 import { cancelMyTicket, getMyTickets, type TicketInfo } from '@/api/support'
 import { formatTime, ticketPriorityLabel, ticketPriorityTheme, ticketStatusLabel, ticketStatusTheme } from '@/pages/support/constants'

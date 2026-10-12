@@ -169,6 +169,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 
 import { CheckCircleIcon, NotificationIcon, RefreshIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import { TTable } from '@/plugins/tdesign-heavy'
 
 import {
   getMyAnnouncements,

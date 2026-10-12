@@ -95,6 +95,7 @@ import { useRouter } from 'vue-router'
 
 import { SwapIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import { TTable } from '@/plugins/tdesign-heavy'
 
 import { getMyTransactions, type TransactionInfo } from '@/api/finance'
 import {
