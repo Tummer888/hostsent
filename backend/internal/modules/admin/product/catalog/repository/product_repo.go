@@ -38,6 +38,9 @@ type ProductRepository interface {
 	ListHistory(ctx context.Context, productID uint64) ([]model.ProductHistory, error)
 	// ListBySourceProductID 按上游资源商品 ID 查关联售出商品（T3.4 已确认调价落地用）。
 	ListBySourceProductID(ctx context.Context, sourceProductID uint64) ([]model.Product, error)
+	// ListImportedRefs 批量取「已导入的上游商品 → 销售商品」引用（上游商品页/导入弹窗标注已导入）。
+	// 返回 resource_products.id → 销售商品（同一上游商品正常只导入一次，重复时取最早的一条）。
+	ListImportedRefs(ctx context.Context, resourceProductIDs []uint64) (map[uint64]model.Product, error)
 	// SaveConfigOptions 保存商品的配置组（上游 config_groups）到子表（幂等：先删后插）。
 	// 配置组内可带 source/source_key 覆盖来源（T4.4）；缺省按 upstream + upstream_id 派生。
 	SaveConfigOptions(ctx context.Context, productID uint64, groups []interface{}) error
@@ -235,6 +238,30 @@ func (r *productRepository) ListHistory(ctx context.Context, productID uint64) (
 	return items, nil
 }
 
+// ListImportedRefs 批量取已导入引用；入参为空直接返回空表（避免 IN () 语法错误）。
+func (r *productRepository) ListImportedRefs(ctx context.Context, resourceProductIDs []uint64) (map[uint64]model.Product, error) {
+	out := make(map[uint64]model.Product, len(resourceProductIDs))
+	if len(resourceProductIDs) == 0 {
+		return out, nil
+	}
+	var items []model.Product
+	if err := r.db.WithContext(ctx).
+		Where("source_product_id IN ?", resourceProductIDs).
+		Order("id asc").Find(&items).Error; err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		if item.SourceProductID == 0 {
+			continue
+		}
+		if _, exists := out[item.SourceProductID]; exists {
+			continue // 重复导入时保留最早一条
+		}
+		out[item.SourceProductID] = item
+	}
+	return out, nil
+}
+
 // ListBySourceProductID 返回绑定了该上游资源商品的售出商品（克隆/转售链路）。
 func (r *productRepository) ListBySourceProductID(ctx context.Context, sourceProductID uint64) ([]model.Product, error) {
 	var items []model.Product
@@ -247,7 +274,7 @@ func (r *productRepository) ListBySourceProductID(ctx context.Context, sourcePro
 }
 
 // configGroup/configOption/configOptionSub 为 config_groups 的持久化/重建视图，
-// JSON 结构与上游 (pkg/upstream/mofangfinance) 的 ConfigGroup/ConfigOption/ConfigSub 对齐，
+// JSON 结构与上游 (pkg/upstream/zjmf) 的 ConfigGroup/ConfigOption/ConfigSub 对齐，
 // 使下游 buildCartConfigOption 等保持不变。
 type configGroup struct {
 	ID          int64          `json:"id"`

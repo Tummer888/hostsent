@@ -314,6 +314,11 @@ export interface ProductInfo {
   catalog_price?: number
   catalog_sale_price?: number
   catalog_cycle?: string
+  /** 该上游商品是否已导入为本地商品（导入弹窗禁止重复勾选；上游商品页区分已导入/未导入） */
+  imported?: boolean
+  imported_product_id?: number
+  /** 已导入商品的状态：0=草稿 1=上架 2=下架 */
+  imported_status?: number
   created_at: string
   updated_at: string
 }

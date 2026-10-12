@@ -24,15 +24,36 @@ type ProductService interface {
 	UpdatePrice(ctx context.Context, id uint64, req dto.ProductPriceRequest) (*dto.ProductInfo, error)
 	// Sync 拉取上游商品（骨架占位，具体同步逻辑在同步引擎阶段实现）
 	Sync(ctx context.Context, providerID uint64) (*dto.SyncResult, error)
+	// SetImportedReader 注入「已导入商品」查询端口（装配层调用，标注已导入用）。
+	SetImportedReader(reader ImportedProductReader)
+}
+
+// ImportedProductRef 已导入的本地商品引用（标注「已导入」用，不依赖商品域模型）。
+type ImportedProductRef struct {
+	ProductID uint64
+	Status    int
+}
+
+// ImportedProductReader 已导入引用读取端口：由商品域（catalog 仓库）实现并在装配层注入，
+// 避免资源域反向依赖商品域。
+type ImportedProductReader interface {
+	ListImportedRefs(ctx context.Context, resourceProductIDs []uint64) (map[uint64]ImportedProductRef, error)
 }
 
 type productService struct {
 	repo repository.ProductRepository
+	// importedReader 可为空（未装配时前端按"未导入"展示，不阻塞列表）。
+	importedReader ImportedProductReader
 }
 
 // NewProductService 创建上游商品业务服务
 func NewProductService(repo repository.ProductRepository) ProductService {
 	return &productService{repo: repo}
+}
+
+// SetImportedReader 注入「已导入商品」查询端口（装配层调用）。
+func (s *productService) SetImportedReader(reader ImportedProductReader) {
+	s.importedReader = reader
 }
 
 func (s *productService) List(ctx context.Context, query dto.ProductListQuery) (*dto.ProductListResponse, error) {
@@ -48,6 +69,17 @@ func (s *productService) List(ctx context.Context, query dto.ProductListQuery) (
 	if err != nil {
 		return nil, err
 	}
+	// 一次性批量查「已导入」引用：上游商品列表动辄几百条，逐条查商品域会打成 N+1。
+	imported := map[uint64]ImportedProductRef{}
+	if s.importedReader != nil && len(items) > 0 {
+		ids := make([]uint64, 0, len(items))
+		for _, item := range items {
+			ids = append(ids, item.ID)
+		}
+		if refs, err := s.importedReader.ListImportedRefs(ctx, ids); err == nil {
+			imported = refs
+		}
+	}
 	respItems := make([]dto.ProductInfo, 0, len(items))
 	for _, item := range items {
 		// 列表不带 raw_specs：上游商品是非结构化正文（config_groups/描述/双价周期），
@@ -55,6 +87,11 @@ func (s *productService) List(ctx context.Context, query dto.ProductListQuery) (
 		// 但列表要看清分类/价格/在售状态，先把 raw_specs 里的元信息摘出来再清空。
 		info := buildProductInfo(item)
 		info.RawSpecs = ""
+		if ref, ok := imported[item.ID]; ok {
+			info.Imported = true
+			info.ImportedProductID = ref.ProductID
+			info.ImportedStatus = ref.Status
+		}
 		respItems = append(respItems, info)
 	}
 	return &dto.ProductListResponse{Items: respItems, Meta: dto.ListMeta{Page: page, PageSize: pageSize, Total: total}}, nil

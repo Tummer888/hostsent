@@ -95,8 +95,13 @@
             </h3>
             <span class="table-card__meta">
               共 {{ total }} 个商品 · 在售 {{ onSaleInPage }} 个（本页）
+              <template v-if="importedInPage"> · 已导入 {{ importedInPage }} 个（本页）</template>
             </span>
           </div>
+          <p class="table-card__hint">
+            「状态」指上游前台是否在售：分类被上游隐藏 / 商品隐藏 / 已下架 都不计在售，但这些商品仍可导入与开通；
+            「导入」列显示是否已导入成本地商品（点击可跳转查看）。
+          </p>
           <t-table
             row-key="id"
             :data="productList"
@@ -155,6 +160,13 @@
               <t-tag :theme="statusTheme(row)" variant="light" size="small" shape="round">
                 {{ statusText(row) }}
               </t-tag>
+            </template>
+
+            <template #imported="{ row }">
+              <t-tooltip v-if="row.imported" :content="`已导入为本地商品 #${row.imported_product_id}（${importedStatusText(row)}）`">
+                <t-tag size="small" variant="light" theme="success">已导入</t-tag>
+              </t-tooltip>
+              <span v-else class="muted">未导入</span>
             </template>
 
             <template #action="{ row }">
@@ -231,6 +243,16 @@
           <t-tag :theme="statusTheme(detailProduct)" variant="light" size="small" shape="round">
             {{ statusText(detailProduct) }}
           </t-tag>
+        </t-descriptions-item>
+        <t-descriptions-item label="导入状态">
+          <template v-if="detailProduct.imported">
+            已导入为本地商品
+            <t-link theme="primary" hover="color" @click="goImportedProduct(detailProduct)">
+              #{{ detailProduct.imported_product_id }}
+            </t-link>
+            （{{ importedStatusText(detailProduct) }}）
+          </template>
+          <span v-else class="muted">未导入（可在「产品管理 → 产品列表 → 导入上游商品」里导入）</span>
         </t-descriptions-item>
         <t-descriptions-item label="价格来源" :span="2">
           <span v-if="detailProduct.price_source === 'catalog'">
@@ -397,6 +419,7 @@ const activeGroupName = computed(() => {
   return hit ? `${hit.group_name || `分组 #${hit.group_id}`}（${hit.total}）` : '商品列表'
 })
 const onSaleInPage = computed(() => productList.value.filter((row) => isOnSale(row)).length)
+const importedInPage = computed(() => productList.value.filter((row) => row.imported).length)
 
 function formatMemory(value: number): string {
   if (!value) return '—'
@@ -481,6 +504,24 @@ function statusTheme(row: ProductInfo): 'success' | 'warning' | 'danger' | 'defa
   return row.visibility === 'retired' ? 'danger' : 'warning'
 }
 
+/** 已导入商品在本地商品表里的状态文案。 */
+function importedStatusText(row: ProductInfo): string {
+  switch (row.imported_status) {
+    case 1:
+      return '上架中'
+    case 2:
+      return '已下架'
+    default:
+      return '草稿'
+  }
+}
+
+/** 跳到本地商品详情（看这个上游商品被导成了什么、卖多少钱）。 */
+function goImportedProduct(row: ProductInfo) {
+  if (!row.imported_product_id) return
+  router.push(`/product/products/${row.imported_product_id}`)
+}
+
 const columns: PrimaryTableCol<ProductInfo>[] = [
   { colKey: 'name', title: '商品', minWidth: 190 },
   { colKey: 'group', title: '分类', width: 150 },
@@ -489,6 +530,7 @@ const columns: PrimaryTableCol<ProductInfo>[] = [
   { colKey: 'price', title: '价格（标价 / 代理价）', width: 160 },
   { colKey: 'margin', title: '毛利空间', width: 120 },
   { colKey: 'status', title: '状态', width: 130 },
+  { colKey: 'imported', title: '导入', width: 88 },
   {
     colKey: 'action',
     title: '操作',
@@ -843,6 +885,13 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
 .resource-products__main {
   flex: 1;
   min-width: 0;
+}
+
+.table-card__hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-muted-foreground);
 }
 
 .page-header__sub {

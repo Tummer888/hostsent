@@ -238,37 +238,53 @@
         <div class="clone-grid">
           <t-form-item label="上游提供商" name="source_provider_id">
             <t-select v-model="cloneForm.source_provider_id" :options="providerOptions" placeholder="请选择上游提供商" @change="handleProviderChange" />
-            <span class="clone-tip">仅列出已接入商品目录的上游渠道（自营平台没有上游商品，不在此列）。</span>
+            <span class="clone-tip">只列可对接商品目录的渠道，自营平台不在列。</span>
           </t-form-item>
           <t-form-item label="归入本地分类" name="category_id">
             <t-select v-model="cloneForm.category_id" :options="categoryOptions" clearable placeholder="不选则落「未分类」" />
-            <span class="clone-tip">导入前先选分类，避免导入后全部落在「未分类」再去逐个改。</span>
+            <span class="clone-tip">不选也能导，导入后再逐个改分类比较费事。</span>
           </t-form-item>
-          <t-form-item label="定价：按上游标价 × 百分比" name="price_percent">
-            <t-input-number v-model="cloneForm.price_percent" :min="1" :step="5" theme="column" suffix="%" />
-            <span class="clone-tip">100% = 按上游原价卖；&gt;100 加价，&lt;100 让利。成本按代理价记，利润 = 售价 − 代理价。</span>
+          <t-form-item label="定价（按上游标价）" name="price_percent">
+            <t-input-number v-model="cloneForm.price_percent" class="clone-percent" :min="1" :step="5" suffix="%" />
+            <span class="clone-tip">售价 = 上游标价 × N%；100 按原价，&gt;100 加价，&lt;100 让利。</span>
           </t-form-item>
         </div>
 
         <div class="clone-summary">
           <span>上游商品 {{ providerProducts.length }} 个</span>
-          <span class="clone-summary__split">在售 {{ onSaleCount }} · 未在售 {{ providerProducts.length - onSaleCount }}</span>
+          <span class="clone-summary__split">
+            在售 {{ onSaleCount }} · 未在售 {{ providerProducts.length - onSaleCount }}
+            <template v-if="importedCount"> · 已导入 {{ importedCount }}</template>
+          </span>
           <span v-if="discountHint" class="clone-summary__hint">{{ discountHint }}</span>
-          <span v-if="selectedProductIds.size" class="clone-summary__pick">
-            已选 {{ selectedProductIds.size }} 个 · 预计毛利 {{ formatPrice(selectedProfit) }}/月
+          <span class="clone-summary__pick">
+            <template v-if="selectedProductIds.size">已选 {{ selectedProductIds.size }} 个 · 预计毛利 {{ formatPrice(selectedProfit) }}/月</template>
+            <template v-else>共 {{ selectableCount }} 个可导入</template>
           </span>
         </div>
+
+        <p class="clone-hint">
+          「未在售」= 上游前台未展示（分类被上游隐藏 / 商品隐藏 / 已下架），仍可导入开通；
+          「已导入」= 该上游商品已经导入过，不再重复勾选。
+        </p>
 
         <div class="clone-groups">
           <div v-if="cloneLoading" class="clone-empty">正在加载上游商品…</div>
           <div v-else-if="!groupList.length" class="clone-empty">请先选择上游提供商，加载商品分组</div>
           <div v-for="group in groupList" :key="group.id" class="clone-group">
             <div class="clone-group__head">
-              <t-checkbox :checked="isGroupChecked(group)" @change="() => toggleGroup(group)">
+              <t-checkbox
+                :checked="isGroupChecked(group)"
+                :disabled="!hasSelectable(group)"
+                @change="() => toggleGroup(group)"
+              >
                 {{ group.name }}
                 <t-tag v-if="group.derived" size="small" variant="light-outline" theme="warning">派生</t-tag>
               </t-checkbox>
-              <span class="clone-group__count">{{ group.items.length }} 个</span>
+              <span class="clone-group__count">
+                {{ group.items.length }} 个
+                <template v-if="groupImportedCount(group)"> · 已导入 {{ groupImportedCount(group) }}</template>
+              </span>
             </div>
             <div class="clone-table">
               <div class="clone-table__head clone-row">
@@ -281,16 +297,28 @@
                 <span class="clone-col--num">毛利</span>
                 <span>状态</span>
               </div>
-              <label v-for="item in group.items" :key="item.id" class="clone-row clone-row--item" :class="{ 'clone-row--off': !isProductOnSale(item) }">
-                <t-checkbox :checked="isProductChecked(item.id)" @change="() => toggleProduct(item.id)" />
+              <label
+                v-for="item in group.items"
+                :key="item.id"
+                class="clone-row clone-row--item"
+                :class="{ 'clone-row--off': !isProductOnSale(item), 'clone-row--done': item.imported }"
+              >
+                <t-checkbox
+                  :checked="isProductChecked(item.id)"
+                  :disabled="Boolean(item.imported)"
+                  @change="() => toggleProduct(item.id)"
+                />
                 <span class="clone-cell clone-cell--name" :title="item.name">{{ item.name }}</span>
                 <span class="clone-cell clone-cell--spec">{{ formatProductSpec(item) }}</span>
                 <span class="clone-cell clone-col--num">{{ priceText(item.sale_price) }}</span>
                 <span class="clone-cell clone-col--num">{{ priceText(item.cost_price) }}</span>
                 <span class="clone-cell clone-col--num clone-cell--sale">{{ priceText(salePriceOf(item)) }}</span>
                 <span class="clone-cell clone-col--num" :class="marginClass(item)">{{ marginText(item) }}</span>
-                <span class="clone-cell">
-                  <t-tag size="small" variant="light" :theme="statusThemeOf(item)">{{ statusTextOf(item) }}</t-tag>
+                <span class="clone-cell clone-cell--status">
+                  <t-tag v-if="item.imported" size="small" variant="light" theme="success">
+                    已导入 {{ importedStatusText(item) }}
+                  </t-tag>
+                  <t-tag v-else size="small" variant="light" :theme="statusThemeOf(item)">{{ statusTextOf(item) }}</t-tag>
                 </span>
               </label>
             </div>
@@ -496,6 +524,12 @@ const discountHint = computed(() => {
 /** 在售商品数：上游隐藏分组/隐藏商品/已下架都不算在售（status 由同步按真实可见性写入）。 */
 const onSaleCount = computed(() => providerProducts.value.filter((item) => isProductOnSale(item)).length)
 
+/** 已导入数：上游商品已导入为本地商品的数量（这些不允许重复导入）。 */
+const importedCount = computed(() => providerProducts.value.filter((item) => item.imported).length)
+
+/** 可导入数（未导入的）——汇总行给运营一个"还能导几个"的准数。 */
+const selectableCount = computed(() => providerProducts.value.filter((item) => !item.imported).length)
+
 /** 已选商品的预计毛利（售价 − 代理价，按标价可见的商品相加）。 */
 const selectedProfit = computed(() => {
   let total = 0
@@ -627,25 +661,57 @@ function isProductChecked(id: number): boolean {
 }
 
 function toggleProduct(id: number) {
+  const item = providerProducts.value.find((p) => p.id === id)
+  // 已导入的上游商品不允许再选：重复导入只会拿到"商品编码重复"的失败。
+  if (item?.imported) return
   const next = new Set(selectedProductIds.value)
   if (next.has(id)) next.delete(id)
   else next.add(id)
   selectedProductIds.value = next
 }
 
-function isGroupChecked(group: { id: number; items: ProductInfo[] }): boolean {
-  return group.items.length > 0 && group.items.every((item) => selectedProductIds.value.has(item.id))
+/** 组内未导入的商品（勾选操作只在这些上生效）。 */
+function selectableItems(group: { items: ProductInfo[] }): ProductInfo[] {
+  return group.items.filter((item) => !item.imported)
 }
 
-function toggleGroup(group: { id: number; items: ProductInfo[] }) {
+function groupImportedCount(group: { items: ProductInfo[] }): number {
+  return group.items.length - selectableItems(group).length
+}
+
+function hasSelectable(group: { items: ProductInfo[] }): boolean {
+  return selectableItems(group).length > 0
+}
+
+function isGroupChecked(group: { items: ProductInfo[] }): boolean {
+  const selectable = selectableItems(group)
+  return selectable.length > 0 && selectable.every((item) => selectedProductIds.value.has(item.id))
+}
+
+function toggleGroup(group: { items: ProductInfo[] }) {
+  const selectable = selectableItems(group)
+  if (selectable.length === 0) return
   const next = new Set(selectedProductIds.value)
   const allChecked = isGroupChecked(group)
   if (allChecked) {
-    group.items.forEach((item) => next.delete(item.id))
+    selectable.forEach((item) => next.delete(item.id))
   } else {
-    group.items.forEach((item) => next.add(item.id))
+    selectable.forEach((item) => next.add(item.id))
   }
   selectedProductIds.value = next
+}
+
+/** 已导入商品在本地商品表的去向与状态（弹窗里直接说明"导到哪儿了"）。 */
+function importedStatusText(item: ProductInfo): string {
+  const suffix = item.imported_product_id ? ` #${item.imported_product_id}` : ''
+  switch (item.imported_status) {
+    case 1:
+      return `上架${suffix}`
+    case 2:
+      return `下架${suffix}`
+    default:
+      return `草稿${suffix}`
+  }
 }
 
 function formatProductSpec(item: ProductInfo): string {
@@ -667,11 +733,19 @@ async function handleCloneConfirm() {
   const unpriced = providerProducts.value.filter(
     (item) => selectedProductIds.value.has(item.id) && !(item.sale_price > 0) && !(item.cost_price > 0),
   )
+  // 提交前剔除已导入的（弹窗可能开着很久，期间这些可能已被别处导入）：
+  // 带上只会得到"商品编码重复"的失败，直接在客户端挡掉。
+  const selectedItems = providerProducts.value.filter((item) => selectedProductIds.value.has(item.id))
+  const importable = selectedItems.filter((item) => !item.imported)
+  if (importable.length === 0) {
+    MessagePlugin.warning('选中的商品都已导入过，无需重复导入')
+    return
+  }
   cloneSubmitting.value = true
   try {
     const result = await batchCloneProductFromUpstream({
       source_provider_id: cloneForm.source_provider_id,
-      source_product_ids: Array.from(selectedProductIds.value),
+      source_product_ids: importable.map((item) => item.id),
       category_id: cloneForm.category_id,
       price_percent: cloneForm.price_percent,
     })
@@ -842,27 +916,53 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
 </style>
 
 <style scoped>
+/* 表头三列：等宽 + 等高（提示两行高度固定），避免加载数据/切换选项时格子跳动 */
 .clone-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
+  align-items: start;
+}
+.clone-grid :deep(.t-form__item) {
+  min-width: 0;
+  margin-bottom: 8px;
+}
+.clone-grid :deep(.t-form__label) {
+  min-height: 22px;
+  line-height: 22px;
+}
+/* 百分比输入框默认宽度很窄，拉满一列才不会与下拉框参差 */
+.clone-percent {
+  width: 100%;
 }
 .clone-tip {
   display: block;
+  min-height: 36px;
+  margin-top: 4px;
   font-size: 12px;
+  line-height: 18px;
   color: var(--td-text-color-secondary, #999);
 }
+.clone-hint {
+  margin: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--td-text-color-secondary, #999);
+}
+/* 商品面板固定高度：加载/切换服务商时弹窗不再忽高忽低 */
 .clone-groups {
-  max-height: 420px;
+  height: 420px;
   overflow: auto;
   border: 1px solid var(--td-component-border, #ddd);
   border-radius: 6px;
   padding: 8px;
 }
 .clone-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
   color: var(--td-text-color-secondary, #999);
-  padding: 24px;
-  text-align: center;
   font-size: 13px;
 }
 .clone-group {
@@ -910,6 +1010,17 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
 .clone-row--off .clone-cell--spec {
   color: var(--td-text-color-placeholder, #bbb);
 }
+/* 已导入：整行压暗 + 勾选框禁用，一眼区分"还能导的"和"已经导过的" */
+.clone-row--done {
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+.clone-row--done:hover {
+  background: transparent;
+}
+.clone-cell--status {
+  overflow: visible;
+}
 .clone-cell {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -939,8 +1050,11 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
   align-items: center;
   gap: 10px;
   margin-bottom: 8px;
+  min-height: 24px;
   font-size: 12px;
   color: var(--td-text-color-secondary, #999);
+  white-space: nowrap;
+  overflow: hidden;
 }
 .clone-summary__split {
   color: var(--td-text-color-primary, #333);

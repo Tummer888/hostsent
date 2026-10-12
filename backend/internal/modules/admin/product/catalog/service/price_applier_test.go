@@ -60,6 +60,13 @@ func (f *fakeProductRepo) ListHistory(context.Context, uint64) ([]model.ProductH
 func (f *fakeProductRepo) ListBySourceProductID(context.Context, uint64) ([]model.Product, error) {
 	return f.items, nil
 }
+func (f *fakeProductRepo) ListImportedRefs(_ context.Context, ids []uint64) (map[uint64]model.Product, error) {
+	out := make(map[uint64]model.Product, len(ids))
+	for _, item := range f.items {
+		out[item.SourceProductID] = item
+	}
+	return out, nil
+}
 func (f *fakeProductRepo) SaveConfigOptions(context.Context, uint64, []interface{}) error { return nil }
 func (f *fakeProductRepo) SaveSelfOptionRows(context.Context, uint64, []*model.ProductConfigOption) error {
 	return nil

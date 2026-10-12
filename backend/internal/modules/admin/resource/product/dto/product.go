@@ -60,8 +60,13 @@ type ProductInfo struct {
 	CatalogPrice     float64 `json:"catalog_price"`
 	CatalogSalePrice float64 `json:"catalog_sale_price"`
 	CatalogCycle     string  `json:"catalog_cycle"`
-	CreatedAt        string  `json:"created_at"`
-	UpdatedAt        string  `json:"updated_at"`
+	// Imported 该上游商品是否已导入为本地商品（导入弹窗据此标注「已导入」并禁止重复勾选；
+	// 上游商品页据此区分哪些还没导入）。ImportedProductID/Status 指向本地商品与其状态。
+	Imported          bool   `json:"imported"`
+	ImportedProductID uint64 `json:"imported_product_id"`
+	ImportedStatus    int    `json:"imported_status"`
+	CreatedAt         string `json:"created_at"`
+	UpdatedAt         string `json:"updated_at"`
 }
 
 // ProductListResponse 商品列表响应

@@ -30,6 +30,7 @@ import (
 	spechandler "hostsent/backend/internal/modules/admin/product/spec/handler"
 	specrepo "hostsent/backend/internal/modules/admin/product/spec/repository"
 	specservice "hostsent/backend/internal/modules/admin/product/spec/service"
+	productservice "hostsent/backend/internal/modules/admin/resource/product/service"
 	providerservice "hostsent/backend/internal/modules/admin/resource/provider/service"
 	ucproducthandler "hostsent/backend/internal/modules/uc/product/handler"
 	ucproductservice "hostsent/backend/internal/modules/uc/product/service"
@@ -67,6 +68,8 @@ func (a *asm) buildCatalog() {
 		}),
 	)
 	a.prodCatalogHandler = cataloghandler.NewProductHandler(a.prodCatalogService)
+	// 上游商品页/导入弹窗标注「已导入」：商品域的批量引用查询注入资源商品服务（跨域端口）。
+	a.productService.SetImportedReader(newImportedProductReader(a.prodCatalogRepo))
 	// T3.4：把"已确认调价"落地到售出商品的实现注入同步引擎（写 product_history）。
 	a.syncEngine.SetPriceApplier(a.prodCatalogService)
 	// 定价与计费（pricing 子域）
@@ -438,6 +441,29 @@ type cyclePriceWriterAdapter struct {
 }
 
 // NewCyclePriceWriter 创建周期价格矩阵写入适配器。
+// newImportedProductReader 把商品域仓库适配成资源域的「已导入」查询端口：
+// 资源商品服务只需知道「这个上游商品有没有被导入、对应哪个本地商品」，
+// 不引入商品域模型（避免资源域反向依赖商品域）。
+func newImportedProductReader(repo catalogrepo.ProductRepository) productservice.ImportedProductReader {
+	return importedProductReader{repo: repo}
+}
+
+type importedProductReader struct {
+	repo catalogrepo.ProductRepository
+}
+
+func (r importedProductReader) ListImportedRefs(ctx context.Context, resourceProductIDs []uint64) (map[uint64]productservice.ImportedProductRef, error) {
+	refs, err := r.repo.ListImportedRefs(ctx, resourceProductIDs)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uint64]productservice.ImportedProductRef, len(refs))
+	for rpID, item := range refs {
+		out[rpID] = productservice.ImportedProductRef{ProductID: item.ID, Status: item.Status}
+	}
+	return out, nil
+}
+
 func NewCyclePriceWriter(matrix matrixservice.PriceMatrixService) catalogservice.CyclePriceWriter {
 	return &cyclePriceWriterAdapter{matrix: matrix}
 }
