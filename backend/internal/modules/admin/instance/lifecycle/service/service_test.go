@@ -3,11 +3,15 @@
 package service
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	lifecyclemodel "hostsent/backend/internal/modules/admin/instance/lifecycle/model"
 	lifecyclerepo "hostsent/backend/internal/modules/admin/instance/lifecycle/repository"
+	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
+	"hostsent/backend/internal/pkg/billingcycle"
+	"hostsent/backend/internal/pkg/pricing"
 )
 
 // testPolicy 测试策略：宽限期 7 天、销毁保留期 30 天。
@@ -239,3 +243,49 @@ func fmtTimePtr(t *time.Time) string {
 	}
 	return t.Format(time.RFC3339)
 }
+
+// fakePriceResolver 记录算价入参，用于断言续费是否把周期传进算价管线。
+type fakePriceResolver struct {
+	got pricing.ResolveInput
+}
+
+func (f *fakePriceResolver) Resolve(_ context.Context, in pricing.ResolveInput) (*pricing.Quote, error) {
+	f.got = in
+	return &pricing.Quote{OriginalAmount: 1, FinalAmount: 1, Snapshot: []pricing.Rule{}}, nil
+}
+
+// TestResolveRenewalQuoteCarriesCycle 续费算价必须传 Cycle。
+//
+// 不传 Cycle 时算价管线根本不会查周期价格矩阵（pricing.Resolve 只在 in.Cycle 非空时
+// 调 CycleBasePrice），季付/年付实例续费会回落成「商品基础单价 × 期数」——年付实例
+// 应收 12 个月价却只收 1 个月价，而推给上游的 billingcycles 仍是 annually，
+// 本地账与上游账直接对不上。本用例锁住这个参数不被再次漏掉。
+func TestResolveRenewalQuoteCarriesCycle(t *testing.T) {
+	resolver := &fakePriceResolver{}
+	svc := &renewalService{pricingSvc: resolver, now: func() time.Time { return testNow }}
+
+	inst := &syncmodel.Instance{
+		ID:            1,
+		SellProductID: 42,
+		BillingMode:   "annually",
+	}
+	if _, err := svc.resolveRenewalQuote(context.Background(), 7, inst, 2, nil); err != nil {
+		t.Fatalf("resolveRenewalQuote failed: %v", err)
+	}
+	if resolver.got.Cycle != billingcycle.Annually {
+		t.Fatalf("算价入参 Cycle = %q, want %q（漏传会让周期矩阵价不生效）", resolver.got.Cycle, billingcycle.Annually)
+	}
+	if resolver.got.Quantity != 2 {
+		t.Fatalf("算价入参 Quantity = %d, want 2", resolver.got.Quantity)
+	}
+
+	// billing_mode 为空/无法识别时回落 monthly：存量数据不因归一失败而报错。
+	inst2 := &syncmodel.Instance{ID: 2, SellProductID: 42}
+	if _, err := svc.resolveRenewalQuote(context.Background(), 7, inst2, 1, nil); err != nil {
+		t.Fatalf("resolveRenewalQuote failed: %v", err)
+	}
+	if resolver.got.Cycle != billingcycle.Monthly {
+		t.Fatalf("空周期应回落 monthly，got %q", resolver.got.Cycle)
+	}
+}
+

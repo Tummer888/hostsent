@@ -104,6 +104,11 @@ func TestNormalizeBillingCycle(t *testing.T) {
 		"monthly": "monthly", "quarterly": "quarterly",
 		"semiannually": "semiannually", "annually": "annually",
 		"fixed": "onetime", "hourly": "hour", "": "monthly",
+		// 日付：此前落到 default→monthly，会让本地按天推进账期而上游按月开单。
+		"daily": "day", "day": "day",
+		// 两年/三年与别名写法，覆盖全部年份档位。
+		"biennially": "biennially", "triennially": "triennially",
+		"yearly": "annually", "annual": "annually",
 	}
 	for in, want := range cases {
 		if got := normalizeBillingCycle(in); got != want {

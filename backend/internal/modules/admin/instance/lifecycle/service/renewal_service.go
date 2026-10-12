@@ -186,11 +186,18 @@ func (s *renewalService) SetUpstreamRenewer(renewer UpstreamRenewer) {
 // resolveRenewalQuote 续费算价（P5-04）：命中管线则走统一算价；未注入时回落单价×期数。
 // manual 非 nil 表示管理员手动改价，直接作为实付（最高优先级）。
 // 算价仍以 product_id（售出商品）为口径，产品名/兜底单价改用实例的双链路列解析（T1.2）。
+//
+// Cycle 必须传：周期价格矩阵（product_prices 按周期分档）只在 in.Cycle 非空时才被采用。
+// 漏传会让季付/年付实例续费回落成「商品基础单价 × 期数」——年付实例应收 12 个月价
+// （且通常带周期折扣），漏传只收 1 个月价，本地账与推给上游的 billingcycles 直接对不上。
+// 实例的 billing_mode 就是本次续费周期（可能是运维改过的年付），因此以它为准。
 func (s *renewalService) resolveRenewalQuote(ctx context.Context, userID uint64, instance *syncmodel.Instance, periodCount int, manual *float64) (renewalQuote, error) {
+	cycle := billingcycle.NormalizeOrDefault(instance.BillingMode)
 	if s.pricingSvc != nil {
 		quote, err := s.pricingSvc.Resolve(ctx, pricing.ResolveInput{
 			UserID:       userID,
 			ProductID:    instance.SellProductID,
+			Cycle:        cycle,
 			Quantity:     periodCount,
 			Period:       periodCount,
 			ManualAmount: manual,
@@ -211,7 +218,13 @@ func (s *renewalService) resolveRenewalQuote(ctx context.Context, userID uint64,
 	if err != nil {
 		return renewalQuote{}, err
 	}
-	original := money.Round2(unitPrice * float64(periodCount))
+	// 无算价管线时的兜底：周期矩阵不可用，按「基础单价 × 周期月数 × 期数」估算，
+	// 避免年付实例只收一个月价（月付 Multiplier=1，与旧口径完全一致）。
+	multiplier := billingcycle.Multiplier(cycle)
+	if multiplier <= 0 {
+		multiplier = 1
+	}
+	original := money.Round2(unitPrice * float64(multiplier*periodCount))
 	final := original
 	source := ""
 	if manual != nil {

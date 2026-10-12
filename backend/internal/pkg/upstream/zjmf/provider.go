@@ -1925,16 +1925,24 @@ func normalizeOS(v string) string {
 	return strings.TrimSpace(v)
 }
 
-// normalizeBillingCycle 归一化计费周期为上游 cart 约定的枚举值。
+// normalizeBillingCycle 归一化计费周期为上游 billing_cycle 约定的枚举值。
+//
+// 上游 config("billing_cycle") 的键含 free/onetime/hour/day/ontrial/monthly/
+// quarterly/semiannually/annually/biennially/triennially 等；平台规范值见 pkg/billingcycle。
+// 未识别的值回落 monthly（与上游 renew 自身的兜底口径一致）。
 func normalizeBillingCycle(cycle string) string {
 	switch strings.ToLower(strings.TrimSpace(cycle)) {
 	case "hour", "hourly":
 		return "hour"
+	case "day", "daily":
+		// 漏掉这一分支会把日付实例的续费周期发给上游成 monthly：本地按天推进到期时间，
+		// 上游却按 monthly 生成账单，两边账期与金额同时错位。
+		return "day"
 	case "quarterly":
 		return "quarterly"
 	case "semiannually", "semiannual":
 		return "semiannually"
-	case "annually", "yearly":
+	case "annually", "yearly", "annual":
 		return "annually"
 	case "biennially":
 		return "biennially"
