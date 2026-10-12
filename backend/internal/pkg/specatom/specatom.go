@@ -60,7 +60,7 @@ type Atom struct {
 	// Required 必填原子（spec_atoms.required）：上架门禁据此校验规格完整性（T4.6）。
 	Required bool `json:"required"`
 	// PlatformFields 各平台的读写字段名映射（spec_atoms.platform_fields 列）：
-	// {"mofangyun":{"read":"cpu_num","write":"cpu","source":"实测"},...}
+	// {"dcimcloud":{"read":"cpu_num","write":"cpu","source":"实测"},...}
 	// SKU 开通时据此把原子取值翻译为目标平台的写参数（T4.1/T4.2）。
 	PlatformFields map[string]AtomPlatformField `json:"platform_fields,omitempty"`
 }

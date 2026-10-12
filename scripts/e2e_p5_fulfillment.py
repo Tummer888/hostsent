@@ -3,7 +3,7 @@
 
 前置（脚本不负责创建，见 docs/实施计划/17 §P5 交接说明）：
   - mock 上游容器 p5-mock 运行在 backend_default 网络，端口 9099；
-  - 渠道 16 = mofangyun（链路 B 自营平台），渠道 17 = mofangfinance（链路 A 上游转售）；
+  - 渠道 16 = dcimcloud（链路 B 自营平台），渠道 17 = zjmf（链路 A 上游转售）；
   - 商品 1（self，68/月，绑渠道 16）、商品 2（upstream，30/月，绑渠道 17 + 资源商品 52）。
 
 断言（doc17 §7 P5 验收）：

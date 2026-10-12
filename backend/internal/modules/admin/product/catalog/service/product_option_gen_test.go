@@ -80,7 +80,7 @@ func TestOptionAccumulatorOverrideReplaces(t *testing.T) {
 func TestOptionAccumulatorToConfigOptionShape(t *testing.T) {
 	meta := SpecOptionMeta{
 		OptionKey: "cpu", Label: "CPU", Widget: SpecWidgetRadio, Required: true,
-		Unit: "核", ProviderType: "mofangyun", SortOrder: 10,
+		Unit: "核", ProviderType: "dcimcloud", SortOrder: 10,
 	}
 	acc := &optionAccumulator{meta: meta}
 	acc.addValues(optionSelection{Values: []string{"2", "4"}}, meta)

@@ -165,10 +165,14 @@ func RegisterDescriptor(providerType string, d CapabilityDescriptor) {
 }
 
 // Descriptor 查询某类型的描述符；第二个返回值为是否存在注册记录。
+// 历史类型码（见 factory.go 的别名表）按当前码回查，过渡期两类渠道行都能取到描述符。
 func Descriptor(providerType string) (CapabilityDescriptor, bool) {
 	descriptorMu.RLock()
 	defer descriptorMu.RUnlock()
-	d, ok := descriptors[providerType]
+	if d, ok := descriptors[providerType]; ok {
+		return d, true
+	}
+	d, ok := descriptors[ResolveType(providerType)]
 	return d, ok
 }
 

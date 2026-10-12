@@ -1,4 +1,4 @@
-package mofangfinance
+package zjmf
 
 import (
 	"encoding/json"

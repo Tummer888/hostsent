@@ -111,7 +111,7 @@ func (s *providerService) Create(ctx context.Context, req dto.ProviderCreateRequ
 		syncInterval = 3600
 	}
 	upstreamType := req.UpstreamType
-	if req.ProviderType == "mofangfinance" && upstreamType == "" {
+	if req.ProviderType == "zjmf" && upstreamType == "" {
 		upstreamType = "zjmf_api" // 智简魔方（默认接口类型）
 	}
 	// 链路类型派生（T2.2）：优先取 provider_types 注册表，未登记时按适配器描述符兜底；
@@ -120,7 +120,7 @@ func (s *providerService) Create(ctx context.Context, req dto.ProviderCreateRequ
 	kind := descriptor.Kind
 	if kind == "" {
 		kind = model.KindUpstream
-		if req.ProviderType == "mofangyun" {
+		if req.ProviderType == "dcimcloud" {
 			kind = model.KindCompute
 		}
 	}
@@ -235,14 +235,16 @@ func (s *providerService) Delete(ctx context.Context, id uint64) error {
 }
 
 // providerTypeNames 仅作注册表缺失时的兜底显示名；权威来源是 provider_types 表（T2.2，地雷 L9）。
+// 显示名只写中文：类型码（dcimcloud / zjmf）在类型卡片上另有徽标展示，
+// 名称里再套一层括号会与「名称（类型码）」的拼装格式打架。
 var providerTypeNames = map[string]string{
-	"mofangyun":     "魔方云",
-	"mofangfinance": "魔方财务",
-	"aliyun":        "阿里云",
-	"tencent":       "腾讯云",
-	"aws":           "AWS",
-	"azure":         "Azure",
-	"gcp":           "GCP",
+	"dcimcloud": "魔方云",
+	"zjmf":      "魔方财务",
+	"aliyun":    "阿里云",
+	"tencent":   "腾讯云",
+	"aws":       "AWS",
+	"azure":     "Azure",
+	"gcp":       "GCP",
 }
 
 // ListTypes 返回渠道类型列表：以 provider_types 注册表为权威来源，

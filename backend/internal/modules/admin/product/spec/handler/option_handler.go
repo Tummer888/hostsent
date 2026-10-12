@@ -15,7 +15,7 @@ import (
 // @Description 目录 = 适配器声明 ∪ 数据库覆盖（DB 优先）。未同步过时直接回适配器声明。
 // @Tags 产品管理-规格
 // @Security BearerAuth
-// @Param provider_type query string false "平台类型（mofangyun），与 provider_id 二选一"
+// @Param provider_type query string false "平台类型（dcimcloud），与 provider_id 二选一"
 // @Param provider_id query int false "渠道 ID（用于反查平台类型，并补拉平台实时取值）"
 // @Param include_hidden query bool false "是否包含已隐藏的配置项"
 // @Success 200 {object} response.Body

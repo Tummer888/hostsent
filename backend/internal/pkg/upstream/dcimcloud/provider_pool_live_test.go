@@ -1,6 +1,6 @@
 //go:build live
 
-package mofangyun
+package dcimcloud
 
 import (
 	"context"

@@ -1,4 +1,4 @@
-package mofangyun
+package dcimcloud
 
 import (
 	"context"
@@ -22,7 +22,7 @@ import (
 //      → 带宽/IP/数据盘 → 暂停恢复 → 销毁。任一步失败即记录，最后统一清理。
 
 // liveInstance 建一台测试机并返回适配器与实例号；t.Cleanup 一定销毁。
-func liveInstance(t *testing.T, extraFn func(*upstream.PlatformResources) map[string]interface{}) (*MoFangYunProvider, string) {
+func liveInstance(t *testing.T, extraFn func(*upstream.PlatformResources) map[string]interface{}) (*DCIMCloudProvider, string) {
 	t.Helper()
 	p := liveProvider(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
@@ -96,7 +96,7 @@ func liveInstance(t *testing.T, extraFn func(*upstream.PlatformResources) map[st
 }
 
 // waitIdle 等实例从 task 状态回到稳态（面板同一时刻只允许一个耗时任务）。
-func waitIdle(t *testing.T, p *MoFangYunProvider, id string, tries int) string {
+func waitIdle(t *testing.T, p *DCIMCloudProvider, id string, tries int) string {
 	t.Helper()
 	ctx := context.Background()
 	for i := 0; i < tries; i++ {
@@ -329,7 +329,7 @@ func TestLive_InstanceOperationsLive(t *testing.T) {
 }
 
 // systemDiskIDViaAdapter 从实例详情里取系统盘 ID（快照挂在磁盘上）。
-func systemDiskIDViaAdapter(t *testing.T, p *MoFangYunProvider, id string) string {
+func systemDiskIDViaAdapter(t *testing.T, p *DCIMCloudProvider, id string) string {
 	t.Helper()
 	var detail map[string]interface{}
 	if err := p.call(context.Background(), "detail", "GET", "/clouds/"+id, nil, &detail); err != nil {

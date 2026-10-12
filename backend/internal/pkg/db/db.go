@@ -281,6 +281,95 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 
+	// 渠道类型码重命名（mofangyun→dcimcloud、mofangfinance→zjmf）存量数据回填。
+	// 放在 AutoMigrate 之后：迁移文件与本次回填是同一条演进的两个执行面
+	// （迁移目录不被 runner 执行，见 migrations/README.md）。
+	if err := backfillProviderTypeCodes(db, providerCodeRenames); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// providerCodeRename 一条类型码重命名映射（旧码 → 新码）。
+type providerCodeRename struct {
+	Legacy  string
+	Current string
+}
+
+// providerCodeRenames 渠道类型码重命名表。
+//
+// 背景：类型码原先直接用拼音 mofangyun / mofangfinance，而这两家的官方标识是
+// DCIMCloud 与 ZJMF，拼音既不是厂商名也不便对照文档。重命名为厂商标识后，
+// 存量行必须同步搬过去，否则渠道会因「适配器未注册」被熔断（适配器只按新码注册，
+// pkg/upstream 的类型码别名表是过渡期冗余兜底，不是长期方案）。
+var providerCodeRenames = []providerCodeRename{
+	{Legacy: "mofangyun", Current: "dcimcloud"}, // 魔方云
+	{Legacy: "mofangfinance", Current: "zjmf"},  // 魔方财务
+}
+
+// backfillProviderTypeCodes 把存量数据里的渠道类型码从旧码改为新码。
+//
+// 覆盖范围（按「谁存了类型码」枚举，避免漏表）：
+//   - 列式：resource_providers / provider_types / spec_mappings / external_specs /
+//     upstream_api_logs / provider_option_specs / platform_option_values /
+//     product_config_options / product_spec_templates 的 provider_type 列；
+//   - jsonb 键式：provider_types.descriptor、spec_atoms.platform_fields 里以旧码为平台键；
+//   - 自由文本：upstream_api_logs.provider_name / sync_diffs.remark 的说明文案。
+//
+// 幂等：条件全部是「等于旧码才改」，重跑零影响。provider_types 先删旧行再改名，
+// 否则 (type) 唯一索引会与新码行冲突。
+func backfillProviderTypeCodes(db *gorm.DB, renames []providerCodeRename) error {
+	type columnTarget struct{ table, column string }
+	columnTargets := []columnTarget{
+		{"resource_providers", "provider_type"},
+		{"provider_types", "type"},
+		{"spec_mappings", "provider_type"},
+		{"external_specs", "provider_type"},
+		{"upstream_api_logs", "provider_type"},
+		{"provider_option_specs", "provider_type"},
+		{"platform_option_values", "provider_type"},
+		{"product_config_options", "provider_type"},
+		{"product_spec_templates", "provider_type"},
+	}
+	for _, r := range renames {
+		if r.Legacy == "" || r.Current == "" || r.Legacy == r.Current {
+			continue
+		}
+		// provider_types 唯一约束：(type) 上已有新码行时先清掉旧行，避免改名冲突。
+		if db.Migrator().HasTable("provider_types") {
+			if err := db.Exec(`DELETE FROM provider_types
+				WHERE type = ? AND EXISTS (SELECT 1 FROM provider_types t2 WHERE t2.type = ?)`,
+				r.Legacy, r.Current).Error; err != nil {
+				return err
+			}
+		}
+		for _, t := range columnTargets {
+			if !db.Migrator().HasTable(t.table) {
+				continue
+			}
+			if err := db.Exec(
+				fmt.Sprintf(`UPDATE %s SET %s = ? WHERE %s = ?`, t.table, t.column, t.column),
+				r.Current, r.Legacy).Error; err != nil {
+				return err
+			}
+		}
+		// jsonb 平台键：descriptor 内嵌 field_dictionary/字段字典，platform_fields 是平台→字段映射。
+		if db.Migrator().HasTable("provider_types") {
+			if err := db.Exec(`UPDATE provider_types
+				SET descriptor = replace(descriptor::text, ?, ?)::jsonb
+				WHERE descriptor::text LIKE ?`, `"`+r.Legacy+`"`, `"`+r.Current+`"`, `%`+r.Legacy+`%`).Error; err != nil {
+				return err
+			}
+		}
+		if db.Migrator().HasTable("spec_atoms") {
+			if err := db.Exec(`UPDATE spec_atoms
+				SET platform_fields = replace(platform_fields::text, ?, ?)::jsonb
+				WHERE platform_fields::text LIKE ?`, `"`+r.Legacy+`"`, `"`+r.Current+`"`, `%`+r.Legacy+`%`).Error; err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -641,7 +730,7 @@ func seedUpstreamData(tx *gorm.DB) error {
 	// —— 上游提供商 ——
 	// OpsConsoleURL：上游云资源池的运维平台入口，后台渠道/资源池列表一键跳转（本轮 S2）。
 	providers := []providermodel.ResourceProvider{
-		{Name: "魔方云·华东旗舰", ProviderType: "mofangyun", APIEndpoint: "https://api.mofangyun.com/v3", APIKey: "seed_mfy_key_east", APISecret: "seed_mfy_secret_east", Region: "华东", Status: 1, SyncEnabled: true, SyncInterval: 1800, LastSyncAt: timePtr(lastSync), TotalCPU: 640, TotalMemory: 4096, TotalDisk: 200000, UsedCPU: 420, UsedMemory: 2710, UsedDisk: 132500, OpsConsoleURL: "https://ops.mofangyun.com/pools"},
+		{Name: "魔方云·华东旗舰", ProviderType: "dcimcloud", APIEndpoint: "https://api.mofangyun.com/v3", APIKey: "seed_mfy_key_east", APISecret: "seed_mfy_secret_east", Region: "华东", Status: 1, SyncEnabled: true, SyncInterval: 1800, LastSyncAt: timePtr(lastSync), TotalCPU: 640, TotalMemory: 4096, TotalDisk: 200000, UsedCPU: 420, UsedMemory: 2710, UsedDisk: 132500, OpsConsoleURL: "https://ops.mofangyun.com/pools"},
 		{Name: "华东 OpenStack 主池", ProviderType: "openstack", APIEndpoint: "https://ostack-east.hostsent.cn/v3", APIKey: "seed_os_key", APISecret: "seed_os_secret", Region: "华东", Status: 1, SyncEnabled: true, SyncInterval: 3600, LastSyncAt: timePtr(now.Add(-2 * time.Hour)), TotalCPU: 1280, TotalMemory: 8192, TotalDisk: 400000, UsedCPU: 990, UsedMemory: 6150, UsedDisk: 287000, OpsConsoleURL: "https://horizon.hostsent.cn/admin"},
 		{Name: "华南 Proxmox 集群", ProviderType: "proxmox", APIEndpoint: "https://pxm-south.hostsent.cn:8006", APIKey: "seed_pxm_key", APISecret: "seed_pxm_secret", Region: "华南", Status: 1, SyncEnabled: true, SyncInterval: 3600, LastSyncAt: timePtr(now.Add(-55 * time.Minute)), TotalCPU: 512, TotalMemory: 3072, TotalDisk: 150000, UsedCPU: 318, UsedMemory: 2020, UsedDisk: 96500, OpsConsoleURL: "https://pxm-south.hostsent.cn:8006"},
 		{Name: "AWS EC2 全球", ProviderType: "aws", APIEndpoint: "https://ec2.ap-southeast-1.amazonaws.com", APIKey: "seed_aws_key", APISecret: "seed_aws_secret", Region: "海外", Status: 1, SyncEnabled: false, SyncInterval: 86400, LastSyncAt: nil, TotalCPU: 256, TotalMemory: 1024, TotalDisk: 50000, UsedCPU: 0, UsedMemory: 0, UsedDisk: 0},

@@ -538,7 +538,7 @@ func (r *instanceDetailRepository) Credentials(ctx context.Context, instanceID u
 	switch {
 	case out.HasPassword:
 		out.PasswordHint = "上游已下发初始密码，可点「查看密码」获取"
-	case row.ProviderType == "mofangfinance":
+	case row.ProviderType == "zjmf":
 		out.PasswordHint = "上游财务不回传密码，请用「重置密码」或到上游面板查看"
 	default:
 		out.PasswordHint = "上游未返回密码，请用「重置密码」设置"
@@ -570,7 +570,7 @@ func (r *instanceDetailRepository) RevealCredential(ctx context.Context, instanc
 // defaultPort 平台默认 SSH 端口（仅用于展示兜底）。
 func defaultPort(providerType string) string {
 	switch providerType {
-	case "mofangyun", "mofangfinance":
+	case "dcimcloud", "zjmf":
 		return "22"
 	default:
 		return ""

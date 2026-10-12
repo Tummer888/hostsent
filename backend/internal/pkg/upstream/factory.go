@@ -1,11 +1,44 @@
 package upstream
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
 
 // ProviderFactory 按配置创建独立的 Provider 实例。
 // 各上游适配器在 init() 中通过 RegisterFactory 注册构造函数，
 // 使同一类型的多个提供商（不同 endpoint/密钥/区域）各自持有独立实例。
 type ProviderFactory func(config *ProviderConfig) Provider
+
+// 类型码别名：把历史类型码（如 mofangyun）解析到当前类型码（如 dcimcloud）。
+//
+// 为什么需要：类型码重命名后，存量 resource_providers 行在数据迁移跑完前仍是旧值，
+// 若构建/描述符查询只认新码，这些渠道会立刻表现为「适配器未注册」而被熔断。
+// 别名表让新旧码在整个过渡期都能用，与数据迁移互为冗余。
+var (
+	typeAliasMu sync.RWMutex
+	typeAliases = map[string]string{}
+)
+
+// RegisterTypeAlias 登记一条类型码别名（由适配器包 init() 调用）。
+func RegisterTypeAlias(legacy, current string) {
+	if legacy == "" || current == "" || legacy == current {
+		return
+	}
+	typeAliasMu.Lock()
+	defer typeAliasMu.Unlock()
+	typeAliases[legacy] = current
+}
+
+// ResolveType 把类型码解析为当前码（无别名时原样返回）。
+func ResolveType(providerType string) string {
+	typeAliasMu.RLock()
+	defer typeAliasMu.RUnlock()
+	if current, ok := typeAliases[providerType]; ok {
+		return current
+	}
+	return providerType
+}
 
 // RegisterFactory 按类型注册工厂（由各上游包初始化时调用）。
 func (m *ProviderManager) RegisterFactory(providerType string, factory ProviderFactory) {
@@ -16,6 +49,7 @@ func (m *ProviderManager) RegisterFactory(providerType string, factory ProviderF
 
 // Build 按类型 + 配置实例化真正的适配器。
 func (m *ProviderManager) Build(providerType string, config *ProviderConfig) (Provider, error) {
+	providerType = ResolveType(providerType)
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 

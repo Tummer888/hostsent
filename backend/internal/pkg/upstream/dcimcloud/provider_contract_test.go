@@ -1,4 +1,4 @@
-package mofangyun
+package dcimcloud
 
 import (
 	"context"
@@ -13,11 +13,11 @@ import (
 )
 
 // newMockProvider 起一个 httptest 服务模拟魔方云（管理员账号），返回 server 与指向它的适配器。
-func newMockProvider(t *testing.T, handler http.HandlerFunc) *MoFangYunProvider {
+func newMockProvider(t *testing.T, handler http.HandlerFunc) *DCIMCloudProvider {
 	t.Helper()
 	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
-	return NewMoFangYunProvider(&upstream.ProviderConfig{
+	return NewDCIMCloudProvider(&upstream.ProviderConfig{
 		APIEndpoint: ts.URL,
 		Secure:      false,
 		Timeout:     5,

@@ -86,7 +86,7 @@ func newCatalogFixture() (*CatalogService, *stubProductReader, *stubQuoteResolve
 	}}
 	svc := NewCatalogService(CatalogDeps{
 		Atoms: &stubAtomReader{atoms: []specmodel.SpecAtom{
-			{Key: "compute.cpu", Name: "CPU", ValueType: "int", Status: 1, PlatformFields: `{"mofangyun":"cpu"}`},
+			{Key: "compute.cpu", Name: "CPU", ValueType: "int", Status: 1, PlatformFields: `{"dcimcloud":"cpu"}`},
 			{Key: "legacy.atom", Name: "停用", Status: 0},
 		}},
 		Products: products,

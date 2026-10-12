@@ -1,11 +1,11 @@
-// Package mofangfinance 定义魔方财务上游适配器的 API 类型。
+// Package zjmf 定义魔方财务上游适配器的 API 类型。
 //
 // 协议参考魔方财务源码 `app/zjmf.php`（zjmfCurl / zjmfApiLogin）与
 // `app/home/controller/LoginController.php`（/zjmf_api_login）、
 // `app/home/controller/CartController.php`（cart/all、cart/get_product_config）、
 // `app/home/controller/DcimController.php`（/dcim/on|off|reboot）、
 // `app/home/controller/HostController.php`（host/header）。
-package mofangfinance
+package zjmf
 
 import (
 	"encoding/json"

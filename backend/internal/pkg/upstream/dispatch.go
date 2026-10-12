@@ -5,8 +5,8 @@ import "context"
 // 本文件是 T5.5「暂停/销毁按链路与能力分派」的单一落点。
 //
 // 两条链路的能力差异最终都收敛为「适配器是否实现某能力接口」：
-//   - 链路 A（上游转售，mofangfinance）：暂停/恢复走 /provision/default，终止走 /host/cancel；
-//   - 链路 B（自营，mofangyun）：暂停/恢复走 /clouds/{id}/suspend|unsuspend，销毁走 DELETE /clouds/{id}。
+//   - 链路 A（上游转售，zjmf）：暂停/恢复走 /provision/default，终止走 /host/cancel；
+//   - 链路 B（自营，dcimcloud）：暂停/恢复走 /clouds/{id}/suspend|unsuspend，销毁走 DELETE /clouds/{id}。
 //
 // 分派层保证：只要平台提供了等价能力就不阻断业务；确实缺失时返回 ErrCapabilityMissing，
 // 由调用方显式提示运维（绝不静默假装完成）。降级只在语义等价时发生：

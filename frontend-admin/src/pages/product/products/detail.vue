@@ -1397,7 +1397,7 @@ async function openCatalogPicker() {
   pickerVisible.value = true
   pickerLoading.value = true
   try {
-    // 自营商品用商品绑定的平台渠道反查平台类型；未绑定则列全部平台类型（按 mofangyun 兜底）。
+    // 自营商品用商品绑定的平台渠道反查平台类型；未绑定则列全部平台类型（按 dcimcloud 兜底）。
     let providerType = ''
     if (product.value?.source_provider_id) {
       const data = await getProviderList({ page_size: 100 })
@@ -1405,7 +1405,7 @@ async function openCatalogPicker() {
       providerType = hit?.provider_type || ''
     }
     pickerItems.value = await getOptionCatalog({
-      provider_type: providerType || 'mofangyun',
+      provider_type: providerType || 'dcimcloud',
       provider_id: product.value?.source_provider_id,
     })
   } catch (error) {

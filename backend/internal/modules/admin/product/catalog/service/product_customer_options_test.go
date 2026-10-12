@@ -249,7 +249,7 @@ func TestSanitizeSelectionsDropsInvalidValue(t *testing.T) {
 func TestOptionAccumulatorBuildsCustomerOptions(t *testing.T) {
 	meta := SpecOptionMeta{
 		OptionKey: "os", Label: "操作系统", Widget: SpecWidgetSelect, Required: true,
-		ProviderType: "mofangyun",
+		ProviderType: "dcimcloud",
 		Values: []SpecOptionValueMeta{
 			{Value: "12", Label: "Ubuntu 22.04", GroupLabel: "Ubuntu"},
 		},

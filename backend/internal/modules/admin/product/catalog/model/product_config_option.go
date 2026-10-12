@@ -23,7 +23,7 @@ type ProductConfigOption struct {
 	OptionName  string `gorm:"column:option_name;size:64"`                                   // cpu/memory/os/area/...
 	OptionType  int    `gorm:"column:option_type;default:1"`                                 // 1 下拉 2 单选 3 开关 4 数量
 	// ---- T4.5 客户选配渲染与计价字段 ----
-	ProviderType string `gorm:"column:provider_type;size:64;not null;default:''"` // 归属平台（mofangyun）
+	ProviderType string `gorm:"column:provider_type;size:64;not null;default:''"` // 归属平台（dcimcloud）
 	OptionKey    string `gorm:"column:option_key;size:64;not null;default:''"`    // 平台参数名（与 source_key 同义，选配专用）
 	Widget       string `gorm:"column:widget;size:32;not null;default:'select'"`  // select|radio|qty|bool
 	Required     bool   `gorm:"column:required;not null;default:false"`           // 客户下单必选

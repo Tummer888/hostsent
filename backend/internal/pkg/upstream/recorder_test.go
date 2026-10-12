@@ -147,7 +147,7 @@ func TestTraceRecordsRetriesAndBusinessOutcome(t *testing.T) {
 	m := withRecorder(t)
 
 	ctx, tr := NewTrace(context.Background(), "CreateInstance", "trace-abc")
-	tr.SetProvider(func() (uint, string, string) { return 7, "魔方云A", "mofangyun" })
+	tr.SetProvider(func() (uint, string, string) { return 7, "魔方云A", "dcimcloud" })
 
 	// 第一次 401
 	Capture(ctx, "POST", "https://up.example.com/clouds", []byte("hostname=a"), 401, []byte("unauthorized"), nil, time.Millisecond)
@@ -175,7 +175,7 @@ func TestTraceRecordsRetriesAndBusinessOutcome(t *testing.T) {
 	if recs[0].TraceID != "trace-abc" || recs[1].Op != "CreateInstance" {
 		t.Errorf("trace id / op not propagated: %+v", recs[1])
 	}
-	if recs[1].ProviderID != 7 || recs[1].ProviderName != "魔方云A" || recs[1].ProviderType != "mofangyun" {
+	if recs[1].ProviderID != 7 || recs[1].ProviderName != "魔方云A" || recs[1].ProviderType != "dcimcloud" {
 		t.Errorf("provider info not attached: %+v", recs[1])
 	}
 }

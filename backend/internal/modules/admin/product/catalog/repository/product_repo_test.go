@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"hostsent/backend/internal/modules/admin/product/catalog/model"
-	upstreamfinance "hostsent/backend/internal/pkg/upstream/mofangfinance"
+	upstreamzjmf "hostsent/backend/internal/pkg/upstream/zjmf"
 )
 
 // configGroupsJSON 模拟上游 resource_products.raw_specs->'config_groups' 的真实形态
@@ -61,7 +61,7 @@ func TestParseConfigGroups(t *testing.T) {
 }
 
 // TestBuildConfigGroupsMatchesUpstream 验证子表行重建的 config_groups 结构与上游
-// mofangfinance.ConfigGroup 完全契约兼容（供 buildCartConfigOption 消费）。
+// zjmf.ConfigGroup 完全契约兼容（供 buildCartConfigOption 消费）。
 // 列口径：upstream_key 列 = 上游自身 id（下单键），source_key 列 = 上游再上一层 id（链路参考）。
 func TestBuildConfigGroupsMatchesUpstream(t *testing.T) {
 	rows := []*model.ProductConfigOption{
@@ -92,8 +92,8 @@ func TestBuildConfigGroupsMatchesUpstream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal 失败: %v", err)
 	}
-	// 以 mofangfinance.ConfigGroup 契约反解，验证下游 buildCartConfigOption 可用。
-	var groups []upstreamfinance.ConfigGroup
+	// 以 zjmf.ConfigGroup 契约反解，验证下游 buildCartConfigOption 可用。
+	var groups []upstreamzjmf.ConfigGroup
 	if err := json.Unmarshal(b, &groups); err != nil {
 		t.Fatalf("重建结果不满足上游 ConfigGroup 契约: %v (%s)", err, b)
 	}
@@ -149,7 +149,7 @@ func TestConfigGroupsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal 失败: %v", err)
 	}
-	var rebuilt []upstreamfinance.ConfigGroup
+	var rebuilt []upstreamzjmf.ConfigGroup
 	if err := json.Unmarshal(b, &rebuilt); err != nil {
 		t.Fatalf("重建不满足上游契约: %v (%s)", err, b)
 	}
@@ -172,7 +172,7 @@ func TestConfigGroupsRoundTrip(t *testing.T) {
 		t.Errorf("cpu 子项/价格重建错误: %+v", cpu.Sub)
 	}
 	// 重建结果直接喂给下单参数构建（适配器 buildCartConfigOption 取 id / sub.id，
-	// 见 mofangfinance::TestBuildCartConfigOptionFromGroups）：两侧 id 口径必须一致。
+	// 见 zjmf::TestBuildCartConfigOptionFromGroups）：两侧 id 口径必须一致。
 	mem := rebuilt[0].Options[1]
 	if mem.UpstreamID != 710550 || len(mem.Sub) != 1 || mem.Sub[0].Hidden != 0 || float64(mem.Sub[0].Pricings[0].Monthly) != 19.5 {
 		t.Errorf("memory 重建错误: %+v", mem)

@@ -284,7 +284,7 @@ func buildEnsureOpenable(catalog catalogservice.ProductService, provider provide
 		if err != nil {
 			return errors.New("该商品上游配置不可用，暂不可购买")
 		}
-		// 财务型上游（mofangfinance）现已支持下游下单开通，不再拦截。
+		// 财务型上游（zjmf）现已支持下游下单开通，不再拦截。
 		_ = cfg
 		return nil
 	}

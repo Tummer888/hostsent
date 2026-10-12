@@ -161,12 +161,12 @@ func TestWriteParamsTranslatesByPlatform(t *testing.T) {
 	d := NewDictionary()
 	d.Replace([]Atom{
 		{Key: KeyCPU, ValueType: "int", Status: 1,
-			PlatformFields: map[string]AtomPlatformField{"mofangyun": {Read: "cpu_num", Write: "cpu"}}},
+			PlatformFields: map[string]AtomPlatformField{"dcimcloud": {Read: "cpu_num", Write: "cpu"}}},
 		{Key: KeyMemory, ValueType: "int", Status: 1,
-			PlatformFields: map[string]AtomPlatformField{"mofangyun": {Read: "memory_size", Write: "memory"}}},
+			PlatformFields: map[string]AtomPlatformField{"dcimcloud": {Read: "memory_size", Write: "memory"}}},
 		{Key: KeyRegion, ValueType: "string", Status: 1}, // 无平台字段：应被跳过
 	})
-	out := d.WriteParams("mofangyun", model.StandardProductSpec{CPU: 2, Memory: 8192, Region: "hk"})
+	out := d.WriteParams("dcimcloud", model.StandardProductSpec{CPU: 2, Memory: 8192, Region: "hk"})
 	if out["cpu"] != 2 || out["memory"] != 8192 {
 		t.Fatalf("平台写字段翻译错误: %v", out)
 	}
@@ -184,17 +184,17 @@ func TestRequiredMissingFor(t *testing.T) {
 	d := NewDictionary()
 	d.Replace([]Atom{
 		{Key: KeyCPU, ValueType: "int", Required: true, AppliesTo: "both", Status: 1,
-			PlatformFields: map[string]AtomPlatformField{"mofangyun": {Write: "cpu"}}},
+			PlatformFields: map[string]AtomPlatformField{"dcimcloud": {Write: "cpu"}}},
 		{Key: KeyRegion, ValueType: "string", Required: true, AppliesTo: "both", Status: 1,
-			PlatformFields: map[string]AtomPlatformField{"mofangyun": {Write: "area"}}},
+			PlatformFields: map[string]AtomPlatformField{"dcimcloud": {Write: "area"}}},
 		{Key: "billing.cycle", ValueType: "enum", Required: true, AppliesTo: "both", Status: 1,
-			PlatformFields: map[string]AtomPlatformField{"mofangyun": {Write: "-"}}},
+			PlatformFields: map[string]AtomPlatformField{"dcimcloud": {Write: "-"}}},
 		{Key: "image.id", ValueType: "string", Required: true, AppliesTo: "upstream", Status: 1,
-			PlatformFields: map[string]AtomPlatformField{"mofangyun": {Write: "os"}}},
+			PlatformFields: map[string]AtomPlatformField{"dcimcloud": {Write: "os"}}},
 	})
 
 	// 平台过滤：billing.cycle 写侧为 "-" 不算缺失；region 缺失被报出。
-	issues := d.RequiredMissingFor(map[string]any{KeyCPU: 2}, "self", "mofangyun")
+	issues := d.RequiredMissingFor(map[string]any{KeyCPU: 2}, "self", "dcimcloud")
 	keys := map[string]bool{}
 	for _, is := range issues {
 		keys[is.Key] = true

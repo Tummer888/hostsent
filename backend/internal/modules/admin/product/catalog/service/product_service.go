@@ -229,7 +229,7 @@ type SpecTemplateSnapshot struct {
 	Price          float64
 	SpecValues     string // 原子 key → 取值 JSON
 	PlatformParams string // 平台写参数 JSON
-	// ProviderType 档位归属的平台类型（mofangyun 等），用于生成客户选配项时取配置项目录。
+	// ProviderType 档位归属的平台类型（dcimcloud / zjmf 等），用于生成客户选配项时取配置项目录。
 	ProviderType string
 	// OptionSelections 档位勾选的可选值 JSON（T4.5）：
 	// {"cpu":{"values":["2","4"]},"bw":{"range":[1,100],"default":"10"}}
@@ -1971,7 +1971,7 @@ func specFromJSONMap(raw string) map[string]any {
 	return m
 }
 
-// buildCloneBaseOptions 将上游资源商品规格映射为开通参数（适配 mofangyun /clouds 及通用开通）。
+// buildCloneBaseOptions 将上游资源商品规格映射为开通参数（适配 dcimcloud /clouds 及通用开通）。
 // 字段语义对齐魔方云配置项：cpu/memory(MB)/system_disk_size(GB)/os/area(区域)/bw(带宽)。
 func buildCloneBaseOptions(rp *resourceproductmodel.ResourceProduct) map[string]interface{} {
 	opts := map[string]interface{}{}

@@ -1,4 +1,4 @@
-package mofangyun
+package dcimcloud
 
 import (
 	"net/url"

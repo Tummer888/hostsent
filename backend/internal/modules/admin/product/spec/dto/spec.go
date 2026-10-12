@@ -44,7 +44,7 @@ type SpecTemplateRequest struct {
 	SpecValues json.RawMessage `json:"spec_values"`
 	// PlatformParams 平台写参数 JSON（如 area/node/os/store）；生成 SKU 时写入平台绑定。
 	PlatformParams json.RawMessage `json:"platform_params"`
-	// ProviderType 档位归属的平台类型（mofangyun 等）。
+	// ProviderType 档位归属的平台类型（dcimcloud / zjmf 等）。
 	ProviderType string `json:"provider_type"`
 	// OptionSelections 每参数勾选的可选值 JSON，形如
 	// {"cpu":{"values":["2","4"]},"bw":{"range":[1,100],"default":"10"}}。

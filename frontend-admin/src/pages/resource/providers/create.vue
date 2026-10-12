@@ -82,7 +82,7 @@
       <t-alert v-if="providerHint" theme="info" :message="providerHint" class="provider-hint" />
       <t-form ref="formRef" :data="formData" :rules="formRules" label-align="top" class="provider-form">
         <!-- 魔方财务：createApi 契约表单 -->
-        <template v-if="isMofangFinance">
+        <template v-if="isZjmf">
           <div class="form-section__title">基本信息</div>
           <div class="form-grid">
             <t-form-item label="名称" name="name">
@@ -113,7 +113,7 @@
         </template>
 
         <!-- 魔方云：新增接口(添加服务器 /admin/dcimcloud/server) 契约表单 -->
-        <template v-else-if="isMofangYun">
+        <template v-else-if="isDCIMCloud">
           <div class="form-grid">
             <t-form-item label="名称" name="name">
               <t-input v-model="formData.name" placeholder="请输入名称" maxlength="100" />
@@ -133,8 +133,8 @@
             <t-form-item class="form-item--half" label="是否https" name="secure">
               <t-switch v-model="formData.secure" />
             </t-form-item>
-            <t-form-item class="form-item--half" label="是否启用" name="mofangyun_enabled">
-              <t-switch v-model="mofangYunEnabled" />
+            <t-form-item class="form-item--half" label="是否启用" name="dcimcloud_enabled">
+              <t-switch v-model="dcimCloudEnabled" />
             </t-form-item>
           </div>
           <div class="advanced-box">
@@ -229,7 +229,7 @@
           <t-descriptions-item label="名称">{{ created?.name }}</t-descriptions-item>
           <t-descriptions-item label="类型">{{ selectedTypeLabel }}</t-descriptions-item>
           <t-descriptions-item label="API 地址">{{ created?.api_endpoint }}</t-descriptions-item>
-          <t-descriptions-item v-if="isMofangFinance && created?.zjmf_finance_api_id" label="上游 API ID">{{ created?.zjmf_finance_api_id }}</t-descriptions-item>
+          <t-descriptions-item v-if="isZjmf && created?.zjmf_finance_api_id" label="上游 API ID">{{ created?.zjmf_finance_api_id }}</t-descriptions-item>
           <t-descriptions-item label="实例同步">{{ created?.sync_enabled ? '启用' : '禁用' }}</t-descriptions-item>
           <t-descriptions-item label="连接">{{ testResultText }}</t-descriptions-item>
         </t-descriptions>
@@ -325,14 +325,14 @@ const credentialSchema = computed(() => selectedDescriptor.value?.credential_sch
 
 const selectedTypeLabel = computed(() => selectedType.value?.name || formData.provider_type)
 
-const isMofangFinance = computed(() => formData.provider_type === 'mofangfinance')
-const isMofangYun = computed(() => formData.provider_type === 'mofangyun')
+const isZjmf = computed(() => formData.provider_type === 'zjmf')
+const isDCIMCloud = computed(() => formData.provider_type === 'dcimcloud')
 // 魔方云/魔方财务保留各自的专用契约表单（字段与业务语义耦合），其余类型走描述符驱动表单。
 const usesDynamicCredentialForm = computed(
-  () => !isMofangFinance.value && !isMofangYun.value && credentialSchema.value.length > 0,
+  () => !isZjmf.value && !isDCIMCloud.value && credentialSchema.value.length > 0,
 )
 // 魔方云契约 disabled=是否禁用(0启用 1禁用)，开关以「是否启用」呈现，提交时取反。
-const mofangYunEnabled = ref(true)
+const dcimCloudEnabled = ref(true)
 
 // 各提供商类型的动态字段配置：根据上游语义定制标签、占位符与提示
 interface FieldLabels {
@@ -346,23 +346,23 @@ interface FieldLabels {
 }
 
 const FIELD_CONFIG: Record<string, Partial<FieldLabels>> = {
-  mofangyun: {
+  dcimcloud: {
     key: 'API 账号',
     keyPlaceholder: 'API 账户的账号（用户名）',
     secret: 'API 密码',
     secretPlaceholder: 'API 账户的密码',
     endpointPlaceholder: '例如：https://y.host.youcloude.com',
     regionPlaceholder: '区域 ID，可留空（如 cn-east）',
-    hint: '魔方云：填写面板地址 + API 账户「账号 / 密码」，用于调用 index.php?m=api 接口',
+    hint: '魔方云（DCIMCloud）：填写面板地址 + API 账户「账号 / 密码」，用于调用 index.php?m=api 接口',
   },
-  mofangfinance: {
+  zjmf: {
     key: 'API 密钥',
     keyPlaceholder: 'API 应用密钥（api_key）',
     secret: 'API 密钥',
     secretPlaceholder: 'API 应用密钥（api_secret）',
     endpointPlaceholder: '例如：https://finance.example.com',
     regionPlaceholder: '区域 ID，可留空',
-    hint: '魔方财务：填写 API 地址 + 应用「密钥 / 密钥（api_key / api_secret）」，用于调用 createApi 等接口',
+    hint: '魔方财务（ZJMF）：填写 API 地址 + 应用「密钥 / 密钥（api_key / api_secret）」，用于调用 createApi 等接口',
   },
 }
 
@@ -381,10 +381,10 @@ const formRules = computed<Record<string, FormRule[]>>(() => {
     api_secret: [{ required: true, message: '请输入密码/密钥', type: 'error', trigger: 'blur' }],
   }
   // 魔方云地址为「Ip地址或域名」而非 http 链接，不校验协议前缀。
-  if (!isMofangYun.value) {
+  if (!isDCIMCloud.value) {
     base.api_endpoint.push({ pattern: /^https?:\/\//, message: 'API 地址需以 http(s):// 开头', type: 'error', trigger: 'blur' })
   }
-  if (isMofangFinance.value) {
+  if (isZjmf.value) {
     base.upstream_type = [{ required: true, message: '请选择接口类型', type: 'error', trigger: 'change' }]
   }
   // 描述符驱动的渠道由字段声明必填，不再强制旧 api_key/api_secret。
@@ -431,7 +431,7 @@ function buildPayload(): ProviderCreateRequest {
     upstream_type: formData.upstream_type || undefined,
     port: formData.port || undefined,
     secure: formData.secure,
-    disabled: !mofangYunEnabled.value,
+    disabled: !dcimCloudEnabled.value,
     user_prefix: formData.user_prefix || undefined,
     account_type: formData.account_type || undefined,
     timeout_seconds: formData.timeout_seconds || 0,

@@ -489,7 +489,7 @@ func TestLiveRenewalDualChain(t *testing.T) {
 	chainAFail := createChainInstance(fmt.Sprintf("p5-a-fail-%d", time.Now().UnixNano()%1e6), syncmodel.SourceModeUpstream, 7)
 	beforeFail := expireOf(chainAFail)
 	svc.SetUpstreamRenewer(func(context.Context, *syncmodel.Instance, int, string) (*upstream.RenewResult, error) {
-		return nil, upstream.MissingCapability("mofangfinance", upstream.OpRenew)
+		return nil, upstream.MissingCapability("zjmf", upstream.OpRenew)
 	})
 	if _, err := svc.AdminRenew(ctx, 1, chainAFail, &lifecycledto.AdminRenewRequest{PeriodCount: 1}); err == nil {
 		t.Fatal("链路 A 上游缺能力时必须报错，实际成功")
@@ -509,7 +509,7 @@ func TestLiveRenewalDualChain(t *testing.T) {
 	chainB := createChainInstance(fmt.Sprintf("p5-b-%d", time.Now().UnixNano()%1e6), syncmodel.SourceModeSelf, 1)
 	beforeB := *expireOf(chainB)
 	svc.SetUpstreamRenewer(func(context.Context, *syncmodel.Instance, int, string) (*upstream.RenewResult, error) {
-		return nil, upstream.MissingCapability("mofangyun", upstream.OpRenew)
+		return nil, upstream.MissingCapability("dcimcloud", upstream.OpRenew)
 	})
 	if _, err := svc.AdminRenew(ctx, 1, chainB, &lifecycledto.AdminRenewRequest{PeriodCount: 1}); err != nil {
 		t.Fatalf("链路 B 应回落本地顺延并成功: %v", err)

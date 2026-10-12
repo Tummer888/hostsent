@@ -19,7 +19,7 @@ import (
 	"hostsent/backend/internal/pkg/upstream"
 )
 
-// stubInstanceAdmin 返回固定实例列表，且不填 UserID——与 mofangyun 适配器现状一致
+// stubInstanceAdmin 返回固定实例列表，且不填 UserID——与 dcimcloud 适配器现状一致
 // （面板 user_id 与本地 users 主键不同空间，适配器无从映射）。
 type stubInstanceAdmin struct {
 	items []*pkgmodel.StandardInstance

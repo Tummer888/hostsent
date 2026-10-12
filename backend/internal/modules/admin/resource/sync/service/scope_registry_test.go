@@ -62,7 +62,7 @@ func TestAllScopesRegistered(t *testing.T) {
 // TestPlanScopesDrivenByDescriptor 验证「能力描述符 ∩ 已注册 handler」决定可调度范围。
 func TestPlanScopesDrivenByDescriptor(t *testing.T) {
 	// 财务渠道：只声明 catalog/price/instance，且无 instance 能力。
-	finance := &normalizeProvider{typ: "mofangfinance"}
+	finance := &normalizeProvider{typ: "zjmf"}
 	desc := upstream.CapabilityDescriptor{
 		SyncScopes: []string{upstream.ScopeCatalog, upstream.ScopePrice, upstream.ScopeInstance},
 	}
@@ -97,7 +97,7 @@ func TestUnsupportedScopes(t *testing.T) {
 	desc := upstream.CapabilityDescriptor{
 		SyncScopes: []string{upstream.ScopeCatalog, upstream.ScopeStock, upstream.ScopeInstance},
 	}
-	got := UnsupportedScopes(desc, &normalizeProvider{typ: "mofangfinance"})
+	got := UnsupportedScopes(desc, &normalizeProvider{typ: "zjmf"})
 	if _, ok := got[syncmodel.ScopeStock]; !ok {
 		t.Errorf("stock 应报告为不可执行（无处理器），got %v", got)
 	}

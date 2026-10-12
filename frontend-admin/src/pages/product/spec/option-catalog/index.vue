@@ -37,7 +37,7 @@
       </div>
       <div class="field">
         <span class="field__label">平台类型</span>
-        <t-input v-model="providerType" placeholder="如 mofangyun" @enter="load" />
+        <t-input v-model="providerType" placeholder="如 dcimcloud" @enter="load" />
       </div>
       <div class="field">
         <span class="field__label">关键词</span>
@@ -440,7 +440,7 @@ function onProviderChange(value?: number | string) {
   if (!id) return
   const hit = providerOptions.value.find((o) => o.value === id)
   if (hit) {
-    // 从渠道名里取出平台类型（"魔方云测试接口（mofangyun）" → mofangyun）。
+    // 从渠道名里取出平台类型（"魔方云测试接口（dcimcloud）" → dcimcloud）。
     const match = hit.label.match(/（([^）]+)）/)
     if (match) providerType.value = match[1]
   }

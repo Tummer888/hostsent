@@ -659,7 +659,7 @@ func (e *SyncEngine) syncPoolsInternal(
 // syncInstances 拉取上游实例并幂等写入 instances。
 //
 // 归属语义（本次修复的真实故障）：上游实例号对面板而言是"面板用户 id"，本地要的是
-// users 表主键，两者不同空间。mofangyun 适配器不填 StandardInstance.UserID，
+// users 表主键，两者不同空间。dcimcloud 适配器不填 StandardInstance.UserID，
 // 于是新实例写库就是 user_id=0 → fk_instances_user 23503，整个实例同步任务连败
 // （实测 provider 19 连续 21+ 条失败、provider 1 累计 7000+ 条）。
 //

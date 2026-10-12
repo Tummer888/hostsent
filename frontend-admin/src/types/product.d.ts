@@ -449,7 +449,7 @@ export interface SpecTemplateRequest {
   spec_values?: Record<string, unknown> | null
   /** 平台写参数 JSON（魔方云 area/node/os/store），生成 SKU 时写入平台绑定 */
   platform_params?: Record<string, unknown> | null
-  /** 档位归属的平台类型（mofangyun 等） */
+  /** 档位归属的平台类型（dcimcloud / zjmf 等） */
   provider_type?: string
   /** 每参数勾选的可选值（T4.5）：建品时据此生成客户选配项 */
   option_selections?: SpecOptionSelections | null

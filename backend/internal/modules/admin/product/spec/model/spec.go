@@ -61,7 +61,7 @@ type SpecTemplate struct {
 	// PlatformParams 平台写参数 JSON（如 {"area":"1","node":"2","os":"12","store":"2"}）；
 	// 生成 SKU 时原样写入 spec_bindings.platform_params 并置 confirmed。
 	PlatformParams string `gorm:"column:platform_params;type:jsonb"`
-	// ProviderType 档位归属的平台（mofangyun / ...）；空表示未绑定平台（旧模板）。
+	// ProviderType 档位归属的平台（dcimcloud / zjmf / ...）；空表示未绑定平台（旧模板）。
 	ProviderType string `gorm:"column:provider_type;size:64;not null;default:'';index"`
 	// OptionSelections 每参数勾选的可选值（T4.5），形如：
 	//   {"cpu":{"values":["2","4"]},"bw":{"range":[1,100],"default":"10"}}

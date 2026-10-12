@@ -29,7 +29,7 @@ const (
 	ActionRemark     = "remark"
 	ActionSuspend    = "suspend"
 	ActionUnsuspend  = "unsuspend"
-	// 维护类动作（平台接口实测存在，映射见 mofangyun/provider.go 头部注释）。
+	// 维护类动作（平台接口实测存在，映射见 dcimcloud/provider.go 头部注释）。
 	ActionReinstall     = "reinstall"      // 重装系统（可换镜像）
 	ActionResetPassword = "reset_password" // 重置登录密码
 	ActionRescue        = "rescue"         // 进入救援系统

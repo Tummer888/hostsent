@@ -12,7 +12,7 @@ import (
 // 必须给出「固定配置只读项 + 可否续费 + 下单说明」，且**不得**外泄上游标价/代理价。
 func TestUpstreamChainForHidesInternalPrices(t *testing.T) {
 	chain := upstreamChainFor(&catalogdto.ProductUpstreamInfo{
-		ProviderID: 7, ProviderName: "haika", ProviderType: "mofangfinance",
+		ProviderID: 7, ProviderName: "haika", ProviderType: "zjmf",
 		UpstreamID: "468", GroupID: 14, GroupName: "常驻 | 活动",
 		ListPrice: 109, CostPrice: 76.3, DiscountDesc: "代理折扣 70%",
 		ListCycles: map[string]float64{"monthly": 109}, CostCycles: map[string]float64{"monthly": 76.3},

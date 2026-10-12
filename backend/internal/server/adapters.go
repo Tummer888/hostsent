@@ -14,8 +14,9 @@ package server
 // 新增适配器时在此追加，并同步更新 pkg 侧各注册表。
 import (
 	// 上游计算/转售适配器：注册 ProviderManager 工厂 + CapabilityDescriptor。
-	_ "hostsent/backend/internal/pkg/upstream/mofangfinance"
-	_ "hostsent/backend/internal/pkg/upstream/mofangyun"
+	// dcimcloud=魔方云（自营算力）、zjmf=魔方财务（上游转售）。
+	_ "hostsent/backend/internal/pkg/upstream/dcimcloud"
+	_ "hostsent/backend/internal/pkg/upstream/zjmf"
 
 	// 支付渠道适配器：登记能力描述符与工厂。
 	_ "hostsent/backend/internal/pkg/payment/manual"

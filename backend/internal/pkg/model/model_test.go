@@ -8,7 +8,7 @@ import (
 func TestStandardProductJSONSerialization(t *testing.T) {
 	p := StandardProduct{
 		ID:           1,
-		ProviderType: "mofangyun",
+		ProviderType: "dcimcloud",
 		UpstreamID:   "up_001",
 		Name:         "标准云主机",
 		Specs: StandardProductSpec{
@@ -33,7 +33,7 @@ func TestStandardProductJSONSerialization(t *testing.T) {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
-	if decoded.ProviderType != "mofangyun" {
+	if decoded.ProviderType != "dcimcloud" {
 		t.Errorf("ProviderType mismatch: got %s", decoded.ProviderType)
 	}
 	if decoded.Specs.CPU != 4 {
@@ -75,7 +75,7 @@ func TestStandardInstanceStatus(t *testing.T) {
 
 func TestCreateInstanceRequestSerialization(t *testing.T) {
 	req := CreateInstanceRequest{
-		ProviderType: "mofangyun",
+		ProviderType: "dcimcloud",
 		ProductID:    7,
 		Name:         "web-01",
 		Password:     "secret",

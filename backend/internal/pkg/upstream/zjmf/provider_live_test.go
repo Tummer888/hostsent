@@ -1,4 +1,4 @@
-package mofangfinance
+package zjmf
 
 import (
 	"context"
@@ -13,12 +13,12 @@ import (
 // liveZjmfProvider 返回真机魔方财务（haikayun）配置，用于确认财务型下游下单开通链路。
 // 该测试会真实向上游下单并通过 apply_credit 扣减上游账户余额（创建真实主机），
 // 必须显式设置 LIVE_ZJMF=1 才会执行，避免误触发扣费。
-func liveZjmfProvider(t *testing.T) *MoFangFinanceProvider {
+func liveZjmfProvider(t *testing.T) *ZJMFProvider {
 	if os.Getenv("LIVE_ZJMF") == "" {
-		t.Skip("set LIVE_ZJMF=1 to run live mofangfinance provisioning (spends upstream balance)")
+		t.Skip("set LIVE_ZJMF=1 to run live 魔方财务（zjmf）provisioning (spends upstream balance)")
 	}
-	return NewMoFangFinanceProvider(&upstream.ProviderConfig{
-		Type:         "mofangfinance",
+	return NewZJMFProvider(&upstream.ProviderConfig{
+		Type:         "zjmf",
 		APIEndpoint:  "https://www.haikayun.com/",
 		APIKey:       os.Getenv("ZJMF_USER"),
 		APISecret:    os.Getenv("ZJMF_PASS"),

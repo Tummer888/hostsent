@@ -96,11 +96,11 @@ func TestBuildProvisionRequestMergesSkuAtoms(t *testing.T) {
 	dict := specatom.NewDictionary()
 	dict.Replace([]specatom.Atom{
 		{Key: specatom.KeyCPU, ValueType: "int", Status: 1,
-			PlatformFields: map[string]specatom.AtomPlatformField{"mofangyun": {Write: "cpu"}}},
+			PlatformFields: map[string]specatom.AtomPlatformField{"dcimcloud": {Write: "cpu"}}},
 		{Key: specatom.KeyMemory, ValueType: "int", Status: 1,
-			PlatformFields: map[string]specatom.AtomPlatformField{"mofangyun": {Write: "memory"}}},
+			PlatformFields: map[string]specatom.AtomPlatformField{"dcimcloud": {Write: "memory"}}},
 		{Key: specatom.KeyRegion, ValueType: "string", Status: 1,
-			PlatformFields: map[string]specatom.AtomPlatformField{"mofangyun": {Write: "area"}}},
+			PlatformFields: map[string]specatom.AtomPlatformField{"dcimcloud": {Write: "area"}}},
 	})
 	prev := specatom.Global()
 	specatom.SetGlobal(dict)
@@ -111,7 +111,7 @@ func TestBuildProvisionRequestMergesSkuAtoms(t *testing.T) {
 		ID: 7, SourceMode: model.SourceModeSelf, SourceProviderID: 1, PriceModel: model.PriceModelFixed,
 		ConfigOptions: `{"cpu":8,"os":"centos7"}`,
 	}
-	svc := &productService{repo: repo, providerReader: &fakeProviderReader{typ: "mofangyun"}}
+	svc := &productService{repo: repo, providerReader: &fakeProviderReader{typ: "dcimcloud"}}
 	spec := `{"compute.cpu":2,"compute.memory":4096,"placement.region":"hk"}`
 
 	req, err := svc.BuildProvisionRequest(context.Background(), 7, "vm", spec, "", nil)
@@ -134,7 +134,7 @@ func TestBuildProvisionRequestMergesSkuAtoms(t *testing.T) {
 func TestBuildProvisionRequestNoSpecKeepsLegacy(t *testing.T) {
 	repo := &fakeProductRepo{}
 	repo.findByID = &model.Product{ID: 8, SourceMode: model.SourceModeSelf, ConfigOptions: `{"cpu":4}`}
-	svc := &productService{repo: repo, providerReader: &fakeProviderReader{typ: "mofangyun"}}
+	svc := &productService{repo: repo, providerReader: &fakeProviderReader{typ: "dcimcloud"}}
 	req, err := svc.BuildProvisionRequest(context.Background(), 8, "vm", "", "", nil)
 	if err != nil {
 		t.Fatalf("BuildProvisionRequest: %v", err)
@@ -200,11 +200,11 @@ func (f *fakeBindingReader) ConfirmedPlatformParamsByProductSpecs(_ context.Cont
 // TestValidatePublishSelfRequiresSkuAndBinding 自营商品上架门禁（T4.6）：
 // 无启用 SKU → 拒绝；SKU 绑定未确认 → 拒绝；全部 confirmed → 放行。
 func TestValidatePublishSelfRequiresSkuAndBinding(t *testing.T) {
-	// 字典：只要求 cpu，且 mofangyun 有写字段，避免平台字段过滤把用例打偏。
+	// 字典：只要求 cpu，且 dcimcloud 有写字段，避免平台字段过滤把用例打偏。
 	dict := specatom.NewDictionary()
 	dict.Replace([]specatom.Atom{
 		{Key: specatom.KeyCPU, ValueType: "int", Required: true, AppliesTo: "both", Status: 1,
-			PlatformFields: map[string]specatom.AtomPlatformField{"mofangyun": {Write: "cpu"}}},
+			PlatformFields: map[string]specatom.AtomPlatformField{"dcimcloud": {Write: "cpu"}}},
 	})
 	prev := specatom.Global()
 	specatom.SetGlobal(dict)
@@ -214,7 +214,7 @@ func TestValidatePublishSelfRequiresSkuAndBinding(t *testing.T) {
 
 	// 1) 无 SKU
 	repo := &fakeProductRepo{findByID: item}
-	svc := &productService{repo: repo, providerReader: &fakeProviderReader{typ: "mofangyun"}, bindingReader: &fakeBindingReader{}}
+	svc := &productService{repo: repo, providerReader: &fakeProviderReader{typ: "dcimcloud"}, bindingReader: &fakeBindingReader{}}
 	if err := svc.validatePublish(context.Background(), item); err == nil {
 		t.Fatal("无启用 SKU 时应拒绝上架")
 	}
@@ -223,14 +223,14 @@ func TestValidatePublishSelfRequiresSkuAndBinding(t *testing.T) {
 	repo = &fakeProductRepo{findByID: item, specs: []model.ProductSpec{
 		{ID: 501, ProductID: 40, SpecCode: "s1", Status: model.ProductSpecEnabled, Specs: `{"compute.cpu":2}`},
 	}}
-	svc = &productService{repo: repo, providerReader: &fakeProviderReader{typ: "mofangyun"},
+	svc = &productService{repo: repo, providerReader: &fakeProviderReader{typ: "dcimcloud"},
 		bindingReader: &fakeBindingReader{status: map[uint64]string{501: specbindingAutoMapped}}}
 	if err := svc.validatePublish(context.Background(), item); err == nil {
 		t.Fatal("SKU 绑定未确认时应拒绝上架")
 	}
 
 	// 3) 全部 confirmed → 放行
-	svc = &productService{repo: repo, providerReader: &fakeProviderReader{typ: "mofangyun"},
+	svc = &productService{repo: repo, providerReader: &fakeProviderReader{typ: "dcimcloud"},
 		bindingReader: &fakeBindingReader{status: map[uint64]string{501: specbindingConfirmed}}}
 	if err := svc.validatePublish(context.Background(), item); err != nil {
 		t.Fatalf("绑定已确认应放行，got %v", err)
@@ -243,9 +243,9 @@ func TestValidatePublishSelfRejectsMissingRequiredAtom(t *testing.T) {
 	dict := specatom.NewDictionary()
 	dict.Replace([]specatom.Atom{
 		{Key: specatom.KeyCPU, ValueType: "int", Required: true, AppliesTo: "both", Status: 1,
-			PlatformFields: map[string]specatom.AtomPlatformField{"mofangyun": {Write: "cpu"}}},
+			PlatformFields: map[string]specatom.AtomPlatformField{"dcimcloud": {Write: "cpu"}}},
 		{Key: "billing.cycle", ValueType: "enum", Required: true, AppliesTo: "both", Status: 1,
-			PlatformFields: map[string]specatom.AtomPlatformField{"mofangyun": {Write: "-"}}},
+			PlatformFields: map[string]specatom.AtomPlatformField{"dcimcloud": {Write: "-"}}},
 	})
 	prev := specatom.Global()
 	specatom.SetGlobal(dict)
@@ -255,7 +255,7 @@ func TestValidatePublishSelfRejectsMissingRequiredAtom(t *testing.T) {
 	repo := &fakeProductRepo{findByID: item, specs: []model.ProductSpec{
 		{ID: 502, ProductID: 41, SpecCode: "s-bad", Status: model.ProductSpecEnabled, Specs: `{"compute.memory":4096}`},
 	}}
-	svc := &productService{repo: repo, providerReader: &fakeProviderReader{typ: "mofangyun"},
+	svc := &productService{repo: repo, providerReader: &fakeProviderReader{typ: "dcimcloud"},
 		bindingReader: &fakeBindingReader{status: map[uint64]string{502: specbindingConfirmed}}}
 	err := svc.validatePublish(context.Background(), item)
 	if err == nil || !strings.Contains(err.Error(), specatom.KeyCPU) {

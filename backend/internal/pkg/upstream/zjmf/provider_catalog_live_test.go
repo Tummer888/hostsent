@@ -1,4 +1,4 @@
-package mofangfinance
+package zjmf
 
 import (
 	"context"
@@ -13,16 +13,16 @@ import (
 // liveCatalogProvider 只读真机上游（haika）适配器：用于验证商品目录/分类/代理折扣抓取。
 // 与 provider_live_test.go 的区别：这里**只发 GET 读接口**，不下单、不扣余额，
 // 故用独立开关 LIVE_ZJMF_CATALOG=1（不会因误设 LIVE_ZJMF 而触发扣费链路）。
-func liveCatalogProvider(t *testing.T) *MoFangFinanceProvider {
+func liveCatalogProvider(t *testing.T) *ZJMFProvider {
 	if os.Getenv("LIVE_ZJMF_CATALOG") == "" {
-		t.Skip("set LIVE_ZJMF_CATALOG=1 to run read-only mofangfinance catalog probe")
+		t.Skip("set LIVE_ZJMF_CATALOG=1 to run read-only 魔方财务（zjmf）catalog probe")
 	}
 	endpoint := os.Getenv("ZJMF_ENDPOINT")
 	if endpoint == "" {
 		endpoint = "https://www.haikayun.com/"
 	}
-	return NewMoFangFinanceProvider(&upstream.ProviderConfig{
-		Type:         "mofangfinance",
+	return NewZJMFProvider(&upstream.ProviderConfig{
+		Type:         "zjmf",
 		APIEndpoint:  endpoint,
 		APIKey:       os.Getenv("ZJMF_USER"),
 		APISecret:    os.Getenv("ZJMF_PASS"),

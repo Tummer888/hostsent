@@ -112,7 +112,7 @@ type Capabilities struct {
 	Reinstall bool `json:"reinstall"`
 	// Suspend 是否支持暂停/恢复（T5.5）：平台暂停态或退化为关机/开机皆算支持。
 	Suspend bool `json:"suspend"`
-	// 维护类（实测平台接口存在，见 mofangyun/provider.go 头部映射）。
+	// 维护类（实测平台接口存在，见 dcimcloud/provider.go 头部映射）。
 	ResetPassword bool `json:"reset_password"` // 重置登录密码
 	Rescue        bool `json:"rescue"`         // 救援系统（进/出）
 	Snapshot      bool `json:"snapshot"`       // 磁盘快照 / 备份

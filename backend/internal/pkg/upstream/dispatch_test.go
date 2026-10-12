@@ -94,7 +94,7 @@ func (a *administrationOnly) ResizeInstance(context.Context, string, *model.Stan
 func TestSuspendDispatchMatrix(t *testing.T) {
 	ctx := context.Background()
 
-	sus := &suspensionOnly{fakeBase: fakeBase{typ: "mofangfinance"}}
+	sus := &suspensionOnly{fakeBase: fakeBase{typ: "zjmf"}}
 	if err := SuspendWithFallback(ctx, sus, "h-1", "到期"); err != nil {
 		t.Fatalf("平台有暂停能力时应成功: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestSuspendDispatchMatrix(t *testing.T) {
 		t.Fatalf("应调用平台暂停接口并透传原因，实际 %v", sus.suspended)
 	}
 
-	ctrl := &controlOnly{fakeBase: fakeBase{typ: "mofangyun"}}
+	ctrl := &controlOnly{fakeBase: fakeBase{typ: "dcimcloud"}}
 	if err := SuspendWithFallback(ctx, ctrl, "c-1", "到期"); err != nil {
 		t.Fatalf("退化关机应成功: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestSuspendDispatchMatrix(t *testing.T) {
 func TestUnsuspendDispatchMatrix(t *testing.T) {
 	ctx := context.Background()
 
-	sus := &suspensionOnly{fakeBase: fakeBase{typ: "mofangfinance"}}
+	sus := &suspensionOnly{fakeBase: fakeBase{typ: "zjmf"}}
 	if err := UnsuspendWithFallback(ctx, sus, "h-1"); err != nil {
 		t.Fatalf("平台有恢复能力时应成功: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestUnsuspendDispatchMatrix(t *testing.T) {
 		t.Fatalf("应调用平台恢复接口，实际 %v", sus.unsuspended)
 	}
 
-	ctrl := &controlOnly{fakeBase: fakeBase{typ: "mofangyun"}}
+	ctrl := &controlOnly{fakeBase: fakeBase{typ: "dcimcloud"}}
 	if err := UnsuspendWithFallback(ctx, ctrl, "c-1"); err != nil {
 		t.Fatalf("退化开机应成功: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestUnsuspendDispatchMatrix(t *testing.T) {
 func TestTerminateDispatchMatrix(t *testing.T) {
 	ctx := context.Background()
 
-	term := &terminationOnly{fakeBase: fakeBase{typ: "mofangfinance"}}
+	term := &terminationOnly{fakeBase: fakeBase{typ: "zjmf"}}
 	if err := TerminateWithFallback(ctx, term, "h-1", "到期销毁"); err != nil {
 		t.Fatalf("平台有终止能力时应成功: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestTerminateDispatchMatrix(t *testing.T) {
 		t.Fatalf("应调用平台终止接口，实际 %v", term.terminated)
 	}
 
-	admin := &administrationOnly{fakeBase: fakeBase{typ: "mofangyun"}}
+	admin := &administrationOnly{fakeBase: fakeBase{typ: "dcimcloud"}}
 	if err := TerminateWithFallback(ctx, admin, "c-1", "到期销毁"); err != nil {
 		t.Fatalf("退化删除应成功: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestTerminateDispatchMatrix(t *testing.T) {
 // TestRenewWithCapability 续费分派：未实现 InstanceRenewal 时必须返回带能力名的缺失错误。
 func TestRenewWithCapability(t *testing.T) {
 	ctx := context.Background()
-	_, err := RenewWithCapability(ctx, &controlOnly{fakeBase: fakeBase{typ: "mofangyun"}}, &RenewRequest{ProviderInstanceID: "c-1"})
+	_, err := RenewWithCapability(ctx, &controlOnly{fakeBase: fakeBase{typ: "dcimcloud"}}, &RenewRequest{ProviderInstanceID: "c-1"})
 	if !errors.Is(err, ErrCapabilityMissing) {
 		t.Fatalf("缺续费能力应返回 ErrCapabilityMissing，实际 %v", err)
 	}
@@ -182,7 +182,7 @@ func TestRenewWithCapability(t *testing.T) {
 	if !errors.As(err, &mce) {
 		t.Fatalf("应携带 MissingCapabilityError 以便展示原因，实际 %T", err)
 	}
-	if mce.Capability != OpRenew || mce.Provider != "mofangyun" {
+	if mce.Capability != OpRenew || mce.Provider != "dcimcloud" {
 		t.Fatalf("缺失错误内容异常: %+v", mce)
 	}
 	if _, err := RenewWithCapability(ctx, nil, &RenewRequest{}); !errors.Is(err, ErrCapabilityMissing) {

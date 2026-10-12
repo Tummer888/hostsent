@@ -1051,8 +1051,8 @@ function productSourceModeLabel(mode: string): string {
 }
 
 const providerTypeLabels: Record<string, string> = {
-  mofangyun: '魔方云',
-  mofangfinance: '魔方财务',
+  dcimcloud: '魔方云',
+  zjmf: '魔方财务',
   manual: '人工',
 }
 

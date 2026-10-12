@@ -1,4 +1,4 @@
-package mofangfinance
+package zjmf
 
 import (
 	"context"
@@ -12,11 +12,11 @@ import (
 )
 
 // newMockProvider 起一个 httptest 服务模拟魔方财务（财务型 zjmf_api），返回指向它的适配器。
-func newMockProvider(t *testing.T, handler http.HandlerFunc) *MoFangFinanceProvider {
+func newMockProvider(t *testing.T, handler http.HandlerFunc) *ZJMFProvider {
 	t.Helper()
 	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
-	return NewMoFangFinanceProvider(&upstream.ProviderConfig{
+	return NewZJMFProvider(&upstream.ProviderConfig{
 		APIEndpoint:  ts.URL,
 		Secure:       false,
 		UpstreamType: "zjmf_api",
@@ -159,15 +159,15 @@ func TestContract_HardPowerAndMaintenance(t *testing.T) {
 // TestContract_PowerHardCapability 断言适配器实现了 InstancePowerHard，且描述符声明了相应操作
 // ——服务层与前端都靠这两处判据决定"硬关机/硬重启"按钮是否可用。
 func TestContract_PowerHardCapability(t *testing.T) {
-	p := NewMoFangFinanceProvider(&upstream.ProviderConfig{APIEndpoint: "http://127.0.0.1:1", UpstreamType: "zjmf_api"})
+	p := NewZJMFProvider(&upstream.ProviderConfig{APIEndpoint: "http://127.0.0.1:1", UpstreamType: "zjmf_api"})
 	if _, ok := interface{}(p).(upstream.InstancePowerHard); !ok {
-		t.Fatal("MoFangFinanceProvider 未实现 InstancePowerHard")
+		t.Fatal("ZJMFProvider 未实现 InstancePowerHard")
 	}
 	if _, ok := interface{}(p).(upstream.InstanceReinstall); !ok {
-		t.Fatal("MoFangFinanceProvider 未实现 InstanceReinstall")
+		t.Fatal("ZJMFProvider 未实现 InstanceReinstall")
 	}
 	if _, ok := interface{}(p).(upstream.InstancePasswordReset); !ok {
-		t.Fatal("MoFangFinanceProvider 未实现 InstancePasswordReset")
+		t.Fatal("ZJMFProvider 未实现 InstancePasswordReset")
 	}
 	d := p.Capabilities()
 	for _, op := range []string{upstream.OpReinstall, upstream.OpResetPassword} {
