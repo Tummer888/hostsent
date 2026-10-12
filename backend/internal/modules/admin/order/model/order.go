@@ -38,6 +38,14 @@ type Order struct {
 	// SpecCode 所选 SKU 编码（T4.2）：履约时据此回查 spec_bindings 的平台参数；
 	// 空表示按商品级配置（存量订单语义）。
 	SpecCode string `gorm:"column:spec_code;size:64;index"`
+	// UpstreamInvoiceID 本次开通在上游生成的账单 id（开通幂等）。
+	// 上游开通 = 下单 → 结算生成账单 → 余额支付；账单 id 一旦拿到就落库，
+	// 重试时复用同一张账单再支付，绝不重新下单（否则一个订单会在上游留多张账单）。
+	UpstreamInvoiceID int64 `gorm:"column:upstream_invoice_id;not null;default:0"`
+	// DownstreamToken 上游对接令牌（32 位，首次履约时生成后不再变化）。
+	// 上游按它反查"这个下游订单在上游是否已有账单/主机"，是上游协议的幂等键；
+	// 每次重试必须是同一个值，否则握手查不到既有订单，又会在上游新建一份。
+	DownstreamToken string `gorm:"column:downstream_token;size:32;not null;default:''"`
 	// ConfigOptions 客户选配项选择 JSON（T4.5）：配置项参数名 → 选中取值。
 	// 这是履约的唯一真源——开通参数以它为准（worker 重读订单即可取到，无需改任务表）。
 	ConfigOptions string `gorm:"column:config_options;type:jsonb"`

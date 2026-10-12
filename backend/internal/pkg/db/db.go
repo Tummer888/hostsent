@@ -1051,6 +1051,10 @@ func seedSystemConfigs(tx *gorm.DB) error {
 		{ConfigKey: "site.footer_promises", ConfigValue: "", ValueType: systemmodel.ValueTypeJSON, Group: systemmodel.ConfigGroupSite, Description: `服务保障条 JSON：[{"icon","title","desc"}]，留空用默认`, SortOrder: 41, Status: systemmodel.StatusActive},
 		{ConfigKey: "site.footer_socials", ConfigValue: "", ValueType: systemmodel.ValueTypeJSON, Group: systemmodel.ConfigGroupSite, Description: `社交按钮 JSON：[{"label","icon","url"}]，url 须为 http(s) 地址，留空用默认`, SortOrder: 42, Status: systemmodel.StatusActive},
 		{ConfigKey: "site.footer_legal_line", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "页脚法律行补充文案（留空则不渲染）", SortOrder: 43, Status: systemmodel.StatusActive},
+		// 本站对外可访问地址：上游对接（开通幂等握手）时告知上游"本站在哪"。
+		// 留空用代码内占位地址（仅需是合法 http(s) URL，不影响开通）；填真实地址后
+		// 上游的主机事件推送也会指向它。
+		{ConfigKey: "site.public_url", ConfigValue: "", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupSite, Description: "本站对外访问地址，如 https://www.example.com（上游对接与回调标识；留空用占位地址）", SortOrder: 44, Status: systemmodel.StatusActive},
 		{ConfigKey: "default_billing_cycle", ConfigValue: "monthly", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupBilling, Description: "默认计费周期", SortOrder: 1, Status: systemmodel.StatusActive},
 		{ConfigKey: "enable_user_register", ConfigValue: "true", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupFeature, Description: "是否开放用户注册", SortOrder: 1, Status: systemmodel.StatusActive},
 		{ConfigKey: "enable_mfa_required", ConfigValue: "false", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupSecurity, Description: "是否强制管理员开启MFA", SortOrder: 1, Status: systemmodel.StatusActive},

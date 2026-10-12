@@ -113,9 +113,19 @@
         </template>
 
         <template #status="{ row }">
-          <t-tag :theme="orderStatusTheme(row.status)" variant="light" size="small" shape="round">
-            {{ orderStatusLabel(row.status) }}
-          </t-tag>
+          <div class="status-cell">
+            <t-tag :theme="orderStatusTheme(row.status)" variant="light" size="small" shape="round">
+              {{ orderStatusLabel(row.status) }}
+            </t-tag>
+            <!-- 履约异常：订单状态还停在"已支付"，开通其实已卡住 —— 必须显式提示，
+                 否则运营只看订单状态会以为一切正常（实测事故：上游余额不足重试多次无人知）。 -->
+            <t-tooltip v-if="row.provision_status === 'manual'" :content="`开通失败待人工处理：${row.provision_error || '未记录原因'}`">
+              <t-tag theme="danger" variant="light-outline" size="small" shape="round">开通待人工</t-tag>
+            </t-tooltip>
+            <t-tooltip v-else-if="row.provision_status === 'failed'" :content="`开通失败，系统自动重试中：${row.provision_error || '未记录原因'}`">
+              <t-tag theme="warning" variant="light-outline" size="small" shape="round">开通重试中</t-tag>
+            </t-tooltip>
+          </div>
         </template>
 
         <template #pay_method="{ row }">

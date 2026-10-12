@@ -35,6 +35,9 @@ type OrderService interface {
 	SetRefundHook(hook OrderRefundHook)
 	// SetProvisionQueue 注入异步开通任务队列（装配层调用，T5.1）。
 	SetProvisionQueue(queue ProvisionQueue)
+	// SetProvisionTaskReader 注入开通任务批量读取（装配层调用，供订单列表/详情
+	// 展示履约状态与失败原因）。
+	SetProvisionTaskReader(fn func(ctx context.Context, orderIDs []uint64) (map[uint64]*model.ProvisionTask, error))
 	// SetProductSourceModeResolver 注入商品链路判据解析（装配层调用，仅用于任务留痕）。
 	SetProductSourceModeResolver(fn func(ctx context.Context, productID uint64) string)
 	// SetSalesOwnerResolver 注入销售归属快照解析（装配层调用，doc86 §3.4，仅用于后台代下单）。
@@ -108,6 +111,14 @@ type orderService struct {
 	instanceRefundHook OrderInstanceRefundHook
 	// salesOwner 可选：后台代下单时解析销售归属快照（doc86 §3.4），为 nil 时快照落 0。
 	salesOwner SalesOwnerResolver
+	// provisionTasks 可选：批量读取开通履约任务，供订单列表/详情展示"开通失败原因"
+	// 与人工待处理状态（manual）。为 nil 时列表不返回该字段（不影响既有功能）。
+	provisionTasks func(ctx context.Context, orderIDs []uint64) (map[uint64]*model.ProvisionTask, error)
+}
+
+// SetProvisionTaskReader 注入开通任务批量读取（装配层调用，避免订单服务依赖任务仓储）。
+func (s *orderService) SetProvisionTaskReader(fn func(ctx context.Context, orderIDs []uint64) (map[uint64]*model.ProvisionTask, error)) {
+	s.provisionTasks = fn
 }
 
 // SalesOwnerResolver 销售归属解析（装配层注入，避免订单模块依赖销售模块）。
@@ -259,10 +270,33 @@ func (s *orderService) List(ctx context.Context, q dto.OrderListQuery) (*dto.Ord
 		pageSize = 10
 	}
 	respItems := make([]dto.OrderInfo, 0, len(items))
+	tasks := s.provisionTaskMap(ctx, items)
 	for _, item := range items {
-		respItems = append(respItems, buildOrderInfo(item))
+		info := buildOrderInfo(item)
+		if task := tasks[item.ID]; task != nil {
+			info.ProvisionStatus = task.Status
+			info.ProvisionError = task.LastError
+		}
+		respItems = append(respItems, info)
 	}
 	return &dto.OrderListResponse{Items: respItems, Meta: dto.ListMeta{Page: page, PageSize: pageSize, Total: total}}, nil
+}
+
+// provisionTaskMap 批量读取订单的开通任务（未注入读取器或读取失败返回空表：
+// 履约状态只是列表的附加信息，不能因为读不到就让订单列表整体失败）。
+func (s *orderService) provisionTaskMap(ctx context.Context, items []model.Order) map[uint64]*model.ProvisionTask {
+	if s.provisionTasks == nil || len(items) == 0 {
+		return nil
+	}
+	ids := make([]uint64, 0, len(items))
+	for i := range items {
+		ids = append(ids, items[i].ID)
+	}
+	tasks, err := s.provisionTasks(ctx, ids)
+	if err != nil {
+		return nil
+	}
+	return tasks
 }
 
 func (s *orderService) FindByID(ctx context.Context, id uint64) (*dto.OrderDetail, error) {
@@ -286,7 +320,16 @@ func (s *orderService) FindByID(ctx context.Context, id uint64) (*dto.OrderDetai
 	for _, rf := range refunds {
 		refundInfos = append(refundInfos, buildRefundInfo(rf, item.OrderNo))
 	}
-	return &dto.OrderDetail{OrderInfo: buildOrderInfo(*item), Items: itemInfos, Refunds: refundInfos}, nil
+	info := buildOrderInfo(*item)
+	// 履约任务状态（failed/manual + 失败原因）：订单详情是运营排查"为什么没开通"的入口。
+	if tasks := s.provisionTaskMap(ctx, []model.Order{*item}); tasks != nil {
+		if task := tasks[item.ID]; task != nil {
+			info.ProvisionStatus = task.Status
+			info.ProvisionError = task.LastError
+			info.ProvisionAttempts = task.Attempts
+		}
+	}
+	return &dto.OrderDetail{OrderInfo: info, Items: itemInfos, Refunds: refundInfos}, nil
 }
 
 // Cancel 取消订单：仅待支付可取消，校验状态机并留痕。

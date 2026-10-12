@@ -11,6 +11,7 @@ import (
 	"hostsent/backend/internal/modules/admin/order/model"
 	"hostsent/backend/internal/pkg/jobrun"
 	"hostsent/backend/internal/pkg/safego"
+	"hostsent/backend/internal/pkg/upstream"
 )
 
 // ProvisionTaskStore 工作池需要的任务仓储能力（由 admin/order/repository 实现）。
@@ -193,6 +194,22 @@ func (w *ProvisionWorker) process(_ context.Context, task *model.ProvisionTask) 
 		return
 	}
 
+	// 上游明确回的业务错误：参数不合法、余额不足、账号权限等 —— 重试不会变好，
+	// 反而每次都重新下单（上游侧留下一串待支付账单）。这类错误**首次即转人工**，
+	// 由运营充值/改配置后手动重试（重试会复用已生成的上游账单，不再新建）。
+	if isTerminalProvisionError(err) {
+		if merr := w.store.MarkManual(runCtx, task.ID, msg); merr != nil {
+			w.logger.Error("provision task mark manual failed", zap.Uint64("task_id", task.ID), zap.Error(merr))
+		}
+		manual := *task
+		manual.Status = model.ProvisionTaskManual
+		manual.LastError = msg
+		w.notifyManual(runCtx, &manual)
+		w.logger.Warn("provision task requires manual handling (非重试类上游错误)",
+			zap.Uint64("task_id", task.ID), zap.Uint64("order_id", task.OrderID), zap.Error(err))
+		return
+	}
+
 	if task.MaxAttempts > 0 && task.Attempts >= task.MaxAttempts {
 		if merr := w.store.MarkManual(runCtx, task.ID, msg); merr != nil {
 			w.logger.Error("provision task mark manual failed", zap.Uint64("task_id", task.ID), zap.Error(merr))
@@ -212,6 +229,25 @@ func (w *ProvisionWorker) process(_ context.Context, task *model.ProvisionTask) 
 		zap.Uint64("task_id", task.ID), zap.Uint64("order_id", task.OrderID),
 		zap.Int("attempts", task.Attempts), zap.Int("max_attempts", task.MaxAttempts),
 		zap.Time("next_retry", next), zap.Error(err))
+}
+
+// isTerminalProvisionError 判断是否为「重试也不会变好」的上游业务错误。
+//
+// 判据：错误是上游适配器的 ProviderError，且带有上游业务码或 4xx 状态码 ——
+// 代表上游**已经明确答复**（余额不足 / 参数不合法 / IP 数量不足 / 商品下架…）。
+// 网络超时、5xx、连接失败等没有这些标记，仍按可重试处理。
+//
+// 背景（实测事故）：上游余额不足时按旧逻辑会重试 5 次，每次都重新下单，
+// 一个订单在上游生成 5 张待支付账单，且一张都没付成。
+func isTerminalProvisionError(err error) bool {
+	var perr *upstream.ProviderError
+	if !errors.As(err, &perr) {
+		return false
+	}
+	if perr.Code != 0 {
+		return true
+	}
+	return perr.StatusCode >= 400 && perr.StatusCode < 500
 }
 
 // retryDelay 线性退避：attempts × backoffMin，上限 30 分钟。

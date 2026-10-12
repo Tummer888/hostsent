@@ -3,8 +3,10 @@ package zjmf
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	pkgmodel "hostsent/backend/internal/pkg/model"
@@ -188,6 +190,7 @@ func TestContract_CreateInstanceCurrencyAndCustomField(t *testing.T) {
 		addToShop call
 		settle    call
 		cleared   bool
+		paidInv   string
 	)
 	p := newMockProvider(t, func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
@@ -207,9 +210,16 @@ func TestContract_CreateInstanceCurrencyAndCustomField(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "msg": "ok"})
 		case "/cart/settle":
 			settle = call{path: r.URL.Path, form: flattenForm(r)}
+			// 上游真实形态：下游请求（is_downstream）时 data 同时给 invoiceid 与 hostid，
+			// 而 hostid 对应的主机此刻是 Pending（未支付不开通）——见 CartController::settle。
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"status": 200, "msg": "ok",
 				"data": map[string]interface{}{"invoiceid": 7001, "hostid": []int64{9001}},
+			})
+		case "/apply_credit":
+			paidInv = r.Form.Get("invoiceid")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": 1001, "msg": "支付完成", "data": map[string]interface{}{"hostid": []int64{9001}},
 			})
 		case "/host/header":
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -252,6 +262,10 @@ func TestContract_CreateInstanceCurrencyAndCustomField(t *testing.T) {
 	}
 	if settle.form["cart_data[customfield][12]"] != "custom-value" {
 		t.Errorf("settle customfield[12] = %q, want custom-value", settle.form["cart_data[customfield][12]"])
+	}
+	// 结算返回的 hostid 是"单据已建"（Pending），不等于开好：有账单就必须付清。
+	if paidInv != "7001" {
+		t.Errorf("支付账单 = %q, want 7001（有账单就必须支付，hostid 不替代支付）", paidInv)
 	}
 }
 
@@ -318,4 +332,354 @@ func TestContract_CartIndexWithoutDataEnvelope(t *testing.T) {
 	if err := p.callTopLevel(context.Background(), "test", http.MethodGet, "cart/all", nil, &all); err == nil {
 		t.Log("cart/all 在本 mock 中 404，符合预期（只验证解析路径不 panic）")
 	}
+}
+
+// TestContract_CreateInstancePersistInvoiceBeforePay 回归（实测事故：一个订单在上游生成 5 张账单）：
+// 结算生成账单后，账单 id 必须在**支付之前**回调给调用方落库；余额不足支付失败时，
+// 该账单 id 是后续重试复用的唯一凭据 —— 落库晚了（放到支付之后）就等于没有。
+func TestContract_CreateInstancePersistInvoiceBeforePay(t *testing.T) {
+	var order []string
+	p := newMockProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		switch r.URL.Path {
+		case "/zjmf_api_login":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "jwt": "TESTJWT"})
+		case "/cart/credit":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": 200,
+				"data":   map[string]interface{}{"credit": "5.08", "currency": map[string]interface{}{"id": 1, "code": "CNY"}},
+			})
+		case "/cart/clear":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "msg": "ok"})
+		case "/cart/add_to_shop":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "msg": "ok"})
+		case "/cart/settle":
+			order = append(order, "settle")
+			// 待支付单：只有 invoiceid，没有 hostid。
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": 200, "msg": "ok",
+				"data": map[string]interface{}{"invoiceid": 7001},
+			})
+		case "/cart/update_invoice_customfield":
+			order = append(order, "customfield")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "msg": "ok"})
+		case "/apply_credit":
+			order = append(order, "pay")
+			// 上游余额不足：status 200（非 1001），账单未清、主机不会开通。
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": 200, "msg": "余额不足：账单需18.00，现余额5.08",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	var persisted []int64
+	_, err := p.CreateInstance(context.Background(), &pkgmodel.CreateInstanceRequest{
+		ProviderType: ProviderType,
+		Name:         "hs-balance-check",
+		BillingMode:  "monthly",
+		Extra:        map[string]interface{}{"upstream_pid": "308"},
+		OnInvoiceCreated: func(invoiceID int64) {
+			order = append(order, "persist")
+			persisted = append(persisted, invoiceID)
+		},
+	})
+	if err == nil {
+		t.Fatal("余额不足必须报错，而不是把未开通当成功")
+	}
+	var perr *upstream.ProviderError
+	if !errors.As(err, &perr) || perr.Code != 200 {
+		t.Fatalf("err = %#v, want ProviderError code=200（余额不足，供 worker 判终止性）", err)
+	}
+	if len(persisted) != 1 || persisted[0] != 7001 {
+		t.Fatalf("落库账单 id = %v, want [7001]", persisted)
+	}
+	// 顺序：结算生成账单 → 回调落库 → 支付。落库必须在支付前。
+	want := []string{"settle", "persist", "pay"}
+	if len(order) != len(want) {
+		t.Fatalf("调用顺序 = %v, want %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Fatalf("调用顺序 = %v, want %v", order, want)
+		}
+	}
+}
+
+// TestContract_CreateInstanceReusesExistingInvoice 回归（同上事故的修复验证）：
+// 请求带上已记录的上游账单 id 时，适配器必须跳过「清购物车 + 加购 + 结算」，
+// 直接补录自定义字段并支付该账单 —— 重试绝不能在上游再生成一张新账单。
+func TestContract_CreateInstanceReusesExistingInvoice(t *testing.T) {
+	var (
+		cleared, addedToShop, settled bool
+		paidInvoice                   string
+		paidUseCredit                 string
+	)
+	p := newMockProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		switch r.URL.Path {
+		case "/zjmf_api_login":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "jwt": "TESTJWT"})
+		case "/cart/clear":
+			cleared = true
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "msg": "ok"})
+		case "/cart/add_to_shop":
+			addedToShop = true
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "msg": "ok"})
+		case "/cart/settle":
+			settled = true
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": 200, "msg": "ok", "data": map[string]interface{}{"invoiceid": 8888},
+			})
+		case "/cart/update_invoice_customfield":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "msg": "ok"})
+		case "/apply_credit":
+			paidInvoice = r.Form.Get("invoiceid")
+			paidUseCredit = r.Form.Get("use_credit")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": 1001, "msg": "支付成功",
+				"data": map[string]interface{}{"hostid": []int64{9001}},
+			})
+		case "/host/header":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": 200,
+				"data": map[string]interface{}{"host_data": map[string]interface{}{
+					"id": 9001, "domain": "hs-retry", "domainstatus": "Active", "nextduedate": 1798761600,
+				}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	inst, err := p.CreateInstance(context.Background(), &pkgmodel.CreateInstanceRequest{
+		ProviderType:      ProviderType,
+		Name:              "hs-retry",
+		BillingMode:       "monthly",
+		UpstreamInvoiceID: 8887, // 上次结算已生成、未支付的账单
+		Extra: map[string]interface{}{
+			"upstream_pid": "308",
+			"customfield":  map[string]interface{}{"12": "custom-value"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("复用账单开通失败: %v", err)
+	}
+	if inst == nil || inst.UpstreamID != "9001" {
+		t.Fatalf("unexpected instance: %+v", inst)
+	}
+	if cleared || addedToShop || settled {
+		t.Fatalf("重试路径不得重新下单：clear=%v add_to_shop=%v settle=%v", cleared, addedToShop, settled)
+	}
+	if paidInvoice != "8887" {
+		t.Errorf("支付的账单 id = %q, want 8887（复用已记录账单）", paidInvoice)
+	}
+	if paidUseCredit != "1" {
+		t.Errorf("use_credit = %q, want 1", paidUseCredit)
+	}
+}
+
+// TestContract_DownstreamHandshake 回归（实测事故：一个订单在上游生成 5 张账单）：
+// 带上 downstream 三件套时，下单前必须先做 cart/clear 幂等握手，并按上游的回答分流：
+//   - 已有待支付账单 → 支付同一张，绝不重新结算；
+//   - 已有 Active 主机 → 幂等返回该主机，绝不重新开通；
+//   - 什么都没有   → 才走"加购 + 结算 + 支付"新单流程。
+func TestContract_DownstreamHandshake(t *testing.T) {
+	req := func() *pkgmodel.CreateInstanceRequest {
+		return &pkgmodel.CreateInstanceRequest{
+			ProviderType:    ProviderType,
+			Name:            "hs-hs",
+			BillingMode:     "monthly",
+			DownstreamToken: "0123456789abcdef0123456789abcdef",
+			DownstreamURL:   "https://hostsent.local",
+			DownstreamID:    832,
+			Extra:           map[string]interface{}{"upstream_pid": "308"},
+		}
+	}
+	baseRoutes := func(w http.ResponseWriter, r *http.Request, calls *[]string) bool {
+		_ = r.ParseForm()
+		switch r.URL.Path {
+		case "/zjmf_api_login":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "jwt": "TESTJWT"})
+		case "/cart/credit":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": 200, "data": map[string]interface{}{"credit": "999.00", "currency": map[string]interface{}{"id": 1, "code": "CNY"}},
+			})
+		case "/host/header":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": 200,
+				"data": map[string]interface{}{"host_data": map[string]interface{}{
+					"id": 9001, "domain": "hs-hs", "domainstatus": "Active", "nextduedate": 1798761600,
+				}},
+			})
+		default:
+			return false
+		}
+		_ = calls
+		return true
+	}
+
+	t.Run("待支付账单：支付同一张不重新结算", func(t *testing.T) {
+		var calls []string
+		var clearForm map[string]string
+		var paidInvoice string
+		p := newMockProvider(t, func(w http.ResponseWriter, r *http.Request) {
+			if baseRoutes(w, r, &calls) {
+				return
+			}
+			_ = r.ParseForm()
+			switch r.URL.Path {
+			case "/cart/clear":
+				clearForm = flattenForm(r)
+				calls = append(calls, "clear")
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": 200, "msg": "请求成功", "invoiceid": 808026, "hostid": 7788,
+				})
+			case "/cart/add_to_shop":
+				calls = append(calls, "add_to_shop")
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "msg": "添加成功"})
+			case "/cart/settle":
+				calls = append(calls, "settle")
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "msg": "结算成功", "data": map[string]interface{}{"invoiceid": 999999}})
+			case "/apply_credit":
+				calls = append(calls, "pay")
+				paidInvoice = r.Form.Get("invoiceid")
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": 1001, "msg": "支付完成", "data": map[string]interface{}{"hostid": []int64{9001}},
+				})
+			default:
+				http.NotFound(w, r)
+			}
+		})
+
+		inst, err := p.CreateInstance(context.Background(), req())
+		if err != nil {
+			t.Fatalf("握手复用账单开通失败: %v", err)
+		}
+		if inst == nil || inst.UpstreamID != "9001" {
+			t.Fatalf("unexpected instance: %+v", inst)
+		}
+		if len(calls) != 2 || calls[0] != "clear" || calls[1] != "pay" {
+			t.Fatalf("调用序列 = %v, want [clear pay]（不得重新结算）", calls)
+		}
+		if paidInvoice != "808026" {
+			t.Errorf("支付的账单 = %q, want 808026（握手返回的既有账单）", paidInvoice)
+		}
+		if clearForm["downstream_token"] != "0123456789abcdef0123456789abcdef" || clearForm["downstream_id"] != "832" {
+			t.Errorf("clear 未带下游三件套: %v", clearForm)
+		}
+	})
+
+	t.Run("已有 Active 主机：幂等返回不重复开通", func(t *testing.T) {
+		var calls []string
+		p := newMockProvider(t, func(w http.ResponseWriter, r *http.Request) {
+			if baseRoutes(w, r, &calls) {
+				return
+			}
+			switch r.URL.Path {
+			case "/cart/clear":
+				calls = append(calls, "clear")
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": 400, "msg": "该订单已开通,请勿重新开通", "hostid": 9001, "domainstatus": "Active",
+				})
+			case "/cart/add_to_shop", "/cart/settle", "/apply_credit":
+				calls = append(calls, strings.TrimPrefix(r.URL.Path, "/cart/"))
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "msg": "ok"})
+			default:
+				http.NotFound(w, r)
+			}
+		})
+
+		inst, err := p.CreateInstance(context.Background(), req())
+		if err != nil {
+			t.Fatalf("已开通握手应幂等成功: %v", err)
+		}
+		if inst == nil || inst.UpstreamID != "9001" {
+			t.Fatalf("unexpected instance: %+v", inst)
+		}
+		if len(calls) != 1 || calls[0] != "clear" {
+			t.Fatalf("调用序列 = %v, want [clear]（不得重新下单）", calls)
+		}
+	})
+
+	t.Run("主机已存在但非 Active：终止性错误，交人工", func(t *testing.T) {
+		p := newMockProvider(t, func(w http.ResponseWriter, r *http.Request) {
+			var calls []string
+			if baseRoutes(w, r, &calls) {
+				return
+			}
+			switch r.URL.Path {
+			case "/cart/clear":
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": 400, "msg": "该订单已开通,请勿重新开通", "hostid": 105, "domainstatus": "Deleted",
+				})
+			default:
+				http.NotFound(w, r)
+			}
+		})
+
+		_, err := p.CreateInstance(context.Background(), req())
+		if err == nil {
+			t.Fatal("上游主机状态异常时必须报错（不得盲目重新下单）")
+		}
+		var perr *upstream.ProviderError
+		if !errors.As(err, &perr) || perr.Code != 400 {
+			t.Fatalf("err = %#v, want ProviderError code=400（供 worker 判终止性转人工）", err)
+		}
+	})
+
+	t.Run("无既有记录：正常新单流程", func(t *testing.T) {
+		var calls []string
+		p := newMockProvider(t, func(w http.ResponseWriter, r *http.Request) {
+			if baseRoutes(w, r, &calls) {
+				return
+			}
+			_ = r.ParseForm()
+			switch r.URL.Path {
+			case "/cart/clear":
+				calls = append(calls, "clear")
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "msg": "请求成功"})
+			case "/cart/add_to_shop":
+				calls = append(calls, "add_to_shop")
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "msg": "添加成功"})
+			case "/cart/settle":
+				calls = append(calls, "settle")
+				if r.Form.Get("downstream_token") == "" {
+					t.Error("settle 未带 downstream_token：上游不会按下游处理（重复下单的直接根因）")
+				}
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "msg": "结算成功", "data": map[string]interface{}{"invoiceid": 660001}})
+			case "/apply_credit":
+				calls = append(calls, "pay")
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": 1001, "msg": "支付完成", "data": map[string]interface{}{"hostid": []int64{9001}},
+				})
+			default:
+				http.NotFound(w, r)
+			}
+		})
+
+		var recorded []int64
+		r := req()
+		r.OnInvoiceCreated = func(id int64) { recorded = append(recorded, id) }
+		inst, err := p.CreateInstance(context.Background(), r)
+		if err != nil {
+			t.Fatalf("新单开通失败: %v", err)
+		}
+		if inst == nil || inst.UpstreamID != "9001" {
+			t.Fatalf("unexpected instance: %+v", inst)
+		}
+		want := []string{"clear", "add_to_shop", "settle", "pay"}
+		if len(calls) != len(want) {
+			t.Fatalf("调用序列 = %v, want %v", calls, want)
+		}
+		for i := range want {
+			if calls[i] != want[i] {
+				t.Fatalf("调用序列 = %v, want %v", calls, want)
+			}
+		}
+		if len(recorded) != 1 || recorded[0] != 660001 {
+			t.Fatalf("账单落库回调 = %v, want [660001]", recorded)
+		}
+	})
 }

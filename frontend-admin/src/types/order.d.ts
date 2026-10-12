@@ -48,6 +48,11 @@ export interface OrderInfo {
   /** 支付单号与渠道流水号（由支付中心反查填充） */
   payment_no: string
   channel_tx: string
+  /** 开通履约状态：pending/running/success/failed/manual（manual=需人工处理） */
+  provision_status?: string
+  /** 开通失败原因（上游返回的原始信息，如"余额不足：账单需18.00，现余额5.08"） */
+  provision_error?: string
+  provision_attempts?: number
   created_at: string
   updated_at: string
 }

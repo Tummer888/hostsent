@@ -49,6 +49,19 @@
   flex-wrap: wrap;
 }
 
+/* 状态列：订单状态 + 履约异常标记（开通待人工/重试中）并排显示 */
+.order-module .status-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* 详情的开通失败提示条（页头下方） */
+.order-module .provision-alert {
+  margin-top: var(--space-md);
+}
+
 .order-module .page-header__main {
   display: flex;
   align-items: center;

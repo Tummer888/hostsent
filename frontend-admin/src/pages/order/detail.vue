@@ -25,6 +25,14 @@
       </t-space>
     </header>
 
+    <t-alert
+      v-if="provisionAlert"
+      class="provision-alert"
+      :theme="provisionAlert.theme"
+      :title="provisionAlert.title"
+      :message="provisionAlert.message"
+    />
+
     <section class="table-card surface-card">
       <t-tabs v-model="activeTab" :default-value="activeTab" theme="normal">
         <t-tab-panel value="base" label="基本信息">
@@ -204,7 +212,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { AppIcon, RefreshIcon } from 'tdesign-icons-vue-next'
@@ -233,6 +241,26 @@ const router = useRouter()
 const order = ref<OrderDetail | null>(null)
 const loading = ref(false)
 const activeTab = ref('base')
+
+// 开通履约异常提示：manual=需人工处理（如上游余额不足），failed=仍在自动重试。
+// 订单状态本身停留在 paid/provisioning，没有这块提示，运营看不出"为什么一直没开通"。
+const provisionAlert = computed(() => {
+  const status = order.value?.provision_status
+  if (status !== 'manual' && status !== 'failed') return null
+  const reason = order.value?.provision_error || '未记录失败原因'
+  if (status === 'manual') {
+    return {
+      theme: 'error' as const,
+      title: '开通失败，需人工处理',
+      message: `上游已明确拒绝（重试无效）：${reason}。处理后可点右上角「重新开通」重试；重试会复用已生成的上游账单，不会重复下单。`,
+    }
+  }
+  return {
+    theme: 'warning' as const,
+    title: '开通失败，系统将自动重试',
+    message: `最近一次失败原因：${reason}`,
+  }
+})
 
 const itemColumns: PrimaryTableCol<OrderItemInfo>[] = [
   { colKey: 'product_name', title: '产品名称', minWidth: 180 },

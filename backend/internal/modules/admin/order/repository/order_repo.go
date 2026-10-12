@@ -21,6 +21,10 @@ type OrderRepository interface {
 	FindByIDs(ctx context.Context, ids []uint64) ([]model.Order, error)
 	Create(ctx context.Context, item *model.Order) error
 	Update(ctx context.Context, item *model.Order) error
+	// SetUpstreamInvoiceID 记录上游账单 id（开通幂等：重试复用同一张账单）。
+	SetUpstreamInvoiceID(ctx context.Context, id, invoiceID uint64) error
+	// SetDownstreamToken 记录上游对接令牌（首次履约生成后固话，重试复用同一令牌）。
+	SetDownstreamToken(ctx context.Context, id uint64, token string) error
 	// ListExpiredPending 扫描超期未支付的订单（created_at < before，按下单先后）。
 	// 供待支付订单过期关单调度器使用：以「下单时间 + 配置的有效期」判定，
 	// 不用 orders.expire_time —— 那列是实例计费到期时间，语义不同。
@@ -186,6 +190,20 @@ func (r *orderRepository) FindByIDs(ctx context.Context, ids []uint64) ([]model.
 
 func (r *orderRepository) Create(ctx context.Context, item *model.Order) error {
 	return r.db.WithContext(ctx).Create(item).Error
+}
+
+// SetUpstreamInvoiceID 只更新上游账单 id 一列：开通链路里调用，避免整行写回带来的并发覆盖。
+func (r *orderRepository) SetUpstreamInvoiceID(ctx context.Context, id, invoiceID uint64) error {
+	return r.db.WithContext(ctx).Model(&model.Order{}).
+		Where("id = ?", id).
+		Update("upstream_invoice_id", invoiceID).Error
+}
+
+// SetDownstreamToken 只更新上游对接令牌一列（首次履约生成，之后固定不变）。
+func (r *orderRepository) SetDownstreamToken(ctx context.Context, id uint64, token string) error {
+	return r.db.WithContext(ctx).Model(&model.Order{}).
+		Where("id = ?", id).
+		Update("downstream_token", token).Error
 }
 
 func (r *orderRepository) Update(ctx context.Context, item *model.Order) error {

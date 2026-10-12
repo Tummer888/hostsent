@@ -62,8 +62,14 @@ type OrderInfo struct {
 	// 支付单号与渠道流水号（doc36 §3.1）：由支付中心反查，列表与详情均可直接检索。
 	PaymentNo string `json:"payment_no"`
 	ChannelTx string `json:"channel_tx"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	// 开通履约状态（provision_tasks）：pending/running/success/failed/manual。
+	// manual 表示"重试也不会变好的上游错误，需人工处理"（如上游余额不足充值后重试），
+	// 失败原因随 provision_error 返回 —— 后台订单列表是运营发现开通卡壳的入口。
+	ProvisionStatus   string `json:"provision_status,omitempty"`
+	ProvisionError    string `json:"provision_error,omitempty"`
+	ProvisionAttempts int    `json:"provision_attempts,omitempty"`
+	CreatedAt         string `json:"created_at"`
+	UpdatedAt         string `json:"updated_at"`
 }
 
 // OrderListResponse 订单列表响应

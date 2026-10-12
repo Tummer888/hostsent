@@ -12,8 +12,11 @@ import (
 
 // ProvisionTaskRepository 开通履约任务仓储（T5.1）。
 type ProvisionTaskRepository interface {
-	// Enqueue 幂等投递：order_id 冲突时保留既有行（不覆盖已成功/人工的任务）。
-	// 若既有行为 failed（可重试），则重置为 pending 并清空租约，让工作池立即重试。
+	// Enqueue 幂等投递：order_id 冲突时保留既有行（不覆盖已成功/运行中的任务）。
+	// 若既有行为 failed（可重试）则重置为 pending 立即重试；
+	// 若为 manual（人工队列）也重置为 pending 并给足重试预算 —— 投递动作本身就是
+	// 运营/用户按下"重新开通"的人工决定（充值或改配置后重试），没有这一步
+	// manual 任务会永远卡死、按钮点了也不生效。
 	Enqueue(ctx context.Context, task *model.ProvisionTask) error
 	// Claim 原子领取一条待处理任务（FOR UPDATE SKIP LOCKED），无任务返回 nil。
 	// 领取时置 running、attempts++、写入租约 locked_until。
@@ -46,16 +49,35 @@ func NewProvisionTaskRepository(db *gorm.DB) ProvisionTaskRepository {
 func (r *provisionTaskRepository) Enqueue(ctx context.Context, task *model.ProvisionTask) error {
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "order_id"}},
-		// 已存在则仅当处于 failed（可重试）时重置为 pending；success/manual/running/pending 保持原样，
-		// 避免重复投递把已完成任务或人工队列任务打回。
+		// 已存在则按状态分流：
+		//   failed → pending（重试）；
+		//   manual → pending 并重置 attempts/max_attempts（运营按下"重新开通"=
+		//            充完值/改完配置后的人工重试决定，必须给足新的重试预算）；
+		//   success/running/pending → 原样保留，避免重复投递打回进行中或已完成的任务。
 		DoUpdates: clause.Assignments(map[string]interface{}{
 			"status": gorm.Expr(
-				"CASE WHEN provision_tasks.status = ? THEN ? ELSE provision_tasks.status END",
-				model.ProvisionTaskFailed, model.ProvisionTaskPending,
+				"CASE WHEN provision_tasks.status IN (?, ?) THEN ? ELSE provision_tasks.status END",
+				model.ProvisionTaskFailed, model.ProvisionTaskManual, model.ProvisionTaskPending,
+			),
+			"attempts": gorm.Expr(
+				"CASE WHEN provision_tasks.status = ? THEN 0 ELSE provision_tasks.attempts END",
+				model.ProvisionTaskManual,
+			),
+			"max_attempts": gorm.Expr(
+				"CASE WHEN provision_tasks.status = ? THEN EXCLUDED.max_attempts ELSE provision_tasks.max_attempts END",
+				model.ProvisionTaskManual,
+			),
+			"last_error": gorm.Expr(
+				"CASE WHEN provision_tasks.status = ? THEN '' ELSE provision_tasks.last_error END",
+				model.ProvisionTaskManual,
+			),
+			"completed_at": gorm.Expr(
+				"CASE WHEN provision_tasks.status = ? THEN NULL ELSE provision_tasks.completed_at END",
+				model.ProvisionTaskManual,
 			),
 			"locked_until": gorm.Expr(
-				"CASE WHEN provision_tasks.status = ? THEN NULL ELSE provision_tasks.locked_until END",
-				model.ProvisionTaskFailed,
+				"CASE WHEN provision_tasks.status IN (?, ?) THEN NULL ELSE provision_tasks.locked_until END",
+				model.ProvisionTaskFailed, model.ProvisionTaskManual,
 			),
 			"updated_at": time.Now(),
 		}),

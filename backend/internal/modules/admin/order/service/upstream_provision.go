@@ -2,10 +2,16 @@ package service
 
 import (
 	"context"
+	"crypto/md5"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
+
+	"go.uber.org/zap"
 
 	"hostsent/backend/internal/modules/admin/order/model"
 	pkgmodel "hostsent/backend/internal/pkg/model"
@@ -27,6 +33,16 @@ type ProvisionDeps struct {
 	RecordInstance func(ctx context.Context, inst *pkgmodel.StandardInstance, order *model.Order) error
 	// HasInstance 判断某用户是否已开通某商品（幂等，避免重复开通）。
 	HasInstance func(ctx context.Context, userID, productID uint64) (bool, error)
+	// RecordUpstreamInvoice 落库本次开通的上游账单 id（开通幂等：重试复用同一张账单，
+	// 不再生成第二张上游账单）。可选，未装配时退化为旧行为（每次重试新建账单）。
+	RecordUpstreamInvoice func(ctx context.Context, orderID uint64, invoiceID int64) error
+	// RecordDownstreamToken 落库本订单的上游对接令牌（首次履约生成后固化）。
+	// 上游据此反查既有账单/主机，是"重试不重复下单"的前置条件。可选。
+	RecordDownstreamToken func(ctx context.Context, orderID uint64, token string) error
+	// PublicURL 本站对外可访问地址（upstream 握手与回调标识用）；空则用占位地址。可选。
+	PublicURL func(ctx context.Context) string
+	// Logger 可选日志（记录账单落库失败等不影响履约主流程的事件）。
+	Logger *zap.Logger
 }
 
 // UpstreamProvisionAdapter 真实上游履约：订单支付后调用上游创建实例并记录，
@@ -132,9 +148,83 @@ func (a *UpstreamProvisionAdapter) provision(ctx context.Context, order *model.O
 		Extra:        extractConfigOptions(raw),
 		// 计费周期优先取订单 cycle（doc25），空则回落 price_model（存量订单）。
 		BillingMode: orderBillingCycle(order),
+		// 幂等：带上次已生成的上游账单 id；适配器据此跳过"下单+结算"直接支付该账单。
+		UpstreamInvoiceID: order.UpstreamInvoiceID,
+	}
+	// 下游身份三件套（上游幂等握手用）：token 首次生成后落库，重试必须复用同一个。
+	// 生成失败不阻断履约：本次仍带 token 走（握手在本进程内有效），仅日志告警。
+	if token, err := a.downstreamToken(ctx, order); err != nil {
+		if a.deps.Logger != nil {
+			a.deps.Logger.Warn("生成上游对接令牌失败（重试可能重复下单）",
+				zap.Uint64("order_id", order.ID), zap.Error(err))
+		}
+	} else {
+		req.DownstreamToken = token
+		req.DownstreamID = order.ID
+		req.DownstreamURL = a.downstreamURL(ctx)
+	}
+	if a.deps.RecordUpstreamInvoice != nil {
+		orderID := order.ID
+		req.OnInvoiceCreated = func(invoiceID int64) {
+			// 账单生成即落库（在支付之前）：支付失败（余额不足）后的重试才有账单可复用。
+			if err := a.deps.RecordUpstreamInvoice(ctx, orderID, invoiceID); err != nil {
+				if a.deps.Logger != nil {
+					a.deps.Logger.Warn("记录上游账单ID失败（重试将可能重复下单）",
+						zap.Uint64("order_id", orderID), zap.Int64("invoice_id", invoiceID), zap.Error(err))
+				}
+				return
+			}
+			order.UpstreamInvoiceID = invoiceID
+		}
 	}
 	return a.deps.CreateInstance(ctx, cfg, req)
 }
+
+// downstreamToken 取本订单的上游对接令牌：已有则复用，没有则生成并落库。
+// 令牌必须按订单稳定 —— 上游据此反查既有账单/主机，换了令牌等于换了订单身份，
+// 重试就会在上游新建一份（实测事故的直接原因）。
+func (a *UpstreamProvisionAdapter) downstreamToken(ctx context.Context, order *model.Order) (string, error) {
+	if t := strings.TrimSpace(order.DownstreamToken); len(t) == 32 {
+		return t, nil
+	}
+	token := newDownstreamToken()
+	if a.deps.RecordDownstreamToken == nil {
+		return token, nil
+	}
+	if err := a.deps.RecordDownstreamToken(ctx, order.ID, token); err != nil {
+		return token, err
+	}
+	order.DownstreamToken = token
+	return token, nil
+}
+
+// newDownstreamToken 生成 32 位十六进制随机令牌（与上游协议长度要求一致）。
+func newDownstreamToken() string {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		// 随机源不可用时退回按时间派生：位数与格式仍满足上游校验。
+		sum := md5.Sum([]byte(fmt.Sprintf("hostsent-downstream-%d", time.Now().UnixNano())))
+		return hex.EncodeToString(sum[:])
+	}
+	return hex.EncodeToString(buf)
+}
+
+// downstreamURL 告知上游"本站在哪"（downstream_url）。上游只做 http(s://) 格式校验，
+// 并在主机事件时向该地址推送通知；本站未实现接收端时填占位地址不影响开通。
+// 运营可在系统配置 site.public_url 里填真实对外地址。
+func (a *UpstreamProvisionAdapter) downstreamURL(ctx context.Context) string {
+	if a.deps.PublicURL != nil {
+		if u := strings.TrimSpace(a.deps.PublicURL(ctx)); u != "" {
+			if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
+				return u
+			}
+		}
+	}
+	return defaultDownstreamURL
+}
+
+// defaultDownstreamURL 未配置公开地址时的占位地址（仅需是合法 http(s) URL）。
+const defaultDownstreamURL = "https://hostsent.local"
 
 // orderBillingCycle 取订单计费周期：cycle 权威，price_model 兼容兜底。
 func orderBillingCycle(order *model.Order) string {

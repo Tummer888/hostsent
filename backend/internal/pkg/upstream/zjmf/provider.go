@@ -1262,6 +1262,142 @@ func (p *ZJMFProvider) fetchCatalogRow(ctx context.Context, gid int64, pid strin
 	return CartIndexProduct{}, false
 }
 
+// downstreamForm 下游身份三件套（上游协议的幂等键，见 CreateInstanceRequest 注释）。
+// 三项齐全（http(s) 前缀 + 32 位 token + 数字 id）时上游才会启用按 token 反查既有单，
+// 缺一项上游就按"普通客户"处理 —— 重试时无从找回既有账单，只能又下一单。
+func downstreamForm(req *model.CreateInstanceRequest) url.Values {
+	form := url.Values{}
+	if req == nil {
+		return form
+	}
+	form.Set("downstream_url", req.DownstreamURL)
+	form.Set("downstream_token", req.DownstreamToken)
+	if req.DownstreamID > 0 {
+		form.Set("downstream_id", strconv.FormatUint(req.DownstreamID, 10))
+	} else {
+		form.Set("downstream_id", "")
+	}
+	return form
+}
+
+// downstreamReady 三项齐全且格式满足上游校验（DownstreamURL 以 http(s):// 开头、
+// token 长度 32、id 为正数）时才参与握手；否则退回旧的"普通客户"行为。
+func downstreamReady(req *model.CreateInstanceRequest) bool {
+	if req == nil || req.DownstreamID == 0 || len(req.DownstreamToken) != 32 {
+		return false
+	}
+	u := req.DownstreamURL
+	return strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://")
+}
+
+// payUpstreamInvoice 用上游余额支付一张已生成的账单，返回开通出的主机 id。
+//
+// 只认 status 1001：上游用 200 表示"余额不足，账单未清、主机不会开通"
+// （PayController::applyCredit 的 else 分支）。若把 200 当成功，会把"没付成钱"
+// 记成开通成功，随后取不到 hostid 才报错，排查方向就全错了。
+func (p *ZJMFProvider) payUpstreamInvoice(ctx context.Context, req *model.CreateInstanceRequest, invoiceID int64) (int64, error) {
+	if invoiceID <= 0 {
+		return 0, &upstream.ProviderError{Op: "CreateInstance", Msg: "缺少上游账单ID，无法支付开通"}
+	}
+	payForm := downstreamForm(req)
+	payForm.Set("invoiceid", strconv.FormatInt(invoiceID, 10))
+	payForm.Set("use_credit", "1")
+	// enough=1：余额不够就整单失败，不允许上游扣部分余额（enough=0 会扣了钱但账单仍未结清）。
+	payForm.Set("enough", "1")
+	shell, httpStatus, body, err := p.callShell(ctx, "CreateInstance", http.MethodPost, "apply_credit", payForm)
+	if err != nil {
+		return 0, err
+	}
+	if httpStatus >= 400 {
+		return 0, &upstream.ProviderError{Op: "CreateInstance", StatusCode: httpStatus, Msg: firstNonEmpty(shell.Msg, strings.TrimSpace(string(body)))}
+	}
+	if shell.Status != StatusPaidSuccess && shell.Code != StatusPaidSuccess {
+		return 0, &upstream.ProviderError{Op: "CreateInstance", Code: shell.Status, Msg: firstNonEmpty(shell.Msg, "上游余额支付未完成（余额不足或账单未结清）")}
+	}
+	var payData struct {
+		HostID []int64 `json:"hostid"`
+	}
+	if err := p.unmarshalData("CreateInstance", shell, &payData); err != nil {
+		return 0, err
+	}
+	hostID := firstInt(payData.HostID)
+	if hostID == 0 {
+		return 0, &upstream.ProviderError{Op: "CreateInstance", Msg: "上游支付成功但未返回主机ID"}
+	}
+	return hostID, nil
+}
+
+// settleExistingInvoice 复用已生成的上游账单完成开通（重试路径）：
+// 只做"支付账单 → 拉取主机详情"，不再走"加入购物车 + 结算"。
+// 自定义字段与配置项首次结算时已随 cart_data 写入，无需补录。
+func (p *ZJMFProvider) settleExistingInvoice(ctx context.Context, req *model.CreateInstanceRequest, invoiceID int64, _ string) (*model.StandardInstance, error) {
+	hostID, err := p.payUpstreamInvoice(ctx, req, invoiceID)
+	if err != nil {
+		return nil, err
+	}
+	return p.fetchProvisionedInstance(ctx, hostID, req)
+}
+
+// clearResp cart/clear 的响应体（平铺无 data 壳）：上游在这里回答"本下游订单在上游
+// 是否已有账单/主机"（CartController::clearCart 的 is_api 分支）。
+type clearResp struct {
+	Status       int    `json:"status"`
+	Code         int    `json:"code"`
+	Msg          string `json:"msg"`
+	HostID       int64  `json:"hostid"`       // 已存在的主机（400 已开通 / 200 待支付时给出）
+	DomainStatus string `json:"domainstatus"` // 该主机状态（Active 才算真的开好了）
+	InvoiceID    int64  `json:"invoiceid"`    // 已生成的待支付账单：直接支付这张即可
+}
+
+// reconcileDownstream 上游幂等握手（下单前调用，等价源码 createFinal 的 /cart/clear 一步）：
+//   - 上游已有本订单的主机且 Active → 返回该实例（幂等成功，绝不重复开通）；
+//   - 上游已有本订单的待支付账单 → 返回账单 id，调用方直接支付这张即可（"重新开通"，不新建）；
+//   - 上游没有记录 → (nil, 0, nil)，调用方正常下单；
+//   - 明确报错（400 无主机信息等）→ 返回错误（终结性，转人工）。
+//
+// 这一步是"重试不再重复下单"的关键：没有它，每次重试都会在上游重新结算，
+// 上游侧表现为同一订单反复生成账单与主机（实测事故）。
+func (p *ZJMFProvider) reconcileDownstream(ctx context.Context, req *model.CreateInstanceRequest) (*model.StandardInstance, int64, error) {
+	if !downstreamReady(req) {
+		return nil, 0, nil
+	}
+	shell, httpStatus, body, err := p.callShell(ctx, "CreateInstance", http.MethodPost, "cart/clear", downstreamForm(req))
+	if err != nil {
+		// 网络/连接类错误：无法确认上游是否已有本订单的单据，冒然下单会重复 —— 交给调用方重试。
+		return nil, 0, err
+	}
+	if httpStatus >= 400 {
+		return nil, 0, &upstream.ProviderError{Op: "CreateInstance", StatusCode: httpStatus, Msg: firstNonEmpty(shell.Msg, strings.TrimSpace(string(body)))}
+	}
+	var resp clearResp
+	_ = json.Unmarshal(body, &resp)
+	status := resp.Status
+	if status == 0 {
+		status = resp.Code
+	}
+	switch {
+	case status == 400 && resp.HostID > 0:
+		// 上游拒绝重复开通：本订单的主机已经存在。
+		if resp.DomainStatus == "Active" {
+			inst, derr := p.fetchProvisionedInstance(ctx, resp.HostID, req)
+			if derr != nil {
+				return nil, 0, derr
+			}
+			return inst, 0, nil
+		}
+		return nil, 0, &upstream.ProviderError{Op: "CreateInstance", Code: status,
+			Msg: fmt.Sprintf("上游已存在本订单的主机（#%d，状态 %s），不可重复开通，请人工核对该主机后处理", resp.HostID, firstNonEmpty(resp.DomainStatus, "未知"))}
+	case status == 200 && resp.InvoiceID > 0:
+		// 已生成但未支付的账单：直接复用（这就是"重新开通"）。
+		return nil, resp.InvoiceID, nil
+	case status == 200:
+		return nil, 0, nil
+	default:
+		// 其它业务码：状态不明，不下单，交人工。
+		return nil, 0, &upstream.ProviderError{Op: "CreateInstance", Code: status, Msg: firstNonEmpty(resp.Msg, "上游幂等握手失败")}
+	}
+}
+
 // CreateInstance 「财务对接财务」开通：由本系统（下游）向上游魔方财务下单。
 // 等价于源码 Host::createAccount 的 zjmf_api 分支：
 //  1. cart/add_to_shop 将商品加入上游购物车；
@@ -1289,13 +1425,42 @@ func (p *ZJMFProvider) CreateInstance(ctx context.Context, req *model.CreateInst
 	// 恰好用默认币种时才正确，账号换过币种就会按错误价格结算甚至直接失败。
 	currencyID := p.accountCurrencyID(ctx)
 
-	// 0) 清空上游购物车（源码 Host::createFinal 下单前的固定动作）。
+	// 幂等分支①：调用方已记录过本次开通的上游账单 → 直接复用，跳过"下单 + 结算"。
+	//
+	// 为什么必须这样：上游结算是**生成新账单**的动作，重试一次就多一张账单。
+	// 上游余额不足这类失败属于"账单已建、钱没付"，重试要做的只是再支付同一张账单
+	// （充值后即可结清），而不是重新下单 —— 否则一个订单会在上游留下多张待支付账单。
+	if req.UpstreamInvoiceID > 0 {
+		return p.settleExistingInvoice(ctx, req, req.UpstreamInvoiceID, host)
+	}
+
+	// 0) 上游幂等握手（源码 Host::createFinal 的 /cart/clear 一步，带 downstream 三件套）。
+	//
+	// 这一步不是"清购物车"那么简单：上游按 downstream_token 反查本下游订单是否已有
+	// 账单/主机，是上游协议**自带的防重复下单机制**。没有它（或 token 每次不同），
+	// 每次重试都会重新结算，上游侧留下多张账单与多台 Pending 主机。
+	//   · 已有 Active 主机 → 直接返回该实例（不再下单）；
+	//   · 有待支付账单   → 支付同一张账单（"重新开通"）；
+	//   · 无记录         → 继续下面的新单流程。
+	if resumed, invoiceID, err := p.reconcileDownstream(ctx, req); err != nil {
+		return nil, err
+	} else if resumed != nil {
+		return resumed, nil
+	} else if invoiceID > 0 {
+		if req.OnInvoiceCreated != nil {
+			req.OnInvoiceCreated(invoiceID)
+		}
+		return p.settleExistingInvoice(ctx, req, invoiceID, host)
+	}
+
+	// 0.1) 清空上游购物车（源码 Host::createFinal 下单前的固定动作）。
 	// 结算走 cart_data 显式覆盖购物车，因此这一步不是正确性必需；但上游购物车是
 	// 按账号会话累积的，重试/中断后残留的商品会在上游后台"购物车"里碍事。
 	// 失败只忽略：真正的下单结果以 cart/settle 为准。
-	_ = p.call(ctx, "CreateInstance", http.MethodPost, "cart/clear", url.Values{
-		"downstream_url": {""}, "downstream_token": {""}, "downstream_id": {""},
-	}, nil)
+	// 带下游三件套时上面的握手已经清过购物车，这里不再重复调用。
+	if !downstreamReady(req) {
+		_ = p.call(ctx, "CreateInstance", http.MethodPost, "cart/clear", downstreamForm(req), nil)
+	}
 
 	// 1) 加入购物车
 	addForm := url.Values{}
@@ -1318,10 +1483,14 @@ func (p *ZJMFProvider) CreateInstance(ctx context.Context, req *model.CreateInst
 	}
 
 	// 2) 结算生成账单
-	settleForm := url.Values{}
-	settleForm.Set("downstream_url", "")
-	settleForm.Set("downstream_token", "")
-	settleForm.Set("downstream_id", "")
+	// 下游三件套同时挂在顶层与 cart_data 下（上游 input("post.") 读顶层；
+	// 上游自己的下游实现把 cart_data 整体复制后也带上了这三项，此处与之对齐）。
+	settleForm := downstreamForm(req)
+	if downstreamReady(req) {
+		for k, v := range downstreamForm(req) {
+			settleForm.Set("cart_data["+k+"]", firstNonEmpty(v...))
+		}
+	}
 	settleForm.Set("cart_data[pid]", pid)
 	settleForm.Set("cart_data[billingcycle]", billingCycle)
 	settleForm.Set("cart_data[host]", host)
@@ -1360,47 +1529,34 @@ func (p *ZJMFProvider) CreateInstance(ctx context.Context, req *model.CreateInst
 		return nil, &upstream.ProviderError{Op: "CreateInstance", Msg: "上游结算成功但未返回账单ID或主机ID"}
 	}
 
-	// 3) 用上游余额支付并开通（status 1001 支付完成）
+	// 账单已生成：**先落库再支付** —— 支付失败（余额不足等）是最常见的重试场景，
+	// 只有把账单 id 记下来，重试才能复用这张账单而不是再下一单。
+	if settleData.InvoiceID > 0 && req.OnInvoiceCreated != nil {
+		req.OnInvoiceCreated(settleData.InvoiceID)
+	}
+
+	// 3) 用上游余额支付并开通（status 1001 支付完成）。
+	// 有账单就必须付清：结算返回的 hostid 只代表单据已建（主机此时是 Pending），
+	// 没付钱就不会真正开通；只有 invoiceid==0（0 元单）才是"结算即开通"。
 	hostID := firstInt(settleData.HostID)
-	if hostID != 0 {
-		// 结算即返回主机ID（部分即时开通）则无需再支付后取号，直接拉详情。
-	} else {
-		payForm := url.Values{}
-		payForm.Set("invoiceid", strconv.FormatInt(settleData.InvoiceID, 10))
-		payForm.Set("use_credit", "1")
-		payForm.Set("enough", "1")
-		payForm.Set("downstream_url", "")
-		payForm.Set("downstream_token", "")
-		payForm.Set("downstream_id", "")
-		shell, httpStatus, body, err := p.callShell(ctx, "CreateInstance", http.MethodPost, "apply_credit", payForm)
+	if settleData.InvoiceID > 0 {
+		paidHostID, err := p.payUpstreamInvoice(ctx, req, settleData.InvoiceID)
 		if err != nil {
 			return nil, err
 		}
-		if httpStatus >= 400 {
-			return nil, &upstream.ProviderError{Op: "CreateInstance", StatusCode: httpStatus, Msg: firstNonEmpty(shell.Msg, strings.TrimSpace(string(body)))}
-		}
-		// 只认 1001：上游用 200 表示"余额不足，账单未清、主机不会开通"
-		// （PayController::applyCredit 的 else 分支）。若此处接受 200，我们会把
-		// "没付成钱"当成成功，随后取不到 hostid 才报错，错误信息会指向错误方向。
-		if shell.Status != StatusPaidSuccess && shell.Code != StatusPaidSuccess {
-			return nil, &upstream.ProviderError{Op: "CreateInstance", Code: shell.Status, Msg: firstNonEmpty(shell.Msg, "上游余额支付未完成（余额不足或账单未结清）")}
-		}
-		var payData struct {
-			HostID []int64 `json:"hostid"`
-		}
-		if err := p.unmarshalData("CreateInstance", shell, &payData); err != nil {
-			return nil, err
-		}
-		hostID = firstInt(payData.HostID)
-		if hostID == 0 {
-			return nil, &upstream.ProviderError{Op: "CreateInstance", Msg: "上游支付成功但未返回主机ID"}
-		}
+		hostID = paidHostID
 	}
 
-	// 4) 拉取主机信息并映射标准实例（短暂轮询等待主机脱离创建态）
+	// 4) 拉取主机信息并映射标准实例
+	return p.fetchProvisionedInstance(ctx, hostID, req)
+}
+
+// fetchProvisionedInstance 按主机 id 拉取上游详情并映射标准实例。
+// 开通成功但详情拉取失败时返回最小可用实例，避免把已开通的资源当成失败回滚。
+func (p *ZJMFProvider) fetchProvisionedInstance(ctx context.Context, hostID int64, req *model.CreateInstanceRequest) (*model.StandardInstance, error) {
+	host := safeHostname(firstNonEmpty(strFromMap(req.Extra, "hostname"), req.Name))
 	inst, err := p.waitInstanceReady(ctx, strconv.FormatInt(hostID, 10), 6)
 	if err != nil {
-		// 开通成功但详情拉取失败：返回最小可用实例，避免回滚已开通资源。
 		return &model.StandardInstance{
 			ProviderType: ProviderType,
 			ProviderID:   p.config.ID,

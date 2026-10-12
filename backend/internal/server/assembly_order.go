@@ -15,6 +15,7 @@ import (
 	instanceservice "hostsent/backend/internal/modules/admin/instance/service"
 	orderhandler "hostsent/backend/internal/modules/admin/order/handler"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
+	orderrepo "hostsent/backend/internal/modules/admin/order/repository"
 	orderservice "hostsent/backend/internal/modules/admin/order/service"
 	catalogservice "hostsent/backend/internal/modules/admin/product/catalog/service"
 	providerservice "hostsent/backend/internal/modules/admin/resource/provider/service"
@@ -43,10 +44,12 @@ import (
 // buildOrder 构造订单服务（履约适配器/返现提成钩子/销售归属）与用户中心下单、后台代下单。
 func (a *asm) buildOrder() {
 	// 订单履约：上游开通适配器（打通订单 paid/provisioning → 上游创建实例）
-	a.orderService = orderservice.NewOrderService(a.orderRepo, a.orderItemRepo, a.orderRefundRepo, orderservice.NewUpstreamProvisionAdapter(buildOrderProvisionDeps(a.prodCatalogService, a.providerService, a.upstreamMgr, a.syncRepo, a.openEventPublisher)))
+	a.orderService = orderservice.NewOrderService(a.orderRepo, a.orderItemRepo, a.orderRefundRepo, orderservice.NewUpstreamProvisionAdapter(buildOrderProvisionDeps(a.prodCatalogService, a.providerService, a.upstreamMgr, a.syncRepo, a.openEventPublisher, a.orderRepo, a.configValueReader, a.logger)))
 	// 异步开通（T5.1）：下单/后台重试只投递任务，工作池领取后执行上游开通（约 50s > write_timeout）。
 	a.provisionEnqueuer = orderservice.NewProvisionEnqueuer(a.provisionTaskRepo, a.logger)
 	a.orderService.SetProvisionQueue(a.provisionEnqueuer)
+	// 订单列表/详情展示开通履约状态与失败原因（manual=需人工处理，如上游余额不足）。
+	a.orderService.SetProvisionTaskReader(a.provisionTaskRepo.FindByOrderIDs)
 	a.orderService.SetProductSourceModeResolver(buildProductSourceModeResolver(a.prodCatalogService))
 	// 订单开通成功 → 给邀请人计提返现 + 给归属销售计提提成（各自失败只记日志，不影响订单）。
 	// SetCashbackHook 是单槽 setter：两者必须在同一个闭包里串行调用，分别 Set 会互相覆盖。
@@ -202,8 +205,28 @@ func buildOrderProvisionDeps(
 	upmgr *upstream.ProviderManager,
 	syncRepo syncrepo.SyncRepository,
 	events *openservice.EventPublisher,
+	orderRepo orderrepo.OrderRepository,
+	configValueReader func(ctx context.Context, key string) (string, bool, error),
+	logger *zap.Logger,
 ) orderservice.ProvisionDeps {
 	return orderservice.ProvisionDeps{
+		Logger: logger,
+		// 上游账单 id 落库（开通幂等）：账单生成即记，重试复用同一张，不再重复下单。
+		RecordUpstreamInvoice: func(ctx context.Context, orderID uint64, invoiceID int64) error {
+			if invoiceID <= 0 {
+				return nil
+			}
+			return orderRepo.SetUpstreamInvoiceID(ctx, orderID, uint64(invoiceID))
+		},
+		// 上游对接令牌落库（首次履约生成后固化）：上游据此反查既有账单/主机。
+		RecordDownstreamToken: orderRepo.SetDownstreamToken,
+		// 本站对外地址（上游握手标识）：运营可在系统配置 site.public_url 填真实地址。
+		PublicURL: func(ctx context.Context) string {
+			if raw, ok, err := configValueReader(ctx, "site.public_url"); err == nil && ok {
+				return raw
+			}
+			return ""
+		},
 		BuildProvisionRequest: func(ctx context.Context, productID uint64, name, specSnapshot, specCode string, selections map[string]string) (interface{}, error) {
 			return catalog.BuildProvisionRequest(ctx, productID, name, specSnapshot, specCode, selections)
 		},
