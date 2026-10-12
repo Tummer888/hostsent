@@ -918,12 +918,33 @@ async function onResendOTP() {
 // 预留：策略里 OTP 默认通道（当前仅用于展示提示，可扩展为默认 tab）。
 void otpChannel
 
+/**
+ * 空闲时预取控制台骨架与首页 chunk。
+ *
+ * 登录成功后立即跳 /dashboard，而 Layout/首页两块 chunk 在此之前从未被请求过，
+ * 要等点击后才开始下载，用户会在这段时间对着空白页等待。登录页上「输入账号、等验证码」
+ * 本身就是一段空闲期，用它把 chunk 提前拉进浏览器缓存，跳转时模块已就绪。
+ * requestIdleCallback 保证不与本页自身的渲染/接口抢优先级；预取失败静默，不影响功能。
+ */
+function scheduleConsolePrefetch() {
+  const run = () => {
+    void import('@/layouts/index.vue').catch(() => {})
+    void import('@/pages/dashboard/index.vue').catch(() => {})
+  }
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(run, { timeout: 3000 })
+  } else {
+    window.setTimeout(run, 1500)
+  }
+}
+
 onMounted(() => {
   // 独立注册页已并入本卡片：/register 重定向到 /login?mode=register，推广邀请码随之带入。
   if (route.query.mode === 'register') authMode.value = 'register'
   if (route.query.invite_code) registerForm.inviteCode = String(route.query.invite_code)
   void loadAuthConfig()
   void loadOAuthProviders()
+  scheduleConsolePrefetch()
 })
 </script>
 
