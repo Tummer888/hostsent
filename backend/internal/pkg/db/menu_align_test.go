@@ -507,7 +507,12 @@ var routerPermRe = regexp.MustCompile(`app\.perm\(\s*"([^"]+)"`)
 
 func TestMenuAlign_RouterPermsDeclared(t *testing.T) {
 	root := repoRoot(t)
-	src := readFile(t, filepath.Join(root, "backend", "internal", "server", "router.go"))
+	// 路由注册自批次四 4a 起按端拆分到 routes_*.go（newRouter 只留引擎骨架），
+	// 权限码扫描需覆盖全部路由文件，避免拆分后出现扫描盲区。
+	src := readFile(t, filepath.Join(root, "backend", "internal", "server", "routes_admin.go")) +
+		readFile(t, filepath.Join(root, "backend", "internal", "server", "routes_uc.go")) +
+		readFile(t, filepath.Join(root, "backend", "internal", "server", "routes_site.go")) +
+		readFile(t, filepath.Join(root, "backend", "internal", "server", "routes_open.go"))
 
 	declared := map[string]bool{}
 	for _, code := range db.SeedPermissionCodes() {
@@ -526,7 +531,7 @@ func TestMenuAlign_RouterPermsDeclared(t *testing.T) {
 	}
 	if len(undeclared) > 0 {
 		sort.Strings(undeclared)
-		t.Errorf("router.go 的 app.perm 引用了未在 seedPermissionDefaults 声明的权限码"+
+		t.Errorf("路由文件（routes_*.go）的 app.perm 引用了未在 seedPermissionDefaults 声明的权限码"+
 			"（该接口将对所有角色 403，且权限页上无法授予）：\n  %s", strings.Join(undeclared, "\n  "))
 	}
 }

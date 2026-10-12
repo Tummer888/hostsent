@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
@@ -212,6 +214,47 @@ type Server struct {
 	// publishScheduler 内容定时发布（公告与内容文章 draft → published）。
 	publishScheduler *publishsched.Scheduler
 	cancel           context.CancelFunc
+}
+
+// newRouter 构造 gin 引擎：引擎 setup + 可信代理 + 全局中间件 + 健康检查端点。
+// 路由注册按端拆分到 routes_admin/uc/site/open 四个文件（批次四 4a），
+// 本函数只保留跨端共享的骨架，不再承载具体业务路由。
+func newRouter(app *App) *gin.Engine {
+	gin.SetMode(gin.ReleaseMode)
+
+	r := gin.New()
+	// 可信代理声明：决定 ClientIP 是否采信 X-Forwarded-For。
+	// 不声明时 gin 走内置默认（信任全部私有网段），在容器网络里会把
+	// docker 网关地址当代理、把真实公网 IP 丢掉。详见 netutil.ClientIP 的注释：
+	// IP 不只是日志字段，还是登录失败锁定（failIPKey）的键。
+	if err := r.SetTrustedProxies(app.cfg.App.TrustedProxies); err != nil {
+		// 配置写错不该让服务起不来，但必须留下明确告警：静默降级会让所有用户
+		// 在日志里显示成同一个代理 IP，排查时毫无线索。
+		app.logger.Warn("invalid trusted_proxies, falling back to loopback only",
+			zap.Error(err), zap.Strings("configured", app.cfg.App.TrustedProxies))
+		_ = r.SetTrustedProxies([]string{"127.0.0.1/8", "::1"})
+	}
+	r.Use(gin.Recovery(), middleware.Logger(app.logger), cors.Default())
+	// 用户中心限流（doc91 §9.1）：仅对 /api/v1/uc 前缀生效，挂全局以保证不漏挂。
+	r.Use(app.ucRateLimit())
+
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "message": "ok", "data": gin.H{"status": "ok"}})
+	})
+	r.GET("/ready", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"code": 0, "message": "ready", "data": gin.H{"status": "ready"}})
+	})
+	r.GET("/metrics", func(c *gin.Context) {
+		c.Data(http.StatusOK, "text/plain; version=0.0.4", []byte(observability.Snapshot()))
+	})
+
+	// 路由注册按端拆分：管理端 / 用户中心 / 门户公开 / 开放平台。
+	registerAdminRoutes(r, app)
+	registerUCRoutes(r, app)
+	registerSiteRoutes(r, app)
+	registerOpenRoutes(r, app)
+
+	return r
 }
 
 func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
