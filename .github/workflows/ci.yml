@@ -34,6 +34,19 @@ jobs:
         # permission.ts 与 pages/，live 用例读 migrations/*.sql —— 这些都不是 Go 源码、
         # 不进 cache key。前端单独改动时若吃到缓存，「菜单四处对齐」「迁移幂等」会假通过。
         run: go test -count=1 ./...
+      - name: Lint (warn only)
+        # 门禁从 warn 起步（115 批次五 G5）：违例不阻塞合并，收敛后移除
+        # continue-on-error 改为阻塞。
+        uses: golangci/golangci-lint-action@v7
+        with:
+          working-directory: backend
+          args: --timeout=5m
+        continue-on-error: true
+      - name: Race (core packages)
+        # -race 抽样核心资金/履约链路（115 批次五 G6），全量 -race 留给 nightly。
+        run: go test -race -count=1 ./internal/modules/admin/finance/... ./internal/modules/admin/instance/... ./internal/modules/admin/order/...
+      - name: Structure check
+        run: ../scripts/check_structure.sh
 
   frontend-admin:
     name: Admin Frontend (vue-tsc + build)

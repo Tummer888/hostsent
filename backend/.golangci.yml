@@ -1,0 +1,22 @@
+# golangci-lint 配置（CONTRIBUTING §10 / 115 整改方案批次五 G5）。
+# 策略：从最小规则集起步（CI 中 warn 不阻塞），收敛后逐步收紧并改为 error。
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    # 未处理的 error 返回值（错误处理纪律）
+    - errcheck
+    # Go 代码静态检查（含 vet 超集：可疑结构、错误格式串等）
+    - staticcheck
+    # 编码规范（命名、缩进、导出注释等），默认规则集
+    - revive
+    # 未使用的标识符（死代码清理）
+    - unused
+
+formatters:
+  enable:
+    - gofmt
