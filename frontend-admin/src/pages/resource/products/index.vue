@@ -9,6 +9,7 @@
           <h2 class="page-header__title">上游商品</h2>
           <p class="page-header__sub">
             上游供应商的商品镜像：按分类/服务商查看，标价与代理价（采购价）双口径，可设加价规则同步到已导入商品。
+            状态分两列：「上游状态」= 上游商铺是否展示，「本地导入」= 我方是否已导入。
           </p>
         </div>
       </div>
@@ -19,7 +20,7 @@
           </template>
           刷新
         </t-button>
-        <t-button theme="primary" @click="goImport">
+        <t-button theme="primary" @click="goImportPage">
           <template #icon>
             <AddIcon aria-hidden="true" />
           </template>
@@ -94,13 +95,14 @@
               {{ activeGroupName }}
             </h3>
             <span class="table-card__meta">
-              共 {{ total }} 个商品 · 在售 {{ onSaleInPage }} 个（本页）
+              共 {{ total }} 个商品 · 上游正常 {{ onSaleInPage }} 个（本页）
               <template v-if="importedInPage"> · 已导入 {{ importedInPage }} 个（本页）</template>
             </span>
           </div>
           <p class="table-card__hint">
-            「状态」指上游前台是否在售：分类被上游隐藏 / 商品隐藏 / 已下架 都不计在售，但这些商品仍可导入与开通；
-            「导入」列显示是否已导入成本地商品（点击可跳转查看）。
+            这是两个独立维度：<b>上游状态</b>看上游商铺是否展示（正常 / 隐藏；悬停可看是分类隐藏、商品隐藏还是已下架，
+            隐藏的商品仍可导入与开通）；<b>本地导入</b>看我方是否已导入成本地商品。
+            「上游正常 + 未导入」是正常状态，点「未导入 · 去导入」可直接导入。
           </p>
           <t-table
             row-key="id"
@@ -157,16 +159,21 @@
             </template>
 
             <template #status="{ row }">
-              <t-tag :theme="statusTheme(row)" variant="light" size="small" shape="round">
-                {{ statusText(row) }}
-              </t-tag>
+              <t-tooltip :content="statusTooltip(row)">
+                <t-tag :theme="statusTheme(row)" variant="light" size="small" shape="round">
+                  {{ statusText(row) }}
+                </t-tag>
+              </t-tooltip>
             </template>
 
+            <!-- 与「上游状态」是两个维度：上游是否在售 ≠ 我方是否已导入 -->
             <template #imported="{ row }">
-              <t-tooltip v-if="row.imported" :content="`已导入为本地商品 #${row.imported_product_id}（${importedStatusText(row)}）`">
-                <t-tag size="small" variant="light" theme="success">已导入</t-tag>
+              <t-tooltip v-if="row.imported" :content="`已导入为本地商品 #${row.imported_product_id}（${importedStatusText(row)}），点击查看`">
+                <t-link theme="success" hover="color" @click="goImportedProduct(row)">已导入</t-link>
               </t-tooltip>
-              <span v-else class="muted">未导入</span>
+              <t-tooltip v-else content="还没导入为本地商品：导入后才会生成可上架售卖的本地商品">
+                <t-link theme="primary" hover="color" @click="goImport(row)">未导入 · 去导入</t-link>
+              </t-tooltip>
             </template>
 
             <template #action="{ row }">
@@ -239,10 +246,11 @@
         <t-descriptions-item label="上游让利（标价−代理价）">
           {{ detailProduct.cost_price > 0 && detailProduct.sale_price > detailProduct.cost_price ? `¥${formatPrice(detailProduct.sale_price - detailProduct.cost_price)}（${discountRate(detailProduct)}%）` : '—' }}
         </t-descriptions-item>
-        <t-descriptions-item label="状态">
+        <t-descriptions-item label="上游状态">
           <t-tag :theme="statusTheme(detailProduct)" variant="light" size="small" shape="round">
             {{ statusText(detailProduct) }}
           </t-tag>
+          <span class="inline-hint">{{ statusTooltip(detailProduct) }}</span>
         </t-descriptions-item>
         <t-descriptions-item label="导入状态">
           <template v-if="detailProduct.imported">
@@ -383,8 +391,8 @@ const total = ref(0)
 const providerOptions = ref<{ label: string; value: number }[]>([])
 const providerNameMap = ref<Record<number, string>>({})
 const statusOptions = [
-  { label: '在售', value: 1 },
-  { label: '未在售', value: 0 },
+  { label: '正常', value: 1 },
+  { label: '隐藏', value: 0 },
 ]
 
 const filters = reactive<{ keyword: string | undefined; provider_id: number | undefined; group_id: number | undefined; status: number | undefined }>({
@@ -485,18 +493,14 @@ function isOnSale(row: ProductInfo): boolean {
   return row.status === 1
 }
 
+/**
+ * 上游状态文案只留两态：正常 / 隐藏。
+ * 「未在售」这种说法容易被理解成"我方还没对接"，实际说的是上游商铺是否展示该商品，
+ * 故统一改称「正常 / 隐藏」，具体原因放到悬停说明与详情里。
+ */
 function statusText(row: ProductInfo): string {
-  if (isOnSale(row)) return '在售'
-  switch (row.visibility) {
-    case 'group_hidden':
-      return '未在售（分类隐藏）'
-    case 'product_hidden':
-      return '未在售（商品隐藏）'
-    case 'retired':
-      return '已下架'
-    default:
-      return '未在售'
-  }
+  if (isOnSale(row)) return '正常'
+  return '隐藏'
 }
 
 function statusTheme(row: ProductInfo): 'success' | 'warning' | 'danger' | 'default' {
@@ -522,6 +526,27 @@ function goImportedProduct(row: ProductInfo) {
   router.push(`/product/products/${row.imported_product_id}`)
 }
 
+/** 上游状态的含义（鼠标悬停解释是哪种情况：正常 / 分类隐藏 / 商品隐藏 / 已下架）。 */
+function statusTooltip(row: ProductInfo): string {
+  switch (row.visibility) {
+    case 'visible':
+      return '正常：上游商铺正在展示这个商品'
+    case 'group_hidden':
+      return '隐藏：上游把整个分类从商铺隐藏了（商品不展示但仍可下单，导入与开通不受影响）'
+    case 'product_hidden':
+      return '隐藏：上游单独隐藏了这个商品（不在商铺展示）'
+    case 'retired':
+      return '隐藏：上游已下架该商品（不建议导入）'
+    default:
+      return '隐藏：上游商铺未展示'
+  }
+}
+
+/** 带参数跳到商品列表页并打开导入弹窗（预选这个上游商品）。 */
+function goImport(row: ProductInfo) {
+  router.push({ path: '/product/products', query: { import: String(row.provider_id || filters.provider_id || ''), preselect: String(row.id) } })
+}
+
 const columns: PrimaryTableCol<ProductInfo>[] = [
   { colKey: 'name', title: '商品', minWidth: 190 },
   { colKey: 'group', title: '分类', width: 150 },
@@ -529,8 +554,8 @@ const columns: PrimaryTableCol<ProductInfo>[] = [
   { colKey: 'specs', title: '规格', minWidth: 190 },
   { colKey: 'price', title: '价格（标价 / 代理价）', width: 160 },
   { colKey: 'margin', title: '毛利空间', width: 120 },
-  { colKey: 'status', title: '状态', width: 130 },
-  { colKey: 'imported', title: '导入', width: 88 },
+  { colKey: 'status', title: '上游状态', width: 130 },
+  { colKey: 'imported', title: '本地导入', width: 120 },
   {
     colKey: 'action',
     title: '操作',
@@ -679,9 +704,9 @@ function handleResetFilters() {
   loadAll()
 }
 
-function goImport() {
-  // 导入入口在商品列表页（导入需要选本地分类与定价方式）。
-  router.push('/product/products')
+function goImportPage() {
+  // 顶部入口：不预选任何商品，只跳到商品列表页打开导入弹窗。
+  router.push({ path: '/product/products', query: { import: filters.provider_id ? String(filters.provider_id) : undefined } })
 }
 
 const detailVisible = ref(false)
@@ -885,6 +910,12 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
 .resource-products__main {
   flex: 1;
   min-width: 0;
+}
+
+.inline-hint {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
 }
 
 .table-card__hint {

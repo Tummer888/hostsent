@@ -75,6 +75,12 @@ type ProductService interface {
 	ApplyConfirmedPrice(ctx context.Context, resourceProductID uint64, costPrice float64, operatorName, remark string) (int, error)
 	// ApplyUpstreamMarkupRule 设定上游商品加价规则并重算其已导入商品的售价（「上游商品」页调价）。
 	ApplyUpstreamMarkupRule(ctx context.Context, resourceProductID uint64, markupType string, markupValue float64, operatorName, remark string) (int, error)
+	// SetSpecPassthrough 设置「仅透传上游参数」（上架门禁的显式放行项），写操作历史。
+	SetSpecPassthrough(ctx context.Context, id uint64, enabled bool, operatorID uint64, operatorName string) (*dto.ProductInfo, error)
+	// BatchPublish / BatchUnpublish / BatchDelete 批量上架/下架/删除（逐条回报失败原因）。
+	BatchPublish(ctx context.Context, ids []uint64, operatorID uint64, operatorName string) (*dto.ProductBatchActionResponse, error)
+	BatchUnpublish(ctx context.Context, ids []uint64, operatorID uint64, operatorName string) (*dto.ProductBatchActionResponse, error)
+	BatchDelete(ctx context.Context, ids []uint64, operatorID uint64, operatorName string) (*dto.ProductBatchActionResponse, error)
 	// ListConfigOptions 读取商品全部配置项（含 source=self，T4.4）。
 	ListConfigOptions(ctx context.Context, productID uint64) ([]interface{}, error)
 	// SaveConfigOptions 覆盖保存商品配置项（T4.4）：配置项可标注 source/source_key，
@@ -1586,6 +1592,113 @@ func batchCloneFailureReason(err error) string {
 	msg := err.Error()
 	if strings.Contains(msg, "duplicate key") || strings.Contains(msg, "23505") {
 		return "该上游商品已导入过（商品编码重复），如需刷新请到商品详情页同步或删除后重新导入"
+	}
+	return msg
+}
+
+// SetSpecPassthrough 设置「仅透传上游参数」开关。
+//
+// 背景（上架门禁 T4.6）：上游转售商品上架前，需要证明"本地规格 → 上游开通参数"的对应关系
+// 是确认过的（spec_bindings 为 confirmed）；若上游商品是整机固定配置、参数原样转发即可，
+// 运营可显式声明「仅透传」放行 —— 它是一个**有语义的承诺**，所以必须单独、显式地设置并留痕，
+// 不做静默默认（也不能靠"改一个不相关的字段"顺带打开）。
+func (s *productService) SetSpecPassthrough(ctx context.Context, id uint64, enabled bool, operatorID uint64, operatorName string) (*dto.ProductInfo, error) {
+	item, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !s.isUpstreamChain(item) {
+		return nil, errors.New("仅透传只对上游转售商品有意义：自营商品请维护 SKU 与平台绑定")
+	}
+	if item.SpecPassthrough == enabled {
+		return s.FindByID(ctx, id)
+	}
+	item.SpecPassthrough = enabled
+	if err := s.repo.Update(ctx, item); err != nil {
+		return nil, err
+	}
+	remark := "关闭「仅透传上游参数」：上架前需完成上游规格平台绑定"
+	value := "false"
+	if enabled {
+		remark = "开启「仅透传上游参数」：开通时按上游商品配置原样转发，不做规格映射"
+		value = "true"
+	}
+	_ = s.repo.AddHistory(ctx, &model.ProductHistory{
+		ProductID:    id,
+		ChangeType:   model.ChangeTypeUpdate,
+		OldValue:     strconv.FormatBool(!enabled),
+		NewValue:     value,
+		OperatorID:   operatorID,
+		OperatorName: operatorName,
+		Remark:       remark,
+	})
+	return s.FindByID(ctx, id)
+}
+
+// ============================================================================
+// 批量操作（产品列表页多选）：逐条执行现有单条逻辑，失败逐条回报。
+// 复用单条方法而非另写一套，保证上架门禁、历史留痕、发布调度等行为完全一致。
+// ============================================================================
+
+// BatchPublish 批量上架：逐条过门禁，未通过的记入 failed（不阻塞其他商品）。
+func (s *productService) BatchPublish(ctx context.Context, ids []uint64, operatorID uint64, operatorName string) (*dto.ProductBatchActionResponse, error) {
+	return s.batchApply(ctx, ids, operatorID, operatorName, func(ctx context.Context, id uint64, operatorID uint64, operatorName string) error {
+		_, err := s.Publish(ctx, id, operatorID, operatorName)
+		return err
+	}, "上架")
+}
+
+// BatchUnpublish 批量下架。
+func (s *productService) BatchUnpublish(ctx context.Context, ids []uint64, operatorID uint64, operatorName string) (*dto.ProductBatchActionResponse, error) {
+	return s.batchApply(ctx, ids, operatorID, operatorName, func(ctx context.Context, id uint64, operatorID uint64, operatorName string) error {
+		_, err := s.Unpublish(ctx, id, operatorID, operatorName)
+		return err
+	}, "下架")
+}
+
+// BatchDelete 批量删除。
+func (s *productService) BatchDelete(ctx context.Context, ids []uint64, operatorID uint64, operatorName string) (*dto.ProductBatchActionResponse, error) {
+	return s.batchApply(ctx, ids, operatorID, operatorName, func(ctx context.Context, id uint64, operatorID uint64, operatorName string) error {
+		return s.Delete(ctx, id, operatorID, operatorName)
+	}, "删除")
+}
+
+// batchApply 批量执行单条操作，收集成功/失败清单。名称用于失败提示（删掉后也认得出是哪条）。
+func (s *productService) batchApply(ctx context.Context, ids []uint64, operatorID uint64, operatorName string, op func(context.Context, uint64, uint64, string) error, actionLabel string) (*dto.ProductBatchActionResponse, error) {
+	resp := &dto.ProductBatchActionResponse{Succeeded: make([]uint64, 0, len(ids)), Failed: make([]dto.ProductBatchActionFailure, 0)}
+	if len(ids) == 0 {
+		resp.Message = "未选择商品"
+		return resp, nil
+	}
+	if len(ids) > batchActionLimit {
+		return nil, fmt.Errorf("单次批量最多 %d 个商品，本次 %d 个", batchActionLimit, len(ids))
+	}
+	for _, id := range ids {
+		name := ""
+		if item, err := s.repo.FindByID(ctx, id); err == nil && item != nil {
+			name = item.Name
+		}
+		if err := op(ctx, id, operatorID, operatorName); err != nil {
+			resp.Failed = append(resp.Failed, dto.ProductBatchActionFailure{ProductID: id, Name: name, Reason: batchActionFailureReason(err)})
+			continue
+		}
+		resp.Succeeded = append(resp.Succeeded, id)
+	}
+	resp.Message = fmt.Sprintf("已%s %d 个商品", actionLabel, len(resp.Succeeded))
+	if len(resp.Failed) > 0 {
+		resp.Message = fmt.Sprintf("已%s %d 个，%d 个失败", actionLabel, len(resp.Succeeded), len(resp.Failed))
+	}
+	return resp, nil
+}
+
+// batchActionLimit 单次批量上限：前端一次最多选一页（100 条），留一倍余量。
+const batchActionLimit = 200
+
+// batchActionFailureReason 把底层错误翻成运营能看懂的失败原因。
+func batchActionFailureReason(err error) string {
+	msg := err.Error()
+	if strings.Contains(msg, "record not found") {
+		return "商品不存在或已删除（可能已被他人删除）"
 	}
 	return msg
 }

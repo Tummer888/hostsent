@@ -156,6 +156,47 @@ export function unpublishProduct(id: number): Promise<SaleProductInfo> {
   })
 }
 
+/** 批量结果：成功 ID + 逐条失败原因（批量里失败的不能静默跳过）。 */
+export interface SaleProductBatchActionResponse {
+  succeeded: number[]
+  failed: Array<{ product_id: number; name: string; reason: string }>
+  message: string
+}
+
+/** 批量上架/下架/删除：逐条复用单条逻辑，失败逐条回报。 */
+export function batchPublishProducts(ids: number[]): Promise<SaleProductBatchActionResponse> {
+  return request.post<SaleProductBatchActionResponse>({
+    url: '/product/products/batch-publish',
+    data: { ids },
+  })
+}
+
+export function batchUnpublishProducts(ids: number[]): Promise<SaleProductBatchActionResponse> {
+  return request.post<SaleProductBatchActionResponse>({
+    url: '/product/products/batch-unpublish',
+    data: { ids },
+  })
+}
+
+export function batchDeleteProducts(ids: number[]): Promise<SaleProductBatchActionResponse> {
+  return request.post<SaleProductBatchActionResponse>({
+    url: '/product/products/batch-delete',
+    data: { ids },
+  })
+}
+
+/**
+ * 设置「仅透传上游参数」：上游转售商品上架门禁的显式放行项。
+ * 语义 = "开通时按上游商品配置原样转发，不做本地规格到上游参数的映射"，
+ * 故单独成接口（带操作历史），不用改商品其他字段的方式顺带打开。
+ */
+export function setProductSpecPassthrough(id: number, enabled: boolean): Promise<SaleProductInfo> {
+  return request.post<SaleProductInfo>({
+    url: `/product/products/${id}/spec-passthrough`,
+    data: { enabled },
+  })
+}
+
 export function updateProductPrice(id: number, data: SaleProductPriceRequest): Promise<SaleProductInfo> {
   return request.put<SaleProductInfo>({
     url: `/product/products/${id}/price`,

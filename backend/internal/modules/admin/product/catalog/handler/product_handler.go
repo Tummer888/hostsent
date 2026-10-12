@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -112,6 +114,87 @@ func (h *ProductHandler) BatchCloneFromUpstream(c *gin.Context) {
 	}
 	operatorID, operatorName := operatorFromContext(c)
 	resp, err := h.productService.CloneFromUpstreamBatch(c.Request.Context(), req, operatorID, operatorName)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// SetSpecPassthrough godoc
+// @Summary 设置商品「仅透传上游参数」（上架门禁的显式放行项）
+// @Tags 产品管理-商品
+// @Security BearerAuth
+// @Param id path int true "商品 ID"
+// @Param request body dto.ProductSpecPassthroughRequest true "开关"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/product/products/{id}/spec-passthrough [post]
+func (h *ProductHandler) SetSpecPassthrough(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		response.Error(c, apperrors.New(20001, "商品 ID 非法"))
+		return
+	}
+	var req dto.ProductSpecPassthroughRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	operatorID, operatorName := operatorFromContext(c)
+	info, err := h.productService.SetSpecPassthrough(c.Request.Context(), id, req.Enabled, operatorID, operatorName)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, info)
+}
+
+// BatchPublishProducts godoc
+// @Summary 批量上架商品（逐条过门禁，失败逐条回报）
+// @Tags 产品管理-商品
+// @Security BearerAuth
+// @Param request body dto.ProductBatchActionRequest true "商品 ID 列表"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/product/products/batch-publish [post]
+func (h *ProductHandler) BatchPublishProducts(c *gin.Context) {
+	h.handleBatchAction(c, h.productService.BatchPublish)
+}
+
+// BatchUnpublishProducts godoc
+// @Summary 批量下架商品
+// @Tags 产品管理-商品
+// @Security BearerAuth
+// @Param request body dto.ProductBatchActionRequest true "商品 ID 列表"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/product/products/batch-unpublish [post]
+func (h *ProductHandler) BatchUnpublishProducts(c *gin.Context) {
+	h.handleBatchAction(c, h.productService.BatchUnpublish)
+}
+
+// BatchDeleteProducts godoc
+// @Summary 批量删除商品
+// @Tags 产品管理-商品
+// @Security BearerAuth
+// @Param request body dto.ProductBatchActionRequest true "商品 ID 列表"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/product/products/batch-delete [post]
+func (h *ProductHandler) BatchDeleteProducts(c *gin.Context) {
+	h.handleBatchAction(c, h.productService.BatchDelete)
+}
+
+// handleBatchAction 批量上架/下架/删除的公共入口：三个接口只是执行的动作不同。
+func (h *ProductHandler) handleBatchAction(c *gin.Context, run func(context.Context, []uint64, uint64, string) (*dto.ProductBatchActionResponse, error)) {
+	var req dto.ProductBatchActionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	operatorID, operatorName := operatorFromContext(c)
+	resp, err := run(c.Request.Context(), req.IDs, operatorID, operatorName)
 	if err != nil {
 		response.Error(c, apperrors.New(50001, err.Error()))
 		return

@@ -253,6 +253,11 @@ func (s *productService) upstreamInfoFor(ctx context.Context, item *model.Produc
 		return nil
 	}
 	raw := s.upstreamRawFor(ctx, item)
+	if raw == nil {
+		// 读不到上游镜像（未装配资源域读取端口、或上游商品已被删除）：
+		// 只带商品自身的绑定信息，不 panic、也不臆造上游字段。
+		raw = &upstreamRawSpecs{}
+	}
 	info := &dto.ProductUpstreamInfo{
 		ProviderID:  item.SourceProviderID,
 		GroupID:     raw.GID,

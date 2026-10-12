@@ -12,12 +12,15 @@
       </div>
     </header>
 
-    <!-- 代理（上游转售）商品的链路与上游绑定由「导入上游商品」决定，此处只读展示，禁止在表单里挑选链路。 -->
+    <!-- 代理（上游转售）商品：链路与上游绑定由导入决定（只读），基础信息（名称/分类/描述等）可改。 -->
     <section v-if="isUpstream" class="form-card surface-card">
-      <t-alert theme="warning" message="该商品为上游转售商品，链路与上游绑定在导入时确定，不可在本表单修改。">
+      <t-alert theme="info">
         <template #message>
           <div class="upstream-readonly">
-            <p>该商品为「上游转售」商品，链路与上游绑定在「导入上游商品」时确定，不可在本表单修改。</p>
+            <p>
+              这是<b>上游转售商品</b>：它的规格与开通参数由上游决定，
+              <b>链路与上游绑定不可改</b>；名称、分类、描述、封面、库存、排序这些基础信息可以直接改。
+            </p>
             <t-descriptions :column="2" size="small" bordered>
               <t-descriptions-item label="链路">
                 <t-tag theme="warning" variant="light" size="small" shape="round">上游转售</t-tag>
@@ -29,11 +32,46 @@
               </t-descriptions-item>
             </t-descriptions>
             <p class="upstream-readonly__hint">
-              如需调整售价，请在「商品调价」或「周期价格」中操作；规格由上游决定，无需在此维护 SKU。
+              售价在「商品调价」或周期价格里操作；开通规格由上游决定，无需在此维护 SKU。
             </p>
           </div>
         </template>
       </t-alert>
+
+      <t-form label-align="top" :data="form" @submit.prevent>
+        <div class="form-grid">
+          <t-form-item label="产品名称" name="name" :rules="[{ required: true, message: '产品名称不能为空' }]">
+            <t-input v-model="form.name" placeholder="请输入产品名称" clearable />
+          </t-form-item>
+          <t-form-item label="分类" name="category_id">
+            <t-select v-model="form.category_id" clearable placeholder="请选择分类" :options="categoryOptions" />
+          </t-form-item>
+          <t-form-item label="已售库存">
+            <t-input-number v-model="form.stock" :min="-1" theme="column" placeholder="-1 表示不限" />
+          </t-form-item>
+          <t-form-item label="排序">
+            <t-input-number v-model="form.sort_order" :min="0" theme="column" placeholder="数值越小越靠前" />
+          </t-form-item>
+          <t-form-item label="封面图" class="form-grid__full">
+            <t-input v-model="form.cover_image" placeholder="选填，官网产品卡与详情页展示用" clearable />
+          </t-form-item>
+          <t-form-item label="产品描述" class="form-grid__full">
+            <t-textarea v-model="form.description" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="选填；导入时已自动带入上游描述，可在此改写" />
+          </t-form-item>
+        </div>
+
+        <!-- 仅透传：上架门禁的显式放行项，语义务必写清楚 -->
+        <t-form-item label="仅透传上游参数（上架门禁）">
+          <t-switch v-model="form.spec_passthrough" />
+          <span class="clone-tip" style="display: block; margin-top: 6px; line-height: 1.7">
+            <b>这是什么：</b>客户下单时要把参数发给上游开通。开启「仅透传」= 我们<b>不解释、不改写</b>，
+            直接把上游商品自己的配置项与取值原样转发过去（适合上游商品是整机固定配置、没有可选规格的情况）。<br>
+            <b>不开启时：</b>上架前必须先确认「本地规格 → 上游开通参数」的对应关系（规格页签里完成平台绑定确认）。<br>
+            <b>什么时候可以用：</b>上游商品规格固定、下单参数与上游商品一一对应、不会出现"本地改了参数但上游不认"的情况。
+          </span>
+        </t-form-item>
+      </t-form>
+
       <div class="form-footer">
         <t-button variant="outline" @click="handleCancel">取消</t-button>
         <t-button theme="primary" :loading="submitting" @click="handleSubmitUpstream">保存基础信息</t-button>
@@ -640,6 +678,8 @@ const form = reactive({
   stock: -1,
   sort_order: 0,
   status: 0,
+  // 上游转售商品的上架门禁放行项（见模板说明：仅透传 = 参数原样转发，不做映射）。
+  spec_passthrough: false,
 })
 
 // 平台渠道仅在「云主机」类商品上必填：它决定开通/暂停/销毁下发到哪个平台；
@@ -660,6 +700,7 @@ watch(
     form.product_type = initial.product_type
     form.description = initial.description || ''
     form.cover_image = initial.cover_image || ''
+    form.spec_passthrough = !!initial.spec_passthrough
     form.price_model = initial.price_model
     form.price = initial.price
     form.cost_price = initial.cost_price
@@ -790,7 +831,8 @@ function handleSubmitUpstream() {
     status: form.status,
     upstream_markup_type: props.initial.upstream_markup_type || '',
     upstream_markup_value: props.initial.upstream_markup_value || 0,
-    spec_passthrough: !!props.initial.spec_passthrough,
+    // 仅透传是上架门禁开关：表单里可改（此前的实现恒取初值，改不动）
+    spec_passthrough: !!form.spec_passthrough,
   }
   emit('submit', payload)
 }
@@ -955,5 +997,8 @@ onMounted(() => {
   flex-direction: row;
   align-items: center;
   gap: 6px;
+}
+.form-grid__full {
+  grid-column: 1 / -1;
 }
 </style>

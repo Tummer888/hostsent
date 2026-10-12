@@ -105,6 +105,26 @@
           <span>共 {{ pagination.total }} 个产品</span>
         </div>
       </div>
+
+      <!-- 批量操作条：勾选后出现，支持跨页累计选择（selectedCount 由选区状态给出） -->
+      <div class="batch-bar" :class="{ 'batch-bar--active': selectedRowKeys.length > 0 }">
+        <span class="batch-bar__count">
+          <template v-if="selectedRowKeys.length">已选 {{ selectedRowKeys.length }} 个产品</template>
+          <template v-else>勾选商品后可批量上架 / 下架 / 删除</template>
+        </span>
+        <t-space size="small">
+          <t-button size="small" variant="outline" :disabled="!selectedRowKeys.length || batchLoading" @click="handleBatchPublish">
+            批量上架
+          </t-button>
+          <t-button size="small" variant="outline" :disabled="!selectedRowKeys.length || batchLoading" @click="handleBatchUnpublish">
+            批量下架
+          </t-button>
+          <t-button size="small" theme="danger" variant="outline" :disabled="!selectedRowKeys.length || batchLoading" @click="handleBatchDelete">
+            批量删除
+          </t-button>
+          <t-link v-if="selectedRowKeys.length" theme="default" hover="color" @click="clearSelection">清空选择</t-link>
+        </t-space>
+      </div>
       <t-table
         row-key="id"
         :data="productList"
@@ -114,8 +134,11 @@
         hover
         table-layout="fixed"
         cell-empty-content="—"
+        :row-selection="rowSelection"
+        :reserve-selected-row-on-paginate="true"
         :pagination="isMobile ? undefined : pagination"
         @page-change="handlePageChange"
+        @select-change="handleSelectChange"
       >
         <template #name="{ row }">
           <div class="product-cell">
@@ -264,8 +287,9 @@
         </div>
 
         <p class="clone-hint">
-          「未在售」= 上游前台未展示（分类被上游隐藏 / 商品隐藏 / 已下架），仍可导入开通；
-          「已导入」= 该上游商品已经导入过，不再重复勾选。
+          「隐藏」= 上游商铺未展示（分类被上游隐藏 / 商品隐藏 / 已下架），仍可导入开通；
+          「已导入」= 该上游商品已经导入过，不再重复勾选 —— 点击可直接打开本地商品详情
+          （导入的商品默认是<b>草稿</b>：未上架、前台不展示，编辑与上架都在那里）。
         </p>
 
         <div class="clone-groups">
@@ -315,10 +339,17 @@
                 <span class="clone-cell clone-col--num clone-cell--sale">{{ priceText(salePriceOf(item)) }}</span>
                 <span class="clone-cell clone-col--num" :class="marginClass(item)">{{ marginText(item) }}</span>
                 <span class="clone-cell clone-cell--status">
-                  <t-tag v-if="item.imported" size="small" variant="light" theme="success">
-                    已导入 {{ importedStatusText(item) }}
-                  </t-tag>
-                  <t-tag v-else size="small" variant="light" :theme="statusThemeOf(item)">{{ statusTextOf(item) }}</t-tag>
+                  <t-tooltip
+                    v-if="item.imported"
+                    :content="importedTooltip(item)"
+                  >
+                    <t-link theme="success" hover="color" @click="openImportedProduct(item)">
+                      已导入 {{ importedStatusText(item) }}
+                    </t-link>
+                  </t-tooltip>
+                  <t-tooltip v-else :content="statusTooltipOf(item)">
+                    <t-tag size="small" variant="light" :theme="statusThemeOf(item)">{{ statusTextOf(item) }}</t-tag>
+                  </t-tooltip>
                 </span>
               </label>
             </div>
@@ -339,10 +370,14 @@ import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-n
 
 import {
   batchCloneProductFromUpstream,
+  batchDeleteProducts,
+  batchPublishProducts,
+  batchUnpublishProducts,
   deleteProduct,
   getProductCategoryList,
   getProductList,
   publishProduct,
+  setProductSpecPassthrough,
   unpublishProduct,
   updateProductPrice,
 } from '@/api/product'
@@ -377,6 +412,8 @@ const { pagination, mobilePage, applyTotal, handlePageChange, goMobilePage, hand
   useMobilePagination(loadProducts)
 
 const columns: PrimaryTableCol<SaleProductInfo>[] = [
+  // 勾选列（批量操作入口）；row-selection 通过 :row-selection 传入
+  { colKey: 'row-select', type: 'multiple', width: 46, fixed: 'left' as const },
   { colKey: 'name', title: '产品', minWidth: 180 },
   { colKey: 'source_mode', title: '链路', width: 110 },
   { colKey: 'category', title: '分类', width: 120 },
@@ -498,7 +535,94 @@ function handleCreate() {
   router.push('/product/products/create')
 }
 
+// ===== 批量操作（多选上架/下架/删除） =====
+// 选区由 TDesign 的 row-selection 维护：selectedRowKeys 只含当前勾选的商品 ID，
+// 翻页会让未勾选的页离开视图，但已勾选的键保留在集合里（跨页累计，删除前会再确认）。
+const selectedRowKeys = ref<Array<string | number>>([])
+const batchLoading = ref(false)
+
+// 多选列配置：跨页保留已勾选项（reserve-selected-row-on-paginate 在表格上开启），
+// 全选只作用于当前页 —— 提示文案里明确写了"已选 N 个产品"。
+const rowSelection = { type: 'multiple' as const, width: 46 }
+
+function handleSelectChange(keys: Array<string | number>) {
+  selectedRowKeys.value = keys
+}
+
+function clearSelection() {
+  selectedRowKeys.value = []
+}
+
+function selectedIds(): number[] {
+  return selectedRowKeys.value.map((key) => Number(key)).filter((id) => id > 0)
+}
+
+/** 批量结果提示：成功数 + 前几条失败原因（逐条回报，不能只报"部分失败"）。 */
+function reportBatchResult(kind: string, result: { succeeded?: number[]; failed?: Array<{ name?: string; product_id: number; reason: string }>; message?: string }) {
+  const ok = result.succeeded?.length ?? 0
+  const failed = result.failed ?? []
+  if (ok > 0) MessagePlugin.success(`${kind}成功 ${ok} 个`)
+  if (failed.length > 0) {
+    const detail = failed
+      .slice(0, 3)
+      .map((f) => `${f.name || `#${f.product_id}`}：${f.reason}`)
+      .join('；')
+    MessagePlugin.warning(`${failed.length} 个未${kind}：${detail}${failed.length > 3 ? ' 等' : ''}`)
+  }
+  if (ok === 0 && failed.length === 0) MessagePlugin.warning(result.message || `没有可${kind}的产品`)
+}
+
+async function runBatch(kind: string, action: (ids: number[]) => Promise<any>) {
+  const ids = selectedIds()
+  if (!ids.length) {
+    MessagePlugin.warning('请先勾选产品')
+    return
+  }
+  batchLoading.value = true
+  try {
+    const result = await action(ids)
+    reportBatchResult(kind, result || {})
+    clearSelection()
+    loadProducts()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || `批量${kind}失败`)
+  } finally {
+    batchLoading.value = false
+  }
+}
+
+function handleBatchPublish() {
+  void runBatch('上架', (ids) => batchPublishProducts(ids))
+}
+
+function handleBatchUnpublish() {
+  void runBatch('下架', (ids) => batchUnpublishProducts(ids))
+}
+
+function handleBatchDelete() {
+  const ids = selectedIds()
+  if (!ids.length) {
+    MessagePlugin.warning('请先勾选产品')
+    return
+  }
+  const names = productList.value
+    .filter((item) => ids.includes(item.id))
+    .slice(0, 3)
+    .map((item) => item.name)
+    .join('、')
+  const dialog = DialogPlugin.confirm({
+    header: `删除 ${ids.length} 个产品？`,
+    body: `删除后不可恢复（含规格与价格矩阵）。${names ? `包含：${names}${ids.length > 3 ? ' 等' : ''}` : ''}`,
+    confirmBtn: { content: '删除', theme: 'danger' },
+    onConfirm: async () => {
+      dialog.hide()
+      await runBatch('删除', (list) => batchDeleteProducts(list))
+    },
+  })
+}
+
 // ===== 上游商品导入（克隆：按上游分组多选 + 本地分类 + 按上游标价百分比定价） =====
+// 入口参数：?import=<渠道ID>&preselect=<上游资源商品ID>（上游商品页「去导入」跳转过来时用）
 const cloneVisible = ref(false)
 const cloneSubmitting = ref(false)
 const cloneLoading = ref(false)
@@ -574,17 +698,21 @@ function isProductOnSale(item: ProductInfo): boolean {
   return item.status === 1
 }
 
+/** 上游状态：只显示两态（正常 / 隐藏），具体原因放悬停说明。 */
 function statusTextOf(item: ProductInfo): string {
-  if (isProductOnSale(item)) return '在售'
+  return isProductOnSale(item) ? '正常' : '隐藏'
+}
+
+function statusTooltipOf(item: ProductInfo): string {
   switch (item.visibility) {
     case 'group_hidden':
-      return '分类隐藏'
+      return '隐藏：上游把整个分类从商铺隐藏（仍可导入开通）'
     case 'product_hidden':
-      return '商品隐藏'
+      return '隐藏：上游单独隐藏了这个商品'
     case 'retired':
-      return '已下架'
+      return '隐藏：上游已下架该商品（不建议导入）'
     default:
-      return '未在售'
+      return '正常：上游商铺在展示'
   }
 }
 
@@ -706,12 +834,38 @@ function importedStatusText(item: ProductInfo): string {
   const suffix = item.imported_product_id ? ` #${item.imported_product_id}` : ''
   switch (item.imported_status) {
     case 1:
-      return `上架${suffix}`
+      return `已上架${suffix}`
     case 2:
-      return `下架${suffix}`
+      return `已下架${suffix}`
     default:
       return `草稿${suffix}`
   }
+}
+
+/**
+ * 「草稿」是什么、在哪儿改：导入默认落草稿（前台不展示、不售卖）。
+ * 悬停直接说清入口，避免"显示草稿但不知道去哪看"。
+ */
+function importedTooltip(item: ProductInfo): string {
+  const target = item.imported_product_id ? `本地商品 #${item.imported_product_id}` : '本地商品'
+  const how = '点击打开该商品详情：可改分类/描述/价格，改完在详情页或列表页「上架」'
+  switch (item.imported_status) {
+    case 1:
+      return `已导入为${target}（已上架）。${how}`
+    case 2:
+      return `已导入为${target}（已下架，前台不可购买）。${how}`
+    default:
+      return `已导入为${target}（草稿：未上架，前台不展示也不售卖）。${how}`
+  }
+}
+
+/** 跳到已导入的本地商品详情（草稿的编辑/上架入口就在那里）。 */
+function openImportedProduct(item: ProductInfo) {
+  if (!item.imported_product_id) {
+    MessagePlugin.warning('未取到本地商品 ID，请到「产品管理 → 产品列表」按名称查找')
+    return
+  }
+  router.push(`/product/products/${item.imported_product_id}`)
 }
 
 function formatProductSpec(item: ProductInfo): string {
@@ -800,8 +954,40 @@ async function handlePublish(row: SaleProductInfo) {
     MessagePlugin.success('已上架')
     loadProducts()
   } catch (error) {
-    MessagePlugin.error((error as Error).message || '上架失败')
+    const message = (error as Error).message || '上架失败'
+    // 上架门禁（上游转售商品）：把"为什么被拦"和"怎么放行"讲清楚，并给一键操作，
+    // 避免运营看到一句报错就卡住（此前只能去猜「仅透传」在哪里开）。
+    if (message.includes('仅透传') || message.includes('平台绑定')) {
+      offerPassthroughAndPublish(row)
+      return
+    }
+    MessagePlugin.error(message)
   }
+}
+
+/**
+ * 上架被门禁拦下时的引导：说明原理（本地规格→上游开通参数没确认过），
+ * 若该上游商品是整机固定配置，可直接开启「仅透传」再上架。
+ */
+function offerPassthroughAndPublish(row: SaleProductInfo) {
+  const dialog = DialogPlugin.confirm({
+    header: '上架前需要确认参数来源',
+    body: `「${row.name}」是上游转售商品：上架后客户下单会把参数发给上游开通，所以系统先要求确认"本地规格 → 上游开通参数"的对应关系。
+若该上游商品是整机固定配置（参数原样转发、不改写），可开启「仅透传上游参数」直接放行；否则请到商品详情 → 规格页签完成平台绑定确认。`,
+    confirmBtn: { content: '开启仅透传并上架', theme: 'primary' },
+    cancelBtn: { content: '稍后处理' },
+    onConfirm: async () => {
+      dialog.hide()
+      try {
+        await setProductSpecPassthrough(row.id, true)
+        await publishProduct(row.id)
+        MessagePlugin.success('已开启仅透传并上架')
+        loadProducts()
+      } catch (error) {
+        MessagePlugin.error((error as Error).message || '开启仅透传后仍上架失败')
+      }
+    },
+  })
 }
 
 async function handleUnpublish(row: SaleProductInfo) {
@@ -870,7 +1056,34 @@ onMounted(() => {
   loadCategories()
   loadCategoryTree()
   loadProducts()
+  void openCloneFromQuery()
 })
+
+/**
+ * 从上游商品页「去导入」跳转时自动开弹窗并预选：
+ *   ?import=<渠道ID>（&preselect=<上游商品ID>）
+ * 处理完把参数从地址栏清掉，避免刷新或返回时反复弹窗。
+ */
+async function openCloneFromQuery() {
+  const providerId = Number(route.query.import)
+  if (!providerId) return
+  const preselectId = Number(route.query.preselect)
+  const query = { ...route.query }
+  delete query.import
+  delete query.preselect
+  router.replace({ query })
+  await handleClone()
+  cloneForm.source_provider_id = providerId
+  await handleProviderChange()
+  if (preselectId > 0) {
+    const target = providerProducts.value.find((item) => item.id === preselectId)
+    if (target?.imported) {
+      MessagePlugin.warning(`${target.name} 已导入过，无需重复导入`)
+    } else if (target) {
+      selectedProductIds.value = new Set([preselectId])
+    }
+  }
+}
 
 // 浏览器前进/后退时同步分类过滤（selectCategory 的 replace 会触发本 watch，但值相同直接跳过）
 watch(
@@ -1069,6 +1282,29 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
   margin-left: auto;
   color: var(--td-brand-color, #0052d9);
 }
+/* 批量操作条：常态是灰色提示，勾选后高亮，避免误以为"没选也能点" */
+.batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer, #f5f5f5);
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #999);
+}
+
+.batch-bar--active {
+  background: rgba(0, 82, 217, 0.06);
+  color: var(--td-text-color-primary, #333);
+}
+
+.batch-bar__count {
+  font-weight: 500;
+}
+
 .products-layout {
   display: flex;
   align-items: flex-start;

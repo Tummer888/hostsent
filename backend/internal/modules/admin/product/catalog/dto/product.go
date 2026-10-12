@@ -124,6 +124,33 @@ type ProductBatchCloneRequest struct {
 	Status           int      `json:"status"`                                // 默认草稿
 }
 
+// ProductSpecPassthroughRequest 设置「仅透传上游参数」开关（上架门禁的显式放行项）。
+type ProductSpecPassthroughRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+// ProductBatchActionRequest 批量操作请求（批量上架/下架/删除）：ids 为商品 ID 列表。
+type ProductBatchActionRequest struct {
+	IDs []uint64 `json:"ids" binding:"required"`
+}
+
+// ProductBatchActionResponse 批量操作结果：成功 ID + 逐条失败原因。
+//
+// 为什么逐条回报：批量里任一条不满足业务规则（如上架门禁未过、商品已删除）都不能拖垮整批，
+// 但也不能悄悄跳过 —— 运营必须看到"哪几个没成、为什么"。
+type ProductBatchActionResponse struct {
+	Succeeded []uint64                    `json:"succeeded"`
+	Failed    []ProductBatchActionFailure `json:"failed"`
+	Message   string                      `json:"message"`
+}
+
+// ProductBatchActionFailure 单条批量失败的说明。
+type ProductBatchActionFailure struct {
+	ProductID uint64 `json:"product_id"`
+	Name      string `json:"name"`
+	Reason    string `json:"reason"`
+}
+
 // ProductUpstreamMarkupRequest 设定上游商品的对客加价规则（「上游商品」页调价）。
 // 规则会写入该上游商品已导入的全部商品，并立即按规则重算售价与周期价格矩阵。
 type ProductUpstreamMarkupRequest struct {

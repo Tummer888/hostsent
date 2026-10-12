@@ -438,6 +438,12 @@ func registerAdminRoutes(r *gin.Engine, app *App) {
 				prodProducts.POST("/clone/batch", app.perm("product:create"), app.prodCatalogHandler.BatchCloneFromUpstream)
 				// 上游商品页调价：设定加价规则并重算其已导入商品的售价（静态路由须在 /:id 之前）。
 				prodProducts.POST("/upstream-markup", app.perm("product:price:update"), app.prodCatalogHandler.ApplyUpstreamMarkup)
+				// 批量操作（产品列表页多选）：逐条复用单条逻辑，失败逐条回报。
+				// 上架门禁的显式放行项（仅透传）：单独开关 + 留痕，避免用改商品的其他字段顺带打开。
+				prodProducts.POST("/:id/spec-passthrough", app.perm("product:update"), app.prodCatalogHandler.SetSpecPassthrough)
+				prodProducts.POST("/batch-publish", app.perm("product:publish"), app.prodCatalogHandler.BatchPublishProducts)
+				prodProducts.POST("/batch-unpublish", app.perm("product:publish"), app.prodCatalogHandler.BatchUnpublishProducts)
+				prodProducts.POST("/batch-delete", app.perm("product:delete"), app.prodCatalogHandler.BatchDeleteProducts)
 				prodProducts.GET("/:id", app.perm("product:list"), app.prodCatalogHandler.Get)
 				prodProducts.PUT("/:id", app.perm("product:update"), app.prodCatalogHandler.Update)
 				prodProducts.DELETE("/:id", app.perm("product:delete"), app.prodCatalogHandler.Delete)

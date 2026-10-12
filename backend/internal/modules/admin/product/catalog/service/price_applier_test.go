@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strings"
 	"testing"
 
 	"hostsent/backend/internal/modules/admin/product/catalog/dto"
@@ -28,7 +29,15 @@ type fakeProductRepo struct {
 func (f *fakeProductRepo) List(context.Context, dto.ProductListQuery) ([]model.Product, int64, error) {
 	return nil, 0, nil
 }
-func (f *fakeProductRepo) FindByID(context.Context, uint64) (*model.Product, error) {
+func (f *fakeProductRepo) FindByID(_ context.Context, id uint64) (*model.Product, error) {
+	// 先按 ID 在 items 里找（贴近真实仓库：批量操作按 ID 回查名称）；
+	// 未命中时退回 findByID 显式桩，最后才是 not found。
+	for i := range f.items {
+		if f.items[i].ID == id {
+			item := f.items[i]
+			return &item, nil
+		}
+	}
 	if f.findByID == nil {
 		return nil, errors.New("not found")
 	}
@@ -245,5 +254,81 @@ func TestApplyUpstreamMarkupRule(t *testing.T) {
 	// 非法规则要报错且不落库。
 	if _, err := svc.ApplyUpstreamMarkupRule(context.Background(), 28975, "bogus", 100, "admin", ""); err == nil {
 		t.Error("非法加价方式应报错")
+	}
+}
+
+// TestBatchApplyReportsFailures 批量操作逐条回报：一条失败不拖垮整批，且失败原因要能看懂。
+func TestBatchApplyReportsFailures(t *testing.T) {
+	repo := &fakeProductRepo{items: []model.Product{{ID: 1, Name: "A"}, {ID: 2, Name: "B"}}}
+	svc := &productService{repo: repo}
+	calls := 0
+	resp, err := svc.batchApply(context.Background(), []uint64{1, 2, 3}, 7, "admin", func(_ context.Context, id uint64, _ uint64, _ string) error {
+		calls++
+		if id == 2 {
+			return errors.New("上架失败：上游规格未完成平台绑定")
+		}
+		return nil
+	}, "上架")
+	if err != nil {
+		t.Fatalf("batchApply: %v", err)
+	}
+	if calls != 3 {
+		t.Errorf("应逐条执行 3 次，实际 %d", calls)
+	}
+	if len(resp.Succeeded) != 2 || len(resp.Failed) != 1 {
+		t.Fatalf("succeeded=%v failed=%v，期望 2 成功 1 失败", resp.Succeeded, resp.Failed)
+	}
+	if resp.Failed[0].Name != "B" || resp.Failed[0].Reason == "" {
+		t.Errorf("失败项要带商品名与原因，got %+v", resp.Failed[0])
+	}
+	if !strings.Contains(resp.Message, "2") || !strings.Contains(resp.Message, "1 个失败") {
+		t.Errorf("汇总文案应给出成功/失败数，got %q", resp.Message)
+	}
+	// 空选择与超上限都要给明确反馈（超上限报错，避免误点几千条）。
+	empty, err := svc.batchApply(context.Background(), nil, 7, "admin", func(context.Context, uint64, uint64, string) error { return nil }, "删除")
+	if err != nil || empty.Message != "未选择商品" {
+		t.Errorf("空选择应返回提示，got %+v err=%v", empty, err)
+	}
+	big := make([]uint64, batchActionLimit+1)
+	if _, err := svc.batchApply(context.Background(), big, 7, "admin", func(context.Context, uint64, uint64, string) error { return nil }, "删除"); err == nil {
+		t.Error("超过单次上限应报错")
+	}
+}
+
+// TestSetSpecPassthrough 上架门禁放行项：仅上游转售商品可设，幂等，且必须留痕。
+func TestSetSpecPassthrough(t *testing.T) {
+	repo := &fakeProductRepo{items: []model.Product{
+		{ID: 157, Name: "海外年付活动", SourceMode: model.SourceModeUpstream, SourceProductID: 35, Status: 0},
+		{ID: 8, Name: "自营商品", SourceMode: model.SourceModeSelf},
+	}}
+	svc := &productService{repo: repo}
+	info, err := svc.SetSpecPassthrough(context.Background(), 157, true, 1, "admin")
+	if err != nil {
+		t.Fatalf("SetSpecPassthrough: %v", err)
+	}
+	if !info.SpecPassthrough {
+		t.Error("返回的商品应已开启仅透传")
+	}
+	if len(repo.history) == 0 || !strings.Contains(repo.history[len(repo.history)-1].Remark, "仅透传") {
+		t.Errorf("开启仅透传要写操作历史（含原因说明），history=%+v", repo.history)
+	}
+	// 幂等：状态未变时不重复写历史。
+	before := len(repo.history)
+	if _, err := svc.SetSpecPassthrough(context.Background(), 157, true, 1, "admin"); err != nil {
+		t.Fatalf("幂等调用失败: %v", err)
+	}
+	if len(repo.history) != before {
+		t.Error("重复设置同值不应再写历史")
+	}
+	// 自营商品没有这个开关的语义，要明确报错而不是静默打开。
+	if _, err := svc.SetSpecPassthrough(context.Background(), 8, true, 1, "admin"); err == nil {
+		t.Error("自营商品设置仅透传应报错")
+	}
+	// 关闭也要留痕。
+	if _, err := svc.SetSpecPassthrough(context.Background(), 157, false, 1, "admin"); err != nil {
+		t.Fatalf("关闭失败: %v", err)
+	}
+	if !strings.Contains(repo.history[len(repo.history)-1].Remark, "关闭") {
+		t.Errorf("关闭仅透传要写历史，got %q", repo.history[len(repo.history)-1].Remark)
 	}
 }
