@@ -172,7 +172,7 @@ func (p *Provider) certifyURL(key *alipayKey, certifyID string) (string, error) 
 		SignType: key.signType,
 	}, string(bizRaw), key.privateKey, nil)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", realname.ErrProviderConfig, err)
+		return "", fmt.Errorf("%w: %w", realname.ErrProviderConfig, err)
 	}
 	return key.gateway + "?" + form.Encode(), nil
 }
@@ -302,7 +302,7 @@ func (p *Provider) call(ctx context.Context, key *alipayKey, method, node, bizCo
 		NotifyURL: key.notifyURL,
 	}, bizContent, key.privateKey, nil)
 	if err != nil {
-		return fmt.Errorf("%w: %v", realname.ErrProviderConfig, err)
+		return fmt.Errorf("%w: %w", realname.ErrProviderConfig, err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, key.gateway, strings.NewReader(form.Encode()))

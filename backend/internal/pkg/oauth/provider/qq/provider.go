@@ -92,7 +92,7 @@ func (p *Provider) Exchange(ctx context.Context, cfg oauth.ProviderConfig, code,
 
 	body, err := oauth.GetBytes(ctx, p.client, tokenEndpoint+"?"+q.Encode(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", oauth.ErrExchangeFailed, err)
+		return nil, fmt.Errorf("%w: %w", oauth.ErrExchangeFailed, err)
 	}
 	// 出错时返回 `error=xxx&error_description=yyy`；正常时返回 query string。
 	kv := oauth.ParseQueryString(body)
@@ -125,7 +125,7 @@ func (p *Provider) fetchOpenID(ctx context.Context, accessToken string) (string,
 	// QQ 的 /me 在缺少 User-Agent 时可能返回空体，必须显式带上。
 	body, err := oauth.GetBytes(ctx, p.client, endpoint, map[string]string{"User-Agent": "HostSent/1.0"})
 	if err != nil {
-		return "", "", fmt.Errorf("%w: %v", oauth.ErrExchangeFailed, err)
+		return "", "", fmt.Errorf("%w: %w", oauth.ErrExchangeFailed, err)
 	}
 	var resp struct {
 		OpenID  string `json:"openid"`
@@ -133,7 +133,7 @@ func (p *Provider) fetchOpenID(ctx context.Context, accessToken string) (string,
 		Error   int    `json:"error"`
 	}
 	if err := oauth.ParseJSONP(body, &resp); err != nil {
-		return "", "", fmt.Errorf("%w: %v", oauth.ErrExchangeFailed, err)
+		return "", "", fmt.Errorf("%w: %w", oauth.ErrExchangeFailed, err)
 	}
 	if resp.Error != 0 || resp.OpenID == "" {
 		return "", "", fmt.Errorf("%w: QQ 未返回 openid", oauth.ErrExchangeFailed)
@@ -150,7 +150,7 @@ func (p *Provider) UserInfo(ctx context.Context, cfg oauth.ProviderConfig, token
 
 	body, err := oauth.GetBytes(ctx, p.client, userInfoEndpoint+"?"+q.Encode(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", oauth.ErrUserInfoFailed, err)
+		return nil, fmt.Errorf("%w: %w", oauth.ErrUserInfoFailed, err)
 	}
 	var resp struct {
 		Ret       int    `json:"ret"`
@@ -160,7 +160,7 @@ func (p *Provider) UserInfo(ctx context.Context, cfg oauth.ProviderConfig, token
 		Figure2   string `json:"figureurl_qq_1"`
 	}
 	if err := oauth.ParseJSON(body, &resp); err != nil {
-		return nil, fmt.Errorf("%w: %v", oauth.ErrUserInfoFailed, err)
+		return nil, fmt.Errorf("%w: %w", oauth.ErrUserInfoFailed, err)
 	}
 	if resp.Ret != 0 {
 		return nil, fmt.Errorf("%w: QQ 返回 ret=%d", oauth.ErrUserInfoFailed, resp.Ret)

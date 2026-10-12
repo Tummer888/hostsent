@@ -209,7 +209,7 @@ func (p *Provider) call(ctx context.Context, key *alipayKey, method, node, bizCo
 		SignType: key.signType,
 	}, bizContent, key.privateKey, extras)
 	if err != nil {
-		return fmt.Errorf("%w: %v", oauth.ErrProviderConfig, err)
+		return fmt.Errorf("%w: %w", oauth.ErrProviderConfig, err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, key.gateway, strings.NewReader(form.Encode()))
 	if err != nil {

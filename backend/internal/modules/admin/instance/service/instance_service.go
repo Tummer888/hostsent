@@ -1104,7 +1104,7 @@ func (s *instanceService) Destroy(ctx context.Context, op Operator, id uint64, r
 	}
 	if err := upstream.TerminateWithFallback(ctx, provider, row.InstanceMark(), reason); err != nil {
 		if errors.Is(err, upstream.ErrCapabilityMissing) {
-			err = fmt.Errorf("%w: %s", ErrCapabilityUnsupported, err.Error())
+			err = fmt.Errorf("%w: %w", ErrCapabilityUnsupported, err)
 		}
 		s.record(ctx, row, op, model.ActionDestroy, params, before, before, err)
 		return err
@@ -1368,7 +1368,7 @@ func (s *instanceService) RecordStageAction(ctx context.Context, in StageActionI
 // mapCapabilityErr 把上游能力缺失错误映射为实例域错误（handler 统一提示 20004）。
 func mapCapabilityErr(err error) error {
 	if errors.Is(err, upstream.ErrCapabilityMissing) {
-		return fmt.Errorf("%w: %s", ErrCapabilityUnsupported, err.Error())
+		return fmt.Errorf("%w: %w", ErrCapabilityUnsupported, err)
 	}
 	return err
 }
@@ -1715,7 +1715,7 @@ func (s *instanceService) buildProvider(ctx context.Context, providerID uint64) 
 	}
 	provider, err := s.resolve(ctx, providerID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrProviderUnavailable, err)
+		return nil, fmt.Errorf("%w: %w", ErrProviderUnavailable, err)
 	}
 	if provider == nil {
 		return nil, ErrProviderUnavailable

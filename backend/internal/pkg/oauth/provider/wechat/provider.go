@@ -84,7 +84,7 @@ func (p *Provider) Exchange(ctx context.Context, cfg oauth.ProviderConfig, code,
 
 	body, err := oauth.GetBytes(ctx, p.client, tokenEndpoint+"?"+q.Encode(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", oauth.ErrExchangeFailed, err)
+		return nil, fmt.Errorf("%w: %w", oauth.ErrExchangeFailed, err)
 	}
 	var resp struct {
 		AccessToken  string `json:"access_token"`
@@ -96,7 +96,7 @@ func (p *Provider) Exchange(ctx context.Context, cfg oauth.ProviderConfig, code,
 		ErrMsg       string `json:"errmsg"`
 	}
 	if err := oauth.ParseJSON(body, &resp); err != nil {
-		return nil, fmt.Errorf("%w: %v", oauth.ErrExchangeFailed, err)
+		return nil, fmt.Errorf("%w: %w", oauth.ErrExchangeFailed, err)
 	}
 	if resp.ErrCode != 0 || resp.AccessToken == "" {
 		return nil, fmt.Errorf("%w: 微信返回 errcode=%d", oauth.ErrExchangeFailed, resp.ErrCode)
@@ -119,7 +119,7 @@ func (p *Provider) UserInfo(ctx context.Context, cfg oauth.ProviderConfig, token
 
 	body, err := oauth.GetBytes(ctx, p.client, userInfoEndpoint+"?"+q.Encode(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", oauth.ErrUserInfoFailed, err)
+		return nil, fmt.Errorf("%w: %w", oauth.ErrUserInfoFailed, err)
 	}
 	var resp struct {
 		OpenID   string `json:"openid"`
@@ -130,7 +130,7 @@ func (p *Provider) UserInfo(ctx context.Context, cfg oauth.ProviderConfig, token
 		ErrMsg   string `json:"errmsg"`
 	}
 	if err := oauth.ParseJSON(body, &resp); err != nil {
-		return nil, fmt.Errorf("%w: %v", oauth.ErrUserInfoFailed, err)
+		return nil, fmt.Errorf("%w: %w", oauth.ErrUserInfoFailed, err)
 	}
 	if resp.ErrCode != 0 {
 		return nil, fmt.Errorf("%w: 微信返回 errcode=%d", oauth.ErrUserInfoFailed, resp.ErrCode)
