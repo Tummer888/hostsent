@@ -6,6 +6,8 @@ export const instanceStatusOptions = [
   { label: '创建中', value: 'creating' },
   { label: '异常', value: 'error' },
   { label: '删除中', value: 'deleting' },
+  // deleted 由本系统销毁动作写入（上游适配器不产出该值），此前下拉与标签都没有它。
+  { label: '已销毁', value: 'deleted' },
 ]
 
 export const expireStateOptions = [
@@ -123,6 +125,9 @@ export function instanceStatusTheme(status: string): string {
       return 'warning'
     case 'error':
       return 'danger'
+    case 'deleted':
+      // 终态用浅色而非默认灰：与 stopped（可恢复的关机）区分开。
+      return 'default'
     case 'stopped':
     default:
       return defaultTheme
@@ -172,6 +177,42 @@ export function lifecycleStageLabel(stage: string): string {
 
 export function lifecycleStageTheme(stage: string): string {
   return lifecycleStageThemes[stage] || defaultTheme
+}
+
+// combineInstanceState 把「服务状态 / 到期阶段 / 到期状态」合成一句人读得懂的结论。
+//
+// 三个字段语义不同（服务状态来自上游、阶段是本系统的到期处置、到期状态是时间派生），
+// 单独看容易互相矛盾——例如宽限期内的实例 status=running 而 expire_state=expired，
+// 列表只显示后者就会写成「运行中（已过期）」。这里按处置优先级给唯一结论：
+// 已销毁 > 已暂停 > 宽限期(已过期仍服务) > 正常服务状态，并保留阶段作为补充说明。
+export function combineInstanceState(input: {
+  status: string
+  lifecycle_stage?: string
+  expire_state?: string
+}): { label: string; theme: string; detail: string } {
+  const stage = input.lifecycle_stage || ''
+  if (stage === 'destroyed' || input.status === 'deleted') {
+    return { label: '已销毁', theme: 'default', detail: '实例已终止，不可恢复' }
+  }
+  if (stage === 'suspended' || input.status === 'stopped') {
+    return {
+      label: '已暂停',
+      theme: 'danger',
+      detail: stage === 'suspended' ? '到期暂停中，续费后自动恢复' : '已关机',
+    }
+  }
+  if (input.expire_state === 'expired') {
+    return {
+      label: stage === 'grace' ? '已过期·宽限期' : '已过期',
+      theme: 'warning',
+      detail: '已过到期时间，宽限期内仍可服务，请尽快续费',
+    }
+  }
+  return {
+    label: instanceStatusLabel(input.status),
+    theme: instanceStatusTheme(input.status),
+    detail: input.expire_state === 'expiring' ? '即将到期' : '',
+  }
 }
 
 export function enforcementActionLabel(action: string): string {

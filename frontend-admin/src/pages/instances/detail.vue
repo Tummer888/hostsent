@@ -9,17 +9,11 @@
         <div class="page-header__text">
           <div class="page-header__title-row">
             <h2 class="page-header__title">{{ instanceData?.name || '实例详情' }}</h2>
-            <t-tag
-              v-if="instanceData"
-              :theme="instanceStatusTheme(instanceData.status)"
-              variant="light"
-              size="small"
-              shape="round"
-            >
-              {{ instanceStatusLabel(instanceData.status) }}
+            <t-tag v-if="instanceData" :theme="headlineState.theme" variant="light" size="small" shape="round">
+              {{ headlineState.label }}
             </t-tag>
             <t-tag
-              v-if="instanceData?.lifecycle_stage"
+              v-if="instanceData?.lifecycle_stage && instanceData.lifecycle_stage !== 'active'"
               :theme="lifecycleStageTheme(instanceData.lifecycle_stage)"
               variant="outline"
               size="small"
@@ -178,9 +172,13 @@
               </t-descriptions-item>
               <t-descriptions-item label="操作人">{{ instanceData.actor_name || '主账号' }}</t-descriptions-item>
               <t-descriptions-item label="服务状态">
-                <t-tag :theme="instanceStatusTheme(instanceData.status)" variant="light" size="small" shape="round">
-                  {{ instanceStatusLabel(instanceData.status) }}
+                <t-tag :theme="headlineState.theme" variant="light" size="small" shape="round">
+                  {{ headlineState.label }}
                 </t-tag>
+                <div v-if="headlineStateDetail" class="cell-sub">{{ headlineStateDetail }}</div>
+                <div class="cell-sub">
+                  上游状态 {{ instanceStatusLabel(instanceData.status) }} · 到期阶段 {{ lifecycleStageLabel(instanceData.lifecycle_stage) }}
+                </div>
               </t-descriptions-item>
               <t-descriptions-item label="电源状态">{{ powerStatusText(instanceData.power_status) }}</t-descriptions-item>
               <t-descriptions-item label="内网 IP">{{ instanceData.private_ip || '—' }}</t-descriptions-item>
@@ -920,11 +918,11 @@ import {
 import { renewInstance } from '@/api/lifecycle'
 import { getProviderPlatformResources } from '@/api/admin'
 import {
+  combineInstanceState,
   expireStateLabel,
   formatPrice,
   formatTime,
   instanceStatusLabel,
-  instanceStatusTheme,
   lifecycleStageLabel,
   lifecycleStageTheme,
   operationActionLabel,
@@ -1033,6 +1031,19 @@ function cycleLabel(cycle: string | undefined): string {
 const billingModeLabel = computed(() => cycleLabel(instanceData.value?.billing_mode))
 
 const isOnetime = computed(() => instanceData.value?.billing_mode === 'onetime')
+
+// 头部只给一句结论：三个字段（服务状态/到期阶段/到期状态）单独并列会互相矛盾，
+// 例如宽限期内 status=running 而 expire_state=expired。合成规则见 constants.combineInstanceState。
+const headlineState = computed(() =>
+  combineInstanceState({
+    status: instanceData.value?.status || '',
+    lifecycle_stage: instanceData.value?.lifecycle_stage,
+    expire_state: instanceData.value?.expire_state,
+  }),
+)
+
+// 概览里的一行说明（比头部标签更详细），用于「服务状态」描述项。
+const headlineStateDetail = computed(() => headlineState.value.detail)
 
 const sourceModeLabel = computed(() => (instanceData.value?.source_mode === 'upstream' ? '对接上游' : '自营'))
 

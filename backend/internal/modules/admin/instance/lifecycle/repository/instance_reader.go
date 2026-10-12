@@ -46,6 +46,8 @@ type InstanceReader interface {
 	ListActiveResetCandidatesWithUser(ctx context.Context, now time.Time, limit int) ([]InstanceWithUser, error)
 	// UpdateLifecycleStage 落库生命周期阶段（T5.4 推进器的唯一写入点）。
 	UpdateLifecycleStage(ctx context.Context, id uint64, stage string) error
+	// UpdateStageAndStatus 同时落阶段与服务状态（一次状态迁移写一致的两列，防二者分叉）。
+	UpdateStageAndStatus(ctx context.Context, id uint64, stage, status string) error
 	// MarkEnforceFailure 记录一次强制执行失败：自增退避计数、写失败原因、设置下次可重试时间。
 	MarkEnforceFailure(ctx context.Context, id uint64, errMsg string, nextAt time.Time, attempts int) error
 	// ClearEnforce 清零退避状态（动作成功或人为重置后调用）。
@@ -131,7 +133,7 @@ func (r *instanceReader) ListDueForAutoRenew(ctx context.Context, expireBefore t
 	return items, err
 }
 
-// ExtendExpireAt 续费成功后延长实例到期时间（本模块对 instances 的唯一写入点）。
+// ExtendExpireAt 续费成功后延长实例到期时间（本模块对 instances 的写入点之一）。
 func (r *instanceReader) ExtendExpireAt(ctx context.Context, id uint64, expireAt time.Time) error {
 	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
 		Where("id = ?", id).
@@ -143,6 +145,18 @@ func (r *instanceReader) UpdateLifecycleStage(ctx context.Context, id uint64, st
 	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
 		Where("id = ?", id).
 		Update("lifecycle_stage", stage).Error
+}
+
+// UpdateStageAndStatus 同时落生命周期阶段与服务状态。
+//
+// 为什么必须同一语句写两列：到期推进器此前只改 lifecycle_stage，于是出现
+// 「stage=destroyed 但 status=running」——列表上显示"运行中"的实例其实已被销毁，
+// 运维据此判断会直接做错决策。两列语义不同（status 是上游/平台服务状态，
+// stage 是本系统的到期处置阶段），但同一次状态迁移必须一起落到一致的值。
+func (r *instanceReader) UpdateStageAndStatus(ctx context.Context, id uint64, stage, status string) error {
+	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("id = ?", id).
+		Updates(map[string]any{"lifecycle_stage": stage, "status": status}).Error
 }
 
 // MarkEnforceFailure 记录一次强制执行失败（doc61 §8.4 退避）：
@@ -200,7 +214,13 @@ func (r *instanceReader) ListStageCandidates(ctx context.Context, window *StageW
 }
 
 // ListActiveResetCandidates 列出续费后需回退 active 的实例：
-// expire_at > now 但 lifecycle_stage 非空且不等于 active（曾被暂停/标记销毁后已续费）。
+// expire_at > now 但 lifecycle_stage 是 grace/suspended（曾被宽限或暂停，续费后应复位）。
+//
+// 刻意排除 destroyed：销毁是**不可逆终态**，不能因为到期时间在将来就自动复活。
+// 此前条件写成「stage 非空且 ≠ active」，于是被销毁的实例只要 expire_at 还没到
+// 就会被这轮扫描重新置为 active 并对上游下发 unsuspend——实测把 5 台已销毁的
+// 测试实例在一分钟内复活（见 migrations/090 验收）。误判需要人工显式恢复，
+// 不能由时间条件推导。
 func (r *instanceReader) ListActiveResetCandidates(ctx context.Context, now time.Time, limit int) ([]syncmodel.Instance, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200
@@ -208,7 +228,7 @@ func (r *instanceReader) ListActiveResetCandidates(ctx context.Context, now time
 	var items []syncmodel.Instance
 	err := r.db.WithContext(ctx).
 		Where("expire_at IS NOT NULL AND expire_at > ?", now).
-		Where("lifecycle_stage IS NOT NULL AND lifecycle_stage <> ?", "active").
+		Where("lifecycle_stage IN ?", []string{"grace", "suspended"}).
 		Order("expire_at ASC").
 		Limit(limit).
 		Find(&items).Error
@@ -240,6 +260,7 @@ func (r *instanceReader) ListStageCandidatesWithUser(ctx context.Context, window
 }
 
 // ListActiveResetCandidatesWithUser 预演用：与 ListActiveResetCandidates 同口径但带用户名。
+// 同样排除 destroyed（终态不可逆，预演里也不该出现"把已销毁的实例复位"）。
 func (r *instanceReader) ListActiveResetCandidatesWithUser(ctx context.Context, now time.Time, limit int) ([]InstanceWithUser, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200
@@ -247,7 +268,7 @@ func (r *instanceReader) ListActiveResetCandidatesWithUser(ctx context.Context, 
 	var items []InstanceWithUser
 	err := r.instanceListQuery().WithContext(ctx).
 		Where("i.expire_at IS NOT NULL AND i.expire_at > ?", now).
-		Where("i.lifecycle_stage IS NOT NULL AND i.lifecycle_stage <> ?", "active").
+		Where("i.lifecycle_stage IN ?", []string{"grace", "suspended"}).
 		Order("i.expire_at ASC").
 		Limit(limit).
 		Scan(&items).Error

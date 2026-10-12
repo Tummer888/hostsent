@@ -163,10 +163,11 @@
 
         <template #status="{ row }">
           <div>
-            <t-tag :theme="instanceStatusTheme(row.status)" variant="light" size="small" shape="round">
-              {{ instanceStatusLabel(row.status) }}
+            <t-tag :theme="combineInstanceState(row).theme" variant="light" size="small" shape="round">
+              {{ combineInstanceState(row).label }}
             </t-tag>
             <div class="cell-sub" :class="expireClass(row)">{{ expireText(row) }}</div>
+            <div v-if="combineInstanceState(row).detail" class="cell-sub">{{ combineInstanceState(row).detail }}</div>
           </div>
         </template>
 
@@ -391,6 +392,7 @@ import {
   updateInstanceRemark,
 } from '@/api/instance'
 import {
+  combineInstanceState,
   expireStateOptions,
   formatTime,
   instanceStatusLabel,

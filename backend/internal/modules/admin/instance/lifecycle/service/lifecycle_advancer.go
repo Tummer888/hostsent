@@ -11,6 +11,7 @@ import (
 	lifecyclemodel "hostsent/backend/internal/modules/admin/instance/lifecycle/model"
 	lifecyclerepo "hostsent/backend/internal/modules/admin/instance/lifecycle/repository"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
+	pkgmodel "hostsent/backend/internal/pkg/model"
 	"hostsent/backend/internal/pkg/upstream"
 )
 
@@ -267,7 +268,7 @@ func (a *LifecycleAdvancer) EnforceOne(ctx context.Context, instanceID uint64, r
 		a.markFailure(ctx, inst, action, target, opErr)
 		return action, opErr
 	}
-	if err := a.setStage(ctx, inst, target); err != nil {
+	if err := a.setStageWithStatus(ctx, inst, target); err != nil {
 		return action, err
 	}
 	_ = a.instanceRepo.ClearEnforce(ctx, inst.ID)
@@ -364,7 +365,7 @@ func (a *LifecycleAdvancer) advanceOne(ctx context.Context, inst *syncmodel.Inst
 		a.markCapabilityMissing(ctx, inst, stage, opErr)
 		return
 	}
-	if err := a.setStage(ctx, inst, stage); err != nil {
+	if err := a.setStageWithStatus(ctx, inst, stage); err != nil {
 		a.logger.Error("set lifecycle stage failed", zap.Uint64("instance_id", inst.ID), zap.Error(err))
 		return
 	}
@@ -390,7 +391,7 @@ func (a *LifecycleAdvancer) resetActive(ctx context.Context, inst *syncmodel.Ins
 			zap.Uint64("instance_id", inst.ID), zap.Error(opErr))
 		return
 	}
-	if err := a.setStage(ctx, inst, lifecyclemodel.StageActive); err != nil {
+	if err := a.setStageWithStatus(ctx, inst, lifecyclemodel.StageActive); err != nil {
 		a.logger.Error("reset lifecycle stage failed", zap.Uint64("instance_id", inst.ID), zap.Error(err))
 		return
 	}
@@ -458,6 +459,34 @@ func (a *LifecycleAdvancer) withProvider(ctx context.Context, inst *syncmodel.In
 // setStage 落库阶段（幂等：where id）。
 func (a *LifecycleAdvancer) setStage(ctx context.Context, inst *syncmodel.Instance, stage string) error {
 	return a.instanceRepo.UpdateLifecycleStage(ctx, inst.ID, stage)
+}
+
+// setStageWithStatus 落阶段并同步落服务状态。
+//
+// stage 是本系统的到期处置阶段，status 是上游/平台服务状态，两者语义不同但必须
+// 同一次迁移写一致的值：此前推进器只写 stage，导致出现「stage=destroyed 而
+// status=running」——列表把已销毁的机器显示成"运行中"，运维据此就会做错决策。
+// grace 只登记阶段不动 status（宽限期内机器仍在对客服务）。
+func (a *LifecycleAdvancer) setStageWithStatus(ctx context.Context, inst *syncmodel.Instance, stage string) error {
+	status := statusOfStage(stage)
+	if status == "" {
+		return a.setStage(ctx, inst, stage)
+	}
+	return a.instanceRepo.UpdateStageAndStatus(ctx, inst.ID, stage, status)
+}
+
+// statusOfStage 到期处置阶段 → 应落的服务状态；grace 与未知阶段返回空串（不改 status）。
+func statusOfStage(stage string) string {
+	switch stage {
+	case lifecyclemodel.StageActive:
+		return string(pkgmodel.InstanceStatusRunning)
+	case lifecyclemodel.StageSuspended:
+		return string(pkgmodel.InstanceStatusStopped)
+	case lifecyclemodel.StageDestroyed:
+		return string(pkgmodel.InstanceStatusDeleted)
+	default:
+		return ""
+	}
 }
 
 // record 写审计；recorder 未注入或写入失败只记日志，不影响推进结果。

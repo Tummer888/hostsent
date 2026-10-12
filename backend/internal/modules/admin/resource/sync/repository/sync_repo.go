@@ -240,6 +240,9 @@ type InstanceLinkage struct {
 	SourceMode string
 	// UpstreamProductID 既有上游资源商品绑定；自营实例为 0，同步不得覆盖。
 	UpstreamProductID uint64
+	// LifecycleStage 既有生命周期阶段。destroyed 是本系统认定的终态（已销毁/终止），
+	// 上游若仍返回该实例（软删未清、接口缓存），同步不得把它复活成在跑机器。
+	LifecycleStage string
 }
 
 // ExistingInstanceLinks 批量查 instance_id → 既有归属与链路语义。
@@ -258,10 +261,11 @@ func (r *syncRepository) ExistingInstanceLinks(ctx context.Context, instanceIDs 
 		UserID            uint64
 		SourceMode        string
 		UpstreamProductID uint64
+		LifecycleStage    string
 	}
 	var rows []row
 	if err := r.db.WithContext(ctx).Model(&model.Instance{}).
-		Select("instance_id, user_id, source_mode, upstream_product_id").
+		Select("instance_id, user_id, source_mode, upstream_product_id, lifecycle_stage").
 		Where("instance_id IN ?", instanceIDs).
 		Scan(&rows).Error; err != nil {
 		return nil, err
@@ -271,6 +275,7 @@ func (r *syncRepository) ExistingInstanceLinks(ctx context.Context, instanceIDs 
 			UserID:            item.UserID,
 			SourceMode:        item.SourceMode,
 			UpstreamProductID: item.UpstreamProductID,
+			LifecycleStage:    item.LifecycleStage,
 		}
 	}
 	return out, nil

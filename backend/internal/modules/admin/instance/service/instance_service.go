@@ -29,6 +29,17 @@ import (
 // defaultExpireWithinDays 未指定时的临期判定天数。
 const defaultExpireWithinDays = 7
 
+// 生命周期阶段字面量（与 lifecycle/model 的 Stage* 同值）。
+//
+// 刻意用本地常量而非 import lifecycle 包：instance 服务与 lifecycle 模块是并列关系，
+// 生命周期模块已通过装配层反向注入回调给本模块（见 SetEventListener/DisposeOnRefund），
+// 直接 import 会形成循环依赖。
+const (
+	lifecycleStageActive    = "active"
+	lifecycleStageSuspended = "suspended"
+	lifecycleStageDestroyed = "destroyed"
+)
+
 // ProviderResolver 按提供商 ID 解析上游适配器（装配层注入，与用户中心同签名）。
 type ProviderResolver func(ctx context.Context, providerID uint64) (upstream.Provider, error)
 
@@ -1111,6 +1122,9 @@ func (s *instanceService) Destroy(ctx context.Context, op Operator, id uint64, r
 	}
 	after := string(pkgmodel.InstanceStatusDeleted)
 	_ = s.repo.UpdateStatus(ctx, row.ID, after)
+	// 同步落阶段为终态：只写 status 会让「阶段=active/grace」与「状态=已销毁」长期共存，
+	// 生命周期推进器还会按旧阶段把它当在跑机器重复处置。
+	_ = s.repo.UpdateLifecycleStage(ctx, row.ID, lifecycleStageDestroyed)
 	s.record(ctx, row, op, model.ActionDestroy, params, before, after, nil)
 	return nil
 }
@@ -1139,7 +1153,7 @@ func (s *instanceService) Suspend(ctx context.Context, op Operator, id uint64, r
 	after := string(pkgmodel.InstanceStatusStopped)
 	_ = s.repo.UpdateStatus(ctx, row.ID, after)
 	// 落阶段（T5.4 语义）：手动暂停同样写 lifecycle_stage，避免推进器重复动作。
-	_ = s.repo.UpdateLifecycleStage(ctx, row.ID, "suspended")
+	_ = s.repo.UpdateLifecycleStage(ctx, row.ID, lifecycleStageSuspended)
 	s.record(ctx, row, op, model.ActionSuspend, params, before, after, nil)
 	return nil
 }
@@ -1163,7 +1177,7 @@ func (s *instanceService) Unsuspend(ctx context.Context, op Operator, id uint64)
 	}
 	after := string(pkgmodel.InstanceStatusRunning)
 	_ = s.repo.UpdateStatus(ctx, row.ID, after)
-	_ = s.repo.UpdateLifecycleStage(ctx, row.ID, "active")
+	_ = s.repo.UpdateLifecycleStage(ctx, row.ID, lifecycleStageActive)
 	s.record(ctx, row, op, model.ActionUnsuspend, nil, before, after, nil)
 	return nil
 }
@@ -1765,7 +1779,13 @@ func (s *instanceService) refreshUpstream(ctx context.Context, row *repository.I
 			raw = string(b)
 		}
 	}
-	return s.repo.ApplySync(ctx, row.ID, string(inst.Status), inst.PublicIP, inst.PrivateIP, raw, time.Now())
+	status := string(inst.Status)
+	// 终态不复活：本地已判销毁的实例，上游软删未清时仍会返回 running/active，
+	// 照抄会把列表里已销毁的机器显示成"运行中"。终态由本系统认定，回源只刷新其余字段。
+	if row.LifecycleStage == lifecycleStageDestroyed {
+		status = row.Status
+	}
+	return s.repo.ApplySync(ctx, row.ID, status, inst.PublicIP, inst.PrivateIP, raw, time.Now())
 }
 
 // normalizeAction 归一化电源动作并返回流水动作名。
@@ -1786,11 +1806,15 @@ func normalizeAction(action string) (string, string, error) {
 	}
 }
 
-// ensurePowerAllowed 状态守卫：创建中/销毁中的实例不允许电源操作。
+// ensurePowerAllowed 状态守卫：创建中/删除中/已销毁的实例不允许电源操作。
 func ensurePowerAllowed(status, normalized string) error {
 	switch status {
 	case string(pkgmodel.InstanceStatusCreating), string(pkgmodel.InstanceStatusDeleting):
 		return fmt.Errorf("%w: 实例正在%s", ErrStatusConflict, status)
+	case string(pkgmodel.InstanceStatusDeleted):
+		// 终态不可逆：已销毁实例上游记录可能仍在（软删），开机指令只会得到一个
+		// 看起来成功但毫无意义的回执，还会把本地状态从 deleted 带回去。
+		return fmt.Errorf("%w: 实例已销毁，无法执行电源操作", ErrStatusConflict)
 	}
 	switch normalized {
 	case "on":

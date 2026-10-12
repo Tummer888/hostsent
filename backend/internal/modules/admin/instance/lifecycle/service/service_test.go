@@ -11,6 +11,7 @@ import (
 	lifecyclerepo "hostsent/backend/internal/modules/admin/instance/lifecycle/repository"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	"hostsent/backend/internal/pkg/billingcycle"
+	pkgmodel "hostsent/backend/internal/pkg/model"
 	"hostsent/backend/internal/pkg/pricing"
 )
 
@@ -289,3 +290,18 @@ func TestResolveRenewalQuoteCarriesCycle(t *testing.T) {
 	}
 }
 
+// TestStatusOfStage 阶段 → 服务状态的映射：active/suspended/destroyed 各归其位，
+// grace 不动 status（宽限期内机器仍在对客服务）。
+func TestStatusOfStage(t *testing.T) {
+	cases := map[string]string{
+		lifecyclemodel.StageActive:    string(pkgmodel.InstanceStatusRunning),
+		lifecyclemodel.StageSuspended: string(pkgmodel.InstanceStatusStopped),
+		lifecyclemodel.StageDestroyed: string(pkgmodel.InstanceStatusDeleted),
+		lifecyclemodel.StageGrace:     "",
+	}
+	for stage, want := range cases {
+		if got := statusOfStage(stage); got != want {
+			t.Errorf("statusOfStage(%q) = %q, want %q", stage, got, want)
+		}
+	}
+}

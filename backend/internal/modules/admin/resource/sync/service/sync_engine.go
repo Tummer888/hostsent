@@ -32,6 +32,10 @@ const (
 	TaskTypeInstance = syncmodel.ScopeInstance
 )
 
+// syncLifecycleStageDestroyed 生命周期终态（已销毁）：与 lifecycle/model 的 StageDestroyed 同值。
+// 同步侧用它判定"本地已判死的实例"，避免上游残留数据把它复活成在跑机器。
+const syncLifecycleStageDestroyed = "destroyed"
+
 // 同步任务状态
 const (
 	StatusPending = "pending"
@@ -703,6 +707,12 @@ func (e *SyncEngine) syncInstances(ctx context.Context, task *syncmodel.SyncTask
 			}
 			if prev.UpstreamProductID != 0 {
 				row.UpstreamProductID = prev.UpstreamProductID
+			}
+			// 终态实例不复活：本地已判销毁（stage=destroyed，status=deleted）的实例，
+			// 上游软删未清或接口缓存仍会把它列出来；照抄上游 status（多为 running）
+			// 会让列表把已销毁的机器显示成"运行中"。终态由本系统认定，同步只刷新其余字段。
+			if prev.LifecycleStage == syncLifecycleStageDestroyed {
+				row.Status = string(pkgmodel.InstanceStatusDeleted)
 			}
 			rows = append(rows, row)
 			keep = append(keep, it.UpstreamID)
