@@ -1,4 +1,9 @@
 // Package model 定义实例运维管理台的数据模型。
+//
+// 目录形态说明：instance 域采用「域级共享模型 + 子模块」的混合结构——
+// 本包的模型供域内各子模块（如 lifecycle/）共享引用，lifecycle 自带
+// 完整五件套（dto/model/repository/service/handler）。依据《CONTRIBUTING》
+// 层级规则：域内含多个子模块且需共享模型时，允许此形态。
 package model
 
 import "time"

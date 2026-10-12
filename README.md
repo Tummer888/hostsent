@@ -207,6 +207,10 @@ cd frontend-user  && npx vue-tsc --noEmit
 
 对接参考文档见 `docs/魔方云对接魔方财务.html` 与 `docs/实施计划/`（本地文档，不入库）。
 
+## 开发规范
+
+后端目录层级、模块形态、依赖方向、错误处理与迁移规则见 [CONTRIBUTING.md](CONTRIBUTING.md)，新增代码请先阅读。
+
 ## 文档
 
 - 架构与实施计划：`docs/实施计划/`

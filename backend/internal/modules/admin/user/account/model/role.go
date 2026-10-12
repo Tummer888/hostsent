@@ -1,3 +1,8 @@
+// Package model 定义账户域的数据模型（用户/角色/权限等）。
+//
+// 目录形态说明：account 域采用「域级共享模型 + 子模块」的混合结构——
+// 本包模型供域内子模块（如 level/）共享引用，level 自带完整五件套。
+// 依据《CONTRIBUTING》层级规则：域内含多个子模块且需共享模型时，允许此形态。
 package model
 
 import "time"
