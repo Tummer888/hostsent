@@ -263,3 +263,59 @@ func flattenForm(r *http.Request) map[string]string {
 	}
 	return out
 }
+
+// TestContract_CartIndexWithoutDataEnvelope 回归：cart/index 的响应**不带 data 壳**
+// （商品数组挂在顶层 products），只认 data 的解析路径会静默解出空结果 ——
+// 活动款价格回填与在售判定都会因此失效，本用例守住这条协议差异。
+func TestContract_CartIndexWithoutDataEnvelope(t *testing.T) {
+	p := newMockProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/zjmf_api_login":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "jwt": "TESTJWT"})
+		case "/cart/index":
+			if got := r.URL.Query().Get("gid"); got != "46" {
+				t.Errorf("gid = %q, want 46", got)
+			}
+			// 关键：没有 data 字段，products 直接挂顶层。
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": 200,
+				"msg":    "请求成功",
+				"products": []map[string]interface{}{
+					{"id": 589, "name": "海外年付活动——轻量型", "gid": 46, "billingcycle": "annually",
+						"product_price": "259.00", "sale_price": "181.30", "bates": "77.70", "has_bates": 1},
+					{"id": 592, "name": "海外年付活动——标准型", "gid": 46, "billingcycle": "annually",
+						"product_price": "359.00", "sale_price": "251.30", "bates": "107.70", "has_bates": 1},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	row, ok := p.fetchCatalogRow(context.Background(), 46, "589")
+	if !ok {
+		t.Fatal("未取到 cart/index 行：顶层 products 解析失效（价格回填将全部落空）")
+	}
+	if float64(row.ProductPrice) != 259 || float64(row.SalePrice) != 181.3 || row.BillingCycle != "annually" || row.HasBates != 1 {
+		t.Fatalf("目录行解析错误: %+v", row)
+	}
+	// 该商品的周期价全为 0/-1（价格只挂在配置项上）时，必须回填前台展示价。
+	raw := []PricingRow{{"monthly": "-1.00", "annually": "0"}}
+	rows, source := resolveListRows(raw, row, ok)
+	if source != priceSourceCatalog {
+		t.Fatalf("price_source = %q, want catalog", source)
+	}
+	if v, _ := rows[0].Num("annually"); v != 259 {
+		t.Errorf("annually = %v, want 259", v)
+	}
+	// 折扣口径不变：259 × 70% = 181.30（与上游前台 sale_price 一致）。
+	costs := scalePricingRows(rows, SaleFlag{Type: 1, Bates: 70})
+	if v, _ := costs[0].Num("annually"); v != 181.3 {
+		t.Errorf("代理价 annually = %v, want 181.3", v)
+	}
+	// data 壳存在的接口仍按原路径解析（callTopLevel 兼容两种形态）。
+	var all CartAllResp
+	if err := p.callTopLevel(context.Background(), "test", http.MethodGet, "cart/all", nil, &all); err == nil {
+		t.Log("cart/all 在本 mock 中 404，符合预期（只验证解析路径不 panic）")
+	}
+}

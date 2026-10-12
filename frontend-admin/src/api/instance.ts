@@ -2,10 +2,12 @@ import { request } from '@/utils/request'
 
 import type {
   InstanceAddIPRequest,
+  InstanceAdjustRequest,
   InstanceAttachDiskRequest,
   InstanceBandwidthRequest,
   InstanceBatchActionRequest,
   InstanceBatchActionResponse,
+  InstanceCredentialReveal,
   InstanceDestroyRequest,
   InstanceDetail,
   InstanceOpsListQuery,
@@ -223,5 +225,25 @@ export function attachInstanceDisk(id: number, data: InstanceAttachDiskRequest):
   return request.post<string>({
     url: `/instances/${id}/disks`,
     data,
+  })
+}
+
+// ---- 详情页第四轮：账期自定义与明文凭据 ----
+
+/**
+ * 调整实例到期时间与付款周期（本地口径，不产生账单、不推送上游）。
+ * 返回调整后的最新详情，页面可直接用它刷新，无需再拉一次。
+ */
+export function adjustInstanceBilling(id: number, data: InstanceAdjustRequest): Promise<InstanceDetail> {
+  return request.put<InstanceDetail>({
+    url: `/instances/${id}/billing`,
+    data,
+  })
+}
+
+/** 查看登录明文密码（敏感操作，后端会写审计流水）。 */
+export function revealInstanceCredential(id: number): Promise<InstanceCredentialReveal> {
+  return request.post<InstanceCredentialReveal>({
+    url: `/instances/${id}/credential`,
   })
 }

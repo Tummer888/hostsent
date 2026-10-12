@@ -124,7 +124,11 @@ func TestBuildProductRawSpecs(t *testing.T) {
 	}
 	flag := SaleFlag{Type: 1, Bates: 70}
 	costRows := scalePricingRows(detail.ProductPricings, flag)
-	raw := buildProductRawSpecs(detail, "常驻 | 活动", detail.ProductPricings, costRows, flag)
+	raw := buildProductRawSpecs(detail, productMeta{
+		GroupName: "常驻 | 活动", GroupSource: groupSourceUpstream,
+		ListRows: detail.ProductPricings, CostRows: costRows, Flag: flag,
+		PriceSource: priceSourcePricings, Visibility: visibilityVisible,
+	})
 
 	if raw["gid"] != int64(14) {
 		t.Errorf("gid = %v, want 14（sync 引擎据此写 resource_products.group_id）", raw["gid"])
@@ -151,10 +155,98 @@ func TestBuildProductRawSpecs(t *testing.T) {
 	if desc, _ := disc["desc"].(string); desc == "" {
 		t.Error("折扣描述为空，详情页无法展示折扣来源")
 	}
+	if raw["group_name_source"] != groupSourceUpstream {
+		t.Errorf("group_name_source = %v, want upstream（前端据此判定是否打「派生」标记）", raw["group_name_source"])
+	}
+	if raw["visibility"] != visibilityVisible {
+		t.Errorf("visibility = %v, want visible", raw["visibility"])
+	}
+	if raw["price_source"] != priceSourcePricings {
+		t.Errorf("price_source = %v, want pricings", raw["price_source"])
+	}
 	// 无分组名时不写入 group_name（避免把 nil 当分类名）。
-	deleteNoGroup := buildProductRawSpecs(UpstreamProductDetail{GID: 6}, "", nil, nil, SaleFlag{})
+	deleteNoGroup := buildProductRawSpecs(UpstreamProductDetail{GID: 6}, productMeta{})
 	if _, ok := deleteNoGroup["group_name"]; ok {
 		t.Error("未知分组的商品不应写入 group_name")
+	}
+}
+
+// TestDeriveGroupLabel 隐藏分组的分类名派生：只认「地区|区域」惯例，不拿营销词当分类名。
+func TestDeriveGroupLabel(t *testing.T) {
+	cases := []struct{ name, want string }{
+		{"香港|二区·轻量 8-8 30Mbps", "香港|二区"},
+		{"宁波电信|一区·标准 16-16 30Mbps", "宁波电信|一区"},
+		{"美国|五区·流量 A型 1Gbps", "美国|五区"},
+		{"香港五区|裸金属 32核 32GB 50Mbps", "香港五区|裸金属"},
+		{"2025·海外|年付 活动款-1010", ""}, // 首个分隔符前没有「|」，不臆造
+		{"美国精品CN2 8核 16GB 1G带宽 F型", ""},
+		{"内蒙古云服务器-A型", ""},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := deriveGroupLabel(c.name); got != c.want {
+			t.Errorf("deriveGroupLabel(%q) = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// TestClassifyVisibility 在售判定：分组隐藏/商品隐藏/已下架都不得显示为上架。
+func TestClassifyVisibility(t *testing.T) {
+	visible := map[int64]string{14: "香港|六区", 6: ""}
+	cases := []struct {
+		name     string
+		detail   UpstreamProductDetail
+		groups   map[int64]string
+		groupsOK bool
+		want     string
+	}{
+		{"正常在售", UpstreamProductDetail{GID: 14}, visible, true, visibilityVisible},
+		{"分组被隐藏", UpstreamProductDetail{GID: 66}, visible, true, visibilityGroupHid},
+		{"商品隐藏", UpstreamProductDetail{GID: 14, Hidden: 1}, visible, true, visibilityProductHi},
+		{"商品下架", UpstreamProductDetail{GID: 14, Retired: 1}, visible, true, visibilityRetired},
+		{"cart/all 取不到时不误判", UpstreamProductDetail{GID: 66}, nil, false, visibilityVisible},
+	}
+	for _, c := range cases {
+		if got := classifyVisibility(c.detail, c.groups, c.groupsOK); got != c.want {
+			t.Errorf("%s: classifyVisibility = %q, want %q", c.name, got, c.want)
+		}
+	}
+	if got := statusForVisibility(visibilityGroupHid); got != "inactive" {
+		t.Errorf("隐藏分组商品状态 = %q, want inactive（同步后显示未在售）", got)
+	}
+	if got := statusForVisibility(visibilityVisible); got != "active" {
+		t.Errorf("在售商品状态 = %q, want active", got)
+	}
+}
+
+// TestResolveListRows 活动款价格回填：product_pricings 全 0/-1 时用前台展示价补其售卖周期。
+func TestResolveListRows(t *testing.T) {
+	raw := []PricingRow{jsonMustRow(t, `{"monthly":"-1.00","annually":"0"}`)}
+	cat := CartIndexProduct{ProductPrice: 259, SalePrice: 181.3, HasBates: 1, BillingCycle: "annually", SetupFee: 0}
+	rows, source := resolveListRows(raw, cat, true)
+	if source != priceSourceCatalog {
+		t.Fatalf("source = %q, want catalog", source)
+	}
+	if v, _ := rows[0].Num("annually"); v != 259 {
+		t.Errorf("annually = %v, want 259（上游前台标价）", v)
+	}
+	if v, _ := rows[0].Num("monthly"); v != -1 {
+		t.Errorf("monthly = %v, want -1（不可售周期保持不变）", v)
+	}
+	// 折后成本按 flag 换算：259 × 70% = 181.3，与上游前台 sale_price 一致。
+	flag := SaleFlag{Type: 1, Bates: 70}
+	costs := scalePricingRows(rows, flag)
+	if v, _ := costs[0].Num("annually"); v != 181.3 {
+		t.Errorf("代理价 annually = %v, want 181.3", v)
+	}
+	// 有正价时不回填（保持周期价口径）。
+	withPrice := []PricingRow{jsonMustRow(t, `{"monthly":"109.00"}`)}
+	if _, source := resolveListRows(withPrice, cat, true); source != priceSourcePricings {
+		t.Errorf("source = %q, want pricings", source)
+	}
+	// 前台目录也没有 → 上游未定价。
+	if _, source := resolveListRows(raw, CartIndexProduct{}, false); source != priceSourceNone {
+		t.Errorf("source = %q, want none", source)
 	}
 }
 

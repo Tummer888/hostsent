@@ -417,6 +417,11 @@ func newRouter(app *App) *gin.Engine {
 			instanceOps.PUT("/:id/bandwidth", app.perm("instance:hardware"), app.instanceOpsHandler.SetBandwidth)
 			instanceOps.POST("/:id/ips", app.perm("instance:hardware"), app.instanceOpsHandler.AddIP)
 			instanceOps.POST("/:id/disks", app.perm("instance:hardware"), app.instanceOpsHandler.AttachDataDisk)
+			// 账期自定义（本地口径，不推送上游——上游无改到期时间/周期接口）。
+			// 高危：改动直接影响续费/到期处置，需二次验证（复用 instance_resize 场景以外的独立场景码）。
+			instanceOps.PUT("/:id/billing", app.perm("instance:billing"), app.adminRequireVerification("instance_billing"), app.instanceOpsHandler.AdjustBilling)
+			// 查看明文密码：只读但属敏感信息访问，独立权限码便于收窄。
+			instanceOps.POST("/:id/credential", app.perm("instance:credential"), app.instanceOpsHandler.RevealCredential)
 			instanceOps.DELETE("/:id", app.perm("instance:destroy"), app.adminRequireVerification("instance_destroy"), app.instanceOpsHandler.Destroy)
 		}
 
@@ -464,6 +469,8 @@ func newRouter(app *App) *gin.Engine {
 				// 注意：静态路由需在 /:id 之前注册，避免被参数路由吞并。
 				prodProducts.POST("/clone", app.perm("product:create"), app.prodCatalogHandler.CloneFromUpstream)
 				prodProducts.POST("/clone/batch", app.perm("product:create"), app.prodCatalogHandler.BatchCloneFromUpstream)
+				// 上游商品页调价：设定加价规则并重算其已导入商品的售价（静态路由须在 /:id 之前）。
+				prodProducts.POST("/upstream-markup", app.perm("product:price:update"), app.prodCatalogHandler.ApplyUpstreamMarkup)
 				prodProducts.GET("/:id", app.perm("product:list"), app.prodCatalogHandler.Get)
 				prodProducts.PUT("/:id", app.perm("product:update"), app.prodCatalogHandler.Update)
 				prodProducts.DELETE("/:id", app.perm("product:delete"), app.prodCatalogHandler.Delete)

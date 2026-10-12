@@ -179,16 +179,23 @@ func (r PricingRow) HeadlinePrice() float64 {
 // Scale 返回按倍率换算后的价格行副本：只换算已知的价格/初装费字段，
 // 负值（上游约定 -1 = 该周期未配置）与不可解析值原样保留。
 func (r PricingRow) Scale(factor float64) PricingRow {
-	out := make(PricingRow, len(r))
-	for k, v := range r {
-		out[k] = v
-	}
+	out := r.Clone()
 	for _, key := range priceFieldNames() {
 		cur, ok := r.Num(key)
 		if !ok || cur < 0 {
 			continue
 		}
 		out[key] = roundPrice(cur * factor)
+	}
+	return out
+}
+
+// Clone 浅拷贝价格行。PricingRow 是 map 引用类型，直接改字段会污染调用方的原始行
+// （上游原始快照要按未改动的形态落 raw_specs，供后续核对）。
+func (r PricingRow) Clone() PricingRow {
+	out := make(PricingRow, len(r))
+	for k, v := range r {
+		out[k] = v
 	}
 	return out
 }
@@ -310,6 +317,34 @@ type CartProductConfigResp struct {
 	Advanced        []map[string]interface{} `json:"advanced"`
 	ConfigLinks     []int64                  `json:"config_links"`
 }
+
+// CartIndexResp GET cart/index?gid= 的响应。
+//
+// 注意：本接口**没有** {status,msg,data} 外壳（实测 data 缺席，p.call 整包解），
+// 商品数组直接挂在顶层 products 上——这是「上游自己怎么展示这个商品」的权威视图：
+// product_price 是前台标价（含默认配置项的周期价），sale_price 是本客户应付。
+// 对 dcimcloud 类「固定配置活动款」，价格只存在于配置项子项价里，
+// product_pricings 全为 0/-1，只能靠这里的 product_price 补齐。
+type CartIndexResp struct {
+	Products []CartIndexProduct `json:"products"`
+}
+
+// CartIndexProduct cart/index 的商品行（只取价格与在售判定相关字段）。
+type CartIndexProduct struct {
+	ID           FlexFloat `json:"id"`
+	Name         string    `json:"name"`
+	GID          FlexFloat `json:"gid"`
+	Type         string    `json:"type"` // dcimcloud/dcim/...
+	ProductPrice FlexFloat `json:"product_price"`
+	SalePrice    FlexFloat `json:"sale_price"`
+	SetupFee     FlexFloat `json:"setup_fee"`
+	Bates        FlexFloat `json:"bates"`     // 立减金额（product_price - sale_price）
+	HasBates     int       `json:"has_bates"` // 1=本客户有折扣记录；0/缺失=无折扣，此时 sale_price 为 0 不可用
+	BillingCycle string    `json:"billingcycle"`
+}
+
+// PID 商品 id（FlexFloat 兼容上游把数字回成字符串）。
+func (c CartIndexProduct) PID() int64 { return int64(c.ID) }
 
 // CustomField 上游商品自定义字段（下单时以 customfield[fieldname]=value 透传）。
 type CustomField struct {

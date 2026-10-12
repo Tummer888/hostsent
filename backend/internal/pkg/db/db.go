@@ -1110,6 +1110,9 @@ var seedPermissionDefaults = []seedPermission{
 	{ParentCode: "resource:instance", Name: "救援系统", Code: "instance:rescue", Type: "button", SortOrder: 7, Status: "active"},
 	{ParentCode: "resource:instance", Name: "快照备份", Code: "instance:snapshot", Type: "button", SortOrder: 8, Status: "active"},
 	{ParentCode: "resource:instance", Name: "硬件变更", Code: "instance:hardware", Type: "button", SortOrder: 9, Status: "active"},
+	// 详情页第四轮：账期自定义（本地口径）与明文密码查看，均为高危动作，独立授权。
+	{ParentCode: "resource:instance", Name: "账期调整", Code: "instance:billing", Type: "button", SortOrder: 10, Status: "active"},
+	{ParentCode: "resource:instance", Name: "查看密码", Code: "instance:credential", Type: "button", SortOrder: 11, Status: "active"},
 	{Name: "商品销售", Code: "product", Type: "catalog", SortOrder: 5, Status: "active"},
 	{ParentCode: "product", Name: "产品列表", Code: "product:list", Type: "menu", SortOrder: 1, Status: "active"},
 	{ParentCode: "product:list", Name: "创建产品", Code: "product:create", Type: "button", SortOrder: 1, Status: "active"},
@@ -1414,6 +1417,8 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"instance:rescue",
 			"instance:snapshot",
 			"instance:hardware",
+			"instance:billing",
+			"instance:credential",
 			"product",
 			"product:list",
 			"product:create",
@@ -1554,6 +1559,9 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"instance:password",
 			"instance:rescue",
 			"instance:snapshot",
+			// 详情页第四轮：运维需要看实例密码排障、按工单核对账期；重装/销毁仍不授予。
+			"instance:credential",
+			"instance:billing",
 			"product",
 			"product:list",
 			"product:update",
@@ -1711,6 +1719,8 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"instance:password",
 			"instance:rescue",
 			"instance:snapshot",
+			// 详情页第四轮：支持需读密码排障（留审计），账期改动仍归运维/财务，不给技术。
+			"instance:credential",
 		},
 		// user：客户侧角色。客户不登录后台，不持有任何后台权限码。
 		// 历史种子曾给这个角色挂上 system:user / system:user:list / user:detail，

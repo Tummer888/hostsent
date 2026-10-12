@@ -131,8 +131,12 @@ type ProviderInfo struct {
 	OpsConsoleURL string `json:"ops_console_url"`
 	// Capabilities 渠道能力描述符，供后台能力矩阵展示。
 	Capabilities upstream.CapabilityDescriptor `json:"capabilities"`
-	CreatedAt    string                        `json:"created_at"`
-	UpdatedAt    string                        `json:"updated_at"`
+	// CatalogSupported 是否具备商品目录能力（可作「导入上游商品」的数据源）。
+	// 仅已实现 ProductCatalog 的渠道为 true：自营算力平台（魔方云等）为 false，
+	// 导入弹窗据此过滤，避免出现点了也列不出商品的自营选项。
+	CatalogSupported bool   `json:"catalog_supported"`
+	CreatedAt        string `json:"created_at"`
+	UpdatedAt        string `json:"updated_at"`
 }
 
 // ProviderListResponse 提供商列表响应

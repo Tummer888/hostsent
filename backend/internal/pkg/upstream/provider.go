@@ -226,9 +226,19 @@ type InstanceLifecycle interface {
 	InstanceAdministration
 }
 
-// PoolReader 资源池读取能力。
+// PoolReader 资源池读取能力：返回**可消耗容量**维度的池（宿主机节点 / 存储池）。
+// 位置维度（区域）由 RegionReader 单独提供，两者是不同实体，不要混用一个方法。
 type PoolReader interface {
 	ListPools(ctx context.Context) ([]*StandardPool, error)
+}
+
+// RegionReader 区域（地域）读取能力。
+//
+// 与 PoolReader 分开的原因：魔方云的区域（GET /areas）只有 node_num/store_num 这类
+// 计数与位置信息、没有容量，而资源池要有 CPU/内存/磁盘用量。旧实现把两者都塞进
+// ListPools，导致 region scope 与 pool scope 写同一批零容量的行。
+type RegionReader interface {
+	ListRegions(ctx context.Context) ([]*StandardPool, error)
 }
 
 // AccountReader 账户信息读取能力。
@@ -339,9 +349,9 @@ type ProviderConfig struct {
 type StandardPool struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
-	Type        string `json:"type"` // region/zone/cluster
+	Type        string `json:"type"` // region/zone/node/cluster/storage
 	TotalCPU    int    `json:"total_cpu"`
-	TotalMemory int    `json:"total_memory"` // MB
+	TotalMemory int    `json:"total_memory"` // GB（与资源池页展示口径一致）
 	TotalDisk   int    `json:"total_disk"`   // GB
 	UsedCPU     int    `json:"used_cpu"`
 	UsedMemory  int    `json:"used_memory"`
@@ -351,6 +361,20 @@ type StandardPool struct {
 	// 由同步层回退到渠道 region。
 	Region string `json:"region"`
 	Zone   string `json:"zone"`
+	// Live 实时状态快照（可选）。来自上游的实时探针接口（如魔方云 /nodes/{id}/status），
+	// 为 nil 表示该池仅有周期快照、无实时通道，同步层据此决定是否写 probe_* 列
+	// （页面显示「未接入探针」）。容量字段本身就是本次采样的结论：有 Live 时它们是实时值。
+	Live *PoolLiveStatus `json:"live,omitempty"`
+}
+
+// PoolLiveStatus 资源池实时状态快照的结论部分（容量与用量在 StandardPool 上）。
+type PoolLiveStatus struct {
+	// Status 探针结论：healthy 正常 / warning 异常 / down 离线。
+	Status string `json:"status"`
+	// Message 面板原文或采集失败原因（页面悬停展示），如 "连接成功 · CPU 6.4% · ..."。
+	Message string `json:"message"`
+	// SampledAt 本次采样时间（写 probe_at）。
+	SampledAt time.Time `json:"sampled_at"`
 }
 
 // AccountInfo 账户信息

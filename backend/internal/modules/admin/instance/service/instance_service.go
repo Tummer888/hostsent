@@ -20,6 +20,8 @@ import (
 	"hostsent/backend/internal/modules/admin/instance/dto"
 	"hostsent/backend/internal/modules/admin/instance/model"
 	"hostsent/backend/internal/modules/admin/instance/repository"
+	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
+	"hostsent/backend/internal/pkg/billingcycle"
 	pkgmodel "hostsent/backend/internal/pkg/model"
 	"hostsent/backend/internal/pkg/upstream"
 )
@@ -47,6 +49,10 @@ type InstanceService interface {
 	Sync(ctx context.Context, op Operator, id uint64) (*dto.DetailInfo, error)
 	Resize(ctx context.Context, op Operator, id uint64, req *dto.ResizeRequest) error
 	SetRemark(ctx context.Context, op Operator, id uint64, remark string) error
+	// AdjustBilling 手工调整账期/付款周期（管理端自定义，不产生账单）。
+	AdjustBilling(ctx context.Context, op Operator, id uint64, req *dto.AdjustRequest) (*dto.DetailInfo, error)
+	// RevealCredential 查看实例登录明文密码（高危：写审计流水后才返回）。
+	RevealCredential(ctx context.Context, op Operator, id uint64) (*dto.CredentialRevealResult, error)
 	Destroy(ctx context.Context, op Operator, id uint64, req *dto.DestroyRequest) error
 	// Suspend / Unsuspend 暂停/恢复实例（T5.5 按能力分派）。
 	Suspend(ctx context.Context, op Operator, id uint64, reason string) error
@@ -74,6 +80,10 @@ type InstanceService interface {
 	RecordStageAction(ctx context.Context, in StageActionInput) error
 	// SetEventListener 注入实例操作事件监听（P6/T6.5 开放平台回调；装配层调用，可为 nil）。
 	SetEventListener(fn func(ctx context.Context, evt InstanceEvent))
+	// SetDetailRepository 注入详情页关联数据仓储（装配层调用；为 nil 时详情仅返回实例本体）。
+	SetDetailRepository(repo repository.InstanceDetailRepository)
+	// SetDetailOrderConfigReader 注入订单选配读取（装配层调用；为 nil 时配置项退化为商品默认）。
+	SetDetailOrderConfigReader(fn func(ctx context.Context, orderID uint64) (string, error))
 	Operations(ctx context.Context, id uint64, query *dto.OperationListQuery) (*dto.OperationListResponse, error)
 	// OperationLogs 全局操作流水（跨实例审计视图）。
 	OperationLogs(ctx context.Context, query *dto.OperationLogQuery) (*dto.OperationLogListResponse, error)
@@ -86,6 +96,10 @@ type instanceService struct {
 	related repository.RelatedRepository
 	resolve ProviderResolver
 	logger  *zap.Logger
+	// detail 详情页关联数据只读仓储（订单/商品/上游/配置/凭证）；为 nil 时详情仅返回实例本体。
+	detail repository.InstanceDetailRepository
+	// detailOrderConfig 读订单选配 JSON（装配层注入；为 nil 时配置项退化为商品默认）。
+	detailOrderConfig func(ctx context.Context, orderID uint64) (string, error)
 	// refundPolicy 退款处置策略读取（装配层注入 lifecycle_policies.refund_action）；为 nil 视为 none。
 	refundPolicy func(ctx context.Context) string
 	// eventListener 实例操作/阶段事件监听（P6/T6.5 开放平台回调经装配层注入，可为 nil）。
@@ -112,6 +126,16 @@ func NewInstanceService(
 	logger *zap.Logger,
 ) InstanceService {
 	return &instanceService{repo: repo, opRepo: opRepo, related: related, resolve: resolve, logger: logger}
+}
+
+// SetDetailRepository 注入详情页关联数据仓储（装配层调用）。
+func (s *instanceService) SetDetailRepository(repo repository.InstanceDetailRepository) {
+	s.detail = repo
+}
+
+// SetDetailOrderConfigReader 注入订单选配读取（装配层调用）。
+func (s *instanceService) SetDetailOrderConfigReader(fn func(ctx context.Context, orderID uint64) (string, error)) {
+	s.detailOrderConfig = fn
 }
 
 // SetEventListener 注入实例操作事件监听（P6/T6.5）。
@@ -217,6 +241,10 @@ func (s *instanceService) Stats(ctx context.Context, query *dto.StatsQuery) (*dt
 }
 
 // Detail 实例详情；live=true 时先尝试回源刷新（失败降级为本地数据）。
+//
+// 返回内容分五块：实例本体与能力位、来源订单财务口径、售出商品/对接关系、
+// 生效配置项、登录连接信息。后四块都是「读失败即降级为空」——详情页的首要
+// 职责是把实例本体现出来，不能因为某个关联表查询出错就整页打不开。
 func (s *instanceService) Detail(ctx context.Context, id uint64, live bool) (*dto.DetailInfo, error) {
 	row, err := s.repo.FindByID(ctx, id)
 	if err != nil {
@@ -235,7 +263,167 @@ func (s *instanceService) Detail(ctx context.Context, id uint64, live bool) (*dt
 	if capErr != nil {
 		detail.CapabilityError = capErr.Error()
 	}
+	s.attachDetailContext(ctx, row, detail)
 	return detail, nil
+}
+
+// attachDetailContext 补齐详情页的关联信息（订单/商品/上游/配置/凭证）。
+// 逐块独立容错：任一块读失败只留空，不影响其余块与实例本体。
+func (s *instanceService) attachDetailContext(ctx context.Context, row *repository.InstanceRow, detail *dto.DetailInfo) {
+	if s.detail == nil || detail == nil || row == nil {
+		return
+	}
+	quantity := 1
+	// 来源订单：订单里同时带付款周期与数量，续费金额按实例当前周期现算。
+	order, oerr := s.detail.SourceOrder(ctx, row.OrderID, row.BillingMode, quantity)
+	if oerr == nil && order != nil {
+		quantity = order.Quantity
+		if quantity <= 0 {
+			quantity = 1
+		}
+		detail.Order = order
+	}
+	// 售出商品：自营取 sell_product_id；上游链路 sell_product_id 可能为空，
+	// 此时商品信息缺失属正常（该实例不是经我方商品开通的）。
+	if product, perr := s.detail.Product(ctx, row.SellProductID); perr == nil && product != nil {
+		detail.Product = product
+	}
+	// 上游商品：仅对接商品且绑定到 resource_products 时有值。
+	upstream, upstreamRenew, uerr := s.detail.Upstream(ctx, row.UpstreamProductID, row.BillingMode)
+	if uerr == nil && upstream != nil {
+		detail.Upstream = upstream
+	} else {
+		upstreamRenew = 0
+	}
+	if detail.Order != nil {
+		detail.Order.UpstreamRenewAmount = upstreamRenew
+		if upstreamRenew > 0 {
+			detail.Order.UpstreamRenewCycle = billingcycle.NormalizeOrDefault(row.BillingMode)
+		}
+	}
+	// 生效配置项：商品配置项 + 订单选配，再用实例表字段覆盖（实例字段最准）。
+	orderConfig := ""
+	if detail.Order != nil {
+		orderConfig = s.orderConfigOptions(ctx, detail.Order.ID)
+	}
+	configs, cerr := s.detail.ProductConfigs(ctx, row.SellProductID, orderConfig)
+	if cerr == nil {
+		detail.Configs = mergeInstanceConfigs(configs, row)
+	}
+	// 登录连接信息（不含明文密码）。
+	if cred, crerr := s.detail.Credentials(ctx, row.ID); crerr == nil {
+		detail.Credential = cred
+	}
+}
+
+// orderConfigOptions 读订单的客户选配 JSON（读失败返回空，调用方按商品默认降级）。
+func (s *instanceService) orderConfigOptions(ctx context.Context, orderID uint64) string {
+	if s.detailOrderConfig == nil {
+		return ""
+	}
+	raw, err := s.detailOrderConfig(ctx, orderID)
+	if err != nil {
+		return ""
+	}
+	return raw
+}
+
+// mergeInstanceConfigs 用实例表字段覆盖配置项取值（CPU/内存/磁盘/带宽/系统/区域/可用区）。
+//
+// 为什么以实例字段为准：配置项表记录的是"商品允许什么"，实例字段记录的是"这台机器实际
+// 是什么"——后者经回源刷新，是运行态真相。两者不一致时运营要看的是后者。
+//
+// 同时改单位：商品配置项的单位是为"可选项展示"写的（内存可能标 GB 而实例列存 MB），
+// 一旦取值换成实例字段，单位必须跟着换成实例字段的真实口径，否则会出现"4096 GB"。
+func mergeInstanceConfigs(items []dto.ConfigItem, row *repository.InstanceRow) []dto.ConfigItem {
+	if row == nil {
+		return items
+	}
+	actual := map[string]string{
+		"cpu":              intToString(row.CPU),
+		"memory":           intToString(row.Memory),
+		"disk":             intToString(row.Disk),
+		"system_disk_size": intToString(row.Disk),
+		"bw":               intToString(row.Bandwidth),
+		"bandwidth":        intToString(row.Bandwidth),
+		"os":               row.OS,
+		"area":             row.Region,
+		"region":           row.Region,
+		"node":             row.Zone,
+		"zone":             row.Zone,
+	}
+	instanceUnits := map[string]string{
+		"cpu":              "核",
+		"memory":           "MB",
+		"disk":             "GB",
+		"system_disk_size": "GB",
+		"bw":               "Mbps",
+		"bandwidth":        "Mbps",
+	}
+	out := make([]dto.ConfigItem, 0, len(items))
+	seen := map[string]bool{}
+	for _, it := range items {
+		if v, ok := actual[it.Key]; ok && v != "" {
+			it.Value, it.Source = v, "instance"
+			if u, ok := instanceUnits[it.Key]; ok {
+				it.Unit = u
+			}
+			seen[it.Key] = true
+		}
+		out = append(out, it)
+	}
+	// 商品没登记但实例有的关键项补一行，避免"配置区缺 CPU"这种匪夷所思的展示。
+	// disk 与 system_disk_size 同源（instances.disk 记的是系统盘），商品已登记
+	// 系统盘时不再补磁盘行，否则同一个值会出现两遍。
+	for _, key := range []string{"cpu", "memory", "disk", "bw", "os", "area", "node"} {
+		if seen[key] {
+			continue
+		}
+		if key == "disk" && seen["system_disk_size"] {
+			continue
+		}
+		v := actual[key]
+		if v == "" {
+			continue
+		}
+		out = append(out, dto.ConfigItem{
+			Key:    key,
+			Label:  instanceConfigLabel(key),
+			Value:  v,
+			Source: "instance",
+			Unit:   instanceUnits[key],
+		})
+	}
+	return out
+}
+
+// instanceConfigLabel 实例字段的展示名（补齐配置项时用）。
+func instanceConfigLabel(key string) string {
+	switch key {
+	case "cpu":
+		return "CPU"
+	case "memory":
+		return "内存"
+	case "disk":
+		return "磁盘"
+	case "bw", "bandwidth":
+		return "带宽"
+	case "os":
+		return "操作系统"
+	case "area", "region":
+		return "区域"
+	case "node", "zone":
+		return "可用区"
+	default:
+		return key
+	}
+}
+
+func intToString(v int) string {
+	if v == 0 {
+		return ""
+	}
+	return strconv.Itoa(v)
 }
 
 // Power 电源操作：开机/关机/硬关机/重启/硬重启。
@@ -781,6 +969,108 @@ func (s *instanceService) SetRemark(ctx context.Context, op Operator, id uint64,
 	s.record(ctx, row, op, model.ActionRemark,
 		map[string]any{"remark": remark}, row.Status, row.Status, nil)
 	return nil
+}
+
+// AdjustBilling 手工调整账期/付款周期（管理端自定义，见 dto.AdjustRequest 注释）。
+//
+// 安全边界（刻在代码里，不随调用方改变）：
+//   - 至少改一样，否则是空操作，直接拒绝（避免前端误发空请求留下无意义流水）；
+//   - 对接商品（source_mode=upstream）不加 force 一律拒绝：上游账期才是权威，
+//     本地改了会被回源覆盖，而生命周期推进器可能按这个本地值误停服；
+//   - 到期时间只接受未来时间或清空（把到期时间改到过去等于立刻判死一个在跑的机器，
+//     要停服请用「暂停」——那是显式语义且有平台动作）。
+func (s *instanceService) AdjustBilling(ctx context.Context, op Operator, id uint64, req *dto.AdjustRequest) (*dto.DetailInfo, error) {
+	row, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, s.wrapNotFound(err)
+	}
+	if req == nil {
+		return nil, ErrBillingAdjustInvalid
+	}
+	expireRaw := strings.TrimSpace(req.ExpireAt)
+	billingMode := strings.TrimSpace(req.BillingMode)
+	if expireRaw == "" && !req.ClearExpire && billingMode == "" {
+		return nil, fmt.Errorf("%w: 请至少填写到期时间或付款周期", ErrBillingAdjustInvalid)
+	}
+	if billingMode != "" {
+		normalized := billingcycle.Normalize(billingMode)
+		if !billingcycle.IsValid(normalized) {
+			return nil, fmt.Errorf("%w: 不支持的付款周期 %s", ErrBillingAdjustInvalid, billingMode)
+		}
+		billingMode = normalized
+	}
+	if row.SourceMode == syncmodel.SourceModeUpstream && !req.Force {
+		return nil, fmt.Errorf("%w: 该实例为上游对接链路，账期以上游为准；确需本地调整请勾选「强制本地调整」", ErrStatusConflict)
+	}
+	var expireAt *time.Time
+	if expireRaw != "" {
+		t, perr := parseFlexibleTime(expireRaw)
+		if perr != nil {
+			return nil, fmt.Errorf("%w: 到期时间格式无法识别", ErrBillingAdjustInvalid)
+		}
+		if !t.After(time.Now()) {
+			return nil, fmt.Errorf("%w: 到期时间必须晚于当前时间；要停服请使用「暂停服务」", ErrBillingAdjustInvalid)
+		}
+		expireAt = &t
+	}
+	params := map[string]any{
+		"before_expire_at": fmtTimePtr(row.ExpireAt),
+		"before_billing":   row.BillingMode,
+		"expire_at":        expireRaw,
+		"clear_expire":     req.ClearExpire,
+		"billing_mode":     billingMode,
+		"force":            req.Force,
+		"reason":           req.Reason,
+	}
+	before := row.Status
+	if aerr := s.repo.AdjustBilling(ctx, row.ID, expireAt, req.ClearExpire, billingMode); aerr != nil {
+		s.record(ctx, row, op, model.ActionBillingAdjust, params, before, before, aerr)
+		return nil, aerr
+	}
+	s.record(ctx, row, op, model.ActionBillingAdjust, params, before, before, nil)
+	return s.Detail(ctx, id, false)
+}
+
+// RevealCredential 查看实例登录明文密码。
+//
+// 明文不随详情下发（详情高频加载、会被日志与浏览器缓存），只在此处按需返回；
+// 无论有无密码都写一条流水——"谁在什么时候看过密码"本身就是必须留痕的信息。
+func (s *instanceService) RevealCredential(ctx context.Context, op Operator, id uint64) (*dto.CredentialRevealResult, error) {
+	row, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, s.wrapNotFound(err)
+	}
+	if s.detail == nil {
+		return nil, ErrCapabilityUnsupported
+	}
+	username, password, port, rerr := s.detail.RevealCredential(ctx, row.ID)
+	if rerr != nil {
+		s.record(ctx, row, op, model.ActionRevealCredential, nil, row.Status, row.Status, rerr)
+		return nil, rerr
+	}
+	s.record(ctx, row, op, model.ActionRevealCredential,
+		map[string]any{"has_password": password != ""}, row.Status, row.Status, nil)
+	if password == "" {
+		return nil, fmt.Errorf("%w: 上游未保存该实例的明文密码，请用「重置密码」重新设置", ErrCredentialUnavailable)
+	}
+	return &dto.CredentialRevealResult{Username: username, Password: password, Port: port}, nil
+}
+
+// parseFlexibleTime 解析运维手填的到期时间：接受 RFC3339 与常见的空格分隔写法。
+func parseFlexibleTime(raw string) (time.Time, error) {
+	layouts := []string{
+		time.RFC3339,
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04",
+		"2006-01-02",
+	}
+	for _, layout := range layouts {
+		if t, err := time.ParseInLocation(layout, raw, time.Local); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unrecognized time: %s", raw)
 }
 
 // Destroy 销毁实例（T5.5 按能力分派：优先 InstanceTermination，退化 InstanceAdministration.Delete）。

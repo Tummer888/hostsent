@@ -43,6 +43,14 @@ type upstreamRawSpecs struct {
 	PricingsList   []map[string]interface{} `json:"product_pricings_list"`
 	ConfigGroups   []upstreamConfigGroup    `json:"config_groups"`
 	UpstreamDisc   map[string]interface{}   `json:"upstream_discount"`
+	// PriceSource 价格来源：pricings=商品周期价；catalog=上游前台展示价回填；none=上游未定价。
+	PriceSource string `json:"price_source"`
+	// Catalog 上游前台展示价（cart/index）：价格来源为 catalog 时与之上同源，供运营核对。
+	Catalog struct {
+		Price        flexNumber `json:"price"`
+		SalePrice    flexNumber `json:"sale_price"`
+		BillingCycle string     `json:"billing_cycle"`
+	} `json:"catalog"`
 }
 
 // upstreamConfigGroup / upstreamConfigOption / upstreamConfigSub 为上游 config_groups 的最小视图。
@@ -270,6 +278,10 @@ func (s *productService) upstreamInfoFor(ctx context.Context, item *model.Produc
 		}
 	}
 	info.DiscountDesc = upstreamDiscountDesc(raw.UpstreamDisc)
+	info.PriceSource = raw.PriceSource
+	info.CatalogPrice = float64(raw.Catalog.Price)
+	info.CatalogSalePrice = float64(raw.Catalog.SalePrice)
+	info.CatalogCycle = raw.Catalog.BillingCycle
 	info.ListCycles = upstreamCycles(raw.PricingsList)
 	info.CostCycles = upstreamCycles(raw.PricingsCost)
 	info.Renewable, info.RenewNote = upstreamRenewable(raw.PayType)

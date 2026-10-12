@@ -361,6 +361,15 @@ func (s *providerService) descriptorFor(providerType string) upstream.Capability
 	return upstream.CapabilityDescriptor{Kind: model.KindUpstream, SignerType: upstream.SignerNone, Implemented: implemented}
 }
 
+// supportsCatalog 判断渠道类型是否具备商品目录能力（可作导入上游商品的数据源）。
+// 自营算力平台没有商品目录，导入弹窗会据 catalog_supported=false 过滤掉这些选项。
+func (s *providerService) supportsCatalog(providerType string) bool {
+	if s.upmgr == nil {
+		return false
+	}
+	return s.upmgr.SupportsProductCatalog(providerType)
+}
+
 // SyncTypeRegistry 把已注册适配器的能力描述符与展示名回写 provider_types（启动时调用）。
 // 幂等：仅更新展示字段，不覆盖人工维护的图标/文档/排序；已存在的假渠道行保持原样。
 func (s *providerService) SyncTypeRegistry(ctx context.Context) error {
@@ -807,6 +816,7 @@ func (s *providerService) buildProviderInfo(item model.ResourceProvider) dto.Pro
 		PriceChangeThreshold: item.PriceChangeThreshold,
 		OpsConsoleURL:        item.OpsConsoleURL,
 		Capabilities:         descriptor,
+		CatalogSupported:     s.supportsCatalog(item.ProviderType),
 		TotalCPU:             item.TotalCPU,
 		TotalMemory:          item.TotalMemory,
 		TotalDisk:            item.TotalDisk,

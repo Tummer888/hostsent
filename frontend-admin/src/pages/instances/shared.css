@@ -544,3 +544,294 @@
   color: var(--td-text-color-secondary);
   font-size: 13px;
 }
+
+.instances-module .dlg-full {
+  width: 100%;
+}
+
+/* ============================================================
+   详情页第四轮：速览条 / 关联三栏 / 配置与财务 / 凭据
+   ============================================================ */
+
+.instances-module .page-header__sep {
+  margin: 0 4px;
+  color: var(--td-text-color-placeholder);
+}
+
+/* ---------- 关键信息速览条 ---------- */
+.instances-module .glance-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.instances-module .glance-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: var(--hs-radius-lg);
+  background: var(--hs-surface-1);
+  border: 1px solid var(--td-component-border);
+  border-left: 3px solid var(--td-brand-color-6);
+  min-width: 0;
+}
+
+.instances-module .glance-card--warning {
+  border-left-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.06);
+}
+
+.instances-module .glance-card--danger {
+  border-left-color: var(--color-error, #ef4444);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.instances-module .glance-card__label {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.instances-module .glance-card__value {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--color-foreground);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.instances-module .glance-card__value--sm {
+  font-size: 14px;
+}
+
+.instances-module .glance-card__sub {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.instances-module .glance-card__link {
+  margin-left: 6px;
+  font-size: 12px;
+}
+
+/* ---------- 关联三栏（订单 / 商品 / 上游） ---------- */
+.instances-module .info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+}
+
+.instances-module .info-card {
+  padding: 16px 18px;
+  border-radius: var(--hs-radius-lg);
+  background: var(--hs-surface-2, #f8fafc);
+  border: 1px solid var(--td-component-border);
+  min-width: 0;
+}
+
+.instances-module .info-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: 10px;
+}
+
+.instances-module .info-card__head .card-title {
+  font-size: 14px;
+}
+
+/* ---------- 键值行 ---------- */
+.instances-module .kv-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 0;
+  font-size: 13px;
+  border-bottom: 1px dashed var(--td-component-stroke, #eef2f7);
+}
+
+.instances-module .kv-row:last-child {
+  border-bottom: none;
+}
+
+.instances-module .kv-row--col {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.instances-module .kv-row__k {
+  flex: 0 0 auto;
+  min-width: 96px;
+  color: var(--color-muted-foreground);
+}
+
+.instances-module .kv-row__v {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-foreground);
+  word-break: break-all;
+}
+
+.instances-module .kv-row__v--strong {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.instances-module .cycle-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.instances-module .cycle-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--hs-surface-1);
+  border: 1px solid var(--td-component-border);
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.instances-module .cycle-chip b {
+  color: var(--color-foreground);
+}
+
+.instances-module .inline-link {
+  margin-left: 8px;
+  font-size: 12px;
+}
+
+/* ---------- 配置与财务 ---------- */
+.instances-module .config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: var(--space-md);
+}
+
+.instances-module .config-panel {
+  padding: 16px 18px;
+  border-radius: var(--hs-radius-lg);
+  background: var(--hs-surface-2, #f8fafc);
+  border: 1px solid var(--td-component-border);
+  min-width: 0;
+}
+
+.instances-module .config-panel--wide {
+  grid-column: 1 / -1;
+  margin-top: var(--space-md);
+}
+
+.instances-module .config-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.instances-module .config-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.instances-module .config-item {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--hs-surface-1);
+  border: 1px solid var(--td-component-border);
+  min-width: 0;
+}
+
+.instances-module .config-item__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.instances-module .config-item__label {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.instances-module .config-item__value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-foreground);
+  word-break: break-all;
+}
+
+.instances-module .config-item__unit {
+  margin-left: 3px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-muted-foreground);
+}
+
+.instances-module .billing-alert {
+  margin-top: 12px;
+}
+
+/* ---------- 登录凭据 ---------- */
+.instances-module .credential-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0 24px;
+}
+
+.instances-module .credential-hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.instances-module .secret-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.instances-module .secret-cell code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--td-text-color-primary);
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 1400px) {
+  .instances-module .glance-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .instances-module .glance-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .instances-module .glance-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .instances-module .info-grid,
+  .instances-module .config-grid {
+    grid-template-columns: 1fr;
+  }
+}

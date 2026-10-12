@@ -94,6 +94,7 @@ const (
 	SceneInstanceResize          = "instance_resize"
 	SceneInstanceReinstall       = "instance_reinstall"
 	SceneInstanceSnapshotRestore = "instance_snapshot_restore"
+	SceneInstanceBilling         = "instance_billing"
 	SceneAdminGrant              = "admin_grant_change"
 	SceneRealnameSubmit          = "realname_submit"
 )

@@ -47,8 +47,10 @@ const (
 	// 二者都是"执行了就回不去"的动作，比变配更需要二次验证。
 	SceneInstanceReinstall       = "instance_reinstall"
 	SceneInstanceSnapshotRestore = "instance_snapshot_restore"
-	SceneAdminGrant              = "admin_grant_change"
-	SceneRealnameSubmit          = "realname_submit"
+	// 账期自定义会改变到期时间与付款周期口径，直接影响续费与到期处置，需二次验证。
+	SceneInstanceBilling = "instance_billing"
+	SceneAdminGrant      = "admin_grant_change"
+	SceneRealnameSubmit  = "realname_submit"
 )
 
 // 通道常量（与 uc/captcha/model 的 Channel* 一致）。

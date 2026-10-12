@@ -525,28 +525,44 @@ func (e *SyncEngine) syncPrices(ctx context.Context, task *syncmodel.SyncTask, p
 	return nil
 }
 
-// syncPools 拉取上游资源池（节点）并幂等写入 resource_pools，
+// syncPools 拉取上游资源池（宿主机节点）并幂等写入 resource_pools，
 // 同时将各池容量求和回写上游提供商资源统计。
 func (e *SyncEngine) syncPools(ctx context.Context, task *syncmodel.SyncTask, provider upstream.Provider) error {
-	return e.syncPoolsInternal(ctx, task, provider, true)
-}
-
-// syncRegions 与 syncPools 同源，但只做登记与差异记录，不回写容量统计。
-func (e *SyncEngine) syncRegions(ctx context.Context, task *syncmodel.SyncTask, provider upstream.Provider) error {
-	return e.syncPoolsInternal(ctx, task, provider, false)
-}
-
-func (e *SyncEngine) syncPoolsInternal(ctx context.Context, task *syncmodel.SyncTask, provider upstream.Provider, updateStats bool) error {
-	scope := task.TaskType
-	poolReader, ok := provider.(upstream.PoolReader)
+	reader, ok := provider.(upstream.PoolReader)
 	if !ok {
-		return &scopeUnsupportedError{scope: scope}
+		return &scopeUnsupportedError{scope: syncmodel.ScopePool}
 	}
+	return e.syncPoolsInternal(ctx, task, reader.ListPools, true)
+}
+
+// syncRegions 拉取区域（地域）并登记，不回写容量统计——区域没有容量。
+//
+// 与 pool 分开读的原因：区域（/areas）只有节点/存储计数与位置，容量口径归宿主机
+// 节点（/nodes + /nodes/{id}/status）。旧实现两者同源，region scope 与 pool scope
+// 写的是同一批零容量行，资源池页因此长期显示 0/0。
+// 老适配器只实现了 PoolReader（区域与池混在一起）时，回退到 ListPools，行为不变。
+func (e *SyncEngine) syncRegions(ctx context.Context, task *syncmodel.SyncTask, provider upstream.Provider) error {
+	if rr, ok := provider.(upstream.RegionReader); ok {
+		return e.syncPoolsInternal(ctx, task, rr.ListRegions, false)
+	}
+	if pr, ok := provider.(upstream.PoolReader); ok {
+		return e.syncPoolsInternal(ctx, task, pr.ListPools, false)
+	}
+	return &scopeUnsupportedError{scope: syncmodel.ScopeRegion}
+}
+
+func (e *SyncEngine) syncPoolsInternal(
+	ctx context.Context,
+	task *syncmodel.SyncTask,
+	list func(context.Context) ([]*upstream.StandardPool, error),
+	updateStats bool,
+) error {
+	scope := task.TaskType
 	local, err := e.localPoolIndex(ctx, task.ProviderID)
 	if err != nil {
 		return err
 	}
-	pools, err := poolReader.ListPools(ctx)
+	pools, err := list(ctx)
 	if err != nil {
 		return err
 	}
@@ -559,9 +575,15 @@ func (e *SyncEngine) syncPoolsInternal(ctx context.Context, task *syncmodel.Sync
 	var totalCPU, totalMemory, totalDisk, usedCPU, usedMemory, usedDisk int
 	diffs := make([]syncmodel.SyncDiff, 0)
 	keep := make([]string, 0, len(pools))
+	// 本次读到的池类型集合：全量对账只作用于这些类型，避免池同步把区域行误标离线
+	// （反之亦然）——两者的 upstream_id 命名空间不同。
+	poolTypes := make(map[string]struct{}, 2)
 	for _, p := range pools {
 		rows = append(rows, e.convertPool(task.ProviderID, fallbackRegion, p))
 		keep = append(keep, p.ID)
+		if p.Type != "" {
+			poolTypes[p.Type] = struct{}{}
+		}
 		if local[p.ID] == nil {
 			diffs = append(diffs, syncmodel.SyncDiff{
 				TaskID: task.ID, ProviderID: task.ProviderID, Scope: scope,
@@ -592,18 +614,21 @@ func (e *SyncEngine) syncPoolsInternal(ctx context.Context, task *syncmodel.Sync
 		}
 	}
 	// 全量对账：上游已消失的池置离线（软删除）。
-	if e.fullSyncDue(ctx, task.ProviderID, scope) {
-		if offline, oerr := e.frameworkRepo.MarkPoolsOffline(ctx, task.ProviderID, keep); oerr != nil {
+	// keep 为空表示上游本轮一个池都没返回（多为接口失败/空账号），此时不做下线，
+	// 否则一次空响应就会把全部池标成离线。
+	if e.fullSyncDue(ctx, task.ProviderID, scope) && len(keep) > 0 {
+		if offline, oerr := e.frameworkRepo.MarkPoolsOffline(ctx, task.ProviderID, keep, mapKeys(poolTypes)); oerr != nil {
 			e.logger.Warn("全量对账下线资源池失败", zap.Uint64("provider_id", task.ProviderID), zap.Error(oerr))
 		} else if offline > 0 {
 			for id, snap := range local {
-				if !containsString(keep, id) {
-					diffs = append(diffs, syncmodel.SyncDiff{
-						TaskID: task.ID, ProviderID: task.ProviderID, Scope: scope,
-						Action: syncmodel.DiffOffline, LocalID: snap.ID, ExternalID: id, OldValue: snap.Name,
-						Disposition: syncmodel.DiffDispositionApplied, Remark: "上游已消失，本地置为离线",
-					})
+				if _, ok := poolTypes[snap.PoolType]; !ok || containsString(keep, id) {
+					continue
 				}
+				diffs = append(diffs, syncmodel.SyncDiff{
+					TaskID: task.ID, ProviderID: task.ProviderID, Scope: scope,
+					Action: syncmodel.DiffOffline, LocalID: snap.ID, ExternalID: id, OldValue: snap.Name,
+					Disposition: syncmodel.DiffDispositionApplied, Remark: "上游已消失，本地置为离线",
+				})
 			}
 		}
 		e.touchCursor(ctx, task.ProviderID, scope, len(pools), true)
@@ -993,14 +1018,17 @@ func jsonToString(m map[string]interface{}, key string) string {
 }
 
 // convertPool 标准化资源池（标准模型 → 存储模型）。
-// fallbackRegion 为池自身未带地域时的回退位置（渠道 region）；探针列不在此写入，
-// 探针数据由后续探针流通道单独落库，避免同步把真实用量覆盖为 0。
+// fallbackRegion 为池自身未带地域时的回退位置（渠道 region）。
+//
+// 探针列（probe_status/at/message）只在**上游提供实时状态**时才写：有 Live 表示本次
+// 采样就是实时值，写入可从页面去掉「未接入探针」提示；没有 Live（区域这类无状态通道）
+// 留空，保持页面的「用量来自周期快照」提示，不用空值把既有探针结论抹掉。
 func (e *SyncEngine) convertPool(providerID uint64, fallbackRegion string, p *upstream.StandardPool) providermodel.ResourcePool {
 	region := p.Region
 	if region == "" {
 		region = fallbackRegion
 	}
-	return providermodel.ResourcePool{
+	row := providermodel.ResourcePool{
 		ProviderID:  providerID,
 		UpstreamID:  p.ID,
 		Name:        p.Name,
@@ -1015,6 +1043,34 @@ func (e *SyncEngine) convertPool(providerID uint64, fallbackRegion string, p *up
 		Region:      region,
 		Zone:        p.Zone,
 	}
+	if p.Live != nil {
+		row.ProbeStatus = p.Live.Status
+		row.ProbeMessage = truncateRunes(p.Live.Message, 255)
+		at := p.Live.SampledAt
+		if at.IsZero() {
+			at = time.Now()
+		}
+		row.ProbeAt = &at
+	}
+	return row
+}
+
+// truncateRunes 按字符（非字节）截断，避免把多字节中文切坏。
+func truncateRunes(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max])
+}
+
+// mapKeys 取集合的键（稳定顺序无关，仅用于 IN 查询）。
+func mapKeys(m map[string]struct{}) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
 
 // convertInstance 标准化实例（标准模型 → 存储模型）。

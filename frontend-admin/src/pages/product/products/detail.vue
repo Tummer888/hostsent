@@ -298,7 +298,13 @@
                 <t-descriptions-item label="上游付费类型">
                   <span>{{ upstreamPayTypeLabel(product.upstream.pay_type) }}</span>
                 </t-descriptions-item>
-                <t-descriptions-item label="上游标价">¥{{ formatPrice(product.upstream.list_price) }}</t-descriptions-item>
+                <t-descriptions-item label="上游标价">
+                  <span v-if="product.upstream.list_price > 0">¥{{ formatPrice(product.upstream.list_price) }}</span>
+                  <span v-else class="upstream-price-hint">上游未定价</span>
+                  <span v-if="product.upstream.price_source === 'catalog'" class="upstream-price-hint">
+                    取自上游前台展示价（{{ upstreamCatalogCycleText }}，该商品价格挂在配置项上）
+                  </span>
+                </t-descriptions-item>
                 <t-descriptions-item label="代理价（采购价）">¥{{ formatPrice(product.upstream.cost_price) }}</t-descriptions-item>
                 <t-descriptions-item label="折扣">{{ product.upstream.discount_desc || '—' }}</t-descriptions-item>
                 <t-descriptions-item label="毛利率">
@@ -765,6 +771,12 @@ function decodeHtmlTextToPlainText(raw?: string): string {
     .filter((line) => line !== '')
     .join('\n')
 }
+
+/** 上游前台展示价回填时的周期文案（catalog_cycle → 「年付」）。 */
+const upstreamCatalogCycleText = computed(() => {
+  const cycle = product.value?.upstream?.catalog_cycle
+  return cycle ? billingCycleLabel(cycle) : '上游前台展示价'
+})
 
 function upstreamPayTypeLabel(payType: string): string {
   const found = String(payType || '').match(/"pay_type"\s*:\s*"([^"]+)"/)
@@ -1566,5 +1578,11 @@ onMounted(() => {
 
 .tabs-section > .form-footer {
   margin-top: 12px;
+}
+.upstream-price-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder, #999);
 }
 </style>

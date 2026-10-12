@@ -908,41 +908,241 @@ func (p *MoFangYunProvider) ResizeInstance(ctx context.Context, instanceID strin
 	return nil
 }
 
-// ListPools 拉取区域列表：GET /areas?sort=asc&list_type=all（参考源码 getArea）。
+// ListPools 拉取宿主机节点作为资源池：GET /nodes 拿清单，逐个 GET /nodes/{id}/status
+// 拿实时容量（CPU 核数/负载、内存、硬盘）。
+//
+// 为什么必须逐个取状态：面板**没有**批量状态接口（/nodes/status、/node_status、
+// /nodes/monitor 实测均 404），而 /nodes 列表只给 cpu_used/memory_used（已分配量）
+// 与 max_cpu=0（未设上限），算不出「总量/用量」比例。只有 /nodes/{id}/status 同时给出
+// cpu_info.cpu（物理核数）、memory.total_memory/use_memory、disk.disk_total/disk_use。
+//
+// 上游 ID 加 "node:" 前缀：节点与区域的 ID 各自从 1 起编号，同表 (provider_id, upstream_id)
+// 唯一，不加前缀会与区域池撞键。
 func (p *MoFangYunProvider) ListPools(ctx context.Context) ([]*upstream.StandardPool, error) {
+	var nodes struct {
+		Data []struct {
+			ID       int64  `json:"id"`
+			Name     string `json:"name"`
+			AreaID   int64  `json:"area_id"`
+			AreaName string `json:"area_name"`
+			Type     string `json:"type"`
+			Status   int    `json:"status"`
+			Enable   int    `json:"enable"`
+			Alive    bool   `json:"alive"`
+		} `json:"data"`
+	}
+	if err := p.call(ctx, "ListPools", http.MethodGet, "/nodes",
+		url.Values{"per_page": {"9999"}}, &nodes); err != nil {
+		return nil, err
+	}
+	pools := make([]*upstream.StandardPool, 0, len(nodes.Data))
+	for _, n := range nodes.Data {
+		pool := &upstream.StandardPool{
+			ID:     nodeUpstreamID(n.ID),
+			Name:   firstNonEmpty(n.Name, fmt.Sprintf("节点 %d", n.ID)),
+			Type:   "node",
+			Status: platformPoolStatus(n.Status, n.Enable),
+			Region: n.AreaName,
+		}
+		// 实时容量与探针结论；采样失败不隐藏该节点——注册出来并写明原因，
+		// 运营在资源池页就能看到「哪个宿主机采不到数」，而不是节点凭空消失。
+		live, err := p.nodeLiveStatus(ctx, n.ID)
+		if err != nil {
+			pool.Live = &upstream.PoolLiveStatus{
+				Status:    "warning",
+				Message:   "状态采样失败：" + err.Error(),
+				SampledAt: time.Now(),
+			}
+		} else {
+			pool.TotalCPU = live.cpuTotal
+			pool.UsedCPU = live.cpuUsed
+			pool.TotalMemory = live.memTotalGB
+			pool.UsedMemory = live.memUsedGB
+			pool.TotalDisk = live.diskTotalGB
+			pool.UsedDisk = live.diskUsedGB
+			if !live.connected {
+				pool.Status = "offline"
+			}
+			pool.Live = &upstream.PoolLiveStatus{
+				Status:    live.probe,
+				Message:   live.message,
+				SampledAt: time.Now(),
+			}
+		}
+		pools = append(pools, pool)
+	}
+	return pools, nil
+}
+
+// nodeUpstreamID 节点池的上游 ID（加前缀避免与区域/存储 ID 撞键）。
+func nodeUpstreamID(id int64) string { return "node:" + strconv.FormatInt(id, 10) }
+
+// nodeLive 单节点实时状态（/nodes/{id}/status）解析结果。
+type nodeLive struct {
+	connected   bool
+	cpuTotal    int
+	cpuUsed     int
+	memTotalGB  int
+	memUsedGB   int
+	diskTotalGB int
+	diskUsedGB  int
+	probe       string // healthy / down
+	message     string
+}
+
+// nodeLiveStatus 读取单节点实时状态。
+func (p *MoFangYunProvider) nodeLiveStatus(ctx context.Context, id int64) (*nodeLive, error) {
+	var raw struct {
+		Status   int    `json:"status"`
+		Msg      string `json:"msg"`
+		Version  string `json:"version"`
+		CPUInfo  struct {
+			CPU        int     `json:"cpu"`
+			UsePercent float64 `json:"use_percent"`
+			ModelName  string  `json:"model_name"`
+		} `json:"cpu_info"`
+		Memory struct {
+			TotalMemory string  `json:"total_memory"`
+			UseMemory   string  `json:"use_memory"`
+			UsePercent  float64 `json:"use_percent"`
+		} `json:"memory"`
+		Disk struct {
+			DiskTotal   string `json:"disk_total"`
+			DiskUse     string `json:"disk_use"`
+			DiskFree    string `json:"disk_free"`
+			DiskPercent string `json:"disk_percent"`
+		} `json:"disk"`
+	}
+	path := fmt.Sprintf("/nodes/%d/status", id)
+	if err := p.call(ctx, "NodeStatus", http.MethodGet, path, nil, &raw); err != nil {
+		return nil, err
+	}
+	live := &nodeLive{
+		connected:   raw.Status == 1,
+		cpuTotal:    raw.CPUInfo.CPU,
+		memTotalGB:  parseSizeGB(raw.Memory.TotalMemory),
+		memUsedGB:   parseSizeGB(raw.Memory.UseMemory),
+		diskTotalGB: parseSizeGB(raw.Disk.DiskTotal),
+		diskUsedGB:  parseSizeGB(raw.Disk.DiskUse),
+	}
+	// 负载直接取面板百分比换算成核数：面板的 cpu_info.cpu 是物理核数，
+	// use_percent 是实际负载率，换算后与托盘容量口径一致（整核取整）。
+	if live.cpuTotal > 0 && raw.CPUInfo.UsePercent > 0 {
+		used := int(raw.CPUInfo.UsePercent/100*float64(live.cpuTotal) + 0.5)
+		if used < 1 {
+			used = 1
+		}
+		if used > live.cpuTotal {
+			used = live.cpuTotal
+		}
+		live.cpuUsed = used
+	}
+	live.probe = "healthy"
+	if !live.connected {
+		live.probe = "down"
+	}
+	live.message = fmt.Sprintf("%s · CPU %.1f%%（%d 核）· 内存 %.1f%% · 磁盘 %s",
+		firstNonEmpty(raw.Msg, "已连接"), raw.CPUInfo.UsePercent, raw.CPUInfo.CPU,
+		raw.Memory.UsePercent, firstNonEmpty(raw.Disk.DiskPercent, "—"))
+	return live, nil
+}
+
+// ListRegions 拉取区域：GET /areas?sort=asc&list_type=all（参考源码 getArea）。
+// 区域只有节点/存储/IP 计数，没有 CPU/内存/磁盘容量，因此容量字段留零——
+// 容量口径归 ListPools（宿主机节点），两者是不同实体。
+func (p *MoFangYunProvider) ListRegions(ctx context.Context) ([]*upstream.StandardPool, error) {
 	// 列表接口常规为 {data:[...]} 分页包裹；兼容裸数组形态。
 	var wrapped struct {
 		Data []struct {
-			ID   int64  `json:"id"`
-			Name string `json:"name"`
+			ID          int64  `json:"id"`
+			Name        string `json:"name"`
+			Status      int    `json:"status"`
+			CountryCode string `json:"country_code"`
 		} `json:"data"`
 	}
-	err := p.call(ctx, "ListPools", http.MethodGet, "/areas", url.Values{"sort": {"asc"}, "list_type": {"all"}}, &wrapped)
+	type areaRow struct {
+		ID          int64
+		Name        string
+		Status      int
+		CountryCode string
+	}
+	var rows []areaRow
+	err := p.call(ctx, "ListRegions", http.MethodGet, "/areas", url.Values{"sort": {"asc"}, "list_type": {"all"}}, &wrapped)
 	if err != nil {
 		var areas []struct {
-			ID   int64  `json:"id"`
-			Name string `json:"name"`
+			ID          int64  `json:"id"`
+			Name        string `json:"name"`
+			Status      int    `json:"status"`
+			CountryCode string `json:"country_code"`
 		}
-		if err2 := p.call(ctx, "ListPools", http.MethodGet, "/areas", url.Values{"sort": {"asc"}, "list_type": {"all"}}, &areas); err2 != nil {
+		if err2 := p.call(ctx, "ListRegions", http.MethodGet, "/areas", url.Values{"sort": {"asc"}, "list_type": {"all"}}, &areas); err2 != nil {
 			return nil, err
 		}
 		for _, a := range areas {
-			wrapped.Data = append(wrapped.Data, struct {
-				ID   int64  `json:"id"`
-				Name string `json:"name"`
-			}{a.ID, a.Name})
+			rows = append(rows, areaRow{a.ID, a.Name, a.Status, a.CountryCode})
+		}
+	} else {
+		for _, a := range wrapped.Data {
+			rows = append(rows, areaRow{a.ID, a.Name, a.Status, a.CountryCode})
 		}
 	}
-	pools := make([]*upstream.StandardPool, 0, len(wrapped.Data))
-	for _, a := range wrapped.Data {
+	pools := make([]*upstream.StandardPool, 0, len(rows))
+	for _, a := range rows {
 		pools = append(pools, &upstream.StandardPool{
-			ID:     strconv.FormatInt(a.ID, 10),
+			ID:     "area:" + strconv.FormatInt(a.ID, 10),
 			Name:   a.Name,
 			Type:   "region",
-			Status: "active",
+			Status: platformPoolStatus(a.Status, 1),
+			Region: a.Name,
 		})
 	}
 	return pools, nil
+}
+
+// platformPoolStatus 池状态：enable 优先（0=已停用），其次 status。
+func platformPoolStatus(status, enable int) string {
+	if enable == 0 {
+		return "offline"
+	}
+	if status == 1 {
+		return "active"
+	}
+	return "offline"
+}
+
+// parseSizeGB 解析面板的人类可读容量串（如 "15.46GB" / "1.50TB" / "512MB"）为 GB 整数。
+// 解析不出时返回 0——容量缺失好过报错，页面按 0 配额展示。
+func parseSizeGB(s string) int {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	unit := ""
+	for _, u := range []string{"TB", "GB", "MB", "KB", "B"} {
+		if idx := strings.Index(strings.ToUpper(s), u); idx >= 0 {
+			unit = u
+			s = s[:idx]
+			break
+		}
+	}
+	v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil {
+		return 0
+	}
+	switch unit {
+	case "TB":
+		v *= 1024
+	case "MB":
+		v /= 1024
+	case "KB":
+		v /= 1024 * 1024
+	case "B":
+		v /= 1024 * 1024 * 1024
+	}
+	if v < 0 {
+		return 0
+	}
+	return int(v + 0.5)
 }
 
 // GetAccountInfo 魔方云为资源管理系统，无账户余额概念，本适配器不实现 AccountReader。

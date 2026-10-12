@@ -54,7 +54,7 @@ type FrameworkRepository interface {
 	ListResourceProductsByProvider(ctx context.Context, providerID uint64) ([]ResourceProductSnapshot, error)
 	ListPoolSnapshotsByProvider(ctx context.Context, providerID uint64) ([]PoolSnapshot, error)
 	MarkResourceProductsOffline(ctx context.Context, providerID uint64, keepUpstreamIDs []string) (int64, error)
-	MarkPoolsOffline(ctx context.Context, providerID uint64, keepUpstreamIDs []string) (int64, error)
+	MarkPoolsOffline(ctx context.Context, providerID uint64, keepUpstreamIDs []string, poolTypes []string) (int64, error)
 	MarkInstancesOffline(ctx context.Context, providerID uint64, keepInstanceIDs []string) (int64, error)
 
 	// PurgeFrameworkBefore 分批清理过保留期的差异/调价事件（任务与日志由既有 PurgeSyncDataBefore 负责）
@@ -85,6 +85,9 @@ type PoolSnapshot struct {
 	UpstreamID string
 	Name       string
 	Status     int
+	// PoolType 池类型（node/region/storage…）：全量对账按类型分域，避免 pool 与
+	// region 两个 scope 把对方行误判为「上游已消失」。
+	PoolType string
 }
 
 type frameworkRepository struct {
@@ -320,7 +323,7 @@ func (r *frameworkRepository) ListResourceProductsByProvider(ctx context.Context
 func (r *frameworkRepository) ListPoolSnapshotsByProvider(ctx context.Context, providerID uint64) ([]PoolSnapshot, error) {
 	var items []PoolSnapshot
 	err := r.db.WithContext(ctx).Table("resource_pools").
-		Select("id, upstream_id, name, status").
+		Select("id, upstream_id, name, status, COALESCE(pool_type, '') AS pool_type").
 		Where("provider_id = ?", providerID).Scan(&items).Error
 	return items, err
 }
@@ -337,9 +340,14 @@ func (r *frameworkRepository) MarkResourceProductsOffline(ctx context.Context, p
 	return res.RowsAffected, res.Error
 }
 
-func (r *frameworkRepository) MarkPoolsOffline(ctx context.Context, providerID uint64, keepUpstreamIDs []string) (int64, error) {
+func (r *frameworkRepository) MarkPoolsOffline(ctx context.Context, providerID uint64, keepUpstreamIDs []string, poolTypes []string) (int64, error) {
 	base := r.db.WithContext(ctx).Table("resource_pools").
 		Where("provider_id = ? AND status <> 0", providerID)
+	// 只在本轮读到的池类型范围内下线：pool scope 读节点、region scope 读区域，
+	// 两者同表不同命名空间，不加类型限制会互相误标离线。
+	if len(poolTypes) > 0 {
+		base = base.Where("pool_type IN ?", poolTypes)
+	}
 	if len(keepUpstreamIDs) > 0 {
 		base = base.Where("upstream_id NOT IN ?", keepUpstreamIDs)
 	}

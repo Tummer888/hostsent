@@ -50,6 +50,10 @@ func writeError(err error) *apperrors.AppError {
 		return apperrors.New(20002, err.Error())
 	case errors.Is(err, instanceservice.ErrInvalidAction):
 		return apperrors.New(20001, err.Error())
+	case errors.Is(err, instanceservice.ErrBillingAdjustInvalid):
+		return apperrors.New(20001, err.Error())
+	case errors.Is(err, instanceservice.ErrCredentialUnavailable):
+		return apperrors.New(20001, err.Error())
 	case errors.Is(err, instanceservice.ErrStatusConflict):
 		return apperrors.New(20003, err.Error())
 	case errors.Is(err, instanceservice.ErrCapabilityUnsupported):
@@ -674,4 +678,50 @@ func (h *InstanceHandler) AttachDataDisk(c *gin.Context) {
 		return
 	}
 	response.SuccessMessage(c, "数据盘挂载指令已提交")
+}
+
+// AdjustBilling 手工调整账期/付款周期（本地口径，不产生账单、不推送上游）。
+// @Summary 调整实例到期时间与付款周期
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Param body body dto.AdjustRequest true "账期调整"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/billing [put]
+func (h *InstanceHandler) AdjustBilling(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var req dto.AdjustRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	resp, err := h.svc.AdjustBilling(c.Request.Context(), operator(c), id, &req)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// RevealCredential 查看实例登录明文密码（敏感操作，返回前写审计流水）。
+// @Summary 查看实例登录密码
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/credential [post]
+func (h *InstanceHandler) RevealCredential(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.svc.RevealCredential(c.Request.Context(), operator(c), id)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
 }

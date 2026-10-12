@@ -16,6 +16,8 @@ import type {
   ProductListQuery,
   ProductListResponse,
   ProductPriceRequest,
+  ProductUpstreamMarkupRequest,
+  ProductUpstreamMarkupResponse,
   ProviderCreateRequest,
   ProviderInfo,
   ProviderListQuery,
@@ -421,6 +423,7 @@ export function getProductList(params: ProductListQuery): Promise<ProductListRes
     params: {
       keyword: params.keyword,
       provider_id: params.provider_id,
+      group_id: params.group_id,
       status: params.status,
       page: params.page,
       page_size: params.page_size,
@@ -431,6 +434,20 @@ export function getProductList(params: ProductListQuery): Promise<ProductListRes
 export function getProductDetail(id: number): Promise<ProductInfo> {
   return request.get<ProductInfo>({
     url: `/resource/products/${id}`,
+  })
+}
+
+/**
+ * 设定上游商品加价规则并重算已导入商品售价（「上游商品」页调价）。
+ * 走商品域接口：规则落在已导入的销售商品上（upstream_markup_type/value），
+ * 由商品服务按规则重算售价与周期价格矩阵，并写商品变更历史。
+ */
+export function applyUpstreamMarkup(
+  data: ProductUpstreamMarkupRequest,
+): Promise<ProductUpstreamMarkupResponse> {
+  return request.post<ProductUpstreamMarkupResponse>({
+    url: '/product/products/upstream-markup',
+    data,
   })
 }
 

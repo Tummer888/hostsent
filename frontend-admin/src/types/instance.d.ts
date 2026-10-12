@@ -92,9 +92,111 @@ export interface InstanceCapabilities {
   attach_disk: boolean
 }
 
+/** 来源订单财务口径：首付是历史成交，续费价是下次应付（商品当前周期价）。 */
+export interface InstanceSourceOrder {
+  id: number
+  order_no: string
+  status: string
+  product_id: number
+  product_name: string
+  cycle: string
+  cycle_name: string
+  quantity: number
+  total_amount: number
+  paid_amount: number
+  discount_amount: number
+  first_paid_amount: number
+  pay_method: string
+  pay_time: string
+  ordered_at: string
+  renewal_id: number
+  renew_unit_cost: number
+  renew_cycle: string
+  renew_amount: number
+  renew_cost: number
+  /** 上游续费金额（对接商品；来自上游商品各周期价，未取到为 0）。 */
+  upstream_renew_amount: number
+  upstream_renew_cycle: string
+}
+
+/** 售出商品与我方对接关系。 */
+export interface InstanceProduct {
+  id: number
+  code: string
+  name: string
+  source_mode: string
+  source_provider_id: number
+  source_provider_name: string
+  provider_type: string
+  source_product_id: number
+  price_model: string
+  price: number
+  cost_price: number
+  upstream_markup_type: string
+  upstream_markup_value: number
+  status: number
+}
+
+/** 对接商品的上游信息（source_mode=upstream 时有值）。 */
+export interface InstanceUpstream {
+  resource_product_id: number
+  upstream_id: string
+  name: string
+  group_id: number
+  group_name: string
+  list_price: number
+  cost_price: number
+  discount_desc: string
+  pay_type: string
+  renewable: boolean
+  /** 上游标价（各周期）。 */
+  list_cycles: Record<string, number>
+  /** 我方采购价（已含代理折扣，各周期）。 */
+  cost_cycles: Record<string, number>
+}
+
+/** 实例生效配置项；source 说明取值来源，locked 表示上游锁定改不动。 */
+export interface InstanceConfigItem {
+  key: string
+  label: string
+  value: string
+  source: string
+  locked: boolean
+  unit: string
+}
+
+/** 登录连接信息（不含明文密码；明文走 reveal 接口）。 */
+export interface InstanceCredential {
+  username: string
+  port: string
+  has_password: boolean
+  password_hint: string
+  has_panel_password: boolean
+}
+
+export interface InstanceCredentialReveal {
+  username: string
+  password: string
+  port: string
+}
+
 export interface InstanceDetail extends InstanceItem {
   capabilities: InstanceCapabilities
   capability_error: string
+  order?: InstanceSourceOrder
+  product?: InstanceProduct
+  upstream?: InstanceUpstream
+  configs?: InstanceConfigItem[]
+  credential?: InstanceCredential
+}
+
+/** 账期/付款周期调整请求（本地口径，不产生账单；对接商品需 force）。 */
+export interface InstanceAdjustRequest {
+  expire_at?: string
+  clear_expire?: boolean
+  billing_mode?: string
+  force?: boolean
+  reason?: string
 }
 
 export interface OperationItem {

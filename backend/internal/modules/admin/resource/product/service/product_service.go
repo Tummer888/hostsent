@@ -8,6 +8,8 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"time"
 
 	"hostsent/backend/internal/modules/admin/resource/product/dto"
@@ -50,6 +52,7 @@ func (s *productService) List(ctx context.Context, query dto.ProductListQuery) (
 	for _, item := range items {
 		// 列表不带 raw_specs：上游商品是非结构化正文（config_groups/描述/双价周期），
 		// 单条 10KB 量级，全量列表（245 条）会白白放大 3MB+；详情接口按需取。
+		// 但列表要看清分类/价格/在售状态，先把 raw_specs 里的元信息摘出来再清空。
 		info := buildProductInfo(item)
 		info.RawSpecs = ""
 		respItems = append(respItems, info)
@@ -83,28 +86,76 @@ func (s *productService) Sync(ctx context.Context, providerID uint64) (*dto.Sync
 	return &dto.SyncResult{TaskID: 0, Status: "skipped", Message: "商品同步将在同步引擎阶段实现"}, nil
 }
 
+// upstreamSpecMeta raw_specs 中供列表页使用的元信息（分类来源/在售判定/价格来源/前台目录价）。
+type upstreamSpecMeta struct {
+	GroupNameSource string `json:"group_name_source"`
+	Visibility      string `json:"visibility"`
+	PriceSource     string `json:"price_source"`
+	Catalog         struct {
+		Price        flexNum `json:"price"`
+		SalePrice    flexNum `json:"sale_price"`
+		BillingCycle string  `json:"billing_cycle"`
+	} `json:"catalog"`
+}
+
+// flexNum 兼容上游把价格回成字符串或数字。
+type flexNum float64
+
+// UnmarshalJSON 数字/字符串/空值一律解析为 float64；非法值按 0 处理。
+func (f *flexNum) UnmarshalJSON(data []byte) error {
+	raw := strings.Trim(strings.TrimSpace(string(data)), `"`)
+	if raw == "" || raw == "null" {
+		*f = 0
+		return nil
+	}
+	if err := json.Unmarshal([]byte(raw), (*float64)(f)); err != nil {
+		*f = 0
+		return nil
+	}
+	return nil
+}
+
+// parseUpstreamSpecMeta 解析 raw_specs 的列表页元信息；解析失败返回零值（前端按未知处理）。
+func parseUpstreamSpecMeta(rawSpecs string) upstreamSpecMeta {
+	var meta upstreamSpecMeta
+	if strings.TrimSpace(rawSpecs) == "" {
+		return meta
+	}
+	_ = json.Unmarshal([]byte(rawSpecs), &meta)
+	return meta
+}
+
+// buildProductInfo 组装商品 DTO：raw_specs 原样带上（详情接口展示），
+// 同时把其中的元信息摘成独立字段（列表接口随后会清空 raw_specs）。
 func buildProductInfo(item model.ResourceProduct) dto.ProductInfo {
+	meta := parseUpstreamSpecMeta(item.RawSpecs)
 	return dto.ProductInfo{
-		ID:         item.ID,
-		ProviderID: item.ProviderID,
-		UpstreamID: item.UpstreamID,
-		Name:       item.Name,
-		GroupID:    item.GroupID,
-		GroupName:  item.GroupName,
-		CPU:        item.CPU,
-		Memory:     item.Memory,
-		Disk:       item.Disk,
-		DiskType:   item.DiskType,
-		Bandwidth:  item.Bandwidth,
-		OS:         item.OS,
-		Region:     item.Region,
-		Zone:       item.Zone,
-		Specs:      item.Specs,
-		RawSpecs:   item.RawSpecs,
-		CostPrice:  item.CostPrice,
-		SalePrice:  item.SalePrice,
-		Status:     item.Status,
-		CreatedAt:  item.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:  item.UpdatedAt.Format(time.RFC3339),
+		ID:               item.ID,
+		ProviderID:       item.ProviderID,
+		UpstreamID:       item.UpstreamID,
+		Name:             item.Name,
+		GroupID:          item.GroupID,
+		GroupName:        item.GroupName,
+		GroupNameDerived: meta.GroupNameSource == "derived",
+		CPU:              item.CPU,
+		Memory:           item.Memory,
+		Disk:             item.Disk,
+		DiskType:         item.DiskType,
+		Bandwidth:        item.Bandwidth,
+		OS:               item.OS,
+		Region:           item.Region,
+		Zone:             item.Zone,
+		Specs:            item.Specs,
+		RawSpecs:         item.RawSpecs,
+		CostPrice:        item.CostPrice,
+		SalePrice:        item.SalePrice,
+		Status:           item.Status,
+		Visibility:       meta.Visibility,
+		PriceSource:      meta.PriceSource,
+		CatalogPrice:     float64(meta.Catalog.Price),
+		CatalogSalePrice: float64(meta.Catalog.SalePrice),
+		CatalogCycle:     meta.Catalog.BillingCycle,
+		CreatedAt:        item.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:        item.UpdatedAt.Format(time.RFC3339),
 	}
 }

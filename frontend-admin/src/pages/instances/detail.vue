@@ -1,5 +1,6 @@
 <template>
   <div class="page-body instances-module">
+    <!-- ============ 页头：身份 + 状态 + 分组操作 ============ -->
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
@@ -17,12 +18,30 @@
             >
               {{ instanceStatusLabel(instanceData.status) }}
             </t-tag>
+            <t-tag
+              v-if="instanceData?.lifecycle_stage"
+              :theme="lifecycleStageTheme(instanceData.lifecycle_stage)"
+              variant="outline"
+              size="small"
+              shape="round"
+            >
+              {{ lifecycleStageLabel(instanceData.lifecycle_stage) }}
+            </t-tag>
+            <t-tag v-if="instanceData" :theme="sourceModeTheme" variant="light" size="small" shape="round">
+              {{ sourceModeLabel }}
+            </t-tag>
           </div>
           <p class="page-header__desc">
-            实例标识 {{ instanceData?.instance_id || '—' }} · 公网 IP {{ instanceData?.public_ip || '—' }}
+            实例标识 {{ instanceData?.instance_id || '—' }}
+            <span class="page-header__sep">·</span>
+            公网 IP {{ instanceData?.public_ip || '—' }}
+            <span class="page-header__sep">·</span>
+            归属 {{ instanceData?.username || '—' }}
           </p>
         </div>
       </div>
+
+      <!-- 操作分组：日常 / 电源 / 维护 / 危险，避免十几个按钮平铺挤成一团 -->
       <div class="detail-actions">
         <t-button variant="outline" @click="goBack">返回</t-button>
         <t-button variant="outline" :loading="loading" @click="reloadAll">
@@ -31,53 +50,8 @@
           </template>
           刷新
         </t-button>
-        <t-button
-          v-permission="'instance:action'"
-          variant="outline"
-          :disabled="powerDisabled('on')"
-          :title="powerTitle('on')"
-          @click="handlePower('on')"
-        >
-          开机
-        </t-button>
-        <t-button
-          v-permission="'instance:action'"
-          variant="outline"
-          :disabled="powerDisabled('off')"
-          :title="powerTitle('off')"
-          @click="handlePower('off')"
-        >
-          关机
-        </t-button>
-        <t-button
-          v-permission="'instance:action'"
-          variant="outline"
-          :disabled="powerDisabled('reboot')"
-          :title="powerTitle('reboot')"
-          @click="handlePower('reboot')"
-        >
-          重启
-        </t-button>
-        <!-- 硬电源（断电级）：独立指令下发，不是"软关再开"。危险动作故用 danger 且需二次确认 -->
-        <t-button
-          v-permission="'instance:action'"
-          variant="outline"
-          theme="danger"
-          :disabled="powerDisabled('hard_off')"
-          :title="powerTitle('hard_off')"
-          @click="handlePower('hard_off')"
-        >
-          强制关机
-        </t-button>
-        <t-button
-          v-permission="'instance:action'"
-          variant="outline"
-          theme="danger"
-          :disabled="powerDisabled('hard_reboot')"
-          :title="powerTitle('hard_reboot')"
-          @click="handlePower('hard_reboot')"
-        >
-          强制重启
+        <t-button v-permission="'instance:action'" variant="outline" :loading="syncing" @click="handleSync">
+          同步刷新
         </t-button>
         <t-button
           v-permission="'instance:console'"
@@ -88,59 +62,33 @@
         >
           控制台
         </t-button>
-        <!-- 暂停/恢复（T5.5）：按当前生命周期阶段二选一展示 -->
-        <t-button
-          v-if="instanceData?.lifecycle_stage === 'suspended'"
-          v-permission="'instance:action'"
-          variant="outline"
-          :loading="actioning"
-          @click="handleUnsuspend"
-        >
-          恢复服务
-        </t-button>
-        <t-button
-          v-else
-          v-permission="'instance:action'"
-          variant="outline"
-          :disabled="!instanceData?.capabilities?.suspend"
-          :title="capabilityTitle(instanceData?.capabilities?.suspend)"
-          :loading="actioning"
-          @click="handleSuspend"
-        >
-          暂停服务
-        </t-button>
-        <t-button v-permission="'instance:action'" variant="outline" :loading="syncing" @click="handleSync">
-          同步刷新
-        </t-button>
-        <t-button v-permission="'instance:action'" variant="outline" @click="openRemarkDialog">备注</t-button>
-        <t-button
-          v-permission="'instance:resize'"
-          variant="outline"
-          :disabled="!instanceData?.capabilities?.resize"
-          :title="capabilityTitle(instanceData?.capabilities?.resize)"
-          @click="openResizeDialog"
-        >
-          变配
-        </t-button>
-        <!-- 维护类（平台接口实测存在）：重装 / 重置密码 / 救援 / 快照 / 硬件。
-             用下拉收纳，避免操作栏被十几个按钮撑爆；每一项仍按自己的权限码与能力位置灰。 -->
-        <t-dropdown
-          :options="maintenanceOptions"
-          trigger="click"
-          @click="onMaintenancePick"
-        >
+
+        <!-- 电源操作收进下拉：硬电源（断电级）在组内用红色标注 -->
+        <t-dropdown :options="powerOptions" trigger="click" @click="onPowerPick">
+          <t-button variant="outline" :disabled="powerGroupDisabled">
+            电源操作 ▾
+          </t-button>
+        </t-dropdown>
+
+        <!-- 维护类（平台接口实测存在）：重装 / 重置密码 / 救援 / 快照 / 硬件 -->
+        <t-dropdown :options="maintenanceOptions" trigger="click" @click="onMaintenancePick">
           <t-button variant="outline" :disabled="maintenanceDisabled">维护 ▾</t-button>
         </t-dropdown>
-        <t-button v-permission="'lifecycle:renew'" variant="outline" @click="openRenewDialog">续费</t-button>
-        <t-button
-          v-permission="'instance:destroy'"
-          theme="danger"
-          :disabled="!instanceData?.capabilities?.destroy"
-          :title="capabilityTitle(instanceData?.capabilities?.destroy)"
-          @click="openDestroyDialog"
-        >
-          销毁
+
+        <!-- 账期与凭证：本地口径操作与敏感查看，独立分组 -->
+        <t-dropdown :options="billingOptions" trigger="click" @click="onBillingPick">
+          <t-button variant="outline" :disabled="billingDisabled">账期与凭证 ▾</t-button>
+        </t-dropdown>
+
+        <t-button v-permission="'instance:resize'" variant="outline" :disabled="!instanceData?.capabilities?.resize" :title="capabilityTitle(instanceData?.capabilities?.resize)" @click="openResizeDialog">
+          变配
         </t-button>
+        <t-button v-permission="'lifecycle:renew'" variant="outline" @click="openRenewDialog">续费</t-button>
+
+        <!-- 危险区：暂停/恢复 + 销毁 -->
+        <t-dropdown :options="dangerOptions" trigger="click" @click="onDangerPick">
+          <t-button theme="danger" variant="outline" :disabled="dangerDisabled">危险操作 ▾</t-button>
+        </t-dropdown>
       </div>
     </header>
 
@@ -150,79 +98,278 @@
       :message="`部分操作不可用：${instanceData.capability_error}`"
     />
 
+    <!-- ============ 关键信息速览条 ============ -->
+    <section v-if="instanceData" class="glance-grid">
+      <div class="glance-card" :class="expireGlanceClass">
+        <div class="glance-card__label">到期时间</div>
+        <div class="glance-card__value">
+          {{ instanceData.expire_at ? formatTime(instanceData.expire_at) : (isOnetime ? '一次性/买断' : '未设置') }}
+        </div>
+        <div v-if="instanceData.expire_at && instanceData.expire_state !== 'none'" class="glance-card__sub">
+          {{ expireStateLabel(instanceData.expire_state) }} · 剩余 {{ instanceData.days_left }} 天
+        </div>
+        <div v-else class="glance-card__sub">{{ billingModeLabel }}</div>
+      </div>
+      <div class="glance-card">
+        <div class="glance-card__label">付款周期</div>
+        <div class="glance-card__value">{{ billingModeLabel }}</div>
+        <div class="glance-card__sub">{{ instanceData.source_mode === 'upstream' ? '对接上游 · 账期以上游为准' : '自营 · 由本系统管理' }}</div>
+      </div>
+      <div class="glance-card">
+        <div class="glance-card__label">首次付款</div>
+        <div class="glance-card__value">¥{{ formatPrice(instanceData.order?.first_paid_amount ?? 0) }}</div>
+        <div class="glance-card__sub">{{ instanceData.order ? `订单 ${instanceData.order.order_no}` : '无来源订单' }}</div>
+      </div>
+      <div class="glance-card">
+        <div class="glance-card__label">续费金额</div>
+        <div class="glance-card__value">¥{{ formatPrice(instanceData.order?.renew_amount ?? 0) }}</div>
+        <div class="glance-card__sub">
+          <template v-if="instanceData.upstream && instanceData.order?.upstream_renew_amount">
+            上游续费 ¥{{ formatPrice(instanceData.order.upstream_renew_amount) }}
+          </template>
+          <template v-else-if="instanceData.order?.renew_cycle">按 {{ cycleLabel(instanceData.order.renew_cycle) }} 计价</template>
+          <template v-else>—</template>
+        </div>
+      </div>
+      <div class="glance-card">
+        <div class="glance-card__label">售出商品</div>
+        <div class="glance-card__value glance-card__value--sm">{{ instanceData.product?.name || instanceData.order?.product_name || '—' }}</div>
+        <div class="glance-card__sub">
+          {{ instanceData.product ? `${instanceData.product.code || '—'} · ${sourceModeLabel}` : '—' }}
+        </div>
+      </div>
+      <div class="glance-card">
+        <div class="glance-card__label">登录信息</div>
+        <div class="glance-card__value glance-card__value--sm">{{ instanceData.credential?.username || '—' }}</div>
+        <div class="glance-card__sub">
+          端口 {{ instanceData.credential?.port || '—' }}
+          <t-link
+            v-if="instanceData.credential?.has_password && hasPerm('instance:credential')"
+            theme="primary"
+            hover="color"
+            class="glance-card__link"
+            @click="openRevealDialog"
+          >
+            查看密码
+          </t-link>
+        </div>
+      </div>
+    </section>
+
     <section class="table-card surface-card">
       <t-tabs v-model="activeTab" :default-value="activeTab" theme="normal">
+        <!-- ============ 概览 ============ -->
         <t-tab-panel value="overview" label="概览">
           <div class="tabs-section">
             <t-descriptions v-if="instanceData" :column="2" bordered size="medium" class="detail-desc">
               <t-descriptions-item label="实例标识">{{ instanceData.instance_id || '—' }}</t-descriptions-item>
               <t-descriptions-item label="归属用户">
                 <span class="cell-strong">{{ instanceData.username || '—' }}</span>
-                <div class="cell-sub">
-                  {{ instanceData.user_email || '—' }} · {{ instanceData.user_phone || '—' }}
-                </div>
+                <div class="cell-sub">{{ instanceData.user_email || '—' }} · {{ instanceData.user_phone || '—' }}</div>
               </t-descriptions-item>
               <t-descriptions-item label="用户 ID">{{ instanceData.user_id }}</t-descriptions-item>
-              <t-descriptions-item label="来源订单">
-                {{ instanceData.order_id > 0 ? instanceData.order_id : '—' }}
-              </t-descriptions-item>
               <t-descriptions-item label="服务商">
                 {{ instanceData.provider_name || '—' }}
-                <span v-if="instanceData.provider_type" class="cell-sub">（{{ instanceData.provider_type }}）</span>
+                <span v-if="instanceData.provider_type" class="cell-sub">（{{ providerTypeLabel(instanceData.provider_type) }}）</span>
               </t-descriptions-item>
-              <t-descriptions-item label="售出商品 ID">{{ instanceData.sell_product_id || instanceData.upstream_product_id || '—' }}</t-descriptions-item>
-              <t-descriptions-item label="规格">
-                {{ instanceData.cpu }} 核 / {{ instanceData.memory }} MB / {{ instanceData.disk }} GB
+              <t-descriptions-item label="来源断言">
+                <span class="cell-strong">{{ sourceModeLabel }}</span>
+                <div class="cell-sub">{{ sourceModeHint }}</div>
               </t-descriptions-item>
-              <t-descriptions-item label="磁盘类型">{{ instanceData.disk_type || '—' }}</t-descriptions-item>
-              <t-descriptions-item label="带宽">
-                {{ instanceData.bandwidth ? `${instanceData.bandwidth} Mbps` : '—' }}
-              </t-descriptions-item>
-              <t-descriptions-item label="系统">{{ instanceData.os || '—' }}</t-descriptions-item>
-              <t-descriptions-item label="区域 / 可用区">
-                {{ instanceData.region || '—' }} / {{ instanceData.zone || '—' }}
-              </t-descriptions-item>
-              <t-descriptions-item label="计费模式">{{ instanceData.billing_mode || '—' }}</t-descriptions-item>
-              <t-descriptions-item label="内网 IP">{{ instanceData.private_ip || '—' }}</t-descriptions-item>
-              <t-descriptions-item label="公网 IP">{{ instanceData.public_ip || '—' }}</t-descriptions-item>
               <t-descriptions-item label="操作人">{{ instanceData.actor_name || '主账号' }}</t-descriptions-item>
               <t-descriptions-item label="服务状态">
                 <t-tag :theme="instanceStatusTheme(instanceData.status)" variant="light" size="small" shape="round">
                   {{ instanceStatusLabel(instanceData.status) }}
                 </t-tag>
               </t-descriptions-item>
-              <t-descriptions-item label="生命周期阶段">
-                <t-tag :theme="lifecycleStageTheme(instanceData.lifecycle_stage)" variant="light" size="small" shape="round">
-                  {{ lifecycleStageLabel(instanceData.lifecycle_stage) }}
-                </t-tag>
-              </t-descriptions-item>
               <t-descriptions-item label="电源状态">{{ powerStatusText(instanceData.power_status) }}</t-descriptions-item>
-              <t-descriptions-item label="到期时间">
-                <span :class="expireClass(instanceData)">
-                  {{ instanceData.expire_at ? formatTime(instanceData.expire_at) : '—' }}
-                  <template v-if="instanceData.expire_state !== 'none' && instanceData.expire_at">
-                    （{{ expireStateLabel(instanceData.expire_state) }}，剩余 {{ instanceData.days_left }} 天）
-                  </template>
-                </span>
-              </t-descriptions-item>
+              <t-descriptions-item label="内网 IP">{{ instanceData.private_ip || '—' }}</t-descriptions-item>
+              <t-descriptions-item label="公网 IP">{{ instanceData.public_ip || '—' }}</t-descriptions-item>
               <t-descriptions-item label="最近回源时间">{{ formatTime(instanceData.last_synced_at) }}</t-descriptions-item>
-              <t-descriptions-item v-if="instanceData.enforce_attempts > 0 || instanceData.last_enforce_error" label="到期处置">
-                <span class="expire-danger">连续失败 {{ instanceData.enforce_attempts }} 次</span>
-                <div class="cell-sub" v-if="instanceData.enforce_next_at">
-                  下次重试：{{ formatTime(instanceData.enforce_next_at) }}
-                </div>
-                <div class="cell-sub op-error" v-if="instanceData.last_enforce_error">
-                  {{ instanceData.last_enforce_error }}
-                </div>
-              </t-descriptions-item>
               <t-descriptions-item label="创建时间">{{ formatTime(instanceData.created_at) }}</t-descriptions-item>
               <t-descriptions-item label="更新时间">{{ formatTime(instanceData.updated_at) }}</t-descriptions-item>
-              <t-descriptions-item label="管理员备注">{{ instanceData.remark || '—' }}</t-descriptions-item>
+              <t-descriptions-item label="管理员备注">
+                <span>{{ instanceData.remark || '—' }}</span>
+                <t-link v-permission="'instance:action'" theme="primary" hover="color" class="inline-link" @click="openRemarkDialog">
+                  编辑
+                </t-link>
+              </t-descriptions-item>
+              <t-descriptions-item v-if="instanceData.enforce_attempts > 0 || instanceData.last_enforce_error" label="到期处置" :span="2">
+                <span class="expire-danger">连续失败 {{ instanceData.enforce_attempts }} 次</span>
+                <div class="cell-sub" v-if="instanceData.enforce_next_at">下次重试：{{ formatTime(instanceData.enforce_next_at) }}</div>
+                <div class="cell-sub op-error" v-if="instanceData.last_enforce_error">{{ instanceData.last_enforce_error }}</div>
+              </t-descriptions-item>
             </t-descriptions>
-            <t-empty v-else description="暂无数据" />
+
+            <!-- 订单 / 商品 / 上游 三栏关联信息 -->
+            <div class="info-grid">
+              <div class="info-card">
+                <div class="info-card__head">
+                  <h3 class="card-title">来源订单</h3>
+                  <t-link v-if="instanceData?.order" theme="primary" hover="color" @click="openOrderById(instanceData.order.id)">
+                    查看订单
+                  </t-link>
+                </div>
+                <template v-if="instanceData?.order">
+                  <div class="kv-row"><span class="kv-row__k">订单号</span><span class="kv-row__v">{{ instanceData.order.order_no }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">订单状态</span><span class="kv-row__v">{{ orderStatusLabel(instanceData.order.status) }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">商品名称</span><span class="kv-row__v">{{ instanceData.order.product_name || '—' }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">订购时间</span><span class="kv-row__v">{{ formatTime(instanceData.order.ordered_at) }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">订购数量</span><span class="kv-row__v">{{ instanceData.order.quantity }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">付款周期</span><span class="kv-row__v">{{ cycleLabel(instanceData.order.cycle) }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">订单金额</span><span class="kv-row__v">¥{{ formatPrice(instanceData.order.total_amount) }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">优惠减免</span><span class="kv-row__v">¥{{ formatPrice(instanceData.order.discount_amount) }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">首次付款</span><span class="kv-row__v kv-row__v--strong">¥{{ formatPrice(instanceData.order.first_paid_amount) }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">支付方式</span><span class="kv-row__v">{{ instanceData.order.pay_method || '—' }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">付款时间</span><span class="kv-row__v">{{ formatTime(instanceData.order.pay_time) }}</span></div>
+                </template>
+                <t-empty v-else description="无来源订单" />
+              </div>
+
+              <div class="info-card">
+                <div class="info-card__head">
+                  <h3 class="card-title">对接商品</h3>
+                  <t-link v-if="instanceData?.product" theme="primary" hover="color" @click="openProductById(instanceData.product.id)">
+                    查看商品
+                  </t-link>
+                </div>
+                <template v-if="instanceData?.product">
+                  <div class="kv-row"><span class="kv-row__k">商品名称</span><span class="kv-row__v">{{ instanceData.product.name }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">商品编码</span><span class="kv-row__v">{{ instanceData.product.code || '—' }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">对接模式</span><span class="kv-row__v">{{ productSourceModeLabel(instanceData.product.source_mode) }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">对接渠道</span><span class="kv-row__v">{{ instanceData.product.source_provider_name || '—' }}<span v-if="instanceData.product.provider_type" class="cell-sub">（{{ providerTypeLabel(instanceData.product.provider_type) }}）</span></span></div>
+                  <div class="kv-row"><span class="kv-row__k">上游商品 ID</span><span class="kv-row__v">{{ instanceData.product.source_product_id || '—' }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">商品售价</span><span class="kv-row__v">¥{{ formatPrice(instanceData.product.price) }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">商品成本</span><span class="kv-row__v">¥{{ formatPrice(instanceData.product.cost_price) }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">加价规则</span><span class="kv-row__v">{{ markupLabel(instanceData.product) }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">续费金额</span><span class="kv-row__v kv-row__v--strong">¥{{ formatPrice(instanceData.order?.renew_amount ?? 0) }} / {{ cycleLabel(instanceData.order?.renew_cycle) }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">续费成本</span><span class="kv-row__v">¥{{ formatPrice(instanceData.order?.renew_cost ?? 0) }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">商品状态</span><span class="kv-row__v">{{ instanceData.product.status === 1 ? '上架' : '下架' }}</span></div>
+                </template>
+                <t-empty v-else description="该实例非经我方商品开通" />
+              </div>
+
+              <div class="info-card">
+                <div class="info-card__head">
+                  <h3 class="card-title">上游商品</h3>
+                  <t-tag v-if="instanceData?.upstream" :theme="instanceData.upstream.renewable ? 'success' : 'warning'" variant="light" size="small" shape="round">
+                    {{ instanceData.upstream.renewable ? '可续费' : '不可续费' }}
+                  </t-tag>
+                </div>
+                <template v-if="instanceData?.upstream">
+                  <div class="kv-row"><span class="kv-row__k">上游名称</span><span class="kv-row__v">{{ instanceData.upstream.name }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">上游商品 ID</span><span class="kv-row__v">{{ instanceData.upstream.upstream_id || '—' }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">所属分组</span><span class="kv-row__v">{{ instanceData.upstream.group_name || '—' }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">上游标价</span><span class="kv-row__v">¥{{ formatPrice(instanceData.upstream.list_price) }}{{ instanceData.upstream.pay_type === 'recurring' ? ' / 周期' : '' }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">采购价</span><span class="kv-row__v">¥{{ formatPrice(instanceData.upstream.cost_price) }}</span></div>
+                  <div class="kv-row" v-if="instanceData.upstream.discount_desc"><span class="kv-row__k">代理折扣</span><span class="kv-row__v">{{ instanceData.upstream.discount_desc }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">上游续费金额</span><span class="kv-row__v kv-row__v--strong">{{ upstreamRenewText }}</span></div>
+                  <div class="kv-row kv-row--col">
+                    <span class="kv-row__k">上游各周期价（标价 / 采购价）</span>
+                    <div class="cycle-chips">
+                      <span v-for="item in upstreamCycleRows" :key="item.cycle" class="cycle-chip">
+                        <b>{{ cycleLabel(item.cycle) }}</b>
+                        <span>¥{{ formatPrice(item.list) }} / ¥{{ formatPrice(item.cost) }}</span>
+                      </span>
+                      <span v-if="!upstreamCycleRows.length" class="cell-sub">上游未提供周期价</span>
+                    </div>
+                  </div>
+                </template>
+                <t-empty v-else description="非对接商品，无上游信息" />
+              </div>
+            </div>
           </div>
         </t-tab-panel>
 
+        <!-- ============ 配置与财务 ============ -->
+        <t-tab-panel value="billing" label="配置与财务">
+          <div class="tabs-section">
+            <div class="config-grid">
+              <!-- 生效配置项（区域/CPU/内存/带宽等） -->
+              <div class="config-panel">
+                <div class="config-panel__head">
+                  <h3 class="card-title">生效配置</h3>
+                  <span class="table-card__meta">共 {{ configs.length }} 项 · 以实例实际取值为准</span>
+                </div>
+                <div v-if="configs.length" class="config-list">
+                  <div v-for="item in configs" :key="item.key" class="config-item">
+                    <div class="config-item__head">
+                      <span class="config-item__label">{{ item.label }}</span>
+                      <t-tag v-if="item.locked" theme="warning" variant="light" size="small" shape="round">上游锁定</t-tag>
+                      <t-tag v-else :theme="configSourceTheme(item.source)" variant="light" size="small" shape="round">
+                        {{ configSourceLabel(item.source) }}
+                      </t-tag>
+                    </div>
+                    <div class="config-item__value">
+                      {{ item.value || '—' }}<span v-if="item.unit" class="config-item__unit">{{ item.unit }}</span>
+                    </div>
+                  </div>
+                </div>
+                <t-empty v-else description="该商品未配置可选项" />
+              </div>
+
+              <!-- 财务账期 -->
+              <div class="config-panel">
+                <div class="config-panel__head">
+                  <h3 class="card-title">财务与账期</h3>
+                  <t-button
+                    v-permission="'instance:billing'"
+                    size="small"
+                    variant="outline"
+                    @click="openAdjustDialog"
+                  >
+                    调整账期
+                  </t-button>
+                </div>
+                <div class="kv-row"><span class="kv-row__k">到期时间</span><span class="kv-row__v" :class="expireClass(instanceData!)">{{ instanceData?.expire_at ? formatTime(instanceData!.expire_at) : (isOnetime ? '一次性/买断' : '未设置') }}</span></div>
+                <div class="kv-row"><span class="kv-row__k">到期状态</span><span class="kv-row__v">{{ instanceData?.expire_at ? expireStateLabel(instanceData!.expire_state) : '—' }}<span v-if="instanceData?.expire_at" class="cell-sub">剩余 {{ instanceData!.days_left }} 天</span></span></div>
+                <div class="kv-row"><span class="kv-row__k">付款周期</span><span class="kv-row__v">{{ billingModeLabel }}</span></div>
+                <div class="kv-row"><span class="kv-row__k">首次付款金额</span><span class="kv-row__v kv-row__v--strong">¥{{ formatPrice(instanceData?.order?.first_paid_amount ?? 0) }}</span></div>
+                <div class="kv-row"><span class="kv-row__k">续费金额（售价）</span><span class="kv-row__v kv-row__v--strong">¥{{ formatPrice(instanceData?.order?.renew_amount ?? 0) }} / {{ cycleLabel(instanceData?.order?.renew_cycle) }}</span></div>
+                <div class="kv-row"><span class="kv-row__k">续费成本</span><span class="kv-row__v">¥{{ formatPrice(instanceData?.order?.renew_cost ?? 0) }}</span></div>
+                <div class="kv-row" v-if="instanceData?.upstream"><span class="kv-row__k">上游续费金额</span><span class="kv-row__v kv-row__v--strong">{{ upstreamRenewText }}</span></div>
+                <div class="kv-row"><span class="kv-row__k">计费链路</span><span class="kv-row__v">{{ sourceModeLabel }}</span></div>
+                <t-alert
+                  v-if="instanceData?.source_mode === 'upstream'"
+                  theme="warning"
+                  class="billing-alert"
+                  message="该实例对接上游，到期时间与付款周期的最终口径以上游为准；本地调整需勾选「强制本地调整」，且不会被回源覆盖后保持。"
+                />
+                <t-alert
+                  v-else
+                  theme="info"
+                  class="billing-alert"
+                  message="自营实例的到期时间与付款周期由本系统管理，可直接在「调整账期」中自定义。"
+                />
+              </div>
+            </div>
+
+            <!-- 登录凭据 -->
+            <div class="config-panel config-panel--wide">
+              <div class="config-panel__head">
+                <h3 class="card-title">登录凭据</h3>
+                <t-button
+                  v-if="instanceData?.credential?.has_password"
+                  v-permission="'instance:credential'"
+                  size="small"
+                  variant="outline"
+                  @click="openRevealDialog"
+                >
+                  查看明文密码
+                </t-button>
+              </div>
+              <div class="credential-grid">
+                <div class="kv-row"><span class="kv-row__k">登录用户名</span><span class="kv-row__v">{{ instanceData?.credential?.username || '—' }}</span></div>
+                <div class="kv-row"><span class="kv-row__k">连接端口</span><span class="kv-row__v">{{ instanceData?.credential?.port || '—' }}</span></div>
+                <div class="kv-row"><span class="kv-row__k">密码状态</span><span class="kv-row__v">{{ instanceData?.credential?.has_password ? '已保存（可查看）' : '未保存，请重置密码' }}</span></div>
+                <div class="kv-row"><span class="kv-row__k">面板/IPMI 密码</span><span class="kv-row__v">{{ instanceData?.credential?.has_panel_password ? '有' : '无' }}</span></div>
+              </div>
+              <p v-if="instanceData?.credential?.password_hint" class="credential-hint">{{ instanceData.credential.password_hint }}</p>
+            </div>
+          </div>
+        </t-tab-panel>
+
+        <!-- ============ 操作记录 ============ -->
         <t-tab-panel value="operations" label="操作记录">
           <div class="tabs-section">
             <div class="table-card__head">
@@ -245,13 +392,8 @@
                 <span>{{ operationActionLabel(row.action) }}</span>
               </template>
               <template #result="{ row }">
-                <t-tag
-                  :theme="row.result === 'success' ? 'success' : 'danger'"
-                  variant="light"
-                  size="small"
-                  shape="round"
-                >
-                  {{ row.result === 'success' ? '成功' : '失败' }}
+                <t-tag :theme="operationResultTheme(row.result)" variant="light" size="small" shape="round">
+                  {{ operationResultLabel(row.result) }}
                 </t-tag>
               </template>
               <template #operator="{ row }">
@@ -281,6 +423,7 @@
           </div>
         </t-tab-panel>
 
+        <!-- ============ 关联记录 ============ -->
         <t-tab-panel value="related" label="关联记录">
           <div class="tabs-section">
             <div class="related-block">
@@ -380,6 +523,7 @@
       </t-tabs>
     </section>
 
+    <!-- ============ 弹窗 ============ -->
     <t-dialog
       v-model:visible="remarkVisible"
       header="实例备注"
@@ -394,6 +538,62 @@
           <t-textarea v-model="remarkForm.remark" :autosize="{ minRows: 3, maxRows: 6 }" placeholder="请输入实例备注" />
         </t-form-item>
       </t-form>
+    </t-dialog>
+
+    <!-- 账期调整：到期时间 + 付款周期，仅本地口径不产生账单 -->
+    <t-dialog
+      v-model:visible="adjust.visible"
+      header="调整账期与付款周期"
+      width="560px"
+      :confirm-btn="{ content: '确认调整', theme: 'primary', disabled: adjustConfirmDisabled }"
+      :cancel-btn="{ content: '取消' }"
+      destroy-on-close
+      @confirm="handleAdjustBilling"
+    >
+      <t-alert theme="info" class="dlg-alert" message="调整只改本地账期口径，不产生账单、不向上游下单。对接上游的实例需勾选强制本地调整。" />
+      <t-form label-align="top">
+        <t-form-item label="到期时间">
+          <t-date-picker
+            v-model="adjust.expire_at"
+            enable-time-picker
+            clearable
+            placeholder="选择新的到期时间（留空表示不修改）"
+            class="dlg-full"
+          />
+        </t-form-item>
+        <t-form-item label="付款周期">
+          <t-select v-model="adjust.billing_mode" :options="billingModeOptions" clearable placeholder="留空表示不修改" class="dlg-full" />
+        </t-form-item>
+        <t-form-item v-if="instanceData?.source_mode === 'upstream'">
+          <t-checkbox v-model="adjust.force">强制本地调整（该实例为上游对接链路）</t-checkbox>
+        </t-form-item>
+        <t-form-item label="调整原因">
+          <t-textarea v-model="adjust.reason" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="选填，写入操作流水" />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
+
+    <!-- 明文凭据查看：点击后即时拉取，不随详情缓存 -->
+    <t-dialog
+      v-model:visible="reveal.visible"
+      header="查看登录密码"
+      width="480px"
+      :confirm-btn="{ content: '我已记录', theme: 'primary' }"
+      :cancel-btn="null"
+      destroy-on-close
+      @confirm="reveal.visible = false"
+    >
+      <t-alert theme="warning" class="dlg-alert" message="查看密码会写入操作审计流水。请勿截图外传，使用完毕请及时关闭。" />
+      <t-descriptions :column="1" bordered size="small">
+        <t-descriptions-item label="用户名">{{ reveal.username || '—' }}</t-descriptions-item>
+        <t-descriptions-item label="密码">
+          <span class="secret-cell">
+            <code>{{ reveal.password || '—' }}</code>
+            <t-button size="small" variant="text" theme="primary" @click="copyRevealPassword">复制</t-button>
+          </span>
+        </t-descriptions-item>
+        <t-descriptions-item label="端口">{{ reveal.port || '—' }}</t-descriptions-item>
+      </t-descriptions>
     </t-dialog>
 
     <t-dialog
@@ -428,11 +628,7 @@
       v-model:visible="destroyVisible"
       header="销毁实例"
       width="520px"
-      :confirm-btn="{
-        content: '确认销毁',
-        theme: 'danger',
-        disabled: destroyConfirmDisabled,
-      }"
+      :confirm-btn="{ content: '确认销毁', theme: 'danger', disabled: destroyConfirmDisabled }"
       :cancel-btn="{ content: '取消' }"
       @confirm="handleDestroy"
       @close="destroyVisible = false"
@@ -697,6 +893,7 @@ import { DialogPlugin, MessagePlugin, type PageInfo, type PrimaryTableCol } from
 
 import {
   addInstanceIP,
+  adjustInstanceBilling,
   attachInstanceDisk,
   createInstanceSnapshot,
   deleteInstanceSnapshot,
@@ -713,6 +910,7 @@ import {
   resizeInstance,
   rescueInstance,
   restoreInstanceSnapshot,
+  revealInstanceCredential,
   suspendInstance,
   syncInstance,
   unsuspendInstance,
@@ -730,6 +928,7 @@ import {
   lifecycleStageLabel,
   lifecycleStageTheme,
   operationActionLabel,
+  operationResultLabel,
   operatorTypeLabel,
   powerActionLabel,
   powerActionTips,
@@ -756,6 +955,8 @@ const loading = ref(false)
 const syncing = ref(false)
 const actioning = ref(false)
 const activeTab = ref('overview')
+
+const { has: hasPerm } = usePermission()
 
 const operations = ref<OperationItem[]>([])
 const opLoading = ref(false)
@@ -808,6 +1009,136 @@ const relatedTicketColumns: PrimaryTableCol<RelatedTicket>[] = [
   { colKey: 'created_at', title: '创建时间', width: 170 },
 ]
 
+// ===== 展示辅助 =====
+
+const billingCycleOptions = [
+  { value: 'hourly', label: '按小时' },
+  { value: 'daily', label: '按日' },
+  { value: 'monthly', label: '月付' },
+  { value: 'quarterly', label: '季付' },
+  { value: 'semiannually', label: '半年付' },
+  { value: 'annually', label: '年付' },
+  { value: 'biennially', label: '两年' },
+  { value: 'triennially', label: '三年' },
+  { value: 'onetime', label: '一次性' },
+]
+const billingModeOptions = billingCycleOptions
+
+function cycleLabel(cycle: string | undefined): string {
+  if (!cycle) return '—'
+  const found = billingCycleOptions.find((item) => item.value === cycle)
+  return found ? found.label : cycle
+}
+
+const billingModeLabel = computed(() => cycleLabel(instanceData.value?.billing_mode))
+
+const isOnetime = computed(() => instanceData.value?.billing_mode === 'onetime')
+
+const sourceModeLabel = computed(() => (instanceData.value?.source_mode === 'upstream' ? '对接上游' : '自营'))
+
+const sourceModeTheme = computed(() => (instanceData.value?.source_mode === 'upstream' ? 'warning' : 'success'))
+
+const sourceModeHint = computed(() =>
+  instanceData.value?.source_mode === 'upstream'
+    ? '商品对接上游转售，实例由上游开通与控制'
+    : '自营商品，实例由本平台开通与计费',
+)
+
+function productSourceModeLabel(mode: string): string {
+  if (mode === 'upstream') return '对接上游（转售）'
+  if (mode === 'self') return '自营（平台资源池）'
+  return mode || '—'
+}
+
+const providerTypeLabels: Record<string, string> = {
+  mofangyun: '魔方云',
+  mofangfinance: '魔方财务',
+  manual: '人工',
+}
+
+function providerTypeLabel(type: string): string {
+  return providerTypeLabels[type] || type || '—'
+}
+
+const orderStatusLabels: Record<string, string> = {
+  pending: '待支付',
+  paid: '已支付',
+  provisioning: '开通中',
+  active: '已完成',
+  cancelled: '已取消',
+  refunded: '已退款',
+  failed: '失败',
+}
+
+function orderStatusLabel(status: string): string {
+  return orderStatusLabels[status] || status || '—'
+}
+
+function markupLabel(product: { upstream_markup_type: string; upstream_markup_value: number }): string {
+  if (!product.upstream_markup_type || product.upstream_markup_type === 'none') return '不调价'
+  if (product.upstream_markup_type === 'percent') return `加价 ${product.upstream_markup_value}%`
+  if (product.upstream_markup_type === 'fixed') return `加价 ¥${formatPrice(product.upstream_markup_value)}`
+  return product.upstream_markup_type
+}
+
+const configs = computed(() => instanceData.value?.configs || [])
+
+const configSourceLabels: Record<string, string> = {
+  instance: '实例实际情况',
+  order: '客户选配',
+  product: '商品默认',
+  upstream: '上游固定',
+}
+
+function configSourceLabel(source: string): string {
+  return configSourceLabels[source] || source || '—'
+}
+
+function configSourceTheme(source: string): string {
+  switch (source) {
+    case 'instance':
+      return 'success'
+    case 'order':
+      return 'primary'
+    case 'upstream':
+      return 'warning'
+    default:
+      return 'default'
+  }
+}
+
+const upstreamCycleRows = computed(() => {
+  const up = instanceData.value?.upstream
+  if (!up) return []
+  const cycles = new Set([...Object.keys(up.list_cycles || {}), ...Object.keys(up.cost_cycles || {})])
+  return Array.from(cycles)
+    .filter((cycle) => (up.list_cycles?.[cycle] || 0) > 0 || (up.cost_cycles?.[cycle] || 0) > 0)
+    .sort((a, b) => cycleSort(a) - cycleSort(b))
+    .map((cycle) => ({
+      cycle,
+      list: up.list_cycles?.[cycle] || 0,
+      cost: up.cost_cycles?.[cycle] || 0,
+    }))
+})
+
+function cycleSort(cycle: string): number {
+  const idx = billingCycleOptions.findIndex((item) => item.value === cycle)
+  return idx === -1 ? 999 : idx
+}
+
+const upstreamRenewText = computed(() => {
+  const amount = instanceData.value?.order?.upstream_renew_amount ?? 0
+  const cycle = instanceData.value?.order?.upstream_renew_cycle
+  if (!amount) return '未取到上游周期价'
+  return `¥${formatPrice(amount)}${cycle ? ` / ${cycleLabel(cycle)}` : ''}`
+})
+
+const expireGlanceClass = computed(() => {
+  if (instanceData.value?.expire_state === 'expired') return 'glance-card--danger'
+  if (instanceData.value?.expire_state === 'expiring') return 'glance-card--warning'
+  return ''
+})
+
 function powerStatusText(status: string): string {
   if (status === 'on') return '开机'
   if (status === 'off') return '关机'
@@ -822,6 +1153,12 @@ function expireClass(row: InstanceDetail): string {
 
 function capabilityTitle(supported: boolean | undefined): string {
   return supported ? '' : '该服务商不支持此操作'
+}
+
+function operationResultTheme(result: string): string {
+  if (result === 'success') return 'success'
+  if (result === 'skipped') return 'warning'
+  return 'danger'
 }
 
 const consoleDisabled = computed(
@@ -849,6 +1186,8 @@ function powerTitle(action: string): string {
   if (action === 'off') return ps === 'off' ? '实例已处于关机状态' : ''
   return ps !== 'on' ? '仅运行中的实例可重启' : ''
 }
+
+// ===== 数据加载 =====
 
 async function loadDetail() {
   loading.value = true
@@ -910,9 +1249,184 @@ function openOrder(row: RelatedOrder) {
   router.push(`/orders/detail/${row.id}`)
 }
 
+function openOrderById(id: number) {
+  if (id > 0) router.push(`/orders/detail/${id}`)
+}
+
+function openProductById(id: number) {
+  if (id > 0) router.push(`/product/products/${id}`)
+}
+
 function openTicket(row: RelatedTicket) {
   router.push(`/tickets/detail/${row.id}`)
 }
+
+// ===== 操作分组下拉 =====
+
+const powerOptions = computed(() => {
+  const opts: { content: string; value: string; disabled?: boolean; theme?: string }[] = [
+    { content: '开机', value: 'on', disabled: powerDisabled('on') },
+    { content: '关机', value: 'off', disabled: powerDisabled('off') },
+    { content: '重启', value: 'reboot', disabled: powerDisabled('reboot') },
+    { content: '强制关机（断电）', value: 'hard_off', disabled: powerDisabled('hard_off'), theme: 'error' },
+    { content: '强制重启（断电）', value: 'hard_reboot', disabled: powerDisabled('hard_reboot'), theme: 'error' },
+  ]
+  return opts
+})
+
+const powerGroupDisabled = computed(() => !instanceData.value?.capabilities?.power)
+
+function onPowerPick(data: { value: string; disabled?: boolean }) {
+  if (data.disabled) {
+    MessagePlugin.warning(powerTitle(data.value) || '该操作当前不可用')
+    return
+  }
+  handlePower(data.value)
+}
+
+// 维护类操作（平台接口实测存在）
+const maintenanceOptions = computed(() => {
+  const caps = instanceData.value?.capabilities
+  const opts: { content: string; value: string; disabled?: boolean }[] = []
+  if (hasPerm('instance:reinstall')) {
+    opts.push({ content: '重装系统', value: 'reinstall', disabled: !caps?.reinstall })
+  }
+  if (hasPerm('instance:password')) {
+    opts.push({ content: '重置密码', value: 'resetpwd', disabled: !caps?.reset_password })
+  }
+  if (hasPerm('instance:rescue')) {
+    opts.push({ content: '进入救援系统', value: 'rescue', disabled: !caps?.rescue })
+    opts.push({ content: '退出救援系统', value: 'exitrescue', disabled: !caps?.rescue })
+  }
+  if (hasPerm('instance:snapshot')) {
+    opts.push({ content: '快照与备份', value: 'snapshot', disabled: !caps?.snapshot })
+  }
+  if (hasPerm('instance:hardware')) {
+    opts.push({
+      content: '硬件变更',
+      value: 'hardware',
+      disabled: !caps?.bandwidth && !caps?.add_ip && !caps?.attach_disk,
+    })
+  }
+  return opts
+})
+
+const maintenanceDisabled = computed(() => maintenanceOptions.value.length === 0)
+
+function onMaintenancePick(data: { value: string; disabled?: boolean }) {
+  if (data.disabled) {
+    MessagePlugin.warning('当前服务商不支持该操作')
+    return
+  }
+  switch (data.value) {
+    case 'reinstall':
+      reinstall.os = ''
+      reinstall.port = 0
+      reinstall.system_disk_size = 0
+      reinstall.format_data_disk = false
+      reinstall.reason = ''
+      reinstall.visible = true
+      loadMirrorOptions()
+      break
+    case 'resetpwd':
+      resetPwd.password = ''
+      resetPwd.visible = true
+      break
+    case 'rescue':
+      rescue.system = 1
+      rescue.temp_password = ''
+      rescue.visible = true
+      break
+    case 'exitrescue':
+      handleExitRescue()
+      break
+    case 'snapshot':
+      snap.name = ''
+      snap.type = 'snap'
+      snap.visible = true
+      loadSnapshots(true)
+      break
+    case 'hardware':
+      hw.visible = true
+      break
+  }
+}
+
+// 账期与凭证分组
+const billingOptions = computed(() => {
+  const opts: { content: string; value: string; disabled?: boolean }[] = []
+  if (hasPerm('instance:billing')) {
+    opts.push({ content: '调整账期/付款周期', value: 'adjust' })
+  }
+  if (hasPerm('instance:credential')) {
+    opts.push({ content: '查看登录密码', value: 'reveal', disabled: !instanceData.value?.credential?.has_password })
+  }
+  if (hasPerm('instance:action')) {
+    opts.push({ content: '编辑备注', value: 'remark' })
+  }
+  return opts
+})
+
+const billingDisabled = computed(() => billingOptions.value.length === 0)
+
+function onBillingPick(data: { value: string; disabled?: boolean }) {
+  if (data.disabled) {
+    MessagePlugin.warning('该实例未保存明文密码，请使用「重置密码」')
+    return
+  }
+  switch (data.value) {
+    case 'adjust':
+      openAdjustDialog()
+      break
+    case 'reveal':
+      openRevealDialog()
+      break
+    case 'remark':
+      openRemarkDialog()
+      break
+  }
+}
+
+// 危险操作分组
+const dangerOptions = computed(() => {
+  const opts: { content: string; value: string; disabled?: boolean; theme?: string }[] = []
+  if (hasPerm('instance:action') && instanceData.value?.lifecycle_stage === 'suspended') {
+    opts.push({ content: '恢复服务', value: 'unsuspend' })
+  } else if (hasPerm('instance:action')) {
+    opts.push({ content: '暂停服务', value: 'suspend', disabled: !instanceData.value?.capabilities?.suspend })
+  }
+  if (hasPerm('instance:destroy')) {
+    opts.push({
+      content: '销毁实例',
+      value: 'destroy',
+      disabled: !instanceData.value?.capabilities?.destroy,
+      theme: 'error',
+    })
+  }
+  return opts
+})
+
+const dangerDisabled = computed(() => dangerOptions.value.length === 0)
+
+function onDangerPick(data: { value: string; disabled?: boolean }) {
+  if (data.disabled) {
+    MessagePlugin.warning('当前服务商不支持该操作')
+    return
+  }
+  switch (data.value) {
+    case 'suspend':
+      handleSuspend()
+      break
+    case 'unsuspend':
+      handleUnsuspend()
+      break
+    case 'destroy':
+      openDestroyDialog()
+      break
+  }
+}
+
+// ===== 电源 =====
 
 function handlePower(action: string) {
   if (action === 'on') {
@@ -995,6 +1509,8 @@ async function handleUnsuspend() {
   }
 }
 
+// ===== 备注 =====
+
 const remarkVisible = ref(false)
 const remarkForm = reactive<{ remark: string }>({ remark: '' })
 
@@ -1013,6 +1529,83 @@ async function handleSaveRemark() {
     MessagePlugin.error((error as Error).message || '更新备注失败')
   }
 }
+
+// ===== 账期调整（本地口径）=====
+
+const adjust = reactive<{
+  visible: boolean
+  expire_at: string
+  billing_mode: string
+  force: boolean
+  reason: string
+  loading: boolean
+}>({ visible: false, expire_at: '', billing_mode: '', force: false, reason: '', loading: false })
+
+const adjustConfirmDisabled = computed(
+  () => !adjust.expire_at && !adjust.billing_mode,
+)
+
+function openAdjustDialog() {
+  adjust.expire_at = ''
+  adjust.billing_mode = instanceData.value?.billing_mode ?? ''
+  adjust.force = false
+  adjust.reason = ''
+  adjust.visible = true
+}
+
+async function handleAdjustBilling() {
+  if (!adjust.expire_at && !adjust.billing_mode) {
+    MessagePlugin.warning('请至少填写到期时间或付款周期')
+    return
+  }
+  adjust.loading = true
+  try {
+    const res = await adjustInstanceBilling(instanceId, {
+      expire_at: adjust.expire_at || undefined,
+      billing_mode: adjust.billing_mode || undefined,
+      force: adjust.force || undefined,
+      reason: adjust.reason || undefined,
+    })
+    instanceData.value = res
+    MessagePlugin.success('账期已调整')
+    adjust.visible = false
+    loadOperations()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '调整账期失败')
+  } finally {
+    adjust.loading = false
+  }
+}
+
+// ===== 明文凭据查看 =====
+
+const reveal = reactive<{ visible: boolean; username: string; password: string; port: string }>({
+  visible: false,
+  username: '',
+  password: '',
+  port: '',
+})
+
+async function openRevealDialog() {
+  try {
+    const res = await revealInstanceCredential(instanceId)
+    reveal.username = res.username
+    reveal.password = res.password
+    reveal.port = res.port
+    reveal.visible = true
+    loadOperations()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '查看密码失败')
+  }
+}
+
+function copyRevealPassword() {
+  if (!reveal.password) return
+  void navigator.clipboard?.writeText(reveal.password)
+  MessagePlugin.success('密码已复制')
+}
+
+// ===== 变配 =====
 
 const resizeVisible = ref(false)
 const resizeForm = reactive<{ cpu: number; memory: number; disk: number; disk_type: string; reason: string }>({
@@ -1051,6 +1644,8 @@ async function handleResize() {
   }
 }
 
+// ===== 销毁 =====
+
 const destroyVisible = ref(false)
 const destroyForm = reactive<{ confirm_mark: string; reason: string }>({ confirm_mark: '', reason: '' })
 
@@ -1077,6 +1672,8 @@ async function handleDestroy() {
     MessagePlugin.error((error as Error).message || '销毁失败')
   }
 }
+
+// ===== 续费 =====
 
 const renewVisible = ref(false)
 const renewForm = reactive<{ period_count: number; amount: number; remark: string }>({
@@ -1107,6 +1704,8 @@ async function handleRenew() {
   }
 }
 
+// ===== 控制台 =====
+
 const vnc = reactive({ visible: false, name: '', url: '', password: '' })
 
 async function handleVnc() {
@@ -1135,78 +1734,8 @@ function isHttp(url: string): boolean {
   return /^https?:/i.test(url)
 }
 
-// ===== 维护类操作（平台接口实测存在）=====
-//
-// 统一入口是一枚「维护 ▾」下拉：操作栏已经有 9 个按钮，再加 6 个会挤成一团。
-// 每个子项各自带权限码（用 v-permission 不适用于下拉项，故在 options 里显式过滤）
-// 与能力位（平台不支持时置灰并说明原因）。
+// ===== 重装 =====
 
-const { has: hasPerm } = usePermission()
-
-const maintenanceOptions = computed(() => {
-  const caps = instanceData.value?.capabilities
-  const opts: { content: string; value: string; disabled?: boolean }[] = []
-  if (hasPerm('instance:reinstall')) {
-    opts.push({ content: '重装系统', value: 'reinstall', disabled: !caps?.reinstall })
-  }
-  if (hasPerm('instance:password')) {
-    opts.push({ content: '重置密码', value: 'resetpwd', disabled: !caps?.reset_password })
-  }
-  if (hasPerm('instance:rescue')) {
-    opts.push({ content: '进入救援系统', value: 'rescue', disabled: !caps?.rescue })
-    opts.push({ content: '退出救援系统', value: 'exitrescue', disabled: !caps?.rescue })
-  }
-  if (hasPerm('instance:snapshot')) {
-    opts.push({ content: '快照与备份', value: 'snapshot', disabled: !caps?.snapshot })
-  }
-  if (hasPerm('instance:hardware')) {
-    opts.push({ content: '硬件变更', value: 'hardware', disabled: !caps?.bandwidth && !caps?.add_ip && !caps?.attach_disk })
-  }
-  return opts
-})
-
-const maintenanceDisabled = computed(() => maintenanceOptions.value.length === 0)
-
-function onMaintenancePick(data: { value: string; disabled?: boolean }) {
-  if (data.disabled) {
-    MessagePlugin.warning('当前服务商不支持该操作')
-    return
-  }
-  switch (data.value) {
-    case 'reinstall':
-      reinstall.os = ''
-      reinstall.port = 0
-      reinstall.system_disk_size = 0
-      reinstall.format_data_disk = false
-      reinstall.reason = ''
-      reinstall.visible = true
-      loadMirrorOptions()
-      break
-    case 'resetpwd':
-      resetPwd.password = ''
-      resetPwd.visible = true
-      break
-    case 'rescue':
-      rescue.system = 1
-      rescue.temp_password = ''
-      rescue.visible = true
-      break
-    case 'exitrescue':
-      handleExitRescue()
-      break
-    case 'snapshot':
-      snap.name = ''
-      snap.type = 'snap'
-      snap.visible = true
-      loadSnapshots(true)
-      break
-    case 'hardware':
-      hw.visible = true
-      break
-  }
-}
-
-// —— 重装 ——
 const reinstall = reactive<{
   visible: boolean
   os: string
@@ -1279,7 +1808,8 @@ async function handleReinstall() {
   }
 }
 
-// —— 重置密码 ——
+// ===== 重置密码 =====
+
 const resetPwd = reactive<{ visible: boolean; password: string; loading: boolean }>({
   visible: false,
   password: '',
@@ -1303,7 +1833,8 @@ async function handleResetPassword() {
   }
 }
 
-// —— 救援系统 ——
+// ===== 救援系统 =====
+
 const rescue = reactive<{ visible: boolean; system: number; temp_password: string; loading: boolean }>({
   visible: false,
   system: 1,
@@ -1348,7 +1879,8 @@ async function handleExitRescue() {
   })
 }
 
-// —— 快照与备份 ——
+// ===== 快照与备份 =====
+
 const snapTypeOptions = [
   { label: '快照', value: 'snap' },
   { label: '备份', value: 'backup' },
@@ -1443,7 +1975,8 @@ async function handleDeleteSnapshot(row: InstanceSnapshotInfo) {
   })
 }
 
-// —— 硬件变更 ——
+// ===== 硬件变更 =====
+
 const hw = reactive<{
   visible: boolean
   in_bw: number

@@ -115,13 +115,29 @@ type ProductCloneRequest struct {
 	Status           int     `json:"status"`
 }
 
-// ProductBatchCloneRequest 批量从上游商品克隆创建销售商品（按百分比定价）。
+// ProductBatchCloneRequest 批量从上游商品克隆创建销售商品（按上游标价百分比定价）。
 type ProductBatchCloneRequest struct {
 	SourceProviderID uint64   `json:"source_provider_id" binding:"required"` // 上游提供商 ID
 	SourceProductIDs []uint64 `json:"source_product_ids" binding:"required"` // 待导入的上游商品 ID 列表
 	CategoryID       uint64   `json:"category_id"`                           // 归入的商品分类
-	PricePercent     float64  `json:"price_percent"`                         // 定价百分比：售价 = 上游售价 × percent/100（0 或 100 表示按原价）
+	PricePercent     float64  `json:"price_percent"`                         // 定价百分比：售价 = 上游标价 × percent/100（100=按上游原价，>100 加价，<100 让利）
 	Status           int      `json:"status"`                                // 默认草稿
+}
+
+// ProductUpstreamMarkupRequest 设定上游商品的对客加价规则（「上游商品」页调价）。
+// 规则会写入该上游商品已导入的全部商品，并立即按规则重算售价与周期价格矩阵。
+type ProductUpstreamMarkupRequest struct {
+	ResourceProductID uint64  `json:"resource_product_id" binding:"required"` // 上游资源商品 ID
+	MarkupType        string  `json:"markup_type"`                            // percent=代理价×v%；fixed=代理价+v；list_percent=标价×v%；空=清除规则
+	MarkupValue       float64 `json:"markup_value"`                           // 加价数值（list_percent 时 100=按上游原价）
+	Remark            string  `json:"remark"`                                 // 调价备注（写入商品变更历史）
+}
+
+// ProductUpstreamMarkupResponse 调价结果：受影响的已导入商品数。
+type ProductUpstreamMarkupResponse struct {
+	Affected int      `json:"affected"`
+	Message  string   `json:"message"`
+	Details  []string `json:"details"`
 }
 
 // ProductBatchCloneResponse 批量导入结果：成功项 + 失败项（逐条原因）。
@@ -230,6 +246,13 @@ type ProductUpstreamInfo struct {
 	CostPrice float64 `json:"cost_price"`
 	// DiscountDesc 折扣描述（如「代理折扣 70%（应付标价的 70%）」）。
 	DiscountDesc string `json:"discount_desc"`
+	// PriceSource 价格来源：pricings=上游商品周期价；catalog=上游前台展示价回填（活动款价格
+	// 只挂在配置项上，上游周期价为 0）；none=上游未定价（导入后需人工定价）。
+	PriceSource string `json:"price_source"`
+	// Catalog* 上游前台展示价（cart/index），price_source=catalog 时与之上同源。
+	CatalogPrice     float64 `json:"catalog_price"`
+	CatalogSalePrice float64 `json:"catalog_sale_price"`
+	CatalogCycle     string  `json:"catalog_cycle"`
 	// ListCycles/CostCycles 各周期标价与采购价（周期 → 金额），配置箱展示付费周期用。
 	ListCycles map[string]float64 `json:"list_cycles"`
 	CostCycles map[string]float64 `json:"cost_cycles"`

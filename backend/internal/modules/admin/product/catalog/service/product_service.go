@@ -73,6 +73,8 @@ type ProductService interface {
 	IncrementSpecStock(ctx context.Context, specID uint64, qty int) (int64, error)
 	// ApplyConfirmedPrice 把已确认的上游成本价写入绑定该上游资源商品的售出商品（T3.4）。
 	ApplyConfirmedPrice(ctx context.Context, resourceProductID uint64, costPrice float64, operatorName, remark string) (int, error)
+	// ApplyUpstreamMarkupRule 设定上游商品加价规则并重算其已导入商品的售价（「上游商品」页调价）。
+	ApplyUpstreamMarkupRule(ctx context.Context, resourceProductID uint64, markupType string, markupValue float64, operatorName, remark string) (int, error)
 	// ListConfigOptions 读取商品全部配置项（含 source=self，T4.4）。
 	ListConfigOptions(ctx context.Context, productID uint64) ([]interface{}, error)
 	// SaveConfigOptions 覆盖保存商品配置项（T4.4）：配置项可标注 source/source_key，
@@ -1485,9 +1487,10 @@ func cloneRatio(cost, price float64) float64 {
 	return price / cost
 }
 
-// CloneFromUpstreamBatch 批量从上游商品克隆创建销售商品（按百分比定价）。
-// 每个上游商品的售价（resource_products.sale_price，即上游结算价）作为成本基线，
-// 销售价 = 成本 × price_percent/100（price_percent 小于等于 0 时按 100 处理，即原价）。
+// CloneFromUpstreamBatch 批量从上游商品克隆创建销售商品（按上游标价百分比定价）。
+// 定价口径（与运营习惯一致）：售价 = 上游标价 × price_percent/100 ——
+// 100（默认）即按上游原价卖，>100 加价，<100 让利；成本固定记代理价（我方实际采购价）。
+// 周期价格矩阵按同口径推导：售价(周期) = 代理价(周期) × 标价/代理价 × pct/100。
 func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.ProductBatchCloneRequest, operatorID uint64, operatorName string) (*dto.ProductBatchCloneResponse, error) {
 	pct := req.PricePercent
 	if pct <= 0 {
@@ -1502,11 +1505,13 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 		Failed: make([]dto.ProductBatchCloneFailure, 0),
 	}
 	for _, pid := range req.SourceProductIDs {
-		// 读取上游商品：名称/描述/规格/采购价（代理价）
+		// 读取上游商品：名称/描述/规格 + 标价（售价基线）/代理价（成本）
 		name := ""
 		description := ""
 		specs := ""
 		cost := 0.0
+		price := 0.0
+		cycleRatio := pct / 100
 		rawSpecs := ""
 		var groups []interface{}
 		if s.resourceReader != nil {
@@ -1515,9 +1520,11 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 				// 商品描述取上游富文本描述：本地商品此前描述恒为空，前台商品详情页
 				// 无内容可展示（上游 16核16G 之类的卖点图文都在这里）。
 				description = parseUpstreamRawSpecs(rp.RawSpecs).Description
-				// 成本基线取代理价（cost_price，上游标价扣除代理折扣后的我方采购价）；
-				// 上游未给折扣时 cost_price 即标价，两者一致。
+				// 成本取代理价（cost_price=上游标价扣除代理折扣后的我方采购价）；
+				// 售价基线取上游标价（sale_price），缺标价（仅代理价的历史数据）时退回代理价。
 				cost = cloneCostBaseline(rp)
+				price = clonePriceBaseline(rp) * pct / 100
+				cycleRatio = cloneCycleRatio(rp, pct)
 				rawSpecs = rp.RawSpecs
 				specJSON, _ := json.Marshal(buildCloneBaseOptions(rp))
 				specs = string(specJSON)
@@ -1536,7 +1543,7 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 			SourceProviderID: req.SourceProviderID,
 			SourceMode:       model.SourceModeUpstream,
 			Specs:            specs,
-			Price:            round2(cost * pct / 100),
+			Price:            round2(price),
 			CostPrice:        round2(cost),
 			Stock:            -1,
 			Status:           status,
@@ -1555,12 +1562,13 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 		// 开通选项（主机名可自定义）：对接商品默认注入一项「主机名」，客户下单时可填，
 		// 留空即按标准规则随机生成。issue 见 doc：商品详情页需完整体现主机名/随机密码/端口。
 		_ = s.repo.SaveSelfOptionRows(ctx, item.ID, defaultUpstreamSelfOptions())
-		// 按上游 product_pricings 生成初始周期价格矩阵（doc25 §5），倍率即本次定价百分比。
-		s.seedCloneCyclePrices(ctx, *item, rawSpecs, pct/100)
+		// 按上游 product_pricings 生成初始周期价格矩阵（doc25 §5），
+		// 倍率 = 标价/代理价 × pct/100（成本口径仍是代理价，与商品成本价一致）。
+		s.seedCloneCyclePrices(ctx, *item, rawSpecs, cycleRatio)
 		s.repo.AddHistory(ctx, &model.ProductHistory{
 			ProductID: item.ID, ChangeType: model.ChangeTypeCreate,
 			NewValue: item.Name, OperatorID: operatorID, OperatorName: operatorName,
-			Remark: fmt.Sprintf("批量导入上游商品（定价 %.0f%%）", pct),
+			Remark: fmt.Sprintf("批量导入上游商品（按上游标价 %.0f%% 定价）", pct),
 		})
 		if info, err := s.FindByID(ctx, item.ID); err == nil {
 			resp.Items = append(resp.Items, *info)
@@ -1593,6 +1601,33 @@ func cloneCostBaseline(rp *resourceproductmodel.ResourceProduct) float64 {
 		return rp.CostPrice
 	}
 	return rp.SalePrice
+}
+
+// clonePriceBaseline 取克隆导入的售价基线：上游标价（sale_price）。
+// 只有代理价的历史数据（未取到标价）时退回代理价，避免导入出 0 元商品。
+func clonePriceBaseline(rp *resourceproductmodel.ResourceProduct) float64 {
+	if rp == nil {
+		return 0
+	}
+	if rp.SalePrice > 0 {
+		return rp.SalePrice
+	}
+	return rp.CostPrice
+}
+
+// cloneCycleRatio 周期价格矩阵倍率：目标售价 = 上游标价 × pct/100，
+// 而矩阵成本行是代理价，故倍率 = 标价/代理价 × pct/100；
+// 标价或代理价缺失时退化为 pct/100（按代理价乘百分比，至少不出现 0 元档）。
+func cloneCycleRatio(rp *resourceproductmodel.ResourceProduct, pct float64) float64 {
+	if pct <= 0 {
+		pct = 100
+	}
+	base := clonePriceBaseline(rp)
+	cost := cloneCostBaseline(rp)
+	if base <= 0 || cost <= 0 {
+		return pct / 100
+	}
+	return base / cost * pct / 100
 }
 
 // buildUpstreamSpecSnapshot 组装上游规格快照（T4.3）：

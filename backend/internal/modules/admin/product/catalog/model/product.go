@@ -25,8 +25,12 @@ const (
 
 // 上游加价规则类型（T4.3）：applyMarkup 与入参校验共用，避免字符串散落。
 const (
-	MarkupTypePercent string = "percent" // 售价 = 成本 × value/100
-	MarkupTypeFixed   string = "fixed"   // 售价 = 成本 + value
+	MarkupTypePercent string = "percent" // 售价 = 代理价（成本）× value/100
+	MarkupTypeFixed   string = "fixed"   // 售价 = 代理价（成本）+ value
+	// MarkupTypeListPercent 售价 = 上游标价 × value/100（100=按上游原价卖，>100 加价，<100 让利）。
+	// 运营在「上游商品」页调价时用的就是这条口径：先看上游标价，再决定加价多少；
+	// 代理折扣（标价与代理价之间的差额）自然成为毛利，无需再换算成本倍率。
+	MarkupTypeListPercent string = "list_percent"
 )
 
 // ProductSpecItem 产品规格项（Specs 列中的 JSON 结构）
@@ -53,7 +57,8 @@ type Product struct {
 	SourceProviderID uint64  `gorm:"column:source_provider_id;index"`                  // 关联上游提供商 ID（克隆模式的推送目标）
 	SourceMode       string  `gorm:"column:source_mode;size:16;index"`                 // 链路判据：self 自营 / upstream 上游转售（双链路重构 D6 单一判据）
 	ConfigOptions    string  `gorm:"column:config_options;type:text"`                  // JSON 可配置项（自营模式映射到上游 /clouds 参数；克隆模式可覆盖规格）
-	// 上游加价规则（029 已建列，T3.4 落地）：percent=成本×value%；fixed=成本+value。
+	// 上游加价规则（029 已建列，T3.4 落地）：percent=代理价×value%；fixed=代理价+value；
+	// list_percent=上游标价×value%（运营常用口径，见 MarkupTypeListPercent）。
 	// 未配置时上游改价只更新成本、不改售价（禁止静默改价）。
 	UpstreamMarkupType    string     `gorm:"column:upstream_markup_type;size:16"`
 	UpstreamMarkupValue   float64    `gorm:"column:upstream_markup_value;type:numeric(12,4);default:0"`

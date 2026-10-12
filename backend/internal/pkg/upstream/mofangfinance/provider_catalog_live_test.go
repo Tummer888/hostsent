@@ -95,3 +95,80 @@ func TestListProductsLiveReadOnly(t *testing.T) {
 		}
 	}
 }
+
+// TestListProductsLiveVisibilityAndCatalogPrice 只读验证本轮新增的三条口径：
+//  1. 在售判定：隐藏分组/隐藏商品不再一律标 active（此前 245 条全部"上架"）；
+//  2. 分类名派生：上游隐藏的分类（香港|二区 等）能给出派生标签而非"未分类"；
+//  3. 活动款价格回填：product_pricings 全 0/-1 的商品用上游前台展示价补齐（代理价为正）。
+func TestListProductsLiveVisibilityAndCatalogPrice(t *testing.T) {
+	p := liveCatalogProvider(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+
+	products, err := p.ListProducts(ctx)
+	if err != nil {
+		t.Fatalf("ListProducts 失败: %v", err)
+	}
+	derived, groupHidden, onSale, catalogPrice, unpriced := 0, 0, 0, 0, 0
+	groupFlagSeen := map[int64]map[float64]bool{}
+	samples := []string{}
+	for _, it := range products {
+		visibility, _ := it.RawSpecs["visibility"].(string)
+		source, _ := it.RawSpecs["group_name_source"].(string)
+		priceSource, _ := it.RawSpecs["price_source"].(string)
+		if source == "derived" {
+			derived++
+		}
+		if visibility == "group_hidden" {
+			groupHidden++
+		}
+		if it.Status == "active" {
+			onSale++
+		}
+		if priceSource == "catalog" {
+			catalogPrice++
+			if it.CostPrice <= 0 || it.SalePrice <= 0 {
+				samples = append(samples, it.Name+"（回填后仍无正价）")
+			}
+		}
+		if it.CostPrice <= 0 && it.SalePrice <= 0 {
+			unpriced++
+		}
+		gid, _ := it.RawSpecs["gid"].(int64)
+		disc, _ := it.RawSpecs["upstream_discount"].(map[string]interface{})
+		rate, _ := disc["bates"].(float64)
+		if groupFlagSeen[gid] == nil {
+			groupFlagSeen[gid] = map[float64]bool{}
+		}
+		groupFlagSeen[gid][rate] = true
+	}
+	t.Logf("商品 %d 个：在售 %d、隐藏分组 %d、派生分类 %d、前台价回填 %d、未定价 %d",
+		len(products), onSale, groupHidden, derived, catalogPrice, unpriced)
+	if onSale == 0 || onSale == len(products) {
+		t.Errorf("在售判定异常：active=%d/%d（隐藏分组商品不应显示上架）", onSale, len(products))
+	}
+	if groupHidden == 0 {
+		t.Error("没有任何商品被判为隐藏分组（visibility 判定失效）")
+	}
+	if derived == 0 {
+		t.Error("没有任何商品拿到派生分类名（隐藏分组将显示为未分类）")
+	}
+	if catalogPrice == 0 {
+		t.Error("没有任何商品命中前台价回填（活动款价格会显示 0）")
+	}
+	// 同一分组内折扣应可能出现不同值（按商品命中），这是本轮修正的核心：
+	// 旧实现按分组采样，会把整组都算成同一个折扣。
+	mixed := 0
+	for gid, rates := range groupFlagSeen {
+		if len(rates) > 1 {
+			mixed++
+			t.Logf("分组 %d 内出现多种折扣：%v", gid, rates)
+		}
+	}
+	if mixed == 0 {
+		t.Log("提示：本次未观察到同组多折扣（上游折扣数据可能刚好一致）")
+	}
+	for _, s := range samples {
+		t.Errorf("活动款回填后仍无正价：%s", s)
+	}
+}

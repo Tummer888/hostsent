@@ -105,6 +105,9 @@ export interface ProviderInfo {
   timeout_seconds: number
   retry_max: number
   rate_limit_qps: number
+
+  /** 是否具备商品目录能力（可作「导入上游商品」的数据源）：自营算力平台为 false */
+  catalog_supported?: boolean
   /** 上游/平台侧运维控制台地址，后台一键跳转 */
   ops_console_url: string
   /** 渠道能力描述符，供后台能力矩阵展示 */
@@ -253,9 +256,27 @@ export interface PoolListResponse {
 export interface ProductListQuery {
   keyword?: string
   provider_id?: number
+  /** 上游分类（gid）：左侧分类导航按分类筛选 */
+  group_id?: number
+  /** 状态：1=在售，0=未在售；不传=全部（0 也有效，后端用指针区分） */
   status?: number
   page?: number
   page_size?: number
+}
+
+/** 上游商品对客加价规则：设定后立即重算已导入商品的售价与周期价格矩阵 */
+export interface ProductUpstreamMarkupRequest {
+  resource_product_id: number
+  /** percent=代理价×v%；fixed=代理价+v；list_percent=上游标价×v%；空=清除规则 */
+  markup_type: '' | 'percent' | 'fixed' | 'list_percent'
+  markup_value: number
+  remark?: string
+}
+
+export interface ProductUpstreamMarkupResponse {
+  affected: number
+  message: string
+  details: string[]
 }
 
 export interface ProductPriceRequest {
@@ -270,6 +291,8 @@ export interface ProductInfo {
   name: string
   group_id: number
   group_name: string
+  /** 分类名不是上游公示名，而是按商品名前缀派生（上游隐藏分组），前端打「派生」标记 */
+  group_name_derived?: boolean
   cpu: number
   memory: number
   disk: number
@@ -283,6 +306,14 @@ export interface ProductInfo {
   cost_price: number
   sale_price: number
   status: number
+  /** 上游前台在售判定：visible/group_hidden/product_hidden/retired（status 只有 1/0，这里给出原因） */
+  visibility?: string
+  /** 价格来源：pricings=商品周期价；catalog=上游前台展示价回填；none=上游未定价 */
+  price_source?: string
+  /** 上游前台展示价（cart/index），用于核对周期价与前台展示价 */
+  catalog_price?: number
+  catalog_sale_price?: number
+  catalog_cycle?: string
   created_at: string
   updated_at: string
 }

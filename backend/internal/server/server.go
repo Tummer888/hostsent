@@ -869,6 +869,10 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		logger,
 	)
 	instanceOpsHandler := instancehandler.NewInstanceHandler(instanceOpsService)
+	// 详情页关联数据（订单/商品/上游价/配置/凭证）：只读仓储 + 订单选配读取。
+	// 未注入时 Detail 仍返回实例本体，仅缺少这些附加分组。
+	instanceOpsService.SetDetailRepository(instancerepo.NewInstanceDetailRepository(database))
+	instanceOpsService.SetDetailOrderConfigReader(buildInstanceOrderConfigReader(orderRepo))
 	// 用户侧自助销毁（doc91 §6.4）：薄委派给运维台，销毁逻辑（能力分派/流水/事件）不重写。
 	ucInstanceService.SetDestructor(instanceOpsService)
 	// 用户侧维护类自助（重装/重置密码/救援/快照）：同样委派运维台。

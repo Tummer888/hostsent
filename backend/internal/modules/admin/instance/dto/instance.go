@@ -122,10 +122,150 @@ type Capabilities struct {
 }
 
 // DetailInfo 实例详情。
+//
+// 除实例本体与能力位外，还组装三块「运营一屏看全」的信息：
+//   - Order/Finance：来源订单与财务口径（首付、续费价、付款周期、订单状态）；
+//   - Product/Upstream：售出商品与（对接商品时的）上游商品价格；
+//   - Config/Credential：生效配置项与登录连接信息。
+//
+// 刻意拆成子结构而非平铺：平铺后再加字段会让这个响应无人敢改，分组后每组可独立演进。
 type DetailInfo struct {
 	InstanceItem
-	Capabilities    Capabilities `json:"capabilities"`
-	CapabilityError string       `json:"capability_error"`
+	Capabilities    Capabilities     `json:"capabilities"`
+	CapabilityError string           `json:"capability_error"`
+	Order           *SourceOrderInfo `json:"order,omitempty"`
+	Product         *ProductInfo     `json:"product,omitempty"`
+	Upstream        *UpstreamInfo    `json:"upstream,omitempty"`
+	Configs         []ConfigItem     `json:"configs"`
+	Credential      *CredentialInfo  `json:"credential,omitempty"`
+}
+
+// SourceOrderInfo 实例的来源订单财务口径（orders 表）。
+//
+// 「首付」取来源订单的实付（first_paid_amount）；「续费价」取商品当前周期价
+// （product_prices），二者含义不同：前者是历史成交，后者是下次续费应付。
+type SourceOrderInfo struct {
+	ID            uint64  `json:"id"`
+	OrderNo       string  `json:"order_no"`
+	Status        string  `json:"status"`
+	ProductID     uint64  `json:"product_id"`
+	ProductName   string  `json:"product_name"`
+	Cycle         string  `json:"cycle"`
+	CycleName     string  `json:"cycle_name"`
+	Quantity      int     `json:"quantity"`
+	TotalAmount   float64 `json:"total_amount"`
+	PaidAmount    float64 `json:"paid_amount"`
+	DiscountAmt   float64 `json:"discount_amount"`
+	FirstPaidAmt  float64 `json:"first_paid_amount"`
+	PayMethod     string  `json:"pay_method"`
+	PayTime       string  `json:"pay_time"`
+	OrderedAt     string  `json:"ordered_at"`
+	RenewalID     uint64  `json:"renewal_id"`
+	RenewUnitCost float64 `json:"renew_unit_cost"`
+	RenewCycle    string  `json:"renew_cycle"`
+	// RenewAmount 按实例当前付款周期与数量算出的下次续费金额（售价口径）。
+	RenewAmount float64 `json:"renew_amount"`
+	// RenewCost 下次续费的上游成本（成本口径；自营/未绑定为 0）。
+	RenewCost float64 `json:"renew_cost"`
+	// UpstreamRenewAmount 上游续费金额（对接商品；来自上游商品各周期价，未取到为 0）。
+	UpstreamRenewAmount float64 `json:"upstream_renew_amount"`
+	// UpstreamRenewCycle 上游续费金额对应的周期（与实例 billing_mode 同口径）。
+	UpstreamRenewCycle string `json:"upstream_renew_cycle"`
+}
+
+// ProductInfo 售出商品（我方 products 表）与对接关系。
+type ProductInfo struct {
+	ID               uint64  `json:"id"`
+	Code             string  `json:"code"`
+	Name             string  `json:"name"`
+	SourceMode       string  `json:"source_mode"`
+	SourceProviderID uint64  `json:"source_provider_id"`
+	SourceProvider   string  `json:"source_provider_name"`
+	ProviderType     string  `json:"provider_type"`
+	SourceProductID  uint64  `json:"source_product_id"`
+	PriceModel       string  `json:"price_model"`
+	Price            float64 `json:"price"`
+	CostPrice        float64 `json:"cost_price"`
+	MarkupType       string  `json:"upstream_markup_type"`
+	MarkupValue      float64 `json:"upstream_markup_value"`
+	Status           int     `json:"status"`
+}
+
+// UpstreamInfo 对接商品的上游信息（source_mode=upstream 时有值）。
+//
+// 价格全部来自上游镜像快照（resource_products.raw_specs）：
+// ListCycles=上游标价、CostCycles=我方采购价（已含代理折扣）。
+type UpstreamInfo struct {
+	ResourceProductID uint64             `json:"resource_product_id"`
+	UpstreamID        string             `json:"upstream_id"`
+	Name              string             `json:"name"`
+	GroupID           int64              `json:"group_id"`
+	GroupName         string             `json:"group_name"`
+	ListPrice         float64            `json:"list_price"`
+	CostPrice         float64            `json:"cost_price"`
+	DiscountDesc      string             `json:"discount_desc"`
+	PayType           string             `json:"pay_type"`
+	Renewable         bool               `json:"renewable"`
+	ListCycles        map[string]float64 `json:"list_cycles"`
+	CostCycles        map[string]float64 `json:"cost_cycles"`
+}
+
+// ConfigItem 实例生效配置项（商品配置项 + 实例实际取值）。
+//
+// Source 说明取值来源，运营据此判断"这个值改得动改不动"：
+//
+//	instance  实例表字段（CPU/内存/磁盘/带宽/系统/区域）
+//	order     下单时客户选配（orders.config_options）
+//	product   商品默认（product_config_options）
+//	upstream  上游商品固定（对接商品锁定项）
+type ConfigItem struct {
+	Key    string `json:"key"`
+	Label  string `json:"label"`
+	Value  string `json:"value"`
+	Source string `json:"source"`
+	Locked bool   `json:"locked"`
+	Unit   string `json:"unit"`
+}
+
+// CredentialInfo 实例登录连接信息（管理员排障用）。
+//
+// 明文密码**不随详情返回**：详情会被高频加载、被日志与浏览器缓存，明文一旦
+// 进入响应就等于长期泄露。这里只给用户名/端口/是否有密码，明文走单独的
+// reveal 接口（需 instance:password 权限且写操作流水）。
+type CredentialInfo struct {
+	Username    string `json:"username"`
+	Port        string `json:"port"`
+	HasPassword bool   `json:"has_password"`
+	// PasswordHint 密码来源说明（如「重装后可查看」「上游面板可见」）。
+	PasswordHint string `json:"password_hint"`
+	// PanelPassword 是否另有一份面板/IPMI 密码（部分平台单独存放）。
+	HasPanelPassword bool `json:"has_panel_password"`
+}
+
+// CredentialRevealResult 明文凭据（仅 reveal 接口返回，调用方必须提示立即使用勿留存）。
+type CredentialRevealResult struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Port     string `json:"port"`
+}
+
+// AdjustRequest 实例账期/计费周期调整请求（管理端自定义）。
+//
+// 与「续费」的语义差别：续费是**上账**（付钱买一段时间，向上游下单）；
+// 调整是**改口径**（把到期时间或付款周期改成运维认为正确的值，不产生账单）。
+// 因此本接口不收费、不生成订单，但必须留审计，且对接商品需要显式 force。
+type AdjustRequest struct {
+	// ExpireAt 目标到期时间（RFC3339 或 "2006-01-02 15:04:05"）；空表示不改。
+	ExpireAt string `json:"expire_at"`
+	// ClearExpire 是否把到期时间清空（一次性/买断商品）。
+	ClearExpire bool `json:"clear_expire"`
+	// BillingMode 目标付款周期（monthly/quarterly/annually/hourly/daily/onetime）；空表示不改。
+	BillingMode string `json:"billing_mode"`
+	// Force 对接商品（source_mode=upstream）下强制本地调整。
+	// 不加 force 时后端拒绝：上游账期才是权威，本地改了会被回源覆盖，
+	// 而生命周期推进器可能按这个本地值误停服。
+	Force  bool   `json:"force"`
+	Reason string `json:"reason"`
 }
 
 // PowerRequest 电源操作请求。

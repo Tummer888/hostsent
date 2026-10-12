@@ -88,7 +88,7 @@ func buildScopeHandlers() map[string]ScopeHandler {
 			DefaultIntervalSeconds:         21600,
 			DefaultFullSyncIntervalSeconds: 604800,
 			Supported: func(d upstream.CapabilityDescriptor, p upstream.Provider) bool {
-				return d.HasScope(syncmodel.ScopeRegion) && hasPoolReader(p)
+				return d.HasScope(syncmodel.ScopeRegion) && hasRegionReader(p)
 			},
 			Run: func(ctx context.Context, e *SyncEngine, task *syncmodel.SyncTask, p upstream.Provider) error {
 				return e.syncRegions(ctx, task, p)
@@ -185,6 +185,16 @@ func hasProductCatalog(p upstream.Provider) bool {
 }
 
 func hasPoolReader(p upstream.Provider) bool {
+	_, ok := p.(upstream.PoolReader)
+	return ok
+}
+
+// hasRegionReader 区域读取能力：RegionReader 优先，老适配器退回 PoolReader
+// （区域与池混在同一个 ListPools 里的实现）。
+func hasRegionReader(p upstream.Provider) bool {
+	if _, ok := p.(upstream.RegionReader); ok {
+		return true
+	}
 	_, ok := p.(upstream.PoolReader)
 	return ok
 }

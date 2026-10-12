@@ -51,8 +51,12 @@ func (r *productRepository) List(ctx context.Context, query dto.ProductListQuery
 	if query.ProviderID > 0 {
 		base = base.Where("provider_id = ?", query.ProviderID)
 	}
-	if query.Status != 0 {
-		base = base.Where("status = ?", query.Status)
+	// 分类筛选（上游 gid）：上游商品页左侧分类导航按 gid 过滤，与话术无关，稳定。
+	if query.GroupID > 0 {
+		base = base.Where("group_id = ?", query.GroupID)
+	}
+	if query.Status != nil {
+		base = base.Where("status = ?", *query.Status)
 	}
 
 	var total int64

@@ -59,6 +59,9 @@ type InstanceRepository interface {
 	UpdateDisk(ctx context.Context, id uint64, disk int) error
 	// UpdateLifecycleStage 落库生命周期阶段（T5.4/T5.5：手动暂停/恢复与推进器共用）。
 	UpdateLifecycleStage(ctx context.Context, id uint64, stage string) error
+	// AdjustBilling 运维手工调整账期/付款周期（不产生账单，只改口径）。
+	// expireAt 为 nil 且 clearExpire=true 时清空到期时间（一次性/买断商品）。
+	AdjustBilling(ctx context.Context, id uint64, expireAt *time.Time, clearExpire bool, billingMode string) error
 }
 
 type instanceRepository struct {
@@ -299,6 +302,28 @@ func (r *instanceRepository) UpdateLifecycleStage(ctx context.Context, id uint64
 	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
 		Where("id = ?", id).
 		Update("lifecycle_stage", stage).Error
+}
+
+// AdjustBilling 运维手工调整账期/付款周期。
+//
+// 只改 instances 的两列，不写 lifecycle_stage：阶段由推进器按新的 expire_at 重新派生
+// （若这里顺手改阶段，会把"已暂停但有未来到期时间"这种矛盾状态写进库）。
+func (r *instanceRepository) AdjustBilling(ctx context.Context, id uint64, expireAt *time.Time, clearExpire bool, billingMode string) error {
+	updates := map[string]any{}
+	if clearExpire {
+		updates["expire_at"] = nil
+	} else if expireAt != nil {
+		updates["expire_at"] = *expireAt
+	}
+	if billingMode != "" {
+		updates["billing_mode"] = billingMode
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("id = ?", id).
+		Updates(updates).Error
 }
 
 // normalizePage 规整分页参数（默认 20，单页上限 100）。

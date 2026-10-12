@@ -167,6 +167,12 @@ export interface SaleProductUpstreamInfo {
   cost_price: number
   /** 折扣描述，如「代理折扣 70%（应付标价的 70%）」 */
   discount_desc: string
+  /** 价格来源：pricings=上游商品周期价；catalog=上游前台展示价回填；none=上游未定价 */
+  price_source?: string
+  /** 上游前台展示价（cart/index），price_source=catalog 时与之上同源 */
+  catalog_price?: number
+  catalog_sale_price?: number
+  catalog_cycle?: string
   /** 各周期标价 / 采购价（周期 → 金额） */
   list_cycles: Record<string, number> | null
   cost_cycles: Record<string, number> | null

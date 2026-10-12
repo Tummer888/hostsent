@@ -26,3 +26,21 @@ func (m *ProviderManager) Build(providerType string, config *ProviderConfig) (Pr
 	}
 	return factory(config), nil
 }
+
+// SupportsProductCatalog 判断某渠道类型能否列举商品目录（「导入上游商品」的数据源）。
+// 以适配器是否实现 ProductCatalog 为准：自营算力平台（魔方云/kvm/hyperv/pve）只有池与实例能力，
+// 没有商品目录，不能出现在导入弹窗的渠道列表里，否则运营会看到无法导入的自营选项。
+// 配置为空时也够用——工厂构造函数不会因缺凭证报错，能力判定只关心接口实现。
+func (m *ProviderManager) SupportsProductCatalog(providerType string) bool {
+	if provider, err := m.Build(providerType, &ProviderConfig{Type: providerType}); err == nil {
+		_, ok := provider.(ProductCatalog)
+		return ok
+	}
+	// 兼容只用 Register 注册单例、未注册工厂的旧适配器。
+	provider, err := m.GetProvider(providerType)
+	if err != nil {
+		return false
+	}
+	_, ok := provider.(ProductCatalog)
+	return ok
+}

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -39,8 +40,9 @@ func (s *productService) ApplyConfirmedPrice(ctx context.Context, resourceProduc
 	if len(products) == 0 {
 		return 0, nil
 	}
-	// 上游各周期成本（可能为空：该上游商品未带 product_pricings 结构）。
-	cycleCosts := s.upstreamCycleCosts(ctx, resourceProductID)
+	// 上游各周期成本与标价（可能为空：该上游商品未带 product_pricings 结构）。
+	cyclePrices := s.upstreamCyclePrices(ctx, resourceProductID)
+	cycleCosts := cyclePrices.costs
 	if operatorName == "" {
 		operatorName = "系统（同步确认）"
 	}
@@ -50,7 +52,8 @@ func (s *productService) ApplyConfirmedPrice(ctx context.Context, resourceProduc
 		oldCost := item.CostPrice
 		newPrice := item.Price
 		priceChanged := false
-		if p, changed := applyMarkup(item.UpstreamMarkupType, item.UpstreamMarkupValue, costPrice); changed {
+		// 按标价口径（list_percent）时基数取上游标价，其余口径基数仍是成本（代理价）。
+		if p, changed := applyMarkupWithList(item.UpstreamMarkupType, item.UpstreamMarkupValue, costPrice, cyclePrices.listHeadline()); changed {
 			newPrice = round2(p)
 			priceChanged = newPrice != item.Price
 		}
@@ -63,7 +66,7 @@ func (s *productService) ApplyConfirmedPrice(ctx context.Context, resourceProduc
 		if s.cycleWriter != nil && len(cycleCosts) > 0 {
 			rows := make([]CyclePriceRow, 0, len(cycleCosts))
 			for cycle, cost := range cycleCosts {
-				rows = append(rows, buildCyclePriceRow(item, cycle, cost))
+				rows = append(rows, buildCyclePriceRow(item, cycle, cost, cyclePrices.lists[cycle]))
 			}
 			if err := s.cycleWriter.ApplyUpstreamPrices(ctx, item.ID, rows); err != nil {
 				return affected, err
@@ -89,6 +92,83 @@ func (s *productService) ApplyConfirmedPrice(ctx context.Context, resourceProduc
 			Remark:       historyRemark,
 		})
 		affected++
+	}
+	return affected, nil
+}
+
+// ApplyUpstreamMarkupRule 设定上游商品的对客加价规则，并按该规则重算其已导入商品的售价。
+//
+// 场景（「上游商品」页调价）：运营看到某上游商品的标价/代理价后，决定"按上游标价 × 120% 卖"，
+// 该动作要同时落到已导入的销售商品（售价 + 周期价格矩阵），而不是只改镜像价（下次同步会被覆盖）。
+// 实现上先把规则写进绑定商品，再复用 ApplyConfirmedPrice 的算价链路（单一算价入口，不另写一套）。
+func (s *productService) ApplyUpstreamMarkupRule(ctx context.Context, resourceProductID uint64, markupType string, markupValue float64, operatorName, remark string) (int, error) {
+	if resourceProductID == 0 {
+		return 0, errors.New("缺少上游商品 ID")
+	}
+	if !IsValidMarkupType(markupType) {
+		return 0, fmt.Errorf("不支持的加价方式 %q（可选 percent / fixed / list_percent）", markupType)
+	}
+	if markupType != "" && markupValue < 0 {
+		return 0, errors.New("加价数值不能为负")
+	}
+	products, err := s.repo.ListBySourceProductID(ctx, resourceProductID)
+	if err != nil {
+		return 0, err
+	}
+	if len(products) == 0 {
+		return 0, nil
+	}
+	oldPrices := make(map[uint64]float64, len(products))
+	for i := range products {
+		item := products[i]
+		oldPrices[item.ID] = item.Price
+		item.UpstreamMarkupType = markupType
+		item.UpstreamMarkupValue = markupValue
+		if err := s.repo.Update(ctx, &item); err != nil {
+			return 0, err
+		}
+	}
+	// 规则已落库，再按当前上游价格重算售价（成本取资源商品的代理价）。
+	cost := 0.0
+	if s.resourceReader != nil {
+		if rp, rerr := s.resourceReader.FindByID(ctx, resourceProductID); rerr == nil && rp != nil {
+			if rp.CostPrice > 0 {
+				cost = rp.CostPrice
+			} else {
+				cost = rp.SalePrice
+			}
+		}
+	}
+	ruleRemark := strings.TrimSpace(remark)
+	if ruleRemark == "" {
+		if markupType == "" {
+			ruleRemark = "清除上游加价规则（售价保持当前值）"
+		} else {
+			ruleRemark = fmt.Sprintf("设定上游加价规则：%s %.2f", markupType, markupValue)
+		}
+	}
+	affected, err := s.ApplyConfirmedPrice(ctx, resourceProductID, cost, operatorName, ruleRemark)
+	if err != nil {
+		return affected, err
+	}
+	// 补一条"售价变更"历史：ApplyConfirmedPrice 记的是成本口径，调价前后的成本不变，
+	// 只留成本行会看不出这次调价到底把售价改成了多少。
+	if latest, lerr := s.repo.ListBySourceProductID(ctx, resourceProductID); lerr == nil {
+		for i := range latest {
+			item := latest[i]
+			old, ok := oldPrices[item.ID]
+			if !ok || round2(old) == round2(item.Price) {
+				continue
+			}
+			_ = s.repo.AddHistory(ctx, &model.ProductHistory{
+				ProductID:    item.ID,
+				ChangeType:   model.ChangeTypePrice,
+				OldValue:     strconv.FormatFloat(round2(old), 'f', 2, 64),
+				NewValue:     strconv.FormatFloat(round2(item.Price), 'f', 2, 64),
+				OperatorName: operatorName,
+				Remark:       ruleRemark + "（售价变更）",
+			})
+		}
 	}
 	return affected, nil
 }
@@ -125,29 +205,59 @@ func (f *flexNumber) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// upstreamCycleCosts 读取上游资源商品的各周期成本。
+// upstreamCyclePrices 上游资源商品的各周期成本（代理价）与标价。
 // 上游以 -1 或 0 表示"该周期不提供"，此类档位不落矩阵（避免出现 0 元可售档）。
-func (s *productService) upstreamCycleCosts(ctx context.Context, resourceProductID uint64) map[string]float64 {
+type upstreamCyclePrices struct {
+	costs map[string]float64 // 周期 → 代理价（我方采购成本）
+	lists map[string]float64 // 周期 → 上游标价（list_percent 加价规则的基数）
+}
+
+// listHeadline 代表标价（月度优先，与 upstreamPrice 同序）；无标价时返回 0。
+func (u upstreamCyclePrices) listHeadline() float64 {
+	for _, cycle := range []string{billingcycle.Monthly, billingcycle.Quarterly, billingcycle.Semiannually, billingcycle.Annually, billingcycle.Onetime} {
+		if v := u.lists[cycle]; v > 0 {
+			return v
+		}
+	}
+	return 0
+}
+
+// upstreamCyclePrices 读取上游资源商品的各周期成本与标价；读取不到返回空结构。
+func (s *productService) upstreamCyclePrices(ctx context.Context, resourceProductID uint64) upstreamCyclePrices {
 	if s.resourceReader == nil || resourceProductID == 0 {
-		return nil
+		return upstreamCyclePrices{}
 	}
 	rp, err := s.resourceReader.FindByID(ctx, resourceProductID)
 	if err != nil || rp == nil {
-		return nil
+		return upstreamCyclePrices{}
 	}
-	return parseUpstreamCycleCosts(rp.RawSpecs)
+	return parseUpstreamCyclePrices(rp.RawSpecs)
 }
 
-// parseUpstreamCycleCosts 从上游 raw_specs 解析各周期正成本（<=0 视为该周期不提供）。
-func parseUpstreamCycleCosts(rawSpecs string) map[string]float64 {
+// upstreamRawListPricings 上游标价行（raw_specs.product_pricings_list，未打折扣）。
+type upstreamRawListPricings struct {
+	Monthly      flexNumber `json:"monthly"`
+	Quarterly    flexNumber `json:"quarterly"`
+	Semiannually flexNumber `json:"semiannually"`
+	Annually     flexNumber `json:"annually"`
+	Biennially   flexNumber `json:"biennially"`
+	Triennially  flexNumber `json:"triennially"`
+	Onetime      flexNumber `json:"onetime"`
+}
+
+// parseUpstreamCyclePrices 从上游 raw_specs 解析各周期正成本（product_pricings）
+// 与标价（product_pricings_list，缺失时该项留空）。
+func parseUpstreamCyclePrices(rawSpecs string) upstreamCyclePrices {
+	out := upstreamCyclePrices{}
 	if strings.TrimSpace(rawSpecs) == "" {
-		return nil
+		return out
 	}
 	var raw struct {
-		ProductPricings []upstreamRawPricings `json:"product_pricings"`
+		ProductPricings     []upstreamRawPricings     `json:"product_pricings"`
+		ProductPricingsList []upstreamRawListPricings `json:"product_pricings_list"`
 	}
 	if err := json.Unmarshal([]byte(rawSpecs), &raw); err != nil || len(raw.ProductPricings) == 0 {
-		return nil
+		return out
 	}
 	p := raw.ProductPricings[0]
 	candidates := map[string]float64{
@@ -159,26 +269,49 @@ func parseUpstreamCycleCosts(rawSpecs string) map[string]float64 {
 		billingcycle.Triennially:  float64(p.Triennially),
 		billingcycle.Onetime:      float64(p.Onetime),
 	}
-	costs := make(map[string]float64, len(candidates))
+	out.costs = make(map[string]float64, len(candidates))
 	for cycle, cost := range candidates {
 		if cost > 0 {
-			costs[cycle] = cost
+			out.costs[cycle] = cost
 		}
 	}
-	return costs
+	if len(raw.ProductPricingsList) > 0 {
+		l := raw.ProductPricingsList[0]
+		listCandidates := map[string]float64{
+			billingcycle.Monthly:      float64(l.Monthly),
+			billingcycle.Quarterly:    float64(l.Quarterly),
+			billingcycle.Semiannually: float64(l.Semiannually),
+			billingcycle.Annually:     float64(l.Annually),
+			billingcycle.Biennially:   float64(l.Biennially),
+			billingcycle.Triennially:  float64(l.Triennially),
+			billingcycle.Onetime:      float64(l.Onetime),
+		}
+		out.lists = make(map[string]float64, len(listCandidates))
+		for cycle, price := range listCandidates {
+			if price > 0 {
+				out.lists[cycle] = price
+			}
+		}
+	}
+	return out
 }
 
-// buildCyclePriceRow 按商品加价规则把某周期成本推导为矩阵行。
-// percent → cost×v/100；fixed → cost+v（固定额只加一次，不随周期放大）；
+// parseUpstreamCycleCosts 只取周期成本（兼容旧调用方与测试）。
+func parseUpstreamCycleCosts(rawSpecs string) map[string]float64 {
+	return parseUpstreamCyclePrices(rawSpecs).costs
+}
+
+// buildCyclePriceRow 按商品加价规则把某周期的成本/标价推导为矩阵行。
+// percent → cost×v/100；list_percent → 标价×v/100；fixed → cost+v（固定额只加一次，不随周期放大）；
 // 未配置加价规则 → 直接以上游成本为售价（source=upstream，运营可再人工调整）。
-func buildCyclePriceRow(item model.Product, cycle string, cost float64) CyclePriceRow {
+func buildCyclePriceRow(item model.Product, cycle string, cost, list float64) CyclePriceRow {
 	row := CyclePriceRow{
 		Cycle:     cycle,
 		CostPrice: round2(cost),
 		Price:     round2(cost),
 		Source:    "upstream",
 	}
-	if p, changed := applyMarkup(item.UpstreamMarkupType, item.UpstreamMarkupValue, cost); changed {
+	if p, changed := applyMarkupWithList(item.UpstreamMarkupType, item.UpstreamMarkupValue, cost, list); changed {
 		row.Price = round2(p)
 		row.Source = "markup"
 	}
@@ -186,15 +319,37 @@ func buildCyclePriceRow(item model.Product, cycle string, cost float64) CyclePri
 }
 
 // applyMarkup 按商品的上游加价规则计算售价；未配置规则时返回 (0,false)。
-// type: percent=成本×value%；fixed=成本+value。
+// 无标价基数（list<=0）时 list_percent 退化为成本口径，避免算出 0 元售价。
 func applyMarkup(markupType string, markupValue, cost float64) (float64, bool) {
+	return applyMarkupWithList(markupType, markupValue, cost, 0)
+}
+
+// applyMarkupWithList 按加价规则计算售价，list 为该周期上游标价（list_percent 口径的基数）。
+// type: percent=成本×value%；fixed=成本+value；list_percent=上游标价×value%。
+func applyMarkupWithList(markupType string, markupValue, cost, list float64) (float64, bool) {
 	switch strings.ToLower(strings.TrimSpace(markupType)) {
 	case model.MarkupTypePercent:
 		return cost * markupValue / 100, true
 	case model.MarkupTypeFixed:
 		return cost + markupValue, true
+	case model.MarkupTypeListPercent:
+		base := list
+		if base <= 0 {
+			base = cost
+		}
+		return base * markupValue / 100, true
 	default:
 		return 0, false
+	}
+}
+
+// IsValidMarkupType 校验加价规则类型（空串=清除规则，合法）。
+func IsValidMarkupType(markupType string) bool {
+	switch strings.ToLower(strings.TrimSpace(markupType)) {
+	case "", model.MarkupTypePercent, model.MarkupTypeFixed, model.MarkupTypeListPercent:
+		return true
+	default:
+		return false
 	}
 }
 

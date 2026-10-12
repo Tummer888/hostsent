@@ -37,6 +37,10 @@ const (
 	ActionAttachDisk    = "attach_disk"
 	// ActionStage 生命周期阶段推进（T5.4 自动扫描落阶段，无上游动作时记录阶段变化）。
 	ActionStage = "stage"
+	// ActionBillingAdjust 手工调整账期/付款周期（管理端自定义，不产生账单）。
+	ActionBillingAdjust = "billing_adjust"
+	// ActionRevealCredential 查看实例登录明文密码（只读但属敏感信息访问，必须留痕）。
+	ActionRevealCredential = "reveal_credential"
 )
 
 // 操作结果。

@@ -39,6 +39,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"hostsent/backend/internal/pkg/model"
 	"hostsent/backend/internal/pkg/traceid"
@@ -320,6 +321,33 @@ func (p *MoFangFinanceProvider) callShell(ctx context.Context, op, method, path 
 	return shell, status, body, nil
 }
 
+// callTopLevel 调用「响应不在 data 壳内」的接口。
+//
+// 实测 cart/index 不带 data 字段（商品数组直接挂在顶层 products），只认 data 的
+// unmarshalData 会静默解出空结果 —— 价格回填与在售判定都会悄悄失效。
+// 这里 data 有值走原路径，没有则把整个响应体解到 out（多余字段自动忽略）。
+func (p *MoFangFinanceProvider) callTopLevel(ctx context.Context, op, method, path string, form url.Values, out interface{}) error {
+	shell, status, body, err := p.callShell(ctx, op, method, path, form)
+	if err != nil {
+		return err
+	}
+	if status >= 400 {
+		return &upstream.ProviderError{Op: op, StatusCode: status, Msg: firstNonEmpty(shell.Msg, strings.TrimSpace(string(body)))}
+	}
+	if shell.Status != StatusOK && shell.Code != StatusOK && (shell.Status != 0 || shell.Code != 0) {
+		return &upstream.ProviderError{Op: op, Code: shell.Status, Msg: firstNonEmpty(shell.Msg, "上游接口调用失败")}
+	}
+	if err := p.unmarshalData(op, shell, out); err != nil {
+		return err
+	}
+	if len(shell.Data) == 0 || string(shell.Data) == "null" {
+		if uerr := json.Unmarshal(body, out); uerr != nil {
+			return &upstream.ProviderError{Op: op, Err: fmt.Errorf("解析上游响应失败: %w", uerr)}
+		}
+	}
+	return nil
+}
+
 // unmarshalData 将响应壳的 data 字段解析到 out。
 func (p *MoFangFinanceProvider) unmarshalData(op string, shell ZjmfResp[json.RawMessage], out interface{}) error {
 	if out != nil && len(shell.Data) > 0 && string(shell.Data) != "null" {
@@ -536,11 +564,14 @@ func (p *MoFangFinanceProvider) ListDueHosts(ctx context.Context) ([]upstream.Du
 //
 // 财务型上游（对齐上游自身下游对接逻辑 app/zjmf.php 的 getZjmfUpstreamProducts +
 // getZjmfUpstreamProductConfig + upstreamBates）：
-//  1. GET cart/all                     —— 商品分组（分类名）与分组归属；
+//  1. GET cart/all                     —— 未隐藏分组（分类名）+ 前台在售分组集合；
 //  2. GET api/product/proinfo          —— 全量商品 id（不过滤 hidden/retired）；
 //  3. GET api/product/prodetail?pids[]= —— 分批(<500)拉取完整详情：product_pricings（标价）、
 //     config_groups（CPU/内存/系统盘等开通规格）、customfields、advanced、pay_type、description；
-//  4. GET cart/get_product_config?pid=  —— 每个分组取一次 flag（本客户折扣），批量换算代理价。
+//  4. GET cart/get_product_config?pid=  —— **逐商品**取 flag（本客户折扣）：折扣记录按
+//     (客户分组 × 商品) 命中，同分组内商品折扣可能完全不同，按分组采样会算错成本价；
+//  5. GET cart/index?gid=               —— 逐分组取上游前台展示价（含默认配置项价）与在售清单，
+//     用于回填「价格只挂在配置项子项」的活动款（product_pricings 全 0/-1）。
 //
 // 价格口径（对齐上游 zjmf.php::upstreamBates）：
 //   - cost_price = 折后价（我方实际采购价，raw_specs.product_pricings）；
@@ -567,9 +598,8 @@ func (p *MoFangFinanceProvider) ListProducts(ctx context.Context) ([]*model.Stan
 		return products, nil
 	}
 
-	// 1) 商品分组（分类）：cart/all 是客户端商品目录，含分组名与分组归属；
-	// 隐藏分组的商品不在其中，其 group_name 留空（前端显示「未分类」，不臆造分类名）。
-	groups := p.fetchCartGroups(ctx)
+	// 1) 商品分组（分类）：cart/all 只含**未隐藏分组**，其键集合同时是「前台在售分组」。
+	groups, groupsOK := p.fetchCartGroups(ctx)
 
 	// 2) 全量商品 id
 	var proinfo OpenapiProinfoResp
@@ -579,89 +609,272 @@ func (p *MoFangFinanceProvider) ListProducts(ctx context.Context) ([]*model.Stan
 	// 3) 分批拉取完整详情（价格 + 配置规格）
 	details := p.fetchAllDetails(ctx, proinfo.Info)
 
-	// 4) 每个分组探一次本客户折扣（flag 只取决于客户分组 × 商品分组，
-	//    同组商品折扣一致，故按 gid 采样即可，避免逐商品请求上游）。
-	flags := p.fetchGroupDiscounts(ctx, details)
+	// 4) 逐商品探测本客户折扣；
+	// 5) 逐分组拉上游前台商品目录（补活动款价格 + 在售判定旁证）。
+	flags := p.fetchProductFlags(ctx, details)
+	catalog := p.fetchCatalogRows(ctx, details)
 
 	for pid, d := range details {
 		spec := parseCloudSpecs(d.ConfigGroups)
 		if spec.OS == "" {
 			spec.OS = d.Type
 		}
-		flag := flags[d.GID]
-		listRows := d.ProductPricings
+		flag := flags[pid]
+		cat, hasCat := catalog[pid]
+		listRows, priceSource := resolveListRows(d.ProductPricings, cat, hasCat)
 		costRows := scalePricingRows(listRows, flag)
+		groupName, groupSource := resolveGroupName(d.GID, d.Name, groups, groupsOK)
+		visibility := classifyVisibility(d, groups, groupsOK)
 		products = append(products, &model.StandardProduct{
 			ProviderType: ProviderType, UpstreamID: pid, Name: d.Name,
 			CostPrice: upstreamPrice(costRows), SalePrice: upstreamPrice(listRows),
-			Specs: spec, Status: "active",
-			RawSpecs: buildProductRawSpecs(d, groups[d.GID], listRows, costRows, flag),
+			Specs: spec, Status: statusForVisibility(visibility),
+			RawSpecs: buildProductRawSpecs(d, productMeta{
+				GroupName: groupName, GroupSource: groupSource,
+				ListRows: listRows, CostRows: costRows, Flag: flag,
+				PriceSource: priceSource, Visibility: visibility,
+				Catalog: cat, HasCatalog: hasCat,
+			}),
 		})
 	}
 	return products, nil
 }
 
-// fetchCartGroups 拉取商品分组（分类）：返回 gid → 分组名。
-// 失败不影响商品列表（只是分类名缺失），故只做降级返回。
-func (p *MoFangFinanceProvider) fetchCartGroups(ctx context.Context) map[int64]string {
+// productMeta 商品落 raw_specs 的元信息（分类来源、价格来源、在售判定、上游前台目录价）。
+// 单列结构只为让 buildProductRawSpecs 的入参可读（此前 5 个位置参数已到可读性上限）。
+type productMeta struct {
+	GroupName   string
+	GroupSource string // upstream=上游公示；derived=按商品名派生；fallback=分组 #id
+	ListRows    []PricingRow
+	CostRows    []PricingRow
+	Flag        SaleFlag
+	PriceSource string // pricings=商品周期价；catalog=上游前台价回填；none=上游未定价
+	Visibility  string // visible/group_hidden/product_hidden/retired
+	Catalog     CartIndexProduct
+	HasCatalog  bool
+}
+
+// 在售判定与价格/分类来源的取值（落 raw_specs，前端与同步后处理按值判定）。
+const (
+	visibilityVisible   = "visible"
+	visibilityGroupHid  = "group_hidden"
+	visibilityProductHi = "product_hidden"
+	visibilityRetired   = "retired"
+
+	priceSourcePricings = "pricings"
+	priceSourceCatalog  = "catalog"
+	priceSourceNone     = "none"
+
+	groupSourceUpstream = "upstream"
+	groupSourceDerived  = "derived"
+	groupSourceFallback = "fallback"
+
+	// catalogProbeConcurrency 上游探测并发度（限流保守取值）。
+	catalogProbeConcurrency = 6
+)
+
+// classifyVisibility 判定商品在上游前台是否真的在售。
+// 注意 proinfo 永远返回 hidden=0/retired=0，只有 prodetail 的这两列可信；
+// 分组层面：cart/all 只列未隐藏分组，商品 gid 不在其中 → 整组被上游隐藏（不上前台）。
+func classifyVisibility(d UpstreamProductDetail, groups map[int64]string, groupsOK bool) string {
+	switch {
+	case d.Retired > 0:
+		return visibilityRetired
+	case d.Hidden > 0:
+		return visibilityProductHi
+	case groupsOK && len(groups) > 0:
+		if _, ok := groups[d.GID]; !ok {
+			return visibilityGroupHid
+		}
+	}
+	return visibilityVisible
+}
+
+// statusForVisibility 在售判定 → 标准商品状态（同步引擎把 active/inactive 归一为 1/0）。
+func statusForVisibility(visibility string) string {
+	if visibility == visibilityVisible {
+		return "active"
+	}
+	return "inactive"
+}
+
+// resolveGroupName 解析商品分类名与来源：
+//   - 上游公示（cart/all 的未隐藏分组）→ 直接用分组名，来源 upstream；
+//   - 分组被上游隐藏 → 按商品名前缀派生（「香港|二区·轻量 8-8」→「香港|二区」），
+//     来源 derived，前端打「派生」标记（是近似标签，不是上游公示名）；
+//   - 派生不出（名字里没有「地区|区域」段）→「分组 #<gid>」，来源 fallback。
+func resolveGroupName(gid int64, productName string, groups map[int64]string, groupsOK bool) (string, string) {
+	if groupsOK {
+		if name := strings.TrimSpace(groups[gid]); name != "" {
+			return name, groupSourceUpstream
+		}
+	}
+	if label := deriveGroupLabel(productName); label != "" {
+		return label, groupSourceDerived
+	}
+	return fmt.Sprintf("分组 #%d", gid), groupSourceFallback
+}
+
+// groupLabelRuneLimit 派生分类名长度上限（「宁波电信|一区」6 字，留余量到 16）。
+const groupLabelRuneLimit = 16
+
+// deriveGroupLabel 从商品名前缀派生分组标签：取首个空格/「·」/「-」之前、且含「|」的片段。
+// 只认「地区|区域」这种惯例（香港|二区、宁波电信|一区、美国|五区）；
+// 派生不出返回空串（调用方回退「分组 #id」），避免把营销词（2025·海外…）当分类名。
+func deriveGroupLabel(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	cut := len(name)
+	for i, r := range name {
+		if r == ' ' || r == '·' || r == '　' || r == '-' {
+			cut = i
+			break
+		}
+	}
+	head := strings.TrimSpace(name[:cut])
+	if head == "" || !strings.Contains(head, "|") {
+		return ""
+	}
+	if utf8.RuneCountInString(head) > groupLabelRuneLimit {
+		return ""
+	}
+	return head
+}
+
+// resolveListRows 解析商品标价周期行：
+//   - product_pricings 有正价 → 直接用（口径最细，含各周期）；
+//   - 全为 0/-1（活动款价格只挂在配置项子项上）→ 用上游前台展示价回填其实际售卖周期，
+//     来源标 catalog，前端提示「价格取自上游前台展示价」；
+//   - 前台目录也没有 → 保持原样（上游未定价），来源 none。
+func resolveListRows(raw []PricingRow, cat CartIndexProduct, hasCat bool) ([]PricingRow, string) {
+	if upstreamPrice(raw) > 0 {
+		return raw, priceSourcePricings
+	}
+	if !hasCat || float64(cat.ProductPrice) <= 0 {
+		return raw, priceSourceNone
+	}
+	cycle := strings.ToLower(strings.TrimSpace(cat.BillingCycle))
+	if cycle == "" {
+		return raw, priceSourceNone
+	}
+	row := PricingRow{}
+	if len(raw) > 0 {
+		row = raw[0].Clone() // 必须克隆：原始行要按上游未改动形态落 raw_specs
+	}
+	row[cycle] = float64(cat.ProductPrice)
+	if key := cycleSetupField(cycle); key != "" && float64(cat.SetupFee) > 0 {
+		row[key] = float64(cat.SetupFee)
+	}
+	return []PricingRow{row}, priceSourceCatalog
+}
+
+// cycleSetupField 周期的安装费字段名（annually → asetupfee）；不认识的周期返回空。
+func cycleSetupField(cycle string) string {
+	prefix, ok := cycleSetupPrefix[cycle]
+	if !ok {
+		return ""
+	}
+	return prefix + "setupfee"
+}
+
+// cycleSetupPrefix 周期 → 价格字段前缀（对齐上游 pricing 表列名：asetupfee/msetupfee...）。
+var cycleSetupPrefix = map[string]string{
+	"hour": "h", "day": "d", "monthly": "m", "quarterly": "q", "semiannually": "s",
+	"annually": "a", "biennially": "b", "triennially": "t", "onetime": "o",
+}
+
+// fetchCartGroups 拉取商品分组（分类）：返回 gid → 分组名，以及是否取到
+// （取不到时不做分类/在售判定，避免 cart/all 一次失败把全量商品误标为未在售）。
+func (p *MoFangFinanceProvider) fetchCartGroups(ctx context.Context) (map[int64]string, bool) {
 	var resp CartAllResp
 	if err := p.call(ctx, "ListProducts", http.MethodGet, "cart/all", nil, &resp); err != nil {
-		return nil
+		return nil, false
 	}
 	out := make(map[int64]string, len(resp.Products))
 	for _, g := range resp.Products {
-		if g.ID == 0 || strings.TrimSpace(g.Name) == "" {
+		if g.ID == 0 {
 			continue
 		}
 		out[g.ID] = strings.TrimSpace(g.Name)
 	}
-	return out
+	return out, true
 }
 
-// discountProbeConcurrency 分组折扣探测并发度（上游限流保守取值）。
-const discountProbeConcurrency = 6
-
-// fetchGroupDiscounts 逐分组探测本客户折扣：每个 gid 取一个代表商品调
-// cart/get_product_config 读 flag。返回 gid → 折扣；探测失败的 gid 视为无折扣。
-func (p *MoFangFinanceProvider) fetchGroupDiscounts(ctx context.Context, details map[string]UpstreamProductDetail) map[int64]SaleFlag {
-	// gid → 代表商品 pid（同组任取一个即可，折扣只与分组相关）。
-	rep := map[int64]string{}
-	for pid, d := range details {
-		if _, ok := rep[d.GID]; !ok {
-			rep[d.GID] = pid
-		}
-	}
-	out := make(map[int64]SaleFlag, len(rep))
-	if len(rep) == 0 {
+// fetchProductFlags 逐商品探测本客户折扣（flag），返回 pid → 折扣。
+// 探测失败的 pid 视为无折扣：宁可按标价高估成本，也不按未知折扣压低成本。
+func (p *MoFangFinanceProvider) fetchProductFlags(ctx context.Context, details map[string]UpstreamProductDetail) map[string]SaleFlag {
+	out := make(map[string]SaleFlag, len(details))
+	if len(details) == 0 {
 		return out
 	}
 	type result struct {
-		gid  int64
+		pid  string
 		flag SaleFlag
 	}
-	ch := make(chan result, len(rep))
-	sem := make(chan struct{}, discountProbeConcurrency)
+	ch := make(chan result, len(details))
+	sem := make(chan struct{}, catalogProbeConcurrency)
 	var wg sync.WaitGroup
-	for gid, pid := range rep {
+	for pid := range details {
 		wg.Add(1)
-		go func(gid int64, pid string) {
+		go func(pid string) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			var resp CartProductConfigResp
-			if err := p.call(ctx, "ListProducts", http.MethodGet, "cart/get_product_config",
-				url.Values{"pid": {pid}}, &resp); err != nil {
-				ch <- result{gid: gid}
-				return
-			}
-			ch <- result{gid: gid, flag: resp.Flag}
-		}(gid, pid)
+			ch <- result{pid: pid, flag: p.fetchProductFlag(ctx, pid)}
+		}(pid)
 	}
 	wg.Wait()
 	close(ch)
 	for r := range ch {
 		if r.flag.Enabled() {
-			out[r.gid] = r.flag
+			out[r.pid] = r.flag
+		}
+	}
+	return out
+}
+
+// fetchCatalogRows 逐分组拉上游前台商品目录（cart/index?gid=），返回 pid → 目录行。
+// 隐藏分组也能取到（上游对直连 gid 不拦），但隐藏商品本身不在其中。
+// 失败不阻塞同步：价格回退到周期价、在售判定只看 prodetail 的 hidden/retired。
+func (p *MoFangFinanceProvider) fetchCatalogRows(ctx context.Context, details map[string]UpstreamProductDetail) map[string]CartIndexProduct {
+	gidSet := map[int64]struct{}{}
+	for _, d := range details {
+		gidSet[d.GID] = struct{}{}
+	}
+	out := make(map[string]CartIndexProduct, len(details))
+	if len(gidSet) == 0 {
+		return out
+	}
+	type result struct {
+		rows []CartIndexProduct
+	}
+	ch := make(chan result, len(gidSet))
+	sem := make(chan struct{}, catalogProbeConcurrency)
+	var wg sync.WaitGroup
+	for gid := range gidSet {
+		wg.Add(1)
+		go func(gid int64) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			var resp CartIndexResp
+			if err := p.callTopLevel(ctx, "ListProducts", http.MethodGet, "cart/index",
+				url.Values{"gid": {strconv.FormatInt(gid, 10)}}, &resp); err != nil {
+				ch <- result{}
+				return
+			}
+			ch <- result{rows: resp.Products}
+		}(gid)
+	}
+	wg.Wait()
+	close(ch)
+	for r := range ch {
+		for _, row := range r.rows {
+			if row.PID() > 0 {
+				out[strconv.FormatInt(row.PID(), 10)] = row
+			}
 		}
 	}
 	return out
@@ -687,15 +900,15 @@ func scalePricingRows(rows []PricingRow, flag SaleFlag) []PricingRow {
 //   - product_pricings_list / list_price：上游标价，供展示与折扣对比；
 //   - config_groups：开通参数（含选项/子项的上游 id，下单时必须用它们）；
 //   - description：上游富文本描述；pay_type：可售周期与是否可续费。
-func buildProductRawSpecs(d UpstreamProductDetail, groupName string, listRows, costRows []PricingRow, flag SaleFlag) map[string]interface{} {
+func buildProductRawSpecs(d UpstreamProductDetail, meta productMeta) map[string]interface{} {
 	raw := map[string]interface{}{
 		"gid":                   d.GID,
 		"type":                  d.Type,
 		"description":           d.Description,
-		"product_pricings":      costRows,
-		"product_pricings_list": listRows,
-		"list_price":            rowPrice(listRows, "monthly"),
-		"cost_price_monthly":    rowPrice(costRows, "monthly"),
+		"product_pricings":      meta.CostRows,
+		"product_pricings_list": meta.ListRows,
+		"list_price":            rowPrice(meta.ListRows, "monthly"),
+		"cost_price_monthly":    rowPrice(meta.CostRows, "monthly"),
 		"config_groups":         d.ConfigGroups,
 		"customfields":          d.CustomFields,
 		"advanced":              d.Advanced,
@@ -706,9 +919,26 @@ func buildProductRawSpecs(d UpstreamProductDetail, groupName string, listRows, c
 		"retired":               d.Retired,
 		"stock_control":         d.StockControl,
 		"qty":                   d.Qty,
+		// 分类来源与前台在售判定（下游页面据此标记「派生分类」「未在售」）。
+		"group_name_source": meta.GroupSource,
+		"visibility":        meta.Visibility,
+		"price_source":      meta.PriceSource,
 	}
-	if groupName != "" {
-		raw["group_name"] = groupName
+	if meta.GroupName != "" {
+		raw["group_name"] = meta.GroupName
+	}
+	// 上游前台展示价（cart/index）：与周期价口径不同（含默认配置项价、按上游前台逻辑取周期），
+	// 仅在活动款回填价格时出现，供运营核对。
+	if meta.HasCatalog {
+		raw["catalog"] = map[string]interface{}{
+			"price":         float64(meta.Catalog.ProductPrice),
+			"sale_price":    float64(meta.Catalog.SalePrice),
+			"setup_fee":     float64(meta.Catalog.SetupFee),
+			"billing_cycle": meta.Catalog.BillingCycle,
+			"has_bates":     meta.Catalog.HasBates,
+			"bates":         float64(meta.Catalog.Bates),
+			"listing_name":  meta.Catalog.Name,
+		}
 	}
 	if d.UpstreamPID > 0 {
 		raw["upstream_pid"] = d.UpstreamPID
@@ -718,7 +948,7 @@ func buildProductRawSpecs(d UpstreamProductDetail, groupName string, listRows, c
 		raw["upstream_price_value"] = d.UpstreamPriceValue
 	}
 	raw["upstream_discount"] = map[string]interface{}{
-		"type": float64(flag.Type), "bates": float64(flag.Bates), "desc": flag.DiscountDesc(),
+		"type": float64(meta.Flag.Type), "bates": float64(meta.Flag.Bates), "desc": meta.Flag.DiscountDesc(),
 	}
 	return raw
 }
@@ -969,10 +1199,13 @@ func (p *MoFangFinanceProvider) GetProduct(ctx context.Context, upstreamID strin
 	if spec.OS == "" {
 		spec.OS = d.Type
 	}
-	groups := p.fetchCartGroups(ctx)
-	flag := p.fetchGroupDiscount(ctx, upstreamID)
-	listRows := d.ProductPricings
+	groups, groupsOK := p.fetchCartGroups(ctx)
+	flag := p.fetchProductFlag(ctx, upstreamID)
+	cat, hasCat := p.fetchCatalogRow(ctx, d.GID, upstreamID)
+	listRows, priceSource := resolveListRows(d.ProductPricings, cat, hasCat)
 	costRows := scalePricingRows(listRows, flag)
+	groupName, groupSource := resolveGroupName(d.GID, d.Name, groups, groupsOK)
+	visibility := classifyVisibility(d, groups, groupsOK)
 	return &model.StandardProduct{
 		ProviderType: ProviderType,
 		UpstreamID:   upstreamID,
@@ -980,19 +1213,44 @@ func (p *MoFangFinanceProvider) GetProduct(ctx context.Context, upstreamID strin
 		Specs:        spec,
 		CostPrice:    upstreamPrice(costRows),
 		SalePrice:    upstreamPrice(listRows),
-		RawSpecs:     buildProductRawSpecs(d, groups[d.GID], listRows, costRows, flag),
-		Status:       "active",
+		RawSpecs: buildProductRawSpecs(d, productMeta{
+			GroupName: groupName, GroupSource: groupSource,
+			ListRows: listRows, CostRows: costRows, Flag: flag,
+			PriceSource: priceSource, Visibility: visibility,
+			Catalog: cat, HasCatalog: hasCat,
+		}),
+		Status: statusForVisibility(visibility),
 	}, nil
 }
 
-// fetchGroupDiscount 探测单个商品的客户折扣（flag）；失败或无折扣返回零值。
-func (p *MoFangFinanceProvider) fetchGroupDiscount(ctx context.Context, pid string) SaleFlag {
+// fetchProductFlag 探测单个商品的客户折扣（flag）；失败或无折扣返回零值。
+// 折扣记录按 (客户分组 × 商品) 命中，必须逐商品探（见 ListProducts 注释）。
+func (p *MoFangFinanceProvider) fetchProductFlag(ctx context.Context, pid string) SaleFlag {
 	var resp CartProductConfigResp
 	if err := p.call(ctx, "GetProduct", http.MethodGet, "cart/get_product_config",
 		url.Values{"pid": {pid}}, &resp); err != nil {
 		return SaleFlag{}
 	}
 	return resp.Flag
+}
+
+// fetchCatalogRow 取单商品的上游前台目录行（cart/index?gid=，从中挑出 pid）。
+func (p *MoFangFinanceProvider) fetchCatalogRow(ctx context.Context, gid int64, pid string) (CartIndexProduct, bool) {
+	var resp CartIndexResp
+	if err := p.callTopLevel(ctx, "GetProduct", http.MethodGet, "cart/index",
+		url.Values{"gid": {strconv.FormatInt(gid, 10)}}, &resp); err != nil {
+		return CartIndexProduct{}, false
+	}
+	target, err := strconv.ParseInt(strings.TrimSpace(pid), 10, 64)
+	if err != nil {
+		return CartIndexProduct{}, false
+	}
+	for _, row := range resp.Products {
+		if row.PID() == target {
+			return row, true
+		}
+	}
+	return CartIndexProduct{}, false
 }
 
 // CreateInstance 「财务对接财务」开通：由本系统（下游）向上游魔方财务下单。

@@ -228,7 +228,7 @@
     <t-dialog
       v-model:visible="cloneVisible"
       header="从上游商品导入"
-      width="760px"
+      width="960px"
       :confirm-btn="{ content: `导入选中的 ${selectedProductIds.size} 个商品`, theme: 'primary', disabled: !selectedProductIds.size, loading: cloneSubmitting }"
       :cancel-btn="{ content: '取消' }"
       @confirm="handleCloneConfirm"
@@ -238,22 +238,25 @@
         <div class="clone-grid">
           <t-form-item label="上游提供商" name="source_provider_id">
             <t-select v-model="cloneForm.source_provider_id" :options="providerOptions" placeholder="请选择上游提供商" @change="handleProviderChange" />
+            <span class="clone-tip">仅列出已接入商品目录的上游渠道（自营平台没有上游商品，不在此列）。</span>
           </t-form-item>
           <t-form-item label="归入本地分类" name="category_id">
             <t-select v-model="cloneForm.category_id" :options="categoryOptions" clearable placeholder="不选则落「未分类」" />
             <span class="clone-tip">导入前先选分类，避免导入后全部落在「未分类」再去逐个改。</span>
           </t-form-item>
+          <t-form-item label="定价：按上游标价 × 百分比" name="price_percent">
+            <t-input-number v-model="cloneForm.price_percent" :min="1" :step="5" theme="column" suffix="%" />
+            <span class="clone-tip">100% = 按上游原价卖；&gt;100 加价，&lt;100 让利。成本按代理价记，利润 = 售价 − 代理价。</span>
+          </t-form-item>
         </div>
-        <t-form-item label="定价百分比 (%)" name="price_percent">
-          <t-input-number v-model="cloneForm.price_percent" :min="100" :step="10" theme="column" placeholder="销售价 = 代理价 × 百分比" />
-          <span class="clone-tip">
-            销售价 = 代理价 × N%。代理价是上游标价扣除代理折扣后的我方采购价；上游未给折扣时两者相同。
-          </span>
-        </t-form-item>
 
         <div class="clone-summary">
           <span>上游商品 {{ providerProducts.length }} 个</span>
+          <span class="clone-summary__split">在售 {{ onSaleCount }} · 未在售 {{ providerProducts.length - onSaleCount }}</span>
           <span v-if="discountHint" class="clone-summary__hint">{{ discountHint }}</span>
+          <span v-if="selectedProductIds.size" class="clone-summary__pick">
+            已选 {{ selectedProductIds.size }} 个 · 预计毛利 {{ formatPrice(selectedProfit) }}/月
+          </span>
         </div>
 
         <div class="clone-groups">
@@ -262,28 +265,34 @@
           <div v-for="group in groupList" :key="group.id" class="clone-group">
             <div class="clone-group__head">
               <t-checkbox :checked="isGroupChecked(group)" @change="() => toggleGroup(group)">
-                {{ group.name || '未分类（上游未公示分组）' }}
+                {{ group.name }}
+                <t-tag v-if="group.derived" size="small" variant="light-outline" theme="warning">派生</t-tag>
               </t-checkbox>
               <span class="clone-group__count">{{ group.items.length }} 个</span>
             </div>
-            <div class="clone-group__items">
-              <t-checkbox
-                v-for="item in group.items"
-                :key="item.id"
-                :checked="isProductChecked(item.id)"
-                @change="() => toggleProduct(item.id)"
-              >
-                <span class="clone-item">
-                  <span class="clone-item__name">{{ item.name }}</span>
-                  <span class="clone-item__spec">{{ formatProductSpec(item) }}</span>
-                  <span class="clone-item__price">
-                    代理价 ¥{{ formatPrice(item.cost_price) }}
-                    <em v-if="item.sale_price > item.cost_price" class="clone-item__list">
-                      标价 ¥{{ formatPrice(item.sale_price) }}
-                    </em>
-                  </span>
+            <div class="clone-table">
+              <div class="clone-table__head clone-row">
+                <span />
+                <span>商品</span>
+                <span>规格</span>
+                <span class="clone-col--num">上游标价</span>
+                <span class="clone-col--num">代理价</span>
+                <span class="clone-col--num">售价</span>
+                <span class="clone-col--num">毛利</span>
+                <span>状态</span>
+              </div>
+              <label v-for="item in group.items" :key="item.id" class="clone-row clone-row--item" :class="{ 'clone-row--off': !isProductOnSale(item) }">
+                <t-checkbox :checked="isProductChecked(item.id)" @change="() => toggleProduct(item.id)" />
+                <span class="clone-cell clone-cell--name" :title="item.name">{{ item.name }}</span>
+                <span class="clone-cell clone-cell--spec">{{ formatProductSpec(item) }}</span>
+                <span class="clone-cell clone-col--num">{{ priceText(item.sale_price) }}</span>
+                <span class="clone-cell clone-col--num">{{ priceText(item.cost_price) }}</span>
+                <span class="clone-cell clone-col--num clone-cell--sale">{{ priceText(salePriceOf(item)) }}</span>
+                <span class="clone-cell clone-col--num" :class="marginClass(item)">{{ marginText(item) }}</span>
+                <span class="clone-cell">
+                  <t-tag size="small" variant="light" :theme="statusThemeOf(item)">{{ statusTextOf(item) }}</t-tag>
                 </span>
-              </t-checkbox>
+              </label>
             </div>
           </div>
         </div>
@@ -461,19 +470,19 @@ function handleCreate() {
   router.push('/product/products/create')
 }
 
-// ===== 上游商品导入（克隆：按上游分组多选 + 本地分类 + 按代理价百分比定价） =====
+// ===== 上游商品导入（克隆：按上游分组多选 + 本地分类 + 按上游标价百分比定价） =====
 const cloneVisible = ref(false)
 const cloneSubmitting = ref(false)
 const cloneLoading = ref(false)
 const providerOptions = ref<{ label: string; value: number }[]>([])
-// 分组结构：group_id → 组名 + 商品列表
-const groupList = ref<{ id: number; name: string; items: ProductInfo[] }[]>([])
+// 分组结构：group_id → 组名（派生分类带标记）+ 商品列表
+const groupList = ref<{ id: number; name: string; derived: boolean; items: ProductInfo[] }[]>([])
 const providerProducts = ref<ProductInfo[]>([])
 const selectedProductIds = ref<Set<number>>(new Set())
 const cloneForm = reactive<{ source_provider_id: number | undefined; category_id: number | undefined; price_percent: number }>({
   source_provider_id: undefined,
   category_id: undefined,
-  price_percent: 120,
+  price_percent: 100,
 })
 
 /** 优惠提示：上游给本账号的代理折扣说明（取自商品镜像的折扣描述）。 */
@@ -481,19 +490,89 @@ const discountHint = computed(() => {
   const hit = providerProducts.value.find((item) => item.cost_price > 0 && item.sale_price > item.cost_price)
   if (!hit) return ''
   const off = Math.round((hit.cost_price / hit.sale_price) * 100)
-  return `${hit.group_name || '该分组'} 等商品的代理价约为标价的 ${off}%（导入按代理价计算成本）`
+  return `该渠道代理价约为标价的 ${off}%（成本按代理价计）`
 })
+
+/** 在售商品数：上游隐藏分组/隐藏商品/已下架都不算在售（status 由同步按真实可见性写入）。 */
+const onSaleCount = computed(() => providerProducts.value.filter((item) => isProductOnSale(item)).length)
+
+/** 已选商品的预计毛利（售价 − 代理价，按标价可见的商品相加）。 */
+const selectedProfit = computed(() => {
+  let total = 0
+  for (const item of providerProducts.value) {
+    if (!selectedProductIds.value.has(item.id)) continue
+    const sale = salePriceOf(item)
+    if (sale > 0 && item.cost_price > 0) total += sale - item.cost_price
+  }
+  return Math.round(total * 100) / 100
+})
+
+/** 本次定价下的售价：上游标价 × 百分比（未定价商品返回 0）。 */
+function salePriceOf(item: ProductInfo): number {
+  if (!(item.sale_price > 0)) return 0
+  const pct = cloneForm.price_percent > 0 ? cloneForm.price_percent : 100
+  return Math.round(item.sale_price * pct) / 100
+}
+
+/** 价目单元格：未定价商品显示「未定价」而不是 ¥0.00（活动款价格常只挂在配置项里）。 */
+function priceText(v: number): string {
+  return v > 0 ? `¥${formatPrice(v)}` : '未定价'
+}
+
+/** 毛利单元格：售价与代理价的差额与毛利率；缺价时给「—」。 */
+function marginText(item: ProductInfo): string {
+  const sale = salePriceOf(item)
+  if (sale <= 0 || !(item.cost_price > 0)) return '—'
+  const profit = sale - item.cost_price
+  const pct = Math.round((profit / sale) * 100)
+  return `${formatPrice(profit)} / ${pct}%`
+}
+
+function marginClass(item: ProductInfo): string {
+  const sale = salePriceOf(item)
+  if (sale <= 0 || !(item.cost_price > 0)) return 'clone-cell--muted'
+  return sale >= item.cost_price ? 'clone-cell--up' : 'clone-cell--down'
+}
+
+/** 是否在售：以同步写入的真实可见性为准（旧数据无 visibility 时退回 status）。 */
+function isProductOnSale(item: ProductInfo): boolean {
+  if (item.visibility) return item.visibility === 'visible'
+  return item.status === 1
+}
+
+function statusTextOf(item: ProductInfo): string {
+  if (isProductOnSale(item)) return '在售'
+  switch (item.visibility) {
+    case 'group_hidden':
+      return '分类隐藏'
+    case 'product_hidden':
+      return '商品隐藏'
+    case 'retired':
+      return '已下架'
+    default:
+      return '未在售'
+  }
+}
+
+function statusThemeOf(item: ProductInfo): 'success' | 'danger' | 'warning' | 'default' {
+  if (isProductOnSale(item)) return 'success'
+  return item.visibility === 'retired' ? 'danger' : 'warning'
+}
 
 async function handleClone() {
   cloneForm.source_provider_id = undefined
   cloneForm.category_id = undefined
-  cloneForm.price_percent = 120
+  cloneForm.price_percent = 100
   selectedProductIds.value = new Set()
   groupList.value = []
   cloneVisible.value = true
   try {
     const data = await getProviderList({ page_size: 100 })
-    providerOptions.value = data.items.map((item: ProviderInfo) => ({ label: item.name, value: item.id }))
+    // 只列出可做商品对接的渠道：自营算力平台（魔方云等）没有商品目录，
+    // 之前混在列表里选中后什么也拉不到。
+    providerOptions.value = data.items
+      .filter((item: ProviderInfo) => item.catalog_supported !== false)
+      .map((item: ProviderInfo) => ({ label: item.name, value: item.id }))
   } catch {
     MessagePlugin.error('加载上游提供商失败')
   }
@@ -518,16 +597,29 @@ async function handleProviderChange() {
   }
 }
 
-function buildCloneGroups(items: ProductInfo[]): { id: number; name: string; items: ProductInfo[] }[] {
-  const map = new Map<number, { id: number; name: string; items: ProductInfo[] }>()
+function buildCloneGroups(items: ProductInfo[]): { id: number; name: string; derived: boolean; items: ProductInfo[] }[] {
+  const map = new Map<number, { id: number; name: string; derived: boolean; items: ProductInfo[] }>()
   for (const item of items) {
     const gid = item.group_id || 0
     if (!map.has(gid)) {
-      map.set(gid, { id: gid, name: item.group_name || '未分类', items: [] })
+      map.set(gid, {
+        id: gid,
+        // 隐藏分组的上游不公示分类名，同步按商品名前缀派生了近似标签（带「派生」标记）；
+        // 两者都没有时给「分组 #id」，而不是含糊的「未分类」。
+        name: item.group_name || `分组 #${gid}`,
+        derived: Boolean(item.group_name_derived),
+        items: [],
+      })
     }
     map.get(gid)!.items.push(item)
   }
-  return Array.from(map.values())
+  // 在售组优先、组名稳定排序，避免每次加载顺序乱跳。
+  return Array.from(map.values()).sort((a, b) => {
+    const aOn = a.items.some((item) => isProductOnSale(item)) ? 0 : 1
+    const bOn = b.items.some((item) => isProductOnSale(item)) ? 0 : 1
+    if (aOn !== bOn) return aOn - bOn
+    return a.name.localeCompare(b.name, 'zh-Hans-CN')
+  })
 }
 
 function isProductChecked(id: number): boolean {
@@ -570,6 +662,11 @@ async function handleCloneConfirm() {
     MessagePlugin.warning('请选择上游提供商并勾选至少一个上游商品')
     return
   }
+  // 上游未定价的商品（价格只挂在配置项、上游还没配活动价）仍可导入，
+  // 但要在导入前说清楚：导入后本地售价为 0，需人工补价。
+  const unpriced = providerProducts.value.filter(
+    (item) => selectedProductIds.value.has(item.id) && !(item.sale_price > 0) && !(item.cost_price > 0),
+  )
   cloneSubmitting.value = true
   try {
     const result = await batchCloneProductFromUpstream({
@@ -582,6 +679,11 @@ async function handleCloneConfirm() {
     const failed = result?.failed ?? []
     if (imported > 0) {
       MessagePlugin.success(`已导入 ${imported} 个上游商品`)
+    }
+    if (unpriced.length > 0) {
+      MessagePlugin.warning(
+        `${unpriced.length} 个商品上游未定价（如 ${unpriced[0].name}），导入后售价为 0，请到商品详情页补价`,
+      )
     }
     if (failed.length > 0) {
       // 逐条失败此前被静默吞掉（接口一律返回成功），这里把原因摊开：
@@ -742,7 +844,7 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
 <style scoped>
 .clone-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 16px;
 }
 .clone-tip {
@@ -751,7 +853,7 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
   color: var(--td-text-color-secondary, #999);
 }
 .clone-groups {
-  max-height: 380px;
+  max-height: 420px;
   overflow: auto;
   border: 1px solid var(--td-component-border, #ddd);
   border-radius: 6px;
@@ -764,7 +866,7 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
   font-size: 13px;
 }
 .clone-group {
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 .clone-group__head {
   display: flex;
@@ -780,29 +882,57 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
   font-weight: 400;
   font-size: 12px;
 }
-.clone-group__items {
-  padding-left: 16px;
-  display: flex;
-  flex-direction: column;
+/* 商品表：固定列宽对齐，价格各占一列，避免长名挤在一起看不清 */
+.clone-table {
+  padding: 4px 8px 0 8px;
 }
-.clone-item {
-  display: inline-flex;
+.clone-row {
+  display: grid;
+  grid-template-columns: 28px minmax(200px, 1.6fr) 150px 84px 84px 84px 96px 76px;
+  align-items: center;
   gap: 8px;
-  align-items: baseline;
-}
-.clone-item__spec {
-  color: var(--td-text-color-secondary, #999);
+  padding: 4px 0;
   font-size: 12px;
 }
-.clone-item__price {
-  color: var(--td-warning-color, #e37318);
-  font-size: 12px;
-}
-.clone-item__list {
-  margin-left: 6px;
+.clone-table__head.clone-row {
   color: var(--td-text-color-placeholder, #bbb);
-  font-style: normal;
-  text-decoration: line-through;
+  border-bottom: 1px solid var(--td-component-border, #eee);
+  padding-bottom: 6px;
+}
+.clone-row--item {
+  border-bottom: 1px dashed var(--td-component-border, #f0f0f0);
+  cursor: pointer;
+}
+.clone-row--item:hover {
+  background: var(--td-bg-color-container-hover, #fafafa);
+}
+.clone-row--off .clone-cell--name,
+.clone-row--off .clone-cell--spec {
+  color: var(--td-text-color-placeholder, #bbb);
+}
+.clone-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clone-cell--spec {
+  color: var(--td-text-color-secondary, #999);
+}
+.clone-cell--sale {
+  color: var(--td-brand-color, #0052d9);
+  font-weight: 600;
+}
+.clone-col--num {
+  text-align: right;
+}
+.clone-cell--up {
+  color: var(--td-success-color, #2ba471);
+}
+.clone-cell--down {
+  color: var(--td-error-color, #d54941);
+}
+.clone-cell--muted {
+  color: var(--td-text-color-placeholder, #bbb);
 }
 .clone-summary {
   display: flex;
@@ -812,11 +942,18 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
   font-size: 12px;
   color: var(--td-text-color-secondary, #999);
 }
+.clone-summary__split {
+  color: var(--td-text-color-primary, #333);
+}
 .clone-summary__hint {
   padding: 1px 8px;
   border-radius: 10px;
   background: var(--td-success-color-1, #e8f8f2);
   color: var(--td-success-color, #2ba471);
+}
+.clone-summary__pick {
+  margin-left: auto;
+  color: var(--td-brand-color, #0052d9);
 }
 .products-layout {
   display: flex;

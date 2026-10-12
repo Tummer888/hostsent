@@ -8,6 +8,10 @@ var (
 	ErrInstanceNotFound = errors.New("实例不存在")
 	// ErrInvalidAction 电源动作非法。
 	ErrInvalidAction = errors.New("不支持的电源操作")
+	// ErrBillingAdjustInvalid 账期/付款周期调整参数非法（错误提示由业务层补充）。
+	ErrBillingAdjustInvalid = errors.New("账期调整参数不合法")
+	// ErrCredentialUnavailable 实例未保存明文凭据（需改用重置密码）。
+	ErrCredentialUnavailable = errors.New("实例未保存明文密码")
 	// ErrCapabilityUnsupported 上游服务商不支持该操作。
 	ErrCapabilityUnsupported = errors.New("该服务商不支持此操作")
 	// ErrPermissionDenied 高风险操作未满足前置条件（如销毁二次确认不匹配）。

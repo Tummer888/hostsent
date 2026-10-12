@@ -15,6 +15,7 @@ import (
 	lifecycleservice "hostsent/backend/internal/modules/admin/instance/lifecycle/service"
 	instanceservice "hostsent/backend/internal/modules/admin/instance/service"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
+	orderrepo "hostsent/backend/internal/modules/admin/order/repository"
 	orderservice "hostsent/backend/internal/modules/admin/order/service"
 	catalogservice "hostsent/backend/internal/modules/admin/product/catalog/service"
 	providerservice "hostsent/backend/internal/modules/admin/resource/provider/service"
@@ -135,6 +136,26 @@ func buildProviderResolver(provider providerservice.ProviderService, upmgr *upst
 // 与用户中心复用同一解析实现，仅做具名函数类型转换（两者底层类型一致）。
 func buildInstanceOpsResolver(provider providerservice.ProviderService, upmgr *upstream.ProviderManager) instanceservice.ProviderResolver {
 	return instanceservice.ProviderResolver(buildProviderResolver(provider, upmgr))
+}
+
+// buildInstanceOrderConfigReader 返回实例详情页读取订单客户选配 JSON 的读取器（orders.config_options）。
+//
+// 详情页需要在配置区展示"客户下单时实际选择的规格"，该选择落库在订单而非实例，
+// 故由装配层把订单仓储的读取能力以最小闭包注入实例域，避免 instance 包反向依赖 order 包。
+func buildInstanceOrderConfigReader(repo orderrepo.OrderRepository) func(ctx context.Context, orderID uint64) (string, error) {
+	return func(ctx context.Context, orderID uint64) (string, error) {
+		if repo == nil || orderID == 0 {
+			return "", nil
+		}
+		order, err := repo.FindByID(ctx, orderID)
+		if err != nil {
+			return "", err
+		}
+		if order == nil {
+			return "", nil
+		}
+		return order.ConfigOptions, nil
+	}
 }
 
 // buildUpstreamRenewer 返回生命周期续费的上游/平台执行器（T5.2）。

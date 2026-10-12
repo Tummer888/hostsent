@@ -3,6 +3,8 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -115,6 +117,37 @@ func (h *ProductHandler) BatchCloneFromUpstream(c *gin.Context) {
 		return
 	}
 	response.Success(c, resp)
+}
+
+// ApplyUpstreamMarkup godoc
+// @Summary 设定上游商品加价规则并重算已导入商品售价（上游商品页调价）
+// @Tags 产品管理-商品
+// @Security BearerAuth
+// @Param request body dto.ProductUpstreamMarkupRequest true "调价参数"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/product/products/upstream-markup [post]
+func (h *ProductHandler) ApplyUpstreamMarkup(c *gin.Context) {
+	var req dto.ProductUpstreamMarkupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	_, operatorName := operatorFromContext(c)
+	affected, err := h.productService.ApplyUpstreamMarkupRule(c.Request.Context(), req.ResourceProductID, req.MarkupType, req.MarkupValue, operatorName, req.Remark)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	msg := "该上游商品还没有导入成商品，规则已记录，导入后按此定价"
+	if affected > 0 {
+		msg = fmt.Sprintf("已按新规则重算 %d 个商品售价", affected)
+	}
+	details := []string{}
+	if strings.TrimSpace(req.Remark) != "" {
+		details = append(details, req.Remark)
+	}
+	response.Success(c, dto.ProductUpstreamMarkupResponse{Affected: affected, Message: msg, Details: details})
 }
 
 // Get godoc
