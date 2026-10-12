@@ -9,10 +9,11 @@ package server
 import (
 	"context"
 	"errors"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
-	"strings"
 
 	authmodel "hostsent/backend/internal/modules/uc/auth/model"
 	oauthhandler "hostsent/backend/internal/modules/uc/oauth/handler"

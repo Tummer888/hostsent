@@ -1,26 +1,30 @@
-package server
+// 管理员核心域装配（批次四 4b，合并原 assembly_impersonation.go 的代登录审计）。
 
-// 代登录（Impersonate）审计写入装配。
-//
-// account 模块的服务层只声明一个函数端口（service.LoginRecorder），不知道
-// login_logs / user_sessions 的存在；这里用 security 模块的模型把端口实现出来。
-// 这样 account 不必 import security（避免同层反向依赖），security 也不必知道
-// 「代登录」这个业务动作。
+package server
 
 import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	adminhandler "hostsent/backend/internal/modules/admin/manager/handler"
+	adminservice "hostsent/backend/internal/modules/admin/manager/service"
+	accountservice "hostsent/backend/internal/modules/admin/user/account/service"
+	securitymodel "hostsent/backend/internal/modules/admin/user/security/model"
 	"strconv"
 	"time"
 	"unicode/utf8"
 
 	"gorm.io/gorm"
-
-	accountservice "hostsent/backend/internal/modules/admin/user/account/service"
-	securitymodel "hostsent/backend/internal/modules/admin/user/security/model"
 )
+
+// buildAdminCore 构造员工账号/部门服务与处理器。
+func (a *asm) buildAdminCore() {
+	a.adminService = adminservice.NewAdminService(a.adminRepo, a.rbacRepo, a.adminAuditRepo, a.permCache, a.jwtIssuer, a.departmentRepo, a.salesBundle.releaserPort(a.logger))
+	a.departmentService = adminservice.NewDepartmentService(a.departmentRepo, a.adminRepo)
+	a.adminHandler = adminhandler.NewAdminHandler(a.adminService)
+	a.departmentHandler = adminhandler.NewDepartmentHandler(a.departmentService)
+}
 
 // impersonatePlatform 代登录会话与日志的 platform 标记。
 //

@@ -107,3 +107,10 @@ func (a *contentReaderAdapter) ListActive(ctx context.Context) ([]contentdto.Lin
 	}
 	return a.links.ListActive(ctx)
 }
+
+// buildContent 构造内容中心 Bundle（批次四 4b）。
+// buildContent 构造内容中心 Bundle。
+func (a *asm) buildContent() {
+	// 内容中心（doc100）：新闻/帮助/条款/隐私/分类/友情链接的管理与门户公开读取。
+	a.contentBundle = buildContentBundle(a.database)
+}

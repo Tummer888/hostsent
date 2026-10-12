@@ -14,14 +14,20 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	ordermodel "hostsent/backend/internal/modules/admin/order/model"
+	notifydto "hostsent/backend/internal/modules/admin/system/notification/dto"
 	notifyhandler "hostsent/backend/internal/modules/admin/system/notification/handler"
+	notifymodel "hostsent/backend/internal/modules/admin/system/notification/model"
 	notifyrepo "hostsent/backend/internal/modules/admin/system/notification/repository"
 	notifyservice "hostsent/backend/internal/modules/admin/system/notification/service"
+	openrepo "hostsent/backend/internal/modules/open/repository"
+	openservice "hostsent/backend/internal/modules/open/service"
 	"hostsent/backend/internal/pkg/cache"
 	"hostsent/backend/internal/pkg/safego"
 )
@@ -124,3 +130,158 @@ func (c *notifyRateCounter) Incr(ctx context.Context, key string, ttl time.Durat
 	}
 	return c.cache.Incr(ctx, key, ttl)
 }
+
+// buildNotify 构造通知中心服务、处理器、投递工作器与开放平台回调工作池（批次四 4b）。
+// buildNotify 构造通知中心服务、处理器、投递工作器与开放平台回调工作池。
+func (a *asm) buildNotify() {
+	// 通知与消息中心（doc70）
+	a.notifyRepo = notifyrepo.NewNotificationRepository(a.database)
+	a.notifyTplRepo = notifyrepo.NewTemplateRepository(a.database)
+	a.notifyPrefRepo = notifyrepo.NewPreferenceRepository(a.database)
+	a.notifyAnnRepo = notifyrepo.NewAnnouncementRepository(a.database)
+	a.notifyMailChannel = notifyservice.NewMailChannel(a.database, a.configRepo, a.notifyRepo, a.logger)
+	a.notifySvc = notifyservice.NewNotificationService(a.database, a.notifyRepo, a.notifyTplRepo, a.notifyPrefRepo, a.notifyAnnRepo, a.notifyMailChannel, a.logger)
+	a.announceSvc = notifyservice.NewAnnouncementService(a.notifyAnnRepo)
+	a.templateSvc = notifyservice.NewTemplateService(a.notifyTplRepo)
+	a.preferenceSvc = notifyservice.NewPreferenceService(a.notifyPrefRepo, a.notifyTplRepo)
+	a.notifyAdminHandler = notifyhandler.NewAdminHandler(a.notifySvc, a.announceSvc, a.templateSvc, a.preferenceSvc)
+	a.notifyUserHandler = notifyhandler.NewUserHandler(a.notifySvc, a.announceSvc, a.preferenceSvc)
+	// 消息中心（doc90）：渠道/短信模板/群发/发送日志 + 投递队列工作器。
+	// 该装配会把投递仓储注入 notifySvc，此后 Publish 的邮件/短信走队列而非直发。
+	a.notifyBundleInst = buildNotifyBundle(notifyBundleDeps{
+		DB:           a.database,
+		EncryptKey:   a.cfg.App.EncryptKey,
+		NotifySvc:    a.notifySvc,
+		NotifyRepo:   a.notifyRepo,
+		ConfigReader: a.configValueReader,
+		Counter:      &notifyRateCounter{cache: a.cacheClient},
+		Logger:       a.logger,
+	})
+	// 开放平台回调投递工作池（P6/T6.5）：指数退避，耗尽转死信。
+	a.notifyWorker = openservice.NewNotifyDeliveryWorker(
+		openrepo.NewNotifyRepository(a.database),
+		openrepo.NewAppRepository(a.database),
+		a.cfg.App.EncryptKey,
+		a.logger,
+		openservice.NotifyWorkerOptions{},
+	)
+}
+
+func (b *lifecycleNotifierBridge) Publish(ctx context.Context, userID uint64, title, content string) error {
+	return b.notifySvc.Publish(ctx, notifydto.PublishInput{
+		Event:        notifymodel.EventInstanceExpiring,
+		UserID:       userID,
+		Target:       notifymodel.TargetUser,
+		Vars:         map[string]string{"title": title, "content": content},
+		SourceModule: "lifecycle",
+		SourceID:     fmt.Sprintf("remind-%d", userID),
+	})
+}
+
+// ticketNotifierBridge 桥接工单模块的 Notifier 接口到通知中心（P2-04）。
+// target=user 时通知工单提交人，target=admin 时通知被指派员工。
+
+// lifecycleNotifierBridge 桥接生命周期模块的 Notifier 接口到通知中心。
+// 生命周期提醒（到期/续费结果）通过 Publish 发布到通知中心。
+type lifecycleNotifierBridge struct {
+	notifySvc notifyservice.NotificationService
+	logger    *zap.Logger
+}
+
+func (b *ticketNotifierBridge) Publish(ctx context.Context, event, target string, recipientID uint64, vars map[string]string, sourceID string) error {
+	if target == "" {
+		target = notifymodel.TargetUser
+	}
+	err := b.notifySvc.Publish(ctx, notifydto.PublishInput{
+		Event:        event,
+		UserID:       recipientID,
+		Target:       target,
+		Vars:         vars,
+		SourceModule: "ticket",
+		SourceID:     sourceID,
+	})
+	if err != nil {
+		b.logger.Warn("ticket: publish notification failed",
+			zap.String("event", event), zap.Uint64("recipient_id", recipientID), zap.Error(err))
+	}
+	return err
+}
+
+// priceChangeNotifierBridge 桥接同步引擎的调价提醒到通知中心（T3.4）。
+// 上游改价超阈值进入待确认队列时，向管理端发一条站内信（模板 event=sync_failed 之外
+// 复用 system 事件，避免为一个提示新增模板）。
+
+// ticketNotifierBridge 桥接工单模块的 Notifier 接口到通知中心（P2-04）。
+// target=user 时通知工单提交人，target=admin 时通知被指派员工。
+type ticketNotifierBridge struct {
+	notifySvc notifyservice.NotificationService
+	logger    *zap.Logger
+}
+
+func (b *priceChangeNotifierBridge) NotifyPriceChangePending(ctx context.Context, providerID uint64, providerName string, pending int) error {
+	if pending <= 0 {
+		return nil
+	}
+	err := b.notifySvc.Publish(ctx, notifydto.PublishInput{
+		Event:  notifymodel.EventSystem,
+		Target: notifymodel.TargetAdmin,
+		Vars: map[string]string{
+			"title":   "上游调价待确认",
+			"content": fmt.Sprintf("提供商 %s（#%d）有 %d 条成本价变动超过阈值，售价未自动调整，请前往「同步与调度 → 待确认调价」处理。", providerName, providerID, pending),
+		},
+		SourceModule: "sync",
+		SourceID:     fmt.Sprintf("price-pending-%d-%d", providerID, time.Now().Unix()/3600),
+	})
+	if err != nil {
+		b.logger.Warn("publish price change notification failed",
+			zap.Uint64("provider_id", providerID), zap.Error(err))
+	}
+	return err
+}
+
+// buildProductSourceModeResolver 返回商品链路判据解析（T5.1 任务留痕用）：
+// 读不到商品时返回空串，不影响开通投递。
+
+// priceChangeNotifierBridge 桥接同步引擎的调价提醒到通知中心（T3.4）。
+// 上游改价超阈值进入待确认队列时，向管理端发一条站内信（模板 event=sync_failed 之外
+// 复用 system 事件，避免为一个提示新增模板）。
+type priceChangeNotifierBridge struct {
+	notifySvc notifyservice.NotificationService
+	logger    *zap.Logger
+}
+
+// Notify 发布"开通失败转人工"管理端站内信；发布失败只记日志，不影响工作池。
+func (b *provisionManualNotifier) Notify(ctx context.Context, task *ordermodel.ProvisionTask) {
+	if task == nil {
+		return
+	}
+	err := b.notifySvc.Publish(ctx, notifydto.PublishInput{
+		Event:  notifymodel.EventSystem,
+		Target: notifymodel.TargetAdmin,
+		Vars: map[string]string{
+			"title": "订单开通失败待人工处理",
+			"content": fmt.Sprintf("订单 #%d（用户 #%d）连续 %d 次开通失败，已转入人工队列：%s。请前往「订单管理」重试或联系上游排查。",
+				task.OrderID, task.UserID, task.Attempts, task.LastError),
+		},
+		SourceModule: "order",
+		SourceID:     fmt.Sprintf("provision-manual-%d", task.OrderID),
+	})
+	if err != nil {
+		b.logger.Warn("publish provision manual notification failed",
+			zap.Uint64("order_id", task.OrderID), zap.Error(err))
+	}
+}
+
+// buildStageCapabilityNotifier 阶段推进遇上游缺能力时的显式告警（T5.4/T5.5）。
+//
+// 语义：平台确实不支持暂停/销毁时，推进器只落阶段并告警，必须让运营可见，
+// 避免"看起来已暂停"的静默假完成。告警复用 system 事件，不新增模板。
+
+// provisionManualNotifier 桥接开通任务连续失败告警到通知中心（T5.1）。
+// 复用 system 事件避免为一个提示新增模板（与调价待确认一致）。
+type provisionManualNotifier struct {
+	notifySvc notifyservice.NotificationService
+	logger    *zap.Logger
+}
+
+// Notify 发布"开通失败转人工"管理端站内信；发布失败只记日志，不影响工作池。
