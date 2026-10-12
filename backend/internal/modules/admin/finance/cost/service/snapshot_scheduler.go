@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"hostsent/backend/internal/pkg/safego"
 )
 
 // SnapshotScheduler 上游同步的每日定时任务：余额快照 + 账本流水 + 水位告警（doc111 §5）。
@@ -36,6 +38,7 @@ func (s *SnapshotScheduler) Start(ctx context.Context) {
 		return
 	}
 	go func() {
+		defer safego.Recover(s.logger)
 		// 启动后先等一个 tick，避免与启动期其它初始化抢资源。
 		timer := time.NewTimer(time.Minute)
 		defer timer.Stop()
@@ -44,11 +47,17 @@ func (s *SnapshotScheduler) Start(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-timer.C:
-				s.maybeRun(ctx)
+				s.runSafely(ctx)
 				timer.Reset(s.tickEvery)
 			}
 		}
 	}()
+}
+
+// runSafely 单轮快照的 panic 防护：单轮异常只记日志，不停摆调度循环。
+func (s *SnapshotScheduler) runSafely(ctx context.Context) {
+	defer safego.Recover(s.logger)
+	s.maybeRun(ctx)
 }
 
 func (s *SnapshotScheduler) maybeRun(ctx context.Context) {

@@ -19,6 +19,7 @@ import (
 	syncrepo "hostsent/backend/internal/modules/admin/resource/sync/repository"
 	pkgmodel "hostsent/backend/internal/pkg/model"
 	"hostsent/backend/internal/pkg/observability"
+	"hostsent/backend/internal/pkg/safego"
 	"hostsent/backend/internal/pkg/specatom"
 	"hostsent/backend/internal/pkg/upstream"
 )
@@ -150,7 +151,8 @@ func (e *SyncEngine) StartSync(ctx context.Context, providerID uint64, taskType 
 	if err := e.syncRepo.CreateTask(ctx, item); err != nil {
 		return nil, err
 	}
-	go e.RunTask(context.Background(), item.ID)
+	// 异步执行：panic 防护由 safego 统一兜底（任务状态由租约回收兜底收敛）。
+	safego.Go(e.logger, func() { e.RunTask(context.Background(), item.ID) })
 	return item, nil
 }
 

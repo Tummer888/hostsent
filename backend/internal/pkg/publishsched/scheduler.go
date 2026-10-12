@@ -17,6 +17,7 @@ import (
 
 	"hostsent/backend/internal/pkg/jobrun"
 	"hostsent/backend/internal/pkg/revalidate"
+	"hostsent/backend/internal/pkg/safego"
 )
 
 // AnnouncementPublisher 把到点的公告从 draft 推进为 published。
@@ -58,8 +59,9 @@ func (s *Scheduler) Start(ctx context.Context) {
 	if s == nil || (s.announcements == nil && s.articles == nil) {
 		return
 	}
-	s.runOnce(ctx)
+	s.runSafely(ctx)
 	go func() {
+		defer safego.Recover(s.logger)
 		t := time.NewTicker(s.interval)
 		defer t.Stop()
 		for {
@@ -68,11 +70,17 @@ func (s *Scheduler) Start(ctx context.Context) {
 				s.logger.Info("publish scheduler stopped")
 				return
 			case <-t.C:
-				s.runOnce(ctx)
+				s.runSafely(ctx)
 			}
 		}
 	}()
 	s.logger.Info("publish scheduler started", zap.Duration("interval", s.interval))
+}
+
+// runSafely 单轮推进的 panic 防护：单轮异常只记日志，不停摆调度循环。
+func (s *Scheduler) runSafely(ctx context.Context) {
+	defer safego.Recover(s.logger)
+	s.runOnce(ctx)
 }
 
 // runOnce 单轮推进。失败只记录不中断：调度器停摆比一次推进失败严重得多。

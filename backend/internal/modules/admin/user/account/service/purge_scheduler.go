@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap"
 
 	"hostsent/backend/internal/pkg/jobrun"
+	"hostsent/backend/internal/pkg/safego"
 )
 
 // PurgeScheduler 留存期清理调度器（doc104 §4.6）。
@@ -32,7 +33,8 @@ func NewPurgeScheduler(svc DeletionService, logger *zap.Logger) *PurgeScheduler 
 // Start 启动调度器 goroutine；ctx 取消时退出。
 func (s *PurgeScheduler) Start(ctx context.Context) {
 	go func() {
-		s.runOnce(ctx)
+		defer safego.Recover(s.logger)
+		s.runSafely(ctx)
 		t := time.NewTicker(s.interval)
 		defer t.Stop()
 		for {
@@ -41,11 +43,17 @@ func (s *PurgeScheduler) Start(ctx context.Context) {
 				s.logger.Info("user purge scheduler stopped")
 				return
 			case <-t.C:
-				s.runOnce(ctx)
+				s.runSafely(ctx)
 			}
 		}
 	}()
 	s.logger.Info("user purge scheduler started", zap.Duration("interval", s.interval), zap.Int("batch", s.batch))
+}
+
+// runSafely 单轮清理的 panic 防护：单轮异常只记日志，不停摆调度循环。
+func (s *PurgeScheduler) runSafely(ctx context.Context) {
+	defer safego.Recover(s.logger)
+	s.runOnce(ctx)
 }
 
 // runOnce 单轮清理：失败仅记录，不中断调度。

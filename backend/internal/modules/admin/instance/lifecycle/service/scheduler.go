@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap"
 
 	"hostsent/backend/internal/pkg/jobrun"
+	"hostsent/backend/internal/pkg/safego"
 )
 
 // LifecycleScheduler 生命周期调度器：按固定周期执行到期提醒与自动续费扫描。
@@ -28,6 +29,7 @@ func NewLifecycleScheduler(lifecycleSvc LifecycleService, logger *zap.Logger) *L
 // Start 启动调度器 goroutine；ctx 取消时退出。
 func (s *LifecycleScheduler) Start(ctx context.Context) {
 	go func() {
+		defer safego.Recover(s.logger)
 		t := time.NewTicker(s.interval)
 		defer t.Stop()
 		for {
@@ -36,11 +38,17 @@ func (s *LifecycleScheduler) Start(ctx context.Context) {
 				s.logger.Info("lifecycle scheduler stopped")
 				return
 			case <-t.C:
-				s.runOnce(ctx)
+				s.runSafely(ctx)
 			}
 		}
 	}()
 	s.logger.Info("lifecycle scheduler started", zap.Duration("interval", s.interval))
+}
+
+// runSafely 单轮扫描的 panic 防护：单轮异常只记日志，不停摆调度循环。
+func (s *LifecycleScheduler) runSafely(ctx context.Context) {
+	defer safego.Recover(s.logger)
+	s.runOnce(ctx)
 }
 
 // runOnce 单轮扫描：到期提醒 → 自动续费；失败仅记录，不中断调度。

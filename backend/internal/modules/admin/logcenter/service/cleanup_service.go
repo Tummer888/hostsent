@@ -14,6 +14,7 @@ import (
 	"hostsent/backend/internal/modules/admin/logcenter/dto"
 	logmodel "hostsent/backend/internal/modules/admin/logcenter/model"
 	logrepo "hostsent/backend/internal/modules/admin/logcenter/repository"
+	"hostsent/backend/internal/pkg/safego"
 )
 
 // CleanupService 清理引擎（doc92 §6）—— 本模块的核心。
@@ -247,6 +248,9 @@ func (s *cleanupService) Start(ctx context.Context, req dto.CleanupRunRequest, t
 	s.cancels[row.ID] = cancel
 	s.mu.Unlock()
 	go func() {
+		// Recover 注册在前 → 执行在后：panic 时先跑下面的清理（释放取消注册、cancel），
+		// 再由 Recover 捕获，避免击穿进程。
+		defer safego.Recover(s.logger)
 		defer func() {
 			s.mu.Lock()
 			delete(s.cancels, row.ID)

@@ -152,6 +152,7 @@ import (
 	"hostsent/backend/internal/pkg/pricing"
 	"hostsent/backend/internal/pkg/publishsched"
 	"hostsent/backend/internal/pkg/revalidate"
+	"hostsent/backend/internal/pkg/safego"
 	"hostsent/backend/internal/pkg/sessionguard"
 	"hostsent/backend/internal/pkg/specatom"
 	"hostsent/backend/internal/pkg/storage"
@@ -835,6 +836,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		func(userID uint64, amount float64) {
 			// 异步执行：不阻塞下单；使用独立 context，避免请求结束后被取消。
 			go func() {
+				defer safego.Recover(logger)
 				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel()
 				if err := levelUpgradeService.ApplyConsume(ctx, userID, amount); err != nil {
@@ -1104,6 +1106,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		} else {
 			// 渠道支付的订单到账才累计消费并重算等级（下单时未收款，不能提前计入）。
 			go func(userID uint64, amount float64) {
+				defer safego.Recover(logger)
 				cctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel()
 				if err := levelUpgradeService.ApplyConsume(cctx, userID, amount); err != nil {

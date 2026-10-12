@@ -19,6 +19,7 @@ import (
 	"hostsent/backend/internal/modules/admin/logcenter/dto"
 	logmodel "hostsent/backend/internal/modules/admin/logcenter/model"
 	logrepo "hostsent/backend/internal/modules/admin/logcenter/repository"
+	"hostsent/backend/internal/pkg/safego"
 	"hostsent/backend/internal/pkg/storage"
 )
 
@@ -209,6 +210,12 @@ func (s *exportService) streamExport(
 		// 卡在 exporting 且连取消都无效（写操作不监听 ctx）。收尾时关掉读端，
 		// 让挂起的写立刻收到 ErrClosedPipe，导出失败得以正常上抛。
 		defer pr.Close()
+		// panic 时必须向 done 写入结果，否则主流程 <-done 永久阻塞。
+		defer func() {
+			if safego.Recover(s.logger) {
+				done <- writeResult{err: fmt.Errorf("logcenter: 导出文件写入 goroutine 异常退出")}
+			}
+		}()
 		rel, size, err := s.store.Save(dir, logicalName, io.TeeReader(pr, hasher), 0)
 		done <- writeResult{rel: rel, size: size, err: err}
 	}()

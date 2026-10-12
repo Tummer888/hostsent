@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap"
 
 	"hostsent/backend/internal/pkg/jobrun"
+	"hostsent/backend/internal/pkg/safego"
 )
 
 // ReleaseScheduler 提成解冻调度器：按固定周期把已过解冻期的计提转入可用余额。
@@ -26,7 +27,8 @@ func NewReleaseScheduler(svc CommissionService, logger *zap.Logger) *ReleaseSche
 // 启动时先跑一轮：进程重启后积压的到期计提不必等下一个 tick。
 func (s *ReleaseScheduler) Start(ctx context.Context) {
 	go func() {
-		s.runOnce(ctx)
+		defer safego.Recover(s.logger)
+		s.runSafely(ctx)
 		t := time.NewTicker(s.interval)
 		defer t.Stop()
 		for {
@@ -35,11 +37,17 @@ func (s *ReleaseScheduler) Start(ctx context.Context) {
 				s.logger.Info("sales commission release scheduler stopped")
 				return
 			case <-t.C:
-				s.runOnce(ctx)
+				s.runSafely(ctx)
 			}
 		}
 	}()
 	s.logger.Info("sales commission release scheduler started", zap.Duration("interval", s.interval))
+}
+
+// runSafely 单轮解冻的 panic 防护：单轮异常只记日志，不停摆调度循环。
+func (s *ReleaseScheduler) runSafely(ctx context.Context) {
+	defer safego.Recover(s.logger)
+	s.runOnce(ctx)
 }
 
 // runOnce 单轮解冻：失败仅记录，不中断调度。

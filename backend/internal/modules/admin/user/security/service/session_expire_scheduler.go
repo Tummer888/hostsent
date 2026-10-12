@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap"
 
 	"hostsent/backend/internal/pkg/jobrun"
+	"hostsent/backend/internal/pkg/safego"
 )
 
 // SessionExpireScheduler 会话过期状态回写调度器。
@@ -35,7 +36,8 @@ func NewSessionExpireScheduler(svc SecurityService, logger *zap.Logger) *Session
 // Start 启动调度器 goroutine；ctx 取消时退出。
 func (s *SessionExpireScheduler) Start(ctx context.Context) {
 	go func() {
-		s.runOnce(ctx)
+		defer safego.Recover(s.logger)
+		s.runSafely(ctx)
 		t := time.NewTicker(s.interval)
 		defer t.Stop()
 		for {
@@ -44,11 +46,17 @@ func (s *SessionExpireScheduler) Start(ctx context.Context) {
 				s.logger.Info("session expire scheduler stopped")
 				return
 			case <-t.C:
-				s.runOnce(ctx)
+				s.runSafely(ctx)
 			}
 		}
 	}()
 	s.logger.Info("session expire scheduler started", zap.Duration("interval", s.interval), zap.Int("batch", s.batch))
+}
+
+// runSafely 单轮回写的 panic 防护：单轮异常只记日志，不停摆调度循环。
+func (s *SessionExpireScheduler) runSafely(ctx context.Context) {
+	defer safego.Recover(s.logger)
+	s.runOnce(ctx)
 }
 
 // runOnce 单轮回写：失败仅记录，不中断调度。

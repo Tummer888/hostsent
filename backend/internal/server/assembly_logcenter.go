@@ -28,6 +28,7 @@ import (
 	adminmodel "hostsent/backend/internal/modules/admin/manager/model"
 	"hostsent/backend/internal/pkg/jobrun"
 	"hostsent/backend/internal/pkg/middleware"
+	"hostsent/backend/internal/pkg/safego"
 	"hostsent/backend/internal/pkg/storage"
 	"hostsent/backend/internal/pkg/upstream"
 )
@@ -39,6 +40,8 @@ const captureRefreshEvery = 60 * time.Second
 type logcenterBundle struct {
 	handler *loghandler.Handler
 	policy  logservice.PolicyService
+	// logger 供 bundle 自身启动的 goroutine（采集配置刷新循环）做 panic 防护留痕。
+	logger *zap.Logger
 	// recorder 上游接口日志写入器（Server.Run 中启动消费 goroutine）。
 	recorder *logservice.UpstreamRecorder
 	// scheduler 统一清理调度器（Server.Run 中启动）。
@@ -188,6 +191,7 @@ func buildLogcenterBundle(deps logcenterBundleDeps) *logcenterBundle {
 	return &logcenterBundle{
 		handler: handler, policy: policySvc, recorder: recorder,
 		scheduler: scheduler, Runner: runner,
+		logger: deps.Logger,
 		refreshCapture: func(ctx context.Context) {
 			upstream.SetCaptureOptions(upstream.CaptureOptions{
 				Enabled:      deps.ConfigBoolOr(ctx, "log_upstream_capture", true),
@@ -210,6 +214,7 @@ func (b *logcenterBundle) startCaptureRefresh(ctx context.Context) {
 		return
 	}
 	go func() {
+		defer safego.Recover(b.logger)
 		t := time.NewTicker(captureRefreshEvery)
 		defer t.Stop()
 		for {
@@ -217,7 +222,11 @@ func (b *logcenterBundle) startCaptureRefresh(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				b.refreshCapture(ctx)
+				// 单轮刷新 panic 只记日志，不终止配置刷新循环。
+				func() {
+					defer safego.Recover(b.logger)
+					b.refreshCapture(ctx)
+				}()
 			}
 		}
 	}()

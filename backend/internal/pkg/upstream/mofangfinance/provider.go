@@ -42,6 +42,7 @@ import (
 	"unicode/utf8"
 
 	"hostsent/backend/internal/pkg/model"
+	"hostsent/backend/internal/pkg/safego"
 	"hostsent/backend/internal/pkg/traceid"
 	"hostsent/backend/internal/pkg/upstream"
 )
@@ -818,12 +819,13 @@ func (p *MoFangFinanceProvider) fetchProductFlags(ctx context.Context, details m
 	var wg sync.WaitGroup
 	for pid := range details {
 		wg.Add(1)
-		go func(pid string) {
+		// 无 logger 注入的基础库 goroutine：Recover 降级输出 stderr，panic 不击穿同步流程。
+		safego.Go(nil, func() {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			ch <- result{pid: pid, flag: p.fetchProductFlag(ctx, pid)}
-		}(pid)
+		})
 	}
 	wg.Wait()
 	close(ch)
@@ -855,7 +857,7 @@ func (p *MoFangFinanceProvider) fetchCatalogRows(ctx context.Context, details ma
 	var wg sync.WaitGroup
 	for gid := range gidSet {
 		wg.Add(1)
-		go func(gid int64) {
+		safego.Go(nil, func() {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
@@ -866,7 +868,7 @@ func (p *MoFangFinanceProvider) fetchCatalogRows(ctx context.Context, details ma
 				return
 			}
 			ch <- result{rows: resp.Products}
-		}(gid)
+		})
 	}
 	wg.Wait()
 	close(ch)

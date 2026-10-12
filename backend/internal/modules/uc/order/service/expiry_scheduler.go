@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap"
 
 	"hostsent/backend/internal/pkg/jobrun"
+	"hostsent/backend/internal/pkg/safego"
 )
 
 // PendingExpireScheduler 待支付订单过期关单调度器（doc88 §6.2）。
@@ -42,8 +43,9 @@ func NewPendingExpireScheduler(svc OrderService, readConf func(ctx context.Conte
 // 启动时先跑一轮：进程重启期间到期的订单不必等下一个 tick 才被关掉，
 // 同时把配置里的有效期灌进服务（读接口的支付截止时间也依赖它）。
 func (s *PendingExpireScheduler) Start(ctx context.Context) {
-	s.runOnce(ctx)
+	s.runSafely(ctx)
 	go func() {
+		defer safego.Recover(s.logger)
 		t := time.NewTicker(s.interval)
 		defer t.Stop()
 		for {
@@ -52,11 +54,17 @@ func (s *PendingExpireScheduler) Start(ctx context.Context) {
 				s.logger.Info("pending order expire scheduler stopped")
 				return
 			case <-t.C:
-				s.runOnce(ctx)
+				s.runSafely(ctx)
 			}
 		}
 	}()
 	s.logger.Info("pending order expire scheduler started", zap.Duration("interval", s.interval))
+}
+
+// runSafely 单轮扫描的 panic 防护：单轮异常只记日志，不停摆调度循环。
+func (s *PendingExpireScheduler) runSafely(ctx context.Context) {
+	defer safego.Recover(s.logger)
+	s.runOnce(ctx)
 }
 
 // runOnce 单轮扫描：读配置 → 关单；失败只记录，不中断调度。

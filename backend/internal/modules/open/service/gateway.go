@@ -20,6 +20,7 @@ import (
 	openrepo "hostsent/backend/internal/modules/open/repository"
 	"hostsent/backend/internal/pkg/crypto"
 	"hostsent/backend/internal/pkg/response"
+	"hostsent/backend/internal/pkg/safego"
 )
 
 // gin 上下文键。
@@ -212,6 +213,7 @@ func (g *Gateway) Audit() gin.HandlerFunc {
 		logRepo := g.deps.LogRepo
 		logger := g.deps.Logger
 		go func() {
+			defer safego.Recover(logger)
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 5*time.Second)
 			defer cancel()
 			if err := logRepo.WriteLog(ctx, row); err != nil {

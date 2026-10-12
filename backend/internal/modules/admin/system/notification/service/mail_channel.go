@@ -11,6 +11,7 @@ import (
 	notifymodel "hostsent/backend/internal/modules/admin/system/notification/model"
 	notifyrepo "hostsent/backend/internal/modules/admin/system/notification/repository"
 	"hostsent/backend/internal/pkg/notifier"
+	"hostsent/backend/internal/pkg/safego"
 )
 
 // MailChannel 邮件投递通道（兼容门面）。
@@ -101,6 +102,7 @@ func (m *mailChannel) channelConfig(ctx context.Context) (*notifier.ChannelConfi
 // Deprecated: 新代码请写投递队列，由 DeliveryWorker 统一投递与重试。
 func (m *mailChannel) SendAsync(n notifymodel.Notification) {
 	go func() {
+		defer safego.Recover(m.logger)
 		ctx := context.Background()
 		cfg, err := m.channelConfig(ctx)
 		if err != nil {

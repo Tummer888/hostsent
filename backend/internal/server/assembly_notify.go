@@ -23,6 +23,7 @@ import (
 	notifyrepo "hostsent/backend/internal/modules/admin/system/notification/repository"
 	notifyservice "hostsent/backend/internal/modules/admin/system/notification/service"
 	"hostsent/backend/internal/pkg/cache"
+	"hostsent/backend/internal/pkg/safego"
 )
 
 // notifyBundle 消息中心处理器与后台工作器集合。
@@ -84,6 +85,7 @@ func buildNotifyBundle(deps notifyBundleDeps) *notifyBundle {
 	// 启动时把注册表描述符回写 notification_channel_types（幂等 upsert），
 	// 新增 provider 无需手写 seed SQL。
 	go func() {
+		defer safego.Recover(deps.Logger)
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		if err := channelSvc.SyncTypeRegistry(ctx); err != nil {

@@ -10,6 +10,7 @@ import (
 
 	"hostsent/backend/internal/modules/admin/order/model"
 	"hostsent/backend/internal/pkg/jobrun"
+	"hostsent/backend/internal/pkg/safego"
 )
 
 // ProvisionTaskStore 工作池需要的任务仓储能力（由 admin/order/repository 实现）。
@@ -114,6 +115,7 @@ func (w *ProvisionWorker) Stop(ctx context.Context) {
 	}
 	done := make(chan struct{})
 	go func() {
+		defer safego.Recover(w.logger)
 		w.wg.Wait()
 		close(done)
 	}()
@@ -125,6 +127,8 @@ func (w *ProvisionWorker) Stop(ctx context.Context) {
 
 // loop 单协程轮询：领取任务 → 执行 → 记账；无任务时按间隔休眠。
 func (w *ProvisionWorker) loop(ctx context.Context) {
+	// Recover 先于 wg.Done 执行：任务处理 panic 只记日志，工作协程正常退出计数。
+	defer safego.Recover(w.logger)
 	defer w.wg.Done()
 	for {
 		task, err := w.store.Claim(ctx, w.lease)
@@ -146,6 +150,7 @@ func (w *ProvisionWorker) loop(ctx context.Context) {
 
 // reapLoop 单协程按分钟回收租约过期的 running 任务（全池一份，不随 worker 数放大）。
 func (w *ProvisionWorker) reapLoop(ctx context.Context) {
+	defer safego.Recover(w.logger)
 	defer w.wg.Done()
 	t := time.NewTicker(time.Minute)
 	defer t.Stop()

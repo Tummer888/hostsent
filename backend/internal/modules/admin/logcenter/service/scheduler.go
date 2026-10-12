@@ -8,6 +8,7 @@ import (
 
 	"hostsent/backend/internal/modules/admin/logcenter/catalog"
 	"hostsent/backend/internal/pkg/jobrun"
+	"hostsent/backend/internal/pkg/safego"
 )
 
 // Scheduler 日志清理调度器（doc92 §6.6）。
@@ -118,6 +119,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 	// 而滞留的过期文件白占磁盘（人工导出，删文件不删行，可安全重跑）。
 	s.purgeExpiredExports(ctx)
 	go func() {
+		defer safego.Recover(s.logger)
 		t := time.NewTicker(s.CheckEvery)
 		defer t.Stop()
 		purgeT := time.NewTicker(s.ExportPurgeEvery)
@@ -130,11 +132,11 @@ func (s *Scheduler) Start(ctx context.Context) {
 				s.logger.Info("logcenter scheduler stopped")
 				return
 			case <-t.C:
-				s.tick(ctx)
+				s.runSafe(ctx, s.tick)
 			case <-purgeT.C:
-				s.purgeExpiredExports(ctx)
+				s.runSafe(ctx, s.purgeExpiredExports)
 			case <-reconcileT.C:
-				s.reconcileStaleOnce(ctx)
+				s.runSafe(ctx, s.reconcileStaleOnce)
 			}
 		}
 	}()
@@ -154,6 +156,12 @@ func (s *Scheduler) staleAfter() time.Duration {
 		return 30 * time.Minute
 	}
 	return s.StaleAfter
+}
+
+// runSafe 单轮动作的 panic 防护：单轮异常只记日志，不停摆调度循环。
+func (s *Scheduler) runSafe(ctx context.Context, fn func(context.Context)) {
+	defer safego.Recover(s.logger)
+	fn(ctx)
 }
 
 // reconcileStaleOnce 把停滞的非终态清理任务收成 failed（不依赖 Enabled）。
