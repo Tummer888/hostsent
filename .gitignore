@@ -11,6 +11,7 @@ node_modules
 /frontend-admin/node_modules
 /frontend-admin/dist
 /frontend-user/dist
+/frontend-user/.tmp-smoke
 /frontend-site/node_modules
 /frontend-site/.nuxt
 /frontend-site/.output
