@@ -993,10 +993,10 @@ type nodeLive struct {
 // nodeLiveStatus 读取单节点实时状态。
 func (p *MoFangYunProvider) nodeLiveStatus(ctx context.Context, id int64) (*nodeLive, error) {
 	var raw struct {
-		Status   int    `json:"status"`
-		Msg      string `json:"msg"`
-		Version  string `json:"version"`
-		CPUInfo  struct {
+		Status  int    `json:"status"`
+		Msg     string `json:"msg"`
+		Version string `json:"version"`
+		CPUInfo struct {
 			CPU        int     `json:"cpu"`
 			UsePercent float64 `json:"use_percent"`
 			ModelName  string  `json:"model_name"`

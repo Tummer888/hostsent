@@ -27,7 +27,10 @@ var identRe = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 // ErrUnsafeIdentifier 标识符未通过校验（理论上不可达，因为来源是代码常量）。
 var ErrUnsafeIdentifier = errors.New("logcenter: unsafe sql identifier")
 
-// validate 校验源的标识符与列名白名单。
+// validate 校验源的标识符与列名白名单（详见下方安全说明）。
+// 本仓库对日志表名/时间列/查询列采用 fmt.Sprintf 拼接（标识符无法参数化），
+// 安全性由本函数保证——identRe 仅允许 [A-Za-z0-9_] 字符，违例返回
+// ErrUnsafeIdentifier。新增日志目录时务必走 catalog 注册，禁止直传用户输入。
 func validate(src *catalog.Source) error {
 	if src == nil {
 		return fmt.Errorf("logcenter: nil source")
