@@ -44,12 +44,21 @@
         <span class="field__label">位置（地域）</span>
         <t-select v-model="filters.region" clearable placeholder="全部地域" :options="regionOptions" />
       </div>
-      <div class="field">
+      <!-- 层级视图下按「区域 → 宿主机/存储」成树，类别与告警筛选意义不同（区域无容量），故只保留平铺视图使用。 -->
+      <div v-if="viewMode === 'flat'" class="field">
+        <span class="field__label">池类别</span>
+        <t-select v-model="filters.category" :options="categoryOptions" @change="handleSearch" />
+      </div>
+      <div v-if="viewMode === 'flat'" class="field">
         <span class="field__label">容量告警</span>
         <t-select v-model="filters.alert" clearable placeholder="全部资源池" :options="alertOptions" />
       </div>
       <template #actions>
         <t-space size="small">
+          <t-radio-group v-model="viewMode" variant="default-filled" size="small" @change="handleViewChange">
+            <t-radio-button value="group">层级视图</t-radio-button>
+            <t-radio-button value="flat">平铺视图</t-radio-button>
+          </t-radio-group>
           <t-button theme="primary" @click="handleSearch">
             <template #icon>
               <SearchIcon aria-hidden="true" />
@@ -64,7 +73,9 @@
     <section class="table-card surface-card">
       <div class="table-card__head">
         <h3 class="card-title">资源池列表</h3>
-        <span class="table-card__meta">共 {{ total }} 个资源池</span>
+        <span class="table-card__meta">
+          {{ viewMode === 'group' ? `共 ${total} 个区域（含下属宿主机 / 存储）` : `共 ${total} 个资源池` }}
+        </span>
       </div>
       <t-table
         row-key="id"
@@ -75,13 +86,17 @@
         hover
         table-layout="fixed"
         cell-empty-content="—"
+        :tree="viewMode === 'group' ? { childrenKey: 'children', defaultExpandAll: true, indent: 24 } : undefined"
         :pagination="isMobile ? undefined : pagination"
         @page-change="handlePageChange"
       >
         <template #name="{ row }">
           <div class="pool-cell">
             <span class="pool-name">{{ row.name }}</span>
-            <span v-if="!isEmbedded" class="pool-provider">{{ row.provider_name || `渠道 #${row.provider_id}` }}</span>
+            <span v-if="viewMode === 'group' && row.child_count" class="pool-provider">
+              {{ row.child_count }} 个{{ row.category === 'location' ? '宿主机 / 存储' : '子池' }}
+            </span>
+            <span v-else-if="!isEmbedded" class="pool-provider">{{ row.provider_name || `渠道 #${row.provider_id}` }}</span>
           </div>
         </template>
 
@@ -94,21 +109,25 @@
         </template>
 
         <template #cpu="{ row }">
-          <div class="spec-cell">
+          <span v-if="row.category === 'location' && !row.aggregated" class="cell-muted">—</span>
+          <div v-else class="spec-cell">
             <span class="spec-text">{{ row.used_cpu }} / {{ row.total_cpu }}</span>
             <t-progress :percentage="row.cpu_usage_percent" :color="usageColor(row.cpu_usage_percent)" :stroke-width="6" />
+            <span v-if="row.aggregated" class="spec-hint">区域合计</span>
           </div>
         </template>
 
         <template #memory="{ row }">
-          <div class="spec-cell">
+          <span v-if="row.category === 'location' && !row.aggregated" class="cell-muted">—</span>
+          <div v-else class="spec-cell">
             <span class="spec-text">{{ formatMemory(row.used_memory) }} / {{ formatMemory(row.total_memory) }}</span>
             <t-progress :percentage="row.memory_usage_percent" :color="usageColor(row.memory_usage_percent)" :stroke-width="6" />
           </div>
         </template>
 
         <template #disk="{ row }">
-          <div class="spec-cell">
+          <span v-if="row.category === 'location' && !row.aggregated" class="cell-muted">—</span>
+          <div v-else class="spec-cell">
             <span class="spec-text">{{ formatDisk(row.used_disk) }} / {{ formatDisk(row.total_disk) }}</span>
             <t-progress :percentage="row.disk_usage_percent" :color="usageColor(row.disk_usage_percent)" :stroke-width="6" />
           </div>
@@ -120,7 +139,7 @@
 
         <template #probe="{ row }">
           <t-tag v-if="!row.probe_status" theme="default" variant="light" size="small" shape="round">未接入</t-tag>
-          <t-tooltip v-else :content="row.probe_message || '探针正常'" placement="top">
+          <t-tooltip v-else :content="row.probe_message || probeLabel(row.probe_status)" placement="top">
             <t-tag :theme="probeTheme(row.probe_status)" variant="light" size="small" shape="round">
               {{ probeLabel(row.probe_status) }}
             </t-tag>
@@ -210,15 +229,26 @@
             {{ detailPool.status === 1 ? '启用中' : '已停用' }}
           </t-tag>
         </t-descriptions-item>
-        <t-descriptions-item label="CPU 配额">
-          {{ detailPool.used_cpu }} / {{ detailPool.total_cpu }}（{{ detailPool.cpu_usage_percent }}%）
+        <t-descriptions-item label="类别">
+          <t-tag :theme="detailPool.category === 'location' ? 'default' : 'primary'" variant="light" size="small" shape="round">
+            {{ detailPool.category === 'location' ? '位置型' : '容量型' }}
+          </t-tag>
         </t-descriptions-item>
-        <t-descriptions-item label="内存配额">
-          {{ formatMemory(detailPool.used_memory) }} / {{ formatMemory(detailPool.total_memory) }}（{{ detailPool.memory_usage_percent }}%）
+        <!-- 位置型池没有容量配额，不渲染三行 0/0；改为一句说明，避免读成"数据缺失"。 -->
+        <t-descriptions-item v-if="detailPool.category === 'location'" label="容量" :span="2">
+          <span class="cell-muted">位置型资源项（区域 / 可用区）不持有 CPU / 内存 / 磁盘配额；容量请查所属渠道下的宿主机节点池。</span>
         </t-descriptions-item>
-        <t-descriptions-item label="磁盘配额">
-          {{ formatDisk(detailPool.used_disk) }} / {{ formatDisk(detailPool.total_disk) }}（{{ detailPool.disk_usage_percent }}%）
-        </t-descriptions-item>
+        <template v-else>
+          <t-descriptions-item label="CPU 配额">
+            {{ detailPool.used_cpu }} / {{ detailPool.total_cpu }}（{{ detailPool.cpu_usage_percent }}%）
+          </t-descriptions-item>
+          <t-descriptions-item label="内存配额">
+            {{ formatMemory(detailPool.used_memory) }} / {{ formatMemory(detailPool.total_memory) }}（{{ detailPool.memory_usage_percent }}%）
+          </t-descriptions-item>
+          <t-descriptions-item label="磁盘配额">
+            {{ formatDisk(detailPool.used_disk) }} / {{ formatDisk(detailPool.total_disk) }}（{{ detailPool.disk_usage_percent }}%）
+          </t-descriptions-item>
+        </template>
         <t-descriptions-item label="最后同步">{{ detailPool.last_sync_at ? formatTime(detailPool.last_sync_at) : '从未同步' }}</t-descriptions-item>
         <t-descriptions-item label="探针状态">
           <t-tag v-if="!detailPool.probe_status" theme="default" variant="light" size="small" shape="round">未接入</t-tag>
@@ -246,7 +276,13 @@
         </t-descriptions-item>
       </t-descriptions>
       <t-alert
-        v-if="detailPool && !detailPool.probe_status"
+        v-if="detailPool && detailPool.category === 'location'"
+        theme="info"
+        message="位置型资源项来自上游区域接口（如魔方云 /areas），只提供位置与节点/存储计数，没有容量与实时状态。容量与探针看该渠道下类型为「宿主机」的池。"
+        class="probe-hint"
+      />
+      <t-alert
+        v-else-if="detailPool && !detailPool.probe_status"
         theme="info"
         message="该资源池尚未接入探针流：当前用量来自上游同步周期快照，接入探针后可展示实时状态 / 内存 / 硬盘用量。"
         class="probe-hint"
@@ -302,6 +338,8 @@ const emptySummary: PoolCapacitySummary = {
   warning_pools: 0,
   danger_pools: 0,
   unlocated_pools: 0,
+  capacity_pools: 0,
+  location_pools: 0,
 }
 const summary = ref<PoolCapacitySummary>({ ...emptySummary })
 
@@ -310,11 +348,33 @@ const alertOptions = [
   { label: '预警池（用量≥60%）', value: 'warn' },
 ]
 
-const filters = reactive<{ keyword: string; provider_id: number | undefined; region: string; alert: string }>({
+// 池类别：容量型（宿主机/存储，有 CPU/内存/磁盘）与位置型（区域/可用区，只有位置）是
+// 两类完全不同的实体。默认只看容量型——区域混在容量列表里会显示成 0/0 + 空进度条，
+// 看着像数据缺失，其实是"没有容量这个概念"。要看区域切到「位置型」。
+const categoryOptions = [
+  { label: '容量型（宿主机 / 存储）', value: 'capacity' },
+  { label: '位置型（区域 / 可用区）', value: 'location' },
+  { label: '全部', value: 'all' },
+]
+
+// 视图模式：
+//   group=层级视图：按「区域 → 宿主机/存储」成树，一屏看清某区域下有几台宿主机、状态如何；
+//   flat =平铺视图：单张表列全部池，按类别/告警筛选，适合排查单台池。
+// 默认层级视图——这才是资源池真实的组织方式；embed 到渠道详情页时也用层级视图。
+const viewMode = ref<'group' | 'flat'>('group')
+
+const filters = reactive<{
+  keyword: string
+  provider_id: number | undefined
+  region: string
+  alert: string
+  category: string
+}>({
   keyword: '',
   provider_id: undefined,
   region: '',
   alert: '',
+  category: 'capacity',
 })
 
 const pagination = reactive({
@@ -338,59 +398,72 @@ const effectiveProviderId = computed(() => {
 
 const isEmbedded = computed(() => props.providerId !== undefined)
 
-// 容量汇总卡片：总体用量 + 告警池 + 未定位池（位置检测的覆盖率提示）。
+// 位置型池（区域/可用区）没有容量语义，其列只渲染位置型字段，不套 CPU/内存/磁盘，
+// 否则区域行会永远显示 0 / 0 加空进度条——用户读起来像"采不到数据"，其实是"没有这个概念"。
+// 定义在 statCards / columns 之前：两处都按它决定是否渲染容量区块。
+const isLocationView = computed(() => filters.category === 'location')
+// 混合视图（全部）下不按行区分列，统一展示容量三列；位置型行由单元格内容标「—」区分。
+
+// 容量汇总卡片：容量用量取「容量型池」的累加（位置型池没有配额，不计入）。
+// 位置型视图下不渲染 CPU/内存/磁盘三张卡——那里它们的值恒为 0，只会误导。
 const statCards = computed(() => {
   const s = summary.value
-  return [
+  // 显式声明卡片结构：theme 是联合字面量，不标注会被首元素的 'info' 收窄。
+  const cards: { key: string; label: string; value: string; hint: string; icon: unknown; theme: 'info' | 'success' | 'danger' | 'warning' }[] = [
     {
       key: 'pools',
-      label: '资源池总数',
-      value: `${s.online_pools} / ${s.total_pools}`,
-      hint: '在线 / 全部',
+      label: '容量池 / 位置项',
+      value: `${s.capacity_pools} / ${s.location_pools}`,
+      hint: `在线池 ${s.online_pools} 个`,
       icon: LayersIcon,
-      theme: 'info' as const,
-    },
-    {
-      key: 'cpu',
-      label: 'CPU 用量',
-      value: `${percent(s.used_cpu, s.total_cpu)}%`,
-      hint: `${s.used_cpu} / ${s.total_cpu} 核`,
-      icon: ServerIcon,
-      theme: 'success' as const,
-    },
-    {
-      key: 'memory',
-      label: '内存用量',
-      value: `${percent(s.used_memory, s.total_memory)}%`,
-      hint: `${formatMemory(s.used_memory)} / ${formatMemory(s.total_memory)}`,
-      icon: ServerIcon,
-      theme: 'success' as const,
-    },
-    {
-      key: 'disk',
-      label: '磁盘用量',
-      value: `${percent(s.used_disk, s.total_disk)}%`,
-      hint: `${formatDisk(s.used_disk)} / ${formatDisk(s.total_disk)}`,
-      icon: CloudDownloadIcon,
-      theme: 'success' as const,
-    },
-    {
-      key: 'alert',
-      label: '容量告警池',
-      value: `${s.danger_pools}`,
-      hint: `预警池 ${s.warning_pools} 个`,
-      icon: ErrorCircleIcon,
-      theme: s.danger_pools > 0 ? ('danger' as const) : ('info' as const),
-    },
-    {
-      key: 'location',
-      label: '未标注位置',
-      value: `${s.unlocated_pools}`,
-      hint: '需在上游或渠道补充地域',
-      icon: LayersIcon,
-      theme: s.unlocated_pools > 0 ? ('warning' as const) : ('info' as const),
+      theme: 'info',
     },
   ]
+  if (!isLocationView.value) {
+    cards.push(
+      {
+        key: 'cpu',
+        label: 'CPU 用量',
+        value: `${percent(s.used_cpu, s.total_cpu)}%`,
+        hint: `${s.used_cpu} / ${s.total_cpu} 核`,
+        icon: ServerIcon,
+        theme: 'success' as const,
+      },
+      {
+        key: 'memory',
+        label: '内存用量',
+        value: `${percent(s.used_memory, s.total_memory)}%`,
+        hint: `${formatMemory(s.used_memory)} / ${formatMemory(s.total_memory)}`,
+        icon: ServerIcon,
+        theme: 'success' as const,
+      },
+      {
+        key: 'disk',
+        label: '磁盘用量',
+        value: `${percent(s.used_disk, s.total_disk)}%`,
+        hint: `${formatDisk(s.used_disk)} / ${formatDisk(s.total_disk)}`,
+        icon: CloudDownloadIcon,
+        theme: 'success' as const,
+      },
+      {
+        key: 'alert',
+        label: '容量告警池',
+        value: `${s.danger_pools}`,
+        hint: `预警池 ${s.warning_pools} 个`,
+        icon: ErrorCircleIcon,
+        theme: s.danger_pools > 0 ? ('danger' as const) : ('info' as const),
+      },
+    )
+  }
+  cards.push({
+    key: 'location',
+    label: '未标注位置',
+    value: `${s.unlocated_pools}`,
+    hint: '需在上游或渠道补充地域',
+    icon: LayersIcon,
+    theme: s.unlocated_pools > 0 ? ('warning' as const) : ('info' as const),
+  })
+  return cards
 })
 
 function percent(used: number, total: number): number {
@@ -442,16 +515,21 @@ function formatTime(value: string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
+// 位置型视图下不出容量列；其余（容量型 / 全部）出容量列，由单元格按行判类别渲染。
 const columns = computed<PrimaryTableCol<PoolInfo>[]>(() => {
   const base: PrimaryTableCol<PoolInfo>[] = [
     { colKey: 'name', title: '池名称', minWidth: 170 },
     { colKey: 'location', title: '位置（地域 / 可用区）', width: 170 },
     { colKey: 'pool_type', title: '类型', width: 100 },
-    { colKey: 'cpu', title: 'CPU（已用/总）', minWidth: 150 },
-    { colKey: 'memory', title: '内存（已用/总）', minWidth: 150 },
-    { colKey: 'disk', title: '磁盘（已用/总）', minWidth: 150 },
   ]
-  if (!isEmbedded.value) {
+  if (!isLocationView.value) {
+    base.push(
+      { colKey: 'cpu', title: 'CPU（已用/总）', minWidth: 150 },
+      { colKey: 'memory', title: '内存（已用/总）', minWidth: 150 },
+      { colKey: 'disk', title: '磁盘（已用/总）', minWidth: 150 },
+    )
+  }
+  if (!isEmbedded.value && !isLocationView.value) {
     base.push({ colKey: 'probe', title: '探针', width: 100 })
   }
   base.push(
@@ -474,7 +552,10 @@ async function loadPools() {
       provider_id: effectiveProviderId.value,
       keyword: filters.keyword || undefined,
       region: filters.region || undefined,
-      alert: filters.alert || undefined,
+      // 层级视图下类别/告警筛选无意义（父行是区域、要带全子树），后端会忽略这两个参数。
+      alert: viewMode.value === 'flat' ? filters.alert || undefined : undefined,
+      category: viewMode.value === 'flat' && filters.category !== 'all' ? filters.category : undefined,
+      group: viewMode.value === 'group' ? 'region' : undefined,
       page: pagination.current,
       page_size: pagination.pageSize,
     })
@@ -540,6 +621,8 @@ function handleResetFilters() {
   filters.provider_id = undefined
   filters.region = ''
   filters.alert = ''
+  // 重置回默认的「容量型」视图，而不是「全部」——默认视图才是资源池页的主口径。
+  filters.category = 'capacity'
   pagination.current = 1
   loadPools()
 }
@@ -550,6 +633,11 @@ const detailPool = ref<PoolInfo | null>(null)
 function openDetailDialog(row: PoolInfo) {
   detailPool.value = row
   detailVisible.value = true
+}
+
+function handleViewChange() {
+  pagination.current = 1
+  loadPools()
 }
 
 watch(effectiveProviderId, () => {
@@ -585,12 +673,20 @@ function poolTypeTheme(type?: string): 'primary' | 'warning' | 'success' | 'dang
   return 'default'
 }
 
-// 上游类型 → 中文展示：魔方云节点池类型为 node，区域为 region。
+// 上游类型 → 中文展示。
+//
+// 两位来源不同的类型码并存，都要有中文名（否则列表里直接冒出英文原文）：
+//   - 真实同步来的：魔方云 node（宿主机）、region（区域）、storage（存储）；
+//   - 历史/演示种子里的：compute（通用计算池）、memory（高内存池）——这些是
+//     seedUpstreamData 造的示例数据，不是上游真实类型，但不该在页面上显示成英文。
 function poolTypeLabel(type?: string): string {
   const t = String(type || '').toLowerCase()
   if (t === 'node' || t === 'host') return '宿主机'
   if (t === 'region' || t === 'zone') return '区域'
   if (t === 'storage') return '存储'
+  if (t === 'compute') return '计算池'
+  if (t === 'memory') return '内存池'
+  if (t === 'cluster') return '集群'
   return type || '—'
 }
 </script>
@@ -664,6 +760,12 @@ function poolTypeLabel(type?: string): string {
   font-size: 12px;
   color: var(--color-foreground);
   font-variant-numeric: tabular-nums;
+}
+
+/* 「区域合计」标记：提示该行的容量是子池汇总而非区域自身配额。 */
+.spec-hint {
+  font-size: 11px;
+  color: var(--color-muted-foreground);
 }
 
 .action-gap {

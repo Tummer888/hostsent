@@ -189,6 +189,10 @@ export interface PoolListQuery {
   keyword?: string
   /** 按地域筛选（位置检测） */
   region?: string
+  /** 池类别：capacity=容量型（宿主机/存储），location=位置型（区域/可用区）；不传=全部 */
+  category?: string
+  /** group=region 时按区域分组返回层级树（区域为父、宿主机/存储为子） */
+  group?: string
   status?: number
   /** 仅看容量告警池：warn=用量≥60%，danger=用量≥80% */
   alert?: string
@@ -206,6 +210,10 @@ export interface PoolInfo {
   upstream_id: string
   name: string
   pool_type: string
+  /** 池类别：capacity（有 CPU/内存/磁盘）/ location（只有位置，无容量） */
+  category: string
+  /** 上级池的上游 ID（宿主机/存储 → 所属区域）；空=顶层 */
+  parent_upstream_id: string
   total_cpu: number
   total_memory: number
   total_disk: number
@@ -225,6 +233,13 @@ export interface PoolInfo {
   cpu_usage_percent: number
   memory_usage_percent: number
   disk_usage_percent: number
+  // ---- 层级视图（group=region）----
+  /** 该区域下的宿主机/存储池（仅层级视图填充） */
+  children?: PoolInfo[]
+  /** 子池数量 */
+  child_count?: number
+  /** 容量字段是否为子池汇总（区域自身无容量） */
+  aggregated?: boolean
 }
 
 /** 资源池容量汇总（按当前筛选条件的全量统计，不受分页影响） */
@@ -243,6 +258,10 @@ export interface PoolCapacitySummary {
   danger_pools: number
   /** 未标注位置的池数 */
   unlocated_pools: number
+  /** 容量型池数（有 CPU/内存/磁盘配额） */
+  capacity_pools: number
+  /** 位置型池数（区域/可用区，无容量） */
+  location_pools: number
 }
 
 export interface PoolListResponse {

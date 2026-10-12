@@ -361,6 +361,10 @@ type StandardPool struct {
 	// 由同步层回退到渠道 region。
 	Region string `json:"region"`
 	Zone   string `json:"zone"`
+	// ParentUpstreamID 上级池的上游 ID（如宿主机所属区域的 "1"）。空表示顶层。
+	// 有了它，前端才能把「区域 → 宿主机 → 存储」渲染成层级，而不是一张平铺列表——
+	// 用户要观察的正是"香港区域下有几台宿主机、各自状态如何"这种结构。
+	ParentUpstreamID string `json:"parent_upstream_id,omitempty"`
 	// Live 实时状态快照（可选）。来自上游的实时探针接口（如魔方云 /nodes/{id}/status），
 	// 为 nil 表示该池仅有周期快照、无实时通道，同步层据此决定是否写 probe_* 列
 	// （页面显示「未接入探针」）。容量字段本身就是本次采样的结论：有 Live 时它们是实时值。

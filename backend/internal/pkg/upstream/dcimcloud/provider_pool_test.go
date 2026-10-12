@@ -19,7 +19,7 @@ func TestListPools_MapsNodeCapacityFromStatus(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"data": []map[string]interface{}{
 					{"id": 2, "name": "默认", "area_id": 1, "area_name": "默认", "status": 1, "enable": 1},
-					{"id": 3, "name": "宿主机B", "area_id": 1, "area_name": "默认", "status": 1, "enable": 1},
+					{"id": 3, "name": "宿主机B", "area_id": 7, "area_name": "香港", "status": 1, "enable": 1},
 				},
 			})
 		case "/v1/nodes/2/status":
@@ -49,6 +49,10 @@ func TestListPools_MapsNodeCapacityFromStatus(t *testing.T) {
 	if a.ID != "node:2" || a.Type != "node" || a.Region != "默认" {
 		t.Errorf("池标识/类型/地域不对: %+v", a)
 	}
+	// 宿主机必须挂到所属区域（/nodes 的 area_id → 区域池的裸 ID），层级视图靠它成树。
+	if a.ParentUpstreamID != "1" {
+		t.Errorf("宿主机 A 的父级 = %q, want \"1\"（所属区域 1）", a.ParentUpstreamID)
+	}
 	// CPU 6.4% × 8 核 ≈ 1 核（四舍五入，下限 1）。
 	if a.TotalCPU != 8 || a.UsedCPU != 1 {
 		t.Errorf("CPU = %d/%d, want 1/8", a.UsedCPU, a.TotalCPU)
@@ -67,6 +71,9 @@ func TestListPools_MapsNodeCapacityFromStatus(t *testing.T) {
 	}
 
 	b := pools[1]
+	if b.ParentUpstreamID != "7" {
+		t.Errorf("宿主机 B 的父级 = %q, want \"7\"（另一个区域）", b.ParentUpstreamID)
+	}
 	if b.Live == nil || b.Live.Status != "warning" {
 		t.Fatalf("B 节点采样失败应标 warning 且仍注册: %+v", b.Live)
 	}

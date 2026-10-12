@@ -23,10 +23,15 @@ func TestListPoolsLive(t *testing.T) {
 		t.Skip("测试面板没有节点")
 	}
 	probed := 0
+	withParent := 0
 	for _, pl := range pools {
-		t.Logf("pool %s %q type=%s status=%s region=%s cpu=%d/%d mem=%d/%dGB disk=%d/%dGB live=%+v",
-			pl.ID, pl.Name, pl.Type, pl.Status, pl.Region,
+		t.Logf("pool %s %q type=%s status=%s region=%s parent=%q cpu=%d/%d mem=%d/%dGB disk=%d/%dGB live=%+v",
+			pl.ID, pl.Name, pl.Type, pl.Status, pl.Region, pl.ParentUpstreamID,
 			pl.UsedCPU, pl.TotalCPU, pl.UsedMemory, pl.TotalMemory, pl.UsedDisk, pl.TotalDisk, pl.Live)
+		// 宿主机必须挂到所属区域，否则页面渲染不出「区域 → 宿主机」层级。
+		if pl.ID != "" && pl.ParentUpstreamID != "" {
+			withParent++
+		}
 		if pl.Live == nil {
 			continue
 		}
@@ -40,6 +45,9 @@ func TestListPoolsLive(t *testing.T) {
 	}
 	if probed == 0 {
 		t.Error("没有任何节点探针正常，容量口径未被验证")
+	}
+	if withParent == 0 {
+		t.Error("没有节点带上所属区域（ParentUpstreamID 全空），层级视图挂不上父级")
 	}
 
 	regions, err := p.ListRegions(ctx)

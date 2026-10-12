@@ -174,7 +174,14 @@ type PoolListQuery struct {
 	// Status 1=启用中 0=已停用；不传（nil）表示全部。
 	Status *int `form:"status" json:"status"`
 	// Alert 仅返回容量告警池：warn=用量≥60%，danger=用量≥80%。
-	Alert    string `form:"alert" json:"alert"`
+	Alert string `form:"alert" json:"alert"`
+	// Category 池类别：capacity=容量型（宿主机/存储），location=位置型（区域/可用区）。
+	// 不传表示不按类别过滤（两类都返回）。Group=region 时本字段被忽略。
+	Category string `form:"category" json:"category"`
+	// Group=region 时按区域分组返回树（区域为父、宿主机/存储为子），分页作用在区域这一层。
+	// 平铺列表看不出「某区域下有几台宿主机」，分组视图才是资源池真实的组织方式。
+	// 该模式下 Category 与 Alert 均被忽略：Capacity 语义由区域行承载（子池汇总）。
+	Group    string `form:"group" json:"group"`
 	Page     int    `form:"page" json:"page"`
 	PageSize int    `form:"page_size" json:"page_size"`
 }
@@ -194,6 +201,8 @@ type PoolInfo struct {
 	UsedDisk    int     `json:"used_disk"`
 	Status      int     `json:"status"`
 	LastSyncAt  *string `json:"last_sync_at"`
+	// Category 池类别（capacity / location）：位置型池没有容量语义，页面不渲染容量三列。
+	Category string `json:"category"`
 	// ProviderName 所属渠道名（列表展示用，来自 provider_id 反查）。
 	ProviderName string `json:"provider_name"`
 	// ProviderOpsURL 所属渠道的运维平台地址（为空则不展示一键跳转）。
@@ -201,6 +210,9 @@ type PoolInfo struct {
 	// 位置（S2）：池所属地域/可用区；为空表示上游与渠道都未提供。
 	Region string `json:"region"`
 	Zone   string `json:"zone"`
+	// ParentUpstreamID 上级池的上游 ID（宿主机/存储 → 所属区域的 upstream_id）；空=顶层。
+	// 前端据此把平铺列表折成「区域 → 宿主机 / 存储」层级，与上游的组织方式对齐。
+	ParentUpstreamID string `json:"parent_upstream_id"`
 	// 探针流（S2 预留）：ProbeStatus 为空表示探针未接入，页面不展示探针区块。
 	ProbeStatus  string  `json:"probe_status"`
 	ProbeAt      *string `json:"probe_at"`
@@ -209,6 +221,14 @@ type PoolInfo struct {
 	CPUUsagePercent    int `json:"cpu_usage_percent"`
 	MemoryUsagePercent int `json:"memory_usage_percent"`
 	DiskUsagePercent   int `json:"disk_usage_percent"`
+	// ---- 层级视图（group=region）----
+	//
+	// Children 该区域下的宿主机/存储池（仅 group=region 时填充）。
+	// Aggregated=true 表示本行的容量字段是该区域下所有子池的汇总（区域自身没有容量），
+	// 前端据此对区域行渲染汇总数字而不是「—」。
+	Children   []PoolInfo `json:"children,omitempty"`
+	ChildCount int        `json:"child_count,omitempty"`
+	Aggregated bool       `json:"aggregated,omitempty"`
 }
 
 // PoolListResponse 资源池列表响应
@@ -234,4 +254,8 @@ type PoolCapacitySummary struct {
 	WarningPools   int `json:"warning_pools"` // 用量≥60%
 	DangerPools    int `json:"danger_pools"`  // 用量≥80%
 	UnlocatedPools int `json:"unlocated_pools"`
+	// CapacityPools / LocationPools 两类池的数量拆分：位置型池没有容量，
+	// 混进容量汇总会让「CPU 总量」这类数字被区域行的 0 稀释，页面按类别分别展示。
+	CapacityPools int `json:"capacity_pools"`
+	LocationPools int `json:"location_pools"`
 }

@@ -290,7 +290,7 @@ func (r *poolRepository) ProviderMeta(ctx context.Context) (map[uint64]ProviderM
 	return out, nil
 }
 
-// applyPoolFilters 复用池列表的筛选条件（关键词/地域/状态/告警），
+// applyPoolFilters 复用池列表的筛选条件（关键词/地域/状态/告警/类别），
 // 保证分页列表与容量汇总统计口径一致。
 func (r *poolRepository) applyPoolFilters(base *gorm.DB, query dto.PoolListQuery) *gorm.DB {
 	if query.ProviderID > 0 {
@@ -307,6 +307,15 @@ func (r *poolRepository) applyPoolFilters(base *gorm.DB, query dto.PoolListQuery
 	if query.Status != nil {
 		base = base.Where("status = ?", *query.Status)
 	}
+	// 类别：容量型与位置型是两类实体（宿主机 vs 区域），展示口径必须能分开。
+	// 判定口径与 model.PoolCategoryOf 严格一致（排除法：区域/可用区为位置型，
+	// 其余为容量型），否则列表与汇总会互相打架。
+	switch strings.ToLower(strings.TrimSpace(query.Category)) {
+	case model.PoolCategoryCapacity:
+		base = base.Where("LOWER(COALESCE(pool_type, '')) NOT IN ?", locationPoolTypes)
+	case model.PoolCategoryLocation:
+		base = base.Where("LOWER(COALESCE(pool_type, '')) IN ?", locationPoolTypes)
+	}
 	// 告警：按 CPU/内存/磁盘任一项用量比例过滤，与前端 usagePercent 口径一致
 	// （NULLIF 防 0 配额除零）。
 	switch query.Alert {
@@ -317,6 +326,9 @@ func (r *poolRepository) applyPoolFilters(base *gorm.DB, query dto.PoolListQuery
 	}
 	return base
 }
+
+// locationPoolTypes 位置型池的类型（与 model.PoolCategoryOf 的口径保持同步）。
+var locationPoolTypes = []string{"region", "zone"}
 
 // poolUsageRatioSQL 资源池最大用量比例（CPU/内存/磁盘取最大，0 配额按 0 计）。
 const poolUsageRatioSQL = `GREATEST(
@@ -341,7 +353,7 @@ func (r *poolRepository) UpsertPools(ctx context.Context, providerID uint64, ite
 	// 这样没有实时通道的池（区域）不会被周期同步把既有探针结论清零。
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "provider_id"}, {Name: "upstream_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"name", "pool_type", "total_cpu", "total_memory", "total_disk", "used_cpu", "used_memory", "used_disk", "status", "region", "zone", "last_sync_at", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"name", "pool_type", "total_cpu", "total_memory", "total_disk", "used_cpu", "used_memory", "used_disk", "status", "region", "zone", "parent_upstream_id", "last_sync_at", "updated_at"}),
 	}).Create(&items).Error
 }
 

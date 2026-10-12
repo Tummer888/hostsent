@@ -7,8 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 
 	"hostsent/backend/internal/modules/admin/resource/provider/dto"
 	"hostsent/backend/internal/modules/admin/resource/provider/model"
@@ -562,6 +565,11 @@ func (s *providerService) TestConnection(ctx context.Context, id uint64) (*dto.T
 // ListPools 资源池列表：分页数据 + 全量容量汇总 + 地域枚举。
 // 汇总与地域都按「当前筛选条件」的全量结果计算（不受分页影响），
 // 保证看板数字与用户在页面上看到的筛选口径一致（S2 容量与位置检测）。
+//
+// group=region 时返回「区域 → 宿主机/存储」的层级树：区域为父、其下池为子，
+// 区域行的容量字段是该区域下所有子池的汇总（Aggregated=true）。分页作用在区域这一层，
+// 子池随父行一次带出——层级是资源池真实的组织方式，也是「某区域下有几台宿主机、
+// 各自状态如何」这个观察诉求的唯一可行呈现。
 func (s *providerService) ListPools(ctx context.Context, query dto.PoolListQuery) (*dto.PoolListResponse, error) {
 	page := query.Page
 	if page < 1 {
@@ -570,6 +578,9 @@ func (s *providerService) ListPools(ctx context.Context, query dto.PoolListQuery
 	pageSize := query.PageSize
 	if pageSize <= 0 {
 		pageSize = 10
+	}
+	if strings.EqualFold(strings.TrimSpace(query.Group), "region") {
+		return s.listPoolsGroupedByRegion(ctx, query, page, pageSize)
 	}
 	items, total, err := s.pool.List(ctx, query)
 	if err != nil {
@@ -584,13 +595,7 @@ func (s *providerService) ListPools(ctx context.Context, query dto.PoolListQuery
 		respItems = append(respItems, buildPoolInfo(item))
 	}
 	// 所属渠道名与运维平台地址（列表可读性 + 一键跳转）：一次批量反查，避免每行查库。
-	if metas, merr := s.pool.ProviderMeta(ctx); merr == nil {
-		for i := range respItems {
-			meta := metas[respItems[i].ProviderID]
-			respItems[i].ProviderName = meta.Name
-			respItems[i].ProviderOpsURL = meta.OpsConsoleURL
-		}
-	}
+	s.attachProviderMeta(ctx, respItems)
 	resp := &dto.PoolListResponse{
 		Items:   respItems,
 		Meta:    dto.ListMeta{Page: page, PageSize: pageSize, Total: total},
@@ -600,22 +605,202 @@ func (s *providerService) ListPools(ctx context.Context, query dto.PoolListQuery
 	return resp, nil
 }
 
+// listPoolsGroupedByRegion 层级视图：区域为父行、宿主机/存储为子行。
+//
+// 实现口径：
+//   - 父集合 = 位置型池（region/zone），按 provider 内去重（同名区域在不同渠道各自成行）；
+//   - 子集合 = 全部容量型池，按 parent_upstream_id 挂到父；没有父的（parent 为空或
+//     指不到任何父）单独成行，**不丢**——宁可平铺也不能让一台宿主机从列表里消失。
+//   - 分页只切父集合，子池随父一次带出（层级视图里分页切子行会把树切碎）。
+//   - 汇总仍按全量父子集合统计，与平铺视图口径一致。
+func (s *providerService) listPoolsGroupedByRegion(
+	ctx context.Context,
+	query dto.PoolListQuery,
+	page, pageSize int,
+) (*dto.PoolListResponse, error) {
+	// 层级视图要同时看到区域与子池，故忽略 category；但保留 provider_id / keyword / region 筛选。
+	parentsQuery := query
+	parentsQuery.Category = model.PoolCategoryLocation
+	parentsQuery.Page, parentsQuery.PageSize = 1, 100
+	parents, _, err := s.pool.List(ctx, parentsQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	childrenQuery := query
+	childrenQuery.Category = model.PoolCategoryCapacity
+	childrenQuery.Page, childrenQuery.PageSize = 1, 5000
+	children, _, err := s.pool.List(ctx, childrenQuery)
+	if err != nil {
+		return nil, err
+	}
+	all, err := s.pool.ListAll(ctx, poolFilterAll(query))
+	if err != nil {
+		return nil, err
+	}
+
+	// 子池按 (provider_id, parent_upstream_id) 归组。
+	grouped := make(map[string][]model.ResourcePool, len(parents))
+	orphans := make([]model.ResourcePool, 0)
+	parentKeys := make(map[string]struct{}, len(parents))
+	for _, p := range parents {
+		parentKeys[parentKey(p.ProviderID, p.UpstreamID)] = struct{}{}
+	}
+	for _, c := range children {
+		key := parentKey(c.ProviderID, c.ParentUpstreamID)
+		if c.ParentUpstreamID == "" {
+			orphans = append(orphans, c)
+			continue
+		}
+		if _, ok := parentKeys[key]; !ok {
+			// 父级指向的区域行不在结果里（被筛选掉或已下线）：当孤儿处理，不能丢。
+			orphans = append(orphans, c)
+			continue
+		}
+		grouped[key] = append(grouped[key], c)
+	}
+
+	// 先把全部顶级行组好（区域父行 + 无归属的孤儿池），再对顶级行分页。
+	// 为什么把孤儿算进顶级行：它们没有父级但确实是真实数据，若在分页之后追加，
+	// 会出现「总数 1、实际渲染 7 行」的口径矛盾；算进来才是自洽的。
+	topLevel := make([]dto.PoolInfo, 0, len(parents)+len(orphans))
+	for _, p := range parents {
+		info := buildPoolInfo(p)
+		kids := grouped[parentKey(p.ProviderID, p.UpstreamID)]
+		childInfos := make([]dto.PoolInfo, 0, len(kids))
+		for _, k := range kids {
+			childInfos = append(childInfos, buildPoolInfo(k))
+		}
+		info.Children = childInfos
+		info.ChildCount = len(childInfos)
+		// 区域自身无容量：把子树汇总到父行，页面据此展示「该区域整体用量」。
+		rollup(&info, kids)
+		topLevel = append(topLevel, info)
+	}
+	// 孤儿池（无父级）作为顶级行平铺：必须可见，不能被吞掉。
+	for _, c := range orphans {
+		topLevel = append(topLevel, buildPoolInfo(c))
+	}
+
+	total := int64(len(topLevel))
+	if pageSize > 0 {
+		start := (page - 1) * pageSize
+		if start >= len(topLevel) {
+			topLevel = nil
+		} else {
+			end := start + pageSize
+			if end > len(topLevel) {
+				end = len(topLevel)
+			}
+			topLevel = topLevel[start:end]
+		}
+	}
+
+	s.attachProviderMeta(ctx, topLevel)
+	// 子池也要带渠道名（前端在子行里同样展示所属渠道）。
+	for i := range topLevel {
+		s.attachProviderMeta(ctx, topLevel[i].Children)
+	}
+
+	return &dto.PoolListResponse{
+		Items:   topLevel,
+		Meta:    dto.ListMeta{Page: page, PageSize: pageSize, Total: total},
+		Summary: summarizePools(all),
+		Regions: collectPoolRegions(all),
+	}, nil
+}
+
+// parentKey 父级匹配键：区域是渠道内唯一的，必须带 provider_id，否则多渠道同名区域会串。
+func parentKey(providerID uint64, upstreamID string) string {
+	return strconv.FormatUint(providerID, 10) + ":" + upstreamID
+}
+
+// rollup 把子池容量汇总进父行（区域行展示子树整体用量）。
+func rollup(parent *dto.PoolInfo, children []model.ResourcePool) {
+	if len(children) == 0 {
+		return
+	}
+	parent.Aggregated = true
+	parent.TotalCPU, parent.UsedCPU = 0, 0
+	parent.TotalMemory, parent.UsedMemory = 0, 0
+	parent.TotalDisk, parent.UsedDisk = 0, 0
+	for _, c := range children {
+		parent.TotalCPU += c.TotalCPU
+		parent.UsedCPU += c.UsedCPU
+		parent.TotalMemory += c.TotalMemory
+		parent.UsedMemory += c.UsedMemory
+		parent.TotalDisk += c.TotalDisk
+		parent.UsedDisk += c.UsedDisk
+	}
+	parent.CPUUsagePercent = usagePercent(parent.UsedCPU, parent.TotalCPU)
+	parent.MemoryUsagePercent = usagePercent(parent.UsedMemory, parent.TotalMemory)
+	parent.DiskUsagePercent = usagePercent(parent.UsedDisk, parent.TotalDisk)
+	// 探针状态取子树里「最差」的一档：有离线就是离线，有异常就是异常，全正常才正常。
+	parent.ProbeStatus = worstProbeStatus(children)
+}
+
+// worstProbeStatus 取子树里最差的探针结论（down > warning > healthy > 空）。
+func worstProbeStatus(children []model.ResourcePool) string {
+	rank := map[string]int{"": 0, "healthy": 1, "warning": 2, "down": 3}
+	worst := ""
+	for _, c := range children {
+		if rank[c.ProbeStatus] > rank[worst] {
+			worst = c.ProbeStatus
+		}
+	}
+	return worst
+}
+
+// poolFilterAll 去掉分页与类别，只保留「定位到哪些池」的筛选条件。
+func poolFilterAll(query dto.PoolListQuery) dto.PoolListQuery {
+	out := query
+	out.Category = ""
+	out.Alert = ""
+	out.Page, out.PageSize = 1, 5000
+	return out
+}
+
+// attachProviderMeta 批量补渠道名与运维平台地址（避免每行查库）。
+func (s *providerService) attachProviderMeta(ctx context.Context, items []dto.PoolInfo) {
+	if len(items) == 0 {
+		return
+	}
+	metas, err := s.pool.ProviderMeta(ctx)
+	if err != nil {
+		return
+	}
+	for i := range items {
+		meta := metas[items[i].ProviderID]
+		items[i].ProviderName = meta.Name
+		items[i].ProviderOpsURL = meta.OpsConsoleURL
+	}
+}
+
 // summarizePools 汇总池容量与告警数量；告警阈值与前端进度条一致（60%/80%）。
+//
+// 位置型池（区域/可用区）不计入容量累加：它们没有 CPU/内存/磁盘配额，
+// 计入只会把「CPU 总量」这类数字稀释成失真值。但计数单独给出（CapacityPools /
+// LocationPools），让页面能同时说清「几台宿主机、几个区域」。
 func summarizePools(items []model.ResourcePool) dto.PoolCapacitySummary {
 	summary := dto.PoolCapacitySummary{TotalPools: len(items)}
 	for _, item := range items {
 		if item.Status == 1 {
 			summary.OnlinePools++
 		}
+		if item.Region == "" {
+			summary.UnlocatedPools++
+		}
+		if model.PoolCategoryOf(item.PoolType) == model.PoolCategoryLocation {
+			summary.LocationPools++
+			continue
+		}
+		summary.CapacityPools++
 		summary.TotalCPU += item.TotalCPU
 		summary.UsedCPU += item.UsedCPU
 		summary.TotalMemory += item.TotalMemory
 		summary.UsedMemory += item.UsedMemory
 		summary.TotalDisk += item.TotalDisk
 		summary.UsedDisk += item.UsedDisk
-		if item.Region == "" {
-			summary.UnlocatedPools++
-		}
 		switch maxPoolUsagePercent(item) {
 		case 2:
 			summary.DangerPools++
@@ -918,10 +1103,16 @@ func (s *providerService) decryptCredentials(item model.ResourceProvider, descri
 func (s *providerService) BuildProviderConfig(ctx context.Context, id uint64) (*upstream.ProviderConfig, error) {
 	item, err := s.repo.FindByID(ctx, id)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// 渠道被删除（软删）后，绑定它的实例/商品仍会来取配置。这里给出可操作的
+			// 明确原因，而不是把 "record not found" 层层包成"上游不可达"——
+			// 后者会让运营以为网络/凭证有问题，实际是渠道没了（实测排查成本很高）。
+			return nil, fmt.Errorf("上游渠道 #%d 不存在或已被删除：绑定该渠道的实例无法同步/操作，请在「资源-渠道管理」恢复或重建该渠道", id)
+		}
 		return nil, err
 	}
 	if item.Status != 1 {
-		return nil, fmt.Errorf("provider %d 已禁用", id)
+		return nil, fmt.Errorf("上游渠道 #%d（%s）已禁用：请先在「资源-渠道管理」启用", id, item.Name)
 	}
 	return s.buildProviderConfigStrict(item)
 }
@@ -1039,6 +1230,7 @@ func buildPoolInfo(item model.ResourcePool) dto.PoolInfo {
 		UpstreamID:         item.UpstreamID,
 		Name:               item.Name,
 		PoolType:           item.PoolType,
+		Category:           model.PoolCategoryOf(item.PoolType),
 		TotalCPU:           item.TotalCPU,
 		TotalMemory:        item.TotalMemory,
 		TotalDisk:          item.TotalDisk,
@@ -1048,6 +1240,7 @@ func buildPoolInfo(item model.ResourcePool) dto.PoolInfo {
 		Status:             item.Status,
 		Region:             item.Region,
 		Zone:               item.Zone,
+		ParentUpstreamID:   item.ParentUpstreamID,
 		ProbeStatus:        item.ProbeStatus,
 		ProbeMessage:       item.ProbeMessage,
 		CPUUsagePercent:    usagePercent(item.UsedCPU, item.TotalCPU),

@@ -950,6 +950,9 @@ func (p *DCIMCloudProvider) ListPools(ctx context.Context) ([]*upstream.Standard
 			Type:   "node",
 			Status: platformPoolStatus(n.Status, n.Enable),
 			Region: n.AreaName,
+			// 挂父级：宿主机属于某个区域，/nodes 的 area_id 与区域池的 upstream_id 同源。
+			// 没有这层关联，页面只能平铺展示，看不出「某区域下有几台宿主机」。
+			ParentUpstreamID: areaUpstreamID(n.AreaID),
 		}
 		// 实时容量与探针结论；采样失败不隐藏该节点——注册出来并写明原因，
 		// 运营在资源池页就能看到「哪个宿主机采不到数」，而不是节点凭空消失。
@@ -983,6 +986,15 @@ func (p *DCIMCloudProvider) ListPools(ctx context.Context) ([]*upstream.Standard
 
 // nodeUpstreamID 节点池的上游 ID（加前缀避免与区域/存储 ID 撞键）。
 func nodeUpstreamID(id int64) string { return "node:" + strconv.FormatInt(id, 10) }
+
+// areaUpstreamID 区域池的上游 ID：裸 ID（与 ListRegions 的口径一致，
+// 也让宿主机能直接用它作为 ParentUpstreamID 挂到区域上）。area_id 为 0 时无父级。
+func areaUpstreamID(id int64) string {
+	if id <= 0 {
+		return ""
+	}
+	return strconv.FormatInt(id, 10)
+}
 
 // nodeLive 单节点实时状态（/nodes/{id}/status）解析结果。
 type nodeLive struct {
@@ -1096,9 +1108,9 @@ func (p *DCIMCloudProvider) ListRegions(ctx context.Context) ([]*upstream.Standa
 	pools := make([]*upstream.StandardPool, 0, len(rows))
 	for _, a := range rows {
 		pools = append(pools, &upstream.StandardPool{
-			// 区域沿用裸 ID：既有区域的 upstream_id 就是 /areas 的 id（如 "1"），
-			// 换前缀会凭空多出一批「新区域」。节点才加前缀（节点与区域 ID 会撞）。
-			ID:     strconv.FormatInt(a.ID, 10),
+			// 区域用裸 ID（areaUpstreamID）：既有区域的 upstream_id 就是 /areas 的 id（如 "1"），
+			// 换前缀会凭空多出一批「新区域」；节点才加前缀（节点与区域 ID 会撞）。
+			ID:     areaUpstreamID(a.ID),
 			Name:   a.Name,
 			Type:   "region",
 			Status: platformPoolStatus(a.Status, 1),

@@ -288,7 +288,40 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 
+	// 资源池父子关联（区域 → 宿主机/存储）存量回填，等价 migrations/089。
+	if err := backfillPoolParentLinkage(db); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// backfillPoolParentLinkage 给存量资源池补上级关联（区域 → 宿主机/存储），等价 migrations/089。
+//
+// 为什么按 name 匹配：面板 /nodes 给的是 area_id + area_name，而区域池的 upstream_id 就是
+// /areas 的裸 id——两者对得上，但存量行只有 region（区域名）可用。因此用「同渠道 + 同名区域」
+// 反查父级，且只在能唯一对上时才写：同名多区域时留空，宁可不显示层级，也不要错挂父级。
+//
+// 幂等：只填空值（parent_upstream_id = ”），重跑零影响；新数据的父级由同步直接带上来。
+func backfillPoolParentLinkage(db *gorm.DB) error {
+	if !db.Migrator().HasTable("resource_pools") ||
+		!db.Migrator().HasColumn(&providermodel.ResourcePool{}, "parent_upstream_id") {
+		return nil
+	}
+	return db.Exec(`WITH area_map AS (
+		SELECT rp.provider_id, rp.name AS area_name, MIN(rp.upstream_id) AS area_upstream_id
+		FROM resource_pools rp
+		WHERE rp.pool_type IN ('region', 'zone')
+		GROUP BY rp.provider_id, rp.name
+		HAVING COUNT(*) = 1
+	)
+	UPDATE resource_pools AS node
+	SET parent_upstream_id = am.area_upstream_id
+	FROM area_map am
+	WHERE node.provider_id = am.provider_id
+	  AND node.pool_type NOT IN ('region', 'zone')
+	  AND node.parent_upstream_id = ''
+	  AND node.region = am.area_name`).Error
 }
 
 // providerCodeRename 一条类型码重命名映射（旧码 → 新码）。

@@ -1042,19 +1042,20 @@ func (e *SyncEngine) convertPool(providerID uint64, fallbackRegion string, p *up
 		region = fallbackRegion
 	}
 	row := providermodel.ResourcePool{
-		ProviderID:  providerID,
-		UpstreamID:  p.ID,
-		Name:        p.Name,
-		PoolType:    p.Type,
-		TotalCPU:    p.TotalCPU,
-		TotalMemory: p.TotalMemory,
-		TotalDisk:   p.TotalDisk,
-		UsedCPU:     p.UsedCPU,
-		UsedMemory:  p.UsedMemory,
-		UsedDisk:    p.UsedDisk,
-		Status:      normalizeStatus(p.Status, true),
-		Region:      region,
-		Zone:        p.Zone,
+		ProviderID:       providerID,
+		UpstreamID:       p.ID,
+		Name:             p.Name,
+		PoolType:         p.Type,
+		TotalCPU:         p.TotalCPU,
+		TotalMemory:      p.TotalMemory,
+		TotalDisk:        p.TotalDisk,
+		UsedCPU:          p.UsedCPU,
+		UsedMemory:       p.UsedMemory,
+		UsedDisk:         p.UsedDisk,
+		Status:           normalizeStatus(p.Status, true),
+		Region:           region,
+		Zone:             p.Zone,
+		ParentUpstreamID: p.ParentUpstreamID,
 	}
 	if p.Live != nil {
 		row.ProbeStatus = p.Live.Status

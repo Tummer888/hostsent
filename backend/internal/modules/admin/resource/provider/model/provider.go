@@ -2,6 +2,7 @@
 package model
 
 import (
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -96,6 +97,33 @@ func (ProviderType) TableName() string {
 	return "provider_types"
 }
 
+// 池类别：resource_pools 一张表承载两类语义完全不同的实体，展示与统计必须分开。
+//
+// 背景（实测）：魔方云的「默认」在面板上既是区域（GET /areas）也是宿主机（GET /nodes）——
+// 两者同名但层级不同。区域只返回 node_num/store_num/ip_num 这类**计数**，没有 CPU/内存/磁盘
+// 总量（区域不持有算力）；宿主机才有容量，且只有 /nodes/{id}/status 给实时总量。
+// 混在一张列表里会让区域行显示成 0/0 + 空进度条，看着像"数据缺失"，其实是"没有这个概念"。
+const (
+	// PoolCategoryCapacity 容量型池：真正消耗 CPU/内存/磁盘的实体（宿主机节点、存储池）。
+	PoolCategoryCapacity = "capacity"
+	// PoolCategoryLocation 位置型池：只描述「在哪里」，没有容量概念（区域 / 可用区）。
+	PoolCategoryLocation = "location"
+)
+
+// PoolCategoryOf 判定池的类别。
+//
+// 区域/可用区按位置型处理；其余（node / storage / 历史演示的 compute / memory…）
+// 都按容量型处理——判定用「排除法」而非白名单，是为了让新接入的容量型池类型
+// 默认落在容量维度，不需要每加一种类型就改这里。
+func PoolCategoryOf(poolType string) string {
+	switch strings.ToLower(strings.TrimSpace(poolType)) {
+	case "region", "zone":
+		return PoolCategoryLocation
+	default:
+		return PoolCategoryCapacity
+	}
+}
+
 // ResourcePool 资源池
 type ResourcePool struct {
 	ID          uint64     `gorm:"primaryKey;autoIncrement"`
@@ -114,6 +142,10 @@ type ResourcePool struct {
 	// 位置（S2）：池所属地域/可用区；池未带位置时回填渠道 region，用于容量与位置检测。
 	Region string `gorm:"column:region;size:64;not null;default:''"`
 	Zone   string `gorm:"column:zone;size:64;not null;default:''"`
+	// ParentUpstreamID 上级池的上游 ID（宿主机 → 所属区域的 "1"、存储 → 所属区域）。
+	// 空表示顶层。页面据此把池渲染成「区域 → 宿主机 / 存储」层级，
+	// 而不是平铺一张列表——层级才是资源池真实的组织方式。
+	ParentUpstreamID string `gorm:"column:parent_upstream_id;size:64;not null;default:''"`
 	// 探针流预留（S2）：probe_status 为空表示探针未接入；接入后展示真实状态/内存/硬盘用量。
 	ProbeStatus  string     `gorm:"column:probe_status;size:20;not null;default:''"`
 	ProbeAt      *time.Time `gorm:"column:probe_at"`
