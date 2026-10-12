@@ -1089,7 +1089,9 @@ func (p *MoFangYunProvider) ListRegions(ctx context.Context) ([]*upstream.Standa
 	pools := make([]*upstream.StandardPool, 0, len(rows))
 	for _, a := range rows {
 		pools = append(pools, &upstream.StandardPool{
-			ID:     "area:" + strconv.FormatInt(a.ID, 10),
+			// 区域沿用裸 ID：既有区域的 upstream_id 就是 /areas 的 id（如 "1"），
+			// 换前缀会凭空多出一批「新区域」。节点才加前缀（节点与区域 ID 会撞）。
+			ID:     strconv.FormatInt(a.ID, 10),
 			Name:   a.Name,
 			Type:   "region",
 			Status: platformPoolStatus(a.Status, 1),

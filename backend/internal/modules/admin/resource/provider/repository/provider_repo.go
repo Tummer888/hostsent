@@ -211,6 +211,9 @@ type PoolRepository interface {
 	List(ctx context.Context, query dto.PoolListQuery) ([]model.ResourcePool, int64, error)
 	FindByID(ctx context.Context, id uint64) (*model.ResourcePool, error)
 	UpsertPools(ctx context.Context, providerID uint64, items []model.ResourcePool) error
+	// UpdatePoolProbes 批量回写池探针结论（probe_status/at/message）。
+	// 单独成方法：UpsertPools 刻意不碰 probe_*，避免周期同步清掉实时通道的结论。
+	UpdatePoolProbes(ctx context.Context, providerID uint64, probes []PoolProbe) error
 	// ListAll 按当前筛选返回全量池（不分页），供容量汇总与地域枚举使用。
 	ListAll(ctx context.Context, query dto.PoolListQuery) ([]model.ResourcePool, error)
 	// ProviderMeta 返回 provider_id → 渠道元信息（名称 + 运维平台地址），供列表展示。
@@ -334,9 +337,46 @@ func (r *poolRepository) UpsertPools(ctx context.Context, providerID uint64, ite
 	if len(items) == 0 {
 		return nil
 	}
-	// 注意：probe_* 不在更新列中——探针数据由探针流通道维护，同步不得覆盖。
+	// 注意：probe_* 不在更新列中——探针结论只由 UpdatePoolProbes 单独回写，
+	// 这样没有实时通道的池（区域）不会被周期同步把既有探针结论清零。
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "provider_id"}, {Name: "upstream_id"}},
 		DoUpdates: clause.AssignmentColumns([]string{"name", "pool_type", "total_cpu", "total_memory", "total_disk", "used_cpu", "used_memory", "used_disk", "status", "region", "zone", "last_sync_at", "updated_at"}),
 	}).Create(&items).Error
+}
+
+// PoolProbe 一条池探针结论（批量回写用）。
+type PoolProbe struct {
+	UpstreamID string
+	Status     string
+	Message    string
+	At         time.Time
+}
+
+// UpdatePoolProbes 批量回写池探针结论。用一条 UPDATE ... FROM (VALUES ...) 完成，
+// 避免按池逐条更新（面板节点可达数百）。
+//
+// VALUES 显式加类型转换：裸占位符在 VALUES 里会被 PG 统一推断成 text，
+// 与 probe_at 的 timestamptz 冲突（"column probe_at is of type timestamp with
+// time zone but expression is of type text"）。
+func (r *poolRepository) UpdatePoolProbes(ctx context.Context, providerID uint64, probes []PoolProbe) error {
+	if len(probes) == 0 {
+		return nil
+	}
+	placeholders := make([]string, 0, len(probes))
+	args := make([]interface{}, 0, len(probes)*4+1)
+	for _, p := range probes {
+		at := p.At
+		if at.IsZero() {
+			at = time.Now()
+		}
+		placeholders = append(placeholders, "(?::varchar, ?::varchar, ?::varchar, ?::timestamptz)")
+		args = append(args, p.UpstreamID, p.Status, p.Message, at)
+	}
+	args = append(args, providerID)
+	sql := `UPDATE resource_pools AS rp
+	SET probe_status = v.status, probe_message = v.message, probe_at = v.at, updated_at = now()
+	FROM (VALUES ` + strings.Join(placeholders, ",") + `) AS v(upstream_id, status, message, at)
+	WHERE rp.provider_id = ? AND rp.upstream_id = v.upstream_id`
+	return r.db.WithContext(ctx).Exec(sql, args...).Error
 }

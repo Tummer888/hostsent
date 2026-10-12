@@ -574,6 +574,7 @@ func (e *SyncEngine) syncPoolsInternal(
 		fallbackRegion = pr.Region
 	}
 	rows := make([]providermodel.ResourcePool, 0, len(pools))
+	probes := make([]providerrepo.PoolProbe, 0, len(pools))
 	var totalCPU, totalMemory, totalDisk, usedCPU, usedMemory, usedDisk int
 	diffs := make([]syncmodel.SyncDiff, 0)
 	keep := make([]string, 0, len(pools))
@@ -585,6 +586,13 @@ func (e *SyncEngine) syncPoolsInternal(
 		keep = append(keep, p.ID)
 		if p.Type != "" {
 			poolTypes[p.Type] = struct{}{}
+		}
+		// 实时通道给出了结论才回写 probe_*；UpsertPools 不碰这些列。
+		if p.Live != nil {
+			probes = append(probes, providerrepo.PoolProbe{
+				UpstreamID: p.ID, Status: p.Live.Status,
+				Message: truncateRunes(p.Live.Message, 255), At: p.Live.SampledAt,
+			})
 		}
 		if local[p.ID] == nil {
 			diffs = append(diffs, syncmodel.SyncDiff{
@@ -608,6 +616,9 @@ func (e *SyncEngine) syncPoolsInternal(
 		usedDisk += p.UsedDisk
 	}
 	if err := e.poolRepo.UpsertPools(ctx, task.ProviderID, rows); err != nil {
+		return err
+	}
+	if err := e.poolRepo.UpdatePoolProbes(ctx, task.ProviderID, probes); err != nil {
 		return err
 	}
 	if updateStats {

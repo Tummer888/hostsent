@@ -115,7 +115,7 @@
         </template>
 
         <template #pool_type="{ row }">
-          <t-tag :theme="poolTypeTheme(row.pool_type)" variant="light" size="small" shape="round">{{ row.pool_type || '—' }}</t-tag>
+          <t-tag :theme="poolTypeTheme(row.pool_type)" variant="light" size="small" shape="round">{{ poolTypeLabel(row.pool_type) }}</t-tag>
         </template>
 
         <template #probe="{ row }">
@@ -198,7 +198,7 @@
         <t-descriptions-item label="池名称">{{ detailPool.name }}</t-descriptions-item>
         <t-descriptions-item label="上游 ID">{{ detailPool.upstream_id || '—' }}</t-descriptions-item>
         <t-descriptions-item label="所属渠道">{{ detailPool.provider_name || `渠道 #${detailPool.provider_id}` }}</t-descriptions-item>
-        <t-descriptions-item label="类型">{{ detailPool.pool_type || '—' }}</t-descriptions-item>
+        <t-descriptions-item label="类型">{{ poolTypeLabel(detailPool.pool_type) }}</t-descriptions-item>
         <t-descriptions-item label="位置">
           <span v-if="detailPool.region">
             {{ detailPool.region }}<template v-if="detailPool.zone"> / {{ detailPool.zone }}</template>
@@ -222,7 +222,15 @@
         <t-descriptions-item label="最后同步">{{ detailPool.last_sync_at ? formatTime(detailPool.last_sync_at) : '从未同步' }}</t-descriptions-item>
         <t-descriptions-item label="探针状态">
           <t-tag v-if="!detailPool.probe_status" theme="default" variant="light" size="small" shape="round">未接入</t-tag>
-          <span v-else>{{ probeLabel(detailPool.probe_status) }} · {{ formatTime(detailPool.probe_at || '') }}</span>
+          <template v-else>
+            <t-tag :theme="probeTheme(detailPool.probe_status)" variant="light" size="small" shape="round">
+              {{ probeLabel(detailPool.probe_status) }}
+            </t-tag>
+            <span class="probe-detail-time">{{ formatTime(detailPool.probe_at || '') }}</span>
+          </template>
+        </t-descriptions-item>
+        <t-descriptions-item v-if="detailPool.probe_message" label="探针采样" :span="2">
+          {{ detailPool.probe_message }}
         </t-descriptions-item>
         <t-descriptions-item label="运维平台">
           <t-link
@@ -569,11 +577,21 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
 // 资源池类型标签按语义区分颜色
 function poolTypeTheme(type?: string): 'primary' | 'warning' | 'success' | 'danger' | 'default' {
   const t = String(type || '').toLowerCase()
-  if (t.includes('compute') || t.includes('计算')) return 'primary'
-  if (t.includes('memory') || t.includes('内存')) return 'warning'
+  if (t.includes('node') || t.includes('host')) return 'primary'
   if (t.includes('storage') || t.includes('存储')) return 'success'
+  if (t.includes('memory') || t.includes('内存')) return 'warning'
+  if (t.includes('compute') || t.includes('计算')) return 'primary'
   if (t.includes('network') || t.includes('网络')) return 'danger'
   return 'default'
+}
+
+// 上游类型 → 中文展示：魔方云节点池类型为 node，区域为 region。
+function poolTypeLabel(type?: string): string {
+  const t = String(type || '').toLowerCase()
+  if (t === 'node' || t === 'host') return '宿主机'
+  if (t === 'region' || t === 'zone') return '区域'
+  if (t === 'storage') return '存储'
+  return type || '—'
 }
 </script>
 
@@ -655,5 +673,11 @@ function poolTypeTheme(type?: string): 'primary' | 'warning' | 'success' | 'dang
 
 .probe-hint {
   margin-top: var(--space-md);
+}
+
+.probe-detail-time {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
 }
 </style>
