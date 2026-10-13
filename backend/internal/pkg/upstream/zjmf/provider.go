@@ -29,7 +29,9 @@ package zjmf
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"math"
 	"math/rand"
@@ -269,7 +271,7 @@ func (p *ZJMFProvider) call(ctx context.Context, op, method, path string, form u
 		return &upstream.ProviderError{Op: op, StatusCode: status, Msg: firstNonEmpty(shell.Msg, strings.TrimSpace(string(body)))}
 	}
 	if shell.Status != StatusOK && shell.Code != StatusOK && (shell.Status != 0 || shell.Code != 0) {
-		return &upstream.ProviderError{Op: op, Code: shell.Status, Msg: firstNonEmpty(shell.Msg, "上游接口调用失败")}
+		return &upstream.ProviderError{Op: op, Code: shell.Status.Int(), Msg: firstNonEmpty(shell.Msg, "上游接口调用失败")}
 	}
 	return p.unmarshalData(op, shell, out)
 }
@@ -295,7 +297,7 @@ func (p *ZJMFProvider) callShell(ctx context.Context, op, method, path string, f
 			shell.Status == StatusPaidSuccess || shell.Code == StatusPaidSuccess)
 		code := ""
 		if shell.Status != 0 {
-			code = strconv.Itoa(shell.Status)
+			code = strconv.Itoa(shell.Status.Int())
 		}
 		tr.FinishBusiness(nil, success, code, shell.Msg)
 	}()
@@ -346,7 +348,7 @@ func (p *ZJMFProvider) callTopLevel(ctx context.Context, op, method, path string
 		return &upstream.ProviderError{Op: op, StatusCode: status, Msg: firstNonEmpty(shell.Msg, strings.TrimSpace(string(body)))}
 	}
 	if shell.Status != StatusOK && shell.Code != StatusOK && (shell.Status != 0 || shell.Code != 0) {
-		return &upstream.ProviderError{Op: op, Code: shell.Status, Msg: firstNonEmpty(shell.Msg, "上游接口调用失败")}
+		return &upstream.ProviderError{Op: op, Code: shell.Status.Int(), Msg: firstNonEmpty(shell.Msg, "上游接口调用失败")}
 	}
 	if err := p.unmarshalData(op, shell, out); err != nil {
 		return err
@@ -1298,6 +1300,11 @@ func downstreamReady(req *model.CreateInstanceRequest) bool {
 // 只认 status 1001：上游用 200 表示"余额不足，账单未清、主机不会开通"
 // （PayController::applyCredit 的 else 分支）。若把 200 当成功，会把"没付成钱"
 // 记成开通成功，随后取不到 hostid 才报错，排查方向就全错了。
+//
+// 例外（实测故障）：账单**已经支付过**时上游回 406「账单已支付」。
+// 这不是失败 —— 典型场景是"余额不足 → 用户/运营在上游侧充值并把账单付掉"，
+// 此时机器正在上游开出来，本地重试应当**接管**它而不是报错。
+// 这种情况没有 hostid 回执，交由调用方按下游令牌握手反查出主机 id。
 func (p *ZJMFProvider) payUpstreamInvoice(ctx context.Context, req *model.CreateInstanceRequest, invoiceID int64) (int64, error) {
 	if invoiceID <= 0 {
 		return 0, &upstream.ProviderError{Op: "CreateInstance", Msg: "缺少上游账单ID，无法支付开通"}
@@ -1315,19 +1322,87 @@ func (p *ZJMFProvider) payUpstreamInvoice(ctx context.Context, req *model.Create
 		return 0, &upstream.ProviderError{Op: "CreateInstance", StatusCode: httpStatus, Msg: firstNonEmpty(shell.Msg, strings.TrimSpace(string(body)))}
 	}
 	if shell.Status != StatusPaidSuccess && shell.Code != StatusPaidSuccess {
-		return 0, &upstream.ProviderError{Op: "CreateInstance", Code: shell.Status, Msg: firstNonEmpty(shell.Msg, "上游余额支付未完成（余额不足或账单未结清）")}
+		if isInvoiceAlreadyPaid(shell) {
+			// 账单已付：主机在上游已存在（或正在创建）。按下游令牌握手取回主机 id，
+			// 让调用方回源接管。"已支付"必须按成功处理，否则本地会一直卡在创建中。
+			if hostID := p.hostIDByDownstream(ctx, req); hostID > 0 {
+				return hostID, nil
+			}
+			return 0, &upstream.ProviderError{Op: "CreateInstance",
+				Msg: "上游账单已支付但未能反查到对应主机，请人工核对该账单与主机"}
+		}
+		return 0, &upstream.ProviderError{Op: "CreateInstance", Code: shell.Status.Int(), Msg: firstNonEmpty(shell.Msg, "上游余额支付未完成（余额不足或账单未结清）")}
 	}
 	var payData struct {
-		HostID []int64 `json:"hostid"`
+		// hostid 实测下发 ["2058"]（字符串数组）；apply_credit 有时给数字数组。
+		// 用 FlexIDList 容忍两种形态，避免整段响应解析失败。
+		HostID FlexIDList `json:"hostid"`
 	}
 	if err := p.unmarshalData("CreateInstance", shell, &payData); err != nil {
 		return 0, err
 	}
-	hostID := firstInt(payData.HostID)
+	hostID := payData.HostID.First()
 	if hostID == 0 {
 		return 0, &upstream.ProviderError{Op: "CreateInstance", Msg: "上游支付成功但未返回主机ID"}
 	}
 	return hostID, nil
+}
+
+// isInvoiceAlreadyPaid 判断上游返回是否为「账单已支付」（apply_credit 的 406 分支）。
+//
+// 上游原文：{"status":"406","msg":"账单已支付","data":{"PayStatus":"Paid"}}。
+// 注意 406 是**共用码**：同一码下还有「账单未找到」（{"status":"406","msg":"账单未找到"}），
+// 两者语义完全相反，必须按 msg / data.PayStatus 区分，绝不能只看状态码。
+func isInvoiceAlreadyPaid(shell ZjmfResp[json.RawMessage]) bool {
+	if shell.Status.Int() != 406 && shell.Code.Int() != 406 {
+		return false
+	}
+	if strings.Contains(shell.Msg, "已支付") || strings.Contains(shell.Msg, "已付款") {
+		return true
+	}
+	var data struct {
+		PayStatus string `json:"PayStatus"`
+	}
+	if len(shell.Data) > 0 {
+		if err := json.Unmarshal(shell.Data, &data); err == nil && strings.EqualFold(data.PayStatus, "Paid") {
+			return true
+		}
+	}
+	return false
+}
+
+// isInvoiceMissingError 判断错误是否为「上游账单已不存在」。
+//
+// 语义：该账单被上游清理/归档（如未支付账单超期回收），本地记录的账单号已不可用。
+// 处理方式不是报错终态，而是继续握手 → 无主机则重新下单（旧的尝试在上游已消失）。
+func isInvoiceMissingError(err error) bool {
+	var perr *upstream.ProviderError
+	if !errors.As(err, &perr) {
+		return false
+	}
+	for _, kw := range []string{"账单未找到", "账单不存在", "未找到该账单"} {
+		if strings.Contains(perr.Msg, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// hostIDByDownstream 用下游三件套向上游反查本订单已存在的主机 id（不存在返回 0）。
+//
+// 用途：账单已支付时 apply_credit 不回 hostid，只能靠握手（cart/clear）反查。
+// 查不到不报错 —— 调用方会把它当作"确实没有主机"处理。
+func (p *ZJMFProvider) hostIDByDownstream(ctx context.Context, req *model.CreateInstanceRequest) int64 {
+	if !downstreamReady(req) {
+		return 0
+	}
+	_, _, body, err := p.callShell(ctx, "CreateInstance", http.MethodPost, "cart/clear", downstreamForm(req))
+	if err != nil {
+		return 0
+	}
+	var resp clearResp
+	_ = json.Unmarshal(body, &resp)
+	return resp.HostID.Int64()
 }
 
 // settleExistingInvoice 复用已生成的上游账单完成开通（重试路径）：
@@ -1343,23 +1418,44 @@ func (p *ZJMFProvider) settleExistingInvoice(ctx context.Context, req *model.Cre
 
 // clearResp cart/clear 的响应体（平铺无 data 壳）：上游在这里回答"本下游订单在上游
 // 是否已有账单/主机"（CartController::clearCart 的 is_api 分支）。
+//
+// 实测三种形态：
+//
+//	{"hostid":2057,"invoiceid":808043,"msg":"请求成功","status":200}   账单已生成未支付
+//	{"hostid":2056,"domainstatus":"Active","msg":"该订单已开通...","status":400}  已开通
+//	{"msg":"请求成功","status":200}                                    无记录
+//
+// status 也有数字与字符串（"400"）两种下发，故用 FlexCode。
 type clearResp struct {
-	Status       int    `json:"status"`
-	Code         int    `json:"code"`
-	Msg          string `json:"msg"`
-	HostID       int64  `json:"hostid"`       // 已存在的主机（400 已开通 / 200 待支付时给出）
+	Status FlexCode `json:"status"`
+	Code   FlexCode `json:"code"`
+	Msg    string   `json:"msg"`
+	// 实测 clear 返回 {"hostid":2056,...}（数字）；个别版本可能是 "2056" 或 [2056]。
+	HostID       FlexID `json:"hostid"`       // 已存在的主机（400 已开通；200 时为占号主机）
 	DomainStatus string `json:"domainstatus"` // 该主机状态（Active 才算真的开好了）
-	InvoiceID    int64  `json:"invoiceid"`    // 已生成的待支付账单：直接支付这张即可
+	InvoiceID    FlexID `json:"invoiceid"`    // 已生成的待支付账单：直接支付这张即可
 }
 
 // reconcileDownstream 上游幂等握手（下单前调用，等价源码 createFinal 的 /cart/clear 一步）：
-//   - 上游已有本订单的主机且 Active → 返回该实例（幂等成功，绝不重复开通）；
-//   - 上游已有本订单的待支付账单 → 返回账单 id，调用方直接支付这张即可（"重新开通"，不新建）；
+//   - 上游已有本订单的待支付账单（status 200 + invoiceid）→ 返回账单 id，
+//     调用方直接支付这张即可（"重新开通"，不新建）；
+//   - 上游已有本订单的主机（400 "该订单已开通"）→ 回源返回该实例，绝不重复开通；
 //   - 上游没有记录 → (nil, 0, nil)，调用方正常下单；
-//   - 明确报错（400 无主机信息等）→ 返回错误（终结性，转人工）。
+//   - 其它业务码 → 返回错误（终结性，转人工）。
 //
 // 这一步是"重试不再重复下单"的关键：没有它，每次重试都会在上游重新结算，
 // 上游侧表现为同一订单反复生成账单与主机（实测事故）。
+//
+// 分支顺序很关键：上游对"账单已生成但未支付"的回答是
+// `{"hostid":2057,"invoiceid":808043,"status":200}` —— **hostid 与 invoiceid 同时出现**。
+// 此时机器虽然占了号（Pending、dcimid=0）但并未付款开通，正确动作是"付这张账单"，
+// 所以必须先判 invoiceid 分支，不能因为看到 hostid 就当成"已开通"接管。
+//
+// 为什么"已有主机但非 Active"不能直接报错（实测故障）：用户在上游余额不足后
+// **自己在上游后台充值并开通**，那时主机是 Active；但若主机还在创建中（Pending），
+// 旧逻辑会报"不可重复开通，请人工核对该主机"——本地看起来失败，机器其实正在上游
+// 开出来。现在改为：只要上游确认已有主机就回源接管，状态由上游说了算
+// （Pending → creating，交给滞留推进器继续跟进）。
 func (p *ZJMFProvider) reconcileDownstream(ctx context.Context, req *model.CreateInstanceRequest) (*model.StandardInstance, int64, error) {
 	if !downstreamReady(req) {
 		return nil, 0, nil
@@ -1374,31 +1470,45 @@ func (p *ZJMFProvider) reconcileDownstream(ctx context.Context, req *model.Creat
 	}
 	var resp clearResp
 	_ = json.Unmarshal(body, &resp)
-	status := resp.Status
+	status := resp.Status.Int()
 	if status == 0 {
-		status = resp.Code
+		status = resp.Code.Int()
 	}
 	switch {
-	case status == 400 && resp.HostID > 0:
-		// 上游拒绝重复开通：本订单的主机已经存在。
-		if resp.DomainStatus == "Active" {
-			inst, derr := p.fetchProvisionedInstance(ctx, resp.HostID, req)
-			if derr != nil {
-				return nil, 0, derr
-			}
-			return inst, 0, nil
-		}
-		return nil, 0, &upstream.ProviderError{Op: "CreateInstance", Code: status,
-			Msg: fmt.Sprintf("上游已存在本订单的主机（#%d，状态 %s），不可重复开通，请人工核对该主机后处理", resp.HostID, firstNonEmpty(resp.DomainStatus, "未知"))}
-	case status == 200 && resp.InvoiceID > 0:
+	case resp.InvoiceID > 0:
 		// 已生成但未支付的账单：直接复用（这就是"重新开通"）。
-		return nil, resp.InvoiceID, nil
-	case status == 200:
+		// 该形态可能同时带 hostid（占号的主机，未付款不会开通），以账单为准。
+		return nil, resp.InvoiceID.Int64(), nil
+	case resp.HostID > 0:
+		// 上游明确回答「该订单已有主机」：回源接管，绝不重新下单。
+		//
+		// 终态（已删除/取消/风控冻结）除外：那种主机接管不了、重下单又可能与上游
+		// 账务冲突，保持"交人工核对"的旧语义。
+		if hostStatusTerminal(resp.DomainStatus) {
+			return nil, 0, &upstream.ProviderError{Op: "CreateInstance", Code: status,
+				Msg: fmt.Sprintf("上游已存在本订单的主机（#%d，状态 %s），不可重复开通，请人工核对该主机后处理", resp.HostID.Int64(), firstNonEmpty(resp.DomainStatus, "未知"))}
+		}
+		inst, derr := p.fetchProvisionedInstance(ctx, resp.HostID.Int64(), req)
+		if derr != nil {
+			return nil, 0, derr
+		}
+		return inst, 0, nil
+	case status == StatusOK || status == 0:
+		// 上游没有本订单的任何记录：正常走新单流程。
 		return nil, 0, nil
 	default:
 		// 其它业务码：状态不明，不下单，交人工。
 		return nil, 0, &upstream.ProviderError{Op: "CreateInstance", Code: status, Msg: firstNonEmpty(resp.Msg, "上游幂等握手失败")}
 	}
+}
+
+// hostStatusTerminal 上游主机状态是否为终态（已删除/取消/终止/风控冻结）。
+func hostStatusTerminal(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "deleted", "cancelled", "canceled", "terminated", "fraud":
+		return true
+	}
+	return false
 }
 
 // CreateInstance 「财务对接财务」开通：由本系统（下游）向上游魔方财务下单。
@@ -1418,8 +1528,10 @@ func (p *ZJMFProvider) CreateInstance(ctx context.Context, req *model.CreateInst
 		return nil, &upstream.ProviderError{Op: "CreateInstance", Msg: "商品未绑定上游商品ID（upstream_pid），无法在财务上游下单"}
 	}
 	// 主机名/密码：客户在商品详情页可自定义主机名（extra.hostname，走客户选配项下发），
-	// 未指定时按标准规则生成；密码同理（extra.root_password 仅内部调用方使用，默认随机强密码）。
-	host := safeHostname(firstNonEmpty(strFromMap(req.Extra, "hostname"), req.Name))
+	// 未指定时用 defaultHostname（商品名 + 随机后缀）：上游对重名主机会把新机器卡在
+	// Pending/dcimid=0 永不激活，唯一性是开通成功的必要条件。
+	// 密码同理（extra.root_password 仅内部调用方使用，默认随机强密码）。
+	host := defaultHostname(firstNonEmpty(strFromMap(req.Extra, "hostname"), req.Name), req.DownstreamToken)
 	password := firstNonEmpty(req.Password, strFromMap(req.Extra, "root_password"), randPassword())
 	billingCycle := normalizeBillingCycle(req.BillingMode)
 	configOpt := buildCartConfigOption(req.Extra)
@@ -1433,8 +1545,22 @@ func (p *ZJMFProvider) CreateInstance(ctx context.Context, req *model.CreateInst
 	// 为什么必须这样：上游结算是**生成新账单**的动作，重试一次就多一张账单。
 	// 上游余额不足这类失败属于"账单已建、钱没付"，重试要做的只是再支付同一张账单
 	// （充值后即可结清），而不是重新下单 —— 否则一个订单会在上游留下多张待支付账单。
+	//
+	// 例外（实测故障）：该账单可能已被上游清理（未支付账单超期回收 → "账单未找到"），
+	// 或已由人工在上游侧付掉（"账单已支付"，hostIDByDownstream 反查主机）。
+	// 前者继续走握手分流（无主机则重新下单），不能死在这里。
 	if req.UpstreamInvoiceID > 0 {
-		return p.settleExistingInvoice(ctx, req, req.UpstreamInvoiceID, host)
+		inst, err := p.settleExistingInvoice(ctx, req, req.UpstreamInvoiceID, host)
+		if err == nil {
+			return inst, nil
+		}
+		if !isInvoiceMissingError(err) {
+			return nil, err
+		}
+		// 账单已不存在：清掉调用方记录，按"全新订单"重新走握手 + 下单。
+		if req.OnInvoiceCreated != nil {
+			req.OnInvoiceCreated(0)
+		}
 	}
 
 	// 0) 上游幂等握手（源码 Host::createFinal 的 /cart/clear 一步，带 downstream 三件套）。
@@ -1442,7 +1568,7 @@ func (p *ZJMFProvider) CreateInstance(ctx context.Context, req *model.CreateInst
 	// 这一步不是"清购物车"那么简单：上游按 downstream_token 反查本下游订单是否已有
 	// 账单/主机，是上游协议**自带的防重复下单机制**。没有它（或 token 每次不同），
 	// 每次重试都会重新结算，上游侧留下多张账单与多台 Pending 主机。
-	//   · 已有 Active 主机 → 直接返回该实例（不再下单）；
+	//   · 已有主机（Active / Pending 皆可） → 回源接管，不再下单；
 	//   · 有待支付账单   → 支付同一张账单（"重新开通"）；
 	//   · 无记录         → 继续下面的新单流程。
 	if resumed, invoiceID, err := p.reconcileDownstream(ctx, req); err != nil {
@@ -1507,8 +1633,11 @@ func (p *ZJMFProvider) CreateInstance(ctx context.Context, req *model.CreateInst
 		settleForm.Set("cart_data[customfield]["+k+"]", v)
 	}
 	var settleData struct {
-		InvoiceID int64   `json:"invoiceid"`
-		HostID    []int64 `json:"hostid"`
+		// 实测 cart/settle 返回 {"hostid":["2056"],"invoiceid":808041}：
+		// hostid 是**字符串数组**、invoiceid 是数字；apply_credit 的 hostid 又是数字数组。
+		// 用宽容类型统一吸收，否则一个字段类型不符就丢掉整张账单 id（开通直接失败）。
+		InvoiceID FlexID     `json:"invoiceid"`
+		HostID    FlexIDList `json:"hostid"`
 	}
 	// cart/settle 有两条成功返回形态（源码 CartController::settle）：
 	//   total>0 → status 200 + data.invoiceid（待支付）；
@@ -1522,28 +1651,28 @@ func (p *ZJMFProvider) CreateInstance(ctx context.Context, req *model.CreateInst
 		return nil, &upstream.ProviderError{Op: "CreateInstance", StatusCode: settleHTTP, Msg: firstNonEmpty(settleShell.Msg, strings.TrimSpace(string(settleBody)))}
 	}
 	if settleShell.Status != StatusOK && settleShell.Code != StatusOK && settleShell.Status != StatusPaidSuccess && settleShell.Code != StatusPaidSuccess {
-		return nil, &upstream.ProviderError{Op: "CreateInstance", Code: settleShell.Status, Msg: firstNonEmpty(settleShell.Msg, "上游结算失败")}
+		return nil, &upstream.ProviderError{Op: "CreateInstance", Code: settleShell.Status.Int(), Msg: firstNonEmpty(settleShell.Msg, "上游结算失败")}
 	}
 	if err := p.unmarshalData("CreateInstance", settleShell, &settleData); err != nil {
 		return nil, err
 	}
 	// 0 元单（免费/一次性 0 元）结算即开通：只有 hostid 没有 invoiceid，属正常。
-	if settleData.InvoiceID == 0 && firstInt(settleData.HostID) == 0 {
+	if settleData.InvoiceID == 0 && settleData.HostID.First() == 0 {
 		return nil, &upstream.ProviderError{Op: "CreateInstance", Msg: "上游结算成功但未返回账单ID或主机ID"}
 	}
 
 	// 账单已生成：**先落库再支付** —— 支付失败（余额不足等）是最常见的重试场景，
 	// 只有把账单 id 记下来，重试才能复用这张账单而不是再下一单。
 	if settleData.InvoiceID > 0 && req.OnInvoiceCreated != nil {
-		req.OnInvoiceCreated(settleData.InvoiceID)
+		req.OnInvoiceCreated(settleData.InvoiceID.Int64())
 	}
 
 	// 3) 用上游余额支付并开通（status 1001 支付完成）。
 	// 有账单就必须付清：结算返回的 hostid 只代表单据已建（主机此时是 Pending），
 	// 没付钱就不会真正开通；只有 invoiceid==0（0 元单）才是"结算即开通"。
-	hostID := firstInt(settleData.HostID)
+	hostID := settleData.HostID.First()
 	if settleData.InvoiceID > 0 {
-		paidHostID, err := p.payUpstreamInvoice(ctx, req, settleData.InvoiceID)
+		paidHostID, err := p.payUpstreamInvoice(ctx, req, settleData.InvoiceID.Int64())
 		if err != nil {
 			return nil, err
 		}
@@ -1557,7 +1686,9 @@ func (p *ZJMFProvider) CreateInstance(ctx context.Context, req *model.CreateInst
 // fetchProvisionedInstance 按主机 id 拉取上游详情并映射标准实例。
 // 开通成功但详情拉取失败时返回最小可用实例，避免把已开通的资源当成失败回滚。
 func (p *ZJMFProvider) fetchProvisionedInstance(ctx context.Context, hostID int64, req *model.CreateInstanceRequest) (*model.StandardInstance, error) {
-	host := safeHostname(firstNonEmpty(strFromMap(req.Extra, "hostname"), req.Name))
+	// 与 CreateInstance 同一算式：这里只在上游详情拉取失败时用作实例名兜底，
+	// 后缀不稳定会让"同一个订单两次尝试的实例名"不一致。
+	host := defaultHostname(firstNonEmpty(strFromMap(req.Extra, "hostname"), req.Name), req.DownstreamToken)
 	inst, err := p.waitInstanceReady(ctx, strconv.FormatInt(hostID, 10), 6)
 	if err != nil {
 		return &model.StandardInstance{
@@ -1821,7 +1952,7 @@ func (p *ZJMFProvider) RenewInstance(ctx context.Context, req *upstream.RenewReq
 	renewForm.Set("hostid", req.ProviderInstanceID)
 	renewForm.Set("billingcycles", cycle)
 	var renewData struct {
-		InvoiceID int64 `json:"invoiceid"`
+		InvoiceID FlexID `json:"invoiceid"`
 	}
 	if err := p.call(ctx, "RenewInstance", http.MethodPost, "host/renew", renewForm, &renewData); err != nil {
 		return nil, err
@@ -1832,7 +1963,7 @@ func (p *ZJMFProvider) RenewInstance(ctx context.Context, req *upstream.RenewReq
 
 	// 2) 用上游余额支付（status 1001 = 支付完成）
 	payForm := url.Values{}
-	payForm.Set("invoiceid", strconv.FormatInt(renewData.InvoiceID, 10))
+	payForm.Set("invoiceid", renewData.InvoiceID.String())
 	payForm.Set("use_credit", "1")
 	shell, httpStatus, body, err := p.callShell(ctx, "RenewInstance", http.MethodPost, "apply_credit", payForm)
 	if err != nil {
@@ -1844,12 +1975,12 @@ func (p *ZJMFProvider) RenewInstance(ctx context.Context, req *upstream.RenewReq
 	// 只认 1001：200 表示"余额不足，账单未清"（源码 Host::renew 也把 200 当失败处理），
 	// 接受它会把"没续上"记成"续费成功"。
 	if shell.Status != StatusPaidSuccess && shell.Code != StatusPaidSuccess {
-		return nil, &upstream.ProviderError{Op: "RenewInstance", Code: shell.Status, Msg: firstNonEmpty(shell.Msg, "上游续费余额支付未完成（余额不足或账单未结清）")}
+		return nil, &upstream.ProviderError{Op: "RenewInstance", Code: shell.Status.Int(), Msg: firstNonEmpty(shell.Msg, "上游续费余额支付未完成（余额不足或账单未结清）")}
 	}
 
 	res := &upstream.RenewResult{
-		UpstreamOrderRef: strconv.FormatInt(renewData.InvoiceID, 10),
-		Raw:              map[string]interface{}{"invoiceid": renewData.InvoiceID, "billingcycles": cycle},
+		UpstreamOrderRef: renewData.InvoiceID.String(),
+		Raw:              map[string]interface{}{"invoiceid": renewData.InvoiceID.Int64(), "billingcycles": cycle},
 	}
 	// 3) 拉取权威新到期时间；失败不视为续费失败（账单已支付），由调用方按本地周期兜底。
 	if inst, gerr := p.GetInstance(ctx, req.ProviderInstanceID); gerr == nil && inst != nil {
@@ -2243,6 +2374,8 @@ func randPassword() string {
 }
 
 // safeHostname 将任意名称规范化为合法主机名（小写、非字母数字替换为 -、字母开头）。
+//
+// 只做主规范化，不保证跨订单唯一 —— 默认主机名的唯一性由 defaultHostname 负责。
 func safeHostname(name string) string {
 	s := strings.ToLower(strings.TrimSpace(name))
 	var b strings.Builder
@@ -2274,4 +2407,47 @@ func safeHostname(name string) string {
 		h += randStr(minHostnameLen - len(h))
 	}
 	return h
+}
+
+// defaultHostname 未指定主机名时的默认名：商品名规范化 + 唯一后缀。
+//
+// 为什么必须唯一（实测根因）：主机名直接取自商品名时，同一商品第二次开通必然与
+// 上一台重名。上游（魔方财务）对重名主机的处理不是拒绝，而是把新主机卡在
+// domainstatus=Pending、dcimid=0 —— 账单已付、机器永远不开通，重试也无济于事
+// （实测：订单 842/843 的主机 2057/2059 卡 Pending 数十分钟，同批唯一命名的
+// 主机 2056/2058 一分钟内 Active）。主机名是本地下单参数里唯一能保证唯一性的
+// 标识，后缀是最小改动。
+//
+// 后缀来源优先取 downstream_token 的哈希：该令牌按订单生成后落库、重试复用，
+// 因此同一订单的每次尝试都得到同一个主机名（对上游而言是"同一个开通请求"），
+// 订单之间又互不相同。没有令牌（老订单/未装配）时退回随机后缀。
+func defaultHostname(name, token string) string {
+	base := safeHostname(name)
+	const suffixLen = 6
+	// 截短给后缀留位置（上游上限 50 位）。
+	if len(base) > 50-suffixLen-1 {
+		base = base[:50-suffixLen-1]
+	}
+	suffix := tokenSuffix(token, suffixLen)
+	return strings.Trim(base, "-") + "-" + suffix
+}
+
+// tokenSuffix 由令牌派生 n 位主机名后缀（稳定、可复现）。
+//
+// 取**整个令牌**的哈希而不是前几位：令牌是 32 位随机十六进制，只截前 6 位
+// 相当于只用了 24 bit 熵，且若上游/调用方生成的令牌前缀相同就会撞后缀。
+// base36 编码让 6 位后缀承载约 31 bit（约 22 亿），对"在售主机不重名"绰绰有余。
+// 令牌为空时退回随机串（老订单未装配令牌的场景）。
+func tokenSuffix(token string, n int) string {
+	token = strings.ToLower(strings.TrimSpace(token))
+	if token == "" {
+		return randStr(n)
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(token))
+	encoded := strconv.FormatUint(uint64(h.Sum32()), 36)
+	if len(encoded) < n {
+		encoded = strings.Repeat("0", n-len(encoded)) + encoded
+	}
+	return encoded[len(encoded)-n:]
 }

@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"hostsent/backend/internal/modules/admin/order/model"
+	pkgcredentials "hostsent/backend/internal/pkg/credentials"
 	pkgmodel "hostsent/backend/internal/pkg/model"
 	"hostsent/backend/internal/pkg/upstream"
 )
@@ -39,8 +40,16 @@ type ProvisionDeps struct {
 	// RecordDownstreamToken 落库本订单的上游对接令牌（首次履约生成后固化）。
 	// 上游据此反查既有账单/主机，是"重试不重复下单"的前置条件。可选。
 	RecordDownstreamToken func(ctx context.Context, orderID uint64, token string) error
+	// EnsureCredentialPassword 取本订单的登录密码密文：已有则返回既存值（重试复用），
+	// 没有则用 preferred（运营在商品配置里钉死的密码，dcimcloud=rootpass、
+	// zjmf=root_password）或本系统生成的强随机密码，加密落库后返回密文。
+	// 为空表示未装配（退化为不指定密码，由上游适配器自行生成随机密码）。可选。
+	EnsureCredentialPassword func(ctx context.Context, orderID uint64, preferred string) (encrypted string, err error)
 	// PublicURL 本站对外可访问地址（upstream 握手与回调标识用）；空则用占位地址。可选。
 	PublicURL func(ctx context.Context) string
+	// EncryptKey 应用加密密钥：用于解密随单固化的登录密码密文（与 pkg/crypto 同源）。
+	// 为空时不解密、不带密码下发（上游自行生成随机密码）。
+	EncryptKey string
 	// Logger 可选日志（记录账单落库失败等不影响履约主流程的事件）。
 	Logger *zap.Logger
 }
@@ -91,11 +100,26 @@ func (a *UpstreamProvisionAdapter) Activate(ctx context.Context, order *model.Or
 		if order.ProductID == 0 {
 			return a.advanceLegacy(order)
 		}
-		// 幂等：已记录实例则直接激活，避免重复开通。
+		// 幂等：已在上游开通（存在非占位实例）则回源确认主机真实状态，
+		// 只有确认 running 才置服务中，仍创建中则保持 provisioning。
+		// HasInstance 已排除待开通占位行（占位行不是"已开通"）。
 		if a.deps.HasInstance != nil {
 			exists, err := a.deps.HasInstance(ctx, order.UserID, order.ProductID)
 			if err == nil && exists {
-				return a.markActive(order)
+				inst, perr := a.provision(ctx, order)
+				if perr != nil {
+					return perr
+				}
+				if inst == nil {
+					return a.markActive(order)
+				}
+				// 先落库再判状态：否则"上游已就绪"这条路径只改了订单状态，
+				// 本地实例仍是占位行/旧状态，用户看到的还是"待开通"。
+				_ = a.deps.RecordInstance(ctx, inst, order)
+				if inst.Status == pkgmodel.InstanceStatusRunning {
+					return a.markActive(order)
+				}
+				return nil
 			}
 		}
 		inst, err := a.provision(ctx, order)
@@ -106,7 +130,12 @@ func (a *UpstreamProvisionAdapter) Activate(ctx context.Context, order *model.Or
 			return a.markActive(order)
 		}
 		_ = a.deps.RecordInstance(ctx, inst, order)
-		return a.markActive(order)
+		// 上游主机已就绪才可直接置服务中；仍创建中保持 provisioning，
+		// 由滞留推进器（ProvisioningPromoter）在主机就绪后跟进。
+		if inst.Status == pkgmodel.InstanceStatusRunning {
+			return a.markActive(order)
+		}
+		return nil
 	default:
 		return ErrStatusConflict
 	}
@@ -150,6 +179,34 @@ func (a *UpstreamProvisionAdapter) provision(ctx context.Context, order *model.O
 		BillingMode: orderBillingCycle(order),
 		// 幂等：带上次已生成的上游账单 id；适配器据此跳过"下单+结算"直接支付该账单。
 		UpstreamInvoiceID: order.UpstreamInvoiceID,
+	}
+	// 登录密码由本系统生成并随订单固化：上游从不回传密码（dcimcloud 详情该字段实测为空、
+	// zjmf 无读密码接口），不在这里留存，实例详情页的「查看密码」就永远取不到值。
+	// 明文只在本次下发上游时存在于内存；落库的是密文，供后续「查看密码」解密回显。
+	enc := strings.TrimSpace(order.CredentialPassword)
+	if enc == "" && a.deps.EnsureCredentialPassword != nil {
+		// 首次履约：优先用运营在商品配置里钉死的密码（适配器自身也认这两个键：
+		// dcimcloud=rootpass、zjmf=root_password），否则本系统生成强随机密码。
+		// 失败只告警不阻断（上游会自行生成随机密码，开通照常成功，
+		// 代价是这台机器事后无法回看初始密码）。
+		if generated, perr := a.deps.EnsureCredentialPassword(ctx, order.ID, preferredPassword(raw)); perr != nil {
+			if a.deps.Logger != nil {
+				a.deps.Logger.Warn("生成/固化开通密码失败（本次交由上游生成随机密码，开通后无法回看）",
+					zap.Uint64("order_id", order.ID), zap.Error(perr))
+			}
+		} else {
+			enc = generated
+			order.CredentialPassword = generated
+		}
+	}
+	if enc != "" {
+		if plain, derr := pkgcredentials.DecryptSecret(enc, a.deps.EncryptKey); derr == nil {
+			req.Password = plain
+		} else if a.deps.Logger != nil {
+			// 解密失败（密钥轮换/数据损坏）：不带密码下发，绝不把密文当明文传给上游。
+			a.deps.Logger.Warn("开通密码解密失败，本次交由上游生成随机密码",
+				zap.Uint64("order_id", order.ID), zap.Error(derr))
+		}
 	}
 	// 下游身份三件套（上游幂等握手用）：token 首次生成后落库，重试必须复用同一个。
 	// 生成失败不阻断履约：本次仍带 token 走（握手在本进程内有效），仅日志告警。
@@ -232,6 +289,30 @@ func orderBillingCycle(order *model.Order) string {
 		return order.Cycle
 	}
 	return order.PriceModel
+}
+
+// preferredPassword 取运营在商品配置里钉死的登录密码（可为空）。
+//
+// 两家适配器的取值键名不同且都只认自己的（dcimcloud provider.go 的 opts["rootpass"]、
+// zjmf provider.go 的 extra["root_password"]），这里两个都认：key 与适配器的实际读取
+// 键名一致，取到谁就用谁，不影响另一家的语义。
+func preferredPassword(raw interface{}) string {
+	return firstNonEmptyOption(raw, "rootpass", "root_password")
+}
+
+// firstNonEmptyOption 从开通请求的 ConfigOptions 里按顺序取第一个非空字符串值。
+func firstNonEmptyOption(raw interface{}, keys ...string) string {
+	opts := extractConfigOptions(raw)
+	for _, k := range keys {
+		v, ok := opts[k]
+		if !ok || v == nil {
+			continue
+		}
+		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+			return strings.TrimSpace(s)
+		}
+	}
+	return ""
 }
 
 // orderConfigSelections 解析订单落库的客户选配项选择（T4.5）。

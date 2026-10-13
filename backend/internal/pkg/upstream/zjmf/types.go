@@ -16,13 +16,42 @@ import (
 
 // ZjmfResp 魔方财务统一响应外壳：{status, msg, data}；个别接口返回 {code, data}；
 // 登录接口额外返回 jwt 字段。
+//
+// status/code 用 FlexCode：上游大多数接口下发数字（200/1001/400），但个别接口
+// 与网关会下发**字符串**（实测 `{"status":"406"}`、`{"status":"on"}`）。
+// 用 int 解析时字符串形态会被 encoding/json 判为类型错误，整个外壳解不出来 ——
+// 表现为"业务码 0"，于是失败被当成成功、或成功被当成失败，两种方向都出现过。
 type ZjmfResp[T any] struct {
-	Status int    `json:"status"`
-	Code   int    `json:"code"` // 与 status 二选一，兼容个别接口
-	Msg    string `json:"msg"`
-	JWT    string `json:"jwt"`
-	Data   T      `json:"data"`
+	Status FlexCode `json:"status"`
+	Code   FlexCode `json:"code"` // 与 status 二选一，兼容个别接口
+	Msg    string   `json:"msg"`
+	JWT    string   `json:"jwt"`
+	Data   T        `json:"data"`
 }
+
+// FlexCode 宽容的业务状态码：接受数字、数字字符串、布尔与 null。
+// 取不到（非数字字符串如 "on"）按 0，表示"未给出业务码"，由调用方按无码处理。
+type FlexCode int
+
+// UnmarshalJSON 接受 200 / "200" / 200.0 / null；非数字字符串一律按 0。
+func (c *FlexCode) UnmarshalJSON(b []byte) error {
+	*c = 0
+	raw := strings.TrimSpace(string(b))
+	if raw == "" || raw == "null" {
+		return nil
+	}
+	raw = strings.Trim(raw, `"`)
+	if raw == "" {
+		return nil
+	}
+	if v, err := strconv.ParseFloat(raw, 64); err == nil {
+		*c = FlexCode(int64(v))
+	}
+	return nil
+}
+
+// Int 取整数值（0 表示未给出业务码）。
+func (c FlexCode) Int() int { return int(c) }
 
 // StatusOK 魔方财务业务成功码
 const StatusOK = 200
@@ -85,6 +114,119 @@ func (f *FlexNumber) UnmarshalJSON(b []byte) error {
 
 // Int 取整数值（四舍五入到最近整数）。
 func (f FlexNumber) Int() int64 { return int64(f) }
+
+// FlexID 宽容的标识字段：上游把同一个 id 下发成数字、字符串、"数字字符串"三种形态，
+// 有时还包在数组里（cart/settle 的 hostid 即 ["2056"]）。用强类型会让**单个字段**
+// 类型不符导致整段 data 解析失败 —— 实测即订单结算解析不出 invoiceid，
+// 开通链路直接断在"结算成功但未返回账单"。
+//
+// 解析规则：数字/字符串（含带引号的再序列化数字）取数值；数组取首个元素；
+// 取不到一律 0，绝不返回错误。
+type FlexID int64
+
+// UnmarshalJSON 接受 数字 / "数字" / [数字] / ["数字"] / null 任意形态。
+func (f *FlexID) UnmarshalJSON(b []byte) error {
+	*f = 0
+	v, ok := flexIDValue(b)
+	if !ok {
+		return nil
+	}
+	*f = FlexID(v)
+	return nil
+}
+
+// Int64 取整数值。
+func (f FlexID) Int64() int64 { return int64(f) }
+
+// String 以字符串形式返回（0 → 空串），便于直接写入表单或 RawData。
+func (f FlexID) String() string {
+	if f == 0 {
+		return ""
+	}
+	return strconv.FormatInt(int64(f), 10)
+}
+
+// flexIDValue 从任意 JSON 片段里取出第一个可用的整数 id。
+func flexIDValue(b []byte) (int64, bool) {
+	raw := strings.TrimSpace(string(b))
+	if raw == "" || raw == "null" {
+		return 0, false
+	}
+	switch raw[0] {
+	case '[':
+		var arr []json.RawMessage
+		if err := json.Unmarshal(b, &arr); err != nil {
+			return 0, false
+		}
+		for _, item := range arr {
+			if v, ok := flexIDValue(item); ok {
+				return v, true
+			}
+		}
+		return 0, false
+	case '{':
+		// 个别接口把 id 包在对象里（如 {"id":123}）：取 id/value 两个惯用键。
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(b, &obj); err != nil {
+			return 0, false
+		}
+		for _, key := range []string{"id", "value", "hostid", "invoiceid"} {
+			if v, ok := obj[key]; ok {
+				if got, ok2 := flexIDValue(v); ok2 {
+					return got, true
+				}
+			}
+		}
+		return 0, false
+	}
+	text := strings.Trim(raw, `"`)
+	if text == "" {
+		return 0, false
+	}
+	if v, err := strconv.ParseFloat(text, 64); err == nil {
+		return int64(v), true
+	}
+	return 0, false
+}
+
+// FlexIDList 宽容的 id 列表：兼容 [1,2] / ["1","2"] / "1,2" / 单个数字。
+// 取首个元素即 firstID()。
+type FlexIDList []int64
+
+// UnmarshalJSON 接受任意前述形态，统一归一为 []int64；非法一律空列表。
+func (l *FlexIDList) UnmarshalJSON(b []byte) error {
+	*l = nil
+	raw := strings.TrimSpace(string(b))
+	if raw == "" || raw == "null" {
+		return nil
+	}
+	if raw[0] == '[' {
+		var arr []json.RawMessage
+		if err := json.Unmarshal(b, &arr); err != nil {
+			return nil
+		}
+		out := make([]int64, 0, len(arr))
+		for _, item := range arr {
+			if v, ok := flexIDValue(item); ok {
+				out = append(out, v)
+			}
+		}
+		*l = out
+		return nil
+	}
+	if v, ok := flexIDValue(b); ok {
+		*l = []int64{v}
+	}
+	return nil
+}
+
+// First 取首个 id（无元素为 0）。
+func (l FlexIDList) First() int64 {
+	if len(l) > 0 {
+		return l[0]
+	}
+	return 0
+}
 
 // IsZero 是否为 0/未提供。
 func (f FlexNumber) IsZero() bool { return f == 0 }

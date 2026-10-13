@@ -25,6 +25,16 @@ type OrderRepository interface {
 	SetUpstreamInvoiceID(ctx context.Context, id, invoiceID uint64) error
 	// SetDownstreamToken 记录上游对接令牌（首次履约生成后固话，重试复用同一令牌）。
 	SetDownstreamToken(ctx context.Context, id uint64, token string) error
+	// SetCredentialPassword 记录开通密码密文（首次履约生成后固化，重试复用同一密码；
+	// 开通成功由履约装配层原样搬进 instances.credential_password）。
+	SetCredentialPassword(ctx context.Context, id uint64, encrypted string) error
+	// SetCredentialPasswordIfEmpty 仅在 credential_password 为空时写入（原子占位）：
+	// 并发重试下只有一个 worker 的密码能被采纳，避免"已下发密码 X、本地记着 Y"的错位。
+	SetCredentialPasswordIfEmpty(ctx context.Context, id uint64, encrypted string) error
+	// ListProvisioningStale 扫描「开通中」且已超过 since 的订单（上游主机异步开通的兜底）。
+	// 上游创建主机后可能长时间停在 Pending，本系统若无后续推进，订单会永远卡在
+	// provisioning（用户实测：开通成功但订单/实例一直是"开通中"）。
+	ListProvisioningStale(ctx context.Context, before time.Time, limit int) ([]model.Order, error)
 	// ListExpiredPending 扫描超期未支付的订单（created_at < before，按下单先后）。
 	// 供待支付订单过期关单调度器使用：以「下单时间 + 配置的有效期」判定，
 	// 不用 orders.expire_time —— 那列是实例计费到期时间，语义不同。
@@ -206,6 +216,30 @@ func (r *orderRepository) SetDownstreamToken(ctx context.Context, id uint64, tok
 		Update("downstream_token", token).Error
 }
 
+// SetCredentialPassword 只更新开通密码密文一列（与令牌同理：首发生成后固化，
+// 重试必须复用，避免上游机器上实际密码与本地留存不一致）。
+func (r *orderRepository) SetCredentialPassword(ctx context.Context, id uint64, encrypted string) error {
+	if strings.TrimSpace(encrypted) == "" {
+		return nil
+	}
+	return r.db.WithContext(ctx).Model(&model.Order{}).
+		Where("id = ?", id).
+		Update("credential_password", encrypted).Error
+}
+
+// SetCredentialPasswordIfEmpty 原子占位：仅当该列当前为空才写入。
+//
+// 用条件更新而不是"先查后写"：开通任务可能被两个 worker 同时领取（锁过期重领），
+// 先查后写会让后到的覆盖先到的，而上游已经收到了先到的那个密码——本地留存与实际密码就此错位。
+func (r *orderRepository) SetCredentialPasswordIfEmpty(ctx context.Context, id uint64, encrypted string) error {
+	if strings.TrimSpace(encrypted) == "" {
+		return nil
+	}
+	return r.db.WithContext(ctx).Model(&model.Order{}).
+		Where("id = ? AND (credential_password IS NULL OR credential_password = '')", id).
+		Update("credential_password", encrypted).Error
+}
+
 func (r *orderRepository) Update(ctx context.Context, item *model.Order) error {
 	return r.db.WithContext(ctx).Save(item).Error
 }
@@ -215,6 +249,23 @@ func (r *orderRepository) Update(ctx context.Context, item *model.Order) error {
 // 只挑「用户走过收银台」的订单：必须有支付单记录（payment_orders.biz_type='order'）。
 // 续费单（renewal_id<>0）与后台代下单是无支付单的 pending，语义是「等余额/等人工结算」，
 // 超时关掉会把用户已充值的续费意图悄悄作废，因此排除在外（与 doc88 §6.2 口径一致）。
+// ListProvisioningStale 扫描开通中且久未推进的订单（renewal_id=0 的首次开通订单）。
+// 只取有下游绑定信息的（upstream_invoice_id>0，即确实在上游下了单），
+// 避免把纯本地推进的订单卷进来。
+func (r *orderRepository) ListProvisioningStale(ctx context.Context, before time.Time, limit int) ([]model.Order, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	var items []model.Order
+	if err := r.db.WithContext(ctx).
+		Where("status = ? AND updated_at < ? AND renewal_id = 0 AND upstream_invoice_id > 0",
+			model.OrderStatusProvisioning, before).
+		Order("updated_at asc, id asc").Limit(limit).Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func (r *orderRepository) ListExpiredPending(ctx context.Context, before time.Time, limit int) ([]model.Order, error) {
 	if limit <= 0 {
 		limit = 200

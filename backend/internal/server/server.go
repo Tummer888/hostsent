@@ -46,7 +46,9 @@ type Server struct {
 	// sessionExpireScheduler 会话过期状态回写：expired_at 到点后把 status 收成 expired。
 	sessionExpireScheduler *securityservice.SessionExpireScheduler
 	provisionWorker        *orderservice.ProvisionWorker
-	notifyWorker           *openservice.NotifyDeliveryWorker
+	// provisioningPromoter 开通中滞留推进器（上游主机异步就绪 → 订单转服务中）。
+	provisioningPromoter *orderservice.ProvisioningPromoter
+	notifyWorker         *openservice.NotifyDeliveryWorker
 	// deliveryWorker 通知投递队列工作器（doc90 N4）：邮件/短信排队投递与重试。
 	deliveryWorker *notifyservice.DeliveryWorker
 	// logcenter 日志中心后台组件（doc92）：上游采集写入器 + 统一清理调度器。
@@ -232,6 +234,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		userPurgeScheduler:     a.userPurgeScheduler,
 		sessionExpireScheduler: a.sessionExpireScheduler,
 		provisionWorker:        a.provisionWorker,
+		provisioningPromoter:   a.provisioningPromoter,
 		notifyWorker:           a.notifyWorker,
 		deliveryWorker:         a.notifyBundleInst.worker,
 		logcenter:              a.logcenterBundle,
@@ -254,6 +257,7 @@ func (s *Server) Run() error {
 	s.userPurgeScheduler.Start(ctx)
 	s.sessionExpireScheduler.Start(ctx)
 	s.provisionWorker.Start(ctx)
+	s.provisioningPromoter.Start(ctx)
 	go s.notifyWorker.Start(ctx)
 	s.publishScheduler.Start(ctx)
 	// 对账差异扫描（doc120）：纯本地比对，不依赖任何渠道连接，未装配时静默跳过。

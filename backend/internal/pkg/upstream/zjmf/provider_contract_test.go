@@ -683,3 +683,335 @@ func TestContract_DownstreamHandshake(t *testing.T) {
 		}
 	})
 }
+
+// TestContract_SettleHostIDEncodings 回归（实测故障：开通失败，报
+// `json: cannot unmarshal string into Go struct field .hostid of type int64`）。
+//
+// 上游 cart/settle 与 apply_credit 对 hostid 的下发形态**不一致**且各自多变：
+//
+//	cart/settle   → {"data":{"hostid":["2056"],"invoiceid":808041}}  字符串数组
+//	apply_credit  → {"data":{"hostid":[2049],"url":"..."}}            数字数组
+//	cart/clear    → {"hostid":2056,"invoiceid":808041}                平铺数字
+//
+// 任一处类型不符都会让整段 data 解析失败：账单 id 丢失 → 开通链路断在
+// "结算成功但未返回账单"（订单 841 实测）。本用例把三种形态钉死为回归。
+func TestContract_SettleHostIDEncodings(t *testing.T) {
+	// 形态一：cart/settle（字符串数组 + 数字账单）
+	var settle struct {
+		InvoiceID FlexID     `json:"invoiceid"`
+		HostID    FlexIDList `json:"hostid"`
+	}
+	if err := json.Unmarshal([]byte(`{"hostid":["2056"],"invoiceid":808041}`), &settle); err != nil {
+		t.Fatalf("settle 响应解析失败（整段报废，账单 id 丢失）: %v", err)
+	}
+	if settle.InvoiceID.Int64() != 808041 {
+		t.Fatalf("invoiceid = %d, want 808041", settle.InvoiceID.Int64())
+	}
+	if settle.HostID.First() != 2056 {
+		t.Fatalf("hostid = %d, want 2056（字符串数组）", settle.HostID.First())
+	}
+
+	// 形态二：apply_credit（数字数组）
+	var pay struct {
+		HostID FlexIDList `json:"hostid"`
+	}
+	if err := json.Unmarshal([]byte(`{"hostid":[2049],"url":"servicedetail?id=2049"}`), &pay); err != nil {
+		t.Fatalf("apply_credit 响应解析失败: %v", err)
+	}
+	if pay.HostID.First() != 2049 {
+		t.Fatalf("hostid = %d, want 2049（数字数组）", pay.HostID.First())
+	}
+
+	// 形态三：cart/clear（平铺数字；个别版本字符串）
+	var clear clearResp
+	if err := json.Unmarshal([]byte(`{"hostid":2056,"invoiceid":808041,"status":200,"msg":"请求成功"}`), &clear); err != nil {
+		t.Fatalf("clear 响应解析失败: %v", err)
+	}
+	if clear.HostID.Int64() != 2056 || clear.InvoiceID.Int64() != 808041 {
+		t.Fatalf("clear 解析错误: hostid=%d invoiceid=%d", clear.HostID.Int64(), clear.InvoiceID.Int64())
+	}
+	var clearStr clearResp
+	if err := json.Unmarshal([]byte(`{"hostid":"2056","invoiceid":"808041","status":200}`), &clearStr); err != nil {
+		t.Fatalf("clear 字符串形态解析失败: %v", err)
+	}
+	if clearStr.HostID.Int64() != 2056 || clearStr.InvoiceID.Int64() != 808041 {
+		t.Fatalf("clear 字符串形态解析错误: hostid=%d invoiceid=%d", clearStr.HostID.Int64(), clearStr.InvoiceID.Int64())
+	}
+
+	// 0 元单：结算只给 hostid 不给 invoiceid，仍要能取出主机号。
+	var free struct {
+		InvoiceID FlexID     `json:"invoiceid"`
+		HostID    FlexIDList `json:"hostid"`
+	}
+	if err := json.Unmarshal([]byte(`{"hostid":["9001"]}`), &free); err != nil {
+		t.Fatalf("0 元单响应解析失败: %v", err)
+	}
+	if free.InvoiceID != 0 || free.HostID.First() != 9001 {
+		t.Fatalf("0 元单解析错误: invoiceid=%d hostid=%d", free.InvoiceID.Int64(), free.HostID.First())
+	}
+}
+
+// TestContract_CreateInstanceSettleStringHostID 端到端回归：上游按真实形态
+// （settle 回字符串数组 hostid）返回时，整条开通链路必须走通并留下账单 id。
+func TestContract_CreateInstanceSettleStringHostID(t *testing.T) {
+	var settledInvoiceID int64
+	p := newMockProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		switch r.URL.Path {
+		case "/zjmf_api_login":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "jwt": "TESTJWT"})
+		case "/cart/credit":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": 200,
+				"data":   map[string]interface{}{"credit": "69.08", "currency": map[string]interface{}{"id": 1, "code": "CNY"}},
+			})
+		case "/cart/clear":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "msg": "请求成功"})
+		case "/cart/add_to_shop":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "msg": "添加成功"})
+		case "/cart/settle":
+			// 真实形态：hostid 是字符串数组（订单 841 实测原样）。
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": 200, "msg": "结算成功",
+				"data": map[string]interface{}{"hostid": []string{"2056"}, "invoiceid": 808041},
+			})
+		case "/apply_credit":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": 1001, "msg": "支付完成",
+				"data": map[string]interface{}{"hostid": []int64{2056}, "url": "servicedetail?id=2056"},
+			})
+		case "/host/header":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": 200,
+				"data": map[string]interface{}{"host_data": map[string]interface{}{
+					"id": 2056, "domain": "hs-six-zone", "domainstatus": "Active",
+					"port": 0, "nextduedate": 1794529855,
+				}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	inst, err := p.CreateInstance(context.Background(), &pkgmodel.CreateInstanceRequest{
+		ProviderType:    ProviderType,
+		Name:            "hs-six-zone",
+		BillingMode:     "monthly",
+		Extra:           map[string]interface{}{"upstream_pid": "528"},
+		DownstreamToken: "0123456789abcdef0123456789abcdef",
+		DownstreamURL:   "https://hostsent.local",
+		DownstreamID:    841,
+		OnInvoiceCreated: func(invoiceID int64) {
+			settledInvoiceID = invoiceID
+		},
+	})
+	if err != nil {
+		t.Fatalf("开通失败（字符串数组 hostid 未兼容）: %v", err)
+	}
+	if inst == nil || inst.UpstreamID != "2056" {
+		t.Fatalf("unexpected instance: %+v", inst)
+	}
+	if settledInvoiceID != 808041 {
+		t.Fatalf("账单落库回调 = %d, want 808041（解析失败会让幂等修复失效）", settledInvoiceID)
+	}
+	if inst.Status != pkgmodel.InstanceStatusRunning {
+		t.Errorf("status = %s, want running（Active 应映射为运行中）", inst.Status)
+	}
+}
+
+// TestContract_RecoverAfterUpstreamPaid 回归（实测用户场景）：
+//
+//	本地下单 → 上游余额不足 → 开通失败（账单已建、主机 Pending）
+//	→ 用户/运营在**上游侧**充值并把账单付掉、机器开通
+//	→ 本地点「重新开通」/同步刷新，必须能拉回"已开通"的结果，而不是一直显示创建中。
+//
+// 旧行为（三个断点，本用例逐个钉死）：
+//  1. 重试只认 apply_credit 的 1001；账单已被上游付掉时返回 406「账单已支付」，
+//     旧代码当成失败 → 本地永远停在创建中。
+//  2. 账单已支付回执不带 hostid，必须用下游令牌握手反查主机。
+//  3. 上游账单被清理时返回「账单未找到」（**与"已支付"同为 406**），不能死等，
+//     要继续握手分流（无主机则重新下单）。
+func TestContract_RecoverAfterUpstreamPaid(t *testing.T) {
+	newReq := func() *pkgmodel.CreateInstanceRequest {
+		return &pkgmodel.CreateInstanceRequest{
+			ProviderType:      ProviderType,
+			Name:              "hs-recover",
+			BillingMode:       "monthly",
+			UpstreamInvoiceID: 808065,
+			DownstreamToken:   "0123456789abcdef0123456789abcdef",
+			DownstreamURL:     "https://hostsent.local",
+			DownstreamID:      849,
+			Extra:             map[string]interface{}{"upstream_pid": "529"},
+		}
+	}
+
+	t.Run("账单已在上游付掉：握手反查主机并按 Active 返回", func(t *testing.T) {
+		var paid, cleared bool
+		p := newMockProvider(t, func(w http.ResponseWriter, r *http.Request) {
+			_ = r.ParseForm()
+			switch r.URL.Path {
+			case "/zjmf_api_login":
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "jwt": "TESTJWT"})
+			case "/apply_credit":
+				paid = true
+				// 上游原文：status 是**字符串**，msg 是中文提示。
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": "406", "msg": "账单已支付", "data": map[string]interface{}{"PayStatus": "Paid"},
+				})
+			case "/cart/clear":
+				cleared = true
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": 400, "msg": "该订单已开通,请勿重新开通", "hostid": 2068, "domainstatus": "Active",
+				})
+			case "/host/header":
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": 200,
+					"data": map[string]interface{}{"host_data": map[string]interface{}{
+						"id": 2068, "domain": "hs-2-4-10mbps-gxxreu", "domainstatus": "Active",
+						"dedicatedip": "38.76.195.100", "nextduedate": 1794545644,
+					}},
+				})
+			default:
+				http.NotFound(w, r)
+			}
+		})
+
+		inst, err := p.CreateInstance(context.Background(), newReq())
+		if err != nil {
+			t.Fatalf("账单已被上游支付时必须视为成功（回源接管主机）: %v", err)
+		}
+		if !paid || !cleared {
+			t.Fatalf("应先支付账单再握手反查（paid=%v cleared=%v）", paid, cleared)
+		}
+		if inst == nil || inst.UpstreamID != "2068" {
+			t.Fatalf("unexpected instance: %+v", inst)
+		}
+		if inst.Status != pkgmodel.InstanceStatusRunning {
+			t.Errorf("status = %s, want running（上游 Active）", inst.Status)
+		}
+	})
+
+	t.Run("上游仍创建中（Pending）：接管并返回 creating，本地继续跟进", func(t *testing.T) {
+		p := newMockProvider(t, func(w http.ResponseWriter, r *http.Request) {
+			_ = r.ParseForm()
+			switch r.URL.Path {
+			case "/zjmf_api_login":
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "jwt": "TESTJWT"})
+			case "/apply_credit":
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": "406", "msg": "账单已支付", "data": map[string]interface{}{"PayStatus": "Paid"},
+				})
+			case "/cart/clear":
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": 400, "msg": "该订单已开通,请勿重新开通", "hostid": 2066, "domainstatus": "Pending",
+				})
+			case "/host/header":
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": 200,
+					"data": map[string]interface{}{"host_data": map[string]interface{}{
+						"id": 2066, "domain": "hs-2-4-10mbps-j4t9o5", "domainstatus": "Pending", "dcimid": 0,
+					}},
+				})
+			default:
+				http.NotFound(w, r)
+			}
+		})
+
+		inst, err := p.CreateInstance(context.Background(), newReq())
+		if err != nil {
+			t.Fatalf("上游主机已存在（仅未激活）时不得报错，应交回调用方按开通中跟进: %v", err)
+		}
+		if inst == nil || inst.UpstreamID != "2066" {
+			t.Fatalf("unexpected instance: %+v", inst)
+		}
+		if inst.Status != pkgmodel.InstanceStatusCreating {
+			t.Errorf("status = %s, want creating（上游 Pending）", inst.Status)
+		}
+	})
+
+	t.Run("上游账单已被清理：继续握手，无主机则重新下单", func(t *testing.T) {
+		var settled bool
+		p := newMockProvider(t, func(w http.ResponseWriter, r *http.Request) {
+			_ = r.ParseForm()
+			switch r.URL.Path {
+			case "/zjmf_api_login":
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "jwt": "TESTJWT"})
+			case "/cart/credit":
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": 200, "data": map[string]interface{}{"credit": "999.00", "currency": map[string]interface{}{"id": 1, "code": "CNY"}},
+				})
+			case "/apply_credit":
+				// 旧账单（808065）已被上游清理；新账单（808099）正常支付成功。
+				if r.Form.Get("invoiceid") == "808065" {
+					_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "406", "msg": "账单未找到"})
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": 1001, "msg": "支付完成", "data": map[string]interface{}{"hostid": []string{"2070"}},
+				})
+			case "/cart/clear":
+				// 无任何既有记录。
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "msg": "请求成功"})
+			case "/cart/add_to_shop":
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "msg": "添加成功"})
+			case "/cart/settle":
+				settled = true
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": 200, "msg": "结算成功", "data": map[string]interface{}{"hostid": []string{"2070"}, "invoiceid": 808099},
+				})
+			case "/host/header":
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": 200,
+					"data": map[string]interface{}{"host_data": map[string]interface{}{
+						"id": 2070, "domain": "hs-recover-zzz", "domainstatus": "Active", "nextduedate": 1794545644,
+					}},
+				})
+			default:
+				http.NotFound(w, r)
+			}
+		})
+
+		var invoices []int64
+		r := newReq()
+		r.OnInvoiceCreated = func(id int64) { invoices = append(invoices, id) }
+		inst, err := p.CreateInstance(context.Background(), r)
+		if err != nil {
+			t.Fatalf("账单已被清理时应重新下单而不是死等: %v", err)
+		}
+		if !settled {
+			t.Fatal("账单不存在时必须走新的下单/结算流程")
+		}
+		if inst == nil || inst.UpstreamID != "2070" {
+			t.Fatalf("unexpected instance: %+v", inst)
+		}
+		// 回调序列：先告知"旧账单作废(0)"，再落新账单 id。
+		if len(invoices) != 2 || invoices[0] != 0 || invoices[1] != 808099 {
+			t.Fatalf("账单回调 = %v, want [0 808099]（旧账单作废 + 新账单落库）", invoices)
+		}
+	})
+
+	t.Run("余额仍不足：保持可重试的终止性错误", func(t *testing.T) {
+		p := newMockProvider(t, func(w http.ResponseWriter, r *http.Request) {
+			_ = r.ParseForm()
+			switch r.URL.Path {
+			case "/zjmf_api_login":
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "jwt": "TESTJWT"})
+			case "/apply_credit":
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": 400, "msg": "余额不足：账单需15.00，现余额6.08",
+				})
+			default:
+				http.NotFound(w, r)
+			}
+		})
+
+		_, err := p.CreateInstance(context.Background(), newReq())
+		if err == nil {
+			t.Fatal("余额仍然不足时必须报错")
+		}
+		var perr *upstream.ProviderError
+		if !errors.As(err, &perr) || perr.Code != 400 {
+			t.Fatalf("err = %#v, want ProviderError code=400", err)
+		}
+	})
+}

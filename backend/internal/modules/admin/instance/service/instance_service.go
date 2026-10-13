@@ -22,7 +22,9 @@ import (
 	"hostsent/backend/internal/modules/admin/instance/repository"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	"hostsent/backend/internal/pkg/billingcycle"
+	"hostsent/backend/internal/pkg/credentials"
 	pkgmodel "hostsent/backend/internal/pkg/model"
+	"hostsent/backend/internal/pkg/money"
 	"hostsent/backend/internal/pkg/upstream"
 )
 
@@ -60,8 +62,14 @@ type InstanceService interface {
 	Sync(ctx context.Context, op Operator, id uint64) (*dto.DetailInfo, error)
 	Resize(ctx context.Context, op Operator, id uint64, req *dto.ResizeRequest) error
 	SetRemark(ctx context.Context, op Operator, id uint64, remark string) error
-	// AdjustBilling 手工调整账期/付款周期（管理端自定义，不产生账单）。
+	// AdjustBilling 手工调整账期/付款周期/绑定续费价（管理端自定义，不产生账单）。
 	AdjustBilling(ctx context.Context, op Operator, id uint64, req *dto.AdjustRequest) (*dto.DetailInfo, error)
+	// AdjustContext 读账期调整上下文（可选周期以**上游能力**为准 + 上游/我方各周期价）。
+	AdjustContext(ctx context.Context, id uint64) (*dto.AdjustContext, error)
+	// RelinkUpstream 按上游实例号重新关联（上游换机/换号；改上游号 = 改变后续所有上游动作的作用对象）。
+	RelinkUpstream(ctx context.Context, op Operator, id uint64, req *dto.RelinkRequest) (*dto.RelinkResult, error)
+	// RebindProduct 更换绑定的本地售出商品与上游镜像（上游换产品场景）。
+	RebindProduct(ctx context.Context, op Operator, id uint64, req *dto.RebindProductRequest) (*dto.RebindProductResult, error)
 	// RevealCredential 查看实例登录明文密码（高危：写审计流水后才返回）。
 	RevealCredential(ctx context.Context, op Operator, id uint64) (*dto.CredentialRevealResult, error)
 	Destroy(ctx context.Context, op Operator, id uint64, req *dto.DestroyRequest) error
@@ -121,6 +129,9 @@ type instanceService struct {
 	eventListener func(ctx context.Context, evt InstanceEvent)
 	// provisionRetry 实例维度「重新开通」（装配层注入：重投来源订单的履约任务），可为 nil。
 	provisionRetry func(ctx context.Context, orderID uint64) error
+	// secretKey 应用加密密钥：密码类操作（重置/重装）落库前用它加密（迁移 100）。
+	// 为空时跳过硬留（重置仍生效，只是事后无法回看），绝不落明文。
+	secretKey string
 }
 
 // InstanceEvent 实例操作事件：record() 与 RecordStageAction 收口后的对外通知载体。

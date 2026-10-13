@@ -46,6 +46,10 @@ type Order struct {
 	// 上游按它反查"这个下游订单在上游是否已有账单/主机"，是上游协议的幂等键；
 	// 每次重试必须是同一个值，否则握手查不到既有订单，又会在上游新建一份。
 	DownstreamToken string `gorm:"column:downstream_token;size:32;not null;default:''"`
+	// CredentialPassword 实例登录密码的**密文**（enc:v1: AES-256-GCM，迁移 101）。
+	// 与 downstream_token 同理：开通由异步 worker 重读订单执行，密码必须随单固化，
+	// 否则重试会生成新密码、与上游机器上的实际密码不一致。开通成功后原样搬进实例行。
+	CredentialPassword string `gorm:"column:credential_password;size:512"`
 	// ConfigOptions 客户选配项选择 JSON（T4.5）：配置项参数名 → 选中取值。
 	// 这是履约的唯一真源——开通参数以它为准（worker 重读订单即可取到，无需改任务表）。
 	ConfigOptions string `gorm:"column:config_options;type:jsonb"`
@@ -60,9 +64,12 @@ type Order struct {
 	PayMethod   string     `gorm:"column:pay_method;size:20"`                                 // 支付方式
 	PayTime     *time.Time `gorm:"column:pay_time"`                                           // 支付时间
 	ExpireTime  *time.Time `gorm:"column:expire_time"`                                        // 过期/计费到期时间
-	Remark      string     `gorm:"size:255"`                                                  // 备注
-	OperatorID  uint64     `gorm:"column:operator_id"`                                        // 最近操作人
-	RenewalID   uint64     `gorm:"column:renewal_id;index;default:0"`                         // 关联续费记录 ID（续费订单，doc60）
+	Remark      string     `gorm:"size:255"`                                                  // 管理员备注（内部可见）
+	// CustomerRemark 客户备注：客户下单时填写（或事后自助修改），随履约带入实例
+	// （instances.customer_remark）。与 Remark 严格分开，避免内部备注泄漏给客户。
+	CustomerRemark string `gorm:"column:customer_remark;size:255"`   // 客户备注
+	OperatorID     uint64 `gorm:"column:operator_id"`                // 最近操作人
+	RenewalID      uint64 `gorm:"column:renewal_id;index;default:0"` // 关联续费记录 ID（续费订单，doc60）
 	// 开放平台渠道（P6/T6.3）：channel='open' 表示下游应用代客下单；
 	// open_app_id 指向 open_apps.id，channel_customer_ref 存下游自己的终端客户标识（对账用）。
 	Channel            string `gorm:"column:channel;size:16;default:'';index"`
@@ -81,6 +88,10 @@ type Order struct {
 	CreatedAt    time.Time  `gorm:"autoCreateTime;index"`
 	UpdatedAt    time.Time  `gorm:"autoUpdateTime"`
 	DeletedAt    *time.Time `gorm:"index"`
+	// RenewalPrice 随单绑定的续费单价（元/周期），NULL 表示未指定（按商品定价实时算）。
+	// 订单是异步开通链路里唯一贯穿的载体（占位实例 / worker 转正都重读订单），
+	// 因此运营承诺的单机续费价必须在这里留快照，开通后落到 instances.renewal_price。
+	RenewalPrice *float64 `gorm:"column:renewal_price;type:decimal(15,2)"`
 	// 查询期附加字段（不落库，doc36 §3.1）：由支付中心 payment_orders 反查填充，
 	// 列表与详情据此展示并检索支付单号 / 渠道流水号。
 	PaymentNo string `gorm:"-"`

@@ -3,6 +3,7 @@ package zjmf
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -200,5 +201,145 @@ func TestSafeHostnamePadsToMinimum(t *testing.T) {
 		if len(got) > 50 {
 			t.Errorf("safeHostname(%q) = %q，超过 50 位", in, got)
 		}
+	}
+}
+func TestDefaultHostnameUniquePerOrder(t *testing.T) {
+	const product = "香港|六区·轻量 4-4 15Mbps"
+	seen := map[string]bool{}
+	for i := 0; i < 50; i++ {
+		// 每次用不同 token 模拟不同订单。
+		token := "0123456789abcdef0123456789abc" + string(rune('a'+i%26)) + string(rune('a'+(i/26)%26))
+		got := defaultHostname(product, token)
+		if seen[got] {
+			t.Fatalf("主机名重复: %q（第 %d 次）；重名会让上游把主机卡在 Pending", got, i+1)
+		}
+		seen[got] = true
+	}
+}
+
+// TestDefaultHostnameStablePerOrder 同一订单（同 token）重试必须得到同一个主机名
+// —— 重试在上游眼里要像"同一个开通请求"，主机名跳变会让上游再建一台。
+func TestDefaultHostnameStablePerOrder(t *testing.T) {
+	const product = "香港|六区·轻量 2-4 10Mbps"
+	const token = "50bbd03014388dcdc51a4c4d06953ead"
+	first := defaultHostname(product, token)
+	for i := 0; i < 5; i++ {
+		if got := defaultHostname(product, token); got != first {
+			t.Fatalf("同一订单主机名不稳定: got %q, want %q", got, first)
+		}
+	}
+}
+
+// TestDefaultHostnameRules 默认主机名仍须满足上游约束（长度、字符集、字母开头）。
+func TestDefaultHostnameRules(t *testing.T) {
+	const minLen = 10
+	cases := []struct{ name, token string }{
+		{"香港|六区·轻量 4-4 15Mbps", "abcdef0123456789abcdef0123456789"},
+		{"4核4G", "abcdef0123456789abcdef0123456789"},
+		{"香港|六区·轻量 4-4 15Mbps", ""}, // 未装配令牌时退回随机后缀
+		{"a", ""},
+		{strings.Repeat("超长商品名称很长的名字", 8), "abcdef0123456789abcdef0123456789"},
+	}
+	for _, c := range cases {
+		got := defaultHostname(c.name, c.token)
+		if len(got) < minLen {
+			t.Errorf("defaultHostname(%q,%q) = %q（%d 位），应至少 %d 位", c.name, c.token, got, len(got), minLen)
+		}
+		if len(got) > 50 {
+			t.Errorf("defaultHostname(%q,%q) = %q（%d 位），超过 50 位", c.name, c.token, got, len(got))
+		}
+		if got[0] < 'a' || got[0] > 'z' {
+			t.Errorf("defaultHostname(%q,%q) = %q，应以字母开头", c.name, c.token, got)
+		}
+		for _, r := range got {
+			if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-') {
+				t.Errorf("defaultHostname(%q,%q) = %q，含非法字符 %q", c.name, c.token, got, r)
+			}
+		}
+	}
+}
+
+// TestParseCloudSpecsPrefersSaleSpecs 回归（实测：商品「4-4 15Mbps」被解析成 30Mbps）。
+//
+// 上游同时下发语义相近的配置项，而匹配用的是"包含"：
+//   - `bw`（售卖带宽 15Mbps）与 `in_bw`（流入带宽 30Mbps）—— `in_bw` 含 `bw`；
+//   - `system_disk_size`（系统盘 40G）与 `data_disk_size`（数据盘 200G）—— 后者含 `disk`。
+//
+// 旧实现按遍历顺序赋值，附属配置项会把真正的售卖规格覆盖掉（实测数据：
+// upstream 528 的 bandwidth 被写成 30、disk 被数据盘覆盖）。
+// 现改为"先精确匹配、再宽松兜底"且同字段只认首个命中，钉死这两个键的优先级。
+func TestParseCloudSpecsPrefersSaleSpecs(t *testing.T) {
+	// 依 upstream 528（香港|六区·轻量 4-4 15Mbps）的真实 config_groups 精简构造。
+	groups := []ConfigGroup{{
+		Options: []ConfigOption{
+			{OptionName: "area|区域", Sub: []ConfigSub{{OptionName: "2|CN^中国香港"}}},
+			{OptionName: "bw|带宽", Sub: []ConfigSub{{OptionName: "15|15Mbps"}}},
+			{OptionName: "in_bw|流入带宽", Sub: []ConfigSub{{OptionName: "30|30Mbps"}}},
+			{OptionName: "cpu|CPU", Sub: []ConfigSub{{OptionName: "4|4核"}}},
+			{OptionName: "memory|内存", Sub: []ConfigSub{{OptionName: "4096|4G"}}},
+			{OptionName: "system_disk_size|系统盘", Sub: []ConfigSub{{OptionName: "40|40G"}}},
+			{OptionName: "data_disk_size|数据盘", Sub: []ConfigSub{{OptionName: "200|200G"}}},
+			{OptionName: "ip_num|IP数量", Sub: []ConfigSub{{OptionName: "1|1IP"}}},
+		},
+	}}
+
+	spec := parseCloudSpecs(groups)
+	if spec.CPU != 4 {
+		t.Errorf("CPU = %d, want 4", spec.CPU)
+	}
+	if spec.Memory != 4096 {
+		t.Errorf("Memory = %d, want 4096（MB）", spec.Memory)
+	}
+	// 关键：售卖带宽取 bw(15)，不能被 in_bw(30) 覆盖。
+	if spec.Bandwidth != 15 {
+		t.Errorf("Bandwidth = %d, want 15（bw 售卖带宽，不是 in_bw 流入带宽 %d）", spec.Bandwidth, 30)
+	}
+	// 关键：系统盘取 system_disk_size(40)，不能被 data_disk_size(200) 覆盖。
+	if spec.Disk != 40 {
+		t.Errorf("Disk = %d, want 40（系统盘，不是数据盘 200）", spec.Disk)
+	}
+}
+
+// TestParseCloudSpecsOrderIndependent 两种下发顺序都必须得到同一结果。
+func TestParseCloudSpecsOrderIndependent(t *testing.T) {
+	// 附属项在前：旧实现（按顺序覆盖）会在这里出错。
+	groups := []ConfigGroup{{
+		Options: []ConfigOption{
+			{OptionName: "in_bw|流入带宽", Sub: []ConfigSub{{OptionName: "30|30Mbps"}}},
+			{OptionName: "data_disk_size|数据盘", Sub: []ConfigSub{{OptionName: "200|200G"}}},
+			{OptionName: "bw|带宽", Sub: []ConfigSub{{OptionName: "15|15Mbps"}}},
+			{OptionName: "system_disk_size|系统盘", Sub: []ConfigSub{{OptionName: "40|40G"}}},
+		},
+	}}
+	spec := parseCloudSpecs(groups)
+	if spec.Bandwidth != 15 {
+		t.Errorf("Bandwidth = %d, want 15（与配置项顺序无关）", spec.Bandwidth)
+	}
+	if spec.Disk != 40 {
+		t.Errorf("Disk = %d, want 40（与配置项顺序无关）", spec.Disk)
+	}
+}
+
+// TestParseCloudSpecsFallsBackToLooseMatch 只有宽松键（无精确键）时仍能识别。
+//
+// 上游部分商品的系统盘键名是中文「系统盘」，带宽键可能是 bandwidth；
+// 精确轮匹配不到，必须靠宽松轮兜底（否则规格整段丢失）。
+func TestParseCloudSpecsFallsBackToLooseMatch(t *testing.T) {
+	groups := []ConfigGroup{{
+		Options: []ConfigOption{
+			{OptionName: "带宽", Sub: []ConfigSub{{OptionName: "20|20Mbps"}}},
+			{OptionName: "系统盘空间", Sub: []ConfigSub{{OptionName: "60|60G"}}},
+			{OptionName: "内存大小", Sub: []ConfigSub{{OptionName: "8192|8G"}}},
+		},
+	}}
+	spec := parseCloudSpecs(groups)
+	if spec.Bandwidth != 20 {
+		t.Errorf("Bandwidth = %d, want 20（宽松匹配「带宽」）", spec.Bandwidth)
+	}
+	if spec.Disk != 60 {
+		t.Errorf("Disk = %d, want 60（宽松匹配「系统盘空间」）", spec.Disk)
+	}
+	if spec.Memory != 8192 {
+		t.Errorf("Memory = %d, want 8192（宽松匹配「内存大小」）", spec.Memory)
 	}
 }

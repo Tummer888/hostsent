@@ -30,6 +30,7 @@ import (
 	ucorderhandler "hostsent/backend/internal/modules/uc/order/handler"
 	ucorderservice "hostsent/backend/internal/modules/uc/order/service"
 	"hostsent/backend/internal/pkg/billingcycle"
+	"hostsent/backend/internal/pkg/credentials"
 	"hostsent/backend/internal/pkg/model"
 	pkgmodel "hostsent/backend/internal/pkg/model"
 	"hostsent/backend/internal/pkg/observability"
@@ -48,7 +49,7 @@ import (
 // buildOrder 构造订单服务（履约适配器/返现提成钩子/销售归属）与用户中心下单、后台代下单。
 func (a *asm) buildOrder() {
 	// 订单履约：上游开通适配器（打通订单 paid/provisioning → 上游创建实例）
-	a.orderService = orderservice.NewOrderService(a.orderRepo, a.orderItemRepo, a.orderRefundRepo, orderservice.NewUpstreamProvisionAdapter(buildOrderProvisionDeps(a.prodCatalogService, a.providerService, a.upstreamMgr, a.syncRepo, a.openEventPublisher, a.orderRepo, a.configValueReader, a.logger)))
+	a.orderService = orderservice.NewOrderService(a.orderRepo, a.orderItemRepo, a.orderRefundRepo, orderservice.NewUpstreamProvisionAdapter(buildOrderProvisionDeps(a.prodCatalogService, a.providerService, a.upstreamMgr, a.syncRepo, a.openEventPublisher, a.orderRepo, a.configValueReader, a.logger, a.cfg.App.EncryptKey)))
 	// 异步开通（T5.1）：下单/后台重试只投递任务，工作池领取后执行上游开通（约 50s > write_timeout）。
 	a.provisionEnqueuer = orderservice.NewProvisionEnqueuer(a.provisionTaskRepo, a.logger)
 	a.orderService.SetProvisionQueue(a.provisionEnqueuer)
@@ -171,6 +172,8 @@ func (a *asm) buildOrder() {
 				specsSnapshot = spec.Specs
 			}
 			now := time.Now()
+			// 续费价绑定：仅首次价与续费价分开谈定的代下单才带（nil=不绑定，续费按商品定价算）。
+			renewalPrice := normalizeRenewalPrice(req.RenewalPrice)
 			order := &ordermodel.Order{
 				OrderNo:        fmt.Sprintf("AO%d%d%04d", userID, now.Unix(), rand.Intn(10000)),
 				UserID:         userID,
@@ -190,6 +193,8 @@ func (a *asm) buildOrder() {
 				DiscountSource: quote.Source,
 				PriceSnapshot:  adminSnapshotJSON(quote.Snapshot),
 				Status:         ordermodel.OrderStatusPending,
+				// 续费价承诺随单落库：异步开通 worker 只重读订单，实例绑定价由此转写。
+				RenewalPrice: renewalPrice,
 				// 代下单的操作人留痕：orders.operator_id 是「最近操作人」，
 				// 后台客服代客下单时指向管理员，用户自助下单为 0。
 				OperatorID: operatorID,
@@ -262,6 +267,11 @@ func (a *asm) buildOrder() {
 	a.userHandler.SetOrderConfigReader(func(ctx context.Context, productID uint64) (*userdto.AdminOrderConfigResponse, error) {
 		return buildAdminOrderConfig(ctx, a.prodCatalogService, a.priceMatrixService, productID)
 	})
+	// 代下单算价预览：与真正下单共用 adminOrderQuote（同一条管线），
+	// 保证弹窗里看到的原价就是落库的原价，不会出现"预览一个数、成交另一个数"。
+	a.userHandler.SetOrderQuoteReader(func(ctx context.Context, userID uint64, req userdto.AdminOrderQuoteRequest) (*userdto.AdminOrderQuoteResponse, error) {
+		return a.buildAdminOrderQuote(ctx, userID, req)
+	})
 	a.refundHandler = orderhandler.NewRefundHandler(a.orderService)
 	// 用户中心订单：余额支付下单 + 复用履约适配器开通上游
 	// ensureOpenable：下单前校验商品能否直连开通，财务型上游（账单推送制）不支持单次开通，先拒绝避免误扣款。
@@ -310,9 +320,11 @@ func buildOrderProvisionDeps(
 	orderRepo orderrepo.OrderRepository,
 	configValueReader func(ctx context.Context, key string) (string, bool, error),
 	logger *zap.Logger,
+	encryptKey string,
 ) orderservice.ProvisionDeps {
 	return orderservice.ProvisionDeps{
-		Logger: logger,
+		Logger:     logger,
+		EncryptKey: encryptKey,
 		// 上游账单 id 落库（开通幂等）：账单生成即记，重试复用同一张，不再重复下单。
 		RecordUpstreamInvoice: func(ctx context.Context, orderID uint64, invoiceID int64) error {
 			if invoiceID <= 0 {
@@ -322,6 +334,31 @@ func buildOrderProvisionDeps(
 		},
 		// 上游对接令牌落库（首次履约生成后固化）：上游据此反查既有账单/主机。
 		RecordDownstreamToken: orderRepo.SetDownstreamToken,
+		// 登录密码随单固化（首次履约生成后复用）：上游从不回传密码，不留存就永远查不到。
+		// 先原子占位（只在列为空时写入），再读回——并发重试下两个 worker 也只会有一个密码，
+		// 不会出现"A 下发密码 X、本地记着密码 Y"的错位。
+		EnsureCredentialPassword: func(ctx context.Context, orderID uint64, preferred string) (string, error) {
+			if strings.TrimSpace(encryptKey) == "" {
+				return "", errors.New("未配置加密密钥（app.encrypt_key），无法留存实例密码")
+			}
+			plain := strings.TrimSpace(preferred)
+			if plain == "" {
+				plain = credentials.GeneratePassword()
+			}
+			enc, err := credentials.EncryptSecret(plain, encryptKey)
+			if err != nil {
+				return "", err
+			}
+			if serr := orderRepo.SetCredentialPasswordIfEmpty(ctx, orderID, enc); serr != nil {
+				return "", serr
+			}
+			// 读回权威值：本进程若输给并发 worker，拿到的是对方写入的那一份
+			// （上游收到的也一定是那一个，因为它是先写入、再下发）。
+			if order, ferr := orderRepo.FindByID(ctx, orderID); ferr == nil && order != nil {
+				return firstNonEmpty(order.CredentialPassword, enc), nil
+			}
+			return enc, nil
+		},
 		// 本站对外地址（上游握手标识）：运营可在系统配置 site.public_url 填真实地址。
 		PublicURL: func(ctx context.Context) string {
 			if raw, ok, err := configValueReader(ctx, "site.public_url"); err == nil && ok {
@@ -515,6 +552,13 @@ func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order
 		SellProductID:      order.ProductID,
 		UpstreamProductID:  upstreamProductID,
 		ProviderInstanceID: inst.UpstreamID,
+		// 续费价绑定随订单带过来（未指定时为 nil）：没有占位行的存量路径
+		// （常规 upsert 新建实例）也据此保留运营谈定的续费价。
+		RenewalPrice: orderRenewalPrice(order),
+		// 登录密码密文随单搬到实例：订单上那份是开通时下发上游的**同一个**密码
+		// （重试复用同一份），因此这里必须原样带走，不能重新生成。
+		// 原样搬运的前提：order.CredentialPassword 已是 enc:v1: 密文（不透明搬运，不解密）。
+		CredentialPassword: order.CredentialPassword,
 	}
 	if !inst.ExpireAt.IsZero() {
 		exp := inst.ExpireAt
@@ -693,6 +737,28 @@ func adminOrderSpec(ctx context.Context, catalog catalogservice.ProductService, 
 	return nil, errors.New("所选规格不存在或已下架")
 }
 
+// normalizeRenewalPrice 归一化随单绑定的续费价：nil 或 <=0 视为不绑定（返回 nil）。
+// 负价/零价在续费侧没有意义（0 元续费会让续费单被算价守卫拒绝），
+// 因此统一收敛成"未绑定"，避免把一个不可能成交的价格写进实例。
+func normalizeRenewalPrice(price *float64) *float64 {
+	if price == nil || *price <= 0 {
+		return nil
+	}
+	v := adminRound2(*price)
+	if v <= 0 {
+		return nil
+	}
+	return &v
+}
+
+// orderRenewalPrice 取订单上的续费价绑定（已归一，nil 表示未绑定）。
+func orderRenewalPrice(order *ordermodel.Order) *float64 {
+	if order == nil {
+		return nil
+	}
+	return normalizeRenewalPrice(order.RenewalPrice)
+}
+
 // adminOrderQuote 后台代下单算价：手填价（price>0）走高优先级的 ManualAmount，
 // 否则走统一算价管线（周期矩阵 → SKU 价 → 折扣 → 选配加价）。
 func (a *asm) adminOrderQuote(ctx context.Context, userID uint64, product *catalogdto.ProductInfo, specCode, cycle string, qty int, selections map[string]string, manualPrice float64) (*pricing.Quote, error) {
@@ -716,6 +782,54 @@ func (a *asm) adminOrderQuote(ctx context.Context, userID uint64, product *catal
 		in.ManualAmount = &manualPrice
 	}
 	return a.pricePipeline.Resolve(ctx, in)
+}
+
+// buildAdminOrderQuote 代下单算价预览：按所选规格/周期/选配项跑一遍下单时的算价，
+// 但不落库、不扣款、不动库存（与用户端 POST /uc/orders/quote 同性质）。
+//
+// 选配项先经 ResolveOptionPricing 归一（补齐必选默认值、拒绝非法取值），
+// 再交给算价管线，这样预览值就是把选配加价算进去后的真实基准价。
+func (a *asm) buildAdminOrderQuote(ctx context.Context, userID uint64, req userdto.AdminOrderQuoteRequest) (*userdto.AdminOrderQuoteResponse, error) {
+	product, err := a.prodCatalogService.FindByID(ctx, req.ProductID)
+	if err != nil {
+		return nil, err
+	}
+	cycle, err := adminOrderCycle(product.PriceModel, req.BillingCycle)
+	if err != nil {
+		return nil, err
+	}
+	qty := req.Quantity
+	if qty <= 0 {
+		qty = 1
+	}
+	spec, err := adminOrderSpec(ctx, a.prodCatalogService, product.ID, req.SpecCode)
+	if err != nil {
+		return nil, err
+	}
+	specCode := ""
+	if spec != nil {
+		specCode = spec.SpecCode
+	}
+	pricingResult, err := a.prodCatalogService.ResolveOptionPricing(ctx, product.ID, cycle, req.ConfigSelections)
+	if err != nil {
+		return nil, err
+	}
+	selections := map[string]string{}
+	if pricingResult != nil {
+		selections = pricingResult.Selections
+	}
+	quote, err := a.adminOrderQuote(ctx, userID, product, specCode, cycle, qty, selections, 0)
+	if err != nil {
+		return nil, err
+	}
+	return &userdto.AdminOrderQuoteResponse{
+		OriginalAmount: quote.OriginalAmount,
+		DiscountAmount: quote.DiscountAmount,
+		FinalAmount:    quote.FinalAmount,
+		OptionAmount:   quote.OptionAmount,
+		DiscountSource: quote.Source,
+		Currency:       "CNY",
+	}, nil
 }
 
 // buildAdminOrderConfig 组装后台代下单可选项：SKU、可售周期、客户选配项与上游固定配置。
@@ -758,6 +872,7 @@ func buildAdminOrderConfig(ctx context.Context, catalog catalogservice.ProductSe
 				PriceModel: sp.PriceModel,
 				Stock:      sp.Stock,
 				Cycles:     cycles,
+				Specs:      sp.Specs,
 			})
 		}
 	}

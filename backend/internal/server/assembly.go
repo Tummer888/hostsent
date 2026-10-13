@@ -281,13 +281,15 @@ type asm struct {
 	providerTypeRepo         providerrepo.ProviderTypeRepository
 	provisionEnqueuer        *orderservice.ProvisionEnqueuer
 	provisionWorker          *orderservice.ProvisionWorker
-	publishScheduler         *publishsched.Scheduler
-	rechargeHandler          *finrechargehandler.RechargeHandler
-	rechargeRepo             finrechargerepo.RechargeRepository
-	rechargeService          finrechargeservice.RechargeService
-	reconHandler             *finbillhandler.ReconHandler
-	reconService             finbillservice.ReconService
-	reconcileHandler         *reconcilehandler.ReconcileHandler
+	// provisioningPromoter 开通中滞留推进器：上游主机异步就绪后把订单推向服务中。
+	provisioningPromoter *orderservice.ProvisioningPromoter
+	publishScheduler     *publishsched.Scheduler
+	rechargeHandler      *finrechargehandler.RechargeHandler
+	rechargeRepo         finrechargerepo.RechargeRepository
+	rechargeService      finrechargeservice.RechargeService
+	reconHandler         *finbillhandler.ReconHandler
+	reconService         finbillservice.ReconService
+	reconcileHandler     *reconcilehandler.ReconcileHandler
 	// 对账差异台账（doc120）：扫描服务 + 周期调度器 + 台账页处理器。
 	reconcileFindingHandler *reconcilehandler.FindingHandler
 	findingScanner          reconcileservice.FindingScanner
@@ -493,6 +495,13 @@ func (a *asm) buildBridges() {
 		a.provisionTaskRepo, a.orderService,
 		(&provisionManualNotifier{notifySvc: a.notifySvc, logger: a.logger}).Notify,
 		a.logger, orderservice.ProvisionWorkerOptions{},
+	)
+	// 开通中滞留推进器：财务型上游（zjmf）没有实例同步 scope，主机异步就绪后
+	// 没有任何后台任务会再看一眼 —— 订单会永远停在 provisioning（用户实测）。
+	// 这里周期回源并推进；拉取失败/仍在创建都只跳过，不产生额外上游副作用。
+	a.provisioningPromoter = orderservice.NewProvisioningPromoter(
+		a.orderRepo, a.instanceOpsService, a.orderService,
+		a.logger, orderservice.ProvisioningPromoterOptions{},
 	)
 }
 
