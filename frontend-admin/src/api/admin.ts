@@ -25,6 +25,7 @@ import type {
   ProviderTypeItem,
   PlatformResources,
   ProviderUpdateRequest,
+  ReconcileFindingListResponse,
   ReconcileListQuery,
   ReconcileListResponse,
   SyncDiffInfo,
@@ -614,5 +615,26 @@ export function getReconcileList(params: ReconcileListQuery): Promise<ReconcileL
       page: params.page,
       page_size: params.page_size,
     },
+  })
+}
+
+// 对账差异台账（doc120）：持久化的差异记录，可处置（确认/忽略）。
+export function getReconcileFindings(
+  params: { provider_id?: number; page?: number; page_size?: number },
+): Promise<ReconcileFindingListResponse> {
+  return request.get<ReconcileFindingListResponse>({
+    url: '/resource/reconcile/findings',
+    params: {
+      provider_id: params.provider_id,
+      page: params.page,
+      page_size: params.page_size,
+    },
+  })
+}
+
+export function updateReconcileFinding(id: number, body: { status: string; note?: string }): Promise<void> {
+  return request.put<void>({
+    url: `/resource/reconcile/findings/${id}`,
+    data: body,
   })
 }
