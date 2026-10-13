@@ -45,18 +45,14 @@ export interface CashbackInfo {
   created_at: string
 }
 
-/** 提现单。 */
+/** 提现单（审核人属于平台内部信息，接口不下发）。 */
 export interface WithdrawalInfo {
   id: number
   withdraw_no: string
-  user_id: number
-  username: string
   amount: number
   channel: string
   account: string
   status: string
-  audit_by: number
-  audit_by_name: string
   audited_at: string
   remark: string
   created_at: string

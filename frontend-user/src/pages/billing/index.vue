@@ -457,7 +457,7 @@ const payMethodOptions = [
 
 // ========== 数据 ==========
 const loading = ref(false)
-const wallet = ref<WalletInfo>({ user_id: 0, balance: 0, frozen: 0, total_income: 0, total_expense: 0 })
+const wallet = ref<WalletInfo>({ balance: 0, frozen: 0, total_income: 0, total_expense: 0 })
 const bills = ref<BillInfo[]>([])
 const consumeTxs = ref<TransactionInfo[]>([])
 

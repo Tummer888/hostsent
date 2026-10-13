@@ -10,7 +10,6 @@ export interface ListMeta {
 }
 
 export interface WalletInfo {
-  user_id: number
   balance: number
   frozen: number
   total_income: number
@@ -20,37 +19,38 @@ export interface WalletInfo {
 export interface TransactionInfo {
   id: number
   tx_no: string
-  user_id: number
   type: string
   direction: number
   amount: number
   balance_before: number
   balance_after: number
-  order_id?: number
   order_no?: string
   ref_no?: string
-  biz_type?: string
   remark?: string
   created_at: string
+}
+
+export interface TransactionSummary {
+  income_total: number
+  expense_total: number
+  net_total: number
+  tx_count: number
 }
 
 export interface TransactionListResponse {
   items: TransactionInfo[]
   meta: ListMeta
+  summary?: TransactionSummary
 }
 
 export interface RechargeInfo {
   id: number
   recharge_no: string
-  user_id: number
   amount: number
   method: string
   status: string
-  channel_tx?: string
-  /** 支付中心渠道编码与支付单 ID（在线充值经收银台下单后回填） */
+  /** 支付渠道编码（在线充值经收银台下单后回填） */
   channel_code?: string
-  payment_order_id?: number
-  remark?: string
   paid_at?: string
   created_at: string
 }

@@ -204,7 +204,7 @@ defineOptions({ name: 'BillingBalance' })
 const router = useRouter()
 const { isMobile } = useIsMobile()
 
-const wallet = ref<WalletInfo>({ user_id: 0, balance: 0, frozen: 0, total_income: 0, total_expense: 0 })
+const wallet = ref<WalletInfo>({ balance: 0, frozen: 0, total_income: 0, total_expense: 0 })
 const transactions = ref<TransactionInfo[]>([])
 const recharges = ref<RechargeInfo[]>([])
 const loading = ref(false)

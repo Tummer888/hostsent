@@ -3,36 +3,6 @@ import request from '@/utils/request'
 // 用户中心 · 支付接口（baseURL=/api/v1，拼接为 /api/v1/uc/payment/*）
 // 注意：本项目 request 拦截器返回完整信封 { code, message, data }，因此各函数返回 .data。
 
-export interface PaymentField {
-  key: string
-  label: string
-  type: string
-  required: boolean
-  secret: boolean
-  placeholder?: string
-  help?: string
-  default?: string
-  options?: Array<{ label: string; value: string }>
-}
-
-export interface PaymentCapabilityDescriptor {
-  mode: string
-  scenes: string[] | null
-  operations: string[] | null
-  credential_schema: PaymentField[] | null
-  endpoint_schema: PaymentField[] | null
-  cert_mode: string
-  signer_type: string
-  supports_payout: boolean
-  supports_partial_refund: boolean
-  supports_query: boolean
-  currency: string
-  fee_rate: number
-  settle_mode: string
-  implemented: boolean
-  doc_url: string
-}
-
 /** 收银台可选支付渠道 */
 export interface PaymentChannelInfo {
   id: number
@@ -42,12 +12,8 @@ export interface PaymentChannelInfo {
   type_name: string
   mode: string
   scenes: string[]
-  fee_rate: number
-  settle_mode: string
   min_amount_fen: number
   max_amount_fen: number
-  instructions?: string
-  capabilities: PaymentCapabilityDescriptor
 }
 
 export interface MethodOptions {
@@ -59,7 +25,6 @@ export interface MethodOptions {
 export interface PaymentOrderInfo {
   id: number
   payment_no: string
-  user_id: number
   biz_type: string
   biz_id: number
   biz_no: string
@@ -71,7 +36,6 @@ export interface PaymentOrderInfo {
   channel_name: string
   scene: string
   status: string
-  channel_tx: string
   pay_url: string
   qrcode: string
   instructions: string
@@ -112,7 +76,6 @@ export interface PayoutAccountCreateRequest {
 export interface WithdrawInfo {
   id: number
   withdraw_no: string
-  user_id: number
   amount: number
   channel: string
   channel_name?: string
@@ -122,8 +85,8 @@ export interface WithdrawInfo {
   status: string
   payout_no: string
   payout_mode: string
-  channel_tx: string
-  remark: string
+  audited_at?: string
+  paid_at?: string
   created_at: string
 }
 

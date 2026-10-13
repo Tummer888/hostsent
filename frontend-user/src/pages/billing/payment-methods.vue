@@ -229,7 +229,7 @@
     >
       <t-alert
         theme="info"
-        message="提交后金额将从可用余额转入冻结，后台审核通过后按所选打款方式出账；驳回则解冻退回。"
+        message="提交后金额将从可用余额转入冻结，审核通过后按所选打款方式出账；驳回则解冻退回。"
         style="margin-bottom: 12px"
       />
       <t-form label-align="top" :data="withdrawForm" @submit.prevent>

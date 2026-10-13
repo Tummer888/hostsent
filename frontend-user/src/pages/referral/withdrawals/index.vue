@@ -66,7 +66,7 @@
         </t-tag>
       </template>
       <template #audit="{ row }">
-        <div>{{ row.audit_by_name || '—' }}</div>
+        <div>{{ auditText(row.status) }}</div>
         <div class="cell-sub">{{ formatTime(row.audited_at) }}</div>
       </template>
       <template #created_at="{ row }">{{ formatTime(row.created_at) }}</template>
@@ -168,7 +168,7 @@ const columns: PrimaryTableCol<WithdrawalInfo>[] = [
   { colKey: 'withdraw_no', title: '提现单号', minWidth: 200 },
   { colKey: 'amount', title: '提现金额', width: 130 },
   { colKey: 'status', title: '状态', width: 110 },
-  { colKey: 'audit', title: '审核', width: 160 },
+  { colKey: 'audit', title: '审核状态', width: 160 },
   { colKey: 'created_at', title: '申请时间', width: 170 },
 ]
 
@@ -178,6 +178,14 @@ const canOperate = computed(
 
 function money(v?: number): string {
   return Number(v || 0).toFixed(2)
+}
+
+/** 审核结论文案：只体现结果，不暴露平台经办人。 */
+function auditText(status: string): string {
+  if (status === 'approved' || status === 'paid') return '审核通过'
+  if (status === 'rejected') return '审核未通过'
+  if (status === 'pending') return '待审核'
+  return '—'
 }
 
 function statusText(s: string): string {

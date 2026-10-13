@@ -252,27 +252,11 @@
       </t-empty>
     </section>
 
-    <t-dialog
-      v-model:visible="vnc.visible"
-      :header="`远程控制台 · ${vnc.name}`"
-      width="80%"
-      :footer="false"
-      destroy-on-close
-    >
-      <div class="vnc-wrap">
-        <iframe v-if="vnc.url && isHttp(vnc.url)" :src="vnc.url" class="vnc-frame" frameborder="0" />
-        <t-empty v-else :description="'控制台地址无法内嵌显示，请点击打开'">
-          <template #action>
-            <t-button theme="primary" @click="openVnc">打开控制台</t-button>
-          </template>
-        </t-empty>
-      </div>
-    </t-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, type Component } from 'vue'
+import { computed, onMounted, ref, type Component } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { TTable } from '@/plugins/tdesign-heavy'
@@ -334,7 +318,6 @@ const loading = ref(false)
 /** 加载失败原因（空串=正常）。模板据此显示错误态 + 重试，而不是留一片空白。 */
 const loadError = ref('')
 const filter = ref<'all' | 'running' | 'expiring' | 'stopped'>('all')
-const vnc = reactive<{ visible: boolean; name: string; url: string }>({ visible: false, name: '', url: '' })
 const retryingId = ref(0)
 
 const columns: PrimaryTableCol<InstanceInfo>[] = [
@@ -463,22 +446,31 @@ async function onRetry(row: InstanceInfo) {
   }
 }
 
+/**
+ * 打开远程控制台：取到地址后直接开新浏览器标签页。
+ *
+ * 与详情页同一实现：控制台页面自带全屏/键鼠捕获，内嵌 iframe 在小窗口里
+ * 操作体验很差，新标签页是这类控制台的标准用法。
+ */
 async function onVNC(row: InstanceInfo) {
+  const tab = window.open('', '_blank', 'noopener,noreferrer')
+  if (!tab) {
+    MessagePlugin.warning('浏览器拦截了新窗口，请允许本站弹出窗口后重试')
+    return
+  }
   try {
     const res = await vncInstance(row.id)
-    vnc.name = row.name
-    vnc.url = res.data?.url || ''
-    vnc.visible = true
-  } catch {
-    /* 错误已由拦截器提示 */
+    const url = res.data?.url || ''
+    if (!url) {
+      tab.close()
+      MessagePlugin.warning('控制台地址暂不可用，请稍后重试')
+      return
+    }
+    tab.location.href = url
+  } catch (error) {
+    tab.close()
+    throw error
   }
-}
-
-function openVnc() {
-  window.open(vnc.url, '_blank')
-}
-function isHttp(url: string): boolean {
-  return /^https?:/i.test(url)
 }
 
 function goDetail(row: InstanceInfo) {
@@ -634,21 +626,6 @@ onMounted(() => load(false))
   display: flex;
   gap: var(--space-sm);
   flex-wrap: wrap;
-}
-
-/* ---------- VNC ---------- */
-.vnc-wrap {
-  height: 62vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.vnc-frame {
-  width: 100%;
-  height: 100%;
-  border: 1px solid var(--td-component-border);
-  border-radius: 6px;
-  background: #000;
 }
 
 @media (max-width: 1024px) {
