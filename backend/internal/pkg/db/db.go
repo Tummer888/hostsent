@@ -1934,16 +1934,11 @@ var seedMenuDefaults = []SeedMenu{
 	{ParentKey: "admin:/resource/channels", Platform: menumodel.PlatformAdmin, Name: "自营平台对接", Type: menumodel.TypeMenu, Path: "/resource/platforms", Component: "resource/providers/index", Icon: "server", SortOrder: 2, Status: menumodel.StatusActive},
 	// 容量与位置只有一个叶子，取消二级目录（R1），叶子提升为二级。
 	{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "资源池与容量", Type: menumodel.TypeMenu, Path: "/resource/pools", Component: "resource/pools/index", Icon: "layers", SortOrder: 2, Status: menumodel.StatusActive},
-	// 同步与调度（T3.6 合并页）：调度 / 任务 / 日志 / 差异 / 待确认调价多 Tab。
-	// 目录路径 sync-group 原为二级目录，本次压平（R1）后不再保留。
-	{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "同步与调度", Type: menumodel.TypeMenu, Path: "/resource/sync-center", Component: "resource/sync-center/index", Icon: "refresh", SortOrder: 3, Status: menumodel.StatusActive},
-	// 运维（doc16 §9.2）：异常处理 + 任务队列 + 实例对账；模块配置并入系统配置（/system/config）。
-	{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "运维", Type: menumodel.TypeDirectory, Path: "/resource/ops", Icon: "setting", SortOrder: 4, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "异常处理", Type: menumodel.TypeMenu, Path: "/resource/anomalies", Component: "resource/anomalies/index", Icon: "error-circle", SortOrder: 1, Status: menumodel.StatusActive},
-	// 任务队列（S3）：开通履约 / 实例动作 / 续费 / 同步四类任务的「是否到达上游」。
-	{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "任务队列", Type: menumodel.TypeMenu, Path: "/resource/task-queue", Component: "resource/task-queue/index", Icon: "refresh", SortOrder: 2, Status: menumodel.StatusActive},
-	// 实例对账（S4）：本地已开通实例与上游的售价/成本/到期时间比对。
-	{ParentKey: "admin:/resource/ops", Platform: menumodel.PlatformAdmin, Name: "实例对账", Type: menumodel.TypeMenu, Path: "/resource/reconcile", Component: "resource/reconcile/index", Icon: "verify", SortOrder: 3, Status: menumodel.StatusActive},
+	// 同步状态运维控制台（T3.6 起为合并页；doc120 把「运维」三件套并入）：
+	// 调度 / 目录与状态同步（入站）/ 业务动作投递（出站）/ 实例对账 / 异常与失败 / 待确认调价。
+	// 业务动作（开通·续费·暂停·删除）是「我方→上游」，与目录与状态（上游→我方）方向相反，
+	// 在同一页里以独立页签分开，避免两套数据源看起来重合。
+	{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "同步状态运维控制台", Type: menumodel.TypeMenu, Path: "/resource/sync-center", Component: "resource/sync-center/index", Icon: "refresh", SortOrder: 3, Status: menumodel.StatusActive},
 	// —— 实例管理（一级菜单，跨用户操作、维护与售后）：见 docs/实施计划/61-实例运维管理台实施计划.md
 	// 云主机实例（原「资源管理 → 实例 → 云主机实例」）迁入本域，路径 /resource/instances → /instances/inventory（doc102 §3.3）。
 	// 父级必须排在子项之前，否则 ParentKey 解析取不到父节点会导致 seed 失败。

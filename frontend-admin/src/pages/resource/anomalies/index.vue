@@ -1,6 +1,7 @@
 <template>
   <div class="page-body resource-module">
-    <header class="page-header surface-card">
+    <!-- 嵌入「同步状态运维控制台」页签时不再渲染页头：页签已是标题，重复的 chip 只是噪声。 -->
+    <header v-if="!embedded" class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
           <ErrorCircleIcon size="22" aria-hidden="true" />
@@ -118,6 +119,10 @@ import { getInstanceList, getProviderList, getSyncLogList, getSyncTaskList } fro
 import type { InstanceInfo, ProviderInfo, SyncLogInfo, SyncTaskInfo } from '@/types/interface'
 
 defineOptions({ name: 'ResourceAnomalies' })
+
+// embedded：作为「同步状态运维控制台」的页签内容渲染时为 true（隐藏页头）。
+const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
+const embedded = computed(() => props.embedded)
 
 const activeTab = ref('tasks')
 

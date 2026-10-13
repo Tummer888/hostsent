@@ -1625,3 +1625,51 @@ func TestLiveCostManagementSeed(t *testing.T) {
 		t.Errorf("finance_admin 应获 3 个 finance:cost:* 权限，实际 %d 个", granted)
 	}
 }
+
+// TestLiveOpsMergedIntoSyncCenter 验证 092 迁移：运维三件套并入同步状态运维控制台。
+//
+//   - 迁移文件可重复执行（幂等）；
+//   - 旧「运维」目录与三个叶子（/resource/ops、anomalies、task-queue、reconcile）已删除；
+//   - 合并页 /resource/sync-center 存在且唯一（name 由 seed 在后端重启后对齐）。
+func TestLiveOpsMergedIntoSyncCenter(t *testing.T) {
+	dsn := os.Getenv("LIVE_DB_DSN")
+	if dsn == "" {
+		dsn = "host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable"
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+
+	sqlBytes, err := os.ReadFile("../../../migrations/092_merge_ops_into_sync_center.sql")
+	if err != nil {
+		t.Fatalf("读取迁移文件失败: %v", err)
+	}
+	for i := 1; i <= 2; i++ {
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			t.Fatalf("第 %d 次执行迁移失败: %v", i, err)
+		}
+	}
+
+	var oldMenus int64
+	if err := db.Raw(
+		`SELECT count(*) FROM menus
+		  WHERE platform = 'admin'
+		    AND path IN ('/resource/ops', '/resource/anomalies', '/resource/task-queue', '/resource/reconcile')`,
+	).Scan(&oldMenus).Error; err != nil {
+		t.Fatalf("查询旧运维菜单失败: %v", err)
+	}
+	if oldMenus != 0 {
+		t.Errorf("旧运维菜单（/resource/ops 及其三个叶子）应已删除，仍存在 %d 行", oldMenus)
+	}
+
+	var merged int64
+	if err := db.Raw(
+		"SELECT count(*) FROM menus WHERE platform = 'admin' AND path = '/resource/sync-center'",
+	).Scan(&merged).Error; err != nil {
+		t.Fatalf("查询合并页菜单失败: %v", err)
+	}
+	if merged != 1 {
+		t.Errorf("合并页 /resource/sync-center 应存在且唯一，实际 %d 行", merged)
+	}
+}

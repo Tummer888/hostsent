@@ -35,13 +35,10 @@ var menuPermissionMap = map[string]string{
 	// 双链路拆页（本轮 S1）：自营平台对接与上游转售渠道同权限口径。
 	"/resource/platforms": "resource:provider",
 	"/resource/pools":     "resource:provider",
-	// T3.6 合并页「同步与调度」（调度/任务/日志/差异/待确认调价）。
+	// 同步状态运维控制台（doc120）：调度 / 目录与状态同步 / 业务动作投递 / 实例对账 /
+	// 异常与失败 / 待确认调价。原「运维」目录及其三个叶子（anomalies、task-queue、reconcile）
+	// 已并入本页，旧路径由 router redirect 承接，故这里不再为它们登记菜单权限。
 	"/resource/sync-center": "resource:sync",
-	"/resource/anomalies":   "resource:instance",
-	// 任务队列（本轮 S3）：平台动作是否到达上游，沿用同步权限口径。
-	"/resource/task-queue": "resource:sync",
-	// 实例对账（本轮 S4）：本地实例与上游成本/账期比对。
-	"/resource/reconcile": "resource:instance",
 
 	// 实例管理域：运维台与只读资产视图（原 /resource/instances，doc102 §3.3 迁入本域）。
 	"/instances":           "resource:instance",

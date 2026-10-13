@@ -213,19 +213,20 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/resource/pools/index.vue'),
         meta: { title: '资源池与容量', role: 'admin', permission: 'resource:provider' },
       },
-      // —— 同步与调度（T3.6 合并页：调度 / 任务 / 日志 / 差异 / 待确认调价）——
+      // —— 同步状态运维控制台（doc120 合并页）——
+      // 页签：调度配置 / 目录与状态同步 / 同步日志 / 待确认调价 / 业务动作投递 / 实例对账 / 异常与失败。
       {
         path: 'sync-center',
         name: 'ResourceSyncCenter',
         component: () => import('@/pages/resource/sync-center/index.vue'),
-        meta: { title: '同步与调度', role: 'admin', permission: 'resource:sync' },
+        meta: { title: '同步状态运维控制台', role: 'admin', permission: 'resource:sync' },
       },
       // 旧重复页面路径保留书签兼容：统一 redirect 到合并页（菜单已隐藏，文件待清理）。
       {
         path: 'sync',
         name: 'ResourceSync',
         redirect: '/resource/sync-center',
-        meta: { title: '同步与调度', role: 'admin' },
+        meta: { title: '同步状态运维控制台', role: 'admin' },
       },
       {
         path: 'logs',
@@ -279,12 +280,14 @@ const routes: Array<RouteRecordRaw> = [
         redirect: '/instances/inventory',
         meta: { title: '云主机实例', role: 'admin' },
       },
-      // —— 运维 ——
+      // —— 运维三件套并入「同步状态运维控制台」（doc120）——
+      // 异常处理 / 任务队列 / 实例对账 不再是独立页面：它们的原子页面以 embedded 模式
+      // 作为控制台的页签渲染。旧路径全部 redirect 并按 tab 参数落到对应页签，书签不失效。
       {
         path: 'ops',
         name: 'ResourceOps',
-        redirect: '/resource/anomalies',
-        meta: { title: '运维', role: 'admin' },
+        redirect: '/resource/sync-center',
+        meta: { title: '同步状态运维控制台', role: 'admin' },
       },
       // API 测试/连接测试页已下线（本轮 S1）：连通性内联到渠道列表行内，旧路径 redirect。
       {
@@ -296,22 +299,20 @@ const routes: Array<RouteRecordRaw> = [
       {
         path: 'anomalies',
         name: 'ResourceAnomalies',
-        component: () => import('@/pages/resource/anomalies/index.vue'),
-        meta: { title: '异常处理', role: 'admin', permission: 'resource:instance' },
+        redirect: '/resource/sync-center?tab=anomalies',
+        meta: { title: '异常与失败', role: 'admin' },
       },
-      // 任务队列（本轮 S3）：开通履约/实例动作/续费/同步四类任务的「是否到达上游」。
       {
         path: 'task-queue',
         name: 'ResourceTaskQueue',
-        component: () => import('@/pages/resource/task-queue/index.vue'),
-        meta: { title: '任务队列', role: 'admin', permission: 'resource:sync' },
+        redirect: '/resource/sync-center?tab=actions',
+        meta: { title: '业务动作投递', role: 'admin' },
       },
-      // 实例对账（本轮 S4）：本地已开通实例与上游的售价/成本/到期时间比对。
       {
         path: 'reconcile',
         name: 'ResourceReconcile',
-        component: () => import('@/pages/resource/reconcile/index.vue'),
-        meta: { title: '实例对账', role: 'admin', permission: 'resource:instance' },
+        redirect: '/resource/sync-center?tab=reconcile',
+        meta: { title: '实例对账', role: 'admin' },
       },
       // 模块配置并入系统配置（doc16 §9.2），旧路径 redirect。
       {

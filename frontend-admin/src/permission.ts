@@ -124,8 +124,7 @@ export const navMenu = [
     children: [
       { title: '渠道与平台', path: '/resource/channels', icon: navIcon('cloud') },
       { title: '资源池与容量', path: '/resource/pools', icon: navIcon('layers') },
-      { title: '同步与调度', path: '/resource/sync-center', icon: navIcon('refresh') },
-      { title: '运维', path: '/resource/ops', icon: navIcon('setting') },
+      { title: '同步状态运维控制台', path: '/resource/sync-center', icon: navIcon('refresh') },
     ],
   },
   {

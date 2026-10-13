@@ -6,9 +6,9 @@
           <RefreshIcon size="22" aria-hidden="true" />
         </span>
         <div class="page-header__text">
-          <h2 class="page-header__title">同步与调度</h2>
+          <h2 class="page-header__title">同步状态运维控制台</h2>
           <p class="page-header__desc">
-            渠道 × scope 独立节奏 · 增量游标与全量对账 · 上游改价待确认 · 字段级差异
+            调度配置 · 目录与状态同步（上游→我方）· 业务动作投递（我方→上游）· 实例对账与差异 · 异常与失败
           </p>
         </div>
       </div>
@@ -116,8 +116,8 @@
           </t-table>
         </t-tab-panel>
 
-        <!-- 2. 同步任务 -->
-        <t-tab-panel value="tasks" label="同步任务">
+        <!-- 2. 目录与状态同步（入站：上游 → 我方，判"拉到什么、变了什么"） -->
+        <t-tab-panel value="tasks" label="目录与状态同步">
           <FilterCard embedded class="tab-filters" :primary-count="1">
             <div class="field">
               <span class="field__label">所属渠道</span>
@@ -372,6 +372,22 @@
             </template>
           </t-table>
         </t-tab-panel>
+
+        <!-- 6. 业务动作投递（出站：我方 → 上游，判“是否到达上游”）。
+             与「目录与状态同步」是相反方向：那边是回源拉取，这边是把动作推出去。 -->
+        <t-tab-panel value="actions" label="业务动作投递">
+          <TaskQueuePanel v-if="tabLoaded.actions" embedded />
+        </t-tab-panel>
+
+        <!-- 7. 实例对账（本地实例 vs 上游的售价/成本/到期逐台比对）。 -->
+        <t-tab-panel value="reconcile" label="实例对账">
+          <ReconcilePanel v-if="tabLoaded.reconcile" embedded />
+        </t-tab-panel>
+
+        <!-- 8. 异常与失败（失败任务 / 失败日志 / 异常实例聚合）。 -->
+        <t-tab-panel value="anomalies" label="异常与失败">
+          <AnomaliesPanel v-if="tabLoaded.anomalies" embedded />
+        </t-tab-panel>
       </t-tabs>
     </section>
 
@@ -489,10 +505,23 @@ import FilterCard from '@/components/filter-card/index.vue'
 import MobileAction from '@/components/mobile-action/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
+// 三个原子页（业务动作投递 / 实例对账 / 异常处理）合并进本控制台，
+// 以 embedded 模式作为页签内容渲染；旧路由保留 redirect 兼容书签。
+import AnomaliesPanel from '@/pages/resource/anomalies/index.vue'
+import ReconcilePanel from '@/pages/resource/reconcile/index.vue'
+import TaskQueuePanel from '@/pages/resource/task-queue/index.vue'
 
 defineOptions({ name: 'ResourceSyncCenter' })
 
-type TabValue = 'schedules' | 'tasks' | 'logs' | 'diffs' | 'prices'
+// 页签顺序即阅读顺序：先配置（去哪拉、拉什么）→ 再看业务动作有没有送到 → 最后看差异/异常/待办。
+type TabValue = 'schedules' | 'tasks' | 'logs' | 'actions' | 'reconcile' | 'anomalies' | 'diffs' | 'prices'
+
+// 三个内嵌子页签各自持有独立的数据加载与分页，用 v-if 懒挂载：
+// 一次性挂载四个页面会让「同步状态运维控制台」首屏发出七八个并行请求。
+const tabLoaded = reactive<Record<string, boolean>>({})
+function markLoaded(tab: string) {
+  tabLoaded[tab] = true
+}
 
 const activeTab = ref<TabValue>('schedules')
 const loading = ref(false)
@@ -792,6 +821,12 @@ function handleTaskPageChange(pageInfo: PageInfo) {
   loadTasks()
 }
 
+// ---------- 6/7/8. 业务动作投递 · 实例对账 · 异常与失败 ----------
+//
+// 三块内容分别来自原 task-queue / reconcile / anomalies 三个独立页面，现以 embedded 模式
+// 内嵌为页签。它们各自的表格、筛选、分页仍由各自组件负责，本页只做懒挂载开关
+// （见 tabLoaded / loadActive），避免进入控制台就并发拉取全部数据。
+
 // ---------- 3. 同步日志 ----------
 
 const logList = ref<SyncLogInfo[]>([])
@@ -1072,6 +1107,7 @@ function loadActive() {
   else if (activeTab.value === 'logs') loadLogs()
   else if (activeTab.value === 'diffs') loadDiffs()
   else if (activeTab.value === 'prices') loadPrices()
+  else markLoaded(activeTab.value)
 }
 
 function handleTabChange(value: string | number) {
@@ -1089,6 +1125,12 @@ async function reloadActive() {
 }
 
 onMounted(async () => {
+  // ?tab=xxx 供旧路径 redirect 落到对应页签（/resource/anomalies → ?tab=anomalies 等）。
+  const requested = new URLSearchParams(window.location.search).get('tab')
+  if (requested && requested !== activeTab.value) {
+    const known: TabValue[] = ['schedules', 'tasks', 'logs', 'actions', 'reconcile', 'anomalies', 'diffs', 'prices']
+    if (known.includes(requested as TabValue)) activeTab.value = requested as TabValue
+  }
   await Promise.all([loadProviders(), loadScopes()])
   loadActive()
 })

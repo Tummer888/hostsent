@@ -217,6 +217,14 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 实例名做成跳详情入口（云主机资产表）：沿用原 .cell-strong 的字号与字重，
+   只把颜色换成链接色，避免变成链接后整列排版变粗大。 */
+.users-module .instance-name-link {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
 .users-module .cell-mono {
   font-family: var(--hs-font-mono);
   font-size: 12px;
