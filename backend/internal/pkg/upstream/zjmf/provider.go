@@ -1034,36 +1034,64 @@ func upstreamPriceLegacy(prs []ProductPricing) float64 {
 }
 
 // parseCloudSpecs 从 prodetail 的 config_groups（嵌套：分组→配置项→子值）提取标准规格。
+//
+// 两轮匹配：先**精确**键名，再宽松包含。为什么需要（实测数据）：
+// 上游同时下发 `bw`（带宽，15Mbps）与 `in_bw`（流入带宽，30Mbps）、
+// `system_disk_size`（系统盘）与 `data_disk_size`（数据盘），而按"包含"匹配时
+// `in_bw` 含 `bw`、`data_disk_size` 含 `disk` —— 后出现的配置项会把真正的售卖规格
+// 覆盖掉。实测六区「4-4 15Mbps」商品带宽被写成 30（流入带宽），商品名与实际规格不符。
+//
+// 先精确、后宽松 + 字段一次性赋值，保证 `bw`/`system_disk_size` 永远优先于
+// `in_bw`/`data_disk_size`；只有上游没给精确键的商品才回落到包含匹配。
 func parseCloudSpecs(groups []ConfigGroup) model.StandardProductSpec {
 	var spec model.StandardProductSpec
-	for _, g := range groups {
-		for _, opt := range g.Options {
-			val := firstSubValue(opt)
-			if val == "" {
-				continue
-			}
-			key := normalizeOptionKey(opt.OptionName)
-			switch {
-			case matchKey(key, "cpu", "核"):
-				spec.CPU = leadingInt(val)
-			case matchKey(key, "memory", "mem", "内存"):
-				spec.Memory = memoryToMB(val)
-			case matchKey(key, "system_disk_size", "systemdisk", "disk", "系统盘", "磁盘", "硬盘"):
-				spec.Disk = leadingInt(val)
-			case matchKey(key, "os", "操作系统", "镜像", "系统"):
-				spec.OS = normalizeOS(val)
-			case matchKey(key, "area", "数据中心", "区域"):
-				spec.Region = val
-			case matchKey(key, "node", "zone", "节点"):
-				spec.Zone = val
-			case matchKey(key, "bw", "bandwidth", "带宽"):
-				spec.Bandwidth = leadingInt(val)
-			case matchKey(key, "disk_type", "disktype", "磁盘类型"):
-				spec.DiskType = val
+	for _, exact := range []bool{true, false} {
+		for _, g := range groups {
+			for _, opt := range g.Options {
+				val := firstSubValue(opt)
+				if val == "" {
+					continue
+				}
+				applySpecField(&spec, normalizeOptionKey(opt.OptionName), val, exact)
 			}
 		}
 	}
 	return spec
+}
+
+// applySpecField 把单个配置项写入标准规格；exact=false 时按"包含"匹配。
+// 已赋值的字段不再被后续配置项改写（同名字段只认第一个命中的键）。
+func applySpecField(spec *model.StandardProductSpec, key, val string, exact bool) {
+	into := func(dst *int, fn func(string) int) {
+		if *dst == 0 {
+			*dst = fn(val)
+		}
+	}
+	strInto := func(dst *string, fn func(string) string) {
+		if *dst == "" {
+			*dst = fn(val)
+		}
+	}
+	switch {
+	case matchKeyMode(key, exact, "cpu", "核"):
+		into(&spec.CPU, leadingInt)
+	case matchKeyMode(key, exact, "memory", "mem", "内存"):
+		into(&spec.Memory, memoryToMB)
+	// 系统盘优先：`data_disk_size`（数据盘）也含 "disk"，但它不是售卖的系统盘规格。
+	case matchKeyMode(key, exact, "system_disk_size", "systemdisk", "disk", "系统盘", "磁盘", "硬盘"):
+		into(&spec.Disk, leadingInt)
+	case matchKeyMode(key, exact, "os", "操作系统", "镜像", "系统"):
+		strInto(&spec.OS, normalizeOS)
+	case matchKeyMode(key, exact, "area", "数据中心", "区域"):
+		strInto(&spec.Region, strings.TrimSpace)
+	case matchKeyMode(key, exact, "node", "zone", "节点"):
+		strInto(&spec.Zone, strings.TrimSpace)
+	// 售卖带宽优先：`in_bw`（流入带宽）含 "bw"，不能覆盖对外售卖带宽。
+	case matchKeyMode(key, exact, "bw", "bandwidth", "带宽"):
+		into(&spec.Bandwidth, leadingInt)
+	case matchKeyMode(key, exact, "disk_type", "disktype", "磁盘类型"):
+		strInto(&spec.DiskType, strings.TrimSpace)
+	}
 }
 
 // memoryToMB 将内存值统一换算为 MB：值含"G/GB"单位时 ×1024，否则视为 MB 原值。
@@ -1087,23 +1115,43 @@ func firstSubValue(opt ConfigOption) string {
 	return strings.TrimSpace(opt.OptionName)
 }
 
-// normalizeOptionKey 归一化配置键：转小写、去空格与说明分隔符。
+// normalizeOptionKey 归一化配置键：取 `键|说明` 的键部分、转小写、去空格与说明分隔符。
+//
+// 必须截断 `|`：上游配置项名形如 `bw|带宽`、`system_disk_size|系统盘`，
+// 把 `|说明` 一起带进匹配会让精确匹配全部失效（`bw|带宽` != `bw`），
+// 于是退化成"包含"匹配 —— 正是 `in_bw` 覆盖 `bw`、`data_disk_size` 覆盖
+// `system_disk_size` 的成因（实测带宽被写成流入带宽）。
 func normalizeOptionKey(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
+	if idx := strings.IndexAny(s, "|｜"); idx >= 0 {
+		s = s[:idx]
+	}
 	s = strings.ReplaceAll(s, "（", "(")
 	s = strings.ReplaceAll(s, "）", ")")
 	s = strings.ReplaceAll(s, " ", "")
-	return s
+	return strings.TrimSpace(s)
 }
 
 // matchKey 判断归一化后的配置键是否命中任一候选（自身相等或包含候选词）。
 func matchKey(key string, cands ...string) bool {
+	return matchKeyMode(key, false, cands...)
+}
+
+// matchKeyMode 键匹配；exact=true 时只认完全相等，false 时允许包含。
+//
+// 为什么需要 exact："包含"匹配会把语义不同的键混到一起 ——
+// `in_bw` 含 `bw`、`data_disk_size` 含 `disk`。解析规格时先跑一轮 exact
+// （精确键优先），再跑一轮宽松兜底，才能保证售卖规格不被附属配置覆盖。
+func matchKeyMode(key string, exact bool, cands ...string) bool {
 	for _, c := range cands {
 		c = strings.ToLower(strings.TrimSpace(c))
 		if c == "" {
 			continue
 		}
-		if key == c || strings.Contains(key, c) {
+		if key == c {
+			return true
+		}
+		if !exact && strings.Contains(key, c) {
 			return true
 		}
 	}
@@ -2165,21 +2213,17 @@ func customFieldsFromExtra(extra map[string]interface{}) map[string]string {
 // 仅当 id 缺失（0）时才退回 upstream_id，保证老数据仍可下单。
 func buildCartConfigOption(extra map[string]interface{}) map[string]string {
 	out := map[string]string{}
-	// 显式 configoption 覆盖优先（键=上游选项ID，值=上游子项ID或数量）
-	if raw, ok := extra["configoption"].(map[string]interface{}); ok {
-		for k, v := range raw {
-			out[fmt.Sprintf("%v", k)] = fmt.Sprintf("%v", v)
-		}
-		return out
-	}
 	raw, ok := extra["config_groups"]
 	if !ok {
-		return out
+		// 没有配置组时只能用显式覆盖（如上游只回传了部分参数）。
+		return mergeExplicitConfigOption(out, extra)
 	}
 	var groups []ConfigGroup
 	if b, err := json.Marshal(raw); err == nil {
 		_ = json.Unmarshal(b, &groups)
 	}
+	// 先按配置组铺满全部选项（含单值固定配置：CPU/内存/区域/带宽），
+	// 缺失任何一项上游都会按自己的默认值开通，与本地售卖配置不一致。
 	for _, g := range groups {
 		for _, opt := range g.Options {
 			key := cartOptionKey(opt.ID, opt.UpstreamID)
@@ -2194,6 +2238,23 @@ func buildCartConfigOption(extra map[string]interface{}) map[string]string {
 				out[key] = val
 			}
 		}
+	}
+	// 再用显式选择覆盖：客户在界面上实际选的取值优先级最高（多值的 os/网络类型
+	// 无法靠本地词汇猜准，必须由显式映射定死）。
+	return mergeExplicitConfigOption(out, extra)
+}
+
+// mergeExplicitConfigOption 把显式 configoption（键=上游选项ID，值=上游子项ID）合并进 out。
+//
+// 合并而非替换：显式表可能只含客户改过的那几项，直接以它为准会丢掉其余选项
+// （配置组已铺好的固定配置），上游便按默认值开通。
+func mergeExplicitConfigOption(out map[string]string, extra map[string]interface{}) map[string]string {
+	raw, ok := extra["configoption"].(map[string]interface{})
+	if !ok {
+		return out
+	}
+	for k, v := range raw {
+		out[fmt.Sprintf("%v", k)] = fmt.Sprintf("%v", v)
 	}
 	return out
 }

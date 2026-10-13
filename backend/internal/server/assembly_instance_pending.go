@@ -116,6 +116,12 @@ func buildInstancePlaceholder(ports instancePlaceholderPorts, logger *zap.Logger
 			SellProductID:      order.ProductID,
 			UpstreamProductID:  upstreamProductID,
 			ProviderInstanceID: "", // 空 = 尚未在上游开通（转正判据）
+			// 续费价绑定随即落占位行：开通失败重试/占位转正都复用这一行，
+			// 在这里写入即可保证"下单时谈定的续费价"不因链路中断而丢失。
+			RenewalPrice: orderRenewalPrice(order),
+			// 客户备注随下单落占位行：占位行就是这台机器将来那一行（转正是就地更新），
+			// 因此这里写入即可，无需在转正路径再补一次。
+			CustomerRemark: order.CustomerRemark,
 		}
 		if specs := specsFromOrder(order); specs != nil {
 			row.CPU = specs.CPU

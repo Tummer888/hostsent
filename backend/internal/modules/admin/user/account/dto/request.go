@@ -205,6 +205,10 @@ type AdminCreateOrderRequest struct {
 	Quantity int `json:"quantity"`
 	// ConfigSelections 客户选配项选择（T4.5，平台参数名/上游选项 id → 取值）。
 	ConfigSelections map[string]string `json:"config_selections"`
+	// RenewalPrice 绑定该实例后续续费的单价（元/周期）；nil 或 <=0 表示不绑定，
+	// 续费按商品定价实时算。与 Price（仅首次开通的成交价）分开，
+	// 用于「首次 30 元、续费 18 元」这类单机价格承诺（一经绑定长期有效）。
+	RenewalPrice *float64 `json:"renewal_price"`
 }
 
 // AdminOrderConfigResponse 后台代下单的可选配置项（供客服按商品选规格/周期/选配）。
@@ -231,6 +235,32 @@ type AdminOrderConfigSpec struct {
 	PriceModel string   `json:"price_model"`
 	Stock      int      `json:"stock"` // -1 表示不限
 	Cycles     []string `json:"cycles"`
+	// Specs 该 SKU 的原子取值 JSON（compute.cpu / compute.memory(MB) /
+	// storage.system.size 等）。下发给后台是为了让规格以「2核 4G 50G」卡片展示，
+	// 客服不必凭 SKU 名称猜配置；解析失败时前端只显示名称，不影响下单。
+	Specs string `json:"specs"`
+}
+
+// AdminOrderQuoteRequest 代下单算价预览入参：与创建订单同口径（少掉支付方式）。
+//
+// 存在的意义是让客服在填自定义价前看到「默认要收多少」：此前弹窗只能显示商品基础价，
+// 一换规格/周期/选配就与真实成交价脱节，客服只能凭经验填数。
+type AdminOrderQuoteRequest struct {
+	ProductID        uint64            `json:"product_id" binding:"required"`
+	BillingCycle     string            `json:"billing_cycle"`
+	SpecCode         string            `json:"spec_code"`
+	Quantity         int               `json:"quantity"`
+	ConfigSelections map[string]string `json:"config_selections"`
+}
+
+// AdminOrderQuoteResponse 代下单算价明细（原价/优惠/实付 + 选配加价小计）。
+type AdminOrderQuoteResponse struct {
+	OriginalAmount float64 `json:"original_amount"`
+	DiscountAmount float64 `json:"discount_amount"`
+	FinalAmount    float64 `json:"final_amount"`
+	OptionAmount   float64 `json:"option_amount"`
+	DiscountSource string  `json:"discount_source"`
+	Currency       string  `json:"currency"`
 }
 
 // AdminOrderConfigOption 一个客户可选配置项（widget 决定前端渲染方式）。

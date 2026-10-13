@@ -23,6 +23,8 @@ type UserHandler struct {
 	createOrder func(ctx context.Context, userID uint64, req dto.AdminCreateOrderRequest, operatorID uint64) (*dto.AdminOrderBrief, error)
 	// orderConfig 读取某商品在代下单时可选的规格/周期/选配项，由装配层注入。
 	orderConfig func(ctx context.Context, productID uint64) (*dto.AdminOrderConfigResponse, error)
+	// orderQuote 代下单算价预览（不落库），由装配层注入；展示默认原价供客服填自定义价参考。
+	orderQuote func(ctx context.Context, userID uint64, req dto.AdminOrderQuoteRequest) (*dto.AdminOrderQuoteResponse, error)
 }
 
 func NewUserHandler(userService service.UserService, createOrder func(ctx context.Context, userID uint64, req dto.AdminCreateOrderRequest, operatorID uint64) (*dto.AdminOrderBrief, error)) *UserHandler {
@@ -33,6 +35,11 @@ func NewUserHandler(userService service.UserService, createOrder func(ctx contex
 // 单独用 setter 接线：能力来自商品域（商品目录 + 价格矩阵），与用户域服务无耦合依赖。
 func (h *UserHandler) SetOrderConfigReader(reader func(ctx context.Context, productID uint64) (*dto.AdminOrderConfigResponse, error)) {
 	h.orderConfig = reader
+}
+
+// SetOrderQuoteReader 注入代下单算价预览能力（与创建订单共用同一条算价管线，保证所见即所得）。
+func (h *UserHandler) SetOrderQuoteReader(reader func(ctx context.Context, userID uint64, req dto.AdminOrderQuoteRequest) (*dto.AdminOrderQuoteResponse, error)) {
+	h.orderQuote = reader
 }
 
 // GetStats godoc
@@ -453,6 +460,39 @@ func (h *UserHandler) OrderConfig(c *gin.Context) {
 		return
 	}
 	resp, err := h.orderConfig(c.Request.Context(), productID)
+	if err != nil {
+		respondUserErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": resp, "timestamp": time.Now().Unix()})
+}
+
+// OrderQuote godoc
+// @Summary 代下单算价预览
+// @Description 按所选规格/周期/选配项算价（不落库、不扣款），供后台展示默认原价
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Param id path int true "用户ID"
+// @Param body body dto.AdminOrderQuoteRequest true "算价入参"
+// @Success 200 {object} dto.APIResponse[dto.AdminOrderQuoteResponse]
+// @Router /api/v1/admin/users/{id}/orders/quote [post]
+func (h *UserHandler) OrderQuote(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		abortBadRequest(c, "用户 ID 不合法")
+		return
+	}
+	var req dto.AdminOrderQuoteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		abortBadRequest(c, "请求参数不合法")
+		return
+	}
+	if h.orderQuote == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": "代下单算价能力未配置", "timestamp": time.Now().Unix()})
+		return
+	}
+	resp, err := h.orderQuote(c.Request.Context(), id, req)
 	if err != nil {
 		respondUserErr(c, err)
 		return

@@ -187,12 +187,22 @@ func (s *renewalService) SetUpstreamRenewer(renewer UpstreamRenewer) {
 // manual 非 nil 表示管理员手动改价，直接作为实付（最高优先级）。
 // 算价仍以 product_id（售出商品）为口径，产品名/兜底单价改用实例的双链路列解析（T1.2）。
 //
+// 价格优先级：管理员本次指定价（manual） > 实例绑定续费价（instances.renewal_price） > 折扣管线。
+// 绑定价是下单时谈定的单机承诺（如首开 30、续费 18），必须压过商品调价与代理折扣，
+// 否则商品一改价，已承诺的机器就跟着变，客服与客户谈定的价格当场失效。
+//
 // Cycle 必须传：周期价格矩阵（product_prices 按周期分档）只在 in.Cycle 非空时才被采用。
 // 漏传会让季付/年付实例续费回落成「商品基础单价 × 期数」——年付实例应收 12 个月价
 // （且通常带周期折扣），漏传只收 1 个月价，本地账与推给上游的 billingcycles 直接对不上。
 // 实例的 billing_mode 就是本次续费周期（可能是运维改过的年付），因此以它为准。
 func (s *renewalService) resolveRenewalQuote(ctx context.Context, userID uint64, instance *syncmodel.Instance, periodCount int, manual *float64) (renewalQuote, error) {
 	cycle := billingcycle.NormalizeOrDefault(instance.BillingMode)
+	// 绑定续费价：按周期为单价、乘续费期数。仅在与人工改价并存时让 manual 优先。
+	if manual == nil {
+		if bound := boundRenewalPrice(instance); bound != nil {
+			return s.boundRenewalQuote(ctx, instance, *bound, periodCount, cycle), nil
+		}
+	}
 	if s.pricingSvc != nil {
 		quote, err := s.pricingSvc.Resolve(ctx, pricing.ResolveInput{
 			UserID:       userID,
@@ -236,6 +246,62 @@ func (s *renewalService) resolveRenewalQuote(ctx context.Context, userID uint64,
 	}
 	// Snapshot 落到 jsonb 列：无折扣明细时也必须给合法空数组，否则写库报错。
 	return renewalQuote{Original: original, Discount: money.Round2(math.Max(0, original-final)), Final: final, Source: source, Snapshot: "[]"}, nil
+}
+
+// boundRenewalPrice 取实例上绑定的续费单价；未绑定或非正数返回 nil（按常规算价）。
+// 0/负价视为未绑定：0 元续费会被下面的守卫拒绝，不如当作"没绑过"回落正常定价。
+func boundRenewalPrice(instance *syncmodel.Instance) *float64 {
+	if instance == nil || instance.RenewalPrice == nil {
+		return nil
+	}
+	if *instance.RenewalPrice <= 0 {
+		return nil
+	}
+	v := money.Round2(*instance.RenewalPrice)
+	if v <= 0 {
+		return nil
+	}
+	return &v
+}
+
+// boundRenewalQuote 按绑定价组装续费算价结果：先查商品现价作为「标准价」，
+// 再套纯函数 boundRenewalQuoteFor 算出明细。商品价查不到时按无基准处理。
+func (s *renewalService) boundRenewalQuote(ctx context.Context, instance *syncmodel.Instance, unitPrice float64, periodCount int, cycle string) renewalQuote {
+	listPrice := 0.0
+	// 商品现价仅用于展示「标准价 vs 承诺价」的差额；解析失败不影响续费成交价。
+	if _, price, err := s.instanceRepo.ResolveProduct(ctx, instance); err == nil {
+		listPrice = price
+	}
+	return boundRenewalQuoteFor(unitPrice, listPrice, periodCount, cycle)
+}
+
+// boundRenewalQuoteFor 绑定价算价的纯函数部分（无 IO，便于单测）。
+//
+// Original 取"商品现价 × 周期倍率 × 期数"，Final 为"绑定价 × 期数"：
+// 两者之差记为优惠，续费记录里能看到「本来要收多少、按承诺收了多少」，
+// 而不是把一个凭空的数字当原价展示。商品现价缺失或更低时原价即绑定价（无差价可示）。
+func boundRenewalQuoteFor(boundUnit, listUnit float64, periodCount int, cycle string) renewalQuote {
+	if periodCount <= 0 {
+		periodCount = 1
+	}
+	final := money.Round2(boundUnit * float64(periodCount))
+	original := final
+	if listUnit > 0 {
+		multiplier := billingcycle.Multiplier(cycle)
+		if multiplier <= 0 {
+			multiplier = 1
+		}
+		if list := money.Round2(listUnit * float64(multiplier*periodCount)); list > final {
+			original = list
+		}
+	}
+	return renewalQuote{
+		Original: original,
+		Discount: money.Round2(math.Max(0, original-final)),
+		Final:    final,
+		Source:   pricing.SourceBound,
+		Snapshot: "[]",
+	}
 }
 
 // marshalRenewalSnapshot 折扣快照序列化为 jsonb 文本，失败时退化为空数组。
@@ -493,6 +559,11 @@ func (s *renewalService) UserRenewalsView(ctx context.Context, userID uint64) (*
 		stage := ""
 		if policy != nil {
 			stage = deriveStageForUser(*item.ExpireAt, now, policy)
+		}
+		// 绑定了续费价时以绑定价为准展示：用户续费页看到的就是实际要付的价，
+		// 否则商品调价后列表价与实际扣款对不上，客服要反复解释。
+		if bound := boundRenewalPrice(&item.Instance); bound != nil {
+			unitPrice = *bound
 		}
 		items = append(items, lifecycledto.UserInstanceRenewalItem{
 			ID:           item.ID,

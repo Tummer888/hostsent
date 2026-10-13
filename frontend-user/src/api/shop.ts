@@ -222,7 +222,11 @@ export interface OrderPayInfo {
  *
  * 后端未拆 SKU / 未维护周期矩阵时返回的是 Go nil 切片，JSON 里是 `null` 而不是 `[]`
  * （列表接口按设计不下发这两项，恒为 null）。页面按数组使用（`skus.length`、
- * `cycles.includes()`），直接消费 null 会抛 TypeError，因此在 API 层收敛成空数组。
+ * `cycles.includes()`、`opt.values.find()`），直接消费 null 会抛 TypeError，
+ * 因此在 API 层收敛成空数组。
+ *
+ * 文本型选配项（主机名）恒无候选取值，后端 `values` 就是 null；模板对每个选项都会
+ * 求值加价摘要，漏归一这一层会让整页渲染中断（表现为一直转圈）。
  */
 function normalizeProduct(p: ProductInfo): ProductInfo {
   return {
@@ -230,7 +234,13 @@ function normalizeProduct(p: ProductInfo): ProductInfo {
     cycles: Array.isArray(p.cycles) ? p.cycles : [],
     skus: Array.isArray(p.skus) ? p.skus.map((s) => ({ ...s, cycles: Array.isArray(s.cycles) ? s.cycles : [] })) : [],
     option_groups: (Array.isArray(p.option_groups) ? p.option_groups : [])
-      .map((g) => ({ ...g, options: Array.isArray(g.options) ? g.options : [] }))
+      .map((g) => ({
+        ...g,
+        options: (Array.isArray(g.options) ? g.options : []).map((o) => ({
+          ...o,
+          values: Array.isArray(o.values) ? o.values : [],
+        })),
+      }))
       .filter((g) => g.options.length > 0),
     // 对接链路：老后端不带该字段时归一为 null（页面按自营口径渲染）。
     upstream_chain: p.upstream_chain

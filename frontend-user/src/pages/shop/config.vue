@@ -21,7 +21,29 @@
       </div>
     </header>
 
-    <section v-loading="loading" class="config-layout">
+    <!--
+      加载态用骨架屏而不是 v-loading 的转圈遮罩：
+      该页首屏内容是固定的几块结构（商品卡 + 配置卡 + 费用明细），骨架屏直接预示
+      「这里会有什么」，比一个盖住整页的旋转圈更稳、也不闪；转圈还会随内容高度
+      跳动，页面看起来在抖。
+    -->
+    <section v-if="loading" class="config-layout config-layout--skeleton" aria-busy="true">
+      <div class="config-main">
+        <article class="surface-card config-card">
+          <t-skeleton theme="avatar-text" :row-col="skeletonProductRows" />
+        </article>
+        <article class="surface-card config-card">
+          <t-skeleton :row-col="skeletonOptionRows" />
+        </article>
+      </div>
+      <aside class="config-side">
+        <article class="surface-card config-summary">
+          <t-skeleton :row-col="skeletonPriceRows" />
+        </article>
+      </aside>
+    </section>
+
+    <section v-else class="config-layout">
       <!-- 左：商品与选配 -->
       <div class="config-main">
         <article v-if="product" class="surface-card config-card">
@@ -183,7 +205,7 @@
                   <span v-if="opt.unit" class="config-option__qty-unit">{{ opt.unit }}</span>
                 </div>
 
-                <!-- 文本：主机名等自由填写项，留空由系统生成 -->
+                <!-- 文本：主机名等自由填写项；主机名已随机预填，可改可换 -->
                 <div v-else-if="optionWidget(opt) === 'text'" class="config-option__text">
                   <t-input
                     :model-value="selection[opt.option_key] || ''"
@@ -197,7 +219,7 @@
                     variant="outline"
                     @click="randomHostname(opt)"
                   >
-                    随机
+                    换一个
                   </t-button>
                 </div>
 
@@ -224,7 +246,8 @@
           </div>
         </article>
 
-        <div v-else-if="!loading" class="surface-card">
+        <!-- 加载失败/已下架：此时已不在 loading 分支内，直接给空态 -->
+        <div v-else class="surface-card">
           <t-empty description="商品不存在或已下架">
             <template #action>
               <t-button theme="primary" @click="router.push('/shop')">返回商品列表</t-button>
@@ -237,7 +260,12 @@
       <aside class="config-side">
         <article class="surface-card config-summary">
           <h3 class="card-title">费用明细</h3>
-          <div v-loading="quoteLoading" class="config-prices">
+          <!--
+            重算价不用转圈遮罩：改周期/选配后价格本来就是「同一块区域换数字」，
+            盖一层转圈会让整块明细闪一下。改为在原位给一个轻微的不透明提示，
+            内容保持可见，用户能直接对比新旧价格。
+          -->
+          <div class="config-prices" :class="{ 'is-refreshing': quoteLoading }">
             <div v-if="quote" class="config-rows">
               <!--
                 档位价 = 原价 − 选配加价：后端 original_amount 已含选配，若直接叫「商品原价」
@@ -271,7 +299,8 @@
                 以上为单台价格，共 {{ quantity }} 台，加入购物车后按 {{ quantity }} 台计价
               </p>
             </div>
-            <t-empty v-else-if="!quoteLoading" description="价格计算失败，请稍后重试" />
+            <div v-else-if="quoteLoading" class="config-prices__hint">正在计算价格…</div>
+            <t-empty v-else description="价格计算失败，请稍后重试" />
           </div>
 
           <div class="config-actions">
@@ -347,6 +376,29 @@ const cartStore = useCartStore()
 const loading = ref(false)
 const product = ref<ProductInfo | null>(null)
 
+/**
+ * 首屏骨架的行结构：形状对齐真实内容，加载完成时视觉上不会"跳一下"。
+ * 金额列留窄条、配置行留两列，与右侧费用明细的排布大致对应。
+ */
+const skeletonProductRows = [
+  [{ type: 'rect', width: '56px', height: '56px' }],
+  [{ type: 'text', width: '60%' }, { type: 'text', width: '160px' }],
+]
+const skeletonOptionRows = [
+  [{ type: 'text', width: '30%' }],
+  [{ type: 'rect', width: '100%', height: '32px' }],
+  [{ type: 'text', width: '30%' }],
+  [{ type: 'rect', width: '100%', height: '32px' }],
+  [{ type: 'text', width: '30%' }],
+  [{ type: 'rect', width: '100%', height: '32px' }],
+]
+const skeletonPriceRows = [
+  [{ type: 'text', width: '40%' }, { type: 'text', width: '30%' }],
+  [{ type: 'text', width: '40%' }, { type: 'text', width: '30%' }],
+  [{ type: 'text', width: '40%' }, { type: 'text', width: '30%' }],
+  [{ type: 'rect', width: '100%', height: '40px' }],
+]
+
 const selectedSpec = ref('')
 const selectedCycle = ref('')
 const quantity = ref(1)
@@ -359,8 +411,17 @@ const selection = ref<Record<string, string>>({})
 
 const productId = computed(() => Number(route.params.id))
 
+/**
+ * 商品下所有可选项（当前后端只给一个分组，展平后逐项渲染）。
+ *
+ * values 兜底成空数组：文本型项（主机名）没有候选取值，后端会下发 null；
+ * 而模板对每个选项都会求值加价摘要（内部 opt.values.find），漏兜底会让整个
+ * 组件渲染抛异常 —— 表现就是页面一直转圈、什么都不出来。
+ */
 const allOptions = computed<ProductOption[]>(() =>
-  (product.value?.option_groups ?? []).flatMap((g) => g.options),
+  (product.value?.option_groups ?? [])
+    .flatMap((g) => g.options)
+    .map((o) => ({ ...o, values: Array.isArray(o.values) ? o.values : [] })),
 )
 
 /** 归一控件类型：后端已判好，这里只兜底（老数据可能没有 widget）。 */
@@ -452,7 +513,17 @@ function optionSurcharge(opt: ProductOption): number {
   return item ? itemAddPrice(opt, item) : 0
 }
 
-/** 默认选择：必选项回填默认值/首个可选值，数量型填默认数量。 */
+/**
+ * 默认选择：与后台代下单弹窗同一口径，开页即把生效值显示出来。
+ *
+ * 为什么不留空：
+ *   1) 履约侧对"没选的项"取首个可见值（上游 pickConfigSub、自营 pickEnumValue 都是），
+ *      留空并不等于"不配置"，只等于用户看不见会开出什么 —— 上游商品的网络类型/
+ *      操作系统候选值都没有声明默认，留空时下拉是空白的，用户得逐个点开才知道默认值。
+ *   2) 数量型回填档位内含量，文本型（主机名）随机填一个：主机名留空时后端会按商品名
+ *      兜底生成，用户既看不到也记不住；先给一个可改的值，比让用户面对空白更省事。
+ * 用户看到不喜欢的值可以直接切换，这比从空白里"想起来要填什么"快得多。
+ */
 function applyDefaultSelection() {
   const next: Record<string, string> = {}
   for (const opt of allOptions.value) {
@@ -461,15 +532,16 @@ function applyDefaultSelection() {
       next[opt.option_key] = numberValue(opt).toString()
       continue
     }
-    if (opt.required) {
-      const preferred =
-        opt.values.find((v) => v.value === opt.default_value) ??
-        opt.values.find((v) => v.is_default) ??
-        opt.values[0]
-      if (preferred) next[opt.option_key] = preferred.value
+    if (widget === 'text') {
+      if (opt.option_key === 'hostname') next[opt.option_key] = randomHostnameValue()
       continue
     }
-    if (opt.default_value) next[opt.option_key] = opt.default_value
+    // 优先运营声明的默认值，其次首个可见值（与后端履约口径一致）。
+    const preferred =
+      opt.values.find((v) => v.value === opt.default_value) ??
+      opt.values.find((v) => v.is_default) ??
+      opt.values[0]
+    if (preferred) next[opt.option_key] = preferred.value
   }
   selection.value = next
 }
@@ -553,14 +625,19 @@ const canSubmit = computed(
 )
 
 /**
- * 随机主机名：与后端 safeHostname 规则一致（字母开头 + 小写字母数字连字符）。
+ * 生成一个随机主机名：与后端 safeHostname 规则一致（字母开头 + 小写字母数字连字符）。
  *
  * 后缀取 8 位而不是 6 位：带 hs- 前缀共 11 位，满足上游「主机名至少 10 位」的校验；
  * 6 位时总长只有 9 位，提交后会被上游以「主机名长度至少10位」拒绝，白扣一次款。
+ * 抽成独立函数供「开页预填」与「点换一个」两处共用，避免两边规则漂移。
  */
+function randomHostnameValue(): string {
+  return `hs-${Math.random().toString(36).slice(2, 10)}`
+}
+
+/** 换一个随机主机名（用户对预填的名字不满意时点）。 */
 function randomHostname(opt: ProductOption) {
-  const suffix = Math.random().toString(36).slice(2, 10)
-  setSelectionValue(opt, `hs-${suffix}`)
+  setSelectionValue(opt, randomHostnameValue())
 }
 
 function setSelection(opt: ProductOption, value: SelectValue) {
@@ -759,6 +836,25 @@ onMounted(async () => {
   flex-direction: column;
   gap: var(--space-lg);
   min-width: 0;
+}
+
+/* 骨架屏容器：与真实布局同栅格，加载完成时列宽不跳变 */
+.config-layout--skeleton .config-card,
+.config-layout--skeleton .config-summary {
+  min-height: 120px;
+}
+
+/* 重算价时整块轻微淡出，提示"正在更新"但不遮挡内容 */
+.config-prices.is-refreshing {
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+
+.config-prices__hint {
+  padding: var(--space-lg) 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-muted-foreground, #6b7280);
 }
 
 .config-card {

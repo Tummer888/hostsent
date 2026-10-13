@@ -708,6 +708,7 @@ export function deleteUserGroup(id: string | number): Promise<string> {
 export interface AdminOrderCreateRequest {
   product_id: number
   billing_cycle?: string
+  /** 首次开通的成交价；留空按商品周期价与折扣算 */
   price?: number
   pay_mode?: 'balance' | 'create'
   /** 所选 SKU 编码（商品挂了规格时必填，与用户端下单一致） */
@@ -715,6 +716,38 @@ export interface AdminOrderCreateRequest {
   quantity?: number
   /** 客户选配项选择（平台参数名/上游选项 id → 取值） */
   config_selections?: Record<string, string>
+  /**
+   * 绑定该实例后续续费的单价（元/周期）；留空不绑定，续费按商品定价实时算。
+   * 与 price 分开：用于「首开 30、续费 18」这类单机价格承诺，绑定后长期有效。
+   */
+  renewal_price?: number
+}
+
+/** 代下单算价预览入参（不落库、不扣款）。 */
+export interface AdminOrderQuoteRequest {
+  product_id: number
+  billing_cycle?: string
+  spec_code?: string
+  quantity?: number
+  config_selections?: Record<string, string>
+}
+
+/** 代下单算价明细：原价/优惠/实付 + 选配加价小计。 */
+export interface AdminOrderQuoteResponse {
+  original_amount: number
+  discount_amount: number
+  final_amount: number
+  option_amount: number
+  discount_source: string
+  currency: string
+}
+
+/** 代下单算价预览：与创建订单同口径，供弹窗展示默认价（客服填自定义价前的基准）。 */
+export function quoteUserOrder(id: string | number, data: AdminOrderQuoteRequest): Promise<AdminOrderQuoteResponse> {
+  return request.post<AdminOrderQuoteResponse>({
+    url: `/users/${id}/orders/quote`,
+    data,
+  })
 }
 
 export interface AdminOrderBrief {
@@ -736,6 +769,8 @@ export interface AdminOrderConfigSpec {
   /** -1 表示不限库存 */
   stock: number
   cycles: string[]
+  /** 原子取值 JSON（compute.cpu 等），用于把规格渲染成「2核 4G 50G」卡片 */
+  specs: string
 }
 
 /** 选配项的一个可选值（含各周期加价）。 */

@@ -241,6 +241,11 @@ func (s *lifecycleService) ListExpiring(ctx context.Context, q *lifecycledto.Exp
 		if perr != nil {
 			return nil, perr
 		}
+		// 绑定了单机续费价的实例以绑定价为准：管理端到期列表的「续费价」
+		// 要与实际扣款一致，否则运维按列表价估算的续费收入与账实不符。
+		if bound := boundRenewalPrice(&item.Instance); bound != nil {
+			unitPrice = *bound
+		}
 		resp = append(resp, lifecycledto.ExpiringInstanceItem{
 			ID:           item.ID,
 			InstanceMark: item.InstanceID,

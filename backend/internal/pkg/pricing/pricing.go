@@ -22,6 +22,10 @@ const (
 	SourceGroup     = "group"     // 用户组策略
 	SourcePromotion = "promotion" // 促销/优惠券
 	SourceManual    = "manual"    // 管理员手动改价
+	// SourceBound 实例绑定的续费价（instances.renewal_price）：下单时谈定的单机价格承诺，
+	// 续费时优先于任何折扣管线，且不随商品事后调价变化。
+	// 与 SourceManual 的区别：manual 是"这一次"的手工改价，bound 是"每次续费都按它"的长期约定。
+	SourceBound = "bound"
 )
 
 // 折扣类型。

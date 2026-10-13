@@ -203,6 +203,59 @@ func TestSafeHostnamePadsToMinimum(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildCartConfigOptionExplicitMergeNotReplace 显式 configoption 必须与配置组**合并**，
+// 不能替换。
+//
+// 场景：客户只改了「操作系统」（显式表仅一项），其余 CPU/内存/区域等固定配置
+// 只能由 config_groups 还原。若显式表一出现就直接返回，固定配置全部丢失，
+// 上游会按自己的默认值开通 —— 卖的是 4核4G，开出来的可能完全不同。
+func TestBuildCartConfigOptionExplicitMergeNotReplace(t *testing.T) {
+	var groups []ConfigGroup
+	if err := json.Unmarshal([]byte(configGroups308), &groups); err != nil {
+		t.Fatalf("unmarshal config groups failed: %v", err)
+	}
+	extra := map[string]interface{}{
+		"config_groups": groups,
+		// 客户在界面上选了 Debian（上游选项 159898 → 取值 321171）
+		"configoption": map[string]interface{}{"159898": "321171"},
+	}
+	got := buildCartConfigOption(extra)
+
+	// 显式选择生效
+	if got["159898"] != "321171" {
+		t.Errorf("显式选择应覆盖配置组推导值: os = %q, want 321171", got["159898"])
+	}
+	// 其余固定配置仍在（不能被显式表挤掉）
+	want := map[string]string{
+		"159897": "321169", // area
+		"159899": "321187", // cpu
+		"159900": "321188", // memory
+		"159901": "321189", // bw
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("固定配置项 %s 丢失或被改写: got %q, want %q（完整: %v）", k, got[k], v, got)
+		}
+	}
+}
+
+// TestBuildCartConfigOptionExplicitOnly 无配置组时退化为仅用显式表（不 panic、不丢参）。
+func TestBuildCartConfigOptionExplicitOnly(t *testing.T) {
+	got := buildCartConfigOption(map[string]interface{}{
+		"configoption": map[string]interface{}{"159898": "321171"},
+	})
+	if got["159898"] != "321171" || len(got) != 1 {
+		t.Fatalf("无配置组时应只用显式表: %v", got)
+	}
+}
+
+// TestDefaultHostnameUniquePerOrder 同一商品两次开通的主机名必须不同。
+//
+// 上游（魔方财务）对重名主机不下单也不报错：新主机卡在 domainstatus=Pending、
+// dcimid=0，账单已付却永远不开通。实测事故：订单 842/843 分别复用商品名
+// hs-4-4-15mbps / hs-2-4-10mbps（与已存在主机同名），主机 2057/2059 卡 Pending
+// 数十分钟；同批唯一命名的主机 2056/2058 一分钟内 Active。
 func TestDefaultHostnameUniquePerOrder(t *testing.T) {
 	const product = "香港|六区·轻量 4-4 15Mbps"
 	seen := map[string]bool{}
