@@ -91,9 +91,9 @@ func upstreamRenewable(payTypeRaw string) (bool, string) {
 	}
 	switch strings.TrimSpace(pt.PayType) {
 	case "onetime":
-		return false, "上游为一次性交付商品，不支持续费"
+		return false, "该商品为一次性交付，不支持续费"
 	case "free":
-		return false, "上游为免费商品，无需续费"
+		return false, "该商品无需续费"
 	default:
 		return true, ""
 	}
@@ -309,8 +309,10 @@ func (s *productService) upstreamInfoFor(ctx context.Context, item *model.Produc
 // defaultUpstreamSelfOptions 对接商品导入时默认注入的客户选配项（source=self）。
 // 只注入"上游没有、但下单必须给"的开通选项，避免上游配置项被改动：
 //   - 主机名：客户可自定义，留空由系统按规则生成（上游 cart 的 host 参数）。
-//     随机密码与端口由上游分配（密码在开通后可见、端口随主机下发），故不做成输入项，
-//     只在商品详情页说明，避免给客户"能选其实不能选"的错觉。
+//   - 登录密码：客户可自定义（上游 cart 的 password 参数）。留空由系统生成强随机密码，
+//     开通后在实例详情可查/可重置。做成输入项是因为"开通前就能定密码"是常见诉求
+//     （客户已有运维习惯的密码策略，不想开完再重置一次）。
+//     端口仍由上游随机分配，不设输入项（给了也改不了，属"能选其实不能选"）。
 func defaultUpstreamSelfOptions() []*model.ProductConfigOption {
 	return []*model.ProductConfigOption{
 		{
@@ -322,6 +324,18 @@ func defaultUpstreamSelfOptions() []*model.ProductConfigOption {
 			Required:   false,
 			Help:       "留空自动生成（hs- 前缀）；须以字母开头，仅字母/数字/连字符，10~30 位",
 			SortOrder:  10,
+		},
+		{
+			Source: model.ConfigSourceSelf,
+			// SourceKey 是下发到上游的参数名：zjmf 适配器读 extra["root_password"]，
+			// 因此这里必须是 root_password（OptionName 只作展示名，两者刻意分开）。
+			SourceKey:  "root_password",
+			OptionName: "登录密码",
+			OptionKey:  "root_password",
+			Widget:     model.ConfigWidgetText,
+			Required:   false,
+			Help:       "留空自动生成强随机密码；8~30 位，需含大写字母、小写字母与数字",
+			SortOrder:  11,
 		},
 	}
 }

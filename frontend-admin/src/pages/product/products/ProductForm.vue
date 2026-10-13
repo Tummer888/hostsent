@@ -25,15 +25,13 @@
               <t-descriptions-item label="链路">
                 <t-tag theme="warning" variant="light" size="small" shape="round">上游转售</t-tag>
               </t-descriptions-item>
-              <t-descriptions-item label="上游提供商 ID">{{ initial?.source_provider_id || '—' }}</t-descriptions-item>
-              <t-descriptions-item label="上游资源商品 ID">{{ initial?.source_product_id || '—' }}</t-descriptions-item>
+              <t-descriptions-item label="上游提供商">{{ providerDisplay }}</t-descriptions-item>
+              <t-descriptions-item label="上游资源商品">{{ upstreamProductDisplay }}</t-descriptions-item>
               <t-descriptions-item label="上游加价规则">
                 {{ markupLabel(initial?.upstream_markup_type || '', initial?.upstream_markup_value || 0) }}
               </t-descriptions-item>
             </t-descriptions>
-            <p class="upstream-readonly__hint">
-              售价在「商品调价」或周期价格里操作；开通规格由上游决定，无需在此维护 SKU。
-            </p>
+
           </div>
         </template>
       </t-alert>
@@ -46,8 +44,9 @@
           <t-form-item label="分类" name="category_id">
             <t-select v-model="form.category_id" clearable placeholder="请选择分类" :options="categoryOptions" />
           </t-form-item>
-          <t-form-item label="已售库存">
+          <t-form-item label="可售库存">
             <t-input-number v-model="form.stock" :min="-1" theme="column" placeholder="-1 表示不限" />
+            <span class="form-hint">{{ stockHint }}</span>
           </t-form-item>
           <t-form-item label="排序">
             <t-input-number v-model="form.sort_order" :min="0" theme="column" placeholder="数值越小越靠前" />
@@ -60,17 +59,65 @@
           </t-form-item>
         </div>
 
-        <!-- 仅透传：上架门禁的显式放行项，语义务必写清楚 -->
-        <t-form-item label="仅透传上游参数（上架门禁）">
+        <!-- 仅透传：上架门禁的显式放行项。文案必须写清"通常不用开"，否则会与"导入即可上架"矛盾。 -->
+        <t-form-item label="仅透传上游参数（上架门禁放行项）">
           <t-switch v-model="form.spec_passthrough" />
           <span class="clone-tip" style="display: block; margin-top: 6px; line-height: 1.7">
-            <b>这是什么：</b>客户下单时要把参数发给上游开通。开启「仅透传」= 我们<b>不解释、不改写</b>，
-            直接把上游商品自己的配置项与取值原样转发过去（适合上游商品是整机固定配置、没有可选规格的情况）。<br>
-            <b>不开启时：</b>上架前必须先确认「本地规格 → 上游开通参数」的对应关系（规格页签里完成平台绑定确认）。<br>
-            <b>什么时候可以用：</b>上游商品规格固定、下单参数与上游商品一一对应、不会出现"本地改了参数但上游不认"的情况。
+            <b>先说结论：</b>对接财务型上游（魔方财务等）时，开通参数由上游商品自带，
+            系统上架时会<b>自动识别并放行</b>，这个开关<b>通常不需要开</b>。<br>
+            <b>它是什么：</b>上架门禁要求确认「本地规格 → 上游开通参数」的对应关系；开启本开关
+            表示"参数原样转发、无需确认"，用于门禁<b>无法自动判定</b>的少数情况（如上游没下发配置项）。<br>
+            <b>什么时候该开：</b>该上游商品是整机固定配置，且上架时系统提示需要开启才能上架。
           </span>
         </t-form-item>
       </t-form>
+
+      <!--
+        周期价格矩阵（用户要求「改价移到编辑页」）：上游商品按周期定价（月付/季付/年付…），
+        此前只能在独立的「周期价格」页维护，运营改价要跨页面跳转。这里就地展示并可直接改。
+        改价即写为人工价（manual），之后不再随上游同步变化；未改动的档位继续跟随上游。
+      -->
+      <div v-if="mode === 'edit'" class="cycle-price-block">
+        <div class="cycle-price-block__head">
+          <h3 class="card-title">周期价格</h3>
+          <span class="cycle-price-block__meta">
+            {{ cycleLoading ? '加载中…' : (cycleError || `共 ${cycleItems.length} 个周期`) }}
+          </span>
+        </div>
+        <p class="cycle-price-block__hint">
+          改价并保存后，该档位成为<b>人工价</b>，不再随上游同步变化（要恢复跟随上游，把价格改回同步值即可）；
+          未改动的档位继续按上游成本与加价规则计算。「来自」列标明当前值的来源。
+        </p>
+        <t-table
+          v-if="cycleItems.length"
+          row-key="cycle"
+          :data="cycleItems"
+          :columns="cycleColumns"
+          size="small"
+          table-layout="fixed"
+          cell-empty-content="—"
+        >
+          <template #cycle="{ row }">
+            <div class="cycle-cell">
+              <span class="cycle-cell__name">{{ row.cycle_name }}</span>
+              <t-tag v-if="row.source === 'upstream' || row.source === 'markup'" theme="primary" variant="light" size="small" shape="round">上游</t-tag>
+              <t-tag v-else-if="row.source === 'manual'" theme="warning" variant="light" size="small" shape="round">人工</t-tag>
+            </div>
+          </template>
+          <template #price="{ row }">
+            <t-input-number v-model="row.price" :min="0" :precision="2" theme="normal" size="small" />
+          </template>
+          <template #cost_price="{ row }">
+            <t-input-number v-model="row.cost_price" :min="0" :precision="2" theme="normal" size="small" />
+          </template>
+        </t-table>
+        <div v-if="cycleItems.length" class="cycle-price-block__actions">
+          <t-button theme="primary" variant="outline" size="small" :loading="cycleSaving" @click="saveCyclePrices">
+            保存周期价格
+          </t-button>
+          <span class="cycle-price-block__tip">只保存本区块的价格改动；基础信息用下方按钮单独保存。</span>
+        </div>
+      </div>
 
       <div class="form-footer">
         <t-button variant="outline" @click="handleCancel">取消</t-button>
@@ -450,7 +497,7 @@ import { AddIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
 
 import { getProviderList, getProviderPlatformResources } from '@/api/admin'
-import { getSpecTemplateList, getOptionCatalog } from '@/api/product'
+import { getProductPriceMatrix, getSpecTemplateList, getOptionCatalog, saveProductPriceMatrix } from '@/api/product'
 import {
   billingCycleLabel,
   markupLabel,
@@ -469,6 +516,7 @@ import type {
   SaleProductSpecTemplateSelection,
   SpecTemplateInfo,
 } from '@/types/interface'
+import type { ProductPriceItem } from '@/types/product'
 
 const props = defineProps<{
   mode: 'create' | 'edit'
@@ -486,6 +534,95 @@ const emit = defineEmits<{
 
 /** 代理（上游转售）商品：链路由导入决定，表单不提供链路选择。 */
 const isUpstream = computed(() => props.initial?.source_mode === 'upstream')
+
+/**
+ * 上游提供商展示名：详情里只有 source_provider_id 时界面只显示一个裸 ID，
+ * 运营无法判断这条链路接到哪家渠道。这里用提供商列表把它解析成「名称（类型） · #ID」。
+ * 解析不到时回落为 ID 文本，不让界面空着。
+ */
+const providerNames = ref<Record<number, string>>({})
+
+const providerDisplay = computed(() => {
+  const id = props.initial?.source_provider_id
+  if (!id) return '—'
+  const name = providerNames.value[id]
+  return name ? `${name} · #${id}` : `#${id}`
+})
+
+/**
+ * 上游资源商品展示：只有 source_product_id 时同样是个裸 ID。
+ * 商品名在我们自己库里没有别名（上游商品镜像不通过这个组件加载），
+ * 因此展示为「#ID」，并在提示里说明去「上游商品目录」核对。
+ */
+const upstreamProductDisplay = computed(() => {
+  const id = props.initial?.source_product_id
+  return id ? `#${id}` : '—'
+})
+
+/** 库存提示：上游转售商品的库存是上游限量余量，随同步刷新；本地改动会被同步覆盖。 */
+const stockHint = computed(() => {
+  if (!isUpstream.value) return '-1 表示不限量；填 0 表示暂不可售。'
+  return '上游限量商品的可售余量为权威值，会随商品目录同步刷新覆盖本地填写；-1 表示不限量。'
+})
+
+// ===== 周期价格矩阵（编辑页内直接改价）=====
+type CyclePriceRow = ProductPriceItem & { price: number; cost_price: number }
+const cycleItems = ref<CyclePriceRow[]>([])
+const cycleLoading = ref(false)
+const cycleSaving = ref(false)
+const cycleError = ref('')
+
+const cycleColumns = [
+  { colKey: 'cycle', title: '计费周期', width: 150 },
+  { colKey: 'price', title: '售价（元）', width: 140 },
+  { colKey: 'cost_price', title: '成本（元）', width: 140 },
+]
+
+/** 加载周期价格矩阵：仅在编辑上游商品时调用（自营商品的周期价走创建流程与矩阵页）。 */
+async function loadCyclePrices() {
+  const id = props.initial?.id
+  if (!isUpstream.value || props.mode !== 'edit' || !id) return
+  cycleLoading.value = true
+  cycleError.value = ''
+  try {
+    const matrix = await getProductPriceMatrix({ product_id: id })
+    cycleItems.value = (matrix.items || []).map((row) => ({
+      ...row,
+      price: Number(row.price) || 0,
+      cost_price: Number(row.cost_price) || 0,
+    }))
+  } catch (error) {
+    cycleError.value = (error as Error).message || '周期价格加载失败'
+  } finally {
+    cycleLoading.value = false
+  }
+}
+
+/** 保存周期价格：整表提交（后端按周期 upsert，未提交的档位会被删除，故提交全量）。 */
+async function saveCyclePrices() {
+  const id = props.initial?.id
+  if (!id) return
+  cycleSaving.value = true
+  try {
+    await saveProductPriceMatrix({
+      product_id: id,
+      items: cycleItems.value.map((row) => ({
+        cycle: row.cycle,
+        price: row.price,
+        cost_price: row.cost_price,
+        setup_fee: row.setup_fee,
+        cost_setup_fee: row.cost_setup_fee,
+        status: row.status,
+      })),
+    })
+    MessagePlugin.success('周期价格已保存')
+    await loadCyclePrices()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '周期价格保存失败')
+  } finally {
+    cycleSaving.value = false
+  }
+}
 
 const pageTitle = computed(() => (props.mode === 'create' ? '新建自营产品' : '编辑产品'))
 const headerDesc = computed(() =>
@@ -1329,7 +1466,22 @@ onMounted(() => {
   loadCategories()
   loadPlatformOptions()
   if (props.mode === 'create') void loadTemplates()
+  // 上游商品的编辑页：解析提供商名称 + 载入周期价格（就地改价）。
+  void loadProviderNames()
+  void loadCyclePrices()
 })
+
+/** 拉取提供商列表建 ID→名称映射（上游提供商展示名解析用；失败不影响表单）。 */
+async function loadProviderNames() {
+  try {
+    const data = await getProviderList({ page_size: 100 })
+    const map: Record<number, string> = {}
+    for (const item of data.items || []) map[item.id] = item.name
+    providerNames.value = map
+  } catch {
+    // 解析失败只影响展示名，回落为 #ID，不打断表单。
+  }
+}
 </script>
 
 <style lang="css">
@@ -1337,6 +1489,52 @@ onMounted(() => {
 </style>
 
 <style scoped>
+
+/* 周期价格矩阵（编辑页就地改价）：与页签区块视觉一致，避免看起来像另一个页面的片段 */
+.cycle-price-block {
+  margin: 4px 0 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--td-component-border, #e5e5e5);
+  border-radius: 8px;
+  background: var(--td-bg-color-secondarycontainer, #fafafa);
+}
+.cycle-price-block__head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.cycle-price-block__head .card-title {
+  margin: 0;
+}
+.cycle-price-block__meta {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #999);
+}
+.cycle-price-block__hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--td-text-color-secondary, #999);
+}
+.cycle-price-block__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.cycle-price-block__tip {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder, #bbb);
+}
+.cycle-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cycle-cell__name {
+  font-weight: 600;
+}
 .upstream-readonly {
   display: flex;
   flex-direction: column;

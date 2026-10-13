@@ -23,6 +23,16 @@ type ResourceProduct struct {
 	RawSpecs   string  `gorm:"column:raw_specs;type:text"`
 	CostPrice  float64 `gorm:"column:cost_price;type:decimal(10,2)"`
 	SalePrice  float64 `gorm:"column:sale_price;type:decimal(10,2)"`
+	// Stock 可售库存：-1=不限量（上游未开启库存控制），>=0=上游剩余可售数量。
+	// 与 products.stock 同一口径（-1=不限），导入商品时直接带过去做下单门禁。
+	//
+	// 与 Status 同理不能带 gorm default 标签：带 default 时零值会被 GORM 从
+	// INSERT 里省掉，"上游限量且余量为 0（售罄）"会被写成库默认的 -1（不限量），
+	// 售罄商品反而变成无限卖。值一律在同步侧显式赋值。
+	Stock int
+	// StockControl 上游是否开启库存控制（0=不限，1=限量）。
+	// 保留原值用于区分"上游限量余量为 0（真售罄）"与"上游不限量（stock 恒 -1）"。
+	StockControl int `gorm:"column:stock_control"`
 	// Status 1=上架（上游前台在售）/0=未在售（上游隐藏分组、隐藏商品、已下架）。
 	// 不能带 gorm default 标签：带 default 的零值字段会被 GORM 从 INSERT 里省掉，
 	// upsert 的 ON CONFLICT DO UPDATE 取到的 excluded.status 就永远是库默认值 1 ——

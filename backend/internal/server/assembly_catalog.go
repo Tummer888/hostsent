@@ -72,6 +72,8 @@ func (a *asm) buildCatalog() {
 	a.productService.SetImportedReader(newImportedProductReader(a.prodCatalogRepo))
 	// T3.4：把"已确认调价"落地到售出商品的实现注入同步引擎（写 product_history）。
 	a.syncEngine.SetPriceApplier(a.prodCatalogService)
+	// 上游库存随目录同步落地到售出商品（下单门禁读 products.stock）。
+	a.syncEngine.SetStockApplier(a.prodCatalogService)
 	// 定价与计费（pricing 子域）
 	a.pricingRepo = pricingrepo.NewPricingRepository(a.database)
 	a.pricingService = pricingservice.NewPricingService(a.pricingRepo)

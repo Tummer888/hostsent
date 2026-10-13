@@ -14,19 +14,23 @@ type ListQuery struct {
 
 // ProductInfo 用户可购商品信息（不含成本价等内部字段）。
 type ProductInfo struct {
-	ID            uint64  `json:"id"`
-	Name          string  `json:"name"`
-	Description   string  `json:"description"`
-	CoverImage    string  `json:"cover_image"`
-	CategoryID    uint64  `json:"category_id"`
-	ProductType   string  `json:"product_type"`
-	Price         float64 `json:"price"`
-	PriceModel    string  `json:"price_model"`
-	Specs         string  `json:"specs"`       // JSON 字符串（wire 层 `specs` 类型统一为 string；内容为商品展示规格）
-	SourceMode    string  `json:"source_mode"` // self 自营 / upstream 上游转售（D6）
-	ConfigOptions string  `json:"config_options"`
-	Featured      bool    `json:"featured"`
-	CreatedAt     string  `json:"created_at"`
+	ID          uint64  `json:"id"`
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	CoverImage  string  `json:"cover_image"`
+	CategoryID  uint64  `json:"category_id"`
+	ProductType string  `json:"product_type"`
+	Price       float64 `json:"price"`
+	PriceModel  string  `json:"price_model"`
+	Specs       string  `json:"specs"` // JSON 字符串（wire 层 `specs` 类型统一为 string；内容为商品展示规格）
+	// 注意：这里刻意**不下发** source_mode（自营/上游转售）与 config_options
+	// （平台原始写参数 JSON）。两者都是内部供货与对接口径，客户只需知道"能买什么、
+	// 多少钱、怎么开通"，看到"这台是转售的、那台是自营的"只会有两个坏结果：
+	// 挑渠道（自营被冷落）或发现转售关系。
+	// 需要该信息的内部链路（下单投递履约任务）走 admin 侧 catalogdto.ProductInfo，
+	// 与本 DTO 无关。
+	Featured  bool   `json:"featured"`
+	CreatedAt string `json:"created_at"`
 	// Cycles 商品级可售周期（doc25）：monthly/quarterly/annually 等规范值。
 	// 空数组表示未维护周期价格矩阵，按商品级单价下单（存量行为）。
 	Cycles []string `json:"cycles"`
@@ -36,10 +40,14 @@ type ProductInfo struct {
 	// OptionGroups 客户可选配置项（T4.5）：档位之外可自选的参数（操作系统/CPU 档/带宽…）。
 	// 前端按每个 option 的 widget 渲染控件，选中加价并入预结算金额。
 	OptionGroups []OptionGroup `json:"option_groups"`
-	// Upstream 对接链路信息（source_mode=upstream 时有值）：配置箱据此把上游固定配置
-	// 展示为只读（"该商品由上游固定配置，不可修改"），并提示是否可续费。
-	// 只含展示口径，不含代理价/成本等内部数据。
+	// Upstream 商品的固定配置信息（整机锁定项 / 是否可续费 / 下单说明）。
+	// 只含展示口径：不含上游供应商名称、上游商品号、成本与代理价。
+	// 字段名保留 upstream_chain 属历史命名（前端已按"固定配置"呈现，不出现上游字样）。
 	Upstream *UpstreamChain `json:"upstream_chain,omitempty"`
+	// Stock 商品级可售库存（-1=不限量，>=0=剩余可售数量）。
+	// 上游转售商品没有 SKU，库存挂在商品行上：卖到 0 时前端应展示"已售罄"并禁用购买，
+	// 后端下单同样会拦（避免超卖上游限量商品）。
+	Stock int `json:"stock"`
 }
 
 // UpstreamChain 对接商品的客户可见链路信息。
@@ -51,7 +59,7 @@ type UpstreamChain struct {
 	RenewNote string `json:"renew_note"`
 	// Options 上游配置项（展示名 + 是否锁定 + 锁定值）。
 	Options []UpstreamChainOption `json:"options"`
-	// OrderNotes 下单说明（主机名可自定义 / 密码随机 / 端口由上游分配等），购买页展示。
+	// OrderNotes 下单说明（主机名可自定义 / 密码可指定 / 端口由系统分配等），购买页展示。
 	OrderNotes []string `json:"order_notes"`
 }
 

@@ -8,8 +8,9 @@
         <div class="page-header__text">
           <h2 class="page-header__title">上游商品</h2>
           <p class="page-header__sub">
-            上游供应商的商品镜像：按分类/服务商查看，标价与代理价（采购价）双口径，可设加价规则同步到已导入商品。
-            状态分两列：「上游状态」= 上游商铺是否展示，「本地导入」= 我方是否已导入。
+            上游供应商的商品镜像：按分类/服务商查看，标价与代理价（采购价）双口径。
+            状态分两列：「上游状态」= 上游商铺是否展示，「本地导入」= 我方是否已导入；
+            「库存」= 上游可售余量（不限量显示「不限」），随目录同步刷新。
           </p>
         </div>
       </div>
@@ -158,6 +159,13 @@
               <span v-else class="muted">—</span>
             </template>
 
+            <!-- 库存：上游可售余量。不限量显示「不限」，限量显示数字并按水位着色 -->
+            <template #stock="{ row }">
+              <span v-if="row.stock === undefined || row.stock === null || row.stock < 0" class="muted">不限</span>
+              <span v-else-if="row.stock === 0" class="stock-cell stock-cell--out">已售罄</span>
+              <span v-else class="stock-cell" :class="{ 'stock-cell--low': row.stock <= 5 }">{{ row.stock }}</span>
+            </template>
+
             <template #status="{ row }">
               <t-tooltip :content="statusTooltip(row)">
                 <t-tag :theme="statusTheme(row)" variant="light" size="small" shape="round">
@@ -182,17 +190,11 @@
                   v-if="isMobile"
                   :options="buildMobileActionOptions([
                     { content: '详情', value: 'detail', theme: 'default' },
-                    { content: '调价', value: 'markup', theme: 'default' },
-                    { content: '订正同步价', value: 'price', theme: 'default' },
                   ])"
                   @select="(value) => handleMobileAction(value, row)"
                 />
                 <template v-else>
                   <t-link theme="primary" hover="color" @click="openDetailDialog(row)">详情</t-link>
-                  <t-link theme="primary" hover="color" @click="openMarkupDialog(row)">调价</t-link>
-                  <t-tooltip content="只修正本地镜像里的上游标价/代理价，下次同步会被上游值覆盖；改对客售价请用「调价」">
-                    <t-link theme="default" hover="color" @click="openPriceDialog(row)">订正同步价</t-link>
-                  </t-tooltip>
                 </template>
               </div>
             </template>
@@ -246,6 +248,14 @@
         <t-descriptions-item label="上游让利（标价−代理价）">
           {{ detailProduct.cost_price > 0 && detailProduct.sale_price > detailProduct.cost_price ? `¥${formatPrice(detailProduct.sale_price - detailProduct.cost_price)}（${discountRate(detailProduct)}%）` : '—' }}
         </t-descriptions-item>
+        <t-descriptions-item label="库存（上游可售余量）">
+          <span v-if="detailProduct.stock < 0" class="muted">不限量（上游未开启库存控制）</span>
+          <span v-else-if="detailProduct.stock === 0" class="stock-cell stock-cell--out">已售罄（上游余量 0）</span>
+          <span v-else class="stock-cell" :class="{ 'stock-cell--low': detailProduct.stock <= 5 }">
+            {{ detailProduct.stock }} 台
+          </span>
+          <span v-if="detailProduct.stock_control === 1" class="inline-hint">上游限量销售，售罄后无法下单</span>
+        </t-descriptions-item>
         <t-descriptions-item label="上游状态">
           <t-tag :theme="statusTheme(detailProduct)" variant="light" size="small" shape="round">
             {{ statusText(detailProduct) }}
@@ -287,82 +297,6 @@
       </t-descriptions>
     </t-dialog>
 
-    <t-dialog
-      v-model:visible="markupVisible"
-      :header="markupProduct ? `调价 · ${markupProduct.name}` : '调价'"
-      width="560px"
-      :confirm-btn="{ content: '保存并按规则重算已导入商品', theme: 'primary', loading: markupSubmitting }"
-      :cancel-btn="{ content: '取消' }"
-      @confirm="handleSaveMarkup"
-      @close="markupVisible = false"
-    >
-      <t-form label-align="top" :data="markupForm" @submit.prevent>
-        <div class="markup-summary">
-          <span>上游标价 <b>{{ markupProduct && markupProduct.sale_price > 0 ? `¥${formatPrice(markupProduct.sale_price)}` : '未定价' }}</b></span>
-          <span>代理价 <b>{{ markupProduct && markupProduct.cost_price > 0 ? `¥${formatPrice(markupProduct.cost_price)}` : '—' }}</b></span>
-        </div>
-        <t-form-item label="加价方式">
-          <t-radio-group v-model="markupForm.markup_type">
-            <t-radio value="list_percent">按上游标价 × 百分比（推荐）</t-radio>
-            <t-radio value="percent">按代理价 × 百分比</t-radio>
-            <t-radio value="fixed">按代理价 + 固定额</t-radio>
-            <t-radio value="">不设置（清除规则）</t-radio>
-          </t-radio-group>
-        </t-form-item>
-        <t-form-item v-if="markupForm.markup_type" :label="markupValueLabel">
-          <t-input-number
-            v-model="markupForm.markup_value"
-            :min="0"
-            :precision="2"
-            theme="column"
-            :suffix="markupForm.markup_type === 'fixed' ? '元' : '%'"
-          />
-          <span class="clone-tip">{{ markupHint }}</span>
-        </t-form-item>
-        <t-form-item label="调价备注">
-          <t-input v-model="markupForm.remark" placeholder="可选，写入商品变更历史" />
-        </t-form-item>
-      </t-form>
-
-      <div class="markup-preview">
-        <span class="markup-preview__title">售价预览</span>
-        <div class="markup-preview__grid">
-          <span>对客售价</span>
-          <b>{{ previewPrice > 0 ? `¥${formatPrice(previewPrice)}` : '—' }}</b>
-          <span>单件毛利</span>
-          <b :class="previewProfit >= 0 ? 'profit-up' : 'profit-down'">
-            {{ previewPrice > 0 && markupProduct && markupProduct.cost_price > 0 ? `¥${formatPrice(previewProfit)}（${previewProfitRate}%）` : '—' }}
-          </b>
-        </div>
-        <p class="markup-preview__note">
-          保存后该规则会写入此上游商品已导入的全部商品（售价 + 各周期价格矩阵），并写入商品变更历史；
-          后续上游调价时也按此规则自动重算。调价不影响已下订单。
-        </p>
-      </div>
-    </t-dialog>
-
-    <t-dialog
-      v-model:visible="priceVisible"
-      header="订正同步价（仅修正本地镜像）"
-      width="460px"
-      :confirm-btn="{ content: '保存', theme: 'primary' }"
-      :cancel-btn="{ content: '取消' }"
-      @confirm="handleSavePrice"
-      @close="priceVisible = false"
-    >
-      <t-form label-align="top" :data="priceForm" @submit.prevent>
-        <t-form-item label="上游标价（元）" name="sale_price">
-          <t-input-number v-model="priceForm.sale_price" :min="0" :precision="2" theme="column" placeholder="上游公示价" />
-        </t-form-item>
-        <t-form-item label="代理价（采购价，元）" name="cost_price">
-          <t-input-number v-model="priceForm.cost_price" :min="0" :precision="2" theme="column" placeholder="上游标价扣除代理折扣后的采购价" />
-        </t-form-item>
-      </t-form>
-      <p class="dialog-note">
-        这里改的是本地镜像的上游价格，用于订正同步数据；下次同步会以上游实际价格覆盖。
-        要给客户定售价，请用「调价」设定加价规则。
-      </p>
-    </t-dialog>
   </div>
 </template>
 
@@ -374,7 +308,7 @@ import { useRouter } from 'vue-router'
 import { AddIcon, AppIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
-import { applyUpstreamMarkup, getProductDetail, getProductList, getProviderList, updateProductPrice } from '@/api/admin'
+import { getProductDetail, getProductList, getProviderList } from '@/api/admin'
 import type { ProductInfo, ProviderInfo } from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
@@ -540,12 +474,13 @@ const columns: PrimaryTableCol<ProductInfo>[] = [
   { colKey: 'specs', title: '规格', minWidth: 190 },
   { colKey: 'price', title: '价格（标价 / 代理价）', width: 160 },
   { colKey: 'margin', title: '毛利空间', width: 120 },
+  { colKey: 'stock', title: '库存', width: 90 },
   { colKey: 'status', title: '上游状态', width: 130 },
   { colKey: 'imported', title: '本地导入', width: 120 },
   {
     colKey: 'action',
     title: '操作',
-    width: isMobile.value ? 70 : 190,
+    width: isMobile.value ? 70 : 100,
     fixed: 'right' as const,
     align: 'center' as const,
   },
@@ -716,136 +651,6 @@ async function openDetailDialog(row: ProductInfo) {
   }
 }
 
-// —— 调价（设定加价规则并重算已导入商品售价） ——
-const markupVisible = ref(false)
-const markupSubmitting = ref(false)
-const markupProduct = ref<ProductInfo | null>(null)
-const markupForm = reactive<{ markup_type: '' | 'percent' | 'fixed' | 'list_percent'; markup_value: number; remark: string }>({
-  markup_type: 'list_percent',
-  markup_value: 100,
-  remark: '',
-})
-
-const markupValueLabel = computed(() => {
-  switch (markupForm.markup_type) {
-    case 'list_percent':
-      return '标价百分比（100 = 按上游原价）'
-    case 'percent':
-      return '代理价百分比（%）'
-    case 'fixed':
-      return '加价固定额（元）'
-    default:
-      return '数值'
-  }
-})
-
-const markupHint = computed(() => {
-  switch (markupForm.markup_type) {
-    case 'list_percent':
-      return '售价 = 上游标价 × N%。100 即按上游原价卖；>100 加价，<100 让利；成本仍是代理价。'
-    case 'percent':
-      return '售价 = 代理价（采购成本）× N%。'
-    case 'fixed':
-      return '售价 = 代理价（采购成本）+ N 元。'
-    default:
-      return ''
-  }
-})
-
-/** 预览售价：与后端 applyMarkupWithList 同口径（标价口径缺标价时退回代理价）。 */
-const previewPrice = computed(() => {
-  const product = markupProduct.value
-  if (!product || !markupForm.markup_type) return 0
-  const cost = product.cost_price > 0 ? product.cost_price : 0
-  const list = product.sale_price > 0 ? product.sale_price : 0
-  switch (markupForm.markup_type) {
-    case 'list_percent': {
-      const base = list > 0 ? list : cost
-      return Math.round(base * markupForm.markup_value) / 100
-    }
-    case 'percent':
-      return Math.round(cost * markupForm.markup_value) / 100
-    case 'fixed':
-      return Math.round((cost + markupForm.markup_value) * 100) / 100
-    default:
-      return 0
-  }
-})
-
-const previewProfit = computed(() => {
-  const product = markupProduct.value
-  if (!product || !(product.cost_price > 0)) return 0
-  return Math.round((previewPrice.value - product.cost_price) * 100) / 100
-})
-
-const previewProfitRate = computed(() => {
-  if (!(previewPrice.value > 0)) return 0
-  return Math.round((previewProfit.value / previewPrice.value) * 100)
-})
-
-function openMarkupDialog(row: ProductInfo) {
-  markupProduct.value = row
-  // 默认按标价 100%（=按上游原价卖），这与导入弹窗的默认口径一致。
-  markupForm.markup_type = 'list_percent'
-  markupForm.markup_value = 100
-  markupForm.remark = ''
-  markupVisible.value = true
-}
-
-async function handleSaveMarkup() {
-  const product = markupProduct.value
-  if (!product) return
-  if (markupForm.markup_type && !(markupForm.markup_value > 0)) {
-    MessagePlugin.warning('请填写大于 0 的加价数值')
-    return
-  }
-  markupSubmitting.value = true
-  try {
-    const resp = await applyUpstreamMarkup({
-      resource_product_id: product.id,
-      markup_type: markupForm.markup_type,
-      markup_value: markupForm.markup_value,
-      remark: markupForm.remark,
-    })
-    if (resp.affected > 0) {
-      MessagePlugin.success(resp.message || `已重算 ${resp.affected} 个商品售价`)
-    } else {
-      MessagePlugin.warning('该上游商品还没有导入成商品；导入时请在导入弹窗里填写同样的定价百分比')
-    }
-    markupVisible.value = false
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '调价失败')
-  } finally {
-    markupSubmitting.value = false
-  }
-}
-
-// —— 订正同步价（仅修正本地镜像） ——
-const priceVisible = ref(false)
-const priceForm = reactive<{ cost_price: number; sale_price: number }>({ cost_price: 0, sale_price: 0 })
-const priceProduct = ref<ProductInfo | null>(null)
-
-function openPriceDialog(row: ProductInfo) {
-  priceProduct.value = row
-  priceForm.cost_price = row.cost_price
-  priceForm.sale_price = row.sale_price
-  priceVisible.value = true
-}
-
-async function handleSavePrice() {
-  if (!priceProduct.value) return
-  try {
-    await updateProductPrice(priceProduct.value.id, {
-      cost_price: priceForm.cost_price,
-      sale_price: priceForm.sale_price,
-    })
-    MessagePlugin.success('同步价已订正')
-    priceVisible.value = false
-    loadAll()
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '更新价格失败')
-  }
-}
 
 onMounted(() => {
   loadProviders()
@@ -858,12 +663,6 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
   switch (action) {
     case 'detail':
       openDetailDialog(row)
-      break
-    case 'markup':
-      openMarkupDialog(row)
-      break
-    case 'price':
-      openPriceDialog(row)
       break
   }
 }
@@ -1049,72 +848,18 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
   color: var(--color-muted-foreground);
 }
 
-/* 调价弹窗：上游价摘要 + 售价预览 */
-.markup-summary {
-  display: flex;
-  gap: 16px;
-  padding: 8px 10px;
-  margin-bottom: 12px;
-  border-radius: 6px;
-  background: var(--td-bg-color-secondarycontainer, #f5f5f5);
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-}
-
-.markup-summary b {
-  color: #334155;
-}
-
-.clone-tip {
-  display: block;
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-}
-
-.markup-preview {
-  border: 1px solid var(--td-component-border, #e7e7e7);
-  border-radius: 6px;
-  padding: 10px 12px;
-}
-
-.markup-preview__title {
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-}
-
-.markup-preview__grid {
-  display: grid;
-  grid-template-columns: 88px 1fr;
-  gap: 4px 8px;
-  margin-top: 6px;
-  align-items: baseline;
-  font-size: 13px;
-}
-
-.markup-preview__grid span {
-  color: var(--color-muted-foreground);
-  font-size: 12px;
-}
-
-.markup-preview__grid b {
-  color: #334155;
+/* 库存：限量余量按水位着色，售罄用危险色（上游余量 0 时下游不能再卖）。 */
+.stock-cell {
   font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 
-.profit-up {
-  color: #2ba471 !important;
+.stock-cell--low {
+  color: var(--td-warning-color, #e37318);
 }
 
-.profit-down {
-  color: #d54941 !important;
-}
-
-.markup-preview__note,
-.dialog-note {
-  margin: 8px 0 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--color-muted-foreground);
+.stock-cell--out {
+  color: var(--td-error-color, #d54941);
 }
 
 .raw-pre {

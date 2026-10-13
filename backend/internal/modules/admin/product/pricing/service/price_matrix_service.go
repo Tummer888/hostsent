@@ -118,8 +118,10 @@ func (s *priceMatrixService) Matrix(ctx context.Context, query dto.PriceMatrixQu
 		item := dto.PriceMatrixItem{
 			Cycle:     cycle,
 			CycleName: billingcycle.Name(cycle),
-			// 上游商品未同步到的档位不可人工填价（价格须来自上游同步 + 加价规则）。
-			Editable: !isUpstream(meta),
+			// 上游商品也可人工改价（用户要求）：改价即转成人工行（manual），
+			// 之后不再被上游同步覆盖 —— 见 SaveMatrix 的 explicit 判定。
+			// 未同步到的档位同样可填：上游没这个档位时运营可以自行定价售卖。
+			Editable: true,
 		}
 		if row, ok := byCycle[cycle]; ok {
 			item.Price = row.Price
@@ -129,8 +131,6 @@ func (s *priceMatrixService) Matrix(ctx context.Context, query dto.PriceMatrixQu
 			item.Source = row.Source
 			item.Status = row.Status
 			item.Remark = row.Remark
-			// 上游派生行只读；人工行（运营显式覆盖过）仍可改。
-			item.Editable = !isUpstream(meta) || row.Source == model.PriceSourceManual
 		}
 		resp.Items = append(resp.Items, item)
 	}
@@ -228,13 +228,25 @@ func (s *priceMatrixService) SaveMatrix(ctx context.Context, req dto.PriceMatrix
 			Remark:        req.Remark,
 		}
 		if prev, ok := existingByCycle[cycle]; ok {
-			// 上游派生行：价格由同步推导，人工只能启停。
+			// 上游派生行：默认只接受"启停"，价格由同步推导。
+			//
+			// 例外（用户要求）：运营在矩阵里**显式改了价格**时，转成人工行（manual）。
+			// 此前是静默丢弃改动 —— 页面看起来能编辑、保存也返回成功，但价格没变，
+			// 运营只能去改上游加价规则。现在把"改了就是覆盖"的语义讲清楚：
+			// 人工行不会被上游同步覆盖（见 ApplyUpstreamPrices），要恢复跟随上游，
+			// 改回派生值即可（值相等时下面仍按派生行处理）。
 			if isUpstreamDerived(meta, prev.Source) {
-				row.Price = prev.Price
-				row.CostPrice = prev.CostPrice
-				row.SetupFee = prev.SetupFee
-				row.CostSetupFee = prev.CostSetupFee
-				row.Source = prev.Source
+				explicit := in.Price != prev.Price ||
+					in.CostPrice != prev.CostPrice ||
+					in.SetupFee != prev.SetupFee ||
+					in.CostSetupFee != prev.CostSetupFee
+				if !explicit {
+					row.Price = prev.Price
+					row.CostPrice = prev.CostPrice
+					row.SetupFee = prev.SetupFee
+					row.CostSetupFee = prev.CostSetupFee
+					row.Source = prev.Source
+				}
 			}
 		}
 		if err := s.repo.Upsert(ctx, &row); err != nil {

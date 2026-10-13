@@ -379,3 +379,46 @@ func (s *productService) seedCloneCyclePrices(ctx context.Context, item model.Pr
 	}
 	_ = s.cycleWriter.ApplyUpstreamPrices(ctx, item.ID, rows)
 }
+
+// ============================================================================
+// 上游库存同步（StockApplier 契约）
+// ============================================================================
+
+// ApplyUpstreamStock 把上游商品的可售库存写进绑定它的售出商品（下单门禁读的就是它）。
+//
+// 背景（用户反馈）：上游商品列表的库存信息不准、也没从上游拉下来；上游限量
+// （stock_control=1）的商品在本地可以无限下单。库存的权威在上游，本地只是镜像，
+// 因此这里跟随目录同步刷新。
+//
+// 覆盖规则（两档，避免把"上游放开"与"运营自设量"搞混）：
+//   - 上游限量（stock >= 0）：以上游余量为准，直接写。上游余量是真实可售上限，
+//     本地留着更大的数就是超卖风险；此前的导入也从不带库存，需要靠这里收敛。
+//   - 上游不限量（stock < 0）：仅当本地值**来自上一次同步**（prevStock >= 0，
+//     即上游刚解除限量）时放开为 -1；若本地本来就是 -1，说明当前值可能是运营
+//     自己设的限量，保持不动 —— 否则"只卖 10 台"会被上游的"不限量"抹掉。
+func (s *productService) ApplyUpstreamStock(ctx context.Context, resourceProductID uint64, stock, prevStock int) (int, error) {
+	if resourceProductID == 0 {
+		return 0, nil
+	}
+	if stock < 0 && prevStock < 0 {
+		// 上游一直不限量、本地也是不限量：没有需要同步的事实，不写库。
+		return 0, nil
+	}
+	products, err := s.repo.ListBySourceProductID(ctx, resourceProductID)
+	if err != nil {
+		return 0, err
+	}
+	affected := 0
+	for i := range products {
+		item := products[i]
+		if item.Stock == stock {
+			continue
+		}
+		item.Stock = stock
+		if err := s.repo.Update(ctx, &item); err != nil {
+			return affected, err
+		}
+		affected++
+	}
+	return affected, nil
+}

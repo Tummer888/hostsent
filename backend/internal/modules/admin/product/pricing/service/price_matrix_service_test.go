@@ -181,8 +181,12 @@ func TestSaveMatrixRejectsNonUpstreamCycle(t *testing.T) {
 	}
 }
 
-// TestSaveMatrixKeepsUpstreamDerivedPrice 上游派生行只接受启停，价格保持同步结果不被人工改写。
-func TestSaveMatrixKeepsUpstreamDerivedPrice(t *testing.T) {
+// TestSaveMatrixUpstreamExplicitPriceBecomesManual 上游派生行显式改价 → 转人工行，不再被同步覆盖。
+//
+// 语义变更（用户要求「对接商品也能在编辑页/矩阵里直接改价」）：
+// 旧行为是静默丢弃人工填价（保存返回成功但价格没变），运营只能去改上游加价规则。
+// 新行为是"改了就是覆盖"——转成 manual 行，ApplyUpstreamPrices 不再覆盖它。
+func TestSaveMatrixUpstreamExplicitPriceBecomesManual(t *testing.T) {
 	repo := &fakeRepo{rows: []model.ProductPrice{
 		{ProductID: 7, Cycle: "monthly", Currency: "CNY", Price: 20, CostPrice: 20, Source: model.PriceSourceMarkup, Status: 1},
 	}}
@@ -191,18 +195,40 @@ func TestSaveMatrixKeepsUpstreamDerivedPrice(t *testing.T) {
 
 	if _, err := svc.SaveMatrix(context.Background(), dto.PriceMatrixSaveRequest{
 		ProductID: 7,
-		Items:     []dto.PriceMatrixItemInput{{Cycle: "monthly", Price: 999, Status: 0}},
+		Items:     []dto.PriceMatrixItemInput{{Cycle: "monthly", Price: 999, Status: 1}},
+	}); err != nil {
+		t.Fatalf("SaveMatrix 失败: %v", err)
+	}
+	if repo.rows[0].Price != 999 {
+		t.Fatalf("显式改价应被接受，got %v", repo.rows[0].Price)
+	}
+	if repo.rows[0].Source != model.PriceSourceManual {
+		t.Fatalf("显式改价后来源应转为 manual（否则下次同步会被覆盖），got %q", repo.rows[0].Source)
+	}
+}
+
+// TestSaveMatrixUpstreamUnchangedPriceKeepsDerived 价格未变（前端原样回传）时仍保持派生行。
+func TestSaveMatrixUpstreamUnchangedPriceKeepsDerived(t *testing.T) {
+	repo := &fakeRepo{rows: []model.ProductPrice{
+		{ProductID: 7, Cycle: "monthly", Currency: "CNY", Price: 20, CostPrice: 20, Source: model.PriceSourceMarkup, Status: 1},
+	}}
+	meta := &MatrixProductMeta{ID: 7, SourceMode: "upstream", SourceProviderID: 2}
+	svc := NewPriceMatrixService(repo, fixedMeta{meta}, fixedChannels{cycles: []string{"monthly"}})
+
+	if _, err := svc.SaveMatrix(context.Background(), dto.PriceMatrixSaveRequest{
+		ProductID: 7,
+		Items:     []dto.PriceMatrixItemInput{{Cycle: "monthly", Price: 20, CostPrice: 20, Status: 0}},
 	}); err != nil {
 		t.Fatalf("SaveMatrix 失败: %v", err)
 	}
 	if repo.rows[0].Price != 20 {
-		t.Fatalf("上游派生行价格不应被人工改写，got %v", repo.rows[0].Price)
+		t.Fatalf("价格应保持不变，got %v", repo.rows[0].Price)
 	}
 	if repo.rows[0].Status != 0 {
 		t.Fatalf("启停应被接受，got status=%d", repo.rows[0].Status)
 	}
 	if repo.rows[0].Source != model.PriceSourceMarkup {
-		t.Fatalf("来源应保持 markup，got %q", repo.rows[0].Source)
+		t.Fatalf("未改价时来源应保持 markup，got %q", repo.rows[0].Source)
 	}
 }
 

@@ -283,15 +283,34 @@
         </div>
 
         <div class="clone-summary">
-          <span>上游商品 {{ providerProducts.length }} 个</span>
+          <span>上游商品 {{ filteredProducts.length }} 个<template v-if="cloneKeyword">（全部 {{ providerProducts.length }} 个）</template></span>
           <span class="clone-summary__split">
-            在售 {{ onSaleCount }} · 未在售 {{ providerProducts.length - onSaleCount }}
+            在售 {{ onSaleCount }} · 未在售 {{ filteredProducts.length - onSaleCount }}
             <template v-if="importedCount"> · 已导入 {{ importedCount }}</template>
           </span>
           <span v-if="discountHint" class="clone-summary__hint">{{ discountHint }}</span>
           <span class="clone-summary__pick">
             <template v-if="selectedProductIds.size">已选 {{ selectedProductIds.size }} 个 · 预计毛利 {{ formatPrice(selectedProfit) }}/月</template>
             <template v-else>共 {{ selectableCount }} 个可导入</template>
+          </span>
+        </div>
+
+        <div class="clone-search">
+          <t-input
+            v-model="cloneKeyword"
+            clearable
+            placeholder="搜索商品名称 / 规格 / 上游 ID / 分类名，快速定位"
+          >
+            <template #prefix-icon>
+              <SearchIcon size="14" aria-hidden="true" />
+            </template>
+          </t-input>
+          <span class="clone-search__hint">
+            <template v-if="cloneKeyword">
+              匹配 {{ filteredProducts.length }} 个商品，分布在 {{ visibleGroups.length }} 个分类
+              <t-link theme="primary" hover="color" @click="cloneKeyword = ''">清空</t-link>
+            </template>
+            <template v-else>输入关键词可按分类与商品快速定位（上游商品常有几百个，靠滚动很难找）</template>
           </span>
         </div>
 
@@ -302,8 +321,9 @@
 
         <div class="clone-groups">
           <div v-if="cloneLoading" class="clone-empty">正在加载上游商品…</div>
-          <div v-else-if="!groupList.length" class="clone-empty">请先选择上游提供商，加载商品分组</div>
-          <div v-for="group in groupList" :key="group.id" class="clone-group">
+          <div v-else-if="!providerProducts.length" class="clone-empty">请先选择上游提供商，加载商品分组</div>
+          <div v-else-if="!visibleGroups.length" class="clone-empty">没有匹配「{{ cloneKeyword }}」的上游商品，换个关键词试试</div>
+          <div v-for="group in visibleGroups" :key="group.id" class="clone-group">
             <div class="clone-group__head">
               <t-checkbox
                 :checked="isGroupChecked(group)"
@@ -327,6 +347,7 @@
                 <span class="clone-col--num">代理价</span>
                 <span class="clone-col--num">售价</span>
                 <span class="clone-col--num">毛利</span>
+                <span class="clone-col--num">库存</span>
                 <span>状态</span>
               </div>
               <label
@@ -346,6 +367,7 @@
                 <span class="clone-cell clone-col--num">{{ priceText(item.cost_price) }}</span>
                 <span class="clone-cell clone-col--num clone-cell--sale">{{ priceText(salePriceOf(item)) }}</span>
                 <span class="clone-cell clone-col--num" :class="marginClass(item)">{{ marginText(item) }}</span>
+                <span class="clone-cell clone-col--num" :class="stockClass(item)">{{ stockText(item) }}</span>
                 <span class="clone-cell clone-cell--status">
                   <t-tooltip
                     v-if="item.imported"
@@ -691,10 +713,10 @@ const cloneVisible = ref(false)
 const cloneSubmitting = ref(false)
 const cloneLoading = ref(false)
 const providerOptions = ref<{ label: string; value: number }[]>([])
-// 分组结构：group_id → 组名（派生分类带标记）+ 商品列表
-const groupList = ref<{ id: number; name: string; derived: boolean; items: ProductInfo[] }[]>([])
 const providerProducts = ref<ProductInfo[]>([])
 const selectedProductIds = ref<Set<number>>(new Set())
+// 导入弹窗搜索关键词：上游商品常有几百个，靠滚动定位分类/商品不现实。
+const cloneKeyword = ref('')
 const cloneForm = reactive<{
   source_provider_id: number | undefined
   category_id: number | undefined
@@ -717,17 +739,43 @@ const discountHint = computed(() => {
 })
 
 /** 在售商品数：上游隐藏分组/隐藏商品/已下架都不算在售（status 由同步按真实可见性写入）。 */
-const onSaleCount = computed(() => providerProducts.value.filter((item) => isProductOnSale(item)).length)
+const onSaleCount = computed(() => filteredProducts.value.filter((item) => isProductOnSale(item)).length)
 
 /** 已导入数：上游商品已导入为本地商品的数量（这些不允许重复导入）。 */
-const importedCount = computed(() => providerProducts.value.filter((item) => item.imported).length)
+const importedCount = computed(() => filteredProducts.value.filter((item) => item.imported).length)
 
 /** 可导入数（未导入的）——汇总行给运营一个"还能导几个"的准数。 */
-const selectableCount = computed(() => providerProducts.value.filter((item) => !item.imported).length)
+const selectableCount = computed(() => filteredProducts.value.filter((item) => !item.imported).length)
+
+/**
+ * 搜索过滤后的上游商品：按商品名/规格/上游 ID/分类名匹配（大小写不敏感）。
+ *
+ * 分类名也参与匹配是为了"先搜分类名、再整组勾选"这个高频动作：
+ * 运营常按「香港|六区」这类分类名找货，而不是逐个记商品名。
+ */
+const filteredProducts = computed(() => {
+  const kw = cloneKeyword.value.trim().toLowerCase()
+  if (!kw) return providerProducts.value
+  return providerProducts.value.filter((item) => {
+    const haystack = [
+      item.name,
+      item.group_name || '',
+      item.upstream_id || '',
+      formatProductSpec(item),
+    ]
+      .join(' ')
+      .toLowerCase()
+    return haystack.includes(kw)
+  })
+})
+
+/** 搜索时分组列表按过滤结果重建；清空搜索后回到全量分组。 */
+const visibleGroups = computed(() => buildCloneGroups(filteredProducts.value))
 
 /** 已选商品的预计毛利（售价 − 代理价，按标价可见的商品相加）。 */
 const selectedProfit = computed(() => {
   let total = 0
+  // 用全量而非过滤结果求和：搜索只是视图过滤，已勾选项不应因为关键词变化而从毛利里"消失"。
   for (const item of providerProducts.value) {
     if (!selectedProductIds.value.has(item.id)) continue
     const sale = salePriceOf(item)
@@ -787,6 +835,20 @@ function statusTooltipOf(item: ProductInfo): string {
   }
 }
 
+/** 库存文案：不限量显示「不限」；上游限量显示余量，0 显示「售罄」。 */
+function stockText(item: ProductInfo): string {
+  if (item.stock === undefined || item.stock === null || item.stock < 0) return '不限'
+  return item.stock === 0 ? '售罄' : String(item.stock)
+}
+
+/** 库存着色：售罄危险色、紧张（≤5）警示色，其余默认。 */
+function stockClass(item: ProductInfo): string {
+  if (item.stock === undefined || item.stock === null || item.stock < 0) return 'clone-cell--muted'
+  if (item.stock === 0) return 'stock-text--out'
+  if (item.stock <= 5) return 'stock-text--low'
+  return ''
+}
+
 function statusThemeOf(item: ProductInfo): 'success' | 'danger' | 'warning' | 'default' {
   if (isProductOnSale(item)) return 'success'
   return item.visibility === 'retired' ? 'danger' : 'warning'
@@ -798,7 +860,7 @@ async function handleClone() {
   cloneForm.price_percent = 100
   cloneForm.publish_now = true
   selectedProductIds.value = new Set()
-  groupList.value = []
+  cloneKeyword.value = ''
   cloneVisible.value = true
   try {
     const data = await getProviderList({ page_size: 100 })
@@ -813,9 +875,9 @@ async function handleClone() {
 }
 
 async function handleProviderChange() {
-  groupList.value = []
   providerProducts.value = []
   selectedProductIds.value = new Set()
+  cloneKeyword.value = ''
   if (!cloneForm.source_provider_id) return
   cloneLoading.value = true
   try {
@@ -823,7 +885,6 @@ async function handleProviderChange() {
     // 此前固定 page_size=100 导致上游商品多于 100 时后一半根本选不到。
     const data = await getResourceProductList({ provider_id: cloneForm.source_provider_id, page_size: 500 })
     providerProducts.value = data.items
-    groupList.value = buildCloneGroups(data.items)
   } catch {
     MessagePlugin.error('加载上游商品失败')
   } finally {
@@ -1239,6 +1300,24 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
   line-height: 1.6;
   color: var(--td-text-color-secondary, #999);
 }
+/* 导入弹窗搜索：上游商品常有几百个，靠滚动很难定位到目标分类/商品 */
+.clone-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.clone-search :deep(.t-input__wrap) {
+  width: 320px;
+  flex: none;
+}
+.clone-search__hint {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #999);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 /* 商品面板固定高度：加载/切换服务商时弹窗不再忽高忽低 */
 .clone-groups {
   height: 420px;
@@ -1278,11 +1357,22 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
 }
 .clone-row {
   display: grid;
-  grid-template-columns: 28px minmax(200px, 1.6fr) 150px 84px 84px 84px 96px 76px;
+  grid-template-columns: 28px minmax(180px, 1.6fr) 140px 76px 76px 76px 88px 64px 76px;
   align-items: center;
   gap: 8px;
   padding: 4px 0;
   font-size: 12px;
+}
+.clone-cell--muted {
+  color: var(--td-text-color-placeholder, #bbb);
+}
+.stock-text--low {
+  color: var(--td-warning-color, #e37318);
+  font-weight: 600;
+}
+.stock-text--out {
+  color: var(--td-error-color, #d54941);
+  font-weight: 600;
 }
 .clone-table__head.clone-row {
   color: var(--td-text-color-placeholder, #bbb);

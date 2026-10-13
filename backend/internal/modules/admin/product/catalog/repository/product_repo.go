@@ -38,6 +38,11 @@ type ProductRepository interface {
 	DecrementSpecStock(ctx context.Context, specID uint64, qty int) (int64, error)
 	// IncrementSpecStock 回补库存（下单失败补偿用；stock<0 表示不限，不回补）。
 	IncrementSpecStock(ctx context.Context, specID uint64, qty int) (int64, error)
+	// DecrementProductStock / IncrementProductStock 商品级库存增减。
+	// 上游转售商品没有 SKU，库存挂在商品行上（products.stock），
+	// 与 SKU 库存一样需要原子条件更新，否则并发下单会超卖上游限量商品。
+	DecrementProductStock(ctx context.Context, productID uint64, qty int) (int64, error)
+	IncrementProductStock(ctx context.Context, productID uint64, qty int) (int64, error)
 	AddHistory(ctx context.Context, history *model.ProductHistory) error
 	ListHistory(ctx context.Context, productID uint64) ([]model.ProductHistory, error)
 	// ListBySourceProductID 按上游资源商品 ID 查关联售出商品（T3.4 已确认调价落地用）。
@@ -238,6 +243,35 @@ func (r *productRepository) IncrementSpecStock(ctx context.Context, specID uint6
 	}
 	res := r.db.WithContext(ctx).Model(&model.ProductSpec{}).
 		Where("id = ? AND stock >= 0", specID).
+		Updates(map[string]interface{}{
+			"stock":      gorm.Expr("stock + ?", qty),
+			"updated_at": time.Now(),
+		})
+	return res.RowsAffected, res.Error
+}
+
+// DecrementProductStock 商品级库存条件更新扣减（口径同 SKU 库存：stock<0 不限量）。
+// 上游转售商品没有 SKU，上游限量是否售罄只能落在商品行上。
+func (r *productRepository) DecrementProductStock(ctx context.Context, productID uint64, qty int) (int64, error) {
+	if qty <= 0 {
+		qty = 1
+	}
+	res := r.db.WithContext(ctx).Model(&model.Product{}).
+		Where("id = ? AND (stock < 0 OR stock >= ?)", productID, qty).
+		Updates(map[string]interface{}{
+			"stock":      gorm.Expr("CASE WHEN stock < 0 THEN stock ELSE stock - ? END", qty),
+			"updated_at": time.Now(),
+		})
+	return res.RowsAffected, res.Error
+}
+
+// IncrementProductStock 回补商品级库存（下单/开通失败与关单补偿用）。
+func (r *productRepository) IncrementProductStock(ctx context.Context, productID uint64, qty int) (int64, error) {
+	if qty <= 0 {
+		qty = 1
+	}
+	res := r.db.WithContext(ctx).Model(&model.Product{}).
+		Where("id = ? AND stock >= 0", productID).
 		Updates(map[string]interface{}{
 			"stock":      gorm.Expr("stock + ?", qty),
 			"updated_at": time.Now(),

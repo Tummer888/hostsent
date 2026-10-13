@@ -298,7 +298,44 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 
+	// 对接商品补「登录密码」客户选配项：新增于客户可指定初始密码之后，
+	// 存量商品（导入时还没有这一项）需要补上，否则老商品仍无法自定义密码。
+	if err := backfillUpstreamRootPasswordOption(db); err != nil {
+		return err
+	}
+
+	// 上游商品库存列（stock/stock_control）存量回填，等价 migrations/104。
+	if err := backfillResourceProductStock(db); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// backfillResourceProductStock 把上游商品的库存从 raw_specs 展开到独立列，等价 migrations/104。
+//
+// 背景：库存一直在 raw_specs 里（stock_control/qty 随商品详情同步进来），但没有独立列、
+// 也没有消费方，页面读不到、下单不校验。AutoMigrate 只补列不填值，存量行必须在这里展开，
+// 否则新列全是 NULL（Go 侧读成 0 = 售罄，会把商品全部误标为售罄）。
+//
+// 口径：stock_control=1 取 qty 为余量；其余（上游未开启库存控制）统一 -1（不限量）。
+// 幂等：只处理列为 NULL 或裸 0 的行（0 是 AutoMigrate 补列时的默认值，不是真实库存）。
+func backfillResourceProductStock(db *gorm.DB) error {
+	if !db.Migrator().HasTable("resource_products") ||
+		!db.Migrator().HasColumn(&productmodel.ResourceProduct{}, "stock") {
+		return nil
+	}
+	return db.Exec(`UPDATE resource_products
+	SET stock_control = COALESCE((NULLIF(raw_specs::json->>'stock_control', ''))::bigint, 0),
+	    stock = CASE
+	        WHEN COALESCE((NULLIF(raw_specs::json->>'stock_control', ''))::bigint, 0) = 1
+	            THEN COALESCE((NULLIF(raw_specs::json->>'qty', ''))::bigint, 0)
+	        ELSE -1
+	    END
+	WHERE raw_specs IS NOT NULL
+	  AND raw_specs <> ''
+	  AND raw_specs::json->>'stock_control' IS NOT NULL
+	  AND stock IS NULL`).Error
 }
 
 // backfillPoolParentLinkage 给存量资源池补上级关联（区域 → 宿主机/存储），等价 migrations/089。
@@ -453,6 +490,30 @@ func backfillProductPrices(db *gorm.DB) error {
 		  AND COALESCE(p.price, 0) > 0
 		  AND NOT EXISTS (SELECT 1 FROM product_prices pp WHERE pp.product_id = p.id)
 		ON CONFLICT (product_id, product_spec_id, cycle, currency) DO NOTHING`).Error
+}
+
+// backfillUpstreamRootPasswordOption 给对接商品补「登录密码」客户选配项。
+//
+// 背景：客户可指定初始密码是后加的能力，导入商品时才会注入该项，
+// 于是迁移前导入的存量对接商品都缺这一项 —— 客户在这些商品上仍然无法自定义密码。
+// 本回填按「有 hostname 但无 root_password」判定为对接商品（hostname 是同一批默认注入项），
+// 逐商品补一行；只读不写业务表，幂等（NOT EXISTS 守卫，重复启动无副作用）。
+func backfillUpstreamRootPasswordOption(db *gorm.DB) error {
+	if !db.Migrator().HasTable("product_config_options") {
+		return nil
+	}
+	return db.Exec(`
+		INSERT INTO product_config_options
+			(product_id, source, source_key, option_key, option_name, widget, required, default_value, help, sort_order, provider_type, created_at, updated_at)
+		SELECT DISTINCT o.product_id, 'self', 'root_password', 'root_password', '登录密码', 'text', false, '',
+			'留空自动生成强随机密码；8~30 位，需含大写字母、小写字母与数字', 11, '', NOW(), NOW()
+		FROM product_config_options o
+		WHERE o.source = 'self'
+		  AND o.option_key = 'hostname'
+		  AND NOT EXISTS (
+			SELECT 1 FROM product_config_options x
+			WHERE x.product_id = o.product_id AND x.option_key = 'root_password'
+		  )`).Error
 }
 
 // migrateLegacyTickets 将旧 user_tickets 表数据一次性迁移至新 tickets 表（doc50 §6.6）。

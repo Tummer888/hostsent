@@ -101,6 +101,12 @@ func (f *fakeProductRepo) DecrementSpecStock(context.Context, uint64, int) (int6
 func (f *fakeProductRepo) IncrementSpecStock(context.Context, uint64, int) (int64, error) {
 	return 1, nil
 }
+func (f *fakeProductRepo) DecrementProductStock(context.Context, uint64, int) (int64, error) {
+	return 1, nil
+}
+func (f *fakeProductRepo) IncrementProductStock(context.Context, uint64, int) (int64, error) {
+	return 1, nil
+}
 func (f *fakeProductRepo) SelfConfigParams(context.Context, uint64) (map[string]string, error) {
 	return nil, nil
 }

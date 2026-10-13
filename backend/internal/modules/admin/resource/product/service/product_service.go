@@ -187,6 +187,8 @@ func buildProductInfo(item model.ResourceProduct) dto.ProductInfo {
 		CostPrice:        item.CostPrice,
 		SalePrice:        item.SalePrice,
 		Status:           item.Status,
+		Stock:            item.Stock,
+		StockControl:     item.StockControl,
 		Visibility:       meta.Visibility,
 		PriceSource:      meta.PriceSource,
 		CatalogPrice:     float64(meta.Catalog.Price),

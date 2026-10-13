@@ -6,7 +6,13 @@
           <MoneyIcon size="22" aria-hidden="true" />
         </span>
         <div class="page-header__text">
-          <h2 class="page-header__title">定价管理</h2>
+          <h2 class="page-header__title">成本与加价</h2>
+          <p class="page-header__sub">
+            上游商品的采购成本总览：一屏核对「上游标价 / 代理价（我方采购价）/ 折扣率」，
+            并可按渠道、关键词筛选比对。
+            这里改的是<b>本地镜像价</b>，用于订正同步数据，下次商品同步会被上游实际价覆盖；
+            要改对客售价请到商品编辑页（含各周期价格矩阵）或设上游加价规则。
+          </p>
         </div>
       </div>
       <t-button variant="outline" :loading="loading" @click="loadProducts">
@@ -68,17 +74,25 @@
         <template #cost_price="{ row }">
           <span class="cell-muted">¥{{ formatPrice(row.cost_price) }}</span>
         </template>
+        <template #stock="{ row }">
+          <span v-if="row.stock === undefined || row.stock === null || row.stock < 0" class="cell-muted">不限</span>
+          <span v-else-if="row.stock === 0" class="stock-out">售罄</span>
+          <span v-else>{{ row.stock }}</span>
+        </template>
         <template #margin="{ row }">
           <span class="cell-muted">{{ marginPercent(row) }}</span>
         </template>
         <template #action="{ row }">
-            <MobileAction
-              v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '改价', value: 'price', theme: 'default' },
-              ])"
-              @select="(value) => handleMobileAction(value, row)"
-            />
+          <MobileAction
+            v-if="isMobile"
+            :options="buildMobileActionOptions([
+              { content: '订正同步价', value: 'price', theme: 'default' },
+            ])"
+            @select="(value) => handleMobileAction(value, row)"
+          />
+          <t-tooltip v-else content="只修正本地镜像价，下次同步会被上游实际价覆盖；改对客售价请到商品编辑页">
+            <t-link theme="primary" hover="color" @click="openPriceDialog(row)">订正同步价</t-link>
+          </t-tooltip>
         </template>
         <template #empty>
           <t-empty description="暂无商品数据，请先执行商品同步" />
@@ -178,10 +192,11 @@ function marginPercent(row: ProductInfo): string {
 const columns: PrimaryTableCol<ProductInfo>[] = [
   { colKey: 'name', title: '商品', minWidth: 170 },
   { colKey: 'specs', title: '规格', minWidth: 160 },
+  { colKey: 'stock', title: '库存', width: 80 },
   { colKey: 'sale_price', title: '上游标价', width: 110 },
   { colKey: 'cost_price', title: '代理价（采购）', width: 130 },
   { colKey: 'margin', title: '折扣率', width: 90 },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 90, fixed: 'right' as const, align: 'center' as const },
+  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 110, fixed: 'right' as const, align: 'center' as const },
 ]
 
 /**
@@ -313,5 +328,11 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
   font-size: 13px;
   font-weight: 600;
   color: #334155;
+}
+
+/* 售罄：上游余量 0，本地不能再卖（下单会被拦） */
+.stock-out {
+  color: var(--td-error-color, #d54941);
+  font-weight: 600;
 }
 </style>

@@ -37,8 +37,9 @@
                 </t-tag>
               </t-descriptions-item>
               <t-descriptions-item label="价格模型">{{ priceModelLabel(product.price_model) }}</t-descriptions-item>
-              <t-descriptions-item label="已售库存">
-                <span>{{ product.stock === -1 ? '不限' : product.stock }}</span>
+              <t-descriptions-item label="可售库存">
+                <span>{{ product.stock === -1 ? '不限量' : product.stock }}</span>
+                <span v-if="product.source_mode === 'upstream'" class="inline-hint">上游限量商品随目录同步刷新</span>
               </t-descriptions-item>
               <t-descriptions-item label="销售价">¥{{ formatPrice(product.price) }}</t-descriptions-item>
               <t-descriptions-item label="成本价">¥{{ formatPrice(product.cost_price) }}</t-descriptions-item>
@@ -50,11 +51,11 @@
                   {{ product.spec_passthrough ? '是' : '否' }}
                 </t-tag>
               </t-descriptions-item>
-              <t-descriptions-item label="关联上游商品 ID">
-                <span>{{ product.source_product_id || '—' }}</span>
+              <t-descriptions-item label="关联上游商品">
+                <span>{{ product.source_product_id ? `#${product.source_product_id}` : '—' }}</span>
               </t-descriptions-item>
-              <t-descriptions-item label="关联上游提供商 ID">
-                <span>{{ product.source_provider_id || '—' }}</span>
+              <t-descriptions-item label="上游提供商">
+                <span>{{ providerDisplay }}</span>
               </t-descriptions-item>
               <t-descriptions-item label="排序">{{ product.sort_order }}</t-descriptions-item>
               <t-descriptions-item label="状态">
@@ -710,6 +711,33 @@ const activeTab = ref('base')
 const { categoryName, loadCategories } = useCategoryOptions()
 
 const isUpstreamChain = computed(() => product.value?.source_mode === 'upstream')
+
+/**
+ * 上游提供商展示名：商品详情里只有 source_provider_id（裸 ID），
+ * 运营看不出这条链路接到哪家渠道。这里解析成「名称（类型） · #ID」。
+ */
+const providerNames = ref<Record<number, string>>({})
+const providerDisplay = computed(() => {
+  const id = product.value?.source_provider_id
+  if (!id) return '—'
+  const info = providerNames.value[id]
+  return info ? `${info} · #${id}` : `#${id}`
+})
+
+/** 拉取提供商列表建 ID→展示名映射（失败只影响展示，回落为 #ID）。 */
+async function loadProviderNames() {
+  try {
+    const data = await getProviderList({ page_size: 100 })
+    const map: Record<number, string> = {}
+    for (const item of data.items || []) {
+      const type = item.provider_type ? `（${item.provider_type}）` : ''
+      map[item.id] = `${item.name}${type}`
+    }
+    providerNames.value = map
+  } catch {
+    // 展示名解析失败不影响详情页主流程。
+  }
+}
 
 // ===== 上游对接页签（仅对接商品）=====
 const upstreamCycleColumns: PrimaryTableCol<{ cycle: string; label: string; amount: number }>[] = [
@@ -1506,6 +1534,7 @@ function goEdit() {
 onMounted(() => {
   loadCategories()
   loadAtomsAndTemplates()
+  void loadProviderNames()
   loadDetail()
 })
 </script>

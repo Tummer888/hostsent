@@ -71,6 +71,14 @@ type ProductService interface {
 	// DecrementSpecStock / IncrementSpecStock SKU 库存原子增减（下单扣减、失败回补，T4.1）。
 	DecrementSpecStock(ctx context.Context, specID uint64, qty int) (int64, error)
 	IncrementSpecStock(ctx context.Context, specID uint64, qty int) (int64, error)
+	// DecrementProductStock / IncrementProductStock 商品级库存原子增减。
+	// 上游转售商品没有 SKU，上游限量（stock_control=1）时库存挂在商品行上。
+	DecrementProductStock(ctx context.Context, productID uint64, qty int) (int64, error)
+	IncrementProductStock(ctx context.Context, productID uint64, qty int) (int64, error)
+	// ApplyUpstreamStock 上游库存同步落地（同步引擎 StockApplier 契约）：
+	// 把上游可售余量写进绑定该上游商品的销售商品。stock<0 表示不限量；
+	// prevStock 为本地镜像上次同步值，用于区分"上游刚解除限量"与"运营自设的量"。
+	ApplyUpstreamStock(ctx context.Context, resourceProductID uint64, stock, prevStock int) (int, error)
 	// ApplyConfirmedPrice 把已确认的上游成本价写入绑定该上游资源商品的售出商品（T3.4）。
 	ApplyConfirmedPrice(ctx context.Context, resourceProductID uint64, costPrice float64, operatorName, remark string) (int, error)
 	// ApplyUpstreamMarkupRule 设定上游商品加价规则并重算其已导入商品的售价（「上游商品」页调价）。
@@ -1074,6 +1082,16 @@ func (s *productService) IncrementSpecStock(ctx context.Context, specID uint64, 
 	return s.repo.IncrementSpecStock(ctx, specID, qty)
 }
 
+// DecrementProductStock 商品级库存原子扣减（无 SKU 的上游转售商品下单用）。
+func (s *productService) DecrementProductStock(ctx context.Context, productID uint64, qty int) (int64, error) {
+	return s.repo.DecrementProductStock(ctx, productID, qty)
+}
+
+// IncrementProductStock 商品级库存回补（下单/开通失败与关单补偿用）。
+func (s *productService) IncrementProductStock(ctx context.Context, productID uint64, qty int) (int64, error) {
+	return s.repo.IncrementProductStock(ctx, productID, qty)
+}
+
 // buildProductSpecInfo 转换 SKU 行 → DTO。
 func buildProductSpecInfo(item model.ProductSpec) dto.ProductSpecInfo {
 	return dto.ProductSpecInfo{
@@ -1477,6 +1495,9 @@ func (s *productService) CloneFromUpstream(ctx context.Context, req dto.ProductC
 	// 若未传入名称，尝试从上游资源商品补全名称与规格快照（用于列表/详情展示）。
 	var cloneGroups []interface{}
 	var cloneRawSpecs string
+	// stockRead 标记是否有权威上游库存值；请求显式指定时优先（运营可能想先不卖）。
+	stockRead := false
+	upstreamStock := -1
 	if s.resourceReader != nil && req.SourceProductID > 0 {
 		if rp, err := s.resourceReader.FindByID(ctx, req.SourceProductID); err == nil {
 			if item.Name == "" || item.Name == item.Code {
@@ -1493,6 +1514,10 @@ func (s *productService) CloneFromUpstream(ctx context.Context, req dto.ProductC
 				// 商品描述缺省取上游富文本描述（详情页卖点图文来源）。
 				item.Description = parseUpstreamRawSpecs(rp.RawSpecs).Description
 			}
+			// 库存随上游带入：上游限量（stock_control=1）取余量、不限量取 -1。
+			// 记录"已从上游解析到"的标记，供下面的默认值判断区分
+			// "上游余量为 0（售罄）"与"请求根本没指定库存"——两者都是零值。
+			upstreamStock, stockRead = rp.Stock, true
 			if item.Specs == "" {
 				specJSON, _ := json.Marshal(buildCloneBaseOptions(rp))
 				item.Specs = string(specJSON)
@@ -1505,7 +1530,16 @@ func (s *productService) CloneFromUpstream(ctx context.Context, req dto.ProductC
 			s.registerUpstreamSpec(ctx, req.SourceProviderID, rp)
 		}
 	}
-	if item.Stock == 0 {
+	// 库存落库口径：请求显式指定了就用请求值，否则用上游镜像的权威值，
+	// 上游也没读到（渠道不支持）才回落 -1（不限量）。
+	// 注意不能写成"item.Stock == 0 就 -1"：上游余量为 0 = 已售罄，
+	// 那样写会把售罄商品变成无限卖。
+	switch {
+	case req.Stock != 0:
+		item.Stock = req.Stock
+	case stockRead:
+		item.Stock = upstreamStock
+	default:
 		item.Stock = -1
 	}
 	if item.Status == 0 {
@@ -1573,6 +1607,9 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 		price := 0.0
 		cycleRatio := pct / 100
 		rawSpecs := ""
+		// 库存基线：上游不限量时保持 -1；读取失败时也按不限量处理，
+		// 避免上游读取异常把商品误标成"售罄 0 台"直接卖不出去。
+		stock := -1
 		var groups []interface{}
 		if s.resourceReader != nil {
 			if rp, err := s.resourceReader.FindByID(ctx, pid); err == nil {
@@ -1586,6 +1623,10 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 				price = clonePriceBaseline(rp) * pct / 100
 				cycleRatio = cloneCycleRatio(rp, pct)
 				rawSpecs = rp.RawSpecs
+				// 库存随导入带过来：上游限量（stock_control=1）时锁定可售数量，
+				// 不限量则 -1（与 products.stock 口径一致）。上游库存会随目录同步刷新，
+				// 但导入这一刻的值至少保证"导入即可售、售罄即止"，不必等下一次同步。
+				stock = rp.Stock
 				specJSON, _ := json.Marshal(buildCloneBaseOptions(rp))
 				specs = string(specJSON)
 				groups = extractConfigGroups(rp.RawSpecs)
@@ -1605,7 +1646,7 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 			Specs:            specs,
 			Price:            round2(price),
 			CostPrice:        round2(cost),
-			Stock:            -1,
+			Stock:            stock,
 			Status:           status,
 		}
 		// 直接上架前仍须过门禁：需要本地规格映射的渠道（Kind=compute，无 config_groups）

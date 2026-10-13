@@ -49,6 +49,11 @@ type ProductInfo struct {
 	CostPrice float64 `json:"cost_price"`
 	SalePrice float64 `json:"sale_price"`
 	Status    int     `json:"status"`
+	// Stock 上游可售库存（-1=不限量，>=0=剩余可售数量）。
+	// StockControl 上游是否开启库存控制（1=限量）。两个字段一起给，
+	// 前端才能区分"不限量"与"限量为 0（售罄）"这两种显示。
+	Stock        int `json:"stock"`
+	StockControl int `json:"stock_control"`
 	// Visibility 上游前台在售判定：visible/group_hidden/product_hidden/retired。
 	// status 只有 1/0 两态，这里给出"为何不在售"（上游隐藏分组/隐藏商品/已下架）。
 	Visibility string `json:"visibility"`

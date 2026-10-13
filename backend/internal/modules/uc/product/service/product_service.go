@@ -90,6 +90,8 @@ func (s *productService) Get(ctx context.Context, id uint64) (*dto.ProductInfo, 
 	info := fromAdmin(*item)
 	// 对接链路信息（配置箱只读展示 + 可续费提示）：只透出展示口径，代理价/成本不外泄。
 	info.Upstream = upstreamChainFor(item.Upstream)
+	// 商品级库存：上游转售商品没有 SKU，库存挂在这里（-1=不限量）。
+	info.Stock = item.Stock
 	// 周期矩阵（doc25）：商品级可售周期 + 各 SKU 自有周期，供用户端渲染周期选择。
 	var productCycles []string
 	cyclesBySpec := map[uint64][]string{}
@@ -166,19 +168,17 @@ func (s *productService) Get(ctx context.Context, id uint64) (*dto.ProductInfo, 
 // fromAdmin 将管理端商品信息映射为用户可见字段（剔除成本价等）。
 func fromAdmin(it catalogdto.ProductInfo) dto.ProductInfo {
 	return dto.ProductInfo{
-		ID:            it.ID,
-		Name:          it.Name,
-		Description:   it.Description,
-		CoverImage:    it.CoverImage,
-		CategoryID:    it.CategoryID,
-		ProductType:   it.ProductType,
-		Price:         it.Price,
-		PriceModel:    it.PriceModel,
-		Specs:         it.Specs,
-		SourceMode:    it.SourceMode,
-		ConfigOptions: it.ConfigOptions,
-		Featured:      it.Featured,
-		CreatedAt:     it.CreatedAt,
+		ID:          it.ID,
+		Name:        it.Name,
+		Description: it.Description,
+		CoverImage:  it.CoverImage,
+		CategoryID:  it.CategoryID,
+		ProductType: it.ProductType,
+		Price:       it.Price,
+		PriceModel:  it.PriceModel,
+		Specs:       it.Specs,
+		Featured:    it.Featured,
+		CreatedAt:   it.CreatedAt,
 	}
 }
 
@@ -193,10 +193,12 @@ func upstreamChainFor(up *catalogdto.ProductUpstreamInfo) *dto.UpstreamChain {
 		FixedConfig: up.FixedConfig,
 		Renewable:   up.Renewable,
 		RenewNote:   up.RenewNote,
+		// 开通说明：只讲客户视角的事实，不提供货链路。
+		// 原第三条写的是"端口由上游随机分配"，把转售关系直接暴露给了客户。
 		OrderNotes: []string{
 			"主机名可自定义（留空由系统自动生成）",
-			"初始密码由系统随机生成，开通后可在主机详情重置",
-			"端口由上游随机分配，开通后随主机下发",
+			"登录密码可在下单时指定，留空由系统生成强随机密码",
+			"端口由系统分配，开通后随主机下发",
 		},
 	}
 	for _, opt := range up.Options {
