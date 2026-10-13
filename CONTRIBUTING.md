@@ -11,7 +11,12 @@
 
 - 分组式：`admin/finance/{account/recharge, bill, …}`、`admin/product/{catalog,…}`、`admin/resource/{product,provider,sync}`、`admin/system/{config,notification,payment,sales,content}`、`admin/user/{account,security,verification,…}`
 - 平铺式：`admin/{instance,logcenter,manager,menu,order,ticket}`
-- 例外形态（唯一）：`admin/instance` = 域级共享模型（`model/`）+ 子模块（`lifecycle/`），以包注释声明，新增子模块沿用该形态
+- 例外形态（域级共享/子包，均须在包注释声明，新增沿用同形态）：
+  - `admin/instance` = 域级共享模型（`model/`）+ 子模块（`lifecycle/`）
+  - `admin/user/account/level` = account 子模块下的嵌套子模块（独立五件套）
+  - `admin/resource/common/{dto,providerkind}` = 域内共享的纯函数/结构工具包（无 model、无表）
+  - `admin/logcenter/catalog` = 日志中心域内共享的日志源注册表（纯常量，无表）
+  - `uc/captcha/adapter` = captcha 自治模块 service 端口的外部实现（渠道路由/目标解析），装配层注入
 - 新建模块必须先判断归属域；域不存在才新建域目录
 
 ### 模块统一模板（五件套）
@@ -33,14 +38,21 @@ modules/<端>/<域>/<模块>/
 | 薄适配 | handler + dto + service | service 委托 admin 域 service，只做请求/响应转换 |
 | 纯透传 | 仅 handler | handler 内**禁止业务编排**：只许参数绑定 → 调 admin service → 统一响应；超过 3 步编排必须升级为薄适配 |
 
-现状：纯透传 = `uc/{finance,point,referral}`；薄适配 = `uc/{order,product,payment}`；其余为自治模块。
+现状：纯透传 = `uc/{finance,point,referral}`；薄适配 = `uc/{order,product,payment,menu}`；其余为自治模块。
+
+薄适配与自治模块的服务层**不得 import admin 域 model**；请求/响应结构一律以本模块
+`dto` 声明，与 admin 域结构的字段转换由装配层（`internal/server`）的适配器完成
+（参考 `uc_order_adapters.go`）。若域内确需共享结构，admin 侧应在 `dto` 包提供
+可复用类型，uc 侧经 dto 引用而非 model。
 
 ## 3. 依赖方向（单向，违例即退回）
 
 ```text
 uc/service   → admin/service（经接口注入，禁止 import admin 域 model）
 跨域         → 对方 reader/service 接口（参考 instance_reader 模式）
-pkg          → 禁止 import modules
+pkg          → 禁止 import modules（唯一豁免：pkg/db 迁移中心；pkg 面向模块的
+               数据一律用纯 DTO 声明，如 middleware.AdminAuditEntry，模型转换
+               由装配层适配器完成）
 handler      → 永不直接使用 repository / gorm
 ```
 
@@ -48,6 +60,9 @@ handler      → 永不直接使用 repository / gorm
 
 - `fmt.Errorf` 包装错误**一律用 `%w`**，保持 `errors.Is/As` 可追根因；禁止 `%v`/`%s` 丢链
 - 业务错误统一走各域 `service/errors.go` 定义哨兵错误；跨域透传错误必须保留包装链
+- 仓储层「查无此行」应翻译为域内哨兵（如 `ErrNotFound`），service 层再出口供
+  handler 判断；**handler 不得依赖 `gorm.ErrRecordNotFound`**——语义落点（404/409）
+  由 service 层哨兵决定
 
 ## 5. 并发约定
 

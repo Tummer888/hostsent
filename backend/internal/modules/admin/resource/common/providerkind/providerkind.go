@@ -1,5 +1,9 @@
 // Package providerkind 提供「按渠道链路（upstream/compute）过滤」的公共查询条件。
 //
+// 目录形态（CONTRIBUTING §1 例外登记）：resource 是分组式域，本包是域内
+// 各子模块（sync/reconcile/taskqueue）共享的纯函数工具包，无 model/表，
+// 故不采用五件套形态，挂在 resource/common/ 下供域内复用。
+//
 // 双链路重构后，同步任务、同步日志、差异记录、调价事件、调度行、出站动作队列、
 // 实例对账这些表都只存 provider_id，链路（上游转售 / 自营平台）在 resource_providers.kind 上。
 // 各页要按链路分开看，就必须在服务端把过滤下推到 SQL——放到前端筛会把分页口径带偏

@@ -11,20 +11,15 @@ cd "$(dirname "$0")/../backend" || exit 1
 violations=0
 
 # ── 豁免清单（存量技术债，逐项修复后删除对应条目）─────────────────────────
-# pkg/db：迁移中心（AutoMigrate + Go seed 需要全量 model，架构既定）
+# pkg/db：迁移中心（AutoMigrate + Go seed 需要全量 model，架构既定；
+# CONTRIBUTING §1 例外登记，pkg 面其余包不得 import modules）
 ALLOW_PKG_MODULES='internal/pkg/db/'
-# 审计中间件直读 model，待抽最小接口
-ALLOW_PKG_MODULES+='|internal/pkg/middleware/admin_audit.go'
-ALLOW_PKG_MODULES+='|internal/pkg/middleware/user_audit.go'
-# handler 直用 repo/gorm（存量 9 文件，待把依赖下沉 service）
-ALLOW_HANDLER_REPO='flashdiscount/handler/flash_discount_handler.go|manager/handler/department_handler.go|system/config/handler/config_handler.go|logcenter/handler/handler.go|agentlevel/handler/agent_level_handler.go|account/level/handler/level_handler.go|user_deletion_handler.go|user_error.go|verification_handler.go|uc/oauth/handler/oauth_admin_handler.go'
-# uc 薄适配 service 委托 admin 域 service（形态合法，CONTRIBUTING §2）
+# uc 薄适配 service 委托 admin 域 service（形态合法，CONTRIBUTING §2；
+# 现状清单见 CONTRIBUTING §2 表格）
 ALLOW_UC_ADMIN_SERVICE='uc/product/service/product_service.go|uc/order/service/order_service.go'
-# uc service 引用 admin model 做请求/响应转换（存量，待收敛为 DTO 映射）
-ALLOW_UC_ADMIN_MODEL='uc/order/service/order_service_test.go|uc/order/service/order_service.go|uc/payment/service/cashier.go'
 
 check() {
-  local desc="$1" pattern="$2" scope="$3" allow="$4"
+  local desc="$1" pattern="$2" scope="$3" allow="${4:-}"
   local hits
   hits=$(grep -rn --include='*.go' -E "$pattern" $scope 2>/dev/null || true)
   if [ -n "$allow" ]; then
@@ -49,21 +44,19 @@ check "pkg → modules 依赖禁止" \
 #    逐 handler 目录检查，含分组式嵌套（域/子模块/handler）。
 while IFS= read -r dir; do
   check "handler 依赖 repository/gorm 禁止 (${dir})" \
-    'modules/[a-z]+/.*repository|"gorm.io/gorm"' \
-    "$dir" \
-    "$ALLOW_HANDLER_REPO"
+    'hostsent/backend/internal/modules/.*repository|"gorm.io/gorm"' \
+    "$dir"
 done < <(find internal/modules -type d -name handler)
 
-# 3) uc 端依赖 admin 域 service 必须是「薄适配委托」（包注释声明），
-#    禁止 import admin 域 model（转换依赖已列入豁免清单收敛中）。
+# 3) uc 端依赖 admin 域 service 必须是「薄适配委托」（包注释声明，
+#    CONTRIBUTING §2 现状清单），禁止 import admin 域 model。
 check "uc → admin service（仅薄适配可）" \
-  'hostsent/backend/internal/modules/admin/[a-z]+/[a-z/]+/service' \
+  'hostsent/backend/internal/modules/admin/[a-z]+(/[a-z_]+)*/service' \
   internal/modules/uc \
   "$ALLOW_UC_ADMIN_SERVICE"
 check "uc → admin model 依赖禁止" \
-  'hostsent/backend/internal/modules/admin/[a-z]+/[a-z/]+/model' \
-  internal/modules/uc \
-  "$ALLOW_UC_ADMIN_MODEL"
+  'hostsent/backend/internal/modules/admin/[a-z]+(/[a-z_]+)*/model' \
+  internal/modules/uc
 
 # ── uc 端形态约束（CONTRIBUTING §2）──────────────────────────────────────
 

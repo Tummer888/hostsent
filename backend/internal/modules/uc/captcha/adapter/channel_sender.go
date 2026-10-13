@@ -1,3 +1,8 @@
+// Package adapter 是 uc/captcha 的渠道适配层。
+//
+// 目录形态（CONTRIBUTING §1 例外登记）：captcha 为自治模块（五件套），
+// adapter 是其 service 端口的外部实现（渠道路由/目标解析），由装配层注入，
+// 不持有表与仓储，故作为域内子包存在而非独立模块。
 package adapter
 
 import (
