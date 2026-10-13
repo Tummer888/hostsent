@@ -121,5 +121,14 @@ CI 额外执行（见 `.github/workflows/ci.yml`）：
 
 - **golangci-lint**：warn 起步不阻塞，收敛后转 error（配置 `backend/.golangci.yml`）
 - **`-race` 抽样**：finance / instance / order 核心包
-- **结构检查**：`scripts/check_structure.sh`——目录层级、uc 形态、依赖方向；
-  存量违例在脚本豁免清单中登记（棘轮模式），新增违例直接 fail
+- **结构检查**：`scripts/check_structure.sh`——目录层级、uc 形态、依赖方向、
+  响应统一、错误链；存量违例在脚本豁免清单中登记（棘轮模式），新增违例直接 fail。
+  CI 先跑 `--selfcheck` fixture 自测再跑正式检查
+- **模块形态登记**：新建模块目录必须先在 `scripts/module_shapes.tsv` 登记形态
+  （group/sub/flat/mixed/auton/thin/passthru/shared/self），未登记即 CI fail
+- **装配层行数棘轮**：`assembly_*/routes_*` 超过 800 行告警、超过 1200 行 fail，
+  拆分标准=每域一个装配文件
+- **openapi 生成器自检**：`python3 scripts/gen_openapi.py` 退出码为门禁——
+  新增路由必须登记 summary/参数规则，`backend/docs/openapi.yaml` 是生成产物勿手改
+- **覆盖率报告**：`go test -cover ./internal/modules/...` 只报告不上门禁；
+  核心链路包补到 60%+ 后再加 coverprofile 阈值

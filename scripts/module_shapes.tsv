@@ -1,0 +1,70 @@
+# 模块形态登记表（CONTRIBUTING §1/§2，批次二 B4）。
+# 列：路径<TAB>形态<TAB>说明
+# 形态取值：group=分组式域 | flat=平铺式模块 | mixed=域级共享模型+子模块 | sub=分组式域的子模块
+#          | auton=uc 自治模块 | thin=uc 薄适配 | passthru=uc 纯透传 | shared=域内共享工具包
+#          | self=端级自治模块（平铺五件套）
+# 检查规则：internal/modules 下每个「模块级」目录（含 .go 或再下一层是五件套目录）
+# 必须能匹配某一条登记；新模块未登记即 fail。
+admin/finance	group	分组式域：account(recharge)/bill/cost/point/referral/settings/stats/transaction
+admin/finance/account	sub	含嵌套子模块 recharge
+admin/finance/account/recharge	sub	account 的嵌套子模块
+admin/finance/bill	sub	五件套
+admin/finance/cost	sub	五件套
+admin/finance/point	sub	五件套
+admin/finance/referral	sub	含嵌套子模块 walletwithdraw
+admin/finance/referral/walletwithdraw	sub	referral 的嵌套子模块
+admin/finance/settings	sub	平铺：dto/model(keys.go)/service/handler（无 repository）
+admin/finance/stats	sub	stats：repository/service/handler/dto（无 model）
+admin/finance/transaction	sub	五件套
+admin/instance	mixed	域级共享模型(model/repository/service/dto/handler) + 子模块 lifecycle
+admin/instance/lifecycle	sub	instance 域的子模块（五件套）
+admin/logcenter	flat	平铺五件套 + catalog 共享注册表
+admin/logcenter/catalog	shared	域内日志源注册表（纯常量，无表）
+admin/manager	flat	平铺五件套
+admin/menu	flat	平铺五件套（只读，seed 写）
+admin/order	flat	平铺五件套
+admin/product	group	分组式域：catalog/category/discount/flashdiscount/pricing/promotion/spec
+admin/product/catalog	sub	五件套
+admin/product/category	sub	五件套
+admin/product/discount	sub	五件套
+admin/product/flashdiscount	sub	五件套
+admin/product/pricing	sub	五件套
+admin/product/promotion	sub	五件套
+admin/product/spec	sub	五件套
+admin/resource	group	分组式域：product/provider/reconcile/sync/taskqueue + common 共享工具
+admin/resource/common	shared	域内共享 dto/providerkind 工具包
+admin/resource/common/providerkind	shared	渠道链路过滤纯函数
+admin/resource/product	sub	五件套
+admin/resource/provider	sub	五件套
+admin/resource/reconcile	sub	五件套
+admin/resource/sync	sub	五件套
+admin/resource/taskqueue	sub	repository/service/handler/dto（无 model）
+admin/system	group	分组式域：config/content/notification/payment/sales
+admin/system/config	sub	五件套
+admin/system/content	sub	五件套
+admin/system/notification	sub	五件套
+admin/system/payment	sub	五件套
+admin/system/sales	sub	五件套
+admin/ticket	flat	平铺五件套
+admin/user	group	分组式域：account/agentlevel/security/verification
+admin/user/account	sub	含嵌套子模块 level
+admin/user/account/level	sub	account 的嵌套子模块
+admin/user/agentlevel	sub	五件套
+admin/user/security	sub	五件套
+admin/user/verification	sub	五件套
+open	self	端级自治模块（平铺五件套，开放平台 P6）
+site	self	端级自治模块（handler+service+dto，官网门户只读）
+upstreampush	self	端级自治模块（handler+service+repository+dto，上游推送接收）
+uc/auth	auton	uc 自治模块（五件套）
+uc/captcha	auton	uc 自治模块（五件套 + adapter 共享实现）
+uc/captcha/adapter	shared	captcha service 端口的外部实现（装配层注入）
+uc/finance	passthru	uc 纯透传（仅 handler）
+uc/instance	auton	uc 自治模块（五件套）
+uc/member	auton	uc 自治模块（五件套）
+uc/menu	thin	uc 薄适配（handler+dto+service 委托 admin 菜单服务）
+uc/oauth	auton	uc 自治模块（五件套）
+uc/order	thin	uc 薄适配（handler+dto+service 委托 admin 订单服务）
+uc/payment	thin	uc 薄适配（handler+service 委托 admin 支付/财务服务）
+uc/point	passthru	uc 纯透传（仅 handler）
+uc/product	thin	uc 薄适配（handler+dto+service 委托 admin catalog 服务）
+uc/referral	passthru	uc 纯透传（仅 handler）
