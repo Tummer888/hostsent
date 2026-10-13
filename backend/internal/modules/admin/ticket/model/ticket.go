@@ -65,6 +65,10 @@ type Ticket struct {
 	DepartmentID uint64 `gorm:"column:department_id;index"`
 	OrderID      uint64 `gorm:"column:order_id;index"`    // 关联订单（可选）
 	InstanceID   uint64 `gorm:"column:instance_id;index"` // 关联实例（可选）
+	// UpstreamTID 上游工单号（zjmf tid，doc120）：转投上游人工处理的工单才有值。
+	// 上游回复推送（/api/ticket_reply/sync）按这一列反查本地工单；
+	// 空串表示纯本地工单，永远不会被上游推送命中。
+	UpstreamTID string `gorm:"column:upstream_tid;size:64;not null;default:'';index:idx_tickets_upstream_tid"`
 	// —— S3 双人复核：工单级复核状态（回复级 pending 时同步置位，便于列表筛选）——
 	ReviewStatus      string     `gorm:"column:review_status;size:20;index"` // pending/approved/rejected/空
 	ReviewerID        uint64     `gorm:"column:reviewer_id"`                 // 最近复核人

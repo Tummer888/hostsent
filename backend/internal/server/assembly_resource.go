@@ -56,5 +56,12 @@ func (a *asm) buildResource() {
 	// 任务队列（本轮 S3）：跨表只读聚合，仅依赖数据库。
 	a.taskQueueHandler = taskqueuehandler.NewTaskQueueHandler(taskqueueservice.NewTaskQueueService(taskqueuerepo.NewRepository(a.database)))
 	// 实例对账（本轮 S4）：instances 为事实表，只读比对，仅依赖数据库。
-	a.reconcileHandler = reconcilehandler.NewReconcileHandler(reconcileservice.NewReconcileService(reconcilerepo.NewRepository(a.database)))
+	reconcileRepo := reconcilerepo.NewRepository(a.database)
+	a.reconcileHandler = reconcilehandler.NewReconcileHandler(reconcileservice.NewReconcileService(reconcileRepo))
+	// 对账差异台账（doc120）：把上面的比对结论落库并跟踪处置，按周期扫描触发预警。
+	// 复用同一个 reconcileRepo（列表视图与扫描共用 baseCTE，口径必须同源）。
+	findingRepo := reconcilerepo.NewFindingRepository(a.database)
+	a.findingScanner = reconcileservice.NewFindingScanner(reconcileRepo, findingRepo, a.logger)
+	a.reconcileFindingHandler = reconcilehandler.NewFindingHandler(a.findingScanner)
+	a.findingScheduler = reconcileservice.NewFindingScheduler(a.findingScanner, a.logger)
 }

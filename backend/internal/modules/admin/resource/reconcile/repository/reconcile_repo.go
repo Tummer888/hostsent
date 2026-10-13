@@ -57,6 +57,12 @@ WITH base AS (
              THEN i.raw_data::jsonb ->> 'nextduedate' END AS raw_nextduedate,
         CASE WHEN pg_input_is_valid(i.raw_data, 'jsonb')
              THEN i.raw_data::jsonb ->> 'upstream_cost' END AS raw_upstream_cost,
+        -- 上游状态口径：raw_data.domainstatus 是魔方财务（zjmf）的主机状态字段，
+        -- 可能由「上游推送」写入（push_service 回写 raw_data）或由定时同步拉取写入。
+        -- 非 zjmf 上游没有该字段，此时 status_anomaly 恒为 ok（不做状态比对，
+        -- 而不是错判成异常——把"没这个概念"当"数据缺失"会天天误报）。
+        CASE WHEN pg_input_is_valid(i.raw_data, 'jsonb')
+             THEN i.raw_data::jsonb ->> 'domainstatus' END AS raw_domainstatus,
         i.expire_at
     FROM instances i
     LEFT JOIN products p ON p.id = i.sell_product_id
@@ -109,17 +115,34 @@ marked AS (
             ELSE 'ok'
         END AS expire_anomaly,
         CASE WHEN c.upstream_expire IS NOT NULL AND c.expire_at IS NOT NULL
-             THEN EXTRACT(EPOCH FROM (c.upstream_expire - c.expire_at)) / 86400.0 END AS expire_diff_days
+             THEN EXTRACT(EPOCH FROM (c.upstream_expire - c.expire_at)) / 86400.0 END AS expire_diff_days,
+        -- 状态不同步判据。上游状态是 raw_data.domainstatus（zjmf 口径，见 base 注释）；
+        -- 没有该字段的上游一律 ok —— 不做比对与"比对不出结果"是两回事。
+        --
+        -- status_stale（严重）：上游已删除/取消，本地仍视为有效 → 我方在为不存在的机器计费。
+        -- status_mismatch（预警）：上游暂停而本地运行中（上游欠费被停，我方还在给客户算钱），
+        --                          或上游运行中而本地已停止（我方误停/客户误报故障）。
+        CASE
+            WHEN c.raw_domainstatus IS NULL OR c.raw_domainstatus = '' THEN 'ok'
+            WHEN c.raw_domainstatus = 'Deleted' AND c.status <> 'deleted' THEN 'status_stale'
+            WHEN c.raw_domainstatus IN ('Cancelled', 'Fraud') AND c.status <> 'deleted' THEN 'status_stale'
+            WHEN c.raw_domainstatus = 'Suspended' AND c.status = 'running' THEN 'status_mismatch'
+            WHEN c.raw_domainstatus = 'Active' AND c.status IN ('stopped', 'creating') THEN 'status_mismatch'
+            ELSE 'ok'
+        END AS status_anomaly
     FROM calc c
 )
 `, ThinMarginRate, ExpireToleranceDays)
 }
 
-// severityExpr 异常等级：资金风险最高（低于成本 / 到期错位），其次数据缺失与薄利。
+// severityExpr 异常等级：资金风险最高（低于成本 / 到期错位 / 上游已删本地仍有效），
+// 其次数据缺失、薄利与状态漂移。
 const severityExpr = `
 CASE
-    WHEN price_anomaly = 'below_cost' OR expire_anomaly IN ('expire_early', 'expire_late') THEN 'danger'
-    WHEN price_anomaly <> 'ok' OR expire_anomaly <> 'ok' THEN 'warning'
+    WHEN price_anomaly = 'below_cost'
+      OR expire_anomaly IN ('expire_early', 'expire_late')
+      OR status_anomaly = 'status_stale' THEN 'danger'
+    WHEN price_anomaly <> 'ok' OR expire_anomaly <> 'ok' OR status_anomaly <> 'ok' THEN 'warning'
     ELSE 'ok'
 END`
 
@@ -144,23 +167,29 @@ type ReconcileRow struct {
 	PriceAnomaly        string
 	ExpireAnomaly       string
 	ExpireDiffDays      *float64
-	LocalExpire         *time.Time
-	UpstreamExpire      *time.Time
-	Severity            string
+	// StatusAnomaly 状态不同步判据（ok/status_mismatch/status_stale）。
+	StatusAnomaly  string
+	UpstreamStatus string
+	LocalExpire    *time.Time
+	UpstreamExpire *time.Time
+	Severity       string
 }
 
 // SummaryRow 对账汇总（单行聚合结果）。
 type SummaryRow struct {
-	Total          int64
-	Danger         int64
-	Warning        int64
-	OK             int64
-	BelowCost      int64
-	ThinMargin     int64
-	MissingPrice   int64
-	ExpireEarly    int64
-	ExpireLate     int64
-	MissingExpire  int64
+	Total         int64
+	Danger        int64
+	Warning       int64
+	OK            int64
+	BelowCost     int64
+	ThinMargin    int64
+	MissingPrice  int64
+	ExpireEarly   int64
+	ExpireLate    int64
+	MissingExpire int64
+	// StatusMismatch / StatusStale 状态不同步计数。
+	StatusMismatch int64
+	StatusStale    int64
 	NegativeMargin int64
 	TotalMargin    *float64
 	AvgMarginRate  *float64
@@ -214,6 +243,10 @@ func buildWhere(query dto.ReconcileListQuery) (string, []any) {
 		conds = append(conds, "expire_anomaly = 'expire_early'")
 	case "expire_late":
 		conds = append(conds, "expire_anomaly = 'expire_late'")
+	case "status_mismatch":
+		conds = append(conds, "status_anomaly = 'status_mismatch'")
+	case "status_stale":
+		conds = append(conds, "status_anomaly = 'status_stale'")
 	case "missing":
 		conds = append(conds, `(price_anomaly IN ('missing_local_price', 'missing_cost')
 		                        OR expire_anomaly IN ('missing_local_expire', 'missing_upstream_expire'))`)
@@ -239,6 +272,7 @@ func (r *repository) List(ctx context.Context, query dto.ReconcileListQuery, pag
                sell_product_id, sell_product_name, local_price,
                upstream_product_id, upstream_product_name, upstream_sku, upstream_cost,
                margin_amount, margin_rate, price_anomaly, expire_anomaly, expire_diff_days,
+               status_anomaly, COALESCE(raw_domainstatus, '') AS upstream_status,
                expire_at AS local_expire, upstream_expire,
                ` + severityExpr + ` AS severity
           FROM marked
@@ -270,6 +304,8 @@ func (r *repository) Summary(ctx context.Context, query dto.ReconcileListQuery) 
             COUNT(*) FILTER (WHERE expire_anomaly = 'expire_early')             AS expire_early,
             COUNT(*) FILTER (WHERE expire_anomaly = 'expire_late')              AS expire_late,
             COUNT(*) FILTER (WHERE expire_anomaly IN ('missing_local_expire', 'missing_upstream_expire')) AS missing_expire,
+            COUNT(*) FILTER (WHERE status_anomaly = 'status_mismatch')          AS status_mismatch,
+            COUNT(*) FILTER (WHERE status_anomaly = 'status_stale')             AS status_stale,
             COUNT(*) FILTER (WHERE margin_amount < 0)                           AS negative_margin,
             SUM(margin_amount)                                                  AS total_margin,
             AVG(margin_rate)                                                    AS avg_margin_rate

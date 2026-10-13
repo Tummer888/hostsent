@@ -34,6 +34,7 @@ import (
 	specmodel "hostsent/backend/internal/modules/admin/product/spec/model"
 	productmodel "hostsent/backend/internal/modules/admin/resource/product/model"
 	providermodel "hostsent/backend/internal/modules/admin/resource/provider/model"
+	reconmodel "hostsent/backend/internal/modules/admin/resource/reconcile/model"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	systemmodel "hostsent/backend/internal/modules/admin/system/config/model"
 	contentmodel "hostsent/backend/internal/modules/admin/system/content/model"
@@ -145,6 +146,10 @@ func AutoMigrate(db *gorm.DB) error {
 		&syncmodel.SyncCursor{},
 		&syncmodel.PriceChangeEvent{},
 		&syncmodel.SyncDiff{},
+		// 对账差异台账（doc120）：把实例对账的异常落库并跟踪处置，供预警通知与时长统计。
+		// 与上面的 SyncDiff 不同：SyncDiff 记录"同步动作改了哪些字段"，本表记录
+		// "本地与上游的差异存在了多久、谁处理了"——前者是过程留痕，后者是待办台账。
+		&reconmodel.ReconcileFinding{},
 		// 实例运维管理台：操作流水（见 docs/实施计划/61-实例运维管理台实施计划.md）
 		&instancemodel.Operation{},
 		// 产品管理（面向终端售卖）
@@ -2871,6 +2876,11 @@ func seedNotificationTemplates(tx *gorm.DB) error {
 		{Event: notifymodel.EventTicketReviewResult, TitleTpl: "工单 {ticket_no} 回复复核{result}", ContentTpl: "您在工单 {ticket_no} 提交的回复已{result}。{note}", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
 		{Event: notifymodel.EventBalanceLow, TitleTpl: "余额不足预警", ContentTpl: "您的账户余额为 ¥{balance}，低于预警阈值 ¥{threshold}，请及时充值。", InboxOn: true, MailOn: true, Status: notifymodel.TemplateStatusActive},
 		{Event: notifymodel.EventSyncFailed, TitleTpl: "上游同步失败", ContentTpl: "提供商 {provider_name} 同步失败：{reason}，请检查上游连接。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
+		// —— 对账差异预警（doc120），均为管理员站内信 ——
+		// 通知文案统一指向「同步状态运维控制台 → 实例对账」，别让管理员满后台找入口。
+		{Event: notifymodel.EventReconcileBelowCost, TitleTpl: "售价低于上游成本", ContentTpl: "实例 {instance_mark}（{provider_name}）本地售价 {local_value} 低于上游成本 {upstream_value}，每期亏损 {loss}。请前往「资源管理 → 同步状态运维控制台 → 实例对账」核价。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
+		{Event: notifymodel.EventReconcileExpire, TitleTpl: "到期时间与上游不同步", ContentTpl: "实例 {instance_mark}（{provider_name}）本地到期 {local_value} 与上游 {upstream_value} 相差 {diff_days} 天。请前往「资源管理 → 同步状态运维控制台 → 实例对账」核对账期。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
+		{Event: notifymodel.EventReconcileStatus, TitleTpl: "运行状态与上游不同步", ContentTpl: "实例 {instance_mark}（{provider_name}）本地状态 {local_value} 与上游状态 {upstream_value} 不一致。请前往「资源管理 → 同步状态运维控制台 → 实例对账」核实服务可用性。", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
 		{Event: notifymodel.EventSystem, TitleTpl: "{title}", ContentTpl: "{content}", InboxOn: true, MailOn: false, Status: notifymodel.TemplateStatusActive},
 	}
 	for _, item := range defaults {

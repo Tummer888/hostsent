@@ -70,6 +70,7 @@ import (
 	providerrepo "hostsent/backend/internal/modules/admin/resource/provider/repository"
 	providerservice "hostsent/backend/internal/modules/admin/resource/provider/service"
 	reconcilehandler "hostsent/backend/internal/modules/admin/resource/reconcile/handler"
+	reconcileservice "hostsent/backend/internal/modules/admin/resource/reconcile/service"
 	synchandler "hostsent/backend/internal/modules/admin/resource/sync/handler"
 	syncrepo "hostsent/backend/internal/modules/admin/resource/sync/repository"
 	syncservice "hostsent/backend/internal/modules/admin/resource/sync/service"
@@ -120,6 +121,8 @@ import (
 	ucproducthandler "hostsent/backend/internal/modules/uc/product/handler"
 	ucproductservice "hostsent/backend/internal/modules/uc/product/service"
 	ucreferralhandler "hostsent/backend/internal/modules/uc/referral/handler"
+	pushhandler "hostsent/backend/internal/modules/upstreampush/handler"
+	pushservice "hostsent/backend/internal/modules/upstreampush/service"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/cache"
 	"hostsent/backend/internal/pkg/config"
@@ -285,87 +288,95 @@ type asm struct {
 	reconHandler             *finbillhandler.ReconHandler
 	reconService             finbillservice.ReconService
 	reconcileHandler         *reconcilehandler.ReconcileHandler
-	referralRepo             referralrepo.ReferralRepository
-	referralSvc              referralInvitePort
-	referralWithdrawSvc      referralservice.WithdrawalService
-	refundHandler            *orderhandler.RefundHandler
-	riskEngine               *securityservice.RiskEngine
-	riskRepo                 securityrepo.RiskRepository
-	roleHandler              *handler.RoleHandler
-	roleService              service.RoleService
-	scheduler                *syncservice.Scheduler
-	schemeHandler            *agentlevelhandler.SchemeHandler
-	schemeRepo               agentlevelrepo.SchemeRepository
-	securityHandler          *securityhandler.SecurityHandler
-	securityService          securityservice.SecurityService
-	sessionExpireScheduler   *securityservice.SessionExpireScheduler
-	siteHandler              *sitehandler.SiteHandler
-	siteSvc                  siteservice.SiteService
-	specContractRepo         specrepo.SpecContractRepository
-	specContractService      specservice.SpecContractService
-	specHandler              *spechandler.SpecHandler
-	specMappingRepo          specrepo.SpecMappingRepository
-	specMappingService       specservice.SpecMappingService
-	specOptionRepo           specrepo.SpecOptionRepository
-	specOptionService        specservice.SpecOptionService
-	specTemplateRepo         specrepo.SpecTemplateRepository
-	specTemplateService      specservice.SpecTemplateService
-	syncEngine               *syncservice.SyncEngine
-	syncFrameworkHandler     *synchandler.FrameworkHandler
-	syncFrameworkService     syncservice.FrameworkService
-	syncFwRepo               syncrepo.FrameworkRepository
-	syncHandler              *synchandler.SyncHandler
-	syncRepo                 syncrepo.SyncRepository
-	syncService              syncservice.SyncService
-	taskQueueHandler         *taskqueuehandler.TaskQueueHandler
-	templateSvc              notifyservice.TemplateService
-	ticketAttachmentRepo     ticketrepo.AttachmentRepository
-	ticketAttachmentService  ticketservice.AttachmentService
-	ticketCategoryHandler    *tickethandler.CategoryHandler
-	ticketCategoryRepo       ticketrepo.CategoryRepository
-	ticketCategoryService    ticketservice.CategoryService
-	ticketHandler            *tickethandler.TicketHandler
-	ticketPreconditionRepo   ticketrepo.PreconditionChecker
-	ticketReplyRepo          ticketrepo.ReplyRepository
-	ticketRepo               ticketrepo.TicketRepository
-	ticketService            ticketservice.TicketService
-	ucInstanceHandler        *ucinstancehandler.InstanceHandler
-	ucInstanceRepo           ucinstancerepo.InstanceRepository
-	ucInstanceService        ucinstanceservice.InstanceService
-	ucOrderHandler           *ucorderhandler.OrderHandler
-	ucOrderService           ucorderservice.OrderService
-	ucProductHandler         *ucproducthandler.ProductHandler
-	ucProductService         ucproductservice.ProductService
-	ucReferralHandler        *ucreferralhandler.ReferralHandler
-	upstreamMgr              *upstream.ProviderManager
-	userCenterAuthHandler    *usercenterhandler.AuthHandler
-	userCenterRepo           usercenterrepo.UserRepository
-	userCenterService        usercenterservice.AuthService
-	userDeletionHandler      *handler.UserDeletionHandler
-	userDeletionService      service.DeletionService
-	userDetailHandler        *handler.UserDetailHandler
-	userDetailService        service.UserDetailService
-	userFinanceHandler       *userfinancehandler.FinanceHandler
-	userGroupHandler         *handler.UserGroupHandler
-	userGroupService         service.UserGroupService
-	userHandler              *handler.UserHandler
-	userLevelHandler         *levelhandler.UserLevelHandler
-	userLevelService         levelservice.UserLevelService
-	userMenuHandler          *usermenuhandler.MenuHandler
-	userMenuRepo             usermenurepo.MenuRepository
-	userMenuService          usermenuservice.MenuService
-	userPurgeScheduler       *service.PurgeScheduler
-	userService              service.UserService
-	userTicketHandler        *tickethandler.UserTicketHandler
-	verificationBundle       *verificationBundle
-	walletHandler            *finaccounthandler.WalletHandler
-	walletRepo               finaccountrepo.WalletRepository
-	walletService            finaccountservice.WalletService
-	walletTxRepo             fintransactionrepo.TransactionRepository
-	withdrawHandler          *finwithdrawhandler.WithdrawHandler
-	withdrawRepo             finwithdrawrepo.WithdrawRepository
-	withdrawService          finwithdrawservice.WithdrawService
-	pointEarner              PointEarner
+	// 对账差异台账（doc120）：扫描服务 + 周期调度器 + 台账页处理器。
+	reconcileFindingHandler *reconcilehandler.FindingHandler
+	findingScanner          reconcileservice.FindingScanner
+	findingScheduler        *reconcileservice.FindingScheduler
+	referralRepo            referralrepo.ReferralRepository
+	referralSvc             referralInvitePort
+	referralWithdrawSvc     referralservice.WithdrawalService
+	refundHandler           *orderhandler.RefundHandler
+	riskEngine              *securityservice.RiskEngine
+	riskRepo                securityrepo.RiskRepository
+	roleHandler             *handler.RoleHandler
+	roleService             service.RoleService
+	scheduler               *syncservice.Scheduler
+	schemeHandler           *agentlevelhandler.SchemeHandler
+	schemeRepo              agentlevelrepo.SchemeRepository
+	securityHandler         *securityhandler.SecurityHandler
+	securityService         securityservice.SecurityService
+	sessionExpireScheduler  *securityservice.SessionExpireScheduler
+	siteHandler             *sitehandler.SiteHandler
+	siteSvc                 siteservice.SiteService
+	specContractRepo        specrepo.SpecContractRepository
+	specContractService     specservice.SpecContractService
+	specHandler             *spechandler.SpecHandler
+	specMappingRepo         specrepo.SpecMappingRepository
+	specMappingService      specservice.SpecMappingService
+	specOptionRepo          specrepo.SpecOptionRepository
+	specOptionService       specservice.SpecOptionService
+	specTemplateRepo        specrepo.SpecTemplateRepository
+	specTemplateService     specservice.SpecTemplateService
+	syncEngine              *syncservice.SyncEngine
+	syncFrameworkHandler    *synchandler.FrameworkHandler
+	syncFrameworkService    syncservice.FrameworkService
+	syncFwRepo              syncrepo.FrameworkRepository
+	syncHandler             *synchandler.SyncHandler
+	syncRepo                syncrepo.SyncRepository
+	syncService             syncservice.SyncService
+	taskQueueHandler        *taskqueuehandler.TaskQueueHandler
+	templateSvc             notifyservice.TemplateService
+	ticketAttachmentRepo    ticketrepo.AttachmentRepository
+	ticketAttachmentService ticketservice.AttachmentService
+	ticketCategoryHandler   *tickethandler.CategoryHandler
+	ticketCategoryRepo      ticketrepo.CategoryRepository
+	ticketCategoryService   ticketservice.CategoryService
+	ticketHandler           *tickethandler.TicketHandler
+	ticketPreconditionRepo  ticketrepo.PreconditionChecker
+	ticketReplyRepo         ticketrepo.ReplyRepository
+	ticketRepo              ticketrepo.TicketRepository
+	ticketService           ticketservice.TicketService
+	// upstreamPushHandler 上游推送接收端（doc120）：/api/host/sync、/api/ticket_reply/sync。
+	upstreamPushHandler *pushhandler.Handler
+	// upstreamPushService 推送业务服务（buildBridges 里后置注入 Notifier）。
+	upstreamPushService   pushservice.Service
+	ucInstanceHandler     *ucinstancehandler.InstanceHandler
+	ucInstanceRepo        ucinstancerepo.InstanceRepository
+	ucInstanceService     ucinstanceservice.InstanceService
+	ucOrderHandler        *ucorderhandler.OrderHandler
+	ucOrderService        ucorderservice.OrderService
+	ucProductHandler      *ucproducthandler.ProductHandler
+	ucProductService      ucproductservice.ProductService
+	ucReferralHandler     *ucreferralhandler.ReferralHandler
+	upstreamMgr           *upstream.ProviderManager
+	userCenterAuthHandler *usercenterhandler.AuthHandler
+	userCenterRepo        usercenterrepo.UserRepository
+	userCenterService     usercenterservice.AuthService
+	userDeletionHandler   *handler.UserDeletionHandler
+	userDeletionService   service.DeletionService
+	userDetailHandler     *handler.UserDetailHandler
+	userDetailService     service.UserDetailService
+	userFinanceHandler    *userfinancehandler.FinanceHandler
+	userGroupHandler      *handler.UserGroupHandler
+	userGroupService      service.UserGroupService
+	userHandler           *handler.UserHandler
+	userLevelHandler      *levelhandler.UserLevelHandler
+	userLevelService      levelservice.UserLevelService
+	userMenuHandler       *usermenuhandler.MenuHandler
+	userMenuRepo          usermenurepo.MenuRepository
+	userMenuService       usermenuservice.MenuService
+	userPurgeScheduler    *service.PurgeScheduler
+	userService           service.UserService
+	userTicketHandler     *tickethandler.UserTicketHandler
+	verificationBundle    *verificationBundle
+	walletHandler         *finaccounthandler.WalletHandler
+	walletRepo            finaccountrepo.WalletRepository
+	walletService         finaccountservice.WalletService
+	walletTxRepo          fintransactionrepo.TransactionRepository
+	withdrawHandler       *finwithdrawhandler.WithdrawHandler
+	withdrawRepo          finwithdrawrepo.WithdrawRepository
+	withdrawService       finwithdrawservice.WithdrawService
+	pointEarner           PointEarner
 }
 
 // newAsm 构造装配地基：DB/迁移/种子、缓存、门户缓存失效、JWT/会话守卫、基础仓储与销售/开放平台发布器。
@@ -468,6 +479,15 @@ func (a *asm) buildBridges() {
 	a.ticketService.SetNotifier(&ticketNotifierBridge{notifySvc: a.notifySvc, logger: a.logger})
 	// 调价待确认通知桥接（T3.4）：上游改价超阈值时提醒运维处理
 	a.syncEngine.SetNotifier(&priceChangeNotifierBridge{notifySvc: a.notifySvc, logger: a.logger})
+	// 对账差异预警桥接（doc120）：差异新开/升级时提醒管理员核价与核账期
+	if a.findingScanner != nil {
+		a.findingScanner.SetNotifier(&reconcileFindingNotifierBridge{notifySvc: a.notifySvc, logger: a.logger})
+	}
+	// 上游推送接收端（doc120）：上游推工单回复时提醒用户。
+	// 推送服务在 buildTicket 构造，那时通知服务尚未就绪，故在此后置注入 Notifier。
+	if a.upstreamPushService != nil {
+		a.upstreamPushService.SetNotifier(buildUpstreamPushNotifier(a.notifySvc, a.logger))
+	}
 	// 开通履约工作池（T5.1）：连续失败转人工队列时向管理端告警。
 	a.provisionWorker = orderservice.NewProvisionWorker(
 		a.provisionTaskRepo, a.orderService,

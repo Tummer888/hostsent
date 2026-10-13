@@ -47,6 +47,13 @@ var expireAnomalyNames = map[string]string{
 	dto.ExpireOK:              "",
 }
 
+// statusAnomalyNames 状态向异常展示名（doc120）。
+var statusAnomalyNames = map[string]string{
+	dto.StatusMismatch: "状态不同步",
+	dto.StatusStale:    "上游已删除本地仍有效",
+	dto.ExpireOK:       "", // 复用 "ok" 字面量，三个向的 ok 同值
+}
+
 // severityNames 等级展示名。
 var severityNames = map[string]string{
 	dto.SeverityDanger:  "严重",
@@ -109,6 +116,8 @@ func (s *reconcileService) List(ctx context.Context, query dto.ReconcileListQuer
 			ExpireEarly:    summaryRow.ExpireEarly,
 			ExpireLate:     summaryRow.ExpireLate,
 			MissingExpire:  summaryRow.MissingExpire,
+			StatusMismatch: summaryRow.StatusMismatch,
+			StatusStale:    summaryRow.StatusStale,
 			NegativeMargin: summaryRow.NegativeMargin,
 			TotalMargin:    round2(deref(summaryRow.TotalMargin)),
 			AvgMarginRate:  round1(deref(summaryRow.AvgMarginRate)),
@@ -186,6 +195,9 @@ func buildItem(row repository.ReconcileRow, usernames, providerNames map[uint64]
 		ExpireDiffDays:      round1Ptr(row.ExpireDiffDays),
 		ExpireAnomaly:       row.ExpireAnomaly,
 		ExpireAnomalyName:   expireAnomalyNames[row.ExpireAnomaly],
+		UpstreamStatus:      row.UpstreamStatus,
+		StatusAnomaly:       row.StatusAnomaly,
+		StatusAnomalyName:   statusAnomalyNames[row.StatusAnomaly],
 		Severity:            row.Severity,
 		SeverityName:        severityNames[row.Severity],
 	}
@@ -208,9 +220,9 @@ func buildItem(row repository.ReconcileRow, usernames, providerNames map[uint64]
 	return item
 }
 
-// collectAnomalies 汇总命中项：价格向与到期向各至多一条，等级沿用 SQL 的判定口径。
+// collectAnomalies 汇总命中项：价格向、到期向、状态向各至多一条，等级沿用 SQL 的判定口径。
 func collectAnomalies(row repository.ReconcileRow) []dto.AnomalyItem {
-	out := make([]dto.AnomalyItem, 0, 2)
+	out := make([]dto.AnomalyItem, 0, 3)
 	if name, ok := priceAnomalyNames[row.PriceAnomaly]; ok && name != "" {
 		out = append(out, dto.AnomalyItem{
 			Code:         row.PriceAnomaly,
@@ -227,13 +239,21 @@ func collectAnomalies(row repository.ReconcileRow) []dto.AnomalyItem {
 			SeverityName: severityNames[anomalySeverity(row.ExpireAnomaly)],
 		})
 	}
+	if name, ok := statusAnomalyNames[row.StatusAnomaly]; ok && name != "" {
+		out = append(out, dto.AnomalyItem{
+			Code:         row.StatusAnomaly,
+			Name:         name,
+			Severity:     anomalySeverity(row.StatusAnomaly),
+			SeverityName: severityNames[anomalySeverity(row.StatusAnomaly)],
+		})
+	}
 	return out
 }
 
-// anomalySeverity 单项异常的等级：资金/账期直接受损为严重，数据缺失与薄利为预警。
+// anomalySeverity 单项异常的等级：资金/账期/服务状态直接受损为严重，数据缺失与薄利为预警。
 func anomalySeverity(code string) string {
 	switch code {
-	case dto.PriceBelowCost, dto.ExpireEarly, dto.ExpireLate:
+	case dto.PriceBelowCost, dto.ExpireEarly, dto.ExpireLate, dto.StatusStale:
 		return dto.SeverityDanger
 	default:
 		return dto.SeverityWarning
@@ -266,10 +286,39 @@ func buildDetail(item dto.ReconcileItem, row repository.ReconcileRow) string {
 	case dto.ExpireMissingUpstream:
 		parts = append(parts, "上游未返回到期时间，无法比对本地账期")
 	}
+	switch row.StatusAnomaly {
+	case dto.StatusStale:
+		parts = append(parts, fmt.Sprintf("上游状态已是 %s，本地仍视为 %s，可能仍在为已停服的机器计费",
+			upstreamStatusLabel(row.UpstreamStatus), labelOf(statusNames, row.Status, "有效")))
+	case dto.StatusMismatch:
+		parts = append(parts, fmt.Sprintf("上游状态 %s 与本地 %s 不一致，需核对服务实际可用性",
+			upstreamStatusLabel(row.UpstreamStatus), labelOf(statusNames, row.Status, "未知")))
+	}
 	if len(parts) == 0 {
-		return "售价与到期时间均与上游一致"
+		return "售价、到期时间与运行状态均与上游一致"
 	}
 	return strings.Join(parts, "；")
+}
+
+// upstreamStatusLabel 上游 domainstatus 的中文展示；未知值原样回显（便于发现新状态）。
+func upstreamStatusLabel(s string) string {
+	switch s {
+	case "Active":
+		return "运行中"
+	case "Pending":
+		return "开通中"
+	case "Suspended":
+		return "已暂停"
+	case "Cancelled":
+		return "已取消"
+	case "Deleted":
+		return "已删除"
+	case "Fraud":
+		return "风控冻结"
+	case "":
+		return "未知"
+	}
+	return s
 }
 
 func labelOf(m map[string]string, key, fallback string) string {

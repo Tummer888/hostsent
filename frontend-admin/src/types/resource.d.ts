@@ -700,6 +700,10 @@ export interface ReconcileItem {
   expire_diff_days: number | null
   expire_anomaly: string
   expire_anomaly_name: string
+  // 状态向（doc120）：上游状态原文与本地状态的一致性判据。
+  upstream_status: string
+  status_anomaly: string
+  status_anomaly_name: string
   anomalies: ReconcileAnomalyItem[]
   severity: string
   severity_name: string
@@ -717,6 +721,9 @@ export interface ReconcileSummary {
   expire_early: number
   expire_late: number
   missing_expire: number
+  // 状态不同步计数（doc120）。
+  status_mismatch: number
+  status_stale: number
   negative_margin: number
   total_margin: number
   avg_margin_rate: number
@@ -728,4 +735,33 @@ export interface ReconcileListResponse {
   items: ReconcileItem[]
   meta: ListMeta
   summary: ReconcileSummary
+}
+
+// 对账差异台账（doc120）：reconcile_findings 的行视图。
+// 与 ReconcileItem 的区别：这是**持久化台账**（差异存在多久、谁处理了），
+// ReconcileItem 是**当前时刻的比对快照**。
+export interface ReconcileFindingItem {
+  id: number
+  provider_id: number
+  instance_id: number
+  kind: string
+  kind_name: string
+  severity: string
+  local_value: string
+  upstream_value: string
+  delta?: number
+  status: string
+  note: string
+  first_seen_at: string
+  last_seen_at: string
+  notified_at: string | null
+  // days_persisted 已持续天数（前端也可自行按 first_seen_at 算，此项为后端口径）。
+  days_persisted: number
+}
+
+export interface ReconcileFindingListResponse {
+  total: number
+  list: ReconcileFindingItem[]
+  page: number
+  page_size: number
 }

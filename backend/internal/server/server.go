@@ -16,6 +16,7 @@ import (
 	costservice "hostsent/backend/internal/modules/admin/finance/cost/service"
 	lifecycleservice "hostsent/backend/internal/modules/admin/instance/lifecycle/service"
 	orderservice "hostsent/backend/internal/modules/admin/order/service"
+	reconcileservice "hostsent/backend/internal/modules/admin/resource/reconcile/service"
 	syncservice "hostsent/backend/internal/modules/admin/resource/sync/service"
 	notifyservice "hostsent/backend/internal/modules/admin/system/notification/service"
 	salesservice "hostsent/backend/internal/modules/admin/system/sales/service"
@@ -52,6 +53,8 @@ type Server struct {
 	logcenter *logcenterBundle
 	// publishScheduler 内容定时发布（公告与内容文章 draft → published）。
 	publishScheduler *publishsched.Scheduler
+	// findingScheduler 对账差异扫描（doc120）：本地比对，周期落台账并触发预警。
+	findingScheduler *reconcileservice.FindingScheduler
 	cancel           context.CancelFunc
 }
 
@@ -87,11 +90,14 @@ func newRouter(app *App) *gin.Engine {
 		c.Data(http.StatusOK, "text/plain; version=0.0.4", []byte(observability.Snapshot()))
 	})
 
-	// 路由注册按端拆分：管理端 / 用户中心 / 门户公开 / 开放平台。
+	// 路由注册按端拆分：管理端 / 用户中心 / 门户公开 / 开放平台 / 上游推送。
 	registerAdminRoutes(r, app)
 	registerUCRoutes(r, app)
 	registerSiteRoutes(r, app)
 	registerOpenRoutes(r, app)
+	// 上游推送接收端（doc120）：/api/host/sync 与 /api/ticket_reply/sync，
+	// 路径由上游协议写死（无 /v1 前缀），不挂登录中间件、单独限流。
+	registerUpstreamPushRoutes(r, app)
 
 	return r
 }
@@ -180,6 +186,8 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		instanceOpsHandler:      a.instanceOpsHandler,
 		taskQueueHandler:        a.taskQueueHandler,
 		reconcileHandler:        a.reconcileHandler,
+		reconcileFindingHandler: a.reconcileFindingHandler,
+		upstreamPushHandler:     a.upstreamPushHandler,
 		ticketHandler:           a.ticketHandler,
 		ticketCategoryHandler:   a.ticketCategoryHandler,
 		userTicketHandler:       a.userTicketHandler,
@@ -228,6 +236,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		deliveryWorker:         a.notifyBundleInst.worker,
 		logcenter:              a.logcenterBundle,
 		publishScheduler:       a.publishScheduler,
+		findingScheduler:       a.findingScheduler,
 	}, nil
 }
 
@@ -247,6 +256,10 @@ func (s *Server) Run() error {
 	s.provisionWorker.Start(ctx)
 	go s.notifyWorker.Start(ctx)
 	s.publishScheduler.Start(ctx)
+	// 对账差异扫描（doc120）：纯本地比对，不依赖任何渠道连接，未装配时静默跳过。
+	if s.findingScheduler != nil {
+		s.findingScheduler.Start(ctx)
+	}
 	if s.deliveryWorker != nil {
 		go s.deliveryWorker.Start(ctx)
 	}

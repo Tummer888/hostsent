@@ -50,7 +50,17 @@ type captchaBundle struct {
 	limiter *middleware.RateLimiter
 	// userLimiter 用户端限流（同一实现，独立 scope 便于分别观测）。
 	userLimiter *middleware.RateLimiter
+	// store 限流计数器（供上游推送接收端复用它开独立 scope 的限流桶，doc120）。
+	store *captchaStore
+	// limitReader 读 api_rate_limit 配置（同上，供外部构造限流器）。
+	limitReader func(ctx context.Context) int
 }
+
+// cacheCounter 暴露限流计数器（上游推送接收端开独立 scope 用）。
+func (b *captchaBundle) cacheCounter() middleware.Counter { return b.store }
+
+// rateLimitReader 暴露额度读取函数。
+func (b *captchaBundle) rateLimitReader() middleware.LimitReader { return b.limitReader }
 
 // buildCaptchaBundle 装配验证码体系。
 //
@@ -113,6 +123,8 @@ func buildCaptchaBundle(
 		port:          captchaservice.NewSecurityPort(svc, guard, jwtIssuer),
 		limiter:       limiter,
 		userLimiter:   userLimiter,
+		store:         store,
+		limitReader:   limitReader,
 	}
 }
 

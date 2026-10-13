@@ -41,6 +41,14 @@ const (
 	ExpireOK = "ok"
 )
 
+// 状态向异常码（doc120）：上游状态与本地实例状态不一致。
+const (
+	// StatusMismatch 上游暂停而本地运行中（或反之）——账还在收、服务已停。
+	StatusMismatch = "status_mismatch"
+	// StatusStale 上游已删除/取消，本地仍视为有效——在为不存在的机器计费。
+	StatusStale = "status_stale"
+)
+
 // 异常等级。
 const (
 	SeverityDanger  = "danger"
@@ -105,7 +113,14 @@ type ReconcileItem struct {
 	ExpireAnomaly     string   `json:"expire_anomaly"`
 	ExpireAnomalyName string   `json:"expire_anomaly_name"`
 
-	// Anomalies 该实例命中的全部异常（价格 + 到期）。
+	// ---- 状态向（doc120）----
+	// UpstreamStatus 上游状态原文（raw_data.domainstatus）；空表示该上游不提供此字段，
+	// 此时 StatusAnomaly 恒为 ok——"不做比对"与"比对不出"要能区分开。
+	UpstreamStatus    string `json:"upstream_status"`
+	StatusAnomaly     string `json:"status_anomaly"`
+	StatusAnomalyName string `json:"status_anomaly_name"`
+
+	// Anomalies 该实例命中的全部异常（价格 + 到期 + 状态）。
 	Anomalies    []AnomalyItem `json:"anomalies"`
 	Severity     string        `json:"severity"`
 	SeverityName string        `json:"severity_name"`
@@ -126,6 +141,9 @@ type ReconcileSummary struct {
 	ExpireEarly   int64 `json:"expire_early"`
 	ExpireLate    int64 `json:"expire_late"`
 	MissingExpire int64 `json:"missing_expire"`
+	// StatusMismatch / StatusStale 状态不同步计数（doc120）。
+	StatusMismatch int64 `json:"status_mismatch"`
+	StatusStale    int64 `json:"status_stale"`
 
 	// NegativeMargin 毛利为负的实例数（与 BelowCost 同源但按金额口径）。
 	NegativeMargin int64 `json:"negative_margin"`

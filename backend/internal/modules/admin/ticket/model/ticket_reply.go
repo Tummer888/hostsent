@@ -12,6 +12,10 @@ type TicketReply struct {
 	Content    string `gorm:"type:text;not null"`                  // 回复内容
 	// IsInternal 内部备注（S2）：仅管理员可见，不推状态、不发用户通知、不计入首次响应。
 	IsInternal bool `gorm:"column:is_internal;not null;default:false"`
+	// UpstreamReplyID 上游回复号（doc120）：非空表示该回复由上游推送写入。
+	// 上游推送失败会重试（zjmf_pushhost 至多 5 次），用 (ticket_id, upstream_reply_id)
+	// 部分唯一索引做精确去重，避免同一句回复入库多条。
+	UpstreamReplyID string `gorm:"column:upstream_reply_id;size:64;not null;default:''"`
 	// —— S3 双人复核：回复级复核状态 ——
 	// 空 = 无需复核；pending 时用户端不可见（SQL 层过滤）。
 	ReviewStatus string     `gorm:"column:review_status;size:20;index"`

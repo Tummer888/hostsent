@@ -340,6 +340,13 @@ func registerAdminRoutes(r *gin.Engine, app *App) {
 			// 实例对账（本轮 S4）：已开通的上游链路实例，本地售价/到期 vs 上游成本/到期。
 			// 只读比对视图，修正动作仍在商品/实例详情页完成。
 			resourceGroup.GET("/reconcile", app.perm("resource:instance"), app.reconcileHandler.List)
+			// 对账差异台账（doc120）：把上面的比对结论持久化，供预警与持续时长追踪。
+			// /findings 固定段先于可能的通配段注册。
+			reconcileGroup := resourceGroup.Group("/reconcile/findings")
+			{
+				reconcileGroup.GET("", app.perm("resource:instance"), app.reconcileFindingHandler.ListFindings)
+				reconcileGroup.PUT("/:id", app.perm("resource:instance"), app.reconcileFindingHandler.UpdateFinding)
+			}
 		}
 
 		// 生命周期管理（doc60 §7.1）

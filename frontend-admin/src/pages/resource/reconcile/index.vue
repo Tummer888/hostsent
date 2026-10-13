@@ -34,6 +34,20 @@
       </article>
     </section>
 
+    <!-- 当前快照 vs 持久化台账（doc120）：
+         上方「对账结果」回答"现在哪里对不上"，下方「差异台账」回答"这个问题存在了多久、处理到哪一步"。
+         两者是同一批判据的两个视图，不是两套数据。 -->
+    <div class="view-switch">
+      <t-radio-group v-model="viewMode" variant="default-filled">
+        <t-radio-button value="result">对账结果</t-radio-button>
+        <t-radio-button value="findings">差异台账（{{ findingTotal }}）</t-radio-button>
+      </t-radio-group>
+      <span class="view-switch__hint">
+        台账每 10 分钟自动扫描一次：新出现的差异会推送管理员站内信，同类差异只提醒一次
+      </span>
+    </div>
+
+    <template v-if="viewMode === 'result'">
     <FilterCard :columns="3">
       <template #head-extra>
         <span class="filter-card__meta">
@@ -137,6 +151,23 @@
           </div>
         </template>
 
+        <!-- 运行状态：本地 vs 上游。上游不提供该字段（非魔方财务链路）时显示「不适用」，
+             与「查不到」区分开——否则会让人以为所有实例都缺数据。 -->
+        <template #run_state="{ row }">
+          <div class="pair-cell">
+            <div class="pair-row">
+              <span class="pair-label">本地</span>
+              <span class="pair-value">{{ row.status_name }}</span>
+            </div>
+            <div class="pair-row">
+              <span class="pair-label">上游</span>
+              <span class="pair-value" :class="row.status_anomaly === 'ok' || !row.status_anomaly ? '' : 'value-warn'">
+                {{ row.upstream_status || '不适用' }}
+              </span>
+            </div>
+          </div>
+        </template>
+
         <template #anomaly="{ row }">
           <div class="anomaly-cell">
             <template v-if="row.anomalies.length">
@@ -185,6 +216,73 @@
         @go="goMobilePage"
         @page-size="handleMobilePageSizeChange"
       />
+    </section>
+    </template>
+
+    <!-- 差异台账：持久化记录 + 处置。 -->
+    <section v-else class="table-card surface-card">
+      <div class="table-card__head">
+        <h3 class="card-title">差异台账</h3>
+        <span class="table-card__meta">
+          共 {{ findingTotal }} 条未处理差异 · 首次检出时间为扫描器发现该差异的时刻
+        </span>
+      </div>
+      <t-table
+        row-key="id"
+        :data="findingRows"
+        :columns="findingColumns"
+        :loading="findingLoading"
+        size="small"
+        hover
+        table-layout="fixed"
+        cell-empty-content="—"
+        :pagination="findingPagination"
+        @page-change="handleFindingPageChange"
+      >
+        <template #kind="{ row }">
+          <t-tag
+            :theme="row.severity === 'danger' ? 'danger' : 'warning'"
+            variant="light"
+            size="small"
+            shape="round"
+          >
+            {{ row.kind_name }}
+          </t-tag>
+        </template>
+        <template #values="{ row }">
+          <div class="pair-cell">
+            <div class="pair-row">
+              <span class="pair-label">本地</span>
+              <span class="pair-value">{{ row.local_value || '—' }}</span>
+            </div>
+            <div class="pair-row">
+              <span class="pair-label">上游</span>
+              <span class="pair-value value-warn">{{ row.upstream_value || '—' }}</span>
+            </div>
+          </div>
+        </template>
+        <template #persisted="{ row }">
+          <div class="persist-cell">
+            <span class="persist-days">{{ row.days_persisted }} 天</span>
+            <span class="persist-meta">首次 {{ formatTime(row.first_seen_at) }}</span>
+            <span class="persist-meta">最近 {{ formatTime(row.last_seen_at) }}</span>
+          </div>
+        </template>
+        <template #finding_status="{ row }">
+          <t-tag :theme="row.status === 'ack' ? 'primary' : 'warning'" variant="light" size="small" shape="round">
+            {{ row.status === 'ack' ? '已确认' : '未处理' }}
+          </t-tag>
+        </template>
+        <template #finding_action="{ row }">
+          <div class="action-cell">
+            <t-link theme="primary" hover="color" @click="changeFindingStatus(row, 'ack')">确认</t-link>
+            <t-link theme="danger" hover="color" @click="changeFindingStatus(row, 'ignored')">忽略</t-link>
+          </div>
+        </template>
+        <template #empty>
+          <t-empty description="暂无差异记录：扫描器每 10 分钟比对一次，无异常时不会产生台账" />
+        </template>
+      </t-table>
     </section>
 
     <t-dialog
@@ -235,6 +333,19 @@
           </template>
           <template v-else>无法比对（缺一侧到期时间）</template>
         </t-descriptions-item>
+        <t-descriptions-item label="上游状态">{{ detailRow.upstream_status || '不适用（该上游不提供状态字段）' }}</t-descriptions-item>
+        <t-descriptions-item label="状态判据">
+          <t-tag
+            v-if="detailRow.status_anomaly && detailRow.status_anomaly !== 'ok'"
+            :theme="detailRow.status_anomaly === 'status_stale' ? 'danger' : 'warning'"
+            variant="light"
+            size="small"
+            shape="round"
+          >
+            {{ detailRow.status_anomaly_name }}
+          </t-tag>
+          <span v-else class="cell-muted">{{ detailRow.upstream_status ? '与上游一致' : '未比对' }}</span>
+        </t-descriptions-item>
       </t-descriptions>
     </t-dialog>
   </div>
@@ -242,13 +353,18 @@
 
 <script setup lang="ts">
 import FilterCard from '@/components/filter-card/index.vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 
 import { ErrorCircleIcon, RefreshIcon, SearchIcon, VerifyIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
-import { getProviderList, getReconcileList } from '@/api/admin'
-import type { ProviderInfo, ReconcileItem, ReconcileSummary } from '@/types/interface'
+import { getProviderList, getReconcileFindings, getReconcileList, updateReconcileFinding } from '@/api/admin'
+import type {
+  ProviderInfo,
+  ReconcileFindingItem,
+  ReconcileItem,
+  ReconcileSummary,
+} from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
@@ -260,6 +376,10 @@ defineOptions({ name: 'ResourceReconcile' })
 const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
 const embedded = computed(() => props.embedded)
 
+// viewMode 视图切换：result=当前时刻的比对快照，findings=持久化差异台账。
+// 同一批判据的两个视角，切换不触发重新请求（各自已加载的数据保留）。
+type ViewMode = 'result' | 'findings'
+const viewMode = ref<ViewMode>('result')
 
 const rows = ref<ReconcileItem[]>([])
 const loading = ref(false)
@@ -278,6 +398,8 @@ const emptySummary: ReconcileSummary = {
   expire_early: 0,
   expire_late: 0,
   missing_expire: 0,
+  status_mismatch: 0,
+  status_stale: 0,
   negative_margin: 0,
   total_margin: 0,
   avg_margin_rate: 0,
@@ -287,12 +409,14 @@ const emptySummary: ReconcileSummary = {
 const summary = ref<ReconcileSummary>({ ...emptySummary })
 
 const anomalyOptions = [
-  { label: '严重（严重亏损 / 账期错位）', value: 'danger' },
-  { label: '预警（薄利 / 数据缺失）', value: 'warning' },
+  { label: '严重（严重亏损 / 账期错位 / 上游已删）', value: 'danger' },
+  { label: '预警（薄利 / 状态漂移 / 数据缺失）', value: 'warning' },
   { label: '仅售价低于成本', value: 'below_cost' },
   { label: '仅毛利过薄', value: 'thin_margin' },
   { label: '仅本地到期过早', value: 'expire_early' },
   { label: '仅本地到期过晚', value: 'expire_late' },
+  { label: '仅状态不同步', value: 'status_mismatch' },
+  { label: '仅上游已删除本地仍有效', value: 'status_stale' },
   { label: '仅数据缺失', value: 'missing' },
   { label: '无异常', value: 'ok' },
 ]
@@ -305,6 +429,57 @@ const filters = reactive<{ keyword: string; provider_id: number | undefined; ano
 
 const pagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
 const mobilePage = reactive({ current: 1, pageSize: 10, total: 0 })
+
+// ---------- 差异台账（doc120）----------
+const findingRows = ref<ReconcileFindingItem[]>([])
+const findingLoading = ref(false)
+const findingTotal = ref(0)
+const findingPagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
+
+const findingColumns: PrimaryTableCol<ReconcileFindingItem>[] = [
+  { colKey: 'kind', title: '差异类型', width: 170 },
+  { colKey: 'values', title: '本地 / 上游', minWidth: 170 },
+  { colKey: 'persisted', title: '已持续', minWidth: 190 },
+  { colKey: 'finding_status', title: '状态', width: 90 },
+  { colKey: 'finding_action', title: '操作', width: 110, align: 'center' },
+]
+
+async function loadFindings() {
+  findingLoading.value = true
+  try {
+    const data = await getReconcileFindings({
+      provider_id: filters.provider_id,
+      page: findingPagination.current,
+      page_size: findingPagination.pageSize,
+    })
+    findingRows.value = data.list
+    findingTotal.value = data.total
+    findingPagination.total = data.total
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '加载差异台账失败')
+  } finally {
+    findingLoading.value = false
+  }
+}
+
+function handleFindingPageChange(pageInfo: PageInfo) {
+  findingPagination.current = pageInfo.current
+  findingPagination.pageSize = pageInfo.pageSize
+  loadFindings()
+}
+
+// changeFindingStatus 处置一条差异：确认（暂不处理）或忽略（不再提醒）。
+// 忽略后同一条差异复现才会重新通知——由后端 notice_seq 决定，前端不做本地判断。
+async function changeFindingStatus(row: ReconcileFindingItem, status: 'ack' | 'ignored') {
+  const label = status === 'ack' ? '确认' : '忽略'
+  try {
+    await updateReconcileFinding(row.id, { status })
+    MessagePlugin.success(`已${label}该差异`)
+    loadFindings()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || `${label}失败`)
+  }
+}
 
 const statCards = computed(() => {
   const s = summary.value
@@ -321,7 +496,7 @@ const statCards = computed(() => {
       key: 'danger',
       label: '严重异常',
       value: `${s.danger}`,
-      hint: `低于成本 ${s.below_cost} · 到期错位 ${s.expire_early + s.expire_late}`,
+      hint: `低于成本 ${s.below_cost} · 到期错位 ${s.expire_early + s.expire_late} · 状态 ${s.status_stale}`,
       icon: ErrorCircleIcon,
       theme: s.danger > 0 ? ('danger' as const) : ('info' as const),
     },
@@ -337,7 +512,7 @@ const statCards = computed(() => {
       key: 'warning',
       label: '预警',
       value: `${s.warning}`,
-      hint: `薄利 ${s.thin_margin} · 缺数据 ${s.missing_price + s.missing_expire}`,
+      hint: `薄利 ${s.thin_margin} · 状态漂移 ${s.status_mismatch} · 缺数据 ${s.missing_price + s.missing_expire}`,
       icon: ErrorCircleIcon,
       theme: s.warning > 0 ? ('warning' as const) : ('info' as const),
     },
@@ -349,6 +524,7 @@ const columns = computed<PrimaryTableCol<ReconcileItem>[]>(() => {
     { colKey: 'instance', title: '实例', minWidth: 200 },
     { colKey: 'price', title: '售价 / 成本 / 毛利', minWidth: 190 },
     { colKey: 'expire', title: '到期（本地 / 上游）', minWidth: 190 },
+    { colKey: 'run_state', title: '状态（本地 / 上游）', minWidth: 160 },
     { colKey: 'anomaly', title: '异常项', minWidth: 180 },
     { colKey: 'severity', title: '等级', width: 90 },
   ]
@@ -421,6 +597,11 @@ async function loadProviders() {
 }
 
 function reload() {
+  if (viewMode.value === 'findings') {
+    findingPagination.current = 1
+    loadFindings()
+    return
+  }
   pagination.current = 1
   loadRows()
 }
@@ -475,9 +656,27 @@ function openDetailDialog(row: ReconcileItem) {
   detailVisible.value = true
 }
 
+// formatTime 带时分秒的时间展示（台账的首次/最近检出需要精确到分钟才有意义）。
+function formatTime(value: string | null): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+// 切到台账视图时懒加载：默认视图是对账结果，台账数据不必在首屏就拉。
+watch(viewMode, (mode) => {
+  if (mode === 'findings' && findingRows.value.length === 0 && !findingLoading.value) {
+    loadFindings()
+  }
+})
+
 onMounted(() => {
   loadProviders()
   loadRows()
+  // 台账条数用于视图切换按钮上的角标，首屏也拉一次（只是计数，代价低）。
+  loadFindings()
 })
 </script>
 
@@ -498,6 +697,40 @@ onMounted(() => {
 .resource-module .filter-card__meta {
   font-size: 12px;
   color: var(--color-muted-foreground);
+}
+
+/* 视图切换条：在当前快照与持久化台账之间切换，右侧说明扫描节奏。 */
+.view-switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.view-switch__hint {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+/* 台账的「已持续」单元格：天数强调、两个时间点弱化堆叠。 */
+.persist-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.persist-days {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  font-variant-numeric: tabular-nums;
+}
+
+.persist-meta {
+  font-size: 11px;
+  color: var(--color-muted-foreground);
+  font-variant-numeric: tabular-nums;
 }
 
 .subject-cell {

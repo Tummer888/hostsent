@@ -17,7 +17,11 @@ const (
 	EventTicketTransferred   string = "ticket_transferred"    // 工单转交专人（通知用户，S2）
 	EventBalanceLow          string = "balance_low"           // 余额不足预警
 	EventSyncFailed          string = "sync_failed"           // 上游同步失败（管理员）
-	EventSystem              string = "system"                // 系统通用
+	// 对账差异预警（doc120）：均为管理员事件，只在差异「新开/等级升级」时发布。
+	EventReconcileBelowCost string = "reconcile_below_cost"      // 售价低于上游成本
+	EventReconcileExpire    string = "reconcile_expire_mismatch" // 到期时间与上游不同步
+	EventReconcileStatus    string = "reconcile_status_mismatch" // 运行状态与上游不同步
+	EventSystem             string = "system"                    // 系统通用
 )
 
 // 投递通道

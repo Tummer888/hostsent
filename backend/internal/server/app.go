@@ -57,6 +57,7 @@ import (
 	ucorderhandler "hostsent/backend/internal/modules/uc/order/handler"
 	ucproducthandler "hostsent/backend/internal/modules/uc/product/handler"
 	ucreferralhandler "hostsent/backend/internal/modules/uc/referral/handler"
+	pushhandler "hostsent/backend/internal/modules/upstreampush/handler"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/cache"
 	"hostsent/backend/internal/pkg/config"
@@ -133,7 +134,11 @@ type App struct {
 	// taskQueueHandler 平台动作任务队列（开通/实例动作/续费/同步）只读聚合视图（本轮 S3）。
 	taskQueueHandler *taskqueuehandler.TaskQueueHandler
 	// reconcileHandler 实例对账（本地售价/到期 vs 上游成本/到期）只读比对视图（本轮 S4）。
-	reconcileHandler      *reconcilehandler.ReconcileHandler
+	reconcileHandler *reconcilehandler.ReconcileHandler
+	// reconcileFindingHandler 对账差异台账（doc120）：差异持久化、处置与预警数据源。
+	reconcileFindingHandler *reconcilehandler.FindingHandler
+	// upstreamPushHandler 上游推送接收端（doc120）：/api/host/sync 与 /api/ticket_reply/sync。
+	upstreamPushHandler   *pushhandler.Handler
 	ticketHandler         *tickethandler.TicketHandler
 	ticketCategoryHandler *tickethandler.CategoryHandler
 	userTicketHandler     *tickethandler.UserTicketHandler
@@ -240,6 +245,25 @@ func (a *App) ucRateLimit() gin.HandlerFunc {
 		}
 		handler(c)
 	}
+}
+
+// upstreamPushLimiter 上游推送接收端的独立限流桶（doc120）。
+//
+// 复用验证码模块的缓存计数器但换 scope=upstream_push：额度与 uc/admin 互不占用，
+// 避免上游重试的突发流量挤掉真实用户请求。验证码模块未装配（如单测环境）时
+// 返回 nil，调用方退回"不挂限流但仍接住请求"——不接住会让上游重试 5 次后放弃推送。
+func (a *App) upstreamPushLimiter() *middleware.RateLimiter {
+	if a.captcha == nil || a.captcha.userLimiter == nil {
+		return nil
+	}
+	return middleware.NewRateLimiter(middleware.RateLimitOptions{
+		Counter: a.captcha.cacheCounter(),
+		Limit:   a.captcha.rateLimitReader(),
+		Scope:   "upstream_push",
+		Warn: func(path string) {
+			a.logger.Warn("upstream push rate limit degraded: cache unavailable", zap.String("path", path))
+		},
+	})
 }
 
 // userRequireVerification 用户端关键操作二次验证中间件（doc91 §6.1）。

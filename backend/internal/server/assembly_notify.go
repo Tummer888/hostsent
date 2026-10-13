@@ -15,12 +15,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
+	reconmodel "hostsent/backend/internal/modules/admin/resource/reconcile/model"
+	reconcilerepo "hostsent/backend/internal/modules/admin/resource/reconcile/repository"
 	notifydto "hostsent/backend/internal/modules/admin/system/notification/dto"
 	notifyhandler "hostsent/backend/internal/modules/admin/system/notification/handler"
 	notifymodel "hostsent/backend/internal/modules/admin/system/notification/model"
@@ -28,6 +31,7 @@ import (
 	notifyservice "hostsent/backend/internal/modules/admin/system/notification/service"
 	openrepo "hostsent/backend/internal/modules/open/repository"
 	openservice "hostsent/backend/internal/modules/open/service"
+	pushservice "hostsent/backend/internal/modules/upstreampush/service"
 	"hostsent/backend/internal/pkg/cache"
 	"hostsent/backend/internal/pkg/safego"
 )
@@ -227,7 +231,7 @@ func (b *priceChangeNotifierBridge) NotifyPriceChangePending(ctx context.Context
 		Target: notifymodel.TargetAdmin,
 		Vars: map[string]string{
 			"title":   "上游调价待确认",
-			"content": fmt.Sprintf("提供商 %s（#%d）有 %d 条成本价变动超过阈值，售价未自动调整，请前往「同步与调度 → 待确认调价」处理。", providerName, providerID, pending),
+			"content": fmt.Sprintf("提供商 %s（#%d）有 %d 条成本价变动超过阈值，售价未自动调整，请前往「同步状态运维控制台 → 待确认调价」处理。", providerName, providerID, pending),
 		},
 		SourceModule: "sync",
 		SourceID:     fmt.Sprintf("price-pending-%d-%d", providerID, time.Now().Unix()/3600),
@@ -235,6 +239,116 @@ func (b *priceChangeNotifierBridge) NotifyPriceChangePending(ctx context.Context
 	if err != nil {
 		b.logger.Warn("publish price change notification failed",
 			zap.Uint64("provider_id", providerID), zap.Error(err))
+	}
+	return err
+}
+
+// reconcileFindingNotifierBridge 桥接对账差异台账的预警到通知中心（doc120）。
+//
+// 事件按差异类型分流：售价低于成本、到期不同步、状态不同步各有专属模板，
+// 管理员一眼能从标题判断是哪类问题、要不要马上看。
+//
+// 幂等键带 seq：notify 的唯一索引是 (source_module, source_id, channel, target_type, user_id)，
+// 一条差异被 resolve 后复现必须换 source_id 才能再提醒一次，故把通知序号拼进去。
+// 通知只发给管理员（TargetAdmin），不去打扰终端用户——定价与账期是我方自己的账。
+type reconcileFindingNotifierBridge struct {
+	notifySvc notifyservice.NotificationService
+	logger    *zap.Logger
+}
+
+// reconcileEventOf 差异类型 → 通知事件。
+func reconcileEventOf(kind string) string {
+	switch kind {
+	case reconmodel.KindPriceBelowCost, reconmodel.KindPriceThinMargin:
+		return notifymodel.EventReconcileBelowCost
+	case reconmodel.KindExpireEarly, reconmodel.KindExpireLate:
+		return notifymodel.EventReconcileExpire
+	default:
+		return notifymodel.EventReconcileStatus
+	}
+}
+
+func (b *reconcileFindingNotifierBridge) NotifyReconcileFinding(
+	ctx context.Context, finding *reconmodel.ReconcileFinding, label reconcilerepo.InstanceLabel, seq int,
+) error {
+	if finding == nil {
+		return nil
+	}
+	vars := map[string]string{
+		"instance_mark":  firstNonEmptyText(label.Name, label.InstanceID, fmt.Sprintf("实例 #%d", finding.InstanceID)),
+		"provider_name":  firstNonEmptyText(label.ProviderName, fmt.Sprintf("渠道 #%d", finding.ProviderID)),
+		"local_value":    finding.LocalValue,
+		"upstream_value": finding.UpstreamValue,
+		"kind_name":      reconmodel.KindLabel(finding.Kind),
+	}
+	if finding.Delta != nil {
+		vars["diff_days"] = fmt.Sprintf("%.1f", *finding.Delta)
+		// 售价低于成本时模板里的 {loss} 是"每期亏损额"（毛利为负，取绝对值展示）。
+		if finding.Kind == reconmodel.KindPriceBelowCost {
+			loss := -*finding.Delta
+			if loss < 0 {
+				loss = *finding.Delta
+			}
+			vars["loss"] = fmt.Sprintf("￥%.2f", loss)
+		}
+	}
+	err := b.notifySvc.Publish(ctx, notifydto.PublishInput{
+		Event:        reconcileEventOf(finding.Kind),
+		Target:       notifymodel.TargetAdmin,
+		Vars:         vars,
+		SourceModule: "reconcile",
+		// 序号从 1 起：0 从未通知过；带 seq 保证"复现后重新提醒"能穿过去重索引。
+		SourceID: fmt.Sprintf("reconcile-%d-%s-%d", finding.InstanceID, finding.Kind, seq),
+	})
+	if err != nil {
+		b.logger.Warn("publish reconcile finding notification failed",
+			zap.Uint64("instance_id", finding.InstanceID), zap.String("kind", finding.Kind), zap.Error(err))
+	}
+	return err
+}
+
+// firstNonEmptyText 取第一个非空字符串。
+func firstNonEmptyText(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// buildUpstreamPushNotifier 桥接上游推送接收端到通知中心（doc120）：
+// 上游把工单回复推过来并落库后，通知工单提交人。
+//
+// 为什么走 event=ticket_replied 而不是新事件：对用户而言这就是"工单有新回复"，
+// 与客服在本站回复没有任何区别；用新事件会导致用户既有的通知偏好对上游回复不生效。
+// 幂等键由推送服务给出（带 reply_id），保证同一条上游回复只通知一次。
+func buildUpstreamPushNotifier(notifySvc notifyservice.NotificationService, logger *zap.Logger) pushservice.Notifier {
+	return &upstreamPushNotifier{notifySvc: notifySvc, logger: logger}
+}
+
+type upstreamPushNotifier struct {
+	notifySvc notifyservice.NotificationService
+	logger    *zap.Logger
+}
+
+func (b *upstreamPushNotifier) Publish(
+	ctx context.Context, event, target string, recipientID uint64, vars map[string]string, sourceID string,
+) error {
+	if target == "" {
+		target = notifymodel.TargetUser
+	}
+	err := b.notifySvc.Publish(ctx, notifydto.PublishInput{
+		Event:        event,
+		UserID:       recipientID,
+		Target:       target,
+		Vars:         vars,
+		SourceModule: "upstream_push",
+		SourceID:     sourceID,
+	})
+	if err != nil {
+		b.logger.Warn("upstream push: publish notification failed",
+			zap.String("event", event), zap.Uint64("recipient_id", recipientID), zap.Error(err))
 	}
 	return err
 }

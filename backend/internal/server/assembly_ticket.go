@@ -6,6 +6,9 @@ import (
 	tickethandler "hostsent/backend/internal/modules/admin/ticket/handler"
 	ticketrepo "hostsent/backend/internal/modules/admin/ticket/repository"
 	ticketservice "hostsent/backend/internal/modules/admin/ticket/service"
+	pushhandler "hostsent/backend/internal/modules/upstreampush/handler"
+	pushrepo "hostsent/backend/internal/modules/upstreampush/repository"
+	pushservice "hostsent/backend/internal/modules/upstreampush/service"
 	"hostsent/backend/internal/pkg/storage"
 
 	"go.uber.org/zap"
@@ -34,4 +37,10 @@ func (a *asm) buildTicket() {
 	a.ticketHandler = tickethandler.NewTicketHandler(a.ticketService, a.ticketAttachmentService, a.ticketCategoryService)
 	a.ticketCategoryHandler = tickethandler.NewCategoryHandler(a.ticketCategoryService)
 	a.userTicketHandler = tickethandler.NewUserTicketHandler(a.ticketService, a.ticketCategoryService, a.ticketAttachmentService)
+	// 上游推送接收端（doc120）：/api/host/sync 与 /api/ticket_reply/sync。
+	// 免登录，凭 body 内的 signature + orders.downstream_token 验签；
+	// 不依赖工单服务，直接用窄仓储（推送只做"按上游单号反查 + 落一条回复"）。
+	// notifier 在 buildBridges 里后置注入（通知服务晚于本域装配）。
+	a.upstreamPushService = pushservice.NewService(pushrepo.NewRepository(a.database), nil, a.logger)
+	a.upstreamPushHandler = pushhandler.NewHandler(a.upstreamPushService, a.logger)
 }
