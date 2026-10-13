@@ -53,10 +53,14 @@
           <p class="shop-card__desc">{{ p.description || '暂无描述' }}</p>
 
           <div class="shop-card__meta">
-            <t-tag size="small" variant="light">{{ sourceModeLabel(p.source_mode) }}</t-tag>
+            <!-- 刻意不显示供货渠道（自营/转售）：那是内部供货关系，
+                 客户看到只会在"自己人开的机器"和"转售的机器"之间挑，对成交没好处。 -->
             <t-tag v-if="p.skus.length" size="small" variant="light" theme="primary">
               {{ p.skus.length }} 种规格
             </t-tag>
+            <t-tag v-if="p.featured" size="small" variant="light" theme="warning">推荐</t-tag>
+            <!-- 售罄：无 SKU 的商品（上游限量）库存挂在商品上；挂了 SKU 的商品在选配页判定 -->
+            <t-tag v-if="!p.skus.length && p.stock === 0" size="small" variant="light" theme="danger">已售罄</t-tag>
           </div>
 
           <div class="shop-card__foot">
@@ -64,7 +68,12 @@
               <span class="shop-card__price">¥{{ p.price.toFixed(2) }}</span>
               <span class="shop-card__unit">{{ priceModelLabel(p.price_model) }}</span>
             </div>
-            <t-button size="small" theme="primary" @click="openConfig(p)">购买</t-button>
+            <t-button
+              size="small"
+              theme="primary"
+              :disabled="!p.skus.length && p.stock === 0"
+              @click="openConfig(p)"
+            >{{ !p.skus.length && p.stock === 0 ? '已售罄' : '购买' }}</t-button>
           </div>
         </div>
       </article>
@@ -119,10 +128,6 @@ const keyword = ref('')
 const featuredOnly = ref(false)
 const total = ref(0)
 const pagination = ref({ current: 1, pageSize: 12 })
-
-function sourceModeLabel(m: string): string {
-  return m === 'upstream' ? '上游直供' : '自营'
-}
 
 function priceModelLabel(m: string): string {
   const map: Record<string, string> = {

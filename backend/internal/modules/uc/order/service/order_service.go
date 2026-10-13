@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -107,6 +108,14 @@ type (
 		ListSpecs(ctx context.Context, productID uint64) ([]catalogdto.ProductSpecInfo, error)
 		DecrementSpecStock(ctx context.Context, specID uint64, qty int) (int64, error)
 		IncrementSpecStock(ctx context.Context, specID uint64, qty int) (int64, error)
+		// DecrementProductStock / IncrementProductStock 商品级库存（无 SKU 的上游转售商品）。
+		DecrementProductStock(ctx context.Context, productID uint64, qty int) (int64, error)
+		IncrementProductStock(ctx context.Context, productID uint64, qty int) (int64, error)
+	}
+	// optionLabelPort 选配项可读名解析（T4.5）：把订单里的上游 id 翻译成客户能看懂的名称。
+	// 由 admin catalog 服务实现；未注入时订单不返回可读标签（前端退回不展示配置行）。
+	optionLabelPort interface {
+		CustomerOptions(ctx context.Context, productID uint64) ([]catalogservice.CustomerOptionGroup, error)
 	}
 	// optionPricingPort 客户选配项校验与计价（T4.5）：由 admin catalog 服务实现。
 	optionPricingPort interface {
@@ -155,6 +164,8 @@ type OrderService interface {
 	SetPendingInstanceReleaser(fn func(ctx context.Context, orderID uint64) (int64, error))
 	// SetLogger 注入日志器（装配层调用；nil 时不记日志）。
 	SetLogger(l *zap.Logger)
+	// SetOptionLabelResolver 注入选配项可读名解析（装配层调用；nil 时订单详情不展示配置行）。
+	SetOptionLabelResolver(port optionLabelPort)
 }
 
 type orderService struct {
@@ -172,6 +183,7 @@ type orderService struct {
 	actorNames      actorNameLookup                                   // 操作人用户名解析（P4-09），可为 nil
 	sku             productSkuPort                                    // SKU 读取与库存（T4.1），可为 nil（无 SKU 的商品照旧下单）
 	optionPricing   optionPricingPort                                 // 选配项校验与计价（T4.5），可为 nil（无选配项的商品照旧下单）
+	optionLabels    optionLabelPort                                   // 选配项可读名解析（可选项；nil 时订单不带可读标签）
 	salesOwner      salesOwnerResolver                                // 销售归属解析（doc86 §3.4），可为 nil（不记归属）
 	prepay          prepayPort                                        // 收银台发起支付（支付中心），可为 nil（未装配时不可线上支付）
 	pendingPayments pendingPaymentCloser                              // 关闭未支付支付单，可为 nil
@@ -269,6 +281,76 @@ func (s *orderService) SetPendingInstanceReleaser(fn func(ctx context.Context, o
 
 // SetLogger 注入日志器（装配层调用；nil 时不记日志）。
 func (s *orderService) SetLogger(l *zap.Logger) { s.logger = l }
+
+// SetOptionLabelResolver 注入选配项可读名解析（见 optionLabelPort 说明）。
+func (s *orderService) SetOptionLabelResolver(port optionLabelPort) { s.optionLabels = port }
+
+// resolveSelectionLabels 把订单里的选配 id 翻译成客户可读的「名称：取值」列表。
+//
+// 为什么要这层：对接商品的 config_options 存的是上游选项 id 与取值 id
+// （{"163744":"565652"}），直接展示等于把对接口径摊给客户。
+// 这里用商品目录（与购买页同源）还原成「网络类型：VPC网络 / 操作系统：CentOS 7.9」。
+//
+// 单个项翻译失败不影响其它项，也不报错：宁可不显示那一项，
+// 也不能把内部 id 作为兜底展示出来。
+func (s *orderService) resolveSelectionLabels(ctx context.Context, productID uint64, selections map[string]string) []string {
+	if s.optionLabels == nil || len(selections) == 0 {
+		return nil
+	}
+	groups, err := s.optionLabels.CustomerOptions(ctx, productID)
+	if err != nil {
+		return nil
+	}
+	// 建立「选项 key → 中文名」「值 → 展示名」查表。
+	nameByKey := map[string]string{}
+	labelByKeyValue := map[string]string{}
+	for _, g := range groups {
+		for _, opt := range g.Options {
+			nameByKey[opt.OptionKey] = firstNonEmptyStr(opt.Name, opt.OptionKey)
+			for _, v := range opt.Values {
+				labelByKeyValue[selKey(opt.OptionKey, v.Value)] = v.Label
+			}
+		}
+	}
+	// 按选项 key 排序输出，保证同一订单每次展示顺序一致（map 遍历无序）。
+	keys := make([]string, 0, len(selections))
+	for k := range selections {
+		if _, ok := nameByKey[k]; ok && strings.TrimSpace(selections[k]) != "" {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		raw := selections[k]
+		label := labelByKeyValue[selKey(k, raw)]
+		if label == "" {
+			// 文本型（主机名/密码）没有候选值表，取值本身就是可读的。
+			label = raw
+		}
+		// 密码类的值不回显明文。
+		if k == "root_password" || k == "password" {
+			label = "已设置"
+		}
+		out = append(out, fmt.Sprintf("%s：%s", nameByKey[k], label))
+	}
+	return out
+}
+
+// selKey 选配查表键：选项 key + 取值 拼成一个键。
+// 用 "::" 而不是 NUL 之类的控制字符：控制字符会落到源文件里，
+// 让 Go 文件被当成二进制（grep/diff/部分工具直接看不到内容），排查时非常费劲。
+func selKey(optionKey, value string) string { return optionKey + "::" + value }
+
+// firstNonEmptyStr 返回首个非空白字符串（空则回退 fallback）。
+func firstNonEmptyStr(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
 
 // logPlaceholderError 记录占位实例建/删失败：这类失败不阻断下单/关单主流程，
 // 但必须在日志里留痕（否则实例"凭空消失/凭空出现"无从排查）。
@@ -446,6 +528,8 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 	// SKU 库存扣减（T4.1）：有限库存用条件更新原子扣减，扣不到即视为售罄。
 	// 后续任何一步失败都在 defer 中回补，保证不因下单失败丢库存。
 	stockDeducted := false
+	// productStockDeducted 商品级库存是否已扣（无 SKU 的上游转售商品走这条线）。
+	productStockDeducted := false
 	if spec != nil {
 		affected, err := s.sku.DecrementSpecStock(ctx, spec.ID, qty)
 		if err != nil {
@@ -455,12 +539,29 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 			return nil, errors.New("所选规格库存不足")
 		}
 		stockDeducted = true
+	} else {
+		// 商品级库存扣减：上游转售商品没有 SKU（库存挂在上游限量上），
+		// 此前 product.stock 只做展示、下单完全不校验，上游限量商品可以被无限下单。
+		// 口径与 SKU 一致：-1 不限量不扣减，有限库存扣不到即售罄。
+		affected, err := s.sku.DecrementProductStock(ctx, product.ID, qty)
+		if err != nil {
+			return nil, err
+		}
+		if affected == 0 {
+			return nil, errors.New("该商品库存不足，已售罄")
+		}
+		productStockDeducted = true
 	}
 	orderSucceeded := false
 	defer func() {
-		if stockDeducted && !orderSucceeded {
+		if !orderSucceeded {
 			// 回补失败只影响库存准确性，不改变下单结果；由运维按订单人工核对。
-			_, _ = s.sku.IncrementSpecStock(context.WithoutCancel(ctx), spec.ID, qty)
+			if stockDeducted {
+				_, _ = s.sku.IncrementSpecStock(context.WithoutCancel(ctx), spec.ID, qty)
+			}
+			if productStockDeducted {
+				_, _ = s.sku.IncrementProductStock(context.WithoutCancel(ctx), product.ID, qty)
+			}
 		}
 	}()
 
@@ -679,6 +780,9 @@ func (s *orderService) Detail(ctx context.Context, userID, orderID uint64) (*dto
 	info.Quantity = order.Quantity
 	info.Cycle = order.Cycle
 	info.PriceSnapshot = order.PriceSnapshot
+	// 选配项可读名：把 config_options 里的上游 id 还原成「网络类型：VPC网络」。
+	// 前端只展示这个，不展示 ConfigSelections 的原始键值对。
+	info.ConfigSelectionLabels = s.resolveSelectionLabels(ctx, order.ProductID, info.ConfigSelections)
 	if order.PayTime != nil {
 		info.PayTime = order.PayTime.Format(time.RFC3339)
 	}
@@ -821,17 +925,26 @@ func (s *orderService) releasePendingHoldings(ctx context.Context, order *orderm
 			s.logPlaceholderError(order, err)
 		}
 	}
-	if s.sku == nil || order.SpecCode == "" || order.Quantity <= 0 {
+	if s.sku == nil || order.Quantity <= 0 {
+		return
+	}
+	releaseStock := context.WithoutCancel(ctx)
+	// 无 SKU 的上游转售商品：库存挂在商品行上，关单同样要回补，
+	// 否则每取消一单就永久吃掉一份库存（越卖越少）。
+	if order.SpecCode == "" {
+		_, _ = s.sku.IncrementProductStock(releaseStock, order.ProductID, order.Quantity)
 		return
 	}
 	specs, err := s.sku.ListSpecs(ctx, order.ProductID)
 	if err != nil {
+		// 读 SKU 失败无法定位是哪一个 SKU 占的库存。这里**不能**退回商品级回补：
+		// 下单时挂了 SKU 的商品只扣了 SKU 库存（商品级未扣），再回补商品级会凭空多出库存。
 		return
 	}
 	for i := range specs {
 		if specs[i].SpecCode == order.SpecCode {
 			// 独立 context：请求已可能被取消，库存回补仍要落库。
-			_, _ = s.sku.IncrementSpecStock(context.WithoutCancel(ctx), specs[i].ID, order.Quantity)
+			_, _ = s.sku.IncrementSpecStock(releaseStock, specs[i].ID, order.Quantity)
 			return
 		}
 	}

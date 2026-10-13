@@ -165,10 +165,11 @@
                   <span v-if="opt.unit" class="configure-order__qty-unit">{{ opt.unit }}</span>
                 </div>
 
-                <!-- 文本：主机名等自由填写项；主机名已随机预填，可改可换 -->
+                <!-- 文本：主机名/登录密码等自由填写项；密码用遮蔽输入 -->
                 <div v-else-if="opt.widget === 'text'" class="configure-order__text">
                   <t-input
                     :model-value="selection[opt.option_key] || ''"
+                    :type="isSecretOption(opt) ? 'password' : 'text'"
                     :placeholder="placeholder(opt)"
                     clearable
                     @change="(v: string) => setSelectionValue(opt, v)"
@@ -574,6 +575,11 @@ function applyDefaultSelection() {
     if (preferred) next[opt.option_key] = preferred.value
   }
   selection.value = next
+}
+
+/** 是否为敏感项（密码类）：渲染成遮蔽输入框（客服代下单时也不该明文示人）。 */
+function isSecretOption(opt: AdminOrderConfigOption): boolean {
+  return opt.option_key === 'root_password' || opt.option_key === 'password'
 }
 
 function setSelection(opt: AdminOrderConfigOption, value: SelectValue) {

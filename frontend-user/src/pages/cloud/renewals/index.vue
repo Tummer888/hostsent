@@ -22,6 +22,14 @@
       <div class="section-head">
         <span class="section-title">我的实例</span>
         <span class="section-sub">共 {{ instances.length }} 个实例</span>
+        <!--
+          账户余额：续费是余额扣款，用户在决定续几个周期前必须知道能不能付得起。
+          此前这页只有续费单价与合计，余额要另开费用中心看（用户实测反馈"余额显示为零"）。
+        -->
+        <span class="balance-chip" :class="{ 'balance-chip--low': balanceInsufficient }">
+          账户余额 ¥{{ formatAmount(balance) }}
+          <router-link v-if="balanceInsufficient" class="balance-chip__link" to="/billing/balance">去充值</router-link>
+        </span>
       </div>
       <t-loading :loading="loading" show-overlay>
         <div v-if="instances.length" class="instance-grid">
@@ -54,7 +62,30 @@
               </div>
             </div>
             <div class="instance-card__actions">
-              <t-input-number v-model="periodMap[item.id]" :min="1" :max="36" theme="column" size="small" style="width: 110px" />
+              <div class="renew-amount">
+                <div class="renew-amount__row">
+                  <t-input-number v-model="periodMap[item.id]" :min="1" :max="36" theme="column" size="small" style="width: 110px" />
+                  <span class="renew-amount__unit">个周期</span>
+                  <!-- 常用档位一键选：1 个周期要按 8 次加号才能调到年付 -->
+                  <t-button
+                    v-for="n in periodPresets"
+                    :key="n"
+                    size="small"
+                    variant="outline"
+                    :theme="periodMap[item.id] === n ? 'primary' : 'default'"
+                    @click="periodMap[item.id] = n"
+                  >
+                    ×{{ n }}
+                  </t-button>
+                </div>
+                <!-- 实时合计：只填期数看不到总价，用户要到确认弹窗才知道扣多少 -->
+                <div class="renew-amount__total">
+                  应付 <b>¥{{ formatAmount(renewTotal(item)) }}</b>
+                  <span class="renew-amount__sub">（单价 ¥{{ formatAmount(item.unit_price) }} × {{ periodMap[item.id] || 1 }}）</span>
+                  <!-- 余额不足提前告知：等点了"立即续费"再报错，用户白填一遍 -->
+                  <span v-if="renewTotal(item) > balance" class="renew-amount__warn">余额不足，差额 ¥{{ formatAmount(renewTotal(item) - balance) }}</span>
+                </div>
+              </div>
               <t-button theme="primary" size="small" :loading="renewingId === item.id" @click="handleRenew(item)">
                 立即续费
               </t-button>
@@ -153,6 +184,7 @@ import {
   type RenewalInfo,
   type UserInstanceRenewalItem,
 } from '@/api/lifecycle'
+import { getBalance } from '@/api/finance'
 
 defineOptions({ name: 'UserRenewals' })
 
@@ -160,6 +192,17 @@ const loading = ref(false)
 const instances = ref<UserInstanceRenewalItem[]>([])
 const policy = reactive<Partial<LifecyclePolicySummary>>({ remind_days: '7,3,1', grace_days: 7 })
 const periodMap = reactive<Record<number, number>>({})
+
+// 账户余额：续费走余额扣款，页面必须让用户在下单前看到能不能付得起。
+const balance = ref(0)
+
+/** 常用续费期数档位（月付 12 期 = 一年，这是最常点的两个数）。 */
+const periodPresets = [1, 3, 6, 12]
+
+/** 任一实例当前选中的期数算出的应付额超过余额（页头据此提示充值）。 */
+const balanceInsufficient = computed(() =>
+  instances.value.some((item) => (item.unit_price || 0) * (periodMap[item.id] || 1) > balance.value),
+)
 
 const stageMap: Record<string, { label: string; theme: string }> = {
   active: { label: '运行中', theme: 'success' },
@@ -191,9 +234,10 @@ const statusMap: Record<string, { label: string; theme: string }> = {
 }
 
 const sourceMap: Record<string, string> = {
-  manual: '用户手动',
+  manual: '手动续费',
   auto: '自动续费',
-  admin: '管理员代续',
+  // 客服代续对客户就是"已续费"，不需要让客户知道是后台谁点的。
+  admin: '已续费',
 }
 
 function stageLabel(s: string): string {
@@ -245,12 +289,18 @@ function daysLeftClass(days: number): string {
 async function loadView() {
   loading.value = true
   try {
-    const { data } = await getRenewalsView()
+    // 余额与实例列表并行取：任一失败都不该拖垮另一个（余额失败显示 0 但不报错打断）。
+    const [view, wallet] = await Promise.allSettled([getRenewalsView(), getBalance()])
+    if (view.status === 'rejected') {
+      throw view.reason as Error
+    }
+    const data = view.value.data
     instances.value = data?.items || []
     Object.assign(policy, data?.policy || {})
     instances.value.forEach((item) => {
       if (!periodMap[item.id]) periodMap[item.id] = item.auto_period || 1
     })
+    balance.value = wallet.status === 'fulfilled' ? Number(wallet.value.data?.balance || 0) : 0
   } catch (e) {
     MessagePlugin.error((e as Error).message || '加载续费管理数据失败')
   } finally {
@@ -261,13 +311,25 @@ async function loadView() {
 // —— 续费操作 ——
 const renewingId = ref(0)
 
+// renewTotal 按当前选中的期数算应付合计（与确认弹窗、后端计费用同一算式：
+// 单价 × 期数；单价已由后端按"绑定价优先、否则商品该周期档"给出）。
+function renewTotal(item: UserInstanceRenewalItem): number {
+  return (item.unit_price || 0) * (periodMap[item.id] || 1)
+}
+
 function handleRenew(item: UserInstanceRenewalItem) {
   const periods = periodMap[item.id] || 1
-  const total = (item.unit_price || 0) * periods
+  const total = renewTotal(item)
+  // 余额不足时先说清楚差额：后端会以"余额不足"整单失败，用户需要知道差多少才好充值。
+  const insufficient = total > balance.value
+  const body = insufficient
+    ? `确认为实例 ${item.instance_mark} 续费 ${periods} 个周期？应付 ¥${formatAmount(total)}，当前余额 ¥${formatAmount(balance.value)}，`
+      + `还差 ¥${formatAmount(total - balance.value)}。余额不足会导致续费失败，请先充值或减少续费周期。`
+    : `确认为实例 ${item.instance_mark} 续费 ${periods} 个周期？将立即从账户余额扣除 ¥${formatAmount(total)}（续费后余额 ¥${formatAmount(balance.value - total)}）。`
   const dialog = DialogPlugin.confirm({
     header: '确认续费',
-    body: `确认为实例 ${item.instance_mark} 续费 ${periods} 个周期？将立即从账户余额扣除 ¥${formatAmount(total)}。`,
-    confirmBtn: { content: '确认续费', theme: 'primary' },
+    body,
+    confirmBtn: { content: insufficient ? '仍要尝试' : '确认续费', theme: 'primary' },
     onConfirm: async () => {
       renewingId.value = item.id
       try {
@@ -433,6 +495,31 @@ onMounted(loadAll)
   justify-content: space-between;
   margin-bottom: 16px;
 }
+/* 余额条：紧挨实例列表，续费前一眼看到够不够付 */
+.balance-chip {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+}
+.balance-chip--low {
+  background: #fef3c7;
+  color: #92400e;
+}
+.balance-chip__link {
+  color: var(--td-brand-color, #0052d9);
+  font-weight: 600;
+  text-decoration: none;
+}
+.balance-chip__link:hover {
+  text-decoration: underline;
+}
 .section-title {
   font-size: 16px;
   font-weight: 700;
@@ -513,6 +600,43 @@ onMounted(loadAll)
   border-top: 1px dashed #eef1f6;
   padding-top: 12px;
 }
+/* 期数 + 实时合计：把"扣多少钱"提前到按钮旁边，用户不必进确认弹窗才知道总额 */
+.renew-amount {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.renew-amount__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.renew-amount__unit {
+  font-size: 13px;
+  color: #64748b;
+}
+.renew-amount__total {
+  font-size: 13px;
+  color: #1e293b;
+}
+.renew-amount__total b {
+  color: var(--td-brand-color, #0052d9);
+  font-size: 15px;
+}
+.renew-amount__sub {
+  margin-left: 4px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+/* 余额不足提示：在按钮旁边就把差额说清楚，用户不必点了才知道付不起 */
+.renew-amount__warn {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #dc2626;
+}
+
 .amount-text {
   font-weight: 700;
   color: #1e293b;

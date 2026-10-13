@@ -191,7 +191,7 @@ function payAmount(row: OrderInfo): number {
  *  group 保留是为了历史订单——doc108 之前用户组价格策略产生的订单仍写着 group。 */
 function sourceLabel(source: string): string {
   const map: Record<string, string> = {
-    agent: '代理折扣',
+    agent: '优惠',
     group: '用户组折扣',
     promotion: '促销优惠',
     manual: '人工改价',

@@ -346,7 +346,7 @@
           <t-select v-model="billPayForm.channel_code" placeholder="选择支付方式" :options="billPayChannelOptions" />
         </t-form-item>
       </t-form>
-      <p class="dialog-tip">支付单将由平台收银台创建；线下人工方式会返回转账指引，需后台确认到账。</p>
+      <p class="dialog-tip">在线支付即时到账；选择线下转账的，我们会提供转账指引，到账确认后即刻充值。</p>
     </t-dialog>
 
     <!-- 申请开票（doc36 §3.3） -->

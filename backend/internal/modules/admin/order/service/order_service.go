@@ -41,6 +41,10 @@ type OrderService interface {
 	SetProvisionTaskReader(fn func(ctx context.Context, orderIDs []uint64) (map[uint64]*model.ProvisionTask, error))
 	// SetPendingInstanceReleaser 注入「订单作废即删占位实例」钩子（装配层调用）。
 	SetPendingInstanceReleaser(fn func(ctx context.Context, orderID uint64) (int64, error))
+	// SetStockReleaser 注入「订单作废即回补库存」钩子（装配层调用）。
+	// 代下单同样占用库存（SKU 或商品级），取消/关单必须回补，否则每取消一单就永久少一份库存。
+	// 传整单而不是 orderID：回补要读 SpecCode/Quantity/ProductID，只有 ID 还得再查一次。
+	SetStockReleaser(fn func(ctx context.Context, order *model.Order) error)
 	// SetLogger 注入日志器（装配层调用）。
 	SetLogger(l *zap.Logger)
 	// SetProductSourceModeResolver 注入商品链路判据解析（装配层调用，仅用于任务留痕）。
@@ -122,6 +126,9 @@ type orderService struct {
 	// pendingInstanceReleaser 可选：删除订单的「待开通」占位实例（后台取消待支付订单时）。
 	// 为 nil 时跳过（不影响取消主流程）。
 	pendingInstanceReleaser func(ctx context.Context, orderID uint64) (int64, error)
+	// stockReleaser 可选：订单作废时回补占用的库存（SKU 或商品级）。
+	// 为 nil 时跳过（不影响取消主流程）。
+	stockReleaser func(ctx context.Context, order *model.Order) error
 	// logger 可选日志。
 	logger *zap.Logger
 }
@@ -129,6 +136,11 @@ type orderService struct {
 // SetPendingInstanceReleaser 注入「订单作废即删占位实例」钩子（装配层调用）。
 func (s *orderService) SetPendingInstanceReleaser(fn func(ctx context.Context, orderID uint64) (int64, error)) {
 	s.pendingInstanceReleaser = fn
+}
+
+// SetStockReleaser 注入「订单作废即回补库存」钩子（装配层调用）。
+func (s *orderService) SetStockReleaser(fn func(ctx context.Context, order *model.Order) error) {
+	s.stockReleaser = fn
 }
 
 // SetProvisionTaskReader 注入开通任务批量读取（装配层调用，避免订单服务依赖任务仓储）。
@@ -369,6 +381,14 @@ func (s *orderService) Cancel(ctx context.Context, id uint64, operatorID uint64,
 	if s.pendingInstanceReleaser != nil {
 		if _, rerr := s.pendingInstanceReleaser(ctx, item.ID); rerr != nil && s.logger != nil {
 			s.logger.Warn("release pending instance after cancel failed",
+				zap.Uint64("order_id", item.ID), zap.Error(rerr))
+		}
+	}
+	// 回补库存：代下单同样占用了库存（SKU 或商品级），不回补会越卖越少。
+	// 失败只记日志：订单已作废是主结果，库存准确性由运维按订单核对。
+	if s.stockReleaser != nil {
+		if rerr := s.stockReleaser(context.WithoutCancel(ctx), item); rerr != nil && s.logger != nil {
+			s.logger.Warn("release stock after cancel failed",
 				zap.Uint64("order_id", item.ID), zap.Error(rerr))
 		}
 	}

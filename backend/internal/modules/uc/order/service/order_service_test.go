@@ -19,6 +19,8 @@ type fakeSkuPort struct {
 	specs []catalogdto.ProductSpecInfo
 	// incremented 记录回补库存的 specID（取消/关单时应命中一次）。
 	incremented []uint64
+	// productIncremented 记录回补商品级库存的商品 ID（无 SKU 商品关单时应命中一次）。
+	productIncremented []uint64
 }
 
 func (f *fakeSkuPort) ListSpecs(context.Context, uint64) ([]catalogdto.ProductSpecInfo, error) {
@@ -29,6 +31,13 @@ func (f *fakeSkuPort) DecrementSpecStock(context.Context, uint64, int) (int64, e
 }
 func (f *fakeSkuPort) IncrementSpecStock(_ context.Context, specID uint64, _ int) (int64, error) {
 	f.incremented = append(f.incremented, specID)
+	return 1, nil
+}
+func (f *fakeSkuPort) DecrementProductStock(context.Context, uint64, int) (int64, error) {
+	return 1, nil
+}
+func (f *fakeSkuPort) IncrementProductStock(_ context.Context, productID uint64, _ int) (int64, error) {
+	f.productIncremented = append(f.productIncremented, productID)
 	return 1, nil
 }
 
@@ -312,6 +321,31 @@ func TestCancelReleasesHoldings(t *testing.T) {
 	}
 	if info.Status != ordermodel.OrderStatusCancelled {
 		t.Fatalf("取消后状态应为 cancelled，got %s", info.Status)
+	}
+}
+
+// TestCancelReleasesProductStockWithoutSku 无 SKU 商品（上游转售）取消时回补商品级库存。
+//
+// 背景：上游限量商品的库存挂在商品行上（没有 SKU），此前释放逻辑只处理 SKU，
+// 取消一单就永久吃掉一份库存（越卖越少）。
+func TestCancelReleasesProductStockWithoutSku(t *testing.T) {
+	order := &ordermodel.Order{
+		ID: 12, OrderNo: "UC9012", UserID: 2, ProductID: 186, ProductName: "西安电信|一区·标准",
+		Status: ordermodel.OrderStatusPending, SpecCode: "", Quantity: 1, FinalAmount: 68,
+	}
+	repo := &fakeOrderRepo{order: order}
+	closer := &fakeCloser{}
+	sku := &fakeSkuPort{}
+	svc := &orderService{orderRepo: repo, pendingPayments: closer, sku: sku}
+
+	if _, err := svc.Cancel(context.Background(), 2, 12); err != nil {
+		t.Fatalf("待支付订单应可取消: %v", err)
+	}
+	if len(sku.incremented) != 0 {
+		t.Fatalf("无 SKU 商品不应回补 SKU 库存，got %v", sku.incremented)
+	}
+	if len(sku.productIncremented) != 1 || sku.productIncremented[0] != 186 {
+		t.Fatalf("应回补商品级库存，got %v", sku.productIncremented)
 	}
 }
 

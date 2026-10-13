@@ -61,41 +61,47 @@ export interface ProductInfo {
   price: number
   price_model: string
   specs: string
-  /** self 自营 / upstream 上游转售 */
-  source_mode: string
-  config_options: string
+  // 说明：服务端刻意不下发 source_mode（自营/转售）与 config_options（平台原始参数）。
+  // 两者都是内部供货与对接口径，客户只需知道能买什么、多少钱。
   featured: boolean
   created_at: string
   /** 商品级可售周期；空数组表示未维护周期价格矩阵 */
   cycles: string[]
   /** 商品下挂的规格；空数组表示未拆 SKU，按商品级价格下单 */
   skus: SkuInfo[]
+  /**
+   * 商品级可售库存：-1=不限量，>=0=剩余可售数量。
+   * 上游限量商品没有 SKU，库存挂在商品上；为 0 时应展示「已售罄」并禁用购买
+   * （服务端下单同样会拦，避免超卖上游限量商品）。
+   */
+  stock: number
   /** 客户可选配置项（自营）：档位之外可自选的参数，选中加价并入结算金额 */
   option_groups: ProductOptionGroup[]
   /**
-   * 对接链路信息（source_mode=upstream 时有值）：配置箱据此把上游固定配置展示为只读，
-   * 并提示是否可续费与开通选项（主机名 / 随机密码 / 端口）。
+   * 商品的固定配置信息（整机锁定项 / 是否可续费 / 开通说明）。
+   * 字段名沿用 upstream_chain 属历史命名：它是"整机固定配置"的载体内，
+   * 界面上一律呈现为「固定配置」，不出现供货渠道字样。
    */
-  upstream_chain?: UpstreamChain | null
+  upstream_chain?: FixedConfigChain | null
 }
 
-/** 对接商品的客户可见链路信息（不含上游价格、渠道等内部口径） */
-export interface UpstreamChain {
-  /** 是否整机固定配置（上游全部配置项都只有一个取值） */
+/** 商品的固定配置信息（不含供应商名称、上游商品号、成本与代理价） */
+export interface FixedConfigChain {
+  /** 是否整机固定配置（全部配置项都只有一个取值） */
   fixed_config: boolean
   /** 是否可续费；false 时不要展示续费入口 */
   renewable: boolean
   renew_note: string
-  options: UpstreamChainOption[]
-  /** 下单说明（主机名可自定义 / 密码随机 / 端口由上游分配） */
+  options: FixedConfigOption[]
+  /** 开通说明（主机名可自定义 / 密码可指定 / 端口由系统分配） */
   order_notes?: string[]
 }
 
-export interface UpstreamChainOption {
+export interface FixedConfigOption {
   key: string
   /** 中文名（CPU / 内存 / 操作系统…） */
   name: string
-  /** true=上游固定配置，本地不可改 */
+  /** true=固定配置，本地不可改 */
   locked: boolean
   /** 锁定时的唯一取值 */
   value: string
@@ -126,8 +132,13 @@ export interface OrderInfo {
   spec_code: string
   quantity: number
   cycle: string
-  /** 客户选配项快照（平台参数名/上游选项 id → 取值）；无选配时为空对象 */
+  /**
+   * 客户选配项快照（平台参数名/上游选项 id → 取值）；无选配时为空对象。
+   * 注意：对接商品的键值是上游 id，**不要直接展示**，展示用 config_selection_labels。
+   */
   config_selections?: Record<string, string>
+  /** 选配项可读标签（如「网络类型：VPC网络」），由服务端翻译；展示只用这个 */
+  config_selection_labels?: string[]
   /** 选配项加价小计（元） */
   option_amount?: number
   /** 支付时间（RFC3339，未支付为空串）；列表不保证填充，详情页展示 */

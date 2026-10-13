@@ -262,18 +262,17 @@ const specText = computed(() => {
 })
 
 /**
- * 选配项：订单落库的 config_selections（平台参数名/上游选项 id → 取值）。
+ * 选配项展示：只用服务端下发的可读标签（config_selection_labels）。
  *
- * 键可能是上游选项 id（对接商品按上游 cart 口径下发），单看数字读不出含义，
- * 因此原样列出键值；对接商品的可读配置名在商品详情的「固定配置」里可见。
+ * 为什么不回退到 config_selections：那份快照的键值是上游选项/取值 id
+ * （如 {"163744":"565652"}），直接展示等于把对接口径摊给客户。
+ * 服务端已按商品目录翻译成「网络类型：VPC网络」；翻译不到就整行不显示 ——
+ * 空缺比露出一串内部编号好。
  */
 const selectionText = computed(() => {
-  const selections = order.value?.config_selections
-  if (!selections || typeof selections !== 'object') return ''
-  const parts = Object.entries(selections)
-    .filter(([, v]) => v !== null && v !== '' && v !== undefined)
-    .map(([k, v]) => `${k}: ${v}`)
-  return parts.join(' / ')
+  const labels = order.value?.config_selection_labels
+  if (!Array.isArray(labels) || !labels.length) return ''
+  return labels.join(' / ')
 })
 
 interface PriceRule {
@@ -304,7 +303,7 @@ function ruleLabel(r: PriceRule): string {
 // agent=代理等级折扣；group 是 doc108 之前的用户组策略折扣，历史订单仍在用。
 function sourceLabel(source: string): string {
   const map: Record<string, string> = {
-    agent: '代理折扣',
+    agent: '优惠',
     group: '用户组折扣',
     promotion: '促销优惠',
     manual: '人工改价',

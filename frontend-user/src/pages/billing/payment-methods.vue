@@ -55,7 +55,7 @@
         </template>
         <template #mode="{ row }">
           <t-tag :theme="row.mode === 'api' ? 'primary' : 'warning'" variant="light" size="small" shape="round">
-            {{ row.mode === 'api' ? '接口自动' : '线下人工' }}
+            {{ row.mode === 'api' ? '自动到账' : '人工处理' }}
           </t-tag>
         </template>
         <template #limits="{ row }">
@@ -344,7 +344,7 @@ function channelText(value: string): string {
 }
 
 function payoutModeText(value: string): string {
-  return { api: '接口打款', manual: '人工打款' }[value] || '按平台默认'
+  return { api: '自动打款', manual: '人工打款' }[value] || '默认'
 }
 
 function withdrawStatusText(status: string): string {
@@ -514,7 +514,7 @@ const withdrawForm = reactive<{ amount: number | undefined; account_id: number |
 
 const payoutModeOptions = [
   { label: '人工打款', value: 'manual' },
-  { label: '接口自动打款', value: 'api' },
+  { label: '自动打款（即时到账）', value: 'api' },
 ]
 
 const accountSelectOptions = computed(() =>

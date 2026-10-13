@@ -59,7 +59,7 @@
               </h3>
               <p v-if="descriptionText" class="config-card__desc">{{ descriptionText }}</p>
               <div class="config-card__tags">
-                <t-tag size="small" variant="light">{{ sourceModeLabel(product.source_mode) }}</t-tag>
+                <!-- 不显示供货渠道（自营/转售），属内部信息，见 shop/index.vue 同处说明。 -->
                 <t-tag v-if="product.skus.length" size="small" variant="light" theme="primary">
                   {{ product.skus.length }} 种规格
                 </t-tag>
@@ -69,11 +69,11 @@
         </article>
 
         <article v-if="product" class="surface-card config-card">
-          <!-- 对接商品：上游固定配置只读展示（上游已定规格，改也开不出来） -->
+          <!-- 固定配置：整机锁定项只读展示（这些配置平台侧定死，改也开不出来） -->
           <div v-if="lockedUpstreamOptions.length" class="config-field">
             <span class="config-label">
               固定配置
-              <em class="config-label__hint">上游已定规格，不可修改</em>
+              <em class="config-label__hint">平台已定规格，不可修改</em>
             </span>
             <div class="config-fixed">
               <span v-for="opt in lockedUpstreamOptions" :key="opt.key" class="config-fixed__item">
@@ -205,10 +205,11 @@
                   <span v-if="opt.unit" class="config-option__qty-unit">{{ opt.unit }}</span>
                 </div>
 
-                <!-- 文本：主机名等自由填写项；主机名已随机预填，可改可换 -->
+                <!-- 文本：主机名/登录密码等自由填写项；密码用遮蔽输入，避免明文示人 -->
                 <div v-else-if="optionWidget(opt) === 'text'" class="config-option__text">
                   <t-input
                     :model-value="selection[opt.option_key] || ''"
+                    :type="isSecretOption(opt) ? 'password' : 'text'"
                     :placeholder="optionPlaceholder(opt)"
                     clearable
                     @change="(v: string) => setSelectionValue(opt, v)"
@@ -229,6 +230,10 @@
 
             <p v-if="missingRequired.length" class="config-warn">
               请选择：{{ missingRequired.map((o) => o.name).join('、') }}
+            </p>
+            <!-- 商品级售罄（无 SKU 的上游限量商品）：与 SKU 售罄同一提示样式 -->
+            <p v-if="!selectedSku && product?.stock === 0" class="config-warn">
+              该商品已售罄，暂时无法购买
             </p>
           </div>
 
@@ -546,6 +551,14 @@ function applyDefaultSelection() {
   selection.value = next
 }
 
+/**
+ * 是否为敏感项（密码类）：渲染成遮蔽输入框。
+ * 密码明文显示在屏幕上（并可能被旁人/录屏看到），对客户没有任何好处。
+ */
+function isSecretOption(opt: ProductOption): boolean {
+  return opt.option_key === 'root_password' || opt.option_key === 'password'
+}
+
 /** 未选中的必选项（数量型有默认值，不会缺）。 */
 const missingRequired = computed<ProductOption[]>(() =>
   allOptions.value.filter((opt) => {
@@ -618,7 +631,15 @@ const renewNote = computed(() => {
 /** 开通说明：主机名可自定义 / 密码随机生成 / 端口由上游分配。 */
 const upstreamOrderNotes = computed(() => product.value?.upstream_chain?.order_notes ?? [])
 
-const soldOut = computed(() => selectedSku.value?.stock === 0)
+/**
+ * 售罄判定：商品挂了 SKU 时看所选 SKU，没挂 SKU（上游转售商品）时看商品级库存。
+ * 上游限量商品的余量在商品行上（stock=0 即售罄），此前这里只看 SKU，
+ * 导致上游售罄的商品前台仍可下单（后端会拦，但用户是先扣款入口前才看到报错）。
+ */
+const soldOut = computed(() => {
+  if (selectedSku.value) return selectedSku.value.stock === 0
+  return product.value?.stock === 0
+})
 
 const canSubmit = computed(
   () => !!product.value && !!quote.value && !soldOut.value && missingRequired.value.length === 0,
@@ -738,14 +759,10 @@ function cycleLabel(c: string): string {
   return map[c] || c
 }
 
-function sourceModeLabel(m: string): string {
-  return m === 'upstream' ? '上游直供' : '自营'
-}
-
 /** 折扣来源中文标签（agent=代理等级折扣，是当前唯一折扣来源）。 */
 function sourceLabel(source: string): string {
   const map: Record<string, string> = {
-    agent: '代理折扣',
+    agent: '优惠',
     group: '用户组折扣',
     promotion: '促销优惠',
     manual: '人工改价',

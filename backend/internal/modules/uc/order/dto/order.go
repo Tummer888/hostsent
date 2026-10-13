@@ -72,7 +72,13 @@ type OrderInfo struct {
 	Quantity int    `json:"quantity"`
 	Cycle    string `json:"cycle"`
 	// ConfigSelections 下单时选定的客户选配项（T4.5），详情页展示与售后核对用。
+	// 注意：键在对接商品上是**上游选项 id**（如 "163744"），值也是上游取值 id，
+	// 属于对接口径。前端不要直接展示，用下面的 ConfigSelectionLabels。
 	ConfigSelections map[string]string `json:"config_selections,omitempty"`
+	// ConfigSelectionLabels 选配项的可读展示名（键值同序，如 ["网络类型：VPC网络","操作系统：CentOS 7.9"]）。
+	// 由商品目录把上游 id 翻译成客户看得懂的名称；翻译不到的项不出现在这里
+	// （宁可不显示，也不把 "163744: 565652" 这种内部编号摊给客户）。
+	ConfigSelectionLabels []string `json:"config_selection_labels,omitempty"`
 	// OptionAmount 选配项加价小计（T4.5），用于把「档位价 + 选配」拆开展示。
 	OptionAmount float64 `json:"option_amount,omitempty"`
 	// PayTime 支付时间（RFC3339，未支付为空串）；列表不保证填充，详情页用于展示。

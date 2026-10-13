@@ -147,7 +147,7 @@
       @confirm="handleRecharge"
       @close="rechargeVisible = false"
     >
-      <t-alert theme="info" message="提交后进入支付中心收银台，按所选渠道完成支付后可即时到账；线下方式需后台确认。" style="margin-bottom: 16px" />
+      <t-alert theme="info" message="按所选方式完成支付后可即时到账；选择线下转账的，到账确认后即刻充值。" style="margin-bottom: 16px" />
       <t-form label-align="top" :data="rechargeForm" @submit.prevent>
         <t-form-item label="充值金额（元）" name="amount">
           <t-input-number v-model="rechargeForm.amount" :min="1" :precision="2" theme="column" placeholder="请输入充值金额" />

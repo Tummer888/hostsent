@@ -144,22 +144,44 @@ func (a *asm) buildOrder() {
 			if price <= 0 {
 				return nil, errors.New("算价结果无效，请检查商品定价")
 			}
-			// 库存扣减（有限库存的 SKU）：下单失败原路回补，避免丢库存。
+			// 库存扣减：下单失败原路回补，避免丢库存。
+			//
+			// 与用户自助下单同口径：挂了 SKU 的商品扣 SKU 库存；**没挂 SKU 的商品
+			// （上游转售）扣商品级库存** —— 此前代下单只处理 spec != nil 的分支，
+			// 上游限量商品被客服无限代下单（实测：库存 0 仍能开出订单）。
 			stockDeducted := false
-			if spec != nil && spec.Stock >= 0 {
-				affected, derr := a.prodCatalogService.DecrementSpecStock(ctx, spec.ID, qty)
+			productStockDeducted := false
+			if spec != nil {
+				if spec.Stock >= 0 {
+					affected, derr := a.prodCatalogService.DecrementSpecStock(ctx, spec.ID, qty)
+					if derr != nil {
+						return nil, derr
+					}
+					if affected == 0 {
+						return nil, errors.New("所选规格库存不足")
+					}
+					stockDeducted = true
+				}
+			} else {
+				affected, derr := a.prodCatalogService.DecrementProductStock(ctx, product.ID, qty)
 				if derr != nil {
 					return nil, derr
 				}
 				if affected == 0 {
-					return nil, errors.New("所选规格库存不足")
+					return nil, errors.New("该商品库存不足，已售罄")
 				}
-				stockDeducted = true
+				productStockDeducted = true
 			}
 			orderSucceeded := false
 			defer func() {
-				if stockDeducted && !orderSucceeded {
+				if orderSucceeded {
+					return
+				}
+				if stockDeducted {
 					_, _ = a.prodCatalogService.IncrementSpecStock(context.WithoutCancel(ctx), spec.ID, qty)
+				}
+				if productStockDeducted {
+					_, _ = a.prodCatalogService.IncrementProductStock(context.WithoutCancel(ctx), product.ID, qty)
 				}
 			}()
 
@@ -303,9 +325,14 @@ func (a *asm) buildOrder() {
 	// 开通成功时由 RecordInstance 把占位行就地转正；订单未支付作废时删除占位。
 	// 建/删失败只记日志：不阻断下单与关单主流程。
 	a.ucOrderService.SetLogger(a.logger)
+	// 订单选配项可读名：复用商品目录的客户可选项（与购买页同源），
+	// 把订单里落的上游选项/取值 id 翻译成「网络类型：VPC网络」再返回给客户。
+	a.ucOrderService.SetOptionLabelResolver(a.prodCatalogService)
 	a.ucOrderService.SetInstancePlaceholder(a.instancePlaceholderHook())
 	a.ucOrderService.SetPendingInstanceReleaser(a.buildInstancePlaceholderReleaser())
 	a.orderService.SetPendingInstanceReleaser(a.buildInstancePlaceholderReleaser())
+	// 后台取消待支付订单时回补库存（与用户侧 releasePendingHoldings 同口径）。
+	a.orderService.SetStockReleaser(a.buildOrderStockReleaser())
 	a.ucOrderHandler = ucorderhandler.NewOrderHandler(a.ucOrderService)
 }
 
@@ -512,10 +539,37 @@ func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order
 	rawJSON, _ := json.Marshal(inst.RawData)
 	// 规格回落（T4.1）：上游详情拉取失败时适配器只返回最小实例（规格为空），
 	// 此时用订单规格快照（SKU 原子取值 JSON）补齐，保证实例列表能显示下单所选配置。
+	//
+	// 逐字段合并，而不是"整块规格全空才回落"（实测故障）：上游回源常常只给部分字段
+	// （zjmf 的 host/header 有 CPU/内存/磁盘，但**不一定有操作系统**），
+	// 用"全空"当判据会让 OS 一直取不到值、最终显示成订单快照里的商品默认镜像
+	// （客户选 Debian 开通、本地显示 CentOS）。空字段补、非空字段以**上游为准**：
+	// 上游是这台机器真实落成的配置，订单快照只是下单时的意图。
 	specs := inst.Specs
-	if specs.CPU == 0 && specs.Memory == 0 && specs.Disk == 0 {
-		if snapshot := specsFromOrder(order); snapshot != nil && (snapshot.CPU > 0 || snapshot.Memory > 0 || snapshot.Disk > 0) {
-			specs = *snapshot
+	if snapshot := specsFromOrder(order); snapshot != nil {
+		if specs.CPU == 0 {
+			specs.CPU = snapshot.CPU
+		}
+		if specs.Memory == 0 {
+			specs.Memory = snapshot.Memory
+		}
+		if specs.Disk == 0 {
+			specs.Disk = snapshot.Disk
+		}
+		if specs.DiskType == "" {
+			specs.DiskType = snapshot.DiskType
+		}
+		if specs.Bandwidth == 0 {
+			specs.Bandwidth = snapshot.Bandwidth
+		}
+		if specs.OS == "" {
+			specs.OS = snapshot.OS
+		}
+		if specs.Region == "" {
+			specs.Region = snapshot.Region
+		}
+		if specs.Zone == "" {
+			specs.Zone = snapshot.Zone
 		}
 	}
 	if sourceMode == "" {
