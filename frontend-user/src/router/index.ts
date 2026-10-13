@@ -59,6 +59,13 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '购买云主机', icon: 'cart', permission: 'order:create' },
       },
       {
+        // 配置选购页：下单唯一入口是购物车，本页选好配置后加入购物车。
+        path: 'shop/:id',
+        name: 'ShopConfig',
+        component: () => import('@/pages/shop/config.vue'),
+        meta: { title: '配置选购', hidden: true, permission: 'order:create' },
+      },
+      {
         path: 'cart',
         name: 'Cart',
         component: () => import('@/pages/cart/index.vue'),

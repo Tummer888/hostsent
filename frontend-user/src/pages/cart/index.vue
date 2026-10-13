@@ -36,7 +36,7 @@
           </div>
 
           <div class="cart-item__main">
-            <button class="cart-item__name" @click="router.push('/shop')">{{ it.productName }}</button>
+            <button class="cart-item__name" @click="editItem(it)">{{ it.productName }}</button>
             <div class="cart-item__meta">
               <t-tag size="small" variant="light">{{ it.specName || '默认规格' }}</t-tag>
               <t-tag v-if="it.cycle" size="small" variant="light" theme="primary">
@@ -69,6 +69,11 @@
           </div>
 
           <div class="cart-item__actions">
+            <!-- 改配置 = 回该商品的配置选购页重选（规格/周期/选配项都在那一页维护）。
+                 原行保留由用户自行删除，避免重选后与新行重复计费。 -->
+            <t-tooltip content="重新选择规格与配置">
+              <t-button variant="text" size="small" @click="editItem(it)">改配置</t-button>
+            </t-tooltip>
             <t-tooltip content="移出购物车">
               <t-button variant="text" theme="danger" size="small" @click="cartStore.remove(it.key)">
                 删除
@@ -230,6 +235,21 @@ async function refreshQuotes() {
   if (failed.length) {
     quoteError.value = `${failed.map((it) => it.productName).join('、')} 已下架或该规格/周期不再可售，请从购物车移除后再结算。`
   }
+}
+
+/**
+ * 改配置：回该商品的配置选购页并预填当前选择。
+ *
+ * 规格/周期/选配项的可选范围依赖商品详情（列表项不带这些数据），
+ * 所以只能回到选购页重选，而不是在购物车里就地编辑。
+ */
+function editItem(it: CartItem) {
+  const query: Record<string, string> = {}
+  if (it.specCode) query.spec = it.specCode
+  if (it.cycle) query.cycle = it.cycle
+  const picked = Object.entries(it.selections ?? {}).filter(([, v]) => v !== '')
+  if (picked.length) query.config = picked.map(([k, v]) => `${k}:${v}`).join(',')
+  router.push({ name: 'ShopConfig', params: { id: it.productId }, query })
 }
 
 function confirmClear() {
@@ -410,7 +430,7 @@ onMounted(refreshQuotes)
 
 .cart-item {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) 110px 120px 110px 72px;
+  grid-template-columns: 56px minmax(0, 1fr) 110px 120px 110px 108px;
   align-items: center;
   gap: var(--space-md);
   padding: 14px 0;
@@ -489,7 +509,10 @@ onMounted(refreshQuotes)
 }
 
 .cart-item__actions {
-  text-align: right;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
 }
 
 /* ============ 结算条 ============ */
