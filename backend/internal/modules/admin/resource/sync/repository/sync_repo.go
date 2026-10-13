@@ -213,16 +213,37 @@ func (r *syncRepository) FindInstanceByID(ctx context.Context, id uint64) (*mode
 	return &item, nil
 }
 
+// UpsertInstances 按 instance_id 幂等写入实例（同步发现与订单开通共用）。
+//
+// provider_instance_id 单独处理：只在本次值非空时才随 upsert 覆盖。
+// 该列是"实例是否已在上游开通"的判据（占位行为空），一旦被空串覆盖，
+// 已开通的实例会被当成待开通——详情页能力位全关、重新开通按钮出现、
+// 回源刷新直接跳过（实测：实例 1003 的 2049 在一个只读路径后被清空，
+// 此后订单 832 的推进日志一直是 "refresh skipped status: ”"）。
+// 同步/开通两条链路里"不知道上游实例号"的写入方不应有权抹掉已知的实例号。
 func (r *syncRepository) UpsertInstances(ctx context.Context, items []model.Instance) error {
 	if len(items) == 0 {
 		return nil
 	}
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "instance_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"status", "name", "public_ip", "private_ip", "cpu", "memory", "disk", "raw_data", "expire_at", "updated_at",
+		DoUpdates: clause.Assignments(map[string]any{
+			"status":     gorm.Expr("excluded.status"),
+			"name":       gorm.Expr("excluded.name"),
+			"public_ip":  gorm.Expr("excluded.public_ip"),
+			"private_ip": gorm.Expr("excluded.private_ip"),
+			"cpu":        gorm.Expr("excluded.cpu"),
+			"memory":     gorm.Expr("excluded.memory"),
+			"disk":       gorm.Expr("excluded.disk"),
+			"raw_data":   gorm.Expr("excluded.raw_data"),
+			"expire_at":  gorm.Expr("excluded.expire_at"),
+			"updated_at": gorm.Expr("excluded.updated_at"),
 			// 双链路语义列随同步刷新（T1.2）；sell_product_id 属自营链路，不被上游同步覆盖。
-			"source_mode", "upstream_product_id", "provider_instance_id",
+			"source_mode":         gorm.Expr("excluded.source_mode"),
+			"upstream_product_id": gorm.Expr("excluded.upstream_product_id"),
+			"provider_instance_id": gorm.Expr(
+				"CASE WHEN excluded.provider_instance_id <> '' THEN excluded.provider_instance_id ELSE instances.provider_instance_id END",
+			),
 		}),
 	}).Create(&items).Error
 }
@@ -295,15 +316,20 @@ func (r *syncRepository) DeletePendingInstanceByOrder(ctx context.Context, order
 	return res.RowsAffected, res.Error
 }
 
-// CountInstancesByProductUser 统计某用户已开通某商品（instances）的实例数，用于开通幂等判断。
+// CountInstancesByProductUser 统计某用户**已在上游开通**某商品的实例数，用于开通幂等判断。
 //
 // 匹配列是 sell_product_id（= products.id），与订单 orders.product_id 同一命名空间。
 // 注意：instances 的旧兼容列 product_id 已于迁移 035 退役，禁止再引用，否则查询直接报错，
 // 幂等护栏静默失效（订购重试会重复向上游下单）。
+//
+// 必须排除「待开通」占位行（provider_instance_id 为空）：占位行在下单时即创建、
+// 同样带 user_id 与 sell_product_id，把它算作"已开通"会让履约侧的
+// "已记录实例则直接激活"短路在机器还没开出来时就把订单置为服务中。
 func (r *syncRepository) CountInstancesByProductUser(ctx context.Context, userID, productID uint64) (int64, error) {
 	var count int64
 	err := r.db.WithContext(ctx).Model(&model.Instance{}).
 		Where("user_id = ? AND sell_product_id = ?", userID, productID).
+		Where("provider_instance_id <> ''").
 		Count(&count).Error
 	return count, err
 }

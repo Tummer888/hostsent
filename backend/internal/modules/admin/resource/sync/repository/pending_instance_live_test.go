@@ -121,3 +121,74 @@ func TestPendingInstanceLifecycle(t *testing.T) {
 		t.Fatalf("删除行数 = %d, want 1", deleted)
 	}
 }
+
+// TestUpsertInstancesKeepsProviderInstanceID upsert 不得用空值抹掉已知上游实例号。
+//
+// 实测回归：实例 1003（instance_id=2049）的 provider_instance_id 在一次
+// 同步/开通写入后变成空串，此后该实例被当成"待开通"——详情页能力位全关、
+// 出现"重新开通"按钮、回源刷新直接跳过（订单 832 的推进日志长期是
+// "refresh skipped status: ”"）。
+//
+// 该列是"是否已在上游开通"的唯一判据，只有知道真实实例号的写入方才有权改它。
+//
+//	go test -tags live ./internal/modules/admin/resource/sync/repository/
+func TestUpsertInstancesKeepsProviderInstanceID(t *testing.T) {
+	dsn := os.Getenv("LIVE_DB_DSN")
+	if dsn == "" {
+		dsn = "host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable"
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Skipf("无可用测试库：%v", err)
+	}
+	tx := db.Begin()
+	if tx.Error != nil {
+		t.Fatalf("开启事务失败: %v", tx.Error)
+	}
+	defer tx.Rollback()
+
+	ctx := context.Background()
+	repo := NewSyncRepository(tx)
+
+	const mark = "livetest-upsert-keep-9999203"
+	// 1) 已开通实例：provider_instance_id 已写入。
+	row := &syncmodel.Instance{
+		InstanceID: mark, ProviderID: 7, UserID: 2236, Name: "keep-id",
+		Status: "running", SourceMode: "upstream", SellProductID: 175,
+		ProviderInstanceID: "9999203",
+	}
+	if err := repo.UpsertInstances(ctx, []syncmodel.Instance{*row}); err != nil {
+		t.Fatalf("首次写入失败: %v", err)
+	}
+
+	// 2) 同一 instance_id 再 upsert，但本次没带上游实例号：不得清空既有值。
+	blank := *row
+	blank.ProviderInstanceID = ""
+	blank.Status = "creating"
+	if err := repo.UpsertInstances(ctx, []syncmodel.Instance{blank}); err != nil {
+		t.Fatalf("空实例号 upsert 失败: %v", err)
+	}
+	var got syncmodel.Instance
+	if err := tx.Where("instance_id = ?", mark).Take(&got).Error; err != nil {
+		t.Fatalf("回查失败: %v", err)
+	}
+	if got.ProviderInstanceID != "9999203" {
+		t.Fatalf("provider_instance_id 被空值覆盖为 %q，实例会退化成「待开通」", got.ProviderInstanceID)
+	}
+	if got.Status != "creating" {
+		t.Fatalf("其余列应正常被 upsert 更新：status=%q, want creating", got.Status)
+	}
+
+	// 3) 非空值仍可正常改写（如上游换绑实例号）。
+	rebind := blank
+	rebind.ProviderInstanceID = "9999213"
+	if err := repo.UpsertInstances(ctx, []syncmodel.Instance{rebind}); err != nil {
+		t.Fatalf("换绑 upsert 失败: %v", err)
+	}
+	if err := tx.Where("instance_id = ?", mark).Take(&got).Error; err != nil {
+		t.Fatalf("换绑后回查失败: %v", err)
+	}
+	if got.ProviderInstanceID != "9999213" {
+		t.Fatalf("非空实例号应被写入：got %q, want 9999213", got.ProviderInstanceID)
+	}
+}
