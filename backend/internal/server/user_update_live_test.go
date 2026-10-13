@@ -51,7 +51,7 @@ func TestLiveUserUpdatePartialAndConflict(t *testing.T) {
 	}
 	var gotUsername, gotRealName, gotPhone, gotRegion, gotEmail string
 	h.db.Raw("SELECT username, real_name, phone, region, email FROM users WHERE id = ?", idA).
-		Row().Scan(&gotUsername, &gotRealName, &gotPhone, &gotRegion, &gotEmail)
+		Row().Scan(&gotUsername, &gotRealName, &gotPhone, &gotRegion, &gotEmail) //nolint:errcheck // live 维护脚本：Scan 错误由后续字段断言暴露
 	if gotUsername != nameA {
 		t.Errorf("R1：只传 email 时 username 被改动：%q → %q", nameA, gotUsername)
 	}
@@ -70,7 +70,7 @@ func TestLiveUserUpdatePartialAndConflict(t *testing.T) {
 	if status != http.StatusOK || digNumber(body, "code") != 0 {
 		t.Fatalf("清空字段失败: HTTP %d %v", status, body)
 	}
-	h.db.Raw("SELECT phone, real_name FROM users WHERE id = ?", idA).Row().Scan(&gotPhone, &gotRealName)
+	h.db.Raw("SELECT phone, real_name FROM users WHERE id = ?", idA).Row().Scan(&gotPhone, &gotRealName) //nolint:errcheck // live 维护脚本：Scan 错误由后续字段断言暴露
 	if gotPhone != "" {
 		t.Errorf("R1：显式空串应清空 phone，实际 %q", gotPhone)
 	}
@@ -221,7 +221,7 @@ func TestLiveSecurityOperatorIdentity(t *testing.T) {
 	var storedBy uint64
 	var storedStatus string
 	h.db.Raw("SELECT COALESCE(revoked_by, 0), status FROM user_sessions WHERE id = ?", sessionRowID).
-		Row().Scan(&storedBy, &storedStatus)
+		Row().Scan(&storedBy, &storedStatus) //nolint:errcheck // live 维护脚本：Scan 错误由后续字段断言暴露
 	if storedBy != operatorAdminID {
 		t.Errorf("库中 revoked_by = %d，期望 %d", storedBy, operatorAdminID)
 	}
@@ -375,7 +375,7 @@ func TestLiveExpireStaleSessionsRewritesStatus(t *testing.T) {
 	}
 	var keptStatus, keptReason string
 	h.db.Raw("SELECT status, COALESCE(revoked_reason, '') FROM user_sessions WHERE session_id = ?", key).
-		Row().Scan(&keptStatus, &keptReason)
+		Row().Scan(&keptStatus, &keptReason) //nolint:errcheck // live 维护脚本：Scan 错误由后续字段断言暴露
 	if keptStatus != "revoked" || keptReason != "人工撤销" {
 		t.Errorf("revoked 行被回写覆盖: status=%q reason=%q，期望 revoked/人工撤销", keptStatus, keptReason)
 	}

@@ -338,30 +338,3 @@ func (r *instanceReader) cycleUnitPrice(ctx context.Context, inst *syncmodel.Ins
 	}
 	return row.Price
 }
-
-// resolveLegacyProduct 旧 product_id 语义的兜底解析：先按 source_product_id 找售出商品，
-// 再按主键找上游资源商品。仅为存量数据兼容，新数据不应走到这里。
-func (r *instanceReader) resolveLegacyProduct(ctx context.Context, productID uint64) (string, float64, error) {
-	if productID == 0 {
-		return "", 0, nil
-	}
-	var saleProd catalogmodel.Product
-	err := r.db.WithContext(ctx).
-		Where("source_product_id = ?", productID).
-		Order("id DESC").First(&saleProd).Error
-	if err == nil {
-		return saleProd.Name, saleProd.Price, nil
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return "", 0, err
-	}
-	var resourceProd productmodel.ResourceProduct
-	err = r.db.WithContext(ctx).First(&resourceProd, productID).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", 0, nil
-		}
-		return "", 0, err
-	}
-	return resourceProd.Name, resourceProd.SalePrice, nil
-}

@@ -61,7 +61,7 @@ func init() {
 	// 别名让构建与描述符查询在数据迁移跑完前也认旧码。
 	upstream.RegisterTypeAlias(LegacyProviderType, ProviderType)
 	upstream.GetProviderManager().RegisterFactory(ProviderType, func(cfg *upstream.ProviderConfig) upstream.Provider {
-		return NewDCIMCloudProvider(cfg)
+		return NewProvider(cfg)
 	})
 	// 能力描述符（T2.1）：字段级声明本平台能做什么，驱动后台能力矩阵与动态表单。
 	upstream.RegisterDescriptor(ProviderType, upstream.CapabilityDescriptor{
@@ -126,8 +126,8 @@ func init() {
 	})
 }
 
-// DCIMCloudProvider 魔方云适配器
-type DCIMCloudProvider struct {
+// Provider 魔方云适配器
+type Provider struct {
 	config *upstream.ProviderConfig
 	client *http.Client
 
@@ -136,35 +136,35 @@ type DCIMCloudProvider struct {
 	tokenUntil time.Time
 }
 
-// NewDCIMCloudProvider 按配置创建魔方云适配器实例
-func NewDCIMCloudProvider(config *upstream.ProviderConfig) *DCIMCloudProvider {
+// NewProvider 按配置创建魔方云适配器实例
+func NewProvider(config *upstream.ProviderConfig) *Provider {
 	timeout := time.Duration(config.Timeout) * time.Second
 	if config.Timeout <= 0 {
 		timeout = 15 * time.Second
 	}
-	return &DCIMCloudProvider{
+	return &Provider{
 		config: config,
 		client: &http.Client{Timeout: timeout},
 	}
 }
 
 // GetType 返回提供商类型标识
-func (p *DCIMCloudProvider) GetType() string { return ProviderType }
+func (p *Provider) GetType() string { return ProviderType }
 
 // GetName 返回提供商名称
-func (p *DCIMCloudProvider) GetName() string { return "魔方云" }
+func (p *Provider) GetName() string { return "魔方云" }
 
 // Capabilities 返回能力描述符（T2.1）。
-func (p *DCIMCloudProvider) Capabilities() upstream.CapabilityDescriptor {
+func (p *Provider) Capabilities() upstream.CapabilityDescriptor {
 	d, _ := upstream.Descriptor(ProviderType)
 	return d
 }
 
 // isAgent 账号类型：agent=代理商（/index.php?path= 入口），其余为管理员（/v1 入口）。
-func (p *DCIMCloudProvider) isAgent() bool { return p.config.AccountType == "agent" }
+func (p *Provider) isAgent() bool { return p.config.AccountType == "agent" }
 
 // baseURL 组合协议、地址与端口，去掉尾部斜杠。
-func (p *DCIMCloudProvider) baseURL() (string, error) {
+func (p *Provider) baseURL() (string, error) {
 	host := strings.TrimRight(p.config.APIEndpoint, "/")
 	host = strings.TrimPrefix(strings.TrimPrefix(host, "https://"), "http://")
 	if host == "" {
@@ -181,7 +181,7 @@ func (p *DCIMCloudProvider) baseURL() (string, error) {
 }
 
 // actionURL 按账号类型构造业务调用地址，path 形如 "/clouds/1/on"（可含 query）。
-func (p *DCIMCloudProvider) actionURL(base, path string) string {
+func (p *Provider) actionURL(base, path string) string {
 	if p.isAgent() {
 		return base + "/index.php?path=" + strings.TrimLeft(path, "/")
 	}
@@ -190,7 +190,7 @@ func (p *DCIMCloudProvider) actionURL(base, path string) string {
 
 // login 获取 access token，带本地缓存；force 时强制重新登录。
 // 参考源码 login()：管理员账号响应体即 token；代理商账号响应 {status:"success",data:{token}}。
-func (p *DCIMCloudProvider) login(ctx context.Context, force bool) (string, error) {
+func (p *Provider) login(ctx context.Context, force bool) (string, error) {
 	p.tokenMu.Lock()
 	defer p.tokenMu.Unlock()
 	if !force && p.token != "" && time.Now().Before(p.tokenUntil) {
@@ -245,7 +245,7 @@ func (p *DCIMCloudProvider) login(ctx context.Context, force bool) (string, erro
 }
 
 // httpPost 发送表单 POST；bearer 传入时设置 access-token 请求头。
-func (p *DCIMCloudProvider) httpPost(ctx context.Context, rawURL string, form url.Values, token string) ([]byte, int, error) {
+func (p *Provider) httpPost(ctx context.Context, rawURL string, form url.Values, token string) ([]byte, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, 0, &upstream.ProviderError{Op: "request", Err: err}
@@ -259,7 +259,7 @@ func (p *DCIMCloudProvider) httpPost(ctx context.Context, rawURL string, form ur
 }
 
 // httpDo 执行请求并返回响应体与状态码。
-func (p *DCIMCloudProvider) httpDo(req *http.Request) ([]byte, int, error) {
+func (p *Provider) httpDo(req *http.Request) ([]byte, int, error) {
 	started := time.Now()
 	resp, err := p.client.Do(req)
 	if err != nil {
@@ -267,7 +267,7 @@ func (p *DCIMCloudProvider) httpDo(req *http.Request) ([]byte, int, error) {
 			upstream.RequestBodyOf(req.GetBody), 0, nil, err, time.Since(started))
 		return nil, 0, &upstream.ProviderError{Op: "request", Err: err}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	upstream.Capture(req.Context(), req.Method, req.URL.String(),
 		upstream.RequestBodyOf(req.GetBody), resp.StatusCode, body, err, time.Since(started))
@@ -279,21 +279,21 @@ func (p *DCIMCloudProvider) httpDo(req *http.Request) ([]byte, int, error) {
 
 // traceCtx 创建一次调用的采集上下文（doc92 §3.2）：
 // trace_id 从请求 context 继承，渠道信息由 providerInfo 提供。
-func (p *DCIMCloudProvider) traceCtx(ctx context.Context, op string) (context.Context, *upstream.Trace) {
+func (p *Provider) traceCtx(ctx context.Context, op string) (context.Context, *upstream.Trace) {
 	next, tr := upstream.NewTrace(ctx, op, traceid.From(ctx))
 	tr.SetProvider(p.providerInfo)
 	return next, tr
 }
 
 // providerInfo 采集记录上要带的渠道标识。
-func (p *DCIMCloudProvider) providerInfo() (uint, string, string) {
+func (p *Provider) providerInfo() (uint, string, string) {
 	name := firstNonEmpty(p.config.Name, "魔方云")
 	return p.config.ID, name, ProviderType
 }
 
 // call 调用魔方云业务接口：自动登录、401 重登录重试一次、解析 error 字段。
 // out 非 nil 时将整个响应体 JSON 解析到 out。
-func (p *DCIMCloudProvider) call(ctx context.Context, op, method, path string, form url.Values, out interface{}) (err error) {
+func (p *Provider) call(ctx context.Context, op, method, path string, form url.Values, out interface{}) (err error) {
 	ctx, tr := p.traceCtx(ctx, op)
 	// 业务判定结果在返回时才可知（HTTP 2xx 也可能是 body.error 失败），
 	// 因此用命名返回值在 defer 里回填 success/error_code（doc92 §3.2）。
@@ -356,7 +356,7 @@ func (p *DCIMCloudProvider) call(ctx context.Context, op, method, path string, f
 }
 
 // doWithToken 以给定 token 执行一次业务调用。GET 的表单参数转 query，其余进请求体。
-func (p *DCIMCloudProvider) doWithToken(ctx context.Context, base, token, method, path string, form url.Values) ([]byte, int, error) {
+func (p *Provider) doWithToken(ctx context.Context, base, token, method, path string, form url.Values) ([]byte, int, error) {
 	rawURL := p.actionURL(base, path)
 	if form == nil {
 		form = url.Values{}
@@ -386,7 +386,7 @@ func (p *DCIMCloudProvider) doWithToken(ctx context.Context, base, token, method
 }
 
 // HealthCheck 连通性测试：登录成功即视为可达（等价源码 testLink）。
-func (p *DCIMCloudProvider) HealthCheck(ctx context.Context) error {
+func (p *Provider) HealthCheck(ctx context.Context) error {
 	_, err := p.login(ctx, true)
 	return err
 }
@@ -398,7 +398,7 @@ func (p *DCIMCloudProvider) HealthCheck(ctx context.Context) error {
 // flow_way/ip_num/backup_num/snap_num/nat_acl_limit/nat_web_limit/type/ipv6_num/port/
 // node_group/ip_group/node_priority/resource_package 等），同时支持包一层
 // Extra["configoptions"]（与财务 configoptions 同形）。
-func (p *DCIMCloudProvider) CreateInstance(ctx context.Context, req *model.CreateInstanceRequest) (*model.StandardInstance, error) {
+func (p *Provider) CreateInstance(ctx context.Context, req *model.CreateInstanceRequest) (*model.StandardInstance, error) {
 	opts := collectOptions(req.Extra)
 
 	form := url.Values{}
@@ -470,7 +470,7 @@ func (p *DCIMCloudProvider) CreateInstance(ctx context.Context, req *model.Creat
 // 只按裸数组解会在分页形态下报 "cannot unmarshal object into Go value of type
 // []map[string]interface {}"，表现为"实例列表全空"——线上很难发现，因此这里用
 // json.RawMessage 先取原始字节再按形状分派。
-func (p *DCIMCloudProvider) ListInstances(ctx context.Context, filters map[string]string) ([]*model.StandardInstance, error) {
+func (p *Provider) ListInstances(ctx context.Context, filters map[string]string) ([]*model.StandardInstance, error) {
 	form := url.Values{}
 	form.Set("per_page", firstNonEmpty(filters["per_page"], "100"))
 	form.Set("page", firstNonEmpty(filters["page"], "1"))
@@ -535,7 +535,7 @@ func decodeInstanceRows(raw json.RawMessage) []map[string]interface{} {
 }
 
 // GetInstance 拉取单台云主机详情并映射标准实例。
-func (p *DCIMCloudProvider) GetInstance(ctx context.Context, instanceID string) (*model.StandardInstance, error) {
+func (p *Provider) GetInstance(ctx context.Context, instanceID string) (*model.StandardInstance, error) {
 	var detail map[string]interface{}
 	if err := p.call(ctx, "GetInstance", http.MethodGet, "/clouds/"+instanceID, nil, &detail); err != nil {
 		return nil, err
@@ -560,12 +560,12 @@ func (p *DCIMCloudProvider) GetInstance(ctx context.Context, instanceID string) 
 }
 
 // StartInstance 开机：POST /clouds/{id}/on
-func (p *DCIMCloudProvider) StartInstance(ctx context.Context, instanceID string) error {
+func (p *Provider) StartInstance(ctx context.Context, instanceID string) error {
 	return p.call(ctx, "StartInstance", http.MethodPost, "/clouds/"+instanceID+"/on", url.Values{}, nil)
 }
 
 // StopInstance 关机：POST /clouds/{id}/off；force 时硬关机 /hardoff。
-func (p *DCIMCloudProvider) StopInstance(ctx context.Context, instanceID string, force bool) error {
+func (p *Provider) StopInstance(ctx context.Context, instanceID string, force bool) error {
 	action := "/off"
 	if force {
 		action = "/hardoff"
@@ -574,13 +574,13 @@ func (p *DCIMCloudProvider) StopInstance(ctx context.Context, instanceID string,
 }
 
 // RestartInstance 重启：POST /clouds/{id}/reboot；force 时硬重启 /hard_reboot。
-func (p *DCIMCloudProvider) RestartInstance(ctx context.Context, instanceID string) error {
+func (p *Provider) RestartInstance(ctx context.Context, instanceID string) error {
 	return p.call(ctx, "RestartInstance", http.MethodPost, "/clouds/"+instanceID+"/reboot", url.Values{}, nil)
 }
 
 // SuspendInstance 暂停云主机：POST /clouds/{id}/suspend（type=traffic|due|other）。
 // reason 为 "flow"/"traffic" 时映射流量超额，"due" 映射到期，其余为 other。
-func (p *DCIMCloudProvider) SuspendInstance(ctx context.Context, instanceID, reason string) error {
+func (p *Provider) SuspendInstance(ctx context.Context, instanceID, reason string) error {
 	if instanceID == "" {
 		return &upstream.ProviderError{Op: "SuspendInstance", Msg: "缺少上游云主机ID"}
 	}
@@ -595,7 +595,7 @@ func (p *DCIMCloudProvider) SuspendInstance(ctx context.Context, instanceID, rea
 }
 
 // UnsuspendInstance 解除暂停：POST /clouds/{id}/unsuspend。
-func (p *DCIMCloudProvider) UnsuspendInstance(ctx context.Context, instanceID string) error {
+func (p *Provider) UnsuspendInstance(ctx context.Context, instanceID string) error {
 	if instanceID == "" {
 		return &upstream.ProviderError{Op: "UnsuspendInstance", Msg: "缺少上游云主机ID"}
 	}
@@ -610,7 +610,7 @@ func (p *DCIMCloudProvider) UnsuspendInstance(ctx context.Context, instanceID st
 //
 // 上游可能返回外链（vnc_url_http/vnc_url_https，External=true）或 websocket 地址
 // （vnc_url=ws/wss + token + vnc_pass，需前端用 noVNC 连接，External=false）。
-func (p *DCIMCloudProvider) VNC(ctx context.Context, instanceID string) (upstream.VNCResult, error) {
+func (p *Provider) VNC(ctx context.Context, instanceID string) (upstream.VNCResult, error) {
 	var resp struct {
 		VncURL      string `json:"vnc_url"`
 		VncURLHTTP  string `json:"vnc_url_http"`
@@ -643,7 +643,7 @@ func (p *DCIMCloudProvider) VNC(ctx context.Context, instanceID string) (upstrea
 }
 
 // HardStopInstance 硬关机：POST /clouds/{id}/hardoff（参考源码 hardOff）。
-func (p *DCIMCloudProvider) HardStopInstance(ctx context.Context, instanceID string) error {
+func (p *Provider) HardStopInstance(ctx context.Context, instanceID string) error {
 	return p.call(ctx, "HardStopInstance", http.MethodPost, "/clouds/"+instanceID+"/hardoff", url.Values{}, nil)
 }
 
@@ -651,7 +651,7 @@ func (p *DCIMCloudProvider) HardStopInstance(ctx context.Context, instanceID str
 //
 // 此前服务层把"硬重启"实现成硬关+开机，中间会经历一次完整断电；平台本就有独立指令，
 // 走它既快又与面板行为一致。
-func (p *DCIMCloudProvider) HardRestartInstance(ctx context.Context, instanceID string) error {
+func (p *Provider) HardRestartInstance(ctx context.Context, instanceID string) error {
 	return p.call(ctx, "HardRestartInstance", http.MethodPost, "/clouds/"+instanceID+"/hard_reboot", url.Values{}, nil)
 }
 
@@ -660,7 +660,7 @@ func (p *DCIMCloudProvider) HardRestartInstance(ctx context.Context, instanceID 
 // 参数与源码一致：os（目标镜像）+ 可选 port / format_data_disk / system_disk_size。
 // 平台在响应里返回重装后生成的新初始凭据（user/password），必须带回给调用方回写，
 // 否则客户重装完就登不上机器（源码也是在这里写回 host.password/username）。
-func (p *DCIMCloudProvider) ReinstallInstance(ctx context.Context, req *upstream.ReinstallRequest) (*upstream.ReinstallResult, error) {
+func (p *Provider) ReinstallInstance(ctx context.Context, req *upstream.ReinstallRequest) (*upstream.ReinstallResult, error) {
 	if req == nil || strings.TrimSpace(req.ProviderInstanceID) == "" {
 		return nil, &upstream.ProviderError{Op: "ReinstallInstance", Msg: "缺少上游云主机ID"}
 	}
@@ -691,7 +691,7 @@ func (p *DCIMCloudProvider) ReinstallInstance(ctx context.Context, req *upstream
 }
 
 // ResetInstancePassword 重置登录密码：PUT /clouds/{id}/password（参考源码 CrackPassword）。
-func (p *DCIMCloudProvider) ResetInstancePassword(ctx context.Context, instanceID, newPassword string) error {
+func (p *Provider) ResetInstancePassword(ctx context.Context, instanceID, newPassword string) error {
 	if strings.TrimSpace(newPassword) == "" {
 		return &upstream.ProviderError{Op: "ResetInstancePassword", Msg: "新密码不能为空"}
 	}
@@ -700,7 +700,7 @@ func (p *DCIMCloudProvider) ResetInstancePassword(ctx context.Context, instanceI
 }
 
 // RescueInstance 进入救援系统：POST /clouds/{id}/rescue（type=救援系统类型，temp_pass=临时密码）。
-func (p *DCIMCloudProvider) RescueInstance(ctx context.Context, instanceID string, system int, tempPassword string) error {
+func (p *Provider) RescueInstance(ctx context.Context, instanceID string, system int, tempPassword string) error {
 	if system != 1 && system != 2 {
 		return &upstream.ProviderError{Op: "RescueInstance", Msg: "救援系统类型错误（1 或 2）"}
 	}
@@ -712,13 +712,13 @@ func (p *DCIMCloudProvider) RescueInstance(ctx context.Context, instanceID strin
 }
 
 // ExitRescueInstance 退出救援系统：DELETE /clouds/{id}/rescue。
-func (p *DCIMCloudProvider) ExitRescueInstance(ctx context.Context, instanceID string) error {
+func (p *Provider) ExitRescueInstance(ctx context.Context, instanceID string) error {
 	return p.call(ctx, "ExitRescueInstance", http.MethodDelete, "/clouds/"+instanceID+"/rescue", url.Values{}, nil)
 }
 
 // ListSnapshots 列出实例的快照/备份：GET /clouds/{id}/snapshots。
 // snapshotType 非空时本地按 type 过滤（平台接口一次性返回两类）。
-func (p *DCIMCloudProvider) ListSnapshots(ctx context.Context, instanceID, snapshotType string) ([]upstream.SnapshotInfo, error) {
+func (p *Provider) ListSnapshots(ctx context.Context, instanceID, snapshotType string) ([]upstream.SnapshotInfo, error) {
 	var resp struct {
 		Data []struct {
 			ID         int64       `json:"id"`
@@ -759,7 +759,7 @@ func (p *DCIMCloudProvider) ListSnapshots(ctx context.Context, instanceID, snaps
 
 // CreateSnapshot 创建快照/备份：POST /disks/{diskID}/snapshots（type=snap|backup, name=名称）。
 // 参考源码 createSnap/createBackup：快照挂在磁盘上，因此 diskID 必填。
-func (p *DCIMCloudProvider) CreateSnapshot(ctx context.Context, req *upstream.CreateSnapshotRequest) error {
+func (p *Provider) CreateSnapshot(ctx context.Context, req *upstream.CreateSnapshotRequest) error {
 	if req == nil || strings.TrimSpace(req.DiskID) == "" {
 		return &upstream.ProviderError{Op: "CreateSnapshot", Msg: "缺少磁盘 ID（快照挂在磁盘上）"}
 	}
@@ -779,19 +779,19 @@ func (p *DCIMCloudProvider) CreateSnapshot(ctx context.Context, req *upstream.Cr
 }
 
 // DeleteSnapshot 删除快照/备份：DELETE /snapshots/{id}。
-func (p *DCIMCloudProvider) DeleteSnapshot(ctx context.Context, snapshotID string) error {
+func (p *Provider) DeleteSnapshot(ctx context.Context, snapshotID string) error {
 	return p.call(ctx, "DeleteSnapshot", http.MethodDelete, "/snapshots/"+snapshotID, url.Values{}, nil)
 }
 
 // RestoreSnapshot 用快照/备份恢复：POST /snapshots/{id}/restore?hostid={实例ID}。
-func (p *DCIMCloudProvider) RestoreSnapshot(ctx context.Context, instanceID, snapshotID string) error {
+func (p *Provider) RestoreSnapshot(ctx context.Context, instanceID, snapshotID string) error {
 	return p.call(ctx, "RestoreSnapshot", http.MethodPost, "/snapshots/"+snapshotID+"/restore",
 		url.Values{"hostid": {instanceID}}, nil)
 }
 
 // UpdateBandwidth 修改带宽：PUT /clouds/{id}/bw（参考源码 upgrade 分支）。
 // 单方向为 0 表示不改该方向（平台按传入字段覆盖，缺省即保持）。
-func (p *DCIMCloudProvider) UpdateBandwidth(ctx context.Context, instanceID string, inBw, outBw int) error {
+func (p *Provider) UpdateBandwidth(ctx context.Context, instanceID string, inBw, outBw int) error {
 	form := url.Values{}
 	if inBw > 0 {
 		form.Set("in_bw", strconv.Itoa(inBw))
@@ -806,7 +806,7 @@ func (p *DCIMCloudProvider) UpdateBandwidth(ctx context.Context, instanceID stri
 }
 
 // AddIPs 增加 IP：PUT /clouds/{id}/ip（num=数量，ip_group=可选 IP 分组 ID）。
-func (p *DCIMCloudProvider) AddIPs(ctx context.Context, instanceID string, num int, ipGroup string) error {
+func (p *Provider) AddIPs(ctx context.Context, instanceID string, num int, ipGroup string) error {
 	if num <= 0 {
 		return &upstream.ProviderError{Op: "AddIPs", Msg: "IP 数量必须大于 0"}
 	}
@@ -818,7 +818,7 @@ func (p *DCIMCloudProvider) AddIPs(ctx context.Context, instanceID string, num i
 }
 
 // AddIPv6 增加 IPv6：PUT /clouds/{id}/ipv6（num=数量）。平台未启用 IPv6 时会明确报错。
-func (p *DCIMCloudProvider) AddIPv6(ctx context.Context, instanceID string, num int) error {
+func (p *Provider) AddIPv6(ctx context.Context, instanceID string, num int) error {
 	if num <= 0 {
 		return &upstream.ProviderError{Op: "AddIPv6", Msg: "IPv6 数量必须大于 0"}
 	}
@@ -827,7 +827,7 @@ func (p *DCIMCloudProvider) AddIPv6(ctx context.Context, instanceID string, num 
 }
 
 // AttachDataDisk 挂载数据盘：POST /clouds/{id}/disks（size=GB, store=存储 ID, driver=virtio）。
-func (p *DCIMCloudProvider) AttachDataDisk(ctx context.Context, instanceID string, sizeGB int, store string) error {
+func (p *Provider) AttachDataDisk(ctx context.Context, instanceID string, sizeGB int, store string) error {
 	if sizeGB <= 0 {
 		return &upstream.ProviderError{Op: "AttachDataDisk", Msg: "数据盘大小必须大于 0"}
 	}
@@ -839,7 +839,7 @@ func (p *DCIMCloudProvider) AttachDataDisk(ctx context.Context, instanceID strin
 }
 
 // DeleteInstance 删除云主机：DELETE /clouds/{id}；404 视为已删除（与源码 terminate 一致）。
-func (p *DCIMCloudProvider) DeleteInstance(ctx context.Context, instanceID string) error {
+func (p *Provider) DeleteInstance(ctx context.Context, instanceID string) error {
 	base, err := p.baseURL()
 	if err != nil {
 		return err
@@ -870,7 +870,7 @@ func (p *DCIMCloudProvider) DeleteInstance(ctx context.Context, instanceID strin
 
 // ResizeInstance 升降配：参考源码 upgrade()——先关机（硬关机兜底），
 // 再 PUT /clouds/{id} 修改 cpu/memory 等参数，完成后恢复原电源状态。
-func (p *DCIMCloudProvider) ResizeInstance(ctx context.Context, instanceID string, specs *model.StandardProductSpec) error {
+func (p *Provider) ResizeInstance(ctx context.Context, instanceID string, specs *model.StandardProductSpec) error {
 	if specs == nil {
 		return &upstream.ProviderError{Op: "ResizeInstance", Msg: "缺少目标规格"}
 	}
@@ -927,7 +927,7 @@ func (p *DCIMCloudProvider) ResizeInstance(ctx context.Context, instanceID strin
 //
 // 上游 ID 加 "node:" 前缀：节点与区域的 ID 各自从 1 起编号，同表 (provider_id, upstream_id)
 // 唯一，不加前缀会与区域池撞键。
-func (p *DCIMCloudProvider) ListPools(ctx context.Context) ([]*upstream.StandardPool, error) {
+func (p *Provider) ListPools(ctx context.Context) ([]*upstream.StandardPool, error) {
 	var nodes struct {
 		Data []struct {
 			ID       int64  `json:"id"`
@@ -1012,7 +1012,7 @@ type nodeLive struct {
 }
 
 // nodeLiveStatus 读取单节点实时状态。
-func (p *DCIMCloudProvider) nodeLiveStatus(ctx context.Context, id int64) (*nodeLive, error) {
+func (p *Provider) nodeLiveStatus(ctx context.Context, id int64) (*nodeLive, error) {
 	var raw struct {
 		Status  int    `json:"status"`
 		Msg     string `json:"msg"`
@@ -1071,7 +1071,7 @@ func (p *DCIMCloudProvider) nodeLiveStatus(ctx context.Context, id int64) (*node
 // ListRegions 拉取区域：GET /areas?sort=asc&list_type=all（参考源码 getArea）。
 // 区域只有节点/存储/IP 计数，没有 CPU/内存/磁盘容量，因此容量字段留零——
 // 容量口径归 ListPools（宿主机节点），两者是不同实体。
-func (p *DCIMCloudProvider) ListRegions(ctx context.Context) ([]*upstream.StandardPool, error) {
+func (p *Provider) ListRegions(ctx context.Context) ([]*upstream.StandardPool, error) {
 	// 列表接口常规为 {data:[...]} 分页包裹；兼容裸数组形态。
 	var wrapped struct {
 		Data []struct {
@@ -1174,7 +1174,7 @@ func parseSizeGB(s string) int {
 // 区域 GET /areas、节点 GET /nodes、存储 GET /stores、镜像 GET /image。
 // 参考源码 getArea/getOs 与 docs/魔方云对接魔方财务.html 的配置项参数表：
 // area/node 必传其一，os 必传，store 为系统盘所在存储（可选，不传随机）。
-func (p *DCIMCloudProvider) ListPlatformResources(ctx context.Context) (*upstream.PlatformResources, error) {
+func (p *Provider) ListPlatformResources(ctx context.Context) (*upstream.PlatformResources, error) {
 	out := &upstream.PlatformResources{}
 
 	var areas struct {
@@ -1335,7 +1335,7 @@ func isRescueImage(name string) bool {
 // 而 POST /user 成功时会直接返回新用户 id，失败时返回 error（如"用户名已存在"）。
 // 因此这里按"POST 取 id → 失败再按用户名在 GET /user 列表里回查"处理，
 // 同时保留 /user/check 作为旧版本面板的兼容分支。
-func (p *DCIMCloudProvider) ensureCloudUser(ctx context.Context, opts map[string]string) (string, error) {
+func (p *Provider) ensureCloudUser(ctx context.Context, opts map[string]string) (string, error) {
 	username := firstNonEmpty(opts["cloud_username"], p.config.UserPrefix+firstNonEmpty(opts["username"], fmt.Sprintf("hs%d", time.Now().Unix())))
 	password := firstNonEmpty(opts["cloud_password"], randPassword(12))
 	userForm := url.Values{}
@@ -1403,7 +1403,7 @@ func rawIDString(raw json.RawMessage) string {
 }
 
 // waitStatus 轮询云主机状态直到达到期望值或超时。
-func (p *DCIMCloudProvider) waitStatus(ctx context.Context, instanceID, want string, tries int) bool {
+func (p *Provider) waitStatus(ctx context.Context, instanceID, want string, tries int) bool {
 	for i := 0; i < tries; i++ {
 		time.Sleep(2 * time.Second)
 		var st struct {
@@ -1492,7 +1492,7 @@ func collectOptions(extra map[string]interface{}) map[string]string {
 func expandOtherDataDisk(form url.Values, extra map[string]interface{}) {
 	raw, ok := extra["other_data_disk"]
 	if !ok {
-		if co, ok := extra["configoptions"].(map[string]interface{}); ok {
+		if co, ok2 := extra["configoptions"].(map[string]interface{}); ok2 {
 			raw, ok = co["data_disk_size"]
 		}
 		if !ok {
@@ -1754,16 +1754,6 @@ func isValidHostname(name string) bool {
 // isHostnameStart 首位必须是英文字母。
 func isHostnameStart(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-}
-
-// randStr 生成随机小写字母数字串（主机名等宽松场景用）。
-func randStr(n int) string {
-	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))]
-	}
-	return string(b)
 }
 
 // randPassword 生成满足魔方云密码策略的随机密码（rootpass / 云用户密码）：

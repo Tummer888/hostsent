@@ -19,6 +19,7 @@ import (
 	notifymodel "hostsent/backend/internal/modules/admin/system/notification/model"
 	notifyrepo "hostsent/backend/internal/modules/admin/system/notification/repository"
 	"hostsent/backend/internal/pkg/notifier"
+
 	// 空导入触发 smtp provider 的 init()：否则 notifier.New("smtp") 返回
 	// ErrAdapterNotImplemented，投递会被判为「待接入」而 skipped 而非 failed。
 	_ "hostsent/backend/internal/pkg/notifier/provider/smtp"

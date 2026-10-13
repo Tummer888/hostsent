@@ -216,9 +216,10 @@ func (s *authService) Login(ctx context.Context, req dto.LoginRequest, ip, userA
 	// 账号名按登录方式取：短信登录传的是手机号、邮箱登录传的是邮箱，
 	// 黑名单要拿这个值去比对 phone/email 类型的条目。
 	account := strings.TrimSpace(req.Username)
-	if loginType == dto.LoginTypeSMS {
+	switch loginType {
+	case dto.LoginTypeSMS:
 		account = strings.TrimSpace(req.Phone)
-	} else if loginType == dto.LoginTypeEmail {
+	case dto.LoginTypeEmail:
 		account = strings.TrimSpace(req.Email)
 	}
 	attempt := loginAttempt{

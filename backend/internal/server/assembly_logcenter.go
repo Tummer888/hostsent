@@ -147,7 +147,7 @@ func buildLogcenterBundle(deps logcenterBundleDeps) *logcenterBundle {
 		}
 	})
 
-	handler := loghandler.NewHandler(loghandler.HandlerDeps{
+	handler := loghandler.NewHandler(loghandler.Deps{
 		Query:   querySvc,
 		Export:  exportSvc,
 		Cleanup: cleanupSvc,

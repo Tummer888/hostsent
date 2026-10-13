@@ -13,11 +13,11 @@ import (
 )
 
 // newMockProvider 起一个 httptest 服务模拟魔方云（管理员账号），返回 server 与指向它的适配器。
-func newMockProvider(t *testing.T, handler http.HandlerFunc) *DCIMCloudProvider {
+func newMockProvider(t *testing.T, handler http.HandlerFunc) *Provider {
 	t.Helper()
 	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
-	return NewDCIMCloudProvider(&upstream.ProviderConfig{
+	return NewProvider(&upstream.ProviderConfig{
 		APIEndpoint: ts.URL,
 		Secure:      false,
 		Timeout:     5,

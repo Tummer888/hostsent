@@ -38,14 +38,15 @@ jobs:
         # 只报告不上门禁（批次二 B5）：核心链路包覆盖率目前约 22%~28%，
         # 现在设阈值会逼出凑数测试。等核心链路补到 60%+ 再上 coverprofile 门禁。
         run: go test -count=1 -cover ./internal/modules/...
-      - name: Lint (warn only)
-        # 门禁从 warn 起步（115 批次五 G5）：违例不阻塞合并，收敛后移除
-        # continue-on-error 改为阻塞。
+      - name: Lint
+        # 门禁已转 error（批次三 C5）：errcheck/staticcheck/unused/revive 双构建
+        # （普通 + `-tags live`）清零。live 用例不跑 CI，但 live 文件的编译错误
+        # 必须在此拦截，否则合并后本地跑 live 才炸。版本与本地一致（v2 配置格式）。
         uses: golangci/golangci-lint-action@v7
         with:
+          version: v2.6.1
           working-directory: backend
-          args: --timeout=5m
-        continue-on-error: true
+          args: --timeout=5m --build-tags live
       - name: Race (core packages)
         # -race 抽样核心资金/履约链路（115 批次五 G6），全量 -race 留给 nightly。
         run: go test -race -count=1 ./internal/modules/admin/finance/... ./internal/modules/admin/instance/... ./internal/modules/admin/order/...

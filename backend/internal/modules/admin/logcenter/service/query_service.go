@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"strconv"
 	"strings"
 	"time"
 
@@ -252,17 +251,4 @@ func normalizePage(page, pageSize int) (int, int) {
 		pageSize = 200
 	}
 	return page, pageSize
-}
-
-// parseUint 宽松解析 uint64（前端可能传空串）。
-func parseUint(raw string) uint64 {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return 0
-	}
-	v, err := strconv.ParseUint(raw, 10, 64)
-	if err != nil {
-		return 0
-	}
-	return v
 }

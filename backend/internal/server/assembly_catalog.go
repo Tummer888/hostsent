@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	cataloghandler "hostsent/backend/internal/modules/admin/product/catalog/handler"
 	catalogrepo "hostsent/backend/internal/modules/admin/product/catalog/repository"
-	"hostsent/backend/internal/modules/admin/product/catalog/service"
 	catalogservice "hostsent/backend/internal/modules/admin/product/catalog/service"
 	categoryhandler "hostsent/backend/internal/modules/admin/product/category/handler"
 	categoryrepo "hostsent/backend/internal/modules/admin/product/category/repository"
@@ -22,7 +21,6 @@ import (
 	pricinghandler "hostsent/backend/internal/modules/admin/product/pricing/handler"
 	pricingrepo "hostsent/backend/internal/modules/admin/product/pricing/repository"
 	matrixservice "hostsent/backend/internal/modules/admin/product/pricing/service"
-	pricingservice "hostsent/backend/internal/modules/admin/product/pricing/service"
 	promotionhandler "hostsent/backend/internal/modules/admin/product/promotion/handler"
 	promotionrepo "hostsent/backend/internal/modules/admin/product/promotion/repository"
 	promotionservice "hostsent/backend/internal/modules/admin/product/promotion/service"
@@ -76,11 +74,11 @@ func (a *asm) buildCatalog() {
 	a.syncEngine.SetStockApplier(a.prodCatalogService)
 	// 定价与计费（pricing 子域）
 	a.pricingRepo = pricingrepo.NewPricingRepository(a.database)
-	a.pricingService = pricingservice.NewPricingService(a.pricingRepo)
+	a.pricingService = matrixservice.NewPricingService(a.pricingRepo)
 	a.pricingHandler = pricinghandler.NewPricingHandler(a.pricingService)
 	// 周期价格矩阵（doc25）：商品 × 规格 × 周期 的价格与启停，整表读写。
 	a.priceMatrixRepo = pricingrepo.NewPriceMatrixRepository(a.database)
-	a.priceMatrixService = pricingservice.NewPriceMatrixService(
+	a.priceMatrixService = matrixservice.NewPriceMatrixService(
 		a.priceMatrixRepo,
 		NewProductMetaReader(a.prodCatalogService),
 		NewProviderCyclesReader(a.providerService),
@@ -220,11 +218,11 @@ type specTemplateReaderAdapter struct {
 }
 
 // NewSpecTemplateReader 构造 SpecTemplateReader（装配层调用）。
-func NewSpecTemplateReader(templates specservice.SpecTemplateService) service.SpecTemplateReader {
+func NewSpecTemplateReader(templates specservice.SpecTemplateService) catalogservice.SpecTemplateReader {
 	return &specTemplateReaderAdapter{templates: templates}
 }
 
-func (a *specTemplateReaderAdapter) SpecTemplateByID(ctx context.Context, id uint64) (*service.SpecTemplateSnapshot, error) {
+func (a *specTemplateReaderAdapter) SpecTemplateByID(ctx context.Context, id uint64) (*catalogservice.SpecTemplateSnapshot, error) {
 	item, err := a.templates.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -232,7 +230,7 @@ func (a *specTemplateReaderAdapter) SpecTemplateByID(ctx context.Context, id uin
 	if item == nil {
 		return nil, nil
 	}
-	return &service.SpecTemplateSnapshot{
+	return &catalogservice.SpecTemplateSnapshot{
 		ID:               item.ID,
 		Name:             item.Name,
 		SpecFamily:       item.SpecFamily,
@@ -257,7 +255,7 @@ type specBindingWriterAdapter struct {
 }
 
 // NewSpecBindingWriter 构造 SpecBindingWriter（装配层调用）。
-func NewSpecBindingWriter(contracts specservice.SpecContractService) service.SpecBindingWriter {
+func NewSpecBindingWriter(contracts specservice.SpecContractService) catalogservice.SpecBindingWriter {
 	return &specBindingWriterAdapter{contracts: contracts}
 }
 

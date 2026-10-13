@@ -1363,16 +1363,16 @@ func maxPoolUsagePercent(item model.ResourcePool) int {
 		usagePercent(item.UsedMemory, item.TotalMemory),
 		usagePercent(item.UsedDisk, item.TotalDisk),
 	}
-	max := 0
+	peak := 0
 	for _, p := range pcts {
-		if p > max {
-			max = p
+		if p > peak {
+			peak = p
 		}
 	}
 	switch {
-	case max >= 80:
+	case peak >= 80:
 		return 2
-	case max >= 60:
+	case peak >= 60:
 		return 1
 	default:
 		return 0

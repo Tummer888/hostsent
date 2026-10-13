@@ -33,7 +33,6 @@ type fakeLifecycleProvider struct {
 	suspended   []string
 	unsuspended []string
 	terminated  []string
-	resolveErr  error
 }
 
 func (f *fakeLifecycleProvider) GetType() string                   { return "fake" }

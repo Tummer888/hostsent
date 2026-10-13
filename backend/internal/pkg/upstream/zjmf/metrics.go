@@ -74,7 +74,7 @@ func (v *jsonNumberValue) UnmarshalJSON(b []byte) error {
 //
 // 上游没装配图表模块（或该主机类型不提供）时 module_chart 为空数组，
 // 此时返回空目录，前端显示「暂不支持监控」，而不是报一个让用户困惑的错误。
-func (p *ZJMFProvider) ListMetricCharts(ctx context.Context, req *upstream.MetricsCatalogRequest) ([]upstream.MetricChartInfo, error) {
+func (p *Provider) ListMetricCharts(ctx context.Context, req *upstream.MetricsCatalogRequest) ([]upstream.MetricChartInfo, error) {
 	if req == nil || req.ProviderInstanceID == "" {
 		return nil, nil
 	}
@@ -147,7 +147,7 @@ func normalizeChartSelect(raw []interface{}) []upstream.MetricChartOption {
 }
 
 // QueryMetrics 查询单项监控序列（GET provision/chart/{host_id}）。
-func (p *ZJMFProvider) QueryMetrics(ctx context.Context, req *upstream.MetricsQuery) (*upstream.MetricSeries, error) {
+func (p *Provider) QueryMetrics(ctx context.Context, req *upstream.MetricsQuery) (*upstream.MetricSeries, error) {
 	series := &upstream.MetricSeries{Label: []string{}, List: [][]upstream.MetricDataPoint{}}
 	if req == nil || req.ProviderInstanceID == "" || req.Type == "" {
 		return series, nil

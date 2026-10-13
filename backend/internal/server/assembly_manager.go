@@ -118,11 +118,11 @@ func newImpersonationRecorder(db *gorm.DB, sessionTTL time.Duration) accountserv
 
 // truncateUTF8 按字节截断到 UTF-8 字符边界（DB 列有长度上限，超长会整条 INSERT 失败）。
 // 与 uc/auth、uc/oauth 的同名工具同语义，各自持有是因为它们分属不同模块。
-func truncateUTF8(s string, max int) string {
-	if len(s) <= max {
+func truncateUTF8(s string, maxLen int) string {
+	if len(s) <= maxLen {
 		return s
 	}
-	cut := s[:max]
+	cut := s[:maxLen]
 	for len(cut) > 0 && !utf8.ValidString(cut) {
 		cut = cut[:len(cut)-1]
 	}

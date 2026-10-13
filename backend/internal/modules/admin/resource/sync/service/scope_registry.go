@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	"hostsent/backend/internal/pkg/upstream"
@@ -173,8 +172,6 @@ func UnsupportedScopes(d upstream.CapabilityDescriptor, p upstream.Provider) map
 	return out
 }
 
-// errScopeNoHandler 描述符声明了 scope 但无处理器/适配器缺能力——属"跳过"而非失败。
-
 // hasProductCatalog / hasPoolReader / hasInstanceAdmin 为能力判定的类型断言兜底，
 // 供尚未登记描述符的适配器使用（新代码应优先由描述符判定）。
 func hasProductCatalog(p upstream.Provider) bool {
@@ -200,9 +197,4 @@ func hasRegionReader(p upstream.Provider) bool {
 func hasInstanceAdmin(p upstream.Provider) bool {
 	_, ok := p.(upstream.InstanceAdministration)
 	return ok
-}
-
-// scopeSkipReason 生成跳过原因文案（含 scope 名，便于日志与后台展示）。
-func scopeSkipReason(scope string) string {
-	return fmt.Sprintf("%s：%s", ScopeDisplayName(scope), errScopeNoHandler.Error())
 }

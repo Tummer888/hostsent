@@ -16,7 +16,6 @@ import (
 
 type stubInstanceRepo struct {
 	rows map[uint64]*syncmodel.Instance
-	list []syncmodel.Instance
 }
 
 func (s *stubInstanceRepo) ListByUser(_ context.Context, userID uint64, _ string, _, _ int) ([]syncmodel.Instance, int64, error) {

@@ -117,7 +117,7 @@ func (h *SecurityHandler) ExportLoginLogs(c *gin.Context) {
 	c.Header("Content-Type", "text/csv; charset=utf-8")
 	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="login-logs-%s.csv"`, time.Now().Format("20060102150405")))
 	// 写入 UTF-8 BOM，保证 Excel 正确识别中文
-	c.Writer.WriteString("\xEF\xBB\xBF")
+	_, _ = c.Writer.WriteString("\xEF\xBB\xBF")
 
 	w := csv.NewWriter(c.Writer)
 	_ = w.Write([]string{"ID", "用户名", "用户ID", "登录类型", "结果", "失败原因", "IP", "平台", "风险标记", "登录时间"})
@@ -220,7 +220,7 @@ func (h *SecurityHandler) ExportAuditLogs(c *gin.Context) {
 	c.Header("Content-Type", "text/csv; charset=utf-8")
 	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="audit-logs-%s.csv"`, time.Now().Format("20060102150405")))
 	// 写入 UTF-8 BOM，保证 Excel 正确识别中文
-	c.Writer.WriteString("\xEF\xBB\xBF")
+	_, _ = c.Writer.WriteString("\xEF\xBB\xBF")
 
 	w := csv.NewWriter(c.Writer)
 	_ = w.Write([]string{"ID", "操作人", "模块", "动作", "资源类型", "资源ID", "请求方法", "请求路径", "状态码", "响应信息", "IP", "TraceID", "发生时间"})

@@ -376,7 +376,7 @@ func (h *TicketHandler) UploadAttachment(c *gin.Context) {
 		response.Error(c, apperrors.New(20001, "无法读取上传文件"))
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	isInternal := c.PostForm("is_internal") == "true" && hasAdminPerm(c, "ticket:internal_note")
 	resp, err := h.attachmentSvc.Upload(c.Request.Context(), ticketID, operatorID, fileHeader.Filename, f, isInternal)
 	if err != nil {
@@ -407,7 +407,7 @@ func (h *TicketHandler) DownloadAttachment(c *gin.Context) {
 		response.Error(c, writeError(err))
 		return
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	// 落盘名是随机串，这里用原始文件名回填，避免用户下载到无语义的名字。
 	writeAttachment(c, item.FileName, item.FileType, item.FileSize, reader)
 }

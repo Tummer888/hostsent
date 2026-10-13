@@ -1184,13 +1184,13 @@ func genOrderNo(userID uint64) string {
 
 // truncRunes 按**字符**截断（不是字节）：中文备注按字节截断会切出半个字，
 // 落库后前端显示成乱码方块。超长直接截断而不是报错，避免因备注长度挡下单主流程。
-func truncRunes(s string, max int) string {
-	if max <= 0 {
+func truncRunes(s string, maxLen int) string {
+	if maxLen <= 0 {
 		return s
 	}
 	r := []rune(s)
-	if len(r) <= max {
+	if len(r) <= maxLen {
 		return s
 	}
-	return string(r[:max])
+	return string(r[:maxLen])
 }

@@ -305,7 +305,7 @@ func TestDefaultHostnameRules(t *testing.T) {
 			t.Errorf("defaultHostname(%q,%q) = %q，应以字母开头", c.name, c.token, got)
 		}
 		for _, r := range got {
-			if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-') {
+			if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
 				t.Errorf("defaultHostname(%q,%q) = %q，含非法字符 %q", c.name, c.token, got, r)
 			}
 		}

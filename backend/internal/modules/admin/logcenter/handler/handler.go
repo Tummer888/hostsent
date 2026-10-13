@@ -52,8 +52,8 @@ type Handler struct {
 	auditDownload DownloadAuditFunc
 }
 
-// HandlerDeps 处理器依赖。
-type HandlerDeps struct {
+// Deps 处理器依赖。
+type Deps struct {
 	Query   logservice.QueryService
 	Export  logservice.ExportService
 	Cleanup logservice.CleanupService
@@ -65,7 +65,7 @@ type HandlerDeps struct {
 }
 
 // NewHandler 创建处理器。
-func NewHandler(deps HandlerDeps) *Handler {
+func NewHandler(deps Deps) *Handler {
 	fn := deps.ExportBeforeDelete
 	if fn == nil {
 		fn = func() bool { return true }
@@ -230,7 +230,7 @@ func (h *Handler) DownloadExportFile(c *gin.Context) {
 		writeErr(c, err)
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	if h.auditDownload != nil {
 		operatorID, operatorName := operatorFromContext(c)
 		h.auditDownload(c.Request.Context(), DownloadAudit{

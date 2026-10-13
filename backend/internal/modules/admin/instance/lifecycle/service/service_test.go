@@ -228,7 +228,7 @@ func TestDaysLeft(t *testing.T) {
 
 // TestListExpiringWindow 编译期引用 lifecyclerepo.StageWindow，保证导入有效。
 func TestListExpiringWindow(t *testing.T) {
-	var _ *lifecyclerepo.StageWindow = stageWindow("active", testNow, testPolicy)
+	var _ *lifecyclerepo.StageWindow = stageWindow("active", testNow, testPolicy) //nolint:staticcheck // 编译期引用保导入
 }
 
 func sameTimePtr(a, b *time.Time) bool {

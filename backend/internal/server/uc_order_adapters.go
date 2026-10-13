@@ -10,7 +10,6 @@ import (
 	"time"
 
 	admininstancedto "hostsent/backend/internal/modules/admin/instance/dto"
-	admininstanceservice "hostsent/backend/internal/modules/admin/instance/service"
 	instanceservice "hostsent/backend/internal/modules/admin/instance/service"
 	adminmodel "hostsent/backend/internal/modules/admin/manager/model"
 	adminrepo "hostsent/backend/internal/modules/admin/manager/repository"
@@ -262,18 +261,18 @@ type ucInstanceOperatorAdapter struct {
 }
 
 func (a ucInstanceOperatorAdapter) Destroy(ctx context.Context, op ucinstanceservice.Operator, id uint64, req *ucinstancedto.DestroyRequest) error {
-	return a.ops.Destroy(ctx, admininstanceservice.Operator{Type: op.Type, ID: op.ID, Name: op.Name}, id,
+	return a.ops.Destroy(ctx, instanceservice.Operator{Type: op.Type, ID: op.ID, Name: op.Name}, id,
 		&admininstancedto.DestroyRequest{ConfirmMark: req.ConfirmMark, Reason: req.Reason})
 }
 
 func (a ucInstanceOperatorAdapter) Reinstall(ctx context.Context, op ucinstanceservice.Operator, id uint64, req *ucinstancedto.ReinstallRequest) (*ucinstancedto.ReinstallResult, error) {
-	res, err := a.ops.Reinstall(ctx, admininstanceservice.Operator{Type: op.Type, ID: op.ID, Name: op.Name}, id,
+	res, err := a.ops.Reinstall(ctx, instanceservice.Operator{Type: op.Type, ID: op.ID, Name: op.Name}, id,
 		&admininstancedto.ReinstallRequest{
 			OS: req.OS, Port: req.Port, FormatDataDisk: req.FormatDataDisk,
 			SystemDiskSize: req.SystemDiskSize, Reason: req.Reason,
 		})
 	if err != nil {
-		if errors.Is(err, admininstanceservice.ErrCapabilityUnsupported) {
+		if errors.Is(err, instanceservice.ErrCapabilityUnsupported) {
 			return nil, ucinstanceservice.ErrCapabilityUnsupported
 		}
 		return nil, err
@@ -282,26 +281,26 @@ func (a ucInstanceOperatorAdapter) Reinstall(ctx context.Context, op ucinstances
 }
 
 func (a ucInstanceOperatorAdapter) ResetPassword(ctx context.Context, op ucinstanceservice.Operator, id uint64, req *ucinstancedto.ResetPasswordRequest) error {
-	err := a.ops.ResetPassword(ctx, admininstanceservice.Operator{Type: op.Type, ID: op.ID, Name: op.Name}, id,
+	err := a.ops.ResetPassword(ctx, instanceservice.Operator{Type: op.Type, ID: op.ID, Name: op.Name}, id,
 		&admininstancedto.ResetPasswordRequest{Password: req.Password})
-	if errors.Is(err, admininstanceservice.ErrCapabilityUnsupported) {
+	if errors.Is(err, instanceservice.ErrCapabilityUnsupported) {
 		return ucinstanceservice.ErrCapabilityUnsupported
 	}
 	return err
 }
 
 func (a ucInstanceOperatorAdapter) Rescue(ctx context.Context, op ucinstanceservice.Operator, id uint64, req *ucinstancedto.RescueRequest) error {
-	err := a.ops.Rescue(ctx, admininstanceservice.Operator{Type: op.Type, ID: op.ID, Name: op.Name}, id,
+	err := a.ops.Rescue(ctx, instanceservice.Operator{Type: op.Type, ID: op.ID, Name: op.Name}, id,
 		&admininstancedto.RescueRequest{System: req.System, TempPassword: req.TempPassword})
-	if errors.Is(err, admininstanceservice.ErrCapabilityUnsupported) {
+	if errors.Is(err, instanceservice.ErrCapabilityUnsupported) {
 		return ucinstanceservice.ErrCapabilityUnsupported
 	}
 	return err
 }
 
 func (a ucInstanceOperatorAdapter) ExitRescue(ctx context.Context, op ucinstanceservice.Operator, id uint64) error {
-	err := a.ops.ExitRescue(ctx, admininstanceservice.Operator{Type: op.Type, ID: op.ID, Name: op.Name}, id)
-	if errors.Is(err, admininstanceservice.ErrCapabilityUnsupported) {
+	err := a.ops.ExitRescue(ctx, instanceservice.Operator{Type: op.Type, ID: op.ID, Name: op.Name}, id)
+	if errors.Is(err, instanceservice.ErrCapabilityUnsupported) {
 		return ucinstanceservice.ErrCapabilityUnsupported
 	}
 	return err
@@ -323,26 +322,26 @@ func (a ucInstanceOperatorAdapter) Snapshots(ctx context.Context, id uint64, sna
 }
 
 func (a ucInstanceOperatorAdapter) CreateSnapshot(ctx context.Context, op ucinstanceservice.Operator, id uint64, req *ucinstancedto.SnapshotCreateRequest) error {
-	err := a.ops.CreateSnapshot(ctx, admininstanceservice.Operator{Type: op.Type, ID: op.ID, Name: op.Name}, id,
+	err := a.ops.CreateSnapshot(ctx, instanceservice.Operator{Type: op.Type, ID: op.ID, Name: op.Name}, id,
 		&admininstancedto.SnapshotCreateRequest{Type: req.Type, Name: req.Name, DiskID: req.DiskID})
-	if errors.Is(err, admininstanceservice.ErrCapabilityUnsupported) {
+	if errors.Is(err, instanceservice.ErrCapabilityUnsupported) {
 		return ucinstanceservice.ErrCapabilityUnsupported
 	}
 	return err
 }
 
 func (a ucInstanceOperatorAdapter) DeleteSnapshot(ctx context.Context, op ucinstanceservice.Operator, id uint64, snapshotID string) error {
-	err := a.ops.DeleteSnapshot(ctx, admininstanceservice.Operator{Type: op.Type, ID: op.ID, Name: op.Name}, id, snapshotID)
-	if errors.Is(err, admininstanceservice.ErrCapabilityUnsupported) {
+	err := a.ops.DeleteSnapshot(ctx, instanceservice.Operator{Type: op.Type, ID: op.ID, Name: op.Name}, id, snapshotID)
+	if errors.Is(err, instanceservice.ErrCapabilityUnsupported) {
 		return ucinstanceservice.ErrCapabilityUnsupported
 	}
 	return err
 }
 
 func (a ucInstanceOperatorAdapter) RestoreSnapshot(ctx context.Context, op ucinstanceservice.Operator, id uint64, req *ucinstancedto.SnapshotRestoreRequest) error {
-	err := a.ops.RestoreSnapshot(ctx, admininstanceservice.Operator{Type: op.Type, ID: op.ID, Name: op.Name}, id,
+	err := a.ops.RestoreSnapshot(ctx, instanceservice.Operator{Type: op.Type, ID: op.ID, Name: op.Name}, id,
 		&admininstancedto.SnapshotRestoreRequest{SnapshotID: req.SnapshotID, ConfirmMark: req.ConfirmMark})
-	if errors.Is(err, admininstanceservice.ErrCapabilityUnsupported) {
+	if errors.Is(err, instanceservice.ErrCapabilityUnsupported) {
 		return ucinstanceservice.ErrCapabilityUnsupported
 	}
 	return err

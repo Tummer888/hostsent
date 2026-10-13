@@ -47,15 +47,15 @@ func TestExchange_QueryStringThenJSONP(t *testing.T) {
 		switch r.URL.Path {
 		case "/oauth2.0/token":
 			// 正常返回 query string。
-			w.Write([]byte("access_token=AT-1&expires_in=7776000&refresh_token=RT-1"))
+			_, _ = w.Write([]byte("access_token=AT-1&expires_in=7776000&refresh_token=RT-1"))
 		case "/oauth2.0/me":
 			// JSONP 包裹体，且要求带 User-Agent。
 			if r.Header.Get("User-Agent") == "" {
 				t.Error("/oauth2.0/me 必须带 User-Agent，否则部分场景返回空体")
 			}
-			w.Write([]byte(`callback( {"openid":"OID-QQ-1","unionid":"UID-QQ-1"} );`))
+			_, _ = w.Write([]byte(`callback( {"openid":"OID-QQ-1","unionid":"UID-QQ-1"} );`))
 		case "/user/get_user_info":
-			w.Write([]byte(`{"ret":0,"msg":"","nickname":"企鹅","figureurl_qq_2":"https://example.com/qq2.png"}`))
+			_, _ = w.Write([]byte(`{"ret":0,"msg":"","nickname":"企鹅","figureurl_qq_2":"https://example.com/qq2.png"}`))
 		default:
 			t.Errorf("未预期的请求路径 %s", r.URL.Path)
 		}
@@ -102,7 +102,7 @@ func TestExchange_QueryStringThenJSONP(t *testing.T) {
 // 出错时返回 query string 形式的 error，必须转成 ErrExchangeFailed 而不是静默继续。
 func TestExchange_ErrorQueryString(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("error=100016&error_description=access+token+expired"))
+		_, _ = w.Write([]byte("error=100016&error_description=access+token+expired"))
 	}))
 	defer srv.Close()
 

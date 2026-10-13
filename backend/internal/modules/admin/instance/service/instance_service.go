@@ -1431,16 +1431,16 @@ func (s *instanceService) AdjustBilling(ctx context.Context, op Operator, id uin
 	// 与其存一个永远算不出钱的绑定价，不如明确报错）。
 	if req.RenewalPrice != nil {
 		price := money.Round2(*req.RenewalPrice)
-		clear := false
+		clearPrice := false
 		switch {
 		case price < 0:
-			clear = true
+			clearPrice = true
 		case price == 0:
 			s.record(ctx, row, op, model.ActionBillingAdjust, params, before, before, ErrBillingAdjustInvalid)
 			return nil, fmt.Errorf("%w: 续费价必须大于 0；要取消绑定请传 -1", ErrBillingAdjustInvalid)
 		}
 		params["renewal_price"] = req.RenewalPrice
-		params["renewal_price_cleared"] = clear
+		params["renewal_price_cleared"] = clearPrice
 		if perr := s.repo.SetRenewalPrice(ctx, row.ID, req.RenewalPrice); perr != nil {
 			s.record(ctx, row, op, model.ActionBillingAdjust, params, before, before, perr)
 			return nil, perr
@@ -2603,19 +2603,6 @@ func (s *instanceService) capabilities(ctx context.Context, providerID uint64) (
 	}, nil
 }
 
-// reinstaller 解析上游并断言重装能力。
-func (s *instanceService) reinstaller(ctx context.Context, providerID uint64) (upstream.InstanceReinstall, error) {
-	provider, err := s.buildProvider(ctx, providerID)
-	if err != nil {
-		return nil, err
-	}
-	r, ok := provider.(upstream.InstanceReinstall)
-	if !ok {
-		return nil, ErrCapabilityUnsupported
-	}
-	return r, nil
-}
-
 // passwordResetter 解析上游并断言重置密码能力。
 func (s *instanceService) passwordResetter(ctx context.Context, providerID uint64) (upstream.InstancePasswordReset, error) {
 	provider, err := s.buildProvider(ctx, providerID)
@@ -2870,9 +2857,9 @@ func pickString(v, fallback string) string {
 }
 
 // truncate 按字节上限截断错误文案（错误可能来自上游，长度不可控）。
-func truncate(s string, max int) string {
-	if len(s) <= max {
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
 		return s
 	}
-	return s[:max]
+	return s[:maxLen]
 }

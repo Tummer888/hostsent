@@ -4,7 +4,6 @@ package handler
 import (
 	"errors"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -137,16 +136,6 @@ func respondOAuthErr(c *gin.Context, err error) {
 	default:
 		serverError(c, err.Error())
 	}
-}
-
-func parseUintParam(c *gin.Context, name string) (uint64, bool) {
-	raw := c.Param(name)
-	id, err := strconv.ParseUint(raw, 10, 64)
-	if err != nil || id == 0 {
-		badRequest(c, name+" 不合法")
-		return 0, false
-	}
-	return id, true
 }
 
 func badRequest(c *gin.Context, message string) {

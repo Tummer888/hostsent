@@ -65,7 +65,7 @@ func (s *LocalStore) Save(dir, filename string, r io.Reader, maxSize int64) (str
 	if err != nil {
 		return "", 0, fmt.Errorf("create file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var written int64
 	if maxSize > 0 {

@@ -137,7 +137,7 @@ func (h *UserHandler) ExportUsers(c *gin.Context) {
 	c.Header("Content-Type", "text/csv; charset=utf-8")
 	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="users-%s.csv"`, time.Now().Format("20060102150405")))
 	// 写入 UTF-8 BOM，保证 Excel 正确识别中文
-	c.Writer.WriteString("\xEF\xBB\xBF")
+	_, _ = c.Writer.WriteString("\xEF\xBB\xBF")
 
 	w := csv.NewWriter(c.Writer)
 	_ = w.Write([]string{"ID", "用户名", "姓名", "邮箱", "手机号", "状态", "用户组", "用户等级", "归属销售", "登录IP", "余额", "累计消费", "实名认证", "注销时间", "注册时间"})

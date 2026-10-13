@@ -812,12 +812,12 @@ func (s *instanceService) Power(ctx context.Context, userID, id uint64, action s
 	if err != nil {
 		return err
 	}
-	provider_ := provider
-	control, ok := provider_.(upstream.InstanceControl)
+	providerImpl := provider
+	control, ok := providerImpl.(upstream.InstanceControl)
 	if !ok {
 		return errUnsupportedControl
 	}
-	hard, hasHard := provider_.(upstream.InstancePowerHard)
+	hard, hasHard := providerImpl.(upstream.InstancePowerHard)
 	var opErr error
 	switch strings.ToLower(action) {
 	case "on":

@@ -4,7 +4,6 @@ package repository
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
@@ -460,12 +459,4 @@ func saveSchemeItems(tx *gorm.DB, schemeID uint64, items []model.DiscountSchemeI
 		items[i].SchemeID = schemeID
 	}
 	return tx.Create(&items).Error
-}
-
-// normalizeSchemeStatus 归一状态值。
-func normalizeSchemeStatus(status string) string {
-	if strings.TrimSpace(status) == "" {
-		return "active"
-	}
-	return status
 }

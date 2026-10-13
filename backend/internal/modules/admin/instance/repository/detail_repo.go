@@ -523,7 +523,7 @@ func osImagesFromRawSpecs(rawSpecs string) []dto.ReinstallImage {
 				if !ok {
 					continue
 				}
-				if hidden, _ := sm["hidden"]; hidden != nil {
+				if hidden := sm["hidden"]; hidden != nil {
 					if h, ok := toFloat(hidden); ok && h != 0 {
 						continue // 上游隐藏项不下发（与开通一致）
 					}

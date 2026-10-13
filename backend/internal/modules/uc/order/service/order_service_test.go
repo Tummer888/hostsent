@@ -7,10 +7,14 @@ import (
 	"testing"
 	"time"
 
+	accountdto "hostsent/backend/internal/modules/admin/finance/account/dto"
+	transdto "hostsent/backend/internal/modules/admin/finance/transaction/dto"
 	orderdto "hostsent/backend/internal/modules/admin/order/dto"
 	catalogdto "hostsent/backend/internal/modules/admin/product/catalog/dto"
 	paydto "hostsent/backend/internal/modules/admin/system/payment/dto"
 	"hostsent/backend/internal/modules/uc/order/dto"
+
+	"go.uber.org/zap"
 )
 
 type fakeSkuPort struct {
@@ -101,7 +105,11 @@ type fakeOrderRepo struct {
 	casMiss bool
 }
 
-func (f *fakeOrderRepo) Create(context.Context, *dto.OrderRow) error { return nil }
+func (f *fakeOrderRepo) Create(_ context.Context, order *dto.OrderRow) error {
+	// 对齐真实仓储：GORM 落库时自动填充 CreatedAt（payExpireAt 依赖它推导截止时间）。
+	order.CreatedAt = time.Now()
+	return nil
+}
 func (f *fakeOrderRepo) List(context.Context, orderdto.OrderListQuery) ([]dto.OrderRow, int64, error) {
 	return nil, 0, nil
 }
@@ -455,5 +463,192 @@ func TestPayableAmountFallback(t *testing.T) {
 	}
 	if got := payableAmount(&dto.OrderRow{TotalAmount: 200}); got != 200 {
 		t.Fatalf("无快照应回落应付总额 200，got %v", got)
+	}
+}
+
+// —— 补测：下单链路（Create）与过期调度器 ——
+
+// fakeCatalogPort 商品读取最小实现。
+type fakeCatalogPort struct {
+	product *catalogdto.ProductInfo
+	err     error
+}
+
+func (f *fakeCatalogPort) FindByID(context.Context, uint64) (*catalogdto.ProductInfo, error) {
+	return f.product, f.err
+}
+
+// fakeWalletPort 账务调整最小实现。
+type fakeWalletPort struct {
+	adjusted []accountdto.AdjustRequest
+	err      error
+}
+
+func (f *fakeWalletPort) Adjust(_ context.Context, req accountdto.AdjustRequest, _ uint64) (*transdto.TransactionInfo, error) {
+	f.adjusted = append(f.adjusted, req)
+	return &transdto.TransactionInfo{}, f.err
+}
+
+// fakeProvisionQueue 开通投递最小实现。
+type fakeProvisionQueue struct {
+	enqueued int
+}
+
+func (f *fakeProvisionQueue) EnqueueProvision(context.Context, *dto.OrderRow, string) error {
+	f.enqueued++
+	return nil
+}
+
+// TestCreateRejectsEmptyProduct 下单：空商品 ID 直接拒绝，不碰任何端口。
+func TestCreateRejectsEmptyProduct(t *testing.T) {
+	svc := &orderService{}
+	if _, err := svc.Create(context.Background(), 1, 1, dto.CreateRequest{}); err == nil {
+		t.Fatal("空商品应报错")
+	}
+}
+
+// TestCreateRejectsInvalidPayMode 下单：非法支付方式拒绝。
+func TestCreateRejectsInvalidPayMode(t *testing.T) {
+	svc := &orderService{}
+	if _, err := svc.Create(context.Background(), 1, 1, dto.CreateRequest{ProductID: 5, PayMode: "bitcoin"}); !errors.Is(err, ErrPayModeInvalid) {
+		t.Fatalf("非法支付方式应返回 ErrPayModeInvalid, got %v", err)
+	}
+}
+
+// TestCreateBalanceFlow 余额下单主链路：扣款 → 落单 → 投递开通 → 返回 paid。
+func TestCreateBalanceFlow(t *testing.T) {
+	catalog := &fakeCatalogPort{product: &catalogdto.ProductInfo{ID: 5, Name: "云主机", Status: 1, Price: 88.8, PriceModel: "monthly"}}
+	wallet := &fakeWalletPort{}
+	repo := &fakeOrderRepo{}
+	queue := &fakeProvisionQueue{}
+	svc := &orderService{
+		catalog: catalog, wallet: wallet, orderRepo: repo,
+		provisionQueue: queue,
+		sku:            &fakeSkuPort{}, // 无 SKU：走商品级库存
+		isBalanceErr:   func(error) bool { return false },
+	}
+	info, err := svc.Create(context.Background(), 1, 1, dto.CreateRequest{ProductID: 5})
+	if err != nil {
+		t.Fatalf("余额下单应成功: %v", err)
+	}
+	if len(wallet.adjusted) != 1 || wallet.adjusted[0].Amount != 88.8 {
+		t.Fatalf("应扣款一次且金额为算价结果: %+v", wallet.adjusted)
+	}
+	if queue.enqueued != 1 {
+		t.Fatalf("应投递一次开通任务, got %d", queue.enqueued)
+	}
+	if info.Status != dto.OrderStatusPaid {
+		t.Fatalf("余额链路订单应落 paid, got %s", info.Status)
+	}
+}
+
+// TestCreateChannelFlow 渠道下单：不扣款、落 pending、不投递开通。
+func TestCreateChannelFlow(t *testing.T) {
+	catalog := &fakeCatalogPort{product: &catalogdto.ProductInfo{ID: 5, Name: "云主机", Status: 1, Price: 88.8, PriceModel: "monthly"}}
+	wallet := &fakeWalletPort{}
+	repo := &fakeOrderRepo{}
+	queue := &fakeProvisionQueue{}
+	svc := &orderService{
+		catalog: catalog, wallet: wallet, orderRepo: repo,
+		provisionQueue: queue,
+		sku:            &fakeSkuPort{},
+	}
+	info, err := svc.Create(context.Background(), 1, 1, dto.CreateRequest{ProductID: 5, PayMode: dto.PayModeChannel})
+	if err != nil {
+		t.Fatalf("渠道下单应成功: %v", err)
+	}
+	if len(wallet.adjusted) != 0 {
+		t.Fatalf("渠道链路不应扣款: %+v", wallet.adjusted)
+	}
+	if info.Status != dto.OrderStatusPending {
+		t.Fatalf("渠道链路订单应落 pending, got %s", info.Status)
+	}
+	if queue.enqueued != 0 {
+		t.Fatalf("未收款不应投递开通, got %d", queue.enqueued)
+	}
+	if info.PayExpireAt == "" {
+		t.Fatal("待支付订单应带支付截止时间")
+	}
+}
+
+// TestCreateOfflineProduct 下架商品拒单。
+func TestCreateOfflineProduct(t *testing.T) {
+	catalog := &fakeCatalogPort{product: &catalogdto.ProductInfo{ID: 5, Name: "云主机", Status: 0, Price: 88.8}}
+	svc := &orderService{catalog: catalog}
+	if _, err := svc.Create(context.Background(), 1, 1, dto.CreateRequest{ProductID: 5}); !errors.Is(err, ErrProductOffline) {
+		t.Fatalf("下架商品应返回 ErrProductOffline, got %v", err)
+	}
+}
+
+// TestCreateBalanceInsufficient 余额不足翻译为用户可读错误。
+func TestCreateBalanceInsufficient(t *testing.T) {
+	catalog := &fakeCatalogPort{product: &catalogdto.ProductInfo{ID: 5, Name: "云主机", Status: 1, Price: 88.8, PriceModel: "monthly"}}
+	wallet := &fakeWalletPort{err: errors.New("insufficient balance")}
+	svc := &orderService{
+		catalog: catalog, wallet: wallet, orderRepo: &fakeOrderRepo{},
+		sku:          &fakeSkuPort{},
+		isBalanceErr: func(error) bool { return true },
+	}
+	if _, err := svc.Create(context.Background(), 1, 1, dto.CreateRequest{ProductID: 5}); !errors.Is(err, ErrInsufficientBalance) {
+		t.Fatalf("余额不足应返回 ErrInsufficientBalance, got %v", err)
+	}
+}
+
+// fakeExpireOrderService 过期调度器的最小服务实现。
+type fakeExpireOrderService struct {
+	minutes   int
+	closed    int
+	expireErr error
+}
+
+func (f *fakeExpireOrderService) SetPayExpireMinutes(m int) { f.minutes = m }
+func (f *fakeExpireOrderService) ExpirePending(context.Context, int) (int, error) {
+	return f.closed, f.expireErr
+}
+func (f *fakeExpireOrderService) Create(context.Context, uint64, uint64, dto.CreateRequest) (*dto.OrderInfo, error) {
+	return nil, nil
+}
+func (f *fakeExpireOrderService) List(context.Context, uint64, dto.ListQuery) (*dto.ListResponse, error) {
+	return nil, nil
+}
+func (f *fakeExpireOrderService) Detail(context.Context, uint64, uint64) (*dto.OrderInfo, error) {
+	return nil, nil
+}
+func (f *fakeExpireOrderService) Quote(context.Context, uint64, dto.QuoteRequest) (*dto.QuoteInfo, error) {
+	return nil, nil
+}
+func (f *fakeExpireOrderService) Pay(context.Context, uint64, uint64, dto.PayRequest) (*dto.PayInfo, error) {
+	return nil, nil
+}
+func (f *fakeExpireOrderService) Cancel(context.Context, uint64, uint64) (*dto.OrderInfo, error) {
+	return nil, nil
+}
+func (f *fakeExpireOrderService) SetCashierPorts(prepayPort, pendingPaymentCloser) {}
+func (f *fakeExpireOrderService) SetOptionPricingPort(optionPricingPort)           {}
+func (f *fakeExpireOrderService) SetSalesOwnerResolver(salesOwnerResolver)         {}
+func (f *fakeExpireOrderService) SetInstancePlaceholder(func(context.Context, *dto.OrderRow) error) {
+}
+func (f *fakeExpireOrderService) SetPendingInstanceReleaser(func(context.Context, uint64) (int64, error)) {
+}
+func (f *fakeExpireOrderService) SetLogger(*zap.Logger)                  {}
+func (f *fakeExpireOrderService) SetOptionLabelResolver(optionLabelPort) {}
+
+// TestExpireSchedulerRunOnce 调度器单轮：读配置 → 刷新有效期 → 关单。
+func TestExpireSchedulerRunOnce(t *testing.T) {
+	svc := &fakeExpireOrderService{closed: 3}
+	s := NewPendingExpireScheduler(svc, func(context.Context) int { return 30 }, zap.NewNop())
+	s.runOnce(context.Background())
+	if svc.minutes != 30 {
+		t.Fatalf("调度器应把配置有效期灌进服务, got %d", svc.minutes)
+	}
+}
+
+// TestExpireSchedulerDefaultMinutes 配置缺失/非法回落默认有效期。
+func TestExpireSchedulerDefaultMinutes(t *testing.T) {
+	svc := &fakeExpireOrderService{}
+	s := NewPendingExpireScheduler(svc, nil, zap.NewNop())
+	s.runOnce(context.Background())
+	if svc.minutes != defaultPayExpireMinutes {
+		t.Fatalf("无配置应回落默认 %d 分钟, got %d", defaultPayExpireMinutes, svc.minutes)
 	}
 }

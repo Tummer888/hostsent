@@ -134,7 +134,7 @@ func TestNatEndToEndLive(t *testing.T) {
 
 // createNatForward 创建一条 NAT 端口转发（内网端口 → 面板自动分配外网端口）。
 // 面板入参：name / int_port 必填，ext_port 省略表示自动分配，protocol 1=tcp。
-func (p *DCIMCloudProvider) createNatForward(ctx context.Context, providerInstanceID, name string, intPort int) error {
+func (p *Provider) createNatForward(ctx context.Context, providerInstanceID, name string, intPort int) error {
 	if providerInstanceID == "" {
 		return fmt.Errorf("实例号为空")
 	}
@@ -148,7 +148,7 @@ func (p *DCIMCloudProvider) createNatForward(ctx context.Context, providerInstan
 }
 
 // deleteNatRule 删除一条 NAT 规则（acl 或 web）。
-func (p *DCIMCloudProvider) deleteNatRule(ctx context.Context, providerInstanceID, kind, ruleID string) error {
+func (p *Provider) deleteNatRule(ctx context.Context, providerInstanceID, kind, ruleID string) error {
 	return p.call(ctx, "DeleteNatRule", http.MethodDelete,
 		"/"+kind+"/"+ruleID+"?hostid="+providerInstanceID, nil, nil)
 }

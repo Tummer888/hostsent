@@ -125,7 +125,7 @@ func (h *VerificationHandler) DownloadDocument(c *gin.Context) {
 		respondVerificationErr(c, err)
 		return
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	// 与用户端同一处理：落盘随机名不外露，Content-Type 由扩展名白名单推导，
 	// 未知类型按二进制流下发（绝不内联渲染上传内容）。
 	fileName := service.DocumentFileName(doc.DocumentType, doc.FileURL)

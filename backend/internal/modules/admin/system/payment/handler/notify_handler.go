@@ -49,10 +49,10 @@ func paymentNotifyError(err error) *apperrors.AppError {
 	if err == nil {
 		return nil
 	}
-	switch {
-	case err == payment.ErrSignatureInvalid || err == payment.ErrAmountMismatch:
+	switch err {
+	case payment.ErrSignatureInvalid, payment.ErrAmountMismatch:
 		return apperrors.New(30009, "回调校验失败")
-	case err == payment.ErrOrderNotFound || err == service.ErrOrderNotFound:
+	case payment.ErrOrderNotFound, service.ErrOrderNotFound:
 		return apperrors.New(20002, "支付单不存在")
 	default:
 		return apperrors.New(50001, "回调处理失败")

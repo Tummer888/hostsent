@@ -321,8 +321,8 @@ func (l *rateLimiter) allow(now time.Time, perMin int) bool {
 	elapsed := now.Sub(l.last).Seconds()
 	l.last = now
 	l.tokens += elapsed * float64(perMin) / 60
-	if max := float64(perMin); l.tokens > max {
-		l.tokens = max
+	if capTokens := float64(perMin); l.tokens > capTokens {
+		l.tokens = capTokens
 	}
 	if l.tokens < 1 {
 		return false
@@ -432,9 +432,9 @@ func (w *digestWriter) WriteString(s string) (int, error) {
 
 func (w *digestWriter) digest() string { return w.buf.String() }
 
-func truncateStr(s string, max int) string {
-	if len(s) <= max {
+func truncateStr(s string, maxLen int) string {
+	if len(s) <= maxLen {
 		return s
 	}
-	return s[:max]
+	return s[:maxLen]
 }

@@ -36,10 +36,9 @@ type FrameworkService interface {
 // ErrPriceChangeHandled 调价事件已被处置。
 
 type frameworkService struct {
-	fwRepo       syncrepo.FrameworkRepository
-	providerRepo syncrepo.ProviderLister
-	engine       *SyncEngine
-	logger       *zap.Logger
+	fwRepo syncrepo.FrameworkRepository
+	engine *SyncEngine
+	logger *zap.Logger
 }
 
 // NewFrameworkService 创建同步框架业务服务。

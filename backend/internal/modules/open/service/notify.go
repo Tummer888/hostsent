@@ -202,7 +202,7 @@ func (w *NotifyDeliveryWorker) deliver(ctx context.Context, row *openmodel.OpenN
 		w.markFailure(ctx, row, err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		w.markFailure(ctx, row, fmt.Errorf("non-2xx status %d", resp.StatusCode))
 		return

@@ -64,7 +64,7 @@ func mockGateway(t *testing.T, priv *rsa.PrivateKey, node, nodeRaw string, asser
 			assertBiz(t, form.Get("biz_content"))
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"%s":%s,"sign":"%s"}`, node, nodeRaw, signNodeRaw(t, priv, nodeRaw))
+		_, _ = fmt.Fprintf(w, `{"%s":%s,"sign":"%s"}`, node, nodeRaw, signNodeRaw(t, priv, nodeRaw))
 	}))
 }
 

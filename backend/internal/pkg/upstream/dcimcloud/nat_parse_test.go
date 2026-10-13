@@ -23,7 +23,7 @@ func TestNatAclResponseParse(t *testing.T) {
 	    ]
 	  }
 	}`
-	var resp natAclResponse
+	var resp natACLResponse
 	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
 		t.Fatalf("解析失败: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestNatWebResponseParse(t *testing.T) {
 // 必须解析成空列表而不是报错——"没有规则"是正常状态。
 func TestNatResponseNullData(t *testing.T) {
 	for _, body := range []string{`null`, `{"data":null}`, `{"data":{"data":null}}`} {
-		var resp natAclResponse
+		var resp natACLResponse
 		if err := json.Unmarshal([]byte(body), &resp); err != nil {
 			t.Fatalf("%s 应能解析为空，实际报错 %v", body, err)
 		}

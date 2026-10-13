@@ -14,7 +14,6 @@ import (
 	"gorm.io/gorm"
 
 	"hostsent/backend/internal/modules/admin/instance/dto"
-	instancedto "hostsent/backend/internal/modules/admin/instance/dto"
 	"hostsent/backend/internal/modules/admin/instance/repository"
 	pkgmodel "hostsent/backend/internal/pkg/model"
 	"hostsent/backend/internal/pkg/upstream"
@@ -185,7 +184,7 @@ func TestLiveDisposeOnRefund(t *testing.T) {
 		}
 		return st
 	}
-	in := &instancedto.RefundInstanceRequest{
+	in := &dto.RefundInstanceRequest{
 		OrderID: orderID, OrderNo: "UC-TEST", UserID: 2,
 		RefundNo: "RF-TEST", RefundAmount: 100, PaidAmount: 100, FullRefund: true,
 	}

@@ -478,12 +478,11 @@ func applyAuditLogFilters(db *gorm.DB, query dto.AuditLogListQuery) *gorm.DB {
 	if query.ResourceID != "" {
 		db = db.Where("resource_id = ?", query.ResourceID)
 	}
-	if query.Result != "" {
-		if query.Result == "success" {
-			db = db.Where("response_code < 400")
-		} else if query.Result == "failed" {
-			db = db.Where("response_code >= 400")
-		}
+	switch query.Result {
+	case "success":
+		db = db.Where("response_code < 400")
+	case "failed":
+		db = db.Where("response_code >= 400")
 	}
 	return applyCreatedRange(db, query.StartTime, query.EndTime)
 }

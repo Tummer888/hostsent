@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"time"
 
-	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -100,11 +99,11 @@ func (s *service) openSession(ctx context.Context, userID uint64, username, prov
 
 // truncate 按字节截断（DB 列有长度上限，超长会整条 INSERT 失败）。
 // 中文用户代理按字节截断可能切出半个字符，因此末尾做一次 UTF-8 边界回退。
-func truncate(s string, max int) string {
-	if len(s) <= max {
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
 		return s
 	}
-	cut := s[:max]
+	cut := s[:maxLen]
 	for len(cut) > 0 && !utf8ValidLast(cut) {
 		cut = cut[:len(cut)-1]
 	}
@@ -135,14 +134,6 @@ func utf8ValidLast(s string) bool {
 		}
 	}
 	return false
-}
-
-// warnIf 统一的服务层告警入口，避免各处重复 zap 字段拼接。
-func (s *service) warnIf(err error, msg string, fields ...zap.Field) {
-	if err == nil {
-		return
-	}
-	s.logger.Warn(msg, append(fields, zap.Error(err))...)
 }
 
 // mustJSON 序列化描述符快照；失败返回空串（描述符只是审计快照，不该阻断配置保存）。

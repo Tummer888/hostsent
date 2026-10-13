@@ -67,7 +67,7 @@ func TestListMetricCharts_SkipsHyperv(t *testing.T) {
 }
 
 // statisticsServer 按 type 返回固定采样行，并记录收到的 query。
-func statisticsServer(t *testing.T, rows []interface{}) (*DCIMCloudProvider, *map[string]string) {
+func statisticsServer(t *testing.T, rows []interface{}) (*Provider, *map[string]string) {
 	t.Helper()
 	got := map[string]string{}
 	p := newMockProvider(t, func(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +96,7 @@ func statisticsServer(t *testing.T, rows []interface{}) (*DCIMCloudProvider, *ma
 	return p, &got
 }
 
-func queryOne(t *testing.T, p *DCIMCloudProvider, typ string) *upstream.MetricSeries {
+func queryOne(t *testing.T, p *Provider, typ string) *upstream.MetricSeries {
 	t.Helper()
 	s, err := p.QueryMetrics(context.Background(), &upstream.MetricsQuery{
 		ProviderInstanceID: "1934", Type: typ, StartMillis: 1000, EndMillis: 2000,
@@ -219,5 +219,5 @@ func TestQueryMetrics_EmptyWhenNoNode(t *testing.T) {
 }
 
 func TestImplementsInstanceMetrics(t *testing.T) {
-	var _ upstream.InstanceMetrics = (*DCIMCloudProvider)(nil)
+	var _ upstream.InstanceMetrics = (*Provider)(nil)
 }

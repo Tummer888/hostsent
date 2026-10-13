@@ -137,9 +137,9 @@ func (r *notifyRepository) AppIDLookup(ctx context.Context, appID string) (uint6
 	return id, nil
 }
 
-func truncate(s string, max int) string {
-	if len(s) <= max {
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
 		return s
 	}
-	return s[:max]
+	return s[:maxLen]
 }

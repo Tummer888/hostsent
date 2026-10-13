@@ -3,8 +3,6 @@ package repository
 import (
 	"context"
 	"errors"
-	"fmt"
-	"time"
 
 	"gorm.io/gorm"
 
@@ -144,11 +142,6 @@ func (r *renewalRepository) CountByStatus(ctx context.Context) (map[string]int64
 		result[item.Status] = item.Count
 	}
 	return result, nil
-}
-
-// genRenewalNo 生成续费单号：RN + yyyymmddHHMMSS + 6 位随机。
-func genRenewalNo() string {
-	return fmt.Sprintf("RN%s%06d", time.Now().Format("20060102150405"), time.Now().UnixNano()%1000000)
 }
 
 var _ = errors.Is // 保留 errors 引用（未来扩展）

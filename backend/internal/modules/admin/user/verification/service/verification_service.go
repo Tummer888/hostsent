@@ -1344,11 +1344,11 @@ func statusLabel(status string) string {
 }
 
 // truncate 按字节截断并对齐 UTF-8 边界（provider_message 是 varchar(255)）。
-func truncate(s string, max int) string {
-	if len(s) <= max {
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
 		return s
 	}
-	cut := s[:max]
+	cut := s[:maxLen]
 	for len(cut) > 0 && cut[len(cut)-1]&0xC0 == 0x80 {
 		cut = cut[:len(cut)-1]
 	}

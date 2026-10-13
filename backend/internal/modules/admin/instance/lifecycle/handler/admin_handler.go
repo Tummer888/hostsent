@@ -255,8 +255,10 @@ func (h *LifecycleAdminHandler) EnforceInstance(c *gin.Context) {
 		return
 	}
 	var req lifecycledto.EnforceRequest
+	// reason 可选：空 body（io.EOF）视为未填原因，其余绑定错误照常拒绝。
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
-		// reason 可选：空 body 视为未填原因。
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
 	}
 	action, err := h.lifecycleSvc.EnforceInstance(c.Request.Context(), id, req.Reason)
 	if err != nil {

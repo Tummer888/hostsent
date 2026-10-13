@@ -3,7 +3,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
@@ -480,6 +479,3 @@ func normalizePage(page, pageSize int) (int, int) {
 	}
 	return page, pageSize
 }
-
-// isNotFound 便于服务层统一把 gorm.ErrRecordNotFound 映射为业务错误。
-func isNotFound(err error) bool { return errors.Is(err, gorm.ErrRecordNotFound) }

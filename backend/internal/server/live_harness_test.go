@@ -22,10 +22,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"go.uber.org/zap"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	gormlogger "gorm.io/gorm/logger"
 	appauth "hostsent/backend/internal/pkg/auth"
 	"hostsent/backend/internal/pkg/config"
 	oauthpkg "hostsent/backend/internal/pkg/oauth"
@@ -39,6 +35,11 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"go.uber.org/zap"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 // ---------- 基础设施 ----------
@@ -211,7 +212,7 @@ func (h *liveHarness) do(method, path, token string, body any) (int, map[string]
 	h.srv.http.Handler.ServeHTTP(rec, req)
 
 	resp := rec.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(resp.Body)
 	out := map[string]any{}
 	if len(raw) > 0 {

@@ -89,12 +89,6 @@ func (s *stubRequestRepo) Complete(_ context.Context, id uint64, body []byte) er
 	return nil
 }
 
-func (s *stubRequestRepo) get(appID uint64, cid string) *openmodel.OpenRequest {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.rows[key(appID, cid)]
-}
-
 func appFixture() *openrepo.ResolvedApp {
 	return openrepo.NewResolvedApp(
 		openmodel.OpenApp{ID: 7, AppID: "app_x", Status: 1, OwnerUserID: 42},
@@ -196,7 +190,7 @@ func TestOpenOrderStaleProcessingRetakes(t *testing.T) {
 	repo := newStubRequestRepo()
 	svc := NewOpenOrderService(OrderDeps{Orders: uc, Requests: repo})
 	// 预置一条已停滞的 processing 行。
-	repo.Claim(context.Background(), 7, "req-old", "POST", "/open/v1/orders")
+	_, _ = repo.Claim(context.Background(), 7, "req-old", "POST", "/open/v1/orders")
 	repo.mu.Lock()
 	repo.rows[key(7, "req-old")].UpdatedAt = time.Now().Add(-2 * openrepo.StaleProcessingAfter)
 	repo.mu.Unlock()

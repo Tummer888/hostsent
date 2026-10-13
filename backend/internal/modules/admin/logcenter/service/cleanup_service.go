@@ -446,7 +446,7 @@ func (s *cleanupService) run(ctx context.Context, jobID uint64) error {
 			s.logger.Warn("logcenter cleanup row mismatch",
 				zap.String("source", key), zap.Int64("eligible", eligible), zap.Int64("deleted", deleted))
 		}
-		if err := policyMarkRun(s.policySvc, ctx, key, deleted); err != nil {
+		if err := policyMarkRun(ctx, s.policySvc, key, deleted); err != nil {
 			s.logger.Warn("logcenter mark policy run failed", zap.String("source", key), zap.Error(err))
 		}
 	}
@@ -605,7 +605,7 @@ func (s *cleanupService) resolveSources(keys []string) ([]*catalog.Source, error
 }
 
 // policyMarkRun 回填策略行的上次执行信息。
-func policyMarkRun(svc PolicyService, ctx context.Context, sourceKey string, deleted int64) error {
+func policyMarkRun(ctx context.Context, svc PolicyService, sourceKey string, deleted int64) error {
 	impl, ok := svc.(*policyService)
 	if !ok || impl == nil {
 		return nil

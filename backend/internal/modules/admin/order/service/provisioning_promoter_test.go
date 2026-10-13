@@ -40,7 +40,7 @@ func TestProvisioningPromoterPromotesOnlyRunning(t *testing.T) {
 			p := NewProvisioningPromoter(
 				stubStaleStore{orders: []model.Order{{ID: 843, Status: model.OrderStatusProvisioning}}},
 				stubRefresher{status: c.refreshStatus, err: c.refreshErr},
-				stubActivator{record: &activated},
+				recordingActivator{record: &activated},
 				zap.NewNop(),
 				ProvisioningPromoterOptions{StaleAfter: time.Millisecond, Batch: 10},
 			)
@@ -63,7 +63,7 @@ func TestProvisioningPromoterIsolatesFailures(t *testing.T) {
 	p := NewProvisioningPromoter(
 		stubStaleStore{orders: []model.Order{{ID: 1}, {ID: 2}, {ID: 3}}},
 		failingThenOKRefresher{failFor: 2},
-		stubActivator{record: &activated},
+		recordingActivator{record: &activated},
 		zap.NewNop(),
 		ProvisioningPromoterOptions{StaleAfter: time.Millisecond, Batch: 10},
 	)
@@ -83,7 +83,7 @@ func TestProvisioningPromoterBacksOffStuckOrders(t *testing.T) {
 	p := NewProvisioningPromoter(
 		stubStaleStore{orders: []model.Order{{ID: 42, Status: model.OrderStatusProvisioning}}},
 		refresher,
-		stubActivator{record: &[]uint64{}},
+		recordingActivator{record: &[]uint64{}},
 		zap.NewNop(),
 		ProvisioningPromoterOptions{
 			StaleAfter: time.Millisecond, Batch: 10,
@@ -123,7 +123,7 @@ func TestProvisioningPromoterClearsBackoffOnPromote(t *testing.T) {
 	p := NewProvisioningPromoter(
 		stubStaleStore{orders: []model.Order{{ID: 7, Status: model.OrderStatusProvisioning}}},
 		refresher,
-		stubActivator{record: &[]uint64{}},
+		recordingActivator{record: &[]uint64{}},
 		zap.NewNop(),
 		ProvisioningPromoterOptions{
 			StaleAfter: time.Millisecond, Batch: 10,
@@ -170,9 +170,9 @@ func (f failingThenOKRefresher) RefreshByOrder(_ context.Context, orderID uint64
 	return "running", nil
 }
 
-type stubActivator struct{ record *[]uint64 }
+type recordingActivator struct{ record *[]uint64 }
 
-func (s stubActivator) Activate(_ context.Context, id uint64) error {
+func (s recordingActivator) Activate(_ context.Context, id uint64) error {
 	*s.record = append(*s.record, id)
 	return nil
 }

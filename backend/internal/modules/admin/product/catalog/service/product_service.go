@@ -471,7 +471,7 @@ func (s *productService) Create(ctx context.Context, req dto.ProductCreateReques
 		return nil, err
 	}
 	// 记录创建历史
-	s.repo.AddHistory(ctx, &model.ProductHistory{
+	_ = s.repo.AddHistory(ctx, &model.ProductHistory{
 		ProductID:    item.ID,
 		ChangeType:   model.ChangeTypeCreate,
 		NewValue:     item.Name,
@@ -586,7 +586,7 @@ func (s *productService) generateSpecsFromTemplates(ctx context.Context, product
 	if err := s.repo.SaveConfigOptions(ctx, productID, groups); err != nil {
 		return out, fmt.Errorf("生成客户选配项失败：%w", err)
 	}
-	s.repo.AddHistory(ctx, &model.ProductHistory{
+	_ = s.repo.AddHistory(ctx, &model.ProductHistory{
 		ProductID: productID, ChangeType: model.ChangeTypeUpdate,
 		OperatorID: operatorID, OperatorName: operatorName,
 		Remark: fmt.Sprintf("按配置档生成 %d 个客户选配项", len(order)),
@@ -711,7 +711,7 @@ func (s *productService) Update(ctx context.Context, id uint64, req dto.ProductU
 	if err := s.repo.Update(ctx, item); err != nil {
 		return nil, err
 	}
-	s.repo.AddHistory(ctx, &model.ProductHistory{
+	_ = s.repo.AddHistory(ctx, &model.ProductHistory{
 		ProductID:    id,
 		ChangeType:   model.ChangeTypeUpdate,
 		NewValue:     item.Name,
@@ -767,7 +767,7 @@ func (s *productService) Publish(ctx context.Context, id uint64, operatorID uint
 	if err := s.repo.Update(ctx, item); err != nil {
 		return nil, err
 	}
-	s.repo.AddHistory(ctx, &model.ProductHistory{
+	_ = s.repo.AddHistory(ctx, &model.ProductHistory{
 		ProductID: id, ChangeType: model.ChangeTypePublish,
 		OldValue: strconv.Itoa(oldStatus), NewValue: strconv.Itoa(item.Status),
 		OperatorID: operatorID, OperatorName: operatorName,
@@ -934,7 +934,7 @@ func (s *productService) Unpublish(ctx context.Context, id uint64, operatorID ui
 	if err := s.repo.Update(ctx, item); err != nil {
 		return nil, err
 	}
-	s.repo.AddHistory(ctx, &model.ProductHistory{
+	_ = s.repo.AddHistory(ctx, &model.ProductHistory{
 		ProductID: id, ChangeType: model.ChangeTypeUnpublish,
 		OldValue: strconv.Itoa(oldStatus), NewValue: strconv.Itoa(item.Status),
 		OperatorID: operatorID, OperatorName: operatorName,
@@ -953,7 +953,7 @@ func (s *productService) UpdatePrice(ctx context.Context, id uint64, req dto.Pro
 	if err := s.repo.Update(ctx, item); err != nil {
 		return nil, err
 	}
-	s.repo.AddHistory(ctx, &model.ProductHistory{
+	_ = s.repo.AddHistory(ctx, &model.ProductHistory{
 		ProductID: id, ChangeType: model.ChangeTypePrice,
 		OldValue: oldPrice, NewValue: strconv.FormatFloat(item.Price, 'f', -1, 64),
 		OperatorID: operatorID, OperatorName: operatorName, Remark: req.Remark,
@@ -971,7 +971,7 @@ func (s *productService) SetFeatured(ctx context.Context, id uint64, featured bo
 	if err := s.repo.Update(ctx, item); err != nil {
 		return nil, err
 	}
-	s.repo.AddHistory(ctx, &model.ProductHistory{
+	_ = s.repo.AddHistory(ctx, &model.ProductHistory{
 		ProductID: id, ChangeType: model.ChangeTypeUpdate,
 		NewValue:   strconv.FormatBool(featured),
 		OperatorID: operatorID, OperatorName: operatorName, Remark: "设置前台推荐位",
@@ -1159,7 +1159,7 @@ func (s *productService) CreateSpec(ctx context.Context, productID uint64, req d
 	if err := s.repo.CreateSpec(ctx, item); err != nil {
 		return nil, err
 	}
-	s.repo.AddHistory(ctx, &model.ProductHistory{
+	_ = s.repo.AddHistory(ctx, &model.ProductHistory{
 		ProductID: productID, ChangeType: model.ChangeTypeUpdate,
 		NewValue: item.SpecCode, OperatorID: operatorID, OperatorName: operatorName,
 		Remark: "新增规格变体：" + item.Name,
@@ -1201,7 +1201,7 @@ func (s *productService) UpdateSpec(ctx context.Context, productID, specID uint6
 	if err := s.repo.UpdateSpec(ctx, item); err != nil {
 		return nil, err
 	}
-	s.repo.AddHistory(ctx, &model.ProductHistory{
+	_ = s.repo.AddHistory(ctx, &model.ProductHistory{
 		ProductID: productID, ChangeType: model.ChangeTypeUpdate,
 		NewValue: item.SpecCode, OperatorID: operatorID, OperatorName: operatorName,
 		Remark: "更新规格变体：" + item.Name,
@@ -1328,7 +1328,7 @@ func (s *productService) GenerateSpecFromTemplate(ctx context.Context, productID
 		result.Notice = "已生成规格，但模板未配置平台参数，请在详情页完成平台绑定后才能上架"
 	}
 
-	s.repo.AddHistory(ctx, &model.ProductHistory{
+	_ = s.repo.AddHistory(ctx, &model.ProductHistory{
 		ProductID: productID, ChangeType: model.ChangeTypeUpdate,
 		NewValue: item.SpecCode, OperatorID: operatorID, OperatorName: operatorName,
 		Remark: fmt.Sprintf("按规格模板「%s」生成规格变体：%s", tpl.Name, item.Name),
@@ -1545,7 +1545,7 @@ func (s *productService) CloneFromUpstream(ctx context.Context, req dto.ProductC
 	// 按上游 product_pricings 生成初始周期价格矩阵（doc25 §5）：
 	// 倍率取"定价 / 成本"（运营实际采用的毛利口径），成本缺失时按原价转售。
 	s.seedCloneCyclePrices(ctx, *item, cloneRawSpecs, cloneRatio(item.CostPrice, item.Price))
-	s.repo.AddHistory(ctx, &model.ProductHistory{
+	_ = s.repo.AddHistory(ctx, &model.ProductHistory{
 		ProductID: item.ID, ChangeType: model.ChangeTypeCreate,
 		NewValue: item.Name, OperatorID: operatorID, OperatorName: operatorName,
 		Remark: "从上游商品克隆导入",
@@ -1671,7 +1671,7 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 		// 按上游 product_pricings 生成初始周期价格矩阵（doc25 §5），
 		// 倍率 = 标价/代理价 × pct/100（成本口径仍是代理价，与商品成本价一致）。
 		s.seedCloneCyclePrices(ctx, *item, rawSpecs, cycleRatio)
-		s.repo.AddHistory(ctx, &model.ProductHistory{
+		_ = s.repo.AddHistory(ctx, &model.ProductHistory{
 			ProductID: item.ID, ChangeType: model.ChangeTypeCreate,
 			NewValue: item.Name, OperatorID: operatorID, OperatorName: operatorName,
 			Remark: fmt.Sprintf("批量导入上游商品（按上游标价 %.0f%% 定价）", pct),

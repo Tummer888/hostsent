@@ -318,12 +318,6 @@ func buildCyclePriceRow(item model.Product, cycle string, cost, list float64) Cy
 	return row
 }
 
-// applyMarkup 按商品的上游加价规则计算售价；未配置规则时返回 (0,false)。
-// 无标价基数（list<=0）时 list_percent 退化为成本口径，避免算出 0 元售价。
-func applyMarkup(markupType string, markupValue, cost float64) (float64, bool) {
-	return applyMarkupWithList(markupType, markupValue, cost, 0)
-}
-
 // applyMarkupWithList 按加价规则计算售价，list 为该周期上游标价（list_percent 口径的基数）。
 // type: percent=成本×value%；fixed=成本+value；list_percent=上游标价×value%。
 func applyMarkupWithList(markupType string, markupValue, cost, list float64) (float64, bool) {

@@ -342,11 +342,11 @@ func (r *userRepository) OpenSession(ctx context.Context, in SessionInput) error
 }
 
 // truncateBytes 按字节截断到 UTF-8 字符边界（DB 列有长度上限，超长会整条 INSERT 失败）。
-func truncateBytes(s string, max int) string {
-	if len(s) <= max {
+func truncateBytes(s string, maxLen int) string {
+	if len(s) <= maxLen {
 		return s
 	}
-	cut := s[:max]
+	cut := s[:maxLen]
 	for len(cut) > 0 && !utf8.ValidString(cut) {
 		cut = cut[:len(cut)-1]
 	}

@@ -14,11 +14,11 @@ import (
 )
 
 // newMockProvider 起一个 httptest 服务模拟魔方财务（财务型 zjmf_api），返回指向它的适配器。
-func newMockProvider(t *testing.T, handler http.HandlerFunc) *ZJMFProvider {
+func newMockProvider(t *testing.T, handler http.HandlerFunc) *Provider {
 	t.Helper()
 	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
-	return NewZJMFProvider(&upstream.ProviderConfig{
+	return NewProvider(&upstream.ProviderConfig{
 		APIEndpoint:  ts.URL,
 		Secure:       false,
 		UpstreamType: "zjmf_api",
@@ -161,15 +161,15 @@ func TestContract_HardPowerAndMaintenance(t *testing.T) {
 // TestContract_PowerHardCapability 断言适配器实现了 InstancePowerHard，且描述符声明了相应操作
 // ——服务层与前端都靠这两处判据决定"硬关机/硬重启"按钮是否可用。
 func TestContract_PowerHardCapability(t *testing.T) {
-	p := NewZJMFProvider(&upstream.ProviderConfig{APIEndpoint: "http://127.0.0.1:1", UpstreamType: "zjmf_api"})
+	p := NewProvider(&upstream.ProviderConfig{APIEndpoint: "http://127.0.0.1:1", UpstreamType: "zjmf_api"})
 	if _, ok := interface{}(p).(upstream.InstancePowerHard); !ok {
-		t.Fatal("ZJMFProvider 未实现 InstancePowerHard")
+		t.Fatal("Provider 未实现 InstancePowerHard")
 	}
 	if _, ok := interface{}(p).(upstream.InstanceReinstall); !ok {
-		t.Fatal("ZJMFProvider 未实现 InstanceReinstall")
+		t.Fatal("Provider 未实现 InstanceReinstall")
 	}
 	if _, ok := interface{}(p).(upstream.InstancePasswordReset); !ok {
-		t.Fatal("ZJMFProvider 未实现 InstancePasswordReset")
+		t.Fatal("Provider 未实现 InstancePasswordReset")
 	}
 	d := p.Capabilities()
 	for _, op := range []string{upstream.OpReinstall, upstream.OpResetPassword} {
@@ -723,12 +723,12 @@ func TestContract_SettleHostIDEncodings(t *testing.T) {
 	}
 
 	// 形态三：cart/clear（平铺数字；个别版本字符串）
-	var clear clearResp
-	if err := json.Unmarshal([]byte(`{"hostid":2056,"invoiceid":808041,"status":200,"msg":"请求成功"}`), &clear); err != nil {
+	var clearRes clearResp
+	if err := json.Unmarshal([]byte(`{"hostid":2056,"invoiceid":808041,"status":200,"msg":"请求成功"}`), &clearRes); err != nil {
 		t.Fatalf("clear 响应解析失败: %v", err)
 	}
-	if clear.HostID.Int64() != 2056 || clear.InvoiceID.Int64() != 808041 {
-		t.Fatalf("clear 解析错误: hostid=%d invoiceid=%d", clear.HostID.Int64(), clear.InvoiceID.Int64())
+	if clearRes.HostID.Int64() != 2056 || clearRes.InvoiceID.Int64() != 808041 {
+		t.Fatalf("clear 解析错误: hostid=%d invoiceid=%d", clearRes.HostID.Int64(), clearRes.InvoiceID.Int64())
 	}
 	var clearStr clearResp
 	if err := json.Unmarshal([]byte(`{"hostid":"2056","invoiceid":"808041","status":200}`), &clearStr); err != nil {

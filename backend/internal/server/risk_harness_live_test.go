@@ -58,7 +58,7 @@ func (h *liveHarness) doFrom(method, path, token, ip string, headers map[string]
 	h.srv.http.Handler.ServeHTTP(rec, req)
 
 	resp := rec.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(resp.Body)
 	out := map[string]any{}
 	if len(raw) > 0 {

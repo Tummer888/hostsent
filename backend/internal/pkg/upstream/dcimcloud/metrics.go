@@ -30,7 +30,7 @@ import (
 const metricSelectDevice = "vda"
 
 // ListMetricCharts 返回图表目录。null 表示平台不支持（hyperv）。
-func (p *DCIMCloudProvider) ListMetricCharts(ctx context.Context, req *upstream.MetricsCatalogRequest) ([]upstream.MetricChartInfo, error) {
+func (p *Provider) ListMetricCharts(ctx context.Context, req *upstream.MetricsCatalogRequest) ([]upstream.MetricChartInfo, error) {
 	_ = ctx
 	if req == nil || req.ProviderInstanceID == "" {
 		return nil, nil
@@ -98,7 +98,7 @@ func metricDiskSelects(detail map[string]interface{}) []upstream.MetricChartOpti
 }
 
 // QueryMetrics 查询单项监控序列。
-func (p *DCIMCloudProvider) QueryMetrics(ctx context.Context, req *upstream.MetricsQuery) (*upstream.MetricSeries, error) {
+func (p *Provider) QueryMetrics(ctx context.Context, req *upstream.MetricsQuery) (*upstream.MetricSeries, error) {
 	if req == nil || req.ProviderInstanceID == "" {
 		return emptySeries(req), nil
 	}
@@ -243,7 +243,7 @@ func (r statisticRow) value(idx int) float64 {
 // 面板返回的 data 是「数组的数组」：[["2026-01-01 00:00:00", 12.3, ...], ...]；
 // 第 0 列总是时间（GMT 字符串），其余按 type 语义解释。时间统一转成本地时区
 // 的 "2006-01-02 15:04:05"（与源码 date("Y-m-d H:i:s", strtotime($v[0])) 一致）。
-func (p *DCIMCloudProvider) queryStatistics(ctx context.Context, query url.Values) ([]statisticRow, error) {
+func (p *Provider) queryStatistics(ctx context.Context, query url.Values) ([]statisticRow, error) {
 	var resp struct {
 		Data []interface{} `json:"data"`
 	}
@@ -315,37 +315,37 @@ func cellFloat(v interface{}) float64 {
 
 // maxOf 取所有行在给定列上的最大值（用于选单位缩放指数）。
 func maxOf(rows []statisticRow, idxs ...int) float64 {
-	max := 0.0
+	peak := 0.0
 	for _, row := range rows {
 		for _, idx := range idxs {
-			if v := row.value(idx); v > max {
-				max = v
+			if v := row.value(idx); v > peak {
+				peak = v
 			}
 		}
 	}
-	return max
+	return peak
 }
 
 // byteUnit 按 1024 进制选二进制单位（B/KB/MB/GB/TB），返回单位名与除数。
-func byteUnit(max float64) (string, float64) {
+func byteUnit(maxN float64) (string, float64) {
 	units := []string{"B", "KB", "MB", "GB", "TB"}
-	return pickUnit(max, units)
+	return pickUnit(maxN, units)
 }
 
 // bitScaledUnit 按 1024 进制选单位，单位名由调用方给出（如磁盘 B/s 系列）。
-func bitScaledUnit(max float64, units ...string) (string, float64) {
-	return pickUnit(max, units)
+func bitScaledUnit(maxN float64, units ...string) (string, float64) {
+	return pickUnit(maxN, units)
 }
 
 // pickUnit 与源码同逻辑：max >= 1024 就升一级，直到 < 1024 或单位用尽。
-func pickUnit(max float64, units []string) (string, float64) {
+func pickUnit(maxN float64, units []string) (string, float64) {
 	pow := 1.0
 	idx := 0
 	for idx < len(units) {
-		if max < 1024 {
+		if maxN < 1024 {
 			break
 		}
-		max /= 1024
+		maxN /= 1024
 		pow *= 1024
 		idx++
 	}

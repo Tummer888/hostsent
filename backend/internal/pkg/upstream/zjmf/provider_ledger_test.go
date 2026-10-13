@@ -11,7 +11,7 @@ import (
 )
 
 // 账本能力（消费/充值/到期）是成本管理「上游流水口径」的数据来源（doc111 §5.2）。
-var _ upstream.FinanceLedgerReader = (*ZJMFProvider)(nil)
+var _ upstream.FinanceLedgerReader = (*Provider)(nil)
 
 // TestContract_ListConsumptionRecords 校验消费流水契约：
 // GET /credit_record 携带 Bearer，data.accounts 的 relid/type/amount 映射为

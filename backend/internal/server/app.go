@@ -222,13 +222,6 @@ func (a *App) userAudit() gin.HandlerFunc {
 	return middleware.UserOperationAudit(a.userAuditWriter)
 }
 
-// invalidateAdmin 清理指定管理员的权限缓存（角色/状态变更后调用）。
-func (a *App) invalidateAdmin(adminID uint64) {
-	if a.permCache != nil {
-		a.permCache.InvalidateAdmin(adminID)
-	}
-}
-
 // ucRateLimit 仅对 /api/v1/uc 前缀生效的限流（doc91 §9.1 api_rate_limit）。
 //
 // 用户中心路由分散在多个 Group（auth/finance/orders/instances/support/...），

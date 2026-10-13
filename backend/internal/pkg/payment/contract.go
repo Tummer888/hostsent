@@ -3,7 +3,7 @@
 // 设计（docs/实施计划/35）：
 //   - 支付渠道与上游云渠道同构：多种类型、凭证各异、签名不同、场景有别，
 //     因此复用「契约 + 能力描述符 + 工厂注册表 + 动态凭证表单」这一套解法。
-//   - 能力靠类型断言发现（Collector/PaymentQuerier/Payouter/...），
+//   - 能力靠类型断言发现（Collector/Querier/Payouter/...），
 //     后台靠 CapabilityDescriptor 提前展示"这个渠道支持什么"。
 //   - 新增一家支付渠道 = 一个适配器包 + 描述符 + 一行 payment_types，核心零改动。
 //
@@ -102,13 +102,13 @@ type Collector interface {
 	Prepay(ctx context.Context, cfg *ChannelConfig, req *PrepayRequest) (*PrepayResult, error)
 }
 
-// PaymentQuerier 主动查单能力。
-type PaymentQuerier interface {
-	Query(ctx context.Context, cfg *ChannelConfig, req *QueryRequest) (*PaymentState, error)
+// Querier 主动查单能力。
+type Querier interface {
+	Query(ctx context.Context, cfg *ChannelConfig, req *QueryRequest) (*State, error)
 }
 
-// PaymentCloser 关单能力。
-type PaymentCloser interface {
+// Closer 关单能力。
+type Closer interface {
 	Close(ctx context.Context, cfg *ChannelConfig, req *CloseRequest) error
 }
 
@@ -220,8 +220,8 @@ type PayoutResult struct {
 	Raw       map[string]interface{}
 }
 
-// PaymentState 支付状态。
-type PaymentState struct {
+// State 支付状态。
+type State struct {
 	Status    string // pending/paid/failed/closed
 	ChannelTx string
 	PaidAt    int64 // Unix 秒，0 表示无

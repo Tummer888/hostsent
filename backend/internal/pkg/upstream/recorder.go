@@ -377,10 +377,10 @@ func buildRecord(t *Trace, call httpCall, success bool, code, message string) Re
 		}
 	}
 	reqDigest := digest(rawReq)
-	reqBody := mask.MaskGenericBody(string(rawReq), maxBytes)
+	reqBody := mask.GenericBody(string(rawReq), maxBytes)
 
 	respDigest := digest(call.respBody)
-	respBody := mask.MaskGenericBody(string(call.respBody), maxBytes)
+	respBody := mask.GenericBody(string(call.respBody), maxBytes)
 
 	var providerID uint
 	var providerName, providerType string
@@ -394,7 +394,7 @@ func buildRecord(t *Trace, call httpCall, success bool, code, message string) Re
 		ProviderType:      providerType,
 		Op:                t.op,
 		Method:            strings.ToUpper(call.method),
-		URL:               mask.MaskURL(call.rawURL),
+		URL:               mask.URL(call.rawURL),
 		RequestDigest:     reqDigest,
 		RequestBody:       reqBody,
 		RequestBytes:      len(rawReq),
@@ -435,7 +435,7 @@ func RequestBodyOf(getBody func() (io.ReadCloser, error)) []byte {
 	if err != nil || rc == nil {
 		return nil
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	// 摘要需要完整原文，但超过 1MB 的表单正文不属于本包要处理的形态，
 	// 截住以避免把内存吃光。
 	buf, _ := io.ReadAll(io.LimitReader(rc, 1<<20))

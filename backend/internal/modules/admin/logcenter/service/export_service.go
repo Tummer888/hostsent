@@ -200,7 +200,6 @@ func (s *exportService) streamExport(
 	type writeResult struct {
 		rel  string
 		size int64
-		rows int64
 		err  error
 	}
 	done := make(chan writeResult, 1)
@@ -209,7 +208,7 @@ func (s *exportService) streamExport(
 		// 下面 writeRows 仍会往管道里写，写满管道缓冲后永久阻塞 —— 任务就会
 		// 卡在 exporting 且连取消都无效（写操作不监听 ctx）。收尾时关掉读端，
 		// 让挂起的写立刻收到 ErrClosedPipe，导出失败得以正常上抛。
-		defer pr.Close()
+		defer func() { _ = pr.Close() }()
 		// panic 时必须向 done 写入结果，否则主流程 <-done 永久阻塞。
 		defer func() {
 			if safego.Recover(s.logger) {
@@ -387,7 +386,7 @@ func (s *exportService) Verify(ctx context.Context, fileID uint64, src *catalog.
 	if err != nil {
 		return fmt.Errorf("logcenter: 打开导出文件失败: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	hasher := sha256.New()
 	size, err := io.Copy(hasher, file)

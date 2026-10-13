@@ -25,7 +25,6 @@ import (
 	finwithdrawservice "hostsent/backend/internal/modules/admin/finance/referral/walletwithdraw/service"
 	finsettingshandler "hostsent/backend/internal/modules/admin/finance/settings/handler"
 	finsettingsservice "hostsent/backend/internal/modules/admin/finance/settings/service"
-	settingsservice "hostsent/backend/internal/modules/admin/finance/settings/service"
 	finstatshandler "hostsent/backend/internal/modules/admin/finance/stats/handler"
 	finstatsrepo "hostsent/backend/internal/modules/admin/finance/stats/repository"
 	finstatsservice "hostsent/backend/internal/modules/admin/finance/stats/service"
@@ -242,7 +241,7 @@ type financeConfigStore struct {
 }
 
 // newFinanceConfigStore 创建财务参数存取实现。
-func newFinanceConfigStore(db *gorm.DB) settingsservice.ConfigStore {
+func newFinanceConfigStore(db *gorm.DB) finsettingsservice.ConfigStore {
 	return &financeConfigStore{db: db}
 }
 

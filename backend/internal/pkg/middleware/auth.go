@@ -205,18 +205,6 @@ func unauthorized(c *gin.Context) {
 	c.Abort()
 }
 
-func toAdminClaims(claims *appauth.Claims) *appauth.AdminClaims {
-	role := claims.Role
-	if role == "" && len(claims.Roles) > 0 {
-		role = claims.Roles[0]
-	}
-	return &appauth.AdminClaims{
-		AdminID:  claims.UserID,
-		Username: claims.Username,
-		Role:     role,
-	}
-}
-
 func stringSlice(r string) []string {
 	if r == "" {
 		return nil

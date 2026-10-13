@@ -38,8 +38,6 @@ type Scheduler struct {
 	reconcileStale func(ctx context.Context) (int64, error)
 	// ReconcileEvery 停滞任务核对间隔（默认 10 分钟）。
 	ReconcileEvery time.Duration
-	// StaleAfter 多久没推进算停滞（默认 30 分钟，与互斥锁 TTL 同量级）。
-	StaleAfter time.Duration
 	// flags 每次 tick 重新读配置（运营改完不必重启进程，doc89 §9.1「改配置不需要发版」）。
 	// nil 时退回构造时的静态字段，保持单测可直接构造。
 	flags func(ctx context.Context) SchedulerFlags
@@ -149,13 +147,6 @@ func (s *Scheduler) reconcileInterval() time.Duration {
 		return 10 * time.Minute
 	}
 	return s.ReconcileEvery
-}
-
-func (s *Scheduler) staleAfter() time.Duration {
-	if s.StaleAfter <= 0 {
-		return 30 * time.Minute
-	}
-	return s.StaleAfter
 }
 
 // runSafe 单轮动作的 panic 防护：单轮异常只记日志，不停摆调度循环。

@@ -65,7 +65,7 @@ func init() {
 	// 别名让构建与描述符查询在数据迁移跑完前也认旧码。
 	upstream.RegisterTypeAlias(LegacyProviderType, ProviderType)
 	upstream.GetProviderManager().RegisterFactory(ProviderType, func(cfg *upstream.ProviderConfig) upstream.Provider {
-		return NewZJMFProvider(cfg)
+		return NewProvider(cfg)
 	})
 	// 能力描述符（T2.1）：财务型上游目录权威在上游，开通/续费/暂停/终止按 zjmf_api 分支直连。
 	upstream.RegisterDescriptor(ProviderType, upstream.CapabilityDescriptor{
@@ -117,8 +117,8 @@ func init() {
 	})
 }
 
-// ZJMFProvider 魔方财务适配器
-type ZJMFProvider struct {
+// Provider 魔方财务适配器
+type Provider struct {
 	config *upstream.ProviderConfig
 	client *http.Client
 
@@ -127,37 +127,37 @@ type ZJMFProvider struct {
 	jwtUntil time.Time
 }
 
-// NewZJMFProvider 按配置创建魔方财务适配器实例
-func NewZJMFProvider(config *upstream.ProviderConfig) *ZJMFProvider {
+// NewProvider 按配置创建魔方财务适配器实例
+func NewProvider(config *upstream.ProviderConfig) *Provider {
 	timeout := time.Duration(config.Timeout) * time.Second
 	if config.Timeout <= 0 {
 		timeout = 15 * time.Second
 	}
-	return &ZJMFProvider{
+	return &Provider{
 		config: config,
 		client: &http.Client{Timeout: timeout},
 	}
 }
 
 // GetType 返回提供商类型标识
-func (p *ZJMFProvider) GetType() string { return ProviderType }
+func (p *Provider) GetType() string { return ProviderType }
 
 // GetName 返回提供商名称
-func (p *ZJMFProvider) GetName() string { return "魔方财务" }
+func (p *Provider) GetName() string { return "魔方财务" }
 
 // Capabilities 返回能力描述符（T2.1）。
-func (p *ZJMFProvider) Capabilities() upstream.CapabilityDescriptor {
+func (p *Provider) Capabilities() upstream.CapabilityDescriptor {
 	d, _ := upstream.Descriptor(ProviderType)
 	return d
 }
 
 // isResource 是否资源型上游（is_resource=1，登录与业务路径不同）。
-func (p *ZJMFProvider) isResource() bool {
+func (p *Provider) isResource() bool {
 	return p.config.UpstreamType == "resource"
 }
 
 // baseURL 去掉协议前缀与尾部斜杠，并按配置拼接 https/端口（与财务 servers 表同构）。
-func (p *ZJMFProvider) baseURL() (string, error) {
+func (p *Provider) baseURL() (string, error) {
 	host := strings.TrimRight(p.config.APIEndpoint, "/")
 	if host == "" {
 		return "", &upstream.ProviderError{Op: "request", Msg: "接口地址为空"}
@@ -176,7 +176,7 @@ func (p *ZJMFProvider) baseURL() (string, error) {
 }
 
 // loginURL 登录地址：财务型 /zjmf_api_login，资源型 /resource_login（type=agent）。
-func (p *ZJMFProvider) loginURL(base string) string {
+func (p *Provider) loginURL(base string) string {
 	if p.isResource() {
 		return base + "/resource_login"
 	}
@@ -184,7 +184,7 @@ func (p *ZJMFProvider) loginURL(base string) string {
 }
 
 // login 获取上游 JWT，带本地缓存；force 时强制重新登录（对应 zjmfApiLogin）。
-func (p *ZJMFProvider) login(ctx context.Context, force bool) (string, error) {
+func (p *Provider) login(ctx context.Context, force bool) (string, error) {
 	p.jwtMu.Lock()
 	defer p.jwtMu.Unlock()
 	if !force && p.jwt != "" && time.Now().Before(p.jwtUntil) {
@@ -204,7 +204,7 @@ func (p *ZJMFProvider) login(ctx context.Context, force bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var shell ZjmfResp[json.RawMessage]
+	var shell Resp[json.RawMessage]
 	_ = json.Unmarshal(body, &shell)
 	if status != http.StatusOK || (shell.Status != StatusOK && shell.Code != StatusOK) {
 		return "", &upstream.ProviderError{
@@ -222,7 +222,7 @@ func (p *ZJMFProvider) login(ctx context.Context, force bool) (string, error) {
 }
 
 // httpForm 发送表单请求；bearer 非空时附加 Authorization 头。返回响应体与 HTTP 状态码。
-func (p *ZJMFProvider) httpForm(ctx context.Context, method, rawURL string, form url.Values, bearer string) ([]byte, int, error) {
+func (p *Provider) httpForm(ctx context.Context, method, rawURL string, form url.Values, bearer string) ([]byte, int, error) {
 	var body io.Reader
 	if form != nil && method != http.MethodGet {
 		body = strings.NewReader(form.Encode())
@@ -243,7 +243,7 @@ func (p *ZJMFProvider) httpForm(ctx context.Context, method, rawURL string, form
 		upstream.Capture(ctx, method, rawURL, upstream.RequestBodyOf(req.GetBody), 0, nil, err, time.Since(started))
 		return nil, 0, &upstream.ProviderError{Op: "request", Err: err}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	respBody, err := io.ReadAll(resp.Body)
 	upstream.Capture(ctx, method, rawURL, upstream.RequestBodyOf(req.GetBody), resp.StatusCode, respBody, err, time.Since(started))
 	if err != nil {
@@ -253,7 +253,7 @@ func (p *ZJMFProvider) httpForm(ctx context.Context, method, rawURL string, form
 }
 
 // providerInfo 采集记录上要带的渠道标识。
-func (p *ZJMFProvider) providerInfo() (uint, string, string) {
+func (p *Provider) providerInfo() (uint, string, string) {
 	name := firstNonEmpty(p.config.Name, "魔方财务")
 	return p.config.ID, name, ProviderType
 }
@@ -263,7 +263,7 @@ func (p *ZJMFProvider) providerInfo() (uint, string, string) {
 // out 非 nil 时将 data 字段解析到 out。
 // 成功状态码限定 200（业务通用成功码）；需要额外状态码（如支付成功的 1001）的接口
 // 请改用 callShell 自行判定。
-func (p *ZJMFProvider) call(ctx context.Context, op, method, path string, form url.Values, out interface{}) error {
+func (p *Provider) call(ctx context.Context, op, method, path string, form url.Values, out interface{}) error {
 	shell, status, body, err := p.callShell(ctx, op, method, path, form)
 	if err != nil {
 		return err
@@ -283,7 +283,7 @@ func (p *ZJMFProvider) call(ctx context.Context, op, method, path string, form u
 // 埋点（doc92 §3.2）：本函数的返回值就是「HTTP 2xx 也可能是业务失败」的原始证据，
 // 因此采集记录的业务判定在这里显式给出（FinishBusiness），而不是靠 err 推断 ——
 // 否则上游返回 {status:500,msg:"账号密码错误"} 会被记成成功。
-func (p *ZJMFProvider) callShell(ctx context.Context, op, method, path string, form url.Values) (shell ZjmfResp[json.RawMessage], status int, body []byte, err error) {
+func (p *Provider) callShell(ctx context.Context, op, method, path string, form url.Values) (shell Resp[json.RawMessage], status int, body []byte, err error) {
 	ctx, tr := upstream.NewTrace(ctx, op, traceid.From(ctx))
 	tr.SetProvider(p.providerInfo)
 	defer func() {
@@ -326,7 +326,7 @@ func (p *ZJMFProvider) callShell(ctx context.Context, op, method, path string, f
 		if err != nil {
 			return shell, status, body, &upstream.ProviderError{Op: op, Err: err}
 		}
-		shell = ZjmfResp[json.RawMessage]{}
+		shell = Resp[json.RawMessage]{}
 		_ = json.Unmarshal(body, &shell)
 		if shell.Status == StatusTokenExpired {
 			return shell, status, body, &upstream.ProviderError{Op: op, Msg: "API账号密码错误"}
@@ -340,7 +340,7 @@ func (p *ZJMFProvider) callShell(ctx context.Context, op, method, path string, f
 // 实测 cart/index 不带 data 字段（商品数组直接挂在顶层 products），只认 data 的
 // unmarshalData 会静默解出空结果 —— 价格回填与在售判定都会悄悄失效。
 // 这里 data 有值走原路径，没有则把整个响应体解到 out（多余字段自动忽略）。
-func (p *ZJMFProvider) callTopLevel(ctx context.Context, op, method, path string, form url.Values, out interface{}) error {
+func (p *Provider) callTopLevel(ctx context.Context, op, method, path string, form url.Values, out interface{}) error {
 	shell, status, body, err := p.callShell(ctx, op, method, path, form)
 	if err != nil {
 		return err
@@ -363,7 +363,7 @@ func (p *ZJMFProvider) callTopLevel(ctx context.Context, op, method, path string
 }
 
 // unmarshalData 将响应壳的 data 字段解析到 out。
-func (p *ZJMFProvider) unmarshalData(op string, shell ZjmfResp[json.RawMessage], out interface{}) error {
+func (p *Provider) unmarshalData(op string, shell Resp[json.RawMessage], out interface{}) error {
 	if out != nil && len(shell.Data) > 0 && string(shell.Data) != "null" {
 		if err := json.Unmarshal(shell.Data, out); err != nil {
 			return &upstream.ProviderError{Op: op, Err: fmt.Errorf("解析上游响应 data 失败: %w", err)}
@@ -373,7 +373,7 @@ func (p *ZJMFProvider) unmarshalData(op string, shell ZjmfResp[json.RawMessage],
 }
 
 // callOnce 以给定 JWT 执行一次业务调用。GET 的表单参数转 query，路径可带前导斜杠。
-func (p *ZJMFProvider) callOnce(ctx context.Context, base, jwt, method, path string, form url.Values) ([]byte, int, error) {
+func (p *Provider) callOnce(ctx context.Context, base, jwt, method, path string, form url.Values) ([]byte, int, error) {
 	rawURL := base + "/" + strings.TrimLeft(path, "/")
 	method = strings.ToUpper(method)
 	if method == http.MethodGet && form != nil {
@@ -386,7 +386,7 @@ func (p *ZJMFProvider) callOnce(ctx context.Context, base, jwt, method, path str
 }
 
 // HealthCheck 连通性测试：登录成功即视为可达且凭证有效。
-func (p *ZJMFProvider) HealthCheck(ctx context.Context) error {
+func (p *Provider) HealthCheck(ctx context.Context) error {
 	_, err := p.login(ctx, true)
 	return err
 }
@@ -407,7 +407,7 @@ func (p *ZJMFProvider) HealthCheck(ctx context.Context) error {
 // 资源型登录（/resource_login，type=agent）同样是客户身份，一并适用。
 //
 // 与其它读接口一样只读不动账：成本管理用它落余额快照，再由快照推算消耗。
-func (p *ZJMFProvider) GetAccountInfo(ctx context.Context) (*upstream.AccountInfo, error) {
+func (p *Provider) GetAccountInfo(ctx context.Context) (*upstream.AccountInfo, error) {
 	var data struct {
 		// Credit 用指针区分「上游返回 0」与「响应里根本没有这个字段」：
 		// 后者多半是账号没开通客户余额权限，静默落 0 会被成本台账读成「钱花光了」。
@@ -453,7 +453,7 @@ func accountCurrency(raw json.RawMessage) string {
 // 因此返回的就是「本账号用余额支付的每一笔开通/续费」。
 //
 // 分页：上游按 page/limit 返回并在 data.total 给总数（实测 limit=60 稳定）。
-func (p *ZJMFProvider) ListConsumptionRecords(ctx context.Context, page, limit int) ([]upstream.LedgerEntry, int, error) {
+func (p *Provider) ListConsumptionRecords(ctx context.Context, page, limit int) ([]upstream.LedgerEntry, int, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -502,7 +502,7 @@ func (p *ZJMFProvider) ListConsumptionRecords(ctx context.Context, page, limit i
 //	→ data.accounts[] = {id, invoice_id, pay_time, payment_zh, description, type, amount_in, trans_id}
 //
 // 描述区分为「用户充值」「人工入账」，支付方式在 payment_zh（支付宝支付…）。
-func (p *ZJMFProvider) ListTopupRecords(ctx context.Context, page, limit int) ([]upstream.LedgerEntry, int, error) {
+func (p *Provider) ListTopupRecords(ctx context.Context, page, limit int) ([]upstream.LedgerEntry, int, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -543,7 +543,7 @@ func (p *ZJMFProvider) ListTopupRecords(ctx context.Context, page, limit int) ([
 // 上游接口：GET /v1/hosts（openapi/Host/getHosts）→ data.host[] 每台机带
 // amount（下一期续费金额）、nextduedate（到期时间戳）、domainstatus。
 // 本方法只取告警需要的字段，不落实例同步（实例台账走同步引擎，职责分离）。
-func (p *ZJMFProvider) ListDueHosts(ctx context.Context) ([]upstream.DueHost, error) {
+func (p *Provider) ListDueHosts(ctx context.Context) ([]upstream.DueHost, error) {
 	const perPage = 100
 	out := make([]upstream.DueHost, 0, 32)
 	for page := 1; page <= 20; page++ {
@@ -592,7 +592,7 @@ func (p *ZJMFProvider) ListDueHosts(ctx context.Context) ([]upstream.DueHost, er
 //   - sale_price = 上游标价（raw_specs.product_pricings_list），供展示与折扣对比。
 //
 // 资源型上游：GET resource/agentproductsarray（data 兼容数组/包裹两种形态）。
-func (p *ZJMFProvider) ListProducts(ctx context.Context) ([]*model.StandardProduct, error) {
+func (p *Provider) ListProducts(ctx context.Context) ([]*model.StandardProduct, error) {
 	products := make([]*model.StandardProduct, 0, 16)
 	if p.isResource() {
 		var raw json.RawMessage
@@ -826,7 +826,7 @@ var cycleSetupPrefix = map[string]string{
 
 // fetchCartGroups 拉取商品分组（分类）：返回 gid → 分组名，以及是否取到
 // （取不到时不做分类/在售判定，避免 cart/all 一次失败把全量商品误标为未在售）。
-func (p *ZJMFProvider) fetchCartGroups(ctx context.Context) (map[int64]string, bool) {
+func (p *Provider) fetchCartGroups(ctx context.Context) (map[int64]string, bool) {
 	var resp CartAllResp
 	if err := p.call(ctx, "ListProducts", http.MethodGet, "cart/all", nil, &resp); err != nil {
 		return nil, false
@@ -843,7 +843,7 @@ func (p *ZJMFProvider) fetchCartGroups(ctx context.Context) (map[int64]string, b
 
 // fetchProductFlags 逐商品探测本客户折扣（flag），返回 pid → 折扣。
 // 探测失败的 pid 视为无折扣：宁可按标价高估成本，也不按未知折扣压低成本。
-func (p *ZJMFProvider) fetchProductFlags(ctx context.Context, details map[string]UpstreamProductDetail) map[string]SaleFlag {
+func (p *Provider) fetchProductFlags(ctx context.Context, details map[string]UpstreamProductDetail) map[string]SaleFlag {
 	out := make(map[string]SaleFlag, len(details))
 	if len(details) == 0 {
 		return out
@@ -878,7 +878,7 @@ func (p *ZJMFProvider) fetchProductFlags(ctx context.Context, details map[string
 // fetchCatalogRows 逐分组拉上游前台商品目录（cart/index?gid=），返回 pid → 目录行。
 // 隐藏分组也能取到（上游对直连 gid 不拦），但隐藏商品本身不在其中。
 // 失败不阻塞同步：价格回退到周期价、在售判定只看 prodetail 的 hidden/retired。
-func (p *ZJMFProvider) fetchCatalogRows(ctx context.Context, details map[string]UpstreamProductDetail) map[string]CartIndexProduct {
+func (p *Provider) fetchCatalogRows(ctx context.Context, details map[string]UpstreamProductDetail) map[string]CartIndexProduct {
 	gidSet := map[int64]struct{}{}
 	for _, d := range details {
 		gidSet[d.GID] = struct{}{}
@@ -1017,7 +1017,7 @@ const detailBatchSize = 50
 // 单批失败时**二分拆小重试**而不是跳过 —— 跳过会让那批商品的价格/规格/库存
 // 永远停留在上一次成功的值，同步任务却仍报 success（实测：245 个商品只有 45 个
 // 真的同步进来，其余仍是旧值，页面看起来"同步成功但数据没变"）。
-func (p *ZJMFProvider) fetchAllDetails(ctx context.Context, infos []struct {
+func (p *Provider) fetchAllDetails(ctx context.Context, infos []struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
 }) map[string]UpstreamProductDetail {
@@ -1027,7 +1027,7 @@ func (p *ZJMFProvider) fetchAllDetails(ctx context.Context, infos []struct {
 }
 
 // fetchDetailsRange 递归拉取 infos 区间：失败时对半拆分重试，直到单个商品。
-func (p *ZJMFProvider) fetchDetailsRange(ctx context.Context, infos []struct {
+func (p *Provider) fetchDetailsRange(ctx context.Context, infos []struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
 }, out map[string]UpstreamProductDetail) {
@@ -1070,25 +1070,6 @@ func upstreamPrice(rows []PricingRow) float64 {
 		return 0
 	}
 	return rows[0].HeadlinePrice()
-}
-
-// upstreamPriceLegacy 兼容旧版 pricing 结构（无原始行时兜底）。
-func upstreamPriceLegacy(prs []ProductPricing) float64 {
-	if len(prs) == 0 {
-		return 0
-	}
-	pr := prs[0]
-	switch {
-	case float64(pr.Monthly) > 0:
-		return float64(pr.Monthly)
-	case float64(pr.Quarterly) > 0:
-		return float64(pr.Quarterly)
-	case float64(pr.Annually) > 0:
-		return float64(pr.Annually)
-	case float64(pr.Onetime) > 0:
-		return float64(pr.Onetime)
-	}
-	return 0
 }
 
 // parseCloudSpecs 从 prodetail 的 config_groups（嵌套：分组→配置项→子值）提取标准规格。
@@ -1301,7 +1282,7 @@ func leadingInt(s string) int {
 // GetProduct 拉取单个上游商品配置（api/product/prodetail，product_id）。
 // 与 ListProducts 同口径：分类名（cart/all）与代理折扣（cart/get_product_config 的 flag）一并取回，
 // 保证「新建商品前预览上游商品」看到的价格就是采购价。
-func (p *ZJMFProvider) GetProduct(ctx context.Context, upstreamID string) (*model.StandardProduct, error) {
+func (p *Provider) GetProduct(ctx context.Context, upstreamID string) (*model.StandardProduct, error) {
 	if p.isResource() {
 		return nil, p.notSupported("GetProduct", "资源型上游请使用 ListProducts 获取商品列表")
 	}
@@ -1345,7 +1326,7 @@ func (p *ZJMFProvider) GetProduct(ctx context.Context, upstreamID string) (*mode
 
 // fetchProductFlag 探测单个商品的客户折扣（flag）；失败或无折扣返回零值。
 // 折扣记录按 (客户分组 × 商品) 命中，必须逐商品探（见 ListProducts 注释）。
-func (p *ZJMFProvider) fetchProductFlag(ctx context.Context, pid string) SaleFlag {
+func (p *Provider) fetchProductFlag(ctx context.Context, pid string) SaleFlag {
 	var resp CartProductConfigResp
 	if err := p.call(ctx, "GetProduct", http.MethodGet, "cart/get_product_config",
 		url.Values{"pid": {pid}}, &resp); err != nil {
@@ -1355,7 +1336,7 @@ func (p *ZJMFProvider) fetchProductFlag(ctx context.Context, pid string) SaleFla
 }
 
 // fetchCatalogRow 取单商品的上游前台目录行（cart/index?gid=，从中挑出 pid）。
-func (p *ZJMFProvider) fetchCatalogRow(ctx context.Context, gid int64, pid string) (CartIndexProduct, bool) {
+func (p *Provider) fetchCatalogRow(ctx context.Context, gid int64, pid string) (CartIndexProduct, bool) {
 	var resp CartIndexResp
 	if err := p.callTopLevel(ctx, "GetProduct", http.MethodGet, "cart/index",
 		url.Values{"gid": {strconv.FormatInt(gid, 10)}}, &resp); err != nil {
@@ -1411,7 +1392,7 @@ func downstreamReady(req *model.CreateInstanceRequest) bool {
 // 这不是失败 —— 典型场景是"余额不足 → 用户/运营在上游侧充值并把账单付掉"，
 // 此时机器正在上游开出来，本地重试应当**接管**它而不是报错。
 // 这种情况没有 hostid 回执，交由调用方按下游令牌握手反查出主机 id。
-func (p *ZJMFProvider) payUpstreamInvoice(ctx context.Context, req *model.CreateInstanceRequest, invoiceID int64) (int64, error) {
+func (p *Provider) payUpstreamInvoice(ctx context.Context, req *model.CreateInstanceRequest, invoiceID int64) (int64, error) {
 	if invoiceID <= 0 {
 		return 0, &upstream.ProviderError{Op: "CreateInstance", Msg: "缺少上游账单ID，无法支付开通"}
 	}
@@ -1459,7 +1440,7 @@ func (p *ZJMFProvider) payUpstreamInvoice(ctx context.Context, req *model.Create
 // 上游原文：{"status":"406","msg":"账单已支付","data":{"PayStatus":"Paid"}}。
 // 注意 406 是**共用码**：同一码下还有「账单未找到」（{"status":"406","msg":"账单未找到"}），
 // 两者语义完全相反，必须按 msg / data.PayStatus 区分，绝不能只看状态码。
-func isInvoiceAlreadyPaid(shell ZjmfResp[json.RawMessage]) bool {
+func isInvoiceAlreadyPaid(shell Resp[json.RawMessage]) bool {
 	if shell.Status.Int() != 406 && shell.Code.Int() != 406 {
 		return false
 	}
@@ -1498,7 +1479,7 @@ func isInvoiceMissingError(err error) bool {
 //
 // 用途：账单已支付时 apply_credit 不回 hostid，只能靠握手（cart/clear）反查。
 // 查不到不报错 —— 调用方会把它当作"确实没有主机"处理。
-func (p *ZJMFProvider) hostIDByDownstream(ctx context.Context, req *model.CreateInstanceRequest) int64 {
+func (p *Provider) hostIDByDownstream(ctx context.Context, req *model.CreateInstanceRequest) int64 {
 	if !downstreamReady(req) {
 		return 0
 	}
@@ -1514,7 +1495,7 @@ func (p *ZJMFProvider) hostIDByDownstream(ctx context.Context, req *model.Create
 // settleExistingInvoice 复用已生成的上游账单完成开通（重试路径）：
 // 只做"支付账单 → 拉取主机详情"，不再走"加入购物车 + 结算"。
 // 自定义字段与配置项首次结算时已随 cart_data 写入，无需补录。
-func (p *ZJMFProvider) settleExistingInvoice(ctx context.Context, req *model.CreateInstanceRequest, invoiceID int64, _ string) (*model.StandardInstance, error) {
+func (p *Provider) settleExistingInvoice(ctx context.Context, req *model.CreateInstanceRequest, invoiceID int64, _ string) (*model.StandardInstance, error) {
 	hostID, err := p.payUpstreamInvoice(ctx, req, invoiceID)
 	if err != nil {
 		return nil, err
@@ -1562,7 +1543,7 @@ type clearResp struct {
 // 旧逻辑会报"不可重复开通，请人工核对该主机"——本地看起来失败，机器其实正在上游
 // 开出来。现在改为：只要上游确认已有主机就回源接管，状态由上游说了算
 // （Pending → creating，交给滞留推进器继续跟进）。
-func (p *ZJMFProvider) reconcileDownstream(ctx context.Context, req *model.CreateInstanceRequest) (*model.StandardInstance, int64, error) {
+func (p *Provider) reconcileDownstream(ctx context.Context, req *model.CreateInstanceRequest) (*model.StandardInstance, int64, error) {
 	if !downstreamReady(req) {
 		return nil, 0, nil
 	}
@@ -1625,7 +1606,7 @@ func hostStatusTerminal(status string) bool {
 //  4. host/header      按 hostid 拉取主机信息映射标准实例。
 //
 // 账单金额自上而下扣减上游 API 账户余额，需确保该账户有足够余额。
-func (p *ZJMFProvider) CreateInstance(ctx context.Context, req *model.CreateInstanceRequest) (*model.StandardInstance, error) {
+func (p *Provider) CreateInstance(ctx context.Context, req *model.CreateInstanceRequest) (*model.StandardInstance, error) {
 	if p.isResource() {
 		return nil, p.notSupported("CreateInstance", "资源型上游请走资源池开通流程处理")
 	}
@@ -1791,7 +1772,7 @@ func (p *ZJMFProvider) CreateInstance(ctx context.Context, req *model.CreateInst
 
 // fetchProvisionedInstance 按主机 id 拉取上游详情并映射标准实例。
 // 开通成功但详情拉取失败时返回最小可用实例，避免把已开通的资源当成失败回滚。
-func (p *ZJMFProvider) fetchProvisionedInstance(ctx context.Context, hostID int64, req *model.CreateInstanceRequest) (*model.StandardInstance, error) {
+func (p *Provider) fetchProvisionedInstance(ctx context.Context, hostID int64, req *model.CreateInstanceRequest) (*model.StandardInstance, error) {
 	// 与 CreateInstance 同一算式：这里只在上游详情拉取失败时用作实例名兜底，
 	// 后缀不稳定会让"同一个订单两次尝试的实例名"不一致。
 	host := defaultHostname(firstNonEmpty(strFromMap(req.Extra, "hostname"), req.Name), req.DownstreamToken)
@@ -1811,7 +1792,7 @@ func (p *ZJMFProvider) fetchProvisionedInstance(ctx context.Context, hostID int6
 }
 
 // waitInstanceReady 轮询上游主机信息直到脱离创建态（或达到最大尝试次数），返回最新实例。
-func (p *ZJMFProvider) waitInstanceReady(ctx context.Context, instanceID string, tries int) (*model.StandardInstance, error) {
+func (p *Provider) waitInstanceReady(ctx context.Context, instanceID string, tries int) (*model.StandardInstance, error) {
 	var inst *model.StandardInstance
 	var err error
 	for i := 0; i < tries; i++ {
@@ -1832,7 +1813,7 @@ func (p *ZJMFProvider) waitInstanceReady(ctx context.Context, instanceID string,
 }
 
 // GetInstance 拉取上游云主机信息：GET host/header（host_id + source=API）。
-func (p *ZJMFProvider) GetInstance(ctx context.Context, instanceID string) (*model.StandardInstance, error) {
+func (p *Provider) GetInstance(ctx context.Context, instanceID string) (*model.StandardInstance, error) {
 	var header HostHeader
 	if err := p.call(ctx, "GetInstance", http.MethodGet, "host/header", url.Values{
 		"host_id": {instanceID},
@@ -1902,19 +1883,19 @@ func portString(p FlexNumber) string {
 }
 
 // provisionCmd 财务型上游电源/控制台统一入口：POST /provision/default（源码 Host::on/off/reboot/vnc 的 zjmf_api 分支）。
-func (p *ZJMFProvider) provisionCmd(ctx context.Context, op, instanceID, funcName string) error {
+func (p *Provider) provisionCmd(ctx context.Context, op, instanceID, funcName string) error {
 	return p.call(ctx, op, http.MethodPost, "provision/default", url.Values{
 		"id": {instanceID}, "func": {funcName}, "is_api": {"1"},
 	}, nil)
 }
 
 // StartInstance 开机：POST /provision/default（func=on，id 为财务主机ID）。
-func (p *ZJMFProvider) StartInstance(ctx context.Context, instanceID string) error {
+func (p *Provider) StartInstance(ctx context.Context, instanceID string) error {
 	return p.provisionCmd(ctx, "StartInstance", instanceID, "on")
 }
 
 // StopInstance 关机：POST /provision/default（func=off）；force 时 hard_off。
-func (p *ZJMFProvider) StopInstance(ctx context.Context, instanceID string, force bool) error {
+func (p *Provider) StopInstance(ctx context.Context, instanceID string, force bool) error {
 	fn := "off"
 	if force {
 		fn = "hard_off"
@@ -1923,14 +1904,14 @@ func (p *ZJMFProvider) StopInstance(ctx context.Context, instanceID string, forc
 }
 
 // RestartInstance 重启：POST /provision/default（func=reboot）。
-func (p *ZJMFProvider) RestartInstance(ctx context.Context, instanceID string) error {
+func (p *Provider) RestartInstance(ctx context.Context, instanceID string) error {
 	return p.provisionCmd(ctx, "RestartInstance", instanceID, "reboot")
 }
 
 // HardStopInstance 硬关机：POST /provision/default（func=hard_off）。
 // 与 StopInstance(force=true) 等价，单独暴露是为了让「强制关机」这个入口无论走
 // InstanceControl 还是 InstancePowerHard 都落到同一条上游指令。
-func (p *ZJMFProvider) HardStopInstance(ctx context.Context, instanceID string) error {
+func (p *Provider) HardStopInstance(ctx context.Context, instanceID string) error {
 	return p.provisionCmd(ctx, "HardStopInstance", instanceID, "hard_off")
 }
 
@@ -1939,7 +1920,7 @@ func (p *ZJMFProvider) HardStopInstance(ctx context.Context, instanceID string) 
 // 上游本就有独立硬重启指令（源码 Host::hardReboot 的 zjmf_api 分支），此前适配器未实现
 // InstancePowerHard，服务层只好退化为"硬关 + 开机"两步，中间会经历一次完整断电，
 // 与面板行为不一致且多一次失败面。这里直接下发 hard_reboot。
-func (p *ZJMFProvider) HardRestartInstance(ctx context.Context, instanceID string) error {
+func (p *Provider) HardRestartInstance(ctx context.Context, instanceID string) error {
 	return p.provisionCmd(ctx, "HardRestartInstance", instanceID, "hard_reboot")
 }
 
@@ -1951,7 +1932,7 @@ func (p *ZJMFProvider) HardRestartInstance(ctx context.Context, instanceID strin
 //
 // 上游重装是异步长任务，本方法返回 nil 只代表"已受理"，不返回新凭据：
 // 凭据由上游在重装完成后写入主机记录，本系统不落盘（项目内 instances 表无凭据列）。
-func (p *ZJMFProvider) ReinstallInstance(ctx context.Context, req *upstream.ReinstallRequest) (*upstream.ReinstallResult, error) {
+func (p *Provider) ReinstallInstance(ctx context.Context, req *upstream.ReinstallRequest) (*upstream.ReinstallResult, error) {
 	if req == nil || strings.TrimSpace(req.ProviderInstanceID) == "" {
 		return nil, &upstream.ProviderError{Op: "ReinstallInstance", Msg: "缺少上游主机ID"}
 	}
@@ -1980,7 +1961,7 @@ func (p *ZJMFProvider) ReinstallInstance(ctx context.Context, req *upstream.Rein
 
 // ResetInstancePassword 重置登录密码：POST /provision/default（func=crack_pass）。
 // 源码 Host::crackPass 的 zjmf_api 分支：{id, func=crack_pass, password, is_api=1}。
-func (p *ZJMFProvider) ResetInstancePassword(ctx context.Context, instanceID, newPassword string) error {
+func (p *Provider) ResetInstancePassword(ctx context.Context, instanceID, newPassword string) error {
 	if strings.TrimSpace(newPassword) == "" {
 		return &upstream.ProviderError{Op: "ResetInstancePassword", Msg: "新密码不能为空"}
 	}
@@ -1990,7 +1971,7 @@ func (p *ZJMFProvider) ResetInstancePassword(ctx context.Context, instanceID, ne
 }
 
 // VNC 获取远程控制台：POST /provision/default（func=vnc），返回上游 noVNC 地址。
-func (p *ZJMFProvider) VNC(ctx context.Context, instanceID string) (upstream.VNCResult, error) {
+func (p *Provider) VNC(ctx context.Context, instanceID string) (upstream.VNCResult, error) {
 	var resp struct {
 		URL          string `json:"url"`
 		Pass         string `json:"pass"`
@@ -2008,7 +1989,7 @@ func (p *ZJMFProvider) VNC(ctx context.Context, instanceID string) (upstream.VNC
 }
 
 // SuspendInstance 暂停主机：POST /provision/default（func=suspend，reason 为暂停原因）。
-func (p *ZJMFProvider) SuspendInstance(ctx context.Context, instanceID, reason string) error {
+func (p *Provider) SuspendInstance(ctx context.Context, instanceID, reason string) error {
 	if instanceID == "" {
 		return &upstream.ProviderError{Op: "SuspendInstance", Msg: "缺少上游主机ID"}
 	}
@@ -2021,7 +2002,7 @@ func (p *ZJMFProvider) SuspendInstance(ctx context.Context, instanceID, reason s
 }
 
 // UnsuspendInstance 解除暂停：POST /provision/default（func=unsuspend）。
-func (p *ZJMFProvider) UnsuspendInstance(ctx context.Context, instanceID string) error {
+func (p *Provider) UnsuspendInstance(ctx context.Context, instanceID string) error {
 	if instanceID == "" {
 		return &upstream.ProviderError{Op: "UnsuspendInstance", Msg: "缺少上游主机ID"}
 	}
@@ -2034,7 +2015,7 @@ func (p *ZJMFProvider) UnsuspendInstance(ctx context.Context, instanceID string)
 //
 // 注意：上游 /host/cancel 的语义是"提交停用申请并生效"（对应 domainstatus=Deleted），
 // 而非物理删除记录；这是魔方财务对外提供的唯一终止入口。
-func (p *ZJMFProvider) TerminateInstance(ctx context.Context, instanceID, reason string) error {
+func (p *Provider) TerminateInstance(ctx context.Context, instanceID, reason string) error {
 	if instanceID == "" {
 		return &upstream.ProviderError{Op: "TerminateInstance", Msg: "缺少上游主机ID"}
 	}
@@ -2052,7 +2033,7 @@ func (p *ZJMFProvider) TerminateInstance(ctx context.Context, instanceID, reason
 //  3. GET  host/header     → nextduedate 作为权威新到期时间返回。
 //
 // 上游任一步失败即整体失败，调用方不得回退为"只改本地账期"。
-func (p *ZJMFProvider) RenewInstance(ctx context.Context, req *upstream.RenewRequest) (*upstream.RenewResult, error) {
+func (p *Provider) RenewInstance(ctx context.Context, req *upstream.RenewRequest) (*upstream.RenewResult, error) {
 	if p.isResource() {
 		return nil, p.notSupported("RenewInstance", "资源型上游请走资源池续费流程处理")
 	}
@@ -2108,7 +2089,7 @@ func (p *ZJMFProvider) RenewInstance(ctx context.Context, req *upstream.RenewReq
 
 // DeleteInstance / ResizeInstance / ListInstances / ListPools 在「财务对接财务」模式下
 // 不由本适配器直接提供（删除走 /host/cancel、升降配走上游订单/upgrade/*，魔方财务无
-// 资源池概念），因此 ZJMFProvider 不实现 InstanceAdministration / PoolReader。
+// 资源池概念），因此 Provider 不实现 InstanceAdministration / PoolReader。
 // 消费方通过类型断言按需取用，失败即返回「上游不支持」。
 //
 // 已实现的能力接口（编译期断言，改动时能立即发现契约漂移）：
@@ -2116,22 +2097,22 @@ func (p *ZJMFProvider) RenewInstance(ctx context.Context, req *upstream.RenewReq
 // InstanceSuspension / InstanceTermination / InstancePowerHard / InstanceReinstall /
 // InstancePasswordReset / AccountReader / FinanceLedgerReader。
 var (
-	_ upstream.Provider              = (*ZJMFProvider)(nil)
-	_ upstream.ProductCatalog        = (*ZJMFProvider)(nil)
-	_ upstream.InstanceProvisioning  = (*ZJMFProvider)(nil)
-	_ upstream.InstanceControl       = (*ZJMFProvider)(nil)
-	_ upstream.InstanceRenewal       = (*ZJMFProvider)(nil)
-	_ upstream.InstanceSuspension    = (*ZJMFProvider)(nil)
-	_ upstream.InstanceTermination   = (*ZJMFProvider)(nil)
-	_ upstream.InstancePowerHard     = (*ZJMFProvider)(nil)
-	_ upstream.InstanceReinstall     = (*ZJMFProvider)(nil)
-	_ upstream.InstancePasswordReset = (*ZJMFProvider)(nil)
-	_ upstream.AccountReader         = (*ZJMFProvider)(nil)
-	_ upstream.FinanceLedgerReader   = (*ZJMFProvider)(nil)
+	_ upstream.Provider              = (*Provider)(nil)
+	_ upstream.ProductCatalog        = (*Provider)(nil)
+	_ upstream.InstanceProvisioning  = (*Provider)(nil)
+	_ upstream.InstanceControl       = (*Provider)(nil)
+	_ upstream.InstanceRenewal       = (*Provider)(nil)
+	_ upstream.InstanceSuspension    = (*Provider)(nil)
+	_ upstream.InstanceTermination   = (*Provider)(nil)
+	_ upstream.InstancePowerHard     = (*Provider)(nil)
+	_ upstream.InstanceReinstall     = (*Provider)(nil)
+	_ upstream.InstancePasswordReset = (*Provider)(nil)
+	_ upstream.AccountReader         = (*Provider)(nil)
+	_ upstream.FinanceLedgerReader   = (*Provider)(nil)
 )
 
 // notSupported 返回能力不支持错误（用于运行期分支：如资源型上游下的 GetProduct/CreateInstance）。
-func (p *ZJMFProvider) notSupported(op, msg string) error {
+func (p *Provider) notSupported(op, msg string) error {
 	return &upstream.ProviderError{Op: op, Msg: msg}
 }
 
@@ -2227,7 +2208,7 @@ func normalizeBillingCycle(cycle string) string {
 // accountCurrencyID 读取上游账号生效币种 id（GET cart/credit → data.currency.id），
 // 供 cart 下单使用。读取失败回落 "1"（上游默认币种）：下单流程不能因为一个
 // 只影响取价的字段而完全中断，且多数账号就是默认币种。
-func (p *ZJMFProvider) accountCurrencyID(ctx context.Context) string {
+func (p *Provider) accountCurrencyID(ctx context.Context) string {
 	var data struct {
 		Currency struct {
 			ID int64 `json:"id"`
@@ -2469,14 +2450,6 @@ func numFromMap(m map[string]interface{}, key string) float64 {
 	default:
 		return 0
 	}
-}
-
-// firstInt 返回切片首个元素，空则 0。
-func firstInt(v []int64) int64 {
-	if len(v) > 0 {
-		return v[0]
-	}
-	return 0
 }
 
 // randStr 生成随机小写字母数字串。

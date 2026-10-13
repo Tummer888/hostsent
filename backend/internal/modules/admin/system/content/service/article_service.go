@@ -455,12 +455,12 @@ func parsePublishAt(raw string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-func truncateRunes(s string, max int) string {
+func truncateRunes(s string, maxLen int) string {
 	r := []rune(s)
-	if len(r) <= max {
+	if len(r) <= maxLen {
 		return s
 	}
-	return string(r[:max])
+	return string(r[:maxLen])
 }
 
 func toArticleInfo(a model.Article) *dto.ArticleInfo {

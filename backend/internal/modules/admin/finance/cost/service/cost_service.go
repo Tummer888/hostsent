@@ -1039,12 +1039,12 @@ func duesWithin(dues []upstream.DueHost, now time.Time, days int) (float64, int)
 }
 
 // truncateRunes 按字符截断（上游描述可能带 HTML/超长文本，列宽有限）。
-func truncateRunes(s string, max int) string {
+func truncateRunes(s string, maxLen int) string {
 	runes := []rune(strings.TrimSpace(s))
-	if len(runes) <= max {
+	if len(runes) <= maxLen {
 		return string(runes)
 	}
-	return string(runes[:max])
+	return string(runes[:maxLen])
 }
 
 // —— 工具 ——

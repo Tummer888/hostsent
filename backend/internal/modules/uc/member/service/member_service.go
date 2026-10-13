@@ -58,8 +58,8 @@ func (s *memberService) List(ctx context.Context, ownerID uint64, isSub bool, qu
 		}
 		resp.Items = append(resp.Items, info)
 	}
-	if max, err := s.repo.MaxSubAccountsOf(ctx, ownerID); err == nil {
-		resp.MaxSubAccounts = max
+	if quota, err := s.repo.MaxSubAccountsOf(ctx, ownerID); err == nil {
+		resp.MaxSubAccounts = quota
 	}
 	return resp, nil
 }
@@ -70,12 +70,12 @@ func (s *memberService) Create(ctx context.Context, ownerID uint64, isSub bool, 
 	}
 
 	// 等级上限校验（0 表示未配置上限，不拦截）
-	if max, err := s.repo.MaxSubAccountsOf(ctx, ownerID); err == nil && max > 0 {
+	if quota, err := s.repo.MaxSubAccountsOf(ctx, ownerID); err == nil && quota > 0 {
 		count, cerr := s.repo.CountSubAccounts(ctx, ownerID)
 		if cerr != nil {
 			return nil, cerr
 		}
-		if count >= int64(max) {
+		if count >= int64(quota) {
 			return nil, ErrMemberQuotaExceeded
 		}
 	}

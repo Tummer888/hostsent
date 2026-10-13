@@ -243,7 +243,7 @@ func (h *UserTicketHandler) UploadAttachment(c *gin.Context) {
 		response.Error(c, apperrors.New(20001, "无法读取上传文件"))
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	// 用户侧不能上传内部附件：服务端强制 false。
 	resp, err := h.attachmentSvc.Upload(c.Request.Context(), ticketID, actorID, fileHeader.Filename, f, false)
 	if err != nil {
@@ -284,6 +284,6 @@ func (h *UserTicketHandler) DownloadAttachment(c *gin.Context) {
 		response.Error(c, writeError(err))
 		return
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	writeAttachment(c, item.FileName, item.FileType, item.FileSize, reader)
 }

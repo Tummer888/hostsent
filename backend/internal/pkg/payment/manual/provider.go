@@ -92,6 +92,6 @@ func (g *gateway) Prepay(ctx context.Context, cfg *payment.ChannelConfig, req *p
 
 // Query 线下渠道只有「后台确认到账」这一种状态推进方式，查询返回当前未支付态，
 // 由管理端人工确认接口直接改写支付单，不走本方法。
-func (g *gateway) Query(ctx context.Context, cfg *payment.ChannelConfig, req *payment.QueryRequest) (*payment.PaymentState, error) {
-	return &payment.PaymentState{Status: "pending"}, nil
+func (g *gateway) Query(ctx context.Context, cfg *payment.ChannelConfig, req *payment.QueryRequest) (*payment.State, error) {
+	return &payment.State{Status: "pending"}, nil
 }

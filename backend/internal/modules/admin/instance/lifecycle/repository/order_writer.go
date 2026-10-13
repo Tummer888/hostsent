@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -40,9 +39,4 @@ func (r *orderWriter) MarkOrderPaid(ctx context.Context, orderID uint64, paidAmo
 			"pay_time":    &now,
 			"operator_id": operatorID,
 		}).Error
-}
-
-// genOrderNo 生成续费订单号：RO + yyyymmddHHMMSS + 6 位随机。
-func genOrderNo() string {
-	return fmt.Sprintf("RO%s%06d", time.Now().Format("20060102150405"), time.Now().UnixNano()%1000000)
 }

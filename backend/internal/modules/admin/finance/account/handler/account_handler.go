@@ -100,7 +100,7 @@ func (h *WalletHandler) ExportTransactions(c *gin.Context) {
 	// UTF-8 BOM：Excel 直接打开中文列名不乱码。
 	c.Header("Content-Type", "text/csv; charset=utf-8")
 	c.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
-	c.Writer.WriteString("\xEF\xBB\xBF")
+	_, _ = c.Writer.WriteString("\xEF\xBB\xBF")
 	writer := csv.NewWriter(c.Writer)
 	_ = writer.Write([]string{"流水号", "用户ID", "用户名", "类型", "业务标识", "方向", "变动金额", "变动前余额", "变动后余额", "订单号", "关联单号", "备注", "操作人ID", "发生时间"})
 	for _, item := range items {

@@ -925,10 +925,6 @@ func (s *ticketService) buildDetail(ctx context.Context, item model.Ticket, view
 	}
 
 	replyInfos := make([]dto.TicketReplyInfo, 0, len(replies))
-	replyIDs := make([]uint64, 0, len(replies))
-	for _, r := range replies {
-		replyIDs = append(replyIDs, r.ID)
-	}
 	reviewerNames, rerr := s.ticketRepo.AdminNameMap(ctx, replyReviewerIDs(replies))
 	if rerr != nil {
 		reviewerNames = nil

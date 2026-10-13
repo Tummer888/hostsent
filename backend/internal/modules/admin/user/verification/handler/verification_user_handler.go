@@ -228,7 +228,7 @@ func (h *VerificationUserHandler) UploadDocument(c *gin.Context) {
 		badRequest(c, "无法读取上传文件")
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	data, err := h.service.UploadDocument(
 		c.Request.Context(), uid, applicationID, c.PostForm("document_type"), fileHeader.Filename, f)
 	if err != nil {
@@ -261,7 +261,7 @@ func (h *VerificationUserHandler) DownloadDocument(c *gin.Context) {
 		respondUserVerificationErr(c, err)
 		return
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	// 落盘名是随机串，下载时还原成「材料类型 + 原扩展名」，避免用户拿到无语义文件名。
 	fileName := service.DocumentFileName(doc.DocumentType, doc.FileURL)
 	c.Header("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(fileName))

@@ -81,7 +81,7 @@ func buildCaptchaBundle(
 	store := &captchaStore{cache: cacheClient}
 	// doc91 §5.1 登记的切换点：OTP 下发端口由「直读 system_configs」升级为
 	// 「渠道表优先、历史 SMTP 兜底」；Service 侧接口与调用代码零改动。
-	var otpSender captchaservice.Sender = captchaservice.NewDirectOTPSender(db, configReader)
+	otpSender := captchaservice.NewDirectOTPSender(db, configReader)
 	if otpResolver != nil {
 		otpSender = adapter.NewChannelSender(otpResolver, otpSender, configReader)
 	}

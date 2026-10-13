@@ -221,7 +221,7 @@ func (p *Provider) call(ctx context.Context, key *alipayKey, method, node, bizCo
 	if err != nil {
 		return fmt.Errorf("%w: 支付宝网关不可达", oauth.ErrProviderConfig)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := readLimited(resp.Body)
 	if err != nil {
 		return fmt.Errorf("%w: 读取支付宝响应失败", oauth.ErrProviderConfig)

@@ -150,7 +150,7 @@ func (p *provider) Verify(ctx context.Context, cfg captcha.ProviderConfig, scene
 	if err != nil {
 		return fmt.Errorf("易盾校验请求失败: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if err != nil {
 		return err

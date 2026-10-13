@@ -93,7 +93,7 @@ func applyBroadcastFilter(q *gorm.DB, f *notifydto.BroadcastFilter) *gorm.DB {
 		q = q.Where("status = ?", "active")
 	}
 	if f.HasInstance != nil {
-		sub := r_subqueryInstances(*f.HasInstance)
+		sub := rSubqueryInstances(*f.HasInstance)
 		q = q.Where(sub)
 	}
 	if f.MinBalance != "" {
@@ -105,8 +105,8 @@ func applyBroadcastFilter(q *gorm.DB, f *notifydto.BroadcastFilter) *gorm.DB {
 	return q
 }
 
-// r_subqueryInstances 生成「是否有实例」的子查询条件。
-func r_subqueryInstances(has bool) string {
+// rSubqueryInstances 生成「是否有实例」的子查询条件。
+func rSubqueryInstances(has bool) string {
 	if has {
 		return "EXISTS (SELECT 1 FROM instances i WHERE i.user_id = users.id)"
 	}

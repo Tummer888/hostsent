@@ -235,7 +235,7 @@ func (s *orderService) Close(ctx context.Context, id uint64) (*dto.OrderInfo, er
 	if ch, cerr := s.resolveChannelByID(ctx, o); cerr == nil {
 		if cfg, cerr := s.resolver.BuildConfig(ctx, ch); cerr == nil {
 			if gw, cerr := payment.Build(ch.Type, cfg); cerr == nil {
-				if closer, ok := gw.(payment.PaymentCloser); ok {
+				if closer, ok := gw.(payment.Closer); ok {
 					_ = closer.Close(ctx, cfg, &payment.CloseRequest{OutTradeNo: o.PaymentNo, ChannelTx: o.ChannelTx})
 				}
 			}
@@ -291,7 +291,7 @@ func (s *orderService) Sync(ctx context.Context, id uint64) (*dto.OrderInfo, err
 	if err != nil {
 		return nil, err
 	}
-	querier, ok := gw.(payment.PaymentQuerier)
+	querier, ok := gw.(payment.Querier)
 	if !ok {
 		return nil, payment.ErrNotImplemented
 	}

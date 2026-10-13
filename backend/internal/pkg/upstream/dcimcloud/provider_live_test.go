@@ -14,12 +14,12 @@ import (
 // liveProvider 返回魔方云测试节点配置（自营链路联调用）。
 // 会真实在测试面板上创建/销毁一台云主机，必须显式设置 LIVE_MOFANGYUN=1 才执行，
 // 避免误在正式环境跑出机器。
-func liveProvider(t *testing.T) *DCIMCloudProvider {
+func liveProvider(t *testing.T) *Provider {
 	t.Helper()
 	if os.Getenv("LIVE_MOFANGYUN") == "" {
 		t.Skip("set LIVE_MOFANGYUN=1 to run live 魔方云（dcimcloud）provisioning (creates a real VM on the test panel)")
 	}
-	return NewDCIMCloudProvider(&upstream.ProviderConfig{
+	return NewProvider(&upstream.ProviderConfig{
 		ID:          19,
 		Name:        "魔方云测试接口",
 		Type:        ProviderType,

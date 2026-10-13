@@ -13,7 +13,7 @@ import (
 // 成本管理「上游余额台账」依赖本能力（doc111 §5）：实现 AccountReader 后，
 // 资源渠道服务的能力探测（SupportsAccountBalance）会把它标记为「支持抓取」，
 // 页面的「抓取余额」按钮与每日自动快照随即生效。
-var _ upstream.AccountReader = (*ZJMFProvider)(nil)
+var _ upstream.AccountReader = (*Provider)(nil)
 
 // TestContract_GetAccountInfo 校验取余额契约（对齐旧 PHP upstreamCredit）：
 // POST /zjmf_api_login 换 JWT → GET /cart/credit 携带 `Authorization: Bearer <jwt>`；

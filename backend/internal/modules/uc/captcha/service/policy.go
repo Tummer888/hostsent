@@ -3,12 +3,10 @@ package service
 import (
 	"context"
 	"strings"
-	"time"
 
 	"hostsent/backend/internal/modules/uc/captcha/dto"
 	"hostsent/backend/internal/modules/uc/captcha/model"
 	"hostsent/backend/internal/modules/uc/captcha/repository"
-	cachepkg "hostsent/backend/internal/pkg/cache"
 	captchapkg "hostsent/backend/internal/pkg/captcha"
 )
 
@@ -146,17 +144,9 @@ func maskChannelTarget(channel, phone, email string) string {
 	return maskTarget(email)
 }
 
-// cacheClient 类型断言辅助：保证 Service 依赖的是接口而非具体实现。
-func cacheEnabled(c *cachepkg.Client) bool { return c != nil && c.Enabled() }
-
 // normalizeChannel 归一通道名。
 func normalizeChannel(ch string) string {
 	return strings.ToLower(strings.TrimSpace(ch))
-}
-
-// challengeTTL 图形码 TTL（供 handler 回显 expires_in）。
-func challengeTTL(sw *Switches, ctx context.Context) time.Duration {
-	return sw.ImageTTL(ctx)
 }
 
 var _ = captchapkg.ErrInvalid

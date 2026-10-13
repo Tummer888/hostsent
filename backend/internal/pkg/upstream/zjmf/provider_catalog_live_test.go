@@ -13,7 +13,7 @@ import (
 // liveCatalogProvider 只读真机上游（haika）适配器：用于验证商品目录/分类/代理折扣抓取。
 // 与 provider_live_test.go 的区别：这里**只发 GET 读接口**，不下单、不扣余额，
 // 故用独立开关 LIVE_ZJMF_CATALOG=1（不会因误设 LIVE_ZJMF 而触发扣费链路）。
-func liveCatalogProvider(t *testing.T) *ZJMFProvider {
+func liveCatalogProvider(t *testing.T) *Provider {
 	if os.Getenv("LIVE_ZJMF_CATALOG") == "" {
 		t.Skip("set LIVE_ZJMF_CATALOG=1 to run read-only 魔方财务（zjmf）catalog probe")
 	}
@@ -21,7 +21,7 @@ func liveCatalogProvider(t *testing.T) *ZJMFProvider {
 	if endpoint == "" {
 		endpoint = "https://www.haikayun.com/"
 	}
-	return NewZJMFProvider(&upstream.ProviderConfig{
+	return NewProvider(&upstream.ProviderConfig{
 		Type:         "zjmf",
 		APIEndpoint:  endpoint,
 		APIKey:       os.Getenv("ZJMF_USER"),

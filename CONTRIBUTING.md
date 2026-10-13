@@ -114,12 +114,16 @@ gofmt -l .            # 无输出
 go build ./...
 go vet ./...
 go test ./...         # 涉及域的单测至少全绿
+golangci-lint run --timeout=5m --build-tags live   # 本地与 CI 同参数，v2.6.1
 # 前端另跑 vue-tsc --noEmit
 ```
 
 CI 额外执行（见 `.github/workflows/ci.yml`）：
 
-- **golangci-lint**：warn 起步不阻塞，收敛后转 error（配置 `backend/.golangci.yml`）
+- **golangci-lint**：已转 error 门禁（errcheck/staticcheck/unused/revive，
+  普通 + `-tags live` 双构建，配置 `backend/.golangci.yml`）。
+  revive 显式关闭了四类存量风格规则（exported / package-comments /
+  unused-parameter / unexported-return），新代码不要依赖新的豁免
 - **`-race` 抽样**：finance / instance / order 核心包
 - **结构检查**：`scripts/check_structure.sh`——目录层级、uc 形态、依赖方向、
   响应统一、错误链；存量违例在脚本豁免清单中登记（棘轮模式），新增违例直接 fail。

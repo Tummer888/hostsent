@@ -1153,12 +1153,12 @@ func (e *SyncEngine) convertPool(providerID uint64, fallbackRegion string, p *up
 }
 
 // truncateRunes 按字符（非字节）截断，避免把多字节中文切坏。
-func truncateRunes(s string, max int) string {
+func truncateRunes(s string, maxLen int) string {
 	r := []rune(s)
-	if len(r) <= max {
+	if len(r) <= maxLen {
 		return s
 	}
-	return string(r[:max])
+	return string(r[:maxLen])
 }
 
 // mapKeys 取集合的键（稳定顺序无关，仅用于 IN 查询）。

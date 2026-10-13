@@ -20,8 +20,6 @@ func TestLedgerKindConstantsAlign(t *testing.T) {
 	}
 }
 
-func floatPtr(v float64) *float64 { return &v }
-
 // TestApplyLedgerToRows 流水口径落行规则：
 //   - 账本可作准的渠道（已同步过历史条目）消耗/充值一律取流水：本期 0 条目就是 0
 //     （「本期确实没消费」），不拿别的口径顶替；

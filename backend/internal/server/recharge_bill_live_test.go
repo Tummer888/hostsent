@@ -35,7 +35,7 @@ func TestLiveManualRechargeCreatesBill(t *testing.T) {
 	var rcMethod, rcStatus, rcRemark string
 	var rcAmount float64
 	h.db.Raw("SELECT method, status, amount, remark FROM recharges WHERE recharge_no = ?", rechargeNo).
-		Row().Scan(&rcMethod, &rcStatus, &rcAmount, &rcRemark)
+		Row().Scan(&rcMethod, &rcStatus, &rcAmount, &rcRemark) //nolint:errcheck // live 维护脚本：Scan 错误由后续字段断言暴露
 	if rcStatus != "success" {
 		t.Errorf("充值单状态 = %q，期望 success（人工代充值应即时到账）", rcStatus)
 	}
@@ -50,7 +50,7 @@ func TestLiveManualRechargeCreatesBill(t *testing.T) {
 	var txType, txRefNo string
 	var txAmount float64
 	h.db.Raw("SELECT type, ref_no, amount FROM wallet_transactions WHERE user_id = ? ORDER BY id DESC LIMIT 1", id).
-		Row().Scan(&txType, &txRefNo, &txAmount)
+		Row().Scan(&txType, &txRefNo, &txAmount) //nolint:errcheck // live 维护脚本：Scan 错误由后续字段断言暴露
 	if txType != "recharge" {
 		t.Errorf("流水类型 = %q，期望 recharge（走调账会算进 adjust 口径，充值统计失真）", txType)
 	}
@@ -92,7 +92,7 @@ func TestLiveManualRechargeCreatesBill(t *testing.T) {
 	}
 	var firstAmount float64
 	h.db.Raw("SELECT recharge_amount FROM bills WHERE source_type = 'recharge' AND source_no = ?", rechargeNo).
-		Row().Scan(&firstAmount)
+		Row().Scan(&firstAmount) //nolint:errcheck // live 维护脚本：Scan 错误由后续字段断言暴露
 	if firstAmount != 120 {
 		t.Errorf("首张充值账单金额 = %v，期望 120（第二笔充值不得累加进第一张）", firstAmount)
 	}
@@ -138,7 +138,7 @@ func assertRechargeBill(t *testing.T, h *liveHarness, rechargeNo string, userID 
 	var total, recharge float64
 	h.db.Raw(`SELECT bill_no, bill_type, source_type, status, total_amount, recharge_amount
 		FROM bills WHERE source_no = ?`, rechargeNo).
-		Row().Scan(&billNo, &billType, &sourceType, &billStatus, &total, &recharge)
+		Row().Scan(&billNo, &billType, &sourceType, &billStatus, &total, &recharge) //nolint:errcheck // live 维护脚本：Scan 错误由后续字段断言暴露
 	if billNo == "" {
 		t.Fatalf("充值单 %s 未生成独立账单（这正是本次修复的核心缺陷）", rechargeNo)
 	}

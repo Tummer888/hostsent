@@ -302,7 +302,7 @@ func (r *logQueryRepository) scanRows(ctx context.Context, sql string, args ...a
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	cols, err := rows.Columns()
 	if err != nil {

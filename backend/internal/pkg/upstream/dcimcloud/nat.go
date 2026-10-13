@@ -36,8 +36,8 @@ func natProtocolText(code int) string {
 	}
 }
 
-// natAclResponse NAT 端口转发列表响应。
-type natAclResponse struct {
+// natACLResponse NAT 端口转发列表响应。
+type natACLResponse struct {
 	Data struct {
 		NatHostIP string `json:"nat_host_ip"`
 		Data      []struct {
@@ -83,11 +83,11 @@ func (n *jsonNumberish) UnmarshalJSON(b []byte) error {
 func (n jsonNumberish) String() string { return string(n) }
 
 // ListNatForwards 列出实例的 NAT 端口转发规则（无规则时返回空切片，不是错误）。
-func (p *DCIMCloudProvider) ListNatForwards(ctx context.Context, providerInstanceID string) ([]upstream.NatForwardInfo, error) {
+func (p *Provider) ListNatForwards(ctx context.Context, providerInstanceID string) ([]upstream.NatForwardInfo, error) {
 	if providerInstanceID == "" {
 		return nil, nil
 	}
-	var resp natAclResponse
+	var resp natACLResponse
 	if err := p.call(ctx, "ListNatForwards", http.MethodGet,
 		"/clouds/"+providerInstanceID+"/nat_acl",
 		url.Values{"list_type": {"all"}}, &resp); err != nil {
@@ -108,7 +108,7 @@ func (p *DCIMCloudProvider) ListNatForwards(ctx context.Context, providerInstanc
 }
 
 // ListNatWebs 列出实例的共享建站规则（无规则时返回空切片，不是错误）。
-func (p *DCIMCloudProvider) ListNatWebs(ctx context.Context, providerInstanceID string) ([]upstream.NatWebInfo, error) {
+func (p *Provider) ListNatWebs(ctx context.Context, providerInstanceID string) ([]upstream.NatWebInfo, error) {
 	if providerInstanceID == "" {
 		return nil, nil
 	}

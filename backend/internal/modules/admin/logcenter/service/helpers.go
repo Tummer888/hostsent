@@ -18,19 +18,6 @@ func encodeSummary(summary map[string]any) string {
 	return string(raw)
 }
 
-// decodeSummary 摘要解码（前端展示用）。
-func decodeSummary(raw string) map[string]any {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil
-	}
-	var out map[string]any
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
-		return nil
-	}
-	return out
-}
-
 // encodeStrings 字符串数组 → jsonb 列文本；空切片写空串（落库转 NULL）。
 func encodeStrings(items []string) string {
 	if len(items) == 0 {
@@ -82,11 +69,11 @@ func decodeUint64s(raw string) []uint64 {
 }
 
 // truncate 截断字符串（列宽保护）。
-func truncate(s string, max int) string {
-	if max <= 0 || len(s) <= max {
+func truncate(s string, maxLen int) string {
+	if maxLen <= 0 || len(s) <= maxLen {
 		return s
 	}
-	cut := max
+	cut := maxLen
 	for cut > 0 && (s[cut]&0xC0) == 0x80 {
 		cut--
 	}

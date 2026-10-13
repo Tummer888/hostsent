@@ -18,23 +18,21 @@ import (
 // 同步；现在每个 (provider_id, scope) 独立节奏（目录小时级、实例分钟级），
 // 支持优先级与允许执行时间窗。调度行由 EnsureSchedules 依能力描述符懒创建。
 type Scheduler struct {
-	engine    *SyncEngine
-	syncRepo  syncrepo.SyncRepository
-	fwRepo    syncrepo.FrameworkRepository
-	logger    *zap.Logger
-	interval  time.Duration // 扫描周期
-	retention time.Duration // 同步任务/日志保留期（T0.5）
+	engine   *SyncEngine
+	syncRepo syncrepo.SyncRepository
+	fwRepo   syncrepo.FrameworkRepository
+	logger   *zap.Logger
+	interval time.Duration // 扫描周期
 }
 
 // NewScheduler 创建定时调度器，默认 60 秒扫描一次，同步数据保留 30 天。
 func NewScheduler(engine *SyncEngine, syncRepo syncrepo.SyncRepository, fwRepo syncrepo.FrameworkRepository, logger *zap.Logger) *Scheduler {
 	return &Scheduler{
-		engine:    engine,
-		syncRepo:  syncRepo,
-		fwRepo:    fwRepo,
-		logger:    logger,
-		interval:  60 * time.Second,
-		retention: 30 * 24 * time.Hour,
+		engine:   engine,
+		syncRepo: syncRepo,
+		fwRepo:   fwRepo,
+		logger:   logger,
+		interval: 60 * time.Second,
 	}
 }
 
@@ -161,28 +159,6 @@ func (s *Scheduler) deferToWindow(ctx context.Context, item syncmodel.SyncSchedu
 	}
 	if err := s.fwRepo.RecordScheduleRun(ctx, item.ID, syncmodel.ScheduleStatusSkipped, "不在允许执行的时间窗内", lastRun, next); err != nil {
 		s.logger.Warn("scheduler defer to window failed", zap.Uint64("provider_id", item.ProviderID), zap.Error(err))
-	}
-}
-
-// purgeOnce 按保留期分批清理历史同步任务、日志与差异记录（T0.5/T3.5）。
-//
-// Deprecated: 自 doc92 起由日志中心统一清理引擎接管（源 sync_log / sync_task /
-// sync_diff / price_change），保留期改由逐源保留策略决定。本函数与既有单测保留，
-// 但已不再被调度循环调用 —— 行为不丢：同步历史仍被清理，只是换了执行者。
-func (s *Scheduler) purgeOnce(ctx context.Context) {
-	before := time.Now().Add(-s.retention)
-	n, err := s.syncRepo.PurgeSyncDataBefore(ctx, before, 5000)
-	if err != nil {
-		s.logger.Error("scheduler purge sync data failed", zap.Error(err))
-	}
-	if m, ferr := s.fwRepo.PurgeFrameworkBefore(ctx, before, 5000); ferr != nil {
-		s.logger.Error("scheduler purge framework data failed", zap.Error(ferr))
-	} else {
-		n += m
-	}
-	if n > 0 {
-		s.logger.Info("scheduler purged sync data",
-			zap.Int64("rows", n), zap.Time("before", before))
 	}
 }
 

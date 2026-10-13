@@ -125,7 +125,7 @@ func do(client *http.Client, req *http.Request) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("三方接口不可达: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxRespBytes))
 	if err != nil {
 		return nil, fmt.Errorf("读取三方响应失败: %w", err)

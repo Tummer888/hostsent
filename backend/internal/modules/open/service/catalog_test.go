@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"gorm.io/gorm"
 	specmodel "hostsent/backend/internal/modules/admin/product/spec/model"
 	providermodel "hostsent/backend/internal/modules/admin/resource/provider/model"
 	"hostsent/backend/internal/modules/open/dto"
@@ -16,6 +15,8 @@ import (
 	ucproductservice "hostsent/backend/internal/modules/uc/product/service"
 	apperrors "hostsent/backend/internal/pkg/errors"
 	"hostsent/backend/internal/pkg/pricing"
+
+	"gorm.io/gorm"
 )
 
 type stubAtomReader struct{ atoms []specmodel.SpecAtom }
@@ -25,11 +26,10 @@ func (s *stubAtomReader) ListAtoms(_ context.Context) ([]specmodel.SpecAtom, err
 }
 
 type stubProductReader struct {
-	list    *ucproductdto.ListResponse
-	get     map[uint64]*ucproductdto.ProductInfo
-	getErr  error
-	lastIn  *ucproductdto.ListQuery
-	lastUID uint64
+	list   *ucproductdto.ListResponse
+	get    map[uint64]*ucproductdto.ProductInfo
+	getErr error
+	lastIn *ucproductdto.ListQuery
 }
 
 func (s *stubProductReader) List(_ context.Context, q ucproductdto.ListQuery) (*ucproductdto.ListResponse, error) {

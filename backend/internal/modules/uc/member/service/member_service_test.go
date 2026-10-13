@@ -40,8 +40,8 @@ func (f *fakeMemberRepo) List(_ context.Context, ownerID uint64, _ dto.MemberLis
 
 func (f *fakeMemberRepo) FindByID(_ context.Context, id uint64) (*model.Member, error) {
 	if m, ok := f.members[id]; ok {
-		copy := *m
-		return &copy, nil
+		snapshot := *m
+		return &snapshot, nil
 	}
 	return nil, gorm.ErrRecordNotFound
 }
@@ -79,8 +79,8 @@ func (f *fakeMemberRepo) FindByPhone(_ context.Context, phone string) (*model.Me
 func (f *fakeMemberRepo) Create(_ context.Context, member *model.Member) error {
 	f.nextID++
 	member.ID = f.nextID
-	copy := *member
-	f.members[member.ID] = &copy
+	snapshot := *member
+	f.members[member.ID] = &snapshot
 	return nil
 }
 

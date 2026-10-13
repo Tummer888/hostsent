@@ -285,7 +285,7 @@ func TestLiveUserPurgeRetention(t *testing.T) {
 	var consumeAfterDelete float64
 	var levelAfterDelete *uint64
 	h.db.Raw("SELECT total_consume_amount, user_level_id FROM users WHERE id = ?", id).
-		Row().Scan(&consumeAfterDelete, &levelAfterDelete)
+		Row().Scan(&consumeAfterDelete, &levelAfterDelete) //nolint:errcheck // live 维护脚本：Scan 错误由后续字段断言暴露
 	if consumeAfterDelete != 2000 {
 		t.Errorf("R7：注销回退了累计消费：%v（期望 2000）", consumeAfterDelete)
 	}
@@ -434,7 +434,7 @@ func TestLiveVerificationReview(t *testing.T) {
 	var verifiedAt *time.Time
 	var verifiedSource string
 	h.db.Raw("SELECT real_name_verified_at, real_name_verified_source FROM users WHERE id = ?", id).
-		Row().Scan(&verifiedAt, &verifiedSource)
+		Row().Scan(&verifiedAt, &verifiedSource) //nolint:errcheck // live 维护脚本：Scan 错误由后续字段断言暴露
 	if verifiedAt == nil {
 		t.Fatal("通过后 users.real_name_verified_at 未写入（实名信任信号缺失）")
 	}
@@ -446,7 +446,7 @@ func TestLiveVerificationReview(t *testing.T) {
 	}
 
 	// 用户端状态卡应变为 approved
-	status, body = h.do(http.MethodGet, "/api/v1/uc/verification", token, nil)
+	_, body = h.do(http.MethodGet, "/api/v1/uc/verification", token, nil)
 	if got := digString(body, "data", "status"); got != "approved" {
 		t.Errorf("用户端实名状态 = %q，期望 approved", got)
 	}
@@ -477,7 +477,7 @@ func TestLiveVerificationReview(t *testing.T) {
 	}
 	var rejectReason, appStatus string
 	h.db.Raw("SELECT status, reject_reason FROM verification_applications WHERE id = ?", appID2).
-		Row().Scan(&appStatus, &rejectReason)
+		Row().Scan(&appStatus, &rejectReason) //nolint:errcheck // live 维护脚本：Scan 错误由后续字段断言暴露
 	if appStatus != "rejected" {
 		t.Errorf("驳回后状态 = %q，期望 rejected", appStatus)
 	}
@@ -524,7 +524,7 @@ func TestLiveRealnameBackdoorClosed(t *testing.T) {
 	var verifiedAt *time.Time
 	var realName string
 	h.db.Raw("SELECT real_name_verified_at, real_name FROM users WHERE id = ?", id).
-		Row().Scan(&verifiedAt, &realName)
+		Row().Scan(&verifiedAt, &realName) //nolint:errcheck // live 维护脚本：Scan 错误由后续字段断言暴露
 	if realName != "王五实名" {
 		t.Errorf("real_name 落库 = %q，期望「王五实名」", realName)
 	}
@@ -533,7 +533,7 @@ func TestLiveRealnameBackdoorClosed(t *testing.T) {
 	}
 
 	// 实名状态卡必须仍是 none
-	status, body = h.do(http.MethodGet, "/api/v1/uc/verification", token, nil)
+	_, body = h.do(http.MethodGet, "/api/v1/uc/verification", token, nil)
 	if got := digString(body, "data", "status"); got != "none" {
 		t.Errorf("实名状态 = %q，期望 none（改名字不该产生任何实名记录）", got)
 	}
@@ -645,7 +645,7 @@ func TestLiveOAuthBindAndLogin(t *testing.T) {
 	// 自动注册用户归入默认用户组
 	var groupID *uint64
 	var newUsername string
-	h.db.Raw("SELECT user_group_id, username FROM users WHERE id = ?", newUserID).Row().Scan(&groupID, &newUsername)
+	h.db.Raw("SELECT user_group_id, username FROM users WHERE id = ?", newUserID).Row().Scan(&groupID, &newUsername) //nolint:errcheck // live 维护脚本：Scan 错误由后续字段断言暴露
 	var defaultGroupID uint64
 	h.db.Raw("SELECT id FROM user_groups WHERE is_default = true AND status = 'active' LIMIT 1").Scan(&defaultGroupID)
 	if defaultGroupID == 0 {
@@ -667,7 +667,7 @@ func TestLiveOAuthBindAndLogin(t *testing.T) {
 	}
 	var snapProvider, snapOpenID string
 	h.db.Raw("SELECT oauth_provider, oauth_openid FROM users WHERE id = ?", newUserID).
-		Row().Scan(&snapProvider, &snapOpenID)
+		Row().Scan(&snapProvider, &snapOpenID) //nolint:errcheck // live 维护脚本：Scan 错误由后续字段断言暴露
 	if snapProvider != liveOAuthType || snapOpenID != openID {
 		t.Errorf("主绑定快照未同步：provider=%q openid=%q", snapProvider, snapOpenID)
 	}
@@ -759,7 +759,7 @@ func TestLiveOAuthBindAndLogin(t *testing.T) {
 		t.Error("解绑后绑定行仍存在")
 	}
 	var afterProvider, afterOpenID string
-	h.db.Raw("SELECT oauth_provider, oauth_openid FROM users WHERE id = ?", ownerID).Row().Scan(&afterProvider, &afterOpenID)
+	h.db.Raw("SELECT oauth_provider, oauth_openid FROM users WHERE id = ?", ownerID).Row().Scan(&afterProvider, &afterOpenID) //nolint:errcheck // live 维护脚本：Scan 错误由后续字段断言暴露
 	if afterProvider != "" || afterOpenID != "" {
 		t.Errorf("解绑后主绑定快照未清空：provider=%q openid=%q", afterProvider, afterOpenID)
 	}
@@ -815,7 +815,7 @@ func TestLiveVerificationOrphanRepair(t *testing.T) {
 	var ghostUserID uint64
 	var ghostFlags string
 	h.db.Raw("SELECT user_id, COALESCE(risk_flags, '') FROM verification_applications WHERE username = ?", ghostName).
-		Row().Scan(&ghostUserID, &ghostFlags)
+		Row().Scan(&ghostUserID, &ghostFlags) //nolint:errcheck // live 维护脚本：Scan 错误由后续字段断言暴露
 	if ghostUserID != 0 {
 		t.Errorf("无法回绑的孤儿行被错误地绑到了 %d", ghostUserID)
 	}

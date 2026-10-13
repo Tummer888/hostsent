@@ -351,8 +351,8 @@ func Normalize(err error) error {
 }
 
 // FormatAttempt 供日志/错误信息展示重试进度。
-func FormatAttempt(attempt, max int) string {
-	return fmt.Sprintf("attempt %d/%d", attempt, max)
+func FormatAttempt(attempt, maxN int) string {
+	return fmt.Sprintf("attempt %d/%d", attempt, maxN)
 }
 
 // ParseRateLimit 从列值解析限流参数（0 视为不限）。

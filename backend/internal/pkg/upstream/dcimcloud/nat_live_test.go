@@ -21,7 +21,7 @@ func TestNatReaderLive(t *testing.T) {
 	if os.Getenv("LIVE_MOFANGYUN") == "" {
 		t.Skip("set LIVE_MOFANGYUN=1 to run live NAT reader test (read-only)")
 	}
-	p := NewDCIMCloudProvider(&upstream.ProviderConfig{
+	p := NewProvider(&upstream.ProviderConfig{
 		ID:          19,
 		Name:        "魔方云测试接口",
 		Type:        ProviderType,
@@ -70,7 +70,7 @@ func TestNatReaderEmptyInstanceIDLive(t *testing.T) {
 	if os.Getenv("LIVE_MOFANGYUN") == "" {
 		t.Skip("set LIVE_MOFANGYUN=1 to run live NAT reader test (read-only)")
 	}
-	p := NewDCIMCloudProvider(&upstream.ProviderConfig{
+	p := NewProvider(&upstream.ProviderConfig{
 		ID: 19, Type: ProviderType,
 		APIEndpoint: os.Getenv("MOFANGYUN_ENDPOINT"),
 		APIKey:      os.Getenv("MOFANGYUN_USER"), APISecret: os.Getenv("MOFANGYUN_PASS"),

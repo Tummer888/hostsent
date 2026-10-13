@@ -14,11 +14,11 @@ import (
 // 数据来自 provision/chart/{host_id}。这里钉住的是「原样转发 + 形状归一」，
 // 因为它对上游来说是只读契约，写错不会报错、只会拿到空图表。
 
-func newChartProvider(t *testing.T, handler http.HandlerFunc) *ZJMFProvider {
+func newChartProvider(t *testing.T, handler http.HandlerFunc) *Provider {
 	t.Helper()
 	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
-	return NewZJMFProvider(&upstream.ProviderConfig{
+	return NewProvider(&upstream.ProviderConfig{
 		APIEndpoint:  ts.URL,
 		UpstreamType: "zjmf_api",
 		Timeout:      5,
@@ -159,5 +159,5 @@ func TestQueryMetrics_EmptyLabelStillReturnsPoints(t *testing.T) {
 }
 
 func TestImplementsInstanceMetrics(t *testing.T) {
-	var _ upstream.InstanceMetrics = (*ZJMFProvider)(nil)
+	var _ upstream.InstanceMetrics = (*Provider)(nil)
 }

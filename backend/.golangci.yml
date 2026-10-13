@@ -1,5 +1,7 @@
-# golangci-lint 配置（CONTRIBUTING §10 / 115 整改方案批次五 G5）。
-# 策略：从最小规则集起步（CI 中 warn 不阻塞），收敛后逐步收紧并改为 error。
+# golangci-lint 配置（CONTRIBUTING §10）。
+# 门禁状态（批次三 C5）：errcheck/staticcheck/unused/revive 双构建
+# （普通 + `-tags live`）已清零，CI 阻塞运行（.github/workflows/ci.yml）。
+# 版本锁定 v2.6.1（v2 配置格式），升级时先本地全量跑通再动 CI。
 version: "2"
 
 run:
@@ -7,6 +9,20 @@ run:
 
 linters:
   default: none
+  settings:
+    revive:
+      rules:
+        # 存量风格类规则：注释补齐非本批次目标（500+ 处），噪音大于收益。
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+        - name: unused-parameter
+          disabled: true
+        # 工厂函数返回未导出实现类型（*xxxService）是本项目有意的 DI 模式：
+        # 接口在服务包内定义，装配层按接口/端口消费，重命名会撕裂全部调用方。
+        - name: unexported-return
+          disabled: true
   enable:
     # 未处理的 error 返回值（错误处理纪律）
     - errcheck
@@ -20,3 +36,9 @@ linters:
 formatters:
   enable:
     - gofmt
+
+issues:
+  # 不设上限：截断会掩盖存量违例（默认每 linter 最多报 50 条），
+  # 门禁模式下必须看到全量清单。
+  max-issues-per-linter: 0
+  max-same-issues: 0

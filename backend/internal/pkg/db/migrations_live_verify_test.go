@@ -1468,7 +1468,7 @@ func TestLiveFinanceWalletsPageRemoved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("查询资金管理组叶子失败: %v", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	got := map[string]int{}
 	for rows.Next() {
 		var path string
@@ -1568,7 +1568,7 @@ func TestLiveCostManagementSeed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("查询成本管理叶子失败: %v", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	type leaf struct {
 		order     int
 		component string

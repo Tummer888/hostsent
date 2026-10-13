@@ -14,14 +14,14 @@ import (
 	"strings"
 )
 
-// ZjmfResp 魔方财务统一响应外壳：{status, msg, data}；个别接口返回 {code, data}；
+// Resp 魔方财务统一响应外壳：{status, msg, data}；个别接口返回 {code, data}；
 // 登录接口额外返回 jwt 字段。
 //
 // status/code 用 FlexCode：上游大多数接口下发数字（200/1001/400），但个别接口
 // 与网关会下发**字符串**（实测 `{"status":"406"}`、`{"status":"on"}`）。
 // 用 int 解析时字符串形态会被 encoding/json 判为类型错误，整个外壳解不出来 ——
 // 表现为"业务码 0"，于是失败被当成成功、或成功被当成失败，两种方向都出现过。
-type ZjmfResp[T any] struct {
+type Resp[T any] struct {
 	Status FlexCode `json:"status"`
 	Code   FlexCode `json:"code"` // 与 status 二选一，兼容个别接口
 	Msg    string   `json:"msg"`

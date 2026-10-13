@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"go.uber.org/zap"
@@ -246,12 +245,4 @@ func encodeVars(vars map[string]string) string {
 		return "{}"
 	}
 	return string(raw)
-}
-
-// deliveryErrorSummary 组装友好错误摘要（保留上游原文以便排查）。
-func deliveryErrorSummary(op string, err error) string {
-	if err == nil {
-		return ""
-	}
-	return fmt.Sprintf("%s: %s", op, err.Error())
 }

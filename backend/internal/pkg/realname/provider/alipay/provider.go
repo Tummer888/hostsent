@@ -315,7 +315,7 @@ func (p *Provider) call(ctx context.Context, key *alipayKey, method, node, bizCo
 	if err != nil {
 		return fmt.Errorf("%w: 支付宝网关不可达", realname.ErrProviderConfig)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxRespBytes))
 	if err != nil {

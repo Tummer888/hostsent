@@ -23,22 +23,22 @@ var SensitiveKeys = []string{
 const Masked = "***"
 
 // Truncate 截断字符串到 max 字节（按字节安全截断，避免切出半个 UTF-8）。
-func Truncate(s string, max int) string {
-	if max <= 0 || len(s) <= max {
+func Truncate(s string, maxLen int) string {
+	if maxLen <= 0 || len(s) <= maxLen {
 		return s
 	}
-	// 从 max 往前退到合法的 UTF-8 边界。
-	cut := max
+	// 从 maxLen 往前退到合法的 UTF-8 边界。
+	cut := maxLen
 	for cut > 0 && (s[cut]&0xC0) == 0x80 {
 		cut--
 	}
 	return s[:cut]
 }
 
-// MaskKeyValue 对 "key=value" / "key":"value" / "key: value" 形式的敏感键做替换。
+// KeyValue 对 "key=value" / "key":"value" / "key: value" 形式的敏感键做替换。
 //
 // 用于非 JSON 的表单体（上游请求体就是 urlencoded）。
-func MaskKeyValue(text, key string) string {
+func KeyValue(text, key string) string {
 	lower := strings.ToLower(text)
 	idx := 0
 	for {
@@ -68,27 +68,27 @@ func MaskKeyValue(text, key string) string {
 	}
 }
 
-// MaskText 纯文本脱敏：逐个敏感键做键值替换，最后按 max 截断（max<=0 不截断）。
-func MaskText(text string, max int) string {
+// Text 纯文本脱敏：逐个敏感键做键值替换，最后按 max 截断（max<=0 不截断）。
+func Text(text string, maxLen int) string {
 	result := text
 	for _, key := range SensitiveKeys {
-		result = MaskKeyValue(result, key)
+		result = KeyValue(result, key)
 	}
-	return Truncate(result, max)
+	return Truncate(result, maxLen)
 }
 
 // MaskJSON 对 JSON 对象做一层浅脱敏（键名子串命中即整值替换）。
 //
 // 解析失败时退化为 MaskText。返回值同时报告是否命中了任何敏感键，
 // 便于调用方决定是否需要标记「已脱敏」。
-func MaskJSON(payload []byte, max int) (string, bool) {
+func JSON(payload []byte, maxLen int) (string, bool) {
 	trimmed := strings.TrimSpace(string(payload))
 	if trimmed == "" {
 		return "", false
 	}
 	var data map[string]any
 	if err := json.Unmarshal(payload, &data); err != nil {
-		return MaskText(trimmed, max), HasSensitiveKey(trimmed)
+		return Text(trimmed, maxLen), HasSensitiveKey(trimmed)
 	}
 	hit := false
 	for key := range data {
@@ -99,23 +99,23 @@ func MaskJSON(payload []byte, max int) (string, bool) {
 	}
 	encoded, err := json.Marshal(data)
 	if err != nil {
-		return MaskText(trimmed, max), hit
+		return Text(trimmed, maxLen), hit
 	}
-	return Truncate(string(encoded), max), hit
+	return Truncate(string(encoded), maxLen), hit
 }
 
-// MaskGenericBody 脱敏任意响应体：能解析成 JSON 对象就走 MaskJSON，
+// GenericBody 脱敏任意响应体：能解析成 JSON 对象就走 MaskJSON，
 // 否则按文本处理（上游响应可能是纯 token 字符串、HTML 错误页等）。
-func MaskGenericBody(body string, max int) string {
+func GenericBody(body string, maxLen int) string {
 	trimmed := strings.TrimSpace(body)
 	if trimmed == "" {
 		return ""
 	}
 	if strings.HasPrefix(trimmed, "{") {
-		out, _ := MaskJSON([]byte(trimmed), max)
+		out, _ := JSON([]byte(trimmed), maxLen)
 		return out
 	}
-	return MaskText(trimmed, max)
+	return Text(trimmed, maxLen)
 }
 
 // IsSensitiveKey 键名是否命中敏感词。
@@ -143,10 +143,10 @@ func HasSensitiveKey(text string) bool {
 	return false
 }
 
-// MaskURL 脱敏 URL 的 query（魔方财务有 ?jwt= 的用法，token 可能在 query 里）。
+// URL 脱敏 URL 的 query（魔方财务有 ?jwt= 的用法，token 可能在 query 里）。
 //
 // 保留 path 与参数名，仅替换命中的参数值；解析失败时对整个串做文本脱敏。
-func MaskURL(raw string) string {
+func URL(raw string) string {
 	idx := strings.Index(raw, "?")
 	if idx < 0 {
 		return raw
