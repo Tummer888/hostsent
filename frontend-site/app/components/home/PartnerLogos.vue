@@ -27,7 +27,7 @@ import { PARTNERS } from '~/constants/homeContent'
 
 const heading = {
   title: '服务保障',
-  subtitle: '从选配下单到续费到期，日常用得到的都在控制台自助完成。',
+  subtitle: '从选配下单到续费到期，日常用得到的都在用户中心自助完成。',
 }
 </script>
 

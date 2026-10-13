@@ -22,10 +22,7 @@
           </NuxtLink>
           <p class="site-footer__slogan">{{ site.slogan }}</p>
 
-          <!--
-            联系方式区块：电话/邮箱都没配时不渲染「热线」标题 ——
-            只留一个标题、下面空一行，比整块没有更让人困惑。
-          -->
+          <!-- -->
           <div class="site-footer__hotline">
             <template v-if="site.contactPhone">
               <h4 class="site-footer__column-title">售前咨询热线</h4>
@@ -40,11 +37,7 @@
             <NuxtLink class="site-footer__link" to="/products">产品咨询</NuxtLink>
           </div>
 
-          <!--
-            关注入口：只渲染运营配了 url 的社交项 + 配了公众号名称时的文字展示。
-            改造前这里是四个按钮（微信/QQ/开源社区/视频号）点了弹「XX开发中」——
-            没有任何真实账号可跳，属于典型的假入口。没有可跳转地址就整块不渲染。
-          -->
+          <!-- -->
           <div v-if="reachableSocials.length || site.wechat" class="site-footer__social">
             <h4 class="site-footer__column-title">关注{{ site.name }}</h4>
             <p v-if="site.wechat" class="site-footer__wechat">
@@ -71,11 +64,7 @@
         <div class="site-footer__columns">
           <div v-for="column in footerColumns" :key="column.title" class="site-footer__column">
             <h4 class="site-footer__column-title">{{ column.title }}</h4>
-            <!--
-              站内路径用 NuxtLink 走客户端路由，外链用 <a>。
-              外链一律 nofollow：友情链接是「被链方付费换取曝光」的典型位置，
-              不加 nofollow 会被搜索引擎判为链接农场，连带拖累自己的权重。
-            -->
+            <!-- -->
             <template v-for="link in column.links" :key="link.label">
               <NuxtLink v-if="isInternalPath(link.to)" class="site-footer__link" :to="link.to">
                 {{ link.label }}
@@ -92,7 +81,7 @@
             </template>
           </div>
 
-          <!-- 友情链接来自 friendly_links 表，按 sort_order 排序；无数据时整栏不渲染 -->
+          <!-- -->
           <div v-if="links.length" class="site-footer__column">
             <h4 class="site-footer__column-title">友情链接</h4>
             <a

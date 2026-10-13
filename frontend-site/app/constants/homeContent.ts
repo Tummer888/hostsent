@@ -74,7 +74,7 @@ export const HERO_SHELF_LINKS: SiteAnchor[] = [
   { label: '周期计费', to: '/#pricing' },
   { label: '自助开通', to: '/#features' },
   { label: '服务与保障', to: '/#partners' },
-  { label: '控制台与文档', to: '/#console' },
+  { label: '用户中心与文档', to: '/#console' },
   { label: '服务与支持', to: '/#contact' },
 ]
 
@@ -158,7 +158,7 @@ export const PARTNERS: PartnerItem[] = [
   { variant: 1, name: '余额支付', note: '明细可查询' },
   { variant: 2, name: '工单支持', note: '按优先级响应' },
   { variant: 3, name: '订单可查', note: '状态随时查询' },
-  { variant: 4, name: '控制台自助', note: '重启 / 重装 / 控制台' },
+  { variant: 4, name: '自助运维', note: '重启 / 重装 / 远程连接' },
 ]
 
 export interface QuickEntry {
@@ -230,7 +230,7 @@ export const QUICK_ACTIONS: QuickAction[] = [
     // 因此这里导向「联系与支持」区块（含客服电话与邮箱），而不是造一个假提单入口。
     icon: 'ticket',
     title: '联系与支持',
-    desc: '售前咨询与售后问题都可联系客服；已注册用户可在控制台提交工单并按优先级跟进。',
+    desc: '售前咨询与售后问题都可联系客服；已注册用户可在用户中心提交工单并按优先级跟进。',
     actionLabel: '查看联系方式',
     to: '/#contact',
   },

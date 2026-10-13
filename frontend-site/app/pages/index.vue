@@ -3,19 +3,19 @@
     <!-- 1. 通屏 banner + 底部能力卡 -->
     <HomeHeroSection />
 
-    <!-- 2. 热门产品（真实数据：后台推荐位） -->
+    <!-- 2. 热门产品 -->
     <HomeFeaturedProducts />
 
     <!-- 3. 为什么选择我们 -->
     <HomeFeatureSection />
 
-    <!-- 4. 计费方式与优惠（周期价格 / 邀请返利 / 自动续费，均为已上线能力） -->
+    <!-- 4. 计费方式与优惠 -->
     <HomePricingSection />
 
     <!-- 5. 服务保障 -->
     <HomePartnerLogos />
 
-    <!-- 6. 上手与支持（控制台入口 + 文档/API 宫格） -->
+    <!-- 6. 上手与支持 -->
     <HomeFeaturedShowcase />
 
     <!-- 7. 资源与支持 -->

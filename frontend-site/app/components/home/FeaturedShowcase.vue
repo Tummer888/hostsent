@@ -4,12 +4,12 @@
       <SectionHeading :title="heading.title" :subtitle="heading.subtitle" />
 
       <div class="featured__grid">
-        <!-- 左：深色控制台入口卡 -->
+        <!-- 左：用户中心入口卡 -->
         <aside class="featured__panel">
           <span class="featured__panel-logo">{{ site.name }}</span>
-          <h3 class="featured__panel-title">控制台快速入口</h3>
+          <h3 class="featured__panel-title">用户中心快速入口</h3>
           <p class="featured__panel-desc">
-            产品、订单、实例与工单都能在用户控制台统一管理。
+            产品、订单、实例与工单都能在用户中心统一管理。
           </p>
 
           <ul class="featured__entries">
@@ -29,11 +29,11 @@
           </ul>
 
           <p v-if="!consoleBase" class="featured__panel-hint">
-            控制台入口暂不可用。
+            用户中心入口暂不可用。
           </p>
         </aside>
 
-        <!-- 右：2×2 链接卡（四张都指向门户上真实存在的页面） -->
+        <!-- 右：2×2 链接卡 -->
         <ul class="featured__links">
           <li v-for="link in FEATURED_LINKS" :key="link.title">
             <NuxtLink :to="link.to" class="link-card">
@@ -65,7 +65,7 @@ const site = computed(() => content.value.site)
 
 const heading = {
   title: '上手与支持',
-  subtitle: '从文档到控制台，把开通、排障与常见问题都放在顺手的位置。',
+  subtitle: '从文档到用户中心，把开通、排障与常见问题都放在顺手的位置。',
 }
 
 /** 控制台地址未配置时返回空串，入口降级为不可点，避免造死链。 */

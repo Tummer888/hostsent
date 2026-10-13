@@ -10,11 +10,7 @@
 
       <ul class="site-shelf promo__shelf">
         <li v-for="item in PRICING_CARDS" :key="item.title" class="promo__cell">
-          <!--
-            卡片目的地：站内页走 NuxtLink；用户中心入口走 <a> 拼控制台地址
-            （与 FeaturedShowcase 的控制台入口同一套规则）。控制台地址未配置时
-            降级成不可点的 <div>，而不是造一个点进去 404 的链接。
-          -->
+          <!-- -->
           <component
             :is="cardUrl(item) ? (item.to ? 'NuxtLink' : 'a') : 'div'"
             :to="item.to"

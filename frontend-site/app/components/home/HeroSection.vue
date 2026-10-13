@@ -39,7 +39,7 @@
           </div>
         </div>
 
-        <!-- 右：抽象插画区（参考图的 3D 素材/AI 卡片用几何占位，不含任何第三方素材） -->
+        <!-- -->
         <div class="hero__art" aria-hidden="true">
           <span class="hero__art-panel" />
 
@@ -70,7 +70,7 @@
       </div>
     </section>
 
-    <!-- Banner 下沿卡片行：左侧快捷入口卡 + 右侧三栏能力面板 -->
+    <!-- -->
     <div class="site-container hero__shelf">
       <div class="shelf__promo">
         <p class="shelf__promo-head">

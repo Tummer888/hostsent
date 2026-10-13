@@ -37,7 +37,7 @@
           :href="consoleBase"
           rel="noopener"
         >
-          控制台
+          用户中心
         </a>
 
         <NuxtLink class="site-btn site-btn--primary hd__cta" :to="ctaLink">
@@ -81,7 +81,7 @@
         </NuxtLink>
 
         <a v-if="consoleBase" class="hd__drawer-link" :href="consoleBase" rel="noopener">
-          控制台
+          用户中心
         </a>
       </div>
     </div>

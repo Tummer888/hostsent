@@ -32,7 +32,7 @@
             <span v-if="selectedSku" class="detail-price__sku">{{ selectedSku.name }}</span>
           </div>
 
-          <!-- 规格与周期只做「选择 + 传递意图」：算价与下单必须在用户中心完成 -->
+          <!-- 规格与周期只做「选择 + 传递意图」 -->
           <div v-if="product.skus.length" class="detail-option">
             <h3 class="detail-option__title">选择规格</h3>
             <div class="detail-option__list">
@@ -69,10 +69,7 @@
             </div>
           </div>
 
-          <!--
-            配置选项：官网只做「选择 + 传递意图」。加价金额需要按周期与折扣计算，
-            只有用户中心才有权威结果，因此这里只把选择拼进跳转链接，不展示算价。
-          -->
+          <!-- -->
           <div v-for="opt in allOptions" :key="opt.optionKey" class="detail-option">
             <h3 class="detail-option__title">
               {{ opt.name }}
@@ -80,7 +77,7 @@
               <span v-if="opt.unit" class="detail-option__unit">（{{ opt.unit }}）</span>
             </h3>
 
-            <!-- 分组下拉：操作系统按镜像家族（Ubuntu / Windows）分组 -->
+            <!-- -->
             <select
               v-if="opt.widget === 'group_select' || opt.widget === 'select'"
               v-model="selections[opt.optionKey]"
@@ -140,10 +137,7 @@
               </button>
             </div>
 
-            <!--
-              文本型：主机名这类自由填写项（无候选取值）。官网同样只传递意图，
-              留空则由用户中心在开通时自动生成，因此不设为必填。
-            -->
+            <!-- -->
             <input
               v-else-if="opt.widget === 'text'"
               v-model="selections[opt.optionKey]"

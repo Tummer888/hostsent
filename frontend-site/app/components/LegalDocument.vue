@@ -23,17 +23,13 @@
           :updated-at="article.updatedAt || article.publishAt"
         >
           <template #meta>
-            <!-- Q5：版本号由运营在管理端手工维护，门户只做展示 -->
+            <!-- -->
             <span v-if="article.version">版本：{{ article.version }}</span>
             <time v-if="article.publishAt">生效日期：{{ formatArticleDate(article.publishAt) }}</time>
           </template>
         </ContentArticle>
 
-        <!--
-          未发布时不是 404：页面本身存在（注册页会链接过来），只是运营还没填正文。
-          报「页面不存在」会让用户以为链接坏了；后端故障则已经在上面的组合式函数里
-          抛成 503，不会走到这个占位分支。
-        -->
+        <!-- -->
         <div v-else class="content-placeholder">
           <p class="content-placeholder__title">{{ label }}尚未发布</p>
           <p class="content-placeholder__desc">
