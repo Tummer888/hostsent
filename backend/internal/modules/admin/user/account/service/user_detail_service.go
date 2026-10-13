@@ -32,7 +32,7 @@ func NewUserDetailService(userRepo repository.UserRepository, detailRepo reposit
 func (s *userDetailService) GetAggregate(ctx context.Context, userID uint64) (*dto.UserDetailAggregateResponse, error) {
 	user, err := s.userRepo.FindByID(ctx, userID)
 	if err != nil {
-		return nil, err
+		return nil, translateUserFindErr(err)
 	}
 
 	resp := &dto.UserDetailAggregateResponse{

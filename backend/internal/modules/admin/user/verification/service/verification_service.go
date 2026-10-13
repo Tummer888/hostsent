@@ -62,6 +62,9 @@ var (
 	// 不是服务端故障。原先走 default 分支落进 500，前端只能靠 message 文本判断
 	// 「这次该不该让运营补理由」，而 5xx 在监控里还会被当成真实故障告警。
 	ErrRejectReasonRequired = errors.New("驳回理由不能为空")
+	// ErrProviderNotFound 是 repository 层同义哨兵的 service 再出口：
+	// handler 只允许依赖本包判断语义（CONTRIBUTING §3）。
+	ErrProviderNotFound = repository.ErrProviderNotFound
 )
 
 // 场景常量：提交实名前要求的二次验证场景（策略已在 captcha 种子里铺好）。

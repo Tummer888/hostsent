@@ -25,7 +25,6 @@ import (
 	loghandler "hostsent/backend/internal/modules/admin/logcenter/handler"
 	logrepo "hostsent/backend/internal/modules/admin/logcenter/repository"
 	logservice "hostsent/backend/internal/modules/admin/logcenter/service"
-	adminmodel "hostsent/backend/internal/modules/admin/manager/model"
 	"hostsent/backend/internal/pkg/jobrun"
 	"hostsent/backend/internal/pkg/middleware"
 	"hostsent/backend/internal/pkg/safego"
@@ -168,7 +167,7 @@ func buildLogcenterBundle(deps logcenterBundleDeps) *logcenterBundle {
 				"row_count": e.RowCount, "file_id": e.FileID,
 			})
 			payload := string(detail)
-			_ = deps.AuditWriter.CreateAuditLog(ctx, &adminmodel.AdminAuditLog{
+			_ = deps.AuditWriter.CreateAuditLog(ctx, &middleware.AdminAuditEntry{
 				AdminID: e.OperatorID, AdminName: e.OperatorName,
 				Action: "download", ResourceType: "logs", ResourceID: strconv.FormatUint(e.FileID, 10),
 				Module: "logs", RequestMethod: http.MethodGet,

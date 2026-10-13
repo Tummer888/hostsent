@@ -138,6 +138,27 @@ type MethodOptionsResponse struct {
 	Default  string        `json:"default"` // 默认渠道编码
 }
 
+// 支付单业务类型（PrepayRequest.BizType 的合法取值）。
+// 语义与 model 层同名列一致；uc 侧按 DTO 传值，不 import model（CONTRIBUTING §3）。
+const (
+	// BizTypeOrder 订单支付。
+	BizTypeOrder = "order"
+	// BizTypeRecharge 余额充值。
+	BizTypeRecharge = "recharge"
+	// BizTypeBill 账单支付。
+	BizTypeBill = "bill"
+)
+
+// PayoutAccount 提现收款账户（AccountForPayout 解密后的用户可见字段投影，
+// 不携带 GORM 标签与内部列，供 uc 收银台编排提现）。
+type PayoutAccount struct {
+	ID          uint64 `json:"id"`
+	Channel     string `json:"channel"`
+	AccountNo   string `json:"account_no"`
+	AccountName string `json:"account_name"`
+	BankName    string `json:"bank_name"`
+}
+
 // ---- 支付单 ----
 
 // OrderListQuery 支付单查询。

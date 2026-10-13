@@ -1,4 +1,7 @@
-// Package model 定义用户等级模块的数据库实体。
+// Package model 定义用户等级子模块的数据模型（数据库实体）。
+//
+// 目录形态（CONTRIBUTING §1 例外登记）：user/account 为分组式域的子模块，
+// level 是其下按业务拆分的嵌套子模块（独立五件套）。
 package model
 
 import "time"

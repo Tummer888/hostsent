@@ -5,8 +5,6 @@ import (
 	"errors"
 	"strings"
 
-	"gorm.io/gorm"
-
 	"hostsent/backend/internal/modules/admin/manager/dto"
 	"hostsent/backend/internal/modules/admin/manager/model"
 	"hostsent/backend/internal/modules/admin/manager/repository"
@@ -17,6 +15,10 @@ var ErrDepartmentInUse = errors.New("部门下仍有在职员工或被工单分�
 
 // ErrDepartmentHasChildren 部门下仍有子部门，禁止删除。
 var ErrDepartmentHasChildren = errors.New("部门下仍有子部门，请先处理子部门")
+
+// ErrDepartmentNotFound 是 repository 层同义哨兵的 service 再出口：
+// handler 只允许依赖本包判断语义（CONTRIBUTING §3）。
+var ErrDepartmentNotFound = repository.ErrDepartmentNotFound
 
 // DepartmentService 组织部门业务能力（S1 员工体系）。
 type DepartmentService interface {
@@ -67,7 +69,7 @@ func (s *departmentService) Create(ctx context.Context, req dto.DepartmentSaveRe
 	}
 	if existing, err := s.repo.FindByCode(ctx, req.Code); err == nil && existing != nil {
 		return nil, errors.New("部门编码已存在")
-	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	} else if err != nil && !errors.Is(err, repository.ErrDepartmentNotFound) {
 		return nil, err
 	}
 	if err := s.validateParent(ctx, req.ParentID, 0); err != nil {
@@ -108,7 +110,7 @@ func (s *departmentService) Update(ctx context.Context, id uint64, req dto.Depar
 	if req.Code != dept.Code {
 		if other, oerr := s.repo.FindByCode(ctx, req.Code); oerr == nil && other != nil && other.ID != id {
 			return nil, errors.New("部门编码已存在")
-		} else if oerr != nil && !errors.Is(oerr, gorm.ErrRecordNotFound) {
+		} else if oerr != nil && !errors.Is(oerr, repository.ErrDepartmentNotFound) {
 			return nil, oerr
 		}
 	}
@@ -169,7 +171,7 @@ func (s *departmentService) validateParent(ctx context.Context, parentID, selfID
 	}
 	parent, err := s.repo.FindByID(ctx, parentID)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, repository.ErrDepartmentNotFound) {
 			return errors.New("上级部门不存在")
 		}
 		return err

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 
 	"hostsent/backend/internal/modules/admin/user/account/dto"
 	"hostsent/backend/internal/modules/admin/user/account/model"
@@ -18,6 +19,9 @@ import (
 
 // 用户资料更新的哨兵错误：handler 据此映射 409，而不是把 GORM 原文抛成 500。
 var (
+	// ErrUserNotFound 用户不存在。由「查无此行」的仓储错误翻译而来，
+	// handler 据此映射 404（CONTRIBUTING §3：HTTP 层不依赖 gorm）。
+	ErrUserNotFound  = errors.New("用户不存在")
 	ErrUsernameTaken = errors.New("用户名已被占用")
 	ErrEmailTaken    = errors.New("邮箱已被占用")
 	// ErrLevelAssignUnavailable 装配层未注入等级调整能力，改等级请求无法处理。
@@ -33,6 +37,15 @@ var (
 	// ErrAgentLevelDisabled 目标代理等级已停用。
 	ErrAgentLevelDisabled = errors.New("目标代理等级已停用，不能指派")
 )
+
+// translateUserFindErr 把「查无此行」的仓储错误翻译成 ErrUserNotFound：
+// handler 只依赖本包哨兵，不得越过 service 判断 gorm 语义（CONTRIBUTING §3）。
+func translateUserFindErr(err error) error {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return ErrUserNotFound
+	}
+	return err
+}
 
 type UserService interface {
 	List(ctx context.Context, query dto.UserListQuery) (*dto.UserListResponse, error)
@@ -379,7 +392,7 @@ func (s *userService) Create(ctx context.Context, req dto.UserCreateRequest) (*d
 func (s *userService) FindByID(ctx context.Context, id uint64) (*dto.UserInfo, error) {
 	user, err := s.repo.FindByID(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, translateUserFindErr(err)
 	}
 	return ptrUserInfo(*user), nil
 }
@@ -391,7 +404,7 @@ func (s *userService) FindByID(ctx context.Context, id uint64) (*dto.UserInfo, e
 func (s *userService) Update(ctx context.Context, id uint64, req dto.UserUpdateRequest) (*dto.UserInfo, error) {
 	user, err := s.repo.FindByID(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, translateUserFindErr(err)
 	}
 	if err := rejectIfDeleted(user); err != nil {
 		return nil, err

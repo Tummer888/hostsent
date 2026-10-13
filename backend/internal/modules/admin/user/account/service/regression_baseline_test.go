@@ -164,7 +164,7 @@ func TestDetailAggregate_ProfileFailureIsFatal(t *testing.T) {
 	userRepo := &fakeUserRepo{} // user == nil → FindByID 返回 ErrRecordNotFound
 	svc := NewUserDetailService(userRepo, &fakeUserDetailRepo{})
 
-	if _, err := svc.GetAggregate(context.Background(), 190); !errors.Is(err, gorm.ErrRecordNotFound) {
+	if _, err := svc.GetAggregate(context.Background(), 190); !errors.Is(err, ErrUserNotFound) {
 		t.Fatalf("profile 读取失败必须返回错误，实际: %v", err)
 	}
 }

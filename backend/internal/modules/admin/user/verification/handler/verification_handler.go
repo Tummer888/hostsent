@@ -10,7 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"hostsent/backend/internal/modules/admin/user/verification/dto"
-	"hostsent/backend/internal/modules/admin/user/verification/repository"
 	"hostsent/backend/internal/modules/admin/user/verification/service"
 	"hostsent/backend/internal/pkg/middleware"
 )
@@ -459,7 +458,7 @@ func parseVerificationID(c *gin.Context) (uint64, bool) {
 // respondVerificationErr 实名模块错误的 HTTP 映射。
 func respondVerificationErr(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, service.ErrApplicationNotFound), errors.Is(err, repository.ErrProviderNotFound):
+	case errors.Is(err, service.ErrApplicationNotFound), errors.Is(err, service.ErrProviderNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"code": 40401, "message": err.Error(), "timestamp": time.Now().Unix()})
 	case errors.Is(err, service.ErrStatusConflict), errors.Is(err, service.ErrPendingExists),
 		errors.Is(err, service.ErrAlreadyVerified), errors.Is(err, service.ErrCooldown),

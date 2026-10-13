@@ -49,7 +49,7 @@ type ExportService interface {
 	// OpenByID 按记录 ID 打开导出文件（调用方负责 Close）。
 	OpenByID(ctx context.Context, id uint64) (*os.File, error)
 	// List 导出文件列表。
-	List(ctx context.Context, q logrepo.ExportListQuery) (*dto.ExportFileListResponse, error)
+	List(ctx context.Context, q dto.ExportFileListQuery) (*dto.ExportFileListResponse, error)
 	// Get 取单个文件元数据。
 	Get(ctx context.Context, id uint64) (*dto.ExportFileInfo, error)
 	// Delete 删除导出文件（清理任务产生的备份拒绝删除）。
@@ -437,10 +437,12 @@ func (s *exportService) OpenByID(ctx context.Context, id uint64) (*os.File, erro
 }
 
 // List 导出文件列表。
-func (s *exportService) List(ctx context.Context, q logrepo.ExportListQuery) (*dto.ExportFileListResponse, error) {
+func (s *exportService) List(ctx context.Context, q dto.ExportFileListQuery) (*dto.ExportFileListResponse, error) {
 	page, pageSize := normalizePage(q.Page, q.PageSize)
-	q.Page, q.PageSize = page, pageSize
-	rows, total, err := s.exportRepo.List(ctx, q)
+	rows, total, err := s.exportRepo.List(ctx, logrepo.ExportListQuery{
+		SourceKey: q.SourceKey, JobID: q.JobID, Status: q.Status,
+		StartTime: q.StartTime, EndTime: q.EndTime, Page: page, PageSize: pageSize,
+	})
 	if err != nil {
 		return nil, err
 	}

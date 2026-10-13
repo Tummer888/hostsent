@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"gorm.io/gorm"
@@ -10,12 +11,18 @@ import (
 	"hostsent/backend/internal/modules/admin/manager/model"
 )
 
+// ErrDepartmentNotFound 部门不存在。仓储层统一把「查无此行」翻译成域内哨兵，
+// handler 经 service 层判断语义，不直接依赖 gorm（CONTRIBUTING §3）。
+var ErrDepartmentNotFound = errors.New("部门不存在")
+
 // DepartmentRepository 组织部门数据访问（S1 员工体系）。
 type DepartmentRepository interface {
 	Create(ctx context.Context, dept *model.Department) error
 	Update(ctx context.Context, dept *model.Department) error
 	Delete(ctx context.Context, id uint64) error
+	// FindByID 按主键查询部门，未找到时返回 ErrDepartmentNotFound。
 	FindByID(ctx context.Context, id uint64) (*model.Department, error)
+	// FindByCode 按编码查询部门，未找到时返回 ErrDepartmentNotFound。
 	FindByCode(ctx context.Context, code string) (*model.Department, error)
 	FindByIDs(ctx context.Context, ids []uint64) ([]model.Department, error)
 	List(ctx context.Context, query dto.DepartmentListQuery) ([]model.Department, error)
@@ -53,6 +60,9 @@ func (r *departmentRepository) Delete(ctx context.Context, id uint64) error {
 func (r *departmentRepository) FindByID(ctx context.Context, id uint64) (*model.Department, error) {
 	var dept model.Department
 	if err := r.db.WithContext(ctx).First(&dept, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrDepartmentNotFound
+		}
 		return nil, err
 	}
 	return &dept, nil
@@ -61,6 +71,9 @@ func (r *departmentRepository) FindByID(ctx context.Context, id uint64) (*model.
 func (r *departmentRepository) FindByCode(ctx context.Context, code string) (*model.Department, error) {
 	var dept model.Department
 	if err := r.db.WithContext(ctx).Where("code = ?", code).First(&dept).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrDepartmentNotFound
+		}
 		return nil, err
 	}
 	return &dept, nil

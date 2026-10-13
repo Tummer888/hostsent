@@ -14,7 +14,8 @@ import (
 	"hostsent/backend/internal/modules/admin/product/flashdiscount/model"
 )
 
-// 业务错误（handler 映射 409/404）。
+// 数据访问层错误：只表达「查不到/重复」这一层事实，语义落点（404/409）由
+// service 层决定；handler 经 service 层的同义哨兵判断（CONTRIBUTING §3）。
 var (
 	// ErrCodeTaken 活动编码重复（唯一索引 uk_flash_discounts_code）。
 	ErrCodeTaken = errors.New("活动编码已存在")

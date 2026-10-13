@@ -10,13 +10,17 @@ import (
 	"hostsent/backend/internal/modules/admin/system/config/model"
 )
 
+// ErrNotFound 配置项不存在。仓储层统一把「查无此行」翻译成域内哨兵，
+// handler 经 service 层判断语义，不直接依赖 gorm（CONTRIBUTING §3）。
+var ErrNotFound = errors.New("配置项不存在")
+
 // ConfigRepository 定义系统配置数据访问所需的仓储能力。
 type ConfigRepository interface {
 	// List 分页查询配置列表：group 精确过滤，keyword 对配置键/描述模糊匹配。
 	List(ctx context.Context, group, keyword string, offset, limit int) ([]model.SystemConfig, int64, error)
-	// FindByKey 按配置键查询配置项，未找到时返回 gorm.ErrRecordNotFound。
+	// FindByKey 按配置键查询配置项，未找到时返回 ErrNotFound。
 	FindByKey(ctx context.Context, key string) (*model.SystemConfig, error)
-	// FindByID 按主键查询配置项，未找到时返回 gorm.ErrRecordNotFound。
+	// FindByID 按主键查询配置项，未找到时返回 ErrNotFound。
 	FindByID(ctx context.Context, id uint64) (*model.SystemConfig, error)
 	// Create 新增配置项。
 	Create(ctx context.Context, config *model.SystemConfig) error
@@ -68,7 +72,7 @@ func (r *configRepository) FindByKey(ctx context.Context, key string) (*model.Sy
 	var config model.SystemConfig
 	if err := r.db.WithContext(ctx).Where("config_key = ?", key).First(&config).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, gorm.ErrRecordNotFound
+			return nil, ErrNotFound
 		}
 		return nil, err
 	}
@@ -79,7 +83,7 @@ func (r *configRepository) FindByID(ctx context.Context, id uint64) (*model.Syst
 	var config model.SystemConfig
 	if err := r.db.WithContext(ctx).First(&config, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, gorm.ErrRecordNotFound
+			return nil, ErrNotFound
 		}
 		return nil, err
 	}

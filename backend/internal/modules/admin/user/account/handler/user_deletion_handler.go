@@ -6,10 +6,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 
 	"hostsent/backend/internal/modules/admin/user/account/dto"
-	"hostsent/backend/internal/modules/admin/user/account/repository"
 	"hostsent/backend/internal/modules/admin/user/account/service"
 	"hostsent/backend/internal/pkg/middleware"
 )
@@ -200,9 +198,7 @@ func (h *UserDeletionHandler) PurgeUsers(c *gin.Context) {
 // 前端只能靠 message 文本判断该不该弹 force 确认框。
 func respondDeletionErr(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, gorm.ErrRecordNotFound):
-		respondUserErr(c, err)
-	case errors.Is(err, service.ErrDeletionBlocked), errors.Is(err, repository.ErrUserHasInstances):
+	case errors.Is(err, service.ErrDeletionBlocked), errors.Is(err, service.ErrUserHasInstances):
 		c.JSON(http.StatusConflict, gin.H{"code": 40902, "message": err.Error(), "timestamp": time.Now().Unix()})
 	case errors.Is(err, service.ErrDeletionNeedsForce):
 		c.JSON(http.StatusConflict, gin.H{"code": 40903, "message": err.Error(), "timestamp": time.Now().Unix()})

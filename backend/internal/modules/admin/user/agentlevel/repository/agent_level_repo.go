@@ -21,12 +21,18 @@ var ErrLevelInUse = errors.New("该代理等级仍有用户绑定，请先调整
 // 不把这个转成业务错误的话，运营看到的是 500 加一句英文 SQLSTATE 报文。
 var ErrCodeTaken = errors.New("代理等级编码已存在")
 
+// ErrNotFound 等级不存在。仓储层统一把「查无此行」翻译成域内哨兵，
+// handler 经 service 层判断语义，不直接依赖 gorm（CONTRIBUTING §3）。
+var ErrNotFound = errors.New("代理等级不存在")
+
 // AgentLevelRepository 定义代理等级的持久化操作。
 type AgentLevelRepository interface {
 	List(ctx context.Context, query dto.ListQuery) ([]model.AgentLevel, int64, error)
 	// ListAllActive 取全部启用中的等级，按权重降序（矩阵列顺序的唯一来源）。
 	ListAllActive(ctx context.Context) ([]model.AgentLevel, error)
+	// FindByID 按主键查询等级，未找到时返回 ErrNotFound。
 	FindByID(ctx context.Context, id uint64) (*model.AgentLevel, error)
+	// FindByCode 按编码查询等级，未找到时返回 ErrNotFound。
 	FindByCode(ctx context.Context, code string) (*model.AgentLevel, error)
 	// CreateWithDiscounts 建等级 + 写矩阵，同一事务：矩阵写入失败不能留下半个等级
 	// （否则运营看到"创建失败"，列表里却多了一个没有折扣的空等级）。
@@ -135,6 +141,9 @@ func (r *agentLevelRepository) ListAllActive(ctx context.Context) ([]model.Agent
 func (r *agentLevelRepository) FindByID(ctx context.Context, id uint64) (*model.AgentLevel, error) {
 	var item model.AgentLevel
 	if err := r.db.WithContext(ctx).First(&item, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
 	return &item, nil
@@ -143,6 +152,9 @@ func (r *agentLevelRepository) FindByID(ctx context.Context, id uint64) (*model.
 func (r *agentLevelRepository) FindByCode(ctx context.Context, code string) (*model.AgentLevel, error) {
 	var item model.AgentLevel
 	if err := r.db.WithContext(ctx).Where("code = ?", code).First(&item).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
 	return &item, nil

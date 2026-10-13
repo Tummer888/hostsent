@@ -120,6 +120,26 @@ type ExportResult struct {
 	SHA256   string `json:"sha256"`
 }
 
+// ExportStatusDeleted 是 model.ExportStatusDeleted 的 dto 面复刻：
+// handler 判「文件已删除」只需要这一个值，不 import model（CONTRIBUTING §3）。
+const ExportStatusDeleted = "deleted"
+
+// TriggerManual 是 model.TriggerManual 的 dto 面复刻：handler 发起人工清理
+// 只需要这一个值，不 import model（CONTRIBUTING §3）。
+const TriggerManual = "manual"
+
+// ExportFileListQuery 导出文件列表查询参数（handler → service 的入参，
+// 不再让 handler 引用 repository 的查询结构，CONTRIBUTING §3）。
+type ExportFileListQuery struct {
+	SourceKey string
+	JobID     uint64
+	Status    string
+	StartTime string
+	EndTime   string
+	Page      int
+	PageSize  int
+}
+
 // ExportFileInfo 导出文件信息。
 type ExportFileInfo struct {
 	ID           uint64 `json:"id"`

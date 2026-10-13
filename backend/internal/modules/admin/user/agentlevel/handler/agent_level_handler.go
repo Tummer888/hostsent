@@ -8,10 +8,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 
 	"hostsent/backend/internal/modules/admin/user/agentlevel/dto"
-	agentlevelrepo "hostsent/backend/internal/modules/admin/user/agentlevel/repository"
 	"hostsent/backend/internal/modules/admin/user/agentlevel/service"
 )
 
@@ -232,7 +230,7 @@ func (h *AgentLevelHandler) ListMembers(c *gin.Context) {
 	}
 	data, err := h.service.ListMembers(c.Request.Context(), id, query)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, service.ErrNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"code": 40401, "message": "代理分组不存在", "timestamp": time.Now().Unix()})
 			return
 		}
@@ -270,7 +268,7 @@ func (h *AgentLevelHandler) AssignMembers(c *gin.Context) {
 		data, err = h.service.AssignMembers(c.Request.Context(), id, req.UserIDs)
 	}
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, service.ErrNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"code": 40401, "message": "代理分组不存在", "timestamp": time.Now().Unix()})
 			return
 		}
@@ -286,15 +284,15 @@ func (h *AgentLevelHandler) AssignMembers(c *gin.Context) {
 // 只会让前端提示"服务器错误"，运营不知道下一步做什么。
 func writeBusinessError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, gorm.ErrRecordNotFound):
+	case errors.Is(err, service.ErrNotFound):
 		// 等级不存在（单格更新时传了已删除的等级 ID）：404 而不是 500。
 		c.JSON(http.StatusNotFound, gin.H{"code": 40401, "message": "代理等级不存在", "timestamp": time.Now().Unix()})
 	case errors.Is(err, service.ErrRateBelowCost),
 		errors.Is(err, service.ErrRateOverOne),
 		errors.Is(err, service.ErrNotMonotonic),
-		errors.Is(err, agentlevelrepo.ErrLevelInUse),
-		errors.Is(err, agentlevelrepo.ErrTargetNotFound),
-		errors.Is(err, agentlevelrepo.ErrCodeTaken):
+		errors.Is(err, service.ErrLevelInUse),
+		errors.Is(err, service.ErrTargetNotFound),
+		errors.Is(err, service.ErrCodeTaken):
 		c.JSON(http.StatusConflict, gin.H{"code": 40901, "message": err.Error(), "timestamp": time.Now().Unix()})
 	default:
 		serverError(c, err.Error())

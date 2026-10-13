@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 
 	"hostsent/backend/internal/modules/admin/manager/dto"
 	"hostsent/backend/internal/modules/admin/manager/service"
@@ -104,7 +103,7 @@ func (h *DepartmentHandler) Delete(c *gin.Context) {
 // mapDepartmentErr 区分「资源不存在/占用冲突」与「参数错误」，避免全部 500。
 func mapDepartmentErr(err error) (int, int) {
 	switch {
-	case errors.Is(err, gorm.ErrRecordNotFound):
+	case errors.Is(err, service.ErrDepartmentNotFound):
 		return http.StatusNotFound, 40401
 	case errors.Is(err, service.ErrDepartmentInUse), errors.Is(err, service.ErrDepartmentHasChildren):
 		return http.StatusConflict, 40901

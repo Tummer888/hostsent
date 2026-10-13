@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 
 	"hostsent/backend/internal/modules/admin/user/account/service"
 )
@@ -35,7 +34,7 @@ func abortBadRequest(c *gin.Context, message string) {
 // 参照 manager/handler/department_handler.go 的 mapDepartmentErr。
 func respondUserErr(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, gorm.ErrRecordNotFound):
+	case errors.Is(err, service.ErrUserNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"code": 40401, "message": "用户不存在", "timestamp": time.Now().Unix()})
 	case errors.Is(err, service.ErrUsernameTaken):
 		c.JSON(http.StatusConflict, gin.H{"code": 40901, "message": service.ErrUsernameTaken.Error(), "timestamp": time.Now().Unix()})
@@ -49,7 +48,7 @@ func respondUserErr(c *gin.Context, err error) {
 		// 自己选错了角色或等级。
 		c.JSON(http.StatusBadRequest, gin.H{"code": 40001, "message": err.Error(), "timestamp": time.Now().Unix()})
 	case errors.Is(err, service.ErrLevelNotFound), errors.Is(err, service.ErrAgentLevelNotFound):
-		// 等级不存在单独成一条：上面的 gorm.ErrRecordNotFound 分支会把它翻成
+		// 等级不存在单独成一条：上面的 ErrUserNotFound 分支会把它翻成
 		// 「用户不存在」，改等级/代理等级时选中一个不存在的等级不该指错对象。
 		code := service.ErrLevelNotFound
 		if errors.Is(err, service.ErrAgentLevelNotFound) {

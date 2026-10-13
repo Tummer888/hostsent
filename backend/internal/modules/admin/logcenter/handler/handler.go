@@ -15,8 +15,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"hostsent/backend/internal/modules/admin/logcenter/dto"
-	logmodel "hostsent/backend/internal/modules/admin/logcenter/model"
-	logrepo "hostsent/backend/internal/modules/admin/logcenter/repository"
 	logservice "hostsent/backend/internal/modules/admin/logcenter/service"
 	apperrors "hostsent/backend/internal/pkg/errors"
 	"hostsent/backend/internal/pkg/middleware"
@@ -189,7 +187,7 @@ func (h *Handler) ListExportFiles(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	jobID, _ := strconv.ParseUint(c.Query("job_id"), 10, 64)
-	resp, err := h.export.List(c.Request.Context(), logrepo.ExportListQuery{
+	resp, err := h.export.List(c.Request.Context(), dto.ExportFileListQuery{
 		SourceKey: strings.TrimSpace(c.Query("source")),
 		JobID:     jobID,
 		Status:    strings.TrimSpace(c.Query("status")),
@@ -223,7 +221,7 @@ func (h *Handler) DownloadExportFile(c *gin.Context) {
 		response.Error(c, apperrors.New(40401, "导出文件不存在"))
 		return
 	}
-	if info.Status == logmodel.ExportStatusDeleted {
+	if info.Status == dto.ExportStatusDeleted {
 		response.Error(c, apperrors.New(20001, "该导出文件已删除"))
 		return
 	}
@@ -324,7 +322,7 @@ func (h *Handler) RunCleanup(c *gin.Context) {
 		return
 	}
 	operatorID, operatorName := operatorFromContext(c)
-	info, err := h.cleanup.Start(c.Request.Context(), req, logmodel.TriggerManual,
+	info, err := h.cleanup.Start(c.Request.Context(), req, dto.TriggerManual,
 		operatorID, operatorName, h.exportBeforeDelete())
 	if err != nil {
 		writeErr(c, err)

@@ -10,7 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"hostsent/backend/internal/modules/admin/user/account/level/dto"
-	levelrepo "hostsent/backend/internal/modules/admin/user/account/level/repository"
 	"hostsent/backend/internal/modules/admin/user/account/level/service"
 )
 
@@ -122,7 +121,7 @@ func (h *UserLevelHandler) Delete(c *gin.Context) {
 		// 「仍有用户绑定」是运营可自行解决的状态冲突（先把人调走再删），
 		// 不是服务端故障：回落 serverError 会返回 50001，前端只能提示
 		// 「服务器错误」，运营不知道下一步该做什么。
-		if errors.Is(err, levelrepo.ErrLevelInUse) {
+		if errors.Is(err, service.ErrLevelInUse) {
 			c.JSON(http.StatusConflict, gin.H{"code": 40901, "message": err.Error(), "timestamp": time.Now().Unix()})
 			return
 		}

@@ -5,8 +5,6 @@ import (
 	"context"
 	"errors"
 
-	"gorm.io/gorm"
-
 	"hostsent/backend/internal/modules/admin/system/config/dto"
 	"hostsent/backend/internal/modules/admin/system/config/model"
 	"hostsent/backend/internal/modules/admin/system/config/repository"
@@ -15,6 +13,10 @@ import (
 
 // ErrConfigKeyDuplicate 配置键重复错误（由 Handler 映射为 400 业务错误码）。
 var ErrConfigKeyDuplicate = errors.New("配置键已存在")
+
+// ErrConfigNotFound 是 repository 层同义哨兵的 service 再出口：
+// handler 只允许依赖本包判断语义（CONTRIBUTING §3）。
+var ErrConfigNotFound = repository.ErrNotFound
 
 // ConfigService 定义系统配置增删改查所需的业务能力。
 type ConfigService interface {
@@ -80,7 +82,7 @@ func (s *configService) Create(ctx context.Context, req dto.ConfigCreateRequest)
 	// 配置键唯一性校验
 	if _, err := s.repo.FindByKey(ctx, req.ConfigKey); err == nil {
 		return nil, ErrConfigKeyDuplicate
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+	} else if !errors.Is(err, repository.ErrNotFound) {
 		return nil, err
 	}
 

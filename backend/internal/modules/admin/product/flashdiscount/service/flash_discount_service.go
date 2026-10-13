@@ -33,6 +33,11 @@ var (
 	ErrBelowCost = errors.New("折扣低于目标成本率，会亏本销售")
 	// ErrNoTarget 既没有定向条目、作用范围也不是全站 —— 活动不会命中任何商品。
 	ErrNoTarget = errors.New("请选择作用范围或添加定向分类/商品，否则活动不会命中任何商品")
+	// ErrNotFound / ErrCodeTaken 是 repository 层同义哨兵的 service 再出口：
+	// handler 只允许依赖本包，经本包判断语义（CONTRIBUTING §3）。
+	ErrNotFound = repository.ErrNotFound
+	// ErrCodeTaken 活动编码重复。
+	ErrCodeTaken = repository.ErrCodeTaken
 )
 
 // AgentChecker 判断用户是否代理（由装配层注入代理等级服务实现）。

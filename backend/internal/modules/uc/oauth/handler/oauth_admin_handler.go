@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 
 	"hostsent/backend/internal/modules/uc/oauth/dto"
 	"hostsent/backend/internal/modules/uc/oauth/service"
@@ -129,11 +128,11 @@ func (h *AdminHandler) ListBindings(c *gin.Context) {
 func respondOAuthErr(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrProviderUnknown):
-		c.JSON(http.StatusNotFound, gin.H{"code": 40401, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusNotFound, apperrors.New(40401, err.Error()))
 	case errors.Is(err, service.ErrProviderNotConfigured):
-		c.JSON(http.StatusConflict, gin.H{"code": 40901, "message": err.Error(), "timestamp": time.Now().Unix()})
-	case errors.Is(err, gorm.ErrRecordNotFound):
-		c.JSON(http.StatusNotFound, gin.H{"code": 40401, "message": "记录不存在", "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusConflict, apperrors.New(40901, err.Error()))
+	case errors.Is(err, service.ErrBindingNotFound):
+		response.ErrorWithStatus(c, http.StatusNotFound, apperrors.New(40401, err.Error()))
 	default:
 		serverError(c, err.Error())
 	}
@@ -150,15 +149,15 @@ func parseUintParam(c *gin.Context, name string) (uint64, bool) {
 }
 
 func badRequest(c *gin.Context, message string) {
-	c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": message, "timestamp": time.Now().Unix()})
+	response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, message))
 }
 
 func serverError(c *gin.Context, message string) {
-	c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": message, "timestamp": time.Now().Unix()})
+	response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, message))
 }
 
 func success(c *gin.Context, data any) {
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // 确保 oauthpkg 被引用（错误类型在 service 层已用，这里仅作编译期锚点）。

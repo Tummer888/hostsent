@@ -31,6 +31,16 @@ var (
 	ErrRateOverOne = errors.New("折扣率不能大于 1（100%）")
 	// ErrNotMonotonic 同一目标下等级越高折扣反而越差。
 	ErrNotMonotonic = errors.New("同一目标下，等级越高折扣必须越优（折扣率越小）")
+	// 以下四个是 repository 层同义哨兵的 service 再出口：
+	// handler 只允许依赖本包判断语义（CONTRIBUTING §3）。
+	// ErrNotFound 等级不存在。
+	ErrNotFound = repository.ErrNotFound
+	// ErrLevelInUse 等级仍被用户占用。
+	ErrLevelInUse = repository.ErrLevelInUse
+	// ErrTargetNotFound 折扣目标（分类/商品）不存在。
+	ErrTargetNotFound = repository.ErrTargetNotFound
+	// ErrCodeTaken 等级编码重复。
+	ErrCodeTaken = repository.ErrCodeTaken
 )
 
 // AgentLevelService 代理等级业务能力。

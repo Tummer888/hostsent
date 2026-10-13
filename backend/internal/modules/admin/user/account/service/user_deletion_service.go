@@ -34,6 +34,9 @@ var (
 	// 别人可能已经用同样的账号名注册了。此时**必须明确失败**，不做静默改名——
 	// 静默改名会让「这条审计记录对应的是谁」变得不可追溯。
 	ErrRestoreConflict = errors.New("该用户名或邮箱已被占用，请先修改后再恢复")
+	// ErrUserHasInstances 是 repository 层同义哨兵的 service 再出口：
+	// handler 只允许依赖本包判断语义（CONTRIBUTING §3）。
+	ErrUserHasInstances = repository.ErrUserHasInstances
 )
 
 // 默认留存期（天）。制度要求个人数据至少留存一段时间再彻底删除（doc104 §4.1），
@@ -102,7 +105,7 @@ func (s *deletionService) retentionDays(ctx context.Context) int {
 func (s *deletionService) Check(ctx context.Context, id uint64) (*dto.UserDeletionCheckResponse, error) {
 	user, err := s.repo.FindByID(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, translateUserFindErr(err)
 	}
 	row, err := s.repo.DeletionCheck(ctx, id)
 	if err != nil {
@@ -161,7 +164,7 @@ func (s *deletionService) SoftDelete(ctx context.Context, id uint64, reason stri
 
 	user, err := s.repo.FindByID(ctx, id)
 	if err != nil {
-		return err
+		return translateUserFindErr(err)
 	}
 	if user.DeletedAt != nil {
 		return ErrUserDeleted
@@ -192,7 +195,7 @@ func (s *deletionService) SoftDelete(ctx context.Context, id uint64, reason stri
 func (s *deletionService) Restore(ctx context.Context, id uint64) error {
 	user, err := s.repo.FindByID(ctx, id)
 	if err != nil {
-		return err
+		return translateUserFindErr(err)
 	}
 	if user.DeletedAt == nil {
 		return ErrUserNotDeleted

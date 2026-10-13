@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 
 	"hostsent/backend/internal/modules/admin/system/config/dto"
 	"hostsent/backend/internal/modules/admin/system/config/service"
@@ -192,7 +191,7 @@ func (h *ConfigHandler) BatchUpsert(c *gin.Context) {
 // replyError 统一映射业务错误：不存在→404/20002，配置键重复→400/20004，其余→500/50001。
 func (h *ConfigHandler) replyError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, gorm.ErrRecordNotFound):
+	case errors.Is(err, service.ErrConfigNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"code": 20002, "message": "配置项不存在", "timestamp": time.Now().Unix()})
 	case errors.Is(err, service.ErrConfigKeyDuplicate):
 		c.JSON(http.StatusBadRequest, gin.H{"code": 20004, "message": err.Error(), "timestamp": time.Now().Unix()})

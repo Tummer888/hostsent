@@ -8,7 +8,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"hostsent/backend/internal/modules/admin/product/flashdiscount/dto"
-	"hostsent/backend/internal/modules/admin/product/flashdiscount/repository"
 	"hostsent/backend/internal/modules/admin/product/flashdiscount/service"
 	apperrors "hostsent/backend/internal/pkg/errors"
 	"hostsent/backend/internal/pkg/response"
@@ -130,14 +129,14 @@ func (h *Handler) Delete(c *gin.Context) {
 // 回落 500 只会让前端提示「服务器错误」，运营不知道下一步做什么。
 func writeError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, repository.ErrNotFound):
+	case errors.Is(err, service.ErrNotFound):
 		response.Error(c, apperrors.New(40401, err.Error()))
 	case errors.Is(err, service.ErrInvalidValue),
 		errors.Is(err, service.ErrInvalidWindow),
 		errors.Is(err, service.ErrInvalidItem),
 		errors.Is(err, service.ErrBelowCost),
 		errors.Is(err, service.ErrNoTarget),
-		errors.Is(err, repository.ErrCodeTaken):
+		errors.Is(err, service.ErrCodeTaken):
 		response.Error(c, apperrors.New(40901, err.Error()))
 	default:
 		response.Error(c, apperrors.New(50001, err.Error()))

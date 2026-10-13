@@ -23,7 +23,7 @@ type PreferenceService interface {
 	CreateAccount(ctx context.Context, userID uint64, req dto.PayoutAccountCreateRequest) (*dto.PayoutAccountInfo, error)
 	SetDefaultAccount(ctx context.Context, userID, id uint64) error
 	// AccountForPayout 取提现打款目标账户（解密后）。
-	AccountForPayout(ctx context.Context, userID, id uint64) (*model.UserPayoutAccount, error)
+	AccountForPayout(ctx context.Context, userID, id uint64) (*dto.PayoutAccount, error)
 	PreferenceChannels(ctx context.Context, userID uint64, scene string) []string
 }
 
@@ -222,7 +222,7 @@ func (s *preferenceService) SetDefaultAccount(ctx context.Context, userID, id ui
 }
 
 // AccountForPayout 取提现目标账户（解密账号，供打款使用）。
-func (s *preferenceService) AccountForPayout(ctx context.Context, userID, id uint64) (*model.UserPayoutAccount, error) {
+func (s *preferenceService) AccountForPayout(ctx context.Context, userID, id uint64) (*dto.PayoutAccount, error) {
 	a, err := s.prefRepo.FindAccount(ctx, id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -237,8 +237,10 @@ func (s *preferenceService) AccountForPayout(ctx context.Context, userID, id uin
 	if derr != nil {
 		return nil, derr
 	}
-	a.AccountNo = plain
-	return a, nil
+	return &dto.PayoutAccount{
+		ID: a.ID, Channel: a.Channel, AccountNo: plain,
+		AccountName: a.AccountName, BankName: a.BankName,
+	}, nil
 }
 
 func contains(list []string, v string) bool {

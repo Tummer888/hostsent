@@ -249,6 +249,9 @@ var (
 	ErrInvalidAssignTarget = errors.New("用户与等级 ID 不能为空")
 	// ErrLevelDisabled 目标等级已停用，不允许指派。
 	ErrLevelDisabled = errors.New("目标等级已停用，不能指派")
+	// ErrLevelInUse 是 repository 层同义哨兵的 service 再出口：
+	// handler 只允许依赖本包判断语义（CONTRIBUTING §3）。
+	ErrLevelInUse = repository.ErrLevelInUse
 )
 
 // normalizeIcon 归一图标标识：只接受图标目录 key 的字符集，其余一律丢弃。
