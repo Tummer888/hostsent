@@ -154,7 +154,7 @@ func (s *taskQueueService) List(ctx context.Context, query dto.TaskQueueListQuer
 		usernames = map[uint64]string{}
 	}
 
-	// 渠道名批量装饰（失败不阻塞列表）。
+	// 渠道名与链路批量装饰（失败不阻塞列表）。
 	providerIDs := make([]uint64, 0, len(rows))
 	seenProvider := make(map[uint64]struct{}, len(rows))
 	for i := range rows {
@@ -167,9 +167,9 @@ func (s *taskQueueService) List(ctx context.Context, query dto.TaskQueueListQuer
 		seenProvider[rows[i].ProviderID] = struct{}{}
 		providerIDs = append(providerIDs, rows[i].ProviderID)
 	}
-	providerNames, perr := s.repo.ProviderNames(ctx, providerIDs)
+	providerMeta, perr := s.repo.ProviderMeta(ctx, providerIDs)
 	if perr != nil {
-		providerNames = map[uint64]string{}
+		providerMeta = map[uint64]repository.ProviderMeta{}
 	}
 
 	items := make([]dto.TaskQueueItem, 0, len(rows))
@@ -190,7 +190,8 @@ func (s *taskQueueService) List(ctx context.Context, query dto.TaskQueueListQuer
 			UpstreamStateName: stateName(row.UpstreamState),
 			UpstreamDetail:    row.Detail,
 			ProviderID:        row.ProviderID,
-			ProviderName:      providerNames[row.ProviderID],
+			ProviderName:      providerMeta[row.ProviderID].Name,
+			ProviderKind:      providerMeta[row.ProviderID].Kind,
 			UserID:            row.UserID,
 			Username:          usernames[row.UserID],
 			Attempts:          row.Attempts,

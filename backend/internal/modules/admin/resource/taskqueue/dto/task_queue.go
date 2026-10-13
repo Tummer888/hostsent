@@ -46,6 +46,10 @@ type TaskQueueListQuery struct {
 	UpstreamState string `form:"upstream_state" json:"upstream_state"`
 	// ProviderID 按渠道过滤。
 	ProviderID uint64 `form:"provider_id" json:"provider_id"`
+	// ProviderKind 链路筛选（upstream=上游转售 / compute=自营平台）。
+	// 出站动作要能按链路分开看：自营平台的开通/电源动作与上游转售的续费/暂停
+	// 混在一张表里，排障第一步就是按链路把范围缩到一半。
+	ProviderKind string `form:"provider_kind" json:"provider_kind"`
 	// Keyword 按主体 / 单号 / 实例标识 / 错误信息模糊搜索。
 	Keyword string `form:"keyword" json:"keyword"`
 	// CreatedFrom / CreatedTo 创建时间区间（RFC3339 或 YYYY-MM-DD）。
@@ -80,8 +84,10 @@ type TaskQueueItem struct {
 	UpstreamDetail string `json:"upstream_detail"`
 	ProviderID     uint64 `json:"provider_id"`
 	ProviderName   string `json:"provider_name"`
-	UserID         uint64 `json:"user_id"`
-	Username       string `json:"username"`
+	// ProviderKind 渠道链路（upstream/compute），前端据此给渠道加链路标签。
+	ProviderKind string `json:"provider_kind"`
+	UserID       uint64 `json:"user_id"`
+	Username     string `json:"username"`
 	// Attempts / MaxAttempts 仅开通履约任务有意义（重试次数 / 上限）。
 	Attempts    int     `json:"attempts"`
 	MaxAttempts int     `json:"max_attempts"`

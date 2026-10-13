@@ -38,8 +38,8 @@ type ScanResult struct {
 // FindingScanner 差异扫描服务。
 type FindingScanner interface {
 	Scan(ctx context.Context) (*ScanResult, error)
-	// ListOpen 供控制台「差异台账」页读取。
-	ListOpen(ctx context.Context, providerID uint64, page, pageSize int) ([]reconmodel.ReconcileFinding, int64, error)
+	// ListOpen 供控制台「差异台账」页读取（providerKind 为链路筛选，空=不过滤）。
+	ListOpen(ctx context.Context, providerID uint64, providerKind string, page, pageSize int) ([]reconmodel.ReconcileFinding, int64, error)
 	// UpdateStatus 处置一条差异。
 	UpdateStatus(ctx context.Context, id uint64, status string, adminID uint64, note string) error
 	// FindingsForInstances 实例详情用：取该实例的全部差异行。
@@ -210,8 +210,8 @@ func findingsFromRow(row repository.ReconcileRow) []reconmodel.ReconcileFinding 
 	return out
 }
 
-func (s *findingScanner) ListOpen(ctx context.Context, providerID uint64, page, pageSize int) ([]reconmodel.ReconcileFinding, int64, error) {
-	return s.findings.ListOpen(ctx, providerID, page, pageSize)
+func (s *findingScanner) ListOpen(ctx context.Context, providerID uint64, providerKind string, page, pageSize int) ([]reconmodel.ReconcileFinding, int64, error) {
+	return s.findings.ListOpen(ctx, providerID, providerKind, page, pageSize)
 }
 
 func (s *findingScanner) UpdateStatus(ctx context.Context, id uint64, status string, adminID uint64, note string) error {

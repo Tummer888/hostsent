@@ -40,14 +40,16 @@ func NewFindingHandler(scanner service.FindingScanner) *FindingHandler {
 func (h *FindingHandler) ListFindings(c *gin.Context) {
 	var q struct {
 		ProviderID uint64 `form:"provider_id"`
-		Page       int    `form:"page"`
-		PageSize   int    `form:"page_size"`
+		// ProviderKind 链路筛选（upstream/compute）。
+		ProviderKind string `form:"provider_kind"`
+		Page         int    `form:"page"`
+		PageSize     int    `form:"page_size"`
 	}
 	if err := c.ShouldBindQuery(&q); err != nil {
 		response.Error(c, apperrors.New(20001, err.Error()))
 		return
 	}
-	items, total, err := h.scanner.ListOpen(c.Request.Context(), q.ProviderID, q.Page, q.PageSize)
+	items, total, err := h.scanner.ListOpen(c.Request.Context(), q.ProviderID, q.ProviderKind, q.Page, q.PageSize)
 	if err != nil {
 		response.Error(c, apperrors.New(50001, err.Error()))
 		return

@@ -60,6 +60,10 @@ const (
 type ReconcileListQuery struct {
 	// ProviderID 按渠道过滤。
 	ProviderID uint64 `form:"provider_id" json:"provider_id"`
+	// ProviderKind 链路筛选（upstream=上游转售 / compute=自营平台）。
+	// 对账本身只对上游链路有意义（自营没有上游售价与上游到期口径），
+	// 保留该参数主要用于在「全部」视图下把自营实例显式区分出来。
+	ProviderKind string `form:"provider_kind" json:"provider_kind"`
 	// Keyword 按实例名 / 实例号 / 商品名模糊搜索。
 	Keyword string `form:"keyword" json:"keyword"`
 	// Anomaly 异常过滤：danger/warning/ok/below_cost/thin_margin/expire_early/expire_late/missing，空表示全部。
@@ -86,6 +90,7 @@ type ReconcileItem struct {
 	LifecycleStage string `json:"lifecycle_stage"`
 	ProviderID     uint64 `json:"provider_id"`
 	ProviderName   string `json:"provider_name"`
+	ProviderKind   string `json:"provider_kind"`
 	UserID         uint64 `json:"user_id"`
 	Username       string `json:"username"`
 

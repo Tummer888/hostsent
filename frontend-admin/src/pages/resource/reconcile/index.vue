@@ -373,7 +373,11 @@ import { useIsMobile } from '@/composables/useIsMobile'
 defineOptions({ name: 'ResourceReconcile' })
 
 // embedded：作为「同步状态运维控制台」的页签内容渲染时为 true（隐藏页头）。
-const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
+// chainKind：控制台顶部的链路筛选（'' = 全部），服务端过滤。
+const props = withDefaults(defineProps<{ embedded?: boolean; chainKind?: string }>(), {
+  embedded: false,
+  chainKind: '',
+})
 const embedded = computed(() => props.embedded)
 
 // viewMode 视图切换：result=当前时刻的比对快照，findings=持久化差异台账。
@@ -449,6 +453,7 @@ async function loadFindings() {
   try {
     const data = await getReconcileFindings({
       provider_id: filters.provider_id,
+      provider_kind: props.chainKind || undefined,
       page: findingPagination.current,
       page_size: findingPagination.pageSize,
     })
@@ -571,6 +576,7 @@ async function loadRows() {
     const data = await getReconcileList({
       keyword: filters.keyword || undefined,
       provider_id: filters.provider_id,
+      provider_kind: props.chainKind || undefined,
       anomaly: filters.anomaly || undefined,
       page: pagination.current,
       page_size: pagination.pageSize,
@@ -678,6 +684,16 @@ onMounted(() => {
   // 台账条数用于视图切换按钮上的角标，首屏也拉一次（只是计数，代价低）。
   loadFindings()
 })
+
+// 控制台顶部切链路后两个视图都要按新链路重查（服务端过滤，口径与分页一致）。
+watch(() => props.chainKind, () => {
+  pagination.current = 1
+  findingPagination.current = 1
+  loadRows()
+  loadFindings()
+})
+
+defineExpose({ reload })
 </script>
 
 <style lang="css">

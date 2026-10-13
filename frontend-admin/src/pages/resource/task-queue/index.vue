@@ -88,7 +88,7 @@
       </div>
       <t-alert
         theme="info"
-        message="当前「是否到达上游」依据本地任务执行结果判定；后续上游接口提供回执后，将改为按上游返回值核对。"
+        message="答的是「这个动作有没有送到上游」：开通·续费·暂停·解除·删除·电源·重装按类别成队列；未到达上游的标红，逐类排障。"
         class="queue-hint"
       />
       <t-table
@@ -138,8 +138,12 @@
         </template>
 
         <template #provider="{ row }">
-          <span v-if="row.provider_name" class="cell-strong">{{ row.provider_name }}</span>
-          <span v-else-if="row.provider_id" class="cell-muted">渠道 #{{ row.provider_id }}</span>
+          <ProviderCell
+            v-if="row.provider_id"
+            :provider-id="row.provider_id"
+            :provider-name="row.provider_name"
+            :provider-kind="row.provider_kind"
+          />
           <span v-else class="cell-muted">—</span>
         </template>
 
@@ -238,7 +242,7 @@
 
 <script setup lang="ts">
 import FilterCard from '@/components/filter-card/index.vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 
 import {
   CheckCircleIcon,
@@ -256,11 +260,16 @@ import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
+import ProviderCell from '@/pages/resource/sync-center/components/ProviderCell.vue'
 
 defineOptions({ name: 'ResourceTaskQueue' })
 
 // embedded：作为「同步状态运维控制台」的页签内容渲染时为 true（隐藏页头）。
-const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
+// chainKind：控制台顶部的链路筛选（'' = 全部），服务端过滤，口径与分页一致。
+const props = withDefaults(defineProps<{ embedded?: boolean; chainKind?: string }>(), {
+  embedded: false,
+  chainKind: '',
+})
 const embedded = computed(() => props.embedded)
 
 const taskList = ref<TaskQueueItem[]>([])
@@ -375,11 +384,11 @@ const statCards = computed(() => {
 
 const columns = computed<PrimaryTableCol<TaskQueueItem>[]>(() => {
   const base: PrimaryTableCol<TaskQueueItem>[] = [
-    { colKey: 'subject', title: '任务主体', minWidth: 200 },
+    { colKey: 'subject', title: '任务主体', minWidth: 210 },
     { colKey: 'op', title: '动作', width: 110 },
     { colKey: 'status', title: '状态', width: 100 },
-    { colKey: 'upstream', title: '上游到达', minWidth: 170 },
-    { colKey: 'provider', title: '渠道', width: 130 },
+    { colKey: 'upstream', title: '上游到达', minWidth: 180 },
+    { colKey: 'provider', title: '渠道', width: 170 },
     { colKey: 'operator', title: '操作人', width: 110 },
     { colKey: 'attempts', title: '重试', width: 80 },
     { colKey: 'created_at', title: '创建时间', width: 150 },
@@ -475,6 +484,7 @@ async function loadTasks() {
       status: filters.status || undefined,
       upstream_state: filters.upstream_state || undefined,
       provider_id: filters.provider_id,
+      provider_kind: props.chainKind || undefined,
       keyword: filters.keyword || undefined,
       created_from: toDateString(from) || undefined,
       created_to: toDateString(to) || undefined,
@@ -570,6 +580,14 @@ onMounted(() => {
   loadProviders()
   loadTasks()
 })
+
+// 控制台顶部切链路后按新链路重查（服务端过滤，页签计数同步收敛）。
+watch(() => props.chainKind, () => {
+  pagination.current = 1
+  void loadTasks()
+})
+
+defineExpose({ reload: loadTasks })
 </script>
 
 <style lang="css">

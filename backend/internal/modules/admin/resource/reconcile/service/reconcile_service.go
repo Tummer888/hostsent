@@ -93,13 +93,13 @@ func (s *reconcileService) List(ctx context.Context, query dto.ReconcileListQuer
 		return nil, err
 	}
 
-	// 用户名与渠道名批量装饰（失败不阻塞列表）。
+	// 用户名与渠道名/链路批量装饰（失败不阻塞列表）。
 	usernames := s.usernames(ctx, rows)
-	providerNames := s.providerNames(ctx, rows)
+	providerMeta := s.providerMeta(ctx, rows)
 
 	items := make([]dto.ReconcileItem, 0, len(rows))
 	for i := range rows {
-		items = append(items, buildItem(rows[i], usernames, providerNames))
+		items = append(items, buildItem(rows[i], usernames, providerMeta))
 	}
 
 	return &dto.ReconcileListResponse{
@@ -148,7 +148,7 @@ func (s *reconcileService) usernames(ctx context.Context, rows []repository.Reco
 	return out
 }
 
-func (s *reconcileService) providerNames(ctx context.Context, rows []repository.ReconcileRow) map[uint64]string {
+func (s *reconcileService) providerMeta(ctx context.Context, rows []repository.ReconcileRow) map[uint64]repository.ProviderMeta {
 	ids := make([]uint64, 0, len(rows))
 	seen := make(map[uint64]struct{}, len(rows))
 	for i := range rows {
@@ -162,14 +162,14 @@ func (s *reconcileService) providerNames(ctx context.Context, rows []repository.
 		seen[id] = struct{}{}
 		ids = append(ids, id)
 	}
-	out, err := s.repo.ProviderNames(ctx, ids)
+	out, err := s.repo.ProviderMeta(ctx, ids)
 	if err != nil {
-		return map[uint64]string{}
+		return map[uint64]repository.ProviderMeta{}
 	}
 	return out
 }
 
-func buildItem(row repository.ReconcileRow, usernames, providerNames map[uint64]string) dto.ReconcileItem {
+func buildItem(row repository.ReconcileRow, usernames map[uint64]string, providerMeta map[uint64]repository.ProviderMeta) dto.ReconcileItem {
 	item := dto.ReconcileItem{
 		ID:                  row.ID,
 		InstanceID:          row.InstanceID,
@@ -178,7 +178,8 @@ func buildItem(row repository.ReconcileRow, usernames, providerNames map[uint64]
 		StatusName:          labelOf(statusNames, row.Status, "未知"),
 		LifecycleStage:      row.LifecycleStage,
 		ProviderID:          row.ProviderID,
-		ProviderName:        providerNames[row.ProviderID],
+		ProviderName:        providerMeta[row.ProviderID].Name,
+		ProviderKind:        providerMeta[row.ProviderID].Kind,
 		UserID:              row.UserID,
 		Username:            usernames[row.UserID],
 		SellProductID:       row.SellProductID,

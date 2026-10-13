@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"hostsent/backend/internal/modules/admin/resource/common/providerkind"
 	reconmodel "hostsent/backend/internal/modules/admin/resource/reconcile/model"
 )
 
@@ -27,7 +28,8 @@ type FindingRepository interface {
 	// ResolveAbsent 把本次扫描未复现的 open 差异置 resolved，返回处理行数。
 	ResolveAbsent(ctx context.Context, seenKeys []string) (int64, error)
 	// ListOpen 查当前未处理差异（页面「差异台账」与通知补发的输入）。
-	ListOpen(ctx context.Context, providerID uint64, page, pageSize int) ([]reconmodel.ReconcileFinding, int64, error)
+	// providerKind 为链路筛选（upstream/compute，空=不过滤）。
+	ListOpen(ctx context.Context, providerID uint64, providerKind string, page, pageSize int) ([]reconmodel.ReconcileFinding, int64, error)
 	// FindingsForInstances 取指定实例的全部台账行（对账详情页展示"这条差异存在了多久"）。
 	FindingsForInstances(ctx context.Context, instanceIDs []uint64) (map[uint64][]reconmodel.ReconcileFinding, error)
 	// MarkNotified 落"已发预警"序号与时间。
@@ -172,7 +174,7 @@ func (r *findingRepository) ResolveAbsent(ctx context.Context, seenKeys []string
 	return res.RowsAffected, res.Error
 }
 
-func (r *findingRepository) ListOpen(ctx context.Context, providerID uint64, page, pageSize int) ([]reconmodel.ReconcileFinding, int64, error) {
+func (r *findingRepository) ListOpen(ctx context.Context, providerID uint64, providerKind string, page, pageSize int) ([]reconmodel.ReconcileFinding, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -182,6 +184,10 @@ func (r *findingRepository) ListOpen(ctx context.Context, providerID uint64, pag
 	base := r.db.WithContext(ctx).Model(&reconmodel.ReconcileFinding{}).Where("status IN ?", []string{reconmodel.StatusOpen, reconmodel.StatusAck})
 	if providerID > 0 {
 		base = base.Where("provider_id = ?", providerID)
+	}
+	// 链路过滤：台账表只存 provider_id，链路在 resource_providers.kind 上。
+	if cond, condArgs := providerkind.Condition(providerKind, "provider_id"); cond != "" {
+		base = base.Where(cond, condArgs...)
 	}
 	var total int64
 	if err := base.Count(&total).Error; err != nil {

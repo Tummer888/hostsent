@@ -11,6 +11,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"hostsent/backend/internal/modules/admin/resource/common/providerkind"
 	"hostsent/backend/internal/modules/admin/resource/taskqueue/dto"
 )
 
@@ -61,8 +62,14 @@ type Repository interface {
 	CategoryCounts(ctx context.Context, query dto.TaskQueueListQuery) ([]CategoryCount, error)
 	// Usernames 批量取用户名（列表装饰用，避免每行查库）。
 	Usernames(ctx context.Context, ids []uint64) (map[uint64]string, error)
-	// ProviderNames 批量取渠道名（列表装饰用）。
-	ProviderNames(ctx context.Context, ids []uint64) (map[uint64]string, error)
+	// ProviderMeta 批量取渠道名与链路（列表装饰用；kind 供前端打「上游转售/自营平台」标签）。
+	ProviderMeta(ctx context.Context, ids []uint64) (map[uint64]ProviderMeta, error)
+}
+
+// ProviderMeta 渠道展示元信息。
+type ProviderMeta struct {
+	Name string
+	Kind string
 }
 
 type repository struct {
@@ -222,6 +229,12 @@ func buildWhere(query dto.TaskQueueListQuery, includeCategory bool) (string, []a
 		conds = append(conds, "provider_id = ?")
 		args = append(args, query.ProviderID)
 	}
+	// 链路过滤：队列行来自四张表，链路只在 resource_providers.kind 上，
+	// 因此统一用子查询按 provider_id 收敛（providerkind 包集中一份口径）。
+	if cond, condArgs := providerkind.Condition(query.ProviderKind, "provider_id"); cond != "" {
+		conds = append(conds, cond)
+		args = append(args, condArgs...)
+	}
 	if kw := strings.TrimSpace(query.Keyword); kw != "" {
 		like := "%" + kw + "%"
 		conds = append(conds, "(subject ILIKE ? OR ref_no ILIKE ? OR instance_ref ILIKE ? OR detail ILIKE ?)")
@@ -344,21 +357,22 @@ func (r *repository) Usernames(ctx context.Context, ids []uint64) (map[uint64]st
 	return out, nil
 }
 
-func (r *repository) ProviderNames(ctx context.Context, ids []uint64) (map[uint64]string, error) {
-	out := make(map[uint64]string, len(ids))
+func (r *repository) ProviderMeta(ctx context.Context, ids []uint64) (map[uint64]ProviderMeta, error) {
+	out := make(map[uint64]ProviderMeta, len(ids))
 	if len(ids) == 0 {
 		return out, nil
 	}
 	var rows []struct {
 		ID   uint64
 		Name string
+		Kind string
 	}
 	if err := r.db.WithContext(ctx).Table("resource_providers").
-		Select("id, name").Where("id IN ?", ids).Find(&rows).Error; err != nil {
+		Select("id, name, kind").Where("id IN ?", ids).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	for _, row := range rows {
-		out[row.ID] = row.Name
+		out[row.ID] = ProviderMeta{Name: row.Name, Kind: row.Kind}
 	}
 	return out, nil
 }
