@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"hostsent/backend/internal/modules/admin/resource/common/providerkind"
 	"hostsent/backend/internal/modules/admin/resource/sync/dto"
 	"hostsent/backend/internal/modules/admin/resource/sync/model"
 )
@@ -68,6 +69,8 @@ func (r *syncRepository) ListTasks(ctx context.Context, query dto.SyncTaskListQu
 	if query.ProviderID > 0 {
 		base = base.Where("provider_id = ?", query.ProviderID)
 	}
+	// 链路过滤下推到 SQL：分页口径必须与筛选口径一致（见 providerkind 包注释）。
+	base = providerkind.Apply(base, providerkind.Normalize(query.ProviderKind))
 	if tt := strings.TrimSpace(query.TaskType); tt != "" {
 		base = base.Where("task_type = ?", tt)
 	}
@@ -146,6 +149,7 @@ func (r *syncRepository) ListLogs(ctx context.Context, query dto.SyncLogListQuer
 	if query.ProviderID > 0 {
 		base = base.Where("provider_id = ?", query.ProviderID)
 	}
+	base = providerkind.Apply(base, providerkind.Normalize(query.ProviderKind))
 	if query.TaskID > 0 {
 		base = base.Where("task_id = ?", query.TaskID)
 	}
@@ -238,6 +242,16 @@ func (r *syncRepository) UpsertInstances(ctx context.Context, items []model.Inst
 			"raw_data":   gorm.Expr("excluded.raw_data"),
 			"expire_at":  gorm.Expr("excluded.expire_at"),
 			"updated_at": gorm.Expr("excluded.updated_at"),
+			// 规格明细随回源刷新（此前只更新 cpu/memory/disk，带宽/系统/区域
+			// 在线路上永远保持首次落库值：实测同一实例 bandwidth=30 而上游商品是 15、
+			// os 显示 CentOS 而上游是 Debian 这类错值）。
+			// 用 CASE 保护：回源未给值（空/0）时不覆盖本地已有值 —— 上游详情拉取
+			// 失败时适配器只返回最小实例，无条件覆盖会把好数据抹成空。
+			"disk_type": gorm.Expr("CASE WHEN excluded.disk_type <> '' THEN excluded.disk_type ELSE instances.disk_type END"),
+			"bandwidth": gorm.Expr("CASE WHEN excluded.bandwidth > 0 THEN excluded.bandwidth ELSE instances.bandwidth END"),
+			"os":        gorm.Expr("CASE WHEN excluded.os <> '' THEN excluded.os ELSE instances.os END"),
+			"region":    gorm.Expr("CASE WHEN excluded.region <> '' THEN excluded.region ELSE instances.region END"),
+			"zone":      gorm.Expr("CASE WHEN excluded.zone <> '' THEN excluded.zone ELSE instances.zone END"),
 			// 双链路语义列随同步刷新（T1.2）；sell_product_id 属自营链路，不被上游同步覆盖。
 			"source_mode":         gorm.Expr("excluded.source_mode"),
 			"upstream_product_id": gorm.Expr("excluded.upstream_product_id"),

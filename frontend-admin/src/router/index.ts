@@ -296,6 +296,8 @@ const routes: Array<RouteRecordRaw> = [
         redirect: '/resource/providers',
         meta: { title: 'API测试', role: 'admin' },
       },
+      // 旧入口 redirect：控制台页签已按「入站同步 / 出站动作 / 对账与差异」重排，
+      // 旧 ?tab= 值由控制台内的 legacyTabMap 兼容（anomalies → 入站且只看失败）。
       {
         path: 'anomalies',
         name: 'ResourceAnomalies',
@@ -305,7 +307,7 @@ const routes: Array<RouteRecordRaw> = [
       {
         path: 'task-queue',
         name: 'ResourceTaskQueue',
-        redirect: '/resource/sync-center?tab=actions',
+        redirect: '/resource/sync-center?tab=outbound',
         meta: { title: '业务动作投递', role: 'admin' },
       },
       {

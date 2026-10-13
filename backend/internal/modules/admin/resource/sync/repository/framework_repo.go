@@ -8,6 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"hostsent/backend/internal/modules/admin/resource/common/providerkind"
 	providermodel "hostsent/backend/internal/modules/admin/resource/provider/model"
 	"hostsent/backend/internal/modules/admin/resource/sync/dto"
 	"hostsent/backend/internal/modules/admin/resource/sync/model"
@@ -44,6 +45,8 @@ type FrameworkRepository interface {
 	FindPendingPriceChange(ctx context.Context, providerID uint64, resourceProductID uint64, field string) (*model.PriceChangeEvent, error)
 	UpdatePriceChange(ctx context.Context, item *model.PriceChangeEvent) error
 	ListPriceChanges(ctx context.Context, query dto.PriceChangeListQuery) ([]model.PriceChangeEvent, int64, error)
+	// ResourceProductNames 批量取上游商品名（调价事件列表展示主体，避免逐条查库）。
+	ResourceProductNames(ctx context.Context, ids []uint64) (map[uint64]string, error)
 
 	// ---- sync_diffs ----
 	CreateDiffs(ctx context.Context, items []model.SyncDiff) error
@@ -77,6 +80,9 @@ type ResourceProductSnapshot struct {
 	CostPrice  float64
 	SalePrice  float64
 	Status     int
+	// Stock 本地已同步的库存（-1=不限量）。用于判断上游库存是否有变化：
+	// 没变就不必回写关联销售商品，避免每次目录同步都全量更新。
+	Stock int
 }
 
 // PoolSnapshot 资源池本地快照。
@@ -237,6 +243,7 @@ func (r *frameworkRepository) ListPriceChanges(ctx context.Context, query dto.Pr
 	if query.ProviderID > 0 {
 		base = base.Where("provider_id = ?", query.ProviderID)
 	}
+	base = providerkind.Apply(base, providerkind.Normalize(query.ProviderKind))
 	if st := strings.TrimSpace(query.Status); st != "" {
 		base = base.Where("status = ?", st)
 	}
@@ -250,6 +257,29 @@ func (r *frameworkRepository) ListPriceChanges(ctx context.Context, query dto.Pr
 		return nil, 0, err
 	}
 	return items, total, nil
+}
+
+// ResourceProductNames 批量取上游商品名（调价事件主体展示）。
+//
+// 只取 name 一列：列表要的是"哪个商品调价了"，其余字段在商品目录页看更合适。
+func (r *frameworkRepository) ResourceProductNames(ctx context.Context, ids []uint64) (map[uint64]string, error) {
+	out := map[uint64]string{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	type row struct {
+		ID   uint64
+		Name string
+	}
+	var rows []row
+	if err := r.db.WithContext(ctx).
+		Table("resource_products").Select("id, name").Where("id IN ?", ids).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, it := range rows {
+		out[it.ID] = it.Name
+	}
+	return out, nil
 }
 
 // ---------------------------------------------------------------- diffs
@@ -267,6 +297,7 @@ func (r *frameworkRepository) ListDiffs(ctx context.Context, query dto.SyncDiffL
 	if query.ProviderID > 0 {
 		base = base.Where("provider_id = ?", query.ProviderID)
 	}
+	base = providerkind.Apply(base, providerkind.Normalize(query.ProviderKind))
 	if query.TaskID > 0 {
 		base = base.Where("task_id = ?", query.TaskID)
 	}
@@ -315,7 +346,7 @@ func (r *frameworkRepository) CountDiffsByAction(ctx context.Context, providerID
 func (r *frameworkRepository) ListResourceProductsByProvider(ctx context.Context, providerID uint64) ([]ResourceProductSnapshot, error) {
 	var items []ResourceProductSnapshot
 	err := r.db.WithContext(ctx).Table("resource_products").
-		Select("id, upstream_id, name, cpu, memory, disk, disk_type, bandwidth, os, region, zone, cost_price, sale_price, status").
+		Select("id, upstream_id, name, cpu, memory, disk, disk_type, bandwidth, os, region, zone, cost_price, sale_price, status, stock").
 		Where("provider_id = ?", providerID).Scan(&items).Error
 	return items, err
 }

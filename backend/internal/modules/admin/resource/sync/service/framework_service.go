@@ -10,6 +10,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"hostsent/backend/internal/modules/admin/resource/common/providerkind"
 	"hostsent/backend/internal/modules/admin/resource/sync/dto"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	syncrepo "hostsent/backend/internal/modules/admin/resource/sync/repository"
@@ -47,9 +48,18 @@ func NewFrameworkService(fwRepo syncrepo.FrameworkRepository, engine *SyncEngine
 	return &frameworkService{fwRepo: fwRepo, engine: engine, logger: logger}
 }
 
-// providerNames 返回 providerID → 名称（失败时返回空表，不阻塞列表）。
-func (s *frameworkService) providerNames(ctx context.Context, providerID uint64) map[uint64]string {
-	out := map[uint64]string{}
+// ProviderMeta 渠道展示元信息（名称 + 链路），列表页据此渲染渠道列与链路标签。
+type ProviderMeta struct {
+	Name string
+	Kind string
+}
+
+// providerIndex 返回 providerID → {名称, 链路}（失败时返回空表，不阻塞列表）。
+//
+// 与 providerNames 并存而不合并：后者只给名称、已被多处调用，这里多带一个链路字段，
+// 两者共用同一次 ListAll 反查，不额外查库。
+func (s *frameworkService) providerIndex(ctx context.Context, providerID uint64) map[uint64]ProviderMeta {
+	out := map[uint64]ProviderMeta{}
 	if s.engine == nil || s.engine.providerRepo == nil {
 		return out
 	}
@@ -61,7 +71,16 @@ func (s *frameworkService) providerNames(ctx context.Context, providerID uint64)
 		if providerID > 0 && item.ID != providerID {
 			continue
 		}
-		out[item.ID] = item.Name
+		out[item.ID] = ProviderMeta{Name: item.Name, Kind: item.Kind}
+	}
+	return out
+}
+
+// providerNames 返回 providerID → 名称（失败时返回空表，不阻塞列表）。
+func (s *frameworkService) providerNames(ctx context.Context, providerID uint64) map[uint64]string {
+	out := map[uint64]string{}
+	for id, meta := range s.providerIndex(ctx, providerID) {
+		out[id] = meta.Name
 	}
 	return out
 }
@@ -83,13 +102,20 @@ func (s *frameworkService) ListSchedules(ctx context.Context, query dto.SyncSche
 	if err != nil {
 		return nil, err
 	}
-	names := s.providerNames(ctx, query.ProviderID)
+	meta := s.providerIndex(ctx, query.ProviderID)
+	// 链路筛选在服务层补一道：调度行是从 ListAllSchedules 全量取回后在内存分页的，
+	// 仓储没有对应的 SQL 过滤点，所以在装配处剔除更直接（口径与 providerkind.Normalize 一致）。
+	kindFilter := providerkind.Normalize(query.ProviderKind)
 	respItems := make([]dto.SyncScheduleInfo, 0, len(items))
 	for _, item := range items {
 		if query.Enabled != nil && item.Enabled != *query.Enabled {
 			continue
 		}
-		respItems = append(respItems, buildScheduleInfo(item, names[item.ProviderID]))
+		m := meta[item.ProviderID]
+		if kindFilter != "" && m.Kind != kindFilter {
+			continue
+		}
+		respItems = append(respItems, buildScheduleInfo(item, m.Name, m.Kind))
 	}
 	return &dto.SyncScheduleListResponse{
 		Items: respItems,
@@ -162,8 +188,9 @@ func (s *frameworkService) UpdateSchedule(ctx context.Context, id uint64, req dt
 	if err := s.fwRepo.UpdateScheduleConfig(ctx, target); err != nil {
 		return nil, err
 	}
-	names := s.providerNames(ctx, target.ProviderID)
-	info := buildScheduleInfo(*target, names[target.ProviderID])
+	meta := s.providerIndex(ctx, target.ProviderID)
+	m := meta[target.ProviderID]
+	info := buildScheduleInfo(*target, m.Name, m.Kind)
 	return &info, nil
 }
 
@@ -193,8 +220,22 @@ func (s *frameworkService) ListPriceChanges(ctx context.Context, query dto.Price
 		pageSize = 10
 	}
 	respItems := make([]dto.PriceChangeInfo, 0, len(items))
+	meta := s.providerIndex(ctx, query.ProviderID)
+	// 商品名批量反查：调价事件列表的主体应是"哪个商品"，只有 ID 的话运营得去商品目录对号。
+	// 同页最多一页的条数，一次 IN 查询即可。
+	productIDs := make([]uint64, 0, len(items))
 	for _, item := range items {
-		respItems = append(respItems, buildPriceChangeInfo(item))
+		if item.ResourceProductID > 0 {
+			productIDs = append(productIDs, item.ResourceProductID)
+		}
+	}
+	productNames, err := s.fwRepo.ResourceProductNames(ctx, productIDs)
+	if err != nil {
+		// 名称取不到不阻塞列表：主键与价格变化仍在，页面降级为显示 ID。
+		productNames = map[uint64]string{}
+	}
+	for _, item := range items {
+		respItems = append(respItems, buildPriceChangeInfo(item, meta[item.ProviderID], productNames[item.ResourceProductID]))
 	}
 	return &dto.PriceChangeListResponse{
 		Items: respItems,
@@ -271,9 +312,10 @@ func (s *frameworkService) ListDiffs(ctx context.Context, query dto.SyncDiffList
 	if pageSize <= 0 {
 		pageSize = 10
 	}
+	meta := s.providerIndex(ctx, query.ProviderID)
 	respItems := make([]dto.SyncDiffInfo, 0, len(items))
 	for _, item := range items {
-		respItems = append(respItems, buildSyncDiffInfo(item))
+		respItems = append(respItems, buildSyncDiffInfo(item, meta[item.ProviderID]))
 	}
 	return &dto.SyncDiffListResponse{
 		Items: respItems,
@@ -319,11 +361,12 @@ func (s *frameworkService) DiffSummary(ctx context.Context, providerID uint64, d
 // 展示构建
 // ============================================================================
 
-func buildScheduleInfo(item syncmodel.SyncSchedule, providerName string) dto.SyncScheduleInfo {
+func buildScheduleInfo(item syncmodel.SyncSchedule, providerName, providerKind string) dto.SyncScheduleInfo {
 	info := dto.SyncScheduleInfo{
 		ID:                      item.ID,
 		ProviderID:              item.ProviderID,
 		ProviderName:            providerName,
+		ProviderKind:            providerKind,
 		Scope:                   item.Scope,
 		ScopeName:               ScopeDisplayName(item.Scope),
 		IntervalSeconds:         item.IntervalSeconds,
@@ -346,23 +389,25 @@ func buildScheduleInfo(item syncmodel.SyncSchedule, providerName string) dto.Syn
 	return info
 }
 
-func buildPriceChangeInfo(item syncmodel.PriceChangeEvent) dto.PriceChangeInfo {
+func buildPriceChangeInfo(item syncmodel.PriceChangeEvent, meta ProviderMeta, resourceProductName string) dto.PriceChangeInfo {
 	info := dto.PriceChangeInfo{
-		ID:                item.ID,
-		ProviderID:        item.ProviderID,
-		Scope:             item.Scope,
-		ResourceProductID: item.ResourceProductID,
-		UpstreamID:        item.UpstreamID,
-		ProductID:         item.ProductID,
-		Field:             item.Field,
-		OldValue:          item.OldValue,
-		NewValue:          item.NewValue,
-		ChangeRatio:       item.ChangeRatio,
-		Threshold:         item.Threshold,
-		Status:            item.Status,
-		Applied:           item.Applied,
-		Remark:            item.Remark,
-		CreatedAt:         item.CreatedAt.Format(time.RFC3339),
+		ID:                  item.ID,
+		ProviderID:          item.ProviderID,
+		ProviderKind:        meta.Kind,
+		Scope:               item.Scope,
+		ResourceProductID:   item.ResourceProductID,
+		ResourceProductName: resourceProductName,
+		UpstreamID:          item.UpstreamID,
+		ProductID:           item.ProductID,
+		Field:               item.Field,
+		OldValue:            item.OldValue,
+		NewValue:            item.NewValue,
+		ChangeRatio:         item.ChangeRatio,
+		Threshold:           item.Threshold,
+		Status:              item.Status,
+		Applied:             item.Applied,
+		Remark:              item.Remark,
+		CreatedAt:           item.CreatedAt.Format(time.RFC3339),
 	}
 	if item.HandledAt != nil {
 		v := item.HandledAt.Format(time.RFC3339)
@@ -371,21 +416,23 @@ func buildPriceChangeInfo(item syncmodel.PriceChangeEvent) dto.PriceChangeInfo {
 	return info
 }
 
-func buildSyncDiffInfo(item syncmodel.SyncDiff) dto.SyncDiffInfo {
+func buildSyncDiffInfo(item syncmodel.SyncDiff, meta ProviderMeta) dto.SyncDiffInfo {
 	return dto.SyncDiffInfo{
-		ID:          item.ID,
-		TaskID:      item.TaskID,
-		ProviderID:  item.ProviderID,
-		Scope:       item.Scope,
-		Action:      item.Action,
-		LocalID:     item.LocalID,
-		ExternalID:  item.ExternalID,
-		Field:       item.Field,
-		OldValue:    item.OldValue,
-		NewValue:    item.NewValue,
-		Disposition: item.Disposition,
-		Remark:      item.Remark,
-		CreatedAt:   item.CreatedAt.Format(time.RFC3339),
+		ID:           item.ID,
+		TaskID:       item.TaskID,
+		ProviderID:   item.ProviderID,
+		ProviderName: meta.Name,
+		ProviderKind: meta.Kind,
+		Scope:        item.Scope,
+		Action:       item.Action,
+		LocalID:      item.LocalID,
+		ExternalID:   item.ExternalID,
+		Field:        item.Field,
+		OldValue:     item.OldValue,
+		NewValue:     item.NewValue,
+		Disposition:  item.Disposition,
+		Remark:       item.Remark,
+		CreatedAt:    item.CreatedAt.Format(time.RFC3339),
 	}
 }
 

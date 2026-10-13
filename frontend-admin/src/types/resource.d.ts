@@ -350,6 +350,10 @@ export interface ProductInfo {
   cost_price: number
   sale_price: number
   status: number
+  /** 上游可售库存：-1=不限量；0=售罄；>0=剩余可售数量（随目录同步刷新） */
+  stock: number
+  /** 上游是否开启库存控制：1=限量（stock 为余量），0=不限量 */
+  stock_control: number
   /** 上游前台在售判定：visible/group_hidden/product_hidden/retired（status 只有 1/0，这里给出原因） */
   visibility?: string
   /** 价格来源：pricings=商品周期价；catalog=上游前台展示价回填；none=上游未定价 */
@@ -378,10 +382,17 @@ export interface SyncResult {
   message: string
 }
 
+/**
+ * 渠道链路（双链路重构）：upstream=上游转售，compute=自营平台。
+ * 控制台顶部据此切换视图；空字符串表示不过滤（全部）。
+ */
+export type ProviderKind = 'upstream' | 'compute' | ''
+
 export interface SyncTaskListQuery {
   provider_id?: number
   task_type?: string
   status?: string
+  provider_kind?: string
   page?: number
   page_size?: number
 }
@@ -390,6 +401,7 @@ export interface SyncLogListQuery {
   provider_id?: number
   task_id?: number
   status?: string
+  provider_kind?: string
   page?: number
   page_size?: number
 }
@@ -411,6 +423,10 @@ export interface CreateSyncTaskRequest {
 export interface SyncTaskInfo {
   id: number
   provider_id: number
+  /** 渠道名（服务端反查；缺失时前端回退显示「渠道 #id」）。 */
+  provider_name: string
+  /** 渠道链路（upstream/compute），用于渠道列标签。 */
+  provider_kind: string
   task_type: string
   status: string
   total_count: number
@@ -430,6 +446,8 @@ export interface SyncLogInfo {
   id: number
   task_id: number
   provider_id: number
+  provider_name: string
+  provider_kind: string
   sync_type: string
   status: string
   total_count: number
@@ -482,6 +500,7 @@ export interface InstanceListResponse {
 export interface SyncScheduleListQuery {
   provider_id?: number
   enabled?: boolean
+  provider_kind?: string
   page?: number
   page_size?: number
 }
@@ -506,6 +525,7 @@ export interface SyncScheduleInfo {
   id: number
   provider_id: number
   provider_name: string
+  provider_kind: string
   scope: string
   scope_name: string
   interval_seconds: number
@@ -536,6 +556,7 @@ export interface SyncScopeMeta {
 export interface PriceChangeListQuery {
   provider_id?: number
   status?: string
+  provider_kind?: string
   page?: number
   page_size?: number
 }
@@ -544,8 +565,11 @@ export interface PriceChangeListQuery {
 export interface PriceChangeInfo {
   id: number
   provider_id: number
+  provider_kind: string
   scope: string
   resource_product_id: number
+  /** 上游商品名（服务端反查；为空时前端回退显示商品 ID）。 */
+  resource_product_name: string
   upstream_id: string
   product_id: number
   field: string
@@ -578,6 +602,7 @@ export interface SyncDiffListQuery {
   task_id?: number
   scope?: string
   action?: string
+  provider_kind?: string
   page?: number
   page_size?: number
 }
@@ -587,6 +612,8 @@ export interface SyncDiffInfo {
   id: number
   task_id: number
   provider_id: number
+  provider_name: string
+  provider_kind: string
   scope: string
   action: string
   local_id: number
@@ -622,6 +649,7 @@ export interface TaskQueueListQuery {
   status?: string
   upstream_state?: string
   provider_id?: number
+  provider_kind?: string
   keyword?: string
   created_from?: string
   created_to?: string
@@ -645,6 +673,7 @@ export interface TaskQueueItem {
   upstream_detail: string
   provider_id: number
   provider_name: string
+  provider_kind: string
   user_id: number
   username: string
   attempts: number
@@ -685,6 +714,7 @@ export interface TaskQueueListResponse {
 
 export interface ReconcileListQuery {
   provider_id?: number
+  provider_kind?: string
   keyword?: string
   anomaly?: string
   page?: number
@@ -707,6 +737,7 @@ export interface ReconcileItem {
   lifecycle_stage: string
   provider_id: number
   provider_name: string
+  provider_kind: string
   user_id: number
   username: string
   sell_product_id: number

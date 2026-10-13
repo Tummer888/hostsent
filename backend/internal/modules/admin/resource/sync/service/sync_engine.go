@@ -89,6 +89,21 @@ type PriceApplier interface {
 	ApplyConfirmedPrice(ctx context.Context, resourceProductID uint64, costPrice float64, operatorName, remark string) (int, error)
 }
 
+// StockApplier 上游库存同步的落地动作（由 catalog 侧实现，避免包循环）。
+//
+// 为什么挂在目录同步上：上游库存只在商品详情里（stock_control/qty），
+// 拉目录时已经拿到了，再单开一个 stock scope 等于把同一份详情重复请求一遍。
+// 库存变化（尤其卖到 0）需要尽快反映到销售商品的下单门禁上。
+type StockApplier interface {
+	// ApplyUpstreamStock 把上游库存写进关联售出商品。
+	//   stock     < 0 表示上游不限量；>= 0 表示上游剩余可售数量。
+	//   prevStock 本地镜像上一次同步到的库存值（-1 表示上次也是不限量）。
+	// 用途：区分"上游一直不限量"（不动本地，保留运营自己设的量）与
+	// "上游刚解除限量"（本地那个有限值来自同步，必须放开，否则会一直误挡下单）。
+	// 返回实际被改动的销售商品数。
+	ApplyUpstreamStock(ctx context.Context, resourceProductID uint64, stock, prevStock int) (int, error)
+}
+
 // PriceNotifier 调价通知（桥接到通知中心，target=admin）。
 type PriceNotifier interface {
 	NotifyPriceChangePending(ctx context.Context, providerID uint64, providerName string, pending int) error
@@ -105,6 +120,7 @@ type SyncEngine struct {
 	syncRepo      syncrepo.SyncRepository
 	frameworkRepo syncrepo.FrameworkRepository
 	priceApplier  PriceApplier
+	stockApplier  StockApplier
 	notifier      PriceNotifier
 	logger        *zap.Logger
 }
@@ -135,6 +151,9 @@ func NewSyncEngine(
 // SetPriceApplier / SetNotifier 在装配阶段注入（避免 New 参数继续膨胀）。
 func (e *SyncEngine) SetPriceApplier(a PriceApplier) { e.priceApplier = a }
 func (e *SyncEngine) SetNotifier(n PriceNotifier)    { e.notifier = n }
+
+// SetStockApplier 注入库存落地能力（装配层调用；未注入时库存只同步到上游镜像表）。
+func (e *SyncEngine) SetStockApplier(a StockApplier) { e.stockApplier = a }
 
 // StartSync 创建同步任务并异步执行（taskType 兼容旧别名，内部归一为 scope）。
 // 同一提供商同类型存在 pending/running 任务时拒绝（防重入）。
@@ -425,8 +444,16 @@ func (e *SyncEngine) syncCatalog(ctx context.Context, task *syncmodel.SyncTask, 
 				zap.Int("issue_count", len(issues)),
 				zap.String("first_issue", issues[0].Error()))
 		}
-		rows = append(rows, e.convertProduct(task.ProviderID, it))
+		row := e.convertProduct(task.ProviderID, it)
 		prev := local[it.UpstreamID]
+		// 详情缺失（适配器标记 detail_missing）：本次拿不到价格/规格/开通参数，
+		// 只保留商品存在性（它仍在 items 的 keep 名单里，不会被全量对账误判下架），
+		// 但不参与写入 —— 用占位值覆盖会抹掉价格与 config_groups（商品从此开不了通）。
+		// 本地没有该商品时（首次见到就拉不到详情）仍落一行占位，至少可见。
+		if isDetailMissing(it.RawSpecs) && prev != nil {
+			continue
+		}
+		rows = append(rows, row)
 		if prev == nil {
 			diffs = append(diffs, syncmodel.SyncDiff{
 				TaskID: task.ID, ProviderID: task.ProviderID, Scope: syncmodel.ScopeCatalog,
@@ -441,6 +468,23 @@ func (e *SyncEngine) syncCatalog(ctx context.Context, task *syncmodel.SyncTask, 
 			e.logger.Warn("记录调价事件失败", zap.Uint64("provider_id", task.ProviderID), zap.Error(derr))
 		}
 		pendingPrices += n
+		// 库存落地：上游限量数量变化时同步到已导入的销售商品（下单门禁读的就是它）。
+		//
+		// 触发条件说明：
+		//   - 上游限量（stock >= 0）：**每次都重申**。库存在上游是硬上限，本地必须收敛；
+		//     且此前导入的商品从没同步过库存（本地 -1），只在"变化时"触发会让它们
+		//     永远停在"不限量"（实测：上游余量 1 的商品，本地商品仍是 -1）。
+		//   - 上游不限量（-1）：只在发生变化时写一次（把之前限量后放开的情况拉回 -1）；
+		//     否则每分钟一次目录同步都要跑一遍商品更新。
+		// 幂等由 applier 保证（值相同直接跳过，不写库）。
+		upstreamStock := it.StockValue()
+		if e.stockApplier != nil && prev != nil && (prev.Stock != upstreamStock || upstreamStock >= 0) {
+			if _, serr := e.stockApplier.ApplyUpstreamStock(ctx, prev.ID, upstreamStock, prev.Stock); serr != nil {
+				e.logger.Warn("同步上游库存到销售商品失败",
+					zap.Uint64("provider_id", task.ProviderID),
+					zap.String("upstream_id", it.UpstreamID), zap.Error(serr))
+			}
+		}
 	}
 	if err := e.productRepo.UpsertMany(ctx, task.ProviderID, rows); err != nil {
 		return err
@@ -1000,6 +1044,10 @@ func (e *SyncEngine) convertProduct(providerID uint64, p *pkgmodel.StandardProdu
 		CostPrice:  p.CostPrice,
 		SalePrice:  p.SalePrice,
 		Status:     normalizeStatus(p.Status, true),
+		// 库存：上游限量的余量或 -1（不限量）。判据集中在 model.StockValue，
+		// 避免这里再抄一份"stock_control + qty"的组合规则。
+		Stock:        p.StockValue(),
+		StockControl: int(jsonToInt64(p.RawSpecs, "stock_control")),
 	}
 }
 
@@ -1038,6 +1086,28 @@ func jsonToString(m map[string]interface{}, key string) string {
 		return s
 	}
 	return fmt.Sprintf("%v", v)
+}
+
+// isDetailMissing 判断适配器是否标记了「本次没拿到该商品详情」。
+//
+// 语义：商品在上游清单里存在（不能判下架），但价格/规格/开通参数这次没取到。
+// 适配器（zjmf）用 raw_specs.detail_missing=true 表达；其它渠道不设置该键。
+func isDetailMissing(raw map[string]interface{}) bool {
+	if raw == nil {
+		return false
+	}
+	v, ok := raw["detail_missing"]
+	if !ok {
+		return false
+	}
+	switch t := v.(type) {
+	case bool:
+		return t
+	case string:
+		return strings.EqualFold(t, "true")
+	default:
+		return false
+	}
 }
 
 // convertPool 标准化资源池（标准模型 → 存储模型）。
@@ -1104,6 +1174,16 @@ func mapKeys(m map[string]struct{}) []string {
 // convertInstance 标准化实例（标准模型 → 存储模型）。
 func (e *SyncEngine) convertInstance(providerID uint64, in *pkgmodel.StandardInstance) syncmodel.Instance {
 	rawJSON, _ := json.Marshal(in.RawData)
+	// 区域/可用区优先取实例顶层字段，缺省回落规格里的同名字段：
+	// 适配器把区域写在 Specs 里时（与商品同源），顶层为空会让同步写不回区域。
+	region := in.Region
+	if region == "" {
+		region = in.Specs.Region
+	}
+	zone := in.Zone
+	if zone == "" {
+		zone = in.Specs.Zone
+	}
 	out := syncmodel.Instance{
 		InstanceID: in.UpstreamID,
 		ProviderID: providerID,
@@ -1115,8 +1195,8 @@ func (e *SyncEngine) convertInstance(providerID uint64, in *pkgmodel.StandardIns
 		DiskType:   in.Specs.DiskType,
 		Bandwidth:  in.Specs.Bandwidth,
 		OS:         in.Specs.OS,
-		Region:     in.Region,
-		Zone:       in.Zone,
+		Region:     region,
+		Zone:       zone,
 		Status:     string(in.Status),
 		PrivateIP:  in.PrivateIP,
 		PublicIP:   in.PublicIP,

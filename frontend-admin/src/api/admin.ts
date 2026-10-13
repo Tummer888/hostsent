@@ -490,6 +490,7 @@ export function getSyncTaskList(params: SyncTaskListQuery): Promise<SyncTaskList
       provider_id: params.provider_id,
       task_type: params.task_type,
       status: params.status,
+      provider_kind: params.provider_kind,
       page: params.page,
       page_size: params.page_size,
     },
@@ -510,6 +511,7 @@ export function getSyncLogList(params: SyncLogListQuery): Promise<SyncLogListRes
       provider_id: params.provider_id,
       task_id: params.task_id,
       status: params.status,
+      provider_kind: params.provider_kind,
       page: params.page,
       page_size: params.page_size,
     },
@@ -550,6 +552,7 @@ export function getSyncScheduleList(params: SyncScheduleListQuery): Promise<Sync
     params: {
       provider_id: params.provider_id,
       enabled: params.enabled,
+      provider_kind: params.provider_kind,
       page: params.page,
       page_size: params.page_size,
     },
@@ -569,6 +572,7 @@ export function getPriceChangeList(params: PriceChangeListQuery): Promise<PriceC
     params: {
       provider_id: params.provider_id,
       status: params.status,
+      provider_kind: params.provider_kind,
       page: params.page,
       page_size: params.page_size,
     },
@@ -590,6 +594,7 @@ export function getSyncDiffList(params: SyncDiffListQuery): Promise<SyncDiffList
       task_id: params.task_id,
       scope: params.scope,
       action: params.action,
+      provider_kind: params.provider_kind,
       page: params.page,
       page_size: params.page_size,
     },
@@ -616,6 +621,7 @@ export function getTaskQueueList(params: TaskQueueListQuery): Promise<TaskQueueL
       status: params.status,
       upstream_state: params.upstream_state,
       provider_id: params.provider_id,
+      provider_kind: params.provider_kind,
       keyword: params.keyword,
       created_from: params.created_from,
       created_to: params.created_to,
@@ -632,6 +638,7 @@ export function getReconcileList(params: ReconcileListQuery): Promise<ReconcileL
     url: '/resource/reconcile',
     params: {
       provider_id: params.provider_id,
+      provider_kind: params.provider_kind,
       keyword: params.keyword,
       anomaly: params.anomaly,
       page: params.page,
@@ -642,12 +649,13 @@ export function getReconcileList(params: ReconcileListQuery): Promise<ReconcileL
 
 // 对账差异台账（doc120）：持久化的差异记录，可处置（确认/忽略）。
 export function getReconcileFindings(
-  params: { provider_id?: number; page?: number; page_size?: number },
+  params: { provider_id?: number; provider_kind?: string; page?: number; page_size?: number },
 ): Promise<ReconcileFindingListResponse> {
   return request.get<ReconcileFindingListResponse>({
     url: '/resource/reconcile/findings',
     params: {
       provider_id: params.provider_id,
+      provider_kind: params.provider_kind,
       page: params.page,
       page_size: params.page_size,
     },

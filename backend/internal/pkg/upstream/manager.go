@@ -13,6 +13,17 @@ type ProviderManager struct {
 	factories map[string]ProviderFactory // key: provider_type -> 构造函数（优先使用）
 	byID      map[uint]Provider          // key: provider_id
 	configs   map[uint]*ProviderConfig   // key: provider_id
+	// cached 适配器实例缓存：key = 配置指纹（provider_id + 端点 + 凭证哈希 + 类型）。
+	//
+	// 为什么必须有这个缓存（实测缺陷）：Build 每次调用都新建适配器，而各适配器的
+	// 会话令牌（zjmf 的 JWT、dcimcloud 的 access-token）是**实例级字段** ——
+	// 新建即丢失，于是每一次上游动作都要先打一次 login。
+	// 实测：3 小时内同一渠道打了 225 次 login，关机/开机这类单步操作耗时 5~16 秒，
+	// 其中大头就是这次多余的登录往返。
+	//
+	// 用配置指纹而不是 provider_id 作 key：运营改了端点/凭证/账号类型后，
+	// 指纹变化自然落到新实例上，不会继续复用带旧凭证的缓存实例（安全与正确性兼顾）。
+	cached map[string]Provider
 }
 
 var (
@@ -28,6 +39,7 @@ func GetProviderManager() *ProviderManager {
 			factories: make(map[string]ProviderFactory),
 			byID:      make(map[uint]Provider),
 			configs:   make(map[uint]*ProviderConfig),
+			cached:    make(map[string]Provider),
 		}
 	})
 	return managerInstance

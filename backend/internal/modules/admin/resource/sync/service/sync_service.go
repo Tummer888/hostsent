@@ -43,11 +43,37 @@ func (s *syncService) ListTasks(ctx context.Context, query dto.SyncTaskListQuery
 	if err != nil {
 		return nil, err
 	}
+	// 渠道名 + 链路一次反查：列表里的「渠道」列必须显示名称，而不是裸 provider_id。
+	meta := s.providerIndex(ctx)
 	respItems := make([]dto.SyncTaskInfo, 0, len(items))
 	for _, item := range items {
-		respItems = append(respItems, buildTaskInfo(item))
+		info := buildTaskInfo(item)
+		if m, ok := meta[item.ProviderID]; ok {
+			info.ProviderName = m.Name
+			info.ProviderKind = m.Kind
+		}
+		respItems = append(respItems, info)
 	}
 	return &dto.SyncTaskListResponse{Items: respItems, Meta: dto.ListMeta{Page: page, PageSize: pageSize, Total: total}}, nil
+}
+
+// providerIndex 渠道 ID → {名称, 链路}（失败时返回空表，不阻塞列表）。
+//
+// 与 frameworkService 的同名方法各留一份：两者是不同 service 结构体，
+// 依赖的仓储入口也不同（这里走 engine），强行共享会让构造链更绕。
+func (s *syncService) providerIndex(ctx context.Context) map[uint64]ProviderMeta {
+	out := map[uint64]ProviderMeta{}
+	if s.engine == nil || s.engine.providerRepo == nil {
+		return out
+	}
+	items, err := s.engine.providerRepo.ListAll(ctx)
+	if err != nil {
+		return out
+	}
+	for _, item := range items {
+		out[item.ID] = ProviderMeta{Name: item.Name, Kind: item.Kind}
+	}
+	return out
 }
 
 func (s *syncService) FindTask(ctx context.Context, id uint64) (*dto.SyncTaskInfo, error) {
@@ -56,6 +82,10 @@ func (s *syncService) FindTask(ctx context.Context, id uint64) (*dto.SyncTaskInf
 		return nil, err
 	}
 	info := buildTaskInfo(*item)
+	if m, ok := s.providerIndex(ctx)[item.ProviderID]; ok {
+		info.ProviderName = m.Name
+		info.ProviderKind = m.Kind
+	}
 	return &info, nil
 }
 
@@ -65,6 +95,10 @@ func (s *syncService) CreateTask(ctx context.Context, req dto.CreateSyncTaskRequ
 		return nil, err
 	}
 	info := buildTaskInfo(*item)
+	if m, ok := s.providerIndex(ctx)[item.ProviderID]; ok {
+		info.ProviderName = m.Name
+		info.ProviderKind = m.Kind
+	}
 	return &info, nil
 }
 
@@ -81,9 +115,15 @@ func (s *syncService) ListLogs(ctx context.Context, query dto.SyncLogListQuery) 
 	if err != nil {
 		return nil, err
 	}
+	meta := s.providerIndex(ctx)
 	respItems := make([]dto.SyncLogInfo, 0, len(items))
 	for _, item := range items {
-		respItems = append(respItems, buildLogInfo(item))
+		info := buildLogInfo(item)
+		if m, ok := meta[item.ProviderID]; ok {
+			info.ProviderName = m.Name
+			info.ProviderKind = m.Kind
+		}
+		respItems = append(respItems, info)
 	}
 	return &dto.SyncLogListResponse{Items: respItems, Meta: dto.ListMeta{Page: page, PageSize: pageSize, Total: total}}, nil
 }

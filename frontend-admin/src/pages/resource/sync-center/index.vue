@@ -6,13 +6,15 @@
           <RefreshIcon size="22" aria-hidden="true" />
         </span>
         <div class="page-header__text">
-          <h2 class="page-header__title">同步状态运维控制台</h2>
+          <h2 class="page-header__title">同步运维控制台</h2>
           <p class="page-header__desc">
-            调度配置 · 目录与状态同步（上游→我方）· 业务动作投递（我方→上游）· 实例对账与差异 · 异常与失败
+            两条链路分开看：<b>入站同步</b>（上游 → 我方：拉商品/价格/资源池/实例）与
+            <b>出站动作</b>（我方 → 上游：开通·续费·暂停·删除是否到达上游），
+            外加实例对账与调度节奏。
           </p>
         </div>
       </div>
-      <t-space>
+      <t-space size="small">
         <t-button variant="outline" :loading="loading" @click="reloadActive">
           <template #icon>
             <RefreshIcon aria-hidden="true" />
@@ -29,364 +31,69 @@
     </header>
 
     <section class="table-card surface-card">
+      <!-- 链路切换：上游转售与自营平台是两条不同链路，数据必须能分开看。
+           放页签之上：它是整个控制台的口径，不只作用于某一个页签。 -->
+      <div class="chain-bar">
+        <span class="chain-bar__label">链路</span>
+        <t-radio-group v-model="chainKind" variant="default-filled" size="small" @change="handleChainChange">
+          <t-radio-button v-for="opt in chainKindOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </t-radio-button>
+        </t-radio-group>
+        <span class="chain-bar__hint">
+          {{ chainHint }}
+        </span>
+      </div>
+
       <t-tabs v-model="activeTab" theme="card" @change="handleTabChange">
-        <!-- 1. 调度配置 -->
+        <!-- 1. 概览：待处理事项 + 渠道同步健康 -->
+        <t-tab-panel value="overview" label="概览">
+          <OverviewPanel
+            v-if="tabLoaded.overview"
+            :providers="providers"
+            :loading="providerLoading"
+            :chain-kind="chainKind"
+            :failed-sync-count="failedSyncCount"
+            :pending-price-count="pendingPriceCount"
+            :open-finding-count="openFindingCount"
+            @go-tab="goTab"
+          />
+        </t-tab-panel>
+
+        <!-- 2. 入站同步（上游 → 我方）：同步记录 + 待确认调价 -->
+        <t-tab-panel value="inbound" :label="inboundTabLabel">
+          <InboundPanel
+            v-if="tabLoaded.inbound"
+            ref="inboundRef"
+            :chain-kind="chainKind"
+            :providers="providers"
+            :scopes="scopeOptions"
+            :show-catalog="showCatalog"
+            @refresh-price-count="onPriceCount"
+            @refresh-diffs="loadOverviewCounts"
+          />
+        </t-tab-panel>
+
+        <!-- 3. 出站动作（我方 → 上游）：开通/续费/暂停/删除是否到达上游 -->
+        <t-tab-panel value="outbound" label="出站动作">
+          <OutboundPanel v-if="tabLoaded.outbound" ref="outboundRef" :chain-kind="chainKind" embedded />
+        </t-tab-panel>
+
+        <!-- 4. 对账与差异：差异台账 + 实例对账（本地 vs 上游逐台比对） -->
+        <t-tab-panel value="reconcile" label="对账与差异">
+          <ReconcilePanel v-if="tabLoaded.reconcile" ref="reconcileRef" :chain-kind="chainKind" embedded />
+        </t-tab-panel>
+
+        <!-- 5. 调度配置：渠道 × 同步类型的节奏与上次结果 -->
         <t-tab-panel value="schedules" label="调度配置">
-          <FilterCard embedded class="tab-filters" :primary-count="1">
-            <template #head-extra>
-              <span class="filter-card__meta">共 {{ scheduleList.length }} 条调度</span>
-            </template>
-            <div class="field">
-              <span class="field__label">所属渠道</span>
-              <t-select
-                v-model="scheduleFilterProvider"
-                clearable
-                placeholder="全部渠道"
-                :options="providerOptions"
-                @change="loadSchedules"
-              />
-            </div>
-          </FilterCard>
-          <t-table
-            row-key="id"
-            :data="scheduleList"
-            :columns="scheduleColumns"
-            :loading="scheduleLoading"
-            size="small"
-            hover
-            table-layout="fixed"
-            cell-empty-content="—"
-          >
-            <template #provider_name="{ row }">
-              <span class="cell-strong">{{ row.provider_name || `渠道 #${row.provider_id}` }}</span>
-            </template>
-            <template #scope="{ row }">
-              <t-tag :theme="scopeTheme(row.scope)" variant="light" size="small" shape="round">
-                {{ row.scope_name || row.scope }}
-              </t-tag>
-            </template>
-            <template #interval="{ row }">
-              <span class="cell-num">{{ humanInterval(row.interval_seconds) }}</span>
-            </template>
-            <template #full_interval="{ row }">
-              <span class="cell-muted">{{ humanInterval(row.full_sync_interval_seconds) }}</span>
-            </template>
-            <template #window="{ row }">
-              <span class="cell-muted">{{ windowLabel(row) }}</span>
-            </template>
-            <template #enabled="{ row }">
-              <t-tag :theme="row.enabled ? 'success' : 'default'" variant="light" size="small" shape="round">
-                {{ row.enabled ? '启用' : '停用' }}
-              </t-tag>
-            </template>
-            <template #last_status="{ row }">
-              <t-tag :theme="scheduleStatusTheme(row.last_status)" variant="light" size="small" shape="round">
-                {{ scheduleStatusLabel(row.last_status) }}
-              </t-tag>
-            </template>
-            <template #next_run_at="{ row }">
-              <span class="cell-muted">{{ row.next_run_at ? formatTime(row.next_run_at) : '待触发' }}</span>
-            </template>
-            <template #action="{ row }">
-              <div class="action-cell">
-                <MobileAction
-                  v-if="isMobile"
-                  :options="buildMobileActionOptions([
-                    { content: '配置', value: 'schedule' },
-                    { content: '立即同步', value: 'sync', disabled: () => syncingScope === `${row.provider_id}-${row.scope}` },
-                  ])"
-                  @select="(value) => handleMobileAction(value, row)"
-                />
-                <template v-else>
-                  <t-link theme="primary" hover="color" @click="openScheduleDialog(row)">配置</t-link>
-                  <t-link
-                    theme="primary"
-                    hover="color"
-                    :disabled="syncingScope === `${row.provider_id}-${row.scope}`"
-                    @click="triggerScope(row)"
-                  >
-                    立即同步
-                  </t-link>
-                </template>
-              </div>
-            </template>
-            <template #empty>
-              <t-empty description="暂无调度配置，请先启用渠道同步" />
-            </template>
-          </t-table>
-        </t-tab-panel>
-
-        <!-- 2. 目录与状态同步（入站：上游 → 我方，判"拉到什么、变了什么"） -->
-        <t-tab-panel value="tasks" label="目录与状态同步">
-          <FilterCard embedded class="tab-filters" :primary-count="1">
-            <div class="field">
-              <span class="field__label">所属渠道</span>
-              <t-select v-model="taskFilter.provider_id" clearable placeholder="全部渠道" :options="providerOptions" />
-            </div>
-            <div class="field">
-              <span class="field__label">同步类型</span>
-              <t-select v-model="taskFilter.task_type" clearable placeholder="全部类型" :options="scopeOptions" />
-            </div>
-            <div class="field">
-              <span class="field__label">状态</span>
-              <t-select v-model="taskFilter.status" clearable placeholder="全部状态" :options="taskStatusOptions" />
-            </div>
-            <template #actions>
-              <t-space size="small">
-                <t-button theme="primary" @click="searchTasks">查询</t-button>
-                <t-button variant="outline" @click="resetTaskFilters">重置</t-button>
-              </t-space>
-            </template>
-          </FilterCard>
-          <t-table
-            row-key="id"
-            :data="taskList"
-            :columns="taskColumns"
-            :loading="taskLoading"
-            size="small"
-            hover
-            table-layout="fixed"
-            cell-empty-content="—"
-            :pagination="taskPagination"
-            @page-change="handleTaskPageChange"
-          >
-            <template #task_type="{ row }">
-              <t-tag :theme="scopeTheme(row.task_type)" variant="light" size="small" shape="round">
-                {{ scopeLabel(row.task_type) }}
-              </t-tag>
-            </template>
-            <template #result="{ row }">
-              <span class="cell-num">{{ row.success_count }} / {{ row.total_count }}</span>
-            </template>
-            <template #status="{ row }">
-              <t-tag :theme="scheduleStatusTheme(row.status)" variant="light" size="small" shape="round">
-                {{ scheduleStatusLabel(row.status) }}
-              </t-tag>
-            </template>
-            <template #error_message="{ row }">
-              <span class="cell-error">{{ row.error_message || '—' }}</span>
-            </template>
-            <template #created_at="{ row }">
-              <span class="cell-muted">{{ formatTime(row.created_at) }}</span>
-            </template>
-            <template #empty>
-              <t-empty description="暂无同步任务" />
-            </template>
-          </t-table>
-        </t-tab-panel>
-
-        <!-- 3. 同步日志 -->
-        <t-tab-panel value="logs" label="同步日志">
-          <t-table
-            row-key="id"
-            :data="logList"
-            :columns="logColumns"
-            :loading="logLoading"
-            size="small"
-            hover
-            table-layout="fixed"
-            cell-empty-content="—"
-            :pagination="logPagination"
-            @page-change="handleLogPageChange"
-          >
-            <template #sync_type="{ row }">
-              <t-tag :theme="scopeTheme(row.sync_type)" variant="light" size="small" shape="round">
-                {{ scopeLabel(row.sync_type) }}
-              </t-tag>
-            </template>
-            <template #result="{ row }">
-              <span class="cell-num">{{ row.success_count }} / {{ row.total_count }}</span>
-            </template>
-            <template #status="{ row }">
-              <t-tag :theme="scheduleStatusTheme(row.status)" variant="light" size="small" shape="round">
-                {{ scheduleStatusLabel(row.status) }}
-              </t-tag>
-            </template>
-            <template #created_at="{ row }">
-              <span class="cell-muted">{{ formatTime(row.created_at) }}</span>
-            </template>
-            <template #empty>
-              <t-empty description="暂无同步日志" />
-            </template>
-          </t-table>
-        </t-tab-panel>
-
-        <!-- 4. 差异记录 / 对账 -->
-        <t-tab-panel value="diffs" label="差异与对账">
-          <div class="diff-summary">
-            <article
-              v-for="card in diffStatCards"
-              :key="card.key"
-              class="diff-summary__item"
-              :class="`diff-summary__item--${card.variant}`"
-            >
-              <span class="diff-summary__num">{{ card.value }}</span>
-              <span class="diff-summary__label">{{ card.label }}</span>
-            </article>
-          </div>
-
-          <FilterCard embedded class="tab-filters" :primary-count="1">
-            <div class="field">
-              <span class="field__label">所属渠道</span>
-              <t-select v-model="diffFilter.provider_id" clearable placeholder="全部渠道" :options="providerOptions" @change="loadDiffs" />
-            </div>
-            <div class="field">
-              <span class="field__label">同步类型</span>
-              <t-select v-model="diffFilter.scope" clearable placeholder="全部类型" :options="scopeOptions" @change="loadDiffs" />
-            </div>
-            <div class="field">
-              <span class="field__label">差异动作</span>
-              <t-select v-model="diffFilter.action" clearable placeholder="全部动作" :options="diffActionOptions" @change="loadDiffs" />
-            </div>
-          </FilterCard>
-
-          <t-table
-            row-key="id"
-            :data="diffList"
-            :columns="diffColumns"
-            :loading="diffLoading"
-            size="small"
-            hover
-            table-layout="fixed"
-            cell-empty-content="—"
-            :pagination="diffPagination"
-            @page-change="handleDiffPageChange"
-          >
-            <template #provider_id="{ row }">
-              <span class="cell-strong">{{ providerName(row.provider_id) }}</span>
-            </template>
-            <template #scope="{ row }">
-              <t-tag :theme="scopeTheme(row.scope)" variant="light" size="small" shape="round">
-                {{ scopeLabel(row.scope) }}
-              </t-tag>
-            </template>
-            <template #action="{ row }">
-              <t-tag :theme="diffActionTheme(row.action)" variant="light" size="small" shape="round">
-                {{ diffActionLabel(row.action) }}
-              </t-tag>
-            </template>
-            <template #changed="{ row }">
-              <span class="cell-muted">
-                <span class="cell-old">{{ row.old_value || '—' }}</span>
-                <span class="cell-arrow">→</span>
-                <span class="cell-new">{{ row.new_value || '—' }}</span>
-              </span>
-            </template>
-            <template #disposition="{ row }">
-              <t-tag :theme="row.disposition === 'pending' ? 'warning' : row.disposition === 'skipped' ? 'default' : 'success'" variant="light" size="small" shape="round">
-                {{ dispositionLabel(row.disposition) }}
-              </t-tag>
-            </template>
-            <template #created_at="{ row }">
-              <span class="cell-muted">{{ formatTime(row.created_at) }}</span>
-            </template>
-            <template #empty>
-              <t-empty description="暂无差异记录，同步后自动生成" />
-            </template>
-          </t-table>
-        </t-tab-panel>
-
-        <!-- 5. 待确认调价 -->
-        <t-tab-panel value="prices" label="待确认调价">
-          <FilterCard embedded class="tab-filters" :primary-count="1">
-            <div class="field">
-              <span class="field__label">所属渠道</span>
-              <t-select v-model="priceFilter.provider_id" clearable placeholder="全部渠道" :options="providerOptions" @change="searchPrices" />
-            </div>
-            <div class="field">
-              <span class="field__label">状态</span>
-              <t-select v-model="priceFilter.status" clearable placeholder="全部状态" :options="priceStatusOptions" @change="searchPrices" />
-            </div>
-            <template #actions>
-              <t-space size="small">
-                <t-button theme="primary" :disabled="!selectedPriceIds.length" @click="openHandleDialog('confirm')">
-                  批量确认
-                </t-button>
-                <t-button theme="danger" variant="outline" :disabled="!selectedPriceIds.length" @click="openHandleDialog('reject')">
-                  批量驳回
-                </t-button>
-              </t-space>
-            </template>
-          </FilterCard>
-
-          <p class="notice-line">
-            上游改价幅度超过渠道阈值时进入「待确认」，确认前<strong>不会改动售价</strong>；
-            确认后按商品加价规则重算售价（未配置规则则仅更新成本价）并写入价格历史。
-          </p>
-
-          <t-table
-            row-key="id"
-            :data="priceList"
-            :columns="priceColumns"
-            :loading="priceLoading"
-            size="small"
-            hover
-            table-layout="fixed"
-            cell-empty-content="—"
-            :pagination="pricePagination"
-            :selected-row-keys="selectedPriceIds"
-            @page-change="handlePricePageChange"
-            @select-change="handlePriceSelect"
-          >
-            <template #provider_id="{ row }">
-              <span class="cell-strong">{{ providerName(row.provider_id) }}</span>
-            </template>
-            <template #upstream_id="{ row }">
-              <div class="product-cell">
-                <span class="cell-strong">{{ row.upstream_id ? `#${row.upstream_id}` : `#${row.resource_product_id}` }}</span>
-                <span class="product-sub">资源商品 #{{ row.resource_product_id }}</span>
-              </div>
-            </template>
-            <template #field="{ row }">
-              <t-tag :theme="row.field === 'cost_price' ? 'primary' : 'warning'" variant="light" size="small" shape="round">
-                {{ row.field === 'cost_price' ? '成本价' : '建议售价' }}
-              </t-tag>
-            </template>
-            <template #changed="{ row }">
-              <span class="cell-num">
-                {{ money(row.old_value) }}
-                <span class="cell-arrow">→</span>
-                {{ money(row.new_value) }}
-              </span>
-            </template>
-            <template #change_ratio="{ row }">
-              <span :class="ratioClass(row)">{{ ratioLabel(row) }}</span>
-            </template>
-            <template #status="{ row }">
-              <t-tag :theme="priceStatusTheme(row.status)" variant="light" size="small" shape="round">
-                {{ priceStatusLabel(row.status) }}
-              </t-tag>
-            </template>
-            <template #created_at="{ row }">
-              <span class="cell-muted">{{ formatTime(row.created_at) }}</span>
-            </template>
-            <template #handle="{ row }">
-              <div v-if="row.status === 'pending'" class="action-cell">
-                <t-link theme="primary" hover="color" @click="openHandleDialog('confirm', row)">确认</t-link>
-                <t-link theme="danger" hover="color" @click="openHandleDialog('reject', row)">驳回</t-link>
-              </div>
-              <span v-else class="cell-muted">—</span>
-            </template>
-            <template #empty>
-              <t-empty description="暂无调价事件" />
-            </template>
-          </t-table>
-        </t-tab-panel>
-
-        <!-- 6. 业务动作投递（出站：我方 → 上游，判“是否到达上游”）。
-             与「目录与状态同步」是相反方向：那边是回源拉取，这边是把动作推出去。 -->
-        <t-tab-panel value="actions" label="业务动作投递">
-          <TaskQueuePanel v-if="tabLoaded.actions" embedded />
-        </t-tab-panel>
-
-        <!-- 7. 实例对账（本地实例 vs 上游的售价/成本/到期逐台比对）。 -->
-        <t-tab-panel value="reconcile" label="实例对账">
-          <ReconcilePanel v-if="tabLoaded.reconcile" embedded />
-        </t-tab-panel>
-
-        <!-- 8. 异常与失败（失败任务 / 失败日志 / 异常实例聚合）。 -->
-        <t-tab-panel value="anomalies" label="异常与失败">
-          <AnomaliesPanel v-if="tabLoaded.anomalies" embedded />
+          <SchedulesPanel
+            v-if="tabLoaded.schedules"
+            ref="schedulesRef"
+            :chain-kind="chainKind"
+            :providers="providers"
+            @configure="openScheduleDialog"
+            @trigger="triggerScope"
+          />
         </t-tab-panel>
       </t-tabs>
     </section>
@@ -441,30 +148,13 @@
       @close="createVisible = false"
     >
       <t-form label-align="top" :data="createForm" @submit.prevent>
-        <t-form-item label="所属渠道">
+        <t-form-item label="所属渠道" :help="showCatalog ? '' : '自营平台没有上游商品目录，通常只同步实例状态'">
           <t-select v-model="createForm.provider_id" :options="providerOptions" placeholder="请选择渠道" />
         </t-form-item>
         <t-form-item label="同步类型">
           <t-select v-model="createForm.task_type" :options="scopeOptions" placeholder="请选择同步类型" />
         </t-form-item>
       </t-form>
-    </t-dialog>
-
-    <!-- 调价确认 / 驳回 -->
-    <t-dialog
-      v-model:visible="handleDialogVisible"
-      :header="handleAction === 'confirm' ? '确认上游调价' : '驳回上游调价'"
-      width="460px"
-      :confirm-btn="{ content: handleAction === 'confirm' ? '确认应用' : '确认驳回', theme: handleAction === 'confirm' ? 'primary' : 'danger', loading: handleSaving }"
-      @confirm="submitHandle"
-      @close="handleDialogVisible = false"
-    >
-      <p class="notice-line">
-        共 {{ handleIds.length }} 条事件。
-        <template v-if="handleAction === 'confirm'">确认后将按加价规则更新关联商品售价并写入价格历史。</template>
-        <template v-else>驳回仅标记事件，不改动任何商品价格。</template>
-      </p>
-      <t-textarea v-model="handleRemark" placeholder="备注（可选）" :maxlength="200" />
     </t-dialog>
   </div>
 </template>
@@ -473,140 +163,68 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import { AddIcon, RefreshIcon } from 'tdesign-icons-vue-next'
-import {
-  MessagePlugin,
-  type PageInfo,
-  type PrimaryTableCol,
-  type SelectOptions,
-} from 'tdesign-vue-next'
+import { MessagePlugin } from 'tdesign-vue-next'
 
-import {
-  createSyncTask,
-  getPriceChangeList,
-  getProviderList,
-  getSyncDiffList,
-  getSyncDiffSummary,
-  getSyncLogList,
-  getSyncScheduleList,
-  getSyncScopeMeta,
-  getSyncTaskList,
-  handlePriceChanges,
-  updateSyncSchedule,
-} from '@/api/admin'
-import type {
-  PriceChangeInfo,
-  ProviderInfo,
-  SyncDiffInfo,
-  SyncLogInfo,
-  SyncScheduleInfo,
-  SyncTaskInfo,
-} from '@/types/interface'
-import FilterCard from '@/components/filter-card/index.vue'
-import MobileAction from '@/components/mobile-action/index.vue'
-import { buildMobileActionOptions } from '@/composables/useMobileActions'
-import { useIsMobile } from '@/composables/useIsMobile'
-// 三个原子页（业务动作投递 / 实例对账 / 异常处理）合并进本控制台，
-// 以 embedded 模式作为页签内容渲染；旧路由保留 redirect 兼容书签。
-import AnomaliesPanel from '@/pages/resource/anomalies/index.vue'
+import { createSyncTask, getProviderList, getSyncScopeMeta, updateSyncSchedule } from '@/api/admin'
+import type { ProviderInfo, SyncScheduleInfo } from '@/types/interface'
+import { chainKindOptions, hasUpstreamCatalog, normalizeChainKind, type ChainKind } from './chain-kind'
+import InboundPanel from './components/InboundPanel.vue'
+import OutboundPanel from '@/pages/resource/task-queue/index.vue'
+import OverviewPanel from './components/OverviewPanel.vue'
 import ReconcilePanel from '@/pages/resource/reconcile/index.vue'
-import TaskQueuePanel from '@/pages/resource/task-queue/index.vue'
+import SchedulesPanel from './components/SchedulesPanel.vue'
 
 defineOptions({ name: 'ResourceSyncCenter' })
 
-// 页签顺序即阅读顺序：先配置（去哪拉、拉什么）→ 再看业务动作有没有送到 → 最后看差异/异常/待办。
-type TabValue = 'schedules' | 'tasks' | 'logs' | 'actions' | 'reconcile' | 'anomalies' | 'diffs' | 'prices'
+// 页签顺序 = 阅读顺序：先看总览有没有事要做 → 再看两个方向的数据流 → 最后是对账与节奏配置。
+type TabValue = 'overview' | 'inbound' | 'outbound' | 'reconcile' | 'schedules'
 
-// 三个内嵌子页签各自持有独立的数据加载与分页，用 v-if 懒挂载：
-// 一次性挂载四个页面会让「同步状态运维控制台」首屏发出七八个并行请求。
+// 五个页签里四个是独立子组件（各自数据加载与分页），用 v-if 懒挂载：
+// 一次性挂载会让首屏并发发出七八个请求。
 const tabLoaded = reactive<Record<string, boolean>>({})
 function markLoaded(tab: string) {
   tabLoaded[tab] = true
 }
 
-const activeTab = ref<TabValue>('schedules')
+const activeTab = ref<TabValue>('overview')
 const loading = ref(false)
-const { isMobile } = useIsMobile()
-const providerOptions = ref<{ label: string; value: number }[]>([])
-const providerNameMap = ref<Record<number, string>>({})
-const scopeOptions = ref<{ label: string; value: string }[]>([])
 
-// ---------- 通用工具 ----------
+// ---------- 链路筛选 ----------
 
-function formatTime(value: string | null): string {
-  if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
-}
+const chainKind = ref<ChainKind>('')
 
-function humanInterval(seconds: number): string {
-  if (!seconds || seconds <= 0) return '—'
-  if (seconds % 86400 === 0) return `${seconds / 86400} 天`
-  if (seconds % 3600 === 0) return `${seconds / 3600} 小时`
-  if (seconds % 60 === 0) return `${seconds / 60} 分钟`
-  return `${seconds} 秒`
-}
+/** 链路说明：切换后用户要知道当前视图包含了什么、排除了什么。 */
+const chainHint = computed(() => {
+  if (chainKind.value === 'upstream') return '只看上游转售渠道：目录、价格与生命周期以对上为准'
+  if (chainKind.value === 'compute') return '只看自营平台：本地定价与售卖，平台仅作开通执行器'
+  return '两条链路的数据都显示；用渠道列上的标签区分'
+})
 
-function money(value: number | null): string {
-  if (value === null || value === undefined) return '—'
-  return Number(value).toFixed(2)
-}
-
-function providerName(id: number): string {
-  return providerNameMap.value[id] || `渠道 #${id}`
-}
-
-function scopeLabel(scope: string): string {
-  const found = scopeOptions.value.find((item) => item.value === scope)
-  return found ? found.label : scope
-}
-
-function scopeTheme(scope: string): string {
-  if (scope === 'catalog') return 'primary'
-  if (scope === 'price') return 'warning'
-  if (scope === 'pool') return 'success'
-  if (scope === 'region') return 'default'
-  if (scope === 'instance') return 'danger'
-  return 'default'
-}
-
-const statusLabels: Record<string, string> = {
-  pending: '待执行',
-  running: '执行中',
-  success: '成功',
-  failed: '失败',
-  skipped: '已跳过',
-}
-
-function scheduleStatusLabel(status: string): string {
-  return statusLabels[status] || status || '—'
-}
-
-function scheduleStatusTheme(status: string): string {
-  if (status === 'success') return 'success'
-  if (status === 'failed') return 'danger'
-  if (status === 'running') return 'warning'
-  if (status === 'skipped') return 'default'
-  return 'default'
-}
-
-function windowLabel(row: SyncScheduleInfo): string {
-  if (row.window_start === null || row.window_end === null) return '不限'
-  return `${row.window_start} 点 - ${row.window_end} 点`
-}
+const showCatalog = computed(() => hasUpstreamCatalog(chainKind.value))
 
 // ---------- 渠道 / scope 元数据 ----------
 
+const providers = ref<ProviderInfo[]>([])
+const providerLoading = ref(false)
+const scopeOptions = ref<{ label: string; value: string }[]>([])
+
+/** 渠道下拉：按当前链路收敛，避免在"只看自营"时还能选到上游渠道。 */
+const providerOptions = computed(() =>
+  (chainKind.value ? providers.value.filter((p) => p.kind === chainKind.value) : providers.value).map((item) => ({
+    label: item.name,
+    value: item.id,
+  })),
+)
+
 async function loadProviders() {
+  providerLoading.value = true
   try {
     const data = await getProviderList({ page: 1, page_size: 200 })
-    providerOptions.value = data.items.map((item: ProviderInfo) => ({ label: item.name, value: item.id }))
-    const map: Record<number, string> = {}
-    for (const item of data.items) map[item.id] = item.name
-    providerNameMap.value = map
+    providers.value = data.items
   } catch {
-    /* 渠道下拉失败不阻塞 */
+    /* 渠道下拉失败不阻塞控制台 */
+  } finally {
+    providerLoading.value = false
   }
 }
 
@@ -625,36 +243,97 @@ async function loadScopes() {
   }
 }
 
-// ---------- 1. 调度配置 ----------
+// ---------- 概览计数 ----------
 
-const scheduleList = ref<SyncScheduleInfo[]>([])
-const scheduleLoading = ref(false)
-const scheduleFilterProvider = ref<number | undefined>(undefined)
+// 失败同步数：概览卡片的输入，取「失败状态的同步运行条数」。
+// 卡片点进去就是「入站同步 + 仅看失败」，两边必须是同一个口径；
+// 若这里改数「熔断渠道数」，点进去看到的条数会对不上，用户会以为统计坏了。
+const failedSyncCount = ref(0)
+const pendingPriceCount = ref(0)
+const openFindingCount = ref(0)
 
-const scheduleColumns: PrimaryTableCol<SyncScheduleInfo>[] = [
-  { colKey: 'provider_name', title: '渠道', minWidth: 160 },
-  { colKey: 'scope', title: '同步类型', width: 110 },
-  { colKey: 'interval', title: '同步间隔', width: 100 },
-  { colKey: 'full_interval', title: '全量对账', width: 100 },
-  { colKey: 'window', title: '执行时段', width: 110 },
-  { colKey: 'priority', title: '优先级', width: 80 },
-  { colKey: 'enabled', title: '状态', width: 80 },
-  { colKey: 'last_status', title: '上次结果', width: 100 },
-  { colKey: 'next_run_at', title: '下次执行', minWidth: 160 },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 140, fixed: 'right' as const, align: 'center' as const },
-]
+function onPriceCount(count: number) {
+  pendingPriceCount.value = count
+}
 
-async function loadSchedules() {
-  scheduleLoading.value = true
-  try {
-    const data = await getSyncScheduleList({ provider_id: scheduleFilterProvider.value, page: 1, page_size: 200 })
-    scheduleList.value = data.items
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '加载调度配置失败')
-  } finally {
-    scheduleLoading.value = false
+/**
+ * 概览计数：失败同步条数 + 未闭环差异条数。
+ *
+ * 单独查而不是复用各面板状态：概览页签可能在那些面板懒挂载之前就被打开，
+ * 计数必须独立可得。两个查询都只要 total（page_size=1），代价可忽略。
+ */
+async function loadOverviewCounts() {
+  const { getReconcileFindings, getSyncTaskList } = await import('@/api/admin')
+  const kind = chainKind.value || undefined
+  const [failed, findings] = await Promise.allSettled([
+    getSyncTaskList({ status: 'failed', provider_kind: kind, page: 1, page_size: 1 }),
+    getReconcileFindings({ provider_kind: kind, page: 1, page_size: 1 }),
+  ])
+  failedSyncCount.value = failed.status === 'fulfilled' ? failed.value.meta.total : 0
+  openFindingCount.value = findings.status === 'fulfilled' ? findings.value.total : 0
+}
+
+const inboundTabLabel = computed(() =>
+  pendingPriceCount.value > 0 ? `入站同步（待办 ${pendingPriceCount.value}）` : '入站同步',
+)
+
+// ---------- 子组件引用 ----------
+
+const inboundRef = ref<InstanceType<typeof InboundPanel> | null>(null)
+const outboundRef = ref<InstanceType<typeof OutboundPanel> | null>(null)
+const reconcileRef = ref<InstanceType<typeof ReconcilePanel> | null>(null)
+const schedulesRef = ref<InstanceType<typeof SchedulesPanel> | null>(null)
+
+// ---------- 页签切换与刷新 ----------
+
+function goTab(tab: string) {
+  if (!['overview', 'inbound', 'outbound', 'reconcile', 'schedules'].includes(tab)) return
+  activeTab.value = tab as TabValue
+  markLoaded(tab)
+  loadActive()
+}
+
+function loadActive() {
+  const tab = activeTab.value
+  markLoaded(tab)
+  if (tab === 'inbound') inboundRef.value?.reload()
+  else if (tab === 'outbound') outboundRef.value?.reload()
+  else if (tab === 'reconcile') reconcileRef.value?.reload()
+  else if (tab === 'schedules') schedulesRef.value?.reload()
+  else {
+    loadProviders()
+    loadOverviewCounts()
   }
 }
+
+function handleTabChange(value: string | number) {
+  activeTab.value = value as TabValue
+  loadActive()
+}
+
+async function reloadActive() {
+  loading.value = true
+  try {
+    if (activeTab.value === 'overview') {
+      await Promise.all([loadProviders(), loadOverviewCounts()])
+    } else {
+      loadActive()
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
+/** 链路切换：所有页签的数据口径都变了，已挂载的面板逐个按新链路重查。 */
+async function handleChainChange() {
+  syncChainToUrl()
+  await Promise.all([loadOverviewCounts(), inboundRef.value?.reloadForChain()])
+  if (activeTab.value === 'outbound') outboundRef.value?.reload()
+  else if (activeTab.value === 'reconcile') reconcileRef.value?.reload()
+  else if (activeTab.value === 'schedules') schedulesRef.value?.reload()
+}
+
+// ---------- 调度配置弹窗 ----------
 
 const scheduleDialogVisible = ref(false)
 const scheduleSaving = ref(false)
@@ -669,6 +348,8 @@ const scheduleForm = reactive({
   window_end: 6,
   reset_next_run: false,
 })
+
+const syncingScope = ref('')
 
 function openScheduleDialog(row: SyncScheduleInfo) {
   editingSchedule.value = row
@@ -703,7 +384,7 @@ async function handleSaveSchedule() {
     })
     MessagePlugin.success('调度配置已保存')
     scheduleDialogVisible.value = false
-    loadSchedules()
+    schedulesRef.value?.reload()
   } catch (error) {
     MessagePlugin.error((error as Error).message || '保存调度配置失败')
   } finally {
@@ -711,14 +392,13 @@ async function handleSaveSchedule() {
   }
 }
 
-// ---------- 手动触发 ----------
+// ---------- 手动触发同步 ----------
 
 const createVisible = ref(false)
 const createForm = reactive<{ provider_id: number | undefined; task_type: string | undefined }>({
   provider_id: undefined,
   task_type: undefined,
 })
-const syncingScope = ref('')
 
 function openCreateDialog() {
   createForm.provider_id = undefined
@@ -733,9 +413,12 @@ async function handleCreateTask() {
   }
   try {
     await createSyncTask({ provider_id: createForm.provider_id, task_type: createForm.task_type })
-    MessagePlugin.success('同步任务已创建')
+    MessagePlugin.success('同步任务已创建，稍后到「入站同步」查看结果')
     createVisible.value = false
-    reloadActive()
+    activeTab.value = 'inbound'
+    markLoaded('inbound')
+    // 任务异步执行，稍等一拍再拉，避免刚创建就查还是 pending。
+    setTimeout(() => inboundRef.value?.reload(), 1200)
   } catch (error) {
     MessagePlugin.error((error as Error).message || '创建同步任务失败')
   }
@@ -748,7 +431,7 @@ async function triggerScope(row: SyncScheduleInfo) {
   try {
     await createSyncTask({ provider_id: row.provider_id, task_type: row.scope })
     MessagePlugin.success(`已触发「${row.provider_name || '渠道'}」${row.scope_name}同步`)
-    setTimeout(loadSchedules, 1500)
+    setTimeout(() => schedulesRef.value?.reload(), 1500)
   } catch (error) {
     MessagePlugin.error((error as Error).message || '触发同步失败')
   } finally {
@@ -756,397 +439,43 @@ async function triggerScope(row: SyncScheduleInfo) {
   }
 }
 
-// ---------- 2. 同步任务 ----------
+// ---------- 初始化 ----------
 
-const taskList = ref<SyncTaskInfo[]>([])
-const taskLoading = ref(false)
-const taskStatusOptions = [
-  { label: '待执行', value: 'pending' },
-  { label: '执行中', value: 'running' },
-  { label: '成功', value: 'success' },
-  { label: '失败', value: 'failed' },
-  { label: '已跳过', value: 'skipped' },
-]
-const taskFilter = reactive<{ provider_id: number | undefined; task_type: string | undefined; status: string | undefined }>({
-  provider_id: undefined,
-  task_type: undefined,
-  status: undefined,
-})
-const taskPagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
-
-const taskColumns: PrimaryTableCol<SyncTaskInfo>[] = [
-  { colKey: 'id', title: '任务 ID', width: 90 },
-  { colKey: 'provider_id', title: '渠道', width: 140 },
-  { colKey: 'task_type', title: '类型', width: 110 },
-  { colKey: 'result', title: '成功/总数', width: 110 },
-  { colKey: 'status', title: '状态', width: 100 },
-  { colKey: 'error_message', title: '错误信息', minWidth: 220 },
-  { colKey: 'created_at', title: '创建时间', minWidth: 170 },
-]
-
-async function loadTasks() {
-  taskLoading.value = true
-  try {
-    const data = await getSyncTaskList({
-      provider_id: taskFilter.provider_id,
-      task_type: taskFilter.task_type,
-      status: taskFilter.status,
-      page: taskPagination.current,
-      page_size: taskPagination.pageSize,
-    })
-    taskList.value = data.items
-    taskPagination.total = data.meta.total
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '加载同步任务失败')
-  } finally {
-    taskLoading.value = false
-  }
+/** 链路写进 URL：刷新与分享保持当前视图（否则一切换就"跳回全部"）。 */
+function syncChainToUrl() {
+  const url = new URL(window.location.href)
+  if (chainKind.value) url.searchParams.set('kind', chainKind.value)
+  else url.searchParams.delete('kind')
+  window.history.replaceState({}, '', url.toString())
 }
 
-function searchTasks() {
-  taskPagination.current = 1
-  loadTasks()
-}
-
-function resetTaskFilters() {
-  taskFilter.provider_id = undefined
-  taskFilter.task_type = undefined
-  taskFilter.status = undefined
-  searchTasks()
-}
-
-function handleTaskPageChange(pageInfo: PageInfo) {
-  taskPagination.current = pageInfo.current
-  taskPagination.pageSize = pageInfo.pageSize
-  loadTasks()
-}
-
-// ---------- 6/7/8. 业务动作投递 · 实例对账 · 异常与失败 ----------
-//
-// 三块内容分别来自原 task-queue / reconcile / anomalies 三个独立页面，现以 embedded 模式
-// 内嵌为页签。它们各自的表格、筛选、分页仍由各自组件负责，本页只做懒挂载开关
-// （见 tabLoaded / loadActive），避免进入控制台就并发拉取全部数据。
-
-// ---------- 3. 同步日志 ----------
-
-const logList = ref<SyncLogInfo[]>([])
-const logLoading = ref(false)
-const logPagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
-
-const logColumns: PrimaryTableCol<SyncLogInfo>[] = [
-  { colKey: 'id', title: '日志 ID', width: 90 },
-  { colKey: 'task_id', title: '任务 ID', width: 90 },
-  { colKey: 'provider_id', title: '渠道', width: 140 },
-  { colKey: 'sync_type', title: '类型', width: 110 },
-  { colKey: 'result', title: '成功/总数', width: 110 },
-  { colKey: 'status', title: '状态', width: 100 },
-  { colKey: 'created_at', title: '创建时间', minWidth: 170 },
-]
-
-async function loadLogs() {
-  logLoading.value = true
-  try {
-    const data = await getSyncLogList({ page: logPagination.current, page_size: logPagination.pageSize })
-    logList.value = data.items
-    logPagination.total = data.meta.total
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '加载同步日志失败')
-  } finally {
-    logLoading.value = false
-  }
-}
-
-function handleLogPageChange(pageInfo: PageInfo) {
-  logPagination.current = pageInfo.current
-  logPagination.pageSize = pageInfo.pageSize
-  loadLogs()
-}
-
-// ---------- 4. 差异与对账 ----------
-
-const diffList = ref<SyncDiffInfo[]>([])
-const diffLoading = ref(false)
-const diffSummary = ref({ total: 0, created: 0, updated: 0, offline: 0, price_changed: 0 })
-const diffFilter = reactive<{ provider_id: number | undefined; scope: string | undefined; action: string | undefined }>({
-  provider_id: undefined,
-  scope: undefined,
-  action: undefined,
-})
-const diffPagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
-
-const diffActionOptions = [
-  { label: '新增', value: 'created' },
-  { label: '字段更新', value: 'updated' },
-  { label: '上游下线', value: 'offline' },
-  { label: '本地缺失', value: 'missing' },
-  { label: '价格变化', value: 'price_changed' },
-]
-
-const diffActionLabels: Record<string, string> = {
-  created: '新增',
-  updated: '字段更新',
-  offline: '上游下线',
-  missing: '本地缺失',
-  price_changed: '价格变化',
-}
-
-function diffActionLabel(action: string): string {
-  return diffActionLabels[action] || action
-}
-
-function diffActionTheme(action: string): string {
-  if (action === 'created') return 'success'
-  if (action === 'updated') return 'primary'
-  if (action === 'offline') return 'danger'
-  if (action === 'missing') return 'warning'
-  if (action === 'price_changed') return 'warning'
-  return 'default'
-}
-
-function dispositionLabel(disposition: string): string {
-  if (disposition === 'pending') return '待确认'
-  if (disposition === 'skipped') return '已跳过'
-  return '已应用'
-}
-
-const diffStatCards = computed(() => [
-  { key: 'total', label: '差异总数', value: diffSummary.value.total, variant: 'total' },
-  { key: 'created', label: '新增', value: diffSummary.value.created, variant: 'ok' },
-  { key: 'updated', label: '字段更新', value: diffSummary.value.updated, variant: 'muted' },
-  { key: 'offline', label: '上游下线', value: diffSummary.value.offline, variant: 'warn' },
-  { key: 'price_changed', label: '价格变化', value: diffSummary.value.price_changed, variant: 'warn' },
-])
-
-const diffColumns: PrimaryTableCol<SyncDiffInfo>[] = [
-  { colKey: 'id', title: '差异 ID', width: 90 },
-  { colKey: 'provider_id', title: '渠道', width: 140 },
-  { colKey: 'scope', title: '类型', width: 100 },
-  { colKey: 'action', title: '动作', width: 100 },
-  { colKey: 'external_id', title: '上游 ID', width: 100 },
-  { colKey: 'field', title: '字段', width: 100 },
-  { colKey: 'changed', title: '变更', minWidth: 200 },
-  { colKey: 'disposition', title: '处置', width: 90 },
-  { colKey: 'created_at', title: '时间', minWidth: 160 },
-]
-
-async function loadDiffs() {
-  diffLoading.value = true
-  try {
-    const [listData, summaryData] = await Promise.all([
-      getSyncDiffList({
-        provider_id: diffFilter.provider_id,
-        scope: diffFilter.scope,
-        action: diffFilter.action,
-        page: diffPagination.current,
-        page_size: diffPagination.pageSize,
-      }),
-      getSyncDiffSummary({ provider_id: diffFilter.provider_id, days: 7 }),
-    ])
-    diffList.value = listData.items
-    diffPagination.total = listData.meta.total
-    const agg = { total: 0, created: 0, updated: 0, offline: 0, price_changed: 0 }
-    for (const item of summaryData.items) {
-      agg.total += item.total
-      for (const [action, count] of Object.entries(item.by_action || {})) {
-        if (action in agg) agg[action as keyof typeof agg] += count
-      }
-    }
-    diffSummary.value = agg
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '加载差异记录失败')
-  } finally {
-    diffLoading.value = false
-  }
-}
-
-function handleDiffPageChange(pageInfo: PageInfo) {
-  diffPagination.current = pageInfo.current
-  diffPagination.pageSize = pageInfo.pageSize
-  loadDiffs()
-}
-
-// ---------- 5. 待确认调价 ----------
-
-const priceList = ref<PriceChangeInfo[]>([])
-const priceLoading = ref(false)
-const selectedPriceIds = ref<number[]>([])
-const priceFilter = reactive<{ provider_id: number | undefined; status: string | undefined }>({
-  provider_id: undefined,
-  status: 'pending',
-})
-const pricePagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
-
-const priceStatusOptions = [
-  { label: '待确认', value: 'pending' },
-  { label: '已确认', value: 'confirmed' },
-  { label: '已驳回', value: 'rejected' },
-  { label: '自动应用', value: 'auto_applied' },
-]
-
-const priceStatusLabels: Record<string, string> = {
-  pending: '待确认',
-  confirmed: '已确认',
-  rejected: '已驳回',
-  auto_applied: '自动应用',
-}
-
-function priceStatusLabel(status: string): string {
-  return priceStatusLabels[status] || status
-}
-
-function priceStatusTheme(status: string): string {
-  if (status === 'pending') return 'warning'
-  if (status === 'confirmed') return 'success'
-  if (status === 'rejected') return 'danger'
-  return 'default'
-}
-
-function ratioLabel(row: PriceChangeInfo): string {
-  if (row.change_ratio === null || row.change_ratio === undefined) return '—'
-  const pct = Number(row.change_ratio) * 100
-  const threshold = row.threshold ? Number(row.threshold) * 100 : 0
-  return `${pct.toFixed(2)}%${threshold ? `（阈值 ${threshold.toFixed(2)}%）` : ''}`
-}
-
-function ratioClass(row: PriceChangeInfo): string {
-  if (row.status === 'pending') return 'cell-ratio cell-ratio--high'
-  return 'cell-ratio'
-}
-
-const priceColumns: PrimaryTableCol<PriceChangeInfo>[] = [
-  { colKey: 'row-select', type: 'multiple', width: 50 },
-  { colKey: 'id', title: '事件 ID', width: 90 },
-  { colKey: 'provider_id', title: '渠道', width: 140 },
-  { colKey: 'upstream_id', title: '上游商品', minWidth: 140 },
-  { colKey: 'field', title: '字段', width: 100 },
-  { colKey: 'changed', title: '变动', minWidth: 160 },
-  { colKey: 'change_ratio', title: '幅度', minWidth: 170 },
-  { colKey: 'status', title: '状态', width: 100 },
-  { colKey: 'created_at', title: '时间', minWidth: 160 },
-  { colKey: 'handle', title: '操作', width: 110, fixed: 'right' as const, align: 'center' as const },
-]
-
-async function loadPrices() {
-  priceLoading.value = true
-  try {
-    const data = await getPriceChangeList({
-      provider_id: priceFilter.provider_id,
-      status: priceFilter.status,
-      page: pricePagination.current,
-      page_size: pricePagination.pageSize,
-    })
-    priceList.value = data.items
-    pricePagination.total = data.meta.total
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '加载调价事件失败')
-  } finally {
-    priceLoading.value = false
-  }
-}
-
-function searchPrices() {
-  pricePagination.current = 1
-  selectedPriceIds.value = []
-  loadPrices()
-}
-
-function handlePricePageChange(pageInfo: PageInfo) {
-  pricePagination.current = pageInfo.current
-  pricePagination.pageSize = pageInfo.pageSize
-  loadPrices()
-}
-
-function handlePriceSelect(keys: Array<string | number>, options: SelectOptions<PriceChangeInfo>) {
-  void options
-  selectedPriceIds.value = keys.map((key) => Number(key))
-}
-
-const handleDialogVisible = ref(false)
-const handleSaving = ref(false)
-const handleAction = ref<'confirm' | 'reject'>('confirm')
-const handleIds = ref<number[]>([])
-const handleRemark = ref('')
-
-function openHandleDialog(action: 'confirm' | 'reject', row?: PriceChangeInfo) {
-  handleAction.value = action
-  handleIds.value = row ? [row.id] : [...selectedPriceIds.value]
-  handleRemark.value = ''
-  if (!handleIds.value.length) {
-    MessagePlugin.warning('请先选择待处理事件')
-    return
-  }
-  handleDialogVisible.value = true
-}
-
-async function submitHandle() {
-  if (!handleIds.value.length) return
-  handleSaving.value = true
-  try {
-    const res = await handlePriceChanges({
-      ids: handleIds.value,
-      action: handleAction.value,
-      remark: handleRemark.value,
-    })
-    MessagePlugin.success(`已处理 ${res.handled} 条调价事件`)
-    handleDialogVisible.value = false
-    selectedPriceIds.value = []
-    loadPrices()
-    loadDiffs()
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '处理调价事件失败')
-  } finally {
-    handleSaving.value = false
-  }
-}
-
-// ---------- Tab 懒加载 ----------
-
-function loadActive() {
-  if (activeTab.value === 'schedules') loadSchedules()
-  else if (activeTab.value === 'tasks') loadTasks()
-  else if (activeTab.value === 'logs') loadLogs()
-  else if (activeTab.value === 'diffs') loadDiffs()
-  else if (activeTab.value === 'prices') loadPrices()
-  else markLoaded(activeTab.value)
-}
-
-function handleTabChange(value: string | number) {
-  activeTab.value = value as TabValue
-  loadActive()
-}
-
-async function reloadActive() {
-  loading.value = true
-  try {
-    loadActive()
-  } finally {
-    loading.value = false
-  }
+// 旧书签兼容：?tab=<旧值> 映射到新的五页签口径。
+const legacyTabMap: Record<string, TabValue> = {
+  schedules: 'schedules',
+  tasks: 'inbound',
+  logs: 'inbound',
+  prices: 'inbound',
+  actions: 'outbound',
+  reconcile: 'reconcile',
+  anomalies: 'inbound',
+  overview: 'overview',
 }
 
 onMounted(async () => {
-  // ?tab=xxx 供旧路径 redirect 落到对应页签（/resource/anomalies → ?tab=anomalies 等）。
-  const requested = new URLSearchParams(window.location.search).get('tab')
-  if (requested && requested !== activeTab.value) {
-    const known: TabValue[] = ['schedules', 'tasks', 'logs', 'actions', 'reconcile', 'anomalies', 'diffs', 'prices']
-    if (known.includes(requested as TabValue)) activeTab.value = requested as TabValue
+  const params = new URLSearchParams(window.location.search)
+  chainKind.value = normalizeChainKind(params.get('kind'))
+  const requested = params.get('tab')
+  if (requested && legacyTabMap[requested]) {
+    activeTab.value = legacyTabMap[requested]
   }
-  await Promise.all([loadProviders(), loadScopes()])
+  await Promise.all([loadProviders(), loadScopes(), loadOverviewCounts()])
+  markLoaded(activeTab.value)
   loadActive()
-})
-
-// 移动端操作下拉分发（同步范围配置表）
-function handleMobileAction(value: string | number | Record<string, any>, row: SyncScheduleInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
-  switch (action) {
-    case 'schedule':
-      openScheduleDialog(row)
-      break
-    case 'sync':
-      void triggerScope(row)
-      break
+  // 旧「异常与失败」入口落进来时直接切到只看失败，保持那个书签的实际意图。
+  if (requested === 'anomalies' || requested === 'logs') {
+    setTimeout(() => inboundRef.value?.showFailedOnly?.(), 300)
   }
-}
+})
 </script>
 
 <style lang="css">
@@ -1154,144 +483,38 @@ function handleMobileAction(value: string | number | Record<string, any>, row: S
 </style>
 
 <style scoped lang="css">
-
 .page-header__desc {
   margin: 0;
   font-size: 12px;
-  color: var(--color-muted-foreground);
-}
-
-/* 各 Tab 的筛选区统一收进 FilterCard（embedded 模式，不画自己的卡片外壳）；
-   补回原手写工具栏与 Tab 导航 / 表格之间的呼吸间距。 */
-.tab-filters {
-  margin: var(--space-md) 0 var(--space-lg);
-}
-
-/* head-extra 里的统计口径（与 reconcile / task-queue 同款）。 */
-.resource-module .filter-card__meta {
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-}
-
-.cell-strong {
-  font-weight: 600;
-  color: var(--color-foreground);
-}
-
-.cell-num {
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.cell-muted {
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-}
-
-.cell-error {
-  font-size: 12px;
-  color: #dc2626;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.cell-old {
-  color: var(--color-muted-foreground);
-  text-decoration: line-through;
-}
-
-.cell-new {
-  color: var(--color-foreground);
-}
-
-.cell-arrow {
-  margin: 0 6px;
-  color: var(--color-muted-foreground);
-}
-
-.cell-ratio {
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.cell-ratio--high {
-  color: #dc2626;
-  font-weight: 600;
-}
-
-.action-cell {
-  display: inline-flex;
-  gap: var(--space-md);
-  align-items: center;
-}
-
-.product-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.product-sub {
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-}
-
-.notice-line {
-  margin: 0 0 var(--space-md);
-  padding: 10px 12px;
-  font-size: 12px;
   line-height: 1.6;
   color: var(--color-muted-foreground);
-  background: var(--hs-surface-2);
-  border-radius: var(--hs-radius-md);
+}
+
+/* 链路切换条：页签之上，属于整个控制台的口径。 */
+.chain-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  padding: 0 0 var(--space-md);
+  margin-bottom: var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.chain-bar__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+
+.chain-bar__hint {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
 }
 
 .form-hint {
   margin-left: 8px;
   font-size: 12px;
   color: var(--color-muted-foreground);
-}
-
-.diff-summary {
-  display: flex;
-  gap: var(--space-md);
-  flex-wrap: wrap;
-  padding: var(--space-md) 0 0;
-}
-
-.diff-summary__item {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-lg);
-  border-radius: var(--hs-radius-lg);
-  background: var(--hs-surface-2);
-  border: 1px solid var(--color-border);
-  min-width: 110px;
-}
-
-.diff-summary__num {
-  font-size: 20px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.diff-summary__label {
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-}
-
-.diff-summary__item--ok .diff-summary__num {
-  color: #10b981;
-}
-
-.diff-summary__item--warn .diff-summary__num {
-  color: #ef4444;
-}
-
-.diff-summary__item--muted .diff-summary__num {
-  color: #6b7280;
 }
 </style>

@@ -10,8 +10,12 @@ type SyncTaskListQuery struct {
 	ProviderID uint64 `form:"provider_id" json:"provider_id"`
 	TaskType   string `form:"task_type" json:"task_type"`
 	Status     string `form:"status" json:"status"`
-	Page       int    `form:"page" json:"page"`
-	PageSize   int    `form:"page_size" json:"page_size"`
+	// ProviderKind 链路筛选（upstream=上游转售 / compute=自营平台）。
+	// 必须在服务端过滤：分页口径要与筛选口径一致，否则「自营」视图只显示
+	// 当前页里恰好属于自营的那几条，总数却还是两条链路之和。
+	ProviderKind string `form:"provider_kind" json:"provider_kind"`
+	Page         int    `form:"page" json:"page"`
+	PageSize     int    `form:"page_size" json:"page_size"`
 }
 
 // SyncLogListQuery 同步日志列表查询
@@ -19,8 +23,10 @@ type SyncLogListQuery struct {
 	ProviderID uint64 `form:"provider_id" json:"provider_id"`
 	TaskID     uint64 `form:"task_id" json:"task_id"`
 	Status     string `form:"status" json:"status"`
-	Page       int    `form:"page" json:"page"`
-	PageSize   int    `form:"page_size" json:"page_size"`
+	// ProviderKind 链路筛选（同 SyncTaskListQuery）。
+	ProviderKind string `form:"provider_kind" json:"provider_kind"`
+	Page         int    `form:"page" json:"page"`
+	PageSize     int    `form:"page_size" json:"page_size"`
 }
 
 // InstanceListQuery 实例列表查询
@@ -41,8 +47,11 @@ type CreateSyncTaskRequest struct {
 
 // SyncTaskInfo 同步任务信息
 type SyncTaskInfo struct {
-	ID           uint64  `json:"id"`
-	ProviderID   uint64  `json:"provider_id"`
+	ID         uint64 `json:"id"`
+	ProviderID uint64 `json:"provider_id"`
+	// ProviderName / ProviderKind 展示字段（服务端批量反查，避免前端把裸 ID 当渠道名渲染）。
+	ProviderName string  `json:"provider_name"`
+	ProviderKind string  `json:"provider_kind"`
 	TaskType     string  `json:"task_type"`
 	Status       string  `json:"status"`
 	TotalCount   int     `json:"total_count"`
@@ -58,6 +67,8 @@ type SyncLogInfo struct {
 	ID           uint64 `json:"id"`
 	TaskID       uint64 `json:"task_id"`
 	ProviderID   uint64 `json:"provider_id"`
+	ProviderName string `json:"provider_name"`
+	ProviderKind string `json:"provider_kind"`
 	SyncType     string `json:"sync_type"`
 	Status       string `json:"status"`
 	TotalCount   int    `json:"total_count"`
@@ -119,8 +130,10 @@ type InstanceListResponse struct {
 type SyncScheduleListQuery struct {
 	ProviderID uint64 `form:"provider_id" json:"provider_id"`
 	Enabled    *bool  `form:"enabled" json:"enabled"`
-	Page       int    `form:"page" json:"page"`
-	PageSize   int    `form:"page_size" json:"page_size"`
+	// ProviderKind 链路筛选（upstream/compute）。
+	ProviderKind string `form:"provider_kind" json:"provider_kind"`
+	Page         int    `form:"page" json:"page"`
+	PageSize     int    `form:"page_size" json:"page_size"`
 }
 
 // SyncScheduleUpdateRequest 更新调度配置：节奏/启停/优先级/时间窗。
@@ -143,6 +156,7 @@ type SyncScheduleInfo struct {
 	ID                      uint64  `json:"id"`
 	ProviderID              uint64  `json:"provider_id"`
 	ProviderName            string  `json:"provider_name"`
+	ProviderKind            string  `json:"provider_kind"`
 	Scope                   string  `json:"scope"`
 	ScopeName               string  `json:"scope_name"`
 	IntervalSeconds         int     `json:"interval_seconds"`
@@ -174,28 +188,34 @@ type SyncScopeMeta struct {
 type PriceChangeListQuery struct {
 	ProviderID uint64 `form:"provider_id" json:"provider_id"`
 	Status     string `form:"status" json:"status"`
-	Page       int    `form:"page" json:"page"`
-	PageSize   int    `form:"page_size" json:"page_size"`
+	// ProviderKind 链路筛选（upstream/compute）。
+	ProviderKind string `form:"provider_kind" json:"provider_kind"`
+	Page         int    `form:"page" json:"page"`
+	PageSize     int    `form:"page_size" json:"page_size"`
 }
 
 // PriceChangeInfo 调价事件信息
 type PriceChangeInfo struct {
-	ID                uint64   `json:"id"`
-	ProviderID        uint64   `json:"provider_id"`
-	Scope             string   `json:"scope"`
-	ResourceProductID uint64   `json:"resource_product_id"`
-	UpstreamID        string   `json:"upstream_id"`
-	ProductID         uint64   `json:"product_id"`
-	Field             string   `json:"field"`
-	OldValue          *float64 `json:"old_value"`
-	NewValue          *float64 `json:"new_value"`
-	ChangeRatio       *float64 `json:"change_ratio"`
-	Threshold         *float64 `json:"threshold"`
-	Status            string   `json:"status"`
-	Applied           bool     `json:"applied"`
-	Remark            string   `json:"remark"`
-	CreatedAt         string   `json:"created_at"`
-	HandledAt         *string  `json:"handled_at"`
+	ID                uint64 `json:"id"`
+	ProviderID        uint64 `json:"provider_id"`
+	ProviderKind      string `json:"provider_kind"`
+	Scope             string `json:"scope"`
+	ResourceProductID uint64 `json:"resource_product_id"`
+	// ResourceProductName 上游商品名（调价事件主体）：运营看的是"哪个商品调价了"，
+	// 只有 resource_product_id 的话得再去上游商品目录里对号。
+	ResourceProductName string   `json:"resource_product_name"`
+	UpstreamID          string   `json:"upstream_id"`
+	ProductID           uint64   `json:"product_id"`
+	Field               string   `json:"field"`
+	OldValue            *float64 `json:"old_value"`
+	NewValue            *float64 `json:"new_value"`
+	ChangeRatio         *float64 `json:"change_ratio"`
+	Threshold           *float64 `json:"threshold"`
+	Status              string   `json:"status"`
+	Applied             bool     `json:"applied"`
+	Remark              string   `json:"remark"`
+	CreatedAt           string   `json:"created_at"`
+	HandledAt           *string  `json:"handled_at"`
 }
 
 // PriceChangeListResponse 调价事件列表响应
@@ -217,25 +237,29 @@ type SyncDiffListQuery struct {
 	TaskID     uint64 `form:"task_id" json:"task_id"`
 	Scope      string `form:"scope" json:"scope"`
 	Action     string `form:"action" json:"action"`
-	Page       int    `form:"page" json:"page"`
-	PageSize   int    `form:"page_size" json:"page_size"`
+	// ProviderKind 链路筛选（upstream/compute）。
+	ProviderKind string `form:"provider_kind" json:"provider_kind"`
+	Page         int    `form:"page" json:"page"`
+	PageSize     int    `form:"page_size" json:"page_size"`
 }
 
 // SyncDiffInfo 差异记录信息
 type SyncDiffInfo struct {
-	ID          uint64 `json:"id"`
-	TaskID      uint64 `json:"task_id"`
-	ProviderID  uint64 `json:"provider_id"`
-	Scope       string `json:"scope"`
-	Action      string `json:"action"`
-	LocalID     uint64 `json:"local_id"`
-	ExternalID  string `json:"external_id"`
-	Field       string `json:"field"`
-	OldValue    string `json:"old_value"`
-	NewValue    string `json:"new_value"`
-	Disposition string `json:"disposition"`
-	Remark      string `json:"remark"`
-	CreatedAt   string `json:"created_at"`
+	ID           uint64 `json:"id"`
+	TaskID       uint64 `json:"task_id"`
+	ProviderID   uint64 `json:"provider_id"`
+	ProviderName string `json:"provider_name"`
+	ProviderKind string `json:"provider_kind"`
+	Scope        string `json:"scope"`
+	Action       string `json:"action"`
+	LocalID      uint64 `json:"local_id"`
+	ExternalID   string `json:"external_id"`
+	Field        string `json:"field"`
+	OldValue     string `json:"old_value"`
+	NewValue     string `json:"new_value"`
+	Disposition  string `json:"disposition"`
+	Remark       string `json:"remark"`
+	CreatedAt    string `json:"created_at"`
 }
 
 // SyncDiffListResponse 差异记录列表响应

@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"log"
 	"math"
 	"math/rand"
 	"net/http"
@@ -627,27 +628,52 @@ func (p *ZJMFProvider) ListProducts(ctx context.Context) ([]*model.StandardProdu
 	flags := p.fetchProductFlags(ctx, details)
 	catalog := p.fetchCatalogRows(ctx, details)
 
-	for pid, d := range details {
-		spec := parseCloudSpecs(d.ConfigGroups)
-		if spec.OS == "" {
-			spec.OS = d.Type
+	// 以 proinfo 的商品清单为准遍历，而不是 details 的键。
+	//
+	// 关键（实测故障）：个别商品详情拉取失败时，details 里就没有它 —— 用 details
+	// 遍历会让这些商品从本次结果里整体消失，同步引擎的全量对账据此判定"上游已下架"
+	// 把本地行置为未在售（实测一次超时导致 200 个商品被误下线）。商品清单来自
+	// proinfo（一次请求就能拿全），是"上游有哪些商品"的权威来源；详情缺失只是
+	// 暂时拿不到价格/规格，不该当成商品消失。
+	for _, info := range proinfo.Info {
+		pid := strconv.FormatInt(info.ID, 10)
+		d, hasDetail := details[pid]
+		// 详情缺失：保留该商品在清单中的存在，名称取 proinfo 的值，
+		// 价格/规格留空（下次同步补上），避免被误判下架。
+		name := info.Name
+		if hasDetail && strings.TrimSpace(d.Name) != "" {
+			name = d.Name
+		}
+		var spec model.StandardProductSpec
+		if hasDetail {
+			spec = parseCloudSpecs(d.ConfigGroups)
+			if spec.OS == "" {
+				spec.OS = d.Type
+			}
 		}
 		flag := flags[pid]
 		cat, hasCat := catalog[pid]
 		listRows, priceSource := resolveListRows(d.ProductPricings, cat, hasCat)
 		costRows := scalePricingRows(listRows, flag)
-		groupName, groupSource := resolveGroupName(d.GID, d.Name, groups, groupsOK)
+		groupName, groupSource := resolveGroupName(d.GID, name, groups, groupsOK)
 		visibility := classifyVisibility(d, groups, groupsOK)
+		rawSpecs := buildProductRawSpecs(d, productMeta{
+			GroupName: groupName, GroupSource: groupSource,
+			ListRows: listRows, CostRows: costRows, Flag: flag,
+			PriceSource: priceSource, Visibility: visibility,
+			Catalog: cat, HasCatalog: hasCat,
+		})
+		// 详情缺失标记：本次的价格/规格/config_groups 都是空的（占位值），
+		// 同步引擎据此**只保留商品存在性、不覆盖本地已有的价格与开通参数** ——
+		// 否则一次超时就会把 config_groups 抹掉，商品从此开不了通。
+		if !hasDetail {
+			rawSpecs["detail_missing"] = true
+		}
 		products = append(products, &model.StandardProduct{
-			ProviderType: ProviderType, UpstreamID: pid, Name: d.Name,
+			ProviderType: ProviderType, UpstreamID: pid, Name: name,
 			CostPrice: upstreamPrice(costRows), SalePrice: upstreamPrice(listRows),
 			Specs: spec, Status: statusForVisibility(visibility),
-			RawSpecs: buildProductRawSpecs(d, productMeta{
-				GroupName: groupName, GroupSource: groupSource,
-				ListRows: listRows, CostRows: costRows, Flag: flag,
-				PriceSource: priceSource, Visibility: visibility,
-				Catalog: cat, HasCatalog: hasCat,
-			}),
+			RawSpecs: rawSpecs,
 		})
 	}
 	return products, nil
@@ -976,33 +1002,65 @@ func rowPrice(rows []PricingRow, key string) float64 {
 	return v
 }
 
-// detailBatchSize prodetail 单次最大商品数（上游 concurrent=500）。
-const detailBatchSize = 200
+// detailBatchSize prodetail 单次请求的商品数。
+//
+// 实测（2026-10）：上游这个接口是**同步逐商品组装**的，响应体积与耗时都线性增长
+// （45 个商品 ≈ 2MB / 8.8s，即约 200ms/个）。按上游 concurrent=500 一次要 200 个，
+// 请求必然撞上 15s 的 HTTP 超时，而超时在 fetchAllDetails 里此前是静默跳过 ——
+// 结果 245 个商品只同步进来 45 个（恰好是没超时的那一批），价格/库存/规格全是旧的。
+// 取 50 并配合超时二分重试：单批约 10s，留出余量。
+const detailBatchSize = 50
 
 // fetchAllDetails 分批拉取全量商品详情，返回 pid → 详情。
+//
+// 失败处理（重要）：上游 prodetail 是逐商品同步组装，批量越大越容易超时。
+// 单批失败时**二分拆小重试**而不是跳过 —— 跳过会让那批商品的价格/规格/库存
+// 永远停留在上一次成功的值，同步任务却仍报 success（实测：245 个商品只有 45 个
+// 真的同步进来，其余仍是旧值，页面看起来"同步成功但数据没变"）。
 func (p *ZJMFProvider) fetchAllDetails(ctx context.Context, infos []struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
 }) map[string]UpstreamProductDetail {
 	out := map[string]UpstreamProductDetail{}
+	p.fetchDetailsRange(ctx, infos, out)
+	return out
+}
+
+// fetchDetailsRange 递归拉取 infos 区间：失败时对半拆分重试，直到单个商品。
+func (p *ZJMFProvider) fetchDetailsRange(ctx context.Context, infos []struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}, out map[string]UpstreamProductDetail) {
+	if len(infos) == 0 {
+		return
+	}
 	for start := 0; start < len(infos); start += detailBatchSize {
 		end := start + detailBatchSize
 		if end > len(infos) {
 			end = len(infos)
 		}
+		chunk := infos[start:end]
 		form := url.Values{}
-		for _, it := range infos[start:end] {
+		for _, it := range chunk {
 			form.Add("pids[]", strconv.FormatInt(it.ID, 10))
 		}
 		var resp OpenapiProdetailResp
 		if err := p.call(ctx, "ListProducts", http.MethodGet, "api/product/prodetail", form, &resp); err != nil {
+			if len(chunk) == 1 {
+				// 单个商品仍失败：放弃这一条（一个坏商品不该拖垮整次同步），
+				// 但留下可排查的记录。
+				log.Printf("[zjmf] 商品详情拉取失败 pid=%d: %v", chunk[0].ID, err)
+				continue
+			}
+			mid := len(chunk) / 2
+			p.fetchDetailsRange(ctx, chunk[:mid], out)
+			p.fetchDetailsRange(ctx, chunk[mid:], out)
 			continue
 		}
 		for pid, d := range resp.Detail {
 			out[pid] = d
 		}
 	}
-	return out
 }
 
 // upstreamPrice 取上游代表价：优先 monthly，其次 quarterly/semiannually/annually/onetime。
@@ -1789,6 +1847,14 @@ func (p *ZJMFProvider) GetInstance(ctx context.Context, instanceID string) (*mod
 		UpstreamID:   instanceID,
 		Name:         h.Domain,
 		PublicIP:     h.DedicatedIP,
+		// Specs 取上游主机的权威值：操作系统尤其关键 —— 客户下单时选的镜像
+		// （如 Debian）只有上游知道最终落成什么，本地订单快照里存的是商品基线
+		// （常常是商品默认的 CentOS）。此前 Specs 完全不填，实例落库时
+		// 规格回落取订单快照，实例详情页就显示成 CentOS（实测故障：
+		// 选 Debian 开通、上游 host_data.os=Debian-12.0_x64，本地却显示 CentOS）。
+		Specs: model.StandardProductSpec{
+			OS: h.OS,
+		},
 		RawData: map[string]interface{}{
 			"assignedips": h.AssignedIPs,
 			// 端口归一为字符串（详情页连接信息按字符串读取；上游为 int 列，
