@@ -60,7 +60,10 @@
       >
         <template #instance="{ row }">
           <div class="product-cell">
-            <span class="cell-strong">{{ row.instance_mark }}</span>
+            <!-- 实例号即可点入口：本页主线是「先看这台怎么了再决定续费/处置」，跳详情是一等动作 -->
+            <t-link theme="primary" hover="color" @click="openInstance(row)">
+              {{ row.instance_mark }}
+            </t-link>
             <span class="product-sub">{{ row.name || '—' }}</span>
           </div>
         </template>

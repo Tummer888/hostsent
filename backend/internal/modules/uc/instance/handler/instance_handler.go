@@ -87,6 +87,32 @@ func (h *InstanceHandler) Detail(c *gin.Context) {
 	response.Success(c, info)
 }
 
+// RetryProvision godoc
+// @Summary 重新开通待开通实例（重投订单履约任务，不产生新订单/新账单）
+// @Tags 用户中心-主机
+// @Security BearerAuth
+// @Param id path uint true "主机记录ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/instances/{id}/provision-retry [post]
+func (h *InstanceHandler) RetryProvision(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, apperrors.New(10001, "unauthorized"))
+		return
+	}
+	id := pathUint(c, "id")
+	if id == 0 {
+		response.Error(c, apperrors.New(50001, "参数错误"))
+		return
+	}
+	info, err := h.instanceService.RetryProvision(c.Request.Context(), userID, middleware.ActorUserID(c), middleware.ActorUsername(c), id)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, info)
+}
+
 // Power godoc
 // @Summary 电源操作（on/off/reboot/hard_off/hard_reboot）
 // @Tags 用户中心-主机
@@ -444,4 +470,102 @@ func (h *InstanceHandler) RestoreSnapshot(c *gin.Context) {
 		return
 	}
 	response.SuccessMessage(c, "恢复指令已提交")
+}
+
+// Operations godoc
+// @Summary 实例操作流水（只读）
+// @Tags 用户中心-主机
+// @Security BearerAuth
+// @Param id path uint true "主机记录ID"
+// @Param limit query int false "返回条数（默认 20，最多 100）"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/instances/{id}/operations [get]
+func (h *InstanceHandler) Operations(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, apperrors.New(10001, "unauthorized"))
+		return
+	}
+	id := pathUint(c, "id")
+	if id == 0 {
+		response.Error(c, apperrors.New(20001, "参数错误"))
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	rows, err := h.instanceService.Operations(c.Request.Context(), userID, id, limit)
+	if err != nil {
+		writeMaintenanceError(c, err)
+		return
+	}
+	response.Success(c, rows)
+}
+
+// MetricsCatalog godoc
+// @Summary 性能监控图表目录
+// @Description 平台不提供监控时返回 supported=false 与原因，页面照常可用
+// @Tags 用户中心-主机
+// @Security BearerAuth
+// @Param id path uint true "主机记录ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/instances/{id}/metrics [get]
+func (h *InstanceHandler) MetricsCatalog(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, apperrors.New(10001, "unauthorized"))
+		return
+	}
+	id := pathUint(c, "id")
+	if id == 0 {
+		response.Error(c, apperrors.New(20001, "参数错误"))
+		return
+	}
+	resp, err := h.instanceService.MetricsCatalog(c.Request.Context(), userID, id)
+	if err != nil {
+		writeMaintenanceError(c, err)
+		return
+	}
+	response.Success(c, resp)
+}
+
+// MetricsSeries godoc
+// @Summary 查询性能监控数据
+// @Tags 用户中心-主机
+// @Security BearerAuth
+// @Param id path uint true "主机记录ID"
+// @Param type query string true "监控类型：cpu/memory/disk/network"
+// @Param select query string false "子项（如磁盘设备名）"
+// @Param range query string false "时间窗：1h/6h/24h/7d（默认 6h）"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/instances/{id}/metrics/series [get]
+func (h *InstanceHandler) MetricsSeries(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, apperrors.New(10001, "unauthorized"))
+		return
+	}
+	id := pathUint(c, "id")
+	if id == 0 {
+		response.Error(c, apperrors.New(20001, "参数错误"))
+		return
+	}
+	var query dto.MetricsQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	series, err := h.instanceService.Metrics(c.Request.Context(), userID, id, &query)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrMetricsTypeRequired):
+			response.Error(c, apperrors.New(20001, err.Error()))
+		case errors.Is(err, service.ErrMetricsUnsupported):
+			response.Error(c, apperrors.New(20002, err.Error()))
+		case errors.Is(err, service.ErrInstanceNotProvisioned):
+			response.Error(c, apperrors.New(20003, err.Error()))
+		default:
+			writeMaintenanceError(c, err)
+		}
+		return
+	}
+	response.Success(c, series)
 }

@@ -31,6 +31,9 @@ type InstanceDetailRepository interface {
 	Upstream(ctx context.Context, sourceProductID uint64, billingMode string) (*dto.UpstreamInfo, float64, error)
 	// ProductConfigs 读商品配置项并与订单选配/实例取值合并。
 	ProductConfigs(ctx context.Context, productID uint64, orderConfigOptions string) ([]dto.ConfigItem, error)
+	// Provision 读来源订单的开通履约状态（provision_tasks）：status + 最近失败原因。
+	// 待开通实例的详情/列表据此展示"为什么还没开通"（manual=需人工，如上游余额不足）。
+	Provision(ctx context.Context, orderID uint64) (status, lastError string, err error)
 	// Credentials 读实例登录连接信息（不含明文密码）。
 	Credentials(ctx context.Context, instanceID uint64) (*dto.CredentialInfo, error)
 	// RevealCredential 读明文密码（供 reveal 接口；未存返回空）。
@@ -199,15 +202,63 @@ func (r *instanceDetailRepository) Product(ctx context.Context, productID uint64
 
 // upstreamRaw 上游镜像快照（resource_products.raw_specs）中本页需要的子集。
 type upstreamRaw struct {
-	GID          int64                      `json:"gid"`
-	GroupName    string                     `json:"group_name"`
-	PayType      string                     `json:"pay_type"`
-	ListPrice    float64                    `json:"list_price"`
-	CostMonthly  float64                    `json:"cost_price_monthly"`
-	PricingsCost []map[string]interface{}   `json:"product_pricings"`
-	PricingsList []map[string]interface{}   `json:"product_pricings_list"`
-	Discount     map[string]interface{}     `json:"upstream_discount"`
-	PayTypeRaw   map[string]json.RawMessage `json:"-"`
+	GID          int64                    `json:"gid"`
+	GroupName    string                   `json:"group_name"`
+	PayType      payTypeField             `json:"pay_type"`
+	ProviderID   uint64                   `json:"provider_id"`
+	ListPrice    float64                  `json:"list_price"`
+	CostMonthly  float64                  `json:"cost_price_monthly"`
+	PricingsCost []map[string]interface{} `json:"product_pricings"`
+	PricingsList []map[string]interface{} `json:"product_pricings_list"`
+	Discount     map[string]interface{}   `json:"upstream_discount"`
+}
+
+// payTypeField 上游 pay_type 的两种落库形态：
+//
+//	对象：{"pay_type":"recurring","pay_hour_cycle":"720",...}
+//	字符串：上面对象被再序列化成字符串（历史同步按 text 存过）
+//
+// 只当 string 解析会把整段 JSON 原样塞进详情页（实测「上游商品」卡片把 pay_type
+// 渲染成一串 {"pay_type":"recurring"...}），而 renewable 判定跟着失真（显示不可续费）。
+type payTypeField struct {
+	Code string // recurring / onetime ...
+}
+
+// UnmarshalJSON 兼容对象、JSON 字符串（含再序列化）、普通字符串三种输入。
+func (p *payTypeField) UnmarshalJSON(data []byte) error {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		return nil
+	}
+	if trimmed[0] == '"' {
+		var inner string
+		if err := json.Unmarshal(data, &inner); err != nil {
+			return nil // 非法字符串按缺失处理，不让整段 raw 解析失败
+		}
+		inner = strings.TrimSpace(inner)
+		if strings.HasPrefix(inner, "{") {
+			// 再序列化形态：递归解析出真正的 code。
+			var nested struct {
+				PayType string `json:"pay_type"`
+			}
+			if err := json.Unmarshal([]byte(inner), &nested); err == nil {
+				p.Code = nested.PayType
+			}
+			return nil
+		}
+		p.Code = inner
+		return nil
+	}
+	if trimmed[0] == '{' {
+		var nested struct {
+			PayType string `json:"pay_type"`
+		}
+		if err := json.Unmarshal(data, &nested); err == nil {
+			p.Code = nested.PayType
+		}
+		return nil
+	}
+	return nil
 }
 
 // Upstream 读对接商品的上游信息；同时返回该实例当前周期的上游续费金额。
@@ -219,19 +270,22 @@ func (r *instanceDetailRepository) Upstream(ctx context.Context, sourceProductID
 		return nil, 0, nil
 	}
 	var row struct {
-		ID         uint64
-		ProviderID uint64
-		UpstreamID string
-		Name       string
-		GroupID    int64
-		GroupName  string
-		RawSpecs   string
-		SalePrice  float64
-		CostPrice  float64
+		ID           uint64
+		ProviderID   uint64
+		ProviderName string
+		UpstreamID   string
+		Name         string
+		GroupID      int64
+		GroupName    string
+		RawSpecs     string
+		SalePrice    float64
+		CostPrice    float64
 	}
-	err := r.db.WithContext(ctx).Table("resource_products").
-		Select("id, provider_id, upstream_id, name, group_id, group_name, raw_specs, sale_price, cost_price").
-		Where("id = ?", sourceProductID).
+	err := r.db.WithContext(ctx).Table("resource_products AS rp").
+		Select(`rp.id, rp.provider_id, rp.upstream_id, rp.name, rp.group_id, rp.group_name, rp.raw_specs,
+			rp.sale_price, rp.cost_price, pr.name AS provider_name`).
+		Joins("LEFT JOIN resource_providers AS pr ON pr.id = rp.provider_id").
+		Where("rp.id = ?", sourceProductID).
 		Take(&row).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -242,16 +296,19 @@ func (r *instanceDetailRepository) Upstream(ctx context.Context, sourceProductID
 	raw := parseUpstreamRaw(row.RawSpecs)
 	out := &dto.UpstreamInfo{
 		ResourceProductID: row.ID,
+		ProviderID:        row.ProviderID,
+		ProviderName:      row.ProviderName,
 		UpstreamID:        row.UpstreamID,
 		Name:              row.Name,
 		GroupID:           firstNonZeroInt64(raw.GID, row.GroupID),
 		GroupName:         firstNonEmpty(raw.GroupName, row.GroupName),
 		ListPrice:         firstNonZeroFloat(raw.ListPrice, row.SalePrice),
 		CostPrice:         firstNonZeroFloat(raw.CostMonthly, row.CostPrice),
-		PayType:           raw.PayType,
-		Renewable:         raw.PayType == "" || raw.PayType == "recurring",
-		ListCycles:        cycleMap(raw.PricingsList),
-		CostCycles:        cycleMap(raw.PricingsCost),
+		PayType:           raw.PayType.Code,
+		// 周期型才可续费；未标注（老镜像没有 pay_type）按可续费处理，避免误挡续费。
+		Renewable:  raw.PayType.Code == "" || raw.PayType.Code == "recurring",
+		ListCycles: cycleMap(raw.PricingsList),
+		CostCycles: cycleMap(raw.PricingsCost),
 	}
 	if d, ok := raw.Discount["desc"].(string); ok && d != "" {
 		out.DiscountDesc = d
@@ -307,6 +364,30 @@ func parseUpstreamRaw(raw string) upstreamRaw {
 	}
 	_ = json.Unmarshal([]byte(raw), &out)
 	return out
+}
+
+// ============================ 开通履约状态 ============================
+
+// Provision 读来源订单的开通任务状态（未创建任务/订单为 0 时返回空串）。
+func (r *instanceDetailRepository) Provision(ctx context.Context, orderID uint64) (string, string, error) {
+	if orderID == 0 {
+		return "", "", nil
+	}
+	var row struct {
+		Status    string
+		LastError string
+	}
+	err := r.db.WithContext(ctx).Table("provision_tasks").
+		Select("status, COALESCE(last_error, '') AS last_error").
+		Where("order_id = ?", orderID).
+		Take(&row).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return "", "", nil
+		}
+		return "", "", err
+	}
+	return row.Status, row.LastError, nil
 }
 
 // ============================ 配置项 ============================

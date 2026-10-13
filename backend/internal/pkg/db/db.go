@@ -1096,7 +1096,7 @@ func seedSystemConfigs(tx *gorm.DB) error {
 		{ConfigKey: "default_billing_cycle", ConfigValue: "monthly", ValueType: systemmodel.ValueTypeString, Group: systemmodel.ConfigGroupBilling, Description: "默认计费周期", SortOrder: 1, Status: systemmodel.StatusActive},
 		{ConfigKey: "enable_user_register", ConfigValue: "true", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupFeature, Description: "是否开放用户注册", SortOrder: 1, Status: systemmodel.StatusActive},
 		{ConfigKey: "enable_mfa_required", ConfigValue: "false", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupSecurity, Description: "是否强制管理员开启MFA", SortOrder: 1, Status: systemmodel.StatusActive},
-		{ConfigKey: "order_expire_minutes", ConfigValue: "30", ValueType: systemmodel.ValueTypeInt, Group: systemmodel.ConfigGroupOrder, Description: "待支付订单过期时间(分钟)", SortOrder: 1, Status: systemmodel.StatusActive},
+		{ConfigKey: "order_expire_minutes", ConfigValue: "1440", ValueType: systemmodel.ValueTypeInt, Group: systemmodel.ConfigGroupOrder, Description: "待支付订单有效期（分钟；到期关单并删除待开通实例，默认 1440=1 天）", SortOrder: 1, Status: systemmodel.StatusActive},
 		// 财务参数（财务配置页 /finance/config 维护，均由财经子域运行时读取）：
 		// 历史遗留的 5 个 finance_* 键（billing_cycle/tax_rate/recon_threshold/balance_warning/
 		// manual_adjust_enabled）整仓零引用、改了不生效，已由迁移 073 清除，不再种回。

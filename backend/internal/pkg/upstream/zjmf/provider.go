@@ -76,6 +76,9 @@ func init() {
 			// 维护类：上游 /provision/default 支持 func=reinstall|crack_pass，
 			// 源码 Host::reinstall / Host::crackPass 的 zjmf_api 分支即走这两条指令。
 			upstream.OpReinstall, upstream.OpResetPassword,
+			// 性能监控读数（只读）：目录透传 host/header.module_chart，
+			// 数据透传 provision/chart/{host_id}；上游未装图表模块时返回空目录。
+			upstream.OpMetrics,
 		},
 		// zjmf_api 分支：续费走 /host/renew + /apply_credit（上游下单），终止走 /host/cancel（立即生效）。
 		RenewMode:   upstream.RenewModeOrder,
@@ -1608,13 +1611,17 @@ func (p *ZJMFProvider) GetInstance(ctx context.Context, instanceID string) (*mod
 		Name:         h.Domain,
 		PublicIP:     h.DedicatedIP,
 		RawData: map[string]interface{}{
-			"assignedips":   h.AssignedIPs,
-			"port":          h.Port,
+			"assignedips": h.AssignedIPs,
+			// 端口归一为字符串（详情页连接信息按字符串读取；上游为 int 列，
+			// 未开放端口时回 0，这里统一转 "0"→空串，避免界面显示端口 0）。
+			"port":          portString(h.Port),
+			"username":      h.Username,
 			"os":            h.OS,
 			"productid":     h.ProductID,
 			"productname":   h.ProductName,
 			"nextduedate":   h.NextDueDate,
-			"upstream_cost": h.UpstreamCost,
+			"upstream_cost": float64(h.UpstreamCost),
+			"domainstatus":  h.DomainStatus,
 			"dcimid":        h.DcimID,
 			"invoiceid":     h.InvoiceID,
 		},
@@ -1624,12 +1631,29 @@ func (p *ZJMFProvider) GetInstance(ctx context.Context, instanceID string) (*mod
 		inst.Status = model.InstanceStatusRunning
 	case "pending":
 		inst.Status = model.InstanceStatusCreating
-	case "suspended", "deleted", "cancelled":
+	case "suspended":
+		inst.Status = model.InstanceStatusStopped
+	case "deleted", "cancelled", "terminated":
+		// 终态：上游已删除/取消。此前与 suspended 一起映射为 stopped（"已关机"），
+		// 已删除的机器会被显示成"关机"，用户以为还能开机（实测：订单支付后上游
+		// 侧主机已是 Deleted，本地回源却写成 stopped）。
+		inst.Status = model.InstanceStatusDeleted
+	case "fraud":
+		// 风控冻结：上游不再服务，本地按 stopped 展示并提示人工处理最合适
+		// （没有独立的 fraud 状态枚举，映射成 deleted 会误导为"已销毁可重建"）。
 		inst.Status = model.InstanceStatusStopped
 	default:
 		inst.Status = model.InstanceStatusRunning
 	}
 	return inst, nil
+}
+
+// portString 端口归一为字符串：0/负数视为"未开放"返回空串，避免详情页显示端口 0。
+func portString(p FlexNumber) string {
+	if v := p.Int(); v > 0 && v <= 65535 {
+		return strconv.FormatInt(v, 10)
+	}
+	return ""
 }
 
 // provisionCmd 财务型上游电源/控制台统一入口：POST /provision/default（源码 Host::on/off/reboot/vnc 的 zjmf_api 分支）。

@@ -185,7 +185,8 @@
                 { content: '关机', value: 'power-off', hidden: () => !has('instance:action'), disabled: () => row.power_status === 'off' || poweringId === row.id },
                 { content: '重启', value: 'power-reboot', hidden: () => !has('instance:action'), disabled: () => row.power_status !== 'on' || poweringId === row.id },
                 { content: '控制台', value: 'vnc', hidden: () => !has('instance:console'), disabled: () => row.status !== 'running' },
-                { content: '同步刷新', value: 'sync', hidden: () => !has('instance:action'), disabled: () => syncingId === row.id },
+                { content: '重新开通', value: 'provision-retry', hidden: () => !row.pending, disabled: () => retryingId === row.id },
+                { content: '同步刷新', value: 'sync', hidden: () => !has('instance:action') || !!row.pending, disabled: () => syncingId === row.id },
                 { content: row.lifecycle_stage === 'suspended' ? '恢复服务' : '暂停服务', value: 'toggle-suspend', hidden: () => !has('instance:action') },
                 { content: '备注', value: 'remark', hidden: () => !has('instance:action') },
               ])"
@@ -193,6 +194,21 @@
             />
             <template v-else>
               <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
+              <!-- 待开通实例：只给「重新开通」（重投订单履约，不产生新订单/新账单），
+                   电源/控制台/同步等上游动作没有对象，隐藏而不是点了报错。 -->
+              <template v-if="row.pending">
+                <t-link
+                  v-permission="'instance:action'"
+                  theme="primary"
+                  hover="color"
+                  :disabled="retryingId === row.id"
+                  @click="handleRetryProvision(row)"
+                >
+                  {{ retryingId === row.id ? '提交中…' : '重新开通' }}
+                </t-link>
+                <t-link v-permission="'instance:action'" theme="primary" hover="color" @click="openRemarkDialog(row)">备注</t-link>
+              </template>
+              <template v-else>
               <t-link
                 v-permission="'instance:action'"
                 theme="primary"
@@ -269,6 +285,7 @@
                   </t-dropdown-menu>
                 </t-dropdown>
               </span>
+              </template>
             </template>
           </div>
         </template>
@@ -386,6 +403,7 @@ import {
   getInstanceVNC,
   batchInstanceAction,
   powerInstance,
+  retryInstanceProvision,
   suspendInstance,
   syncInstance,
   unsuspendInstance,
@@ -421,6 +439,7 @@ const total = ref(0)
 const syncingId = ref(0)
 const poweringId = ref(0)
 const actioningId = ref(0)
+const retryingId = ref(0)
 
 const stats = reactive<InstanceStatsResponse>({
   total: 0,
@@ -666,6 +685,20 @@ async function handleSync(row: InstanceItem) {
   }
 }
 
+// 重新开通：待开通实例重投来源订单的履约任务（复用已生成的上游账单，不产生新订单）。
+async function handleRetryProvision(row: InstanceItem) {
+  retryingId.value = row.id
+  try {
+    await retryInstanceProvision(row.id)
+    MessagePlugin.success('已重新提交开通，可在详情页查看进度')
+    loadAll()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '重新开通失败')
+  } finally {
+    retryingId.value = 0
+  }
+}
+
 // —— 暂停/恢复（T5.5 平台暂停态）——
 async function handleSuspend(row: InstanceItem) {
   const dialog = DialogPlugin.confirm({
@@ -835,6 +868,9 @@ function handleMobileAction(value: string | number | Record<string, any>, row: I
       break
     case 'sync':
       void handleSync(row)
+      break
+    case 'provision-retry':
+      void handleRetryProvision(row)
       break
     case 'toggle-suspend':
       if (row.lifecycle_stage === 'suspended') {

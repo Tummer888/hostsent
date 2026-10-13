@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"hostsent/backend/internal/modules/admin/order/dto"
@@ -38,6 +39,10 @@ type OrderService interface {
 	// SetProvisionTaskReader 注入开通任务批量读取（装配层调用，供订单列表/详情
 	// 展示履约状态与失败原因）。
 	SetProvisionTaskReader(fn func(ctx context.Context, orderIDs []uint64) (map[uint64]*model.ProvisionTask, error))
+	// SetPendingInstanceReleaser 注入「订单作废即删占位实例」钩子（装配层调用）。
+	SetPendingInstanceReleaser(fn func(ctx context.Context, orderID uint64) (int64, error))
+	// SetLogger 注入日志器（装配层调用）。
+	SetLogger(l *zap.Logger)
 	// SetProductSourceModeResolver 注入商品链路判据解析（装配层调用，仅用于任务留痕）。
 	SetProductSourceModeResolver(fn func(ctx context.Context, productID uint64) string)
 	// SetSalesOwnerResolver 注入销售归属快照解析（装配层调用，doc86 §3.4，仅用于后台代下单）。
@@ -114,12 +119,25 @@ type orderService struct {
 	// provisionTasks 可选：批量读取开通履约任务，供订单列表/详情展示"开通失败原因"
 	// 与人工待处理状态（manual）。为 nil 时列表不返回该字段（不影响既有功能）。
 	provisionTasks func(ctx context.Context, orderIDs []uint64) (map[uint64]*model.ProvisionTask, error)
+	// pendingInstanceReleaser 可选：删除订单的「待开通」占位实例（后台取消待支付订单时）。
+	// 为 nil 时跳过（不影响取消主流程）。
+	pendingInstanceReleaser func(ctx context.Context, orderID uint64) (int64, error)
+	// logger 可选日志。
+	logger *zap.Logger
+}
+
+// SetPendingInstanceReleaser 注入「订单作废即删占位实例」钩子（装配层调用）。
+func (s *orderService) SetPendingInstanceReleaser(fn func(ctx context.Context, orderID uint64) (int64, error)) {
+	s.pendingInstanceReleaser = fn
 }
 
 // SetProvisionTaskReader 注入开通任务批量读取（装配层调用，避免订单服务依赖任务仓储）。
 func (s *orderService) SetProvisionTaskReader(fn func(ctx context.Context, orderIDs []uint64) (map[uint64]*model.ProvisionTask, error)) {
 	s.provisionTasks = fn
 }
+
+// SetLogger 注入日志器（装配层调用）。
+func (s *orderService) SetLogger(l *zap.Logger) { s.logger = l }
 
 // SalesOwnerResolver 销售归属解析（装配层注入，避免订单模块依赖销售模块）。
 type SalesOwnerResolver interface {
@@ -343,7 +361,18 @@ func (s *orderService) Cancel(ctx context.Context, id uint64, operatorID uint64,
 	}
 	item.Status = model.OrderStatusCancelled
 	item.OperatorID = operatorID
-	return s.orderRepo.Update(ctx, item)
+	if err := s.orderRepo.Update(ctx, item); err != nil {
+		return err
+	}
+	// 后台取消待支付订单：同时删除其「待开通」占位实例，避免实例列表里留下
+	// 一台永远不会开通的机器。删除失败不回滚取消（订单已作废是主结果），只记日志。
+	if s.pendingInstanceReleaser != nil {
+		if _, rerr := s.pendingInstanceReleaser(ctx, item.ID); rerr != nil && s.logger != nil {
+			s.logger.Warn("release pending instance after cancel failed",
+				zap.Uint64("order_id", item.ID), zap.Error(rerr))
+		}
+	}
+	return nil
 }
 
 func (s *orderService) UpdateRemark(ctx context.Context, id uint64, remark string, operatorID uint64) error {

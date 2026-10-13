@@ -25,6 +25,12 @@ type SyncRepository interface {
 	ListInstances(ctx context.Context, query dto.InstanceListQuery) ([]model.Instance, int64, error)
 	FindInstanceByID(ctx context.Context, id uint64) (*model.Instance, error)
 	UpsertInstances(ctx context.Context, items []model.Instance) error
+	// CreatePendingInstance 下单即建「待开通」实例占位（幂等，重复调用不产生第二行）。
+	CreatePendingInstance(ctx context.Context, row *model.Instance) error
+	// AdoptPendingInstance 开通成功：占位行就地转正为真实上游实例，返回是否命中占位行。
+	AdoptPendingInstance(ctx context.Context, orderID uint64, row *model.Instance) (bool, error)
+	// DeletePendingInstanceByOrder 删除订单的占位实例（未支付关单/取消时），返回删除行数。
+	DeletePendingInstanceByOrder(ctx context.Context, orderID uint64) (int64, error)
 	CountInstancesByProductUser(ctx context.Context, userID, productID uint64) (int64, error)
 	// ExistingInstanceLinks 同步前回查既有归属（保留自营链路的 user_id/source_mode）。
 	ExistingInstanceLinks(ctx context.Context, instanceIDs []string) (map[string]InstanceLinkage, error)
@@ -219,6 +225,74 @@ func (r *syncRepository) UpsertInstances(ctx context.Context, items []model.Inst
 			"source_mode", "upstream_product_id", "provider_instance_id",
 		}),
 	}).Create(&items).Error
+}
+
+// CreatePendingInstance 下单即建「待开通」实例占位（instance_id 为本地占位号）。
+//
+// 占位行让"已下单但还没开通成功"的机器在实例列表里可见可操作（查看/重新开通/重试同步），
+// 而不是开通失败后什么都看不到。判定"是否已在上游开通"的唯一依据是
+// ProviderInstanceID 是否为空 —— 占位行为空，转正时写入真实实例号。
+// 幂等：ON CONFLICT(instance_id) DO NOTHING，重复下单/重试不会建出第二行占位。
+func (r *syncRepository) CreatePendingInstance(ctx context.Context, row *model.Instance) error {
+	if row == nil || row.InstanceID == "" {
+		return nil
+	}
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "instance_id"}},
+		DoNothing: true,
+	}).Create(row).Error
+}
+
+// AdoptPendingInstance 开通成功：把该订单的占位行就地改写为真实上游实例
+// （实例号/状态/IP/规格/账期一次补齐），返回是否命中占位行。
+//
+// 为什么不是"插一行新的"：占位行是实例列表/详情的稳定锚点（前端可能正开着详情页），
+// 另插一行会留下两条记录、用户会看到一台"待开通"的幽灵机。
+// 命中条件 provider_instance_id = ” 保证只改占位、不改已转正行；
+// 若目标实例号已被别的行占用（早前失败重试留下的行）则不更新，交调用方走常规 upsert。
+func (r *syncRepository) AdoptPendingInstance(ctx context.Context, orderID uint64, row *model.Instance) (bool, error) {
+	if orderID == 0 || row == nil || row.InstanceID == "" {
+		return false, nil
+	}
+	res := r.db.WithContext(ctx).Model(&model.Instance{}).
+		Where("order_id = ? AND provider_instance_id = ''", orderID).
+		Where("NOT EXISTS (SELECT 1 FROM instances x WHERE x.instance_id = ? AND x.id <> instances.id)", row.InstanceID).
+		Updates(map[string]any{
+			"instance_id":          row.InstanceID,
+			"provider_instance_id": row.ProviderInstanceID,
+			"status":               row.Status,
+			"name":                 row.Name,
+			"public_ip":            row.PublicIP,
+			"private_ip":           row.PrivateIP,
+			"cpu":                  row.CPU,
+			"memory":               row.Memory,
+			"disk":                 row.Disk,
+			"disk_type":            row.DiskType,
+			"bandwidth":            row.Bandwidth,
+			"os":                   row.OS,
+			"region":               row.Region,
+			"zone":                 row.Zone,
+			"raw_data":             row.RawData,
+			"expire_at":            row.ExpireAt,
+			"last_synced_at":       time.Now(),
+			"updated_at":           time.Now(),
+		})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
+}
+
+// DeletePendingInstanceByOrder 删除某订单的占位实例（未支付订单关单/取消时调用）。
+// 只删尚未转正的行（provider_instance_id 为空）：已开通的实例不因订单状态变化被抹掉。
+func (r *syncRepository) DeletePendingInstanceByOrder(ctx context.Context, orderID uint64) (int64, error) {
+	if orderID == 0 {
+		return 0, nil
+	}
+	res := r.db.WithContext(ctx).
+		Where("order_id = ? AND provider_instance_id = ''", orderID).
+		Delete(&model.Instance{})
+	return res.RowsAffected, res.Error
 }
 
 // CountInstancesByProductUser 统计某用户已开通某商品（instances）的实例数，用于开通幂等判断。

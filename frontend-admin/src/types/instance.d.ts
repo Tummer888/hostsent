@@ -30,7 +30,10 @@ export interface InstanceItem {
   source_mode: string
   sell_product_id: number
   upstream_product_id: number
+  /** 上游实例号；为空表示尚未开通（待开通占位行）。 */
   provider_instance_id: string
+  /** 待开通（未在上游开通）：前端显示「待开通」并只开放「重新开通」。 */
+  pending: boolean
   lifecycle_stage: string
   name: string
   cpu: number
@@ -93,6 +96,12 @@ export interface InstanceCapabilities {
 }
 
 /** 来源订单财务口径：首付是历史成交，续费价是下次应付（商品当前周期价）。 */
+/** 开通履约状态（待开通实例）：manual=重试无效需人工（如上游余额不足）。 */
+export interface InstanceProvisionState {
+  provision_status?: string
+  provision_error?: string
+}
+
 export interface InstanceSourceOrder {
   id: number
   order_no: string
@@ -135,11 +144,17 @@ export interface InstanceProduct {
   upstream_markup_type: string
   upstream_markup_value: number
   status: number
+  /** 商品行已不存在（重新导入/清理后常见）：名称取订单快照，前端标「商品已删除」。 */
+  deleted: boolean
 }
 
 /** 对接商品的上游信息（source_mode=upstream 时有值）。 */
 export interface InstanceUpstream {
   resource_product_id: number
+  /** 该上游资源商品所属渠道；与实例渠道不一致时 provider_mismatch=true。 */
+  provider_id: number
+  provider_name: string
+  provider_mismatch: boolean
   upstream_id: string
   name: string
   group_id: number
@@ -188,6 +203,9 @@ export interface InstanceDetail extends InstanceItem {
   upstream?: InstanceUpstream
   configs?: InstanceConfigItem[]
   credential?: InstanceCredential
+  /** 待开通实例的履约状态与最近失败原因（manual=需人工处理，如上游余额不足）。 */
+  provision_status?: string
+  provision_error?: string
 }
 
 /** 账期/付款周期调整请求（本地口径，不产生账单；对接商品需 force）。 */

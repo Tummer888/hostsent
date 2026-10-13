@@ -95,6 +95,10 @@ type InstanceService interface {
 	SetDetailRepository(repo repository.InstanceDetailRepository)
 	// SetDetailOrderConfigReader 注入订单选配读取（装配层调用；为 nil 时配置项退化为商品默认）。
 	SetDetailOrderConfigReader(fn func(ctx context.Context, orderID uint64) (string, error))
+	// RetryProvision 重新开通待开通实例：重投来源订单的履约任务（占位行专用）。
+	RetryProvision(ctx context.Context, op Operator, id uint64) (*dto.DetailInfo, error)
+	// SetProvisionRetry 注入「重新开通」执行者（装配层调用；为 nil 时该入口不可用）。
+	SetProvisionRetry(fn func(ctx context.Context, orderID uint64) error)
 	Operations(ctx context.Context, id uint64, query *dto.OperationListQuery) (*dto.OperationListResponse, error)
 	// OperationLogs 全局操作流水（跨实例审计视图）。
 	OperationLogs(ctx context.Context, query *dto.OperationLogQuery) (*dto.OperationLogListResponse, error)
@@ -115,6 +119,8 @@ type instanceService struct {
 	refundPolicy func(ctx context.Context) string
 	// eventListener 实例操作/阶段事件监听（P6/T6.5 开放平台回调经装配层注入，可为 nil）。
 	eventListener func(ctx context.Context, evt InstanceEvent)
+	// provisionRetry 实例维度「重新开通」（装配层注入：重投来源订单的履约任务），可为 nil。
+	provisionRetry func(ctx context.Context, orderID uint64) error
 }
 
 // InstanceEvent 实例操作事件：record() 与 RecordStageAction 收口后的对外通知载体。
@@ -147,6 +153,36 @@ func (s *instanceService) SetDetailRepository(repo repository.InstanceDetailRepo
 // SetDetailOrderConfigReader 注入订单选配读取（装配层调用）。
 func (s *instanceService) SetDetailOrderConfigReader(fn func(ctx context.Context, orderID uint64) (string, error)) {
 	s.detailOrderConfig = fn
+}
+
+// SetProvisionRetry 注入「重新开通」执行者（装配层调用：重投来源订单的履约任务）。
+func (s *instanceService) SetProvisionRetry(fn func(ctx context.Context, orderID uint64) error) {
+	s.provisionRetry = fn
+}
+
+// RetryProvision 重新开通：对待开通实例（占位行）重投来源订单的开通履约任务。
+//
+// 语义是"复用已生成的上游账单再支付"，不会重复下单（见 119 号文档的幂等修复）；
+// 人工队列（manual）的任务会被投递重置为 pending 并给足重试预算，因此上游充值后
+// 点一次即可完成开通。
+func (s *instanceService) RetryProvision(ctx context.Context, op Operator, id uint64) (*dto.DetailInfo, error) {
+	row, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, s.wrapNotFound(err)
+	}
+	if provisioned(row) {
+		return nil, fmt.Errorf("%w：实例已开通（上游实例号 %s）", ErrStatusConflict, row.ProviderInstanceID)
+	}
+	if s.provisionRetry == nil {
+		return nil, ErrProvisionRetryUnavailable
+	}
+	before := row.Status
+	if err := s.provisionRetry(ctx, row.OrderID); err != nil {
+		s.record(ctx, row, op, model.ActionProvisionRetry, nil, before, before, err)
+		return nil, err
+	}
+	s.record(ctx, row, op, model.ActionProvisionRetry, nil, before, string(pkgmodel.InstanceStatusCreating), nil)
+	return s.Detail(ctx, id, false)
 }
 
 // SetEventListener 注入实例操作事件监听（P6/T6.5）。
@@ -271,11 +307,47 @@ func (s *instanceService) Detail(ctx context.Context, id uint64, live bool) (*dt
 	item := s.toItem(row, defaultExpireWithinDays)
 	caps, capErr := s.capabilities(ctx, row.ProviderID)
 	detail := &dto.DetailInfo{InstanceItem: item, Capabilities: caps}
-	if capErr != nil {
+	// 待开通实例（占位行）：能力位整体关闭并给出原因，避免界面按钮能点但点了必失败。
+	if !provisioned(row) {
+		detail.Capabilities = dto.Capabilities{}
+		if capErr != nil {
+			detail.CapabilityError = capErr.Error()
+		}
+		if detail.CapabilityError == "" {
+			detail.CapabilityError = notProvisionedReason(row)
+		}
+	} else if capErr != nil {
 		detail.CapabilityError = capErr.Error()
 	}
 	s.attachDetailContext(ctx, row, detail)
+	// 待开通实例：带上履约状态与失败原因，运营/用户在详情页直接看到"为什么还没开通"。
+	if s.detail != nil && !provisioned(row) {
+		if status, lastErr, perr := s.detail.Provision(ctx, row.OrderID); perr == nil {
+			detail.ProvisionStatus = status
+			detail.ProvisionError = lastErr
+		}
+	}
 	return detail, nil
+}
+
+// provisioned 判断实例是否已在（上游/平台）开通：占位行 provider_instance_id 为空。
+func provisioned(row *repository.InstanceRow) bool {
+	return row != nil && row.ProviderInstanceID != ""
+}
+
+// notProvisionedReason 待开通实例的说明文案（含履约失败原因，如有）。
+func notProvisionedReason(row *repository.InstanceRow) string {
+	_ = row
+	return "实例尚未开通（待开通状态）：开通成功后可在此查看实时状态；若开通失败，原因见「来源订单」区块，修复后可点「重新开通」重试"
+}
+
+// ensureProvisioned 上游操作前置校验：待开通实例（无上游实例号）一律拒绝，
+// 给出可操作的说明而不是把空实例号发到上游换来一个费解的报错。
+func (s *instanceService) ensureProvisioned(row *repository.InstanceRow) error {
+	if provisioned(row) {
+		return nil
+	}
+	return ErrInstanceNotProvisioned
 }
 
 // attachDetailContext 补齐详情页的关联信息（订单/商品/上游/配置/凭证）。
@@ -296,12 +368,40 @@ func (s *instanceService) attachDetailContext(ctx context.Context, row *reposito
 	}
 	// 售出商品：自营取 sell_product_id；上游链路 sell_product_id 可能为空，
 	// 此时商品信息缺失属正常（该实例不是经我方商品开通的）。
-	if product, perr := s.detail.Product(ctx, row.SellProductID); perr == nil && product != nil {
+	// 商品行被删（重新导入/清理）时按订单快照兜底展示并标 Deleted，避免详情页
+	// 把"经我方商品开通、但商品已删"的实例误判成"非我方商品开通"。
+	product, perr := s.detail.Product(ctx, row.SellProductID)
+	if (perr != nil || product == nil) && detail.Order != nil && detail.Order.ProductID != 0 && detail.Order.ProductID != row.SellProductID {
+		product, _ = s.detail.Product(ctx, detail.Order.ProductID)
+	}
+	if product == nil && detail.Order != nil && detail.Order.ProductName != "" {
+		product = &dto.ProductInfo{ID: detail.Order.ProductID, Name: detail.Order.ProductName, Deleted: true}
+	}
+	if product != nil {
+		if product.Name == "" && detail.Order != nil {
+			product.Name = detail.Order.ProductName
+		}
 		detail.Product = product
 	}
-	// 上游商品：仅对接商品且绑定到 resource_products 时有值。
-	upstream, upstreamRenew, uerr := s.detail.Upstream(ctx, row.UpstreamProductID, row.BillingMode)
+	// 上游商品：优先实例绑定的镜像（upstream_product_id）；为空或镜像已删时
+	// 回落到售出商品记录的 source_product_id —— 两者本应指向同一行，
+	// 兜底可避免"对接商品有、上游商品空"的不对称展示。
+	resourceID := row.UpstreamProductID
+	if resourceID == 0 && detail.Product != nil {
+		resourceID = detail.Product.SourceProductID
+	}
+	upstream, upstreamRenew, uerr := s.detail.Upstream(ctx, resourceID, row.BillingMode)
+	if uerr == nil && upstream == nil && resourceID != 0 && resourceID != row.UpstreamProductID && row.UpstreamProductID != 0 {
+		// 实例绑定的镜像已被删除：再按售出商品记录的回退镜像试一次。
+		if detail.Product != nil && detail.Product.SourceProductID != 0 {
+			upstream, upstreamRenew, uerr = s.detail.Upstream(ctx, detail.Product.SourceProductID, row.BillingMode)
+		}
+	}
 	if uerr == nil && upstream != nil {
+		// 渠道一致性校准：镜像所属渠道与实例渠道不一致时显式标记（历史数据常见）。
+		if upstream.ProviderID != 0 && row.ProviderID != 0 && upstream.ProviderID != row.ProviderID {
+			upstream.ProviderMismatch = true
+		}
 		detail.Upstream = upstream
 	} else {
 		upstreamRenew = 0
@@ -443,6 +543,11 @@ func (s *instanceService) Power(ctx context.Context, op Operator, id uint64, act
 	if err != nil {
 		return s.wrapNotFound(err)
 	}
+	// 待开通实例（占位行）没有上游实例号：上游侧操作一律拒绝并给出可操作提示
+	// （能力位在 Detail 里已整体关闭，这里是接口层的兜底）。
+	if err := s.ensureProvisioned(row); err != nil {
+		return err
+	}
 
 	normalized, logAction, err := normalizeAction(action)
 	if err != nil {
@@ -511,6 +616,11 @@ func (s *instanceService) VNC(ctx context.Context, op Operator, id uint64) (*dto
 	if err != nil {
 		return nil, s.wrapNotFound(err)
 	}
+	// 待开通实例（占位行）没有上游实例号：上游侧操作一律拒绝并给出可操作提示
+	// （能力位在 Detail 里已整体关闭，这里是接口层的兜底）。
+	if err := s.ensureProvisioned(row); err != nil {
+		return nil, err
+	}
 	ctrl, err := s.control(ctx, row.ProviderID)
 	if err != nil {
 		s.record(ctx, row, op, model.ActionVNC, nil, row.Status, row.Status, err)
@@ -531,6 +641,12 @@ func (s *instanceService) Sync(ctx context.Context, op Operator, id uint64) (*dt
 		return nil, s.wrapNotFound(err)
 	}
 	before := row.Status
+	if !provisioned(row) {
+		// 待开通实例：上游还没有这台机器，回源无对象。给出可操作说明而不是把本地占位号
+		// 发到上游换回一个费解的报错（用户点「拉取信息」要的是"为什么还没有"）。
+		s.record(ctx, row, op, model.ActionSync, nil, before, before, ErrNothingToSync)
+		return nil, ErrNothingToSync
+	}
 	sErr := s.refreshUpstream(ctx, row)
 	after := before
 	if fresh, ferr := s.repo.FindByID(ctx, id); ferr == nil {
@@ -550,6 +666,11 @@ func (s *instanceService) Resize(ctx context.Context, op Operator, id uint64, re
 	row, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return s.wrapNotFound(err)
+	}
+	// 待开通实例（占位行）没有上游实例号：上游侧操作一律拒绝并给出可操作提示
+	// （能力位在 Detail 里已整体关闭，这里是接口层的兜底）。
+	if err := s.ensureProvisioned(row); err != nil {
+		return err
 	}
 	if req == nil {
 		return ErrInvalidAction
@@ -591,6 +712,11 @@ func (s *instanceService) Reinstall(ctx context.Context, op Operator, id uint64,
 	row, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, s.wrapNotFound(err)
+	}
+	// 待开通实例（占位行）没有上游实例号：上游侧操作一律拒绝并给出可操作提示
+	// （能力位在 Detail 里已整体关闭，这里是接口层的兜底）。
+	if err := s.ensureProvisioned(row); err != nil {
+		return nil, err
 	}
 	if req == nil || strings.TrimSpace(req.OS) == "" {
 		return nil, fmt.Errorf("%w: 请选择目标镜像", ErrInvalidAction)
@@ -644,6 +770,11 @@ func (s *instanceService) ResetPassword(ctx context.Context, op Operator, id uin
 	if err != nil {
 		return s.wrapNotFound(err)
 	}
+	// 待开通实例（占位行）没有上游实例号：上游侧操作一律拒绝并给出可操作提示
+	// （能力位在 Detail 里已整体关闭，这里是接口层的兜底）。
+	if err := s.ensureProvisioned(row); err != nil {
+		return err
+	}
 	if req == nil || strings.TrimSpace(req.Password) == "" {
 		return fmt.Errorf("%w: 新密码不能为空", ErrInvalidAction)
 	}
@@ -672,6 +803,11 @@ func (s *instanceService) Rescue(ctx context.Context, op Operator, id uint64, re
 	if err != nil {
 		return s.wrapNotFound(err)
 	}
+	// 待开通实例（占位行）没有上游实例号：上游侧操作一律拒绝并给出可操作提示
+	// （能力位在 Detail 里已整体关闭，这里是接口层的兜底）。
+	if err := s.ensureProvisioned(row); err != nil {
+		return err
+	}
 	if req == nil || req.System == 0 || strings.TrimSpace(req.TempPassword) == "" {
 		return fmt.Errorf("%w: 请选择救援系统类型并填写临时密码", ErrInvalidAction)
 	}
@@ -699,6 +835,11 @@ func (s *instanceService) ExitRescue(ctx context.Context, op Operator, id uint64
 	if err != nil {
 		return s.wrapNotFound(err)
 	}
+	// 待开通实例（占位行）没有上游实例号：上游侧操作一律拒绝并给出可操作提示
+	// （能力位在 Detail 里已整体关闭，这里是接口层的兜底）。
+	if err := s.ensureProvisioned(row); err != nil {
+		return err
+	}
 	rescuer, err := s.rescuer(ctx, row.ProviderID)
 	if err != nil {
 		s.record(ctx, row, op, model.ActionExitRescue, nil, row.Status, row.Status, err)
@@ -718,6 +859,11 @@ func (s *instanceService) Snapshots(ctx context.Context, id uint64, snapshotType
 	row, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, s.wrapNotFound(err)
+	}
+	// 待开通实例（占位行）没有上游实例号：上游侧操作一律拒绝并给出可操作提示
+	// （能力位在 Detail 里已整体关闭，这里是接口层的兜底）。
+	if err := s.ensureProvisioned(row); err != nil {
+		return nil, err
 	}
 	snapshotter, err := s.snapshotter(ctx, row.ProviderID)
 	if err != nil {
@@ -742,6 +888,11 @@ func (s *instanceService) CreateSnapshot(ctx context.Context, op Operator, id ui
 	row, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return s.wrapNotFound(err)
+	}
+	// 待开通实例（占位行）没有上游实例号：上游侧操作一律拒绝并给出可操作提示
+	// （能力位在 Detail 里已整体关闭，这里是接口层的兜底）。
+	if err := s.ensureProvisioned(row); err != nil {
+		return err
 	}
 	if req == nil {
 		req = &dto.SnapshotCreateRequest{}
@@ -789,6 +940,11 @@ func (s *instanceService) DeleteSnapshot(ctx context.Context, op Operator, id ui
 	if err != nil {
 		return s.wrapNotFound(err)
 	}
+	// 待开通实例（占位行）没有上游实例号：上游侧操作一律拒绝并给出可操作提示
+	// （能力位在 Detail 里已整体关闭，这里是接口层的兜底）。
+	if err := s.ensureProvisioned(row); err != nil {
+		return err
+	}
 	if strings.TrimSpace(snapshotID) == "" {
 		return fmt.Errorf("%w: 缺少快照 ID", ErrInvalidAction)
 	}
@@ -812,6 +968,11 @@ func (s *instanceService) RestoreSnapshot(ctx context.Context, op Operator, id u
 	row, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return s.wrapNotFound(err)
+	}
+	// 待开通实例（占位行）没有上游实例号：上游侧操作一律拒绝并给出可操作提示
+	// （能力位在 Detail 里已整体关闭，这里是接口层的兜底）。
+	if err := s.ensureProvisioned(row); err != nil {
+		return err
 	}
 	if req == nil || strings.TrimSpace(req.SnapshotID) == "" {
 		return fmt.Errorf("%w: 缺少快照 ID", ErrInvalidAction)
@@ -840,6 +1001,11 @@ func (s *instanceService) SetBandwidth(ctx context.Context, op Operator, id uint
 	row, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return s.wrapNotFound(err)
+	}
+	// 待开通实例（占位行）没有上游实例号：上游侧操作一律拒绝并给出可操作提示
+	// （能力位在 Detail 里已整体关闭，这里是接口层的兜底）。
+	if err := s.ensureProvisioned(row); err != nil {
+		return err
 	}
 	if req == nil || (req.InBw <= 0 && req.OutBw <= 0) {
 		return fmt.Errorf("%w: 至少需要一个方向的带宽值", ErrInvalidAction)
@@ -871,6 +1037,11 @@ func (s *instanceService) AddIP(ctx context.Context, op Operator, id uint64, req
 	row, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return s.wrapNotFound(err)
+	}
+	// 待开通实例（占位行）没有上游实例号：上游侧操作一律拒绝并给出可操作提示
+	// （能力位在 Detail 里已整体关闭，这里是接口层的兜底）。
+	if err := s.ensureProvisioned(row); err != nil {
+		return err
 	}
 	if req == nil || req.Num <= 0 {
 		return fmt.Errorf("%w: 数量必须大于 0", ErrInvalidAction)
@@ -905,6 +1076,11 @@ func (s *instanceService) AttachDataDisk(ctx context.Context, op Operator, id ui
 	row, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return s.wrapNotFound(err)
+	}
+	// 待开通实例（占位行）没有上游实例号：上游侧操作一律拒绝并给出可操作提示
+	// （能力位在 Detail 里已整体关闭，这里是接口层的兜底）。
+	if err := s.ensureProvisioned(row); err != nil {
+		return err
 	}
 	if req == nil || req.SizeGB <= 0 {
 		return fmt.Errorf("%w: 数据盘大小必须大于 0", ErrInvalidAction)
@@ -994,6 +1170,11 @@ func (s *instanceService) AdjustBilling(ctx context.Context, op Operator, id uin
 	row, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, s.wrapNotFound(err)
+	}
+	// 待开通实例（占位行）没有上游实例号：上游侧操作一律拒绝并给出可操作提示
+	// （能力位在 Detail 里已整体关闭，这里是接口层的兜底）。
+	if err := s.ensureProvisioned(row); err != nil {
+		return nil, err
 	}
 	if req == nil {
 		return nil, ErrBillingAdjustInvalid
@@ -1091,6 +1272,11 @@ func (s *instanceService) Destroy(ctx context.Context, op Operator, id uint64, r
 	if err != nil {
 		return s.wrapNotFound(err)
 	}
+	// 待开通实例（占位行）没有上游实例号：上游侧操作一律拒绝并给出可操作提示
+	// （能力位在 Detail 里已整体关闭，这里是接口层的兜底）。
+	if err := s.ensureProvisioned(row); err != nil {
+		return err
+	}
 	if req == nil {
 		return ErrPermissionDenied
 	}
@@ -1135,6 +1321,11 @@ func (s *instanceService) Suspend(ctx context.Context, op Operator, id uint64, r
 	if err != nil {
 		return s.wrapNotFound(err)
 	}
+	// 待开通实例（占位行）没有上游实例号：上游侧操作一律拒绝并给出可操作提示
+	// （能力位在 Detail 里已整体关闭，这里是接口层的兜底）。
+	if err := s.ensureProvisioned(row); err != nil {
+		return err
+	}
 	before := row.Status
 	params := map[string]any{"reason": reason}
 	provider, err := s.buildProvider(ctx, row.ProviderID)
@@ -1163,6 +1354,11 @@ func (s *instanceService) Unsuspend(ctx context.Context, op Operator, id uint64)
 	row, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return s.wrapNotFound(err)
+	}
+	// 待开通实例（占位行）没有上游实例号：上游侧操作一律拒绝并给出可操作提示
+	// （能力位在 Detail 里已整体关闭，这里是接口层的兜底）。
+	if err := s.ensureProvisioned(row); err != nil {
+		return err
 	}
 	before := row.Status
 	provider, err := s.buildProvider(ctx, row.ProviderID)
@@ -1542,6 +1738,7 @@ func (s *instanceService) toItem(row *repository.InstanceRow, withinDays int) dt
 		SellProductID:      row.SellProductID,
 		UpstreamProductID:  row.UpstreamProductID,
 		ProviderInstanceID: row.ProviderInstanceID,
+		Pending:            row.ProviderInstanceID == "",
 		LifecycleStage:     row.LifecycleStage,
 		Name:               row.Name,
 		CPU:                row.CPU,

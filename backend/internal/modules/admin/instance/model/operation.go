@@ -24,11 +24,13 @@ const (
 	ActionHardReboot = "hard_reboot"
 	ActionVNC        = "vnc"
 	ActionSync       = "sync"
-	ActionResize     = "resize"
-	ActionDestroy    = "destroy"
-	ActionRemark     = "remark"
-	ActionSuspend    = "suspend"
-	ActionUnsuspend  = "unsuspend"
+	// ActionProvisionRetry 重新开通：对待开通实例（占位行）重投来源订单的履约任务。
+	ActionProvisionRetry = "provision_retry"
+	ActionResize         = "resize"
+	ActionDestroy        = "destroy"
+	ActionRemark         = "remark"
+	ActionSuspend        = "suspend"
+	ActionUnsuspend      = "unsuspend"
 	// 维护类动作（平台接口实测存在，映射见 dcimcloud/provider.go 头部注释）。
 	ActionReinstall     = "reinstall"      // 重装系统（可换镜像）
 	ActionResetPassword = "reset_password" // 重置登录密码

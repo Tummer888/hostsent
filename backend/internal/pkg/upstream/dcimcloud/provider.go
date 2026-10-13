@@ -75,6 +75,8 @@ func init() {
 			// 维护类（实测面板接口均存在）：重装 / 重置密码 / 救援 / 快照备份 / 硬件变更。
 			upstream.OpReinstall, upstream.OpResetPassword, upstream.OpRescue, upstream.OpSnapshot,
 			upstream.OpBandwidth, upstream.OpAddIP, upstream.OpAttachDisk,
+			// 性能监控读数（只读）：GET /statistics（CPU/内存/磁盘IO/网卡），hyperv 类型除外。
+			upstream.OpMetrics,
 		},
 		RenewMode:   upstream.RenewModeNone, // 续费为本地账期 + 平台延期，尚未提供独立续费接口
 		DestroyMode: upstream.DestroyModeImmediate,

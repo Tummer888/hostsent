@@ -136,6 +136,53 @@ func TestHostHeaderAssignedIPs(t *testing.T) {
 		t.Fatalf("string assignedips mismatch, got %q", b.HostData.AssignedIPs)
 	}
 }
+
+// TestHostHeaderFlexibleNumbers 回归（实测故障：「开通后点同步刷新」必报
+// `解析上游响应 data 失败: json: cannot unmarshal number into Go struct field
+// .host_data.port of type string`）：
+//
+// 上游 host.port 是 int(11)，空值发 0/null、非空发数字；upstream_cost 同样可能是
+// 数字或字符串。任一个字段类型不符都会让**整段 host_data 解析失败**，
+// 于是回源刷新报错、开通时的详情拉取也会静默退化（只剩最小实例）。
+// 这里把三种下发形态固定为回归：数字、字符串、null。
+func TestHostHeaderFlexibleNumbers(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want int64
+	}{
+		{"端口为数字（上游常态）", `{"host_data":{"id":1934,"port":22,"upstream_cost":12.5}}`, 22},
+		{"端口为字符串（个别版本）", `{"host_data":{"id":1935,"port":"2222","upstream_cost":"8"}}`, 2222},
+		{"端口为 null/0（未开放）", `{"host_data":{"id":1936,"port":null,"upstream_cost":null}}`, 0},
+		{"端口为 0", `{"host_data":{"id":1937,"port":0}}`, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var h HostHeader
+			if err := json.Unmarshal([]byte(c.body), &h); err != nil {
+				t.Fatalf("host_data 解析失败（一个字段类型不符就整段报废）: %v", err)
+			}
+			if got := h.HostData.Port.Int(); got != c.want {
+				t.Fatalf("port = %d, want %d", got, c.want)
+			}
+			if got := h.HostData.UpstreamCost; c.want == 22 && float64(got) != 12.5 {
+				t.Fatalf("upstream_cost = %v, want 12.5", got)
+			}
+			if got := h.HostData.UpstreamCost; c.want == 2222 && float64(got) != 8 {
+				t.Fatalf("upstream_cost = %v, want 8（字符串形态）", got)
+			}
+		})
+	}
+
+	// 端口归一：0/非法一律不落库为端口 0（详情页显示「—」而不是「0」）。
+	if got := portString(FlexNumber(0)); got != "" {
+		t.Fatalf("portString(0) = %q, want 空串", got)
+	}
+	if got := portString(FlexNumber(22)); got != "22" {
+		t.Fatalf("portString(22) = %q, want \"22\"", got)
+	}
+}
+
 // TestSafeHostnamePadsToMinimum 短商品名必须补足到上游要求的最小长度（10 位）。
 //
 // 上游按「主机名长度至少10位」校验；商品名短（如「4核4G」规范化后只有 4 位）时

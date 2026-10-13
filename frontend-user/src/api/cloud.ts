@@ -2,6 +2,22 @@ import request from '@/utils/request'
 
 // 用户中心 · 云主机管理接口（baseURL=/api/v1，路径为 /api/v1/uc/instances/*）
 
+/** 电源操作可用动作。 */
+export type PowerAction = 'on' | 'off' | 'reboot' | 'hard_off' | 'hard_reboot'
+
+/** 实例可用操作能力位（由上游能力推导，前端据此置灰按钮）。 */
+export interface InstanceCapabilities {
+  power: boolean
+  console: boolean
+  reinstall: boolean
+  reset_password: boolean
+  rescue: boolean
+  snapshot: boolean
+  destroy: boolean
+  /** 是否提供性能监控图表（CPU/内存/磁盘/网卡）。 */
+  metrics: boolean
+}
+
 export interface InstanceInfo {
   id: number
   instance_id: string
@@ -24,14 +40,40 @@ export interface InstanceInfo {
   /** 开通该实例的真实操作人（子账号下单时有值，P4-09） */
   actor_user_id: number
   actor_name: string
+  /** 来源订单；provider_instance_id 为空表示尚未在上游开通（待开通）。 */
+  order_id: number
+  provider_instance_id: string
+  pending: boolean
+  /** 待开通实例的履约状态与最近失败原因（manual=需人工处理，如上游余额不足）。 */
+  provision_status?: string
+  provision_error?: string
   expire_at: string
+  /** 生命周期阶段：active/grace/suspended/destroyed（与状态是两个维度）。 */
+  lifecycle_stage: string
+  /** 到期状态：none/expiring/expired/normal（读时计算）。 */
+  expire_state: string
+  /** 距到期天数（负数表示已过期天数）。 */
+  days_left: number
   created_at: string
   updated_at: string
+  capabilities?: InstanceCapabilities
+}
+
+/** 列表汇总（服务端与 items 同口径统计，前端不自己数）。 */
+export interface InstanceListSummary {
+  total: number
+  running: number
+  stopped: number
+  creating: number
+  expiring: number
+  expired: number
+  destroyed: number
 }
 
 export interface InstanceListResponse {
   items: InstanceInfo[]
   total: number
+  summary: InstanceListSummary
 }
 
 export interface VNCResult {
@@ -47,8 +89,13 @@ export function getInstance(id: number, live = false) {
   return request.get<any, { data: InstanceInfo }>(`/uc/instances/${id}`, { params: { live } })
 }
 
-export function powerInstance(id: number, action: 'on' | 'off' | 'reboot' | 'hard_off' | 'hard_reboot') {
+export function powerInstance(id: number, action: PowerAction) {
   return request.post<any, { data: unknown }>(`/uc/instances/${id}/power`, { action })
+}
+
+/** 重新开通待开通实例（重投订单履约任务；不产生新订单/新账单）。 */
+export function retryInstanceProvision(id: number) {
+  return request.post<any, { data: InstanceInfo }>(`/uc/instances/${id}/provision-retry`)
 }
 
 export function vncInstance(id: number) {
@@ -145,4 +192,74 @@ export function restoreInstanceSnapshot(id: number, snapshotId: string, confirmM
     { snapshot_id: snapshotId, confirm_mark: confirmMark },
     { headers: verifyTicket ? { 'X-Verify-Ticket': verifyTicket } : undefined },
   )
+}
+
+// ---- 只读运维可见性：操作流水 + 性能监控 ----
+
+/** 实例操作流水项（用户可见的只读审计，不含内部参数）。 */
+export interface InstanceOperation {
+  id: number
+  action: string
+  operator_type: string // admin/user/system
+  operator_name: string
+  result: string // success/failed/skipped
+  error_message?: string
+  created_at: string
+}
+
+export function listInstanceOperations(id: number, limit = 20) {
+  return request.get<any, { data: InstanceOperation[] }>(`/uc/instances/${id}/operations`, {
+    params: { limit },
+  })
+}
+
+/** 监控图表目录；supported=false 时 reason 说明原因（前端显示说明区块）。 */
+export interface MetricsCatalog {
+  supported: boolean
+  reason?: string
+  charts: MetricsChartInfo[]
+}
+
+export interface MetricsChartInfo {
+  /** 平台原生图表标识：请求 series 时必须原样回传（财务型上游会透传，如 flow）。 */
+  type: string
+  /** 归一化语义：cpu/memory/disk/network（仅用于配色/图标，可能等于 type）。 */
+  kind: string
+  title: string
+  select?: MetricsChartOption[]
+}
+
+export interface MetricsChartOption {
+  label: string
+  value: string
+}
+
+export interface MetricsPoint {
+  time: string
+  value: number
+}
+
+export interface MetricsSeries {
+  type: string
+  unit: string
+  /** area / line / bar */
+  chart_type: string
+  /** 与 list 一一对应的曲线名。 */
+  label: string[]
+  /** list[i] 是 label[i] 的采样点。 */
+  list: MetricsPoint[][]
+}
+
+export function getInstanceMetricsCatalog(id: number) {
+  return request.get<any, { data: MetricsCatalog }>(`/uc/instances/${id}/metrics`)
+}
+
+/** 时间窗预设：1h/6h/24h/7d（后端默认 6h）。 */
+export type MetricsRange = '1h' | '6h' | '24h' | '7d'
+
+export function getInstanceMetricsSeries(
+  id: number,
+  params: { type: string; select?: string; range?: MetricsRange },
+) {
+  return request.get<any, { data: MetricsSeries }>(`/uc/instances/${id}/metrics/series`, { params })
 }

@@ -24,9 +24,41 @@ type InstanceInfo struct {
 	// ActorID/ActorName 开通该实例的真实操作人（子账号下单可见，P4-09）
 	ActorID   uint64 `json:"actor_user_id"`
 	ActorName string `json:"actor_name"`
-	ExpireAt  string `json:"expire_at"`
+	// OrderID 来源订单；ProviderInstanceID 为空表示尚未在上游开通（待开通占位行），
+	// 前端据此显示「待开通」并只开放「重新开通」动作。
+	OrderID            uint64 `json:"order_id"`
+	ProviderInstanceID string `json:"provider_instance_id"`
+	Pending            bool   `json:"pending"`
+	// ProvisionStatus/ProvisionError 待开通实例的履约状态与最近失败原因
+	// （pending/running/success/failed/manual；manual=需人工，如上游余额不足）。
+	ProvisionStatus string `json:"provision_status,omitempty"`
+	ProvisionError  string `json:"provision_error,omitempty"`
+	ExpireAt        string `json:"expire_at"`
+	// LifecycleStage 生命周期阶段（active/grace/suspended/destroyed）。
+	// 与服务状态是两个维度：暂停的机器 status 仍是 stopped，只有阶段能说明
+	// 「为什么被停」（到期处置 vs 用户自己关机）。列表/详情的状态徽标据此合成。
+	LifecycleStage string `json:"lifecycle_stage"`
+	// ExpireState 到期状态（none/expiring/expired/normal），读时计算。
+	ExpireState string `json:"expire_state"`
+	// DaysLeft 距到期天数（负数表示已过期天数）；未设置到期时间为 0。
+	DaysLeft  int    `json:"days_left"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
+	// Capabilities 当前实例可用的操作（按上游能力推导；待开通实例全为 false）。
+	Capabilities Capabilities `json:"capabilities"`
+}
+
+// Capabilities 实例可用操作能力位（前端据此置灰按钮，避免"能点但点了报错"）。
+type Capabilities struct {
+	Power         bool `json:"power"`
+	Console       bool `json:"console"`
+	Reinstall     bool `json:"reinstall"`
+	ResetPassword bool `json:"reset_password"`
+	Rescue        bool `json:"rescue"`
+	Snapshot      bool `json:"snapshot"`
+	Destroy       bool `json:"destroy"`
+	// Metrics 是否提供性能监控（CPU/内存/磁盘/网卡图表）。
+	Metrics bool `json:"metrics"`
 }
 
 // ListQuery 我的主机查询。
@@ -34,10 +66,88 @@ type ListQuery struct {
 	Live bool `form:"live" json:"live"` // 是否刷新上游实时状态
 }
 
+// ListSummary 列表汇总（前端卡片统计用；与 items 同一次查询算出，不额外打库）。
+type ListSummary struct {
+	Total     int `json:"total"`
+	Running   int `json:"running"`
+	Stopped   int `json:"stopped"`
+	Creating  int `json:"creating"`
+	Expiring  int `json:"expiring"`
+	Expired   int `json:"expired"`
+	Destroyed int `json:"destroyed"`
+}
+
 // ListResponse 我的主机列表响应。
 type ListResponse struct {
-	Items []InstanceInfo `json:"items"`
-	Total int64          `json:"total"`
+	Items   []InstanceInfo `json:"items"`
+	Total   int64          `json:"total"`
+	Summary ListSummary    `json:"summary"`
+}
+
+// MetricsCatalogResponse 监控图表目录。
+//
+// Supported=false 表示当前实例所在平台不提供监控（或实例尚未开通）：
+// 前端据此显示说明文案，而不是画一张永远没有数据的空图。
+type MetricsCatalogResponse struct {
+	Supported bool               `json:"supported"`
+	Reason    string             `json:"reason,omitempty"`
+	Charts    []MetricsChartInfo `json:"charts"`
+}
+
+// MetricsChartInfo 单项图表描述。
+//
+// Type 是平台原生标识：前端必须原样回传给 /metrics/series 的 type 参数
+// （财务型上游会把它透传给上游模块，如 flow）。Kind 是归一化语义
+// （cpu/memory/disk/network），仅用于前端配色与图标选择。
+type MetricsChartInfo struct {
+	Type   string               `json:"type"`
+	Kind   string               `json:"kind"`
+	Title  string               `json:"title"`
+	Select []MetricsChartOption `json:"select,omitempty"`
+}
+
+// MetricsChartOption 图表子项（如磁盘设备名）。
+type MetricsChartOption struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
+// MetricsQuery 监控数据查询（毫秒时间戳）。
+type MetricsQuery struct {
+	Type   string `form:"type" json:"type"`
+	Select string `form:"select" json:"select"`
+	Start  int64  `form:"start" json:"start"`
+	End    int64  `form:"end" json:"end"`
+	// Range 预设时间窗（1h/6h/24h/7d），未显式给 start/end 时按它推算。
+	Range string `form:"range" json:"range"`
+}
+
+// MetricsSeries 监控时间序列（已由适配器归一化单位与曲线）。
+type MetricsSeries struct {
+	Type      string           `json:"type"`
+	Unit      string           `json:"unit"`
+	ChartType string           `json:"chart_type"`
+	Label     []string         `json:"label"`
+	List      [][]MetricsPoint `json:"list"`
+}
+
+// MetricsPoint 采样点。
+type MetricsPoint struct {
+	Time  string  `json:"time"`
+	Value float64 `json:"value"`
+}
+
+// OperationEntry 实例操作流水项（用户可见的只读审计）。
+//
+// 不含 Params 与上游原文：前者可能带内部参数，后者是运营排障信息。
+type OperationEntry struct {
+	ID           uint64 `json:"id"`
+	Action       string `json:"action"`
+	OperatorType string `json:"operator_type"` // admin/user/system
+	OperatorName string `json:"operator_name"`
+	Result       string `json:"result"` // success/failed/skipped
+	ErrorMessage string `json:"error_message,omitempty"`
+	CreatedAt    string `json:"created_at"`
 }
 
 // PowerRequest 电源操作请求。

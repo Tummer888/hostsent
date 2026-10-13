@@ -44,10 +44,22 @@
           </template>
           刷新
         </t-button>
-        <t-button v-permission="'instance:action'" variant="outline" :loading="syncing" @click="handleSync">
+        <!-- 待开通实例：唯一可做的是「重新开通」（重投订单履约，不产生新订单/新账单），
+             同步/电源/控制台等上游动作没有对象，隐藏而不是点了报错。 -->
+        <t-button
+          v-if="isPending"
+          v-permission="'instance:action'"
+          theme="primary"
+          :loading="retrying"
+          @click="handleRetryProvision"
+        >
+          重新开通
+        </t-button>
+        <t-button v-else v-permission="'instance:action'" variant="outline" :loading="syncing" @click="handleSync">
           同步刷新
         </t-button>
         <t-button
+          v-if="!isPending"
           v-permission="'instance:console'"
           variant="outline"
           :disabled="consoleDisabled"
@@ -87,7 +99,13 @@
     </header>
 
     <t-alert
-      v-if="instanceData?.capability_error"
+      v-if="isPending"
+      theme="error"
+      :title="provisionAlertTitle"
+      :message="provisionAlertMessage"
+    />
+    <t-alert
+      v-else-if="instanceData?.capability_error"
       theme="warning"
       :message="`部分操作不可用：${instanceData.capability_error}`"
     />
@@ -232,11 +250,25 @@
                   </t-link>
                 </div>
                 <template v-if="instanceData?.product">
-                  <div class="kv-row"><span class="kv-row__k">商品名称</span><span class="kv-row__v">{{ instanceData.product.name }}</span></div>
+                  <div class="kv-row">
+                    <span class="kv-row__k">商品名称</span>
+                    <span class="kv-row__v">
+                      {{ instanceData.product.name }}
+                      <t-tag v-if="instanceData.product.deleted" theme="danger" variant="light-outline" size="small">商品已删除</t-tag>
+                    </span>
+                  </div>
                   <div class="kv-row"><span class="kv-row__k">商品编码</span><span class="kv-row__v">{{ instanceData.product.code || '—' }}</span></div>
                   <div class="kv-row"><span class="kv-row__k">对接模式</span><span class="kv-row__v">{{ productSourceModeLabel(instanceData.product.source_mode) }}</span></div>
                   <div class="kv-row"><span class="kv-row__k">对接渠道</span><span class="kv-row__v">{{ instanceData.product.source_provider_name || '—' }}<span v-if="instanceData.product.provider_type" class="cell-sub">（{{ providerTypeLabel(instanceData.product.provider_type) }}）</span></span></div>
-                  <div class="kv-row"><span class="kv-row__k">上游商品 ID</span><span class="kv-row__v">{{ instanceData.product.source_product_id || '—' }}</span></div>
+                  <!-- 这一格是本地镜像行的主键（resource_products.id），不是上游的 pid；
+                       上游 pid 在「上游商品」卡里。两处都叫"上游商品 ID"会误导对接排查。 -->
+                  <div class="kv-row">
+                    <span class="kv-row__k">本地镜像商品 ID</span>
+                    <span class="kv-row__v">
+                      {{ instanceData.product.source_product_id || '—' }}
+                      <span v-if="instanceData.upstream" class="cell-sub">→ 上游商品 #{{ instanceData.upstream.upstream_id }}</span>
+                    </span>
+                  </div>
                   <div class="kv-row"><span class="kv-row__k">商品售价</span><span class="kv-row__v">¥{{ formatPrice(instanceData.product.price) }}</span></div>
                   <div class="kv-row"><span class="kv-row__k">商品成本</span><span class="kv-row__v">¥{{ formatPrice(instanceData.product.cost_price) }}</span></div>
                   <div class="kv-row"><span class="kv-row__k">加价规则</span><span class="kv-row__v">{{ markupLabel(instanceData.product) }}</span></div>
@@ -244,7 +276,12 @@
                   <div class="kv-row"><span class="kv-row__k">续费成本</span><span class="kv-row__v">¥{{ formatPrice(instanceData.order?.renew_cost ?? 0) }}</span></div>
                   <div class="kv-row"><span class="kv-row__k">商品状态</span><span class="kv-row__v">{{ instanceData.product.status === 1 ? '上架' : '下架' }}</span></div>
                 </template>
-                <t-empty v-else description="该实例非经我方商品开通" />
+                <t-empty
+                  v-else
+                  :description="instanceData?.source_mode === 'upstream'
+                    ? '未找到售出商品记录（上游同步发现的实例，或商品行已删除）'
+                    : '该实例非经我方商品开通'"
+                />
               </div>
 
               <div class="info-card">
@@ -255,8 +292,14 @@
                   </t-tag>
                 </div>
                 <template v-if="instanceData?.upstream">
+                  <t-alert
+                    v-if="instanceData.upstream.provider_mismatch"
+                    theme="warning"
+                    :message="`该镜像所属渠道（${instanceData.upstream.provider_name || `#${instanceData.upstream.provider_id}`}）与实例渠道不一致：多为历史数据/重新导入遗留，开通与续费请以实例渠道为准`"
+                  />
                   <div class="kv-row"><span class="kv-row__k">上游名称</span><span class="kv-row__v">{{ instanceData.upstream.name }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">上游商品 ID</span><span class="kv-row__v">{{ instanceData.upstream.upstream_id || '—' }}</span></div>
+                  <div class="kv-row"><span class="kv-row__k">上游商品 ID（上游侧）</span><span class="kv-row__v">{{ instanceData.upstream.upstream_id || '—' }}<span class="cell-sub">（本地镜像 #{{ instanceData.upstream.resource_product_id }}）</span></span></div>
+                  <div class="kv-row"><span class="kv-row__k">所属渠道</span><span class="kv-row__v">{{ instanceData.upstream.provider_name || '—' }}</span></div>
                   <div class="kv-row"><span class="kv-row__k">所属分组</span><span class="kv-row__v">{{ instanceData.upstream.group_name || '—' }}</span></div>
                   <div class="kv-row"><span class="kv-row__k">上游标价</span><span class="kv-row__v">¥{{ formatPrice(instanceData.upstream.list_price) }}{{ instanceData.upstream.pay_type === 'recurring' ? ' / 周期' : '' }}</span></div>
                   <div class="kv-row"><span class="kv-row__k">采购价</span><span class="kv-row__v">¥{{ formatPrice(instanceData.upstream.cost_price) }}</span></div>
@@ -273,7 +316,12 @@
                     </div>
                   </div>
                 </template>
-                <t-empty v-else description="非对接商品，无上游信息" />
+                <t-empty
+                  v-else
+                  :description="instanceData?.product?.source_mode === 'upstream'
+                    ? '对接商品的本地镜像已不存在（重新导入/清理后常见）：价格与对接信息无法回溯'
+                    : '非对接商品，无上游信息'"
+                />
               </div>
             </div>
           </div>
@@ -908,6 +956,7 @@ import {
   resizeInstance,
   rescueInstance,
   restoreInstanceSnapshot,
+  retryInstanceProvision,
   revealInstanceCredential,
   suspendInstance,
   syncInstance,
@@ -1039,6 +1088,7 @@ const headlineState = computed(() =>
     status: instanceData.value?.status || '',
     lifecycle_stage: instanceData.value?.lifecycle_stage,
     expire_state: instanceData.value?.expire_state,
+    pending: isPending.value,
   }),
 )
 
@@ -1285,7 +1335,39 @@ const powerOptions = computed(() => {
   return opts
 })
 
-const powerGroupDisabled = computed(() => !instanceData.value?.capabilities?.power)
+// 待开通（尚未在上游开通的占位行）：只开放「重新开通」。
+const isPending = computed(() => !!instanceData.value && !instanceData.value.provider_instance_id)
+const retrying = ref(false)
+
+// 开通失败横幅：manual=上游已明确拒绝（如余额不足），重试无效需人工；failed=系统自动重试中。
+const provisionAlertTitle = computed(() => {
+  if (instanceData.value?.provision_status === 'manual') return '开通失败，需人工处理'
+  if (instanceData.value?.provision_status === 'failed') return '开通失败，系统自动重试中'
+  return '实例待开通'
+})
+const provisionAlertMessage = computed(() => {
+  const reason = instanceData.value?.provision_error
+  if (reason) {
+    return `上游返回：${reason}。处理后可点右上角「重新开通」—— 重试会复用已生成的上游账单，不会重复下单。`
+  }
+  return '该实例尚未在上游开通（订单未支付或开通中）。未支付订单超出支付有效期会自动关单并删除本实例；已支付但开通失败的可在修复后点「重新开通」。'
+})
+
+async function handleRetryProvision() {
+  if (!instanceData.value) return
+  retrying.value = true
+  try {
+    await retryInstanceProvision(instanceData.value.id)
+    MessagePlugin.success('已重新提交开通，稍后刷新查看状态')
+    reloadAll()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '重新开通失败')
+  } finally {
+    retrying.value = false
+  }
+}
+
+const powerGroupDisabled = computed(() => isPending.value || !instanceData.value?.capabilities?.power)
 
 function onPowerPick(data: { value: string; disabled?: boolean }) {
   if (data.disabled) {
@@ -1322,7 +1404,7 @@ const maintenanceOptions = computed(() => {
   return opts
 })
 
-const maintenanceDisabled = computed(() => maintenanceOptions.value.length === 0)
+const maintenanceDisabled = computed(() => isPending.value || maintenanceOptions.value.length === 0)
 
 function onMaintenancePick(data: { value: string; disabled?: boolean }) {
   if (data.disabled) {
@@ -1417,7 +1499,7 @@ const dangerOptions = computed(() => {
   return opts
 })
 
-const dangerDisabled = computed(() => dangerOptions.value.length === 0)
+const dangerDisabled = computed(() => isPending.value || dangerOptions.value.length === 0)
 
 function onDangerPick(data: { value: string; disabled?: boolean }) {
   if (data.disabled) {

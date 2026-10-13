@@ -43,6 +43,10 @@ func (a *asm) buildInstanceOps() {
 	// 用户侧维护类自助（重装/重置密码/救援/快照）：同样委派运维台。
 	// 归属校验在 UC 侧用带 user_id 的查询完成，委派后复用运维台的能力分派与操作流水。
 	a.ucInstanceService.SetOperator(a.instanceOpsService)
+	// 实例维度「重新开通」（占位/未开通实例）：重投来源订单的履约任务，
+	// 上游充值后点一次即可复用已生成账单完成开通。管理端与用户中心共用同一实现。
+	a.instanceOpsService.SetProvisionRetry(a.buildInstanceProvisionRetry())
+	a.ucInstanceService.SetProvisionRetry(a.buildInstanceProvisionRetry())
 	// 实例操作事件（P6/T6.5）：电源/暂停恢复/阶段推进 → instance.status_changed。
 	a.instanceOpsService.SetEventListener(buildInstanceEventListener(a.openEventPublisher))
 	// 退款后实例处置策略（doc61 §8 第 2 条）：读 lifecycle_policies.refund_action，

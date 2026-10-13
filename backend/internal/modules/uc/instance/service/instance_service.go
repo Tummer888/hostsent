@@ -70,10 +70,20 @@ type InstanceService interface {
 	CreateSnapshot(ctx context.Context, userID, actorID uint64, actorName string, id uint64, req *dto.SnapshotCreateRequest) error
 	DeleteSnapshot(ctx context.Context, userID, actorID uint64, actorName string, id uint64, snapshotID string) error
 	RestoreSnapshot(ctx context.Context, userID, actorID uint64, actorName string, id uint64, req *dto.SnapshotRestoreRequest) error
+	// Operations 实例操作流水（用户可见的只读审计）。
+	Operations(ctx context.Context, userID, id uint64, limit int) ([]dto.OperationEntry, error)
+	// MetricsCatalog 监控图表目录；Supported=false 表示平台不提供监控。
+	MetricsCatalog(ctx context.Context, userID, id uint64) (*dto.MetricsCatalogResponse, error)
+	// Metrics 查询单项监控序列。
+	Metrics(ctx context.Context, userID, id uint64, query *dto.MetricsQuery) (*dto.MetricsSeries, error)
 	// SetDestructor 注入销毁执行者（装配层调用；未注入时销毁返回明确错误）。
 	SetDestructor(d Destructor)
 	// SetOperator 注入维护执行者（装配层调用；未注入时维护类操作返回明确错误）。
 	SetOperator(o InstanceOperator)
+	// RetryProvision 重新开通待开通实例（占位行）：重投来源订单的履约任务。
+	RetryProvision(ctx context.Context, userID, actorID uint64, actorName string, id uint64) (*dto.InstanceInfo, error)
+	// SetProvisionRetry 注入「重新开通」执行者（装配层调用；未注入时该入口返回明确错误）。
+	SetProvisionRetry(fn func(ctx context.Context, orderID uint64) error)
 }
 
 type instanceService struct {
@@ -83,10 +93,43 @@ type instanceService struct {
 	destructor Destructor
 	// operator 维护类执行者（管理端运维台），可为 nil。
 	operator InstanceOperator
+	// provisionRetry 「重新开通」执行者（装配层注入：重投来源订单的履约任务），可为 nil。
+	provisionRetry func(ctx context.Context, orderID uint64) error
 }
 
 // ErrMaintenanceUnsupported 维护执行者未装配（部署裁剪时）。
 var ErrMaintenanceUnsupported = errors.New("当前环境不支持该操作，请联系客服")
+
+// ErrInstanceNotProvisioned 实例尚未开通（待开通占位行）：上游侧操作无从下手。
+var ErrInstanceNotProvisioned = errors.New("实例尚未开通（待开通状态），请先点「重新开通」")
+
+// ErrProvisionRetryUnavailable 重新开通入口未装配。
+var ErrProvisionRetryUnavailable = errors.New("重新开通暂不可用，请联系客服")
+
+// ErrAlreadyProvisioned 实例已开通，无需重新开通。
+var ErrAlreadyProvisioned = errors.New("实例已开通，无需重新开通")
+
+// ErrMetricsUnsupported 当前服务商不提供性能监控。
+var ErrMetricsUnsupported = errors.New("当前服务商不提供性能监控")
+
+// ErrMetricsTypeRequired 监控查询缺少 type。
+var ErrMetricsTypeRequired = errors.New("请指定要查询的监控类型")
+
+// 生命周期阶段（与 upstream/管理端同口径的字符串值；只用于读取判断，不落库）。
+const (
+	lifecycleStageDestroyed = "destroyed"
+)
+
+// 到期状态（读时计算，与管理端 admin instance dto 同口径）。
+const (
+	expireStateExpiring = "expiring"
+	expireStateExpired  = "expired"
+	expireStateNormal   = "normal"
+	expireStateNone     = "none"
+)
+
+// expireWithinDays 用户侧「即将到期」判定天数：到期前 7 天内提示续费。
+const expireWithinDays = 7
 
 // NewInstanceService 创建用户中心主机服务。
 func NewInstanceService(repo repository.InstanceRepository, resolve ProviderResolver) InstanceService {
@@ -98,6 +141,32 @@ func (s *instanceService) SetDestructor(d Destructor) { s.destructor = d }
 
 // SetOperator 注入维护类执行者。
 func (s *instanceService) SetOperator(o InstanceOperator) { s.operator = o }
+
+// SetProvisionRetry 注入「重新开通」执行者（装配层调用）。
+func (s *instanceService) SetProvisionRetry(fn func(ctx context.Context, orderID uint64) error) {
+	s.provisionRetry = fn
+}
+
+// RetryProvision 重新开通：待开通实例（占位行）重投来源订单的开通履约任务。
+// 归属校验用带 user_id 的查询完成；已开通的实例拒绝（避免误触重复开通）。
+func (s *instanceService) RetryProvision(ctx context.Context, userID, actorID uint64, actorName string, id uint64) (*dto.InstanceInfo, error) {
+	it, err := s.repo.FindByUser(ctx, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if it.ProviderInstanceID != "" {
+		return nil, ErrAlreadyProvisioned
+	}
+	if s.provisionRetry == nil {
+		return nil, ErrProvisionRetryUnavailable
+	}
+	if err := s.provisionRetry(ctx, it.OrderID); err != nil {
+		return nil, err
+	}
+	_ = actorID
+	_ = actorName
+	return s.Detail(ctx, userID, id, false)
+}
 
 // userOperator 组装委派给运维台的操作人（子账号记为真实操作人）。
 func userOperator(userID, actorID uint64, actorName string) admininstanceservice.Operator {
@@ -269,15 +338,23 @@ func (s *instanceService) Destroy(ctx context.Context, userID, actorID uint64, a
 }
 
 // List 我的主机列表。live=true 时逐个刷新上游运行状态。
+//
+// 汇总数字与 items 在同一循环里累加：列表页顶部卡片（共 N 台 / 运行中 / 即将到期）
+// 若前端自己数，要么再遍历一次、要么与后端统计口径分叉（比如"即将到期"的天数阈值）。
 func (s *instanceService) List(ctx context.Context, userID uint64, query dto.ListQuery) (*dto.ListResponse, error) {
 	items, err := s.repo.ListByUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]dto.InstanceInfo, 0, len(items))
+	summary := dto.ListSummary{Total: len(items)}
+	// 能力位按渠道解析一次即复用：一个账号下的机器通常只属于一两个渠道，
+	// 逐台解析会为同一渠道重复查库；但**不能干脆不填**——前端拿到全 false 的
+	// 能力位会把所有按钮置灰（"有值但不支持"比"没有值"更危险）。
+	capsCache := make(map[uint64]dto.Capabilities, 4)
 	for _, it := range items {
 		info := toInfo(&it)
-		if query.Live && s.resolve != nil {
+		if query.Live && s.resolve != nil && it.ProviderInstanceID != "" {
 			if live, ok := s.refresh(ctx, &it); ok {
 				info.Status = string(live.Status)
 				info.PowerStatus = powerOf(live.Status)
@@ -285,9 +362,46 @@ func (s *instanceService) List(ctx context.Context, userID uint64, query dto.Lis
 		} else {
 			info.PowerStatus = powerOf(statusToModel(it.Status))
 		}
+		info.Capabilities = s.capabilitiesCached(ctx, &it, capsCache)
+		countSummary(&summary, info)
 		out = append(out, info)
 	}
-	return &dto.ListResponse{Items: out, Total: int64(len(out))}, nil
+	return &dto.ListResponse{Items: out, Total: int64(len(out)), Summary: summary}, nil
+}
+
+// capabilitiesCached 单次请求内的能力位缓存（按渠道 ID）。
+func (s *instanceService) capabilitiesCached(ctx context.Context, it *model.Instance, cache map[uint64]dto.Capabilities) dto.Capabilities {
+	if it == nil || it.ProviderInstanceID == "" {
+		return dto.Capabilities{}
+	}
+	if caps, ok := cache[it.ProviderID]; ok {
+		return caps
+	}
+	caps := s.capabilities(ctx, it)
+	cache[it.ProviderID] = caps
+	return caps
+}
+
+// countSummary 把一台机器的可见状态累加进汇总（与前端徽标同口径）。
+func countSummary(s *dto.ListSummary, info dto.InstanceInfo) {
+	if info.Pending {
+		s.Creating++
+		return
+	}
+	switch {
+	case info.LifecycleStage == lifecycleStageDestroyed || info.Status == "deleted":
+		s.Destroyed++
+	case info.ExpireState == expireStateExpired:
+		s.Expired++
+	case info.ExpireState == expireStateExpiring:
+		s.Expiring++
+	case info.Status == "running":
+		s.Running++
+	case info.Status == "stopped":
+		s.Stopped++
+	default:
+		s.Creating++
+	}
 }
 
 // Detail 我的主机详情。live=true 时刷新上游运行状态。
@@ -297,7 +411,15 @@ func (s *instanceService) Detail(ctx context.Context, userID, id uint64, live bo
 		return nil, err
 	}
 	info := toInfo(it)
-	if live && s.resolve != nil {
+	// 待开通实例：带上履约状态与失败原因，用户能直接看到"为什么还没开通"。
+	if it.ProviderInstanceID == "" {
+		if status, lastErr, perr := s.repo.Provision(ctx, it.OrderID); perr == nil {
+			info.ProvisionStatus = status
+			info.ProvisionError = lastErr
+		}
+	}
+	// 待开通占位（无上游实例号）：跳过回源（上游还没有这台机器），保持本地信息。
+	if live && s.resolve != nil && it.ProviderInstanceID != "" {
 		if liveInst, ok := s.refresh(ctx, it); ok {
 			info.Status = string(liveInst.Status)
 			info.PowerStatus = powerOf(liveInst.Status)
@@ -308,7 +430,192 @@ func (s *instanceService) Detail(ctx context.Context, userID, id uint64, live bo
 	} else {
 		info.PowerStatus = powerOf(statusToModel(it.Status))
 	}
+	info.Capabilities = s.capabilities(ctx, it)
 	return &info, nil
+}
+
+// capabilities 推导该实例可用的操作（用户侧按钮门禁）。
+//
+// 与管理端的差别：这里只暴露**用户确实能自助触发**的项，且待开通实例一律全关
+// （没有上游实例号，任何动作都必然失败）。
+func (s *instanceService) capabilities(ctx context.Context, it *model.Instance) dto.Capabilities {
+	if it == nil || it.ProviderInstanceID == "" {
+		return dto.Capabilities{}
+	}
+	provider, err := s.buildProvider(ctx, it.ProviderID)
+	if err != nil {
+		return dto.Capabilities{}
+	}
+	_, ctrl := provider.(upstream.InstanceControl)
+	_, admin := provider.(upstream.InstanceAdministration)
+	_, terminate := provider.(upstream.InstanceTermination)
+	_, reinstall := provider.(upstream.InstanceReinstall)
+	_, pwdReset := provider.(upstream.InstancePasswordReset)
+	_, rescue := provider.(upstream.InstanceRescue)
+	_, snapshot := provider.(upstream.InstanceSnapshot)
+	_, metrics := provider.(upstream.InstanceMetrics)
+	desc := upstream.CapabilitiesOf(provider)
+	supports := func(op string) bool { return upstream.SupportsOperation(desc, op) }
+	return dto.Capabilities{
+		Power:         ctrl || supports(upstream.OpStart) || supports(upstream.OpStop),
+		Console:       ctrl || supports(upstream.OpVNC),
+		Destroy:       admin || terminate || supports(upstream.OpDestroy),
+		Reinstall:     reinstall || supports(upstream.OpReinstall),
+		ResetPassword: pwdReset || supports(upstream.OpResetPassword),
+		Rescue:        rescue || supports(upstream.OpRescue),
+		Snapshot:      snapshot || supports(upstream.OpSnapshot),
+		Metrics:       metrics || supports(upstream.OpMetrics),
+	}
+}
+
+// Operations 实例操作流水（只读）。
+func (s *instanceService) Operations(ctx context.Context, userID, id uint64, limit int) ([]dto.OperationEntry, error) {
+	it, err := s.ownedInstance(ctx, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.repo.Operations(ctx, it.ID, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]dto.OperationEntry, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, dto.OperationEntry{
+			ID:           r.ID,
+			Action:       r.Action,
+			OperatorType: r.OperatorType,
+			OperatorName: r.OperatorName,
+			Result:       r.Result,
+			ErrorMessage: r.ErrorMessage,
+			CreatedAt:    r.CreatedAt.Format(time.RFC3339),
+		})
+	}
+	return out, nil
+}
+
+// MetricsCatalog 监控图表目录。平台不提供时返回 Supported=false + 原因文案，
+// 而不是报错：前端据此显示说明区块，页面其余部分照常可用。
+func (s *instanceService) MetricsCatalog(ctx context.Context, userID, id uint64) (*dto.MetricsCatalogResponse, error) {
+	it, err := s.ownedInstance(ctx, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if it.ProviderInstanceID == "" {
+		return &dto.MetricsCatalogResponse{Supported: false, Reason: "实例尚未开通，暂无可监控的机器"}, nil
+	}
+	provider, err := s.buildProvider(ctx, it.ProviderID)
+	if err != nil {
+		return &dto.MetricsCatalogResponse{Supported: false, Reason: "上游服务商当前不可达，请稍后重试"}, nil
+	}
+	metrics, ok := provider.(upstream.InstanceMetrics)
+	if !ok {
+		return &dto.MetricsCatalogResponse{Supported: false, Reason: "当前服务商不提供性能监控"}, nil
+	}
+	charts, err := metrics.ListMetricCharts(ctx, &upstream.MetricsCatalogRequest{
+		ProviderInstanceID: it.InstanceID,
+		InstanceRecordID:   it.ID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := &dto.MetricsCatalogResponse{Supported: len(charts) > 0, Charts: make([]dto.MetricsChartInfo, 0, len(charts))}
+	if len(charts) == 0 {
+		out.Reason = "该实例类型暂不提供性能监控（如 Hyper-V 面板无统计数据）"
+		return out, nil
+	}
+	for _, c := range charts {
+		item := dto.MetricsChartInfo{
+			Type: c.Type, Kind: c.Kind, Title: c.Title,
+			Select: make([]dto.MetricsChartOption, 0, len(c.Select)),
+		}
+		for _, opt := range c.Select {
+			item.Select = append(item.Select, dto.MetricsChartOption{Label: opt.Label, Value: opt.Value})
+		}
+		out.Charts = append(out.Charts, item)
+	}
+	return out, nil
+}
+
+// Metrics 查询单项监控序列。
+func (s *instanceService) Metrics(ctx context.Context, userID, id uint64, query *dto.MetricsQuery) (*dto.MetricsSeries, error) {
+	it, err := s.ownedInstance(ctx, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if it.ProviderInstanceID == "" {
+		return nil, ErrInstanceNotProvisioned
+	}
+	if query == nil || query.Type == "" {
+		return nil, ErrMetricsTypeRequired
+	}
+	provider, err := s.buildProvider(ctx, it.ProviderID)
+	if err != nil {
+		return nil, err
+	}
+	metrics, ok := provider.(upstream.InstanceMetrics)
+	if !ok {
+		return nil, ErrMetricsUnsupported
+	}
+	start, end := resolveMetricWindow(query)
+	series, err := metrics.QueryMetrics(ctx, &upstream.MetricsQuery{
+		ProviderInstanceID: it.InstanceID,
+		InstanceRecordID:   it.ID,
+		Type:               query.Type,
+		Select:             query.Select,
+		StartMillis:        start,
+		EndMillis:          end,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return toMetricSeries(series), nil
+}
+
+// resolveMetricWindow 归一化时间窗：显式 start/end 优先，其次 range 预设，最后默认 6 小时。
+//
+// 为什么由后端定默认窗口而不是像源码那样固定 7 天：面板统计接口按点返回，
+// 7 天 × 5 分钟粒度是两千多个点，用户端画一张图没必要，也拖慢上游。
+func resolveMetricWindow(q *dto.MetricsQuery) (int64, int64) {
+	now := time.Now()
+	end := q.End
+	if end <= 0 {
+		end = now.UnixMilli()
+	}
+	if q.Start > 0 && q.Start < end {
+		return q.Start, end
+	}
+	durations := map[string]time.Duration{
+		"1h":  time.Hour,
+		"6h":  6 * time.Hour,
+		"24h": 24 * time.Hour,
+		"7d":  7 * 24 * time.Hour,
+	}
+	d, ok := durations[q.Range]
+	if !ok {
+		d = 6 * time.Hour
+	}
+	return end - d.Milliseconds(), end
+}
+
+// toMetricSeries 上游序列 → 用户侧 DTO（只搬字段，不做换算）。
+func toMetricSeries(s *upstream.MetricSeries) *dto.MetricsSeries {
+	out := &dto.MetricsSeries{Label: []string{}, List: [][]dto.MetricsPoint{}}
+	if s == nil {
+		return out
+	}
+	out.Type, out.Unit, out.ChartType = s.Type, s.Unit, s.ChartType
+	out.Label = s.Label
+	if out.Label == nil {
+		out.Label = []string{}
+	}
+	for _, points := range s.List {
+		row := make([]dto.MetricsPoint, 0, len(points))
+		for _, p := range points {
+			row = append(row, dto.MetricsPoint{Time: p.Time, Value: p.Value})
+		}
+		out.List = append(out.List, row)
+	}
+	return out
 }
 
 // Power 电源操作：开机/关机/重启/硬关机/硬重启。
@@ -317,6 +624,10 @@ func (s *instanceService) Power(ctx context.Context, userID, id uint64, action s
 	it, err := s.repo.FindByUser(ctx, userID, id)
 	if err != nil {
 		return err
+	}
+	// 待开通实例（占位行）：没有上游实例号，电源操作必然失败，给出可操作提示。
+	if it.ProviderInstanceID == "" {
+		return ErrInstanceNotProvisioned
 	}
 	provider, err := s.buildProvider(ctx, it.ProviderID)
 	if err != nil {
@@ -359,6 +670,9 @@ func (s *instanceService) VNC(ctx context.Context, userID, id uint64) (*dto.VNCR
 	it, err := s.repo.FindByUser(ctx, userID, id)
 	if err != nil {
 		return nil, err
+	}
+	if it.ProviderInstanceID == "" {
+		return nil, ErrInstanceNotProvisioned
 	}
 	provider, err := s.buildControl(ctx, it.ProviderID)
 	if err != nil {
@@ -414,6 +728,7 @@ func (s *instanceService) refresh(ctx context.Context, it *model.Instance) (*pkg
 
 // toInfo 将本地主机映射为用户可见信息。
 func toInfo(it *model.Instance) dto.InstanceInfo {
+	expireState, daysLeft := expireStateOf(it.ExpireAt)
 	return dto.InstanceInfo{
 		ID:          it.ID,
 		InstanceID:  it.InstanceID,
@@ -434,10 +749,36 @@ func toInfo(it *model.Instance) dto.InstanceInfo {
 		BillingMode: it.BillingMode,
 		ActorID:     it.ActorUserID,
 		ActorName:   it.ActorName,
-		ExpireAt:    fmtTime(it.ExpireAt),
-		CreatedAt:   it.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:   it.UpdatedAt.Format(time.RFC3339),
+		// 待开通占位（provider_instance_id 为空）：前端显示「待开通」且只开放重新开通。
+		OrderID:            it.OrderID,
+		ProviderInstanceID: it.ProviderInstanceID,
+		Pending:            it.ProviderInstanceID == "",
+		ExpireAt:           fmtTime(it.ExpireAt),
+		LifecycleStage:     it.LifecycleStage,
+		ExpireState:        expireState,
+		DaysLeft:           daysLeft,
+		CreatedAt:          it.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:          it.UpdatedAt.Format(time.RFC3339),
 	}
+}
+
+// expireStateOf 计算到期状态与剩余天数（负数表示已过期天数）。
+//
+// 与「服务状态」正交：一台 status=running 的机器可以同时是 expired（还没到处置
+// 时点），前端要把两者都展示出来才能解释"为什么它还在运行但提示已过期"。
+func expireStateOf(expireAt *time.Time) (string, int) {
+	if expireAt == nil {
+		return expireStateNone, 0
+	}
+	now := time.Now()
+	daysLeft := int(expireAt.Sub(now).Hours() / 24)
+	if expireAt.Before(now) {
+		return expireStateExpired, daysLeft
+	}
+	if daysLeft <= expireWithinDays {
+		return expireStateExpiring, daysLeft
+	}
+	return expireStateNormal, daysLeft
 }
 
 // statusToModel 将实例表状态映射为上游状态枚举（辅助电源展示）。

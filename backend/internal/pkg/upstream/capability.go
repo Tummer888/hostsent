@@ -56,6 +56,7 @@ const (
 	OpBandwidth     = "bandwidth"   // 带宽直改
 	OpAddIP         = "add_ip"      // 增加 IP / IPv6
 	OpAttachDisk    = "attach_disk" // 挂载数据盘
+	OpMetrics       = "metrics"     // 性能监控读数（CPU/内存/磁盘/网卡，只读）
 )
 
 // 续费模式：order=上游下单续费，direct=直接延期，none=不支持。
@@ -253,6 +254,9 @@ func CapabilitiesOf(p Provider) CapabilityDescriptor {
 	}
 	if _, ok := p.(InstanceHardware); ok {
 		d.Operations = append(d.Operations, OpBandwidth, OpAddIP, OpAttachDisk)
+	}
+	if _, ok := p.(InstanceMetrics); ok {
+		d.Operations = append(d.Operations, OpMetrics)
 	}
 	return d
 }

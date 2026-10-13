@@ -20,4 +20,11 @@ var (
 	ErrStatusConflict = errors.New("当前实例状态不允许该操作")
 	// ErrProviderUnavailable 上游服务商配置不可用。
 	ErrProviderUnavailable = errors.New("上游服务商不可用")
+	// ErrInstanceNotProvisioned 实例尚未在上游开通（待开通占位行，provider_instance_id 为空）：
+	// 电源/维护/变配等上游操作无从下手，应先「重新开通」或等待开通完成。
+	ErrInstanceNotProvisioned = errors.New("实例尚未开通（待开通状态），请先点「重新开通」")
+	// ErrProvisionRetryUnavailable 重新开通入口未装配（装配层未注入）。
+	ErrProvisionRetryUnavailable = errors.New("重新开通暂不可用")
+	// ErrNothingToSync 实例尚未开通，上游没有可拉取的对象（同步接口专用提示）。
+	ErrNothingToSync = errors.New("实例尚未开通，上游还没有这台机器，暂无可拉取的信息；开通失败原因见「来源订单」，可点「重新开通」重试")
 )

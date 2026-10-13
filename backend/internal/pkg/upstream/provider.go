@@ -204,6 +204,97 @@ type SnapshotInfo struct {
 	Remarks    string
 }
 
+// InstanceMetrics 实例性能监控读数能力（CPU/内存/磁盘 IO/网卡流量）。
+//
+// 与其它能力的差别：它不改变实例状态，只是把平台侧的历史采样转成统一序列，
+// 因此读不到数据时上游通常返回空序列而不是错误——调用方应把「空」当成
+// 「该时段无采样」而不是失败。
+//
+// 数据源是本能力实现的内部细节（魔方云的 /statistics，财务型上游经
+// provision/chart 透传），调用方只认 MetricKind 四种语义：
+//   - MetricCPU    CPU 使用率（百分比，单序列）
+//   - MetricMemory 内存用量（二进制字节单位，双序列：总量 / 已用）
+//   - MetricDisk   磁盘读写速度（二进制字节/秒单位，双序列：读 / 写）
+//   - MetricNetwork 网卡流量（比特率 bps，双序列：进 / 出）
+type InstanceMetrics interface {
+	// ListMetricCharts 返回该平台支持的图表目录（标题 + MetricKind）。
+	// 目录由平台能力决定（如魔方云 hyperv 类型不提供图表），为空表示不支持监控。
+	ListMetricCharts(ctx context.Context, req *MetricsCatalogRequest) ([]MetricChartInfo, error)
+	// QueryMetrics 查询单项监控的时间序列；start/end 为毫秒时间戳，select 为图表子项
+	// （如磁盘设备名 vda），无子项时留空。
+	QueryMetrics(ctx context.Context, req *MetricsQuery) (*MetricSeries, error)
+}
+
+// Metric 监控种类（归一化后的语义，与平台原生 type 字符串解耦）。
+const (
+	MetricCPU     = "cpu"
+	MetricMemory  = "memory"
+	MetricDisk    = "disk"
+	MetricNetwork = "network"
+)
+
+// 图表渲染形态：area 面积图 / line 折线图 / bar 柱状图。
+const (
+	MetricChartArea = "area"
+	MetricChartLine = "line"
+	MetricChartBar  = "bar"
+)
+
+// MetricsCatalogRequest 图表目录请求。InstanceID 需同时给出记录号与上游实例号：
+// 魔方云按上游实例号取 node_id/kvmid，财务型上游按主机记录取商品配置。
+type MetricsCatalogRequest struct {
+	// ProviderInstanceID 上游实例号（魔方云 /clouds/{id} 的 id、财务型 host_id）。
+	ProviderInstanceID string
+	// InstanceRecordID 本地实例记录主键（财务型上游 provision/chart/{id} 用）。
+	InstanceRecordID uint64
+}
+
+// MetricChartInfo 单项图表描述。
+// Type 是**平台原生**的图表标识，调用方必须原样回传给 QueryMetrics：
+// 魔方云只认自己的四种（cpu/memory/disk/network），财务型上游透传上游模块的
+// type（如 flow）。Kind 是本包归一化后的语义（Metric*），仅用于前端配色/图标、
+// 不参与请求 —— 把两者混用会让「透传平台」的图表请求打错 type 而拿到空数据。
+type MetricChartInfo struct {
+	Type   string              `json:"type"`             // 平台原生图表标识
+	Kind   string              `json:"kind"`             // 归一化语义：Metric* 之一（未知时等于 Type）
+	Title  string              `json:"title"`            // 展示标题（平台口径，如「硬盘IO」）
+	Select []MetricChartOption `json:"select,omitempty"` // 可选子项（如磁盘设备）
+}
+
+// MetricChartOption 图表子项（select 下拉）。
+type MetricChartOption struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
+// MetricsQuery 监控查询。
+type MetricsQuery struct {
+	ProviderInstanceID string
+	InstanceRecordID   uint64
+	Type               string // Metric* 之一
+	Select             string // 子项值，可空
+	StartMillis        int64  // 起始毫秒时间戳（HTTP 头传 "start"）
+	EndMillis          int64  // 结束毫秒时间戳（HTTP 头传 "end"）
+}
+
+// MetricSeries 监控时间序列（已归一化：单位、数值、序列标签）。
+//
+// List 与 Label 一一对应：List[i] 是 Label[i] 那条曲线的采样点。
+// 采样点为空数组而不是缺项，前端可直接按 label 数量初始化图例。
+type MetricSeries struct {
+	Type      string              `json:"type"`       // Metric* 之一
+	Unit      string              `json:"unit"`       // 归一化单位（%、字节级、bps）
+	ChartType string              `json:"chart_type"` // MetricChart*
+	Label     []string            `json:"label"`
+	List      [][]MetricDataPoint `json:"list"`
+}
+
+// MetricDataPoint 单个采样点。
+type MetricDataPoint struct {
+	Time  string  `json:"time"` // 平台口径的本地时间字符串（Y-m-d H:i:s）
+	Value float64 `json:"value"`
+}
+
 // InstanceHardware 实例硬件直读/直改能力（带宽/扩展 IP/IPv6/数据盘）。
 //
 // 这些不是"电源类"动作，而是与平台资源直接交互的硬件变更；平台各自接口差异大，

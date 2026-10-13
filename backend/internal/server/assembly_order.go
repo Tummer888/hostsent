@@ -38,6 +38,7 @@ import (
 	"hostsent/backend/internal/pkg/specatom"
 	"hostsent/backend/internal/pkg/upstream"
 	"math/rand"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,6 +54,7 @@ func (a *asm) buildOrder() {
 	a.orderService.SetProvisionQueue(a.provisionEnqueuer)
 	// 订单列表/详情展示开通履约状态与失败原因（manual=需人工处理，如上游余额不足）。
 	a.orderService.SetProvisionTaskReader(a.provisionTaskRepo.FindByOrderIDs)
+	a.orderService.SetLogger(a.logger)
 	a.orderService.SetProductSourceModeResolver(buildProductSourceModeResolver(a.prodCatalogService))
 	// 订单开通成功 → 给邀请人计提返现 + 给归属销售计提提成（各自失败只记日志，不影响订单）。
 	// SetCashbackHook 是单槽 setter：两者必须在同一个闭包里串行调用，分别 Set 会互相覆盖。
@@ -237,6 +239,12 @@ func (a *asm) buildOrder() {
 					return nil, err
 				}
 			}
+			// 下单即建「待开通」实例占位（与用户中心下单同一口径）：后台代下单后
+			// 即使没开通成功，实例列表也能看到这台机器并重新开通。
+			if err := a.instancePlaceholderHook()(ctx, order); err != nil {
+				a.logger.Warn("create pending instance placeholder failed",
+					zap.Uint64("order_id", order.ID), zap.Error(err))
+			}
 			brief := &userdto.AdminOrderBrief{
 				ID: order.ID, OrderNo: order.OrderNo, ProductName: product.Name,
 				BillingCycle: cycle, TotalAmount: price, Status: order.Status, PayMethod: order.PayMethod,
@@ -281,6 +289,13 @@ func (a *asm) buildOrder() {
 	)
 	// 销售归属快照（doc86 §3.4）：用户中心下单瞬间锁定归属。
 	a.ucOrderService.SetSalesOwnerResolver(a.salesBundle.newOrderOwnerPort())
+	// 下单即建「待开通」实例占位（用户实测问题：开通失败后实例列表里什么都看不到），
+	// 开通成功时由 RecordInstance 把占位行就地转正；订单未支付作废时删除占位。
+	// 建/删失败只记日志：不阻断下单与关单主流程。
+	a.ucOrderService.SetLogger(a.logger)
+	a.ucOrderService.SetInstancePlaceholder(a.instancePlaceholderHook())
+	a.ucOrderService.SetPendingInstanceReleaser(a.buildInstancePlaceholderReleaser())
+	a.orderService.SetPendingInstanceReleaser(a.buildInstancePlaceholderReleaser())
 	a.ucOrderHandler = ucorderhandler.NewOrderHandler(a.ucOrderService)
 }
 
@@ -352,8 +367,16 @@ func buildOrderProvisionDeps(
 			if row.InstanceID == "" {
 				return nil
 			}
-			if err := syncRepo.UpsertInstances(ctx, []syncmodel.Instance{row}); err != nil {
-				return err
+			// 优先让该订单的「待开通」占位行就地转正（下单时已建）：避免同一台机器
+			// 在实例列表里出现"待开通"与真实实例两行；未命中占位才按常规 upsert。
+			adopted, aerr := syncRepo.AdoptPendingInstance(ctx, order.ID, &row)
+			if aerr != nil {
+				return aerr
+			}
+			if !adopted {
+				if err := syncRepo.UpsertInstances(ctx, []syncmodel.Instance{row}); err != nil {
+					return err
+				}
 			}
 			// 开放平台 instance.created（P6/T6.5）：仅对代客下单订单发布，事件只落库不阻塞履约。
 			if order.OpenAppID != 0 {
@@ -532,9 +555,15 @@ func orderBillingPeriod(order *ordermodel.Order) (time.Time, string, bool) {
 	return base, code, true
 }
 
-// specsFromOrder 解析订单的规格快照（SKU 原子取值 JSON）为标准规格；解析失败返回 nil。
-
-// specsFromOrder 解析订单的规格快照（SKU 原子取值 JSON）为标准规格；解析失败返回 nil。
+// specsFromOrder 解析订单的规格快照为标准规格；解析失败返回 nil。
+//
+// 兼容两种落库形态（实测两套并存）：
+//   - SKU 原子取值 JSON：{"compute.cpu":4,"compute.memory":4096,...}（specatom 字典）；
+//   - 上游透传快照：{"cpu":4,"memory":4096,"system_disk_size":40,"bw":30,...}
+//     （对接商品从 resource_products.raw_specs 克隆而来）。
+//
+// 只认原子 key 时，第二种会被解出全 0 规格 —— 实例列表/详情显示"0 核/0MB"，
+// 用户看到的就是"配置是空的"。
 func specsFromOrder(order *ordermodel.Order) *model.StandardProductSpec {
 	raw := strings.TrimSpace(order.Specs)
 	if raw == "" {
@@ -545,10 +574,77 @@ func specsFromOrder(order *ordermodel.Order) *model.StandardProductSpec {
 		return nil
 	}
 	spec := specatom.FromMap(m)
+	// 上游透传 key 兜底（仅补原子 key 未给出的字段）。
+	if spec.CPU == 0 {
+		spec.CPU = looseInt(m, "cpu", "cpu_num", "cores", "vcpu")
+	}
+	if spec.Memory == 0 {
+		spec.Memory = looseInt(m, "memory", "memory_mb", "ram", "mem")
+	}
+	if spec.Disk == 0 {
+		spec.Disk = looseInt(m, "system_disk_size", "disk", "disk_size", "system_disk")
+	}
+	if spec.Bandwidth == 0 {
+		spec.Bandwidth = looseInt(m, "bandwidth", "bw", "net_bandwidth")
+	}
+	if spec.DiskType == "" {
+		spec.DiskType = looseString(m, "disk_type")
+	}
+	if spec.OS == "" {
+		spec.OS = looseString(m, "os", "image", "system")
+	}
+	if spec.Region == "" {
+		spec.Region = looseString(m, "region", "area", "location")
+	}
+	if spec.Zone == "" {
+		spec.Zone = looseString(m, "zone", "node")
+	}
 	return &spec
 }
 
+// looseInt 依序取第一个能解析为正整数的键（数字/数字字符串皆可）。
+func looseInt(m map[string]any, keys ...string) int {
+	for _, k := range keys {
+		v, ok := m[k]
+		if !ok || v == nil {
+			continue
+		}
+		switch t := v.(type) {
+		case float64:
+			if t > 0 {
+				return int(t)
+			}
+		case int:
+			if t > 0 {
+				return t
+			}
+		case string:
+			if n, err := strconv.Atoi(strings.TrimSpace(t)); err == nil && n > 0 {
+				return n
+			}
+		case json.Number:
+			if n, err := t.Int64(); err == nil && n > 0 {
+				return int(n)
+			}
+		}
+	}
+	return 0
+}
+
+// looseString 依序取第一个非空字符串键。
+func looseString(m map[string]any, keys ...string) string {
+	for _, k := range keys {
+		if v, ok := m[k].(string); ok && strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
 // firstNonEmpty 返回第一个非空字符串。
+
+// ===== 后台代下单：规格/周期/选配项读取与算价（与用户端下单同口径）=====
+
 // adminOrderCycle 归一化后台代下单的计费周期：
 //   - 显式指定：非法值直接拒绝（避免静默落到默认档，按错价成交）；
 //   - 留空：回落商品 price_model 对应周期（存量行为不变）。

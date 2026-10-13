@@ -372,6 +372,9 @@ func registerAdminRoutes(r *gin.Engine, app *App) {
 			instanceOps.GET("/:id/operations", app.perm("resource:instance"), app.instanceOpsHandler.Operations)
 			instanceOps.GET("/:id/related", app.perm("resource:instance"), app.instanceOpsHandler.Related)
 			instanceOps.POST("/:id/sync", app.perm("instance:action"), app.instanceOpsHandler.Sync)
+			// 重新开通（待开通占位实例专用）：重投来源订单的履约任务，
+			// 上游充值后点一次即可复用已生成账单完成开通，不会重复下单。
+			instanceOps.POST("/:id/provision-retry", app.perm("instance:action"), app.instanceOpsHandler.RetryProvision)
 			instanceOps.POST("/:id/power", app.perm("instance:action"), app.instanceOpsHandler.Power)
 			// 批量运维（doc61 P1）：静态段 /batch 须先于 /:id 注册。
 			instanceOps.POST("/batch", app.perm("instance:action"), app.instanceOpsHandler.BatchAction)

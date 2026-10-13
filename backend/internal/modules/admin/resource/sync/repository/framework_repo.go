@@ -357,9 +357,12 @@ func (r *frameworkRepository) MarkPoolsOffline(ctx context.Context, providerID u
 
 // MarkInstancesOffline 把上游链路实例中本轮未出现的置 offline。
 // 自营链路（source_mode='self'）实例不受上游同步影响，一律不标记。
+// 占位实例（provider_instance_id 为空、尚未在上游开通）同理不标记：
+// 它本来就不在上游清单里，被标记会把"待开通"的机器显示成"离线"。
 func (r *frameworkRepository) MarkInstancesOffline(ctx context.Context, providerID uint64, keepInstanceIDs []string) (int64, error) {
 	base := r.db.WithContext(ctx).Table("instances").
 		Where("provider_id = ? AND source_mode = ?", providerID, "upstream").
+		Where("provider_instance_id <> ''").
 		Where("status <> ?", "offline")
 	if len(keepInstanceIDs) > 0 {
 		base = base.Where("instance_id NOT IN ?", keepInstanceIDs)

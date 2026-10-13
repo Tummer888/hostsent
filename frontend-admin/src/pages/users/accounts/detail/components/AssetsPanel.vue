@@ -26,7 +26,15 @@
     >
       <template #name="{ row }">
         <div>
-          <span class="cell-strong">{{ row.name || '—' }}</span>
+          <!-- 实例名即入口：与操作列「详情」同一跳转，省掉先去最右列再点的两步 -->
+          <t-link
+            theme="primary"
+            hover="color"
+            class="instance-name-link"
+            @click="goDetail(row.id)"
+          >
+            {{ row.name || row.instance_id || '—' }}
+          </t-link>
           <div class="cell-sub">{{ row.instance_id }}</div>
         </div>
       </template>

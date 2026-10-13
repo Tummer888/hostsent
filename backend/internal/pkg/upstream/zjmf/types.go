@@ -34,6 +34,11 @@ const StatusTokenExpired = 405
 const StatusPaidSuccess = 1001
 
 // HostHeader 下游拉取上游云主机信息（host/header 的 data.host_data）
+//
+// 数字型字段一律用 FlexNumber：上游列类型与序列化形态不一（如 host.port 是 int(11)，
+// 空值下发 0 或 null，非空下发数字；但个别版本/插件会给字符串），
+// 用强类型会让**单个字段类型不符导致整段 host_data 解析失败** ——
+// 实测即"开通成功后台点同步刷新必报 无法 unmarshal number into string"。
 type HostHeader struct {
 	HostData struct {
 		ID           int64      `json:"id"`
@@ -41,17 +46,48 @@ type HostHeader struct {
 		Username     string     `json:"username"`    // 系统用户
 		DedicatedIP  string     `json:"dedicatedip"` // 主 IP
 		AssignedIPs  StringList `json:"assignedips"` // 附加 IP（可能为逗号字符串或数组）
-		Port         string     `json:"port"`
+		Port         FlexNumber `json:"port"`        // 端口（上游为 int 列）
 		OS           string     `json:"os"`
 		DomainStatus string     `json:"domainstatus"` // Active/Pending/Suspended/...
 		NextDueDate  int64      `json:"nextduedate"`
 		ProductID    int64      `json:"productid"`
 		ProductName  string     `json:"productname"`
-		UpstreamCost string     `json:"upstream_cost"`
+		UpstreamCost FlexNumber `json:"upstream_cost"`
 		DcimID       int64      `json:"dcimid"`
 		InvoiceID    int64      `json:"invoice_id"`
 	} `json:"host_data"`
 }
+
+// FlexNumber 兼容字符串、数字、布尔与 null 的数值解析：取不出数字时按 0 处理，
+// **绝不返回错误** —— 单个字段解析失败不能拖垮整段响应（见 HostHeader 注释）。
+type FlexNumber float64
+
+// UnmarshalJSON 接受 json 数字/字符串/布尔/null 任意形态。
+func (f *FlexNumber) UnmarshalJSON(b []byte) error {
+	*f = 0
+	raw := strings.TrimSpace(strings.Trim(string(b), `"`))
+	if raw == "" || raw == "null" {
+		return nil
+	}
+	if v, err := strconv.ParseFloat(raw, 64); err == nil {
+		*f = FlexNumber(v)
+		return nil
+	}
+	// 布尔：上游个别字段用 true/false 表示 1/0。
+	switch strings.ToLower(raw) {
+	case "true":
+		*f = 1
+	case "false":
+		*f = 0
+	}
+	return nil
+}
+
+// Int 取整数值（四舍五入到最近整数）。
+func (f FlexNumber) Int() int64 { return int64(f) }
+
+// IsZero 是否为 0/未提供。
+func (f FlexNumber) IsZero() bool { return f == 0 }
 
 // FlexFloat 兼容字符串或数字的浮点解析（上游 pricing 字段常为字符串如 "0.00"）。
 type FlexFloat float64

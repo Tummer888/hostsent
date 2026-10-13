@@ -189,10 +189,15 @@ export function combineInstanceState(input: {
   status: string
   lifecycle_stage?: string
   expire_state?: string
+  /** 待开通（尚未在上游开通的占位行）：优先级仅次于终态，避免显示成「创建中」。 */
+  pending?: boolean
 }): { label: string; theme: string; detail: string } {
   const stage = input.lifecycle_stage || ''
   if (stage === 'destroyed' || input.status === 'deleted') {
     return { label: '已销毁', theme: 'default', detail: '实例已终止，不可恢复' }
+  }
+  if (input.pending) {
+    return { label: '待开通', theme: 'warning', detail: '尚未在上游开通：可在详情页查看开通失败原因并「重新开通」' }
   }
   if (stage === 'suspended' || input.status === 'stopped') {
     return {

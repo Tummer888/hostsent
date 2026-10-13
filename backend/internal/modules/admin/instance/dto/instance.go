@@ -48,28 +48,30 @@ type InstanceItem struct {
 	SellProductID      uint64 `json:"sell_product_id"`
 	UpstreamProductID  uint64 `json:"upstream_product_id"`
 	ProviderInstanceID string `json:"provider_instance_id"`
-	LifecycleStage     string `json:"lifecycle_stage"`
-	Name               string `json:"name"`
-	CPU                int    `json:"cpu"`
-	Memory             int    `json:"memory"`
-	Disk               int    `json:"disk"`
-	DiskType           string `json:"disk_type"`
-	Bandwidth          int    `json:"bandwidth"`
-	OS                 string `json:"os"`
-	Region             string `json:"region"`
-	Zone               string `json:"zone"`
-	Status             string `json:"status"`
-	PowerStatus        string `json:"power_status"`
-	PrivateIP          string `json:"private_ip"`
-	PublicIP           string `json:"public_ip"`
-	BillingMode        string `json:"billing_mode"`
-	ActorUserID        uint64 `json:"actor_user_id"`
-	ActorName          string `json:"actor_name"`
-	Remark             string `json:"remark"`
-	ExpireAt           string `json:"expire_at"`
-	DaysLeft           int    `json:"days_left"`
-	ExpireState        string `json:"expire_state"`
-	LastSyncedAt       string `json:"last_synced_at"`
+	// Pending 待开通（尚未在上游开通的占位行）：列表显示「待开通」并只开放「重新开通」。
+	Pending        bool   `json:"pending"`
+	LifecycleStage string `json:"lifecycle_stage"`
+	Name           string `json:"name"`
+	CPU            int    `json:"cpu"`
+	Memory         int    `json:"memory"`
+	Disk           int    `json:"disk"`
+	DiskType       string `json:"disk_type"`
+	Bandwidth      int    `json:"bandwidth"`
+	OS             string `json:"os"`
+	Region         string `json:"region"`
+	Zone           string `json:"zone"`
+	Status         string `json:"status"`
+	PowerStatus    string `json:"power_status"`
+	PrivateIP      string `json:"private_ip"`
+	PublicIP       string `json:"public_ip"`
+	BillingMode    string `json:"billing_mode"`
+	ActorUserID    uint64 `json:"actor_user_id"`
+	ActorName      string `json:"actor_name"`
+	Remark         string `json:"remark"`
+	ExpireAt       string `json:"expire_at"`
+	DaysLeft       int    `json:"days_left"`
+	ExpireState    string `json:"expire_state"`
+	LastSyncedAt   string `json:"last_synced_at"`
 	// 到期处置退避状态（doc61 §8.4）：连续失败次数、下次重试时间、最近失败原因。
 	EnforceAttempts  int    `json:"enforce_attempts"`
 	EnforceNextAt    string `json:"enforce_next_at"`
@@ -138,6 +140,10 @@ type DetailInfo struct {
 	Upstream        *UpstreamInfo    `json:"upstream,omitempty"`
 	Configs         []ConfigItem     `json:"configs"`
 	Credential      *CredentialInfo  `json:"credential,omitempty"`
+	// ProvisionStatus/ProvisionError 待开通实例的履约状态（provision_tasks）：
+	// pending/running/success/failed/manual；manual=重试无效需人工（如上游余额不足）。
+	ProvisionStatus string `json:"provision_status,omitempty"`
+	ProvisionError  string `json:"provision_error,omitempty"`
 }
 
 // SourceOrderInfo 实例的来源订单财务口径（orders 表）。
@@ -175,20 +181,26 @@ type SourceOrderInfo struct {
 
 // ProductInfo 售出商品（我方 products 表）与对接关系。
 type ProductInfo struct {
-	ID               uint64  `json:"id"`
-	Code             string  `json:"code"`
-	Name             string  `json:"name"`
-	SourceMode       string  `json:"source_mode"`
-	SourceProviderID uint64  `json:"source_provider_id"`
-	SourceProvider   string  `json:"source_provider_name"`
-	ProviderType     string  `json:"provider_type"`
-	SourceProductID  uint64  `json:"source_product_id"`
-	PriceModel       string  `json:"price_model"`
-	Price            float64 `json:"price"`
-	CostPrice        float64 `json:"cost_price"`
-	MarkupType       string  `json:"upstream_markup_type"`
-	MarkupValue      float64 `json:"upstream_markup_value"`
-	Status           int     `json:"status"`
+	ID               uint64 `json:"id"`
+	Code             string `json:"code"`
+	Name             string `json:"name"`
+	SourceMode       string `json:"source_mode"`
+	SourceProviderID uint64 `json:"source_provider_id"`
+	SourceProvider   string `json:"source_provider_name"`
+	ProviderType     string `json:"provider_type"`
+	// SourceProductID 对接的上游**资源商品镜像** id（本地 resource_products.id），
+	// 不是上游侧的 pid —— 上游 pid 见 UpstreamInfo.UpstreamID。两者不可混用：
+	// 前者是本地镜像行的主键（重新导入后会变号），后者才是上游的稳定标识。
+	SourceProductID uint64  `json:"source_product_id"`
+	PriceModel      string  `json:"price_model"`
+	Price           float64 `json:"price"`
+	CostPrice       float64 `json:"cost_price"`
+	MarkupType      string  `json:"upstream_markup_type"`
+	MarkupValue     float64 `json:"upstream_markup_value"`
+	Status          int     `json:"status"`
+	// Deleted 商品行已不存在（重新导入/清理后常见）：此时名称取订单快照，
+	// 前端据此显示「商品已删除」，而不是把该实例当成"非我方商品开通"。
+	Deleted bool `json:"deleted"`
 }
 
 // UpstreamInfo 对接商品的上游信息（source_mode=upstream 时有值）。
@@ -196,18 +208,23 @@ type ProductInfo struct {
 // 价格全部来自上游镜像快照（resource_products.raw_specs）：
 // ListCycles=上游标价、CostCycles=我方采购价（已含代理折扣）。
 type UpstreamInfo struct {
-	ResourceProductID uint64             `json:"resource_product_id"`
-	UpstreamID        string             `json:"upstream_id"`
-	Name              string             `json:"name"`
-	GroupID           int64              `json:"group_id"`
-	GroupName         string             `json:"group_name"`
-	ListPrice         float64            `json:"list_price"`
-	CostPrice         float64            `json:"cost_price"`
-	DiscountDesc      string             `json:"discount_desc"`
-	PayType           string             `json:"pay_type"`
-	Renewable         bool               `json:"renewable"`
-	ListCycles        map[string]float64 `json:"list_cycles"`
-	CostCycles        map[string]float64 `json:"cost_cycles"`
+	ResourceProductID uint64 `json:"resource_product_id"`
+	// ProviderID/ProviderName 该上游资源商品所属渠道；与实例的 provider_id 不一致时
+	// ProviderMismatch=true（历史数据/重新导入会留下这种错配，页面需显式提示）。
+	ProviderID       uint64             `json:"provider_id"`
+	ProviderName     string             `json:"provider_name"`
+	ProviderMismatch bool               `json:"provider_mismatch"`
+	UpstreamID       string             `json:"upstream_id"`
+	Name             string             `json:"name"`
+	GroupID          int64              `json:"group_id"`
+	GroupName        string             `json:"group_name"`
+	ListPrice        float64            `json:"list_price"`
+	CostPrice        float64            `json:"cost_price"`
+	DiscountDesc     string             `json:"discount_desc"`
+	PayType          string             `json:"pay_type"`
+	Renewable        bool               `json:"renewable"`
+	ListCycles       map[string]float64 `json:"list_cycles"`
+	CostCycles       map[string]float64 `json:"cost_cycles"`
 }
 
 // ConfigItem 实例生效配置项（商品配置项 + 实例实际取值）。

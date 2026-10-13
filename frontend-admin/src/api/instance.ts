@@ -85,6 +85,13 @@ export function syncInstance(id: number): Promise<InstanceDetail> {
   })
 }
 
+/** 重新开通待开通实例（重投来源订单的履约任务；不产生新订单/新账单）。 */
+export function retryInstanceProvision(id: number): Promise<InstanceDetail> {
+  return request.post<InstanceDetail>({
+    url: `/instances/${id}/provision-retry`,
+  })
+}
+
 export function powerInstance(id: number, action: string): Promise<string> {
   const data: InstancePowerRequest = { action }
   return request.post<string>({

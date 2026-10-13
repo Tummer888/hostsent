@@ -1,77 +1,236 @@
 <template>
-  <div v-if="instance" class="detail-page">
-    <div class="detail-header">
-      <div class="detail-title-wrap">
-        <t-button theme="default" variant="text" @click="$router.back()">
-          <template #icon><t-icon name="arrow-left" /></template>
-          返回
-        </t-button>
-        <h2 class="detail-title">{{ instance.name }}</h2>
-        <t-tag :theme="statusTheme" variant="light" shape="round">{{ statusText }}</t-tag>
+  <div v-if="instance" class="page-body console-module detail-page">
+    <!-- 页头：返回 + 主机标识 + 状态结论 + 到期信息 -->
+    <header class="page-header surface-card">
+      <div class="page-header__main">
+        <button class="back-btn" type="button" @click="$router.push('/cloud/instances')">
+          <ChevronLeftIcon size="18" aria-hidden="true" />
+        </button>
+        <span class="page-header__chip"><CloudIcon size="22" aria-hidden="true" /></span>
+        <div class="page-header__text">
+          <h2 class="page-header__title">
+            {{ instance.name || instance.instance_id }}
+            <t-tag :theme="state.theme" variant="light" size="small" shape="round">{{ state.label }}</t-tag>
+          </h2>
+          <p class="page-header__desc">
+            实例 ID {{ instance.instance_id }}
+            <span class="dot">·</span>
+            {{ instance.os || '未知系统' }}
+            <span class="dot">·</span>
+            {{ instance.public_ip || '未分配公网 IP' }}
+          </p>
+        </div>
       </div>
-      <div class="power-bar">
-        <t-button theme="success" :disabled="instance.power_status === 'on'" @click="onPower('on')">
-          <template #icon><t-icon name="poweroff" /></template>
+      <div class="page-header__actions">
+        <t-button variant="outline" :loading="loading" @click="load(true)">
+          <template #icon><RefreshIcon /></template>
+          刷新状态
+        </t-button>
+      </div>
+    </header>
+
+    <!-- 状态说明：把「为什么是这个状态」写清楚（待开通 / 到期 / 暂停） -->
+    <t-alert
+      v-if="isPending"
+      theme="warning"
+      class="detail-alert"
+      :title="provisionAlertTitle"
+      :message="provisionAlertMessage"
+    />
+    <t-alert
+      v-else-if="stateAlert"
+      :theme="stateAlert.theme"
+      class="detail-alert"
+      :message="stateAlert.message"
+    >
+      <template v-if="stateAlert.action" #operation>
+        <t-button theme="primary" size="small" variant="outline" @click="$router.push('/cloud/renewals')">
+          {{ stateAlert.action }}
+        </t-button>
+      </template>
+    </t-alert>
+
+    <!-- 电源与维护操作条 -->
+    <section class="surface-card action-bar">
+      <template v-if="isPending">
+        <t-button theme="primary" :loading="retrying" @click="onRetry">
+          <template #icon><RefreshIcon /></template>
+          重新开通
+        </t-button>
+        <span class="action-bar__hint">实例尚未开通完成，开通成功后才能进行电源与控制台操作</span>
+      </template>
+      <template v-else>
+        <t-button theme="success" :disabled="!caps.power || instance.power_status === 'on'" @click="onPower('on')">
+          <template #icon><PlayCircleIcon /></template>
           开机
         </t-button>
-        <t-button theme="danger" :disabled="instance.power_status === 'off'" @click="onPower('off')">
-          <template #icon><t-icon name="poweroff" /></template>
+        <t-button theme="danger" :disabled="!caps.power || instance.power_status === 'off'" @click="onPower('off')">
+          <template #icon><PoweroffIcon /></template>
           关机
         </t-button>
-        <t-button theme="warning" :disabled="instance.power_status !== 'on'" @click="onPower('reboot')">
-          <template #icon><t-icon name="refresh" /></template>
+        <t-button theme="warning" :disabled="!caps.power || instance.power_status !== 'on'" @click="onPower('reboot')">
+          <template #icon><RefreshIcon /></template>
           重启
         </t-button>
-        <t-button theme="danger" variant="outline" :disabled="instance.power_status === 'off'" @click="onPower('hard_off', true)">
+        <t-button
+          theme="danger"
+          variant="outline"
+          :disabled="!caps.power || instance.power_status === 'off'"
+          @click="onPower('hard_off', true)"
+        >
           强制关机
         </t-button>
-        <t-button theme="danger" variant="outline" :disabled="instance.power_status !== 'on'" @click="onPower('hard_reboot', true)">
+        <t-button
+          theme="danger"
+          variant="outline"
+          :disabled="!caps.power || instance.power_status !== 'on'"
+          @click="onPower('hard_reboot', true)"
+        >
           强制重启
         </t-button>
-        <t-button theme="primary" :disabled="instance.status !== 'running'" @click="onVNC">
-          <template #icon><t-icon name="screen-zoom" /></template>
+        <t-button theme="primary" :disabled="!caps.console || instance.status !== 'running'" @click="onVNC">
+          <template #icon><TerminalIcon /></template>
           VNC 控制台
         </t-button>
-        <!-- 维护类自助（重装/重置密码/救援/快照）：收纳在下拉里，操作栏不再膨胀 -->
+        <!-- 维护类自助（重装/重置密码/救援/快照）：收纳进下拉，操作条不再膨胀 -->
         <t-dropdown :options="maintenanceOptions" trigger="click" @click="onMaintenancePick">
           <t-button theme="default" variant="outline">
             更多维护
-            <template #suffix><t-icon name="chevron-down" /></template>
+            <template #suffix><ChevronDownIcon /></template>
           </t-button>
         </t-dropdown>
-        <!-- 销毁入口（doc91 §6.4）：危险操作，二次确认需手输实例标识 -->
-        <t-button theme="danger" variant="outline" @click="openDestroy">
-          <template #icon><t-icon name="delete" /></template>
+        <t-button v-if="caps.destroy" theme="danger" variant="outline" @click="openDestroy">
+          <template #icon><DeleteIcon /></template>
           销毁实例
         </t-button>
+      </template>
+    </section>
+
+    <!-- 配置概览：四张统计卡片，与列表页视觉一致 -->
+    <section class="spec-stat-grid">
+      <div class="stat-card surface-card stat-card--blue">
+        <span class="stat-card__icon"><CpuIcon size="24" aria-hidden="true" /></span>
+        <div class="stat-card__info">
+          <span class="stat-card__value">{{ instance.cpu }}</span>
+          <span class="stat-card__hint">CPU 核心</span>
+        </div>
       </div>
-    </div>
+      <div class="stat-card surface-card stat-card--purple">
+        <span class="stat-card__icon"><DashboardIcon size="24" aria-hidden="true" /></span>
+        <div class="stat-card__info">
+          <span class="stat-card__value">{{ formatMemory(instance.memory) }}</span>
+          <span class="stat-card__hint">内存</span>
+        </div>
+      </div>
+      <div class="stat-card surface-card stat-card--cyan">
+        <span class="stat-card__icon"><HardDiskStorageIcon size="24" aria-hidden="true" /></span>
+        <div class="stat-card__info">
+          <span class="stat-card__value">{{ instance.disk }} GB</span>
+          <span class="stat-card__hint">系统盘{{ instance.disk_type ? `（${instance.disk_type}）` : '' }}</span>
+        </div>
+      </div>
+      <div class="stat-card surface-card stat-card--orange">
+        <span class="stat-card__icon"><SwapIcon size="24" aria-hidden="true" /></span>
+        <div class="stat-card__info">
+          <span class="stat-card__value">{{ instance.bandwidth }}</span>
+          <span class="stat-card__hint">带宽 Mbps</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 性能监控：CPU / 内存 / 磁盘 IO / 网卡流量。
+         能力位已声明不支持时直接不挂载，省掉一次注定失败的目录请求。 -->
+    <InstanceMetrics v-if="!isPending && caps.metrics" :instance-id="Number(route.params.id)" />
 
     <div class="detail-grid">
-      <div class="card">
+      <section class="surface-card info-card">
         <h3 class="card-title">基础信息</h3>
         <div class="kv-list">
-          <div class="kv"><span class="kv-key">实例 ID</span><span class="kv-val">{{ instance.instance_id }}</span></div>
-          <div class="kv"><span class="kv-key">公网 IP</span><span class="kv-val">{{ instance.public_ip || '—' }}</span></div>
-          <div class="kv"><span class="kv-key">私有 IP</span><span class="kv-val">{{ instance.private_ip || '—' }}</span></div>
+          <div class="kv"><span class="kv-key">实例 ID</span><span class="kv-val mono">{{ instance.instance_id }}</span></div>
+          <div class="kv"><span class="kv-key">公网 IP</span><span class="kv-val mono">{{ instance.public_ip || '—' }}</span></div>
+          <div class="kv"><span class="kv-key">内网 IP</span><span class="kv-val mono">{{ instance.private_ip || '—' }}</span></div>
           <div class="kv"><span class="kv-key">操作系统</span><span class="kv-val">{{ instance.os || '—' }}</span></div>
-          <div class="kv"><span class="kv-key">区域</span><span class="kv-val">{{ instance.region || instance.zone || '—' }}</span></div>
-          <div class="kv"><span class="kv-key">计费方式</span><span class="kv-val">{{ billingText }}</span></div>
+          <div class="kv">
+            <span class="kv-key">区域</span>
+            <span class="kv-val">{{ [instance.region, instance.zone].filter(Boolean).join(' / ') || '—' }}</span>
+          </div>
+          <div class="kv">
+            <span class="kv-key">开通操作人</span>
+            <span class="kv-val">{{ instance.actor_name || '主账号' }}</span>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div class="card">
-        <h3 class="card-title">配置规格</h3>
+      <section class="surface-card info-card">
+        <h3 class="card-title">账期信息</h3>
         <div class="kv-list">
-          <div class="kv"><span class="kv-key">CPU</span><span class="kv-val">{{ instance.cpu }} 核</span></div>
-          <div class="kv"><span class="kv-key">内存</span><span class="kv-val">{{ instance.memory }} MB</span></div>
-          <div class="kv"><span class="kv-key">系统盘</span><span class="kv-val">{{ instance.disk }} GB</span></div>
-          <div class="kv"><span class="kv-key">带宽</span><span class="kv-val">{{ instance.bandwidth }} Mbps</span></div>
-          <div class="kv"><span class="kv-key">到期时间</span><span class="kv-val">{{ instance.expire_at ? instance.expire_at.replace('T', ' ').slice(0, 16) : '—' }}</span></div>
-          <div class="kv"><span class="kv-key">创建时间</span><span class="kv-val">{{ instance.created_at?.replace('T', ' ').slice(0, 16) || '—' }}</span></div>
+          <div class="kv">
+            <span class="kv-key">计费方式</span>
+            <span class="kv-val">{{ billingModeLabel(instance.billing_mode) }}</span>
+          </div>
+          <div class="kv">
+            <span class="kv-key">到期时间</span>
+            <span class="kv-val">{{ formatTime(instance.expire_at) }}</span>
+          </div>
+          <div class="kv">
+            <span class="kv-key">剩余时间</span>
+            <span class="kv-val" :class="`days--${daysLeftTheme(instance.days_left, instance.expire_state)}`">
+              {{ daysLeftText(instance.days_left, instance.expire_state) }}
+            </span>
+          </div>
+          <div class="kv">
+            <span class="kv-key">创建时间</span>
+            <span class="kv-val">{{ formatTime(instance.created_at) }}</span>
+          </div>
+          <div class="kv">
+            <span class="kv-key">最近更新</span>
+            <span class="kv-val">{{ formatTime(instance.updated_at) }}</span>
+          </div>
+          <div class="kv kv--action">
+            <t-button theme="primary" variant="outline" size="small" @click="$router.push('/cloud/renewals')">
+              去续费
+            </t-button>
+          </div>
         </div>
-      </div>
+      </section>
     </div>
+
+    <!-- 操作记录：只读审计，让用户能自己回答"不是我操作的？" -->
+    <section class="surface-card info-card">
+      <div class="card-head">
+        <h3 class="card-title">操作记录</h3>
+        <span class="card-head__meta">最近 {{ operations.length }} 条</span>
+      </div>
+      <t-loading :loading="operationsLoading" show-overlay>
+        <t-table
+          v-if="operations.length"
+          row-key="id"
+          :data="operations"
+          :columns="operationColumns"
+          size="small"
+          :bordered="false"
+          cell-empty-content="—"
+        >
+          <template #action="{ row }">
+            <span class="op-action">{{ operationActionLabel(row.action) }}</span>
+          </template>
+          <template #operator_name="{ row }">
+            <span>{{ operatorTypeLabel(row.operator_type) }}</span>
+            <span v-if="row.operator_name" class="instance-sub"> · {{ row.operator_name }}</span>
+          </template>
+          <template #result="{ row }">
+            <t-tag :theme="operationResultTheme(row.result)" variant="light" size="small" shape="round">
+              {{ operationResultLabel(row.result) }}
+            </t-tag>
+            <div v-if="row.error_message" class="op-error">{{ row.error_message }}</div>
+          </template>
+          <template #created_at="{ row }">
+            <span class="instance-sub">{{ formatTime(row.created_at) }}</span>
+          </template>
+        </t-table>
+        <t-empty v-else description="暂无操作记录" />
+      </t-loading>
+    </section>
 
     <t-dialog v-model:visible="vnc.visible" :header="`远程控制台 · ${instance.name}`" width="80%" :footer="false" destroy-on-close>
       <div class="vnc-wrap">
@@ -272,8 +431,34 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { TTable } from '@/plugins/tdesign-heavy'
+import type { PrimaryTableCol } from 'tdesign-vue-next'
+import {
+  ChevronDownIcon,
+  ChevronLeftIcon,
+  CloudIcon,
+  CpuIcon,
+  DashboardIcon,
+  DeleteIcon,
+  HardDiskStorageIcon,
+  PlayCircleIcon,
+  PoweroffIcon,
+  RefreshIcon,
+  SwapIcon,
+  TerminalIcon,
+} from 'tdesign-icons-vue-next'
 
-import { destroyInstance, getInstance, powerInstance, vncInstance, type InstanceInfo } from '@/api/cloud'
+import InstanceMetrics from '@/components/InstanceMetrics.vue'
+import {
+  destroyInstance,
+  getInstance,
+  listInstanceOperations,
+  powerInstance,
+  retryInstanceProvision,
+  vncInstance,
+  type InstanceInfo,
+  type InstanceOperation,
+  type PowerAction,
+} from '@/api/cloud'
 import {
   createInstanceSnapshot,
   deleteInstanceSnapshot,
@@ -286,43 +471,116 @@ import {
   type SnapshotInfo,
 } from '@/api/cloud'
 import { getVerificationRequirement, sendSecurityVerification, verifySecurityCode } from '@/api/security'
+import {
+  billingModeLabel,
+  combineInstanceState,
+  daysLeftText,
+  daysLeftTheme,
+  formatMemory,
+  formatTime,
+  operationActionLabel,
+  operationResultLabel,
+  operationResultTheme,
+  operatorTypeLabel,
+} from './constants'
 
 defineOptions({ name: 'InstanceDetail' })
 
 const route = useRoute()
 const router = useRouter()
 const instance = ref<InstanceInfo | null>(null)
+const loading = ref(false)
 
-const statusText = computed(() => {
-  const s = instance.value?.status
-  // 已销毁优先：终态下上游可能仍回 running（软删残留），只读 status 会把已终止的
-  // 机器显示成「运行中」。
-  if (s === 'deleted') return '已销毁'
-  if (s === 'running') return '运行中'
-  if (s === 'stopped') return '已关机'
-  if (s === 'creating') return '创建中'
-  return s || '未知'
+const instanceId = computed(() => Number(route.params.id))
+
+/** 状态结论与服务端列表页同源（combineInstanceState），避免同一台机器两处显示不一致。 */
+const state = computed(() =>
+  combineInstanceState({
+    status: instance.value?.status || '',
+    lifecycle_stage: instance.value?.lifecycle_stage,
+    expire_state: instance.value?.expire_state,
+    pending: instance.value?.pending,
+  }),
+)
+
+/** 能力位：缺省（老数据）时按可操作处理，避免整页按钮被禁用。 */
+const caps = computed(() => ({
+  power: instance.value?.capabilities ? instance.value.capabilities.power : true,
+  console: instance.value?.capabilities ? instance.value.capabilities.console : true,
+  reinstall: instance.value?.capabilities ? instance.value.capabilities.reinstall : true,
+  reset_password: instance.value?.capabilities ? instance.value.capabilities.reset_password : true,
+  rescue: instance.value?.capabilities ? instance.value.capabilities.rescue : true,
+  snapshot: instance.value?.capabilities ? instance.value.capabilities.snapshot : true,
+  destroy: instance.value?.capabilities ? instance.value.capabilities.destroy : true,
+  metrics: instance.value?.capabilities ? instance.value.capabilities.metrics : true,
+}))
+
+/** 到期相关提示（过期/宽限/临期），与状态徽标互补：徽标说结论，这里说该做什么。 */
+const stateAlert = computed<{ theme: string; message: string; action?: string } | null>(() => {
+  const it = instance.value
+  if (!it || it.pending || it.lifecycle_stage === 'destroyed') return null
+  if (it.lifecycle_stage === 'suspended') {
+    return { theme: 'error', message: '实例已因到期暂停服务，续费后将自动恢复运行。', action: '去续费' }
+  }
+  if (it.expire_state === 'expired') {
+    return {
+      theme: 'warning',
+      message: `实例已过期 ${Math.abs(it.days_left)} 天，处于宽限期仍可服务；请尽快续费，逾期将暂停并最终销毁。`,
+      action: '去续费',
+    }
+  }
+  if (it.expire_state === 'expiring') {
+    return { theme: 'info', message: `实例将在 ${it.days_left} 天后到期，建议提前续费避免服务中断。`, action: '去续费' }
+  }
+  return null
 })
-const statusTheme = computed<'success' | 'warning' | 'default' | 'danger'>(() => {
-  const s = instance.value?.status
-  if (s === 'running') return 'success'
-  if (s === 'creating') return 'warning'
-  return 'default'
+
+// 待开通（尚未在上游开通）：只开放「重新开通」。
+const isPending = computed(() => !!instance.value && !instance.value.provider_instance_id)
+const retrying = ref(false)
+
+const provisionAlertTitle = computed(() => {
+  const st = instance.value?.provision_status
+  if (st === 'manual') return '开通失败，需人工处理（可重新开通）'
+  if (st === 'failed') return '开通失败，系统自动重试中'
+  return '实例待开通'
 })
-const billingText = computed(() => {
-  const b = instance.value?.billing_mode
-  return { monthly: '按月付费', quarterly: '按季付费', annually: '按年付费', hourly: '按小时付费' }[b || ''] || b || '—'
+const provisionAlertMessage = computed(() => {
+  const reason = instance.value?.provision_error
+  if (reason) {
+    return `原因：${reason}。修复后可点「重新开通」重试（重试复用已生成的上游账单，不会重复下单）。`
+  }
+  return '订单未支付或正在开通中。未支付订单超出支付有效期会自动关单并删除本实例；已支付但开通失败的可在详情页「重新开通」。'
 })
+
+// 重新提交开通（复用已生成的上游账单，不产生新订单/新账单）。
+async function onRetry() {
+  if (!instance.value) return
+  retrying.value = true
+  try {
+    await retryInstanceProvision(instance.value.id)
+    MessagePlugin.success('已重新提交开通，请稍后刷新查看')
+    load(false)
+  } catch {
+    /* 错误已由请求拦截器提示 */
+  } finally {
+    retrying.value = false
+  }
+}
 
 const vnc = ref<{ visible: boolean; url: string }>({ visible: false, url: '' })
 
 async function load(live = false) {
-  const id = Number(route.params.id)
-  const res = await getInstance(id, live)
-  instance.value = res.data
+  loading.value = true
+  try {
+    const res = await getInstance(instanceId.value, live)
+    instance.value = res.data
+  } finally {
+    loading.value = false
+  }
 }
 
-async function onPower(action: 'on' | 'off' | 'reboot' | 'hard_off' | 'hard_reboot', needConfirm = false) {
+async function onPower(action: PowerAction, needConfirm = false) {
   const label = { on: '开机', off: '关机', reboot: '重启', hard_off: '强制关机', hard_reboot: '强制重启' }[action]
   if (needConfirm) {
     // 硬电源 = 断电级动作，先确认再发指令；取消即什么都不做。
@@ -342,11 +600,11 @@ async function onPower(action: 'on' | 'off' | 'reboot' | 'hard_off' | 'hard_rebo
   await doPower(action, label)
 }
 
-async function doPower(action: 'on' | 'off' | 'reboot' | 'hard_off' | 'hard_reboot', label: string) {
+async function doPower(action: PowerAction, label: string) {
   try {
-    await powerInstance(Number(route.params.id), action)
+    await powerInstance(instanceId.value, action)
     MessagePlugin.success(`${label}指令已发送`)
-    await load(true)
+    await refreshAll()
   } catch {
     /* 错误已由拦截器提示 */
   }
@@ -354,7 +612,7 @@ async function doPower(action: 'on' | 'off' | 'reboot' | 'hard_off' | 'hard_rebo
 
 async function onVNC() {
   try {
-    const res = await vncInstance(Number(route.params.id))
+    const res = await vncInstance(instanceId.value)
     vnc.value = { visible: true, url: res.data?.url || '' }
   } catch {
     /* 错误已由拦截器提示 */
@@ -367,6 +625,40 @@ function isHttp(url: string): boolean {
 
 function openVnc() {
   window.open(vnc.value.url, '_blank')
+}
+
+// ===== 操作记录 =====
+
+const operations = ref<InstanceOperation[]>([])
+const operationsLoading = ref(false)
+
+const operationColumns: PrimaryTableCol<InstanceOperation>[] = [
+  { colKey: 'action', title: '操作', width: 130 },
+  { colKey: 'operator_name', title: '操作人', width: 150 },
+  { colKey: 'result', title: '结果', minWidth: 180 },
+  { colKey: 'created_at', title: '时间', width: 150 },
+]
+
+async function loadOperations() {
+  if (isPending.value) {
+    operations.value = []
+    return
+  }
+  operationsLoading.value = true
+  try {
+    const res = await listInstanceOperations(instanceId.value, 20)
+    operations.value = res.data || []
+  } catch {
+    operations.value = []
+  } finally {
+    operationsLoading.value = false
+  }
+}
+
+/** 实例数据与操作记录一起刷新（电源动作后两者都会变）。 */
+async function refreshAll() {
+  await load(true)
+  await loadOperations()
 }
 
 // —— 销毁实例（doc91 §6.4）——
@@ -421,7 +713,7 @@ async function sendDestroyCode() {
 }
 
 async function submitDestroy() {
-  const id = Number(route.params.id)
+  const id = instanceId.value
   const expected = instance.value?.instance_id || ''
   if (destroy.confirmMark.trim() !== expected) {
     MessagePlugin.warning('实例 ID 输入不一致，请准确输入后再试')
@@ -462,7 +754,7 @@ async function submitDestroy() {
   }
 }
 
-onMounted(() => load(true))
+onMounted(() => refreshAll())
 
 // ===== 维护类自助操作 =====
 //
@@ -471,11 +763,11 @@ onMounted(() => load(true))
 // 前端只负责收集参数、做二次确认与展示一次性凭据。
 
 const maintenanceOptions = computed(() => [
-  { content: '重装系统', value: 'reinstall' },
-  { content: '重置密码', value: 'resetpwd' },
-  { content: '进入救援系统', value: 'rescue' },
-  { content: '退出救援系统', value: 'exitrescue' },
-  { content: '快照与备份', value: 'snapshot' },
+  { content: '重装系统', value: 'reinstall', disabled: !caps.value.reinstall },
+  { content: '重置密码', value: 'resetpwd', disabled: !caps.value.reset_password },
+  { content: '进入救援系统', value: 'rescue', disabled: !caps.value.rescue },
+  { content: '退出救援系统', value: 'exitrescue', disabled: !caps.value.rescue },
+  { content: '快照与备份', value: 'snapshot', disabled: !caps.value.snapshot },
 ])
 
 function onMaintenancePick(data: { value: string }) {
@@ -580,7 +872,7 @@ async function submitReinstall() {
   try {
     const ticket = await acquireTicket('instance_reinstall', reinstall.needVerify, reinstall.code)
     const res = await reinstallInstance(
-      Number(route.params.id),
+      instanceId.value,
       {
         os: reinstall.os.trim(),
         port: reinstall.port || undefined,
@@ -597,7 +889,7 @@ async function submitReinstall() {
     } else {
       MessagePlugin.success('重装指令已提交')
     }
-    await load(true)
+    await refreshAll()
   } catch (error) {
     if (isVerifyRequired(error)) {
       reinstall.needVerify = true
@@ -620,9 +912,10 @@ async function submitResetPassword() {
   }
   resetPwd.submitting = true
   try {
-    await resetInstancePassword(Number(route.params.id), resetPwd.password)
+    await resetInstancePassword(instanceId.value, resetPwd.password)
     MessagePlugin.success('密码已重置')
     resetPwd.visible = false
+    await loadOperations()
   } catch (error) {
     const e = error as { response?: { data?: { message?: string } }; message?: string }
     MessagePlugin.error(e?.response?.data?.message || e?.message || '重置密码失败')
@@ -640,10 +933,10 @@ async function submitRescue() {
   }
   rescue.submitting = true
   try {
-    await rescueInstance(Number(route.params.id), rescue.system, rescue.temp_password)
+    await rescueInstance(instanceId.value, rescue.system, rescue.temp_password)
     MessagePlugin.success('已发起进入救援系统')
     rescue.visible = false
-    await load(true)
+    await refreshAll()
   } catch (error) {
     const e = error as { response?: { data?: { message?: string } }; message?: string }
     MessagePlugin.error(e?.response?.data?.message || e?.message || '进入救援系统失败')
@@ -654,9 +947,9 @@ async function submitRescue() {
 
 async function submitExitRescue() {
   try {
-    await exitRescueInstance(Number(route.params.id))
+    await exitRescueInstance(instanceId.value)
     MessagePlugin.success('已发起退出救援系统')
-    await load(true)
+    await refreshAll()
   } catch (error) {
     const e = error as { response?: { data?: { message?: string } }; message?: string }
     MessagePlugin.error(e?.response?.data?.message || e?.message || '退出救援系统失败')
@@ -693,7 +986,7 @@ const snap = reactive({
 async function loadSnapshots() {
   snap.loading = true
   try {
-    const res = await listInstanceSnapshots(Number(route.params.id))
+    const res = await listInstanceSnapshots(instanceId.value)
     snap.rows = res.data || []
   } catch (error) {
     const e = error as { response?: { data?: { message?: string } }; message?: string }
@@ -706,7 +999,7 @@ async function loadSnapshots() {
 async function submitCreateSnapshot() {
   snap.loading = true
   try {
-    await createInstanceSnapshot(Number(route.params.id), { type: snap.type, name: snap.name || undefined })
+    await createInstanceSnapshot(instanceId.value, { type: snap.type, name: snap.name || undefined })
     MessagePlugin.success('快照创建指令已提交（异步执行，稍后刷新查看）')
     snap.name = ''
     setTimeout(() => loadSnapshots(), 5000)
@@ -734,7 +1027,7 @@ async function submitRestoreSnapshot() {
   try {
     const ticket = await acquireTicket('instance_snapshot_restore', snap.needVerify, snap.code)
     await restoreInstanceSnapshot(
-      Number(route.params.id),
+      instanceId.value,
       snap.restoreId,
       snap.restoreMark.trim(),
       ticket || undefined,
@@ -742,7 +1035,7 @@ async function submitRestoreSnapshot() {
     MessagePlugin.success('恢复指令已提交')
     snap.restoreId = ''
     snap.restoreMark = ''
-    await load(true)
+    await refreshAll()
   } catch (error) {
     if (isVerifyRequired(error)) {
       snap.needVerify = true
@@ -756,7 +1049,7 @@ async function submitRestoreSnapshot() {
 
 async function submitDeleteSnapshot(row: SnapshotInfo) {
   try {
-    await deleteInstanceSnapshot(Number(route.params.id), row.id)
+    await deleteInstanceSnapshot(instanceId.value, row.id)
     MessagePlugin.success('快照已删除')
     loadSnapshots()
   } catch (error) {
@@ -768,65 +1061,160 @@ async function submitDeleteSnapshot(row: SnapshotInfo) {
 
 <style scoped>
 .detail-page {
-  padding: 4px 0;
+  gap: var(--space-lg);
 }
+
 .loading-wrap {
   display: flex;
   justify-content: center;
   padding: 60px;
 }
-.detail-header {
+
+/* ---------- 页头 ---------- */
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-muted-foreground);
+  cursor: pointer;
+  transition: all var(--hs-duration-fast) var(--hs-ease-out);
+  flex-shrink: 0;
+}
+
+.back-btn:hover {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.page-header__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.dot {
+  margin: 0 4px;
+  color: var(--color-border);
+}
+
+/* ---------- 提示与操作条 ---------- */
+.detail-alert {
+  border-radius: var(--hs-radius-lg);
+}
+
+.action-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  padding: var(--space-md) var(--space-xl);
+}
+
+.action-bar__hint {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+/* ---------- 配置概览 ---------- */
+.spec-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+/* ---------- 信息卡 ---------- */
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.info-card {
+  padding: var(--space-lg) var(--space-xl);
+}
+
+.card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
 }
-.detail-title-wrap {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+
+.card-head__meta {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
 }
-.detail-title {
-  font-size: 22px;
-  font-weight: 600;
-}
-.power-bar {
-  display: flex;
-  gap: 8px;
-}
-.detail-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-.card {
-  background: var(--td-bg-color-container);
-  border: 1px solid var(--td-component-border);
-  border-radius: 8px;
-  padding: 18px 20px;
-}
-.card-title {
-  font-size: 15px;
-  font-weight: 600;
-  margin-bottom: 14px;
-}
+
 .kv-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-md);
 }
+
 .kv {
   display: flex;
+  align-items: baseline;
   justify-content: space-between;
+  gap: var(--space-md);
 }
+
+.kv--action {
+  justify-content: flex-end;
+}
+
 .kv-key {
-  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  color: var(--color-muted-foreground);
+  flex-shrink: 0;
 }
+
 .kv-val {
+  font-size: 13px;
   font-weight: 500;
+  color: var(--color-foreground);
+  text-align: right;
+  word-break: break-all;
 }
+
+.mono {
+  font-family: var(--hs-font-mono);
+  font-size: 12.5px;
+}
+
+.days--danger {
+  color: var(--color-error, #d54941);
+  font-weight: 600;
+}
+.days--warning {
+  color: var(--color-warning, #e37318);
+  font-weight: 600;
+}
+
+/* ---------- 操作记录 ---------- */
+.op-action {
+  font-size: 13px;
+  color: var(--color-foreground);
+}
+
+.op-error {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--color-error, #d54941);
+  word-break: break-all;
+}
+
+.instance-sub {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+/* ---------- VNC ---------- */
 .vnc-wrap {
   height: 62vh;
   display: flex;
@@ -840,7 +1228,8 @@ async function submitDeleteSnapshot(row: SnapshotInfo) {
   border-radius: 6px;
   background: #000;
 }
-/* 销毁确认弹窗 */
+
+/* ---------- 弹窗 ---------- */
 .destroy-body {
   display: flex;
   flex-direction: column;
@@ -892,9 +1281,27 @@ async function submitDeleteSnapshot(row: SnapshotInfo) {
 .snap-select {
   width: 110px;
 }
+
+@media (max-width: 1024px) {
+  .spec-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 768px) {
   .detail-grid {
     grid-template-columns: 1fr;
+  }
+  .spec-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .action-bar {
+    padding: var(--space-md);
+  }
+  /* 窄屏：按钮等宽铺满，避免"强制关机"这类长标签被挤成两行 */
+  .action-bar :deep(.t-button) {
+    flex: 1 1 calc(50% - var(--space-sm));
+    min-width: 0;
   }
 }
 </style>

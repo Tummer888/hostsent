@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.uber.org/zap"
+
 	accountdto "hostsent/backend/internal/modules/admin/finance/account/dto"
 	transdto "hostsent/backend/internal/modules/admin/finance/transaction/dto"
 	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
@@ -46,7 +48,10 @@ var (
 
 // defaultPayExpireMinutes 待支付订单默认有效期（分钟）：与系统配置 order_expire_minutes
 // 的种子值保持一致；配置缺失或非法时的兜底。
-const defaultPayExpireMinutes = 30
+//
+// 默认一天：订单创建即生成「待开通」实例占位，占位随订单存续；有效期太短会让
+// 用户"刚下单没付完、实例就没了"。运营可在系统配置里按需调整。
+const defaultPayExpireMinutes = 1440
 
 // 以下为装配层注入的最小暴露接口（仅声明 uc 真正用到的方法，避免依赖 admin 的 service 层）。
 type (
@@ -144,6 +149,12 @@ type OrderService interface {
 	SetOptionPricingPort(p optionPricingPort)
 	// SetSalesOwnerResolver 注入销售归属解析（装配层调用，doc86 §3.4）。
 	SetSalesOwnerResolver(r salesOwnerResolver)
+	// SetInstancePlaceholder 注入「下单即建待开通实例占位」钩子（装配层调用）。
+	SetInstancePlaceholder(fn func(ctx context.Context, order *ordermodel.Order) error)
+	// SetPendingInstanceReleaser 注入「订单作废即删占位实例」钩子（装配层调用）。
+	SetPendingInstanceReleaser(fn func(ctx context.Context, orderID uint64) (int64, error))
+	// SetLogger 注入日志器（装配层调用；nil 时不记日志）。
+	SetLogger(l *zap.Logger)
 }
 
 type orderService struct {
@@ -164,6 +175,14 @@ type orderService struct {
 	salesOwner      salesOwnerResolver                                // 销售归属解析（doc86 §3.4），可为 nil（不记归属）
 	prepay          prepayPort                                        // 收银台发起支付（支付中心），可为 nil（未装配时不可线上支付）
 	pendingPayments pendingPaymentCloser                              // 关闭未支付支付单，可为 nil
+	// instancePlaceholder 下单即建「待开通」实例占位（装配层实现），可为 nil（不建占位）。
+	// 让"已下单但还没开通成功"的机器在实例列表里可见可操作（查看/重新开通），
+	// 而不是开通失败后实例模块里什么都看不到（用户实测问题）。
+	instancePlaceholder func(ctx context.Context, order *ordermodel.Order) error
+	// pendingInstanceReleaser 删除订单的未开通占位实例（未支付关单/用户取消时），可为 nil。
+	pendingInstanceReleaser func(ctx context.Context, orderID uint64) (int64, error)
+	// logger 可选日志（占位实例建/删失败等"不阻断下单"的事件），由装配层注入。
+	logger *zap.Logger
 	// payExpireMinutes 待支付订单有效期（分钟），来自系统配置 order_expire_minutes。
 	// 读接口与过期扫描都会用到（调度器每轮刷新），用原子量避免 data race。
 	payExpireMinutes atomic.Int64
@@ -237,6 +256,29 @@ func (s *orderService) resolveOptionPricing(ctx context.Context, productID uint6
 
 // SetSalesOwnerResolver 注入销售归属解析器（装配层调用，避免改构造签名影响既有装配点）。
 func (s *orderService) SetSalesOwnerResolver(r salesOwnerResolver) { s.salesOwner = r }
+
+// SetInstancePlaceholder 注入「下单即建待开通实例」钩子（装配层调用；nil 时不建）。
+func (s *orderService) SetInstancePlaceholder(fn func(ctx context.Context, order *ordermodel.Order) error) {
+	s.instancePlaceholder = fn
+}
+
+// SetPendingInstanceReleaser 注入「订单作废即删占位实例」钩子（装配层调用；nil 时跳过）。
+func (s *orderService) SetPendingInstanceReleaser(fn func(ctx context.Context, orderID uint64) (int64, error)) {
+	s.pendingInstanceReleaser = fn
+}
+
+// SetLogger 注入日志器（装配层调用；nil 时不记日志）。
+func (s *orderService) SetLogger(l *zap.Logger) { s.logger = l }
+
+// logPlaceholderError 记录占位实例建/删失败：这类失败不阻断下单/关单主流程，
+// 但必须在日志里留痕（否则实例"凭空消失/凭空出现"无从排查）。
+func (s *orderService) logPlaceholderError(order *ordermodel.Order, err error) {
+	if s.logger == nil || order == nil {
+		return
+	}
+	s.logger.Warn("pending instance placeholder operation failed",
+		zap.Uint64("order_id", order.ID), zap.String("order_no", order.OrderNo), zap.Error(err))
+}
 
 // resolveQuote 调用统一算价管线；未注入管线时回落为「商品单价 × 数量」不打折（P5-04）。
 // specCode 非空时按 SKU 定价（管线内 SKU 有定价则覆盖商品级基础价）；
@@ -523,6 +565,15 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 		}
 	}
 
+	// 2.3) 下单即建「待开通」实例占位（含未支付订单）：用户实测反馈"开通失败后实例模块里
+	//      什么都看不到，无法查看/重新开通"。占位行随订单存在，开通成功时就地转正，
+	//      未支付超时/取消时删除。失败只记日志：订单已落库，不因占位失败而失败。
+	if s.instancePlaceholder != nil {
+		if err := s.instancePlaceholder(ctx, order); err != nil {
+			s.logPlaceholderError(order, err)
+		}
+	}
+
 	// 2.4) 渠道支付：到此为止订单已可靠落库（含库存占用），直接返回待支付单与支付截止时间。
 	//      累计消费与开通都必须等到账后（未付款不该累计消费、更不能开通资源）。
 	//      订单号此处即可确定，用户点「去支付」时才真正向渠道下单（避免无人支付也占用渠道单）。
@@ -762,6 +813,12 @@ func (s *orderService) ExpirePending(ctx context.Context, expireMinutes int) (in
 func (s *orderService) releasePendingHoldings(ctx context.Context, order *ordermodel.Order) {
 	if s.pendingPayments != nil {
 		_, _ = s.pendingPayments.CloseByBiz(ctx, paymodel.BizTypeOrder, order.ID)
+	}
+	// 删除该订单的「待开通」占位实例：订单已作废，实例列表里不该再留一台永远不会开通的机器。
+	if s.pendingInstanceReleaser != nil {
+		if _, err := s.pendingInstanceReleaser(ctx, order.ID); err != nil {
+			s.logPlaceholderError(order, err)
+		}
 	}
 	if s.sku == nil || order.SpecCode == "" || order.Quantity <= 0 {
 		return

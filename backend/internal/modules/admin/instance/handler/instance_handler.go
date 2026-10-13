@@ -60,6 +60,12 @@ func writeError(err error) *apperrors.AppError {
 		return apperrors.New(20004, err.Error())
 	case errors.Is(err, instanceservice.ErrProviderUnavailable):
 		return apperrors.New(20005, err.Error())
+	case errors.Is(err, instanceservice.ErrInstanceNotProvisioned):
+		return apperrors.New(20006, err.Error())
+	case errors.Is(err, instanceservice.ErrProvisionRetryUnavailable):
+		return apperrors.New(20006, err.Error())
+	case errors.Is(err, instanceservice.ErrNothingToSync):
+		return apperrors.New(20006, err.Error())
 	case errors.Is(err, instanceservice.ErrPermissionDenied):
 		return apperrors.New(10003, err.Error())
 	default:
@@ -225,6 +231,26 @@ func (h *InstanceHandler) Sync(c *gin.Context) {
 		return
 	}
 	resp, err := h.svc.Sync(c.Request.Context(), operator(c), id)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// RetryProvision 重新开通待开通实例（占位行）：重投来源订单的履约任务。
+// @Summary 实例重新开通（待开通实例）
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/provision-retry [post]
+func (h *InstanceHandler) RetryProvision(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.svc.RetryProvision(c.Request.Context(), operator(c), id)
 	if err != nil {
 		response.Error(c, writeError(err))
 		return

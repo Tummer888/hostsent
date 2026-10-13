@@ -184,6 +184,8 @@ func registerUCRoutes(r *gin.Engine, app *App) {
 		ucInstances.GET("/:id", app.userPerm(appauth.PermInstanceView), app.ucInstanceHandler.Detail)          // 主机详情
 		ucInstances.POST("/:id/power", app.userPerm(appauth.PermInstanceOperate), app.ucInstanceHandler.Power) // 电源操作
 		ucInstances.POST("/:id/vnc", app.userPerm(appauth.PermInstanceOperate), app.ucInstanceHandler.VNC)     // 远程控制台
+		// 重新开通（待开通实例专用）：重投订单履约任务；不产生新订单/新账单（幂等）。
+		ucInstances.POST("/:id/provision-retry", app.userPerm(appauth.PermInstanceOperate), app.ucInstanceHandler.RetryProvision)
 		// 维护类自助操作（重装/重置密码/救援/快照）：写入操作，需 instance:operate。
 		// 重装允许格式化数据盘、快照恢复会覆盖系统盘 —— 两者按管理端口径加二次验证。
 		ucInstances.POST("/:id/reinstall", app.userPerm(appauth.PermInstanceOperate), app.userRequireVerification("instance_reinstall"), app.ucInstanceHandler.Reinstall)
@@ -191,6 +193,11 @@ func registerUCRoutes(r *gin.Engine, app *App) {
 		ucInstances.POST("/:id/rescue", app.userPerm(appauth.PermInstanceOperate), app.ucInstanceHandler.Rescue)
 		ucInstances.POST("/:id/exit-rescue", app.userPerm(appauth.PermInstanceOperate), app.ucInstanceHandler.ExitRescue)
 		ucInstances.GET("/:id/snapshots", app.userPerm(appauth.PermInstanceView), app.ucInstanceHandler.Snapshots)
+		// 只读的运维可见性：操作流水 + 性能监控（CPU/内存/磁盘/网卡）。
+		// 均按实例归属校验后才取数，且不改状态，用 instance:view 即可。
+		ucInstances.GET("/:id/operations", app.userPerm(appauth.PermInstanceView), app.ucInstanceHandler.Operations)
+		ucInstances.GET("/:id/metrics", app.userPerm(appauth.PermInstanceView), app.ucInstanceHandler.MetricsCatalog)
+		ucInstances.GET("/:id/metrics/series", app.userPerm(appauth.PermInstanceView), app.ucInstanceHandler.MetricsSeries)
 		ucInstances.POST("/:id/snapshots", app.userPerm(appauth.PermInstanceOperate), app.ucInstanceHandler.CreateSnapshot)
 		ucInstances.DELETE("/:id/snapshots/:snapshotId", app.userPerm(appauth.PermInstanceOperate), app.ucInstanceHandler.DeleteSnapshot)
 		ucInstances.POST("/:id/snapshots/restore", app.userPerm(appauth.PermInstanceOperate), app.userRequireVerification("instance_snapshot_restore"), app.ucInstanceHandler.RestoreSnapshot)
