@@ -427,6 +427,8 @@ export interface SpecTemplateQuery {
   spec_family?: string
   /** 按归属平台筛选（配置档改造后的主筛选维度） */
   provider_type?: string
+  /** 按机型筛选：vps 独立 IP / nat NAT 机型 / unset 未标注 */
+  machine_kind?: string
   status?: number
   page?: number
   page_size?: number
@@ -451,6 +453,8 @@ export interface SpecTemplateRequest {
   platform_params?: Record<string, unknown> | null
   /** 档位归属的平台类型（dcimcloud / zjmf 等） */
   provider_type?: string
+  /** 机型：vps 独立 IP / nat NAT 机型 / 空 未标注（决定平台参数基线与互斥校验） */
+  machine_kind?: string
   /** 每参数勾选的可选值（T4.5）：建品时据此生成客户选配项 */
   option_selections?: SpecOptionSelections | null
   /** 商品名渲染模板，如 "{cpu}核{memory}G {os}" */
@@ -479,6 +483,8 @@ export interface SpecTemplateInfo {
   platform_params: Record<string, unknown> | null
   /** 归属平台类型 */
   provider_type: string
+  /** 机型：vps 独立 IP / nat NAT 机型 / '' 未标注（存量档位） */
+  machine_kind: string
   /** 每参数勾选的可选值（可能为 null：老模板未配置） */
   option_selections: SpecOptionSelections | null
   /** 商品名/描述渲染模板 */

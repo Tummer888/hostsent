@@ -24,6 +24,20 @@ const (
 	SpecTemplateSourceImported = "imported" // 由上游规格归一而来
 )
 
+// 机型（product_spec_templates.machine_kind，doc122）：决定档位的平台参数基线。
+//
+// 魔方云两条开通链路共用 POST /clouds，靠参数取值区分机型；这个字段把这个隐含
+// 语义显式化，用于预置档位分组与保存时的互斥校验（NAT 必须 ip_num=0 且有转发能力，
+// VPS 必须 ip_num>=1 且无转发能力）。
+const (
+	// MachineKindVPS 独立 IP 机型：分配独立公网 IP，nat_*_limit=-1。
+	MachineKindVPS = "vps"
+	// MachineKindNAT NAT 机型：不分配独立 IP，经节点转发地址访问。
+	MachineKindNAT = "nat"
+	// MachineKindUnset 未标注：存量模板的缺省值，校验跳过。
+	MachineKindUnset = ""
+)
+
 // SpecMapping 状态
 const (
 	SpecMappingUnmapped int = 0 // 待映射
@@ -57,16 +71,21 @@ type SpecTemplate struct {
 	Status      int     `gorm:"default:1;index"`                                    // 状态
 	// SpecValues 原子 key → 取值 JSON（如 {"compute.cpu":2,"placement.region":"1"}）；
 	// 留空时由 CPU/Memory/Disk/Bandwidth/OS/DiskType 推导（specatom.ToMap 口径）。
-	SpecValues string `gorm:"column:spec_values;type:jsonb"`
+	// 指针语义：nil 落 NULL，空串不是合法 jsonb（落库报 22P02）。
+	SpecValues *string `gorm:"column:spec_values;type:jsonb"`
 	// PlatformParams 平台写参数 JSON（如 {"area":"1","node":"2","os":"12","store":"2"}）；
-	// 生成 SKU 时原样写入 spec_bindings.platform_params 并置 confirmed。
-	PlatformParams string `gorm:"column:platform_params;type:jsonb"`
+	// 生成 SKU 时原样写入 spec_bindings.platform_params 并置 confirmed。nil 落 NULL。
+	PlatformParams *string `gorm:"column:platform_params;type:jsonb"`
 	// ProviderType 档位归属的平台（dcimcloud / zjmf / ...）；空表示未绑定平台（旧模板）。
 	ProviderType string `gorm:"column:provider_type;size:64;not null;default:'';index"`
+	// MachineKind 机型（doc122）：vps 独立 IP / nat NAT 机型 / '' 未标注（存量模板）。
+	// 机型由 platform_params 的取值决定，此列只做归类与保存时互斥校验。
+	// 索引名显式固定：GORM 默认命名与迁移里的 DDL 不一致会多建一条冗余索引。
+	MachineKind string `gorm:"column:machine_kind;size:16;not null;default:'';index:idx_spec_templates_machine_kind"`
 	// OptionSelections 每参数勾选的可选值（T4.5），形如：
 	//   {"cpu":{"values":["2","4"]},"bw":{"range":[1,100],"default":"10"}}
-	// 建品时据此生成客户可选配置项；空表示按基线值生成单一 SKU（旧行为）。
-	OptionSelections string `gorm:"column:option_selections;type:jsonb"`
+	// 建品时据此生成客户可选配置项；nil 表示按基线值生成单一 SKU（旧行为）。
+	OptionSelections *string `gorm:"column:option_selections;type:jsonb"`
 	// NameTemplate / DescriptionTemplate 商品名与描述的渲染模板，
 	// 如 "{cpu}核{memory}G {os}"，用档位展开后的取值填充。
 	NameTemplate        string `gorm:"column:name_template;size:255;not null;default:''"`

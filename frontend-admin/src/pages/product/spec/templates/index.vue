@@ -31,6 +31,10 @@
         <t-select v-model="filters.provider_type" clearable placeholder="全部" :options="platformTypeOptions" />
       </div>
       <div class="field">
+        <span class="field__label">机型</span>
+        <t-select v-model="filters.machine_kind" clearable placeholder="全部" :options="machineKindFilterOptions" />
+      </div>
+      <div class="field">
         <span class="field__label">状态</span>
         <t-select v-model="filters.status" clearable placeholder="全部" :options="statusOptions" />
       </div>
@@ -70,7 +74,30 @@
         <template #specs="{ row }">
           <span>{{ row.cpu }}核 / {{ row.memory }}G / {{ row.disk }}G</span>
         </template>
+        <template #machine="{ row }">
+          <t-tag
+            v-if="row.machine_kind === 'nat'"
+            theme="warning"
+            variant="light"
+            size="small"
+            shape="round"
+          >NAT 机型</t-tag>
+          <t-tag
+            v-else-if="row.machine_kind === 'vps'"
+            theme="primary"
+            variant="light"
+            size="small"
+            shape="round"
+          >独立 IP</t-tag>
+          <span v-else class="cell-muted">未标注</span>
+        </template>
         <template #bandwidth="{ row }"><span>{{ row.bandwidth === 0 ? '不限' : row.bandwidth + ' Mbps' }}</span></template>
+        <!-- 0 元参考售价要显式标出来：它在建品时会变成 0 元 SKU，是事故前兆，
+             显示成空白或 "¥0" 都会被一眼扫过去。 -->
+        <template #price="{ row }">
+          <span v-if="!row.price || row.price <= 0" class="price-zero">0 元（未定价）</span>
+          <span v-else>{{ formatPrice(row.price) }}</span>
+        </template>
         <template #platform="{ row }">
           <t-tag v-if="row.platform_params" theme="success" variant="light" size="small" shape="round">已配映射</t-tag>
           <t-tag v-else theme="warning" variant="light" size="small" shape="round">缺平台映射</t-tag>
@@ -165,15 +192,50 @@
               <t-input-number v-model="form.disk" :min="0" theme="column" :style="{ width: '100%' }" />
             </t-form-item>
             <t-form-item label="参考售价（元）" name="price">
-              <t-input-number v-model="form.price" :min="0" :precision="2" theme="column" :style="{ width: '100%' }" />
+              <t-input-number
+                v-model="form.price"
+                :min="0"
+                :precision="2"
+                theme="column"
+                :style="{ width: '100%' }"
+                placeholder="必填，不能为 0"
+              />
+              <!-- 0 元价的真实风险：建品时它会成为 SKU 售价，误配上架后客户真能 0 元买。
+                   这里直接拦住，而不是等上架后才在价格矩阵里发现。 -->
+              <span v-if="!form.price || form.price <= 0" class="price-warn">
+                参考售价为 0：建品时该档位会生成 0 元 SKU，上架后客户可 0 元下单，请填写真实售价
+              </span>
             </t-form-item>
             <t-form-item label="排序" name="sort_order">
-              <t-input-number v-model="form.sort_order" theme="column" :style="{ width: '100%' }" />
+              <t-input-number
+                v-model="form.sort_order"
+                theme="column"
+                :style="{ width: '100%' }"
+                placeholder="留空自动接在最后"
+              />
+              <span class="form-hint">新建时自动取当前最大值 +10，便于后续插入调整。</span>
             </t-form-item>
             <t-form-item label="状态" name="status">
               <t-select v-model="form.status" :options="statusOptions" />
             </t-form-item>
           </div>
+
+          <t-form-item label="机型" name="machineKind">
+            <t-radio-group v-model="machineKind" variant="default-filled" @change="onMachineKindChange">
+              <t-radio-button
+                v-for="opt in machineKindOptions"
+                :key="opt.value"
+                :value="opt.value"
+              >{{ opt.label }}</t-radio-button>
+            </t-radio-group>
+            <p class="opt-row__help">
+              {{ machineKindOptions.find((o) => o.value === machineKind)?.description || '' }}
+              <template v-if="machineKind === 'nat'">
+                NAT 机型不分配独立 IP，客户通过节点转发地址（nat_host_ip:ext_port）访问；
+                开通参数里 IP 数量固定为 0。
+              </template>
+            </p>
+          </t-form-item>
 
           <t-form-item label="预置档位（一键填基线，再按需改）">
             <t-space size="small" break-line>
@@ -203,7 +265,12 @@
               v-for="row in grp.rows"
               :key="row.spec.option_key"
               class="opt-row"
-              :class="{ 'opt-row--on': row.enabled, 'opt-row--collapsed': !isExpanded(row) }"
+              :class="{
+                'opt-row--on': row.enabled,
+                'opt-row--collapsed': !isExpanded(row),
+                'opt-row--error': highlightKey === row.spec.option_key,
+              }"
+              :data-opt-key="row.spec.option_key"
             >
               <div class="opt-row__head">
                 <t-checkbox v-model="row.enabled" @change="onEnabledChange(row)">
@@ -213,7 +280,7 @@
                   <code>{{ row.spec.option_key }}</code>
                   <t-tag v-if="row.spec.required" theme="error" variant="light" size="small" shape="round">必选</t-tag>
                   <span v-if="row.spec.unit">单位 {{ row.spec.unit }}</span>
-                  <span v-if="row.spec.default_value">默认 {{ row.spec.default_value }}</span>
+                  <span v-if="row.spec.default_value">平台默认 {{ row.spec.default_value }}</span>
                   <t-link class="opt-row__toggle" size="small" @click="toggleExpand(row)">
                     {{ isExpanded(row) ? '收起' : '展开' }}
                   </t-link>
@@ -290,11 +357,18 @@
         <template v-if="activeSection === 'mapping'">
           <div class="section-hint">生成 SKU 时下发给平台的基线参数（区域与节点至少填一个）。</div>
           <div class="form-grid">
-            <t-form-item label="数据中心 area">
-              <t-select v-model="platformParams.area" clearable placeholder="平台区域" :options="areaOptions" />
+            <t-form-item label="数据中心 area" :class="{ 'field-error': highlightKey === 'area' }">
+              <t-select
+                id="field-area"
+                v-model="platformParams.area"
+                clearable
+                placeholder="平台区域"
+                :options="areaOptions"
+                @change="onAreaChange"
+              />
             </t-form-item>
-            <t-form-item label="节点 node">
-              <t-select v-model="platformParams.node" clearable placeholder="平台节点" :options="nodeOptions" />
+            <t-form-item label="节点 node" :class="{ 'field-error': highlightKey === 'node' }">
+              <t-select id="field-node" v-model="platformParams.node" clearable placeholder="平台节点" :options="nodeOptions" />
             </t-form-item>
             <t-form-item label="存储 store">
               <t-select v-model="platformParams.store" clearable placeholder="系统盘存储（可选）" :options="storeOptions" />
@@ -303,9 +377,47 @@
               <t-select v-model="platformParams.os" clearable placeholder="平台镜像" :options="imageOptions" />
             </t-form-item>
           </div>
+
+          <!-- 机型参数：决定这条档位走独立 IP 还是 NAT 链路，必须显式下发 -->
+          <div class="section-hint section-hint--sub">
+            机型参数（决定开通链路：独立 IP 还是 NAT 转发）
+          </div>
+          <div class="form-grid">
+            <t-form-item label="IP 数量 ip_num">
+              <t-input-number
+                v-if="machineKind !== 'nat'"
+                v-model="platformParams.ip_num"
+                :min="1"
+                :max="20"
+                theme="column"
+                :style="{ width: '100%' }"
+              />
+              <div v-else class="machine-locked">
+                <strong>0</strong>
+                <span>NAT 机型不分配独立 IP（固定为 0，不可改）</span>
+              </div>
+            </t-form-item>
+            <t-form-item label="NAT 端口转发 nat_acl_limit">
+              <t-select
+                v-model="platformParams.nat_acl_limit"
+                :disabled="machineKind !== 'nat'"
+                :options="natLimitOptions"
+                placeholder="-1 不支持"
+              />
+            </t-form-item>
+            <t-form-item label="共享建站 nat_web_limit">
+              <t-select
+                v-model="platformParams.nat_web_limit"
+                :disabled="machineKind !== 'nat'"
+                :options="natLimitOptions"
+                placeholder="-1 不支持"
+              />
+            </t-form-item>
+          </div>
+
           <t-form-item label="其他平台参数（高级 JSON）">
             <t-textarea v-model="extraParamsText" :autosize="{ minRows: 2, maxRows: 5 }"
-              placeholder='上面四下拉之外的键，如 {"network_type":"normal","ip_num":1}' />
+              placeholder='上面下拉之外的键，如 {"network_type":"normal","snapshot_num":1}' />
           </t-form-item>
         </template>
 
@@ -338,13 +450,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 
 import { AddIcon, AppIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { createSpecTemplate, deleteSpecTemplate, getOptionCatalog, getSpecTemplateList, updateSpecTemplate } from '@/api/product'
 import { getProviderList, getProviderPlatformResources } from '@/api/admin'
+import { formatPrice } from '@/pages/product/constants'
 import type {
   OptionSpecInfo,
   OptionValueItem,
@@ -366,7 +479,13 @@ const items = ref<SpecTemplateInfo[]>([])
 const loading = ref(false)
 const { isMobile } = useIsMobile()
 
-const filters = reactive<{ keyword?: string; provider_type?: string; status?: number }>({})
+const filters = reactive<{ keyword?: string; provider_type?: string; machine_kind?: string; status?: number }>({})
+
+const machineKindFilterOptions = [
+  { label: '独立 IP 机型', value: 'vps' },
+  { label: 'NAT 机型', value: 'nat' },
+  { label: '未标注', value: 'unset' },
+]
 
 const { pagination, mobilePage, applyTotal, handlePageChange, goMobilePage, handleMobilePageSizeChange, resetPage } =
   useMobilePagination(load)
@@ -378,6 +497,7 @@ const statusOptions = [
 
 const columns: PrimaryTableCol<SpecTemplateInfo>[] = [
   { colKey: 'spec', title: '档位', minWidth: 200 },
+  { colKey: 'machine', title: '机型', width: 110 },
   { colKey: 'specs', title: '基线配置', width: 160 },
   { colKey: 'bandwidth', title: '带宽', width: 100 },
   { colKey: 'platform', title: '平台映射', width: 110 },
@@ -397,6 +517,7 @@ async function load() {
     const data = await getSpecTemplateList({
       keyword: filters.keyword,
       provider_type: filters.provider_type,
+      machine_kind: filters.machine_kind,
       status: filters.status,
       page: pagination.current,
       page_size: pagination.pageSize,
@@ -413,9 +534,30 @@ async function load() {
 function search() {
   resetPage()
 }
+
+/**
+ * nextSortOrder 计算新建档位的默认排序号。
+ *
+ * 为什么不能恒为 0：排序 0 的档位会挤在一起，列表顺序只能靠 id 兜底，
+ * 运营想调顺序也没有"先排谁"的数值空间。取当前最大值 +10 留出插入余量
+ * （想插两个档位之间时，中间还有 1~9 可用）。
+ *
+ * 取数走一次 page_size=100 的轻量查询而不是翻遍分页：档位通常远少于 100 条，
+ * 超出的极端情况下算不准也只是排序号偏小，不影响功能。
+ */
+async function nextSortOrder(): Promise<number> {
+  try {
+    const data = await getSpecTemplateList({ page: 1, page_size: 100 })
+    const max = data.items.reduce((acc, item) => Math.max(acc, item.sort_order || 0), 0)
+    return max + 10
+  } catch {
+    return 10
+  }
+}
 function resetFilters() {
   filters.keyword = undefined
   filters.provider_type = undefined
+  filters.machine_kind = undefined
   filters.status = undefined
   resetPage()
 }
@@ -507,15 +649,42 @@ const activeSection = ref('basic')
 // 展开状态是纯 UI 状态，不进 rows，避免混进保存载荷。
 const expandedKeys = ref<string[]>([])
 const extraParamsText = ref('')
-const platformParams = reactive<{ area?: string; node?: string; store?: string; os?: string }>({
+// highlightKey：校验失败后要高亮哪个字段（红框）。配合 focusSection 使用，
+// 3 秒后自动清除；置于此处是因为它同时被「平台映射」与配置项行消费。
+const highlightKey = ref('')
+const platformParams = reactive<{
+  area?: string; node?: string; store?: string; os?: string
+  ip_num?: number; nat_acl_limit?: string; nat_web_limit?: string
+}>({
   area: undefined, node: undefined, store: undefined, os: undefined,
+  ip_num: undefined, nat_acl_limit: undefined, nat_web_limit: undefined,
 })
 const PLATFORM_KEYS = ['area', 'node', 'store', 'os'] as const
+// 机型参数（doc122）：与 PLATFORM_KEYS 一样是「平台上的一等字段」，写进 platform_params。
+// 单列出来是因为它们决定机型，NAT 的 ip_num 必须显式下发 0，不能靠高级 JSON 手写。
+const MACHINE_KEYS = ['ip_num', 'nat_acl_limit', 'nat_web_limit'] as const
+
+// ===== 机型（doc122）=====
+// 魔方云两条开通链路共用同一接口，机型完全由参数取值决定，面板不校验组合：
+//   vps：ip_num >= 1 且 nat_*_limit = -1；
+//   nat：ip_num = 0 且 nat_acl_limit / nat_web_limit 至少一个 >= 0。
+// 后端同样规则兜底（spec/service/machine_kind.go），这里先给出可读提示。
+type MachineKind = '' | 'vps' | 'nat'
+const machineKind = ref<MachineKind>('vps')
+const machineKindOptions = [
+  { label: '独立 IP 机型', value: 'vps', description: '分配独立公网 IP，客户直连' },
+  { label: 'NAT 机型', value: 'nat', description: '不分配独立 IP，经节点转发地址访问' },
+]
+const natLimitOptions = [
+  { label: '不支持（-1）', value: '-1' },
+  { label: '不限制（0）', value: '0' },
+  { label: '限 10 个（10）', value: '10' },
+]
 
 const form = reactive<{
   id: number
   name: string
-  price: number
+  price: number | undefined
   sort_order: number
   status: number
   disk: number
@@ -527,18 +696,36 @@ const form = reactive<{
 
 function emptyForm() {
   return {
-    id: 0, name: '', price: 0, sort_order: 0, status: 1,
+    // price 初始 undefined（不是 0）：0 元参考售价会生成 0 元 SKU，
+    // 显示成空 + 必填校验，比预填 0 再拦住更不容易漏。
+    id: 0, name: '', price: undefined as number | undefined, sort_order: 0, status: 1,
     disk: 40, disk_type: 'ssd', os: '',
     name_template: '{cpu}核{memory}G {os}',
     description_template: '{cpu}核{memory}GB 内存 / {disk}GB 系统盘 / {bw}Mbps 带宽',
   }
 }
 
-const presets = [
+// 两套预置档位（doc122，规格按运营常用配置补齐）：选机型后只显示对应那一组，
+// 点一下同时设定机型与参数基线。系统盘/带宽取该规格的常见搭配，按需再改。
+const vpsPresets = [
   { name: '2核4G', cpu: '2', memory: '4096', disk: 40, bw: 5 },
-  { name: '4核4G', cpu: '4', memory: '4096', disk: 60, bw: 10 },
+  { name: '4核4G', cpu: '4', memory: '4096', disk: 50, bw: 10 },
+  { name: '4核8G', cpu: '4', memory: '8192', disk: 60, bw: 10 },
+  { name: '8核8G', cpu: '8', memory: '8192', disk: 80, bw: 20 },
+  { name: '8核16G', cpu: '8', memory: '16384', disk: 100, bw: 20 },
+  { name: '16核16G', cpu: '16', memory: '16384', disk: 100, bw: 30 },
+  { name: '16核32G', cpu: '16', memory: '32768', disk: 120, bw: 30 },
+]
+// NAT 机型规格普遍更小（共享节点出口，成本低），整数核起步。
+const natPresets = [
+  { name: '1核1G', cpu: '1', memory: '1024', disk: 20, bw: 5 },
+  { name: '2核2G', cpu: '2', memory: '2048', disk: 30, bw: 10 },
+  { name: '2核4G', cpu: '2', memory: '4096', disk: 40, bw: 10 },
+  { name: '4核4G', cpu: '4', memory: '4096', disk: 50, bw: 10 },
+  { name: '4核8G', cpu: '4', memory: '8192', disk: 60, bw: 20 },
   { name: '8核8G', cpu: '8', memory: '8192', disk: 80, bw: 20 },
 ]
+const presets = computed(() => (machineKind.value === 'nat' ? natPresets : vpsPresets))
 
 const enabledCount = computed(() => rows.value.filter((r) => r.enabled).length)
 
@@ -679,6 +866,44 @@ function baselineOf(key: string): string | undefined {
   return row.default || row.values[0]
 }
 
+/**
+ * resolveBaseline 取某参数的「基线值」，两处来源合并：
+ *   1. 平台映射下拉（platformParams）—— 运营显式设定的出站基线；
+ *   2. 配置项目录里的同名项（rows）—— 在「位置与调度」等分组勾选并设定默认值时。
+ *
+ * 为什么两处都要认：area/node/os/store 既是「平台映射」的基线字段，也是配置项目录里的
+ * 条目（客户可选）。运营在配置项里勾选并设了默认值，生成的 SKU 同样需要这个值，
+ * 只认下拉会造成"选了却提示未选"、且生成的档位真的缺参数（平台拒绝开通）。
+ */
+function resolveBaseline(key: string): string {
+  const fromDropdown = (platformParams as Record<string, unknown>)[key]
+  if (fromDropdown != null && String(fromDropdown).trim() !== '') return String(fromDropdown)
+  return baselineOf(key) || ''
+}
+
+/**
+ * focusSection 把弹窗切到出错的分组并高亮该字段（doc122 交互优化）。
+ *
+ * 配置项有几十个、分在多页签里，不跳转的话运营要自己逐页找"哪个没填"。
+ */
+function focusSection(section: string, fieldKey?: string) {
+  activeSection.value = section
+  if (!fieldKey) return
+  // 高亮：先把之前的高亮清掉，再在下一帧标记，保证二次触发也有视觉反馈。
+  highlightKey.value = ''
+  nextTick(() => {
+    highlightKey.value = fieldKey
+    // 滚动到该字段所在行（配置项行有 data-opt-key，映射区用 id 定位）。
+    const el =
+      document.querySelector(`[data-opt-key="${fieldKey}"]`) ||
+      document.getElementById(`field-${fieldKey}`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    window.setTimeout(() => {
+      if (highlightKey.value === fieldKey) highlightKey.value = ''
+    }, 3000)
+  })
+}
+
 function baselineCpu(): number {
   const v = Number(baselineOf('cpu'))
   return Number.isFinite(v) && v > 0 ? v : 1
@@ -725,7 +950,7 @@ const previewPlatformParams = computed(() => {
   return merged ? JSON.stringify(merged) : '—'
 })
 
-function applyPreset(p: (typeof presets)[number]) {
+function applyPreset(p: { name: string; cpu: string; memory: string; disk: number; bw: number }) {
   for (const row of rows.value) {
     const key = row.spec.option_key
     if (key === 'cpu' && !isQtyOption(row.spec)) {
@@ -747,6 +972,8 @@ function applyPreset(p: (typeof presets)[number]) {
     bw.rangeMin = bw.rangeMin || 1
     bw.rangeMax = bw.rangeMax || 100
   }
+  // 机型参数基线一并填上：少了它档位要么被后端互斥校验拒，要么开出无法访问的机器。
+  applyMachineBaseline()
   // 必选项默认勾上，省得漏配导致开通被平台拒。
   for (const row of rows.value) {
     if (row.spec.required && !isQtyOption(row.spec) && !row.enabled && row.spec.values?.length) {
@@ -756,6 +983,38 @@ function applyPreset(p: (typeof presets)[number]) {
     }
   }
   expandKeys(['cpu', 'memory', 'bw'])
+}
+
+/**
+ * applyMachineBaseline 按当前机型写入 ip_num / nat_*_limit 基线。
+ *
+ * 这两个值必须进 platform_params 而不能只留在界面上：NAT 的 ip_num=0 一旦缺失，
+ * 平台会按必填校验拒绝开通；而若被默认成 >=1，客户付 NAT 的价钱却拿到独立 IP。
+ */
+function applyMachineBaseline() {
+  if (machineKind.value === 'nat') {
+    platformParams.ip_num = 0
+    if (platformParams.nat_acl_limit == null) platformParams.nat_acl_limit = '0'
+    if (platformParams.nat_web_limit == null) platformParams.nat_web_limit = '-1'
+  } else if (machineKind.value === 'vps') {
+    if (platformParams.ip_num == null || platformParams.ip_num < 1) platformParams.ip_num = 1
+    platformParams.nat_acl_limit = '-1'
+    platformParams.nat_web_limit = '-1'
+  }
+}
+
+/** onMachineKindChange 切换机型：立即刷新参数基线，并拦掉与机型冲突的客户配置项。 */
+function onMachineKindChange() {
+  applyMachineBaseline()
+  // NAT 机型的 ip_num 固定为 0，不能同时作为客户可选配置项：
+  // 客户选配优先级高于档位基线，选了非 0 会把 0 覆盖掉。
+  if (machineKind.value === 'nat') {
+    const row = rows.value.find((r) => r.spec.option_key === 'ip_num')
+    if (row?.enabled) {
+      row.enabled = false
+      MessagePlugin.warning('NAT 机型的 ip_num 固定为 0，已关闭「IP 数量」配置项')
+    }
+  }
 }
 
 /** 把指定配置项加入展开态（预置填充后让改动可见）。 */
@@ -821,6 +1080,12 @@ function buildPlatformParams(): Record<string, unknown> | null {
   for (const key of PLATFORM_KEYS) {
     if (platformParams[key]) merged[key] = platformParams[key]
   }
+  // 机型参数：ip_num 的 0 是有效值，不能用真值判断（0 会被跳过 → NAT 下发不出 0）。
+  if (platformParams.ip_num != null) merged.ip_num = Number(platformParams.ip_num)
+  for (const key of ['nat_acl_limit', 'nat_web_limit'] as const) {
+    const v = platformParams[key]
+    if (v != null && String(v).trim() !== '') merged[key] = Number(v)
+  }
   return Object.keys(merged).length ? merged : null
 }
 
@@ -873,11 +1138,17 @@ async function openCreate() {
   catalog.value = []
   providerId.value = undefined
   providerType.value = ''
+  machineKind.value = 'vps'
   activeSection.value = 'basic'
   resetExpanded()
-  Object.assign(platformParams, { area: undefined, node: undefined, store: undefined, os: undefined })
+  Object.assign(platformParams, {
+    area: undefined, node: undefined, store: undefined, os: undefined,
+    ip_num: undefined, nat_acl_limit: undefined, nat_web_limit: undefined,
+  })
   resources.value = { areas: [], nodes: [], stores: [], images: [] }
   extraParamsText.value = ''
+  // 排序号默认接在现有档位之后（恒 0 会让新档位与老档位挤在同一序位）。
+  form.sort_order = await nextSortOrder()
   dialogVisible.value = true
 }
 
@@ -903,10 +1174,17 @@ async function openEdit(row: SpecTemplateInfo) {
     node: params.node != null ? String(params.node) : undefined,
     store: params.store != null ? String(params.store) : undefined,
     os: params.os != null ? String(params.os) : undefined,
+    // 机型参数提升为界面字段：老档位把它们写在高级 JSON 里，打开时收编到控件上，
+    // 否则运营看不到当前机型设置，一保存就按默认值覆盖（NAT 的 0 会被改回 1）。
+    ip_num: params.ip_num != null ? Number(params.ip_num) : undefined,
+    nat_acl_limit: params.nat_acl_limit != null ? String(params.nat_acl_limit) : undefined,
+    nat_web_limit: params.nat_web_limit != null ? String(params.nat_web_limit) : undefined,
   })
   const rest: Record<string, unknown> = { ...params }
   for (const key of PLATFORM_KEYS) delete rest[key]
+  for (const key of MACHINE_KEYS) delete rest[key]
   extraParamsText.value = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : ''
+  machineKind.value = (row.machine_kind as MachineKind) || ''
 
   if (providerId.value) await loadPlatformResources(providerId.value)
   catalog.value = await loadCatalog(providerType.value)
@@ -933,7 +1211,10 @@ async function onPlatformChange(value?: number | string) {
     const match = hit.label.match(/（([^）]+)）/)
     providerType.value = match ? match[1] : ''
   }
-  Object.assign(platformParams, { area: undefined, node: undefined, store: undefined, os: undefined })
+  Object.assign(platformParams, {
+    area: undefined, node: undefined, store: undefined, os: undefined,
+    ip_num: undefined, nat_acl_limit: undefined, nat_web_limit: undefined,
+  })
   activeSection.value = 'basic'
   resetExpanded()
   await loadPlatformResources(pid)
@@ -946,29 +1227,80 @@ function closeDialog() {
   dialogVisible.value = false
 }
 
+/**
+ * onAreaChange 换区域时清掉节点：节点选项按区域过滤（filterByArea），
+ * 留着上一个区域的节点会变成"选了个在新区域里不存在的节点"，开通即失败。
+ */
+function onAreaChange() {
+  if (platformParams.node && !nodeOptions.value.some((o) => o.value === platformParams.node)) {
+    platformParams.node = undefined
+  }
+  if (platformParams.store && !storeOptions.value.some((o) => o.value === platformParams.store)) {
+    platformParams.store = undefined
+  }
+}
+
 async function save() {
   if (!form.name.trim()) {
+    focusSection('basic')
     MessagePlugin.warning('请输入档位名称')
     return
   }
   if (!providerType.value) {
+    focusSection('basic')
     MessagePlugin.warning('请选择对接平台')
+    return
+  }
+  // 0 元参考售价会变成 0 元 SKU，误上架后客户能 0 元下单 —— 拦住而不是事后补救。
+  if (!form.price || form.price <= 0) {
+    focusSection('basic')
+    MessagePlugin.warning('参考售价必须大于 0：0 元档位生成 0 元 SKU，上架后客户可 0 元下单')
     return
   }
   const platformParamsPayload = buildPlatformParams()
   if (platformParamsPayload === null) return
   const selections = buildOptionSelections()
   if (!Object.keys(selections).length) {
+    // 跳到第一个配置项分组，省得运营在 7 个页签里找"该去哪勾"。
+    const first = catalogGroups.value[0]
+    focusSection(first ? grpTabValue(first.name) : 'basic')
     MessagePlugin.warning('请至少勾选一个配置项，否则该档位无法生成客户可选配置')
     return
   }
-  if (!platformParamsPayload.area && !platformParamsPayload.node) {
+  // 区域/节点可能配在两处：①「平台映射」的下拉（基线）；②「位置与调度」分组的配置项（客户可选）。
+  // 只在②里勾选时，基线仍是空的，而生成 SKU 用的是基线——两边都要认，否则运营明明选了
+  // 却被提示"未选"，且生成的档位确实缺位置参数。缺位置参数平台会直接拒绝开通。
+  const areaValue = resolveBaseline('area')
+  const nodeValue = resolveBaseline('node')
+  if (!areaValue && !nodeValue) {
+    focusSection('mapping', 'area')
     MessagePlugin.warning('请至少选择数据中心或节点（平台要求二者至少传一个）')
+    return
+  }
+  // 只在配置项里选了区域/节点时，把它们补进基线，否则生成的 SKU 缺位置参数。
+  if (!platformParamsPayload.area && areaValue) platformParamsPayload.area = areaValue
+  if (!platformParamsPayload.node && nodeValue) platformParamsPayload.node = nodeValue
+  if (!platformParamsPayload.os) {
+    const osValue = resolveBaseline('os')
+    if (osValue) platformParamsPayload.os = osValue
+  }
+  if (!platformParamsPayload.store) {
+    const storeValue = resolveBaseline('store')
+    if (storeValue) platformParamsPayload.store = storeValue
+  }
+  // 机型与本档位参数必须自洽（doc122）。后端同样校验，这里先给可读提示：
+  // 最危险的组合是 NAT 机型没开任何转发入口 —— 机器开得出来但客户连不上，
+  // 面板不会报错，等客户投诉才发现。
+  const kindError = machineKindError(selections)
+  if (kindError) {
+    focusSection('mapping', machineKind.value === 'nat' ? 'ip_num' : 'nat_acl_limit')
+    MessagePlugin.warning(kindError)
     return
   }
   const payload = {
     name: form.name.trim(),
     provider_type: providerType.value,
+    machine_kind: machineKind.value || '',
     cpu: baselineCpu(),
     memory: baselineMemoryGb(),
     disk: form.disk,
@@ -996,6 +1328,38 @@ async function save() {
   } catch (error) {
     MessagePlugin.error((error as Error).message || '保存失败')
   }
+}
+
+/**
+ * machineKindError 机型与参数的互斥校验，规则与后端 normalizeAndValidateMachineKind 一致。
+ * 未标注机型（''）跳过：存量档位没有这个维度，不能因为新增校验就让它们改不动。
+ */
+function machineKindError(selections: SpecOptionSelections): string {
+  const kind = machineKind.value
+  if (!kind) return ''
+  const ipNum = platformParams.ip_num
+  const acl = numOrNull(platformParams.nat_acl_limit)
+  const web = numOrNull(platformParams.nat_web_limit)
+
+  if (kind === 'nat') {
+    if (ipNum == null) return 'NAT 机型请设置「IP 数量」为 0（不分配独立 IP）'
+    if (ipNum !== 0) return 'NAT 机型的「IP 数量」必须为 0；需要独立 IP 请把机型改为「独立 IP 机型」'
+    if ((acl == null || acl < 0) && (web == null || web < 0)) {
+      return 'NAT 机型至少开通一种访问入口：NAT 端口转发或共享建站需 >= 0；否则机器没有独立 IP 也没有转发入口，客户将无法连接'
+    }
+    if (selections.ip_num) return 'NAT 机型的 IP 数量固定为 0，请取消勾选「IP 数量」配置项'
+    return ''
+  }
+  if (ipNum != null && ipNum < 1) return '独立 IP 机型的「IP 数量」必须 >= 1；不分配独立 IP 请把机型改为「NAT 机型」'
+  if (acl != null && acl >= 0) return '独立 IP 机型的「NAT 端口转发」必须为 -1（与独立 IP 互斥）'
+  if (web != null && web >= 0) return '独立 IP 机型的「共享建站」必须为 -1（与独立 IP 互斥）'
+  return ''
+}
+
+function numOrNull(v?: string | number): number | null {
+  if (v == null || String(v).trim() === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
 }
 
 function remove(row: SpecTemplateInfo) {
@@ -1061,6 +1425,36 @@ onMounted(() => {
   color: var(--td-text-color-secondary, #888);
 }
 
+/* 平台映射页里的二级小标题（区域/节点/存储/镜像 与 机型参数 之间）。 */
+.section-hint--sub {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--td-component-border, #e0e0e0);
+  font-weight: 600;
+  color: var(--td-text-color-primary, #333);
+}
+
+/* NAT 机型的 ip_num 是固定只读值，用纯文本呈现而非禁用输入框，避免像"可以改但被锁定"。 */
+.machine-locked {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.4;
+}
+
+.machine-locked strong {
+  font-size: 15px;
+}
+
+.machine-locked span {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #888);
+}
+
+.cell-muted {
+  color: var(--td-text-color-placeholder, #bbb);
+}
+
 .opt-row {
   border: 1px solid var(--td-component-border, #e0e0e0);
   border-radius: 6px;
@@ -1072,6 +1466,46 @@ onMounted(() => {
 .opt-row--on {
   border-color: var(--td-brand-color, #0052d9);
   box-shadow: 0 0 0 1px rgba(0, 82, 217, 0.1);
+}
+
+/* 校验失败定位：红框 + 浅红底，配合 focusSection 的滚动让"哪个没填"一眼可见。
+   配置项有几十个分在多页签里，不标出来的话运营只能逐页翻找。 */
+.opt-row--error {
+  border-color: var(--td-error-color, #d54941);
+  background: rgba(213, 73, 65, 0.06);
+  box-shadow: 0 0 0 2px rgba(213, 73, 65, 0.18);
+}
+
+/* 0 元参考售价：建品时会变成 0 元 SKU，是事故前兆，用警示色标出来。 */
+.price-zero {
+  color: var(--td-warning-color, #e37318);
+  font-weight: 600;
+}
+
+/* 表单内的警示文案（如 0 元价提示），紧跟在输入框下方。 */
+.price-warn {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--td-warning-color, #e37318);
+}
+
+/* 表单内的普通说明文字。 */
+.form-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--td-text-color-secondary, #888);
+}
+
+.field-error {
+  border-radius: 6px;
+  background: rgba(213, 73, 65, 0.06);
+  box-shadow: 0 0 0 1px var(--td-error-color, #d54941) inset;
+  padding: 4px 8px;
+  margin: -4px -8px;
 }
 
 /* 收起态收紧行高：一屏能多看几条，展开编辑时再回到常规间距。 */

@@ -51,6 +51,15 @@ func (r *specTemplateRepository) List(ctx context.Context, query dto.SpecTemplat
 	if query.ProviderType != "" {
 		base = base.Where("provider_type = ?", query.ProviderType)
 	}
+	if kind := strings.TrimSpace(query.MachineKind); kind != "" {
+		// "unset" 是筛选未标注机型（machine_kind = ''）的专用取值：
+		// 空串在这里表示「不筛选」，需要一个显式 token 才能表达这个条件。
+		if kind == "unset" {
+			base = base.Where("machine_kind = ''")
+		} else {
+			base = base.Where("machine_kind = ?", kind)
+		}
+	}
 	if query.Status != nil {
 		base = base.Where("status = ?", *query.Status)
 	}

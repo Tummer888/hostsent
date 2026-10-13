@@ -106,6 +106,11 @@ func (s *specTemplateService) Create(ctx context.Context, req dto.SpecTemplateRe
 	if item.Status == 0 {
 		item.Status = model.SpecTemplateEnabled
 	}
+	machineKind, err := normalizeAndValidateMachineKind(req.MachineKind, req.PlatformParams, req.OptionSelections)
+	if err != nil {
+		return nil, err
+	}
+	item.MachineKind = machineKind
 	if err := s.validateOptionSelections(ctx, item.ProviderType, req.OptionSelections); err != nil {
 		return nil, err
 	}
@@ -139,6 +144,11 @@ func (s *specTemplateService) Update(ctx context.Context, id uint64, req dto.Spe
 	item.OptionSelections = normalizeJSON(req.OptionSelections)
 	item.NameTemplate = strings.TrimSpace(req.NameTemplate)
 	item.DescriptionTemplate = strings.TrimSpace(req.DescriptionTemplate)
+	machineKind, err := normalizeAndValidateMachineKind(req.MachineKind, req.PlatformParams, req.OptionSelections)
+	if err != nil {
+		return nil, err
+	}
+	item.MachineKind = machineKind
 	if err := s.validateOptionSelections(ctx, item.ProviderType, req.OptionSelections); err != nil {
 		return nil, err
 	}
@@ -209,13 +219,14 @@ func (s *specTemplateService) validateOptionSelections(ctx context.Context, prov
 	return nil
 }
 
-// normalizeJSON 归一前端回传的 JSON 片段：空/null 落为空串（列值 NULL），非法 JSON 原样保留由仓储报错。
-func normalizeJSON(raw json.RawMessage) string {
+// normalizeJSON 归一前端回传的 JSON 片段为可写入 jsonb 列的值：
+// 空/null 落 nil（列值 NULL）。不能返回空串——空串不是合法 jsonb，落库直接报 22P02。
+func normalizeJSON(raw json.RawMessage) *string {
 	s := strings.TrimSpace(string(raw))
 	if s == "" || s == "null" {
-		return ""
+		return nil
 	}
-	return s
+	return &s
 }
 
 func (s *specTemplateService) Delete(ctx context.Context, id uint64) error {
@@ -352,6 +363,7 @@ func buildSpecTemplateInfo(item model.SpecTemplate) dto.SpecTemplateInfo {
 		SpecValues:          json.RawMessage(nullableJSON(item.SpecValues)),
 		PlatformParams:      json.RawMessage(nullableJSON(item.PlatformParams)),
 		ProviderType:        item.ProviderType,
+		MachineKind:         item.MachineKind,
 		OptionSelections:    json.RawMessage(nullableJSON(item.OptionSelections)),
 		NameTemplate:        item.NameTemplate,
 		DescriptionTemplate: item.DescriptionTemplate,
@@ -361,9 +373,12 @@ func buildSpecTemplateInfo(item model.SpecTemplate) dto.SpecTemplateInfo {
 	}
 }
 
-// nullableJSON 把库里的 JSONB 文本转成可序列化的 RawMessage 取值：空串输出 null。
-func nullableJSON(v string) string {
-	s := strings.TrimSpace(v)
+// nullableJSON 把库里的 JSONB 文本（可空）转成可序列化的 RawMessage 取值：nil/空输出 null。
+func nullableJSON(v *string) string {
+	if v == nil {
+		return "null"
+	}
+	s := strings.TrimSpace(*v)
 	if s == "" || s == "null" {
 		return "null"
 	}

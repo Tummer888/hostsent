@@ -20,6 +20,8 @@ type SpecTemplateQuery struct {
 	SpecFamily string `form:"spec_family" json:"spec_family"`
 	// ProviderType 按归属平台筛选（配置档改造后的主筛选维度）。
 	ProviderType string `form:"provider_type" json:"provider_type"`
+	// MachineKind 按机型筛选（vps 独立 IP / nat NAT 机型 / unset 未标注）。
+	MachineKind string `form:"machine_kind" json:"machine_kind"`
 	// Status 指针区分「未传」与「显式筛 status=0（停用）」
 	Status   *int `form:"status" json:"status"`
 	Page     int  `form:"page" json:"page"`
@@ -46,6 +48,9 @@ type SpecTemplateRequest struct {
 	PlatformParams json.RawMessage `json:"platform_params"`
 	// ProviderType 档位归属的平台类型（dcimcloud / zjmf 等）。
 	ProviderType string `json:"provider_type"`
+	// MachineKind 机型：vps 独立 IP / nat NAT 机型 / 空 未标注（doc122）。
+	// 决定档位的平台参数基线与保存时的互斥校验。
+	MachineKind string `json:"machine_kind"`
 	// OptionSelections 每参数勾选的可选值 JSON，形如
 	// {"cpu":{"values":["2","4"]},"bw":{"range":[1,100],"default":"10"}}。
 	OptionSelections json.RawMessage `json:"option_selections"`
@@ -75,6 +80,8 @@ type SpecTemplateInfo struct {
 	PlatformParams json.RawMessage `json:"platform_params"`
 	// ProviderType 档位归属的平台类型。
 	ProviderType string `json:"provider_type"`
+	// MachineKind 机型：vps 独立 IP / nat NAT 机型 / 空 未标注。
+	MachineKind string `json:"machine_kind"`
 	// OptionSelections 每参数勾选的可选值 JSON。
 	OptionSelections json.RawMessage `json:"option_selections"`
 	// NameTemplate / DescriptionTemplate 名称与描述渲染模板。
