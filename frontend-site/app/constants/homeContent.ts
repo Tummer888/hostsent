@@ -31,9 +31,9 @@ export interface SiteAnchor {
 
 /** Hero 左栏标签：首项渲染为高亮态。 */
 export const HERO_TABS: SiteAnchor[] = [
-  { label: '云主机与轻量应用', to: '/products' },
-  { label: '自动化交付', to: '/#features' },
-  { label: '上游与生态', to: '/#partners' },
+  { label: '云服务器', to: '/products' },
+  { label: '自助开通', to: '/#features' },
+  { label: '服务与保障', to: '/#partners' },
   { label: '联系与支持', to: '/#contact' },
 ]
 
@@ -43,37 +43,37 @@ export interface HeroHighlight {
   desc: string
 }
 
-/** Banner 右栏三栏能力面板。每条都对应代码里真实存在的链路。 */
+/** Banner 右栏三栏能力面板：只写客户关心的选购/开通/续费，不写内部链路。 */
 export const HERO_HIGHLIGHTS: HeroHighlight[] = [
   {
     icon: 'bolt',
-    title: '支付后自动开通',
-    desc: '订单支付成功即投递开通任务，由上游接口创建实例，不需要人工介入。',
+    title: '支付后自动处理开通',
+    desc: '支付完成后按订单自动处理开通，进度可在订单详情查看。',
   },
   {
     icon: 'refresh',
-    title: '订单即交付',
-    desc: '下单、开通、续费全程留痕；上游接口异常时自动重试并转入人工处理队列。',
+    title: '订单状态可查询',
+    desc: '下单、开通与续费进度都能在订单详情里查到。',
   },
   {
     icon: 'layers',
-    title: '一套系统多品牌',
-    desc: '品牌名、主题色、联系方式与页脚栏目均可后台配置，同一份构建产物换配置即换品牌。',
+    title: '周期计费更灵活',
+    desc: '支持月付、季付、年付等周期，可自助续费或开启自动续费。',
   },
 ]
 
 /** Banner 下方左侧卡片的标题：accent 走品牌色，title 为深色主体。 */
 export const HERO_SHELF_HEAD = {
   accent: '全流程',
-  title: '从选购到自动开通',
+  title: '在线完成选购与开通',
 }
 
 /** 左侧卡片内的两列快捷入口。 */
 export const HERO_SHELF_LINKS: SiteAnchor[] = [
-  { label: '弹性云主机', to: '/products' },
-  { label: '轻量应用服务器', to: '/products' },
-  { label: '自动化交付', to: '/#features' },
-  { label: '上游与生态', to: '/#partners' },
+  { label: '云服务器', to: '/products' },
+  { label: '周期计费', to: '/#pricing' },
+  { label: '自助开通', to: '/#features' },
+  { label: '服务与保障', to: '/#partners' },
   { label: '控制台与文档', to: '/#console' },
   { label: '服务与支持', to: '/#contact' },
 ]
@@ -107,28 +107,28 @@ export const PRICING_CARDS: PricingCard[] = [
     variant: 1,
     tag: '计费',
     title: '周期计价',
-    desc: '同一产品可选月付、季付、年付等周期，各周期价格在后台单独维护。',
+    desc: '同一产品可选月付、季付、年付等周期，价格按周期展示。',
     to: '/products',
   },
   {
     variant: 2,
     tag: '推广',
     title: '邀请返利',
-    desc: '邀请好友注册并消费可得返现，返现比例由后台配置，累计后可提现或转入余额。',
+    desc: '邀请好友注册并消费可得返现，累计后可提现或转入余额，具体比例以活动页为准。',
     consolePath: '/referral/overview',
   },
   {
     variant: 4,
     tag: '续费',
     title: '到期提醒与自动续费',
-    desc: '到期前提醒，可自助续费或开启自动续费从余额扣款，避免业务中断。',
+    desc: '到期前提醒，可自助续费或开启自动续费，减少因到期导致的停机。',
     consolePath: '/cloud/renewals',
   },
   {
     variant: 3,
     tag: '商务',
     title: '批量采购咨询',
-    desc: '批量采购与长期合约可联系商务沟通；大客户折扣按用户组策略单独配置。',
+    desc: '批量采购与长期合约可联系商务沟通，具体方案与折扣以实际报价为准。',
     to: '/#contact',
   },
 ]
@@ -142,25 +142,23 @@ export interface PartnerItem {
 }
 
 /**
- * 上游对接与运行组件清单（首页 `#partners` 区块）。
+ * 服务保障清单（首页 `#partners` 区块）。
  *
- * 无真实素材，用「文字 + 几何占位标记」表示，**不使用任何第三方商标图形**；
- * 每项都标出它与平台的关系（上游供应商 / 平台自身使用的技术组件），
- * 避免访客把「平台自己用了 Redis」误读成「Redis 是我们的合作客户」。
+ * 原为"上游对接与运行组件"：列的是供货渠道与内部技术栈（魔方云/魔方财务、
+ * PostgreSQL/Redis/Docker/Go/Nuxt/Vue）。这些既不是客户关心的内容，
+ * 也把供货结构与技术实现直接摊给了访客 —— 换成客户真正在意的服务点。
  *
- * 此前这里混排了 Kubernetes / Prometheus / Grafana / MySQL / Nginx / 对象存储 ——
- * 平台既没接这些上游、运行时也没用（go.mod 里没有 mysql 驱动，指标是自研的
- * 文本格式计数器，没有 Prometheus server），属于无中生有的合作方。
+ * 每项都是平台真实具备的能力，不做无依据承诺（广告法）。
  */
 export const PARTNERS: PartnerItem[] = [
-  { variant: 1, name: '魔方财务', note: '上游转售渠道（已对接）' },
-  { variant: 2, name: '魔方云', note: '上游资源池（已对接）' },
-  { variant: 3, name: 'PostgreSQL', note: '业务数据库' },
-  { variant: 4, name: 'Redis', note: '缓存与队列' },
-  { variant: 1, name: 'Docker', note: '容器化部署' },
-  { variant: 2, name: 'Go', note: '服务端语言' },
-  { variant: 3, name: 'Nuxt', note: '官网 SSR 框架' },
-  { variant: 4, name: 'Vue', note: '控制台前端框架' },
+  { variant: 1, name: '在线选购开通', note: '自助选配下单' },
+  { variant: 2, name: '周期计费', note: '月付 / 季付 / 年付' },
+  { variant: 3, name: '自助续费', note: '支持自动续费' },
+  { variant: 4, name: '到期提醒', note: '到期前通知' },
+  { variant: 1, name: '余额支付', note: '明细可查询' },
+  { variant: 2, name: '工单支持', note: '按优先级响应' },
+  { variant: 3, name: '订单可查', note: '状态随时查询' },
+  { variant: 4, name: '控制台自助', note: '重启 / 重装 / 控制台' },
 ]
 
 export interface QuickEntry {
@@ -205,7 +203,7 @@ export interface ResourceCard {
 }
 
 export const RESOURCES: ResourceCard[] = [
-  { variant: 1, icon: 'sparkle', artLabel: '产品更新', title: '产品更新', desc: '新功能上线与能力迭代速览。', to: '/news' },
+  { variant: 1, icon: 'sparkle', artLabel: '产品更新', title: '产品更新', desc: '新功能上线与版本更新速览。', to: '/news' },
   { variant: 3, icon: 'book', artLabel: '使用文档', title: '使用文档', desc: '从选购到开通、从计费到排障的完整指引。', to: '/help' },
   { variant: 4, icon: 'time', artLabel: '服务公告', title: '服务公告', desc: '维护窗口、故障说明与重要通知。', to: '/announcements' },
   { variant: 5, icon: 'secured', artLabel: '条款政策', title: '用户条款与隐私政策', desc: '服务条款、责任边界与个人信息处理规则。', to: '/terms' },
@@ -222,8 +220,8 @@ export interface QuickAction {
 export const QUICK_ACTIONS: QuickAction[] = [
   {
     icon: 'cart',
-    title: '立即选购',
-    desc: '浏览全部可开通的云产品与各周期价格，在线下单后自动交付。',
+    title: '选购云服务器',
+    desc: '浏览全部可开通的云服务器与各周期价格，在线下单。',
     actionLabel: '去选购',
     to: '/products',
   },
@@ -239,16 +237,17 @@ export const QUICK_ACTIONS: QuickAction[] = [
 ]
 
 /**
- * 快捷入口右侧的服务承诺小卡片。
+ * 快捷入口右侧的服务说明小卡片。
  *
  * 三条都能在用户中心里找到对应的事实：
- *  - 支付成功后由后台开通任务创建实例（订单详情可看到开通状态与失败原因）；
- *  - 开通与续费的每一步都留痕，异常时转人工队列处理（不是「自动退款」，
- *    退款属于后台按单审核的流程，不作为对用户的服务承诺）；
- *  - 工单分低/中/高/紧急四档优先级，按优先级响应。
+ *  - 支付完成后按订单处理开通，进度在订单详情可见；
+ *  - 开通与续费的记录可查询；
+ *  - 工单按优先级响应。
+ * 措辞用"服务说明"而不是"服务承诺"：后者容易被理解为对结果的保证
+ * （广告法对绝对化承诺有限制），这里说的是可查证的服务方式。
  */
 export const SERVICE_PROMISE = {
-  title: '服务承诺',
-  desc: '订单支付后自动开通；上游同步异常时进入人工处理队列，并全程记录操作留痕。',
-  points: ['开通与续费全程留痕', '异常转入人工处理', '工单按优先级响应'],
+  title: '服务说明',
+  desc: '支付完成后按订单处理开通，进度可在订单详情查看。',
+  points: ['在线自助续费', '订单与实例记录可查询', '工单按优先级响应'],
 }

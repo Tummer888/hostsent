@@ -13,7 +13,7 @@
 
     <div class="product-card__body">
       <h3 class="product-card__title">{{ product.name }}</h3>
-      <p class="product-card__desc">{{ product.description || '在线下单，支付后由上游自动开通。' }}</p>
+      <p class="product-card__desc">{{ product.description || '在线下单，支付完成后按订单处理开通。' }}</p>
 
       <ul v-if="specs.length" class="product-card__specs">
         <li v-for="spec in specs" :key="spec.key" class="product-card__spec">

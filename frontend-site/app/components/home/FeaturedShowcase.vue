@@ -9,7 +9,7 @@
           <span class="featured__panel-logo">{{ site.name }}</span>
           <h3 class="featured__panel-title">控制台快速入口</h3>
           <p class="featured__panel-desc">
-            产品、订单、实例与工单都在用户控制台里闭环。
+            产品、订单、实例与工单都能在用户控制台统一管理。
           </p>
 
           <ul class="featured__entries">
@@ -29,7 +29,7 @@
           </ul>
 
           <p v-if="!consoleBase" class="featured__panel-hint">
-            未配置控制台地址（<code>NUXT_PUBLIC_CONSOLE_URL</code>），入口暂不可点。
+            控制台入口暂不可用。
           </p>
         </aside>
 

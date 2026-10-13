@@ -22,7 +22,7 @@ const { content } = useSiteContent()
 const home = computed(() => content.value.home)
 
 const subtitle = computed(
-  () => `围绕交付、稳定与可控性设计的 ${content.value.site.name}，让日常运维少花力气`,
+  () => `围绕在线选购与自助运维设计的 ${content.value.site.name}，让日常管理更省心`,
 )
 </script>
 

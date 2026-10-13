@@ -32,7 +32,7 @@
               查看详情
               <SiteIcon name="arrow-right" :stroke-width="1.9" />
             </span>
-            <span v-else class="promo-card__soon">需先配置控制台地址</span>
+            <span v-else class="promo-card__soon">暂未开放</span>
           </component>
         </li>
       </ul>
@@ -48,7 +48,7 @@ const { public: publicConfig } = useRuntimeConfig()
 
 const heading = {
   title: '计费方式与优惠',
-  subtitle: '周期价格、邀请返利与自动续费都是平台已经在跑的能力，入口直达对应页面。',
+  subtitle: '支持周期计价、邀请返利与自动续费，入口直达对应页面。',
 }
 
 const consoleBase = computed(() => String(publicConfig.consoleUrl || '').replace(/\/+$/, ''))

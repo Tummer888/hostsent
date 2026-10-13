@@ -49,7 +49,7 @@
             {{
               activeKeyword
                 ? '换个关键词试试，或浏览全部产品。'
-                : '产品正在上架中，欢迎联系我们了解可开通的规格。'
+                : '暂未找到可开通的云服务器，欢迎联系我们了解在售规格。'
             }}
           </p>
           <button v-if="activeKeyword" class="site-btn site-btn--ghost" type="button" @click="clearSearch">
@@ -99,7 +99,7 @@ function clearSearch() {
 useSeoMeta({
   title: () => (activeKeyword.value ? `搜索「${activeKeyword.value}」` : '全部产品'),
   description: () =>
-    `${site.value.name} 产品列表：${site.value.slogan}。查看云主机与算力产品规格与价格。`,
+    `${site.value.name} 产品列表：${site.value.slogan}。查看云服务器规格与价格。`,
   ogType: 'website',
 })
 </script>

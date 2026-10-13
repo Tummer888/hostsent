@@ -13,7 +13,7 @@
           </span>
           <span class="partners__text">
             <span class="partners__name">{{ item.name }}</span>
-            <!-- 关系说明：区分「上游供应商」与「平台自身用的组件」，不让人误读成合作客户 -->
+            <!-- 一句话说明该项能力的具体含义 -->
             <span class="partners__note">{{ item.note }}</span>
           </span>
         </li>
@@ -26,8 +26,8 @@
 import { PARTNERS } from '~/constants/homeContent'
 
 const heading = {
-  title: '上游对接与运行组件',
-  subtitle: '云资源与财务上游各接一次；下方同时列出平台自身使用的技术组件。',
+  title: '服务保障',
+  subtitle: '从选配下单到续费到期，日常用得到的都在控制台自助完成。',
 }
 </script>
 

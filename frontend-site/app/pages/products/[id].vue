@@ -86,7 +86,7 @@
               v-model="selections[opt.optionKey]"
               class="detail-option__select"
             >
-              <option value="">{{ opt.required ? `请选择${opt.name}` : '按平台默认' }}</option>
+              <option value="">{{ opt.required ? `请选择${opt.name}` : '使用默认配置' }}</option>
               <template v-if="opt.widget === 'group_select'">
                 <optgroup v-for="g in groupedValues(opt)" :key="g.label" :label="g.label">
                   <option v-for="it in g.items" :key="it.value" :value="it.value">
@@ -123,7 +123,7 @@
               class="detail-option__number"
               :min="opt.minValue ?? 0"
               :max="opt.maxValue ?? undefined"
-              :placeholder="opt.defaultValue || '按平台默认'"
+              :placeholder="opt.defaultValue || '使用默认配置'"
             >
 
             <!-- 开关：二值参数 -->
@@ -161,7 +161,7 @@
               class="site-btn site-btn--primary"
               rel="noopener"
             >
-              立即选购
+              选购云服务器
             </a>
             <NuxtLink v-else to="/#contact" class="site-btn site-btn--ghost">
               联系咨询

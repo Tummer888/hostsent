@@ -125,7 +125,7 @@ export type HomeFeature = z.infer<typeof featureSchema>
 export const DEFAULT_SITE_CONTENT: SiteContent = {
   site: {
     name: '宿派云控',
-    slogan: '高性能、可弹性伸缩的云计算服务',
+    slogan: '弹性可扩展的云计算服务',
     logo: '/branding/logo.svg',
     favicon: '/branding/favicon.svg',
     icp: '',
@@ -149,9 +149,9 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
     footerPromises: [
       { icon: 'service', title: '工单支持', desc: '按优先级响应，进度可见' },
       { icon: 'secured', title: '余额支付', desc: '扣费走账户余额，明细可查' },
-      { icon: 'edit', title: '操作留痕', desc: '订单与实例动作可回溯' },
+      { icon: 'edit', title: '记录可查', desc: '订单与实例操作记录可查询' },
       { icon: 'time', title: '到期提醒', desc: '到期前提醒，可自助续费' },
-      { icon: 'rollback', title: '自动续费', desc: '可开启自动续费避免中断' },
+      { icon: 'rollback', title: '自动续费', desc: '可开启自动续费，减少到期停机' },
     ],
     // 社交按钮默认留空：平台没有公众号/QQ 群/开源仓库的公开地址时，
     // 摆一排点了没反应的图标不如不摆（AppFooter 只渲染带 url 的项）。
@@ -168,29 +168,26 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
     radius: '10px',
   },
   home: {
-    heroTitle: '更强大的一站式云资源平台',
-    heroSubtitle:
-      '从产品上架、在线下单到自动开通，全流程在一个后台闭环；已对接魔方云与魔方财务，分钟级交付你自己的云服务。',
+    heroTitle: '一站式云服务器服务',
+    heroSubtitle: '从选配、下单到开通均可在线完成，快速交付你的云服务器，订单与实例状态随时可查。',
     heroImage: '',
-    heroPrimaryCta: '立即选购',
+    heroPrimaryCta: '选购云服务器',
     heroPrimaryLink: '/products',
     heroSecondaryCta: '了解产品优势',
     heroSecondaryLink: '/#features',
     featuresTitle: '为什么选择我们',
-    // 四张卡只写平台确实提供的能力：多上游渠道（资源来自魔方云/魔方财务等已接入渠道）、
-    // 支付后自动开通（开通任务队列 + 失败重试与转人工）、周期计费与续费（周期价格矩阵、
-    // 到期提醒、自动续费）、工单支持（四档优先级）。
-    // 此前写的「全闪存/多线 BGP」「DDoS 防护、快照备份」「按量付费、秒级开通」
-    // 都不是本平台能承诺的：资源规格由上游决定，平台没有安全防护与快照模块，
-    // 计费按周期定价而非按量，开通耗时取决于上游接口。
+    // 四张卡只写确实提供的能力：在线选购（云服务器按周期计价）、
+    // 支付后处理开通、周期计费与续费、工单支持。
+    // 不写"秒级开通/高防/全闪存"这类无法承诺的性能与时效承诺（广告法风险），
+    // 也不写供货渠道与内部处理流程（客户只关心能不能买到、怎么开通、出问题找谁）。
     features: [
-      { icon: 'server', title: '多云上游统一交付', desc: '已接入魔方云、魔方财务等上游渠道，产品、订单与实例在同一后台收敛。' },
-      { icon: 'bolt', title: '支付后自动开通', desc: '支付成功即投递开通任务，由上游接口创建实例；异常自动重试并转人工处理。' },
-      { icon: 'refresh', title: '周期计费与续费', desc: '按周期制定价格，支持自助续费与自动续费，到期前有提醒。' },
-      { icon: 'support', title: '工单与全链路留痕', desc: '工单按优先级响应；订单、开通与实例操作全程记录，问题可回溯。' },
+      { icon: 'server', title: '在线选购云服务器', desc: '按周期计价的云服务器，在线选择配置下单，订单与实例状态清晰可查。' },
+      { icon: 'bolt', title: '支付后自动处理开通', desc: '支付完成后按订单自动处理开通，进度可在订单详情查看。' },
+      { icon: 'refresh', title: '周期计费与续费', desc: '支持月付、季付、年付等周期，可自助续费或开启自动续费，到期前有提醒。' },
+      { icon: 'support', title: '工单与进度查询', desc: '工单按优先级响应，订单与实例状态可随时查询。' },
     ],
     ctaTitle: '准备好开始了吗？',
-    ctaDesc: '注册后即可浏览产品与周期价格，几分钟内完成你的第一台云主机下单。',
+    ctaDesc: '注册后即可浏览云服务器与周期价格，在线完成配置选择与下单。',
     featuredTitle: '热门产品',
     featuredLimit: 8,
     announceTitle: '最新公告',

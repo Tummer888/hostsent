@@ -9,7 +9,7 @@
         </nav>
         <h1 class="content-hero__title">新闻资讯</h1>
         <p class="content-hero__desc">
-          {{ site.name }} 的产品动态、能力迭代与运维公告。
+          {{ site.name }} 的产品动态、功能更新与运维公告。
         </p>
 
         <div v-if="categories.length" class="content-filters">
@@ -155,7 +155,7 @@ function goPage(page: number) {
 
 useSeoMeta({
   title: () => (activeCategory.value ? `新闻资讯 · ${activeCategory.value}` : '新闻资讯'),
-  description: () => `${site.value.name} 新闻资讯：产品动态、能力迭代与运维公告。`,
+  description: () => `${site.value.name} 新闻资讯：产品动态、功能更新与运维公告。`,
   ogType: 'website',
 })
 </script>
