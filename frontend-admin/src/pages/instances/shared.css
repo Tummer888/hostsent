@@ -98,6 +98,23 @@
   align-items: center;
   gap: var(--space-sm);
   flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* 组间竖线：把「日常动作 / 配置动作 / 危险动作」在视觉上切成几段，
+   比单纯拉开间距更能说明"这几个不是一类"。 */
+.instances-module .actions-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 2px;
+  background: var(--td-component-stroke, #e2e8f0);
+}
+
+/* 窄屏不显示竖线：换行后竖线会落在行首行尾，看着像多余的字符。 */
+@media (max-width: 768px) {
+  .instances-module .actions-divider {
+    display: none;
+  }
 }
 
 /* ---------- 筛选卡片 / 表格卡片 ---------- */
@@ -337,8 +354,14 @@
   background: linear-gradient(135deg, #94a3b8, #64748b);
 }
 
+/*
+ * 成功态图标底色：这里曾经用 var(--color-primary)，而本模块的主色变量
+ * --instances-green 也取自 --color-primary —— 于是「运行中」卡片的图标
+ * 变成绿底白图里的"绿底绿图"，用户看到的就是"图标被背景盖住"。
+ * 固定用绿色梯度，与 --stat-accent 的 22,163,74 对齐，不跟随主题主色。
+ */
 .instances-module .stat-card--success .stat-card__icon {
-  background: linear-gradient(135deg, var(--td-brand-color-5), var(--color-primary));
+  background: linear-gradient(135deg, #4ade80, #16a34a);
 }
 
 .instances-module .stat-card--info .stat-card__icon {
@@ -454,15 +477,34 @@
   transition: background-color var(--hs-duration-fast);
 }
 
-.instances-module .t-button--theme-primary {
+/*
+ * 主色按钮统一到模块绿。**必须排除 text / outline 变体**：
+ * TDesign 的 class 是「variant + theme」两段组合（t-button--variant-text +
+ * t-button--theme-primary），只按 theme 覆盖会把文字按钮也刷成实心绿底，
+ * 于是「复制 / 重装 / 查看密码」这些文字按钮的绿色图标与绿字全被自己的
+ * 背景吃掉，看着就是"图标显示不出来"。
+ */
+.instances-module .t-button--theme-primary:not(.t-button--variant-text):not(.t-button--variant-outline) {
   border-color: var(--instances-green);
   background-color: var(--instances-green);
 }
 
-.instances-module .t-button--theme-primary:hover,
-.instances-module .t-button--theme-primary:focus-visible {
+.instances-module .t-button--theme-primary:not(.t-button--variant-text):not(.t-button--variant-outline):hover,
+.instances-module .t-button--theme-primary:not(.t-button--variant-text):not(.t-button--variant-outline):focus-visible {
   border-color: var(--instances-green-hover);
   background-color: var(--instances-green-hover);
+}
+
+/* 文字按钮：保持透明底 + 主色文字/图标，hover 才给极浅底色 */
+.instances-module .t-button--variant-text.t-button--theme-primary {
+  color: var(--instances-green);
+  background-color: transparent;
+}
+
+.instances-module .t-button--variant-text.t-button--theme-primary:hover,
+.instances-module .t-button--variant-text.t-button--theme-primary:focus-visible {
+  color: var(--instances-green-hover);
+  background-color: var(--instances-green-soft);
 }
 
 .instances-module .t-input.t-is-focused,
@@ -549,6 +591,128 @@
   width: 100%;
 }
 
+/* 密码输入 + 随机生成同一行：生成按钮紧贴输入框，便于"先生成再微调"。 */
+.instances-module .pwd-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.instances-module .pwd-input .t-input__wrap {
+  flex: 1;
+}
+
+/* ---------- 两个实例号的分辨（本地号 vs 上游号） ---------- */
+/* 用户实测"对云主机 ID 的情况存在一点混乱"：两号并排时只靠前缀区分不够，
+   给各自一个来源标签，并把"重新关联"入口就近挂在**上游号**上。 */
+.instances-module .hero-id__tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--td-bg-color-container-hover, #f3f4f6);
+  color: var(--td-text-color-secondary, #6b7280);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.instances-module .hero-id__tag--upstream {
+  background: var(--instances-green-soft);
+  color: var(--instances-green);
+}
+
+.instances-module .hero-id__pending {
+  color: var(--td-text-color-placeholder, #9ca3af);
+}
+
+.instances-module .hero-id__action {
+  margin-left: 8px;
+  font-size: 12px;
+}
+
+/* ---------- 账期调整：周期比价 ---------- */
+/* 选中周期后即时给出「上游标价/采购价」与「我方售价/成本」四格对照：
+   运营据此决定绑定价，不用另开上游后台对价。 */
+.instances-module .cycle-compare {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--hs-radius-lg, 8px);
+  background: var(--td-bg-color-container-hover, #f8fafc);
+}
+
+.instances-module .cycle-compare__row {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  gap: 4px 10px;
+  align-items: baseline;
+  font-size: 13px;
+}
+
+.instances-module .cycle-compare__k {
+  color: var(--td-text-color-secondary, #6b7280);
+}
+
+.instances-module .cycle-compare__v {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.instances-module .cycle-compare__margin {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #6b7280);
+}
+
+/* ---------- 生效配置：本地选配 vs 上游选配的来源图例 ---------- */
+/* 用户实测：同样叫"配置项"，一边是客户在我们商品里选的档位，另一边是上游钉死的参数，
+   改法完全不同（前者动商品，后者只能去上游面板）。用带商品名的图例讲清楚。 */
+.instances-module .config-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: var(--hs-radius-lg, 8px);
+  background: var(--td-bg-color-container-hover, #f8fafc);
+  font-size: 12px;
+}
+
+.instances-module .config-legend__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--td-text-color-secondary, #6b7280);
+}
+
+.instances-module .config-legend__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.instances-module .config-legend__dot--local {
+  background: var(--instances-green);
+}
+
+.instances-module .config-legend__dot--upstream {
+  background: var(--td-warning-color, #f59e0b);
+}
+
+/* ---------- 重新关联 / 更换商品的结果回显 ---------- */
+.instances-module .relink-result {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--hs-radius-lg, 8px);
+  background: var(--td-bg-color-container-hover, #f8fafc);
+}
+
+.instances-module .relink-result__title {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 /* ============================================================
    详情页第四轮：速览条 / 关联三栏 / 配置与财务 / 凭据
    ============================================================ */
@@ -558,68 +722,348 @@
   color: var(--td-text-color-placeholder);
 }
 
-/* ---------- 关键信息速览条 ---------- */
-.instances-module .glance-grid {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: var(--space-md);
+/* ============================================================
+   主信息区（detail-hero）：身份 / 配置 / 网络 / 凭据 / 系统 / 备注 / 账期
+   ------------------------------------------------------------
+   刻意不使用带彩色左边框的卡片：那种"左边一条色带"的样式在演示模板里
+   常代表空态/占位，放在真实数据旁边会让运营误以为这块还没接数据。
+   这里改用「同一张卡 + 内部分区 + 细分隔线」表达层级，靠字重与颜色区分
+   主次，而不是靠边框。
+   ============================================================ */
+.instances-module .detail-hero {
+  padding: 0;
+  overflow: hidden;
 }
 
-.instances-module .glance-card {
+/* ---------- 身份行 ---------- */
+.instances-module .hero-head {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 14px 16px;
-  border-radius: var(--hs-radius-lg);
-  background: var(--hs-surface-1);
-  border: 1px solid var(--td-component-border);
-  border-left: 3px solid var(--td-brand-color-6);
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-lg) var(--space-xl) var(--space-md);
+  flex-wrap: wrap;
+}
+
+.instances-module .hero-identity {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   min-width: 0;
 }
 
-.instances-module .glance-card--warning {
-  border-left-color: #f59e0b;
-  background: rgba(245, 158, 11, 0.06);
+.instances-module .hero-identity__text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
 }
 
-.instances-module .glance-card--danger {
-  border-left-color: var(--color-error, #ef4444);
-  background: rgba(239, 68, 68, 0.06);
+.instances-module .hero-identity__name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
-.instances-module .glance-card__label {
+/* 主机名是这一屏最该被记住的信息：加大加粗，与下面的元信息拉开层级。 */
+.instances-module .hero-hostname {
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--color-foreground);
+  word-break: break-all;
+}
+
+.instances-module .hero-identity__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  flex-wrap: wrap;
   font-size: 12px;
   color: var(--color-muted-foreground);
 }
 
-.instances-module .glance-card__value {
+.instances-module .hero-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* 云主机 ID / 上游实例号是"要复制去上游排查"的值：等宽字体便于逐位核对。 */
+.instances-module .hero-id code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--hs-surface-3, #f1f5f9);
+  color: var(--color-foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.instances-module .hero-id--muted code {
+  color: var(--color-muted-foreground);
+  font-weight: 500;
+}
+
+.instances-module .hero-user {
+  color: var(--td-brand-color-7, #1d4ed8);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.instances-module .hero-user:hover {
+  text-decoration: underline;
+}
+
+.instances-module .hero-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ---------- 交付参数栅格 ---------- */
+.instances-module .hero-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--td-component-stroke, #eef2f7);
+}
+
+.instances-module .hero-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--space-md) var(--space-xl);
+  border-right: 1px solid var(--td-component-stroke, #eef2f7);
+  min-width: 0;
+}
+
+.instances-module .hero-cell:last-child {
+  border-right: none;
+}
+
+.instances-module .hero-cell__label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.instances-module .hero-cell__label svg {
+  font-size: 13px;
+}
+
+.instances-module .hero-cell__value {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--color-foreground);
+  min-width: 0;
+}
+
+/* 配置三组数字用等宽制表数字，避免 8/16/80 跳动时行内左右晃。 */
+.instances-module .hero-num {
   font-size: 17px;
   font-weight: 700;
   color: var(--color-foreground);
   font-variant-numeric: tabular-nums;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.instances-module .glance-card__value--sm {
+.instances-module .hero-unit {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-muted-foreground);
+}
+
+.instances-module .hero-sep {
+  color: var(--td-text-color-placeholder, #cbd5e1);
+  margin: 0 1px;
+}
+
+/* 公网 IP 与登录用户名是最高频被抄走的值：等宽 + 加粗。 */
+.instances-module .hero-ip,
+.instances-module .hero-user-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-foreground);
+  letter-spacing: 0.01em;
+  word-break: break-all;
+}
+
+.instances-module .hero-user-name {
+  font-size: 15px;
+}
+
+.instances-module .hero-port {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--hs-surface-3, #f1f5f9);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.instances-module .hero-os {
   font-size: 14px;
+  font-weight: 600;
+  color: var(--color-foreground);
 }
 
-.instances-module .glance-card__sub {
+.instances-module .hero-copy {
+  margin-left: auto;
+  font-size: 12px;
+}
+
+/* NAT 机型没有独立 IP：地址位留空时要看得出是"机型如此"而不是"没分配好"。 */
+.instances-module .hero-ip--muted {
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+}
+
+/* NAT 地址列表项：地址要等宽可辨认，复制入口在标题行右侧。 */
+.instances-module .nat-item code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.instances-module .nat-alert {
+  margin-bottom: 8px;
+}
+
+.instances-module .hero-cell__sub {
   font-size: 12px;
   color: var(--color-muted-foreground);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.6;
+  word-break: break-all;
 }
 
-.instances-module .glance-card__link {
-  margin-left: 6px;
+.instances-module .hero-cell__sub b {
+  color: var(--color-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.instances-module .hero-hint {
+  color: var(--color-muted-foreground);
+}
+
+/* ---------- 备注两栏 ---------- */
+.instances-module .hero-notes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--td-component-stroke, #eef2f7);
+}
+
+.instances-module .hero-note {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-md) var(--space-xl);
+  border-right: 1px solid var(--td-component-stroke, #eef2f7);
+  min-width: 0;
+}
+
+.instances-module .hero-note:last-child {
+  border-right: none;
+}
+
+.instances-module .hero-note__label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.instances-module .hero-note__text {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-foreground);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+/* 空备注压淡："客户未填写"是常态，不该与真写了备注的一样抢眼。 */
+.instances-module .hero-note--empty .hero-note__text {
+  font-weight: 400;
+  color: var(--color-muted-foreground);
+}
+
+.instances-module .hero-note__sub {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+  word-break: break-all;
+}
+
+.instances-module .hero-note__edit {
+  align-self: flex-start;
   font-size: 12px;
 }
 
-/* ---------- 关联三栏（订单 / 商品 / 上游） ---------- */
+/* ---------- 账期条 ---------- */
+.instances-module .hero-billing {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--td-component-stroke, #eef2f7);
+  background: var(--hs-surface-2, #f8fafc);
+}
+
+.instances-module .hero-billing__item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: var(--space-md) var(--space-xl);
+  border-right: 1px solid var(--td-component-stroke, #eef2f7);
+  min-width: 0;
+}
+
+.instances-module .hero-billing__item:last-child {
+  border-right: none;
+}
+
+.instances-module .hero-billing__label {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.instances-module .hero-billing__value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.instances-module .hero-billing__value--strong {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.instances-module .hero-billing__sub {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+/* 到期状态着色：只在真的需要提醒时才给颜色（临期橙、过期红）。 */
+.instances-module .hero-billing__item.hero-billing--warning .hero-billing__value,
+.instances-module .hero-billing__item.hero-billing--warning .hero-billing__sub {
+  color: #b45309;
+}
+
+.instances-module .hero-billing__item.hero-billing--danger .hero-billing__value,
+.instances-module .hero-billing__item.hero-billing--danger .hero-billing__sub {
+  color: var(--color-error, #dc2626);
+}
+
+/* ---------- 关联信息（订单 / 商品与对接） ---------- */
 .instances-module .info-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -630,9 +1074,14 @@
 .instances-module .info-card {
   padding: 16px 18px;
   border-radius: var(--hs-radius-lg);
-  background: var(--hs-surface-2, #f8fafc);
-  border: 1px solid var(--td-component-border);
+  background: var(--hs-surface-1);
+  border: 1px solid var(--td-component-stroke, #eef2f7);
   min-width: 0;
+}
+
+/* 商品与对接只有一张卡：让它横跨整行，价格对照与周期 chips 才有足够宽度 */
+.instances-module .info-card--span {
+  grid-column: 1 / -1;
 }
 
 .instances-module .info-card__head {
@@ -645,6 +1094,26 @@
 
 .instances-module .info-card__head .card-title {
   font-size: 14px;
+}
+
+.instances-module .info-card__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+/* 价格对照里的箭头与强调值：让"售价 → 成本"一眼看出方向 */
+.instances-module .price-arrow {
+  margin: 0 6px;
+  color: var(--td-text-color-placeholder, #94a3b8);
+}
+
+.instances-module .kv-row__v--price {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--color-foreground);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------- 键值行 ---------- */
@@ -722,8 +1191,8 @@
 .instances-module .config-panel {
   padding: 16px 18px;
   border-radius: var(--hs-radius-lg);
-  background: var(--hs-surface-2, #f8fafc);
-  border: 1px solid var(--td-component-border);
+  background: var(--hs-surface-1);
+  border: 1px solid var(--td-component-stroke, #eef2f7);
   min-width: 0;
 }
 
@@ -741,17 +1210,23 @@
   flex-wrap: wrap;
 }
 
+/* 配置项：一整块用栅格切分 + 细线分隔，不再每格套一个描边框。
+   8~10 个带边框的小方块并排，观感与"演示占位"难以区分；改用分隔线后
+   视线会顺着行读，也少掉一圈视觉噪音。 */
 .instances-module .config-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0;
+  border: 1px solid var(--td-component-stroke, #eef2f7);
+  border-radius: var(--hs-radius-lg);
+  overflow: hidden;
+  background: var(--hs-surface-1);
 }
 
 .instances-module .config-item {
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--hs-surface-1);
-  border: 1px solid var(--td-component-border);
+  padding: 10px 14px;
+  border-right: 1px solid var(--td-component-stroke, #eef2f7);
+  border-bottom: 1px solid var(--td-component-stroke, #eef2f7);
   min-width: 0;
 }
 
@@ -768,11 +1243,13 @@
   color: var(--color-muted-foreground);
 }
 
+/* 配置取值加粗放大：这一格是"客户拿到的实际规格"，是运营核对的重点。 */
 .instances-module .config-item__value {
   font-size: 14px;
   font-weight: 600;
   color: var(--color-foreground);
   word-break: break-all;
+  font-variant-numeric: tabular-nums;
 }
 
 .instances-module .config-item__unit {
@@ -814,24 +1291,78 @@
 
 /* ---------- 响应式 ---------- */
 @media (max-width: 1400px) {
-  .instances-module .glance-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 900px) {
-  .instances-module .glance-grid {
+  .instances-module .hero-grid,
+  .instances-module .hero-billing {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* 两列布局下每偶数格是右端：去掉它的右边框，避免贴到卡片边缘 */
+  .instances-module .hero-cell:nth-child(2n),
+  .instances-module .hero-billing__item:nth-child(2n) {
+    border-right: none;
+  }
+
+  .instances-module .hero-cell:nth-child(-n + 2),
+  .instances-module .hero-billing__item:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--td-component-stroke, #eef2f7);
   }
 }
 
 @media (max-width: 768px) {
-  .instances-module .glance-grid {
+  .instances-module .hero-grid,
+  .instances-module .hero-billing,
+  .instances-module .hero-notes {
     grid-template-columns: 1fr;
+  }
+
+  .instances-module .hero-cell,
+  .instances-module .hero-billing__item,
+  .instances-module .hero-note {
+    border-right: none;
+    border-bottom: 1px solid var(--td-component-stroke, #eef2f7);
+  }
+
+  .instances-module .hero-cell:last-child,
+  .instances-module .hero-billing__item:last-child,
+  .instances-module .hero-note:last-child {
+    border-bottom: none;
+  }
+
+  .instances-module .hero-head,
+  .instances-module .hero-cell,
+  .instances-module .hero-billing__item,
+  .instances-module .hero-note {
+    padding-left: var(--space-lg);
+    padding-right: var(--space-lg);
   }
 
   .instances-module .info-grid,
   .instances-module .config-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---------- 列表里的系统列（图标 + 版本名横排） ---------- */
+.instances-module .spec-os {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---------- 销毁入口（列表行内 + 批量） ---------- */
+/* 行内下拉里的危险项标红：与上方电源/暂停类动作区分开，避免误点。 */
+.instances-module .danger-text {
+  color: var(--color-error, #ef4444);
+}
+
+.instances-module .destroy-reason {
+  margin-top: 12px;
+}
+
+/* 批量销毁弹窗的底部动作条（footer=false 时自绘）：右对齐 + 危险按钮在最后。 */
+.instances-module .destroy-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
 }

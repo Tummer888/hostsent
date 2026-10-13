@@ -46,6 +46,26 @@ type InstanceInfo struct {
 	UpdatedAt string `json:"updated_at"`
 	// Capabilities 当前实例可用的操作（按上游能力推导；待开通实例全为 false）。
 	Capabilities Capabilities `json:"capabilities"`
+	// NatAccess NAT 机型的访问地址（doc122）。NAT 机型没有独立公网 IP，
+	// 客户只能经节点转发地址访问；独立 IP 机型为 nil，前端不渲染该区块。
+	NatAccess *NatAccessInfo `json:"nat_access,omitempty"`
+}
+
+// NatAccessInfo NAT 机型的访问地址（用户中心下发）。
+//
+// 对客户而言这是"唯一能连上机器的方式"：NAT 机型没有独立 IP，public_ip 是空的，
+// 不把转发地址给出来客户就无从下手。
+type NatAccessInfo struct {
+	// IsNat 是否 NAT 机型。依据是机型而非"有没有转发规则"：刚开通还没建规则的
+	// NAT 机器同样是 NAT 机型，不能让客户以为买到了带独立 IP 的机器。
+	IsNat bool `json:"is_nat"`
+	// Forwards 端口转发地址（已拼成 "IP:端口"，可直接复制使用）。
+	Forwards []string `json:"forwards"`
+	// Domains 共享建站域名。
+	Domains []string `json:"domains"`
+	// Error 读取失败原因。与"没有转发规则"区分：读失败提示可刷新重试，
+	// 而不是让客户以为机器没配好。
+	Error string `json:"error,omitempty"`
 }
 
 // Capabilities 实例可用操作能力位（前端据此置灰按钮，避免"能点但点了报错"）。
@@ -59,6 +79,8 @@ type Capabilities struct {
 	Destroy       bool `json:"destroy"`
 	// Metrics 是否提供性能监控（CPU/内存/磁盘/网卡图表）。
 	Metrics bool `json:"metrics"`
+	// NatAccess 是否可读 NAT 访问地址（doc122）：渠道声明了 NatReader 能力时为真。
+	NatAccess bool `json:"nat_access"`
 }
 
 // ListQuery 我的主机查询。

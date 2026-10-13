@@ -7,6 +7,8 @@ package upstream
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"hostsent/backend/internal/pkg/model"
@@ -202,6 +204,82 @@ type SnapshotInfo struct {
 	DiskName   string
 	CreateTime string
 	Remarks    string
+}
+
+// NatReader NAT 机型的公网访问地址读取能力。
+//
+// 为什么单列一个能力：NAT 机型（ip_num=0）没有独立公网 IP，客户唯一的访问入口是
+// 节点转发地址 nat_host_ip:ext_port。机器开通成功却读不到这个地址，客户就拿到一台
+// "开好了但连不上"的机器——这正是 NAT 链路必须补上读取环节的原因。
+//
+// 与独立 IP 机型的差别：后者的连接信息就在实例详情里（mainip），不需要额外请求；
+// NAT 的转发规则是独立资源，要单独列。所以本能力返回的是**列表**而不是单个地址：
+// 一个 NAT 实例可以有多条端口转发（nat_acl）与多个共享建站域名（nat_web）。
+//
+// 只读能力：创建/删除转发规则会改变客户可达性，属实例变更动作，不在本能力范围内。
+type NatReader interface {
+	// ListNatForwards 列出实例的 NAT 端口转发（节点转发 IP、外部端口、内部端口、协议）。
+	// 返回空切片表示该实例没有转发规则（不是错误）；实现方不应因"无规则"报错。
+	ListNatForwards(ctx context.Context, providerInstanceID string) ([]NatForwardInfo, error)
+	// ListNatWebs 列出实例的共享建站地址（域名 + 节点转发 IP:外部端口）。
+	// 语义同上：空切片表示未配置。
+	ListNatWebs(ctx context.Context, providerInstanceID string) ([]NatWebInfo, error)
+}
+
+// NatForwardInfo 一条 NAT 端口转发规则（客户连接地址 = HostIP:ExternalPort）。
+type NatForwardInfo struct {
+	ID   string // 规则 ID
+	Name string // 规则名称
+	// HostIP 节点转发 IP（面板返回的 nat_host_ip）；客户实际连接用这个地址。
+	HostIP string
+	// ExternalPort 对外暴露的端口。
+	ExternalPort int
+	// InternalPort 实例内部端口。
+	InternalPort int
+	// Protocol 协议：tcp / udp / tcp,udp（已归一为可读文本，非面板的 1/2/3）。
+	Protocol string
+}
+
+// NatWebInfo 一条共享建站（NAT 域名）规则。
+type NatWebInfo struct {
+	ID string
+	// Domain 绑定域名；客户经此域名访问。
+	Domain string
+	// HostIP 节点转发 IP。
+	HostIP string
+	// ExternalPort 对外端口。
+	ExternalPort int
+	// InternalPort 实例内部端口。
+	InternalPort int
+}
+
+// NatAccess 归一后的实例 NAT 访问信息（服务层与前端消费的形态）。
+//
+// 单独定义一个聚合视图而不是让调用方各自拼装：展示口径（优先端口转发、
+// "有转发能力但还没建规则"如何表达）属于平台知识，放在这一层统一，
+// 避免管理端与用户中心两处算出不同结果。
+type NatAccess struct {
+	// IsNat 该实例是否走 NAT 链路（无独立 IP）。依据是机型而非规则数量：
+	// 刚开通还没建规则的 NAT 机器同样是 NAT 机型，不能因为列表为空就当 VPS 展示。
+	IsNat bool
+	// Forwards 端口转发地址（已拼成可直接展示的 "1.2.3.4:20022"）。
+	Forwards []string
+	// Domains 共享建站域名。
+	Domains []string
+	// Error 读取失败原因（非空表示本次读取失败，结果可能不完整）。
+	// 与"没有规则"区分：读失败时前端提示重试，而不是显示成"该实例无 NAT 配置"。
+	Error string
+}
+
+// FormatNatForwardAddr 把转发 IP 与外部端口拼成客户可直接使用的地址 "IP:端口"。
+//
+// 任一侧缺失都返回空串：拼出 ":20022" 或 "1.2.3.4:0" 这类半截地址比返回空更糟——
+// 客户会以为拿到了连接信息却连不上，不如让上层明确显示"暂未分配"。
+func FormatNatForwardAddr(hostIP string, externalPort int) string {
+	if strings.TrimSpace(hostIP) == "" || externalPort <= 0 {
+		return ""
+	}
+	return hostIP + ":" + strconv.Itoa(externalPort)
 }
 
 // InstanceMetrics 实例性能监控读数能力（CPU/内存/磁盘 IO/网卡流量）。

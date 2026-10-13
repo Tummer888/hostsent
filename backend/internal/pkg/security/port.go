@@ -49,8 +49,10 @@ const (
 	SceneInstanceSnapshotRestore = "instance_snapshot_restore"
 	// 账期自定义会改变到期时间与付款周期口径，直接影响续费与到期处置，需二次验证。
 	SceneInstanceBilling = "instance_billing"
-	SceneAdminGrant      = "admin_grant_change"
-	SceneRealnameSubmit  = "realname_submit"
+	// 改上游实例号会改变此后所有上游动作（电源/控制台/续费/销毁）的作用对象，与销毁同档。
+	SceneInstanceRelink = "instance_relink"
+	SceneAdminGrant     = "admin_grant_change"
+	SceneRealnameSubmit = "realname_submit"
 )
 
 // 通道常量（与 uc/captcha/model 的 Channel* 一致）。

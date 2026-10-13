@@ -57,6 +57,7 @@ const (
 	OpAddIP         = "add_ip"      // 增加 IP / IPv6
 	OpAttachDisk    = "attach_disk" // 挂载数据盘
 	OpMetrics       = "metrics"     // 性能监控读数（CPU/内存/磁盘/网卡，只读）
+	OpNatAccess     = "nat_access"  // NAT 机型访问地址读取（端口转发/共享建站，只读）
 )
 
 // 续费模式：order=上游下单续费，direct=直接延期，none=不支持。
@@ -257,6 +258,9 @@ func CapabilitiesOf(p Provider) CapabilityDescriptor {
 	}
 	if _, ok := p.(InstanceMetrics); ok {
 		d.Operations = append(d.Operations, OpMetrics)
+	}
+	if _, ok := p.(NatReader); ok {
+		d.Operations = append(d.Operations, OpNatAccess)
 	}
 	return d
 }

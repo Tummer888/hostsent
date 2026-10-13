@@ -57,6 +57,23 @@ export interface InstanceInfo {
   created_at: string
   updated_at: string
   capabilities?: InstanceCapabilities
+  /**
+   * NAT 机型访问地址。NAT 机型没有独立公网 IP，这里是**唯一**能连上机器的方式；
+   * 独立 IP 机型该字段为 undefined。
+   */
+  nat_access?: NatAccessInfo
+}
+
+/** NAT 机型访问地址（doc122）。 */
+export interface NatAccessInfo {
+  /** 是否 NAT 机型（依据机型而非规则数量：刚开通还没建规则也是 NAT 机型）。 */
+  is_nat: boolean
+  /** 端口转发地址，已拼成 "IP:端口"，可直接复制使用。 */
+  forwards: string[]
+  /** 共享建站域名。 */
+  domains: string[]
+  /** 读取失败原因；与「没有转发规则」区分，非空时提示刷新重试。 */
+  error?: string
 }
 
 /** 列表汇总（服务端与 items 同口径统计，前端不自己数）。 */

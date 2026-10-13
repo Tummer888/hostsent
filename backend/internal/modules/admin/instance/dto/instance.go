@@ -67,7 +67,10 @@ type InstanceItem struct {
 	BillingMode    string `json:"billing_mode"`
 	ActorUserID    uint64 `json:"actor_user_id"`
 	ActorName      string `json:"actor_name"`
+	// Remark 管理员内部备注（仅管理端可见）；CustomerRemark 是客户下单填写或自助修改的
+	// 备注（客户在自己界面也看得到）。两者严格分开：混用会让内部备注泄漏给客户。
 	Remark         string `json:"remark"`
+	CustomerRemark string `json:"customer_remark"`
 	ExpireAt       string `json:"expire_at"`
 	DaysLeft       int    `json:"days_left"`
 	ExpireState    string `json:"expire_state"`
@@ -76,8 +79,11 @@ type InstanceItem struct {
 	EnforceAttempts  int    `json:"enforce_attempts"`
 	EnforceNextAt    string `json:"enforce_next_at"`
 	LastEnforceError string `json:"last_enforce_error"`
-	CreatedAt        string `json:"created_at"`
-	UpdatedAt        string `json:"updated_at"`
+	// RenewalPrice 绑定的续费单价（元/周期）；nil = 未绑定，按商品实时算价。
+	// 绑定价压过商品调价与折扣（续费时按它计费），详情页与调整对话框据此回显。
+	RenewalPrice *float64 `json:"renewal_price"`
+	CreatedAt    string   `json:"created_at"`
+	UpdatedAt    string   `json:"updated_at"`
 }
 
 // ListResponse 实例列表响应。
@@ -121,6 +127,9 @@ type Capabilities struct {
 	Bandwidth     bool `json:"bandwidth"`      // 带宽直改
 	AddIP         bool `json:"add_ip"`         // 增加 IP / IPv6
 	AttachDisk    bool `json:"attach_disk"`    // 挂载数据盘
+	// NatAccess NAT 访问地址可读（doc122）：渠道声明了 NatReader 能力时为真，
+	// 前端据此决定是否请求/展示 NAT 地址区块。
+	NatAccess bool `json:"nat_access"`
 }
 
 // DetailInfo 实例详情。
@@ -144,6 +153,26 @@ type DetailInfo struct {
 	// pending/running/success/failed/manual；manual=重试无效需人工（如上游余额不足）。
 	ProvisionStatus string `json:"provision_status,omitempty"`
 	ProvisionError  string `json:"provision_error,omitempty"`
+	// NatAccess NAT 机型的访问地址（doc122）。NAT 机型没有独立 IP，客户只能经
+	// 节点转发地址访问；独立 IP 机型该字段为 nil，前端不渲染该区块。
+	NatAccess *NatAccessInfo `json:"nat_access,omitempty"`
+}
+
+// NatAccessInfo NAT 机型的访问地址（实例详情下发）。
+//
+// 为什么要单独下发而不是让前端拼 public_ip：NAT 机型根本没有独立 IP，
+// 连接信息（转发 IP:端口 / 建站域名）要额外请求面板才拿得到。
+type NatAccessInfo struct {
+	// IsNat 是否走 NAT 链路。判断依据是实例机型而非"是否有转发规则"：
+	// 刚开通还没建规则的 NAT 机器同样是 NAT 机型，不能因为列表为空就当独立 IP 展示。
+	IsNat bool `json:"is_nat"`
+	// Forwards 端口转发地址，已拼成可直接展示/复制给客户的 "IP:端口"。
+	Forwards []string `json:"forwards"`
+	// Domains 共享建站域名。
+	Domains []string `json:"domains"`
+	// Error 读取失败原因。与"没有转发规则"区分：读失败时前端提示可重试，
+	// 而不是显示成"该实例没有 NAT 配置"（后者会让客户以为机器没配好）。
+	Error string `json:"error,omitempty"`
 }
 
 // SourceOrderInfo 实例的来源订单财务口径（orders 表）。
@@ -169,8 +198,15 @@ type SourceOrderInfo struct {
 	RenewalID     uint64  `json:"renewal_id"`
 	RenewUnitCost float64 `json:"renew_unit_cost"`
 	RenewCycle    string  `json:"renew_cycle"`
+	// Remark 管理员在订单上写的备注（管理端内部可见）。
+	Remark string `json:"remark"`
+	// CustomerRemark 客户下单时填写的备注（客户可见，随履约带入实例）。
+	CustomerRemark string `json:"customer_remark"`
 	// RenewAmount 按实例当前付款周期与数量算出的下次续费金额（售价口径）。
 	RenewAmount float64 `json:"renew_amount"`
+	// RenewBound RenewAmount 是否来自实例绑定价（instances.renewal_price）而非商品周期价。
+	// 前端据此标注"已绑定谈定价"，并可一键取消绑定。
+	RenewBound bool `json:"renew_bound"`
 	// RenewCost 下次续费的上游成本（成本口径；自营/未绑定为 0）。
 	RenewCost float64 `json:"renew_cost"`
 	// UpstreamRenewAmount 上游续费金额（对接商品；来自上游商品各周期价，未取到为 0）。
@@ -266,6 +302,79 @@ type CredentialRevealResult struct {
 	Port     string `json:"port"`
 }
 
+// RelinkRequest 按上游实例号重新关联（上游换机/换号后拉取新机器信息）。
+//
+// 场景（实测需求）：上游把我们的机器换了一台（或重装后上游侧换了实例号），
+// 本地留的还是旧号，此后所有上游动作（电源/控制台/续费/销毁）都打在已不存在的机器上。
+// 运营需要"填入上游新号 → 拉取新机器信息"，把本地实例指向真正在跑的那台。
+//
+// 三点安全约束（缺一不可）：
+//   - 目标号必须**在上游真实存在**（GetInstance 探活），凭空写一个号等于把实例指向虚空；
+//   - 目标号不得已被**另一台本地实例**占用（否则两台实例抢同一个上游号）；
+//   - 必须显式确认（ConfirmMark 为当前实例标识），与销毁同口径 —— 改上游号会改变
+//     此后所有上游动作的作用对象，属于高影响操作。
+type RelinkRequest struct {
+	// UpstreamInstanceID 目标上游实例号（必填）。
+	UpstreamInstanceID string `json:"upstream_instance_id" binding:"required"`
+	// ConfirmMark 当前实例标识（instance_id）或记录 ID，必须精确匹配。
+	ConfirmMark string `json:"confirm_mark" binding:"required"`
+	// MigrateInstanceID 是否把本地展示号（instances.instance_id）也改成新上游号。
+	// 默认 false：instance_id 是本地主键性质的存在，改它会影响引用它的历史流水展示；
+	// 只有当本实例的 instance_id 与 provider_instance_id 原本一致（即"一直在用上游号"）时，
+	// 才建议同步改，保持两者语义一致。
+	MigrateInstanceID bool   `json:"migrate_instance_id"`
+	Reason            string `json:"reason"`
+}
+
+// RelinkResult 重新关联结果（回显新旧号与从上游拉到的关键信息）。
+type RelinkResult struct {
+	OldProviderInstanceID string `json:"old_provider_instance_id"`
+	NewProviderInstanceID string `json:"new_provider_instance_id"`
+	InstanceID            string `json:"instance_id"`
+	Status                string `json:"status"`
+	PublicIP              string `json:"public_ip"`
+	PrivateIP             string `json:"private_ip"`
+	Name                  string `json:"name"`
+	OS                    string `json:"os"`
+	Region                string `json:"region"`
+	// InstanceIDMigrated 本地展示号是否一并改成了新上游号。
+	InstanceIDMigrated bool `json:"instance_id_migrated"`
+}
+
+// RebindProductRequest 更换实例绑定的本地售出商品 + 上游对接商品。
+//
+// 场景（实测需求）：上游把我们卖的五区商品换成了六区的商品，本地商品却仍是五区那条 ——
+// 此后续费会按五区价算（与上游账单对不上），推给上游的配置也还是五区的。
+// 运营需要"对着上游实际在用的商品，把本地的也改过来"。
+//
+// 三个可独立调整的绑定：
+//   - SellProductID：本地售出商品（决定续费算价与展示口径）；
+//   - UpstreamProductID：本地镜像行（resource_products.id，决定上游价与配置来源）；
+//   - RenewalPrice：顺带把续费价钉到新口径（不传即不动）。
+type RebindProductRequest struct {
+	// SellProductID 目标本地售出商品（products.id）；0 表示不改。
+	SellProductID uint64 `json:"sell_product_id"`
+	// UpstreamProductID 目标本地镜像（resource_products.id）；nil 表示不改，
+	// 指向 0 表示清空（实例不再关联任何上游镜像）。
+	UpstreamProductID *uint64 `json:"upstream_product_id"`
+	// RenewalPrice 顺带更新绑定续费价；nil 表示不改，-1 表示清除绑定。
+	RenewalPrice *float64 `json:"renewal_price"`
+	Reason       string   `json:"reason"`
+}
+
+// RebindProductResult 更换结果（回显新旧绑定，便于运营核对）。
+type RebindProductResult struct {
+	OldSellProductID     uint64 `json:"old_sell_product_id"`
+	NewSellProductID     uint64 `json:"new_sell_product_id"`
+	OldUpstreamProductID uint64 `json:"old_upstream_product_id"`
+	NewUpstreamProductID uint64 `json:"new_upstream_product_id"`
+	// SellProductName / UpstreamProductName 新绑定的名称（回显用，读不到为空）。
+	SellProductName     string `json:"sell_product_name"`
+	UpstreamProductName string `json:"upstream_product_name"`
+	// UpstreamChanged 上游镜像确实变了（前端据此提示"上游价与配置已切换"）。
+	UpstreamChanged bool `json:"upstream_changed"`
+}
+
 // AdjustRequest 实例账期/计费周期调整请求（管理端自定义）。
 //
 // 与「续费」的语义差别：续费是**上账**（付钱买一段时间，向上游下单）；
@@ -278,11 +387,55 @@ type AdjustRequest struct {
 	ClearExpire bool `json:"clear_expire"`
 	// BillingMode 目标付款周期（monthly/quarterly/annually/hourly/daily/onetime）；空表示不改。
 	BillingMode string `json:"billing_mode"`
+	// RenewalPrice 绑定续费单价（元/周期）。>0 时写入 instances.renewal_price，
+	// 0 表示本次不改动，负值（-1）表示清除绑定（回到按商品实时算价）。
+	//
+	// 用「负值 = 清除」而不是指针：JSON 里缺字段与显式 null 都不好区分，
+	// 而运营确实需要"取消我上次钉死的价"这个动作。
+	RenewalPrice *float64 `json:"renewal_price"`
 	// Force 对接商品（source_mode=upstream）下强制本地调整。
 	// 不加 force 时后端拒绝：上游账期才是权威，本地改了会被回源覆盖，
 	// 而生命周期推进器可能按这个本地值误停服。
 	Force  bool   `json:"force"`
 	Reason string `json:"reason"`
+}
+
+// BillingCycleOption 账期调整对话框里的一个可选项。
+//
+// 只列**上游确实支持**的周期（读渠道能力描述符 BillingCycles）：
+// 前端此前硬编码了 9 档（含小时/按日/两年/三年），选一个上游不卖的周期
+// 会得到一个必然失败的下发请求 —— 账单周期与上游对不上，钱按错的周期扣。
+type BillingCycleOption struct {
+	Cycle string `json:"cycle"`
+	Name  string `json:"name"`
+	// Upstream 该周期是否在**上游**支持（自营实例此项恒为 true：周期由本系统管理）。
+	Upstream bool `json:"upstream"`
+	// UpstreamList/Cost 上游该周期的标价/采购价（对接商品；上游未报价为 0）。
+	UpstreamList float64 `json:"upstream_list"`
+	UpstreamCost float64 `json:"upstream_cost"`
+	// Sale/Cost 我方商品该周期的售价/成本（product_prices 周期矩阵；未配置为 0）。
+	Sale float64 `json:"sale"`
+	Cost float64 `json:"cost"`
+	// HasProductPrice 该周期在本系统商品价格矩阵里是否已配置。
+	HasProductPrice bool `json:"has_product_price"`
+}
+
+// AdjustContext 账期调整所需的上下文（可选周期 + 当前绑定续费价）。
+//
+// 单独下发而不是让前端从上游商品里猜：可选周期以**上游能力**为准（渠道能卖什么），
+// 价格以**上游镜像快照 + 我方价格矩阵**为准，两者都不是前端能推导出来的。
+type AdjustContext struct {
+	// Cycles 可选周期（含上游价与我方价，供运营比价后定价）。
+	Cycles []BillingCycleOption `json:"cycles"`
+	// CurrentCycle 实例当前付款周期（预选值）。
+	CurrentCycle string `json:"current_cycle"`
+	// CurrentRenewalPrice 当前绑定的续费单价；nil 表示未绑定（按商品实时算价）。
+	CurrentRenewalPrice *float64 `json:"current_renewal_price"`
+	// RenewalPriceHint 绑定价的语义说明（前端直接展示，避免运营误解成"本次收费"）。
+	RenewalPriceHint string `json:"renewal_price_hint"`
+	// UpstreamCyclesUnavailable 未能读到上游支持周期（渠道不可用/未声明）：
+	// 此时 Cycles 回落到平台全集，前端需提示"周期列表未经上游核对"。
+	UpstreamCyclesUnavailable bool `json:"upstream_cycles_unavailable"`
 }
 
 // PowerRequest 电源操作请求。
@@ -438,6 +591,40 @@ type BatchActionResponse struct {
 	Failed    int               `json:"failed"`
 	Skipped   int               `json:"skipped"`
 	Items     []BatchActionItem `json:"items"`
+}
+
+// BatchDestroyRequest 批量销毁请求。
+//
+// 与单实例销毁同样的二次确认口径：逐个要求实例标识被显式列出（ConfirmMarks 是
+// 「实例标识 → 用户照抄确认的文本」的映射），不做"全选即销毁"。
+// 批量销毁不可逆且会真删上游机器，因此这里刻意**不给**"一个确认文本覆盖全部"的捷径。
+type BatchDestroyRequest struct {
+	IDs []uint64 `json:"ids" binding:"required"`
+	// ConfirmMarks 实例标识 → 该实例的确认文本（须等于实例标识或记录 ID）。
+	// 缺失的实例按"未确认"跳过，不静默执行。
+	ConfirmMarks map[string]string `json:"confirm_marks" binding:"required"`
+	Reason       string            `json:"reason"`
+}
+
+// BatchDestroyItem 批量销毁中的单实例结果。
+type BatchDestroyItem struct {
+	ID           uint64 `json:"id"`
+	InstanceMark string `json:"instance_mark"`
+	Name         string `json:"name"`
+	// Status 复用批量运维三态：success / skipped / failed。
+	Status       string `json:"status"`
+	Message      string `json:"message"`
+	BeforeStatus string `json:"before_status"`
+	AfterStatus  string `json:"after_status"`
+}
+
+// BatchDestroyResponse 批量销毁响应（逐台结果，与批量运维同一形态便于前端共用回显）。
+type BatchDestroyResponse struct {
+	Total     int                `json:"total"`
+	Succeeded int                `json:"succeeded"`
+	Failed    int                `json:"failed"`
+	Skipped   int                `json:"skipped"`
+	Items     []BatchDestroyItem `json:"items"`
 }
 
 // RemarkRequest 管理员备注请求。

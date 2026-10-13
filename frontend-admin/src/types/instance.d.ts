@@ -51,7 +51,10 @@ export interface InstanceItem {
   billing_mode: string
   actor_user_id: number
   actor_name: string
+  /** 管理员内部备注（仅管理端可见，客户看不到）。 */
   remark: string
+  /** 客户备注（客户下单填写或自助修改，客户在自己界面也看得到）。 */
+  customer_remark: string
   expire_at: string
   days_left: number
   expire_state: string
@@ -60,6 +63,8 @@ export interface InstanceItem {
   enforce_attempts: number
   enforce_next_at: string
   last_enforce_error: string
+  /** 绑定的续费单价（元/周期）；null = 未绑定，按商品实时算价。 */
+  renewal_price: number | null
   created_at: string
   updated_at: string
 }
@@ -93,6 +98,25 @@ export interface InstanceCapabilities {
   bandwidth: boolean
   add_ip: boolean
   attach_disk: boolean
+  /** NAT 访问地址可读（渠道声明了 NatReader 能力）。 */
+  nat_access: boolean
+}
+
+/**
+ * NAT 机型访问地址。
+ *
+ * NAT 机型没有独立公网 IP，此处是客户**唯一**能连上机器的方式；
+ * 独立 IP 机型该字段为 undefined（后端不下发，前端不渲染）。
+ */
+export interface InstanceNatAccess {
+  /** 是否 NAT 机型。依据是机型而非规则数量：刚开通还没建规则也是 NAT 机型。 */
+  is_nat: boolean
+  /** 端口转发地址，已拼成 "IP:端口"，可直接复制使用。 */
+  forwards: string[]
+  /** 共享建站域名。 */
+  domains: string[]
+  /** 读取失败原因；与「没有转发规则」区分，非空时提示可重试而非显示"无 NAT 配置"。 */
+  error?: string
 }
 
 /** 来源订单财务口径：首付是历史成交，续费价是下次应付（商品当前周期价）。 */
@@ -123,9 +147,15 @@ export interface InstanceSourceOrder {
   renew_cycle: string
   renew_amount: number
   renew_cost: number
+  /** renew_amount 是否来自实例绑定价（instances.renewal_price），而非商品周期价。 */
+  renew_bound: boolean
   /** 上游续费金额（对接商品；来自上游商品各周期价，未取到为 0）。 */
   upstream_renew_amount: number
   upstream_renew_cycle: string
+  /** 管理员在订单上写的备注（内部可见）。 */
+  remark: string
+  /** 客户下单时填写的备注。 */
+  customer_remark: string
 }
 
 /** 售出商品与我方对接关系。 */
@@ -206,6 +236,8 @@ export interface InstanceDetail extends InstanceItem {
   /** 待开通实例的履约状态与最近失败原因（manual=需人工处理，如上游余额不足）。 */
   provision_status?: string
   provision_error?: string
+  /** NAT 机型访问地址（doc122）；独立 IP 机型不存在该字段。 */
+  nat_access?: InstanceNatAccess
 }
 
 /** 账期/付款周期调整请求（本地口径，不产生账单；对接商品需 force）。 */
@@ -213,8 +245,77 @@ export interface InstanceAdjustRequest {
   expire_at?: string
   clear_expire?: boolean
   billing_mode?: string
+  /**
+   * 绑定续费单价（元/周期）。不传 = 本次不改；>0 = 绑定此价；-1 = 清除绑定
+   * （回到按商品实时算价）。
+   */
+  renewal_price?: number
   force?: boolean
   reason?: string
+}
+
+/** 账期调整对话框里的一个可选周期（周期取自上游能力，价格取自上游镜像 + 我方价格矩阵）。 */
+export interface InstanceBillingCycleOption {
+  cycle: string
+  name: string
+  upstream: boolean
+  upstream_list: number
+  upstream_cost: number
+  sale: number
+  cost: number
+  has_product_price: boolean
+}
+
+/** 账期调整上下文（可选周期 + 当前绑定续费价）。 */
+export interface InstanceAdjustContext {
+  cycles: InstanceBillingCycleOption[]
+  current_cycle: string
+  current_renewal_price: number | null
+  renewal_price_hint: string
+  /** 未能读到上游支持周期：cycles 回落到平台全集，界面需提示"未经上游核对"。 */
+  upstream_cycles_unavailable: boolean
+}
+
+/** 按上游实例号重新关联（上游换机/换号）。 */
+export interface InstanceRelinkRequest {
+  upstream_instance_id: string
+  confirm_mark: string
+  /** 是否把本地展示号（instance_id）也改成新上游号（仅原两者一致时才会生效）。 */
+  migrate_instance_id?: boolean
+  reason?: string
+}
+
+export interface InstanceRelinkResult {
+  old_provider_instance_id: string
+  new_provider_instance_id: string
+  instance_id: string
+  status: string
+  public_ip: string
+  private_ip: string
+  name: string
+  os: string
+  region: string
+  instance_id_migrated: boolean
+}
+
+/** 更换实例绑定的本地商品 / 上游镜像（上游换产品）。 */
+export interface InstanceRebindProductRequest {
+  sell_product_id?: number
+  /** 不传 = 不改；0 = 清空（不再关联任何上游镜像）。 */
+  upstream_product_id?: number
+  /** 顺带更新绑定续费价：不传 = 不改；-1 = 清除绑定。 */
+  renewal_price?: number
+  reason?: string
+}
+
+export interface InstanceRebindProductResult {
+  old_sell_product_id: number
+  new_sell_product_id: number
+  old_upstream_product_id: number
+  new_upstream_product_id: number
+  sell_product_name: string
+  upstream_product_name: string
+  upstream_changed: boolean
 }
 
 export interface OperationItem {
@@ -343,6 +444,23 @@ export interface InstanceBatchActionItem {
 }
 
 export interface InstanceBatchActionResponse {
+  total: number
+  succeeded: number
+  failed: number
+  skipped: number
+  items: InstanceBatchActionItem[]
+}
+
+// 批量销毁（不可逆）：confirm_marks 是「实例记录 ID（字符串）→ 该台确认文本」，
+// 服务端逐台校验；缺哪台就跳过哪台（勾选全选 ≠ 一键删机器）。
+export interface InstanceBatchDestroyRequest {
+  ids: number[]
+  confirm_marks: Record<string, string>
+  reason?: string
+}
+
+// 与批量运维同一响应形态，便于前端复用同一套逐台结果回显。
+export interface InstanceBatchDestroyResponse {
   total: number
   succeeded: number
   failed: number

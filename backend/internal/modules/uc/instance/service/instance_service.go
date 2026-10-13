@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	admininstancedto "hostsent/backend/internal/modules/admin/instance/dto"
@@ -14,6 +15,7 @@ import (
 	"hostsent/backend/internal/modules/uc/instance/model"
 	"hostsent/backend/internal/modules/uc/instance/repository"
 	pkgmodel "hostsent/backend/internal/pkg/model"
+	"hostsent/backend/internal/pkg/safego"
 	"hostsent/backend/internal/pkg/upstream"
 )
 
@@ -351,22 +353,98 @@ func (s *instanceService) List(ctx context.Context, userID uint64, query dto.Lis
 	// 能力位按渠道解析一次即复用：一个账号下的机器通常只属于一两个渠道，
 	// 逐台解析会为同一渠道重复查库；但**不能干脆不填**——前端拿到全 false 的
 	// 能力位会把所有按钮置灰（"有值但不支持"比"没有值"更危险）。
+	//
+	// 能力位只做"该渠道是否实现某接口"的静态判定（无上游 HTTP），因此放在并发段之前
+	// 串行完成，避免给下面的并发回源引入一张需要加锁的共享 map。
 	capsCache := make(map[uint64]dto.Capabilities, 4)
-	for _, it := range items {
-		info := toInfo(&it)
-		if query.Live && s.resolve != nil && it.ProviderInstanceID != "" {
-			if live, ok := s.refresh(ctx, &it); ok {
-				info.Status = string(live.Status)
-				info.PowerStatus = powerOf(live.Status)
-			}
-		} else {
-			info.PowerStatus = powerOf(statusToModel(it.Status))
+	for i := range items {
+		out = append(out, toInfo(&items[i]))
+		out[i].Capabilities = s.capabilitiesCached(ctx, &items[i], capsCache)
+	}
+	if !query.Live || s.resolve == nil {
+		for i := range out {
+			out[i].PowerStatus = powerOf(statusToModel(items[i].Status))
+			countSummary(&summary, out[i])
 		}
-		info.Capabilities = s.capabilitiesCached(ctx, &it, capsCache)
-		countSummary(&summary, info)
-		out = append(out, info)
+		return &dto.ListResponse{Items: out, Total: int64(len(out)), Summary: summary}, nil
+	}
+
+	// 实时刷新：逐台回源上游取运行状态。
+	//
+	// 必须并发且带总预算。原来是串行 for 循环里一台一台调 GetInstance，
+	// 每台一次上游 HTTP（实测约 2~3s）；账号下 13 台机器就是 30s+，
+	// 直接顶穿网关超时——前端表现为"列表报错、数据全空"（用户实测反馈）。
+	// 并发后总耗时约等于最慢的一台；总预算再兜一层，防止个别上游 hang 住拖死请求。
+	liveStatus := s.refreshStatuses(ctx, items, refreshConcurrency, refreshBudget)
+	for i := range out {
+		if st, ok := liveStatus[items[i].ID]; ok {
+			out[i].Status = string(st.Status)
+			out[i].PowerStatus = powerOf(st.Status)
+		} else {
+			// 未取到（不支持该操作/上游报错/超预算）：降级为本地状态，
+			// 不因单台失败影响整页（宁可显示可能略旧的本地状态，也不要空白页）。
+			out[i].PowerStatus = powerOf(statusToModel(items[i].Status))
+		}
+		countSummary(&summary, out[i])
 	}
 	return &dto.ListResponse{Items: out, Total: int64(len(out)), Summary: summary}, nil
+}
+
+// 实时回源的并发度与总预算。
+//
+// 并发度取 8：一次列表最多打出 8 个上游请求，既能把 13 台机器压到"一轮多"，
+// 又不至于对上游形成压测式突发。
+// 总预算 8s：网关通常 30s 左右断连，留足余量；即使部分上游 hang 住，
+// 也只是这些机器回落本地状态，页面照常出得来。
+const (
+	refreshConcurrency = 8
+	refreshBudget      = 8 * time.Second
+)
+
+// refreshStatuses 并发回源刷新各实例的运行状态，按实例 ID 返回成功结果。
+// 失败与超预算的实例不出现在返回值里，由调用方回落本地状态。
+func (s *instanceService) refreshStatuses(ctx context.Context, items []model.Instance, concurrency int, budget time.Duration) map[uint64]*pkgmodel.StandardInstance {
+	targets := make([]model.Instance, 0, len(items))
+	for _, it := range items {
+		// 待开通占位（provider_instance_id 为空）没有上游实体，回源必然失败，直接跳过。
+		if it.ProviderInstanceID != "" {
+			targets = append(targets, it)
+		}
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	// 超预算即取消在途请求：返回的 map 只含已完成的部分，其余由调用方降级。
+	budgetCtx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+
+	out := make(map[uint64]*pkgmodel.StandardInstance, len(targets))
+	var mu sync.Mutex
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	for i := range targets {
+		it := targets[i]
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			// 并发入口按项目约定兜 panic：单台异常不应击穿整个列表请求。
+			defer safego.Recover(nil)
+			res, ok := s.refresh(budgetCtx, &it)
+			if !ok {
+				return
+			}
+			mu.Lock()
+			out[it.ID] = res
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+	return out
 }
 
 // capabilitiesCached 单次请求内的能力位缓存（按渠道 ID）。
@@ -431,7 +509,64 @@ func (s *instanceService) Detail(ctx context.Context, userID, id uint64, live bo
 		info.PowerStatus = powerOf(statusToModel(it.Status))
 	}
 	info.Capabilities = s.capabilities(ctx, it)
+	// NAT 机型补齐访问地址（doc122）：NAT 没有独立 IP，public_ip 为空，
+	// 不给转发地址客户就无从连上机器。
+	s.attachNatAccess(ctx, it, &info)
 	return &info, nil
+}
+
+// attachNatAccess 为用户中心详情补齐 NAT 访问地址（doc122）。
+//
+// 与用户无关的判据：先按机型判断是不是 NAT（IsNatInstance 认 raw_data），
+// 非 NAT 直接返回，不发起上游请求。
+//
+// 容错：读取失败只填 Error 不返回错误——NAT 这个结论本身（is_nat=true）
+// 对客户仍然有用（至少知道这机器没独立 IP），不该因为上游抖动让详情页打不开。
+func (s *instanceService) attachNatAccess(ctx context.Context, it *model.Instance, info *dto.InstanceInfo) {
+	if it == nil || info == nil {
+		return
+	}
+	if !upstream.IsNatInstance(it.RawData) {
+		return
+	}
+	nat := &dto.NatAccessInfo{IsNat: true}
+	info.NatAccess = nat
+	if it.ProviderInstanceID == "" {
+		// 待开通：还没有上游实例号，读不到规则属正常。
+		return
+	}
+	provider, err := s.buildProvider(ctx, it.ProviderID)
+	if err != nil {
+		nat.Error = "上游服务商当前不可达，请稍后刷新重试"
+		return
+	}
+	reader, ok := provider.(upstream.NatReader)
+	if !ok {
+		nat.Error = "当前服务商不支持读取 NAT 访问地址"
+		return
+	}
+	forwards, ferr := reader.ListNatForwards(ctx, it.InstanceID)
+	if ferr != nil {
+		nat.Error = "读取 NAT 转发地址失败，请稍后刷新重试"
+		return
+	}
+	for _, f := range forwards {
+		if addr := upstream.FormatNatForwardAddr(f.HostIP, f.ExternalPort); addr != "" {
+			nat.Forwards = append(nat.Forwards, addr)
+		}
+	}
+	webs, werr := reader.ListNatWebs(ctx, it.InstanceID)
+	if werr != nil {
+		if len(nat.Forwards) == 0 {
+			nat.Error = "读取 NAT 建站地址失败，请稍后刷新重试"
+		}
+		return
+	}
+	for _, w := range webs {
+		if w.Domain != "" {
+			nat.Domains = append(nat.Domains, w.Domain)
+		}
+	}
 }
 
 // capabilities 推导该实例可用的操作（用户侧按钮门禁）。
@@ -465,6 +600,7 @@ func (s *instanceService) capabilities(ctx context.Context, it *model.Instance) 
 		Rescue:        rescue || supports(upstream.OpRescue),
 		Snapshot:      snapshot || supports(upstream.OpSnapshot),
 		Metrics:       metrics || supports(upstream.OpMetrics),
+		NatAccess:     supports(upstream.OpNatAccess),
 	}
 }
 
@@ -729,7 +865,7 @@ func (s *instanceService) refresh(ctx context.Context, it *model.Instance) (*pkg
 // toInfo 将本地主机映射为用户可见信息。
 func toInfo(it *model.Instance) dto.InstanceInfo {
 	expireState, daysLeft := expireStateOf(it.ExpireAt)
-	return dto.InstanceInfo{
+	info := dto.InstanceInfo{
 		ID:          it.ID,
 		InstanceID:  it.InstanceID,
 		ProviderID:  it.ProviderID,
@@ -760,6 +896,13 @@ func toInfo(it *model.Instance) dto.InstanceInfo {
 		CreatedAt:          it.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:          it.UpdatedAt.Format(time.RFC3339),
 	}
+	// 列表只标记机型、不拉转发地址：地址要逐台请求上游，列表页几十台会把响应拖垮，
+	// 且列表里展示首条地址的价值不大（详情页才需要复制）。只给 is_nat 让前端
+	// 区分"未分配 IP（NAT 机型）"与"未分配 IP（异常）"。
+	if upstream.IsNatInstance(it.RawData) {
+		info.NatAccess = &dto.NatAccessInfo{IsNat: true}
+	}
+	return info
 }
 
 // expireStateOf 计算到期状态与剩余天数（负数表示已过期天数）。

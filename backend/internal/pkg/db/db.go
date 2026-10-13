@@ -1244,6 +1244,8 @@ var seedPermissionDefaults = []seedPermission{
 	// 详情页第四轮：账期自定义（本地口径）与明文密码查看，均为高危动作，独立授权。
 	{ParentCode: "resource:instance", Name: "账期调整", Code: "instance:billing", Type: "button", SortOrder: 10, Status: "active"},
 	{ParentCode: "resource:instance", Name: "查看密码", Code: "instance:credential", Type: "button", SortOrder: 11, Status: "active"},
+	// 上游换机/换号后按新上游实例号重新关联：改上游号 = 改变此后所有上游动作的作用对象，独立授权。
+	{ParentCode: "resource:instance", Name: "重新关联上游号", Code: "instance:relink", Type: "button", SortOrder: 12, Status: "active"},
 	{Name: "商品销售", Code: "product", Type: "catalog", SortOrder: 5, Status: "active"},
 	{ParentCode: "product", Name: "产品列表", Code: "product:list", Type: "menu", SortOrder: 1, Status: "active"},
 	{ParentCode: "product:list", Name: "创建产品", Code: "product:create", Type: "button", SortOrder: 1, Status: "active"},
@@ -1550,6 +1552,7 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"instance:hardware",
 			"instance:billing",
 			"instance:credential",
+			"instance:relink",
 			"product",
 			"product:list",
 			"product:create",

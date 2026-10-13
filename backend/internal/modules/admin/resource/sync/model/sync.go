@@ -75,6 +75,13 @@ type Instance struct {
 	OrderID uint64 `gorm:"column:order_id;index"`
 	// Remark 管理员内部备注。注意：同步流程（UpsertInstances）不得覆盖此列。
 	Remark string `gorm:"size:255"`
+	// CustomerRemark 客户备注（下单填写或客户自助修改），与 Remark 严格分开：
+	// 前者客户可见、后者仅管理端内部可见（迁移 099）。同步流程同样不得覆盖。
+	CustomerRemark string `gorm:"column:customer_remark;size:255"`
+	// CredentialPassword 实例登录密码的**密文**（enc:v1: AES-256-GCM，迁移 100）。
+	// 开通时密码由本系统生成，此前只发给上游未留存，导致「查看密码」永远取不到。
+	// 与 raw_data 的区别：raw_data 会被每次同步整体覆盖，密文不能被同步触碰。
+	CredentialPassword string `gorm:"column:credential_password;size:512"`
 	// LastSyncedAt 最近一次单实例回源上游的时间。
 	LastSyncedAt *time.Time `gorm:"column:last_synced_at"`
 	// ---- 双链路语义列（P1/T1.2）----
@@ -96,10 +103,14 @@ type Instance struct {
 	// EnforceNextAt 下一次允许重试的时间（退避闸门）；为空表示可立即处理。
 	EnforceNextAt *time.Time `gorm:"column:enforce_next_at"`
 	// LastEnforceError 最近一次强制执行失败原因（截断），供运维在列表/详情直接看到。
-	LastEnforceError string     `gorm:"column:last_enforce_error;size:500"`
-	CreatedAt        time.Time  `gorm:"autoCreateTime"`
-	ExpireAt         *time.Time `gorm:"column:expire_at"`
-	UpdatedAt        time.Time  `gorm:"autoUpdateTime"`
+	LastEnforceError string `gorm:"column:last_enforce_error;size:500"`
+	// RenewalPrice 绑定的续费单价（元/周期），NULL 表示未绑定、按商品定价实时算。
+	// 后台代客下单可与首次价分开指定（如首次 30、续费 18），绑定后长期有效：
+	// 续费算价优先取本列，商品事后调价不影响这台机器（对单机的价格承诺）。
+	RenewalPrice *float64   `gorm:"column:renewal_price;type:decimal(15,2)"`
+	CreatedAt    time.Time  `gorm:"autoCreateTime"`
+	ExpireAt     *time.Time `gorm:"column:expire_at"`
+	UpdatedAt    time.Time  `gorm:"autoUpdateTime"`
 }
 
 // TableName 指定表名

@@ -90,6 +90,8 @@ type InstanceService interface {
 	AttachDataDisk(ctx context.Context, op Operator, id uint64, req *dto.AttachDiskRequest) error
 	// BatchAction 批量运维：对多个实例下发同一动作，返回逐台结果（部分失败不影响其余）。
 	BatchAction(ctx context.Context, op Operator, req *dto.BatchActionRequest) (*dto.BatchActionResponse, error)
+	// BatchDestroy 批量销毁：逐台独立执行，每台须带自己的确认文本（不可逆动作的护栏）。
+	BatchDestroy(ctx context.Context, op Operator, req *dto.BatchDestroyRequest) (*dto.BatchDestroyResponse, error)
 	// DisposeOnRefund 退款审核通过后的实例侧处置（doc61 §8 第 2 条，系统操作人）。
 	// 是否动作由 lifecyclpolicy.refund_action 决定（默认 none：不动作）。
 	DisposeOnRefund(ctx context.Context, in *dto.RefundInstanceRequest) error
@@ -103,8 +105,14 @@ type InstanceService interface {
 	SetDetailRepository(repo repository.InstanceDetailRepository)
 	// SetDetailOrderConfigReader 注入订单选配读取（装配层调用；为 nil 时配置项退化为商品默认）。
 	SetDetailOrderConfigReader(fn func(ctx context.Context, orderID uint64) (string, error))
+	// SetCredentialSecretKey 注入应用加密密钥（装配层调用）：
+	// 重置密码/重装产生的新密码据此加密留存，供「查看密码」回显。
+	SetCredentialSecretKey(key string)
 	// RetryProvision 重新开通待开通实例：重投来源订单的履约任务（占位行专用）。
 	RetryProvision(ctx context.Context, op Operator, id uint64) (*dto.DetailInfo, error)
+	// RefreshByOrder 按订单回源刷新其实例，返回刷新后的状态（无实例返回空串）。
+	// 供「开通中滞留推进器」使用：上游主机异步就绪后，由它来把订单推向服务中。
+	RefreshByOrder(ctx context.Context, orderID uint64) (string, error)
 	// SetProvisionRetry 注入「重新开通」执行者（装配层调用；为 nil 时该入口不可用）。
 	SetProvisionRetry(fn func(ctx context.Context, orderID uint64) error)
 	Operations(ctx context.Context, id uint64, query *dto.OperationListQuery) (*dto.OperationListResponse, error)
@@ -166,9 +174,49 @@ func (s *instanceService) SetDetailOrderConfigReader(fn func(ctx context.Context
 	s.detailOrderConfig = fn
 }
 
+// SetCredentialSecretKey 注入应用加密密钥（装配层调用）：
+// 重置密码/重装成功后用它加密留存新密码（instances.credential_password，迁移 100）。
+// 未注入时这些操作仍照常执行，只是不更新留存（「查看密码」会提示改用重置密码）。
+func (s *instanceService) SetCredentialSecretKey(key string) {
+	s.secretKey = key
+}
+
 // SetProvisionRetry 注入「重新开通」执行者（装配层调用：重投来源订单的履约任务）。
 func (s *instanceService) SetProvisionRetry(fn func(ctx context.Context, orderID uint64) error) {
 	s.provisionRetry = fn
+}
+
+// RefreshByOrder 按订单回源刷新其实例（推进器调用；系统操作人留痕）。
+//
+// 与用户点「同步刷新」同一套动作：拉上游主机详情 → 回写本地状态/IP。
+// 无实例（订单不是云主机商品）返回空串，调用方跳过；上游不可达返回错误。
+func (s *instanceService) RefreshByOrder(ctx context.Context, orderID uint64) (string, error) {
+	if orderID == 0 {
+		return "", nil
+	}
+	row, err := s.repo.FindByOrderID(ctx, orderID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return "", nil
+		}
+		return "", err
+	}
+	if !provisioned(row) {
+		// 占位实例（尚未在上游开通）：无对象可刷。
+		return "", nil
+	}
+	before := row.Status
+	if err := s.refreshUpstream(ctx, row); err != nil {
+		s.record(ctx, row, Operator{Type: model.OperatorTypeSystem, Name: "开通就绪推进"}, model.ActionSync, nil, before, before, err)
+		return "", err
+	}
+	fresh, ferr := s.repo.FindByID(ctx, row.ID)
+	after := before
+	if ferr == nil && fresh != nil {
+		after = fresh.Status
+	}
+	s.record(ctx, row, Operator{Type: model.OperatorTypeSystem, Name: "开通就绪推进"}, model.ActionSync, nil, before, after, nil)
+	return after, nil
 }
 
 // RetryProvision 重新开通：对待开通实例（占位行）重投来源订单的开通履约任务。
@@ -331,6 +379,8 @@ func (s *instanceService) Detail(ctx context.Context, id uint64, live bool) (*dt
 		detail.CapabilityError = capErr.Error()
 	}
 	s.attachDetailContext(ctx, row, detail)
+	// NAT 机型补齐访问地址（doc122）：NAT 没有独立 IP，只显示 public_ip 客户无从下手。
+	s.attachNatAccess(ctx, row, detail)
 	// 待开通实例：带上履约状态与失败原因，运营/用户在详情页直接看到"为什么还没开通"。
 	if s.detail != nil && !provisioned(row) {
 		if status, lastErr, perr := s.detail.Provision(ctx, row.OrderID); perr == nil {
@@ -369,7 +419,8 @@ func (s *instanceService) attachDetailContext(ctx context.Context, row *reposito
 	}
 	quantity := 1
 	// 来源订单：订单里同时带付款周期与数量，续费金额按实例当前周期现算。
-	order, oerr := s.detail.SourceOrder(ctx, row.OrderID, row.BillingMode, quantity)
+	// 传实例 ID：绑定价（instances.renewal_price）要压过商品周期价（与续费实际计费一致）。
+	order, oerr := s.detail.SourceOrder(ctx, row.OrderID, row.ID, row.BillingMode, quantity)
 	if oerr == nil && order != nil {
 		quantity = order.Quantity
 		if quantity <= 0 {
@@ -448,6 +499,79 @@ func (s *instanceService) orderConfigOptions(ctx context.Context, orderID uint64
 		return ""
 	}
 	return raw
+}
+
+// attachNatAccess 补齐 NAT 机型的访问地址（doc122 缺陷修复）。
+//
+// 背景：NAT 机型（ip_num=0）没有独立公网 IP，客户唯一的入口是节点转发地址
+// nat_host_ip:ext_port。详情页只显示 public_ip 的话，NAT 客户的"连接信息"是空的——
+// 机器开着却无从下手。所以这里把转发地址读出来一并下发。
+//
+// 只对确认是 NAT 的实例发起请求：独立 IP 机型的面板端点返回 null，白跑一次请求没意义
+// （更重要的是本方法可能被详情页高频调用）。
+//
+// 容错：读取失败只记 Error 不返回错误——详情页其余信息（含"是不是 NAT"这个结论）
+// 仍应正常展示，否则上游抖动会让整个详情页打不开。
+func (s *instanceService) attachNatAccess(ctx context.Context, row *repository.InstanceRow, detail *dto.DetailInfo) {
+	if row == nil || detail == nil {
+		return
+	}
+	isNat := instanceIsNat(row)
+	if !isNat {
+		return
+	}
+	info := &dto.NatAccessInfo{IsNat: true}
+	detail.NatAccess = info
+
+	if !provisioned(row) {
+		// 待开通实例还没有上游实例号，读不到规则属于正常，不当作错误。
+		return
+	}
+	provider, err := s.buildProvider(ctx, row.ProviderID)
+	if err != nil {
+		info.Error = err.Error()
+		return
+	}
+	reader, ok := provider.(upstream.NatReader)
+	if !ok {
+		// 渠道没声明 NAT 读取能力：不是错误，只是拿不到地址。
+		info.Error = "当前渠道不支持读取 NAT 访问地址"
+		return
+	}
+	mark := row.InstanceMark()
+	forwards, ferr := reader.ListNatForwards(ctx, mark)
+	if ferr != nil {
+		info.Error = ferr.Error()
+		return
+	}
+	for _, f := range forwards {
+		if addr := upstream.FormatNatForwardAddr(f.HostIP, f.ExternalPort); addr != "" {
+			info.Forwards = append(info.Forwards, addr)
+		}
+	}
+	webs, werr := reader.ListNatWebs(ctx, mark)
+	if werr != nil {
+		// 端口转发已拿到时不因建站读失败而整体失败，只在两者都空时提示。
+		if len(info.Forwards) == 0 {
+			info.Error = werr.Error()
+		}
+		return
+	}
+	for _, w := range webs {
+		if w.Domain != "" {
+			info.Domains = append(info.Domains, w.Domain)
+		}
+	}
+}
+
+// instanceIsNat 判断实例是否走 NAT 链路（无独立 IP）。
+// 实现放在 upstream 包（IsNatInstance），与管理端/用户中心共用同一口径，
+// 避免同一条实例在两边显示不同的连接方式。
+func instanceIsNat(row *repository.InstanceRow) bool {
+	if row == nil {
+		return false
+	}
+	return upstream.IsNatInstance(row.RawData)
 }
 
 // mergeInstanceConfigs 用实例表字段覆盖配置项取值（CPU/内存/磁盘/带宽/系统/区域/可用区）。
@@ -653,8 +777,22 @@ func (s *instanceService) Sync(ctx context.Context, op Operator, id uint64) (*dt
 	}
 	before := row.Status
 	if !provisioned(row) {
-		// 待开通实例：上游还没有这台机器，回源无对象。给出可操作说明而不是把本地占位号
-		// 发到上游换回一个费解的报错（用户点「拉取信息」要的是"为什么还没有"）。
+		// 待开通实例：本地还没有上游实例号。但**不代表上游一定没有机器** ——
+		// "余额不足 → 在上游侧充值并付掉账单"这条恢复链里，机器只存在于上游，
+		// 本地无从得知（实测用户场景：上游已开好，本地一直显示创建中）。
+		//
+		// 所以这里不只是报"无对象可刷"：顺带重投一次开通核对（复用「重新开通」的
+		// 幂等投递：带下游令牌握手 → 上游有主机就接管，没有则复用原账单补付。
+		// 绝不重复下单）。投递成功即告知"已提交核对"，由工作池秒级完成。
+		if s.provisionRetry != nil {
+			if rerr := s.provisionRetry(ctx, row.OrderID); rerr != nil {
+				s.record(ctx, row, op, model.ActionSync, nil, before, before, rerr)
+				return nil, rerr
+			}
+			s.record(ctx, row, op, model.ActionSync, nil, before, before, ErrNothingToSync)
+			return nil, ErrNothingToSync
+		}
+		// 未装配重投能力：给出可操作说明而不是把本地占位号发到上游换回一个费解的报错。
 		s.record(ctx, row, op, model.ActionSync, nil, before, before, ErrNothingToSync)
 		return nil, ErrNothingToSync
 	}
@@ -769,6 +907,9 @@ func (s *instanceService) Reinstall(ctx context.Context, op Operator, id uint64,
 		out.Password = res.Password
 		if res.Password != "" {
 			params["credential_issued"] = true
+			// 平台重装会重新生成初始凭据：同步覆盖留存，让「查看密码」给出的是重装后
+			// 真正可用的那一个（否则用户会拿一个已被重装作废的旧密码去登）。
+			params["credential_saved"] = s.saveCredentialPassword(ctx, row, res.Password)
 		}
 	}
 	s.record(ctx, row, op, model.ActionReinstall, params, before, before, nil)
@@ -804,8 +945,43 @@ func (s *instanceService) ResetPassword(ctx context.Context, op Operator, id uin
 		s.record(ctx, row, op, model.ActionResetPassword, params, before, before, perr)
 		return perr
 	}
+	// 新密码即刻成为权威值：留存必须同步覆盖，否则「查看密码」会一直显示旧密码
+	// （旧密码在重置成功那一刻已经失效，比查不到更误导）。
+	// 留存失败不影响重置结果本身（机器上的密码确实改了），只记流水说明查看会不准。
+	params["credential_saved"] = s.saveCredentialPassword(ctx, row, req.Password)
 	s.record(ctx, row, op, model.ActionResetPassword, params, before, before, nil)
 	return nil
+}
+
+// saveCredentialPassword 把新密码加密留存到实例行（迁移 100），返回是否成功。
+//
+// 只存密文；未配置加密密钥或加密失败时返回 false —— 调用方据此在流水里留痕，
+// 绝不退化为明文落库。失败原因写日志（不含密码本身）。
+func (s *instanceService) saveCredentialPassword(ctx context.Context, row *repository.InstanceRow, plaintext string) bool {
+	if row == nil || strings.TrimSpace(plaintext) == "" {
+		return false
+	}
+	if strings.TrimSpace(s.secretKey) == "" {
+		if s.logger != nil {
+			s.logger.Warn("未配置加密密钥，跳过实例密码留存（查看密码将不可用）",
+				zap.Uint64("instance_id", row.ID))
+		}
+		return false
+	}
+	enc, err := credentials.EncryptSecret(plaintext, s.secretKey)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("实例密码加密失败，跳过留存", zap.Uint64("instance_id", row.ID), zap.Error(err))
+		}
+		return false
+	}
+	if err := s.repo.UpdateCredentialPassword(ctx, row.ID, enc); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("实例密码留存写入失败", zap.Uint64("instance_id", row.ID), zap.Error(err))
+		}
+		return false
+	}
+	return true
 }
 
 // Rescue 进入救援系统（system 为平台口径的救援系统类型，tempPassword 为临时密码）。
@@ -1169,14 +1345,17 @@ func (s *instanceService) SetRemark(ctx context.Context, op Operator, id uint64,
 	return nil
 }
 
-// AdjustBilling 手工调整账期/付款周期（管理端自定义，见 dto.AdjustRequest 注释）。
+// AdjustBilling 手工调整账期/付款周期/绑定续费价（管理端自定义，见 dto.AdjustRequest 注释）。
 //
 // 安全边界（刻在代码里，不随调用方改变）：
 //   - 至少改一样，否则是空操作，直接拒绝（避免前端误发空请求留下无意义流水）；
 //   - 对接商品（source_mode=upstream）不加 force 一律拒绝：上游账期才是权威，
 //     本地改了会被回源覆盖，而生命周期推进器可能按这个本地值误停服；
 //   - 到期时间只接受未来时间或清空（把到期时间改到过去等于立刻判死一个在跑的机器，
-//     要停服请用「暂停」——那是显式语义且有平台动作）。
+//     要停服请用「暂停」——那是显式语义且有平台动作）；
+//   - 付款周期必须被**上游支持**（对接链路）：选一个上游不卖的周期（如给只支持
+//     monthly/quarterly 的渠道选「两年」），下游会按该周期推账单，上游按别的周期扣费，
+//     钱与账期同时错位（实测缺陷）。
 func (s *instanceService) AdjustBilling(ctx context.Context, op Operator, id uint64, req *dto.AdjustRequest) (*dto.DetailInfo, error) {
 	row, err := s.repo.FindByID(ctx, id)
 	if err != nil {
@@ -1192,13 +1371,21 @@ func (s *instanceService) AdjustBilling(ctx context.Context, op Operator, id uin
 	}
 	expireRaw := strings.TrimSpace(req.ExpireAt)
 	billingMode := strings.TrimSpace(req.BillingMode)
-	if expireRaw == "" && !req.ClearExpire && billingMode == "" {
-		return nil, fmt.Errorf("%w: 请至少填写到期时间或付款周期", ErrBillingAdjustInvalid)
+	if expireRaw == "" && !req.ClearExpire && billingMode == "" && req.RenewalPrice == nil {
+		return nil, fmt.Errorf("%w: 请至少填写到期时间、付款周期或续费价", ErrBillingAdjustInvalid)
 	}
 	if billingMode != "" {
 		normalized := billingcycle.Normalize(billingMode)
 		if !billingcycle.IsValid(normalized) {
 			return nil, fmt.Errorf("%w: 不支持的付款周期 %s", ErrBillingAdjustInvalid, billingMode)
+		}
+		// 上游核对：对接链路的目标周期必须在上游支持列表里。
+		// 只对"要改成别的周期"做校验——若改的就是当前周期（或读不到上游列表），不拦。
+		if normalized != row.BillingMode {
+			if supported, ok := s.upstreamCycles(ctx, row.ProviderID); ok && len(supported) > 0 && !containsString(supported, normalized) {
+				return nil, fmt.Errorf("%w: 上游（%s）不支持「%s」，可选：%s",
+					ErrBillingAdjustInvalid, row.ProviderName, billingcycle.Name(normalized), joinCycleNames(supported))
+			}
 		}
 		billingMode = normalized
 	}
@@ -1230,8 +1417,361 @@ func (s *instanceService) AdjustBilling(ctx context.Context, op Operator, id uin
 		s.record(ctx, row, op, model.ActionBillingAdjust, params, before, before, aerr)
 		return nil, aerr
 	}
+	// 绑定续费价：只在显式传了 renewal_price 时才动这一列（nil = 本次不改）。
+	// 负值 = 清除绑定（回到按商品实时算价），0 视为非法（0 元续费会被续费守卫拒绝，
+	// 与其存一个永远算不出钱的绑定价，不如明确报错）。
+	if req.RenewalPrice != nil {
+		price := money.Round2(*req.RenewalPrice)
+		clear := false
+		switch {
+		case price < 0:
+			clear = true
+		case price == 0:
+			s.record(ctx, row, op, model.ActionBillingAdjust, params, before, before, ErrBillingAdjustInvalid)
+			return nil, fmt.Errorf("%w: 续费价必须大于 0；要取消绑定请传 -1", ErrBillingAdjustInvalid)
+		}
+		params["renewal_price"] = req.RenewalPrice
+		params["renewal_price_cleared"] = clear
+		if perr := s.repo.SetRenewalPrice(ctx, row.ID, req.RenewalPrice); perr != nil {
+			s.record(ctx, row, op, model.ActionBillingAdjust, params, before, before, perr)
+			return nil, perr
+		}
+	}
 	s.record(ctx, row, op, model.ActionBillingAdjust, params, before, before, nil)
 	return s.Detail(ctx, id, false)
+}
+
+// AdjustContext 读账期调整所需的上游周期与价格上下文（对话框数据源）。
+//
+// 为什么必须由后端算：可选周期以上游能力为准、上游价来自镜像快照、
+// 我方价来自价格矩阵 —— 三项都不是前端能推导的，前端自己列周期就会列出上游不卖的档。
+func (s *instanceService) AdjustContext(ctx context.Context, id uint64) (*dto.AdjustContext, error) {
+	row, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, s.wrapNotFound(err)
+	}
+	out := &dto.AdjustContext{
+		CurrentCycle:        billingcycle.NormalizeOrDefault(row.BillingMode),
+		CurrentRenewalPrice: row.RenewalPrice,
+		RenewalPriceHint:    "绑定价：续费按此单价 × 期数计费，压过商品调价与折扣（下单/前次调整时谈定的承诺价）。留空表示按商品实时算价。",
+	}
+	// 上游支持周期：读渠道能力描述符。读失败回落到平台全集并标记未核对
+	// ——调整对话框不能因为渠道不可用就打不开，但必须让运营知道列表未核对。
+	supported, ok := s.upstreamCycles(ctx, row.ProviderID)
+	if !ok || len(supported) == 0 {
+		out.UpstreamCyclesUnavailable = true
+		supported = billingcycle.AllCodes()
+	}
+	// 上游各周期价：对接链路才有（读镜像快照，与详情页同一份数据）。
+	var upstream *dto.UpstreamInfo
+	if resourceID := upstreamResourceID(row); resourceID != 0 && s.detail != nil {
+		upstream, _, _ = s.detail.Upstream(ctx, resourceID, row.BillingMode)
+	}
+	// 我方价格矩阵：售价/成本按周期。
+	productPrices := map[string]repository.ProductCyclePrice{}
+	if s.detail != nil && row.SellProductID != 0 {
+		if m, perr := s.detail.ProductCyclePrices(ctx, row.SellProductID); perr == nil {
+			productPrices = m
+		}
+	}
+	out.Cycles = make([]dto.BillingCycleOption, 0, len(supported))
+	for _, cycle := range supported {
+		opt := dto.BillingCycleOption{
+			Cycle:    cycle,
+			Name:     billingcycle.Name(cycle),
+			Upstream: true,
+		}
+		if upstream != nil {
+			opt.UpstreamList = money.Round2(upstream.ListCycles[cycle])
+			opt.UpstreamCost = money.Round2(upstream.CostCycles[cycle])
+		}
+		if p, ok := productPrices[cycle]; ok {
+			opt.Sale = money.Round2(p.Sale)
+			opt.Cost = money.Round2(p.Cost)
+			opt.HasProductPrice = true
+		}
+		out.Cycles = append(out.Cycles, opt)
+	}
+	return out, nil
+}
+
+// upstreamCycles 读上游渠道声明的计费周期（能力描述符 BillingCycles），已归一化。
+// 第二个返回值表示"是否成功读到"（渠道不可用/未声明时为 false）。
+func (s *instanceService) upstreamCycles(ctx context.Context, providerID uint64) ([]string, bool) {
+	if providerID == 0 || s.resolve == nil {
+		return nil, false
+	}
+	provider, err := s.buildProvider(ctx, providerID)
+	if err != nil || provider == nil {
+		return nil, false
+	}
+	desc := upstream.CapabilitiesOf(provider)
+	if len(desc.BillingCycles) == 0 {
+		return nil, false
+	}
+	return billingcycle.NormalizeList(desc.BillingCycles), true
+}
+
+// upstreamResourceID 实例绑定的上游镜像 id（resource_products.id）。
+func upstreamResourceID(row *repository.InstanceRow) uint64 {
+	if row == nil {
+		return 0
+	}
+	return row.UpstreamProductID
+}
+
+// containsString 判断切片是否含某值。
+func containsString(list []string, want string) bool {
+	for _, v := range list {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+// joinCycleNames 把周期码拼成中文名列表（错误信息用）。
+func joinCycleNames(cycles []string) string {
+	names := make([]string, 0, len(cycles))
+	for _, c := range cycles {
+		names = append(names, billingcycle.Name(c))
+	}
+	return strings.Join(names, "、")
+}
+
+// RelinkUpstream 按上游实例号重新关联（上游换机/换号场景）。
+//
+// 实测需求：上游把机器换了（或上游侧实例号变了），本地留的还是旧号，
+// 此后电源/控制台/续费/销毁全部打在已不存在的机器上，且界面看不出问题。
+//
+// 三道守卫（按顺序，任一不过即拒）：
+//  1. 目标号在上游**真实存在**（GetInstance 探活）：凭空写号 = 把实例指向虚空；
+//  2. 目标号未被**别的本地实例**占用：否则两台实例抢同一台机器，
+//     一台的操作会串到另一台上；
+//  3. ConfirmMark 必须等于当前实例标识或记录 ID（与销毁同口径）：
+//     改上游号会改变此后所有上游动作的作用对象，属高影响操作。
+func (s *instanceService) RelinkUpstream(ctx context.Context, op Operator, id uint64, req *dto.RelinkRequest) (*dto.RelinkResult, error) {
+	row, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, s.wrapNotFound(err)
+	}
+	if req == nil {
+		return nil, ErrInvalidAction
+	}
+	target := strings.TrimSpace(req.UpstreamInstanceID)
+	if target == "" {
+		return nil, fmt.Errorf("%w: 请填写上游实例号", ErrInvalidAction)
+	}
+	mark := strings.TrimSpace(req.ConfirmMark)
+	if mark != row.InstanceID && mark != strconv.FormatUint(row.ID, 10) {
+		return nil, fmt.Errorf("%w: 请准确输入当前实例标识 %s", ErrPermissionDenied, row.InstanceID)
+	}
+	if target == row.ProviderInstanceID {
+		return nil, fmt.Errorf("%w: 目标上游实例号与当前一致，无需关联", ErrInvalidAction)
+	}
+	// 守卫②：目标号不得被别的实例占用。
+	if n, cerr := s.repo.CountByProviderInstanceID(ctx, target, row.ID); cerr == nil && n > 0 {
+		return nil, fmt.Errorf("%w: 上游实例号 %s 已被本系统另一台实例占用，请先处理那台实例", ErrStatusConflict, target)
+	}
+	// 守卫①：上游必须真实存在该实例（不探活就把本地指向虚空）。
+	provider, perr := s.buildProvider(ctx, row.ProviderID)
+	if perr != nil {
+		s.record(ctx, row, op, model.ActionRelinkUpstream, nil, row.Status, row.Status, perr)
+		return nil, perr
+	}
+	ctrl, ok := provider.(upstream.InstanceControl)
+	if !ok {
+		err := fmt.Errorf("%w: %s", ErrCapabilityUnsupported, "该服务商不支持按实例号拉取信息")
+		s.record(ctx, row, op, model.ActionRelinkUpstream, nil, row.Status, row.Status, err)
+		return nil, err
+	}
+	inst, ierr := ctrl.GetInstance(ctx, target)
+	if ierr != nil {
+		err := fmt.Errorf("上游不存在该实例号或拉取失败：%w", ierr)
+		s.record(ctx, row, op, model.ActionRelinkUpstream, nil, row.Status, row.Status, err)
+		return nil, err
+	}
+	if inst == nil {
+		err := fmt.Errorf("%w: 上游未返回实例 %s 的信息", ErrStatusConflict, target)
+		s.record(ctx, row, op, model.ActionRelinkUpstream, nil, row.Status, row.Status, err)
+		return nil, err
+	}
+	// 迁移本地展示号：仅当原本两者一致时才有意义（否则 instance_id 是本地自建号，
+	// 改它会让历史流水里的实例标识与新号对不上）。
+	migrate := req.MigrateInstanceID && row.InstanceID == row.ProviderInstanceID
+	if migrate {
+		// instance_id 带唯一索引：目标号可能仍被**已销毁**的旧行占着（上游回收号段后
+		// 把老号发给新机器是常见做法）。那种行不参与任何上游动作，把它的 instance_id
+		// 让出来即可 —— 否则重新关联会直接撞唯一约束（实测 23505）。
+		if _, ferr := s.repo.FreeInstanceIDForDestroyed(ctx, target, row.ID); ferr != nil {
+			s.record(ctx, row, op, model.ActionRelinkUpstream, nil, row.Status, row.Status, ferr)
+			return nil, ferr
+		}
+	}
+	snap := &repository.UpstreamSnapshot{
+		Status:    string(inst.Status),
+		PublicIP:  inst.PublicIP,
+		PrivateIP: inst.PrivateIP,
+		Name:      inst.Name,
+		OS:        inst.Specs.OS,
+		Region:    inst.Region,
+	}
+	if len(inst.RawData) > 0 {
+		if b, merr := json.Marshal(inst.RawData); merr == nil {
+			snap.RawData = string(b)
+		}
+	}
+	// 终态不复活：已销毁实例即便上游仍有旧号，也不允许借此"复活"。
+	if row.LifecycleStage == lifecycleStageDestroyed {
+		err := fmt.Errorf("%w: 实例已销毁，不能重新关联", ErrStatusConflict)
+		s.record(ctx, row, op, model.ActionRelinkUpstream, nil, row.Status, row.Status, err)
+		return nil, err
+	}
+	before := row.Status
+	params := map[string]any{
+		"old_upstream_id":     row.ProviderInstanceID,
+		"new_upstream_id":     target,
+		"migrate_instance_id": migrate,
+		"reason":              req.Reason,
+	}
+	if uerr := s.repo.RelinkUpstream(ctx, row.ID, target, migrate, snap); uerr != nil {
+		s.record(ctx, row, op, model.ActionRelinkUpstream, params, before, before, uerr)
+		return nil, uerr
+	}
+	after := snap.Status
+	if after == "" {
+		after = row.Status
+	}
+	s.record(ctx, row, op, model.ActionRelinkUpstream, params, before, after, nil)
+	result := &dto.RelinkResult{
+		OldProviderInstanceID: row.ProviderInstanceID,
+		NewProviderInstanceID: target,
+		InstanceID:            row.InstanceID,
+		Status:                after,
+		PublicIP:              inst.PublicIP,
+		PrivateIP:             inst.PrivateIP,
+		Name:                  firstNonEmptyStr(inst.Name, row.Name),
+		OS:                    firstNonEmptyStr(inst.Specs.OS, row.OS),
+		Region:                firstNonEmptyStr(inst.Region, row.Region),
+		InstanceIDMigrated:    migrate,
+	}
+	if migrate {
+		result.InstanceID = target
+	}
+	return result, nil
+}
+
+// firstNonEmptyStr 取第一个非空字符串。
+func firstNonEmptyStr(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// RebindProduct 更换实例绑定的本地售出商品 / 上游镜像（上游换产品场景）。
+//
+// 实测需求：上游把我们卖的五区商品换成了六区，本地商品还是五区那条 ——
+// 此后续费按五区价算（与上游账单对不上），配置也还按五区推。
+//
+// 校验：新绑定的商品 / 镜像必须**真实存在**（否则续费算价与配置展示会一起失空）；
+// 上游镜像还必须属于同一渠道（跨渠道镜像的价格与字段口径都不同，绑过去必错）。
+func (s *instanceService) RebindProduct(ctx context.Context, op Operator, id uint64, req *dto.RebindProductRequest) (*dto.RebindProductResult, error) {
+	row, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, s.wrapNotFound(err)
+	}
+	if req == nil {
+		return nil, ErrInvalidAction
+	}
+	if req.SellProductID == 0 && req.UpstreamProductID == nil && req.RenewalPrice == nil {
+		return nil, fmt.Errorf("%w: 请至少指定要更换的本地商品或上游镜像", ErrInvalidAction)
+	}
+	if s.detail == nil {
+		return nil, ErrCapabilityUnsupported
+	}
+
+	out := &dto.RebindProductResult{
+		OldSellProductID:     row.SellProductID,
+		OldUpstreamProductID: row.UpstreamProductID,
+	}
+
+	// 新本地商品：必须存在（续费算价、配置展示都以它为准）。
+	if req.SellProductID != 0 && req.SellProductID != row.SellProductID {
+		product, perr := s.detail.Product(ctx, req.SellProductID)
+		if perr != nil || product == nil || product.Deleted {
+			return nil, fmt.Errorf("%w: 目标本地商品 #%d 不存在或已删除", ErrInvalidAction, req.SellProductID)
+		}
+		out.SellProductName = product.Name
+	}
+	// 新上游镜像：必须存在且属于同一渠道。
+	if req.UpstreamProductID != nil && *req.UpstreamProductID != row.UpstreamProductID {
+		target := *req.UpstreamProductID
+		if target != 0 {
+			up, _, uerr := s.detail.Upstream(ctx, target, row.BillingMode)
+			if uerr != nil || up == nil {
+				return nil, fmt.Errorf("%w: 目标上游镜像 #%d 不存在或已删除", ErrInvalidAction, target)
+			}
+			if up.ProviderID != 0 && row.ProviderID != 0 && up.ProviderID != row.ProviderID {
+				return nil, fmt.Errorf("%w: 目标镜像属于渠道 #%d（%s），与本实例渠道 #%d 不一致；跨渠道换绑会导致价格与配置口径错位",
+					ErrInvalidAction, up.ProviderID, firstNonEmptyStr(up.ProviderName, "未命名"), row.ProviderID)
+			}
+			out.UpstreamProductName = up.Name
+		}
+		out.UpstreamChanged = true
+	}
+
+	before := row.Status
+	params := map[string]any{
+		"old_sell_product_id":     row.SellProductID,
+		"new_sell_product_id":     req.SellProductID,
+		"old_upstream_product_id": row.UpstreamProductID,
+		"reason":                  req.Reason,
+	}
+	if req.UpstreamProductID != nil {
+		params["new_upstream_product_id"] = *req.UpstreamProductID
+	}
+	if rerr := s.repo.RebindProduct(ctx, row.ID, req.SellProductID, req.UpstreamProductID); rerr != nil {
+		s.record(ctx, row, op, model.ActionRebindProduct, params, before, before, rerr)
+		return nil, rerr
+	}
+	// 顺带调续费价（与账期调整同一语义：绑定价压过商品调价与折扣）。
+	if req.RenewalPrice != nil {
+		price := money.Round2(*req.RenewalPrice)
+		if price == 0 {
+			s.record(ctx, row, op, model.ActionRebindProduct, params, before, before, ErrBillingAdjustInvalid)
+			return nil, fmt.Errorf("%w: 续费价必须大于 0；要取消绑定请传 -1", ErrBillingAdjustInvalid)
+		}
+		params["renewal_price"] = *req.RenewalPrice
+		if perr := s.repo.SetRenewalPrice(ctx, row.ID, req.RenewalPrice); perr != nil {
+			s.record(ctx, row, op, model.ActionRebindProduct, params, before, before, perr)
+			return nil, perr
+		}
+	}
+	s.record(ctx, row, op, model.ActionRebindProduct, params, before, before, nil)
+
+	// 回显最终绑定（未指定的那项保持原值）。
+	out.NewSellProductID = row.SellProductID
+	out.NewUpstreamProductID = row.UpstreamProductID
+	if req.SellProductID != 0 {
+		out.NewSellProductID = req.SellProductID
+	}
+	if req.UpstreamProductID != nil {
+		out.NewUpstreamProductID = *req.UpstreamProductID
+	}
+	if out.SellProductName == "" && out.NewSellProductID != 0 {
+		if product, perr := s.detail.Product(ctx, out.NewSellProductID); perr == nil && product != nil {
+			out.SellProductName = product.Name
+		}
+	}
+	if out.UpstreamProductName == "" && out.NewUpstreamProductID != 0 {
+		if up, _, uerr := s.detail.Upstream(ctx, out.NewUpstreamProductID, row.BillingMode); uerr == nil && up != nil {
+			out.UpstreamProductName = up.Name
+		}
+	}
+	return out, nil
 }
 
 // RevealCredential 查看实例登录明文密码。
@@ -1514,8 +2054,100 @@ func normalizeBatchAction(action string) (string, string, error) {
 	}
 }
 
-// StageActionInput 生命周期阶段推进审计入参（T5.4 推进器 → 实例运维流水）。
+// BatchDestroy 批量销毁实例（逐台独立执行并返回结果）。
 //
+// 与 BatchAction 的差别在于**确认粒度**：批量电源动作可以一次确认全部，
+// 销毁是真删上游机器、不可逆，因此每台都必须带上自己的确认文本
+// （ConfirmMarks 里缺一个就少销毁一台，不静默放过也不整体拒绝）。
+//
+// 其余取舍与 BatchAction 一致：逐台独立（一台失败不中止其余）、
+// 无需执行/缺能力记为 skipped、复用单实例 Destroy 因而流水与事件自动具备。
+func (s *instanceService) BatchDestroy(ctx context.Context, op Operator, req *dto.BatchDestroyRequest) (*dto.BatchDestroyResponse, error) {
+	if req == nil || len(req.IDs) == 0 {
+		return nil, fmt.Errorf("%w: 请先选择要销毁的实例", ErrBatchDestroyInvalid)
+	}
+	if len(req.IDs) > maxBatchActionIDs {
+		return nil, fmt.Errorf("%w: 单次最多 %d 台", ErrBatchDestroyInvalid, maxBatchActionIDs)
+	}
+
+	// 去重但保持请求顺序，避免同台被下发两次。
+	seen := make(map[uint64]bool, len(req.IDs))
+	ids := make([]uint64, 0, len(req.IDs))
+	for _, id := range req.IDs {
+		if id == 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+
+	resp := &dto.BatchDestroyResponse{Items: make([]dto.BatchDestroyItem, 0, len(ids))}
+	for _, id := range ids {
+		select {
+		case <-ctx.Done():
+			return resp, ctx.Err()
+		default:
+		}
+		item := s.batchDestroyOne(ctx, op, id, req)
+		resp.Total++
+		switch item.Status {
+		case model.ResultSuccess:
+			resp.Succeeded++
+		case model.ResultSkipped:
+			resp.Skipped++
+		default:
+			resp.Failed++
+		}
+		resp.Items = append(resp.Items, item)
+	}
+	return resp, nil
+}
+
+// batchDestroyOne 销毁单台并归类结果。
+func (s *instanceService) batchDestroyOne(ctx context.Context, op Operator, id uint64, req *dto.BatchDestroyRequest) dto.BatchDestroyItem {
+	item := dto.BatchDestroyItem{ID: id}
+
+	row, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		item.Status = model.ResultFailed
+		item.Message = "实例不存在"
+		return item
+	}
+	item.InstanceMark = row.InstanceID
+	item.Name = row.Name
+	item.BeforeStatus = row.Status
+
+	// 逐台确认：确认文本按记录 ID 查（前端逐行回填该行的确认值）。
+	mark := strings.TrimSpace(req.ConfirmMarks[strconv.FormatUint(id, 10)])
+	if mark == "" {
+		// 未逐台确认的实例不执行——批量销毁的护栏，与单实例接口的 confirm_mark 同语义。
+		item.Status = model.ResultSkipped
+		item.AfterStatus = row.Status
+		item.Message = "未逐台确认，已跳过（批量销毁需为每台回填实例标识）"
+		return item
+	}
+
+	opErr := s.Destroy(ctx, op, id, &dto.DestroyRequest{ConfirmMark: mark, Reason: req.Reason})
+	if after, ferr := s.repo.FindByID(ctx, id); ferr == nil {
+		item.AfterStatus = after.Status
+	} else {
+		item.AfterStatus = row.Status
+	}
+	if opErr == nil {
+		item.Status = model.ResultSuccess
+		return item
+	}
+	item.Message = opErr.Error()
+	// 状态守卫（已销毁）与缺能力属"无需/不可能执行"，归 skipped。
+	if errors.Is(opErr, ErrStatusConflict) || errors.Is(opErr, ErrCapabilityUnsupported) {
+		item.Status = model.ResultSkipped
+		item.AfterStatus = item.BeforeStatus
+		return item
+	}
+	item.Status = model.ResultFailed
+	return item
+}
+
 // 生命周期模块只依赖本结构的基础类型（service 层桥接），避免模块间循环依赖。
 type StageActionInput struct {
 	InstanceID   uint64
@@ -1768,6 +2400,7 @@ func (s *instanceService) toItem(row *repository.InstanceRow, withinDays int) dt
 		ActorUserID:        row.ActorUserID,
 		ActorName:          row.ActorName,
 		Remark:             row.Remark,
+		CustomerRemark:     row.CustomerRemark,
 		ExpireAt:           fmtTimePtr(row.ExpireAt),
 		DaysLeft:           daysLeft,
 		ExpireState:        state,
@@ -1775,6 +2408,7 @@ func (s *instanceService) toItem(row *repository.InstanceRow, withinDays int) dt
 		EnforceAttempts:    row.EnforceAttempts,
 		EnforceNextAt:      fmtTimePtr(row.EnforceNextAt),
 		LastEnforceError:   row.LastEnforceError,
+		RenewalPrice:       row.RenewalPrice,
 		CreatedAt:          row.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:          row.UpdatedAt.Format(time.RFC3339),
 	}
@@ -1846,6 +2480,7 @@ func (s *instanceService) capabilities(ctx context.Context, providerID uint64) (
 	_, rescue := provider.(upstream.InstanceRescue)
 	_, snapshot := provider.(upstream.InstanceSnapshot)
 	_, hardware := provider.(upstream.InstanceHardware)
+	_, natReader := provider.(upstream.NatReader)
 	desc := upstream.CapabilitiesOf(provider)
 	supports := func(op string) bool { return upstream.SupportsOperation(desc, op) }
 	// 暂停/销毁按能力分派（T5.5）：平台无对应接口时退化为电源/删除等价操作。
@@ -1862,6 +2497,7 @@ func (s *instanceService) capabilities(ctx context.Context, providerID uint64) (
 		Bandwidth:     hardware || supports(upstream.OpBandwidth),
 		AddIP:         hardware || supports(upstream.OpAddIP),
 		AttachDisk:    hardware || supports(upstream.OpAttachDisk),
+		NatAccess:     natReader || supports(upstream.OpNatAccess),
 	}, nil
 }
 

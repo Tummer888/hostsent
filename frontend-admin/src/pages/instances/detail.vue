@@ -36,65 +36,80 @@
       </div>
 
       <!-- 操作分组：日常 / 电源 / 维护 / 危险，避免十几个按钮平铺挤成一团 -->
+      <!--
+        操作区：按「用的频率 + 危险度」从左到右排，组间加竖线分隔。
+        此前是 9 个同款描边按钮平铺，看不出哪个是常用的；现在：
+          · 控制台/电源 —— 日常最高频，给实心主按钮；
+          · 维护/账期与凭证/变配/续费 —— 中等频率，保持描边；
+          · 危险操作 —— 红色留在最右；
+          · 刷新与同步刷新 —— 只读动作，退到最右的次要位置。
+        待开通实例只留「重新开通」：其余动作没有对象，隐藏而不是让它们点了报错。
+      -->
       <div class="detail-actions">
-        <t-button variant="outline" @click="goBack">返回</t-button>
-        <t-button variant="outline" :loading="loading" @click="reloadAll">
-          <template #icon>
-            <RefreshIcon aria-hidden="true" />
-          </template>
+        <template v-if="isPending">
+          <t-button
+            v-permission="'instance:action'"
+            theme="primary"
+            :loading="retrying"
+            @click="handleRetryProvision"
+          >
+            重新开通
+          </t-button>
+        </template>
+        <template v-else>
+          <t-button
+            v-permission="'instance:console'"
+            theme="primary"
+            :disabled="consoleDisabled"
+            :title="consoleDisabled ? consoleTitle : ''"
+            @click="handleVnc"
+          >
+            <template #icon><DesktopIcon aria-hidden="true" /></template>
+            控制台
+          </t-button>
+
+          <!-- 电源操作收进下拉：硬电源（断电级）在组内用红色标注 -->
+          <t-dropdown :options="powerOptions" trigger="click" @click="onPowerPick">
+            <t-button theme="primary" variant="outline" :disabled="powerGroupDisabled">
+              电源操作 ▾
+            </t-button>
+          </t-dropdown>
+
+          <span class="actions-divider" aria-hidden="true"></span>
+
+          <!-- 维护类（平台接口实测存在）：重装 / 重置密码 / 救援 / 快照 / 硬件 -->
+          <t-dropdown :options="maintenanceOptions" trigger="click" @click="onMaintenancePick">
+            <t-button variant="outline" :disabled="maintenanceDisabled">维护 ▾</t-button>
+          </t-dropdown>
+
+          <t-button v-permission="'lifecycle:renew'" variant="outline" @click="openRenewDialog">续费</t-button>
+          <t-button v-permission="'instance:resize'" variant="outline" :disabled="!instanceData?.capabilities?.resize" :title="capabilityTitle(instanceData?.capabilities?.resize)" @click="openResizeDialog">
+            变配
+          </t-button>
+
+          <!-- 账期与凭证：本地口径操作与敏感查看，独立分组 -->
+          <t-dropdown :options="billingOptions" trigger="click" @click="onBillingPick">
+            <t-button variant="outline" :disabled="billingDisabled">账期与凭证 ▾</t-button>
+          </t-dropdown>
+
+          <span class="actions-divider" aria-hidden="true"></span>
+
+          <!-- 危险区：暂停/恢复 + 销毁 -->
+          <t-dropdown :options="dangerOptions" trigger="click" @click="onDangerPick">
+            <t-button theme="danger" variant="outline" :disabled="dangerDisabled">危险操作 ▾</t-button>
+          </t-dropdown>
+        </template>
+
+        <span class="actions-divider" aria-hidden="true"></span>
+        <t-button v-if="!isPending" v-permission="'instance:action'" variant="text" :loading="syncing" @click="handleSync">
+          <template #icon><RefreshIcon aria-hidden="true" /></template>
+          同步上游
+        </t-button>
+        <t-button variant="text" :loading="loading" @click="reloadAll">
+          <template #icon><RefreshIcon aria-hidden="true" /></template>
           刷新
         </t-button>
-        <!-- 待开通实例：唯一可做的是「重新开通」（重投订单履约，不产生新订单/新账单），
-             同步/电源/控制台等上游动作没有对象，隐藏而不是点了报错。 -->
-        <t-button
-          v-if="isPending"
-          v-permission="'instance:action'"
-          theme="primary"
-          :loading="retrying"
-          @click="handleRetryProvision"
-        >
-          重新开通
-        </t-button>
-        <t-button v-else v-permission="'instance:action'" variant="outline" :loading="syncing" @click="handleSync">
-          同步刷新
-        </t-button>
-        <t-button
-          v-if="!isPending"
-          v-permission="'instance:console'"
-          variant="outline"
-          :disabled="consoleDisabled"
-          :title="consoleDisabled ? consoleTitle : ''"
-          @click="handleVnc"
-        >
-          控制台
-        </t-button>
-
-        <!-- 电源操作收进下拉：硬电源（断电级）在组内用红色标注 -->
-        <t-dropdown :options="powerOptions" trigger="click" @click="onPowerPick">
-          <t-button variant="outline" :disabled="powerGroupDisabled">
-            电源操作 ▾
-          </t-button>
-        </t-dropdown>
-
-        <!-- 维护类（平台接口实测存在）：重装 / 重置密码 / 救援 / 快照 / 硬件 -->
-        <t-dropdown :options="maintenanceOptions" trigger="click" @click="onMaintenancePick">
-          <t-button variant="outline" :disabled="maintenanceDisabled">维护 ▾</t-button>
-        </t-dropdown>
-
-        <!-- 账期与凭证：本地口径操作与敏感查看，独立分组 -->
-        <t-dropdown :options="billingOptions" trigger="click" @click="onBillingPick">
-          <t-button variant="outline" :disabled="billingDisabled">账期与凭证 ▾</t-button>
-        </t-dropdown>
-
-        <t-button v-permission="'instance:resize'" variant="outline" :disabled="!instanceData?.capabilities?.resize" :title="capabilityTitle(instanceData?.capabilities?.resize)" @click="openResizeDialog">
-          变配
-        </t-button>
-        <t-button v-permission="'lifecycle:renew'" variant="outline" @click="openRenewDialog">续费</t-button>
-
-        <!-- 危险区：暂停/恢复 + 销毁 -->
-        <t-dropdown :options="dangerOptions" trigger="click" @click="onDangerPick">
-          <t-button theme="danger" variant="outline" :disabled="dangerDisabled">危险操作 ▾</t-button>
-        </t-dropdown>
+        <t-button variant="text" @click="goBack">返回</t-button>
       </div>
     </header>
 
@@ -110,60 +125,261 @@
       :message="`部分操作不可用：${instanceData.capability_error}`"
     />
 
-    <!-- ============ 关键信息速览条 ============ -->
-    <section v-if="instanceData" class="glance-grid">
-      <div class="glance-card" :class="expireGlanceClass">
-        <div class="glance-card__label">到期时间</div>
-        <div class="glance-card__value">
-          {{ instanceData.expire_at ? formatTime(instanceData.expire_at) : (isOnetime ? '一次性/买断' : '未设置') }}
+    <!--
+      ============ 主信息区（一屏之内回答"这是台什么机器、怎么登"） ============
+      运维在实例详情页最常做的三件事：认机器（主机名/实例 ID）、确认交付参数
+      （配置/公网 IP/端口/账号/系统）、看备注（客户说了什么）。这三块此前散在
+      速览条与「概览」tab 的描述表里，反而让到期/付款等财务信息占了首屏 ——
+      本区把它们提到最上面，且不再用带彩色左边框的卡片（那种"演示占位"观感
+      容易让人误以为是空态），改为同一张卡内的分区栅格 + 分隔线。
+    -->
+    <section v-if="instanceData" class="detail-hero surface-card">
+      <!-- 身份行：主机名（= 平台侧 hostname）+ 结论标签 + 云主机 ID -->
+      <header class="hero-head">
+        <div class="hero-identity">
+          <OsIcon :os="instanceData.os" size="lg" />
+          <div class="hero-identity__text">
+            <div class="hero-identity__name">
+              <span class="hero-hostname">{{ instanceData.name || '未命名主机' }}</span>
+              <t-tag :theme="headlineState.theme" variant="light" size="small" shape="round">
+                {{ headlineState.label }}
+              </t-tag>
+              <t-tag
+                v-if="instanceData.lifecycle_stage && instanceData.lifecycle_stage !== 'active'"
+                :theme="lifecycleStageTheme(instanceData.lifecycle_stage)"
+                variant="light"
+                size="small"
+                shape="round"
+              >
+                {{ lifecycleStageLabel(instanceData.lifecycle_stage) }}
+              </t-tag>
+            </div>
+            <div class="hero-identity__meta">
+              <!--
+                两个 ID 必须分清（用户实测反馈"对云主机 ID 的情况存在混乱"）：
+                  · 本地实例号 instance_id —— 本系统的主键性质标识（占位期是 pending-xxx），
+                    历史流水/日志引用的是它；
+                  · 上游实例号 provider_instance_id —— 发给上游做电源/控制台/续费/销毁的号，
+                    上游换机后这个号会变（见右侧「按上游号重新关联」）。
+              -->
+              <span class="hero-id">
+                本地实例号<code>{{ instanceData.instance_id || '—' }}</code>
+                <span class="hero-id__tag">本系统</span>
+              </span>
+              <span class="hero-id">
+                上游实例号
+                <template v-if="instanceData.provider_instance_id">
+                  <code>{{ instanceData.provider_instance_id }}</code>
+                  <span class="hero-id__tag hero-id__tag--upstream">{{ instanceData.provider_name || '上游' }}</span>
+                </template>
+                <template v-else>
+                  <code class="hero-id__pending">未开通（占位中）</code>
+                </template>
+                <t-link
+                  v-if="hasPerm('instance:relink') && !instanceData.pending"
+                  theme="primary"
+                  hover="color"
+                  class="hero-id__action"
+                  @click="openRelinkDialog"
+                >
+                  重新关联
+                </t-link>
+              </span>
+              <span class="hero-id hero-id--muted">
+                <!--
+                  用户详情是「下钻页」，路由为 /users/accounts/detail?id=N（query 传参）。
+                  此前这里写成路径参数 /users/accounts/{id}，与任何路由都不匹配 ——
+                  点击后落到空白页（用户实测）。
+                -->
+                <router-link class="hero-user" :to="{ path: '/users/accounts/detail', query: { id: String(instanceData.user_id) } }">{{ instanceData.username || '—' }}</router-link>
+                <template v-if="instanceData.actor_name">（{{ instanceData.actor_name }} 开通）</template>
+              </span>
+            </div>
+          </div>
         </div>
-        <div v-if="instanceData.expire_at && instanceData.expire_state !== 'none'" class="glance-card__sub">
-          {{ expireStateLabel(instanceData.expire_state) }} · 剩余 {{ instanceData.days_left }} 天
+        <div class="hero-tags">
+          <t-tag :theme="sourceModeTheme" variant="light" size="small" shape="round">{{ sourceModeLabel }}</t-tag>
+          <t-tag theme="default" variant="light" size="small" shape="round">{{ providerTypeLabel(instanceData.provider_type) }}</t-tag>
         </div>
-        <div v-else class="glance-card__sub">{{ billingModeLabel }}</div>
-      </div>
-      <div class="glance-card">
-        <div class="glance-card__label">付款周期</div>
-        <div class="glance-card__value">{{ billingModeLabel }}</div>
-        <div class="glance-card__sub">{{ instanceData.source_mode === 'upstream' ? '对接上游 · 账期以上游为准' : '自营 · 由本系统管理' }}</div>
-      </div>
-      <div class="glance-card">
-        <div class="glance-card__label">首次付款</div>
-        <div class="glance-card__value">¥{{ formatPrice(instanceData.order?.first_paid_amount ?? 0) }}</div>
-        <div class="glance-card__sub">{{ instanceData.order ? `订单 ${instanceData.order.order_no}` : '无来源订单' }}</div>
-      </div>
-      <div class="glance-card">
-        <div class="glance-card__label">续费金额</div>
-        <div class="glance-card__value">¥{{ formatPrice(instanceData.order?.renew_amount ?? 0) }}</div>
-        <div class="glance-card__sub">
-          <template v-if="instanceData.upstream && instanceData.order?.upstream_renew_amount">
-            上游续费 ¥{{ formatPrice(instanceData.order.upstream_renew_amount) }}
+      </header>
+
+      <!-- 交付参数栅格：配置 / 网络 / 登录 / 系统，四块最常被问的信息 -->
+      <div class="hero-grid">
+        <!-- 配置 -->
+        <div class="hero-cell">
+          <div class="hero-cell__label"><CpuIcon aria-hidden="true" />配置规格</div>
+          <div class="hero-cell__value">
+            <span class="hero-num">{{ instanceData.cpu }}</span><span class="hero-unit">核</span>
+            <span class="hero-sep">/</span>
+            <span class="hero-num">{{ formatMemory(instanceData.memory) }}</span>
+            <span class="hero-sep">/</span>
+            <span class="hero-num">{{ instanceData.disk }}</span><span class="hero-unit">GB{{ instanceData.disk_type ? ` ${instanceData.disk_type}` : '' }}</span>
+          </div>
+          <div class="hero-cell__sub">
+            带宽 <b>{{ instanceData.bandwidth }}</b> Mbps
+            <span v-if="instanceData.region || instanceData.zone" class="hero-sep">·</span>
+            <span v-if="instanceData.region || instanceData.zone">{{ [instanceData.region, instanceData.zone].filter(Boolean).join(' / ') }}</span>
+          </div>
+        </div>
+
+        <!-- 网络：公网 IP 是最关键信息，用等宽大字。
+             NAT 机型没有独立 IP，主位改显转发地址——只写"未分配"会让运营
+             以为机器没配好，实际是机型就没这个能力。 -->
+        <div class="hero-cell">
+          <div class="hero-cell__label"><LinkIcon aria-hidden="true" />网络地址</div>
+          <template v-if="isNatInstance">
+            <div class="hero-cell__value">
+              <span v-if="natPrimaryAddress" class="hero-ip">{{ natPrimaryAddress }}</span>
+              <span v-else class="hero-ip hero-ip--muted">暂无转发地址</span>
+              <t-button
+                v-if="natPrimaryAddress"
+                size="small"
+                variant="text"
+                theme="primary"
+                class="hero-copy"
+                @click="copyText(natPrimaryAddress, 'NAT 访问地址')"
+              >
+                复制
+              </t-button>
+            </div>
+            <div class="hero-cell__sub">
+              <t-tag theme="warning" variant="light" size="small" shape="round">NAT 机型</t-tag>
+              <span>不分配独立 IP，经节点转发访问</span>
+            </div>
           </template>
-          <template v-else-if="instanceData.order?.renew_cycle">按 {{ cycleLabel(instanceData.order.renew_cycle) }} 计价</template>
-          <template v-else>—</template>
+          <template v-else>
+            <div class="hero-cell__value">
+              <span class="hero-ip">{{ instanceData.public_ip || '未分配' }}</span>
+              <t-button
+                v-if="instanceData.public_ip"
+                size="small"
+                variant="text"
+                theme="primary"
+                class="hero-copy"
+                @click="copyText(instanceData.public_ip, '公网 IP')"
+              >
+                复制
+              </t-button>
+            </div>
+            <div class="hero-cell__sub">
+              内网 {{ instanceData.private_ip || '—' }}
+              <span v-if="instanceData.power_status" class="hero-sep">·</span>
+              <span v-if="instanceData.power_status">电源 {{ powerStatusText(instanceData.power_status) }}</span>
+            </div>
+          </template>
+        </div>
+
+        <!-- 登录凭据：用户名 + 端口 + 密码入口 -->
+        <div class="hero-cell">
+          <div class="hero-cell__label"><UserIcon aria-hidden="true" />登录凭据</div>
+          <div class="hero-cell__value">
+            <span class="hero-user-name">{{ instanceData.credential?.username || '—' }}</span>
+            <span class="hero-port">端口 {{ instanceData.credential?.port || '—' }}</span>
+          </div>
+          <div class="hero-cell__sub">
+            <template v-if="instanceData.credential?.has_password">
+              <t-link
+                v-if="hasPerm('instance:credential')"
+                theme="primary"
+                hover="color"
+                @click="openRevealDialog"
+              >
+                查看密码
+              </t-link>
+              <span v-else class="hero-hint">密码已保存（需「查看密码」权限）</span>
+            </template>
+            <span v-else class="hero-hint">{{ instanceData.credential?.password_hint || '未保存密码，请重置' }}</span>
+            <span v-if="instanceData.credential?.has_panel_password" class="hero-hint"> · 另有面板/IPMI 密码</span>
+            <!--
+              重置密码就近放在凭据格：这是"密码不好用"时的第一反应动作。
+              此前只藏在「维护」下拉里（用户实测反馈"详情里找不到重置密码"）。
+              能力位与待开通判据都带上，避免点了必然失败。
+            -->
+            <template v-if="hasPerm('instance:password')">
+              <span class="hero-sep">·</span>
+              <t-link
+                theme="primary"
+                hover="color"
+                :disabled="!instanceData.capabilities?.reset_password || isPending"
+                @click="openResetPasswordDialog"
+              >
+                重置密码
+              </t-link>
+            </template>
+          </div>
+        </div>
+
+        <!-- 操作系统：图标 + 版本 + 重装入口（换系统是高频操作，就近给按钮） -->
+        <div class="hero-cell">
+          <div class="hero-cell__label"><DesktopIcon aria-hidden="true" />操作系统</div>
+          <div class="hero-cell__value">
+            <OsIcon :os="instanceData.os" />
+            <span class="hero-os">{{ osDisplayName(instanceData.os) }}</span>
+            <t-button
+              v-if="instanceData.capabilities?.reinstall && !isPending"
+              v-permission="'instance:reinstall'"
+              size="small"
+              variant="text"
+              theme="primary"
+              class="hero-copy"
+              @click="openReinstallDialog"
+            >
+              重装
+            </t-button>
+          </div>
+          <div class="hero-cell__sub">
+            镜像/模板由平台下发；重装会清空系统盘
+          </div>
         </div>
       </div>
-      <div class="glance-card">
-        <div class="glance-card__label">售出商品</div>
-        <div class="glance-card__value glance-card__value--sm">{{ instanceData.product?.name || instanceData.order?.product_name || '—' }}</div>
-        <div class="glance-card__sub">
-          {{ instanceData.product ? `${instanceData.product.code || '—'} · ${sourceModeLabel}` : '—' }}
+
+      <!-- 备注两栏：客户备注（客户说的）与管理员备注（运营记的）并排，避免互相覆盖 -->
+      <div class="hero-notes">
+        <div class="hero-note" :class="{ 'hero-note--empty': !instanceData.customer_remark }">
+          <span class="hero-note__label"><ChatIcon aria-hidden="true" />客户备注</span>
+          <span class="hero-note__text">{{ instanceData.customer_remark || '客户未填写' }}</span>
+          <span v-if="instanceData.order?.customer_remark && instanceData.order.customer_remark !== instanceData.customer_remark" class="hero-note__sub">
+            下单时填写：{{ instanceData.order.customer_remark }}
+          </span>
         </div>
-      </div>
-      <div class="glance-card">
-        <div class="glance-card__label">登录信息</div>
-        <div class="glance-card__value glance-card__value--sm">{{ instanceData.credential?.username || '—' }}</div>
-        <div class="glance-card__sub">
-          端口 {{ instanceData.credential?.port || '—' }}
-          <t-link
-            v-if="instanceData.credential?.has_password && hasPerm('instance:credential')"
-            theme="primary"
-            hover="color"
-            class="glance-card__link"
-            @click="openRevealDialog"
-          >
-            查看密码
+        <div class="hero-note" :class="{ 'hero-note--empty': !instanceData.remark }">
+          <span class="hero-note__label"><EditIcon aria-hidden="true" />管理员备注</span>
+          <span class="hero-note__text">{{ instanceData.remark || '未填写' }}</span>
+          <t-link v-permission="'instance:action'" theme="primary" hover="color" class="hero-note__edit" @click="openRemarkDialog">
+            编辑
           </t-link>
+        </div>
+      </div>
+
+      <!-- 账期条：财务口径压成一行（原速览条里占 6 张卡，现只占一行） -->
+      <div class="hero-billing">
+        <div class="hero-billing__item" :class="expireGlanceClass">
+          <span class="hero-billing__label">到期时间</span>
+          <span class="hero-billing__value">
+            {{ instanceData.expire_at ? formatTime(instanceData.expire_at) : (isOnetime ? '一次性/买断' : '未设置') }}
+          </span>
+          <span v-if="instanceData.expire_at && instanceData.expire_state !== 'none'" class="hero-billing__sub" :class="expireClass(instanceData)">
+            {{ expireStateLabel(instanceData.expire_state) }} · 剩余 {{ instanceData.days_left }} 天
+          </span>
+        </div>
+        <div class="hero-billing__item">
+          <span class="hero-billing__label">付款周期</span>
+          <span class="hero-billing__value">{{ billingModeLabel }}</span>
+        </div>
+        <div class="hero-billing__item">
+          <span class="hero-billing__label">首次付款</span>
+          <span class="hero-billing__value">¥{{ formatPrice(instanceData.order?.first_paid_amount ?? 0) }}</span>
+        </div>
+        <div class="hero-billing__item">
+          <span class="hero-billing__label">续费金额</span>
+          <span class="hero-billing__value hero-billing__value--strong">¥{{ formatPrice(instanceData.order?.renew_amount ?? 0) }}</span>
+          <!-- 绑定价压过商品价：不标出来，运营会以为看到的是商品价（调完价也看不出变化） -->
+          <span v-if="instanceData.order?.renew_bound" class="hero-billing__sub">
+            已绑定谈定价<template v-if="instanceData.renewal_price">（¥{{ formatPrice(instanceData.renewal_price) }} / 周期）</template>
+          </span>
+          <span v-else-if="instanceData.upstream && instanceData.order?.upstream_renew_amount" class="hero-billing__sub">
+            上游 ¥{{ formatPrice(instanceData.order.upstream_renew_amount) }}
+          </span>
         </div>
       </div>
     </section>
@@ -173,44 +389,40 @@
         <!-- ============ 概览 ============ -->
         <t-tab-panel value="overview" label="概览">
           <div class="tabs-section">
-            <t-descriptions v-if="instanceData" :column="2" bordered size="medium" class="detail-desc">
-              <t-descriptions-item label="实例标识">{{ instanceData.instance_id || '—' }}</t-descriptions-item>
-              <t-descriptions-item label="归属用户">
-                <span class="cell-strong">{{ instanceData.username || '—' }}</span>
-                <div class="cell-sub">{{ instanceData.user_email || '—' }} · {{ instanceData.user_phone || '—' }}</div>
-              </t-descriptions-item>
-              <t-descriptions-item label="用户 ID">{{ instanceData.user_id }}</t-descriptions-item>
-              <t-descriptions-item label="服务商">
-                {{ instanceData.provider_name || '—' }}
-                <span v-if="instanceData.provider_type" class="cell-sub">（{{ providerTypeLabel(instanceData.provider_type) }}）</span>
+            <!--
+              状态细节表：主信息区已展示身份/配置/网络/凭据/系统/备注，
+              这里只留"排查才看"的字段（上游状态原始值、回源时间、到期处置退避），
+              不再重复主信息区已有的内容。
+            -->
+            <t-descriptions v-if="instanceData" :column="3" size="medium" class="detail-desc">
+              <t-descriptions-item label="服务状态">
+                <t-tag :theme="headlineState.theme" variant="light" size="small" shape="round">
+                  {{ headlineState.label }}
+                </t-tag>
+                <div class="cell-sub">
+                  上游状态 {{ instanceStatusLabel(instanceData.status) }} · 阶段 {{ lifecycleStageLabel(instanceData.lifecycle_stage) }}
+                </div>
               </t-descriptions-item>
               <t-descriptions-item label="来源断言">
                 <span class="cell-strong">{{ sourceModeLabel }}</span>
                 <div class="cell-sub">{{ sourceModeHint }}</div>
               </t-descriptions-item>
-              <t-descriptions-item label="操作人">{{ instanceData.actor_name || '主账号' }}</t-descriptions-item>
-              <t-descriptions-item label="服务状态">
-                <t-tag :theme="headlineState.theme" variant="light" size="small" shape="round">
-                  {{ headlineState.label }}
-                </t-tag>
-                <div v-if="headlineStateDetail" class="cell-sub">{{ headlineStateDetail }}</div>
-                <div class="cell-sub">
-                  上游状态 {{ instanceStatusLabel(instanceData.status) }} · 到期阶段 {{ lifecycleStageLabel(instanceData.lifecycle_stage) }}
-                </div>
+              <t-descriptions-item label="服务商">
+                {{ instanceData.provider_name || '—' }}
+                <span v-if="instanceData.provider_type" class="cell-sub">（{{ providerTypeLabel(instanceData.provider_type) }}）</span>
               </t-descriptions-item>
-              <t-descriptions-item label="电源状态">{{ powerStatusText(instanceData.power_status) }}</t-descriptions-item>
-              <t-descriptions-item label="内网 IP">{{ instanceData.private_ip || '—' }}</t-descriptions-item>
-              <t-descriptions-item label="公网 IP">{{ instanceData.public_ip || '—' }}</t-descriptions-item>
-              <t-descriptions-item label="最近回源时间">{{ formatTime(instanceData.last_synced_at) }}</t-descriptions-item>
+              <t-descriptions-item label="归属账号">
+                <router-link
+                  class="inline-link inline-link--lead"
+                  :to="{ path: '/users/accounts/detail', query: { id: String(instanceData.user_id) } }"
+                >
+                  {{ instanceData.username || '—' }}
+                </router-link>
+                <div class="cell-sub">{{ instanceData.user_email || '—' }}<template v-if="instanceData.user_phone"> · {{ instanceData.user_phone }}</template></div>
+              </t-descriptions-item>
+              <t-descriptions-item label="最近回源">{{ formatTime(instanceData.last_synced_at) }}</t-descriptions-item>
               <t-descriptions-item label="创建时间">{{ formatTime(instanceData.created_at) }}</t-descriptions-item>
-              <t-descriptions-item label="更新时间">{{ formatTime(instanceData.updated_at) }}</t-descriptions-item>
-              <t-descriptions-item label="管理员备注">
-                <span>{{ instanceData.remark || '—' }}</span>
-                <t-link v-permission="'instance:action'" theme="primary" hover="color" class="inline-link" @click="openRemarkDialog">
-                  编辑
-                </t-link>
-              </t-descriptions-item>
-              <t-descriptions-item v-if="instanceData.enforce_attempts > 0 || instanceData.last_enforce_error" label="到期处置" :span="2">
+              <t-descriptions-item v-if="instanceData.enforce_attempts > 0 || instanceData.last_enforce_error" label="到期处置" :span="3">
                 <span class="expire-danger">连续失败 {{ instanceData.enforce_attempts }} 次</span>
                 <div class="cell-sub" v-if="instanceData.enforce_next_at">下次重试：{{ formatTime(instanceData.enforce_next_at) }}</div>
                 <div class="cell-sub op-error" v-if="instanceData.last_enforce_error">{{ instanceData.last_enforce_error }}</div>
@@ -242,70 +454,122 @@
                 <t-empty v-else description="无来源订单" />
               </div>
 
-              <div class="info-card">
+              <!--
+                商品与对接：**一张卡按链路分支**，不再并排「对接商品 / 上游商品」两张。
+                原因（实测数据）：对接商品的 products 行是从资源镜像生成的，
+                name/price/cost_price 与 resource_products 的名称、标价、采购价逐字相同
+                （见 doc"商品与上游重复"一节），并排两张卡会把同一个名字同一组价格
+                各显示一遍。这里改为：自营只讲我方商品口径；对接则讲「我方售价 →
+                上游成本」的对照关系，只在两处名称真的不同（运营改过名）时才额外提示原名。
+              -->
+              <div class="info-card info-card--span">
                 <div class="info-card__head">
-                  <h3 class="card-title">对接商品</h3>
-                  <t-link v-if="instanceData?.product" theme="primary" hover="color" @click="openProductById(instanceData.product.id)">
-                    查看商品
-                  </t-link>
+                  <h3 class="card-title">商品与对接</h3>
+                  <div class="info-card__actions">
+                    <!-- 上游换产品（如五区→六区）时，本地商品必须跟着换，否则续费按旧价算 -->
+                    <t-link
+                      v-if="hasPerm('instance:billing') && !instanceData?.pending"
+                      theme="primary"
+                      hover="color"
+                      @click="openRebindDialog"
+                    >
+                      更换对接商品
+                    </t-link>
+                    <t-link v-if="instanceData?.product" theme="primary" hover="color" @click="openProductById(instanceData.product.id)">
+                      查看商品
+                    </t-link>
+                    <t-tag
+                      v-if="instanceData?.product"
+                      :theme="instanceData.product.source_mode === 'upstream' ? 'warning' : 'success'"
+                      variant="light"
+                      size="small"
+                      shape="round"
+                    >
+                      {{ productSourceModeLabel(instanceData.product.source_mode) }}
+                    </t-tag>
+                    <t-tag v-if="instanceData?.upstream" :theme="instanceData.upstream.renewable ? 'success' : 'warning'" variant="light" size="small" shape="round">
+                      {{ instanceData.upstream.renewable ? '可续费' : '不可续费' }}
+                    </t-tag>
+                  </div>
                 </div>
+
                 <template v-if="instanceData?.product">
+                  <t-alert
+                    v-if="instanceData.upstream?.provider_mismatch"
+                    theme="warning"
+                    class="dlg-alert"
+                    :message="`该镜像所属渠道（${instanceData.upstream.provider_name || `#${instanceData.upstream.provider_id}`}）与实例渠道不一致：多为历史数据/重新导入遗留，开通与续费请以实例渠道为准`"
+                  />
+
+                  <!-- 商品身份：名称只出现一次 -->
                   <div class="kv-row">
                     <span class="kv-row__k">商品名称</span>
                     <span class="kv-row__v">
-                      {{ instanceData.product.name }}
-                      <t-tag v-if="instanceData.product.deleted" theme="danger" variant="light-outline" size="small">商品已删除</t-tag>
+                      <b>{{ instanceData.product.name }}</b>
+                      <t-tag v-if="instanceData.product.deleted" theme="danger" variant="light-outline" size="small">商品行已删除</t-tag>
+                      <t-tag v-else :theme="instanceData.product.status === 1 ? 'success' : 'default'" variant="light" size="small" shape="round">
+                        {{ instanceData.product.status === 1 ? '上架' : '下架' }}
+                      </t-tag>
+                      <div v-if="upstreamRenamed" class="cell-sub">上游原名：{{ instanceData.upstream?.name }}</div>
                     </span>
                   </div>
                   <div class="kv-row"><span class="kv-row__k">商品编码</span><span class="kv-row__v">{{ instanceData.product.code || '—' }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">对接模式</span><span class="kv-row__v">{{ productSourceModeLabel(instanceData.product.source_mode) }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">对接渠道</span><span class="kv-row__v">{{ instanceData.product.source_provider_name || '—' }}<span v-if="instanceData.product.provider_type" class="cell-sub">（{{ providerTypeLabel(instanceData.product.provider_type) }}）</span></span></div>
-                  <!-- 这一格是本地镜像行的主键（resource_products.id），不是上游的 pid；
-                       上游 pid 在「上游商品」卡里。两处都叫"上游商品 ID"会误导对接排查。 -->
+
+                  <!-- 对接关系：仅在确实对接上游时才出这几行 -->
+                  <template v-if="instanceData.upstream">
+                    <div class="kv-row">
+                      <span class="kv-row__k">对接渠道</span>
+                      <span class="kv-row__v">
+                        {{ instanceData.upstream.provider_name || instanceData.product.source_provider_name || '—' }}
+                        <span v-if="instanceData.upstream.provider_mismatch" class="cell-sub">（商品镜像渠道为 {{ instanceData.product.source_provider_name || '—' }}）</span>
+                      </span>
+                    </div>
+                    <div class="kv-row">
+                      <span class="kv-row__k">上游商品</span>
+                      <span class="kv-row__v">
+                        #{{ instanceData.upstream.upstream_id || '—' }}
+                        <span class="cell-sub">
+                          （本地镜像 #{{ instanceData.upstream.resource_product_id || instanceData.product.source_product_id || '—' }}<template v-if="instanceData.upstream.group_name"> · {{ instanceData.upstream.group_name }}</template>）
+                        </span>
+                      </span>
+                    </div>
+                  </template>
+                  <div v-else-if="instanceData.product.source_mode === 'upstream'" class="kv-row">
+                    <span class="kv-row__k">对接信息</span>
+                    <span class="kv-row__v cell-sub">本地镜像已不存在（重新导入/清理后常见）：上游价格与对接关系无法回溯</span>
+                  </div>
+
+                  <!--
+                    价格对照：我方售价/成本与上游标价/采购价在对接链路上完全相同，
+                    因此只用一行「售价 → 成本」表达，并在两者不等时标注上游口径，
+                    不再并列两组同名数字。毛利与加价率现场算出，方便运营判断调价空间。
+                  -->
                   <div class="kv-row">
-                    <span class="kv-row__k">本地镜像商品 ID</span>
+                    <span class="kv-row__k">售价 / 成本</span>
                     <span class="kv-row__v">
-                      {{ instanceData.product.source_product_id || '—' }}
-                      <span v-if="instanceData.upstream" class="cell-sub">→ 上游商品 #{{ instanceData.upstream.upstream_id }}</span>
+                      <span class="kv-row__v--price">¥{{ formatPrice(instanceData.product.price) }}</span>
+                      <span class="price-arrow">→</span>
+                      <span class="kv-row__v--price">{{ instanceData.product.cost_price > 0 ? `¥${formatPrice(instanceData.product.cost_price)}` : '—' }}</span>
+                      <t-tag v-if="grossMarginText" theme="success" variant="light" size="small" shape="round">{{ grossMarginText }}</t-tag>
+                      <div v-if="instanceData.upstream" class="cell-sub">
+                        商品成本即上游采购价{{ upstreamCostDiffers ? `（上游现价 ¥${formatPrice(instanceData.upstream.cost_price)}，与本地不一致，续费前请核对）` : '，与上游一致' }}
+                      </div>
                     </span>
                   </div>
-                  <div class="kv-row"><span class="kv-row__k">商品售价</span><span class="kv-row__v">¥{{ formatPrice(instanceData.product.price) }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">商品成本</span><span class="kv-row__v">¥{{ formatPrice(instanceData.product.cost_price) }}</span></div>
                   <div class="kv-row"><span class="kv-row__k">加价规则</span><span class="kv-row__v">{{ markupLabel(instanceData.product) }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">续费金额</span><span class="kv-row__v kv-row__v--strong">¥{{ formatPrice(instanceData.order?.renew_amount ?? 0) }} / {{ cycleLabel(instanceData.order?.renew_cycle) }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">续费成本</span><span class="kv-row__v">¥{{ formatPrice(instanceData.order?.renew_cost ?? 0) }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">商品状态</span><span class="kv-row__v">{{ instanceData.product.status === 1 ? '上架' : '下架' }}</span></div>
-                </template>
-                <t-empty
-                  v-else
-                  :description="instanceData?.source_mode === 'upstream'
-                    ? '未找到售出商品记录（上游同步发现的实例，或商品行已删除）'
-                    : '该实例非经我方商品开通'"
-                />
-              </div>
+                  <div class="kv-row">
+                    <span class="kv-row__k">续费（售价 / 成本）</span>
+                    <span class="kv-row__v">
+                      <span class="kv-row__v--strong">¥{{ formatPrice(instanceData.order?.renew_amount ?? 0) }}</span>
+                      <span class="price-arrow">/</span>
+                      <span>¥{{ formatPrice(instanceData.order?.renew_cost ?? 0) }}</span>
+                      <span class="cell-sub">按 {{ cycleLabel(instanceData.order?.renew_cycle) }}</span>
+                      <t-tag v-if="instanceData.order?.renew_bound" theme="warning" variant="light" size="small" shape="round">已绑定谈定价</t-tag>
+                    </span>
+                  </div>
 
-              <div class="info-card">
-                <div class="info-card__head">
-                  <h3 class="card-title">上游商品</h3>
-                  <t-tag v-if="instanceData?.upstream" :theme="instanceData.upstream.renewable ? 'success' : 'warning'" variant="light" size="small" shape="round">
-                    {{ instanceData.upstream.renewable ? '可续费' : '不可续费' }}
-                  </t-tag>
-                </div>
-                <template v-if="instanceData?.upstream">
-                  <t-alert
-                    v-if="instanceData.upstream.provider_mismatch"
-                    theme="warning"
-                    :message="`该镜像所属渠道（${instanceData.upstream.provider_name || `#${instanceData.upstream.provider_id}`}）与实例渠道不一致：多为历史数据/重新导入遗留，开通与续费请以实例渠道为准`"
-                  />
-                  <div class="kv-row"><span class="kv-row__k">上游名称</span><span class="kv-row__v">{{ instanceData.upstream.name }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">上游商品 ID（上游侧）</span><span class="kv-row__v">{{ instanceData.upstream.upstream_id || '—' }}<span class="cell-sub">（本地镜像 #{{ instanceData.upstream.resource_product_id }}）</span></span></div>
-                  <div class="kv-row"><span class="kv-row__k">所属渠道</span><span class="kv-row__v">{{ instanceData.upstream.provider_name || '—' }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">所属分组</span><span class="kv-row__v">{{ instanceData.upstream.group_name || '—' }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">上游标价</span><span class="kv-row__v">¥{{ formatPrice(instanceData.upstream.list_price) }}{{ instanceData.upstream.pay_type === 'recurring' ? ' / 周期' : '' }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">采购价</span><span class="kv-row__v">¥{{ formatPrice(instanceData.upstream.cost_price) }}</span></div>
-                  <div class="kv-row" v-if="instanceData.upstream.discount_desc"><span class="kv-row__k">代理折扣</span><span class="kv-row__v">{{ instanceData.upstream.discount_desc }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">上游续费金额</span><span class="kv-row__v kv-row__v--strong">{{ upstreamRenewText }}</span></div>
-                  <div class="kv-row kv-row--col">
+                  <!-- 上游各周期价：对接链路才有，是调价时的唯一依据 -->
+                  <div v-if="instanceData.upstream" class="kv-row kv-row--col">
                     <span class="kv-row__k">上游各周期价（标价 / 采购价）</span>
                     <div class="cycle-chips">
                       <span v-for="item in upstreamCycleRows" :key="item.cycle" class="cycle-chip">
@@ -314,13 +578,15 @@
                       </span>
                       <span v-if="!upstreamCycleRows.length" class="cell-sub">上游未提供周期价</span>
                     </div>
+                    <div v-if="instanceData.upstream.discount_desc" class="cell-sub">代理折扣：{{ instanceData.upstream.discount_desc }}</div>
                   </div>
                 </template>
+
                 <t-empty
                   v-else
-                  :description="instanceData?.product?.source_mode === 'upstream'
-                    ? '对接商品的本地镜像已不存在（重新导入/清理后常见）：价格与对接信息无法回溯'
-                    : '非对接商品，无上游信息'"
+                  :description="instanceData?.source_mode === 'upstream'
+                    ? '未找到售出商品记录（上游同步发现的实例，或商品行已删除）'
+                    : '该实例非经我方商品开通'"
                 />
               </div>
             </div>
@@ -336,6 +602,22 @@
                 <div class="config-panel__head">
                   <h3 class="card-title">生效配置</h3>
                   <span class="table-card__meta">共 {{ configs.length }} 项 · 以实例实际取值为准</span>
+                </div>
+                <!--
+                  本地选配 vs 上游选配必须分清（用户实测反馈）：同样叫"配置项"，
+                  但一边是我们商品里客户选的档位（改它要动商品/SKU），
+                  另一边是上游商品钉死的参数（我们改不动，只能去上游面板改）。
+                  给两个来源各一句带商品名的说明，比只打「上游固定」标签更明确。
+                -->
+                <div v-if="instanceData?.upstream || instanceData?.product" class="config-legend">
+                  <span v-if="instanceData?.product" class="config-legend__item">
+                    <span class="config-legend__dot config-legend__dot--local"></span>
+                    本地选配：{{ instanceData.product.name }}<span class="cell-sub">（我们商品里的档位/选配项）</span>
+                  </span>
+                  <span v-if="instanceData?.upstream" class="config-legend__item">
+                    <span class="config-legend__dot config-legend__dot--upstream"></span>
+                    上游选配：{{ instanceData.upstream.name }}<span class="cell-sub">（上游商品钉死的参数）</span>
+                  </span>
                 </div>
                 <div v-if="configs.length" class="config-list">
                   <div v-for="item in configs" :key="item.key" class="config-item">
@@ -354,10 +636,63 @@
                 <t-empty v-else description="该商品未配置可选项" />
               </div>
 
-              <!-- 财务账期 -->
+              <!--
+                NAT 访问地址（doc122）：仅 NAT 机型展示。这类机器没有独立 IP，
+                客户只能经节点转发访问；转发规则可能有多个（SSH/网站/数据库各一条），
+                所以在这里列全量而不是只给主位那一个地址。
+              -->
+              <div v-if="isNatInstance" class="config-panel">
+                <div class="config-panel__head">
+                  <h3 class="card-title">NAT 访问地址</h3>
+                  <span class="table-card__meta">
+                    {{ natAccess?.forwards?.length || 0 }} 条转发 ·
+                    {{ natAccess?.domains?.length || 0 }} 个建站域名
+                  </span>
+                </div>
+                <!-- 读取失败 vs 没有规则是两回事：前者可重试，后者是配置状态 -->
+                <t-alert v-if="natError" theme="warning" class="nat-alert">
+                  <template #message>{{ natError }}</template>
+                </t-alert>
+                <div
+                  v-if="natAccess?.forwards?.length || natAccess?.domains?.length"
+                  class="config-list"
+                >
+                  <div
+                    v-for="addr in natAccess?.forwards || []"
+                    :key="`f-${addr}`"
+                    class="config-item nat-item"
+                  >
+                    <div class="config-item__head">
+                      <span class="config-item__label">端口转发</span>
+                      <t-link theme="primary" hover="color" size="small" @click="copyText(addr, 'NAT 地址')">复制</t-link>
+                    </div>
+                    <div class="config-item__value"><code>{{ addr }}</code></div>
+                  </div>
+                  <div
+                    v-for="domain in natAccess?.domains || []"
+                    :key="`d-${domain}`"
+                    class="config-item nat-item"
+                  >
+                    <div class="config-item__head">
+                      <span class="config-item__label">共享建站</span>
+                      <t-link theme="primary" hover="color" size="small" @click="copyText(domain, '建站域名')">复制</t-link>
+                    </div>
+                    <div class="config-item__value"><code>{{ domain }}</code></div>
+                  </div>
+                </div>
+                <t-empty
+                  v-else-if="!natError"
+                  description="该实例暂无转发规则（可在平台面板创建后刷新）"
+                />
+              </div>
+
+              <!--
+                成本与账期调整：到期时间/付款周期/首付/续费售价已在主信息区账期条里，
+                这里不重复；只放主信息区没展开的成本侧口径与"调整账期"入口。
+              -->
               <div class="config-panel">
                 <div class="config-panel__head">
-                  <h3 class="card-title">财务与账期</h3>
+                  <h3 class="card-title">成本与账期调整</h3>
                   <t-button
                     v-permission="'instance:billing'"
                     size="small"
@@ -367,14 +702,13 @@
                     调整账期
                   </t-button>
                 </div>
-                <div class="kv-row"><span class="kv-row__k">到期时间</span><span class="kv-row__v" :class="expireClass(instanceData!)">{{ instanceData?.expire_at ? formatTime(instanceData!.expire_at) : (isOnetime ? '一次性/买断' : '未设置') }}</span></div>
-                <div class="kv-row"><span class="kv-row__k">到期状态</span><span class="kv-row__v">{{ instanceData?.expire_at ? expireStateLabel(instanceData!.expire_state) : '—' }}<span v-if="instanceData?.expire_at" class="cell-sub">剩余 {{ instanceData!.days_left }} 天</span></span></div>
-                <div class="kv-row"><span class="kv-row__k">付款周期</span><span class="kv-row__v">{{ billingModeLabel }}</span></div>
-                <div class="kv-row"><span class="kv-row__k">首次付款金额</span><span class="kv-row__v kv-row__v--strong">¥{{ formatPrice(instanceData?.order?.first_paid_amount ?? 0) }}</span></div>
-                <div class="kv-row"><span class="kv-row__k">续费金额（售价）</span><span class="kv-row__v kv-row__v--strong">¥{{ formatPrice(instanceData?.order?.renew_amount ?? 0) }} / {{ cycleLabel(instanceData?.order?.renew_cycle) }}</span></div>
-                <div class="kv-row"><span class="kv-row__k">续费成本</span><span class="kv-row__v">¥{{ formatPrice(instanceData?.order?.renew_cost ?? 0) }}</span></div>
-                <div class="kv-row" v-if="instanceData?.upstream"><span class="kv-row__k">上游续费金额</span><span class="kv-row__v kv-row__v--strong">{{ upstreamRenewText }}</span></div>
-                <div class="kv-row"><span class="kv-row__k">计费链路</span><span class="kv-row__v">{{ sourceModeLabel }}</span></div>
+                <div class="kv-row"><span class="kv-row__k">计费链路</span><span class="kv-row__v">{{ sourceModeLabel }}<span class="cell-sub">{{ sourceModeHint }}</span></span></div>
+                <div class="kv-row"><span class="kv-row__k">续费成本</span><span class="kv-row__v">¥{{ formatPrice(instanceData?.order?.renew_cost ?? 0) }}<span class="cell-sub">供应商侧成本，售价见主信息区</span></span></div>
+                <div class="kv-row" v-if="instanceData?.upstream">
+                  <span class="kv-row__k">上游续费金额</span>
+                  <span class="kv-row__v kv-row__v--strong">{{ upstreamRenewText }}</span>
+                </div>
+                <div class="kv-row"><span class="kv-row__k">来源订单</span><span class="kv-row__v">{{ instanceData?.order?.order_no || '—' }}<t-link v-if="instanceData?.order" theme="primary" hover="color" class="inline-link" @click="openOrderById(instanceData.order.id)">查看</t-link></span></div>
                 <t-alert
                   v-if="instanceData?.source_mode === 'upstream'"
                   theme="warning"
@@ -388,29 +722,6 @@
                   message="自营实例的到期时间与付款周期由本系统管理，可直接在「调整账期」中自定义。"
                 />
               </div>
-            </div>
-
-            <!-- 登录凭据 -->
-            <div class="config-panel config-panel--wide">
-              <div class="config-panel__head">
-                <h3 class="card-title">登录凭据</h3>
-                <t-button
-                  v-if="instanceData?.credential?.has_password"
-                  v-permission="'instance:credential'"
-                  size="small"
-                  variant="outline"
-                  @click="openRevealDialog"
-                >
-                  查看明文密码
-                </t-button>
-              </div>
-              <div class="credential-grid">
-                <div class="kv-row"><span class="kv-row__k">登录用户名</span><span class="kv-row__v">{{ instanceData?.credential?.username || '—' }}</span></div>
-                <div class="kv-row"><span class="kv-row__k">连接端口</span><span class="kv-row__v">{{ instanceData?.credential?.port || '—' }}</span></div>
-                <div class="kv-row"><span class="kv-row__k">密码状态</span><span class="kv-row__v">{{ instanceData?.credential?.has_password ? '已保存（可查看）' : '未保存，请重置密码' }}</span></div>
-                <div class="kv-row"><span class="kv-row__k">面板/IPMI 密码</span><span class="kv-row__v">{{ instanceData?.credential?.has_panel_password ? '有' : '无' }}</span></div>
-              </div>
-              <p v-if="instanceData?.credential?.password_hint" class="credential-hint">{{ instanceData.credential.password_hint }}</p>
             </div>
           </div>
         </t-tab-panel>
@@ -590,13 +901,19 @@
     <t-dialog
       v-model:visible="adjust.visible"
       header="调整账期与付款周期"
-      width="560px"
+      width="680px"
       :confirm-btn="{ content: '确认调整', theme: 'primary', disabled: adjustConfirmDisabled }"
       :cancel-btn="{ content: '取消' }"
       destroy-on-close
       @confirm="handleAdjustBilling"
     >
       <t-alert theme="info" class="dlg-alert" message="调整只改本地账期口径，不产生账单、不向上游下单。对接上游的实例需勾选强制本地调整。" />
+      <t-alert
+        v-if="adjustCtx?.upstream_cycles_unavailable"
+        theme="warning"
+        class="dlg-alert"
+        message="未能读到上游支持的计费周期（渠道不可用）：下列周期为平台全集，**未经上游核对**，选中上游不卖的周期会导致账单周期错位。"
+      />
       <t-form label-align="top">
         <t-form-item label="到期时间">
           <t-date-picker
@@ -607,8 +924,63 @@
             class="dlg-full"
           />
         </t-form-item>
+        <!--
+          付款周期：选项**由后端按上游能力下发**（AdjustContext），不再前端硬编码。
+          此前硬编码 9 档（含小时/按日/两年/三年），选一个上游不卖的周期会推出
+          与上游对不上的账单周期（用户实测缺陷）。
+        -->
         <t-form-item label="付款周期">
-          <t-select v-model="adjust.billing_mode" :options="billingModeOptions" clearable placeholder="留空表示不修改" class="dlg-full" />
+          <t-select
+            v-model="adjust.billing_mode"
+            :options="adjustCycleOptions"
+            :loading="adjustCtxLoading"
+            clearable
+            placeholder="留空表示不修改"
+            class="dlg-full"
+            @change="onAdjustCycleChange"
+          />
+          <!-- 选中周期后即时比价：上游标价/采购价与我方售价/成本并排 -->
+          <div v-if="selectedCycleRow" class="cycle-compare">
+            <div class="cycle-compare__row">
+              <span class="cycle-compare__k">上游标价</span>
+              <span class="cycle-compare__v">{{ selectedCycleRow.upstream_list ? `¥${formatPrice(selectedCycleRow.upstream_list)}` : '—' }}</span>
+              <span class="cycle-compare__k">上游采购价</span>
+              <span class="cycle-compare__v">{{ selectedCycleRow.upstream_cost ? `¥${formatPrice(selectedCycleRow.upstream_cost)}` : '—' }}</span>
+            </div>
+            <div class="cycle-compare__row">
+              <span class="cycle-compare__k">我方售价</span>
+              <span class="cycle-compare__v">{{ selectedCycleRow.has_product_price ? `¥${formatPrice(selectedCycleRow.sale)}` : '未配置' }}</span>
+              <span class="cycle-compare__k">我方成本</span>
+              <span class="cycle-compare__v">{{ selectedCycleRow.has_product_price ? `¥${formatPrice(selectedCycleRow.cost)}` : '未配置' }}</span>
+            </div>
+            <div v-if="selectedCycleMarginText" class="cycle-compare__margin">{{ selectedCycleMarginText }}</div>
+            <t-button
+              v-if="selectedCycleRow.upstream_cost > 0"
+              size="small"
+              variant="text"
+              theme="primary"
+              @click="fillRenewalFromUpstream"
+            >
+              按上游采购价填入续费价
+            </t-button>
+          </div>
+        </t-form-item>
+        <!-- 绑定续费单价：实例详情页此前无法调整续费价（用户实测反馈） -->
+        <t-form-item label="绑定续费价（元/周期）">
+          <div class="pwd-input">
+            <t-input-number
+              v-model="adjust.renewal_price"
+              :min="0"
+              :decimal-places="2"
+              placeholder="留空表示不修改；填 -1 取消绑定"
+              class="dlg-grow"
+            />
+            <t-button variant="outline" :disabled="!adjust.renewal_price" @click="clearAdjustRenewalPrice">取消绑定</t-button>
+          </div>
+          <div class="cell-sub">
+            {{ adjustCtx?.renewal_price_hint || '绑定价压过商品调价与折扣；留空表示本次不改。' }}
+            <template v-if="currentRenewalPriceText"> 当前：{{ currentRenewalPriceText }}</template>
+          </div>
         </t-form-item>
         <t-form-item v-if="instanceData?.source_mode === 'upstream'">
           <t-checkbox v-model="adjust.force">强制本地调整（该实例为上游对接链路）</t-checkbox>
@@ -617,6 +989,121 @@
           <t-textarea v-model="adjust.reason" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="选填，写入操作流水" />
         </t-form-item>
       </t-form>
+    </t-dialog>
+
+    <!--
+      按上游实例号重新关联：上游换机/换号后，本地留的旧号会让此后所有上游动作
+      （电源/控制台/续费/销毁）打在已不存在的机器上。填入上游新号 → 先探活再落库。
+    -->
+    <t-dialog
+      v-model:visible="relink.visible"
+      header="按上游实例号重新关联"
+      width="560px"
+      :confirm-btn="{ content: '重新关联', theme: 'warning', disabled: relinkConfirmDisabled }"
+      :cancel-btn="{ content: '取消' }"
+      :confirm-loading="relink.loading"
+      destroy-on-close
+      @confirm="handleRelink"
+    >
+      <t-alert
+        theme="warning"
+        class="dlg-alert"
+        message="重新关联后，本实例的电源/控制台/续费/销毁等**所有上游动作**都会作用到新号对应的机器上。请确认新号就是上游正在为本客户运行的那台。"
+      />
+      <t-form label-align="top">
+        <t-form-item label="当前上游实例号">
+          <code>{{ instanceData?.provider_instance_id || '（未开通）' }}</code>
+          <span class="cell-sub">渠道：{{ instanceData?.provider_name || '—' }}</span>
+        </t-form-item>
+        <t-form-item label="目标上游实例号">
+          <t-input v-model="relink.upstream_instance_id" placeholder="从上游面板复制实例 ID（纯数字，如 2057）" />
+          <div class="cell-sub">提交前会向上游探活：号码不存在会被拒绝，不会把实例指向虚空。</div>
+        </t-form-item>
+        <t-form-item v-if="relinkCanMigrateLocal" label="本地实例号">
+          <t-checkbox v-model="relink.migrate_instance_id">
+            同时把本地实例号改为新上游号（当前两者一致，改后可保持语义统一）
+          </t-checkbox>
+          <div v-if="!relink.migrate_instance_id && !relink.migrateDone" class="cell-sub">
+            不改则：本地实例号保持 <code>{{ instanceData?.instance_id }}</code>（历史流水仍可对应）
+          </div>
+        </t-form-item>
+        <t-form-item label="原因">
+          <t-input v-model="relink.reason" placeholder="如：上游换机，旧号 2057 → 新号 2103（写入操作流水）" />
+        </t-form-item>
+      </t-form>
+      <!-- 关联成功后回显从上游拉到的信息，运营一眼核对确实是对的那台 -->
+      <div v-if="relinkResult" class="relink-result">
+        <div class="relink-result__title">已关联，从上游读回：</div>
+        <div class="kv-row"><span class="kv-row__k">主机名</span><span class="kv-row__v">{{ relinkResult.name || '—' }}</span></div>
+        <div class="kv-row"><span class="kv-row__k">状态</span><span class="kv-row__v">{{ instanceStatusLabel(relinkResult.status) }}</span></div>
+        <div class="kv-row"><span class="kv-row__k">公网 IP</span><span class="kv-row__v">{{ relinkResult.public_ip || '—' }}</span></div>
+        <div class="kv-row"><span class="kv-row__k">内网 IP</span><span class="kv-row__v">{{ relinkResult.private_ip || '—' }}</span></div>
+        <div class="kv-row"><span class="kv-row__k">系统 / 区域</span><span class="kv-row__v">{{ osDisplayName(relinkResult.os) }} · {{ relinkResult.region || '—' }}</span></div>
+      </div>
+      <p class="dlg-confirm-tip">
+        请输入当前实例标识 <code>{{ instanceData?.instance_id }}</code> 以确认：
+      </p>
+      <t-input v-model="relink.confirm_mark" :placeholder="instanceData?.instance_id || '当前实例标识'" />
+    </t-dialog>
+
+    <!--
+      更换绑定的本地商品 / 上游镜像：上游换了产品（如五区→六区），
+      本地商品不跟着换，续费会按旧价算、配置也按旧口径推。
+    -->
+    <t-dialog
+      v-model:visible="rebind.visible"
+      header="更换对接商品"
+      width="600px"
+      :confirm-btn="{ content: '确认更换', theme: 'warning' }"
+      :cancel-btn="{ content: '取消' }"
+      :confirm-loading="rebind.loading"
+      destroy-on-close
+      @confirm="handleRebind"
+    >
+      <t-alert
+        theme="warning"
+        class="dlg-alert"
+        message="更换直接决定**续费算价**与推给上游的配置口径。上游换了商品时，本地商品必须同步换过来，否则两边账单对不上。"
+      />
+      <t-form label-align="top">
+        <t-form-item label="当前绑定">
+          <div class="cell-sub">
+            本地商品：<b>{{ instanceData?.product?.name || '—' }}</b>
+            <template v-if="instanceData?.product?.id">（#{{ instanceData.product.id }}）</template>
+          </div>
+          <div class="cell-sub">
+            上游镜像：<b>{{ instanceData?.upstream?.name || '（未关联）' }}</b>
+            <template v-if="instanceData?.upstream">（#{{ instanceData.upstream.resource_product_id }} · 上游号 {{ instanceData.upstream.upstream_id }}）</template>
+          </div>
+        </t-form-item>
+        <t-form-item label="变更项">
+          <t-checkbox-group v-model="rebind.fields">
+            <t-checkbox value="sell">更换本地售出商品</t-checkbox>
+            <t-checkbox value="upstream">更换上游镜像</t-checkbox>
+            <t-checkbox value="renewal_price">同时更新续费价</t-checkbox>
+          </t-checkbox-group>
+          <div class="cell-sub">未勾选的项保持不动；三项可分开做（如只换本地商品、上游镜像已经是对的）。</div>
+        </t-form-item>
+        <t-form-item v-if="rebind.fields.includes('sell')" label="新的本地售出商品 ID">
+          <t-input-number v-model="rebind.sell_product_id" :min="0" placeholder="products.id（可在商品列表查看）" class="dlg-full" />
+          <div class="cell-sub">决定续费算价与展示口径。必须是已上架、同渠道的商品。</div>
+        </t-form-item>
+        <t-form-item v-if="rebind.fields.includes('upstream')" label="新的本地上游镜像 ID">
+          <t-input-number v-model="rebind.upstream_product_id" :min="0" placeholder="resource_products.id（资源商品列表）" class="dlg-full" />
+          <div class="cell-sub">决定上游价与配置来源；必须与实例处于同一渠道，跨渠道会被拒绝。</div>
+        </t-form-item>
+        <t-form-item v-if="rebind.fields.includes('renewal_price')" label="新的绑定续费价（元/周期）">
+          <t-input-number v-model="rebind.renewal_price" :min="0" :decimal-places="2" placeholder="留空 = 清除绑定（回到按商品实时算价）" class="dlg-full" />
+        </t-form-item>
+        <t-form-item label="原因">
+          <t-input v-model="rebind.reason" placeholder="如：上游把五区商品换成六区，同步本地（写入操作流水）" />
+        </t-form-item>
+      </t-form>
+      <div v-if="rebindResult" class="relink-result">
+        <div class="relink-result__title">已更换：</div>
+        <div class="kv-row"><span class="kv-row__k">本地商品</span><span class="kv-row__v">#{{ rebindResult.old_sell_product_id || '—' }} → <b>#{{ rebindResult.new_sell_product_id || '—' }}</b> {{ rebindResult.sell_product_name || '' }}</span></div>
+        <div class="kv-row"><span class="kv-row__k">上游镜像</span><span class="kv-row__v">#{{ rebindResult.old_upstream_product_id || '—' }} → <b>#{{ rebindResult.new_upstream_product_id || '—' }}</b> {{ rebindResult.upstream_product_name || '' }}</span></div>
+      </div>
     </t-dialog>
 
     <!-- 明文凭据查看：点击后即时拉取，不随详情缓存 -->
@@ -787,7 +1274,10 @@
       <t-alert theme="info" class="dlg-alert" message="系统与数据保留，仅更换登录密码。运行中的实例可能被强制重启。" />
       <t-form label-align="top">
         <t-form-item label="新密码">
-          <t-input v-model="resetPwd.password" type="password" placeholder="建议 12 位以上，含大小写与符号" />
+          <div class="pwd-input">
+            <t-input v-model="resetPwd.password" type="password" placeholder="建议 12 位以上，含大小写与数字" />
+            <t-button variant="outline" @click="fillRandomPassword">随机生成</t-button>
+          </div>
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -934,7 +1424,18 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { RefreshIcon, ServerIcon } from 'tdesign-icons-vue-next'
+import {
+  ChatIcon,
+  CpuIcon,
+  DesktopIcon,
+  EditIcon,
+  LinkIcon,
+  RefreshIcon,
+  ServerIcon,
+  UserIcon,
+} from 'tdesign-icons-vue-next'
+import OsIcon from '@/components/OsIcon.vue'
+import { osDisplayName } from './os-icons'
 import { DialogPlugin, MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import {
@@ -945,13 +1446,16 @@ import {
   deleteInstanceSnapshot,
   destroyInstance,
   exitRescueInstance,
+  getInstanceBillingContext,
   getInstanceDetail,
   getInstanceOperations,
   getInstanceRelated,
   getInstanceSnapshots,
   getInstanceVNC,
   powerInstance,
+  rebindInstanceProduct,
   reinstallInstance,
+  relinkInstanceUpstream,
   resetInstancePassword,
   resizeInstance,
   rescueInstance,
@@ -969,6 +1473,7 @@ import { getProviderPlatformResources } from '@/api/admin'
 import {
   combineInstanceState,
   expireStateLabel,
+  formatMemory,
   formatPrice,
   formatTime,
   instanceStatusLabel,
@@ -981,8 +1486,11 @@ import {
   powerActionTips,
 } from '@/pages/instances/constants'
 import type {
+  InstanceAdjustContext,
   InstanceDetail,
+  InstanceRebindProductResult,
   InstanceRelatedResponse,
+  InstanceRelinkResult,
   InstanceSnapshotInfo,
   OperationItem,
   RelatedOrder,
@@ -1194,10 +1702,43 @@ const upstreamRenewText = computed(() => {
   return `¥${formatPrice(amount)}${cycle ? ` / ${cycleLabel(cycle)}` : ''}`
 })
 
+// 账期条的到期着色：只在需要提醒时给颜色（临期橙、过期红），正常不外露颜色。
 const expireGlanceClass = computed(() => {
-  if (instanceData.value?.expire_state === 'expired') return 'glance-card--danger'
-  if (instanceData.value?.expire_state === 'expiring') return 'glance-card--warning'
+  if (instanceData.value?.expire_state === 'expired') return 'hero-billing--danger'
+  if (instanceData.value?.expire_state === 'expiring') return 'hero-billing--warning'
   return ''
+})
+
+// ---- 商品与对接（去重后的对照口径）----
+
+/**
+ * 上游是否改过名：对接商品的 products.name 是从资源镜像生成的，默认与上游同名。
+ * 只有运营改过名才会不同 —— 这时才值得多显示一行"上游原名"，否则就是重复。
+ */
+const upstreamRenamed = computed(() => {
+  const productName = instanceData.value?.product?.name?.trim()
+  const upstreamName = instanceData.value?.upstream?.name?.trim()
+  if (!productName || !upstreamName) return false
+  return productName !== upstreamName
+})
+
+/** 上游采购价与本地记录不一致（上游调价但本地未同步）：续费前要核对。 */
+const upstreamCostDiffers = computed(() => {
+  const upstream = instanceData.value?.upstream
+  const localCost = instanceData.value?.product?.cost_price ?? 0
+  if (!upstream || localCost <= 0) return false
+  return Math.abs(upstream.cost_price - localCost) > 0.009
+})
+
+/**
+ * 毛利率：给运营一个"能不能让利"的直观数字。
+ * 成本为 0（虚拟商品/未记成本）时不出，避免显示成 100% 的假象。
+ */
+const grossMarginText = computed(() => {
+  const price = instanceData.value?.product?.price ?? 0
+  const cost = instanceData.value?.product?.cost_price ?? 0
+  if (price <= 0 || cost <= 0 || cost >= price) return ''
+  return `毛利 ${(((price - cost) / price) * 100).toFixed(1)}%`
 })
 
 function powerStatusText(status: string): string {
@@ -1205,6 +1746,27 @@ function powerStatusText(status: string): string {
   if (status === 'off') return '关机'
   return '未知'
 }
+
+// ===== NAT 机型访问地址（doc122）=====
+// NAT 机型没有独立公网 IP，连接信息来自节点转发地址；只显示 public_ip 会
+// 让运营以为机器没配好，实际是机型本身就没有独立 IP。
+/** 是否 NAT 机型：以后端结论为准（依据 raw_data 机型字段，不靠 public_ip 是否为空猜）。 */
+const isNatInstance = computed(() => instanceData.value?.nat_access?.is_nat === true)
+
+/** NAT 访问信息（模板里不能直接用 instanceData.nat_access：instanceData 可能为 null）。 */
+const natAccess = computed(() => instanceData.value?.nat_access ?? null)
+
+/** NAT 主地址：优先端口转发，其次建站域名；都没有时返回空串（界面提示暂无）。 */
+const natPrimaryAddress = computed(() => {
+  const nat = natAccess.value
+  if (!nat) return ''
+  if (nat.forwards?.length) return nat.forwards[0]
+  if (nat.domains?.length) return nat.domains[0]
+  return ''
+})
+
+/** NAT 读取失败提示（与"没有转发规则"区分：前者可重试，后者是配置状态）。 */
+const natError = computed(() => natAccess.value?.error || '')
 
 function expireClass(row: InstanceDetail): string {
   if (row.expire_state === 'expired') return 'expire-danger'
@@ -1406,6 +1968,21 @@ const maintenanceOptions = computed(() => {
 
 const maintenanceDisabled = computed(() => isPending.value || maintenanceOptions.value.length === 0)
 
+/**
+ * 打开重装弹窗。抽成函数而不是留在下拉的 case 里：主信息区的「操作系统」行
+ * 也挂了一个「重装」按钮（换系统是高频操作，就近给入口），两处必须同一套
+ * 重置逻辑，否则从其中一个入口进来会带着上次的残留值。
+ */
+function openReinstallDialog() {
+  reinstall.os = ''
+  reinstall.port = 0
+  reinstall.system_disk_size = 0
+  reinstall.format_data_disk = false
+  reinstall.reason = ''
+  reinstall.visible = true
+  loadMirrorOptions()
+}
+
 function onMaintenancePick(data: { value: string; disabled?: boolean }) {
   if (data.disabled) {
     MessagePlugin.warning('当前服务商不支持该操作')
@@ -1413,17 +1990,10 @@ function onMaintenancePick(data: { value: string; disabled?: boolean }) {
   }
   switch (data.value) {
     case 'reinstall':
-      reinstall.os = ''
-      reinstall.port = 0
-      reinstall.system_disk_size = 0
-      reinstall.format_data_disk = false
-      reinstall.reason = ''
-      reinstall.visible = true
-      loadMirrorOptions()
+      openReinstallDialog()
       break
     case 'resetpwd':
-      resetPwd.password = ''
-      resetPwd.visible = true
+      openResetPasswordDialog()
       break
     case 'rescue':
       rescue.system = 1
@@ -1629,26 +2199,109 @@ const adjust = reactive<{
   visible: boolean
   expire_at: string
   billing_mode: string
+  renewal_price: number | null
   force: boolean
   reason: string
   loading: boolean
-}>({ visible: false, expire_at: '', billing_mode: '', force: false, reason: '', loading: false })
+}>({ visible: false, expire_at: '', billing_mode: '', renewal_price: null, force: false, reason: '', loading: false })
 
 const adjustConfirmDisabled = computed(
-  () => !adjust.expire_at && !adjust.billing_mode,
+  () => !adjust.expire_at && !adjust.billing_mode && !adjustRenewalPriceDirty.value,
 )
+
+// 绑定价是否被改动过。预填了当前值，所以"提交时带上 renewal_price"不能只看非空 ——
+// 否则每次调账期都会把未改动的绑定价重写一遍（流水里凭空多一条改价记录）。
+const adjustRenewalPriceDirty = computed(() => {
+  const current = instanceData.value?.renewal_price ?? null
+  const next = adjust.renewal_price
+  if (current === null && next === null) return false
+  if (current === null || next === null) return true
+  return Math.abs(current - next) > 0.001
+})
+
+// 账期调整上下文：可选周期（上游能力）+ 各周期上游价/我方价 + 当前绑定价。
+// 由后端算而非前端硬编码 —— 周期列表必须反映上游真实支持范围。
+const adjustCtx = ref<InstanceAdjustContext | null>(null)
+const adjustCtxLoading = ref(false)
+
+const adjustCycleOptions = computed(() =>
+  (adjustCtx.value?.cycles || []).map((c) => ({
+    value: c.cycle,
+    label: c.name,
+    // 有上游采购价时在选项里带出来，省一次展开比价
+    content: c.upstream_cost > 0 ? `${c.name}（上游采购 ¥${c.upstream_cost.toFixed(2)}）` : c.name,
+  })),
+)
+
+const selectedCycleRow = computed(() =>
+  (adjustCtx.value?.cycles || []).find((c) => c.cycle === adjust.billing_mode) || null,
+)
+
+// 选中周期的毛利提示（我方售价 vs 上游采购价）：差值为负是明显亏损，需警示。
+const selectedCycleMarginText = computed(() => {
+  const row = selectedCycleRow.value
+  if (!row || !row.has_product_price || row.upstream_cost <= 0) return ''
+  const diff = row.sale - row.upstream_cost
+  const pct = row.upstream_cost > 0 ? (diff / row.upstream_cost) * 100 : 0
+  if (diff < 0) return `⚠ 按此周期售价 ¥${row.sale.toFixed(2)} 低于上游采购价 ¥${row.upstream_cost.toFixed(2)}，每期亏 ¥${Math.abs(diff).toFixed(2)}`
+  return `毛利 ¥${diff.toFixed(2)}（${pct.toFixed(1)}%）`
+})
+
+const currentRenewalPriceText = computed(() => {
+  const p = adjustCtx.value?.current_renewal_price
+  if (p === null || p === undefined) return '未绑定（按商品实时算价）'
+  return `¥${p.toFixed(2)} / ${cycleLabel(instanceData.value?.billing_mode)}`
+})
+
+// 按上游采购价填入续费价：运营常见诉求是"按成本持平/微利定价"，
+// 手输容易输错，给一键填入（仍可手改）。
+function fillRenewalFromUpstream() {
+  const row = selectedCycleRow.value
+  if (!row || row.upstream_cost <= 0) return
+  adjust.renewal_price = row.upstream_cost
+}
+
+// clearAdjustRenewalPrice 清空输入即"取消绑定"：提交时脏检查判定为"从有到无"，
+// 会带上 -1（后端约定：负值 = 清除绑定）。
+function clearAdjustRenewalPrice() {
+  adjust.renewal_price = null
+}
+
+// 切换周期时若已填续费价，提示它对应的是新周期的承诺价（不自动改数值，避免误改）。
+function onAdjustCycleChange() {
+  const row = selectedCycleRow.value
+  if (row && adjustCtx.value && row.cycle !== adjustCtx.value.current_cycle) {
+    // 仅提示，不改值：绑定价是运营刻意钉的，自动改写会变成"系统偷偷改价"。
+    MessagePlugin.info(`已切到${row.name}：续费价将按该周期生效，请确认下方绑定价`)
+  }
+}
 
 function openAdjustDialog() {
   adjust.expire_at = ''
   adjust.billing_mode = instanceData.value?.billing_mode ?? ''
+  // 预填当前绑定价（详情已下发）：即使上下文接口稍后才回来，运营也能立刻看到现值。
+  adjust.renewal_price = instanceData.value?.renewal_price ?? null
   adjust.force = false
   adjust.reason = ''
   adjust.visible = true
+  void loadAdjustContext()
+}
+
+async function loadAdjustContext() {
+  adjustCtxLoading.value = true
+  try {
+    adjustCtx.value = await getInstanceBillingContext(instanceId)
+  } catch (error) {
+    // 上下文读失败不清空已填内容：对话框仍可提交（后端会独立校验周期合法性）。
+    MessagePlugin.warning((error as Error).message || '读取上游周期与价格失败，周期列表可能不完整')
+  } finally {
+    adjustCtxLoading.value = false
+  }
 }
 
 async function handleAdjustBilling() {
-  if (!adjust.expire_at && !adjust.billing_mode) {
-    MessagePlugin.warning('请至少填写到期时间或付款周期')
+  if (adjustConfirmDisabled.value) {
+    MessagePlugin.warning('请至少填写到期时间、付款周期或续费价')
     return
   }
   adjust.loading = true
@@ -1656,6 +2309,8 @@ async function handleAdjustBilling() {
     const res = await adjustInstanceBilling(instanceId, {
       expire_at: adjust.expire_at || undefined,
       billing_mode: adjust.billing_mode || undefined,
+      // 只在真的改过时才带：否则会把没动过的绑定价原样重写一遍（多余流水 + 覆盖他人改价）。
+      renewal_price: adjustRenewalPriceDirty.value ? (adjust.renewal_price ?? -1) : undefined,
       force: adjust.force || undefined,
       reason: adjust.reason || undefined,
     })
@@ -1667,6 +2322,149 @@ async function handleAdjustBilling() {
     MessagePlugin.error((error as Error).message || '调整账期失败')
   } finally {
     adjust.loading = false
+  }
+}
+
+// ===== 按上游实例号重新关联（上游换机/换号）=====
+
+const relink = reactive<{
+  visible: boolean
+  upstream_instance_id: string
+  confirm_mark: string
+  migrate_instance_id: boolean
+  migrateDone: boolean
+  reason: string
+  loading: boolean
+}>({
+  visible: false,
+  upstream_instance_id: '',
+  confirm_mark: '',
+  migrate_instance_id: false,
+  migrateDone: false,
+  reason: '',
+  loading: false,
+})
+
+const relinkResult = ref<InstanceRelinkResult | null>(null)
+
+// 只有"本地号本来就在用上游号"时才提供同步改写选项：
+// 否则 instance_id 是本地自建号（如 pending-xxx 转正后的历史值），
+// 改它会让历史流水里的实例标识与新号对不上。
+const relinkCanMigrateLocal = computed(
+  () => !!instanceData.value?.instance_id && instanceData.value.instance_id === instanceData.value.provider_instance_id,
+)
+
+const relinkConfirmDisabled = computed(
+  () =>
+    !relink.upstream_instance_id.trim() ||
+    relink.confirm_mark.trim() !== (instanceData.value?.instance_id || ''),
+)
+
+function openRelinkDialog() {
+  relink.upstream_instance_id = ''
+  relink.confirm_mark = ''
+  relink.migrate_instance_id = false
+  relink.migrateDone = false
+  relink.reason = ''
+  relinkResult.value = null
+  relink.visible = true
+}
+
+async function handleRelink() {
+  if (relinkConfirmDisabled.value) {
+    MessagePlugin.warning('请填写目标上游实例号，并准确输入当前实例标识')
+    return
+  }
+  relink.loading = true
+  try {
+    const res = await relinkInstanceUpstream(instanceId, {
+      upstream_instance_id: relink.upstream_instance_id.trim(),
+      confirm_mark: relink.confirm_mark.trim(),
+      migrate_instance_id: relink.migrate_instance_id || undefined,
+      reason: relink.reason || undefined,
+    })
+    relinkResult.value = res
+    relink.migrateDone = res.instance_id_migrated
+    MessagePlugin.success(`已关联到上游实例 ${res.new_provider_instance_id}`)
+    // 重新拉详情：上游号/状态/IP 都已按新机器刷新，界面要跟着走。
+    await loadDetail()
+    loadOperations()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '重新关联失败')
+  } finally {
+    relink.loading = false
+  }
+}
+
+// ===== 更换对接商品（本地商品 / 上游镜像）=====
+
+const rebind = reactive<{
+  visible: boolean
+  fields: string[]
+  sell_product_id: number | null
+  upstream_product_id: number | null
+  renewal_price: number | null
+  reason: string
+  loading: boolean
+}>({
+  visible: false,
+  fields: [],
+  sell_product_id: null,
+  upstream_product_id: null,
+  renewal_price: null,
+  reason: '',
+  loading: false,
+})
+
+const rebindResult = ref<InstanceRebindProductResult | null>(null)
+
+function openRebindDialog() {
+  rebind.fields = []
+  rebind.sell_product_id = null
+  rebind.upstream_product_id = null
+  rebind.renewal_price = null
+  rebind.reason = ''
+  rebindResult.value = null
+  rebind.visible = true
+}
+
+async function handleRebind() {
+  if (!rebind.fields.length) {
+    MessagePlugin.warning('请至少勾选一项要更换的内容')
+    return
+  }
+  const payload: Record<string, unknown> = {}
+  if (rebind.fields.includes('sell')) {
+    if (!rebind.sell_product_id) {
+      MessagePlugin.warning('请填写新的本地售出商品 ID')
+      return
+    }
+    payload.sell_product_id = rebind.sell_product_id
+  }
+  if (rebind.fields.includes('upstream')) {
+    if (rebind.upstream_product_id === null) {
+      MessagePlugin.warning('请填写新的上游镜像 ID')
+      return
+    }
+    payload.upstream_product_id = rebind.upstream_product_id
+  }
+  if (rebind.fields.includes('renewal_price')) {
+    // 空 = 清除绑定（传 -1），与后端「负值 = 清除」的约定对齐。
+    payload.renewal_price = rebind.renewal_price === null ? -1 : rebind.renewal_price
+  }
+  payload.reason = rebind.reason || undefined
+
+  rebind.loading = true
+  try {
+    const res = await rebindInstanceProduct(instanceId, payload)
+    rebindResult.value = res
+    MessagePlugin.success('商品绑定已更换')
+    await loadDetail()
+    loadOperations()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '更换失败')
+  } finally {
+    rebind.loading = false
   }
 }
 
@@ -1801,6 +2599,17 @@ async function handleRenew() {
 
 const vnc = reactive({ visible: false, name: '', url: '', password: '' })
 
+/** 复制文本（公网 IP 这类最常被拿走去连的信息）。 */
+async function copyText(text: string, label: string) {
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    MessagePlugin.success(`${label}已复制`)
+  } catch {
+    MessagePlugin.error('复制失败，请手动选择文本')
+  }
+}
+
 async function handleVnc() {
   try {
     const data = await getInstanceVNC(instanceId)
@@ -1908,6 +2717,29 @@ const resetPwd = reactive<{ visible: boolean; password: string; loading: boolean
   password: '',
   loading: false,
 })
+
+// openResetPasswordDialog 打开重置密码弹窗（凭据格的内联入口与维护下拉共用）。
+function openResetPasswordDialog() {
+  resetPwd.password = ''
+  resetPwd.visible = true
+}
+
+// fillRandomPassword 生成符合上游面板强度策略的随机密码（12 位含大小写与数字）。
+// 与后端的生成器同策略：剔除 0/O/o/1/l/I 等易混淆字符 —— 这段密码要被手抄到 SSH 里。
+function fillRandomPassword() {
+  const lower = 'abcdefghijkmnpqrstuvwxyz'
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+  const digit = '23456789'
+  const all = lower + upper + digit
+  const pick = (set: string) => set[Math.floor(Math.random() * set.length)]
+  const chars = [pick(lower), pick(upper), pick(digit)]
+  while (chars.length < 12) chars.push(pick(all))
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[chars[i], chars[j]] = [chars[j], chars[i]]
+  }
+  resetPwd.password = chars.join('')
+}
 
 async function handleResetPassword() {
   if (!resetPwd.password) {

@@ -1067,6 +1067,10 @@ func (e *SyncEngine) convertPool(providerID uint64, fallbackRegion string, p *up
 		Zone:             p.Zone,
 		ParentUpstreamID: p.ParentUpstreamID,
 	}
+	// last_sync_at 必须显式赋值：UpsertPools 的更新列包含该字段，零值会被写成 NULL，
+	// 结果"同步来的池"看起来从没同步过——前端据此判断删除后会不会重新出现。
+	syncedAt := time.Now()
+	row.LastSyncAt = &syncedAt
 	if p.Live != nil {
 		row.ProbeStatus = p.Live.Status
 		row.ProbeMessage = truncateRunes(p.Live.Message, 255)

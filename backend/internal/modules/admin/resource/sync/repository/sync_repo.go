@@ -244,6 +244,11 @@ func (r *syncRepository) UpsertInstances(ctx context.Context, items []model.Inst
 			"provider_instance_id": gorm.Expr(
 				"CASE WHEN excluded.provider_instance_id <> '' THEN excluded.provider_instance_id ELSE instances.provider_instance_id END",
 			),
+			// 登录密码密文（迁移 100）：同步来源的行永远为空、开通落库的行有值。
+			// 与 raw_data 相反，这里只进不退——空值不得覆盖已有密文，否则每次同步都会把密码抹掉。
+			"credential_password": gorm.Expr(
+				"CASE WHEN excluded.credential_password <> '' THEN excluded.credential_password ELSE instances.credential_password END",
+			),
 		}),
 	}).Create(&items).Error
 }
@@ -278,30 +283,43 @@ func (r *syncRepository) AdoptPendingInstance(ctx context.Context, orderID uint6
 	res := r.db.WithContext(ctx).Model(&model.Instance{}).
 		Where("order_id = ? AND provider_instance_id = ''", orderID).
 		Where("NOT EXISTS (SELECT 1 FROM instances x WHERE x.instance_id = ? AND x.id <> instances.id)", row.InstanceID).
-		Updates(map[string]any{
-			"instance_id":          row.InstanceID,
-			"provider_instance_id": row.ProviderInstanceID,
-			"status":               row.Status,
-			"name":                 row.Name,
-			"public_ip":            row.PublicIP,
-			"private_ip":           row.PrivateIP,
-			"cpu":                  row.CPU,
-			"memory":               row.Memory,
-			"disk":                 row.Disk,
-			"disk_type":            row.DiskType,
-			"bandwidth":            row.Bandwidth,
-			"os":                   row.OS,
-			"region":               row.Region,
-			"zone":                 row.Zone,
-			"raw_data":             row.RawData,
-			"expire_at":            row.ExpireAt,
-			"last_synced_at":       time.Now(),
-			"updated_at":           time.Now(),
-		})
+		Updates(adoptPendingUpdates(row))
 	if res.Error != nil {
 		return false, res.Error
 	}
 	return res.RowsAffected > 0, nil
+}
+
+// adoptPendingUpdates 占位行转正的更新列。
+//
+// 独立成函数是为了让「哪些列不该被空值覆盖」显式可见：credential_password 只在
+// 开通侧确实带了密文时才写——占位行本没有密码，用空串覆盖会把上一次开通已存的
+// 密码抹掉（例如补跑一次不带密码的接管流程）。
+func adoptPendingUpdates(row *model.Instance) map[string]any {
+	updates := map[string]any{
+		"instance_id":          row.InstanceID,
+		"provider_instance_id": row.ProviderInstanceID,
+		"status":               row.Status,
+		"name":                 row.Name,
+		"public_ip":            row.PublicIP,
+		"private_ip":           row.PrivateIP,
+		"cpu":                  row.CPU,
+		"memory":               row.Memory,
+		"disk":                 row.Disk,
+		"disk_type":            row.DiskType,
+		"bandwidth":            row.Bandwidth,
+		"os":                   row.OS,
+		"region":               row.Region,
+		"zone":                 row.Zone,
+		"raw_data":             row.RawData,
+		"expire_at":            row.ExpireAt,
+		"last_synced_at":       time.Now(),
+		"updated_at":           time.Now(),
+	}
+	if row.CredentialPassword != "" {
+		updates["credential_password"] = row.CredentialPassword
+	}
+	return updates
 }
 
 // DeletePendingInstanceByOrder 删除某订单的占位实例（未支付订单关单/取消时调用）。

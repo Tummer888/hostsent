@@ -17,7 +17,7 @@
             <span class="dot">·</span>
             {{ instance.os || '未知系统' }}
             <span class="dot">·</span>
-            {{ instance.public_ip || '未分配公网 IP' }}
+            {{ isNatInstance ? (natAddresses[0] || 'NAT 机型（暂无转发地址）') : (instance.public_ip || '未分配公网 IP') }}
           </p>
         </div>
       </div>
@@ -147,7 +147,21 @@
         <h3 class="card-title">基础信息</h3>
         <div class="kv-list">
           <div class="kv"><span class="kv-key">实例 ID</span><span class="kv-val mono">{{ instance.instance_id }}</span></div>
-          <div class="kv"><span class="kv-key">公网 IP</span><span class="kv-val mono">{{ instance.public_ip || '—' }}</span></div>
+          <!-- NAT 机型没有独立 IP：不能只写"—"，那会让客户以为机器没配好。
+               直接把转发地址放在这一行，这是他们唯一能连上机器的方式。 -->
+          <div v-if="isNatInstance" class="kv">
+            <span class="kv-key">访问地址</span>
+            <span class="kv-val mono">
+              <template v-if="natAddresses.length">
+                <span v-for="addr in natAddresses" :key="addr" class="nat-addr">
+                  {{ addr }}
+                  <t-link theme="primary" hover="color" size="small" @click="copyAddress(addr)">复制</t-link>
+                </span>
+              </template>
+              <template v-else>暂无转发地址</template>
+            </span>
+          </div>
+          <div class="kv"><span class="kv-key">公网 IP</span><span class="kv-val mono">{{ isNatInstance ? '不适用（NAT 机型）' : (instance.public_ip || '—') }}</span></div>
           <div class="kv"><span class="kv-key">内网 IP</span><span class="kv-val mono">{{ instance.private_ip || '—' }}</span></div>
           <div class="kv"><span class="kv-key">操作系统</span><span class="kv-val">{{ instance.os || '—' }}</span></div>
           <div class="kv">
@@ -423,6 +437,13 @@
       </div>
     </t-dialog>
   </div>
+  <div v-else-if="loadError" class="loading-wrap">
+    <t-empty :description="loadError">
+      <template #action>
+        <t-button theme="primary" :loading="loading" @click="load(false)">重试</t-button>
+      </template>
+    </t-empty>
+  </div>
   <div v-else class="loading-wrap"><t-loading size="large" text="加载中..." /></div>
 </template>
 
@@ -490,6 +511,8 @@ const route = useRoute()
 const router = useRouter()
 const instance = ref<InstanceInfo | null>(null)
 const loading = ref(false)
+/** 加载失败原因（空串=正常）：模板据此显示错误态 + 重试，而不是一直空着。 */
+const loadError = ref('')
 
 const instanceId = computed(() => Number(route.params.id))
 
@@ -539,6 +562,27 @@ const stateAlert = computed<{ theme: string; message: string; action?: string } 
 const isPending = computed(() => !!instance.value && !instance.value.provider_instance_id)
 const retrying = ref(false)
 
+// ===== NAT 机型访问地址（doc122）=====
+// NAT 机型没有独立公网 IP，客户必须拿到节点转发地址才能连上机器；
+// 只显示"未分配公网 IP"会让客户以为机器没配好。
+const isNatInstance = computed(() => instance.value?.nat_access?.is_nat === true)
+
+/** 全部可访问地址：端口转发优先，其后是建站域名（两者都能连上机器）。 */
+const natAddresses = computed(() => {
+  const nat = instance.value?.nat_access
+  if (!nat) return []
+  return [...(nat.forwards || []), ...(nat.domains || [])]
+})
+
+async function copyAddress(addr: string) {
+  try {
+    await navigator.clipboard.writeText(addr)
+    MessagePlugin.success('已复制')
+  } catch {
+    MessagePlugin.warning('复制失败，请手动选择文本复制')
+  }
+}
+
 const provisionAlertTitle = computed(() => {
   const st = instance.value?.provision_status
   if (st === 'manual') return '开通失败，需人工处理（可重新开通）'
@@ -572,9 +616,14 @@ const vnc = ref<{ visible: boolean; url: string }>({ visible: false, url: '' })
 
 async function load(live = false) {
   loading.value = true
+  loadError.value = ''
   try {
     const res = await getInstance(instanceId.value, live)
     instance.value = res.data
+  } catch (error) {
+    // 与列表页同理：拦截器只弹提示并 reject，不 catch 会让详情页停在空白。
+    // 已有数据时保留展示（刷新失败不该把已看到的内容擦掉），无数据才走错误态。
+    loadError.value = (error as Error)?.message || '加载失败，请稍后重试'
   } finally {
     loading.value = false
   }
@@ -1185,6 +1234,18 @@ async function submitDeleteSnapshot(row: SnapshotInfo) {
 .mono {
   font-family: var(--hs-font-mono);
   font-size: 12.5px;
+}
+
+/* NAT 访问地址：可能有多条（SSH/网站/数据库各一条），逐条一行并各自带复制。 */
+.nat-addr {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+}
+
+.nat-addr:first-child {
+  margin-left: 0;
 }
 
 .days--danger {

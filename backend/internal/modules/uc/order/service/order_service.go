@@ -516,6 +516,8 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 		// 选项加价小计落 price_snapshot 之外的量：orders 无独立列，随选配明细一起在
 		// order_items 体现（行级 Amount 已含加价），此处不再新增列以免迁移面扩大。
 		OperatorID: actorID, // 真实操作人（子账号下单可追溯，P4-09）
+		// 客户备注：下单时填写，履约建实例占位时带到 instances.customer_remark。
+		CustomerRemark: truncRunes(strings.TrimSpace(req.CustomerRemark), 255),
 	}
 	if useChannel {
 		// 未收款：不写 paid_amount/pay_method/pay_time，避免未付款的订单混进销售额口径
@@ -677,7 +679,6 @@ func (s *orderService) Detail(ctx context.Context, userID, orderID uint64) (*dto
 	info.Quantity = order.Quantity
 	info.Cycle = order.Cycle
 	info.PriceSnapshot = order.PriceSnapshot
-	info.Remark = order.Remark
 	if order.PayTime != nil {
 		info.PayTime = order.PayTime.Format(time.RFC3339)
 	}
@@ -939,7 +940,10 @@ func fromAdminOrder(o ordermodel.Order, actorNames map[uint64]string) dto.OrderI
 		FinalAmount:    o.FinalAmount,
 		DiscountSource: o.DiscountSource,
 		CreatedAt:      o.CreatedAt.Format(time.RFC3339),
-		Remark:         o.Remark,
+		// 注意这里**不带** o.Remark：它是运营在管理端写的内部备注
+		// （PUT /orders/:id/remark），而本函数是订单 → 用户可见字段的唯一出口
+		// （列表与详情都走它）。逐个调用点去清容易漏，在这里就不带出去。
+		CustomerRemark: o.CustomerRemark,
 	}
 	// 客户选配项选择回显（T4.5）：详情页展示「所选配置」，售后核对也看这个。
 	if strings.TrimSpace(o.ConfigOptions) != "" {
@@ -1074,4 +1078,17 @@ func payableAmount(o *ordermodel.Order) float64 {
 // genOrderNo 生成订单号：时间戳 + 随机。
 func genOrderNo(userID uint64) string {
 	return fmt.Sprintf("UC%d%d%04d", userID, time.Now().Unix(), rand.Intn(10000))
+}
+
+// truncRunes 按**字符**截断（不是字节）：中文备注按字节截断会切出半个字，
+// 落库后前端显示成乱码方块。超长直接截断而不是报错，避免因备注长度挡下单主流程。
+func truncRunes(s string, max int) string {
+	if max <= 0 {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max])
 }

@@ -419,6 +419,27 @@ func (h *InstanceHandler) BatchAction(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// BatchDestroy 批量销毁实例（不可逆，逐台确认 + 逐台结果）。
+// @Summary 批量销毁实例
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param body body dto.BatchDestroyRequest true "实例 ID 列表与逐台确认文本"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/batch-destroy [post]
+func (h *InstanceHandler) BatchDestroy(c *gin.Context) {
+	var req dto.BatchDestroyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	resp, err := h.svc.BatchDestroy(c.Request.Context(), operator(c), &req)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
 // Destroy 销毁实例。
 // @Summary 销毁实例（需二次确认实例标识）
 // @Tags 管理端-实例运维
@@ -725,6 +746,78 @@ func (h *InstanceHandler) AdjustBilling(c *gin.Context) {
 		return
 	}
 	resp, err := h.svc.AdjustBilling(c.Request.Context(), operator(c), id, &req)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// AdjustContext 读账期调整上下文（可选周期取自上游能力 + 各周期上游价/我方价）。
+// @Summary 账期调整上下文（可选周期与价格）
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/billing-context [get]
+func (h *InstanceHandler) AdjustContext(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.svc.AdjustContext(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// RelinkUpstream 按上游实例号重新关联（上游换机/换号后拉取新机器信息）。
+// @Summary 按上游实例号重新关联实例
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Param body body dto.RelinkRequest true "目标上游实例号与确认标识"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/relink [post]
+func (h *InstanceHandler) RelinkUpstream(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var req dto.RelinkRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	resp, err := h.svc.RelinkUpstream(c.Request.Context(), operator(c), id, &req)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// RebindProduct 更换实例绑定的本地商品与上游镜像（上游换产品场景）。
+// @Summary 更换实例绑定的商品/上游镜像
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Param body body dto.RebindProductRequest true "目标本地商品与上游镜像"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/rebind-product [post]
+func (h *InstanceHandler) RebindProduct(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var req dto.RebindProductRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	resp, err := h.svc.RebindProduct(c.Request.Context(), operator(c), id, &req)
 	if err != nil {
 		response.Error(c, writeError(err))
 		return

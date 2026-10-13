@@ -108,6 +108,17 @@
             >
               {{ act.label }}
             </t-button>
+            <!-- 批量销毁：不可逆且会真删上游机器，独立权限码 + 逐台确认，不与电源动作同组 -->
+            <t-button
+              v-if="canDestroy"
+              size="small"
+              theme="danger"
+              variant="outline"
+              :loading="batchRunning"
+              @click="openBatchDestroyDialog"
+            >
+              批量销毁
+            </t-button>
             <t-button size="small" variant="text" @click="clearSelection">清空</t-button>
           </template>
           <span v-else class="table-card__meta">共 {{ total }} 台实例</span>
@@ -143,8 +154,12 @@
 
         <template #spec="{ row }">
           <div>
-            <span class="cell-strong">{{ row.cpu }} 核 / {{ row.memory }} MB / {{ row.disk }} GB</span>
-            <div class="cell-sub">{{ row.os || '—' }}</div>
+            <span class="cell-strong">{{ row.cpu }} 核 / {{ formatMemory(row.memory) }} / {{ row.disk }} GB</span>
+            <!-- 系统带图标 + 清洗后的版本名：列表里扫一眼就能分辨客户是哪套环境 -->
+            <div class="cell-sub spec-os">
+              <OsIcon :os="row.os" />
+              <span>{{ osDisplayName(row.os) }}</span>
+            </div>
           </div>
         </template>
 
@@ -189,6 +204,7 @@
                 { content: '同步刷新', value: 'sync', hidden: () => !has('instance:action') || !!row.pending, disabled: () => syncingId === row.id },
                 { content: row.lifecycle_stage === 'suspended' ? '恢复服务' : '暂停服务', value: 'toggle-suspend', hidden: () => !has('instance:action') },
                 { content: '备注', value: 'remark', hidden: () => !has('instance:action') },
+                { content: '销毁实例', value: 'destroy', theme: 'error', hidden: () => !canDestroy || !instanceDestroyable(row) },
               ])"
               @select="(value) => handleMobileAction(value, row)"
             />
@@ -282,6 +298,19 @@
                       暂停服务
                     </t-dropdown-item>
                     <t-dropdown-item @click="openRemarkDialog(row)">备注</t-dropdown-item>
+                    <!--
+                      销毁：行内补齐。此前列表没有任何删除入口（用户实测反馈
+                      "没办法删除实例"），只能进详情页销毁；而"清掉一批测试机"
+                      恰恰是列表页的高频动作。走与详情页同一套二次确认弹窗
+                      （查能力位 + 输入实例标识确认 + 权限码 instance:destroy）。
+                    -->
+                    <t-dropdown-item
+                      v-if="canDestroy && instanceDestroyable(row)"
+                      :disabled="actioningId === row.id"
+                      @click="openDestroyDialog(row)"
+                    >
+                      <span class="danger-text">销毁实例</span>
+                    </t-dropdown-item>
                   </t-dropdown-menu>
                 </t-dropdown>
               </span>
@@ -319,6 +348,119 @@
           <t-textarea v-model="remarkForm.remark" :autosize="{ minRows: 3, maxRows: 6 }" placeholder="请输入实例备注" />
         </t-form-item>
       </t-form>
+    </t-dialog>
+
+    <!-- 单台销毁：与详情页同一套二次确认口径（输入实例标识），提交后逐台回显结果 -->
+    <t-dialog
+      v-model:visible="destroyForm.visible"
+      header="销毁实例"
+      width="480px"
+      :confirm-btn="{ content: '确认销毁', theme: 'danger' }"
+      :cancel-btn="{ content: '再想想' }"
+      :confirm-disabled="destroyForm.mark.trim() !== destroyForm.instanceMark"
+      :confirm-loading="destroyForm.loading"
+      destroy-on-close
+      @confirm="handleDestroy"
+      @close="destroyForm.visible = false"
+    >
+      <t-alert
+        theme="error"
+        class="dlg-alert"
+        :message="`销毁后不可恢复：将从平台删除 ${destroyForm.name || '该实例'}，数据全部丢失。`"
+      />
+      <p class="dlg-confirm-tip">
+        请输入实例标识 <code>{{ destroyForm.instanceMark || '—' }}</code> 以确认：
+      </p>
+      <t-input v-model="destroyForm.mark" :placeholder="destroyForm.instanceMark || '实例标识'" />
+      <t-form label-align="top" class="destroy-reason">
+        <t-form-item label="原因（可选，写入操作流水）">
+          <t-input v-model="destroyForm.reason" placeholder="如：测试机清理" />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
+
+    <!-- 批量销毁：逐台列出并要求确认文本，逐台结果回显 -->
+    <t-dialog
+      v-model:visible="batchDestroy.visible"
+      header="批量销毁实例"
+      width="680px"
+      :footer="batchDestroy.done"
+      destroy-on-close
+      @close="batchDestroy.visible = false"
+    >
+      <template v-if="!batchDestroy.done">
+        <t-alert
+          theme="error"
+          class="dlg-alert"
+          :message="`将从平台删除选中的 ${batchDestroy.targets.length} 台实例，数据全部丢失且不可恢复。勾选全选不等于一键删除：请逐台确认。`"
+        />
+        <t-table
+          row-key="id"
+          :data="batchDestroy.targets"
+          :columns="batchDestroyColumns"
+          size="small"
+          :pagination="undefined"
+          table-layout="fixed"
+          cell-empty-content="—"
+        >
+          <template #instance="{ row }">
+            <div>
+              <span class="cell-strong">{{ row.name || '—' }}</span>
+              <div class="cell-sub">{{ row.instance_mark || '—' }}</div>
+            </div>
+          </template>
+          <template #instance_mark="{ row }">
+            <code>{{ row.instance_mark }}</code>
+          </template>
+          <template #confirm="{ row }">
+            <t-input v-model="row.confirm" size="small" :placeholder="row.instance_mark" />
+          </template>
+        </t-table>
+        <div class="destroy-actions">
+          <t-button variant="outline" @click="batchDestroy.visible = false">再想想</t-button>
+          <t-button
+            theme="danger"
+            :disabled="!batchDestroyReady"
+            :loading="batchDestroy.running"
+            @click="handleBatchDestroy"
+          >
+            确认销毁 {{ batchDestroy.targets.length }} 台
+          </t-button>
+        </div>
+      </template>
+      <div v-else class="batch-result">
+        <p class="batch-result__summary">
+          成功 {{ batchDestroy.result?.succeeded ?? 0 }} 台 · 跳过 {{ batchDestroy.result?.skipped ?? 0 }} 台 · 失败
+          {{ batchDestroy.result?.failed ?? 0 }} 台
+        </p>
+        <t-table
+          row-key="id"
+          :data="batchDestroy.result?.items ?? []"
+          :columns="batchResultColumns"
+          size="small"
+          :pagination="undefined"
+          table-layout="fixed"
+          cell-empty-content="—"
+        >
+          <template #instance="{ row }">
+            <div>
+              <span class="cell-strong">{{ row.name || '—' }}</span>
+              <div class="cell-sub">{{ row.instance_mark || '—' }}</div>
+            </div>
+          </template>
+          <template #status="{ row }">
+            <t-tag :theme="batchStatusTheme(row.status)" variant="light" size="small" shape="round">
+              {{ batchStatusLabel(row.status) }}
+            </t-tag>
+          </template>
+          <template #message="{ row }">
+            <span :class="{ 'op-error': row.status === 'failed' }" class="cell-muted">{{ row.message || '—' }}</span>
+          </template>
+        </t-table>
+        <div class="destroy-actions">
+          <t-button theme="primary" @click="batchDestroy.visible = false">关闭</t-button>
+        </div>
+      </div>
     </t-dialog>
 
     <t-dialog
@@ -401,7 +543,9 @@ import {
   getInstanceList,
   getInstanceStats,
   getInstanceVNC,
+  batchDestroyInstances,
   batchInstanceAction,
+  destroyInstance,
   powerInstance,
   retryInstanceProvision,
   suspendInstance,
@@ -412,6 +556,7 @@ import {
 import {
   combineInstanceState,
   expireStateOptions,
+  formatMemory,
   formatTime,
   instanceStatusLabel,
   instanceStatusOptions,
@@ -420,10 +565,18 @@ import {
   powerActionTips,
 } from '@/pages/instances/constants'
 import { sourceModeOptions } from '@/pages/product/constants'
-import type { InstanceBatchActionItem, InstanceBatchActionResponse, InstanceItem, InstanceStatsResponse } from '@/types/interface'
+import type {
+  InstanceBatchActionItem,
+  InstanceBatchActionResponse,
+  InstanceBatchDestroyResponse,
+  InstanceItem,
+  InstanceStatsResponse,
+} from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
+import OsIcon from '@/components/OsIcon.vue'
+import { osDisplayName } from './os-icons'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { usePermission } from '@/composables/usePermission'
 
@@ -756,6 +909,132 @@ async function handleSaveRemark() {
   }
 }
 
+// —— 销毁（行内单台 / 批量）——
+//
+// 与详情页同一套护栏：权限码 instance:destroy、平台有销毁能力、
+// 且必须照抄实例标识确认。列表页此前完全没有删除入口，只能进详情页——
+// 而"清掉一批测试机"恰恰是列表页的高频动作。
+const canDestroy = computed(() => has('instance:destroy'))
+
+// instanceDestroyable 该行能否销毁：占位行（未在上游开通）与已销毁行不出现该入口。
+function instanceDestroyable(row: InstanceItem): boolean {
+  if (!row.instance_id) return false
+  if (row.status === 'deleted') return false
+  // 待开通占位行没有上游实例号：销毁动作无处可发，走订单侧取消。
+  return !row.pending
+}
+
+const destroyForm = reactive({
+  visible: false,
+  id: 0,
+  name: '',
+  instanceMark: '',
+  mark: '',
+  reason: '',
+  loading: false,
+})
+
+function openDestroyDialog(row: InstanceItem) {
+  destroyForm.id = row.id
+  destroyForm.name = row.name || row.instance_id
+  destroyForm.instanceMark = row.instance_id
+  destroyForm.mark = ''
+  destroyForm.reason = ''
+  destroyForm.visible = true
+}
+
+async function handleDestroy() {
+  if (destroyForm.mark.trim() !== destroyForm.instanceMark) {
+    MessagePlugin.warning('请准确输入实例标识以确认')
+    return
+  }
+  destroyForm.loading = true
+  try {
+    await destroyInstance(destroyForm.id, {
+      confirm_mark: destroyForm.mark.trim(),
+      reason: destroyForm.reason || undefined,
+    })
+    MessagePlugin.success('实例已销毁')
+    destroyForm.visible = false
+    loadAll()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '销毁失败')
+  } finally {
+    destroyForm.loading = false
+  }
+}
+
+// 批量销毁：目标与逐台确认文本都先备好，弹窗里逐行确认后一次性提交。
+const batchDestroy = reactive<{
+  visible: boolean
+  targets: { id: number; name: string; instance_mark: string; confirm: string }[]
+  result: InstanceBatchDestroyResponse | null
+  done: boolean
+  running: boolean
+}>({
+  visible: false,
+  targets: [],
+  result: null,
+  done: false,
+  running: false,
+})
+
+// 逐行确认列：每台都要把实例标识抄一遍，复制粘贴不等于确认。
+const batchDestroyColumns: PrimaryTableCol[] = [
+  { colKey: 'instance', title: '实例', width: 200 },
+  { colKey: 'instance_mark', title: '实例标识', width: 180 },
+  { colKey: 'confirm', title: '输入实例标识确认', width: 240 },
+]
+
+function openBatchDestroyDialog() {
+  if (!selectedIds.value.length) return
+  const chosen = instanceList.value.filter((row) => selectedIds.value.includes(row.id) && instanceDestroyable(row))
+  if (!chosen.length) {
+    MessagePlugin.warning('选中的实例都不可销毁（待开通或已销毁）')
+    return
+  }
+  batchDestroy.targets = chosen.map((row) => ({
+    id: row.id,
+    name: row.name || row.instance_id,
+    instance_mark: row.instance_id,
+    confirm: '',
+  }))
+  batchDestroy.result = null
+  batchDestroy.done = false
+  batchDestroy.visible = true
+}
+
+// 全部确认到位才允许提交：少一台就再等一步，不做"部分静默跳过"（用户看不到哪台没删）。
+const batchDestroyReady = computed(
+  () => batchDestroy.targets.length > 0 && batchDestroy.targets.every((t) => t.confirm.trim() === t.instance_mark),
+)
+
+async function handleBatchDestroy() {
+  if (!batchDestroyReady.value) {
+    MessagePlugin.warning('请逐台输入实例标识完成确认')
+    return
+  }
+  const marks: Record<string, string> = {}
+  for (const target of batchDestroy.targets) {
+    marks[String(target.id)] = target.confirm.trim()
+  }
+  batchDestroy.running = true
+  try {
+    const resp = await batchDestroyInstances({
+      ids: batchDestroy.targets.map((t) => t.id),
+      confirm_marks: marks,
+    })
+    batchDestroy.result = resp
+    batchDestroy.done = true
+    clearSelection()
+    loadAll()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '批量销毁失败')
+  } finally {
+    batchDestroy.running = false
+  }
+}
+
 const vnc = reactive({ visible: false, name: '', url: '', password: '' })
 
 async function handleVnc(row: InstanceItem) {
@@ -881,6 +1160,9 @@ function handleMobileAction(value: string | number | Record<string, any>, row: I
       break
     case 'remark':
       openRemarkDialog(row)
+      break
+    case 'destroy':
+      openDestroyDialog(row)
       break
   }
 }

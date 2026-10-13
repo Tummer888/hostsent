@@ -11,6 +11,7 @@ import (
 
 	"hostsent/backend/internal/modules/admin/instance/dto"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
+	pkgmodel "hostsent/backend/internal/pkg/model"
 )
 
 // ErrNotFound 实例不存在。
@@ -59,9 +60,48 @@ type InstanceRepository interface {
 	UpdateDisk(ctx context.Context, id uint64, disk int) error
 	// UpdateLifecycleStage 落库生命周期阶段（T5.4/T5.5：手动暂停/恢复与推进器共用）。
 	UpdateLifecycleStage(ctx context.Context, id uint64, stage string) error
+	// UpdateCredentialPassword 覆盖登录密码密文（重置密码/重装后平台返回新密码时）。
+	// 与开通写入的区别：这里允许覆盖（新密码就是权威值），但仍只收密文。
+	UpdateCredentialPassword(ctx context.Context, id uint64, encrypted string) error
 	// AdjustBilling 运维手工调整账期/付款周期（不产生账单，只改口径）。
 	// expireAt 为 nil 且 clearExpire=true 时清空到期时间（一次性/买断商品）。
 	AdjustBilling(ctx context.Context, id uint64, expireAt *time.Time, clearExpire bool, billingMode string) error
+	// SetRenewalPrice 绑定/清除实例续费单价（instances.renewal_price）。
+	// price 为 nil 或负值时清除绑定（回到按商品实时算价）。
+	//
+	// 与 AdjustBilling 分列写入而非合并：绑定价是"下次续费按这个价"的承诺，
+	// 常在只改价不改周期时单独设置，混在一个 Updates 里会互相干扰。
+	SetRenewalPrice(ctx context.Context, id uint64, price *float64) error
+	// RelinkUpstream 把实例重新关联到另一个上游实例号（上游换机场景）。
+	// migrateInstanceID 为 true 时同时改写本地展示号 instance_id。
+	// 只改号与回源字段，不动账期/续费价/归属（那些是本地决策，与上游号无关）。
+	RelinkUpstream(ctx context.Context, id uint64, newUpstreamID string, migrateInstanceID bool, inst *UpstreamSnapshot) error
+	// CountByProviderInstanceID 统计除 excludeID 外还有哪些实例占用了该上游号。
+	// 用于"一号一台"守卫：若已被别的实例占用，重新关联会把两台实例指向同一台机器。
+	CountByProviderInstanceID(ctx context.Context, providerInstanceID string, excludeID uint64) (int64, error)
+	// RebindProduct 更换实例绑定的本地商品与上游镜像（上游换产品场景）。
+	//   - sellProductID > 0 时改写 sell_product_id；
+	//   - upstreamProductID 非 nil 时改写 upstream_product_id（指向 0 = 清空）。
+	RebindProduct(ctx context.Context, id uint64, sellProductID uint64, upstreamProductID *uint64) error
+	// FreeInstanceIDForDestroyed 为重新关联腾出 instance_id：把**已销毁**行的 instance_id
+	// 改成带前缀的归档形式，返回被腾出的行数。
+	//
+	// 为什么必须这么做：instances.instance_id 有唯一索引，而销毁行保留原号（历史可溯）。
+	// 上游回收号段后把老号发给新机器是常见做法，此时目标号恰好等于某条销毁行用过的号，
+	// 直接改写就会撞唯一约束（实测 23505）。销毁行不再承载任何上游动作，
+	// 它的 instance_id 仅用于历史展示，加个标注前缀即可让位。
+	FreeInstanceIDForDestroyed(ctx context.Context, instanceID string, keepID uint64) (int64, error)
+}
+
+// UpstreamSnapshot 回源拉到的上游实例关键字段（重新关联时回写本地快照）。
+type UpstreamSnapshot struct {
+	Status    string
+	PublicIP  string
+	PrivateIP string
+	Name      string
+	OS        string
+	Region    string
+	RawData   string
 }
 
 type instanceRepository struct {
@@ -304,6 +344,19 @@ func (r *instanceRepository) UpdateLifecycleStage(ctx context.Context, id uint64
 		Update("lifecycle_stage", stage).Error
 }
 
+// UpdateCredentialPassword 覆盖登录密码密文（重置密码后调用）。
+//
+// 重置成功后旧密码立即失效，留存必须同步更新——否则「查看密码」会一直显示
+// 一个已经登不上去的历史密码。参数是密文（调用方加密），本层不接触明文。
+func (r *instanceRepository) UpdateCredentialPassword(ctx context.Context, id uint64, encrypted string) error {
+	if encrypted == "" {
+		return nil
+	}
+	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("id = ?", id).
+		Update("credential_password", encrypted).Error
+}
+
 // AdjustBilling 运维手工调整账期/付款周期。
 //
 // 只改 instances 的两列，不写 lifecycle_stage：阶段由推进器按新的 expire_at 重新派生
@@ -324,6 +377,123 @@ func (r *instanceRepository) AdjustBilling(ctx context.Context, id uint64, expir
 	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
 		Where("id = ?", id).
 		Updates(updates).Error
+}
+
+// SetRenewalPrice 绑定/清除续费单价（instances.renewal_price）。
+//
+// 非正值一律写 NULL（未绑定）：0 元续费会被续费守卫拒绝，
+// 存一个算不出钱的绑定价只会让续费在别的环节报错，不如明确当作"没绑过"。
+func (r *instanceRepository) SetRenewalPrice(ctx context.Context, id uint64, price *float64) error {
+	var value any
+	if price != nil && *price > 0 {
+		value = money2(*price) // 同包（detail_repo.go）的金额取整工具
+	}
+	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("id = ?", id).
+		Update("renewal_price", value).Error
+}
+
+// CountByProviderInstanceID 统计仍会向上游发指令的实例中，占用该上游号的**其他**实例数。
+//
+// 只统计"活着的"实例（排除已销毁）：销毁行不再向上游发任何指令，攥着一个上游号不会
+// 造成"两台实例抢同一台机器"的问题；把它算作占用反而会挡住正常换绑
+// （实测：上游换机后新号恰好等于某台已销毁行用过的号，重新关联被死锁）。
+func (r *instanceRepository) CountByProviderInstanceID(ctx context.Context, providerInstanceID string, excludeID uint64) (int64, error) {
+	id := strings.TrimSpace(providerInstanceID)
+	if id == "" {
+		return 0, nil
+	}
+	var n int64
+	err := r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("provider_instance_id = ? AND id <> ?", id, excludeID).
+		Where("status <> ?", string(pkgmodel.InstanceStatusDeleted)).
+		Where("coalesce(lifecycle_stage, '') <> ?", "destroyed").
+		Count(&n).Error
+	return n, err
+}
+
+// RelinkUpstream 把实例重新关联到新的上游实例号，并回写回源拉到的字段。
+//
+// 只改「上游号 + 回源字段」这几列，**不动**账期/续费价/归属/来源订单：
+// 那些是本系统的经营决策（谈定的价、本地账期口径），与"机器换成哪一台"无关。
+// 上游号本身必须已探活（由服务层保证），这里不再复核。
+func (r *instanceRepository) RelinkUpstream(ctx context.Context, id uint64, newUpstreamID string, migrateInstanceID bool, inst *UpstreamSnapshot) error {
+	target := strings.TrimSpace(newUpstreamID)
+	if target == "" {
+		return errors.New("目标上游实例号不能为空")
+	}
+	updates := map[string]any{
+		"provider_instance_id": target,
+		"last_synced_at":       time.Now(),
+		"updated_at":           time.Now(),
+	}
+	if migrateInstanceID {
+		updates["instance_id"] = target
+	}
+	if inst != nil {
+		if inst.Status != "" {
+			updates["status"] = inst.Status
+		}
+		// IP / 名称 / 系统 / 区域只在回源确实给到时覆盖：
+		// 空值覆盖会把本地已有信息抹成空（与 ApplySync 同一取舍）。
+		for col, val := range map[string]string{
+			"public_ip":  inst.PublicIP,
+			"private_ip": inst.PrivateIP,
+			"name":       inst.Name,
+			"os":         inst.OS,
+			"region":     inst.Region,
+			"raw_data":   inst.RawData,
+		} {
+			if strings.TrimSpace(val) != "" {
+				updates[col] = val
+			}
+		}
+	}
+	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("id = ?", id).
+		Updates(updates).Error
+}
+
+// RebindProduct 更换实例绑定的本地商品与上游镜像。
+//
+// 不校验商品是否存在（服务层已校验）：本方法只负责写两列，
+// 保持"仓储不做业务判断"的分工。
+func (r *instanceRepository) RebindProduct(ctx context.Context, id uint64, sellProductID uint64, upstreamProductID *uint64) error {
+	updates := map[string]any{"updated_at": time.Now()}
+	if sellProductID > 0 {
+		updates["sell_product_id"] = sellProductID
+	}
+	if upstreamProductID != nil {
+		updates["upstream_product_id"] = *upstreamProductID
+	}
+	if len(updates) == 1 {
+		// 只有 updated_at：调用方没给任何要改的绑定，视为空操作。
+		return nil
+	}
+	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("id = ?", id).
+		Updates(updates).Error
+}
+
+// FreeInstanceIDForDestroyed 把占用目标 instance_id 的**已销毁**行的号腾出来。
+//
+// 归档形式：`arc-<原号>-<记录ID>`（唯一且仍可读出原号），并同步把
+// provider_instance_id 清空 —— 那台机器在上游已经不存在，留着一个指向已删机器的号
+// 只会让"一号一台"守卫和回源刷新重复命中死号。
+func (r *instanceRepository) FreeInstanceIDForDestroyed(ctx context.Context, instanceID string, keepID uint64) (int64, error) {
+	id := strings.TrimSpace(instanceID)
+	if id == "" {
+		return 0, nil
+	}
+	res := r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("instance_id = ? AND id <> ?", id, keepID).
+		Where("status = ? OR coalesce(lifecycle_stage, '') = ?", string(pkgmodel.InstanceStatusDeleted), "destroyed").
+		Updates(map[string]any{
+			"instance_id":          gorm.Expr("'arc-' || instance_id || '-' || id::text"),
+			"provider_instance_id": "",
+			"updated_at":           time.Now(),
+		})
+	return res.RowsAffected, res.Error
 }
 
 // normalizePage 规整分页参数（默认 20，单页上限 100）。

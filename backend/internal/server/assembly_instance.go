@@ -36,8 +36,10 @@ func (a *asm) buildInstanceOps() {
 	a.instanceOpsHandler = instancehandler.NewInstanceHandler(a.instanceOpsService)
 	// 详情页关联数据（订单/商品/上游价/配置/凭证）：只读仓储 + 订单选配读取。
 	// 未注入时 Detail 仍返回实例本体，仅缺少这些附加分组。
-	a.instanceOpsService.SetDetailRepository(instancerepo.NewInstanceDetailRepository(a.database))
+	a.instanceOpsService.SetDetailRepository(instancerepo.NewInstanceDetailRepository(a.database, a.cfg.App.EncryptKey))
 	a.instanceOpsService.SetDetailOrderConfigReader(buildInstanceOrderConfigReader(a.orderRepo))
+	// 密码留存密钥（迁移 100）：重置密码/重装产生的新密码据此加密回写。
+	a.instanceOpsService.SetCredentialSecretKey(a.cfg.App.EncryptKey)
 	// 用户侧自助销毁（doc91 §6.4）：薄委派给运维台，销毁逻辑（能力分派/流水/事件）不重写。
 	a.ucInstanceService.SetDestructor(a.instanceOpsService)
 	// 用户侧维护类自助（重装/重置密码/救援/快照）：同样委派运维台。

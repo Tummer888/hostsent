@@ -25,6 +25,9 @@ type CreateRequest struct {
 	// ConfigSelections 客户选配项选择（T4.5）：配置项参数名 → 选中取值
 	// （如 {"cpu":"4","os":"12","ip_num":"2"}）。留空表示全部按默认值。
 	ConfigSelections map[string]string `json:"config_selections"`
+	// CustomerRemark 客户备注（选填）：客户对这台机器的说明（如用途/归属项目），
+	// 随履约带入实例 instances.customer_remark，与运营内部备注分开存放。
+	CustomerRemark string `json:"customer_remark"`
 	// ChannelMeta 开放平台代客下单渠道信息（P6/T6.3）。仅由 open 模块程序化注入，
 	// json:"-" 保证 UC 自有 HTTP 路由无法伪造渠道标记。
 	ChannelMeta ChannelMeta `json:"-"`
@@ -93,8 +96,11 @@ type OrderInfo struct {
 	// 在读接口实时推导，不落库（orders.expire_time 是实例计费到期时间，两者语义不同）。
 	// 仅 pending 订单有值，供前端提示「请在 xx 前完成支付」。
 	PayExpireAt string `json:"pay_expire_at,omitempty"`
-	// Remark 订单备注（用户侧只读展示）。
+	// Remark 订单备注。用户侧恒为空：orders.remark 是运营在管理端写的**内部备注**，
+	// 不在用户端暴露（客户自己的备注见 CustomerRemark）。字段保留是为了共用结构体。
 	Remark string `json:"remark,omitempty"`
+	// CustomerRemark 客户备注（客户下单填写的那条）。
+	CustomerRemark string `json:"customer_remark,omitempty"`
 }
 
 // PayInfo 发起收银台支付的结果：收银台组件渲染所需参数（与支付中心 OrderInfo 同口径裁剪）。

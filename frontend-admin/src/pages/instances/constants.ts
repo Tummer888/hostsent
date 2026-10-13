@@ -251,3 +251,20 @@ export function toDateString(value: unknown): string {
   const matched = s.match(/^\d{4}-\d{2}-\d{2}/)
   return matched ? matched[0] : s
 }
+
+/**
+ * 内存展示：数据库以 MB 存储，>=1024 转 GB。
+ *
+ * 与管理端列表页原有的 `${row.memory} MB` 写法并存：列表里"8192 MB"还能扫读，
+ * 详情页主信息区一行要同时放 CPU/内存/磁盘三组数字，"8192 MB" 会把行撑长，
+ * 因此详情统一走本函数。阈值取 1024（不是 1000）：机器内存都是 2 的幂。
+ */
+export function formatMemory(mb: number): string {
+  const value = Number(mb || 0)
+  if (value <= 0) return '—'
+  if (value >= 1024) {
+    const gb = value / 1024
+    return `${Number.isInteger(gb) ? gb : gb.toFixed(1)} GB`
+  }
+  return `${value} MB`
+}

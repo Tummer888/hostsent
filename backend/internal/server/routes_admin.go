@@ -94,6 +94,8 @@ func registerAdminRoutes(r *gin.Engine, app *App) {
 			users.POST(":id/impersonate", app.superOnly(), app.userHandler.Impersonate)
 			users.POST(":id/recharge", app.perm("finance:adjust"), app.userHandler.Recharge)
 			users.POST(":id/orders", app.perm("user:create"), app.userHandler.CreateOrder)
+			// 算价预览：与创建订单同口径但不落库，供弹窗展示默认原价（客服填自定义价前先看到基准）。
+			users.POST(":id/orders/quote", app.perm("user:create"), app.userHandler.OrderQuote)
 			// —— 注销 / 恢复 / 留存期清理（doc104 §4）——
 			// 注意：批量路由必须注册在 ":id" 之前语义上才不冲突，gin 的路由树
 			// 对静态段与参数段能正确分流（/users/batch-delete 不会命中 /users/:id）。
@@ -283,6 +285,10 @@ func registerAdminRoutes(r *gin.Engine, app *App) {
 				providers.GET("/:id", app.perm("resource:provider"), app.providerHandler.Get)
 				providers.PUT("/:id", app.perm("provider:update"), app.providerHandler.Update)
 				providers.DELETE("/:id", app.perm("provider:delete"), app.providerHandler.Delete)
+				// 关联数据详情：删除前弹窗列出该渠道下的商品与资源池，让运营看清删的是什么。
+				providers.GET("/:id/associations", app.perm("provider:delete"), app.providerHandler.Associations)
+				// 连带删除（渠道 + 未被销售商品引用的商品 + 资源池）；有引用时拒绝并说明是哪些。
+				providers.DELETE("/:id/cascade", app.perm("provider:delete"), app.providerHandler.DeleteCascade)
 				providers.POST("/:id/test", app.perm("provider:test"), app.providerHandler.TestConnection)
 				providers.POST("/:id/sync/resume", app.perm("provider:update"), app.providerHandler.ResumeSync)
 				// 平台可售资源目录（区域/节点/存储/镜像）：自营规格模板配置平台参数用。
@@ -294,6 +300,8 @@ func registerAdminRoutes(r *gin.Engine, app *App) {
 			{
 				pools.GET("", app.perm("resource:provider"), app.providerHandler.ListPools)
 				pools.GET("/:id", app.perm("resource:provider"), app.providerHandler.GetPool)
+				// 删除用于清理演示/历史脏数据；在线渠道的池会在下次同步重新出现，前端已提示。
+				pools.DELETE("/:id", app.perm("resource:provider"), app.providerHandler.DeletePool)
 			}
 
 			// 上游商品
@@ -378,6 +386,9 @@ func registerAdminRoutes(r *gin.Engine, app *App) {
 			instanceOps.POST("/:id/power", app.perm("instance:action"), app.instanceOpsHandler.Power)
 			// 批量运维（doc61 P1）：静态段 /batch 须先于 /:id 注册。
 			instanceOps.POST("/batch", app.perm("instance:action"), app.instanceOpsHandler.BatchAction)
+			// 批量销毁：独立权限码 + 二次验证（与单实例销毁同场景），
+			// 且服务层要求逐台确认文本 —— "勾了全选"不能变成"一键删机器"。
+			instanceOps.POST("/batch-destroy", app.perm("instance:destroy"), app.adminRequireVerification("instance_destroy"), app.instanceOpsHandler.BatchDestroy)
 			instanceOps.POST("/:id/suspend", app.perm("instance:action"), app.instanceOpsHandler.Suspend)
 			instanceOps.POST("/:id/unsuspend", app.perm("instance:action"), app.instanceOpsHandler.Unsuspend)
 			instanceOps.PUT("/:id/remark", app.perm("instance:action"), app.instanceOpsHandler.SetRemark)
@@ -399,6 +410,13 @@ func registerAdminRoutes(r *gin.Engine, app *App) {
 			// 账期自定义（本地口径，不推送上游——上游无改到期时间/周期接口）。
 			// 高危：改动直接影响续费/到期处置，需二次验证（复用 instance_resize 场景以外的独立场景码）。
 			instanceOps.PUT("/:id/billing", app.perm("instance:billing"), app.adminRequireVerification("instance_billing"), app.instanceOpsHandler.AdjustBilling)
+			// 账期调整上下文：可选周期以上游能力为准（避免选中上游不卖的周期）+ 各周期上游价/我方价。
+			instanceOps.GET("/:id/billing-context", app.perm("instance:billing"), app.instanceOpsHandler.AdjustContext)
+			// 按上游实例号重新关联（上游换机/换号）：改上游号 = 改变后续所有上游动作的作用对象，
+			// 因此需独立权限码 + 二次验证，与销毁同档。
+			instanceOps.POST("/:id/relink", app.perm("instance:relink"), app.adminRequireVerification("instance_relink"), app.instanceOpsHandler.RelinkUpstream)
+			// 更换绑定的本地商品 / 上游镜像（上游换产品）：直接决定续费算价与配置口径，与账期同档。
+			instanceOps.POST("/:id/rebind-product", app.perm("instance:billing"), app.instanceOpsHandler.RebindProduct)
 			// 查看明文密码：只读但属敏感信息访问，独立权限码便于收窄。
 			instanceOps.POST("/:id/credential", app.perm("instance:credential"), app.instanceOpsHandler.RevealCredential)
 			instanceOps.DELETE("/:id", app.perm("instance:destroy"), app.adminRequireVerification("instance_destroy"), app.instanceOpsHandler.Destroy)

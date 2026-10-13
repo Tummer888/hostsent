@@ -48,6 +48,10 @@ const (
 	ActionBillingAdjust = "billing_adjust"
 	// ActionRevealCredential 查看实例登录明文密码（只读但属敏感信息访问，必须留痕）。
 	ActionRevealCredential = "reveal_credential"
+	// ActionRelinkUpstream 按上游实例号重新关联（上游换机/换号；高影响：改变后续所有上游动作的作用对象）。
+	ActionRelinkUpstream = "relink_upstream"
+	// ActionRebindProduct 更换实例绑定的本地售出商品（上游换产品后同步调整本地归属）。
+	ActionRebindProduct = "rebind_product"
 )
 
 // 操作结果。

@@ -90,7 +90,9 @@
           </div>
           <div class="instance-card__meta">
             <span>{{ row.cpu }} 核 / {{ formatMemory(row.memory) }} / {{ row.disk }} GB</span>
-            <span>{{ row.public_ip || '未分配 IP' }}</span>
+            <!-- NAT 机型没有独立 IP：列表里也标出机型，避免客户按"未分配 IP"理解成没配好 -->
+            <span v-if="row.nat_access?.is_nat">{{ row.nat_access.forwards?.[0] || 'NAT 机型' }}</span>
+            <span v-else>{{ row.public_ip || '未分配 IP' }}</span>
             <span>{{ formatTime(row.expire_at) }} 到期 · {{ daysLeftText(row.days_left, row.expire_state) }}</span>
           </div>
           <div class="instance-card__actions">
@@ -125,7 +127,16 @@
             </template>
           </div>
         </article>
-        <t-empty v-if="!loading && !filtered.length" description="暂无云主机" />
+        <t-empty
+          v-if="!loading && !filtered.length && loadError"
+          class="instance-empty"
+          :description="loadError"
+        >
+          <template #action>
+            <t-button theme="primary" :loading="loading" @click="load(false)">重试</t-button>
+          </template>
+        </t-empty>
+        <t-empty v-else-if="!loading && !filtered.length" description="暂无云主机" />
       </t-loading>
     </section>
 
@@ -216,7 +227,16 @@
       </t-table>
 
       <t-empty
-        v-if="!loading && !instances.length"
+        v-if="!loading && !instances.length && loadError"
+        class="instance-empty"
+        :description="loadError"
+      >
+        <template #action>
+          <t-button theme="primary" :loading="loading" @click="load(false)">重试</t-button>
+        </template>
+      </t-empty>
+      <t-empty
+        v-else-if="!loading && !instances.length"
         class="instance-empty"
         description="暂无云主机，去购买一台吧"
       >
@@ -292,6 +312,8 @@ const { isMobile } = useIsMobile()
 const instances = ref<InstanceInfo[]>([])
 const summary = ref<InstanceListSummary>({ ...EMPTY_SUMMARY })
 const loading = ref(false)
+/** 加载失败原因（空串=正常）。模板据此显示错误态 + 重试，而不是留一片空白。 */
+const loadError = ref('')
 const filter = ref<'all' | 'running' | 'expiring' | 'stopped'>('all')
 const vnc = reactive<{ visible: boolean; name: string; url: string }>({ visible: false, name: '', url: '' })
 const retryingId = ref(0)
@@ -340,10 +362,17 @@ function canConsole(row: InstanceInfo): boolean {
 
 async function load(live = false) {
   loading.value = true
+  loadError.value = ''
   try {
     const res = await listInstances({ live })
     instances.value = res.data.items || []
     summary.value = res.data.summary || { ...EMPTY_SUMMARY, total: instances.value.length }
+  } catch (error) {
+    // 必须自己兜住失败：请求拦截器只弹提示并 reject，这里不 catch 会让
+    // 整个 setup 抛未处理异常，首屏直接空白（用户实测的"数据都为空"）。
+    // 保留已加载的数据展示，同时置错误标志让模板给出重试入口。
+    loadError.value = (error as Error)?.message || '加载失败，请稍后重试'
+    if (!instances.value.length) summary.value = { ...EMPTY_SUMMARY }
   } finally {
     loading.value = false
   }
@@ -396,7 +425,16 @@ function goDetail(row: InstanceInfo) {
   router.push(`/cloud/instances/${row.id}`)
 }
 
-onMounted(() => load(true))
+/**
+ * 首屏先出本地数据，实时状态由用户在需要时点「刷新」触发。
+ *
+ * 原来首屏就 load(true)：进页面即对账号下所有机器回源上游。
+ * 机器多的账号（十几台）要等十几秒，网关先超时而这里又没有 catch，
+ * 结果整页报错、列表空白 —— 用户实测反馈的现象。
+ * 本地状态（instances.status）由开通/电源操作与同步任务维护，足够支撑首屏展示；
+ * 回源只用于"想确认此刻真实状态"的场景，交给刷新按钮。
+ */
+onMounted(() => load(false))
 </script>
 
 <style scoped>

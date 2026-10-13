@@ -13,6 +13,7 @@ import (
 
 	"hostsent/backend/internal/modules/admin/instance/dto"
 	"hostsent/backend/internal/pkg/billingcycle"
+	"hostsent/backend/internal/pkg/credentials"
 )
 
 // 本文件提供实例详情页的附加只读数据：来源订单财务口径、售出商品与对接关系、
@@ -24,7 +25,8 @@ import (
 // InstanceDetailRepository 实例详情附加数据只读仓储。
 type InstanceDetailRepository interface {
 	// SourceOrder 读来源订单（含按实例当前周期算出的续费价）。
-	SourceOrder(ctx context.Context, orderID uint64, billingMode string, quantity int) (*dto.SourceOrderInfo, error)
+	// instanceID 用于读取绑定价（instances.renewal_price 压过商品周期价）；传 0 则只按商品价。
+	SourceOrder(ctx context.Context, orderID uint64, instanceID uint64, billingMode string, quantity int) (*dto.SourceOrderInfo, error)
 	// Product 读售出商品与对接关系（含渠道名）。
 	Product(ctx context.Context, productID uint64) (*dto.ProductInfo, error)
 	// Upstream 读对接商品的上游信息（非对接商品返回 nil）。
@@ -38,15 +40,27 @@ type InstanceDetailRepository interface {
 	Credentials(ctx context.Context, instanceID uint64) (*dto.CredentialInfo, error)
 	// RevealCredential 读明文密码（供 reveal 接口；未存返回空）。
 	RevealCredential(ctx context.Context, instanceID uint64) (username, password, port string, err error)
+	// ProductCyclePrices 读商品价格矩阵的各周期售价/成本（product_prices）。
+	// 账期调整对话框据此展示"我方该周期卖多少钱"，与上游价并排比价。
+	ProductCyclePrices(ctx context.Context, productID uint64) (map[string]ProductCyclePrice, error)
+}
+
+// ProductCyclePrice 商品某周期的售价与成本（product_prices 一行）。
+type ProductCyclePrice struct {
+	Sale float64
+	Cost float64
 }
 
 type instanceDetailRepository struct {
 	db *gorm.DB
+	// secretKey 应用加密密钥：解密 instances.credential_password（迁移 100 的 enc:v1: 密文）。
+	// 为空时视作不具备解密能力——读取显式报错，绝不把密文当明文返回（地雷 L8）。
+	secretKey string
 }
 
 // NewInstanceDetailRepository 创建实例详情附加数据仓储。
-func NewInstanceDetailRepository(db *gorm.DB) InstanceDetailRepository {
-	return &instanceDetailRepository{db: db}
+func NewInstanceDetailRepository(db *gorm.DB, secretKey string) InstanceDetailRepository {
+	return &instanceDetailRepository{db: db, secretKey: secretKey}
 }
 
 // ============================ 来源订单 ============================
@@ -67,6 +81,8 @@ type orderDetailRow struct {
 	PayTime        *time.Time
 	CreatedAt      time.Time
 	RenewalID      uint64
+	Remark         string
+	CustomerRemark string
 }
 
 // SourceOrder 读来源订单，并按其「当前付款周期」补出下次续费金额。
@@ -74,13 +90,13 @@ type orderDetailRow struct {
 // 为什么续费金额要现算而不是读订单里的金额：订单金额是**历史成交**（可能带折扣、
 // 可能是首月促销价），而运营关心的是"这台机器下次续费要多少钱"。后者由商品当前
 // 周期价（product_prices）决定。
-func (r *instanceDetailRepository) SourceOrder(ctx context.Context, orderID uint64, billingMode string, quantity int) (*dto.SourceOrderInfo, error) {
+func (r *instanceDetailRepository) SourceOrder(ctx context.Context, orderID uint64, instanceID uint64, billingMode string, quantity int) (*dto.SourceOrderInfo, error) {
 	if orderID == 0 {
 		return nil, nil
 	}
 	var row orderDetailRow
 	err := r.db.WithContext(ctx).Table("orders").
-		Select("id, order_no, status, product_id, product_name, cycle, quantity, total_amount, paid_amount, discount_amount, pay_method, pay_time, created_at, renewal_id").
+		Select("id, order_no, status, product_id, product_name, cycle, quantity, total_amount, paid_amount, discount_amount, pay_method, pay_time, created_at, renewal_id, remark, COALESCE(customer_remark, '') AS customer_remark").
 		Where("id = ?", orderID).
 		Take(&row).Error
 	if err != nil {
@@ -90,22 +106,24 @@ func (r *instanceDetailRepository) SourceOrder(ctx context.Context, orderID uint
 		return nil, err
 	}
 	out := &dto.SourceOrderInfo{
-		ID:           row.ID,
-		OrderNo:      row.OrderNo,
-		Status:       row.Status,
-		ProductID:    row.ProductID,
-		ProductName:  row.ProductName,
-		Cycle:        row.Cycle,
-		CycleName:    billingcycle.Name(row.Cycle),
-		Quantity:     row.Quantity,
-		TotalAmount:  row.TotalAmount,
-		PaidAmount:   row.PaidAmount,
-		DiscountAmt:  row.DiscountAmount,
-		FirstPaidAmt: row.PaidAmount,
-		PayMethod:    row.PayMethod,
-		PayTime:      fmtTimeOpt(row.PayTime),
-		OrderedAt:    row.CreatedAt.Format(time.RFC3339),
-		RenewalID:    row.RenewalID,
+		ID:             row.ID,
+		OrderNo:        row.OrderNo,
+		Status:         row.Status,
+		ProductID:      row.ProductID,
+		ProductName:    row.ProductName,
+		Cycle:          row.Cycle,
+		CycleName:      billingcycle.Name(row.Cycle),
+		Quantity:       row.Quantity,
+		TotalAmount:    row.TotalAmount,
+		PaidAmount:     row.PaidAmount,
+		DiscountAmt:    row.DiscountAmount,
+		FirstPaidAmt:   row.PaidAmount,
+		PayMethod:      row.PayMethod,
+		PayTime:        fmtTimeOpt(row.PayTime),
+		OrderedAt:      row.CreatedAt.Format(time.RFC3339),
+		RenewalID:      row.RenewalID,
+		Remark:         row.Remark,
+		CustomerRemark: row.CustomerRemark,
 	}
 	// 续费金额：按实例当前付款周期（可能已被调整过）取商品周期价。
 	cycle := billingcycle.NormalizeOrDefault(billingMode)
@@ -125,7 +143,48 @@ func (r *instanceDetailRepository) SourceOrder(ctx context.Context, orderID uint
 			out.RenewCost = money2(cost * float64(n))
 		}
 	}
+	// 绑定续费价（instances.renewal_price）压过商品周期价 —— 与续费实际计费口径保持一致。
+	//
+	// 为什么必须在这里也生效：绑定价是"下次续费按这个价"的承诺（续费服务
+	// renewal_service.boundRenewalPrice 优先用它）。详情页若仍显示商品价，
+	// 运营看到的"续费金额"与实际扣款不是同一个数，调完价也看不出效果（实测困惑）。
+	// 读不到实例行（order 存在但实例缺失）时保持商品价，不猜测。
+	if bound, berr := r.boundRenewalPrice(ctx, instanceID); berr == nil && bound != nil {
+		n := quantity
+		if n <= 0 {
+			n = 1
+		}
+		out.RenewAmount = money2(*bound * float64(n))
+		out.RenewBound = true
+		if out.RenewCycle == "" {
+			out.RenewCycle = cycle
+		}
+	}
 	return out, nil
+}
+
+// boundRenewalPrice 读实例绑定的续费单价（未绑定/非正数返回 nil）。
+// 与续费服务同口径：0 与负数视为未绑定（0 元续费会被续费守卫拒绝）。
+func (r *instanceDetailRepository) boundRenewalPrice(ctx context.Context, instanceID uint64) (*float64, error) {
+	if instanceID == 0 {
+		return nil, nil
+	}
+	var row struct {
+		RenewalPrice *float64
+	}
+	err := r.db.WithContext(ctx).Table("instances").
+		Select("renewal_price").Where("id = ?", instanceID).Take(&row).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if row.RenewalPrice == nil || *row.RenewalPrice <= 0 {
+		return nil, nil
+	}
+	v := money2(*row.RenewalPrice)
+	return &v, nil
 }
 
 // cyclePrice 读商品某周期的售价与成本价（product_prices）。
@@ -142,6 +201,37 @@ func (r *instanceDetailRepository) cyclePrice(ctx context.Context, productID uin
 		return 0, 0, false
 	}
 	return row.Price, row.CostPrice, true
+}
+
+// ProductCyclePrices 读商品价格矩阵的全部周期价（账期调整对话框比价用）。
+//
+// 只取 product_spec_id = 0（商品级矩阵）与 status = 1（启用中）的行：
+// SKU 级矩阵（spec_id > 0）是特定规格的价，套到实例上会给出错误的比价基准。
+func (r *instanceDetailRepository) ProductCyclePrices(ctx context.Context, productID uint64) (map[string]ProductCyclePrice, error) {
+	out := map[string]ProductCyclePrice{}
+	if productID == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		Cycle     string
+		Price     float64
+		CostPrice float64
+	}
+	err := r.db.WithContext(ctx).Table("product_prices").
+		Select("cycle, price, cost_price").
+		Where("product_id = ? AND product_spec_id = 0 AND status = 1", productID).
+		Scan(&rows).Error
+	if err != nil {
+		return out, err
+	}
+	for _, row := range rows {
+		cycle := billingcycle.Normalize(row.Cycle)
+		if cycle == "" {
+			continue
+		}
+		out[cycle] = ProductCyclePrice{Sale: row.Price, Cost: row.CostPrice}
+	}
+	return out, nil
 }
 
 // ============================ 售出商品 ============================
@@ -581,17 +671,21 @@ func trimOptionValue(raw string) string {
 
 // ============================ 登录连接信息 ============================
 
-// Credentials 读实例登录连接信息（从 raw_data 提取，不含明文密码）。
+// Credentials 读实例登录连接信息（不含明文密码）。
 //
-// raw_data 是上游详情的原样快照，字段名随平台不同（魔方云 osuser/rootpassword/port，
-// 魔方财务 username/port）。这里只判定"有没有密码"，绝不把明文带回详情响应。
+// 用户名/端口取自 raw_data（上游详情的原样快照，字段名随平台不同：魔方云
+// osuser/port，魔方财务 username/port）。密码**不看 raw_data** ——
+// 上游从不回传密码（dcimcloud 该字段实测为空、zjmf 无读密码接口），
+// 判定依据是本系统开通信留存 `credential_password`（迁移 100），
+// 这里只回答"有没有"，绝不把明文带回详情响应。
 func (r *instanceDetailRepository) Credentials(ctx context.Context, instanceID uint64) (*dto.CredentialInfo, error) {
 	var row struct {
-		RawData      string
-		ProviderType string
+		RawData            string
+		CredentialPassword string
+		ProviderType       string
 	}
 	err := r.db.WithContext(ctx).Table("instances AS i").
-		Select("i.raw_data, pr.provider_type AS provider_type").
+		Select("i.raw_data, i.credential_password, pr.provider_type AS provider_type").
 		Joins("LEFT JOIN resource_providers AS pr ON pr.id = i.provider_id").
 		Where("i.id = ?", instanceID).
 		Take(&row).Error
@@ -605,18 +699,22 @@ func (r *instanceDetailRepository) Credentials(ctx context.Context, instanceID u
 	if strings.TrimSpace(row.RawData) != "" {
 		_ = json.Unmarshal([]byte(row.RawData), &raw)
 	}
+	// 密码存在性：本系统留存优先；存量行（迁移前开通）回退看 raw_data 里有没有上游下发的密码。
+	hasStored := strings.TrimSpace(row.CredentialPassword) != ""
+	if !hasStored {
+		hasStored = firstNonEmpty(rawStr(raw, "rootpassword"), rawStr(raw, "password")) != ""
+	}
 	out := &dto.CredentialInfo{
 		Username:    firstNonEmpty(rawStr(raw, "osuser"), rawStr(raw, "username")),
 		Port:        firstNonEmpty(rawStr(raw, "port"), defaultPort(row.ProviderType)),
-		HasPassword: false,
-	}
-	if p := firstNonEmpty(rawStr(raw, "rootpassword"), rawStr(raw, "password")); p != "" {
-		out.HasPassword = true
+		HasPassword: hasStored,
 	}
 	if p := rawStr(raw, "panel_pass"); p != "" {
 		out.HasPanelPassword = true
 	}
 	switch {
+	case strings.TrimSpace(row.CredentialPassword) != "":
+		out.PasswordHint = "开通时由本系统生成并留存，可点「查看密码」获取"
 	case out.HasPassword:
 		out.PasswordHint = "上游已下发初始密码，可点「查看密码」获取"
 	case row.ProviderType == "zjmf":
@@ -628,11 +726,17 @@ func (r *instanceDetailRepository) Credentials(ctx context.Context, instanceID u
 }
 
 // RevealCredential 读明文密码（供 reveal 接口）。未存返回空串，由调用方提示改用重置密码。
+//
+// 优先解密本系统开通信留的 credential_password（迁移 100，开通时由我方生成并下发上游，
+// 是唯一权威来源）；存量行回退 raw_data 里上游可能下发的字段。
+// 解密失败按地雷 L8 显式报错：绝不把 enc:v1: 密文当明文交出去。
 func (r *instanceDetailRepository) RevealCredential(ctx context.Context, instanceID uint64) (string, string, string, error) {
 	var row struct {
-		RawData string
+		RawData            string
+		CredentialPassword string
 	}
-	err := r.db.WithContext(ctx).Table("instances").Select("raw_data").Where("id = ?", instanceID).Take(&row).Error
+	err := r.db.WithContext(ctx).Table("instances").
+		Select("raw_data, credential_password").Where("id = ?", instanceID).Take(&row).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return "", "", "", nil
@@ -643,9 +747,16 @@ func (r *instanceDetailRepository) RevealCredential(ctx context.Context, instanc
 	if strings.TrimSpace(row.RawData) != "" {
 		_ = json.Unmarshal([]byte(row.RawData), &raw)
 	}
-	return firstNonEmpty(rawStr(raw, "osuser"), rawStr(raw, "username")),
-		firstNonEmpty(rawStr(raw, "rootpassword"), rawStr(raw, "password")),
-		rawStr(raw, "port"), nil
+	username := firstNonEmpty(rawStr(raw, "osuser"), rawStr(raw, "username"))
+	port := rawStr(raw, "port")
+	if strings.TrimSpace(row.CredentialPassword) != "" {
+		plain, derr := credentials.DecryptSecret(row.CredentialPassword, r.secretKey)
+		if derr != nil {
+			return username, "", port, derr
+		}
+		return username, plain, port, nil
+	}
+	return username, firstNonEmpty(rawStr(raw, "rootpassword"), rawStr(raw, "password")), port, nil
 }
 
 // defaultPort 平台默认 SSH 端口（仅用于展示兜底）。

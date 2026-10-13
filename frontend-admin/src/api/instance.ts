@@ -2,20 +2,27 @@ import { request } from '@/utils/request'
 
 import type {
   InstanceAddIPRequest,
+  InstanceAdjustContext,
   InstanceAdjustRequest,
   InstanceAttachDiskRequest,
   InstanceBandwidthRequest,
   InstanceBatchActionRequest,
   InstanceBatchActionResponse,
+  InstanceBatchDestroyRequest,
+  InstanceBatchDestroyResponse,
   InstanceCredentialReveal,
   InstanceDestroyRequest,
   InstanceDetail,
   InstanceOpsListQuery,
   InstanceOpsListResponse,
   InstancePowerRequest,
+  InstanceRebindProductRequest,
+  InstanceRebindProductResult,
   InstanceRelatedResponse,
   InstanceReinstallRequest,
   InstanceReinstallResult,
+  InstanceRelinkRequest,
+  InstanceRelinkResult,
   InstanceRemarkUpdateRequest,
   InstanceRescueRequest,
   InstanceResizeRequest,
@@ -156,6 +163,18 @@ export function batchInstanceAction(data: InstanceBatchActionRequest): Promise<I
   })
 }
 
+// 批量销毁（不可逆）：逐台结果 + 逐台确认文本，与批量运维同一响应形态
+export function batchDestroyInstances(
+  data: InstanceBatchDestroyRequest,
+  verifyTicket?: string,
+): Promise<InstanceBatchDestroyResponse> {
+  return request.post<InstanceBatchDestroyResponse>({
+    url: '/instances/batch-destroy',
+    data,
+    headers: verifyTicket ? { 'X-Verify-Ticket': verifyTicket } : undefined,
+  })
+}
+
 // ---- 维护类操作（平台接口实测存在：重装/重置密码/救援/快照/硬件）----
 
 /** 重装系统；返回平台新签发的初始凭据（只此一次，页面必须提示立即保存）。 */
@@ -252,5 +271,39 @@ export function adjustInstanceBilling(id: number, data: InstanceAdjustRequest): 
 export function revealInstanceCredential(id: number): Promise<InstanceCredentialReveal> {
   return request.post<InstanceCredentialReveal>({
     url: `/instances/${id}/credential`,
+  })
+}
+
+/**
+ * 账期调整上下文：可选周期以**上游能力**为准（避免选中上游不卖的周期），
+ * 并带上该周期上游标价/采购价与我方售价/成本，供运营比价后定绑定价。
+ */
+export function getInstanceBillingContext(id: number): Promise<InstanceAdjustContext> {
+  return request.get<InstanceAdjustContext>({
+    url: `/instances/${id}/billing-context`,
+  })
+}
+
+/** 按上游实例号重新关联（上游换机/换号后拉取新机器信息）。 */
+export function relinkInstanceUpstream(
+  id: number,
+  data: InstanceRelinkRequest,
+  verifyTicket?: string,
+): Promise<InstanceRelinkResult> {
+  return request.post<InstanceRelinkResult>({
+    url: `/instances/${id}/relink`,
+    data,
+    headers: verifyTicket ? { 'X-Verify-Ticket': verifyTicket } : undefined,
+  })
+}
+
+/** 更换实例绑定的本地商品 / 上游镜像（上游换产品后同步本地归属）。 */
+export function rebindInstanceProduct(
+  id: number,
+  data: InstanceRebindProductRequest,
+): Promise<InstanceRebindProductResult> {
+  return request.post<InstanceRebindProductResult>({
+    url: `/instances/${id}/rebind-product`,
+    data,
   })
 }
