@@ -39,14 +39,14 @@ ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "docs/openapi.template.yaml"
 OUTPUT = ROOT / "docs/openapi.yaml"
 OVERRIDES = ROOT / "scripts/openapi_overrides.json"
+# routes_admin 按域拆分（批次三 C2）：通配所有 routes_admin_*.go 作为路由源。
 SOURCES = [
     ROOT / "internal/server/server.go",
-    ROOT / "internal/server/routes_admin.go",
     ROOT / "internal/server/routes_uc.go",
     ROOT / "internal/server/routes_site.go",
     ROOT / "internal/server/routes_open.go",
     ROOT / "internal/server/assembly_oauth.go",
-]
+] + sorted((ROOT / "internal/server").glob("routes_admin*.go"))
 
 VERBS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 METHOD_ORDER = ["get", "post", "put", "patch", "delete"]
