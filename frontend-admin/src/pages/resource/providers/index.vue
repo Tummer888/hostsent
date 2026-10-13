@@ -222,9 +222,7 @@
               >
                 恢复同步
               </t-link>
-              <t-popconfirm content="删除后该渠道的同步配置将一并移除，确认删除？" @confirm="handleDelete(row)">
-                <t-link theme="danger" hover="color">删除</t-link>
-              </t-popconfirm>
+              <t-link theme="danger" hover="color" @click="openDeleteDialog(row)">删除</t-link>
             </template>
           </div>
         </template>
@@ -330,6 +328,72 @@
       </t-form>
     </t-dialog>
 
+    <!-- 删除确认：先列清关联数据再让运营决定，而不是丢一句"存在 N 个关联商品" -->
+    <t-dialog
+      v-model:visible="deleteVisible"
+      :header="deleteRow ? `删除${providerUnit} · ${deleteRow.name}` : '删除确认'"
+      width="640px"
+      :confirm-btn="{
+        content: hasAssociations ? '连带删除全部' : '确认删除',
+        theme: 'danger',
+        loading: deleteSubmitting,
+        disabled: deleteLoading || deleteBlockedProducts.length > 0,
+      }"
+      cancel-btn="取消"
+      :on-confirm="confirmDeleteProvider"
+      @close="deleteRow = null"
+    >
+      <div v-if="deleteLoading" class="delete-loading">
+        <t-loading size="small" />
+        <span>正在读取关联数据…</span>
+      </div>
+
+      <template v-else>
+        <t-alert
+          v-if="deleteBlockedProducts.length"
+          theme="error"
+          class="delete-alert"
+          :message="`有 ${deleteBlockedProducts.length} 个上游商品已被销售商品引用，不能连带删除。请先到「商品管理」处理这些销售商品（下架或改绑），再回来删除${providerUnit}。`"
+        />
+        <t-alert
+          v-else-if="hasAssociations"
+          theme="warning"
+          class="delete-alert"
+          message="删除后该渠道的同步配置、下列上游商品与资源池会被一并移除，且无法恢复。资源池由平台同步生成，若该平台仍在线，下次同步会重新出现。"
+        />
+        <t-alert v-else theme="info" class="delete-alert" message="该渠道没有关联商品或资源池，删除后其同步配置将一并移除。" />
+
+        <template v-if="deleteAssoc && deleteAssoc.products.length">
+          <div class="delete-section__head">
+            上游商品
+            <span class="delete-section__count">{{ deleteAssoc.products.length }} 个</span>
+          </div>
+          <ul class="delete-list">
+            <li v-for="item in deleteAssoc.products" :key="`p-${item.id}`" class="delete-list__item">
+              <span class="delete-list__name">{{ item.name }}</span>
+              <span v-if="item.subtitle" class="delete-list__sub">{{ item.subtitle }}</span>
+              <t-tag v-if="item.has_orders > 0" theme="danger" variant="light" size="small" shape="round">
+                被 {{ item.has_orders }} 个销售商品引用
+              </t-tag>
+            </li>
+          </ul>
+        </template>
+
+        <template v-if="deleteAssoc && deleteAssoc.pools.length">
+          <div class="delete-section__head">
+            资源池
+            <span class="delete-section__count">{{ deleteAssoc.pools.length }} 个</span>
+          </div>
+          <ul class="delete-list">
+            <li v-for="item in deleteAssoc.pools" :key="`pool-${item.id}`" class="delete-list__item">
+              <span class="delete-list__name">{{ item.name }}</span>
+              <span v-if="item.subtitle" class="delete-list__sub">{{ item.subtitle }}</span>
+            </li>
+          </ul>
+        </template>
+      </template>
+    </t-dialog>
+
   </div>
 </template>
 
@@ -343,13 +407,15 @@ import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo
 
 import {
   deleteProvider,
+  deleteProviderCascade,
+  getProviderAssociations,
   getProviderList,
   getProviderTypes,
   resumeProviderSync,
   testConnection,
   updateProvider,
 } from '@/api/admin'
-import type { CapabilityDescriptor, ProviderInfo, ProviderTypeItem } from '@/types/interface'
+import type { CapabilityDescriptor, ProviderAssociations, ProviderInfo, ProviderTypeItem } from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
@@ -729,15 +795,63 @@ async function handleResumeSync(row: ProviderInfo) {
   }
 }
 
-async function handleDelete(row: ProviderInfo) {  try {
-    await deleteProvider(row.id)
-    MessagePlugin.success('提供商已删除')
+// ===== 删除确认弹窗 =====
+// 为什么不是简单的 popconfirm：删除渠道会被"存在 N 个关联商品/资源池"挡住，
+// 但原先只报一句数量，运营不知道挡路的是不是演示脏数据，也不知道该删哪几个。
+// 这里先拉关联明细列出来，让运营看清后再决定是否连带删除。
+const deleteVisible = ref(false)
+const deleteRow = ref<ProviderInfo | null>(null)
+const deleteLoading = ref(false)
+const deleteSubmitting = ref(false)
+const deleteAssoc = ref<ProviderAssociations | null>(null)
+
+// 自营平台对接语境下渠道叫"平台"，删除文案跟着走，避免出现"删除平台后该渠道…"这种混称。
+const providerUnit = computed(() => (isCompute.value ? '平台' : '渠道'))
+
+const deleteBlockedProducts = computed(() =>
+  (deleteAssoc.value?.products || []).filter((item) => item.has_orders > 0),
+)
+const hasAssociations = computed(() => {
+  const assoc = deleteAssoc.value
+  return !!assoc && (assoc.products.length > 0 || assoc.pools.length > 0)
+})
+
+async function openDeleteDialog(row: ProviderInfo) {
+  deleteRow.value = row
+  deleteAssoc.value = null
+  deleteVisible.value = true
+  deleteLoading.value = true
+  try {
+    deleteAssoc.value = await getProviderAssociations(row.id)
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '读取关联数据失败')
+    deleteVisible.value = false
+  } finally {
+    deleteLoading.value = false
+  }
+}
+
+async function confirmDeleteProvider() {
+  const row = deleteRow.value
+  if (!row) return
+  deleteSubmitting.value = true
+  try {
+    if (hasAssociations.value) {
+      const result = await deleteProviderCascade(row.id)
+      MessagePlugin.success(`已删除${providerUnit.value}，并清理上游商品 ${result.deleted_products} 个、资源池 ${result.deleted_pools} 个`)
+    } else {
+      await deleteProvider(row.id)
+      MessagePlugin.success('提供商已删除')
+    }
+    deleteVisible.value = false
     if (providerList.value.length === 1 && pagination.current > 1) {
       pagination.current -= 1
     }
     loadProviders()
   } catch (error) {
     MessagePlugin.error((error as Error).message || '删除提供商失败')
+  } finally {
+    deleteSubmitting.value = false
   }
 }
 
@@ -872,7 +986,7 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
       void handleResumeSync(row)
       break
     case 'delete':
-      void handleDelete(row)
+      openDeleteDialog(row)
       break
   }
 }
@@ -1022,5 +1136,72 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ===== 删除确认弹窗 ===== */
+.delete-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-lg) 0;
+  color: var(--color-muted-foreground);
+}
+
+.delete-alert {
+  margin-bottom: var(--space-md);
+}
+
+.delete-section__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  margin: var(--space-md) 0 var(--space-xs);
+  font-weight: 600;
+}
+
+.delete-section__count {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-muted-foreground);
+}
+
+.delete-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 6px);
+}
+
+.delete-list__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.delete-list__item:last-child {
+  border-bottom: none;
+}
+
+.delete-list__name {
+  flex-shrink: 0;
+  max-width: 46%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delete-list__sub {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
 }
 </style>

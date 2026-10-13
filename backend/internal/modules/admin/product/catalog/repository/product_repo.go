@@ -22,6 +22,10 @@ type ProductRepository interface {
 	Create(ctx context.Context, item *model.Product) error
 	Update(ctx context.Context, item *model.Product) error
 	Delete(ctx context.Context, id uint64) error
+	// CountInstancesByProduct 统计该商品已开通/待开通的实例数。
+	// 删除守卫用：商品被实例引用时不能删——实例的续费算价与详情页商品信息都靠这行，
+	// 删掉商品会让那些实例后续无法续费（界面上表现为"来源商品已删除"）。
+	CountInstancesByProduct(ctx context.Context, productID uint64) (int64, error)
 	ListSpecs(ctx context.Context, productID uint64) ([]model.ProductSpec, error)
 	// FindSpecByCode 按商品 + 规格编码取 SKU（下单/算价用，T4.1）。
 	FindSpecByCode(ctx context.Context, productID uint64, specCode string) (*model.ProductSpec, error)
@@ -161,6 +165,17 @@ func (r *productRepository) Update(ctx context.Context, item *model.Product) err
 
 func (r *productRepository) Delete(ctx context.Context, id uint64) error {
 	return r.db.WithContext(ctx).Delete(&model.Product{}, id).Error
+}
+
+// CountInstancesByProduct 统计引用该商品的实例数（instances.sell_product_id）。
+//
+// 用原生表名而不是 import 实例域模型：商品域反向依赖实例域会形成循环，
+// 且这里只读一个计数值，不值得为此拆包。
+func (r *productRepository) CountInstancesByProduct(ctx context.Context, productID uint64) (int64, error) {
+	var n int64
+	err := r.db.WithContext(ctx).Table("instances").
+		Where("sell_product_id = ?", productID).Count(&n).Error
+	return n, err
 }
 
 func (r *productRepository) ListSpecs(ctx context.Context, productID uint64) ([]model.ProductSpec, error) {
@@ -558,10 +573,15 @@ func parseIDOrZero(s string) int64 {
 }
 
 // ConfigGroupsByProductID 读取商品配置子表，重建为 config_groups 数组（结构对齐上游 ConfigGroup）。
+//
+// Subs 必须显式排序：履约侧 pickConfigSub 对"没选的项"取首个可见子项，
+// 而用户/后台界面按 sort_order 展示并预选第一个候选值。两处顺序若不一致，
+// 界面显示"默认开 VPC 网络"而实际开出经典网络 —— 排序在这里定死，
+// 保证「界面所见」与「履约默认」是同一个值。
 func (r *productRepository) ConfigGroupsByProductID(ctx context.Context, productID uint64) ([]interface{}, error) {
 	var options []*model.ProductConfigOption
 	if err := r.db.WithContext(ctx).
-		Preload("Subs").
+		Preload("Subs", orderSubsBySort).
 		Where("product_id = ? AND source = ?", productID, model.ConfigSourceUpstream).
 		Order("sort_order asc, id asc").
 		Find(&options).Error; err != nil {
@@ -573,11 +593,16 @@ func (r *productRepository) ConfigGroupsByProductID(ctx context.Context, product
 	return buildConfigGroups(options), nil
 }
 
+// orderSubsBySort 配置项子表的标准排序：运营调整过的顺序（sort_order）+ 创建顺序兜底。
+func orderSubsBySort(db *gorm.DB) *gorm.DB {
+	return db.Order("sort_order asc, id asc")
+}
+
 // AllConfigGroupsByProductID 读取商品全部配置组（含 source=self），供配置项管理页展示/编辑（T4.4）。
 func (r *productRepository) AllConfigGroupsByProductID(ctx context.Context, productID uint64) ([]interface{}, error) {
 	var options []*model.ProductConfigOption
 	if err := r.db.WithContext(ctx).
-		Preload("Subs").
+		Preload("Subs", orderSubsBySort).
 		Where("product_id = ?", productID).
 		Order("sort_order asc, id asc").
 		Find(&options).Error; err != nil {
@@ -595,7 +620,7 @@ func (r *productRepository) AllConfigGroupsByProductID(ctx context.Context, prod
 func (r *productRepository) SelfConfigParams(ctx context.Context, productID uint64) (map[string]string, error) {
 	var options []*model.ProductConfigOption
 	if err := r.db.WithContext(ctx).
-		Preload("Subs").
+		Preload("Subs", orderSubsBySort).
 		Where("product_id = ? AND source = ?", productID, model.ConfigSourceSelf).
 		Order("sort_order asc, id asc").
 		Find(&options).Error; err != nil {

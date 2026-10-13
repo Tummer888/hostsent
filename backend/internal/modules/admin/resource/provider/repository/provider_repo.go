@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -22,6 +23,16 @@ type ProviderRepository interface {
 	Delete(ctx context.Context, id uint64) error
 	// CountAssociations 统计提供商关联的商品与资源池数量（删除前检查用）
 	CountAssociations(ctx context.Context, id uint64) (products int64, pools int64, err error)
+	// ListAssociationProducts 列出该渠道下的上游商品（删除确认弹窗用：要能看见删的是什么）。
+	ListAssociationProducts(ctx context.Context, id uint64) ([]AssociationItem, error)
+	// ListAssociationPools 列出该渠道下的资源池（同上）。
+	ListAssociationPools(ctx context.Context, id uint64) ([]AssociationItem, error)
+	// DeleteCascade 连带删除该渠道的商品与资源池（事务内），供"确认后一并清理"。
+	DeleteCascade(ctx context.Context, id uint64) (products int64, pools int64, err error)
+	// CountSalesRefsByResourceProduct 统计某上游商品被多少销售商品引用
+	// （products.source_product_id 指向它）。>0 表示下游有真实售出商品依赖，
+	// 连带删除会让那些商品的履约断链，必须拦住。
+	CountSalesRefsByResourceProduct(ctx context.Context, resourceProductID uint64) (int64, error)
 	// UpdateStats 回写提供商资源统计
 	UpdateStats(ctx context.Context, providerID uint64, totalCPU, totalMemory, totalDisk, usedCPU, usedMemory, usedDisk int) error
 	// MarkSynced 更新提供商最近同步时间
@@ -122,6 +133,126 @@ func (r *providerRepository) CountAssociations(ctx context.Context, id uint64) (
 	return products, pools, nil
 }
 
+// AssociationItem 关联数据的一行（删除确认弹窗展示用）。
+//
+// 直接复用 dto.ProviderAssociationItem 而不是再定义一份同形结构：
+// 两份同形类型会在服务层拼装时被迫做无意义的逐字段搬运。
+type AssociationItem = dto.ProviderAssociationItem
+
+// ListAssociationProducts 列出该渠道下的上游商品。
+func (r *providerRepository) ListAssociationProducts(ctx context.Context, id uint64) ([]AssociationItem, error) {
+	var rows []productmodel.ResourceProduct
+	if err := r.db.WithContext(ctx).
+		Where("provider_id = ?", id).Order("id asc").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]AssociationItem, 0, len(rows))
+	for _, p := range rows {
+		// 副标题优先给「规格」——运营核对时关心的是这台机器什么配置，
+		// 只给规格文本又常常为空（上游没回 specs），因此退到 CPU/内存/磁盘，
+		// 这两个来源至少有一个有值，弹窗里不会出现一行只有名字的空白项。
+		sub := strings.TrimSpace(p.Specs)
+		if sub == "" {
+			if p.CPU > 0 || p.Memory > 0 || p.Disk > 0 {
+				sub = fmt.Sprintf("%d核 / %dG 内存 / %dG 磁盘", p.CPU, p.Memory, p.Disk)
+			} else {
+				sub = p.Region
+			}
+		}
+		if len(sub) > 60 {
+			sub = sub[:60] + "…"
+		}
+		out = append(out, AssociationItem{
+			ID: p.ID, Name: p.Name, Kind: "product", Subtitle: sub,
+		})
+	}
+	return out, nil
+}
+
+// ListAssociationPools 列出该渠道下的资源池。
+func (r *providerRepository) ListAssociationPools(ctx context.Context, id uint64) ([]AssociationItem, error) {
+	var rows []model.ResourcePool
+	if err := r.db.WithContext(ctx).
+		Where("provider_id = ?", id).Order("id asc").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]AssociationItem, 0, len(rows))
+	for _, p := range rows {
+		// 副标题给中文类型名 + 地域：类型码（node/region）直接丢到界面会与
+		// 前端的中文标注打架，弹窗里要能一眼读出"这是台宿主机，在哪个区域"。
+		sub := poolTypeLabel(p.PoolType)
+		if p.Region != "" {
+			if sub != "" {
+				sub += " · "
+			}
+			sub += p.Region
+		}
+		out = append(out, AssociationItem{
+			ID: p.ID, Name: p.Name, Kind: "pool", Subtitle: sub,
+		})
+	}
+	return out, nil
+}
+
+// poolTypeLabel 池类型码 → 中文名（与前端 poolTypeLabel 同口径）。
+// 后端也留一份：列表副标题由后端拼装，回给前端的就是成品文案，避免两边各拼一半。
+func poolTypeLabel(poolType string) string {
+	switch strings.ToLower(strings.TrimSpace(poolType)) {
+	case "node", "host":
+		return "宿主机"
+	case "region":
+		return "区域"
+	case "zone":
+		return "可用区"
+	case "storage":
+		return "存储"
+	case "compute":
+		return "计算池"
+	case "memory":
+		return "内存池"
+	case "cluster":
+		return "集群"
+	default:
+		return poolType
+	}
+}
+
+// DeleteCascade 连带删除该渠道的商品与资源池，再删渠道本身（单事务）。
+//
+// 顺序：先删子表（商品/资源池）再删主表，避免中途失败留下"渠道已删、子行还在"
+// 的孤儿数据。任一步失败整体回滚。
+func (r *providerRepository) DeleteCascade(ctx context.Context, id uint64) (int64, int64, error) {
+	var products, pools int64
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		res := tx.Where("provider_id = ?", id).Delete(&productmodel.ResourceProduct{})
+		if res.Error != nil {
+			return res.Error
+		}
+		products = res.RowsAffected
+		res = tx.Where("provider_id = ?", id).Delete(&model.ResourcePool{})
+		if res.Error != nil {
+			return res.Error
+		}
+		pools = res.RowsAffected
+		return tx.Delete(&model.ResourceProvider{}, id).Error
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+	return products, pools, nil
+}
+
+// CountSalesRefsByResourceProduct 统计引用该上游商品的销售商品数。
+//
+// 用原生表名而不是 import 销售商品模型：资源域反向依赖商品域会形成循环
+// （商品域已依赖资源域的商品模型），这里只读一个计数值，不值得为此拆包。
+func (r *providerRepository) CountSalesRefsByResourceProduct(ctx context.Context, resourceProductID uint64) (int64, error) {
+	var n int64
+	err := r.db.WithContext(ctx).Table("products").
+		Where("source_product_id = ?", resourceProductID).Count(&n).Error
+	return n, err
+}
+
 func (r *providerRepository) UpdateStats(ctx context.Context, providerID uint64, totalCPU, totalMemory, totalDisk, usedCPU, usedMemory, usedDisk int) error {
 	return r.db.WithContext(ctx).Model(&model.ResourceProvider{}).
 		Where("id = ?", providerID).
@@ -218,6 +349,14 @@ type PoolRepository interface {
 	ListAll(ctx context.Context, query dto.PoolListQuery) ([]model.ResourcePool, error)
 	// ProviderMeta 返回 provider_id → 渠道元信息（名称 + 运维平台地址），供列表展示。
 	ProviderMeta(ctx context.Context) (map[uint64]ProviderMeta, error)
+	// Delete 删除单个资源池。
+	//
+	// 注意语义：池数据由平台同步 upsert（ON CONFLICT provider_id+upstream_id）。
+	// 对**仍在线**的渠道，删掉的池会在下次同步时重新出现——删除的适用场景是
+	// 演示/历史脏数据清理。前端据此提示，避免运营以为删了就能永久屏蔽某节点。
+	Delete(ctx context.Context, id uint64) error
+	// DeleteByProvider 删除某渠道的全部资源池（渠道连带删除用，事务外单独调用）。
+	DeleteByProvider(ctx context.Context, providerID uint64) (int64, error)
 }
 
 // ProviderMeta 渠道元信息（池列表附带展示用，避免前端再查一次渠道列表）。
@@ -288,6 +427,17 @@ func (r *poolRepository) ProviderMeta(ctx context.Context) (map[uint64]ProviderM
 		out[row.ID] = ProviderMeta{Name: row.Name, OpsConsoleURL: row.OpsConsoleURL}
 	}
 	return out, nil
+}
+
+// Delete 删除单个资源池。
+func (r *poolRepository) Delete(ctx context.Context, id uint64) error {
+	return r.db.WithContext(ctx).Delete(&model.ResourcePool{}, id).Error
+}
+
+// DeleteByProvider 删除某渠道的全部资源池。
+func (r *poolRepository) DeleteByProvider(ctx context.Context, providerID uint64) (int64, error) {
+	res := r.db.WithContext(ctx).Where("provider_id = ?", providerID).Delete(&model.ResourcePool{})
+	return res.RowsAffected, res.Error
 }
 
 // applyPoolFilters 复用池列表的筛选条件（关键词/地域/状态/告警/类别），

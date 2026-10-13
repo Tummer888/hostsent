@@ -139,6 +139,70 @@ export const billingCycleOrder = [
   'onetime',
 ]
 
+/**
+ * 平台参数中文名（魔方云 /clouds 写参数口径）。
+ *
+ * 为什么需要它：配置项与平台映射里只带英文字段名（cpu / ip_num / nat_acl_limit…），
+ * 运营看到的是裸 key，不知道是什么。列表与建品页统一从这里取中文名，
+ * 避免两处各写一份而互相漂移。
+ */
+export const platformFieldLabels: Record<string, string> = {
+  // 基础配置
+  cpu: 'CPU（核）',
+  memory: '内存（MB）',
+  os: '操作系统镜像',
+  store: '系统盘存储',
+  system_disk_size: '系统盘容量（GB）',
+  type: '虚拟化类型',
+  // 位置与调度
+  area: '数据中心',
+  node: '节点',
+  node_group: '节点分组',
+  node_priority: '节点优先级',
+  ip_group: 'IP 组',
+  // 网络
+  bw: '带宽（Mbps）',
+  in_bw: '上行带宽（Mbps）',
+  out_bw: '下行带宽（Mbps）',
+  network_type: '网络类型',
+  vpc: 'VPC 网络',
+  vpc_name: 'VPC 名称',
+  flow_way: '流量方向',
+  flow_limit: '流量上限（GB）',
+  traffic_type: '流量计费方式',
+  traffic_quota: '流量配额',
+  traffic_bill_type: '流量结算周期',
+  reset_flow_day: '流量重置日',
+  ip_num: '独立 IP 数量',
+  ipv6_num: 'IPv6 数量',
+  port: '端口',
+  niccard: '网卡型号',
+  IP_MACBond: 'IP-MAC 绑定',
+  link_clone: '链路克隆',
+  // NAT（机型参数）
+  nat_acl_limit: 'NAT 端口转发数',
+  nat_web_limit: '共享建站数',
+  // 高级
+  snap_num: '快照数量',
+  backup_num: '备份数量',
+  gpu_num: 'GPU 数量',
+  cpu_limit: 'CPU 限制（%）',
+  advanced_cpu: '高级 CPU 型号',
+  advanced_bw: '高级带宽',
+  cpu_model: 'CPU 型号',
+  rid: '资源包',
+  resource_package: '资源包',
+  system_disk_io_limit: '系统盘性能',
+  data_disk_io_limit: '数据盘性能',
+  data_disk_size: '数据盘容量',
+  other_data_disk: '附加数据盘',
+}
+
+/** 平台参数中文名；未知键返回原 key（不隐藏信息，运营仍能对上平台文档）。 */
+export function platformFieldLabel(key: string): string {
+  return platformFieldLabels[key] || key
+}
+
 /** 把「周期 → 金额」映射按固定顺序拍平成数组（未知周期排在末尾，按字典序） */
 export function cycleEntries(map?: Record<string, number> | null): { cycle: string; label: string; amount: number }[] {
   if (!map) return []

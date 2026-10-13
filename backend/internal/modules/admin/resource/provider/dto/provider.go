@@ -259,3 +259,26 @@ type PoolCapacitySummary struct {
 	CapacityPools int `json:"capacity_pools"`
 	LocationPools int `json:"location_pools"`
 }
+
+// ProviderAssociationItem 渠道关联数据的一行（删除确认弹窗展示）。
+type ProviderAssociationItem struct {
+	ID       uint64 `json:"id"`
+	Name     string `json:"name"`
+	Kind     string `json:"kind"`     // product / pool
+	Subtitle string `json:"subtitle"` // 商品：型号/编码；资源池：类型 + 区域
+	// HasOrders 商品被销售商品引用的数量（>0 表示连带删除会破坏履约链路，需拦住）。
+	HasOrders int64 `json:"has_orders"`
+}
+
+// ProviderAssociations 渠道关联数据详情。
+type ProviderAssociations struct {
+	ProviderID uint64                    `json:"provider_id"`
+	Products   []ProviderAssociationItem `json:"products"`
+	Pools      []ProviderAssociationItem `json:"pools"`
+}
+
+// ProviderCascadeResult 连带删除结果。
+type ProviderCascadeResult struct {
+	DeletedProducts int64 `json:"deleted_products"`
+	DeletedPools    int64 `json:"deleted_pools"`
+}

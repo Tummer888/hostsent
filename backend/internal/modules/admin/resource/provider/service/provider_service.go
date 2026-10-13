@@ -60,6 +60,13 @@ type ProviderService interface {
 	NormalizeCredentials(ctx context.Context) error
 	// PriceChangeThreshold 渠道级调价自动应用阈值（T3.4，比例，0.05=5%）
 	PriceChangeThreshold(ctx context.Context, providerID uint64) (float64, error)
+	// Associations 渠道关联数据详情（删除确认弹窗列出商品与资源池）
+	Associations(ctx context.Context, id uint64) (*dto.ProviderAssociations, error)
+	// DeleteWithCascade 连带删除渠道及其商品/资源池；
+	// 任一上游商品被销售商品引用时拒绝（返回错误说明是哪些）。
+	DeleteWithCascade(ctx context.Context, id uint64) (*dto.ProviderCascadeResult, error)
+	// DeletePool 删除资源池（区域/宿主机/存储）。
+	DeletePool(ctx context.Context, id uint64) error
 }
 
 type providerService struct {
@@ -235,6 +242,85 @@ func (s *providerService) Delete(ctx context.Context, id uint64) error {
 		return fmt.Errorf("提供商存在 %d 个关联商品、%d 个资源池，请先删除关联数据", products, pools)
 	}
 	return s.repo.Delete(ctx, id)
+}
+
+// DeletePool 删除资源池（区域/宿主机/存储）。
+//
+// 语义提醒：池由平台同步 upsert，仍在线渠道的池下次同步会重新出现；
+// 本操作真正解决的是演示/历史脏数据（如对接上游链路残留的假 compute/memory 池）。
+func (s *providerService) DeletePool(ctx context.Context, id uint64) error {
+	if _, err := s.pool.FindByID(ctx, id); err != nil {
+		return err
+	}
+	return s.pool.Delete(ctx, id)
+}
+
+// Associations 渠道关联数据详情（删除确认弹窗用）。
+//
+// 存在的意义：原来只报一句"存在 N 个关联商品"，运营无从判断是不是演示数据挡路，
+// 也不知道该删哪几个。这里把每一条列出来，让运营自己核对后再决定。
+func (s *providerService) Associations(ctx context.Context, id uint64) (*dto.ProviderAssociations, error) {
+	if _, err := s.repo.FindByID(ctx, id); err != nil {
+		return nil, err
+	}
+	products, err := s.repo.ListAssociationProducts(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	pools, err := s.repo.ListAssociationPools(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	// 商品是否已被销售商品引用：引用了就不能连带删（会破坏履约链路）。
+	for i := range products {
+		n, cerr := s.countProductSalesRefs(ctx, products[i].ID)
+		if cerr == nil {
+			products[i].HasOrders = n
+		}
+	}
+	return &dto.ProviderAssociations{
+		ProviderID: id,
+		Products:   products,
+		Pools:      pools,
+	}, nil
+}
+
+// countProductSalesRefs 统计该上游商品被多少销售商品引用（source_product_id）。
+func (s *providerService) countProductSalesRefs(ctx context.Context, resourceProductID uint64) (int64, error) {
+	return s.repo.CountSalesRefsByResourceProduct(ctx, resourceProductID)
+}
+
+// DeleteWithCascade 先校验再连带删除渠道及其商品/资源池。
+//
+// 安全门禁：任一上游商品已被销售商品引用（source_product_id 指向它）时拒绝连带删除。
+// 那意味着下游有真实售出商品依赖这条链路，静默删掉会让那些商品的履约断链。
+func (s *providerService) DeleteWithCascade(ctx context.Context, id uint64) (*dto.ProviderCascadeResult, error) {
+	if _, err := s.repo.FindByID(ctx, id); err != nil {
+		return nil, err
+	}
+	products, err := s.repo.ListAssociationProducts(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	var blocked []string
+	for _, p := range products {
+		n, cerr := s.countProductSalesRefs(ctx, p.ID)
+		if cerr != nil {
+			return nil, cerr
+		}
+		if n > 0 {
+			blocked = append(blocked, fmt.Sprintf("%s（被 %d 个销售商品引用）", p.Name, n))
+		}
+	}
+	if len(blocked) > 0 {
+		return nil, fmt.Errorf("以下上游商品已被销售商品引用，不能连带删除；请先处理这些销售商品：%s",
+			strings.Join(blocked, "、"))
+	}
+	delProducts, delPools, err := s.repo.DeleteCascade(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return &dto.ProviderCascadeResult{DeletedProducts: delProducts, DeletedPools: delPools}, nil
 }
 
 // providerTypeNames 仅作注册表缺失时的兜底显示名；权威来源是 provider_types 表（T2.2，地雷 L9）。

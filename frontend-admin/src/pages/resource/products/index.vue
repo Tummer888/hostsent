@@ -380,6 +380,7 @@ import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { formatSpecLine } from '@/utils/spec-format'
 
 defineOptions({ name: 'ResourceProducts' })
 
@@ -429,25 +430,10 @@ const activeGroupName = computed(() => {
 const onSaleInPage = computed(() => productList.value.filter((row) => isOnSale(row)).length)
 const importedInPage = computed(() => productList.value.filter((row) => row.imported).length)
 
-function formatMemory(value: number): string {
-  if (!value) return '—'
-  if (value >= 1024) return `${(value / 1024).toFixed(1)}T`
-  return `${value}G`
-}
-
-function formatDisk(value: number): string {
-  if (!value) return '—'
-  if (value >= 1024) return `${(value / 1024).toFixed(1)}T`
-  return `${value}G`
-}
-
 function specText(row: ProductInfo): string {
-  const parts: string[] = []
-  if (row.cpu) parts.push(`${row.cpu}核`)
-  if (row.memory) parts.push(formatMemory(row.memory))
-  if (row.disk) parts.push(formatDisk(row.disk))
-  if (row.bandwidth) parts.push(`${row.bandwidth}Mbps`)
-  return parts.length ? parts.join(' / ') : '规格未同步'
+  // 单位口径见 utils/spec-format：内存 MB、磁盘 GB、带宽 Mbps。
+  // 此前本地实现按"≥1024 即 TB"处理内存，把 8GB（8192MB）显示成「8.0T」。
+  return formatSpecLine(row)
 }
 
 function formatPrice(value: number): string {

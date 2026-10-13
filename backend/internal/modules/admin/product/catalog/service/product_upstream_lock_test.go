@@ -308,4 +308,9 @@ func TestBuildProvisionRequestUpstreamSelectionOverride(t *testing.T) {
 	if _, ok := override["163749"]; ok {
 		t.Errorf("上游单值固定项不应出现在覆盖映射里：%+v", override)
 	}
+	// 主机名（source=self 的文本项）必须原样透传：上游按 extra.hostname 取客户自定名，
+	// 丢了就退回 defaultHostname 按商品名生成 —— 界面预填的名字与实际开出的不一致。
+	if got := req.ConfigOptions["hostname"]; got != "hs-node1" {
+		t.Errorf("主机名应原样透传为 %q，实际 %#v", "hs-node1", got)
+	}
 }

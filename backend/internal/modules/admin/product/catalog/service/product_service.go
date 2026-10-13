@@ -729,6 +729,17 @@ func (s *productService) Delete(ctx context.Context, id uint64, operatorID uint6
 	if err != nil {
 		return err
 	}
+	// 删除守卫：已被实例引用的商品不能删。
+	//
+	// 原因：实例的来源订单与商品行是履约链路的两端——续费算价取商品当前周期价、
+	// 实例详情展示来源商品，都靠这一行。删掉后那些实例仍会存在且继续计费，
+	// 但续费时找不到商品，界面显示"来源商品已删除"，运营再想恢复也找不回配置。
+	// 正确做法是先下架（停止销售），存量实例继续服务到自然到期。
+	if n, cerr := s.repo.CountInstancesByProduct(ctx, id); cerr != nil {
+		return cerr
+	} else if n > 0 {
+		return fmt.Errorf("商品已开通 %d 个实例，不能删除；如需停止销售请改为「下架」（存量实例可继续使用与续费）", n)
+	}
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return err
 	}
@@ -768,13 +779,21 @@ func (s *productService) Publish(ctx context.Context, id uint64, operatorID uint
 }
 
 // validatePublish 上架门禁（T4.6 / 16 §7.6）：
-//   - 代理链路（upstream）：必须绑定上游商品；且其上游规格已确认绑定，或显式标记"仅透传"。
+//   - 代理链路（upstream）：必须绑定上游商品；开通参数由上游自带时直接放行，
+//     需要本地映射确认（自营算力平台）时要求 confirmed 绑定，或显式标记"仅透传"。
 //   - 自营链路且绑定了渠道：必须有可售 SKU，每个启用 SKU 都满足必填原子，且有 confirmed 平台绑定。
 //   - 未绑定渠道的商品（虚拟/纯本地）不设门禁，保持存量可上架。
 func (s *productService) validatePublish(ctx context.Context, item *model.Product) error {
 	if s.isUpstreamChain(item) {
 		if item.SourceProductID == 0 {
 			return errors.New("上架失败：代理商品未绑定上游商品（source_product_id）")
+		}
+		// 财务型上游（Kind=upstream，如魔方财务）：开通参数就是上游自己的配置项，
+		// 下单时按上游下发的 config_groups 原样转发，**不存在**"本地规格 → 上游参数"
+		// 的映射需要确认 —— 门禁在这里是多余的一道关卡，且逐商品手动开「仅透传」
+		// 让批量导入后的批量上架形同虚设（实测：导入 200+ 商品全部卡在草稿）。
+		if s.upstreamProvisionIsSelfContained(ctx, item) {
+			return nil
 		}
 		if item.SpecPassthrough {
 			return nil // 显式声明仅透传上游参数，放行。
@@ -833,6 +852,32 @@ func (s *productService) validatePublish(ctx context.Context, item *model.Produc
 		return fmt.Errorf("上架失败：以下规格尚未确认平台绑定：%s", strings.Join(missing, "、"))
 	}
 	return nil
+}
+
+// upstreamProvisionIsSelfContained 判断该代理商品的开通参数是否"自带"
+// （上游下发什么就转发什么，无需本地规格映射确认）。
+//
+// 判据：上游资源商品镜像里带了 `config_groups`（上游自己的配置项/子项 ID 列表）。
+// 财务型上游（Kind=upstream，如魔方财务）正是如此：下单时适配器按这些 ID
+// 组成 `configoption[option.id]=sub.id` 原样转发，本地不需要、也不能改写它们
+// （见 zjmf buildCartConfigOption）。
+//
+// 反例（需要门禁）：自营算力平台（Kind=compute，如魔方云）的商品镜像**没有**
+// config_groups —— 开通参数必须由本地 SKU 原子翻译成平台写字段，
+// 那才需要"本地规格 → 平台参数"的确认绑定。
+//
+// 为什么放在上架门禁里（实测问题）：财务型上游导入的商品全部落草稿，
+// 每个都要手工开「仅透传」才能上架 —— 批量导入 200+ 商品后批量上架完全不可用。
+// 这里是"该渠道不需要映射"的**客观判据**，而不是让运营逐个点击声明。
+func (s *productService) upstreamProvisionIsSelfContained(ctx context.Context, item *model.Product) bool {
+	if item == nil || item.SourceProductID == 0 || s.resourceReader == nil {
+		return false
+	}
+	rp, err := s.resourceReader.FindByID(ctx, item.SourceProductID)
+	if err != nil || rp == nil {
+		return false
+	}
+	return len(extractConfigGroups(rp.RawSpecs)) > 0
 }
 
 // isUpstreamChain 判定商品是否走代理（上游转售）链路。
@@ -1502,9 +1547,18 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 	if pct <= 0 {
 		pct = 100
 	}
-	status := req.Status
-	if status == 0 {
-		status = model.ProductStatusDraft
+	// 导入后的初始状态：请求未显式指定（nil）时**默认直接上架**。
+	//
+	// 为什么改默认（实测）：财务型上游的商品开通参数自带（config_groups 原样转发），
+	// 不需要本地规格映射确认，上架门禁对其自动放行；但仍按旧默认落草稿的结果是
+	// "导入了 200+ 商品，全部要手工一个个上架" —— 批量导入的价值被抵消。
+	// 需要先编辑再上架的运营可显式传 status=0（草稿）。
+	status := model.ProductStatusPublished
+	if req.Status != nil {
+		status = *req.Status
+		if status != model.ProductStatusPublished && status != model.ProductStatusDraft {
+			status = model.ProductStatusDraft
+		}
 	}
 	resp := &dto.ProductBatchCloneResponse{
 		Items:  make([]dto.ProductInfo, 0, len(req.SourceProductIDs)),
@@ -1554,6 +1608,16 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 			Stock:            -1,
 			Status:           status,
 		}
+		// 直接上架前仍须过门禁：需要本地规格映射的渠道（Kind=compute，无 config_groups）
+		// 不能因为"请求里写了上架"就绕过校验 —— 那会上架出无法开通的死商品。
+		// 拦截时降级为草稿并如实回报原因，不中断整批导入。
+		publishBlocked := ""
+		if item.Status == model.ProductStatusPublished {
+			if err := s.validatePublish(ctx, item); err != nil {
+				item.Status = model.ProductStatusDraft
+				publishBlocked = err.Error()
+			}
+		}
 		if err := s.repo.Create(ctx, item); err != nil {
 			// 单个失败不阻塞整批，但必须如实回报（编码重复是最常见的一种：
 			// 同一上游商品导入过第二次）。见 ProductBatchCloneResponse 注释。
@@ -1561,6 +1625,12 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 				SourceProductID: pid, Name: item.Name, Reason: batchCloneFailureReason(err),
 			})
 			continue
+		}
+		if publishBlocked != "" {
+			resp.Failed = append(resp.Failed, dto.ProductBatchCloneFailure{
+				SourceProductID: pid, Name: item.Name,
+				Reason: "已导入为草稿（未通过上架门禁）：" + publishBlocked,
+			})
 		}
 		if len(groups) > 0 {
 			_ = s.repo.SaveConfigOptions(ctx, item.ID, groups)

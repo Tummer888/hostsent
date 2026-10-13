@@ -121,7 +121,11 @@ type ProductBatchCloneRequest struct {
 	SourceProductIDs []uint64 `json:"source_product_ids" binding:"required"` // 待导入的上游商品 ID 列表
 	CategoryID       uint64   `json:"category_id"`                           // 归入的商品分类
 	PricePercent     float64  `json:"price_percent"`                         // 定价百分比：售价 = 上游标价 × percent/100（100=按上游原价，>100 加价，<100 让利）
-	Status           int      `json:"status"`                                // 默认草稿
+	// Status 导入后的初始状态（1=上架，0=草稿）。
+	// 用指针区分"未传"（默认直接上架）与"显式要草稿"（传 0）：
+	// 财务型上游的商品开通参数自带（config_groups 原样转发），无需本地映射，
+	// 默认落草稿会让"导入 200+ 商品后还要逐个上架"，批量导入的价值被抵消。
+	Status *int `json:"status"`
 }
 
 // ProductSpecPassthroughRequest 设置「仅透传上游参数」开关（上架门禁的显式放行项）。

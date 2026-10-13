@@ -129,6 +129,7 @@ import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { formatDisk, formatMemory } from '@/utils/spec-format'
 
 defineOptions({ name: 'ResourcePricing' })
 
@@ -156,15 +157,9 @@ const mobilePage = reactive({
   pageSize: 10,
   total: 0,
 })
-function formatMemory(value: number): string {
-  if (value >= 1024) return `${(value / 1024).toFixed(1)}T`
-  return `${value}G`
-}
 
-function formatDisk(value: number): string {
-  if (value >= 1024) return `${(value / 1024).toFixed(1)}T`
-  return `${value}G`
-}
+
+
 
 function formatPrice(value: number): string {
   return Number(value || 0).toFixed(2)

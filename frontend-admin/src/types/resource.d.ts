@@ -272,6 +272,31 @@ export interface PoolListResponse {
   regions: string[]
 }
 
+/** 渠道关联数据的一行（删除确认弹窗展示）。 */
+export interface ProviderAssociationItem {
+  id: number
+  name: string
+  /** product 上游商品 / pool 资源池 */
+  kind: string
+  /** 商品：型号/编码；资源池：类型 + 地域 */
+  subtitle: string
+  /** 该上游商品被多少销售商品引用（>0 表示连带删除会断履约链路，会被拦住） */
+  has_orders: number
+}
+
+/** 渠道关联数据详情（删除确认弹窗用）。 */
+export interface ProviderAssociations {
+  provider_id: number
+  products: ProviderAssociationItem[]
+  pools: ProviderAssociationItem[]
+}
+
+/** 连带删除结果。 */
+export interface ProviderCascadeResult {
+  deleted_products: number
+  deleted_pools: number
+}
+
 export interface ProductListQuery {
   keyword?: string
   provider_id?: number

@@ -271,6 +271,15 @@
             <t-input-number v-model="cloneForm.price_percent" class="clone-percent" :min="1" :step="5" suffix="%" />
             <span class="clone-tip">售价 = 上游标价 × N%；100 按原价，&gt;100 加价，&lt;100 让利。</span>
           </t-form-item>
+          <t-form-item label="导入后" name="publish_now">
+            <t-radio-group v-model="cloneForm.publish_now" variant="default-filled">
+              <t-radio-button :value="true">直接上架</t-radio-button>
+              <t-radio-button :value="false">先存草稿</t-radio-button>
+            </t-radio-group>
+            <span class="clone-tip">
+              财务型上游的开通参数由上游自带（原样转发），导入即可上架；选草稿则先编辑再上架。
+            </span>
+          </t-form-item>
         </div>
 
         <div class="clone-summary">
@@ -288,8 +297,7 @@
 
         <p class="clone-hint">
           「隐藏」= 上游商铺未展示（分类被上游隐藏 / 商品隐藏 / 已下架），仍可导入开通；
-          「已导入」= 该上游商品已经导入过，不再重复勾选 —— 点击可直接打开本地商品详情
-          （导入的商品默认是<b>草稿</b>：未上架、前台不展示，编辑与上架都在那里）。
+          「已导入」= 该上游商品已经导入过，不再重复勾选 —— 点击可直接打开本地商品详情。
         </p>
 
         <div class="clone-groups">
@@ -390,6 +398,7 @@ import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useCategoryOptions } from '@/composables/useCategoryOptions'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useMobilePagination } from '@/composables/useMobilePagination'
+import { formatDisk, formatMemory } from '@/utils/spec-format'
 
 defineOptions({ name: 'ProductProducts' })
 
@@ -592,7 +601,62 @@ async function runBatch(kind: string, action: (ids: number[]) => Promise<any>) {
 }
 
 function handleBatchPublish() {
-  void runBatch('上架', (ids) => batchPublishProducts(ids))
+  const ids = selectedIds()
+  if (!ids.length) {
+    MessagePlugin.warning('请先勾选产品')
+    return
+  }
+  // 上架走自己的一条路径（而不是通用 runBatch）：门禁拦截时要能从结果里
+  // 认出"哪些是仅透传可放行的"，给一次覆盖全选的一键操作，而不是让运营
+  // 逐个商品回到单条上架去点确认弹窗。
+  batchLoading.value = true
+  void (async () => {
+    try {
+      const result = await batchPublishProducts(ids)
+      reportBatchResult('上架', result || {})
+      const blocked = (result?.failed ?? []).filter(
+        (f) => f.reason.includes('仅透传') || f.reason.includes('平台绑定'),
+      )
+      if (blocked.length > 0) {
+        offerBatchPassthroughAndPublish(blocked.map((f) => f.product_id))
+      }
+      clearSelection()
+      loadProducts()
+    } catch (error) {
+      MessagePlugin.error((error as Error).message || '批量上架失败')
+    } finally {
+      batchLoading.value = false
+    }
+  })()
+}
+
+/**
+ * 批量上架被门禁拦下时的一键处理：对这批商品统一开启「仅透传上游参数」再上架。
+ *
+ * 适用于上游给的整机固定配置（参数原样转发）。财务型上游的商品在服务端已按
+ * config_groups 自动放行；这里覆盖的是"上游不给配置组、但确实按原样转发"的少数情形。
+ */
+function offerBatchPassthroughAndPublish(ids: number[]) {
+  if (!ids.length) return
+  const dialog = DialogPlugin.confirm({
+    header: `有 ${ids.length} 个商品需要确认参数来源`,
+    body: `这批上游转售商品未完成"本地规格 → 上游开通参数"的平台绑定确认。
+若它们都是整机固定配置（参数原样转发、不改写），可一次性开启「仅透传上游参数」放行；
+否则请到商品详情 → 规格页签逐个完成绑定确认。`,
+    confirmBtn: { content: '全部开启仅透传并上架', theme: 'primary' },
+    cancelBtn: { content: '稍后处理' },
+    onConfirm: async () => {
+      dialog.hide()
+      try {
+        await Promise.all(ids.map((id) => setProductSpecPassthrough(id, true)))
+        const retry = await batchPublishProducts(ids)
+        reportBatchResult('上架', retry || {})
+        loadProducts()
+      } catch (error) {
+        MessagePlugin.error((error as Error).message || '开启仅透传后仍上架失败')
+      }
+    },
+  })
 }
 
 function handleBatchUnpublish() {
@@ -631,10 +695,17 @@ const providerOptions = ref<{ label: string; value: number }[]>([])
 const groupList = ref<{ id: number; name: string; derived: boolean; items: ProductInfo[] }[]>([])
 const providerProducts = ref<ProductInfo[]>([])
 const selectedProductIds = ref<Set<number>>(new Set())
-const cloneForm = reactive<{ source_provider_id: number | undefined; category_id: number | undefined; price_percent: number }>({
+const cloneForm = reactive<{
+  source_provider_id: number | undefined
+  category_id: number | undefined
+  price_percent: number
+  /** 导入后是否直接上架（默认是）。财务型上游开通参数自带，无需逐个确认映射。 */
+  publish_now: boolean
+}>({
   source_provider_id: undefined,
   category_id: undefined,
   price_percent: 100,
+  publish_now: true,
 })
 
 /** 优惠提示：上游给本账号的代理折扣说明（取自商品镜像的折扣描述）。 */
@@ -725,6 +796,7 @@ async function handleClone() {
   cloneForm.source_provider_id = undefined
   cloneForm.category_id = undefined
   cloneForm.price_percent = 100
+  cloneForm.publish_now = true
   selectedProductIds.value = new Set()
   groupList.value = []
   cloneVisible.value = true
@@ -869,10 +941,13 @@ function openImportedProduct(item: ProductInfo) {
 }
 
 function formatProductSpec(item: ProductInfo): string {
+  // 规格单位统一走 utils/spec-format（此前直接拼 `${memory}M` 会显示「8192M」）。
   const parts: string[] = []
   if (item.cpu) parts.push(`${item.cpu}核`)
-  if (item.memory) parts.push(`${item.memory}M`)
-  if (item.disk) parts.push(`${item.disk}G`)
+  const mem = formatMemory(item.memory || 0)
+  if (mem !== '—') parts.push(mem)
+  const disk = formatDisk(item.disk || 0)
+  if (disk !== '—') parts.push(disk)
   if (item.os) parts.push(item.os)
   return parts.length ? parts.join(' / ') : '规格未同步'
 }
@@ -902,6 +977,8 @@ async function handleCloneConfirm() {
       source_product_ids: importable.map((item) => item.id),
       category_id: cloneForm.category_id,
       price_percent: cloneForm.price_percent,
+      // 1=导入即上架（默认），0=草稿（先编辑再上架）
+      status: cloneForm.publish_now ? 1 : 0,
     })
     const imported = result?.items?.length ?? 0
     const failed = result?.failed ?? []

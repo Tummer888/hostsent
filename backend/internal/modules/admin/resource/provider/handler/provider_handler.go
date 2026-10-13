@@ -136,6 +136,66 @@ func (h *ProviderHandler) Delete(c *gin.Context) {
 	response.SuccessMessage(c, "success")
 }
 
+// Associations godoc
+// @Summary 查询渠道关联数据（商品/资源池，删除确认弹窗用）
+// @Tags 资源管理-上游提供商
+// @Security BearerAuth
+// @Param id path int true "提供商 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/resource/providers/{id}/associations [get]
+func (h *ProviderHandler) Associations(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.providerService.Associations(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// DeleteCascade godoc
+// @Summary 连带删除渠道及其未售出的商品与资源池
+// @Tags 资源管理-上游提供商
+// @Security BearerAuth
+// @Param id path int true "提供商 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/resource/providers/{id}/cascade [delete]
+func (h *ProviderHandler) DeleteCascade(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.providerService.DeleteWithCascade(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// DeletePool godoc
+// @Summary 删除资源池（区域/宿主机/存储）
+// @Description 池由平台同步 upsert，在线渠道的池会在下次同步重新出现；本操作用于清理演示/历史脏数据。
+// @Tags 资源管理-上游提供商
+// @Security BearerAuth
+// @Param id path int true "资源池 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/resource/pools/{id} [delete]
+func (h *ProviderHandler) DeletePool(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	if err := h.providerService.DeletePool(c.Request.Context(), id); err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.SuccessMessage(c, "success")
+}
+
 // ListTypes godoc
 // @Summary 获取支持的提供商类型
 // @Tags 资源管理-上游提供商

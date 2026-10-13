@@ -113,6 +113,9 @@ func (f *fakeProductRepo) AllConfigOptionRows(context.Context, uint64) ([]*model
 func (f *fakeProductRepo) AllConfigGroupsByProductID(context.Context, uint64) ([]interface{}, error) {
 	return f.configGroups, nil
 }
+func (f *fakeProductRepo) CountInstancesByProduct(context.Context, uint64) (int64, error) {
+	return 0, nil
+}
 
 // TestApplyConfirmedPriceKeepsSalePriceWithoutMarkup 无加价规则时只更新成本，售价不变。
 func TestApplyConfirmedPriceKeepsSalePriceWithoutMarkup(t *testing.T) {

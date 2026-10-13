@@ -18,6 +18,8 @@ import type {
   ProductPriceRequest,
   ProductUpstreamMarkupRequest,
   ProductUpstreamMarkupResponse,
+  ProviderAssociations,
+  ProviderCascadeResult,
   ProviderCreateRequest,
   ProviderInfo,
   ProviderListQuery,
@@ -414,6 +416,26 @@ export function getPoolList(params: PoolListQuery): Promise<PoolListResponse> {
       page_size: params.page_size,
     },
   })
+}
+
+/**
+ * 删除资源池。
+ *
+ * 注意：池由平台同步 upsert，在线渠道的池会在下次同步重新出现；
+ * 本接口用于清理演示/历史脏数据（界面上已就此提示）。
+ */
+export function deletePool(id: number): Promise<string> {
+  return request.delete<string>({ url: `/resource/pools/${id}` })
+}
+
+/** 渠道关联数据（删除确认弹窗：列出该渠道下的商品与资源池）。 */
+export function getProviderAssociations(id: number): Promise<ProviderAssociations> {
+  return request.get<ProviderAssociations>({ url: `/resource/providers/${id}/associations` })
+}
+
+/** 连带删除渠道及其未被引用的商品与资源池。 */
+export function deleteProviderCascade(id: number): Promise<ProviderCascadeResult> {
+  return request.delete<ProviderCascadeResult>({ url: `/resource/providers/${id}/cascade` })
 }
 
 // ===== 上游商品 =====
