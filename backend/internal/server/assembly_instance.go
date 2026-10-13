@@ -42,10 +42,12 @@ func (a *asm) buildInstanceOps() {
 	// 密码留存密钥（迁移 100）：重置密码/重装产生的新密码据此加密回写。
 	a.instanceOpsService.SetCredentialSecretKey(a.cfg.App.EncryptKey)
 	// 用户侧自助销毁（doc91 §6.4）：薄委派给运维台，销毁逻辑（能力分派/流水/事件）不重写。
-	a.ucInstanceService.SetDestructor(a.instanceOpsService)
+	// uc 侧端口用本地 Operator/dto，经适配器转换后委派（CONTRIBUTING §3）。
+	instanceOpsAdapter := ucInstanceOperatorAdapter{ops: a.instanceOpsService}
+	a.ucInstanceService.SetDestructor(instanceOpsAdapter)
 	// 用户侧维护类自助（重装/重置密码/救援/快照）：同样委派运维台。
 	// 归属校验在 UC 侧用带 user_id 的查询完成，委派后复用运维台的能力分派与操作流水。
-	a.ucInstanceService.SetOperator(a.instanceOpsService)
+	a.ucInstanceService.SetOperator(instanceOpsAdapter)
 	// 实例维度「重新开通」（占位/未开通实例）：重投来源订单的履约任务，
 	// 上游充值后点一次即可复用已生成账单完成开通。管理端与用户中心共用同一实现。
 	a.instanceOpsService.SetProvisionRetry(a.buildInstanceProvisionRetry())

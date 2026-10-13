@@ -1,4 +1,7 @@
 // Package handler 提供用户中心菜单模块的 HTTP 接口。
+//
+// 模块形态（CONTRIBUTING §2）：uc/menu 为薄适配——service 委托 admin 域菜单
+// 服务读取，本端只做请求/响应转换；不持有 repository 与 model。
 package handler
 
 import (

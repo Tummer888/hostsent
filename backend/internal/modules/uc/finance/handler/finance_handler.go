@@ -95,7 +95,7 @@ func (h *FinanceHandler) Balance(c *gin.Context) {
 		response.Error(c, h.mapErr(err))
 		return
 	}
-	response.Success(c, resp)
+	response.Success(c, customerWalletFrom(resp))
 }
 
 // Transactions 查询我的资金流水。
@@ -125,7 +125,7 @@ func (h *FinanceHandler) Transactions(c *gin.Context) {
 		response.Error(c, h.mapErr(err))
 		return
 	}
-	response.Success(c, resp)
+	response.Success(c, customerTransactionListFrom(resp))
 }
 
 // CreateRecharge 发起充值（登记线下充值单）。
@@ -153,7 +153,7 @@ func (h *FinanceHandler) CreateRecharge(c *gin.Context) {
 		response.Error(c, h.mapErr(err))
 		return
 	}
-	response.Success(c, resp)
+	response.Success(c, customerRechargeFrom(resp))
 }
 
 // Recharges 查询我的充值单（余额页「我的充值单」列表）。
@@ -184,7 +184,7 @@ func (h *FinanceHandler) Recharges(c *gin.Context) {
 		response.Error(c, h.mapErr(err))
 		return
 	}
-	response.Success(c, resp)
+	response.Success(c, customerRechargeListFrom(resp))
 }
 
 // Bills 查询我的账单。

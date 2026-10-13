@@ -11,7 +11,6 @@ import (
 	usercenterservice "hostsent/backend/internal/modules/uc/auth/service"
 	userfinancehandler "hostsent/backend/internal/modules/uc/finance/handler"
 	usermenuhandler "hostsent/backend/internal/modules/uc/menu/handler"
-	usermenurepo "hostsent/backend/internal/modules/uc/menu/repository"
 	usermenuservice "hostsent/backend/internal/modules/uc/menu/service"
 	apperrors "hostsent/backend/internal/pkg/errors"
 )
@@ -26,9 +25,9 @@ func (a *asm) buildUCAuth() {
 	// 默认用户组兜底：用户自助注册未指定分组时归入 is_default 组。
 	a.userCenterService.SetDefaultGroupResolver(a.userGroupService)
 	a.userCenterAuthHandler = usercenterhandler.NewAuthHandler(a.userCenterService)
-	// 用户中心菜单：复用 menus 表（platform=user），独立 DTO 对齐前端驼峰字段
-	a.userMenuRepo = usermenurepo.NewMenuRepository(a.database)
-	a.userMenuService = usermenuservice.NewMenuService(a.userMenuRepo)
+	// 用户中心菜单：薄适配（CONTRIBUTING §2），委托 admin 域菜单服务，
+	// uc 侧只做请求/响应转换，不再自持仓储或 import admin model。
+	a.userMenuService = usermenuservice.NewMenuService(a.menuService)
 	a.userMenuHandler = usermenuhandler.NewMenuHandler(a.userMenuService)
 	// 用户中心财务：复用账务核心/充值/账单服务，仅暴露用户自助接口；
 	// 错误码映射由本装配层提供（uc 不依赖 admin 的错误变量）。

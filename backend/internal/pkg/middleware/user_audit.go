@@ -1,18 +1,10 @@
 package middleware
 
 import (
-	"context"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-
-	membermodel "hostsent/backend/internal/modules/uc/member/model"
 )
-
-// UserOperationLogWriter 用户侧操作日志落库能力（由 uc/member 仓储实现，P4-08）。
-type UserOperationLogWriter interface {
-	CreateOperationLog(ctx context.Context, log *membermodel.OperationLog) error
-}
 
 // userAuditExcludedPaths 不记录的高噪/敏感路径（前缀匹配）。
 var userAuditExcludedPaths = []string{
@@ -53,7 +45,7 @@ func UserOperationAudit(writer UserOperationLogWriter) gin.HandlerFunc {
 			return
 		}
 		module, action := parseUserAuditPath(c.Request.URL.Path, c.Request.Method)
-		_ = writer.CreateOperationLog(c.Request.Context(), &membermodel.OperationLog{
+		_ = writer.CreateOperationLog(c.Request.Context(), &UserOperationLogEntry{
 			ActorUserID:   actorID,
 			ActorName:     ActorUsername(c),
 			AccountUserID: accountID,

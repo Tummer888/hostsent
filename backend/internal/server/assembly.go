@@ -114,7 +114,6 @@ import (
 	memberrepo "hostsent/backend/internal/modules/uc/member/repository"
 	memberservice "hostsent/backend/internal/modules/uc/member/service"
 	usermenuhandler "hostsent/backend/internal/modules/uc/menu/handler"
-	usermenurepo "hostsent/backend/internal/modules/uc/menu/repository"
 	usermenuservice "hostsent/backend/internal/modules/uc/menu/service"
 	ucorderhandler "hostsent/backend/internal/modules/uc/order/handler"
 	ucorderservice "hostsent/backend/internal/modules/uc/order/service"
@@ -365,7 +364,6 @@ type asm struct {
 	userLevelHandler      *levelhandler.UserLevelHandler
 	userLevelService      levelservice.UserLevelService
 	userMenuHandler       *usermenuhandler.MenuHandler
-	userMenuRepo          usermenurepo.MenuRepository
 	userMenuService       usermenuservice.MenuService
 	userPurgeScheduler    *service.PurgeScheduler
 	userService           service.UserService
@@ -522,7 +520,7 @@ func (a *asm) buildBundles() {
 		ConfigBoolOr: logcenterConfigBoolOr(a.configValueReader),
 		StorageRoot:  a.cfg.Storage.Root,
 		Locker:       &logcenterRedisLocker{cache: a.cacheClient},
-		AuditWriter:  a.adminAuditRepo,
+		AuditWriter:  adminAuditWriterAdapter{repo: a.adminAuditRepo},
 		Logger:       a.logger,
 	})
 	// 登录安全端口回填（doc91 C3）：管理端与用户端认证服务都只依赖中性端口，

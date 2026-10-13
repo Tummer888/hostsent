@@ -17,17 +17,23 @@ import (
 
 	accountdto "hostsent/backend/internal/modules/admin/finance/account/dto"
 	transdto "hostsent/backend/internal/modules/admin/finance/transaction/dto"
-	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
 	orderdto "hostsent/backend/internal/modules/admin/order/dto"
-	ordermodel "hostsent/backend/internal/modules/admin/order/model"
 	catalogdto "hostsent/backend/internal/modules/admin/product/catalog/dto"
 	catalogservice "hostsent/backend/internal/modules/admin/product/catalog/service"
 	paydto "hostsent/backend/internal/modules/admin/system/payment/dto"
-	paymodel "hostsent/backend/internal/modules/admin/system/payment/model"
 	"hostsent/backend/internal/pkg/billingcycle"
 	"hostsent/backend/internal/pkg/pricing"
 
 	"hostsent/backend/internal/modules/uc/order/dto"
+)
+
+// 业务类型 / 资金流水类型常量（本模块的本地面）：
+// 语义与 admin 域 model 同名列一致，落库值必须逐字相同。
+const (
+	// BizTypeOrder 订单支付（收银台 PrepayRequest.BizType）。
+	BizTypeOrder = "order"
+	// TxTypeConsume 消费流水类型（余额扣款 AdjustRequest.Type）。
+	TxTypeConsume = "consume"
 )
 
 var (
@@ -66,18 +72,18 @@ type (
 	}
 	// orderRepoPort 订单仓储读写。
 	orderRepoPort interface {
-		Create(ctx context.Context, item *ordermodel.Order) error
-		List(ctx context.Context, query orderdto.OrderListQuery) ([]ordermodel.Order, int64, error)
+		Create(ctx context.Context, item *dto.OrderRow) error
+		List(ctx context.Context, query orderdto.OrderListQuery) ([]dto.OrderRow, int64, error)
 		// FindByID 按主键读取订单；未找到返回 gorm.ErrRecordNotFound。
-		FindByID(ctx context.Context, id uint64) (*ordermodel.Order, error)
+		FindByID(ctx context.Context, id uint64) (*dto.OrderRow, error)
 		// TransitionStatus 条件状态迁移（CAS）：并发下只有一方生效，返回受影响行数。
 		TransitionStatus(ctx context.Context, id uint64, from, to string) (int64, error)
 		// ListExpiredPending 扫描超期未支付的订单（供过期关单调度器使用）。
-		ListExpiredPending(ctx context.Context, before time.Time, limit int) ([]ordermodel.Order, error)
+		ListExpiredPending(ctx context.Context, before time.Time, limit int) ([]dto.OrderRow, error)
 	}
 	// orderItemPort 订单项写入（P5-04 补写 order_items，行级保留折扣快照）。
 	orderItemPort interface {
-		Create(ctx context.Context, item *ordermodel.OrderItem) error
+		Create(ctx context.Context, item *dto.OrderItemRow) error
 	}
 	// priceResolverPort 统一算价管线（P5-03）。
 	priceResolverPort interface {
@@ -90,11 +96,11 @@ type (
 	// provisionQueuerPort 开通履约任务投递（T5.1）：下单只落库 + 投递任务，
 	// 由进程内工作池异步调用上游（上游开通约 50s，超过 app.write_timeout=10s）。
 	provisionQueuerPort interface {
-		EnqueueProvision(ctx context.Context, order *ordermodel.Order, sourceMode string) error
+		EnqueueProvision(ctx context.Context, order *dto.OrderRow, sourceMode string) error
 	}
 	// provisionTaskLookup 开通任务状态查询（订单列表展示履约进度/失败原因）。
 	provisionTaskLookup interface {
-		FindByOrderIDs(ctx context.Context, orderIDs []uint64) (map[uint64]*ordermodel.ProvisionTask, error)
+		FindByOrderIDs(ctx context.Context, orderIDs []uint64) (map[uint64]*dto.ProvisionTaskRow, error)
 	}
 	// salesOwnerResolver 销售归属解析（doc86 §3.4）：装配层注入，避免 uc 依赖 sales 模块。
 	// 解析失败/无归属必须返回 0 且不报错，下单不因归属缺失而失败。
@@ -159,7 +165,7 @@ type OrderService interface {
 	// SetSalesOwnerResolver 注入销售归属解析（装配层调用，doc86 §3.4）。
 	SetSalesOwnerResolver(r salesOwnerResolver)
 	// SetInstancePlaceholder 注入「下单即建待开通实例占位」钩子（装配层调用）。
-	SetInstancePlaceholder(fn func(ctx context.Context, order *ordermodel.Order) error)
+	SetInstancePlaceholder(fn func(ctx context.Context, order *dto.OrderRow) error)
 	// SetPendingInstanceReleaser 注入「订单作废即删占位实例」钩子（装配层调用）。
 	SetPendingInstanceReleaser(fn func(ctx context.Context, orderID uint64) (int64, error))
 	// SetLogger 注入日志器（装配层调用；nil 时不记日志）。
@@ -190,7 +196,7 @@ type orderService struct {
 	// instancePlaceholder 下单即建「待开通」实例占位（装配层实现），可为 nil（不建占位）。
 	// 让"已下单但还没开通成功"的机器在实例列表里可见可操作（查看/重新开通），
 	// 而不是开通失败后实例模块里什么都看不到（用户实测问题）。
-	instancePlaceholder func(ctx context.Context, order *ordermodel.Order) error
+	instancePlaceholder func(ctx context.Context, order *dto.OrderRow) error
 	// pendingInstanceReleaser 删除订单的未开通占位实例（未支付关单/用户取消时），可为 nil。
 	pendingInstanceReleaser func(ctx context.Context, orderID uint64) (int64, error)
 	// logger 可选日志（占位实例建/删失败等"不阻断下单"的事件），由装配层注入。
@@ -270,7 +276,7 @@ func (s *orderService) resolveOptionPricing(ctx context.Context, productID uint6
 func (s *orderService) SetSalesOwnerResolver(r salesOwnerResolver) { s.salesOwner = r }
 
 // SetInstancePlaceholder 注入「下单即建待开通实例」钩子（装配层调用；nil 时不建）。
-func (s *orderService) SetInstancePlaceholder(fn func(ctx context.Context, order *ordermodel.Order) error) {
+func (s *orderService) SetInstancePlaceholder(fn func(ctx context.Context, order *dto.OrderRow) error) {
 	s.instancePlaceholder = fn
 }
 
@@ -354,7 +360,7 @@ func firstNonEmptyStr(values ...string) string {
 
 // logPlaceholderError 记录占位实例建/删失败：这类失败不阻断下单/关单主流程，
 // 但必须在日志里留痕（否则实例"凭空消失/凭空出现"无从排查）。
-func (s *orderService) logPlaceholderError(order *ordermodel.Order, err error) {
+func (s *orderService) logPlaceholderError(order *dto.OrderRow, err error) {
 	if s.logger == nil || order == nil {
 		return
 	}
@@ -571,7 +577,7 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 	if !useChannel {
 		if _, err := s.wallet.Adjust(ctx, accountdto.AdjustRequest{
 			UserID:    userID,
-			Type:      transmodel.TxTypeConsume,
+			Type:      TxTypeConsume,
 			Direction: -1, // 支出
 			Amount:    amount,
 			BizKey:    fmt.Sprintf("uc-order-%d-%d", userID, time.Now().UnixNano()),
@@ -591,7 +597,7 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 		specsSnapshot = spec.Specs
 	}
 	now := time.Now()
-	order := &ordermodel.Order{
+	order := &dto.OrderRow{
 		OrderNo:     genOrderNo(userID),
 		UserID:      userID,
 		ProductID:   product.ID,
@@ -610,8 +616,8 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 		PricePolicyID:  quote.PolicyID,
 		DiscountSource: quote.Source,
 		PriceSnapshot:  snapshotJSON(quote.Snapshot),
-		Status:         ordermodel.OrderStatusPaid,
-		PayMethod:      ordermodel.PayMethodBalance,
+		Status:         dto.OrderStatusPaid,
+		PayMethod:      dto.PayModeBalance,
 		PaidAmount:     amount,
 		PayTime:        &now,
 		// 选项加价小计落 price_snapshot 之外的量：orders 无独立列，随选配明细一起在
@@ -623,7 +629,7 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 	if useChannel {
 		// 未收款：不写 paid_amount/pay_method/pay_time，避免未付款的订单混进销售额口径
 		// （仓储侧 paidStatuses 已排除 pending，这里保持列语义干净）。
-		order.Status = ordermodel.OrderStatusPending
+		order.Status = dto.OrderStatusPending
 		order.PayMethod = ""
 		order.PaidAmount = 0
 		order.PayTime = nil
@@ -648,7 +654,7 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 		// 行单价取算价结果的单位原价：周期矩阵命中时即该周期基质价（doc25），
 		// 保证订单项与订单头的原价口径一致。
 		itemPrice := round2(quote.OriginalAmount / float64(qty))
-		item := &ordermodel.OrderItem{
+		item := &dto.OrderItemRow{
 			OrderID:        order.ID,
 			ProductID:      product.ID,
 			ProductName:    product.Name,
@@ -683,7 +689,7 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 	if useChannel {
 		orderSucceeded = true
 		info := fromAdminOrder(*order, nil)
-		info.Status = ordermodel.OrderStatusPending
+		info.Status = dto.OrderStatusPending
 		if expire := s.payExpireAt(order); expire != "" {
 			info.PayExpireAt = expire
 		}
@@ -704,13 +710,13 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 		if err := s.provisionQueue.EnqueueProvision(ctx, order, product.SourceMode); err != nil {
 			// 任务投递失败：订单保持 paid，可稍后重试；库存由 defer 回补。
 			info := fromAdminOrder(*order, nil)
-			info.Status = ordermodel.OrderStatusPaid
+			info.Status = dto.OrderStatusPaid
 			return &info, ErrProvisionFailed
 		}
 		orderSucceeded = true
 		info := fromAdminOrder(*order, nil)
-		info.Status = ordermodel.OrderStatusPaid // 待工作池推进，前端轮询
-		info.ProvisionStatus = ordermodel.ProvisionTaskPending
+		info.Status = dto.OrderStatusPaid // 待工作池推进，前端轮询
+		info.ProvisionStatus = dto.ProvisionTaskPending
 		return &info, nil
 	}
 
@@ -718,12 +724,12 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 	if err := s.orderSvc.Activate(ctx, order.ID); err != nil {
 		// 已扣款，订单保持 paid，允许用户稍后重试；库存由 defer 回补。
 		info := fromAdminOrder(*order, nil)
-		info.Status = ordermodel.OrderStatusPaid
+		info.Status = dto.OrderStatusPaid
 		return &info, ErrProvisionFailed
 	}
 	orderSucceeded = true
 	info := fromAdminOrder(*order, nil)
-	info.Status = ordermodel.OrderStatusActive
+	info.Status = dto.OrderStatusActive
 	return &info, nil
 }
 
@@ -774,7 +780,7 @@ func (s *orderService) Detail(ctx context.Context, userID, orderID uint64) (*dto
 		return nil, ErrOrderNotFound
 	}
 
-	items := []ordermodel.Order{*order}
+	items := []dto.OrderRow{*order}
 	info := fromAdminOrder(*order, s.resolveActorNames(ctx, items))
 	info.SpecCode = order.SpecCode
 	info.Quantity = order.Quantity
@@ -810,7 +816,7 @@ func (s *orderService) Pay(ctx context.Context, userID, orderID uint64, req dto.
 	if err != nil {
 		return nil, err
 	}
-	if order.Status != ordermodel.OrderStatusPending {
+	if order.Status != dto.OrderStatusPending {
 		return nil, ErrOrderNotPayable
 	}
 	amount := payableAmount(order)
@@ -823,7 +829,7 @@ func (s *orderService) Pay(ctx context.Context, userID, orderID uint64, req dto.
 	}
 	Scene := strings.TrimSpace(req.Scene)
 	info, err := s.prepay.Prepay(ctx, userID, paydto.PrepayRequest{
-		BizType:     paymodel.BizTypeOrder,
+		BizType:     paydto.BizTypeOrder,
 		BizID:       order.ID,
 		BizNo:       order.OrderNo,
 		Amount:      amount,
@@ -862,10 +868,10 @@ func (s *orderService) Cancel(ctx context.Context, userID, orderID uint64) (*dto
 	if err != nil {
 		return nil, err
 	}
-	if order.Status != ordermodel.OrderStatusPending {
+	if order.Status != dto.OrderStatusPending {
 		return nil, ErrOrderNotCancellable
 	}
-	moved, err := s.orderRepo.TransitionStatus(ctx, order.ID, ordermodel.OrderStatusPending, ordermodel.OrderStatusCancelled)
+	moved, err := s.orderRepo.TransitionStatus(ctx, order.ID, dto.OrderStatusPending, dto.OrderStatusCancelled)
 	if err != nil {
 		return nil, err
 	}
@@ -873,7 +879,7 @@ func (s *orderService) Cancel(ctx context.Context, userID, orderID uint64) (*dto
 		// 并发：订单刚被支付成功或已被超时关单，以库内状态为准。
 		return nil, ErrOrderNotCancellable
 	}
-	order.Status = ordermodel.OrderStatusCancelled
+	order.Status = dto.OrderStatusCancelled
 	s.releasePendingHoldings(ctx, order)
 	return s.Detail(ctx, userID, order.ID)
 }
@@ -894,7 +900,7 @@ func (s *orderService) ExpirePending(ctx context.Context, expireMinutes int) (in
 	closed := 0
 	for i := range items {
 		it := items[i]
-		moved, err := s.orderRepo.TransitionStatus(ctx, it.ID, ordermodel.OrderStatusPending, ordermodel.OrderStatusClosed)
+		moved, err := s.orderRepo.TransitionStatus(ctx, it.ID, dto.OrderStatusPending, dto.OrderStatusClosed)
 		if err != nil {
 			// 单笔失败不影响其余订单，下一轮扫描会重试。
 			continue
@@ -903,7 +909,7 @@ func (s *orderService) ExpirePending(ctx context.Context, expireMinutes int) (in
 			// 扫描与支付成功回调并发：已被到账，跳过（不得回补库存、不得关支付单）。
 			continue
 		}
-		it.Status = ordermodel.OrderStatusClosed
+		it.Status = dto.OrderStatusClosed
 		s.releasePendingHoldings(ctx, &it)
 		closed++
 	}
@@ -915,9 +921,9 @@ func (s *orderService) ExpirePending(ctx context.Context, expireMinutes int) (in
 // 两者都是尽力而为且互不阻断：失败只影响库存/支付单准确性，不回滚订单状态（订单已确定作废，
 // 由运维按订单人工核对）。支付单要尽力关掉：否则用户仍能付款到一张已作废的订单，
 // 到账后又无单可开，形成悬空资金。
-func (s *orderService) releasePendingHoldings(ctx context.Context, order *ordermodel.Order) {
+func (s *orderService) releasePendingHoldings(ctx context.Context, order *dto.OrderRow) {
 	if s.pendingPayments != nil {
-		_, _ = s.pendingPayments.CloseByBiz(ctx, paymodel.BizTypeOrder, order.ID)
+		_, _ = s.pendingPayments.CloseByBiz(ctx, paydto.BizTypeOrder, order.ID)
 	}
 	// 删除该订单的「待开通」占位实例：订单已作废，实例列表里不该再留一台永远不会开通的机器。
 	if s.pendingInstanceReleaser != nil {
@@ -951,7 +957,7 @@ func (s *orderService) releasePendingHoldings(ctx context.Context, order *orderm
 }
 
 // ownedOrder 读取归属用户的订单；不存在与他人订单一律 ErrOrderNotFound（避免订单 ID 探测）。
-func (s *orderService) ownedOrder(ctx context.Context, userID, orderID uint64) (*ordermodel.Order, error) {
+func (s *orderService) ownedOrder(ctx context.Context, userID, orderID uint64) (*dto.OrderRow, error) {
 	if orderID == 0 {
 		return nil, ErrOrderNotFound
 	}
@@ -980,15 +986,15 @@ func (s *orderService) payExpireMinutesOrDefault() int {
 
 // payExpireAt 待支付订单的支付截止时间（RFC3339，非 pending 为空串）。
 // 实时推导而不落库：orders.expire_time 是实例计费到期时间，两者语义不同不可混用。
-func (s *orderService) payExpireAt(order *ordermodel.Order) string {
-	if order == nil || order.Status != ordermodel.OrderStatusPending || order.CreatedAt.IsZero() {
+func (s *orderService) payExpireAt(order *dto.OrderRow) string {
+	if order == nil || order.Status != dto.OrderStatusPending || order.CreatedAt.IsZero() {
 		return ""
 	}
 	return order.CreatedAt.Add(time.Duration(s.payExpireMinutesOrDefault()) * time.Minute).Format(time.RFC3339)
 }
 
 // resolveProvisionTasks 批量取订单的开通任务状态（T5.1，避免 N+1）；失败降级为空映射。
-func (s *orderService) resolveProvisionTasks(ctx context.Context, items []ordermodel.Order) map[uint64]*ordermodel.ProvisionTask {
+func (s *orderService) resolveProvisionTasks(ctx context.Context, items []dto.OrderRow) map[uint64]*dto.ProvisionTaskRow {
 	if s.provisionTasks == nil || len(items) == 0 {
 		return nil
 	}
@@ -1004,7 +1010,7 @@ func (s *orderService) resolveProvisionTasks(ctx context.Context, items []orderm
 }
 
 // resolveActorNames 批量解析订单操作人用户名；失败时降级为空映射（不阻断列表）。
-func (s *orderService) resolveActorNames(ctx context.Context, items []ordermodel.Order) map[uint64]string {
+func (s *orderService) resolveActorNames(ctx context.Context, items []dto.OrderRow) map[uint64]string {
 	if s.actorNames == nil {
 		return nil
 	}
@@ -1031,7 +1037,7 @@ func (s *orderService) resolveActorNames(ctx context.Context, items []ordermodel
 }
 
 // fromAdminOrder 映射订单为用户可见字段。
-func fromAdminOrder(o ordermodel.Order, actorNames map[uint64]string) dto.OrderInfo {
+func fromAdminOrder(o dto.OrderRow, actorNames map[uint64]string) dto.OrderInfo {
 	info := dto.OrderInfo{
 		ID:             o.ID,
 		OrderNo:        o.OrderNo,
@@ -1181,7 +1187,7 @@ func round2(value float64) float64 {
 }
 
 // payableAmount 订单应付金额：算价快照（final_amount）优先，兼容未写快照的存量订单。
-func payableAmount(o *ordermodel.Order) float64 {
+func payableAmount(o *dto.OrderRow) float64 {
 	if o.FinalAmount > 0 {
 		return o.FinalAmount
 	}

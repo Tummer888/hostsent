@@ -8,10 +8,8 @@ import (
 	"time"
 
 	orderdto "hostsent/backend/internal/modules/admin/order/dto"
-	ordermodel "hostsent/backend/internal/modules/admin/order/model"
 	catalogdto "hostsent/backend/internal/modules/admin/product/catalog/dto"
 	paydto "hostsent/backend/internal/modules/admin/system/payment/dto"
-	paymodel "hostsent/backend/internal/modules/admin/system/payment/model"
 	"hostsent/backend/internal/modules/uc/order/dto"
 )
 
@@ -92,22 +90,22 @@ func TestResolveSkuAllDisabled(t *testing.T) {
 
 // fakeOrderRepo 订单仓储最小实现，覆盖 Detail/Pay/Cancel/ExpirePending 需要的方法。
 type fakeOrderRepo struct {
-	order *ordermodel.Order
+	order *dto.OrderRow
 	err   error
 
 	// pending 为待扫描的超期订单（ListExpiredPending 返回）。
-	pending []ordermodel.Order
+	pending []dto.OrderRow
 	// transitions 记录 CAS 调用的 (id, from, to)。
 	transitions []string
 	// casMiss 为 true 时模拟 CAS 未生效（并发下订单已被支付/关单）。
 	casMiss bool
 }
 
-func (f *fakeOrderRepo) Create(context.Context, *ordermodel.Order) error { return nil }
-func (f *fakeOrderRepo) List(context.Context, orderdto.OrderListQuery) ([]ordermodel.Order, int64, error) {
+func (f *fakeOrderRepo) Create(context.Context, *dto.OrderRow) error { return nil }
+func (f *fakeOrderRepo) List(context.Context, orderdto.OrderListQuery) ([]dto.OrderRow, int64, error) {
 	return nil, 0, nil
 }
-func (f *fakeOrderRepo) FindByID(context.Context, uint64) (*ordermodel.Order, error) {
+func (f *fakeOrderRepo) FindByID(context.Context, uint64) (*dto.OrderRow, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -123,7 +121,7 @@ func (f *fakeOrderRepo) TransitionStatus(_ context.Context, id uint64, from, to 
 	}
 	return 1, nil
 }
-func (f *fakeOrderRepo) ListExpiredPending(context.Context, time.Time, int) ([]ordermodel.Order, error) {
+func (f *fakeOrderRepo) ListExpiredPending(context.Context, time.Time, int) ([]dto.OrderRow, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -164,10 +162,10 @@ func (f *fakeCloser) CloseByBiz(_ context.Context, bizType string, bizID uint64)
 // 避免用订单 ID 探测他人数据。
 func TestDetailOwnership(t *testing.T) {
 	paidAt := time.Now()
-	repo := &fakeOrderRepo{order: &ordermodel.Order{
+	repo := &fakeOrderRepo{order: &dto.OrderRow{
 		ID: 7, OrderNo: "UC1001", UserID: 100, ProductID: 5, ProductName: "云主机",
 		SpecCode: "small", Quantity: 2, Cycle: "monthly",
-		Status: ordermodel.OrderStatusPaid, PayMethod: ordermodel.PayMethodBalance,
+		Status: dto.OrderStatusPaid, PayMethod: dto.PayModeBalance,
 		FinalAmount: 88.8, PayTime: &paidAt,
 	}}
 	svc := &orderService{orderRepo: repo}
@@ -235,9 +233,9 @@ func TestResolveCycle(t *testing.T) {
 
 // TestPayUsesOrderAmount 收银台发起支付：金额必须取订单算价快照，前端无法改价。
 func TestPayUsesOrderAmount(t *testing.T) {
-	order := &ordermodel.Order{
+	order := &dto.OrderRow{
 		ID: 9, OrderNo: "UC9001", UserID: 2, ProductName: "云主机",
-		Status: ordermodel.OrderStatusPending, TotalAmount: 200, FinalAmount: 88.8,
+		Status: dto.OrderStatusPending, TotalAmount: 200, FinalAmount: 88.8,
 	}
 	repo := &fakeOrderRepo{order: order}
 	prepay := &fakePrepay{info: &paydto.OrderInfo{
@@ -257,7 +255,7 @@ func TestPayUsesOrderAmount(t *testing.T) {
 	if got := prepay.calls[0].Amount; got != 88.8 {
 		t.Fatalf("支付金额应取算价快照 88.8，got %v", got)
 	}
-	if prepay.calls[0].BizType != paymodel.BizTypeOrder || prepay.calls[0].BizNo != "UC9001" {
+	if prepay.calls[0].BizType != paydto.BizTypeOrder || prepay.calls[0].BizNo != "UC9001" {
 		t.Fatalf("支付单应绑定订单业务：%+v", prepay.calls[0])
 	}
 	if info.PaymentNo != "PAY1" || info.ChannelName != "人工转账" {
@@ -269,8 +267,8 @@ func TestPayUsesOrderAmount(t *testing.T) {
 func TestPayRejectsNonPending(t *testing.T) {
 	prepay := &fakePrepay{}
 	svc := &orderService{
-		orderRepo: &fakeOrderRepo{order: &ordermodel.Order{
-			ID: 9, UserID: 2, Status: ordermodel.OrderStatusPaid, FinalAmount: 88.8,
+		orderRepo: &fakeOrderRepo{order: &dto.OrderRow{
+			ID: 9, UserID: 2, Status: dto.OrderStatusPaid, FinalAmount: 88.8,
 		}},
 		prepay: prepay,
 	}
@@ -285,8 +283,8 @@ func TestPayRejectsNonPending(t *testing.T) {
 // TestPayRejectsForeignOrder 他人订单按不存在处理，不得探测金额与状态。
 func TestPayRejectsForeignOrder(t *testing.T) {
 	svc := &orderService{
-		orderRepo: &fakeOrderRepo{order: &ordermodel.Order{
-			ID: 9, UserID: 100, Status: ordermodel.OrderStatusPending, FinalAmount: 88.8,
+		orderRepo: &fakeOrderRepo{order: &dto.OrderRow{
+			ID: 9, UserID: 100, Status: dto.OrderStatusPending, FinalAmount: 88.8,
 		}},
 		prepay: &fakePrepay{},
 	}
@@ -297,9 +295,9 @@ func TestPayRejectsForeignOrder(t *testing.T) {
 
 // TestCancelReleasesHoldings 取消待支付订单：CAS 关单 → 关支付单 → 回补库存。
 func TestCancelReleasesHoldings(t *testing.T) {
-	order := &ordermodel.Order{
+	order := &dto.OrderRow{
 		ID: 9, OrderNo: "UC9001", UserID: 2, ProductID: 5, ProductName: "云主机",
-		Status: ordermodel.OrderStatusPending, SpecCode: "small", Quantity: 2, FinalAmount: 88.8,
+		Status: dto.OrderStatusPending, SpecCode: "small", Quantity: 2, FinalAmount: 88.8,
 	}
 	repo := &fakeOrderRepo{order: order}
 	closer := &fakeCloser{}
@@ -313,13 +311,13 @@ func TestCancelReleasesHoldings(t *testing.T) {
 	if len(repo.transitions) != 1 || repo.transitions[0] != "9:pending->cancelled" {
 		t.Fatalf("应先 CAS 关单，got %v", repo.transitions)
 	}
-	if len(closer.calls) != 1 || closer.calls[0] != paymodel.BizTypeOrder+":9" {
+	if len(closer.calls) != 1 || closer.calls[0] != paydto.BizTypeOrder+":9" {
 		t.Fatalf("应关闭订单的未支付支付单，got %v", closer.calls)
 	}
 	if len(sku.incremented) != 1 || sku.incremented[0] != 55 {
 		t.Fatalf("应回补所选 SKU 库存，got %v", sku.incremented)
 	}
-	if info.Status != ordermodel.OrderStatusCancelled {
+	if info.Status != dto.OrderStatusCancelled {
 		t.Fatalf("取消后状态应为 cancelled，got %s", info.Status)
 	}
 }
@@ -329,9 +327,9 @@ func TestCancelReleasesHoldings(t *testing.T) {
 // 背景：上游限量商品的库存挂在商品行上（没有 SKU），此前释放逻辑只处理 SKU，
 // 取消一单就永久吃掉一份库存（越卖越少）。
 func TestCancelReleasesProductStockWithoutSku(t *testing.T) {
-	order := &ordermodel.Order{
+	order := &dto.OrderRow{
 		ID: 12, OrderNo: "UC9012", UserID: 2, ProductID: 186, ProductName: "西安电信|一区·标准",
-		Status: ordermodel.OrderStatusPending, SpecCode: "", Quantity: 1, FinalAmount: 68,
+		Status: dto.OrderStatusPending, SpecCode: "", Quantity: 1, FinalAmount: 68,
 	}
 	repo := &fakeOrderRepo{order: order}
 	closer := &fakeCloser{}
@@ -353,8 +351,8 @@ func TestCancelReleasesProductStockWithoutSku(t *testing.T) {
 // 不得关支付单也不得回补库存，否则会造成「已付款却退库存」的错账。
 func TestCancelConflictKeepsHoldings(t *testing.T) {
 	repo := &fakeOrderRepo{
-		order: &ordermodel.Order{
-			ID: 9, UserID: 2, ProductID: 5, Status: ordermodel.OrderStatusPending,
+		order: &dto.OrderRow{
+			ID: 9, UserID: 2, ProductID: 5, Status: dto.OrderStatusPending,
 			SpecCode: "small", Quantity: 2,
 		},
 		// CAS 未生效：模拟订单刚被支付成功回调改成 paid。
@@ -374,9 +372,9 @@ func TestCancelConflictKeepsHoldings(t *testing.T) {
 
 // TestExpirePendingClosesAndReleases 超期关单：置 closed（与 cancelled 区分）并释放占用。
 func TestExpirePendingClosesAndReleases(t *testing.T) {
-	repo := &fakeOrderRepo{pending: []ordermodel.Order{{
+	repo := &fakeOrderRepo{pending: []dto.OrderRow{{
 		ID: 9, OrderNo: "UC9001", UserID: 2, ProductID: 5,
-		Status: ordermodel.OrderStatusPending, SpecCode: "small", Quantity: 2,
+		Status: dto.OrderStatusPending, SpecCode: "small", Quantity: 2,
 	}}}
 	closer := &fakeCloser{}
 	sku := &fakeSkuPort{specs: []catalogdto.ProductSpecInfo{{ID: 55, SpecCode: "small", Status: 1}}}
@@ -400,8 +398,8 @@ func TestExpirePendingClosesAndReleases(t *testing.T) {
 // TestExpirePendingSkipsPaidRace 扫描与支付成功并发：CAS 未生效的订单不释放占用。
 func TestExpirePendingSkipsPaidRace(t *testing.T) {
 	repo := &fakeOrderRepo{
-		pending: []ordermodel.Order{{
-			ID: 9, UserID: 2, ProductID: 5, Status: ordermodel.OrderStatusPending,
+		pending: []dto.OrderRow{{
+			ID: 9, UserID: 2, ProductID: 5, Status: dto.OrderStatusPending,
 			SpecCode: "small", Quantity: 2,
 		}},
 		casMiss: true,
@@ -437,11 +435,11 @@ func TestPayExpireAtOnlyForPending(t *testing.T) {
 	svc.SetPayExpireMinutes(30)
 	created := time.Date(2026, 9, 13, 10, 0, 0, 0, time.UTC)
 
-	pending := &ordermodel.Order{Status: ordermodel.OrderStatusPending, CreatedAt: created}
+	pending := &dto.OrderRow{Status: dto.OrderStatusPending, CreatedAt: created}
 	if got, want := svc.payExpireAt(pending), created.Add(30*time.Minute).Format(time.RFC3339); got != want {
 		t.Fatalf("待支付订单截止时间应为 %s，got %s", want, got)
 	}
-	if got := svc.payExpireAt(&ordermodel.Order{Status: ordermodel.OrderStatusPaid, CreatedAt: created}); got != "" {
+	if got := svc.payExpireAt(&dto.OrderRow{Status: dto.OrderStatusPaid, CreatedAt: created}); got != "" {
 		t.Fatalf("已支付订单不应有支付截止时间，got %s", got)
 	}
 	// 默认值兜底：未注入配置时按 30 分钟。
@@ -452,10 +450,10 @@ func TestPayExpireAtOnlyForPending(t *testing.T) {
 
 // TestPayableAmountFallback 应付金额优先算价快照，兼容未写快照的存量订单。
 func TestPayableAmountFallback(t *testing.T) {
-	if got := payableAmount(&ordermodel.Order{FinalAmount: 88.8, TotalAmount: 200}); got != 88.8 {
+	if got := payableAmount(&dto.OrderRow{FinalAmount: 88.8, TotalAmount: 200}); got != 88.8 {
 		t.Fatalf("应优先取算价快照 88.8，got %v", got)
 	}
-	if got := payableAmount(&ordermodel.Order{TotalAmount: 200}); got != 200 {
+	if got := payableAmount(&dto.OrderRow{TotalAmount: 200}); got != 200 {
 		t.Fatalf("无快照应回落应付总额 200，got %v", got)
 	}
 }

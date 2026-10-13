@@ -27,6 +27,7 @@ import (
 	userdto "hostsent/backend/internal/modules/admin/user/account/dto"
 	"hostsent/backend/internal/modules/admin/user/account/handler"
 	openservice "hostsent/backend/internal/modules/open/service"
+	ucorderdto "hostsent/backend/internal/modules/uc/order/dto"
 	ucorderhandler "hostsent/backend/internal/modules/uc/order/handler"
 	ucorderservice "hostsent/backend/internal/modules/uc/order/service"
 	"hostsent/backend/internal/pkg/billingcycle"
@@ -297,7 +298,7 @@ func (a *asm) buildOrder() {
 	a.refundHandler = orderhandler.NewRefundHandler(a.orderService)
 	// 用户中心订单：余额支付下单 + 复用履约适配器开通上游
 	// ensureOpenable：下单前校验商品能否直连开通，财务型上游（账单推送制）不支持单次开通，先拒绝避免误扣款。
-	a.ucOrderService = ucorderservice.NewOrderService(a.prodCatalogService, a.walletService, a.orderRepo, a.orderService,
+	a.ucOrderService = ucorderservice.NewOrderService(a.prodCatalogService, a.walletService, ucOrderRepoAdapter{repo: a.orderRepo}, a.orderService,
 		buildEnsureOpenable(a.prodCatalogService, a.providerService),
 		func(err error) bool { return errors.Is(err, finaccountservice.ErrInsufficientBalance) },
 		func(userID uint64, amount float64) {
@@ -312,12 +313,12 @@ func (a *asm) buildOrder() {
 				}
 			}()
 		},
-		a.userRepo,           // 订单「操作人」列：批量解析 operator_id → 用户名（P4-09）
-		a.orderItemRepo,      // 订单项落库：行级折扣快照（P5-04）
+		a.userRepo, // 订单「操作人」列：批量解析 operator_id → 用户名（P4-09）
+		ucOrderItemAdapter{repo: a.orderItemRepo}, // 订单项落库：行级折扣快照（P5-04）
 		a.pricePipeline,      // 统一算价管线（P5-03/P5-04）
 		a.prodCatalogService, // SKU 读取与库存增减（T4.1，按 SKU 下单）
-		a.provisionEnqueuer,  // 异步开通任务投递（T5.1）
-		a.provisionTaskRepo,  // 开通任务状态查询（订单列表轮询展示）
+		ucProvisionEnqueueAdapter{enqueuer: a.provisionEnqueuer}, // 异步开通任务投递（T5.1）
+		ucProvisionTaskAdapter{repo: a.provisionTaskRepo},        // 开通任务状态查询（订单列表轮询展示）
 	)
 	// 销售归属快照（doc86 §3.4）：用户中心下单瞬间锁定归属。
 	a.ucOrderService.SetSalesOwnerResolver(a.salesBundle.newOrderOwnerPort())
@@ -328,7 +329,10 @@ func (a *asm) buildOrder() {
 	// 订单选配项可读名：复用商品目录的客户可选项（与购买页同源），
 	// 把订单里落的上游选项/取值 id 翻译成「网络类型：VPC网络」再返回给客户。
 	a.ucOrderService.SetOptionLabelResolver(a.prodCatalogService)
-	a.ucOrderService.SetInstancePlaceholder(a.instancePlaceholderHook())
+	// 占位钩子面向 admin 订单模型；经本地行投影适配给 uc 服务。
+	a.ucOrderService.SetInstancePlaceholder(func(ctx context.Context, row *ucorderdto.OrderRow) error {
+		return a.instancePlaceholderHook()(ctx, toAdminOrder(row))
+	})
 	a.ucOrderService.SetPendingInstanceReleaser(a.buildInstancePlaceholderReleaser())
 	a.orderService.SetPendingInstanceReleaser(a.buildInstancePlaceholderReleaser())
 	// 后台取消待支付订单时回补库存（与用户侧 releasePendingHoldings 同口径）。

@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -10,14 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-
-	adminmodel "hostsent/backend/internal/modules/admin/manager/model"
 )
-
-// AdminAuditWriter 管理端操作审计落库能力（由 manager 仓储实现，避免 middleware 直接持有 *gorm.DB）。
-type AdminAuditWriter interface {
-	CreateAuditLog(ctx context.Context, log *adminmodel.AdminAuditLog) error
-}
 
 // auditExcludedPaths 不记录的高噪/敏感路径（前缀匹配）。
 var auditExcludedPaths = []string{
@@ -57,7 +49,7 @@ func AdminAudit(writer AdminAuditWriter) gin.HandlerFunc {
 			return // 未通过鉴权的请求不记录
 		}
 		resourceType, resourceID, action := parseAuditPath(c.Request.URL.Path, c.Request.Method)
-		log := &adminmodel.AdminAuditLog{
+		log := &AdminAuditEntry{
 			AdminID:       claims.AdminID,
 			AdminName:     claims.Username,
 			Action:        action,

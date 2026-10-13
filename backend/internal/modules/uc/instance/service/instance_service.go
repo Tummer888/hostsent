@@ -9,8 +9,6 @@ import (
 	"sync"
 	"time"
 
-	admininstancedto "hostsent/backend/internal/modules/admin/instance/dto"
-	admininstanceservice "hostsent/backend/internal/modules/admin/instance/service"
 	"hostsent/backend/internal/modules/uc/instance/dto"
 	"hostsent/backend/internal/modules/uc/instance/model"
 	"hostsent/backend/internal/modules/uc/instance/repository"
@@ -21,6 +19,15 @@ import (
 	"go.uber.org/zap"
 )
 
+// Operator 操作人标识（写入操作流水，委派运维台时带上）。
+// 是 admin/instance/service.Operator 的本地面投影（CONTRIBUTING §3：
+// uc service 不 import admin 域 service）。
+type Operator struct {
+	Type string // admin / user / system
+	ID   uint64
+	Name string
+}
+
 // 销毁相关错误（doc91 §6.4 验收断言 1/27）。
 var (
 	// ErrInstanceNotFoundOrDenied 实例不存在或不属于当前账号。
@@ -28,6 +35,9 @@ var (
 	ErrInstanceNotFoundOrDenied = errors.New("主机不存在或无权访问")
 	// ErrDestroyUnsupported 销毁执行者未装配（部署裁剪时）。
 	ErrDestroyUnsupported = errors.New("当前环境不支持自助销毁，请联系客服")
+	// ErrCapabilityUnsupported 上游服务商不支持该操作（admin/instance/service 同名
+	// 哨兵的本地面，装配层映射时统一转换，避免 uc import admin service）。
+	ErrCapabilityUnsupported = errors.New("该服务商不支持此操作")
 )
 
 // ProviderResolver 按提供商 ID 解析上游适配器（装配层注入，避免依赖 provider 服务）。
@@ -35,11 +45,10 @@ type ProviderResolver func(ctx context.Context, providerID uint64) (upstream.Pro
 
 // Destructor 销毁执行者（装配层委派给管理端实例运维台，doc91 §6.4）。
 //
-// 接口定义在本包、实现是管理端的 instanceOpsService：uc/* 反向引用 admin/*
-// 在本仓库已有先例（uc/finance、uc/payment、uc/order 均直引 admin 的 dto/model），
-// 因此这里直接复用 admin 侧的 Operator 与 DestroyRequest，少一层结构体转换。
+// 接口定义在本包、实现是管理端的 instanceOpsService（装配层注入）；
+// Operator 与请求/响应结构均为本包 dto 的本地面，装配层负责转换。
 type Destructor interface {
-	Destroy(ctx context.Context, op admininstanceservice.Operator, id uint64, req *admininstancedto.DestroyRequest) error
+	Destroy(ctx context.Context, op Operator, id uint64, req *dto.DestroyRequest) error
 }
 
 // InstanceOperator 实例维护执行者（装配层委派给管理端实例运维台）。
@@ -47,14 +56,14 @@ type Destructor interface {
 // 与 Destructor 分开声明是为了"装配裁剪"：只装配了 Destructor 的部署仍可销毁，
 // 维护类操作则统一返回"当前环境不支持"，不需要在 UC 侧重写能力分派、流水与事件。
 type InstanceOperator interface {
-	Reinstall(ctx context.Context, op admininstanceservice.Operator, id uint64, req *admininstancedto.ReinstallRequest) (*admininstancedto.ReinstallResult, error)
-	ResetPassword(ctx context.Context, op admininstanceservice.Operator, id uint64, req *admininstancedto.ResetPasswordRequest) error
-	Rescue(ctx context.Context, op admininstanceservice.Operator, id uint64, req *admininstancedto.RescueRequest) error
-	ExitRescue(ctx context.Context, op admininstanceservice.Operator, id uint64) error
-	Snapshots(ctx context.Context, id uint64, snapshotType string) ([]admininstancedto.SnapshotInfo, error)
-	CreateSnapshot(ctx context.Context, op admininstanceservice.Operator, id uint64, req *admininstancedto.SnapshotCreateRequest) error
-	DeleteSnapshot(ctx context.Context, op admininstanceservice.Operator, id uint64, snapshotID string) error
-	RestoreSnapshot(ctx context.Context, op admininstanceservice.Operator, id uint64, req *admininstancedto.SnapshotRestoreRequest) error
+	Reinstall(ctx context.Context, op Operator, id uint64, req *dto.ReinstallRequest) (*dto.ReinstallResult, error)
+	ResetPassword(ctx context.Context, op Operator, id uint64, req *dto.ResetPasswordRequest) error
+	Rescue(ctx context.Context, op Operator, id uint64, req *dto.RescueRequest) error
+	ExitRescue(ctx context.Context, op Operator, id uint64) error
+	Snapshots(ctx context.Context, id uint64, snapshotType string) ([]dto.SnapshotInfo, error)
+	CreateSnapshot(ctx context.Context, op Operator, id uint64, req *dto.SnapshotCreateRequest) error
+	DeleteSnapshot(ctx context.Context, op Operator, id uint64, snapshotID string) error
+	RestoreSnapshot(ctx context.Context, op Operator, id uint64, req *dto.SnapshotRestoreRequest) error
 }
 
 // InstanceService 用户中心主机业务能力。
@@ -221,11 +230,11 @@ func (s *instanceService) RetryProvision(ctx context.Context, userID, actorID ui
 }
 
 // userOperator 组装委派给运维台的操作人（子账号记为真实操作人）。
-func userOperator(userID, actorID uint64, actorName string) admininstanceservice.Operator {
+func userOperator(userID, actorID uint64, actorName string) Operator {
 	if actorID == 0 {
 		actorID = userID
 	}
-	return admininstanceservice.Operator{Type: "user", ID: actorID, Name: actorName}
+	return Operator{Type: "user", ID: actorID, Name: actorName}
 }
 
 // ownedInstance 归属校验 + 取出实例行；失败统一返回"不存在或无权访问"。
@@ -246,13 +255,13 @@ func (s *instanceService) Reinstall(ctx context.Context, userID, actorID uint64,
 	if s.operator == nil {
 		return nil, ErrMaintenanceUnsupported
 	}
-	res, err := s.operator.Reinstall(ctx, userOperator(userID, actorID, actorName), it.ID, &admininstancedto.ReinstallRequest{
+	res, err := s.operator.Reinstall(ctx, userOperator(userID, actorID, actorName), it.ID, &dto.ReinstallRequest{
 		OS: req.OS, Port: req.Port, FormatDataDisk: req.FormatDataDisk,
 		SystemDiskSize: req.SystemDiskSize, Reason: req.Reason,
 	})
 	if err != nil {
 		// 归属正确但平台不支持时，把"不支持"翻译成用户能懂的话。
-		if errors.Is(err, admininstanceservice.ErrCapabilityUnsupported) {
+		if errors.Is(err, ErrCapabilityUnsupported) {
 			return nil, fmt.Errorf("当前服务商不支持重装系统")
 		}
 		return nil, err
@@ -274,7 +283,7 @@ func (s *instanceService) ResetPassword(ctx context.Context, userID, actorID uin
 		return ErrMaintenanceUnsupported
 	}
 	return s.operator.ResetPassword(ctx, userOperator(userID, actorID, actorName), it.ID,
-		&admininstancedto.ResetPasswordRequest{Password: req.Password})
+		&dto.ResetPasswordRequest{Password: req.Password})
 }
 
 // Rescue 用户自助进入救援系统。
@@ -287,7 +296,7 @@ func (s *instanceService) Rescue(ctx context.Context, userID, actorID uint64, ac
 		return ErrMaintenanceUnsupported
 	}
 	return s.operator.Rescue(ctx, userOperator(userID, actorID, actorName), it.ID,
-		&admininstancedto.RescueRequest{System: req.System, TempPassword: req.TempPassword})
+		&dto.RescueRequest{System: req.System, TempPassword: req.TempPassword})
 }
 
 // ExitRescue 用户自助退出救援系统。
@@ -335,7 +344,7 @@ func (s *instanceService) CreateSnapshot(ctx context.Context, userID, actorID ui
 		return ErrMaintenanceUnsupported
 	}
 	return s.operator.CreateSnapshot(ctx, userOperator(userID, actorID, actorName), it.ID,
-		&admininstancedto.SnapshotCreateRequest{Type: req.Type, Name: req.Name, DiskID: req.DiskID})
+		&dto.SnapshotCreateRequest{Type: req.Type, Name: req.Name, DiskID: req.DiskID})
 }
 
 // DeleteSnapshot 用户自助删除自有快照/备份。
@@ -360,7 +369,7 @@ func (s *instanceService) RestoreSnapshot(ctx context.Context, userID, actorID u
 		return ErrMaintenanceUnsupported
 	}
 	return s.operator.RestoreSnapshot(ctx, userOperator(userID, actorID, actorName), it.ID,
-		&admininstancedto.SnapshotRestoreRequest{SnapshotID: req.SnapshotID, ConfirmMark: req.ConfirmMark})
+		&dto.SnapshotRestoreRequest{SnapshotID: req.SnapshotID, ConfirmMark: req.ConfirmMark})
 }
 
 // Destroy 用户自助销毁实例（doc91 §6.4）。
@@ -382,8 +391,8 @@ func (s *instanceService) Destroy(ctx context.Context, userID, actorID uint64, a
 	if actorID == 0 {
 		actorID = userID
 	}
-	op := admininstanceservice.Operator{Type: "user", ID: actorID, Name: actorName}
-	return s.destructor.Destroy(ctx, op, it.ID, &admininstancedto.DestroyRequest{
+	op := Operator{Type: "user", ID: actorID, Name: actorName}
+	return s.destructor.Destroy(ctx, op, it.ID, &dto.DestroyRequest{
 		ConfirmMark: req.ConfirmMark,
 		Reason:      req.Reason,
 	})

@@ -103,7 +103,7 @@ func (h *PaymentHandler) Methods(c *gin.Context) {
 		response.Error(c, h.mapErr(err))
 		return
 	}
-	response.Success(c, resp)
+	response.Success(c, customerMethodOptionsFrom(resp))
 }
 
 // Preferences godoc
@@ -253,7 +253,7 @@ func (h *PaymentHandler) Recharge(c *gin.Context) {
 		response.Error(c, h.mapErr(err))
 		return
 	}
-	response.Success(c, info)
+	response.Success(c, customerPaymentOrderFrom(info))
 }
 
 // BillPayRequest 账单支付请求。
@@ -288,7 +288,7 @@ func (h *PaymentHandler) PayBill(c *gin.Context) {
 		response.Error(c, h.mapErr(err))
 		return
 	}
-	response.Success(c, info)
+	response.Success(c, customerPaymentOrderFrom(info))
 }
 
 // WithdrawRequest 提现申请请求。
@@ -327,7 +327,8 @@ func (h *PaymentHandler) Withdraw(c *gin.Context) {
 		response.Error(c, h.mapErr(err))
 		return
 	}
-	response.Success(c, info)
+	view := customerWithdrawFrom(*info)
+	response.Success(c, view)
 }
 
 // Order godoc
@@ -353,7 +354,7 @@ func (h *PaymentHandler) Order(c *gin.Context) {
 		response.Error(c, apperrors.New(10003, "forbidden"))
 		return
 	}
-	response.Success(c, info)
+	response.Success(c, customerPaymentOrderFrom(info))
 }
 
 // Withdrawals godoc
@@ -377,5 +378,5 @@ func (h *PaymentHandler) Withdrawals(c *gin.Context) {
 		response.Error(c, h.mapErr(err))
 		return
 	}
-	response.Success(c, resp)
+	response.Success(c, customerWithdrawListFrom(resp))
 }

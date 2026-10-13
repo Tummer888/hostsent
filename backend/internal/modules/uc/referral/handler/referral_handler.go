@@ -146,7 +146,7 @@ func (h *ReferralHandler) Withdrawals(c *gin.Context) {
 		response.Error(c, h.mapErr(err))
 		return
 	}
-	response.Success(c, resp)
+	response.Success(c, customerWithdrawalListFrom(resp))
 }
 
 // ApplyWithdrawal 申请提现（冻结返现余额，待后台审核）。
@@ -171,7 +171,8 @@ func (h *ReferralHandler) ApplyWithdrawal(c *gin.Context) {
 		response.Error(c, h.mapErr(err))
 		return
 	}
-	response.Success(c, resp)
+	view := customerWithdrawalFrom(*resp)
+	response.Success(c, view)
 }
 
 // Transfer 返现转入现金余额（即时到账）。

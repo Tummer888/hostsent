@@ -1,7 +1,11 @@
 // Package dto 定义用户中心订单模块数据结构。
 package dto
 
-import "hostsent/backend/internal/pkg/pricing"
+import (
+	"time"
+
+	"hostsent/backend/internal/pkg/pricing"
+)
 
 // 支付方式（doc88 §6.2「待支付 + 收银台」）：
 //   - balance 余额支付：下单即扣款、订单直接 paid，与存量行为一致；
@@ -10,6 +14,92 @@ const (
 	PayModeBalance = "balance"
 	PayModeChannel = "channel"
 )
+
+// 订单状态常量（本模块本地面，语义与 admin/order model 同名常量一致）。
+// 只收敛服务层内部状态判断，不参与表结构定义（CONTRIBUTING §3：
+// uc 端不得 import admin 域 model）。
+const (
+	OrderStatusPending   = "pending"   // 待支付
+	OrderStatusPaid      = "paid"      // 已支付
+	OrderStatusActive    = "active"    // 服务中
+	OrderStatusCancelled = "cancelled" // 已取消
+	OrderStatusClosed    = "closed"    // 已关闭（过期/作废）
+)
+
+// ProvisionTaskPending 开通履约任务「待处理」状态（语义同 admin/order model）。
+const ProvisionTaskPending = "pending"
+
+// OrderItemRow 订单项行结构（order_items 表的本地面投影，P5-04 行级折扣快照）。
+type OrderItemRow struct {
+	OrderID        uint64
+	ProductID      uint64
+	ProductName    string
+	SpecCode       string
+	Specs          string
+	ConfigOptions  string
+	Cycle          string
+	Price          float64
+	Quantity       int
+	Amount         float64
+	OriginalAmount float64
+	DiscountAmount float64
+	FinalAmount    float64
+}
+
+// OrderRow 用户中心订单服务使用的订单行结构（admin/order 模型的本地面投影）。
+//
+// 该结构只包含下单/读单/关单链路实际使用的字段，与 orders 表的 GORM 模型
+// 逐字段同名同型；装配层负责把 admin 域的订单模型投影成本结构（或反向）。
+type OrderRow struct {
+	ID          uint64
+	OrderNo     string
+	UserID      uint64
+	ProductID   uint64
+	ProductName string
+	Specs       string
+	SpecCode    string
+	Quantity    int
+	PriceModel  string
+	Cycle       string
+	TotalAmount float64
+	PaidAmount  float64
+	Status      string
+	PayMethod   string
+	PayTime     *time.Time
+	ExpireTime  *time.Time
+	// ConfigOptions 客户选配项选择 JSON（T4.5），履约与回显真源。
+	ConfigOptions string
+	// 算价快照（P5-01）：原价/优惠/实付与折扣来源。
+	OriginalAmount float64
+	DiscountAmount float64
+	FinalAmount    float64
+	PricePolicyID  *uint64
+	DiscountSource string
+	PriceSnapshot  string
+	// OperatorID 真实操作人（子账号下单可追溯，P4-09）。
+	OperatorID uint64
+	// CustomerRemark 客户备注（随履约带入实例）。
+	CustomerRemark string
+	// 开放平台渠道（P6/T6.3）。
+	Channel            string
+	OpenAppID          uint64
+	ChannelCustomerRef string
+	// SalesAdminID 销售归属快照（doc86 §3.4）。
+	SalesAdminID uint64
+	// RenewalID 续费订单标记（占位钩子按此跳过，不建新实例）。
+	RenewalID uint64
+	// RenewalPrice 随单绑定的续费单价（占位钩子/转正链路读取）。
+	RenewalPrice *float64
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// ProvisionTaskRow 开通履约任务状态行（admin/order model.ProvisionTask 的本地面投影）。
+type ProvisionTaskRow struct {
+	OrderID   uint64
+	Status    string
+	LastError string
+}
 
 // CreateRequest 用户下单请求。
 type CreateRequest struct {

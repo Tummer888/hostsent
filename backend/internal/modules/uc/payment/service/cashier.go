@@ -15,7 +15,6 @@ import (
 	billdto "hostsent/backend/internal/modules/admin/finance/bill/dto"
 	withdrawdto "hostsent/backend/internal/modules/admin/finance/referral/walletwithdraw/dto"
 	paydto "hostsent/backend/internal/modules/admin/system/payment/dto"
-	paymodel "hostsent/backend/internal/modules/admin/system/payment/model"
 )
 
 // ErrBillNotPayable 账单不可支付（不属于本人 / 已结清 / 已关账）。
@@ -34,7 +33,7 @@ type (
 	}
 	// payoutAccountPort 取用户提现收款账户（解密后）。
 	payoutAccountPort interface {
-		AccountForPayout(ctx context.Context, userID, id uint64) (*paymodel.UserPayoutAccount, error)
+		AccountForPayout(ctx context.Context, userID, id uint64) (*paydto.PayoutAccount, error)
 	}
 	// withdrawPort 提现申请（冻结资金）与记录查询。
 	withdrawPort interface {
@@ -92,7 +91,7 @@ func (s *cashierService) StartRecharge(ctx context.Context, userID uint64, amoun
 		return nil, err
 	}
 	info, err := s.prepay.Prepay(ctx, userID, paydto.PrepayRequest{
-		BizType:     paymodel.BizTypeRecharge,
+		BizType:     paydto.BizTypeRecharge,
 		BizID:       rc.ID,
 		BizNo:       rc.RechargeNo,
 		Amount:      amount,
@@ -132,7 +131,7 @@ func (s *cashierService) StartBillPay(ctx context.Context, userID uint64, billID
 		billNo = bill.BillNo
 	}
 	return s.prepay.Prepay(ctx, userID, paydto.PrepayRequest{
-		BizType:     paymodel.BizTypeBill,
+		BizType:     paydto.BizTypeBill,
 		BizID:       bill.ID,
 		BizNo:       billNo,
 		Amount:      due,
