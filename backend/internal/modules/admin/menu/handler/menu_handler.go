@@ -3,9 +3,11 @@ package handler
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
+
+	apperrors "hostsent/backend/internal/pkg/errors"
+	"hostsent/backend/internal/pkg/response"
 
 	"hostsent/backend/internal/modules/admin/menu/service"
 	"hostsent/backend/internal/pkg/middleware"
@@ -36,7 +38,7 @@ func (h *MenuHandler) Tree(c *gin.Context) {
 	platform := c.DefaultQuery("platform", "admin")
 	tree, err := h.menuService.Tree(c.Request.Context(), platform)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
 	// 后台菜单按当前管理员权限过滤后再返回（82 P1-13）：前端直接渲染，不做权限过滤。
@@ -45,5 +47,5 @@ func (h *MenuHandler) Tree(c *gin.Context) {
 			tree = service.FilterByPermissions(tree, grant.Perms)
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": tree, "timestamp": time.Now().Unix()})
+	response.Success(c, tree)
 }

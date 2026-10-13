@@ -17,7 +17,6 @@ import (
 )
 
 // ErrSpecValidationFailed 规格超出原子字典约束（T2.6）。
-var ErrSpecValidationFailed = errors.New("规格不符合原子字典约束")
 
 // SpecContractService 规格契约业务能力（原子字典 / 外部规格快照 / 双向绑定）。
 type SpecContractService interface {

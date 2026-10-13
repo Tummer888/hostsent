@@ -19,18 +19,6 @@ import (
 	oauthpkg "hostsent/backend/internal/pkg/oauth"
 )
 
-// 哨兵错误（handler 逐条映射 HTTP 语义）。
-var (
-	// ErrProviderUnknown 未登记的渠道类型。
-	ErrProviderUnknown = errors.New("未知的第三方登录渠道")
-	// ErrProviderNotConfigured 渠道存在但未启用或凭证不可用。
-	ErrProviderNotConfigured = errors.New("该第三方登录渠道未启用")
-	// ErrBindingNotFound 当前用户没有该渠道的绑定。
-	ErrBindingNotFound = errors.New("未绑定该第三方账号")
-	// ErrNoInviteCode 保留给未来扩展；当前不返回。
-	ErrNoInviteCode = errors.New("邀请码无效")
-)
-
 // UserRepo 第三方登录所需的用户读写端口。
 //
 // 抽成端口而不是直接依赖 uc/auth 的仓储：oauth 服务需要「按 openid 找用户」之外

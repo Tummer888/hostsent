@@ -29,13 +29,10 @@ const (
 )
 
 // ErrNeedVerification 关键操作缺少/票据无效。
-var ErrNeedVerification = errors.New("该操作需要二次验证")
 
 // ErrSceneDisabled 场景策略不可用。
-var ErrSceneDisabled = errors.New("该场景验证策略不可用")
 
 // ErrTargetUnbound 目标未绑定。
-var ErrTargetUnbound = errors.New("账号未绑定对应的手机号或邮箱")
 
 // ErrRateLimited 频控命中。
 type ErrRateLimited struct {

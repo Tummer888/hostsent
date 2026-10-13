@@ -9,6 +9,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	apperrors "hostsent/backend/internal/pkg/errors"
+	"hostsent/backend/internal/pkg/response"
+
 	"hostsent/backend/internal/modules/admin/user/security/dto"
 	"hostsent/backend/internal/modules/admin/user/security/service"
 	"hostsent/backend/internal/pkg/middleware"
@@ -53,15 +56,15 @@ func operatorID(c *gin.Context) uint64 {
 func (h *SecurityHandler) ListLoginLogs(c *gin.Context) {
 	var query dto.LoginLogListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	data, err := h.service.ListLoginLogs(c.Request.Context(), query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // GetLoginLog godoc
@@ -76,10 +79,10 @@ func (h *SecurityHandler) GetLoginLog(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	data, err := h.service.GetLoginLog(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // ExportLoginLogs godoc
@@ -102,12 +105,12 @@ func (h *SecurityHandler) GetLoginLog(c *gin.Context) {
 func (h *SecurityHandler) ExportLoginLogs(c *gin.Context) {
 	var query dto.LoginLogListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	items, err := h.service.ExportLoginLogs(c.Request.Context(), query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
 
@@ -153,15 +156,15 @@ func (h *SecurityHandler) ExportLoginLogs(c *gin.Context) {
 func (h *SecurityHandler) ListAuditLogs(c *gin.Context) {
 	var query dto.AuditLogListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	data, err := h.service.ListAuditLogs(c.Request.Context(), query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // GetAuditLog godoc
@@ -176,10 +179,10 @@ func (h *SecurityHandler) GetAuditLog(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	data, err := h.service.GetAuditLog(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // ExportAuditLogs godoc
@@ -201,7 +204,7 @@ func (h *SecurityHandler) GetAuditLog(c *gin.Context) {
 func (h *SecurityHandler) ExportAuditLogs(c *gin.Context) {
 	var query dto.AuditLogListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	// 导出上限：单次最多导出 1000 条，防止内存放大
@@ -210,7 +213,7 @@ func (h *SecurityHandler) ExportAuditLogs(c *gin.Context) {
 	}
 	data, err := h.service.ListAuditLogs(c.Request.Context(), query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
 
@@ -257,15 +260,15 @@ func (h *SecurityHandler) ExportAuditLogs(c *gin.Context) {
 func (h *SecurityHandler) ListRiskEvents(c *gin.Context) {
 	var query dto.RiskEventListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	data, err := h.service.ListRiskEvents(c.Request.Context(), query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // GetRiskEvent godoc
@@ -280,10 +283,10 @@ func (h *SecurityHandler) GetRiskEvent(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	data, err := h.service.GetRiskEvent(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // CountRiskEvents godoc
@@ -301,7 +304,7 @@ func (h *SecurityHandler) GetRiskEvent(c *gin.Context) {
 func (h *SecurityHandler) CountRiskEvents(c *gin.Context) {
 	var query dto.RiskEventListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	// 状态由汇总接口自己按固定几档枚举，忽略调用方传入的 status：
@@ -309,10 +312,10 @@ func (h *SecurityHandler) CountRiskEvents(c *gin.Context) {
 	query.Status = ""
 	data, err := h.service.CountRiskEvents(c.Request.Context(), query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // UpdateRiskEventLevel godoc
@@ -330,15 +333,15 @@ func (h *SecurityHandler) UpdateRiskEventLevel(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.RiskEventLevelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	data, err := h.service.UpdateRiskEventLevel(c.Request.Context(), id, req, operatorID(c))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // IgnoreRiskEvent godoc
@@ -357,10 +360,10 @@ func (h *SecurityHandler) IgnoreRiskEvent(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 	data, err := h.service.IgnoreRiskEvent(c.Request.Context(), id, req, operatorID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // HandleRiskEvent godoc
@@ -379,10 +382,10 @@ func (h *SecurityHandler) HandleRiskEvent(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 	data, err := h.service.HandleRiskEvent(c.Request.Context(), id, req, operatorID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // CreateBlacklistFromRisk godoc
@@ -404,10 +407,10 @@ func (h *SecurityHandler) CreateBlacklistFromRisk(c *gin.Context) {
 	if err != nil {
 		// 拉黑失败的原因都是可操作的（维度没数据、已在黑名单里），按业务错误回 400，
 		// 前端才能把原因原样弹给运营；500 一律被前端压成「请求失败」，看不出该改什么。
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // RevokeSessionsFromRisk godoc
@@ -427,10 +430,10 @@ func (h *SecurityHandler) RevokeSessionsFromRisk(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 	data, err := h.service.RevokeSessionsFromRisk(c.Request.Context(), id, req, operatorID(c))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // ListRiskEventActions godoc
@@ -445,10 +448,10 @@ func (h *SecurityHandler) ListRiskEventActions(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	data, err := h.service.ListRiskEventActions(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // ListBlacklists godoc
@@ -467,15 +470,15 @@ func (h *SecurityHandler) ListRiskEventActions(c *gin.Context) {
 func (h *SecurityHandler) ListBlacklists(c *gin.Context) {
 	var query dto.BlacklistListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	data, err := h.service.ListBlacklists(c.Request.Context(), query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // CreateBlacklist godoc
@@ -490,15 +493,15 @@ func (h *SecurityHandler) ListBlacklists(c *gin.Context) {
 func (h *SecurityHandler) CreateBlacklist(c *gin.Context) {
 	var req dto.BlacklistCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	data, err := h.service.CreateBlacklist(c.Request.Context(), req, operatorID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // GetBlacklist godoc
@@ -513,10 +516,10 @@ func (h *SecurityHandler) GetBlacklist(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	data, err := h.service.GetBlacklist(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // UpdateBlacklist godoc
@@ -533,15 +536,15 @@ func (h *SecurityHandler) UpdateBlacklist(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.BlacklistUpdateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	data, err := h.service.UpdateBlacklist(c.Request.Context(), id, req, operatorID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // UpdateBlacklistStatus godoc
@@ -558,15 +561,15 @@ func (h *SecurityHandler) UpdateBlacklistStatus(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.BlacklistStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	data, err := h.service.UpdateBlacklistStatus(c.Request.Context(), id, req, operatorID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // ReleaseBlacklist godoc
@@ -582,10 +585,10 @@ func (h *SecurityHandler) ReleaseBlacklist(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	data, err := h.service.ReleaseBlacklist(c.Request.Context(), id, operatorID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // ListBlacklistHits godoc
@@ -603,15 +606,15 @@ func (h *SecurityHandler) ListBlacklistHits(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var query dto.BlacklistHitListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	data, err := h.service.ListBlacklistHits(c.Request.Context(), id, query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // ListSessions godoc
@@ -632,15 +635,15 @@ func (h *SecurityHandler) ListBlacklistHits(c *gin.Context) {
 func (h *SecurityHandler) ListSessions(c *gin.Context) {
 	var query dto.SessionListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	data, err := h.service.ListSessions(c.Request.Context(), query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // GetSession godoc
@@ -655,10 +658,10 @@ func (h *SecurityHandler) GetSession(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	data, err := h.service.GetSession(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // RevokeSession godoc
@@ -677,10 +680,10 @@ func (h *SecurityHandler) RevokeSession(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 	data, err := h.service.RevokeSession(c.Request.Context(), id, req, operatorID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // BatchRevokeSessions godoc
@@ -695,15 +698,15 @@ func (h *SecurityHandler) RevokeSession(c *gin.Context) {
 func (h *SecurityHandler) BatchRevokeSessions(c *gin.Context) {
 	var req dto.SessionBatchRevokeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	data, err := h.service.BatchRevokeSessions(c.Request.Context(), req, operatorID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // RevokeUserAllSessions godoc
@@ -718,13 +721,13 @@ func (h *SecurityHandler) BatchRevokeSessions(c *gin.Context) {
 func (h *SecurityHandler) RevokeUserAllSessions(c *gin.Context) {
 	var req dto.SessionRevokeUserAllRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	data, err := h.service.RevokeUserAllSessions(c.Request.Context(), req, operatorID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }

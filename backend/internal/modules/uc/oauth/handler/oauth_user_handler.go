@@ -5,14 +5,15 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"hostsent/backend/internal/modules/uc/oauth/dto"
 	"hostsent/backend/internal/modules/uc/oauth/service"
+	apperrors "hostsent/backend/internal/pkg/errors"
 	"hostsent/backend/internal/pkg/middleware"
 	oauthpkg "hostsent/backend/internal/pkg/oauth"
+	"hostsent/backend/internal/pkg/response"
 )
 
 // UserHandler 用户端第三方登录（登录/绑定/解绑）。
@@ -98,7 +99,7 @@ func (h *UserHandler) Exchange(c *gin.Context) {
 	data, err := h.svc.Exchange(c.Request.Context(), req.Ticket)
 	if err != nil {
 		if errors.Is(err, oauthpkg.ErrInvalidState) {
-			c.JSON(http.StatusUnauthorized, gin.H{"code": 40101, "message": err.Error(), "timestamp": time.Now().Unix()})
+			response.ErrorWithStatus(c, http.StatusUnauthorized, apperrors.New(40101, err.Error()))
 			return
 		}
 		badRequest(c, err.Error())
@@ -178,7 +179,7 @@ func (h *UserHandler) Unbind(c *gin.Context) {
 func currentUserID(c *gin.Context) (uint64, bool) {
 	claims, ok := middleware.GetUserClaims(c)
 	if !ok || claims.UserID == 0 {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 10001, "message": "unauthorized", "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusUnauthorized, apperrors.New(10001, "unauthorized"))
 		return 0, false
 	}
 	return claims.UserID, true
@@ -187,10 +188,10 @@ func currentUserID(c *gin.Context) (uint64, bool) {
 func respondOAuthUserErr(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrProviderUnknown):
-		c.JSON(http.StatusNotFound, gin.H{"code": 40401, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusNotFound, apperrors.New(40401, err.Error()))
 	case errors.Is(err, service.ErrProviderNotConfigured), errors.Is(err, oauthpkg.ErrLastLoginMethod),
 		errors.Is(err, service.ErrBindingNotFound):
-		c.JSON(http.StatusConflict, gin.H{"code": 40901, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusConflict, apperrors.New(40901, err.Error()))
 	default:
 		badRequest(c, err.Error())
 	}

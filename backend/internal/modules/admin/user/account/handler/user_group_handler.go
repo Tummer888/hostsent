@@ -3,9 +3,11 @@ package handler
 import (
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
+
+	apperrors "hostsent/backend/internal/pkg/errors"
+	"hostsent/backend/internal/pkg/response"
 
 	"hostsent/backend/internal/modules/admin/user/account/dto"
 	"hostsent/backend/internal/modules/admin/user/account/service"
@@ -34,15 +36,15 @@ func NewUserGroupHandler(service service.UserGroupService) *UserGroupHandler {
 func (h *UserGroupHandler) List(c *gin.Context) {
 	var query dto.UserGroupListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	items, err := h.service.List(c.Request.Context(), query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": items, "timestamp": time.Now().Unix()})
+	response.Success(c, items)
 }
 
 // Get godoc
@@ -58,10 +60,10 @@ func (h *UserGroupHandler) Get(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	item, err := h.service.FindByID(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": item, "timestamp": time.Now().Unix()})
+	response.Success(c, item)
 }
 
 // Create godoc
@@ -77,15 +79,15 @@ func (h *UserGroupHandler) Get(c *gin.Context) {
 func (h *UserGroupHandler) Create(c *gin.Context) {
 	var req dto.UserGroupCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	item, err := h.service.Create(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": item, "timestamp": time.Now().Unix()})
+	response.Success(c, item)
 }
 
 // Update godoc
@@ -103,15 +105,15 @@ func (h *UserGroupHandler) Update(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.UserGroupUpdateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	item, err := h.service.Update(c.Request.Context(), id, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": item, "timestamp": time.Now().Unix()})
+	response.Success(c, item)
 }
 
 // Delete godoc
@@ -126,8 +128,8 @@ func (h *UserGroupHandler) Update(c *gin.Context) {
 func (h *UserGroupHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err := h.service.Delete(c.Request.Context(), id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": "ok", "timestamp": time.Now().Unix()})
+	response.Success(c, "ok")
 }

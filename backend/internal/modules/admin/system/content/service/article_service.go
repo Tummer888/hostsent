@@ -11,7 +11,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -25,18 +24,6 @@ import (
 )
 
 // 业务错误。
-var (
-	ErrArticleNotFound   = errors.New("文章不存在")
-	ErrInvalidKind       = errors.New("不支持的内容类型")
-	ErrSlugRequired      = errors.New("无法生成有效标识，请手动填写 slug")
-	ErrCategoryNotFound  = errors.New("分类不存在")
-	ErrCategoryHasChild  = errors.New("分类下存在子分类，无法删除")
-	ErrCategoryKindMix   = errors.New("分类类型与文章类型不一致")
-	ErrLinkNotFound      = errors.New("友情链接不存在")
-	ErrLinkURLRequired   = errors.New("链接地址不能为空")
-	ErrTermsBodyRequired = errors.New("条款/隐私政策的正文不能为空")
-)
-
 // 摘要自动生成的截断长度（未手填 summary 时从正文剥标签取）。
 const summaryMaxLen = 140
 

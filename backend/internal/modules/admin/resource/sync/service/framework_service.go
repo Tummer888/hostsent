@@ -34,7 +34,6 @@ type FrameworkService interface {
 }
 
 // ErrPriceChangeHandled 调价事件已被处置。
-var ErrPriceChangeHandled = errors.New("该调价事件已处置")
 
 type frameworkService struct {
 	fwRepo       syncrepo.FrameworkRepository

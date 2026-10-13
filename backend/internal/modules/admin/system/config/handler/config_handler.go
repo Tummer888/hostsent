@@ -5,9 +5,11 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
+
+	apperrors "hostsent/backend/internal/pkg/errors"
+	"hostsent/backend/internal/pkg/response"
 
 	"hostsent/backend/internal/modules/admin/system/config/dto"
 	"hostsent/backend/internal/modules/admin/system/config/service"
@@ -38,12 +40,12 @@ func NewConfigHandler(configService service.ConfigService) *ConfigHandler {
 func (h *ConfigHandler) List(c *gin.Context) {
 	var query dto.ConfigListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	items, total, err := h.configService.List(c.Request.Context(), query.Group, query.Keyword, query.Page, query.PageSize)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
 	resp := dto.ConfigListResponse{
@@ -54,7 +56,7 @@ func (h *ConfigHandler) List(c *gin.Context) {
 			Total:    total,
 		},
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": resp, "timestamp": time.Now().Unix()})
+	response.Success(c, resp)
 }
 
 // GetByKey godoc
@@ -72,7 +74,7 @@ func (h *ConfigHandler) GetByKey(c *gin.Context) {
 		h.replyError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": config, "timestamp": time.Now().Unix()})
+	response.Success(c, config)
 }
 
 // Create godoc
@@ -87,7 +89,7 @@ func (h *ConfigHandler) GetByKey(c *gin.Context) {
 func (h *ConfigHandler) Create(c *gin.Context) {
 	var req dto.ConfigCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	config, err := h.configService.Create(c.Request.Context(), req)
@@ -95,7 +97,7 @@ func (h *ConfigHandler) Create(c *gin.Context) {
 		h.replyError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": config, "timestamp": time.Now().Unix()})
+	response.Success(c, config)
 }
 
 // Update godoc
@@ -113,7 +115,7 @@ func (h *ConfigHandler) Update(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.ConfigUpdateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	config, err := h.configService.Update(c.Request.Context(), id, req)
@@ -121,7 +123,7 @@ func (h *ConfigHandler) Update(c *gin.Context) {
 		h.replyError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": config, "timestamp": time.Now().Unix()})
+	response.Success(c, config)
 }
 
 // Delete godoc
@@ -138,7 +140,7 @@ func (h *ConfigHandler) Delete(c *gin.Context) {
 		h.replyError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": "ok", "timestamp": time.Now().Unix()})
+	response.Success(c, "ok")
 }
 
 // ListByGroup godoc
@@ -153,15 +155,15 @@ func (h *ConfigHandler) Delete(c *gin.Context) {
 func (h *ConfigHandler) ListByGroup(c *gin.Context) {
 	group := c.Param("group")
 	if group == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": "配置分组不能为空", "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, "配置分组不能为空"))
 		return
 	}
 	items, err := h.configService.ListByGroup(c.Request.Context(), group)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": items, "timestamp": time.Now().Unix()})
+	response.Success(c, items)
 }
 
 // BatchUpsert godoc
@@ -177,25 +179,25 @@ func (h *ConfigHandler) ListByGroup(c *gin.Context) {
 func (h *ConfigHandler) BatchUpsert(c *gin.Context) {
 	var req dto.ConfigBatchUpsertRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	items, err := h.configService.BatchUpsert(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": items, "timestamp": time.Now().Unix()})
+	response.Success(c, items)
 }
 
 // replyError 统一映射业务错误：不存在→404/20002，配置键重复→400/20004，其余→500/50001。
 func (h *ConfigHandler) replyError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrConfigNotFound):
-		c.JSON(http.StatusNotFound, gin.H{"code": 20002, "message": "配置项不存在", "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusNotFound, apperrors.New(20002, "配置项不存在"))
 	case errors.Is(err, service.ErrConfigKeyDuplicate):
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20004, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20004, err.Error()))
 	default:
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 	}
 }

@@ -4,9 +4,11 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
+
+	apperrors "hostsent/backend/internal/pkg/errors"
+	"hostsent/backend/internal/pkg/response"
 
 	"hostsent/backend/internal/modules/admin/manager/dto"
 	"hostsent/backend/internal/modules/admin/manager/service"
@@ -25,79 +27,79 @@ func NewDepartmentHandler(svc service.DepartmentService) *DepartmentHandler {
 func (h *DepartmentHandler) List(c *gin.Context) {
 	var query dto.DepartmentListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	resp, err := h.svc.List(c.Request.Context(), query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": resp, "timestamp": time.Now().Unix()})
+	response.Success(c, resp)
 }
 
 func (h *DepartmentHandler) Get(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": "invalid id", "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, "invalid id"))
 		return
 	}
 	resp, err := h.svc.FindByID(c.Request.Context(), id)
 	if err != nil {
 		status, code := mapDepartmentErr(err)
-		c.JSON(status, gin.H{"code": code, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, status, apperrors.New(code, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": resp, "timestamp": time.Now().Unix()})
+	response.Success(c, resp)
 }
 
 func (h *DepartmentHandler) Create(c *gin.Context) {
 	var req dto.DepartmentSaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	resp, err := h.svc.Create(c.Request.Context(), req)
 	if err != nil {
 		status, code := mapDepartmentErr(err)
-		c.JSON(status, gin.H{"code": code, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, status, apperrors.New(code, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": resp, "timestamp": time.Now().Unix()})
+	response.Success(c, resp)
 }
 
 func (h *DepartmentHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": "invalid id", "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, "invalid id"))
 		return
 	}
 	var req dto.DepartmentSaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	resp, err := h.svc.Update(c.Request.Context(), id, req)
 	if err != nil {
 		status, code := mapDepartmentErr(err)
-		c.JSON(status, gin.H{"code": code, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, status, apperrors.New(code, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": resp, "timestamp": time.Now().Unix()})
+	response.Success(c, resp)
 }
 
 func (h *DepartmentHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": "invalid id", "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, "invalid id"))
 		return
 	}
 	if err := h.svc.Delete(c.Request.Context(), id); err != nil {
 		status, code := mapDepartmentErr(err)
-		c.JSON(status, gin.H{"code": code, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, status, apperrors.New(code, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "timestamp": time.Now().Unix()})
+	response.Success(c, nil)
 }
 
 // mapDepartmentErr 区分「资源不存在/占用冲突」与「参数错误」，避免全部 500。

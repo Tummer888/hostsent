@@ -3,7 +3,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"math"
 	"sort"
 
@@ -13,11 +12,6 @@ import (
 )
 
 // 业务错误
-var (
-	// ErrCategoryHasChildren 存在子分类，禁止删除
-	ErrCategoryHasChildren = errors.New("分类下存在子分类，无法删除")
-)
-
 // CategoryService 定义商品分类业务能力。
 type CategoryService interface {
 	List(ctx context.Context, req dto.CategoryListRequest) (*dto.CategoryListResponse, error)

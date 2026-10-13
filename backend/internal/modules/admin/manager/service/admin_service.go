@@ -667,7 +667,6 @@ func (s *adminService) ensureStaffRoles(ctx context.Context, roleIDs []uint64) e
 }
 
 // ErrRoleScopeNotStaff 选中的角色属于客户侧，不能分配给员工。
-var ErrRoleScopeNotStaff = errors.New("选中的角色是客户角色，不能分配给员工")
 
 func mustRoleCodes(ctx context.Context, rbac repository.RBACRepository, roleIDs []uint64) []string {
 	codes, err := rbac.FindRoleCodesByIDs(ctx, roleIDs)

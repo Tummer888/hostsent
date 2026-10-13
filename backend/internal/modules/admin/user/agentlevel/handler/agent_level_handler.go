@@ -5,9 +5,11 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
+
+	apperrors "hostsent/backend/internal/pkg/errors"
+	"hostsent/backend/internal/pkg/response"
 
 	"hostsent/backend/internal/modules/admin/user/agentlevel/dto"
 	"hostsent/backend/internal/modules/admin/user/agentlevel/service"
@@ -231,7 +233,7 @@ func (h *AgentLevelHandler) ListMembers(c *gin.Context) {
 	data, err := h.service.ListMembers(c.Request.Context(), id, query)
 	if err != nil {
 		if errors.Is(err, service.ErrNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"code": 40401, "message": "代理分组不存在", "timestamp": time.Now().Unix()})
+			response.ErrorWithStatus(c, http.StatusNotFound, apperrors.New(40401, "代理分组不存在"))
 			return
 		}
 		serverError(c, err.Error())
@@ -269,7 +271,7 @@ func (h *AgentLevelHandler) AssignMembers(c *gin.Context) {
 	}
 	if err != nil {
 		if errors.Is(err, service.ErrNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"code": 40401, "message": "代理分组不存在", "timestamp": time.Now().Unix()})
+			response.ErrorWithStatus(c, http.StatusNotFound, apperrors.New(40401, "代理分组不存在"))
 			return
 		}
 		writeBusinessError(c, err)
@@ -286,27 +288,27 @@ func writeBusinessError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrNotFound):
 		// 等级不存在（单格更新时传了已删除的等级 ID）：404 而不是 500。
-		c.JSON(http.StatusNotFound, gin.H{"code": 40401, "message": "代理等级不存在", "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusNotFound, apperrors.New(40401, "代理等级不存在"))
 	case errors.Is(err, service.ErrRateBelowCost),
 		errors.Is(err, service.ErrRateOverOne),
 		errors.Is(err, service.ErrNotMonotonic),
 		errors.Is(err, service.ErrLevelInUse),
 		errors.Is(err, service.ErrTargetNotFound),
 		errors.Is(err, service.ErrCodeTaken):
-		c.JSON(http.StatusConflict, gin.H{"code": 40901, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusConflict, apperrors.New(40901, err.Error()))
 	default:
 		serverError(c, err.Error())
 	}
 }
 
 func badRequest(c *gin.Context, message string) {
-	c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": message, "timestamp": time.Now().Unix()})
+	response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, message))
 }
 
 func serverError(c *gin.Context, message string) {
-	c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": message, "timestamp": time.Now().Unix()})
+	response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, message))
 }
 
 func success(c *gin.Context, data any) {
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }

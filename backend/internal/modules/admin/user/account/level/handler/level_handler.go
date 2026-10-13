@@ -5,9 +5,11 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
+
+	apperrors "hostsent/backend/internal/pkg/errors"
+	"hostsent/backend/internal/pkg/response"
 
 	"hostsent/backend/internal/modules/admin/user/account/level/dto"
 	"hostsent/backend/internal/modules/admin/user/account/level/service"
@@ -122,7 +124,7 @@ func (h *UserLevelHandler) Delete(c *gin.Context) {
 		// 不是服务端故障：回落 serverError 会返回 50001，前端只能提示
 		// 「服务器错误」，运营不知道下一步该做什么。
 		if errors.Is(err, service.ErrLevelInUse) {
-			c.JSON(http.StatusConflict, gin.H{"code": 40901, "message": err.Error(), "timestamp": time.Now().Unix()})
+			response.ErrorWithStatus(c, http.StatusConflict, apperrors.New(40901, err.Error()))
 			return
 		}
 		serverError(c, err.Error())
@@ -132,13 +134,13 @@ func (h *UserLevelHandler) Delete(c *gin.Context) {
 }
 
 func badRequest(c *gin.Context, message string) {
-	c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": message, "timestamp": time.Now().Unix()})
+	response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, message))
 }
 
 func serverError(c *gin.Context, message string) {
-	c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": message, "timestamp": time.Now().Unix()})
+	response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, message))
 }
 
 func success(c *gin.Context, data any) {
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }

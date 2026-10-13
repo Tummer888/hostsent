@@ -29,17 +29,6 @@ type Operator struct {
 }
 
 // 销毁相关错误（doc91 §6.4 验收断言 1/27）。
-var (
-	// ErrInstanceNotFoundOrDenied 实例不存在或不属于当前账号。
-	// 两种情形共用一条提示，避免枚举他人实例 ID。
-	ErrInstanceNotFoundOrDenied = errors.New("主机不存在或无权访问")
-	// ErrDestroyUnsupported 销毁执行者未装配（部署裁剪时）。
-	ErrDestroyUnsupported = errors.New("当前环境不支持自助销毁，请联系客服")
-	// ErrCapabilityUnsupported 上游服务商不支持该操作（admin/instance/service 同名
-	// 哨兵的本地面，装配层映射时统一转换，避免 uc import admin service）。
-	ErrCapabilityUnsupported = errors.New("该服务商不支持此操作")
-)
-
 // ProviderResolver 按提供商 ID 解析上游适配器（装配层注入，避免依赖 provider 服务）。
 type ProviderResolver func(ctx context.Context, providerID uint64) (upstream.Provider, error)
 
@@ -115,18 +104,14 @@ type instanceService struct {
 }
 
 // ErrMaintenanceUnsupported 维护执行者未装配（部署裁剪时）。
-var ErrMaintenanceUnsupported = errors.New("当前环境不支持该操作，请联系客服")
 
 // ErrInstanceNotProvisioned 实例尚未开通（待开通占位行）：侧端操作无从下手。
-var ErrInstanceNotProvisioned = errors.New("实例尚未开通（待开通状态），请先点「重新开通」")
 
 // errUnsupportedControl 该商品/渠道不支持电源与控制台操作。
 // 措辞对客户只讲"不支持"，不暴露平台对接细节。
-var errUnsupportedControl = errors.New("该主机暂不支持电源与控制台操作，请联系客服")
 
 // errProviderUnavailable 底层渠道不可用。面向客户统一为一句话，
 // 具体原因（哪个渠道、什么错误）只进日志，不给客户看对接细节。
-var errProviderUnavailable = errors.New("服务暂时不可用，请稍后重试")
 
 // customerProvisionError 把开通失败的原始错误翻译成客户可读的原因。
 //
@@ -162,16 +147,12 @@ func customerProvisionError(raw string) string {
 }
 
 // ErrProvisionRetryUnavailable 重新开通入口未装配。
-var ErrProvisionRetryUnavailable = errors.New("重新开通暂不可用，请联系客服")
 
 // ErrAlreadyProvisioned 实例已开通，无需重新开通。
-var ErrAlreadyProvisioned = errors.New("实例已开通，无需重新开通")
 
 // ErrMetricsUnsupported 当前服务商不提供性能监控。
-var ErrMetricsUnsupported = errors.New("当前服务商不提供性能监控")
 
 // ErrMetricsTypeRequired 监控查询缺少 type。
-var ErrMetricsTypeRequired = errors.New("请指定要查询的监控类型")
 
 // 生命周期阶段（与 upstream/管理端同口径的字符串值；只用于读取判断，不落库）。
 const (

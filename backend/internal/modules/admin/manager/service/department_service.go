@@ -11,10 +11,8 @@ import (
 )
 
 // ErrDepartmentInUse 部门下仍有在职员工或被工单分类引用，禁止删除（doc86 §2.1）。
-var ErrDepartmentInUse = errors.New("部门下仍有在职员工或被工单分类引用，请先转移后再删除")
 
 // ErrDepartmentHasChildren 部门下仍有子部门，禁止删除。
-var ErrDepartmentHasChildren = errors.New("部门下仍有子部门，请先处理子部门")
 
 // ErrDepartmentNotFound 是 repository 层同义哨兵的 service 再出口：
 // handler 只允许依赖本包判断语义（CONTRIBUTING §3）。

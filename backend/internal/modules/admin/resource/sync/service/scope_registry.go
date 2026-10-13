@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
@@ -175,7 +174,6 @@ func UnsupportedScopes(d upstream.CapabilityDescriptor, p upstream.Provider) map
 }
 
 // errScopeNoHandler 描述符声明了 scope 但无处理器/适配器缺能力——属"跳过"而非失败。
-var errScopeNoHandler = errors.New("该同步类型暂无可用处理器")
 
 // hasProductCatalog / hasPoolReader / hasInstanceAdmin 为能力判定的类型断言兜底，
 // 供尚未登记描述符的适配器使用（新代码应优先由描述符判定）。

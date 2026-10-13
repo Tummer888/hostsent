@@ -4,9 +4,11 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
+
+	apperrors "hostsent/backend/internal/pkg/errors"
+	"hostsent/backend/internal/pkg/response"
 
 	"hostsent/backend/internal/modules/admin/user/account/service"
 )
@@ -27,7 +29,7 @@ func parseUserID(c *gin.Context) (uint64, bool) {
 }
 
 func abortBadRequest(c *gin.Context, message string) {
-	c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": message, "timestamp": time.Now().Unix()})
+	response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, message))
 }
 
 // respondUserErr 把 service 层错误映射为 HTTP 语义，并避免把原始 GORM 文本回给前端。
@@ -35,18 +37,18 @@ func abortBadRequest(c *gin.Context, message string) {
 func respondUserErr(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrUserNotFound):
-		c.JSON(http.StatusNotFound, gin.H{"code": 40401, "message": "用户不存在", "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusNotFound, apperrors.New(40401, "用户不存在"))
 	case errors.Is(err, service.ErrUsernameTaken):
-		c.JSON(http.StatusConflict, gin.H{"code": 40901, "message": service.ErrUsernameTaken.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusConflict, apperrors.New(40901, service.ErrUsernameTaken.Error()))
 	case errors.Is(err, service.ErrEmailTaken):
-		c.JSON(http.StatusConflict, gin.H{"code": 40901, "message": service.ErrEmailTaken.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusConflict, apperrors.New(40901, service.ErrEmailTaken.Error()))
 	case errors.Is(err, service.ErrRoleScopeMismatch), errors.Is(err, service.ErrEmptyRoleList),
 		errors.Is(err, service.ErrLevelDisabled), errors.Is(err, service.ErrLevelAssignUnavailable),
 		errors.Is(err, service.ErrAgentLevelDisabled), errors.Is(err, service.ErrAgentLevelUnavailable):
 		// 角色域不匹配 / 角色列表为空 / 目标等级已停用都是调用方入参问题，不是服务端故障：
 		// 回落 default 会返回 50001，前端只能提示「服务器错误」，运营看不出
 		// 自己选错了角色或等级。
-		c.JSON(http.StatusBadRequest, gin.H{"code": 40001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(40001, err.Error()))
 	case errors.Is(err, service.ErrLevelNotFound), errors.Is(err, service.ErrAgentLevelNotFound):
 		// 等级不存在单独成一条：上面的 ErrUserNotFound 分支会把它翻成
 		// 「用户不存在」，改等级/代理等级时选中一个不存在的等级不该指错对象。
@@ -54,8 +56,8 @@ func respondUserErr(c *gin.Context, err error) {
 		if errors.Is(err, service.ErrAgentLevelNotFound) {
 			code = service.ErrAgentLevelNotFound
 		}
-		c.JSON(http.StatusNotFound, gin.H{"code": 40401, "message": code.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusNotFound, apperrors.New(40401, code.Error()))
 	default:
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 	}
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -904,7 +905,7 @@ func newListResponse[T any](items []T, page, pageSize int, total int64) *dto.Lis
 
 func notFoundMessage(err error, message string) error {
 	if errorsIsRecordNotFound(err) {
-		return fmt.Errorf("%s", message)
+		return errors.New(message)
 	}
 	return err
 }

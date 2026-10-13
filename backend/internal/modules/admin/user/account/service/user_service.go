@@ -17,27 +17,6 @@ import (
 	pkgauth "hostsent/backend/internal/pkg/auth"
 )
 
-// 用户资料更新的哨兵错误：handler 据此映射 409，而不是把 GORM 原文抛成 500。
-var (
-	// ErrUserNotFound 用户不存在。由「查无此行」的仓储错误翻译而来，
-	// handler 据此映射 404（CONTRIBUTING §3：HTTP 层不依赖 gorm）。
-	ErrUserNotFound  = errors.New("用户不存在")
-	ErrUsernameTaken = errors.New("用户名已被占用")
-	ErrEmailTaken    = errors.New("邮箱已被占用")
-	// ErrLevelAssignUnavailable 装配层未注入等级调整能力，改等级请求无法处理。
-	ErrLevelAssignUnavailable = errors.New("用户等级调整能力未配置")
-	// ErrLevelNotFound 目标等级不存在。
-	ErrLevelNotFound = errors.New("用户等级不存在")
-	// ErrLevelDisabled 目标等级已停用。
-	ErrLevelDisabled = errors.New("目标等级已停用，不能指派")
-	// ErrAgentLevelUnavailable 装配层未注入代理等级校验能力，改代理等级请求无法处理。
-	ErrAgentLevelUnavailable = errors.New("代理等级能力未配置")
-	// ErrAgentLevelNotFound 目标代理等级不存在。
-	ErrAgentLevelNotFound = errors.New("代理等级不存在")
-	// ErrAgentLevelDisabled 目标代理等级已停用。
-	ErrAgentLevelDisabled = errors.New("目标代理等级已停用，不能指派")
-)
-
 // translateUserFindErr 把「查无此行」的仓储错误翻译成 ErrUserNotFound：
 // handler 只依赖本包哨兵，不得越过 service 判断 gorm 语义（CONTRIBUTING §3）。
 func translateUserFindErr(err error) error {
@@ -605,7 +584,6 @@ func (s *userService) validateUserRoles(ctx context.Context, roleIDs []uint64) e
 }
 
 // ErrEmptyRoleList 角色列表为空：会清空用户全部角色，属误操作。
-var ErrEmptyRoleList = errors.New("角色列表不能为空")
 
 func (s *userService) GetStats(ctx context.Context) (*dto.UserStatsResponse, error) {
 	stats, err := s.repo.Stats(ctx)
@@ -825,7 +803,6 @@ func (s *userService) ActivityOverview(ctx context.Context, limit, windowHours i
 }
 
 // ErrInvalidAdjustAmount 调账金额为 0：既不是充值也不是扣减，视为误操作。
-var ErrInvalidAdjustAmount = errors.New("调账金额不能为 0")
 
 // Recharge 用户钱包人工充值 / 调账，委托给注入的 Recharger。
 //

@@ -3,7 +3,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
@@ -289,4 +288,3 @@ func validRule(rule pricing.Rule) bool {
 }
 
 // ErrPolicyNotFound 折扣策略不存在。
-var ErrPolicyNotFound = errors.New("折扣策略不存在")

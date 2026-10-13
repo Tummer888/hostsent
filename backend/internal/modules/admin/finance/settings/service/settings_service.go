@@ -7,7 +7,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,7 +18,6 @@ import (
 )
 
 // ErrInvalidSetting 参数键不在白名单或取值非法。
-var ErrInvalidSetting = errors.New("财务参数非法")
 
 // 分组标识（同时是落库的 config_group）。
 const (

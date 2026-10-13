@@ -56,7 +56,6 @@ func (s *roleService) List(ctx context.Context, scope string) ([]dto.RoleInfo, e
 }
 
 // ErrRoleScopeMismatch 角色作用域不匹配：角色不属于目标账号域。
-var ErrRoleScopeMismatch = errors.New("角色不属于该账号域，不能跨域分配")
 
 // ValidateScope 校验角色 ID 集合全部落在 want 作用域内。
 //

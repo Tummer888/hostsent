@@ -3,7 +3,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	catalogdto "hostsent/backend/internal/modules/admin/product/catalog/dto"
@@ -13,7 +12,6 @@ import (
 )
 
 // ErrProductOffline 商品未上架，不可购买。
-var ErrProductOffline = errors.New("商品已下架，不可购买")
 
 // catalogReader 管理端商品目录读取能力的最小暴露接口（由装配层注入，避免 uc 依赖 admin service 层）。
 type catalogReader interface {

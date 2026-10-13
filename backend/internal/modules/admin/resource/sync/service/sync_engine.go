@@ -47,7 +47,6 @@ const (
 )
 
 // ErrTaskRunning 同一提供商同类型已有同步任务执行中（防重入）。
-var ErrTaskRunning = errors.New("已有同步任务在执行中")
 
 // maxConsecutiveSyncFailures 连续失败达到该次数即自动熔断（sync_paused）。
 const maxConsecutiveSyncFailures = 5

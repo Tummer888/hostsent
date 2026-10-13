@@ -5,9 +5,11 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"time"
 
 	"github.com/gin-gonic/gin"
+
+	apperrors "hostsent/backend/internal/pkg/errors"
+	"hostsent/backend/internal/pkg/response"
 
 	"hostsent/backend/internal/modules/admin/user/verification/dto"
 	"hostsent/backend/internal/modules/admin/user/verification/service"
@@ -429,7 +431,7 @@ func (h *VerificationHandler) TestProvider(c *gin.Context) {
 func verificationOperator(c *gin.Context) (uint64, string, bool) {
 	claims, ok := middleware.GetAdminClaims(c)
 	if !ok || claims.AdminID == 0 {
-		c.JSON(http.StatusForbidden, gin.H{"code": 40301, "message": "无法识别当前操作人", "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusForbidden, apperrors.New(40301, "无法识别当前操作人"))
 		return 0, "", false
 	}
 	name := claims.Username
@@ -459,13 +461,13 @@ func parseVerificationID(c *gin.Context) (uint64, bool) {
 func respondVerificationErr(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrApplicationNotFound), errors.Is(err, service.ErrProviderNotFound):
-		c.JSON(http.StatusNotFound, gin.H{"code": 40401, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusNotFound, apperrors.New(40401, err.Error()))
 	case errors.Is(err, service.ErrStatusConflict), errors.Is(err, service.ErrPendingExists),
 		errors.Is(err, service.ErrAlreadyVerified), errors.Is(err, service.ErrCooldown),
 		errors.Is(err, service.ErrConfigNotAllowed), errors.Is(err, service.ErrTypeNotAllowed):
-		c.JSON(http.StatusConflict, gin.H{"code": 40901, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusConflict, apperrors.New(40901, err.Error()))
 	case errors.Is(err, service.ErrOperatorRequired):
-		c.JSON(http.StatusForbidden, gin.H{"code": 40301, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusForbidden, apperrors.New(40301, err.Error()))
 	case errors.Is(err, service.ErrRejectReasonRequired):
 		// 参数问题不是服务端故障：驳回未填理由必须是 400，
 		// 落进 500 会让监控把它算成真实故障，前端也只能靠 message 文本判断。
@@ -476,13 +478,13 @@ func respondVerificationErr(c *gin.Context, err error) {
 }
 
 func badRequest(c *gin.Context, message string) {
-	c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": message, "timestamp": time.Now().Unix()})
+	response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, message))
 }
 
 func serverError(c *gin.Context, message string) {
-	c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": message, "timestamp": time.Now().Unix()})
+	response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, message))
 }
 
 func success(c *gin.Context, data any) {
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }

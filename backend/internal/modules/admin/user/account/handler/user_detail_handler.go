@@ -1,10 +1,9 @@
 package handler
 
 import (
-	"net/http"
-	"time"
-
 	"github.com/gin-gonic/gin"
+
+	"hostsent/backend/internal/pkg/response"
 
 	"hostsent/backend/internal/modules/admin/user/account/service"
 )
@@ -38,5 +37,5 @@ func (h *UserDetailHandler) GetAggregate(c *gin.Context) {
 		respondUserErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }

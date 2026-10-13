@@ -5,13 +5,14 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"hostsent/backend/internal/modules/uc/oauth/dto"
 	"hostsent/backend/internal/modules/uc/oauth/service"
+	apperrors "hostsent/backend/internal/pkg/errors"
 	oauthpkg "hostsent/backend/internal/pkg/oauth"
+	"hostsent/backend/internal/pkg/response"
 )
 
 // AdminHandler 管理端第三方登录配置与绑定排查。

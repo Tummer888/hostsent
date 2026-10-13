@@ -63,6 +63,16 @@ handler      → 永不直接使用 repository / gorm
 - 仓储层「查无此行」应翻译为域内哨兵（如 `ErrNotFound`），service 层再出口供
   handler 判断；**handler 不得依赖 `gorm.ErrRecordNotFound`**——语义落点（404/409）
   由 service 层哨兵决定
+- `service/errors.go` 只放哨兵错误（`var ErrXxx = errors.New(...)` 与同义再出口），
+  其它代码一律不放该文件
+
+## 4b. 响应统一
+
+- handler **禁止手写 `c.JSON(gin.H{...})`**：成功走 `response.Success/SuccessMessage`，
+  失败走 `response.Error/ErrorWithStatus`（`ErrorWithStatus` 保留 HTTP 状态码语义，
+  与 `Error` 的业务码进 body 双轨并存，二者契约等价）
+- 响应结构统一为 `response.Body{code, message, data, timestamp}`；
+  新增接口不得引入第三套响应体
 
 ## 5. 并发约定
 

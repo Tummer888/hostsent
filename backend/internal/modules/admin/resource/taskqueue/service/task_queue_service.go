@@ -4,7 +4,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"hostsent/backend/internal/modules/admin/resource/taskqueue/dto"
@@ -91,7 +90,6 @@ var upstreamStateNames = map[string]string{
 }
 
 // ErrInvalidCategory 类别不在允许列表内。
-var ErrInvalidCategory = errors.New("未知的任务类别")
 
 func (s *taskQueueService) Categories(ctx context.Context) ([]dto.TaskQueueCategoryCount, error) {
 	counts, err := s.repo.CategoryCounts(ctx, dto.TaskQueueListQuery{})

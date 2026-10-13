@@ -7,7 +7,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"math"
 	"strings"
 
@@ -18,7 +17,6 @@ import (
 )
 
 // ErrBillNotPayable 账单不可支付（不属于本人 / 已结清 / 已关账）。
-var ErrBillNotPayable = errors.New("账单不可支付")
 
 // 装配层注入的最小能力接口。
 type (

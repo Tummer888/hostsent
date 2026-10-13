@@ -15,30 +15,6 @@ import (
 	"hostsent/backend/internal/modules/admin/user/account/repository"
 )
 
-// 注销 / 恢复 / 留存期清理的哨兵错误。
-// handler 逐条映射 HTTP 语义，而不是把仓储原文抛成 500。
-var (
-	// ErrUserDeleted 目标用户已注销（重复注销、对已注销用户做常规写操作）。
-	ErrUserDeleted = errors.New("用户已注销")
-	// ErrUserNotDeleted 目标用户未注销（恢复一个没注销的用户）。
-	ErrUserNotDeleted = errors.New("用户未注销，无需恢复")
-	// ErrDeletionBlocked 存在硬阻断项（在管实例），force 也绕不过。
-	ErrDeletionBlocked = errors.New("用户仍存在未释放的实例，无法注销")
-	// ErrDeletionNeedsForce 存在警告项（余额/未结账单/工单/订单），需 force=true。
-	ErrDeletionNeedsForce = errors.New("用户存在未结清事项，需确认后强制注销")
-	// ErrInvalidOperator 注销操作人缺失（无法追溯「谁注销的」）。
-	ErrInvalidOperator = errors.New("注销操作人不能为空")
-	// ErrRestoreConflict 恢复时该账号名/邮箱已被新注册用户占用（doc104 §4.2）。
-	//
-	// 注销期间 username/email 是「释放」的（部分唯一索引只约束未注销行），
-	// 别人可能已经用同样的账号名注册了。此时**必须明确失败**，不做静默改名——
-	// 静默改名会让「这条审计记录对应的是谁」变得不可追溯。
-	ErrRestoreConflict = errors.New("该用户名或邮箱已被占用，请先修改后再恢复")
-	// ErrUserHasInstances 是 repository 层同义哨兵的 service 再出口：
-	// handler 只允许依赖本包判断语义（CONTRIBUTING §3）。
-	ErrUserHasInstances = repository.ErrUserHasInstances
-)
-
 // 默认留存期（天）。制度要求个人数据至少留存一段时间再彻底删除（doc104 §4.1），
 // 180 天对齐日志中心既有保留策略，避免两套保留期口径打架。
 const DefaultDeletionRetentionDays = 180

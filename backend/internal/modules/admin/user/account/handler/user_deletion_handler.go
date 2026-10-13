@@ -3,9 +3,11 @@ package handler
 import (
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
+
+	apperrors "hostsent/backend/internal/pkg/errors"
+	"hostsent/backend/internal/pkg/response"
 
 	"hostsent/backend/internal/modules/admin/user/account/dto"
 	"hostsent/backend/internal/modules/admin/user/account/service"
@@ -55,7 +57,7 @@ func (h *UserDeletionHandler) CheckDeletion(c *gin.Context) {
 		respondDeletionErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": resp, "timestamp": time.Now().Unix()})
+	response.Success(c, resp)
 }
 
 // DeleteUser godoc
@@ -87,7 +89,7 @@ func (h *UserDeletionHandler) DeleteUser(c *gin.Context) {
 		respondDeletionErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": "ok", "timestamp": time.Now().Unix()})
+	response.Success(c, "ok")
 }
 
 // RestoreUser godoc
@@ -107,7 +109,7 @@ func (h *UserDeletionHandler) RestoreUser(c *gin.Context) {
 		respondDeletionErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": "ok", "timestamp": time.Now().Unix()})
+	response.Success(c, "ok")
 }
 
 // BatchDeleteUsers godoc
@@ -135,7 +137,7 @@ func (h *UserDeletionHandler) BatchDeleteUsers(c *gin.Context) {
 		respondDeletionErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": resp, "timestamp": time.Now().Unix()})
+	response.Success(c, resp)
 }
 
 // BatchRestoreUsers godoc
@@ -158,7 +160,7 @@ func (h *UserDeletionHandler) BatchRestoreUsers(c *gin.Context) {
 		respondDeletionErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": resp, "timestamp": time.Now().Unix()})
+	response.Success(c, resp)
 }
 
 // PurgeUsers godoc
@@ -188,7 +190,7 @@ func (h *UserDeletionHandler) PurgeUsers(c *gin.Context) {
 		respondDeletionErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": resp, "timestamp": time.Now().Unix()})
+	response.Success(c, resp)
 }
 
 // respondDeletionErr 注销相关错误的 HTTP 映射。
@@ -199,17 +201,17 @@ func (h *UserDeletionHandler) PurgeUsers(c *gin.Context) {
 func respondDeletionErr(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrDeletionBlocked), errors.Is(err, service.ErrUserHasInstances):
-		c.JSON(http.StatusConflict, gin.H{"code": 40902, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusConflict, apperrors.New(40902, err.Error()))
 	case errors.Is(err, service.ErrDeletionNeedsForce):
-		c.JSON(http.StatusConflict, gin.H{"code": 40903, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusConflict, apperrors.New(40903, err.Error()))
 	case errors.Is(err, service.ErrUserDeleted), errors.Is(err, service.ErrUserNotDeleted):
-		c.JSON(http.StatusConflict, gin.H{"code": 40901, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusConflict, apperrors.New(40901, err.Error()))
 	case errors.Is(err, service.ErrRestoreConflict):
 		// 40904 单独一个码：前端要能把它与「重复注销」区分开，
 		// 提示运营「先去改掉新用户的账号名或邮箱」而不是「这单不用恢复了」。
-		c.JSON(http.StatusConflict, gin.H{"code": 40904, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusConflict, apperrors.New(40904, err.Error()))
 	case errors.Is(err, service.ErrInvalidOperator):
-		c.JSON(http.StatusForbidden, gin.H{"code": 40301, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusForbidden, apperrors.New(40301, err.Error()))
 	default:
 		respondUserErr(c, err)
 	}

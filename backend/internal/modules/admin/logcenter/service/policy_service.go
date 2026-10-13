@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -16,7 +15,6 @@ import (
 )
 
 // ErrPolicyRejected 策略不可用/参数非法（API 层映射为 20001）。
-var ErrPolicyRejected = errors.New("logcenter: policy rejected")
 
 // PolicyService 保留策略服务（doc92 §4.3 / §8.4）。
 type PolicyService interface {

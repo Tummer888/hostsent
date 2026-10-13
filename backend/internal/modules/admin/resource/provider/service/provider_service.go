@@ -931,16 +931,13 @@ func (s *providerService) FindPool(ctx context.Context, id uint64) (*dto.PoolInf
 }
 
 // ErrPlatformResourcesUnsupported 该渠道类型/适配器不提供平台资源目录读取能力。
-var ErrPlatformResourcesUnsupported = errors.New("该渠道未提供平台资源目录读取能力")
 
 // ErrAccountBalanceUnsupported 该渠道类型/适配器不提供账户余额读取能力。
 // 现状：魔方财务已实现（GET cart/credit，doc111 §5.1）；魔方云是资源系统、无账户余额概念。
 // 其余渠道（openstack/proxmox/aws/aliyun）在本版本没有适配器，一律走手工录入快照。
-var ErrAccountBalanceUnsupported = errors.New("该渠道类型暂不支持自动查询余额，请手工录入快照")
 
 // ErrUpstreamLedgerUnsupported 该渠道未实现上游账本读取（FinanceLedgerReader）。
 // 现状：魔方财务已实现（credit_record / v1/transactions/funds / v1/hosts，doc111 §5.2）。
-var ErrUpstreamLedgerUnsupported = errors.New("该渠道类型暂不支持读取上游账本（消费/充值流水），请手工录入")
 
 // PlatformResources 读取平台可售资源目录（区域/节点/存储/镜像）。
 // 自营商品的规格模板需要把 area/node/os/store 映射到平台真实取值，

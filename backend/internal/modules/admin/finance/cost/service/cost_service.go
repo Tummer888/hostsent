@@ -35,19 +35,6 @@ import (
 )
 
 // 业务错误。
-var (
-	// ErrItemNotFound 成本项不存在。
-	ErrItemNotFound = errors.New("成本项不存在")
-	// ErrInvalidItem 成本项参数非法。
-	ErrInvalidItem = errors.New("成本项参数非法")
-	// ErrProviderNotFound 渠道不存在或不可用。
-	ErrProviderNotFound = errors.New("渠道不存在")
-	// ErrBalanceUnsupported 该渠道不支持自动查询余额（适配器未实现 AccountReader）。
-	ErrBalanceUnsupported = errors.New("该渠道类型暂不支持自动查询余额")
-	// ErrLedgerUnsupported 该渠道不支持读取上游账本（适配器未实现 FinanceLedgerReader）。
-	ErrLedgerUnsupported = errors.New("该渠道类型暂不支持读取上游账本（消费/充值流水）")
-)
-
 // ConfigReader 读取 system_configs 原文（键不存在返回 ok=false）。
 type ConfigReader func(ctx context.Context, key string) (string, bool, error)
 

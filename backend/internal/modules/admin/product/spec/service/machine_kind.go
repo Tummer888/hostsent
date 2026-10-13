@@ -100,7 +100,7 @@ func decodeParamObject(raw json.RawMessage, label string) (map[string]any, error
 	}
 	var parsed map[string]any
 	if err := json.Unmarshal([]byte(s), &parsed); err != nil {
-		return nil, fmt.Errorf("%s JSON 非法（应为 参数名 → 取值 的对象）", label)
+		return nil, fmt.Errorf("%s JSON 非法（应为 参数名 → 取值 的对象）: %w", label, err)
 	}
 	if parsed == nil {
 		return map[string]any{}, nil

@@ -12,7 +12,6 @@ import (
 )
 
 // ErrConfigKeyDuplicate 配置键重复错误（由 Handler 映射为 400 业务错误码）。
-var ErrConfigKeyDuplicate = errors.New("配置键已存在")
 
 // ErrConfigNotFound 是 repository 层同义哨兵的 service 再出口：
 // handler 只允许依赖本包判断语义（CONTRIBUTING §3）。

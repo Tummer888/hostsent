@@ -17,6 +17,8 @@ ALLOW_PKG_MODULES='internal/pkg/db/'
 # uc 薄适配 service 委托 admin 域 service（形态合法，CONTRIBUTING §2；
 # 现状清单见 CONTRIBUTING §2 表格）
 ALLOW_UC_ADMIN_SERVICE='uc/product/service/product_service.go|uc/order/service/order_service.go'
+# handler 里非 JSON 的 c.JSON 豁免（流式下载/回调等场景）
+ALLOW_RAW_CJSON='open/handler/open.go'
 
 check() {
   local desc="$1" pattern="$2" scope="$3" allow="${4:-}"
@@ -78,6 +80,24 @@ done
 goroutines=$(grep -rn --include='*.go' 'go func(' internal/modules internal/server 2>/dev/null | grep -v '_test.go' | wc -l)
 recovers=$(grep -rln --include='*.go' 'safego.Recover\|safego.Go' internal/modules internal/server internal/pkg 2>/dev/null | wc -l)
 echo "INFO goroutine(生产代码)=$goroutines 处，含 safego 防护的文件=$recovers 个"
+
+# ── 响应统一（CONTRIBUTING §4）────────────────────────────────────────────
+
+# handler 禁止手写 c.JSON 响应体：统一走 internal/pkg/response
+# （Success/Error/ErrorWithStatus）。豁免：测试文件与非 JSON 流式场景。
+check "handler 手写 c.JSON 响应体禁止" \
+  'c\.JSON\([^)]*gin\.H\{' \
+  internal/modules \
+  "$ALLOW_RAW_CJSON|_test.go"
+
+# ── 错误链（CONTRIBUTING §4）──────────────────────────────────────────────
+
+# fmt.Errorf 包装错误必须用 %w：%v/%s 后跟错误变量即丢链（已含 %w 的合法
+# 包装不受影响——「含 %v 且包 err」排除「含 %w」行）。
+check "错误链丢失（fmt.Errorf %v/%s 包 error）禁止" \
+  'fmt\.Errorf\("[^"]*%[vsd][^"]*",[^)]*err[,)]' \
+  internal \
+  '_test.go|%w'
 
 if [ "$violations" -gt 0 ]; then
   echo "结构检查失败：$violations 类违例"

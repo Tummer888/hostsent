@@ -12,7 +12,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"io"
 	"path/filepath"
 	"strconv"
@@ -46,22 +45,6 @@ var allowedDocumentTypes = map[string]bool{
 	"business_license": true,
 	"authorization":    true,
 }
-
-// 材料相关哨兵错误。
-var (
-	// ErrDocumentStoreNotConfigured 存储未装配（配置缺失），属部署问题。
-	ErrDocumentStoreNotConfigured = errors.New("材料存储未配置，请联系管理员")
-	// ErrDocumentTypeNotAllowed 材料类型不在白名单内。
-	ErrDocumentTypeNotAllowed = errors.New("不支持的材料类型")
-	// ErrDocumentExtNotAllowed 文件扩展名不在白名单内。
-	ErrDocumentExtNotAllowed = errors.New("仅支持图片（png/jpg/webp/bmp）与 PDF")
-	// ErrDocumentTooLarge 文件超过大小上限。
-	ErrDocumentTooLarge = errors.New("文件超过 10MB 上限")
-	// ErrDocumentLimitExceeded 单申请材料数超限。
-	ErrDocumentLimitExceeded = errors.New("材料数量已达上限")
-	// ErrDocumentNotFound 材料不存在。
-	ErrDocumentNotFound = errors.New("材料不存在")
-)
 
 // DocumentStore 材料存储端口。
 //

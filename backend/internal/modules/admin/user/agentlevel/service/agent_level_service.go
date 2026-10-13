@@ -20,29 +20,6 @@ import (
 )
 
 // 业务错误（handler 据此映射状态码）。
-var (
-	// ErrInvalidAssignTarget 用户或等级 ID 非法。
-	ErrInvalidAssignTarget = errors.New("用户与代理等级 ID 不能为空")
-	// ErrLevelDisabled 目标等级已停用，不允许指派。
-	ErrLevelDisabled = errors.New("目标代理等级已停用，不能指派")
-	// ErrRateBelowCost 折扣率低于成本率（会亏本卖）。
-	ErrRateBelowCost = errors.New("折扣率低于成本率，会亏本销售")
-	// ErrRateOverOne 折扣率大于 1，比标价还贵。
-	ErrRateOverOne = errors.New("折扣率不能大于 1（100%）")
-	// ErrNotMonotonic 同一目标下等级越高折扣反而越差。
-	ErrNotMonotonic = errors.New("同一目标下，等级越高折扣必须越优（折扣率越小）")
-	// 以下四个是 repository 层同义哨兵的 service 再出口：
-	// handler 只允许依赖本包判断语义（CONTRIBUTING §3）。
-	// ErrNotFound 等级不存在。
-	ErrNotFound = repository.ErrNotFound
-	// ErrLevelInUse 等级仍被用户占用。
-	ErrLevelInUse = repository.ErrLevelInUse
-	// ErrTargetNotFound 折扣目标（分类/商品）不存在。
-	ErrTargetNotFound = repository.ErrTargetNotFound
-	// ErrCodeTaken 等级编码重复。
-	ErrCodeTaken = repository.ErrCodeTaken
-)
-
 // AgentLevelService 代理等级业务能力。
 type AgentLevelService interface {
 	List(ctx context.Context, query dto.ListQuery) (*dto.ListResponse, error)

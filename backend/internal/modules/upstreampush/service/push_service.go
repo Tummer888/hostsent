@@ -29,7 +29,6 @@ import (
 
 // ErrSignature 验签失败。对外统一返回"签名验证失败"，不区分是令牌查不到还是
 // 摘要不匹配——把两种失败区分开会让攻击者能枚举出哪些 order_id 有下游令牌。
-var ErrSignature = errors.New("签名验证失败")
 
 // ErrNotFound 推送的目标不存在（订单/实例/工单查不到）。
 var ErrNotFound = repository.ErrNotFound

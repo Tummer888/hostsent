@@ -14,10 +14,8 @@ import (
 )
 
 // ErrOptionSpecNotFound 配置项不存在。
-var ErrOptionSpecNotFound = errors.New("平台配置项不存在")
 
 // ErrProviderTypeUnknown 无法确定平台类型（渠道不存在 / 未声明配置项目录）。
-var ErrProviderTypeUnknown = errors.New("无法确定平台类型：请提供 provider_type，或选择已接入的渠道")
 
 // SpecOptionService 平台配置项目录与平台取值库业务能力（T4.5 规格配置化）。
 type SpecOptionService interface {

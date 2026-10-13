@@ -6,9 +6,11 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
+
+	apperrors "hostsent/backend/internal/pkg/errors"
+	"hostsent/backend/internal/pkg/response"
 
 	"hostsent/backend/internal/modules/admin/user/verification/dto"
 	"hostsent/backend/internal/modules/admin/user/verification/service"
@@ -31,7 +33,7 @@ func NewVerificationUserHandler(service service.VerificationService) *Verificati
 func userID(c *gin.Context) (uint64, bool) {
 	claims, ok := middleware.GetUserClaims(c)
 	if !ok || claims.UserID == 0 {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 10001, "message": "unauthorized", "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusUnauthorized, apperrors.New(10001, "unauthorized"))
 		return 0, false
 	}
 	return claims.UserID, true
@@ -273,11 +275,11 @@ func (h *VerificationUserHandler) DownloadDocument(c *gin.Context) {
 func respondUserVerificationErr(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrApplicationNotFound):
-		c.JSON(http.StatusNotFound, gin.H{"code": 40401, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusNotFound, apperrors.New(40401, err.Error()))
 	case errors.Is(err, service.ErrPendingExists), errors.Is(err, service.ErrAlreadyVerified),
 		errors.Is(err, service.ErrCooldown), errors.Is(err, service.ErrConfigNotAllowed),
 		errors.Is(err, service.ErrStatusConflict), errors.Is(err, service.ErrNotInitializer):
-		c.JSON(http.StatusConflict, gin.H{"code": 40901, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusConflict, apperrors.New(40901, err.Error()))
 	default:
 		badRequest(c, err.Error())
 	}

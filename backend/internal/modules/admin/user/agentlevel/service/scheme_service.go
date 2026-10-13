@@ -7,7 +7,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -18,22 +17,6 @@ import (
 )
 
 // 折扣组域的业务错误（handler 映射 400/409）。
-var (
-	// ErrSchemeNoGroup 折扣组未绑定商品分组，无法应用。
-	ErrSchemeNoGroup = errors.New("请先为该折扣组绑定商品分组")
-	// ErrSchemeGroupEmpty 绑定的商品分组为空。
-	ErrSchemeGroupEmpty = errors.New("绑定的商品分组为空，请先添加分类或商品")
-	// ErrSchemeNoRates 折扣组内没有大于 0 的费率。
-	ErrSchemeNoRates = errors.New("折扣组内没有大于 0 的折扣率，无需应用")
-	// ErrInvalidRate 折扣率非法。
-	ErrInvalidRate = errors.New("折扣率必须是 0 到 1 之间的数值")
-	// ErrTargetConflict 本折扣组要写的目标已被别的折扣组占用。
-	//
-	// 为什么必须拦：同一个 (代理分组, 目标) 单元格只有一个值，两个折扣组都写它时后应用的
-	// 静默覆盖前面的，矩阵上只看得到一个数字、查不出是谁写的，运营会以为两套折扣都在生效。
-	ErrTargetConflict = errors.New("该折扣组绑定的商品与其它折扣组重叠，无法应用")
-)
-
 // normalizeSchemeStatus 归一状态值。
 func normalizeSchemeStatus(status string) string {
 	if strings.TrimSpace(status) == "" {

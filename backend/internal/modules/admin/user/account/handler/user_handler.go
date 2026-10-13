@@ -10,6 +10,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	apperrors "hostsent/backend/internal/pkg/errors"
+	"hostsent/backend/internal/pkg/response"
+
 	"hostsent/backend/internal/modules/admin/user/account/dto"
 	"hostsent/backend/internal/modules/admin/user/account/service"
 	"hostsent/backend/internal/pkg/middleware"
@@ -52,10 +55,10 @@ func (h *UserHandler) SetOrderQuoteReader(reader func(ctx context.Context, userI
 func (h *UserHandler) GetStats(c *gin.Context) {
 	stats, err := h.userService.GetStats(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": stats, "timestamp": time.Now().Unix()})
+	response.Success(c, stats)
 }
 
 // GetActivityOverview godoc
@@ -72,10 +75,10 @@ func (h *UserHandler) GetActivityOverview(c *gin.Context) {
 	windowHours, _ := strconv.Atoi(c.Query("window_hours"))
 	data, err := h.userService.ActivityOverview(c.Request.Context(), limit, windowHours)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": data, "timestamp": time.Now().Unix()})
+	response.Success(c, data)
 }
 
 // ListUsers godoc
@@ -94,16 +97,16 @@ func (h *UserHandler) GetActivityOverview(c *gin.Context) {
 func (h *UserHandler) ListUsers(c *gin.Context) {
 	var query dto.UserListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 
 	users, err := h.userService.List(c.Request.Context(), query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": users, "timestamp": time.Now().Unix()})
+	response.Success(c, users)
 }
 
 // ExportUsers godoc
@@ -122,12 +125,12 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 func (h *UserHandler) ExportUsers(c *gin.Context) {
 	var query dto.UserListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	items, err := h.userService.ExportList(c.Request.Context(), query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
 
@@ -180,15 +183,15 @@ func (h *UserHandler) ExportUsers(c *gin.Context) {
 func (h *UserHandler) CreateUser(c *gin.Context) {
 	var req dto.UserCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 20001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(20001, err.Error()))
 		return
 	}
 	user, err := h.userService.Create(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": user, "timestamp": time.Now().Unix()})
+	response.Success(c, user)
 }
 
 // GetUser godoc
@@ -209,7 +212,7 @@ func (h *UserHandler) GetUser(c *gin.Context) {
 		respondUserErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": user, "timestamp": time.Now().Unix()})
+	response.Success(c, user)
 }
 
 // ListMembers godoc
@@ -230,7 +233,7 @@ func (h *UserHandler) ListMembers(c *gin.Context) {
 		respondUserErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": result, "timestamp": time.Now().Unix()})
+	response.Success(c, result)
 }
 
 // UpdateUser godoc
@@ -258,7 +261,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		respondUserErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": user, "timestamp": time.Now().Unix()})
+	response.Success(c, user)
 }
 
 // UpdateUserStatus godoc
@@ -285,7 +288,7 @@ func (h *UserHandler) UpdateUserStatus(c *gin.Context) {
 		respondUserErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": "ok", "timestamp": time.Now().Unix()})
+	response.Success(c, "ok")
 }
 
 // ResetPassword godoc
@@ -312,7 +315,7 @@ func (h *UserHandler) ResetPassword(c *gin.Context) {
 		respondUserErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": "ok", "timestamp": time.Now().Unix()})
+	response.Success(c, "ok")
 }
 
 // AssignRoles godoc
@@ -339,7 +342,7 @@ func (h *UserHandler) AssignRoles(c *gin.Context) {
 		respondUserErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": "ok", "timestamp": time.Now().Unix()})
+	response.Success(c, "ok")
 }
 
 // Impersonate godoc
@@ -369,10 +372,10 @@ func (h *UserHandler) Impersonate(c *gin.Context) {
 		UserAgent: c.GetHeader("User-Agent"),
 	})
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 40001, "message": err.Error(), "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusBadRequest, apperrors.New(40001, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": resp, "timestamp": time.Now().Unix()})
+	response.Success(c, resp)
 }
 
 // Recharge godoc
@@ -402,10 +405,10 @@ func (h *UserHandler) Recharge(c *gin.Context) {
 		respondUserErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": dto.RechargeResponse{
+	response.Success(c, dto.RechargeResponse{
 		RechargeNo: result.RechargeNo,
 		TxNo:       result.TxNo,
-	}, "timestamp": time.Now().Unix()})
+	})
 }
 
 // CreateOrder godoc
@@ -427,7 +430,7 @@ func (h *UserHandler) CreateOrder(c *gin.Context) {
 		return
 	}
 	if h.createOrder == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": "添加订单能力未配置", "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, "添加订单能力未配置"))
 		return
 	}
 	operatorID := uint64(0)
@@ -439,7 +442,7 @@ func (h *UserHandler) CreateOrder(c *gin.Context) {
 		respondUserErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": brief, "timestamp": time.Now().Unix()})
+	response.Success(c, brief)
 }
 
 // OrderConfig godoc
@@ -456,7 +459,7 @@ func (h *UserHandler) OrderConfig(c *gin.Context) {
 		return
 	}
 	if h.orderConfig == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": "代下单配置能力未配置", "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, "代下单配置能力未配置"))
 		return
 	}
 	resp, err := h.orderConfig(c.Request.Context(), productID)
@@ -464,7 +467,7 @@ func (h *UserHandler) OrderConfig(c *gin.Context) {
 		respondUserErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": resp, "timestamp": time.Now().Unix()})
+	response.Success(c, resp)
 }
 
 // OrderQuote godoc
@@ -489,7 +492,7 @@ func (h *UserHandler) OrderQuote(c *gin.Context) {
 		return
 	}
 	if h.orderQuote == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": "代下单算价能力未配置", "timestamp": time.Now().Unix()})
+		response.ErrorWithStatus(c, http.StatusInternalServerError, apperrors.New(50001, "代下单算价能力未配置"))
 		return
 	}
 	resp, err := h.orderQuote(c.Request.Context(), id, req)
@@ -497,5 +500,5 @@ func (h *UserHandler) OrderQuote(c *gin.Context) {
 		respondUserErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": resp, "timestamp": time.Now().Unix()})
+	response.Success(c, resp)
 }
