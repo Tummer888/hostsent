@@ -2242,5 +2242,12 @@ func safeHostname(name string) string {
 	if len(h) > 50 {
 		h = h[:50]
 	}
+	// 上游要求主机名至少 10 位：商品名短（如「4核4G」）时规范化结果会不足，
+	// 提交后被上游以「主机名长度至少10位」拒绝——此时款已扣、账单已建，
+	// 只能人工重试。这里补随机后缀凑够长度，避免因主机名把整笔开通拖进人工。
+	const minHostnameLen = 10
+	if len(h) < minHostnameLen {
+		h += randStr(minHostnameLen - len(h))
+	}
 	return h
 }

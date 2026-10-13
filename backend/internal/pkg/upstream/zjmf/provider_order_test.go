@@ -136,3 +136,22 @@ func TestHostHeaderAssignedIPs(t *testing.T) {
 		t.Fatalf("string assignedips mismatch, got %q", b.HostData.AssignedIPs)
 	}
 }
+// TestSafeHostnamePadsToMinimum 短商品名必须补足到上游要求的最小长度（10 位）。
+//
+// 上游按「主机名长度至少10位」校验；商品名短（如「4核4G」规范化后只有 4 位）时
+// 若不补齐，账单已建、款已扣才被拒，整笔开通只能人工重试。
+func TestSafeHostnamePadsToMinimum(t *testing.T) {
+	const minLen = 10
+	for _, in := range []string{"4核4G", "hk", "hs-1", "香港|六区·轻量 4-4 15Mbps"} {
+		got := safeHostname(in)
+		if len(got) < minLen {
+			t.Errorf("safeHostname(%q) = %q（%d 位），应至少 %d 位", in, got, len(got), minLen)
+		}
+		if got[0] < 'a' || got[0] > 'z' {
+			t.Errorf("safeHostname(%q) = %q，应以字母开头", in, got)
+		}
+		if len(got) > 50 {
+			t.Errorf("safeHostname(%q) = %q，超过 50 位", in, got)
+		}
+	}
+}

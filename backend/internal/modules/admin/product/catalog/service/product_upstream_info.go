@@ -320,7 +320,7 @@ func defaultUpstreamSelfOptions() []*model.ProductConfigOption {
 			OptionKey:  "hostname",
 			Widget:     model.ConfigWidgetText,
 			Required:   false,
-			Help:       "留空自动生成（hs- 前缀）；须以字母开头，仅字母/数字/连字符，最长 30 位",
+			Help:       "留空自动生成（hs- 前缀）；须以字母开头，仅字母/数字/连字符，10~30 位",
 			SortOrder:  10,
 		},
 	}
