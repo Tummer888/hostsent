@@ -692,6 +692,10 @@ const sceneLabelMap: Record<string, string> = {
   apikey_view: '查看 API 密钥',
   instance_destroy: '销毁实例',
   instance_resize: '变配实例',
+  instance_reinstall: '重装系统',
+  instance_snapshot_restore: '快照恢复',
+  instance_billing: '账期调整',
+  instance_relink: '重新关联上游号',
   admin_grant_change: '管理员权限变更',
   realname_submit: '提交实名',
 }

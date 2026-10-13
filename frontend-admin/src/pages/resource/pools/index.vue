@@ -96,6 +96,15 @@
             <span v-if="viewMode === 'group' && row.child_count" class="pool-provider">
               {{ row.child_count }} 个{{ row.category === 'location' ? '宿主机 / 存储' : '子池' }}
             </span>
+            <!-- 区域行没有子节点时，容量三列只能是空值。这里明说原因，
+                 否则读者会把「区域 + 内存/磁盘为空」读成数据缺失或渲染错误。 -->
+            <t-tooltip
+              v-else-if="viewMode === 'group' && row.category === 'location'"
+              content="该区域下暂无宿主机 / 存储节点（或已被当前筛选条件排除），因此没有容量可汇总"
+              placement="top"
+            >
+              <span class="pool-hint">无子节点</span>
+            </t-tooltip>
             <span v-else-if="!isEmbedded" class="pool-provider">{{ row.provider_name || `渠道 #${row.provider_id}` }}</span>
           </div>
         </template>
@@ -109,7 +118,7 @@
         </template>
 
         <template #cpu="{ row }">
-          <span v-if="row.category === 'location' && !row.aggregated" class="cell-muted">—</span>
+          <span v-if="row.category === 'location' && !row.aggregated" class="cell-na">不适用</span>
           <div v-else class="spec-cell">
             <span class="spec-text">{{ row.used_cpu }} / {{ row.total_cpu }}</span>
             <t-progress :percentage="row.cpu_usage_percent" :color="usageColor(row.cpu_usage_percent)" :stroke-width="6" />
@@ -118,7 +127,7 @@
         </template>
 
         <template #memory="{ row }">
-          <span v-if="row.category === 'location' && !row.aggregated" class="cell-muted">—</span>
+          <span v-if="row.category === 'location' && !row.aggregated" class="cell-na">不适用</span>
           <div v-else class="spec-cell">
             <span class="spec-text">{{ formatMemory(row.used_memory) }} / {{ formatMemory(row.total_memory) }}</span>
             <t-progress :percentage="row.memory_usage_percent" :color="usageColor(row.memory_usage_percent)" :stroke-width="6" />
@@ -126,7 +135,7 @@
         </template>
 
         <template #disk="{ row }">
-          <span v-if="row.category === 'location' && !row.aggregated" class="cell-muted">—</span>
+          <span v-if="row.category === 'location' && !row.aggregated" class="cell-na">不适用</span>
           <div v-else class="spec-cell">
             <span class="spec-text">{{ formatDisk(row.used_disk) }} / {{ formatDisk(row.total_disk) }}</span>
             <t-progress :percentage="row.disk_usage_percent" :color="usageColor(row.disk_usage_percent)" :stroke-width="6" />
@@ -172,6 +181,7 @@
               :options="buildMobileActionOptions([
                 { content: '详情', value: 'detail', theme: 'default' },
                 { content: '运维平台', value: 'ops', hidden: () => !row.provider_ops_url, theme: 'default' },
+                { content: '删除', value: 'delete', theme: 'error' },
               ])"
               @select="(value) => handleMobileAction(value, row)"
             />
@@ -187,6 +197,8 @@
               >
                 运维平台
               </t-link>
+              <span class="action-gap" />
+              <t-link theme="danger" hover="color" @click="removePool(row)">删除</t-link>
             </template>
           </div>
         </template>
@@ -303,14 +315,15 @@ import {
   SearchIcon,
   ServerIcon,
 } from 'tdesign-icons-vue-next'
-import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import { DialogPlugin, MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
-import { getPoolList, getProviderList } from '@/api/admin'
+import { deletePool, getPoolList, getProviderList } from '@/api/admin'
 import type { PoolCapacitySummary, PoolInfo, ProviderInfo } from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { formatDisk, formatMemory } from '@/utils/spec-format'
 
 defineOptions({ name: 'ResourcePools' })
 
@@ -401,8 +414,11 @@ const isEmbedded = computed(() => props.providerId !== undefined)
 // 位置型池（区域/可用区）没有容量语义，其列只渲染位置型字段，不套 CPU/内存/磁盘，
 // 否则区域行会永远显示 0 / 0 加空进度条——用户读起来像"采不到数据"，其实是"没有这个概念"。
 // 定义在 statCards / columns 之前：两处都按它决定是否渲染容量区块。
-const isLocationView = computed(() => filters.category === 'location')
-// 混合视图（全部）下不按行区分列，统一展示容量三列；位置型行由单元格内容标「—」区分。
+//
+// 层级视图恒为 false：层级视图里父行是区域的容量汇总（rollup 出的真实数字），
+// 必须出容量列；若沿用平铺视图残留的 category=location，汇总值会被整列藏掉。
+const isLocationView = computed(() => viewMode.value === 'flat' && filters.category === 'location')
+// 混合视图（全部）下不按行区分列，统一展示容量三列；位置型行由单元格内容标「不适用」区分。
 
 // 容量汇总卡片：容量用量取「容量型池」的累加（位置型池没有配额，不计入）。
 // 位置型视图下不渲染 CPU/内存/磁盘三张卡——那里它们的值恒为 0，只会误导。
@@ -497,15 +513,9 @@ function probeTheme(status: string) {
   return 'default'
 }
 
-function formatMemory(value: number): string {
-  if (value >= 1024) return `${(value / 1024).toFixed(1)}T`
-  return `${value}G`
-}
 
-function formatDisk(value: number): string {
-  if (value >= 1024) return `${(value / 1024).toFixed(1)}T`
-  return `${value}G`
-}
+
+
 
 function formatTime(value: string): string {
   if (!value) return '—'
@@ -660,7 +670,39 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
     case 'ops':
       if (row.provider_ops_url) window.open(row.provider_ops_url, '_blank', 'noopener')
       break
+    case 'delete':
+      removePool(row)
+      break
   }
+}
+
+/**
+ * removePool 删除资源池。
+ *
+ * 弹窗里必须说清一个容易误解的点：池由平台同步 upsert，**在线渠道的池下次同步会重新出现**。
+ * 不说的话运营删完发现又回来了，会以为删除没生效。这个操作真正解决的是
+ * 演示/历史脏数据（人造 upstream_id 的假池，永远同步不到、也永远刷不掉）。
+ */
+function removePool(row: PoolInfo) {
+  const isSynced = !!row.last_sync_at
+  const dialog = DialogPlugin.confirm({
+    header: '删除资源池',
+    body: isSynced
+      ? `确认删除「${row.name}」？该池来自平台同步，若所属渠道仍在线，下次同步会重新出现（删除主要用于清理脏数据）。`
+      : `确认删除「${row.name}」？该池不是同步来的（无同步时间），删除后不会再出现。`,
+    theme: 'danger',
+    confirmBtn: { content: '删除', theme: 'danger' },
+    onConfirm: async () => {
+      try {
+        await deletePool(row.id)
+        MessagePlugin.success('已删除')
+        dialog.hide()
+        loadPools()
+      } catch (error) {
+        MessagePlugin.error((error as Error).message || '删除失败')
+      }
+    },
+  })
 }
 // 资源池类型标签按语义区分颜色
 function poolTypeTheme(type?: string): 'primary' | 'warning' | 'success' | 'danger' | 'default' {
@@ -766,6 +808,22 @@ function poolTypeLabel(type?: string): string {
 .spec-hint {
   font-size: 11px;
   color: var(--color-muted-foreground);
+}
+
+/* 「不适用」而非「—」：区域本身没有容量这个概念，与容量池的 0 值不是一回事。
+   用「—」会读成"这里应该有个数但没采到"，用「不适用」才说明是字段本身不存在。 */
+.cell-na {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+  font-style: italic;
+}
+
+/* 「无子节点」：区域行有位置但子树为空时的解释性标记。 */
+.pool-hint {
+  font-size: 11px;
+  color: var(--color-muted-foreground);
+  border-bottom: 1px dashed var(--color-border);
+  cursor: help;
 }
 
 .action-gap {
