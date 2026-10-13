@@ -199,4 +199,82 @@ type AdminCreateOrderRequest struct {
 	BillingCycle string  `json:"billing_cycle"` // monthly/quarterly/annually...
 	Price        float64 `json:"price"`         // 覆盖价格（<=0 用商品默认价）
 	PayMode      string  `json:"pay_mode"`      // balance=余额支付并开通; create=仅创建不支付(默认)
+	// SpecCode 所选 SKU 编码（T4.1）。商品挂了规格时必填，与用户端下单同口径。
+	SpecCode string `json:"spec_code"`
+	// Quantity 购买数量，<=0 视为 1。
+	Quantity int `json:"quantity"`
+	// ConfigSelections 客户选配项选择（T4.5，平台参数名/上游选项 id → 取值）。
+	ConfigSelections map[string]string `json:"config_selections"`
+}
+
+// AdminOrderConfigResponse 后台代下单的可选配置项（供客服按商品选规格/周期/选配）。
+//
+// 与用户端商品详情同源：SKU 列表、可售周期、客户选配项都由商品目录与价格矩阵给出，
+// 后台只做展示，不另维护一套口径（否则代下单开通出来的配置会与用户自助购买不一致）。
+type AdminOrderConfigResponse struct {
+	ProductID  uint64                    `json:"product_id"`
+	Name       string                    `json:"name"`
+	PriceModel string                    `json:"price_model"`
+	Price      float64                   `json:"price"`
+	SourceMode string                    `json:"source_mode"`
+	Cycles     []string                  `json:"cycles"`
+	Specs      []AdminOrderConfigSpec    `json:"specs"`
+	Options    []AdminOrderConfigOption  `json:"options"`
+	Upstream   *AdminOrderConfigUpstream `json:"upstream,omitempty"`
+}
+
+// AdminOrderConfigSpec 一个可售 SKU。
+type AdminOrderConfigSpec struct {
+	SpecCode   string   `json:"spec_code"`
+	Name       string   `json:"name"`
+	Price      float64  `json:"price"`
+	PriceModel string   `json:"price_model"`
+	Stock      int      `json:"stock"` // -1 表示不限
+	Cycles     []string `json:"cycles"`
+}
+
+// AdminOrderConfigOption 一个客户可选配置项（widget 决定前端渲染方式）。
+type AdminOrderConfigOption struct {
+	OptionKey    string                      `json:"option_key"`
+	Name         string                      `json:"name"`
+	Widget       string                      `json:"widget"`
+	Required     bool                        `json:"required"`
+	DefaultValue string                      `json:"default_value"`
+	Unit         string                      `json:"unit"`
+	Help         string                      `json:"help"`
+	MinValue     *float64                    `json:"min_value"`
+	MaxValue     *float64                    `json:"max_value"`
+	UnitPrice    float64                     `json:"unit_price"`
+	Values       []AdminOrderConfigOptionVal `json:"values"`
+	// Locked 上游固定配置项（只有一个可见取值）：只读展示，不可下发覆盖。
+	Locked bool `json:"locked"`
+}
+
+// AdminOrderConfigOptionVal 一个可选值（含四周期加价）。
+type AdminOrderConfigOptionVal struct {
+	Value          string  `json:"value"`
+	Label          string  `json:"label"`
+	Group          string  `json:"group_label,omitempty"`
+	Help           string  `json:"help,omitempty"`
+	Default        bool    `json:"is_default"`
+	PriceMonthly   float64 `json:"price_monthly"`
+	PriceQuarterly float64 `json:"price_quarterly"`
+	PriceAnnually  float64 `json:"price_annually"`
+	PriceOnetime   float64 `json:"price_onetime"`
+}
+
+// AdminOrderConfigUpstream 对接商品的上游固定配置（只读展示；客户可选项已在 Options 里）。
+type AdminOrderConfigUpstream struct {
+	FixedConfig bool                             `json:"fixed_config"`
+	Renewable   bool                             `json:"renewable"`
+	RenewNote   string                           `json:"renew_note"`
+	Options     []AdminOrderConfigUpstreamOption `json:"options"`
+}
+
+// AdminOrderConfigUpstreamOption 上游配置项及锁定状态。
+type AdminOrderConfigUpstreamOption struct {
+	Key    string `json:"key"`
+	Name   string `json:"name"`
+	Locked bool   `json:"locked"`
+	Value  string `json:"value"`
 }

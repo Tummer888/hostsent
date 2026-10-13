@@ -710,6 +710,11 @@ export interface AdminOrderCreateRequest {
   billing_cycle?: string
   price?: number
   pay_mode?: 'balance' | 'create'
+  /** 所选 SKU 编码（商品挂了规格时必填，与用户端下单一致） */
+  spec_code?: string
+  quantity?: number
+  /** 客户选配项选择（平台参数名/上游选项 id → 取值） */
+  config_selections?: Record<string, string>
 }
 
 export interface AdminOrderBrief {
@@ -720,6 +725,80 @@ export interface AdminOrderBrief {
   total_amount: number
   status: string
   pay_method: string
+}
+
+/** 代下单可选 SKU。 */
+export interface AdminOrderConfigSpec {
+  spec_code: string
+  name: string
+  price: number
+  price_model: string
+  /** -1 表示不限库存 */
+  stock: number
+  cycles: string[]
+}
+
+/** 选配项的一个可选值（含各周期加价）。 */
+export interface AdminOrderConfigOptionVal {
+  value: string
+  label: string
+  group_label?: string
+  help?: string
+  is_default: boolean
+  price_monthly: number
+  price_quarterly: number
+  price_annually: number
+  price_onetime: number
+}
+
+/** 一个客户可选配置项；widget 决定前端渲染成什么控件。 */
+export interface AdminOrderConfigOption {
+  option_key: string
+  name: string
+  /** select | group_select | radio | qty | bool | text */
+  widget: string
+  required: boolean
+  default_value: string
+  unit: string
+  help: string
+  min_value: number | null
+  max_value: number | null
+  unit_price: number
+  values: AdminOrderConfigOptionVal[]
+}
+
+/** 上游固定配置项（只读展示）。 */
+export interface AdminOrderConfigUpstreamOption {
+  key: string
+  name: string
+  locked: boolean
+  value: string
+}
+
+/** 代下单可选配置：可售 SKU / 周期 / 客户选配项 / 上游固定配置。 */
+export interface AdminOrderConfigResponse {
+  product_id: number
+  name: string
+  price_model: string
+  price: number
+  source_mode: string
+  cycles: string[]
+  specs: AdminOrderConfigSpec[]
+  options: AdminOrderConfigOption[]
+  upstream?: {
+    fixed_config: boolean
+    renewable: boolean
+    renew_note: string
+    options: AdminOrderConfigUpstreamOption[]
+  } | null
+}
+
+/** 读取某商品代下单可选配置（规格/周期/选配项）。 */
+export function getAdminOrderConfig(productId: number): Promise<AdminOrderConfigResponse> {
+  return request.get<AdminOrderConfigResponse>({
+    url: '/users/order-config',
+    params: { product_id: productId },
+  })
 }
 
 export function createUserOrder(id: string | number, data: AdminOrderCreateRequest): Promise<AdminOrderBrief> {

@@ -81,6 +81,8 @@ func registerAdminRoutes(r *gin.Engine, app *App) {
 			// 总览页活动统计（在线用户 / 最近登录用户）。与 /stats 同权限，
 			// 静态段同样必须注册在 /:id 之前。
 			users.GET("/activity-overview", app.perm("system:user:list"), app.userHandler.GetActivityOverview)
+			// 代下单可选项（规格/周期/选配项）：静态段须注册在 /:id 之前。
+			users.GET("/order-config", app.perm("user:create"), app.userHandler.OrderConfig)
 			users.GET(":id", app.perm("user:detail"), app.userHandler.GetUser)
 			users.GET(":id/members", app.perm("user:detail"), app.userHandler.ListMembers)
 			users.GET(":id/detail-aggregate", app.perm("user:detail"), app.userDetailHandler.GetAggregate)

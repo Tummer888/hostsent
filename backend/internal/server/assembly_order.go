@@ -17,7 +17,9 @@ import (
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
 	orderrepo "hostsent/backend/internal/modules/admin/order/repository"
 	orderservice "hostsent/backend/internal/modules/admin/order/service"
+	catalogdto "hostsent/backend/internal/modules/admin/product/catalog/dto"
 	catalogservice "hostsent/backend/internal/modules/admin/product/catalog/service"
+	matrixservice "hostsent/backend/internal/modules/admin/product/pricing/service"
 	providerservice "hostsent/backend/internal/modules/admin/resource/provider/service"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	syncrepo "hostsent/backend/internal/modules/admin/resource/sync/repository"
@@ -31,6 +33,7 @@ import (
 	"hostsent/backend/internal/pkg/model"
 	pkgmodel "hostsent/backend/internal/pkg/model"
 	"hostsent/backend/internal/pkg/observability"
+	"hostsent/backend/internal/pkg/pricing"
 	"hostsent/backend/internal/pkg/safego"
 	"hostsent/backend/internal/pkg/specatom"
 	"hostsent/backend/internal/pkg/upstream"
@@ -93,40 +96,97 @@ func (a *asm) buildOrder() {
 	a.orderService.SetSalesOwnerResolver(a.salesBundle.newOrderOwnerPort())
 	a.orderHandler = orderhandler.NewOrderHandler(a.orderService)
 	a.userHandler = handler.NewUserHandler(a.userService,
-		// 为用户创建订单：余额支付并开通，或仅创建待支付
+		// 为用户创建订单：余额支付并开通，或仅创建待支付。
+		// 与用户端下单同口径：按 SKU + 周期 + 客户选配项计价（价格矩阵/折扣/选配加价），
+		// 客服可按需手填实付价（ManualAmount，最高优先级）。此前该入口只传商品与单价，
+		// 代下单开出来的机器拿不到规格与选配，与用户自助购买不一致。
 		func(ctx context.Context, userID uint64, req userdto.AdminCreateOrderRequest, operatorID uint64) (*userdto.AdminOrderBrief, error) {
 			product, err := a.prodCatalogService.FindByID(ctx, req.ProductID)
 			if err != nil {
 				return nil, err
 			}
-			price := req.Price
+			cycle, err := adminOrderCycle(product.PriceModel, req.BillingCycle)
+			if err != nil {
+				return nil, err
+			}
+			qty := req.Quantity
+			if qty <= 0 {
+				qty = 1
+			}
+			// SKU 解析：挂了规格的商品必须显式选规格，与用户端一致（否则会按商品级价与
+			// 商品级规格开通，SKU 库存/绑定参数全部丢失）。
+			spec, err := adminOrderSpec(ctx, a.prodCatalogService, product.ID, req.SpecCode)
+			if err != nil {
+				return nil, err
+			}
+			specCode := ""
+			if spec != nil {
+				specCode = spec.SpecCode
+			}
+			// 选配项校验与归一（T4.5）：补齐必选默认值，非法取值直接拒绝。
+			pricingResult, err := a.prodCatalogService.ResolveOptionPricing(ctx, product.ID, cycle, req.ConfigSelections)
+			if err != nil {
+				return nil, err
+			}
+			selections := map[string]string{}
+			if pricingResult != nil {
+				selections = pricingResult.Selections
+			}
+			// 算价：手填价走 ManualAmount（最高优先级），否则走统一算价管线。
+			quote, err := a.adminOrderQuote(ctx, userID, product, specCode, cycle, qty, selections, req.Price)
+			if err != nil {
+				return nil, err
+			}
+			price := quote.FinalAmount
 			if price <= 0 {
-				price = product.Price
+				return nil, errors.New("算价结果无效，请检查商品定价")
 			}
-			cycle := req.BillingCycle
-			if cycle == "" {
-				cycle = "monthly"
+			// 库存扣减（有限库存的 SKU）：下单失败原路回补，避免丢库存。
+			stockDeducted := false
+			if spec != nil && spec.Stock >= 0 {
+				affected, derr := a.prodCatalogService.DecrementSpecStock(ctx, spec.ID, qty)
+				if derr != nil {
+					return nil, derr
+				}
+				if affected == 0 {
+					return nil, errors.New("所选规格库存不足")
+				}
+				stockDeducted = true
 			}
+			orderSucceeded := false
+			defer func() {
+				if stockDeducted && !orderSucceeded {
+					_, _ = a.prodCatalogService.IncrementSpecStock(context.WithoutCancel(ctx), spec.ID, qty)
+				}
+			}()
+
 			payMode := req.PayMode
 			if payMode == "" {
 				payMode = "create"
 			}
+			specsSnapshot := product.Specs
+			if spec != nil && strings.TrimSpace(spec.Specs) != "" {
+				specsSnapshot = spec.Specs
+			}
 			now := time.Now()
 			order := &ordermodel.Order{
-				OrderNo:     fmt.Sprintf("AO%d%d%04d", userID, now.Unix(), rand.Intn(10000)),
-				UserID:      userID,
-				ProductID:   product.ID,
-				ProductName: product.Name,
-				Specs:       product.Specs,
-				Quantity:    1,
-				PriceModel:  cycle,
-				TotalAmount: price,
-				// 后台代下单不经过算价管线：原价即实付、无优惠、未命中任何规则。
-				// price_snapshot 为 jsonb，空串无法写入，这里落空数组表示「无规则明细」。
-				OriginalAmount: price,
-				FinalAmount:    price,
-				DiscountSource: "manual",
-				PriceSnapshot:  "[]",
+				OrderNo:        fmt.Sprintf("AO%d%d%04d", userID, now.Unix(), rand.Intn(10000)),
+				UserID:         userID,
+				ProductID:      product.ID,
+				ProductName:    product.Name,
+				Specs:          specsSnapshot,
+				SpecCode:       specCode,
+				ConfigOptions:  adminSelectionsJSON(selections),
+				Quantity:       qty,
+				PriceModel:     product.PriceModel,
+				Cycle:          cycle,
+				TotalAmount:    quote.OriginalAmount,
+				OriginalAmount: quote.OriginalAmount,
+				DiscountAmount: quote.DiscountAmount,
+				FinalAmount:    quote.FinalAmount,
+				PricePolicyID:  quote.PolicyID,
+				DiscountSource: quote.Source,
+				PriceSnapshot:  adminSnapshotJSON(quote.Snapshot),
 				Status:         ordermodel.OrderStatusPending,
 				// 代下单的操作人留痕：orders.operator_id 是「最近操作人」，
 				// 后台客服代客下单时指向管理员，用户自助下单为 0。
@@ -154,6 +214,29 @@ func (a *asm) buildOrder() {
 			if err := a.orderRepo.Create(ctx, order); err != nil {
 				return nil, err
 			}
+			orderSucceeded = true
+			// 订单项补写（与用户端同口径）：行级保留规格/选配/折扣快照，
+			// 否则订单详情与后续对账看不到买的到底是什么配置。
+			if a.orderItemRepo != nil {
+				item := &ordermodel.OrderItem{
+					OrderID:        order.ID,
+					ProductID:      product.ID,
+					ProductName:    product.Name,
+					SpecCode:       specCode,
+					Specs:          specsSnapshot,
+					ConfigOptions:  adminSelectionsJSON(selections),
+					Cycle:          cycle,
+					Price:          adminRound2(quote.OriginalAmount / float64(qty)),
+					Quantity:       qty,
+					Amount:         price,
+					OriginalAmount: quote.OriginalAmount,
+					DiscountAmount: quote.DiscountAmount,
+					FinalAmount:    quote.FinalAmount,
+				}
+				if err := a.orderItemRepo.Create(ctx, item); err != nil {
+					return nil, err
+				}
+			}
 			brief := &userdto.AdminOrderBrief{
 				ID: order.ID, OrderNo: order.OrderNo, ProductName: product.Name,
 				BillingCycle: cycle, TotalAmount: price, Status: order.Status, PayMethod: order.PayMethod,
@@ -167,6 +250,10 @@ func (a *asm) buildOrder() {
 			return brief, nil
 		},
 	)
+	// 代下单可选项读取（规格/周期/选配项）：与用户端商品详情同源，后台不另维护口径。
+	a.userHandler.SetOrderConfigReader(func(ctx context.Context, productID uint64) (*userdto.AdminOrderConfigResponse, error) {
+		return buildAdminOrderConfig(ctx, a.prodCatalogService, a.priceMatrixService, productID)
+	})
 	a.refundHandler = orderhandler.NewRefundHandler(a.orderService)
 	// 用户中心订单：余额支付下单 + 复用履约适配器开通上游
 	// ensureOpenable：下单前校验商品能否直连开通，财务型上游（账单推送制）不支持单次开通，先拒绝避免误扣款。
@@ -462,3 +549,199 @@ func specsFromOrder(order *ordermodel.Order) *model.StandardProductSpec {
 }
 
 // firstNonEmpty 返回第一个非空字符串。
+// adminOrderCycle 归一化后台代下单的计费周期：
+//   - 显式指定：非法值直接拒绝（避免静默落到默认档，按错价成交）；
+//   - 留空：回落商品 price_model 对应周期（存量行为不变）。
+func adminOrderCycle(priceModel, raw string) (string, error) {
+	cycle := strings.TrimSpace(raw)
+	if cycle == "" {
+		return billingcycle.NormalizeOrDefault(priceModel), nil
+	}
+	if billingcycle.IsValid(cycle) {
+		return cycle, nil
+	}
+	if normalized := billingcycle.Normalize(cycle); normalized != "" {
+		return normalized, nil
+	}
+	return "", fmt.Errorf("不支持的计费周期：%s", raw)
+}
+
+// adminOrderSpec 解析后台代下单的 SKU：商品未挂规格返回 nil（按商品级下单）；
+// 挂了规格则必须显式选择，避免误用商品级价格与商品级规格开通。
+func adminOrderSpec(ctx context.Context, catalog catalogservice.ProductService, productID uint64, specCode string) (*catalogdto.ProductSpecInfo, error) {
+	specs, err := catalog.ListSpecs(ctx, productID)
+	if err != nil {
+		return nil, err
+	}
+	enabled := make([]catalogdto.ProductSpecInfo, 0, len(specs))
+	for _, sp := range specs {
+		if sp.Status == 1 {
+			enabled = append(enabled, sp)
+		}
+	}
+	if len(enabled) == 0 {
+		if len(specs) > 0 {
+			return nil, errors.New("该商品规格已全部下架，暂不可下单")
+		}
+		return nil, nil
+	}
+	code := strings.TrimSpace(specCode)
+	if code == "" {
+		return nil, errors.New("该商品有多个规格，请选择规格后再下单")
+	}
+	for i := range enabled {
+		if enabled[i].SpecCode == code {
+			return &enabled[i], nil
+		}
+	}
+	return nil, errors.New("所选规格不存在或已下架")
+}
+
+// adminOrderQuote 后台代下单算价：手填价（price>0）走高优先级的 ManualAmount，
+// 否则走统一算价管线（周期矩阵 → SKU 价 → 折扣 → 选配加价）。
+func (a *asm) adminOrderQuote(ctx context.Context, userID uint64, product *catalogdto.ProductInfo, specCode, cycle string, qty int, selections map[string]string, manualPrice float64) (*pricing.Quote, error) {
+	if a.pricePipeline == nil {
+		// 未装配算价管线：按商品单价估算，手填价直接生效（降级路径）。
+		amount := adminRound2(product.Price * float64(qty))
+		if manualPrice > 0 {
+			amount = adminRound2(manualPrice)
+		}
+		return &pricing.Quote{OriginalAmount: amount, FinalAmount: amount, Snapshot: []pricing.Rule{}}, nil
+	}
+	in := pricing.ResolveInput{
+		UserID:           userID,
+		ProductID:        product.ID,
+		SpecCode:         specCode,
+		Cycle:            cycle,
+		Quantity:         qty,
+		ConfigSelections: selections,
+	}
+	if manualPrice > 0 {
+		in.ManualAmount = &manualPrice
+	}
+	return a.pricePipeline.Resolve(ctx, in)
+}
+
+// buildAdminOrderConfig 组装后台代下单可选项：SKU、可售周期、客户选配项与上游固定配置。
+func buildAdminOrderConfig(ctx context.Context, catalog catalogservice.ProductService, matrix matrixservice.PriceMatrixService, productID uint64) (*userdto.AdminOrderConfigResponse, error) {
+	product, err := catalog.FindByID(ctx, productID)
+	if err != nil {
+		return nil, err
+	}
+	resp := &userdto.AdminOrderConfigResponse{
+		ProductID:  product.ID,
+		Name:       product.Name,
+		PriceModel: product.PriceModel,
+		Price:      product.Price,
+		SourceMode: product.SourceMode,
+		Specs:      []userdto.AdminOrderConfigSpec{},
+		Options:    []userdto.AdminOrderConfigOption{},
+	}
+	var productCycles []string
+	cyclesBySpec := map[uint64][]string{}
+	if matrix != nil {
+		if pc, bySpec, cerr := matrix.SellableCycles(ctx, productID); cerr == nil {
+			productCycles = pc
+			cyclesBySpec = bySpec
+		}
+	}
+	resp.Cycles = productCycles
+	if specs, serr := catalog.ListSpecs(ctx, productID); serr == nil {
+		for _, sp := range specs {
+			if sp.Status != 1 {
+				continue
+			}
+			cycles := cyclesBySpec[sp.ID]
+			if len(cycles) == 0 {
+				cycles = productCycles
+			}
+			resp.Specs = append(resp.Specs, userdto.AdminOrderConfigSpec{
+				SpecCode:   sp.SpecCode,
+				Name:       sp.Name,
+				Price:      sp.Price,
+				PriceModel: sp.PriceModel,
+				Stock:      sp.Stock,
+				Cycles:     cycles,
+			})
+		}
+	}
+	if groups, oerr := catalog.CustomerOptions(ctx, productID); oerr == nil {
+		for _, g := range groups {
+			for _, o := range g.Options {
+				opt := userdto.AdminOrderConfigOption{
+					OptionKey:    o.OptionKey,
+					Name:         o.Name,
+					Widget:       o.Widget,
+					Required:     o.Required,
+					DefaultValue: o.DefaultValue,
+					Unit:         o.Unit,
+					Help:         o.Help,
+					MinValue:     o.MinValue,
+					MaxValue:     o.MaxValue,
+					UnitPrice:    o.UnitPrice,
+					Values:       []userdto.AdminOrderConfigOptionVal{},
+				}
+				for _, v := range o.Values {
+					opt.Values = append(opt.Values, userdto.AdminOrderConfigOptionVal{
+						Value:          v.Value,
+						Label:          v.Label,
+						Group:          v.Group,
+						Help:           v.Help,
+						Default:        v.Default,
+						PriceMonthly:   v.PriceMonthly,
+						PriceQuarterly: v.PriceQuarterly,
+						PriceAnnually:  v.PriceAnnually,
+						PriceOnetime:   v.PriceOnetime,
+					})
+				}
+				resp.Options = append(resp.Options, opt)
+			}
+		}
+	}
+	// 上游固定配置只读展示：锁定项（单值）不在客户可选项里，但客服需要看到「这台机器
+	// 定死的是什么配置」，否则会以为漏了配置项而反复尝试修改。
+	if product.Upstream != nil {
+		up := &userdto.AdminOrderConfigUpstream{
+			FixedConfig: product.Upstream.FixedConfig,
+			Renewable:   product.Upstream.Renewable,
+			RenewNote:   product.Upstream.RenewNote,
+			Options:     []userdto.AdminOrderConfigUpstreamOption{},
+		}
+		for _, o := range product.Upstream.Options {
+			up.Options = append(up.Options, userdto.AdminOrderConfigUpstreamOption{
+				Key: o.Key, Name: o.OptionName, Locked: o.Locked, Value: o.Value,
+			})
+		}
+		resp.Upstream = up
+	}
+	return resp, nil
+}
+
+// adminSelectionsJSON 选配项选择序列化为 jsonb 文本；空选择落空对象（jsonb 不接受空串）。
+func adminSelectionsJSON(selections map[string]string) string {
+	if len(selections) == 0 {
+		return "{}"
+	}
+	b, err := json.Marshal(selections)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
+// adminSnapshotJSON 折扣快照序列化为 jsonb 文本；无明细落空数组。
+func adminSnapshotJSON(rules []pricing.Rule) string {
+	if len(rules) == 0 {
+		return "[]"
+	}
+	b, err := json.Marshal(rules)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
+}
+
+// adminRound2 金额保留两位小数（与算价管线同口径）。
+func adminRound2(v float64) float64 {
+	return float64(int(v*100+0.5)) / 100
+}

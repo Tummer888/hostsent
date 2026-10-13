@@ -21,10 +21,18 @@ type UserHandler struct {
 	// createOrder 为指定用户创建订单（余额支付/仅创建），由装配层注入。
 	// operatorID 是当前管理员 ID，落到 orders.operator_id 供后续追溯「谁代下的单」。
 	createOrder func(ctx context.Context, userID uint64, req dto.AdminCreateOrderRequest, operatorID uint64) (*dto.AdminOrderBrief, error)
+	// orderConfig 读取某商品在代下单时可选的规格/周期/选配项，由装配层注入。
+	orderConfig func(ctx context.Context, productID uint64) (*dto.AdminOrderConfigResponse, error)
 }
 
 func NewUserHandler(userService service.UserService, createOrder func(ctx context.Context, userID uint64, req dto.AdminCreateOrderRequest, operatorID uint64) (*dto.AdminOrderBrief, error)) *UserHandler {
 	return &UserHandler{userService: userService, createOrder: createOrder}
+}
+
+// SetOrderConfigReader 注入代下单可选项读取能力（规格/周期/选配项）。
+// 单独用 setter 接线：能力来自商品域（商品目录 + 价格矩阵），与用户域服务无耦合依赖。
+func (h *UserHandler) SetOrderConfigReader(reader func(ctx context.Context, productID uint64) (*dto.AdminOrderConfigResponse, error)) {
+	h.orderConfig = reader
 }
 
 // GetStats godoc
@@ -425,4 +433,29 @@ func (h *UserHandler) CreateOrder(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": brief, "timestamp": time.Now().Unix()})
+}
+
+// OrderConfig godoc
+// @Summary 代下单可选配置项
+// @Description 返回某商品在后台代下单时可选的 SKU、计费周期与客户选配项
+// @Tags 用户管理
+// @Param product_id query int true "商品ID"
+// @Success 200 {object} dto.APIResponse[dto.AdminOrderConfigResponse]
+// @Router /api/v1/admin/users/order-config [get]
+func (h *UserHandler) OrderConfig(c *gin.Context) {
+	productID, err := strconv.ParseUint(c.Query("product_id"), 10, 64)
+	if err != nil || productID == 0 {
+		abortBadRequest(c, "商品 ID 不合法")
+		return
+	}
+	if h.orderConfig == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 50001, "message": "代下单配置能力未配置", "timestamp": time.Now().Unix()})
+		return
+	}
+	resp, err := h.orderConfig(c.Request.Context(), productID)
+	if err != nil {
+		respondUserErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 0, "message": "success", "data": resp, "timestamp": time.Now().Unix()})
 }

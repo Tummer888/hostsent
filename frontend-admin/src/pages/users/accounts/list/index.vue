@@ -551,36 +551,13 @@
       </t-form>
     </t-dialog>
 
-    <t-dialog
-      v-model:visible="orderVisible"
-      header="添加订单"
-      width="520px"
-      :confirm-btn="{ content: '创建订单', theme: 'primary', loading: orderSubmitting }"
-      :cancel-btn="{ content: '取消' }"
-      @confirm="handleOrderConfirm"
-      @close="orderVisible = false"
-    >
-      <t-form label-align="top" :data="orderForm" @submit.prevent>
-        <t-form-item label="下单用户" name="username">
-          <t-input :model-value="orderForm.username" disabled />
-        </t-form-item>
-        <t-form-item label="选择商品" name="product_id">
-          <t-select v-model="orderForm.product_id" :options="productOptions" filterable placeholder="请选择商品" />
-        </t-form-item>
-        <t-form-item label="计费周期" name="billing_cycle">
-          <t-select v-model="orderForm.billing_cycle" :options="cycleOptions" placeholder="请选择计费周期" />
-        </t-form-item>
-        <t-form-item label="价格（元）" name="price">
-          <t-input-number v-model="orderForm.price" :min="0" :precision="2" theme="column" placeholder="留空使用商品默认价" />
-        </t-form-item>
-        <t-form-item label="支付方式" name="pay_mode">
-          <t-radio-group v-model="orderForm.pay_mode" variant="default-filled">
-            <t-radio-button value="create">仅创建（待支付）</t-radio-button>
-            <t-radio-button value="balance">余额支付并开通</t-radio-button>
-          </t-radio-group>
-        </t-form-item>
-      </t-form>
-    </t-dialog>
+    <!-- 添加订单：按商品实际可售的规格/周期/配置项渲染（与用户端同源） -->
+    <ConfigureOrderDialog
+      v-model="orderVisible"
+      :user-id="orderForm.user_id"
+      :username="orderForm.username"
+      @saved="reload"
+    />
 
     <!-- 注销确认（doc104 §4.4）：先拉 deletion-check 再弹窗。
          blockers 非空 = 硬阻断（在管实例，force 也绕不过），直接禁用确认按钮；
@@ -736,7 +713,6 @@ import {
   batchDeleteUsers,
   batchRestoreUsers,
   createUser,
-  createUserOrder,
   deleteUser,
   exportUsers,
   getRoleList,
@@ -760,11 +736,13 @@ import {
   type UserPurgeResponse,
 } from '@/api/user'
 import { getAgentLevelList, type AgentLevelInfo } from '@/api/agent-level'
-import { getProductList as getUcProductList } from '@/api/product'
 import { getSalesCandidates } from '@/api/sales'
 import FilterCard from '@/components/filter-card/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import LevelBadge from '@/components/level-badge/index.vue'
+// 代下单弹窗（规格/周期/选配项/开通方式）：模板里用了就必须导入，
+// 未注册的组件不会报错、只会静默不渲染，「订单」点了没有任何反应。
+import ConfigureOrderDialog from '@/pages/users/accounts/detail/components/ConfigureOrderDialog.vue'
 import { useUserStore } from '@/store'
 import type { SalesCandidateInfo } from '@/types/interface'
 import { USER_CONSOLE_URL } from '@/utils/config'
@@ -1488,62 +1466,15 @@ function handleRecharge(row: UserInfo) {
 }
 
 // ===== 添加订单 =====
+// 选购细节（规格/周期/配置项/自定义价）都在 ConfigureOrderDialog 里完成，
+// 列表页只负责记住为哪个用户下单并打开弹窗。
 const orderVisible = ref(false)
-const orderSubmitting = ref(false)
-const productOptions = ref<{ label: string; value: number }[]>([])
-const cycleOptions = [
-  { label: '月付', value: 'monthly' },
-  { label: '季付', value: 'quarterly' },
-  { label: '半年付', value: 'semiannually' },
-  { label: '年付', value: 'annually' },
-]
-const orderForm = reactive<{ user_id: number; username: string; product_id: number | undefined; billing_cycle: string; price: number; pay_mode: 'create' | 'balance' }>({
-  user_id: 0,
-  username: '',
-  product_id: undefined,
-  billing_cycle: 'monthly',
-  price: 0,
-  pay_mode: 'create',
-})
+const orderForm = reactive<{ user_id: number; username: string }>({ user_id: 0, username: '' })
 
-async function handleAddOrder(row: UserInfo) {
+function handleAddOrder(row: UserInfo) {
   orderForm.user_id = row.id
   orderForm.username = row.username
-  orderForm.product_id = undefined
-  orderForm.billing_cycle = 'monthly'
-  orderForm.price = 0
-  orderForm.pay_mode = 'create'
   orderVisible.value = true
-  if (!productOptions.value.length) {
-    try {
-      const data = await getUcProductList({ page_size: 100 })
-      productOptions.value = (data?.items || []).map((p) => ({ label: `${p.name} ¥${p.price}`, value: p.id }))
-    } catch {
-      MessagePlugin.error('加载商品列表失败')
-    }
-  }
-}
-
-async function handleOrderConfirm() {
-  if (!orderForm.product_id) {
-    MessagePlugin.warning('请选择商品')
-    return
-  }
-  orderSubmitting.value = true
-  try {
-    await createUserOrder(orderForm.user_id, {
-      product_id: orderForm.product_id,
-      billing_cycle: orderForm.billing_cycle,
-      price: orderForm.price > 0 ? orderForm.price : undefined,
-      pay_mode: orderForm.pay_mode,
-    })
-    MessagePlugin.success(orderForm.pay_mode === 'balance' ? '已支付并开通' : '订单已创建（待支付）')
-    orderVisible.value = false
-  } catch (error) {
-    MessagePlugin.error((error as Error)?.message || '创建订单失败')
-  } finally {
-    orderSubmitting.value = false
-  }
 }
 
 function buildMobileActionOptions(row: UserInfo) {

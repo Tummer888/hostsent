@@ -190,7 +190,7 @@
       :current-balance="profile?.balance || 0"
       @saved="reloadAggregate"
     />
-    <CreateOrderDialog
+    <ConfigureOrderDialog
       v-model="orderVisible"
       :user-id="userId"
       :username="profile?.username || ''"
@@ -245,7 +245,7 @@ import VerificationPanel from './components/VerificationPanel.vue'
 import EditProfileDialog from './components/EditProfileDialog.vue'
 import ResetPasswordDialog from './components/ResetPasswordDialog.vue'
 import AdjustBalanceDialog from './components/AdjustBalanceDialog.vue'
-import CreateOrderDialog from './components/CreateOrderDialog.vue'
+import ConfigureOrderDialog from './components/ConfigureOrderDialog.vue'
 import RolesDialog from './components/RolesDialog.vue'
 import SalesAssignDialog from './components/SalesAssignDialog.vue'
 
