@@ -99,7 +99,7 @@
           <t-input v-model="withdrawForm.account" placeholder="支付宝账号或银行卡号" />
         </t-form-item>
       </t-form>
-      <p class="dialog-tip">申请后金额将从可用余额转入冻结，待后台审核通过后出账；驳回则解冻退回。</p>
+      <p class="dialog-tip">申请后金额将从可用余额转入冻结，审核通过后出账；未通过则解冻退回余额。</p>
     </t-dialog>
 
     <!-- 转入余额 -->

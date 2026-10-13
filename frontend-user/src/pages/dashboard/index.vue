@@ -137,7 +137,7 @@
           <div class="learn-col">
             <h4 class="learn-col__title">文档与公告</h4>
             <p class="learn-col__desc">
-              产品文档、新闻资讯与平台公告在官网门户统一维护，控制台只放入口。
+              产品文档、新闻资讯与服务公告都在官网查看，这里提供快捷入口。
             </p>
             <div class="learn-grid">
               <button

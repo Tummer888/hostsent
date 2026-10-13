@@ -172,7 +172,7 @@ const EVENT_LABELS: Record<string, string> = {
   instance_expiring: '实例到期提醒',
   ticket_replied: '工单回复',
   balance_low: '余额不足预警',
-  sync_failed: '上游同步失败',
+  sync_failed: '资源同步异常',
   system: '系统通知',
   // 强制送达事件（IsMandatoryEvent 白名单），前端置灰不可关闭
   login_otp: '登录二次验证码',
