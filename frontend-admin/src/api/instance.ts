@@ -21,6 +21,8 @@ import type {
   InstanceRelatedResponse,
   InstanceReinstallRequest,
   InstanceReinstallResult,
+  InstanceReinstallImages,
+  InstanceRebindProductCandidates,
   InstanceRelinkRequest,
   InstanceRelinkResult,
   InstanceRemarkUpdateRequest,
@@ -182,6 +184,27 @@ export function reinstallInstance(id: number, data: InstanceReinstallRequest): P
   return request.post<InstanceReinstallResult>({
     url: `/instances/${id}/reinstall`,
     data,
+  })
+}
+
+/**
+ * 重装可选镜像列表。
+ * 来源随链路不同：自营取渠道镜像目录，对接上游取**上游商品的操作系统配置子项**
+ * （下发给上游的就是配置子项 ID）。两者都读不到时返回 source=none，运营按 hint 手填。
+ */
+export function getInstanceReinstallImages(id: number): Promise<InstanceReinstallImages> {
+  return request.get<InstanceReinstallImages>({
+    url: `/instances/${id}/reinstall-images`,
+  })
+}
+
+/**
+ * 更换对接商品的候选项（选框数据源）。
+ * 本地商品给全量（附上下架标记与已配周期价）；上游镜像只给**同渠道**的。
+ */
+export function getInstanceRebindCandidates(id: number): Promise<InstanceRebindProductCandidates> {
+  return request.get<InstanceRebindProductCandidates>({
+    url: `/instances/${id}/rebind-candidates`,
   })
 }
 

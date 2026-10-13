@@ -43,6 +43,13 @@ type InstanceDetailRepository interface {
 	// ProductCyclePrices 读商品价格矩阵的各周期售价/成本（product_prices）。
 	// 账期调整对话框据此展示"我方该周期卖多少钱"，与上游价并排比价。
 	ProductCyclePrices(ctx context.Context, productID uint64) (map[string]ProductCyclePrice, error)
+	// ReinstallOSOptions 读某商品可用的操作系统镜像（重装对话框的下拉数据源）。
+	// productID 为**本地售出商品**（products.id）：自营取其平台配置项、
+	// 对接取其上游镜像（resource_products.raw_specs）的 os 配置子项。
+	ReinstallOSOptions(ctx context.Context, productID uint64) ([]dto.ReinstallImage, bool, error)
+	// RebindCandidates 读更换对接商品的候选项（本地商品 + 同渠道上游镜像）。
+	// providerID 用于把上游镜像候选限定在本实例渠道内 —— 跨渠道换绑后端必拒。
+	RebindCandidates(ctx context.Context, providerID uint64) (*dto.RebindProductCandidates, error)
 }
 
 // ProductCyclePrice 商品某周期的售价与成本（product_prices 一行）。
@@ -132,6 +139,13 @@ func (r *instanceDetailRepository) SourceOrder(ctx context.Context, orderID uint
 	}
 	if row.ProductID > 0 && cycle != "" {
 		sale, cost, ok := r.cyclePrice(ctx, row.ProductID, cycle)
+		if !ok {
+			// 该周期没建价格矩阵：回落商品基础价，与续费算价管线的降级口径一致
+			// （pricing.Resolve 在 CycleBasePrice found=false 时也用基础价 × 周期倍率）。
+			// 此前这里直接留 0，详情页"续费金额"显示成 ¥0.00 且无任何说明（实测反馈）。
+			sale, cost = r.productBasePrice(ctx, row.ProductID)
+			ok = sale > 0
+		}
 		if ok {
 			n := quantity
 			if n <= 0 {
@@ -203,6 +217,22 @@ func (r *instanceDetailRepository) cyclePrice(ctx context.Context, productID uin
 	return row.Price, row.CostPrice, true
 }
 
+// productBasePrice 读商品基础价与成本（products.price / cost_price）。
+// 仅用作周期矩阵缺行时的降级口径：没有矩阵意味着这个商品没按周期定价，
+// 基础价就是唯一已知的价格。
+func (r *instanceDetailRepository) productBasePrice(ctx context.Context, productID uint64) (sale, cost float64) {
+	var row struct {
+		Price     float64
+		CostPrice float64
+	}
+	err := r.db.WithContext(ctx).Table("products").
+		Select("price, cost_price").Where("id = ?", productID).Take(&row).Error
+	if err != nil {
+		return 0, 0
+	}
+	return row.Price, row.CostPrice
+}
+
 // ProductCyclePrices 读商品价格矩阵的全部周期价（账期调整对话框比价用）。
 //
 // 只取 product_spec_id = 0（商品级矩阵）与 status = 1（启用中）的行：
@@ -232,6 +262,356 @@ func (r *instanceDetailRepository) ProductCyclePrices(ctx context.Context, produ
 		out[cycle] = ProductCyclePrice{Sale: row.Price, Cost: row.CostPrice}
 	}
 	return out, nil
+}
+
+// ReinstallOSOptions 读商品可用的操作系统镜像。
+//
+// 两个来源按链路取（第二个返回值报告是否命中）：
+//   - 对接商品（source_mode=upstream）：上游镜像 raw_specs 里 os 配置项的 sub 列表，
+//     其 option_name 形如 "12|CentOS^CentOS-7.6.1810-x64"，取竖线前的数字作为
+//     下发给上游的配置子项 ID（与开通时用同一套取值，保证重装与开通口径一致）；
+//   - 自营商品：product_config_options 里 option_key=os 的子项（运营在商品里配的镜像档）。
+//
+// 两个来源都为空返回 (nil,false,nil)：调用方据此回落渠道镜像目录或提示手填。
+func (r *instanceDetailRepository) ReinstallOSOptions(ctx context.Context, productID uint64) ([]dto.ReinstallImage, bool, error) {
+	if productID == 0 {
+		return nil, false, nil
+	}
+	var row struct {
+		SourceMode      string
+		SourceProductID uint64
+	}
+	err := r.db.WithContext(ctx).Table("products").
+		Select("source_mode, source_product_id").
+		Where("id = ?", productID).Take(&row).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	// 对接链路：上游镜像的 os 配置子项。
+	if row.SourceMode == "upstream" && row.SourceProductID != 0 {
+		var raw struct {
+			RawSpecs string
+		}
+		if e := r.db.WithContext(ctx).Table("resource_products").
+			Select("raw_specs").Where("id = ?", row.SourceProductID).Take(&raw).Error; e == nil {
+			if imgs := osImagesFromRawSpecs(raw.RawSpecs); len(imgs) > 0 {
+				return imgs, true, nil
+			}
+		}
+	}
+	// 自营链路：商品自身的 os 配置项子项。
+	images, oerr := r.osImagesFromProductOptions(ctx, productID)
+	if oerr != nil {
+		return nil, false, oerr
+	}
+	if len(images) > 0 {
+		return images, true, nil
+	}
+	return nil, false, nil
+}
+
+// osImagesFromProductOptions 读商品配置项里 option_key=os 的子项（自营链路镜像档）。
+func (r *instanceDetailRepository) osImagesFromProductOptions(ctx context.Context, productID uint64) ([]dto.ReinstallImage, error) {
+	var rows []struct {
+		SubName string
+		SubKey  string
+	}
+	err := r.db.WithContext(ctx).Table("product_config_options AS o").
+		Select("s.option_name AS sub_name, s.source_key AS sub_key").
+		Joins("JOIN product_config_options_sub AS s ON s.option_id = o.id").
+		Where("o.product_id = ? AND (o.option_key = ? OR lower(o.option_name) LIKE ?)", productID, "os", "%os%").
+		Order("o.sort_order ASC, s.sort_order ASC, s.id ASC").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]dto.ReinstallImage, 0, len(rows))
+	seen := map[string]bool{}
+	for _, row := range rows {
+		value := strings.TrimSpace(row.SubKey)
+		if value == "" {
+			// 子项没登记 source_key 时退回用名称里的数字前缀（上游形态 "62|CentOS-7.9"）。
+			if idx := strings.Index(row.SubName, "|"); idx > 0 {
+				value = strings.TrimSpace(row.SubName[:idx])
+			}
+		}
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, dto.ReinstallImage{Value: value, Label: trimOptionValue(row.SubName)})
+	}
+	return out, nil
+}
+
+// ============================ 更换对接商品候选 ============================
+
+// RebindCandidates 读更换对接商品的候选项。
+//
+// 本地商品：全部未删除商品（跨链路也能换，但前端会按渠道/链路给出提示）；
+// 上游镜像：**仅本实例同渠道**的 resource_products —— 跨渠道换绑会被服务层拒绝
+// （价格与配置口径会错位），所以这里干脆不列出来，运营不会选到必失败的项。
+func (r *instanceDetailRepository) RebindCandidates(ctx context.Context, providerID uint64) (*dto.RebindProductCandidates, error) {
+	out := &dto.RebindProductCandidates{
+		SellProducts:     []dto.RebindProductCandidate{},
+		UpstreamProducts: []dto.RebindProductCandidate{},
+		ProviderID:       providerID,
+	}
+
+	if providerID != 0 {
+		var providerName string
+		if err := r.db.WithContext(ctx).Table("resource_providers").
+			Select("name").Where("id = ?", providerID).Scan(&providerName).Error; err == nil {
+			out.ProviderName = providerName
+		}
+	}
+
+	// 本地售出商品候选。
+	var sellRows []struct {
+		ID               uint64
+		Code             string
+		Name             string
+		Price            float64
+		CostPrice        float64
+		Status           int
+		SourceMode       string
+		SourceProviderID uint64
+	}
+	err := r.db.WithContext(ctx).Table("products").
+		Select("id, code, name, price, cost_price, status, source_mode, source_provider_id").
+		Where("deleted_at IS NULL").
+		Order("id DESC").
+		Scan(&sellRows).Error
+	if err != nil {
+		return nil, err
+	}
+	if len(sellRows) > 0 {
+		ids := make([]uint64, 0, len(sellRows))
+		for _, row := range sellRows {
+			ids = append(ids, row.ID)
+		}
+		cycles, cerr := r.cycleListByProduct(ctx, ids)
+		if cerr != nil {
+			return nil, cerr
+		}
+		for _, row := range sellRows {
+			cand := dto.RebindProductCandidate{
+				ID:        row.ID,
+				Name:      row.Name,
+				Code:      row.Code,
+				Price:     row.Price,
+				CostPrice: row.CostPrice,
+				Cycles:    cycles[row.ID],
+			}
+			if cand.Cycles == nil {
+				cand.Cycles = []string{}
+			}
+			if row.Status != 1 {
+				cand.Disabled = true
+				cand.DisabledReason = "已下架：换上后续费无法按该商品算价"
+			}
+			out.SellProducts = append(out.SellProducts, cand)
+		}
+	}
+
+	// 上游镜像候选：仅同渠道。
+	if providerID != 0 {
+		var upRows []struct {
+			ID         uint64
+			Name       string
+			SalePrice  float64
+			CostPrice  float64
+			ProviderID uint64
+		}
+		uerr := r.db.WithContext(ctx).Table("resource_products").
+			Select("id, name, sale_price, cost_price, provider_id").
+			Where("provider_id = ?", providerID).
+			Order("id DESC").
+			Scan(&upRows).Error
+		if uerr != nil {
+			return nil, uerr
+		}
+		for _, row := range upRows {
+			out.UpstreamProducts = append(out.UpstreamProducts, dto.RebindProductCandidate{
+				ID:           row.ID,
+				Name:         row.Name,
+				ProviderName: out.ProviderName,
+				Price:        row.SalePrice,
+				CostPrice:    row.CostPrice,
+			})
+		}
+		out.Hint = "上游镜像只列出与本实例同渠道的商品；跨渠道换绑会导致价格与配置口径错位，系统会拒绝。"
+	} else {
+		out.Hint = "该实例未绑定渠道，无上游镜像候选。"
+	}
+	return out, nil
+}
+
+// cycleListByProduct 批量读商品已配置价格的周期档（product_prices.status=1）。
+func (r *instanceDetailRepository) cycleListByProduct(ctx context.Context, productIDs []uint64) (map[uint64][]string, error) {
+	out := map[uint64][]string{}
+	if len(productIDs) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		ProductID uint64
+		Cycle     string
+	}
+	err := r.db.WithContext(ctx).Table("product_prices").
+		Select("product_id, cycle").
+		Where("product_id IN ? AND product_spec_id = 0 AND status = 1", productIDs).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		cycle := billingcycle.Normalize(row.Cycle)
+		if cycle == "" {
+			continue
+		}
+		out[row.ProductID] = append(out[row.ProductID], cycle)
+	}
+	return out, nil
+}
+
+// osImagesFromRawSpecs 从上游镜像快照提取 os 配置子项作为可重装镜像。
+//
+// 取值口径与开通链路（buildCartConfigOption）严格一致：下发给上游的是
+// **配置子项自身的 id 字段**（sub.id，如 565664），不是 option_name 里的数字前缀。
+//
+// 实测更正（本轮踩到）：option_name 形态是 "75|Debian^Debian-12.0_x64"，其中
+// 75 只是上游的面板展示序号，**不是**下发给 API 的值。用 75 重装会被上游拒绝
+// （code=406 操作系统错误），因为真实子项 id 是 565664 —— 开通订单的
+// configoption 里存的就是这个值（{"163751":"565664"}）。此前按名称前缀取值，
+// 列表看起来正常（名称能洗出来），一点提交就报错。
+func osImagesFromRawSpecs(rawSpecs string) []dto.ReinstallImage {
+	if strings.TrimSpace(rawSpecs) == "" {
+		return nil
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal([]byte(rawSpecs), &m); err != nil {
+		return nil
+	}
+	groups, _ := m["config_groups"].([]interface{})
+	if len(groups) == 0 {
+		return nil
+	}
+	out := make([]dto.ReinstallImage, 0, 16)
+	seen := map[string]bool{}
+	for _, g := range groups {
+		gm, ok := g.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		options, _ := gm["options"].([]interface{})
+		for _, o := range options {
+			om, ok := o.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			name := strings.TrimSpace(fmt.Sprintf("%v", om["option_name"]))
+			// 只认 os 选项（上游形如 "os|操作系统"）；其余配置项不是可重装镜像。
+			if !isOSOption(name) {
+				continue
+			}
+			subs, _ := om["sub"].([]interface{})
+			for _, s := range subs {
+				sm, ok := s.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				if hidden, _ := sm["hidden"]; hidden != nil {
+					if h, ok := toFloat(hidden); ok && h != 0 {
+						continue // 上游隐藏项不下发（与开通一致）
+					}
+				}
+				subName := strings.TrimSpace(fmt.Sprintf("%v", sm["option_name"]))
+				value := subItemID(sm)
+				if value == "" || value == "0" || seen[value] {
+					continue
+				}
+				seen[value] = true
+				out = append(out, dto.ReinstallImage{
+					Value: value,
+					Label: osImageLabel(subName),
+					Group: osGroupOf(subName),
+				})
+			}
+		}
+	}
+	return out
+}
+
+// subItemID 取配置子项下发给上游的 ID。
+//
+// 优先用 sub.id（开通链路用的就是它）；缺失时才退化为 option_name 的数字前缀
+// （部分手工维护的配置只有名称前缀可辨认）。两种形态的差别见 osImagesFromRawSpecs 注释。
+func subItemID(sub map[string]interface{}) string {
+	if raw, ok := sub["id"]; ok && raw != nil {
+		if v, ok := toFloat(raw); ok && v > 0 {
+			return strconv.FormatInt(int64(v), 10)
+		}
+	}
+	name := strings.TrimSpace(fmt.Sprintf("%v", sub["option_name"]))
+	if idx := strings.Index(name, "|"); idx > 0 {
+		if prefix := strings.TrimSpace(name[:idx]); prefix != "" {
+			return prefix
+		}
+	}
+	return ""
+}
+
+// isOSOption 判断配置项是否为操作系统项（"os|操作系统" / "os" / "操作系统"）。
+func isOSOption(name string) bool {
+	key := name
+	if idx := strings.Index(name, "|"); idx > 0 {
+		key = name[:idx]
+	}
+	key = strings.ToLower(strings.TrimSpace(key))
+	if key == "os" || key == "os_image" || key == "image" {
+		return true
+	}
+	label := name
+	if idx := strings.Index(name, "|"); idx > 0 && idx+1 < len(name) {
+		label = name[idx+1:]
+	}
+	return strings.Contains(label, "操作系统") || strings.Contains(label, "镜像")
+}
+
+// osGroupOf 从镜像名提取系列分组（"12|CentOS^CentOS-7.6.1810-x64" → "CentOS"）。
+func osGroupOf(subName string) string {
+	v := osImageLabel(subName)
+	if idx := strings.IndexAny(v, " -_"); idx > 0 {
+		return v[:idx]
+	}
+	return v
+}
+
+// osImageLabel 清洗上游镜像名用于展示。
+//
+// 上游形态是 "12|CentOS^CentOS-7.9.2111-x64"：
+//
+//	竖线前 = 配置子项 ID（下发用，不展示）
+//	^ 前   = 系列名（CentOS）
+//	^ 后   = 完整镜像名（CentOS-7.9.2111-x64）—— 这才是运营要看的
+//
+// 通用的 trimOptionValue 会把两段拼在一起（"CentOSCentOS-7.9.2111-x64"，
+// 实测重装下拉里就是这么显示的），故这里单独收口：优先取 ^ 后的完整名。
+func osImageLabel(subName string) string {
+	s := strings.TrimSpace(subName)
+	if i := strings.Index(s, "|"); i >= 0 {
+		s = s[i+1:]
+	}
+	if i := strings.Index(s, "^"); i >= 0 {
+		if tail := strings.TrimSpace(s[i+1:]); tail != "" {
+			return tail
+		}
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
 }
 
 // ============================ 售出商品 ============================

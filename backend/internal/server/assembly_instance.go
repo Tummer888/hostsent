@@ -21,6 +21,7 @@ func (a *asm) buildInstanceOps() {
 	// 用户中心主机管理：列表/详情/电源/VNC（复用上游适配器）
 	a.ucInstanceRepo = ucinstancerepo.NewInstanceRepository(a.database)
 	a.ucInstanceService = ucinstanceservice.NewInstanceService(a.ucInstanceRepo, buildProviderResolver(a.providerService, a.upstreamMgr))
+	a.ucInstanceService.SetLogger(a.logger)
 	a.ucInstanceHandler = ucinstancehandler.NewInstanceHandler(a.ucInstanceService)
 	// 实例运维台（管理端跨用户）：列表/详情/电源/控制台/回源/变配/销毁/流水/关联（见 docs/实施计划/61）
 	a.instanceOpsRepo = instancerepo.NewInstanceRepository(a.database)

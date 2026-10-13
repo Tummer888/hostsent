@@ -140,14 +140,26 @@
       >
         <template #name="{ row }">
           <div>
-            <span class="cell-strong">{{ row.name || '—' }}</span>
+            <!--
+              主机名可直接点进实例详情：列表里最高频的动作就是"看看这台什么情况"，
+              此前必须绕到行尾点「详情」（用户实测反馈）。
+            -->
+            <router-link class="cell-link cell-strong" :to="`/instances/detail/${row.id}`">
+              {{ row.name || '—' }}
+            </router-link>
             <div class="cell-sub">{{ row.instance_id || '—' }}</div>
           </div>
         </template>
 
         <template #user="{ row }">
           <div>
-            <span class="cell-strong">{{ row.username || '—' }}</span>
+            <!-- 用户名同样可点：排障常要先看这个客户名下还有什么 -->
+            <router-link
+              class="cell-link cell-strong"
+              :to="{ path: '/users/accounts/detail', query: { id: String(row.user_id) } }"
+            >
+              {{ row.username || '—' }}
+            </router-link>
             <div class="cell-sub">ID {{ row.user_id }}</div>
           </div>
         </template>

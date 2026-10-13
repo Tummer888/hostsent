@@ -3,6 +3,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -271,11 +272,21 @@ func (r *instanceRepository) UpdateStatus(ctx context.Context, id uint64, status
 }
 
 // ApplySync 回源刷新：回写状态、IP、原始数据与回源时间。
+//
+// os 一并回写（实测故障）：实例的 os 列在开通落库时取自订单快照（商品默认镜像），
+// 与客户实际所选镜像可能不同（选 Debian 开通、上游 host_data.os=Debian-12.0_x64，
+// 本地却显示 CentOS）。回源拿到的就是这台机器真实的镜像，必须以它为准修正 ——
+// 否则「同步刷新」这个按钮永远修不好已经存错的历史实例。
+// 空值不覆盖（与 IP 同一取舍）：上游没给 os 时保持本地现值。
+// status 同样接受空串：调用方判定回源状态不可信（如电源操作后上游状态机延迟）
+// 时传空，本次只刷新 IP / 原始数据，不动本地状态。
 func (r *instanceRepository) ApplySync(ctx context.Context, id uint64, status, publicIP, privateIP, rawData string, syncedAt time.Time) error {
 	updates := map[string]any{
-		"status":         status,
 		"last_synced_at": syncedAt,
 		"updated_at":     syncedAt,
+	}
+	if status != "" {
+		updates["status"] = status
 	}
 	// 上游未返回的字段不覆盖本地值，避免把已有 IP 抹成空串。
 	if publicIP != "" {
@@ -287,9 +298,29 @@ func (r *instanceRepository) ApplySync(ctx context.Context, id uint64, status, p
 	if rawData != "" {
 		updates["raw_data"] = rawData
 	}
+	// os 从 raw_data 里取（各适配器统一写 raw_data.os）：上游没给就跳过。
+	if os := osFromRawData(rawData); os != "" {
+		updates["os"] = os
+	}
 	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
 		Where("id = ?", id).
 		Updates(updates).Error
+}
+
+// osFromRawData 从原始数据 JSON 里读操作系统名（适配器统一落 raw_data.os）。
+// 读不到返回空串（调用方据此跳过覆盖）。
+func osFromRawData(rawData string) string {
+	if strings.TrimSpace(rawData) == "" {
+		return ""
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal([]byte(rawData), &m); err != nil {
+		return ""
+	}
+	if v, ok := m["os"].(string); ok {
+		return strings.TrimSpace(v)
+	}
+	return ""
 }
 
 // UpdateSpecs 变配后回写规格快照。

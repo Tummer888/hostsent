@@ -4,10 +4,8 @@
       <div class="card-head__main">
         <span class="card-title">性能监控</span>
         <span class="card-head__meta">
-          <template v-if="catalog?.supported">
-            数据来自上游平台，共 {{ catalog.charts.length }} 项指标
-          </template>
-          <template v-else>{{ catalog?.reason || '正在检测监控能力…' }}</template>
+          <template v-if="catalog?.supported">共 {{ catalog.charts.length }} 项指标</template>
+          <template v-else>{{ catalog?.reason || '正在加载监控数据…' }}</template>
         </span>
       </div>
       <div class="card-head__actions">
@@ -62,7 +60,19 @@
       </article>
     </div>
 
-    <t-loading v-else :loading="true" text="正在加载监控目录..." class="metrics-loading" />
+    <!--
+      首屏骨架：先摆出与真实卡片同高同列的占位块。
+      原来是加载前只有一句文字、数据到位后卡片"从无到有"地冒出来，
+      整块区域高度突增，页面明显抖一下；占位块把这个跳变抹平。
+    -->
+    <div v-else class="metric-grid" aria-busy="true">
+      <article v-for="n in skeletonPanels" :key="n" class="metric-panel metric-panel--skeleton">
+        <div class="metric-panel__head">
+          <span class="metric-skeleton metric-skeleton--title" />
+        </div>
+        <div class="metric-skeleton metric-skeleton--chart" />
+      </article>
+    </div>
   </section>
 </template>
 
@@ -96,6 +106,9 @@ const seriesError = reactive<Record<string, string>>({})
 const series = reactive<Record<string, MetricsSeries>>({})
 const selected = reactive<Record<string, string>>({})
 const range = ref<MetricsRange>('6h')
+
+/** 骨架占位卡数量：与常见指标数（4）对齐，网格布局不塌陷。 */
+const skeletonPanels = 4
 
 const rangeOptions: { label: string; value: MetricsRange }[] = [
   { label: '1 小时', value: '1h' },
@@ -161,9 +174,16 @@ async function loadSeries(chart: MetricsChartInfo) {
   }
 }
 
+/**
+ * 刷新目录与全部曲线。
+ *
+ * 曲线**并行**拉取：原来是 for..await 串行，四张卡片按顺序一张张加载完才出现，
+ * 用户看到的是"卡片从无到有蹦出来"，页面还伴随高度跳动。
+ * 并行后总耗时约等于最慢的一张，卡片几乎同时就位。
+ */
 async function reloadAll() {
   await loadCatalog()
-  for (const chart of charts.value) await loadSeries(chart)
+  await Promise.all(charts.value.map((chart) => loadSeries(chart)))
 }
 
 /**
@@ -176,7 +196,9 @@ function optionFor(chart: MetricsChartInfo): EChartsOption {
   const s = series[chartKey(chart)]
   if (!s) return {}
   const axis = s.list[0]?.map((p) => shortTime(p.time)) || []
-  const isBar = s.chart_type === 'bar'
+  // 柱状只用于单曲线。多曲线（如内存的"已用/缓存"两条）用柱状会变成
+  // 一排排并排细柱，密到读不出趋势 —— 改折线/面积，趋势一眼可见。
+  const isBar = s.chart_type === 'bar' && s.label.length <= 1
   return {
     grid: { top: 28, left: 8, right: 16, bottom: 4, containLabel: true },
     tooltip: {
@@ -191,11 +213,7 @@ function optionFor(chart: MetricsChartInfo): EChartsOption {
       axisLine: { lineStyle: { color: '#e2e8f0' } },
       axisLabel: { color: '#94a3b8', fontSize: 11 },
     },
-    yAxis: {
-      type: 'value',
-      axisLabel: { color: '#94a3b8', fontSize: 11 },
-      splitLine: { lineStyle: { color: '#f1f5f9' } },
-    },
+    yAxis: yAxisFor(s),
     series: s.label.map((name, idx) => ({
       name,
       type: isBar ? 'bar' : 'line',
@@ -206,6 +224,25 @@ function optionFor(chart: MetricsChartInfo): EChartsOption {
       data: (s.list[idx] || []).map((p) => p.value),
     })),
   }
+}
+
+/**
+ * Y 轴配置。
+ *
+ * 百分比类指标（内存/CPU 使用率）固定 0~100：不固定时 ECharts 会按数据范围
+ * 自适应（比如都挤在 20% 附近时把轴放成 18~22），曲线看着剧烈波动但实际很平稳，
+ * 反而误导用户。带单位的绝对量不固定量程，交给自适应。
+ */
+function yAxisFor(s: MetricsSeries): Record<string, unknown> {
+  const base = {
+    type: 'value',
+    axisLabel: { color: '#94a3b8', fontSize: 11 },
+    splitLine: { lineStyle: { color: '#f1f5f9' } },
+  }
+  if (s.unit === '%') {
+    return { ...base, min: 0, max: 100 }
+  }
+  return base
 }
 
 /** "2026-01-01 00:05:00" → "01-01 00:05"（横轴只留必要信息，避免拥挤）。 */
@@ -270,6 +307,39 @@ watch(
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-md);
+}
+
+/* —— 首屏骨架：与真实卡片同高，加载完成时就地替换，不产生高度跳变 —— */
+.metric-panel--skeleton {
+  pointer-events: none;
+}
+.metric-skeleton {
+  display: block;
+  border-radius: 6px;
+  background: linear-gradient(90deg, rgba(148, 163, 184, 0.14) 25%, rgba(148, 163, 184, 0.22) 37%, rgba(148, 163, 184, 0.14) 63%);
+  background-size: 400% 100%;
+  animation: metric-skeleton-shimmer 1.4s ease infinite;
+}
+.metric-skeleton--title {
+  width: 30%;
+  height: 16px;
+}
+.metric-skeleton--chart {
+  height: 240px;
+  margin-top: var(--space-sm);
+}
+@keyframes metric-skeleton-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .metric-skeleton {
+    animation: none;
+  }
 }
 .metric-panel {
   --metric-accent: 37, 99, 235;

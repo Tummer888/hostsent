@@ -141,6 +141,33 @@ export function combineInstanceState(input: {
   return { label, theme, detail: input.expire_state === 'expiring' ? '即将到期，请及时续费' : '' }
 }
 
+/**
+ * 状态图标名：与 combineInstanceState 的结论一一对应。
+ *
+ * 返回图标名（而不是组件）：constants 是纯 TS 工具，引组件会把视图依赖带进
+ * 非视图模块；页面拿到名字后自行映射为图标组件。
+ * 图标的作用是让状态可"扫视"——纯文字 tag 一连串排下来，找"哪台关机了"要逐行读。
+ */
+export function stateIcon(label: string): string {
+  switch (label) {
+    case '运行中':
+      return 'play-circle'
+    case '已暂停':
+      return 'pause-circle'
+    case '待开通':
+      return 'time'
+    case '已过期':
+    case '已过期·宽限期':
+      return 'error-circle'
+    case '已销毁':
+      return 'delete'
+    case '异常':
+      return 'close-circle'
+    default:
+      return 'info-circle'
+  }
+}
+
 /** 内存展示：MB → 人类可读（>=1024 转 GB，保留必要小数）。 */
 export function formatMemory(mb: number): string {
   const value = Number(mb || 0)

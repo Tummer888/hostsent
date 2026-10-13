@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -221,12 +220,7 @@ func TestRefreshStatusesConcurrencyBound(t *testing.T) {
 	const n = 40
 	prov := &slowControlProvider{delay: 20 * time.Millisecond}
 	svc := &instanceService{resolve: func(context.Context, uint64) (upstream.Provider, error) { return prov, nil }}
-	var mu sync.Mutex
-	_ = mu
-
 	targets := buildLiveItems(n)
-	var wg sync.WaitGroup
-	_ = wg
 	out := svc.refreshStatuses(context.Background(), targets, 4, 5*time.Second)
 	if len(out) != n {
 		t.Errorf("应刷新 %d 台，实际 %d", n, len(out))

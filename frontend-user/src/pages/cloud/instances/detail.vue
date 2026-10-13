@@ -10,7 +10,12 @@
         <div class="page-header__text">
           <h2 class="page-header__title">
             {{ instance.name || instance.instance_id }}
-            <t-tag :theme="state.theme" variant="light" size="small" shape="round">{{ state.label }}</t-tag>
+            <t-tag :theme="state.theme" variant="light" size="small" shape="round">
+              <template #icon>
+                <component :is="stateIconComponent(state.label)" />
+              </template>
+              {{ state.label }}
+            </t-tag>
           </h2>
           <p class="page-header__desc">
             实例 ID {{ instance.instance_id }}
@@ -246,17 +251,6 @@
       </t-loading>
     </section>
 
-    <t-dialog v-model:visible="vnc.visible" :header="`远程控制台 · ${instance.name}`" width="80%" :footer="false" destroy-on-close>
-      <div class="vnc-wrap">
-        <iframe v-if="vnc.url && isHttp(vnc.url)" :src="vnc.url" class="vnc-frame" frameborder="0" />
-        <t-empty v-else :description="'控制台地址无法内嵌显示，请点击打开'">
-          <template #action>
-            <t-button theme="primary" @click="openVnc">打开控制台</t-button>
-          </template>
-        </t-empty>
-      </div>
-    </t-dialog>
-
     <!--
       销毁确认（doc91 §6.4）：与 admin 侧交互一致 —— 必须手输实例标识。
       文案明确「不可逆」与「不退还剩余费用」，避免用户误以为会退款。
@@ -347,11 +341,13 @@
     <t-dialog
       v-model:visible="resetPwd.visible"
       header="重置登录密码"
-      :confirm-btn="{ content: '重置密码', loading: resetPwd.submitting }"
+      :confirm-btn="{ content: '重置密码', loading: resetPwd.submitting, disabled: !resetPwd.password || !resetPwd.agreed }"
       width="460px"
       @confirm="submitResetPassword"
     >
-      <t-alert theme="info" class="destroy-alert">系统与数据保留，仅更换登录密码。</t-alert>
+      <t-alert theme="warning" class="destroy-alert">
+        重置密码由平台执行，<b>多数平台会强制重启实例</b>，重启期间业务中断约 1–3 分钟。系统盘与数据盘数据不受影响，仅更换登录密码。
+      </t-alert>
       <t-input
         v-model="resetPwd.password"
         type="password"
@@ -359,6 +355,9 @@
         class="destroy-reason"
         placeholder="新密码（建议 12 位以上，含大小写与符号）"
       />
+      <t-checkbox v-model="resetPwd.agreed" class="destroy-agree">
+        已知悉：重置密码可能导致实例强制重启，业务会短暂中断
+      </t-checkbox>
     </t-dialog>
 
     <!-- 救援系统 -->
@@ -448,7 +447,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { TTable } from '@/plugins/tdesign-heavy'
@@ -456,16 +455,21 @@ import type { PrimaryTableCol } from 'tdesign-vue-next'
 import {
   ChevronDownIcon,
   ChevronLeftIcon,
+  CloseCircleIcon,
   CloudIcon,
   CpuIcon,
   DashboardIcon,
   DeleteIcon,
+  ErrorCircleIcon,
   HardDiskStorageIcon,
+  InfoCircleIcon,
+  PauseCircleIcon,
   PlayCircleIcon,
   PoweroffIcon,
   RefreshIcon,
   SwapIcon,
   TerminalIcon,
+  TimeIcon,
 } from 'tdesign-icons-vue-next'
 
 import InstanceMetrics from '@/components/InstanceMetrics.vue'
@@ -503,6 +507,7 @@ import {
   operationResultLabel,
   operationResultTheme,
   operatorTypeLabel,
+  stateIcon,
 } from './constants'
 
 defineOptions({ name: 'InstanceDetail' })
@@ -513,6 +518,24 @@ const instance = ref<InstanceInfo | null>(null)
 const loading = ref(false)
 /** 加载失败原因（空串=正常）：模板据此显示错误态 + 重试，而不是一直空着。 */
 const loadError = ref('')
+
+/**
+ * 状态结论 → 图标组件（与列表页同一套映射，两处视觉一致）。
+ * 图标让"运行中/已关机/已过期"能一眼扫出来，不必逐字读 tag。
+ */
+const STATE_ICONS: Record<string, Component> = {
+  'play-circle': PlayCircleIcon,
+  'pause-circle': PauseCircleIcon,
+  time: TimeIcon,
+  'error-circle': ErrorCircleIcon,
+  delete: DeleteIcon,
+  'close-circle': CloseCircleIcon,
+  'info-circle': InfoCircleIcon,
+}
+
+function stateIconComponent(label: string): Component {
+  return STATE_ICONS[stateIcon(label)] || InfoCircleIcon
+}
 
 const instanceId = computed(() => Number(route.params.id))
 
@@ -559,7 +582,7 @@ const stateAlert = computed<{ theme: string; message: string; action?: string } 
 })
 
 // 待开通（尚未在上游开通）：只开放「重新开通」。
-const isPending = computed(() => !!instance.value && !instance.value.provider_instance_id)
+const isPending = computed(() => !!instance.value && !!instance.value.pending)
 const retrying = ref(false)
 
 // ===== NAT 机型访问地址（doc122）=====
@@ -592,12 +615,12 @@ const provisionAlertTitle = computed(() => {
 const provisionAlertMessage = computed(() => {
   const reason = instance.value?.provision_error
   if (reason) {
-    return `原因：${reason}。修复后可点「重新开通」重试（重试复用已生成的上游账单，不会重复下单）。`
+    return `原因：${reason}。修复后可点「重新开通」重试，不会产生重复订单或重复扣费。`
   }
   return '订单未支付或正在开通中。未支付订单超出支付有效期会自动关单并删除本实例；已支付但开通失败的可在详情页「重新开通」。'
 })
 
-// 重新提交开通（复用已生成的上游账单，不产生新订单/新账单）。
+// 重新提交开通（复用既有开通单，不产生新订单、不重复扣费）。
 async function onRetry() {
   if (!instance.value) return
   retrying.value = true
@@ -611,8 +634,6 @@ async function onRetry() {
     retrying.value = false
   }
 }
-
-const vnc = ref<{ visible: boolean; url: string }>({ visible: false, url: '' })
 
 async function load(live = false) {
   loading.value = true
@@ -653,27 +674,65 @@ async function doPower(action: PowerAction, label: string) {
   try {
     await powerInstance(instanceId.value, action)
     MessagePlugin.success(`${label}指令已发送`)
-    await refreshAll()
+    // 先本地乐观更新，让按钮/状态立刻有反馈（上游状态通常几秒后才变）。
+    // 服务端已把预期状态落库，这里同步界面，用户不必盯着"没反应"的按钮。
+    applyOptimisticPower(action)
+    // 再拉一次真实状态与操作记录：服务端回源对齐后的值会覆盖乐观值。
+    await refreshAll(true)
   } catch {
     /* 错误已由拦截器提示 */
   }
 }
 
+/**
+ * 电源动作后的本地乐观状态。
+ *
+ * 只改"立刻能看到"的字段（status/power_status），不做整对象假设：
+ * 上游延迟期间界面先反映预期，随后 refreshAll 用服务端真值覆盖。
+ * 重启类不改状态——重启前后都是运行中，本地没有可写的中间态。
+ */
+function applyOptimisticPower(action: PowerAction) {
+  if (!instance.value) return
+  const target: Record<string, { status: string; power: string }> = {
+    on: { status: 'running', power: 'on' },
+    off: { status: 'stopped', power: 'off' },
+    hard_off: { status: 'stopped', power: 'off' },
+  }
+  const next = target[action]
+  if (!next) return
+  instance.value.status = next.status
+  instance.value.power_status = next.power
+}
+
+/**
+ * 打开远程控制台：取到地址后直接开新浏览器标签页。
+ *
+ * 为什么不再用弹窗内嵌 iframe：控制台页面自带全屏/键鼠捕获，
+ * 塞进 iframe 常被对方的 X-Frame-Options 拒掉（弹窗里就只能显示"无法内嵌"），
+ * 且小窗口里操作体验很差。新标签页是这类控制台的标准用法。
+ *
+ * 注意 window.open 必须在点击的同步调用栈里发起，否则会被浏览器拦截；
+ * 因此先同步开一个空白页，拿到地址后再改它的 location。
+ */
 async function onVNC() {
+  const tab = window.open('', '_blank', 'noopener,noreferrer')
+  if (!tab) {
+    MessagePlugin.warning('浏览器拦截了新窗口，请允许本站弹出窗口后重试')
+    return
+  }
   try {
     const res = await vncInstance(instanceId.value)
-    vnc.value = { visible: true, url: res.data?.url || '' }
-  } catch {
-    /* 错误已由拦截器提示 */
+    const url = res.data?.url || ''
+    if (!url) {
+      tab.close()
+      MessagePlugin.warning('控制台地址暂不可用，请稍后重试')
+      return
+    }
+    tab.location.href = url
+  } catch (error) {
+    tab.close()
+    throw error
   }
-}
-
-function isHttp(url: string): boolean {
-  return /^https?:/i.test(url)
-}
-
-function openVnc() {
-  window.open(vnc.value.url, '_blank')
 }
 
 // ===== 操作记录 =====
@@ -704,10 +763,32 @@ async function loadOperations() {
   }
 }
 
-/** 实例数据与操作记录一起刷新（电源动作后两者都会变）。 */
-async function refreshAll() {
-  await load(true)
+/**
+ * 实例数据与操作记录一起刷新（电源动作后两者都会变）。
+ *
+ * live=true 会回源上游取实时状态，单次可能数秒：**不能让它阻塞首屏**。
+ * 进页面先用本地数据把界面画出来，再在后台回源校正（refreshInBackground），
+ * 用户感知到的就是"秒开 + 状态随后自动对齐"。
+ */
+async function refreshAll(live = true) {
+  await load(live)
   await loadOperations()
+}
+
+/**
+ * 后台静默刷新：不切 loading 态、不改动已渲染内容，仅在有变化时覆盖。
+ * 首屏调用它做"进页面后自动对齐真实状态"，避免用户手动点刷新。
+ */
+async function refreshInBackground() {
+  try {
+    const res = await getInstance(instanceId.value, true)
+    if (res.data) {
+      instance.value = res.data
+      void loadOperations()
+    }
+  } catch {
+    // 静默失败：首屏本地数据已经展示，回源失败不该弹错误打扰用户。
+  }
 }
 
 // —— 销毁实例（doc91 §6.4）——
@@ -803,7 +884,11 @@ async function submitDestroy() {
   }
 }
 
-onMounted(() => refreshAll())
+onMounted(() => {
+  // 首屏读本地（快），随后后台回源对齐（慢但不阻塞渲染）。
+  void refreshAll(false)
+  void refreshInBackground()
+})
 
 // ===== 维护类自助操作 =====
 //
@@ -830,6 +915,8 @@ function onMaintenancePick(data: { value: string }) {
       break
     case 'resetpwd':
       resetPwd.password = ''
+      // 同意勾选每次重开复位：重启风险不能靠上次点过而长期豁免。
+      resetPwd.agreed = false
       resetPwd.visible = true
       break
     case 'rescue':
@@ -952,7 +1039,7 @@ async function submitReinstall() {
   }
 }
 
-const resetPwd = reactive({ visible: false, password: '', submitting: false })
+const resetPwd = reactive({ visible: false, password: '', agreed: false, submitting: false })
 
 async function submitResetPassword() {
   if (!resetPwd.password) {
@@ -1275,21 +1362,6 @@ async function submitDeleteSnapshot(row: SnapshotInfo) {
   color: var(--color-muted-foreground);
 }
 
-/* ---------- VNC ---------- */
-.vnc-wrap {
-  height: 62vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.vnc-frame {
-  width: 100%;
-  height: 100%;
-  border: 1px solid var(--td-component-border);
-  border-radius: 6px;
-  background: #000;
-}
-
 /* ---------- 弹窗 ---------- */
 .destroy-body {
   display: flex;
@@ -1314,6 +1386,10 @@ async function submitDeleteSnapshot(row: SnapshotInfo) {
 }
 .destroy-reason {
   margin-top: 2px;
+}
+.destroy-agree {
+  display: block;
+  margin-top: 10px;
 }
 .destroy-verify {
   display: flex;

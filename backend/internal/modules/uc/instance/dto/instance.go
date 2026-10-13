@@ -3,32 +3,34 @@ package dto
 
 // InstanceInfo 用户可见主机信息。
 type InstanceInfo struct {
-	ID           uint64 `json:"id"`
-	InstanceID   string `json:"instance_id"`
-	ProviderType string `json:"provider_type"`
-	ProviderID   uint64 `json:"provider_id"`
-	Name         string `json:"name"`
-	Status       string `json:"status"`       // 服务状态：running/stopped/creating/...
-	PowerStatus  string `json:"power_status"` // 电源状态：on/off/unknown
-	OS           string `json:"os"`
-	CPU          int    `json:"cpu"`
-	Memory       int    `json:"memory"`
-	Disk         int    `json:"disk"`
-	DiskType     string `json:"disk_type"`
-	Bandwidth    int    `json:"bandwidth"`
-	Region       string `json:"region"`
-	Zone         string `json:"zone"`
-	PublicIP     string `json:"public_ip"`
-	PrivateIP    string `json:"private_ip"`
-	BillingMode  string `json:"billing_mode"`
+	ID         uint64 `json:"id"`
+	InstanceID string `json:"instance_id"`
+	// 刻意不下发 provider_type / provider_id：那是平台对接渠道的类型码与配置行 ID，
+	// 属纯内部信息（客户既无法使用，也据此能推断出货渠道）。
+	// 前端判断"是否已开通"用下面的 pending 字段，不需要渠道标识。
+	Name        string `json:"name"`
+	Status      string `json:"status"`       // 服务状态：running/stopped/creating/...
+	PowerStatus string `json:"power_status"` // 电源状态：on/off/unknown
+	OS          string `json:"os"`
+	CPU         int    `json:"cpu"`
+	Memory      int    `json:"memory"`
+	Disk        int    `json:"disk"`
+	DiskType    string `json:"disk_type"`
+	Bandwidth   int    `json:"bandwidth"`
+	Region      string `json:"region"`
+	Zone        string `json:"zone"`
+	PublicIP    string `json:"public_ip"`
+	PrivateIP   string `json:"private_ip"`
+	BillingMode string `json:"billing_mode"`
 	// ActorID/ActorName 开通该实例的真实操作人（子账号下单可见，P4-09）
 	ActorID   uint64 `json:"actor_user_id"`
 	ActorName string `json:"actor_name"`
-	// OrderID 来源订单；ProviderInstanceID 为空表示尚未在上游开通（待开通占位行），
+	// OrderID 来源订单；Pending 表示尚未开通（待开通占位行），
 	// 前端据此显示「待开通」并只开放「重新开通」动作。
-	OrderID            uint64 `json:"order_id"`
-	ProviderInstanceID string `json:"provider_instance_id"`
-	Pending            bool   `json:"pending"`
+	// 不再下发 provider_instance_id（上游实例号）：它与 instance_id 同值，
+	// 单独给一列只会让人看出"这只是别人家的机器号"。
+	OrderID uint64 `json:"order_id"`
+	Pending bool   `json:"pending"`
 	// ProvisionStatus/ProvisionError 待开通实例的履约状态与最近失败原因
 	// （pending/running/success/failed/manual；manual=需人工，如上游余额不足）。
 	ProvisionStatus string `json:"provision_status,omitempty"`

@@ -524,6 +524,54 @@ export interface InstanceReinstallResult {
   password?: string
 }
 
+/** 重装可选的一个镜像。 */
+export interface InstanceReinstallImage {
+  /** 下发给上游的镜像值：魔方云为镜像 ID；魔方财务为上游配置子项 ID。 */
+  value: string
+  /** 展示名（已清洗上游的 "id|名称^完整名" 形态）。 */
+  label: string
+  /** 分组名（部分平台按系列分组，如 CentOS）。 */
+  group?: string
+  /** 可用状态（上游给出时展示）。 */
+  status?: string
+}
+
+/** 重装镜像列表。 */
+export interface InstanceReinstallImages {
+  images: InstanceReinstallImage[]
+  /** 列表来源：platform（渠道镜像目录）/ product（上游商品配置子项）/ none。 */
+  source: 'platform' | 'product' | 'none' | string
+  /** 读不到时的原因与替代做法。 */
+  hint?: string
+}
+
+/** 更换对接商品的一个候选项。 */
+export interface InstanceRebindProductCandidate {
+  /** 提交时回传的值：本地商品为 products.id，上游镜像为 resource_products.id。 */
+  id: number
+  name: string
+  code?: string
+  provider_name?: string
+  price?: number
+  cost_price?: number
+  /** 已配置价格的周期档（本地商品）。 */
+  cycles?: string[]
+  /** 是否当前绑定项。 */
+  current?: boolean
+  disabled?: boolean
+  disabled_reason?: string
+}
+
+/** 更换对接商品的候选清单。 */
+export interface InstanceRebindProductCandidates {
+  sell_products: InstanceRebindProductCandidate[]
+  /** 上游镜像候选：**仅本实例同渠道**。 */
+  upstream_products: InstanceRebindProductCandidate[]
+  provider_id?: number
+  provider_name?: string
+  hint?: string
+}
+
 export interface InstanceRescueRequest {
   /** 救援系统类型（平台口径：魔方云 1/2） */
   system: number

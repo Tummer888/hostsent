@@ -17,6 +17,8 @@ import (
 	pkgmodel "hostsent/backend/internal/pkg/model"
 	"hostsent/backend/internal/pkg/safego"
 	"hostsent/backend/internal/pkg/upstream"
+
+	"go.uber.org/zap"
 )
 
 // 销毁相关错误（doc91 §6.4 验收断言 1/27）。
@@ -86,6 +88,8 @@ type InstanceService interface {
 	RetryProvision(ctx context.Context, userID, actorID uint64, actorName string, id uint64) (*dto.InstanceInfo, error)
 	// SetProvisionRetry 注入「重新开通」执行者（装配层调用；未注入时该入口返回明确错误）。
 	SetProvisionRetry(fn func(ctx context.Context, orderID uint64) error)
+	// SetLogger 注入日志器（装配层调用，可选）：非致命异常记录用。
+	SetLogger(l *zap.Logger)
 }
 
 type instanceService struct {
@@ -97,13 +101,56 @@ type instanceService struct {
 	operator InstanceOperator
 	// provisionRetry 「重新开通」执行者（装配层注入：重投来源订单的履约任务），可为 nil。
 	provisionRetry func(ctx context.Context, orderID uint64) error
+	// logger 可选：状态落库失败等非致命异常记日志（nil 时静默）。
+	logger *zap.Logger
 }
 
 // ErrMaintenanceUnsupported 维护执行者未装配（部署裁剪时）。
 var ErrMaintenanceUnsupported = errors.New("当前环境不支持该操作，请联系客服")
 
-// ErrInstanceNotProvisioned 实例尚未开通（待开通占位行）：上游侧操作无从下手。
+// ErrInstanceNotProvisioned 实例尚未开通（待开通占位行）：侧端操作无从下手。
 var ErrInstanceNotProvisioned = errors.New("实例尚未开通（待开通状态），请先点「重新开通」")
+
+// errUnsupportedControl 该商品/渠道不支持电源与控制台操作。
+// 措辞对客户只讲"不支持"，不暴露平台对接细节。
+var errUnsupportedControl = errors.New("该主机暂不支持电源与控制台操作，请联系客服")
+
+// errProviderUnavailable 底层渠道不可用。面向客户统一为一句话，
+// 具体原因（哪个渠道、什么错误）只进日志，不给客户看对接细节。
+var errProviderUnavailable = errors.New("服务暂时不可用，请稍后重试")
+
+// customerProvisionError 把开通失败的原始错误翻译成客户可读的原因。
+//
+// 为什么需要这层：provision_tasks.last_error 存的是上游 API 原文
+// （形如 `upstream POST /index.php?m=api&a=...: http=500 code=123 msg=...`），
+// 里面含上游接口地址、HTTP 状态与上游业务码，属于纯内部信息。
+// 这里按已知失败类型映射为一句人话；认不出的统一归到"系统处理中"，
+// 原文仍保留在库与服务端日志，运营排障不受影响。
+func customerProvisionError(raw string) string {
+	msg := strings.TrimSpace(raw)
+	if msg == "" {
+		return ""
+	}
+	lower := strings.ToLower(msg)
+	switch {
+	case strings.Contains(msg, "余额不足") || strings.Contains(msg, "账单未结清") ||
+		strings.Contains(msg, "未完成支付") || strings.Contains(lower, "insufficient"):
+		return "开通排队中：资源正在补货，请稍候；如长时间未开通可联系客服加急。"
+	case strings.Contains(msg, "主机名") && strings.Contains(msg, "存在"):
+		return "主机名已被占用，请修改主机名后重新提交。"
+	case strings.Contains(msg, "密码"):
+		return "密码不符合要求，请调整后重新提交。"
+	case strings.Contains(msg, "参数") || strings.Contains(msg, "不合法"):
+		return "所选配置暂不可用，请返回商品页重新选择配置。"
+	case strings.Contains(msg, "库存") || strings.Contains(msg, "售罄") || strings.Contains(msg, "不足"):
+		return "所选配置库存不足，请稍后重试或联系客服。"
+	case strings.Contains(lower, "timeout") || strings.Contains(msg, "超时"):
+		return "服务响应超时，系统正在自动重试，请稍后刷新查看。"
+	default:
+		// 认不出的错误一律给中性结论：不把上游原文抛给客户。
+		return "系统正在处理中，请稍后刷新查看；如长时间未开通请联系客服。"
+	}
+}
 
 // ErrProvisionRetryUnavailable 重新开通入口未装配。
 var ErrProvisionRetryUnavailable = errors.New("重新开通暂不可用，请联系客服")
@@ -143,6 +190,9 @@ func (s *instanceService) SetDestructor(d Destructor) { s.destructor = d }
 
 // SetOperator 注入维护类执行者。
 func (s *instanceService) SetOperator(o InstanceOperator) { s.operator = o }
+
+// SetLogger 注入日志器（可选）：状态落库失败等非致命异常记录用。
+func (s *instanceService) SetLogger(l *zap.Logger) { s.logger = l }
 
 // SetProvisionRetry 注入「重新开通」执行者（装配层调用）。
 func (s *instanceService) SetProvisionRetry(fn func(ctx context.Context, orderID uint64) error) {
@@ -493,7 +543,10 @@ func (s *instanceService) Detail(ctx context.Context, userID, id uint64, live bo
 	if it.ProviderInstanceID == "" {
 		if status, lastErr, perr := s.repo.Provision(ctx, it.OrderID); perr == nil {
 			info.ProvisionStatus = status
-			info.ProvisionError = lastErr
+			// 失败原因必须过一遍面向客户的翻译：原始 last_error 是上游 API 原文
+			// （含上游地址、HTTP 状态、上游业务码与原始留言），直接展示等于把
+			// 对接链路摊给客户看。原文仍留在库与服务端日志，运营排障不受影响。
+			info.ProvisionError = customerProvisionError(lastErr)
 		}
 	}
 	// 待开通占位（无上游实例号）：跳过回源（上游还没有这台机器），保持本地信息。
@@ -537,17 +590,17 @@ func (s *instanceService) attachNatAccess(ctx context.Context, it *model.Instanc
 	}
 	provider, err := s.buildProvider(ctx, it.ProviderID)
 	if err != nil {
-		nat.Error = "上游服务商当前不可达，请稍后刷新重试"
+		nat.Error = "服务暂时不可达，请稍后刷新重试"
 		return
 	}
 	reader, ok := provider.(upstream.NatReader)
 	if !ok {
-		nat.Error = "当前服务商不支持读取 NAT 访问地址"
+		nat.Error = "该主机暂不支持查看转发地址"
 		return
 	}
 	forwards, ferr := reader.ListNatForwards(ctx, it.InstanceID)
 	if ferr != nil {
-		nat.Error = "读取 NAT 转发地址失败，请稍后刷新重试"
+		nat.Error = "转发地址读取失败，请稍后刷新重试"
 		return
 	}
 	for _, f := range forwards {
@@ -641,11 +694,11 @@ func (s *instanceService) MetricsCatalog(ctx context.Context, userID, id uint64)
 	}
 	provider, err := s.buildProvider(ctx, it.ProviderID)
 	if err != nil {
-		return &dto.MetricsCatalogResponse{Supported: false, Reason: "上游服务商当前不可达，请稍后重试"}, nil
+		return &dto.MetricsCatalogResponse{Supported: false, Reason: errProviderUnavailable.Error()}, nil
 	}
 	metrics, ok := provider.(upstream.InstanceMetrics)
 	if !ok {
-		return &dto.MetricsCatalogResponse{Supported: false, Reason: "当前服务商不提供性能监控"}, nil
+		return &dto.MetricsCatalogResponse{Supported: false, Reason: "该主机暂不提供性能监控"}, nil
 	}
 	charts, err := metrics.ListMetricCharts(ctx, &upstream.MetricsCatalogRequest{
 		ProviderInstanceID: it.InstanceID,
@@ -772,33 +825,79 @@ func (s *instanceService) Power(ctx context.Context, userID, id uint64, action s
 	provider_ := provider
 	control, ok := provider_.(upstream.InstanceControl)
 	if !ok {
-		return fmt.Errorf("上游不支持该操作（电源/控制台）")
+		return errUnsupportedControl
 	}
 	hard, hasHard := provider_.(upstream.InstancePowerHard)
+	var opErr error
 	switch strings.ToLower(action) {
 	case "on":
-		return control.StartInstance(ctx, it.InstanceID)
+		opErr = control.StartInstance(ctx, it.InstanceID)
 	case "off":
-		return control.StopInstance(ctx, it.InstanceID, false)
+		opErr = control.StopInstance(ctx, it.InstanceID, false)
 	case "hard_off":
 		if hasHard {
-			return hard.HardStopInstance(ctx, it.InstanceID)
+			opErr = hard.HardStopInstance(ctx, it.InstanceID)
+		} else {
+			opErr = control.StopInstance(ctx, it.InstanceID, true)
 		}
-		return control.StopInstance(ctx, it.InstanceID, true)
 	case "reboot":
-		return control.RestartInstance(ctx, it.InstanceID)
+		opErr = control.RestartInstance(ctx, it.InstanceID)
 	case "hard_reboot":
 		if hasHard {
-			return hard.HardRestartInstance(ctx, it.InstanceID)
+			opErr = hard.HardRestartInstance(ctx, it.InstanceID)
+		} else {
+			// 上游没有独立硬重启：退化为硬关再开。
+			if opErr = control.StopInstance(ctx, it.InstanceID, true); opErr == nil {
+				opErr = control.StartInstance(ctx, it.InstanceID)
+			}
 		}
-		// 上游没有独立硬重启：退化为硬关再开。
-		if err := control.StopInstance(ctx, it.InstanceID, true); err != nil {
-			return err
-		}
-		return control.StartInstance(ctx, it.InstanceID)
 	default:
 		return fmt.Errorf("暂不支持的操作: %s", action)
 	}
+	if opErr != nil {
+		return opErr
+	}
+	// 指令下发成功就立刻把预期状态落到本地，用户不必等下一轮回源才能看到变化。
+	// 上游状态有延迟（关机通常要几秒），落库后前端立刻能反映"正在关机/已关机"，
+	// 否则界面上什么都没发生 —— 用户会以为按钮没生效而反复点。
+	if expected := expectedPowerStatus(strings.ToLower(action), it.Status); expected != "" && expected != it.Status {
+		if uerr := s.repo.UpdateStatus(ctx, it.ID, expected); uerr != nil {
+			// 落库失败不影响操作结果（上游已收到指令），仅本地状态短暂偏旧。
+			s.logUpdateStatusFailure(it, expected, uerr)
+		}
+	}
+	// 尽力回源对齐一次真实状态：拿不到就保留上面落的预期状态。
+	if live, ok := s.refresh(ctx, it); ok && live.Status != "" {
+		if uerr := s.repo.UpdateStatus(ctx, it.ID, string(live.Status)); uerr != nil {
+			s.logUpdateStatusFailure(it, string(live.Status), uerr)
+		}
+	}
+	return nil
+}
+
+// expectedPowerStatus 由动作与当前状态推出落库的预期状态。
+//
+// 重启类不在此列：重启是「运行中 → 运行中」的转场，落库没有可写的中间态
+// （真正的中间态由上游侧短暂体现），回源对齐会把它拉正。
+func expectedPowerStatus(action, current string) string {
+	switch action {
+	case "on":
+		return string(pkgmodel.InstanceStatusRunning)
+	case "off", "hard_off":
+		return string(pkgmodel.InstanceStatusStopped)
+	default:
+		return ""
+	}
+}
+
+// logUpdateStatusFailure 记录状态落库失败（无 logger 时静默：不影响主流程）。
+func (s *instanceService) logUpdateStatusFailure(it *model.Instance, status string, err error) {
+	if s.logger == nil {
+		return
+	}
+	s.logger.Warn("更新实例状态失败（上游操作已完成，本地状态将短暂偏旧）",
+		zap.Uint64("instance_id", it.ID), zap.String("instance_mark", it.InstanceID),
+		zap.String("target_status", status), zap.Error(err))
 }
 
 // VNC 获取远程控制台地址。
@@ -824,14 +923,17 @@ func (s *instanceService) VNC(ctx context.Context, userID, id uint64) (*dto.VNCR
 // buildProvider 解析提供商并实例化上游适配器。
 func (s *instanceService) buildProvider(ctx context.Context, providerID uint64) (upstream.Provider, error) {
 	if s.resolve == nil {
-		return nil, fmt.Errorf("上游提供商未配置")
+		return nil, errProviderUnavailable
 	}
 	provider, err := s.resolve(ctx, providerID)
 	if err != nil {
-		return nil, fmt.Errorf("解析上游提供商失败: %w", err)
+		if s.logger != nil {
+			s.logger.Warn("解析服务渠道失败", zap.Uint64("provider_id", providerID), zap.Error(err))
+		}
+		return nil, errProviderUnavailable
 	}
 	if provider == nil {
-		return nil, fmt.Errorf("上游提供商不存在")
+		return nil, errProviderUnavailable
 	}
 	return provider, nil
 }
@@ -844,7 +946,7 @@ func (s *instanceService) buildControl(ctx context.Context, providerID uint64) (
 	}
 	control, ok := provider.(upstream.InstanceControl)
 	if !ok {
-		return nil, fmt.Errorf("上游不支持该操作（电源/控制台）")
+		return nil, errUnsupportedControl
 	}
 	return control, nil
 }
@@ -868,7 +970,6 @@ func toInfo(it *model.Instance) dto.InstanceInfo {
 	info := dto.InstanceInfo{
 		ID:          it.ID,
 		InstanceID:  it.InstanceID,
-		ProviderID:  it.ProviderID,
 		Name:        it.Name,
 		Status:      it.Status,
 		PowerStatus: powerOf(statusToModel(it.Status)),
@@ -886,15 +987,15 @@ func toInfo(it *model.Instance) dto.InstanceInfo {
 		ActorID:     it.ActorUserID,
 		ActorName:   it.ActorName,
 		// 待开通占位（provider_instance_id 为空）：前端显示「待开通」且只开放重新开通。
-		OrderID:            it.OrderID,
-		ProviderInstanceID: it.ProviderInstanceID,
-		Pending:            it.ProviderInstanceID == "",
-		ExpireAt:           fmtTime(it.ExpireAt),
-		LifecycleStage:     it.LifecycleStage,
-		ExpireState:        expireState,
-		DaysLeft:           daysLeft,
-		CreatedAt:          it.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:          it.UpdatedAt.Format(time.RFC3339),
+		// 注意：Pending 由内部字段推导，不下发上游实例号（DTO 里已无该字段）。
+		OrderID:        it.OrderID,
+		Pending:        it.ProviderInstanceID == "",
+		ExpireAt:       fmtTime(it.ExpireAt),
+		LifecycleStage: it.LifecycleStage,
+		ExpireState:    expireState,
+		DaysLeft:       daysLeft,
+		CreatedAt:      it.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:      it.UpdatedAt.Format(time.RFC3339),
 	}
 	// 列表只标记机型、不拉转发地址：地址要逐台请求上游，列表页几十台会把响应拖垮，
 	// 且列表里展示首条地址的价值不大（详情页才需要复制）。只给 is_nat 让前端

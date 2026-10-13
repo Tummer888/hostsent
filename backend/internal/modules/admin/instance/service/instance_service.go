@@ -66,10 +66,14 @@ type InstanceService interface {
 	AdjustBilling(ctx context.Context, op Operator, id uint64, req *dto.AdjustRequest) (*dto.DetailInfo, error)
 	// AdjustContext 读账期调整上下文（可选周期以**上游能力**为准 + 上游/我方各周期价）。
 	AdjustContext(ctx context.Context, id uint64) (*dto.AdjustContext, error)
+	// ReinstallImages 读重装可选镜像：自营取渠道镜像目录，对接取上游商品的 os 配置子项。
+	ReinstallImages(ctx context.Context, id uint64) (*dto.ReinstallImages, error)
 	// RelinkUpstream 按上游实例号重新关联（上游换机/换号；改上游号 = 改变后续所有上游动作的作用对象）。
 	RelinkUpstream(ctx context.Context, op Operator, id uint64, req *dto.RelinkRequest) (*dto.RelinkResult, error)
 	// RebindProduct 更换绑定的本地售出商品与上游镜像（上游换产品场景）。
 	RebindProduct(ctx context.Context, op Operator, id uint64, req *dto.RebindProductRequest) (*dto.RebindProductResult, error)
+	// RebindCandidates 读更换对接商品的候选项（选框式 UI 的数据源，替代手填 ID）。
+	RebindCandidates(ctx context.Context, id uint64) (*dto.RebindProductCandidates, error)
 	// RevealCredential 查看实例登录明文密码（高危：写审计流水后才返回）。
 	RevealCredential(ctx context.Context, op Operator, id uint64) (*dto.CredentialRevealResult, error)
 	Destroy(ctx context.Context, op Operator, id uint64, req *dto.DestroyRequest) error
@@ -739,7 +743,12 @@ func (s *instanceService) Power(ctx context.Context, op Operator, id uint64, act
 		after = expectedStatus(normalized, before)
 		_ = s.repo.UpdateStatus(ctx, row.ID, after)
 		// 上游状态有延迟，回源一次让列表与上游对齐；失败不影响本次操作结果。
-		_ = s.refreshUpstream(ctx, row)
+		//
+		// staleStatus=before：上游还没转过来时回源拿到的是**操作前的旧状态**，
+		// 此时不能让回源覆盖刚刚写入的前瞻状态 —— 否则「关机」成功后又立刻变回
+		// 「运行中」，紧接着的「开机」被状态守卫判成"实例已在运行中"而失败
+		// （实测：连点关机/开机必定复现，运营以为是 500 报错）。
+		_ = s.refreshUpstreamExpecting(ctx, row, before)
 	}
 	s.record(ctx, row, op, logAction, map[string]any{"action": action}, before, after, opErr)
 	return opErr
@@ -1495,6 +1504,72 @@ func (s *instanceService) AdjustContext(ctx context.Context, id uint64) (*dto.Ad
 	return out, nil
 }
 
+// ReinstallImages 读重装可选镜像（重装对话框下拉数据源）。
+//
+// 三级来源，按可用性依次回落：
+//  1. 商品侧（自营取商品 os 配置项、对接取上游镜像的 os 配置子项）—— 最准，
+//     且与开通/下发给上游的取值口径完全一致；
+//  2. 渠道镜像目录（自营平台 /resources 的 images，如魔方云已装镜像）；
+//  3. 都没有：返回空列表 + 说明，前端提示手填（不假装有数据）。
+//
+// 单独收口到后端的原因：镜像值在两链条路上语义不同（魔方云=镜像 ID，
+// 魔方财务=上游配置子项 ID），前端无从自行推断该用哪套。
+func (s *instanceService) ReinstallImages(ctx context.Context, id uint64) (*dto.ReinstallImages, error) {
+	row, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, s.wrapNotFound(err)
+	}
+	out := &dto.ReinstallImages{Images: []dto.ReinstallImage{}, Source: dto.ReinstallSourceNone}
+
+	// 来源 1：商品配置（含对接链路的上游镜像配置子项）。
+	if s.detail != nil {
+		productID := row.SellProductID
+		if productID == 0 && row.UpstreamProductID != 0 {
+			// 上游同步发现的实例可能没有本地商品：退回按镜像所属商品的配置读。
+			productID = row.SellProductID
+		}
+		if productID != 0 {
+			if imgs, ok, ierr := s.detail.ReinstallOSOptions(ctx, productID); ierr == nil && ok && len(imgs) > 0 {
+				out.Images = imgs
+				out.Source = dto.ReinstallSourceProduct
+				out.Hint = "镜像取自该商品的操作系统配置项（下发给上游的是配置子项 ID，与开通口径一致）"
+				return out, nil
+			}
+		}
+	}
+
+	// 来源 2：渠道平台镜像目录（自营平台有已装镜像列表）。
+	if pr, perr := s.buildProvider(ctx, row.ProviderID); perr == nil {
+		if catalog, ok := pr.(upstream.PlatformResourceReader); ok {
+			if res, cerr := catalog.ListPlatformResources(ctx); cerr == nil && len(res.Images) > 0 {
+				imgs := make([]dto.ReinstallImage, 0, len(res.Images))
+				seen := map[string]bool{}
+				for _, img := range res.Images {
+					if img.Value == "" || seen[img.Value] {
+						continue
+					}
+					seen[img.Value] = true
+					imgs = append(imgs, dto.ReinstallImage{
+						Value:  img.Value,
+						Label:  firstNonEmptyStr(img.Label, img.Value),
+						Group:  img.Group,
+						Status: img.Status,
+					})
+				}
+				if len(imgs) > 0 {
+					out.Images = imgs
+					out.Source = dto.ReinstallSourcePlatform
+					out.Hint = "镜像取自渠道平台镜像目录"
+					return out, nil
+				}
+			}
+		}
+	}
+
+	out.Hint = "未能自动获取镜像列表：该商品未配置操作系统项，渠道也不提供镜像目录。请到上游面板确认镜像 ID 后手填。"
+	return out, nil
+}
+
 // upstreamCycles 读上游渠道声明的计费周期（能力描述符 BillingCycles），已归一化。
 // 第二个返回值表示"是否成功读到"（渠道不可用/未声明时为 false）。
 func (s *instanceService) upstreamCycles(ctx context.Context, providerID uint64) ([]string, bool) {
@@ -1770,6 +1845,33 @@ func (s *instanceService) RebindProduct(ctx context.Context, op Operator, id uin
 		if up, _, uerr := s.detail.Upstream(ctx, out.NewUpstreamProductID, row.BillingMode); uerr == nil && up != nil {
 			out.UpstreamProductName = up.Name
 		}
+	}
+	return out, nil
+}
+
+// RebindCandidates 读更换对接商品的候选项。
+//
+// 目的：把「先到商品列表查到 ID，再回来手填」的两步操作压成一次选择。
+// 候选范围与 RebindProduct 的校验一致 —— 本地商品给全量（附上下架标记），
+// 上游镜像只给同渠道（跨渠道必被服务层拒绝，列出来只会让运营白跑一趟）。
+func (s *instanceService) RebindCandidates(ctx context.Context, id uint64) (*dto.RebindProductCandidates, error) {
+	row, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, s.wrapNotFound(err)
+	}
+	if s.detail == nil {
+		return nil, ErrCapabilityUnsupported
+	}
+	out, cerr := s.detail.RebindCandidates(ctx, row.ProviderID)
+	if cerr != nil {
+		return nil, cerr
+	}
+	// 标出当前绑定项：运营在长列表里一眼看到"现在用的是哪个"。
+	for i := range out.SellProducts {
+		out.SellProducts[i].Current = out.SellProducts[i].ID == row.SellProductID
+	}
+	for i := range out.UpstreamProducts {
+		out.UpstreamProducts[i].Current = out.UpstreamProducts[i].ID == row.UpstreamProductID
 	}
 	return out, nil
 }
@@ -2609,6 +2711,16 @@ func (s *instanceService) administration(ctx context.Context, providerID uint64)
 
 // refreshUpstream 回源刷新单实例并回写本地；失败返回错误（调用方决定是否降级）。
 func (s *instanceService) refreshUpstream(ctx context.Context, row *repository.InstanceRow) error {
+	return s.refreshUpstreamExpecting(ctx, row, "")
+}
+
+// refreshUpstreamExpecting 回源刷新，并拒绝把状态"倒退"回 staleStatus。
+//
+// staleStatus 是刚被替换掉的旧状态（一次成功操作的前置状态）。上游的状态机
+// 通常有几秒延迟：关机指令返回成功时，GET 到的可能仍是 running。若照抄，
+// 本地刚写的 stopped 会被旧值覆盖，前端列表闪回"运行中"，紧接的开机请求
+// 又因"已在运行中"被拒 —— 表现就是开关机偶发失败。传空串表示不做该保护。
+func (s *instanceService) refreshUpstreamExpecting(ctx context.Context, row *repository.InstanceRow, staleStatus string) error {
 	ctrl, err := s.control(ctx, row.ProviderID)
 	if err != nil {
 		return err
@@ -2628,6 +2740,9 @@ func (s *instanceService) refreshUpstream(ctx context.Context, row *repository.I
 	// 照抄会把列表里已销毁的机器显示成"运行中"。终态由本系统认定，回源只刷新其余字段。
 	if row.LifecycleStage == lifecycleStageDestroyed {
 		status = row.Status
+	} else if staleStatus != "" && status == staleStatus {
+		// 上游还没转到新状态：保留本地刚写入的前瞻值，仅刷新 IP / 原始数据。
+		status = ""
 	}
 	return s.repo.ApplySync(ctx, row.ID, status, inst.PublicIP, inst.PrivateIP, raw, time.Now())
 }

@@ -21,8 +21,7 @@ export interface InstanceCapabilities {
 export interface InstanceInfo {
   id: number
   instance_id: string
-  provider_type: string
-  provider_id: number
+  // 说明：服务端刻意不下发 provider_type/provider_id（对接渠道的类型码与配置行 ID）。
   name: string
   status: string // running / stopped / creating / ...
   power_status: string // on / off / unknown
@@ -40,9 +39,7 @@ export interface InstanceInfo {
   /** 开通该实例的真实操作人（子账号下单时有值，P4-09） */
   actor_user_id: number
   actor_name: string
-  /** 来源订单；provider_instance_id 为空表示尚未在上游开通（待开通）。 */
   order_id: number
-  provider_instance_id: string
   pending: boolean
   /** 待开通实例的履约状态与最近失败原因（manual=需人工处理，如上游余额不足）。 */
   provision_status?: string

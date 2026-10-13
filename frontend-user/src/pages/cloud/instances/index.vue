@@ -85,6 +85,9 @@
               <span class="instance-mark">{{ row.instance_id }}</span>
             </div>
             <t-tag :theme="stateOf(row).theme" variant="light" size="small" shape="round">
+              <template #icon>
+                <component :is="stateIconComponent(stateOf(row).label)" />
+              </template>
               {{ stateOf(row).label }}
             </t-tag>
           </div>
@@ -177,6 +180,9 @@
         </template>
         <template #status="{ row }">
           <t-tag :theme="stateOf(row).theme" variant="light" size="small" shape="round">
+            <template #icon>
+              <component :is="stateIconComponent(stateOf(row).label)" />
+            </template>
             {{ stateOf(row).label }}
           </t-tag>
           <div v-if="stateOf(row).detail" class="state-detail">{{ stateOf(row).detail }}</div>
@@ -266,12 +272,24 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, type Component } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { TTable } from '@/plugins/tdesign-heavy'
 import type { PrimaryTableCol } from 'tdesign-vue-next'
-import { AddIcon, CloudIcon, PlayCircleIcon, PoweroffIcon, RefreshIcon, TimeIcon } from 'tdesign-icons-vue-next'
+import {
+  AddIcon,
+  CloseCircleIcon,
+  CloudIcon,
+  DeleteIcon,
+  ErrorCircleIcon,
+  InfoCircleIcon,
+  PauseCircleIcon,
+  PlayCircleIcon,
+  PoweroffIcon,
+  RefreshIcon,
+  TimeIcon,
+} from 'tdesign-icons-vue-next'
 
 import {
   listInstances,
@@ -289,6 +307,7 @@ import {
   daysLeftTheme,
   formatMemory,
   formatTime,
+  stateIcon,
 } from './constants'
 
 defineOptions({ name: 'InstanceList' })
@@ -349,6 +368,27 @@ function stateOf(row: InstanceInfo): { label: string; theme: string; detail: str
   })
 }
 
+/**
+ * 状态结论 → 图标组件。
+ *
+ * 图标让状态可扫视：一列纯文字 tag 想找"哪台关机了"得逐行读，
+ * 有图标后按形状/颜色一扫就能定位。运维只有几台时无所谓，
+ * 十几台以上差别很明显。
+ */
+const STATE_ICONS: Record<string, Component> = {
+  'play-circle': PlayCircleIcon,
+  'pause-circle': PauseCircleIcon,
+  time: TimeIcon,
+  'error-circle': ErrorCircleIcon,
+  delete: DeleteIcon,
+  'close-circle': CloseCircleIcon,
+  'info-circle': InfoCircleIcon,
+}
+
+function stateIconComponent(label: string): Component {
+  return STATE_ICONS[stateIcon(label)] || InfoCircleIcon
+}
+
 /** 能力位缺省时按可操作处理：旧数据没有 capabilities 字段，不该因此禁用全部按钮。 */
 function canPower(row: InstanceInfo): boolean {
   if (row.pending) return false
@@ -383,13 +423,33 @@ async function onPower(row: InstanceInfo, action: PowerAction) {
   try {
     await powerInstance(row.id, action)
     MessagePlugin.success(`${label}指令已发送`)
-    load(true)
+    // 本地乐观更新：按钮的可用状态（开机/关机互斥）依赖 status，
+    // 不先改本地的话，这行按钮要等回源（数秒）才切过来，看着像"点了没用"。
+    applyOptimisticPower(row, action)
+    // 后台回源校正；不 await，避免整表 loading 遮罩把刚更新的行又盖住。
+    void load(true)
   } catch {
     /* 错误已由请求拦截器提示 */
   }
 }
 
-// 待开通实例：重新提交开通（复用已生成的上游账单，不产生新订单/新账单）。
+/**
+ * 电源动作后的本地乐观状态。重启类不改（前后同为运行中，无中间态可写）。
+ * 服务端已把预期状态落库，回源结果会覆盖这里。
+ */
+function applyOptimisticPower(row: InstanceInfo, action: PowerAction) {
+  const target: Record<string, { status: string; power: string }> = {
+    on: { status: 'running', power: 'on' },
+    off: { status: 'stopped', power: 'off' },
+    hard_off: { status: 'stopped', power: 'off' },
+  }
+  const next = target[action]
+  if (!next) return
+  row.status = next.status
+  row.power_status = next.power
+}
+
+// 待开通实例：重新提交开通（复用既有开通单，不产生新订单/不重复扣费）。
 async function onRetry(row: InstanceInfo) {
   retryingId.value = row.id
   try {

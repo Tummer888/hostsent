@@ -17,6 +17,15 @@ type fakeRepo struct {
 	items     []model.Instance
 	ops       []repository.OperationEntry
 	provision string
+	// statusWrites 记录 UpdateStatus 调用（顺序即调用顺序）。
+	statusWrites []statusWrite
+	updateErr    error
+}
+
+// statusWrite 一次状态写入（供断言）。
+type statusWrite struct {
+	ID     uint64
+	Status string
 }
 
 func (f *fakeRepo) ListByUser(context.Context, uint64) ([]model.Instance, error) { return f.items, nil }
@@ -36,6 +45,17 @@ func (f *fakeRepo) Provision(context.Context, uint64) (string, string, error) {
 
 func (f *fakeRepo) Operations(context.Context, uint64, int) ([]repository.OperationEntry, error) {
 	return f.ops, nil
+}
+
+// UpdateStatus 记录状态写入，供「电源操作后本地状态即时更新」类用例断言。
+func (f *fakeRepo) UpdateStatus(_ context.Context, id uint64, status string) error {
+	f.statusWrites = append(f.statusWrites, statusWrite{ID: id, Status: status})
+	for i := range f.items {
+		if f.items[i].ID == id {
+			f.items[i].Status = status
+		}
+	}
+	return f.updateErr
 }
 
 // fakeMetricsProvider 只实现 InstanceMetrics：验证监控链路不依赖其它能力。

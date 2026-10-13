@@ -315,13 +315,19 @@
           <div class="hero-cell__value">
             <OsIcon :os="instanceData.os" />
             <span class="hero-os">{{ osDisplayName(instanceData.os) }}</span>
+            <!--
+              能力位不支持时保留按钮但置灰（而不是直接隐藏）：
+              运营需要看到"为什么没有重装入口"，title 里给出原因。
+            -->
             <t-button
-              v-if="instanceData.capabilities?.reinstall && !isPending"
+              v-if="!isPending"
               v-permission="'instance:reinstall'"
               size="small"
               variant="text"
               theme="primary"
               class="hero-copy"
+              :disabled="!instanceData.capabilities?.reinstall"
+              :title="instanceData.capabilities?.reinstall ? '' : '该服务商不支持重装系统'"
               @click="openReinstallDialog"
             >
               重装
@@ -1084,13 +1090,34 @@
           </t-checkbox-group>
           <div class="cell-sub">未勾选的项保持不动；三项可分开做（如只换本地商品、上游镜像已经是对的）。</div>
         </t-form-item>
-        <t-form-item v-if="rebind.fields.includes('sell')" label="新的本地售出商品 ID">
-          <t-input-number v-model="rebind.sell_product_id" :min="0" placeholder="products.id（可在商品列表查看）" class="dlg-full" />
+        <t-form-item v-if="rebind.fields.includes('sell')" label="新的本地售出商品">
+          <!-- 选框替代手填 ID：候选由后端给出（含上下架/价格/已配置周期），
+               运营不必先去商品列表查号再回来填（用户实测反馈）。 -->
+          <t-select
+            v-model="rebind.sell_product_id"
+            :options="rebindSellOptions"
+            :loading="rebindCandidatesLoading"
+            filterable
+            clearable
+            placeholder="搜索商品名或编码选择"
+            class="dlg-full"
+          />
           <div class="cell-sub">决定续费算价与展示口径。必须是已上架、同渠道的商品。</div>
         </t-form-item>
-        <t-form-item v-if="rebind.fields.includes('upstream')" label="新的本地上游镜像 ID">
-          <t-input-number v-model="rebind.upstream_product_id" :min="0" placeholder="resource_products.id（资源商品列表）" class="dlg-full" />
-          <div class="cell-sub">决定上游价与配置来源；必须与实例处于同一渠道，跨渠道会被拒绝。</div>
+        <t-form-item v-if="rebind.fields.includes('upstream')" label="新的本地上游镜像">
+          <t-select
+            v-model="rebind.upstream_product_id"
+            :options="rebindUpstreamOptions"
+            :loading="rebindCandidatesLoading"
+            filterable
+            clearable
+            placeholder="仅列出本实例同渠道的镜像，可搜索"
+            class="dlg-full"
+          />
+          <div class="cell-sub">
+            决定上游价与配置来源；只列出同渠道镜像（跨渠道会被拒绝）。
+            <template v-if="rebindHint"> {{ rebindHint }}</template>
+          </div>
         </t-form-item>
         <t-form-item v-if="rebind.fields.includes('renewal_price')" label="新的绑定续费价（元/周期）">
           <t-input-number v-model="rebind.renewal_price" :min="0" :decimal-places="2" placeholder="留空 = 清除绑定（回到按商品实时算价）" class="dlg-full" />
@@ -1236,26 +1263,52 @@
       destroy-on-close
       @confirm="handleReinstall"
     >
-      <t-alert theme="warning" class="dlg-alert" message="重装会清空系统盘（可选同时格式化数据盘），操作不可撤销。财务型上游的镜像值是上游配置子项 ID。" />
+      <t-alert theme="warning" class="dlg-alert" message="重装会清空系统盘（可选同时格式化数据盘），操作不可撤销。" />
       <t-form label-align="top">
-        <t-form-item label="目标镜像（可选列表也可手填 ID）">
+        <t-form-item label="目标镜像">
           <t-select
             v-model="reinstall.os"
             filterable
             clearable
             creatable
+            :loading="mirrorLoading"
             :options="mirrorOptions"
-            placeholder="选择平台已装镜像，或直接填上游配置子项 ID"
+            placeholder="从列表选择（支持搜索），也可直接填镜像 ID"
           />
+          <!-- 镜像来源与取值口径：两种链路的 ID 含义不同，不讲清楚运营不敢选 -->
+          <div class="cell-sub">
+            <template v-if="mirrorSource === 'product'">
+              镜像取自该商品的操作系统配置项，共 {{ mirrorOptions.length }} 个；下发给上游的是配置子项 ID（与开通口径一致）
+            </template>
+            <template v-else-if="mirrorSource === 'platform'">
+              镜像取自渠道平台镜像目录，共 {{ mirrorOptions.length }} 个
+            </template>
+            <template v-else>
+              {{ mirrorHint || '未能自动获取镜像列表，请到上游面板确认镜像 ID 后手填' }}
+            </template>
+          </div>
         </t-form-item>
-        <t-form-item label="自定义端口（可选，SSH/RDP）">
-          <t-input-number v-model="reinstall.port" :min="0" :max="65535" theme="column" />
+        <t-form-item label="登录端口（可选）">
+          <t-input-number v-model="reinstall.port" :min="0" :max="65535" theme="column" placeholder="留空保持默认" />
+          <div class="cell-sub">
+            重装后 SSH/RDP 的监听端口。留空或 0 = 保持平台默认（一般 22/3389）。
+            填了就按你填的改 —— 客户改过端口又要重装的场景用它，避免重装后端口被重置回默认。
+          </div>
         </t-form-item>
-        <t-form-item label="系统盘大小 GB（可选）">
-          <t-input-number v-model="reinstall.system_disk_size" :min="0" theme="column" />
+        <t-form-item v-if="reinstallSupportsDiskSize" label="系统盘大小 GB（可选）">
+          <t-input-number v-model="reinstall.system_disk_size" :min="0" theme="column" placeholder="留空保持当前" />
+          <div class="cell-sub">
+            重装同时调整系统盘容量。留空 = 不改容量。仅魔方云（自营平台）支持该参数；
+            财务型上游的接口没有这一项，故此处不展示。
+          </div>
         </t-form-item>
-        <t-form-item label="同时格式化数据盘（数据将丢失）">
+        <t-form-item label="同时格式化数据盘">
           <t-switch v-model="reinstall.format_data_disk" />
+          <div class="cell-sub">
+            <b>关闭（默认）</b>：只清系统盘，数据盘上的文件保留。<br />
+            <b>开启</b>：数据盘也一并清空，<b>盘上数据永久丢失且不可恢复</b>。
+            仅在确认客户不需要数据盘数据、或要交给下一位客户时开启。
+          </div>
         </t-form-item>
         <t-form-item label="原因（可选）">
           <t-input v-model="reinstall.reason" placeholder="写入操作流水" />
@@ -1267,17 +1320,25 @@
       v-model:visible="resetPwd.visible"
       header="重置实例登录密码"
       :confirm-btn="{ content: '重置密码', theme: 'danger' }"
-      :confirm-disabled="!resetPwd.password"
+      :confirm-disabled="!resetPwd.password || !resetPwd.agreed"
       destroy-on-close
       @confirm="handleResetPassword"
     >
-      <t-alert theme="info" class="dlg-alert" message="系统与数据保留，仅更换登录密码。运行中的实例可能被强制重启。" />
+      <t-alert theme="warning" class="dlg-alert">
+        <template #message>
+          <div>重置密码由上游执行，<b>多数平台会强制重启实例</b>（部分平台第二次重启才生效），重启期间业务中断约 1–3 分钟。</div>
+          <div class="cell-sub">系统盘与数据盘的数据不受影响，仅更换登录密码。重启前请确认客户已保存业务数据。</div>
+        </template>
+      </t-alert>
       <t-form label-align="top">
         <t-form-item label="新密码">
           <div class="pwd-input">
             <t-input v-model="resetPwd.password" type="password" placeholder="建议 12 位以上，含大小写与数字" />
             <t-button variant="outline" @click="fillRandomPassword">随机生成</t-button>
           </div>
+        </t-form-item>
+        <t-form-item>
+          <t-checkbox v-model="resetPwd.agreed">已知悉：重置密码可能导致实例强制重启，业务会短暂中断</t-checkbox>
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -1450,6 +1511,8 @@ import {
   getInstanceDetail,
   getInstanceOperations,
   getInstanceRelated,
+  getInstanceReinstallImages,
+  getInstanceRebindCandidates,
   getInstanceSnapshots,
   getInstanceVNC,
   powerInstance,
@@ -1469,7 +1532,6 @@ import {
   updateInstanceRemark,
 } from '@/api/instance'
 import { renewInstance } from '@/api/lifecycle'
-import { getProviderPlatformResources } from '@/api/admin'
 import {
   combineInstanceState,
   expireStateLabel,
@@ -1488,6 +1550,7 @@ import {
 import type {
   InstanceAdjustContext,
   InstanceDetail,
+  InstanceRebindProductCandidates,
   InstanceRebindProductResult,
   InstanceRelatedResponse,
   InstanceRelinkResult,
@@ -1939,16 +2002,12 @@ function onPowerPick(data: { value: string; disabled?: boolean }) {
   handlePower(data.value)
 }
 
-// 维护类操作（平台接口实测存在）
+// 维护类操作（平台接口实测存在）。
+// 重装/重置密码**不在这里**：主信息区已经把这两个入口内联在「操作系统」行与
+// 「登录凭据」格里（用户实测反馈按钮重复）。下拉只保留没有就地入口的项。
 const maintenanceOptions = computed(() => {
   const caps = instanceData.value?.capabilities
   const opts: { content: string; value: string; disabled?: boolean }[] = []
-  if (hasPerm('instance:reinstall')) {
-    opts.push({ content: '重装系统', value: 'reinstall', disabled: !caps?.reinstall })
-  }
-  if (hasPerm('instance:password')) {
-    opts.push({ content: '重置密码', value: 'resetpwd', disabled: !caps?.reset_password })
-  }
   if (hasPerm('instance:rescue')) {
     opts.push({ content: '进入救援系统', value: 'rescue', disabled: !caps?.rescue })
     opts.push({ content: '退出救援系统', value: 'exitrescue', disabled: !caps?.rescue })
@@ -2015,14 +2074,12 @@ function onMaintenancePick(data: { value: string; disabled?: boolean }) {
   }
 }
 
-// 账期与凭证分组
+// 账期与凭证分组。
+// 「查看登录密码」不在这里：凭据格已有内联「查看密码」链接（用户实测反馈重复）。
 const billingOptions = computed(() => {
   const opts: { content: string; value: string; disabled?: boolean }[] = []
   if (hasPerm('instance:billing')) {
     opts.push({ content: '调整账期/付款周期', value: 'adjust' })
-  }
-  if (hasPerm('instance:credential')) {
-    opts.push({ content: '查看登录密码', value: 'reveal', disabled: !instanceData.value?.credential?.has_password })
   }
   if (hasPerm('instance:action')) {
     opts.push({ content: '编辑备注', value: 'remark' })
@@ -2034,15 +2091,12 @@ const billingDisabled = computed(() => billingOptions.value.length === 0)
 
 function onBillingPick(data: { value: string; disabled?: boolean }) {
   if (data.disabled) {
-    MessagePlugin.warning('该实例未保存明文密码，请使用「重置密码」')
+    MessagePlugin.warning('该操作当前不可用')
     return
   }
   switch (data.value) {
     case 'adjust':
       openAdjustDialog()
-      break
-    case 'reveal':
-      openRevealDialog()
       break
     case 'remark':
       openRemarkDialog()
@@ -2418,6 +2472,47 @@ const rebind = reactive<{
 
 const rebindResult = ref<InstanceRebindProductResult | null>(null)
 
+// 候选列表（选框数据源）。每次开弹窗重取：商品上下架/渠道会变，缓存会给出过期选项。
+const rebindCandidates = ref<InstanceRebindProductCandidates | null>(null)
+const rebindCandidatesLoading = ref(false)
+const rebindHint = ref('')
+
+const rebindSellOptions = computed(() =>
+  (rebindCandidates.value?.sell_products || []).map((item) => ({
+    // 名称 + 编码 + 价格 + 已有周期档：选之前就能比出"这个换上去续费会收多少"
+    label: `#${item.id} ${item.name}${item.code ? `（${item.code}）` : ''} · ¥${formatPrice(item.price ?? 0)}${
+      item.cycles?.length ? ` · ${item.cycles.map((c) => cycleLabel(c)).join('/')}` : ' · 未配周期价'
+    }${item.current ? ' · 当前绑定' : ''}${item.disabled ? ` · ${item.disabled_reason || '不可选'}` : ''}`,
+    value: item.id,
+    disabled: item.disabled || item.current,
+  })),
+)
+
+const rebindUpstreamOptions = computed(() =>
+  (rebindCandidates.value?.upstream_products || []).map((item) => ({
+    label: `#${item.id} ${item.name} · 上游 ¥${formatPrice(item.price ?? 0)} / 成本 ¥${formatPrice(item.cost_price ?? 0)}${
+      item.current ? ' · 当前绑定' : ''
+    }`,
+    value: item.id,
+    disabled: item.current,
+  })),
+)
+
+async function loadRebindCandidates() {
+  rebindCandidatesLoading.value = true
+  try {
+    const res = await getInstanceRebindCandidates(instanceId)
+    rebindCandidates.value = res
+    rebindHint.value = res?.hint || ''
+  } catch (error) {
+    // 候选拿不到不阻塞：运营仍可手动输入 ID（下面保留数字输入兜底）。
+    rebindCandidates.value = null
+    rebindHint.value = `候选列表加载失败（${(error as Error).message || '未知错误'}），可手动填写 ID`
+  } finally {
+    rebindCandidatesLoading.value = false
+  }
+}
+
 function openRebindDialog() {
   rebind.fields = []
   rebind.sell_product_id = null
@@ -2426,6 +2521,7 @@ function openRebindDialog() {
   rebind.reason = ''
   rebindResult.value = null
   rebind.visible = true
+  void loadRebindCandidates()
 }
 
 async function handleRebind() {
@@ -2436,14 +2532,14 @@ async function handleRebind() {
   const payload: Record<string, unknown> = {}
   if (rebind.fields.includes('sell')) {
     if (!rebind.sell_product_id) {
-      MessagePlugin.warning('请填写新的本地售出商品 ID')
+      MessagePlugin.warning('请选择新的本地售出商品')
       return
     }
     payload.sell_product_id = rebind.sell_product_id
   }
   if (rebind.fields.includes('upstream')) {
     if (rebind.upstream_product_id === null) {
-      MessagePlugin.warning('请填写新的上游镜像 ID')
+      MessagePlugin.warning('请选择新的上游镜像')
       return
     }
     payload.upstream_product_id = rebind.upstream_product_id
@@ -2648,18 +2744,30 @@ const reinstall = reactive<{
   loading: boolean
 }>({ visible: false, os: '', port: 0, system_disk_size: 0, format_data_disk: false, reason: '', loading: false })
 
-// 可选镜像：优先读平台资源目录（魔方云返回已装镜像）；财务型上游没有镜像目录
-// （os 是上游配置子项 id），此时列表为空，运营直接手填 ID。
+// 可选镜像：统一由后端 /instances/:id/reinstall-images 给出。
+// 来源随链路不同 —— 自营读渠道镜像目录；对接上游读**上游商品的操作系统配置子项**
+// （os 值就是配置子项 ID，与开通口径一致）。此前前端只读渠道镜像目录，
+// 对接链路必然拿到空列表（用户实测：重装对话框镜像为空）。
 const mirrorOptions = ref<Array<{ label: string; value: string }>>([])
-const mirrorLoaded = ref(false)
+const mirrorSource = ref('')
+const mirrorHint = ref('')
+const mirrorLoading = ref(false)
+// 按实例缓存加载结果：同一实例重开弹窗不重复请求，换实例必须重取。
+const mirrorLoadedFor = ref<number>(0)
+
+// reinstallSupportsDiskSize 重装时能否同时改系统盘容量。
+// 实测：只有魔方云适配器的重装接口带 system_disk_size（provider.go 里 form.Set），
+// 魔方财务的 ReinstallInstance 完全不读该参数 —— 对财务型上游展示这个输入框
+// 只会让运营以为改了容量（实际被静默忽略）。
+const reinstallSupportsDiskSize = computed(() => instanceData.value?.provider_type !== 'zjmf')
 
 async function loadMirrorOptions() {
-  if (mirrorLoaded.value) return
-  mirrorLoaded.value = true
-  const providerID = instanceData.value?.provider_id
-  if (!providerID) return
+  const current = instanceId
+  if (mirrorLoadedFor.value === current) return
+  mirrorLoading.value = true
+  mirrorLoadedFor.value = current
   try {
-    const res = await getProviderPlatformResources(providerID)
+    const res = await getInstanceReinstallImages(current)
     const images = res?.images || []
     mirrorOptions.value = images
       .filter((img) => img.value)
@@ -2667,9 +2775,15 @@ async function loadMirrorOptions() {
         label: `${img.group ? `${img.group} · ` : ''}${img.label || img.value}${img.status ? `（${img.status}）` : ''}`,
         value: img.value,
       }))
-  } catch {
-    // 资源目录不可用（渠道不支持/上游离线）不阻塞重装：留空让运营手填。
+    mirrorSource.value = res?.source || ''
+    mirrorHint.value = res?.hint || ''
+  } catch (error) {
+    // 列表拿不到不阻塞重装：留空 + 提示，运营仍可手填镜像 ID。
     mirrorOptions.value = []
+    mirrorSource.value = ''
+    mirrorHint.value = (error as Error).message || ''
+  } finally {
+    mirrorLoading.value = false
   }
 }
 
@@ -2712,15 +2826,18 @@ async function handleReinstall() {
 
 // ===== 重置密码 =====
 
-const resetPwd = reactive<{ visible: boolean; password: string; loading: boolean }>({
+const resetPwd = reactive<{ visible: boolean; password: string; agreed: boolean; loading: boolean }>({
   visible: false,
   password: '',
+  agreed: false,
   loading: false,
 })
 
 // openResetPasswordDialog 打开重置密码弹窗（凭据格的内联入口与维护下拉共用）。
 function openResetPasswordDialog() {
   resetPwd.password = ''
+  // 同意勾选每次重开都复位：重启风险提示不能靠上一次点过就长期豁免。
+  resetPwd.agreed = false
   resetPwd.visible = true
 }
 

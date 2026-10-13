@@ -825,6 +825,46 @@ func (h *InstanceHandler) RebindProduct(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// RebindCandidates 更换对接商品的候选项（选框式 UI 的数据源）。
+// @Summary 更换对接商品候选项
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/rebind-candidates [get]
+func (h *InstanceHandler) RebindCandidates(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.svc.RebindCandidates(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// ReinstallImages 重装可选镜像（自营取渠道镜像目录，对接取上游商品的 os 配置子项）。
+// @Summary 重装可选镜像列表
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/reinstall-images [get]
+func (h *InstanceHandler) ReinstallImages(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.svc.ReinstallImages(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
 // RevealCredential 查看实例登录明文密码（敏感操作，返回前写审计流水）。
 // @Summary 查看实例登录密码
 // @Tags 管理端-实例运维

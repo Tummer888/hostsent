@@ -152,6 +152,35 @@ func (a *asm) buildInstancePlaceholderReleaser() func(ctx context.Context, order
 	}
 }
 
+// buildOrderStockReleaser 构造「订单作废即回补库存」钩子（订单管理端取消/关单）。
+//
+// 口径与用户自助下单的 releasePendingHoldings 一致：有 SKU 回补 SKU 库存，
+// 没有 SKU（上游转售商品）回补商品级库存。
+// 为什么必须成对：代下单同样原子扣减库存，不回补就会"取消一单少一份库存"，
+// 商品会莫名其妙越来越难卖。
+func (a *asm) buildOrderStockReleaser() func(ctx context.Context, order *ordermodel.Order) error {
+	return func(ctx context.Context, order *ordermodel.Order) error {
+		if order == nil || order.Quantity <= 0 {
+			return nil
+		}
+		if order.SpecCode == "" {
+			_, err := a.prodCatalogService.IncrementProductStock(ctx, order.ProductID, order.Quantity)
+			return err
+		}
+		specs, err := a.prodCatalogService.ListSpecs(ctx, order.ProductID)
+		if err != nil {
+			return err
+		}
+		for i := range specs {
+			if specs[i].SpecCode == order.SpecCode {
+				_, err := a.prodCatalogService.IncrementSpecStock(ctx, specs[i].ID, order.Quantity)
+				return err
+			}
+		}
+		return nil
+	}
+}
+
 // buildInstanceProvisionRetry 构造实例维度「重新开通」钩子（管理端/用户中心共用）。
 //
 // 语义：占位实例（未开通）→ 重新投递来源订单的开通履约任务。人工队列（manual）

@@ -10,6 +10,7 @@ import (
 	catalogmodel "hostsent/backend/internal/modules/admin/product/catalog/model"
 	productmodel "hostsent/backend/internal/modules/admin/resource/product/model"
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
+	"hostsent/backend/internal/pkg/billingcycle"
 )
 
 // InstanceWithUser 实例行 + 关联展示字段。
@@ -279,6 +280,14 @@ func (r *instanceReader) ListActiveResetCandidatesWithUser(ctx context.Context, 
 // 双链路判据（P1/T1.2）：自营取售出商品 sell_product_id（products.id）；
 // 上游取 upstream_product_id（resource_products.id）；两者皆空时回落到含义含糊的
 // 旧 product_id 解析（保留只读一版，待存量为空后移除）。
+//
+// 单价口径（实测缺陷修复）：**优先取周期价格矩阵**（product_prices 按实例当前
+// billing_mode 那一档），取不到才回落商品基础价（products.price）。
+//
+// 为什么必须这样：周期定价的商品把各档价放在 product_prices（如 monthly 30 /
+// quarterly 90 / semiannually 180 / annually 300），而 products.price 往往只是
+// 某一档（或建商品时的占位值）。只读基础价会让"年付实例"的续费页显示成月付价、
+// 甚至显示 0 —— 实测用户反馈的「续费页面金额为零」就是这个原因。
 func (r *instanceReader) ResolveProduct(ctx context.Context, inst *syncmodel.Instance) (string, float64, error) {
 	if inst == nil {
 		return "", 0, nil
@@ -287,7 +296,7 @@ func (r *instanceReader) ResolveProduct(ctx context.Context, inst *syncmodel.Ins
 		var saleProd catalogmodel.Product
 		err := r.db.WithContext(ctx).First(&saleProd, inst.SellProductID).Error
 		if err == nil {
-			return saleProd.Name, saleProd.Price, nil
+			return saleProd.Name, r.cycleUnitPrice(ctx, inst, saleProd.Price), nil
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return "", 0, err
@@ -306,6 +315,28 @@ func (r *instanceReader) ResolveProduct(ctx context.Context, inst *syncmodel.Ins
 	// P8：product_id 兼容列已删除，旧数据兜底（resolveLegacyProduct）一并退役；
 	// 双链路列均解析不到时返回空，由调用方自行处理。
 	return "", 0, nil
+}
+
+// cycleUnitPrice 按实例当前付款周期取商品该档价；该档未配置时回落基础价。
+//
+// 只在结果可信时覆盖：价格矩阵里 status=1 且 product_spec_id=0（商品级矩阵）的行才算数 ——
+// SKU 级矩阵（spec_id>0）是特定规格的价，套到实例上会算错。
+func (r *instanceReader) cycleUnitPrice(ctx context.Context, inst *syncmodel.Instance, fallback float64) float64 {
+	cycle := billingcycle.Normalize(inst.BillingMode)
+	if cycle == "" {
+		return fallback
+	}
+	var row struct {
+		Price float64
+	}
+	err := r.db.WithContext(ctx).Table("product_prices").
+		Select("price").
+		Where("product_id = ? AND cycle = ? AND product_spec_id = 0 AND status = 1", inst.SellProductID, cycle).
+		Take(&row).Error
+	if err != nil || row.Price <= 0 {
+		return fallback
+	}
+	return row.Price
 }
 
 // resolveLegacyProduct 旧 product_id 语义的兜底解析：先按 source_product_id 找售出商品，

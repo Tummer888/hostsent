@@ -4,6 +4,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -37,6 +38,9 @@ type InstanceRepository interface {
 	Provision(ctx context.Context, orderID uint64) (status, lastError string, err error)
 	// Operations 读某实例最近的操作流水（倒序）；归属由调用方先用 FindByUser 校验。
 	Operations(ctx context.Context, instanceID uint64, limit int) ([]OperationEntry, error)
+	// UpdateStatus 落库实例服务状态（电源操作下发成功后即时反映到界面）。
+	// 只写 status 一列：这是用户中心对实例的唯一写入点，其余字段归同步/开通链路。
+	UpdateStatus(ctx context.Context, id uint64, status string) error
 }
 
 type instanceRepository struct {
@@ -102,7 +106,6 @@ func (r *instanceRepository) FindByUser(ctx context.Context, userID, id uint64) 
 }
 
 // Operations 读实例最近操作流水（倒序，最多 limit 条）。
-//
 // 直接查 instance_operations 而不是委派管理端：用户只该看到**自己实例**的记录，
 // 用 instance_id 过滤即可，不需要跨用户的审计视图，也不必让 uc 包依赖 admin 包。
 func (r *instanceRepository) Operations(ctx context.Context, instanceID uint64, limit int) ([]OperationEntry, error) {
@@ -119,4 +122,18 @@ func (r *instanceRepository) Operations(ctx context.Context, instanceID uint64, 
 		return nil, err
 	}
 	return rows, nil
+}
+
+// UpdateStatus 落库实例服务状态。
+//
+// 用 Updates 只改 status：GORM 的 Updates(struct) 会跳过零值字段（status="stopped"
+// 这类非空值没问题，但显式只列一列更能表达"这是唯一写入点"的意图），
+// 同时自动带上 updated_at，便于运营看出状态最后变化时间。
+func (r *instanceRepository) UpdateStatus(ctx context.Context, id uint64, status string) error {
+	if id == 0 || strings.TrimSpace(status) == "" {
+		return nil
+	}
+	return r.db.WithContext(ctx).Model(&model.Instance{}).
+		Where("id = ?", id).
+		Update("status", status).Error
 }

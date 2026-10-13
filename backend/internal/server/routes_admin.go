@@ -412,11 +412,16 @@ func registerAdminRoutes(r *gin.Engine, app *App) {
 			instanceOps.PUT("/:id/billing", app.perm("instance:billing"), app.adminRequireVerification("instance_billing"), app.instanceOpsHandler.AdjustBilling)
 			// 账期调整上下文：可选周期以上游能力为准（避免选中上游不卖的周期）+ 各周期上游价/我方价。
 			instanceOps.GET("/:id/billing-context", app.perm("instance:billing"), app.instanceOpsHandler.AdjustContext)
+			// 重装可选镜像：自营取渠道镜像目录、对接取上游商品的 os 配置子项
+			//（此前前端只读渠道镜像目录，对接链路必然为空 —— 重装无法选镜像）。
+			instanceOps.GET("/:id/reinstall-images", app.perm("instance:reinstall"), app.instanceOpsHandler.ReinstallImages)
 			// 按上游实例号重新关联（上游换机/换号）：改上游号 = 改变后续所有上游动作的作用对象，
 			// 因此需独立权限码 + 二次验证，与销毁同档。
 			instanceOps.POST("/:id/relink", app.perm("instance:relink"), app.adminRequireVerification("instance_relink"), app.instanceOpsHandler.RelinkUpstream)
 			// 更换绑定的本地商品 / 上游镜像（上游换产品）：直接决定续费算价与配置口径，与账期同档。
 			instanceOps.POST("/:id/rebind-product", app.perm("instance:billing"), app.instanceOpsHandler.RebindProduct)
+			// 更换候选（选框式 UI）：本地商品全量 + 同渠道上游镜像，并给出上下架/渠道提示。
+			instanceOps.GET("/:id/rebind-candidates", app.perm("instance:billing"), app.instanceOpsHandler.RebindCandidates)
 			// 查看明文密码：只读但属敏感信息访问，独立权限码便于收窄。
 			instanceOps.POST("/:id/credential", app.perm("instance:credential"), app.instanceOpsHandler.RevealCredential)
 			instanceOps.DELETE("/:id", app.perm("instance:destroy"), app.adminRequireVerification("instance_destroy"), app.instanceOpsHandler.Destroy)

@@ -210,6 +210,19 @@
   font-weight: 600;
 }
 
+/* 列表里可点击的主机名/用户名：保持既有字重与颜色，只用下划线提示"可点"。
+   用描边按钮会让整列变得很重（列表里每行都有），故只做轻量链接化。 */
+.instances-module .cell-link {
+  text-decoration: none;
+  border-bottom: 1px dashed transparent;
+  transition: color var(--hs-duration-fast), border-color var(--hs-duration-fast);
+}
+
+.instances-module .cell-link:hover {
+  color: var(--instances-green);
+  border-bottom-color: var(--instances-green);
+}
+
 .instances-module .cell-sub {
   margin-top: 2px;
   font-size: 12px;

@@ -375,6 +375,81 @@ type RebindProductResult struct {
 	UpstreamChanged bool `json:"upstream_changed"`
 }
 
+// RebindProductCandidate 更换对接商品的可选项（每个下拉一行）。
+type RebindProductCandidate struct {
+	// ID 提交时回传的值：本地商品为 products.id，上游镜像为 resource_products.id。
+	ID uint64 `json:"id"`
+	// Name 展示名。
+	Name string `json:"name"`
+	// Code 商品编码（本地商品有；上游镜像为空）。
+	Code string `json:"code"`
+	// ProviderName 所属渠道名（上游镜像项展示用，避免跨渠道误选）。
+	ProviderName string `json:"provider_name"`
+	// Price / CostPrice 该候选的价格与成本（可选，用于比价）。
+	Price     float64 `json:"price"`
+	CostPrice float64 `json:"cost_price"`
+	// Cycles 已配置价格的周期档（本地商品展示用）。
+	Cycles []string `json:"cycles"`
+	// Current 是否是当前绑定项（前端禁用/标注"当前"）。
+	Current bool `json:"current"`
+	// Disabled 不可选（如跨渠道、已下架），DisabledReason 给出原因。
+	Disabled       bool   `json:"disabled"`
+	DisabledReason string `json:"disabled_reason"`
+}
+
+// RebindProductCandidates 更换对接商品的可选清单。
+//
+// 此前前端要求运营手填商品 ID —— 运营得先去商品列表查号再回来填，跨渠道/已下架
+// 的商品只有提交后才会被后端拒绝（用户实测反馈"还要在这里输入 ID 查找，有点麻烦"）。
+// 这里把候选与可用性判定一起给出，前端直接渲染成选框。
+type RebindProductCandidates struct {
+	// SellProducts 本地售出商品候选项（仅含未删除的）。
+	SellProducts []RebindProductCandidate `json:"sell_products"`
+	// UpstreamProducts 上游镜像候选项：**仅本实例同渠道**的（跨渠道选中必被拒）。
+	UpstreamProducts []RebindProductCandidate `json:"upstream_products"`
+	// ProviderID 本实例所属渠道（前端说明用）。
+	ProviderID   uint64 `json:"provider_id"`
+	ProviderName string `json:"provider_name"`
+	// Hint 供运营阅读的说明（候选被过滤掉时的原因）。
+	Hint string `json:"hint"`
+}
+
+// ReinstallImage 重装可选的一个镜像。
+type ReinstallImage struct {
+	// Value 下发给上游的镜像值：魔方云为镜像 ID；魔方财务为**上游配置子项 ID**。
+	Value string `json:"value"`
+	// Label 展示名（已清洗上游的 "id|名称^完整名" 形态）。
+	Label string `json:"label"`
+	// Group 分组名（部分平台按系列分组，如 "CentOS"）。
+	Group string `json:"group"`
+	// Status 可用状态（上游给出时展示，如「可用/维护中」）。
+	Status string `json:"status"`
+}
+
+// ReinstallImages 重装镜像列表（重装对话框的下拉数据源）。
+//
+// 为什么需要单独接口：重装镜像的来源随链路不同 ——
+//   - 自营平台（魔方云）：渠道的镜像目录（/resources 的 images）；
+//   - 对接上游（魔方财务）：os 是**上游商品的配置子项 ID**，没有独立镜像目录接口。
+//
+// 此前前端只读渠道镜像目录，对接链路必然拿到空列表（实测：重装对话框镜像为空），
+// 运营只能手填 ID —— 而 ID 从哪来没有任何提示。这里统一成一处数据源。
+type ReinstallImages struct {
+	Images []ReinstallImage `json:"images"`
+	// Source 列表来源：platform（渠道镜像目录）/ product（上游商品配置子项）/ none。
+	// 前端据此给不同提示（"从上游商品配置读取" vs "手填"）。
+	Source string `json:"source"`
+	// Hint 供运营阅读的说明（读不到时的原因与替代做法）。
+	Hint string `json:"hint"`
+}
+
+// ReinstallImagesSource 镜像列表来源取值。
+const (
+	ReinstallSourcePlatform = "platform"
+	ReinstallSourceProduct  = "product"
+	ReinstallSourceNone     = "none"
+)
+
 // AdjustRequest 实例账期/计费周期调整请求（管理端自定义）。
 //
 // 与「续费」的语义差别：续费是**上账**（付钱买一段时间，向上游下单）；
