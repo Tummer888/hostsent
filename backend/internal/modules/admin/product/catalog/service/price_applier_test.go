@@ -107,6 +107,9 @@ func (f *fakeProductRepo) SelfConfigParams(context.Context, uint64) (map[string]
 func (f *fakeProductRepo) SelfConfigOptionRows(context.Context, uint64) ([]*model.ProductConfigOption, error) {
 	return f.configOptions, nil
 }
+func (f *fakeProductRepo) AllConfigOptionRows(context.Context, uint64) ([]*model.ProductConfigOption, error) {
+	return f.configOptions, nil
+}
 func (f *fakeProductRepo) AllConfigGroupsByProductID(context.Context, uint64) ([]interface{}, error) {
 	return f.configGroups, nil
 }

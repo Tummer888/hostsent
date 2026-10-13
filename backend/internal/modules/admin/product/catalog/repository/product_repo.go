@@ -56,6 +56,10 @@ type ProductRepository interface {
 	// SelfConfigOptionRows 读取 source=self 的配置项原始行（含子项），供用户侧选配
 	// 渲染与选项计价使用（T4.5）：需要全部可选值与加价，而不是首个取值。
 	SelfConfigOptionRows(ctx context.Context, productID uint64) ([]*model.ProductConfigOption, error)
+	// AllConfigOptionRows 读取商品全部配置项原始行（含子项，upstream + self）。
+	// 对接商品的多值上游配置项（操作系统/网络类型）也要能被客户选择，
+	// 单取自营行会让这些项永远渲染不出来。
+	AllConfigOptionRows(ctx context.Context, productID uint64) ([]*model.ProductConfigOption, error)
 }
 
 type productRepository struct {
@@ -632,14 +636,30 @@ func (r *productRepository) SelfConfigParams(ctx context.Context, productID uint
 // 与 SelfConfigParams 的区别：后者只取"首个可见取值"用于开通兜底，前者要完整
 // 可选值与加价，供用户侧选配界面渲染与选项计价（T4.5）。
 func (r *productRepository) SelfConfigOptionRows(ctx context.Context, productID uint64) ([]*model.ProductConfigOption, error) {
-	var options []*model.ProductConfigOption
-	if err := r.db.WithContext(ctx).
+	return r.configOptionRows(ctx, productID, model.ConfigSourceSelf)
+}
+
+// AllConfigOptionRows 读取商品全部配置项原始行（含子项，upstream + self）。
+//
+// 对接商品（source_mode=upstream）的多值上游配置项（操作系统/网络类型）是客户
+// 真正可选的参数，只读 upstream 行会漏掉运营自加的开通项（主机名），只读 self 行
+// 则会让上游可选值永远渲染不出来 —— 用户侧选配必须看全量。
+func (r *productRepository) AllConfigOptionRows(ctx context.Context, productID uint64) ([]*model.ProductConfigOption, error) {
+	return r.configOptionRows(ctx, productID, "")
+}
+
+// configOptionRows 读取配置项原始行；source 为空表示不过滤来源。
+func (r *productRepository) configOptionRows(ctx context.Context, productID uint64, source string) ([]*model.ProductConfigOption, error) {
+	query := r.db.WithContext(ctx).
 		Preload("Subs", func(db *gorm.DB) *gorm.DB {
 			return db.Order("sort_order asc, id asc")
 		}).
-		Where("product_id = ? AND source = ?", productID, model.ConfigSourceSelf).
-		Order("sort_order asc, id asc").
-		Find(&options).Error; err != nil {
+		Where("product_id = ?", productID)
+	if source != "" {
+		query = query.Where("source = ?", source)
+	}
+	var options []*model.ProductConfigOption
+	if err := query.Order("sort_order asc, id asc").Find(&options).Error; err != nil {
 		return nil, err
 	}
 	return options, nil

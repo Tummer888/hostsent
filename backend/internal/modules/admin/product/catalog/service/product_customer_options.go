@@ -30,14 +30,43 @@ const (
 	optionWidgetGroupSelect = "group_select"
 )
 
-// customerOptionKey 取配置项的平台参数名：优先 option_key，其次 source_key，回退展示名。
+// customerOptionKey 取配置项的选配键。
+//
+// 自营项（source=self）：平台参数名（option_key/source_key），下发给平台时即该键。
+// 上游项（source=upstream）：上游配置项**自身 id**（product_config_options.upstream_key）。
+// 该链路的下发格式是 configoption[上游选项id] = 上游取值id（见 zjmf buildCartConfigOption），
+// 因此键只能用上游 id；用展示名（"os|操作系统"）既下不去也校验不了。
 func customerOptionKey(row *catalogmodel.ProductConfigOption) string {
+	if row.Source == catalogmodel.ConfigSourceUpstream && row.UpstreamKey > 0 {
+		return strconv.FormatInt(row.UpstreamKey, 10)
+	}
 	return firstNonEmptyStr(row.OptionKey, row.SourceKey, row.OptionName)
 }
 
-// customerSubValue 取子项的下发取值：优先 source_key，回退展示名。
-func customerSubValue(sub catalogmodel.ProductConfigOptionSub) string {
+// customerSubValue 取子项的下发取值：上游项用上游取值 id（上游 cart 按 id 匹配取值），
+// 自营项优先 source_key（平台参数取值），都没有才回落展示名。
+func customerSubValue(sub catalogmodel.ProductConfigOptionSub, source string) string {
+	if source == catalogmodel.ConfigSourceUpstream && sub.UpstreamKey > 0 {
+		return strconv.FormatInt(sub.UpstreamKey, 10)
+	}
 	return firstNonEmptyStr(sub.SourceKey, sub.OptionName)
+}
+
+// customerSelectableUpstream 判断上游配置项是否对客户可选。
+// 上游配置项里只有一个可见取值的属于「固定配置」（锁定项，改不了也开不出来），
+// 由商品详情只读展示，不作为选配项；有多个可见取值的才允许客户在下单时选择。
+func customerSelectableUpstream(row *catalogmodel.ProductConfigOption) bool {
+	visible := 0
+	for _, sub := range row.Subs {
+		if sub.Hidden != 0 {
+			continue
+		}
+		visible++
+		if visible > 1 {
+			return true
+		}
+	}
+	return false
 }
 
 // customerWidget 归一控件类型：运营没显式配时按 option_type 与是否有分组推断。
@@ -59,9 +88,14 @@ func customerWidget(row *catalogmodel.ProductConfigOption) string {
 	return optionWidgetSelect
 }
 
-// CustomerOptions 返回商品对客户开放的选配项（只含自营项）。
+// CustomerOptions 返回商品对客户开放的选配项。
+//
+// 两类都下发（T4.5 扩展）：
+//   - source=self 自营项：平台参数名即下发键，全部下发（含主机名这类自由填写项）；
+//   - source=upstream 对接项：仅下发**多可见取值**的项（操作系统/网络类型），
+//     单值的固定配置属锁定项，由商品详情只读展示，不在此重复。
 func (s *productService) CustomerOptions(ctx context.Context, productID uint64) ([]CustomerOptionGroup, error) {
-	rows, err := s.repo.SelfConfigOptionRows(ctx, productID)
+	rows, err := s.repo.AllConfigOptionRows(ctx, productID)
 	if err != nil {
 		return nil, err
 	}
@@ -70,14 +104,22 @@ func (s *productService) CustomerOptions(ctx context.Context, productID uint64) 
 	}
 	options := make([]CustomerOption, 0, len(rows))
 	for _, row := range rows {
+		if row.Source == catalogmodel.ConfigSourceUpstream && !customerSelectableUpstream(row) {
+			continue
+		}
 		key := customerOptionKey(row)
 		if key == "" {
 			continue
 		}
 		widget := customerWidget(row)
+		name := firstNonEmptyStr(row.OptionName, key)
+		// 上游配置项名形如「os|操作系统」，展示侧只留中文说明。
+		if row.Source == catalogmodel.ConfigSourceUpstream {
+			name = upstreamOptionLabel(name, key)
+		}
 		opt := CustomerOption{
 			OptionKey:    key,
-			Name:         firstNonEmptyStr(row.OptionName, key),
+			Name:         name,
 			Widget:       widget,
 			Required:     row.Required,
 			DefaultValue: row.DefaultValue,
@@ -90,20 +132,22 @@ func (s *productService) CustomerOptions(ctx context.Context, productID uint64) 
 			opt.UnitPrice = quantityUnitPrice(row)
 		}
 		grouped := false
+		rawNames := make([]string, 0, len(row.Subs))
 		for _, sub := range row.Subs {
 			if sub.Hidden != 0 {
 				continue // 停用取值不给客户选
 			}
-			value := customerSubValue(sub)
+			value := customerSubValue(sub, row.Source)
 			if value == "" {
 				continue
 			}
 			if strings.TrimSpace(sub.GroupLabel) != "" {
 				grouped = true
 			}
+			rawNames = append(rawNames, sub.OptionName)
 			opt.Values = append(opt.Values, CustomerOptionItem{
 				Value:          value,
-				Label:          firstNonEmptyStr(sub.OptionName, value),
+				Label:          upstreamSubLabel(sub.OptionName, row.Source, value),
 				Group:          sub.GroupLabel,
 				Help:           sub.Help,
 				Default:        sub.IsDefault,
@@ -112,6 +156,12 @@ func (s *productService) CustomerOptions(ctx context.Context, productID uint64) 
 				PriceAnnually:  sub.PriceAnnually,
 				PriceOnetime:   sub.PriceOnetime,
 			})
+		}
+		// 分组下拉需要分组标签：上游镜像的 config_groups 里没有 group_label，
+		// 但操作系统的取值名自带家族（"12|CentOS^CentOS-7.6.1810-x64"）。
+		// 家族取自**原始取值名**而非展示名（展示名已剥掉家族前缀）。
+		if !grouped && row.Source == catalogmodel.ConfigSourceUpstream {
+			grouped = labelUpstreamSubGroups(opt.Values, rawNames)
 		}
 		// 有分组标签时升级为分组下拉（操作系统按 Ubuntu/Windows 分组）。
 		if grouped && widget == optionWidgetSelect {
@@ -130,6 +180,101 @@ func (s *productService) CustomerOptions(ctx context.Context, productID uint64) 
 	return []CustomerOptionGroup{{Options: options}}, nil
 }
 
+// labelUpstreamSubGroups 为上游取值补分组标签：从取值展示名里抽取家族
+// （"12|CentOS^CentOS-7.6.1810-x64" → CentOS）。
+//
+// 只有家族真正重复出现（同一家族 ≥2 个取值）才启用分组：网络类型每个取值都是
+// 独立家族，强行分组会得到一堆单元素分组，反而比平铺下拉更难用。返回 false 时
+// 调用方维持平铺下拉。
+func labelUpstreamSubGroups(items []CustomerOptionItem, rawNames []string) bool {
+	families := make([]string, len(items))
+	counts := map[string]int{}
+	for i := range items {
+		if i < len(rawNames) {
+			families[i] = upstreamSubFamily(rawNames[i])
+		}
+		if families[i] == "" {
+			families[i] = upstreamSubFamily(items[i].Label)
+		}
+		if families[i] != "" {
+			counts[families[i]]++
+		}
+	}
+	grouped := false
+	for _, count := range counts {
+		if count > 1 {
+			grouped = true
+			break
+		}
+	}
+	if !grouped {
+		return false
+	}
+	for i := range items {
+		if families[i] != "" {
+			items[i].Group = families[i]
+		}
+	}
+	return true
+}
+
+// upstreamSubFamily 从上游取值展示名里取家族（^ 前那段，去掉「值|」前缀与版本号）。
+func upstreamSubFamily(label string) string {
+	name := strings.TrimSpace(label)
+	if i := strings.Index(name, "|"); i >= 0 {
+		name = strings.TrimSpace(name[i+1:])
+	}
+	if i := strings.Index(name, "^"); i >= 0 {
+		name = strings.TrimSpace(name[:i])
+	}
+	// 家族名不该带版本号；只保留字母数字与常见分隔（Ubuntu-24.04 → Ubuntu）。
+	name = strings.TrimSpace(strings.SplitN(name, "-", 2)[0])
+	name = strings.TrimSpace(strings.SplitN(name, " ", 2)[0])
+	return name
+}
+
+// upstreamOptionLabel 取上游配置项的中文名：上游下发形如「cpu|CPU」，取竖线后的说明。
+func upstreamOptionLabel(optionName, fallback string) string {
+	name := strings.TrimSpace(optionName)
+	if idx := strings.Index(name, "|"); idx >= 0 {
+		if label := strings.TrimSpace(name[idx+1:]); label != "" {
+			return label
+		}
+	}
+	if name != "" {
+		return name
+	}
+	return fallback
+}
+
+// upstreamSubLabel 取上游取值的展示名。
+//
+// 上游取值名形如「vpc|VPC网络」「12|CentOS^CentOS-7.6.1810-x64」：
+// 去掉「值|」前缀后，`^` 后面那段是版本明细（CentOS-7.6.1810-x64），比家族的重复
+// 后缀更适合作为下拉项文字；没有 `^` 时用剩余部分。全空则回落下发 id，
+// 避免界面出现空白选项。
+func upstreamSubLabel(optionName, source, value string) string {
+	_ = source
+	name := strings.TrimSpace(optionName)
+	if name == "" {
+		return value
+	}
+	if i := strings.Index(name, "|"); i >= 0 {
+		name = strings.TrimSpace(name[i+1:])
+	}
+	if i := strings.Index(name, "^"); i >= 0 {
+		if detail := strings.TrimSpace(name[i+1:]); detail != "" {
+			name = detail
+		} else {
+			name = strings.TrimSpace(name[:i])
+		}
+	}
+	if name == "" {
+		return value
+	}
+	return name
+}
+
 // ResolveOptionPricing 按客户选择算加价并归一选择（T4.5）。
 //
 // 归一规则（结果用于算价与履约，必须与下单口径一致）：
@@ -139,8 +284,12 @@ func (s *productService) CustomerOptions(ctx context.Context, productID uint64) 
 //   - 数量型选项：值必须是 [min, max] 内的数字；子项单价即"每单位加价"，
 //     以**默认值**为档位内含量，超出默认值的部分才加价（默认值缺省时用最小值）。
 //     这样"客户不改配置就是档位价、改大才加价"，与档位定价的直觉一致。
+//
+// 上游对接项（source=upstream，操作系统/网络类型）与自营项共用同一套归一与校验，
+// 只是下发键/取值换成上游 id（见 customerOptionKey/customerSubValue）；单值的固定
+// 配置项不参与（列表里就没有，传了也直接忽略）。
 func (s *productService) ResolveOptionPricing(ctx context.Context, productID uint64, cycle string, selections map[string]string) (*OptionPricing, error) {
-	rows, err := s.repo.SelfConfigOptionRows(ctx, productID)
+	rows, err := s.repo.AllConfigOptionRows(ctx, productID)
 	if err != nil {
 		return nil, err
 	}
@@ -157,6 +306,11 @@ func (s *productService) ResolveOptionPricing(ctx context.Context, productID uin
 	for _, row := range rows {
 		key := customerOptionKey(row)
 		if key == "" {
+			continue
+		}
+		// 上游单值固定配置项不是客户可选项：既不下发也不参与校验（客户就算传了也忽略），
+		// 其取值由 config_groups 在履约侧还原。
+		if row.Source == catalogmodel.ConfigSourceUpstream && !customerSelectableUpstream(row) {
 			continue
 		}
 		widget := customerWidget(row)
@@ -234,7 +388,7 @@ func (s *productService) ResolveOptionPricing(ctx context.Context, productID uin
 				OptionKey:   key,
 				OptionName:  row.OptionName,
 				Value:       value,
-				ValueName:   firstNonEmptyStr(sub.OptionName, value),
+				ValueName:   upstreamSubLabel(sub.OptionName, row.Source, value),
 				Quantity:    1,
 				UnitPrice:   price,
 				Amount:      price,
@@ -257,7 +411,7 @@ func pickEnumValue(row *catalogmodel.ProductConfigOption, chosen string) (string
 	}
 	if chosen != "" {
 		for _, sub := range visible {
-			if customerSubValue(sub) == chosen {
+			if customerSubValue(sub, row.Source) == chosen {
 				return chosen, sub, nil
 			}
 		}
@@ -269,18 +423,18 @@ func pickEnumValue(row *catalogmodel.ProductConfigOption, chosen string) (string
 	}
 	if row.DefaultValue != "" {
 		for _, sub := range visible {
-			if customerSubValue(sub) == row.DefaultValue {
+			if customerSubValue(sub, row.Source) == row.DefaultValue {
 				return row.DefaultValue, sub, nil
 			}
 		}
 	}
 	for _, sub := range visible {
 		if sub.IsDefault {
-			return customerSubValue(sub), sub, nil
+			return customerSubValue(sub, row.Source), sub, nil
 		}
 	}
 	if len(visible) > 0 {
-		return customerSubValue(visible[0]), visible[0], nil
+		return customerSubValue(visible[0], row.Source), visible[0], nil
 	}
 	return "", catalogmodel.ProductConfigOptionSub{}, nil
 }

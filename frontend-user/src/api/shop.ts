@@ -126,6 +126,10 @@ export interface OrderInfo {
   spec_code: string
   quantity: number
   cycle: string
+  /** 客户选配项快照（平台参数名/上游选项 id → 取值）；无选配时为空对象 */
+  config_selections?: Record<string, string>
+  /** 选配项加价小计（元） */
+  option_amount?: number
   /** 支付时间（RFC3339，未支付为空串）；列表不保证填充，详情页展示 */
   pay_time: string
   /** 算价明细（P5-06）：原价 / 优惠 / 实付与折扣来源 */

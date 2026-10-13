@@ -139,6 +139,19 @@
                 <span class="detail-option__name">{{ it.label }}</span>
               </button>
             </div>
+
+            <!--
+              文本型：主机名这类自由填写项（无候选取值）。官网同样只传递意图，
+              留空则由用户中心在开通时自动生成，因此不设为必填。
+            -->
+            <input
+              v-else-if="opt.widget === 'text'"
+              v-model="selections[opt.optionKey]"
+              type="text"
+              class="detail-option__text"
+              :placeholder="opt.help || '留空自动生成'"
+              maxlength="30"
+            >
           </div>
 
           <div class="detail-actions">
@@ -532,6 +545,23 @@ useSeoMeta({
 
 .detail-option__select:focus,
 .detail-option__number:focus {
+  border-color: var(--site-primary);
+  outline: none;
+}
+
+/* 文本型选配项（主机名）：与数量型输入框同一视觉规格 */
+.detail-option__text {
+  width: 100%;
+  max-width: 320px;
+  padding: 9px 12px;
+  border: 1px solid var(--site-border);
+  border-radius: var(--site-radius);
+  background: #fff;
+  color: var(--site-text);
+  font-size: 13.5px;
+}
+
+.detail-option__text:focus {
   border-color: var(--site-primary);
   outline: none;
 }

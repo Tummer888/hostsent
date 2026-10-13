@@ -250,3 +250,62 @@ func TestBuildProvisionRequestStripsLockedOverrides(t *testing.T) {
 		t.Error("被剔除的锁定键应留痕（StrippedLockedKeys）")
 	}
 }
+
+// TestBuildProvisionRequestUpstreamSelectionOverride 端到端验证：对接商品的客户选配
+// 会以 configoption[上游选项id]=上游取值id 的形式显式下发给适配器。
+//
+// 适配器按 config_groups 还原映射时靠本地词汇猜上游子项，网络类型这类项猜不到；
+// 显式映射是「客户选了什么就一定开通什么」的保证。
+func TestBuildProvisionRequestUpstreamSelectionOverride(t *testing.T) {
+	// 上游配置组：cpu（单值固定）+ os/network_type（多值可选），id 即上游选项 id。
+	groups := []interface{}{map[string]interface{}{
+		"options": []interface{}{
+			map[string]interface{}{
+				"id": float64(163749), "option_name": "cpu|CPU", "source": "upstream",
+				"sub": []interface{}{map[string]interface{}{"id": float64(565658), "option_name": "4|4核", "hidden": 0}},
+			},
+			map[string]interface{}{
+				"id": float64(163751), "option_name": "os|操作系统", "source": "upstream",
+				"sub": []interface{}{
+					map[string]interface{}{"id": float64(565660), "option_name": "12|CentOS^CentOS-7.6.1810-x64", "hidden": 0},
+					map[string]interface{}{"id": float64(565664), "option_name": "75|Debian^Debian-12.0_x64", "hidden": 0},
+				},
+			},
+			map[string]interface{}{
+				"id": float64(163744), "option_name": "network_type|网络类型", "source": "upstream",
+				"sub": []interface{}{
+					map[string]interface{}{"id": float64(565652), "option_name": "vpc|VPC网络", "hidden": 0},
+					map[string]interface{}{"id": float64(565653), "option_name": "normal|经典网络", "hidden": 0},
+				},
+			},
+		},
+	}}
+	repo := &fakeProductRepo{
+		findByID: &model.Product{
+			ID: 176, Name: "香港轻量", SourceMode: model.SourceModeUpstream,
+			SourceProductID: 120, SourceProviderID: 7, PriceModel: "monthly",
+		},
+		configGroups: groups,
+	}
+	rp := &resourceproductmodel.ResourceProduct{
+		ID: 120, ProviderID: 7, UpstreamID: "528", Name: "香港轻量",
+		RawSpecs: `{"group_name":"香港六区"}`,
+	}
+	svc := &productService{repo: repo, resourceReader: fakeResourceReader{rp: rp}}
+
+	req, err := svc.BuildProvisionRequest(context.Background(), 176, "hs-node1", "", "",
+		map[string]string{"163751": "565664", "163744": "565653", "hostname": "hs-node1"})
+	if err != nil {
+		t.Fatalf("BuildProvisionRequest: %v", err)
+	}
+	override, ok := req.ConfigOptions["configoption"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("应下发显式 configoption 映射，实际 %#v", req.ConfigOptions["configoption"])
+	}
+	if override["163751"] != "565664" || override["163744"] != "565653" {
+		t.Errorf("选配未翻译为上游 id 映射：%+v", override)
+	}
+	if _, ok := override["163749"]; ok {
+		t.Errorf("上游单值固定项不应出现在覆盖映射里：%+v", override)
+	}
+}

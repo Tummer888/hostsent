@@ -1984,7 +1984,18 @@ func (s *productService) BuildProvisionRequest(ctx context.Context, productID ui
 	// 客户选配项（T4.5）：优先级最高——它代表客户实际购买决定，必须覆盖档位基线与
 	// 商品默认值。只转发"该商品确实开放的配置项"的取值，避免把任意键塞进平台请求。
 	if len(selections) > 0 {
-		for k, v := range s.sanitizeSelections(ctx, item.ID, selections) {
+		clean := s.sanitizeSelections(ctx, item.ID, selections)
+		// 上游对接商品的选配下发格式是 configoption[上游选项id]=上游取值id，适配器按
+		// config_groups 还原（见 zjmf buildCartConfigOption）。这里把「选项id → 所选取值id」
+		// 显式写成 configoption 映射，避免再依赖 "os" 这类本地词汇去猜上游子项。
+		if item.SourceMode == model.SourceModeUpstream && len(clean) > 0 {
+			if raw, ok := opts["config_groups"]; ok {
+				if mapping := upstreamConfigOptionOverride(raw, clean); len(mapping) > 0 {
+					opts["configoption"] = mapping
+				}
+			}
+		}
+		for k, v := range clean {
 			opts[k] = v
 		}
 	}
@@ -1998,16 +2009,20 @@ func (s *productService) BuildProvisionRequest(ctx context.Context, productID ui
 	return req, nil
 }
 
-// sanitizeSelections 过滤客户选择：只保留该商品 source=self 配置项里确实存在的
-// 「参数名 → 取值」组合。下单时 ResolveOptionPricing 已校验过一遍，这里是履约侧的
+// sanitizeSelections 过滤客户选择：只保留该商品确实开放的配置项里的
+// 「键 → 取值」组合。下单时 ResolveOptionPricing 已校验过一遍，这里是履约侧的
 // 兜底（订单可能是历史数据，或运营事后删过配置项）。
 func (s *productService) sanitizeSelections(ctx context.Context, productID uint64, selections map[string]string) map[string]string {
-	rows, err := s.repo.SelfConfigOptionRows(ctx, productID)
+	rows, err := s.repo.AllConfigOptionRows(ctx, productID)
 	if err != nil || len(rows) == 0 {
 		return selections
 	}
 	allowed := make(map[string]configSelectionRule, len(rows))
 	for _, row := range rows {
+		// 上游单值固定配置项不是客户可选项，不接受任何选择（锁定守卫另有兜底）。
+		if row.Source == model.ConfigSourceUpstream && !customerSelectableUpstream(row) {
+			continue
+		}
 		key := customerOptionKey(row)
 		if key == "" {
 			continue
@@ -2015,7 +2030,7 @@ func (s *productService) sanitizeSelections(ctx context.Context, productID uint6
 		rule := configSelectionRule{freeform: isFreeformWidget(customerWidget(row))}
 		rule.values = map[string]bool{}
 		for _, sub := range row.Subs {
-			rule.values[customerSubValue(sub)] = true
+			rule.values[customerSubValue(sub, row.Source)] = true
 		}
 		allowed[key] = rule
 	}
@@ -2032,6 +2047,80 @@ func (s *productService) sanitizeSelections(ctx context.Context, productID uint6
 		}
 	}
 	return out
+}
+
+// upstreamConfigOptionOverride 把客户选择的上游配置项翻译成适配器直接消费的
+// configoption[上游选项id]=上游取值id 映射（T4.5 对接链路选配下发）。
+//
+// 为什么必须显式给出：适配器（zjmf buildCartConfigOption）按 config_groups 还原映射时，
+// 多值项靠本地词汇（os/cpu/area）猜上游子项；网络类型（network_type）这类既不在猜词表里、
+// 也没有本地词汇的项就永远用不上客户的选择。这里按 option_key（上游选项 id）与所选取值
+// （上游取值 id）把映射定死，适配器优先采用显式映射。
+//
+// groups 为 repo.ConfigGroupsByProductID 产出的结构（option.id/sub.id 即上游 id），
+// 这里用宽松的 map 遍历读取，避免服务层再引一份镜像结构。
+func upstreamConfigOptionOverride(groups interface{}, selections map[string]string) map[string]interface{} {
+	raw, err := json.Marshal(groups)
+	if err != nil {
+		return nil
+	}
+	var parsed []struct {
+		Options []struct {
+			ID  flexInt64 `json:"id"`
+			Sub []struct {
+				// 上游 id 在镜像里可能以数字或字符串下发，解码必须两种都吃得下：
+				// 一处类型不符就会让整个 json.Unmarshal 失败、映射静默变空（选配全丢）。
+				ID flexInt64 `json:"id"`
+			} `json:"sub"`
+		} `json:"options"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return nil
+	}
+	out := map[string]interface{}{}
+	for _, g := range parsed {
+		for _, opt := range g.Options {
+			key := strconv.FormatInt(int64(opt.ID), 10)
+			if key == "0" {
+				continue
+			}
+			chosen, ok := selections[key]
+			if !ok || strings.TrimSpace(chosen) == "" {
+				continue
+			}
+			for _, sub := range opt.Sub {
+				if strconv.FormatInt(int64(sub.ID), 10) == chosen {
+					// 值用 interface{}：适配器按 map[string]interface{} 断言显式覆盖表，
+					// map[string]string 会断言失败而被静默忽略。
+					out[key] = chosen
+					break
+				}
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// flexInt64 兼容上游 id 的字符串/数字两种 JSON 形态。
+type flexInt64 int64
+
+func (f *flexInt64) UnmarshalJSON(data []byte) error {
+	raw := strings.Trim(strings.TrimSpace(string(data)), `"`)
+	if raw == "" || raw == "null" {
+		*f = 0
+		return nil
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		// id 解析不出来按 0 处理：该配置项本次不参与选配映射，不阻断整单。
+		*f = 0
+		return nil
+	}
+	*f = flexInt64(v)
+	return nil
 }
 
 // configSelectionRule 履约侧过滤客户选择的规则：枚举看候选值，自由填写型只看键。

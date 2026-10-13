@@ -67,6 +67,13 @@
             {{ specText || '—' }}
           </t-descriptions-item>
           <t-descriptions-item label="计费周期">{{ cycleLabel(order.cycle) || '—' }}</t-descriptions-item>
+          <!--
+            选配项：下单时选的操作系统/网络类型/主机名等。此前该快照只落库不展示，
+            用户看不到自己买的到底是什么配置，客服核对也得回后台翻订单。
+          -->
+          <t-descriptions-item label="配置选项" :span="2" v-if="selectionText">
+            {{ selectionText }}
+          </t-descriptions-item>
           <t-descriptions-item label="下单账号">
             {{ order.actor_name || '主账号' }}
           </t-descriptions-item>
@@ -252,6 +259,21 @@ const specText = computed(() => {
     // 非 JSON（存量订单存的是自由文本），原样展示
   }
   return raw
+})
+
+/**
+ * 选配项：订单落库的 config_selections（平台参数名/上游选项 id → 取值）。
+ *
+ * 键可能是上游选项 id（对接商品按上游 cart 口径下发），单看数字读不出含义，
+ * 因此原样列出键值；对接商品的可读配置名在商品详情的「固定配置」里可见。
+ */
+const selectionText = computed(() => {
+  const selections = order.value?.config_selections
+  if (!selections || typeof selections !== 'object') return ''
+  const parts = Object.entries(selections)
+    .filter(([, v]) => v !== null && v !== '' && v !== undefined)
+    .map(([k, v]) => `${k}: ${v}`)
+  return parts.join(' / ')
 })
 
 interface PriceRule {

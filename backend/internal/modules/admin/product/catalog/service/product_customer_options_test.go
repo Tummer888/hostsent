@@ -288,3 +288,144 @@ func TestOptionAccumulatorBuildsCustomerOptions(t *testing.T) {
 		t.Errorf("有分组应渲染为分组下拉，实际 %q", groups[0].Options[0].Widget)
 	}
 }
+
+// ===== 上游对接项（source=upstream）的选配暴露 =====
+
+// upstreamOptionRows 构造一个「上游固定配置 + 上游多值项 + 自营开通项」的集合，
+// 形态与真实导入商品一致（选项/取值名带「键|说明」前缀，取值名带 ^ 版本明细）。
+func upstreamOptionRows() []*catalogmodel.ProductConfigOption {
+	return []*catalogmodel.ProductConfigOption{
+		{
+			ID: 10, Source: catalogmodel.ConfigSourceUpstream, UpstreamKey: 163749,
+			OptionName: "cpu|CPU", OptionKey: "", Widget: catalogmodel.ConfigWidgetSelect,
+			Subs: []catalogmodel.ProductConfigOptionSub{
+				{OptionName: "4|4核", UpstreamKey: 565658},
+			},
+		},
+		{
+			ID: 11, Source: catalogmodel.ConfigSourceUpstream, UpstreamKey: 163751,
+			OptionName: "os|操作系统", Widget: catalogmodel.ConfigWidgetSelect,
+			Subs: []catalogmodel.ProductConfigOptionSub{
+				{OptionName: "12|CentOS^CentOS-7.6.1810-x64", UpstreamKey: 565660},
+				{OptionName: "62|CentOS^CentOS-7.9.2111-x64", UpstreamKey: 565661},
+				{OptionName: "75|Debian^Debian-12.0_x64", UpstreamKey: 565664},
+			},
+		},
+		{
+			ID: 12, Source: catalogmodel.ConfigSourceUpstream, UpstreamKey: 163744,
+			OptionName: "network_type|网络类型", Widget: catalogmodel.ConfigWidgetSelect,
+			Subs: []catalogmodel.ProductConfigOptionSub{
+				{OptionName: "vpc|VPC网络", UpstreamKey: 565652},
+				{OptionName: "normal|经典网络", UpstreamKey: 565653},
+			},
+		},
+		{
+			ID: 13, Source: catalogmodel.ConfigSourceSelf, SourceKey: "hostname",
+			OptionKey: "hostname", OptionName: "主机名", Widget: catalogmodel.ConfigWidgetText,
+		},
+	}
+}
+
+// TestCustomerOptionsIncludesUpstreamSelectable 上游多值项下发、单值固定项不下发。
+func TestCustomerOptionsIncludesUpstreamSelectable(t *testing.T) {
+	svc := &productService{repo: &fakeProductRepo{configOptions: upstreamOptionRows()}}
+
+	groups, err := svc.CustomerOptions(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("CustomerOptions: %v", err)
+	}
+	if len(groups) != 1 {
+		t.Fatalf("应返回 1 组，实际 %+v", groups)
+	}
+	// cpu 单值（固定配置）不下发；os / network_type / hostname 三项下发。
+	if len(groups[0].Options) != 3 {
+		t.Fatalf("应下发 3 项（os/network_type/hostname），实际 %d", len(groups[0].Options))
+	}
+	os := groups[0].Options[0]
+	if os.OptionKey != "163751" {
+		t.Errorf("上游项键应取上游选项 id，实际 %q", os.OptionKey)
+	}
+	if os.Name != "操作系统" {
+		t.Errorf("上游项名应去掉「键|」前缀，实际 %q", os.Name)
+	}
+	if os.Values[0].Value != "565660" {
+		t.Errorf("上游取值应下发上游取值 id，实际 %q", os.Values[0].Value)
+	}
+	if os.Values[0].Label != "CentOS-7.6.1810-x64" {
+		t.Errorf("取值展示名应取 ^ 后的明细，实际 %q", os.Values[0].Label)
+	}
+	// 操作系统家族重复出现 → 分组下拉；网络类型各成一族 → 保持平铺。
+	if os.Widget != optionWidgetGroupSelect || os.Values[0].Group != "CentOS" {
+		t.Errorf("操作系统应为分组下拉，实际 %q group=%q", os.Widget, os.Values[0].Group)
+	}
+	net := groups[0].Options[1]
+	if net.Widget != optionWidgetSelect {
+		t.Errorf("网络类型各取值家族不重复，应保持平铺下拉，实际 %q", net.Widget)
+	}
+}
+
+// TestResolveOptionPricingUpstreamSelectable 上游项按上游 id 归一，单值固定项忽略。
+func TestResolveOptionPricingUpstreamSelectable(t *testing.T) {
+	svc := &productService{repo: &fakeProductRepo{configOptions: upstreamOptionRows()}}
+
+	res, err := svc.ResolveOptionPricing(context.Background(), 1, "monthly", map[string]string{
+		"163751": "565664", // os → Debian
+		"163749": "565658", // cpu 是固定配置：接受不了，忽略
+	})
+	if err != nil {
+		t.Fatalf("ResolveOptionPricing: %v", err)
+	}
+	if res.Selections["163751"] != "565664" {
+		t.Errorf("上游 os 选择未归一：%+v", res.Selections)
+	}
+	if _, ok := res.Selections["163749"]; ok {
+		t.Errorf("上游单值固定项不应进入选配：%+v", res.Selections)
+	}
+}
+
+// TestSanitizeSelectionsKeepsUpstreamOption 履约兜底：上游可选键放行、固定键丢弃。
+func TestSanitizeSelectionsKeepsUpstreamOption(t *testing.T) {
+	svc := &productService{repo: &fakeProductRepo{configOptions: upstreamOptionRows()}}
+
+	out := svc.sanitizeSelections(context.Background(), 1, map[string]string{
+		"163751":   "565664", // 可选：保留
+		"163749":   "565658", // 固定项：丢弃
+		"hostname": "hs-node1",
+		"os":       "62", // 本地词汇不是本商品的键 → 丢弃
+	})
+	if out["163751"] != "565664" || out["hostname"] != "hs-node1" {
+		t.Errorf("合法选择应保留：%+v", out)
+	}
+	if _, ok := out["163749"]; ok {
+		t.Errorf("固定项应被丢弃：%+v", out)
+	}
+	if _, ok := out["os"]; ok {
+		t.Errorf("非本商品选配键应被丢弃：%+v", out)
+	}
+}
+
+// TestUpstreamConfigOptionOverride 选配映射成 configoption[上游选项id]=上游取值id。
+func TestUpstreamConfigOptionOverride(t *testing.T) {
+	// 形态与 repo.ConfigGroupsByProductID 一致：组 → options[]（id/sub[].id）。
+	groups := []interface{}{map[string]interface{}{
+		"options": []interface{}{
+			map[string]interface{}{
+				"id":  float64(163751),
+				"sub": []interface{}{map[string]interface{}{"id": float64(565660)}, map[string]interface{}{"id": float64(565664)}},
+			},
+			map[string]interface{}{
+				"id":  "163744",
+				"sub": []interface{}{map[string]interface{}{"id": "565653"}},
+			},
+		},
+	}}
+	got := upstreamConfigOptionOverride(groups, map[string]string{"163751": "565664", "163744": "565653"})
+	if got["163751"] != "565664" || got["163744"] != "565653" {
+		t.Fatalf("映射不对：%+v", got)
+	}
+	// 取值不在该选项候选中（脏数据）不产出映射，避免把非法取值下发给上游。
+	bad := upstreamConfigOptionOverride(groups, map[string]string{"163751": "999999"})
+	if len(bad) != 0 {
+		t.Errorf("非法取值不应产出映射：%+v", bad)
+	}
+}
