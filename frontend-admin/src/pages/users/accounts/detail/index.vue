@@ -9,13 +9,7 @@
         <div class="page-header__text">
           <div class="page-header__title-row">
             <h2 class="page-header__title">{{ profile?.username || '用户详情' }}</h2>
-            <t-tag
-              v-if="profile"
-              :theme="userStatusTheme(profile.status)"
-              variant="light"
-              size="small"
-              shape="round"
-            >
+            <t-tag v-if="profile" :theme="userStatusTheme(profile.status)" variant="light" size="small" shape="round">
               {{ userStatusLabel(profile.status) }}
             </t-tag>
             <t-tag v-if="profile?.is_sub_account" theme="warning" variant="light" size="small" shape="round">
@@ -106,8 +100,8 @@
 
         <t-tab-panel value="assets" :label="tabLabel('云主机资产', summary?.instance_count)">
           <AssetsPanel
-            :key="panelsKey"
             v-if="tabMounted.assets"
+            :key="panelsKey"
             :user-id="userId"
             :is-mobile="isMobile"
             :degraded="degraded.includes('instances')"
@@ -116,8 +110,8 @@
 
         <t-tab-panel value="finance" :label="tabLabel('订单财务', summary?.order_count)">
           <FinancePanel
-            :key="panelsKey"
             v-if="tabMounted.finance && summary"
+            :key="panelsKey"
             :user-id="userId"
             :is-mobile="isMobile"
             :summary="summary"
@@ -127,8 +121,8 @@
 
         <t-tab-panel value="tickets" :label="tabLabel('服务工单', summary?.ticket_count)">
           <TicketsPanel
-            :key="panelsKey"
             v-if="tabMounted.tickets"
+            :key="panelsKey"
             :user-id="userId"
             :is-mobile="isMobile"
             :summary="summary"
@@ -138,8 +132,8 @@
 
         <t-tab-panel value="permissions" label="角色与权限">
           <PermissionsPanel
-            :key="panelsKey"
             v-if="tabMounted.permissions && profile"
+            :key="panelsKey"
             :user-id="userId"
             :profile="profile"
             :rbac-roles="rbacRoles"
@@ -150,8 +144,8 @@
 
         <t-tab-panel value="security" :label="tabLabel('安全与登录', summary?.login_count)">
           <SecurityPanel
-            :key="panelsKey"
             v-if="tabMounted.security && profile"
+            :key="panelsKey"
             :user-id="userId"
             :username="profile.username"
             :is-mobile="isMobile"
@@ -161,8 +155,8 @@
 
         <t-tab-panel value="audit" :label="tabLabel('操作日志', summary?.operation_log_count)">
           <AuditPanel
-            :key="panelsKey"
             v-if="tabMounted.audit"
+            :key="panelsKey"
             :user-id="userId"
             :is-mobile="isMobile"
             :degraded="degraded.includes('summary')"
@@ -171,8 +165,8 @@
 
         <t-tab-panel value="verification" :label="tabLabel('实名认证', summary?.verification_count)">
           <VerificationPanel
-            :key="panelsKey"
             v-if="tabMounted.verification"
+            :key="panelsKey"
             :user-id="userId"
             :is-mobile="isMobile"
             :degraded="degraded.includes('summary')"
@@ -228,7 +222,13 @@ import {
   UsergroupIcon,
 } from 'tdesign-icons-vue-next'
 
-import { getUserDetailAggregate, updateUserStatus, type UserDetailSummary, type UserInfo, type UserRoleBrief } from '@/api/user'
+import {
+  getUserDetailAggregate,
+  updateUserStatus,
+  type UserDetailSummary,
+  type UserInfo,
+  type UserRoleBrief,
+} from '@/api/user'
 import { formatAmount, userStatusLabel, userStatusTheme } from '@/pages/users/constants'
 import LevelBadge from '@/components/level-badge/index.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
@@ -251,15 +251,7 @@ import SalesAssignDialog from './components/SalesAssignDialog.vue'
 
 defineOptions({ name: 'UserDetail' })
 
-type DetailTab =
-  | 'profile'
-  | 'assets'
-  | 'finance'
-  | 'tickets'
-  | 'permissions'
-  | 'security'
-  | 'audit'
-  | 'verification'
+type DetailTab = 'profile' | 'assets' | 'finance' | 'tickets' | 'permissions' | 'security' | 'audit' | 'verification'
 
 const route = useRoute()
 const router = useRouter()
@@ -366,9 +358,7 @@ const hasFinanceDegraded = computed(() =>
 
 const statusToggleTitle = computed(() => {
   if (!profile.value) return '用户未加载'
-  return profile.value.status === 'active'
-    ? '禁用后该用户将无法登录用户中心'
-    : '启用后该用户恢复正常登录'
+  return profile.value.status === 'active' ? '禁用后该用户将无法登录用户中心' : '启用后该用户恢复正常登录'
 })
 
 function tabLabel(label: string, count?: number): string {
@@ -428,13 +418,17 @@ function goBack() {
   router.push('/users/accounts/list')
 }
 
-watch(userId, () => {
-  activeTab.value = 'profile'
-  Object.keys(tabMounted).forEach((key) => {
-    tabMounted[key as DetailTab] = key === 'profile'
-  })
-  void loadAggregate()
-}, { immediate: true })
+watch(
+  userId,
+  () => {
+    activeTab.value = 'profile'
+    Object.keys(tabMounted).forEach((key) => {
+      tabMounted[key as DetailTab] = key === 'profile'
+    })
+    void loadAggregate()
+  },
+  { immediate: true },
+)
 </script>
 
 <style>

@@ -101,15 +101,17 @@ const loading = ref(false)
 const pagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
 const mobilePage = reactive({ current: 1, pageSize: 10, total: 0 })
 
+// 列宽合计贴近容器宽度（约 1140px），避免 fixed 布局把富余宽度摊给短列。
+// 工单号/标题/最近更新在前，处理人等次要信息在后。
 const columns: PrimaryTableCol<TicketInfo>[] = [
-  { colKey: 'ticket_no', title: '工单号', width: 190 },
-  { colKey: 'title', title: '标题', minWidth: 200 },
+  { colKey: 'ticket_no', title: '工单号', width: 210 },
+  { colKey: 'title', title: '标题', width: 230 },
+  { colKey: 'status', title: '状态', width: 110 },
+  { colKey: 'priority', title: '优先级', width: 110 },
   { colKey: 'category', title: '分类', width: 120 },
-  { colKey: 'priority', title: '优先级', width: 90 },
-  { colKey: 'status', title: '状态', width: 100 },
-  { colKey: 'assigned_name', title: '处理人', width: 120 },
+  { colKey: 'assigned_name', title: '处理人', width: 110 },
   { colKey: 'updated_at', title: '最近更新', width: 150 },
-  { colKey: 'op', title: '操作', width: 80, fixed: 'right' },
+  { colKey: 'op', title: '操作', width: 90, fixed: 'right' },
 ]
 
 async function load() {
@@ -156,11 +158,15 @@ function goDetail(id: number) {
   router.push({ path: `/tickets/detail/${id}` })
 }
 
-watch(() => props.userId, () => {
-  pagination.current = 1
-  mobilePage.current = 1
-  void load()
-}, { immediate: true })
+watch(
+  () => props.userId,
+  () => {
+    pagination.current = 1
+    mobilePage.current = 1
+    void load()
+  },
+  { immediate: true },
+)
 
 defineExpose({ reload: load })
 </script>

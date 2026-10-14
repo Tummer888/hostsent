@@ -93,18 +93,34 @@ const navIconMap: Record<string, Component> = {
   upload: UploadIcon,
 }
 
+type NavIconRef = ReturnType<typeof iconWrapper>
+
+interface NavMenuLeaf {
+  title: string
+  path: string
+  icon: NavIconRef
+  // layouts 的兜底压平会再探一层（历史上第三层从未使用，children 恒为空），
+  // 保留字段让降级路径与后端树同构，避免类型层把死分支误判为不可能。
+  children?: NavMenuLeaf[]
+}
+
+interface NavMenuEntry {
+  title: string
+  path: string
+  icon: NavIconRef
+  children: NavMenuLeaf[]
+}
+
 function navIcon(name: string) {
   return iconWrapper(navIconMap[name] || AppIcon)
 }
 
-export const navMenu = [
+export const navMenu: NavMenuEntry[] = [
   {
     title: '仪表盘',
     path: '/dashboard',
     icon: navIcon('dashboard'),
-    children: [
-      { title: '概览', path: '/dashboard/base', icon: navIcon('dashboard') },
-    ],
+    children: [{ title: '概览', path: '/dashboard/base', icon: navIcon('dashboard') }],
   },
   {
     title: '用户管理',
@@ -229,7 +245,7 @@ export const featureIcons = {
 }
 
 export function setupPermission(app: App<Element>) {
-  app
+  void app
 
   router.beforeEach(async (to, _from, next) => {
     const userStore = useUserStore()

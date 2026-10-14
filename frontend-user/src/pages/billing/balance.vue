@@ -56,7 +56,14 @@
       <div class="table-card__head">
         <h3 class="card-title">我的充值单</h3>
       </div>
-      <t-table :data="recharges" :columns="rechargeColumns" row-key="id" :pagination="false" hover cell-empty-content="—">
+      <t-table
+        :data="recharges"
+        :columns="rechargeColumns"
+        row-key="id"
+        :pagination="false"
+        hover
+        cell-empty-content="—"
+      >
         <template #amount="{ row }">
           <span class="amount-income">¥ {{ formatPrice(row.amount) }}</span>
         </template>
@@ -85,8 +92,24 @@
       <div class="table-card__head">
         <h3 class="card-title">资金流水</h3>
         <t-space size="small">
-          <t-select v-model="filter.type" clearable placeholder="类型" :options="txTypeOptions" size="small" style="width: 120px" @change="handleSearch" />
-          <t-select v-model="filter.direction" clearable placeholder="方向" :options="directionOptions" size="small" style="width: 100px" @change="handleSearch" />
+          <t-select
+            v-model="filter.type"
+            clearable
+            placeholder="类型"
+            :options="txTypeOptions"
+            size="small"
+            style="width: 120px"
+            @change="handleSearch"
+          />
+          <t-select
+            v-model="filter.direction"
+            clearable
+            placeholder="方向"
+            :options="directionOptions"
+            size="small"
+            style="width: 100px"
+            @change="handleSearch"
+          />
           <t-button variant="outline" size="small" :loading="loading" @click="loadAll">
             <template #icon><RefreshIcon /></template>
             刷新
@@ -114,7 +137,9 @@
           <span>{{ directionLabel(row.direction) }}</span>
         </template>
         <template #amount="{ row }">
-          <span :class="row.direction > 0 ? 'amount-income' : 'amount-expense'">{{ formatAmount(row.amount, row.direction) }}</span>
+          <span :class="row.direction > 0 ? 'amount-income' : 'amount-expense'">{{
+            formatAmount(row.amount, row.direction)
+          }}</span>
         </template>
         <template #balance="{ row }">
           <span class="time-text">{{ formatPrice(row.balance_after) }}</span>
@@ -147,10 +172,20 @@
       @confirm="handleRecharge"
       @close="rechargeVisible = false"
     >
-      <t-alert theme="info" message="按所选方式完成支付后可即时到账；选择线下转账的，到账确认后即刻充值。" style="margin-bottom: 16px" />
+      <t-alert
+        theme="info"
+        message="按所选方式完成支付后可即时到账；选择线下转账的，到账确认后即刻充值。"
+        style="margin-bottom: 16px"
+      />
       <t-form label-align="top" :data="rechargeForm" @submit.prevent>
         <t-form-item label="充值金额（元）" name="amount">
-          <t-input-number v-model="rechargeForm.amount" :min="1" :precision="2" theme="column" placeholder="请输入充值金额" />
+          <t-input-number
+            v-model="rechargeForm.amount"
+            :min="1"
+            :precision="2"
+            theme="column"
+            placeholder="请输入充值金额"
+          />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -209,7 +244,10 @@ const transactions = ref<TransactionInfo[]>([])
 const recharges = ref<RechargeInfo[]>([])
 const loading = ref(false)
 
-const filter = reactive<{ type: string | undefined; direction: number | undefined }>({ type: undefined, direction: undefined })
+const filter = reactive<{ type: string | undefined; direction: number | undefined }>({
+  type: undefined,
+  direction: undefined,
+})
 
 const pagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
 

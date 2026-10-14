@@ -36,11 +36,15 @@
     </template>
 
     <template #verification_type="{ row }">
-      <t-tag variant="light-outline" theme="primary">{{ typeLabel[row.verification_type] || row.verification_type || '—' }}</t-tag>
+      <t-tag variant="light-outline" theme="primary">{{
+        typeLabel[row.verification_type] || row.verification_type || '—'
+      }}</t-tag>
     </template>
 
     <template #status="{ row }">
-      <t-tag :theme="statusTheme[row.status] || 'default'" variant="light-outline">{{ statusLabel[row.status] || row.status || '—' }}</t-tag>
+      <t-tag :theme="statusTheme[row.status] || 'default'" variant="light-outline">{{
+        statusLabel[row.status] || row.status || '—'
+      }}</t-tag>
     </template>
 
     <template #submitted_at="{ row }">{{ formatTime(row.submitted_at) }}</template>
@@ -85,34 +89,70 @@
       <section class="detail-section">
         <h4 class="detail-section__title">主体信息</h4>
         <div class="detail-grid">
-          <div class="detail-item"><span class="detail-item__label">认证类型</span><span>{{ typeLabel[detail.verification_type] || detail.verification_type || '—' }}</span></div>
-          <div class="detail-item"><span class="detail-item__label">证件类型</span><span>{{ idTypeLabel(detail.id_type) }}</span></div>
-          <div class="detail-item"><span class="detail-item__label">证件号</span><span>{{ detail.id_number_masked || '—' }}</span></div>
-          <div class="detail-item"><span class="detail-item__label">手机号</span><span>{{ detail.mobile_masked || '—' }}</span></div>
-          <div class="detail-item"><span class="detail-item__label">提交时间</span><span>{{ formatTime(detail.submitted_at) }}</span></div>
-          <div class="detail-item"><span class="detail-item__label">审核时间</span><span>{{ formatTime(detail.reviewed_at) }}</span></div>
-          <div class="detail-item"><span class="detail-item__label">审核人</span><span>{{ detail.reviewer_name || '—' }}</span></div>
-          <div class="detail-item"><span class="detail-item__label">风险标记</span><span>{{ detail.risk_flags || '—' }}</span></div>
+          <div class="detail-item">
+            <span class="detail-item__label">认证类型</span
+            ><span>{{ typeLabel[detail.verification_type] || detail.verification_type || '—' }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-item__label">证件类型</span><span>{{ idTypeLabel(detail.id_type) }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-item__label">证件号</span><span>{{ detail.id_number_masked || '—' }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-item__label">手机号</span><span>{{ detail.mobile_masked || '—' }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-item__label">提交时间</span><span>{{ formatTime(detail.submitted_at) }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-item__label">审核时间</span><span>{{ formatTime(detail.reviewed_at) }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-item__label">审核人</span><span>{{ detail.reviewer_name || '—' }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-item__label">风险标记</span><span>{{ detail.risk_flags || '—' }}</span>
+          </div>
         </div>
       </section>
 
       <section v-if="detail.enterprise" class="detail-section">
         <h4 class="detail-section__title">企业信息</h4>
         <div class="detail-grid">
-          <div class="detail-item"><span class="detail-item__label">企业名称</span><span>{{ detail.enterprise.company_name || '—' }}</span></div>
-          <div class="detail-item"><span class="detail-item__label">统一社会信用代码</span><span>{{ detail.enterprise.credit_code_masked || '—' }}</span></div>
-          <div class="detail-item"><span class="detail-item__label">法定代表人</span><span>{{ detail.enterprise.legal_person_name || '—' }}</span></div>
-          <div class="detail-item"><span class="detail-item__label">联系人</span><span>{{ detail.enterprise.contact_name || '—' }}</span></div>
+          <div class="detail-item">
+            <span class="detail-item__label">企业名称</span><span>{{ detail.enterprise.company_name || '—' }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-item__label">统一社会信用代码</span
+            ><span>{{ detail.enterprise.credit_code_masked || '—' }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-item__label">法定代表人</span
+            ><span>{{ detail.enterprise.legal_person_name || '—' }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-item__label">联系人</span><span>{{ detail.enterprise.contact_name || '—' }}</span>
+          </div>
         </div>
       </section>
 
       <section class="detail-section">
         <h4 class="detail-section__title">核验服务商</h4>
         <div class="detail-grid">
-          <div class="detail-item"><span class="detail-item__label">当前服务商</span><span>{{ detail.provider || 'manual' }}</span></div>
-          <div class="detail-item"><span class="detail-item__label">核验结果</span><span>{{ providerResultLabel(detail.provider_result) }}</span></div>
-          <div class="detail-item"><span class="detail-item__label">核验时间</span><span>{{ formatTime(detail.provider_checked_at) }}</span></div>
-          <div class="detail-item detail-item--wide"><span class="detail-item__label">核验信息</span><span>{{ detail.provider_message || '—' }}</span></div>
+          <div class="detail-item">
+            <span class="detail-item__label">当前服务商</span><span>{{ detail.provider || 'manual' }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-item__label">核验结果</span
+            ><span>{{ providerResultLabel(detail.provider_result) }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-item__label">核验时间</span><span>{{ formatTime(detail.provider_checked_at) }}</span>
+          </div>
+          <div class="detail-item detail-item--wide">
+            <span class="detail-item__label">核验信息</span><span>{{ detail.provider_message || '—' }}</span>
+          </div>
         </div>
         <t-button variant="outline" size="small" :loading="checking" :disabled="!canAudit" @click="handleProviderCheck">
           调用服务商核验
@@ -125,7 +165,14 @@
       <section v-if="detail.documents?.length" class="detail-section">
         <h4 class="detail-section__title">证件附件</h4>
         <div class="doc-list">
-          <a v-for="doc in detail.documents" :key="doc.id" class="doc-item" :href="doc.file_url" target="_blank" rel="noopener">
+          <a
+            v-for="doc in detail.documents"
+            :key="doc.id"
+            class="doc-item"
+            :href="doc.file_url"
+            target="_blank"
+            rel="noopener"
+          >
             <FileIcon size="16" aria-hidden="true" />
             <span>{{ documentTypeLabel(doc.document_type) }}</span>
           </a>
@@ -138,7 +185,9 @@
           <t-timeline-item v-for="log in detail.logs" :key="log.id" :time="formatTime(log.created_at)">
             <div class="log-item">
               <span class="cell-strong">{{ actionLabel(log.action) }}</span>
-              <span class="price-sub">{{ log.operator_name || '系统' }} · {{ log.from_status || '—' }} → {{ log.to_status || '—' }}</span>
+              <span class="price-sub"
+                >{{ log.operator_name || '系统' }} · {{ log.from_status || '—' }} → {{ log.to_status || '—' }}</span
+              >
               <span v-if="log.reject_reason || log.note" class="price-sub">{{ log.reject_reason || log.note }}</span>
             </div>
           </t-timeline-item>
@@ -150,7 +199,13 @@
           <t-button theme="primary" :loading="acting" @click="handleApprove">通过</t-button>
           <t-button theme="danger" variant="outline" :loading="acting" @click="openReject">驳回</t-button>
         </template>
-        <t-button v-else-if="detail.status === 'approved'" theme="warning" variant="outline" :loading="acting" @click="openRevoke">
+        <t-button
+          v-else-if="detail.status === 'approved'"
+          theme="warning"
+          variant="outline"
+          :loading="acting"
+          @click="openRevoke"
+        >
           撤销认证
         </t-button>
         <span v-else class="price-sub">已驳回的申请不可再审核，用户可在冷却期后重新提交。</span>
@@ -170,10 +225,19 @@
   >
     <t-form label-align="top" @submit.prevent>
       <t-form-item label="驳回理由码">
-        <t-select v-model="rejectForm.reject_reason_code" :options="rejectCodeOptions" clearable placeholder="选填，用于统计归类" />
+        <t-select
+          v-model="rejectForm.reject_reason_code"
+          :options="rejectCodeOptions"
+          clearable
+          placeholder="选填，用于统计归类"
+        />
       </t-form-item>
       <t-form-item label="驳回理由（用户可见）">
-        <t-textarea v-model="rejectForm.reject_reason" :autosize="{ minRows: 3, maxRows: 5 }" placeholder="例如：证件照片不清晰，请重新上传" />
+        <t-textarea
+          v-model="rejectForm.reject_reason"
+          :autosize="{ minRows: 3, maxRows: 5 }"
+          placeholder="例如：证件照片不清晰，请重新上传"
+        />
       </t-form-item>
       <t-form-item label="内部备注（用户不可见）">
         <t-textarea v-model="rejectForm.note" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="选填" />
@@ -192,7 +256,11 @@
     <p>撤销后该账号的实名状态立即失效（<code>real_name_verified_at</code> 被清空），用户需重新提交。</p>
     <t-form label-align="top" @submit.prevent>
       <t-form-item label="撤销原因">
-        <t-textarea v-model="revokeForm.reject_reason" :autosize="{ minRows: 3, maxRows: 5 }" placeholder="例如：监管要求复核，原审核有误" />
+        <t-textarea
+          v-model="revokeForm.reject_reason"
+          :autosize="{ minRows: 3, maxRows: 5 }"
+          placeholder="例如：监管要求复核，原审核有误"
+        />
       </t-form-item>
       <t-form-item label="内部备注">
         <t-textarea v-model="revokeForm.note" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="选填" />
@@ -240,8 +308,22 @@ const canAudit = computed(() => userStore.permissions?.includes('verification:au
 const loading = ref(false)
 const errorMessage = ref('')
 const tableData = ref<VerificationInfo[]>([])
-const filters = reactive<VerificationListQuery>({ page: 1, page_size: 10, username: '', verification_type: '', reviewer_name: '', keyword: '' })
-const pagination = reactive({ current: 1, pageSize: 10, total: 0, showJumper: true, showPageSize: true, pageSizeOptions: [10, 20, 50] })
+const filters = reactive<VerificationListQuery>({
+  page: 1,
+  page_size: 10,
+  username: '',
+  verification_type: '',
+  reviewer_name: '',
+  keyword: '',
+})
+const pagination = reactive({
+  current: 1,
+  pageSize: 10,
+  total: 0,
+  showJumper: true,
+  showPageSize: true,
+  pageSizeOptions: [10, 20, 50],
+})
 
 const detailVisible = ref(false)
 const detailLoading = ref(false)

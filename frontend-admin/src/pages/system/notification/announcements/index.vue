@@ -92,33 +92,25 @@
           <span class="time-text">{{ formatTime(row.publish_at) }}</span>
         </template>
         <template #action="{ row }">
-<div class="action-cell">
+          <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '编辑', value: 'edit', theme: 'default' },
-                { content: '发布', value: 'publish', hidden: () => !(row.status !== 'published'), theme: 'success' },
-                { content: '下线', value: 'offline', hidden: () => !(row.status === 'published'), theme: 'warning' },
-                { content: '删除', value: 'delete', theme: 'error' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '编辑', value: 'edit', theme: 'default' },
+                  { content: '发布', value: 'publish', hidden: () => !(row.status !== 'published'), theme: 'success' },
+                  { content: '下线', value: 'offline', hidden: () => !(row.status === 'published'), theme: 'warning' },
+                  { content: '删除', value: 'delete', theme: 'error' },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
               <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
-              <t-link
-                v-if="row.status !== 'published'"
-                theme="primary"
-                hover="color"
-                @click="handlePublish(row)"
-              >
+              <t-link v-if="row.status !== 'published'" theme="primary" hover="color" @click="handlePublish(row)">
                 发布
               </t-link>
-              <t-link
-                v-if="row.status === 'published'"
-                theme="warning"
-                hover="color"
-                @click="handleOffline(row)"
-              >
+              <t-link v-if="row.status === 'published'" theme="warning" hover="color" @click="handleOffline(row)">
                 下线
               </t-link>
               <t-link theme="danger" hover="color" @click="handleDelete(row)">删除</t-link>
@@ -366,7 +358,6 @@ function handleMobilePageSizeChange(pageSize: number) {
   void applyMobilePage(1, pageSize)
 }
 
-
 // —— 新增 / 编辑 ——
 const formVisible = ref(false)
 const editingId = ref<number | null>(null)
@@ -514,8 +505,11 @@ function handleDelete(row: AnnouncementItem) {
 onMounted(loadData)
 
 // 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: AnnouncementItem) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: AnnouncementItem) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'edit':
       openEdit(row)

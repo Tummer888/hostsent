@@ -37,12 +37,7 @@
         <div class="welcome-block">
           <h4 class="welcome-block__title">最近访问</h4>
           <div v-if="recentPages.length" class="recent-row">
-            <button
-              v-for="r in recentPages"
-              :key="r.path"
-              class="recent-chip"
-              @click="go(r.path)"
-            >
+            <button v-for="r in recentPages" :key="r.path" class="recent-chip" @click="go(r.path)">
               {{ r.title }}
             </button>
           </div>
@@ -58,12 +53,7 @@
         <div class="welcome-block">
           <h4 class="welcome-block__title">快捷入口</h4>
           <div class="entry-grid">
-            <button
-              v-for="e in quickEntries"
-              :key="e.path"
-              class="entry-chip"
-              @click="go(e.path)"
-            >
+            <button v-for="e in quickEntries" :key="e.path" class="entry-chip" @click="go(e.path)">
               <component :is="e.icon" size="14" class="entry-chip__icon" />
               {{ e.title }}
             </button>
@@ -78,12 +68,7 @@
           <span class="panel__hint">截至 {{ refreshedText }}</span>
         </header>
         <div class="res-grid">
-          <div
-            v-for="item in resources"
-            :key="item.key"
-            class="res-item"
-            @click="go(item.path)"
-          >
+          <div v-for="item in resources" :key="item.key" class="res-item" @click="go(item.path)">
             <span class="res-item__icon"><component :is="item.icon" size="20" /></span>
             <div class="res-item__body">
               <span class="res-item__value">{{ item.value }}</span>
@@ -97,9 +82,7 @@
       <section v-if="promoList.length" class="panel">
         <header class="panel__head">
           <h3 class="panel__title">服务推荐</h3>
-          <button class="panel__more" @click="go('/shop')">
-            全部产品 <ChevronRightIcon size="14" />
-          </button>
+          <button class="panel__more" @click="go('/shop')">全部产品 <ChevronRightIcon size="14" /></button>
         </header>
         <div v-if="promoList.length > 1" class="promo-tabs">
           <button
@@ -123,9 +106,7 @@
               </span>
               <span v-else class="promo__tag">标准规格</span>
             </div>
-            <t-button theme="primary" size="small" @click="goShopProduct(activePromoItem.id)">
-              立即选购
-            </t-button>
+            <t-button theme="primary" size="small" @click="goShopProduct(activePromoItem.id)"> 立即选购 </t-button>
           </div>
         </div>
       </section>
@@ -136,16 +117,9 @@
         <div class="learn-card">
           <div class="learn-col">
             <h4 class="learn-col__title">文档与公告</h4>
-            <p class="learn-col__desc">
-              产品文档、新闻资讯与服务公告都在官网查看，这里提供快捷入口。
-            </p>
+            <p class="learn-col__desc">产品文档、新闻资讯与服务公告都在官网查看，这里提供快捷入口。</p>
             <div class="learn-grid">
-              <button
-                v-for="l in docLinks"
-                :key="l.label"
-                class="learn-item"
-                @click="onDocClick(l)"
-              >
+              <button v-for="l in docLinks" :key="l.label" class="learn-item" @click="onDocClick(l)">
                 <span class="learn-item__left">
                   <component :is="l.icon" size="16" class="learn-item__icon" />
                   <span>{{ l.label }}</span>
@@ -159,12 +133,7 @@
             <h4 class="learn-col__title">自助服务</h4>
             <p class="learn-col__desc">控制台内的常用入口，提交与跟踪问题都在这。</p>
             <div class="learn-grid">
-              <button
-                v-for="l in devLinks"
-                :key="l.label"
-                class="learn-item"
-                @click="go(l.path)"
-              >
+              <button v-for="l in devLinks" :key="l.label" class="learn-item" @click="go(l.path)">
                 <span class="learn-item__left">
                   <component :is="l.icon" size="16" class="learn-item__icon" />
                   <span>{{ l.label }}</span>
@@ -254,9 +223,7 @@
       <section class="side-card">
         <header class="side-card__head">
           <h4 class="side-card__title">账户安全</h4>
-          <button class="panel__more" @click="go('/profile/security')">
-            安全设置 <ChevronRightIcon size="13" />
-          </button>
+          <button class="panel__more" @click="go('/profile/security')">安全设置 <ChevronRightIcon size="13" /></button>
         </header>
         <ul class="sec-list">
           <li v-for="s in securityItems" :key="s.key" class="sec-list__item">
@@ -265,9 +232,7 @@
             <span class="sec-list__state" :class="s.ok ? 'is-ok' : 'is-warn'">{{ s.state }}</span>
           </li>
         </ul>
-        <p class="sec-note">
-          有 {{ forcedSceneCount }} 项关键操作开启了平台强制的二次验证，无法在用户侧关闭。
-        </p>
+        <p class="sec-note">有 {{ forcedSceneCount }} 项关键操作开启了平台强制的二次验证，无法在用户侧关闭。</p>
       </section>
 
       <!-- 成员与协作 -->
@@ -297,17 +262,10 @@
       <section class="side-card">
         <header class="side-card__head">
           <h4 class="side-card__title">最新公告</h4>
-          <button class="panel__more" @click="go('/profile/messages')">
-            更多 <ChevronRightIcon size="13" />
-          </button>
+          <button class="panel__more" @click="go('/profile/messages')">更多 <ChevronRightIcon size="13" /></button>
         </header>
         <ul v-if="announcements.length" class="announce-list">
-          <li
-            v-for="a in announcements"
-            :key="a.id"
-            class="announce-item"
-            @click="go('/profile/messages')"
-          >
+          <li v-for="a in announcements" :key="a.id" class="announce-item" @click="go('/profile/messages')">
             <div class="announce-item__row">
               <span class="announce-item__tag" :class="`is-${a.level || 'info'}`">
                 {{ a.pinned ? '置顶' : levelLabel(a.level) }}
@@ -326,12 +284,7 @@
           <h4 class="side-card__title">常用工具</h4>
         </header>
         <div class="tool-grid">
-          <button
-            v-for="t in tools"
-            :key="t.label"
-            class="tool-item"
-            @click="onToolClick(t)"
-          >
+          <button v-for="t in tools" :key="t.label" class="tool-item" @click="onToolClick(t)">
             {{ t.label }}
           </button>
         </div>
@@ -495,12 +448,8 @@ async function loadBalances() {
 // ========== 推荐商品（后台标记 featured 的在售商品） ==========
 const promoList = ref<ProductInfo[]>([])
 const activePromoId = ref<number | null>(null)
-const activePromoItem = computed(
-  () => promoList.value.find((p) => p.id === activePromoId.value) ?? promoList.value[0],
-)
-const promoFallbackDesc = computed(
-  () => `${brandStore.name}在售云主机产品，支持在线购买、按周期计费与自助续费。`,
-)
+const activePromoItem = computed(() => promoList.value.find((p) => p.id === activePromoId.value) ?? promoList.value[0])
+const promoFallbackDesc = computed(() => `${brandStore.name}在售云主机产品，支持在线购买、按周期计费与自助续费。`)
 
 async function loadPromotions() {
   try {
@@ -637,9 +586,7 @@ const quickEntries = computed(() => {
     { title: '费用中心', path: '/billing', icon: WalletIcon },
     { title: '提交工单', path: '/support/tickets/create', icon: ServiceIcon },
   ]
-  return memberStore.isOwner
-    ? [...entries, { title: '成员管理', path: '/member', icon: ToolsIcon }]
-    : entries
+  return memberStore.isOwner ? [...entries, { title: '成员管理', path: '/member', icon: ToolsIcon }] : entries
 })
 
 const heroKeyword = ref('')
@@ -814,7 +761,9 @@ onMounted(async () => {
   color: #1e293b;
   font-size: 13.5px;
   outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .hero-search__input::placeholder {
@@ -886,7 +835,10 @@ onMounted(async () => {
   border-radius: 8px;
   cursor: pointer;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-  transition: box-shadow 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  transition:
+    box-shadow 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
 }
 
 .recent-chip:hover {
@@ -917,7 +869,10 @@ onMounted(async () => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: box-shadow 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition:
+    box-shadow 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .entry-chip__icon {
@@ -973,7 +928,9 @@ onMounted(async () => {
   cursor: pointer;
   padding: 2px 4px;
   border-radius: 6px;
-  transition: color 0.15s ease, background-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .panel__more:hover {
@@ -997,7 +954,10 @@ onMounted(async () => {
   background: #f8fafc;
   border: 1px solid #eef2f7;
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .res-item:hover {
@@ -1195,7 +1155,10 @@ onMounted(async () => {
   color: #334155;
   font-size: 13px;
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .learn-item__left {
@@ -1646,7 +1609,9 @@ onMounted(async () => {
   font-size: 13px;
   text-align: left;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .tool-item:hover {

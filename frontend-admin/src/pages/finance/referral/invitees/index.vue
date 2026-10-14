@@ -110,9 +110,7 @@ const mobilePage = reactive({
   pageSize: 10,
   total: 0,
 })
-const emptyText = computed(() =>
-  inviterUserId.value.trim() ? '该邀请人暂无邀请记录' : '请先输入邀请人用户 ID 后查询',
-)
+const emptyText = computed(() => (inviterUserId.value.trim() ? '该邀请人暂无邀请记录' : '请先输入邀请人用户 ID 后查询'))
 
 const columns: PrimaryTableCol<ReferralInviteeInfo>[] = [
   { colKey: 'user_id', title: '用户ID', width: 100, align: 'center' as const },
@@ -177,7 +175,6 @@ function handleMobilePageSizeChange(pageSize: number) {
   mobilePage.pageSize = pageSize
   void applyMobilePage(1, pageSize)
 }
-
 
 function handleSearch() {
   if (!Number(inviterUserId.value)) {

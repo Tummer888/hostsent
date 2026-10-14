@@ -31,8 +31,8 @@
     <section class="section-block">
       <div class="section-label">客户角色绑定</div>
       <p class="section-hint">
-        这里是客户角色（roles.scope=user，如「普通用户」）。员工角色（scope=admin）
-        由员工管理维护，不在此处展示 —— 客户账号持有员工角色不会获得任何后台权限。
+        这里是客户角色（roles.scope=user，如「普通用户」）。员工角色（scope=admin） 由员工管理维护，不在此处展示 ——
+        客户账号持有员工角色不会获得任何后台权限。
       </p>
       <div v-if="rbacRoles.length" class="tag-group">
         <t-tag v-for="role in rbacRoles" :key="role.id" theme="primary" variant="light" shape="round">
@@ -118,12 +118,14 @@ const props = defineProps<{
 const members = ref<SubAccountMemberInfo[]>([])
 const membersLoading = ref(false)
 
+// 列宽合计贴近容器宽度（约 1140px），避免 fixed 布局把富余宽度摊给短列。
+// 已授权限是标签组、宽度需求最大，成员与联系方式次之，状态/登录时间靠后。
 const memberColumns: PrimaryTableCol<SubAccountMemberInfo>[] = [
-  { colKey: 'username', title: '成员', minWidth: 180 },
-  { colKey: 'contact', title: '联系方式', minWidth: 180 },
-  { colKey: 'permissions', title: '已授权限', minWidth: 240 },
-  { colKey: 'status', title: '状态', width: 100 },
-  { colKey: 'last_login_at', title: '最近登录', width: 150 },
+  { colKey: 'username', title: '成员', width: 230 },
+  { colKey: 'contact', title: '联系方式', width: 260 },
+  { colKey: 'permissions', title: '已授权限', width: 370 },
+  { colKey: 'status', title: '状态', width: 110 },
+  { colKey: 'last_login_at', title: '最近登录', width: 160 },
 ]
 
 // 只有主账号才有成员列表；子账号不请求该接口（后端返回空 items 但没必要发请求）。

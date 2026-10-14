@@ -6,7 +6,9 @@
         <t-tag :theme="modeTheme(descriptor.mode)" variant="light" size="small" shape="round">
           {{ labelOf(MODE_LABELS, descriptor.mode) }}
         </t-tag>
-        <t-tag v-if="!descriptor.implemented" theme="warning" variant="light" size="small" shape="round">适配器未接入</t-tag>
+        <t-tag v-if="!descriptor.implemented" theme="warning" variant="light" size="small" shape="round"
+          >适配器未接入</t-tag
+        >
         <t-tag v-else theme="success" variant="light" size="small" shape="round">适配器已接入</t-tag>
       </t-space>
     </div>
@@ -54,7 +56,12 @@
           <t-tag :theme="descriptor.supports_payout ? 'success' : 'default'" variant="light" size="small" shape="round">
             打款：{{ descriptor.supports_payout ? '支持' : '不支持' }}
           </t-tag>
-          <t-tag :theme="descriptor.supports_partial_refund ? 'success' : 'default'" variant="light" size="small" shape="round">
+          <t-tag
+            :theme="descriptor.supports_partial_refund ? 'success' : 'default'"
+            variant="light"
+            size="small"
+            shape="round"
+          >
             部分退款：{{ descriptor.supports_partial_refund ? '支持' : '不支持' }}
           </t-tag>
           <t-tag :theme="descriptor.supports_query ? 'success' : 'default'" variant="light" size="small" shape="round">
@@ -66,9 +73,7 @@
       <div class="matrix-cell">
         <span class="matrix-cell__label">费率 / 结算</span>
         <div class="matrix-cell__tags">
-          <t-tag theme="default" variant="light" size="small" shape="round">
-            费率：{{ feeText }}
-          </t-tag>
+          <t-tag theme="default" variant="light" size="small" shape="round"> 费率：{{ feeText }} </t-tag>
           <t-tag theme="default" variant="light" size="small" shape="round">
             结算：{{ descriptor.settle_mode || '—' }}
           </t-tag>
@@ -99,7 +104,9 @@
 
       <div v-if="descriptor.doc_url" class="matrix-cell matrix-cell--full">
         <span class="matrix-cell__label">官方文档</span>
-        <a class="matrix-cell__doc" :href="descriptor.doc_url" target="_blank" rel="noopener noreferrer">{{ descriptor.doc_url }}</a>
+        <a class="matrix-cell__doc" :href="descriptor.doc_url" target="_blank" rel="noopener noreferrer">{{
+          descriptor.doc_url
+        }}</a>
       </div>
     </div>
   </div>
@@ -111,7 +118,14 @@ import { computed } from 'vue'
 import { modeTheme } from '@/pages/system/payment/constants'
 import type { PaymentCapabilityDescriptor } from '@/types/interface'
 
-import { CERT_MODE_LABELS, MODE_LABELS, OPERATION_LABELS, SCENE_LABELS, SIGNER_LABELS, labelOf } from './capability-labels'
+import {
+  CERT_MODE_LABELS,
+  MODE_LABELS,
+  OPERATION_LABELS,
+  SCENE_LABELS,
+  SIGNER_LABELS,
+  labelOf,
+} from './capability-labels'
 
 const props = withDefaults(
   defineProps<{
@@ -146,7 +160,9 @@ const descriptor = computed<PaymentCapabilityDescriptor>(() => props.descriptor 
 const scenes = computed(() => descriptor.value.scenes || [])
 const operations = computed(() => descriptor.value.operations || [])
 const credentialFields = computed(() => descriptor.value.credential_schema || [])
-const feeText = computed(() => (descriptor.value.fee_rate > 0 ? `${(descriptor.value.fee_rate * 100).toFixed(2)}%` : '—'))
+const feeText = computed(() =>
+  descriptor.value.fee_rate > 0 ? `${(descriptor.value.fee_rate * 100).toFixed(2)}%` : '—',
+)
 </script>
 
 <style scoped lang="css">

@@ -68,12 +68,7 @@
                 </td>
                 <td class="scheme-table__op">
                   <t-space size="6px">
-                    <t-link
-                      v-permission="'agent_level:update'"
-                      theme="default"
-                      hover="color"
-                      @click="openLadder(row)"
-                    >
+                    <t-link v-permission="'agent_level:update'" theme="default" hover="color" @click="openLadder(row)">
                       阶梯填充
                     </t-link>
                     <t-link
@@ -89,7 +84,12 @@
                       content="把该组费率写入所绑商品分组下的全部分类/商品？（分组间目标会去重；与其它折扣组重叠时会被拒绝）"
                       @confirm="applyRow(row)"
                     >
-                      <t-link v-permission="'agent_level:update'" theme="primary" hover="color" :disabled="row.applying">
+                      <t-link
+                        v-permission="'agent_level:update'"
+                        theme="primary"
+                        hover="color"
+                        :disabled="row.applying"
+                      >
                         应用
                       </t-link>
                     </t-popconfirm>
@@ -142,8 +142,8 @@
     >
       <t-form label-align="top">
         <p class="ladder-note">
-          按代理分组权重从高到低依次展开：权重最高的分组取「锚点折扣」，每降一级增加一个「步长」。
-          例如锚点 0.50、步长 0.05 → 五折 0.50、六折 0.55、七折 0.60。
+          按代理分组权重从高到低依次展开：权重最高的分组取「锚点折扣」，每降一级增加一个「步长」。 例如锚点 0.50、步长
+          0.05 → 五折 0.50、六折 0.55、七折 0.60。
         </p>
         <div class="ladder-form">
           <t-form-item label="锚点折扣（最高权重分组）">
@@ -320,8 +320,10 @@ function toRow(scheme: SchemeInfo): SchemeRow {
 }
 
 function payloadOf(row: SchemeRow) {
-  const items = activeLevels.value
-    .map((level) => ({ agent_level_id: level.id, discount_rate: Number(row.draft.rates[level.id] || 0) }))
+  const items = activeLevels.value.map((level) => ({
+    agent_level_id: level.id,
+    discount_rate: Number(row.draft.rates[level.id] || 0),
+  }))
   return {
     name: row.draft.name,
     code: row.code,

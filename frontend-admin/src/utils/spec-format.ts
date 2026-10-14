@@ -51,12 +51,7 @@ export function formatBandwidth(mbps: number): string {
  * 组合成一行规格文本：CPU / 内存 / 磁盘 / 带宽。
  * 缺失项自动跳过（上游未下发时不显示误导性的 0）。
  */
-export function formatSpecLine(spec: {
-  cpu?: number
-  memory?: number
-  disk?: number
-  bandwidth?: number
-}): string {
+export function formatSpecLine(spec: { cpu?: number; memory?: number; disk?: number; bandwidth?: number }): string {
   const parts: string[] = []
   if (spec.cpu && spec.cpu > 0) parts.push(`${spec.cpu}核`)
   const mem = formatMemory(spec.memory || 0)

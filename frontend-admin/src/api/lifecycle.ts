@@ -141,7 +141,7 @@ export function getRenewalDetail(id: number): Promise<RenewalInfo> {
 // 管理员代续费
 export function renewInstance(
   id: number,
-  data: { period_count?: number; amount?: number; remark?: string }
+  data: { period_count?: number; amount?: number; remark?: string },
 ): Promise<RenewalInfo> {
   return request.post<RenewalInfo>({ url: `/instances/${id}/renew`, data })
 }

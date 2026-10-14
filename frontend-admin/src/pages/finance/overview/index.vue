@@ -88,7 +88,7 @@
             <span class="fund-row__value">{{ wallet.count }}</span>
           </div>
           <div class="fund-row">
-            <span class="fund-row__label">低余额钱包（< ¥{{ formatPrice(wallet.low_balance_threshold) }}）</span>
+            <span class="fund-row__label">低余额钱包（&lt; ¥{{ formatPrice(wallet.low_balance_threshold) }}）</span>
             <span class="fund-row__value" :class="{ 'is-warning': wallet.low_balance_count > 0 }">
               {{ wallet.low_balance_count }} 个 / ¥{{ formatPrice(wallet.low_balance_amount) }}
             </span>
@@ -206,23 +206,29 @@ const columns: PrimaryTableCol<TransactionInfo>[] = [
   { colKey: 'created_at', title: '时间', width: 170 },
 ]
 
-const summary = computed(() => stats.value?.summary ?? {
-  income_total: 0,
-  expense_total: 0,
-  net_total: 0,
-  tx_count: 0,
-  avg_amount: 0,
-  internal_count: 0,
-})
+const summary = computed(
+  () =>
+    stats.value?.summary ?? {
+      income_total: 0,
+      expense_total: 0,
+      net_total: 0,
+      tx_count: 0,
+      avg_amount: 0,
+      internal_count: 0,
+    },
+)
 const trend = computed(() => stats.value?.trend ?? [])
-const wallet = computed(() => stats.value?.wallet ?? {
-  balance_total: 0,
-  frozen_total: 0,
-  count: 0,
-  low_balance_threshold: 0,
-  low_balance_count: 0,
-  low_balance_amount: 0,
-})
+const wallet = computed(
+  () =>
+    stats.value?.wallet ?? {
+      balance_total: 0,
+      frozen_total: 0,
+      count: 0,
+      low_balance_threshold: 0,
+      low_balance_count: 0,
+      low_balance_amount: 0,
+    },
+)
 const caliber = computed(() => stats.value?.caliber ?? '')
 
 const rangeLabel = computed(() => {
@@ -278,7 +284,11 @@ const trendOption = computed<EChartsOption>(() => {
   const points = trend.value
   const labels = points.map((p) => (p.period.length === 7 ? p.period : p.period.slice(5)))
   return {
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (v: unknown) => `¥${Number(v ?? 0).toFixed(2)}` },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      valueFormatter: (v: unknown) => `¥${Number(v ?? 0).toFixed(2)}`,
+    },
     legend: { top: 0, icon: 'circle', textStyle: { color: '#64748b', fontSize: 12 } },
     // echarts 6：containLabel 已废弃，等价写法是 outerBoundsMode/outerBoundsContain
     // （少了这层约束，y 轴金额标签会贴着画布左缘被裁掉）。
@@ -298,8 +308,22 @@ const trendOption = computed<EChartsOption>(() => {
       axisLabel: { color: '#94a3b8', fontSize: 11 },
     },
     series: [
-      { name: '收入', type: 'bar', stack: 'flow', barMaxWidth: 18, itemStyle: { color: '#16a34a', borderRadius: [0, 0, 0, 0] }, data: points.map((p) => p.income) },
-      { name: '支出', type: 'bar', stack: 'flow', barMaxWidth: 18, itemStyle: { color: '#ef4444' }, data: points.map((p) => p.expense) },
+      {
+        name: '收入',
+        type: 'bar',
+        stack: 'flow',
+        barMaxWidth: 18,
+        itemStyle: { color: '#16a34a', borderRadius: [0, 0, 0, 0] },
+        data: points.map((p) => p.income),
+      },
+      {
+        name: '支出',
+        type: 'bar',
+        stack: 'flow',
+        barMaxWidth: 18,
+        itemStyle: { color: '#ef4444' },
+        data: points.map((p) => p.expense),
+      },
       {
         name: '净额',
         type: 'line',
@@ -319,7 +343,12 @@ async function load() {
   try {
     const [statsData, txData] = await Promise.all([
       getFinanceStats({ start_time: range.start, end_time: range.end }),
-      getTransactionList({ page: 1, page_size: 10, start_time: `${range.start} 00:00:00`, end_time: `${range.end} 23:59:59` }),
+      getTransactionList({
+        page: 1,
+        page_size: 10,
+        start_time: `${range.start} 00:00:00`,
+        end_time: `${range.end} 23:59:59`,
+      }),
     ])
     stats.value = statsData
     recentItems.value = txData.items
@@ -416,7 +445,9 @@ onMounted(load)
   color: var(--td-text-color-primary);
   font-size: 13px;
   cursor: pointer;
-  transition: border-color 160ms ease, background 160ms ease;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
 }
 
 .finance-module .todo-item:hover {

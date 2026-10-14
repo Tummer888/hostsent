@@ -96,20 +96,32 @@
         </template>
 
         <template #action="{ row }">
-<div class="action-cell">
+          <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '通过', value: 'approve', hidden: () => !(row.status === 'pending'), theme: 'success' },
-                { content: '驳回', value: 'reject', hidden: () => !(row.status === 'pending'), theme: 'error' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '通过', value: 'approve', hidden: () => !(row.status === 'pending'), theme: 'success' },
+                  { content: '驳回', value: 'reject', hidden: () => !(row.status === 'pending'), theme: 'error' },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
-              <t-link v-if="row.status === 'pending'" theme="primary" hover="color" @click="openAuditDialog(row, 'approve')">
+              <t-link
+                v-if="row.status === 'pending'"
+                theme="primary"
+                hover="color"
+                @click="openAuditDialog(row, 'approve')"
+              >
                 通过
               </t-link>
-              <t-link v-if="row.status === 'pending'" theme="danger" hover="color" @click="openAuditDialog(row, 'reject')">
+              <t-link
+                v-if="row.status === 'pending'"
+                theme="danger"
+                hover="color"
+                @click="openAuditDialog(row, 'reject')"
+              >
                 驳回
               </t-link>
             </template>
@@ -135,7 +147,10 @@
       v-model:visible="auditVisible"
       :header="auditForm.action === 'approve' ? '通过返现提现' : '驳回返现提现'"
       width="480px"
-      :confirm-btn="{ content: auditForm.action === 'approve' ? '确认通过' : '确认驳回', theme: auditForm.action === 'approve' ? 'success' : 'danger' }"
+      :confirm-btn="{
+        content: auditForm.action === 'approve' ? '确认通过' : '确认驳回',
+        theme: auditForm.action === 'approve' ? 'success' : 'danger',
+      }"
       :cancel-btn="{ content: '取消' }"
       @confirm="handleAudit"
       @close="auditVisible = false"
@@ -202,7 +217,13 @@ const columns: PrimaryTableCol<ReferralWithdrawInfo>[] = [
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'audit_by_name', title: '审核人', width: 100 },
   { colKey: 'created_at', title: '申请时间', width: 170 },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 130, fixed: 'right' as const, align: 'center' as const },
+  {
+    colKey: 'action',
+    title: '操作',
+    width: isMobile.value ? 70 : 130,
+    fixed: 'right' as const,
+    align: 'center' as const,
+  },
 ]
 
 function channelLabel(channel: string): string {
@@ -258,7 +279,6 @@ function handleMobilePageSizeChange(pageSize: number) {
   void applyMobilePage(1, pageSize)
 }
 
-
 function handleSearch() {
   pagination.current = 1
   loadWithdrawals()
@@ -313,8 +333,11 @@ async function handleAudit() {
 onMounted(loadWithdrawals)
 
 // 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: ReferralWithdrawInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: ReferralWithdrawInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'approve':
       openAuditDialog(row, 'approve')

@@ -2,19 +2,11 @@
   <div class="member-layout">
     <!-- ============ 左侧导航 ============ -->
     <aside class="member-sider">
-      <button
-        class="sider-item"
-        :class="{ 'is-active': view === 'overview' }"
-        @click="switchView('overview')"
-      >
+      <button class="sider-item" :class="{ 'is-active': view === 'overview' }" @click="switchView('overview')">
         <DashboardIcon size="16" />
         <span>概览</span>
       </button>
-      <button
-        class="sider-item"
-        :class="{ 'is-active': view === 'members' }"
-        @click="switchView('members')"
-      >
+      <button class="sider-item" :class="{ 'is-active': view === 'members' }" @click="switchView('members')">
         <UserIcon size="16" />
         <span>子用户</span>
       </button>
@@ -116,7 +108,13 @@
               </div>
               <p class="panel-desc">新建或编辑子用户时可勾选以下权限。</p>
               <div class="perm-chips">
-                <t-tag v-for="opt in permissionOptions" :key="opt.code" theme="primary" variant="light-outline" size="small">
+                <t-tag
+                  v-for="opt in permissionOptions"
+                  :key="opt.code"
+                  theme="primary"
+                  variant="light-outline"
+                  size="small"
+                >
                   {{ opt.label }}
                 </t-tag>
                 <span v-if="!permissionOptions.length" class="muted">正在加载权限项…</span>
@@ -169,7 +167,12 @@
               </span>
             </div>
             <div class="panel-head__filters">
-              <t-input v-model="filters.keyword" clearable placeholder="搜索用户名 / 邮箱 / 备注" @enter="handleSearch" />
+              <t-input
+                v-model="filters.keyword"
+                clearable
+                placeholder="搜索用户名 / 邮箱 / 备注"
+                @enter="handleSearch"
+              />
               <t-select v-model="filters.status" clearable placeholder="全部状态" :options="statusOptions" />
               <t-button theme="primary" @click="handleSearch">查询</t-button>
               <t-button variant="outline" @click="handleReset">重置</t-button>
@@ -188,7 +191,9 @@
             <template #name="{ row }">
               <div class="member-cell">
                 <strong>{{ row.name || row.username }}</strong>
-                <span class="member-cell__sub">{{ row.username }}<template v-if="row.remark"> · {{ row.remark }}</template></span>
+                <span class="member-cell__sub"
+                  >{{ row.username }}<template v-if="row.remark"> · {{ row.remark }}</template></span
+                >
               </div>
             </template>
 
@@ -754,7 +759,9 @@ onMounted(() => {
   font-size: 13.5px;
   cursor: pointer;
   text-align: left;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .sider-item:hover {

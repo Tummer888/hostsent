@@ -13,11 +13,7 @@
           </div>
         </header>
 
-        <img
-          class="brand-illustration"
-          :src="loginIllustration"
-          :alt="`${brandStore.name}产品插画`"
-        />
+        <img class="brand-illustration" :src="loginIllustration" :alt="`${brandStore.name}产品插画`" />
       </aside>
 
       <main class="login-panel login-panel--form" aria-labelledby="login-heading">

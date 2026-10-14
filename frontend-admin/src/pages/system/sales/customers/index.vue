@@ -68,13 +68,7 @@
       </div>
       <div class="field">
         <span class="field__label">销售</span>
-        <t-select
-          v-model="filters.admin_id"
-          clearable
-          filterable
-          placeholder="全部销售"
-          :options="salesOptions"
-        />
+        <t-select v-model="filters.admin_id" clearable filterable placeholder="全部销售" :options="salesOptions" />
       </div>
       <template #actions>
         <t-space size="small">
@@ -124,13 +118,7 @@
             </template>
 
             <template #protect_until="{ row }">
-              <t-tag
-                v-if="row.protected"
-                theme="warning"
-                variant="light"
-                size="small"
-                shape="round"
-              >
+              <t-tag v-if="row.protected" theme="warning" variant="light" size="small" shape="round">
                 保护至 {{ formatDate(row.protect_until) }}
               </t-tag>
               <span v-else class="cell-muted">{{ row.protect_until ? formatDate(row.protect_until) : '—' }}</span>
@@ -148,15 +136,20 @@
               <div class="action-cell">
                 <MobileAction
                   v-if="isMobile"
-                  :options="buildMobileActionOptions([
-                    { content: '分配归属', value: 'assign', disabled: () => row.protected },
-                    { content: '释放归属', value: 'release' },
-                    { content: '变更历史', value: 'history' },
-                  ])"
+                  :options="
+                    buildMobileActionOptions([
+                      { content: '分配归属', value: 'assign', disabled: () => row.protected },
+                      { content: '释放归属', value: 'release' },
+                      { content: '变更历史', value: 'history' },
+                    ])
+                  "
                   @select="(value) => handleMobileAction(value, row)"
                 />
                 <template v-else>
-                  <t-tooltip :content="row.protected ? `保护期内（至 ${formatDate(row.protect_until)}）不可改派` : ''" :disabled="!row.protected">
+                  <t-tooltip
+                    :content="row.protected ? `保护期内（至 ${formatDate(row.protect_until)}）不可改派` : ''"
+                    :disabled="!row.protected"
+                  >
                     <t-link
                       :theme="row.protected ? 'default' : 'primary'"
                       :disabled="row.protected"
@@ -255,7 +248,10 @@
       v-model:visible="assignVisible"
       :header="assignForm.mode === 'assign' ? '分配客户归属' : '释放客户归属'"
       width="520px"
-      :confirm-btn="{ content: assignForm.mode === 'assign' ? '确认分配' : '确认释放', theme: assignForm.mode === 'assign' ? 'primary' : 'warning' }"
+      :confirm-btn="{
+        content: assignForm.mode === 'assign' ? '确认分配' : '确认释放',
+        theme: assignForm.mode === 'assign' ? 'primary' : 'warning',
+      }"
       :cancel-btn="{ content: '取消' }"
       @confirm="handleAssignConfirm"
       @close="assignVisible = false"
@@ -270,7 +266,12 @@
         <t-form-item label="客户">
           <t-input :model-value="assignForm.label" disabled />
         </t-form-item>
-        <t-form-item v-if="assignForm.mode === 'assign'" label="目标销售" name="admin_id" :rules="[{ required: true, message: '请选择目标销售' }]">
+        <t-form-item
+          v-if="assignForm.mode === 'assign'"
+          label="目标销售"
+          name="admin_id"
+          :rules="[{ required: true, message: '请选择目标销售' }]"
+        >
           <t-select
             v-model="assignForm.admin_id"
             filterable
@@ -279,7 +280,14 @@
             :loading="candidateLoading"
           />
         </t-form-item>
-        <t-form-item label="变更原因" name="reason" :rules="[{ required: true, message: '请填写变更原因（≥5 字）' }, { min: 5, message: '变更原因至少 5 个字' }]">
+        <t-form-item
+          label="变更原因"
+          name="reason"
+          :rules="[
+            { required: true, message: '请填写变更原因（≥5 字）' },
+            { min: 5, message: '变更原因至少 5 个字' },
+          ]"
+        >
           <t-textarea
             v-model="assignForm.reason"
             :autosize="{ minRows: 3, maxRows: 5 }"
@@ -290,12 +298,7 @@
     </t-dialog>
 
     <!-- 变更历史 -->
-    <t-drawer
-      v-model:visible="historyVisible"
-      :header="`归属变更历史 · ${historyUser}`"
-      size="520px"
-      :footer="false"
-    >
+    <t-drawer v-model:visible="historyVisible" :header="`归属变更历史 · ${historyUser}`" size="520px" :footer="false">
       <t-loading :loading="historyLoading">
         <t-timeline v-if="historyList.length > 0">
           <t-timeline-item
@@ -307,7 +310,12 @@
             <div class="history-item">
               <div class="history-item__head">
                 <span class="cell-strong">{{ item.admin_real_name || item.admin_name || '—' }}</span>
-                <t-tag :theme="item.status === 'active' ? 'success' : 'default'" variant="light" size="small" shape="round">
+                <t-tag
+                  :theme="item.status === 'active' ? 'success' : 'default'"
+                  variant="light"
+                  size="small"
+                  shape="round"
+                >
                   {{ item.status === 'active' ? '生效中' : '已释放' }}
                 </t-tag>
               </div>
@@ -404,7 +412,13 @@ const columns: PrimaryTableCol<SalesCustomerInfo>[] = [
   { colKey: 'protect_until', title: '保护期', width: 170 },
   { colKey: 'total_consume', title: '累计消费', width: 130, align: 'right' },
   { colKey: 'registered_at', title: '注册时间', width: 170 },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 220, fixed: 'right' as const, align: 'center' as const },
+  {
+    colKey: 'action',
+    title: '操作',
+    width: isMobile.value ? 70 : 220,
+    fixed: 'right' as const,
+    align: 'center' as const,
+  },
 ]
 
 // —— 未归属池 ——
@@ -702,8 +716,11 @@ async function openHistory(row: SalesCustomerInfo) {
   }
 }
 
-function handleMobileAction(value: string | number | Record<string, any>, row: SalesCustomerInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: SalesCustomerInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'assign':
       openAssignDialog(row, 'assign')

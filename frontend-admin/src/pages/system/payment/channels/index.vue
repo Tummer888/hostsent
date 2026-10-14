@@ -7,7 +7,9 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">支付渠道</h2>
-          <p class="page-header__desc">每种渠道类型可建多个实例（商户号/费率/结算账户各异），收款与出款按场景和优先级路由。</p>
+          <p class="page-header__desc">
+            每种渠道类型可建多个实例（商户号/费率/结算账户各异），收款与出款按场景和优先级路由。
+          </p>
         </div>
       </div>
       <t-space size="small">
@@ -120,11 +122,13 @@
           <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '连通测试', value: 'test' },
-                { content: '编辑', value: 'edit', hidden: () => !canManage },
-                { content: '能力详情', value: 'detail' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '连通测试', value: 'test' },
+                  { content: '编辑', value: 'edit', hidden: () => !canManage },
+                  { content: '能力详情', value: 'detail' },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
@@ -218,7 +222,14 @@
             <t-input-number v-model="form.weight" :min="0" theme="column" placeholder="选填" />
           </t-form-item>
           <t-form-item label="费率（%）" name="fee_rate">
-            <t-input-number v-model="form.fee_rate_percent" :min="0" :max="100" :precision="2" theme="column" placeholder="如 0.60 表示 0.6%" />
+            <t-input-number
+              v-model="form.fee_rate_percent"
+              :min="0"
+              :max="100"
+              :precision="2"
+              theme="column"
+              placeholder="如 0.60 表示 0.6%"
+            />
           </t-form-item>
           <t-form-item label="单笔最小金额（元）" name="min_amount">
             <t-input-number v-model="form.min_amount" :min="0" :precision="2" theme="column" placeholder="0=不限" />
@@ -284,7 +295,13 @@ import FilterCard from '@/components/filter-card/index.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import { AddIcon, LinkIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
-import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import {
+  MessagePlugin,
+  type FormInstanceFunctions,
+  type FormRule,
+  type PageInfo,
+  type PrimaryTableCol,
+} from 'tdesign-vue-next'
 
 import {
   createChannel,
@@ -357,7 +374,13 @@ const columns: PrimaryTableCol<ChannelInfo>[] = [
   { colKey: 'is_default', title: '默认', width: 80, align: 'center' as const },
   { colKey: 'health_status', title: '健康状态', minWidth: 130 },
   { colKey: 'status', title: '启用', width: 80, align: 'center' as const },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 220, fixed: 'right' as const, align: 'center' as const },
+  {
+    colKey: 'action',
+    title: '操作',
+    width: isMobile.value ? 70 : 220,
+    fixed: 'right' as const,
+    align: 'center' as const,
+  },
 ]
 
 async function loadTypes() {
@@ -630,8 +653,11 @@ function fieldLabel(key: string): string {
   return found ? found.label : key
 }
 
-function handleMobileAction(value: string | number | Record<string, any>, row: ChannelInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: ChannelInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'test':
       handleTest(row)

@@ -26,7 +26,12 @@
             </p>
           </t-form-item>
 
-          <t-form-item label="标题" name="title" class="form-item--full" :rules="[{ required: true, message: '请输入标题' }]">
+          <t-form-item
+            label="标题"
+            name="title"
+            class="form-item--full"
+            :rules="[{ required: true, message: '请输入标题' }]"
+          >
             <t-input v-model="form.title" placeholder="请输入标题" :maxlength="120" />
           </t-form-item>
 
@@ -64,8 +69,8 @@
           <t-form-item label="正文" name="body" class="form-item--full">
             <RichEditor v-model="form.body" :placeholder="bodyPlaceholder" />
             <p class="field-help">
-              正文会经过服务端白名单净化后入库：&lt;script&gt;、内联事件（onclick 等）与
-              javascript: 链接会被剔除，插入的表格/图片/链接会保留。
+              正文会经过服务端白名单净化后入库：&lt;script&gt;、内联事件（onclick 等）与 javascript:
+              链接会被剔除，插入的表格/图片/链接会保留。
             </p>
           </t-form-item>
 
@@ -170,9 +175,7 @@ const form = reactive<{
 const needsCategory = computed(() => kindNeedsCategory(form.kind))
 const isSingleton = computed(() => kindIsSingleton(form.kind))
 
-const bodyPlaceholder = computed(() =>
-  isSingleton.value ? '请输入条款/隐私政策正文' : '请输入正文内容',
-)
+const bodyPlaceholder = computed(() => (isSingleton.value ? '请输入条款/隐私政策正文' : '请输入正文内容'))
 
 const categoryOptions = computed(() => {
   const out: Array<{ label: string; value: number }> = []

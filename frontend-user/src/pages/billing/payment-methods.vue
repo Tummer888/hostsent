@@ -7,7 +7,9 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">支付方式</h2>
-          <p class="page-header__desc">设置默认支付方式与优先级，收银台按此顺序推荐渠道；提现收款账户与提现记录同页维护</p>
+          <p class="page-header__desc">
+            设置默认支付方式与优先级，收银台按此顺序推荐渠道；提现收款账户与提现记录同页维护
+          </p>
         </div>
       </div>
       <div class="page-header__actions">
@@ -26,7 +28,9 @@
       <div class="table-card__head">
         <div>
           <h3 class="card-title">默认方式与优先级</h3>
-          <p class="table-card__meta">场景「{{ sceneLabel(scene) }}」下可用渠道；优先级数值越大越靠前，标记为默认的渠道将优先展示。</p>
+          <p class="table-card__meta">
+            场景「{{ sceneLabel(scene) }}」下可用渠道；优先级数值越大越靠前，标记为默认的渠道将优先展示。
+          </p>
         </div>
         <t-space size="small">
           <t-select v-model="scene" :options="sceneOptions" size="small" style="width: 180px" @change="loadMethods" />
@@ -62,10 +66,21 @@
           <span class="cell-sub">{{ limitText(row) }}</span>
         </template>
         <template #priority="{ row }">
-          <t-input-number v-model="row.priority" :min="0" size="small" theme="column" :disabled="!canEdit" style="width: 90px" />
+          <t-input-number
+            v-model="row.priority"
+            :min="0"
+            size="small"
+            theme="column"
+            :disabled="!canEdit"
+            style="width: 90px"
+          />
         </template>
         <template #is_default="{ row }">
-          <t-radio :value="row.channel_code === defaultCode" :disabled="!canEdit" @change="() => (defaultCode = row.channel_code)" />
+          <t-radio
+            :value="row.channel_code === defaultCode"
+            :disabled="!canEdit"
+            @change="() => (defaultCode = row.channel_code)"
+          />
         </template>
         <template #empty>
           <t-empty :description="`场景「${sceneLabel(scene)}」暂无可用支付方式`" />
@@ -110,7 +125,9 @@
           <span v-else class="cell-sub">—</span>
         </template>
         <template #action="{ row }">
-          <t-link v-if="!row.is_default && canEdit" theme="primary" hover="color" @click="handleSetDefault(row)">设为默认</t-link>
+          <t-link v-if="!row.is_default && canEdit" theme="primary" hover="color" @click="handleSetDefault(row)"
+            >设为默认</t-link
+          >
           <span v-else class="cell-sub">—</span>
         </template>
         <template #empty>
@@ -234,13 +251,24 @@
       />
       <t-form label-align="top" :data="withdrawForm" @submit.prevent>
         <t-form-item label="提现金额（元）">
-          <t-input-number v-model="withdrawForm.amount" :min="0" :precision="2" theme="column" placeholder="请输入提现金额" />
+          <t-input-number
+            v-model="withdrawForm.amount"
+            :min="0"
+            :precision="2"
+            theme="column"
+            placeholder="请输入提现金额"
+          />
         </t-form-item>
         <t-form-item label="收款账户">
           <t-select v-model="withdrawForm.account_id" placeholder="选择收款账户" :options="accountSelectOptions" />
         </t-form-item>
         <t-form-item label="打款方式">
-          <t-select v-model="withdrawForm.payout_channel" clearable placeholder="按平台默认" :options="payoutModeOptions" />
+          <t-select
+            v-model="withdrawForm.payout_channel"
+            clearable
+            placeholder="按平台默认"
+            :options="payoutModeOptions"
+          />
         </t-form-item>
         <t-form-item label="备注">
           <t-input v-model="withdrawForm.remark" placeholder="选填" />
@@ -348,7 +376,13 @@ function payoutModeText(value: string): string {
 }
 
 function withdrawStatusText(status: string): string {
-  return { pending: '待审核', approved: '已通过', paying: '打款中', paid: '已打款', rejected: '已驳回', failed: '打款失败' }[status] || status || '—'
+  return (
+    { pending: '待审核', approved: '已通过', paying: '打款中', paid: '已打款', rejected: '已驳回', failed: '打款失败' }[
+      status
+    ] ||
+    status ||
+    '—'
+  )
 }
 
 function withdrawStatusTheme(status: string): 'success' | 'warning' | 'danger' | 'default' {
@@ -463,7 +497,14 @@ const accountForm = reactive<{
 }>({ channel: 'alipay', account_name: '', account_no: '', bank_name: '', branch: '', is_default: false })
 
 function openAccountDialog() {
-  Object.assign(accountForm, { channel: 'alipay', account_name: '', account_no: '', bank_name: '', branch: '', is_default: false })
+  Object.assign(accountForm, {
+    channel: 'alipay',
+    account_name: '',
+    account_no: '',
+    bank_name: '',
+    branch: '',
+    is_default: false,
+  })
   accountVisible.value = true
 }
 
@@ -505,7 +546,12 @@ async function handleSetDefault(row: PayoutAccountInfo) {
 // ===== 申请提现 =====
 const withdrawVisible = ref(false)
 const withdrawSubmitting = ref(false)
-const withdrawForm = reactive<{ amount: number | undefined; account_id: number | undefined; payout_channel: string | undefined; remark: string }>({
+const withdrawForm = reactive<{
+  amount: number | undefined
+  account_id: number | undefined
+  payout_channel: string | undefined
+  remark: string
+}>({
   amount: undefined,
   account_id: undefined,
   payout_channel: undefined,

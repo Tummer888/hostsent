@@ -10,9 +10,7 @@
         </div>
       </div>
       <div class="hero-right">
-        <t-tag v-if="unreadCount > 0" theme="danger" variant="light" shape="round">
-          {{ unreadCount }} 条未读
-        </t-tag>
+        <t-tag v-if="unreadCount > 0" theme="danger" variant="light" shape="round"> {{ unreadCount }} 条未读 </t-tag>
         <t-tag v-else theme="success" variant="light" shape="round">已全部阅读</t-tag>
       </div>
     </section>
@@ -65,12 +63,7 @@
               </t-tag>
             </template>
             <template #is_read="{ row }">
-              <t-tag
-                :theme="row.is_read ? 'success' : 'warning'"
-                variant="light"
-                size="small"
-                shape="round"
-              >
+              <t-tag :theme="row.is_read ? 'success' : 'warning'" variant="light" size="small" shape="round">
                 {{ row.is_read ? '已读' : '未读' }}
               </t-tag>
             </template>
@@ -98,23 +91,13 @@
 
           <t-loading :loading="annLoading" show-overlay>
             <div v-if="announcements.length" class="announcement-list">
-              <t-card
-                v-for="ann in announcements"
-                :key="ann.id"
-                class="announcement-card"
-                :bordered="false"
-              >
+              <t-card v-for="ann in announcements" :key="ann.id" class="announcement-card" :bordered="false">
                 <div class="ann-header">
                   <span class="ann-title">
                     <t-tag v-if="ann.pinned" theme="primary" variant="light" size="small">置顶</t-tag>
                     {{ ann.title }}
                   </span>
-                  <t-tag
-                    :theme="levelTheme(ann.level)"
-                    variant="light"
-                    size="small"
-                    shape="round"
-                  >
+                  <t-tag :theme="levelTheme(ann.level)" variant="light" size="small" shape="round">
                     {{ levelLabel(ann.level) }}
                   </t-tag>
                 </div>
@@ -123,7 +106,9 @@
                   纯文本按文本节点输出：老公告里出现的 `<` 之类字符若按 HTML 渲染会被吃掉。
                 -->
                 <p v-if="ann.body_format !== 'html'" class="ann-content">{{ ann.content }}</p>
+                <!-- eslint-disable vue/no-v-html -- body_format=html 是服务端已净化的富文本 -->
                 <div v-else class="ann-content ann-content--html" v-html="ann.content" />
+                <!-- eslint-enable vue/no-v-html -->
                 <div class="ann-footer">
                   <span class="time-text">发布时间：{{ formatTime(ann.publish_at) }}</span>
                 </div>
@@ -148,12 +133,7 @@
           <t-tag theme="primary" variant="light" size="small" shape="round">
             {{ eventLabel(currentNotif.event) }}
           </t-tag>
-          <t-tag
-            :theme="currentNotif.is_read ? 'success' : 'warning'"
-            variant="light"
-            size="small"
-            shape="round"
-          >
+          <t-tag :theme="currentNotif.is_read ? 'success' : 'warning'" variant="light" size="small" shape="round">
             {{ currentNotif.is_read ? '已读' : '未读' }}
           </t-tag>
           <span class="time-text">{{ formatTime(currentNotif.created_at) }}</span>
@@ -165,7 +145,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 import { CheckCircleIcon, NotificationIcon, RefreshIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'

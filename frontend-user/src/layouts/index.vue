@@ -4,11 +4,7 @@
     <header class="top-header">
       <div class="header-left">
         <!-- 汉堡菜单：桌面折叠侧边栏，移动端打开抽屉 -->
-        <button
-          class="hamburger-btn"
-          aria-label="切换导航"
-          @click="toggleNav"
-        >
+        <button class="hamburger-btn" aria-label="切换导航" @click="toggleNav">
           <MenuUnfoldIcon size="20" />
         </button>
 
@@ -24,7 +20,6 @@
           <GridViewIcon size="16" />
           <span>全部云产品</span>
         </button>
-
       </div>
 
       <div class="header-right">
@@ -111,12 +106,7 @@
               </div>
 
               <div class="user-menu__body">
-                <button
-                  v-for="m in userMenuItems"
-                  :key="m.key"
-                  class="user-menu__item"
-                  @click="handleUserMenuClick(m)"
-                >
+                <button v-for="m in userMenuItems" :key="m.key" class="user-menu__item" @click="handleUserMenuClick(m)">
                   {{ m.title }}
                 </button>
               </div>
@@ -134,9 +124,9 @@
       <SideNav ref="sideNavRef" v-model:open="sideNavOpen" />
 
       <main class="content-area">
-        <router-view v-slot="{ Component }">
+        <router-view v-slot="{ Component: RouteComponent }">
           <transition name="fade" mode="out-in">
-            <component :is="Component" />
+            <component :is="RouteComponent" />
           </transition>
         </router-view>
       </main>
@@ -166,12 +156,7 @@
           </div>
           <div class="dock-assistant__body">
             <div class="dock-assistant__quick">
-              <button
-                v-for="e in dockQuick"
-                :key="e.label"
-                class="dock-quick"
-                @click="onDockAction(e)"
-              >
+              <button v-for="e in dockQuick" :key="e.label" class="dock-quick" @click="onDockAction(e)">
                 {{ e.label }}
               </button>
             </div>
@@ -213,8 +198,8 @@
           :aria-label="dockOpen ? '收起浮窗' : '展开浮窗'"
           @click="dockOpen = !dockOpen"
         >
-        <ChevronRightIcon v-if="dockOpen" size="19" />
-        <ChevronLeftIcon v-else size="19" />
+          <ChevronRightIcon v-if="dockOpen" size="19" />
+          <ChevronLeftIcon v-else size="19" />
         </button>
       </div>
     </div>
@@ -333,11 +318,6 @@ async function loadUnreadCount() {
   } catch {
     // 角标是装饰性信息，取不到就不显示，不打断页面
   }
-}
-
-// 深色快捷切换（main.ts 已 init，这里只负责按钮行为）
-function toggleTheme() {
-  settingsStore.toggleDark()
 }
 
 // ========== 头像/昵称账户菜单 ==========
@@ -483,7 +463,7 @@ watch(
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background: #F8FAFC;
+  background: #f8fafc;
 }
 
 /* 主体：桌面端侧边栏常驻在左、内容在右；移动端侧边栏变抽屉（fixed），不占位。 */
@@ -505,7 +485,7 @@ watch(
 .top-header {
   height: 64px;
   background: #fff;
-  border-bottom: 1px solid #E2E8F0;
+  border-bottom: 1px solid #e2e8f0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -534,7 +514,7 @@ watch(
 .logo-icon {
   width: 34px;
   height: 34px;
-  background: linear-gradient(135deg, #2563EB 0%, #3B82F6 100%);
+  background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
   border-radius: 9px;
   display: flex;
   align-items: center;
@@ -555,7 +535,7 @@ watch(
 .logo-text {
   font-size: 17px;
   font-weight: 700;
-  color: #1E293B;
+  color: #1e293b;
   white-space: nowrap;
 }
 
@@ -566,20 +546,23 @@ watch(
   gap: 6px;
   height: 34px;
   padding: 0 12px;
-  border: 1px solid #E2E8F0;
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: transparent;
   color: #334155;
   font-size: 13.5px;
   cursor: pointer;
   white-space: nowrap;
-  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .all-products-btn:hover {
   color: var(--color-primary);
   border-color: var(--color-primary);
-  background: #EFF6FF;
+  background: #eff6ff;
 }
 
 .header-right {
@@ -601,11 +584,13 @@ watch(
   color: #334155;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .hamburger-btn:hover {
-  background: #F1F5F9;
+  background: #f1f5f9;
   color: var(--color-primary);
 }
 
@@ -622,22 +607,24 @@ watch(
   width: 100%;
   height: 36px;
   padding: 0 40px 0 14px;
-  border: 1px solid #E2E8F0;
+  border: 1px solid #e2e8f0;
   border-radius: 6px;
   background: #ffffff;
-  color: #1E293B;
+  color: #1e293b;
   font-size: 13px;
   outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .header-search__input::placeholder {
-  color: #94A3B8;
+  color: #94a3b8;
 }
 
 .header-search__input:focus {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.10);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
 .header-search__btn {
@@ -649,7 +636,7 @@ watch(
   height: 34px;
   border: none;
   background: transparent;
-  color: #94A3B8;
+  color: #94a3b8;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -677,12 +664,14 @@ watch(
   color: #475569;
   cursor: pointer;
   white-space: nowrap;
-  transition: color 0.15s ease, background-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .header-link:hover {
   color: var(--color-primary);
-  background: #EFF6FF;
+  background: #eff6ff;
 }
 
 /* ===== 顶栏图标组 ===== */
@@ -704,11 +693,13 @@ watch(
   border-radius: 8px;
   color: #475569;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .icon-btn:hover {
-  background: #F1F5F9;
+  background: #f1f5f9;
   color: var(--color-primary);
 }
 
@@ -719,7 +710,7 @@ watch(
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #EF4444;
+  background: #ef4444;
   border: 1.5px solid #fff;
 }
 
@@ -732,7 +723,7 @@ watch(
   height: 16px;
   padding: 0 4px;
   border-radius: 999px;
-  background: #EF4444;
+  background: #ef4444;
   border: 1.5px solid #fff;
   color: #fff;
   font-size: 10px;
@@ -752,13 +743,15 @@ watch(
   padding: 6px 8px;
   border-radius: 6px;
   white-space: nowrap;
-  transition: color 0.15s ease, background-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .header-username__sub {
   padding: 1px 6px;
   border-radius: 999px;
-  background: #EFF6FF;
+  background: #eff6ff;
   color: var(--color-primary, #2563eb);
   font-size: 11px;
   line-height: 16px;
@@ -836,7 +829,9 @@ watch(
   font-size: 13.5px;
   cursor: pointer;
   text-align: left;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .user-menu__item:hover {
@@ -908,7 +903,7 @@ watch(
 
 .header-username:hover {
   color: var(--color-primary);
-  background: #EFF6FF;
+  background: #eff6ff;
 }
 
 .dark .header-search__input {
@@ -996,8 +991,12 @@ watch(
   color: #475569;
   cursor: pointer;
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.1);
-  transition: color 0.2s ease, border-color 0.2s ease, transform 0.2s ease,
-    box-shadow 0.2s ease, opacity 0.25s ease;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.25s ease;
 }
 
 .dock-btn:hover {
@@ -1090,7 +1089,9 @@ watch(
   cursor: pointer;
   padding: 2px;
   border-radius: 6px;
-  transition: color 0.15s ease, background-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .dock-assistant__close:hover {
@@ -1139,7 +1140,10 @@ watch(
   padding: 5px 10px;
   border-radius: 14px;
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .dock-quick:hover {
@@ -1150,7 +1154,9 @@ watch(
 
 .dock-pop-enter-active,
 .dock-pop-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
 }
 
 .dock-pop-enter-from,

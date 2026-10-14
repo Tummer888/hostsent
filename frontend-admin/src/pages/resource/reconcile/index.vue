@@ -22,7 +22,12 @@
     </header>
 
     <section class="stat-grid">
-      <article v-for="card in statCards" :key="card.key" class="stat-card surface-card" :class="`stat-card--${card.theme}`">
+      <article
+        v-for="card in statCards"
+        :key="card.key"
+        class="stat-card surface-card"
+        :class="`stat-card--${card.theme}`"
+      >
         <div class="stat-card__icon">
           <component :is="card.icon" size="20" aria-hidden="true" />
         </div>
@@ -48,175 +53,186 @@
     </div>
 
     <template v-if="viewMode === 'result'">
-    <FilterCard :columns="3">
-      <template #head-extra>
-        <span class="filter-card__meta">
-          到期容差 {{ summary.tolerance_days }} 天 · 毛利率预警线 {{ summary.thin_margin_rate }}%
-        </span>
-      </template>
-      <div class="field">
-        <span class="field__label">关键词</span>
-        <t-input v-model="filters.keyword" clearable placeholder="实例名 / 实例号 / 商品名" @enter="handleSearch" />
-      </div>
-      <div class="field">
-        <span class="field__label">所属渠道</span>
-        <t-select v-model="filters.provider_id" clearable placeholder="全部渠道" :options="providerOptions" />
-      </div>
-      <div class="field">
-        <span class="field__label">异常类型</span>
-        <t-select v-model="filters.anomaly" clearable placeholder="全部实例" :options="anomalyOptions" />
-      </div>
-      <template #actions>
-        <t-space size="small">
-          <t-button theme="primary" @click="handleSearch">
-            <template #icon>
-              <SearchIcon aria-hidden="true" />
-            </template>
-            查询
-          </t-button>
-          <t-button variant="outline" @click="handleResetFilters">重置</t-button>
-        </t-space>
-      </template>
-    </FilterCard>
-
-    <section class="table-card surface-card">
-      <div class="table-card__head">
-        <h3 class="card-title">对账结果</h3>
-        <span class="table-card__meta">共 {{ total }} 台上游实例</span>
-      </div>
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        size="small"
-        hover
-        table-layout="fixed"
-        cell-empty-content="—"
-        :pagination="isMobile ? undefined : pagination"
-        @page-change="handlePageChange"
-      >
-        <template #instance="{ row }">
-          <div class="subject-cell">
-            <span class="subject-name">{{ row.name || row.instance_id }}</span>
-            <span class="subject-meta">
-              <span class="subject-ref">{{ row.instance_id }}</span>
-              <t-tag :theme="row.status === 'running' ? 'success' : 'default'" variant="light" size="small" shape="round">
-                {{ row.status_name }}
-              </t-tag>
-            </span>
-            <span class="subject-meta">
-              <span class="subject-ref">{{ row.provider_name || `渠道 #${row.provider_id}` }}</span>
-              <span v-if="row.username" class="subject-ref">· {{ row.username }}</span>
-            </span>
-          </div>
+      <FilterCard :columns="3">
+        <template #head-extra>
+          <span class="filter-card__meta">
+            到期容差 {{ summary.tolerance_days }} 天 · 毛利率预警线 {{ summary.thin_margin_rate }}%
+          </span>
         </template>
+        <div class="field">
+          <span class="field__label">关键词</span>
+          <t-input v-model="filters.keyword" clearable placeholder="实例名 / 实例号 / 商品名" @enter="handleSearch" />
+        </div>
+        <div class="field">
+          <span class="field__label">所属渠道</span>
+          <t-select v-model="filters.provider_id" clearable placeholder="全部渠道" :options="providerOptions" />
+        </div>
+        <div class="field">
+          <span class="field__label">异常类型</span>
+          <t-select v-model="filters.anomaly" clearable placeholder="全部实例" :options="anomalyOptions" />
+        </div>
+        <template #actions>
+          <t-space size="small">
+            <t-button theme="primary" @click="handleSearch">
+              <template #icon>
+                <SearchIcon aria-hidden="true" />
+              </template>
+              查询
+            </t-button>
+            <t-button variant="outline" @click="handleResetFilters">重置</t-button>
+          </t-space>
+        </template>
+      </FilterCard>
 
-        <template #price="{ row }">
-          <div class="pair-cell">
-            <div class="pair-row">
-              <span class="pair-label">售价</span>
-              <span class="pair-value">{{ money(row.local_price) }}</span>
-            </div>
-            <div class="pair-row">
-              <span class="pair-label">成本</span>
-              <span class="pair-value">{{ money(row.upstream_cost) }}</span>
-            </div>
-            <div class="pair-row pair-row--margin">
-              <span class="pair-label">毛利</span>
-              <span class="pair-value" :class="marginClass(row.margin_amount)">
-                {{ money(row.margin_amount) }}<template v-if="row.margin_rate !== null">（{{ row.margin_rate.toFixed(1) }}%）</template>
+      <section class="table-card surface-card">
+        <div class="table-card__head">
+          <h3 class="card-title">对账结果</h3>
+          <span class="table-card__meta">共 {{ total }} 台上游实例</span>
+        </div>
+        <t-table
+          row-key="id"
+          :data="rows"
+          :columns="columns"
+          :loading="loading"
+          size="small"
+          hover
+          table-layout="fixed"
+          cell-empty-content="—"
+          :pagination="isMobile ? undefined : pagination"
+          @page-change="handlePageChange"
+        >
+          <template #instance="{ row }">
+            <div class="subject-cell">
+              <span class="subject-name">{{ row.name || row.instance_id }}</span>
+              <span class="subject-meta">
+                <span class="subject-ref">{{ row.instance_id }}</span>
+                <t-tag
+                  :theme="row.status === 'running' ? 'success' : 'default'"
+                  variant="light"
+                  size="small"
+                  shape="round"
+                >
+                  {{ row.status_name }}
+                </t-tag>
+              </span>
+              <span class="subject-meta">
+                <span class="subject-ref">{{ row.provider_name || `渠道 #${row.provider_id}` }}</span>
+                <span v-if="row.username" class="subject-ref">· {{ row.username }}</span>
               </span>
             </div>
-          </div>
-        </template>
+          </template>
 
-        <template #expire="{ row }">
-          <div class="pair-cell">
-            <div class="pair-row">
-              <span class="pair-label">本地</span>
-              <span class="pair-value">{{ formatDate(row.local_expire_at) }}</span>
+          <template #price="{ row }">
+            <div class="pair-cell">
+              <div class="pair-row">
+                <span class="pair-label">售价</span>
+                <span class="pair-value">{{ money(row.local_price) }}</span>
+              </div>
+              <div class="pair-row">
+                <span class="pair-label">成本</span>
+                <span class="pair-value">{{ money(row.upstream_cost) }}</span>
+              </div>
+              <div class="pair-row pair-row--margin">
+                <span class="pair-label">毛利</span>
+                <span class="pair-value" :class="marginClass(row.margin_amount)">
+                  {{ money(row.margin_amount)
+                  }}<template v-if="row.margin_rate !== null">（{{ row.margin_rate.toFixed(1) }}%）</template>
+                </span>
+              </div>
             </div>
-            <div class="pair-row">
-              <span class="pair-label">上游</span>
-              <span class="pair-value">{{ formatDate(row.upstream_expire_at) }}</span>
-            </div>
-            <div v-if="row.expire_diff_days !== null" class="pair-row pair-row--margin">
-              <span class="pair-label">偏差</span>
-              <span class="pair-value" :class="row.expire_anomaly === 'ok' ? '' : 'value-warn'">
-                {{ row.expire_diff_days > 0 ? '早' : row.expire_diff_days < 0 ? '晚' : '一致' }}
-                <template v-if="row.expire_diff_days !== 0">{{ Math.abs(row.expire_diff_days).toFixed(1) }} 天</template>
-              </span>
-            </div>
-          </div>
-        </template>
+          </template>
 
-        <!-- 运行状态：本地 vs 上游。上游不提供该字段（非魔方财务链路）时显示「不适用」，
+          <template #expire="{ row }">
+            <div class="pair-cell">
+              <div class="pair-row">
+                <span class="pair-label">本地</span>
+                <span class="pair-value">{{ formatDate(row.local_expire_at) }}</span>
+              </div>
+              <div class="pair-row">
+                <span class="pair-label">上游</span>
+                <span class="pair-value">{{ formatDate(row.upstream_expire_at) }}</span>
+              </div>
+              <div v-if="row.expire_diff_days !== null" class="pair-row pair-row--margin">
+                <span class="pair-label">偏差</span>
+                <span class="pair-value" :class="row.expire_anomaly === 'ok' ? '' : 'value-warn'">
+                  {{ row.expire_diff_days > 0 ? '早' : row.expire_diff_days < 0 ? '晚' : '一致' }}
+                  <template v-if="row.expire_diff_days !== 0"
+                    >{{ Math.abs(row.expire_diff_days).toFixed(1) }} 天</template
+                  >
+                </span>
+              </div>
+            </div>
+          </template>
+
+          <!-- 运行状态：本地 vs 上游。上游不提供该字段（非魔方财务链路）时显示「不适用」，
              与「查不到」区分开——否则会让人以为所有实例都缺数据。 -->
-        <template #run_state="{ row }">
-          <div class="pair-cell">
-            <div class="pair-row">
-              <span class="pair-label">本地</span>
-              <span class="pair-value">{{ row.status_name }}</span>
+          <template #run_state="{ row }">
+            <div class="pair-cell">
+              <div class="pair-row">
+                <span class="pair-label">本地</span>
+                <span class="pair-value">{{ row.status_name }}</span>
+              </div>
+              <div class="pair-row">
+                <span class="pair-label">上游</span>
+                <span
+                  class="pair-value"
+                  :class="row.status_anomaly === 'ok' || !row.status_anomaly ? '' : 'value-warn'"
+                >
+                  {{ row.upstream_status || '不适用' }}
+                </span>
+              </div>
             </div>
-            <div class="pair-row">
-              <span class="pair-label">上游</span>
-              <span class="pair-value" :class="row.status_anomaly === 'ok' || !row.status_anomaly ? '' : 'value-warn'">
-                {{ row.upstream_status || '不适用' }}
-              </span>
+          </template>
+
+          <template #anomaly="{ row }">
+            <div class="anomaly-cell">
+              <template v-if="row.anomalies.length">
+                <t-tag
+                  v-for="item in row.anomalies"
+                  :key="item.code"
+                  :theme="item.severity === 'danger' ? 'danger' : 'warning'"
+                  variant="light"
+                  size="small"
+                  shape="round"
+                >
+                  {{ item.name }}
+                </t-tag>
+              </template>
+              <t-tag v-else theme="success" variant="light" size="small" shape="round">一致</t-tag>
             </div>
-          </div>
-        </template>
+          </template>
 
-        <template #anomaly="{ row }">
-          <div class="anomaly-cell">
-            <template v-if="row.anomalies.length">
-              <t-tag
-                v-for="item in row.anomalies"
-                :key="item.code"
-                :theme="item.severity === 'danger' ? 'danger' : 'warning'"
-                variant="light"
-                size="small"
-                shape="round"
-              >
-                {{ item.name }}
-              </t-tag>
-            </template>
-            <t-tag v-else theme="success" variant="light" size="small" shape="round">一致</t-tag>
-          </div>
-        </template>
+          <template #severity="{ row }">
+            <t-tag :theme="severityTheme(row.severity)" variant="light" size="small" shape="round">
+              {{ row.severity_name }}
+            </t-tag>
+          </template>
 
-        <template #severity="{ row }">
-          <t-tag :theme="severityTheme(row.severity)" variant="light" size="small" shape="round">
-            {{ row.severity_name }}
-          </t-tag>
-        </template>
+          <template #row_action="{ row }">
+            <div class="action-cell">
+              <MobileAction
+                v-if="isMobile"
+                :options="buildMobileActionOptions([{ content: '详情', value: 'detail', theme: 'default' }])"
+                @select="() => openDetailDialog(row)"
+              />
+              <t-link v-else theme="primary" hover="color" @click="openDetailDialog(row)">详情</t-link>
+            </div>
+          </template>
 
-        <template #row_action="{ row }">
-          <div class="action-cell">
-            <MobileAction
-              v-if="isMobile"
-              :options="buildMobileActionOptions([{ content: '详情', value: 'detail', theme: 'default' }])"
-              @select="() => openDetailDialog(row)"
-            />
-            <t-link v-else theme="primary" hover="color" @click="openDetailDialog(row)">详情</t-link>
-          </div>
-        </template>
+          <template #empty>
+            <t-empty description="暂无上游链路实例可对账" />
+          </template>
+        </t-table>
 
-        <template #empty>
-          <t-empty description="暂无上游链路实例可对账" />
-        </template>
-      </t-table>
-
-      <MobilePagination
-        v-if="isMobile"
-        :current="mobilePage.current"
-        :page-size="mobilePage.pageSize"
-        :total="mobilePage.total"
-        @go="goMobilePage"
-        @page-size="handleMobilePageSizeChange"
-      />
-    </section>
+        <MobilePagination
+          v-if="isMobile"
+          :current="mobilePage.current"
+          :page-size="mobilePage.pageSize"
+          :total="mobilePage.total"
+          @go="goMobilePage"
+          @page-size="handleMobilePageSizeChange"
+        />
+      </section>
     </template>
 
     <!-- 差异台账：持久化记录 + 处置。 -->
@@ -240,12 +256,7 @@
         @page-change="handleFindingPageChange"
       >
         <template #kind="{ row }">
-          <t-tag
-            :theme="row.severity === 'danger' ? 'danger' : 'warning'"
-            variant="light"
-            size="small"
-            shape="round"
-          >
+          <t-tag :theme="row.severity === 'danger' ? 'danger' : 'warning'" variant="light" size="small" shape="round">
             {{ row.kind_name }}
           </t-tag>
         </template>
@@ -305,17 +316,24 @@
         <t-descriptions-item label="所属渠道">
           {{ detailRow.provider_name || `渠道 #${detailRow.provider_id}` }}
         </t-descriptions-item>
-        <t-descriptions-item label="归属用户">{{ detailRow.username || `用户 #${detailRow.user_id}` }}</t-descriptions-item>
+        <t-descriptions-item label="归属用户">{{
+          detailRow.username || `用户 #${detailRow.user_id}`
+        }}</t-descriptions-item>
         <t-descriptions-item label="异常等级">
           <t-tag :theme="severityTheme(detailRow.severity)" variant="light" size="small" shape="round">
             {{ detailRow.severity_name }}
           </t-tag>
         </t-descriptions-item>
         <t-descriptions-item label="本地售出商品">
-          {{ detailRow.sell_product_name || (detailRow.sell_product_id ? `商品 #${detailRow.sell_product_id}` : '未绑定') }}
+          {{
+            detailRow.sell_product_name || (detailRow.sell_product_id ? `商品 #${detailRow.sell_product_id}` : '未绑定')
+          }}
         </t-descriptions-item>
         <t-descriptions-item label="上游资源商品">
-          {{ detailRow.upstream_product_name || (detailRow.upstream_product_id ? `商品 #${detailRow.upstream_product_id}` : '未绑定') }}
+          {{
+            detailRow.upstream_product_name ||
+            (detailRow.upstream_product_id ? `商品 #${detailRow.upstream_product_id}` : '未绑定')
+          }}
         </t-descriptions-item>
         <t-descriptions-item label="上游 SKU">{{ detailRow.upstream_sku || '—' }}</t-descriptions-item>
         <t-descriptions-item label="毛利">
@@ -328,12 +346,17 @@
         <t-descriptions-item label="上游到期">{{ formatDate(detailRow.upstream_expire_at) }}</t-descriptions-item>
         <t-descriptions-item label="到期偏差" :span="2">
           <template v-if="detailRow.expire_diff_days !== null">
-            上游到期 {{ detailRow.expire_diff_days > 0 ? '晚于' : detailRow.expire_diff_days < 0 ? '早于' : '等于' }} 本地
-            <template v-if="detailRow.expire_diff_days !== 0">{{ Math.abs(detailRow.expire_diff_days).toFixed(1) }} 天</template>
+            上游到期
+            {{ detailRow.expire_diff_days > 0 ? '晚于' : detailRow.expire_diff_days < 0 ? '早于' : '等于' }} 本地
+            <template v-if="detailRow.expire_diff_days !== 0"
+              >{{ Math.abs(detailRow.expire_diff_days).toFixed(1) }} 天</template
+            >
           </template>
           <template v-else>无法比对（缺一侧到期时间）</template>
         </t-descriptions-item>
-        <t-descriptions-item label="上游状态">{{ detailRow.upstream_status || '不适用（该上游不提供状态字段）' }}</t-descriptions-item>
+        <t-descriptions-item label="上游状态">{{
+          detailRow.upstream_status || '不适用（该上游不提供状态字段）'
+        }}</t-descriptions-item>
         <t-descriptions-item label="状态判据">
           <t-tag
             v-if="detailRow.status_anomaly && detailRow.status_anomaly !== 'ok'"
@@ -359,12 +382,7 @@ import { ErrorCircleIcon, RefreshIcon, SearchIcon, VerifyIcon } from 'tdesign-ic
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { getProviderList, getReconcileFindings, getReconcileList, updateReconcileFinding } from '@/api/admin'
-import type {
-  ProviderInfo,
-  ReconcileFindingItem,
-  ReconcileItem,
-  ReconcileSummary,
-} from '@/types/interface'
+import type { ProviderInfo, ReconcileFindingItem, ReconcileItem, ReconcileSummary } from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
@@ -511,7 +529,12 @@ const statCards = computed(() => {
       value: `${s.avg_margin_rate.toFixed(1)}%`,
       hint: `毛利合计 ￥${s.total_margin.toFixed(2)}`,
       icon: VerifyIcon,
-      theme: s.avg_margin_rate < 0 ? ('danger' as const) : s.avg_margin_rate < s.thin_margin_rate ? ('warning' as const) : ('success' as const),
+      theme:
+        s.avg_margin_rate < 0
+          ? ('danger' as const)
+          : s.avg_margin_rate < s.thin_margin_rate
+            ? ('warning' as const)
+            : ('success' as const),
     },
     {
       key: 'warning',
@@ -686,12 +709,15 @@ onMounted(() => {
 })
 
 // 控制台顶部切链路后两个视图都要按新链路重查（服务端过滤，口径与分页一致）。
-watch(() => props.chainKind, () => {
-  pagination.current = 1
-  findingPagination.current = 1
-  loadRows()
-  loadFindings()
-})
+watch(
+  () => props.chainKind,
+  () => {
+    pagination.current = 1
+    findingPagination.current = 1
+    loadRows()
+    loadFindings()
+  },
+)
 
 defineExpose({ reload })
 </script>

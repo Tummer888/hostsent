@@ -7,7 +7,6 @@ import type {
   TicketCategoryInfo,
   TicketCategorySaveRequest,
   TicketDetail,
-  TicketInfo,
   TicketListQuery,
   TicketListResponse,
   TicketReplyRequest,

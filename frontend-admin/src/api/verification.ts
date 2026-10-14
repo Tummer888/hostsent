@@ -252,9 +252,7 @@ export function getVerificationProviders(): Promise<VerificationProviderInfo[]> 
   return request.get<VerificationProviderInfo[]>({ url: '/verifications/providers' })
 }
 
-export function upsertVerificationProvider(
-  data: VerificationProviderUpsertRequest,
-): Promise<VerificationProviderInfo> {
+export function upsertVerificationProvider(data: VerificationProviderUpsertRequest): Promise<VerificationProviderInfo> {
   return request.post<VerificationProviderInfo>({ url: '/verifications/providers', data })
 }
 

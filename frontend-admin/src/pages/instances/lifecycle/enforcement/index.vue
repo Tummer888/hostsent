@@ -18,10 +18,7 @@
       </t-space>
     </header>
 
-    <t-alert
-      :theme="preview?.enabled && !preview?.dry_run ? 'error' : 'info'"
-      :message="gateMessage"
-    />
+    <t-alert :theme="preview?.enabled && !preview?.dry_run ? 'error' : 'info'" :message="gateMessage" />
 
     <section class="stat-grid">
       <div class="stat-card stat-card--info">
@@ -152,17 +149,15 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 
-import {
-  CheckCircleIcon,
-  DeleteIcon,
-  PoweroffIcon,
-  RefreshIcon,
-  TimeIcon,
-  VerifyIcon,
-} from 'tdesign-icons-vue-next'
+import { CheckCircleIcon, DeleteIcon, PoweroffIcon, RefreshIcon, TimeIcon, VerifyIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 
-import { enforceInstance, previewEnforcement, type EnforcementPreviewItem, type EnforcementPreviewResponse } from '@/api/lifecycle'
+import {
+  enforceInstance,
+  previewEnforcement,
+  type EnforcementPreviewItem,
+  type EnforcementPreviewResponse,
+} from '@/api/lifecycle'
 import {
   enforcementActionLabel,
   formatTime,

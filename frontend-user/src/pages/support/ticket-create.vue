@@ -13,20 +13,23 @@
 
     <!-- 表单 -->
     <section class="create-panel">
-      <t-form
-        ref="formRef"
-        :data="formData"
-        :rules="rules"
-        label-width="90px"
-        label-align="top"
-        @submit="onSubmit"
-      >
+      <t-form ref="formRef" :data="formData" :rules="rules" label-width="90px" label-align="top" @submit="onSubmit">
         <t-form-item label="工单标题" name="title">
-          <t-input v-model="formData.title" placeholder="简要概括问题，例如：实例无法远程连接" :maxlength="100" show-limit-number />
+          <t-input
+            v-model="formData.title"
+            placeholder="简要概括问题，例如：实例无法远程连接"
+            :maxlength="100"
+            show-limit-number
+          />
         </t-form-item>
 
         <t-form-item label="问题分类" name="category">
-          <t-select v-model="formData.category" placeholder="请选择问题分类" :loading="categoryLoading" @change="handleCategoryChange">
+          <t-select
+            v-model="formData.category"
+            placeholder="请选择问题分类"
+            :loading="categoryLoading"
+            @change="handleCategoryChange"
+          >
             <t-option
               v-for="item in categories"
               :key="item.id"
@@ -51,9 +54,7 @@
         <!-- 前置条件：关联订单/实例（分类要求时必填） -->
         <template v-if="selectedCategory?.require_binding">
           <t-alert theme="warning" class="binding-alert">
-            <template #message>
-              该分类需关联您本人的订单或实例，请至少选择一项，否则无法提交。
-            </template>
+            <template #message> 该分类需关联您本人的订单或实例，请至少选择一项，否则无法提交。 </template>
           </t-alert>
           <t-form-item label="关联订单" name="order_id">
             <t-select

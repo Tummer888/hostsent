@@ -5,7 +5,17 @@
    通过 :is() 聚合各页面命名空间作用，不影响实例页自身的样式。
    ============================================================ */
 
-:is(.order-module, .ticket-module, .finance-module, .payment-module, .resource-module, .dashboard-page, .user-overview-page, .sales-module, .users-module) {
+:is(
+  .order-module,
+  .ticket-module,
+  .finance-module,
+  .payment-module,
+  .resource-module,
+  .dashboard-page,
+  .user-overview-page,
+  .sales-module,
+  .users-module
+) {
   /* ---------- 骨架 ---------- */
   .stat-card {
     --stat-accent: 100, 116, 139;
@@ -25,9 +35,15 @@
     animation: hs-stat-card-in 360ms var(--hs-ease-out) forwards;
   }
 
-  .stat-card:nth-child(2) { animation-delay: 60ms; }
-  .stat-card:nth-child(3) { animation-delay: 120ms; }
-  .stat-card:nth-child(4) { animation-delay: 180ms; }
+  .stat-card:nth-child(2) {
+    animation-delay: 60ms;
+  }
+  .stat-card:nth-child(3) {
+    animation-delay: 120ms;
+  }
+  .stat-card:nth-child(4) {
+    animation-delay: 180ms;
+  }
 
   /* ---------- 彩色光晕（左上角，随变体着色） ---------- */
   .stat-card::before {
@@ -39,11 +55,7 @@
     top: -30px;
     border-radius: 999px;
     pointer-events: none;
-    background: radial-gradient(
-      circle at 45% 45%,
-      rgba(var(--stat-accent), 0.18) 0%,
-      rgba(var(--stat-accent), 0) 72%
-    );
+    background: radial-gradient(circle at 45% 45%, rgba(var(--stat-accent), 0.18) 0%, rgba(var(--stat-accent), 0) 72%);
   }
 
   /* ---------- 图标（44px 圆角渐变方块，不旋转） ---------- */
@@ -106,28 +118,48 @@
   }
 
   /* ---------- 变体主色（光晕 + 图标渐变） ---------- */
-  .stat-card--default { --stat-accent: 100, 116, 139; }
+  .stat-card--default {
+    --stat-accent: 100, 116, 139;
+  }
 
   .stat-card--blue,
-  .stat-card--info { --stat-accent: 37, 99, 235; }
+  .stat-card--info {
+    --stat-accent: 37, 99, 235;
+  }
 
   .stat-card--green,
-  .stat-card--success { --stat-accent: 22, 163, 74; }
+  .stat-card--success {
+    --stat-accent: 22, 163, 74;
+  }
 
-  .stat-card--cyan { --stat-accent: 8, 145, 178; }
+  .stat-card--cyan {
+    --stat-accent: 8, 145, 178;
+  }
 
-  .stat-card--orange { --stat-accent: 234, 88, 12; }
+  .stat-card--orange {
+    --stat-accent: 234, 88, 12;
+  }
 
   .stat-card--red,
-  .stat-card--danger { --stat-accent: 220, 38, 38; }
+  .stat-card--danger {
+    --stat-accent: 220, 38, 38;
+  }
 
-  .stat-card--purple { --stat-accent: 124, 58, 237; }
+  .stat-card--purple {
+    --stat-accent: 124, 58, 237;
+  }
 
-  .stat-card--warning { --stat-accent: 217, 119, 6; }
+  .stat-card--warning {
+    --stat-accent: 217, 119, 6;
+  }
 
-  .stat-card--indigo { --stat-accent: 79, 70, 229; }
+  .stat-card--indigo {
+    --stat-accent: 79, 70, 229;
+  }
 
-  .stat-card--teal { --stat-accent: 13, 148, 136; }
+  .stat-card--teal {
+    --stat-accent: 13, 148, 136;
+  }
 
   .stat-card__icon--blue,
   .stat-card__icon--info,

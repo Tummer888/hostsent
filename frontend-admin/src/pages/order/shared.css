@@ -62,6 +62,232 @@
   margin-top: var(--space-md);
 }
 
+/* ---------- 详情：关键信息条 ----------
+ * 把「状态 / 实付 / 周期 / 到期」提到最前，替代原来一堆同权重描述项平铺
+ * （第一眼看不出重点）。金额与状态用色与字号做视觉重心。 */
+.order-module .key-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.order-module .key-fact {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--hs-radius-lg);
+  background: var(--hs-surface-1);
+}
+
+.order-module .key-fact--accent {
+  border-color: var(--order-green-border);
+  background:
+    linear-gradient(0deg, rgba(var(--color-primary-rgb), 0.06), rgba(var(--color-primary-rgb), 0.06)),
+    var(--hs-surface-1);
+}
+
+.order-module .key-fact__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+}
+
+.order-module .key-fact__value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+
+.order-module .key-fact__value--money {
+  font-size: 22px;
+  color: var(--order-green);
+  font-variant-numeric: tabular-nums;
+}
+
+.order-module .key-fact__sub {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+/* ---------- 详情：关联入口 chip ---------- */
+.order-module .link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+}
+
+.order-module .link-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--order-green-border);
+  border-radius: var(--hs-radius-md);
+  background: var(--hs-surface-1);
+  color: var(--order-green);
+  font-size: 13px;
+  text-decoration: none;
+  transition:
+    background-color var(--hs-duration-fast),
+    border-color var(--hs-duration-fast);
+}
+
+.order-module .link-chip:hover {
+  background: var(--order-green-soft);
+  border-color: var(--order-green);
+}
+
+.order-module .link-chip--muted {
+  border-color: var(--color-border);
+  color: var(--color-muted-foreground);
+}
+
+/* ---------- 详情：分组描述块 ---------- */
+.order-module .desc-block {
+  margin-bottom: var(--space-lg);
+}
+
+.order-module .desc-block:last-child {
+  margin-bottom: 0;
+}
+
+.order-module .desc-block .card-title {
+  margin-bottom: var(--space-sm);
+}
+
+/* 页头产品名链接 */
+.order-module .header-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dashed transparent;
+}
+
+.order-module .header-link:hover {
+  border-bottom-color: currentColor;
+}
+
+/* 表格内可点名称：描边按钮会让整列变重，用下划线提示可点（instances 同款）。 */
+.order-module .cell-link {
+  color: var(--order-green);
+  text-decoration: none;
+}
+
+.order-module .cell-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ---------- 详情：订单明细卡片 ----------
+ * 明细从六列平铺表格改为卡片：产品/规格在左，金额大字在右，
+ * 一眼能锁定"买了什么、花了多少"。 */
+.order-module .item-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.order-module .item-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--hs-radius-lg);
+  background: var(--hs-surface-1);
+  transition: border-color var(--hs-duration-fast);
+}
+
+.order-module .item-card:hover {
+  border-color: var(--order-green-border);
+}
+
+.order-module .item-card__chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--hs-radius-md);
+  background: var(--order-green-soft);
+  color: var(--order-green);
+  font-size: 18px;
+}
+
+.order-module .item-card__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.order-module .item-card__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 14px;
+}
+
+.order-module .item-card__qty {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+}
+
+.order-module .item-card__specs {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-muted-foreground);
+  word-break: break-all;
+}
+
+.order-module .item-card__amount {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+.order-module .item-card__total {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--order-green);
+  font-variant-numeric: tabular-nums;
+}
+
+.order-module .item-card__unit {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 弹窗：退款去向与原因 ----------
+ * 选项与提示文案纵向排列：t-form__controls-content 是不换行的 flex 行，
+ * 提示文案与 radio-group 并排时会把组挤窄，选择控件视觉不稳定。 */
+.order-module .refund-mode,
+.order-module .refund-reason {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.order-module .refund-mode .t-radio-button {
+  min-width: 96px;
+  text-align: center;
+}
+
 .order-module .page-header__main {
   display: flex;
   align-items: center;
@@ -233,16 +459,6 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-
-
-
-
-
-
-
-
-
-
 .order-module .chart-grid {
   display: grid;
   gap: 16px;
@@ -302,29 +518,65 @@
   transition: width var(--hs-duration-base) var(--hs-ease-out);
 }
 
-/* ---------- TDesign 表格细节优化 ---------- */
-.order-module .t-table__th {
+/* ---------- TDesign 表格细节优化 ----------
+ * 注意选择器：TDesign 从不输出裸 class `t-table__th` / `t-table__td`
+ * （th 上是 `t-table__th-<colKey>`，td 上没有任何基础 class，行 class 是
+ * `t-table__row--hover`）。此前按裸 class 写的规则全是死选择器，表头一直是
+ * 默认灰、悬停一直是默认灰。这里改为命中真实结构：th 用元素选择器，
+ * 悬停用 `tr:hover` 的既有类名。
+ */
+.order-module .t-table th {
   background: var(--td-brand-color-1) !important;
   color: #3f5848 !important;
   border-bottom-color: var(--order-green-border) !important;
   font-weight: 600 !important;
 }
 
-.order-module .t-table__tr--hover > .t-table__td,
-.order-module .t-table__row--hover > .t-table__td {
+/* 固定列（多选框 / 操作列）是 sticky 单元格，必须具备不透明底色，
+   否则横向滚动时其它列的内容会从表头/单元格底下透出来。 */
+.order-module .t-table th.t-table__cell--fixed-left,
+.order-module .t-table th.t-table__cell--fixed-right,
+.order-module .t-table td.t-table__cell--fixed-left,
+.order-module .t-table td.t-table__cell--fixed-right {
+  background-color: var(--hs-surface-1);
+}
+
+.order-module .t-table th.t-table__cell--fixed-left,
+.order-module .t-table th.t-table__cell--fixed-right {
+  background-color: var(--td-brand-color-1) !important;
+}
+
+.order-module .t-table--hoverable tbody tr:hover > td {
   background: rgba(var(--color-primary-rgb), 0.035) !important;
   transition: background-color var(--hs-duration-fast);
 }
 
-.order-module .t-button--theme-primary {
+/* 主色按钮统一到模块绿。必须排除 text / outline 变体：TDesign 的 class 是
+ * 「variant + theme」两段组合（t-button--variant-outline + t-button--theme-primary），
+ * 只按 theme 覆盖会把描边/文字按钮也刷成实心绿底（同 instances/shared.css 已记录的事故）。 */
+.order-module .t-button--theme-primary:not(.t-button--variant-text):not(.t-button--variant-outline) {
   border-color: var(--order-green);
   background-color: var(--order-green);
 }
 
-.order-module .t-button--theme-primary:hover,
-.order-module .t-button--theme-primary:focus-visible {
+.order-module .t-button--theme-primary:not(.t-button--variant-text):not(.t-button--variant-outline):hover,
+.order-module .t-button--theme-primary:not(.t-button--variant-text):not(.t-button--variant-outline):focus-visible {
   border-color: var(--order-green-hover);
   background-color: var(--order-green-hover);
+}
+
+/* 描边按钮：主色描边 + 透明底，避免上面那条实心规则误伤（如「重新开通」）。 */
+.order-module .t-button--variant-outline.t-button--theme-primary {
+  color: var(--order-green);
+  border-color: var(--order-green-border);
+  background-color: transparent;
+}
+
+.order-module .t-button--variant-outline.t-button--theme-primary:hover,
+.order-module .t-button--variant-outline.t-button--theme-primary:focus-visible {
+  color: var(--order-green-hover);
+  border-color: var(--order-green-hover);
+  background-color: var(--order-green-soft);
 }
 
 .order-module .t-switch.t-is-checked {

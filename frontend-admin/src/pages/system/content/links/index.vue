@@ -81,10 +81,12 @@
           <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '编辑', value: 'edit', theme: 'default' },
-                { content: '删除', value: 'delete', theme: 'error' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '编辑', value: 'edit', theme: 'default' },
+                  { content: '删除', value: 'delete', theme: 'error' },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>

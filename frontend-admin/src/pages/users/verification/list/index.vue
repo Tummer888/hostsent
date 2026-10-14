@@ -56,7 +56,16 @@ type TabKey = 'pending' | 'approved' | 'rejected'
 
 // 三个旧页面（pending/approved/rejected）合并为一页页签切换；
 // 旧路径由 router redirect 带 ?tab= 落到对应页签，书签不失效。
-const TAB_META: Record<TabKey, { label: string; tableTitle: string; emptyText: string; icon: Component; fetcher: (params: VerificationListQuery) => Promise<{ items: VerificationInfo[]; meta: { total: number } }> }> = {
+const TAB_META: Record<
+  TabKey,
+  {
+    label: string
+    tableTitle: string
+    emptyText: string
+    icon: Component
+    fetcher: (params: VerificationListQuery) => Promise<{ items: VerificationInfo[]; meta: { total: number } }>
+  }
+> = {
   pending: {
     label: '实名认证待审核',
     tableTitle: '待审核申请',

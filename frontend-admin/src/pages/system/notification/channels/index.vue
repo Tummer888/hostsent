@@ -126,11 +126,13 @@
           <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '测试发送', value: 'test' },
-                { content: '编辑', value: 'edit', hidden: () => !canManage },
-                { content: '详情', value: 'detail' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '测试发送', value: 'test' },
+                  { content: '编辑', value: 'edit', hidden: () => !canManage },
+                  { content: '详情', value: 'detail' },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
@@ -169,7 +171,11 @@
       <t-form ref="formRef" label-align="top" :data="form" :rules="rules" @submit.prevent>
         <div class="form-grid">
           <t-form-item label="渠道编码" name="channel_code">
-            <t-input v-model="form.channel_code" :disabled="!!editingId" placeholder="唯一编码，如 mail_main / sms_main" />
+            <t-input
+              v-model="form.channel_code"
+              :disabled="!!editingId"
+              placeholder="唯一编码，如 mail_main / sms_main"
+            />
           </t-form-item>
           <t-form-item label="渠道名称" name="name">
             <t-input v-model="form.name" placeholder="用于后台展示，如 主站 SMTP" />
@@ -223,7 +229,13 @@
             <t-input-number v-model="form.weight" :min="0" theme="column" placeholder="选填" />
           </t-form-item>
           <t-form-item label="启用场景" name="scenes">
-            <t-select v-model="form.scenes" multiple clearable :options="channelSceneOptions" placeholder="不选=全部场景" />
+            <t-select
+              v-model="form.scenes"
+              multiple
+              clearable
+              :options="channelSceneOptions"
+              placeholder="不选=全部场景"
+            />
           </t-form-item>
         </div>
 
@@ -250,13 +262,23 @@
       @close="testVisible = false"
     >
       <div v-if="testRow" class="test-body">
-        <p class="field-help">渠道：<b>{{ testRow.name }}</b>（{{ testRow.type_name || testRow.type }}）</p>
+        <p class="field-help">
+          渠道：<b>{{ testRow.name }}</b
+          >（{{ testRow.type_name || testRow.type }}）
+        </p>
         <t-form label-align="top" @submit.prevent>
           <t-form-item :label="testRow.category === 'mail' ? '接收邮箱' : '接收手机号'">
-            <t-input v-model="testTarget" :placeholder="testRow.category === 'mail' ? 'test@example.com' : '13800138000'" />
+            <t-input
+              v-model="testTarget"
+              :placeholder="testRow.category === 'mail' ? 'test@example.com' : '13800138000'"
+            />
           </t-form-item>
           <t-form-item label="发送内容">
-            <t-textarea v-model="testContent" :autosize="{ minRows: 3, maxRows: 5 }" placeholder="留空则发送默认测试文案" />
+            <t-textarea
+              v-model="testContent"
+              :autosize="{ minRows: 3, maxRows: 5 }"
+              placeholder="留空则发送默认测试文案"
+            />
           </t-form-item>
         </t-form>
       </div>
@@ -304,7 +326,13 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import { AddIcon, MailIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
-import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import {
+  MessagePlugin,
+  type FormInstanceFunctions,
+  type FormRule,
+  type PageInfo,
+  type PrimaryTableCol,
+} from 'tdesign-vue-next'
 
 import {
   createNotifyChannel,
@@ -369,7 +397,13 @@ const columns: PrimaryTableCol<NotifyChannelInfo>[] = [
   { colKey: 'health_status', title: '健康状态', minWidth: 130 },
   { colKey: 'last_check_at', title: '最后检查', width: 160 },
   { colKey: 'status', title: '启用', width: 80, align: 'center' as const },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 200, fixed: 'right' as const, align: 'center' as const },
+  {
+    colKey: 'action',
+    title: '操作',
+    width: isMobile.value ? 70 : 200,
+    fixed: 'right' as const,
+    align: 'center' as const,
+  },
 ]
 
 // 类型下拉按当前 Tab 的 category 过滤：邮件 Tab 不出现短信服务商。
@@ -666,7 +700,7 @@ function credentialLabel(key: string): string {
   return found ? found.label : key
 }
 
-function handleMobileAction(value: string | number | Record<string, any>, row: NotifyChannelInfo) {
+function handleMobileAction(value: string | number | Record<string, unknown>, row: NotifyChannelInfo) {
   const action =
     typeof value === 'string' || typeof value === 'number'
       ? String(value)

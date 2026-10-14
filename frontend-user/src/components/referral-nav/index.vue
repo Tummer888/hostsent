@@ -58,7 +58,9 @@ function isActive(path: string): boolean {
   color: #475569;
   font-size: 13.5px;
   cursor: pointer;
-  transition: color 0.15s ease, background-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .referral-nav__item:hover {

@@ -1,7 +1,7 @@
 <template>
   <div class="admin-login-card" role="region" aria-labelledby="login-heading">
     <div class="admin-login-card__header">
-      <h2 class="admin-login-card__title" id="login-heading">管理员登录</h2>
+      <h2 id="login-heading" class="admin-login-card__title">管理员登录</h2>
       <p class="admin-login-card__subtitle">
         欢迎回来，使用管理员账号登录 <span class="accent-word">{{ brandStore.name }}</span> 管理平台。
       </p>
@@ -9,10 +9,10 @@
 
     <div
       v-if="hasErrorSummary"
+      ref="errorSummaryRef"
       class="error-summary"
       role="alert"
       tabindex="-1"
-      ref="errorSummaryRef"
       aria-labelledby="error-summary-title"
     >
       <div class="error-summary__head">
@@ -39,12 +39,7 @@
       novalidate
       @submit="onSubmit"
     >
-      <t-form-item
-        id="field-username"
-        label="用户名（账号）"
-        name="username"
-        for="input-username"
-      >
+      <t-form-item id="field-username" label="用户名（账号）" name="username" for="input-username">
         <t-input
           id="input-username"
           v-model="formData.username"
@@ -60,12 +55,7 @@
         </t-input>
       </t-form-item>
 
-      <t-form-item
-        id="field-password"
-        label="登录密码"
-        name="password"
-        for="input-password"
-      >
+      <t-form-item id="field-password" label="登录密码" name="password" for="input-password">
         <t-input
           id="input-password"
           v-model="formData.password"
@@ -147,7 +137,7 @@
         class="submit-btn"
         :aria-busy="loading"
       >
-        <template #icon v-if="notLoading">
+        <template v-if="notLoading" #icon>
           <LoginIcon aria-hidden="true" />
         </template>
         {{ buttonText }}
@@ -545,7 +535,9 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: color var(--hs-duration-fast), background-color var(--hs-duration-fast);
+  transition:
+    color var(--hs-duration-fast),
+    background-color var(--hs-duration-fast);
 }
 
 .icon-btn:hover,
@@ -610,7 +602,10 @@ onMounted(async () => {
   border: 0;
   color: #ffffff;
   border-radius: var(--hs-radius-md);
-  transition: background-color var(--hs-duration-fast), transform var(--hs-duration-fast), box-shadow var(--hs-duration-fast);
+  transition:
+    background-color var(--hs-duration-fast),
+    transform var(--hs-duration-fast),
+    box-shadow var(--hs-duration-fast);
   box-shadow: 0 4px 12px rgba(var(--color-primary-rgb), 0.22);
 }
 

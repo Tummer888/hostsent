@@ -79,10 +79,7 @@
       <section class="settings-section">
         <div class="settings-row">
           <span>色弱模式</span>
-          <t-switch
-            :value="settings.colorWeak"
-            @change="(v: unknown) => settings.update({ colorWeak: Boolean(v) })"
-          />
+          <t-switch :value="settings.colorWeak" @change="(v: unknown) => settings.update({ colorWeak: Boolean(v) })" />
         </div>
       </section>
 
@@ -137,7 +134,7 @@ import { AddIcon, CheckIcon, RotateIcon } from 'tdesign-icons-vue-next'
 
 import { useSettingsStore } from '@/store/modules/settings'
 import type { ColorScheme, FirstMenuClickMode } from '@/store/modules/settings'
-import { DEFAULT_THEME_COLOR, PRESET_THEME_COLORS, normalizeHex } from '@/utils/theme'
+import { PRESET_THEME_COLORS, normalizeHex } from '@/utils/theme'
 
 defineOptions({ name: 'SettingsPanel' })
 
@@ -239,7 +236,9 @@ function setColor(hex: string) {
   justify-content: center;
   color: #ffffff;
   padding: 0;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .swatch:hover {

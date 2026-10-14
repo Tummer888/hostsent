@@ -39,22 +39,13 @@
           <span class="cell-muted">{{ row.title_tpl || '—' }}</span>
         </template>
         <template #inbox_on="{ row }">
-          <t-switch
-            :value="row.inbox_on"
-            @change="(val: boolean) => handleToggle(row, 'inbox_on', val)"
-          />
+          <t-switch :value="row.inbox_on" @change="(val: boolean) => handleToggle(row, 'inbox_on', val)" />
         </template>
         <template #mail_on="{ row }">
-          <t-switch
-            :value="row.mail_on"
-            @change="(val: boolean) => handleToggle(row, 'mail_on', val)"
-          />
+          <t-switch :value="row.mail_on" @change="(val: boolean) => handleToggle(row, 'mail_on', val)" />
         </template>
         <template #sms_on="{ row }">
-          <t-switch
-            :value="row.sms_on"
-            @change="(val: boolean) => handleToggle(row, 'sms_on', val)"
-          />
+          <t-switch :value="row.sms_on" @change="(val: boolean) => handleToggle(row, 'sms_on', val)" />
         </template>
         <template #format="{ row }">
           <div class="price-cell">
@@ -71,12 +62,10 @@
           <span class="time-text">{{ formatTime(row.updated_at) }}</span>
         </template>
         <template #action="{ row }">
-<div class="action-cell">
+          <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '编辑', value: 'edit', theme: 'default' },
-              ])"
+              :options="buildMobileActionOptions([{ content: '编辑', value: 'edit', theme: 'default' }])"
               @select="(value) => handleMobileAction(value, row)"
             />
           </div>
@@ -104,11 +93,7 @@
         </div>
         <t-form label-align="top" :data="form" @submit.prevent>
           <t-form-item label="标题模板" name="title_tpl">
-            <t-input
-              v-model="form.title_tpl"
-              placeholder="支持变量占位，如 {order_no}"
-              :maxlength="200"
-            />
+            <t-input v-model="form.title_tpl" placeholder="支持变量占位，如 {order_no}" :maxlength="200" />
           </t-form-item>
           <t-form-item label="正文模板" name="content_tpl">
             <t-textarea
@@ -160,12 +145,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { RefreshIcon, SettingIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 
-import {
-  getSmsTemplates,
-  getTemplates,
-  updateTemplate,
-  type NotificationTemplateItem,
-} from '@/api/notification'
+import { getSmsTemplates, getTemplates, updateTemplate, type NotificationTemplateItem } from '@/api/notification'
 import MobileAction from '@/components/mobile-action/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
@@ -226,7 +206,14 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'format', title: '格式 / 模板', width: 140, cell: 'format' },
   { colKey: 'status', title: '状态', width: 90, cell: 'status' },
   { colKey: 'updated_at', title: '更新时间', width: 160 },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 100, fixed: 'right', align: 'center', cell: 'action' },
+  {
+    colKey: 'action',
+    title: '操作',
+    width: isMobile.value ? 70 : 100,
+    fixed: 'right',
+    align: 'center',
+    cell: 'action',
+  },
 ]
 
 async function loadData() {
@@ -317,11 +304,7 @@ async function handleSave() {
 }
 
 // —— 行内开关切换 ——
-async function handleToggle(
-  row: NotificationTemplateItem,
-  field: 'inbox_on' | 'mail_on' | 'sms_on',
-  value: boolean,
-) {
+async function handleToggle(row: NotificationTemplateItem, field: 'inbox_on' | 'mail_on' | 'sms_on', value: boolean) {
   try {
     await updateTemplate(row.id, { [field]: value })
     row[field] = value
@@ -336,8 +319,11 @@ onMounted(async () => {
 })
 
 // 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: NotificationTemplateItem) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: NotificationTemplateItem) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'edit':
       openEdit(row)

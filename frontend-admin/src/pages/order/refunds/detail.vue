@@ -17,17 +17,63 @@
           刷新
         </t-button>
         <t-button variant="outline" @click="goBack">返回列表</t-button>
-        <t-button v-if="refund?.status === 'pending'" theme="primary" @click="openAuditDialog('approve')">通过</t-button>
-        <t-button v-if="refund?.status === 'pending'" theme="danger" @click="openAuditDialog('reject')">驳回</t-button>
+        <t-button v-if="refund?.status === 'pending'" theme="primary" @click="openAuditDialog('approve')">
+          <template #icon>
+            <CheckCircleIcon aria-hidden="true" />
+          </template>
+          通过
+        </t-button>
+        <t-button
+          v-if="refund?.status === 'pending'"
+          variant="outline"
+          theme="danger"
+          @click="openAuditDialog('reject')"
+        >
+          <template #icon>
+            <CloseCircleIcon aria-hidden="true" />
+          </template>
+          驳回
+        </t-button>
       </t-space>
     </header>
+
+    <!-- 审核弹窗：备注会写入退款单留存（此前恒传空对象，审核依据无处记录） -->
+    <t-dialog
+      v-model:visible="auditDialogVisible"
+      :header="auditForm.action === 'approve' ? '通过退款' : '驳回退款'"
+      width="480px"
+      :confirm-btn="{
+        content: auditForm.action === 'approve' ? '确认通过' : '确认驳回',
+        theme: auditForm.action === 'approve' ? 'primary' : 'danger',
+      }"
+      :cancel-btn="{ content: '再想想' }"
+      @confirm="handleAudit"
+      @close="auditDialogVisible = false"
+    >
+      <t-form label-align="top" :data="auditForm" @submit.prevent>
+        <t-form-item v-if="refund" label="退款单">
+          <span class="cell-strong">{{ refund.refund_no }} · ¥{{ formatPrice(refund.amount) }}</span>
+        </t-form-item>
+        <t-form-item label="审核备注（选填）" name="remark">
+          <t-textarea
+            v-model="auditForm.remark"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+            :placeholder="
+              auditForm.action === 'approve' ? '如：已与客户确认，同意退款' : '如：不符合退款条件，活动商品不退'
+            "
+          />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
 
     <section class="table-card surface-card">
       <div class="tabs-section">
         <t-descriptions v-if="refund" :column="2" bordered size="medium" class="detail-desc">
           <t-descriptions-item label="退款单号">{{ refund.refund_no }}</t-descriptions-item>
           <t-descriptions-item label="关联订单">
-            <t-link theme="primary" hover="color" @click="openOrder">{{ refund.order_no || `#${refund.order_id}` }}</t-link>
+            <t-link theme="primary" hover="color" @click="openOrder">{{
+              refund.order_no || `#${refund.order_id}`
+            }}</t-link>
           </t-descriptions-item>
           <t-descriptions-item label="用户 ID">{{ refund.user_id }}</t-descriptions-item>
           <t-descriptions-item label="退款去向">
@@ -39,7 +85,9 @@
             <span class="price-main">¥{{ formatPrice(refund.amount) }}</span>
           </t-descriptions-item>
           <t-descriptions-item label="渠道扣点">
-            <span class="price-sub">{{ refund.refund_mode === 'channel' ? `¥${formatPrice(refund.fee_amount)}` : '—' }}</span>
+            <span class="price-sub">{{
+              refund.refund_mode === 'channel' ? `¥${formatPrice(refund.fee_amount)}` : '—'
+            }}</span>
           </t-descriptions-item>
           <t-descriptions-item label="财务净额">
             <span class="price-sub">
@@ -78,11 +126,11 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { MoneyIcon, RefreshIcon } from 'tdesign-icons-vue-next'
-import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
+import { CheckCircleIcon, CloseCircleIcon, MoneyIcon, RefreshIcon } from 'tdesign-icons-vue-next'
+import { MessagePlugin } from 'tdesign-vue-next'
 
 import { approveRefund, getRefundDetail, rejectRefund } from '@/api/order'
 import {
@@ -130,30 +178,31 @@ function openOrder() {
 function openAuditDialog(action: 'approve' | 'reject') {
   const target = refund.value
   if (!target) return
-  const isApprove = action === 'approve'
-  const dialog = DialogPlugin.confirm({
-    header: isApprove ? '通过退款' : '驳回退款',
-    body: isApprove
-      ? `确认通过退款单「${target.refund_no}」，退款金额 ¥${formatPrice(target.amount)} 吗？`
-      : `确认驳回退款单「${target.refund_no}」吗？`,
-    confirmBtn: { content: isApprove ? '确认通过' : '确认驳回', theme: isApprove ? 'success' : 'danger' },
-    cancelBtn: { content: '再想想' },
-    onConfirm: async () => {
-      try {
-        if (isApprove) {
-          await approveRefund(target.id, {})
-        } else {
-          await rejectRefund(target.id, {})
-        }
-        MessagePlugin.success(isApprove ? '退款已通过' : '退款已驳回')
-        dialog.destroy()
-        loadDetail()
-      } catch (error) {
-        MessagePlugin.error((error as Error).message || '操作失败')
-      }
-    },
-    onClose: () => dialog.destroy(),
-  })
+  auditForm.action = action
+  auditForm.remark = ''
+  auditDialogVisible.value = true
+}
+
+const auditDialogVisible = ref(false)
+const auditForm = reactive<{ action: 'approve' | 'reject'; remark: string }>({ action: 'approve', remark: '' })
+
+// 审核备注写入退款单（后端 RefundApproveRequest.remark 早已支持，此前前端恒传空对象）。
+async function handleAudit() {
+  const target = refund.value
+  if (!target) return
+  const isApprove = auditForm.action === 'approve'
+  try {
+    if (isApprove) {
+      await approveRefund(target.id, { remark: auditForm.remark })
+    } else {
+      await rejectRefund(target.id, { remark: auditForm.remark })
+    }
+    MessagePlugin.success(isApprove ? '退款已通过' : '退款已驳回')
+    auditDialogVisible.value = false
+    loadDetail()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '操作失败')
+  }
 }
 
 onMounted(loadDetail)

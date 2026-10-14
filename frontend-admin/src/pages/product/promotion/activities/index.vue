@@ -118,17 +118,21 @@
           <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '编辑', value: 'edit', theme: 'default' },
-                { content: '停用', value: 'toggle', hidden: () => row.status !== 'active', theme: 'warning' },
-                { content: '启用', value: 'toggle', hidden: () => row.status === 'active', theme: 'success' },
-                { content: '删除', value: 'delete', theme: 'error' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '编辑', value: 'edit', theme: 'default' },
+                  { content: '停用', value: 'toggle', hidden: () => row.status !== 'active', theme: 'warning' },
+                  { content: '启用', value: 'toggle', hidden: () => row.status === 'active', theme: 'success' },
+                  { content: '删除', value: 'delete', theme: 'error' },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
               <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
-              <t-link v-if="row.status === 'active'" theme="warning" hover="color" @click="handleToggleStatus(row)">停用</t-link>
+              <t-link v-if="row.status === 'active'" theme="warning" hover="color" @click="handleToggleStatus(row)"
+                >停用</t-link
+              >
               <t-link v-else theme="primary" hover="color" @click="handleToggleStatus(row)">启用</t-link>
               <t-link theme="danger" hover="color" @click="handleDelete(row)">删除</t-link>
             </template>
@@ -597,9 +601,11 @@ function handleDelete(row: FlashDiscountInfo) {
   })
 }
 
-function handleMobileAction(value: string | number | Record<string, any>, row: FlashDiscountInfo) {
+function handleMobileAction(value: string | number | Record<string, unknown>, row: FlashDiscountInfo) {
   const action =
-    typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'edit':
       openEdit(row)

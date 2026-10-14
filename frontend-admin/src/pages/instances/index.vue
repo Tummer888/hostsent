@@ -21,12 +21,7 @@
     </header>
 
     <section class="stat-grid">
-      <div
-        v-for="stat in metricCards"
-        :key="stat.key"
-        class="stat-card"
-        :class="`stat-card--${stat.variant}`"
-      >
+      <div v-for="stat in metricCards" :key="stat.key" class="stat-card" :class="`stat-card--${stat.variant}`">
         <span class="stat-card__icon">
           <component :is="stat.icon" size="22" aria-hidden="true" />
         </span>
@@ -181,7 +176,12 @@
 
         <template #provider_name="{ row }">
           <div class="provider-cell">
-            <t-tag :theme="row.source_mode === 'upstream' ? 'warning' : 'primary'" variant="light" size="small" shape="round">
+            <t-tag
+              :theme="row.source_mode === 'upstream' ? 'warning' : 'primary'"
+              variant="light"
+              size="small"
+              shape="round"
+            >
               {{ row.source_mode === 'upstream' ? '上游' : '自营' }}
             </t-tag>
             <span class="provider-name">{{ row.provider_name || '—' }}</span>
@@ -206,18 +206,59 @@
           <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '详情', value: 'detail' },
-                { content: '开机', value: 'power-on', hidden: () => !has('instance:action'), disabled: () => row.power_status === 'on' || poweringId === row.id },
-                { content: '关机', value: 'power-off', hidden: () => !has('instance:action'), disabled: () => row.power_status === 'off' || poweringId === row.id },
-                { content: '重启', value: 'power-reboot', hidden: () => !has('instance:action'), disabled: () => row.power_status !== 'on' || poweringId === row.id },
-                { content: '控制台', value: 'vnc', hidden: () => !has('instance:console'), disabled: () => row.status !== 'running' },
-                { content: '重新开通', value: 'provision-retry', hidden: () => !row.pending, disabled: () => retryingId === row.id },
-                { content: '同步刷新', value: 'sync', hidden: () => !has('instance:action') || !!row.pending, disabled: () => syncingId === row.id },
-                { content: row.lifecycle_stage === 'suspended' ? '恢复服务' : '暂停服务', value: 'toggle-suspend', hidden: () => !has('instance:action') },
-                { content: '备注', value: 'remark', hidden: () => !has('instance:action') },
-                { content: '销毁实例', value: 'destroy', theme: 'error', hidden: () => !canDestroy || !instanceDestroyable(row) },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '详情', value: 'detail' },
+                  {
+                    content: '开机',
+                    value: 'power-on',
+                    hidden: () => !has('instance:action'),
+                    disabled: () => row.power_status === 'on' || poweringId === row.id,
+                  },
+                  {
+                    content: '关机',
+                    value: 'power-off',
+                    hidden: () => !has('instance:action'),
+                    disabled: () => row.power_status === 'off' || poweringId === row.id,
+                  },
+                  {
+                    content: '重启',
+                    value: 'power-reboot',
+                    hidden: () => !has('instance:action'),
+                    disabled: () => row.power_status !== 'on' || poweringId === row.id,
+                  },
+                  {
+                    content: '控制台',
+                    value: 'vnc',
+                    hidden: () => !has('instance:console'),
+                    disabled: () => row.status !== 'running',
+                  },
+                  {
+                    content: '重新开通',
+                    value: 'provision-retry',
+                    hidden: () => !row.pending,
+                    disabled: () => retryingId === row.id,
+                  },
+                  {
+                    content: '同步刷新',
+                    value: 'sync',
+                    hidden: () => !has('instance:action') || !!row.pending,
+                    disabled: () => syncingId === row.id,
+                  },
+                  {
+                    content: row.lifecycle_stage === 'suspended' ? '恢复服务' : '暂停服务',
+                    value: 'toggle-suspend',
+                    hidden: () => !has('instance:action'),
+                  },
+                  { content: '备注', value: 'remark', hidden: () => !has('instance:action') },
+                  {
+                    content: '销毁实例',
+                    value: 'destroy',
+                    theme: 'error',
+                    hidden: () => !canDestroy || !instanceDestroyable(row),
+                  },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
@@ -234,98 +275,90 @@
                 >
                   {{ retryingId === row.id ? '提交中…' : '重新开通' }}
                 </t-link>
-                <t-link v-permission="'instance:action'" theme="primary" hover="color" @click="openRemarkDialog(row)">备注</t-link>
+                <t-link v-permission="'instance:action'" theme="primary" hover="color" @click="openRemarkDialog(row)"
+                  >备注</t-link
+                >
               </template>
               <template v-else>
-              <t-link
-                v-permission="'instance:action'"
-                theme="primary"
-                hover="color"
-                :disabled="row.power_status === 'on' || poweringId === row.id"
-                @click="handlePower(row, 'on')"
-              >
-                开机
-              </t-link>
-              <t-link
-                v-permission="'instance:action'"
-                theme="warning"
-                hover="color"
-                :disabled="row.power_status === 'off' || poweringId === row.id"
-                @click="handlePower(row, 'off')"
-              >
-                关机
-              </t-link>
-              <t-link
-                v-permission="'instance:action'"
-                theme="primary"
-                hover="color"
-                :disabled="row.power_status !== 'on' || poweringId === row.id"
-                @click="handlePower(row, 'reboot')"
-              >
-                重启
-              </t-link>
-              <t-link
-                v-permission="'instance:console'"
-                theme="primary"
-                hover="color"
-                :disabled="row.status !== 'running'"
-                @click="handleVnc(row)"
-              >
-                控制台
-              </t-link>
-              <!-- t-dropdown 根节点是 fragment，指令无法作用于组件自身，故用 span 包裹 -->
-              <span v-permission="'instance:action'">
-                <t-dropdown trigger="click">
-                  <t-link theme="primary" hover="color">更多</t-link>
-                  <t-dropdown-menu>
-                    <t-dropdown-item :disabled="syncingId === row.id" @click="handleSync(row)">
-                      {{ syncingId === row.id ? '同步中…' : '同步刷新' }}
-                    </t-dropdown-item>
-                    <!-- 硬电源（断电级）：软电源在行内已有，这里只补危险动作，同样走二次确认 -->
-                    <t-dropdown-item
-                      :disabled="poweringId === row.id"
-                      @click="handlePower(row, 'hard_off')"
-                    >
-                      强制关机
-                    </t-dropdown-item>
-                    <t-dropdown-item
-                      :disabled="poweringId === row.id"
-                      @click="handlePower(row, 'hard_reboot')"
-                    >
-                      强制重启
-                    </t-dropdown-item>
-                    <!-- 暂停/恢复（T5.5）：缺能力时置灰，避免点出一个必定失败的动作 -->
-                    <t-dropdown-item
-                      v-if="row.lifecycle_stage === 'suspended'"
-                      :disabled="actioningId === row.id"
-                      @click="handleUnsuspend(row)"
-                    >
-                      恢复服务
-                    </t-dropdown-item>
-                    <t-dropdown-item
-                      v-else
-                      :disabled="actioningId === row.id"
-                      @click="handleSuspend(row)"
-                    >
-                      暂停服务
-                    </t-dropdown-item>
-                    <t-dropdown-item @click="openRemarkDialog(row)">备注</t-dropdown-item>
-                    <!--
+                <t-link
+                  v-permission="'instance:action'"
+                  theme="primary"
+                  hover="color"
+                  :disabled="row.power_status === 'on' || poweringId === row.id"
+                  @click="handlePower(row, 'on')"
+                >
+                  开机
+                </t-link>
+                <t-link
+                  v-permission="'instance:action'"
+                  theme="warning"
+                  hover="color"
+                  :disabled="row.power_status === 'off' || poweringId === row.id"
+                  @click="handlePower(row, 'off')"
+                >
+                  关机
+                </t-link>
+                <t-link
+                  v-permission="'instance:action'"
+                  theme="primary"
+                  hover="color"
+                  :disabled="row.power_status !== 'on' || poweringId === row.id"
+                  @click="handlePower(row, 'reboot')"
+                >
+                  重启
+                </t-link>
+                <t-link
+                  v-permission="'instance:console'"
+                  theme="primary"
+                  hover="color"
+                  :disabled="row.status !== 'running'"
+                  @click="handleVnc(row)"
+                >
+                  控制台
+                </t-link>
+                <!-- t-dropdown 根节点是 fragment，指令无法作用于组件自身，故用 span 包裹 -->
+                <span v-permission="'instance:action'">
+                  <t-dropdown trigger="click">
+                    <t-link theme="primary" hover="color">更多</t-link>
+                    <t-dropdown-menu>
+                      <t-dropdown-item :disabled="syncingId === row.id" @click="handleSync(row)">
+                        {{ syncingId === row.id ? '同步中…' : '同步刷新' }}
+                      </t-dropdown-item>
+                      <!-- 硬电源（断电级）：软电源在行内已有，这里只补危险动作，同样走二次确认 -->
+                      <t-dropdown-item :disabled="poweringId === row.id" @click="handlePower(row, 'hard_off')">
+                        强制关机
+                      </t-dropdown-item>
+                      <t-dropdown-item :disabled="poweringId === row.id" @click="handlePower(row, 'hard_reboot')">
+                        强制重启
+                      </t-dropdown-item>
+                      <!-- 暂停/恢复（T5.5）：缺能力时置灰，避免点出一个必定失败的动作 -->
+                      <t-dropdown-item
+                        v-if="row.lifecycle_stage === 'suspended'"
+                        :disabled="actioningId === row.id"
+                        @click="handleUnsuspend(row)"
+                      >
+                        恢复服务
+                      </t-dropdown-item>
+                      <t-dropdown-item v-else :disabled="actioningId === row.id" @click="handleSuspend(row)">
+                        暂停服务
+                      </t-dropdown-item>
+                      <t-dropdown-item @click="openRemarkDialog(row)">备注</t-dropdown-item>
+                      <!--
                       销毁：行内补齐。此前列表没有任何删除入口（用户实测反馈
                       "没办法删除实例"），只能进详情页销毁；而"清掉一批测试机"
                       恰恰是列表页的高频动作。走与详情页同一套二次确认弹窗
                       （查能力位 + 输入实例标识确认 + 权限码 instance:destroy）。
                     -->
-                    <t-dropdown-item
-                      v-if="canDestroy && instanceDestroyable(row)"
-                      :disabled="actioningId === row.id"
-                      @click="openDestroyDialog(row)"
-                    >
-                      <span class="danger-text">销毁实例</span>
-                    </t-dropdown-item>
-                  </t-dropdown-menu>
-                </t-dropdown>
-              </span>
+                      <t-dropdown-item
+                        v-if="canDestroy && instanceDestroyable(row)"
+                        :disabled="actioningId === row.id"
+                        @click="openDestroyDialog(row)"
+                      >
+                        <span class="danger-text">销毁实例</span>
+                      </t-dropdown-item>
+                    </t-dropdown-menu>
+                  </t-dropdown>
+                </span>
               </template>
             </template>
           </div>
@@ -540,7 +573,6 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import {
-  AppIcon,
   CheckCircleIcon,
   ErrorCircleIcon,
   RefreshIcon,
@@ -570,9 +602,7 @@ import {
   expireStateOptions,
   formatMemory,
   formatTime,
-  instanceStatusLabel,
   instanceStatusOptions,
-  instanceStatusTheme,
   powerActionLabel,
   powerActionTips,
 } from '@/pages/instances/constants'
@@ -782,7 +812,6 @@ function handleMobilePageSizeChange(pageSize: number) {
   mobilePage.pageSize = pageSize
   void applyMobilePage(1, pageSize)
 }
-
 
 function handleSearch() {
   pagination.current = 1
@@ -1139,8 +1168,11 @@ function showBatchResult(label: string, resp: InstanceBatchActionResponse) {
 }
 
 // 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: InstanceItem) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: InstanceItem) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'detail':
       openDetail(row)

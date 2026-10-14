@@ -26,7 +26,12 @@ export interface OsIconInfo {
 // 关键字表：按「更具体的在前」排列，命中即返回。
 // 注意 server/desktop 版本共用一个家族（图标按厂商给，不按发行版分支）。
 const OS_FAMILIES: { key: string; label: string; mark: string; patterns: string[] }[] = [
-  { key: 'windows', label: 'Windows', mark: 'W', patterns: ['windows', 'win32', 'win64', 'win-', 'win2', 'winserver', 'windows_server'] },
+  {
+    key: 'windows',
+    label: 'Windows',
+    mark: 'W',
+    patterns: ['windows', 'win32', 'win64', 'win-', 'win2', 'winserver', 'windows_server'],
+  },
   { key: 'macos', label: 'macOS', mark: 'M', patterns: ['macos', 'mac os', 'osx', 'os x', 'darwin'] },
   { key: 'android', label: 'Android', mark: 'A', patterns: ['android'] },
   { key: 'almalinux', label: 'AlmaLinux', mark: 'AL', patterns: ['almalinux', 'alma'] },

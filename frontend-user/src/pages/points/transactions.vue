@@ -16,8 +16,22 @@
 
     <section class="point-panel">
       <div class="filter-bar">
-        <t-select v-model="filter.type" clearable placeholder="全部类型" :options="pointTxTypeOptions" style="width: 150px" @change="handleSearch" />
-        <t-select v-model="filter.direction" clearable placeholder="全部方向" :options="pointDirectionOptions" style="width: 120px" @change="handleSearch" />
+        <t-select
+          v-model="filter.type"
+          clearable
+          placeholder="全部类型"
+          :options="pointTxTypeOptions"
+          style="width: 150px"
+          @change="handleSearch"
+        />
+        <t-select
+          v-model="filter.direction"
+          clearable
+          placeholder="全部方向"
+          :options="pointDirectionOptions"
+          style="width: 120px"
+          @change="handleSearch"
+        />
         <t-button theme="primary" size="small" @click="handleSearch">查询</t-button>
         <t-button variant="outline" size="small" @click="handleReset">重置</t-button>
       </div>

@@ -98,9 +98,7 @@ export function sendVerifyCode(data: {
 export async function getSiteContent(): Promise<Record<string, string>> {
   // 拦截器已把信封拆成 data，但 axios 的类型仍声明为 AxiosResponse，故此处显式断言。
   const data = (await instance.get('/site-content')) as unknown as
-    | { items?: Record<string, string> }
-    | Record<string, string>
-    | null
+    { items?: Record<string, string> } | Record<string, string> | null
   if (!data || typeof data !== 'object') return {}
   // 后端契约是 `data.items`；兼容直接返回键值对的旧形状。
   const items = (data as { items?: Record<string, string> }).items

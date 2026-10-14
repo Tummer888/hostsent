@@ -79,10 +79,7 @@ export function createCaptchaProvider(data: CaptchaProviderSaveRequest): Promise
   return request.post<CaptchaProviderInfo>({ url: '/captcha/providers', data })
 }
 
-export function updateCaptchaProvider(
-  id: number,
-  data: CaptchaProviderSaveRequest,
-): Promise<CaptchaProviderInfo> {
+export function updateCaptchaProvider(id: number, data: CaptchaProviderSaveRequest): Promise<CaptchaProviderInfo> {
   return request.put<CaptchaProviderInfo>({ url: `/captcha/providers/${id}`, data })
 }
 
@@ -146,10 +143,7 @@ export function getCaptchaPolicies(): Promise<CaptchaPolicyInfo[]> {
   return request.get<CaptchaPolicyInfo[]>({ url: '/captcha/policies' })
 }
 
-export function updateCaptchaPolicy(
-  scene: string,
-  data: CaptchaPolicyUpdateRequest,
-): Promise<CaptchaPolicyInfo> {
+export function updateCaptchaPolicy(scene: string, data: CaptchaPolicyUpdateRequest): Promise<CaptchaPolicyInfo> {
   return request.put<CaptchaPolicyInfo>({ url: `/captcha/policies/${scene}`, data })
 }
 

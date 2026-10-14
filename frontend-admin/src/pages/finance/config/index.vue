@@ -7,9 +7,7 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">财务配置</h2>
-          <p class="page-header__desc">
-            只列运行时真正读取的参数；每项标注生效点，保存后对相应接口立即生效
-          </p>
+          <p class="page-header__desc">只列运行时真正读取的参数；每项标注生效点，保存后对相应接口立即生效</p>
         </div>
       </div>
       <t-space size="small">

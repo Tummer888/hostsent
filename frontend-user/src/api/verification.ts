@@ -113,27 +113,27 @@ export interface VerificationAuthorizeResult {
 }
 
 export function getVerificationStatus() {
-  return request.get<any, { data: VerificationStatus }>('/uc/verification')
+  return request.get<unknown, { data: VerificationStatus }>('/uc/verification')
 }
 
 export function submitVerification(data: VerificationSubmitRequest) {
-  return request.post<any, { data: VerificationInfo }>('/uc/verification', data)
+  return request.post<unknown, { data: VerificationInfo }>('/uc/verification', data)
 }
 
 export function getMyVerificationApplications(params?: { page?: number; page_size?: number }) {
-  return request.get<any, { data: { items: VerificationInfo[]; meta: { page: number; page_size: number; total: number } } }>(
-    '/uc/verification/applications',
-    { params },
-  )
+  return request.get<
+    unknown,
+    { data: { items: VerificationInfo[]; meta: { page: number; page_size: number; total: number } } }
+  >('/uc/verification/applications', { params })
 }
 
 export function getMyVerificationDetail(id: number | string) {
-  return request.get<any, { data: VerificationDetail }>(`/uc/verification/applications/${id}`)
+  return request.get<unknown, { data: VerificationDetail }>(`/uc/verification/applications/${id}`)
 }
 
 /** 跳转式核验（支付宝）：拿到认证入口 URL。 */
 export function authorizeVerification(id: number | string) {
-  return request.post<any, { data: VerificationAuthorizeResult }>(`/uc/verification/applications/${id}/authorize`)
+  return request.post<unknown, { data: VerificationAuthorizeResult }>(`/uc/verification/applications/${id}/authorize`)
 }
 
 /**
@@ -146,24 +146,26 @@ export function uploadVerificationDocument(applicationId: number | string, docum
   const form = new FormData()
   form.append('document_type', documentType)
   form.append('file', file)
-  return request.post<any, { data: VerificationDocument }>(`/uc/verification/applications/${applicationId}/documents`, form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+  return request.post<unknown, { data: VerificationDocument }>(
+    `/uc/verification/applications/${applicationId}/documents`,
+    form,
+    {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    },
+  )
 }
 
 /** 下载材料（走鉴权端点，不暴露存储路径）。 */
 export function downloadVerificationDocument(id: number | string, fileName = 'document') {
-  return request
-    .get<Blob>(`/uc/verification/documents/${id}/download`, { responseType: 'blob' })
-    .then((response) => {
-      const blob = (response as unknown as { data: Blob }).data
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = fileName
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
-    })
+  return request.get<Blob>(`/uc/verification/documents/${id}/download`, { responseType: 'blob' }).then((response) => {
+    const blob = (response as unknown as { data: Blob }).data
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = fileName
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  })
 }

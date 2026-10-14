@@ -31,7 +31,6 @@
                 {{ markupLabel(initial?.upstream_markup_type || '', initial?.upstream_markup_value || 0) }}
               </t-descriptions-item>
             </t-descriptions>
-
           </div>
         </template>
       </t-alert>
@@ -55,7 +54,11 @@
             <t-input v-model="form.cover_image" placeholder="选填，官网产品卡与详情页展示用" clearable />
           </t-form-item>
           <t-form-item label="产品描述" class="form-grid__full">
-            <t-textarea v-model="form.description" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="选填；导入时已自动带入上游描述，可在此改写" />
+            <t-textarea
+              v-model="form.description"
+              :autosize="{ minRows: 3, maxRows: 8 }"
+              placeholder="选填；导入时已自动带入上游描述，可在此改写"
+            />
           </t-form-item>
         </div>
 
@@ -64,9 +67,9 @@
           <t-switch v-model="form.spec_passthrough" />
           <span class="clone-tip" style="display: block; margin-top: 6px; line-height: 1.7">
             <b>先说结论：</b>对接财务型上游（魔方财务等）时，开通参数由上游商品自带，
-            系统上架时会<b>自动识别并放行</b>，这个开关<b>通常不需要开</b>。<br>
+            系统上架时会<b>自动识别并放行</b>，这个开关<b>通常不需要开</b>。<br />
             <b>它是什么：</b>上架门禁要求确认「本地规格 → 上游开通参数」的对应关系；开启本开关
-            表示"参数原样转发、无需确认"，用于门禁<b>无法自动判定</b>的少数情况（如上游没下发配置项）。<br>
+            表示"参数原样转发、无需确认"，用于门禁<b>无法自动判定</b>的少数情况（如上游没下发配置项）。<br />
             <b>什么时候该开：</b>该上游商品是整机固定配置，且上架时系统提示需要开启才能上架。
           </span>
         </t-form-item>
@@ -81,7 +84,7 @@
         <div class="cycle-price-block__head">
           <h3 class="card-title">周期价格</h3>
           <span class="cycle-price-block__meta">
-            {{ cycleLoading ? '加载中…' : (cycleError || `共 ${cycleItems.length} 个周期`) }}
+            {{ cycleLoading ? '加载中…' : cycleError || `共 ${cycleItems.length} 个周期` }}
           </span>
         </div>
         <p class="cycle-price-block__hint">
@@ -100,8 +103,17 @@
           <template #cycle="{ row }">
             <div class="cycle-cell">
               <span class="cycle-cell__name">{{ row.cycle_name }}</span>
-              <t-tag v-if="row.source === 'upstream' || row.source === 'markup'" theme="primary" variant="light" size="small" shape="round">上游</t-tag>
-              <t-tag v-else-if="row.source === 'manual'" theme="warning" variant="light" size="small" shape="round">人工</t-tag>
+              <t-tag
+                v-if="row.source === 'upstream' || row.source === 'markup'"
+                theme="primary"
+                variant="light"
+                size="small"
+                shape="round"
+                >上游</t-tag
+              >
+              <t-tag v-else-if="row.source === 'manual'" theme="warning" variant="light" size="small" shape="round"
+                >人工</t-tag
+              >
             </div>
           </template>
           <template #price="{ row }">
@@ -131,7 +143,11 @@
           <t-form-item label="产品名称" name="name" :rules="[{ required: true, message: '产品名称不能为空' }]">
             <t-input v-model="form.name" placeholder="请输入产品名称" clearable />
           </t-form-item>
-          <t-form-item label="SKU 编码" name="code" :rules="[{ required: mode === 'create', message: 'SKU 编码不能为空' }]">
+          <t-form-item
+            label="SKU 编码"
+            name="code"
+            :rules="[{ required: mode === 'create', message: 'SKU 编码不能为空' }]"
+          >
             <t-input
               v-model="form.code"
               placeholder="留空将按产品名自动生成"
@@ -173,7 +189,13 @@
             <span class="form-hint">规格模板自带参考售价时以模板为准，此价用于「仅本地/虚拟商品」。</span>
           </t-form-item>
           <t-form-item label="成本价（元）" name="cost_price">
-            <t-input-number v-model="form.cost_price" :min="0" :precision="2" theme="column" placeholder="请输入成本价" />
+            <t-input-number
+              v-model="form.cost_price"
+              :min="0"
+              :precision="2"
+              theme="column"
+              placeholder="请输入成本价"
+            />
           </t-form-item>
 
           <!--
@@ -234,12 +256,16 @@
         </div>
 
         <t-form-item label="封面图 URL" name="cover_image">
-          <t-input v-model="form.cover_image" placeholder="选填，官网产品卡与详情页展示用，如 /branding/logo.svg" clearable />
+          <t-input
+            v-model="form.cover_image"
+            placeholder="选填，官网产品卡与详情页展示用，如 /branding/logo.svg"
+            clearable
+          />
         </t-form-item>
 
         <div v-if="form.cover_image" class="cover-preview">
           <span class="cover-preview__label">封面预览</span>
-          <img class="cover-preview__img" :src="form.cover_image" alt="封面预览">
+          <img class="cover-preview__img" :src="form.cover_image" alt="封面预览" />
         </div>
 
         <t-form-item label="产品描述" name="description">
@@ -298,9 +324,7 @@
           或重复手填与平台默认冲突。显式列出来，"不填会是什么"一眼可见。
         -->
         <template v-if="catalogDefaults.length">
-          <div class="defaults-hint">
-            平台默认取值（未显式设置时按这些值开通）
-          </div>
+          <div class="defaults-hint">平台默认取值（未显式设置时按这些值开通）</div>
           <div class="defaults-list">
             <div v-for="d in catalogDefaults" :key="d.key" class="defaults-item">
               <span class="defaults-item__label">{{ d.label }}</span>
@@ -328,7 +352,11 @@
           </t-form-item>
 
           <template v-if="specMode === 'template'">
-            <t-alert v-if="!templateRows.length" theme="warning" message="还没有规格模板。请先到「产品管理 → 规格管理 → 规格模板」新建模板并配好平台映射。" />
+            <t-alert
+              v-if="!templateRows.length"
+              theme="warning"
+              message="还没有规格模板。请先到「产品管理 → 规格管理 → 规格模板」新建模板并配好平台映射。"
+            />
             <div v-else class="tpl-list">
               <div class="tpl-list__head">
                 <span>勾选要生成的规格；每行可直接改 CPU/内存/系统盘/带宽与区域/节点/存储/镜像。</span>
@@ -345,7 +373,8 @@
               -->
               <t-alert v-if="selectedTemplateCount > 1" theme="info" class="tpl-multi-tip">
                 <template #message>
-                  已选 <b>{{ selectedTemplateCount }}</b> 个档位 → 将生成 <b>{{ selectedTemplateCount }}</b> 个 SKU（每个档位 1 个）。
+                  已选 <b>{{ selectedTemplateCount }}</b> 个档位 → 将生成 <b>{{ selectedTemplateCount }}</b> 个
+                  SKU（每个档位 1 个）。
                   客户可选配置项按<b>参数名跨档位合并</b>：如同一参数在多个档位都开放，客户可选取值取并集；
                   各档位的<b>基线值</b>（CPU/内存/盘）仍按各自档位下发，互不影响。
                 </template>
@@ -354,11 +383,9 @@
               <div class="tpl-filter">
                 <span class="tpl-filter__label">机型</span>
                 <t-radio-group v-model="machineKindFilter" variant="default-filled" size="small">
-                  <t-radio-button
-                    v-for="opt in machineKindFilterOptions"
-                    :key="opt.value"
-                    :value="opt.value"
-                  >{{ opt.label }}</t-radio-button>
+                  <t-radio-button v-for="opt in machineKindFilterOptions" :key="opt.value" :value="opt.value">{{
+                    opt.label
+                  }}</t-radio-button>
                 </t-radio-group>
               </div>
               <t-alert
@@ -374,116 +401,149 @@
                     variant="light"
                     size="small"
                     shape="round"
-                  >{{ grp.label }}</t-tag>
+                    >{{ grp.label }}</t-tag
+                  >
                   <span class="tpl-group__desc">{{ machineKindGroupDesc(grp.kind) }}</span>
                 </div>
                 <div v-for="row in grp.rows" :key="row.tpl.id" class="tpl-row" :class="{ 'tpl-row--on': row.selected }">
-                <div class="tpl-row__head">
-                  <t-checkbox v-model="row.selected" @change="onRowToggle(row)">
-                    <span class="tpl-row__name">{{ row.tpl.name }}</span>
-                  </t-checkbox>
-                  <span class="tpl-row__meta">
-                    {{ row.tpl.provider_type || '未绑定平台' }}
-                    <template v-if="row.tpl.platform_params"> · 已配平台映射</template>
-                    <template v-else> · <em class="tpl-row__warn">模板缺少平台映射</em></template>
-                    <template v-if="row.options.length"> · {{ row.options.length }} 个可选参数</template>
-                  </span>
-                </div>
-                <div v-if="row.selected" class="tpl-row__body">
-                  <t-alert
-                    v-if="isNatRow(row)"
-                    theme="info"
-                    class="tpl-row__notice"
-                    message="NAT 机型不分配独立 IP，客户通过节点转发地址（IP:端口）访问；如需客户自己配置端口映射，请确认平台侧已开启 NAT 转发。"
-                  />
-                  <div class="tpl-row__fields">
-                    <label class="tpl-field">CPU（核）<t-input-number v-model="row.cpu" :min="1" theme="column" /></label>
-                    <label class="tpl-field">内存（GB）<t-input-number v-model="row.memoryGb" :min="1" theme="column" /></label>
-                    <label class="tpl-field">系统盘（GB）<t-input-number v-model="row.disk" :min="1" theme="column" /></label>
-                    <label class="tpl-field">带宽（Mbps）<t-input-number v-model="row.bandwidth" :min="0" theme="column" /></label>
-                    <label class="tpl-field">销售价（元）<t-input-number v-model="row.price" :min="0" :precision="2" theme="column" /></label>
+                  <div class="tpl-row__head">
+                    <t-checkbox v-model="row.selected" @change="onRowToggle(row)">
+                      <span class="tpl-row__name">{{ row.tpl.name }}</span>
+                    </t-checkbox>
+                    <span class="tpl-row__meta">
+                      {{ row.tpl.provider_type || '未绑定平台' }}
+                      <template v-if="row.tpl.platform_params"> · 已配平台映射</template>
+                      <template v-else> · <em class="tpl-row__warn">模板缺少平台映射</em></template>
+                      <template v-if="row.options.length"> · {{ row.options.length }} 个可选参数</template>
+                    </span>
                   </div>
-                  <div class="tpl-row__fields">
-                    <label class="tpl-field">区域 area<t-select v-model="row.area" clearable placeholder="沿用模板" :options="areaOptions" /></label>
-                    <label class="tpl-field">节点 node<t-select v-model="row.node" clearable placeholder="沿用模板" :options="nodeOptionsFor(row.area)" /></label>
-                    <label class="tpl-field">存储 store<t-select v-model="row.store" clearable placeholder="沿用模板" :options="storeOptionsFor(row.area)" /></label>
-                    <label class="tpl-field">
-                      镜像 os（可多选，开放给客户自选）
-                      <!--
+                  <div v-if="row.selected" class="tpl-row__body">
+                    <t-alert
+                      v-if="isNatRow(row)"
+                      theme="info"
+                      class="tpl-row__notice"
+                      message="NAT 机型不分配独立 IP，客户通过节点转发地址（IP:端口）访问；如需客户自己配置端口映射，请确认平台侧已开启 NAT 转发。"
+                    />
+                    <div class="tpl-row__fields">
+                      <label class="tpl-field"
+                        >CPU（核）<t-input-number v-model="row.cpu" :min="1" theme="column"
+                      /></label>
+                      <label class="tpl-field"
+                        >内存（GB）<t-input-number v-model="row.memoryGb" :min="1" theme="column"
+                      /></label>
+                      <label class="tpl-field"
+                        >系统盘（GB）<t-input-number v-model="row.disk" :min="1" theme="column"
+                      /></label>
+                      <label class="tpl-field"
+                        >带宽（Mbps）<t-input-number v-model="row.bandwidth" :min="0" theme="column"
+                      /></label>
+                      <label class="tpl-field"
+                        >销售价（元）<t-input-number v-model="row.price" :min="0" :precision="2" theme="column"
+                      /></label>
+                    </div>
+                    <div class="tpl-row__fields">
+                      <label class="tpl-field"
+                        >区域 area<t-select v-model="row.area" clearable placeholder="沿用模板" :options="areaOptions"
+                      /></label>
+                      <label class="tpl-field"
+                        >节点 node<t-select
+                          v-model="row.node"
+                          clearable
+                          placeholder="沿用模板"
+                          :options="nodeOptionsFor(row.area)"
+                      /></label>
+                      <label class="tpl-field"
+                        >存储 store<t-select
+                          v-model="row.store"
+                          clearable
+                          placeholder="沿用模板"
+                          :options="storeOptionsFor(row.area)"
+                      /></label>
+                      <label class="tpl-field">
+                        镜像 os（可多选，开放给客户自选）
+                        <!--
                         多选：平台镜像按系统家族分组（Ubuntu/Windows/CentOS），一个规格通常要开放
                         多个版本供客户选。单选只能开一个版本，客户侧看不到其他系统。
                         多选时第一个作为默认开通镜像（客户未选时用它）。
                       -->
-                      <t-select
-                        v-model="row.osList"
-                        multiple
-                        clearable
-                        filterable
-                        placeholder="沿用模板 / 可多选"
-                        :options="imageOptions"
-                        :tag-props="{ maxWidth: '160px' }"
-                        @change="onRowOsChange(row)"
-                      />
-                      <span v-if="row.osList.length > 1" class="tpl-field__hint">
-                        默认开通用「{{ imageLabelOf(row.osList[0]) }}」，客户可选其余 {{ row.osList.length - 1 }} 个
-                      </span>
-                    </label>
-                  </div>
-                  <!-- 客户可选配置项：勾选=开放给客户自选；不勾=只用基线值 -->
-                  <div v-if="row.options.length" class="tpl-options">
-                    <div class="tpl-options__head">
-                      客户可选配置项（勾选即开放，可设加价；不勾选只按基线值开通）
+                        <t-select
+                          v-model="row.osList"
+                          multiple
+                          clearable
+                          filterable
+                          placeholder="沿用模板 / 可多选"
+                          :options="imageOptions"
+                          :tag-props="{ maxWidth: '160px' }"
+                          @change="onRowOsChange(row)"
+                        />
+                        <span v-if="row.osList.length > 1" class="tpl-field__hint">
+                          默认开通用「{{ imageLabelOf(row.osList[0]) }}」，客户可选其余 {{ row.osList.length - 1 }} 个
+                        </span>
+                      </label>
                     </div>
-                    <div v-for="opt in row.options" :key="opt.key" class="tpl-opt">
-                      <t-checkbox v-model="opt.enabled">
-                        <span class="tpl-opt__name">{{ platformFieldLabel(opt.key) }}</span>
-                        <code class="tpl-opt__key">{{ opt.key }}</code>
-                      </t-checkbox>
-                      <template v-if="opt.enabled">
-                        <template v-if="opt.isRange">
-                          <label class="tpl-field tpl-field--inline">
-                            范围
-                            <t-input-number v-model="opt.rangeMin" :min="0" theme="column" />
-                            ~
-                            <t-input-number v-model="opt.rangeMax" :min="0" theme="column" />
-                          </label>
-                          <label class="tpl-field tpl-field--inline">
-                            默认
-                            <t-input-number v-model="opt.defaultNumber" theme="column" />
-                          </label>
-                        </template>
-                        <div v-else class="tpl-opt__values">
-                          <div v-for="v in opt.values" :key="v.value" class="tpl-opt__value">
-                            <t-radio :checked="v.isDefault" @change="setDefaultValue(opt, v.value)" />
-                            <span class="tpl-opt__label">{{ v.group ? v.group + ' / ' : '' }}{{ v.label }}</span>
-                            <t-input-number v-model="v.price" :min="0" :precision="2" theme="column" class="tpl-opt__price" />
-                            <span class="tpl-opt__unit">元/月</span>
+                    <!-- 客户可选配置项：勾选=开放给客户自选；不勾=只用基线值 -->
+                    <div v-if="row.options.length" class="tpl-options">
+                      <div class="tpl-options__head">客户可选配置项（勾选即开放，可设加价；不勾选只按基线值开通）</div>
+                      <div v-for="opt in row.options" :key="opt.key" class="tpl-opt">
+                        <t-checkbox v-model="opt.enabled">
+                          <span class="tpl-opt__name">{{ platformFieldLabel(opt.key) }}</span>
+                          <code class="tpl-opt__key">{{ opt.key }}</code>
+                        </t-checkbox>
+                        <template v-if="opt.enabled">
+                          <template v-if="opt.isRange">
+                            <label class="tpl-field tpl-field--inline">
+                              范围
+                              <t-input-number v-model="opt.rangeMin" :min="0" theme="column" />
+                              ~
+                              <t-input-number v-model="opt.rangeMax" :min="0" theme="column" />
+                            </label>
+                            <label class="tpl-field tpl-field--inline">
+                              默认
+                              <t-input-number v-model="opt.defaultNumber" theme="column" />
+                            </label>
+                          </template>
+                          <div v-else class="tpl-opt__values">
+                            <div v-for="v in opt.values" :key="v.value" class="tpl-opt__value">
+                              <t-radio :checked="v.isDefault" @change="setDefaultValue(opt, v.value)" />
+                              <span class="tpl-opt__label">{{ v.group ? v.group + ' / ' : '' }}{{ v.label }}</span>
+                              <t-input-number
+                                v-model="v.price"
+                                :min="0"
+                                :precision="2"
+                                theme="column"
+                                class="tpl-opt__price"
+                              />
+                              <span class="tpl-opt__unit">元/月</span>
+                            </div>
                           </div>
-                        </div>
-                      </template>
+                        </template>
+                      </div>
+                    </div>
+                    <div class="tpl-row__gen">
+                      SKU 编码 <code>{{ row.tpl.id ? previewSpecCode(row) : '—' }}</code> · 原子取值
+                      <code>{{ JSON.stringify(buildSpecValues(row)) }}</code>
                     </div>
                   </div>
-                  <div class="tpl-row__gen">
-                    SKU 编码 <code>{{ row.tpl.id ? previewSpecCode(row) : '—' }}</code> · 原子取值
-                    <code>{{ JSON.stringify(buildSpecValues(row)) }}</code>
-                  </div>
-                </div>
                 </div>
               </div>
             </div>
           </template>
-          <t-alert v-else theme="info" message="商品建好后，到详情页「规格变体 → 按规格模板生成」逐个生成；未生成 SKU 前无法上架。" />
+          <t-alert
+            v-else
+            theme="info"
+            message="商品建好后，到详情页「规格变体 → 按规格模板生成」逐个生成；未生成 SKU 前无法上架。"
+          />
         </template>
 
         <t-alert v-else theme="info">
-          <template #message>
-            规格在商品详情页「规格变体」中维护；本页只改基础信息与平台参数。
-          </template>
+          <template #message> 规格在商品详情页「规格变体」中维护；本页只改基础信息与平台参数。 </template>
         </t-alert>
 
         <div class="form-footer">
           <t-button variant="outline" @click="handleCancel">取消</t-button>
-          <t-button theme="primary" :loading="submitting" @click="handleSubmit">{{ mode === 'create' ? '创建' : '保存' }}</t-button>
+          <t-button theme="primary" :loading="submitting" @click="handleSubmit">{{
+            mode === 'create' ? '创建' : '保存'
+          }}</t-button>
         </div>
       </t-form>
     </section>
@@ -705,7 +765,10 @@ function onPlatformChange(value?: number | string) {
 
 // ===== 商品级平台参数（后端字段 config_options，这里用下拉 + 高级 JSON 组合编辑）=====
 const platformParams = reactive<{ area?: string; node?: string; store?: string; os?: string }>({
-  area: undefined, node: undefined, store: undefined, os: undefined,
+  area: undefined,
+  node: undefined,
+  store: undefined,
+  os: undefined,
 })
 const extraParamsText = ref('')
 const PLATFORM_KEYS = ['area', 'node', 'store', 'os'] as const
@@ -890,9 +953,7 @@ const selectedKinds = computed(() => {
   }
   return kinds
 })
-const hasMixedKinds = computed(
-  () => selectedKinds.value.has('vps') && selectedKinds.value.has('nat'),
-)
+const hasMixedKinds = computed(() => selectedKinds.value.has('vps') && selectedKinds.value.has('nat'))
 
 /** 分组标题下的说明，讲清这一组档位的机器客户怎么访问。 */
 function machineKindGroupDesc(kind: string): string {
@@ -948,8 +1009,11 @@ function buildOptionRows(tpl: SpecTemplateInfo): OptionRow[] {
       const defStr = cfg.default ?? ''
       const defNum = Number(defStr)
       out.push({
-        key, enabled: true, isRange: true,
-        rangeMin: cfg.range[0], rangeMax: cfg.range[1],
+        key,
+        enabled: true,
+        isRange: true,
+        rangeMin: cfg.range[0],
+        rangeMax: cfg.range[1],
         defaultNumber: defStr !== '' && Number.isFinite(defNum) ? defNum : null,
         values: [],
       })
@@ -962,7 +1026,8 @@ function buildOptionRows(tpl: SpecTemplateInfo): OptionRow[] {
       price: 0,
       isDefault: cfg?.default === v,
     }))
-    if (values.length) out.push({ key, enabled: true, isRange: false, rangeMin: 0, rangeMax: 0, defaultNumber: null, values })
+    if (values.length)
+      out.push({ key, enabled: true, isRange: false, rangeMin: 0, rangeMax: 0, defaultNumber: null, values })
   }
   return out
 }
@@ -1138,8 +1203,7 @@ function generateCyclePrices() {
   }
   // 优惠月数不能吃掉整个周期（否则价格为 0 或负），上限为该周期月数 − 1，
   // 留至少一个月不优惠，避免生成出 0 元周期价——0 元价上架后客户真能 0 元买。
-  const clampOff = (off: number, months: number) =>
-    Math.max(0, Math.min(Number(off) || 0, months - 1))
+  const clampOff = (off: number, months: number) => Math.max(0, Math.min(Number(off) || 0, months - 1))
   const rows: { cycle: string; months: number; off: number }[] = [
     { cycle: 'monthly', months: 1, off: 0 },
     { cycle: 'quarterly', months: 3, off: clampOff(priceGen.quarterlyOff, 3) },
@@ -1249,13 +1313,40 @@ const codeTouched = ref(false)
 
 /** 中文/符号 → 拉丁化的简易转写表：覆盖常见商品名字词，转不出来就跳过。 */
 const codeWordMap: Record<string, string> = {
-  香港: 'hk', 新加坡: 'sg', 日本: 'jp', 美国: 'us', 韩国: 'kr', 台湾: 'tw',
-  华东: 'east', 华南: 'south', 华北: 'north', 华中: 'central', 西部: 'west',
-  云服务器: 'cloud', 云主机: 'cloud', 高防: 'ddos', 独立: 'dedicated',
-  站群: 'seo', 虚拟主机: 'vhost', 数据库: 'db', 物理机: 'bare',
-  入门: 'basic', 基础: 'basic', 标准: 'std', 进阶: 'pro', 高级: 'adv',
-  旗舰: 'ultra', 豪华: 'premium', 定制: 'custom', 试用: 'trial',
-  核: 'c', 内存: 'mem', 带宽: 'bw', 系统盘: 'disk', 年付: 'y', 月付: 'm',
+  香港: 'hk',
+  新加坡: 'sg',
+  日本: 'jp',
+  美国: 'us',
+  韩国: 'kr',
+  台湾: 'tw',
+  华东: 'east',
+  华南: 'south',
+  华北: 'north',
+  华中: 'central',
+  西部: 'west',
+  云服务器: 'cloud',
+  云主机: 'cloud',
+  高防: 'ddos',
+  独立: 'dedicated',
+  站群: 'seo',
+  虚拟主机: 'vhost',
+  数据库: 'db',
+  物理机: 'bare',
+  入门: 'basic',
+  基础: 'basic',
+  标准: 'std',
+  进阶: 'pro',
+  高级: 'adv',
+  旗舰: 'ultra',
+  豪华: 'premium',
+  定制: 'custom',
+  试用: 'trial',
+  核: 'c',
+  内存: 'mem',
+  带宽: 'bw',
+  系统盘: 'disk',
+  年付: 'y',
+  月付: 'm',
 }
 
 /**
@@ -1263,7 +1354,7 @@ const codeWordMap: Record<string, string> = {
  * 规则：产品类型前缀 + 名称转写；无可用转写时退回带时间戳的前缀码，保证非空且大概率不重名。
  */
 function generateProductCode(): string {
-  const prefix = form.product_type === 'cloud_host' ? 'ch' : (form.product_type || 'prod')
+  const prefix = form.product_type === 'cloud_host' ? 'ch' : form.product_type || 'prod'
   let name = form.name.trim().toLowerCase()
   for (const [zh, en] of Object.entries(codeWordMap)) {
     name = name.split(zh).join(`-${en}-`)
@@ -1299,9 +1390,7 @@ function regenerateCode() {
 // 平台渠道仅在「云主机」类商品上必填：它决定开通/暂停/销毁下发到哪个平台；
 // 虚拟主机、数据库等纯本地商品不强制绑定渠道（存量演示商品即属此类）。
 const platformRules = computed(() =>
-  form.product_type === 'cloud_host'
-    ? [{ required: true, message: '请选择开通该商品的平台渠道' }]
-    : [],
+  form.product_type === 'cloud_host' ? [{ required: true, message: '请选择开通该商品的平台渠道' }] : [],
 )
 
 watch(
@@ -1489,7 +1578,6 @@ async function loadProviderNames() {
 </style>
 
 <style scoped>
-
 /* 周期价格矩阵（编辑页就地改价）：与页签区块视觉一致，避免看起来像另一个页面的片段 */
 .cycle-price-block {
   margin: 4px 0 20px;

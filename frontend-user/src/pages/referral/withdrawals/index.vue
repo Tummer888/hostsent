@@ -5,17 +5,8 @@
     <div class="referral-header">
       <h2 class="referral-title">提现与转出</h2>
       <div class="referral-actions">
-        <t-button
-          theme="primary"
-          size="small"
-          :disabled="!canOperate"
-          @click="openWithdraw"
-        >
-          申请提现
-        </t-button>
-        <t-button variant="outline" size="small" :disabled="!canOperate" @click="openTransfer">
-          转入现金余额
-        </t-button>
+        <t-button theme="primary" size="small" :disabled="!canOperate" @click="openWithdraw"> 申请提现 </t-button>
+        <t-button variant="outline" size="small" :disabled="!canOperate" @click="openTransfer"> 转入现金余额 </t-button>
         <t-button variant="outline" size="small" :loading="loading" @click="loadAll">
           <template #icon><RefreshIcon /></template>
           刷新
@@ -279,8 +270,8 @@ async function submitWithdraw() {
     MessagePlugin.success('提现申请已提交，请等待审核')
     withdrawVisible.value = false
     await loadAll()
-  } catch (e: any) {
-    MessagePlugin.error(e?.message || '提现申请失败')
+  } catch (e) {
+    MessagePlugin.error((e as Error)?.message || '提现申请失败')
   } finally {
     submitting.value = false
   }
@@ -302,8 +293,8 @@ async function submitTransfer() {
     MessagePlugin.success('已转入现金余额')
     transferVisible.value = false
     await loadAll()
-  } catch (e: any) {
-    MessagePlugin.error(e?.message || '转入失败')
+  } catch (e) {
+    MessagePlugin.error((e as Error)?.message || '转入失败')
   } finally {
     submitting.value = false
   }
@@ -313,22 +304,74 @@ onMounted(loadAll)
 </script>
 
 <style scoped>
-.referral-page { padding: 16px 24px; }
-.referral-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-.referral-title { font-size: 20px; font-weight: 700; margin: 0; }
-.referral-actions { display: flex; align-items: center; gap: 8px; }
+.referral-page {
+  padding: 16px 24px;
+}
+.referral-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.referral-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+}
+.referral-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .balance-bar {
-  display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 .balance-item {
-  flex: 1; min-width: 160px; background: #fff; border: 1px solid var(--td-border-level-1-color, #f0f0f0);
-  border-radius: 12px; padding: 12px 16px; display: flex; flex-direction: column; gap: 4px;
+  flex: 1;
+  min-width: 160px;
+  background: #fff;
+  border: 1px solid var(--td-border-level-1-color, #f0f0f0);
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
-.balance-item__label { font-size: 13px; color: #888; }
-.balance-item__value { font-size: 20px; font-weight: 700; color: #b76a00; }
-.sub-tip { color: #c2761a; background: #fff8ec; border-radius: 8px; padding: 8px 12px; font-size: 12.5px; margin: 0 0 12px; }
-.cell-strong { font-weight: 600; }
-.cell-sub { color: #999; font-size: 12px; }
-.cell-money { color: #e37318; font-weight: 700; }
-.dialog-tip { color: #999; font-size: 12px; margin: 8px 0 0; line-height: 1.6; }
+.balance-item__label {
+  font-size: 13px;
+  color: #888;
+}
+.balance-item__value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #b76a00;
+}
+.sub-tip {
+  color: #c2761a;
+  background: #fff8ec;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  margin: 0 0 12px;
+}
+.cell-strong {
+  font-weight: 600;
+}
+.cell-sub {
+  color: #999;
+  font-size: 12px;
+}
+.cell-money {
+  color: #e37318;
+  font-weight: 700;
+}
+.dialog-tip {
+  color: #999;
+  font-size: 12px;
+  margin: 8px 0 0;
+  line-height: 1.6;
+}
 </style>

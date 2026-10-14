@@ -47,11 +47,13 @@
         <template #operation="{ row }">
           <MobileAction
             v-if="isMobile"
-            :options="buildMobileActionOptions([
-              { content: '编辑', value: 'edit' },
-              { content: '权限分配', value: 'permissions' },
-              { content: '删除', value: 'delete', theme: 'error' },
-            ])"
+            :options="
+              buildMobileActionOptions([
+                { content: '编辑', value: 'edit' },
+                { content: '权限分配', value: 'permissions' },
+                { content: '删除', value: 'delete', theme: 'error' },
+              ])
+            "
             @select="(value) => handleMobileAction(value, row)"
           />
           <t-space v-else size="small">
@@ -88,7 +90,12 @@
           <t-input v-model="form.name" maxlength="64" placeholder="请输入角色名称" />
         </t-form-item>
         <t-form-item label="角色编码" name="code">
-          <t-input v-model="form.code" maxlength="64" :disabled="editing" placeholder="请输入角色编码（如 super_admin）" />
+          <t-input
+            v-model="form.code"
+            maxlength="64"
+            :disabled="editing"
+            placeholder="请输入角色编码（如 super_admin）"
+          />
         </t-form-item>
         <t-form-item label="状态" name="status">
           <t-radio-group v-model="form.status">
@@ -108,7 +115,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { AddIcon, UsergroupIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
-import type { FormInstanceFunctions, FormRule, PrimaryTableCol, SubmitContext } from 'tdesign-vue-next'
+import type { FormInstanceFunctions, FormRule, PrimaryTableCol } from 'tdesign-vue-next'
 import { useRouter } from 'vue-router'
 
 import { createRole, deleteRole, getRoleList, updateRole, type RoleInfo } from '@/api/user'
@@ -191,7 +198,7 @@ async function loadRoles() {
   }
 }
 
-function onSearch(_context?: SubmitContext) {
+function onSearch() {
   page.value = 1
 }
 
@@ -272,8 +279,11 @@ function goPermissions(id: number) {
 }
 
 onMounted(loadRoles)
-function handleMobileAction(value: string | number | Record<string, any>, row: RoleInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '');
+function handleMobileAction(value: string | number | Record<string, unknown>, row: RoleInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'edit':
       openEdit(row)

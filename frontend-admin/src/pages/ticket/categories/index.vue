@@ -49,13 +49,17 @@
         <template #preconditions="{ row }">
           <t-space size="small" break-line>
             <t-tag v-if="row.require_realname" theme="warning" variant="light" size="small" shape="round">需实名</t-tag>
-            <t-tag v-if="row.require_binding" theme="warning" variant="light" size="small" shape="round">需关联订单</t-tag>
+            <t-tag v-if="row.require_binding" theme="warning" variant="light" size="small" shape="round"
+              >需关联订单</t-tag
+            >
             <t-tag v-if="row.need_review" theme="primary" variant="light" size="small" shape="round">双人复核</t-tag>
             <t-tag v-if="row.visible_role_codes?.length" variant="light" size="small" shape="round">
               限 {{ row.visible_role_codes.length }} 个角色
             </t-tag>
             <span
-              v-if="!row.require_realname && !row.require_binding && !row.need_review && !row.visible_role_codes?.length"
+              v-if="
+                !row.require_realname && !row.require_binding && !row.need_review && !row.visible_role_codes?.length
+              "
               class="cell-muted"
             >
               无
@@ -69,11 +73,13 @@
           <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '编辑', value: 'edit', theme: 'default' },
-                { content: '禁用/启用', value: 'toggle', theme: 'warning' },
-                { content: '删除', value: 'delete', theme: 'error' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '编辑', value: 'edit', theme: 'default' },
+                  { content: '禁用/启用', value: 'toggle', theme: 'warning' },
+                  { content: '删除', value: 'delete', theme: 'error' },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
@@ -106,10 +112,20 @@
           <t-input v-model="form.name" placeholder="如：技术支持" :maxlength="64" />
         </t-form-item>
         <t-form-item label="分类编码" name="code">
-          <t-input v-model="form.code" placeholder="如：technical（唯一，保存后不可与现有重复）" :maxlength="64" :disabled="!!editingId" />
+          <t-input
+            v-model="form.code"
+            placeholder="如：technical（唯一，保存后不可与现有重复）"
+            :maxlength="64"
+            :disabled="!!editingId"
+          />
         </t-form-item>
         <t-form-item label="描述" name="description">
-          <t-textarea v-model="form.description" placeholder="分类用途说明" :autosize="{ minRows: 2, maxRows: 4 }" :maxlength="255" />
+          <t-textarea
+            v-model="form.description"
+            placeholder="分类用途说明"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+            :maxlength="255"
+          />
         </t-form-item>
         <div class="form-grid">
           <t-form-item label="排序值" name="sort_order">
@@ -229,7 +245,13 @@ const columns: PrimaryTableCol<TicketCategoryInfo>[] = [
   { colKey: 'sort_order', title: '排序', width: 80, align: 'center' as const },
   { colKey: 'status', title: '状态', width: 90 },
   { colKey: 'created_at', title: '创建时间', width: 160 },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 170, fixed: 'right' as const, align: 'center' as const },
+  {
+    colKey: 'action',
+    title: '操作',
+    width: isMobile.value ? 70 : 170,
+    fixed: 'right' as const,
+    align: 'center' as const,
+  },
 ]
 
 async function loadCategories() {
@@ -403,8 +425,11 @@ onMounted(() => {
 })
 
 // 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: TicketCategoryInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: TicketCategoryInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'edit':
       openEdit(row)

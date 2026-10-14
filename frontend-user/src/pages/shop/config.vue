@@ -7,9 +7,7 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">配置选购</h2>
-          <p class="page-header__desc">
-            选择规格、计费周期与配置项后加入购物车，统一在购物车结算
-          </p>
+          <p class="page-header__desc">选择规格、计费周期与配置项后加入购物车，统一在购物车结算</p>
         </div>
       </div>
       <div class="page-header__actions">
@@ -232,9 +230,7 @@
               请选择：{{ missingRequired.map((o) => o.name).join('、') }}
             </p>
             <!-- 商品级售罄（无 SKU 的上游限量商品）：与 SKU 售罄同一提示样式 -->
-            <p v-if="!selectedSku && product?.stock === 0" class="config-warn">
-              该商品已售罄，暂时无法购买
-            </p>
+            <p v-if="!selectedSku && product?.stock === 0" class="config-warn">该商品已售罄，暂时无法购买</p>
           </div>
 
           <div class="config-field">
@@ -319,18 +315,10 @@
             >
               加入购物车并去结算
             </t-button>
-            <t-button
-              variant="outline"
-              size="large"
-              block
-              :disabled="!canSubmit"
-              @click="addToCart(false)"
-            >
+            <t-button variant="outline" size="large" block :disabled="!canSubmit" @click="addToCart(false)">
               仅加入购物车
             </t-button>
-            <p class="config-actions__note">
-              下单与支付统一在购物车完成：可一次结算多台/多款，也可稍后再买。
-            </p>
+            <p class="config-actions__note">下单与支付统一在购物车完成：可一次结算多台/多款，也可稍后再买。</p>
           </div>
         </article>
       </aside>
@@ -387,7 +375,10 @@ const product = ref<ProductInfo | null>(null)
  */
 const skeletonProductRows = [
   [{ type: 'rect', width: '56px', height: '56px' }],
-  [{ type: 'text', width: '60%' }, { type: 'text', width: '160px' }],
+  [
+    { type: 'text', width: '60%' },
+    { type: 'text', width: '160px' },
+  ],
 ]
 const skeletonOptionRows = [
   [{ type: 'text', width: '30%' }],
@@ -398,9 +389,18 @@ const skeletonOptionRows = [
   [{ type: 'rect', width: '100%', height: '32px' }],
 ]
 const skeletonPriceRows = [
-  [{ type: 'text', width: '40%' }, { type: 'text', width: '30%' }],
-  [{ type: 'text', width: '40%' }, { type: 'text', width: '30%' }],
-  [{ type: 'text', width: '40%' }, { type: 'text', width: '30%' }],
+  [
+    { type: 'text', width: '40%' },
+    { type: 'text', width: '30%' },
+  ],
+  [
+    { type: 'text', width: '40%' },
+    { type: 'text', width: '30%' },
+  ],
+  [
+    { type: 'text', width: '40%' },
+    { type: 'text', width: '30%' },
+  ],
   [{ type: 'rect', width: '100%', height: '40px' }],
 ]
 
@@ -508,8 +508,8 @@ function optionSurcharge(opt: ProductOption): number {
   if (widget === 'qty') {
     const unit = opt.unit_price ?? 0
     if (unit <= 0) return 0
-    const def = opt.default_value !== '' ? Number(opt.default_value) : opt.min_value ?? 0
-    const base = Number.isNaN(def) ? opt.min_value ?? 0 : def
+    const def = opt.default_value !== '' ? Number(opt.default_value) : (opt.min_value ?? 0)
+    const base = Number.isNaN(def) ? (opt.min_value ?? 0) : def
     const billable = numberValue(opt) - base
     return billable > 0 ? billable * unit : 0
   }
@@ -543,9 +543,7 @@ function applyDefaultSelection() {
     }
     // 优先运营声明的默认值，其次首个可见值（与后端履约口径一致）。
     const preferred =
-      opt.values.find((v) => v.value === opt.default_value) ??
-      opt.values.find((v) => v.is_default) ??
-      opt.values[0]
+      opt.values.find((v) => v.value === opt.default_value) ?? opt.values.find((v) => v.is_default) ?? opt.values[0]
     if (preferred) next[opt.option_key] = preferred.value
   }
   selection.value = next
@@ -611,15 +609,13 @@ const selectedSku = computed<SkuInfo | undefined>(() =>
 
 /** 周期来源：选中规格的自有周期优先，否则回落商品级周期。 */
 const selectableCycles = computed(() =>
-  selectedSku.value?.cycles?.length ? selectedSku.value.cycles : product.value?.cycles ?? [],
+  selectedSku.value?.cycles?.length ? selectedSku.value.cycles : (product.value?.cycles ?? []),
 )
 
 const descriptionText = computed(() => htmlToPlainText(product.value?.description))
 
 /** 上游固定配置（只读展示）：锁定项表示上游商品已定死，本地不可改。 */
-const lockedUpstreamOptions = computed(() =>
-  (product.value?.upstream_chain?.options ?? []).filter((o) => o.locked),
-)
+const lockedUpstreamOptions = computed(() => (product.value?.upstream_chain?.options ?? []).filter((o) => o.locked))
 
 /** 不可续费提示（上游一次性/免费商品）；可续费时为空。 */
 const renewNote = computed(() => {
@@ -792,7 +788,7 @@ function applyIntent() {
 }
 
 function parseIntentConfig(raw: unknown): Record<string, string> {
-  const text = String(Array.isArray(raw) ? raw[0] : raw ?? '')
+  const text = String(Array.isArray(raw) ? raw[0] : (raw ?? ''))
   const out: Record<string, string> = {}
   if (!text) return out
   for (const pair of text.split(',')) {

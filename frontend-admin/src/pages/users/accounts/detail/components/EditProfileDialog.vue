@@ -72,13 +72,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import type { FormInstanceFunctions, FormRule } from 'tdesign-vue-next'
 
 import { getAgentLevelList } from '@/api/agent-level'
-import {
-  getUserGroupList,
-  getUserLevelList,
-  updateUser,
-  type UserInfo,
-  type UserUpdateRequest,
-} from '@/api/user'
+import { getUserGroupList, getUserLevelList, updateUser, type UserInfo, type UserUpdateRequest } from '@/api/user'
 import { userStatusOptions } from '@/pages/users/constants'
 
 const props = defineProps<{

@@ -1,12 +1,7 @@
 <template>
   <div class="credential-fields">
     <div class="credential-fields__title">凭证配置</div>
-    <t-alert
-      v-if="!fields.length"
-      theme="info"
-      :message="emptyHint"
-      class="credential-fields__alert"
-    />
+    <t-alert v-if="!fields.length" theme="info" :message="emptyHint" class="credential-fields__alert" />
     <div v-else class="form-grid">
       <t-form-item
         v-for="field in fields"
@@ -28,10 +23,7 @@
           :placeholder="field.placeholder || `请选择${field.label}`"
           clearable
         />
-        <t-switch
-          v-else-if="field.type === 'bool'"
-          v-model="boolModel[field.key]"
-        />
+        <t-switch v-else-if="field.type === 'bool'" v-model="boolModel[field.key]" />
         <t-input-number
           v-else-if="field.type === 'number'"
           v-model="numberModel[field.key]"

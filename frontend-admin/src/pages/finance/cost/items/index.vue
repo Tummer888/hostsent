@@ -185,7 +185,11 @@
           <t-input v-model="form.subject" placeholder="可选" clearable />
         </t-form-item>
         <t-form-item label="备注">
-          <t-textarea v-model="form.remark" placeholder="可选，如合同号、付款方式" :autosize="{ minRows: 2, maxRows: 3 }" />
+          <t-textarea
+            v-model="form.remark"
+            placeholder="可选，如合同号、付款方式"
+            :autosize="{ minRows: 2, maxRows: 3 }"
+          />
         </t-form-item>
       </t-form>
     </t-dialog>

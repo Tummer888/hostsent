@@ -8,25 +8,14 @@
       :disabled="disabled"
       @click="refresh"
     >
-      <img
-        v-if="imageBase64"
-        :src="imageBase64"
-        alt="图形验证码"
-        width="110"
-        height="40"
-        loading="eager"
-      />
+      <img v-if="imageBase64" :src="imageBase64" alt="图形验证码" width="110" height="40" loading="eager" />
       <span v-else class="verify-captcha__placeholder">{{ loading ? '加载中…' : '换一张' }}</span>
     </button>
     <div class="verify-captcha__hint">
-      <button type="button" class="verify-captcha__link" :disabled="disabled" @click="refresh">
-        看不清？换一张
-      </button>
+      <button type="button" class="verify-captcha__link" :disabled="disabled" @click="refresh">看不清？换一张</button>
     </div>
     <!-- 降级提示：接口失败时不再阻断用户，与后端「Redis 降级放行」策略一致（doc91 §3.5）。 -->
-    <div v-if="failed" class="verify-captcha__degraded">
-      验证码服务暂不可用，本次可跳过校验
-    </div>
+    <div v-if="failed" class="verify-captcha__degraded">验证码服务暂不可用，本次可跳过校验</div>
   </div>
 </template>
 
@@ -113,7 +102,9 @@ defineExpose({ refresh })
   background: #f8fafc;
   user-select: none;
   padding: 0;
-  transition: border-color 0.2s, transform 0.2s;
+  transition:
+    border-color 0.2s,
+    transform 0.2s;
 }
 
 .verify-captcha__image:hover:not(:disabled) {

@@ -1,5 +1,5 @@
 <template>
-  <div class="page-body console-module order-detail-module" v-loading="loading">
+  <div v-loading="loading" class="page-body console-module order-detail-module">
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
@@ -19,12 +19,7 @@
           <t-button variant="outline" :loading="cancelling" @click="confirmCancel">取消订单</t-button>
           <t-button theme="primary" @click="cashierVisible = true">去支付</t-button>
         </template>
-        <t-button
-          v-else-if="order"
-          variant="outline"
-          :loading="provisioning"
-          @click="refreshProvision"
-        >
+        <t-button v-else-if="order" variant="outline" :loading="provisioning" @click="refreshProvision">
           刷新开通状态
         </t-button>
       </div>
@@ -49,12 +44,7 @@
       </section>
 
       <!-- 待支付提示：截止时间由后端按下单时间 + 有效期推算，过期由调度器关单 -->
-      <t-alert
-        v-if="isPending"
-        theme="warning"
-        class="order-detail__alert"
-        :message="payDeadlineMessage"
-      />
+      <t-alert v-if="isPending" theme="warning" class="order-detail__alert" :message="payDeadlineMessage" />
 
       <section class="surface-card detail-card">
         <div class="table-card__head">
@@ -71,16 +61,16 @@
             选配项：下单时选的操作系统/网络类型/主机名等。此前该快照只落库不展示，
             用户看不到自己买的到底是什么配置，客服核对也得回后台翻订单。
           -->
-          <t-descriptions-item label="配置选项" :span="2" v-if="selectionText">
+          <t-descriptions-item v-if="selectionText" label="配置选项" :span="2">
             {{ selectionText }}
           </t-descriptions-item>
           <t-descriptions-item label="下单账号">
             {{ order.actor_name || '主账号' }}
           </t-descriptions-item>
-          <t-descriptions-item label="计费到期" v-if="order.expire_time">
+          <t-descriptions-item v-if="order.expire_time" label="计费到期">
             {{ formatTime(order.expire_time) }}
           </t-descriptions-item>
-          <t-descriptions-item label="备注" :span="2" v-if="order.remark">
+          <t-descriptions-item v-if="order.remark" label="备注" :span="2">
             {{ order.remark }}
           </t-descriptions-item>
         </t-descriptions>
@@ -97,7 +87,7 @@
             <span>商品原价</span>
             <span>¥{{ order.original_amount.toFixed(2) }}</span>
           </div>
-          <div class="fee-row fee-row--discount" v-if="order.discount_amount > 0">
+          <div v-if="order.discount_amount > 0" class="fee-row fee-row--discount">
             <span>
               优惠金额
               <t-tag size="small" variant="light" theme="success">

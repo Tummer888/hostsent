@@ -77,9 +77,7 @@ const hasPrev = computed(() => props.current > 1)
 const hasNext = computed(() => props.current < totalPages.value)
 const summary = computed(() => `第 ${props.current} / ${totalPages.value} 页 · 共 ${props.total} 条`)
 
-const pageSizeOptions = computed(() =>
-  props.pageSizeOptions.map((size) => ({ label: `${size} 条/页`, value: size })),
-)
+const pageSizeOptions = computed(() => props.pageSizeOptions.map((size) => ({ label: `${size} 条/页`, value: size })))
 
 const jumpValue = ref<string | number>('')
 const invalid = ref(false)

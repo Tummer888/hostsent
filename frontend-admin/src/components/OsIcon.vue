@@ -15,7 +15,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { LogoAndroidIcon as AndroidLogoIcon, LogoAppleIcon as AppleLogoIcon, LogoWindowsIcon as WindowLogoIcon } from 'tdesign-icons-vue-next'
+import {
+  LogoAndroidIcon as AndroidLogoIcon,
+  LogoAppleIcon as AppleLogoIcon,
+  LogoWindowsIcon as WindowLogoIcon,
+} from 'tdesign-icons-vue-next'
 
 import { osIconInfo } from '@/pages/instances/os-icons'
 
@@ -64,19 +68,64 @@ const info = computed(() => osIconInfo(props.os))
 }
 
 /* 品牌色（仅用于首字母章底色，不代表官方商标配色）。 */
-.os-icon--windows { background: #e6f0fd; color: #0f6cbd; }
-.os-icon--macos { background: #eef1f5; color: #334155; }
-.os-icon--android { background: #e6f7ec; color: #3ddc84; }
-.os-icon--centos { background: #f0e9fb; color: #6b21a8; }
-.os-icon--debian { background: #fde9f3; color: #c2156b; }
-.os-icon--ubuntu { background: #fdece0; color: #d4530c; }
-.os-icon--almalinux { background: #fde9e9; color: #b91c1c; }
-.os-icon--rockylinux { background: #e8f5ec; color: #10693b; }
-.os-icon--fedora { background: #e7f1fd; color: #1057a8; }
-.os-icon--opensuse { background: #eaf7e6; color: #38761d; }
-.os-icon--arch { background: #e8f4fb; color: #0e7490; }
-.os-icon--alpine { background: #e6f2fb; color: #0b5394; }
-.os-icon--freebsd { background: #fdeaea; color: #a31919; }
-.os-icon--openwrt { background: #e8f6f8; color: #0e7490; }
-.os-icon--linux { background: #fdf3d7; color: #92690b; }
+.os-icon--windows {
+  background: #e6f0fd;
+  color: #0f6cbd;
+}
+.os-icon--macos {
+  background: #eef1f5;
+  color: #334155;
+}
+.os-icon--android {
+  background: #e6f7ec;
+  color: #3ddc84;
+}
+.os-icon--centos {
+  background: #f0e9fb;
+  color: #6b21a8;
+}
+.os-icon--debian {
+  background: #fde9f3;
+  color: #c2156b;
+}
+.os-icon--ubuntu {
+  background: #fdece0;
+  color: #d4530c;
+}
+.os-icon--almalinux {
+  background: #fde9e9;
+  color: #b91c1c;
+}
+.os-icon--rockylinux {
+  background: #e8f5ec;
+  color: #10693b;
+}
+.os-icon--fedora {
+  background: #e7f1fd;
+  color: #1057a8;
+}
+.os-icon--opensuse {
+  background: #eaf7e6;
+  color: #38761d;
+}
+.os-icon--arch {
+  background: #e8f4fb;
+  color: #0e7490;
+}
+.os-icon--alpine {
+  background: #e6f2fb;
+  color: #0b5394;
+}
+.os-icon--freebsd {
+  background: #fdeaea;
+  color: #a31919;
+}
+.os-icon--openwrt {
+  background: #e8f6f8;
+  color: #0e7490;
+}
+.os-icon--linux {
+  background: #fdf3d7;
+  color: #92690b;
+}
 </style>

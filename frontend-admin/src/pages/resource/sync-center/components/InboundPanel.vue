@@ -42,8 +42,8 @@
       </FilterCard>
 
       <p class="table-hint">
-        一次同步运行一行：从上游拉取商品目录 / 价格 / 资源池 / 区域 / 实例的结果。
-        「拉到 / 变更」是本次写入或更新的条数；失败行展开看错误原文。
+        一次同步运行一行：从上游拉取商品目录 / 价格 / 资源池 / 区域 / 实例的结果。 「拉到 /
+        变更」是本次写入或更新的条数；失败行展开看错误原文。
       </p>
 
       <t-table
@@ -59,7 +59,11 @@
         @page-change="handleRunPageChange"
       >
         <template #provider="{ row }">
-          <ProviderCell :provider-id="row.provider_id" :provider-name="row.provider_name" :provider-kind="row.provider_kind" />
+          <ProviderCell
+            :provider-id="row.provider_id"
+            :provider-name="row.provider_name"
+            :provider-kind="row.provider_kind"
+          />
         </template>
         <template #task_type="{ row }">
           <t-tag :theme="scopeTheme(row.task_type)" variant="light" size="small" shape="round">
@@ -116,16 +120,36 @@
       <FilterCard embedded class="tab-filters" :primary-count="1">
         <div class="field">
           <span class="field__label">渠道</span>
-          <t-select v-model="priceFilter.provider_id" clearable placeholder="全部渠道" :options="providerOptions" @change="searchPrices" />
+          <t-select
+            v-model="priceFilter.provider_id"
+            clearable
+            placeholder="全部渠道"
+            :options="providerOptions"
+            @change="searchPrices"
+          />
         </div>
         <div class="field">
           <span class="field__label">状态</span>
-          <t-select v-model="priceFilter.status" clearable placeholder="全部状态" :options="priceStatusOptions" @change="searchPrices" />
+          <t-select
+            v-model="priceFilter.status"
+            clearable
+            placeholder="全部状态"
+            :options="priceStatusOptions"
+            @change="searchPrices"
+          />
         </div>
         <template #actions>
           <t-space size="small">
-            <t-button theme="primary" :disabled="!selectedPriceIds.length" @click="openHandleDialog('confirm')">批量确认</t-button>
-            <t-button theme="danger" variant="outline" :disabled="!selectedPriceIds.length" @click="openHandleDialog('reject')">批量驳回</t-button>
+            <t-button theme="primary" :disabled="!selectedPriceIds.length" @click="openHandleDialog('confirm')"
+              >批量确认</t-button
+            >
+            <t-button
+              theme="danger"
+              variant="outline"
+              :disabled="!selectedPriceIds.length"
+              @click="openHandleDialog('reject')"
+              >批量驳回</t-button
+            >
           </t-space>
         </template>
       </FilterCard>
@@ -150,7 +174,11 @@
         @select-change="handlePriceSelect"
       >
         <template #provider="{ row }">
-          <ProviderCell :provider-id="row.provider_id" :provider-kind="row.provider_kind" :provider-name="providerName(row.provider_id)" />
+          <ProviderCell
+            :provider-id="row.provider_id"
+            :provider-kind="row.provider_kind"
+            :provider-name="providerName(row.provider_id)"
+          />
         </template>
         <template #product="{ row }">
           <div class="product-cell">
@@ -214,7 +242,11 @@
       <template v-if="detailRow">
         <t-descriptions :column="2" bordered size="small">
           <t-descriptions-item label="渠道">
-            <ProviderCell :provider-id="detailRow.provider_id" :provider-name="detailRow.provider_name" :provider-kind="detailRow.provider_kind" />
+            <ProviderCell
+              :provider-id="detailRow.provider_id"
+              :provider-name="detailRow.provider_name"
+              :provider-kind="detailRow.provider_kind"
+            />
           </t-descriptions-item>
           <t-descriptions-item label="同步类型">{{ scopeLabel(detailRow.task_type) }}</t-descriptions-item>
           <t-descriptions-item label="结果">
@@ -222,8 +254,12 @@
               {{ statusLabel(detailRow.status) }}
             </t-tag>
           </t-descriptions-item>
-          <t-descriptions-item label="拉到 / 变更">{{ detailRow.success_count }} / {{ detailRow.total_count }}</t-descriptions-item>
-          <t-descriptions-item label="开始">{{ formatTime(detailRow.started_at || detailRow.created_at) }}</t-descriptions-item>
+          <t-descriptions-item label="拉到 / 变更"
+            >{{ detailRow.success_count }} / {{ detailRow.total_count }}</t-descriptions-item
+          >
+          <t-descriptions-item label="开始">{{
+            formatTime(detailRow.started_at || detailRow.created_at)
+          }}</t-descriptions-item>
           <t-descriptions-item label="结束">{{ formatTime(detailRow.completed_at) }}</t-descriptions-item>
           <t-descriptions-item v-if="detailRow.error_message" label="错误原文" :span="2">
             <span class="cell-error cell-error--wrap">{{ detailRow.error_message }}</span>
@@ -256,7 +292,11 @@
             <span v-else class="cell-muted">{{ row.external_id || '—' }}</span>
           </template>
         </t-table>
-        <t-empty v-else :description="detailDiffLoading ? '加载中…' : '本次运行没有产生字段变更（或差异已过保留期）'" size="small" />
+        <t-empty
+          v-else
+          :description="detailDiffLoading ? '加载中…' : '本次运行没有产生字段变更（或差异已过保留期）'"
+          size="small"
+        />
       </template>
     </t-dialog>
 
@@ -265,16 +305,22 @@
       v-model:visible="handleDialogVisible"
       :header="handleAction === 'confirm' ? '确认调价' : '驳回调价'"
       width="520px"
-      :confirm-btn="{ content: handleAction === 'confirm' ? '确认并应用' : '驳回', theme: handleAction === 'confirm' ? 'primary' : 'danger', loading: handleSaving }"
+      :confirm-btn="{
+        content: handleAction === 'confirm' ? '确认并应用' : '驳回',
+        theme: handleAction === 'confirm' ? 'primary' : 'danger',
+        loading: handleSaving,
+      }"
       cancel-btn="取消"
       :on-confirm="submitHandle"
     >
       <t-alert
         :theme="handleAction === 'confirm' ? 'info' : 'warning'"
         class="handle-alert"
-        :message="handleAction === 'confirm'
-          ? '确认后按商品加价规则重算售价并写入价格历史；未配置加价规则时仅更新成本价。'
-          : '驳回后保持原售价不变，本次调价不再提示（上游再次调价会重新产生事件）。'"
+        :message="
+          handleAction === 'confirm'
+            ? '确认后按商品加价规则重算售价并写入价格历史；未配置加价规则时仅更新成本价。'
+            : '驳回后保持原售价不变，本次调价不再提示（上游再次调价会重新产生事件）。'
+        "
       />
       <p class="handle-count">将处理 {{ handleIds.length }} 条调价事件</p>
       <t-textarea v-model="handleRemark" :autosize="{ minRows: 2 }" placeholder="备注（可选，会随处置记录留痕）" />
@@ -283,7 +329,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 
 import { MessagePlugin, type PageInfo, type PrimaryTableCol, type SelectOptions } from 'tdesign-vue-next'
 
@@ -426,7 +472,13 @@ const runColumns: PrimaryTableCol<SyncTaskInfo>[] = [
   { colKey: 'duration', title: '耗时', width: 100 },
   { colKey: 'error_message', title: '失败原因', minWidth: 200 },
   { colKey: 'created_at', title: '开始时间', minWidth: 170 },
-  { colKey: 'row_action', title: '操作', width: isMobile.value ? 70 : 80, fixed: 'right' as const, align: 'center' as const },
+  {
+    colKey: 'row_action',
+    title: '操作',
+    width: isMobile.value ? 70 : 80,
+    fixed: 'right' as const,
+    align: 'center' as const,
+  },
 ]
 
 async function loadRuns() {
@@ -744,6 +796,20 @@ async function reloadForChain() {
 }
 
 defineExpose({ reload, reloadForChain, showFailedOnly })
+
+// 子视图切换时才拉对应数据。
+//
+// 修复的缺陷（用户反馈）：切到「待确认调价」后表格全空，而页签上明明标着待办 210。
+// 原因是切换 view 只改了渲染分支，没有任何地方触发 loadPrices —— 列表数据从未被请求，
+// 而页签上的计数来自另一条独立查询（loadPendingPriceCount），两者口径脱节。
+// 「计数可见但列表为空」是最难自查的一类半加载状态，因此这里用 watch 显式绑住加载。
+watch(view, (next) => {
+  if (next === 'prices' && props.showCatalog) {
+    searchPrices()
+  } else {
+    loadRuns()
+  }
+})
 
 onMounted(async () => {
   await loadRuns()

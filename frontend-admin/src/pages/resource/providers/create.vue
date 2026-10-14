@@ -53,7 +53,11 @@
           </div>
         </div>
       </div>
-      <t-alert v-if="!typeList.length && !loadingTypes" theme="warning" :message="`暂无可用的提供商类型，请联系后端确认适配器已注册`" />
+      <t-alert
+        v-if="!typeList.length && !loadingTypes"
+        theme="warning"
+        :message="`暂无可用的提供商类型，请联系后端确认适配器已注册`"
+      />
       <CapabilityMatrix
         v-if="selectedType"
         :descriptor="selectedType.capabilities"
@@ -92,7 +96,12 @@
               <t-input v-model="formData.contact_way" placeholder="请输入联系方式" maxlength="100" />
             </t-form-item>
             <t-form-item label="备注" name="des" class="form-item--full">
-              <t-textarea v-model="formData.des" placeholder="请输入备注" :autosize="{ minRows: 2, maxRows: 4 }" maxlength="255" />
+              <t-textarea
+                v-model="formData.des"
+                placeholder="请输入备注"
+                :autosize="{ minRows: 2, maxRows: 4 }"
+                maxlength="255"
+              />
             </t-form-item>
           </div>
           <div class="form-section__title">自动化设置</div>
@@ -155,7 +164,11 @@
 
         <!-- 其它类型（含未接入适配器的假渠道）：描述符驱动的通用表单 -->
         <template v-else>
-          <CapabilityMatrix :descriptor="selectedDescriptor" :title="`${selectedTypeLabel} 能力矩阵`" class="form-matrix" />
+          <CapabilityMatrix
+            :descriptor="selectedDescriptor"
+            :title="`${selectedTypeLabel} 能力矩阵`"
+            class="form-matrix"
+          />
           <div class="form-grid">
             <t-form-item label="提供商名称" name="name">
               <t-input v-model="formData.name" placeholder="例如：华东魔方云" maxlength="50" />
@@ -229,12 +242,16 @@
           <t-descriptions-item label="名称">{{ created?.name }}</t-descriptions-item>
           <t-descriptions-item label="类型">{{ selectedTypeLabel }}</t-descriptions-item>
           <t-descriptions-item label="API 地址">{{ created?.api_endpoint }}</t-descriptions-item>
-          <t-descriptions-item v-if="isZjmf && created?.zjmf_finance_api_id" label="上游 API ID">{{ created?.zjmf_finance_api_id }}</t-descriptions-item>
+          <t-descriptions-item v-if="isZjmf && created?.zjmf_finance_api_id" label="上游 API ID">{{
+            created?.zjmf_finance_api_id
+          }}</t-descriptions-item>
           <t-descriptions-item label="实例同步">{{ created?.sync_enabled ? '启用' : '禁用' }}</t-descriptions-item>
           <t-descriptions-item label="连接">{{ testResultText }}</t-descriptions-item>
         </t-descriptions>
         <div class="steps-footer">
-          <t-button theme="primary" @click="router.push(created ? `/resource/providers/${created.id}` : listPath)">查看详情</t-button>
+          <t-button theme="primary" @click="router.push(created ? `/resource/providers/${created.id}` : listPath)"
+            >查看详情</t-button
+          >
           <t-button variant="outline" @click="router.push(listPath)">返回列表</t-button>
         </div>
       </div>
@@ -246,7 +263,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { AddIcon, CheckCircleIcon, CloudIcon, ServerIcon } from 'tdesign-icons-vue-next'
+import { AddIcon, CheckCircleIcon, CloudIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type FormInstanceFunctions, type FormRule } from 'tdesign-vue-next'
 
 import { createProvider, getProviderTypes, testConnection } from '@/api/admin'
@@ -382,7 +399,12 @@ const formRules = computed<Record<string, FormRule[]>>(() => {
   }
   // 魔方云地址为「Ip地址或域名」而非 http 链接，不校验协议前缀。
   if (!isDCIMCloud.value) {
-    base.api_endpoint.push({ pattern: /^https?:\/\//, message: 'API 地址需以 http(s):// 开头', type: 'error', trigger: 'blur' })
+    base.api_endpoint.push({
+      pattern: /^https?:\/\//,
+      message: 'API 地址需以 http(s):// 开头',
+      type: 'error',
+      trigger: 'blur',
+    })
   }
   if (isZjmf.value) {
     base.upstream_type = [{ required: true, message: '请选择接口类型', type: 'error', trigger: 'change' }]

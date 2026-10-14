@@ -15,9 +15,7 @@
         <t-button variant="outline" :loading="loading" @click="reload">
           <template #icon><RefreshIcon /></template>刷新
         </t-button>
-        <t-button theme="primary" variant="outline" :loading="syncing" @click="syncCatalog">
-          同步适配器目录
-        </t-button>
+        <t-button theme="primary" variant="outline" :loading="syncing" @click="syncCatalog"> 同步适配器目录 </t-button>
         <t-button theme="primary" @click="openCreate">
           <template #icon><AddIcon /></template>新增配置项
         </t-button>
@@ -46,12 +44,7 @@
       <template #actions>
         <t-space size="small">
           <t-button theme="primary" @click="load">查询</t-button>
-          <t-button
-            variant="outline"
-            :disabled="!providerId"
-            :loading="refreshing"
-            @click="refreshValues"
-          >
+          <t-button variant="outline" :disabled="!providerId" :loading="refreshing" @click="refreshValues">
             从平台刷新取值
           </t-button>
         </t-space>
@@ -63,9 +56,7 @@
     <section v-else class="table-card surface-card">
       <div class="table-card__head">
         <h3 class="card-title">可配置项目录（{{ filtered.length }} 项）</h3>
-        <span class="table-card__meta">
-          已入库 {{ inDbCount }} 项 · 待同步 {{ filtered.length - inDbCount }} 项
-        </span>
+        <span class="table-card__meta"> 已入库 {{ inDbCount }} 项 · 待同步 {{ filtered.length - inDbCount }} 项 </span>
       </div>
 
       <!--
@@ -130,11 +121,13 @@
           <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '编辑', value: 'edit', theme: 'default' },
-                { content: '取值', value: 'values', theme: 'default' },
-                { content: '删除', value: 'delete', theme: 'error' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '编辑', value: 'edit', theme: 'default' },
+                  { content: '取值', value: 'values', theme: 'default' },
+                  { content: '删除', value: 'delete', theme: 'error' },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
@@ -161,11 +154,7 @@
       <t-form label-align="top" :data="form" @submit.prevent>
         <div class="form-grid">
           <t-form-item label="参数名（平台写键）" name="option_key">
-            <t-input
-              v-model="form.option_key"
-              :disabled="!!form.id"
-              placeholder="如 cpu / memory / system_disk_size"
-            />
+            <t-input v-model="form.option_key" :disabled="!!form.id" placeholder="如 cpu / memory / system_disk_size" />
           </t-form-item>
           <t-form-item label="中文名" name="label">
             <t-input v-model="form.label" placeholder="如 CPU / 操作系统" />
@@ -215,8 +204,7 @@
             placeholder="2|2核|2 核&#10;4|4核|4 核&#10;8|8核|8 核"
           />
           <span class="form-hint">
-            第三段是可选的「这个值表示什么」，用于 -1 不开通 / 0 不限量 这类看不出含义的取值，
-            会随选项一起展示给客户。
+            第三段是可选的「这个值表示什么」，用于 -1 不开通 / 0 不限量 这类看不出含义的取值， 会随选项一起展示给客户。
           </span>
         </t-form-item>
       </t-form>
@@ -230,9 +218,16 @@
       :footer="false"
       @close="valuesVisible = false"
     >
-      <t-alert theme="info" message="取值 = 下发给平台的原始值；镜像/区域/节点/存储可用「从平台刷新取值」批量灌入，也可手工添加或批量导入。" />
+      <t-alert
+        theme="info"
+        message="取值 = 下发给平台的原始值；镜像/区域/节点/存储可用「从平台刷新取值」批量灌入，也可手工添加或批量导入。"
+      />
       <div class="values-toolbar">
-        <t-input v-model="newValue" placeholder="值|显示名|含义（如 -1|不开通|该云主机不能创建快照）" @enter="addValue" />
+        <t-input
+          v-model="newValue"
+          placeholder="值|显示名|含义（如 -1|不开通|该云主机不能创建快照）"
+          @enter="addValue"
+        />
         <t-input v-model="newGroup" placeholder="分组（Ubuntu/Windows，选填）" />
         <t-button theme="primary" :loading="valueSaving" @click="addValue">添加</t-button>
       </div>
@@ -263,12 +258,7 @@
           {{ row.origin === 'platform' ? '平台拉取' : row.origin === 'adapter' ? '适配器' : '手工' }}
         </template>
         <template #iaction="{ row }">
-          <t-link
-            v-if="row.status === 'active'"
-            theme="danger"
-            hover="color"
-            @click="offlineValue(row)"
-          >停用</t-link>
+          <t-link v-if="row.status === 'active'" theme="danger" hover="color" @click="offlineValue(row)">停用</t-link>
           <span v-else class="product-sub">已停用</span>
         </template>
         <template #empty><t-empty description="暂无取值，点上方「从平台刷新取值」或手工添加" /></template>
@@ -337,7 +327,13 @@ const columns = computed<PrimaryTableCol<OptionSpecInfo>[]>(() => [
   { colKey: 'values', title: '可选值', minWidth: 150 },
   { colKey: 'default_value', title: '默认值', width: 110 },
   { colKey: 'source', title: '来源', width: 90 },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 170, fixed: 'right' as const, align: 'center' as const },
+  {
+    colKey: 'action',
+    title: '操作',
+    width: isMobile.value ? 70 : 170,
+    fixed: 'right' as const,
+    align: 'center' as const,
+  },
 ])
 
 const valueColumns: PrimaryTableCol<OptionValueItem>[] = [
@@ -371,9 +367,7 @@ const filtered = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
   if (!kw) return items.value
   return items.value.filter(
-    (it) =>
-      it.option_key.toLowerCase().includes(kw) ||
-      (it.label || '').toLowerCase().includes(kw),
+    (it) => it.option_key.toLowerCase().includes(kw) || (it.label || '').toLowerCase().includes(kw),
   )
 })
 
@@ -535,10 +529,21 @@ const form = reactive<{
 
 function emptyForm() {
   return {
-    id: 0, option_key: '', label: '', group_name: '', widget: 'select',
-    value_source: 'static', unit: '', default_value: '', sort_order: 0,
-    min_value: null, max_value: null, required: false, multi_value: false,
-    hidden: false, help: '',
+    id: 0,
+    option_key: '',
+    label: '',
+    group_name: '',
+    widget: 'select',
+    value_source: 'static',
+    unit: '',
+    default_value: '',
+    sort_order: 0,
+    min_value: null,
+    max_value: null,
+    required: false,
+    multi_value: false,
+    hidden: false,
+    help: '',
   }
 }
 
@@ -588,7 +593,10 @@ function closeDialog() {
 
 /** 解析「值|显示名|含义」多行文本：返回枚举数组 + 取值含义表。 */
 function parseOptionsText(): { options?: { value: string; label: string }[]; help?: Record<string, string> } {
-  const lines = optionsText.value.split('\n').map((l) => l.trim()).filter(Boolean)
+  const lines = optionsText.value
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
   if (!lines.length) return {}
   const options: { value: string; label: string }[] = []
   const help: Record<string, string> = {}
@@ -786,9 +794,10 @@ async function offlineValue(row: OptionValueItem) {
 }
 
 function handleMobileAction(value: string | number | Record<string, unknown>, row: OptionSpecInfo) {
-  const action = typeof value === 'string' || typeof value === 'number'
-    ? String(value)
-    : String((value as { value?: string })?.value ?? '')
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'edit':
       openEdit(row)

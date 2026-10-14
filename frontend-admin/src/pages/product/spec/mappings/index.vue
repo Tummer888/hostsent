@@ -97,33 +97,27 @@
         </template>
 
         <template #action="{ row }">
-<div class="action-cell">
+          <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '编辑', value: 'edit', theme: 'default' },
-                { content: '绑定平台规格', value: 'bind', theme: 'default' },
-                { content: '停用', value: 'toggle', hidden: () => row.status !== 1, theme: 'warning' },
-                { content: '启用', value: 'toggle', hidden: () => row.status === 1, theme: 'success' },
-                { content: '删除', value: 'delete', theme: 'error' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '编辑', value: 'edit', theme: 'default' },
+                  { content: '绑定平台规格', value: 'bind', theme: 'default' },
+                  { content: '停用', value: 'toggle', hidden: () => row.status !== 1, theme: 'warning' },
+                  { content: '启用', value: 'toggle', hidden: () => row.status === 1, theme: 'success' },
+                  { content: '删除', value: 'delete', theme: 'error' },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
               <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
               <t-link theme="primary" hover="color" @click="openBind(row)">绑定平台规格</t-link>
-              <t-link
-                v-if="row.status === 1"
-                theme="warning"
-                hover="color"
-                @click="handleToggleStatus(row)"
-              >停用</t-link>
-              <t-link
-                v-else
-                theme="primary"
-                hover="color"
-                @click="handleToggleStatus(row)"
-              >启用</t-link>
+              <t-link v-if="row.status === 1" theme="warning" hover="color" @click="handleToggleStatus(row)"
+                >停用</t-link
+              >
+              <t-link v-else theme="primary" hover="color" @click="handleToggleStatus(row)">启用</t-link>
               <t-link theme="danger" hover="color" @click="handleDelete(row)">删除</t-link>
             </template>
           </div>
@@ -186,7 +180,7 @@
       @confirm="handleBind"
       @close="bindVisible = false"
     >
-      <p style="margin-bottom: var(--space-md); font-size: 13px; color: var(--color-muted-foreground);">
+      <p style="margin-bottom: var(--space-md); font-size: 13px; color: var(--color-muted-foreground)">
         为「{{ bindForm.upstreamName }}」({{ bindForm.upstreamSpecId }}) 绑定对应的平台规格模板。
       </p>
       <t-form label-align="top" @submit.prevent>
@@ -219,7 +213,6 @@ import {
   getSpecTemplateList,
   updateSpecMapping,
 } from '@/api/product'
-import { formatTime } from '@/pages/product/constants'
 import type { ProviderTypeItem, SpecMappingInfo, SpecTemplateInfo } from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
@@ -239,7 +232,11 @@ const statusOptions = ref<{ label: string; value: number }[]>([
   { label: '停用', value: 0 },
 ])
 
-const filters = reactive<{ provider_type: string | undefined; keyword: string | undefined; status: number | undefined }>({
+const filters = reactive<{
+  provider_type: string | undefined
+  keyword: string | undefined
+  status: number | undefined
+}>({
   provider_type: undefined,
   keyword: undefined,
   status: undefined,
@@ -473,8 +470,11 @@ onMounted(() => {
 })
 
 // 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: SpecMappingInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: SpecMappingInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'edit':
       openEdit(row)

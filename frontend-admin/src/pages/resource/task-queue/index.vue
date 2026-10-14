@@ -22,7 +22,12 @@
     </header>
 
     <section class="stat-grid">
-      <article v-for="card in statCards" :key="card.key" class="stat-card surface-card" :class="`stat-card--${card.theme}`">
+      <article
+        v-for="card in statCards"
+        :key="card.key"
+        class="stat-card surface-card"
+        :class="`stat-card--${card.theme}`"
+      >
         <div class="stat-card__icon">
           <component :is="card.icon" size="20" aria-hidden="true" />
         </div>
@@ -43,7 +48,9 @@
           <t-radio-group v-model="filters.category" variant="default-filled" @change="handleCategoryChange">
             <t-radio-button value="">全部（{{ allTotal }}）</t-radio-button>
             <t-radio-button v-for="cat in categories" :key="cat.category" :value="cat.category">
-              {{ cat.category_name }}（{{ cat.total }}）<template v-if="cat.not_reached">· 未到达 {{ cat.not_reached }}</template>
+              {{ cat.category_name }}（{{ cat.total }}）<template v-if="cat.not_reached"
+                >· 未到达 {{ cat.not_reached }}</template
+              >
             </t-radio-button>
           </t-radio-group>
         </div>
@@ -227,12 +234,16 @@
         <t-descriptions-item label="完成时间">
           {{ detailTask.finished_at ? formatTime(detailTask.finished_at) : '—' }}
         </t-descriptions-item>
-        <t-descriptions-item v-if="detailTask.amount > 0" label="涉及金额">￥{{ detailTask.amount.toFixed(2) }}</t-descriptions-item>
+        <t-descriptions-item v-if="detailTask.amount > 0" label="涉及金额"
+          >￥{{ detailTask.amount.toFixed(2) }}</t-descriptions-item
+        >
         <t-descriptions-item label="耗时">
           {{ detailTask.duration_ms > 0 ? formatDuration(detailTask.duration_ms) : '—' }}
         </t-descriptions-item>
         <t-descriptions-item label="上游细节" :span="2">
-          <span v-if="detailTask.upstream_detail" class="upstream-detail upstream-detail--full">{{ detailTask.upstream_detail }}</span>
+          <span v-if="detailTask.upstream_detail" class="upstream-detail upstream-detail--full">{{
+            detailTask.upstream_detail
+          }}</span>
           <span v-else class="cell-muted">无</span>
         </t-descriptions-item>
       </t-descriptions>
@@ -582,10 +593,13 @@ onMounted(() => {
 })
 
 // 控制台顶部切链路后按新链路重查（服务端过滤，页签计数同步收敛）。
-watch(() => props.chainKind, () => {
-  pagination.current = 1
-  void loadTasks()
-})
+watch(
+  () => props.chainKind,
+  () => {
+    pagination.current = 1
+    void loadTasks()
+  },
+)
 
 defineExpose({ reload: loadTasks })
 </script>

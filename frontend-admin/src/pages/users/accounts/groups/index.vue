@@ -5,7 +5,13 @@
         <div class="list-header__title-row">
           <h2 class="list-header__title">用户组管理</h2>
           <span class="list-header__hint">{{ headerHint }}</span>
-          <t-tag v-if="activeTab === 'customer' && activeFilterLabel" class="page-chip" theme="primary" variant="light" shape="round">
+          <t-tag
+            v-if="activeTab === 'customer' && activeFilterLabel"
+            class="page-chip"
+            theme="primary"
+            variant="light"
+            shape="round"
+          >
             {{ activeFilterLabel }}
           </t-tag>
         </div>
@@ -21,7 +27,13 @@
             <t-radio-button value="matrix">④生效矩阵</t-radio-button>
           </template>
         </t-radio-group>
-        <t-button v-if="activeTab === 'customer'" v-permission="'user:group:create'" class="page-btn" theme="primary" @click="openCreate">
+        <t-button
+          v-if="activeTab === 'customer'"
+          v-permission="'user:group:create'"
+          class="page-btn"
+          theme="primary"
+          @click="openCreate"
+        >
           <template #icon>
             <AddIcon aria-hidden="true" />
           </template>
@@ -70,149 +82,159 @@
     </header>
 
     <template v-if="activeTab === 'customer'">
-    <FilterCard :primary-count="1" :columns="2">
-      <!-- 关键词必须是第一个直接子元素：窄屏折叠时它是唯一保留的主筛选项 -->
-      <div class="field">
-        <span class="field__label">关键词</span>
-        <t-input
-          v-model="filters.keyword"
-          class="unified-control"
-          clearable
-          placeholder="搜索名称 / 编码 / 描述"
-          @enter="handleSearch"
-        >
-          <template #prefix-icon>
-            <SearchIcon />
-          </template>
-        </t-input>
-      </div>
-
-      <div class="field">
-        <span class="field__label">状态</span>
-        <t-select
-          v-model="filters.status"
-          class="unified-control"
-          clearable
-          placeholder="全部状态"
-          :options="statusOptions"
-        />
-      </div>
-
-      <template #actions>
-        <t-space>
-          <t-button class="page-btn" theme="primary" @click="handleSearch">
-            <template #icon>
-              <SearchIcon aria-hidden="true" />
+      <FilterCard :primary-count="1" :columns="2">
+        <!-- 关键词必须是第一个直接子元素：窄屏折叠时它是唯一保留的主筛选项 -->
+        <div class="field">
+          <span class="field__label">关键词</span>
+          <t-input
+            v-model="filters.keyword"
+            class="unified-control"
+            clearable
+            placeholder="搜索名称 / 编码 / 描述"
+            @enter="handleSearch"
+          >
+            <template #prefix-icon>
+              <SearchIcon />
             </template>
-            查询
-          </t-button>
-          <t-button class="page-btn page-btn--ghost" variant="outline" @click="handleReset">重置</t-button>
-        </t-space>
-      </template>
-    </FilterCard>
-
-    <section class="table-panel surface-card">
-      <div class="table-panel__head">
-        <h3 class="table-panel__title">用户组列表</h3>
-        <div class="table-panel__meta">
-          <span>共 {{ pagination.total }} 条</span>
-          <span>当前第 {{ pagination.current }} 页</span>
+          </t-input>
         </div>
-      </div>
 
-      <div v-if="errorMessage" class="error-banner" role="alert">
-        <ErrorCircleIcon size="16" aria-hidden="true" />
-        <span>{{ errorMessage }}</span>
-        <t-link class="page-link" theme="primary" hover="color" @click="reload">重试</t-link>
-      </div>
-
-      <t-table
-        row-key="id"
-        :data="tableData"
-        :columns="columns"
-        :loading="loading"
-        :pagination="isMobile ? undefined : pagination"
-        size="small"
-        hover
-        table-layout="fixed"
-        cell-empty-content="—"
-        class="group-table"
-        @page-change="handlePageChange"
-      >
-        <template #id="{ row }">
-          <span class="id-cell__value">#{{ row.id }}</span>
-        </template>
-
-        <template #name="{ row }">
-          <div class="group-cell group-cell--primary">
-            <span class="group-cell__name">{{ row.name }}</span>
-            <span class="group-cell__desc">{{ row.description || '暂无描述' }}</span>
-          </div>
-        </template>
-
-        <template #code="{ row }">
-          <div class="code-cell">
-            <span class="code-pill">{{ row.code }}</span>
-          </div>
-        </template>
-
-        <template #status="{ row }">
-          <t-tag :class="['status-tag', `status-tag--${row.status || 'default'}`]" theme="default" variant="light" size="small" shape="round">
-            {{ statusLabelMap[row.status] || row.status || '未知' }}
-          </t-tag>
-        </template>
-
-        <template #sort_order="{ row }">
-          <span class="sort-text">{{ row.sort_order }}</span>
-        </template>
-
-        <template #is_default="{ row }">
-          <t-tag v-if="row.is_default" theme="primary" variant="light" size="small" shape="round">默认组</t-tag>
-          <span v-else class="group-cell__desc">—</span>
-        </template>
-
-        <template #created_at="{ row }">
-          <span class="time-text">{{ formatDateTime(row.created_at) }}</span>
-        </template>
-
-        <template #member_count="{ row }">
-          <t-link theme="primary" hover="color" @click="goMembers(row)">{{ row.member_count }} 人</t-link>
-        </template>
-
-        <template #operation="{ row }">
-          <MobileAction
-            v-if="isMobile"
-            :options="buildMobileActionOptions([
-              { content: '编辑', value: 'edit' },
-              { content: '删除', value: 'delete', disabled: () => !!row.is_default, theme: 'error' },
-            ])"
-            @select="(value) => handleMobileAction(value, row)"
+        <div class="field">
+          <span class="field__label">状态</span>
+          <t-select
+            v-model="filters.status"
+            class="unified-control"
+            clearable
+            placeholder="全部状态"
+            :options="statusOptions"
           />
-          <t-space v-else size="small">
-            <t-link v-permission="'user:group:update'" theme="primary" hover="color" @click="openEdit(row.id)">编辑</t-link>
-            <t-tooltip v-if="row.is_default" content="默认用户组不可删除，请先取消默认标记">
-              <t-link theme="default" disabled>删除</t-link>
-            </t-tooltip>
-            <t-popconfirm v-else content="确认删除该用户组？" @confirm="handleDelete(row)">
-              <t-link v-permission="'user:group:delete'" theme="danger" hover="color">删除</t-link>
-            </t-popconfirm>
+        </div>
+
+        <template #actions>
+          <t-space>
+            <t-button class="page-btn" theme="primary" @click="handleSearch">
+              <template #icon>
+                <SearchIcon aria-hidden="true" />
+              </template>
+              查询
+            </t-button>
+            <t-button class="page-btn page-btn--ghost" variant="outline" @click="handleReset">重置</t-button>
           </t-space>
         </template>
+      </FilterCard>
 
-        <template #empty>
-          <t-empty description="当前筛选条件下暂无用户组数据" />
-        </template>
-      </t-table>
+      <section class="table-panel surface-card">
+        <div class="table-panel__head">
+          <h3 class="table-panel__title">用户组列表</h3>
+          <div class="table-panel__meta">
+            <span>共 {{ pagination.total }} 条</span>
+            <span>当前第 {{ pagination.current }} 页</span>
+          </div>
+        </div>
 
-      <MobilePagination
-        v-if="isMobile"
-        :current="mobilePage.current"
-        :page-size="mobilePage.pageSize"
-        :total="mobilePage.total"
-        @go="goMobilePage"
-        @page-size="handleMobilePageSizeChange"
-      />
-    </section>
+        <div v-if="errorMessage" class="error-banner" role="alert">
+          <ErrorCircleIcon size="16" aria-hidden="true" />
+          <span>{{ errorMessage }}</span>
+          <t-link class="page-link" theme="primary" hover="color" @click="reload">重试</t-link>
+        </div>
+
+        <t-table
+          row-key="id"
+          :data="tableData"
+          :columns="columns"
+          :loading="loading"
+          :pagination="isMobile ? undefined : pagination"
+          size="small"
+          hover
+          table-layout="fixed"
+          cell-empty-content="—"
+          class="group-table"
+          @page-change="handlePageChange"
+        >
+          <template #id="{ row }">
+            <span class="id-cell__value">#{{ row.id }}</span>
+          </template>
+
+          <template #name="{ row }">
+            <div class="group-cell group-cell--primary">
+              <span class="group-cell__name">{{ row.name }}</span>
+              <span class="group-cell__desc">{{ row.description || '暂无描述' }}</span>
+            </div>
+          </template>
+
+          <template #code="{ row }">
+            <div class="code-cell">
+              <span class="code-pill">{{ row.code }}</span>
+            </div>
+          </template>
+
+          <template #status="{ row }">
+            <t-tag
+              :class="['status-tag', `status-tag--${row.status || 'default'}`]"
+              theme="default"
+              variant="light"
+              size="small"
+              shape="round"
+            >
+              {{ statusLabelMap[row.status] || row.status || '未知' }}
+            </t-tag>
+          </template>
+
+          <template #sort_order="{ row }">
+            <span class="sort-text">{{ row.sort_order }}</span>
+          </template>
+
+          <template #is_default="{ row }">
+            <t-tag v-if="row.is_default" theme="primary" variant="light" size="small" shape="round">默认组</t-tag>
+            <span v-else class="group-cell__desc">—</span>
+          </template>
+
+          <template #created_at="{ row }">
+            <span class="time-text">{{ formatDateTime(row.created_at) }}</span>
+          </template>
+
+          <template #member_count="{ row }">
+            <t-link theme="primary" hover="color" @click="goMembers(row)">{{ row.member_count }} 人</t-link>
+          </template>
+
+          <template #operation="{ row }">
+            <MobileAction
+              v-if="isMobile"
+              :options="
+                buildMobileActionOptions([
+                  { content: '编辑', value: 'edit' },
+                  { content: '删除', value: 'delete', disabled: () => !!row.is_default, theme: 'error' },
+                ])
+              "
+              @select="(value) => handleMobileAction(value, row)"
+            />
+            <t-space v-else size="small">
+              <t-link v-permission="'user:group:update'" theme="primary" hover="color" @click="openEdit(row.id)"
+                >编辑</t-link
+              >
+              <t-tooltip v-if="row.is_default" content="默认用户组不可删除，请先取消默认标记">
+                <t-link theme="default" disabled>删除</t-link>
+              </t-tooltip>
+              <t-popconfirm v-else content="确认删除该用户组？" @confirm="handleDelete(row)">
+                <t-link v-permission="'user:group:delete'" theme="danger" hover="color">删除</t-link>
+              </t-popconfirm>
+            </t-space>
+          </template>
+
+          <template #empty>
+            <t-empty description="当前筛选条件下暂无用户组数据" />
+          </template>
+        </t-table>
+
+        <MobilePagination
+          v-if="isMobile"
+          :current="mobilePage.current"
+          :page-size="mobilePage.pageSize"
+          :total="mobilePage.total"
+          @go="goMobilePage"
+          @page-size="handleMobilePageSizeChange"
+        />
+      </section>
     </template>
 
     <!-- ① 代理分组：代理等级 + 归属管理（哪个代理属于哪个分组），折扣矩阵的列轴 -->
@@ -255,7 +277,9 @@
         </div>
         <div class="form-flags">
           <t-checkbox v-model="formData.is_default" :disabled="editingIsDefault">设为默认用户组</t-checkbox>
-          <p v-if="editingIsDefault" class="form-tip">默认组只能转移不能取消：在另一个用户组上勾选「设为默认」即可切换。</p>
+          <p v-if="editingIsDefault" class="form-tip">
+            默认组只能转移不能取消：在另一个用户组上勾选「设为默认」即可切换。
+          </p>
         </div>
         <t-form-item label="描述" name="description">
           <t-textarea
@@ -275,7 +299,13 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { AddIcon, ErrorCircleIcon, SearchIcon } from 'tdesign-icons-vue-next'
-import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import {
+  MessagePlugin,
+  type FormInstanceFunctions,
+  type FormRule,
+  type PageInfo,
+  type PrimaryTableCol,
+} from 'tdesign-vue-next'
 
 import AgentGroupPanel from '@/pages/users/agents/AgentGroupPanel.vue'
 import AgentLevelPanel from '@/pages/users/agents/AgentLevelPanel.vue'
@@ -567,7 +597,6 @@ function handleMobilePageSizeChange(pageSize: number) {
   void applyMobilePage(1, pageSize)
 }
 
-
 async function reload() {
   await loadGroups()
 }
@@ -679,8 +708,11 @@ onMounted(async () => {
   // 客户分组的数量常驻加载：落在其它分区时，切换条上的「客户分组（N）」也要有数。
   await loadGroups()
 })
-function handleMobileAction(value: string | number | Record<string, any>, row: UserGroupInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: UserGroupInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'edit':
       void openEdit(row.id)
@@ -943,7 +975,7 @@ function handleMobileAction(value: string | number | Record<string, any>, row: U
 :deep(.unified-control .t-input:focus-within),
 :deep(.unified-control .t-select__wrap:focus-within) {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.10);
+  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.1);
 }
 
 :deep(.group-table .t-table) {

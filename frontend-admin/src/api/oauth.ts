@@ -104,10 +104,7 @@ export function getOAuthProviders(): Promise<OAuthProviderInfo[]> {
 }
 
 // 按渠道名 upsert（三家固定）：没有渠道行时后端会按描述符创建，无需先「新建」。
-export function updateOAuthProvider(
-  provider: string,
-  data: OAuthProviderUpdateRequest,
-): Promise<OAuthProviderInfo> {
+export function updateOAuthProvider(provider: string, data: OAuthProviderUpdateRequest): Promise<OAuthProviderInfo> {
   return request.put<OAuthProviderInfo>({ url: `/oauth/providers/${provider}`, data })
 }
 

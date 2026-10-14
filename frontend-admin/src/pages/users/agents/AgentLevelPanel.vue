@@ -5,18 +5,12 @@
         <div class="card-head__main">
           <h3 class="card-title">④ 生效矩阵</h3>
           <p class="card-hint">
-            这里显示的是③折扣组「应用」后<strong>此刻真实生效</strong>的折扣率，不是配置草稿。
-            行 = 折扣目标，列 = 代理分组（按权重降序，最左最优先）。点任意单元格可直接微调这一格。
+            这里显示的是③折扣组「应用」后<strong>此刻真实生效</strong>的折扣率，不是配置草稿。 行 = 折扣目标，列 =
+            代理分组（按权重降序，最左最优先）。点任意单元格可直接微调这一格。
           </p>
         </div>
         <div class="card-head__actions">
-          <t-input
-            v-model="targetKeyword"
-            size="small"
-            clearable
-            placeholder="搜索目标名称"
-            class="target-search"
-          />
+          <t-input v-model="targetKeyword" size="small" clearable placeholder="搜索目标名称" class="target-search" />
           <t-radio-group v-model="viewMode" variant="default-filled" size="small">
             <t-radio-button value="all">全部</t-radio-button>
             <t-radio-button value="configured">只看已配置</t-radio-button>
@@ -28,9 +22,7 @@
         <div v-if="matrix.columns.length === 0" class="empty-hint">
           还没有启用中的代理分组，先到「① 代理分组」分区创建分组后再配折扣。
         </div>
-        <div v-else-if="visibleRows.length === 0" class="empty-hint">
-          当前筛选下没有可显示的目标。
-        </div>
+        <div v-else-if="visibleRows.length === 0" class="empty-hint">当前筛选下没有可显示的目标。</div>
         <div v-else class="matrix-scroll">
           <table class="matrix-table">
             <thead>
@@ -45,7 +37,10 @@
               </tr>
             </thead>
             <tbody>
-              <template v-for="entry in visibleRows" :key="entry.kind === 'section' ? `section-${entry.key}` : entry.key">
+              <template
+                v-for="entry in visibleRows"
+                :key="entry.kind === 'section' ? `section-${entry.key}` : entry.key"
+              >
                 <tr v-if="entry.kind === 'section'" class="matrix-section-row">
                   <td :colspan="matrix.columns.length + 1" class="matrix-section-cell">
                     <span>{{ entry.label }}</span>
@@ -313,7 +308,10 @@ const cellSiblingsText = computed(() => {
   return `其它分组：${parts.join(' · ')}`
 })
 
-function openCellEdit(row: AgentMatrixRow, cell: { agent_level_id: number; discount_rate: number; configured: boolean }) {
+function openCellEdit(
+  row: AgentMatrixRow,
+  cell: { agent_level_id: number; discount_rate: number; configured: boolean },
+) {
   if (!canEditCells.value) return
   const col = matrix.value.columns.find((item) => item.agent_level_id === cell.agent_level_id)
   cellDialog.agent_level_id = cell.agent_level_id

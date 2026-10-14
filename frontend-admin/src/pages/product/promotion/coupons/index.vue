@@ -113,15 +113,17 @@
         </template>
 
         <template #action="{ row }">
-<div class="action-cell">
+          <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '编辑', value: 'edit', theme: 'default' },
-                { content: '批量发放', value: 'grant', theme: 'default' },
-                { content: '发放记录', value: 'grants', theme: 'default' },
-                { content: '删除', value: 'delete', theme: 'error' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '编辑', value: 'edit', theme: 'default' },
+                  { content: '批量发放', value: 'grant', theme: 'default' },
+                  { content: '发放记录', value: 'grants', theme: 'default' },
+                  { content: '删除', value: 'delete', theme: 'error' },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
@@ -162,17 +164,36 @@
           <t-input v-model="form.name" placeholder="优惠券名称" />
         </t-form-item>
         <t-form-item label="优惠券类型" name="coupon_type">
-          <t-select v-model="form.coupon_type" :options="couponTypeOptions" placeholder="请选择类型" @change="resetBenefit" />
+          <t-select
+            v-model="form.coupon_type"
+            :options="couponTypeOptions"
+            placeholder="请选择类型"
+            @change="resetBenefit"
+          />
         </t-form-item>
         <t-form-item v-if="form.coupon_type === 'fixed'" label="减免金额（元）" name="amount">
           <t-input-number v-model="form.amount" :min="0" :precision="2" theme="column" placeholder="满减金额" />
         </t-form-item>
         <t-form-item v-else label="折扣（如 0.8 表示 8 折）" name="discount">
-          <t-input-number v-model="form.discount" :min="0.1" :max="1" :step="0.05" :precision="2" theme="column" placeholder="折扣系数" />
+          <t-input-number
+            v-model="form.discount"
+            :min="0.1"
+            :max="1"
+            :step="0.05"
+            :precision="2"
+            theme="column"
+            placeholder="折扣系数"
+          />
         </t-form-item>
         <div class="form-grid">
           <t-form-item label="使用门槛（元）" name="min_amount">
-            <t-input-number v-model="form.min_amount" :min="0" :precision="2" theme="column" placeholder="最低消费金额" />
+            <t-input-number
+              v-model="form.min_amount"
+              :min="0"
+              :precision="2"
+              theme="column"
+              placeholder="最低消费金额"
+            />
           </t-form-item>
           <t-form-item label="发行总量" name="total_stock">
             <t-input-number v-model="form.total_stock" :min="0" theme="column" placeholder="发行数量" />
@@ -202,12 +223,16 @@
       @confirm="handleCreateGrants"
       @close="grantVisible = false"
     >
-      <p style="margin-bottom: var(--space-md); font-size: 13px; color: var(--color-muted-foreground);">
+      <p style="margin-bottom: var(--space-md); font-size: 13px; color: var(--color-muted-foreground)">
         向「{{ grantForm.couponName }}」发放 {{ grantInputIds.length }} 位用户。
       </p>
       <t-form label-align="top" @submit.prevent>
         <t-form-item label="用户 ID（逗号分隔）" name="user_ids">
-          <t-textarea v-model="grantForm.userIdsText" :autosize="{ minRows: 3, maxRows: 5 }" placeholder="如：1001,1002,1003" />
+          <t-textarea
+            v-model="grantForm.userIdsText"
+            :autosize="{ minRows: 3, maxRows: 5 }"
+            placeholder="如：1001,1002,1003"
+          />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -236,7 +261,12 @@
         @page-change="handleGrantPageChange"
       >
         <template #status="{ row }">
-          <t-tag variant="light" size="small" shape="round" :theme="row.status === 'used' ? 'success' : row.status === 'pending' ? 'warning' : 'default'">
+          <t-tag
+            variant="light"
+            size="small"
+            shape="round"
+            :theme="row.status === 'used' ? 'success' : row.status === 'pending' ? 'warning' : 'default'"
+          >
             {{ grantStatusText(row.status) }}
           </t-tag>
         </template>
@@ -261,7 +291,7 @@ import {
   updateCoupon,
 } from '@/api/product'
 import { formatPrice, formatTime } from '@/pages/product/constants'
-import type { CouponGrantInfo, CouponInfo } from '@/types/interface'
+import type { CouponGrantInfo, CouponInfo, CouponRequest } from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
@@ -314,9 +344,7 @@ function couponTypeLabel(type: string): string {
 }
 
 function benefitText(row: CouponInfo): string {
-  return row.coupon_type === 'discount'
-    ? `${Number(row.discount).toFixed(2)} 折`
-    : `减 ¥${formatPrice(row.amount)}`
+  return row.coupon_type === 'discount' ? `${Number(row.discount).toFixed(2)} 折` : `减 ¥${formatPrice(row.amount)}`
 }
 
 function statusTag(status: number): { theme: 'success' | 'danger' | 'default'; text: string } {
@@ -357,7 +385,7 @@ function handleResetFilters() {
 const formVisible = ref(false)
 const editing = ref(false)
 let editingId = 0
-const form = reactive<Record<string, any>>({
+const form = reactive<CouponRequest>({
   name: '',
   coupon_code: '',
   coupon_type: 'fixed',
@@ -554,8 +582,11 @@ onMounted(() => {
 })
 
 // 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: CouponInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: CouponInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'edit':
       openEdit(row)

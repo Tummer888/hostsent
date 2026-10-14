@@ -36,7 +36,9 @@
       <aside v-if="!isMobile" class="products-aside surface-card">
         <div class="products-aside__head">
           <h3 class="card-title">分类导航</h3>
-          <t-link theme="primary" hover="color" class="products-aside__all" @click="selectAllCategories">全部产品</t-link>
+          <t-link theme="primary" hover="color" class="products-aside__all" @click="selectAllCategories"
+            >全部产品</t-link
+          >
         </div>
         <t-input v-model="treeKeyword" size="small" clearable placeholder="搜索分类">
           <template #prefix-icon>
@@ -73,156 +75,170 @@
             <span class="field__label">分类</span>
             <t-select v-model="filters.category_id" clearable placeholder="全部分类" :options="categoryOptions" />
           </div>
-      <div class="field">
-        <span class="field__label">状态</span>
-        <t-select v-model="filters.status" clearable placeholder="全部状态" :options="productStatusOptions" />
-      </div>
-      <div class="field">
-        <span class="field__label">链路</span>
-        <t-select v-model="filters.source_mode" clearable placeholder="全部链路" :options="sourceModeOptions" />
-      </div>
-      <template #actions>
-        <t-space size="small">
-          <t-button theme="primary" @click="handleSearch">
-            <template #icon>
-              <SearchIcon aria-hidden="true" />
+          <div class="field">
+            <span class="field__label">状态</span>
+            <t-select v-model="filters.status" clearable placeholder="全部状态" :options="productStatusOptions" />
+          </div>
+          <div class="field">
+            <span class="field__label">链路</span>
+            <t-select v-model="filters.source_mode" clearable placeholder="全部链路" :options="sourceModeOptions" />
+          </div>
+          <template #actions>
+            <t-space size="small">
+              <t-button theme="primary" @click="handleSearch">
+                <template #icon>
+                  <SearchIcon aria-hidden="true" />
+                </template>
+                查询
+              </t-button>
+              <t-button variant="outline" @click="handleResetFilters">重置</t-button>
+            </t-space>
+          </template>
+        </FilterCard>
+
+        <section class="table-card surface-card">
+          <div class="table-card__head">
+            <h3 class="card-title">产品列表</h3>
+            <div class="table-card__meta products-crumb-wrap">
+              <span v-if="activeCategoryPath.length" class="products-crumb">
+                分类：{{ activeCategoryPath.map((n) => n.name).join(' / ') }}
+                <t-link theme="primary" hover="color" @click="selectAllCategories">查看全部</t-link>
+              </span>
+              <span>共 {{ pagination.total }} 个产品</span>
+            </div>
+          </div>
+
+          <!-- 批量操作条：勾选后出现，支持跨页累计选择（selectedCount 由选区状态给出） -->
+          <div class="batch-bar" :class="{ 'batch-bar--active': selectedRowKeys.length > 0 }">
+            <span class="batch-bar__count">
+              <template v-if="selectedRowKeys.length">已选 {{ selectedRowKeys.length }} 个产品</template>
+              <template v-else>勾选商品后可批量上架 / 下架 / 删除</template>
+            </span>
+            <t-space size="small">
+              <t-button
+                size="small"
+                variant="outline"
+                :disabled="!selectedRowKeys.length || batchLoading"
+                @click="handleBatchPublish"
+              >
+                批量上架
+              </t-button>
+              <t-button
+                size="small"
+                variant="outline"
+                :disabled="!selectedRowKeys.length || batchLoading"
+                @click="handleBatchUnpublish"
+              >
+                批量下架
+              </t-button>
+              <t-button
+                size="small"
+                theme="danger"
+                variant="outline"
+                :disabled="!selectedRowKeys.length || batchLoading"
+                @click="handleBatchDelete"
+              >
+                批量删除
+              </t-button>
+              <t-link v-if="selectedRowKeys.length" theme="default" hover="color" @click="clearSelection"
+                >清空选择</t-link
+              >
+            </t-space>
+          </div>
+          <t-table
+            row-key="id"
+            :data="productList"
+            :columns="columns"
+            :loading="loading"
+            size="small"
+            hover
+            table-layout="fixed"
+            cell-empty-content="—"
+            :row-selection="rowSelection"
+            :reserve-selected-row-on-paginate="true"
+            :pagination="isMobile ? undefined : pagination"
+            @page-change="handlePageChange"
+            @select-change="handleSelectChange"
+          >
+            <template #name="{ row }">
+              <div class="product-cell">
+                <span class="cell-strong">{{ row.name }}</span>
+                <span class="product-sub">SKU: {{ row.code }}</span>
+              </div>
             </template>
-            查询
-          </t-button>
-          <t-button variant="outline" @click="handleResetFilters">重置</t-button>
-        </t-space>
-      </template>
-    </FilterCard>
 
-    <section class="table-card surface-card">
-      <div class="table-card__head">
-        <h3 class="card-title">产品列表</h3>
-        <div class="table-card__meta products-crumb-wrap">
-          <span v-if="activeCategoryPath.length" class="products-crumb">
-            分类：{{ activeCategoryPath.map((n) => n.name).join(' / ') }}
-            <t-link theme="primary" hover="color" @click="selectAllCategories">查看全部</t-link>
-          </span>
-          <span>共 {{ pagination.total }} 个产品</span>
-        </div>
-      </div>
-
-      <!-- 批量操作条：勾选后出现，支持跨页累计选择（selectedCount 由选区状态给出） -->
-      <div class="batch-bar" :class="{ 'batch-bar--active': selectedRowKeys.length > 0 }">
-        <span class="batch-bar__count">
-          <template v-if="selectedRowKeys.length">已选 {{ selectedRowKeys.length }} 个产品</template>
-          <template v-else>勾选商品后可批量上架 / 下架 / 删除</template>
-        </span>
-        <t-space size="small">
-          <t-button size="small" variant="outline" :disabled="!selectedRowKeys.length || batchLoading" @click="handleBatchPublish">
-            批量上架
-          </t-button>
-          <t-button size="small" variant="outline" :disabled="!selectedRowKeys.length || batchLoading" @click="handleBatchUnpublish">
-            批量下架
-          </t-button>
-          <t-button size="small" theme="danger" variant="outline" :disabled="!selectedRowKeys.length || batchLoading" @click="handleBatchDelete">
-            批量删除
-          </t-button>
-          <t-link v-if="selectedRowKeys.length" theme="default" hover="color" @click="clearSelection">清空选择</t-link>
-        </t-space>
-      </div>
-      <t-table
-        row-key="id"
-        :data="productList"
-        :columns="columns"
-        :loading="loading"
-        size="small"
-        hover
-        table-layout="fixed"
-        cell-empty-content="—"
-        :row-selection="rowSelection"
-        :reserve-selected-row-on-paginate="true"
-        :pagination="isMobile ? undefined : pagination"
-        @page-change="handlePageChange"
-        @select-change="handleSelectChange"
-      >
-        <template #name="{ row }">
-          <div class="product-cell">
-            <span class="cell-strong">{{ row.name }}</span>
-            <span class="product-sub">SKU: {{ row.code }}</span>
-          </div>
-        </template>
-
-        <template #category="{ row }">
-          <span>{{ categoryName(row.category_id) }}</span>
-        </template>
-
-        <template #source_mode="{ row }">
-          <t-tag :theme="sourceModeTag(row.source_mode).theme" variant="light" size="small" shape="round">
-            {{ sourceModeTag(row.source_mode).text }}
-          </t-tag>
-        </template>
-
-        <template #price="{ row }">
-          <div class="price-cell">
-            <span class="price-main">¥{{ formatPrice(row.price) }}</span>
-            <span class="price-sub">{{ priceModelLabel(row.price_model) }} / 成本 ¥{{ formatPrice(row.cost_price) }}</span>
-          </div>
-        </template>
-
-        <template #stock="{ row }">
-          <span>{{ row.stock === -1 ? '不限' : row.stock }}</span>
-        </template>
-
-        <template #status="{ row }">
-          <t-tag :theme="statusTag(row.status).theme" variant="light" size="small" shape="round">
-            {{ statusTag(row.status).text }}
-          </t-tag>
-        </template>
-
-        <template #action="{ row }">
-<div class="action-cell">
-            <MobileAction
-              v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '详情', value: 'detail', theme: 'default' },
-                { content: '编辑', value: 'edit', theme: 'default' },
-                { content: '改价', value: 'price', theme: 'default' },
-                { content: '上架', value: 'publish', hidden: () => row.status === 1, theme: 'success' },
-                { content: '下架', value: 'unpublish', hidden: () => row.status !== 1, theme: 'warning' },
-                { content: '删除', value: 'delete', theme: 'error' },
-              ])"
-              @select="(value) => handleMobileAction(value, row)"
-            />
-            <template v-else>
-              <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
-              <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
-              <t-link theme="primary" hover="color" @click="openPriceDialog(row)">改价</t-link>
-              <t-link
-                v-if="row.status !== 1"
-                theme="primary"
-                hover="color"
-                @click="handlePublish(row)"
-              >上架</t-link>
-              <t-link
-                v-else
-                theme="warning"
-                hover="color"
-                @click="handleUnpublish(row)"
-              >下架</t-link>
-              <t-link theme="danger" hover="color" @click="handleDelete(row)">删除</t-link>
+            <template #category="{ row }">
+              <span>{{ categoryName(row.category_id) }}</span>
             </template>
-          </div>
-        </template>
 
-        <template #empty>
-          <t-empty description="暂无产品数据，请先新建产品" />
-        </template>
-      </t-table>
+            <template #source_mode="{ row }">
+              <t-tag :theme="sourceModeTag(row.source_mode).theme" variant="light" size="small" shape="round">
+                {{ sourceModeTag(row.source_mode).text }}
+              </t-tag>
+            </template>
 
-      <MobilePagination
-        v-if="isMobile"
-        :current="mobilePage.current"
-        :page-size="mobilePage.pageSize"
-        :total="mobilePage.total"
-        @go="goMobilePage"
-        @page-size="handleMobilePageSizeChange"
-      />
-    </section>
+            <template #price="{ row }">
+              <div class="price-cell">
+                <span class="price-main">¥{{ formatPrice(row.price) }}</span>
+                <span class="price-sub"
+                  >{{ priceModelLabel(row.price_model) }} / 成本 ¥{{ formatPrice(row.cost_price) }}</span
+                >
+              </div>
+            </template>
+
+            <template #stock="{ row }">
+              <span>{{ row.stock === -1 ? '不限' : row.stock }}</span>
+            </template>
+
+            <template #status="{ row }">
+              <t-tag :theme="statusTag(row.status).theme" variant="light" size="small" shape="round">
+                {{ statusTag(row.status).text }}
+              </t-tag>
+            </template>
+
+            <template #action="{ row }">
+              <div class="action-cell">
+                <MobileAction
+                  v-if="isMobile"
+                  :options="
+                    buildMobileActionOptions([
+                      { content: '详情', value: 'detail', theme: 'default' },
+                      { content: '编辑', value: 'edit', theme: 'default' },
+                      { content: '改价', value: 'price', theme: 'default' },
+                      { content: '上架', value: 'publish', hidden: () => row.status === 1, theme: 'success' },
+                      { content: '下架', value: 'unpublish', hidden: () => row.status !== 1, theme: 'warning' },
+                      { content: '删除', value: 'delete', theme: 'error' },
+                    ])
+                  "
+                  @select="(value) => handleMobileAction(value, row)"
+                />
+                <template v-else>
+                  <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
+                  <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
+                  <t-link theme="primary" hover="color" @click="openPriceDialog(row)">改价</t-link>
+                  <t-link v-if="row.status !== 1" theme="primary" hover="color" @click="handlePublish(row)"
+                    >上架</t-link
+                  >
+                  <t-link v-else theme="warning" hover="color" @click="handleUnpublish(row)">下架</t-link>
+                  <t-link theme="danger" hover="color" @click="handleDelete(row)">删除</t-link>
+                </template>
+              </div>
+            </template>
+
+            <template #empty>
+              <t-empty description="暂无产品数据，请先新建产品" />
+            </template>
+          </t-table>
+
+          <MobilePagination
+            v-if="isMobile"
+            :current="mobilePage.current"
+            :page-size="mobilePage.pageSize"
+            :total="mobilePage.total"
+            @go="goMobilePage"
+            @page-size="handleMobilePageSizeChange"
+          />
+        </section>
       </div>
     </div>
 
@@ -240,10 +256,20 @@
           <t-input-number v-model="priceForm.price" :min="0" :precision="2" theme="column" placeholder="请输入销售价" />
         </t-form-item>
         <t-form-item label="成本价（元）" name="cost_price">
-          <t-input-number v-model="priceForm.cost_price" :min="0" :precision="2" theme="column" placeholder="请输入成本价" />
+          <t-input-number
+            v-model="priceForm.cost_price"
+            :min="0"
+            :precision="2"
+            theme="column"
+            placeholder="请输入成本价"
+          />
         </t-form-item>
         <t-form-item label="备注" name="remark">
-          <t-textarea v-model="priceForm.remark" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="选填，记录本次调价说明" />
+          <t-textarea
+            v-model="priceForm.remark"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+            placeholder="选填，记录本次调价说明"
+          />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -252,7 +278,12 @@
       v-model:visible="cloneVisible"
       header="从上游商品导入"
       width="960px"
-      :confirm-btn="{ content: `导入选中的 ${selectedProductIds.size} 个商品`, theme: 'primary', disabled: !selectedProductIds.size, loading: cloneSubmitting }"
+      :confirm-btn="{
+        content: `导入选中的 ${selectedProductIds.size} 个商品`,
+        theme: 'primary',
+        disabled: !selectedProductIds.size,
+        loading: cloneSubmitting,
+      }"
       :cancel-btn="{ content: '取消' }"
       @confirm="handleCloneConfirm"
       @close="cloneVisible = false"
@@ -260,11 +291,21 @@
       <t-form label-align="top" :data="cloneForm" @submit.prevent>
         <div class="clone-grid">
           <t-form-item label="上游提供商" name="source_provider_id">
-            <t-select v-model="cloneForm.source_provider_id" :options="providerOptions" placeholder="请选择上游提供商" @change="handleProviderChange" />
+            <t-select
+              v-model="cloneForm.source_provider_id"
+              :options="providerOptions"
+              placeholder="请选择上游提供商"
+              @change="handleProviderChange"
+            />
             <span class="clone-tip">只列可对接商品目录的渠道，自营平台不在列。</span>
           </t-form-item>
           <t-form-item label="归入本地分类" name="category_id">
-            <t-select v-model="cloneForm.category_id" :options="categoryOptions" clearable placeholder="不选则落「未分类」" />
+            <t-select
+              v-model="cloneForm.category_id"
+              :options="categoryOptions"
+              clearable
+              placeholder="不选则落「未分类」"
+            />
             <span class="clone-tip">不选也能导，导入后再逐个改分类比较费事。</span>
           </t-form-item>
           <t-form-item label="定价（按上游标价）" name="price_percent">
@@ -283,24 +324,26 @@
         </div>
 
         <div class="clone-summary">
-          <span>上游商品 {{ filteredProducts.length }} 个<template v-if="cloneKeyword">（全部 {{ providerProducts.length }} 个）</template></span>
+          <span
+            >上游商品 {{ filteredProducts.length }} 个<template v-if="cloneKeyword"
+              >（全部 {{ providerProducts.length }} 个）</template
+            ></span
+          >
           <span class="clone-summary__split">
             在售 {{ onSaleCount }} · 未在售 {{ filteredProducts.length - onSaleCount }}
             <template v-if="importedCount"> · 已导入 {{ importedCount }}</template>
           </span>
           <span v-if="discountHint" class="clone-summary__hint">{{ discountHint }}</span>
           <span class="clone-summary__pick">
-            <template v-if="selectedProductIds.size">已选 {{ selectedProductIds.size }} 个 · 预计毛利 {{ formatPrice(selectedProfit) }}/月</template>
+            <template v-if="selectedProductIds.size"
+              >已选 {{ selectedProductIds.size }} 个 · 预计毛利 {{ formatPrice(selectedProfit) }}/月</template
+            >
             <template v-else>共 {{ selectableCount }} 个可导入</template>
           </span>
         </div>
 
         <div class="clone-search">
-          <t-input
-            v-model="cloneKeyword"
-            clearable
-            placeholder="搜索商品名称 / 规格 / 上游 ID / 分类名，快速定位"
-          >
+          <t-input v-model="cloneKeyword" clearable placeholder="搜索商品名称 / 规格 / 上游 ID / 分类名，快速定位">
             <template #prefix-icon>
               <SearchIcon size="14" aria-hidden="true" />
             </template>
@@ -315,14 +358,16 @@
         </div>
 
         <p class="clone-hint">
-          「隐藏」= 上游商铺未展示（分类被上游隐藏 / 商品隐藏 / 已下架），仍可导入开通；
-          「已导入」= 该上游商品已经导入过，不再重复勾选 —— 点击可直接打开本地商品详情。
+          「隐藏」= 上游商铺未展示（分类被上游隐藏 / 商品隐藏 / 已下架），仍可导入开通； 「已导入」=
+          该上游商品已经导入过，不再重复勾选 —— 点击可直接打开本地商品详情。
         </p>
 
         <div class="clone-groups">
           <div v-if="cloneLoading" class="clone-empty">正在加载上游商品…</div>
           <div v-else-if="!providerProducts.length" class="clone-empty">请先选择上游提供商，加载商品分组</div>
-          <div v-else-if="!visibleGroups.length" class="clone-empty">没有匹配「{{ cloneKeyword }}」的上游商品，换个关键词试试</div>
+          <div v-else-if="!visibleGroups.length" class="clone-empty">
+            没有匹配「{{ cloneKeyword }}」的上游商品，换个关键词试试
+          </div>
           <div v-for="group in visibleGroups" :key="group.id" class="clone-group">
             <div class="clone-group__head">
               <t-checkbox
@@ -369,10 +414,7 @@
                 <span class="clone-cell clone-col--num" :class="marginClass(item)">{{ marginText(item) }}</span>
                 <span class="clone-cell clone-col--num" :class="stockClass(item)">{{ stockText(item) }}</span>
                 <span class="clone-cell clone-cell--status">
-                  <t-tooltip
-                    v-if="item.imported"
-                    :content="importedTooltip(item)"
-                  >
+                  <t-tooltip v-if="item.imported" :content="importedTooltip(item)">
                     <t-link theme="success" hover="color" @click="openImportedProduct(item)">
                       已导入 {{ importedStatusText(item) }}
                     </t-link>
@@ -410,9 +452,17 @@ import {
   setProductSpecPassthrough,
   unpublishProduct,
   updateProductPrice,
+  type SaleProductBatchActionResponse,
 } from '@/api/product'
 import { getProductList as getResourceProductList, getProviderList } from '@/api/admin'
-import { formatPrice, priceModelLabel, productStatusOptions, sourceModeOptions, sourceModeTag, statusTag } from '@/pages/product/constants'
+import {
+  formatPrice,
+  priceModelLabel,
+  productStatusOptions,
+  sourceModeOptions,
+  sourceModeTag,
+  statusTag,
+} from '@/pages/product/constants'
 import type { ProductInfo, ProviderInfo, SaleProductCategoryInfo, SaleProductInfo } from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
@@ -432,7 +482,12 @@ const loading = ref(false)
 const { isMobile } = useIsMobile()
 const { categoryOptions, categoryName, loadCategories } = useCategoryOptions()
 
-const filters = reactive<{ keyword: string | undefined; category_id: number | undefined; status: number | undefined; source_mode: string | undefined }>({
+const filters = reactive<{
+  keyword: string | undefined
+  category_id: number | undefined
+  status: number | undefined
+  source_mode: string | undefined
+}>({
   keyword: undefined,
   category_id: undefined,
   status: undefined,
@@ -480,7 +535,6 @@ const filteredAsideTree = computed(() => {
   }
   return walk(asideTree.value)
 })
-
 
 // 从根到当前选中分类的路径（面包屑用）
 const activeCategoryPath = computed<SaleProductCategoryInfo[]>(() => {
@@ -589,7 +643,14 @@ function selectedIds(): number[] {
 }
 
 /** 批量结果提示：成功数 + 前几条失败原因（逐条回报，不能只报"部分失败"）。 */
-function reportBatchResult(kind: string, result: { succeeded?: number[]; failed?: Array<{ name?: string; product_id: number; reason: string }>; message?: string }) {
+function reportBatchResult(
+  kind: string,
+  result: {
+    succeeded?: number[]
+    failed?: Array<{ name?: string; product_id: number; reason: string }>
+    message?: string
+  },
+) {
   const ok = result.succeeded?.length ?? 0
   const failed = result.failed ?? []
   if (ok > 0) MessagePlugin.success(`${kind}成功 ${ok} 个`)
@@ -603,7 +664,7 @@ function reportBatchResult(kind: string, result: { succeeded?: number[]; failed?
   if (ok === 0 && failed.length === 0) MessagePlugin.warning(result.message || `没有可${kind}的产品`)
 }
 
-async function runBatch(kind: string, action: (ids: number[]) => Promise<any>) {
+async function runBatch(kind: string, action: (ids: number[]) => Promise<SaleProductBatchActionResponse>) {
   const ids = selectedIds()
   if (!ids.length) {
     MessagePlugin.warning('请先勾选产品')
@@ -636,9 +697,7 @@ function handleBatchPublish() {
     try {
       const result = await batchPublishProducts(ids)
       reportBatchResult('上架', result || {})
-      const blocked = (result?.failed ?? []).filter(
-        (f) => f.reason.includes('仅透传') || f.reason.includes('平台绑定'),
-      )
+      const blocked = (result?.failed ?? []).filter((f) => f.reason.includes('仅透传') || f.reason.includes('平台绑定'))
       if (blocked.length > 0) {
         offerBatchPassthroughAndPublish(blocked.map((f) => f.product_id))
       }
@@ -757,12 +816,7 @@ const filteredProducts = computed(() => {
   const kw = cloneKeyword.value.trim().toLowerCase()
   if (!kw) return providerProducts.value
   return providerProducts.value.filter((item) => {
-    const haystack = [
-      item.name,
-      item.group_name || '',
-      item.upstream_id || '',
-      formatProductSpec(item),
-    ]
+    const haystack = [item.name, item.group_name || '', item.upstream_id || '', formatProductSpec(item)]
       .join(' ')
       .toLowerCase()
     return haystack.includes(kw)
@@ -892,7 +946,9 @@ async function handleProviderChange() {
   }
 }
 
-function buildCloneGroups(items: ProductInfo[]): { id: number; name: string; derived: boolean; items: ProductInfo[] }[] {
+function buildCloneGroups(
+  items: ProductInfo[],
+): { id: number; name: string; derived: boolean; items: ProductInfo[] }[] {
   const map = new Map<number, { id: number; name: string; derived: boolean; items: ProductInfo[] }>()
   for (const item of items) {
     const gid = item.group_id || 0
@@ -1237,8 +1293,11 @@ watch(
 )
 
 // 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: SaleProductInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: SaleProductInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'detail':
       openDetail(row)

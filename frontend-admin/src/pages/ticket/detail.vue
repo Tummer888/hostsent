@@ -27,7 +27,9 @@
       <div class="table-card__head">
         <h3 class="card-title">工单信息</h3>
         <t-space size="small">
-          <t-button v-if="canClaim" variant="outline" size="small" theme="primary" @click="handleClaim">认领工单</t-button>
+          <t-button v-if="canClaim" variant="outline" size="small" theme="primary" @click="handleClaim"
+            >认领工单</t-button
+          >
           <t-button v-if="canAssign" variant="outline" size="small" @click="openAssign">分配处理人</t-button>
           <t-button v-if="canTransfer" variant="outline" size="small" @click="openTransfer">转派</t-button>
           <t-popconfirm v-if="canClose" content="确认关闭该工单吗？" @confirm="handleClose">
@@ -103,7 +105,11 @@
           </div>
           <div class="reply-content">{{ ticket.description || '—' }}</div>
         </div>
-        <div v-for="reply in replies" :key="reply.id" :class="['reply-item', reply.sender_type, { 'is-internal': reply.is_internal }]">
+        <div
+          v-for="reply in replies"
+          :key="reply.id"
+          :class="['reply-item', reply.sender_type, { 'is-internal': reply.is_internal }]"
+        >
           <div class="reply-header">
             <span class="sender">{{ reply.sender_name }}</span>
             <span class="role-tag" :class="reply.sender_type">{{ senderTypeLabel(reply.sender_type) }}</span>
@@ -133,7 +139,9 @@
           <div v-if="reply.review_status === 'pending'" class="review-inline">
             <div class="review-inline__head">
               <span class="review-inline__tip">
-                该回复待复核{{ reply.reviewer_name ? `（复核人 ${reply.reviewer_name}）` : '' }}，复核通过后才对用户可见。
+                该回复待复核{{
+                  reply.reviewer_name ? `（复核人 ${reply.reviewer_name}）` : ''
+                }}，复核通过后才对用户可见。
               </span>
               <t-space size="small">
                 <t-button
@@ -189,13 +197,7 @@
             <t-checkbox v-if="has('ticket:internal_note')" v-model="isInternalNote">
               内部备注（用户不可见）
             </t-checkbox>
-            <input
-              ref="fileInputRef"
-              type="file"
-              class="hidden-file-input"
-              multiple
-              @change="handleFilePicked"
-            />
+            <input ref="fileInputRef" type="file" class="hidden-file-input" multiple @change="handleFilePicked" />
             <t-button
               variant="outline"
               size="small"
@@ -237,7 +239,9 @@
               <span class="log-item__time">{{ formatTime(log.created_at) }}</span>
             </div>
             <div class="log-item__detail">
-              <template v-if="log.from_value || log.to_value">{{ log.from_value || '—' }} → {{ log.to_value || '—' }}</template>
+              <template v-if="log.from_value || log.to_value"
+                >{{ log.from_value || '—' }} → {{ log.to_value || '—' }}</template
+              >
               <template v-if="log.note"> · {{ log.note }}</template>
             </div>
           </div>
@@ -292,7 +296,12 @@
           />
         </t-form-item>
         <t-form-item label="转派说明" name="note">
-          <t-textarea v-model="transferForm.note" placeholder="可选，说明转派原因" :autosize="{ minRows: 2, maxRows: 4 }" :maxlength="255" />
+          <t-textarea
+            v-model="transferForm.note"
+            placeholder="可选，说明转派原因"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+            :maxlength="255"
+          />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -321,7 +330,9 @@
           <t-form-item :label="reviewForm.action === 'approve' ? '复核意见（选填）' : '驳回说明（必填）'">
             <t-textarea
               v-model="reviewForm.note"
-              :placeholder="reviewForm.action === 'approve' ? '可补充说明，用户端不可见' : '请说明驳回原因，将通知提交人'"
+              :placeholder="
+                reviewForm.action === 'approve' ? '可补充说明，用户端不可见' : '请说明驳回原因，将通知提交人'
+              "
               :autosize="{ minRows: 3, maxRows: 6 }"
               :maxlength="500"
               show-limit-number
@@ -366,7 +377,13 @@ import {
   ticketStatusLabel,
   ticketStatusTheme,
 } from '@/pages/ticket/constants'
-import type { TicketAttachmentInfo, TicketDetail, TicketLogInfo, TicketReplyInfo, TicketReviewRequest } from '@/types/interface'
+import type {
+  TicketAttachmentInfo,
+  TicketDetail,
+  TicketLogInfo,
+  TicketReplyInfo,
+  TicketReviewRequest,
+} from '@/types/interface'
 
 defineOptions({ name: 'TicketDetail' })
 

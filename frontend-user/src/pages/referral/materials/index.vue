@@ -14,14 +14,24 @@
         <div class="promo__row">
           <span class="promo__label">邀请码</span>
           <span class="promo__value promo__value--code">{{ profile?.invite_code || '—' }}</span>
-          <t-button size="small" variant="outline" :disabled="!profile?.invite_code" @click="copy(inviteCode, '邀请码已复制')">
+          <t-button
+            size="small"
+            variant="outline"
+            :disabled="!profile?.invite_code"
+            @click="copy(inviteCode, '邀请码已复制')"
+          >
             复制
           </t-button>
         </div>
         <div class="promo__row">
           <span class="promo__label">推广链接</span>
           <span class="promo__value">{{ inviteUrl }}</span>
-          <t-button size="small" variant="outline" :disabled="!profile?.invite_code" @click="copy(inviteUrl, '推广链接已复制')">
+          <t-button
+            size="small"
+            variant="outline"
+            :disabled="!profile?.invite_code"
+            @click="copy(inviteUrl, '推广链接已复制')"
+          >
             复制
           </t-button>
         </div>
@@ -37,7 +47,12 @@
         <div v-for="tpl in templates" :key="tpl.label" class="template">
           <div class="template__head">
             <span class="template__label">{{ tpl.label }}</span>
-            <t-button size="small" variant="text" theme="primary" @click="copy(tpl.render(inviteUrl, inviteCode), '文案已复制')">
+            <t-button
+              size="small"
+              variant="text"
+              theme="primary"
+              @click="copy(tpl.render(inviteUrl, inviteCode), '文案已复制')"
+            >
               复制文案
             </t-button>
           </div>
@@ -113,8 +128,8 @@ async function load() {
   try {
     const { data } = await getReferralProfile()
     profile.value = data
-  } catch (e: any) {
-    MessagePlugin.error(e?.message || '加载推广信息失败')
+  } catch (e) {
+    MessagePlugin.error((e as Error)?.message || '加载推广信息失败')
   }
 }
 
@@ -122,27 +137,90 @@ onMounted(load)
 </script>
 
 <style scoped>
-.referral-page { padding: 16px 24px; display: flex; flex-direction: column; gap: 16px; }
-.referral-header { display: flex; align-items: center; justify-content: space-between; }
-.referral-title { font-size: 20px; font-weight: 700; margin: 0; }
-.referral-panel {
-  background: #fff; border: 1px solid var(--td-border-level-1-color, #f0f0f0);
-  border-radius: 12px; padding: 16px 20px;
+.referral-page {
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
-.panel-head { margin-bottom: 12px; }
-.section-title { font-size: 15px; font-weight: 700; }
-.promo { display: flex; flex-direction: column; gap: 10px; }
-.promo__row { display: flex; align-items: center; gap: 12px; font-size: 14px; }
-.promo__label { width: 80px; color: #888; }
-.promo__value { color: #333; word-break: break-all; }
-.promo__value--code { font-family: monospace; font-weight: 700; color: #b76a00; }
-.promo__tip { color: #999; font-size: 12px; margin: 0; }
-.templates { display: flex; flex-direction: column; gap: 12px; }
+.referral-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.referral-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+}
+.referral-panel {
+  background: #fff;
+  border: 1px solid var(--td-border-level-1-color, #f0f0f0);
+  border-radius: 12px;
+  padding: 16px 20px;
+}
+.panel-head {
+  margin-bottom: 12px;
+}
+.section-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+.promo {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.promo__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+}
+.promo__label {
+  width: 80px;
+  color: #888;
+}
+.promo__value {
+  color: #333;
+  word-break: break-all;
+}
+.promo__value--code {
+  font-family: monospace;
+  font-weight: 700;
+  color: #b76a00;
+}
+.promo__tip {
+  color: #999;
+  font-size: 12px;
+  margin: 0;
+}
+.templates {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 .template {
   border: 1px dashed var(--td-border-level-1-color, #e6e6e6);
-  border-radius: 10px; padding: 12px 14px;
+  border-radius: 10px;
+  padding: 12px 14px;
 }
-.template__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-.template__label { font-size: 13px; font-weight: 600; color: #444; }
-.template__body { margin: 0; color: #666; font-size: 13px; line-height: 1.7; word-break: break-all; }
+.template__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.template__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #444;
+}
+.template__body {
+  margin: 0;
+  color: #666;
+  font-size: 13px;
+  line-height: 1.7;
+  word-break: break-all;
+}
 </style>

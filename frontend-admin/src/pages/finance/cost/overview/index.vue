@@ -30,12 +30,7 @@
       </t-space>
     </header>
 
-    <t-alert
-      v-if="overview.unconfigured_hint"
-      theme="warning"
-      :message="overview.unconfigured_hint"
-      class="cost-hint"
-    >
+    <t-alert v-if="overview.unconfigured_hint" theme="warning" :message="overview.unconfigured_hint" class="cost-hint">
       <template #operation>
         <t-link theme="primary" @click="router.push('/finance/cost/items')">去配置成本项</t-link>
       </template>
@@ -84,9 +79,7 @@
           <span class="stat-card__value">¥{{ formatPrice(overview.profit) }}</span>
           <span class="stat-card__label">
             利润
-            <template v-if="overview.current">
-              · 摊分口径 ¥{{ formatPrice(overview.profit_to_date) }}
-            </template>
+            <template v-if="overview.current"> · 摊分口径 ¥{{ formatPrice(overview.profit_to_date) }} </template>
           </span>
         </div>
       </div>
@@ -96,9 +89,7 @@
           <span class="stat-card__value">{{ formatRate(overview.profit_rate) }}</span>
           <span class="stat-card__label">
             利润率（利润 / 收入）
-            <template v-if="overview.current">
-              · 摊分口径 {{ formatRate(overview.profit_rate_to_date) }}
-            </template>
+            <template v-if="overview.current"> · 摊分口径 {{ formatRate(overview.profit_rate_to_date) }} </template>
           </span>
         </div>
       </div>
@@ -319,7 +310,11 @@ const upstreamColumns: PrimaryTableCol<UpstreamLedgerRow>[] = [
 const costOption = computed<EChartsOption>(() => {
   const lines = overview.value.cost_lines
   return {
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (v: unknown) => `¥${Number(v ?? 0).toFixed(2)}` },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      valueFormatter: (v: unknown) => `¥${Number(v ?? 0).toFixed(2)}`,
+    },
     grid: { left: 8, right: 60, top: 12, bottom: 8, outerBoundsMode: 'same', outerBoundsContain: 'axisLabel' },
     xAxis: {
       type: 'value',
@@ -390,10 +385,37 @@ const trendOption = computed<EChartsOption>(() => {
       },
     ],
     series: [
-      { name: '服务收入', type: 'bar', barMaxWidth: 16, itemStyle: { color: '#16a34a' }, data: points.map((p) => p.service_revenue) },
-      { name: '上游消耗', type: 'bar', stack: 'cost', barMaxWidth: 16, itemStyle: { color: '#f97316' }, data: points.map((p) => p.upstream_cost) },
-      { name: '成本项', type: 'bar', stack: 'cost', barMaxWidth: 16, itemStyle: { color: '#f59e0b' }, data: points.map((p) => p.fixed_cost) },
-      { name: '佣金/返现', type: 'bar', stack: 'cost', barMaxWidth: 16, itemStyle: { color: '#a855f7' }, data: points.map((p) => p.other_cost) },
+      {
+        name: '服务收入',
+        type: 'bar',
+        barMaxWidth: 16,
+        itemStyle: { color: '#16a34a' },
+        data: points.map((p) => p.service_revenue),
+      },
+      {
+        name: '上游消耗',
+        type: 'bar',
+        stack: 'cost',
+        barMaxWidth: 16,
+        itemStyle: { color: '#f97316' },
+        data: points.map((p) => p.upstream_cost),
+      },
+      {
+        name: '成本项',
+        type: 'bar',
+        stack: 'cost',
+        barMaxWidth: 16,
+        itemStyle: { color: '#f59e0b' },
+        data: points.map((p) => p.fixed_cost),
+      },
+      {
+        name: '佣金/返现',
+        type: 'bar',
+        stack: 'cost',
+        barMaxWidth: 16,
+        itemStyle: { color: '#a855f7' },
+        data: points.map((p) => p.other_cost),
+      },
       {
         name: '利润率',
         type: 'line',

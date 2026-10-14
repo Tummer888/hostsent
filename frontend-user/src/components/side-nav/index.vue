@@ -240,7 +240,8 @@ watch(
   text-align: left;
   cursor: pointer;
   white-space: nowrap;
-  transition: background-color var(--hs-duration-fast) var(--hs-ease-out),
+  transition:
+    background-color var(--hs-duration-fast) var(--hs-ease-out),
     color var(--hs-duration-fast) var(--hs-ease-out);
 }
 
@@ -332,7 +333,8 @@ watch(
   color: var(--color-muted-foreground);
   cursor: pointer;
   flex-shrink: 0;
-  transition: color var(--hs-duration-fast) var(--hs-ease-out),
+  transition:
+    color var(--hs-duration-fast) var(--hs-ease-out),
     border-color var(--hs-duration-fast) var(--hs-ease-out);
 }
 
@@ -370,7 +372,8 @@ watch(
 .side-nav-collapse-enter-active,
 .side-nav-collapse-leave-active {
   overflow: hidden;
-  transition: max-height var(--hs-duration-base) var(--hs-ease-out),
+  transition:
+    max-height var(--hs-duration-base) var(--hs-ease-out),
     opacity var(--hs-duration-fast) var(--hs-ease-out);
   max-height: 320px;
 }

@@ -197,10 +197,7 @@ export async function getTemplates(): Promise<NotificationTemplateItem[]> {
 }
 
 // 更新通知模板
-export function updateTemplate(
-  id: number,
-  data: NotificationTemplateSaveRequest,
-): Promise<NotificationTemplateItem> {
+export function updateTemplate(id: number, data: NotificationTemplateSaveRequest): Promise<NotificationTemplateItem> {
   return request.put<NotificationTemplateItem>({ url: `/notification-templates/${id}`, data })
 }
 
@@ -496,13 +493,15 @@ export interface BroadcastTarget {
   filter?: BroadcastFilter
 }
 
-export function getBroadcastTargets(params: {
-  /** 检索模式：groups 用户组列表 / users 用户搜索 / filter 条件计数（注意与发送 target.mode 不同名） */
-  mode: 'groups' | 'users' | 'filter'
-  keyword?: string
-  page?: number
-  page_size?: number
-} & BroadcastFilter): Promise<BroadcastTargetResponse> {
+export function getBroadcastTargets(
+  params: {
+    /** 检索模式：groups 用户组列表 / users 用户搜索 / filter 条件计数（注意与发送 target.mode 不同名） */
+    mode: 'groups' | 'users' | 'filter'
+    keyword?: string
+    page?: number
+    page_size?: number
+  } & BroadcastFilter,
+): Promise<BroadcastTargetResponse> {
   return request.get<BroadcastTargetResponse>({
     url: '/notification/broadcast/targets',
     // request.get 的 params 要求可索引对象；这里显式断言（键均为后端 form tag）。

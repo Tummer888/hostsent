@@ -47,7 +47,12 @@
                 <span>{{ markupLabel(product.upstream_markup_type, product.upstream_markup_value) }}</span>
               </t-descriptions-item>
               <t-descriptions-item label="仅透传上游参数">
-                <t-tag :theme="product.spec_passthrough ? 'warning' : 'default'" variant="light" size="small" shape="round">
+                <t-tag
+                  :theme="product.spec_passthrough ? 'warning' : 'default'"
+                  variant="light"
+                  size="small"
+                  shape="round"
+                >
                   {{ product.spec_passthrough ? '是' : '否' }}
                 </t-tag>
               </t-descriptions-item>
@@ -67,7 +72,7 @@
               <t-descriptions-item label="更新时间">{{ formatTime(product.updated_at) }}</t-descriptions-item>
               <t-descriptions-item label="产品描述" :span="2">{{ product.description || '—' }}</t-descriptions-item>
               <t-descriptions-item label="封面图" :span="2">
-                <img v-if="product.cover_image" class="detail-cover" :src="product.cover_image" alt="产品封面图">
+                <img v-if="product.cover_image" class="detail-cover" :src="product.cover_image" alt="产品封面图" />
                 <span v-else>—</span>
               </t-descriptions-item>
               <t-descriptions-item label="规格 JSON" :span="2">
@@ -92,9 +97,11 @@
             </div>
             <t-alert
               theme="info"
-              :message="isUpstreamChain
-                ? '代理商品按上游规格开通；此处规格仅供展示。上架门禁要求上游规格完成平台绑定或开启「仅透传」。'
-                : '自营商品上架前，每个启用 SKU 都需满足必填原子且完成平台绑定（绑定状态为「已确认」）。'"
+              :message="
+                isUpstreamChain
+                  ? '代理商品按上游规格开通；此处规格仅供展示。上架门禁要求上游规格完成平台绑定或开启「仅透传」。'
+                  : '自营商品上架前，每个启用 SKU 都需满足必填原子且完成平台绑定（绑定状态为「已确认」）。'
+              "
             />
             <t-table
               row-key="id"
@@ -137,11 +144,12 @@
           <div class="tabs-section">
             <div class="table-card__head">
               <h3 class="card-title">可选配置项</h3>
-              <span class="table-card__meta">
-                客户下单时可选的参数；source=self 时按 option_key 直接下发平台
-              </span>
+              <span class="table-card__meta"> 客户下单时可选的参数；source=self 时按 option_key 直接下发平台 </span>
             </div>
-            <t-alert theme="info" message="建品勾选档位时已自动生成；此处可改取值、分组与加价。「从平台配置项目录添加」可补参数。" />
+            <t-alert
+              theme="info"
+              message="建品勾选档位时已自动生成；此处可改取值、分组与加价。「从平台配置项目录添加」可补参数。"
+            />
 
             <t-space size="small" class="cfg-toolbar">
               <t-button size="small" theme="primary" variant="outline" @click="openCatalogPicker">
@@ -164,26 +172,19 @@
               <template #opt_key="{ row }">
                 <div class="product-cell">
                   <span class="cell-strong">{{ row.option_name || '（未命名）' }}</span>
-                  <span class="product-sub"><code>{{ row.source_key || row.option_key || '—' }}</code></span>
+                  <span class="product-sub"
+                    ><code>{{ row.source_key || row.option_key || '—' }}</code></span
+                  >
                 </div>
               </template>
               <template #opt_widget="{ row }">
-                <t-select
-                  v-model="row.widget"
-                  size="small"
-                  :options="widgetOptions"
-                  @change="onWidgetChange(row)"
-                />
+                <t-select v-model="row.widget" size="small" :options="widgetOptions" @change="onWidgetChange(row)" />
               </template>
               <template #opt_required="{ row }">
                 <t-switch v-model="row.required" size="small" />
               </template>
               <template #opt_default="{ row }">
-                <t-input
-                  v-model="row.default_value"
-                  size="small"
-                  placeholder="默认值"
-                />
+                <t-input v-model="row.default_value" size="small" placeholder="默认值" />
               </template>
               <template #opt_values="{ row }">
                 <t-link theme="primary" hover="color" @click="toggleExpand(row)">
@@ -222,10 +223,20 @@
                     <t-input v-model="sub.option_name" size="small" @change="syncAdvancedFromRows" />
                   </template>
                   <template #sub_value="{ row: sub }">
-                    <t-input v-model="sub.source_key" size="small" placeholder="下发值" @change="syncAdvancedFromRows" />
+                    <t-input
+                      v-model="sub.source_key"
+                      size="small"
+                      placeholder="下发值"
+                      @change="syncAdvancedFromRows"
+                    />
                   </template>
                   <template #sub_group="{ row: sub }">
-                    <t-input v-model="sub.group_label" size="small" placeholder="Ubuntu/Windows" @change="syncAdvancedFromRows" />
+                    <t-input
+                      v-model="sub.group_label"
+                      size="small"
+                      placeholder="Ubuntu/Windows"
+                      @change="syncAdvancedFromRows"
+                    />
                   </template>
                   <template #sub_price="{ row: sub }">
                     <t-input-number
@@ -275,9 +286,11 @@
             <t-alert
               v-if="product?.upstream"
               :theme="product.upstream.fixed_config ? 'warning' : 'info'"
-              :message="product.upstream.fixed_config
-                ? '该商品由上游固定配置（规格不可修改）：配置箱按上游商品参数开通，本地改动不会生效，改动锁定项还会导致开通失败。'
-                : '该商品配置来自上游商品：未锁定项（多个取值可选）可在上游允许范围内选择，锁定项为上游固定配置不可修改。'"
+              :message="
+                product.upstream.fixed_config
+                  ? '该商品由上游固定配置（规格不可修改）：配置箱按上游商品参数开通，本地改动不会生效，改动锁定项还会导致开通失败。'
+                  : '该商品配置来自上游商品：未锁定项（多个取值可选）可在上游允许范围内选择，锁定项为上游固定配置不可修改。'
+              "
             />
             <t-empty v-else description="未读取到上游商品镜像（可能未同步或上游已删除）" />
 
@@ -285,7 +298,14 @@
               <t-descriptions :column="2" bordered size="medium" class="detail-desc">
                 <t-descriptions-item label="上游提供商">
                   {{ product.upstream.provider_name || '—' }}
-                  <t-tag v-if="product.upstream.provider_type" class="inline-tag" theme="default" variant="light" size="small" shape="round">
+                  <t-tag
+                    v-if="product.upstream.provider_type"
+                    class="inline-tag"
+                    theme="default"
+                    variant="light"
+                    size="small"
+                    shape="round"
+                  >
                     {{ product.upstream.provider_type }}
                   </t-tag>
                 </t-descriptions-item>
@@ -306,19 +326,31 @@
                     取自上游前台展示价（{{ upstreamCatalogCycleText }}，该商品价格挂在配置项上）
                   </span>
                 </t-descriptions-item>
-                <t-descriptions-item label="代理价（采购价）">¥{{ formatPrice(product.upstream.cost_price) }}</t-descriptions-item>
+                <t-descriptions-item label="代理价（采购价）"
+                  >¥{{ formatPrice(product.upstream.cost_price) }}</t-descriptions-item
+                >
                 <t-descriptions-item label="折扣">{{ product.upstream.discount_desc || '—' }}</t-descriptions-item>
                 <t-descriptions-item label="毛利率">
                   <span>{{ grossMarginText }}</span>
                 </t-descriptions-item>
                 <t-descriptions-item label="是否可续费">
-                  <t-tag :theme="product.upstream.renewable ? 'success' : 'danger'" variant="light" size="small" shape="round">
+                  <t-tag
+                    :theme="product.upstream.renewable ? 'success' : 'danger'"
+                    variant="light"
+                    size="small"
+                    shape="round"
+                  >
                     {{ product.upstream.renewable ? '可续费' : '不可续费' }}
                   </t-tag>
                   <span v-if="!product.upstream.renewable" class="inline-hint">{{ product.upstream.renew_note }}</span>
                 </t-descriptions-item>
                 <t-descriptions-item label="配置形态">
-                  <t-tag :theme="product.upstream.fixed_config ? 'warning' : 'primary'" variant="light" size="small" shape="round">
+                  <t-tag
+                    :theme="product.upstream.fixed_config ? 'warning' : 'primary'"
+                    variant="light"
+                    size="small"
+                    shape="round"
+                  >
                     {{ product.upstream.fixed_config ? '整机固定配置' : '部分可选' }}
                   </t-tag>
                 </t-descriptions-item>
@@ -502,7 +534,13 @@
             <t-input v-model="generateForm.name" placeholder="如 通用型 2核4G" />
           </t-form-item>
           <t-form-item label="销售价（元）">
-            <t-input-number v-model="generateForm.price" :min="0" :precision="2" theme="column" placeholder="0 = 取模板参考售价" />
+            <t-input-number
+              v-model="generateForm.price"
+              :min="0"
+              :precision="2"
+              theme="column"
+              placeholder="0 = 取模板参考售价"
+            />
           </t-form-item>
           <t-form-item label="成本价（元）">
             <t-input-number v-model="generateForm.cost_price" :min="0" :precision="2" theme="column" />
@@ -788,16 +826,18 @@ function decodeHtmlTextToPlainText(raw?: string): string {
     .replace(/&#0?39;/g, "'")
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
-  return decoded
-    // 样式/脚本连同内容丢弃，其余标签换成空串（标签本身不是卖点内容）
-    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(div|p|li|tr|h[1-4])>/gi, '\n')
-    .replace(/<[^>]*>/g, '')
-    .split('\n')
-    .map((line) => line.replace(/[ \t\u00a0]+/g, ' ').trim())
-    .filter((line) => line !== '')
-    .join('\n')
+  return (
+    decoded
+      // 样式/脚本连同内容丢弃，其余标签换成空串（标签本身不是卖点内容）
+      .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(div|p|li|tr|h[1-4])>/gi, '\n')
+      .replace(/<[^>]*>/g, '')
+      .split('\n')
+      .map((line) => line.replace(/[ \t\u00a0]+/g, ' ').trim())
+      .filter((line) => line !== '')
+      .join('\n')
+  )
 }
 
 /** 上游前台展示价回填时的周期文案（catalog_cycle → 「年付」）。 */
@@ -1278,7 +1318,7 @@ function setSubDefault(row: ConfigOptionRow, target: ConfigSubRow) {
   // 每参数只保留一个默认（用户侧预选靠它）。
   for (const sub of row.sub) sub.is_default = sub.subKey === target.subKey
   const hit = row.sub.find((s) => s.subKey === target.subKey)
-  row.default_value = hit ? (hit.source_key || '') : ''
+  row.default_value = hit ? hit.source_key || '' : ''
   syncAdvancedFromRows()
 }
 
@@ -1458,7 +1498,7 @@ function addFromCatalog(spec: OptionSpecInfo) {
     source_key: spec.option_key,
     provider_type: spec.provider_type,
     option_key: spec.option_key,
-    widget: isQty ? 'qty' : (spec.widget || 'select'),
+    widget: isQty ? 'qty' : spec.widget || 'select',
     required: !!spec.required,
     default_value: spec.default_value || '',
     widget_group: spec.group_name,

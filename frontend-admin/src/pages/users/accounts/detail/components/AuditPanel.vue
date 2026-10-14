@@ -9,9 +9,7 @@
 
     <div class="table-card__head">
       <h3 class="card-title">操作日志</h3>
-      <span class="table-card__meta">
-        共 {{ pagination.total }} 条 · 数据源：用户操作审计（按归属账号过滤）
-      </span>
+      <span class="table-card__meta"> 共 {{ pagination.total }} 条 · 数据源：用户操作审计（按归属账号过滤） </span>
     </div>
 
     <t-table
@@ -120,13 +118,16 @@ function actionLabel(action: string): string {
   return actionLabels[action] || action || '—'
 }
 
+// 列宽合计贴近容器宽度（约 1140px）：固定布局下合计偏小会把富余宽度
+// 摊给每一列，出现「短字段占宽列」，所以每个列位都给出明确宽度。
+// 时间 → 操作人 → 动作 → 目标 是审计追查主线，模块/IP 作为补充靠右。
 const columns: PrimaryTableCol<LogRow>[] = [
-  { colKey: 'created_at', title: '时间', width: 150 },
+  { colKey: 'created_at', title: '时间', width: 170 },
   { colKey: 'actor', title: '操作人', width: 150 },
+  { colKey: 'action', title: '动作', width: 110 },
+  { colKey: 'target', title: '目标', width: 230 },
+  { colKey: 'detail', title: '详情', width: 240 },
   { colKey: 'module', title: '模块', width: 110 },
-  { colKey: 'action', title: '动作', width: 100 },
-  { colKey: 'target', title: '目标', minWidth: 200 },
-  { colKey: 'detail', title: '详情', minWidth: 180 },
   { colKey: 'ip', title: 'IP', width: 130 },
 ]
 
@@ -172,11 +173,15 @@ function onMobileSize(size: number) {
   void load()
 }
 
-watch(() => props.userId, () => {
-  pagination.current = 1
-  mobilePage.current = 1
-  void load()
-}, { immediate: true })
+watch(
+  () => props.userId,
+  () => {
+    pagination.current = 1
+    mobilePage.current = 1
+    void load()
+  },
+  { immediate: true },
+)
 
 defineExpose({ reload: load })
 </script>

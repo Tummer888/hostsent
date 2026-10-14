@@ -45,7 +45,7 @@ export interface CashbackInfo {
   created_at: string
 }
 
-/** 提现单（审核人属于平台内部信息，接口不下发）。 */
+/** 提现单（审核人与审核备注属于平台内部信息，接口不下发）。 */
 export interface WithdrawalInfo {
   id: number
   withdraw_no: string
@@ -54,7 +54,6 @@ export interface WithdrawalInfo {
   account: string
   status: string
   audited_at: string
-  remark: string
   created_at: string
 }
 
@@ -76,31 +75,27 @@ export interface WithdrawParams {
 }
 
 export function getReferralProfile() {
-  return request.get<any, { data: ReferralProfile }>('/uc/referral/profile')
+  return request.get<unknown, { data: ReferralProfile }>('/uc/referral/profile')
 }
 
 export function getReferralInvitees(params: { page?: number; page_size?: number } = {}) {
-  return request.get<any, { data: Paged<InviteeInfo> }>('/uc/referral/invitees', { params })
+  return request.get<unknown, { data: Paged<InviteeInfo> }>('/uc/referral/invitees', { params })
 }
 
-export function getReferralCashbacks(
-  params: { type?: string; page?: number; page_size?: number } = {},
-) {
-  return request.get<any, { data: Paged<CashbackInfo> }>('/uc/referral/cashbacks', { params })
+export function getReferralCashbacks(params: { type?: string; page?: number; page_size?: number } = {}) {
+  return request.get<unknown, { data: Paged<CashbackInfo> }>('/uc/referral/cashbacks', { params })
 }
 
-export function getReferralWithdrawals(
-  params: { status?: string; page?: number; page_size?: number } = {},
-) {
-  return request.get<any, { data: Paged<WithdrawalInfo> }>('/uc/referral/withdrawals', { params })
+export function getReferralWithdrawals(params: { status?: string; page?: number; page_size?: number } = {}) {
+  return request.get<unknown, { data: Paged<WithdrawalInfo> }>('/uc/referral/withdrawals', { params })
 }
 
 /** 申请提现：冻结返现余额，待后台审核。 */
 export function applyReferralWithdrawal(data: WithdrawParams) {
-  return request.post<any, { data: WithdrawalInfo }>('/uc/referral/withdrawals', data)
+  return request.post<unknown, { data: WithdrawalInfo }>('/uc/referral/withdrawals', data)
 }
 
 /** 返现转入现金余额（即时到账）。 */
 export function transferReferralToWallet(amount: number) {
-  return request.post<any, void>('/uc/referral/transfer', { amount })
+  return request.post<unknown, void>('/uc/referral/transfer', { amount })
 }

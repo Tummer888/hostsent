@@ -9,8 +9,7 @@
           <h2 class="menu-page__title">菜单管理</h2>
           <p class="menu-page__desc">
             菜单由后端 seed 定义（<code>backend/internal/pkg/db/db.go</code> 的
-            <code>SeedMenus()</code>），本页只读。改菜单请改代码并跑
-            <code>go test ./internal/pkg/db/ -run Menu</code>。
+            <code>SeedMenus()</code>），本页只读。改菜单请改代码并跑 <code>go test ./internal/pkg/db/ -run Menu</code>。
           </p>
         </div>
       </div>

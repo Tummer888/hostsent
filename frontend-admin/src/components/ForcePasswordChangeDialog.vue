@@ -12,22 +12,18 @@
     :destroy-on-close="false"
   >
     <div class="force-pwd">
-      <p class="force-pwd__tip">
-        当前账号使用的是初始密码，为保障安全请先修改密码后再继续使用。
-      </p>
-      <t-form
-        ref="formRef"
-        :data="formData"
-        :rules="rules"
-        label-align="top"
-        colonless
-        @submit="onSubmit"
-      >
+      <p class="force-pwd__tip">当前账号使用的是初始密码，为保障安全请先修改密码后再继续使用。</p>
+      <t-form ref="formRef" :data="formData" :rules="rules" label-align="top" colonless @submit="onSubmit">
         <t-form-item label="当前密码" name="oldPassword">
           <t-input v-model="formData.oldPassword" type="password" size="large" placeholder="请输入当前密码" />
         </t-form-item>
         <t-form-item label="新密码" name="newPassword">
-          <t-input v-model="formData.newPassword" type="password" size="large" placeholder="8-64 位，建议含字母与数字" />
+          <t-input
+            v-model="formData.newPassword"
+            type="password"
+            size="large"
+            placeholder="8-64 位，建议含字母与数字"
+          />
         </t-form-item>
         <t-form-item label="确认新密码" name="confirmPassword">
           <t-input

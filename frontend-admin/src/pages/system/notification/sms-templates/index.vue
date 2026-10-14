@@ -8,7 +8,8 @@
         <div class="page-header__text">
           <h2 class="page-header__title">短信模板</h2>
           <p class="page-header__desc">
-            正文变量只能取「变量注册表」里已登记的键；保存时逐个校验，未注册的变量直接拒绝，避免上线后发出带 <code>&#123;placeholder&#125;</code> 的短信。
+            正文变量只能取「变量注册表」里已登记的键；保存时逐个校验，未注册的变量直接拒绝，避免上线后发出带
+            <code>&#123;placeholder&#125;</code> 的短信。
           </p>
         </div>
       </div>
@@ -100,10 +101,12 @@
           <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '编辑', value: 'edit', hidden: () => !canManage },
-                { content: '删除', value: 'delete', theme: 'error', hidden: () => !canManage },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '编辑', value: 'edit', hidden: () => !canManage },
+                  { content: '删除', value: 'delete', theme: 'error', hidden: () => !canManage },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
@@ -225,7 +228,14 @@ import FilterCard from '@/components/filter-card/index.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import { AddIcon, ChatIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
-import { DialogPlugin, MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import {
+  DialogPlugin,
+  MessagePlugin,
+  type FormInstanceFunctions,
+  type FormRule,
+  type PageInfo,
+  type PrimaryTableCol,
+} from 'tdesign-vue-next'
 
 import {
   createSmsTemplate,
@@ -246,13 +256,19 @@ import { useUserStore } from '@/store'
 defineOptions({ name: 'NotifySmsTemplates' })
 
 const userStore = useUserStore()
-const canManage = computed(() => userStore.permissions?.includes('notify:sms-template:manage') || userStore.isSuperAdmin)
+const canManage = computed(
+  () => userStore.permissions?.includes('notify:sms-template:manage') || userStore.isSuperAdmin,
+)
 const { isMobile } = useIsMobile()
 
 const loading = ref(false)
 const list = ref<SmsTemplateItem[]>([])
 const total = ref(0)
-const filters = reactive({ scene: undefined as string | undefined, status: undefined as string | undefined, keyword: '' })
+const filters = reactive({
+  scene: undefined as string | undefined,
+  status: undefined as string | undefined,
+  keyword: '',
+})
 
 const statusOptions = [
   { label: '启用', value: 'active' },
@@ -270,7 +286,13 @@ const columns: PrimaryTableCol<SmsTemplateItem>[] = [
   { colKey: 'segments', title: '长度', width: 130 },
   { colKey: 'status', title: '状态', width: 90 },
   { colKey: 'updated_at', title: '更新时间', width: 160 },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 120, fixed: 'right' as const, align: 'center' as const },
+  {
+    colKey: 'action',
+    title: '操作',
+    width: isMobile.value ? 70 : 120,
+    fixed: 'right' as const,
+    align: 'center' as const,
+  },
 ]
 
 async function loadData() {
@@ -551,7 +573,7 @@ function handleDelete(row: SmsTemplateItem) {
   })
 }
 
-function handleMobileAction(value: string | number | Record<string, any>, row: SmsTemplateItem) {
+function handleMobileAction(value: string | number | Record<string, unknown>, row: SmsTemplateItem) {
   const action =
     typeof value === 'string' || typeof value === 'number'
       ? String(value)

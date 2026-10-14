@@ -68,7 +68,9 @@
         </template>
 
         <template #specs="{ row }">
-          <span class="spec-text">{{ row.cpu }}核 / {{ formatMemory(row.memory) }} / {{ formatDisk(row.disk) }} {{ row.bandwidth }}Mbps</span>
+          <span class="spec-text"
+            >{{ row.cpu }}核 / {{ formatMemory(row.memory) }} / {{ formatDisk(row.disk) }} {{ row.bandwidth }}Mbps</span
+          >
         </template>
 
         <template #ip="{ row }">
@@ -83,16 +85,16 @@
         </template>
 
         <template #status="{ row }">
-          <t-tag :theme="statusTheme(row.status)" variant="light" size="small" shape="round">{{ statusLabel(row.status) }}</t-tag>
+          <t-tag :theme="statusTheme(row.status)" variant="light" size="small" shape="round">{{
+            statusLabel(row.status)
+          }}</t-tag>
         </template>
 
         <template #action="{ row }">
-<div class="action-cell">
+          <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '详情', value: 'detail', theme: 'default' },
-              ])"
+              :options="buildMobileActionOptions([{ content: '详情', value: 'detail', theme: 'default' }])"
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
@@ -127,17 +129,28 @@
         <t-descriptions-item label="实例名称">{{ detailInstance.name }}</t-descriptions-item>
         <t-descriptions-item label="实例 ID">{{ detailInstance.instance_id }}</t-descriptions-item>
         <t-descriptions-item label="提供商 ID">{{ detailInstance.provider_id }}</t-descriptions-item>
-        <t-descriptions-item label="售出商品 ID">{{ detailInstance.sell_product_id || detailInstance.upstream_product_id || '—' }}</t-descriptions-item>
-        <t-descriptions-item label="规格">{{ detailInstance.cpu }}核 / {{ formatMemory(detailInstance.memory) }} / {{ formatDisk(detailInstance.disk) }} {{ detailInstance.bandwidth }}Mbps</t-descriptions-item>
+        <t-descriptions-item label="售出商品 ID">{{
+          detailInstance.sell_product_id || detailInstance.upstream_product_id || '—'
+        }}</t-descriptions-item>
+        <t-descriptions-item label="规格"
+          >{{ detailInstance.cpu }}核 / {{ formatMemory(detailInstance.memory) }} /
+          {{ formatDisk(detailInstance.disk) }} {{ detailInstance.bandwidth }}Mbps</t-descriptions-item
+        >
         <t-descriptions-item label="磁盘类型">{{ detailInstance.disk_type || '—' }}</t-descriptions-item>
         <t-descriptions-item label="操作系统">{{ detailInstance.os || '—' }}</t-descriptions-item>
-        <t-descriptions-item label="区域/可用区">{{ detailInstance.region }}{{ detailInstance.zone ? ' / ' + detailInstance.zone : '' }}</t-descriptions-item>
+        <t-descriptions-item label="区域/可用区"
+          >{{ detailInstance.region }}{{ detailInstance.zone ? ' / ' + detailInstance.zone : '' }}</t-descriptions-item
+        >
         <t-descriptions-item label="公网 IP">{{ detailInstance.public_ip || '—' }}</t-descriptions-item>
         <t-descriptions-item label="内网 IP">{{ detailInstance.private_ip || '—' }}</t-descriptions-item>
         <t-descriptions-item label="计费模式">{{ billingLabel(detailInstance.billing_mode) }}</t-descriptions-item>
-        <t-descriptions-item label="到期时间">{{ detailInstance.expire_at ? formatTime(detailInstance.expire_at) : '—' }}</t-descriptions-item>
+        <t-descriptions-item label="到期时间">{{
+          detailInstance.expire_at ? formatTime(detailInstance.expire_at) : '—'
+        }}</t-descriptions-item>
         <t-descriptions-item label="状态">
-          <t-tag :theme="statusTheme(detailInstance.status)" variant="light" size="small" shape="round">{{ statusLabel(detailInstance.status) }}</t-tag>
+          <t-tag :theme="statusTheme(detailInstance.status)" variant="light" size="small" shape="round">{{
+            statusLabel(detailInstance.status)
+          }}</t-tag>
         </t-descriptions-item>
         <t-descriptions-item label="创建时间">{{ formatTime(detailInstance.created_at) }}</t-descriptions-item>
       </t-descriptions>
@@ -193,9 +206,6 @@ const mobilePage = reactive({
   pageSize: 10,
   total: 0,
 })
-
-
-
 
 function statusLabel(status: string): string {
   const found = statusOptions.find((item) => item.value === status)
@@ -325,8 +335,11 @@ onMounted(() => {
 })
 
 // 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: InstanceInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: InstanceInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'detail':
       openDetailDialog(row)
@@ -340,7 +353,6 @@ function handleMobileAction(value: string | number | Record<string, any>, row: I
 </style>
 
 <style scoped lang="css">
-
 /* 桌面列数由 FilterCard 的 columns 属性给出3 列，见组件内 .filter-card--cols-*。 */
 
 .instance-cell,

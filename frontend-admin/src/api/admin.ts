@@ -5,11 +5,9 @@ import type {
   InstanceInfo,
   InstanceListQuery,
   InstanceListResponse,
-  PoolInfo,
   PoolListQuery,
   PoolListResponse,
   PriceChangeHandleRequest,
-  PriceChangeInfo,
   PriceChangeListQuery,
   PriceChangeListResponse,
   ProductInfo,
@@ -30,11 +28,9 @@ import type {
   ReconcileFindingListResponse,
   ReconcileListQuery,
   ReconcileListResponse,
-  SyncDiffInfo,
   SyncDiffListQuery,
   SyncDiffListResponse,
   SyncDiffSummaryResponse,
-  SyncLogInfo,
   SyncLogListQuery,
   SyncLogListResponse,
   SyncScheduleInfo,
@@ -45,7 +41,6 @@ import type {
   SyncTaskInfo,
   SyncTaskListQuery,
   SyncTaskListResponse,
-  TaskQueueCategoryCount,
   TaskQueueListQuery,
   TaskQueueListResponse,
   TestConnectionResult,
@@ -250,7 +245,10 @@ export function deleteAdmin(id: string | number): Promise<string> {
  * 员工离职（S1）：置离职标记 + 禁用账号，并交待在途客户。
  * 已有提成/工单不受影响，历史记录保留可追溯。
  */
-export function resignAdmin(id: string | number, data?: { reason?: string; transfer_to_admin_id?: number }): Promise<string> {
+export function resignAdmin(
+  id: string | number,
+  data?: { reason?: string; transfer_to_admin_id?: number },
+): Promise<string> {
   return request.post<string>({
     url: `/staff/${id}/resign`,
     data: data ?? {},
@@ -465,9 +463,7 @@ export function getProductDetail(id: number): Promise<ProductInfo> {
  * 走商品域接口：规则落在已导入的销售商品上（upstream_markup_type/value），
  * 由商品服务按规则重算售价与周期价格矩阵，并写商品变更历史。
  */
-export function applyUpstreamMarkup(
-  data: ProductUpstreamMarkupRequest,
-): Promise<ProductUpstreamMarkupResponse> {
+export function applyUpstreamMarkup(data: ProductUpstreamMarkupRequest): Promise<ProductUpstreamMarkupResponse> {
   return request.post<ProductUpstreamMarkupResponse>({
     url: '/product/products/upstream-markup',
     data,
@@ -648,9 +644,12 @@ export function getReconcileList(params: ReconcileListQuery): Promise<ReconcileL
 }
 
 // 对账差异台账（doc120）：持久化的差异记录，可处置（确认/忽略）。
-export function getReconcileFindings(
-  params: { provider_id?: number; provider_kind?: string; page?: number; page_size?: number },
-): Promise<ReconcileFindingListResponse> {
+export function getReconcileFindings(params: {
+  provider_id?: number
+  provider_kind?: string
+  page?: number
+  page_size?: number
+}): Promise<ReconcileFindingListResponse> {
   return request.get<ReconcileFindingListResponse>({
     url: '/resource/reconcile/findings',
     params: {

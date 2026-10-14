@@ -2,11 +2,7 @@
   <div class="admin-layout">
     <!-- 移动端遮罩 -->
     <transition name="overlay-fade">
-      <div
-        v-if="mobileSidebarOpen"
-        class="sidebar-overlay"
-        @click="mobileSidebarOpen = false"
-      ></div>
+      <div v-if="mobileSidebarOpen" class="sidebar-overlay" @click="mobileSidebarOpen = false"></div>
     </transition>
 
     <!-- 侧边栏区域 -->
@@ -28,7 +24,7 @@
             :class="{ 'is-active': activeGroup === (group.path || group.name) }"
             @click="onGroupClick(group)"
           >
-            <component :is="group.icon" class="group-icon" v-if="group.icon" />
+            <component :is="group.icon" v-if="group.icon" class="group-icon" />
             <span class="group-label" :class="{ 'label-hidden': sidebarCollapsed }">{{ group.name }}</span>
           </li>
         </ul>
@@ -38,11 +34,7 @@
       <aside class="menu-sidebar" :class="{ 'is-closed': sidebarCollapsed }">
         <div class="menu-header">
           <span class="menu-header__title">{{ currentGroup?.name || '菜单' }}</span>
-          <button
-            class="menu-collapse-btn"
-            :title="sidebarCollapsed ? '展开菜单' : '收缩菜单'"
-            @click="toggleSidebar"
-          >
+          <button class="menu-collapse-btn" :title="sidebarCollapsed ? '展开菜单' : '收缩菜单'" @click="toggleSidebar">
             <ChevronRightIcon v-if="sidebarCollapsed" size="16" />
             <ChevronLeftIcon v-else size="16" />
           </button>
@@ -69,7 +61,7 @@
                 <div class="collapsed-popup__header">{{ menu.name }}</div>
                 <ul class="collapsed-popup__list">
                   <li
-                    v-for="sub in (menu.children || [])"
+                    v-for="sub in menu.children || []"
                     :key="sub.path || sub.name"
                     class="collapsed-popup__item"
                     :class="{ 'is-active': route.path === sub.path }"
@@ -247,12 +239,12 @@
       </div>
       <t-content class="content-area">
         <div class="content-inner">
-          <router-view v-slot="{ Component, route: currentRoute }">
+          <router-view v-slot="{ Component: RouteComponent, route: currentRoute }">
             <transition name="fade" mode="out-in">
               <!-- 必须用单元素包裹：路由页面若渲染多根节点（如列表 + 弹窗共存），
                    <Transition mode="out-in"> 无法完成离场动画，会卡死并让内容区永久空白。 -->
               <div :key="currentRoute.path" class="route-view">
-                <component :is="Component" />
+                <component :is="RouteComponent" />
               </div>
             </transition>
           </router-view>
@@ -279,9 +271,7 @@
             <dd class="account-info__value">{{ row.value }}</dd>
           </div>
         </dl>
-        <p class="account-info__tip">
-          资料字段由超级管理员在「系统管理 → 管理员」中维护；这里只能自助修改登录密码。
-        </p>
+        <p class="account-info__tip">资料字段由超级管理员在「系统管理 → 管理员」中维护；这里只能自助修改登录密码。</p>
         <div class="account-info__actions">
           <t-button theme="primary" @click="accountPwdMode = true">修改登录密码</t-button>
         </div>
@@ -302,9 +292,7 @@
         <p class="account-info__tip">修改成功后当前登录会失效，需要用新密码重新登录。</p>
         <div class="account-info__actions">
           <t-button variant="outline" @click="accountPwdMode = false">返回</t-button>
-          <t-button theme="primary" :loading="accountPwdSubmitting" @click="submitAccountPassword">
-            确认修改
-          </t-button>
+          <t-button theme="primary" :loading="accountPwdSubmitting" @click="submitAccountPassword"> 确认修改 </t-button>
         </div>
       </template>
     </t-dialog>
@@ -312,7 +300,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, onMounted, onUnmounted, watch } from 'vue'
+import { computed, reactive, ref, onMounted, onUnmounted, watch, type Component } from 'vue'
 import {
   ChevronDownIcon,
   ChevronLeftIcon,
@@ -424,37 +412,42 @@ const userInitial = computed(() => {
   return base.slice(0, 1).toUpperCase()
 })
 
-function resolveMenuIcon(icon: any): any {
+function resolveMenuIcon(icon: unknown): Component | undefined {
   if (!icon) return undefined
 
   if (icon && typeof icon === 'object' && '__v_isRef' in icon) {
-    const inner = icon.value
+    const inner = (icon as { value?: { render?: unknown } }).value
     if (inner && inner.render && typeof inner.render === 'function') {
-      return { render: inner.render }
+      return { render: inner.render as () => unknown }
     }
-    return inner || icon
+    return (inner || icon) as Component | undefined
   }
 
-  if (icon && typeof icon === 'object' && icon.render && typeof icon.render === 'function') {
-    return icon
+  if (
+    icon &&
+    typeof icon === 'object' &&
+    'render' in icon &&
+    typeof (icon as { render?: unknown }).render === 'function'
+  ) {
+    return icon as Component
   }
 
-  return icon
+  return icon as Component
 }
 
-const fallbackMenus: FlatMenu[] = navMenu.map((item: any) => ({
+const fallbackMenus: FlatMenu[] = navMenu.map((item) => ({
   id: 0,
   parentId: 0,
   name: item.title,
   path: item.path,
   icon: resolveMenuIcon(item.icon),
-  children: (item.children || []).map((child: any) => ({
+  children: (item.children || []).map((child) => ({
     id: 0,
     parentId: 0,
     name: child.title,
     path: child.path,
     icon: resolveMenuIcon(child.icon),
-    children: (child.children || []).map((gc: any) => ({
+    children: (child.children || []).map((gc) => ({
       id: 0,
       parentId: 0,
       name: gc.title,
@@ -546,7 +539,9 @@ function onGroupClick(group: FlatMenu) {
 
 function initByRoute() {
   for (const group of sidebarItems.value) {
-    const matched = group.children?.find((menu) => menu.path === route.path || menu.children?.some((child) => child.path === route.path))
+    const matched = group.children?.find(
+      (menu) => menu.path === route.path || menu.children?.some((child) => child.path === route.path),
+    )
     if (!matched) continue
     activeGroup.value = group.path || group.name
     if (matched.children?.some((child) => child.path === route.path)) {
@@ -561,8 +556,8 @@ function initByRoute() {
 }
 
 // ---- 导航搜索：在菜单树里按标题匹配，跳转到对应页面 ----
-function flattenMenus(menus: FlatMenu[]): Array<{ path: string; title: string; icon?: any }> {
-  const out: Array<{ path: string; title: string; icon?: any }> = []
+function flattenMenus(menus: FlatMenu[]): Array<{ path: string; title: string; icon?: Component }> {
+  const out: Array<{ path: string; title: string; icon?: Component }> = []
   for (const m of menus) {
     if (m.path) out.push({ path: m.path, title: m.name, icon: m.icon })
     if (m.children?.length) out.push(...flattenMenus(m.children))
@@ -915,7 +910,9 @@ onMounted(() => {
   border-radius: 12px;
   color: #111827;
   cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 .group-item:hover,
@@ -937,7 +934,9 @@ onMounted(() => {
   font-size: 12px;
   line-height: 1.4;
   text-align: center;
-  transition: opacity 0.2s ease, width 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    width 0.2s ease;
   white-space: nowrap;
   overflow: hidden;
 }
@@ -1029,7 +1028,7 @@ onMounted(() => {
   background: #ffffff;
   border-radius: 10px;
   border: 1px solid #e5e7eb;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.10);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
   overflow: hidden;
   display: none;
   padding-top: 12px;
@@ -1087,7 +1086,9 @@ onMounted(() => {
   font-size: 13px;
   cursor: pointer;
   text-decoration: none;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 .collapsed-popup__link:hover,
@@ -1134,7 +1135,9 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   padding: 0;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 .menu-collapse-btn:hover {
@@ -1155,7 +1158,9 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   padding: 0;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 .menu-close-btn:hover {
@@ -1184,7 +1189,9 @@ onMounted(() => {
   border-radius: 10px;
   color: #374151;
   cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 .menu-item-inner:hover,
@@ -1234,7 +1241,9 @@ onMounted(() => {
   border-radius: 10px;
   color: #4b5563;
   cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 .submenu-item:hover,
@@ -1252,7 +1261,10 @@ onMounted(() => {
   border: 1.5px solid currentColor;
   opacity: 0.65;
   box-sizing: border-box;
-  transition: background-color 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    opacity 0.2s ease;
 }
 
 .submenu-item:hover .submenu-dot {
@@ -1398,7 +1410,9 @@ onMounted(() => {
   cursor: pointer;
   padding: 0;
   margin-right: 10px;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .mobile-menu-btn:hover {
@@ -1432,7 +1446,7 @@ onMounted(() => {
     z-index: 60;
     transform: translateX(-100%);
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.10);
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.1);
   }
 
   .sidebar-wrapper.is-mobile-open {
@@ -1555,7 +1569,10 @@ onMounted(() => {
   color: #374151;
   font-size: 13px;
   outline: none;
-  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .navbar-search__input::placeholder {
@@ -1651,7 +1668,10 @@ onMounted(() => {
   color: #4b5563;
   font-size: 13px;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .tabs-bar__tab:hover {

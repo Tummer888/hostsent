@@ -70,19 +70,19 @@ export interface RenewalListResponse {
 
 // 查询我的续费管理聚合视图（实例到期情况 + 策略摘要）
 export function getRenewalsView() {
-  return request.get<any, { data: UserRenewalsViewResponse }>('/uc/instances/renewals')
+  return request.get<unknown, { data: UserRenewalsViewResponse }>('/uc/instances/renewals')
 }
 
 // 发起续费（余额支付）
 export function renewMyInstance(instanceId: number, periodCount = 1) {
-  return request.post<any, { data: { renewal: RenewalInfo } }>(`/uc/instances/${instanceId}/renew`, {
+  return request.post<unknown, { data: { renewal: RenewalInfo } }>(`/uc/instances/${instanceId}/renew`, {
     period_count: periodCount,
   })
 }
 
 // 切换自动续费开关
 export function toggleMyAutoRenew(instanceId: number, enabled: boolean, periodCount = 1) {
-  return request.put<any, { data: string }>(`/uc/instances/${instanceId}/auto-renew`, {
+  return request.put<unknown, { data: string }>(`/uc/instances/${instanceId}/auto-renew`, {
     enabled,
     period_count: periodCount,
   })
@@ -90,10 +90,10 @@ export function toggleMyAutoRenew(instanceId: number, enabled: boolean, periodCo
 
 // 查询我的续费记录
 export function getMyRenewals(params: { status?: string; page?: number; page_size?: number } = {}) {
-  return request.get<any, { data: RenewalListResponse }>('/uc/renewals', { params })
+  return request.get<unknown, { data: RenewalListResponse }>('/uc/renewals', { params })
 }
 
 // 查询我的续费记录详情
 export function getMyRenewalDetail(id: number) {
-  return request.get<any, { data: RenewalInfo }>(`/uc/renewals/${id}`)
+  return request.get<unknown, { data: RenewalInfo }>(`/uc/renewals/${id}`)
 }

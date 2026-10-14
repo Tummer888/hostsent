@@ -9,11 +9,11 @@
     :error-message="errorMessage"
     empty-text="暂无登录日志"
     :pagination="pagination"
+    :icon="HistoryIcon"
     @search="handleSearch"
     @reset="handleReset"
     @reload="loadData"
     @page-change="handlePageChange"
-    :icon="HistoryIcon"
   >
     <template #header-actions>
       <t-button variant="outline" :loading="exporting" @click="handleExportCSV">

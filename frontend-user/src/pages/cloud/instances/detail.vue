@@ -22,7 +22,7 @@
             <span class="dot">·</span>
             {{ instance.os || '未知系统' }}
             <span class="dot">·</span>
-            {{ isNatInstance ? (natAddresses[0] || 'NAT 机型（暂无转发地址）') : (instance.public_ip || '未分配公网 IP') }}
+            {{ isNatInstance ? natAddresses[0] || 'NAT 机型（暂无转发地址）' : instance.public_ip || '未分配公网 IP' }}
           </p>
         </div>
       </div>
@@ -42,12 +42,7 @@
       :title="provisionAlertTitle"
       :message="provisionAlertMessage"
     />
-    <t-alert
-      v-else-if="stateAlert"
-      :theme="stateAlert.theme"
-      class="detail-alert"
-      :message="stateAlert.message"
-    >
+    <t-alert v-else-if="stateAlert" :theme="stateAlert.theme" class="detail-alert" :message="stateAlert.message">
       <template v-if="stateAlert.action" #operation>
         <t-button theme="primary" size="small" variant="outline" @click="$router.push('/cloud/renewals')">
           {{ stateAlert.action }}
@@ -151,7 +146,9 @@
       <section class="surface-card info-card">
         <h3 class="card-title">基础信息</h3>
         <div class="kv-list">
-          <div class="kv"><span class="kv-key">实例 ID</span><span class="kv-val mono">{{ instance.instance_id }}</span></div>
+          <div class="kv">
+            <span class="kv-key">实例 ID</span><span class="kv-val mono">{{ instance.instance_id }}</span>
+          </div>
           <!-- NAT 机型没有独立 IP：不能只写"—"，那会让客户以为机器没配好。
                直接把转发地址放在这一行，这是他们唯一能连上机器的方式。 -->
           <div v-if="isNatInstance" class="kv">
@@ -166,9 +163,16 @@
               <template v-else>暂无转发地址</template>
             </span>
           </div>
-          <div class="kv"><span class="kv-key">公网 IP</span><span class="kv-val mono">{{ isNatInstance ? '不适用（NAT 机型）' : (instance.public_ip || '—') }}</span></div>
-          <div class="kv"><span class="kv-key">内网 IP</span><span class="kv-val mono">{{ instance.private_ip || '—' }}</span></div>
-          <div class="kv"><span class="kv-key">操作系统</span><span class="kv-val">{{ instance.os || '—' }}</span></div>
+          <div class="kv">
+            <span class="kv-key">公网 IP</span
+            ><span class="kv-val mono">{{ isNatInstance ? '不适用（NAT 机型）' : instance.public_ip || '—' }}</span>
+          </div>
+          <div class="kv">
+            <span class="kv-key">内网 IP</span><span class="kv-val mono">{{ instance.private_ip || '—' }}</span>
+          </div>
+          <div class="kv">
+            <span class="kv-key">操作系统</span><span class="kv-val">{{ instance.os || '—' }}</span>
+          </div>
           <div class="kv">
             <span class="kv-key">区域</span>
             <span class="kv-val">{{ [instance.region, instance.zone].filter(Boolean).join(' / ') || '—' }}</span>
@@ -271,17 +275,10 @@
           请输入实例 ID <code>{{ instance.instance_id }}</code> 以确认销毁：
         </p>
         <t-input v-model="destroy.confirmMark" placeholder="请输入实例 ID" size="large" />
-        <t-input
-          v-model="destroy.reason"
-          placeholder="销毁原因（选填）"
-          size="large"
-          class="destroy-reason"
-        />
+        <t-input v-model="destroy.reason" placeholder="销毁原因（选填）" size="large" class="destroy-reason" />
         <!-- 二次验证：策略开启后需要验证码，后端返回 20017 时展开此区域 -->
         <div v-if="destroy.needVerify" class="destroy-verify">
-          <p class="destroy-tip">
-            该操作需要二次验证，验证码将发送至账号绑定的{{ destroy.channelLabel }}。
-          </p>
+          <p class="destroy-tip">该操作需要二次验证，验证码将发送至账号绑定的{{ destroy.channelLabel }}。</p>
           <div class="destroy-code-row">
             <t-input v-model="destroy.code" placeholder="请输入验证码" size="large" maxlength="6" />
             <t-button
@@ -329,7 +326,12 @@
         <div v-if="reinstall.needVerify" class="destroy-verify">
           <div class="destroy-code-row">
             <t-input v-model="reinstall.code" placeholder="请输入验证码" size="large" maxlength="6" />
-            <t-button variant="outline" theme="primary" :disabled="reinstall.countdown > 0" @click="sendCode('instance_reinstall', reinstall)">
+            <t-button
+              variant="outline"
+              theme="primary"
+              :disabled="reinstall.countdown > 0"
+              @click="sendCode('instance_reinstall', reinstall)"
+            >
               {{ reinstall.countdown > 0 ? `${reinstall.countdown}s` : '获取验证码' }}
             </t-button>
           </div>
@@ -341,12 +343,17 @@
     <t-dialog
       v-model:visible="resetPwd.visible"
       header="重置登录密码"
-      :confirm-btn="{ content: '重置密码', loading: resetPwd.submitting, disabled: !resetPwd.password || !resetPwd.agreed }"
+      :confirm-btn="{
+        content: '重置密码',
+        loading: resetPwd.submitting,
+        disabled: !resetPwd.password || !resetPwd.agreed,
+      }"
       width="460px"
       @confirm="submitResetPassword"
     >
       <t-alert theme="warning" class="destroy-alert">
-        重置密码由平台执行，<b>多数平台会强制重启实例</b>，重启期间业务中断约 1–3 分钟。系统盘与数据盘数据不受影响，仅更换登录密码。
+        重置密码由平台执行，<b>多数平台会强制重启实例</b>，重启期间业务中断约 1–3
+        分钟。系统盘与数据盘数据不受影响，仅更换登录密码。
       </t-alert>
       <t-input
         v-model="resetPwd.password"
@@ -375,7 +382,13 @@
         <t-radio-button :value="1">类型 1</t-radio-button>
         <t-radio-button :value="2">类型 2</t-radio-button>
       </t-radio-group>
-      <t-input v-model="rescue.temp_password" type="password" size="large" placeholder="临时密码" class="destroy-reason" />
+      <t-input
+        v-model="rescue.temp_password"
+        type="password"
+        size="large"
+        placeholder="临时密码"
+        class="destroy-reason"
+      />
     </t-dialog>
 
     <!-- 快照与备份 -->
@@ -393,7 +406,14 @@
         <t-button theme="primary" :loading="snap.loading" @click="submitCreateSnapshot">创建</t-button>
         <t-button variant="outline" :loading="snap.loading" @click="loadSnapshots()">刷新</t-button>
       </t-space>
-      <t-table row-key="id" :data="snap.rows" :columns="snapColumns" :loading="snap.loading" size="small" cell-empty-content="暂无快照">
+      <t-table
+        row-key="id"
+        :data="snap.rows"
+        :columns="snapColumns"
+        :loading="snap.loading"
+        size="small"
+        cell-empty-content="暂无快照"
+      >
         <template #snap_action="{ row }">
           <t-space size="small">
             <t-link theme="warning" hover="color" @click="openRestoreSnapshot(row)">恢复</t-link>
@@ -402,16 +422,28 @@
         </template>
       </t-table>
       <div class="destroy-verify">
-        <p class="destroy-tip">用快照恢复会覆盖当前系统盘，请输入实例 ID <code>{{ instance.instance_id }}</code> 确认：</p>
+        <p class="destroy-tip">
+          用快照恢复会覆盖当前系统盘，请输入实例 ID <code>{{ instance.instance_id }}</code> 确认：
+        </p>
         <t-input v-model="snap.restoreMark" placeholder="实例 ID" />
         <div v-if="snap.needVerify" class="destroy-code-row">
           <t-input v-model="snap.code" placeholder="请输入验证码" maxlength="6" />
-          <t-button variant="outline" theme="primary" :disabled="snap.countdown > 0" @click="sendCode('instance_snapshot_restore', snap)">
+          <t-button
+            variant="outline"
+            theme="primary"
+            :disabled="snap.countdown > 0"
+            @click="sendCode('instance_snapshot_restore', snap)"
+          >
             {{ snap.countdown > 0 ? `${snap.countdown}s` : '获取验证码' }}
           </t-button>
         </div>
         <div v-if="snap.restoreId" class="destroy-code-row">
-          <t-button theme="danger" variant="outline" :disabled="snap.restoreMark.trim() !== instance.instance_id" @click="submitRestoreSnapshot">
+          <t-button
+            theme="danger"
+            variant="outline"
+            :disabled="snap.restoreMark.trim() !== instance.instance_id"
+            @click="submitRestoreSnapshot"
+          >
             恢复所选快照
           </t-button>
         </div>
@@ -427,12 +459,14 @@
       width="460px"
       @confirm="credential.visible = false"
     >
-      <t-alert theme="warning" class="destroy-alert">
-        平台新签发的登录凭据只显示这一次，本系统不保存。
-      </t-alert>
+      <t-alert theme="warning" class="destroy-alert"> 平台新签发的登录凭据只显示这一次，本系统不保存。 </t-alert>
       <div class="destroy-body">
-        <p class="destroy-tip">用户名：<code>{{ credential.username || '—' }}</code></p>
-        <p class="destroy-tip">新密码：<code>{{ credential.password || '（平台未返回，请改用「重置密码」或到平台面板查看）' }}</code></p>
+        <p class="destroy-tip">
+          用户名：<code>{{ credential.username || '—' }}</code>
+        </p>
+        <p class="destroy-tip">
+          新密码：<code>{{ credential.password || '（平台未返回，请改用「重置密码」或到平台面板查看）' }}</code>
+        </p>
       </div>
     </t-dialog>
   </div>
@@ -908,8 +942,13 @@ function onMaintenancePick(data: { value: string }) {
   switch (data.value) {
     case 'reinstall':
       Object.assign(reinstall, {
-        os: '', port: 0, format_data_disk: false, confirmMark: '', code: '',
-        needVerify: false, visible: true,
+        os: '',
+        port: 0,
+        format_data_disk: false,
+        confirmMark: '',
+        code: '',
+        needVerify: false,
+        visible: true,
       })
       void prepareVerify('instance_reinstall', reinstall)
       break
@@ -988,9 +1027,16 @@ function isVerifyRequired(error: unknown): boolean {
 }
 
 const reinstall = reactive({
-  visible: false, os: '', port: 0, format_data_disk: false,
-  confirmMark: '', code: '', countdown: 0, sendingCode: false,
-  needVerify: false, submitting: false,
+  visible: false,
+  os: '',
+  port: 0,
+  format_data_disk: false,
+  confirmMark: '',
+  code: '',
+  countdown: 0,
+  sendingCode: false,
+  needVerify: false,
+  submitting: false,
 })
 
 const credential = reactive({ visible: false, username: '', password: '' })
@@ -1162,12 +1208,7 @@ async function submitRestoreSnapshot() {
   }
   try {
     const ticket = await acquireTicket('instance_snapshot_restore', snap.needVerify, snap.code)
-    await restoreInstanceSnapshot(
-      instanceId.value,
-      snap.restoreId,
-      snap.restoreMark.trim(),
-      ticket || undefined,
-    )
+    await restoreInstanceSnapshot(instanceId.value, snap.restoreId, snap.restoreMark.trim(), ticket || undefined)
     MessagePlugin.success('恢复指令已提交')
     snap.restoreId = ''
     snap.restoreMark = ''

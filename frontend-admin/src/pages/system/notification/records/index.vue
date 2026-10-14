@@ -100,25 +100,20 @@
           <span class="time-text">{{ formatTime(row.created_at) }}</span>
         </template>
         <template #action="{ row }">
-<div class="action-cell">
-              <MobileAction
+          <div class="action-cell">
+            <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '查看', value: 'detail', theme: 'default' },
-                { content: '重发', value: 'resend', hidden: () => !canResend(row), theme: 'warning' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '查看', value: 'detail', theme: 'default' },
+                  { content: '重发', value: 'resend', hidden: () => !canResend(row), theme: 'warning' },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
               <t-link theme="primary" hover="color" @click="openDetail(row)">查看</t-link>
-              <t-link
-                v-if="canResend(row)"
-                theme="warning"
-                hover="color"
-                @click="handleResend(row)"
-              >
-                重发
-              </t-link>
+              <t-link v-if="canResend(row)" theme="warning" hover="color" @click="handleResend(row)"> 重发 </t-link>
             </template>
           </div>
         </template>
@@ -138,41 +133,54 @@
     </section>
 
     <!-- 通知内容查看弹窗 -->
-    <t-dialog
-      v-model:visible="detailVisible"
-      header="通知内容"
-      width="560px"
-      :footer="false"
-    >
+    <t-dialog v-model:visible="detailVisible" header="通知内容" width="560px" :footer="false">
       <div v-if="currentRow" class="detail-list">
-        <div class="detail-row"><span>记录 ID</span><b>{{ currentRow.id }}</b></div>
-        <div class="detail-row"><span>目标</span>
-          {{ targetTypeLabel(currentRow.target_type) }} · {{ currentRow.target_name || ('ID ' + currentRow.target_id) }}
+        <div class="detail-row">
+          <span>记录 ID</span><b>{{ currentRow.id }}</b>
+        </div>
+        <div class="detail-row">
+          <span>目标</span> {{ targetTypeLabel(currentRow.target_type) }} ·
+          {{ currentRow.target_name || 'ID ' + currentRow.target_id }}
         </div>
         <div class="detail-row"><span>事件</span>{{ currentRow.event || '—' }}</div>
-        <div class="detail-row"><span>渠道</span>
-          <t-tag :theme="channelTheme(currentRow.channel)" variant="light" size="small">{{ channelLabel(currentRow.channel) }}</t-tag>
+        <div class="detail-row">
+          <span>渠道</span>
+          <t-tag :theme="channelTheme(currentRow.channel)" variant="light" size="small">{{
+            channelLabel(currentRow.channel)
+          }}</t-tag>
         </div>
         <div class="detail-row"><span>格式</span>{{ formatLabel(currentRow.content_format) }}</div>
-        <div class="detail-row"><span>状态</span>
-          <t-tag :theme="sendStatusTheme(currentRow.send_status)" variant="light" size="small">{{ sendStatusLabel(currentRow.send_status) }}</t-tag>
+        <div class="detail-row">
+          <span>状态</span>
+          <t-tag :theme="sendStatusTheme(currentRow.send_status)" variant="light" size="small">{{
+            sendStatusLabel(currentRow.send_status)
+          }}</t-tag>
         </div>
         <div v-if="currentRow.delivery_id" class="detail-row"><span>投递记录</span>#{{ currentRow.delivery_id }}</div>
         <div class="detail-row"><span>来源模块</span>{{ currentRow.source_module || '—' }}</div>
         <div class="detail-row"><span>创建时间</span>{{ formatTime(currentRow.created_at) }}</div>
-        <div v-if="currentRow.sent_at" class="detail-row"><span>发送时间</span>{{ formatTime(currentRow.sent_at) }}</div>
-        <div v-if="currentRow.fail_reason" class="detail-row"><span>失败原因</span><span class="fail-text">{{ currentRow.fail_reason }}</span></div>
-        <div class="detail-row detail-row--column"><span>标题</span><b>{{ currentRow.title || '—' }}</b></div>
-        <div class="detail-row detail-row--column"><span>正文</span>
+        <div v-if="currentRow.sent_at" class="detail-row">
+          <span>发送时间</span>{{ formatTime(currentRow.sent_at) }}
+        </div>
+        <div v-if="currentRow.fail_reason" class="detail-row">
+          <span>失败原因</span><span class="fail-text">{{ currentRow.fail_reason }}</span>
+        </div>
+        <div class="detail-row detail-row--column">
+          <span>标题</span><b>{{ currentRow.title || '—' }}</b>
+        </div>
+        <div class="detail-row detail-row--column">
+          <span>正文</span>
           <!--
             HTML 正文来自本系统后台模板，且已用 DOMPurify 净化：用户资料类变量
             （用户名/备注）可能含尖括号，直接 v-html 会构成存储型 XSS。
           -->
+          <!-- eslint-disable vue/no-v-html -- safeHtml() 已 DOMPurify 净化，此处是净化后的受控渲染 -->
           <div
             v-if="currentRow.content_format === 'html'"
             class="detail-content detail-content--html"
             v-html="safeHtml(currentRow.content)"
           ></div>
+          <!-- eslint-enable vue/no-v-html -->
           <pre v-else class="detail-content">{{ currentRow.content || '—' }}</pre>
         </div>
       </div>
@@ -347,7 +355,6 @@ function handleMobilePageSizeChange(pageSize: number) {
   void applyMobilePage(1, pageSize)
 }
 
-
 // —— 内容查看 ——
 const detailVisible = ref(false)
 const currentRow = ref<NotifyRecordItem | null>(null)
@@ -397,8 +404,11 @@ function handleResend(row: NotifyRecordItem) {
 onMounted(loadData)
 
 // 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: NotifyRecordItem) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: NotifyRecordItem) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'detail':
       openDetail(row)

@@ -106,22 +106,22 @@ export interface TicketCreateRequest {
 
 // 查询我的工单列表
 export function getMyTickets(params: { page?: number; page_size?: number } = {}) {
-  return request.get<any, { data: TicketListResponse }>('/uc/support/tickets', { params })
+  return request.get<unknown, { data: TicketListResponse }>('/uc/support/tickets', { params })
 }
 
 // 查询我的工单详情（含回复记录）
 export function getMyTicketDetail(id: string | number) {
-  return request.get<any, { data: TicketDetail }>(`/uc/support/tickets/${id}`)
+  return request.get<unknown, { data: TicketDetail }>(`/uc/support/tickets/${id}`)
 }
 
 // 提交工单
 export function createMyTicket(data: TicketCreateRequest) {
-  return request.post<any, { data: TicketDetail }>('/uc/support/tickets', data)
+  return request.post<unknown, { data: TicketDetail }>('/uc/support/tickets', data)
 }
 
 // 追加工单回复（可携带已上传的附件 ID）
 export function replyMyTicket(id: string | number, content: string, attachmentIds: number[] = []) {
-  return request.post<any, { data: TicketDetail }>(`/uc/support/tickets/${id}/replies`, {
+  return request.post<unknown, { data: TicketDetail }>(`/uc/support/tickets/${id}/replies`, {
     content,
     attachment_ids: attachmentIds,
   })
@@ -129,19 +129,19 @@ export function replyMyTicket(id: string | number, content: string, attachmentId
 
 // 取消工单（仅待处理 open 状态可取消）
 export function cancelMyTicket(id: string | number) {
-  return request.post<any, { data: TicketDetail }>(`/uc/support/tickets/${id}/cancel`)
+  return request.post<unknown, { data: TicketDetail }>(`/uc/support/tickets/${id}/cancel`)
 }
 
 // 获取可用工单分类列表（含前置条件与当前账号实名状态）
 export function getTicketCategories() {
-  return request.get<any, { data: TicketCategoryListResponse }>('/uc/support/ticket-categories')
+  return request.get<unknown, { data: TicketCategoryListResponse }>('/uc/support/ticket-categories')
 }
 
 // 上传我的工单附件：新建工单前 ticket 尚未存在，传 0 表示待挂载
 export function uploadMyTicketAttachment(id: string | number, file: File) {
   const form = new FormData()
   form.append('file', file)
-  return request.post<any, { data: TicketAttachmentInfo }>(`/uc/support/tickets/${id}/attachments`, form)
+  return request.post<unknown, { data: TicketAttachmentInfo }>(`/uc/support/tickets/${id}/attachments`, form)
 }
 
 // 下载我的工单附件（带鉴权，浏览器保存）
@@ -149,7 +149,9 @@ export function uploadMyTicketAttachment(id: string | number, file: File) {
 // 后端错误也走 HTTP 200 + JSON 信封，因此这里需要先辨别响应体是文件还是错误包，
 // 否则会把 {"code":20002,...} 当成附件存成文件。
 export async function downloadMyTicketAttachment(id: number, fileName = 'attachment') {
-  const response = await request.get<any, any>(`/uc/support/attachments/${id}/download`, { responseType: 'blob' })
+  const response = await request.get<unknown, { data: Blob }>(`/uc/support/attachments/${id}/download`, {
+    responseType: 'blob',
+  })
   const blob = (response?.data ?? response) as Blob
   if (blob.type && blob.type.includes('application/json')) {
     const text = await blob.text()

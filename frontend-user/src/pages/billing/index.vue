@@ -15,7 +15,11 @@
           <ChevronRightIcon v-else size="14" class="sider-arrow" />
         </button>
         <div v-show="billingOpen" class="sider-sub">
-          <button class="sider-item sider-item--sub" :class="{ 'is-active': view === 'overview' }" @click="view = 'overview'">
+          <button
+            class="sider-item sider-item--sub"
+            :class="{ 'is-active': view === 'overview' }"
+            @click="view = 'overview'"
+          >
             <span>消费总览</span>
           </button>
           <button class="sider-item sider-item--sub" :class="{ 'is-active': view === 'bills' }" @click="view = 'bills'">
@@ -56,11 +60,7 @@
         </div>
         <div class="page-header__actions">
           <t-button variant="outline" :loading="loading" @click="reload">刷新</t-button>
-          <t-button
-            v-if="memberStore.has('billing:recharge')"
-            theme="primary"
-            @click="router.push('/billing/balance')"
-          >
+          <t-button v-if="memberStore.has('billing:recharge')" theme="primary" @click="router.push('/billing/balance')">
             <template #icon><AddIcon /></template>
             立即充值
           </t-button>
@@ -281,7 +281,9 @@
             <template #paid_method="{ row }">
               <div v-if="row.status === 'paid'" class="cell-main">
                 <span class="cell-strong">{{ payMethodLabel(row.paid_method) }}</span>
-                <span class="cell-sub">实收 ¥{{ formatPrice(row.paid_amount ?? row.total_amount - row.refund_amount) }}</span>
+                <span class="cell-sub"
+                  >实收 ¥{{ formatPrice(row.paid_amount ?? row.total_amount - row.refund_amount) }}</span
+                >
               </div>
               <span v-else class="time-text">—</span>
             </template>
@@ -303,12 +305,7 @@
                 >
                   去支付
                 </t-link>
-                <t-link
-                  v-else-if="canApplyInvoice(row)"
-                  theme="primary"
-                  hover="color"
-                  @click="openInvoiceDialog(row)"
-                >
+                <t-link v-else-if="canApplyInvoice(row)" theme="primary" hover="color" @click="openInvoiceDialog(row)">
                   申请开票
                 </t-link>
                 <span v-else class="time-text">—</span>
@@ -693,7 +690,9 @@ onMounted(loadAll)
   font-size: 13.5px;
   cursor: pointer;
   text-align: left;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .sider-item:hover {
@@ -776,7 +775,9 @@ onMounted(loadAll)
   background: var(--hs-surface-1);
   color: var(--color-muted-foreground);
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .icon-btn:hover {

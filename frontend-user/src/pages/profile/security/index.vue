@@ -39,12 +39,7 @@
               </div>
               <div class="bind-value">{{ settings.phone_masked || '—' }}</div>
             </div>
-            <t-button
-              variant="outline"
-              size="small"
-              :disabled="settings.phone_bound"
-              @click="onBind('sms')"
-            >
+            <t-button variant="outline" size="small" :disabled="settings.phone_bound" @click="onBind('sms')">
               {{ settings.phone_bound ? '已绑定' : '去绑定' }}
             </t-button>
           </div>
@@ -59,12 +54,7 @@
               </div>
               <div class="bind-value">{{ settings.email_masked || '—' }}</div>
             </div>
-            <t-button
-              variant="outline"
-              size="small"
-              :disabled="settings.email_bound"
-              @click="onBind('email')"
-            >
+            <t-button variant="outline" size="small" :disabled="settings.email_bound" @click="onBind('email')">
               {{ settings.email_bound ? '已绑定' : '去绑定' }}
             </t-button>
           </div>
@@ -369,7 +359,10 @@ async function onSendBindCode() {
   }
   bind.sending = true
   try {
-    await sendSecurityVerification({ scene: bind.channel === 'sms' ? 'phone_bind' : 'email_bind', channel: bind.channel })
+    await sendSecurityVerification({
+      scene: bind.channel === 'sms' ? 'phone_bind' : 'email_bind',
+      channel: bind.channel,
+    })
     MessagePlugin.success('验证码已发送，请查收')
     bind.countdown = 60
     const timer = setInterval(() => {
@@ -396,11 +389,7 @@ async function onSubmitBind() {
       code: bind.code.trim(),
     })
     const { updateProfile } = await import('@/api/auth')
-    await updateProfile(
-      bind.channel === 'sms'
-        ? { phone: bind.target.trim() }
-        : { email: bind.target.trim() },
-    )
+    await updateProfile(bind.channel === 'sms' ? { phone: bind.target.trim() } : { email: bind.target.trim() })
     bind.visible = false
     MessagePlugin.success('绑定成功')
     void data

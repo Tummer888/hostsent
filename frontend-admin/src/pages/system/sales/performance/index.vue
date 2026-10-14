@@ -74,7 +74,14 @@
     <FilterCard title="统计周期">
       <div class="field">
         <span class="field__label">周期（月份）</span>
-        <t-date-picker v-model="period" mode="month" clearable allow-input placeholder="默认当月" @change="handleSearch" />
+        <t-date-picker
+          v-model="period"
+          mode="month"
+          clearable
+          allow-input
+          placeholder="默认当月"
+          @change="handleSearch"
+        />
       </div>
       <div class="field">
         <span class="field__label">部门</span>
@@ -200,16 +207,9 @@
 
 <script setup lang="ts">
 import FilterCard from '@/components/filter-card/index.vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
-import {
-  ChartBarIcon,
-  EditIcon,
-  FlagIcon,
-  MoneyIcon,
-  RefreshIcon,
-  StarIcon,
-} from 'tdesign-icons-vue-next'
+import { ChartBarIcon, EditIcon, FlagIcon, MoneyIcon, RefreshIcon, StarIcon } from 'tdesign-icons-vue-next'
 
 import { getMyPerformance, getPerformanceRanking, getSalesTargets, upsertSalesTargets } from '@/api/sales'
 import { getDepartmentList } from '@/api/admin'

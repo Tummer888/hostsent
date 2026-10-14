@@ -36,8 +36,7 @@ export interface SystemConfigCreateRequest {
 }
 
 /** 编辑配置请求体（不含 config_key，配置键创建后不可修改） */
-export interface SystemConfigUpdateRequest
-  extends Omit<SystemConfigCreateRequest, 'config_key'> { }
+export type SystemConfigUpdateRequest = Omit<SystemConfigCreateRequest, 'config_key'>
 
 /** 分组批量保存的单项配置 */
 export interface SystemConfigBatchItem {
@@ -61,9 +60,7 @@ export interface SystemConfigListMeta {
 export type SystemConfigListResponse = ListResponse<SystemConfigInfo>
 
 /** 获取配置列表 */
-export function getConfigList(
-  params: SystemConfigListQuery,
-): Promise<SystemConfigListResponse> {
+export function getConfigList(params: SystemConfigListQuery): Promise<SystemConfigListResponse> {
   return request.get<SystemConfigListResponse>({ url: '/system/configs', params })
 }
 
@@ -74,10 +71,7 @@ export function createConfig(data: SystemConfigCreateRequest): Promise<SystemCon
 }
 
 /** 更新配置（按 id） */
-export function updateConfig(
-  id: number,
-  data: SystemConfigUpdateRequest,
-): Promise<SystemConfigInfo> {
+export function updateConfig(id: number, data: SystemConfigUpdateRequest): Promise<SystemConfigInfo> {
   return request.put<SystemConfigInfo>({ url: `/system/configs/${id}`, data })
 }
 
@@ -88,10 +82,7 @@ export function getConfigListByGroup(group: string): Promise<SystemConfigInfo[]>
 }
 
 /** 按分组批量保存配置项（按 config_key 幂等 upsert，返回该分组最新配置列表） */
-export function batchSaveConfigs(
-  group: string,
-  items: SystemConfigBatchItem[],
-): Promise<SystemConfigInfo[]> {
+export function batchSaveConfigs(group: string, items: SystemConfigBatchItem[]): Promise<SystemConfigInfo[]> {
   return request.post<SystemConfigInfo[]>({
     url: '/system/configs/batch',
     data: { config_group: group, items },

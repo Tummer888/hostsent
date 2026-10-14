@@ -91,9 +91,7 @@
       <t-tab-panel value="bills" :label="`账单（${info.bill_count}）`">
         <div class="table-card__head">
           <h3 class="card-title">账单记录</h3>
-          <span class="table-card__meta">
-            共 {{ info.bill_count }} 期 · 未结清 {{ info.unpaid_bill_count }} 期
-          </span>
+          <span class="table-card__meta"> 共 {{ info.bill_count }} 期 · 未结清 {{ info.unpaid_bill_count }} 期 </span>
         </div>
         <t-table
           row-key="id"
@@ -274,14 +272,18 @@ const orders = ref<OrderInfo[]>([])
 const orderLoading = ref(false)
 const orderPagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
 const orderMobile = reactive({ current: 1, pageSize: 10, total: 0 })
+// 列宽合计贴近容器宽度（详情页表格约 1140px）。table-layout: fixed 下
+// 富余宽度会按比例摊给每一列，合计偏小会把「支付方式」这类短列一起撑宽，
+// 所以这里把宽度给足，长文本列（商品/备注）承担弹性。
+// 金额列统一 align: 'right'，同列数字按位对齐。
 const orderColumns: PrimaryTableCol<OrderInfo>[] = [
   { colKey: 'order_no', title: '订单号', width: 200 },
-  { colKey: 'product_name', title: '商品', minWidth: 180 },
-  { colKey: 'final_amount', title: '实付', width: 110 },
-  { colKey: 'status', title: '状态', width: 100 },
+  { colKey: 'product_name', title: '商品', width: 340 },
+  { colKey: 'final_amount', title: '实付', width: 120, align: 'right' },
+  { colKey: 'status', title: '状态', width: 110 },
   { colKey: 'pay_method', title: '支付方式', width: 110 },
-  { colKey: 'created_at', title: '下单时间', width: 150 },
-  { colKey: 'op', title: '操作', width: 80, fixed: 'right' },
+  { colKey: 'created_at', title: '下单时间', width: 170 },
+  { colKey: 'op', title: '操作', width: 90, fixed: 'right' },
 ]
 
 async function loadOrders() {
@@ -328,15 +330,16 @@ const bills = ref<BillInfo[]>([])
 const billLoading = ref(false)
 const billPagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
 const billMobile = reactive({ current: 1, pageSize: 10, total: 0 })
+// 顺序按查账习惯：账单号 → 账期 → 金额 → 状态，类型/充值/开票靠后。
 const billColumns: PrimaryTableCol<BillInfo>[] = [
-  { colKey: 'bill_no', title: '账单号', width: 190 },
-  { colKey: 'period', title: '账期', width: 100 },
-  { colKey: 'bill_type', title: '类型', width: 110 },
-  { colKey: 'total_amount', title: '金额', width: 110 },
-  { colKey: 'recharge_amount', title: '充值', width: 100 },
-  { colKey: 'status', title: '状态', width: 100 },
-  { colKey: 'invoice_status', title: '开票', width: 100 },
-  { colKey: 'op', title: '操作', width: 90, fixed: 'right' },
+  { colKey: 'bill_no', title: '账单号', width: 260 },
+  { colKey: 'period', title: '账期', width: 140 },
+  { colKey: 'total_amount', title: '金额', width: 150, align: 'right' },
+  { colKey: 'status', title: '状态', width: 120 },
+  { colKey: 'bill_type', title: '类型', width: 130 },
+  { colKey: 'recharge_amount', title: '充值', width: 120, align: 'right' },
+  { colKey: 'invoice_status', title: '开票', width: 110 },
+  { colKey: 'op', title: '操作', width: 100, fixed: 'right' },
 ]
 
 const billTypeLabels: Record<string, string> = {
@@ -409,13 +412,14 @@ const transactions = ref<TransactionInfo[]>([])
 const txLoading = ref(false)
 const txPagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
 const txMobile = reactive({ current: 1, pageSize: 10, total: 0 })
+// 流水号与备注是长文本，各占一列弹性；金额/余额右对齐便于纵向比对。
 const txColumns: PrimaryTableCol<TransactionInfo>[] = [
-  { colKey: 'tx_no', title: '流水号', width: 200 },
-  { colKey: 'type', title: '类型', width: 100 },
-  { colKey: 'amount', title: '金额', width: 120 },
-  { colKey: 'balance_after', title: '余额', width: 120 },
-  { colKey: 'remark', title: '备注', minWidth: 180 },
-  { colKey: 'created_at', title: '时间', width: 150 },
+  { colKey: 'tx_no', title: '流水号', width: 230 },
+  { colKey: 'type', title: '类型', width: 120 },
+  { colKey: 'amount', title: '金额', width: 140, align: 'right' },
+  { colKey: 'balance_after', title: '余额', width: 140, align: 'right' },
+  { colKey: 'remark', title: '备注', width: 320 },
+  { colKey: 'created_at', title: '时间', width: 170 },
 ]
 
 async function loadTransactions() {

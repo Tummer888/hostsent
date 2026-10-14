@@ -65,10 +65,22 @@
         <div v-if="target.mode === 'filter'" class="mode-panel">
           <div class="form-grid">
             <t-form-item label="注册时间起">
-              <t-date-picker v-model="target.filter.registered_after" enable-time-picker allow-input clearable placeholder="选填" />
+              <t-date-picker
+                v-model="target.filter.registered_after"
+                enable-time-picker
+                allow-input
+                clearable
+                placeholder="选填"
+              />
             </t-form-item>
             <t-form-item label="注册时间止">
-              <t-date-picker v-model="target.filter.registered_before" enable-time-picker allow-input clearable placeholder="选填" />
+              <t-date-picker
+                v-model="target.filter.registered_before"
+                enable-time-picker
+                allow-input
+                clearable
+                placeholder="选填"
+              />
             </t-form-item>
             <t-form-item label="用户等级">
               <t-input v-model="target.filter.tier" placeholder="选填，如 vip / normal" clearable />
@@ -170,15 +182,29 @@
             <div class="confirm-block">
               <h4 class="confirm-block__title">通道</h4>
               <div class="tag-list">
-                <t-tag v-for="c in content.channels" :key="c" :theme="deliveryChannelTheme(c)" variant="light" size="small">
+                <t-tag
+                  v-for="c in content.channels"
+                  :key="c"
+                  :theme="deliveryChannelTheme(c)"
+                  variant="light"
+                  size="small"
+                >
                   {{ deliveryChannelLabel(c) }}
                 </t-tag>
               </div>
             </div>
           </div>
 
-          <t-alert v-if="preview?.exceeded" theme="error" :message="`命中 ${preview.total} 人，超过单次上限 ${preview.max_targets} 人，请缩小范围`" />
-          <t-alert v-else-if="preview && preview.total === 0" theme="warning" :message="preview.message || '未命中任何用户'" />
+          <t-alert
+            v-if="preview?.exceeded"
+            theme="error"
+            :message="`命中 ${preview.total} 人，超过单次上限 ${preview.max_targets} 人，请缩小范围`"
+          />
+          <t-alert
+            v-else-if="preview && preview.total === 0"
+            theme="warning"
+            :message="preview.message || '未命中任何用户'"
+          />
 
           <div v-if="preview && preview.total > 0" class="preview-block">
             <h4 class="confirm-block__title">发送预览（渲染后文案）</h4>
@@ -187,7 +213,9 @@
             <div class="preview-stats">
               <span>命中 {{ preview.total }} 人</span>
               <span v-if="mailSelected">邮件约 {{ preview.estimated_mail_count }} 封</span>
-              <span v-if="smsSelected">短信约 {{ preview.total }} 条 / 预计 {{ fenToYuan(preview.estimated_sms_cost_fen) }} 元</span>
+              <span v-if="smsSelected"
+                >短信约 {{ preview.total }} 条 / 预计 {{ fenToYuan(preview.estimated_sms_cost_fen) }} 元</span
+              >
             </div>
             <h4 class="confirm-block__title">样例收件人（打码）</h4>
             <t-table
@@ -202,7 +230,13 @@
 
           <t-form label-align="top" @submit.prevent>
             <t-form-item label="定时发送（预留）">
-              <t-date-picker v-model="scheduleAt" enable-time-picker allow-input clearable placeholder="留空 = 立即发送" />
+              <t-date-picker
+                v-model="scheduleAt"
+                enable-time-picker
+                allow-input
+                clearable
+                placeholder="留空 = 立即发送"
+              />
             </t-form-item>
           </t-form>
         </t-space>
@@ -213,13 +247,7 @@
         <t-space size="small">
           <t-button v-if="step > 0" variant="outline" @click="step -= 1">上一步</t-button>
           <t-button v-if="step < 2" theme="primary" :disabled="!canGoNext" @click="handleNext">下一步</t-button>
-          <t-button
-            v-else
-            theme="primary"
-            :disabled="!canSend"
-            :loading="sending"
-            @click="handleSend"
-          >
+          <t-button v-else theme="primary" :disabled="!canSend" :loading="sending" @click="handleSend">
             确认发送
           </t-button>
         </t-space>
@@ -406,7 +434,9 @@ const mailSelected = computed(() => content.channels.includes('mail'))
 
 const smsTemplates = ref<{ code: string; name: string; var_names: string[] }[]>([])
 const smsLoading = ref(false)
-const smsTemplateOptions = computed(() => smsTemplates.value.map((t) => ({ label: `${t.name}（${t.code}）`, value: t.code })))
+const smsTemplateOptions = computed(() =>
+  smsTemplates.value.map((t) => ({ label: `${t.name}（${t.code}）`, value: t.code })),
+)
 
 async function loadSmsTemplates() {
   smsLoading.value = true

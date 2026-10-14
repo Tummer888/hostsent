@@ -29,9 +29,17 @@
       <section class="info-panel">
         <span class="panel-title">工单信息</span>
         <t-descriptions :column="3" layout="horizontal" bordered size="medium">
-          <t-descriptions-item label="问题分类">{{ ticket?.category_name || ticket?.category || '—' }}</t-descriptions-item>
+          <t-descriptions-item label="问题分类">{{
+            ticket?.category_name || ticket?.category || '—'
+          }}</t-descriptions-item>
           <t-descriptions-item label="优先级">
-            <t-tag v-if="ticket" :theme="ticketPriorityTheme(ticket.priority)" variant="light" size="small" shape="round">
+            <t-tag
+              v-if="ticket"
+              :theme="ticketPriorityTheme(ticket.priority)"
+              variant="light"
+              size="small"
+              shape="round"
+            >
               {{ ticketPriorityLabel(ticket.priority) }}
             </t-tag>
           </t-descriptions-item>
@@ -66,7 +74,9 @@
             <div class="reply-avatar">{{ reply.sender_name?.slice(0, 1).toUpperCase() || '?' }}</div>
             <div class="reply-bubble">
               <div class="reply-meta">
-                <span class="reply-name">{{ reply.sender_type === 'user' ? '我' : `${reply.sender_name}（客服）` }}</span>
+                <span class="reply-name">{{
+                  reply.sender_type === 'user' ? '我' : `${reply.sender_name}（客服）`
+                }}</span>
                 <span class="reply-time">{{ formatTime(reply.created_at) }}</span>
               </div>
               <div class="reply-content">{{ reply.content }}</div>
@@ -103,12 +113,12 @@
               <t-button variant="outline" :disabled="uploading || maxAttachmentReached" @click="triggerFilePick">
                 {{ uploading ? '上传中…' : '添加附件' }}
               </t-button>
-              <t-button theme="primary" :loading="replying" :disabled="!replyContent.trim()" @click="handleReply">发送回复</t-button>
+              <t-button theme="primary" :loading="replying" :disabled="!replyContent.trim()" @click="handleReply"
+                >发送回复</t-button
+              >
             </t-space>
           </div>
-          <p class="attachment-tip">
-            支持图片、文本与压缩包，单个不超过 10MB，最多 {{ MAX_ATTACHMENTS }} 个。
-          </p>
+          <p class="attachment-tip">支持图片、文本与压缩包，单个不超过 10MB，最多 {{ MAX_ATTACHMENTS }} 个。</p>
         </div>
         <div v-else class="reply-closed-tip">工单已结束，如需继续处理请重新提交工单。</div>
       </section>
@@ -133,7 +143,13 @@ import {
   type TicketDetail,
   type TicketReplyInfo,
 } from '@/api/support'
-import { formatTime, ticketPriorityLabel, ticketPriorityTheme, ticketStatusLabel, ticketStatusTheme } from '@/pages/support/constants'
+import {
+  formatTime,
+  ticketPriorityLabel,
+  ticketPriorityTheme,
+  ticketStatusLabel,
+  ticketStatusTheme,
+} from '@/pages/support/constants'
 
 defineOptions({ name: 'UserTicketDetail' })
 
@@ -181,7 +197,11 @@ async function handleReply() {
   if (!content) return
   replying.value = true
   try {
-    const { data } = await replyMyTicket(ticketId.value, content, pendingFiles.value.map((file) => file.id))
+    const { data } = await replyMyTicket(
+      ticketId.value,
+      content,
+      pendingFiles.value.map((file) => file.id),
+    )
     if (data) ticket.value = data
     replyContent.value = ''
     pendingFiles.value = []

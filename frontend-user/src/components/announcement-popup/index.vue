@@ -33,7 +33,9 @@
         其余按纯文本输出（老公告里出现的 `<` 按 HTML 渲染会被吃掉）。
       -->
       <p v-if="current.body_format !== 'html'" class="ann-popup__text">{{ current.content }}</p>
+      <!-- eslint-disable vue/no-v-html -- body_format=html 是服务端已净化的富文本（api 契约注释同源） -->
       <div v-else class="ann-popup__text ann-popup__text--html" v-html="current.content" />
+      <!-- eslint-enable vue/no-v-html -->
 
       <div class="ann-popup__actions">
         <t-button variant="text" @click="onViewAll">到公告列表</t-button>

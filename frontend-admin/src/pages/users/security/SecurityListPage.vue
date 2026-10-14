@@ -66,7 +66,10 @@
         :current="pagination.current ?? 1"
         :page-size="pagination.pageSize ?? 10"
         :total="total"
-        @go="(p: number) => $emit('page-change', { current: p, previous: pagination.current ?? 1, pageSize: pagination.pageSize ?? 10 })"
+        @go="
+          (p: number) =>
+            $emit('page-change', { current: p, previous: pagination.current ?? 1, pageSize: pagination.pageSize ?? 10 })
+        "
         @page-size="(s: number) => $emit('page-change', { current: 1, previous: pagination.current ?? 1, pageSize: s })"
       />
     </section>

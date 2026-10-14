@@ -343,10 +343,7 @@ export interface AgentMemberAssignResponse {
   skipped: Array<{ user_id: number; reason: string }>
 }
 
-export function getAgentGroupMembers(
-  id: number,
-  params: AgentMemberListQuery = {},
-): Promise<AgentMemberListResponse> {
+export function getAgentGroupMembers(id: number, params: AgentMemberListQuery = {}): Promise<AgentMemberListResponse> {
   return request.get<AgentMemberListResponse>({
     url: `/agent-levels/${id}/members`,
     params: {

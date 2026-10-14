@@ -46,6 +46,24 @@ export const channelRefundStatusOptions = [
   { label: '退款失败', value: 'failed' },
 ]
 
+// 核验状态（运营人工核对开通结果）：读取期由后端按 order_verify_required 开关推导。
+export const verifyStateOptions = [
+  { label: '待核验', value: 'pending' },
+  { label: '已核验', value: 'verified' },
+]
+
+// 退款原因预设：云主机行业常见退款场景，选择后自动填入原因输入框（仍可手改）。
+export const refundReasonPresets = [
+  { label: '24 小时内无理由退款', value: '24 小时内无理由退款' },
+  { label: '客户误购或重复下单', value: '客户误购或重复下单' },
+  { label: '商品规格与需求不符', value: '商品规格与需求不符' },
+  { label: '开通失败无法交付', value: '开通失败无法交付' },
+  { label: '服务质量问题（网络/性能）', value: '服务质量问题（网络/性能）' },
+  { label: '客服协商退款', value: '客服协商退款' },
+  { label: '价格或配置录入错误', value: '价格或配置录入错误' },
+  { label: '其他（请补充说明）', value: '其他（请补充说明）' },
+]
+
 const defaultOrderTheme = 'default'
 
 export function orderTypeLabel(value: string): string {
@@ -137,10 +155,25 @@ export function refundStatusTheme(status: string): string {
   }
 }
 
+export function verifyStateLabel(state: string): string {
+  const found = verifyStateOptions.find((item) => item.value === state)
+  return found ? found.label : state || '—'
+}
+
+export function verifyStateTheme(state: string): string {
+  switch (state) {
+    case 'pending':
+      return 'warning'
+    case 'verified':
+      return 'success'
+    default:
+      return defaultOrderTheme
+  }
+}
+
 export function formatPrice(value: number): string {
   return Number(value || 0).toFixed(2)
 }
-
 export function formatTime(value: string): string {
   if (!value) return '—'
   const date = new Date(value)

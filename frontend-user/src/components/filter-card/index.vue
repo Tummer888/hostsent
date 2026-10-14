@@ -8,13 +8,7 @@
       <span v-if="meta" class="filter-card__meta">{{ meta }}</span>
     </div>
 
-    <div
-      :id="gridId"
-      ref="gridRef"
-      class="filter-card__grid"
-      @input="measure"
-      @change="measure"
-    >
+    <div :id="gridId" ref="gridRef" class="filter-card__grid" @input="measure" @change="measure">
       <slot />
     </div>
 
@@ -103,9 +97,7 @@ const gridId = useId()
 const showHead = computed(() => Boolean(props.title || props.meta))
 const hasActions = computed(() => Boolean(slots.actions))
 const hiddenCount = computed(() => Math.max(0, fieldCount.value - props.primaryCount))
-const toggleVisible = computed(
-  () => props.collapsible && isMobile.value && hiddenCount.value > 0,
-)
+const toggleVisible = computed(() => props.collapsible && isMobile.value && hiddenCount.value > 0)
 
 /**
  * 数折叠区里有多少个已填值的条件。
@@ -186,7 +178,10 @@ watch(isMobile, () => {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: color 150ms ease, border-color 150ms ease, background 150ms ease;
+  transition:
+    color 150ms ease,
+    border-color 150ms ease,
+    background 150ms ease;
 }
 
 .filter-card__toggle:hover {

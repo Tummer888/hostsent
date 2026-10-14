@@ -158,16 +158,20 @@
         </template>
 
         <template #action="{ row }">
-<div class="action-cell">
+          <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '关账', value: 'close', hidden: () => !(row.status === 'unpaid'), theme: 'warning' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '关账', value: 'close', hidden: () => !(row.status === 'unpaid'), theme: 'warning' },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
-              <t-link v-if="row.status === 'unpaid'" theme="warning" hover="color" @click="handleClose(row)">关账</t-link>
+              <t-link v-if="row.status === 'unpaid'" theme="warning" hover="color" @click="handleClose(row)"
+                >关账</t-link
+              >
             </template>
           </div>
         </template>
@@ -369,7 +373,6 @@ function handleMobilePageSizeChange(pageSize: number) {
   void applyMobilePage(1, pageSize)
 }
 
-
 function handleSearch() {
   pagination.current = 1
   loadBills()
@@ -441,8 +444,11 @@ function handleClose(row: BillInfo) {
 onMounted(loadBills)
 
 // 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: BillInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: BillInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'close':
       void handleClose(row)

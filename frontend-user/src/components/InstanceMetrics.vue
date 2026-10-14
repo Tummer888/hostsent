@@ -316,7 +316,12 @@ watch(
 .metric-skeleton {
   display: block;
   border-radius: 6px;
-  background: linear-gradient(90deg, rgba(148, 163, 184, 0.14) 25%, rgba(148, 163, 184, 0.22) 37%, rgba(148, 163, 184, 0.14) 63%);
+  background: linear-gradient(
+    90deg,
+    rgba(148, 163, 184, 0.14) 25%,
+    rgba(148, 163, 184, 0.22) 37%,
+    rgba(148, 163, 184, 0.14) 63%
+  );
   background-size: 400% 100%;
   animation: metric-skeleton-shimmer 1.4s ease infinite;
 }
@@ -368,10 +373,18 @@ watch(
   );
 }
 
-.metric-panel--cpu { --metric-accent: 37, 99, 235; }
-.metric-panel--memory { --metric-accent: 124, 58, 237; }
-.metric-panel--disk { --metric-accent: 8, 145, 178; }
-.metric-panel--network { --metric-accent: 234, 88, 12; }
+.metric-panel--cpu {
+  --metric-accent: 37, 99, 235;
+}
+.metric-panel--memory {
+  --metric-accent: 124, 58, 237;
+}
+.metric-panel--disk {
+  --metric-accent: 8, 145, 178;
+}
+.metric-panel--network {
+  --metric-accent: 234, 88, 12;
+}
 
 .metric-panel__head,
 .metric-panel :deep(.t-loading__parent),

@@ -70,25 +70,25 @@ export interface MemberOperationLogResponse {
 }
 
 export function getMemberList(params: MemberListQuery) {
-  return request.get<any, { data: MemberListResponse }>('/uc/members', { params })
+  return request.get<unknown, { data: MemberListResponse }>('/uc/members', { params })
 }
 
 export function createMember(data: MemberCreateParams) {
-  return request.post<any, { data: MemberCreateResponse }>('/uc/members', data)
+  return request.post<unknown, { data: MemberCreateResponse }>('/uc/members', data)
 }
 
 export function updateMember(id: number, data: MemberUpdateParams) {
-  return request.put<any, { data: MemberInfo }>(`/uc/members/${id}`, data)
+  return request.put<unknown, { data: MemberInfo }>(`/uc/members/${id}`, data)
 }
 
 export function setMemberPermissions(id: number, permissions: string[]) {
-  return request.put<any, { data: MemberInfo }>(`/uc/members/${id}/permissions`, { permissions })
+  return request.put<unknown, { data: MemberInfo }>(`/uc/members/${id}/permissions`, { permissions })
 }
 
 export function deleteMember(id: number) {
-  return request.delete<any, { data: string }>(`/uc/members/${id}`)
+  return request.delete<unknown, { data: string }>(`/uc/members/${id}`)
 }
 
 export function getMemberLogs(id: number, params?: { page?: number; page_size?: number }) {
-  return request.get<any, { data: MemberOperationLogResponse }>(`/uc/members/${id}/logs`, { params })
+  return request.get<unknown, { data: MemberOperationLogResponse }>(`/uc/members/${id}/logs`, { params })
 }

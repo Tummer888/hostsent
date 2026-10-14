@@ -61,18 +61,17 @@ function load(): CartItem[] {
     if (!raw) return []
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed
-      .filter(
-        (it): it is CartItem =>
-          !!it && typeof it.productId === 'number' && typeof it.key === 'string',
-      )
-      // 旧版本存的购物车行没有 selections 字段，补齐成空对象，
-      // 否则结算算价与 cartItemKey 会拿到 undefined（历史数据不做二次迁移）。
-      .map((it) => ({
-        ...it,
-        selections: it.selections && typeof it.selections === 'object' ? it.selections : {},
-        selectionLabels: Array.isArray(it.selectionLabels) ? it.selectionLabels : [],
-      }))
+    return (
+      parsed
+        .filter((it): it is CartItem => !!it && typeof it.productId === 'number' && typeof it.key === 'string')
+        // 旧版本存的购物车行没有 selections 字段，补齐成空对象，
+        // 否则结算算价与 cartItemKey 会拿到 undefined（历史数据不做二次迁移）。
+        .map((it) => ({
+          ...it,
+          selections: it.selections && typeof it.selections === 'object' ? it.selections : {},
+          selectionLabels: Array.isArray(it.selectionLabels) ? it.selectionLabels : [],
+        }))
+    )
   } catch {
     // 存储被手工改坏时按空车处理，不让整个控制台崩在解析上
     return []
@@ -85,9 +84,7 @@ export const useCartStore = defineStore('cart', () => {
   const count = computed(() => items.value.reduce((sum, it) => sum + it.quantity, 0))
   const isEmpty = computed(() => items.value.length === 0)
   /** 预估金额：仅为展示，真实应付以结算时的 quoteOrder 为准。 */
-  const estimatedAmount = computed(() =>
-    items.value.reduce((sum, it) => sum + it.unitPrice * it.quantity, 0),
-  )
+  const estimatedAmount = computed(() => items.value.reduce((sum, it) => sum + it.unitPrice * it.quantity, 0))
 
   function persist() {
     try {

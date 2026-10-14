@@ -20,13 +20,23 @@
           <t-radio-button value="active">用户列表</t-radio-button>
           <t-radio-button value="recycle">回收站</t-radio-button>
         </t-radio-group>
-        <t-button v-if="!isRecycleView && canCreate" class="page-btn page-btn--ghost" variant="outline" @click="openCreate">
+        <t-button
+          v-if="!isRecycleView && canCreate"
+          class="page-btn page-btn--ghost"
+          variant="outline"
+          @click="openCreate"
+        >
           <template #icon>
             <AddIcon aria-hidden="true" />
           </template>
           新增用户
         </t-button>
-        <t-button v-if="isRecycleView && canPurge" class="page-btn page-btn--ghost" variant="outline" @click="openPurgeDialog">
+        <t-button
+          v-if="isRecycleView && canPurge"
+          class="page-btn page-btn--ghost"
+          variant="outline"
+          @click="openPurgeDialog"
+        >
           <template #icon>
             <DeleteIcon aria-hidden="true" />
           </template>
@@ -181,18 +191,42 @@
         <t-space v-if="selectedIds.length" size="small">
           <span class="selection-hint">已选 {{ selectedIds.length }} 个</span>
           <template v-if="isRecycleView">
-            <t-button v-if="canRestore" size="small" theme="primary" :loading="batchSubmitting" @click="handleBatchRestore">
+            <t-button
+              v-if="canRestore"
+              size="small"
+              theme="primary"
+              :loading="batchSubmitting"
+              @click="handleBatchRestore"
+            >
               批量恢复
             </t-button>
           </template>
           <template v-else>
-            <t-button v-if="canUpdate" size="small" variant="outline" :loading="batchSubmitting" @click="handleBatchStatus('disabled')">
+            <t-button
+              v-if="canUpdate"
+              size="small"
+              variant="outline"
+              :loading="batchSubmitting"
+              @click="handleBatchStatus('disabled')"
+            >
               批量冻结
             </t-button>
-            <t-button v-if="canUpdate" size="small" variant="outline" :loading="batchSubmitting" @click="handleBatchStatus('active')">
+            <t-button
+              v-if="canUpdate"
+              size="small"
+              variant="outline"
+              :loading="batchSubmitting"
+              @click="handleBatchStatus('active')"
+            >
               批量解冻
             </t-button>
-            <t-button v-if="canDelete" size="small" theme="danger" :loading="batchSubmitting" @click="openBatchDeleteDialog">
+            <t-button
+              v-if="canDelete"
+              size="small"
+              theme="danger"
+              :loading="batchSubmitting"
+              @click="openBatchDeleteDialog"
+            >
               批量注销
             </t-button>
           </template>
@@ -266,10 +300,17 @@
                   主账号
                 </t-tag>
               </div>
-              <div class="copy-row" v-if="row.email">
+              <div v-if="row.email" class="copy-row">
                 <span class="copy-row__value copy-row__value--email">{{ row.email }}</span>
                 <t-popup content="复制邮箱" placement="top">
-                  <t-tag class="copy-tag" theme="primary" variant="light" size="small" shape="round" @click="copyText(row.email, '邮箱')">
+                  <t-tag
+                    class="copy-tag"
+                    theme="primary"
+                    variant="light"
+                    size="small"
+                    shape="round"
+                    @click="copyText(row.email, '邮箱')"
+                  >
                     复制
                   </t-tag>
                 </t-popup>
@@ -280,10 +321,17 @@
           <template #real_name="{ row }">
             <div class="user-cell">
               <span class="user-cell__name user-cell__name--secondary">{{ row.real_name || '待补充' }}</span>
-              <div class="copy-row" v-if="row.phone">
+              <div v-if="row.phone" class="copy-row">
                 <span class="copy-row__value copy-row__value--phone">{{ row.phone }}</span>
                 <t-popup content="复制手机号" placement="top">
-                  <t-tag class="copy-tag" theme="primary" variant="light" size="small" shape="round" @click="copyText(row.phone, '手机号')">
+                  <t-tag
+                    class="copy-tag"
+                    theme="primary"
+                    variant="light"
+                    size="small"
+                    shape="round"
+                    @click="copyText(row.phone, '手机号')"
+                  >
                     复制
                   </t-tag>
                 </t-popup>
@@ -358,7 +406,13 @@
           </template>
 
           <template #status="{ row }">
-            <t-tag :class="['status-tag', `status-tag--${row.status || 'default'}`]" theme="default" variant="light" size="small" shape="round">
+            <t-tag
+              :class="['status-tag', `status-tag--${row.status || 'default'}`]"
+              theme="default"
+              variant="light"
+              size="small"
+              shape="round"
+            >
               {{ statusLabelMap[row.status] || row.status || '未知' }}
             </t-tag>
           </template>
@@ -395,7 +449,7 @@
                 v-if="isMobile"
                 trigger="click"
                 :options="buildMobileActionOptions(row)"
-                @click="(value: string | number | Record<string, any>) => handleMobileActionClick(value, row)"
+                @click="(value: string | number | Record<string, unknown>) => handleMobileActionClick(value, row)"
               >
                 <t-button
                   theme="default"
@@ -538,15 +592,24 @@
           <t-input :model-value="rechargeForm.username" disabled />
         </t-form-item>
         <t-form-item label="充值金额（元）" name="amount" :rules="[{ required: true, message: '请输入充值金额' }]">
-          <t-input-number v-model="rechargeForm.amount" :min="0.01" :precision="2" theme="column" placeholder="请输入充值金额" />
+          <t-input-number
+            v-model="rechargeForm.amount"
+            :min="0.01"
+            :precision="2"
+            theme="column"
+            placeholder="请输入充值金额"
+          />
         </t-form-item>
         <t-form-item label="备注" name="remark">
-          <t-textarea v-model="rechargeForm.remark" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="选填，记录本次充值说明" />
+          <t-textarea
+            v-model="rechargeForm.remark"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+            placeholder="选填，记录本次充值说明"
+          />
         </t-form-item>
         <p class="form-hint">
           确认后立即到账：生成充值单（财务「充值管理」可查、用户端「我的充值单」可见），
-          写入资金流水，并为本次充值单独开一张充值账单（每次充值一张，不并入当期消费账单）。
-          此操作不可撤销。
+          写入资金流水，并为本次充值单独开一张充值账单（每次充值一张，不并入当期消费账单）。 此操作不可撤销。
         </p>
       </t-form>
     </t-dialog>
@@ -608,7 +671,11 @@
         </template>
 
         <t-form label-align="top" :data="deleteForm" class="delete-form" @submit.prevent>
-          <t-form-item label="注销原因（必填，写入留痕）" name="reason" :rules="[{ required: true, message: '请填写注销原因' }]">
+          <t-form-item
+            label="注销原因（必填，写入留痕）"
+            name="reason"
+            :rules="[{ required: true, message: '请填写注销原因' }]"
+          >
             <t-textarea
               v-model="deleteForm.reason"
               :autosize="{ minRows: 2, maxRows: 4 }"
@@ -637,7 +704,12 @@
       <t-checkbox v-model="batchForce" class="batch-force">强制注销（忽略余额/账单/工单/订单警告）</t-checkbox>
       <t-form label-align="top" :data="deleteForm" @submit.prevent>
         <t-form-item label="注销原因（必填）" name="reason" :rules="[{ required: true, message: '请填写注销原因' }]">
-          <t-textarea v-model="deleteForm.reason" :autosize="{ minRows: 2, maxRows: 4 }" maxlength="255" placeholder="批量注销的统一原因" />
+          <t-textarea
+            v-model="deleteForm.reason"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+            maxlength="255"
+            placeholder="批量注销的统一原因"
+          />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -651,14 +723,19 @@
       @close="purgeVisible = false"
     >
       <t-alert theme="error" class="purge-alert">
-        本操作会<b>彻底删除</b>留存期已过的已注销用户及其全部个人数据，<b>不可恢复</b>。
-        默认先预览，确认无误后再执行。
+        本操作会<b>彻底删除</b>留存期已过的已注销用户及其全部个人数据，<b>不可恢复</b>。 默认先预览，确认无误后再执行。
       </t-alert>
 
       <div v-if="purgeResult" class="purge-meta">
-        <span>留存期：<b>{{ purgeResult.retention_days }}</b> 天</span>
+        <span
+          >留存期：<b>{{ purgeResult.retention_days }}</b> 天</span
+        >
         <span>截止时刻：{{ formatDateTime(purgeResult.cutoff) }}</span>
-        <span>候选：<b>{{ purgeResult.candidates.length }}</b> 个{{ purgeResult.has_more ? '（本轮取满上限，仍有积压）' : '' }}</span>
+        <span
+          >候选：<b>{{ purgeResult.candidates.length }}</b> 个{{
+            purgeResult.has_more ? '（本轮取满上限，仍有积压）' : ''
+          }}</span
+        >
       </div>
 
       <t-table
@@ -707,7 +784,14 @@ import {
   SearchIcon,
   UserIcon,
 } from 'tdesign-icons-vue-next'
-import { DialogPlugin, MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import {
+  DialogPlugin,
+  MessagePlugin,
+  type FormInstanceFunctions,
+  type FormRule,
+  type PageInfo,
+  type PrimaryTableCol,
+} from 'tdesign-vue-next'
 
 import {
   batchDeleteUsers,
@@ -1102,7 +1186,8 @@ function syncFiltersFromRoute() {
   filters.user_group_id = query.user_group_id ? Number(query.user_group_id) : undefined
   filters.agent_level_id = query.agent_level_id ? Number(query.agent_level_id) : undefined
   filters.is_agent = query.is_agent === 'true' || query.is_agent === 'false' ? query.is_agent : ''
-  filters.is_sub_account = query.is_sub_account === 'true' || query.is_sub_account === 'false' ? query.is_sub_account : ''
+  filters.is_sub_account =
+    query.is_sub_account === 'true' || query.is_sub_account === 'false' ? query.is_sub_account : ''
   filters.sales_admin_id = query.sales_admin_id ? Number(query.sales_admin_id) : undefined
   filters.unassigned_sales = query.unassigned_sales === 'true' ? 'true' : ''
   filters.include_deleted = query.include_deleted === 'true'
@@ -1379,15 +1464,20 @@ function resolveRoles(row: UserInfo) {
 
 // 角色标签按语义区分颜色：超管红、管理类橙、普通绿、其它灰
 function roleTagTheme(role: string): 'danger' | 'warning' | 'primary' | 'default' {
-  const code = String(role || '').trim().toLowerCase()
+  const code = String(role || '')
+    .trim()
+    .toLowerCase()
   if (code.includes('super') || code.includes('超管')) return 'danger'
-  if (code.includes('admin') || code.includes('管理员') || code.includes('运营') || code.includes(' ops')) return 'warning'
+  if (code.includes('admin') || code.includes('管理员') || code.includes('运营') || code.includes(' ops'))
+    return 'warning'
   if (code === 'unassigned' || !code) return 'default'
   return 'primary'
 }
 
 function formatRoleLabel(role: string) {
-  const normalizedRole = String(role || '').trim().toLowerCase()
+  const normalizedRole = String(role || '')
+    .trim()
+    .toLowerCase()
   if (!normalizedRole) return '未分配'
   // 接口返回的角色中文名是权威来源；静态表只兜底未加载 / 角色已删除的情况。
   const fromApi = roleOptions.value.find((item) => item.code?.toLowerCase() === normalizedRole)
@@ -1449,7 +1539,6 @@ async function copyText(value: string, label: string) {
   }
 }
 
-
 function goUserDetail(row: UserInfo) {
   router.push({
     path: '/users/accounts/detail',
@@ -1479,10 +1568,7 @@ function handleAddOrder(row: UserInfo) {
 
 function buildMobileActionOptions(row: UserInfo) {
   if (isRecycleView.value) {
-    return [
-      { content: '详情', value: 'detail' },
-      ...(canRestore.value ? [{ content: '恢复', value: 'restore' }] : []),
-    ]
+    return [{ content: '详情', value: 'detail' }, ...(canRestore.value ? [{ content: '恢复', value: 'restore' }] : [])]
   }
   return [
     { content: '详情', value: 'detail' },
@@ -1494,9 +1580,14 @@ function buildMobileActionOptions(row: UserInfo) {
   ]
 }
 
-
-function handleMobileActionClick(data: string | number | Record<string, any> | { value?: string | number }, row: UserInfo) {
-  const value = typeof data === 'string' || typeof data === 'number' ? String(data) : String((data as { value?: string | number })?.value ?? '')
+function handleMobileActionClick(
+  data: string | number | Record<string, unknown> | { value?: string | number },
+  row: UserInfo,
+) {
+  const value =
+    typeof data === 'string' || typeof data === 'number'
+      ? String(data)
+      : String((data as { value?: string | number })?.value ?? '')
   if (value === 'detail') {
     goUserDetail(row)
     return
@@ -1547,7 +1638,9 @@ function resolveTableScrollContainer() {
   const root = tableDragRef.value
   if (!root) return null
 
-  const candidates = root.querySelectorAll<HTMLElement>('.t-table__content, .t-table__body, .t-table, .t-table__inner, .t-table__header')
+  const candidates = root.querySelectorAll<HTMLElement>(
+    '.t-table__content, .t-table__body, .t-table, .t-table__inner, .t-table__header',
+  )
   for (const candidate of candidates) {
     if (candidate.scrollWidth > candidate.clientWidth) {
       return candidate
@@ -1836,7 +1929,7 @@ async function handleRechargeConfirm() {
 
 async function handleCreateUser() {
   const validate = await formRef.value?.validate?.()
-  if (validate !== true) return  submitting.value = true
+  if (validate !== true) return (submitting.value = true)
   try {
     await createUser({
       id: formData.id ? Number(formData.id) : undefined,
@@ -2246,7 +2339,9 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   color: #94a3b8;
-  transition: color 0.2s ease, opacity 0.2s ease;
+  transition:
+    color 0.2s ease,
+    opacity 0.2s ease;
 }
 
 .oauth-provider-icon--inactive {
@@ -2377,7 +2472,12 @@ onBeforeUnmount(() => {
   opacity: 0;
   transform: translateX(-2px);
   pointer-events: none;
-  transition: opacity var(--hs-duration-fast), transform var(--hs-duration-fast), background-color var(--hs-duration-fast), border-color var(--hs-duration-fast), color var(--hs-duration-fast);
+  transition:
+    opacity var(--hs-duration-fast),
+    transform var(--hs-duration-fast),
+    background-color var(--hs-duration-fast),
+    border-color var(--hs-duration-fast),
+    color var(--hs-duration-fast);
 }
 
 .copy-row:hover :deep(.copy-tag),
@@ -2440,9 +2540,8 @@ onBeforeUnmount(() => {
 :deep(.unified-control .t-input:focus-within),
 :deep(.unified-control .t-select__wrap:focus-within) {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.10);
+  box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.1);
 }
-
 
 :deep(.user-table .t-table) {
   min-width: 1450px;
@@ -2457,7 +2556,9 @@ onBeforeUnmount(() => {
   background-image: linear-gradient(rgba(var(--color-primary-rgb), 0.03), rgba(var(--color-primary-rgb), 0.03));
   font-weight: 600;
   border-bottom-color: var(--td-brand-color-2);
-  transition: background-color var(--hs-duration-fast), color var(--hs-duration-fast);
+  transition:
+    background-color var(--hs-duration-fast),
+    color var(--hs-duration-fast);
 }
 
 :deep(.user-table .t-table__header th:hover) {

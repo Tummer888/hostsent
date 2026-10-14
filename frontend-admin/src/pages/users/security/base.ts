@@ -2,7 +2,7 @@ import { computed, reactive, ref } from 'vue'
 
 import type { PageInfo, PrimaryTableCol, TableRowData } from 'tdesign-vue-next'
 
-export interface SecurityPageConfig<TQuery extends Record<string, any>, TItem extends TableRowData> {
+export interface SecurityPageConfig<TQuery extends Record<string, unknown>, TItem extends TableRowData> {
   title: string
   tableTitle: string
   emptyText: string
@@ -11,7 +11,9 @@ export interface SecurityPageConfig<TQuery extends Record<string, any>, TItem ex
   fetcher: (query: TQuery) => Promise<{ items: TItem[]; meta: { page: number; page_size: number; total: number } }>
 }
 
-export function useSecurityListPage<TQuery extends { page?: number; page_size?: number }, TItem extends TableRowData>(config: SecurityPageConfig<TQuery, TItem>) {
+export function useSecurityListPage<TQuery extends { page?: number; page_size?: number }, TItem extends TableRowData>(
+  config: SecurityPageConfig<TQuery, TItem>,
+) {
   const loading = ref(false)
   const errorMessage = ref('')
   const items = ref<TItem[]>([])

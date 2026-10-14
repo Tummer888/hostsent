@@ -27,13 +27,7 @@
       </div>
       <div class="field">
         <span class="field__label">销售</span>
-        <t-select
-          v-model="filters.admin_id"
-          clearable
-          filterable
-          placeholder="全部销售"
-          :options="salesOptions"
-        />
+        <t-select v-model="filters.admin_id" clearable filterable placeholder="全部销售" :options="salesOptions" />
       </div>
       <div class="field">
         <span class="field__label">所属部门</span>
@@ -93,7 +87,9 @@
         <template #account="{ row }">
           <div class="price-cell">
             <span class="cell-strong">{{ row.account || '—' }}</span>
-            <span class="price-sub">{{ channelLabel(row.channel) }}{{ row.bank_name ? ` · ${row.bank_name}` : '' }}</span>
+            <span class="price-sub"
+              >{{ channelLabel(row.channel) }}{{ row.bank_name ? ` · ${row.bank_name}` : '' }}</span
+            >
           </div>
         </template>
 
@@ -119,11 +115,13 @@
           <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '通过', value: 'approve', hidden: () => !(row.status === 'pending' && canAudit) },
-                { content: '驳回', value: 'reject', hidden: () => !(row.status === 'pending' && canAudit) },
-                { content: '登记打款', value: 'pay', hidden: () => !(isSettleable(row.status) && canSettle) },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '通过', value: 'approve', hidden: () => !(row.status === 'pending' && canAudit) },
+                  { content: '驳回', value: 'reject', hidden: () => !(row.status === 'pending' && canAudit) },
+                  { content: '登记打款', value: 'pay', hidden: () => !(isSettleable(row.status) && canSettle) },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
@@ -176,7 +174,10 @@
       v-model:visible="auditVisible"
       :header="auditForm.action === 'approve' ? '通过提成提现' : '驳回提成提现'"
       width="480px"
-      :confirm-btn="{ content: auditForm.action === 'approve' ? '确认通过' : '确认驳回', theme: auditForm.action === 'approve' ? 'success' : 'danger' }"
+      :confirm-btn="{
+        content: auditForm.action === 'approve' ? '确认通过' : '确认驳回',
+        theme: auditForm.action === 'approve' ? 'success' : 'danger',
+      }"
       :cancel-btn="{ content: '取消' }"
       @confirm="handleAudit"
       @close="auditVisible = false"
@@ -290,7 +291,13 @@ const columns: PrimaryTableCol<SalesWithdrawalInfo>[] = [
   { colKey: 'audit_by_name', title: '审核人', width: 100 },
   { colKey: 'payout_no', title: '打款单号', minWidth: 170 },
   { colKey: 'created_at', title: '申请时间', width: 170 },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 150, fixed: 'right' as const, align: 'center' as const },
+  {
+    colKey: 'action',
+    title: '操作',
+    width: isMobile.value ? 70 : 150,
+    fixed: 'right' as const,
+    align: 'center' as const,
+  },
 ]
 
 function channelLabel(channel: string): string {
@@ -520,8 +527,11 @@ async function handlePayConfirm() {
   }
 }
 
-function handleMobileAction(value: string | number | Record<string, any>, row: SalesWithdrawalInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: SalesWithdrawalInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'approve':
       openAuditDialog(row, 'approve')

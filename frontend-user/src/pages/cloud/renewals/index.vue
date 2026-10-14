@@ -7,7 +7,8 @@
         <div class="hero-info">
           <span class="hero-label">续费管理</span>
           <span class="hero-desc">
-            管理实例续费与自动续费；到期前 {{ policy.remind_days || '7,3,1' }} 天提醒，宽限期 {{ policy.grace_days }} 天内可恢复。
+            管理实例续费与自动续费；到期前 {{ policy.remind_days || '7,3,1' }} 天提醒，宽限期
+            {{ policy.grace_days }} 天内可恢复。
           </span>
         </div>
       </div>
@@ -64,7 +65,14 @@
             <div class="instance-card__actions">
               <div class="renew-amount">
                 <div class="renew-amount__row">
-                  <t-input-number v-model="periodMap[item.id]" :min="1" :max="36" theme="column" size="small" style="width: 110px" />
+                  <t-input-number
+                    v-model="periodMap[item.id]"
+                    :min="1"
+                    :max="36"
+                    theme="column"
+                    size="small"
+                    style="width: 110px"
+                  />
                   <span class="renew-amount__unit">个周期</span>
                   <!-- 常用档位一键选：1 个周期要按 8 次加号才能调到年付 -->
                   <t-button
@@ -81,9 +89,13 @@
                 <!-- 实时合计：只填期数看不到总价，用户要到确认弹窗才知道扣多少 -->
                 <div class="renew-amount__total">
                   应付 <b>¥{{ formatAmount(renewTotal(item)) }}</b>
-                  <span class="renew-amount__sub">（单价 ¥{{ formatAmount(item.unit_price) }} × {{ periodMap[item.id] || 1 }}）</span>
+                  <span class="renew-amount__sub"
+                    >（单价 ¥{{ formatAmount(item.unit_price) }} × {{ periodMap[item.id] || 1 }}）</span
+                  >
                   <!-- 余额不足提前告知：等点了"立即续费"再报错，用户白填一遍 -->
-                  <span v-if="renewTotal(item) > balance" class="renew-amount__warn">余额不足，差额 ¥{{ formatAmount(renewTotal(item) - balance) }}</span>
+                  <span v-if="renewTotal(item) > balance" class="renew-amount__warn"
+                    >余额不足，差额 ¥{{ formatAmount(renewTotal(item) - balance) }}</span
+                  >
                 </div>
               </div>
               <t-button theme="primary" size="small" :loading="renewingId === item.id" @click="handleRenew(item)">
@@ -106,7 +118,15 @@
     <section class="records-section">
       <div class="section-head">
         <span class="section-title">续费记录</span>
-        <t-select v-model="recordStatus" clearable size="small" style="width: 140px" placeholder="全部状态" :options="statusOptions" @change="loadRecords" />
+        <t-select
+          v-model="recordStatus"
+          clearable
+          size="small"
+          style="width: 140px"
+          placeholder="全部状态"
+          :options="statusOptions"
+          @change="loadRecords"
+        />
       </div>
       <t-loading :loading="recordsLoading" show-overlay>
         <t-table
@@ -131,7 +151,9 @@
             <t-tag variant="light" size="small" shape="round">{{ sourceLabel(row.source) }}</t-tag>
           </template>
           <template #status="{ row }">
-            <t-tag :theme="statusTheme(row.status)" variant="light" size="small" shape="round">{{ statusLabel(row.status) }}</t-tag>
+            <t-tag :theme="statusTheme(row.status)" variant="light" size="small" shape="round">{{
+              statusLabel(row.status)
+            }}</t-tag>
           </template>
           <template #expire_change="{ row }">
             <span class="time-text">{{ formatTime(row.expire_before) }} → {{ formatTime(row.expire_after) }}</span>
@@ -150,18 +172,27 @@
     <t-drawer v-model:visible="detailVisible" header="续费详情" size="400px" :footer="false">
       <t-loading :loading="detailLoading" show-overlay>
         <div v-if="detail" class="detail-list">
-          <div class="detail-row"><span>续费单号</span><b>{{ detail.renewal_no }}</b></div>
-          <div class="detail-row"><span>状态</span>
-            <t-tag :theme="statusTheme(detail.status)" variant="light" size="small">{{ statusLabel(detail.status) }}</t-tag>
+          <div class="detail-row">
+            <span>续费单号</span><b>{{ detail.renewal_no }}</b>
+          </div>
+          <div class="detail-row">
+            <span>状态</span>
+            <t-tag :theme="statusTheme(detail.status)" variant="light" size="small">{{
+              statusLabel(detail.status)
+            }}</t-tag>
           </div>
           <div class="detail-row"><span>实例</span>{{ detail.instance_mark }}（{{ detail.product_name }}）</div>
-          <div class="detail-row"><span>金额</span>¥{{ formatAmount(detail.amount) }} × {{ detail.period_count }} 周期</div>
+          <div class="detail-row">
+            <span>金额</span>¥{{ formatAmount(detail.amount) }} × {{ detail.period_count }} 周期
+          </div>
           <div class="detail-row"><span>关联订单</span>{{ detail.order_no || '—' }}</div>
           <div class="detail-row"><span>支付时间</span>{{ formatTime(detail.pay_time) }}</div>
           <div class="detail-row"><span>续费前到期</span>{{ formatTime(detail.expire_before) }}</div>
           <div class="detail-row"><span>续费后到期</span>{{ formatTime(detail.expire_after) }}</div>
           <div class="detail-row"><span>创建时间</span>{{ formatTime(detail.created_at) }}</div>
-          <div v-if="detail.fail_reason" class="detail-row"><span>失败原因</span><span class="fail-text">{{ detail.fail_reason }}</span></div>
+          <div v-if="detail.fail_reason" class="detail-row">
+            <span>失败原因</span><span class="fail-text">{{ detail.fail_reason }}</span>
+          </div>
         </div>
       </t-loading>
     </t-drawer>
@@ -323,8 +354,8 @@ function handleRenew(item: UserInstanceRenewalItem) {
   // 余额不足时先说清楚差额：后端会以"余额不足"整单失败，用户需要知道差多少才好充值。
   const insufficient = total > balance.value
   const body = insufficient
-    ? `确认为实例 ${item.instance_mark} 续费 ${periods} 个周期？应付 ¥${formatAmount(total)}，当前余额 ¥${formatAmount(balance.value)}，`
-      + `还差 ¥${formatAmount(total - balance.value)}。余额不足会导致续费失败，请先充值或减少续费周期。`
+    ? `确认为实例 ${item.instance_mark} 续费 ${periods} 个周期？应付 ¥${formatAmount(total)}，当前余额 ¥${formatAmount(balance.value)}，` +
+      `还差 ¥${formatAmount(total - balance.value)}。余额不足会导致续费失败，请先充值或减少续费周期。`
     : `确认为实例 ${item.instance_mark} 续费 ${periods} 个周期？将立即从账户余额扣除 ¥${formatAmount(total)}（续费后余额 ¥${formatAmount(balance.value - total)}）。`
   const dialog = DialogPlugin.confirm({
     header: '确认续费',
@@ -542,7 +573,9 @@ onMounted(loadAll)
   border-radius: 12px;
   border: 1px solid #eef1f6;
   background: #fbfcfe;
-  transition: box-shadow 0.2s, border-color 0.2s;
+  transition:
+    box-shadow 0.2s,
+    border-color 0.2s;
 }
 .instance-card:hover {
   border-color: #c7d2fe;

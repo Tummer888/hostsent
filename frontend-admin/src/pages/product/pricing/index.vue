@@ -95,30 +95,22 @@
         </template>
 
         <template #action="{ row }">
-<div class="action-cell">
+          <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '改价', value: 'price', theme: 'default' },
-                { content: '上架', value: 'publish', hidden: () => row.status === 1, theme: 'success' },
-                { content: '下架', value: 'unpublish', hidden: () => row.status !== 1, theme: 'warning' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '改价', value: 'price', theme: 'default' },
+                  { content: '上架', value: 'publish', hidden: () => row.status === 1, theme: 'success' },
+                  { content: '下架', value: 'unpublish', hidden: () => row.status !== 1, theme: 'warning' },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
               <t-link theme="primary" hover="color" @click="openPriceDialog(row)">改价</t-link>
-              <t-link
-                v-if="row.status !== 1"
-                theme="primary"
-                hover="color"
-                @click="handlePublish(row)"
-              >上架</t-link>
-              <t-link
-                v-else
-                theme="warning"
-                hover="color"
-                @click="handleUnpublish(row)"
-              >下架</t-link>
+              <t-link v-if="row.status !== 1" theme="primary" hover="color" @click="handlePublish(row)">上架</t-link>
+              <t-link v-else theme="warning" hover="color" @click="handleUnpublish(row)">下架</t-link>
             </template>
           </div>
         </template>
@@ -152,10 +144,20 @@
           <t-input-number v-model="priceForm.price" :min="0" :precision="2" theme="column" placeholder="请输入销售价" />
         </t-form-item>
         <t-form-item label="成本价（元）" name="cost_price">
-          <t-input-number v-model="priceForm.cost_price" :min="0" :precision="2" theme="column" placeholder="请输入成本价" />
+          <t-input-number
+            v-model="priceForm.cost_price"
+            :min="0"
+            :precision="2"
+            theme="column"
+            placeholder="请输入成本价"
+          />
         </t-form-item>
         <t-form-item label="备注" name="remark">
-          <t-textarea v-model="priceForm.remark" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="选填，记录本次调价说明" />
+          <t-textarea
+            v-model="priceForm.remark"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+            placeholder="选填，记录本次调价说明"
+          />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -304,8 +306,11 @@ onMounted(() => {
 })
 
 // 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: SaleProductInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: SaleProductInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'price':
       openPriceDialog(row)

@@ -291,10 +291,7 @@ export const BLACKLIST_STATUS_LABEL: Record<string, string> = {
  * 且纯日期作为上界会自动补到当天 23:59:59（见 security_repo.parseFilterTime），
  * 因此这里原样透传即可；清空时同步清掉两个边界。
  */
-export function applyDateRange(
-  target: { start_time?: string; end_time?: string },
-  value: unknown,
-): void {
+export function applyDateRange(target: { start_time?: string; end_time?: string }, value: unknown): void {
   const range = Array.isArray(value) ? (value as string[]) : undefined
   if (!range || range.length !== 2 || !range[0] || !range[1]) {
     target.start_time = undefined

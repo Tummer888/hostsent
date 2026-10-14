@@ -1,4 +1,4 @@
-import axios, { type AxiosInstance, type AxiosRequestConfig, type InternalAxiosRequestConfig } from 'axios'
+import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axios'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useUserStore } from '@/store'
 import { getDeviceFingerprint } from '@/utils/device-fingerprint'
@@ -22,7 +22,7 @@ request.interceptors.request.use(
     }
     return config
   },
-  (error) => Promise.reject(error)
+  (error) => Promise.reject(error),
 )
 
 request.interceptors.response.use(
@@ -30,13 +30,13 @@ request.interceptors.response.use(
     if (response.config.responseType === 'blob') {
       return response
     }
-    
-    const { code, data, message } = response.data
-    
+
+    const { code, message } = response.data
+
     if (code === 0 || code === 200) {
       return response.data
     }
-    
+
     if (code === 401) {
       const userStore = useUserStore()
       userStore.logout()
@@ -44,14 +44,14 @@ request.interceptors.response.use(
       window.location.href = '/login'
       return Promise.reject(new Error(message || '未授权'))
     }
-    
+
     MessagePlugin.error(message || '请求失败')
     return Promise.reject(new Error(message || '请求失败'))
   },
   (error) => {
     if (error.response) {
       const { status, data } = error.response
-      
+
       if (status === 401) {
         const userStore = useUserStore()
         userStore.logout()
@@ -65,7 +65,7 @@ request.interceptors.response.use(
       MessagePlugin.error('网络连接异常，请检查网络')
     }
     return Promise.reject(error)
-  }
+  },
 )
 
 export default request

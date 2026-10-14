@@ -78,7 +78,9 @@
         <template #title="{ row }">
           <div class="price-cell">
             <span class="cell-strong">{{ row.title }}</span>
-            <span class="price-sub">{{ invoiceTypeLabel(row.invoice_type) }}{{ row.tax_no ? ` · ${row.tax_no}` : '' }}</span>
+            <span class="price-sub"
+              >{{ invoiceTypeLabel(row.invoice_type) }}{{ row.tax_no ? ` · ${row.tax_no}` : '' }}</span
+            >
           </div>
         </template>
 
@@ -109,10 +111,12 @@
             <template v-if="row.status === 'pending'">
               <MobileAction
                 v-if="isMobile"
-                :options="buildMobileActionOptions([
-                  { content: '开票', value: 'issue', theme: 'success' },
-                  { content: '驳回', value: 'reject', theme: 'error' },
-                ])"
+                :options="
+                  buildMobileActionOptions([
+                    { content: '开票', value: 'issue', theme: 'success' },
+                    { content: '驳回', value: 'reject', theme: 'error' },
+                  ])
+                "
                 @select="(value) => handleMobileAction(value, row)"
               />
               <template v-else>
@@ -177,7 +181,11 @@
     >
       <t-form label-align="top" :data="rejectForm" @submit.prevent>
         <t-form-item label="驳回原因">
-          <t-textarea v-model="rejectForm.reason" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="如：抬头与账单主体不一致" />
+          <t-textarea
+            v-model="rejectForm.reason"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+            placeholder="如：抬头与账单主体不一致"
+          />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -229,7 +237,14 @@ const pagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: tr
 const mobilePage = reactive({ current: 1, pageSize: 10, total: 0 })
 
 const issueVisible = ref(false)
-const issueForm = reactive<{ id: number; label: string; amount: number; invoice_no: string; file_url: string; channel: string }>({
+const issueForm = reactive<{
+  id: number
+  label: string
+  amount: number
+  invoice_no: string
+  file_url: string
+  channel: string
+}>({
   id: 0,
   label: '',
   amount: 0,
@@ -249,7 +264,13 @@ const columns: PrimaryTableCol<InvoiceInfo>[] = [
   { colKey: 'email', title: '接收邮箱', minWidth: 160 },
   { colKey: 'status', title: '状态', width: 150 },
   { colKey: 'created_at', title: '申请时间', width: 170 },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 130, fixed: 'right' as const, align: 'center' as const },
+  {
+    colKey: 'action',
+    title: '操作',
+    width: isMobile.value ? 70 : 130,
+    fixed: 'right' as const,
+    align: 'center' as const,
+  },
 ]
 
 async function loadInvoices() {
@@ -366,7 +387,7 @@ async function handleReject() {
   }
 }
 
-function handleMobileAction(value: string | number | Record<string, any>, row: InvoiceInfo) {
+function handleMobileAction(value: string | number | Record<string, unknown>, row: InvoiceInfo) {
   const action =
     typeof value === 'string' || typeof value === 'number'
       ? String(value)

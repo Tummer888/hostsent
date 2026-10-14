@@ -61,7 +61,12 @@
           <template #operation="{ row }">
             <t-space size="small">
               <t-link theme="primary" hover="color" @click="goDetail(row.id)">详情</t-link>
-              <t-popconfirm v-if="row.status === 'open'" content="确定取消该工单吗？" theme="danger" @confirm="handleCancel(row)">
+              <t-popconfirm
+                v-if="row.status === 'open'"
+                content="确定取消该工单吗？"
+                theme="danger"
+                @confirm="handleCancel(row)"
+              >
                 <t-link theme="danger" hover="color">取消</t-link>
               </t-popconfirm>
             </t-space>
@@ -84,7 +89,13 @@ import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-
 import { TTable } from '@/plugins/tdesign-heavy'
 
 import { cancelMyTicket, getMyTickets, type TicketInfo } from '@/api/support'
-import { formatTime, ticketPriorityLabel, ticketPriorityTheme, ticketStatusLabel, ticketStatusTheme } from '@/pages/support/constants'
+import {
+  formatTime,
+  ticketPriorityLabel,
+  ticketPriorityTheme,
+  ticketStatusLabel,
+  ticketStatusTheme,
+} from '@/pages/support/constants'
 
 defineOptions({ name: 'TicketList' })
 

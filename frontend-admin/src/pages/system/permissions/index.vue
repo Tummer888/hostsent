@@ -79,10 +79,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
-import { FolderIcon, LockOnIcon, SaveIcon, ViewModuleIcon, GestureClickIcon } from 'tdesign-icons-vue-next';
-import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
-import { useRoute } from 'vue-router';
+import { computed, onMounted, ref } from 'vue'
+import { FolderIcon, LockOnIcon, SaveIcon, ViewModuleIcon, GestureClickIcon } from 'tdesign-icons-vue-next'
+import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
+import { useRoute } from 'vue-router'
 import {
   assignRolePermissions,
   getPermissionTree,
@@ -90,63 +90,63 @@ import {
   getRolePermissionIds,
   type PermissionNode,
   type RoleInfo,
-} from '@/api/user';
+} from '@/api/user'
 
 /**
  * 权限分配页面
  * 管理角色与权限树的绑定关系
  */
-defineOptions({ name: 'SystemPermissions' });
+defineOptions({ name: 'SystemPermissions' })
 
-const route = useRoute();
-const roles = ref<RoleInfo[]>([]);
-const treeData = ref<PermissionNode[]>([]);
-const checkedKeys = ref<Array<string | number>>([]);
-const expandedKeys = ref<Array<string | number>>([]);
-const selectedRoleId = ref<number>(Number(route.query.role_id) || 0);
+const route = useRoute()
+const roles = ref<RoleInfo[]>([])
+const treeData = ref<PermissionNode[]>([])
+const checkedKeys = ref<Array<string | number>>([])
+const expandedKeys = ref<Array<string | number>>([])
+const selectedRoleId = ref<number>(Number(route.query.role_id) || 0)
 
-const loading = ref(false);
-const saving = ref(false);
+const loading = ref(false)
+const saving = ref(false)
 
 function normalizePermissionType(type?: string) {
-  return (type || '').toLowerCase();
+  return (type || '').toLowerCase()
 }
 
 function isDirectoryNode(type?: string) {
-  return ['directory', 'catalog'].includes(normalizePermissionType(type));
+  return ['directory', 'catalog'].includes(normalizePermissionType(type))
 }
 
 function isMenuNode(type?: string) {
-  return normalizePermissionType(type) === 'menu';
+  return normalizePermissionType(type) === 'menu'
 }
 
 // 当前选中的角色对象
-const selectedRole = computed(() => roles.value.find((role) => role.id === selectedRoleId.value));
+const selectedRole = computed(() => roles.value.find((role) => role.id === selectedRoleId.value))
 
 /**
  * 初始化加载数据
  */
 async function load() {
-  loading.value = true;
+  loading.value = true
   try {
     // 权限树只属于后台员工角色（roles.scope=admin）：客户角色没有后台权限码，
     // 混进这个选择器会让人以为客户角色也能分配后台菜单权限。
-    const [rolesList, permissionTree] = await Promise.all([getRoleList('admin'), getPermissionTree()]);
-    roles.value = rolesList;
-    treeData.value = permissionTree;
+    const [rolesList, permissionTree] = await Promise.all([getRoleList('admin'), getPermissionTree()])
+    roles.value = rolesList
+    treeData.value = permissionTree
 
     // 如果 URL 没带 role_id，默认选中第一个
     if (!selectedRoleId.value && roles.value[0]) {
-      selectedRoleId.value = roles.value[0].id;
+      selectedRoleId.value = roles.value[0].id
     }
 
     if (selectedRoleId.value) {
-      await loadRolePermissions();
+      await loadRolePermissions()
     }
   } catch (error) {
-    MessagePlugin.error((error as Error).message || '加载权限数据失败');
+    MessagePlugin.error((error as Error).message || '加载权限数据失败')
   } finally {
-    loading.value = false;
+    loading.value = false
   }
 }
 
@@ -154,8 +154,8 @@ async function load() {
  * 切换角色
  */
 async function selectRole(id: number) {
-  selectedRoleId.value = id;
-  await loadRolePermissions();
+  selectedRoleId.value = id
+  await loadRolePermissions()
 }
 
 /**
@@ -163,10 +163,10 @@ async function selectRole(id: number) {
  */
 async function loadRolePermissions() {
   try {
-    const ids = await getRolePermissionIds(selectedRoleId.value);
-    checkedKeys.value = ids;
+    const ids = await getRolePermissionIds(selectedRoleId.value)
+    checkedKeys.value = ids
   } catch (error) {
-    MessagePlugin.error((error as Error).message || '加载角色权限失败');
+    MessagePlugin.error((error as Error).message || '加载角色权限失败')
   }
 }
 
@@ -174,55 +174,55 @@ async function loadRolePermissions() {
  * 获取所有权限 ID（用于全部展开）
  */
 function getAllNodeIds(nodes: PermissionNode[]): Array<string | number> {
-  const ids: Array<string | number> = [];
+  const ids: Array<string | number> = []
   nodes.forEach((node) => {
-    ids.push(node.id);
+    ids.push(node.id)
     if (node.children && node.children.length > 0) {
-      ids.push(...getAllNodeIds(node.children));
+      ids.push(...getAllNodeIds(node.children))
     }
-  });
-  return ids;
+  })
+  return ids
 }
 
 function expandAll() {
-  expandedKeys.value = getAllNodeIds(treeData.value);
+  expandedKeys.value = getAllNodeIds(treeData.value)
 }
 
 function collapseAll() {
-  expandedKeys.value = [];
+  expandedKeys.value = []
 }
 
 function clearSelection() {
-  checkedKeys.value = [];
+  checkedKeys.value = []
 }
 
 /**
  * 保存权限配置
  */
 function save() {
-  if (!selectedRoleId.value) return;
+  if (!selectedRoleId.value) return
 
   const dialog = DialogPlugin.confirm({
     header: '确认保存权限',
     body: `确认要为角色【${selectedRole.value?.name}】更新权限配置吗？此操作将覆盖原有的权限设置。`,
     onConfirm: async () => {
-      saving.value = true;
+      saving.value = true
       try {
         await assignRolePermissions(selectedRoleId.value, {
           permission_ids: checkedKeys.value.map(Number),
-        });
-        MessagePlugin.success('权限分配成功');
-        dialog.hide();
+        })
+        MessagePlugin.success('权限分配成功')
+        dialog.hide()
       } catch (error) {
-        MessagePlugin.error((error as Error).message || '保存权限失败');
+        MessagePlugin.error((error as Error).message || '保存权限失败')
       } finally {
-        saving.value = false;
+        saving.value = false
       }
     },
-  });
+  })
 }
 
-onMounted(load);
+onMounted(load)
 </script>
 
 <style scoped>
@@ -267,7 +267,9 @@ onMounted(load);
 
 .role-item {
   cursor: pointer;
-  transition: background-color 0.16s ease, color 0.16s ease;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease;
 }
 
 .role-item:hover {

@@ -14,18 +14,14 @@
       </div>
       <div class="page-header__actions">
         <t-button variant="outline" @click="router.push('/shop')">继续选购</t-button>
-        <t-button v-if="!cartStore.isEmpty" variant="outline" theme="danger" @click="confirmClear">
-          清空
-        </t-button>
+        <t-button v-if="!cartStore.isEmpty" variant="outline" theme="danger" @click="confirmClear"> 清空 </t-button>
       </div>
     </header>
 
     <section v-if="!cartStore.isEmpty" class="table-card surface-card">
       <div class="table-card__head">
         <h3 class="card-title">商品清单</h3>
-        <span class="table-card__meta">
-          结算时金额以实时算价为准，预估金额仅供参考
-        </span>
+        <span class="table-card__meta"> 结算时金额以实时算价为准，预估金额仅供参考 </span>
       </div>
 
       <ul class="cart-list">
@@ -64,9 +60,7 @@
             />
           </div>
 
-          <div class="cart-item__amount">
-            ¥{{ (it.unitPrice * it.quantity).toFixed(2) }}
-          </div>
+          <div class="cart-item__amount">¥{{ (it.unitPrice * it.quantity).toFixed(2) }}</div>
 
           <div class="cart-item__actions">
             <!-- 改配置 = 回该商品的配置选购页重选（规格/周期/选配项都在那一页维护）。
@@ -75,9 +69,7 @@
               <t-button variant="text" size="small" @click="editItem(it)">改配置</t-button>
             </t-tooltip>
             <t-tooltip content="移出购物车">
-              <t-button variant="text" theme="danger" size="small" @click="cartStore.remove(it.key)">
-                删除
-              </t-button>
+              <t-button variant="text" theme="danger" size="small" @click="cartStore.remove(it.key)"> 删除 </t-button>
             </t-tooltip>
           </div>
         </li>
@@ -98,9 +90,7 @@
         <div class="settle-bar__sum">
           <span class="settle-bar__label">结算金额</span>
           <span class="settle-bar__value">¥{{ settleTotal.toFixed(2) }}</span>
-          <span v-if="settleDiscount > 0" class="settle-bar__hint">
-            已优惠 ¥{{ settleDiscount.toFixed(2) }}
-          </span>
+          <span v-if="settleDiscount > 0" class="settle-bar__hint"> 已优惠 ¥{{ settleDiscount.toFixed(2) }} </span>
         </div>
         <t-radio-group v-model="payMode" variant="default-filled" size="small">
           <t-radio-button value="balance">余额支付</t-radio-button>
@@ -114,13 +104,7 @@
           }}
         </span>
       </div>
-      <t-button
-        theme="primary"
-        size="large"
-        :loading="submitting"
-        :disabled="!quotesReady"
-        @click="confirmSettle"
-      >
+      <t-button theme="primary" size="large" :loading="submitting" :disabled="!quotesReady" @click="confirmSettle">
         {{ payMode === 'balance' ? '余额支付并开通' : '提交订单' }}（{{ cartStore.items.length }}）
       </t-button>
     </section>
@@ -175,9 +159,7 @@ const settleDiscount = computed(() =>
   cartStore.items.reduce((sum, it) => sum + (quotes.value[it.key]?.discount_amount ?? 0), 0),
 )
 /** 所有行都有算价结果才允许提交：有行算价失败说明该商品已下架/周期关闭。 */
-const quotesReady = computed(
-  () => cartStore.items.length > 0 && cartStore.items.every((it) => !!quotes.value[it.key]),
-)
+const quotesReady = computed(() => cartStore.items.length > 0 && cartStore.items.every((it) => !!quotes.value[it.key]))
 
 function cycleLabel(c: string): string {
   const map: Record<string, string> = {
@@ -579,13 +561,28 @@ onMounted(refreshQuotes)
     gap: var(--space-sm) var(--space-md);
   }
 
-  .cart-item__thumb { grid-area: thumb; width: 48px; height: 48px; }
-  .cart-item__main { grid-area: main; }
-  .cart-item__price { grid-area: price; }
-  .cart-item__qty { grid-area: qty; justify-self: end; }
-  .cart-item__actions { grid-area: actions; }
+  .cart-item__thumb {
+    grid-area: thumb;
+    width: 48px;
+    height: 48px;
+  }
+  .cart-item__main {
+    grid-area: main;
+  }
+  .cart-item__price {
+    grid-area: price;
+  }
+  .cart-item__qty {
+    grid-area: qty;
+    justify-self: end;
+  }
+  .cart-item__actions {
+    grid-area: actions;
+  }
   /* 单行小计在窄屏冗余（数量 × 单价已可见），隐藏以省空间 */
-  .cart-item__amount { display: none; }
+  .cart-item__amount {
+    display: none;
+  }
 }
 
 @media (max-width: 768px) {

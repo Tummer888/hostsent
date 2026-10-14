@@ -57,9 +57,7 @@
     <section class="table-card surface-card">
       <div class="table-card__head">
         <h3 class="card-title">{{ kindLabel(activeKind) }}列表</h3>
-        <span class="table-card__meta">
-          共 {{ total }} 条 · 门户落点 {{ kindPortalPath(activeKind) || '—' }}
-        </span>
+        <span class="table-card__meta"> 共 {{ total }} 条 · 门户落点 {{ kindPortalPath(activeKind) || '—' }} </span>
       </div>
       <t-table
         row-key="id"
@@ -101,12 +99,14 @@
           <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '编辑', value: 'edit', theme: 'default' },
-                { content: '发布', value: 'publish', hidden: () => row.status === 'published', theme: 'success' },
-                { content: '下线', value: 'offline', hidden: () => row.status !== 'published', theme: 'warning' },
-                { content: '删除', value: 'delete', theme: 'error' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '编辑', value: 'edit', theme: 'default' },
+                  { content: '发布', value: 'publish', hidden: () => row.status === 'published', theme: 'success' },
+                  { content: '下线', value: 'offline', hidden: () => row.status !== 'published', theme: 'warning' },
+                  { content: '删除', value: 'delete', theme: 'error' },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>

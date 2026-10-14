@@ -91,11 +91,13 @@
         <template #operation="{ row }">
           <MobileAction
             v-if="isMobile"
-            :options="buildMobileActionOptions([
-              { content: '新增子部门', value: 'add-child' },
-              { content: '编辑', value: 'edit' },
-              { content: '删除', value: 'delete', theme: 'error' },
-            ])"
+            :options="
+              buildMobileActionOptions([
+                { content: '新增子部门', value: 'add-child' },
+                { content: '编辑', value: 'edit' },
+                { content: '删除', value: 'delete', theme: 'error' },
+              ])
+            "
             @select="(value) => handleMobileAction(value, row)"
           />
           <t-space v-else size="small">
@@ -162,7 +164,12 @@
           <t-input-number v-model="form.sort_order" :min="0" theme="column" style="width: 160px" />
         </t-form-item>
         <t-form-item label="备注" name="remark">
-          <t-textarea v-model="form.remark" placeholder="部门职责说明" :autosize="{ minRows: 2, maxRows: 4 }" :maxlength="255" />
+          <t-textarea
+            v-model="form.remark"
+            placeholder="部门职责说明"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+            :maxlength="255"
+          />
         </t-form-item>
         <t-form-item label="状态" name="status">
           <t-radio-group v-model="form.status">
@@ -268,7 +275,13 @@ const columns = computed<PrimaryTableCol<DepartmentInfo>[]>(() => [
   { colKey: 'category_count', title: '工单分类', width: 90, align: 'center' as const },
   { colKey: 'sort_order', title: '排序', width: 70, align: 'center' as const },
   { colKey: 'status', title: '状态', width: 80 },
-  { colKey: 'operation', title: '操作', width: isMobile.value ? 70 : 220, fixed: 'right' as const, align: 'center' as const },
+  {
+    colKey: 'operation',
+    title: '操作',
+    width: isMobile.value ? 70 : 220,
+    fixed: 'right' as const,
+    align: 'center' as const,
+  },
 ])
 
 async function loadDepartments() {
@@ -386,8 +399,11 @@ onMounted(() => {
   loadAdminOptions()
 })
 
-function handleMobileAction(value: string | number | Record<string, any>, row: DepartmentInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: DepartmentInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'add-child':
       openCreate(row)

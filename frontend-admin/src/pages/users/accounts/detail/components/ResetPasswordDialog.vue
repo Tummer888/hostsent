@@ -41,13 +41,16 @@ const emit = defineEmits<{
 }>()
 
 const visible = ref(props.modelValue)
-watch(() => props.modelValue, (value) => {
-  visible.value = value
-  if (value) {
-    form.password = ''
-    form.confirm = ''
-  }
-})
+watch(
+  () => props.modelValue,
+  (value) => {
+    visible.value = value
+    if (value) {
+      form.password = ''
+      form.confirm = ''
+    }
+  },
+)
 watch(visible, (value) => emit('update:modelValue', value))
 
 const formRef = ref<FormInstanceFunctions>()

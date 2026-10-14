@@ -7,7 +7,9 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">渠道对账</h2>
-          <p class="page-header__desc">按渠道 + 账期核对本地已支付单与渠道账单：本地取 payment_orders 已支付合计，差异非 0 记为疑似异常。</p>
+          <p class="page-header__desc">
+            按渠道 + 账期核对本地已支付单与渠道账单：本地取 payment_orders 已支付合计，差异非 0 记为疑似异常。
+          </p>
         </div>
       </div>
       <t-space size="small">
@@ -47,7 +49,9 @@
         </div>
         <div class="recon-row">
           <span class="recon-row__label">渠道账单</span>
-          <span class="recon-row__value">¥{{ formatPrice(latest.channel_amount) }} / {{ latest.channel_count }} 笔</span>
+          <span class="recon-row__value"
+            >¥{{ formatPrice(latest.channel_amount) }} / {{ latest.channel_count }} 笔</span
+          >
         </div>
         <div class="recon-row">
           <span class="recon-row__label">差异</span>
@@ -145,7 +149,11 @@
       @confirm="handleRun"
       @close="runVisible = false"
     >
-      <t-alert theme="info" message="对账口径：本地已支付单合计（按支付渠道与账期过滤）。渠道编码留空表示全部渠道。" style="margin-bottom: 12px" />
+      <t-alert
+        theme="info"
+        message="对账口径：本地已支付单合计（按支付渠道与账期过滤）。渠道编码留空表示全部渠道。"
+        style="margin-bottom: 12px"
+      />
       <t-form label-align="top" :data="runForm" @submit.prevent>
         <t-form-item label="支付渠道" name="channel_code">
           <t-select v-model="runForm.channel_code" clearable placeholder="全部渠道" :options="channelOptions" />
@@ -213,7 +221,10 @@ async function loadRecords() {
 async function loadChannelOptions() {
   try {
     const data = await getChannelList({ page: 1, page_size: 100 })
-    channelOptions.value = (data.items || []).map((c) => ({ label: `${c.name}（${c.channel_code}）`, value: c.channel_code }))
+    channelOptions.value = (data.items || []).map((c) => ({
+      label: `${c.name}（${c.channel_code}）`,
+      value: c.channel_code,
+    }))
   } catch {
     channelOptions.value = []
   }

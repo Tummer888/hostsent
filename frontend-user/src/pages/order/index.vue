@@ -55,9 +55,7 @@
         <template #amount="{ row }">
           <div class="price-cell">
             <span class="price-cell__main">¥{{ payAmount(row).toFixed(2) }}</span>
-            <span v-if="row.discount_amount > 0" class="price-cell__sub">
-              ¥{{ row.original_amount.toFixed(2) }}
-            </span>
+            <span v-if="row.discount_amount > 0" class="price-cell__sub"> ¥{{ row.original_amount.toFixed(2) }} </span>
           </div>
         </template>
 
@@ -115,9 +113,7 @@
             >
               去支付
             </t-button>
-            <t-button v-else variant="text" size="small" @click.stop="router.push(`/order/${row.id}`)">
-              详情
-            </t-button>
+            <t-button v-else variant="text" size="small" @click.stop="router.push(`/order/${row.id}`)"> 详情 </t-button>
           </span>
         </template>
       </t-table>

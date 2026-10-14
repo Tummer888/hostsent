@@ -9,13 +9,7 @@
           <span class="hero-desc">按事件类型选择站内信与邮件通知的接收方式。</span>
         </div>
       </div>
-      <t-button
-        theme="primary"
-        size="large"
-        :loading="saving"
-        :disabled="!dirty"
-        @click="handleSave"
-      >
+      <t-button theme="primary" size="large" :loading="saving" :disabled="!dirty" @click="handleSave">
         <template #icon><SaveIcon /></template>
         保存设置
       </t-button>
@@ -57,7 +51,12 @@
             :value="row.inbox_on"
             size="small"
             :disabled="row.mandatory"
-            @change="(val: boolean) => { row.inbox_on = val; markDirty() }"
+            @change="
+              (val: boolean) => {
+                row.inbox_on = val
+                markDirty()
+              }
+            "
           />
         </template>
         <template #mail_on="{ row }">
@@ -65,7 +64,12 @@
             :value="row.mail_on"
             size="small"
             :disabled="row.mandatory"
-            @change="(val: boolean) => { row.mail_on = val; markDirty() }"
+            @change="
+              (val: boolean) => {
+                row.mail_on = val
+                markDirty()
+              }
+            "
           />
         </template>
         <template #sms_on="{ row }">
@@ -73,7 +77,12 @@
             :value="row.sms_on"
             size="small"
             :disabled="row.mandatory"
-            @change="(val: boolean) => { row.sms_on = val; markDirty() }"
+            @change="
+              (val: boolean) => {
+                row.sms_on = val
+                markDirty()
+              }
+            "
           />
         </template>
         <template #empty>
@@ -86,9 +95,7 @@
           <template #icon><SaveIcon /></template>
           保存设置
         </t-button>
-        <t-button v-if="dirty" variant="outline" :disabled="loading" @click="handleReset">
-          撤销修改
-        </t-button>
+        <t-button v-if="dirty" variant="outline" :disabled="loading" @click="handleReset"> 撤销修改 </t-button>
       </div>
     </section>
   </div>
@@ -101,11 +108,7 @@ import { RefreshIcon, SaveIcon, SettingIcon, LockOnIcon } from 'tdesign-icons-vu
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 import { TTable } from '@/plugins/tdesign-heavy'
 
-import {
-  getMyPreferences,
-  updateMyPreferences,
-  type NotificationPreference,
-} from '@/api/notification'
+import { getMyPreferences, updateMyPreferences, type NotificationPreference } from '@/api/notification'
 
 defineOptions({ name: 'UserNotifyPrefs' })
 

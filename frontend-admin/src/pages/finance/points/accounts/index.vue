@@ -92,10 +92,12 @@
           <div class="action-cell">
             <template v-if="isMobile">
               <MobileAction
-                :options="buildMobileActionOptions([
-                  { content: '调整积分', value: 'adjust' },
-                  { content: '查看流水', value: 'transactions' },
-                ])"
+                :options="
+                  buildMobileActionOptions([
+                    { content: '调整积分', value: 'adjust' },
+                    { content: '查看流水', value: 'transactions' },
+                  ])
+                "
                 @select="(value) => handleMobileAction(value, row)"
               />
             </template>
@@ -143,7 +145,11 @@
           <t-input-number v-model="adjustForm.points" :precision="0" theme="column" placeholder="如 100 或 -50" />
         </t-form-item>
         <t-form-item label="备注（必填）">
-          <t-textarea v-model="adjustForm.remark" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="如：活动补发 / 违规扣减" />
+          <t-textarea
+            v-model="adjustForm.remark"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+            placeholder="如：活动补发 / 违规扣减"
+          />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -174,7 +180,11 @@ const loading = ref(false)
 const { isMobile } = useIsMobile()
 const total = ref(0)
 
-const filters = reactive<{ user_keyword: string | undefined; user_id: string | undefined; min_points: string | undefined }>({
+const filters = reactive<{
+  user_keyword: string | undefined
+  user_id: string | undefined
+  min_points: string | undefined
+}>({
   user_keyword: undefined,
   user_id: undefined,
   min_points: undefined,
@@ -198,7 +208,13 @@ const columns: PrimaryTableCol<PointAccountInfo>[] = [
   { colKey: 'total_earned', title: '累计获得', width: 120 },
   { colKey: 'total_spent', title: '累计消耗', width: 120 },
   { colKey: 'updated_at', title: '更新时间', width: 170 },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 180, fixed: 'right' as const, align: 'center' as const },
+  {
+    colKey: 'action',
+    title: '操作',
+    width: isMobile.value ? 70 : 180,
+    fixed: 'right' as const,
+    align: 'center' as const,
+  },
 ]
 
 async function loadAccounts() {
@@ -297,7 +313,7 @@ function goTransactions(row: PointAccountInfo) {
   void router.push({ path: '/points/transactions', query: { user_id: String(row.user_id) } })
 }
 
-function handleMobileAction(value: string | number | Record<string, any>, row: PointAccountInfo) {
+function handleMobileAction(value: string | number | Record<string, unknown>, row: PointAccountInfo) {
   const action =
     typeof value === 'string' || typeof value === 'number'
       ? String(value)

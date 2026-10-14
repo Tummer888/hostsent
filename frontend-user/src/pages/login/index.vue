@@ -13,7 +13,9 @@
             </div>
             <div class="header-text">
               <h2 class="card-title">{{ brandStore.name }}</h2>
-              <p class="card-subtitle">{{ authMode === 'login' ? '欢迎回来，请登录账户' : '创建账号，开启您的云上之旅' }}</p>
+              <p class="card-subtitle">
+                {{ authMode === 'login' ? '欢迎回来，请登录账户' : '创建账号，开启您的云上之旅' }}
+              </p>
             </div>
           </div>
         </div>
@@ -86,12 +88,7 @@
             <t-tab-panel value="sms" label="短信登录">
               <div class="tab-content-inner">
                 <div class="input-group">
-                  <t-input
-                    v-model="loginForm.phone"
-                    placeholder="请输入手机号"
-                    size="large"
-                    class="custom-input"
-                  >
+                  <t-input v-model="loginForm.phone" placeholder="请输入手机号" size="large" class="custom-input">
                     <template #prefix-icon>
                       <MobileIcon />
                     </template>
@@ -148,12 +145,7 @@
             <t-tab-panel value="email" label="邮箱登录">
               <div class="tab-content-inner">
                 <div class="input-group">
-                  <t-input
-                    v-model="loginForm.email"
-                    placeholder="请输入邮箱地址"
-                    size="large"
-                    class="custom-input"
-                  >
+                  <t-input v-model="loginForm.email" placeholder="请输入邮箱地址" size="large" class="custom-input">
                     <template #prefix-icon>
                       <MailIcon />
                     </template>
@@ -218,12 +210,7 @@
             @submit="handleRegister"
           >
             <t-form-item name="username">
-              <t-input
-                v-model="registerForm.username"
-                placeholder="请输入用户名"
-                size="large"
-                class="custom-input"
-              >
+              <t-input v-model="registerForm.username" placeholder="请输入用户名" size="large" class="custom-input">
                 <template #prefix-icon>
                   <UserIcon />
                 </template>
@@ -231,12 +218,7 @@
             </t-form-item>
 
             <t-form-item name="email">
-              <t-input
-                v-model="registerForm.email"
-                placeholder="请输入邮箱地址"
-                size="large"
-                class="custom-input"
-              >
+              <t-input v-model="registerForm.email" placeholder="请输入邮箱地址" size="large" class="custom-input">
                 <template #prefix-icon>
                   <MailIcon />
                 </template>
@@ -393,7 +375,10 @@
 
           <!-- 第三方登录（仅登录-密码方式显示）：渠道来自后端「已启用」列表，
                未启用的不渲染。此前这里是一组零 @click 的装饰图标（doc104 §6.8）。 -->
-          <div v-if="authMode === 'login' && activeTab === 'password' && oauthProviders.length" class="third-party-login">
+          <div
+            v-if="authMode === 'login' && activeTab === 'password' && oauthProviders.length"
+            class="third-party-login"
+          >
             <div class="divider-line">
               <span class="divider-text">其他登录方式</span>
             </div>
@@ -579,12 +564,8 @@ const registerRules = computed(() => ({
     { required: true, message: '请再次输入密码', trigger: 'blur' },
     { validator: validateConfirm, trigger: 'blur' },
   ],
-  emailCode: registerEmailCodeNeeded.value
-    ? [{ required: true, message: '请输入邮箱验证码', trigger: 'blur' }]
-    : [],
-  captchaCode: registerCaptchaNeeded.value
-    ? [{ required: true, message: '请输入图形验证码', trigger: 'blur' }]
-    : [],
+  emailCode: registerEmailCodeNeeded.value ? [{ required: true, message: '请输入邮箱验证码', trigger: 'blur' }] : [],
+  captchaCode: registerCaptchaNeeded.value ? [{ required: true, message: '请输入图形验证码', trigger: 'blur' }] : [],
 }))
 
 function switchAuthMode(mode: 'login' | 'register') {
@@ -704,7 +685,13 @@ async function finishLogin() {
 }
 
 /** 命中二次验证时弹 OTP 框，否则直接完成登录。 */
-async function afterLogin(outcome: { needOTP: boolean; otpToken?: string; otpChannel?: string; otpTargetMasked?: string; otpExpireIn?: number }) {
+async function afterLogin(outcome: {
+  needOTP: boolean
+  otpToken?: string
+  otpChannel?: string
+  otpTargetMasked?: string
+  otpExpireIn?: number
+}) {
   if (outcome.needOTP && outcome.otpToken) {
     otpToken.value = outcome.otpToken
     otpContext.channel = outcome.otpChannel || ''
@@ -984,8 +971,7 @@ onMounted(() => {
     radial-gradient(ellipse at 0% 0%, rgba(255, 182, 193, 0.6) 0%, transparent 55%),
     radial-gradient(ellipse at 100% 0%, rgba(135, 206, 250, 0.6) 0%, transparent 55%),
     radial-gradient(ellipse at 100% 100%, rgba(255, 255, 255, 0.55) 0%, transparent 55%),
-    radial-gradient(ellipse at 0% 100%, rgba(152, 251, 152, 0.55) 0%, transparent 55%),
-    rgba(255, 255, 255, 0.15);
+    radial-gradient(ellipse at 0% 100%, rgba(152, 251, 152, 0.55) 0%, transparent 55%), rgba(255, 255, 255, 0.15);
   backdrop-filter: blur(50px) saturate(1.8);
   -webkit-backdrop-filter: blur(50px) saturate(1.8);
   border-radius: 28px;

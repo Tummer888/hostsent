@@ -7,7 +7,9 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">支付订单</h2>
-          <p class="page-header__desc">支付单以业务类型 + 业务单号与账单/充值/订单解耦；线下渠道待支付单可人工确认到账。</p>
+          <p class="page-header__desc">
+            支付单以业务类型 + 业务单号与账单/充值/订单解耦；线下渠道待支付单可人工确认到账。
+          </p>
         </div>
       </div>
       <t-space size="small">
@@ -138,19 +140,30 @@
           <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '详情', value: 'detail' },
-                { content: '确认到账', value: 'confirm', hidden: () => !isManualPending(row) || !canOperate, theme: 'success' },
-                { content: '主动查单', value: 'sync', hidden: () => !canOperate },
-                { content: '关闭', value: 'close', hidden: () => !isClosable(row) || !canOperate, theme: 'error' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '详情', value: 'detail' },
+                  {
+                    content: '确认到账',
+                    value: 'confirm',
+                    hidden: () => !isManualPending(row) || !canOperate,
+                    theme: 'success',
+                  },
+                  { content: '主动查单', value: 'sync', hidden: () => !canOperate },
+                  { content: '关闭', value: 'close', hidden: () => !isClosable(row) || !canOperate, theme: 'error' },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
               <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
-              <t-link v-if="isManualPending(row) && canOperate" theme="success" hover="color" @click="openConfirm(row)">确认到账</t-link>
+              <t-link v-if="isManualPending(row) && canOperate" theme="success" hover="color" @click="openConfirm(row)"
+                >确认到账</t-link
+              >
               <t-link v-if="canOperate" theme="primary" hover="color" @click="handleSync(row)">主动查单</t-link>
-              <t-link v-if="isClosable(row) && canOperate" theme="danger" hover="color" @click="handleClose(row)">关闭</t-link>
+              <t-link v-if="isClosable(row) && canOperate" theme="danger" hover="color" @click="handleClose(row)"
+                >关闭</t-link
+              >
             </template>
           </div>
         </template>
@@ -174,18 +187,54 @@
     <t-drawer v-model:visible="detailVisible" header="支付单详情" size="560px" :footer="false">
       <template v-if="detail">
         <div class="detail-block">
-          <div class="recon-row"><span class="recon-row__label">支付单号</span><span class="recon-row__value">{{ detail.payment_no }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">用户 ID</span><span class="recon-row__value">#{{ detail.user_id }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">业务</span><span class="recon-row__value">{{ bizTypeLabel(detail.biz_type) }} · {{ detail.biz_no || '—' }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">金额</span><span class="recon-row__value">¥{{ formatPrice(detail.amount) }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">手续费</span><span class="recon-row__value">¥{{ formatPrice(detail.fee) }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">渠道</span><span class="recon-row__value">{{ detail.channel_name || detail.channel_code }}（{{ detail.channel_type }}）</span></div>
-          <div class="recon-row"><span class="recon-row__label">场景</span><span class="recon-row__value">{{ sceneLabel(detail.scene) }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">状态</span><span class="recon-row__value">{{ orderStatusLabel(detail.status) }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">渠道交易号</span><span class="recon-row__value">{{ detail.channel_tx || '—' }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">过期时间</span><span class="recon-row__value">{{ formatTime(detail.expire_at) }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">支付时间</span><span class="recon-row__value">{{ formatTime(detail.paid_at) }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">创建时间</span><span class="recon-row__value">{{ formatTime(detail.created_at) }}</span></div>
+          <div class="recon-row">
+            <span class="recon-row__label">支付单号</span><span class="recon-row__value">{{ detail.payment_no }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">用户 ID</span><span class="recon-row__value">#{{ detail.user_id }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">业务</span
+            ><span class="recon-row__value">{{ bizTypeLabel(detail.biz_type) }} · {{ detail.biz_no || '—' }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">金额</span
+            ><span class="recon-row__value">¥{{ formatPrice(detail.amount) }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">手续费</span
+            ><span class="recon-row__value">¥{{ formatPrice(detail.fee) }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">渠道</span
+            ><span class="recon-row__value"
+              >{{ detail.channel_name || detail.channel_code }}（{{ detail.channel_type }}）</span
+            >
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">场景</span
+            ><span class="recon-row__value">{{ sceneLabel(detail.scene) }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">状态</span
+            ><span class="recon-row__value">{{ orderStatusLabel(detail.status) }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">渠道交易号</span
+            ><span class="recon-row__value">{{ detail.channel_tx || '—' }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">过期时间</span
+            ><span class="recon-row__value">{{ formatTime(detail.expire_at) }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">支付时间</span
+            ><span class="recon-row__value">{{ formatTime(detail.paid_at) }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">创建时间</span
+            ><span class="recon-row__value">{{ formatTime(detail.created_at) }}</span>
+          </div>
         </div>
 
         <div v-if="detail.instructions" class="detail-block">
@@ -194,7 +243,9 @@
         </div>
         <div v-if="detail.pay_url" class="detail-block">
           <h4 class="detail-block__title">支付链接</h4>
-          <a class="detail-link" :href="detail.pay_url" target="_blank" rel="noopener noreferrer">{{ detail.pay_url }}</a>
+          <a class="detail-link" :href="detail.pay_url" target="_blank" rel="noopener noreferrer">{{
+            detail.pay_url
+          }}</a>
         </div>
         <div v-if="detail.prepay_params" class="detail-block">
           <h4 class="detail-block__title">渠道下单参数</h4>
@@ -238,12 +289,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { MoneyIcon, OrderIcon, RefreshIcon, SearchIcon, TimeIcon } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
-import {
-  closePaymentOrder,
-  confirmPaymentOrder,
-  getPaymentOrders,
-  syncPaymentOrder,
-} from '@/api/payment'
+import { closePaymentOrder, confirmPaymentOrder, getPaymentOrders, syncPaymentOrder } from '@/api/payment'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
@@ -291,8 +337,12 @@ const filters = reactive<{
 const pagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
 const mobilePage = reactive({ current: 1, pageSize: 10, total: 0 })
 
-const paidAmount = computed(() => orderList.value.filter((o) => o.status === 'paid').reduce((sum, o) => sum + o.amount, 0))
-const pendingCount = computed(() => orderList.value.filter((o) => o.status === 'pending' || o.status === 'paying').length)
+const paidAmount = computed(() =>
+  orderList.value.filter((o) => o.status === 'paid').reduce((sum, o) => sum + o.amount, 0),
+)
+const pendingCount = computed(
+  () => orderList.value.filter((o) => o.status === 'pending' || o.status === 'paying').length,
+)
 
 const columns: PrimaryTableCol<PaymentOrderInfo>[] = [
   { colKey: 'payment_no', title: '支付单', minWidth: 200 },
@@ -302,7 +352,13 @@ const columns: PrimaryTableCol<PaymentOrderInfo>[] = [
   { colKey: 'channel', title: '渠道', minWidth: 150 },
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'created_at', title: '创建时间', width: 170 },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 260, fixed: 'right' as const, align: 'center' as const },
+  {
+    colKey: 'action',
+    title: '操作',
+    width: isMobile.value ? 70 : 260,
+    fixed: 'right' as const,
+    align: 'center' as const,
+  },
 ]
 
 function isManualPending(row: PaymentOrderInfo): boolean {
@@ -453,8 +509,11 @@ function handleClose(row: PaymentOrderInfo) {
   })
 }
 
-function handleMobileAction(value: string | number | Record<string, any>, row: PaymentOrderInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: PaymentOrderInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'detail':
       openDetail(row)

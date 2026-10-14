@@ -48,14 +48,24 @@
         <div class="promo__row">
           <span class="promo__label">邀请码</span>
           <span class="promo__value promo__value--code">{{ profile?.invite_code || '—' }}</span>
-          <t-button size="small" variant="outline" :disabled="!profile?.invite_code" @click="copy(inviteCode, '邀请码已复制')">
+          <t-button
+            size="small"
+            variant="outline"
+            :disabled="!profile?.invite_code"
+            @click="copy(inviteCode, '邀请码已复制')"
+          >
             复制
           </t-button>
         </div>
         <div class="promo__row">
           <span class="promo__label">推广链接</span>
           <span class="promo__value">{{ inviteUrl }}</span>
-          <t-button size="small" variant="outline" :disabled="!profile?.invite_code" @click="copy(inviteUrl, '推广链接已复制')">
+          <t-button
+            size="small"
+            variant="outline"
+            :disabled="!profile?.invite_code"
+            @click="copy(inviteUrl, '推广链接已复制')"
+          >
             复制
           </t-button>
         </div>
@@ -131,8 +141,8 @@ async function load() {
   try {
     const { data } = await getReferralProfile()
     profile.value = data
-  } catch (e: any) {
-    MessagePlugin.error(e?.message || '加载推广概览失败')
+  } catch (e) {
+    MessagePlugin.error((e as Error)?.message || '加载推广概览失败')
   } finally {
     loading.value = false
   }
@@ -142,38 +152,129 @@ onMounted(load)
 </script>
 
 <style scoped>
-.referral-page { padding: 16px 24px; display: flex; flex-direction: column; gap: 16px; }
-.referral-header { display: flex; align-items: center; justify-content: space-between; }
-.referral-title { font-size: 20px; font-weight: 700; margin: 0; }
-.referral-alert { border-radius: 10px; }
-.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.referral-page {
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.referral-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.referral-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+}
+.referral-alert {
+  border-radius: 10px;
+}
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
 .stat-card {
-  background: #fff; border: 1px solid var(--td-border-level-1-color, #f0f0f0);
-  border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px;
+  background: #fff;
+  border: 1px solid var(--td-border-level-1-color, #f0f0f0);
+  border-radius: 12px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-.stat-card--primary { border-color: #f6d9a8; background: linear-gradient(180deg, #fffaf1 0%, #fff 100%); }
-.stat-card__label { font-size: 13px; color: #888; }
-.stat-card__value { font-size: 24px; font-weight: 700; color: #1f2937; }
-.stat-card--primary .stat-card__value { color: #b76a00; }
-.stat-card__hint { font-size: 12px; color: #999; }
+.stat-card--primary {
+  border-color: #f6d9a8;
+  background: linear-gradient(180deg, #fffaf1 0%, #fff 100%);
+}
+.stat-card__label {
+  font-size: 13px;
+  color: #888;
+}
+.stat-card__value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1f2937;
+}
+.stat-card--primary .stat-card__value {
+  color: #b76a00;
+}
+.stat-card__hint {
+  font-size: 12px;
+  color: #999;
+}
 .referral-panel {
-  background: #fff; border: 1px solid var(--td-border-level-1-color, #f0f0f0);
-  border-radius: 12px; padding: 16px 20px;
+  background: #fff;
+  border: 1px solid var(--td-border-level-1-color, #f0f0f0);
+  border-radius: 12px;
+  padding: 16px 20px;
 }
-.panel-head { margin-bottom: 12px; }
-.section-title { font-size: 15px; font-weight: 700; }
-.promo { display: flex; flex-direction: column; gap: 10px; }
-.promo__row { display: flex; align-items: center; gap: 12px; font-size: 14px; }
-.promo__label { width: 80px; color: #888; }
-.promo__value { color: #333; word-break: break-all; }
-.promo__value--code { font-family: monospace; font-weight: 700; color: #b76a00; }
-.promo__tip { color: #999; font-size: 12px; margin: 0; }
-.rate-grid { display: flex; gap: 12px; flex-wrap: wrap; }
+.panel-head {
+  margin-bottom: 12px;
+}
+.section-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+.promo {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.promo__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+}
+.promo__label {
+  width: 80px;
+  color: #888;
+}
+.promo__value {
+  color: #333;
+  word-break: break-all;
+}
+.promo__value--code {
+  font-family: monospace;
+  font-weight: 700;
+  color: #b76a00;
+}
+.promo__tip {
+  color: #999;
+  font-size: 12px;
+  margin: 0;
+}
+.rate-grid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 .rate-item {
-  flex: 1; min-width: 120px; border: 1px dashed var(--td-border-level-1-color, #e6e6e6);
-  border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px;
+  flex: 1;
+  min-width: 120px;
+  border: 1px dashed var(--td-border-level-1-color, #e6e6e6);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
-.rate-item__label { font-size: 13px; color: #888; }
-.rate-item__value { font-size: 20px; font-weight: 700; color: #2563eb; }
-.rate-tip { color: #999; font-size: 12px; margin: 12px 0 0; line-height: 1.6; }
+.rate-item__label {
+  font-size: 13px;
+  color: #888;
+}
+.rate-item__value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #2563eb;
+}
+.rate-tip {
+  color: #999;
+  font-size: 12px;
+  margin: 12px 0 0;
+  line-height: 1.6;
+}
 </style>

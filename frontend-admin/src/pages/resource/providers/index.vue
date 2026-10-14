@@ -29,12 +29,7 @@
     <FilterCard :columns="4">
       <div class="field">
         <span class="field__label">关键词</span>
-        <t-input
-          v-model="filters.keyword"
-          clearable
-          placeholder="搜索名称 / API 地址"
-          @enter="handleSearch"
-        >
+        <t-input v-model="filters.keyword" clearable placeholder="搜索名称 / API 地址" @enter="handleSearch">
           <template #prefix-icon>
             <SearchIcon size="14" aria-hidden="true" />
           </template>
@@ -92,7 +87,11 @@
         </template>
 
         <template #connectivity="{ row }">
-          <t-tooltip :content="connTooltip(connState(row.id), row)" :disabled="connState(row.id).status === 'idle'" placement="top">
+          <t-tooltip
+            :content="connTooltip(connState(row.id), row)"
+            :disabled="connState(row.id).status === 'idle'"
+            placement="top"
+          >
             <span class="conn-cell">
               <span class="conn-signal" :class="`conn-signal--${signalTier(connState(row.id))}`">
                 <i v-for="n in 3" :key="n" :class="{ 'is-on': n <= signalBars(connState(row.id)) }" />
@@ -115,7 +114,13 @@
               >
                 {{ connLatencyLabel(connState(row.id)) }}
               </t-tag>
-              <t-tag v-else-if="connState(row.id).status === 'fail'" theme="danger" variant="light" size="small" shape="round">
+              <t-tag
+                v-else-if="connState(row.id).status === 'fail'"
+                theme="danger"
+                variant="light"
+                size="small"
+                shape="round"
+              >
                 连接失败
               </t-tag>
               <t-tag v-else theme="default" variant="light" size="small" shape="round">未测试</t-tag>
@@ -158,15 +163,30 @@
           <div class="resource-cell">
             <div class="resource-row">
               <span class="resource-label">CPU</span>
-              <t-progress :percentage="usagePercent(row.used_cpu, row.total_cpu)" :color="usageColor(row.used_cpu, row.total_cpu)" :stroke-width="6" theme="line" />
+              <t-progress
+                :percentage="usagePercent(row.used_cpu, row.total_cpu)"
+                :color="usageColor(row.used_cpu, row.total_cpu)"
+                :stroke-width="6"
+                theme="line"
+              />
             </div>
             <div class="resource-row">
               <span class="resource-label">内存</span>
-              <t-progress :percentage="usagePercent(row.used_memory, row.total_memory)" :color="usageColor(row.used_memory, row.total_memory)" :stroke-width="6" theme="line" />
+              <t-progress
+                :percentage="usagePercent(row.used_memory, row.total_memory)"
+                :color="usageColor(row.used_memory, row.total_memory)"
+                :stroke-width="6"
+                theme="line"
+              />
             </div>
             <div class="resource-row">
               <span class="resource-label">磁盘</span>
-              <t-progress :percentage="usagePercent(row.used_disk, row.total_disk)" :color="usageColor(row.used_disk, row.total_disk)" :stroke-width="6" theme="line" />
+              <t-progress
+                :percentage="usagePercent(row.used_disk, row.total_disk)"
+                :color="usageColor(row.used_disk, row.total_disk)"
+                :stroke-width="6"
+                theme="line"
+              />
             </div>
           </div>
         </template>
@@ -194,23 +214,30 @@
         </template>
 
         <template #action="{ row }">
-<div class="action-cell">
+          <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '详情', value: 'detail', theme: 'default' },
-                { content: '编辑', value: 'edit', theme: 'default' },
-                { content: '测试连接', value: 'test', theme: 'default' },
-                { content: '运维平台', value: 'ops', hidden: () => !row.ops_console_url, theme: 'default' },
-                { content: '恢复同步', value: 'resume', hidden: () => !(row.sync_paused), theme: 'warning' },
-                { content: '删除', value: 'delete', theme: 'error' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '详情', value: 'detail', theme: 'default' },
+                  { content: '编辑', value: 'edit', theme: 'default' },
+                  { content: '测试连接', value: 'test', theme: 'default' },
+                  { content: '运维平台', value: 'ops', hidden: () => !row.ops_console_url, theme: 'default' },
+                  { content: '恢复同步', value: 'resume', hidden: () => !row.sync_paused, theme: 'warning' },
+                  { content: '删除', value: 'delete', theme: 'error' },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
               <t-link theme="primary" hover="color" @click="router.push(`/resource/providers/${row.id}`)">详情</t-link>
               <t-link theme="primary" hover="color" @click="openEditDialog(row)">编辑</t-link>
-              <t-link theme="primary" hover="color" :disabled="connState(row.id).status === 'testing'" @click="handleTestConnection(row)">
+              <t-link
+                theme="primary"
+                hover="color"
+                :disabled="connState(row.id).status === 'testing'"
+                @click="handleTestConnection(row)"
+              >
                 测试连接
               </t-link>
               <t-link
@@ -273,7 +300,10 @@
                 <t-input v-model="formData.region" placeholder="例如：cn-east-1" />
               </t-form-item>
               <t-form-item label="运维平台地址" name="ops_console_url" class="form-item--full">
-                <t-input v-model="formData.ops_console_url" placeholder="上游/平台运维控制台地址，留空则不显示跳转入口" />
+                <t-input
+                  v-model="formData.ops_console_url"
+                  placeholder="上游/平台运维控制台地址，留空则不显示跳转入口"
+                />
               </t-form-item>
             </div>
           </t-tab-panel>
@@ -310,9 +340,11 @@
             <t-alert
               theme="warning"
               class="edit-tab-alert"
-              :message="editingCredentialFields.length
-                ? '凭证字段留空或保持脱敏回显表示不修改；修改后将重新加密落库。'
-                : 'API 密钥/密码留空表示保持原值不变。'"
+              :message="
+                editingCredentialFields.length
+                  ? '凭证字段留空或保持脱敏回显表示不修改；修改后将重新加密落库。'
+                  : 'API 密钥/密码留空表示保持原值不变。'
+              "
             />
           </t-tab-panel>
 
@@ -361,7 +393,12 @@
           class="delete-alert"
           message="删除后该渠道的同步配置、下列上游商品与资源池会被一并移除，且无法恢复。资源池由平台同步生成，若该平台仍在线，下次同步会重新出现。"
         />
-        <t-alert v-else theme="info" class="delete-alert" message="该渠道没有关联商品或资源池，删除后其同步配置将一并移除。" />
+        <t-alert
+          v-else
+          theme="info"
+          class="delete-alert"
+          message="该渠道没有关联商品或资源池，删除后其同步配置将一并移除。"
+        />
 
         <template v-if="deleteAssoc && deleteAssoc.products.length">
           <div class="delete-section__head">
@@ -393,7 +430,6 @@
         </template>
       </template>
     </t-dialog>
-
   </div>
 </template>
 
@@ -403,7 +439,13 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { AddIcon, CloudIcon, LinkIcon, LoadingIcon, RefreshIcon, SearchIcon, ServerIcon } from 'tdesign-icons-vue-next'
-import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import {
+  MessagePlugin,
+  type FormInstanceFunctions,
+  type FormRule,
+  type PageInfo,
+  type PrimaryTableCol,
+} from 'tdesign-vue-next'
 
 import {
   deleteProvider,
@@ -552,14 +594,6 @@ const mobilePage = reactive({
 function typeLabel(type: string): string {
   return typeNameMap.value[type] || type
 }
-
-// 可选类型按当前链路过滤：上游渠道只列出 kind=upstream 的类型，自营平台只列 kind=compute。
-const visibleTypes = computed(() => {
-  const types = typeOptions.value
-  const known = Object.keys(typeKindMap.value)
-  if (!known.length) return types
-  return types.filter((item) => (typeKindMap.value[item.value] || 'upstream') === channelKind.value)
-})
 
 function resolveStatusTheme(status: number) {
   if (status === 1) return 'success'
@@ -808,9 +842,7 @@ const deleteAssoc = ref<ProviderAssociations | null>(null)
 // 自营平台对接语境下渠道叫"平台"，删除文案跟着走，避免出现"删除平台后该渠道…"这种混称。
 const providerUnit = computed(() => (isCompute.value ? '平台' : '渠道'))
 
-const deleteBlockedProducts = computed(() =>
-  (deleteAssoc.value?.products || []).filter((item) => item.has_orders > 0),
-)
+const deleteBlockedProducts = computed(() => (deleteAssoc.value?.products || []).filter((item) => item.has_orders > 0))
 const hasAssociations = computed(() => {
   const assoc = deleteAssoc.value
   return !!assoc && (assoc.products.length > 0 || assoc.pools.length > 0)
@@ -838,7 +870,9 @@ async function confirmDeleteProvider() {
   try {
     if (hasAssociations.value) {
       const result = await deleteProviderCascade(row.id)
-      MessagePlugin.success(`已删除${providerUnit.value}，并清理上游商品 ${result.deleted_products} 个、资源池 ${result.deleted_pools} 个`)
+      MessagePlugin.success(
+        `已删除${providerUnit.value}，并清理上游商品 ${result.deleted_products} 个、资源池 ${result.deleted_pools} 个`,
+      )
     } else {
       await deleteProvider(row.id)
       MessagePlugin.success('提供商已删除')
@@ -967,8 +1001,11 @@ onMounted(() => {
 })
 
 // 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: ProviderInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: ProviderInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'detail':
       router.push(`/resource/providers/${row.id}`)

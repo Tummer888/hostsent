@@ -8,7 +8,8 @@
         <div class="page-header__text">
           <h2 class="page-header__title">发送日志</h2>
           <p class="page-header__desc">
-            一行 = 一个「渠道 × 目标」。<b>已跳过</b>是配置类问题（无渠道/未接入），不重试；<b>失败</b>是服务商/网络问题，按指数退避重试，耗尽转死信。
+            一行 = 一个「渠道 ×
+            目标」。<b>已跳过</b>是配置类问题（无渠道/未接入），不重试；<b>失败</b>是服务商/网络问题，按指数退避重试，耗尽转死信。
           </p>
         </div>
       </div>
@@ -112,10 +113,7 @@
           <span class="cell-muted">{{ row.provider_code || '—' }}</span>
         </template>
         <template #fail_reason="{ row }">
-          <span
-            class="cell-muted fail-ellipsis"
-            :title="row.fail_reason"
-          >{{ row.fail_reason || '—' }}</span>
+          <span class="cell-muted fail-ellipsis" :title="row.fail_reason">{{ row.fail_reason || '—' }}</span>
         </template>
         <template #created_at="{ row }">
           <span class="time-text">{{ formatTime(row.created_at) }}</span>
@@ -127,10 +125,17 @@
           <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '详情', value: 'detail' },
-                { content: '重投', value: 'retry', theme: 'warning', hidden: () => !(canRetry && deliveryRetryable(row.send_status)) },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '详情', value: 'detail' },
+                  {
+                    content: '重投',
+                    value: 'retry',
+                    theme: 'warning',
+                    hidden: () => !(canRetry && deliveryRetryable(row.send_status)),
+                  },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
@@ -162,37 +167,73 @@
     </section>
 
     <!-- 详情抽屉 -->
-    <t-drawer
-      v-model:visible="detailVisible"
-      header="投递详情"
-      size="620px"
-      :footer="false"
-      :loading="detailLoading"
-    >
+    <t-drawer v-model:visible="detailVisible" header="投递详情" size="620px" :footer="false" :loading="detailLoading">
       <template v-if="detail">
         <div class="detail-block">
-          <div class="recon-row"><span class="recon-row__label">记录 ID</span><span class="recon-row__value">{{ detail.id }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">批次号</span><span class="recon-row__value">{{ detail.batch_id || '—' }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">事件</span><span class="recon-row__value">{{ detail.event || '—' }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">通道</span>
+          <div class="recon-row">
+            <span class="recon-row__label">记录 ID</span><span class="recon-row__value">{{ detail.id }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">批次号</span
+            ><span class="recon-row__value">{{ detail.batch_id || '—' }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">事件</span><span class="recon-row__value">{{ detail.event || '—' }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">通道</span>
             <span class="recon-row__value">
-              <t-tag :theme="deliveryChannelTheme(detail.channel)" variant="light" size="small">{{ deliveryChannelLabel(detail.channel) }}</t-tag>
+              <t-tag :theme="deliveryChannelTheme(detail.channel)" variant="light" size="small">{{
+                deliveryChannelLabel(detail.channel)
+              }}</t-tag>
             </span>
           </div>
-          <div class="recon-row"><span class="recon-row__label">收件人</span><span class="recon-row__value">{{ detail.recipient || '—' }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">状态</span>
+          <div class="recon-row">
+            <span class="recon-row__label">收件人</span
+            ><span class="recon-row__value">{{ detail.recipient || '—' }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">状态</span>
             <span class="recon-row__value">
-              <t-tag :theme="deliveryStatusTheme(detail.send_status)" variant="light" size="small">{{ deliveryStatusLabel(detail.send_status) }}</t-tag>
+              <t-tag :theme="deliveryStatusTheme(detail.send_status)" variant="light" size="small">{{
+                deliveryStatusLabel(detail.send_status)
+              }}</t-tag>
             </span>
           </div>
-          <div class="recon-row"><span class="recon-row__label">尝试次数</span><span class="recon-row__value">{{ detail.attempts }} / {{ detail.max_attempts }}</span></div>
-          <div v-if="detail.next_retry_at" class="recon-row"><span class="recon-row__label">下次重试</span><span class="recon-row__value">{{ formatTime(detail.next_retry_at) }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">服务商消息号</span><span class="recon-row__value">{{ detail.provider_msg_id || '—' }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">服务商返回码</span><span class="recon-row__value">{{ detail.provider_code || '—' }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">费用</span><span class="recon-row__value">{{ detail.cost_fen > 0 ? `${fenToYuan(detail.cost_fen)} 元` : '—' }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">来源模块</span><span class="recon-row__value">{{ detail.source_module || '—' }} {{ detail.source_id ? `#${detail.source_id}` : '' }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">创建时间</span><span class="recon-row__value">{{ formatTime(detail.created_at) }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">发送时间</span><span class="recon-row__value">{{ formatTime(detail.sent_at) }}</span></div>
+          <div class="recon-row">
+            <span class="recon-row__label">尝试次数</span
+            ><span class="recon-row__value">{{ detail.attempts }} / {{ detail.max_attempts }}</span>
+          </div>
+          <div v-if="detail.next_retry_at" class="recon-row">
+            <span class="recon-row__label">下次重试</span
+            ><span class="recon-row__value">{{ formatTime(detail.next_retry_at) }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">服务商消息号</span
+            ><span class="recon-row__value">{{ detail.provider_msg_id || '—' }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">服务商返回码</span
+            ><span class="recon-row__value">{{ detail.provider_code || '—' }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">费用</span
+            ><span class="recon-row__value">{{ detail.cost_fen > 0 ? `${fenToYuan(detail.cost_fen)} 元` : '—' }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">来源模块</span
+            ><span class="recon-row__value"
+              >{{ detail.source_module || '—' }} {{ detail.source_id ? `#${detail.source_id}` : '' }}</span
+            >
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">创建时间</span
+            ><span class="recon-row__value">{{ formatTime(detail.created_at) }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">发送时间</span
+            ><span class="recon-row__value">{{ formatTime(detail.sent_at) }}</span>
+          </div>
         </div>
 
         <div v-if="detail.fail_reason" class="detail-block">
@@ -236,13 +277,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { RefreshIcon, RootListIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
 
-import {
-  batchRetryDeliveries,
-  getDeliveries,
-  getDelivery,
-  retryDelivery,
-  type DeliveryItem,
-} from '@/api/notification'
+import { batchRetryDeliveries, getDeliveries, getDelivery, retryDelivery, type DeliveryItem } from '@/api/notification'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
@@ -299,7 +334,13 @@ const columns = computed<PrimaryTableCol<DeliveryItem>[]>(() => {
     { colKey: 'fail_reason', title: '失败原因', minWidth: 160 },
     { colKey: 'created_at', title: '创建时间', width: 160 },
     { colKey: 'sent_at', title: '发送时间', width: 160 },
-    { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 110, fixed: 'right' as const, align: 'center' as const },
+    {
+      colKey: 'action',
+      title: '操作',
+      width: isMobile.value ? 70 : 110,
+      fixed: 'right' as const,
+      align: 'center' as const,
+    },
   )
   return base
 })
@@ -373,10 +414,12 @@ const batchRetrying = ref(false)
 
 function handleSelectChange(keys: Array<string | number>) {
   // 只允许勾选可重投状态，避免把 sent 一起提交（后端也会逐条拒绝）。
-  selectedIds.value = keys.map((k) => Number(k)).filter((id) => {
-    const row = list.value.find((item) => item.id === id)
-    return row ? deliveryRetryable(row.send_status) : false
-  })
+  selectedIds.value = keys
+    .map((k) => Number(k))
+    .filter((id) => {
+      const row = list.value.find((item) => item.id === id)
+      return row ? deliveryRetryable(row.send_status) : false
+    })
 }
 
 function handleBatchRetry() {
@@ -456,7 +499,7 @@ async function openDetail(row: DeliveryItem) {
   }
 }
 
-function handleMobileAction(value: string | number | Record<string, any>, row: DeliveryItem) {
+function handleMobileAction(value: string | number | Record<string, unknown>, row: DeliveryItem) {
   const action =
     typeof value === 'string' || typeof value === 'number'
       ? String(value)

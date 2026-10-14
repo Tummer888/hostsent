@@ -11,15 +11,11 @@
         :disabled="disabled"
         @click="item.run()"
       >
+        <!-- eslint-disable-next-line vue/no-v-html -- 图标字符串全部来自组件内 ICONS 常量（硬编码），无外部输入 -->
         <span v-html="item.icon" />
       </button>
-      <button
-        type="button"
-        class="rich-editor__btn"
-        title="插入链接"
-        :disabled="disabled"
-        @click="applyLink"
-      >
+      <button type="button" class="rich-editor__btn" title="插入链接" :disabled="disabled" @click="applyLink">
+        <!-- eslint-disable-next-line vue/no-v-html -- 同 ICONS 常量 -->
         <span v-html="ICONS.link" />
       </button>
       <button
@@ -29,6 +25,7 @@
         :disabled="disabled"
         @click="applyImage"
       >
+        <!-- eslint-disable-next-line vue/no-v-html -- 同 ICONS 常量 -->
         <span v-html="ICONS.image" />
       </button>
     </div>
@@ -52,7 +49,7 @@
 //
 // v-model 契约：`modelValue` / `update:modelValue` 都是 HTML 字符串。
 // 空文档在 tiptap 里是 `<p></p>`，这里归一化成空串，避免「看起来没写内容但校验不通过」。
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, watch } from 'vue'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Link from '@tiptap/extension-link'
@@ -147,7 +144,9 @@ onBeforeUnmount(() => editor.value?.destroy())
 const charCount = computed(() => plainText(normalizeIn(props.modelValue)).length)
 
 const hint = computed(() =>
-  props.maxlength > 0 ? `支持标题、列表、表格、链接与图片，上限 ${props.maxlength} 字` : '支持标题、列表、表格、链接与图片',
+  props.maxlength > 0
+    ? `支持标题、列表、表格、链接与图片，上限 ${props.maxlength} 字`
+    : '支持标题、列表、表格、链接与图片',
 )
 
 function run(command: () => void) {
@@ -232,10 +231,7 @@ const toolbarItems = computed<ToolbarItem[]>(() => [
     title: '插入 3×3 表格',
     icon: '⊞',
     isActive: () => !!editor.value?.isActive('table'),
-    run: () =>
-      run(() =>
-        editor.value?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
-      ),
+    run: () => run(() => editor.value?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()),
   },
   {
     action: 'hr',
@@ -290,7 +286,8 @@ function applyLink() {
     el.className = 't-input__inner'
     el.placeholder = 'https://example.com'
     el.value = previous
-    el.style.cssText = 'width:100%;margin-top:8px;padding:6px 8px;border:1px solid var(--td-component-border);border-radius:4px;'
+    el.style.cssText =
+      'width:100%;margin-top:8px;padding:6px 8px;border:1px solid var(--td-component-border);border-radius:4px;'
     el.addEventListener('input', (e) => {
       input = (e.target as HTMLInputElement).value
     })
@@ -327,7 +324,8 @@ function applyImage() {
     const el = document.createElement('input')
     el.className = 't-input__inner'
     el.placeholder = 'https://cdn.example.com/banner.png'
-    el.style.cssText = 'width:100%;margin-top:8px;padding:6px 8px;border:1px solid var(--td-component-border);border-radius:4px;'
+    el.style.cssText =
+      'width:100%;margin-top:8px;padding:6px 8px;border:1px solid var(--td-component-border);border-radius:4px;'
     el.addEventListener('input', (e) => {
       input = (e.target as HTMLInputElement).value
     })
@@ -358,10 +356,7 @@ function normalizeIn(value: string | undefined): string {
 }
 
 function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 function plainText(html: string): string {

@@ -101,12 +101,7 @@
                   @change="(v: SelectValue) => setSelection(opt, v)"
                 >
                   <t-option-group v-for="g in groupedValues(opt)" :key="g.label" :label="g.label" divider>
-                    <t-option
-                      v-for="it in g.items"
-                      :key="it.value"
-                      :value="it.value"
-                      :label="itemLabel(opt, it)"
-                    />
+                    <t-option v-for="it in g.items" :key="it.value" :value="it.value" :label="itemLabel(opt, it)" />
                   </t-option-group>
                 </t-select>
 
@@ -120,12 +115,7 @@
                   filterable
                   @change="(v: SelectValue) => setSelection(opt, v)"
                 >
-                  <t-option
-                    v-for="it in opt.values"
-                    :key="it.value"
-                    :value="it.value"
-                    :label="itemLabel(opt, it)"
-                  />
+                  <t-option v-for="it in opt.values" :key="it.value" :value="it.value" :label="itemLabel(opt, it)" />
                 </t-select>
 
                 <!-- 单选按钮组 -->
@@ -174,7 +164,12 @@
                     clearable
                     @change="(v: string) => setSelectionValue(opt, v)"
                   />
-                  <t-button v-if="opt.option_key === 'hostname'" size="small" variant="outline" @click="randomHostname(opt)">
+                  <t-button
+                    v-if="opt.option_key === 'hostname'"
+                    size="small"
+                    variant="outline"
+                    @click="randomHostname(opt)"
+                  >
                     换一个
                   </t-button>
                 </div>
@@ -212,7 +207,7 @@
               <span class="configure-order__row-label">
                 开通方式
                 <em class="configure-order__row-hint">
-                  仅创建：只落待支付订单，用户自己去付款；<br>
+                  仅创建：只落待支付订单，用户自己去付款；<br />
                   余额支付并开通：从用户余额扣款后立即投递开通任务。
                 </em>
               </span>
@@ -227,9 +222,7 @@
           <section class="configure-order__section configure-order__section--price">
             <h4 class="configure-order__title">
               价格
-              <em class="configure-order__title-hint">
-                留空即按默认价下单；填了则以所填价为准，不参与折扣算价
-              </em>
+              <em class="configure-order__title-hint"> 留空即按默认价下单；填了则以所填价为准，不参与折扣算价 </em>
             </h4>
             <div class="configure-order__price-box">
               <div class="configure-order__price-base">
@@ -254,7 +247,9 @@
                     :placeholder="defaultPricePlaceholder"
                     clearable
                   />
-                  <em class="configure-order__price-field-hint">留空 = ¥{{ money(quote?.final_amount ?? defaultUnitPrice) }}</em>
+                  <em class="configure-order__price-field-hint"
+                    >留空 = ¥{{ money(quote?.final_amount ?? defaultUnitPrice) }}</em
+                  >
                 </label>
                 <label class="configure-order__price-field">
                   <span class="configure-order__price-field-name">
@@ -269,9 +264,7 @@
                     placeholder="留空 = 按商品定价续费"
                     clearable
                   />
-                  <em class="configure-order__price-field-hint">
-                    填写后此机器每次续费都按它结算，商品调价不影响
-                  </em>
+                  <em class="configure-order__price-field-hint"> 填写后此机器每次续费都按它结算，商品调价不影响 </em>
                 </label>
               </div>
             </div>
@@ -371,9 +364,7 @@ const cycleChoices = computed(() => {
 })
 
 const options = computed(() => config.value?.options ?? [])
-const lockedUpstream = computed(() =>
-  (config.value?.upstream?.options ?? []).filter((o) => o.locked),
-)
+const lockedUpstream = computed(() => (config.value?.upstream?.options ?? []).filter((o) => o.locked))
 const upstreamRenewNote = computed(() => {
   const up = config.value?.upstream
   if (!up || up.renewable) return ''
@@ -497,11 +488,17 @@ function selectSpec(sp: AdminOrderConfigSpec) {
   form.spec_code = sp.spec_code
 }
 
-watch(() => form.spec_code, () => {
-  syncCycleForSpec()
-  void refreshQuote()
-})
-watch(() => form.billing_cycle, () => void refreshQuote())
+watch(
+  () => form.spec_code,
+  () => {
+    syncCycleForSpec()
+    void refreshQuote()
+  },
+)
+watch(
+  () => form.billing_cycle,
+  () => void refreshQuote(),
+)
 // 数量与选配改动同样影响默认价（选项加价并入基数后再打折）。
 // 选配用 300ms 防抖：数量型是输入框，逐键触发会打出一串算价请求。
 watch([() => form.quantity, selection], debounceQuote, { deep: true })
@@ -569,9 +566,7 @@ function applyDefaultSelection() {
     }
     // 优先运营声明的默认值，其次首个可见值（与后端履约口径一致）。
     const preferred =
-      opt.values.find((v) => v.value === opt.default_value) ??
-      opt.values.find((v) => v.is_default) ??
-      opt.values[0]
+      opt.values.find((v) => v.value === opt.default_value) ?? opt.values.find((v) => v.is_default) ?? opt.values[0]
     if (preferred) next[opt.option_key] = preferred.value
   }
   selection.value = next
@@ -680,8 +675,8 @@ function optionSurcharge(opt: AdminOrderConfigOption): number {
   if (opt.widget === 'qty') {
     const unit = opt.unit_price ?? 0
     if (unit <= 0) return 0
-    const def = opt.default_value !== '' ? Number(opt.default_value) : opt.min_value ?? 0
-    const base = Number.isNaN(def) ? opt.min_value ?? 0 : def
+    const def = opt.default_value !== '' ? Number(opt.default_value) : (opt.min_value ?? 0)
+    const base = Number.isNaN(def) ? (opt.min_value ?? 0) : def
     const billable = numberValue(opt) - base
     return billable > 0 ? billable * unit : 0
   }
@@ -887,7 +882,9 @@ async function handleSubmit() {
   background: var(--td-bg-color-container, #fff);
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 
 .configure-order__spec:hover {

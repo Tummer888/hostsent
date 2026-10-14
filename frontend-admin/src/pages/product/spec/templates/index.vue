@@ -6,8 +6,7 @@
         <div class="page-header__text">
           <h2 class="page-header__title">规格模板（配置档）</h2>
           <p class="page-header__desc">
-            先选对接平台，再勾选该平台每个参数允许的取值；新建商品时选用档位即生成
-            1 个 SKU + 客户可选配置项。
+            先选对接平台，再勾选该平台每个参数允许的取值；新建商品时选用档位即生成 1 个 SKU + 客户可选配置项。
           </p>
         </div>
       </div>
@@ -40,7 +39,9 @@
       </div>
       <template #actions>
         <t-space size="small">
-          <t-button theme="primary" @click="search"><template #icon><SearchIcon /></template>查询</t-button>
+          <t-button theme="primary" @click="search"
+            ><template #icon><SearchIcon /></template>查询</t-button
+          >
           <t-button variant="outline" @click="resetFilters">重置</t-button>
         </t-space>
       </template>
@@ -75,23 +76,17 @@
           <span>{{ row.cpu }}核 / {{ row.memory }}G / {{ row.disk }}G</span>
         </template>
         <template #machine="{ row }">
-          <t-tag
-            v-if="row.machine_kind === 'nat'"
-            theme="warning"
-            variant="light"
-            size="small"
-            shape="round"
-          >NAT 机型</t-tag>
-          <t-tag
-            v-else-if="row.machine_kind === 'vps'"
-            theme="primary"
-            variant="light"
-            size="small"
-            shape="round"
-          >独立 IP</t-tag>
+          <t-tag v-if="row.machine_kind === 'nat'" theme="warning" variant="light" size="small" shape="round"
+            >NAT 机型</t-tag
+          >
+          <t-tag v-else-if="row.machine_kind === 'vps'" theme="primary" variant="light" size="small" shape="round"
+            >独立 IP</t-tag
+          >
           <span v-else class="cell-muted">未标注</span>
         </template>
-        <template #bandwidth="{ row }"><span>{{ row.bandwidth === 0 ? '不限' : row.bandwidth + ' Mbps' }}</span></template>
+        <template #bandwidth="{ row }"
+          ><span>{{ row.bandwidth === 0 ? '不限' : row.bandwidth + ' Mbps' }}</span></template
+        >
         <!-- 0 元参考售价要显式标出来：它在建品时会变成 0 元 SKU，是事故前兆，
              显示成空白或 "¥0" 都会被一眼扫过去。 -->
         <template #price="{ row }">
@@ -102,16 +97,22 @@
           <t-tag v-if="row.platform_params" theme="success" variant="light" size="small" shape="round">已配映射</t-tag>
           <t-tag v-else theme="warning" variant="light" size="small" shape="round">缺平台映射</t-tag>
         </template>
-        <template #status="{ row }"><t-tag :theme="row.status === 1 ? 'success' : 'default'" variant="light" size="small" shape="round">{{ row.status === 1 ? '启用' : '停用' }}</t-tag></template>
+        <template #status="{ row }"
+          ><t-tag :theme="row.status === 1 ? 'success' : 'default'" variant="light" size="small" shape="round">{{
+            row.status === 1 ? '启用' : '停用'
+          }}</t-tag></template
+        >
         <template #action="{ row }">
           <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '编辑', value: 'edit', theme: 'default' },
-                { content: '复制', value: 'clone', theme: 'default' },
-                { content: '删除', value: 'delete', theme: 'error' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '编辑', value: 'edit', theme: 'default' },
+                  { content: '复制', value: 'clone', theme: 'default' },
+                  { content: '删除', value: 'delete', theme: 'error' },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
@@ -222,17 +223,14 @@
 
           <t-form-item label="机型" name="machineKind">
             <t-radio-group v-model="machineKind" variant="default-filled" @change="onMachineKindChange">
-              <t-radio-button
-                v-for="opt in machineKindOptions"
-                :key="opt.value"
-                :value="opt.value"
-              >{{ opt.label }}</t-radio-button>
+              <t-radio-button v-for="opt in machineKindOptions" :key="opt.value" :value="opt.value">{{
+                opt.label
+              }}</t-radio-button>
             </t-radio-group>
             <p class="opt-row__help">
               {{ machineKindOptions.find((o) => o.value === machineKind)?.description || '' }}
               <template v-if="machineKind === 'nat'">
-                NAT 机型不分配独立 IP，客户通过节点转发地址（nat_host_ip:ext_port）访问；
-                开通参数里 IP 数量固定为 0。
+                NAT 机型不分配独立 IP，客户通过节点转发地址（nat_host_ip:ext_port）访问； 开通参数里 IP 数量固定为 0。
               </template>
             </p>
           </t-form-item>
@@ -257,8 +255,7 @@
         <template v-for="grp in catalogGroups" :key="grpTabValue(grp.name)">
           <template v-if="activeSection === grpTabValue(grp.name)">
             <div class="section-hint">
-              本分组已开 <strong>{{ grp.enabled }}</strong> / {{ grp.rows.length }} 项 ·
-              多选取值会成为客户可选配置项
+              本分组已开 <strong>{{ grp.enabled }}</strong> / {{ grp.rows.length }} 项 · 多选取值会成为客户可选配置项
             </div>
 
             <div
@@ -319,7 +316,9 @@
                       multiple
                       clearable
                       filterable
-                      :placeholder="row.spec.value_source === 'manual' ? '手工填写取值（输入后回车添加）' : '选择允许客户选取的值'"
+                      :placeholder="
+                        row.spec.value_source === 'manual' ? '手工填写取值（输入后回车添加）' : '选择允许客户选取的值'
+                      "
                       :options="valueOptions(row)"
                       :loading="resourceLoading"
                       :creatable="row.spec.value_source === 'manual'"
@@ -328,7 +327,12 @@
                     <div class="opt-inline">
                       <label class="opt-field">
                         默认值
-                        <t-select v-model="row.default" clearable placeholder="默认选中" :options="selectedValueOptions(row)" />
+                        <t-select
+                          v-model="row.default"
+                          clearable
+                          placeholder="默认选中"
+                          :options="selectedValueOptions(row)"
+                        />
                       </label>
                       <label class="opt-field">
                         分组（用户侧下拉分组）
@@ -368,10 +372,21 @@
               />
             </t-form-item>
             <t-form-item label="节点 node" :class="{ 'field-error': highlightKey === 'node' }">
-              <t-select id="field-node" v-model="platformParams.node" clearable placeholder="平台节点" :options="nodeOptions" />
+              <t-select
+                id="field-node"
+                v-model="platformParams.node"
+                clearable
+                placeholder="平台节点"
+                :options="nodeOptions"
+              />
             </t-form-item>
             <t-form-item label="存储 store">
-              <t-select v-model="platformParams.store" clearable placeholder="系统盘存储（可选）" :options="storeOptions" />
+              <t-select
+                v-model="platformParams.store"
+                clearable
+                placeholder="系统盘存储（可选）"
+                :options="storeOptions"
+              />
             </t-form-item>
             <t-form-item label="镜像 os">
               <t-select v-model="platformParams.os" clearable placeholder="平台镜像" :options="imageOptions" />
@@ -379,9 +394,7 @@
           </div>
 
           <!-- 机型参数：决定这条档位走独立 IP 还是 NAT 链路，必须显式下发 -->
-          <div class="section-hint section-hint--sub">
-            机型参数（决定开通链路：独立 IP 还是 NAT 转发）
-          </div>
+          <div class="section-hint section-hint--sub">机型参数（决定开通链路：独立 IP 还是 NAT 转发）</div>
           <div class="form-grid">
             <t-form-item label="IP 数量 ip_num">
               <t-input-number
@@ -416,8 +429,11 @@
           </div>
 
           <t-form-item label="其他平台参数（高级 JSON）">
-            <t-textarea v-model="extraParamsText" :autosize="{ minRows: 2, maxRows: 5 }"
-              placeholder='上面下拉之外的键，如 {"network_type":"normal","snapshot_num":1}' />
+            <t-textarea
+              v-model="extraParamsText"
+              :autosize="{ minRows: 2, maxRows: 5 }"
+              placeholder='上面下拉之外的键，如 {"network_type":"normal","snapshot_num":1}'
+            />
           </t-form-item>
         </template>
 
@@ -428,22 +444,35 @@
             <t-input v-model="form.name_template" placeholder="{cpu}核{memory}G {os}" />
           </t-form-item>
           <t-form-item label="描述模板">
-            <t-textarea v-model="form.description_template" :autosize="{ minRows: 2, maxRows: 4 }"
-              placeholder="{cpu}核{memory}GB 内存 / {disk}GB 系统盘 / {bw}Mbps 带宽" />
+            <t-textarea
+              v-model="form.description_template"
+              :autosize="{ minRows: 2, maxRows: 4 }"
+              placeholder="{cpu}核{memory}GB 内存 / {disk}GB 系统盘 / {bw}Mbps 带宽"
+            />
           </t-form-item>
           <t-alert theme="info">
             <template #message>
               <div>预览（按基线取值展开）：</div>
-              <div class="preview-line">商品名：<strong>{{ previewName || '—' }}</strong></div>
-              <div class="preview-line">SKU 编码：<code>{{ previewCode || '—' }}</code></div>
+              <div class="preview-line">
+                商品名：<strong>{{ previewName || '—' }}</strong>
+              </div>
+              <div class="preview-line">
+                SKU 编码：<code>{{ previewCode || '—' }}</code>
+              </div>
               <div class="preview-line">描述：{{ previewDesc || '—' }}</div>
-              <div class="preview-line">平台参数：<code>{{ previewPlatformParams }}</code></div>
+              <div class="preview-line">
+                平台参数：<code>{{ previewPlatformParams }}</code>
+              </div>
             </template>
           </t-alert>
         </template>
 
         <t-alert v-if="!providerId" theme="warning" message="请先选择对接平台，才能读到该平台的配置项目录。" />
-        <t-alert v-else-if="!catalog.length" theme="info" message="该平台暂无配置项目录，请先到「产品管理 → 规格管理 → 平台配置项」同步目录。" />
+        <t-alert
+          v-else-if="!catalog.length"
+          theme="info"
+          message="该平台暂无配置项目录，请先到「产品管理 → 规格管理 → 平台配置项」同步目录。"
+        />
       </t-form>
     </t-dialog>
   </div>
@@ -455,12 +484,17 @@ import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { AddIcon, AppIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-next'
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 
-import { createSpecTemplate, deleteSpecTemplate, getOptionCatalog, getSpecTemplateList, updateSpecTemplate } from '@/api/product'
+import {
+  createSpecTemplate,
+  deleteSpecTemplate,
+  getOptionCatalog,
+  getSpecTemplateList,
+  updateSpecTemplate,
+} from '@/api/product'
 import { getProviderList, getProviderPlatformResources } from '@/api/admin'
 import { formatPrice } from '@/pages/product/constants'
 import type {
   OptionSpecInfo,
-  OptionValueItem,
   PlatformResourceItem,
   ProviderInfo,
   SpecOptionSelections,
@@ -503,7 +537,13 @@ const columns: PrimaryTableCol<SpecTemplateInfo>[] = [
   { colKey: 'platform', title: '平台映射', width: 110 },
   { colKey: 'price', title: '参考售价', width: 100 },
   { colKey: 'status', title: '状态', width: 90 },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 170, fixed: 'right' as const, align: 'center' as const },
+  {
+    colKey: 'action',
+    title: '操作',
+    width: isMobile.value ? 70 : 170,
+    fixed: 'right' as const,
+    align: 'center' as const,
+  },
 ]
 
 function selectionCount(row: SpecTemplateInfo): number {
@@ -598,7 +638,8 @@ async function loadPlatformOptions() {
     const data = await getProviderList({ page_size: 100 })
     const compute = data.items.filter((item: ProviderInfo) => item.kind === 'compute')
     platformOptions.value = compute.map((item: ProviderInfo) => ({
-      label: `${item.name}（${item.provider_type}）`, value: item.id,
+      label: `${item.name}（${item.provider_type}）`,
+      value: item.id,
     }))
     const seen = new Set<string>()
     platformTypeOptions.value = compute
@@ -653,11 +694,21 @@ const extraParamsText = ref('')
 // 3 秒后自动清除；置于此处是因为它同时被「平台映射」与配置项行消费。
 const highlightKey = ref('')
 const platformParams = reactive<{
-  area?: string; node?: string; store?: string; os?: string
-  ip_num?: number; nat_acl_limit?: string; nat_web_limit?: string
+  area?: string
+  node?: string
+  store?: string
+  os?: string
+  ip_num?: number
+  nat_acl_limit?: string
+  nat_web_limit?: string
 }>({
-  area: undefined, node: undefined, store: undefined, os: undefined,
-  ip_num: undefined, nat_acl_limit: undefined, nat_web_limit: undefined,
+  area: undefined,
+  node: undefined,
+  store: undefined,
+  os: undefined,
+  ip_num: undefined,
+  nat_acl_limit: undefined,
+  nat_web_limit: undefined,
 })
 const PLATFORM_KEYS = ['area', 'node', 'store', 'os'] as const
 // 机型参数（doc122）：与 PLATFORM_KEYS 一样是「平台上的一等字段」，写进 platform_params。
@@ -698,8 +749,14 @@ function emptyForm() {
   return {
     // price 初始 undefined（不是 0）：0 元参考售价会生成 0 元 SKU，
     // 显示成空 + 必填校验，比预填 0 再拦住更不容易漏。
-    id: 0, name: '', price: undefined as number | undefined, sort_order: 0, status: 1,
-    disk: 40, disk_type: 'ssd', os: '',
+    id: 0,
+    name: '',
+    price: undefined as number | undefined,
+    sort_order: 0,
+    status: 1,
+    disk: 40,
+    disk_type: 'ssd',
+    os: '',
     name_template: '{cpu}核{memory}G {os}',
     description_template: '{cpu}核{memory}GB 内存 / {disk}GB 系统盘 / {bw}Mbps 带宽',
   }
@@ -757,9 +814,7 @@ function isExpanded(row: OptionRow): boolean {
 
 function toggleExpand(row: OptionRow) {
   const key = row.spec.option_key
-  expandedKeys.value = isExpanded(row)
-    ? expandedKeys.value.filter((k) => k !== key)
-    : [...expandedKeys.value, key]
+  expandedKeys.value = isExpanded(row) ? expandedKeys.value.filter((k) => k !== key) : [...expandedKeys.value, key]
 }
 
 function onEnabledChange(row: OptionRow) {
@@ -793,9 +848,7 @@ function rowSummary(row: OptionRow): string {
 /** rowValuesHelp 已选取值里能查到含义的那些（-1 不开通 / 0 不限量 / auto 随机端口）。 */
 function rowValuesHelp(row: OptionRow): { value: string; text: string }[] {
   const map = (row.spec.options_help || {}) as Record<string, string>
-  return row.values
-    .filter((v) => map[v])
-    .map((v) => ({ value: v, text: String(map[v]) }))
+  return row.values.filter((v) => map[v]).map((v) => ({ value: v, text: String(map[v]) }))
 }
 
 function isQtyOption(spec: OptionSpecInfo): boolean {
@@ -861,7 +914,7 @@ function baselineOf(key: string): string | undefined {
   const row = rows.value.find((r) => r.spec.option_key === key)
   if (!row || !row.enabled) return undefined
   if (isQtyOption(row.spec)) {
-    return row.defaultNumber != null ? String(row.defaultNumber) : (row.spec.default_value || undefined)
+    return row.defaultNumber != null ? String(row.defaultNumber) : row.spec.default_value || undefined
   }
   return row.default || row.values[0]
 }
@@ -894,9 +947,7 @@ function focusSection(section: string, fieldKey?: string) {
   nextTick(() => {
     highlightKey.value = fieldKey
     // 滚动到该字段所在行（配置项行有 data-opt-key，映射区用 id 定位）。
-    const el =
-      document.querySelector(`[data-opt-key="${fieldKey}"]`) ||
-      document.getElementById(`field-${fieldKey}`)
+    const el = document.querySelector(`[data-opt-key="${fieldKey}"]`) || document.getElementById(`field-${fieldKey}`)
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     window.setTimeout(() => {
       if (highlightKey.value === fieldKey) highlightKey.value = ''
@@ -924,7 +975,7 @@ function renderTemplate(tpl: string): string {
     const osValue = baselineOf('os')
     if (!osValue) return form.os || ''
     const hit = (resources.value.images || []).find((i) => i.value === osValue)
-    return hit ? (hit.label.split(' / ').pop() || hit.label) : osValue
+    return hit ? hit.label.split(' / ').pop() || hit.label : osValue
   })()
   const vars: Record<string, string> = {
     '{cpu}': String(baselineCpu()),
@@ -1142,8 +1193,13 @@ async function openCreate() {
   activeSection.value = 'basic'
   resetExpanded()
   Object.assign(platformParams, {
-    area: undefined, node: undefined, store: undefined, os: undefined,
-    ip_num: undefined, nat_acl_limit: undefined, nat_web_limit: undefined,
+    area: undefined,
+    node: undefined,
+    store: undefined,
+    os: undefined,
+    ip_num: undefined,
+    nat_acl_limit: undefined,
+    nat_web_limit: undefined,
   })
   resources.value = { areas: [], nodes: [], stores: [], images: [] }
   extraParamsText.value = ''
@@ -1212,8 +1268,13 @@ async function onPlatformChange(value?: number | string) {
     providerType.value = match ? match[1] : ''
   }
   Object.assign(platformParams, {
-    area: undefined, node: undefined, store: undefined, os: undefined,
-    ip_num: undefined, nat_acl_limit: undefined, nat_web_limit: undefined,
+    area: undefined,
+    node: undefined,
+    store: undefined,
+    os: undefined,
+    ip_num: undefined,
+    nat_acl_limit: undefined,
+    nat_web_limit: undefined,
   })
   activeSection.value = 'basic'
   resetExpanded()
@@ -1382,9 +1443,10 @@ function remove(row: SpecTemplateInfo) {
 }
 
 function handleMobileAction(value: string | number | Record<string, unknown>, row: SpecTemplateInfo) {
-  const action = typeof value === 'string' || typeof value === 'number'
-    ? String(value)
-    : String((value as { value?: string })?.value ?? '')
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'edit':
       void openEdit(row)

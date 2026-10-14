@@ -3,10 +3,17 @@
     <div class="capability-matrix__head">
       <h4 class="capability-matrix__title">{{ title }}</h4>
       <t-space size="small">
-        <t-tag :theme="descriptor.kind === 'compute' ? 'success' : 'default'" variant="light" size="small" shape="round">
+        <t-tag
+          :theme="descriptor.kind === 'compute' ? 'success' : 'default'"
+          variant="light"
+          size="small"
+          shape="round"
+        >
           {{ labelOf(KIND_LABELS, descriptor.kind) }}
         </t-tag>
-        <t-tag v-if="!descriptor.implemented" theme="warning" variant="light" size="small" shape="round">适配器未接入</t-tag>
+        <t-tag v-if="!descriptor.implemented" theme="warning" variant="light" size="small" shape="round"
+          >适配器未接入</t-tag
+        >
         <t-tag v-else theme="success" variant="light" size="small" shape="round">适配器已接入</t-tag>
       </t-space>
     </div>
@@ -40,7 +47,14 @@
         <span class="matrix-cell__label">计费周期</span>
         <div class="matrix-cell__tags">
           <template v-if="billingCycles.length">
-            <t-tag v-for="cycle in billingCycles" :key="cycle" theme="default" variant="light" size="small" shape="round">
+            <t-tag
+              v-for="cycle in billingCycles"
+              :key="cycle"
+              theme="default"
+              variant="light"
+              size="small"
+              shape="round"
+            >
               {{ labelOf(BILLING_CYCLE_LABELS, cycle) }}
             </t-tag>
           </template>
@@ -66,10 +80,10 @@
           <t-tag theme="default" variant="light" size="small" shape="round">
             签名：{{ labelOf(SIGNER_LABELS, descriptor.signer_type) }}
           </t-tag>
-          <t-tag theme="default" variant="light" size="small" shape="round">
-            限流：{{ rateLimitText }}
-          </t-tag>
-          <t-tag v-if="descriptor.supports_paging" theme="default" variant="light" size="small" shape="round">分页读取</t-tag>
+          <t-tag theme="default" variant="light" size="small" shape="round"> 限流：{{ rateLimitText }} </t-tag>
+          <t-tag v-if="descriptor.supports_paging" theme="default" variant="light" size="small" shape="round"
+            >分页读取</t-tag
+          >
         </div>
       </div>
 
@@ -96,7 +110,9 @@
       <div v-if="dictionaryEntries.length" class="matrix-cell matrix-cell--full">
         <span class="matrix-cell__label">
           平台字段字典
-          <t-tag v-if="dictionarySource" theme="warning" variant="light" size="small" shape="round">{{ dictionarySource }}</t-tag>
+          <t-tag v-if="dictionarySource" theme="warning" variant="light" size="small" shape="round">{{
+            dictionarySource
+          }}</t-tag>
         </span>
         <div class="matrix-cell__tags">
           <t-tooltip v-for="entry in dictionaryEntries" :key="entry.key" :content="entry.value" placement="top">

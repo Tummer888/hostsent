@@ -96,24 +96,24 @@ export interface VNCResult {
 }
 
 export function listInstances(params: { live?: boolean } = {}) {
-  return request.get<any, { data: InstanceListResponse }>('/uc/instances', { params })
+  return request.get<unknown, { data: InstanceListResponse }>('/uc/instances', { params })
 }
 
 export function getInstance(id: number, live = false) {
-  return request.get<any, { data: InstanceInfo }>(`/uc/instances/${id}`, { params: { live } })
+  return request.get<unknown, { data: InstanceInfo }>(`/uc/instances/${id}`, { params: { live } })
 }
 
 export function powerInstance(id: number, action: PowerAction) {
-  return request.post<any, { data: unknown }>(`/uc/instances/${id}/power`, { action })
+  return request.post<unknown, { data: unknown }>(`/uc/instances/${id}/power`, { action })
 }
 
 /** 重新开通待开通实例（重投订单履约任务；不产生新订单/新账单）。 */
 export function retryInstanceProvision(id: number) {
-  return request.post<any, { data: InstanceInfo }>(`/uc/instances/${id}/provision-retry`)
+  return request.post<unknown, { data: InstanceInfo }>(`/uc/instances/${id}/provision-retry`)
 }
 
 export function vncInstance(id: number) {
-  return request.post<any, { data: VNCResult }>(`/uc/instances/${id}/vnc`)
+  return request.post<unknown, { data: VNCResult }>(`/uc/instances/${id}/vnc`)
 }
 
 /**
@@ -131,7 +131,7 @@ export function vncInstance(id: number) {
  * 不触发任何退款/余额返还。
  */
 export function destroyInstance(id: number, confirmMark: string, reason?: string, verifyTicket?: string) {
-  return request.delete<any, { data: unknown }>(`/uc/instances/${id}`, {
+  return request.delete<unknown, { data: unknown }>(`/uc/instances/${id}`, {
     data: { confirm_mark: confirmMark, reason },
     headers: verifyTicket ? { 'X-Verify-Ticket': verifyTicket } : undefined,
   })
@@ -156,24 +156,24 @@ export function reinstallInstance(
   },
   verifyTicket?: string,
 ) {
-  return request.post<any, { data: ReinstallResult }>(`/uc/instances/${id}/reinstall`, data, {
+  return request.post<unknown, { data: ReinstallResult }>(`/uc/instances/${id}/reinstall`, data, {
     headers: verifyTicket ? { 'X-Verify-Ticket': verifyTicket } : undefined,
   })
 }
 
 export function resetInstancePassword(id: number, password: string) {
-  return request.post<any, { data: unknown }>(`/uc/instances/${id}/reset-password`, { password })
+  return request.post<unknown, { data: unknown }>(`/uc/instances/${id}/reset-password`, { password })
 }
 
 export function rescueInstance(id: number, system: number, tempPassword: string) {
-  return request.post<any, { data: unknown }>(`/uc/instances/${id}/rescue`, {
+  return request.post<unknown, { data: unknown }>(`/uc/instances/${id}/rescue`, {
     system,
     temp_password: tempPassword,
   })
 }
 
 export function exitRescueInstance(id: number) {
-  return request.post<any, { data: unknown }>(`/uc/instances/${id}/exit-rescue`)
+  return request.post<unknown, { data: unknown }>(`/uc/instances/${id}/exit-rescue`)
 }
 
 export interface SnapshotInfo {
@@ -189,19 +189,19 @@ export interface SnapshotInfo {
 }
 
 export function listInstanceSnapshots(id: number, type?: string) {
-  return request.get<any, { data: SnapshotInfo[] }>(`/uc/instances/${id}/snapshots`, { params: { type } })
+  return request.get<unknown, { data: SnapshotInfo[] }>(`/uc/instances/${id}/snapshots`, { params: { type } })
 }
 
 export function createInstanceSnapshot(id: number, data: { type?: string; name?: string; disk_id?: string }) {
-  return request.post<any, { data: unknown }>(`/uc/instances/${id}/snapshots`, data)
+  return request.post<unknown, { data: unknown }>(`/uc/instances/${id}/snapshots`, data)
 }
 
 export function deleteInstanceSnapshot(id: number, snapshotId: string) {
-  return request.delete<any, { data: unknown }>(`/uc/instances/${id}/snapshots/${snapshotId}`)
+  return request.delete<unknown, { data: unknown }>(`/uc/instances/${id}/snapshots/${snapshotId}`)
 }
 
 export function restoreInstanceSnapshot(id: number, snapshotId: string, confirmMark: string, verifyTicket?: string) {
-  return request.post<any, { data: unknown }>(
+  return request.post<unknown, { data: unknown }>(
     `/uc/instances/${id}/snapshots/restore`,
     { snapshot_id: snapshotId, confirm_mark: confirmMark },
     { headers: verifyTicket ? { 'X-Verify-Ticket': verifyTicket } : undefined },
@@ -222,7 +222,7 @@ export interface InstanceOperation {
 }
 
 export function listInstanceOperations(id: number, limit = 20) {
-  return request.get<any, { data: InstanceOperation[] }>(`/uc/instances/${id}/operations`, {
+  return request.get<unknown, { data: InstanceOperation[] }>(`/uc/instances/${id}/operations`, {
     params: { limit },
   })
 }
@@ -265,15 +265,12 @@ export interface MetricsSeries {
 }
 
 export function getInstanceMetricsCatalog(id: number) {
-  return request.get<any, { data: MetricsCatalog }>(`/uc/instances/${id}/metrics`)
+  return request.get<unknown, { data: MetricsCatalog }>(`/uc/instances/${id}/metrics`)
 }
 
 /** 时间窗预设：1h/6h/24h/7d（后端默认 6h）。 */
 export type MetricsRange = '1h' | '6h' | '24h' | '7d'
 
-export function getInstanceMetricsSeries(
-  id: number,
-  params: { type: string; select?: string; range?: MetricsRange },
-) {
-  return request.get<any, { data: MetricsSeries }>(`/uc/instances/${id}/metrics/series`, { params })
+export function getInstanceMetricsSeries(id: number, params: { type: string; select?: string; range?: MetricsRange }) {
+  return request.get<unknown, { data: MetricsSeries }>(`/uc/instances/${id}/metrics/series`, { params })
 }

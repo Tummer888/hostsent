@@ -32,7 +32,13 @@
       </div>
       <div class="field">
         <span class="field__label">用户 ID</span>
-        <t-input-number v-model="filters.user_id" :min="1" theme="column" placeholder="按用户过滤" style="width: 100%" />
+        <t-input-number
+          v-model="filters.user_id"
+          :min="1"
+          theme="column"
+          placeholder="按用户过滤"
+          style="width: 100%"
+        />
       </div>
       <template #actions>
         <t-space size="small">
@@ -118,20 +124,29 @@
     <t-drawer v-model:visible="detailVisible" header="续费详情" size="420px" :footer="false">
       <t-loading :loading="detailLoading" show-overlay>
         <div v-if="detail" class="detail-list">
-          <div class="detail-row"><span>续费单号</span><b>{{ detail.renewal_no }}</b></div>
-          <div class="detail-row"><span>状态</span>
-            <t-tag :theme="statusTheme(detail.status)" variant="light" size="small">{{ statusLabel(detail.status) }}</t-tag>
+          <div class="detail-row">
+            <span>续费单号</span><b>{{ detail.renewal_no }}</b>
+          </div>
+          <div class="detail-row">
+            <span>状态</span>
+            <t-tag :theme="statusTheme(detail.status)" variant="light" size="small">{{
+              statusLabel(detail.status)
+            }}</t-tag>
           </div>
           <div class="detail-row"><span>来源</span>{{ sourceLabel(detail.source) }}</div>
           <div class="detail-row"><span>实例</span>{{ detail.instance_mark }}（{{ detail.product_name }}）</div>
           <div class="detail-row"><span>用户</span>{{ detail.username }}（ID {{ detail.user_id }}）</div>
-          <div class="detail-row"><span>金额</span>¥{{ formatAmount(detail.amount) }} × {{ detail.period_count }} 周期</div>
+          <div class="detail-row">
+            <span>金额</span>¥{{ formatAmount(detail.amount) }} × {{ detail.period_count }} 周期
+          </div>
           <div class="detail-row"><span>关联订单</span>{{ detail.order_no || '—' }}</div>
           <div class="detail-row"><span>支付时间</span>{{ formatTime(detail.pay_time) }}</div>
           <div class="detail-row"><span>续费前到期</span>{{ formatTime(detail.expire_before) }}</div>
           <div class="detail-row"><span>续费后到期</span>{{ formatTime(detail.expire_after) }}</div>
           <div class="detail-row"><span>创建时间</span>{{ formatTime(detail.created_at) }}</div>
-          <div v-if="detail.fail_reason" class="detail-row"><span>失败原因</span><span class="fail-text">{{ detail.fail_reason }}</span></div>
+          <div v-if="detail.fail_reason" class="detail-row">
+            <span>失败原因</span><span class="fail-text">{{ detail.fail_reason }}</span>
+          </div>
         </div>
       </t-loading>
     </t-drawer>
@@ -287,7 +302,6 @@ async function applyMobilePage(current: number, pageSize: number) {
 function handleMobilePageSizeChange(pageSize: number) {
   void applyMobilePage(1, pageSize)
 }
-
 
 // —— 详情抽屉 ——
 const detailVisible = ref(false)

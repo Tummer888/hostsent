@@ -56,13 +56,16 @@ const loading = ref(false)
 const submitting = ref(false)
 const roleOptions = ref<{ label: string; value: number }[]>([])
 
-watch(() => props.modelValue, (value) => {
-  visible.value = value
-  if (value) {
-    selected.value = [...props.currentRoleIds]
-    void loadRoles()
-  }
-})
+watch(
+  () => props.modelValue,
+  (value) => {
+    visible.value = value
+    if (value) {
+      selected.value = [...props.currentRoleIds]
+      void loadRoles()
+    }
+  },
+)
 watch(visible, (value) => emit('update:modelValue', value))
 
 async function loadRoles() {

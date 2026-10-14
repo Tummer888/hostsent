@@ -13,7 +13,7 @@
       <div class="page-header__actions">
         <t-button variant="outline" @click="router.push('/cart')">
           购物车
-          <template #suffix v-if="cartStore.count > 0">({{ cartStore.count }})</template>
+          <template v-if="cartStore.count > 0" #suffix>({{ cartStore.count }})</template>
         </t-button>
       </div>
     </header>
@@ -68,12 +68,9 @@
               <span class="shop-card__price">¥{{ p.price.toFixed(2) }}</span>
               <span class="shop-card__unit">{{ priceModelLabel(p.price_model) }}</span>
             </div>
-            <t-button
-              size="small"
-              theme="primary"
-              :disabled="!p.skus.length && p.stock === 0"
-              @click="openConfig(p)"
-            >{{ !p.skus.length && p.stock === 0 ? '已售罄' : '购买' }}</t-button>
+            <t-button size="small" theme="primary" :disabled="!p.skus.length && p.stock === 0" @click="openConfig(p)">{{
+              !p.skus.length && p.stock === 0 ? '已售罄' : '购买'
+            }}</t-button>
           </div>
         </div>
       </article>
@@ -190,7 +187,7 @@ async function consumeIntent() {
   const query: Record<string, string> = {}
   for (const key of ['spec', 'cycle', 'config'] as const) {
     const value = route.query[key]
-    const text = String(Array.isArray(value) ? value[0] : value ?? '')
+    const text = String(Array.isArray(value) ? value[0] : (value ?? ''))
     if (text) query[key] = text
   }
   await router.replace({ name: 'ShopConfig', params: { id: productId }, query })
@@ -223,7 +220,8 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: transform var(--hs-duration-base) var(--hs-ease-out),
+  transition:
+    transform var(--hs-duration-base) var(--hs-ease-out),
     box-shadow var(--hs-duration-base) var(--hs-ease-out);
 }
 
@@ -325,6 +323,5 @@ onMounted(async () => {
     grid-template-columns: 1fr;
     gap: var(--space-md);
   }
-
 }
 </style>

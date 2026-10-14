@@ -64,11 +64,11 @@ export interface SecuritySettingsUpdateRequest {
 }
 
 export function getSecuritySettings() {
-  return request.get<any, { data: SecuritySettings }>('/uc/security/settings')
+  return request.get<unknown, { data: SecuritySettings }>('/uc/security/settings')
 }
 
 export function updateSecuritySettings(data: SecuritySettingsUpdateRequest) {
-  return request.put<any, { data: SecuritySettings }>('/uc/security/settings', data)
+  return request.put<unknown, { data: SecuritySettings }>('/uc/security/settings', data)
 }
 
 /** 已登录用户下发验证码：目标由服务端按账号绑定解析，前端传空即可。 */
@@ -79,14 +79,14 @@ export function sendSecurityVerification(data: {
   captcha_code?: string
 }) {
   return request.post<
-    any,
+    unknown,
     { data: { sent: boolean; channel: string; target_masked: string; expire_in: number; cooldown: number } }
   >('/uc/security/verification/send', data)
 }
 
 /** 校验验证码并换取关键操作票据（X-Verify-Ticket）。 */
 export function verifySecurityCode(data: { scene: string; code: string }) {
-  return request.post<any, { data: { verify_ticket: string; expire_in: number } }>(
+  return request.post<unknown, { data: { verify_ticket: string; expire_in: number } }>(
     '/uc/security/verification/verify',
     data,
   )
@@ -94,7 +94,7 @@ export function verifySecurityCode(data: { scene: string; code: string }) {
 
 /** 查询某场景的验证要求（无票据时弹框用）。 */
 export function getVerificationRequirement(scene: string) {
-  return request.get<any, { data: VerificationRequirement }>('/uc/security/verification/requirement', {
+  return request.get<unknown, { data: VerificationRequirement }>('/uc/security/verification/requirement', {
     params: { scene },
   })
 }

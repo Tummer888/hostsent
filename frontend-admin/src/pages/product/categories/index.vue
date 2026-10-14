@@ -73,7 +73,13 @@
           <div class="category-name">
             <span class="category-lv" :class="`category-lv--${levelOf(row)}`">{{ levelLabel(levelOf(row)) }}</span>
             <span class="category-name__text" :class="`category-name__text--l${levelOf(row)}`">{{ row.name }}</span>
-            <t-tag v-if="row.children?.length" size="small" variant="outline" theme="default" class="category-name__count">
+            <t-tag
+              v-if="row.children?.length"
+              size="small"
+              variant="outline"
+              theme="default"
+              class="category-name__count"
+            >
               {{ row.children.length }} 个子分类
             </t-tag>
           </div>
@@ -87,7 +93,8 @@
             :theme="row.status === 1 ? 'success' : row.status === 0 ? 'default' : 'danger'"
             variant="light"
             size="small"
-          >{{ statusTag(row.status).text }}</t-tag>
+            >{{ statusTag(row.status).text }}</t-tag
+          >
         </template>
         <template #op="{ row }">
           <t-space size="small" class="category-actions">
@@ -213,8 +220,7 @@ function levelLabel(level: number): string {
   return level <= LEVEL_COUNT ? `${['一', '二', '三', '四'][level - 1]}级` : `${level}级`
 }
 
-const rowLevelClass = ({ row }: { row: SaleProductCategoryInfo }): string =>
-  levelOf(row) === 1 ? 'cat-row--l1' : ''
+const rowLevelClass = ({ row }: { row: SaleProductCategoryInfo }): string => (levelOf(row) === 1 ? 'cat-row--l1' : '')
 
 const levelStats = computed(() => {
   const counts = new Map<number, number>()

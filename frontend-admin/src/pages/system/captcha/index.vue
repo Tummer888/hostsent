@@ -8,7 +8,8 @@
         <div class="page-header__text">
           <h2 class="page-header__title">验证码配置</h2>
           <p class="page-header__desc">
-            图形验证码与短信/邮箱验证码的服务商、场景策略与下发统计。总开关 <code>captcha_enabled</code> 默认关闭：关闭时策略行只是「预配置」，不生效。
+            图形验证码与短信/邮箱验证码的服务商、场景策略与下发统计。总开关
+            <code>captcha_enabled</code> 默认关闭：关闭时策略行只是「预配置」，不生效。
           </p>
         </div>
       </div>
@@ -24,7 +25,9 @@
       <!-- Tab 1 服务商 -->
       <div v-if="activeTab === 'providers'" class="tab-body">
         <div class="tab-toolbar">
-          <span class="tab-toolbar__hint">未接入的服务商显示「配置占位」：凭证可保存加密落库，测试时提示待接入，不会误报失败。</span>
+          <span class="tab-toolbar__hint"
+            >未接入的服务商显示「配置占位」：凭证可保存加密落库，测试时提示待接入，不会误报失败。</span
+          >
           <t-space size="small">
             <t-button v-if="canManage" theme="primary" @click="openCreate">
               <template #icon><AddIcon aria-hidden="true" /></template>
@@ -66,7 +69,9 @@
               <t-tag :theme="healthTheme(row.health_status)" variant="light" size="small" shape="round">
                 {{ healthLabel(row) }}
               </t-tag>
-              <span v-if="row.last_error" class="price-sub error-text" :title="row.last_error">{{ row.last_error }}</span>
+              <span v-if="row.last_error" class="price-sub error-text" :title="row.last_error">{{
+                row.last_error
+              }}</span>
             </div>
           </template>
           <template #last_check_at="{ row }">
@@ -84,12 +89,7 @@
             <div class="action-cell">
               <t-link theme="primary" hover="color" @click="handleTest(row)">测试</t-link>
               <t-link v-if="canManage" theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
-              <t-link
-                v-if="canManage && !row.builtin"
-                theme="danger"
-                hover="color"
-                @click="handleDelete(row)"
-              >
+              <t-link v-if="canManage && !row.builtin" theme="danger" hover="color" @click="handleDelete(row)">
                 删除
               </t-link>
             </div>
@@ -180,20 +180,26 @@
           </template>
           <template #advanced="{ row }">
             <span class="cell-muted">
-              限次 {{ row.max_attempts }} · TTL {{ row.ttl_seconds }}s · 间隔 {{ row.send_interval_seconds }}s · 日限 {{ row.daily_limit_per_target }}
+              限次 {{ row.max_attempts }} · TTL {{ row.ttl_seconds }}s · 间隔 {{ row.send_interval_seconds }}s · 日限
+              {{ row.daily_limit_per_target }}
             </span>
           </template>
           <template #user_rights="{ row }">
             <div class="tag-list">
-              <t-tag v-if="row.user_can_tighten" theme="success" variant="light" size="small" shape="round">可加严</t-tag>
-              <t-tag v-if="row.user_can_choose_channel" theme="success" variant="light" size="small" shape="round">可换通道</t-tag>
+              <t-tag v-if="row.user_can_tighten" theme="success" variant="light" size="small" shape="round"
+                >可加严</t-tag
+              >
+              <t-tag v-if="row.user_can_choose_channel" theme="success" variant="light" size="small" shape="round"
+                >可换通道</t-tag
+              >
               <t-tag v-if="row.min_channel_level > 0" theme="default" variant="light" size="small" shape="round">
                 通道≥L{{ row.min_channel_level }}
               </t-tag>
               <span
                 v-if="!row.user_can_tighten && !row.user_can_choose_channel && !row.min_channel_level"
                 class="price-sub"
-              >平台固定</span>
+                >平台固定</span
+              >
             </div>
           </template>
           <template #status="{ row }">
@@ -347,13 +353,21 @@
               <t-switch v-model="policyForm.image_required" />
             </t-form-item>
             <t-form-item label="图形码强度">
-              <t-select v-model="policyForm.image_level" :options="imageLevelOptions" :disabled="!policyForm.image_required" />
+              <t-select
+                v-model="policyForm.image_level"
+                :options="imageLevelOptions"
+                :disabled="!policyForm.image_required"
+              />
             </t-form-item>
             <t-form-item label="OTP 验证">
               <t-switch v-model="policyForm.otp_required" />
             </t-form-item>
             <t-form-item label="OTP 通道">
-              <t-select v-model="policyForm.otp_channel" :options="otpChannelOptions" :disabled="!policyForm.otp_required" />
+              <t-select
+                v-model="policyForm.otp_channel"
+                :options="otpChannelOptions"
+                :disabled="!policyForm.otp_required"
+              />
             </t-form-item>
             <t-form-item label="用户可加严">
               <t-switch v-model="policyForm.user_can_tighten" />
@@ -394,7 +408,13 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import { AddIcon, RefreshIcon, SecuredIcon } from 'tdesign-icons-vue-next'
-import { DialogPlugin, MessagePlugin, type FormInstanceFunctions, type FormRule, type PrimaryTableCol } from 'tdesign-vue-next'
+import {
+  DialogPlugin,
+  MessagePlugin,
+  type FormInstanceFunctions,
+  type FormRule,
+  type PrimaryTableCol,
+} from 'tdesign-vue-next'
 
 import {
   createCaptchaProvider,
@@ -737,19 +757,11 @@ async function patchPolicy(scene: string, body: CaptchaPolicyUpdateRequest, succ
   }
 }
 
-function handlePolicyToggle(
-  row: CaptchaPolicyInfo,
-  field: 'image_required' | 'otp_required',
-  value: boolean,
-) {
+function handlePolicyToggle(row: CaptchaPolicyInfo, field: 'image_required' | 'otp_required', value: boolean) {
   patchPolicy(row.scene, { [field]: value }, value ? '已开启' : '已关闭')
 }
 
-function handlePolicyField(
-  row: CaptchaPolicyInfo,
-  field: 'image_level' | 'otp_channel',
-  value: string,
-) {
+function handlePolicyField(row: CaptchaPolicyInfo, field: 'image_level' | 'otp_channel', value: string) {
   patchPolicy(row.scene, { [field]: value }, '已更新')
 }
 

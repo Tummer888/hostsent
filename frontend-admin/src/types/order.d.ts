@@ -14,10 +14,36 @@ export interface OrderListQuery {
   channel_tx?: string
   /** 订单类型：consume=普通购买 renewal=续费（renewal_id>0） */
   order_type?: string
+  /** 核验状态筛选：pending=待核验（服务中未核验） verified=已核验 */
+  verify_state?: string
   start_time?: string
   end_time?: string
   page?: number
   page_size?: number
+}
+
+/** 批量操作单条结果：success=已执行 / skipped=状态不允许等可预期跳过 / failed=执行出错 */
+export interface BatchItemResult {
+  id: number
+  status: 'success' | 'skipped' | 'failed'
+  message?: string
+}
+
+export interface BatchActionResponse {
+  items: BatchItemResult[]
+  succeeded: number
+  skipped: number
+  failed: number
+}
+
+export interface BatchVerifyRequest {
+  ids: number[]
+  remark?: string
+}
+
+export interface BatchRefundAuditRequest {
+  ids: number[]
+  remark?: string
 }
 
 export interface OrderInfo {
@@ -53,6 +79,18 @@ export interface OrderInfo {
   /** 开通失败原因（上游返回的原始信息，如"余额不足：账单需18.00，现余额5.08"） */
   provision_error?: string
   provision_attempts?: number
+  /** 人工核验标记：verified_at 为空即未核验；verify_required 表示当前是否开启核验要求 */
+  verified_at?: string
+  verified_by?: number
+  verified_by_name?: string
+  verify_remark?: string
+  verify_required?: boolean
+  /** 核验状态（读取期推导）：pending=待核验 / verified=已核验 */
+  verify_state?: string
+  /** 关联实例（可跳转实例详情）；instance_pending 表示仍是待开通占位实例 */
+  instance_id?: number
+  instance_no?: string
+  instance_pending?: boolean
   created_at: string
   updated_at: string
 }
@@ -69,6 +107,8 @@ export interface OrderItemInfo {
   product_name: string
   spec_code: string
   specs: string
+  /** 行级计费周期快照 */
+  cycle: string
   price: number
   quantity: number
   amount: number

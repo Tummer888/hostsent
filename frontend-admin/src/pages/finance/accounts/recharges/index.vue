@@ -7,7 +7,9 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">充值管理</h2>
-          <p class="page-header__desc">用户充值单登记与到账确认（人工/线下到账在这一页确认；充值到账会同步生成充值账单）</p>
+          <p class="page-header__desc">
+            用户充值单登记与到账确认（人工/线下到账在这一页确认；充值到账会同步生成充值账单）
+          </p>
         </div>
       </div>
       <t-space size="small">
@@ -96,12 +98,19 @@
         </template>
 
         <template #action="{ row }">
-<div class="action-cell">
+          <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '确认到账', value: 'confirm', hidden: () => !(row.status === 'pending'), theme: 'success' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  {
+                    content: '确认到账',
+                    value: 'confirm',
+                    hidden: () => !(row.status === 'pending'),
+                    theme: 'success',
+                  },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
@@ -164,7 +173,11 @@
       @close="confirmVisible = false"
     >
       <t-form label-align="top" :data="confirmForm" @submit.prevent>
-        <t-alert theme="info" :message="`充值单 ${confirmForm.label}，确认后即将 ¥${formatPrice(confirmForm.amount)} 计入用户余额`" style="margin-bottom: 12px" />
+        <t-alert
+          theme="info"
+          :message="`充值单 ${confirmForm.label}，确认后即将 ¥${formatPrice(confirmForm.amount)} 计入用户余额`"
+          style="margin-bottom: 12px"
+        />
         <t-form-item label="渠道交易号" name="channel_tx">
           <t-input v-model="confirmForm.channel_tx" placeholder="选填，渠道流水编号" />
         </t-form-item>
@@ -303,7 +316,6 @@ function handleMobilePageSizeChange(pageSize: number) {
   void applyMobilePage(1, pageSize)
 }
 
-
 function handleSearch() {
   pagination.current = 1
   loadRecharges()
@@ -409,8 +421,11 @@ async function handleConfirm() {
 onMounted(loadRecharges)
 
 // 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: RechargeInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: RechargeInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'confirm':
       openConfirmDialog(row)

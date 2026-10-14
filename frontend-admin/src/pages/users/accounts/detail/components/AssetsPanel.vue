@@ -27,12 +27,7 @@
       <template #name="{ row }">
         <div>
           <!-- 实例名即入口：与操作列「详情」同一跳转，省掉先去最右列再点的两步 -->
-          <t-link
-            theme="primary"
-            hover="color"
-            class="instance-name-link"
-            @click="goDetail(row.id)"
-          >
+          <t-link theme="primary" hover="color" class="instance-name-link" @click="goDetail(row.id)">
             {{ row.name || row.instance_id || '—' }}
           </t-link>
           <div class="cell-sub">{{ row.instance_id }}</div>
@@ -76,12 +71,7 @@ import type { PageInfo, PrimaryTableCol } from 'tdesign-vue-next'
 
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { getInstanceList } from '@/api/instance'
-import {
-  expireText,
-  instanceSpecsText,
-  instanceStatusLabel,
-  instanceStatusTheme,
-} from '@/pages/users/constants'
+import { expireText, instanceSpecsText, instanceStatusLabel, instanceStatusTheme } from '@/pages/users/constants'
 import type { InstanceItem, InstanceOpsListQuery } from '@/types/interface'
 
 const props = defineProps<{
@@ -98,15 +88,19 @@ const pagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: tr
 const mobilePage = reactive({ current: 1, pageSize: 10, total: 0 })
 const total = computed(() => pagination.total)
 
+// 列宽按内容实际需要给，合计贴近容器宽度（详情页表格约 1120px）。
+// 合计明显小于容器时 table-layout: fixed 会把富余宽度按比例摊给每一列，
+// 于是 140px 够用的 IP 列被撑到 200px 以上，短字段反而占最宽的位置。
+// 顺序按扫视习惯排：实例 → 状态 → IP 在前，计费/到期等次要信息在后。
 const columns: PrimaryTableCol<InstanceItem>[] = [
-  { colKey: 'name', title: '实例', minWidth: 200 },
-  { colKey: 'specs', title: '规格', width: 200 },
-  { colKey: 'region', title: '地域', width: 140 },
-  { colKey: 'public_ip', title: '公网 IP', width: 140 },
-  { colKey: 'billing_mode', title: '计费方式', width: 110 },
+  { colKey: 'name', title: '实例', width: 250 },
   { colKey: 'status', title: '状态', width: 100 },
-  { colKey: 'expire_at', title: '到期时间', width: 130 },
-  { colKey: 'op', title: '操作', width: 80, fixed: 'right' },
+  { colKey: 'public_ip', title: '公网 IP', width: 140 },
+  { colKey: 'specs', title: '规格', width: 170 },
+  { colKey: 'region', title: '地域', width: 110 },
+  { colKey: 'billing_mode', title: '计费方式', width: 110 },
+  { colKey: 'expire_at', title: '到期时间', width: 150 },
+  { colKey: 'op', title: '操作', width: 90, fixed: 'right' },
 ]
 
 async function load() {
@@ -156,9 +150,13 @@ function goDetail(id: number) {
 }
 
 // 懒加载：父级在切到本 Tab 时才挂载本组件；userId 变化（切用户）时重查。
-watch(() => props.userId, () => {
-  pagination.current = 1
-  mobilePage.current = 1
-  void load()
-  }, { immediate: true })
+watch(
+  () => props.userId,
+  () => {
+    pagination.current = 1
+    mobilePage.current = 1
+    void load()
+  },
+  { immediate: true },
+)
 </script>

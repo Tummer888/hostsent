@@ -5,20 +5,7 @@
 // 而是先把标签剥掉、实体解码、空白归一，再按纯文本展示。
 // 需要在后台预览富文本原文时用首页签里的富文本预览（仅内部可见）。
 
-const BLOCK_TAGS = [
-  'div',
-  'p',
-  'br',
-  'li',
-  'tr',
-  'h1',
-  'h2',
-  'h3',
-  'h4',
-  'section',
-  'article',
-  'table',
-]
+const BLOCK_TAGS = ['div', 'p', 'br', 'li', 'tr', 'h1', 'h2', 'h3', 'h4', 'section', 'article', 'table']
 
 const NAMED_ENTITIES: Record<string, string> = {
   amp: '&',

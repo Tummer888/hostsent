@@ -1,8 +1,10 @@
 import { request } from '@/utils/request'
 
 import type {
+  BatchActionResponse,
+  BatchRefundAuditRequest,
+  BatchVerifyRequest,
   OrderDetail,
-  OrderInfo,
   OrderListQuery,
   OrderListResponse,
   OrderRemarkUpdateRequest,
@@ -29,6 +31,7 @@ export function getOrderList(params: OrderListQuery): Promise<OrderListResponse>
       payment_no: params.payment_no,
       channel_tx: params.channel_tx,
       order_type: params.order_type,
+      verify_state: params.verify_state,
       start_time: params.start_time,
       end_time: params.end_time,
       page: params.page,
@@ -67,6 +70,39 @@ export function activateOrder(id: number): Promise<string> {
   return request.post<string>({
     url: `/orders/${id}/activate`,
   })
+}
+
+export function verifyOrder(id: number, remark = ''): Promise<string> {
+  return request.post<string>({
+    url: `/orders/${id}/verify`,
+    data: { remark },
+  })
+}
+
+// ===== 批量操作（逐条复用单条逻辑，返回成功/跳过/失败明细） =====
+
+export function batchCancelOrders(ids: number[]): Promise<BatchActionResponse> {
+  return request.post<BatchActionResponse>({ url: '/orders/batch-cancel', data: { ids } })
+}
+
+export function batchActivateOrders(ids: number[]): Promise<BatchActionResponse> {
+  return request.post<BatchActionResponse>({ url: '/orders/batch-activate', data: { ids } })
+}
+
+export function batchVerifyOrders(data: BatchVerifyRequest): Promise<BatchActionResponse> {
+  return request.post<BatchActionResponse>({ url: '/orders/batch-verify', data })
+}
+
+export function batchDeleteOrders(ids: number[]): Promise<BatchActionResponse> {
+  return request.post<BatchActionResponse>({ url: '/orders/batch-delete', data: { ids } })
+}
+
+export function batchApproveRefunds(data: BatchRefundAuditRequest): Promise<BatchActionResponse> {
+  return request.post<BatchActionResponse>({ url: '/refunds/batch-approve', data })
+}
+
+export function batchRejectRefunds(data: BatchRefundAuditRequest): Promise<BatchActionResponse> {
+  return request.post<BatchActionResponse>({ url: '/refunds/batch-reject', data })
 }
 
 export function getOrderStats(): Promise<OrderStatsResponse> {

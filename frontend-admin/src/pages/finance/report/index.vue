@@ -16,8 +16,20 @@
             {{ item.label }}
           </t-radio-button>
         </t-radio-group>
-        <t-select v-model="granularity" :options="granularityOptions" size="small" style="width: 110px" @change="load" />
-        <t-date-range-picker v-model="customRange" clearable size="small" style="width: 240px" @change="handleCustomRange" />
+        <t-select
+          v-model="granularity"
+          :options="granularityOptions"
+          size="small"
+          style="width: 110px"
+          @change="load"
+        />
+        <t-date-range-picker
+          v-model="customRange"
+          clearable
+          size="small"
+          style="width: 240px"
+          @change="handleCustomRange"
+        />
         <t-button variant="outline" :loading="exporting" @click="handleExport">
           <template #icon><DownloadIcon aria-hidden="true" /></template>
           导出报表
@@ -127,7 +139,9 @@
           </div>
           <div class="fund-row">
             <span class="fund-row__label">期间充值凭证（逐笔）</span>
-            <span class="fund-row__value">{{ bills.recharge_count }} 笔 / ¥{{ formatPrice(bills.recharge_amount) }}</span>
+            <span class="fund-row__value"
+              >{{ bills.recharge_count }} 笔 / ¥{{ formatPrice(bills.recharge_amount) }}</span
+            >
           </div>
           <div class="fund-row">
             <span class="fund-row__label">未结账单（全量）</span>
@@ -206,27 +220,33 @@ const typeColumns: PrimaryTableCol<FinanceStatsTypeRow>[] = [
   { colKey: 'count', title: '笔数', width: 80, align: 'right' as const },
 ]
 
-const summary = computed(() => stats.value?.summary ?? {
-  income_total: 0,
-  expense_total: 0,
-  net_total: 0,
-  tx_count: 0,
-  avg_amount: 0,
-  internal_count: 0,
-})
+const summary = computed(
+  () =>
+    stats.value?.summary ?? {
+      income_total: 0,
+      expense_total: 0,
+      net_total: 0,
+      tx_count: 0,
+      avg_amount: 0,
+      internal_count: 0,
+    },
+)
 const trend = computed(() => stats.value?.trend ?? [])
 const typeBreakdown = computed(() => stats.value?.type_breakdown ?? [])
-const bills = computed(() => stats.value?.bills ?? {
-  count: 0,
-  total_amount: 0,
-  refund_amount: 0,
-  net_amount: 0,
-  recharge_count: 0,
-  recharge_amount: 0,
-  by_status: [],
-  unpaid_count: 0,
-  unpaid_amount: 0,
-})
+const bills = computed(
+  () =>
+    stats.value?.bills ?? {
+      count: 0,
+      total_amount: 0,
+      refund_amount: 0,
+      net_amount: 0,
+      recharge_count: 0,
+      recharge_amount: 0,
+      by_status: [],
+      unpaid_count: 0,
+      unpaid_amount: 0,
+    },
+)
 const caliber = computed(() => stats.value?.caliber ?? '')
 
 const rangeLabel = computed(() => {
@@ -247,7 +267,11 @@ const trendOption = computed<EChartsOption>(() => {
   const points = trend.value
   const labels = points.map((p) => (p.period.length === 7 ? p.period : p.period.slice(5)))
   return {
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (v: unknown) => `¥${Number(v ?? 0).toFixed(2)}` },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      valueFormatter: (v: unknown) => `¥${Number(v ?? 0).toFixed(2)}`,
+    },
     legend: { top: 0, icon: 'circle', textStyle: { color: '#64748b', fontSize: 12 } },
     // echarts 6：containLabel 已废弃，等价写法是 outerBoundsMode/outerBoundsContain。
     grid: { left: 8, right: 8, top: 36, bottom: 8, outerBoundsMode: 'same', outerBoundsContain: 'axisLabel' },
@@ -266,8 +290,22 @@ const trendOption = computed<EChartsOption>(() => {
       axisLabel: { color: '#94a3b8', fontSize: 11 },
     },
     series: [
-      { name: '收入', type: 'bar', stack: 'flow', barMaxWidth: 20, itemStyle: { color: '#16a34a' }, data: points.map((p) => p.income) },
-      { name: '支出', type: 'bar', stack: 'flow', barMaxWidth: 20, itemStyle: { color: '#ef4444' }, data: points.map((p) => p.expense) },
+      {
+        name: '收入',
+        type: 'bar',
+        stack: 'flow',
+        barMaxWidth: 20,
+        itemStyle: { color: '#16a34a' },
+        data: points.map((p) => p.income),
+      },
+      {
+        name: '支出',
+        type: 'bar',
+        stack: 'flow',
+        barMaxWidth: 20,
+        itemStyle: { color: '#ef4444' },
+        data: points.map((p) => p.expense),
+      },
       {
         name: '净额',
         type: 'line',

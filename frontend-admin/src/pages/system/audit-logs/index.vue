@@ -3,121 +3,121 @@
   <div class="audit-page system-page">
     <t-tabs v-model="activeTab" class="audit-tabs">
       <t-tab-panel value="user" label="用户安全审计">
-    <SecurityListPage
-    title="操作审计"
-    subtitle="管理员关键操作留痕查询与导出"
-    table-title="审计记录"
-    table-desc="按操作人、模块、动作和结果定位关键变更。"
-    :total="pagination.total"
-    :data="tableData"
-    :columns="columns"
-    :loading="loading"
-    :error-message="errorMessage"
-    empty-text="暂无审计日志"
-    :pagination="pagination"
-    @search="handleSearch"
-    @reset="handleReset"
-    @reload="loadData"
-    @page-change="handlePageChange"
-  >
-    <!-- 页头图标 -->
-    <template #header-leading>
-      <span class="page-header__chip">
-        <HistoryIcon size="22" aria-hidden="true" />
-      </span>
-    </template>
-    <!-- 页头右侧：导出 CSV（GET blob 下载） -->
-    <template #header-actions>
-      <t-button variant="outline" :loading="exporting" @click="handleExportCSV">
-        <template #icon>
-          <DownloadIcon />
-        </template>
-        导出 CSV
-      </t-button>
-    </template>
+        <SecurityListPage
+          title="操作审计"
+          subtitle="管理员关键操作留痕查询与导出"
+          table-title="审计记录"
+          table-desc="按操作人、模块、动作和结果定位关键变更。"
+          :total="pagination.total"
+          :data="tableData"
+          :columns="columns"
+          :loading="loading"
+          :error-message="errorMessage"
+          empty-text="暂无审计日志"
+          :pagination="pagination"
+          @search="handleSearch"
+          @reset="handleReset"
+          @reload="loadData"
+          @page-change="handlePageChange"
+        >
+          <!-- 页头图标 -->
+          <template #header-leading>
+            <span class="page-header__chip">
+              <HistoryIcon size="22" aria-hidden="true" />
+            </span>
+          </template>
+          <!-- 页头右侧：导出 CSV（GET blob 下载） -->
+          <template #header-actions>
+            <t-button variant="outline" :loading="exporting" @click="handleExportCSV">
+              <template #icon>
+                <DownloadIcon />
+              </template>
+              导出 CSV
+            </t-button>
+          </template>
 
-    <template #filters>
-      <div class="field">
-        <span class="field__label">操作人</span>
-        <t-input v-model="filters.operator" clearable placeholder="操作人" />
-      </div>
-      <div class="field">
-        <span class="field__label">模块</span>
-        <t-input v-model="filters.module" clearable placeholder="模块" />
-      </div>
-      <div class="field">
-        <span class="field__label">动作</span>
-        <t-select v-model="filters.action" clearable :options="actionOptions" placeholder="动作" />
-      </div>
-      <div class="field">
-        <span class="field__label">结果</span>
-        <t-select v-model="filters.result" clearable :options="resultOptions" placeholder="结果" />
-      </div>
-      <div class="field">
-        <span class="field__label">资源类型</span>
-        <t-input v-model="filters.resource_type" clearable placeholder="资源类型" />
-      </div>
-      <div class="field">
-        <span class="field__label">资源 ID</span>
-        <t-input v-model="filters.resource_id" clearable placeholder="资源 ID" />
-      </div>
-    </template>
+          <template #filters>
+            <div class="field">
+              <span class="field__label">操作人</span>
+              <t-input v-model="filters.operator" clearable placeholder="操作人" />
+            </div>
+            <div class="field">
+              <span class="field__label">模块</span>
+              <t-input v-model="filters.module" clearable placeholder="模块" />
+            </div>
+            <div class="field">
+              <span class="field__label">动作</span>
+              <t-select v-model="filters.action" clearable :options="actionOptions" placeholder="动作" />
+            </div>
+            <div class="field">
+              <span class="field__label">结果</span>
+              <t-select v-model="filters.result" clearable :options="resultOptions" placeholder="结果" />
+            </div>
+            <div class="field">
+              <span class="field__label">资源类型</span>
+              <t-input v-model="filters.resource_type" clearable placeholder="资源类型" />
+            </div>
+            <div class="field">
+              <span class="field__label">资源 ID</span>
+              <t-input v-model="filters.resource_id" clearable placeholder="资源 ID" />
+            </div>
+          </template>
 
-    <template #response_code="{ row }">
-      <t-tag :theme="row.response_code < 400 ? 'success' : 'danger'" variant="light-outline">
-        {{ row.response_code }}
-      </t-tag>
-    </template>
+          <template #response_code="{ row }">
+            <t-tag :theme="row.response_code < 400 ? 'success' : 'danger'" variant="light-outline">
+              {{ row.response_code }}
+            </t-tag>
+          </template>
 
-    <template #created_at="{ row }">
-      {{ formatSecurityTime(row.created_at) }}
-    </template>
+          <template #created_at="{ row }">
+            {{ formatSecurityTime(row.created_at) }}
+          </template>
 
-    <!-- 行操作：查看详情 -->
-    <template #operation="{ row }">
-      <t-link v-if="!isMobile" theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
-      <MobileAction
-        v-else
-        :options="[{ content: '详情', value: 'detail' }]"
-        @select="(value) => value === 'detail' && openDetail(row)"
-      />
-    </template>
-  </SecurityListPage>
+          <!-- 行操作：查看详情 -->
+          <template #operation="{ row }">
+            <t-link v-if="!isMobile" theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
+            <MobileAction
+              v-else
+              :options="[{ content: '详情', value: 'detail' }]"
+              @select="(value) => value === 'detail' && openDetail(row)"
+            />
+          </template>
+        </SecurityListPage>
 
-  <!-- 详情弹窗：展示全部字段，payload 尝试格式化为 JSON -->
-  <t-dialog v-model:visible="detailVisible" header="审计详情" width="680px" :footer="false">
-    <t-descriptions v-if="detailRow" :column="2" bordered size="small">
-      <t-descriptions-item label="ID">{{ detailRow.id }}</t-descriptions-item>
-      <t-descriptions-item label="操作人">{{ detailRow.operator_name }}</t-descriptions-item>
-      <t-descriptions-item label="模块">{{ detailRow.module }}</t-descriptions-item>
-      <t-descriptions-item label="动作">{{ detailRow.action }}</t-descriptions-item>
-      <t-descriptions-item label="资源类型">{{ detailRow.resource_type }}</t-descriptions-item>
-      <t-descriptions-item label="资源 ID">{{ detailRow.resource_id }}</t-descriptions-item>
-      <t-descriptions-item label="请求方法">{{ detailRow.request_method }}</t-descriptions-item>
-      <t-descriptions-item label="状态码">
-        <t-tag :theme="detailRow.response_code < 400 ? 'success' : 'danger'" variant="light-outline">
-          {{ detailRow.response_code }}
-        </t-tag>
-      </t-descriptions-item>
-      <t-descriptions-item label="请求路径" :span="2">
-        {{ detailRow.request_path }}
-      </t-descriptions-item>
-      <t-descriptions-item label="响应信息" :span="2">
-        {{ detailRow.response_message || '—' }}
-      </t-descriptions-item>
-      <t-descriptions-item label="IP">{{ detailRow.ip }}</t-descriptions-item>
-      <t-descriptions-item label="Trace ID">{{ detailRow.trace_id }}</t-descriptions-item>
-      <t-descriptions-item label="User Agent" :span="2">
-        {{ detailRow.user_agent }}
-      </t-descriptions-item>
-      <t-descriptions-item label="发生时间" :span="2">
-        {{ formatSecurityTime(detailRow.created_at) }}
-      </t-descriptions-item>
-      <t-descriptions-item label="请求负载" :span="2">
-        <pre class="payload-block">{{ formatPayload(detailRow.request_payload) }}</pre>
-      </t-descriptions-item>
-    </t-descriptions>
-  </t-dialog>
+        <!-- 详情弹窗：展示全部字段，payload 尝试格式化为 JSON -->
+        <t-dialog v-model:visible="detailVisible" header="审计详情" width="680px" :footer="false">
+          <t-descriptions v-if="detailRow" :column="2" bordered size="small">
+            <t-descriptions-item label="ID">{{ detailRow.id }}</t-descriptions-item>
+            <t-descriptions-item label="操作人">{{ detailRow.operator_name }}</t-descriptions-item>
+            <t-descriptions-item label="模块">{{ detailRow.module }}</t-descriptions-item>
+            <t-descriptions-item label="动作">{{ detailRow.action }}</t-descriptions-item>
+            <t-descriptions-item label="资源类型">{{ detailRow.resource_type }}</t-descriptions-item>
+            <t-descriptions-item label="资源 ID">{{ detailRow.resource_id }}</t-descriptions-item>
+            <t-descriptions-item label="请求方法">{{ detailRow.request_method }}</t-descriptions-item>
+            <t-descriptions-item label="状态码">
+              <t-tag :theme="detailRow.response_code < 400 ? 'success' : 'danger'" variant="light-outline">
+                {{ detailRow.response_code }}
+              </t-tag>
+            </t-descriptions-item>
+            <t-descriptions-item label="请求路径" :span="2">
+              {{ detailRow.request_path }}
+            </t-descriptions-item>
+            <t-descriptions-item label="响应信息" :span="2">
+              {{ detailRow.response_message || '—' }}
+            </t-descriptions-item>
+            <t-descriptions-item label="IP">{{ detailRow.ip }}</t-descriptions-item>
+            <t-descriptions-item label="Trace ID">{{ detailRow.trace_id }}</t-descriptions-item>
+            <t-descriptions-item label="User Agent" :span="2">
+              {{ detailRow.user_agent }}
+            </t-descriptions-item>
+            <t-descriptions-item label="发生时间" :span="2">
+              {{ formatSecurityTime(detailRow.created_at) }}
+            </t-descriptions-item>
+            <t-descriptions-item label="请求负载" :span="2">
+              <pre class="payload-block">{{ formatPayload(detailRow.request_payload) }}</pre>
+            </t-descriptions-item>
+          </t-descriptions>
+        </t-dialog>
       </t-tab-panel>
 
       <!-- 管理操作审计（P2-06）：新表 admin_audit_logs，记录后台写操作 -->
@@ -127,7 +127,12 @@
           <FilterCard embedded :primary-count="1">
             <div class="field">
               <span class="field__label">关键词</span>
-              <t-input v-model="adminFilters.keyword" clearable placeholder="操作人 / 路径" @enter="handleAdminSearch" />
+              <t-input
+                v-model="adminFilters.keyword"
+                clearable
+                placeholder="操作人 / 路径"
+                @enter="handleAdminSearch"
+              />
             </div>
             <div class="field">
               <span class="field__label">资源类型</span>
@@ -198,7 +203,9 @@
     <t-dialog v-model:visible="adminDetailVisible" header="操作审计详情" width="680px" :footer="false">
       <t-descriptions v-if="adminDetailRow" :column="2" bordered size="small">
         <t-descriptions-item label="ID">{{ adminDetailRow.id }}</t-descriptions-item>
-        <t-descriptions-item label="操作人">{{ adminDetailRow.admin_name }}（ID {{ adminDetailRow.admin_id }}）</t-descriptions-item>
+        <t-descriptions-item label="操作人"
+          >{{ adminDetailRow.admin_name }}（ID {{ adminDetailRow.admin_id }}）</t-descriptions-item
+        >
         <t-descriptions-item label="资源类型">{{ adminDetailRow.resource_type }}</t-descriptions-item>
         <t-descriptions-item label="资源 ID">{{ adminDetailRow.resource_id || '—' }}</t-descriptions-item>
         <t-descriptions-item label="动作">{{ adminDetailRow.action }}</t-descriptions-item>
@@ -230,11 +237,7 @@ import type { PageInfo, PrimaryTableCol } from 'tdesign-vue-next'
 
 import type { AuditLogInfo, AuditLogListQuery } from '@/api/system'
 import { getAuditLogList } from '@/api/system'
-import {
-  getAdminAuditLogs,
-  type AdminAuditLogInfo,
-  type AdminAuditLogQuery,
-} from '@/api/admin'
+import { getAdminAuditLogs, type AdminAuditLogInfo, type AdminAuditLogQuery } from '@/api/admin'
 import { request } from '@/utils/request'
 
 import MobileAction from '@/components/mobile-action/index.vue'

@@ -94,55 +94,57 @@ export interface WithdrawInfo {
 
 /** 收银台可用支付方式（按我的偏好排序） */
 export function getPaymentMethods(params: { scene?: string; amount?: number } = {}) {
-  return request.get<any, { data: MethodOptions }>('/uc/payment/methods', { params })
+  return request.get<unknown, { data: MethodOptions }>('/uc/payment/methods', { params })
 }
 
 /** 我的支付方式偏好（默认方式 + 优先级） */
 export function getPaymentPreferences() {
-  return request.get<any, { data: { items: PreferenceItem[] } }>('/uc/payment/preferences')
+  return request.get<unknown, { data: { items: PreferenceItem[] } }>('/uc/payment/preferences')
 }
 
 /** 保存支付方式偏好 */
-export function savePaymentPreferences(data: {
-  scene: string
-  default?: string
-  priorities: PreferenceItem[]
-}) {
-  return request.put<any, { data: { items: PreferenceItem[] } }>('/uc/payment/preferences', data)
+export function savePaymentPreferences(data: { scene: string; default?: string; priorities: PreferenceItem[] }) {
+  return request.put<unknown, { data: { items: PreferenceItem[] } }>('/uc/payment/preferences', data)
 }
 
 // ===== 收款账户 =====
 
 export function getPayoutAccounts() {
-  return request.get<any, { data: { items: PayoutAccountInfo[] } }>('/uc/payment/accounts')
+  return request.get<unknown, { data: { items: PayoutAccountInfo[] } }>('/uc/payment/accounts')
 }
 
 export function createPayoutAccount(data: PayoutAccountCreateRequest) {
-  return request.post<any, { data: PayoutAccountInfo }>('/uc/payment/accounts', data)
+  return request.post<unknown, { data: PayoutAccountInfo }>('/uc/payment/accounts', data)
 }
 
 export function setDefaultPayoutAccount(id: number) {
-  return request.put<any, { data: unknown }>(`/uc/payment/accounts/${id}/default`)
+  return request.put<unknown, { data: unknown }>(`/uc/payment/accounts/${id}/default`)
 }
 
 // ===== 收银台下单 =====
 
 /** 在线充值：创建充值单并发起渠道支付 */
 export function payRecharge(data: { amount: number; channel_code?: string; scene?: string }) {
-  return request.post<any, { data: PaymentOrderInfo }>('/uc/payment/recharge', data)
+  return request.post<unknown, { data: PaymentOrderInfo }>('/uc/payment/recharge', data)
 }
 
 /** 账单支付：按账单应结金额发起渠道支付 */
-export function payBill(data: { bill_id: number; bill_no?: string; amount?: number; channel_code?: string; scene?: string }) {
-  return request.post<any, { data: PaymentOrderInfo }>('/uc/payment/bills/pay', data)
+export function payBill(data: {
+  bill_id: number
+  bill_no?: string
+  amount?: number
+  channel_code?: string
+  scene?: string
+}) {
+  return request.post<unknown, { data: PaymentOrderInfo }>('/uc/payment/bills/pay', data)
 }
 
 /** 申请提现：冻结余额，等待审核打款 */
 export function applyWithdraw(data: { amount: number; account_id: number; payout_channel?: string; remark?: string }) {
-  return request.post<any, { data: WithdrawInfo }>('/uc/payment/withdrawals', data)
+  return request.post<unknown, { data: WithdrawInfo }>('/uc/payment/withdrawals', data)
 }
 
 /** 查询支付单（收银台轮询支付结果） */
 export function getPaymentOrder(paymentNo: string) {
-  return request.get<any, { data: PaymentOrderInfo }>(`/uc/payment/orders/${paymentNo}`)
+  return request.get<unknown, { data: PaymentOrderInfo }>(`/uc/payment/orders/${paymentNo}`)
 }

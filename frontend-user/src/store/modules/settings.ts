@@ -44,8 +44,7 @@ export const useSettingsStore = defineStore('settings', {
     ...readSavedSettings(),
   }),
   getters: {
-    isDark: (state) =>
-      state.colorScheme === 'dark' || (state.colorScheme === 'auto' && state.systemPrefersDark),
+    isDark: (state) => state.colorScheme === 'dark' || (state.colorScheme === 'auto' && state.systemPrefersDark),
   },
   actions: {
     // 应用启动时调用：注册系统主题监听并应用全部设置

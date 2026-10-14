@@ -19,11 +19,23 @@
     <FilterCard>
       <div class="field">
         <label class="field__label">流水类型</label>
-        <t-select v-model="filter.type" clearable placeholder="全部类型" :options="txTypeOptions" @change="handleSearch" />
+        <t-select
+          v-model="filter.type"
+          clearable
+          placeholder="全部类型"
+          :options="txTypeOptions"
+          @change="handleSearch"
+        />
       </div>
       <div class="field">
         <label class="field__label">收支方向</label>
-        <t-select v-model="filter.direction" clearable placeholder="全部方向" :options="directionOptions" @change="handleSearch" />
+        <t-select
+          v-model="filter.direction"
+          clearable
+          placeholder="全部方向"
+          :options="directionOptions"
+          @change="handleSearch"
+        />
       </div>
       <template #actions>
         <t-button theme="primary" :loading="loading" @click="handleSearch">查询</t-button>

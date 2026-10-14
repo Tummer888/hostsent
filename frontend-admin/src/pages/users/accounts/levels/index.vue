@@ -54,12 +54,7 @@
       >
         <template #name="{ row }">
           <div class="primary-cell">
-            <LevelBadge
-              :name="row.name"
-              :icon="row.icon"
-              :color="row.color"
-              :weight="row.weight"
-            />
+            <LevelBadge :name="row.name" :icon="row.icon" :color="row.color" :weight="row.weight" />
             <span>{{ row.code }}</span>
           </div>
         </template>
@@ -70,7 +65,13 @@
         <template #max_sub_accounts="{ row }">{{ row.max_sub_accounts }}</template>
         <template #benefits="{ row }">
           <t-space size="4px" break-line>
-            <t-tag v-for="item in parseBenefits(row.benefits)" :key="item" theme="primary" variant="light-outline" size="small">
+            <t-tag
+              v-for="item in parseBenefits(row.benefits)"
+              :key="item"
+              theme="primary"
+              variant="light-outline"
+              size="small"
+            >
               {{ item }}
             </t-tag>
             <span v-if="parseBenefits(row.benefits).length === 0" class="muted">—</span>
@@ -84,10 +85,12 @@
         <template #operation="{ row }">
           <MobileAction
             v-if="isMobile"
-            :options="buildMobileActionOptions([
-              { content: '编辑', value: 'edit', hidden: () => !has('level:update') },
-              { content: '删除', value: 'delete', hidden: () => !has('level:delete'), theme: 'error' },
-            ])"
+            :options="
+              buildMobileActionOptions([
+                { content: '编辑', value: 'edit', hidden: () => !has('level:update') },
+                { content: '删除', value: 'delete', hidden: () => !has('level:delete'), theme: 'error' },
+              ])
+            "
             @select="(value) => handleMobileAction(value, row)"
           />
           <t-space v-else size="8px">
@@ -150,25 +153,22 @@
                 :recent-colors="false"
                 placeholder="留空则按权重用默认色"
               />
-              <span v-if="colorInvalid" class="color-field__hint">
-                当前值不是合法十六进制颜色，保存时会被忽略
-              </span>
+              <span v-if="colorInvalid" class="color-field__hint"> 当前值不是合法十六进制颜色，保存时会被忽略 </span>
             </div>
           </t-form-item>
         </div>
         <t-form-item label="效果预览" name="__preview">
           <div class="preview-row">
-            <LevelBadge
-              :name="form.name || '等级名称'"
-              :icon="form.icon"
-              :color="form.color"
-              :weight="form.weight"
-            />
+            <LevelBadge :name="form.name || '等级名称'" :icon="form.icon" :color="form.color" :weight="form.weight" />
             <span class="preview-row__hint">用户端与管理端按同一套图标与配色显示</span>
           </div>
         </t-form-item>
         <t-form-item label="权益（每行一条）" name="benefits">
-          <t-textarea v-model="benefitsText" :autosize="{ minRows: 3, maxRows: 6 }" placeholder="高优先级工单&#10;每日自动备份" />
+          <t-textarea
+            v-model="benefitsText"
+            :autosize="{ minRows: 3, maxRows: 6 }"
+            placeholder="高优先级工单&#10;每日自动备份"
+          />
         </t-form-item>
         <t-form-item label="升级条件说明" name="upgrade_condition">
           <t-input v-model="form.upgrade_condition" placeholder="展示用文案，如：累计消费满 10000 元" />
@@ -347,7 +347,6 @@ function handleMobilePageSizeChange(pageSize: number) {
   void applyMobilePage(1, pageSize)
 }
 
-
 function openCreate() {
   editing.value = false
   editingId.value = null
@@ -451,8 +450,11 @@ function formatMoney(value: number): string {
 onMounted(() => {
   void loadData()
 })
-function handleMobileAction(value: string | number | Record<string, any>, row: UserLevelInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: UserLevelInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'edit':
       openEdit(row)

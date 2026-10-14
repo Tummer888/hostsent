@@ -9,8 +9,7 @@
           <h2 class="page-header__title">同步运维控制台</h2>
           <p class="page-header__desc">
             两条链路分开看：<b>入站同步</b>（上游 → 我方：拉商品/价格/资源池/实例）与
-            <b>出站动作</b>（我方 → 上游：开通·续费·暂停·删除是否到达上游），
-            外加实例对账与调度节奏。
+            <b>出站动作</b>（我方 → 上游：开通·续费·暂停·删除是否到达上游）， 外加实例对账与调度节奏。
           </p>
         </div>
       </div>
@@ -101,26 +100,30 @@
     <!-- 调度配置弹窗 -->
     <t-dialog
       v-model:visible="scheduleDialogVisible"
-      :header="editingSchedule ? `调度配置 · ${editingSchedule.provider_name || '渠道 #' + editingSchedule.provider_id} · ${editingSchedule.scope_name}` : '调度配置'"
+      :header="
+        editingSchedule
+          ? `调度配置 · ${editingSchedule.provider_name || '渠道 #' + editingSchedule.provider_id} · ${editingSchedule.scope_name}`
+          : '调度配置'
+      "
       width="520px"
       :confirm-btn="{ content: '保存', theme: 'primary', loading: scheduleSaving }"
       @confirm="handleSaveSchedule"
       @close="scheduleDialogVisible = false"
     >
       <t-form label-align="top" :data="scheduleForm" @submit.prevent>
-        <t-form-item label="同步间隔（秒）" help="目录/价格建议小时级（3600），实例建议分钟级（300）">
-          <t-input-number v-model="scheduleForm.interval_seconds" :min="30" theme="column" />
+        <t-form-item label="同步间隔" :help="intervalHelp">
+          <IntervalField v-model:seconds="scheduleForm.interval_seconds" :min-seconds="30" />
         </t-form-item>
-        <t-form-item label="全量对账周期（秒）" help="到期后执行软删除对账；商品目录建议 86400">
-          <t-input-number v-model="scheduleForm.full_sync_interval_seconds" :min="300" theme="column" />
+        <t-form-item label="全量对账周期" :help="fullIntervalHelp">
+          <IntervalField v-model:seconds="scheduleForm.full_sync_interval_seconds" :min-seconds="300" />
         </t-form-item>
-        <t-form-item label="优先级" help="数值越大越先触发">
+        <t-form-item label="优先级" help="数值越大越先触发；多条调度同时到期时按此排序">
           <t-input-number v-model="scheduleForm.priority" :min="0" theme="column" />
         </t-form-item>
         <t-form-item label="启用">
           <t-switch v-model="scheduleForm.enabled" />
         </t-form-item>
-        <t-form-item label="允许执行时段">
+        <t-form-item label="允许执行时段" help="限定只在某几个小时之间执行，避开上游业务高峰；关闭表示全天可执行">
           <t-switch v-model="scheduleForm.window_enabled" @change="handleWindowToggle" />
         </t-form-item>
         <t-form-item v-if="scheduleForm.window_enabled" label="时段（小时 0-23）">
@@ -131,9 +134,11 @@
             <span>点</span>
           </t-space>
         </t-form-item>
-        <t-form-item label="立即生效">
+        <t-form-item
+          label="立即生效"
+          help="开启后保存即把下次执行时间置空，调度器下一轮扫描（每分钟一次）就会触发，不用等原定周期"
+        >
           <t-switch v-model="scheduleForm.reset_next_run" />
-          <span class="form-hint">开启后保存即把下次执行时间置空，调度器下轮立即触发</span>
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -169,6 +174,7 @@ import { createSyncTask, getProviderList, getSyncScopeMeta, updateSyncSchedule }
 import type { ProviderInfo, SyncScheduleInfo } from '@/types/interface'
 import { chainKindOptions, hasUpstreamCatalog, normalizeChainKind, type ChainKind } from './chain-kind'
 import InboundPanel from './components/InboundPanel.vue'
+import IntervalField from './components/IntervalField.vue'
 import OutboundPanel from '@/pages/resource/task-queue/index.vue'
 import OverviewPanel from './components/OverviewPanel.vue'
 import ReconcilePanel from '@/pages/resource/reconcile/index.vue'
@@ -350,6 +356,39 @@ const scheduleForm = reactive({
 })
 
 const syncingScope = ref('')
+
+/**
+ * 两个周期的解释按同步类型分别写。
+ *
+ * 原来只有一句「目录/价格建议小时级，实例建议分钟级」，用户看不出这两个字段
+ * 到底在同步什么、为什么默认值差这么多。按类型给具体建议更省事：
+ * 实例状态变化快（开关机、到期），目录与价格变化慢且上游接口更重。
+ */
+const intervalHelp = computed(() => {
+  const scope = editingSchedule.value?.scope
+  const base: Record<string, string> = {
+    catalog: '多久拉一次上游商品目录（新增/改配/下架）。目录变动慢，建议 6 小时~1 天。',
+    price: '多久核对一次上游价格。上游调价会进「待确认调价」，建议 6 小时~1 天。',
+    pool: '多久刷新一次资源池容量（CPU/内存/磁盘用量）。建议 1~6 小时。',
+    region: '多久刷新一次区域与节点清单。区域变动很少，建议 1 天。',
+    instance: '多久拉一次实例状态、IP 与到期时间。状态变化快，建议 5~15 分钟。',
+  }
+  const hint = (scope && base[scope]) || '每隔多久向上游拉取一次本类型的数据。'
+  return `${hint} 间隔越短越及时，但上游接口调用越频繁；小于 30 秒会被拒绝。`
+})
+
+const fullIntervalHelp = computed(() => {
+  const scope = editingSchedule.value?.scope
+  const base: Record<string, string> = {
+    catalog: '多久做一次全量对账：找出上游已删除、但我们这边还在的商品并标记下架。建议 1 天。',
+    price: '多久做一次全量价格核对（不只看有变化的）。建议 1 天。',
+    pool: '多久做一次全量池对账：上游已不存在的池会被标记离线。建议 1 天。',
+    region: '多久做一次全量区域对账。建议 1 天。',
+    instance: '多久做一次全量实例对账：上游已不存在的实例会被标记离线。建议 1 天。',
+  }
+  const hint = (scope && base[scope]) || '全量对账的周期。'
+  return `${hint} 它比「同步间隔」慢得多，用来兜住增量同步发现不了的删除类变化；不得小于 5 分钟。`
+})
 
 function openScheduleDialog(row: SyncScheduleInfo) {
   editingSchedule.value = row

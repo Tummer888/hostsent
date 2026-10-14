@@ -19,7 +19,12 @@
     </header>
 
     <section v-if="!isEmbedded" class="stat-grid stat-grid--pools">
-      <article v-for="card in statCards" :key="card.key" class="stat-card surface-card" :class="`stat-card--${card.theme}`">
+      <article
+        v-for="card in statCards"
+        :key="card.key"
+        class="stat-card surface-card"
+        :class="`stat-card--${card.theme}`"
+      >
         <div class="stat-card__icon">
           <component :is="card.icon" size="20" aria-hidden="true" />
         </div>
@@ -105,7 +110,9 @@
             >
               <span class="pool-hint">无子节点</span>
             </t-tooltip>
-            <span v-else-if="!isEmbedded" class="pool-provider">{{ row.provider_name || `渠道 #${row.provider_id}` }}</span>
+            <span v-else-if="!isEmbedded" class="pool-provider">{{
+              row.provider_name || `渠道 #${row.provider_id}`
+            }}</span>
           </div>
         </template>
 
@@ -121,7 +128,11 @@
           <span v-if="row.category === 'location' && !row.aggregated" class="cell-na">不适用</span>
           <div v-else class="spec-cell">
             <span class="spec-text">{{ row.used_cpu }} / {{ row.total_cpu }}</span>
-            <t-progress :percentage="row.cpu_usage_percent" :color="usageColor(row.cpu_usage_percent)" :stroke-width="6" />
+            <t-progress
+              :percentage="row.cpu_usage_percent"
+              :color="usageColor(row.cpu_usage_percent)"
+              :stroke-width="6"
+            />
             <span v-if="row.aggregated" class="spec-hint">区域合计</span>
           </div>
         </template>
@@ -130,7 +141,11 @@
           <span v-if="row.category === 'location' && !row.aggregated" class="cell-na">不适用</span>
           <div v-else class="spec-cell">
             <span class="spec-text">{{ formatMemory(row.used_memory) }} / {{ formatMemory(row.total_memory) }}</span>
-            <t-progress :percentage="row.memory_usage_percent" :color="usageColor(row.memory_usage_percent)" :stroke-width="6" />
+            <t-progress
+              :percentage="row.memory_usage_percent"
+              :color="usageColor(row.memory_usage_percent)"
+              :stroke-width="6"
+            />
           </div>
         </template>
 
@@ -138,12 +153,18 @@
           <span v-if="row.category === 'location' && !row.aggregated" class="cell-na">不适用</span>
           <div v-else class="spec-cell">
             <span class="spec-text">{{ formatDisk(row.used_disk) }} / {{ formatDisk(row.total_disk) }}</span>
-            <t-progress :percentage="row.disk_usage_percent" :color="usageColor(row.disk_usage_percent)" :stroke-width="6" />
+            <t-progress
+              :percentage="row.disk_usage_percent"
+              :color="usageColor(row.disk_usage_percent)"
+              :stroke-width="6"
+            />
           </div>
         </template>
 
         <template #pool_type="{ row }">
-          <t-tag :theme="poolTypeTheme(row.pool_type)" variant="light" size="small" shape="round">{{ poolTypeLabel(row.pool_type) }}</t-tag>
+          <t-tag :theme="poolTypeTheme(row.pool_type)" variant="light" size="small" shape="round">{{
+            poolTypeLabel(row.pool_type)
+          }}</t-tag>
         </template>
 
         <template #probe="{ row }">
@@ -175,14 +196,16 @@
         </template>
 
         <template #action="{ row }">
-<div class="action-cell">
+          <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '详情', value: 'detail', theme: 'default' },
-                { content: '运维平台', value: 'ops', hidden: () => !row.provider_ops_url, theme: 'default' },
-                { content: '删除', value: 'delete', theme: 'error' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '详情', value: 'detail', theme: 'default' },
+                  { content: '运维平台', value: 'ops', hidden: () => !row.provider_ops_url, theme: 'default' },
+                  { content: '删除', value: 'delete', theme: 'error' },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
@@ -228,7 +251,9 @@
       <t-descriptions v-if="detailPool" :column="2" bordered size="small">
         <t-descriptions-item label="池名称">{{ detailPool.name }}</t-descriptions-item>
         <t-descriptions-item label="上游 ID">{{ detailPool.upstream_id || '—' }}</t-descriptions-item>
-        <t-descriptions-item label="所属渠道">{{ detailPool.provider_name || `渠道 #${detailPool.provider_id}` }}</t-descriptions-item>
+        <t-descriptions-item label="所属渠道">{{
+          detailPool.provider_name || `渠道 #${detailPool.provider_id}`
+        }}</t-descriptions-item>
         <t-descriptions-item label="类型">{{ poolTypeLabel(detailPool.pool_type) }}</t-descriptions-item>
         <t-descriptions-item label="位置">
           <span v-if="detailPool.region">
@@ -242,28 +267,43 @@
           </t-tag>
         </t-descriptions-item>
         <t-descriptions-item label="类别">
-          <t-tag :theme="detailPool.category === 'location' ? 'default' : 'primary'" variant="light" size="small" shape="round">
+          <t-tag
+            :theme="detailPool.category === 'location' ? 'default' : 'primary'"
+            variant="light"
+            size="small"
+            shape="round"
+          >
             {{ detailPool.category === 'location' ? '位置型' : '容量型' }}
           </t-tag>
         </t-descriptions-item>
         <!-- 位置型池没有容量配额，不渲染三行 0/0；改为一句说明，避免读成"数据缺失"。 -->
         <t-descriptions-item v-if="detailPool.category === 'location'" label="容量" :span="2">
-          <span class="cell-muted">位置型资源项（区域 / 可用区）不持有 CPU / 内存 / 磁盘配额；容量请查所属渠道下的宿主机节点池。</span>
+          <span class="cell-muted"
+            >位置型资源项（区域 / 可用区）不持有 CPU / 内存 / 磁盘配额；容量请查所属渠道下的宿主机节点池。</span
+          >
         </t-descriptions-item>
         <template v-else>
           <t-descriptions-item label="CPU 配额">
             {{ detailPool.used_cpu }} / {{ detailPool.total_cpu }}（{{ detailPool.cpu_usage_percent }}%）
           </t-descriptions-item>
           <t-descriptions-item label="内存配额">
-            {{ formatMemory(detailPool.used_memory) }} / {{ formatMemory(detailPool.total_memory) }}（{{ detailPool.memory_usage_percent }}%）
+            {{ formatMemory(detailPool.used_memory) }} / {{ formatMemory(detailPool.total_memory) }}（{{
+              detailPool.memory_usage_percent
+            }}%）
           </t-descriptions-item>
           <t-descriptions-item label="磁盘配额">
-            {{ formatDisk(detailPool.used_disk) }} / {{ formatDisk(detailPool.total_disk) }}（{{ detailPool.disk_usage_percent }}%）
+            {{ formatDisk(detailPool.used_disk) }} / {{ formatDisk(detailPool.total_disk) }}（{{
+              detailPool.disk_usage_percent
+            }}%）
           </t-descriptions-item>
         </template>
-        <t-descriptions-item label="最后同步">{{ detailPool.last_sync_at ? formatTime(detailPool.last_sync_at) : '从未同步' }}</t-descriptions-item>
+        <t-descriptions-item label="最后同步">{{
+          detailPool.last_sync_at ? formatTime(detailPool.last_sync_at) : '从未同步'
+        }}</t-descriptions-item>
         <t-descriptions-item label="探针状态">
-          <t-tag v-if="!detailPool.probe_status" theme="default" variant="light" size="small" shape="round">未接入</t-tag>
+          <t-tag v-if="!detailPool.probe_status" theme="default" variant="light" size="small" shape="round"
+            >未接入</t-tag
+          >
           <template v-else>
             <t-tag :theme="probeTheme(detailPool.probe_status)" variant="light" size="small" shape="round">
               {{ probeLabel(detailPool.probe_status) }}
@@ -425,7 +465,14 @@ const isLocationView = computed(() => viewMode.value === 'flat' && filters.categ
 const statCards = computed(() => {
   const s = summary.value
   // 显式声明卡片结构：theme 是联合字面量，不标注会被首元素的 'info' 收窄。
-  const cards: { key: string; label: string; value: string; hint: string; icon: unknown; theme: 'info' | 'success' | 'danger' | 'warning' }[] = [
+  const cards: {
+    key: string
+    label: string
+    value: string
+    hint: string
+    icon: unknown
+    theme: 'info' | 'success' | 'danger' | 'warning'
+  }[] = [
     {
       key: 'pools',
       label: '容量池 / 位置项',
@@ -512,10 +559,6 @@ function probeTheme(status: string) {
   if (status === 'down') return 'danger'
   return 'default'
 }
-
-
-
-
 
 function formatTime(value: string): string {
   if (!value) return '—'
@@ -661,8 +704,11 @@ onMounted(() => {
 })
 
 // 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: PoolInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: PoolInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'detail':
       openDetailDialog(row)

@@ -48,10 +48,7 @@ export function useMobilePagination(
   }
 
   function goMobilePage(target: number) {
-    const clamped = Math.min(
-      Math.max(target, 1),
-      Math.max(1, Math.ceil(mobilePage.total / mobilePage.pageSize)),
-    )
+    const clamped = Math.min(Math.max(target, 1), Math.max(1, Math.ceil(mobilePage.total / mobilePage.pageSize)))
     if (clamped === mobilePage.current) return
     applyMobilePage(clamped, mobilePage.pageSize)
   }

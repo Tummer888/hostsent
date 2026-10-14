@@ -205,13 +205,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import type { PageInfo, PrimaryTableCol } from 'tdesign-vue-next'
 
 import MobilePagination from '@/components/mobile-pagination/index.vue'
-import {
-  getLoginLogList,
-  getRiskEventList,
-  getSessionList,
-  revokeSession,
-  revokeUserAllSessions,
-} from '@/api/security'
+import { getLoginLogList, getRiskEventList, getSessionList, revokeSession, revokeUserAllSessions } from '@/api/security'
 import {
   formatDateTime,
   loginResultLabel,
@@ -259,12 +253,15 @@ const loginLogs = ref<LoginLogInfo[]>([])
 const loginLoading = ref(false)
 const loginPagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
 const loginMobile = reactive({ current: 1, pageSize: 10, total: 0 })
+// 列宽按内容实测给足（详情页表格约 1140px）：合计过小时
+// table-layout: fixed 会把富余宽度摊给每一列，把 60px 就够的 IP 撑到 300px+。
+// IP 与客户端原本只给 minWidth，是摊得最狠的两列，这里改成显式宽度。
 const loginColumns: PrimaryTableCol<LoginLogInfo>[] = [
-  { colKey: 'created_at', title: '时间', width: 150 },
-  { colKey: 'result', title: '结果', width: 120 },
-  { colKey: 'login_type', title: '方式', width: 110 },
-  { colKey: 'ip', title: 'IP', minWidth: 150 },
-  { colKey: 'user_agent', title: '客户端', minWidth: 180 },
+  { colKey: 'created_at', title: '时间', width: 170 },
+  { colKey: 'result', title: '结果', width: 150 },
+  { colKey: 'login_type', title: '方式', width: 130 },
+  { colKey: 'ip', title: 'IP', width: 170 },
+  { colKey: 'user_agent', title: '客户端', width: 500 },
 ]
 
 async function loadLoginLogs() {
@@ -315,12 +312,12 @@ const sessionLoading = ref(false)
 const sessionPagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
 const sessionMobile = reactive({ current: 1, pageSize: 10, total: 0 })
 const sessionColumns: PrimaryTableCol<SessionInfo>[] = [
-  { colKey: 'platform', title: '平台', width: 100 },
-  { colKey: 'ip', title: 'IP', minWidth: 150 },
-  { colKey: 'status', title: '状态', width: 100 },
-  { colKey: 'login_at', title: '登录时间', width: 150 },
-  { colKey: 'last_active_at', title: '最近活跃', width: 150 },
-  { colKey: 'op', title: '操作', width: 80, fixed: 'right' },
+  { colKey: 'platform', title: '平台', width: 150 },
+  { colKey: 'ip', title: 'IP', width: 220 },
+  { colKey: 'status', title: '状态', width: 150 },
+  { colKey: 'login_at', title: '登录时间', width: 240 },
+  { colKey: 'last_active_at', title: '最近活跃', width: 240 },
+  { colKey: 'op', title: '操作', width: 120, fixed: 'right' },
 ]
 
 async function loadSessions() {
@@ -403,12 +400,14 @@ const riskEvents = ref<RiskEventInfo[]>([])
 const riskLoading = ref(false)
 const riskPagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
 const riskMobile = reactive({ current: 1, pageSize: 10, total: 0 })
+// 风险类型与摘要都是说明性长文本，给它们更大的固定份额，
+// 避免只写 minWidth 时被 fixed 布局反向压缩或拉伸。
 const riskColumns: PrimaryTableCol<RiskEventInfo>[] = [
-  { colKey: 'risk_type', title: '风险类型', minWidth: 180 },
-  { colKey: 'risk_level', title: '级别', width: 90 },
-  { colKey: 'summary', title: '摘要', minWidth: 220 },
-  { colKey: 'status', title: '处理状态', width: 110 },
-  { colKey: 'last_occurred_at', title: '最近发生', width: 160 },
+  { colKey: 'risk_type', title: '风险类型', width: 260 },
+  { colKey: 'risk_level', title: '级别', width: 110 },
+  { colKey: 'summary', title: '摘要', width: 370 },
+  { colKey: 'status', title: '处理状态', width: 130 },
+  { colKey: 'last_occurred_at', title: '最近发生', width: 200 },
 ]
 
 async function loadRiskEvents() {

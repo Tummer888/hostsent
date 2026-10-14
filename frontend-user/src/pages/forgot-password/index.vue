@@ -25,12 +25,7 @@
       <!-- 第一步：申请下发验证码 -->
       <div v-if="step === 1" class="form-area">
         <div class="input-group">
-          <t-input
-            v-model="form.account"
-            placeholder="请输入用户名 / 邮箱 / 手机号"
-            size="large"
-            class="custom-input"
-          >
+          <t-input v-model="form.account" placeholder="请输入用户名 / 邮箱 / 手机号" size="large" class="custom-input">
             <template #prefix-icon>
               <UserIcon />
             </template>
@@ -58,14 +53,7 @@
           />
         </div>
 
-        <t-button
-          theme="primary"
-          size="large"
-          block
-          class="submit-btn"
-          :loading="applying"
-          @click="handleApply"
-        >
+        <t-button theme="primary" size="large" block class="submit-btn" :loading="applying" @click="handleApply">
           发送验证码
         </t-button>
       </div>
@@ -78,13 +66,7 @@
         </div>
 
         <div class="input-group">
-          <t-input
-            v-model="form.code"
-            placeholder="请输入收到的验证码"
-            size="large"
-            class="custom-input"
-            maxlength="6"
-          >
+          <t-input v-model="form.code" placeholder="请输入收到的验证码" size="large" class="custom-input" maxlength="6">
             <template #prefix-icon>
               <ChatMessageIcon />
             </template>
@@ -132,14 +114,7 @@
           </t-input>
         </div>
 
-        <t-button
-          theme="primary"
-          size="large"
-          block
-          class="submit-btn"
-          :loading="resetting"
-          @click="handleReset"
-        >
+        <t-button theme="primary" size="large" block class="submit-btn" :loading="resetting" @click="handleReset">
           重置密码
         </t-button>
       </div>
@@ -155,13 +130,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
-import {
-  CloudIcon,
-  UserIcon,
-  LockOnIcon,
-  ChatMessageIcon,
-  ViewListIcon,
-} from 'tdesign-icons-vue-next'
+import { CloudIcon, UserIcon, LockOnIcon, ChatMessageIcon, ViewListIcon } from 'tdesign-icons-vue-next'
 
 import CaptchaImage from '@/components/verify/CaptchaImage.vue'
 import { forgotPassword, resetPassword } from '@/api/auth'
@@ -292,8 +261,7 @@ onMounted(() => {
   max-width: 460px;
   background:
     radial-gradient(ellipse at 0% 0%, rgba(255, 182, 193, 0.5) 0%, transparent 55%),
-    radial-gradient(ellipse at 100% 0%, rgba(135, 206, 250, 0.5) 0%, transparent 55%),
-    rgba(255, 255, 255, 0.92);
+    radial-gradient(ellipse at 100% 0%, rgba(135, 206, 250, 0.5) 0%, transparent 55%), rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(50px) saturate(1.6);
   -webkit-backdrop-filter: blur(50px) saturate(1.6);
   border-radius: 24px;

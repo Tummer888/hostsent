@@ -1,11 +1,5 @@
 <template>
-  <ProductForm
-    mode="edit"
-    :initial="product"
-    :submitting="submitting"
-    @submit="handleSubmit"
-    @cancel="goBack"
-  />
+  <ProductForm mode="edit" :initial="product" :submitting="submitting" @submit="handleSubmit" @cancel="goBack" />
 </template>
 
 <script setup lang="ts">

@@ -20,14 +20,7 @@
       字段容器。刻意不让各页自己写这一层：折叠规则要挂在 .filter-card__grid 的
       直接子元素上，容器收在组件里，规则才有一处可查的归属。
     -->
-    <div
-      :id="gridId"
-      ref="gridRef"
-      class="filter-card__grid"
-      :class="gridClass"
-      @input="measure"
-      @change="measure"
-    >
+    <div :id="gridId" ref="gridRef" class="filter-card__grid" :class="gridClass" @input="measure" @change="measure">
       <slot />
     </div>
 
@@ -136,9 +129,7 @@ const gridId = useId()
 const showHead = computed(() => Boolean(props.title || props.meta || slots['head-extra']))
 const hasActions = computed(() => Boolean(slots.actions))
 const hiddenCount = computed(() => Math.max(0, fieldCount.value - props.primaryCount))
-const toggleVisible = computed(
-  () => props.collapsible && isMobile.value && hiddenCount.value > 0,
-)
+const toggleVisible = computed(() => props.collapsible && isMobile.value && hiddenCount.value > 0)
 
 const rootClass = computed(() => [
   props.embedded ? 'filter-embed' : 'filter-card surface-card',

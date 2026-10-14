@@ -7,9 +7,7 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">我的发票</h2>
-          <p class="page-header__desc">
-            只能对本人<strong>已结清</strong>的账单申请开票；开具后可在此查看发票号与下载
-          </p>
+          <p class="page-header__desc">只能对本人<strong>已结清</strong>的账单申请开票；开具后可在此查看发票号与下载</p>
         </div>
       </div>
       <div class="page-header__actions">
@@ -21,7 +19,13 @@
     <FilterCard>
       <div class="field">
         <label class="field__label">申请状态</label>
-        <t-select v-model="filter.status" clearable placeholder="全部状态" :options="invoiceRequestStatusOptions" @change="handleSearch" />
+        <t-select
+          v-model="filter.status"
+          clearable
+          placeholder="全部状态"
+          :options="invoiceRequestStatusOptions"
+          @change="handleSearch"
+        />
       </div>
       <div class="field">
         <label class="field__label">账单号</label>
@@ -81,20 +85,10 @@
         </template>
         <template #file_url="{ row }">
           <span class="action-cell">
-            <t-link
-              v-if="row.status === 'issued'"
-              theme="primary"
-              hover="color"
-              @click="handleDownload(row)"
-            >
+            <t-link v-if="row.status === 'issued'" theme="primary" hover="color" @click="handleDownload(row)">
               下载发票
             </t-link>
-            <t-link
-              v-if="row.status === 'issued'"
-              theme="default"
-              hover="color"
-              @click="handleEmail(row)"
-            >
+            <t-link v-if="row.status === 'issued'" theme="default" hover="color" @click="handleEmail(row)">
               邮件发送
             </t-link>
             <span v-if="row.status !== 'issued'" class="time-text">—</span>

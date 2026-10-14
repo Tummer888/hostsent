@@ -43,9 +43,7 @@ export function getReferralInvitees(params: {
 
 // ===== 提现审核 =====
 
-export function getReferralWithdrawals(
-  params: ReferralWithdrawListQuery,
-): Promise<ReferralWithdrawListResponse> {
+export function getReferralWithdrawals(params: ReferralWithdrawListQuery): Promise<ReferralWithdrawListResponse> {
   return request.get<ReferralWithdrawListResponse>({
     url: '/referral/withdrawals',
     params: {

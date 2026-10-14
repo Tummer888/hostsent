@@ -6,9 +6,7 @@
         <span class="page-header__chip"><CloudIcon size="22" aria-hidden="true" /></span>
         <div class="page-header__text">
           <h2 class="page-header__title">我的云主机</h2>
-          <p class="page-header__desc">
-            管理云主机电源、控制台与维护操作；到期前 {{ REMIND_DAYS }} 天会在此提示续费
-          </p>
+          <p class="page-header__desc">管理云主机电源、控制台与维护操作；到期前 {{ REMIND_DAYS }} 天会在此提示续费</p>
         </div>
       </div>
       <div class="page-header__actions">
@@ -130,11 +128,7 @@
             </template>
           </div>
         </article>
-        <t-empty
-          v-if="!loading && !filtered.length && loadError"
-          class="instance-empty"
-          :description="loadError"
-        >
+        <t-empty v-if="!loading && !filtered.length && loadError" class="instance-empty" :description="loadError">
           <template #action>
             <t-button theme="primary" :loading="loading" @click="load(false)">重试</t-button>
           </template>
@@ -232,26 +226,17 @@
         </template>
       </t-table>
 
-      <t-empty
-        v-if="!loading && !instances.length && loadError"
-        class="instance-empty"
-        :description="loadError"
-      >
+      <t-empty v-if="!loading && !instances.length && loadError" class="instance-empty" :description="loadError">
         <template #action>
           <t-button theme="primary" :loading="loading" @click="load(false)">重试</t-button>
         </template>
       </t-empty>
-      <t-empty
-        v-else-if="!loading && !instances.length"
-        class="instance-empty"
-        description="暂无云主机，去购买一台吧"
-      >
+      <t-empty v-else-if="!loading && !instances.length" class="instance-empty" description="暂无云主机，去购买一台吧">
         <template #action>
           <t-button theme="primary" @click="$router.push('/shop')">去购买</t-button>
         </template>
       </t-empty>
     </section>
-
   </div>
 </template>
 
@@ -285,14 +270,7 @@ import {
   type PowerAction,
 } from '@/api/cloud'
 import { useIsMobile } from '@/composables/useIsMobile'
-import {
-  combineInstanceState,
-  daysLeftText,
-  daysLeftTheme,
-  formatMemory,
-  formatTime,
-  stateIcon,
-} from './constants'
+import { combineInstanceState, daysLeftText, daysLeftTheme, formatMemory, formatTime, stateIcon } from './constants'
 
 defineOptions({ name: 'InstanceList' })
 

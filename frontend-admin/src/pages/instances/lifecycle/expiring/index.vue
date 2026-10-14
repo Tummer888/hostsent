@@ -98,9 +98,7 @@
         <template #action="{ row }">
           <MobileAction
             v-if="isMobile"
-            :options="buildMobileActionOptions([
-              { content: '代续费', value: 'renew', theme: 'default' },
-            ])"
+            :options="buildMobileActionOptions([{ content: '代续费', value: 'renew', theme: 'default' }])"
             @select="(value) => handleMobileAction(value, row)"
           />
           <template v-else>
@@ -300,7 +298,6 @@ function handleMobilePageSizeChange(pageSize: number) {
   void applyMobilePage(1, pageSize)
 }
 
-
 async function handleScan() {
   scanning.value = true
   try {
@@ -355,8 +352,11 @@ async function submitRenew() {
 onMounted(loadData)
 
 // 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: ExpiringInstanceItem) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: ExpiringInstanceItem) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'renew':
       openRenew(row)

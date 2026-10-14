@@ -11,7 +11,7 @@ export interface MenuNode {
 }
 
 export function getMenuTree(platform: string = 'user') {
-  return request.get<any, { data: MenuNode[] }>('/menus/tree', {
+  return request.get<unknown, { data: MenuNode[] }>('/menus/tree', {
     params: { platform },
   })
 }

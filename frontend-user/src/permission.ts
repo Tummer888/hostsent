@@ -31,6 +31,7 @@ function warmRouteChunks(matched: RouteRecordNormalized[]) {
 }
 
 export function setupPermission(app: App) {
+  void app
   router.beforeEach(async (to, from, next) => {
     const userStore = useUserStore()
     const memberStore = useMemberStore()

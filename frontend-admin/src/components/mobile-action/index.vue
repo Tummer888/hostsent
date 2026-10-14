@@ -2,7 +2,7 @@
   <t-dropdown
     trigger="click"
     :options="options"
-    @click="(value: string | number | Record<string, any>) => emit('select', value)"
+    @click="(value: string | number | Record<string, unknown>) => emit('select', value)"
   >
     <t-button
       theme="default"
@@ -23,11 +23,16 @@ import { MoreIcon } from 'tdesign-icons-vue-next'
 // 移动端操作列：省略号按钮 + 下拉菜单。
 // options: [{ content, value, disabled?, theme? }]，与 TDesign DropdownOption 一致
 defineProps<{
-  options: Array<{ content: string; value: string | number; disabled?: boolean; theme?: 'default' | 'success' | 'warning' | 'error' }>
+  options: Array<{
+    content: string
+    value: string | number
+    disabled?: boolean
+    theme?: 'default' | 'success' | 'warning' | 'error'
+  }>
 }>()
 
 const emit = defineEmits<{
-  select: [value: string | number | Record<string, any>]
+  select: [value: string | number | Record<string, unknown>]
 }>()
 </script>
 

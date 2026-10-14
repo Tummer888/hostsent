@@ -62,10 +62,20 @@
       <section class="table-card surface-card">
         <div class="table-card__head">
           <h3 class="card-title">渠道健康</h3>
-          <span v-if="loadErrors.channels" class="table-card__meta table-card__meta--error">{{ loadErrors.channels }}</span>
+          <span v-if="loadErrors.channels" class="table-card__meta table-card__meta--error">{{
+            loadErrors.channels
+          }}</span>
           <span v-else class="table-card__meta">共 {{ channelList.length }} 个渠道</span>
         </div>
-        <t-table row-key="id" :data="channelList" :columns="channelColumns" :loading="loading" size="small" hover cell-empty-content="—">
+        <t-table
+          row-key="id"
+          :data="channelList"
+          :columns="channelColumns"
+          :loading="loading"
+          size="small"
+          hover
+          cell-empty-content="—"
+        >
           <template #channel_code="{ row }">
             <div class="price-cell">
               <span class="cell-strong">{{ row.name }}</span>
@@ -73,7 +83,9 @@
             </div>
           </template>
           <template #mode="{ row }">
-            <t-tag :theme="modeTheme(row.mode)" variant="light" size="small" shape="round">{{ modeLabel(row.mode) }}</t-tag>
+            <t-tag :theme="modeTheme(row.mode)" variant="light" size="small" shape="round">{{
+              modeLabel(row.mode)
+            }}</t-tag>
           </template>
           <template #health_status="{ row }">
             <t-tag :theme="healthTheme(row.health_status)" variant="light" size="small" shape="round">
@@ -94,7 +106,15 @@
           <h3 class="card-title">最近支付单</h3>
           <span class="table-card__meta">近 10 笔</span>
         </div>
-        <t-table row-key="id" :data="recentOrders" :columns="orderColumns" :loading="loading" size="small" hover cell-empty-content="—">
+        <t-table
+          row-key="id"
+          :data="recentOrders"
+          :columns="orderColumns"
+          :loading="loading"
+          size="small"
+          hover
+          cell-empty-content="—"
+        >
           <template #payment_no="{ row }">
             <div class="price-cell">
               <span class="cell-strong">{{ row.payment_no }}</span>
@@ -121,17 +141,29 @@
       <section class="table-card surface-card">
         <div class="table-card__head">
           <h3 class="card-title">退款单</h3>
-          <span v-if="loadErrors.refunds" class="table-card__meta table-card__meta--error">{{ loadErrors.refunds }}</span>
+          <span v-if="loadErrors.refunds" class="table-card__meta table-card__meta--error">{{
+            loadErrors.refunds
+          }}</span>
           <span v-else class="table-card__meta">近 {{ refundList.length }} 笔</span>
         </div>
-        <t-table row-key="id" :data="refundList" :columns="refundColumns" :loading="loading" size="small" hover cell-empty-content="—">
+        <t-table
+          row-key="id"
+          :data="refundList"
+          :columns="refundColumns"
+          :loading="loading"
+          size="small"
+          hover
+          cell-empty-content="—"
+        >
           <template #refund_no="{ row }">
             <div class="price-cell">
               <span class="cell-strong">{{ row.refund_no }}</span>
               <span class="price-sub">{{ row.payment_no }}</span>
             </div>
           </template>
-          <template #amount="{ row }"><span class="price-main">¥{{ formatPrice(row.amount) }}</span></template>
+          <template #amount="{ row }"
+            ><span class="price-main">¥{{ formatPrice(row.amount) }}</span></template
+          >
           <template #status="{ row }">
             <t-tag :theme="refundStatusTheme(row.status)" variant="light" size="small" shape="round">
               {{ refundStatusLabel(row.status) }}
@@ -144,17 +176,29 @@
       <section class="table-card surface-card">
         <div class="table-card__head">
           <h3 class="card-title">打款单</h3>
-          <span v-if="loadErrors.payouts" class="table-card__meta table-card__meta--error">{{ loadErrors.payouts }}</span>
+          <span v-if="loadErrors.payouts" class="table-card__meta table-card__meta--error">{{
+            loadErrors.payouts
+          }}</span>
           <span v-else class="table-card__meta">近 {{ payoutList.length }} 笔</span>
         </div>
-        <t-table row-key="id" :data="payoutList" :columns="payoutColumns" :loading="loading" size="small" hover cell-empty-content="—">
+        <t-table
+          row-key="id"
+          :data="payoutList"
+          :columns="payoutColumns"
+          :loading="loading"
+          size="small"
+          hover
+          cell-empty-content="—"
+        >
           <template #payout_no="{ row }">
             <div class="price-cell">
               <span class="cell-strong">{{ row.payout_no }}</span>
               <span class="price-sub">{{ payoutModeLabel(row.mode) }}</span>
             </div>
           </template>
-          <template #amount="{ row }"><span class="price-main">¥{{ formatPrice(row.amount) }}</span></template>
+          <template #amount="{ row }"
+            ><span class="price-main">¥{{ formatPrice(row.amount) }}</span></template
+          >
           <template #status="{ row }">
             <t-tag :theme="payoutStatusTheme(row.status)" variant="light" size="small" shape="round">
               {{ payoutStatusLabel(row.status) }}
@@ -168,10 +212,20 @@
     <section class="table-card surface-card">
       <div class="table-card__head">
         <h3 class="card-title">最近回调</h3>
-        <span v-if="loadErrors.callbacks" class="table-card__meta table-card__meta--error">{{ loadErrors.callbacks }}</span>
+        <span v-if="loadErrors.callbacks" class="table-card__meta table-card__meta--error">{{
+          loadErrors.callbacks
+        }}</span>
         <span v-else class="table-card__meta">近 10 条</span>
       </div>
-      <t-table row-key="id" :data="recentCallbacks" :columns="callbackColumns" :loading="loading" size="small" hover cell-empty-content="—">
+      <t-table
+        row-key="id"
+        :data="recentCallbacks"
+        :columns="callbackColumns"
+        :loading="loading"
+        size="small"
+        hover
+        cell-empty-content="—"
+      >
         <template #payment_no="{ row }">
           <div class="price-cell">
             <span class="cell-strong">{{ row.payment_no || '—' }}</span>

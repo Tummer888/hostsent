@@ -1,9 +1,6 @@
 <template>
   <div class="user-overview-page">
-    <header
-      class="overview-header surface-card"
-      :style="{ '--header-bg': `url('${headerBg}')` }"
-    >
+    <header class="overview-header surface-card" :style="{ '--header-bg': `url('${headerBg}')` }">
       <div class="overview-header__brand">
         <div class="overview-header__badge">
           <UserIcon size="22" aria-hidden="true" />
@@ -99,9 +96,7 @@
             <span class="quick-btn__label">{{ entry.label }}</span>
             <ArrowRightIcon size="13" class="quick-btn__arrow" aria-hidden="true" />
           </button>
-          <div v-if="!activeEntries.length" class="quick-empty">
-            暂未选择快捷入口，点击右上角"编辑"添加
-          </div>
+          <div v-if="!activeEntries.length" class="quick-empty">暂未选择快捷入口，点击右上角"编辑"添加</div>
         </div>
       </article>
     </section>
@@ -230,7 +225,6 @@ import {
   UserSafetyIcon,
   UserUnknownIcon,
 } from 'tdesign-icons-vue-next'
-
 
 import EChart from '@/components/EChart.vue'
 import { formatDateTime } from '../constants'
@@ -462,9 +456,7 @@ const editorVisible = ref(false)
 const draftKeys = ref<string[]>([])
 
 const activeEntries = computed<QuickCandidate[]>(() =>
-  selectedKeys.value
-    .map((k) => entryCandidates.find((c) => c.key === k))
-    .filter((c): c is QuickCandidate => !!c),
+  selectedKeys.value.map((k) => entryCandidates.find((c) => c.key === k)).filter((c): c is QuickCandidate => !!c),
 )
 
 function openEntryEditor() {
@@ -512,9 +504,9 @@ function goStat(stat: StatCardItem) {
 function onStatusClick(payload: { name: string; seriesType?: string }) {
   if (payload.seriesType !== 'pie') return
   const map: Record<string, Record<string, string>> = {
-    '正常账号': { status: 'active' },
-    '冻结账号': { status: 'disabled' },
-    '待审核': { status: 'pending' },
+    正常账号: { status: 'active' },
+    冻结账号: { status: 'disabled' },
+    待审核: { status: 'pending' },
   }
   const filter = map[payload.name]
   if (filter) void navigateRaw(listPath, filter)
@@ -629,7 +621,12 @@ onMounted(() => {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.90) 0%, rgba(255, 255, 255, 0.5) 60%, rgba(255, 255, 255, 0.85) 100%);
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.9) 0%,
+    rgba(255, 255, 255, 0.5) 60%,
+    rgba(255, 255, 255, 0.85) 100%
+  );
   z-index: 0;
   pointer-events: none;
 }
@@ -691,7 +688,9 @@ onMounted(() => {
 /* 有筛选条件的卡片可点击跳列表（无 filter 的余额/总数/已购卡片不加手型与高亮）。 */
 .user-overview-page .stat-card--clickable {
   cursor: pointer;
-  transition: box-shadow 160ms var(--hs-ease-out), transform 160ms var(--hs-ease-out);
+  transition:
+    box-shadow 160ms var(--hs-ease-out),
+    transform 160ms var(--hs-ease-out);
 }
 
 .user-overview-page .stat-card--clickable:hover,
@@ -702,7 +701,9 @@ onMounted(() => {
 }
 
 .user-overview-page .stat-card--clickable:focus-visible {
-  box-shadow: 0 0 0 2px var(--color-primary), var(--hs-shadow-md);
+  box-shadow:
+    0 0 0 2px var(--color-primary),
+    var(--hs-shadow-md);
 }
 
 .chart-grid {
@@ -979,7 +980,6 @@ onMounted(() => {
     grid-template-columns: repeat(2, 1fr);
     gap: 8px;
   }
-
 
   .quick-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

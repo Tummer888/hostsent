@@ -23,12 +23,7 @@
           style="width: 150px"
           @change="handleMonthChange"
         />
-        <t-button
-          v-if="balanceSupported.length"
-          variant="outline"
-          :loading="fetchingAll"
-          @click="handleFetchAll"
-        >
+        <t-button v-if="balanceSupported.length" variant="outline" :loading="fetchingAll" @click="handleFetchAll">
           <template #icon><CloudDownloadIcon aria-hidden="true" /></template>
           抓取全部（{{ balanceSupported.length }}）
         </t-button>
@@ -97,9 +92,7 @@
     <section class="table-card surface-card">
       <div class="table-card__head">
         <h3 class="card-title">渠道余额与流水</h3>
-        <span class="table-card__meta">
-          「最新余额」为每日自动抓取的余额快照；消耗/充值取自上游账本流水
-        </span>
+        <span class="table-card__meta"> 「最新余额」为每日自动抓取的余额快照；消耗/充值取自上游账本流水 </span>
       </div>
       <t-table
         row-key="provider_id"
@@ -143,7 +136,13 @@
           <t-tag v-if="row.cost_source === 'ledger'" theme="primary" variant="light" size="small" shape="round">
             账本流水
           </t-tag>
-          <t-tag v-else-if="isLedgerSupported(row.provider_id)" theme="warning" variant="light" size="small" shape="round">
+          <t-tag
+            v-else-if="isLedgerSupported(row.provider_id)"
+            theme="warning"
+            variant="light"
+            size="small"
+            shape="round"
+          >
             待同步
           </t-tag>
           <t-tag v-else theme="default" variant="light" size="small" shape="round">未接入账本</t-tag>
@@ -151,7 +150,11 @@
         <template #op="{ row }">
           <div class="action-cell">
             <t-tooltip
-              :content="isBalanceSupported(row.provider_id) ? '调用渠道接口抓取当前余额并落今日快照' : '该渠道类型未实现余额查询接口'"
+              :content="
+                isBalanceSupported(row.provider_id)
+                  ? '调用渠道接口抓取当前余额并落今日快照'
+                  : '该渠道类型未实现余额查询接口'
+              "
             >
               <t-link
                 theme="primary"
@@ -162,7 +165,9 @@
               </t-link>
             </t-tooltip>
             <t-tooltip
-              :content="isLedgerSupported(row.provider_id) ? '增量同步该渠道的消费/充值流水' : '该渠道类型未实现账本读取'"
+              :content="
+                isLedgerSupported(row.provider_id) ? '增量同步该渠道的消费/充值流水' : '该渠道类型未实现账本读取'
+              "
             >
               <t-link
                 theme="primary"
@@ -193,8 +198,9 @@
               @change="handleFilterChange"
             />
             <span class="table-card__meta">
-              按 {{ monthValue }} 筛选 · 共 {{ entryMeta.total }} 笔 ·
-              消费合计 ¥{{ formatPrice(entryTotals.consumption) }}
+              按 {{ monthValue }} 筛选 · 共 {{ entryMeta.total }} 笔 · 消费合计 ¥{{
+                formatPrice(entryTotals.consumption)
+              }}
             </span>
           </div>
           <t-table
@@ -218,7 +224,12 @@
               </div>
             </template>
             <template #category="{ row }">
-              <t-tag :theme="row.category === '续费' ? 'warning' : 'primary'" variant="light" size="small" shape="round">
+              <t-tag
+                :theme="row.category === '续费' ? 'warning' : 'primary'"
+                variant="light"
+                size="small"
+                shape="round"
+              >
                 {{ row.category || '消费' }}
               </t-tag>
             </template>
@@ -253,8 +264,7 @@
               @change="handleFilterChange"
             />
             <span class="table-card__meta">
-              按 {{ monthValue }} 筛选 · 共 {{ entryMeta.total }} 笔 ·
-              充值合计 ¥{{ formatPrice(entryTotals.topup) }}
+              按 {{ monthValue }} 筛选 · 共 {{ entryMeta.total }} 笔 · 充值合计 ¥{{ formatPrice(entryTotals.topup) }}
             </span>
           </div>
           <t-table
@@ -313,12 +323,7 @@ import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { fetchCostBalance, getCostLedger, getCostLedgerEntries, syncCostLedger } from '@/api/cost'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { formatAmount, formatPrice, formatTime } from '@/pages/finance/constants'
-import type {
-  BalanceAlert,
-  CostLedgerEntryInfo,
-  UpstreamLedgerResponse,
-  UpstreamLedgerRow,
-} from '@/types/interface'
+import type { BalanceAlert, CostLedgerEntryInfo, UpstreamLedgerResponse, UpstreamLedgerRow } from '@/types/interface'
 
 defineOptions({ name: 'FinanceCostUpstreams' })
 
@@ -546,9 +551,7 @@ async function handleSyncLedger(full: boolean, providerId?: number) {
     } else if (failed.length === 0) {
       const written = results.reduce((sum, item) => sum + item.consumption + item.topup, 0)
       MessagePlugin.success(
-        full
-          ? `已全量回填 ${results.length} 个渠道，写入 ${written} 条流水`
-          : `账本已同步，写入 ${written} 条流水`,
+        full ? `已全量回填 ${results.length} 个渠道，写入 ${written} 条流水` : `账本已同步，写入 ${written} 条流水`,
       )
     } else {
       MessagePlugin.warning(`${failed.map((item) => `${item.provider_name}：${item.failed}`).join('；')}`)

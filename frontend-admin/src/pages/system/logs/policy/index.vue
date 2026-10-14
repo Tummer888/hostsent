@@ -8,9 +8,9 @@
         <div class="page-header__text">
           <h2 class="page-header__title">日志保留策略</h2>
           <p class="page-header__desc">
-            逐源配置「动作 / 保留天数 / 批次大小」。<b>只有 ops 类源允许「清理」</b>，
-            audit 类只能备份不能删；<b>{{ MIN_RETENTION_DAYS }} 天是代码硬地板</b>，
-            设置里再小也会被后端夹回，且水位线永远不会越过保留期下界。
+            逐源配置「动作 / 保留天数 / 批次大小」。<b>只有 ops 类源允许「清理」</b>， audit 类只能备份不能删；<b
+              >{{ MIN_RETENTION_DAYS }} 天是代码硬地板</b
+            >， 设置里再小也会被后端夹回，且水位线永远不会越过保留期下界。
           </p>
         </div>
       </div>
@@ -66,9 +66,7 @@
           <div class="stack-cell">
             <span class="cell-strong">{{ row.display_name }}</span>
             <span class="sub-text">{{ row.source_key }}</span>
-            <span v-if="row.independent_page" class="sub-text">
-              另有独立页面：{{ row.independent_page }}
-            </span>
+            <span v-if="row.independent_page" class="sub-text"> 另有独立页面：{{ row.independent_page }} </span>
           </div>
         </template>
         <template #group_label="{ row }">
@@ -92,7 +90,9 @@
             </span>
             <span
               v-if="retentionWarn(row.source_key, row.retention_days).text"
-              :class="retentionWarn(row.source_key, row.retention_days).level === 'danger' ? 'danger-hint' : 'warn-hint'"
+              :class="
+                retentionWarn(row.source_key, row.retention_days).level === 'danger' ? 'danger-hint' : 'warn-hint'
+              "
             >
               {{ retentionWarn(row.source_key, row.retention_days).text }}
             </span>
@@ -193,14 +193,9 @@
         </div>
 
         <div class="confirm-field">
-          <span class="field__label">
-            保留天数（硬地板 {{ MIN_RETENTION_DAYS }} 天，不足会被后端夹回）
-          </span>
+          <span class="field__label"> 保留天数（硬地板 {{ MIN_RETENTION_DAYS }} 天，不足会被后端夹回） </span>
           <t-input-number v-model="form.retention_days" :min="MIN_RETENTION_DAYS" :max="3650" theme="normal" />
-          <p
-            v-if="formWarning.text"
-            :class="formWarning.level === 'danger' ? 'danger-hint' : 'warn-hint'"
-          >
+          <p v-if="formWarning.text" :class="formWarning.level === 'danger' ? 'danger-hint' : 'warn-hint'">
             {{ formWarning.text }}
           </p>
           <p v-if="isInbox(editing.source_key)" class="warn-hint">

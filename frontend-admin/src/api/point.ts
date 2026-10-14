@@ -1,7 +1,6 @@
 import { request } from '@/utils/request'
 
 import type {
-  PointAccountInfo,
   PointAccountListQuery,
   PointAccountListResponse,
   PointAdjustRequest,

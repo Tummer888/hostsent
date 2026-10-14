@@ -35,7 +35,9 @@
                 <span class="review-card__title">{{ item.title }}</span>
               </div>
               <t-space size="small" break-line>
-                <t-tag variant="light" size="small" shape="round">{{ item.category_name || item.category || '未分类' }}</t-tag>
+                <t-tag variant="light" size="small" shape="round">{{
+                  item.category_name || item.category || '未分类'
+                }}</t-tag>
                 <t-tag v-if="item.department_name" variant="light" size="small" shape="round" theme="primary">
                   {{ item.department_name }}
                 </t-tag>
@@ -123,7 +125,9 @@
           <t-form-item :label="reviewForm.action === 'approve' ? '复核意见（选填）' : '驳回说明（必填）'">
             <t-textarea
               v-model="reviewForm.note"
-              :placeholder="reviewForm.action === 'approve' ? '可补充说明，用户端不可见' : '请说明驳回原因，将通知提交人'"
+              :placeholder="
+                reviewForm.action === 'approve' ? '可补充说明，用户端不可见' : '请说明驳回原因，将通知提交人'
+              "
               :autosize="{ minRows: 3, maxRows: 6 }"
               :maxlength="500"
               show-limit-number

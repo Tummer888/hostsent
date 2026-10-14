@@ -101,28 +101,22 @@
           <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '编辑', value: 'edit', theme: 'default' },
-                { content: '停用', value: 'toggle', hidden: () => row.status !== 1, theme: 'warning' },
-                { content: '启用', value: 'toggle', hidden: () => row.status === 1, theme: 'success' },
-                { content: '删除', value: 'delete', theme: 'error' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '编辑', value: 'edit', theme: 'default' },
+                  { content: '停用', value: 'toggle', hidden: () => row.status !== 1, theme: 'warning' },
+                  { content: '启用', value: 'toggle', hidden: () => row.status === 1, theme: 'success' },
+                  { content: '删除', value: 'delete', theme: 'error' },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
               <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
-              <t-link
-                v-if="row.status === 1"
-                theme="warning"
-                hover="color"
-                @click="handleToggleStatus(row)"
-              >停用</t-link>
-              <t-link
-                v-else
-                theme="primary"
-                hover="color"
-                @click="handleToggleStatus(row)"
-              >启用</t-link>
+              <t-link v-if="row.status === 1" theme="warning" hover="color" @click="handleToggleStatus(row)"
+                >停用</t-link
+              >
+              <t-link v-else theme="primary" hover="color" @click="handleToggleStatus(row)">启用</t-link>
               <t-link theme="danger" hover="color" @click="handleDelete(row)">删除</t-link>
             </template>
           </div>
@@ -153,7 +147,11 @@
       @close="formVisible = false"
     >
       <t-form label-align="top" :data="form" @submit.prevent>
-        <t-form-item :label="labels.nameLabel" name="name" :rules="[{ required: true, message: `请填写${labels.nameLabel}` }]">
+        <t-form-item
+          :label="labels.nameLabel"
+          name="name"
+          :rules="[{ required: true, message: `请填写${labels.nameLabel}` }]"
+        >
           <t-input v-model="form.name" :placeholder="labels.namePlaceholder" />
         </t-form-item>
         <t-form-item :label="labels.ruleLabel" name="rule">
@@ -190,7 +188,7 @@ import { AddIcon, AppIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-vue-nex
 
 import { createPromotion, deletePromotion, getPromotionList, updatePromotion } from '@/api/product'
 import { formatTime } from '@/pages/product/constants'
-import type { PromotionInfo } from '@/types/interface'
+import type { PromotionInfo, PromotionRequest } from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
@@ -278,7 +276,8 @@ function handleResetFilters() {
 const formVisible = ref(false)
 const editing = ref(false)
 let editingId = 0
-const form = reactive<Record<string, any>>({
+// promotion_type 在提交时由 props.promotionType 注入，表单本身只承载用户输入字段。
+const form = reactive<Omit<PromotionRequest, 'promotion_type'>>({
   name: '',
   rule: '',
   start_time: undefined,
@@ -378,8 +377,11 @@ onMounted(() => {
 })
 
 // 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: PromotionInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: PromotionInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'edit':
       openEdit(row)

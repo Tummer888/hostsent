@@ -8,9 +8,9 @@
         <div class="page-header__text">
           <h2 class="page-header__title">上游商品</h2>
           <p class="page-header__sub">
-            上游供应商的商品镜像：按分类/服务商查看，标价与代理价（采购价）双口径。
-            状态分两列：「上游状态」= 上游商铺是否展示，「本地导入」= 我方是否已导入；
-            「库存」= 上游可售余量（不限量显示「不限」），随目录同步刷新。
+            上游供应商的商品镜像：按分类/服务商查看，标价与代理价（采购价）双口径。 状态分两列：「上游状态」=
+            上游商铺是否展示，「本地导入」= 我方是否已导入； 「库存」=
+            上游可售余量（不限量显示「不限」），随目录同步刷新。
           </p>
         </div>
       </div>
@@ -56,9 +56,7 @@
               {{ group.group_name || `分组 #${group.group_id}` }}
               <t-tag v-if="group.group_name_derived" size="small" variant="light-outline" theme="warning">派生</t-tag>
             </span>
-            <span class="aside-item__meta">
-              在售 {{ group.on_sale }}/{{ group.total }}
-            </span>
+            <span class="aside-item__meta"> 在售 {{ group.on_sale }}/{{ group.total }} </span>
           </li>
         </ul>
       </aside>
@@ -71,7 +69,13 @@
           </div>
           <div class="field">
             <span class="field__label">服务商</span>
-            <t-select v-model="filters.provider_id" clearable placeholder="全部服务商" :options="providerOptions" @change="handleProviderChange" />
+            <t-select
+              v-model="filters.provider_id"
+              clearable
+              placeholder="全部服务商"
+              :options="providerOptions"
+              @change="handleProviderChange"
+            />
           </div>
           <div class="field">
             <span class="field__label">状态</span>
@@ -102,8 +106,8 @@
           </div>
           <p class="table-card__hint">
             这是两个独立维度：<b>上游状态</b>看上游商铺是否展示（正常 / 隐藏；悬停可看是分类隐藏、商品隐藏还是已下架，
-            隐藏的商品仍可导入与开通）；<b>本地导入</b>看我方是否已导入成本地商品。
-            「上游正常 + 未导入」是正常状态，点「未导入 · 去导入」可直接导入。
+            隐藏的商品仍可导入与开通）；<b>本地导入</b>看我方是否已导入成本地商品。 「上游正常 +
+            未导入」是正常状态，点「未导入 · 去导入」可直接导入。
           </p>
           <t-table
             row-key="id"
@@ -176,7 +180,10 @@
 
             <!-- 与「上游状态」是两个维度：上游是否在售 ≠ 我方是否已导入 -->
             <template #imported="{ row }">
-              <t-tooltip v-if="row.imported" :content="`已导入为本地商品 #${row.imported_product_id}（${importedStatusText(row)}），点击查看`">
+              <t-tooltip
+                v-if="row.imported"
+                :content="`已导入为本地商品 #${row.imported_product_id}（${importedStatusText(row)}），点击查看`"
+              >
                 <t-link theme="success" hover="color" @click="goImportedProduct(row)">已导入</t-link>
               </t-tooltip>
               <t-tooltip v-else content="还没导入为本地商品：导入后才会生成可上架售卖的本地商品">
@@ -188,9 +195,7 @@
               <div class="action-cell">
                 <MobileAction
                   v-if="isMobile"
-                  :options="buildMobileActionOptions([
-                    { content: '详情', value: 'detail', theme: 'default' },
-                  ])"
+                  :options="buildMobileActionOptions([{ content: '详情', value: 'detail', theme: 'default' }])"
                   @select="(value) => handleMobileAction(value, row)"
                 />
                 <template v-else>
@@ -232,13 +237,17 @@
             <t-tag theme="primary" variant="light" size="small" shape="round">
               {{ detailProduct.group_name || `分组 #${detailProduct.group_id}` }}
             </t-tag>
-            <t-tag v-if="detailProduct.group_name_derived" size="small" variant="light-outline" theme="warning">派生</t-tag>
+            <t-tag v-if="detailProduct.group_name_derived" size="small" variant="light-outline" theme="warning"
+              >派生</t-tag
+            >
           </span>
         </t-descriptions-item>
         <t-descriptions-item label="规格">{{ specText(detailProduct) }}</t-descriptions-item>
         <t-descriptions-item label="磁盘类型">{{ detailProduct.disk_type || '—' }}</t-descriptions-item>
         <t-descriptions-item label="操作系统">{{ detailProduct.os || '—' }}</t-descriptions-item>
-        <t-descriptions-item label="区域/可用区">{{ detailProduct.region }}{{ detailProduct.zone ? ' / ' + detailProduct.zone : '' }}</t-descriptions-item>
+        <t-descriptions-item label="区域/可用区"
+          >{{ detailProduct.region }}{{ detailProduct.zone ? ' / ' + detailProduct.zone : '' }}</t-descriptions-item
+        >
         <t-descriptions-item label="上游标价">
           {{ detailProduct.sale_price > 0 ? `¥${formatPrice(detailProduct.sale_price)}` : '上游未定价' }}
         </t-descriptions-item>
@@ -246,7 +255,11 @@
           {{ detailProduct.cost_price > 0 ? `¥${formatPrice(detailProduct.cost_price)}` : '—' }}
         </t-descriptions-item>
         <t-descriptions-item label="上游让利（标价−代理价）">
-          {{ detailProduct.cost_price > 0 && detailProduct.sale_price > detailProduct.cost_price ? `¥${formatPrice(detailProduct.sale_price - detailProduct.cost_price)}（${discountRate(detailProduct)}%）` : '—' }}
+          {{
+            detailProduct.cost_price > 0 && detailProduct.sale_price > detailProduct.cost_price
+              ? `¥${formatPrice(detailProduct.sale_price - detailProduct.cost_price)}（${discountRate(detailProduct)}%）`
+              : '—'
+          }}
         </t-descriptions-item>
         <t-descriptions-item label="库存（上游可售余量）">
           <span v-if="detailProduct.stock < 0" class="muted">不限量（上游未开启库存控制）</span>
@@ -277,11 +290,15 @@
             上游前台展示价（该商品价格挂在配置项上，商品周期价为 0，已按上游前台展示价回填）
             <template v-if="detailProduct.catalog_price">
               ：标价 ¥{{ formatPrice(detailProduct.catalog_price) }}
-              <template v-if="detailProduct.catalog_sale_price">/ 应付 ¥{{ formatPrice(detailProduct.catalog_sale_price) }}</template>
+              <template v-if="detailProduct.catalog_sale_price"
+                >/ 应付 ¥{{ formatPrice(detailProduct.catalog_sale_price) }}</template
+              >
               <template v-if="detailProduct.catalog_cycle">（{{ cycleLabel(detailProduct.catalog_cycle) }}）</template>
             </template>
           </span>
-          <span v-else-if="detailProduct.price_source === 'none'">上游未定价（周期价与前台展示价都为空，导入后需人工定价）</span>
+          <span v-else-if="detailProduct.price_source === 'none'"
+            >上游未定价（周期价与前台展示价都为空，导入后需人工定价）</span
+          >
           <span v-else>上游商品周期价</span>
         </t-descriptions-item>
         <t-descriptions-item v-if="detailProduct.group_name_derived" label="分类说明" :span="2">
@@ -296,7 +313,6 @@
         </t-descriptions-item>
       </t-descriptions>
     </t-dialog>
-
   </div>
 </template>
 
@@ -330,7 +346,12 @@ const statusOptions = [
   { label: '隐藏', value: 0 },
 ]
 
-const filters = reactive<{ keyword: string | undefined; provider_id: number | undefined; group_id: number | undefined; status: number | undefined }>({
+const filters = reactive<{
+  keyword: string | undefined
+  provider_id: number | undefined
+  group_id: number | undefined
+  status: number | undefined
+}>({
   keyword: undefined,
   provider_id: undefined,
   group_id: undefined,
@@ -464,7 +485,10 @@ function statusTooltip(row: ProductInfo): string {
 
 /** 带参数跳到商品列表页并打开导入弹窗（预选这个上游商品）。 */
 function goImport(row: ProductInfo) {
-  router.push({ path: '/product/products', query: { import: String(row.provider_id || filters.provider_id || ''), preselect: String(row.id) } })
+  router.push({
+    path: '/product/products',
+    query: { import: String(row.provider_id || filters.provider_id || ''), preselect: String(row.id) },
+  })
 }
 
 const columns: PrimaryTableCol<ProductInfo>[] = [
@@ -627,7 +651,10 @@ function handleResetFilters() {
 
 function goImportPage() {
   // 顶部入口：不预选任何商品，只跳到商品列表页打开导入弹窗。
-  router.push({ path: '/product/products', query: { import: filters.provider_id ? String(filters.provider_id) : undefined } })
+  router.push({
+    path: '/product/products',
+    query: { import: filters.provider_id ? String(filters.provider_id) : undefined },
+  })
 }
 
 const detailVisible = ref(false)
@@ -651,15 +678,17 @@ async function openDetailDialog(row: ProductInfo) {
   }
 }
 
-
 onMounted(() => {
   loadProviders()
   loadAll()
 })
 
 // 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: ProductInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: ProductInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'detail':
       openDetailDialog(row)
@@ -673,7 +702,6 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
 </style>
 
 <style scoped lang="css">
-
 /* 桌面列数由 FilterCard 的 columns 属性给出 3 列，见组件内 .filter-card--cols-*。 */
 
 .resource-products {

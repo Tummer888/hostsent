@@ -8,14 +8,7 @@
       :disabled="disabled"
       @click="refresh"
     >
-      <img
-        v-if="imageBase64"
-        :src="imageBase64"
-        alt="图形验证码"
-        width="110"
-        height="46"
-        loading="eager"
-      />
+      <img v-if="imageBase64" :src="imageBase64" alt="图形验证码" width="110" height="46" loading="eager" />
       <span v-else class="captcha-image__placeholder">{{ loading ? '加载中…' : '换一张' }}</span>
     </button>
     <!-- 降级提示：接口失败时不再阻断用户，与后端「Redis 降级放行」策略一致（doc91 §3.5）。 -->
@@ -104,7 +97,9 @@ defineExpose({ refresh })
   user-select: none;
   padding: 0;
   overflow: hidden;
-  transition: border-color 0.25s ease, transform 0.25s ease;
+  transition:
+    border-color 0.25s ease,
+    transform 0.25s ease;
 }
 
 .captcha-image__box:hover:not(:disabled) {

@@ -9,16 +9,18 @@
     :error-message="errorMessage"
     empty-text="暂无会话数据"
     :pagination="pagination"
+    :icon="RefreshIcon"
     @search="handleSearch"
     @reset="handleReset"
     @reload="loadData"
     @page-change="handlePageChange"
-    :icon="RefreshIcon"
   >
     <template #header-actions>
       <t-space>
         <t-button v-permission="'security:session:manage'" variant="outline" @click="batchRevoke">批量失效</t-button>
-        <t-button v-permission="'security:session:manage'" theme="primary" @click="revokeAll">失效用户全部会话</t-button>
+        <t-button v-permission="'security:session:manage'" theme="primary" @click="revokeAll"
+          >失效用户全部会话</t-button
+        >
       </t-space>
     </template>
 
@@ -88,7 +90,9 @@
     </template>
 
     <template #operation="{ row }">
-      <t-link v-if="!isMobile" v-permission="'security:session:manage'" theme="primary" @click="revokeOne(row)">失效</t-link>
+      <t-link v-if="!isMobile" v-permission="'security:session:manage'" theme="primary" @click="revokeOne(row)"
+        >失效</t-link
+      >
       <MobileAction
         v-else
         :options="[{ content: '失效', value: 'revoke' }]"
@@ -229,7 +233,10 @@ async function revokeOne(row: SessionInfo) {
 
 async function batchRevoke() {
   // 只挑仍在线的会话（库里 active 才是有效会话，online 是旧前端编的值）。
-  const ids = tableData.value.filter((item) => item.status === 'active').slice(0, 3).map((item) => item.id)
+  const ids = tableData.value
+    .filter((item) => item.status === 'active')
+    .slice(0, 3)
+    .map((item) => item.id)
   if (!ids.length) return
   await batchRevokeSessions({ ids })
   await loadData()
@@ -245,8 +252,11 @@ async function revokeAll() {
 onMounted(() => {
   void loadData()
 })
-function handleMobileAction(value: string | number | Record<string, any>, row: SessionInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: SessionInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   if (action === 'revoke') void revokeOne(row)
 }
 </script>

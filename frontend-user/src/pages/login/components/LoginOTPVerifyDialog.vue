@@ -37,12 +37,7 @@
 
       <div class="otp-dialog__foot">
         <span v-if="expireHint" class="otp-dialog__expire">{{ expireHint }}</span>
-        <button
-          type="button"
-          class="otp-dialog__resend"
-          :disabled="countdown > 0 || submitting"
-          @click="onResend"
-        >
+        <button type="button" class="otp-dialog__resend" :disabled="countdown > 0 || submitting" @click="onResend">
           {{ countdown > 0 ? `重新发送（${countdown}s）` : '重新发送验证码' }}
         </button>
       </div>
@@ -245,7 +240,10 @@ watch(
   border-radius: 10px;
   background: #f8fafc;
   outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s,
+    background-color 0.2s;
 }
 
 .otp-cell:focus {

@@ -12,9 +12,7 @@
             {{ userStore.userInfo.name || userStore.userInfo.username }}
           </span>
         </h2>
-        <p class="hero-desc">
-          今天是 {{ today }}。平台运行稳定，共监控 {{ totalResources }} 项活跃资源。
-        </p>
+        <p class="hero-desc">今天是 {{ today }}。平台运行稳定，共监控 {{ totalResources }} 项活跃资源。</p>
         <div class="hero-actions">
           <t-button theme="primary" size="medium" class="hero-btn hero-btn--primary">
             <template #icon>
@@ -53,12 +51,7 @@
           <component :is="stat.icon" size="22" aria-hidden="true" />
         </span>
         <div class="stat-card__info">
-          <t-statistic
-            :value="stat.value"
-            :decimal-places="0"
-            :precision="0"
-            class="stat-card__value"
-          />
+          <t-statistic :value="stat.value" :decimal-places="0" :precision="0" class="stat-card__value" />
           <span class="stat-card__label">
             {{ stat.title }}
             <t-tag
@@ -83,11 +76,7 @@
                 <stop offset="100%" :stop-color="stat.sparkColor" stop-opacity="0" />
               </linearGradient>
             </defs>
-            <path
-              :d="stat.sparkArea"
-              :fill="`url(#grad-${stat.key})`"
-              class="spark-area"
-            />
+            <path :d="stat.sparkArea" :fill="`url(#grad-${stat.key})`" class="spark-area" />
             <path
               :d="stat.sparkLine"
               fill="none"
@@ -160,11 +149,7 @@
           class="log-table"
         >
           <template #result="{ row }">
-            <t-tag
-              :theme="row.result === '成功' ? 'success' : 'danger'"
-              variant="light"
-              shape="round"
-            >
+            <t-tag :theme="row.result === '成功' ? 'success' : 'danger'" variant="light" shape="round">
               {{ row.result }}
             </t-tag>
           </template>
@@ -201,7 +186,7 @@ const range = ref('7day')
 const heroImage =
   'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=' +
   encodeURIComponent(
-    'light minimal cloud infrastructure monitoring illustration with servers and dashboard charts, white background, green accent color, flat vector style, professional SaaS hero image, 16:9'
+    'light minimal cloud infrastructure monitoring illustration with servers and dashboard charts, white background, green accent color, flat vector style, professional SaaS hero image, 16:9',
   ) +
   '&image_size=landscape_16_9'
 
@@ -271,10 +256,46 @@ const totalResources = computed(() => 1792)
 
 const statCards = computed<StatCardItem[]>(() => {
   const data: Array<Omit<StatCardItem, 'sparkLine' | 'sparkArea'>> = [
-    { key: 'users', title: '当前用户总数', value: 1284, variant: 'blue', trend: 'up', change: '+12%', sparkColor: '#2563EB', icon: wrap(UserIcon) },
-    { key: 'hosts', title: '在役云主机数', value: 326, variant: 'cyan', trend: 'up', change: '+6%', sparkColor: '#0891B2', icon: wrap(LayersIcon) },
-    { key: 'orders', title: '本月订单数', value: 182, variant: 'green', trend: 'up', change: '+18%', sparkColor: '#16A34A', icon: wrap(FileCopyIcon) },
-    { key: 'tickets', title: '待处理工单', value: 9, variant: 'orange', trend: 'down', change: '-2%', sparkColor: '#D97706', icon: wrap(ServiceIcon) },
+    {
+      key: 'users',
+      title: '当前用户总数',
+      value: 1284,
+      variant: 'blue',
+      trend: 'up',
+      change: '+12%',
+      sparkColor: '#2563EB',
+      icon: wrap(UserIcon),
+    },
+    {
+      key: 'hosts',
+      title: '在役云主机数',
+      value: 326,
+      variant: 'cyan',
+      trend: 'up',
+      change: '+6%',
+      sparkColor: '#0891B2',
+      icon: wrap(LayersIcon),
+    },
+    {
+      key: 'orders',
+      title: '本月订单数',
+      value: 182,
+      variant: 'green',
+      trend: 'up',
+      change: '+18%',
+      sparkColor: '#16A34A',
+      icon: wrap(FileCopyIcon),
+    },
+    {
+      key: 'tickets',
+      title: '待处理工单',
+      value: 9,
+      variant: 'orange',
+      trend: 'down',
+      change: '-2%',
+      sparkColor: '#D97706',
+      icon: wrap(ServiceIcon),
+    },
   ]
   return data.map((item) => {
     const seq = Array.from({ length: 14 }, (_, i) => 30 + Math.sin(i * 0.9 + item.key.length) * 18 + (i % 3) * 6)
@@ -311,7 +332,14 @@ type LogRow = {
 const logList: LogRow[] = [
   { id: 1, operator: 'admin', action: '重置用户密码', target: 'u_1023', time: '2026-08-19 10:06', result: '成功' },
   { id: 2, operator: 'admin', action: '启动云主机', target: 'host-0082', time: '2026-08-19 09:41', result: '成功' },
-  { id: 3, operator: 'admin', action: '审核订单支付', target: 'P202608190013', time: '2026-08-19 09:18', result: '成功' },
+  {
+    id: 3,
+    operator: 'admin',
+    action: '审核订单支付',
+    target: 'P202608190013',
+    time: '2026-08-19 09:18',
+    result: '成功',
+  },
   { id: 4, operator: 'admin', action: '创建产品规格', target: '通用型-2C4G', time: '2026-08-18 21:09', result: '成功' },
   { id: 5, operator: 'admin', action: '关闭实例', target: 'host-0075', time: '2026-08-18 19:55', result: '失败' },
 ]
@@ -396,8 +424,13 @@ onMounted(() => {
 }
 
 @keyframes statusPulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--color-primary-rgb), 0.5); }
-  70% { box-shadow: 0 0 0 6px rgba(var(--color-primary-rgb), 0); }
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--color-primary-rgb), 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(var(--color-primary-rgb), 0);
+  }
 }
 
 .hero-label {
@@ -510,7 +543,10 @@ onMounted(() => {
 }
 
 @keyframes cardIn {
-  to { opacity: 1; transform: translateY(0); }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .stat-card__trend {
@@ -535,8 +571,16 @@ onMounted(() => {
   animation: sparkFade 600ms ease-out 0.4s forwards;
 }
 
-@keyframes sparkDraw { to { stroke-dashoffset: 0; } }
-@keyframes sparkFade { to { opacity: 1; } }
+@keyframes sparkDraw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes sparkFade {
+  to {
+    opacity: 1;
+  }
+}
 
 /* Panel grid */
 .panel-grid {
@@ -624,10 +668,18 @@ onMounted(() => {
   color: var(--color-foreground);
 }
 
-.overview-item__value[data-theme='primary'] { color: #2563eb; }
-.overview-item__value[data-theme='success'] { color: var(--color-primary); }
-.overview-item__value[data-theme='warning'] { color: #d97706; }
-.overview-item__value[data-theme='danger'] { color: #dc2626; }
+.overview-item__value[data-theme='primary'] {
+  color: #2563eb;
+}
+.overview-item__value[data-theme='success'] {
+  color: var(--color-primary);
+}
+.overview-item__value[data-theme='warning'] {
+  color: #d97706;
+}
+.overview-item__value[data-theme='danger'] {
+  color: #dc2626;
+}
 
 .overview-item__progress :deep(.t-progress__bar--outer) {
   background: var(--hs-surface-3);
@@ -697,8 +749,12 @@ onMounted(() => {
     opacity: 1 !important;
     transform: none !important;
   }
-  .spark-line { stroke-dashoffset: 0 !important; }
-  .spark-area { opacity: 1 !important; }
+  .spark-line {
+    stroke-dashoffset: 0 !important;
+  }
+  .spark-area {
+    opacity: 1 !important;
+  }
 }
 </style>
 

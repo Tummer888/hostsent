@@ -2,22 +2,22 @@
 
 :root {
   /* HostSent Design System tokens — Light theme · Density 9 · Variance 3 · Motion 4 */
-  --color-primary: #16A34A;
-  --color-on-primary: #FFFFFF;
-  --color-secondary: #0F172A;
-  --color-on-secondary: #FFFFFF;
-  --color-accent: #16A34A;
-  --color-on-accent: #FFFFFF;
-  --color-background: #F5F7FA;
-  --color-foreground: #0F172A;
-  --color-card: #FFFFFF;
-  --color-card-foreground: #0F172A;
-  --color-muted: #F1F5F9;
-  --color-muted-foreground: #64748B;
-  --color-border: #E2E8F0;
-  --color-destructive: #EF4444;
-  --color-on-destructive: #FFFFFF;
-  --color-ring: #16A34A;
+  --color-primary: #16a34a;
+  --color-on-primary: #ffffff;
+  --color-secondary: #0f172a;
+  --color-on-secondary: #ffffff;
+  --color-accent: #16a34a;
+  --color-on-accent: #ffffff;
+  --color-background: #f5f7fa;
+  --color-foreground: #0f172a;
+  --color-card: #ffffff;
+  --color-card-foreground: #0f172a;
+  --color-muted: #f1f5f9;
+  --color-muted-foreground: #64748b;
+  --color-border: #e2e8f0;
+  --color-destructive: #ef4444;
+  --color-on-destructive: #ffffff;
+  --color-ring: #16a34a;
   /* 主色的 RGB 三元组：供 rgba(var(--color-primary-rgb), α) 写法派生任意透明度的品牌色
      （表头底色、行悬停、聚焦光圈等）。主题切换时由 utils/theme.ts 以同名变量覆盖。 */
   --color-primary-rgb: 22, 163, 74;
@@ -43,9 +43,9 @@
   --td-brand-color-light-active: #bbf7d0;
 
   /* Surfaces */
-  --hs-surface-1: #FFFFFF;
-  --hs-surface-2: #F8FAFC;
-  --hs-surface-3: #F1F5F9;
+  --hs-surface-1: #ffffff;
+  --hs-surface-2: #f8fafc;
+  --hs-surface-3: #f1f5f9;
 
   /* Spacing scale — Density 9 (compact, 4–24px base) */
   --space-xs: 4px;
@@ -62,15 +62,19 @@
   --hs-radius-xl: 10px;
 
   /* Typography */
-  --hs-font-heading: 'Fira Sans', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
-  --hs-font-body: 'Fira Sans', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+  --hs-font-heading:
+    'Fira Sans', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+    'Helvetica Neue', sans-serif;
+  --hs-font-body:
+    'Fira Sans', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+    'Helvetica Neue', sans-serif;
   --hs-font-mono: 'Fira Code', ui-monospace, Menlo, Consolas, monospace;
 
   /* Shadows — flat, subtle */
   --hs-shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
   --hs-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
   --hs-shadow-md: 0 2px 8px rgba(15, 23, 42, 0.08);
-  --hs-shadow-lg: 0 8px 24px rgba(15, 23, 42, 0.10);
+  --hs-shadow-lg: 0 8px 24px rgba(15, 23, 42, 0.1);
 
   /* Motion */
   --hs-duration-fast: 150ms;
@@ -98,12 +102,10 @@ html.dark body {
   background: #000000;
 }
 
-
 /* 色弱模式：提升饱和度与对比度辅助辨色 */
 html.color-weak {
   filter: saturate(1.4) contrast(1.05);
 }
-
 
 @media (prefers-reduced-motion: reduce) {
   * {
@@ -160,7 +162,12 @@ body {
   }
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   font-family: var(--hs-font-heading);
   letter-spacing: -0.01em;
   color: var(--color-foreground);
@@ -239,16 +246,16 @@ h1, h2, h3, h4, h5, h6 {
   --td-font-gray-3: rgba(0, 0, 0, 40%);
   --td-font-gray-4: rgba(0, 0, 0, 26%);
 
-  --td-brand-color: var(--td-brand-color-8); 
-  --td-warning-color: var(--td-warning-color-5); 
-  --td-error-color: var(--td-error-color-6); 
-  --td-success-color: var(--td-success-color-5); 
+  --td-brand-color: var(--td-brand-color-8);
+  --td-warning-color: var(--td-warning-color-5);
+  --td-error-color: var(--td-error-color-6);
+  --td-success-color: var(--td-success-color-5);
 
-  --td-brand-color-hover: var(--td-brand-color-7); 
-  --td-brand-color-focus: var(--td-brand-color-2); 
-  --td-brand-color-active: var(--td-brand-color-9); 
-  --td-brand-color-disabled: var(--td-brand-color-3); 
-  --td-brand-color-light: var(--td-brand-color-1); 
+  --td-brand-color-hover: var(--td-brand-color-7);
+  --td-brand-color-focus: var(--td-brand-color-2);
+  --td-brand-color-active: var(--td-brand-color-9);
+  --td-brand-color-disabled: var(--td-brand-color-3);
+  --td-brand-color-light: var(--td-brand-color-1);
   --td-brand-color-light-hover: var(--td-brand-color-2);
 
   --td-warning-color-hover: var(--td-warning-color-4);
@@ -272,37 +279,37 @@ h1, h2, h3, h4, h5, h6 {
   --td-success-color-light: var(--td-success-color-1);
   --td-success-color-light-hover: var(--td-success-color-2);
 
-  --td-mask-active: rgba(0, 0, 0, 40%); 
-  --td-mask-disabled: rgba(0, 0, 0, 60%); 
-  --td-mask-background: rgba(36, 36, 36, 96%); 
-  --td-mask-gradient: rgba(36, 36, 36, 0%); 
+  --td-mask-active: rgba(0, 0, 0, 40%);
+  --td-mask-disabled: rgba(0, 0, 0, 60%);
+  --td-mask-background: rgba(36, 36, 36, 96%);
+  --td-mask-gradient: rgba(36, 36, 36, 0%);
 
-  --td-bg-color-page: var(--td-gray-color-14); 
-  --td-bg-color-container: var(--td-gray-color-13); 
-  --td-bg-color-container-hover: var(--td-gray-color-12); 
-  --td-bg-color-container-active: var(--td-gray-color-10); 
-  --td-bg-color-container-select: var(--td-gray-color-9); 
-  --td-bg-color-secondarycontainer: var(--td-gray-color-12); 
-  --td-bg-color-secondarycontainer-hover: var(--td-gray-color-11); 
-  --td-bg-color-secondarycontainer-active: var(--td-gray-color-9); 
-  --td-bg-color-component: var(--td-gray-color-11); 
-  --td-bg-color-component-hover: var(--td-gray-color-10); 
-  --td-bg-color-component-active: var(--td-gray-color-9); 
-  --td-bg-color-secondarycomponent: var(--td-gray-color-10); 
-  --td-bg-color-secondarycomponent-hover: var(--td-gray-color-9); 
-  --td-bg-color-secondarycomponent-active: var(--td-gray-color-8); 
-  --td-bg-color-component-disabled: var(--td-gray-color-12); 
+  --td-bg-color-page: var(--td-gray-color-14);
+  --td-bg-color-container: var(--td-gray-color-13);
+  --td-bg-color-container-hover: var(--td-gray-color-12);
+  --td-bg-color-container-active: var(--td-gray-color-10);
+  --td-bg-color-container-select: var(--td-gray-color-9);
+  --td-bg-color-secondarycontainer: var(--td-gray-color-12);
+  --td-bg-color-secondarycontainer-hover: var(--td-gray-color-11);
+  --td-bg-color-secondarycontainer-active: var(--td-gray-color-9);
+  --td-bg-color-component: var(--td-gray-color-11);
+  --td-bg-color-component-hover: var(--td-gray-color-10);
+  --td-bg-color-component-active: var(--td-gray-color-9);
+  --td-bg-color-secondarycomponent: var(--td-gray-color-10);
+  --td-bg-color-secondarycomponent-hover: var(--td-gray-color-9);
+  --td-bg-color-secondarycomponent-active: var(--td-gray-color-8);
+  --td-bg-color-component-disabled: var(--td-gray-color-12);
 
   --td-bg-color-specialcomponent: transparent;
 
-  --td-text-color-primary: var(--td-font-white-1); 
-  --td-text-color-secondary: var(--td-font-white-2); 
-  --td-text-color-placeholder: var(--td-font-white-3); 
-  --td-text-color-disabled: var(--td-font-white-4); 
-  --td-text-color-anti: #fff; 
-  --td-text-color-brand: var(--td-brand-color-8); 
-  --td-text-color-link: var(--td-brand-color-8); 
-  --td-text-color-watermark: rgba(255, 255, 255, 10%); 
+  --td-text-color-primary: var(--td-font-white-1);
+  --td-text-color-secondary: var(--td-font-white-2);
+  --td-text-color-placeholder: var(--td-font-white-3);
+  --td-text-color-disabled: var(--td-font-white-4);
+  --td-text-color-anti: #fff;
+  --td-text-color-brand: var(--td-brand-color-8);
+  --td-text-color-link: var(--td-brand-color-8);
+  --td-text-color-watermark: rgba(255, 255, 255, 10%);
 
   --td-border-level-1-color: var(--td-gray-color-11);
   --td-component-stroke: var(--td-gray-color-11);
@@ -313,10 +320,10 @@ h1, h2, h3, h4, h5, h6 {
   --td-shadow-2: 0 8px 10px rgba(0, 0, 0, 12%), 0 3px 14px rgba(0, 0, 0, 10%), 0 5px 5px rgba(0, 0, 0, 16%);
   --td-shadow-3: 0 16px 24px rgba(0, 0, 0, 14%), 0 6px 30px rgba(0, 0, 0, 12%), 0 8px 10px rgba(0, 0, 0, 20%);
 
-  --td-shadow-inset-top: inset 0 .5px 0 #5e5e5e;
-  --td-shadow-inset-right: inset .5px 0 0 #5e5e5e;
-  --td-shadow-inset-bottom: inset 0 -.5px 0 #5e5e5e;
-  --td-shadow-inset-left: inset -.5px 0 0 #5e5e5e;
+  --td-shadow-inset-top: inset 0 0.5px 0 #5e5e5e;
+  --td-shadow-inset-right: inset 0.5px 0 0 #5e5e5e;
+  --td-shadow-inset-bottom: inset 0 -0.5px 0 #5e5e5e;
+  --td-shadow-inset-left: inset -0.5px 0 0 #5e5e5e;
 
   --td-table-shadow-color: rgba(0, 0, 0, 55%);
 

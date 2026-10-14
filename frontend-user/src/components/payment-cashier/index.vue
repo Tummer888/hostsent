@@ -1,11 +1,5 @@
 <template>
-  <t-dialog
-    v-model:visible="dialogVisible"
-    :header="title"
-    width="520px"
-    :footer="false"
-    @close="close"
-  >
+  <t-dialog v-model:visible="dialogVisible" :header="title" width="520px" :footer="false" @close="close">
     <!-- 第一步：选支付方式，提交后才向渠道下单 -->
     <template v-if="!payment">
       <t-alert
@@ -27,12 +21,7 @@
         当前没有可用支付渠道，请联系平台客服或稍后再试。
       </p>
       <t-space size="small" class="cashier-actions">
-        <t-button
-          theme="primary"
-          :loading="submitting"
-          :disabled="!channelCode"
-          @click="submitPayment"
-        >
+        <t-button theme="primary" :loading="submitting" :disabled="!channelCode" @click="submitPayment">
           提交并支付
         </t-button>
         <t-button variant="outline" @click="close">稍后支付</t-button>

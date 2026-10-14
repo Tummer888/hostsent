@@ -5,8 +5,8 @@
         <div>
           <h3 class="ag-title">① 代理分组（管人）</h3>
           <p class="ag-desc">
-            一行 = 一个代理分组（也就是拿货折扣的档位）。<strong>归属</strong>决定某个代理属于哪个分组。
-            在「③ 折扣组」里，行是折扣组（绑定商品分组）、列就是这里的代理分组，格子里填折扣率。
+            一行 = 一个代理分组（也就是拿货折扣的档位）。<strong>归属</strong>决定某个代理属于哪个分组。 在「③
+            折扣组」里，行是折扣组（绑定商品分组）、列就是这里的代理分组，格子里填折扣率。
           </p>
         </div>
         <div class="ag-head__actions">
@@ -45,12 +45,13 @@
         </template>
         <template #operation="{ row }">
           <t-space size="8px">
-            <t-link v-permission="'agent_level:update'" theme="primary" hover="color" @click="openMembers(row)">管理成员</t-link>
-            <t-link v-permission="'agent_level:update'" theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
-            <t-popconfirm
-              content="确认删除该代理分组？（组内仍有代理时会被拒绝）"
-              @confirm="handleDelete(row)"
+            <t-link v-permission="'agent_level:update'" theme="primary" hover="color" @click="openMembers(row)"
+              >管理成员</t-link
             >
+            <t-link v-permission="'agent_level:update'" theme="primary" hover="color" @click="openEdit(row)"
+              >编辑</t-link
+            >
+            <t-popconfirm content="确认删除该代理分组？（组内仍有代理时会被拒绝）" @confirm="handleDelete(row)">
               <t-link v-permission="'agent_level:delete'" theme="danger" hover="color">删除</t-link>
             </t-popconfirm>
           </t-space>

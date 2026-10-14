@@ -271,6 +271,126 @@
   margin-top: var(--space-xl);
 }
 
+/* ---------- 分组小卡片（详情页概览 / 权限等区块） ----------
+   原来 bordered 的 t-descriptions 渲染成一整片灰底表格：相邻模块之间只有
+   一点间距，灰色块连成一片，扫视时找不到分界。改成每个模块一张浅底卡片，
+   标题带彩色图标，模块边界由「卡片轮廓 + 图标色」共同表达。 */
+.users-module .info-card {
+  --info-accent: 100, 116, 139;
+  position: relative;
+  padding: var(--space-lg) 20px;
+  border: 1px solid var(--td-component-border);
+  border-radius: var(--hs-radius-lg);
+  background: var(--hs-surface-1);
+}
+
+/* 顶部一道极细色带，颜色随模块变化：纵向滚动时凭色带即可区分模块。 */
+.users-module .info-card::before {
+  content: '';
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  top: 0;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: linear-gradient(90deg, rgba(var(--info-accent), 0.5), rgba(var(--info-accent), 0));
+}
+
+.users-module .info-card--account {
+  --info-accent: 22, 163, 74;
+}
+
+.users-module .info-card--contact {
+  --info-accent: 37, 99, 235;
+}
+
+.users-module .info-card--group {
+  --info-accent: 124, 58, 237;
+}
+
+.users-module .info-card--login {
+  --info-accent: 234, 88, 12;
+}
+
+.users-module .info-card--danger {
+  --info-accent: 239, 68, 68;
+  border-color: rgba(239, 68, 68, 0.28);
+  background: rgba(239, 68, 68, 0.04);
+}
+
+.users-module .info-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.users-module .info-card__icon {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--hs-radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #ffffff;
+  background: linear-gradient(135deg, rgba(var(--info-accent), 0.82), rgba(var(--info-accent), 1));
+}
+
+.users-module .info-card__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+
+.users-module .info-card__meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+/* 字段栅格：label 定宽右对齐、value 自适应，同一张卡片内各行数值左边缘对齐。 */
+.users-module .info-rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md) var(--space-xl);
+}
+
+.users-module .info-rows--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.users-module .info-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.users-module .info-row__label {
+  flex: 0 0 auto;
+  width: 84px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--color-muted-foreground);
+  text-align: right;
+}
+
+.users-module .info-row__value {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--color-foreground);
+  word-break: break-word;
+}
+
+/* 标签数量不定或内容较长的字段独占整行。 */
+.users-module .info-row--wide {
+  grid-column: 1 / -1;
+}
+
 /* ---------- 面板内部子 Tab ---------- */
 .users-module .sub-tabs {
   margin-top: var(--space-xs);
@@ -301,18 +421,45 @@
   padding: var(--space-md);
 }
 
-/* ---------- TDesign 细节对齐 ---------- */
+/* ---------- 表格 ----------
+   详情页各面板表格此前是一块浅绿表头 + 纯白行，行与行之间只有 1px 浅边框，
+   纵向扫视时容易串行；数字列左对齐导致位数不同的金额参差不齐。 */
 .users-module .t-table__th {
   background: var(--users-green-soft) !important;
   color: var(--color-foreground) !important;
   border-bottom-color: var(--users-green-border) !important;
   font-weight: 600 !important;
+  white-space: nowrap;
+}
+
+/* 行分隔：偶数行给一点底色，形成斑马纹，长表格里更容易横向跟踪。
+   TDesign 的 td 有 background-color: inherit，所以底色要写在 td 上；
+   悬停态用 !important 覆盖，见下一条规则。 */
+.users-module .t-table tbody > tr:nth-child(even) > td {
+  background: var(--hs-surface-2);
 }
 
 .users-module .t-table__tr--hover > .t-table__td,
 .users-module .t-table__row--hover > .t-table__td {
-  background: rgba(var(--color-primary-rgb), 0.035) !important;
+  background: rgba(var(--color-primary-rgb), 0.06) !important;
   transition: background-color var(--hs-duration-fast);
+}
+
+/* 数值列右对齐 + 等宽数字：金额、余额、IP 等按位对齐，比较同列数值时不用来回找小数点。 */
+.users-module .t-table td.t-align-right,
+.users-module .t-table th.t-align-right {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 单元格内边距略放宽，size=small 默认 8px 让相邻列的文字挤在一起。 */
+.users-module .t-table.t-size-s th,
+.users-module .t-table.t-size-s td {
+  padding: var(--td-comp-paddingTB-s) 12px;
+}
+
+/* 首列加重：表格纵向扫视的锚点，通常是实例名 / 订单号 / 成员名。 */
+.users-module .t-table tbody > tr > td:first-child {
+  color: var(--color-foreground);
 }
 
 .users-module .t-button--theme-primary {

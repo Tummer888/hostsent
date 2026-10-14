@@ -9,11 +9,11 @@
     :error-message="errorMessage"
     empty-text="暂无黑名单数据"
     :pagination="pagination"
+    :icon="StopIcon"
     @search="handleSearch"
     @reset="handleReset"
     @reload="loadData"
     @page-change="handlePageChange"
-    :icon="StopIcon"
   >
     <template #header-actions>
       <t-button v-permission="'security:blacklist:manage'" theme="primary" @click="openCreate">新增黑名单</t-button>
@@ -85,12 +85,14 @@
     <template #operation="{ row }">
       <MobileAction
         v-if="isMobile"
-        :options="buildMobileActionOptions([
-          { content: '编辑', value: 'edit' },
-          { content: '命中记录', value: 'hits' },
-          { content: row.status === 'active' ? '停用' : '启用', value: 'toggle' },
-          { content: '解除', value: 'release', theme: 'error' },
-        ])"
+        :options="
+          buildMobileActionOptions([
+            { content: '编辑', value: 'edit' },
+            { content: '命中记录', value: 'hits' },
+            { content: row.status === 'active' ? '停用' : '启用', value: 'toggle' },
+            { content: '解除', value: 'release', theme: 'error' },
+          ])
+        "
         @select="(value) => handleMobileAction(value, row)"
       />
       <t-space v-else size="small">
@@ -114,14 +116,15 @@
   >
     <t-form :data="formData" label-align="top" colonless>
       <t-form-item label="类型">
-        <t-select v-model="formData.type" :options="BLACKLIST_TYPE_OPTIONS" :disabled="!!editingId" placeholder="请选择类型" />
+        <t-select
+          v-model="formData.type"
+          :options="BLACKLIST_TYPE_OPTIONS"
+          :disabled="!!editingId"
+          placeholder="请选择类型"
+        />
       </t-form-item>
       <t-form-item label="命中值">
-        <t-input
-          v-model="formData.target_value"
-          :disabled="!!editingId"
-          :placeholder="targetPlaceholder"
-        />
+        <t-input v-model="formData.target_value" :disabled="!!editingId" :placeholder="targetPlaceholder" />
       </t-form-item>
       <!-- 生效模式：永久 / 限时。限时用「多少天后失效」输入，
            比让运营自己算日期少一类错（doc06 §4.4 关键规则 2）。 -->
@@ -218,7 +221,6 @@ import {
   BLACKLIST_RUNTIME_THEME,
   BLACKLIST_SOURCE_LABEL,
   BLACKLIST_SOURCE_OPTIONS,
-  BLACKLIST_STATUS_LABEL,
   BLACKLIST_STATUS_OPTIONS,
   BLACKLIST_TYPE_LABEL,
   BLACKLIST_TYPE_OPTIONS,
@@ -308,9 +310,7 @@ const hitsPagination = reactive({
   pageSizeOptions: [10, 20, 50],
 })
 
-const hitsTitle = computed(() =>
-  hitsRow.value ? `${hitsRow.value.target_value}` : '',
-)
+const hitsTitle = computed(() => (hitsRow.value ? `${hitsRow.value.target_value}` : ''))
 
 const hitsColumns: PrimaryTableCol<LoginLogInfo>[] = [
   { colKey: 'username', title: '用户名', width: 130 },
@@ -506,8 +506,11 @@ async function release(row: BlacklistInfo) {
 onMounted(() => {
   void loadData()
 })
-function handleMobileAction(value: string | number | Record<string, any>, row: BlacklistInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: BlacklistInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'edit':
       openEdit(row)

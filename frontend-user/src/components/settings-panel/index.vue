@@ -79,10 +79,7 @@
       <section class="settings-section">
         <div class="settings-row">
           <span>色弱模式</span>
-          <t-switch
-            :value="settings.colorWeak"
-            @change="(v: unknown) => settings.update({ colorWeak: Boolean(v) })"
-          />
+          <t-switch :value="settings.colorWeak" @change="(v: unknown) => settings.update({ colorWeak: Boolean(v) })" />
         </div>
       </section>
     </div>
@@ -191,7 +188,9 @@ function setColor(hex: string) {
   justify-content: center;
   color: #ffffff;
   padding: 0;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .swatch:hover {

@@ -118,14 +118,38 @@
     <t-drawer v-model:visible="detailVisible" header="回调详情" size="600px" :footer="false">
       <template v-if="detail">
         <div class="detail-block">
-          <div class="recon-row"><span class="recon-row__label">支付单号</span><span class="recon-row__value">{{ detail.payment_no || '—' }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">渠道</span><span class="recon-row__value">{{ detail.channel_code || '—' }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">通知 ID</span><span class="recon-row__value">{{ detail.notify_id || '—' }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">金额</span><span class="recon-row__value">¥{{ formatPrice(detail.amount) }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">验签</span><span class="recon-row__value">{{ detail.verify_ok ? '通过' : '失败' }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">处理结果</span><span class="recon-row__value">{{ callbackHandleLabel(detail.handle_status) }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">来源 IP</span><span class="recon-row__value">{{ detail.source_ip || '—' }}</span></div>
-          <div class="recon-row"><span class="recon-row__label">接收时间</span><span class="recon-row__value">{{ formatTime(detail.created_at) }}</span></div>
+          <div class="recon-row">
+            <span class="recon-row__label">支付单号</span
+            ><span class="recon-row__value">{{ detail.payment_no || '—' }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">渠道</span
+            ><span class="recon-row__value">{{ detail.channel_code || '—' }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">通知 ID</span
+            ><span class="recon-row__value">{{ detail.notify_id || '—' }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">金额</span
+            ><span class="recon-row__value">¥{{ formatPrice(detail.amount) }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">验签</span
+            ><span class="recon-row__value">{{ detail.verify_ok ? '通过' : '失败' }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">处理结果</span
+            ><span class="recon-row__value">{{ callbackHandleLabel(detail.handle_status) }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">来源 IP</span
+            ><span class="recon-row__value">{{ detail.source_ip || '—' }}</span>
+          </div>
+          <div class="recon-row">
+            <span class="recon-row__label">接收时间</span
+            ><span class="recon-row__value">{{ formatTime(detail.created_at) }}</span>
+          </div>
         </div>
         <div v-if="detail.handle_msg" class="detail-block">
           <h4 class="detail-block__title">处理信息</h4>

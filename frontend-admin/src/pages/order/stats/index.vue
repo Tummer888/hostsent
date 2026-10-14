@@ -145,7 +145,17 @@ const trendOption = computed<EChartsOption>(() => {
         barMaxWidth: 18,
         itemStyle: {
           borderRadius: [4, 4, 0, 0],
-          color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#60a5fa' }, { offset: 1, color: '#2563eb' }] },
+          color: {
+            type: 'linear',
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: '#60a5fa' },
+              { offset: 1, color: '#2563eb' },
+            ],
+          },
         },
       },
       {
@@ -156,7 +166,17 @@ const trendOption = computed<EChartsOption>(() => {
         barMaxWidth: 18,
         itemStyle: {
           borderRadius: [4, 4, 0, 0],
-          color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#a78bfa' }, { offset: 1, color: '#4f46e5' }] },
+          color: {
+            type: 'linear',
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: '#a78bfa' },
+              { offset: 1, color: '#4f46e5' },
+            ],
+          },
         },
       },
     ],

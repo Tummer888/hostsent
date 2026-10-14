@@ -37,9 +37,7 @@
         <t-space size="small" align="center">
           <span class="table-card__meta">
             候选 {{ formatRows(preview.eligible_rows) }}
-            <template v-if="preview.guarded_rows > 0">
-              · 受保护跳过 {{ formatRows(preview.guarded_rows) }}
-            </template>
+            <template v-if="preview.guarded_rows > 0"> · 受保护跳过 {{ formatRows(preview.guarded_rows) }} </template>
           </span>
           <t-link theme="default" hover="color" @click="preview = null">收起</t-link>
         </t-space>
@@ -250,9 +248,7 @@
             <span class="time-text">{{ formatBytes(row.file_size) }}</span>
           </template>
           <template #job_id="{ row }">
-            <t-tag v-if="row.bound_job" theme="warning" variant="light" size="small" shape="round">
-              备份凭据
-            </t-tag>
+            <t-tag v-if="row.bound_job" theme="warning" variant="light" size="small" shape="round"> 备份凭据 </t-tag>
             <span v-else class="cell-muted">人工导出</span>
           </template>
           <template #sha256="{ row }">

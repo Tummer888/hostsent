@@ -7,7 +7,9 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">渠道退款</h2>
-          <p class="page-header__desc">订单退款审核通过后原路退回渠道；无渠道支付记录（余额支付）时回补钱包余额，二者均在此留痕。</p>
+          <p class="page-header__desc">
+            订单退款审核通过后原路退回渠道；无渠道支付记录（余额支付）时回补钱包余额，二者均在此留痕。
+          </p>
         </div>
       </div>
       <t-space size="small">
@@ -85,7 +87,9 @@
         </template>
 
         <template #reason="{ row }">
-          <span class="cell-muted" :title="row.fail_reason || row.reason">{{ row.reason || row.fail_reason || '—' }}</span>
+          <span class="cell-muted" :title="row.fail_reason || row.reason">{{
+            row.reason || row.fail_reason || '—'
+          }}</span>
         </template>
 
         <template #created_at="{ row }">
@@ -119,7 +123,13 @@ import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-
 import { getRefunds } from '@/api/payment'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
-import { formatPrice, formatTime, refundStatusLabel, refundStatusOptions, refundStatusTheme } from '@/pages/system/payment/constants'
+import {
+  formatPrice,
+  formatTime,
+  refundStatusLabel,
+  refundStatusOptions,
+  refundStatusTheme,
+} from '@/pages/system/payment/constants'
 import type { PaymentRefundInfo } from '@/types/interface'
 
 defineOptions({ name: 'PaymentRefunds' })

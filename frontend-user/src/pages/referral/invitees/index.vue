@@ -86,10 +86,29 @@ onMounted(load)
 </script>
 
 <style scoped>
-.referral-page { padding: 16px 24px; }
-.referral-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-.referral-title { font-size: 20px; font-weight: 700; margin: 0; }
-.cell-strong { font-weight: 600; }
-.cell-sub { color: #999; font-size: 12px; }
-.cell-money { color: #e37318; font-weight: 700; }
+.referral-page {
+  padding: 16px 24px;
+}
+.referral-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.referral-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+}
+.cell-strong {
+  font-weight: 600;
+}
+.cell-sub {
+  color: #999;
+  font-size: 12px;
+}
+.cell-money {
+  color: #e37318;
+  font-weight: 700;
+}
 </style>

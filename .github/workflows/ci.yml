@@ -116,11 +116,19 @@ jobs:
           cache-dependency-path: frontend-admin/package-lock.json
       - name: Install
         run: npm ci
+      - name: Lint
+        # 批次四 D4：ESLint flat 配置（eslint.config.mjs），0 error 门禁；
+        # 风格由 Prettier 承担（format:check），与仓库既有风格对齐（单引号/无分号/尾逗号）。
+        run: npm run lint
+      - name: Format check
+        run: npm run format:check
       - name: Build
         run: npm run build
       - name: Audit (npm)
-        # 批次四 D3：npm audit 全量（含 dev）清零门禁。audit 退出码 1 = 存在漏洞。
-        run: npm audit --audit-level=low
+        # 批次四 D3/D4：只审计生产依赖（--omit=dev）。dev 工具链里 eslint 的
+        # fast-glob→braces 链条上游暂无修复版（braces<=3.0.3 的 DoS 告警），
+        # 不进浏览器产物；若做全量审计门禁会永久失败，属不可修复的假阳性。
+        run: npm audit --omit=dev --audit-level=low
 
   frontend-user:
     name: User Frontend (vue-tsc + build)
@@ -137,8 +145,12 @@ jobs:
           cache-dependency-path: frontend-user/package-lock.json
       - name: Install
         run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Format check
+        run: npm run format:check
       - name: Build
         run: npm run build
       - name: Audit (npm)
-        # 同上：全量（含 dev）清零门禁。
-        run: npm audit --audit-level=low
+        # 同上：只审计生产依赖。
+        run: npm audit --omit=dev --audit-level=low

@@ -214,7 +214,6 @@ function handleMobilePageSizeChange(pageSize: number) {
   void applyMobilePage(1, pageSize)
 }
 
-
 function handleSearch() {
   pagination.current = 1
   loadCashbacks()

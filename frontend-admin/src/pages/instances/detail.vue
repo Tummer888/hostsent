@@ -47,12 +47,7 @@
       -->
       <div class="detail-actions">
         <template v-if="isPending">
-          <t-button
-            v-permission="'instance:action'"
-            theme="primary"
-            :loading="retrying"
-            @click="handleRetryProvision"
-          >
+          <t-button v-permission="'instance:action'" theme="primary" :loading="retrying" @click="handleRetryProvision">
             重新开通
           </t-button>
         </template>
@@ -70,9 +65,7 @@
 
           <!-- 电源操作收进下拉：硬电源（断电级）在组内用红色标注 -->
           <t-dropdown :options="powerOptions" trigger="click" @click="onPowerPick">
-            <t-button theme="primary" variant="outline" :disabled="powerGroupDisabled">
-              电源操作 ▾
-            </t-button>
+            <t-button theme="primary" variant="outline" :disabled="powerGroupDisabled"> 电源操作 ▾ </t-button>
           </t-dropdown>
 
           <span class="actions-divider" aria-hidden="true"></span>
@@ -83,7 +76,13 @@
           </t-dropdown>
 
           <t-button v-permission="'lifecycle:renew'" variant="outline" @click="openRenewDialog">续费</t-button>
-          <t-button v-permission="'instance:resize'" variant="outline" :disabled="!instanceData?.capabilities?.resize" :title="capabilityTitle(instanceData?.capabilities?.resize)" @click="openResizeDialog">
+          <t-button
+            v-permission="'instance:resize'"
+            variant="outline"
+            :disabled="!instanceData?.capabilities?.resize"
+            :title="capabilityTitle(instanceData?.capabilities?.resize)"
+            @click="openResizeDialog"
+          >
             变配
           </t-button>
 
@@ -101,7 +100,13 @@
         </template>
 
         <span class="actions-divider" aria-hidden="true"></span>
-        <t-button v-if="!isPending" v-permission="'instance:action'" variant="text" :loading="syncing" @click="handleSync">
+        <t-button
+          v-if="!isPending"
+          v-permission="'instance:action'"
+          variant="text"
+          :loading="syncing"
+          @click="handleSync"
+        >
           <template #icon><RefreshIcon aria-hidden="true" /></template>
           同步上游
         </t-button>
@@ -113,12 +118,7 @@
       </div>
     </header>
 
-    <t-alert
-      v-if="isPending"
-      theme="error"
-      :title="provisionAlertTitle"
-      :message="provisionAlertMessage"
-    />
+    <t-alert v-if="isPending" theme="error" :title="provisionAlertTitle" :message="provisionAlertMessage" />
     <t-alert
       v-else-if="instanceData?.capability_error"
       theme="warning"
@@ -191,7 +191,11 @@
                   此前这里写成路径参数 /users/accounts/{id}，与任何路由都不匹配 ——
                   点击后落到空白页（用户实测）。
                 -->
-                <router-link class="hero-user" :to="{ path: '/users/accounts/detail', query: { id: String(instanceData.user_id) } }">{{ instanceData.username || '—' }}</router-link>
+                <router-link
+                  class="hero-user"
+                  :to="{ path: '/users/accounts/detail', query: { id: String(instanceData.user_id) } }"
+                  >{{ instanceData.username || '—' }}</router-link
+                >
                 <template v-if="instanceData.actor_name">（{{ instanceData.actor_name }} 开通）</template>
               </span>
             </div>
@@ -199,7 +203,9 @@
         </div>
         <div class="hero-tags">
           <t-tag :theme="sourceModeTheme" variant="light" size="small" shape="round">{{ sourceModeLabel }}</t-tag>
-          <t-tag theme="default" variant="light" size="small" shape="round">{{ providerTypeLabel(instanceData.provider_type) }}</t-tag>
+          <t-tag theme="default" variant="light" size="small" shape="round">{{
+            providerTypeLabel(instanceData.provider_type)
+          }}</t-tag>
         </div>
       </header>
 
@@ -209,16 +215,20 @@
         <div class="hero-cell">
           <div class="hero-cell__label"><CpuIcon aria-hidden="true" />配置规格</div>
           <div class="hero-cell__value">
-            <span class="hero-num">{{ instanceData.cpu }}</span><span class="hero-unit">核</span>
+            <span class="hero-num">{{ instanceData.cpu }}</span
+            ><span class="hero-unit">核</span>
             <span class="hero-sep">/</span>
             <span class="hero-num">{{ formatMemory(instanceData.memory) }}</span>
             <span class="hero-sep">/</span>
-            <span class="hero-num">{{ instanceData.disk }}</span><span class="hero-unit">GB{{ instanceData.disk_type ? ` ${instanceData.disk_type}` : '' }}</span>
+            <span class="hero-num">{{ instanceData.disk }}</span
+            ><span class="hero-unit">GB{{ instanceData.disk_type ? ` ${instanceData.disk_type}` : '' }}</span>
           </div>
           <div class="hero-cell__sub">
             带宽 <b>{{ instanceData.bandwidth }}</b> Mbps
             <span v-if="instanceData.region || instanceData.zone" class="hero-sep">·</span>
-            <span v-if="instanceData.region || instanceData.zone">{{ [instanceData.region, instanceData.zone].filter(Boolean).join(' / ') }}</span>
+            <span v-if="instanceData.region || instanceData.zone">{{
+              [instanceData.region, instanceData.zone].filter(Boolean).join(' / ')
+            }}</span>
           </div>
         </div>
 
@@ -278,12 +288,7 @@
           </div>
           <div class="hero-cell__sub">
             <template v-if="instanceData.credential?.has_password">
-              <t-link
-                v-if="hasPerm('instance:credential')"
-                theme="primary"
-                hover="color"
-                @click="openRevealDialog"
-              >
+              <t-link v-if="hasPerm('instance:credential')" theme="primary" hover="color" @click="openRevealDialog">
                 查看密码
               </t-link>
               <span v-else class="hero-hint">密码已保存（需「查看密码」权限）</span>
@@ -333,9 +338,7 @@
               重装
             </t-button>
           </div>
-          <div class="hero-cell__sub">
-            镜像/模板由平台下发；重装会清空系统盘
-          </div>
+          <div class="hero-cell__sub">镜像/模板由平台下发；重装会清空系统盘</div>
         </div>
       </div>
 
@@ -344,14 +347,25 @@
         <div class="hero-note" :class="{ 'hero-note--empty': !instanceData.customer_remark }">
           <span class="hero-note__label"><ChatIcon aria-hidden="true" />客户备注</span>
           <span class="hero-note__text">{{ instanceData.customer_remark || '客户未填写' }}</span>
-          <span v-if="instanceData.order?.customer_remark && instanceData.order.customer_remark !== instanceData.customer_remark" class="hero-note__sub">
+          <span
+            v-if="
+              instanceData.order?.customer_remark && instanceData.order.customer_remark !== instanceData.customer_remark
+            "
+            class="hero-note__sub"
+          >
             下单时填写：{{ instanceData.order.customer_remark }}
           </span>
         </div>
         <div class="hero-note" :class="{ 'hero-note--empty': !instanceData.remark }">
           <span class="hero-note__label"><EditIcon aria-hidden="true" />管理员备注</span>
           <span class="hero-note__text">{{ instanceData.remark || '未填写' }}</span>
-          <t-link v-permission="'instance:action'" theme="primary" hover="color" class="hero-note__edit" @click="openRemarkDialog">
+          <t-link
+            v-permission="'instance:action'"
+            theme="primary"
+            hover="color"
+            class="hero-note__edit"
+            @click="openRemarkDialog"
+          >
             编辑
           </t-link>
         </div>
@@ -362,9 +376,13 @@
         <div class="hero-billing__item" :class="expireGlanceClass">
           <span class="hero-billing__label">到期时间</span>
           <span class="hero-billing__value">
-            {{ instanceData.expire_at ? formatTime(instanceData.expire_at) : (isOnetime ? '一次性/买断' : '未设置') }}
+            {{ instanceData.expire_at ? formatTime(instanceData.expire_at) : isOnetime ? '一次性/买断' : '未设置' }}
           </span>
-          <span v-if="instanceData.expire_at && instanceData.expire_state !== 'none'" class="hero-billing__sub" :class="expireClass(instanceData)">
+          <span
+            v-if="instanceData.expire_at && instanceData.expire_state !== 'none'"
+            class="hero-billing__sub"
+            :class="expireClass(instanceData)"
+          >
             {{ expireStateLabel(instanceData.expire_state) }} · 剩余 {{ instanceData.days_left }} 天
           </span>
         </div>
@@ -378,12 +396,19 @@
         </div>
         <div class="hero-billing__item">
           <span class="hero-billing__label">续费金额</span>
-          <span class="hero-billing__value hero-billing__value--strong">¥{{ formatPrice(instanceData.order?.renew_amount ?? 0) }}</span>
+          <span class="hero-billing__value hero-billing__value--strong"
+            >¥{{ formatPrice(instanceData.order?.renew_amount ?? 0) }}</span
+          >
           <!-- 绑定价压过商品价：不标出来，运营会以为看到的是商品价（调完价也看不出变化） -->
           <span v-if="instanceData.order?.renew_bound" class="hero-billing__sub">
-            已绑定谈定价<template v-if="instanceData.renewal_price">（¥{{ formatPrice(instanceData.renewal_price) }} / 周期）</template>
+            已绑定谈定价<template v-if="instanceData.renewal_price"
+              >（¥{{ formatPrice(instanceData.renewal_price) }} / 周期）</template
+            >
           </span>
-          <span v-else-if="instanceData.upstream && instanceData.order?.upstream_renew_amount" class="hero-billing__sub">
+          <span
+            v-else-if="instanceData.upstream && instanceData.order?.upstream_renew_amount"
+            class="hero-billing__sub"
+          >
             上游 ¥{{ formatPrice(instanceData.order.upstream_renew_amount) }}
           </span>
         </div>
@@ -406,7 +431,8 @@
                   {{ headlineState.label }}
                 </t-tag>
                 <div class="cell-sub">
-                  上游状态 {{ instanceStatusLabel(instanceData.status) }} · 阶段 {{ lifecycleStageLabel(instanceData.lifecycle_stage) }}
+                  上游状态 {{ instanceStatusLabel(instanceData.status) }} · 阶段
+                  {{ lifecycleStageLabel(instanceData.lifecycle_stage) }}
                 </div>
               </t-descriptions-item>
               <t-descriptions-item label="来源断言">
@@ -415,7 +441,9 @@
               </t-descriptions-item>
               <t-descriptions-item label="服务商">
                 {{ instanceData.provider_name || '—' }}
-                <span v-if="instanceData.provider_type" class="cell-sub">（{{ providerTypeLabel(instanceData.provider_type) }}）</span>
+                <span v-if="instanceData.provider_type" class="cell-sub"
+                  >（{{ providerTypeLabel(instanceData.provider_type) }}）</span
+                >
               </t-descriptions-item>
               <t-descriptions-item label="归属账号">
                 <router-link
@@ -424,14 +452,25 @@
                 >
                   {{ instanceData.username || '—' }}
                 </router-link>
-                <div class="cell-sub">{{ instanceData.user_email || '—' }}<template v-if="instanceData.user_phone"> · {{ instanceData.user_phone }}</template></div>
+                <div class="cell-sub">
+                  {{ instanceData.user_email || '—'
+                  }}<template v-if="instanceData.user_phone"> · {{ instanceData.user_phone }}</template>
+                </div>
               </t-descriptions-item>
               <t-descriptions-item label="最近回源">{{ formatTime(instanceData.last_synced_at) }}</t-descriptions-item>
               <t-descriptions-item label="创建时间">{{ formatTime(instanceData.created_at) }}</t-descriptions-item>
-              <t-descriptions-item v-if="instanceData.enforce_attempts > 0 || instanceData.last_enforce_error" label="到期处置" :span="3">
+              <t-descriptions-item
+                v-if="instanceData.enforce_attempts > 0 || instanceData.last_enforce_error"
+                label="到期处置"
+                :span="3"
+              >
                 <span class="expire-danger">连续失败 {{ instanceData.enforce_attempts }} 次</span>
-                <div class="cell-sub" v-if="instanceData.enforce_next_at">下次重试：{{ formatTime(instanceData.enforce_next_at) }}</div>
-                <div class="cell-sub op-error" v-if="instanceData.last_enforce_error">{{ instanceData.last_enforce_error }}</div>
+                <div v-if="instanceData.enforce_next_at" class="cell-sub">
+                  下次重试：{{ formatTime(instanceData.enforce_next_at) }}
+                </div>
+                <div v-if="instanceData.last_enforce_error" class="cell-sub op-error">
+                  {{ instanceData.last_enforce_error }}
+                </div>
               </t-descriptions-item>
             </t-descriptions>
 
@@ -440,22 +479,62 @@
               <div class="info-card">
                 <div class="info-card__head">
                   <h3 class="card-title">来源订单</h3>
-                  <t-link v-if="instanceData?.order" theme="primary" hover="color" @click="openOrderById(instanceData.order.id)">
+                  <t-link
+                    v-if="instanceData?.order"
+                    theme="primary"
+                    hover="color"
+                    @click="openOrderById(instanceData.order.id)"
+                  >
                     查看订单
                   </t-link>
                 </div>
                 <template v-if="instanceData?.order">
-                  <div class="kv-row"><span class="kv-row__k">订单号</span><span class="kv-row__v">{{ instanceData.order.order_no }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">订单状态</span><span class="kv-row__v">{{ orderStatusLabel(instanceData.order.status) }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">商品名称</span><span class="kv-row__v">{{ instanceData.order.product_name || '—' }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">订购时间</span><span class="kv-row__v">{{ formatTime(instanceData.order.ordered_at) }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">订购数量</span><span class="kv-row__v">{{ instanceData.order.quantity }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">付款周期</span><span class="kv-row__v">{{ cycleLabel(instanceData.order.cycle) }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">订单金额</span><span class="kv-row__v">¥{{ formatPrice(instanceData.order.total_amount) }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">优惠减免</span><span class="kv-row__v">¥{{ formatPrice(instanceData.order.discount_amount) }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">首次付款</span><span class="kv-row__v kv-row__v--strong">¥{{ formatPrice(instanceData.order.first_paid_amount) }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">支付方式</span><span class="kv-row__v">{{ instanceData.order.pay_method || '—' }}</span></div>
-                  <div class="kv-row"><span class="kv-row__k">付款时间</span><span class="kv-row__v">{{ formatTime(instanceData.order.pay_time) }}</span></div>
+                  <div class="kv-row">
+                    <span class="kv-row__k">订单号</span
+                    ><span class="kv-row__v">{{ instanceData.order.order_no }}</span>
+                  </div>
+                  <div class="kv-row">
+                    <span class="kv-row__k">订单状态</span
+                    ><span class="kv-row__v">{{ orderStatusLabel(instanceData.order.status) }}</span>
+                  </div>
+                  <div class="kv-row">
+                    <span class="kv-row__k">商品名称</span
+                    ><span class="kv-row__v">{{ instanceData.order.product_name || '—' }}</span>
+                  </div>
+                  <div class="kv-row">
+                    <span class="kv-row__k">订购时间</span
+                    ><span class="kv-row__v">{{ formatTime(instanceData.order.ordered_at) }}</span>
+                  </div>
+                  <div class="kv-row">
+                    <span class="kv-row__k">订购数量</span
+                    ><span class="kv-row__v">{{ instanceData.order.quantity }}</span>
+                  </div>
+                  <div class="kv-row">
+                    <span class="kv-row__k">付款周期</span
+                    ><span class="kv-row__v">{{ cycleLabel(instanceData.order.cycle) }}</span>
+                  </div>
+                  <div class="kv-row">
+                    <span class="kv-row__k">订单金额</span
+                    ><span class="kv-row__v">¥{{ formatPrice(instanceData.order.total_amount) }}</span>
+                  </div>
+                  <div class="kv-row">
+                    <span class="kv-row__k">优惠减免</span
+                    ><span class="kv-row__v">¥{{ formatPrice(instanceData.order.discount_amount) }}</span>
+                  </div>
+                  <div class="kv-row">
+                    <span class="kv-row__k">首次付款</span
+                    ><span class="kv-row__v kv-row__v--strong"
+                      >¥{{ formatPrice(instanceData.order.first_paid_amount) }}</span
+                    >
+                  </div>
+                  <div class="kv-row">
+                    <span class="kv-row__k">支付方式</span
+                    ><span class="kv-row__v">{{ instanceData.order.pay_method || '—' }}</span>
+                  </div>
+                  <div class="kv-row">
+                    <span class="kv-row__k">付款时间</span
+                    ><span class="kv-row__v">{{ formatTime(instanceData.order.pay_time) }}</span>
+                  </div>
                 </template>
                 <t-empty v-else description="无来源订单" />
               </div>
@@ -481,7 +560,12 @@
                     >
                       更换对接商品
                     </t-link>
-                    <t-link v-if="instanceData?.product" theme="primary" hover="color" @click="openProductById(instanceData.product.id)">
+                    <t-link
+                      v-if="instanceData?.product"
+                      theme="primary"
+                      hover="color"
+                      @click="openProductById(instanceData.product.id)"
+                    >
                       查看商品
                     </t-link>
                     <t-tag
@@ -493,7 +577,13 @@
                     >
                       {{ productSourceModeLabel(instanceData.product.source_mode) }}
                     </t-tag>
-                    <t-tag v-if="instanceData?.upstream" :theme="instanceData.upstream.renewable ? 'success' : 'warning'" variant="light" size="small" shape="round">
+                    <t-tag
+                      v-if="instanceData?.upstream"
+                      :theme="instanceData.upstream.renewable ? 'success' : 'warning'"
+                      variant="light"
+                      size="small"
+                      shape="round"
+                    >
                       {{ instanceData.upstream.renewable ? '可续费' : '不可续费' }}
                     </t-tag>
                   </div>
@@ -512,14 +602,25 @@
                     <span class="kv-row__k">商品名称</span>
                     <span class="kv-row__v">
                       <b>{{ instanceData.product.name }}</b>
-                      <t-tag v-if="instanceData.product.deleted" theme="danger" variant="light-outline" size="small">商品行已删除</t-tag>
-                      <t-tag v-else :theme="instanceData.product.status === 1 ? 'success' : 'default'" variant="light" size="small" shape="round">
+                      <t-tag v-if="instanceData.product.deleted" theme="danger" variant="light-outline" size="small"
+                        >商品行已删除</t-tag
+                      >
+                      <t-tag
+                        v-else
+                        :theme="instanceData.product.status === 1 ? 'success' : 'default'"
+                        variant="light"
+                        size="small"
+                        shape="round"
+                      >
                         {{ instanceData.product.status === 1 ? '上架' : '下架' }}
                       </t-tag>
                       <div v-if="upstreamRenamed" class="cell-sub">上游原名：{{ instanceData.upstream?.name }}</div>
                     </span>
                   </div>
-                  <div class="kv-row"><span class="kv-row__k">商品编码</span><span class="kv-row__v">{{ instanceData.product.code || '—' }}</span></div>
+                  <div class="kv-row">
+                    <span class="kv-row__k">商品编码</span
+                    ><span class="kv-row__v">{{ instanceData.product.code || '—' }}</span>
+                  </div>
 
                   <!-- 对接关系：仅在确实对接上游时才出这几行 -->
                   <template v-if="instanceData.upstream">
@@ -527,7 +628,9 @@
                       <span class="kv-row__k">对接渠道</span>
                       <span class="kv-row__v">
                         {{ instanceData.upstream.provider_name || instanceData.product.source_provider_name || '—' }}
-                        <span v-if="instanceData.upstream.provider_mismatch" class="cell-sub">（商品镜像渠道为 {{ instanceData.product.source_provider_name || '—' }}）</span>
+                        <span v-if="instanceData.upstream.provider_mismatch" class="cell-sub"
+                          >（商品镜像渠道为 {{ instanceData.product.source_provider_name || '—' }}）</span
+                        >
                       </span>
                     </div>
                     <div class="kv-row">
@@ -535,14 +638,20 @@
                       <span class="kv-row__v">
                         #{{ instanceData.upstream.upstream_id || '—' }}
                         <span class="cell-sub">
-                          （本地镜像 #{{ instanceData.upstream.resource_product_id || instanceData.product.source_product_id || '—' }}<template v-if="instanceData.upstream.group_name"> · {{ instanceData.upstream.group_name }}</template>）
+                          （本地镜像 #{{
+                            instanceData.upstream.resource_product_id || instanceData.product.source_product_id || '—'
+                          }}<template v-if="instanceData.upstream.group_name">
+                            · {{ instanceData.upstream.group_name }}</template
+                          >）
                         </span>
                       </span>
                     </div>
                   </template>
                   <div v-else-if="instanceData.product.source_mode === 'upstream'" class="kv-row">
                     <span class="kv-row__k">对接信息</span>
-                    <span class="kv-row__v cell-sub">本地镜像已不存在（重新导入/清理后常见）：上游价格与对接关系无法回溯</span>
+                    <span class="kv-row__v cell-sub"
+                      >本地镜像已不存在（重新导入/清理后常见）：上游价格与对接关系无法回溯</span
+                    >
                   </div>
 
                   <!--
@@ -555,14 +664,25 @@
                     <span class="kv-row__v">
                       <span class="kv-row__v--price">¥{{ formatPrice(instanceData.product.price) }}</span>
                       <span class="price-arrow">→</span>
-                      <span class="kv-row__v--price">{{ instanceData.product.cost_price > 0 ? `¥${formatPrice(instanceData.product.cost_price)}` : '—' }}</span>
-                      <t-tag v-if="grossMarginText" theme="success" variant="light" size="small" shape="round">{{ grossMarginText }}</t-tag>
+                      <span class="kv-row__v--price">{{
+                        instanceData.product.cost_price > 0 ? `¥${formatPrice(instanceData.product.cost_price)}` : '—'
+                      }}</span>
+                      <t-tag v-if="grossMarginText" theme="success" variant="light" size="small" shape="round">{{
+                        grossMarginText
+                      }}</t-tag>
                       <div v-if="instanceData.upstream" class="cell-sub">
-                        商品成本即上游采购价{{ upstreamCostDiffers ? `（上游现价 ¥${formatPrice(instanceData.upstream.cost_price)}，与本地不一致，续费前请核对）` : '，与上游一致' }}
+                        商品成本即上游采购价{{
+                          upstreamCostDiffers
+                            ? `（上游现价 ¥${formatPrice(instanceData.upstream.cost_price)}，与本地不一致，续费前请核对）`
+                            : '，与上游一致'
+                        }}
                       </div>
                     </span>
                   </div>
-                  <div class="kv-row"><span class="kv-row__k">加价规则</span><span class="kv-row__v">{{ markupLabel(instanceData.product) }}</span></div>
+                  <div class="kv-row">
+                    <span class="kv-row__k">加价规则</span
+                    ><span class="kv-row__v">{{ markupLabel(instanceData.product) }}</span>
+                  </div>
                   <div class="kv-row">
                     <span class="kv-row__k">续费（售价 / 成本）</span>
                     <span class="kv-row__v">
@@ -570,7 +690,14 @@
                       <span class="price-arrow">/</span>
                       <span>¥{{ formatPrice(instanceData.order?.renew_cost ?? 0) }}</span>
                       <span class="cell-sub">按 {{ cycleLabel(instanceData.order?.renew_cycle) }}</span>
-                      <t-tag v-if="instanceData.order?.renew_bound" theme="warning" variant="light" size="small" shape="round">已绑定谈定价</t-tag>
+                      <t-tag
+                        v-if="instanceData.order?.renew_bound"
+                        theme="warning"
+                        variant="light"
+                        size="small"
+                        shape="round"
+                        >已绑定谈定价</t-tag
+                      >
                     </span>
                   </div>
 
@@ -584,15 +711,19 @@
                       </span>
                       <span v-if="!upstreamCycleRows.length" class="cell-sub">上游未提供周期价</span>
                     </div>
-                    <div v-if="instanceData.upstream.discount_desc" class="cell-sub">代理折扣：{{ instanceData.upstream.discount_desc }}</div>
+                    <div v-if="instanceData.upstream.discount_desc" class="cell-sub">
+                      代理折扣：{{ instanceData.upstream.discount_desc }}
+                    </div>
                   </div>
                 </template>
 
                 <t-empty
                   v-else
-                  :description="instanceData?.source_mode === 'upstream'
-                    ? '未找到售出商品记录（上游同步发现的实例，或商品行已删除）'
-                    : '该实例非经我方商品开通'"
+                  :description="
+                    instanceData?.source_mode === 'upstream'
+                      ? '未找到售出商品记录（上游同步发现的实例，或商品行已删除）'
+                      : '该实例非经我方商品开通'
+                  "
                 />
               </div>
             </div>
@@ -629,7 +760,9 @@
                   <div v-for="item in configs" :key="item.key" class="config-item">
                     <div class="config-item__head">
                       <span class="config-item__label">{{ item.label }}</span>
-                      <t-tag v-if="item.locked" theme="warning" variant="light" size="small" shape="round">上游锁定</t-tag>
+                      <t-tag v-if="item.locked" theme="warning" variant="light" size="small" shape="round"
+                        >上游锁定</t-tag
+                      >
                       <t-tag v-else :theme="configSourceTheme(item.source)" variant="light" size="small" shape="round">
                         {{ configSourceLabel(item.source) }}
                       </t-tag>
@@ -651,45 +784,38 @@
                 <div class="config-panel__head">
                   <h3 class="card-title">NAT 访问地址</h3>
                   <span class="table-card__meta">
-                    {{ natAccess?.forwards?.length || 0 }} 条转发 ·
-                    {{ natAccess?.domains?.length || 0 }} 个建站域名
+                    {{ natAccess?.forwards?.length || 0 }} 条转发 · {{ natAccess?.domains?.length || 0 }} 个建站域名
                   </span>
                 </div>
                 <!-- 读取失败 vs 没有规则是两回事：前者可重试，后者是配置状态 -->
                 <t-alert v-if="natError" theme="warning" class="nat-alert">
                   <template #message>{{ natError }}</template>
                 </t-alert>
-                <div
-                  v-if="natAccess?.forwards?.length || natAccess?.domains?.length"
-                  class="config-list"
-                >
-                  <div
-                    v-for="addr in natAccess?.forwards || []"
-                    :key="`f-${addr}`"
-                    class="config-item nat-item"
-                  >
+                <div v-if="natAccess?.forwards?.length || natAccess?.domains?.length" class="config-list">
+                  <div v-for="addr in natAccess?.forwards || []" :key="`f-${addr}`" class="config-item nat-item">
                     <div class="config-item__head">
                       <span class="config-item__label">端口转发</span>
-                      <t-link theme="primary" hover="color" size="small" @click="copyText(addr, 'NAT 地址')">复制</t-link>
+                      <t-link theme="primary" hover="color" size="small" @click="copyText(addr, 'NAT 地址')"
+                        >复制</t-link
+                      >
                     </div>
-                    <div class="config-item__value"><code>{{ addr }}</code></div>
+                    <div class="config-item__value">
+                      <code>{{ addr }}</code>
+                    </div>
                   </div>
-                  <div
-                    v-for="domain in natAccess?.domains || []"
-                    :key="`d-${domain}`"
-                    class="config-item nat-item"
-                  >
+                  <div v-for="domain in natAccess?.domains || []" :key="`d-${domain}`" class="config-item nat-item">
                     <div class="config-item__head">
                       <span class="config-item__label">共享建站</span>
-                      <t-link theme="primary" hover="color" size="small" @click="copyText(domain, '建站域名')">复制</t-link>
+                      <t-link theme="primary" hover="color" size="small" @click="copyText(domain, '建站域名')"
+                        >复制</t-link
+                      >
                     </div>
-                    <div class="config-item__value"><code>{{ domain }}</code></div>
+                    <div class="config-item__value">
+                      <code>{{ domain }}</code>
+                    </div>
                   </div>
                 </div>
-                <t-empty
-                  v-else-if="!natError"
-                  description="该实例暂无转发规则（可在平台面板创建后刷新）"
-                />
+                <t-empty v-else-if="!natError" description="该实例暂无转发规则（可在平台面板创建后刷新）" />
               </div>
 
               <!--
@@ -699,22 +825,41 @@
               <div class="config-panel">
                 <div class="config-panel__head">
                   <h3 class="card-title">成本与账期调整</h3>
-                  <t-button
-                    v-permission="'instance:billing'"
-                    size="small"
-                    variant="outline"
-                    @click="openAdjustDialog"
-                  >
+                  <t-button v-permission="'instance:billing'" size="small" variant="outline" @click="openAdjustDialog">
                     调整账期
                   </t-button>
                 </div>
-                <div class="kv-row"><span class="kv-row__k">计费链路</span><span class="kv-row__v">{{ sourceModeLabel }}<span class="cell-sub">{{ sourceModeHint }}</span></span></div>
-                <div class="kv-row"><span class="kv-row__k">续费成本</span><span class="kv-row__v">¥{{ formatPrice(instanceData?.order?.renew_cost ?? 0) }}<span class="cell-sub">供应商侧成本，售价见主信息区</span></span></div>
-                <div class="kv-row" v-if="instanceData?.upstream">
+                <div class="kv-row">
+                  <span class="kv-row__k">计费链路</span
+                  ><span class="kv-row__v"
+                    >{{ sourceModeLabel }}<span class="cell-sub">{{ sourceModeHint }}</span></span
+                  >
+                </div>
+                <div class="kv-row">
+                  <span class="kv-row__k">续费成本</span
+                  ><span class="kv-row__v"
+                    >¥{{ formatPrice(instanceData?.order?.renew_cost ?? 0)
+                    }}<span class="cell-sub">供应商侧成本，售价见主信息区</span></span
+                  >
+                </div>
+                <div v-if="instanceData?.upstream" class="kv-row">
                   <span class="kv-row__k">上游续费金额</span>
                   <span class="kv-row__v kv-row__v--strong">{{ upstreamRenewText }}</span>
                 </div>
-                <div class="kv-row"><span class="kv-row__k">来源订单</span><span class="kv-row__v">{{ instanceData?.order?.order_no || '—' }}<t-link v-if="instanceData?.order" theme="primary" hover="color" class="inline-link" @click="openOrderById(instanceData.order.id)">查看</t-link></span></div>
+                <div class="kv-row">
+                  <span class="kv-row__k">来源订单</span
+                  ><span class="kv-row__v"
+                    >{{ instanceData?.order?.order_no || '—'
+                    }}<t-link
+                      v-if="instanceData?.order"
+                      theme="primary"
+                      hover="color"
+                      class="inline-link"
+                      @click="openOrderById(instanceData.order.id)"
+                      >查看</t-link
+                    ></span
+                  >
+                </div>
                 <t-alert
                   v-if="instanceData?.source_mode === 'upstream'"
                   theme="warning"
@@ -913,7 +1058,11 @@
       destroy-on-close
       @confirm="handleAdjustBilling"
     >
-      <t-alert theme="info" class="dlg-alert" message="调整只改本地账期口径，不产生账单、不向上游下单。对接上游的实例需勾选强制本地调整。" />
+      <t-alert
+        theme="info"
+        class="dlg-alert"
+        message="调整只改本地账期口径，不产生账单、不向上游下单。对接上游的实例需勾选强制本地调整。"
+      />
       <t-alert
         v-if="adjustCtx?.upstream_cycles_unavailable"
         theme="warning"
@@ -949,15 +1098,23 @@
           <div v-if="selectedCycleRow" class="cycle-compare">
             <div class="cycle-compare__row">
               <span class="cycle-compare__k">上游标价</span>
-              <span class="cycle-compare__v">{{ selectedCycleRow.upstream_list ? `¥${formatPrice(selectedCycleRow.upstream_list)}` : '—' }}</span>
+              <span class="cycle-compare__v">{{
+                selectedCycleRow.upstream_list ? `¥${formatPrice(selectedCycleRow.upstream_list)}` : '—'
+              }}</span>
               <span class="cycle-compare__k">上游采购价</span>
-              <span class="cycle-compare__v">{{ selectedCycleRow.upstream_cost ? `¥${formatPrice(selectedCycleRow.upstream_cost)}` : '—' }}</span>
+              <span class="cycle-compare__v">{{
+                selectedCycleRow.upstream_cost ? `¥${formatPrice(selectedCycleRow.upstream_cost)}` : '—'
+              }}</span>
             </div>
             <div class="cycle-compare__row">
               <span class="cycle-compare__k">我方售价</span>
-              <span class="cycle-compare__v">{{ selectedCycleRow.has_product_price ? `¥${formatPrice(selectedCycleRow.sale)}` : '未配置' }}</span>
+              <span class="cycle-compare__v">{{
+                selectedCycleRow.has_product_price ? `¥${formatPrice(selectedCycleRow.sale)}` : '未配置'
+              }}</span>
               <span class="cycle-compare__k">我方成本</span>
-              <span class="cycle-compare__v">{{ selectedCycleRow.has_product_price ? `¥${formatPrice(selectedCycleRow.cost)}` : '未配置' }}</span>
+              <span class="cycle-compare__v">{{
+                selectedCycleRow.has_product_price ? `¥${formatPrice(selectedCycleRow.cost)}` : '未配置'
+              }}</span>
             </div>
             <div v-if="selectedCycleMarginText" class="cycle-compare__margin">{{ selectedCycleMarginText }}</div>
             <t-button
@@ -981,7 +1138,9 @@
               placeholder="留空表示不修改；填 -1 取消绑定"
               class="dlg-grow"
             />
-            <t-button variant="outline" :disabled="!adjust.renewal_price" @click="clearAdjustRenewalPrice">取消绑定</t-button>
+            <t-button variant="outline" :disabled="!adjust.renewal_price" @click="clearAdjustRenewalPrice"
+              >取消绑定</t-button
+            >
           </div>
           <div class="cell-sub">
             {{ adjustCtx?.renewal_price_hint || '绑定价压过商品调价与折扣；留空表示本次不改。' }}
@@ -1030,7 +1189,8 @@
             同时把本地实例号改为新上游号（当前两者一致，改后可保持语义统一）
           </t-checkbox>
           <div v-if="!relink.migrate_instance_id && !relink.migrateDone" class="cell-sub">
-            不改则：本地实例号保持 <code>{{ instanceData?.instance_id }}</code>（历史流水仍可对应）
+            不改则：本地实例号保持 <code>{{ instanceData?.instance_id }}</code
+            >（历史流水仍可对应）
           </div>
         </t-form-item>
         <t-form-item label="原因">
@@ -1040,11 +1200,23 @@
       <!-- 关联成功后回显从上游拉到的信息，运营一眼核对确实是对的那台 -->
       <div v-if="relinkResult" class="relink-result">
         <div class="relink-result__title">已关联，从上游读回：</div>
-        <div class="kv-row"><span class="kv-row__k">主机名</span><span class="kv-row__v">{{ relinkResult.name || '—' }}</span></div>
-        <div class="kv-row"><span class="kv-row__k">状态</span><span class="kv-row__v">{{ instanceStatusLabel(relinkResult.status) }}</span></div>
-        <div class="kv-row"><span class="kv-row__k">公网 IP</span><span class="kv-row__v">{{ relinkResult.public_ip || '—' }}</span></div>
-        <div class="kv-row"><span class="kv-row__k">内网 IP</span><span class="kv-row__v">{{ relinkResult.private_ip || '—' }}</span></div>
-        <div class="kv-row"><span class="kv-row__k">系统 / 区域</span><span class="kv-row__v">{{ osDisplayName(relinkResult.os) }} · {{ relinkResult.region || '—' }}</span></div>
+        <div class="kv-row">
+          <span class="kv-row__k">主机名</span><span class="kv-row__v">{{ relinkResult.name || '—' }}</span>
+        </div>
+        <div class="kv-row">
+          <span class="kv-row__k">状态</span
+          ><span class="kv-row__v">{{ instanceStatusLabel(relinkResult.status) }}</span>
+        </div>
+        <div class="kv-row">
+          <span class="kv-row__k">公网 IP</span><span class="kv-row__v">{{ relinkResult.public_ip || '—' }}</span>
+        </div>
+        <div class="kv-row">
+          <span class="kv-row__k">内网 IP</span><span class="kv-row__v">{{ relinkResult.private_ip || '—' }}</span>
+        </div>
+        <div class="kv-row">
+          <span class="kv-row__k">系统 / 区域</span
+          ><span class="kv-row__v">{{ osDisplayName(relinkResult.os) }} · {{ relinkResult.region || '—' }}</span>
+        </div>
       </div>
       <p class="dlg-confirm-tip">
         请输入当前实例标识 <code>{{ instanceData?.instance_id }}</code> 以确认：
@@ -1079,7 +1251,10 @@
           </div>
           <div class="cell-sub">
             上游镜像：<b>{{ instanceData?.upstream?.name || '（未关联）' }}</b>
-            <template v-if="instanceData?.upstream">（#{{ instanceData.upstream.resource_product_id }} · 上游号 {{ instanceData.upstream.upstream_id }}）</template>
+            <template v-if="instanceData?.upstream"
+              >（#{{ instanceData.upstream.resource_product_id }} · 上游号
+              {{ instanceData.upstream.upstream_id }}）</template
+            >
           </div>
         </t-form-item>
         <t-form-item label="变更项">
@@ -1120,7 +1295,13 @@
           </div>
         </t-form-item>
         <t-form-item v-if="rebind.fields.includes('renewal_price')" label="新的绑定续费价（元/周期）">
-          <t-input-number v-model="rebind.renewal_price" :min="0" :decimal-places="2" placeholder="留空 = 清除绑定（回到按商品实时算价）" class="dlg-full" />
+          <t-input-number
+            v-model="rebind.renewal_price"
+            :min="0"
+            :decimal-places="2"
+            placeholder="留空 = 清除绑定（回到按商品实时算价）"
+            class="dlg-full"
+          />
         </t-form-item>
         <t-form-item label="原因">
           <t-input v-model="rebind.reason" placeholder="如：上游把五区商品换成六区，同步本地（写入操作流水）" />
@@ -1128,8 +1309,21 @@
       </t-form>
       <div v-if="rebindResult" class="relink-result">
         <div class="relink-result__title">已更换：</div>
-        <div class="kv-row"><span class="kv-row__k">本地商品</span><span class="kv-row__v">#{{ rebindResult.old_sell_product_id || '—' }} → <b>#{{ rebindResult.new_sell_product_id || '—' }}</b> {{ rebindResult.sell_product_name || '' }}</span></div>
-        <div class="kv-row"><span class="kv-row__k">上游镜像</span><span class="kv-row__v">#{{ rebindResult.old_upstream_product_id || '—' }} → <b>#{{ rebindResult.new_upstream_product_id || '—' }}</b> {{ rebindResult.upstream_product_name || '' }}</span></div>
+        <div class="kv-row">
+          <span class="kv-row__k">本地商品</span
+          ><span class="kv-row__v"
+            >#{{ rebindResult.old_sell_product_id || '—' }} → <b>#{{ rebindResult.new_sell_product_id || '—' }}</b>
+            {{ rebindResult.sell_product_name || '' }}</span
+          >
+        </div>
+        <div class="kv-row">
+          <span class="kv-row__k">上游镜像</span
+          ><span class="kv-row__v"
+            >#{{ rebindResult.old_upstream_product_id || '—' }} →
+            <b>#{{ rebindResult.new_upstream_product_id || '—' }}</b>
+            {{ rebindResult.upstream_product_name || '' }}</span
+          >
+        </div>
       </div>
     </t-dialog>
 
@@ -1143,7 +1337,11 @@
       destroy-on-close
       @confirm="reveal.visible = false"
     >
-      <t-alert theme="warning" class="dlg-alert" message="查看密码会写入操作审计流水。请勿截图外传，使用完毕请及时关闭。" />
+      <t-alert
+        theme="warning"
+        class="dlg-alert"
+        message="查看密码会写入操作审计流水。请勿截图外传，使用完毕请及时关闭。"
+      />
       <t-descriptions :column="1" bordered size="small">
         <t-descriptions-item label="用户名">{{ reveal.username || '—' }}</t-descriptions-item>
         <t-descriptions-item label="密码">
@@ -1179,7 +1377,11 @@
           <t-input v-model="resizeForm.disk_type" placeholder="如 cloud_ssd" />
         </t-form-item>
         <t-form-item label="变配原因" name="reason">
-          <t-textarea v-model="resizeForm.reason" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="选填，请填写变配原因" />
+          <t-textarea
+            v-model="resizeForm.reason"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+            placeholder="选填，请填写变配原因"
+          />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -1204,7 +1406,11 @@
           <t-input v-model="destroyForm.confirm_mark" :placeholder="instanceData?.instance_id || '请输入实例标识'" />
         </t-form-item>
         <t-form-item label="销毁原因" name="reason">
-          <t-textarea v-model="destroyForm.reason" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="选填，请填写销毁原因" />
+          <t-textarea
+            v-model="destroyForm.reason"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+            placeholder="选填，请填写销毁原因"
+          />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -1223,10 +1429,20 @@
           <t-input-number v-model="renewForm.period_count" :min="1" :max="120" theme="column" />
         </t-form-item>
         <t-form-item label="金额（元）" name="amount">
-          <t-input-number v-model="renewForm.amount" :min="0" :precision="2" theme="column" placeholder="留空按默认价格" />
+          <t-input-number
+            v-model="renewForm.amount"
+            :min="0"
+            :precision="2"
+            theme="column"
+            placeholder="留空按默认价格"
+          />
         </t-form-item>
         <t-form-item label="备注" name="remark">
-          <t-textarea v-model="renewForm.remark" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="选填，请填写代续费备注" />
+          <t-textarea
+            v-model="renewForm.remark"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+            placeholder="选填，请填写代续费备注"
+          />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -1278,7 +1494,8 @@
           <!-- 镜像来源与取值口径：两种链路的 ID 含义不同，不讲清楚运营不敢选 -->
           <div class="cell-sub">
             <template v-if="mirrorSource === 'product'">
-              镜像取自该商品的操作系统配置项，共 {{ mirrorOptions.length }} 个；下发给上游的是配置子项 ID（与开通口径一致）
+              镜像取自该商品的操作系统配置项，共 {{ mirrorOptions.length }} 个；下发给上游的是配置子项
+              ID（与开通口径一致）
             </template>
             <template v-else-if="mirrorSource === 'platform'">
               镜像取自渠道平台镜像目录，共 {{ mirrorOptions.length }} 个
@@ -1291,8 +1508,8 @@
         <t-form-item label="登录端口（可选）">
           <t-input-number v-model="reinstall.port" :min="0" :max="65535" theme="column" placeholder="留空保持默认" />
           <div class="cell-sub">
-            重装后 SSH/RDP 的监听端口。留空或 0 = 保持平台默认（一般 22/3389）。
-            填了就按你填的改 —— 客户改过端口又要重装的场景用它，避免重装后端口被重置回默认。
+            重装后 SSH/RDP 的监听端口。留空或 0 = 保持平台默认（一般 22/3389）。 填了就按你填的改 ——
+            客户改过端口又要重装的场景用它，避免重装后端口被重置回默认。
           </div>
         </t-form-item>
         <t-form-item v-if="reinstallSupportsDiskSize" label="系统盘大小 GB（可选）">
@@ -1326,7 +1543,9 @@
     >
       <t-alert theme="warning" class="dlg-alert">
         <template #message>
-          <div>重置密码由上游执行，<b>多数平台会强制重启实例</b>（部分平台第二次重启才生效），重启期间业务中断约 1–3 分钟。</div>
+          <div>
+            重置密码由上游执行，<b>多数平台会强制重启实例</b>（部分平台第二次重启才生效），重启期间业务中断约 1–3 分钟。
+          </div>
           <div class="cell-sub">系统盘与数据盘的数据不受影响，仅更换登录密码。重启前请确认客户已保存业务数据。</div>
         </template>
       </t-alert>
@@ -1408,7 +1627,11 @@
       destroy-on-close
       @confirm="handleRestoreSnapshot"
     >
-      <t-alert theme="warning" class="dlg-alert" message="恢复会覆盖当前系统盘，盘上数据将回到快照时刻。请输入实例标识确认。" />
+      <t-alert
+        theme="warning"
+        class="dlg-alert"
+        message="恢复会覆盖当前系统盘，盘上数据将回到快照时刻。请输入实例标识确认。"
+      />
       <p class="dlg-confirm-tip">
         请输入实例标识 <code>{{ instanceData?.instance_id }}</code>
       </p>
@@ -1464,7 +1687,11 @@
       destroy-on-close
       @confirm="credential.visible = false"
     >
-      <t-alert theme="warning" class="dlg-alert" message="平台新签发的登录凭据只显示这一次，本系统不保存；关闭后只能去平台面板重置。" />
+      <t-alert
+        theme="warning"
+        class="dlg-alert"
+        message="平台新签发的登录凭据只显示这一次，本系统不保存；关闭后只能去平台面板重置。"
+      />
       <t-alert
         v-if="!credential.password"
         theme="info"
@@ -1474,7 +1701,9 @@
       <t-descriptions :column="1" bordered size="small">
         <t-descriptions-item label="用户名">{{ credential.username || '—' }}</t-descriptions-item>
         <t-descriptions-item label="新密码">
-          <code class="cell-strong">{{ credential.password || '（平台未返回，请改用「重置密码」或到平台面板查看）' }}</code>
+          <code class="cell-strong">{{
+            credential.password || '（平台未返回，请改用「重置密码」或到平台面板查看）'
+          }}</code>
         </t-descriptions-item>
       </t-descriptions>
     </t-dialog>
@@ -1640,7 +1869,6 @@ const billingCycleOptions = [
   { value: 'triennially', label: '三年' },
   { value: 'onetime', label: '一次性' },
 ]
-const billingModeOptions = billingCycleOptions
 
 function cycleLabel(cycle: string | undefined): string {
   if (!cycle) return '—'
@@ -1664,7 +1892,6 @@ const headlineState = computed(() =>
 )
 
 // 概览里的一行说明（比头部标签更详细），用于「服务状态」描述项。
-const headlineStateDetail = computed(() => headlineState.value.detail)
 
 const sourceModeLabel = computed(() => (instanceData.value?.source_mode === 'upstream' ? '对接上游' : '自营'))
 
@@ -2287,8 +2514,8 @@ const adjustCycleOptions = computed(() =>
   })),
 )
 
-const selectedCycleRow = computed(() =>
-  (adjustCtx.value?.cycles || []).find((c) => c.cycle === adjust.billing_mode) || null,
+const selectedCycleRow = computed(
+  () => (adjustCtx.value?.cycles || []).find((c) => c.cycle === adjust.billing_mode) || null,
 )
 
 // 选中周期的毛利提示（我方售价 vs 上游采购价）：差值为负是明显亏损，需警示。
@@ -2297,7 +2524,8 @@ const selectedCycleMarginText = computed(() => {
   if (!row || !row.has_product_price || row.upstream_cost <= 0) return ''
   const diff = row.sale - row.upstream_cost
   const pct = row.upstream_cost > 0 ? (diff / row.upstream_cost) * 100 : 0
-  if (diff < 0) return `⚠ 按此周期售价 ¥${row.sale.toFixed(2)} 低于上游采购价 ¥${row.upstream_cost.toFixed(2)}，每期亏 ¥${Math.abs(diff).toFixed(2)}`
+  if (diff < 0)
+    return `⚠ 按此周期售价 ¥${row.sale.toFixed(2)} 低于上游采购价 ¥${row.upstream_cost.toFixed(2)}，每期亏 ¥${Math.abs(diff).toFixed(2)}`
   return `毛利 ¥${diff.toFixed(2)}（${pct.toFixed(1)}%）`
 })
 
@@ -2409,9 +2637,7 @@ const relinkCanMigrateLocal = computed(
 )
 
 const relinkConfirmDisabled = computed(
-  () =>
-    !relink.upstream_instance_id.trim() ||
-    relink.confirm_mark.trim() !== (instanceData.value?.instance_id || ''),
+  () => !relink.upstream_instance_id.trim() || relink.confirm_mark.trim() !== (instanceData.value?.instance_id || ''),
 )
 
 function openRelinkDialog() {

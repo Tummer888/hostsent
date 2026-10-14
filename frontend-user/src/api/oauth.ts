@@ -55,31 +55,31 @@ export interface OAuthExchangeResult {
 
 /** 登录页渲染第三方图标用：只返回已启用且适配器已注册的渠道。 */
 export function getOAuthProviders() {
-  return request.get<any, { data: PublicOAuthProvider[] }>('/uc/oauth/providers')
+  return request.get<unknown, { data: PublicOAuthProvider[] }>('/uc/oauth/providers')
 }
 
 /** 取登录授权跳转地址（后端签发 state 后返回完整 URL）。 */
 export function getOAuthAuthorizeUrl(provider: string, inviteCode?: string) {
-  return request.get<any, { data: { authorize_url: string } }>(`/uc/oauth/${provider}/authorize`, {
+  return request.get<unknown, { data: { authorize_url: string } }>(`/uc/oauth/${provider}/authorize`, {
     params: inviteCode ? { invite_code: inviteCode } : undefined,
   })
 }
 
 /** ticket → 正式令牌。ticket 60 秒有效且一次性。 */
 export function exchangeOAuthTicket(ticket: string) {
-  return request.post<any, { data: OAuthExchangeResult }>('/uc/oauth/exchange', { ticket })
+  return request.post<unknown, { data: OAuthExchangeResult }>('/uc/oauth/exchange', { ticket })
 }
 
 /** 我的绑定列表。 */
 export function getMyOAuthBindings() {
-  return request.get<any, { data: MyOAuthBinding[] }>('/uc/oauth/bindings')
+  return request.get<unknown, { data: MyOAuthBinding[] }>('/uc/oauth/bindings')
 }
 
 /** 取绑定用的授权地址（state 里带当前用户 ID，回调只能绑到发起时的账号）。 */
 export function getOAuthBindAuthorizeUrl(provider: string) {
-  return request.get<any, { data: { authorize_url: string } }>(`/uc/oauth/${provider}/bind-authorize`)
+  return request.get<unknown, { data: { authorize_url: string } }>(`/uc/oauth/${provider}/bind-authorize`)
 }
 
 export function unbindOAuth(provider: string) {
-  return request.delete<any, { data: string }>(`/uc/oauth/bindings/${provider}`)
+  return request.delete<unknown, { data: string }>(`/uc/oauth/bindings/${provider}`)
 }

@@ -71,7 +71,12 @@
           <div class="policy-item">
             <div class="policy-item__head">
               <h4>全额退款后处置实例</h4>
-              <t-tag :theme="form.refund_action === 'none' ? 'default' : 'warning'" variant="light" size="small" shape="round">
+              <t-tag
+                :theme="form.refund_action === 'none' ? 'default' : 'warning'"
+                variant="light"
+                size="small"
+                shape="round"
+              >
                 {{ refundActionHint }}
               </t-tag>
             </div>

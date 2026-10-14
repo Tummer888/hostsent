@@ -104,7 +104,10 @@
               <span class="verify-row__label">提交次数</span>
               <span class="verify-row__value">第 {{ realnameStatus.review_round }} 次</span>
             </div>
-            <div v-if="realnameStatus.status === 'rejected' && realnameStatus.reject_reason" class="verify-row verify-row--full">
+            <div
+              v-if="realnameStatus.status === 'rejected' && realnameStatus.reject_reason"
+              class="verify-row verify-row--full"
+            >
               <span class="verify-row__label">驳回理由</span>
               <span class="verify-row__value verify-row__value--danger">{{ realnameStatus.reject_reason }}</span>
             </div>
@@ -144,9 +147,7 @@
             >
               前往支付宝完成核验
             </t-button>
-            <t-button variant="text" theme="primary" @click="goTicket()">
-              企业主体可改走「授权申请」工单
-            </t-button>
+            <t-button variant="text" theme="primary" @click="goTicket()"> 企业主体可改走「授权申请」工单 </t-button>
           </div>
         </template>
       </t-loading>
@@ -186,7 +187,10 @@
             </div>
             <p class="security-desc">{{ oauthDesc(item) }}</p>
           </div>
-          <t-tooltip v-if="item.binding && !item.binding.can_unbind" content="这是账号当前唯一的登录方式，解绑后将无法登录">
+          <t-tooltip
+            v-if="item.binding && !item.binding.can_unbind"
+            content="这是账号当前唯一的登录方式，解绑后将无法登录"
+          >
             <span>
               <t-button size="small" variant="outline" disabled>解绑</t-button>
             </span>
@@ -255,8 +259,9 @@
       </div>
 
       <p class="danger-desc">
-        平台尚未开放自助注销入口（注销涉及余额清算、发票与在管实例的处置，需人工确认）。
-        如需注销当前{{ brandStore.name }}账号，请提交工单说明，运营核对无未结清款项与在管资源后按流程处理。
+        平台尚未开放自助注销入口（注销涉及余额清算、发票与在管实例的处置，需人工确认）。 如需注销当前{{
+          brandStore.name
+        }}账号，请提交工单说明，运营核对无未结清款项与在管资源后按流程处理。
       </p>
       <div class="danger-actions">
         <t-button theme="default" @click="go('/support/tickets/create')">提交注销申请</t-button>
@@ -332,10 +337,7 @@
         <t-form-item v-if="isEnterpriseForm" label="联系人" name="contact_name">
           <t-input v-model="realnameForm.contact_name" placeholder="请输入日常联系人的姓名" />
         </t-form-item>
-        <t-form-item
-          :label="isEnterpriseForm ? '统一社会信用代码' : '身份证号'"
-          name="id_number"
-        >
+        <t-form-item :label="isEnterpriseForm ? '统一社会信用代码' : '身份证号'" name="id_number">
           <t-input
             v-model="realnameForm.id_number"
             :placeholder="isEnterpriseForm ? '请输入 18 位统一社会信用代码' : '请输入 18 位身份证号'"
@@ -349,7 +351,11 @@
         <t-form-item v-if="realnameVerify.imageRequired" label="图形验证码" name="captcha_code">
           <div class="verify-row-inline">
             <t-input v-model="realnameForm.captcha_code" placeholder="请输入图形验证码" />
-            <CaptchaImage v-model:key="realnameForm.captcha_key" v-model:code="realnameForm.captcha_code" scene="realname_submit" />
+            <CaptchaImage
+              v-model:key="realnameForm.captcha_key"
+              v-model:code="realnameForm.captcha_code"
+              scene="realname_submit"
+            />
           </div>
         </t-form-item>
         <t-form-item v-if="realnameVerify.otpRequired" :label="`${realnameVerify.channelLabel}验证码`" name="otp_code">
@@ -368,9 +374,7 @@
 
         <t-alert theme="info" class="realname-tip">
           证件号仅用于核验，平台以加密形式存储，审核页面只展示脱敏值。
-          <template v-if="realnameStatus.status !== 'none'">
-            提交后将替换当前申请，材料需重新上传。
-          </template>
+          <template v-if="realnameStatus.status !== 'none'"> 提交后将替换当前申请，材料需重新上传。 </template>
         </t-alert>
       </t-form>
     </t-dialog>
@@ -378,15 +382,10 @@
     <!-- ============ 材料上传 ============ -->
     <!-- 材料必须挂在一张已存在的申请上（后端按 application_id 归属鉴权），
          所以先提交申请再传图，不在这里做「暂存后一起提交」。 -->
-    <t-dialog
-      v-model:visible="docVisible"
-      header="上传认证材料"
-      width="560px"
-      :footer="false"
-    >
+    <t-dialog v-model:visible="docVisible" header="上传认证材料" width="560px" :footer="false">
       <p class="doc-tip">
-        申请已提交（编号 {{ docApplicationId }}），可继续上传证件照供审核。支持 JPG/PNG/WEBP/BMP/PDF，
-        单个不超过 10MB，最多 {{ MAX_DOCUMENTS }} 份；同类型重新上传会覆盖原文件。
+        申请已提交（编号 {{ docApplicationId }}），可继续上传证件照供审核。支持 JPG/PNG/WEBP/BMP/PDF， 单个不超过
+        10MB，最多 {{ MAX_DOCUMENTS }} 份；同类型重新上传会覆盖原文件。
       </p>
       <div v-for="dt in documentTypes" :key="dt.value" class="doc-row">
         <div class="doc-row__head">
@@ -1007,9 +1006,7 @@ const profileLoading = ref(false)
 const profileForm = reactive({ name: '', email: '', phone: '' })
 
 const profileRules = {
-  email: [
-    { pattern: /^$|^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: '邮箱格式不正确', trigger: 'blur' },
-  ],
+  email: [{ pattern: /^$|^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: '邮箱格式不正确', trigger: 'blur' }],
 }
 
 function openProfileDialog() {
@@ -1033,7 +1030,7 @@ async function handleUpdateProfile() {
     userStore.userInfo = data
     MessagePlugin.success('资料已更新')
     profileVisible.value = false
-  } catch (e: any) {
+  } catch (e) {
     console.error('Update profile failed:', e)
   } finally {
     profileLoading.value = false
@@ -1081,7 +1078,7 @@ async function handleChangePassword() {
     })
     MessagePlugin.success('密码修改成功，下次登录请使用新密码')
     passwordVisible.value = false
-  } catch (e: any) {
+  } catch (e) {
     console.error('Change password failed:', e)
   } finally {
     passwordLoading.value = false

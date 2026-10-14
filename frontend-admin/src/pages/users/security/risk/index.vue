@@ -39,11 +39,11 @@
       :error-message="errorMessage"
       empty-text="暂无风险事件"
       :pagination="pagination"
+      :icon="ChartBarIcon"
       @search="handleSearch"
       @reset="handleReset"
       @reload="loadData"
       @page-change="handlePageChange"
-      :icon="ChartBarIcon"
     >
       <template #filters>
         <div class="field">
@@ -86,13 +86,7 @@
         <span>{{ row.username || '—' }}</span>
         <!-- 主体域徽标：user_id 承载两个 ID 空间且会撞号，不标出来无法区分
              同 ID 的客户与员工。 -->
-        <t-tag
-          v-if="row.subject_type === 'admin'"
-          theme="primary"
-          variant="light"
-          size="small"
-          class="subject-badge"
-        >
+        <t-tag v-if="row.subject_type === 'admin'" theme="primary" variant="light" size="small" class="subject-badge">
           员工
         </t-tag>
       </template>
@@ -206,7 +200,9 @@
         <t-descriptions-item label="关联 IP">{{ detailRow.ip || '—' }}</t-descriptions-item>
         <t-descriptions-item label="设备指纹">{{ detailRow.device_fingerprint || '—' }}</t-descriptions-item>
         <t-descriptions-item label="发生次数">{{ detailRow.occur_count }}</t-descriptions-item>
-        <t-descriptions-item label="首次发生">{{ formatSecurityTime(detailRow.first_occurred_at) }}</t-descriptions-item>
+        <t-descriptions-item label="首次发生">{{
+          formatSecurityTime(detailRow.first_occurred_at)
+        }}</t-descriptions-item>
         <t-descriptions-item label="最近发生">{{ formatSecurityTime(detailRow.last_occurred_at) }}</t-descriptions-item>
         <t-descriptions-item label="处置状态">
           <t-tag :theme="securityStatusTagTheme[detailRow.status] || 'default'" variant="light-outline">
@@ -402,7 +398,12 @@
       <t-form-item label="同时关闭待办">
         <t-space direction="vertical" size="4">
           <t-switch v-model="levelDialog.closeEvent" />
-          <t-radio-group v-if="levelDialog.closeEvent" v-model="levelDialog.closeAs" variant="default-filled" size="small">
+          <t-radio-group
+            v-if="levelDialog.closeEvent"
+            v-model="levelDialog.closeAs"
+            variant="default-filled"
+            size="small"
+          >
             <t-radio-button value="handled">标记已处置</t-radio-button>
             <t-radio-button value="ignored">标记已忽略</t-radio-button>
           </t-radio-group>
@@ -417,13 +418,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-  ChartBarIcon,
-  CheckCircleIcon,
-  ErrorCircleIcon,
-  MinusCircleIcon,
-  TimeIcon,
-} from 'tdesign-icons-vue-next'
+import { ChartBarIcon, CheckCircleIcon, MinusCircleIcon, TimeIcon } from 'tdesign-icons-vue-next'
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import { MessagePlugin, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
@@ -669,9 +664,7 @@ function prettyActionDetail(raw?: string): string {
     parts.push(`失效会话 ${payload.revoked} 个`)
   }
   if (typeof payload.from === 'string' && typeof payload.to === 'string') {
-    parts.push(
-      `等级 ${RISK_LEVEL_LABEL[payload.from] || payload.from} → ${RISK_LEVEL_LABEL[payload.to] || payload.to}`,
-    )
+    parts.push(`等级 ${RISK_LEVEL_LABEL[payload.from] || payload.from} → ${RISK_LEVEL_LABEL[payload.to] || payload.to}`)
   }
   if (typeof payload.status === 'string') {
     parts.push(`待办 ${RISK_STATUS_LABEL[payload.status] || payload.status}`)
@@ -744,9 +737,7 @@ async function submitClose() {
       closeDialog.status === 'ignored'
         ? await ignoreRiskEvent(closeDialog.id, payload)
         : await handleRiskEvent(closeDialog.id, payload)
-    MessagePlugin.success(
-      closeDialog.status === 'ignored' ? '已忽略该风险事件' : '已处置该风险事件',
-    )
+    MessagePlugin.success(closeDialog.status === 'ignored' ? '已忽略该风险事件' : '已处置该风险事件')
     closeDialog.visible = false
     // 详情抽屉里操作的：同步刷新抽屉本体与时间线，否则看到的是操作前的快照。
     if (detailRow.value && detailRow.value.id === updated.id) {
@@ -945,8 +936,11 @@ function mobileActions(row: RiskEventInfo): MobileActionItem[] {
   return items
 }
 
-function handleMobileAction(value: string | number | Record<string, any>, row: RiskEventInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: RiskEventInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'detail':
       openDetail(row)
@@ -993,7 +987,9 @@ function handleMobileAction(value: string | number | Record<string, any>, row: R
 
 .risk-summary .stat-card {
   cursor: pointer;
-  transition: box-shadow 160ms var(--hs-ease-out), transform 160ms var(--hs-ease-out);
+  transition:
+    box-shadow 160ms var(--hs-ease-out),
+    transform 160ms var(--hs-ease-out);
 }
 
 .risk-summary .stat-card:hover,
@@ -1005,11 +1001,15 @@ function handleMobileAction(value: string | number | Record<string, any>, row: R
 
 /* 选中态：与筛选下拉的 status 双向同步（点卡片即筛选，再点取消）。 */
 .risk-summary .stat-card.is-active {
-  box-shadow: 0 0 0 2px var(--color-primary), var(--hs-shadow-md);
+  box-shadow:
+    0 0 0 2px var(--color-primary),
+    var(--hs-shadow-md);
 }
 
 .risk-summary .stat-card.is-active:focus-visible {
-  box-shadow: 0 0 0 2px var(--color-primary), var(--hs-shadow-md);
+  box-shadow:
+    0 0 0 2px var(--color-primary),
+    var(--hs-shadow-md);
 }
 
 /* 栅格断点与用户总览保持一致：1200 → 3 列不够整齐，故 900 起直接 2 列。 */

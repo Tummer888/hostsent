@@ -78,15 +78,9 @@
         <span class="field__label">创建时间</span>
         <t-date-range-picker v-model="dateRange" clearable allow-input @change="handleDateChange" />
       </div>
-      <div class="field" v-if="canViewOthers">
+      <div v-if="canViewOthers" class="field">
         <span class="field__label">销售</span>
-        <t-select
-          v-model="filters.admin_id"
-          clearable
-          filterable
-          placeholder="全部销售"
-          :options="salesOptions"
-        />
+        <t-select v-model="filters.admin_id" clearable filterable placeholder="全部销售" :options="salesOptions" />
       </div>
       <template #actions>
         <t-space size="small">
@@ -195,11 +189,7 @@
           :message="`可提现 ¥${formatPrice(summary.withdrawable)}，最低提现 ¥${formatPrice(summary.min_withdraw)}`"
           style="margin-bottom: 12px"
         />
-        <t-form-item
-          label="提现金额（元）"
-          name="amount"
-          :rules="[{ required: true, message: '请输入提现金额' }]"
-        >
+        <t-form-item label="提现金额（元）" name="amount" :rules="[{ required: true, message: '请输入提现金额' }]">
           <t-input-number
             v-model="applyForm.amount"
             :min="summary.min_withdraw"

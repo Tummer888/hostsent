@@ -145,9 +145,7 @@
         </template>
       </t-table>
 
-      <p class="matrix-footnote">
-        停用的档位不会出现在用户端/开放平台的可选周期里，下单时会直接拒绝该周期。
-      </p>
+      <p class="matrix-footnote">停用的档位不会出现在用户端/开放平台的可选周期里，下单时会直接拒绝该周期。</p>
     </section>
 
     <section v-else class="table-card surface-card">

@@ -59,9 +59,7 @@
               </t-tag>
               <span>{{ formatRows(activeSource.rows) }}</span>
               <span v-if="activeSource.remark">· {{ activeSource.remark }}</span>
-              <span v-if="activeSource.independent_page" class="warn-hint">
-                · 该源另有独立业务页面查看
-              </span>
+              <span v-if="activeSource.independent_page" class="warn-hint"> · 该源另有独立业务页面查看 </span>
             </div>
           </template>
           <div class="field">
@@ -125,19 +123,18 @@
               >
                 {{ row[col.key] ? '是' : '否' }}
               </t-tag>
-              <t-tag
-                v-else-if="col.type === 'enum'"
-                variant="light"
-                size="small"
-                shape="round"
-              >
+              <t-tag v-else-if="col.type === 'enum'" variant="light" size="small" shape="round">
                 {{ enumLabel(col, row[col.key]) }}
               </t-tag>
-              <span v-else-if="col.type === 'time'" class="time-text">{{ formatTime(String(row[col.key] ?? '')) }}</span>
+              <span v-else-if="col.type === 'time'" class="time-text">{{
+                formatTime(String(row[col.key] ?? ''))
+              }}</span>
               <span v-else-if="col.type === 'json'" class="cell-ellipsis cell-muted" :title="prettyJSON(row[col.key])">
                 {{ compactJSON(row[col.key]) }}
               </span>
-              <span v-else-if="col.type === 'number'" class="cell-strong">{{ formatNumber(Number(row[col.key] ?? 0)) }}</span>
+              <span v-else-if="col.type === 'number'" class="cell-strong">{{
+                formatNumber(Number(row[col.key] ?? 0))
+              }}</span>
               <span v-else class="cell-ellipsis" :title="String(row[col.key] ?? '')">{{ row[col.key] ?? '—' }}</span>
             </template>
             <template #action="{ row }">
@@ -267,9 +264,7 @@ function sourcesOf(group: string): LogSourceInfo[] {
 }
 
 /** 列元数据：卡片列用；隐藏列不进表格 */
-const visibleColumns = computed<LogColumnInfo[]>(() =>
-  (activeSource.value?.columns || []).filter((col) => !col.hidden),
-)
+const visibleColumns = computed<LogColumnInfo[]>(() => (activeSource.value?.columns || []).filter((col) => !col.hidden))
 
 const tableColumns = computed<PrimaryTableCol<Record<string, unknown>>[]>(() => {
   const cols: PrimaryTableCol<Record<string, unknown>>[] = visibleColumns.value.map((col) => ({

@@ -7,7 +7,9 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">支付方式</h2>
-          <p class="page-header__desc">按支付场景查看收银台可用渠道与路由顺序；用户在上层设置默认方式与优先级后，此处即时反映生效结果。</p>
+          <p class="page-header__desc">
+            按支付场景查看收银台可用渠道与路由顺序；用户在上层设置默认方式与优先级后，此处即时反映生效结果。
+          </p>
         </div>
       </div>
       <t-space size="small">
@@ -52,7 +54,9 @@
         </template>
 
         <template #mode="{ row }">
-          <t-tag :theme="modeTheme(row.mode)" variant="light" size="small" shape="round">{{ modeLabel(row.mode) }}</t-tag>
+          <t-tag :theme="modeTheme(row.mode)" variant="light" size="small" shape="round">{{
+            modeLabel(row.mode)
+          }}</t-tag>
         </template>
 
         <template #limits="{ row }">
@@ -68,7 +72,9 @@
         </template>
 
         <template #is_default="{ row }">
-          <t-tag v-if="row.channel_code === options.default" theme="warning" variant="light" size="small" shape="round">默认</t-tag>
+          <t-tag v-if="row.channel_code === options.default" theme="warning" variant="light" size="small" shape="round"
+            >默认</t-tag
+          >
           <span v-else class="price-sub">—</span>
         </template>
 
@@ -88,13 +94,7 @@ import { RefreshIcon, WalletIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { getMethodOptions } from '@/api/payment'
-import {
-  formatFenYuan,
-  modeLabel,
-  modeTheme,
-  sceneLabel,
-  sceneOptions,
-} from '@/pages/system/payment/constants'
+import { formatFenYuan, modeLabel, modeTheme, sceneLabel, sceneOptions } from '@/pages/system/payment/constants'
 import type { ChannelInfo, MethodOptionsResponse } from '@/types/interface'
 
 defineOptions({ name: 'PaymentMethods' })

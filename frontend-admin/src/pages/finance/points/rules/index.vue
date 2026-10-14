@@ -141,11 +141,11 @@
             <span class="field__label">计发方式</span>
             <t-select v-model="form.earn_mode" placeholder="请选择计发方式" :options="pointEarnModeOptions" />
           </div>
-          <div class="field" v-if="form.earn_mode === 'rate'">
+          <div v-if="form.earn_mode === 'rate'" class="field">
             <span class="field__label">每 1 元发放积分</span>
             <t-input-number v-model="form.points_per_yuan" :min="0" :precision="4" theme="column" />
           </div>
-          <div class="field" v-else>
+          <div v-else class="field">
             <span class="field__label">每笔固定积分</span>
             <t-input-number v-model="form.fixed_points" :min="0" :precision="0" theme="column" />
           </div>
@@ -239,7 +239,13 @@ const columns: PrimaryTableCol<PointRuleInfo>[] = [
   { colKey: 'summary', title: '计发口径', minWidth: 280 },
   { colKey: 'status', title: '状态', width: 90, align: 'center' as const },
   { colKey: 'remark', title: '备注', minWidth: 160 },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 90, fixed: 'right' as const, align: 'center' as const },
+  {
+    colKey: 'action',
+    title: '操作',
+    width: isMobile.value ? 70 : 90,
+    fixed: 'right' as const,
+    align: 'center' as const,
+  },
 ]
 
 async function loadRules() {

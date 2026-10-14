@@ -31,18 +31,12 @@
                   {{ p.name }}
                 </button>
               </template>
-              <p v-else class="pm-rail__hint">
-                暂无标记为推荐的商品；运营可在管理端把商品设为推荐后在此展示。
-              </p>
+              <p v-else class="pm-rail__hint">暂无标记为推荐的商品；运营可在管理端把商品设为推荐后在此展示。</p>
             </template>
           </nav>
 
           <div class="pm-rail__footer">
-            <button
-              class="pm-rail__tools"
-              :class="{ 'is-open': toolsOpen }"
-              @click="toolsOpen = !toolsOpen"
-            >
+            <button class="pm-rail__tools" :class="{ 'is-open': toolsOpen }" @click="toolsOpen = !toolsOpen">
               <ToolsIcon size="17" />
               <span class="pm-rail__label">平台工具</span>
               <ChevronUpIcon v-if="toolsOpen" size="15" class="pm-rail__arrow" />
@@ -50,12 +44,7 @@
             </button>
             <transition name="pm-tools">
               <div v-if="toolsOpen" class="pm-rail__tools-list">
-                <button
-                  v-for="t in platformTools"
-                  :key="t.label"
-                  class="pm-rail__link"
-                  @click="select(t)"
-                >
+                <button v-for="t in platformTools" :key="t.label" class="pm-rail__link" @click="select(t)">
                   {{ t.label }}
                 </button>
               </div>
@@ -82,12 +71,7 @@
               <div v-if="loading" class="pm-loading"><t-loading size="small" text="加载中…" /></div>
 
               <template v-else-if="productGroups.length">
-                <section
-                  v-for="group in productGroups"
-                  :key="group.title"
-                  class="pm-block"
-                  :data-cat="group.title"
-                >
+                <section v-for="group in productGroups" :key="group.title" class="pm-block" :data-cat="group.title">
                   <h3 class="pm-block__title">{{ group.title }}</h3>
                   <div class="pm-products">
                     <button
@@ -113,19 +97,10 @@
 
             <!-- 我的资源：来自控制台菜单树，与侧边栏同一份数据 -->
             <template v-else-if="activeRail === 'resources'">
-              <section
-                v-for="group in resourceGroups"
-                :key="group.title"
-                class="pm-block"
-              >
+              <section v-for="group in resourceGroups" :key="group.title" class="pm-block">
                 <h3 class="pm-block__title">{{ group.title }}</h3>
                 <div class="pm-recent">
-                  <button
-                    v-for="item in group.items"
-                    :key="item.label"
-                    class="pm-recent__item"
-                    @click="select(item)"
-                  >
+                  <button v-for="item in group.items" :key="item.label" class="pm-recent__item" @click="select(item)">
                     {{ item.label }}
                   </button>
                 </div>
@@ -288,17 +263,13 @@ const resourceGroups = computed(() => {
   if (cloudDir?.children?.length) {
     buckets.push({
       title: cloudDir.name,
-      items: cloudDir.children
-        .filter((c) => !!c.path)
-        .map((c) => ({ label: c.name, path: c.path })),
+      items: cloudDir.children.filter((c) => !!c.path).map((c) => ({ label: c.name, path: c.path })),
     })
   }
 
   // 资源之外，把交易与费用、工单等一级入口也列出来，方便从菜单直接进
   const directPaths = ['/shop', '/order', '/billing', '/points']
-  const directMenus = flattenMenus(menuStore.menus).filter(
-    (m) => m.path && directPaths.includes(m.path),
-  )
+  const directMenus = flattenMenus(menuStore.menus).filter((m) => m.path && directPaths.includes(m.path))
   if (directMenus.length) {
     buckets.push({
       title: '交易与费用',
@@ -458,7 +429,9 @@ onBeforeUnmount(() => {
   font-size: 13.5px;
   text-align: left;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .pm-rail__item:hover {
@@ -526,7 +499,9 @@ onBeforeUnmount(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .pm-rail__link:hover {
@@ -584,7 +559,9 @@ onBeforeUnmount(() => {
   color: #1e293b;
   font-size: 13px;
   outline: none;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .pm-search__input::placeholder {
@@ -644,7 +621,9 @@ onBeforeUnmount(() => {
   background: #ffffff;
   cursor: pointer;
   text-align: left;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .pm-product:hover {
@@ -694,7 +673,10 @@ onBeforeUnmount(() => {
   color: #334155;
   font-size: 13px;
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .pm-recent__item:hover {
@@ -732,7 +714,9 @@ onBeforeUnmount(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .pm-index__item:hover {
@@ -760,7 +744,9 @@ onBeforeUnmount(() => {
   background: transparent;
   color: #94a3b8;
   cursor: pointer;
-  transition: color 0.15s ease, background-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .pm-close:hover {

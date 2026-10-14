@@ -67,10 +67,10 @@ export interface PointTransactionQuery {
 
 // 我的积分概览（余额 / 生效规则 / 最近流水）
 export function getMyPoints() {
-  return request.get<any, { data: PointOverview }>('/uc/points')
+  return request.get<unknown, { data: PointOverview }>('/uc/points')
 }
 
 // 我的积分流水
 export function getMyPointTransactions(params: PointTransactionQuery = {}) {
-  return request.get<any, { data: PointTransactionListResponse }>('/uc/points/transactions', { params })
+  return request.get<unknown, { data: PointTransactionListResponse }>('/uc/points/transactions', { params })
 }

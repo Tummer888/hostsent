@@ -25,7 +25,12 @@
     <FilterCard>
       <div class="field">
         <span class="field__label">关键词</span>
-        <t-input v-model="filters.keyword" placeholder="流水号 / 订单号 / 关联单号 / 用户名" clearable @enter="handleSearch" />
+        <t-input
+          v-model="filters.keyword"
+          placeholder="流水号 / 订单号 / 关联单号 / 用户名"
+          clearable
+          @enter="handleSearch"
+        />
       </div>
       <div class="field">
         <span class="field__label">用户 ID</span>

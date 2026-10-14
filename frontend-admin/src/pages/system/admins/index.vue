@@ -25,7 +25,13 @@
           <t-input v-model="filters.keyword" placeholder="用户名 / 姓名 / 邮箱 / 手机" clearable @enter="loadAdmins" />
         </t-form-item>
         <t-form-item label="角色">
-          <t-select v-model="filters.role" :options="roleCodeOptions" clearable placeholder="全部角色" style="width: 150px" />
+          <t-select
+            v-model="filters.role"
+            :options="roleCodeOptions"
+            clearable
+            placeholder="全部角色"
+            style="width: 150px"
+          />
         </t-form-item>
         <t-form-item label="部门">
           <t-select
@@ -39,13 +45,31 @@
           />
         </t-form-item>
         <t-form-item label="人员类型">
-          <t-select v-model="filters.staff_type" :options="staffTypeOptions" clearable placeholder="全部类型" style="width: 140px" />
+          <t-select
+            v-model="filters.staff_type"
+            :options="staffTypeOptions"
+            clearable
+            placeholder="全部类型"
+            style="width: 140px"
+          />
         </t-form-item>
         <t-form-item label="销售能力">
-          <t-select v-model="filters.sales_enabled" :options="salesEnabledOptions" clearable placeholder="全部" style="width: 110px" />
+          <t-select
+            v-model="filters.sales_enabled"
+            :options="salesEnabledOptions"
+            clearable
+            placeholder="全部"
+            style="width: 110px"
+          />
         </t-form-item>
         <t-form-item label="在职状态">
-          <t-select v-model="filters.is_resigned" :options="resignedOptions" clearable placeholder="全部" style="width: 120px" />
+          <t-select
+            v-model="filters.is_resigned"
+            :options="resignedOptions"
+            clearable
+            placeholder="全部"
+            style="width: 120px"
+          />
         </t-form-item>
       </t-form>
       <div class="filter-form__actions">
@@ -56,14 +80,7 @@
 
     <!-- 表格区域 -->
     <t-card :bordered="false" class="table-card">
-      <t-table
-        row-key="id"
-        :data="admins.items"
-        :columns="columns"
-        :loading="loading"
-        hover
-        size="medium"
-      >
+      <t-table row-key="id" :data="admins.items" :columns="columns" :loading="loading" hover size="medium">
         <template #role="{ row }">
           <t-space size="small" break-line>
             <t-tag v-for="code in roleCodesOf(row)" :key="code" :theme="roleTagTheme(code)" variant="light-outline">
@@ -101,13 +118,15 @@
         <template #operation="{ row }">
           <MobileAction
             v-if="isMobile"
-            :options="buildMobileActionOptions([
-              { content: '编辑', value: 'edit' },
-              { content: '重置密码', value: 'reset-password' },
-              { content: row.status === 'active' ? '禁用' : '启用', value: 'toggle' },
-              { content: '离职', value: 'resign', theme: 'warning' },
-              { content: '删除', value: 'delete', theme: 'error' },
-            ])"
+            :options="
+              buildMobileActionOptions([
+                { content: '编辑', value: 'edit' },
+                { content: '重置密码', value: 'reset-password' },
+                { content: row.status === 'active' ? '禁用' : '启用', value: 'toggle' },
+                { content: '离职', value: 'resign', theme: 'warning' },
+                { content: '删除', value: 'delete', theme: 'error' },
+              ])
+            "
             @select="(value) => handleMobileAction(value, row)"
           />
           <t-space v-else size="small" break-line>
@@ -211,12 +230,7 @@
             </t-radio-group>
           </t-form-item>
         </div>
-        <t-alert
-          v-if="!editing"
-          theme="info"
-          message="新建员工首次登录将被强制修改密码。"
-          style="margin-top: 8px"
-        />
+        <t-alert v-if="!editing" theme="info" message="新建员工首次登录将被强制修改密码。" style="margin-top: 8px" />
       </t-form>
     </t-dialog>
 
@@ -271,10 +285,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
-import { AddIcon, UserListIcon } from 'tdesign-icons-vue-next';
-import { MessagePlugin } from 'tdesign-vue-next';
-import type { FormInstanceFunctions, FormRule, PrimaryTableCol } from 'tdesign-vue-next';
+import { computed, onMounted, reactive, ref } from 'vue'
+import { AddIcon, UserListIcon } from 'tdesign-icons-vue-next'
+import { MessagePlugin } from 'tdesign-vue-next'
+import type { FormInstanceFunctions, FormRule, PrimaryTableCol } from 'tdesign-vue-next'
 import {
   createAdmin,
   deleteAdmin,
@@ -288,12 +302,12 @@ import {
   type AdminInfo,
   type AdminListResponse,
   type DepartmentInfo,
-} from '@/api/admin';
-import { getRoleList, type RoleInfo } from '@/api/user';
-import { staffTypeLabel, staffTypeOptions, staffTypeTheme } from '@/pages/system/constants';
-import MobileAction from '@/components/mobile-action/index.vue';
-import { buildMobileActionOptions } from '@/composables/useMobileActions';
-import { useIsMobile } from '@/composables/useIsMobile';
+} from '@/api/admin'
+import { getRoleList, type RoleInfo } from '@/api/user'
+import { staffTypeLabel, staffTypeOptions, staffTypeTheme } from '@/pages/system/constants'
+import MobileAction from '@/components/mobile-action/index.vue'
+import { buildMobileActionOptions } from '@/composables/useMobileActions'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 /**
  * 员工管理页面（P2-01，S1 改版）
@@ -302,38 +316,38 @@ import { useIsMobile } from '@/composables/useIsMobile';
  * 销售能力开关（sales_enabled）、在职/离职状态与「离职」动作。
  * 角色仍走 admin_roles 多角色（与人员类型正交）。
  */
-defineOptions({ name: 'SystemAdmins' });
+defineOptions({ name: 'SystemAdmins' })
 
-const loading = ref(false);
-const submitting = ref(false);
-const dialogVisible = ref(false);
-const passwordVisible = ref(false);
-const resignVisible = ref(false);
-const editing = ref(false);
-const currentAdminId = ref(0);
-const page = ref(1);
-const pageSize = ref(10);
-const formRef = ref<FormInstanceFunctions | null>(null);
-const newPassword = ref('');
+const loading = ref(false)
+const submitting = ref(false)
+const dialogVisible = ref(false)
+const passwordVisible = ref(false)
+const resignVisible = ref(false)
+const editing = ref(false)
+const currentAdminId = ref(0)
+const page = ref(1)
+const pageSize = ref(10)
+const formRef = ref<FormInstanceFunctions | null>(null)
+const newPassword = ref('')
 
 // 后端角色（scope=admin），用于多选与名称映射
-const roleList = ref<RoleInfo[]>([]);
-const roleOptions = ref<{ label: string; value: number }[]>([]);
-const roleCodeOptions = ref<{ label: string; value: string }[]>([]);
-const roleLabelByCode = ref<Record<string, string>>({});
+const roleList = ref<RoleInfo[]>([])
+const roleOptions = ref<{ label: string; value: number }[]>([])
+const roleCodeOptions = ref<{ label: string; value: string }[]>([])
+const roleLabelByCode = ref<Record<string, string>>({})
 
 // 部门下拉（平铺，用于筛选与表单）
-const departments = ref<DepartmentInfo[]>([]);
-const departmentOptions = computed(() => departments.value);
+const departments = ref<DepartmentInfo[]>([])
+const departmentOptions = computed(() => departments.value)
 
 const salesEnabledOptions = [
   { label: '是', value: '1' },
   { label: '否', value: '0' },
-];
+]
 const resignedOptions = [
   { label: '在职', value: '0' },
   { label: '已离职', value: '1' },
-];
+]
 
 // 筛选与数据
 const filters = reactive({
@@ -344,11 +358,11 @@ const filters = reactive({
   sales_enabled: '',
   is_resigned: '',
   status: '',
-});
+})
 const admins = ref<AdminListResponse>({
   items: [],
   meta: { page: 1, page_size: 10, total: 0 },
-});
+})
 
 // 表单数据
 const form = reactive({
@@ -363,22 +377,17 @@ const form = reactive({
   sales_enabled: false,
   password: '',
   status: 'active',
-});
+})
 
 // 离职表单
 const resignForm = reactive({
   transfer_to_admin_id: undefined as number | undefined,
   reason: '',
-});
+})
 
 // 承接人候选：排除离职人员（下拉数据来自当前页会更准，但跨页不全会漏，
 // 因此单独维护一份在职员工快照，与列表筛选解耦）。
-const transferOptions = ref<{ label: string; value: number }[]>([]);
-
-const statusOptions = [
-  { label: '启用', value: 'active' },
-  { label: '禁用', value: 'disabled' },
-];
+const transferOptions = ref<{ label: string; value: number }[]>([])
 
 // 表单校验规则
 const rules: Record<string, FormRule[]> = {
@@ -393,30 +402,30 @@ const rules: Record<string, FormRule[]> = {
     { required: true, message: '请输入初始密码', type: 'error' },
     { min: 8, message: '密码至少需要 8 位', type: 'error' },
   ],
-};
+}
 
 function roleLabel(code: string): string {
-  return roleLabelByCode.value[code] || code;
+  return roleLabelByCode.value[code] || code
 }
 
 // 兼容：优先展示 roles 数组，回退到单个 role 字符串
 function roleCodesOf(row: AdminInfo): string[] {
-  if (row.roles?.length) return row.roles;
-  return row.role ? [row.role] : [];
+  if (row.roles?.length) return row.roles
+  return row.role ? [row.role] : []
 }
 
 function roleTagTheme(role: string): 'danger' | 'primary' | 'success' | 'warning' | 'default' {
-  if (role === 'super_admin') return 'danger';
-  if (role === 'admin') return 'success';
-  return 'default';
+  if (role === 'super_admin') return 'danger'
+  if (role === 'admin') return 'success'
+  return 'default'
 }
 
 function roleIdOf(code: string): number | undefined {
-  return roleList.value.find((item) => item.code === code)?.id;
+  return roleList.value.find((item) => item.code === code)?.id
 }
 
 // 表格列配置
-const { isMobile } = useIsMobile();
+const { isMobile } = useIsMobile()
 
 const columns = computed<PrimaryTableCol<AdminInfo>[]>(() => [
   { colKey: 'id', title: 'ID', width: 70 },
@@ -432,7 +441,7 @@ const columns = computed<PrimaryTableCol<AdminInfo>[]>(() => [
   { colKey: 'status', title: '状态', width: 90 },
   { colKey: 'last_login_at', title: '最近登录', width: 180 },
   { colKey: 'operation', title: '操作', width: isMobile.value ? 70 : 260, fixed: 'right' },
-]);
+])
 
 /**
  * 加载角色列表（用于多选）。
@@ -443,16 +452,16 @@ const columns = computed<PrimaryTableCol<AdminInfo>[]>(() => [
  */
 async function loadRoles() {
   try {
-    const items = await getRoleList('admin');
-    roleList.value = items;
+    const items = await getRoleList('admin')
+    roleList.value = items
     roleOptions.value = items
       .filter((item) => item.status === 'active')
-      .map((item) => ({ label: item.name, value: item.id }));
+      .map((item) => ({ label: item.name, value: item.id }))
     // 角色筛选按 code 过滤（后端 role 走 admin_roles 联表比对 code）
     roleCodeOptions.value = items
       .filter((item) => item.status === 'active')
-      .map((item) => ({ label: item.name, value: item.code }));
-    roleLabelByCode.value = Object.fromEntries(items.map((item) => [item.code, item.name]));
+      .map((item) => ({ label: item.name, value: item.code }))
+    roleLabelByCode.value = Object.fromEntries(items.map((item) => [item.code, item.name]))
   } catch {
     // 角色列表加载失败不阻断页面主体
   }
@@ -463,8 +472,8 @@ async function loadRoles() {
  */
 async function loadDepartments() {
   try {
-    const data = await getDepartmentList({ flat: 1, status: 'active' });
-    departments.value = data.items;
+    const data = await getDepartmentList({ flat: 1, status: 'active' })
+    departments.value = data.items
   } catch {
     // 部门加载失败不阻断主表
   }
@@ -472,11 +481,11 @@ async function loadDepartments() {
 
 async function loadTransferOptions() {
   try {
-    const data = await getAdminList({ page: 1, page_size: 200, is_resigned: '0' });
+    const data = await getAdminList({ page: 1, page_size: 200, is_resigned: '0' })
     transferOptions.value = data.items.map((item) => ({
       label: item.real_name ? `${item.real_name}（${item.username}）` : item.username,
       value: item.id,
-    }));
+    }))
   } catch {
     // 承接人下拉失败时仍可提交（留空由部门主管承接）
   }
@@ -486,7 +495,7 @@ async function loadTransferOptions() {
  * 加载员工列表
  */
 async function loadAdmins() {
-  loading.value = true;
+  loading.value = true
   try {
     const data = await getAdminList({
       page: page.value,
@@ -498,12 +507,12 @@ async function loadAdmins() {
       staff_type: filters.staff_type || undefined,
       sales_enabled: filters.sales_enabled || undefined,
       is_resigned: filters.is_resigned || undefined,
-    });
-    admins.value = data;
+    })
+    admins.value = data
   } catch (error) {
-    MessagePlugin.error((error as Error).message || '加载员工失败');
+    MessagePlugin.error((error as Error).message || '加载员工失败')
   } finally {
-    loading.value = false;
+    loading.value = false
   }
 }
 
@@ -511,22 +520,22 @@ async function loadAdmins() {
  * 重置筛选
  */
 function resetFilters() {
-  filters.keyword = '';
-  filters.role = '';
-  filters.department_id = undefined;
-  filters.staff_type = '';
-  filters.sales_enabled = '';
-  filters.is_resigned = '';
-  filters.status = '';
-  page.value = 1;
-  loadAdmins();
+  filters.keyword = ''
+  filters.role = ''
+  filters.department_id = undefined
+  filters.staff_type = ''
+  filters.sales_enabled = ''
+  filters.is_resigned = ''
+  filters.status = ''
+  page.value = 1
+  loadAdmins()
 }
 
 /**
  * 打开新增弹窗
  */
 function openCreate() {
-  editing.value = false;
+  editing.value = false
   Object.assign(form, {
     username: '',
     email: '',
@@ -539,16 +548,16 @@ function openCreate() {
     sales_enabled: false,
     password: '',
     status: 'active',
-  });
-  dialogVisible.value = true;
+  })
+  dialogVisible.value = true
 }
 
 /**
  * 打开编辑弹窗
  */
 function openEdit(row: AdminInfo) {
-  currentAdminId.value = row.id;
-  editing.value = true;
+  currentAdminId.value = row.id
+  editing.value = true
   Object.assign(form, {
     username: row.username,
     email: row.email,
@@ -564,18 +573,18 @@ function openEdit(row: AdminInfo) {
     sales_enabled: !!row.sales_enabled,
     password: '',
     status: row.status,
-  });
-  dialogVisible.value = true;
+  })
+  dialogVisible.value = true
 }
 
 /**
  * 提交员工表单
  */
 async function submitAdmin() {
-  const validateResult = await formRef.value?.validate?.();
-  if (validateResult !== true) return;
+  const validateResult = await formRef.value?.validate?.()
+  if (validateResult !== true) return
 
-  submitting.value = true;
+  submitting.value = true
   try {
     const common = {
       email: form.email.trim(),
@@ -589,15 +598,15 @@ async function submitAdmin() {
       // 为兼容存量数据与旧接口，仍回传原值。
       department: '',
       status: form.status,
-    };
+    }
     if (editing.value) {
       await updateAdmin(currentAdminId.value, {
         ...common,
         // role 为兼容字段：取首个角色 code；真实多角色由 setAdminRoles 覆盖式写入
         role: roleCodeOf(form.role_ids[0]) || '',
-      });
+      })
       // 覆盖式设置多角色（写 admin_roles 并清权限缓存）
-      await setAdminRoles(currentAdminId.value, form.role_ids);
+      await setAdminRoles(currentAdminId.value, form.role_ids)
     } else {
       await createAdmin({
         ...common,
@@ -605,35 +614,35 @@ async function submitAdmin() {
         password: form.password,
         role: roleCodeOf(form.role_ids[0]) || '',
         role_ids: form.role_ids,
-      });
+      })
     }
 
-    MessagePlugin.success('员工已保存');
-    dialogVisible.value = false;
-    await loadAdmins();
+    MessagePlugin.success('员工已保存')
+    dialogVisible.value = false
+    await loadAdmins()
   } catch (error) {
-    MessagePlugin.error((error as Error).message || '保存员工失败');
+    MessagePlugin.error((error as Error).message || '保存员工失败')
   } finally {
-    submitting.value = false;
+    submitting.value = false
   }
 }
 
 function roleCodeOf(id?: number): string {
-  if (!id) return '';
-  return roleList.value.find((item) => item.id === id)?.code || '';
+  if (!id) return ''
+  return roleList.value.find((item) => item.id === id)?.code || ''
 }
 
 /**
  * 切换管理员状态
  */
 async function toggleStatus(row: AdminInfo) {
-  const nextStatus = row.status === 'active' ? 'disabled' : 'active';
+  const nextStatus = row.status === 'active' ? 'disabled' : 'active'
   try {
-    await updateAdminStatus(row.id, { status: nextStatus });
-    MessagePlugin.success(nextStatus === 'active' ? '管理员已启用' : '管理员已禁用');
-    await loadAdmins();
+    await updateAdminStatus(row.id, { status: nextStatus })
+    MessagePlugin.success(nextStatus === 'active' ? '管理员已启用' : '管理员已禁用')
+    await loadAdmins()
   } catch (error) {
-    MessagePlugin.error((error as Error).message || '更新状态失败');
+    MessagePlugin.error((error as Error).message || '更新状态失败')
   }
 }
 
@@ -641,9 +650,9 @@ async function toggleStatus(row: AdminInfo) {
  * 打开重置密码弹窗
  */
 function resetPassword(row: AdminInfo) {
-  currentAdminId.value = row.id;
-  newPassword.value = '';
-  passwordVisible.value = true;
+  currentAdminId.value = row.id
+  newPassword.value = ''
+  passwordVisible.value = true
 }
 
 /**
@@ -651,20 +660,20 @@ function resetPassword(row: AdminInfo) {
  */
 async function submitPassword() {
   if (newPassword.value.length < 8) {
-    MessagePlugin.warning('密码至少需要 8 位');
-    return;
+    MessagePlugin.warning('密码至少需要 8 位')
+    return
   }
-  submitting.value = true;
+  submitting.value = true
   try {
     await resetAdminPassword(currentAdminId.value, {
       password: newPassword.value,
-    });
-    MessagePlugin.success('密码已重置');
-    passwordVisible.value = false;
+    })
+    MessagePlugin.success('密码已重置')
+    passwordVisible.value = false
   } catch (error) {
-    MessagePlugin.error((error as Error).message || '重置密码失败');
+    MessagePlugin.error((error as Error).message || '重置密码失败')
   } finally {
-    submitting.value = false;
+    submitting.value = false
   }
 }
 
@@ -672,30 +681,30 @@ async function submitPassword() {
  * 打开离职弹窗
  */
 function openResign(row: AdminInfo) {
-  currentAdminId.value = row.id;
-  resignForm.transfer_to_admin_id = undefined;
-  resignForm.reason = '';
-  resignVisible.value = true;
-  loadTransferOptions();
+  currentAdminId.value = row.id
+  resignForm.transfer_to_admin_id = undefined
+  resignForm.reason = ''
+  resignVisible.value = true
+  loadTransferOptions()
 }
 
 /**
  * 提交离职
  */
 async function submitResign() {
-  submitting.value = true;
+  submitting.value = true
   try {
     await resignAdmin(currentAdminId.value, {
       reason: resignForm.reason.trim(),
       transfer_to_admin_id: resignForm.transfer_to_admin_id || 0,
-    });
-    MessagePlugin.success('员工已办理离职');
-    resignVisible.value = false;
-    await loadAdmins();
+    })
+    MessagePlugin.success('员工已办理离职')
+    resignVisible.value = false
+    await loadAdmins()
   } catch (error) {
-    MessagePlugin.error((error as Error).message || '离职办理失败');
+    MessagePlugin.error((error as Error).message || '离职办理失败')
   } finally {
-    submitting.value = false;
+    submitting.value = false
   }
 }
 
@@ -704,37 +713,40 @@ async function submitResign() {
  */
 async function removeAdmin(row: AdminInfo) {
   try {
-    await deleteAdmin(row.id);
-    MessagePlugin.success('员工已删除');
-    await loadAdmins();
+    await deleteAdmin(row.id)
+    MessagePlugin.success('员工已删除')
+    await loadAdmins()
   } catch (error) {
-    MessagePlugin.error((error as Error).message || '删除员工失败');
+    MessagePlugin.error((error as Error).message || '删除员工失败')
   }
 }
 
 onMounted(() => {
-  loadRoles();
-  loadDepartments();
-  loadAdmins();
-});
-function handleMobileAction(value: string | number | Record<string, any>, row: AdminInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '');
+  loadRoles()
+  loadDepartments()
+  loadAdmins()
+})
+function handleMobileAction(value: string | number | Record<string, unknown>, row: AdminInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'edit':
-      openEdit(row);
-      break;
+      openEdit(row)
+      break
     case 'reset-password':
-      resetPassword(row);
-      break;
+      resetPassword(row)
+      break
     case 'toggle':
-      void toggleStatus(row);
-      break;
+      void toggleStatus(row)
+      break
     case 'resign':
-      openResign(row);
-      break;
+      openResign(row)
+      break
     case 'delete':
-      void removeAdmin(row);
-      break;
+      void removeAdmin(row)
+      break
   }
 }
 </script>

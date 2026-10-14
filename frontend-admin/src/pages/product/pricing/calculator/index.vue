@@ -28,7 +28,12 @@
         </t-form-item>
         <div class="form-grid">
           <t-form-item label="计费模式" name="billing_mode">
-            <t-select v-model="form.billing_mode" :options="billingModeOptions" placeholder="请选择计费模式" @change="applyUnitPrice" />
+            <t-select
+              v-model="form.billing_mode"
+              :options="billingModeOptions"
+              placeholder="请选择计费模式"
+              @change="applyUnitPrice"
+            />
           </t-form-item>
           <t-form-item label="单价（元）" name="unit_price">
             <t-input-number v-model="form.unit_price" :min="0" :precision="2" theme="column" placeholder="请输入单价" />
@@ -64,7 +69,9 @@
           {{ form.product_id ? productName(form.product_id) : '未选择商品' }}
           <span class="result-bar__hint">{{ summaryHint }}</span>
         </div>
-        <div class="result-bar__total">预估总价 <strong>¥{{ formatPrice(totalAmount) }}</strong></div>
+        <div class="result-bar__total">
+          预估总价 <strong>¥{{ formatPrice(totalAmount) }}</strong>
+        </div>
       </div>
 
       <div class="form-footer">
@@ -147,7 +154,12 @@ const detailColumns: PrimaryTableCol[] = [
 const priceDetailRows = computed(() => {
   if (!form.product_id) return []
   return [
-    { key: 'quantity', item: '数量', value: `${form.quantity} 台`, amount: `¥${formatPrice(form.unit_price * form.quantity)}` },
+    {
+      key: 'quantity',
+      item: '数量',
+      value: `${form.quantity} 台`,
+      amount: `¥${formatPrice(form.unit_price * form.quantity)}`,
+    },
     ...(form.billing_mode === 'hourly'
       ? [{ key: 'duration', item: '时长', value: `${form.duration} 小时`, amount: '—' }]
       : form.billing_mode === 'monthly'

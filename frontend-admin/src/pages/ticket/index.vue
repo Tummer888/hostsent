@@ -71,12 +71,7 @@
       </div>
       <div class="field">
         <span class="field__label">复核状态</span>
-        <t-select
-          v-model="filters.review_status"
-          clearable
-          placeholder="全部复核状态"
-          :options="reviewStatusOptions"
-        />
+        <t-select v-model="filters.review_status" clearable placeholder="全部复核状态" :options="reviewStatusOptions" />
       </div>
       <div class="field">
         <span class="field__label">提交时间</span>
@@ -136,13 +131,7 @@
             <t-tag :theme="ticketStatusTheme(row.status)" variant="light" size="small" shape="round">
               {{ ticketStatusLabel(row.status) }}
             </t-tag>
-            <t-tag
-              v-if="row.review_status === 'pending'"
-              theme="warning"
-              variant="light"
-              size="small"
-              shape="round"
-            >
+            <t-tag v-if="row.review_status === 'pending'" theme="warning" variant="light" size="small" shape="round">
               待复核
             </t-tag>
           </div>
@@ -165,17 +154,30 @@
           <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '详情', value: 'detail' },
-                { content: '认领', value: 'claim', hidden: () => !canClaim(row) },
-                { content: '关闭', value: 'close', hidden: () => !(isClosable(row) && has('ticket:close')), theme: 'error' },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  { content: '详情', value: 'detail' },
+                  { content: '认领', value: 'claim', hidden: () => !canClaim(row) },
+                  {
+                    content: '关闭',
+                    value: 'close',
+                    hidden: () => !(isClosable(row) && has('ticket:close')),
+                    theme: 'error',
+                  },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
               <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
               <t-link v-if="canClaim(row)" theme="primary" hover="color" @click="handleClaim(row)">认领</t-link>
-              <t-link v-if="isClosable(row) && has('ticket:close')" theme="danger" hover="color" @click="handleClose(row)">关闭</t-link>
+              <t-link
+                v-if="isClosable(row) && has('ticket:close')"
+                theme="danger"
+                hover="color"
+                @click="handleClose(row)"
+                >关闭</t-link
+              >
             </template>
           </div>
         </template>
@@ -290,7 +292,13 @@ const columns: PrimaryTableCol<TicketInfo>[] = [
   { colKey: 'assigned_name', title: '处理人', width: 110 },
   { colKey: 'sla', title: 'SLA', width: 80, align: 'center' as const },
   { colKey: 'created_at', title: '提交时间', width: 160 },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 150, fixed: 'right' as const, align: 'center' as const },
+  {
+    colKey: 'action',
+    title: '操作',
+    width: isMobile.value ? 70 : 150,
+    fixed: 'right' as const,
+    align: 'center' as const,
+  },
 ]
 
 // 加载工单分类下拉（供筛选使用）
@@ -380,7 +388,6 @@ function handleMobilePageSizeChange(pageSize: number) {
   void applyMobilePage(1, pageSize)
 }
 
-
 function handleSearch() {
   pagination.current = 1
   loadTickets()
@@ -399,8 +406,11 @@ function handleResetFilters() {
   loadTickets()
 }
 
-function handleMobileAction(value: string | number | Record<string, any>, row: TicketInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: TicketInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'detail':
       openDetail(row)
@@ -488,7 +498,10 @@ onMounted(() => {
   padding: 6px 14px;
   border-radius: 999px;
   cursor: pointer;
-  transition: color var(--hs-duration-fast), background-color var(--hs-duration-fast), border-color var(--hs-duration-fast);
+  transition:
+    color var(--hs-duration-fast),
+    background-color var(--hs-duration-fast),
+    border-color var(--hs-duration-fast);
 }
 
 .workbench-tab:hover {

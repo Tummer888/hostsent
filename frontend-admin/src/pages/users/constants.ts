@@ -6,8 +6,18 @@
 // 「已支付」、把 running 显示成「运行中」以外的错误值。
 
 export { formatPrice, formatTime, orderStatusLabel, orderStatusTheme, payMethodLabel } from '@/pages/order/constants'
-export { ticketStatusLabel, ticketStatusTheme, ticketPriorityLabel, ticketPriorityTheme } from '@/pages/ticket/constants'
-export { instanceStatusLabel, instanceStatusTheme, expireStateLabel, expireStateTheme } from '@/pages/instances/constants'
+export {
+  ticketStatusLabel,
+  ticketStatusTheme,
+  ticketPriorityLabel,
+  ticketPriorityTheme,
+} from '@/pages/ticket/constants'
+export {
+  instanceStatusLabel,
+  instanceStatusTheme,
+  expireStateLabel,
+  expireStateTheme,
+} from '@/pages/instances/constants'
 export { txTypeLabel, txTypeTheme, directionLabel, billStatusLabel, billStatusTheme } from '@/pages/finance/constants'
 
 const defaultTheme = 'default'

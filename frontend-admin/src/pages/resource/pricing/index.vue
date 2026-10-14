@@ -8,8 +8,7 @@
         <div class="page-header__text">
           <h2 class="page-header__title">成本与加价</h2>
           <p class="page-header__sub">
-            上游商品的采购成本总览：一屏核对「上游标价 / 代理价（我方采购价）/ 折扣率」，
-            并可按渠道、关键词筛选比对。
+            上游商品的采购成本总览：一屏核对「上游标价 / 代理价（我方采购价）/ 折扣率」， 并可按渠道、关键词筛选比对。
             这里改的是<b>本地镜像价</b>，用于订正同步数据，下次商品同步会被上游实际价覆盖；
             要改对客售价请到商品编辑页（含各周期价格矩阵）或设上游加价规则。
           </p>
@@ -85,9 +84,7 @@
         <template #action="{ row }">
           <MobileAction
             v-if="isMobile"
-            :options="buildMobileActionOptions([
-              { content: '订正同步价', value: 'price', theme: 'default' },
-            ])"
+            :options="buildMobileActionOptions([{ content: '订正同步价', value: 'price', theme: 'default' }])"
             @select="(value) => handleMobileAction(value, row)"
           />
           <t-tooltip v-else content="只修正本地镜像价，下次同步会被上游实际价覆盖；改对客售价请到商品编辑页">
@@ -120,10 +117,22 @@
     >
       <t-form label-align="top" :data="priceForm" @submit.prevent>
         <t-form-item label="上游标价（元）" name="sale_price">
-          <t-input-number v-model="priceForm.sale_price" :min="0" :precision="2" theme="column" placeholder="请输入销售价" />
+          <t-input-number
+            v-model="priceForm.sale_price"
+            :min="0"
+            :precision="2"
+            theme="column"
+            placeholder="请输入销售价"
+          />
         </t-form-item>
         <t-form-item label="代理价（采购价，元）" name="cost_price">
-          <t-input-number v-model="priceForm.cost_price" :min="0" :precision="2" theme="column" placeholder="请输入成本价" />
+          <t-input-number
+            v-model="priceForm.cost_price"
+            :min="0"
+            :precision="2"
+            theme="column"
+            placeholder="请输入成本价"
+          />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -172,9 +181,6 @@ const mobilePage = reactive({
   total: 0,
 })
 
-
-
-
 function formatPrice(value: number): string {
   return Number(value || 0).toFixed(2)
 }
@@ -196,7 +202,13 @@ const columns: PrimaryTableCol<ProductInfo>[] = [
   { colKey: 'sale_price', title: '上游标价', width: 110 },
   { colKey: 'cost_price', title: '代理价（采购）', width: 130 },
   { colKey: 'margin', title: '折扣率', width: 90 },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 110, fixed: 'right' as const, align: 'center' as const },
+  {
+    colKey: 'action',
+    title: '操作',
+    width: isMobile.value ? 70 : 110,
+    fixed: 'right' as const,
+    align: 'center' as const,
+  },
 ]
 
 /**
@@ -306,8 +318,11 @@ onMounted(() => {
 })
 
 // 移动端操作下拉分发
-function handleMobileAction(value: string | number | Record<string, any>, row: ProductInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: ProductInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'price':
       openPriceDialog(row)
@@ -321,7 +336,6 @@ function handleMobileAction(value: string | number | Record<string, any>, row: P
 </style>
 
 <style scoped lang="css">
-
 /* 桌面列数由 FilterCard 的 columns 属性给出2 列，见组件内 .filter-card--cols-*。 */
 
 .price-sale {

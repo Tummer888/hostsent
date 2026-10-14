@@ -7,7 +7,6 @@ import type {
   SaleProductBatchCloneRequest,
   SaleProductBatchCloneResponse,
   SaleProductCategoryUpdateRequest,
-  SaleProductCloneRequest,
   SaleProductCreateRequest,
   SaleProductHistoryInfo,
   SaleProductInfo,
@@ -22,7 +21,6 @@ import type {
   SpecBindingConfirmRequest,
   SpecBindingInfo,
   SpecBindingUpsertRequest,
-  ExternalSpecInfo,
   SpecMappingBindRequest,
   SpecMappingInfo,
   SpecMappingListResponse,
@@ -41,10 +39,6 @@ import type {
   OptionValueImportRequest,
   OptionValueImportResult,
   OptionValueRefreshRequest,
-  PricingInfo,
-  PricingListResponse,
-  PricingQuery,
-  PricingRequest,
   ProductPriceMatrix,
   ProductPriceMatrixQuery,
   ProductPriceMatrixSaveRequest,
@@ -81,7 +75,10 @@ export function createProductCategory(data: SaleProductCategoryCreateRequest): P
   })
 }
 
-export function updateProductCategory(id: number, data: SaleProductCategoryUpdateRequest): Promise<SaleProductCategoryInfo> {
+export function updateProductCategory(
+  id: number,
+  data: SaleProductCategoryUpdateRequest,
+): Promise<SaleProductCategoryInfo> {
   return request.put<SaleProductCategoryInfo>({
     url: `/product/categories/${id}`,
     data,
@@ -111,7 +108,9 @@ export function getProductList(params: SaleProductListQuery): Promise<SaleProduc
   })
 }
 
-export function batchCloneProductFromUpstream(data: SaleProductBatchCloneRequest): Promise<SaleProductBatchCloneResponse> {
+export function batchCloneProductFromUpstream(
+  data: SaleProductBatchCloneRequest,
+): Promise<SaleProductBatchCloneResponse> {
   return request.post<SaleProductBatchCloneResponse>({
     url: '/product/products/clone/batch',
     data,
@@ -223,7 +222,11 @@ export function createProductSpec(id: number, data: SaleProductSpecRequest): Pro
   })
 }
 
-export function updateProductSpec(id: number, specId: number, data: SaleProductSpecRequest): Promise<SaleProductSpecInfo> {
+export function updateProductSpec(
+  id: number,
+  specId: number,
+  data: SaleProductSpecRequest,
+): Promise<SaleProductSpecInfo> {
   return request.put<SaleProductSpecInfo>({
     url: `/product/products/${id}/specs/${specId}`,
     data,

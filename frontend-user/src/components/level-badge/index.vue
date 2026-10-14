@@ -1,5 +1,10 @@
 <template>
-  <span v-if="name" class="level-badge" :class="[`level-badge--${size}`, { 'level-badge--plain': plain }]" :style="badgeStyle">
+  <span
+    v-if="name"
+    class="level-badge"
+    :class="[`level-badge--${size}`, { 'level-badge--plain': plain }]"
+    :style="badgeStyle"
+  >
     <component :is="icon" size="14" class="level-badge__icon" />
     <span class="level-badge__text">{{ name }}</span>
   </span>

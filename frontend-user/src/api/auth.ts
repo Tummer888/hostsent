@@ -48,22 +48,20 @@ export interface LoginResponse {
 }
 
 export function login(data: LoginParams) {
-  return request.post<any, { data: LoginResponse }>('/auth/login', data, {
-    _skipResultUnwrap: false,
-  } as any)
+  return request.post<unknown, { data: LoginResponse }>('/auth/login', data)
 }
 
 /** 登录二次验证：凭 otp_token + 验证码换正式令牌（doc91 §4.6）。 */
 export function verifyLoginOTP(data: { otp_token: string; code: string }) {
-  return request.post<any, { data: LoginResponse }>('/auth/login/verify-otp', data)
+  return request.post<unknown, { data: LoginResponse }>('/auth/login/verify-otp', data)
 }
 
 export function register(data: RegisterParams) {
-  return request.post<any, { data: { id: number } }>('/auth/register', data)
+  return request.post<unknown, { data: { id: number } }>('/auth/register', data)
 }
 
 export function getUserInfo() {
-  return request.get<any, { data: any }>('/auth/userinfo')
+  return request.get<unknown, { data: Record<string, unknown> }>('/auth/userinfo')
 }
 
 export interface UpdateProfileParams {
@@ -74,7 +72,7 @@ export interface UpdateProfileParams {
 }
 
 export function updateProfile(data: UpdateProfileParams) {
-  return request.put<any, { data: any }>('/auth/profile', data)
+  return request.put<unknown, { data: Record<string, unknown> }>('/auth/profile', data)
 }
 
 export interface ChangePasswordParams {
@@ -83,11 +81,11 @@ export interface ChangePasswordParams {
 }
 
 export function changePassword(data: ChangePasswordParams) {
-  return request.put<any, void>('/auth/password', data)
+  return request.put<unknown, void>('/auth/password', data)
 }
 
 export function logout() {
-  return request.post<any, void>('/auth/logout')
+  return request.post<unknown, void>('/auth/logout')
 }
 
 // ---------- 忘记密码（doc91 §5.5）：两步 —— 申请下发 OTP → 校验并重置 ----------
@@ -100,7 +98,7 @@ export interface ForgotPasswordParams {
 
 /** 申请重置：向账号绑定目标下发 OTP；无论账号是否存在都返回 sent=true（防枚举）。 */
 export function forgotPassword(data: ForgotPasswordParams) {
-  return request.post<any, { data: { sent: boolean } }>('/auth/forgot-password', data)
+  return request.post<unknown, { data: { sent: boolean } }>('/auth/forgot-password', data)
 }
 
 export interface ResetPasswordParams {
@@ -111,5 +109,5 @@ export interface ResetPasswordParams {
 
 /** 校验 OTP 并写入新密码（成功会撤销历史会话）。 */
 export function resetPassword(data: ResetPasswordParams) {
-  return request.post<any, void>('/auth/reset-password', data)
+  return request.post<unknown, void>('/auth/reset-password', data)
 }

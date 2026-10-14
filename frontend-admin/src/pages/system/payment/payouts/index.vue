@@ -7,7 +7,9 @@
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">打款管理</h2>
-          <p class="page-header__desc">提现审批通过后生成打款单：接口模式自动出款，人工模式由财务登记转账凭证后置为已打款。</p>
+          <p class="page-header__desc">
+            提现审批通过后生成打款单：接口模式自动出款，人工模式由财务登记转账凭证后置为已打款。
+          </p>
         </div>
       </div>
       <t-space size="small">
@@ -106,15 +108,26 @@
           <div class="action-cell">
             <MobileAction
               v-if="isMobile"
-              :options="buildMobileActionOptions([
-                { content: '登记打款', value: 'mark-paid', hidden: () => !isPayable(row) || !canOperate, theme: 'success' },
-                { content: '重试打款', value: 'retry', hidden: () => !isRetryable(row) || !canOperate },
-              ])"
+              :options="
+                buildMobileActionOptions([
+                  {
+                    content: '登记打款',
+                    value: 'mark-paid',
+                    hidden: () => !isPayable(row) || !canOperate,
+                    theme: 'success',
+                  },
+                  { content: '重试打款', value: 'retry', hidden: () => !isRetryable(row) || !canOperate },
+                ])
+              "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
-              <t-link v-if="isPayable(row) && canOperate" theme="success" hover="color" @click="openMarkPaid(row)">登记打款</t-link>
-              <t-link v-if="isRetryable(row) && canOperate" theme="primary" hover="color" @click="handleRetry(row)">重试打款</t-link>
+              <t-link v-if="isPayable(row) && canOperate" theme="success" hover="color" @click="openMarkPaid(row)"
+                >登记打款</t-link
+              >
+              <t-link v-if="isRetryable(row) && canOperate" theme="primary" hover="color" @click="handleRetry(row)"
+                >重试打款</t-link
+              >
               <span v-if="!isPayable(row) && !isRetryable(row)" class="price-sub">—</span>
             </template>
           </div>
@@ -225,7 +238,13 @@ const columns: PrimaryTableCol<PayoutInfo>[] = [
   { colKey: 'attempts', title: '尝试', width: 70, align: 'center' as const },
   { colKey: 'fail_reason', title: '失败原因', minWidth: 160 },
   { colKey: 'created_at', title: '创建时间', width: 170 },
-  { colKey: 'action', title: '操作', width: isMobile.value ? 70 : 160, fixed: 'right' as const, align: 'center' as const },
+  {
+    colKey: 'action',
+    title: '操作',
+    width: isMobile.value ? 70 : 160,
+    fixed: 'right' as const,
+    align: 'center' as const,
+  },
 ]
 
 function isPayable(row: PayoutInfo): boolean {
@@ -340,8 +359,11 @@ async function handleRetry(row: PayoutInfo) {
   }
 }
 
-function handleMobileAction(value: string | number | Record<string, any>, row: PayoutInfo) {
-  const action = typeof value === 'string' || typeof value === 'number' ? String(value) : String((value as { value?: string })?.value ?? '')
+function handleMobileAction(value: string | number | Record<string, unknown>, row: PayoutInfo) {
+  const action =
+    typeof value === 'string' || typeof value === 'number'
+      ? String(value)
+      : String((value as { value?: string })?.value ?? '')
   switch (action) {
     case 'mark-paid':
       openMarkPaid(row)

@@ -260,17 +260,15 @@ function normalizeProduct(p: ProductInfo): ProductInfo {
   }
 }
 
-export function getProducts(
-  params: { keyword?: string; featured?: boolean; page?: number; page_size?: number } = {},
-) {
+export function getProducts(params: { keyword?: string; featured?: boolean; page?: number; page_size?: number } = {}) {
   return request
-    .get<any, { data: ProductListResponse }>('/uc/products', { params })
+    .get<unknown, { data: ProductListResponse }>('/uc/products', { params })
     .then((res) => ({ ...res, data: { ...res.data, items: (res.data?.items ?? []).map(normalizeProduct) } }))
 }
 
 export function getProductDetail(id: number) {
   return request
-    .get<any, { data: ProductInfo }>(`/uc/products/${id}`)
+    .get<unknown, { data: ProductInfo }>(`/uc/products/${id}`)
     .then((res) => ({ ...res, data: normalizeProduct(res.data) }))
 }
 
@@ -282,7 +280,7 @@ export function createOrder({
   configSelections,
   payMode,
 }: CreateOrderParams) {
-  return request.post<any, { data: OrderInfo }>('/uc/orders', {
+  return request.post<unknown, { data: OrderInfo }>('/uc/orders', {
     product_id: productId,
     spec_code: specCode,
     cycle,
@@ -296,12 +294,12 @@ export function createOrder({
 
 /** 待支付订单发起收银台支付：金额由后端取算价快照，前端只选渠道与场景。 */
 export function payOrder(orderId: number, data: { channel_code?: string; scene?: string } = {}) {
-  return request.post<any, { data: OrderPayInfo }>(`/uc/orders/${orderId}/pay`, data)
+  return request.post<unknown, { data: OrderPayInfo }>(`/uc/orders/${orderId}/pay`, data)
 }
 
 /** 取消待支付订单：后端同时关闭未支付支付单并回补库存。 */
 export function cancelOrder(orderId: number) {
-  return request.post<any, { data: OrderInfo }>(`/uc/orders/${orderId}/cancel`)
+  return request.post<unknown, { data: OrderInfo }>(`/uc/orders/${orderId}/cancel`)
 }
 
 /** 预结算：算价明细，不落库、不扣款（P5-05）。 */
@@ -312,7 +310,7 @@ export function quoteOrder({
   quantity = 1,
   configSelections,
 }: CreateOrderParams) {
-  return request.post<any, { data: QuoteInfo }>('/uc/orders/quote', {
+  return request.post<unknown, { data: QuoteInfo }>('/uc/orders/quote', {
     product_id: productId,
     spec_code: specCode,
     cycle,
@@ -322,10 +320,10 @@ export function quoteOrder({
 }
 
 export function getMyOrders(params: { status?: string; page?: number; page_size?: number } = {}) {
-  return request.get<any, { data: OrderListResponse }>('/uc/orders', { params })
+  return request.get<unknown, { data: OrderListResponse }>('/uc/orders', { params })
 }
 
 /** 订单详情：他人订单后端按「不存在」处理，前端不需要区分。 */
 export function getOrderDetail(id: number) {
-  return request.get<any, { data: OrderInfo }>(`/uc/orders/${id}`)
+  return request.get<unknown, { data: OrderInfo }>(`/uc/orders/${id}`)
 }

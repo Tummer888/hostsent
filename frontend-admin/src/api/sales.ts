@@ -115,24 +115,15 @@ export function applySalesWithdrawal(data: SalesWithdrawApplyRequest): Promise<S
   return request.post<SalesWithdrawalInfo>({ url: '/sales/withdrawals', data })
 }
 
-export function approveSalesWithdrawal(
-  id: number,
-  data: SalesWithdrawAuditRequest,
-): Promise<SalesWithdrawalInfo> {
+export function approveSalesWithdrawal(id: number, data: SalesWithdrawAuditRequest): Promise<SalesWithdrawalInfo> {
   return request.post<SalesWithdrawalInfo>({ url: `/sales/withdrawals/${id}/approve`, data })
 }
 
-export function rejectSalesWithdrawal(
-  id: number,
-  data: SalesWithdrawAuditRequest,
-): Promise<SalesWithdrawalInfo> {
+export function rejectSalesWithdrawal(id: number, data: SalesWithdrawAuditRequest): Promise<SalesWithdrawalInfo> {
   return request.post<SalesWithdrawalInfo>({ url: `/sales/withdrawals/${id}/reject`, data })
 }
 
-export function paySalesWithdrawal(
-  id: number,
-  data: SalesWithdrawPayRequest,
-): Promise<{ ok: boolean }> {
+export function paySalesWithdrawal(id: number, data: SalesWithdrawPayRequest): Promise<{ ok: boolean }> {
   return request.post<{ ok: boolean }>({ url: `/sales/withdrawals/${id}/pay`, data })
 }
 

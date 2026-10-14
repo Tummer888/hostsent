@@ -13,5 +13,5 @@ export interface SiteContentResponse {
 }
 
 export function getSiteContent() {
-  return request.get<any, { data: SiteContentResponse }>('/public/site-content')
+  return request.get<unknown, { data: SiteContentResponse }>('/public/site-content')
 }

@@ -57,7 +57,8 @@
                   variant="light"
                   size="small"
                   shape="round"
-                >{{ categoryStatusLabel(node.data.status) }}</t-tag>
+                  >{{ categoryStatusLabel(node.data.status) }}</t-tag
+                >
                 <span class="category-node__meta">/{{ node.data.slug }} · 排序 {{ node.data.sort_order }}</span>
                 <t-space size="small" class="category-node__actions">
                   <t-link theme="primary" hover="color" @click.stop="openCreate(node.data)">添加子分类</t-link>
@@ -68,7 +69,10 @@
             </template>
           </t-tree>
         </div>
-        <t-empty v-if="!loading && !treeData.length" :description="`暂无${activeKind === 'news' ? '新闻分栏' : '帮助目录'}`" />
+        <t-empty
+          v-if="!loading && !treeData.length"
+          :description="`暂无${activeKind === 'news' ? '新闻分栏' : '帮助目录'}`"
+        />
       </t-loading>
     </section>
 

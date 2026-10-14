@@ -44,9 +44,7 @@
           placeholder="必填且不少于 5 个字，将记入归属变更记录"
         />
       </t-form-item>
-      <p class="form-hint">
-        归属变更只影响<strong>之后</strong>产生的订单；已成交订单的归属快照不变。
-      </p>
+      <p class="form-hint">归属变更只影响<strong>之后</strong>产生的订单；已成交订单的归属快照不变。</p>
     </t-form>
   </t-dialog>
 </template>
@@ -56,12 +54,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import type { FormInstanceFunctions, FormRule } from 'tdesign-vue-next'
 
-import {
-  assignCustomer,
-  getCustomerRelations,
-  getSalesCandidates,
-  releaseCustomer,
-} from '@/api/sales'
+import { assignCustomer, getCustomerRelations, getSalesCandidates, releaseCustomer } from '@/api/sales'
 import { formatDateTime } from '@/pages/users/constants'
 import type { SalesRelationInfo } from '@/types/interface'
 
@@ -97,16 +90,19 @@ const currentOwnerText = computed(() =>
   props.salesAdminId ? props.salesAdminName || `ID ${props.salesAdminId}` : '未归属',
 )
 
-watch(() => props.modelValue, (value) => {
-  visible.value = value
-  if (value) {
-    form.admin_id = props.salesAdminId > 0 ? props.salesAdminId : undefined
-    form.reason = ''
-    relations.value = []
-    void loadCandidates()
-    void loadRelations()
-  }
-})
+watch(
+  () => props.modelValue,
+  (value) => {
+    visible.value = value
+    if (value) {
+      form.admin_id = props.salesAdminId > 0 ? props.salesAdminId : undefined
+      form.reason = ''
+      relations.value = []
+      void loadCandidates()
+      void loadRelations()
+    }
+  },
+)
 watch(visible, (value) => emit('update:modelValue', value))
 
 async function loadCandidates() {

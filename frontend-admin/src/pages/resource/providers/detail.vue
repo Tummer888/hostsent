@@ -17,7 +17,9 @@
         <t-button variant="outline" @click="router.push(listPath)">返回列表</t-button>
         <t-button v-if="detail?.ops_console_url" variant="outline" @click="openOpsConsole">运维平台</t-button>
         <t-button variant="outline" :loading="testing" @click="handleTestConnection">测试连接</t-button>
-        <t-button v-if="detail?.sync_paused" theme="warning" :loading="resuming" @click="handleResumeSync">恢复同步</t-button>
+        <t-button v-if="detail?.sync_paused" theme="warning" :loading="resuming" @click="handleResumeSync"
+          >恢复同步</t-button
+        >
         <t-button theme="primary" :loading="saving" @click="toggleEdit">{{ editing ? '保存' : '编辑资料' }}</t-button>
       </t-space>
     </header>
@@ -69,13 +71,22 @@
                 </t-form-item>
                 <t-form-item label="状态">
                   <span class="readonly-text">
-                    <t-tag :theme="detail.status === 1 ? 'success' : 'default'" variant="light" size="small" shape="round">
+                    <t-tag
+                      :theme="detail.status === 1 ? 'success' : 'default'"
+                      variant="light"
+                      size="small"
+                      shape="round"
+                    >
                       {{ statusLabelMap[detail.status] || '未知' }}
                     </t-tag>
                   </span>
                 </t-form-item>
                 <t-form-item label="运维平台">
-                  <t-input v-if="editing" v-model="formData.ops_console_url" placeholder="上游/平台运维控制台地址，留空则不显示跳转入口" />
+                  <t-input
+                    v-if="editing"
+                    v-model="formData.ops_console_url"
+                    placeholder="上游/平台运维控制台地址，留空则不显示跳转入口"
+                  />
                   <span v-else class="readonly-text">
                     <t-link v-if="detail.ops_console_url" theme="primary" hover="color" @click="openOpsConsole">
                       {{ detail.ops_console_url }}
@@ -88,11 +99,19 @@
                     <t-tag v-if="detail.sync_paused" theme="warning" variant="light" size="small" shape="round">
                       {{ detail.last_sync_error === '适配器未实现' ? '未接入' : '已暂停' }}
                     </t-tag>
-                    <t-tag v-else-if="detail.consecutive_failures > 0" theme="danger" variant="light" size="small" shape="round">
+                    <t-tag
+                      v-else-if="detail.consecutive_failures > 0"
+                      theme="danger"
+                      variant="light"
+                      size="small"
+                      shape="round"
+                    >
                       失败 {{ detail.consecutive_failures }} 次
                     </t-tag>
                     <t-tag v-else theme="success" variant="light" size="small" shape="round">正常</t-tag>
-                    <span v-if="detail.last_sync_error" class="readonly-text sync-error">{{ detail.last_sync_error }}</span>
+                    <span v-if="detail.last_sync_error" class="readonly-text sync-error">{{
+                      detail.last_sync_error
+                    }}</span>
                   </span>
                 </t-form-item>
                 <t-form-item label="创建时间">
@@ -146,16 +165,14 @@
               </t-form-item>
             </div>
 
-            <t-descriptions
-              v-if="!editing && isCompute"
-              :column="3"
-              bordered
-              size="small"
-              class="resource-summary"
-            >
+            <t-descriptions v-if="!editing && isCompute" :column="3" bordered size="small" class="resource-summary">
               <t-descriptions-item label="CPU 配额">{{ detail.used_cpu }} / {{ detail.total_cpu }}</t-descriptions-item>
-              <t-descriptions-item label="内存配额">{{ detail.used_memory }} / {{ detail.total_memory }}</t-descriptions-item>
-              <t-descriptions-item label="磁盘配额">{{ detail.used_disk }} / {{ detail.total_disk }}</t-descriptions-item>
+              <t-descriptions-item label="内存配额"
+                >{{ detail.used_memory }} / {{ detail.total_memory }}</t-descriptions-item
+              >
+              <t-descriptions-item label="磁盘配额"
+                >{{ detail.used_disk }} / {{ detail.total_disk }}</t-descriptions-item
+              >
             </t-descriptions>
           </template>
           <t-empty v-else-if="!loading" description="未获取到提供商信息" />
@@ -164,9 +181,11 @@
         <t-alert
           v-if="editing"
           theme="info"
-          :message="credentialFields.length
-            ? '编辑时凭证字段留空或保持脱敏回显表示不修改；修改后将重新加密落库。'
-            : '编辑时 API 密钥/密码留空表示保持原值不变。'"
+          :message="
+            credentialFields.length
+              ? '编辑时凭证字段留空或保持脱敏回显表示不修改；修改后将重新加密落库。'
+              : '编辑时 API 密钥/密码留空表示保持原值不变。'
+          "
           class="edit-alert"
         />
       </template>
@@ -257,9 +276,22 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { CloudIcon, RefreshIcon } from 'tdesign-icons-vue-next'
-import { MessagePlugin, type FormInstanceFunctions, type FormRule, type PageInfo, type PrimaryTableCol } from 'tdesign-vue-next'
+import {
+  MessagePlugin,
+  type FormInstanceFunctions,
+  type FormRule,
+  type PageInfo,
+  type PrimaryTableCol,
+} from 'tdesign-vue-next'
 
-import { getProviderDetail, getProviderTypes, getSyncLogList, resumeProviderSync, testConnection, updateProvider } from '@/api/admin'
+import {
+  getProviderDetail,
+  getProviderTypes,
+  getSyncLogList,
+  resumeProviderSync,
+  testConnection,
+  updateProvider,
+} from '@/api/admin'
 import type { ProviderField, ProviderInfo, ProviderTypeItem, SyncLogInfo } from '@/types/interface'
 import PoolPanel from '@/pages/resource/pools/index.vue'
 import CapabilityMatrix from './components/CapabilityMatrix.vue'

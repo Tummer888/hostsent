@@ -74,31 +74,32 @@ export interface UnreadCountResponse {
 
 // 查询未读通知数量
 export const getUnreadCount = () =>
-  request.get<any, { data: UnreadCountResponse }>('/uc/notifications/unread-count')
+  request.get<unknown, { data: UnreadCountResponse }>('/uc/notifications/unread-count')
 
 // 查询我的通知列表
-export const getMyNotifications = (params: {
-  page?: number
-  page_size?: number
-  event?: string
-  is_read?: boolean
-} = {}) => request.get<any, { data: NotificationListResponse }>('/uc/notifications', { params })
+export const getMyNotifications = (
+  params: {
+    page?: number
+    page_size?: number
+    event?: string
+    is_read?: boolean
+  } = {},
+) => request.get<unknown, { data: NotificationListResponse }>('/uc/notifications', { params })
 
 // 查询通知详情
 export const getNotificationDetail = (id: number) =>
-  request.get<any, { data: NotificationInfo }>(`/uc/notifications/${id}`)
+  request.get<unknown, { data: NotificationInfo }>(`/uc/notifications/${id}`)
 
 // 全部标记为已读
-export const readAll = () => request.post<any, void>('/uc/notifications/read-all')
+export const readAll = () => request.post<unknown, void>('/uc/notifications/read-all')
 
 // 查询我的公告列表
-export const getMyAnnouncements = () =>
-  request.get<any, { data: AnnouncementListResponse }>('/uc/announcements')
+export const getMyAnnouncements = () => request.get<unknown, { data: AnnouncementListResponse }>('/uc/announcements')
 
 // 查询我的通知偏好
 export const getMyPreferences = () =>
-  request.get<any, { data: NotificationPreferenceListResponse }>('/uc/notification-preferences')
+  request.get<unknown, { data: NotificationPreferenceListResponse }>('/uc/notification-preferences')
 
 // 批量更新通知偏好
 export const updateMyPreferences = (data: { list: NotificationPreference[] }) =>
-  request.put<any, void>('/uc/notification-preferences', data)
+  request.put<unknown, void>('/uc/notification-preferences', data)

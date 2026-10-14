@@ -96,13 +96,15 @@ const loading = ref(false)
 const pagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
 const mobilePage = reactive({ current: 1, pageSize: 10, total: 0 })
 
+// 列宽合计贴近容器宽度（约 1140px），避免 fixed 布局把富余宽度摊给短列。
+// 认证类型/姓名/证件号/状态为核对主线，时间与审核信息在后。
 const columns: PrimaryTableCol<VerificationInfo>[] = [
-  { colKey: 'verification_type', title: '认证类型', width: 110 },
-  { colKey: 'real_name', title: '姓名 / 主体', minWidth: 180 },
-  { colKey: 'id_number_masked', title: '证件号', width: 180 },
-  { colKey: 'status', title: '状态', width: 100 },
-  { colKey: 'submitted_at', title: '提交 / 审核时间', width: 170 },
-  { colKey: 'review', title: '审核信息', minWidth: 160 },
+  { colKey: 'verification_type', title: '认证类型', width: 140 },
+  { colKey: 'real_name', title: '姓名 / 主体', width: 230 },
+  { colKey: 'id_number_masked', title: '证件号', width: 230 },
+  { colKey: 'status', title: '状态', width: 120 },
+  { colKey: 'submitted_at', title: '提交 / 审核时间', width: 200 },
+  { colKey: 'review', title: '审核信息', width: 220 },
 ]
 
 /**
@@ -154,11 +156,15 @@ function onMobileSize(size: number) {
   void load()
 }
 
-watch(() => props.userId, () => {
-  pagination.current = 1
-  mobilePage.current = 1
-  void load()
-}, { immediate: true })
+watch(
+  () => props.userId,
+  () => {
+    pagination.current = 1
+    mobilePage.current = 1
+    void load()
+  },
+  { immediate: true },
+)
 
 defineExpose({ reload: load })
 </script>

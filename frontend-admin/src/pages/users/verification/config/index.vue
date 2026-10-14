@@ -123,7 +123,9 @@
               <t-tag :theme="healthTheme(row.health_status)" variant="light" size="small" shape="round">
                 {{ healthLabel(row.health_status) }}
               </t-tag>
-              <span v-if="row.last_error" class="price-sub error-text" :title="row.last_error">{{ row.last_error }}</span>
+              <span v-if="row.last_error" class="price-sub error-text" :title="row.last_error">{{
+                row.last_error
+              }}</span>
             </div>
           </template>
           <template #status="{ row }">
@@ -137,8 +139,12 @@
           <template #action="{ row }">
             <t-space size="small">
               <t-link v-if="canConfig" theme="primary" hover="color" @click="openEditProvider(row)">编辑</t-link>
-              <t-link theme="primary" hover="color" :disabled="testingId === row.id" @click="handleTestProvider(row)">测试</t-link>
-              <t-link v-if="canConfig && !row.builtin" theme="danger" hover="color" @click="handleDeleteProvider(row)">删除</t-link>
+              <t-link theme="primary" hover="color" :disabled="testingId === row.id" @click="handleTestProvider(row)"
+                >测试</t-link
+              >
+              <t-link v-if="canConfig && !row.builtin" theme="danger" hover="color" @click="handleDeleteProvider(row)"
+                >删除</t-link
+              >
             </t-space>
           </template>
         </t-table>
@@ -155,7 +161,11 @@
     >
       <t-form ref="configFormRef" label-align="top" :data="configForm" :rules="configRules" @submit.prevent>
         <t-form-item label="配置键" name="config_key">
-          <t-input v-model="configForm.config_key" :disabled="!!editingConfigKey" placeholder="如 verification.resubmit_cooldown_hours" />
+          <t-input
+            v-model="configForm.config_key"
+            :disabled="!!editingConfigKey"
+            placeholder="如 verification.resubmit_cooldown_hours"
+          />
         </t-form-item>
         <t-form-item label="值类型" name="value_type">
           <t-select v-model="configForm.value_type" :options="valueTypeOptions" />
@@ -167,7 +177,11 @@
           <t-select v-model="configForm.status" :options="configStatusOptions" />
         </t-form-item>
         <t-form-item label="说明" name="description">
-          <t-textarea v-model="configForm.description" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="选填，展示在列表与配置页" />
+          <t-textarea
+            v-model="configForm.description"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+            placeholder="选填，展示在列表与配置页"
+          />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -241,7 +255,13 @@
 // 现在拆成两个页签：策略（verification_configs）+ 服务商（realname_providers）。
 import { computed, onMounted, reactive, ref } from 'vue'
 import { AddIcon, RefreshIcon, SettingIcon } from 'tdesign-icons-vue-next'
-import { DialogPlugin, MessagePlugin, type FormInstanceFunctions, type FormRule, type PrimaryTableCol } from 'tdesign-vue-next'
+import {
+  DialogPlugin,
+  MessagePlugin,
+  type FormInstanceFunctions,
+  type FormRule,
+  type PrimaryTableCol,
+} from 'tdesign-vue-next'
 
 import {
   deleteVerificationConfig,

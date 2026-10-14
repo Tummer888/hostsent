@@ -38,7 +38,9 @@
     <section class="table-card surface-card">
       <div class="table-card__head">
         <h3 class="card-title">变更记录</h3>
-        <span class="table-card__meta">{{ currentProduct ? `${currentProduct} 共 ${list.length} 条` : '未选择商品' }}</span>
+        <span class="table-card__meta">{{
+          currentProduct ? `${currentProduct} 共 ${list.length} 条` : '未选择商品'
+        }}</span>
       </div>
       <t-table
         row-key="id"
