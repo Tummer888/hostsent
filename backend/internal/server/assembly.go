@@ -245,6 +245,9 @@ type asm struct {
 	oauthBundle              *oauthBundle
 	openBundle               *openhandler.Bundle
 	orderHandler             *orderhandler.OrderHandler
+	refundPolicyHandler      *orderhandler.RefundPolicyHandler
+	refundPolicyService      orderservice.RefundPolicyService
+	refundAttachmentService  orderservice.RefundAttachmentService
 	orderService             orderservice.OrderService
 	paymentBundle            *paymentBundle
 	pendingExpireScheduler   *ucorderservice.PendingExpireScheduler
@@ -501,6 +504,36 @@ func (a *asm) buildBridges() {
 		a.orderRepo, a.instanceOpsService, a.orderService,
 		a.logger, orderservice.ProvisioningPromoterOptions{},
 	)
+	// 订单 → 实例跳转（订单列表「实例」列）：批量按 order_id 回查实例，
+	// 经装配层端口注入，订单模块不 import 实例域（CONTRIBUTING §3）。
+	a.orderService.SetInstanceRefReader(func(ctx context.Context, orderIDs []uint64) (map[uint64]orderservice.OrderInstanceRef, error) {
+		rows, err := a.instanceOpsRepo.FindByOrderIDs(ctx, orderIDs)
+		if err != nil {
+			return nil, err
+		}
+		out := make(map[uint64]orderservice.OrderInstanceRef, len(rows))
+		for orderID, row := range rows {
+			no := row.ProviderInstanceID
+			if no == "" {
+				no = row.InstanceID
+			}
+			out[orderID] = orderservice.OrderInstanceRef{
+				ID:      row.ID,
+				No:      no,
+				Pending: row.ProviderInstanceID == "",
+			}
+		}
+		return out, nil
+	})
+	// 人工核验开关（系统配置 order_verify_required，默认关闭）：开启后
+	// 「服务中且未核验」的订单在读取期推导为「待核验」。配置读不到按关闭处理。
+	a.orderService.SetVerifyRequiredReader(func(ctx context.Context) bool {
+		raw, ok, err := a.configValueReader(ctx, "order_verify_required")
+		if err != nil || !ok {
+			return false
+		}
+		return strings.EqualFold(strings.TrimSpace(raw), "true")
+	})
 }
 
 // buildBundles 构造积分/验证码/日志中心/实名/OAuth Bundle 并回填登录安全与风控端口。
@@ -610,6 +643,27 @@ func (a *asm) buildWire() {
 	// 用户中心订单 ← 支付中心（doc88 §6.2）：待支付订单发起收银台支付；
 	// 取消/超时关单时同步关闭未支付支付单，避免用户付款打到已作废的订单上。
 	a.ucOrderService.SetCashierPorts(a.paymentBundle.orderService, a.paymentBundle.orderService)
+	// 商品改价 → 同步到「已绑定续费价」的实例（跨域接线：实例域在 buildInstanceOps 构建，
+	// 晚于 buildCatalog，故在此注入）。只动已绑定的实例：未绑定者本就实时跟随商品价。
+	a.prodCatalogService.SetRenewalPriceSyncer(
+		NewRenewalPriceSyncer(a.instanceOpsRepo, a.priceMatrixService, a.logger))
+	// 「订单是否有渠道支付记录」判据（退款去向校验）：只有存在已支付渠道单的订单
+	// 才允许客户选「原路退回」；余额支付的订单资金本就在平台内，只能退回余额。
+	// 走裸 SQL 查支付中心表，与订单仓储反查支付单号的既有做法同口径（保持订单域不反向依赖支付中心）。
+	a.orderService.SetChannelPaymentChecker(func(ctx context.Context, orderNo string) bool {
+		if strings.TrimSpace(orderNo) == "" {
+			return false
+		}
+		var count int64
+		if err := a.database.WithContext(ctx).Table("payment_orders").
+			Where("biz_type = ? AND biz_no = ? AND status = ?", "order", orderNo, "paid").
+			Count(&count).Error; err != nil {
+			// 查询失败按「无渠道记录」保守处理：宁可只让退余额，也不能误判成可原路退回。
+			a.logger.Warn("check channel payment failed", zap.String("order_no", orderNo), zap.Error(err))
+			return false
+		}
+		return count > 0
+	})
 	// 选配项校验与计价（T4.5）：同一个 catalog 服务实例，保证与算价管线同一套规则。
 	a.ucOrderService.SetOptionPricingPort(a.prodCatalogService)
 	// 待支付订单过期关单调度器：有效期每轮从系统配置 order_expire_minutes 重读（改配置无需重启）。

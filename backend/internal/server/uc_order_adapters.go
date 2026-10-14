@@ -346,3 +346,74 @@ func (a ucInstanceOperatorAdapter) RestoreSnapshot(ctx context.Context, op ucins
 	}
 	return err
 }
+
+// ucRefundAdapter 把 admin 订单服务的退款能力适配为 uc 订单服务的本地端口。
+//
+// uc 侧只声明本地结构（CONTRIBUTING §3：不 import admin 域 model/dto），
+// 字段同构的转换职责落在装配层。
+type ucRefundAdapter struct {
+	svc orderservice.OrderService
+}
+
+func (a ucRefundAdapter) RequestRefund(ctx context.Context, userID, orderID uint64, req ucorderdto.UserRefundRequest) (*ucorderdto.UserRefundResult, error) {
+	res, err := a.svc.UserCreateRefund(ctx, userID, orderID, orderdto.UserRefundRequest{
+		Reason:     req.Reason,
+		RefundMode: req.RefundMode,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ucorderdto.UserRefundResult{
+		RefundNo:     res.RefundNo,
+		AutoApproved: res.AutoApproved,
+		Amount:       res.Amount,
+		Status:       res.Status,
+		Hint:         res.Hint,
+	}, nil
+}
+
+func (a ucRefundAdapter) RefundHint(ctx context.Context, userID, orderID uint64) (*ucorderdto.OrderRefundHint, error) {
+	detail, err := a.svc.FindByID(ctx, orderID)
+	if err != nil {
+		return nil, err
+	}
+	// 归属校验：他人订单不返回提示（uc 侧 Detail 已按不存在处理，这里只是兜底）。
+	if detail.UserID != userID {
+		return nil, nil
+	}
+	order := orderdtoOrderToModel(detail.OrderInfo)
+	hint := a.svc.RefundPolicyHint(ctx, order)
+	if hint == nil {
+		return nil, nil
+	}
+	return &ucorderdto.OrderRefundHint{
+		Refundable:     hint.Refundable,
+		WindowHours:    hint.WindowHours,
+		Deadline:       hint.Deadline,
+		AutoApprove:    hint.AutoApprove,
+		ChannelAllowed: hint.ChannelAllowed,
+		MaxAmount:      hint.MaxAmount,
+		Reason:         hint.Reason,
+	}, nil
+}
+
+// orderdtoOrderToModel 把订单详情投影为策略判定所需的模型（只用到 ID/状态/金额/商品/开通时间）。
+func orderdtoOrderToModel(info orderdto.OrderInfo) *ordermodel.Order {
+	out := &ordermodel.Order{
+		ID:          info.ID,
+		OrderNo:     info.OrderNo,
+		UserID:      info.UserID,
+		ProductID:   info.ProductID,
+		ProductName: info.ProductName,
+		Status:      info.Status,
+		PaidAmount:  info.PaidAmount,
+		TotalAmount: info.TotalAmount,
+		FinalAmount: info.FinalAmount,
+	}
+	if info.ActivatedAt != "" {
+		if t, err := time.Parse(time.RFC3339, info.ActivatedAt); err == nil {
+			out.ActivatedAt = &t
+		}
+	}
+	return out
+}
