@@ -145,8 +145,8 @@ CI 额外执行（见 `.github/workflows/ci.yml`）：
   revive 显式关闭了四类存量风格规则（exported / package-comments /
   unused-parameter / unexported-return），新代码不要依赖新的豁免
 - **`-race` 抽样**：finance / instance / order 核心包；全量 `-race`、
-  长耗时检查在 nightly workflow（`.github/workflows/nightly.yml`，
-  工作日 03:00 UTC + 手动触发，批次四 E3）
+  三前端全量 build 矩阵、契约门禁双跑在 nightly workflow
+  （`.github/workflows/nightly.yml`，工作日 03:00 UTC + 手动触发，批次四 E3/F2）
 - **live 测试（全新库）**：postgres service 空库上先 `LIVE_BOOTSTRAP=1` 引导
   （生产同款 AutoMigrate + Seed 路径），再跑 `go test -tags live`
   `./internal/server/...` 与 `./internal/pkg/db/...`（批次四 D2）。
@@ -167,9 +167,10 @@ CI 额外执行（见 `.github/workflows/ci.yml`）：
   site 的 lint 配置由 `npx nuxt prepare` 生成基础（CI 有 Prepare 步骤）
 - **API 契约门禁**：`python3 scripts/check_api_contract.py`——前端
   request/instance 调用与后端 Go 路由表逐条对齐（方法 + 路径双维度，
-  路径参数按形状归一化，`${id}` 与 `:id` 同形不算漂移），并覆盖
-  frontend-site 的 server 层 $fetch 调用。改路由或改前端
-  url 时必须同步另一端；CI 先跑 `--selfcheck` 自测再跑正式检查
+  路径参数按形状归一化，`${id}` 与 `:id` 同形不算漂移），覆盖
+  api 目录、pages/components 等内联调用（嵌套泛型如
+  `<AxiosResponse<Blob>>` 也识别）与 frontend-site 的 server 层 $fetch。
+  改路由或改前端 url 时必须同步另一端；CI 先跑 `--selfcheck` 自测再跑正式检查
 - **结构检查**：`scripts/check_structure.sh`——目录层级、uc 形态、依赖方向、
   响应统一、错误链；存量违例在脚本豁免清单中登记（棘轮模式），新增违例直接 fail。
   CI 先跑 `--selfcheck` fixture 自测再跑正式检查

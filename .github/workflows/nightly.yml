@@ -51,3 +51,37 @@ jobs:
           version: v2.14.0
           working-directory: backend
           args: --timeout=10m --build-tags live
+      - name: API contract check
+        # 契约门禁同样进夜间：ci 里也跑，但夜间在完整发布面（三个前端
+        # 全量 build 后）再核对一遍，双保险。
+        run: |
+          python3 ../scripts/check_api_contract.py --selfcheck
+          python3 ../scripts/check_api_contract.py
+
+  frontends-nightly:
+    name: Frontends (full build matrix)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: [frontend-admin, frontend-user, frontend-site]
+    defaults:
+      run:
+        working-directory: ${{ matrix.project }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ${{ matrix.project }}/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Prepare (site only)
+        if: matrix.project == 'frontend-site'
+        run: npx nuxt prepare
+      - name: Lint
+        run: npm run lint
+      - name: Format check
+        run: npm run format:check
+      - name: Build
+        run: npm run build

@@ -44,12 +44,13 @@ def load_backend_routes():
 # 两边都不命中）：
 #   对象：request.get<...>({ url: '/path', ... })（{ 与 url: 同处一行）
 #   直呼：request.get<...>('/path') / instance.post('/path')
+# 泛型段允许嵌套（如 <AxiosResponse<Blob>>）：<[^(]*?> 吃掉到 ( 前的最后一个 >。
 CALL_OBJ_RE = re.compile(
-    r"(?:request|instance)\.(get|post|put|delete|patch)(?:<[^>]*>)?"
+    r"(?:request|instance)\.(get|post|put|delete|patch)(?:<[^(]*?>)?"
     r"\(\{\s*url:\s*([\"'`])([^\"'`]+)\2"
 )
 CALL_DIRECT_RE = re.compile(
-    r"(?:request|instance)\.(get|post|put|delete|patch)(?:<[^>]*>)?"
+    r"(?:request|instance)\.(get|post|put|delete|patch)(?:<[^(]*?>)?"
     r"\(\s*([\"'`])([^\"'`]+)\2"
 )
 
@@ -78,6 +79,32 @@ def extract_calls(api_dir: Path):
             # 捕获组：1=verb 2=引号 3=path；对象形态已匹配过的位置不再重复计入
             if m.group(1) in VERBS and (m.start(), m.group(1), m.group(3)) not in seen:
                 calls.append((str(f.relative_to(ROOT)), m.group(1), m.group(3)))
+    return calls
+
+
+def extract_inline_calls(src_dir: Path):
+    """返回 [(file, verb, path)]：api/ 之外的页面与组件内联调用。
+
+    覆盖 pages/components/composables/store/layouts 里绕过 api 模块、
+    直接 import request 的调用（如 audit-logs 的 CSV 导出）。"""
+    calls = []
+    for sub in ("pages", "components", "composables", "store", "layouts"):
+        base = src_dir / sub
+        if not base.exists():
+            continue
+        for f in sorted(base.rglob("*")):
+            if f.suffix not in (".ts", ".vue") or "node_modules" in str(f):
+                continue
+            src = f.read_text()
+            seen = set()
+            for m in CALL_OBJ_RE.finditer(src):
+                key = (m.start(), m.group(1), m.group(3))
+                if key not in seen:
+                    seen.add(key)
+                    calls.append((str(f.relative_to(ROOT)), m.group(1), m.group(3)))
+            for m in CALL_DIRECT_RE.finditer(src):
+                if m.group(1) in VERBS and (m.start(), m.group(1), m.group(3)) not in seen:
+                    calls.append((str(f.relative_to(ROOT)), m.group(1), m.group(3)))
     return calls
 
 
@@ -152,6 +179,22 @@ def check(verbose: bool = False):
                 else "在后端路由表里不存在"
             )
             failures.append(f"{rel_file}: {verb.upper()} {path} {detail}")
+    # 页面/组件内联调用（绕过 api 模块直接 import request 的少数场景）。
+    for project, src_dir, prefix_rule in (
+        ("admin", FRONTEND_ADMIN.parent, "admin"),
+        ("user", FRONTEND_USER.parent, "user"),
+    ):
+        for rel_file, verb, path in extract_inline_calls(src_dir):
+            checked += 1
+            full = resolve_prefix(rel_file, path, prefix_rule)
+            candidates = [rp for rp in routes if route_matches(rp, full, verb)]
+            if not any(verb in routes[rp] for rp in candidates):
+                detail = (
+                    f"（后端只有 {sorted({v for rp in candidates for v in routes[rp]})}）"
+                    if candidates
+                    else "在后端路由表里不存在"
+                )
+                failures.append(f"{rel_file}: {verb.upper()} {full} {detail}")
     if verbose:
         print(f"契约扫描：{checked} 次前端调用 / {len(routes)} 条后端路由")
     return failures, checked
@@ -193,7 +236,13 @@ def selfcheck():
     if fake_check("post") or not fake_check("get"):
         print("selfcheck 失败：方法漂移判断退化（POST 应检出、GET 应通过）", file=sys.stderr)
         return 1
-    print("fixture 自测通过（路径形状 + 方法漂移均可检出）")
+    # 嵌套泛型自测：<AxiosResponse<Blob>> 必须被识别为泛型段而非把 > 当泛型结束。
+    nested = "request.get<AxiosResponse<Blob>>({ url: '/security/audit-logs/export',"
+    m = CALL_OBJ_RE.search(nested)
+    if not m or m.group(3) != "/security/audit-logs/export":
+        print("selfcheck 失败：嵌套泛型（<AxiosResponse<Blob>>）提取退化", file=sys.stderr)
+        return 1
+    print("fixture 自测通过（路径形状 + 方法漂移 + 嵌套泛型均可检出）")
     return 0
 
 
