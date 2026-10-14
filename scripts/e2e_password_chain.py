@@ -10,9 +10,13 @@
 
 前置（脚本不负责创建）：
   - mock 上游容器 p5-mock 在 backend_default 网络、端口 9099，且已重启加载最新 mock.py
-    （PUT /v1/clouds/{id}/password 与 /reinstall 用于验证重置/重装后的密码回写）；
-  - 渠道 16（self，魔方云 mock）未被软删（deleted_at IS NULL）；
-  - 商品 183「密码链路验收机」：self 链路、绑渠道 16，用于走带 rootpass 的开通表单。
+    （PUT /v1/clouds/{id}/password 与 /reinstall 用于验证重置/重装后的密码回写）。
+
+自愈（不依赖演示库种子）：渠道 16/商品 183 是历史种子约定，演示库换过数据后
+即漂移。脚本改为**自建**同名资源并跑完清理：
+  - 自建 dcimcloud 渠道（指向 p5-mock，账号密码走动态凭证）；
+  - 自建 self 商品（config_options 带 rootpass 走开通表单，未挂规格）；
+  - 跑完删除自建商品与渠道（渠道删除前需无关联商品，见清理顺序）。
 """
 import json
 import random
@@ -26,7 +30,9 @@ BASE = "http://127.0.0.1:8080/api/v1"
 PSQL = ["docker", "exec", "backend-postgres-1", "psql", "-U", "hostsent", "-d", "hostsent", "-tAc"]
 MOCK = ["docker", "exec", "p5-mock", "cat", "/state/last_create.json"]
 
-SELF_PRODUCT = 183  # 验收商品：self 链路，绑渠道 16 魔方云 mock（创建表单带 rootpass）
+# 自建资源统一前缀：清理时按名字前缀定位，不会误伤运营的渠道/商品。
+PROVIDER_PREFIX = "e2e-pwd-mock渠道"
+PRODUCT_PREFIX = "e2e-pwd-验收机"
 FAILURES = []
 
 
@@ -89,6 +95,28 @@ st, obj = req("POST", "/admin/auth/login", body={"username": "admin", "password"
 admin = dig(obj, "token")
 check("管理员登录", st == 200 and bool(admin), f"HTTP {st}")
 
+print("== 0. 自建 dcimcloud 渠道 + self 商品 ==")
+st, obj = req("POST", "/admin/resource/providers", token=admin, body={
+    "name": f"{PROVIDER_PREFIX}-{suffix}", "provider_type": "dcimcloud",
+    "api_endpoint": "http://p5-mock:9099", "status": 1, "des": "密码链路 e2e 自建（跑完清理）",
+    "credentials": {"api_key": "e2e", "api_secret": "mock", "account_type": "admin"}})
+provider_id = dig(obj, "id")
+check("自建 dcimcloud 渠道（指向 p5-mock）", st == 200 and bool(provider_id), f"HTTP {st} {obj if st != 200 else ''}")
+if not provider_id:
+    sys.exit(1)
+
+st, obj = req("POST", "/admin/product/products", token=admin, body={
+    "code": f"e2e-pwd-{suffix}", "name": f"{PRODUCT_PREFIX}-{suffix}",
+    "product_type": "cloud_host", "price_model": "fixed", "price": 1.0, "cost_price": 0.0,
+    "source_mode": "self", "source_provider_id": provider_id, "stock": -1, "status": 1,
+    "config_options": json.dumps({"rootpass": "e2e-rootpass-9xK"}, ensure_ascii=False),
+    "description": "密码链路 e2e 自建（跑完清理）"})
+self_product = dig(obj, "id")
+check("自建 self 商品（config_options 带 rootpass）", st == 200 and bool(self_product), f"HTTP {st} {obj if st != 200 else ''}")
+if not self_product:
+    req("DELETE", f"/admin/resource/providers/{provider_id}", token=admin)
+    sys.exit(1)
+
 u = f"pwd{suffix}"
 req("POST", "/uc/auth/register", body={"username": u, "password": pwd, "email": f"{u}@example.com"})
 st, obj = req("POST", "/uc/auth/login", body={"username": u, "password": pwd})
@@ -99,7 +127,7 @@ st, obj = req("POST", "/admin/finance/transactions/adjust", token=admin, body={
     "biz_key": f"pwd-topup-{suffix}", "remark": "密码链路验收充值"})
 check("充值", st == 200, f"HTTP {st} {obj}")
 
-st, obj = req("POST", "/uc/orders", token=tok, body={"product_id": SELF_PRODUCT, "quantity": 1}, timeout=30)
+st, obj = req("POST", "/uc/orders", token=tok, body={"product_id": self_product, "quantity": 1}, timeout=30)
 order_id = dig(obj, "id")
 check("下单成功", st == 200 and bool(order_id), f"HTTP {st} {obj}")
 
@@ -149,6 +177,18 @@ if inst_id:
     # 5) 审计流水留痕
     ops = sql(f"SELECT count(*) FROM instance_operations WHERE instance_id={inst_id} AND action='reveal_credential'")
     check("查看密码写入审计流水", int(ops or 0) >= 1, f"流水条数={ops}")
+
+# 清理自建资源：先删商品（渠道删除守卫要求无关联商品），再删渠道。
+# 渠道软删不报错即视为已删（不额外校验），残留由演示库维护者处置。
+if self_product:
+    st, obj = req("DELETE", f"/admin/product/products/{self_product}", token=admin)
+    if st != 200:
+        print(f"  [WARN] 自建商品 {self_product} 清理失败（HTTP {st}）：{obj}")
+if provider_id:
+    st, obj = req("DELETE", f"/admin/resource/providers/{provider_id}", token=admin)
+    if st != 200:
+        print(f"  [WARN] 自建渠道 {provider_id} 清理失败（HTTP {st}）：{obj}")
+print("已清理自建渠道与商品")
 
 print()
 if FAILURES:

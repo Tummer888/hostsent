@@ -2,9 +2,14 @@
 """P5 履约双通道 HTTP 端到端验收（双链路：下单→开通→续费→到期暂停）。
 
 前置（脚本不负责创建，见 docs/实施计划/17 §P5 交接说明）：
-  - mock 上游容器 p5-mock 运行在 backend_default 网络，端口 9099；
-  - 渠道 16 = dcimcloud（链路 B 自营平台），渠道 17 = zjmf（链路 A 上游转售）；
-  - 商品 1（self，68/月，绑渠道 16）、商品 2（upstream，30/月，绑渠道 17 + 资源商品 52）。
+  - mock 上游容器 p5-mock 运行在 backend_default 网络，端口 9099。
+
+自愈（不依赖演示库种子）：渠道 16/17 与商品 1/2/资源商品 52 是历史种子约定，
+演示库换过数据后即漂移。脚本改为**自建**同名资源并跑完清理：
+  - 链路 B 自建 dcimcloud 渠道 + self 商品（未挂规格，即时开通）；
+  - 链路 A 自建 zjmf 渠道（zjmf_api 分支）+ 直插一条资源商品行（mock 无目录
+    协议端点，只能按渠道编码入库——本脚本是唯一读写该渠道的验收方）；
+  - 跑完删除自建商品与渠道（渠道删除守卫要求无关联商品/资源池，见清理顺序）。
 
 断言（doc17 §7 P5 验收）：
   A. 两链路各跑通「下单→开通→续费→到期暂停」闭环；
@@ -26,8 +31,15 @@ MOCK = ["docker", "exec", "p5-mock", "cat", "/state/state.json"]
 PSQL = ["docker", "exec", "backend-postgres-1", "psql", "-U", "hostsent", "-d", "hostsent", "-tAc"]
 FAILURES = []
 
-SELF_PRODUCT = 1    # 链路 B：自营，平台 = 渠道 16 魔方云 mock
-UPSTREAM_PRODUCT = 2  # 链路 A：转售，上游 = 渠道 17 魔方财务 mock
+# 自建资源统一前缀：清理时按名字前缀定位，不会误伤运营的渠道/商品。
+DCIM_PROVIDER_PREFIX = "e2e-p5-dcim渠道"
+ZJMF_PROVIDER_PREFIX = "e2e-p5-zjmf渠道"
+SELF_PRODUCT_PREFIX = "e2e-p5-self商品"
+UPSTREAM_PRODUCT_PREFIX = "e2e-p5-upstream商品"
+# 链路 A 资源商品：mock 无目录协议端点，按渠道编码（内联为 JSON 字符串）直插
+# resource_products（本脚本是唯一读写该验收渠道的调用方）。挂两条配置组：
+# 单值 CPU 4 核 + 区域默认，模拟"上游固定规格 + 客户选配"的最小形态。
+# 注意 JSON 内联要避开边界，直接用 python 构造，不手拼 SQL 字符串。
 
 
 def req(method, path, token=None, body=None, timeout=60):
@@ -82,6 +94,67 @@ def sql(query):
     return out.stdout.strip()
 
 
+def snapshot_policy():
+    """快照 lifecycle_policies 里脚本要开关的 auto_enforce/enforce_dry_run。
+
+    psql -tAc 把布尔返回成 t/f 单字母，归一成 SQL 可吃的 true/false 再落库。
+    """
+    row = sql("SELECT auto_enforce, enforce_dry_run FROM lifecycle_policies WHERE id=1")
+    if not row:
+        return None
+    auto_enforce, enforce_dry_run = [x.strip() for x in row.split("|")]
+
+    def norm(v):
+        return "true" if v == "t" else ("false" if v == "f" else v)
+
+    return {"auto_enforce": norm(auto_enforce), "enforce_dry_run": norm(enforce_dry_run)}
+
+
+def force_policy():
+    """开启到期处置真实执行（auto_enforce=true + 非 dry-run）。"""
+    sql("UPDATE lifecycle_policies SET auto_enforce = true, enforce_dry_run = false WHERE id=1")
+
+
+def restore_policy(snap):
+    """按快照原样恢复；快照为空（提前退出）跳过。"""
+    if not snap:
+        return
+    sql(f"UPDATE lifecycle_policies SET auto_enforce = {snap['auto_enforce']}, "
+        f"enforce_dry_run = {snap['enforce_dry_run']} WHERE id=1")
+    print("lifecycle 策略已恢复")
+
+
+def q(s):
+    """SQL 字符串字面量（单引号转义）。"""
+    return s.replace("'", "''")
+
+
+def cleanup_provider(pid):
+    """删除自建渠道：守卫要求无关联商品/资源商品/资源池，失败时带原因提示。"""
+    st, obj = req("DELETE", f"/admin/resource/providers/{pid}", token=admin)
+    if st != 200:
+        print(f"  [WARN] 渠道 {pid} 清理失败（HTTP {st}）：{obj}")
+
+
+def cleanup_product(pid):
+    st, obj = req("DELETE", f"/admin/product/products/{pid}", token=admin)
+    if st != 200:
+        print(f"  [WARN] 商品 {pid} 清理失败（HTTP {st}）：{obj}")
+
+
+def cleanup_resources(dcim_provider, zjmf_provider, self_product, upstream_product, rp_id):
+    """清理自建资源：先删商品与资源商品（渠道删除守卫），再删渠道。"""
+    for pid in (self_product, upstream_product):
+        if pid:
+            cleanup_product(pid)
+    if rp_id:
+        sql(f"DELETE FROM resource_products WHERE id={rp_id}")
+    for pid in (dcim_provider, zjmf_provider):
+        if pid:
+            cleanup_provider(pid)
+    print("已清理自建渠道、商品与资源商品")
+
+
 def poll_order(token, order_id, want="active", timeout=90):
     """轮询我的订单，返回 (status, provision_status)；超时返回最后状态。"""
     deadline = time.time() + timeout
@@ -129,16 +202,94 @@ def chain_headers(title):
 suffix = str(random.randint(100000, 999999))
 pwd = "Passw0rd!123"
 
-print("== 0. 准备：清理历史自营 test 实例的扫描干扰 + 管理员登录 ==")
-# lc-test-02（id 10）到期时间落在暂停窗口内但 provider 指向真实上游，会把每轮扫描拖进真实网络调用；
-# 标记为已暂停使其退出候选（仅测试库数据，不影响验收目标实例）。
-sql("UPDATE instances SET lifecycle_stage='suspended' WHERE instance_id IN ('lc-test-01','lc-test-02')")
+print("== 0. 准备：管理员登录 + 自建渠道/商品 ==")
 st, obj = req("POST", "/admin/auth/login", body={"username": "admin", "password": "123456"})
 admin = dig(obj, "token")
 check("管理员登录", st == 200 and bool(admin), f"HTTP {st} {obj if st != 200 else ''}")
+if not admin:
+    sys.exit(1)
+
+# 生命周期扫描默认 auto_enforce=false（运营刻意保守）：不开闸门时扫描只读库，
+# 不上游下发暂停/销毁、不落阶段——脚本的暂停/销毁断言会整体假失败。
+# 与其它配置同款做法：快照原值，强制开闸，跑完原样恢复。
+policy_backup = snapshot_policy()
+if policy_backup is not None:
+    force_policy()
+    print(f"  已强制 lifecycle auto_enforce=true（原值 {policy_backup}）")
+
+# 链路 B：自营 dcimcloud 渠道（魔方云 mock）+ self 商品（未挂规格，即时开通）。
+st, obj = req("POST", "/admin/resource/providers", token=admin, body={
+    "name": f"{DCIM_PROVIDER_PREFIX}-{suffix}", "provider_type": "dcimcloud",
+    "api_endpoint": "http://p5-mock:9099", "status": 1, "des": "P5 履约 e2e 自建（跑完清理）",
+    "credentials": {"api_key": "e2e", "api_secret": "mock", "account_type": "admin"}})
+dcim_provider = dig(obj, "id")
+check("自建 dcimcloud 渠道（链路 B）", st == 200 and bool(dcim_provider), f"HTTP {st} {obj if st != 200 else ''}")
+if not dcim_provider:
+    sys.exit(1)
+
+st, obj = req("POST", "/admin/product/products", token=admin, body={
+    "code": f"e2e-p5-self-{suffix}", "name": f"{SELF_PRODUCT_PREFIX}-{suffix}",
+    "product_type": "cloud_host", "price_model": "monthly", "price": 68.0, "cost_price": 0.0,
+    "source_mode": "self", "source_provider_id": dcim_provider, "stock": -1, "status": 1,
+    "description": "P5 履约 e2e 自建（跑完清理）"})
+self_product = dig(obj, "id")
+check("自建 self 商品（链路 B，绑 dcimcloud 渠道）", st == 200 and bool(self_product), f"HTTP {st} {obj if st != 200 else ''}")
+if not self_product:
+    cleanup_provider(dcim_provider)
+    sys.exit(1)
+
+# 链路 A：zjmf 渠道（zjmf_api 分支，默认接口类型）+ 直插资源商品 + clone 转售商品。
+st, obj = req("POST", "/admin/resource/providers", token=admin, body={
+    "name": f"{ZJMF_PROVIDER_PREFIX}-{suffix}", "provider_type": "zjmf",
+    "api_endpoint": "http://p5-mock:9099", "status": 1, "des": "P5 履约 e2e 自建（跑完清理）",
+    "credentials": {"api_key": "e2e", "api_secret": "mock", "upstream_type": "zjmf_api"}})
+zjmf_provider = dig(obj, "id")
+check("自建 zjmf 渠道（链路 A，zjmf_api）", st == 200 and bool(zjmf_provider), f"HTTP {st} {obj if st != 200 else ''}")
+if not zjmf_provider:
+    cleanup_provider(dcim_provider)
+    cleanup_product(self_product)
+    sys.exit(1)
+
+# 资源商品行（mock 无目录协议端点，只能按渠道编码入库）：单值 CPU 4 核配置组 + 区域默认。
+config_groups = [{
+    "id": 1, "name": "计算规格", "description": "", "options": [{
+        "id": 101, "option_name": "cpu", "option_type": 1, "qty_minimum": 0, "qty_maximum": 0,
+        "upstream_id": 101, "hidden": 0,
+        "sub": [{"id": 1001, "option_name": "4", "qty_minimum": 0, "qty_maximum": 0,
+                 "upstream_id": 1001, "hidden": 0, "pricings": []}]}]},
+    {"id": 2, "name": "区域", "description": "", "options": [{
+        "id": 102, "option_name": "area", "option_type": 1, "qty_minimum": 0, "qty_maximum": 0,
+        "upstream_id": 102, "hidden": 0,
+        "sub": [{"id": 1002, "option_name": "宁波", "qty_minimum": 0, "qty_maximum": 0,
+                 "upstream_id": 1002, "hidden": 0, "pricings": []}]}]}]
+raw_specs = json.dumps({"id": "52", "name": "P5 Upstream Product", "config_groups": config_groups},
+                       ensure_ascii=False)
+rp_id = sql(
+    f"INSERT INTO resource_products (provider_id, upstream_id, name, cpu, memory, disk, disk_type, "
+    f"bandwidth, raw_specs, cost_price, sale_price, status, group_id, group_name, stock, stock_control, "
+    f"created_at, updated_at) "
+    f"VALUES ({zjmf_provider}, '52', 'P5 上游验收商品', 4, 8192, 80, 'ssd', 10, "
+    f"'{q(raw_specs)}', 30.0, 30.0, 1, 0, '', -1, 0, now(), now()) RETURNING id").splitlines()[0].strip()
+check("直插资源商品 52 行（zjmf 渠道，带 config_groups）", bool(rp_id), f"id={rp_id}")
+if not rp_id:
+    cleanup_provider(dcim_provider)
+    cleanup_product(self_product)
+    cleanup_provider(zjmf_provider)
+    sys.exit(1)
+
+# clone 创建转售商品：source_mode 由 clone 固定为 upstream，Specs 落上游基线。
+st, obj = req("POST", "/admin/product/products/clone", token=admin, body={
+    "source_product_id": int(rp_id), "source_provider_id": zjmf_provider,
+    "code": f"e2e-p5-up-{suffix}", "name": f"{UPSTREAM_PRODUCT_PREFIX}-{suffix}",
+    "price": 30.0, "cost_price": 30.0, "stock": -1, "status": 1})
+upstream_product = dig(obj, "id")
+check("clone 自建转售商品（链路 A）", st == 200 and bool(upstream_product), f"HTTP {st} {obj if st != 200 else ''}")
+if not upstream_product:
+    cleanup_resources(dcim_provider, zjmf_provider, self_product, None, int(rp_id) if rp_id else None)
+    sys.exit(1)
 
 users = {}
-for label, product in [("B", SELF_PRODUCT), ("A", UPSTREAM_PRODUCT)]:
+for label, product in [("B", self_product), ("A", upstream_product)]:
     u = f"p5{label.lower()}{suffix}"
     st, obj = req("POST", "/uc/auth/register", body={"username": u, "password": pwd, "email": f"{u}@example.com"})
     st, obj = req("POST", "/uc/auth/login", body={"username": u, "password": pwd})
@@ -176,8 +327,8 @@ check("B 开通恰好调用上游创建一次（cloud_creates +1）",
 check("B 开通未误触上游续费/暂停", after_create["renew"] == before["renew"] and after_create["mff_suspend"] == before["mff_suspend"])
 
 inst_b = instance_row(order_b)
-check("B 实例落库：链路 self、平台实例号、售出商品 1",
-      inst_b is not None and inst_b["source_mode"] == "self" and inst_b["sell_product_id"] == "1"
+check("B 实例落库：链路 self、平台实例号、售出商品=自建",
+      inst_b is not None and inst_b["source_mode"] == "self" and inst_b["sell_product_id"] == str(self_product)
       and inst_b["provider_instance_id"] != "" and inst_b["upstream_product_id"] in ("", "0"),
       inst_b)
 
@@ -238,9 +389,9 @@ check("A 开通未误触自营平台（cloud_creates 不变）",
       after_a["cloud_creates"] == before["cloud_creates"], f"cloud_creates={after_a['cloud_creates']}")
 
 inst_a = instance_row(order_a)
-check("A 实例落库：链路 upstream、上游商品 52、渠道 17、售出商品 2",
-      inst_a is not None and inst_a["source_mode"] == "upstream" and inst_a["upstream_product_id"] == "52"
-      and inst_a["provider_id"] == 17 and inst_a["sell_product_id"] == "2",
+check("A 实例落库：链路 upstream、上游商品、zjmf 渠道、售出商品=自建",
+      inst_a is not None and inst_a["source_mode"] == "upstream" and inst_a["upstream_product_id"] == rp_id
+      and inst_a["provider_id"] == zjmf_provider and inst_a["sell_product_id"] == str(upstream_product),
       inst_a)
 
 # 到期暂停：走上游 /provision/default func=suspend
@@ -298,6 +449,16 @@ check("B 重复扫描不重复调用上游删除", ledger()["mfy_delete"] - d0b 
 print(f"\n样本：用户B={users['B']['name']}(id {users['B']['id']}) 订单 {order_b} 实例 {inst_b['id']}；"
       f"用户A={users['A']['name']}(id {users['A']['id']}) 订单 {order_a} 实例 {inst_a['id']}")
 print("上游台账：", json.dumps({k: v for k, v in ledger().items() if k not in ("calls", "last_create")}, ensure_ascii=False))
+
+# 清理自建资源：先删两实例（destroyed 状态不会再被扫描候选，商品删除守卫
+# 不拦 destroyed 引用行，但删掉实例后商品可无悬念删除），再删商品与资源商品，
+# 最后删渠道（渠道删除守卫要求无关联数据）。
+sql(f"DELETE FROM instances WHERE id IN ({inst_b['id']}, {inst_a['id']})")
+sql(f"DELETE FROM instance_operations WHERE instance_id IN ({inst_b['id']}, {inst_a['id']})")
+cleanup_resources(dcim_provider, zjmf_provider, self_product, upstream_product,
+                  int(rp_id) if rp_id else None)
+restore_policy(policy_backup)
+
 if FAILURES:
     print(f"\n结果：{len(FAILURES)} 项失败 → {FAILURES}")
     sys.exit(1)

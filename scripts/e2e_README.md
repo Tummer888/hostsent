@@ -25,8 +25,11 @@
 - 断言失败以非零退出码结束，输出 `失败项：` 清单；
 - 涉及 mock 上游的脚本（password_chain/p5_fulfillment）要求 p5-mock 容器
   在 `backend_default` 网络并已加载最新 mock.py，否则上游断言全假失败；
+  mock 必须包含 zjmf 幂等握手端点 `/cart/clear`（适配器下单前固定调用，
+  mock 源文件不在仓库，重建容器时记得带上该补丁）；
 - 脚本会把动过的环境配置**快照→强制→恢复**（user_closure 的核验自动放行开关、
-  referral 的返现比率），跑完原样写回，演示库被运营改过也不影响验收。
+  referral 的返现比率、p5_fulfillment 的 lifecycle auto_enforce 闸门），
+  跑完原样写回，演示库被运营改过也不影响验收。
 
 ## 维护提醒
 
