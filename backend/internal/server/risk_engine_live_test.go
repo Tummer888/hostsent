@@ -191,19 +191,24 @@ func TestLiveAdminLoginDeviceChange(t *testing.T) {
 		}
 	}
 
-	// 第一次登录：把 zzfp-admin-a 写进历史（本次之前是否有别的设备无关紧要）。
-	adminLogin("zzfp-admin-a")
+	// 第一次登录：把 fpA 写进历史（本次之前是否有别的设备无关紧要）。
+	// 指纹必须每轮随机：admin 是共享账号，联调库的 login_logs 里会积累历史
+	// 轮次写下的指纹，固定的 zzfp-admin-b 跑过几轮后就变成「历史设备」，
+	// 换设备断言被既有数据打穿（批次四 D3 实测）。
+	fpA := fmt.Sprintf("zzfp-a-%d", rand.Int63())
+	fpB := fmt.Sprintf("zzfp-b-%d", rand.Int63())
+	adminLogin(fpA)
 	baseline := h.riskHitCountByIPRule(ip, "DEVICE_FINGERPRINT_CHANGED")
 
 	// 用同一设备再登录：不该再报（a 已在历史里）。
-	adminLogin("zzfp-admin-a")
+	adminLogin(fpA)
 	if n := h.riskHitCountByIPRule(ip, "DEVICE_FINGERPRINT_CHANGED"); n != baseline {
 		t.Fatalf("同设备重复登录不应新增设备变更命中，基线 %d → 实际 %d", baseline, n)
 	}
 
 	// 换设备：必须新增命中（同类命中会聚合进同一条事件，所以看 occur_count 的和，
 	// 而不是行数），且明细里能看到新设备指纹。
-	adminLogin("zzfp-admin-b")
+	adminLogin(fpB)
 	after := h.riskHitCountByIPRule(ip, "DEVICE_FINGERPRINT_CHANGED")
 	if after <= baseline {
 		t.Fatalf("换设备应新增设备变更命中（基线 %d，实际 %d）——员工链路的设备变更规则没跑", baseline, after)
@@ -218,7 +223,7 @@ func TestLiveAdminLoginDeviceChange(t *testing.T) {
 	if ev.SubjectType != "admin" {
 		t.Errorf("员工事件主体域 = %q，期望 admin", ev.SubjectType)
 	}
-	if !strings.Contains(ev.DetailPayload, "zzfp-admin-b") {
+	if !strings.Contains(ev.DetailPayload, fpB) {
 		t.Errorf("命中明细缺少新设备指纹: %s", ev.DetailPayload)
 	}
 
@@ -227,7 +232,7 @@ func TestLiveAdminLoginDeviceChange(t *testing.T) {
 	h.db.Raw(`SELECT COALESCE(device_fingerprint, '') FROM login_logs
 		WHERE subject_type = 'admin' AND ip = ? AND result = 'success'
 		ORDER BY id DESC LIMIT 1`, ip).Scan(&fp)
-	if fp != "zzfp-admin-b" {
+	if fp != fpB {
 		t.Errorf("员工成功登录未记录设备指纹（实际 %q），设备变更规则将失去基线", fp)
 	}
 }

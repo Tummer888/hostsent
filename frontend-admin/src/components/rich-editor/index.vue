@@ -58,7 +58,9 @@ import StarterKit from '@tiptap/starter-kit'
 import Link from '@tiptap/extension-link'
 import Image from '@tiptap/extension-image'
 import Placeholder from '@tiptap/extension-placeholder'
-import Table from '@tiptap/extension-table'
+// tiptap v3 起 Table 从主入口移到 /table 子路径（主入口只聚合 kit），
+// 三件套 row/cell/header 仍是独立包（批次四 D3 升级 tiptap 2→3）。
+import { Table } from '@tiptap/extension-table/table'
 import TableRow from '@tiptap/extension-table-row'
 import TableCell from '@tiptap/extension-table-cell'
 import TableHeader from '@tiptap/extension-table-header'
@@ -128,7 +130,9 @@ watch(
     // 只在外部值与编辑器现值真的不同步时才 setContent：否则每次输入都会
     // 重置光标到文档开头（这是受控组件包富文本编辑器最经典的坑）。
     if (current !== next) {
-      editor.value.commands.setContent(next, false)
+      // v2 的第二参是布尔 emitUpdate，v3 改成 SetContentOptions；这里要的
+      // 正是「静默同步不触发 onUpdate」，用 emitUpdate: false 表达。
+      editor.value.commands.setContent(next, { emitUpdate: false })
     }
   },
 )

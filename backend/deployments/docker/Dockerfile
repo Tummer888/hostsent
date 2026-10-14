@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 WORKDIR /app
 # 使用国内镜像加速依赖下载
 ENV GOPROXY=https://goproxy.cn,direct

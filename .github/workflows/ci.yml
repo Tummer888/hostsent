@@ -30,7 +30,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          # go.mod 的 go 指令是 1.26.9（批次四 D3）：1.25 线已停修复，
+          # 标准库漏洞（net/http、crypto/tls、net/url 等）只能由 1.26 修。
+          go-version: "1.26.9"
       - name: Build
         run: go build ./...
       - name: Vet
@@ -59,6 +61,13 @@ jobs:
         run: |
           LIVE_BOOTSTRAP=1 go test -count=1 -tags live ./internal/server/ -run 'TestLiveBootstrapSchema$'
           go test -count=1 -tags live ./internal/server/... ./internal/pkg/db/...
+      - name: Vulnerability scan (Go)
+        # 批次四 D3：govulncheck 源码模式只报「代码实际可达」的漏洞；
+        # 模块存在但代码未触达的（如 x/crypto/openpgp 弃用告警）不阻断。
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-input: "1.26.9"
+          go-package: ./...
       - name: Coverage report
         # 全量报告（只展示，不上门禁）：阈值只盯下面两个核心包。
         run: go test -count=1 -cover ./internal/modules/...
@@ -70,9 +79,11 @@ jobs:
         # 门禁已转 error（批次三 C5）：errcheck/staticcheck/unused/revive 双构建
         # （普通 + `-tags live`）清零。live 用例在「Live tests (fresh DB)」步骤跑，
         # 此处带 live tag 一并静态检查，编译错误在 CI 早于运行阶段暴露。
+        # 版本 v2.14.0：随 go.mod 升到 go1.26.9（批次四 D3），旧版用低版本
+        # Go 编译、拒绝加载高版本目标模块。
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.6.1
+          version: v2.14.0
           working-directory: backend
           args: --timeout=5m --build-tags live
       - name: Race (core packages)
@@ -99,13 +110,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # vite 8 要求 node ^20.19 || >=22.12（批次四 D3 升级），用 22 稳定线。
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend-admin/package-lock.json
       - name: Install
         run: npm ci
       - name: Build
         run: npm run build
+      - name: Audit (npm)
+        # 批次四 D3：npm audit 全量（含 dev）清零门禁。audit 退出码 1 = 存在漏洞。
+        run: npm audit --audit-level=low
 
   frontend-user:
     name: User Frontend (vue-tsc + build)
@@ -117,10 +132,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend-user/package-lock.json
       - name: Install
         run: npm ci
       - name: Build
         run: npm run build
+      - name: Audit (npm)
+        # 同上：全量（含 dev）清零门禁。
+        run: npm audit --audit-level=low

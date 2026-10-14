@@ -126,15 +126,21 @@ gofmt -l .            # 无输出
 go build ./...
 go vet ./...
 go test ./...         # 涉及域的单测至少全绿
-golangci-lint run --timeout=5m --build-tags live   # 本地与 CI 同参数，v2.6.1
+golangci-lint run --timeout=5m --build-tags live   # 本地与 CI 同参数，v2.14.0
+govulncheck ./...                                 # 依赖漏洞（可达漏洞须为 0）
 ../scripts/check_coverage.sh                       # 核心链路覆盖率门禁
-# 前端另跑 vue-tsc --noEmit
+# 前端另跑 vue-tsc --noEmit 与 npm audit
 ```
+
+Go 版本：go.mod 的 go 指令为 1.26.9（批次四 D3 起）。Go 安全政策只维护最近
+两个大版本，1.25 线已停修复，标准库漏洞（net/http、crypto/tls、net/url 等）
+只能靠 1.26 修；升大版本需本地 `GOTOOLCHAIN=go1.26.9` 验证后同步
+Dockerfile（`deployments/docker/Dockerfile`）与 CI 的 go-version。
 
 CI 额外执行（见 `.github/workflows/ci.yml`）：
 
 - **golangci-lint**：已转 error 门禁（errcheck/staticcheck/unused/revive，
-  普通 + `-tags live` 双构建，配置 `backend/.golangci.yml`）。
+  普通 + `-tags live` 双构建，配置 `backend/.golangci.yml`），v2.14.0。
   revive 显式关闭了四类存量风格规则（exported / package-comments /
   unused-parameter / unexported-return），新代码不要依赖新的豁免
 - **`-race` 抽样**：finance / instance / order 核心包
@@ -143,6 +149,12 @@ CI 额外执行（见 `.github/workflows/ci.yml`）：
   `./internal/server/...` 与 `./internal/pkg/db/...`（批次四 D2）。
   `TestLivePhaseMigrations` 因缺中间态列在全新库自动跳过（需
   `LIVE_MIGRATION_REPLAY=1` 且库按迁移顺序演进过才会执行）
+- **Go 漏洞门禁**：`govulncheck` 源码模式，只报「代码实际调用链可达」的漏洞
+  （`scripts/check_vuln.sh`，批次四 D3）；模块存在但代码未触达的告警不阻断。
+  升级依赖时 56 包单测 + live 套件是安全网
+- **npm 漏洞门禁**：两个前端 `npm audit --audit-level=low` 全量清零（含 dev）。
+  audit 报的漏洞在 CI 直接 fail；修复时注意 breaking 升级（如 tiptap 2→3
+  改 import 路径与 setContent 签名）必须带本地 build 验证
 - **结构检查**：`scripts/check_structure.sh`——目录层级、uc 形态、依赖方向、
   响应统一、错误链；存量违例在脚本豁免清单中登记（棘轮模式），新增违例直接 fail。
   CI 先跑 `--selfcheck` fixture 自测再跑正式检查
