@@ -22,6 +22,10 @@ type RefundRepository interface {
 	SumEffective(ctx context.Context, orderID uint64) (float64, error)
 	// SumRefundedAmount 全量已通过/已退款金额合计（用于退款率）。
 	SumRefundedAmount(ctx context.Context) (float64, error)
+	// ExistsByOrder 该订单是否存在任何退款记录（含待审核/已驳回）。
+	// 供订单软删除守卫使用：只要走过退款流程（哪怕被驳回），订单就不再是"干净的作废单"，
+	// 不应允许删除，避免把资金纠纷的线索从列表里抹掉。
+	ExistsByOrder(ctx context.Context, orderID uint64) (bool, error)
 	// SumChannelRefund 指定用户与时间段内原路退回（channel 模式）的本金与扣点合计（doc36 §3.2）。
 	// 财务侧据此扣减收入口径；时间以审核通过时间（audited_at）落在账期内为准。
 	// userID=0 表示不限定用户（全平台）。
@@ -110,6 +114,16 @@ func (r *refundRepository) SumRefundedAmount(ctx context.Context) (float64, erro
 		return 0, err
 	}
 	return sum, nil
+}
+
+// ExistsByOrder 该订单是否存在任何退款记录（不限状态）。
+func (r *refundRepository) ExistsByOrder(ctx context.Context, orderID uint64) (bool, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&model.OrderRefund{}).
+		Where("order_id = ?", orderID).Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // SumChannelRefund 汇总账期内原路退回的本金与渠道扣点（doc36 §3.2）。

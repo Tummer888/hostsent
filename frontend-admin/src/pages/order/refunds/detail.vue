@@ -34,6 +34,13 @@
           </template>
           驳回
         </t-button>
+        <!-- 事后复核：免审核自动退款后，钱已出去，需财务回头核对一次 -->
+        <t-button v-if="refund?.review_state === 'pending'" theme="primary" @click="reviewDialogVisible = true">
+          <template #icon>
+            <CheckCircleIcon aria-hidden="true" />
+          </template>
+          复核
+        </t-button>
       </t-space>
     </header>
 
@@ -61,6 +68,60 @@
             :placeholder="
               auditForm.action === 'approve' ? '如：已与客户确认，同意退款' : '如：不符合退款条件，活动商品不退'
             "
+          />
+        </t-form-item>
+        <template v-if="auditForm.action === 'approve'">
+          <t-form-item label="退款凭据单号（选填）">
+            <t-input
+              v-model="auditForm.evidence_no"
+              clearable
+              placeholder="转账流水号 / 渠道退款单号，便于后期查账定位"
+            />
+          </t-form-item>
+          <t-form-item label="凭据附件（选填）">
+            <div class="evidence-upload">
+              <t-space size="small" break-line>
+                <t-tag
+                  v-for="f in pendingFiles"
+                  :key="f.id"
+                  closable
+                  variant="light"
+                  @close="removePendingFile(f)"
+                >
+                  {{ f.file_name }}
+                </t-tag>
+                <t-button size="small" variant="outline" :loading="uploading" @click="triggerFilePick">
+                  选择文件
+                </t-button>
+              </t-space>
+              <input ref="fileInput" type="file" class="hidden-file-input" @change="handleFilePicked" />
+              <p class="form-hint">支持图片 / PDF / 表格 / 压缩包，单个不超过 10MB，最多 10 个。</p>
+            </div>
+          </t-form-item>
+        </template>
+      </t-form>
+    </t-dialog>
+
+    <!-- 事后复核弹窗 -->
+    <t-dialog
+      v-model:visible="reviewDialogVisible"
+      header="复核自动退款"
+      width="480px"
+      :confirm-btn="{ content: '确认复核', theme: 'primary', loading: reviewing }"
+      :cancel-btn="{ content: '取消' }"
+      @confirm="handleReview"
+      @close="reviewDialogVisible = false"
+    >
+      <t-alert
+        theme="info"
+        :message="`该单为免审核自动退款（已退 ¥${formatPrice(refund?.amount || 0)} 至客户余额）。请核对资金与凭证后确认复核。`"
+      />
+      <t-form label-align="top" class="review-form" @submit.prevent>
+        <t-form-item label="复核结论（选填）">
+          <t-textarea
+            v-model="reviewForm.remark"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+            placeholder="如：已核对余额入账，凭证相符"
           />
         </t-form-item>
       </t-form>
@@ -114,11 +175,50 @@
               {{ refundStatusLabel(refund.status) }}
             </t-tag>
           </t-descriptions-item>
+          <t-descriptions-item label="申请来源">
+            <t-tag :theme="refund.origin === 'user' ? 'warning' : 'default'" variant="light" size="small" shape="round">
+              {{ refund.origin === 'user' ? '客户自助申请' : '运营发起' }}
+            </t-tag>
+          </t-descriptions-item>
+          <t-descriptions-item label="复核状态">
+            <t-tag
+              v-if="refund.review_state"
+              :theme="refund.review_state === 'pending' ? 'warning' : 'success'"
+              variant="light"
+              size="small"
+              shape="round"
+            >
+              {{ refund.review_state === 'pending' ? '待复核' : '已复核' }}
+            </t-tag>
+            <span v-else class="cell-muted">—</span>
+          </t-descriptions-item>
           <t-descriptions-item label="审核人">{{ refund.audit_by_name || '—' }}</t-descriptions-item>
           <t-descriptions-item label="审核时间">{{ formatTime(refund.audited_at) }}</t-descriptions-item>
+          <t-descriptions-item label="审核备注" :span="2">{{ refund.audit_remark || '—' }}</t-descriptions-item>
+          <t-descriptions-item label="凭据单号" :span="2">{{ refund.evidence_no || '—' }}</t-descriptions-item>
+          <t-descriptions-item label="复核人">{{ refund.reviewed_by_name || '—' }}</t-descriptions-item>
+          <t-descriptions-item label="复核时间">{{ formatTime(refund.reviewed_at) }}</t-descriptions-item>
+          <t-descriptions-item label="复核结论" :span="2">{{ refund.review_remark || '—' }}</t-descriptions-item>
           <t-descriptions-item label="创建时间">{{ formatTime(refund.created_at) }}</t-descriptions-item>
           <t-descriptions-item label="更新时间">{{ formatTime(refund.updated_at) }}</t-descriptions-item>
         </t-descriptions>
+
+        <!-- 审核凭据附件：人工退款打款的凭证材料，资金审计用 -->
+        <div v-if="refund" class="desc-block evidence-block">
+          <h3 class="card-title">审核凭据</h3>
+          <div v-if="refund.attachments?.length" class="evidence-list">
+            <t-link
+              v-for="att in refund.attachments"
+              :key="att.id"
+              theme="primary"
+              hover="color"
+              @click="downloadAttachment(att)"
+            >
+              {{ att.file_name }}（{{ formatFileSize(att.file_size) }}）
+            </t-link>
+          </div>
+          <span v-else class="cell-muted">暂无凭据附件</span>
+        </div>
         <t-empty v-else description="暂无数据" />
       </div>
     </section>
@@ -132,7 +232,14 @@ import { useRoute, useRouter } from 'vue-router'
 import { CheckCircleIcon, CloseCircleIcon, MoneyIcon, RefreshIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
 
-import { approveRefund, getRefundDetail, rejectRefund } from '@/api/order'
+import {
+  approveRefund,
+  downloadRefundAttachment,
+  getRefundDetail,
+  rejectRefund,
+  reviewRefund,
+  uploadRefundAttachment,
+} from '@/api/order'
 import {
   channelRefundStatusLabel,
   channelRefundStatusTheme,
@@ -143,7 +250,8 @@ import {
   refundStatusLabel,
   refundStatusTheme,
 } from '@/pages/order/constants'
-import type { RefundInfo } from '@/types/interface'
+import type { RefundAttachmentInfo, RefundInfo } from '@/types/interface'
+import { formatFileSize } from '@/pages/ticket/constants'
 
 defineOptions({ name: 'OrderRefundDetail' })
 
@@ -180,11 +288,81 @@ function openAuditDialog(action: 'approve' | 'reject') {
   if (!target) return
   auditForm.action = action
   auditForm.remark = ''
+  auditForm.evidence_no = ''
+  pendingFiles.value = []
   auditDialogVisible.value = true
 }
 
 const auditDialogVisible = ref(false)
-const auditForm = reactive<{ action: 'approve' | 'reject'; remark: string }>({ action: 'approve', remark: '' })
+const auditForm = reactive<{ action: 'approve' | 'reject'; remark: string; evidence_no: string }>({
+  action: 'approve',
+  remark: '',
+  evidence_no: '',
+})
+
+// 凭据附件：选择后即时上传拿到 ID，随审核提交时带 attachment_ids。
+const pendingFiles = ref<RefundAttachmentInfo[]>([])
+const uploading = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
+
+function triggerFilePick() {
+  fileInput.value?.click()
+}
+
+async function handleFilePicked(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file || !refund.value) return
+  if (file.size > 10 * 1024 * 1024) {
+    MessagePlugin.warning('附件不能超过 10MB')
+    return
+  }
+  uploading.value = true
+  try {
+    const info = await uploadRefundAttachment(refund.value.id, file)
+    pendingFiles.value.push(info)
+    MessagePlugin.success(`已上传：${info.file_name}`)
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '附件上传失败')
+  } finally {
+    uploading.value = false
+  }
+}
+
+function removePendingFile(target: RefundAttachmentInfo) {
+  // 已上传的文件不做事后删除（凭据留存有利于审计），仅从本次提交中移除引用。
+  pendingFiles.value = pendingFiles.value.filter((f) => f.id !== target.id)
+}
+
+// 附件下载：走鉴权端点（blob + JSON 信封辨别，与工单附件同口径）。
+async function downloadAttachment(att: RefundAttachmentInfo) {
+  try {
+    await downloadRefundAttachment(att.id, att.file_name)
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '下载失败')
+  }
+}
+
+// —— 事后复核 ——
+const reviewDialogVisible = ref(false)
+const reviewing = ref(false)
+const reviewForm = reactive<{ remark: string }>({ remark: '' })
+
+async function handleReview() {
+  if (!refund.value) return
+  reviewing.value = true
+  try {
+    await reviewRefund(refund.value.id, { remark: reviewForm.remark })
+    MessagePlugin.success('复核完成')
+    reviewDialogVisible.value = false
+    loadDetail()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '复核失败')
+  } finally {
+    reviewing.value = false
+  }
+}
 
 // 审核备注写入退款单（后端 RefundApproveRequest.remark 早已支持，此前前端恒传空对象）。
 async function handleAudit() {
@@ -193,7 +371,11 @@ async function handleAudit() {
   const isApprove = auditForm.action === 'approve'
   try {
     if (isApprove) {
-      await approveRefund(target.id, { remark: auditForm.remark })
+      await approveRefund(target.id, {
+        remark: auditForm.remark,
+        evidence_no: auditForm.evidence_no,
+        attachment_ids: pendingFiles.value.map((f) => f.id),
+      })
     } else {
       await rejectRefund(target.id, { remark: auditForm.remark })
     }

@@ -111,6 +111,14 @@ type (
 		// ResolveOptionPricing 校验选择并返回加价小计与归一后的选择；商品无选配项时原样回传。
 		ResolveOptionPricing(ctx context.Context, productID uint64, cycle string, selections map[string]string) (*catalogservice.OptionPricing, error)
 	}
+	// refundPort 客户自助退款与可退性提示（装配层注入 admin 订单服务的适配器）。
+	// uc 侧只做归属校验与请求转译，策略/时限/免审判定全在 admin 域（CONTRIBUTING §2 薄适配）。
+	refundPort interface {
+		// RequestRefund 提交退款申请，返回是否免审核自动退款。
+		RequestRefund(ctx context.Context, userID, orderID uint64, req dto.UserRefundRequest) (*dto.UserRefundResult, error)
+		// RefundHint 订单可退性提示（详情/列表下发，前端据此展示申请入口）。
+		RefundHint(ctx context.Context, userID, orderID uint64) (*dto.OrderRefundHint, error)
+	}
 	// prepayPort 收银台发起支付（支付中心 Prepay）。
 	prepayPort interface {
 		Prepay(ctx context.Context, userID uint64, req paydto.PrepayRequest) (*paydto.OrderInfo, error)
@@ -136,6 +144,8 @@ type OrderService interface {
 	Pay(ctx context.Context, userID, orderID uint64, req dto.PayRequest) (*dto.PayInfo, error)
 	// Cancel 用户取消待支付订单：置 cancelled + 关掉未支付支付单 + 回补占用的库存。
 	Cancel(ctx context.Context, userID, orderID uint64) (*dto.OrderInfo, error)
+	// RequestRefund 客户自助申请退款（策略按商品来源+分类判定时限与免审）。
+	RequestRefund(ctx context.Context, userID, orderID uint64, req dto.UserRefundRequest) (*dto.UserRefundResult, error)
 	// ExpirePending 关掉超期未付的订单（调度器调用）：置 closed，口径与用户主动取消区分。
 	// expireMinutes 为配置的订单支付有效期（order_expire_minutes）。
 	ExpirePending(ctx context.Context, expireMinutes int) (int, error)
@@ -155,6 +165,8 @@ type OrderService interface {
 	SetLogger(l *zap.Logger)
 	// SetOptionLabelResolver 注入选配项可读名解析（装配层调用；nil 时订单详情不展示配置行）。
 	SetOptionLabelResolver(port optionLabelPort)
+	// SetRefundPort 注入客户自助退款端口（装配层调用；nil 时退款接口返回不可用）。
+	SetRefundPort(port refundPort)
 }
 
 type orderService struct {
@@ -173,6 +185,7 @@ type orderService struct {
 	sku             productSkuPort                                    // SKU 读取与库存（T4.1），可为 nil（无 SKU 的商品照旧下单）
 	optionPricing   optionPricingPort                                 // 选配项校验与计价（T4.5），可为 nil（无选配项的商品照旧下单）
 	optionLabels    optionLabelPort                                   // 选配项可读名解析（可选项；nil 时订单不带可读标签）
+	refunds         refundPort                                        // 客户自助退款（装配层注入；nil 时退款接口不可用）
 	salesOwner      salesOwnerResolver                                // 销售归属解析（doc86 §3.4），可为 nil（不记归属）
 	prepay          prepayPort                                        // 收银台发起支付（支付中心），可为 nil（未装配时不可线上支付）
 	pendingPayments pendingPaymentCloser                              // 关闭未支付支付单，可为 nil
@@ -270,6 +283,9 @@ func (s *orderService) SetPendingInstanceReleaser(fn func(ctx context.Context, o
 
 // SetLogger 注入日志器（装配层调用；nil 时不记日志）。
 func (s *orderService) SetLogger(l *zap.Logger) { s.logger = l }
+
+// SetRefundPort 注入客户自助退款端口（装配层调用）。
+func (s *orderService) SetRefundPort(port refundPort) { s.refunds = port }
 
 // SetOptionLabelResolver 注入选配项可读名解析（见 optionLabelPort 说明）。
 func (s *orderService) SetOptionLabelResolver(port optionLabelPort) { s.optionLabels = port }
@@ -783,7 +799,35 @@ func (s *orderService) Detail(ctx context.Context, userID, orderID uint64) (*dto
 		info.ProvisionError = task.LastError
 	}
 	info.PayExpireAt = s.payExpireAt(order)
+	// 可退性提示：前端据此决定是否展示「申请退款」入口与剩余时限。
+	if s.refunds != nil {
+		if hint, herr := s.refunds.RefundHint(ctx, userID, orderID); herr == nil {
+			info.RefundHint = hint
+		}
+	}
 	return &info, nil
+}
+
+// RequestRefund 客户自助申请退款（薄适配：策略判定与资金链路全在 admin 域）。
+//
+// uc 侧只做两件事：归属校验（他人订单按不存在处理）与请求转译。
+// 具体规则（时限/来源分流/免审自动退/人工审核）见 admin order service 的 UserCreateRefund。
+func (s *orderService) RequestRefund(ctx context.Context, userID, orderID uint64, req dto.UserRefundRequest) (*dto.UserRefundResult, error) {
+	if orderID == 0 {
+		return nil, ErrOrderNotFound
+	}
+	if s.refunds == nil {
+		return nil, ErrRefundUnavailable
+	}
+	// 归属校验前置：非本人订单一律「不存在」，不泄漏订单存在性。
+	order, err := s.orderRepo.FindByID(ctx, orderID)
+	if err != nil {
+		return nil, ErrOrderNotFound
+	}
+	if order.UserID != userID {
+		return nil, ErrOrderNotFound
+	}
+	return s.refunds.RequestRefund(ctx, userID, orderID, req)
 }
 
 // Pay 待支付订单发起收银台支付（doc88 §6.2）。

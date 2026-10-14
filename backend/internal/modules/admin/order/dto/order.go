@@ -14,24 +14,29 @@ type OrderListQuery struct {
 	ChannelTx string `form:"channel_tx" json:"channel_tx"`
 	// OrderType 订单类型（doc36 §3.4）：consume=普通购买 renewal=续费；续费由 renewal_id>0 判定。
 	OrderType string `form:"order_type" json:"order_type"`
-	StartTime string `form:"start_time" json:"start_time"` // 开始时间（YYYY-MM-DD HH:MM:SS）
-	EndTime   string `form:"end_time" json:"end_time"`     // 结束时间
-	Page      int    `form:"page" json:"page"`
-	PageSize  int    `form:"page_size" json:"page_size"`
+	// VerifyState 核验状态筛选（运营人工核验开通结果）：pending=待核验（服务中未核验）
+	// verified=已核验；空=不筛选。纯数据口径，不依赖 order_verify_required 开关。
+	VerifyState string `form:"verify_state" json:"verify_state"`
+	StartTime   string `form:"start_time" json:"start_time"` // 开始时间（YYYY-MM-DD HH:MM:SS）
+	EndTime     string `form:"end_time" json:"end_time"`     // 结束时间
+	Page        int    `form:"page" json:"page"`
+	PageSize    int    `form:"page_size" json:"page_size"`
 }
 
 // OrderItemInfo 订单项信息
 type OrderItemInfo struct {
-	ID          uint64  `json:"id"`
-	OrderID     uint64  `json:"order_id"`
-	ProductID   uint64  `json:"product_id"`
-	ProductName string  `json:"product_name"`
-	SpecCode    string  `json:"spec_code"`
-	Specs       string  `json:"specs"`
-	Price       float64 `json:"price"`
-	Quantity    int     `json:"quantity"`
-	Amount      float64 `json:"amount"`
-	CreatedAt   string  `json:"created_at"`
+	ID          uint64 `json:"id"`
+	OrderID     uint64 `json:"order_id"`
+	ProductID   uint64 `json:"product_id"`
+	ProductName string `json:"product_name"`
+	SpecCode    string `json:"spec_code"`
+	Specs       string `json:"specs"`
+	// Cycle 行级计费周期快照（订单明细卡片展示用）。
+	Cycle     string  `json:"cycle"`
+	Price     float64 `json:"price"`
+	Quantity  int     `json:"quantity"`
+	Amount    float64 `json:"amount"`
+	CreatedAt string  `json:"created_at"`
 }
 
 // OrderInfo 订单列表项
@@ -49,8 +54,10 @@ type OrderInfo struct {
 	Status      string  `json:"status"`
 	PayMethod   string  `json:"pay_method"`
 	PayTime     string  `json:"pay_time"`
-	ExpireTime  string  `json:"expire_time"`
-	Remark      string  `json:"remark"`
+	// ActivatedAt 开通成功时间（退款时限起算点）；未开通用空串。
+	ActivatedAt string `json:"activated_at"`
+	ExpireTime  string `json:"expire_time"`
+	Remark      string `json:"remark"`
 	// 计费周期与续费标记（doc36 §3.4）：cycle 为计费周期快照，renewal_id>0 即续费订单。
 	Cycle     string `json:"cycle"`
 	RenewalID uint64 `json:"renewal_id"`
@@ -68,8 +75,22 @@ type OrderInfo struct {
 	ProvisionStatus   string `json:"provision_status,omitempty"`
 	ProvisionError    string `json:"provision_error,omitempty"`
 	ProvisionAttempts int    `json:"provision_attempts,omitempty"`
-	CreatedAt         string `json:"created_at"`
-	UpdatedAt         string `json:"updated_at"`
+	// 核验标记（运营人工核对开通结果）：独立于状态机，仅记录 + 展示。
+	// VerifiedAt 为空即未核验；VerifyRequired 表示当前是否开启核验要求，
+	// VerifyState 为读取期推导结果：pending（待核验）/ verified / ""（不涉及）。
+	VerifiedAt     string `json:"verified_at,omitempty"`
+	VerifiedBy     uint64 `json:"verified_by,omitempty"`
+	VerifiedByName string `json:"verified_by_name,omitempty"`
+	VerifyRemark   string `json:"verify_remark,omitempty"`
+	VerifyRequired bool   `json:"verify_required"`
+	VerifyState    string `json:"verify_state,omitempty"`
+	// 关联实例（装配层注入端口批量回填）：InstanceID>0 时可跳转实例详情；
+	// InstancePending 表示该实例仍是「待开通」占位行（未转正）。
+	InstanceID      uint64 `json:"instance_id,omitempty"`
+	InstanceNo      string `json:"instance_no,omitempty"`
+	InstancePending bool   `json:"instance_pending,omitempty"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
 }
 
 // OrderListResponse 订单列表响应
@@ -89,6 +110,59 @@ type OrderDetail struct {
 type OrderRemarkUpdateRequest struct {
 	Remark string `json:"remark"`
 }
+
+// OrderVerifyRequest 订单核验（运营人工核对开通结果，仅标记不流转状态）
+type OrderVerifyRequest struct {
+	// Remark 核验备注（可选）：记录核对结论，如"配置与订单一致"。
+	Remark string `json:"remark"`
+}
+
+// BatchVerifyRequest 批量核验请求：ids + 统一核验备注。
+type BatchVerifyRequest struct {
+	IDs    []uint64 `json:"ids" binding:"required,min=1"`
+	Remark string   `json:"remark"`
+}
+
+// BatchRefundAuditRequest 批量退款审核请求：ids + 统一审核备注。
+type BatchRefundAuditRequest struct {
+	IDs    []uint64 `json:"ids" binding:"required,min=1"`
+	Remark string   `json:"remark"`
+}
+
+// VerifyState 取值（读取期推导，不落库）
+const (
+	VerifyStatePending  = "pending"  // 待核验：开通成功（服务中）且未核验
+	VerifyStateVerified = "verified" // 已核验
+)
+
+// BatchIDsRequest 批量操作请求：ids 为订单/退款单主键集合。
+// 上限 100 与用户批量注销口径一致（逐条复用单条逻辑，防止一次请求打爆上游）。
+type BatchIDsRequest struct {
+	IDs []uint64 `json:"ids" binding:"required,min=1"`
+}
+
+// BatchItemResult 批量操作单条结果：success=已执行；skipped=状态不允许等可预期跳过；
+// failed=执行出错。调用方按 status 分类展示，失败项带原因。
+type BatchItemResult struct {
+	ID      uint64 `json:"id"`
+	Status  string `json:"status"` // success / skipped / failed
+	Message string `json:"message,omitempty"`
+}
+
+// BatchActionResponse 批量操作响应：逐条结果 + 分类计数。
+type BatchActionResponse struct {
+	Items     []BatchItemResult `json:"items"`
+	Succeeded int               `json:"succeeded"`
+	Skipped   int               `json:"skipped"`
+	Failed    int               `json:"failed"`
+}
+
+// BatchStatus 取值
+const (
+	BatchStatusSuccess = "success"
+	BatchStatusSkipped = "skipped"
+	BatchStatusFailed  = "failed"
+)
 
 // RefundCreateRequest 创建退款单
 type RefundCreateRequest struct {

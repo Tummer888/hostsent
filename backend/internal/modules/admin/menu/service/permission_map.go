@@ -79,6 +79,8 @@ var menuPermissionMap = map[string]string{
 	"/orders/list":    "order:list",
 	"/orders/refunds": "order:refunds",
 	"/orders/stats":   "order:stats",
+	// 退款策略页（可退时限/免审开关）：与退款管理同域，配置权限独立成码。
+	"/orders/refund-policy": "order:refund:policy",
 
 	"/finance/overview":        "finance:wallet",
 	"/finance/accounts/adjust": "finance:adjust",

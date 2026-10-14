@@ -12,11 +12,22 @@ func registerAdminOrderRoutes(v1 *gin.RouterGroup, app *App) {
 	{
 		orderGroup.GET("", app.perm("order:list"), app.orderHandler.List)
 		orderGroup.GET("/stats", app.perm("order:stats"), app.orderHandler.Stats)
+		// 退款策略（时限/免审按商品来源+分类配置）
+		orderGroup.GET("/refund-policies", app.perm("order:refund:policy"), app.refundPolicyHandler.List)
+		orderGroup.POST("/refund-policies", app.perm("order:refund:policy"), app.refundPolicyHandler.Create)
+		orderGroup.PUT("/refund-policies/:id", app.perm("order:refund:policy"), app.refundPolicyHandler.Update)
+		orderGroup.DELETE("/refund-policies/:id", app.perm("order:refund:policy"), app.refundPolicyHandler.Delete)
+		// 批量动作静态段必须先于 /:id 注册，否则被通配路径吞掉（同 ticket /reviews 先例）。
+		orderGroup.POST("/batch-cancel", app.perm("order:cancel"), app.orderHandler.BatchCancel)
+		orderGroup.POST("/batch-activate", app.perm("order:activate"), app.orderHandler.BatchActivate)
+		orderGroup.POST("/batch-verify", app.perm("order:verify"), app.orderHandler.BatchVerify)
+		orderGroup.POST("/batch-delete", app.perm("order:delete"), app.orderHandler.BatchDelete)
 		orderGroup.GET("/:id", app.perm("order:list"), app.orderHandler.Get)
 		orderGroup.POST("/:id/cancel", app.perm("order:cancel"), app.orderHandler.Cancel)
 		orderGroup.PUT("/:id/remark", app.perm("order:remark"), app.orderHandler.UpdateRemark)
 		orderGroup.POST("/:id/refund", app.perm("order:refund"), app.orderHandler.CreateRefund)
 		orderGroup.POST("/:id/activate", app.perm("order:activate"), app.orderHandler.Activate)
+		orderGroup.POST("/:id/verify", app.perm("order:verify"), app.orderHandler.Verify)
 	}
 	ticketGroup := v1.Group("/tickets")
 	ticketGroup.Use(app.adminAuth())
@@ -49,8 +60,17 @@ func registerAdminOrderRoutes(v1 *gin.RouterGroup, app *App) {
 	refundGroup.Use(app.adminAuth())
 	{
 		refundGroup.GET("", app.perm("order:refunds"), app.refundHandler.List)
+		// 批量审核静态段先于 /:id 注册。
+		refundGroup.POST("/batch-approve", app.perm("order:refund:audit"), app.refundHandler.BatchApprove)
+		refundGroup.POST("/batch-reject", app.perm("order:refund:audit"), app.refundHandler.BatchReject)
+		// 凭据附件下载静态段先于 /:id 注册。
+		refundGroup.GET("/attachments/:id/download", app.perm("order:refunds"), app.refundHandler.DownloadAttachment)
 		refundGroup.GET("/:id", app.perm("order:refunds"), app.refundHandler.Get)
 		refundGroup.POST("/:id/approve", app.perm("order:refund:audit"), app.refundHandler.Approve)
 		refundGroup.POST("/:id/reject", app.perm("order:refund:audit"), app.refundHandler.Reject)
+		// 事后复核（免审核自动退款后的最后一道人工确认）
+		refundGroup.POST("/:id/review", app.perm("order:refund:audit"), app.refundHandler.Review)
+		// 审核凭据附件上传
+		refundGroup.POST("/:id/attachments", app.perm("order:refund:audit"), app.refundHandler.UploadAttachment)
 	}
 }

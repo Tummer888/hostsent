@@ -2,6 +2,11 @@ import { request } from '@/utils/request'
 
 import type {
   BatchActionResponse,
+  RefundAttachmentInfo,
+  RefundPolicyInfo,
+  RefundPolicyListResponse,
+  RefundPolicyRequest,
+  RefundReviewRequest,
   BatchRefundAuditRequest,
   BatchVerifyRequest,
   OrderDetail,
@@ -121,6 +126,8 @@ export function getRefundList(params: RefundListQuery): Promise<RefundListRespon
       order_id: params.order_id,
       status: params.status,
       refund_mode: params.refund_mode,
+      origin: params.origin,
+      review_state: params.review_state,
       page: params.page,
       page_size: params.page_size,
     },
@@ -145,4 +152,61 @@ export function rejectRefund(id: number, data: RefundApproveRequest): Promise<Re
     url: `/refunds/${id}/reject`,
     data,
   })
+}
+
+// ===== 退款策略（按商品来源 + 分类的可退时限/免审配置） =====
+
+export function getRefundPolicies(): Promise<RefundPolicyListResponse> {
+  return request.get<RefundPolicyListResponse>({ url: '/orders/refund-policies' })
+}
+
+export function createRefundPolicy(data: RefundPolicyRequest): Promise<RefundPolicyInfo> {
+  return request.post<RefundPolicyInfo>({ url: '/orders/refund-policies', data })
+}
+
+export function updateRefundPolicy(id: number, data: RefundPolicyRequest): Promise<RefundPolicyInfo> {
+  return request.put<RefundPolicyInfo>({ url: `/orders/refund-policies/${id}`, data })
+}
+
+export function deleteRefundPolicy(id: number): Promise<string> {
+  return request.delete<string>({ url: `/orders/refund-policies/${id}` })
+}
+
+// ===== 退款凭据与事后复核 =====
+
+export function uploadRefundAttachment(id: number, file: File): Promise<RefundAttachmentInfo> {
+  const form = new FormData()
+  form.append('file', file)
+  return request.post<RefundAttachmentInfo>({ url: `/refunds/${id}/attachments`, data: form })
+}
+
+export function reviewRefund(id: number, data: RefundReviewRequest): Promise<RefundInfo> {
+  return request.post<RefundInfo>({ url: `/refunds/${id}/review`, data })
+}
+
+export function downloadRefundAttachment(id: number, fileName = 'attachment'): Promise<void> {
+  return request
+    .get<Blob>({ url: `/refunds/attachments/${id}/download`, responseType: 'blob', _skipResultUnwrap: true } as never)
+    .then(async (response) => {
+      const blob = (response as unknown as { data: Blob }).data
+      // 后端错误也返回 HTTP 200 + JSON 信封，先辨别再落盘，避免把错误包存成附件。
+      if (blob.type && blob.type.includes('application/json')) {
+        const text = await blob.text()
+        let message = '附件下载失败'
+        try {
+          message = JSON.parse(text)?.message || message
+        } catch {
+          /* 保留默认文案 */
+        }
+        throw new Error(message)
+      }
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    })
 }

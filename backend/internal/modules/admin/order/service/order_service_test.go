@@ -112,6 +112,37 @@ func (r *fakeOrderRepo) TransitionStatus(_ context.Context, id uint64, from, to 
 	}
 	return 0, nil
 }
+func (r *fakeOrderRepo) MarkVerified(_ context.Context, id, operatorID uint64, operatorName, remark string, at time.Time) (int64, error) {
+	o, ok := r.orders[id]
+	if !ok || o.VerifiedAt != nil {
+		return 0, nil
+	}
+	t := at
+	o.VerifiedAt = &t
+	o.VerifiedBy = operatorID
+	o.VerifiedByName = operatorName
+	o.VerifyRemark = remark
+	return 1, nil
+}
+func (r *fakeOrderRepo) SoftDelete(_ context.Context, id uint64, allowStatuses []string, at time.Time) (int64, error) {
+	o, ok := r.orders[id]
+	if !ok || o.DeletedAt != nil {
+		return 0, nil
+	}
+	allowed := false
+	for _, s := range allowStatuses {
+		if o.Status == s {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return 0, nil
+	}
+	t := at
+	o.DeletedAt = &t
+	return 1, nil
+}
 func (r *fakeOrderRepo) StatsCountToday(context.Context) (int64, error) {
 	return r.statsCountToday, r.statsErr
 }
@@ -216,6 +247,14 @@ func (r *fakeRefundRepo) SumEffective(_ context.Context, orderID uint64) (float6
 func (r *fakeRefundRepo) SumRefundedAmount(context.Context) (float64, error) {
 	return r.sumRefunded, nil
 }
+func (r *fakeRefundRepo) ExistsByOrder(_ context.Context, orderID uint64) (bool, error) {
+	for _, rf := range r.refunds {
+		if rf.OrderID == orderID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
 func (r *fakeRefundRepo) SumChannelRefund(context.Context, uint64, *time.Time, *time.Time) (float64, float64, error) {
 	return 0, 0, nil
 }
@@ -238,7 +277,9 @@ func (f *fakeProvision) Activate(_ context.Context, order *model.Order) error {
 		order.Status = model.OrderStatusActive
 	case model.OrderStatusActive:
 	default:
-		return errors.New("invalid status for activate")
+		// 与真实 UpstreamProvisionAdapter 同语义：其余状态返回状态冲突
+		// （批量重新开通场景下按 skipped 处理，而非 failed）。
+		return ErrStatusConflict
 	}
 	return nil
 }
@@ -360,7 +401,7 @@ func TestApproveRefundFullAndPartial(t *testing.T) {
 		hookRefundNo = refundNo
 		return nil
 	})
-	info, err := svc.ApproveRefund(context.Background(), 1, 7, "op", "")
+	info, err := svc.ApproveRefund(context.Background(), 1, 7, "op", dto.RefundApproveRequest{})
 	if err != nil {
 		t.Fatalf("审核通过应成功: %v", err)
 	}
@@ -380,7 +421,7 @@ func TestApproveRefundFullAndPartial(t *testing.T) {
 	repo.orders[2] = order2
 	partial := &model.OrderRefund{ID: 2, OrderID: 2, RefundNo: "RF2", Amount: 30, Status: model.RefundStatusPending}
 	refunds.refunds[2] = partial
-	if _, err := svc.ApproveRefund(context.Background(), 2, 7, "op", ""); err != nil {
+	if _, err := svc.ApproveRefund(context.Background(), 2, 7, "op", dto.RefundApproveRequest{}); err != nil {
 		t.Fatalf("部分退款审核应成功: %v", err)
 	}
 	o2, _ := repo.FindByID(context.Background(), 2)
@@ -389,7 +430,7 @@ func TestApproveRefundFullAndPartial(t *testing.T) {
 	}
 
 	// 重复审核 → 状态冲突。
-	if _, err := svc.ApproveRefund(context.Background(), 1, 7, "op", ""); !errors.Is(err, ErrStatusConflict) {
+	if _, err := svc.ApproveRefund(context.Background(), 1, 7, "op", dto.RefundApproveRequest{}); !errors.Is(err, ErrStatusConflict) {
 		t.Fatalf("重复审核应返回状态冲突, got %v", err)
 	}
 }
@@ -404,7 +445,7 @@ func TestRejectRefundRestoresActive(t *testing.T) {
 	svc := NewOrderService(repo, newFakeItemRepo(), refunds, &fakeProvision{}).(*orderService)
 
 	// 在途的 approved 还在 → 驳回 pending 后订单保持 refunding。
-	if _, err := svc.RejectRefund(context.Background(), 1, 7, "op", ""); err != nil {
+	if _, err := svc.RejectRefund(context.Background(), 1, 7, "op", dto.RefundApproveRequest{}); err != nil {
 		t.Fatalf("驳回应成功: %v", err)
 	}
 	o, _ := repo.FindByID(context.Background(), 1)
@@ -416,7 +457,7 @@ func TestRejectRefundRestoresActive(t *testing.T) {
 	refunds.refunds[2].Status = model.RefundStatusRejected
 	refunds.refunds[3] = &model.OrderRefund{ID: 3, OrderID: 1, RefundNo: "RF3", Amount: 10, Status: model.RefundStatusPending}
 	o.Status = model.OrderStatusRefunding
-	if _, err := svc.RejectRefund(context.Background(), 3, 7, "op", ""); err != nil {
+	if _, err := svc.RejectRefund(context.Background(), 3, 7, "op", dto.RefundApproveRequest{}); err != nil {
 		t.Fatalf("驳回应成功: %v", err)
 	}
 	o, _ = repo.FindByID(context.Background(), 1)

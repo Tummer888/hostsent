@@ -172,6 +172,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*Server, error) {
 		salesPerformanceHandler: a.salesBundle.performanceHandler,
 		orderHandler:            a.orderHandler,
 		refundHandler:           a.refundHandler,
+		refundPolicyHandler:     a.refundPolicyHandler,
 		walletHandler:           a.walletHandler,
 		rechargeHandler:         a.rechargeHandler,
 		withdrawHandler:         a.withdrawHandler,

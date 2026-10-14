@@ -18,6 +18,7 @@ import (
 	transmodel "hostsent/backend/internal/modules/admin/finance/transaction/model"
 	orderhandler "hostsent/backend/internal/modules/admin/order/handler"
 	ordermodel "hostsent/backend/internal/modules/admin/order/model"
+	orderrepo "hostsent/backend/internal/modules/admin/order/repository"
 	orderservice "hostsent/backend/internal/modules/admin/order/service"
 	salesservice "hostsent/backend/internal/modules/admin/system/sales/service"
 	userdto "hostsent/backend/internal/modules/admin/user/account/dto"
@@ -26,6 +27,7 @@ import (
 	ucorderhandler "hostsent/backend/internal/modules/uc/order/handler"
 	ucorderservice "hostsent/backend/internal/modules/uc/order/service"
 	"hostsent/backend/internal/pkg/safego"
+	"hostsent/backend/internal/pkg/storage"
 )
 
 // buildOrder 构造订单服务（履约适配器/返现提成钩子/销售归属）与用户中心下单、后台代下单。
@@ -80,6 +82,40 @@ func (a *asm) buildOrder() {
 	// 销售归属快照：下单/续费瞬间锁定（doc86 §3.4），改派不影响已成交订单。
 	a.orderService.SetSalesOwnerResolver(a.salesBundle.newOrderOwnerPort())
 	a.orderHandler = orderhandler.NewOrderHandler(a.orderService)
+
+	// 退款策略（按商品来源+分类的可退时限与免审开关）：
+	//   商品来源/分类与分类祖先链都由装配层适配进订单域，订单模块不 import 商品模块
+	//   （CONTRIBUTING §3）。
+	refundPolicyRepo := orderrepo.NewRefundPolicyRepository(a.database)
+	a.refundPolicyService = orderservice.NewRefundPolicyService(
+		refundPolicyRepo,
+		productPolicyInfoReader{svc: a.prodCatalogService},
+		categoryChainReader{svc: a.prodCategoryService},
+	)
+	a.refundPolicyService.SetCategoryNameReader(func(ctx context.Context, ids []uint64) (map[uint64]string, error) {
+		names := make(map[uint64]string, len(ids))
+		for _, id := range ids {
+			if info, err := a.prodCategoryService.FindByID(ctx, id); err == nil && info != nil {
+				names[id] = info.Name
+			}
+		}
+		return names, nil
+	})
+	a.refundPolicyHandler = orderhandler.NewRefundPolicyHandler(a.refundPolicyService)
+
+	// 退款审核凭据附件（本地存储，与工单附件同口径）。
+	refundAttachmentRepo := orderrepo.NewRefundAttachmentRepository(a.database)
+	var refundStore *storage.LocalStore
+	if st, serr := storage.NewLocalStore(a.cfg.Storage.Root); serr == nil {
+		refundStore = st
+	} else {
+		a.logger.Warn("退款凭据附件存储初始化失败，附件功能不可用", zap.Error(serr))
+	}
+	a.refundAttachmentService = orderservice.NewRefundAttachmentService(refundAttachmentRepo, refundStore)
+	a.orderService.SetRefundAttachmentReader(a.refundAttachmentService)
+
+	// 退款策略匹配注入订单服务：客户自助退款的时限与免审判定依据。
+	a.orderService.SetRefundPolicyMatcher(a.refundPolicyService)
 	a.userHandler = handler.NewUserHandler(a.userService,
 		// 为用户创建订单：余额支付并开通，或仅创建待支付。
 		// 与用户端下单同口径：按 SKU + 周期 + 客户选配项计价（价格矩阵/折扣/选配加价），
@@ -210,7 +246,7 @@ func (a *asm) buildOrder() {
 				if _, err := a.walletService.Adjust(ctx, accountdto.AdjustRequest{
 					UserID: userID, Type: transmodel.TxTypeAdminOrder, Direction: -1, Amount: price,
 					BizKey: fmt.Sprintf("admin-order-%d", now.UnixNano()),
-					Remark: fmt.Sprintf("后台为用户下单：%s（%s）", product.Name, cycle),
+					Remark: fmt.Sprintf("代客下单：%s（%s）", product.Name, cycle),
 				}, userID); err != nil {
 					if errors.Is(err, finaccountservice.ErrInsufficientBalance) {
 						return nil, errors.New("用户余额不足")
@@ -277,6 +313,7 @@ func (a *asm) buildOrder() {
 		return a.buildAdminOrderQuote(ctx, userID, req)
 	})
 	a.refundHandler = orderhandler.NewRefundHandler(a.orderService)
+	a.refundHandler.SetAttachmentService(a.refundAttachmentService)
 	// 用户中心订单：余额支付下单 + 复用履约适配器开通上游
 	// ensureOpenable：下单前校验商品能否直连开通，财务型上游（账单推送制）不支持单次开通，先拒绝避免误扣款。
 	a.ucOrderService = ucorderservice.NewOrderService(a.prodCatalogService, a.walletService, ucOrderRepoAdapter{repo: a.orderRepo}, a.orderService,
@@ -307,6 +344,8 @@ func (a *asm) buildOrder() {
 	// 开通成功时由 RecordInstance 把占位行就地转正；订单未支付作废时删除占位。
 	// 建/删失败只记日志：不阻断下单与关单主流程。
 	a.ucOrderService.SetLogger(a.logger)
+	// 客户自助退款：uc 薄适配转发到 admin 订单服务（策略/资金链路都在 admin 域）。
+	a.ucOrderService.SetRefundPort(ucRefundAdapter{svc: a.orderService})
 	// 订单选配项可读名：复用商品目录的客户可选项（与购买页同源），
 	// 把订单里落的上游选项/取值 id 翻译成「网络类型：VPC网络」再返回给客户。
 	a.ucOrderService.SetOptionLabelResolver(a.prodCatalogService)

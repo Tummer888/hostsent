@@ -141,12 +141,19 @@ func (a *UpstreamProvisionAdapter) Activate(ctx context.Context, order *model.Or
 	}
 }
 
-// markActive 校验并置订单为服务中。
+// markActive 校验并置订单为服务中，同时记录开通成功时间。
+//
+// activated_at 是退款时限策略的起算点（见 model.Order.ActivatedAt）：
+// 只在首次转入服务中时写，重试/回源推进不覆盖。
 func (a *UpstreamProvisionAdapter) markActive(order *model.Order) error {
 	if err := EnsureStatus(order.Status, model.OrderStatusActive); err != nil {
 		return err
 	}
 	order.Status = model.OrderStatusActive
+	if order.ActivatedAt == nil {
+		now := time.Now()
+		order.ActivatedAt = &now
+	}
 	return nil
 }
 
@@ -347,6 +354,10 @@ func (a *UpstreamProvisionAdapter) advanceLegacy(order *model.Order) error {
 			return err
 		}
 		order.Status = model.OrderStatusActive
+		if order.ActivatedAt == nil {
+			now := time.Now()
+			order.ActivatedAt = &now
+		}
 		return nil
 	default:
 		return ErrStatusConflict

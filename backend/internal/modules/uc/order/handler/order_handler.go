@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"errors"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -206,4 +207,47 @@ func (h *OrderHandler) Cancel(c *gin.Context) {
 		return
 	}
 	response.Success(c, info)
+}
+
+// Refund godoc
+// @Summary 申请退款（按商品退款策略判定时限与免审）
+// @Description 命中免审核策略（自营+退回余额+全额+在时限内）时自动退款并留待财务复核；
+// @Description 原路退回与超出时限/部分情形一律转人工审核。
+// @Tags 用户中心-订单
+// @Security BearerAuth
+// @Param id path int true "订单 ID"
+// @Param request body dto.UserRefundRequest true "退款申请"
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/orders/{id}/refund [post]
+func (h *OrderHandler) Refund(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, apperrors.New(10001, "unauthorized"))
+		return
+	}
+	orderID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		response.Error(c, apperrors.New(20001, "invalid id"))
+		return
+	}
+	var req dto.UserRefundRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	resp, err := h.orderService.RequestRefund(c.Request.Context(), userID, orderID, req)
+	if err != nil {
+		// 业务拒绝（未命中策略/超时限/去向不可用）对客户是「不可退」的明确答复，
+		// 用 20003 与「订单状态不允许该操作」同口径，前端按 message 展示原因。
+		switch {
+		case errors.Is(err, service.ErrOrderNotFound):
+			response.Error(c, apperrors.New(20002, err.Error()))
+		case errors.Is(err, service.ErrRefundUnavailable):
+			response.Error(c, apperrors.New(50001, err.Error()))
+		default:
+			response.Error(c, apperrors.New(20003, err.Error()))
+		}
+		return
+	}
+	response.Success(c, resp)
 }

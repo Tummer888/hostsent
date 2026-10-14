@@ -22,8 +22,20 @@
         <t-button v-else-if="order" variant="outline" :loading="provisioning" @click="refreshProvision">
           刷新开通状态
         </t-button>
+        <!-- 申请退款：是否可退由后端退款策略判定（时限/来源），hint 不通过则不显示入口 -->
+        <t-button v-if="canRequestRefund" variant="outline" theme="warning" @click="openRefundDialog">
+          申请退款
+        </t-button>
       </div>
     </header>
+
+    <!-- 可退时限提示：让客户自己知道窗口还剩多久，减少客服问询 -->
+    <t-alert
+      v-if="order?.refund_hint?.refundable && order?.refund_hint?.window_hours"
+      theme="info"
+      class="order-detail__alert"
+      :message="refundWindowMessage"
+    />
 
     <template v-if="order">
       <!-- 状态与履约：开通失败时把原因直接摊开，用户不必再提工单问 -->
@@ -145,16 +157,65 @@
       :submit="submitPay"
       @paid="onPaid"
     />
+
+    <!-- 申请退款：去向可选性、金额与时限全部由后端策略下发 -->
+    <t-dialog
+      v-model:visible="refundVisible"
+      header="申请退款"
+      width="480px"
+      :confirm-btn="{ content: '提交申请', theme: 'warning', loading: refundSubmitting }"
+      :cancel-btn="{ content: '取消' }"
+      @confirm="submitRefund"
+      @close="refundVisible = false"
+    >
+      <t-form label-align="top" :data="refundForm" @submit.prevent>
+        <t-form-item label="可退金额">
+          <t-alert theme="warning" :message="`本单可退 ¥${(order?.refund_hint?.max_amount || 0).toFixed(2)}`" />
+        </t-form-item>
+        <t-form-item label="退款去向">
+          <div class="refund-mode">
+            <t-radio-group v-model="refundForm.refund_mode">
+              <t-radio-button value="balance">退回余额</t-radio-button>
+              <!-- 只有存在渠道支付记录的订单才允许原路退回（否则资金只能在平台内流转） -->
+              <t-radio-button v-if="order?.refund_hint?.channel_allowed" value="channel">原路退回</t-radio-button>
+            </t-radio-group>
+            <p class="form-hint">
+              {{
+                refundForm.refund_mode === 'balance'
+                  ? autoApproveHint
+                  : '原路退回：由客服人工审核后原路打回，处理时间以支付渠道为准。'
+              }}
+            </p>
+          </div>
+        </t-form-item>
+        <t-form-item label="退款原因">
+          <div class="refund-reason">
+            <t-select
+              v-model="refundForm.reasonPreset"
+              :options="refundReasonPresets"
+              clearable
+              placeholder="选择常用原因（自动填入下方，可修改）"
+              @change="applyReasonPreset"
+            />
+            <t-textarea
+              v-model="refundForm.reason"
+              :autosize="{ minRows: 2, maxRows: 4 }"
+              placeholder="请填写退款原因"
+            />
+          </div>
+        </t-form-item>
+      </t-form>
+    </t-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { OrderIcon } from 'tdesign-icons-vue-next'
 
-import { cancelOrder, getOrderDetail, payOrder, type OrderInfo } from '@/api/shop'
+import { cancelOrder, getOrderDetail, payOrder, requestRefund, type OrderInfo } from '@/api/shop'
 import PaymentCashier, { type CashierPayment } from '@/components/payment-cashier/index.vue'
 
 defineOptions({ name: 'OrderDetail' })
@@ -173,6 +234,88 @@ const isPending = computed(() => order.value?.status === 'pending')
 
 const cashierVisible = ref(false)
 const cancelling = ref(false)
+
+// —— 申请退款 ——
+// 是否可退、能退多少、可选去向、是否免审核，全部由后端退款策略判定（refund_hint）。
+const refundVisible = ref(false)
+const refundSubmitting = ref(false)
+const refundReasonPresets = [
+  { label: '24 小时内无理由退款', value: '24 小时内无理由退款' },
+  { label: '误购或重复下单', value: '误购或重复下单' },
+  { label: '规格与需求不符', value: '规格与需求不符' },
+  { label: '开通失败无法交付', value: '开通失败无法交付' },
+  { label: '服务质量问题（网络/性能）', value: '服务质量问题（网络/性能）' },
+  { label: '客服协商退款', value: '客服协商退款' },
+  { label: '其他（请补充说明）', value: '其他（请补充说明）' },
+]
+
+const refundForm = reactive<{ refund_mode: string; reason: string; reasonPreset: string }>({
+  refund_mode: 'balance',
+  reason: '',
+  reasonPreset: '',
+})
+
+const canRequestRefund = computed(() => Boolean(order.value?.refund_hint?.refundable))
+
+// 剩余时限提示：窗口只剩不到 2 小时时用醒目色，避免客户点进来才发现已过期。
+const refundWindowMessage = computed(() => {
+  const hint = order.value?.refund_hint
+  if (!hint?.deadline) return `本单支持 ${hint?.window_hours} 小时内申请退款（自开通成功起算）`
+  const left = new Date(hint.deadline).getTime() - Date.now()
+  if (left <= 0) return '退款申请时限已过'
+  const hours = Math.floor(left / 3600000)
+  const minutes = Math.floor((left % 3600000) / 60000)
+  return hours > 0
+    ? `本单可在开通后 ${hint.window_hours} 小时内申请退款，剩余约 ${hours} 小时 ${minutes} 分钟`
+    : `本单可在开通后 ${hint.window_hours} 小时内申请退款，剩余约 ${minutes} 分钟`
+})
+
+const autoApproveHint = computed(() =>
+  order.value?.refund_hint?.auto_approve
+    ? '退回余额：符合免审核条件时将立即退回余额（财务会随后复核）。'
+    : '退回余额：提交后由客服审核，通过后退回余额。',
+)
+
+function openRefundDialog() {
+  const hint = order.value?.refund_hint
+  refundForm.refund_mode = 'balance'
+  refundForm.reason = ''
+  refundForm.reasonPreset = ''
+  // 只允许余额支付订单退余额；有渠道记录的默认也走余额（原路退回需人工审核，由客户主动选）。
+  if (!hint?.channel_allowed) refundForm.refund_mode = 'balance'
+  refundVisible.value = true
+}
+
+function applyReasonPreset(value: unknown) {
+  const text = typeof value === 'string' ? value : ''
+  if (text) refundForm.reason = text
+}
+
+async function submitRefund() {
+  if (!order.value) return
+  if (!refundForm.reason.trim()) {
+    MessagePlugin.warning('请填写退款原因')
+    return
+  }
+  refundSubmitting.value = true
+  try {
+    const { data } = await requestRefund(order.value.id, {
+      reason: refundForm.reason.trim(),
+      refund_mode: refundForm.refund_mode,
+    })
+    refundVisible.value = false
+    if (data.auto_approved) {
+      MessagePlugin.success(data.hint || '已退款至余额')
+    } else {
+      MessagePlugin.success(data.hint || '退款申请已提交，等待审核')
+    }
+    await load()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '退款申请失败')
+  } finally {
+    refundSubmitting.value = false
+  }
+}
 
 function submitPay(channelCode: string, scene: string): Promise<CashierPayment> {
   return payOrder(order.value!.id, { channel_code: channelCode, scene }).then(({ data }) => ({
@@ -331,6 +474,7 @@ function statusText(s: string): string {
       paid: '已支付',
       provisioning: '开通中',
       active: '服务中',
+      refunding: '退款中',
       cancelled: '已取消',
       closed: '已关闭',
       refunded: '已退款',
@@ -341,7 +485,7 @@ function statusText(s: string): string {
 
 function statusTheme(s: string): 'success' | 'warning' | 'default' | 'danger' {
   if (s === 'active' || s === 'paid' || s === 'completed') return 'success'
-  if (s === 'provisioning' || s === 'pending') return 'warning'
+  if (s === 'provisioning' || s === 'pending' || s === 'refunding') return 'warning'
   if (s === 'cancelled' || s === 'refunded' || s === 'closed') return 'danger'
   return 'default'
 }

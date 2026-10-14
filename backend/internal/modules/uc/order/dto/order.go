@@ -197,6 +197,8 @@ type OrderInfo struct {
 	Remark string `json:"remark,omitempty"`
 	// CustomerRemark 客户备注（客户下单填写的那条）。
 	CustomerRemark string `json:"customer_remark,omitempty"`
+	// RefundHint 可退性提示（详情接口填充）：前端据此展示「申请退款」入口与时限。
+	RefundHint *OrderRefundHint `json:"refund_hint,omitempty"`
 }
 
 // PayInfo 发起收银台支付的结果：收银台组件渲染所需参数（与支付中心 OrderInfo 同口径裁剪）。
@@ -271,4 +273,41 @@ type ListResponse struct {
 	Page     int         `json:"page"`
 	PageSize int         `json:"page_size"`
 	Total    int64       `json:"total"`
+}
+
+// UserRefundRequest 客户自助退款申请。
+type UserRefundRequest struct {
+	// Reason 退款原因（必填：审核与后续复盘依据）。
+	Reason string `json:"reason" binding:"required"`
+	// RefundMode 期望去向：balance=退回余额（默认）/ channel=原路退回。
+	// 余额支付的订单只能选 balance；前端按 RefundHint.ChannelAllowed 锁定。
+	RefundMode string `json:"refund_mode"`
+}
+
+// UserRefundResult 退款申请结果。
+type UserRefundResult struct {
+	RefundNo string `json:"refund_no"`
+	// AutoApproved=true 表示已免审核自动退款（财务会再复核一次）。
+	AutoApproved bool    `json:"auto_approved"`
+	Amount       float64 `json:"amount"`
+	Status       string  `json:"status"`
+	// Hint 展示给客户的提示文案。
+	Hint string `json:"hint"`
+}
+
+// OrderRefundHint 订单可退性提示（详情页据此决定是否展示「申请退款」入口）。
+type OrderRefundHint struct {
+	Refundable bool `json:"refundable"`
+	// WindowHours 可退时限（小时）；0 = 不限时。
+	WindowHours int `json:"window_hours"`
+	// Deadline 可退截止时间（RFC3339）；不限时为空串。
+	Deadline string `json:"deadline,omitempty"`
+	// AutoApprove 命中免审核自动退款（退回余额 + 全额 + 在时限内）。
+	AutoApprove bool `json:"auto_approve"`
+	// ChannelAllowed 是否允许选原路退回（有渠道支付记录的订单才为 true）。
+	ChannelAllowed bool `json:"channel_allowed"`
+	// MaxAmount 可退金额上限（实付 - 已生效退款）。
+	MaxAmount float64 `json:"max_amount"`
+	// Reason 不可退原因（Refundable=false 时展示）。
+	Reason string `json:"reason,omitempty"`
 }

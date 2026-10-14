@@ -63,8 +63,11 @@ type Order struct {
 	Status      string     `gorm:"size:32;not null;default:pending;index"`                    // 订单状态
 	PayMethod   string     `gorm:"column:pay_method;size:20"`                                 // 支付方式
 	PayTime     *time.Time `gorm:"column:pay_time"`                                           // 支付时间
-	ExpireTime  *time.Time `gorm:"column:expire_time"`                                        // 过期/计费到期时间
-	Remark      string     `gorm:"size:255"`                                                  // 管理员备注（内部可见）
+	// ActivatedAt 开通成功时间（订单转为服务中的时刻）：退款时限策略的起算点。
+	// pay_time 是「付钱」，本列是「交付」—— 退款窗口按交付时间算（doc 退款策略）。
+	ActivatedAt *time.Time `gorm:"column:activated_at"`
+	ExpireTime  *time.Time `gorm:"column:expire_time"` // 过期/计费到期时间
+	Remark      string     `gorm:"size:255"`           // 管理员备注（内部可见）
 	// CustomerRemark 客户备注：客户下单时填写（或事后自助修改），随履约带入实例
 	// （instances.customer_remark）。与 Remark 严格分开，避免内部备注泄漏给客户。
 	CustomerRemark string `gorm:"column:customer_remark;size:255"`   // 客户备注
@@ -92,10 +95,20 @@ type Order struct {
 	// 订单是异步开通链路里唯一贯穿的载体（占位实例 / worker 转正都重读订单），
 	// 因此运营承诺的单机续费价必须在这里留快照，开通后落到 instances.renewal_price。
 	RenewalPrice *float64 `gorm:"column:renewal_price;type:decimal(15,2)"`
+	// 核验标记（运营侧人工核对开通结果）：只做标记，不参与状态机流转。
+	// 系统配置 order_verify_required 开启时，「服务中且未核验」的订单在读取期推导为「待核验」。
+	// 独立成列而不是新增订单状态：核验不阻断开通/退款，塞进 status 会把状态机与统计口径全部拖下水。
+	VerifiedAt     *time.Time `gorm:"column:verified_at"`              // 核验时间（NULL=未核验）
+	VerifiedBy     uint64     `gorm:"column:verified_by;default:0"`    // 核验人（admins.id）
+	VerifiedByName string     `gorm:"column:verified_by_name;size:50"` // 核验人姓名快照
+	VerifyRemark   string     `gorm:"column:verify_remark;size:255"`   // 核验备注
 	// 查询期附加字段（不落库，doc36 §3.1）：由支付中心 payment_orders 反查填充，
 	// 列表与详情据此展示并检索支付单号 / 渠道流水号。
 	PaymentNo string `gorm:"-"`
 	ChannelTx string `gorm:"-"`
+	// 查询期附加字段（不落库）：订单关联实例（装配层注入读取端口回填，未开通为占位实例）。
+	InstanceID uint64 `gorm:"-"`
+	InstanceNo string `gorm:"-"`
 }
 
 // TableName 指定表名

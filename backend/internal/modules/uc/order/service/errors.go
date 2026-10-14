@@ -17,3 +17,6 @@ var (
 	// ErrPayModeInvalid 支付方式非法
 	ErrPayModeInvalid = errors.New("不支持的支付方式")
 )
+
+// ErrRefundUnavailable 退款能力未启用（装配层未注入退款端口）。
+var ErrRefundUnavailable = errors.New("退款功能暂不可用")

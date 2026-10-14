@@ -145,10 +145,19 @@ func (r *repository) OrderStatus(ctx context.Context, orderID uint64) (string, e
 
 // AdvanceOrderToActive 只认 provisioning → active 这一条迁移（CAS）。
 // 已 refuned/cancelled 的订单不因上游一句推送被复活——那是状态机的事，不是推送的事。
+//
+// 同时补写 activated_at（开通成功时间，退款时限起算点）：这是与
+// UpstreamProvisionAdapter.markActive 并列的另一条「订单转服务中」入口，
+// 漏了它会导致经上游推送开通的订单没有起算点。用 COALESCE 语义只补空值。
 func (r *repository) AdvanceOrderToActive(ctx context.Context, orderID uint64) (bool, error) {
+	now := time.Now()
 	res := r.db.WithContext(ctx).Table("orders").
 		Where("id = ? AND status = ?", orderID, "provisioning").
-		Updates(map[string]any{"status": "active", "updated_at": time.Now()})
+		Updates(map[string]any{
+			"status":       "active",
+			"activated_at": gorm.Expr("COALESCE(activated_at, ?)", now),
+			"updated_at":   now,
+		})
 	return res.RowsAffected > 0, res.Error
 }
 

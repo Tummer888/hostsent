@@ -171,6 +171,9 @@ func registerUCRoutes(r *gin.Engine, app *App) {
 		ucOrders.POST("/:id/cancel", app.userPerm(appauth.PermOrderCreate), app.ucOrderHandler.Cancel)
 		// 发起收银台支付属资金支出（rejectSub）：子账号硬拒绝，与充值/提现同口径（P4-06）。
 		ucOrders.POST("/:id/pay", app.userPerm(appauth.PermOrderCreate), app.rejectSub(), app.ucOrderHandler.Pay)
+		// 申请退款同属资金进出（rejectSub）：子账号硬拒绝。
+		// 是否可退由退款策略（商品来源+分类的时限/免审配置）判定，超时限或未命中策略一律拒绝。
+		ucOrders.POST("/:id/refund", app.userPerm(appauth.PermOrderCreate), app.rejectSub(), app.ucOrderHandler.Refund)
 		// 订单详情：仅返回订单归属账号下的订单，他人订单按不存在处理。
 		ucOrders.GET("/:id", app.userPerm(appauth.PermOrderView), app.ucOrderHandler.Detail)
 	}

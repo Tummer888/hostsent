@@ -181,6 +181,7 @@ export const navMenu: NavMenuEntry[] = [
       { title: '订单列表', path: '/orders/list', icon: navIcon('order') },
       { title: '退款管理', path: '/orders/refunds', icon: navIcon('money') },
       { title: '订单统计', path: '/orders/stats', icon: navIcon('chart-bar') },
+      { title: '退款策略', path: '/orders/refund-policy', icon: navIcon('setting') },
     ],
   },
   {

@@ -518,6 +518,12 @@ const routes: Array<RouteRecordRaw> = [
         component: () => import('@/pages/order/stats/index.vue'),
         meta: { title: '订单统计', role: 'admin', permission: 'order:stats' },
       },
+      {
+        path: 'refund-policy',
+        name: 'OrderRefundPolicy',
+        component: () => import('@/pages/order/refund-policy/index.vue'),
+        meta: { title: '退款策略', role: 'admin', permission: 'order:refund:policy' },
+      },
     ],
   },
   {

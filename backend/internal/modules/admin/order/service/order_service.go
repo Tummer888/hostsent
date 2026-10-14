@@ -65,8 +65,46 @@ type OrderService interface {
 	// 退款管理
 	ListRefunds(ctx context.Context, q dto.RefundListQuery) (*dto.RefundListResponse, error)
 	FindRefund(ctx context.Context, id uint64) (*dto.RefundInfo, error)
-	ApproveRefund(ctx context.Context, id uint64, operatorID uint64, operatorName string, remark string) (*dto.RefundInfo, error)
-	RejectRefund(ctx context.Context, id uint64, operatorID uint64, operatorName string, remark string) (*dto.RefundInfo, error)
+	ApproveRefund(ctx context.Context, id uint64, operatorID uint64, operatorName string, req dto.RefundApproveRequest) (*dto.RefundInfo, error)
+	RejectRefund(ctx context.Context, id uint64, operatorID uint64, operatorName string, req dto.RefundApproveRequest) (*dto.RefundInfo, error)
+	// UserCreateRefund 客户自助申请退款（uc 通道）：按退款策略判定时限与免审，
+	// 命中免审条件时直接完成退款并置事后待复核；其余情况落待审核单等人工处理。
+	UserCreateRefund(ctx context.Context, userID, orderID uint64, req dto.UserRefundRequest) (*dto.UserRefundResult, error)
+	// RefundPolicyHint 订单可退性提示（uc/管理端详情展示是否给申请入口）。
+	RefundPolicyHint(ctx context.Context, order *model.Order) *dto.OrderRefundPolicyHint
+	// 事后复核（免审核自动退款）
+	ReviewRefund(ctx context.Context, id uint64, operatorID uint64, operatorName, remark string) (*dto.RefundInfo, error)
+	// SetRefundPolicyMatcher 注入退款策略匹配（装配层调用）。
+	SetRefundPolicyMatcher(m RefundPolicyMatcher)
+	// SetChannelPaymentChecker 注入「订单是否有渠道支付记录」判据（装配层调用）：
+	// 无渠道支付记录的订单（余额支付）不允许选原路退回。
+	SetChannelPaymentChecker(fn func(ctx context.Context, orderNo string) bool)
+	// SetRefundAttachmentReader 注入退款凭据附件读取（装配层调用，详情展示用）。
+	SetRefundAttachmentReader(svc RefundAttachmentService)
+	// 订单核验（运营人工核对开通结果，仅标记不流转状态）
+	Verify(ctx context.Context, id uint64, operatorID uint64, operatorName string, remark string) error
+	// 批量操作：逐条复用单条逻辑（含状态守卫与副作用），返回成功/跳过/失败明细。
+	BatchCancel(ctx context.Context, ids []uint64, operatorID uint64, operatorName string) (*dto.BatchActionResponse, error)
+	BatchActivate(ctx context.Context, ids []uint64) (*dto.BatchActionResponse, error)
+	BatchVerify(ctx context.Context, ids []uint64, operatorID uint64, operatorName string, remark string) (*dto.BatchActionResponse, error)
+	BatchDelete(ctx context.Context, ids []uint64) (*dto.BatchActionResponse, error)
+	BatchApproveRefunds(ctx context.Context, ids []uint64, operatorID uint64, operatorName string, remark string) (*dto.BatchActionResponse, error)
+	BatchRejectRefunds(ctx context.Context, ids []uint64, operatorID uint64, operatorName string, remark string) (*dto.BatchActionResponse, error)
+	// SetInstanceRefReader 注入订单关联实例的批量读取（装配层调用，列表/详情展示跳转用）。
+	SetInstanceRefReader(fn func(ctx context.Context, orderIDs []uint64) (map[uint64]OrderInstanceRef, error))
+	// SetVerifyRequiredReader 注入「是否需要人工核验」判据（装配层读系统配置 order_verify_required）。
+	SetVerifyRequiredReader(fn func(ctx context.Context) bool)
+}
+
+// OrderInstanceRef 订单关联实例的最小引用。
+//
+// 只在订单域内使用的基础类型：由装配层把实例域的行转成它，订单模块不 import 实例域
+// （CONTRIBUTING §3 依赖方向）。
+type OrderInstanceRef struct {
+	ID uint64 // instances.id（前端跳转 /instances/detail/:id 用）
+	No string // 实例号（上游实例号优先，占位期为 pending-<订单号>）
+	// Pending 表示该行仍是「待开通」占位实例（provider_instance_id 为空未转正）。
+	Pending bool
 }
 
 // OrderCashbackHook 订单完成（开通成功）后的推广返现计提钩子。
@@ -129,6 +167,20 @@ type orderService struct {
 	// stockReleaser 可选：订单作废时回补占用的库存（SKU 或商品级）。
 	// 为 nil 时跳过（不影响取消主流程）。
 	stockReleaser func(ctx context.Context, order *model.Order) error
+	// instanceRefs 可选：批量读取订单关联实例（列表/详情「关联实例」跳转用）。
+	// 为 nil 时列表不返回该字段（不影响既有功能）。
+	instanceRefs func(ctx context.Context, orderIDs []uint64) (map[uint64]OrderInstanceRef, error)
+	// verifyRequired 可选：是否需要人工核验（系统配置 order_verify_required）。
+	// 为 nil 或返回 false 时，读取期不推导「待核验」，核验入口仍可用（运营可随时手工核验）。
+	verifyRequired func(ctx context.Context) bool
+	// refundPolicy 可选：退款策略匹配（按商品来源+分类判定时限与免审）。
+	// 为 nil 时客户自助退款一律拒绝（保守默认：未配置策略即不开放，见 RefundPolicyHint）。
+	refundPolicy RefundPolicyMatcher
+	// channelPaymentChecker 可选：订单是否存在渠道支付记录。
+	// 为 nil 时保守处理（视为无渠道记录 → 只允许退回余额）。
+	channelPaymentChecker func(ctx context.Context, orderNo string) bool
+	// refundAttachments 可选：退款凭据附件读取（退款详情展示）。
+	refundAttachments RefundAttachmentService
 	// logger 可选日志。
 	logger *zap.Logger
 }
@@ -146,6 +198,31 @@ func (s *orderService) SetStockReleaser(fn func(ctx context.Context, order *mode
 // SetProvisionTaskReader 注入开通任务批量读取（装配层调用，避免订单服务依赖任务仓储）。
 func (s *orderService) SetProvisionTaskReader(fn func(ctx context.Context, orderIDs []uint64) (map[uint64]*model.ProvisionTask, error)) {
 	s.provisionTasks = fn
+}
+
+// SetInstanceRefReader 注入订单关联实例的批量读取（装配层调用）。
+func (s *orderService) SetInstanceRefReader(fn func(ctx context.Context, orderIDs []uint64) (map[uint64]OrderInstanceRef, error)) {
+	s.instanceRefs = fn
+}
+
+// SetVerifyRequiredReader 注入「是否需要人工核验」判据（装配层读系统配置）。
+func (s *orderService) SetVerifyRequiredReader(fn func(ctx context.Context) bool) {
+	s.verifyRequired = fn
+}
+
+// SetRefundPolicyMatcher 注入退款策略匹配（装配层调用）。
+func (s *orderService) SetRefundPolicyMatcher(m RefundPolicyMatcher) {
+	s.refundPolicy = m
+}
+
+// SetChannelPaymentChecker 注入渠道支付记录判据（装配层调用）。
+func (s *orderService) SetChannelPaymentChecker(fn func(ctx context.Context, orderNo string) bool) {
+	s.channelPaymentChecker = fn
+}
+
+// SetRefundAttachmentReader 注入退款凭据附件读取（装配层调用，详情展示用）。
+func (s *orderService) SetRefundAttachmentReader(svc RefundAttachmentService) {
+	s.refundAttachments = svc
 }
 
 // SetLogger 注入日志器（装配层调用）。
@@ -301,15 +378,69 @@ func (s *orderService) List(ctx context.Context, q dto.OrderListQuery) (*dto.Ord
 	}
 	respItems := make([]dto.OrderInfo, 0, len(items))
 	tasks := s.provisionTaskMap(ctx, items)
+	refs := s.instanceRefMap(ctx, items)
+	verifyRequired := s.verifyRequiredNow(ctx)
 	for _, item := range items {
 		info := buildOrderInfo(item)
 		if task := tasks[item.ID]; task != nil {
 			info.ProvisionStatus = task.Status
 			info.ProvisionError = task.LastError
 		}
+		applyInstanceRef(&info, refs[item.ID])
+		applyVerifyState(&info, verifyRequired)
 		respItems = append(respItems, info)
 	}
 	return &dto.OrderListResponse{Items: respItems, Meta: dto.ListMeta{Page: page, PageSize: pageSize, Total: total}}, nil
+}
+
+// instanceRefMap 批量读取订单关联实例（未注入读取器或读取失败返回空表：
+// 关联实例只是列表的附加信息，不能因为读不到就让订单列表整体失败）。
+func (s *orderService) instanceRefMap(ctx context.Context, items []model.Order) map[uint64]OrderInstanceRef {
+	if s.instanceRefs == nil || len(items) == 0 {
+		return nil
+	}
+	ids := make([]uint64, 0, len(items))
+	for i := range items {
+		ids = append(ids, items[i].ID)
+	}
+	refs, err := s.instanceRefs(ctx, ids)
+	if err != nil {
+		return nil
+	}
+	return refs
+}
+
+// verifyRequiredNow 当前是否要求人工核验（未注入判据时视为不要求）。
+func (s *orderService) verifyRequiredNow(ctx context.Context) bool {
+	if s.verifyRequired == nil {
+		return false
+	}
+	return s.verifyRequired(ctx)
+}
+
+// applyInstanceRef 回填关联实例字段。
+func applyInstanceRef(info *dto.OrderInfo, ref OrderInstanceRef) {
+	if ref.ID == 0 {
+		return
+	}
+	info.InstanceID = ref.ID
+	info.InstanceNo = ref.No
+	info.InstancePending = ref.Pending
+}
+
+// applyVerifyState 回填核验字段并推导「待核验」。
+//
+// 推导口径：要求核验 + 服务中（active）+ 未核验 → pending。
+// 只在读取期推导，不落库、不改状态机：核验不阻断任何流转（详见 model.Order 注释）。
+func applyVerifyState(info *dto.OrderInfo, verifyRequired bool) {
+	info.VerifyRequired = verifyRequired
+	if info.VerifiedAt != "" {
+		info.VerifyState = dto.VerifyStateVerified
+		return
+	}
+	if verifyRequired && info.Status == model.OrderStatusActive {
+		info.VerifyState = dto.VerifyStatePending
+	}
 }
 
 // provisionTaskMap 批量读取订单的开通任务（未注入读取器或读取失败返回空表：
@@ -359,6 +490,11 @@ func (s *orderService) FindByID(ctx context.Context, id uint64) (*dto.OrderDetai
 			info.ProvisionAttempts = task.Attempts
 		}
 	}
+	// 关联实例（跳转实例详情）与核验状态。
+	if refs := s.instanceRefMap(ctx, []model.Order{*item}); refs != nil {
+		applyInstanceRef(&info, refs[item.ID])
+	}
+	applyVerifyState(&info, s.verifyRequiredNow(ctx))
 	return &dto.OrderDetail{OrderInfo: info, Items: itemInfos, Refunds: refundInfos}, nil
 }
 
@@ -405,8 +541,19 @@ func (s *orderService) UpdateRemark(ctx context.Context, id uint64, remark strin
 	return s.orderRepo.Update(ctx, item)
 }
 
-// CreateRefund 发起退款：校验可退金额，创建待审核退款单，服务中订单转入退款中。
+// CreateRefund 管理端发起退款：校验可退金额，创建待审核退款单，服务中订单转入退款中。
+//
+// 运营保留完全裁量权：管理端发起**不受退款策略（时限/来源）限制**，
+// 策略只约束客户自助申请（见 UserCreateRefund）。
 func (s *orderService) CreateRefund(ctx context.Context, id uint64, req dto.RefundCreateRequest, operatorID uint64, operatorName string) (*dto.RefundInfo, error) {
+	return s.createRefund(ctx, id, req, operatorID, operatorName, model.RefundOriginAdmin)
+}
+
+// createRefund 退款单创建（管理端与用户自助共用）。
+//
+// 与调用方的分工：本函数只做「订单状态 + 金额 + 去向」校验与落单，
+// 策略/时限/免审判定由 UserCreateRefund 前置完成。
+func (s *orderService) createRefund(ctx context.Context, id uint64, req dto.RefundCreateRequest, operatorID uint64, operatorName, origin string) (*dto.RefundInfo, error) {
 	item, err := s.orderRepo.FindByID(ctx, id)
 	if err != nil {
 		return nil, mapOrderErr(err)
@@ -452,6 +599,7 @@ func (s *orderService) CreateRefund(ctx context.Context, id uint64, req dto.Refu
 		RefundMode: refundMode,
 		FeeAmount:  fee,
 		NetAmount:  round2(req.Amount + fee),
+		Origin:     origin,
 	}
 	if err := s.refundRepo.Create(ctx, refund); err != nil {
 		return nil, err
@@ -469,6 +617,217 @@ func (s *orderService) CreateRefund(ctx context.Context, id uint64, req dto.Refu
 		}
 	}
 	return s.FindRefund(ctx, refund.ID)
+}
+
+// —— 客户自助退款（策略 + 分级审核）——
+
+// RefundPolicyHint 计算订单当前的可退性提示。
+//
+// 判定要点：
+//   - 未命中策略（含未配策略）→ 不可自助申请（保守默认）；
+//   - 已开通的订单按「开通成功时间 + 策略时限」判是否过期；未开通（paid/provisioning）
+//     不受时限约束（尚未交付，客户可随时申请），但仍需人工审核；
+//   - AutoApprove 只在「退回余额 + 全额」时才可能为 true（见 UserCreateRefund）。
+func (s *orderService) RefundPolicyHint(ctx context.Context, order *model.Order) *dto.OrderRefundPolicyHint {
+	if order == nil {
+		return nil
+	}
+	effective, err := s.refundRepo.SumEffective(ctx, order.ID)
+	if err != nil {
+		effective = 0
+	}
+	maxAmount := round2(order.PaidAmount - effective)
+	hint := &dto.OrderRefundPolicyHint{
+		MaxAmount:      maxAmount,
+		ChannelAllowed: s.hasChannelPayment(ctx, order.OrderNo),
+	}
+	// 订单状态本身不可退时直接说明（终态/未支付）。
+	switch order.Status {
+	case model.OrderStatusPaid, model.OrderStatusProvisioning, model.OrderStatusActive, model.OrderStatusRefunding:
+	default:
+		hint.Reason = "当前订单状态不可申请退款"
+		return hint
+	}
+	if maxAmount <= 0 {
+		hint.Reason = "该订单已无可退金额"
+		return hint
+	}
+	decision, derr := s.resolveRefundPolicy(ctx, order.ProductID)
+	if derr != nil || decision == nil || !decision.Refundable {
+		hint.Reason = "该商品不支持自助申请退款，请联系客服"
+		return hint
+	}
+	hint.WindowHours = decision.WindowHours
+	hint.AutoApprove = decision.AutoApprove
+	// 时限只对「已开通」的订单生效；未开通订单不设截止时间。
+	if order.ActivatedAt != nil && decision.WindowHours > 0 {
+		deadline := order.ActivatedAt.Add(time.Duration(decision.WindowHours) * time.Hour)
+		hint.Deadline = deadline.Format(time.RFC3339)
+		if time.Now().After(deadline) {
+			hint.Reason = fmt.Sprintf("已超过 %d 小时可退时限", decision.WindowHours)
+			return hint
+		}
+	}
+	hint.Refundable = true
+	return hint
+}
+
+// resolveRefundPolicy 解析订单商品的生效策略（未注入匹配器时返回 nil）。
+func (s *orderService) resolveRefundPolicy(ctx context.Context, productID uint64) (*RefundPolicyDecision, error) {
+	if s.refundPolicy == nil {
+		return nil, nil
+	}
+	return s.refundPolicy.Resolve(ctx, productID)
+}
+
+// hasChannelPayment 订单是否有渠道支付记录（nil 判据时保守返回 false）。
+func (s *orderService) hasChannelPayment(ctx context.Context, orderNo string) bool {
+	if s.channelPaymentChecker == nil {
+		return false
+	}
+	return s.channelPaymentChecker(ctx, orderNo)
+}
+
+// UserCreateRefund 客户自助申请退款。
+//
+// 分流规则（与运营确认的口径）：
+//  1. 归属与状态校验 → 可退上限校验；
+//  2. 去向校验：只有存在渠道支付记录的订单才能选「原路退回」，余额支付订单强制「退回余额」；
+//  3. 时限校验：策略按「商品来源 + 分类」匹配；已开通订单须在 window 内
+//     （未开通订单不受时限约束 —— 尚未交付）；未命中策略或 strategy.Refundable=false 一律拒绝；
+//  4. 分级：
+//     · 全额 + 退回余额 + 策略 auto_approve + 在时限内 → **免审核自动退款**，
+//     走完整审核链路（余额回补/返现冲减/实例按生命周期策略处置），
+//     并置 review_state=pending 留一道事后复核；
+//     · 其余全部（原路退回 / 部分金额 / 免审关闭 / 超时）→ 落待审核单等人工处理。
+//
+// 重要：原路退回永远不自动退 —— 目前没有渠道自动退款接口，钱要人工打出去，
+// 必须有人在这一步核对并上传凭据（evidence_no + 附件）。
+func (s *orderService) UserCreateRefund(ctx context.Context, userID, orderID uint64, req dto.UserRefundRequest) (*dto.UserRefundResult, error) {
+	item, err := s.orderRepo.FindByID(ctx, orderID)
+	if err != nil {
+		return nil, mapOrderErr(err)
+	}
+	// 归属校验：他人订单一律按「不存在」处理，不泄漏订单存在性。
+	if item.UserID != userID {
+		return nil, ErrOrderNotFound
+	}
+	hint := s.RefundPolicyHint(ctx, item)
+	if hint == nil || !hint.Refundable {
+		reason := "该订单当前不可申请退款"
+		if hint != nil && hint.Reason != "" {
+			reason = hint.Reason
+		}
+		return nil, fmt.Errorf("%w：%s", ErrRefundNotAllowed, reason)
+	}
+
+	// 去向：默认退回余额；选原路退回必须先有渠道支付记录。
+	refundMode := strings.TrimSpace(req.RefundMode)
+	if refundMode == "" {
+		refundMode = model.RefundModeBalance
+	}
+	if refundMode != model.RefundModeBalance && refundMode != model.RefundModeChannel {
+		return nil, ErrRefundModeInvalid
+	}
+	if refundMode == model.RefundModeChannel && !hint.ChannelAllowed {
+		return nil, ErrRefundChannelUnavailable
+	}
+
+	// 金额：自助申请固定按可退上限全额（部分退款属补偿，由运营在管理端发起）。
+	amount := hint.MaxAmount
+	if amount <= 0 {
+		return nil, ErrRefundExceeded
+	}
+
+	// 免审资格在落单**之前**判定：createRefund 会把服务中订单推进为退款中，
+	// 落单后再读状态已经不是下判断时的样子了。
+	// 仅「全额 + 退回余额 + 策略允许 + 已开通」才自动退；未开通订单虽然可申请，
+	// 但一律走人工审核（可能涉及上游退单等线下动作）。
+	autoEligible := refundMode == model.RefundModeBalance &&
+		hint.AutoApprove &&
+		item.Status == model.OrderStatusActive &&
+		item.ActivatedAt != nil
+
+	createReq := dto.RefundCreateRequest{
+		Amount:     amount,
+		Reason:     strings.TrimSpace(req.Reason),
+		RefundMode: refundMode,
+	}
+	info, err := s.createRefund(ctx, orderID, createReq, userID, "", model.RefundOriginUser)
+	if err != nil {
+		return nil, err
+	}
+
+	if !autoEligible {
+		return &dto.UserRefundResult{
+			RefundNo: info.RefundNo,
+			Amount:   amount,
+			Status:   model.RefundStatusPending,
+			Hint:     "退款申请已提交，等待人工审核",
+		}, nil
+	}
+
+	// 自动退款：复用管理端审核链路（资金出口 + 返现冲减 + 实例处置钩子全部生效），
+	// 之后把退款单置为「待复核」——自动退出去的钱必须有人回头核对。
+	approved, err := s.ApproveRefund(ctx, info.ID, 0, "系统自动退款",
+		dto.RefundApproveRequest{Remark: "命中免审核策略，系统自动通过"})
+	if err != nil {
+		// 自动审核失败不吞掉申请：退款单已落库为 pending，转人工处理更安全。
+		if s.logger != nil {
+			s.logger.Warn("auto approve refund failed, fallback to manual",
+				zap.Uint64("refund_id", info.ID), zap.Uint64("order_id", orderID), zap.Error(err))
+		}
+		return &dto.UserRefundResult{
+			RefundNo: info.RefundNo,
+			Amount:   amount,
+			Status:   model.RefundStatusPending,
+			Hint:     "退款申请已提交，等待人工审核",
+		}, nil
+	}
+	if err := s.markRefundPendingReview(ctx, info.ID); err != nil && s.logger != nil {
+		s.logger.Warn("mark refund pending review failed", zap.Uint64("refund_id", info.ID), zap.Error(err))
+	}
+	return &dto.UserRefundResult{
+		RefundNo:     approved.RefundNo,
+		AutoApproved: true,
+		Amount:       amount,
+		Status:       approved.Status,
+		Hint:         "已自动退款至余额，财务将尽快复核",
+	}, nil
+}
+
+// markRefundPendingReview 把自动退款单标记为「待复核」。
+func (s *orderService) markRefundPendingReview(ctx context.Context, refundID uint64) error {
+	refund, err := s.refundRepo.FindByID(ctx, refundID)
+	if err != nil {
+		return err
+	}
+	refund.ReviewState = model.RefundReviewPending
+	return s.refundRepo.Update(ctx, refund)
+}
+
+// ReviewRefund 事后复核（免审核自动退款的最后一道人工确认）。
+//
+// 幂等：仅 review_state=pending 的单可复核，重复复核返回状态冲突。
+// 已驳回/未通过的退款单不允许复核（那是审核环节的事）。
+func (s *orderService) ReviewRefund(ctx context.Context, id uint64, operatorID uint64, operatorName, remark string) (*dto.RefundInfo, error) {
+	refund, err := s.refundRepo.FindByID(ctx, id)
+	if err != nil {
+		return nil, mapRefundErr(err)
+	}
+	if refund.ReviewState != model.RefundReviewPending {
+		return nil, ErrStatusConflict
+	}
+	now := time.Now()
+	refund.ReviewState = model.RefundReviewDone
+	refund.ReviewRemark = strings.TrimSpace(remark)
+	refund.ReviewedBy = operatorID
+	refund.ReviewedByName = operatorName
+	refund.ReviewedAt = &now
+	if err := s.refundRepo.Update(ctx, refund); err != nil {
+		return nil, err
+	}
+	return s.FindRefund(ctx, id)
 }
 
 // Activate 重新触发开通实例（幂等）。
@@ -565,11 +924,18 @@ func (s *orderService) FindRefund(ctx context.Context, id uint64) (*dto.RefundIn
 		return nil, err
 	}
 	info := buildRefundInfo(*refund, orderNo)
+	// 凭据附件（详情接口才填；列表接口为 N+1 风险不填）。
+	if s.refundAttachments != nil {
+		if list, aerr := s.refundAttachments.ListByRefund(ctx, refund.ID); aerr == nil {
+			info.Attachments = list
+		}
+	}
 	return &info, nil
 }
 
 // ApproveRefund 审核通过：通过后若覆盖全部实付金额则回写订单为已退款。
-func (s *orderService) ApproveRefund(ctx context.Context, id uint64, operatorID uint64, operatorName string, remark string) (*dto.RefundInfo, error) {
+func (s *orderService) ApproveRefund(ctx context.Context, id uint64, operatorID uint64, operatorName string, req dto.RefundApproveRequest) (*dto.RefundInfo, error) {
+	remark := req.Remark
 	refund, err := s.refundRepo.FindByID(ctx, id)
 	if err != nil {
 		return nil, mapRefundErr(err)
@@ -582,6 +948,15 @@ func (s *orderService) ApproveRefund(ctx context.Context, id uint64, operatorID 
 	refund.AuditByName = operatorName
 	now := time.Now()
 	refund.AuditedAt = &now
+	// 审核依据与凭据：此前 remark 收了参数却从未落库，导致"为什么退的钱"无据可查。
+	if trimmed := strings.TrimSpace(remark); trimmed != "" {
+		refund.AuditRemark = trimmed
+	}
+	// 人工退款凭据外部单号（转账/渠道流水号）：原路退回没有自动接口，
+	// 这笔钱是人工打出去的，必须留下可定位的凭证号。
+	if ev := strings.TrimSpace(req.EvidenceNo); ev != "" {
+		refund.EvidenceNo = ev
+	}
 	if err := s.refundRepo.Update(ctx, refund); err != nil {
 		return nil, err
 	}
@@ -649,7 +1024,8 @@ func (s *orderService) ApproveRefund(ctx context.Context, id uint64, operatorID 
 }
 
 // RejectRefund 驳回退款：若订单无其他待审核退款则回退为服务中。
-func (s *orderService) RejectRefund(ctx context.Context, id uint64, operatorID uint64, operatorName string, remark string) (*dto.RefundInfo, error) {
+func (s *orderService) RejectRefund(ctx context.Context, id uint64, operatorID uint64, operatorName string, req dto.RefundApproveRequest) (*dto.RefundInfo, error) {
+	remark := req.Remark
 	refund, err := s.refundRepo.FindByID(ctx, id)
 	if err != nil {
 		return nil, mapRefundErr(err)
@@ -662,6 +1038,9 @@ func (s *orderService) RejectRefund(ctx context.Context, id uint64, operatorID u
 	refund.AuditByName = operatorName
 	now := time.Now()
 	refund.AuditedAt = &now
+	if trimmed := strings.TrimSpace(remark); trimmed != "" {
+		refund.AuditRemark = trimmed
+	}
 	if err := s.refundRepo.Update(ctx, refund); err != nil {
 		return nil, err
 	}
@@ -682,6 +1061,215 @@ func (s *orderService) RejectRefund(ctx context.Context, id uint64, operatorID u
 		}
 	}
 	return s.FindRefund(ctx, refund.ID)
+}
+
+// —— 核验（运营人工核对开通结果：仅标记，不流转状态）——
+
+// Verify 核验订单：CAS 写入核验人/时间/备注。
+//
+// 幂等语义：已核验的订单再次核验返回 ErrStatusConflict（与"只有未核验才能核验"一致，
+// 批量场景下由调用方按 skipped 处理）。已作废/未开通的订单不允许核验：
+// 核验的对象是"这台机器我看过了"，没开通的订单没有可核验的实体。
+func (s *orderService) Verify(ctx context.Context, id uint64, operatorID uint64, operatorName string, remark string) error {
+	item, err := s.orderRepo.FindByID(ctx, id)
+	if err != nil {
+		return mapOrderErr(err)
+	}
+	switch item.Status {
+	case model.OrderStatusActive, model.OrderStatusRefunding, model.OrderStatusCompleted:
+	default:
+		return ErrVerifyNotAllowed
+	}
+	if item.VerifiedAt != nil {
+		return ErrStatusConflict
+	}
+	rows, err := s.orderRepo.MarkVerified(ctx, id, operatorID, operatorName, strings.TrimSpace(remark), time.Now())
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		// CAS 未命中：并发核验时另一方已写入。
+		return ErrStatusConflict
+	}
+	return nil
+}
+
+// —— 批量操作（逐条复用单条逻辑，含状态守卫与副作用；返回逐条明细）——
+
+// maxBatchIDs 单次批量上限：与用户批量注销同口径（100），防止一次请求打爆上游。
+const maxBatchIDs = 100
+
+// normalizeBatchIDs 去重并保序，超过上限直接拒绝。
+func normalizeBatchIDs(ids []uint64) ([]uint64, error) {
+	if len(ids) == 0 {
+		return nil, ErrBatchEmpty
+	}
+	if len(ids) > maxBatchIDs {
+		return nil, ErrBatchTooLarge
+	}
+	seen := make(map[uint64]bool, len(ids))
+	out := make([]uint64, 0, len(ids))
+	for _, id := range ids {
+		if id == 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	if len(out) == 0 {
+		return nil, ErrBatchEmpty
+	}
+	return out, nil
+}
+
+// batchRun 逐条执行并把错误分类成 success/skipped/failed。
+//
+// 分类口径（与实例批量动作一致）：skipCheck 判定可预期的不允许（状态不符），
+// 记 skipped；其余错误记 failed。整批不因单条失败而中止 —— 40 个订单里有
+// 一个已支付，不该让另外 39 个待支付的一起不能取消。
+func batchRun(ids []uint64, skipCheck func(error) bool, run func(id uint64) error) *dto.BatchActionResponse {
+	resp := &dto.BatchActionResponse{Items: make([]dto.BatchItemResult, 0, len(ids))}
+	for _, id := range ids {
+		err := run(id)
+		item := dto.BatchItemResult{ID: id, Status: dto.BatchStatusSuccess}
+		switch {
+		case err == nil:
+			resp.Succeeded++
+		case skipCheck(err):
+			item.Status = dto.BatchStatusSkipped
+			item.Message = err.Error()
+			resp.Skipped++
+		default:
+			item.Status = dto.BatchStatusFailed
+			item.Message = err.Error()
+			resp.Failed++
+		}
+		resp.Items = append(resp.Items, item)
+	}
+	return resp
+}
+
+// BatchCancel 批量取消：仅待支付订单可取消，逐条走完整取消链
+// （CAS 状态迁移 + 关支付单 + 删占位实例 + 回补库存）。
+func (s *orderService) BatchCancel(ctx context.Context, ids []uint64, operatorID uint64, operatorName string) (*dto.BatchActionResponse, error) {
+	list, err := normalizeBatchIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	return batchRun(list, isSkipErr, func(id uint64) error {
+		return s.Cancel(ctx, id, operatorID, operatorName)
+	}), nil
+}
+
+// BatchActivate 批量重新开通：仅已支付/开通中的订单，复用幂等开通队列
+// （重试复用已生成的上游账单，不会重复下单，doc119）。
+func (s *orderService) BatchActivate(ctx context.Context, ids []uint64) (*dto.BatchActionResponse, error) {
+	list, err := normalizeBatchIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	return batchRun(list, isSkipErr, func(id uint64) error {
+		return s.EnqueueProvision(ctx, id)
+	}), nil
+}
+
+// BatchVerify 批量核验：逐条 CAS。
+func (s *orderService) BatchVerify(ctx context.Context, ids []uint64, operatorID uint64, operatorName string, remark string) (*dto.BatchActionResponse, error) {
+	list, err := normalizeBatchIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	return batchRun(list, isSkipErr, func(id uint64) error {
+		return s.Verify(ctx, id, operatorID, operatorName, remark)
+	}), nil
+}
+
+// deletableOrderStatuses 允许软删除的订单状态：只有「已取消 / 已关闭」的作废单可删。
+// 已支付/服务中/退款中的订单是活着的资金凭证，任何情况下都不允许从列表抹掉。
+var deletableOrderStatuses = []string{model.OrderStatusCancelled, model.OrderStatusClosed}
+
+// BatchDelete 批量软删除：仅「已取消/已关闭」且无任何退款记录的订单。
+//
+// 订单是财务凭证，删除只做软删除（deleted_at），行与金额始终留在库里可审计；
+// 走过退款流程的订单（哪怕退款被驳回）保留在列表 —— 那是资金纠纷的线索。
+func (s *orderService) BatchDelete(ctx context.Context, ids []uint64) (*dto.BatchActionResponse, error) {
+	list, err := normalizeBatchIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	return batchRun(list, isSkipErr, func(id uint64) error {
+		item, err := s.orderRepo.FindByID(ctx, id)
+		if err != nil {
+			return mapOrderErr(err)
+		}
+		switch item.Status {
+		case model.OrderStatusCancelled, model.OrderStatusClosed:
+		default:
+			return fmt.Errorf("%w：仅已取消/已关闭的订单可删除", ErrStatusConflict)
+		}
+		has, err := s.refundRepo.ExistsByOrder(ctx, id)
+		if err != nil {
+			return err
+		}
+		if has {
+			return ErrOrderHasRefund
+		}
+		rows, err := s.orderRepo.SoftDelete(ctx, id, deletableOrderStatuses, time.Now())
+		if err != nil {
+			return err
+		}
+		if rows == 0 {
+			return ErrStatusConflict
+		}
+		return nil
+	}), nil
+}
+
+// BatchApproveRefunds 批量审核通过退款单：逐条复用 ApproveRefund
+// （含渠道退款/余额回补/实例处置/返现冲减钩子，不得绕过）。
+func (s *orderService) BatchApproveRefunds(ctx context.Context, ids []uint64, operatorID uint64, operatorName string, remark string) (*dto.BatchActionResponse, error) {
+	return s.batchRefundAudit(ctx, ids, operatorID, operatorName, remark, true)
+}
+
+// BatchRejectRefunds 批量驳回退款单。
+func (s *orderService) BatchRejectRefunds(ctx context.Context, ids []uint64, operatorID uint64, operatorName string, remark string) (*dto.BatchActionResponse, error) {
+	return s.batchRefundAudit(ctx, ids, operatorID, operatorName, remark, false)
+}
+
+func (s *orderService) batchRefundAudit(ctx context.Context, ids []uint64, operatorID uint64, operatorName, remark string, approve bool) (*dto.BatchActionResponse, error) {
+	list, err := normalizeBatchIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	return batchRun(list, isSkipErr, func(id uint64) error {
+		var err error
+		req := dto.RefundApproveRequest{Remark: remark}
+		if approve {
+			_, err = s.ApproveRefund(ctx, id, operatorID, operatorName, req)
+		} else {
+			_, err = s.RejectRefund(ctx, id, operatorID, operatorName, req)
+		}
+		return err
+	}), nil
+}
+
+// isSkipErr 判定「可预期的跳过」：状态不符/不存在/不允许核验等，属正常业务结果，
+// 不是执行失败（批量场景下逐条回显原因，不算 failed）。
+func isSkipErr(err error) bool {
+	switch {
+	case errors.Is(err, ErrStatusConflict),
+		errors.Is(err, ErrOrderNotFound),
+		errors.Is(err, ErrRefundNotFound),
+		errors.Is(err, ErrVerifyNotAllowed),
+		errors.Is(err, ErrOrderHasRefund),
+		errors.Is(err, ErrRefundExceeded),
+		errors.Is(err, ErrRefundModeInvalid),
+		errors.Is(err, ErrRefundFeeInvalid),
+		errors.Is(err, ErrRefundNotAllowed),
+		errors.Is(err, ErrRefundChannelUnavailable):
+		return true
+	}
+	return false
 }
 
 func (s *orderService) refundListResponse(ctx context.Context, items []model.OrderRefund, total int64, page, pageSize int) (*dto.RefundListResponse, error) {
@@ -744,8 +1332,13 @@ func buildOrderInfo(item model.Order) dto.OrderInfo {
 		// 支付单号与渠道流水号（doc36 §3.1）：由仓储从支付中心反查填充，空即未走渠道。
 		PaymentNo: item.PaymentNo,
 		ChannelTx: item.ChannelTx,
-		CreatedAt: item.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: item.UpdatedAt.Format(time.RFC3339),
+		// 核验标记（落库部分）：VerifyState/VerifyRequired 由读取期按配置推导，见 applyVerifyState。
+		VerifiedAt:     formatTime(item.VerifiedAt),
+		VerifiedBy:     item.VerifiedBy,
+		VerifiedByName: item.VerifiedByName,
+		VerifyRemark:   item.VerifyRemark,
+		CreatedAt:      item.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:      item.UpdatedAt.Format(time.RFC3339),
 	}
 }
 
@@ -757,6 +1350,7 @@ func buildOrderItemInfo(item model.OrderItem) dto.OrderItemInfo {
 		ProductName: item.ProductName,
 		SpecCode:    item.SpecCode,
 		Specs:       item.Specs,
+		Cycle:       item.Cycle,
 		Price:       item.Price,
 		Quantity:    item.Quantity,
 		Amount:      item.Amount,
@@ -783,8 +1377,18 @@ func buildRefundInfo(rf model.OrderRefund, orderNo string) dto.RefundInfo {
 		NetAmount:           rf.NetAmount,
 		ChannelRefundNo:     rf.ChannelRefundNo,
 		ChannelRefundStatus: rf.ChannelRefundStatus,
-		CreatedAt:           rf.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:           rf.UpdatedAt.Format(time.RFC3339),
+		// 申请来源与审核凭据（人工退款查账定位用）。
+		Origin:      rf.Origin,
+		AuditRemark: rf.AuditRemark,
+		EvidenceNo:  rf.EvidenceNo,
+		// 事后复核（免审核自动退款路径）。
+		ReviewState:    rf.ReviewState,
+		ReviewRemark:   rf.ReviewRemark,
+		ReviewedBy:     rf.ReviewedBy,
+		ReviewedByName: rf.ReviewedByName,
+		ReviewedAt:     formatTime(rf.ReviewedAt),
+		CreatedAt:      rf.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:      rf.UpdatedAt.Format(time.RFC3339),
 	}
 }
 

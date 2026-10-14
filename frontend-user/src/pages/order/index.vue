@@ -157,6 +157,7 @@ const STATUS_OPTIONS = [
   { value: 'paid', label: '已支付' },
   { value: 'provisioning', label: '开通中' },
   { value: 'active', label: '服务中' },
+  { value: 'refunding', label: '退款中' },
   { value: 'cancelled', label: '已取消' },
   { value: 'closed', label: '已关闭' },
   { value: 'refunded', label: '已退款' },
@@ -216,6 +217,7 @@ function statusText(s: string): string {
       paid: '已支付',
       provisioning: '开通中',
       active: '服务中',
+      refunding: '退款中',
       cancelled: '已取消',
       closed: '已关闭',
       refunded: '已退款',
@@ -226,7 +228,7 @@ function statusText(s: string): string {
 
 function statusTheme(s: string): 'success' | 'warning' | 'default' | 'danger' {
   if (s === 'active' || s === 'paid' || s === 'completed') return 'success'
-  if (s === 'provisioning' || s === 'pending') return 'warning'
+  if (s === 'provisioning' || s === 'pending' || s === 'refunding') return 'warning'
   if (s === 'cancelled' || s === 'refunded' || s === 'closed') return 'danger'
   return 'default'
 }

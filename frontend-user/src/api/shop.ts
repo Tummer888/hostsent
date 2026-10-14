@@ -153,6 +153,8 @@ export interface OrderInfo {
   provision_status?: string
   /** 开通失败原因 */
   provision_error?: string
+  /** 可退性提示（详情接口返回；据此展示「申请退款」入口与时限） */
+  refund_hint?: OrderRefundHint
   /** 命中规则明细 JSON（P5-04），详情页展示优惠构成 */
   price_snapshot?: string
   /** 计费到期时间（RFC3339，无则空串） */
@@ -300,6 +302,37 @@ export function payOrder(orderId: number, data: { channel_code?: string; scene?:
 /** 取消待支付订单：后端同时关闭未支付支付单并回补库存。 */
 export function cancelOrder(orderId: number) {
   return request.post<unknown, { data: OrderInfo }>(`/uc/orders/${orderId}/cancel`)
+}
+
+/** 退款可退性提示（后端按商品退款策略判定：时限/来源/免审/去向可用性） */
+export interface OrderRefundHint {
+  refundable: boolean
+  /** 可退时限（小时）；0 = 不限时 */
+  window_hours: number
+  /** 可退截止时间（RFC3339）；不限时为空串 */
+  deadline?: string
+  /** 命中免审核自动退款（退回余额 + 全额 + 在时限内） */
+  auto_approve: boolean
+  /** 是否允许选原路退回（有渠道支付记录的订单才为 true） */
+  channel_allowed: boolean
+  /** 可退金额上限 */
+  max_amount: number
+  /** 不可退原因（refundable=false 时展示） */
+  reason?: string
+}
+
+export interface UserRefundResult {
+  refund_no: string
+  /** 是否免审核自动退款（此后财务会再复核一次） */
+  auto_approved: boolean
+  amount: number
+  status: string
+  hint: string
+}
+
+/** 申请退款：是否可退、能选哪个去向由后端策略判定 */
+export function requestRefund(orderId: number, data: { reason: string; refund_mode?: string }) {
+  return request.post<unknown, { data: UserRefundResult }>(`/uc/orders/${orderId}/refund`, data)
 }
 
 /** 预结算：算价明细，不落库、不扣款（P5-05）。 */

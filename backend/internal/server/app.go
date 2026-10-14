@@ -117,6 +117,7 @@ type App struct {
 	salesPerformanceHandler *saleshandler.PerformanceHandler
 	orderHandler            *orderhandler.OrderHandler
 	refundHandler           *orderhandler.RefundHandler
+	refundPolicyHandler     *orderhandler.RefundPolicyHandler
 	walletHandler           *finaccounthandler.WalletHandler
 	rechargeHandler         *finrechargehandler.RechargeHandler
 	withdrawHandler         *finwithdrawhandler.WithdrawHandler

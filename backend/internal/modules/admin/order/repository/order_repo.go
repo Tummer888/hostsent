@@ -43,6 +43,12 @@ type OrderRepository interface {
 	// 支付成功回调与取消/超时关单会并发命中同一笔待支付订单，用 CAS 保证只有一方生效：
 	// 关单不会覆盖并发的支付成功，支付成功也不会复活已关闭的订单。
 	TransitionStatus(ctx context.Context, id uint64, from, to string) (int64, error)
+	// MarkVerified 条件核验（CAS）：仅当 verified_at 为空时写入核验人与时间，返回是否生效。
+	// 重复核验/并发核验只有一方算数，另一方得 0 行 —— 与状态迁移同一套「谁先谁生效」语义。
+	MarkVerified(ctx context.Context, id, operatorID uint64, operatorName, remark string, at time.Time) (int64, error)
+	// SoftDelete 条件软删除（CAS）：仅当当前状态在 allowStatuses 内才置 deleted_at。
+	// 订单是财务凭证，删除只做「从列表隐藏」的软删除，行与金额始终留在库里可审计。
+	SoftDelete(ctx context.Context, id uint64, allowStatuses []string, at time.Time) (int64, error)
 	// StatsCountToday 今日订单量
 	StatsCountToday(ctx context.Context) (int64, error)
 	// StatsSalesToday 今日销售额（已支付口径）
@@ -68,7 +74,9 @@ func (r *orderRepository) List(ctx context.Context, query dto.OrderListQuery) ([
 	page := normalizePage(query.Page)
 	pageSize := normalizePageSize(query.PageSize)
 
-	base := r.db.WithContext(ctx).Model(&model.Order{})
+	// 软删除的订单对列表不可见（订单模型是普通 *time.Time 列，GORM 不会自动加作用域，
+	// 所有读取路径必须显式过滤）。
+	base := r.db.WithContext(ctx).Model(&model.Order{}).Where("deleted_at IS NULL")
 	if keyword := strings.TrimSpace(query.Keyword); keyword != "" {
 		like := "%" + keyword + "%"
 		base = base.Where("order_no ILIKE ? OR product_name ILIKE ?", like, like)
@@ -109,6 +117,14 @@ func (r *orderRepository) List(ctx context.Context, query dto.OrderListQuery) ([
 		base = base.Where("renewal_id <> 0")
 	case "consume":
 		base = base.Where("renewal_id = 0")
+	}
+	// 核验状态（运营人工核验）：pending=服务中且未核验；verified=已核验。
+	// 以状态列为准推导，不读配置开关 —— 列表筛选是"查数据"，不是"看提醒"。
+	switch strings.TrimSpace(query.VerifyState) {
+	case dto.VerifyStatePending:
+		base = base.Where("status = ? AND verified_at IS NULL", model.OrderStatusActive)
+	case dto.VerifyStateVerified:
+		base = base.Where("verified_at IS NOT NULL")
 	}
 	if start := normalizeTime(query.StartTime); start != nil {
 		base = base.Where("created_at >= ?", *start)
@@ -172,7 +188,7 @@ func (r *orderRepository) fillPaymentInfo(ctx context.Context, items []model.Ord
 
 func (r *orderRepository) FindByID(ctx context.Context, id uint64) (*model.Order, error) {
 	var item model.Order
-	if err := r.db.WithContext(ctx).First(&item, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("deleted_at IS NULL").First(&item, id).Error; err != nil {
 		return nil, err
 	}
 	return &item, nil
@@ -181,7 +197,7 @@ func (r *orderRepository) FindByID(ctx context.Context, id uint64) (*model.Order
 // FindByNo 按订单号读取。
 func (r *orderRepository) FindByNo(ctx context.Context, orderNo string) (*model.Order, error) {
 	var item model.Order
-	if err := r.db.WithContext(ctx).Where("order_no = ?", orderNo).First(&item).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("order_no = ? AND deleted_at IS NULL", orderNo).First(&item).Error; err != nil {
 		return nil, err
 	}
 	return &item, nil
@@ -192,7 +208,7 @@ func (r *orderRepository) FindByIDs(ctx context.Context, ids []uint64) ([]model.
 		return nil, nil
 	}
 	var items []model.Order
-	if err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&items).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("id IN ? AND deleted_at IS NULL", ids).Find(&items).Error; err != nil {
 		return nil, err
 	}
 	return items, nil
@@ -258,7 +274,7 @@ func (r *orderRepository) ListProvisioningStale(ctx context.Context, before time
 	}
 	var items []model.Order
 	if err := r.db.WithContext(ctx).
-		Where("status = ? AND updated_at < ? AND renewal_id = 0 AND upstream_invoice_id > 0",
+		Where("status = ? AND updated_at < ? AND renewal_id = 0 AND upstream_invoice_id > 0 AND deleted_at IS NULL",
 			model.OrderStatusProvisioning, before).
 		Order("updated_at asc, id asc").Limit(limit).Find(&items).Error; err != nil {
 		return nil, err
@@ -272,7 +288,7 @@ func (r *orderRepository) ListExpiredPending(ctx context.Context, before time.Ti
 	}
 	var items []model.Order
 	if err := r.db.WithContext(ctx).
-		Where("status = ? AND created_at < ? AND renewal_id = 0 AND channel = ''", model.OrderStatusPending, before).
+		Where("status = ? AND created_at < ? AND renewal_id = 0 AND channel = '' AND deleted_at IS NULL", model.OrderStatusPending, before).
 		Where("order_no IN (?)",
 			r.db.Table("payment_orders").Select("biz_no").Where("biz_type = ?", "order")).
 		Order("created_at asc, id asc").Limit(limit).Find(&items).Error; err != nil {
@@ -284,8 +300,31 @@ func (r *orderRepository) ListExpiredPending(ctx context.Context, before time.Ti
 // TransitionStatus 条件状态迁移（CAS）：仅当当前状态为 from 时置为 to。
 func (r *orderRepository) TransitionStatus(ctx context.Context, id uint64, from, to string) (int64, error) {
 	res := r.db.WithContext(ctx).Model(&model.Order{}).
-		Where("id = ? AND status = ?", id, from).
+		Where("id = ? AND status = ? AND deleted_at IS NULL", id, from).
 		Updates(map[string]interface{}{"status": to, "updated_at": time.Now()})
+	return res.RowsAffected, res.Error
+}
+
+// MarkVerified 条件核验（CAS）：只有未核验的订单能被核验，重复调用返回 0 行。
+func (r *orderRepository) MarkVerified(ctx context.Context, id, operatorID uint64, operatorName, remark string, at time.Time) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&model.Order{}).
+		Where("id = ? AND verified_at IS NULL AND deleted_at IS NULL", id).
+		Updates(map[string]interface{}{
+			"verified_at":      at,
+			"verified_by":      operatorID,
+			"verified_by_name": operatorName,
+			"verify_remark":    remark,
+			"updated_at":       time.Now(),
+		})
+	return res.RowsAffected, res.Error
+}
+
+// SoftDelete 条件软删除（CAS）：仅当状态在 allowStatuses 内才置 deleted_at。
+// 不用 GORM 的 Delete（那会按 DeletedAt 语义走，但这里需要状态白名单守卫 + 返回行数）。
+func (r *orderRepository) SoftDelete(ctx context.Context, id uint64, allowStatuses []string, at time.Time) (int64, error) {
+	res := r.db.WithContext(ctx).Model(&model.Order{}).
+		Where("id = ? AND deleted_at IS NULL AND status IN ?", id, allowStatuses).
+		Updates(map[string]interface{}{"deleted_at": at, "updated_at": time.Now()})
 	return res.RowsAffected, res.Error
 }
 
@@ -302,7 +341,7 @@ var paidStatuses = []string{
 func (r *orderRepository) StatsCountToday(ctx context.Context) (int64, error) {
 	var count int64
 	start := dayStart(time.Now())
-	if err := r.db.WithContext(ctx).Model(&model.Order{}).Where("created_at >= ?", start).Count(&count).Error; err != nil {
+	if err := r.db.WithContext(ctx).Model(&model.Order{}).Where("created_at >= ? AND deleted_at IS NULL", start).Count(&count).Error; err != nil {
 		return 0, err
 	}
 	return count, nil
@@ -312,7 +351,7 @@ func (r *orderRepository) StatsSalesToday(ctx context.Context) (float64, error) 
 	var sum float64
 	start := dayStart(time.Now())
 	if err := r.db.WithContext(ctx).Model(&model.Order{}).
-		Where("created_at >= ? AND status IN ?", start, paidStatuses).
+		Where("created_at >= ? AND status IN ? AND deleted_at IS NULL", start, paidStatuses).
 		Select("COALESCE(SUM(paid_amount), 0)").Scan(&sum).Error; err != nil {
 		return 0, err
 	}
@@ -321,12 +360,12 @@ func (r *orderRepository) StatsSalesToday(ctx context.Context) (float64, error) 
 
 func (r *orderRepository) StatsTotal(ctx context.Context) (int64, float64, error) {
 	var total int64
-	if err := r.db.WithContext(ctx).Model(&model.Order{}).Count(&total).Error; err != nil {
+	if err := r.db.WithContext(ctx).Model(&model.Order{}).Where("deleted_at IS NULL").Count(&total).Error; err != nil {
 		return 0, 0, err
 	}
 	var sales float64
 	if err := r.db.WithContext(ctx).Model(&model.Order{}).
-		Where("status IN ?", paidStatuses).
+		Where("status IN ? AND deleted_at IS NULL", paidStatuses).
 		Select("COALESCE(SUM(paid_amount), 0)").Scan(&sales).Error; err != nil {
 		return 0, 0, err
 	}
@@ -336,6 +375,7 @@ func (r *orderRepository) StatsTotal(ctx context.Context) (int64, float64, error
 func (r *orderRepository) CountByStatus(ctx context.Context) ([]model.OrderStatusCount, error) {
 	var counts []model.OrderStatusCount
 	if err := r.db.WithContext(ctx).Model(&model.Order{}).
+		Where("deleted_at IS NULL").
 		Select("status, count(*) as count").
 		Group("status").
 		Scan(&counts).Error; err != nil {
@@ -353,7 +393,7 @@ func (r *orderRepository) StatsTrend(ctx context.Context, days int) ([]model.Ord
 	var points []model.OrderTrendPoint
 	if err := r.db.WithContext(ctx).Model(&model.Order{}).
 		Select("to_char(created_at, 'YYYY-MM-DD') as date, SUM(CASE WHEN status IN ('"+salesIn+"') THEN paid_amount ELSE 0 END) as sales, COUNT(*) as orders").
-		Where("created_at >= ?", start).
+		Where("created_at >= ? AND deleted_at IS NULL", start).
 		Group("date").
 		Order("date asc").
 		Scan(&points).Error; err != nil {

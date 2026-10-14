@@ -159,6 +159,10 @@ export interface RefundListQuery {
   status?: string
   /** 退款去向：balance / channel */
   refund_mode?: string
+  /** 申请来源：admin / user */
+  origin?: string
+  /** 复核状态：pending（待复核）/ done（已复核） */
+  review_state?: string
   page?: number
   page_size?: number
 }
@@ -183,6 +187,19 @@ export interface RefundInfo {
   /** 原路退回时由支付中心回填的渠道退款单 */
   channel_refund_no: string
   channel_refund_status: string
+  /** 申请来源：admin=运营发起 / user=客户自助申请 */
+  origin: string
+  /** 审核备注与退款凭据外部单号 */
+  audit_remark: string
+  evidence_no: string
+  /** 事后复核（免审核自动退款路径）：''（无需）/pending（待复核）/done（已复核） */
+  review_state: string
+  review_remark: string
+  reviewed_by: number
+  reviewed_by_name: string
+  reviewed_at: string
+  /** 凭据附件（详情接口返回） */
+  attachments?: RefundAttachmentInfo[]
   created_at: string
   updated_at: string
 }
@@ -193,5 +210,59 @@ export interface RefundListResponse {
 }
 
 export interface RefundApproveRequest {
+  remark?: string
+  /** 退款凭据外部单号（人工退款的转账/渠道流水号） */
+  evidence_no?: string
+  /** 本次审核上传的凭据附件 ID 列表 */
+  attachment_ids?: number[]
+}
+
+/** 退款策略（按商品来源 + 分类配置可退时限与免审开关） */
+export interface RefundPolicyInfo {
+  id: number
+  /** self / upstream / ''（不限来源） */
+  source_mode: string
+  /** 0 = 该来源下全部商品（含子孙分类） */
+  category_id: number
+  refundable: boolean
+  /** 可退时限（小时，自开通成功起算）；0 = 不限 */
+  window_hours: number
+  /** 免人工审核自动退款（仅退回余额 + 全额时生效） */
+  auto_approve: boolean
+  status: string
+  sort_order: number
+  remark: string
+  category_name?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface RefundPolicyListResponse {
+  items: RefundPolicyInfo[]
+}
+
+export interface RefundPolicyRequest {
+  source_mode: string
+  category_id: number
+  refundable: boolean
+  window_hours: number
+  auto_approve: boolean
+  status: string
+  sort_order: number
+  remark: string
+}
+
+/** 退款凭据附件 */
+export interface RefundAttachmentInfo {
+  id: number
+  refund_id: number
+  file_name: string
+  file_size: number
+  file_type: string
+  uploader_id: number
+  created_at: string
+}
+
+export interface RefundReviewRequest {
   remark?: string
 }

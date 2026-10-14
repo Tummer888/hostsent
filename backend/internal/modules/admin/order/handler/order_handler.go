@@ -182,3 +182,114 @@ func (h *OrderHandler) Stats(c *gin.Context) {
 	}
 	response.Success(c, resp)
 }
+
+// Verify godoc
+// @Summary 核验订单（运营人工核对开通结果，仅标记）
+// @Tags 订单管理-订单
+// @Security BearerAuth
+// @Param id path int true "订单 ID"
+// @Param request body dto.OrderVerifyRequest false "核验备注"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/orders/{id}/verify [post]
+func (h *OrderHandler) Verify(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	var req dto.OrderVerifyRequest
+	_ = c.ShouldBindJSON(&req)
+	operatorID, operatorName := operatorFromContext(c)
+	if err := h.orderService.Verify(c.Request.Context(), id, operatorID, operatorName, req.Remark); err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.SuccessMessage(c, "success")
+}
+
+// BatchCancel godoc
+// @Summary 批量取消订单（仅待支付）
+// @Tags 订单管理-订单
+// @Security BearerAuth
+// @Param request body dto.BatchIDsRequest true "订单 ID 集合"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/orders/batch-cancel [post]
+func (h *OrderHandler) BatchCancel(c *gin.Context) {
+	ids, ok := bindBatchIDs(c)
+	if !ok {
+		return
+	}
+	operatorID, operatorName := operatorFromContext(c)
+	resp, err := h.orderService.BatchCancel(c.Request.Context(), ids, operatorID, operatorName)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// BatchActivate godoc
+// @Summary 批量重新开通（仅已支付/开通中，复用幂等开通队列）
+// @Tags 订单管理-订单
+// @Security BearerAuth
+// @Param request body dto.BatchIDsRequest true "订单 ID 集合"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/orders/batch-activate [post]
+func (h *OrderHandler) BatchActivate(c *gin.Context) {
+	ids, ok := bindBatchIDs(c)
+	if !ok {
+		return
+	}
+	resp, err := h.orderService.BatchActivate(c.Request.Context(), ids)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// BatchVerify godoc
+// @Summary 批量核验订单（仅已开通）
+// @Tags 订单管理-订单
+// @Security BearerAuth
+// @Param request body dto.BatchVerifyRequest true "订单 ID 集合与核验备注"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/orders/batch-verify [post]
+func (h *OrderHandler) BatchVerify(c *gin.Context) {
+	var req dto.BatchVerifyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	operatorID, operatorName := operatorFromContext(c)
+	resp, err := h.orderService.BatchVerify(c.Request.Context(), req.IDs, operatorID, operatorName, req.Remark)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// BatchDelete godoc
+// @Summary 批量删除订单（仅已取消/已关闭且无退款记录，软删除）
+// @Tags 订单管理-订单
+// @Security BearerAuth
+// @Param request body dto.BatchIDsRequest true "订单 ID 集合"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/orders/batch-delete [post]
+func (h *OrderHandler) BatchDelete(c *gin.Context) {
+	ids, ok := bindBatchIDs(c)
+	if !ok {
+		return
+	}
+	resp, err := h.orderService.BatchDelete(c.Request.Context(), ids)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}

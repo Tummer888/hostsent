@@ -125,8 +125,20 @@
         </template>
 
         <template #status="{ row }">
-          <t-tag :theme="refundStatusTheme(row.status)" variant="light" size="small" shape="round">
-            {{ refundStatusLabel(row.status) }}
+          <div class="status-cell">
+            <t-tag :theme="refundStatusTheme(row.status)" variant="light" size="small" shape="round">
+              {{ refundStatusLabel(row.status) }}
+            </t-tag>
+            <!-- 待复核：免审核自动退款后，钱已出去需财务回头核对 -->
+            <t-tag v-if="row.review_state === 'pending'" theme="warning" variant="light-outline" size="small" shape="round">
+              待复核
+            </t-tag>
+          </div>
+        </template>
+
+        <template #origin="{ row }">
+          <t-tag :theme="row.origin === 'user' ? 'warning' : 'default'" variant="light" size="small" shape="round">
+            {{ row.origin === 'user' ? '客户申请' : '运营发起' }}
           </t-tag>
         </template>
 
@@ -291,7 +303,8 @@ const columns = computed<PrimaryTableCol<RefundInfo>[]>(() => {
     { colKey: 'amount', title: '金额', width: 120 },
     { colKey: 'refund_mode', title: '退款去向', width: 130 },
     { colKey: 'reason', title: '原因', minWidth: 150 },
-    { colKey: 'status', title: '状态', width: 100 },
+    { colKey: 'status', title: '状态', width: 140 },
+    { colKey: 'origin', title: '来源', width: 110 },
     { colKey: 'audit_by_name', title: '审核人', width: 100 },
     { colKey: 'audited_at', title: '审核时间', width: 170 },
     { colKey: 'created_at', title: '创建时间', width: 170 },
