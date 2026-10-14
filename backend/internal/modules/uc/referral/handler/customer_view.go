@@ -4,8 +4,8 @@ import (
 	referraldto "hostsent/backend/internal/modules/admin/finance/referral/dto"
 )
 
-// 用户中心返现提现视图：审核人属于平台内部经办信息，不对客户下发；
-// 客户只需要知道「谁在什么时候审的」中的时间与结果。
+// 用户中心返现提现视图：审核人姓名与审核备注属于平台内部经办信息，不对客户下发；
+// 客户只需要知道审核结果与时间。
 
 type customerWithdrawal struct {
 	ID         uint64  `json:"id"`
@@ -15,7 +15,6 @@ type customerWithdrawal struct {
 	Account    string  `json:"account"`
 	Status     string  `json:"status"`
 	AuditedAt  string  `json:"audited_at"`
-	Remark     string  `json:"remark"`
 	CreatedAt  string  `json:"created_at"`
 }
 
@@ -44,7 +43,6 @@ func customerWithdrawalFrom(in referraldto.WithdrawalInfo) customerWithdrawal {
 		Account:    in.Account,
 		Status:     in.Status,
 		AuditedAt:  in.AuditedAt,
-		Remark:     in.Remark,
 		CreatedAt:  in.CreatedAt,
 	}
 }

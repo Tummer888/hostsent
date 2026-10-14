@@ -44,7 +44,7 @@ func (a *asm) buildUserDomain() {
 			if amount > 0 {
 				adjusted := remark
 				if adjusted == "" {
-					adjusted = "后台人工充值"
+					adjusted = "人工充值"
 				}
 				info, err := a.rechargeService.CreateAndApprove(ctx, finrechargedto.RechargeCreateRequest{
 					UserID: userID,
@@ -62,7 +62,7 @@ func (a *asm) buildUserDomain() {
 			amount = -amount
 			adjusted := remark
 			if adjusted == "" {
-				adjusted = "后台人工扣减"
+				adjusted = "人工扣减"
 			}
 			tr, err := a.walletService.Adjust(ctx, accountdto.AdjustRequest{
 				UserID:    userID,

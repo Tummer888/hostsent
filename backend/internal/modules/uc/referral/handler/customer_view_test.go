@@ -23,7 +23,7 @@ func TestCustomerWithdrawalHidesAuditor(t *testing.T) {
 		AuditBy:     88,
 		AuditByName: "财务-李四",
 		AuditedAt:   "2026-10-13 10:00:00",
-		Remark:      "已核对",
+		Remark:      "内部备注：已核对",
 	}
 
 	raw, err := json.Marshal(customerWithdrawalFrom(in))
@@ -32,7 +32,7 @@ func TestCustomerWithdrawalHidesAuditor(t *testing.T) {
 	}
 	body := string(raw)
 
-	for _, field := range []string{"user_id", "username", "audit_by", "audit_by_name"} {
+	for _, field := range []string{"user_id", "username", "audit_by", "audit_by_name", "remark"} {
 		if strings.Contains(body, `"`+field+`"`) {
 			t.Errorf("用户侧返现提现不应包含内部字段 %q，实际: %s", field, body)
 		}
