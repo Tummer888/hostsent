@@ -35,9 +35,12 @@ jobs:
         # 不进 cache key。前端单独改动时若吃到缓存，「菜单四处对齐」「迁移幂等」会假通过。
         run: go test -count=1 ./...
       - name: Coverage report
-        # 只报告不上门禁（批次二 B5）：核心链路包覆盖率目前约 22%~28%，
-        # 现在设阈值会逼出凑数测试。等核心链路补到 60%+ 再上 coverprofile 门禁。
+        # 全量报告（只展示，不上门禁）：阈值只盯下面两个核心包。
         run: go test -count=1 -cover ./internal/modules/...
+      - name: Coverage gate (core packages)
+        # 批次四 D1：核心链路门禁（check_coverage.sh 内置阈值），
+        # 只盯下单/退款/开通两个资金履约包，避免全量阈值逼出凑数测试。
+        run: ../scripts/check_coverage.sh
       - name: Lint
         # 门禁已转 error（批次三 C5）：errcheck/staticcheck/unused/revive 双构建
         # （普通 + `-tags live`）清零。live 用例不跑 CI，但 live 文件的编译错误

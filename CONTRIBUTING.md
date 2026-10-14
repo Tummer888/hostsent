@@ -115,6 +115,7 @@ go build ./...
 go vet ./...
 go test ./...         # 涉及域的单测至少全绿
 golangci-lint run --timeout=5m --build-tags live   # 本地与 CI 同参数，v2.6.1
+../scripts/check_coverage.sh                       # 核心链路覆盖率门禁
 # 前端另跑 vue-tsc --noEmit
 ```
 
@@ -134,5 +135,7 @@ CI 额外执行（见 `.github/workflows/ci.yml`）：
   拆分标准=每域一个装配文件
 - **openapi 生成器自检**：`python3 scripts/gen_openapi.py` 退出码为门禁——
   新增路由必须登记 summary/参数规则，`backend/docs/openapi.yaml` 是生成产物勿手改
-- **覆盖率报告**：`go test -cover ./internal/modules/...` 只报告不上门禁；
-  核心链路包补到 60%+ 后再加 coverprofile 阈值
+- **覆盖率**：`go test -cover ./internal/modules/...` 全量报告（只展示）；
+  门禁只盯核心链路两包（`scripts/check_coverage.sh`，阈值 70%，棘轮式上调）：
+  admin/order/service（下单/退款/开通）与 uc/order/service（用户下单全链路）。
+  这两包是资金与履约主链路，改动作必须带测试；其余包覆盖率由开发者自行保证

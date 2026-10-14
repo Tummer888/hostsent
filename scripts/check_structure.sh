@@ -26,7 +26,9 @@ violations=0
 ALLOW_PKG_MODULES='internal/pkg/db/'
 # uc 薄适配 service 委托 admin 域 service（形态合法，CONTRIBUTING §2；
 # 现状清单见 CONTRIBUTING §2 表格）
-ALLOW_UC_ADMIN_SERVICE='uc/product/service/product_service.go|uc/order/service/order_service.go'
+# coverage_gap_test.go 与 order_service.go 同包：测试复用生产端口所用的
+# catalogservice 类型（CustomerOptionGroup/OptionPricing），依赖方向一致。
+ALLOW_UC_ADMIN_SERVICE='uc/product/service/product_service.go|uc/order/service/order_service.go|uc/order/service/coverage_gap_test.go'
 # handler 里非 JSON 的 c.JSON 豁免（流式下载/回调等场景）
 ALLOW_RAW_CJSON='open/handler/open.go'
 

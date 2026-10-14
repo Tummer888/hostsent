@@ -19,6 +19,15 @@ type fakeOrderRepo struct {
 	byNo      map[string]*model.Order
 	nextID    uint64
 	transitOK bool // TransitionStatus 是否成功迁移（false 模拟并发 CAS 失败）
+
+	// —— Stats 桩数据（批次四 D1b 读路径补测用） ——
+	statsCountToday int64
+	statsSalesToday float64
+	statsTotalN     int64
+	statsTotalSales float64
+	statsCounts     []model.OrderStatusCount
+	statsTrend      []model.OrderTrendPoint
+	statsErr        error
 }
 
 func newFakeOrderRepo(items ...*model.Order) *fakeOrderRepo {
@@ -103,14 +112,20 @@ func (r *fakeOrderRepo) TransitionStatus(_ context.Context, id uint64, from, to 
 	}
 	return 0, nil
 }
-func (r *fakeOrderRepo) StatsCountToday(context.Context) (int64, error)     { return 0, nil }
-func (r *fakeOrderRepo) StatsSalesToday(context.Context) (float64, error)   { return 0, nil }
-func (r *fakeOrderRepo) StatsTotal(context.Context) (int64, float64, error) { return 0, 0, nil }
+func (r *fakeOrderRepo) StatsCountToday(context.Context) (int64, error) {
+	return r.statsCountToday, r.statsErr
+}
+func (r *fakeOrderRepo) StatsSalesToday(context.Context) (float64, error) {
+	return r.statsSalesToday, r.statsErr
+}
+func (r *fakeOrderRepo) StatsTotal(context.Context) (int64, float64, error) {
+	return r.statsTotalN, r.statsTotalSales, r.statsErr
+}
 func (r *fakeOrderRepo) CountByStatus(context.Context) ([]model.OrderStatusCount, error) {
-	return nil, nil
+	return r.statsCounts, r.statsErr
 }
 func (r *fakeOrderRepo) StatsTrend(context.Context, int) ([]model.OrderTrendPoint, error) {
-	return nil, nil
+	return r.statsTrend, r.statsErr
 }
 
 // fakeItemRepo 内存订单项仓储。
@@ -138,6 +153,8 @@ type fakeRefundRepo struct {
 	nextID  uint64
 	// sumEffective 按订单返回已生效退款合计；未配置的订单返回 0。
 	sumEffective map[uint64]float64
+	// sumRefunded 全局已退款合计（Stats 的退款率口径，批次四 D1b）。
+	sumRefunded float64
 }
 
 func newFakeRefundRepo() *fakeRefundRepo {
@@ -196,7 +213,9 @@ func (r *fakeRefundRepo) SumEffective(_ context.Context, orderID uint64) (float6
 	}
 	return sum, nil
 }
-func (r *fakeRefundRepo) SumRefundedAmount(context.Context) (float64, error) { return 0, nil }
+func (r *fakeRefundRepo) SumRefundedAmount(context.Context) (float64, error) {
+	return r.sumRefunded, nil
+}
 func (r *fakeRefundRepo) SumChannelRefund(context.Context, uint64, *time.Time, *time.Time) (float64, float64, error) {
 	return 0, 0, nil
 }

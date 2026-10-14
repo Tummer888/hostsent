@@ -365,6 +365,9 @@ func providerID(raw interface{}) uint64 {
 		}
 		v = v.Elem()
 	}
+	if v.Kind() != reflect.Struct {
+		return 0
+	}
 	f := v.FieldByName("ProviderID")
 	if !f.IsValid() {
 		return 0
@@ -384,11 +387,14 @@ func extractConfigOptions(raw interface{}) map[string]interface{} {
 		}
 		v = v.Elem()
 	}
+	if v.Kind() != reflect.Struct {
+		return map[string]interface{}{}
+	}
 	f := v.FieldByName("ConfigOptions")
 	if !f.IsValid() {
 		return map[string]interface{}{}
 	}
-	if f.IsNil() {
+	if f.Kind() == reflect.Map && f.IsNil() {
 		return map[string]interface{}{}
 	}
 	if m, ok := f.Interface().(map[string]interface{}); ok {
