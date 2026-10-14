@@ -31,8 +31,7 @@
       <t-tab-panel value="percent" label="按百分比（跟随上游）">
         <div class="upe-pane">
           <p class="upe-hint">
-            设定一个加价规则，<b>上游以后调价时各周期售价自动按规则重算</b>。
-            适合"永远按上游价加上固定利润卖"。
+            设定一个加价规则，<b>上游以后调价时各周期售价自动按规则重算</b>。 适合"永远按上游价加上固定利润卖"。
           </p>
 
           <div class="upe-field">
@@ -63,7 +62,8 @@
                   :theme="markupValue === preset ? 'primary' : 'default'"
                   :variant="markupValue === preset ? 'base' : 'outline'"
                   @click="markupValue = preset"
-                >{{ preset }}%</t-button>
+                  >{{ preset }}%</t-button
+                >
               </t-space>
             </div>
             <span class="upe-tip">{{ percentHint }}</span>
@@ -163,14 +163,12 @@
             <template #cycle="{ row }">
               <div class="upe-cycle">
                 <span class="upe-cycle__name">{{ row.cycle_name }}</span>
-                <t-tag
-                  v-if="row.source === 'manual'"
-                  theme="warning"
-                  variant="light"
-                  size="small"
-                  shape="round"
-                >人工</t-tag>
-                <t-tag v-else-if="row.source" theme="primary" variant="light" size="small" shape="round">跟随上游</t-tag>
+                <t-tag v-if="row.source === 'manual'" theme="warning" variant="light" size="small" shape="round"
+                  >人工</t-tag
+                >
+                <t-tag v-else-if="row.source" theme="primary" variant="light" size="small" shape="round"
+                  >跟随上游</t-tag
+                >
               </div>
             </template>
             <template #price="{ row }">
@@ -180,7 +178,10 @@
               <span class="upe-muted">{{ row.cost_price > 0 ? `¥${formatPrice(row.cost_price)}` : '—' }}</span>
             </template>
             <template #margin="{ row }">
-              <span v-if="row.cost_price > 0 && row.price > 0" :class="row.price >= row.cost_price ? 'upe-up' : 'upe-down'">
+              <span
+                v-if="row.cost_price > 0 && row.price > 0"
+                :class="row.price >= row.cost_price ? 'upe-up' : 'upe-down'"
+              >
                 {{ marginText(row) }}
               </span>
               <span v-else class="upe-muted">—</span>
@@ -208,9 +209,7 @@
           <t-radio-button value="clear">清除绑定（改为跟随商品价）</t-radio-button>
         </t-radio-group>
         <div class="upe-sync__probe">
-          <t-button size="small" variant="outline" :loading="probing" @click="probe">
-            先看影响几台
-          </t-button>
+          <t-button size="small" variant="outline" :loading="probing" @click="probe"> 先看影响几台 </t-button>
           <span v-if="probeResult" class="upe-sync__result">{{ probeResult }}</span>
         </div>
       </div>
@@ -562,9 +561,7 @@ async function saveMarkupRule() {
       remark: '商品改价（百分比方案）',
     })
     const affected = res?.affected ?? 0
-    MessagePlugin.success(
-      affected > 0 ? (res.message || `已按规则重算 ${affected} 个商品售价`) : '加价规则已保存',
-    )
+    MessagePlugin.success(affected > 0 ? res.message || `已按规则重算 ${affected} 个商品售价` : '加价规则已保存')
   } catch (error) {
     MessagePlugin.error((error as Error).message || '保存加价规则失败')
     throw error

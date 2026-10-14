@@ -81,13 +81,7 @@
           <t-form-item label="凭据附件（选填）">
             <div class="evidence-upload">
               <t-space size="small" break-line>
-                <t-tag
-                  v-for="f in pendingFiles"
-                  :key="f.id"
-                  closable
-                  variant="light"
-                  @close="removePendingFile(f)"
-                >
+                <t-tag v-for="f in pendingFiles" :key="f.id" closable variant="light" @close="removePendingFile(f)">
                   {{ f.file_name }}
                 </t-tag>
                 <t-button size="small" variant="outline" :loading="uploading" @click="triggerFilePick">

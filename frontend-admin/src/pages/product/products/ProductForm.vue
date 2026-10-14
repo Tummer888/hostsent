@@ -590,7 +590,6 @@ const stockHint = computed(() => {
   return '上游限量商品的可售余量为权威值，会随商品目录同步刷新覆盖本地填写；-1 表示不限量。'
 })
 
-
 const pageTitle = computed(() => (props.mode === 'create' ? '新建自营产品' : '编辑产品'))
 const headerDesc = computed(() =>
   props.mode === 'create'

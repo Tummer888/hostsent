@@ -30,12 +30,22 @@
     <t-alert theme="info" class="policy-alert">
       <template #title>匹配规则</template>
       <template #message>
-        <p class="policy-alert__line">① 先按「商品来源 + 商品所属分类」逐级向上找，**分类越具体优先级越高**（例如「云主机/香港」优先于「云主机」）；</p>
+        <p class="policy-alert__line">
+          ① 先按「商品来源 + 商品所属分类」逐级向上找，**分类越具体优先级越高**（例如「云主机/香港」优先于「云主机」）；
+        </p>
         <p class="policy-alert__line">② 未命中则回落「同来源 + 全部分类」；</p>
-        <p class="policy-alert__line">③ **都没有命中时，该商品不支持客户自助申请退款**（运营仍可在订单列表手动发起）。</p>
-        <p class="policy-alert__line">④ 可退时限自「订单开通成功时间」起算；未开通成功的订单不受时限约束，但一律走人工审核。</p>
-        <p class="policy-alert__line">⑤ 原路退回（有渠道支付记录时可选）目前无自动退款接口，**一律人工审核**并需上传凭据。</p>
-        <p class="policy-alert__line">⑥ 退款生效后是否暂停/销毁实例由**生命周期策略**决定（实例管理 → 生命周期策略 → 退款处置）。</p>
+        <p class="policy-alert__line">
+          ③ **都没有命中时，该商品不支持客户自助申请退款**（运营仍可在订单列表手动发起）。
+        </p>
+        <p class="policy-alert__line">
+          ④ 可退时限自「订单开通成功时间」起算；未开通成功的订单不受时限约束，但一律走人工审核。
+        </p>
+        <p class="policy-alert__line">
+          ⑤ 原路退回（有渠道支付记录时可选）目前无自动退款接口，**一律人工审核**并需上传凭据。
+        </p>
+        <p class="policy-alert__line">
+          ⑥ 退款生效后是否暂停/销毁实例由**生命周期策略**决定（实例管理 → 生命周期策略 → 退款处置）。
+        </p>
       </template>
     </t-alert>
 
@@ -55,7 +65,13 @@
         cell-empty-content="—"
       >
         <template #source_mode="{ row }">
-          <t-tag v-if="row.source_mode" :theme="sourceModeTag(row.source_mode).theme" variant="light" size="small" shape="round">
+          <t-tag
+            v-if="row.source_mode"
+            :theme="sourceModeTag(row.source_mode).theme"
+            variant="light"
+            size="small"
+            shape="round"
+          >
             {{ sourceModeTag(row.source_mode).text }}
           </t-tag>
           <t-tag v-else theme="default" variant="light" size="small" shape="round">不限来源</t-tag>
@@ -133,7 +149,11 @@
           <t-input-number v-model="form.window_hours" :min="0" :max="8760" theme="column" />
           <p class="form-hint">自「订单开通成功」起算；填 0 表示不限时。默认 24 小时。</p>
         </t-form-item>
-        <t-form-item v-if="form.refundable && form.source_mode !== 'upstream'" label="免审核自动退款" name="auto_approve">
+        <t-form-item
+          v-if="form.refundable && form.source_mode !== 'upstream'"
+          label="免审核自动退款"
+          name="auto_approve"
+        >
           <t-switch v-model="form.auto_approve" />
           <p class="form-hint">
             开启后，命中策略且为「退回余额 + 全额 + 在时限内」的申请将自动退款，
@@ -147,7 +167,11 @@
           </t-radio-group>
         </t-form-item>
         <t-form-item label="备注" name="remark">
-          <t-textarea v-model="form.remark" :autosize="{ minRows: 2, maxRows: 3 }" placeholder="选填，例如：自营云主机默认 24 小时无理由" />
+          <t-textarea
+            v-model="form.remark"
+            :autosize="{ minRows: 2, maxRows: 3 }"
+            placeholder="选填，例如：自营云主机默认 24 小时无理由"
+          />
         </t-form-item>
       </t-form>
     </t-dialog>

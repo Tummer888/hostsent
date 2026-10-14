@@ -267,13 +267,29 @@
       <div v-else-if="priceProduct" class="self-price-form">
         <t-form label-align="top" :data="priceForm" @submit.prevent>
           <t-form-item label="销售价（元）" name="price">
-            <t-input-number v-model="priceForm.price" :min="0" :precision="2" theme="column" placeholder="请输入销售价" />
+            <t-input-number
+              v-model="priceForm.price"
+              :min="0"
+              :precision="2"
+              theme="column"
+              placeholder="请输入销售价"
+            />
           </t-form-item>
           <t-form-item label="成本价（元）" name="cost_price">
-            <t-input-number v-model="priceForm.cost_price" :min="0" :precision="2" theme="column" placeholder="请输入成本价" />
+            <t-input-number
+              v-model="priceForm.cost_price"
+              :min="0"
+              :precision="2"
+              theme="column"
+              placeholder="请输入成本价"
+            />
           </t-form-item>
           <t-form-item label="备注" name="remark">
-            <t-textarea v-model="priceForm.remark" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="选填，记录本次调价说明" />
+            <t-textarea
+              v-model="priceForm.remark"
+              :autosize="{ minRows: 2, maxRows: 4 }"
+              placeholder="选填，记录本次调价说明"
+            />
           </t-form-item>
         </t-form>
         <p class="self-price-form__hint">
@@ -339,7 +355,9 @@
               <t-radio-button :value="true">直接上架</t-radio-button>
               <t-radio-button :value="false">先存草稿</t-radio-button>
             </t-radio-group>
-            <span class="clone-tip">财务型上游的开通参数由上游自带（原样转发），导入即可上架；选草稿则先编辑再上架。</span>
+            <span class="clone-tip"
+              >财务型上游的开通参数由上游自带（原样转发），导入即可上架；选草稿则先编辑再上架。</span
+            >
           </div>
         </div>
 
@@ -431,9 +449,15 @@
                 <span class="clone-cell clone-cell--spec clone-col--spec">{{ formatProductSpec(item) }}</span>
                 <span class="clone-cell clone-col--num clone-col--uplist">{{ priceText(item.sale_price) }}</span>
                 <span class="clone-cell clone-col--num clone-col--cost">{{ priceText(item.cost_price) }}</span>
-                <span class="clone-cell clone-col--num clone-cell--sale clone-col--sale">{{ priceText(salePriceOf(item)) }}</span>
-                <span class="clone-cell clone-col--num clone-col--margin" :class="marginClass(item)">{{ marginText(item) }}</span>
-                <span class="clone-cell clone-col--num clone-col--stock" :class="stockClass(item)">{{ stockText(item) }}</span>
+                <span class="clone-cell clone-col--num clone-cell--sale clone-col--sale">{{
+                  priceText(salePriceOf(item))
+                }}</span>
+                <span class="clone-cell clone-col--num clone-col--margin" :class="marginClass(item)">{{
+                  marginText(item)
+                }}</span>
+                <span class="clone-cell clone-col--num clone-col--stock" :class="stockClass(item)">{{
+                  stockText(item)
+                }}</span>
                 <span class="clone-cell clone-cell--status clone-col--status">
                   <t-tooltip v-if="item.imported" :content="importedTooltip(item)">
                     <t-link theme="success" hover="color" @click="openImportedProduct(item)">
@@ -1717,8 +1741,8 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
   .clone-row {
     grid-template-columns: 24px minmax(0, 1fr) auto auto auto;
     grid-template-areas:
-      "check name name name name"
-      "check sale stock status status";
+      'check name name name name'
+      'check sale stock status status';
     row-gap: 4px;
     column-gap: 8px;
   }

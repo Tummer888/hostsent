@@ -130,7 +130,13 @@
               {{ refundStatusLabel(row.status) }}
             </t-tag>
             <!-- 待复核：免审核自动退款后，钱已出去需财务回头核对 -->
-            <t-tag v-if="row.review_state === 'pending'" theme="warning" variant="light-outline" size="small" shape="round">
+            <t-tag
+              v-if="row.review_state === 'pending'"
+              theme="warning"
+              variant="light-outline"
+              size="small"
+              shape="round"
+            >
               待复核
             </t-tag>
           </div>
