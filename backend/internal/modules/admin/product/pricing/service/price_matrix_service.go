@@ -48,8 +48,9 @@ type PriceMatrixService interface {
 	// CycleBasePrice 取指定周期的启停与售价（下单校验 + 算价基数）。
 	// hasMatrix=false 表示该商品（或 SKU）尚未建立矩阵，调用方应回落旧单价口径。
 	CycleBasePrice(ctx context.Context, productID, specID uint64, cycle string) (price float64, hasMatrix bool, err error)
-	// ApplyUpstreamPrices 按上游周期成本写入矩阵（同步确认 / 克隆导入调用），
-	// 会保留人工覆盖行（source=manual）不改写。
+	// ApplyUpstreamPrices 按上游周期成本写入矩阵（同步确认 / 克隆导入调用）。
+	// 人工覆盖行（source=manual）不改写；rows 里 PreservePrice=true 的档位只更新成本、
+	// 保留现有售价（且该档本地无行时跳过，不凭空新建）。
 	ApplyUpstreamPrices(ctx context.Context, productID uint64, rows []dto.CyclePriceRow) error
 	// EnabledCycles 返回商品可售周期（供前台/开放平台展示），按规范顺序。
 	EnabledCycles(ctx context.Context, productID uint64) ([]string, error)
@@ -317,10 +318,12 @@ func (s *priceMatrixService) ApplyUpstreamPrices(ctx context.Context, productID 
 		return err
 	}
 	manual := map[string]struct{}{}
+	byCycle := make(map[string]model.ProductPrice, len(existing))
 	for _, r := range existing {
 		if r.Source == model.PriceSourceManual {
 			manual[r.Cycle] = struct{}{}
 		}
+		byCycle[r.Cycle] = r
 	}
 	for _, in := range rows {
 		cycle := billingcycle.Normalize(in.Cycle)
@@ -330,11 +333,23 @@ func (s *priceMatrixService) ApplyUpstreamPrices(ctx context.Context, productID 
 		if _, ok := manual[cycle]; ok {
 			continue
 		}
+		// 只同步成本、保留现有售价：上游同步无权按成本重写售价（售价可能来自导入倍率
+		// 或人工定价），否则会写成零毛利（doc120 §11.7 实测故障）。
+		// 该档尚无任何行时不新建 —— 没有"现有售价"可保留，凭空造一行等于给未定价的
+		// 周期开卖；等运营在矩阵里显式定价后再纳入同步。
+		price := in.Price
+		if in.PreservePrice {
+			prev, ok := byCycle[cycle]
+			if !ok {
+				continue
+			}
+			price = prev.Price
+		}
 		row := model.ProductPrice{
 			ProductID: productID,
 			Cycle:     cycle,
 			Currency:  defaultCurrency,
-			Price:     in.Price,
+			Price:     price,
 			CostPrice: in.CostPrice,
 			// 初装费：上游 msetupfee 挂在哪一档就记在该档。
 			SetupFee:     in.SetupFee,

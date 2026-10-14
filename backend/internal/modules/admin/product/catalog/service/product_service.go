@@ -74,6 +74,11 @@ type ProductService interface {
 	ApplyUpstreamMarkupRule(ctx context.Context, resourceProductID uint64, markupType string, markupValue float64, operatorName, remark string) (int, error)
 	// SetSpecPassthrough 设置「仅透传上游参数」（上架门禁的显式放行项），写操作历史。
 	SetSpecPassthrough(ctx context.Context, id uint64, enabled bool, operatorID uint64, operatorName string) (*dto.ProductInfo, error)
+	// SyncRenewalPrices 把商品当前周期价同步到「已绑定续费价」的实例（改价后让老机器也按新价续费）。
+	// dryRun 只统计不落库；clear 表示改为清除绑定（回到跟随商品周期价）。
+	SyncRenewalPrices(ctx context.Context, id uint64, clear bool, dryRun bool, operatorID uint64, operatorName string) (*dto.RenewalPriceSyncResult, error)
+	// SetRenewalPriceSyncer 注入续费价同步能力（装配层调用：端口在实例域，避免 catalog 反向依赖）。
+	SetRenewalPriceSyncer(s RenewalPriceSyncer)
 	// BatchPublish / BatchUnpublish / BatchDelete 批量上架/下架/删除（逐条回报失败原因）。
 	BatchPublish(ctx context.Context, ids []uint64, operatorID uint64, operatorName string) (*dto.ProductBatchActionResponse, error)
 	BatchUnpublish(ctx context.Context, ids []uint64, operatorID uint64, operatorName string) (*dto.ProductBatchActionResponse, error)
@@ -307,14 +312,32 @@ type CyclePriceWriter interface {
 	ApplyUpstreamPrices(ctx context.Context, productID uint64, rows []CyclePriceRow) error
 }
 
+// RenewalPriceSyncer 把商品的周期价同步到已开通实例的续费绑定（装配层实现）。
+//
+// 为什么需要：实例一旦绑定过续费价（instances.renewal_price），就**不再跟随商品调价**——
+// 那是"谈定单价"的语义，是有意为之。但商品整体改价后，运营往往希望这些机器也按新价续费，
+// 此前只能逐台到实例详情页改（实测痛点：改一个商品的价格要手动改几十台）。
+//
+// 只同步"已绑定"的实例：未绑定的实例续费时本就实时读商品周期价，无需也不该钉价。
+type RenewalPriceSyncer interface {
+	// SyncBoundRenewalPrices 按商品当前周期价重设已绑定实例的续费价，返回受影响台数。
+	// dryRun=true 时只统计不落库（前端确认弹窗先拿"将影响 N 台"）。
+	SyncBoundRenewalPrices(ctx context.Context, productID uint64, dryRun bool) (int, error)
+	// ClearBoundRenewalPrices 清除绑定，让这些实例回到"续费时跟随商品周期价"。
+	ClearBoundRenewalPrices(ctx context.Context, productID uint64, dryRun bool) (int, error)
+}
+
 // CyclePriceRow 由上游周期成本推导出的单档价格（catalog 侧只构造，不落库）。
 type CyclePriceRow struct {
-	Cycle        string
-	Price        float64
-	CostPrice    float64
-	SetupFee     float64
-	CostSetupFee float64
-	Source       string
+	Cycle     string
+	Price     float64
+	CostPrice float64
+	// PreservePrice 为真时只同步成本、保留该档现有售价（无加价规则的商品走这条）。
+	// 上游同步无权决定售价：售价可能是导入倍率或人工定价，按成本重写会变成零毛利。
+	PreservePrice bool
+	SetupFee      float64
+	CostSetupFee  float64
+	Source        string
 }
 
 type productService struct {
@@ -333,6 +356,8 @@ type productService struct {
 	bindingWriter SpecBindingWriter
 	// cycleWriter 用于上游调价确认后按周期重算矩阵（doc25 §5）
 	cycleWriter CyclePriceWriter
+	// renewalSyncer 把周期价同步到已开通实例的续费绑定（装配层注入，可为 nil）
+	renewalSyncer RenewalPriceSyncer
 	// optionCatalog 平台配置项目录（生成客户选配项时取控件元数据与取值）
 	optionCatalog SpecOptionCatalogReader
 }
@@ -363,6 +388,11 @@ func NewProductService(repo repository.ProductRepository, readers ...interface{}
 // SetCyclePriceWriter 注入周期价格矩阵写入能力（doc25 §5）。
 func (s *productService) SetCyclePriceWriter(w CyclePriceWriter) {
 	s.cycleWriter = w
+}
+
+// SetRenewalPriceSyncer 注入续费价同步能力（装配层调用）。
+func (s *productService) SetRenewalPriceSyncer(syncer RenewalPriceSyncer) {
+	s.renewalSyncer = syncer
 }
 
 // SetSpecTemplateReader 注入规格模板读取能力（自营按模板生成 SKU）。
@@ -685,11 +715,18 @@ func (s *productService) Update(ctx context.Context, id uint64, req dto.ProductU
 	}
 	// 平台渠道改绑（自营链路）：代理商品的渠道由导入决定，不接受此处改写，
 	// 否则会把"上游资源商品 + 别的平台渠道"配成一对无法履约的组合。
+	//
+	// 只在**取值真的变了**时才拒绝：编辑页会把读到的商品原样回传（含渠道字段），
+	// 一律拒绝会让"改个商品名/描述"都保存失败（实测：编辑上游商品必报
+	// 「代理商品的上游渠道由导入流程决定」，改动根本存不进去）。
+	// 回传原值属幂等 no-op，真正的改绑仍然被拦。
 	if req.SourceProviderID != nil {
-		if item.SourceMode == model.SourceModeUpstream {
+		if item.SourceMode == model.SourceModeUpstream && *req.SourceProviderID != item.SourceProviderID {
 			return nil, errors.New("代理商品的上游渠道由导入流程决定，不能在此修改")
 		}
-		item.SourceProviderID = *req.SourceProviderID
+		if item.SourceMode != model.SourceModeUpstream {
+			item.SourceProviderID = *req.SourceProviderID
+		}
 	}
 	// 上游加价规则与透传标记（T4.3）：指针为 nil 表示未传，保持原值。
 	if req.UpstreamMarkupType != nil {
@@ -1733,6 +1770,60 @@ func (s *productService) SetSpecPassthrough(ctx context.Context, id uint64, enab
 		Remark:       remark,
 	})
 	return s.FindByID(ctx, id)
+}
+
+// SyncRenewalPrices 把商品当前周期价同步到「已绑定续费价」的实例。
+//
+// 语义边界（重要）：
+//   - 只动**已绑定**续费价的实例。绑定价是"谈定单价"，不会跟随商品调价；
+//     未绑定的实例续费时本就实时读商品周期价，改商品价即生效 —— 给它们写绑定值
+//     反而会把"跟随商品价"变成"钉死在本次价格"，属于帮倒忙。
+//   - clear=true 是唯一能让已绑定实例回到"跟随商品价"的批量手段。
+//
+// 端口未装配时明确报错而不是静默成功：静默成功会让运营以为老机器已经改价了。
+func (s *productService) SyncRenewalPrices(ctx context.Context, id uint64, clear bool, dryRun bool, operatorID uint64, operatorName string) (*dto.RenewalPriceSyncResult, error) {
+	if s.renewalSyncer == nil {
+		return nil, errors.New("续费价同步能力未装配，无法同步到实例")
+	}
+	item, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	var (
+		affected int
+		serr     error
+	)
+	if clear {
+		affected, serr = s.renewalSyncer.ClearBoundRenewalPrices(ctx, id, dryRun)
+	} else {
+		affected, serr = s.renewalSyncer.SyncBoundRenewalPrices(ctx, id, dryRun)
+	}
+	if serr != nil {
+		return nil, serr
+	}
+	result := &dto.RenewalPriceSyncResult{Affected: affected, DryRun: dryRun, Cleared: clear}
+	switch {
+	case dryRun && clear:
+		result.Message = fmt.Sprintf("将清除 %d 台主机的续费绑定价（它们之后按商品调价实时续费）", affected)
+	case dryRun:
+		result.Message = fmt.Sprintf("将把 %d 台主机的续费价更新为当前商品价", affected)
+	case clear:
+		result.Message = fmt.Sprintf("已清除 %d 台主机的续费绑定价，改为跟随商品调价", affected)
+	default:
+		result.Message = fmt.Sprintf("已按当前商品价更新 %d 台主机的续费价", affected)
+	}
+	// 试算不留痕：dry_run 不应产生"已改价"的审计记录。
+	if !dryRun {
+		_ = s.repo.AddHistory(ctx, &model.ProductHistory{
+			ProductID:    id,
+			ChangeType:   model.ChangeTypePrice,
+			NewValue:     strconv.Itoa(affected),
+			OperatorID:   operatorID,
+			OperatorName: operatorName,
+			Remark:       result.Message + "（" + item.Name + "）",
+		})
+	}
+	return result, nil
 }
 
 // ============================================================================

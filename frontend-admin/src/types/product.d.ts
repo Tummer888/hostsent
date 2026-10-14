@@ -107,6 +107,15 @@ export interface SaleProductUpdateRequest {
   spec_passthrough?: boolean
 }
 
+/** 商品周期价同步到实例续费绑定的结果（dry_run 试算时 Affected 是"将要影响"的台数）。 */
+export interface RenewalPriceSyncResult {
+  affected: number
+  dry_run: boolean
+  cleared: boolean
+  /** 面向运营的结果说明（含台数与语义） */
+  message: string
+}
+
 export interface SaleProductPriceRequest {
   price: number
   cost_price: number

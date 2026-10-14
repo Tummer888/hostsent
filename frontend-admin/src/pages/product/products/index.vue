@@ -242,42 +242,54 @@
       </div>
     </div>
 
+    <!--
+      改价：对接商品的价格是「周期 × 价格」的矩阵（上游按周期定价并已给折扣），
+      只填一个单价会让季付/年付档位算错，因此改用共用编辑器（百分比规则 / 逐周期自定义）。
+      自营商品仍用下面的简单弹窗（它是单一售价模型）。
+    -->
     <t-dialog
       v-model:visible="priceVisible"
-      header="编辑价格"
-      width="460px"
-      :confirm-btn="{ content: '保存', theme: 'primary' }"
-      :cancel-btn="{ content: '取消' }"
-      @confirm="handleSavePrice"
+      :header="priceProduct ? `改价 · ${priceProduct.name}` : '改价'"
+      :width="isMobile ? '94vw' : '760px'"
+      :footer="false"
       @close="priceVisible = false"
     >
-      <t-form label-align="top" :data="priceForm" @submit.prevent>
-        <t-form-item label="销售价（元）" name="price">
-          <t-input-number v-model="priceForm.price" :min="0" :precision="2" theme="column" placeholder="请输入销售价" />
-        </t-form-item>
-        <t-form-item label="成本价（元）" name="cost_price">
-          <t-input-number
-            v-model="priceForm.cost_price"
-            :min="0"
-            :precision="2"
-            theme="column"
-            placeholder="请输入成本价"
-          />
-        </t-form-item>
-        <t-form-item label="备注" name="remark">
-          <t-textarea
-            v-model="priceForm.remark"
-            :autosize="{ minRows: 2, maxRows: 4 }"
-            placeholder="选填，记录本次调价说明"
-          />
-        </t-form-item>
-      </t-form>
+      <UpstreamPriceEditor
+        v-if="priceProduct && isUpstreamProduct(priceProduct)"
+        :product-id="priceProduct.id"
+        :product-name="priceProduct.name"
+        :source-product-id="priceProduct.source_product_id"
+        :upstream="priceUpstream"
+        @saved="handlePriceSaved"
+        @cancel="priceVisible = false"
+      />
+      <!-- 自营商品：单一售价模型，保持原有的两字段弹窗语义 -->
+      <div v-else-if="priceProduct" class="self-price-form">
+        <t-form label-align="top" :data="priceForm" @submit.prevent>
+          <t-form-item label="销售价（元）" name="price">
+            <t-input-number v-model="priceForm.price" :min="0" :precision="2" theme="column" placeholder="请输入销售价" />
+          </t-form-item>
+          <t-form-item label="成本价（元）" name="cost_price">
+            <t-input-number v-model="priceForm.cost_price" :min="0" :precision="2" theme="column" placeholder="请输入成本价" />
+          </t-form-item>
+          <t-form-item label="备注" name="remark">
+            <t-textarea v-model="priceForm.remark" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="选填，记录本次调价说明" />
+          </t-form-item>
+        </t-form>
+        <p class="self-price-form__hint">
+          自营商品按单一售价与周期矩阵定价；如需按周期分别定价，请到「周期价格」页维护。
+        </p>
+        <div class="self-price-form__footer">
+          <t-button variant="outline" @click="priceVisible = false">取消</t-button>
+          <t-button theme="primary" @click="handleSavePrice">保存</t-button>
+        </div>
+      </div>
     </t-dialog>
 
     <t-dialog
       v-model:visible="cloneVisible"
       header="从上游商品导入"
-      width="960px"
+      :width="isMobile ? '94vw' : '960px'"
       :confirm-btn="{
         content: `导入选中的 ${selectedProductIds.size} 个商品`,
         theme: 'primary',
@@ -289,8 +301,15 @@
       @close="cloneVisible = false"
     >
       <t-form label-align="top" :data="cloneForm" @submit.prevent>
+        <!--
+          导入设置：每个字段用「控件 + 说明」的纵向包裹（.clone-field）。
+          说明必须放在自己的块里，不能直接塞进 t-form-item —— TDesign 的
+          .t-form__controls-content 是不换行的 flex 行，中文的 min-content 宽度
+          只有 1 个字，说明会被挤成竖排单字（实测截图故障）。
+        -->
         <div class="clone-grid">
-          <t-form-item label="上游提供商" name="source_provider_id">
+          <div class="clone-field clone-field--required">
+            <span class="clone-field__label">上游提供商</span>
             <t-select
               v-model="cloneForm.source_provider_id"
               :options="providerOptions"
@@ -298,8 +317,9 @@
               @change="handleProviderChange"
             />
             <span class="clone-tip">只列可对接商品目录的渠道，自营平台不在列。</span>
-          </t-form-item>
-          <t-form-item label="归入本地分类" name="category_id">
+          </div>
+          <div class="clone-field">
+            <span class="clone-field__label">归入本地分类</span>
             <t-select
               v-model="cloneForm.category_id"
               :options="categoryOptions"
@@ -307,20 +327,20 @@
               placeholder="不选则落「未分类」"
             />
             <span class="clone-tip">不选也能导，导入后再逐个改分类比较费事。</span>
-          </t-form-item>
-          <t-form-item label="定价（按上游标价）" name="price_percent">
+          </div>
+          <div class="clone-field">
+            <span class="clone-field__label">定价（按上游标价）</span>
             <t-input-number v-model="cloneForm.price_percent" class="clone-percent" :min="1" :step="5" suffix="%" />
             <span class="clone-tip">售价 = 上游标价 × N%；100 按原价，&gt;100 加价，&lt;100 让利。</span>
-          </t-form-item>
-          <t-form-item label="导入后" name="publish_now">
-            <t-radio-group v-model="cloneForm.publish_now" variant="default-filled">
+          </div>
+          <div class="clone-field">
+            <span class="clone-field__label">导入后</span>
+            <t-radio-group v-model="cloneForm.publish_now" class="clone-publish">
               <t-radio-button :value="true">直接上架</t-radio-button>
               <t-radio-button :value="false">先存草稿</t-radio-button>
             </t-radio-group>
-            <span class="clone-tip">
-              财务型上游的开通参数由上游自带（原样转发），导入即可上架；选草稿则先编辑再上架。
-            </span>
-          </t-form-item>
+            <span class="clone-tip">财务型上游的开通参数由上游自带（原样转发），导入即可上架；选草稿则先编辑再上架。</span>
+          </div>
         </div>
 
         <div class="clone-summary">
@@ -385,15 +405,15 @@
             </div>
             <div class="clone-table">
               <div class="clone-table__head clone-row">
-                <span />
-                <span>商品</span>
-                <span>规格</span>
-                <span class="clone-col--num">上游标价</span>
-                <span class="clone-col--num">代理价</span>
-                <span class="clone-col--num">售价</span>
-                <span class="clone-col--num">毛利</span>
-                <span class="clone-col--num">库存</span>
-                <span>状态</span>
+                <span class="clone-col--check" />
+                <span class="clone-col--name">商品</span>
+                <span class="clone-col--spec">规格</span>
+                <span class="clone-col--num clone-col--uplist">上游标价</span>
+                <span class="clone-col--num clone-col--cost">代理价</span>
+                <span class="clone-col--num clone-col--sale">售价</span>
+                <span class="clone-col--num clone-col--margin">毛利</span>
+                <span class="clone-col--num clone-col--stock">库存</span>
+                <span class="clone-col--status">状态</span>
               </div>
               <label
                 v-for="item in group.items"
@@ -402,18 +422,19 @@
                 :class="{ 'clone-row--off': !isProductOnSale(item), 'clone-row--done': item.imported }"
               >
                 <t-checkbox
+                  class="clone-col--check"
                   :checked="isProductChecked(item.id)"
                   :disabled="Boolean(item.imported)"
                   @change="() => toggleProduct(item.id)"
                 />
-                <span class="clone-cell clone-cell--name" :title="item.name">{{ item.name }}</span>
-                <span class="clone-cell clone-cell--spec">{{ formatProductSpec(item) }}</span>
-                <span class="clone-cell clone-col--num">{{ priceText(item.sale_price) }}</span>
-                <span class="clone-cell clone-col--num">{{ priceText(item.cost_price) }}</span>
-                <span class="clone-cell clone-col--num clone-cell--sale">{{ priceText(salePriceOf(item)) }}</span>
-                <span class="clone-cell clone-col--num" :class="marginClass(item)">{{ marginText(item) }}</span>
-                <span class="clone-cell clone-col--num" :class="stockClass(item)">{{ stockText(item) }}</span>
-                <span class="clone-cell clone-cell--status">
+                <span class="clone-cell clone-cell--name clone-col--name" :title="item.name">{{ item.name }}</span>
+                <span class="clone-cell clone-cell--spec clone-col--spec">{{ formatProductSpec(item) }}</span>
+                <span class="clone-cell clone-col--num clone-col--uplist">{{ priceText(item.sale_price) }}</span>
+                <span class="clone-cell clone-col--num clone-col--cost">{{ priceText(item.cost_price) }}</span>
+                <span class="clone-cell clone-col--num clone-cell--sale clone-col--sale">{{ priceText(salePriceOf(item)) }}</span>
+                <span class="clone-cell clone-col--num clone-col--margin" :class="marginClass(item)">{{ marginText(item) }}</span>
+                <span class="clone-cell clone-col--num clone-col--stock" :class="stockClass(item)">{{ stockText(item) }}</span>
+                <span class="clone-cell clone-cell--status clone-col--status">
                   <t-tooltip v-if="item.imported" :content="importedTooltip(item)">
                     <t-link theme="success" hover="color" @click="openImportedProduct(item)">
                       已导入 {{ importedStatusText(item) }}
@@ -447,6 +468,7 @@ import {
   batchUnpublishProducts,
   deleteProduct,
   getProductCategoryList,
+  getProductDetail,
   getProductList,
   publishProduct,
   setProductSpecPassthrough,
@@ -464,8 +486,10 @@ import {
   statusTag,
 } from '@/pages/product/constants'
 import type { ProductInfo, ProviderInfo, SaleProductCategoryInfo, SaleProductInfo } from '@/types/interface'
+import type { SaleProductUpstreamInfo } from '@/types/product'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
+import UpstreamPriceEditor from './UpstreamPriceEditor.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useCategoryOptions } from '@/composables/useCategoryOptions'
 import { useIsMobile } from '@/composables/useIsMobile'
@@ -1219,19 +1243,49 @@ const priceForm = reactive<{ price: number; cost_price: number; remark: string }
   cost_price: 0,
   remark: '',
 })
-let priceProductId = 0
+// 当前改价的商品行：对接商品把它交给共用价格编辑器（需要 id/上游信息），
+// 自营商品仍走下面的两字段表单。
+const priceProduct = ref<SaleProductInfo | null>(null)
+// 上游对接信息（各周期成本/标价/折扣说明）：对接商品的编辑器要用它算各周期预览，
+// 列表接口不带该字段，因此按需单独拉详情。
+const priceUpstream = ref<SaleProductUpstreamInfo | null>(null)
+const priceDetailLoading = ref(false)
 
-function openPriceDialog(row: SaleProductInfo) {
-  priceProductId = row.id
+/** 是否对接（上游转售）商品：改价入口据此分流两套编辑器。 */
+function isUpstreamProduct(row: SaleProductInfo): boolean {
+  return row.source_mode === 'upstream'
+}
+
+async function openPriceDialog(row: SaleProductInfo) {
+  priceProduct.value = row
   priceForm.price = row.price
   priceForm.cost_price = row.cost_price
   priceForm.remark = ''
+  priceUpstream.value = null
   priceVisible.value = true
+  if (!isUpstreamProduct(row)) return
+  // 对接商品：补拉详情拿上游各周期价，编辑器据此渲染"各周期售价预览"。
+  priceDetailLoading.value = true
+  try {
+    const detail = await getProductDetail(row.id)
+    priceUpstream.value = detail.upstream || null
+  } catch (error) {
+    MessagePlugin.warning((error as Error).message || '读取上游价格失败，各周期预览将为空')
+  } finally {
+    priceDetailLoading.value = false
+  }
+}
+
+/** 共用编辑器保存完成：这里只负责收起弹窗并刷新列表。 */
+function handlePriceSaved() {
+  priceVisible.value = false
+  loadProducts()
 }
 
 async function handleSavePrice() {
+  if (!priceProduct.value) return
   try {
-    await updateProductPrice(priceProductId, {
+    await updateProductPrice(priceProduct.value.id, {
       price: priceForm.price,
       cost_price: priceForm.cost_price,
       remark: priceForm.remark || undefined,
@@ -1326,32 +1380,56 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
 </style>
 
 <style scoped>
-/* 表头三列：等宽 + 等高（提示两行高度固定），避免加载数据/切换选项时格子跳动 */
+/*
+  导入设置区：自适应列宽（窄屏自动塌成一列），每列内是「标签 / 控件 / 说明」纵向排列。
+  为什么不用 t-form-item：它的 controls-content 是不换行的 flex 行，说明文案与控件并排时
+  会把说明挤成竖排单字（中文 min-content 宽度 = 1 个字，实测截图故障）。
+*/
 .clone-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px 16px;
   align-items: start;
+  margin-bottom: 12px;
 }
-.clone-grid :deep(.t-form__item) {
+.clone-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   min-width: 0;
-  margin-bottom: 8px;
 }
-.clone-grid :deep(.t-form__label) {
-  min-height: 22px;
+.clone-field__label {
+  font-size: 14px;
+  font-weight: 400;
   line-height: 22px;
+  color: var(--td-text-color-primary, #000);
+}
+/* 必填项：与 TDesign 的必填星号语义一致，视觉上提示"这一项不能空" */
+.clone-field--required .clone-field__label::after {
+  content: '*';
+  margin-left: 4px;
+  color: var(--td-error-color, #d54941);
+}
+.clone-field :deep(.t-input__wrap),
+.clone-field :deep(.t-select__wrap) {
+  width: 100%;
 }
 /* 百分比输入框默认宽度很窄，拉满一列才不会与下拉框参差 */
 .clone-percent {
   width: 100%;
 }
+/* 单选组窄屏换行，避免两个按钮被压到溢出 */
+.clone-publish {
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .clone-tip {
   display: block;
-  min-height: 36px;
-  margin-top: 4px;
   font-size: 12px;
   line-height: 18px;
   color: var(--td-text-color-secondary, #999);
+  /* 说明可能较长：允许正常换行，不再固定高度造成截断或撑高 */
+  overflow-wrap: break-word;
 }
 .clone-hint {
   margin: 0 0 6px;
@@ -1359,6 +1437,20 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
   line-height: 1.6;
   color: var(--td-text-color-secondary, #999);
 }
+/* 自营商品改价：两字段表单 + 底部按钮（对接商品走 UpstreamPriceEditor 自带 footer） */
+.self-price-form__hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--td-text-color-secondary, #999);
+}
+.self-price-form__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 /* 导入弹窗搜索：上游商品常有几百个，靠滚动很难定位到目标分类/商品 */
 .clone-search {
   display: flex;
@@ -1487,13 +1579,12 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
 .clone-summary {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 6px 10px;
   margin-bottom: 8px;
   min-height: 24px;
   font-size: 12px;
   color: var(--td-text-color-secondary, #999);
-  white-space: nowrap;
-  overflow: hidden;
 }
 .clone-summary__split {
   color: var(--td-text-color-primary, #333);
@@ -1601,6 +1692,61 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
 
   .products-aside {
     display: none;
+  }
+}
+
+/*
+  窄屏（弹窗 94vw）：设置区塌成一列；商品表只保留「商品 / 售价 / 状态」，
+  其余列（规格/标价/代理价/毛利）在手机上挤不进一屏，隐藏比横滚更易读。
+*/
+@media (max-width: 768px) {
+  .clone-grid {
+    grid-template-columns: 1fr;
+  }
+  .clone-search {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .clone-search :deep(.t-input__wrap) {
+    width: 100%;
+  }
+  /*
+    窄屏两行布局：第一行 勾选 + 商品名（占满剩余宽度），第二行 售价 / 库存 / 状态。
+    单行塞 5 列在手机上会把商品名压到看不清；分两行后关键信息都保留且可读。
+  */
+  .clone-row {
+    grid-template-columns: 24px minmax(0, 1fr) auto auto auto;
+    grid-template-areas:
+      "check name name name name"
+      "check sale stock status status";
+    row-gap: 4px;
+    column-gap: 8px;
+  }
+  .clone-col--check {
+    grid-area: check;
+    align-self: center;
+  }
+  .clone-col--name {
+    grid-area: name;
+  }
+  .clone-col--sale {
+    grid-area: sale;
+  }
+  .clone-col--stock {
+    grid-area: stock;
+  }
+  .clone-col--status {
+    grid-area: status;
+    justify-self: start;
+  }
+  .clone-col--spec,
+  .clone-col--uplist,
+  .clone-col--cost,
+  .clone-col--margin {
+    display: none;
+  }
+  .clone-groups {
+    height: 320px;
   }
 }
 </style>

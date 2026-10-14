@@ -55,10 +55,13 @@ type PriceMatrixItemInput struct {
 
 // CyclePriceRow 由上游同步/克隆导入推导出的单档价格（内部调用，非 HTTP 入参）。
 type CyclePriceRow struct {
-	Cycle        string  `json:"cycle"`
-	Price        float64 `json:"price"`
-	CostPrice    float64 `json:"cost_price"`
-	SetupFee     float64 `json:"setup_fee"`
-	CostSetupFee float64 `json:"cost_setup_fee"`
-	Source       string  `json:"source"` // upstream | markup；空则默认 upstream
+	Cycle     string  `json:"cycle"`
+	Price     float64 `json:"price"`
+	CostPrice float64 `json:"cost_price"`
+	// PreservePrice 为真时只写成本、保留该档现有售价（无加价规则的上游同步走这条）。
+	// 上游同步不得按成本重写售价：售价可能来自导入倍率或人工定价，重写会变成零毛利白卖。
+	PreservePrice bool    `json:"preserve_price"`
+	SetupFee      float64 `json:"setup_fee"`
+	CostSetupFee  float64 `json:"cost_setup_fee"`
+	Source        string  `json:"source"` // upstream | markup；空则默认 upstream
 }

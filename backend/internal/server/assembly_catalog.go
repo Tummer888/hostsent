@@ -5,6 +5,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	instancerepo "hostsent/backend/internal/modules/admin/instance/repository"
 	cataloghandler "hostsent/backend/internal/modules/admin/product/catalog/handler"
 	catalogrepo "hostsent/backend/internal/modules/admin/product/catalog/repository"
 	catalogservice "hostsent/backend/internal/modules/admin/product/catalog/service"
@@ -32,8 +33,10 @@ import (
 	providerservice "hostsent/backend/internal/modules/admin/resource/provider/service"
 	ucproducthandler "hostsent/backend/internal/modules/uc/product/handler"
 	ucproductservice "hostsent/backend/internal/modules/uc/product/service"
+	"hostsent/backend/internal/pkg/billingcycle"
 	"hostsent/backend/internal/pkg/pricing"
 	"hostsent/backend/internal/pkg/upstream"
+	"math"
 	"strings"
 
 	"go.uber.org/zap"
@@ -86,6 +89,8 @@ func (a *asm) buildCatalog() {
 	a.priceMatrixHandler = pricinghandler.NewPriceMatrixHandler(a.priceMatrixService)
 	// 上游调价确认 → 按周期重算售出商品的价格矩阵（doc25 §5）。
 	a.prodCatalogService.SetCyclePriceWriter(NewCyclePriceWriter(a.priceMatrixService))
+	// 续费价同步（商品改价 → 已绑定续费价的实例）的注入放在 buildWire：
+	// 它依赖 a.instanceOpsRepo，而实例域（buildInstanceOps）在本函数之后构建。
 	// 用户中心商品：复用管理端商品目录，仅暴露上架商品（用户可购）；
 	// 详情页带周期价格矩阵的可售周期（doc25），用户端据此渲染周期选择。
 	a.ucProductService = ucproductservice.NewProductService(a.prodCatalogService, NewUCCycleReader(a.priceMatrixService))
@@ -472,12 +477,13 @@ func (a *cyclePriceWriterAdapter) ApplyUpstreamPrices(ctx context.Context, produ
 	converted := make([]pricingdto.CyclePriceRow, 0, len(rows))
 	for _, r := range rows {
 		converted = append(converted, pricingdto.CyclePriceRow{
-			Cycle:        r.Cycle,
-			Price:        r.Price,
-			CostPrice:    r.CostPrice,
-			SetupFee:     r.SetupFee,
-			CostSetupFee: r.CostSetupFee,
-			Source:       r.Source,
+			Cycle:         r.Cycle,
+			Price:         r.Price,
+			CostPrice:     r.CostPrice,
+			PreservePrice: r.PreservePrice,
+			SetupFee:      r.SetupFee,
+			CostSetupFee:  r.CostSetupFee,
+			Source:        r.Source,
 		})
 	}
 	return a.matrix.ApplyUpstreamPrices(ctx, productID, converted)
@@ -500,4 +506,114 @@ func (r *providerCyclesReader) BillingCycles(ctx context.Context, providerID uin
 	}
 	// 渠道可售周期以适配器能力描述符为准（provider_types 落库兜底）。
 	return info.Capabilities.BillingCycles, nil
+}
+
+// ============================================================================
+// 续费价同步适配器（商品改价 → 已绑定续费价的实例）
+// ============================================================================
+
+// priceStatusEnabled 周期价格矩阵行的"启用"状态（与 pricing/repository 同值）。
+// 这里用字面量而非 import：本文件只需要这一个常量，而 pricing 仓储包已通过
+// matrixservice 间接引入，再显式依赖一层会让"谁依赖谁"更难读。
+const priceStatusEnabled = 1
+
+// roundMoney 金额按分取整（比较"是否已是目标价"时避免浮点尾差误判）。
+func roundMoney(v float64) float64 {
+	return math.Round(v*100) / 100
+}
+
+// renewalPriceSyncerAdapter 把「实例仓储 + 价格矩阵」适配成 catalog 的续费价同步端口。
+//
+// 为什么做成端口：instance 域与 catalog 域互不依赖，直接互调会形成循环
+// （instance 已经依赖 catalog 的商品模型）。装配层用最小接口把两边接起来，
+// 与 pendingInstanceReleaser / StockApplier 的既有做法一致。
+type renewalPriceSyncerAdapter struct {
+	instances instancerepo.InstanceRepository
+	matrix    matrixservice.PriceMatrixService
+	// logger 记录"某台实例取不到该档价、保持原值"这类逐台明细，便于运营核对。
+	logger *zap.Logger
+}
+
+// NewRenewalPriceSyncer 创建续费价同步适配器（装配层调用）。
+func NewRenewalPriceSyncer(instances instancerepo.InstanceRepository, matrix matrixservice.PriceMatrixService, logger *zap.Logger) catalogservice.RenewalPriceSyncer {
+	return &renewalPriceSyncerAdapter{instances: instances, matrix: matrix, logger: logger}
+}
+
+// SyncBoundRenewalPrices 按各实例自己的付款周期，把商品当前该档价写回 renewal_price。
+//
+// 逐台取价而不是"取一个价写全部"：绑定价是**每周期单价**，而实例的付款周期各不相同
+// （月付/年付混在一起）。全部写同一个数会让年付实例按"月价"续费、平台少收钱。
+func (a *renewalPriceSyncerAdapter) SyncBoundRenewalPrices(ctx context.Context, productID uint64, dryRun bool) (int, error) {
+	rows, err := a.instances.ListBoundRenewalByProduct(ctx, productID)
+	if err != nil {
+		return 0, err
+	}
+	// 商品级周期价（spec_id=0）映射：周期 → 售价。
+	cyclePrices, err := a.productCyclePrices(ctx, productID)
+	if err != nil {
+		return 0, err
+	}
+	affected := 0
+	for _, row := range rows {
+		cycle := billingcycle.NormalizeOrDefault(row.BillingMode)
+		price, ok := cyclePrices[cycle]
+		if !ok || price <= 0 {
+			// 该实例的周期在商品价格矩阵里没有可售行：保留原绑定值不动。
+			// 清零会让续费直接算不出钱（续费守卫会拒绝 0 元单），比"没同步"更糟。
+			if a.logger != nil {
+				a.logger.Info("renewal price sync skipped: cycle has no sellable price",
+					zap.Uint64("product_id", productID), zap.Uint64("instance_id", row.ID),
+					zap.String("cycle", cycle))
+			}
+			continue
+		}
+		if row.RenewalPrice != nil && roundMoney(*row.RenewalPrice) == roundMoney(price) {
+			continue // 已是目标价，不必写库（也让 dry_run 的台数更贴近真实改动量）
+		}
+		if dryRun {
+			affected++
+			continue
+		}
+		p := price
+		if err := a.instances.SetRenewalPrice(ctx, row.ID, &p); err != nil {
+			// 单台失败不中断整批：批量操作里中断会留下"改了一半"的状态，
+			// 且运营无法知道改到哪一台；逐台尽力而为并记日志更可核对。
+			if a.logger != nil {
+				a.logger.Warn("set renewal price failed",
+					zap.Uint64("product_id", productID), zap.Uint64("instance_id", row.ID), zap.Error(err))
+			}
+			continue
+		}
+		affected++
+	}
+	return affected, nil
+}
+
+// ClearBoundRenewalPrices 清除绑定，让实例回到"续费时实时读商品周期价"。
+func (a *renewalPriceSyncerAdapter) ClearBoundRenewalPrices(ctx context.Context, productID uint64, dryRun bool) (int, error) {
+	rows, err := a.instances.ListBoundRenewalByProduct(ctx, productID)
+	if err != nil {
+		return 0, err
+	}
+	if dryRun {
+		return len(rows), nil
+	}
+	n, err := a.instances.SetRenewalPriceByProduct(ctx, productID, nil, true)
+	return int(n), err
+}
+
+// productCyclePrices 读商品级周期价（spec_id=0 且启用的行），返回 周期 → 售价。
+func (a *renewalPriceSyncerAdapter) productCyclePrices(ctx context.Context, productID uint64) (map[string]float64, error) {
+	matrix, err := a.matrix.Matrix(ctx, pricingdto.PriceMatrixQuery{ProductID: productID})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]float64, len(matrix.Items))
+	for _, item := range matrix.Items {
+		if item.Status != priceStatusEnabled || item.Price <= 0 {
+			continue
+		}
+		out[item.Cycle] = item.Price
+	}
+	return out, nil
 }

@@ -303,17 +303,25 @@ func parseUpstreamCycleCosts(rawSpecs string) map[string]float64 {
 
 // buildCyclePriceRow 按商品加价规则把某周期的成本/标价推导为矩阵行。
 // percent → cost×v/100；list_percent → 标价×v/100；fixed → cost+v（固定额只加一次，不随周期放大）；
-// 未配置加价规则 → 直接以上游成本为售价（source=upstream，运营可再人工调整）。
+// 未配置加价规则 → 只带成本、标 PreservePrice 让写入方保留现有售价（见下）。
+//
+// 关于"未配置加价规则"（实测故障，doc120 §11.7）：这里**不能**拿成本当售价写进去。
+// 本文件顶部的契约明确写着"未配置加价规则时只更新成本价、保持售价不变"，单个商品价
+// 那一侧是这么做的，但周期矩阵这一侧原先直接写 Price=cost，于是运营每确认一次上游
+// 成本变更，各周期售价就被改成采购价 —— 变成零毛利白卖（实测 5 个商品、20 档被改写；
+// 且周期价在算价里优先级高于商品价，客户真按成本价下单）。
+// 售价来源可能是导入倍率，也可能是运营手工定的，同步链路无权按成本重写，故改为保留。
 func buildCyclePriceRow(item model.Product, cycle string, cost, list float64) CyclePriceRow {
 	row := CyclePriceRow{
-		Cycle:     cycle,
-		CostPrice: round2(cost),
-		Price:     round2(cost),
-		Source:    "upstream",
+		Cycle:         cycle,
+		CostPrice:     round2(cost),
+		Source:        "upstream",
+		PreservePrice: true,
 	}
 	if p, changed := applyMarkupWithList(item.UpstreamMarkupType, item.UpstreamMarkupValue, cost, list); changed {
 		row.Price = round2(p)
 		row.Source = "markup"
+		row.PreservePrice = false
 	}
 	return row
 }

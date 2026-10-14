@@ -43,6 +43,9 @@ func registerAdminProductRoutes(v1 *gin.RouterGroup, app *App) {
 			prodProducts.POST("/:id/publish", app.perm("product:publish"), app.prodCatalogHandler.Publish)
 			prodProducts.POST("/:id/unpublish", app.perm("product:publish"), app.prodCatalogHandler.Unpublish)
 			prodProducts.PUT("/:id/price", app.perm("product:price:update"), app.prodCatalogHandler.UpdatePrice)
+			// 把商品当前周期价同步到已绑定续费价的实例（改价后让老机器也按新价续费）。
+			// 影响已开通机器的计费口径，与调价同权限；支持 dry_run 试算与 clear 清除绑定。
+			prodProducts.POST("/:id/sync-renewal-price", app.perm("product:price:update"), app.prodCatalogHandler.SyncRenewalPrices)
 			prodProducts.POST("/:id/featured", app.perm("product:update"), app.prodCatalogHandler.SetFeatured)
 			prodProducts.GET("/:id/history", app.perm("product:list"), app.prodCatalogHandler.ListHistory)
 			prodProducts.GET("/:id/specs", app.perm("product:list"), app.prodCatalogHandler.ListSpecs)

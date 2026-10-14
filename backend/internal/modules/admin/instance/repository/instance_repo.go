@@ -50,6 +50,9 @@ type InstanceRepository interface {
 	FindByID(ctx context.Context, id uint64) (*InstanceRow, error)
 	// FindByOrderID 按来源订单查实例（退款联动用；查不到返回 ErrNotFound，非云主机订单属正常）。
 	FindByOrderID(ctx context.Context, orderID uint64) (*InstanceRow, error)
+	// FindByOrderIDs 按来源订单批量查实例（订单列表「关联实例」列回填用）。
+	// 同一订单可能有多行（换机/重开历史），取每单最新一行（id 最大）。
+	FindByOrderIDs(ctx context.Context, orderIDs []uint64) (map[uint64]*InstanceRow, error)
 	Stats(ctx context.Context, withinDays int) (*dto.StatsResponse, error)
 	UpdateRemark(ctx context.Context, id uint64, remark string) error
 	UpdateStatus(ctx context.Context, id uint64, status string) error
@@ -73,6 +76,16 @@ type InstanceRepository interface {
 	// 与 AdjustBilling 分列写入而非合并：绑定价是"下次续费按这个价"的承诺，
 	// 常在只改价不改周期时单独设置，混在一个 Updates 里会互相干扰。
 	SetRenewalPrice(ctx context.Context, id uint64, price *float64) error
+	// ListBoundRenewalByProduct 列出某售出商品下**已绑定**续费价的实例。
+	//
+	// 为什么只列已绑定的：绑定价是"钉死价"，不随商品调价变化；未绑定的实例续费时
+	// 本就实时读商品周期价，改商品价即生效，无需也不该给它们写绑定值
+	//（写了反而把"跟随商品价"变成"钉死在本次价格"）。
+	ListBoundRenewalByProduct(ctx context.Context, productID uint64) ([]BoundRenewalInstance, error)
+	// SetRenewalPriceByProduct 按商品批量改续费绑定；price 为 nil 表示清除绑定。
+	// onlyBound=true 时只动已绑定的实例（默认语义），false 时连未绑定的一并写入。
+	// 返回受影响行数。
+	SetRenewalPriceByProduct(ctx context.Context, productID uint64, price *float64, onlyBound bool) (int64, error)
 	// RelinkUpstream 把实例重新关联到另一个上游实例号（上游换机场景）。
 	// migrateInstanceID 为 true 时同时改写本地展示号 instance_id。
 	// 只改号与回源字段，不动账期/续费价/归属（那些是本地决策，与上游号无关）。
@@ -232,6 +245,34 @@ func (r *instanceRepository) FindByOrderID(ctx context.Context, orderID uint64) 
 		return nil, err
 	}
 	return &row, nil
+}
+
+// FindByOrderIDs 按来源订单批量查实例（订单列表「关联实例」列回填用）。
+//
+// 只取 id 最大的那一行（同一订单换机/重开会有多行历史），返回 order_id → 行 的映射；
+// 没有实例的订单不出现在返回表里，调用方按缺失处理。
+func (r *instanceRepository) FindByOrderIDs(ctx context.Context, orderIDs []uint64) (map[uint64]*InstanceRow, error) {
+	if len(orderIDs) == 0 {
+		return map[uint64]*InstanceRow{}, nil
+	}
+	var rows []InstanceRow
+	if err := r.db.WithContext(ctx).
+		Table("instances AS instances").
+		Select(instanceSelect).
+		Joins("LEFT JOIN users AS u ON u.id = instances.user_id").
+		Joins("LEFT JOIN users AS a ON a.id = instances.actor_user_id").
+		Joins("LEFT JOIN resource_providers AS p ON p.id = instances.provider_id").
+		Where("instances.order_id IN ?", orderIDs).
+		Order("instances.id ASC").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[uint64]*InstanceRow, len(rows))
+	for i := range rows {
+		// id ASC 遍历：同订单后出现的即更新的行，直接覆盖，最终留下最新一行。
+		out[rows[i].OrderID] = &rows[i]
+	}
+	return out, nil
 }
 
 // Stats 全局概览统计（不受列表筛选影响）。
@@ -422,6 +463,52 @@ func (r *instanceRepository) SetRenewalPrice(ctx context.Context, id uint64, pri
 	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
 		Where("id = ?", id).
 		Update("renewal_price", value).Error
+}
+
+// BoundRenewalInstance 已绑定续费价的实例（批量续费价同步的目标行）。
+//
+// 带上 BillingMode：绑定价是"每周期单价"，而实例的付款周期各不相同
+// （月付/年付…），写回时必须按各自的周期取对应档位价，不能所有实例写同一个数。
+type BoundRenewalInstance struct {
+	ID           uint64
+	BillingMode  string
+	RenewalPrice *float64
+}
+
+// ListBoundRenewalByProduct 列出某售出商品下已绑定续费价的实例。
+//
+// 排除已销毁实例（口径同 CountByProviderInstanceID：status=deleted 或 lifecycle_stage=destroyed）：
+// 销毁行不再续费，改它的续费价没有意义，还会让"将更新 N 台"的数字虚高。
+func (r *instanceRepository) ListBoundRenewalByProduct(ctx context.Context, productID uint64) ([]BoundRenewalInstance, error) {
+	var rows []BoundRenewalInstance
+	err := r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Select("id, billing_mode, renewal_price").
+		Where("sell_product_id = ? AND renewal_price IS NOT NULL", productID).
+		Where("status <> ?", string(pkgmodel.InstanceStatusDeleted)).
+		Where("coalesce(lifecycle_stage, '') <> ?", "destroyed").
+		Order("id asc").
+		Scan(&rows).Error
+	return rows, err
+}
+
+// SetRenewalPriceByProduct 按商品批量设置/清除续费绑定。
+//
+// price 为 nil：清除绑定（这些实例回到"续费时实时读商品周期价"）。
+// onlyBound=true：只动已绑定的行 —— 避免把"跟随商品价"的实例意外钉死。
+func (r *instanceRepository) SetRenewalPriceByProduct(ctx context.Context, productID uint64, price *float64, onlyBound bool) (int64, error) {
+	var value any
+	if price != nil && *price > 0 {
+		value = money2(*price)
+	}
+	base := r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("sell_product_id = ?", productID).
+		Where("status <> ?", string(pkgmodel.InstanceStatusDeleted)).
+		Where("coalesce(lifecycle_stage, '') <> ?", "destroyed")
+	if onlyBound {
+		base = base.Where("renewal_price IS NOT NULL")
+	}
+	res := base.Update("renewal_price", value)
+	return res.RowsAffected, res.Error
 }
 
 // CountByProviderInstanceID 统计仍会向上游发指令的实例中，占用该上游号的**其他**实例数。

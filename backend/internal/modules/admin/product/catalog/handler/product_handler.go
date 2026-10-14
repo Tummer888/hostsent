@@ -150,6 +150,35 @@ func (h *ProductHandler) SetSpecPassthrough(c *gin.Context) {
 	response.Success(c, info)
 }
 
+// SyncRenewalPrices godoc
+// @Summary 把商品当前周期价同步到已绑定续费价的实例（支持 dry_run 试算与 clear 清除绑定）
+// @Tags 产品管理-商品
+// @Security BearerAuth
+// @Param id path int true "商品 ID"
+// @Param request body dto.ProductRenewalPriceSyncRequest true "同步参数"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/product/products/{id}/sync-renewal-price [post]
+func (h *ProductHandler) SyncRenewalPrices(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		response.Error(c, apperrors.New(20001, "商品 ID 非法"))
+		return
+	}
+	var req dto.ProductRenewalPriceSyncRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	operatorID, operatorName := operatorFromContext(c)
+	result, err := h.productService.SyncRenewalPrices(c.Request.Context(), id, req.Clear, req.DryRun, operatorID, operatorName)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, result)
+}
+
 // BatchPublishProducts godoc
 // @Summary 批量上架商品（逐条过门禁，失败逐条回报）
 // @Tags 产品管理-商品

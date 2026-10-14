@@ -13,6 +13,7 @@ import type {
   SaleProductListQuery,
   SaleProductListResponse,
   SaleProductPriceRequest,
+  RenewalPriceSyncResult,
   SaleProductSpecInfo,
   SaleProductSpecRequest,
   SaleProductConfigGroup,
@@ -199,6 +200,23 @@ export function setProductSpecPassthrough(id: number, enabled: boolean): Promise
 export function updateProductPrice(id: number, data: SaleProductPriceRequest): Promise<SaleProductInfo> {
   return request.put<SaleProductInfo>({
     url: `/product/products/${id}/price`,
+    data,
+  })
+}
+
+/**
+ * 把商品当前周期价同步到「已绑定续费价」的实例。
+ *
+ * 为什么需要：实例一旦绑定过续费价就不再跟随商品调价（"谈定单价"语义，有意为之）。
+ * 商品改价后要让这些老机器也按新价续费，此前只能逐台到实例详情页改。
+ * dry_run 只统计台数不落库（确认弹窗先拿"将影响 N 台"）；clear 表示改为清除绑定。
+ */
+export function syncProductRenewalPrice(
+  id: number,
+  data: { clear?: boolean; dry_run?: boolean },
+): Promise<RenewalPriceSyncResult> {
+  return request.post<RenewalPriceSyncResult>({
+    url: `/product/products/${id}/sync-renewal-price`,
     data,
   })
 }

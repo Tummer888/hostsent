@@ -76,59 +76,24 @@
       </t-form>
 
       <!--
-        周期价格矩阵（用户要求「改价移到编辑页」）：上游商品按周期定价（月付/季付/年付…），
-        此前只能在独立的「周期价格」页维护，运营改价要跨页面跳转。这里就地展示并可直接改。
-        改价即写为人工价（manual），之后不再随上游同步变化；未改动的档位继续跟随上游。
+        改价（用户要求「改价移到编辑页」）：与商品列表的「改价」弹窗共用同一个编辑器，
+        逻辑只有一份，避免两处各写一套规则导致算价口径漂移。
+        对接商品的价格是「周期 × 价格」矩阵，编辑器内提供两个方案：
+        按百分比设加价规则（跟随上游），或逐周期自定义（本次定价）。
       -->
-      <div v-if="mode === 'edit'" class="cycle-price-block">
-        <div class="cycle-price-block__head">
-          <h3 class="card-title">周期价格</h3>
-          <span class="cycle-price-block__meta">
-            {{ cycleLoading ? '加载中…' : cycleError || `共 ${cycleItems.length} 个周期` }}
-          </span>
+      <div v-if="mode === 'edit'" class="product-price-section">
+        <div class="product-price-section__head">
+          <h3 class="card-title">价格</h3>
+          <span class="product-price-section__meta">按周期定价；改动即时生效</span>
         </div>
-        <p class="cycle-price-block__hint">
-          改价并保存后，该档位成为<b>人工价</b>，不再随上游同步变化（要恢复跟随上游，把价格改回同步值即可）；
-          未改动的档位继续按上游成本与加价规则计算。「来自」列标明当前值的来源。
-        </p>
-        <t-table
-          v-if="cycleItems.length"
-          row-key="cycle"
-          :data="cycleItems"
-          :columns="cycleColumns"
-          size="small"
-          table-layout="fixed"
-          cell-empty-content="—"
-        >
-          <template #cycle="{ row }">
-            <div class="cycle-cell">
-              <span class="cycle-cell__name">{{ row.cycle_name }}</span>
-              <t-tag
-                v-if="row.source === 'upstream' || row.source === 'markup'"
-                theme="primary"
-                variant="light"
-                size="small"
-                shape="round"
-                >上游</t-tag
-              >
-              <t-tag v-else-if="row.source === 'manual'" theme="warning" variant="light" size="small" shape="round"
-                >人工</t-tag
-              >
-            </div>
-          </template>
-          <template #price="{ row }">
-            <t-input-number v-model="row.price" :min="0" :precision="2" theme="normal" size="small" />
-          </template>
-          <template #cost_price="{ row }">
-            <t-input-number v-model="row.cost_price" :min="0" :precision="2" theme="normal" size="small" />
-          </template>
-        </t-table>
-        <div v-if="cycleItems.length" class="cycle-price-block__actions">
-          <t-button theme="primary" variant="outline" size="small" :loading="cycleSaving" @click="saveCyclePrices">
-            保存周期价格
-          </t-button>
-          <span class="cycle-price-block__tip">只保存本区块的价格改动；基础信息用下方按钮单独保存。</span>
-        </div>
+        <UpstreamPriceEditor
+          v-if="initial"
+          :product-id="initial.id"
+          :product-name="initial.name"
+          :source-product-id="initial.source_product_id"
+          :upstream="initial.upstream || null"
+          @saved="onPriceSaved"
+        />
       </div>
 
       <div class="form-footer">
@@ -557,7 +522,7 @@ import { AddIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
 
 import { getProviderList, getProviderPlatformResources } from '@/api/admin'
-import { getProductPriceMatrix, getSpecTemplateList, getOptionCatalog, saveProductPriceMatrix } from '@/api/product'
+import { getSpecTemplateList, getOptionCatalog } from '@/api/product'
 import {
   billingCycleLabel,
   markupLabel,
@@ -567,6 +532,7 @@ import {
   productTypeOptions,
 } from '@/pages/product/constants'
 import { useCategoryOptions } from '@/composables/useCategoryOptions'
+import UpstreamPriceEditor from './UpstreamPriceEditor.vue'
 import type {
   PlatformResourceItem,
   ProviderInfo,
@@ -576,7 +542,6 @@ import type {
   SaleProductSpecTemplateSelection,
   SpecTemplateInfo,
 } from '@/types/interface'
-import type { ProductPriceItem } from '@/types/product'
 
 const props = defineProps<{
   mode: 'create' | 'edit'
@@ -625,64 +590,6 @@ const stockHint = computed(() => {
   return '上游限量商品的可售余量为权威值，会随商品目录同步刷新覆盖本地填写；-1 表示不限量。'
 })
 
-// ===== 周期价格矩阵（编辑页内直接改价）=====
-type CyclePriceRow = ProductPriceItem & { price: number; cost_price: number }
-const cycleItems = ref<CyclePriceRow[]>([])
-const cycleLoading = ref(false)
-const cycleSaving = ref(false)
-const cycleError = ref('')
-
-const cycleColumns = [
-  { colKey: 'cycle', title: '计费周期', width: 150 },
-  { colKey: 'price', title: '售价（元）', width: 140 },
-  { colKey: 'cost_price', title: '成本（元）', width: 140 },
-]
-
-/** 加载周期价格矩阵：仅在编辑上游商品时调用（自营商品的周期价走创建流程与矩阵页）。 */
-async function loadCyclePrices() {
-  const id = props.initial?.id
-  if (!isUpstream.value || props.mode !== 'edit' || !id) return
-  cycleLoading.value = true
-  cycleError.value = ''
-  try {
-    const matrix = await getProductPriceMatrix({ product_id: id })
-    cycleItems.value = (matrix.items || []).map((row) => ({
-      ...row,
-      price: Number(row.price) || 0,
-      cost_price: Number(row.cost_price) || 0,
-    }))
-  } catch (error) {
-    cycleError.value = (error as Error).message || '周期价格加载失败'
-  } finally {
-    cycleLoading.value = false
-  }
-}
-
-/** 保存周期价格：整表提交（后端按周期 upsert，未提交的档位会被删除，故提交全量）。 */
-async function saveCyclePrices() {
-  const id = props.initial?.id
-  if (!id) return
-  cycleSaving.value = true
-  try {
-    await saveProductPriceMatrix({
-      product_id: id,
-      items: cycleItems.value.map((row) => ({
-        cycle: row.cycle,
-        price: row.price,
-        cost_price: row.cost_price,
-        setup_fee: row.setup_fee,
-        cost_setup_fee: row.cost_setup_fee,
-        status: row.status,
-      })),
-    })
-    MessagePlugin.success('周期价格已保存')
-    await loadCyclePrices()
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '周期价格保存失败')
-  } finally {
-    cycleSaving.value = false
-  }
-}
 
 const pageTitle = computed(() => (props.mode === 'create' ? '新建自营产品' : '编辑产品'))
 const headerDesc = computed(() =>
@@ -1515,8 +1422,15 @@ function handleSubmit() {
 }
 
 /**
- * 代理商品只允许改基础信息：链路与上游绑定字段原样回传（后端 Update 对未传字段保持原值，
- * 这里显式回传 source_mode 是幂等的，避免"编辑一次就被改成自营"的历史缺陷）。
+ * 代理商品保存基础信息。
+ *
+ * 刻意**不回传** source_mode / source_provider_id / source_product_id：
+ * 这三项由导入流程决定，后端只接受"未传=保持原值"。此前把读到的原值原样回传，
+ * 后端对上游商品无条件拒绝渠道字段，导致改名/改描述都保存不了（实测故障）；
+ * 即使后端放行，回传本身也没有任何意义。
+ *
+ * specs / config_options 必须回传：后端 Update 对这两个字段是非指针类型，
+ * 漏传等于写空 —— 会把导入时带过来的规格 JSON 与配置项静默清掉。
  */
 function handleSubmitUpstream() {
   if (!props.initial) return
@@ -1536,15 +1450,12 @@ function handleSubmitUpstream() {
     price_model: form.price_model,
     price: form.price,
     cost_price: form.cost_price,
-    source_mode: 'upstream',
-    source_product_id: props.initial.source_product_id,
-    source_provider_id: props.initial.source_provider_id,
+    // 规格快照与配置项回传原值（见上方注释：漏传会被写成空）。
+    specs: props.initial.specs || '',
     config_options: configOptions,
     stock: form.stock,
     sort_order: form.sort_order,
     status: form.status,
-    upstream_markup_type: props.initial.upstream_markup_type || '',
-    upstream_markup_value: props.initial.upstream_markup_value || 0,
     // 仅透传是上架门禁开关：表单里可改（此前的实现恒取初值，改不动）
     spec_passthrough: !!form.spec_passthrough,
   }
@@ -1555,10 +1466,14 @@ onMounted(() => {
   loadCategories()
   loadPlatformOptions()
   if (props.mode === 'create') void loadTemplates()
-  // 上游商品的编辑页：解析提供商名称 + 载入周期价格（就地改价）。
+  // 上游商品的编辑页：解析提供商名称（价格由共用编辑器自行加载）。
   void loadProviderNames()
-  void loadCyclePrices()
 })
+
+/** 共用价格编辑器保存完成：提示并让父页刷新（编辑页本身无列表，仅示意成功）。 */
+function onPriceSaved() {
+  MessagePlugin.success('价格已保存')
+}
 
 /** 拉取提供商列表建 ID→名称映射（上游提供商展示名解析用；失败不影响表单）。 */
 async function loadProviderNames() {
@@ -1578,51 +1493,25 @@ async function loadProviderNames() {
 </style>
 
 <style scoped>
-/* 周期价格矩阵（编辑页就地改价）：与页签区块视觉一致，避免看起来像另一个页面的片段 */
-.cycle-price-block {
+/* 改价区：与表单卡片视觉一致（共用编辑器自带内边距与边框） */
+.product-price-section {
   margin: 4px 0 20px;
-  padding: 14px 16px;
-  border: 1px solid var(--td-component-border, #e5e5e5);
-  border-radius: 8px;
-  background: var(--td-bg-color-secondarycontainer, #fafafa);
 }
-.cycle-price-block__head {
+.product-price-section__head {
   display: flex;
   align-items: baseline;
   gap: 12px;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
 }
-.cycle-price-block__head .card-title {
+.product-price-section__head .card-title {
   margin: 0;
 }
-.cycle-price-block__meta {
+.product-price-section__meta {
   font-size: 12px;
   color: var(--td-text-color-secondary, #999);
 }
-.cycle-price-block__hint {
-  margin: 0 0 10px;
-  font-size: 12px;
-  line-height: 1.7;
-  color: var(--td-text-color-secondary, #999);
-}
-.cycle-price-block__actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 10px;
-}
-.cycle-price-block__tip {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder, #bbb);
-}
-.cycle-cell {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.cycle-cell__name {
-  font-weight: 600;
-}
+
+/* 周期价格矩阵（编辑页就地改价）：与页签区块视觉一致，避免看起来像另一个页面的片段 */
 .upstream-readonly {
   display: flex;
   flex-direction: column;

@@ -164,6 +164,31 @@ type ProductUpstreamMarkupRequest struct {
 	Remark            string  `json:"remark"`                                 // 调价备注（写入商品变更历史）
 }
 
+// ProductRenewalPriceSyncRequest 把商品周期价同步到已开通实例的续费绑定。
+//
+// 背景：实例一旦绑定过续费价就不再跟随商品调价（"谈定单价"语义，有意为之）。
+// 商品改价后运营常希望这些老机器也按新价续费，此前只能逐台到实例页改；
+// 本接口按商品批量处理。
+type ProductRenewalPriceSyncRequest struct {
+	// Clear 为 true 时清除绑定（让实例回到"续费时跟随商品周期价"）；
+	// 为 false 时按商品当前周期价重设绑定值。
+	Clear bool `json:"clear"`
+	// DryRun 只统计受影响台数、不落库（前端确认弹窗先拿"将影响 N 台"）。
+	DryRun bool `json:"dry_run"`
+}
+
+// RenewalPriceSyncResult 续费价同步结果。
+type RenewalPriceSyncResult struct {
+	// Affected 受影响的实例台数（dry_run 时为"将要影响"的台数）。
+	Affected int `json:"affected"`
+	// DryRun 回显本次是否为试算。
+	DryRun bool `json:"dry_run"`
+	// Cleared 本次是清除绑定还是重设绑定。
+	Cleared bool `json:"cleared"`
+	// Message 面向运营的结果说明。
+	Message string `json:"message"`
+}
+
 // ProductUpstreamMarkupResponse 调价结果：受影响的已导入商品数。
 type ProductUpstreamMarkupResponse struct {
 	Affected int      `json:"affected"`

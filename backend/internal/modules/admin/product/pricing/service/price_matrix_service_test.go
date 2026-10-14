@@ -281,3 +281,79 @@ func TestApplyUpstreamPricesPreservesManualRows(t *testing.T) {
 		t.Fatalf("缺失档位应新增，got %v", byCycle["annually"].Price)
 	}
 }
+
+// TestApplyUpstreamPricesPreservePriceKeepsSellPrice 只同步成本时不得改写售价。
+//
+// 实测故障（doc120 §11.7）：上游调价确认会重建周期行，未配置加价规则的商品
+// 原先把 Price 写成成本价 —— 零毛利白卖。写入方的契约是"无现有售价可保留时跳过"。
+func TestApplyUpstreamPricesPreservePriceKeepsSellPrice(t *testing.T) {
+	repo := &fakeRepo{rows: []model.ProductPrice{
+		{ProductID: 7, Cycle: "monthly", Currency: "CNY", Price: 30, CostPrice: 18, Source: model.PriceSourceUpstream, Status: 1},
+		{ProductID: 7, Cycle: "annually", Currency: "CNY", Price: 300, CostPrice: 180, Source: model.PriceSourceUpstream, Status: 1},
+	}}
+	svc := NewPriceMatrixService(repo, nil, nil)
+
+	err := svc.ApplyUpstreamPrices(context.Background(), 7, []dto.CyclePriceRow{
+		// 上游成本涨了：18→20、180→200，但不许动售价。
+		{Cycle: "monthly", CostPrice: 20, Source: model.PriceSourceUpstream, PreservePrice: true},
+		{Cycle: "annually", CostPrice: 200, Source: model.PriceSourceUpstream, PreservePrice: true},
+		// 该档本地还没有行：没有"现有售价"可保留，不能凭空造一行开卖。
+		{Cycle: "quarterly", CostPrice: 60, Source: model.PriceSourceUpstream, PreservePrice: true},
+	})
+	if err != nil {
+		t.Fatalf("ApplyUpstreamPrices 失败: %v", err)
+	}
+	byCycle := map[string]model.ProductPrice{}
+	for _, r := range repo.rows {
+		byCycle[r.Cycle] = r
+	}
+	if got := byCycle["monthly"].Price; got != 30 {
+		t.Errorf("月度售价应保留 30，got %v（写成成本价就是零毛利白卖）", got)
+	}
+	if got := byCycle["monthly"].CostPrice; got != 20 {
+		t.Errorf("月度成本应更新为 20，got %v", got)
+	}
+	if got := byCycle["annually"].Price; got != 300 {
+		t.Errorf("年度售价应保留 300，got %v", got)
+	}
+	if _, ok := byCycle["quarterly"]; ok {
+		t.Error("本地无该档时不应新建（未定价的周期不能靠同步开卖）")
+	}
+	if len(repo.rows) != 2 {
+		t.Errorf("行数应保持 2，got %d", len(repo.rows))
+	}
+}
+
+// TestApplyUpstreamPricesPreserveManualSourceStaysManual 保留售价不应把人工行的来源改回 upstream。
+func TestApplyUpstreamPricesPreserveManualSourceStaysManual(t *testing.T) {
+	repo := &fakeRepo{rows: []model.ProductPrice{
+		{ProductID: 7, Cycle: "monthly", Currency: "CNY", Price: 88, CostPrice: 18, Source: model.PriceSourceManual, Status: 1},
+	}}
+	svc := NewPriceMatrixService(repo, nil, nil)
+
+	if err := svc.ApplyUpstreamPrices(context.Background(), 7, []dto.CyclePriceRow{
+		{Cycle: "monthly", CostPrice: 20, Source: model.PriceSourceUpstream, PreservePrice: true},
+	}); err != nil {
+		t.Fatalf("ApplyUpstreamPrices 失败: %v", err)
+	}
+	if repo.rows[0].Price != 88 || repo.rows[0].Source != model.PriceSourceManual {
+		t.Errorf("人工行应完全不动，got price=%v source=%q", repo.rows[0].Price, repo.rows[0].Source)
+	}
+}
+
+// TestApplyUpstreamPricesDerivedStillUpdates 有加价规则（非保留）时照常按推导价写入。
+func TestApplyUpstreamPricesDerivedStillUpdates(t *testing.T) {
+	repo := &fakeRepo{rows: []model.ProductPrice{
+		{ProductID: 7, Cycle: "monthly", Currency: "CNY", Price: 27, CostPrice: 18, Source: model.PriceSourceMarkup, Status: 1},
+	}}
+	svc := NewPriceMatrixService(repo, nil, nil)
+
+	if err := svc.ApplyUpstreamPrices(context.Background(), 7, []dto.CyclePriceRow{
+		{Cycle: "monthly", Price: 30, CostPrice: 20, Source: model.PriceSourceMarkup},
+	}); err != nil {
+		t.Fatalf("ApplyUpstreamPrices 失败: %v", err)
+	}
+	if repo.rows[0].Price != 30 || repo.rows[0].CostPrice != 20 {
+		t.Errorf("按规则推导的售价应照常更新，got price=%v cost=%v", repo.rows[0].Price, repo.rows[0].CostPrice)
+	}
+}
