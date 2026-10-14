@@ -22,6 +22,7 @@
             :key="group.path || group.name"
             class="group-item"
             :class="{ 'is-active': activeGroup === (group.path || group.name) }"
+            @mouseenter="prefetchRoute(router, firstLeafPath(group))"
             @click="onGroupClick(group)"
           >
             <component :is="group.icon" v-if="group.icon" class="group-icon" />
@@ -66,7 +67,11 @@
                     class="collapsed-popup__item"
                     :class="{ 'is-active': route.path === sub.path }"
                   >
-                    <div class="collapsed-popup__link" @click="navigateTo(sub.path)">
+                    <div
+                      class="collapsed-popup__link"
+                      @mouseenter="prefetchRoute(router, sub.path)"
+                      @click="navigateTo(sub.path)"
+                    >
                       <span class="collapsed-popup__dot"></span>
                       <span>{{ sub.name }}</span>
                     </div>
@@ -81,6 +86,7 @@
                     :key="submenu.path || submenu.name"
                     class="submenu-item"
                     :class="{ 'is-active': route.path === submenu.path }"
+                    @mouseenter="prefetchRoute(router, submenu.path)"
                     @click="navigateTo(submenu.path)"
                   >
                     <span class="submenu-dot" aria-hidden="true"></span>
@@ -94,6 +100,7 @@
               v-else
               class="menu-item"
               :class="{ 'is-active': route.path === menu.path }"
+              @mouseenter="prefetchRoute(router, menu.path)"
               @click="navigateTo(menu.path)"
             >
               <div class="menu-item-inner">
@@ -133,6 +140,7 @@
                 v-for="r in navResults"
                 :key="r.path"
                 class="navbar-search__item"
+                @mouseenter="prefetchRoute(router, r.path)"
                 @mousedown.prevent="switchTo(r.path)"
               >
                 <span class="navbar-search__item-icon"><component :is="r.icon" v-if="r.icon" /></span>
@@ -208,6 +216,7 @@
             :key="tab.path"
             class="tabs-bar__tab"
             :class="{ 'is-active': isTabActive(tab) }"
+            @mouseenter="prefetchRoute(router, tab.path)"
             @click="switchTab(tab)"
           >
             <span class="tabs-bar__title">{{ tab.title }}</span>
@@ -323,6 +332,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { getAdminUnreadCount } from '@/api/notification'
 import { navMenu } from '@/permission'
+import { prefetchRoute } from '@/router/prefetch'
 import { useBrandStore } from '@/store/modules/brand'
 import { useMenuStore } from '@/store/modules/menu'
 import { useSettingsStore } from '@/store/modules/settings'
@@ -519,6 +529,18 @@ function navigateTo(path?: string) {
     mobileSidebarOpen.value = false
   }
   router.push(path)
+}
+
+/**
+ * 一级菜单点击后实际会落到哪个路径（与 onGroupClick 的跳转规则保持一致）。
+ * 用于 hover 预热：一级菜单在「跳转到第一个页面」模式下自身就是导航入口，
+ * 不预热的话这些点击仍要等一次模块编译/下载。
+ */
+function firstLeafPath(group: FlatMenu): string | undefined {
+  const first = group.children?.[0]
+  if (!first) return undefined
+  if (first.children?.length) return first.children[0].path
+  return first.path
 }
 
 function onGroupClick(group: FlatMenu) {
@@ -1505,13 +1527,20 @@ onMounted(() => {
   }
 }
 
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.18s ease;
+/* 路由切换过渡：出场瞬时、只保留入场淡入。
+   原实现是 out-in + 0.18s 出场 + 0.18s 入场，每次切页都要先等旧页面淡出、
+   再等新页面淡入，合计固定 360ms 才见到内容；而路由解析本身只要几毫秒
+   （实测 ~6ms）—— 这段空等就是「切页发顿、不丝滑」的主因。
+   出场不再参与等待后，点击立刻就有响应，视觉上仍是平滑淡入。 */
+.fade-enter-active {
+  transition: opacity 0.12s ease;
 }
 
-.fade-enter-from,
-.fade-leave-to {
+.fade-leave-active {
+  transition-duration: 0s;
+}
+
+.fade-enter-from {
   opacity: 0;
 }
 

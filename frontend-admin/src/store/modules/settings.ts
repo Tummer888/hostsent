@@ -59,6 +59,9 @@ export const useSettingsStore = defineStore('settings', {
     toggleDark() {
       this.colorScheme = this.isDark ? 'light' : 'dark'
       this.applyColorScheme()
+      // 深浅色切换会改变品牌色阶方向（深色下主色需提亮、色阶反转），
+      // 只切 class 会让主按钮/链接停在亮色色阶上。
+      applyThemeColor(this.themeColor, this.isDark)
     },
     applyColorScheme() {
       const root = document.documentElement
@@ -69,7 +72,7 @@ export const useSettingsStore = defineStore('settings', {
     },
     applyAll() {
       this.themeColor = migrateThemeColor(this.themeColor)
-      applyThemeColor(this.themeColor)
+      applyThemeColor(this.themeColor, this.isDark)
       applyRadius(this.radius)
       this.applyColorScheme()
       document.documentElement.classList.toggle('color-weak', this.colorWeak)

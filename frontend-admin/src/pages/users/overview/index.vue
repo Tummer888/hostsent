@@ -1,6 +1,15 @@
 <template>
   <div class="user-overview-page">
-    <header class="overview-header surface-card" :style="{ '--header-bg': `url('${headerBg}')` }">
+    <!-- 面包屑：与参考稿一致，标出当前页在「用户管理」下的位置 -->
+    <nav class="overview-breadcrumb" aria-label="面包屑">
+      <span class="overview-breadcrumb__item">首页</span>
+      <span class="overview-breadcrumb__sep">/</span>
+      <span class="overview-breadcrumb__item">用户管理</span>
+      <span class="overview-breadcrumb__sep">/</span>
+      <span class="overview-breadcrumb__item overview-breadcrumb__item--current">用户总览</span>
+    </nav>
+
+    <header class="overview-header surface-card">
       <div class="overview-header__brand">
         <div class="overview-header__badge">
           <UserIcon size="22" aria-hidden="true" />
@@ -10,7 +19,7 @@
         </div>
       </div>
       <t-button
-        theme="primary"
+        theme="default"
         variant="outline"
         size="medium"
         :loading="loading"
@@ -29,7 +38,7 @@
       <article
         v-for="(stat, idx) in statCards"
         :key="stat.key"
-        class="stat-card surface-card stat-card--clickable"
+        class="stat-card surface-card"
         :class="[`stat-card--${stat.variant}`, { 'stat-card--clickable': hasFilter(stat) }]"
         :style="{ animationDelay: `${60 + idx * 45}ms` }"
         :title="stat.desc"
@@ -40,7 +49,7 @@
         @keydown.space.prevent="goStat(stat)"
       >
         <span class="stat-card__icon">
-          <component :is="stat.icon" size="22" aria-hidden="true" />
+          <component :is="stat.icon" size="20" aria-hidden="true" />
         </span>
         <div class="stat-card__info">
           <span class="stat-card__value">{{ formatStatValue(stat) }}</span>
@@ -88,13 +97,14 @@
             :key="entry.key"
             type="button"
             class="quick-btn"
+            :style="{ '--entry-accent': `var(--uo-${entry.accent})` }"
             @click="navigate(entry.path)"
           >
             <span class="quick-btn__icon">
-              <component :is="entry.icon" size="20" aria-hidden="true" />
+              <component :is="entry.icon" size="18" aria-hidden="true" />
             </span>
             <span class="quick-btn__label">{{ entry.label }}</span>
-            <ArrowRightIcon size="13" class="quick-btn__arrow" aria-hidden="true" />
+            <ArrowRightIcon size="14" class="quick-btn__arrow" aria-hidden="true" />
           </button>
           <div v-if="!activeEntries.length" class="quick-empty">暂未选择快捷入口，点击右上角"编辑"添加</div>
         </div>
@@ -210,23 +220,25 @@ import type { EChartsOption } from 'echarts'
 
 import {
   ArrowRightIcon,
+  BillIcon,
+  CloseCircleIcon,
   DashboardIcon,
   DeleteIcon,
   EditIcon,
   ErrorCircleIcon,
-  MoneyIcon,
-  OrderIcon,
   RefreshIcon,
+  SnowflakeIcon,
   UserAddIcon,
   UserArrowUpIcon,
   UserIcon,
   UserListIcon,
-  UserLockedIcon,
   UserSafetyIcon,
   UserUnknownIcon,
+  WalletIcon,
 } from 'tdesign-icons-vue-next'
 
 import EChart from '@/components/EChart.vue'
+import { useSettingsStore } from '@/store/modules/settings'
 import { formatDateTime } from '../constants'
 import {
   getActivityOverview,
@@ -238,15 +250,9 @@ import {
 defineOptions({ name: 'UserOverview' })
 
 const router = useRouter()
+const settings = useSettingsStore()
 
-const headerBg =
-  'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=' +
-  encodeURIComponent(
-    'light minimal abstract SaaS dashboard banner, soft white and pale green gradient, subtle geometric grid lines, professional, very low contrast, no text, clean',
-  ) +
-  '&image_size=landscape_16_9'
-
-type StatVariant = 'blue' | 'green' | 'cyan' | 'orange' | 'purple' | 'warning' | 'indigo' | 'teal'
+type StatVariant = 'blue' | 'violet' | 'green' | 'cyan' | 'orange' | 'red' | 'slate'
 
 interface StatCardItem {
   key: keyof UserStatsResponse
@@ -291,15 +297,18 @@ const activity = ref<UserActivityOverviewResponse>({
 
 const listPath = '/users/accounts/list'
 
+// 卡片图标配色对齐参考稿：每个指标一个高饱和实色块，
+// 同族指标（今日新增/活跃用户=绿，待实名=橙，待审核=紫）复用同一色，
+// 「已注销」用中性灰表示已归档的终态。
 const statCards = computed<StatCardItem[]>(() => {
   const items: StatCardItem[] = [
     // Row 1
     {
       key: 'total_balance',
       title: '用户总余额',
-      variant: 'indigo',
+      variant: 'blue',
       desc: '平台全部用户账户余额总和',
-      icon: MoneyIcon,
+      icon: WalletIcon,
       filter: {},
       displayValue: stats.value.total_balance,
       decimalPlaces: 2,
@@ -307,7 +316,7 @@ const statCards = computed<StatCardItem[]>(() => {
     {
       key: 'total',
       title: '总用户数',
-      variant: 'blue',
+      variant: 'violet',
       desc: '平台全部注册用户总数',
       icon: UserIcon,
       filter: {},
@@ -327,9 +336,9 @@ const statCards = computed<StatCardItem[]>(() => {
     {
       key: 'purchased_count',
       title: '已购用户',
-      variant: 'teal',
+      variant: 'cyan',
       desc: '至少有一条订单的用户数量',
-      icon: OrderIcon,
+      icon: BillIcon,
       filter: {},
       displayValue: stats.value.purchased_count,
       decimalPlaces: 0,
@@ -338,7 +347,7 @@ const statCards = computed<StatCardItem[]>(() => {
     {
       key: 'pending_real_name',
       title: '待实名',
-      variant: 'warning',
+      variant: 'orange',
       desc: '尚未实名认证的账号（real_name_verified_at 为空）',
       icon: UserSafetyIcon,
       filter: { filter: 'pending_real_name' },
@@ -348,7 +357,7 @@ const statCards = computed<StatCardItem[]>(() => {
     {
       key: 'pending_review',
       title: '待审核',
-      variant: 'purple',
+      variant: 'violet',
       desc: '等待管理员审核的新注册账号',
       icon: UserUnknownIcon,
       filter: { status: 'pending' },
@@ -358,9 +367,9 @@ const statCards = computed<StatCardItem[]>(() => {
     {
       key: 'disabled',
       title: '冻结用户',
-      variant: 'orange',
+      variant: 'red',
       desc: '因风控或违规被冻结的账号',
-      icon: UserLockedIcon,
+      icon: SnowflakeIcon,
       filter: { status: 'disabled' },
       displayValue: stats.value.disabled,
       decimalPlaces: 0,
@@ -368,9 +377,9 @@ const statCards = computed<StatCardItem[]>(() => {
     {
       key: 'deleted',
       title: '已注销',
-      variant: 'orange',
+      variant: 'slate',
       desc: '留存期内可从回收站恢复的账号',
-      icon: UserLockedIcon,
+      icon: CloseCircleIcon,
       filter: { filter: 'deleted' },
       displayValue: stats.value.deleted,
       decimalPlaces: 0,
@@ -378,7 +387,7 @@ const statCards = computed<StatCardItem[]>(() => {
     {
       key: 'active',
       title: '活跃用户',
-      variant: 'cyan',
+      variant: 'green',
       desc: '状态为正常可登录的账号',
       icon: UserArrowUpIcon,
       filter: { status: 'active' },
@@ -389,51 +398,107 @@ const statCards = computed<StatCardItem[]>(() => {
   return items
 })
 
-const statusPieData = computed(() => [
-  { name: '正常账号', value: stats.value.active, itemStyle: { color: '#16a34a' } },
-  { name: '冻结账号', value: stats.value.disabled, itemStyle: { color: '#dc2626' } },
-  { name: '待审核', value: stats.value.pending_review, itemStyle: { color: '#3b82f6' } },
-])
+// 环形图配色与统计卡同族：正常=绿、冻结=红、待审核=蓝，
+// 点图例能到对应卡片找到同一个颜色。ECharts 走 canvas 渲染，
+// 不解析 CSS 变量，因此这里按深浅色给出两套实色。
+const chartPalette = computed(() =>
+  settings.isDark
+    ? { normal: '#4ade80', frozen: '#f87171', pending: '#60a5fa', label: '#cbd5e1', legend: '#94a3b8', gap: '#0a0a0a' }
+    : { normal: '#22c55e', frozen: '#ef4444', pending: '#3b82f6', label: '#334155', legend: '#64748b', gap: '#ffffff' },
+)
 
-const statusPieOption = computed<EChartsOption>(() => ({
-  tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-  legend: { bottom: 0, icon: 'circle', textStyle: { color: '#64748b', fontSize: 12 } },
-  series: [
-    {
-      name: '用户状态',
-      type: 'pie',
-      radius: ['46%', '72%'],
-      center: ['50%', '44%'],
-      avoidLabelOverlap: true,
-      itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
-      label: { show: true, formatter: '{b}\n{c}', fontSize: 12, color: '#334155' },
-      emphasis: {
-        label: { show: true, fontSize: 14, fontWeight: 'bold' },
-        itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.12)' },
+const statusTotal = computed(() => stats.value.active + stats.value.disabled + stats.value.pending_review)
+
+const statusPieData = computed(() => {
+  const c = chartPalette.value
+  return [
+    { name: '正常账号', value: stats.value.active, itemStyle: { color: c.normal } },
+    { name: '冻结账号', value: stats.value.disabled, itemStyle: { color: c.frozen } },
+    { name: '待审核', value: stats.value.pending_review, itemStyle: { color: c.pending } },
+  ]
+})
+
+const statusPieOption = computed<EChartsOption>(() => {
+  const c = chartPalette.value
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+    legend: { bottom: 0, icon: 'circle', textStyle: { color: c.legend, fontSize: 12 } },
+    series: [
+      {
+        name: '用户状态',
+        type: 'pie',
+        radius: ['52%', '74%'],
+        center: ['50%', '44%'],
+        avoidLabelOverlap: true,
+        itemStyle: { borderRadius: 6, borderColor: c.gap, borderWidth: 2 },
+        label: { show: true, formatter: '{b}\n{c}', fontSize: 12, color: c.label },
+        emphasis: {
+          label: { show: true, fontSize: 14, fontWeight: 'bold' },
+          itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.12)' },
+        },
+        // 环心留白放「总计」，参考稿把总数放在这里，比只在图例里体现更醒目。
+        data: statusPieData.value,
       },
-      data: statusPieData.value,
-    },
-  ],
-}))
+    ],
+    // graphic 而不是 title：title 会参与布局并挤压画布，graphic 直接定位在环心。
+    graphic: [
+      {
+        type: 'text',
+        left: 'center',
+        top: '38%',
+        silent: true,
+        style: { text: '总计', fill: c.legend, fontSize: 12, textAlign: 'center' },
+      },
+      {
+        type: 'text',
+        left: 'center',
+        top: '44%',
+        silent: true,
+        style: {
+          text: String(statusTotal.value),
+          fill: c.label,
+          fontSize: 22,
+          fontWeight: 700,
+          textAlign: 'center',
+        },
+      },
+    ],
+  }
+})
 
 interface QuickCandidate {
   key: string
   label: string
   path: string
   icon: unknown
+  accent: string
 }
 
+// accent 取色板名（blue/green/...），与统计卡同族：同一个业务对象
+// （如「冻结用户」）在卡片和入口里用同一种颜色，扫视时能对上号。
 const entryCandidates: QuickCandidate[] = [
   // dashboard 在 DEFAULT_QUICK_KEYS 里，此前却不在候选表中 —— 默认快捷入口
   // 里那一个永远被 activeEntries 过滤掉，用户看到的是三个而不是四个（doc104 §3.3，F23）。
-  { key: 'dashboard', label: '仪表盘', path: '/dashboard/base', icon: DashboardIcon },
-  { key: 'users-list', label: '用户列表', path: listPath, icon: UserListIcon },
-  { key: 'real-name', label: '待实名', path: `${listPath}?filter=pending_real_name`, icon: UserSafetyIcon },
-  { key: 'pending', label: '待审核', path: `${listPath}?status=pending`, icon: UserUnknownIcon },
-  { key: 'today-new', label: '今日新增', path: `${listPath}?filter=today`, icon: UserAddIcon },
-  { key: 'purchased', label: '已购用户', path: `${listPath}?filter=purchased`, icon: OrderIcon },
-  { key: 'disabled', label: '冻结用户', path: `${listPath}?status=disabled`, icon: UserLockedIcon },
-  { key: 'recycle', label: '回收站', path: `${listPath}?filter=deleted`, icon: DeleteIcon },
+  { key: 'dashboard', label: '仪表盘', path: '/dashboard/base', icon: DashboardIcon, accent: 'blue' },
+  { key: 'users-list', label: '用户列表', path: listPath, icon: UserListIcon, accent: 'violet' },
+  {
+    key: 'real-name',
+    label: '待实名',
+    path: `${listPath}?filter=pending_real_name`,
+    icon: UserSafetyIcon,
+    accent: 'orange',
+  },
+  { key: 'pending', label: '待审核', path: `${listPath}?status=pending`, icon: UserUnknownIcon, accent: 'violet' },
+  { key: 'today-new', label: '今日新增', path: `${listPath}?filter=today`, icon: UserAddIcon, accent: 'green' },
+  { key: 'purchased', label: '已购用户', path: `${listPath}?filter=purchased`, icon: BillIcon, accent: 'cyan' },
+  {
+    key: 'disabled',
+    label: '冻结用户',
+    path: `${listPath}?status=disabled`,
+    icon: SnowflakeIcon,
+    accent: 'red',
+  },
+  { key: 'recycle', label: '回收站', path: `${listPath}?filter=deleted`, icon: DeleteIcon, accent: 'slate' },
 ]
 
 const QUICK_STORAGE_KEY = 'hostsent_admin_quick_entries'
@@ -567,12 +632,26 @@ onMounted(() => {
 })
 </script>
 
-<style lang="css">
-@import '../../stat-card.css';
-</style>
-
 <style scoped lang="css">
+/* ============================================================
+   用户总览 · 设计语言（本页为试点，后续按此推广到其他页面）
+   - 主色：石墨灰（黑）——品牌、标题、导航
+   - 图标：高饱和实色圆角方块 + 白色图形（对齐参考稿）
+   - 卡面圆角 14px、图标底 10px
+   - 数字与描述压在 2 行以内，避免「数字+描述」比图标高出一截
+   ============================================================ */
 .user-overview-page {
+  --uo-blue: 59, 130, 246;
+  --uo-violet: 124, 58, 237;
+  --uo-green: 34, 197, 94;
+  --uo-cyan: 6, 182, 212;
+  --uo-orange: 249, 115, 22;
+  --uo-red: 239, 68, 68;
+  --uo-slate: 100, 116, 139;
+  --uo-radius-card: 14px;
+  --uo-radius-tile: 10px;
+  --uo-tile-size: 38px;
+
   position: relative;
   display: flex;
   flex-direction: column;
@@ -581,59 +660,53 @@ onMounted(() => {
   padding: 2px 2px 16px;
 }
 
+html.dark .user-overview-page {
+  /* 深色下整体提亮一档：原色在纯黑底上偏暗，白图形对比度不足。 */
+  --uo-blue: 96, 165, 250;
+  --uo-violet: 167, 139, 250;
+  --uo-green: 74, 222, 128;
+  --uo-cyan: 34, 211, 238;
+  --uo-orange: 251, 146, 60;
+  --uo-red: 248, 113, 113;
+  --uo-slate: 148, 163, 184;
+}
+
 .surface-card {
   position: relative;
-  border-radius: var(--hs-radius-lg);
+  border-radius: var(--uo-radius-card);
   background: var(--hs-surface-1);
+  border: 1px solid var(--color-border);
   box-shadow: none;
-  transition: transform var(--hs-duration-fast);
+  transition: border-color var(--hs-duration-fast);
 }
 
-.surface-card:hover {
-  box-shadow: none;
+/* ---------- 面包屑 ---------- */
+.overview-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--color-muted-foreground);
 }
 
+.overview-breadcrumb__sep {
+  color: var(--color-border);
+}
+
+.overview-breadcrumb__item--current {
+  color: var(--color-foreground);
+  font-weight: 600;
+}
+
+/* ---------- 页头 ---------- */
 .overview-header {
   position: relative;
-  padding: 20px 22px;
+  padding: 18px 20px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
-  overflow: hidden;
-  border-color: transparent;
-}
-
-.overview-header::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image: var(--header-bg);
-  background-size: cover;
-  background-position: center;
-  opacity: 0.15;
-  z-index: 0;
-  pointer-events: none;
-}
-
-.overview-header::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    90deg,
-    rgba(255, 255, 255, 0.9) 0%,
-    rgba(255, 255, 255, 0.5) 60%,
-    rgba(255, 255, 255, 0.85) 100%
-  );
-  z-index: 0;
-  pointer-events: none;
-}
-
-.overview-header > * {
-  position: relative;
-  z-index: 1;
 }
 
 .overview-header__brand {
@@ -643,17 +716,18 @@ onMounted(() => {
   min-width: 0;
 }
 
+/* 页头徽标用项目主色（石墨灰）实色块：与统计卡的「实色块 + 白图形」
+   统一，但保持中性——它是页面标题图标，不承担指标区分职责。 */
 .overview-header__badge {
   width: 44px;
   height: 44px;
-  border-radius: var(--hs-radius-xl);
-  background: linear-gradient(135deg, var(--td-brand-color-6), var(--color-primary));
+  border-radius: var(--uo-radius-tile);
+  background: rgb(var(--color-primary-rgb));
   color: #ffffff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 4px 10px rgba(var(--color-primary-rgb), 0.25);
 }
 
 .overview-header__text {
@@ -663,8 +737,8 @@ onMounted(() => {
 .overview-header__title {
   margin: 0;
   font-family: var(--hs-font-heading);
-  font-size: 22px;
-  font-weight: 800;
+  font-size: 21px;
+  font-weight: 700;
   color: var(--color-foreground);
   letter-spacing: -0.01em;
 }
@@ -674,38 +748,127 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
+/* ---------- 统计卡 ---------- */
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
-/* 统计卡片样式统一由 ../stat-card.css 提供（user-overview-page 已加入其命名空间） */
-.user-overview-page .stat-card {
+.stat-card {
+  --stat-accent: var(--uo-slate);
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-height: 84px;
+  padding: 16px 18px;
   cursor: default;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: hs-overview-card-in 360ms var(--hs-ease-out) forwards;
+}
+
+.stat-card--blue {
+  --stat-accent: var(--uo-blue);
+}
+
+.stat-card--violet {
+  --stat-accent: var(--uo-violet);
+}
+
+.stat-card--green {
+  --stat-accent: var(--uo-green);
+}
+
+.stat-card--cyan {
+  --stat-accent: var(--uo-cyan);
+}
+
+.stat-card--orange {
+  --stat-accent: var(--uo-orange);
+}
+
+.stat-card--red {
+  --stat-accent: var(--uo-red);
+}
+
+.stat-card--slate {
+  --stat-accent: var(--uo-slate);
+}
+
+/* 实色块 + 白色图形：高饱和底色保证 9 个指标一眼可分，
+   白图形在任一底色上的对比度都够（深色模式下 ---accent 已提亮）。 */
+.stat-card__icon {
+  width: var(--uo-tile-size);
+  height: var(--uo-tile-size);
+  border-radius: var(--uo-radius-tile);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #ffffff;
+  background: rgb(var(--stat-accent));
+}
+
+.stat-card__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* 数字与描述合起来的行高控制在图标高度以内：字号 21/12、行高 1.15/1.25
+   → 约 24 + 15 = 39px，与 38px 图标齐平，不再出现文本块高于图标的下坠感。 */
+.stat-card__value {
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--color-foreground);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.stat-card__label {
+  color: var(--color-muted-foreground);
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 /* 有筛选条件的卡片可点击跳列表（无 filter 的余额/总数/已购卡片不加手型与高亮）。 */
-.user-overview-page .stat-card--clickable {
+.stat-card--clickable {
   cursor: pointer;
   transition:
+    border-color 160ms var(--hs-ease-out),
     box-shadow 160ms var(--hs-ease-out),
     transform 160ms var(--hs-ease-out);
 }
 
-.user-overview-page .stat-card--clickable:hover,
-.user-overview-page .stat-card--clickable:focus-visible {
+.stat-card--clickable:hover {
+  border-color: rgba(var(--stat-accent), 0.55);
   box-shadow: var(--hs-shadow-md);
   transform: translateY(-2px);
-  outline: none;
 }
 
-.user-overview-page .stat-card--clickable:focus-visible {
+.stat-card--clickable:focus-visible {
+  outline: none;
   box-shadow:
     0 0 0 2px var(--color-primary),
     var(--hs-shadow-md);
 }
 
+@keyframes hs-overview-card-in {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ---------- 面板卡 ---------- */
 .chart-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
@@ -713,7 +876,7 @@ onMounted(() => {
 }
 
 .panel-card {
-  padding: 16px 16px 14px;
+  padding: 18px 20px 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -731,9 +894,26 @@ onMounted(() => {
 .panel-card__title {
   margin: 0 0 2px;
   font-family: var(--hs-font-heading);
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 15.5px;
+  font-weight: 650;
   color: var(--color-foreground);
+}
+
+.panel-card__sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.panel-card__badge {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--hs-surface-3);
+  color: var(--color-muted-foreground);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .chart-loading {
@@ -758,32 +938,81 @@ onMounted(() => {
   padding: 40px 0;
 }
 
-.quick-panel {
-  padding: 16px 16px 16px;
+/* ---------- 快捷入口 ---------- */
+.quick-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  align-content: start;
 }
 
-/* ===== 在线用户 / 最近登录用户 两张并排卡片 ===== */
+.quick-btn {
+  --entry-accent: var(--uo-slate);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--uo-radius-tile);
+  background: var(--hs-surface-1);
+  cursor: pointer;
+  font: inherit;
+  color: var(--color-foreground);
+  transition:
+    background-color var(--hs-duration-fast),
+    border-color var(--hs-duration-fast),
+    transform var(--hs-duration-fast);
+  text-align: left;
+}
+
+.quick-btn:hover {
+  background: var(--hs-surface-2);
+  border-color: rgba(var(--entry-accent), 0.45);
+  transform: translateY(-1px);
+}
+
+/* 与统计卡同一套「实色块 + 白图形」，但尺寸小一档（30px）。 */
+.quick-btn__icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: rgb(var(--entry-accent));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.quick-btn__label {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.quick-btn__arrow {
+  color: var(--color-muted-foreground);
+  transition: transform var(--hs-duration-fast);
+}
+
+.quick-btn:hover .quick-btn__arrow {
+  transform: translateX(3px);
+  color: rgb(var(--entry-accent));
+}
+
+.quick-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-muted-foreground);
+  padding: 18px 0;
+}
+
+/* ---------- 在线用户 / 最近登录用户 两张并排卡片 ---------- */
 .activity-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-}
-
-.panel-card__sub {
-  margin: 0;
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-}
-
-.panel-card__badge {
-  flex-shrink: 0;
-  padding: 2px 10px;
-  border-radius: 999px;
-  background: var(--td-brand-color-1);
-  color: var(--td-brand-color-8);
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
 }
 
 .activity-list {
@@ -810,7 +1039,7 @@ onMounted(() => {
 
 .activity-row--clickable:hover,
 .activity-row--clickable:focus-visible {
-  background: var(--hs-surface-3);
+  background: var(--hs-surface-2);
   outline: none;
 }
 
@@ -838,82 +1067,16 @@ onMounted(() => {
 /* IP 用等宽字体：这是运营要逐个字符核对的字段，比例字体下 1/l、0/O 极易看错。 */
 .activity-row__ip {
   flex-shrink: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--hs-font-mono);
   font-size: 12px;
-  color: #475569;
+  color: var(--color-muted-foreground);
   max-width: 45%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.quick-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.quick-btn {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--hs-radius-md);
-  background: var(--hs-surface-2);
-  cursor: pointer;
-  font: inherit;
-  color: var(--color-foreground);
-  transition:
-    background-color var(--hs-duration-fast),
-    border-color var(--hs-duration-fast),
-    transform var(--hs-duration-fast);
-  text-align: left;
-}
-
-.quick-btn:hover {
-  background: var(--td-brand-color-1);
-  border-color: var(--td-brand-color-4);
-  transform: translateY(-1px);
-}
-
-.quick-btn__icon {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--hs-radius-sm);
-  background: #ffffff;
-  border: 1px solid var(--color-border);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-primary);
-  flex-shrink: 0;
-}
-
-.quick-btn__label {
-  flex: 1;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.quick-btn__arrow {
-  color: var(--color-muted-foreground);
-  transition: transform var(--hs-duration-fast);
-}
-
-.quick-btn:hover .quick-btn__arrow {
-  transform: translateX(3px);
-  color: var(--color-primary);
-}
-
-.quick-empty {
-  grid-column: 1 / -1;
-  text-align: center;
-  font-size: 13px;
-  color: var(--color-muted-foreground);
-  padding: 18px 0;
-}
-
+/* ---------- 快捷入口编辑弹窗 ---------- */
 .editor-group {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -926,7 +1089,7 @@ onMounted(() => {
 }
 
 .editor-item:hover {
-  background: var(--hs-surface-3);
+  background: var(--hs-surface-2);
 }
 
 .editor-item__inner {
@@ -936,6 +1099,7 @@ onMounted(() => {
   font-size: 13px;
 }
 
+/* ---------- 错误条 ---------- */
 .error-banner {
   display: flex;
   align-items: center;
@@ -979,6 +1143,20 @@ onMounted(() => {
   .stat-grid {
     grid-template-columns: repeat(2, 1fr);
     gap: 8px;
+  }
+
+  .stat-card {
+    min-height: 76px;
+    padding: 14px 16px;
+    gap: 12px;
+  }
+
+  .stat-card__icon {
+    --uo-tile-size: 34px;
+  }
+
+  .stat-card__value {
+    font-size: 19px;
   }
 
   .quick-grid {

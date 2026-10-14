@@ -7,10 +7,12 @@
 @import '../stat-card.css';
 
 .users-module {
-  --users-green: var(--color-primary);
-  --users-green-hover: var(--td-brand-color-8);
-  --users-green-soft: var(--td-brand-color-1);
-  --users-green-border: var(--td-brand-color-2);
+  /* 品牌色令牌：主色为石墨灰（见 styles/index.css）。历史上的 --users-green-*
+     命名已随主题更名，此处保留为 --users-brand-*，语义与用法不变。 */
+  --users-brand: var(--color-primary);
+  --users-brand-hover: var(--td-brand-color-8);
+  --users-brand-soft: var(--td-brand-color-1);
+  --users-brand-border: var(--td-brand-color-2);
 }
 
 /* 根元素同时带 .page-body 与 .users-module，两选择器命中同一元素时
@@ -147,7 +149,7 @@
   width: 3px;
   height: 14px;
   border-radius: 2px;
-  background: linear-gradient(180deg, var(--users-green), var(--td-brand-color-8));
+  background: linear-gradient(180deg, var(--users-brand), var(--td-brand-color-8));
 }
 
 .users-module .table-card__meta {
@@ -425,9 +427,9 @@
    详情页各面板表格此前是一块浅绿表头 + 纯白行，行与行之间只有 1px 浅边框，
    纵向扫视时容易串行；数字列左对齐导致位数不同的金额参差不齐。 */
 .users-module .t-table__th {
-  background: var(--users-green-soft) !important;
+  background: var(--users-brand-soft) !important;
   color: var(--color-foreground) !important;
-  border-bottom-color: var(--users-green-border) !important;
+  border-bottom-color: var(--users-brand-border) !important;
   font-weight: 600 !important;
   white-space: nowrap;
 }
@@ -463,14 +465,14 @@
 }
 
 .users-module .t-button--theme-primary {
-  border-color: var(--users-green);
-  background-color: var(--users-green);
+  border-color: var(--users-brand);
+  background-color: var(--users-brand);
 }
 
 .users-module .t-button--theme-primary:hover,
 .users-module .t-button--theme-primary:focus-visible {
-  border-color: var(--users-green-hover);
-  background-color: var(--users-green-hover);
+  border-color: var(--users-brand-hover);
+  background-color: var(--users-brand-hover);
 }
 
 .users-module .t-input.t-is-focused,
@@ -478,14 +480,14 @@
 .users-module .t-textarea__inner:focus,
 .users-module .t-input-number.t-is-focused,
 .users-module .t-select-input.t-is-focused {
-  border-color: var(--users-green) !important;
+  border-color: var(--users-brand) !important;
   box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.1) !important;
 }
 
 .users-module .t-pagination__number.t-is-current {
   color: #fff;
-  border-color: var(--users-green);
-  background: var(--users-green);
+  border-color: var(--users-brand);
+  background: var(--users-brand);
 }
 
 .users-module .t-table__pagination {

@@ -1,12 +1,13 @@
 @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
 
 :root {
-  /* HostSent Design System tokens — Light theme · Density 9 · Variance 3 · Motion 4 */
-  --color-primary: #16a34a;
+  /* HostSent Design System tokens — Light theme · Density 9 · Variance 3 · Motion 4
+     主色为石墨灰（黑），强调色为橙；绿色不再是品牌色，仅保留为「成功/运行中」等语义色。 */
+  --color-primary: #2b2f36;
   --color-on-primary: #ffffff;
   --color-secondary: #0f172a;
   --color-on-secondary: #ffffff;
-  --color-accent: #16a34a;
+  --color-accent: #f97316;
   --color-on-accent: #ffffff;
   --color-background: #f5f7fa;
   --color-foreground: #0f172a;
@@ -17,30 +18,32 @@
   --color-border: #e2e8f0;
   --color-destructive: #ef4444;
   --color-on-destructive: #ffffff;
-  --color-ring: #16a34a;
+  --color-ring: #2b2f36;
   /* 主色的 RGB 三元组：供 rgba(var(--color-primary-rgb), α) 写法派生任意透明度的品牌色
      （表头底色、行悬停、聚焦光圈等）。主题切换时由 utils/theme.ts 以同名变量覆盖。 */
-  --color-primary-rgb: 22, 163, 74;
+  --color-primary-rgb: 43, 47, 54;
+  /* 强调色（橙）的 RGB 三元组，供 rgba(var(--color-accent-rgb), α) 派生浅色底/光晕。 */
+  --color-accent-rgb: 249, 115, 22;
 
-  /* TDesign 品牌色阶默认值（绿色；主题设置运行时以同名变量内联覆盖） */
-  --td-brand-color-1: #f0fdf4;
-  --td-brand-color-2: #dcfce7;
-  --td-brand-color-3: #bbf7d0;
-  --td-brand-color-4: #86efac;
-  --td-brand-color-5: #4ade80;
-  --td-brand-color-6: #22c55e;
-  --td-brand-color-7: #16a34a;
-  --td-brand-color-8: #15803d;
-  --td-brand-color-9: #166534;
-  --td-brand-color-10: #14532d;
-  --td-brand-color: #16a34a;
-  --td-brand-color-hover: #15803d;
-  --td-brand-color-active: #166534;
-  --td-brand-color-focus: #bbf7d0;
-  --td-brand-color-disabled: #86efac;
-  --td-brand-color-light: #f0fdf4;
-  --td-brand-color-light-hover: #dcfce7;
-  --td-brand-color-light-active: #bbf7d0;
+  /* TDesign 品牌色阶默认值（石墨灰；主题设置运行时以同名变量内联覆盖） */
+  --td-brand-color-1: #f2f3f3;
+  --td-brand-color-2: #e1e2e3;
+  --td-brand-color-3: #c4c5c7;
+  --td-brand-color-4: #a0a1a5;
+  --td-brand-color-5: #777a7e;
+  --td-brand-color-6: #494c52;
+  --td-brand-color-7: #2b2f36;
+  --td-brand-color-8: #262930;
+  --td-brand-color-9: #1f2227;
+  --td-brand-color-10: #181a1e;
+  --td-brand-color: #2b2f36;
+  --td-brand-color-hover: #262930;
+  --td-brand-color-active: #1f2227;
+  --td-brand-color-focus: #e1e2e3;
+  --td-brand-color-disabled: #c4c5c7;
+  --td-brand-color-light: #f2f3f3;
+  --td-brand-color-light-hover: #e1e2e3;
+  --td-brand-color-light-active: #c4c5c7;
 
   /* Surfaces */
   --hs-surface-1: #ffffff;
@@ -179,19 +182,21 @@ h6 {
   border-radius: 4px;
 }
 
-/* ===== TDesign 官方深色 token（来源 tdesign-vue-next _dark.less）===== */
+/* ===== TDesign 官方深色 token（来源 tdesign-vue-next _dark.less）=====
+   品牌色阶已由官方蓝改为项目石墨灰（与 utils/theme.ts 的 buildDarkBrandScale
+   计算结果一致），避免 JS 尚未执行时首屏闪成蓝色。 */
 :root.dark,
 :root[theme-mode='dark'] {
-  --td-brand-color-1: #1b2f51;
-  --td-brand-color-2: #173463;
-  --td-brand-color-3: #143975;
-  --td-brand-color-4: #103d88;
-  --td-brand-color-5: #0d429a;
-  --td-brand-color-6: #054bbe;
-  --td-brand-color-7: #2667d4;
-  --td-brand-color-8: #4582e6;
-  --td-brand-color-9: #699ef5;
-  --td-brand-color-10: #96bbf8;
+  --td-brand-color-1: #171819;
+  --td-brand-color-2: #232425;
+  --td-brand-color-3: #2e3031;
+  --td-brand-color-4: #3c3e40;
+  --td-brand-color-5: #4a4c4f;
+  --td-brand-color-6: #585a5d;
+  --td-brand-color-7: #64666a;
+  --td-brand-color-8: #74777b;
+  --td-brand-color-9: #878a8d;
+  --td-brand-color-10: #9b9da0;
   --td-warning-color-1: #4f2a1d;
   --td-warning-color-2: #582f21;
   --td-warning-color-3: #733c23;
