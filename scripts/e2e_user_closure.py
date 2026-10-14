@@ -59,6 +59,9 @@ created_users = []
 oauth_alipay_backup = None
 realname_alipay_backup = None
 provider_config_backup = None
+# C13/C15 断言「自动放行默认关闭」：演示库可能被运营开成 true，快照后强制 false。
+auto_approve_backup = None
+auto_reject_backup = None
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +285,7 @@ def mock_state():
 # ---------------------------------------------------------------------------
 
 def main():
-    global oauth_alipay_backup, realname_alipay_backup, provider_config_backup
+    global oauth_alipay_backup, realname_alipay_backup, provider_config_backup, auto_approve_backup, auto_reject_backup
 
     section("0. 准备：管理员登录 + 快照渠道配置")
     st, obj, _ = req("POST", "/admin/auth/login", body={"username": "admin", "password": "123456"})
@@ -302,7 +305,17 @@ def main():
         "FROM realname_providers WHERE provider_type = 'alipay') t")
     provider_config_backup = sql(
         "SELECT config_value FROM verification_configs WHERE config_key = 'verification.provider'")
-    print(f"  已快照 oauth/realname 渠道配置与 verification.provider（原值 {provider_config_backup!r}）")
+    # C13/C15 断言「自动放行默认关闭」：演示库上运营可能开过
+    # verification.auto_approve_on_pass=true（开着自动放行时 C13 直接变 approved，
+    # C15 的人工通过再撞 409，整段假失败）。与渠道配置同款做法：快照原值，
+    # C 段开头强制置 false，收尾按原值写回。
+    auto_approve_backup = sql(
+        "SELECT config_value FROM verification_configs WHERE config_key = 'verification.auto_approve_on_pass'")
+    auto_reject_backup = sql(
+        "SELECT config_value FROM verification_configs WHERE config_key = 'verification.auto_reject_on_fail'")
+    print(f"  已快照 oauth/realname 渠道配置与 verification.provider（原值 {provider_config_backup!r}）"
+          f" + auto_approve_on_pass（原值 {auto_approve_backup!r}）"
+          f" + auto_reject_on_fail（原值 {auto_reject_backup!r}）")
 
     # -----------------------------------------------------------------------
     section("A. 注销 / 回收站 / 恢复 / 批量")
@@ -483,6 +496,11 @@ def main():
     build_mock()
     start_mock()
     print(f"  模拟网关已启动（{MOCK_GATEWAY}）")
+    # C13/C15 的前置：强制关闭自动放行/自动驳回（快照已在 0 号 section 保存，
+    # 收尾还原）。演示库被运营开成 true 时，不置 false 会让 C13「默认关闭」
+    # 与 C15「人工通过」两个断言必然失败。
+    run_sql("UPDATE verification_configs SET config_value = 'false' "
+            "WHERE config_key IN ('verification.auto_approve_on_pass', 'verification.auto_reject_on_fail')")
 
     st, obj, _ = req("PUT", "/admin/oauth/providers/alipay", token=admin, body={
         "enabled": True, "scopes": "auth_user", "remark": "e2e 验收（模拟网关）",
@@ -722,6 +740,12 @@ def restore():
     if provider_config_backup is not None:
         run_sql("UPDATE verification_configs SET config_value = %s WHERE config_key = 'verification.provider'"
                 % quote(provider_config_backup))
+    if auto_approve_backup is not None:
+        run_sql("UPDATE verification_configs SET config_value = %s WHERE config_key = 'verification.auto_approve_on_pass'"
+                % quote(auto_approve_backup))
+    if auto_reject_backup is not None:
+        run_sql("UPDATE verification_configs SET config_value = %s WHERE config_key = 'verification.auto_reject_on_fail'"
+                % quote(auto_reject_backup))
     for uid in created_users:
         cleanup_user(uid)
     for path in (BIN_PATH,):
