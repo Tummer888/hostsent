@@ -94,6 +94,13 @@ jobs:
         run: |
           ../scripts/check_structure.sh --selfcheck
           ../scripts/check_structure.sh
+      - name: API contract check
+        # 批次四 D4b：前端 request/instance 调用与后端 Go 路由表对齐
+        # （方法+路径双维度，形状归一化比较），漂移即 fail。
+        # 依赖后端源码 + 前端 src/api 目录，放在 checkout 之后任意位置皆可。
+        run: |
+          python3 ../scripts/check_api_contract.py --selfcheck
+          python3 ../scripts/check_api_contract.py
       - name: OpenAPI generator self-check
         # openapi.yaml 是生成产物（/backend/docs 整体 .gitignore，不进版本库）；
         # 漂移门禁 = 生成器自检退出码：新增路由未登记 HANDLER_ACTIONS /

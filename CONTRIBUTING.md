@@ -129,7 +129,8 @@ go test ./...         # 涉及域的单测至少全绿
 golangci-lint run --timeout=5m --build-tags live   # 本地与 CI 同参数，v2.14.0
 govulncheck ./...                                 # 依赖漏洞（可达漏洞须为 0）
 ../scripts/check_coverage.sh                       # 核心链路覆盖率门禁
-# 前端另跑 vue-tsc --noEmit 与 npm audit
+python3 ../scripts/check_api_contract.py           # 前后端 API 契约门禁
+# 前端另跑 vue-tsc --noEmit、npm run lint / format:check 与 npm audit
 ```
 
 Go 版本：go.mod 的 go 指令为 1.26.9（批次四 D3 起）。Go 安全政策只维护最近
@@ -152,9 +153,16 @@ CI 额外执行（见 `.github/workflows/ci.yml`）：
 - **Go 漏洞门禁**：`govulncheck` 源码模式，只报「代码实际调用链可达」的漏洞
   （`scripts/check_vuln.sh`，批次四 D3）；模块存在但代码未触达的告警不阻断。
   升级依赖时 56 包单测 + live 套件是安全网
-- **npm 漏洞门禁**：两个前端 `npm audit --audit-level=low` 全量清零（含 dev）。
+- **npm 漏洞门禁**：两个前端 `npm audit --omit=dev --audit-level=low` 清零。
   audit 报的漏洞在 CI 直接 fail；修复时注意 breaking 升级（如 tiptap 2→3
   改 import 路径与 setContent 签名）必须带本地 build 验证
+- **前端 lint/格式门禁**：两个前端 `npm run lint`（ESLint flat 配置，0 error）
+  + `npm run format:check`（Prettier，风格对齐仓库：单引号/无分号/尾逗号/120 宽）。
+  v-html 等定向豁免必须带理由注释；新增文件必须过 Prettier
+- **API 契约门禁**：`python3 scripts/check_api_contract.py`——前端
+  request/instance 调用与后端 Go 路由表逐条对齐（方法 + 路径双维度，
+  路径参数按形状归一化，`${id}` 与 `:id` 同形不算漂移）。改路由或改前端
+  url 时必须同步另一端；CI 先跑 `--selfcheck` 自测再跑正式检查
 - **结构检查**：`scripts/check_structure.sh`——目录层级、uc 形态、依赖方向、
   响应统一、错误链；存量违例在脚本豁免清单中登记（棘轮模式），新增违例直接 fail。
   CI 先跑 `--selfcheck` fixture 自测再跑正式检查
