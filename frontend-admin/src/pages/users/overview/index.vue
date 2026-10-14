@@ -423,6 +423,23 @@ const statusPieOption = computed<EChartsOption>(() => {
   return {
     tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
     legend: { bottom: 0, icon: 'circle', textStyle: { color: c.legend, fontSize: 12 } },
+    // 环心留白放「总计」，参考稿把总数放在这里，比只在图例里体现更醒目。
+    // 用 title 数组而非 graphic：TitleComponent 在 EChart.vue 里已注册，
+    // 不必为一个中心文案去改那个共享组件的引入列表。
+    title: [
+      {
+        text: '总计',
+        left: 'center',
+        top: '36%',
+        textStyle: { color: c.legend, fontSize: 12, fontWeight: 400 },
+      },
+      {
+        text: String(statusTotal.value),
+        left: 'center',
+        top: '42%',
+        textStyle: { color: c.label, fontSize: 22, fontWeight: 700 },
+      },
+    ],
     series: [
       {
         name: '用户状态',
@@ -436,31 +453,7 @@ const statusPieOption = computed<EChartsOption>(() => {
           label: { show: true, fontSize: 14, fontWeight: 'bold' },
           itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.12)' },
         },
-        // 环心留白放「总计」，参考稿把总数放在这里，比只在图例里体现更醒目。
         data: statusPieData.value,
-      },
-    ],
-    // graphic 而不是 title：title 会参与布局并挤压画布，graphic 直接定位在环心。
-    graphic: [
-      {
-        type: 'text',
-        left: 'center',
-        top: '38%',
-        silent: true,
-        style: { text: '总计', fill: c.legend, fontSize: 12, textAlign: 'center' },
-      },
-      {
-        type: 'text',
-        left: 'center',
-        top: '44%',
-        silent: true,
-        style: {
-          text: String(statusTotal.value),
-          fill: c.label,
-          fontSize: 22,
-          fontWeight: 700,
-          textAlign: 'center',
-        },
       },
     ],
   }
@@ -650,7 +643,7 @@ onMounted(() => {
   --uo-slate: 100, 116, 139;
   --uo-radius-card: 14px;
   --uo-radius-tile: 10px;
-  --uo-tile-size: 38px;
+  --uo-tile-size: 40px;
 
   position: relative;
   display: flex;
