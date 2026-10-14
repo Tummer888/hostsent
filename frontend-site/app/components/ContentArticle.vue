@@ -21,9 +21,7 @@
 
     <footer class="content-article__foot">
       <NuxtLink :to="backTo" class="site-btn site-btn--ghost">{{ backLabel }}</NuxtLink>
-      <span v-if="updatedAt" class="content-article__updated">
-        最后更新：{{ formatArticleDate(updatedAt) }}
-      </span>
+      <span v-if="updatedAt" class="content-article__updated"> 最后更新：{{ formatArticleDate(updatedAt) }} </span>
     </footer>
   </article>
 </template>

@@ -15,9 +15,7 @@ export async function useSingletonArticle(kind: Extract<ArticleKind, 'terms' | '
   const { data, error } = await useAsyncData<ArticleDetail | null>(
     `singleton:${kind}`,
     async () => {
-      const payload = await $fetch<{ article: ArticleDetail | null }>(
-        `/api/article-singletons/${kind}`,
-      )
+      const payload = await $fetch<{ article: ArticleDetail | null }>(`/api/article-singletons/${kind}`)
       return payload?.article ?? null
     },
     { default: () => null },

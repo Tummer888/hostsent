@@ -25,7 +25,7 @@ const props = withDefaults(
     label?: string
     height?: number
   }>(),
-  { variant: 1 },
+  { variant: 1, icon: undefined, label: undefined, height: undefined },
 )
 
 const variant = computed(() => {

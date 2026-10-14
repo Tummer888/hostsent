@@ -1,0 +1,53 @@
+name: Nightly
+
+# 夜间全量验证：工作日 03:00 UTC 定时 + 手动触发。
+# 与 ci.yml 的抽样门禁分工：ci 跑快反馈（核心包 -race、live 套件），
+# 全量 -race 与长耗时检查留给 nightly（批次四 E3）。
+
+on:
+  schedule:
+    - cron: "0 3 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  backend-nightly:
+    name: Backend (full race + live + lint)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hostsent
+          POSTGRES_PASSWORD: hostsent
+          POSTGRES_DB: hostsent
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hostsent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.9"
+      - name: Full race
+        # ci.yml 只抽样 finance/instance/order；全量 -race 放夜间
+        # （本机 56 包全量已通过，见批次四 E3 验证）。
+        run: go test -race -count=1 ./...
+      - name: Live tests (fresh DB)
+        env:
+          LIVE_DB_DSN: host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable
+        run: |
+          LIVE_BOOTSTRAP=1 go test -count=1 -tags live ./internal/server/ -run 'TestLiveBootstrapSchema$'
+          go test -count=1 -tags live ./internal/server/... ./internal/pkg/db/...
+      - name: Lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.14.0
+          working-directory: backend
+          args: --timeout=10m --build-tags live

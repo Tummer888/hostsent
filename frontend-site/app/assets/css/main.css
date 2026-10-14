@@ -29,11 +29,31 @@
    * 浅蓝/薰衣草色系，全部由主色通道派生 —— 换主题色时整页配图跟着变。
    * 若品牌需要多种辅助色，覆盖这 5 个 token 即可，不必改组件。
    */
-  --site-art-1: linear-gradient(140deg, rgba(var(--site-primary-rgb), 0.1) 0%, rgba(var(--site-primary-rgb), 0.34) 100%);
-  --site-art-2: linear-gradient(140deg, rgba(var(--site-primary-rgb), 0.06) 0%, rgba(var(--site-primary-rgb), 0.22) 100%);
-  --site-art-3: linear-gradient(140deg, rgba(var(--site-primary-rgb), 0.16) 0%, rgba(var(--site-primary-rgb), 0.44) 100%);
-  --site-art-4: linear-gradient(140deg, rgba(var(--site-primary-rgb), 0.28) 0%, rgba(var(--site-primary-rgb), 0.6) 100%);
-  --site-art-5: linear-gradient(140deg, rgba(var(--site-primary-rgb), 0.12) 0%, rgba(var(--site-primary-rgb), 0.3) 100%);
+  --site-art-1: linear-gradient(
+    140deg,
+    rgba(var(--site-primary-rgb), 0.1) 0%,
+    rgba(var(--site-primary-rgb), 0.34) 100%
+  );
+  --site-art-2: linear-gradient(
+    140deg,
+    rgba(var(--site-primary-rgb), 0.06) 0%,
+    rgba(var(--site-primary-rgb), 0.22) 100%
+  );
+  --site-art-3: linear-gradient(
+    140deg,
+    rgba(var(--site-primary-rgb), 0.16) 0%,
+    rgba(var(--site-primary-rgb), 0.44) 100%
+  );
+  --site-art-4: linear-gradient(
+    140deg,
+    rgba(var(--site-primary-rgb), 0.28) 0%,
+    rgba(var(--site-primary-rgb), 0.6) 100%
+  );
+  --site-art-5: linear-gradient(
+    140deg,
+    rgba(var(--site-primary-rgb), 0.12) 0%,
+    rgba(var(--site-primary-rgb), 0.3) 100%
+  );
 
   /* 页头 banner 的浅色底：白 → 极浅蓝，配合右侧插画区的光斑 */
   --site-hero-wash: linear-gradient(180deg, #ffffff 0%, #f4f7ff 62%, #eef3ff 100%);
@@ -58,8 +78,14 @@ body {
   margin: 0;
   background: var(--site-bg);
   color: var(--site-text);
-  font-family: 'Inter', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui,
-    -apple-system, sans-serif;
+  font-family:
+    'Inter',
+    'PingFang SC',
+    'Hiragino Sans GB',
+    'Microsoft YaHei',
+    system-ui,
+    -apple-system,
+    sans-serif;
   font-size: 15px;
   line-height: 1.7;
   -webkit-font-smoothing: antialiased;
@@ -119,8 +145,12 @@ button {
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
-  transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease,
-    box-shadow 0.18s ease, transform 0.18s ease;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
 }
 
 .site-btn--primary {
@@ -187,7 +217,10 @@ button {
   color: var(--site-text);
   cursor: pointer;
   white-space: nowrap;
-  transition: color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease,
+    background-color 0.18s ease;
 }
 
 .site-pill:hover {

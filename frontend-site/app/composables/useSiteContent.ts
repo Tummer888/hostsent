@@ -9,11 +9,9 @@ import { DEFAULT_SITE_CONTENT, type SiteContent } from '#shared/schemas/siteCont
  * useAsyncData 以固定 key 去重，同一次请求内 Header / Footer / 页面多次调用只取一次。
  */
 export function useSiteContent() {
-  const { data } = useAsyncData<SiteContent>(
-    'site-content',
-    () => $fetch<SiteContent>('/api/site-content'),
-    { default: () => DEFAULT_SITE_CONTENT },
-  )
+  const { data } = useAsyncData<SiteContent>('site-content', () => $fetch<SiteContent>('/api/site-content'), {
+    default: () => DEFAULT_SITE_CONTENT,
+  })
 
   const content = computed<SiteContent>(() => data.value ?? DEFAULT_SITE_CONTENT)
   const themeVars = computed(() => buildThemeVars(content.value.theme))

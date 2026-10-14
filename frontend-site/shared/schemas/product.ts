@@ -34,16 +34,28 @@ export const productWireSchema = z.object({
   // Go 的 nil 切片序列化成 null（不是 []），而 Zod 的 .default() 只对 undefined 生效，
   // 因此这里必须用 nullish + transform 兜底：否则「未维护周期矩阵」的商品会校验失败，
   // 详情页 404、列表项被静默丢弃。
-  cycles: z.array(z.string()).nullish().transform((v) => v ?? []),
-  skus: z.array(z.unknown()).nullish().transform((v) => v ?? []),
+  cycles: z
+    .array(z.string())
+    .nullish()
+    .transform((v) => v ?? []),
+  skus: z
+    .array(z.unknown())
+    .nullish()
+    .transform((v) => v ?? []),
   // 客户可选配置项（自营商品）：官网只做「选择 + 传递意图」，不渲染加价也不下单，
   // 但要让访客在选购页看到「有哪些参数可选」，因此这里也解析出来。
-  option_groups: z.array(z.unknown()).nullish().transform((v) => v ?? []),
+  option_groups: z
+    .array(z.unknown())
+    .nullish()
+    .transform((v) => v ?? []),
 })
 
 export const productListWireSchema = z.object({
   // 同上：Go 的 nil 切片是 JSON null，用 nullish 兜底而不是 .default()。
-  items: z.array(z.unknown()).nullish().transform((v) => v ?? []),
+  items: z
+    .array(z.unknown())
+    .nullish()
+    .transform((v) => v ?? []),
   page: z.number().default(1),
   page_size: z.number().default(12),
   total: z.number().default(0),

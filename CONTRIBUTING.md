@@ -144,7 +144,9 @@ CI 额外执行（见 `.github/workflows/ci.yml`）：
   普通 + `-tags live` 双构建，配置 `backend/.golangci.yml`），v2.14.0。
   revive 显式关闭了四类存量风格规则（exported / package-comments /
   unused-parameter / unexported-return），新代码不要依赖新的豁免
-- **`-race` 抽样**：finance / instance / order 核心包
+- **`-race` 抽样**：finance / instance / order 核心包；全量 `-race`、
+  长耗时检查在 nightly workflow（`.github/workflows/nightly.yml`，
+  工作日 03:00 UTC + 手动触发，批次四 E3）
 - **live 测试（全新库）**：postgres service 空库上先 `LIVE_BOOTSTRAP=1` 引导
   （生产同款 AutoMigrate + Seed 路径），再跑 `go test -tags live`
   `./internal/server/...` 与 `./internal/pkg/db/...`（批次四 D2）。
@@ -153,15 +155,20 @@ CI 额外执行（见 `.github/workflows/ci.yml`）：
 - **Go 漏洞门禁**：`govulncheck` 源码模式，只报「代码实际调用链可达」的漏洞
   （`scripts/check_vuln.sh`，批次四 D3）；模块存在但代码未触达的告警不阻断。
   升级依赖时 56 包单测 + live 套件是安全网
-- **npm 漏洞门禁**：两个前端 `npm audit --omit=dev --audit-level=low` 清零。
+- **npm 漏洞门禁**：两个 Vite 前端 `npm audit --omit=dev --audit-level=low`
+  清零；frontend-site（Nuxt）`--audit-level=critical`——node-forge/braces 等
+  11 处 high 挂在 nuxt 构建工具链上且上游无修复版，产物只有 14 个运行时包、
+  不含漏洞包（forge 仅存在于本地 HTTPS 开发证书路径，生产 node-server 不可达）。
   audit 报的漏洞在 CI 直接 fail；修复时注意 breaking 升级（如 tiptap 2→3
   改 import 路径与 setContent 签名）必须带本地 build 验证
-- **前端 lint/格式门禁**：两个前端 `npm run lint`（ESLint flat 配置，0 error）
+- **前端 lint/格式门禁**：三个前端 `npm run lint`（ESLint flat 配置，0 error）
   + `npm run format:check`（Prettier，风格对齐仓库：单引号/无分号/尾逗号/120 宽）。
-  v-html 等定向豁免必须带理由注释；新增文件必须过 Prettier
+  v-html 等定向豁免必须带理由注释；新增文件必须过 Prettier。
+  site 的 lint 配置由 `npx nuxt prepare` 生成基础（CI 有 Prepare 步骤）
 - **API 契约门禁**：`python3 scripts/check_api_contract.py`——前端
   request/instance 调用与后端 Go 路由表逐条对齐（方法 + 路径双维度，
-  路径参数按形状归一化，`${id}` 与 `:id` 同形不算漂移）。改路由或改前端
+  路径参数按形状归一化，`${id}` 与 `:id` 同形不算漂移），并覆盖
+  frontend-site 的 server 层 $fetch 调用。改路由或改前端
   url 时必须同步另一端；CI 先跑 `--selfcheck` 自测再跑正式检查
 - **结构检查**：`scripts/check_structure.sh`——目录层级、uc 形态、依赖方向、
   响应统一、错误链；存量违例在脚本豁免清单中登记（棘轮模式），新增违例直接 fail。

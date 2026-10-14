@@ -56,10 +56,7 @@ export interface ArticleListQuery {
 }
 
 /** 读取已发布文章列表；后端未配置或异常时返回空列表。 */
-export async function fetchArticleList(
-  event: H3Event,
-  query: ArticleListQuery,
-): Promise<ArticleList> {
+export async function fetchArticleList(event: H3Event, query: ArticleListQuery): Promise<ArticleList> {
   const { public: publicConfig } = useRuntimeConfig(event)
   if (!publicConfig.apiBase) return EMPTY_ARTICLE_LIST
 
@@ -96,10 +93,9 @@ export async function fetchArticleDetail(
   if (!publicConfig.apiBase) return null
 
   try {
-    const raw = await $fetch(
-      `${publicConfig.apiBase}/api/v1/public/articles/${kind}/${encodeURIComponent(slug)}`,
-      { timeout: 3000 },
-    )
+    const raw = await $fetch(`${publicConfig.apiBase}/api/v1/public/articles/${kind}/${encodeURIComponent(slug)}`, {
+      timeout: 3000,
+    })
     const data = unwrapEnvelope(raw)
     return data === null ? null : parseArticleDetail(data)
   } catch (error) {
@@ -115,18 +111,12 @@ export async function fetchArticleDetail(
  * 「内容尚未准备好」的占位页而不是 404 —— 页面本身是存在的。
  * 因此这里把业务失败也收敛成 null，由页面决定文案；只有网络异常才抛 503。
  */
-export async function fetchSingletonArticle(
-  event: H3Event,
-  kind: ArticleKind,
-): Promise<ArticleDetail | null> {
+export async function fetchSingletonArticle(event: H3Event, kind: ArticleKind): Promise<ArticleDetail | null> {
   const { public: publicConfig } = useRuntimeConfig(event)
   if (!publicConfig.apiBase) return null
 
   try {
-    const raw = await $fetch(
-      `${publicConfig.apiBase}/api/v1/public/article-singletons/${kind}`,
-      { timeout: 3000 },
-    )
+    const raw = await $fetch(`${publicConfig.apiBase}/api/v1/public/article-singletons/${kind}`, { timeout: 3000 })
     const data = unwrapEnvelope(raw)
     return data === null ? null : parseArticleDetail(data)
   } catch (error) {
@@ -136,10 +126,7 @@ export async function fetchSingletonArticle(
 }
 
 /** 读取分类树；后端未配置或异常时返回空数组（侧栏只显示「全部」）。 */
-export async function fetchArticleCategories(
-  event: H3Event,
-  kind: ArticleKind,
-): Promise<ArticleCategory[]> {
+export async function fetchArticleCategories(event: H3Event, kind: ArticleKind): Promise<ArticleCategory[]> {
   const { public: publicConfig } = useRuntimeConfig(event)
   if (!publicConfig.apiBase) return EMPTY_ARTICLE_CATEGORIES
 

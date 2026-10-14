@@ -203,10 +203,38 @@ export interface ResourceCard {
 }
 
 export const RESOURCES: ResourceCard[] = [
-  { variant: 1, icon: 'sparkle', artLabel: '产品更新', title: '产品更新', desc: '新功能上线与版本更新速览。', to: '/news' },
-  { variant: 3, icon: 'book', artLabel: '使用文档', title: '使用文档', desc: '从选购到开通、从计费到排障的完整指引。', to: '/help' },
-  { variant: 4, icon: 'time', artLabel: '服务公告', title: '服务公告', desc: '维护窗口、故障说明与重要通知。', to: '/announcements' },
-  { variant: 5, icon: 'secured', artLabel: '条款政策', title: '用户条款与隐私政策', desc: '服务条款、责任边界与个人信息处理规则。', to: '/terms' },
+  {
+    variant: 1,
+    icon: 'sparkle',
+    artLabel: '产品更新',
+    title: '产品更新',
+    desc: '新功能上线与版本更新速览。',
+    to: '/news',
+  },
+  {
+    variant: 3,
+    icon: 'book',
+    artLabel: '使用文档',
+    title: '使用文档',
+    desc: '从选购到开通、从计费到排障的完整指引。',
+    to: '/help',
+  },
+  {
+    variant: 4,
+    icon: 'time',
+    artLabel: '服务公告',
+    title: '服务公告',
+    desc: '维护窗口、故障说明与重要通知。',
+    to: '/announcements',
+  },
+  {
+    variant: 5,
+    icon: 'secured',
+    artLabel: '条款政策',
+    title: '用户条款与隐私政策',
+    desc: '服务条款、责任边界与个人信息处理规则。',
+    to: '/terms',
+  },
 ]
 
 export interface QuickAction {

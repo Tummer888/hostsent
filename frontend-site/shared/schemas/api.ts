@@ -52,4 +52,3 @@ export function extractStatusCode(error: unknown): number | undefined {
   }
   return undefined
 }
-

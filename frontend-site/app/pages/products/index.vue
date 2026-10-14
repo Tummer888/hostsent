@@ -3,9 +3,7 @@
     <section class="products-hero">
       <div class="site-container">
         <h1 class="products-hero__title">全部产品</h1>
-        <p class="products-hero__desc">
-          {{ site.slogan }}。按周期计价、在线下单，挑选适合你业务的产品。
-        </p>
+        <p class="products-hero__desc">{{ site.slogan }}。按周期计价、在线下单，挑选适合你业务的产品。</p>
 
         <form class="products-search" @submit.prevent="applySearch">
           <input
@@ -14,16 +12,9 @@
             type="search"
             placeholder="搜索产品名称或编码"
             aria-label="搜索产品"
-          >
+          />
           <button class="site-btn site-btn--primary" type="submit">搜索</button>
-          <button
-            v-if="activeKeyword"
-            class="site-btn site-btn--ghost"
-            type="button"
-            @click="clearSearch"
-          >
-            清除
-          </button>
+          <button v-if="activeKeyword" class="site-btn site-btn--ghost" type="button" @click="clearSearch">清除</button>
         </form>
       </div>
     </section>
@@ -98,8 +89,7 @@ function clearSearch() {
 
 useSeoMeta({
   title: () => (activeKeyword.value ? `搜索「${activeKeyword.value}」` : '全部产品'),
-  description: () =>
-    `${site.value.name} 产品列表：${site.value.slogan}。查看云服务器规格与价格。`,
+  description: () => `${site.value.name} 产品列表：${site.value.slogan}。查看云服务器规格与价格。`,
   ogType: 'website',
 })
 </script>
@@ -141,7 +131,9 @@ useSeoMeta({
   font-size: 14px;
   color: var(--site-text);
   outline: none;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .products-search__input:focus {

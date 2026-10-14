@@ -8,16 +8,10 @@
           <span class="content-crumb__current">新闻资讯</span>
         </nav>
         <h1 class="content-hero__title">新闻资讯</h1>
-        <p class="content-hero__desc">
-          {{ site.name }} 的产品动态、功能更新与运维公告。
-        </p>
+        <p class="content-hero__desc">{{ site.name }} 的产品动态、功能更新与运维公告。</p>
 
         <div v-if="categories.length" class="content-filters">
-          <NuxtLink
-            class="content-filter"
-            :class="{ 'is-active': !activeCategory }"
-            :to="categoryLink('')"
-          >
+          <NuxtLink class="content-filter" :class="{ 'is-active': !activeCategory }" :to="categoryLink('')">
             全部
           </NuxtLink>
           <NuxtLink
@@ -53,13 +47,7 @@
                 <span v-for="tag in item.tags" :key="tag" class="news-item__tag">{{ tag }}</span>
               </div>
             </div>
-            <img
-              v-if="item.cover"
-              class="news-item__cover"
-              :src="item.cover"
-              :alt="item.title"
-              loading="lazy"
-            >
+            <img v-if="item.cover" class="news-item__cover" :src="item.cover" :alt="item.title" loading="lazy" />
           </li>
         </ul>
 
@@ -73,17 +61,9 @@
         </div>
 
         <nav v-if="totalPages > 1" class="content-pager" aria-label="分页">
-          <button type="button" :disabled="currentPage <= 1" @click="goPage(currentPage - 1)">
-            上一页
-          </button>
+          <button type="button" :disabled="currentPage <= 1" @click="goPage(currentPage - 1)">上一页</button>
           <span class="content-pager__info">第 {{ currentPage }} / {{ totalPages }} 页</span>
-          <button
-            type="button"
-            :disabled="currentPage >= totalPages"
-            @click="goPage(currentPage + 1)"
-          >
-            下一页
-          </button>
+          <button type="button" :disabled="currentPage >= totalPages" @click="goPage(currentPage + 1)">下一页</button>
         </nav>
       </div>
     </section>
@@ -91,12 +71,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-  articleExcerpt,
-  flattenCategoryTree,
-  formatArticleDate,
-  type ArticleSummary,
-} from '#shared/schemas/content'
+import { articleExcerpt, flattenCategoryTree, formatArticleDate, type ArticleSummary } from '#shared/schemas/content'
 
 const PAGE_SIZE = 10
 

@@ -1,8 +1,4 @@
-import {
-  CONTENT_MAX_PAGE_SIZE,
-  fetchArticleCategories,
-  fetchArticleList,
-} from '../utils/content'
+import { CONTENT_MAX_PAGE_SIZE, fetchArticleCategories, fetchArticleList } from '../utils/content'
 import { CATALOG_MAX_PAGE_SIZE, fetchProductList } from '../utils/catalog'
 import { unwrapEnvelope } from '#shared/schemas/api'
 import { parseAnnouncementList } from '#shared/schemas/announcement'

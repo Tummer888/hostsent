@@ -1,11 +1,5 @@
 <template>
-  <img
-    v-if="site.logo"
-    class="brand-logo__image"
-    :src="site.logo"
-    :alt="site.name"
-    :height="size"
-  />
+  <img v-if="site.logo" class="brand-logo__image" :src="site.logo" :alt="site.name" :height="size" />
   <span v-else class="brand-logo__mark" :style="{ width: `${size}px`, height: `${size}px` }">
     {{ site.name.slice(0, 1) }}
   </span>

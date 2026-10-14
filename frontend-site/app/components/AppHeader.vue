@@ -31,14 +31,7 @@
           />
         </form>
 
-        <a
-          v-if="consoleBase"
-          class="hd__console"
-          :href="consoleBase"
-          rel="noopener"
-        >
-          用户中心
-        </a>
+        <a v-if="consoleBase" class="hd__console" :href="consoleBase" rel="noopener"> 用户中心 </a>
 
         <NuxtLink class="site-btn site-btn--primary hd__cta" :to="ctaLink">
           {{ ctaLabel }}
@@ -80,9 +73,7 @@
           {{ item.label }}
         </NuxtLink>
 
-        <a v-if="consoleBase" class="hd__drawer-link" :href="consoleBase" rel="noopener">
-          用户中心
-        </a>
+        <a v-if="consoleBase" class="hd__drawer-link" :href="consoleBase" rel="noopener"> 用户中心 </a>
       </div>
     </div>
   </header>
@@ -142,9 +133,12 @@ onBeforeUnmount(() => {
   window.removeEventListener('scroll', onScroll)
 })
 
-watch(() => router.currentRoute.value.fullPath, () => {
-  menuOpen.value = false
-})
+watch(
+  () => router.currentRoute.value.fullPath,
+  () => {
+    menuOpen.value = false
+  },
+)
 </script>
 
 <style scoped>
@@ -155,7 +149,10 @@ watch(() => router.currentRoute.value.fullPath, () => {
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(14px);
   border-bottom: 1px solid transparent;
-  transition: border-color 0.22s ease, box-shadow 0.22s ease, background-color 0.22s ease;
+  transition:
+    border-color 0.22s ease,
+    box-shadow 0.22s ease,
+    background-color 0.22s ease;
 }
 
 .hd--scrolled {
@@ -237,7 +234,9 @@ watch(() => router.currentRoute.value.fullPath, () => {
   background: #fff;
   color: var(--site-text);
   font-size: 13.5px;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .hd__search-input::placeholder {

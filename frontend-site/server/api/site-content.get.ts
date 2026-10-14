@@ -1,9 +1,5 @@
 import { unwrapEnvelope } from '#shared/schemas/api'
-import {
-  DEFAULT_SITE_CONTENT,
-  fromFlatConfig,
-  resolveSiteContent,
-} from '#shared/schemas/siteContent'
+import { DEFAULT_SITE_CONTENT, fromFlatConfig, resolveSiteContent } from '#shared/schemas/siteContent'
 
 /**
  * 站点配置 BFF 代理。

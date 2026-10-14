@@ -11,12 +11,7 @@
 
       <div class="detail-main">
         <div class="detail-media">
-          <img
-            v-if="product.coverImage"
-            :src="product.coverImage"
-            :alt="product.name"
-            class="detail-media__img"
-          >
+          <img v-if="product.coverImage" :src="product.coverImage" :alt="product.name" class="detail-media__img" />
           <span v-else class="detail-media__fallback" aria-hidden="true">
             {{ product.name.trim().charAt(0) || 'P' }}
           </span>
@@ -121,7 +116,7 @@
               :min="opt.minValue ?? 0"
               :max="opt.maxValue ?? undefined"
               :placeholder="opt.defaultValue || '使用默认配置'"
-            >
+            />
 
             <!-- 开关：二值参数 -->
             <div v-else-if="opt.widget === 'bool'" class="detail-option__list">
@@ -145,21 +140,14 @@
               class="detail-option__text"
               :placeholder="opt.help || '留空自动生成'"
               maxlength="30"
-            >
+            />
           </div>
 
           <div class="detail-actions">
-            <a
-              v-if="purchaseUrl"
-              :href="purchaseUrl"
-              class="site-btn site-btn--primary"
-              rel="noopener"
-            >
+            <a v-if="purchaseUrl" :href="purchaseUrl" class="site-btn site-btn--primary" rel="noopener">
               选购云服务器
             </a>
-            <NuxtLink v-else to="/#contact" class="site-btn site-btn--ghost">
-              联系咨询
-            </NuxtLink>
+            <NuxtLink v-else to="/#contact" class="site-btn site-btn--ghost"> 联系咨询 </NuxtLink>
             <span v-if="purchaseUrl && missingRequired.length" class="detail-option__hint">
               还需选择：{{ missingRequired.map((o) => o.name).join('、') }}
             </span>
@@ -224,13 +212,11 @@ const unit = computed(() => priceUnit(product.value?.priceModel ?? ''))
 const selectedSpec = ref('')
 const selectedCycle = ref('')
 
-const selectedSku = computed(() =>
-  product.value?.skus.find((s) => s.specCode === selectedSpec.value),
-)
+const selectedSku = computed(() => product.value?.skus.find((s) => s.specCode === selectedSpec.value))
 
 /** 周期来源：选中规格的自有周期优先，否则回落商品级周期。 */
 const selectableCycles = computed(() =>
-  selectedSku.value?.cycles.length ? selectedSku.value.cycles : product.value?.cycles ?? [],
+  selectedSku.value?.cycles.length ? selectedSku.value.cycles : (product.value?.cycles ?? []),
 )
 
 /** 展示价：选了规格就用规格价，否则用商品价。 */
@@ -300,9 +286,7 @@ watchEffect(() => {
     }
     if (opt.required) {
       const preferred =
-        opt.values.find((v) => v.value === opt.defaultValue) ??
-        opt.values.find((v) => v.isDefault) ??
-        opt.values[0]
+        opt.values.find((v) => v.value === opt.defaultValue) ?? opt.values.find((v) => v.isDefault) ?? opt.values[0]
       if (preferred) next[opt.optionKey] = preferred.value
     } else if (opt.defaultValue) {
       next[opt.optionKey] = opt.defaultValue
@@ -479,7 +463,9 @@ useSeoMeta({
   font-size: 13.5px;
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.18s ease, background-color 0.18s ease;
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease;
 }
 
 .detail-option__item:hover:not(:disabled) {

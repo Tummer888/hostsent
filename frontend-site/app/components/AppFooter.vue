@@ -40,9 +40,7 @@
           <!-- -->
           <div v-if="reachableSocials.length || site.wechat" class="site-footer__social">
             <h4 class="site-footer__column-title">关注{{ site.name }}</h4>
-            <p v-if="site.wechat" class="site-footer__wechat">
-              公众号：{{ site.wechat }}
-            </p>
+            <p v-if="site.wechat" class="site-footer__wechat">公众号：{{ site.wechat }}</p>
             <div v-if="reachableSocials.length" class="site-footer__social-row">
               <a
                 v-for="s in reachableSocials"
@@ -69,13 +67,7 @@
               <NuxtLink v-if="isInternalPath(link.to)" class="site-footer__link" :to="link.to">
                 {{ link.label }}
               </NuxtLink>
-              <a
-                v-else
-                class="site-footer__link"
-                :href="link.to"
-                target="_blank"
-                rel="noopener nofollow"
-              >
+              <a v-else class="site-footer__link" :href="link.to" target="_blank" rel="noopener nofollow">
                 {{ link.label }}
               </a>
             </template>
@@ -164,9 +156,7 @@ const promises = computed(() => site.value.footerPromises)
  * 缺地址的项会变成死按钮（改造前是弹「XX开发中」的提示）。运营只有拿到真实
  * 公众号/群/仓库地址时才应该填这一项，因此在渲染层强制这个约束。
  */
-const reachableSocials = computed(() =>
-  site.value.footerSocials.filter((s) => /^https?:\/\//i.test(s.url.trim())),
-)
+const reachableSocials = computed(() => site.value.footerSocials.filter((s) => /^https?:\/\//i.test(s.url.trim())))
 
 /** 默认栏目：文案与品牌名、真实产品线耦合，写死进配置默认值会在品牌改名后对不上。 */
 function defaultColumns(name: string) {
@@ -337,7 +327,10 @@ function isInternalPath(to: string): boolean {
   color: var(--site-text-muted);
   cursor: pointer;
   font-size: 12.5px;
-  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
+  transition:
+    border-color 0.18s ease,
+    color 0.18s ease,
+    background 0.18s ease;
 }
 
 .site-footer__social-btn:hover,

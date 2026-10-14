@@ -1,10 +1,7 @@
 <template>
   <section id="partners" class="site-section site-section--tight partners">
     <div class="site-container">
-      <SectionHeading
-        :title="heading.title"
-        :subtitle="heading.subtitle"
-      />
+      <SectionHeading :title="heading.title" :subtitle="heading.subtitle" />
 
       <ul class="site-shelf partners__shelf">
         <li v-for="item in PARTNERS" :key="item.name" class="partners__tile">

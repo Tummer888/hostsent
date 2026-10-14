@@ -31,9 +31,7 @@ const { items } = useProducts({ featured: true, pageSize: HOMEPAGE_FETCH_LIMIT }
 
 const visible = computed(() => items.value.slice(0, home.value.featuredLimit))
 
-const subtitle = computed(
-  () => `精选可开通的云服务器，价格按周期展示`,
-)
+const subtitle = computed(() => `精选可开通的云服务器，价格按周期展示`)
 </script>
 
 <style scoped>

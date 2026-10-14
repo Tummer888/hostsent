@@ -62,9 +62,7 @@
             <span class="hero__bar hero__bar--wide" />
             <span class="hero__bar" />
             <span class="hero__bar hero__bar--short" />
-            <span class="hero__tags">
-              <i /><i /><i />
-            </span>
+            <span class="hero__tags"> <i /><i /><i /> </span>
           </span>
         </div>
       </div>
@@ -101,12 +99,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-  HERO_HIGHLIGHTS,
-  HERO_SHELF_HEAD,
-  HERO_SHELF_LINKS,
-  HERO_TABS,
-} from '~/constants/homeContent'
+import { HERO_HIGHLIGHTS, HERO_SHELF_HEAD, HERO_SHELF_LINKS, HERO_TABS } from '~/constants/homeContent'
 import { ariaCurrentFor } from '~/utils/nav'
 
 const { content } = useSiteContent()
@@ -177,7 +170,10 @@ const secondaryLink = computed(() => home.value.heroSecondaryLink || '/#features
   color: var(--site-text-muted);
   font-size: 14.5px;
   line-height: 1.5;
-  transition: color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+  transition:
+    color 0.18s ease,
+    background-color 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .hero__tab:hover {
@@ -231,7 +227,10 @@ const secondaryLink = computed(() => home.value.heroSecondaryLink || '/#features
   font-size: 15.5px;
   font-weight: 600;
   box-shadow: 0 12px 26px var(--site-primary-border);
-  transition: background-color 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+  transition:
+    background-color 0.18s ease,
+    transform 0.18s ease,
+    border-color 0.18s ease;
 }
 
 .hero__cta:hover {
@@ -263,11 +262,7 @@ const secondaryLink = computed(() => home.value.heroSecondaryLink || '/#features
   inset: 0;
   border-radius: 20px;
   border: 1px solid rgba(var(--site-primary-rgb), 0.14);
-  background: linear-gradient(
-    150deg,
-    rgba(var(--site-primary-rgb), 0.16) 0%,
-    rgba(var(--site-primary-rgb), 0.05) 100%
-  );
+  background: linear-gradient(150deg, rgba(var(--site-primary-rgb), 0.16) 0%, rgba(var(--site-primary-rgb), 0.05) 100%);
 }
 
 .hero__art-card {

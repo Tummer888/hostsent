@@ -21,9 +21,7 @@ const { content } = useSiteContent()
 
 const home = computed(() => content.value.home)
 
-const subtitle = computed(
-  () => `围绕在线选购与自助运维设计的 ${content.value.site.name}，让日常管理更省心`,
-)
+const subtitle = computed(() => `围绕在线选购与自助运维设计的 ${content.value.site.name}，让日常管理更省心`)
 </script>
 
 <style scoped>
@@ -43,7 +41,10 @@ const subtitle = computed(
   border-radius: var(--site-radius-lg);
   border: 1px solid var(--site-border);
   background: #fff;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
 }
 
 .feature-card:hover {

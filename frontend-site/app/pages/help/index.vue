@@ -8,9 +8,7 @@
           <span class="content-crumb__current">帮助中心</span>
         </nav>
         <h1 class="content-hero__title">帮助中心</h1>
-        <p class="content-hero__desc">
-          从选购到开通、从计费到排障，{{ site.name }} 的使用问题在这里都能找到答案。
-        </p>
+        <p class="content-hero__desc">从选购到开通、从计费到排障，{{ site.name }} 的使用问题在这里都能找到答案。</p>
       </div>
     </section>
 
@@ -40,21 +38,13 @@
               <p class="content-empty__title">
                 {{ activeCategory ? '该目录下暂无文档' : '帮助文档正在整理中' }}
               </p>
-              <p class="content-empty__desc">
-                遇到紧急问题可直接在用户中心提交工单，我们会尽快响应。
-              </p>
+              <p class="content-empty__desc">遇到紧急问题可直接在用户中心提交工单，我们会尽快响应。</p>
             </div>
 
             <nav v-if="totalPages > 1" class="content-pager" aria-label="分页">
-              <button type="button" :disabled="currentPage <= 1" @click="goPage(currentPage - 1)">
-                上一页
-              </button>
+              <button type="button" :disabled="currentPage <= 1" @click="goPage(currentPage - 1)">上一页</button>
               <span class="content-pager__info">第 {{ currentPage }} / {{ totalPages }} 页</span>
-              <button
-                type="button"
-                :disabled="currentPage >= totalPages"
-                @click="goPage(currentPage + 1)"
-              >
+              <button type="button" :disabled="currentPage >= totalPages" @click="goPage(currentPage + 1)">
                 下一页
               </button>
             </nav>
@@ -66,11 +56,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-  findCategoryBySlug,
-  formatArticleDate,
-  type ArticleSummary,
-} from '#shared/schemas/content'
+import { findCategoryBySlug, formatArticleDate, type ArticleSummary } from '#shared/schemas/content'
 
 const PAGE_SIZE = 12
 

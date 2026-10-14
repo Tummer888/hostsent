@@ -56,7 +56,10 @@ const heading = {
   border: 1px solid var(--site-border);
   border-radius: var(--site-radius-lg);
   background: #fff;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .res-card:hover {

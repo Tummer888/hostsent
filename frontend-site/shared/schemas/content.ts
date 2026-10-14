@@ -69,7 +69,10 @@ export const articleItemWireSchema = z.object({
   summary: z.string().default(''),
   cover: z.string().default(''),
   // Go 的 nil 切片序列化成 null，用 nullish 兜底（同 product.ts 的 cycles）
-  tags: z.array(z.unknown()).nullish().transform((v) => v ?? []),
+  tags: z
+    .array(z.unknown())
+    .nullish()
+    .transform((v) => v ?? []),
   category_id: z.number().default(0),
   category_slug: z.string().default(''),
   category_name: z.string().default(''),
@@ -84,7 +87,10 @@ export const articleDetailWireSchema = articleItemWireSchema.extend({
 })
 
 export const articleListWireSchema = z.object({
-  items: z.array(z.unknown()).nullish().transform((v) => v ?? []),
+  items: z
+    .array(z.unknown())
+    .nullish()
+    .transform((v) => v ?? []),
   total: z.number().default(0),
   page: z.number().default(1),
   page_size: z.number().default(10),
@@ -98,7 +104,10 @@ export const categoryWireSchema: z.ZodType<CategoryWire> = z.lazy(() =>
     name: z.string().min(1),
     description: z.string().default(''),
     icon: z.string().default(''),
-    children: z.array(z.unknown()).nullish().transform((v) => v ?? []),
+    children: z
+      .array(z.unknown())
+      .nullish()
+      .transform((v) => v ?? []),
   }),
 )
 
@@ -112,7 +121,10 @@ interface CategoryWire {
 }
 
 export const categoryListWireSchema = z.object({
-  items: z.array(z.unknown()).nullish().transform((v) => v ?? []),
+  items: z
+    .array(z.unknown())
+    .nullish()
+    .transform((v) => v ?? []),
 })
 
 export const friendlyLinkWireSchema = z.object({
@@ -125,7 +137,10 @@ export const friendlyLinkWireSchema = z.object({
 })
 
 export const friendlyLinkListWireSchema = z.object({
-  items: z.array(z.unknown()).nullish().transform((v) => v ?? []),
+  items: z
+    .array(z.unknown())
+    .nullish()
+    .transform((v) => v ?? []),
 })
 
 /* ------------------------------------------------------------------ */
@@ -207,10 +222,7 @@ export function articleExcerpt(summary: string, body: string, maxLength = 120): 
 }
 
 /** 在分类树中按 slug 找节点（用于面包屑与筛选回显），找不到返回 null。 */
-export function findCategoryBySlug(
-  nodes: ArticleCategory[],
-  slug: string,
-): ArticleCategory | null {
+export function findCategoryBySlug(nodes: ArticleCategory[], slug: string): ArticleCategory | null {
   if (!slug) return null
   for (const node of nodes) {
     if (node.slug === slug) return node
@@ -221,10 +233,7 @@ export function findCategoryBySlug(
 }
 
 /** 展平分类树，保留层级信息以便侧栏缩进渲染。 */
-export function flattenCategoryTree(
-  nodes: ArticleCategory[],
-  depth = 0,
-): { node: ArticleCategory; depth: number }[] {
+export function flattenCategoryTree(nodes: ArticleCategory[], depth = 0): { node: ArticleCategory; depth: number }[] {
   const out: { node: ArticleCategory; depth: number }[] = []
   for (const node of nodes) {
     out.push({ node, depth })

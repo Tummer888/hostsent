@@ -74,7 +74,9 @@ const home = computed(() => content.value.home)
   color: #fff;
   font-size: 15px;
   font-weight: 600;
-  transition: background-color 0.18s ease, transform 0.18s ease;
+  transition:
+    background-color 0.18s ease,
+    transform 0.18s ease;
 }
 
 .cta__btn:hover {

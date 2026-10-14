@@ -32,9 +32,7 @@
         <!-- -->
         <div v-else class="content-placeholder">
           <p class="content-placeholder__title">{{ label }}尚未发布</p>
-          <p class="content-placeholder__desc">
-            该文档正在准备中。如对相关条款有疑问，可通过首页联系方式与我们沟通。
-          </p>
+          <p class="content-placeholder__desc">该文档正在准备中。如对相关条款有疑问，可通过首页联系方式与我们沟通。</p>
           <NuxtLink to="/" class="site-btn site-btn--ghost">返回首页</NuxtLink>
         </div>
       </div>

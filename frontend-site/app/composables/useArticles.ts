@@ -1,8 +1,4 @@
-import {
-  EMPTY_ARTICLE_LIST,
-  type ArticleKind,
-  type ArticleList,
-} from '#shared/schemas/content'
+import { EMPTY_ARTICLE_LIST, type ArticleKind, type ArticleList } from '#shared/schemas/content'
 
 export interface UseArticlesOptions {
   kind: ArticleKind

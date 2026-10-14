@@ -8,9 +8,7 @@
         <aside class="featured__panel">
           <span class="featured__panel-logo">{{ site.name }}</span>
           <h3 class="featured__panel-title">用户中心快速入口</h3>
-          <p class="featured__panel-desc">
-            产品、订单、实例与工单都能在用户中心统一管理。
-          </p>
+          <p class="featured__panel-desc">产品、订单、实例与工单都能在用户中心统一管理。</p>
 
           <ul class="featured__entries">
             <li v-for="entry in CONSOLE_ENTRIES" :key="entry.label">
@@ -28,9 +26,7 @@
             </li>
           </ul>
 
-          <p v-if="!consoleBase" class="featured__panel-hint">
-            用户中心入口暂不可用。
-          </p>
+          <p v-if="!consoleBase" class="featured__panel-hint">用户中心入口暂不可用。</p>
         </aside>
 
         <!-- 右：2×2 链接卡 -->
@@ -95,11 +91,7 @@ function entryUrl(path: string): string {
   padding: 28px;
   border: 1px solid rgba(var(--site-primary-rgb), 0.16);
   border-radius: var(--site-radius-lg);
-  background: linear-gradient(
-    160deg,
-    rgba(var(--site-primary-rgb), 0.1) 0%,
-    rgba(var(--site-primary-rgb), 0.03) 100%
-  );
+  background: linear-gradient(160deg, rgba(var(--site-primary-rgb), 0.1) 0%, rgba(var(--site-primary-rgb), 0.03) 100%);
 }
 
 .featured__panel-logo {
@@ -143,7 +135,10 @@ function entryUrl(path: string): string {
   border: 1px solid var(--site-border);
   border-radius: var(--site-radius);
   background: #fff;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
 }
 
 .featured__entry:not(.is-disabled):hover {
@@ -217,7 +212,10 @@ function entryUrl(path: string): string {
   border: 1px solid var(--site-border);
   border-radius: var(--site-radius-lg);
   background: var(--site-bg-muted);
-  transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    transform 0.2s ease;
 }
 
 .link-card:hover {

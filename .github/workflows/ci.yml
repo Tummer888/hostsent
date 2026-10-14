@@ -161,3 +161,36 @@ jobs:
       - name: Audit (npm)
         # 同上：只审计生产依赖。
         run: npm audit --omit=dev --audit-level=low
+
+  frontend-site:
+    name: Site Frontend (Nuxt build + lint)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend-site/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Prepare
+        # nuxt prepare 生成 .nuxt 类型与 eslint 基础配置（eslint.config.mjs 从它派生）。
+        run: npx nuxt prepare
+      - name: Lint
+        run: npm run lint
+      - name: Format check
+        run: npm run format:check
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Audit (npm)
+        # 只审计生产依赖且阈值 critical（批次四 E1）：node-forge/braces 等 11 处
+        # high 挂在 nuxt 构建工具链（nitropack/listhen/fast-glob）上，上游无修复版，
+        # 且产物 .output/server/node_modules 只有 14 个运行时包、不含任何漏洞包
+        # （已验证 forge.pki 仅存在于本地 HTTPS 开发证书路径，生产 node-server 不可达）。
+        run: npm audit --omit=dev --audit-level=critical

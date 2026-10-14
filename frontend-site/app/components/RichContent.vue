@@ -1,6 +1,7 @@
 <template>
-  <!-- -->
+  <!-- eslint-disable vue/no-v-html -- 后端写路径已过 internal/pkg/sanitize（doc100 §6.1），此处是净化后的受控渲染 -->
   <div v-if="format === 'html'" class="rich-content" v-html="html" />
+  <!-- eslint-enable vue/no-v-html -->
   <div v-else class="rich-content rich-content--plain">
     <p v-for="(paragraph, index) in plainParagraphs" :key="index">{{ paragraph }}</p>
   </div>

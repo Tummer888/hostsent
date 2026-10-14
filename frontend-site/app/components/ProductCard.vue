@@ -7,7 +7,7 @@
         :alt="product.name"
         class="product-card__img"
         loading="lazy"
-      >
+      />
       <span v-else class="product-card__fallback" aria-hidden="true">{{ initial }}</span>
     </div>
 
@@ -34,11 +34,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-  formatPriceAmount,
-  priceUnit,
-  type Product,
-} from '#shared/schemas/product'
+import { formatPriceAmount, priceUnit, type Product } from '#shared/schemas/product'
 
 const props = defineProps<{ product: Product }>()
 
@@ -56,7 +52,10 @@ const initial = computed(() => props.product.name.trim().charAt(0) || 'P')
   border-radius: var(--site-radius-lg);
   background: #fff;
   overflow: hidden;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
 }
 
 .product-card:hover {

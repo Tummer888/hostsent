@@ -57,7 +57,10 @@ import { ariaCurrentFor } from '~/utils/nav'
   border-radius: var(--site-radius-lg);
   background: var(--site-art-3);
   color: var(--site-text);
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .quick-card:last-of-type {

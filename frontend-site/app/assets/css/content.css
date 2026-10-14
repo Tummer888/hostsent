@@ -67,7 +67,10 @@
   color: var(--site-text-muted);
   font-size: 13.5px;
   cursor: pointer;
-  transition: color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease,
+    background-color 0.18s ease;
 }
 
 .content-filter:hover {
@@ -340,7 +343,9 @@
   border-radius: var(--site-radius-sm);
   font-size: 13.5px;
   color: var(--site-text-muted);
-  transition: color 0.18s ease, background-color 0.18s ease;
+  transition:
+    color 0.18s ease,
+    background-color 0.18s ease;
 }
 
 .help-tree__link:hover {
@@ -382,7 +387,9 @@
   color: var(--site-text);
   font-size: 13.5px;
   cursor: pointer;
-  transition: color 0.18s ease, border-color 0.18s ease;
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease;
 }
 
 .content-pager button:hover:not(:disabled) {

@@ -28,11 +28,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-  announcementExcerpt,
-  announcementLevelMeta,
-  formatAnnouncementDate,
-} from '#shared/schemas/announcement'
+import { announcementExcerpt, announcementLevelMeta, formatAnnouncementDate } from '#shared/schemas/announcement'
 
 const { content } = useSiteContent()
 const home = computed(() => content.value.home)

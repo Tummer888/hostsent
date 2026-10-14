@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parent.parent
 BACKEND = ROOT / "backend"
 FRONTEND_ADMIN = ROOT / "frontend-admin" / "src" / "api"
 FRONTEND_USER = ROOT / "frontend-user" / "src" / "api"
+FRONTEND_SITE = ROOT / "frontend-site"
 
 VERBS = ("get", "post", "put", "delete", "patch")
 
@@ -52,6 +53,15 @@ CALL_DIRECT_RE = re.compile(
     r"\(\s*([\"'`])([^\"'`]+)\2"
 )
 
+# frontend-site 的 server 层用 $fetch(`${publicConfig.apiBase}/api/v1/...`)。
+# 动词只可能是 GET（公开内容代理），前缀里带运行时变量。
+SITE_FETCH_RE = re.compile(
+    r"\$fetch(?:<[^>]*>)?\(\s*`\$\{publicConfig\.apiBase\}(/api/v1/[^`]*)`"
+)
+# encodeURIComponent(...) 包裹的路径参数在模板串里是表达式，匹配到 ${kind}/${encodeURIComponent(slug)} 形态，
+# 归一化时把 ${encodeURIComponent(x)} 整段当作 {param} 处理。
+SITE_EXPR_PARAM_RE = re.compile(r"\$\{[^}]*encodeURIComponent[^}]*\}")
+
 
 def extract_calls(api_dir: Path):
     """返回 [(file, verb, path)]，按文件行序。"""
@@ -71,8 +81,24 @@ def extract_calls(api_dir: Path):
     return calls
 
 
+def extract_site_calls(site_dir: Path):
+    """返回 [(file, verb, path)]：frontend-site 的 server 层 $fetch 调用。"""
+    calls = []
+    for f in sorted(site_dir.rglob("*.ts")):
+        if "node_modules" in str(f):
+            continue
+        src = f.read_text()
+        for m in SITE_FETCH_RE.finditer(src):
+            calls.append((str(f.relative_to(ROOT)), "get", m.group(1)))
+    return calls
+
+
 def normalize(path: str) -> str:
-    """把前端模板参数归一化：${id} / ${data.user_id} → {id}。"""
+    """把前端模板参数归一化：${id} / ${data.user_id} → {id}。
+
+    ${encodeURIComponent(x)} 这类函数调用形参（frontend-site 的 slug 段）
+    也整体归一为 {param}。"""
+    path = SITE_EXPR_PARAM_RE.sub("{param}", path)
     return re.sub(r"\$\{([\w.]+)\}", r"{\1}", path)
 
 
@@ -115,6 +141,17 @@ def check(verbose: bool = False):
                     else "在后端路由表里不存在"
                 )
                 failures.append(f"{rel_file}: {verb.upper()} {full} {detail}")
+    # frontend-site 的 server 层（BFF 代理）：路径已带完整 /api/v1 前缀，动词为 get。
+    for rel_file, verb, path in extract_site_calls(FRONTEND_SITE):
+        checked += 1
+        candidates = [rp for rp in routes if route_matches(rp, path, verb)]
+        if not any(verb in routes[rp] for rp in candidates):
+            detail = (
+                f"（后端只有 {sorted({v for rp in candidates for v in routes[rp]})}）"
+                if candidates
+                else "在后端路由表里不存在"
+            )
+            failures.append(f"{rel_file}: {verb.upper()} {path} {detail}")
     if verbose:
         print(f"契约扫描：{checked} 次前端调用 / {len(routes)} 条后端路由")
     return failures, checked
@@ -135,6 +172,8 @@ def selfcheck():
          False, "多余后缀必须检出"),
         (("/api/v1/admin/users/{id}/impersonate", "/api/v1/admin/users/${data.user_id}/impersonate", "post"),
          True, "${data.user_id} 这类对象属性形参必须能归一化"),
+        (("/api/v1/public/articles/{kind}/{slug}", "/api/v1/public/articles/${kind}/${encodeURIComponent(slug)}", "get"),
+         True, "frontend-site 的 encodeURIComponent 形参必须能归一化"),
     ]
     for (route, call, verb), want, why in cases:
         # route_matches 只比较形状；动词一致性在 check() 里比对

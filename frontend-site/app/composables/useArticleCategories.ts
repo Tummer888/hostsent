@@ -1,8 +1,4 @@
-import {
-  EMPTY_ARTICLE_CATEGORIES,
-  type ArticleCategory,
-  type ArticleKind,
-} from '#shared/schemas/content'
+import { EMPTY_ARTICLE_CATEGORIES, type ArticleCategory, type ArticleKind } from '#shared/schemas/content'
 
 /**
  * 内容分类树数据获取（新闻分栏 / 帮助目录）。

@@ -8,9 +8,7 @@
           <span class="content-crumb__current">服务公告</span>
         </nav>
         <h1 class="content-hero__title">服务公告</h1>
-        <p class="content-hero__desc">
-          {{ site.name }} 的产品发布、维护窗口与故障说明。重要公告会置顶显示。
-        </p>
+        <p class="content-hero__desc">{{ site.name }} 的产品发布、维护窗口与故障说明。重要公告会置顶显示。</p>
       </div>
     </section>
 

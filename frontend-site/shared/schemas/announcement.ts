@@ -20,7 +20,10 @@ export const announcementWireSchema = z.object({
 })
 
 export const announcementListWireSchema = z.object({
-  items: z.array(z.unknown()).nullish().transform((v) => v ?? []),
+  items: z
+    .array(z.unknown())
+    .nullish()
+    .transform((v) => v ?? []),
 })
 
 export type AnnouncementLevel = 'info' | 'warning' | 'critical'
@@ -60,7 +63,10 @@ export function formatAnnouncementDate(publishedAt: string): string {
 
 /** 纯文本摘要，避免公告内容中的 HTML 直接渲染。 */
 export function announcementExcerpt(content: string, maxLength = 80): string {
-  const plain = content.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim()
+  const plain = content
+    .replace(/<[^>]*>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
   return plain.length > maxLength ? `${plain.slice(0, maxLength)}…` : plain
 }
 

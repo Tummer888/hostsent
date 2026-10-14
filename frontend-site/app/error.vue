@@ -12,9 +12,7 @@
               <NuxtLink to="/" class="site-btn site-btn--primary">返回首页</NuxtLink>
               <NuxtLink to="/products" class="site-btn site-btn--ghost">浏览全部产品</NuxtLink>
             </div>
-            <p v-if="statusCode === 503" class="err__hint">
-              这属于临时故障，稍后刷新即可恢复正常，页面内容并未删除。
-            </p>
+            <p v-if="statusCode === 503" class="err__hint">这属于临时故障，稍后刷新即可恢复正常，页面内容并未删除。</p>
           </div>
         </div>
       </section>

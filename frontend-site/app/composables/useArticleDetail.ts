@@ -40,9 +40,7 @@ export function throwIfFetchFailed(error: unknown): void {
   if (!error) return
   const candidate = error as { statusCode?: number; statusMessage?: string; message?: string }
   const statusCode =
-    typeof candidate.statusCode === 'number' && candidate.statusCode >= 400
-      ? candidate.statusCode
-      : 500
+    typeof candidate.statusCode === 'number' && candidate.statusCode >= 400 ? candidate.statusCode : 500
   throw createError({
     statusCode,
     statusMessage: candidate.statusMessage || candidate.message || 'Request failed',

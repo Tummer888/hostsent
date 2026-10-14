@@ -8,16 +8,22 @@
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "typecheck": "nuxt typecheck",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "lint": "eslint app server shared",
+    "format": "prettier --write app server shared",
+    "format:check": "prettier --check app server shared"
   },
   "dependencies": {
-    "nuxt": "^4.5.2",
-    "vue": "^3.5.42",
+    "nuxt": "^4.6.1",
+    "vue": "^3.5.44",
     "vue-router": "^5.3.1",
     "zod": "^4.6.1"
   },
   "devDependencies": {
+    "@nuxt/eslint": "^1.17.0",
     "@types/node": "^22.20.2",
+    "eslint": "^9.39.5",
+    "prettier": "^3.9.10",
     "typescript": "^5.9.3",
     "vue-tsc": "^3.3.11"
   }

@@ -181,9 +181,17 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
     // 不写"秒级开通/高防/全闪存"这类无法承诺的性能与时效承诺（广告法风险），
     // 也不写供货渠道与内部处理流程（客户只关心能不能买到、怎么开通、出问题找谁）。
     features: [
-      { icon: 'server', title: '在线选购云服务器', desc: '按周期计价的云服务器，在线选择配置下单，订单与实例状态清晰可查。' },
+      {
+        icon: 'server',
+        title: '在线选购云服务器',
+        desc: '按周期计价的云服务器，在线选择配置下单，订单与实例状态清晰可查。',
+      },
       { icon: 'bolt', title: '支付后自动处理开通', desc: '支付完成后按订单自动处理开通，进度可在订单详情查看。' },
-      { icon: 'refresh', title: '周期计费与续费', desc: '支持月付、季付、年付等周期，可自助续费或开启自动续费，到期前有提醒。' },
+      {
+        icon: 'refresh',
+        title: '周期计费与续费',
+        desc: '支持月付、季付、年付等周期，可自助续费或开启自动续费，到期前有提醒。',
+      },
       { icon: 'support', title: '工单与进度查询', desc: '工单按优先级响应，订单与实例状态可随时查询。' },
     ],
     ctaTitle: '准备好开始了吗？',
@@ -208,7 +216,7 @@ function isPlainObject(value: unknown): value is PlainObject {
 /** 深合并：对象递归合并，数组与标量整体覆盖（数组不做元素级合并）。 */
 function deepMerge<T>(base: T, override: unknown): T {
   if (!isPlainObject(base) || !isPlainObject(override)) {
-    return (override === undefined ? base : (override as T))
+    return override === undefined ? base : (override as T)
   }
   const out: PlainObject = { ...base }
   for (const [key, value] of Object.entries(override)) {

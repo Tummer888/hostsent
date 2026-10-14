@@ -81,7 +81,10 @@ function cardUrl(item: PricingCard): string {
   /* 渐变是主色低透明度，底色浅，文字走深色（与 PlaceholderArt 同一条规则） */
   color: var(--site-text);
   overflow: hidden;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .promo-card--1 {

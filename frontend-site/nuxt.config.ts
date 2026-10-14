@@ -2,6 +2,7 @@
 // 架构基线见 docs/实施计划/80-官网门户与品牌配置架构设计.md
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
+  modules: ['@nuxt/eslint'],
   ssr: true,
   devtools: { enabled: false },
 
