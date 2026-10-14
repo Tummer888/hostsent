@@ -3,6 +3,7 @@ package handler
 import (
 	accountdto "hostsent/backend/internal/modules/admin/finance/account/dto"
 	rechdto "hostsent/backend/internal/modules/admin/finance/account/recharge/dto"
+	billdto "hostsent/backend/internal/modules/admin/finance/bill/dto"
 	transdto "hostsent/backend/internal/modules/admin/finance/transaction/dto"
 )
 
@@ -140,4 +141,67 @@ func customerWalletFrom(in *accountdto.WalletInfo) *customerWallet {
 		TotalIncome:  in.TotalIncome,
 		TotalExpense: in.TotalExpense,
 	}
+}
+
+// customerBill 我的账单：去掉用户 ID、渠道实例主键与内部收入口径（扣点后净额）。
+type customerBill struct {
+	ID                  uint64  `json:"id"`
+	BillNo              string  `json:"bill_no"`
+	Period              string  `json:"period"`
+	TotalAmount         float64 `json:"total_amount"`
+	RefundAmount        float64 `json:"refund_amount"`
+	Status              string  `json:"status"`
+	SourceType          string  `json:"source_type"`
+	SourceNo            string  `json:"source_no"`
+	BillType            string  `json:"bill_type"`
+	ConsumeAmount       float64 `json:"consume_amount"`
+	RenewalAmount       float64 `json:"renewal_amount"`
+	ChannelRefundAmount float64 `json:"channel_refund_amount"`
+	RefundFeeAmount     float64 `json:"refund_fee_amount"`
+	RechargeAmount      float64 `json:"recharge_amount"`
+	PaidAmount          float64 `json:"paid_amount"`
+	PaidMethod          string  `json:"paid_method"`
+	PaidAt              string  `json:"paid_at"`
+	InvoiceStatus       string  `json:"invoice_status"`
+	InvoiceNo           string  `json:"invoice_no"`
+	InvoicedAt          string  `json:"invoiced_at"`
+	CreatedAt           string  `json:"created_at"`
+}
+
+type customerBillList struct {
+	Items []customerBill   `json:"items"`
+	Meta  billdto.ListMeta `json:"meta"`
+}
+
+func customerBillListFrom(in *billdto.BillListResponse) *customerBillList {
+	if in == nil {
+		return nil
+	}
+	items := make([]customerBill, 0, len(in.Items))
+	for _, it := range in.Items {
+		items = append(items, customerBill{
+			ID:                  it.ID,
+			BillNo:              it.BillNo,
+			Period:              it.Period,
+			TotalAmount:         it.TotalAmount,
+			RefundAmount:        it.RefundAmount,
+			Status:              it.Status,
+			SourceType:          it.SourceType,
+			SourceNo:            it.SourceNo,
+			BillType:            it.BillType,
+			ConsumeAmount:       it.ConsumeAmount,
+			RenewalAmount:       it.RenewalAmount,
+			ChannelRefundAmount: it.ChannelRefundAmount,
+			RefundFeeAmount:     it.RefundFeeAmount,
+			RechargeAmount:      it.RechargeAmount,
+			PaidAmount:          it.PaidAmount,
+			PaidMethod:          it.PaidMethod,
+			PaidAt:              it.PaidAt,
+			InvoiceStatus:       it.InvoiceStatus,
+			InvoiceNo:           it.InvoiceNo,
+			InvoicedAt:          it.InvoicedAt,
+			CreatedAt:           it.CreatedAt,
+		})
+	}
+	return &customerBillList{Items: items, Meta: in.Meta}
 }

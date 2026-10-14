@@ -214,7 +214,7 @@ func (h *FinanceHandler) Bills(c *gin.Context) {
 		response.Error(c, h.mapErr(err))
 		return
 	}
-	response.Success(c, resp)
+	response.Success(c, customerBillListFrom(resp))
 }
 
 // ApplyInvoice 申请开票（doc36 §3.3）。

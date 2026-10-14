@@ -7,6 +7,7 @@ import (
 
 	accountdto "hostsent/backend/internal/modules/admin/finance/account/dto"
 	rechdto "hostsent/backend/internal/modules/admin/finance/account/recharge/dto"
+	billdto "hostsent/backend/internal/modules/admin/finance/bill/dto"
 	transdto "hostsent/backend/internal/modules/admin/finance/transaction/dto"
 )
 
@@ -130,6 +131,49 @@ func TestCustomerWalletDropsInternalFields(t *testing.T) {
 	for _, keep := range []string{"balance", "frozen", "total_income", "total_expense"} {
 		if !strings.Contains(body, `"`+keep+`"`) {
 			t.Errorf("我的钱包缺少必需字段 %q，实际: %s", keep, body)
+		}
+	}
+}
+
+// TestCustomerBillDropsInternalFields 我的账单不下发票据主键与内部收入口径：
+// paid_channel_id 是渠道实例主键，net_amount 是扣点后的平台收入口径。
+func TestCustomerBillDropsInternalFields(t *testing.T) {
+	in := &billdto.BillListResponse{
+		Items: []billdto.BillInfo{{
+			ID:             112,
+			BillNo:         "BILLR71773768",
+			UserID:         2,
+			Period:         "202610",
+			TotalAmount:    30,
+			Status:         "paid",
+			SourceType:     "recharge",
+			SourceNo:       "RC2026091212071773768",
+			BillType:       "recharge",
+			RechargeAmount: 30,
+			NetAmount:      30,
+			PaidAmount:     30,
+			PaidMethod:     "manual",
+			PaidChannelID:  3,
+			PaidAt:         "2026-10-10T11:59:22Z",
+			InvoiceStatus:  "none",
+			CreatedAt:      "2026-10-10T11:59:22Z",
+			UpdatedAt:      "2026-10-10T11:59:22Z",
+		}},
+		Meta: billdto.ListMeta{Page: 1, PageSize: 20, Total: 1},
+	}
+	raw, err := json.Marshal(customerBillListFrom(in))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	body := string(raw)
+	for _, field := range []string{"user_id", "paid_channel_id", "net_amount", "updated_at"} {
+		if strings.Contains(body, `"`+field+`"`) {
+			t.Errorf("我的账单不应包含内部字段 %q，实际: %s", field, body)
+		}
+	}
+	for _, keep := range []string{"bill_no", "period", "total_amount", "status", "source_no", "recharge_amount", "paid_amount", "paid_method", "invoice_status"} {
+		if !strings.Contains(body, `"`+keep+`"`) {
+			t.Errorf("我的账单缺少必需字段 %q，实际: %s", keep, body)
 		}
 	}
 }
