@@ -169,13 +169,18 @@ func joinRoutePath(prefix, path string) string {
 }
 
 // parseNavMenuPaths 从 permission.ts 的 navMenu 数组中取出全部 path 字面量。
+//
+// 声明处用正则而不是精确字符串：给 navMenu 加类型标注（`export const navMenu: NavMenuEntry[] = [`）
+// 是完全合法的 TypeScript，精确匹配会把这个无害改动误判成"找不到定义"（门禁假失败）。
+var navMenuDeclRe = regexp.MustCompile(`export const navMenu\s*(?::[^=]+)?=\s*\[`)
+
 func parseNavMenuPaths(t *testing.T, src string) []string {
 	t.Helper()
-	start := strings.Index(src, "export const navMenu = [")
-	if start < 0 {
+	loc := navMenuDeclRe.FindStringIndex(src)
+	if loc == nil {
 		t.Fatal("permission.ts 中找不到 navMenu 定义")
 	}
-	rest := src[start:]
+	rest := src[loc[0]:]
 	end := strings.Index(rest, "\n]\n")
 	if end < 0 {
 		t.Fatal("permission.ts 中 navMenu 数组未正常闭合")
@@ -509,10 +514,21 @@ func TestMenuAlign_RouterPermsDeclared(t *testing.T) {
 	root := repoRoot(t)
 	// 路由注册自批次四 4a 起按端拆分到 routes_*.go（newRouter 只留引擎骨架），
 	// 权限码扫描需覆盖全部路由文件，避免拆分后出现扫描盲区。
-	src := readFile(t, filepath.Join(root, "backend", "internal", "server", "routes_admin.go")) +
-		readFile(t, filepath.Join(root, "backend", "internal", "server", "routes_uc.go")) +
-		readFile(t, filepath.Join(root, "backend", "internal", "server", "routes_site.go")) +
-		readFile(t, filepath.Join(root, "backend", "internal", "server", "routes_open.go"))
+	// 批次五继续按域拆分（routes_admin_order.go 等 7 个文件），这里改为直接遍历
+	// server 目录下全部 routes_*.go —— 逐个文件的硬编码清单已经漏过一轮
+	// （routes_admin_order.go 的 28 处 app.perm 长期不在扫描范围内）。
+	routeFiles, err := filepath.Glob(filepath.Join(root, "backend", "internal", "server", "routes_*.go"))
+	if err != nil {
+		t.Fatalf("扫描路由文件失败: %v", err)
+	}
+	if len(routeFiles) == 0 {
+		t.Fatal("未找到任何 routes_*.go，扫描范围失效")
+	}
+	var sb strings.Builder
+	for _, f := range routeFiles {
+		sb.WriteString(readFile(t, f))
+	}
+	src := sb.String()
 
 	declared := map[string]bool{}
 	for _, code := range db.SeedPermissionCodes() {
