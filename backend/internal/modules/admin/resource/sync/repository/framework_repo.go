@@ -38,6 +38,8 @@ type FrameworkRepository interface {
 	// ---- sync_cursors ----
 	GetCursor(ctx context.Context, providerID uint64, scope string) (*model.SyncCursor, error)
 	UpsertCursor(ctx context.Context, item *model.SyncCursor) error
+	// DeleteCursorsByProvider 渠道删除时清掉其增量游标（无外键级联，必须显式清）。
+	DeleteCursorsByProvider(ctx context.Context, providerID uint64) error
 
 	// ---- price_change_events ----
 	CreatePriceChange(ctx context.Context, item *model.PriceChangeEvent) error
@@ -206,6 +208,10 @@ func (r *frameworkRepository) UpsertCursor(ctx context.Context, item *model.Sync
 			"last_seen_count":     item.LastSeenCount,
 			"updated_at":          time.Now(),
 		}).FirstOrCreate(item).Error
+}
+
+func (r *frameworkRepository) DeleteCursorsByProvider(ctx context.Context, providerID uint64) error {
+	return r.db.WithContext(ctx).Where("provider_id = ?", providerID).Delete(&model.SyncCursor{}).Error
 }
 
 // ---------------------------------------------------------------- price changes

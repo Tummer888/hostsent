@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"hostsent/backend/internal/modules/admin/resource/provider/dto"
@@ -67,6 +68,8 @@ type ProviderService interface {
 	DeleteWithCascade(ctx context.Context, id uint64) (*dto.ProviderCascadeResult, error)
 	// DeletePool 删除资源池（区域/宿主机/存储）。
 	DeletePool(ctx context.Context, id uint64) error
+	// SetSyncArtifactCleaner 注入同步产物清理能力（装配期调用，见其实现注释）。
+	SetSyncArtifactCleaner(cleaner SyncArtifactCleaner, logger *zap.Logger)
 }
 
 type providerService struct {
@@ -75,11 +78,24 @@ type providerService struct {
 	typeRepo      repository.ProviderTypeRepository
 	upmgr         *upstream.ProviderManager
 	encryptSecret string // 用于 API 密钥静态加密的密钥
+	// syncCleaner 渠道删除后清理其同步调度/游标（延迟注入，见 SetSyncArtifactCleaner）。
+	// 可为 nil：单测直接构造本结构体时不注入，此时跳过清理。
+	syncCleaner SyncArtifactCleaner
+	logger      *zap.Logger
 }
 
 // NewProviderService 创建上游提供商业务服务
 func NewProviderService(repo repository.ProviderRepository, pool repository.PoolRepository, typeRepo repository.ProviderTypeRepository, upmgr *upstream.ProviderManager, encryptSecret string) ProviderService {
 	return &providerService{repo: repo, pool: pool, typeRepo: typeRepo, upmgr: upmgr, encryptSecret: encryptSecret}
+}
+
+// SetSyncArtifactCleaner 注入同步产物清理能力。
+//
+// 延迟注入而不是进构造函数：装配顺序上 provider 服务先于 sync 仓储就绪，
+// 且清理只是删除后的辅助动作，缺失时不应阻塞服务构建。
+func (s *providerService) SetSyncArtifactCleaner(cleaner SyncArtifactCleaner, logger *zap.Logger) {
+	s.syncCleaner = cleaner
+	s.logger = logger
 }
 
 func (s *providerService) List(ctx context.Context, query dto.ProviderListQuery) (*dto.ProviderListResponse, error) {
@@ -241,7 +257,36 @@ func (s *providerService) Delete(ctx context.Context, id uint64) error {
 	if products > 0 || pools > 0 {
 		return fmt.Errorf("提供商存在 %d 个关联商品、%d 个资源池，请先删除关联数据", products, pools)
 	}
-	return s.repo.Delete(ctx, id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+	return s.purgeSyncArtifacts(ctx, id)
+}
+
+// purgeSyncArtifacts 清理渠道删除后遗留的同步调度行与增量游标。
+//
+// 为什么必须做：sync_schedules / sync_cursors 是独立表，没有外键级联，
+// 而渠道删除是软删除——不清理的话调度配置页会一直挂着「渠道 #1」这种无主条目
+// （用户反馈过这个矛盾现象），且调度器每轮扫描都会为它做一次无效的适配器构建。
+//
+// 失败只记日志不返回错误：渠道本身已删除成功，调度行残留属于脏数据，
+// 由启动期的 purgeOrphanSyncSchedules 兜底收敛；这里回滚删除反而更糟。
+func (s *providerService) purgeSyncArtifacts(ctx context.Context, id uint64) error {
+	if s.syncCleaner == nil {
+		return nil
+	}
+	logWarn := func(msg string, err error) {
+		if s.logger != nil {
+			s.logger.Warn(msg, zap.Uint64("provider_id", id), zap.Error(err))
+		}
+	}
+	if err := s.syncCleaner.DeleteSchedulesByProvider(ctx, id); err != nil {
+		logWarn("cleanup sync schedules after provider delete failed", err)
+	}
+	if err := s.syncCleaner.DeleteCursorsByProvider(ctx, id); err != nil {
+		logWarn("cleanup sync cursors after provider delete failed", err)
+	}
+	return nil
 }
 
 // DeletePool 删除资源池（区域/宿主机/存储）。
@@ -320,7 +365,20 @@ func (s *providerService) DeleteWithCascade(ctx context.Context, id uint64) (*dt
 	if err != nil {
 		return nil, err
 	}
+	// 调度行/游标同样要清：否则连带删除后仍会在调度配置里留下无主条目。
+	if err := s.purgeSyncArtifacts(ctx, id); err != nil {
+		return nil, err
+	}
 	return &dto.ProviderCascadeResult{DeletedProducts: delProducts, DeletedPools: delPools}, nil
+}
+
+// SyncArtifactCleaner 渠道删除后清理其同步调度与游标。
+//
+// 定义在消费侧（本包）而不是让 sync 包反向依赖 provider：接口只声明用到的方法，
+// 装配层注入 sync 仓储即可，两边不产生包依赖。
+type SyncArtifactCleaner interface {
+	DeleteSchedulesByProvider(ctx context.Context, providerID uint64) error
+	DeleteCursorsByProvider(ctx context.Context, providerID uint64) error
 }
 
 // providerTypeNames 仅作注册表缺失时的兜底显示名；权威来源是 provider_types 表（T2.2，地雷 L9）。

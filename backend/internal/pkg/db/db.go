@@ -206,6 +206,9 @@ func AutoMigrate(db *gorm.DB) error {
 		&ordermodel.Order{},
 		&ordermodel.OrderItem{},
 		&ordermodel.OrderRefund{},
+		// 退款策略与审核凭据（迁移 106）
+		&ordermodel.RefundPolicy{},
+		&ordermodel.RefundAttachment{},
 		// 开通履约任务（T5.1）：DB 任务表 + 进程内工作池，异步执行上游开通
 		&ordermodel.ProvisionTask{},
 		// 工单支持（doc50）
@@ -336,6 +339,47 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 
+	// 已删渠道遗留的同步调度/游标清理，等价 migrations/106。
+	// 放在 AutoMigrate 之后：软删除的渠道不会因为 AutoMigrate 消失，其调度行也不会。
+	if err := purgeOrphanSyncSchedules(db); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// purgeOrphanSyncSchedules 清理已删渠道（软删除）遗留的同步调度行与增量游标，等价 migrations/106。
+//
+// 背景（用户反馈）：调度配置页里出现了渠道名对不上号的条目——渠道已被删除，
+// 但它的 sync_schedules 行还在，页面上显示成「渠道 #1」这种裸 ID，看着像配置坏了。
+//
+// 为什么调度行会留下：渠道删除走的是 GORM 软删除（resource_providers.deleted_at），
+// 而 sync_schedules 是独立表、没有外键级联，删除渠道时不会连带清理。
+// 新版删除路径已补上连带清理（providerService.DeleteWithCascade），本函数负责存量。
+//
+// 判定：provider_id 在 resource_providers 里查不到，或查到的行已软删除。
+// 幂等：只匹配已删渠道的行，重跑影响 0 行。
+func purgeOrphanSyncSchedules(db *gorm.DB) error {
+	if !db.Migrator().HasTable("sync_schedules") {
+		return nil
+	}
+	// 用 NOT EXISTS 而不是 NOT IN：resource_providers 有软删除，语义上是
+	// 「不存在一个未删除的同 id 渠道」，NOT EXISTS 直接表达这层含义且不会因 NULL 出错。
+	const orphanCond = `NOT EXISTS (
+		SELECT 1 FROM resource_providers p
+		WHERE p.id = sync_schedules.provider_id AND p.deleted_at IS NULL
+	)`
+	if err := db.Exec(`DELETE FROM sync_schedules WHERE ` + orphanCond).Error; err != nil {
+		return err
+	}
+	if db.Migrator().HasTable("sync_cursors") {
+		if err := db.Exec(`DELETE FROM sync_cursors WHERE NOT EXISTS (
+			SELECT 1 FROM resource_providers p
+			WHERE p.id = sync_cursors.provider_id AND p.deleted_at IS NULL
+		)`).Error; err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -1233,6 +1277,7 @@ func seedSystemConfigs(tx *gorm.DB) error {
 		{ConfigKey: "enable_user_register", ConfigValue: "true", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupFeature, Description: "是否开放用户注册", SortOrder: 1, Status: systemmodel.StatusActive},
 		{ConfigKey: "enable_mfa_required", ConfigValue: "false", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupSecurity, Description: "是否强制管理员开启MFA", SortOrder: 1, Status: systemmodel.StatusActive},
 		{ConfigKey: "order_expire_minutes", ConfigValue: "1440", ValueType: systemmodel.ValueTypeInt, Group: systemmodel.ConfigGroupOrder, Description: "待支付订单有效期（分钟；到期关单并删除待开通实例，默认 1440=1 天）", SortOrder: 1, Status: systemmodel.StatusActive},
+		{ConfigKey: "order_verify_required", ConfigValue: "false", ValueType: systemmodel.ValueTypeBool, Group: systemmodel.ConfigGroupOrder, Description: "订单人工核验开关（开启后开通成功的订单在后台标记「待核验」，需运营核对后点核验）", SortOrder: 2, Status: systemmodel.StatusActive},
 		// 财务参数（财务配置页 /finance/config 维护，均由财经子域运行时读取）：
 		// 历史遗留的 5 个 finance_* 键（billing_cycle/tax_rate/recon_threshold/balance_warning/
 		// manual_adjust_enabled）整仓零引用、改了不生效，已由迁移 073 清除，不再种回。
@@ -1399,8 +1444,14 @@ var seedPermissionDefaults = []seedPermission{
 	{ParentCode: "order:list", Name: "订单备注", Code: "order:remark", Type: "button", SortOrder: 2, Status: "active"},
 	{ParentCode: "order:list", Name: "发起退款", Code: "order:refund", Type: "button", SortOrder: 3, Status: "active"},
 	{ParentCode: "order:list", Name: "重新开通", Code: "order:activate", Type: "button", SortOrder: 4, Status: "active"},
+	// 核验订单 = 运营人工核对开通结果（仅标记不流转状态）；删除订单 = 软删除已取消/已关闭单。
+	// 删除属高风险动作：码在此声明，但 rolePermissionCodes 只授予超管，ops/finance 不默认下发。
+	{ParentCode: "order:list", Name: "核验订单", Code: "order:verify", Type: "button", SortOrder: 5, Status: "active"},
+	{ParentCode: "order:list", Name: "删除订单", Code: "order:delete", Type: "button", SortOrder: 6, Status: "active"},
 	{ParentCode: "order", Name: "退款管理", Code: "order:refunds", Type: "menu", SortOrder: 2, Status: "active"},
 	{ParentCode: "order:refunds", Name: "审核退款", Code: "order:refund:audit", Type: "button", SortOrder: 1, Status: "active"},
+	// 退款策略（可退时限/免审开关，按商品来源+分类配置）
+	{ParentCode: "order", Name: "退款策略", Code: "order:refund:policy", Type: "menu", SortOrder: 4, Status: "active"},
 	{ParentCode: "order", Name: "订单统计", Code: "order:stats", Type: "menu", SortOrder: 3, Status: "active"},
 	{Name: "财务管理", Code: "finance", Type: "catalog", SortOrder: 7, Status: "active"},
 	// 财务参数页（/finance/config）独立权限码：财务角色可调自己的参数，
@@ -1706,6 +1757,9 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"order:remark",
 			"order:refund",
 			"order:activate",
+			"order:verify",
+			"order:delete",
+			"order:refund:policy",
 			"order:refunds",
 			"order:refund:audit",
 			"order:stats",
@@ -1853,6 +1907,7 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"order:cancel",
 			"order:remark",
 			"order:activate",
+			"order:verify",
 			"order:stats",
 			"security:login-log:list",
 			"security:audit:list",
@@ -1889,6 +1944,7 @@ func seedRolePermissions(tx *gorm.DB) error {
 			"order",
 			"order:list",
 			"order:refund",
+			"order:refund:policy",
 			"order:refunds",
 			"order:refund:audit",
 			"order:stats",
@@ -2137,6 +2193,7 @@ var seedMenuDefaults = []SeedMenu{
 	{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "订单列表", Type: menumodel.TypeMenu, Path: "/orders/list", Component: "order/index", Icon: "order", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "退款管理", Type: menumodel.TypeMenu, Path: "/orders/refunds", Component: "order/refunds/index", Icon: "money", SortOrder: 2, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "订单统计", Type: menumodel.TypeMenu, Path: "/orders/stats", Component: "order/stats/index", Icon: "chart-bar", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/orders", Platform: menumodel.PlatformAdmin, Name: "退款策略", Type: menumodel.TypeMenu, Path: "/orders/refund-policy", Component: "order/refund-policy/index", Icon: "setting", SortOrder: 4, Status: menumodel.StatusActive},
 	// —— 财务管理（doc32，分组树：叶子 + 二级目录）
 	//
 	// 本轮整理（迁移 084）：充值管理改挂「资金管理」、提现管理改挂「推广返现」，

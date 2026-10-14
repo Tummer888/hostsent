@@ -34,6 +34,9 @@ func (a *asm) buildResource() {
 	a.syncRepo = syncrepo.NewSyncRepository(a.database)
 	a.syncFwRepo = syncrepo.NewFrameworkRepository(a.database)
 	a.providerService = providerservice.NewProviderService(a.providerRepo, a.poolRepo, a.providerTypeRepo, a.upstreamMgr, a.cfg.App.EncryptKey)
+	// 渠道删除后清理其同步调度/游标：这两张表没有外键级联，不显式清就会在
+	// 调度配置页留下「渠道 #id」这类无主条目（用户反馈过的矛盾现象）。
+	a.providerService.SetSyncArtifactCleaner(a.syncFwRepo, a.logger)
 	// 渠道类型注册表（T2.2）：把已注册适配器的能力描述符回写 provider_types，
 	// 使后台类型列表/动态表单以数据库为权威来源（地雷 L9 从硬编码 map 改为查表）。
 	if err := a.providerService.SyncTypeRegistry(context.Background()); err != nil {
