@@ -891,13 +891,19 @@ func TestLiveAssignRolesEmptyGuard(t *testing.T) {
 		t.Errorf("空请求改动了角色关联：请求前 %v，请求后 %v", before, after)
 	}
 
-	// 非空仍应放行
+	// 非空仍应放行。角色 ID 不能硬编码：历史库与全新引导库的 roles.id 布局
+	// 不同（seed 顺序差异），按 code 动态取「客户域」角色。
+	var userRoleID uint64
+	h.db.Raw("SELECT id FROM roles WHERE scope = 'user' ORDER BY id LIMIT 1").Scan(&userRoleID)
+	if userRoleID == 0 {
+		t.Fatal("缺少客户域角色（roles.scope='user'），无法验证合法分配")
+	}
 	status, body = h.do(http.MethodPost, fmt.Sprintf("/api/v1/admin/users/%d/roles", id), admin,
-		map[string]any{"role_ids": []uint64{7}})
+		map[string]any{"role_ids": []uint64{userRoleID}})
 	if status != http.StatusOK || digNumber(body, "code") != 0 {
 		t.Fatalf("合法角色分配被拒: HTTP %d %v", status, body)
 	}
-	if after = liveUserRoleIDs(t, h, id); !reflect.DeepEqual(after, []uint64{7}) {
+	if after = liveUserRoleIDs(t, h, id); !reflect.DeepEqual(after, []uint64{userRoleID}) {
 		t.Errorf("角色未落库或未收敛: %v", after)
 	}
 }

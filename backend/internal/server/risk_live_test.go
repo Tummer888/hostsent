@@ -65,6 +65,20 @@ func (h *liveHarness) riskEventStatus(eventID uint64) string {
 	return status
 }
 
+// closeAdminOpenEvents 把 admin 账号的既有 open 风控事件置为已处置。
+//
+// admin 是共享账号，且 FindOpenEvent 的聚合是跨 IP 的（按账号+规则匹配）：
+// 窗口内只要存在 open 事件，新的命中就会被吸进去聚合，按测试专用 IP 统计恒为 0。
+// 因此风险用例开头统一收口，隔离聚合竞争。
+func (h *liveHarness) closeAdminOpenEvents() {
+	h.t.Helper()
+	if h.db == nil {
+		return
+	}
+	h.db.Exec(`UPDATE risk_events SET status = 'ignored', handle_note = 'live 测试隔离聚合竞争（自动处置）'
+		WHERE subject_type = 'admin' AND username = 'admin' AND status = 'pending'`)
+}
+
 // riskEventByKeyword 取列表接口中第一条匹配关键词的事件，返回其 id 与响应体。
 func (h *liveHarness) riskEventRow(token, keyword string, query string) (uint64, map[string]any) {
 	h.t.Helper()

@@ -89,6 +89,18 @@ handler      → 永不直接使用 repository / gorm
 - 构建 tag：文件头 `//go:build live`，命名 `*_live_test.go`
 - 总开关：`LIVE_<域>=1`（如 `LIVE_ZJMF=1`、`LIVE_ALIPAY=1`），未设置时 `t.Skip`
 - 凭证**只走环境变量**（如 `ZJMF_USER`/`ZJMF_PASS`），禁止硬编码任何账号/密钥
+- 数据库走 `LIVE_DB_DSN`（libpq 格式，默认本机 `hostsent` 库）；应用装配与其
+  同源——不设置时 `liveApp` 强制改写配置指向 127.0.0.1，避免容器环境串库
+- 全新库引导：`LIVE_BOOTSTRAP=1 go test -tags live ./internal/server/ -run TestLiveBootstrapSchema`
+  按**生产同款路径**（AutoMigrate + Seed，不跑历史 SQL 迁移）把空库建到可用。
+  模型变更（新表/新列/新索引）必须在全新库上过一遍这套引导——老库上测不出的
+  「缺表缺列缺索引」问题全部由它兜住（CI 已内置，见 §10）
+- 同表多模型的 AutoMigrate 注册顺序：**后注册者覆盖先注册者**（gorm
+  ReorderModels 按表名去重），字段超集模型必须排在最后，否则列与索引在
+  全新库上静默丢失
+- 历史迁移重放（`TestLivePhaseMigrations`）只按序演进过的开发库能跑，需
+  `LIVE_MIGRATION_REPLAY=1` 显式开启；全新库上它必然失败（中间态列已被后续
+  迁移替代），CI 不带此开关
 
 ## 8. 日志与配置
 
@@ -126,6 +138,11 @@ CI 额外执行（见 `.github/workflows/ci.yml`）：
   revive 显式关闭了四类存量风格规则（exported / package-comments /
   unused-parameter / unexported-return），新代码不要依赖新的豁免
 - **`-race` 抽样**：finance / instance / order 核心包
+- **live 测试（全新库）**：postgres service 空库上先 `LIVE_BOOTSTRAP=1` 引导
+  （生产同款 AutoMigrate + Seed 路径），再跑 `go test -tags live`
+  `./internal/server/...` 与 `./internal/pkg/db/...`（批次四 D2）。
+  `TestLivePhaseMigrations` 因缺中间态列在全新库自动跳过（需
+  `LIVE_MIGRATION_REPLAY=1` 且库按迁移顺序演进过才会执行）
 - **结构检查**：`scripts/check_structure.sh`——目录层级、uc 形态、依赖方向、
   响应统一、错误链；存量违例在脚本豁免清单中登记（棘轮模式），新增违例直接 fail。
   CI 先跑 `--selfcheck` fixture 自测再跑正式检查

@@ -40,6 +40,7 @@ import (
 	contentmodel "hostsent/backend/internal/modules/admin/system/content/model"
 	notifymodel "hostsent/backend/internal/modules/admin/system/notification/model"
 	paymentmodel "hostsent/backend/internal/modules/admin/system/payment/model"
+	salesmodel "hostsent/backend/internal/modules/admin/system/sales/model"
 	ticketmodel "hostsent/backend/internal/modules/admin/ticket/model"
 	levelmodel "hostsent/backend/internal/modules/admin/user/account/level/model"
 	usermodel "hostsent/backend/internal/modules/admin/user/account/model"
@@ -80,8 +81,13 @@ type SeedMenu struct {
 
 func AutoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(
+		// users 表由两个模型共享：gorm 的 ReorderModels 按表名去重，同一表名
+		// 后注册的模型会静默覆盖先注册的（列集、索引一并丢失，批次四 D2 实测）。
+		// usermodel.User 是 uc 模型的严格超集（已含 avatar/tier），必须排在最后，
+		// 否则 region/balance/oauth_* 等列与 uk_users_username_active /
+		// uk_users_email_active 两条部分唯一索引在全新库上永远建不出来。
+		&usercentermodel.User{},
 		&usermodel.User{},
-		&usercentermodel.User{}, // 用户中心模型，与 usermodel.User 共用 users 表，补齐 avatar/tier 列
 		&usermodel.UserGroup{},
 		// 代理等级与折扣矩阵（doc108）：折扣的唯一来源，用户组已不再参与算价。
 		&agentlevelmodel.AgentLevel{},
@@ -106,6 +112,11 @@ func AutoMigrate(db *gorm.DB) error {
 		&securitymodel.Session{},
 		&usermodel.Role{},
 		&usermodel.Permission{},
+		// role_permissions / user_roles 是 RBAC 关联表。此前它们只在历史迁移
+		// 001 里建表，模型从未进过 AutoMigrate 清单 —— 全新库（不跑历史 SQL
+		// 迁移、只走 Go 引导）会在 Seed 阶段因表缺失失败（批次四 D2 实测）。
+		&usermodel.RolePermission{},
+		&usermodel.UserRole{},
 		// 冗余聚合表 user_instances/user_bills/user_transactions 已于 Phase 2
 		// 将读路径收敛到实例/账务权威表并退役（见 migrations 013/014）；
 		// user_orders/user_tickets 同批退役（见 migrations 049）：
@@ -133,6 +144,13 @@ func AutoMigrate(db *gorm.DB) error {
 		&adminmodel.AdminAuditLog{},
 		// 组织部门（S1 员工体系，doc86 §1）
 		&adminmodel.Department{},
+		// 销售体系五表（doc86 S4–S6）：历史迁移 040 建过，模型此前未登记，
+		// 全新库（Go 引导建表）会缺表，注销保留/提成链路直接 42P01（批次四 D2 实测）。
+		&salesmodel.StaffSalesRelation{},
+		&salesmodel.CommissionAccount{},
+		&salesmodel.CommissionTransaction{},
+		&salesmodel.SalesWithdrawal{},
+		&salesmodel.SalesTarget{},
 		// 资源管理模块核心表（第一阶段）
 		&providermodel.ResourceProvider{},
 		&providermodel.ResourcePool{},
@@ -271,6 +289,15 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 
+	// users 表被 admin/uc-auth/uc-member 三份模型共享。GORM 对「同表多模型」
+	// 只认同一批里最后一个处理该表的模型列集，后处理的 uc 模型会把 admin
+	// 模型的 region/balance 等列漏掉（批次四 D2 全新库实测：region/balance/
+	// sales_admin_id/agent_level_id/oauth_* 全部缺失，Seed 直接失败）。
+	// 主库没事是因为历史 SQL 迁移建过这些列；全新库只靠 Go 引导必须显式补齐。
+	if err := ensureSharedUserColumns(db); err != nil {
+		return err
+	}
+
 	// 旧 user_tickets 数据一次性迁移至新 tickets 表（doc50 §6.6）
 	if err := migrateLegacyTickets(db); err != nil {
 		return err
@@ -309,6 +336,40 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 
+	return nil
+}
+
+// ensureSharedUserColumns 兜底补齐 users 表上被「同表多模型」遗漏的列。
+//
+// AutoMigrate 的注册顺序已经改为 uc 模型在前、admin 模型（严格超集）在后，
+// 全新库不会再丢列（批次四 D2 实测）。保留本函数作防御：注册顺序今后若再被
+// 改错，这里仍能把列补齐并显式报出，而不是让 Seed 阶段用一条莫名其妙的
+// SQLSTATE 42703 失败。
+//
+// 注意：AddColumn 的第二参是 Go 字段名（不是列名），类型取自 admin 模型的
+// gorm tag；SalesAdminID 上的 idx_users_sales_admin 索引 tag 不会随补列生效，
+// 需单独创建。
+func ensureSharedUserColumns(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&usermodel.User{}) {
+		return nil
+	}
+	// admin 模型独有、uc 模型缺失的持久化字段（与两模型字段集比对得出）。
+	for _, field := range []string{
+		"Region", "Balance", "OAuthProvider", "OAuthOpenID",
+		"SalesAdminID", "AgentLevelID",
+	} {
+		if db.Migrator().HasColumn(&usermodel.User{}, field) {
+			continue
+		}
+		if err := db.Migrator().AddColumn(&usermodel.User{}, field); err != nil {
+			return fmt.Errorf("补 users 列（%s）失败: %w", field, err)
+		}
+	}
+	// 补列不建索引：销售归属查询按 idx_users_sales_admin 走，漏建会让
+	// 「我的客户」列表在万级数据上全表扫。
+	if err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_users_sales_admin ON users (sales_admin_id)`).Error; err != nil {
+		return fmt.Errorf("补 users.sales_admin_id 索引失败: %w", err)
+	}
 	return nil
 }
 
@@ -838,6 +899,11 @@ func seedUpstreamData(tx *gorm.DB) error {
 
 	var providerIDs []uint64
 	for i := range providers {
+		// credentials 是 jsonb 列：空串非法（全新库引导时 seed 会因空串失败），
+		// 种子渠道没有加密凭证可落，显式落空对象。
+		if strings.TrimSpace(providers[i].Credentials) == "" {
+			providers[i].Credentials = "{}"
+		}
 		if err := tx.Create(&providers[i]).Error; err != nil {
 			return err
 		}
@@ -987,6 +1053,14 @@ func seedDemoOrders(tx *gorm.DB) error {
 	}
 
 	for i := range orders {
+		// config_options / price_snapshot 是 jsonb 列，空串非法；种子订单没有
+		// 选配与算价快照，显式落空对象/空数组（全新库引导会因空串失败）。
+		if strings.TrimSpace(orders[i].ConfigOptions) == "" {
+			orders[i].ConfigOptions = "{}"
+		}
+		if strings.TrimSpace(orders[i].PriceSnapshot) == "" {
+			orders[i].PriceSnapshot = "[]"
+		}
 		if err := tx.Create(&orders[i]).Error; err != nil {
 			return err
 		}
@@ -994,6 +1068,7 @@ func seedDemoOrders(tx *gorm.DB) error {
 			OrderID: orders[i].ID, ProductID: orders[i].ProductID, ProductName: orders[i].ProductName,
 			SpecCode: fmt.Sprintf("SPEC-%d", orders[i].ProductID), Specs: orders[i].Specs,
 			Price: orders[i].TotalAmount, Quantity: orders[i].Quantity, Amount: orders[i].TotalAmount,
+			ConfigOptions: "{}",
 		}
 		if err := tx.Create(&item).Error; err != nil {
 			return err
@@ -2996,6 +3071,8 @@ func seedSmsTemplateVars(tx *gorm.DB) error {
 		item := notifymodel.SmsTemplateVar{
 			VarKey: s.key, Label: s.label, Category: s.category,
 			ValueType: s.valueType, Sample: s.sample,
+			// scenes 是 jsonb 列，空串非法（全新库引导会因空串失败）。
+			Scenes:    "[]",
 			SortOrder: i + 1, Status: notifymodel.TemplateVarStatusActive,
 		}
 		if err := tx.Create(&item).Error; err != nil {

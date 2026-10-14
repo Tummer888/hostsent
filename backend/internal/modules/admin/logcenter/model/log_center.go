@@ -11,8 +11,10 @@ const (
 
 // LogRetentionPolicy 逐源保留策略（doc92 §2.3）。
 type LogRetentionPolicy struct {
-	ID            uint64     `gorm:"primaryKey;autoIncrement"`
-	SourceKey     string     `gorm:"column:source_key;size:64;not null"`
+	ID uint64 `gorm:"primaryKey;autoIncrement"`
+	// 唯一索引写在 gorm tag 上：历史迁移 043 建过 uk_log_retention_policies_source，
+	// 模型 tag 缺失导致全新库（Go 引导建表）没有该约束，seed 的 ON CONFLICT 直接报错。
+	SourceKey     string     `gorm:"column:source_key;size:64;not null;uniqueIndex:uk_log_retention_policies_source"`
 	DisplayName   string     `gorm:"column:display_name;size:100;not null"`
 	Action        string     `gorm:"size:20;not null;default:clean"`
 	RetentionDays int        `gorm:"column:retention_days;not null;default:180"`

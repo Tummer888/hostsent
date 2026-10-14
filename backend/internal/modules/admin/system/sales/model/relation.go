@@ -17,9 +17,11 @@ const (
 // StaffSalesRelation 员工-客户归属关系。同一客户同一时刻只允许一条 active 记录
 // （部分唯一索引 uk_ssr_user_active 兜底）。
 type StaffSalesRelation struct {
-	ID       uint64 `gorm:"primaryKey;autoIncrement"`
-	AdminID  uint64 `gorm:"column:admin_id;not null;index:idx_ssr_admin"`
-	UserID   uint64 `gorm:"column:user_id;not null;index:idx_ssr_user"`
+	ID      uint64 `gorm:"primaryKey;autoIncrement"`
+	AdminID uint64 `gorm:"column:admin_id;not null;index:idx_ssr_admin"`
+	// 部分唯一索引（WHERE status='active'）历史上只在迁移 040 建过，模型未声明，
+	// 全新库（Go 引导建表）缺该约束，改派 upsert 的 ON CONFLICT 直接报错（批次四 D2 实测）。
+	UserID   uint64 `gorm:"column:user_id;not null;index:idx_ssr_user;uniqueIndex:uk_ssr_user_active,where:status = 'active'"`
 	Status   string `gorm:"size:20;not null;default:active"`
 	Reason   string `gorm:"size:255;not null;default:''"`
 	Operator uint64 `gorm:"column:operator_id;not null;default:0"` // 操作人（admins.id，0=系统）

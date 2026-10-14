@@ -1,12 +1,14 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	apperrors "hostsent/backend/internal/pkg/errors"
+	"hostsent/backend/internal/pkg/jobrun"
 	"hostsent/backend/internal/pkg/response"
 
 	"hostsent/backend/internal/modules/admin/user/account/dto"
@@ -185,7 +187,36 @@ func (h *UserDeletionHandler) PurgeUsers(c *gin.Context) {
 		respondDeletionErr(c, err)
 		return
 	}
-	resp, err := h.deletionService.Purge(c.Request.Context(), req.DryRun, req.Limit)
+	// 手动清理与调度清理共用 job_run_logs 留痕（doc92 §7.1）：留存期硬删除不可逆，
+	// 无论由谁触发都必须可追溯。dry_run 不落痕 —— 它只读库，不是一次「运行」。
+	var (
+		resp *dto.UserPurgeResponse
+		err  error
+	)
+	if req.DryRun {
+		resp, err = h.deletionService.Purge(c.Request.Context(), req.DryRun, req.Limit)
+		if err != nil {
+			respondDeletionErr(c, err)
+			return
+		}
+		response.Success(c, resp)
+		return
+	}
+	jobrun.RunErr(c.Request.Context(), "user_purge", "user", jobrun.TriggerManual,
+		func(ctx context.Context) (int, int, map[string]any, error) {
+			r, perr := h.deletionService.Purge(ctx, req.DryRun, req.Limit)
+			if perr != nil {
+				err = perr
+				return 0, 0, nil, perr
+			}
+			resp = r
+			return len(r.Candidates), r.Purged, map[string]any{
+				"purged":         r.Purged,
+				"skipped":        len(r.Skipped),
+				"has_more":       r.HasMore,
+				"retention_days": r.RetentionDays,
+			}, nil
+		})
 	if err != nil {
 		respondDeletionErr(c, err)
 		return

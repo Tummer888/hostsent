@@ -56,9 +56,12 @@ type Bill struct {
 	RefundAmount float64 `gorm:"column:refund_amount;type:decimal(15,2);not null;default:0"` // 本期退款合计（余额+原路）
 	Status       string  `gorm:"size:20;not null;default:unpaid"`                            // unpaid/paid/closed
 	// 来源（period/recharge）：唯一约束按来源分流，见 SourceType 注释与 055 迁移。
-	SourceType string `gorm:"column:source_type;size:20;not null;default:period"`
+	// uk_bills_source（source_type, source_no WHERE source_no<>''）此前只存在于
+	// 迁移 055，模型未声明导致全新库缺约束，UpsertRechargeBill 的 ON CONFLICT
+	// 直接报错、人工代充值开不出账单（批次四 D2 实测）。
+	SourceType string `gorm:"column:source_type;size:20;not null;default:period;uniqueIndex:uk_bills_source,priority:1,where:source_no <> ''"`
 	// SourceNo 来源单据号：充值账单记充值单号（recharge_no），按期账单为空。
-	SourceNo string `gorm:"column:source_no;size:64;not null;default:''"`
+	SourceNo string `gorm:"column:source_no;size:64;not null;default:'';uniqueIndex:uk_bills_source,priority:2,where:source_no <> ''"`
 	// 分类与拆分（doc36 §3.4）
 	BillType            string  `gorm:"column:bill_type;size:20;not null;default:consumption"`
 	ConsumeAmount       float64 `gorm:"column:consume_amount;type:decimal(15,2);not null;default:0"`

@@ -27,8 +27,14 @@ import (
 //   - AutoMigrate 的模型列集合与迁移 DDL 一致（否则启动期 AutoMigrate 会报错）；
 //   - 关键字段/唯一索引确实存在。
 //
-// 仅在 -tags live 时运行：go test -tags live ./internal/pkg/db/。
+// 仅在 -tags live 且 LIVE_MIGRATION_REPLAY=1 时运行：go test -tags live ./internal/pkg/db/。
+// 需要显式开关的原因是本用例重放历史迁移的「演进中间态」——061 建的
+// product_group_id 列在 064 已被关联表替代，只有按迁移顺序演进来的开发库
+// 才具备重放前置（全新库由 AutoMigrate 一步到位，重放 061 必然报 42703）。
 func TestLivePhaseMigrations(t *testing.T) {
+	if os.Getenv("LIVE_MIGRATION_REPLAY") != "1" {
+		t.Skip("迁移重放需显式开启（LIVE_MIGRATION_REPLAY=1）：全新库缺 061 的中间态列")
+	}
 	dsn := os.Getenv("LIVE_DB_DSN")
 	if dsn == "" {
 		dsn = "host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable"

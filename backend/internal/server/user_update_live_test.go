@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"testing"
 
+	"golang.org/x/crypto/bcrypt"
+
 	accountdto "hostsent/backend/internal/modules/admin/user/account/dto"
 	accountrepo "hostsent/backend/internal/modules/admin/user/account/repository"
 	securityrepo "hostsent/backend/internal/modules/admin/user/security/repository"
@@ -175,21 +177,37 @@ func TestLiveSecurityOperatorIdentity(t *testing.T) {
 	h := newLiveHarness(t)
 	h.loginAdmin()
 
-	// ops_admin（角色 5）是唯一持有 security:session:manage 的非超管角色。
-	// 临时把它授给 demo_tech_01（id 19），用例结束再摘掉。
-	const operatorAdminID = 19
-	const operatorRoleID = 5
-	var existed int64
-	h.db.Raw("SELECT COUNT(*) FROM admin_roles WHERE admin_id = ? AND role_id = ?", operatorAdminID, operatorRoleID).Scan(&existed)
-	if existed == 0 {
-		mustExec(t, h, "INSERT INTO admin_roles (admin_id, role_id) VALUES (?, ?)", operatorAdminID, operatorRoleID)
-		t.Cleanup(func() {
-			h.db.Exec("DELETE FROM admin_roles WHERE admin_id = ? AND role_id = ?", operatorAdminID, operatorRoleID)
-		})
+	// 造一个临时运维管理员（演示账号 demo_tech_01 只在 900 演示种子里，
+	// 全新引导库没有；按需创建并绑定持有 security:session:manage 的角色）。
+	// ops_admin 是唯一持有该权限的非超管角色，按 code 动态取 ID（不硬编码）。
+	var opsRoleID uint64
+	h.db.Raw("SELECT id FROM roles WHERE code = 'ops_admin' LIMIT 1").Scan(&opsRoleID)
+	if opsRoleID == 0 {
+		t.Fatal("缺少 ops_admin 角色")
 	}
+	opName := fmt.Sprintf("zzlive_op_%d", rand.Intn(1_000_000))
+	hash, err := bcrypt.GenerateFromPassword([]byte("Zzlive@123"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var operatorAdminID uint64
+	if err := h.db.Exec(`INSERT INTO admins (username, email, password_hash, role, status, must_change_password)
+		VALUES (?, ?, ?, 'ops_admin', 'active', false)`,
+		opName, opName+"@example.com", string(hash)).Error; err != nil {
+		t.Fatalf("造运维管理员失败: %v", err)
+	}
+	h.db.Raw("SELECT id FROM admins WHERE username = ?", opName).Scan(&operatorAdminID)
+	if operatorAdminID == 0 {
+		t.Fatal("造运维管理员后读不到 ID")
+	}
+	t.Cleanup(func() {
+		h.db.Exec("DELETE FROM admin_roles WHERE admin_id = ?", operatorAdminID)
+		h.db.Exec("DELETE FROM admins WHERE id = ?", operatorAdminID)
+	})
+	mustExec(t, h, "INSERT INTO admin_roles (admin_id, role_id) VALUES (?, ?)", operatorAdminID, opsRoleID)
 
 	status, body := h.do(http.MethodPost, "/api/v1/admin/auth/login", "", map[string]any{
-		"username": "demo_tech_01", "password": "Demo@123456",
+		"username": opName, "password": "Zzlive@123",
 	})
 	opToken := digString(body, "data", "token")
 	if status != http.StatusOK || opToken == "" {

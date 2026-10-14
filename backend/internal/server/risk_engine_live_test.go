@@ -171,9 +171,15 @@ func TestLiveRiskEngineDeviceChange(t *testing.T) {
 func TestLiveAdminLoginDeviceChange(t *testing.T) {
 	h := newLiveHarness(t)
 	ip := fmt.Sprintf("192.0.2.%d", 30+rand.Intn(60))
-	// 只按 IP 清理：username 是 admin，按账号名清会误删演示环境的管理员事件。
+	// 按 IP 清理本次事件与登录日志。admin 是共享账号，按账号名清会误删演示环境
+	// 的管理员事件，所以这里只动 IP 维度（见 cleanupRiskArtifacts 注释）。
 	h.cleanupRiskArtifacts(nil, []string{ip})
 	t.Cleanup(func() { h.cleanupRiskArtifacts(nil, []string{ip}) })
+
+	// 聚合是跨 IP 的：FindOpenEvent 按 (user_id, username, rule_code, status) 匹配，
+	// 窗口内若有其他 IP 挂的 open 设备变更事件，本用例的命中会被吸走聚合进去，
+	// 按本用例 IP 统计恒为 0。把 admin 的既有 open 事件处置掉，隔离聚合竞争。
+	h.closeAdminOpenEvents()
 
 	adminLogin := func(fp string) {
 		h.t.Helper()

@@ -22,19 +22,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	appauth "hostsent/backend/internal/pkg/auth"
-	"hostsent/backend/internal/pkg/config"
-	oauthpkg "hostsent/backend/internal/pkg/oauth"
 	"io"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	appauth "hostsent/backend/internal/pkg/auth"
+	"hostsent/backend/internal/pkg/config"
+	oauthpkg "hostsent/backend/internal/pkg/oauth"
 
 	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
@@ -50,6 +52,33 @@ func liveDSN() string {
 		return dsn
 	}
 	return "host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable"
+}
+
+// applyLiveDSN 把 libpq key=value 形式的 DSN 解析进 DatabaseConfig（仅解析
+// liveApp 需要的 host/port/user/password/dbname/sslmode 六键）。
+func applyLiveDSN(dst *config.DatabaseConfig, dsn string) {
+	for _, part := range strings.Fields(dsn) {
+		k, v, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		switch k {
+		case "host":
+			dst.Host = v
+		case "port":
+			if p, err := strconv.Atoi(v); err == nil {
+				dst.Port = p
+			}
+		case "user":
+			dst.User = v
+		case "password":
+			dst.Password = v
+		case "dbname":
+			dst.Name = v
+		case "sslmode":
+			dst.SSLMode = v
+		}
+	}
 }
 
 // liveDB 打开一个直连库句柄（仅用于断言与造数据，不参与业务链路）。
@@ -84,12 +113,18 @@ func liveApp(t *testing.T) (*Server, *config.Config) {
 			return
 		}
 		// 强制指向本机联调依赖：配置文件里的 host 可能是容器网段里的服务名。
-		cfg.Database.Host = "127.0.0.1"
-		cfg.Database.Port = 5432
-		cfg.Database.User = "hostsent"
-		cfg.Database.Password = "hostsent"
-		cfg.Database.Name = "hostsent"
-		cfg.Database.SSLMode = "disable"
+		// 数据库目标与 liveDSN() 同源：LIVE_DB_DSN 显式指定时按其解析
+		// （否则 app 写默认库、断言读指定库，两边对不上全盘假失败）。
+		if dsn := os.Getenv("LIVE_DB_DSN"); dsn != "" {
+			applyLiveDSN(&cfg.Database, dsn)
+		} else {
+			cfg.Database.Host = "127.0.0.1"
+			cfg.Database.Port = 5432
+			cfg.Database.User = "hostsent"
+			cfg.Database.Password = "hostsent"
+			cfg.Database.Name = "hostsent"
+			cfg.Database.SSLMode = "disable"
+		}
 		cfg.Redis.Host = "127.0.0.1"
 		cfg.Redis.Port = 6379
 		cfg.Redis.Required = false
