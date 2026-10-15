@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-import { applyRadius, applyThemeColor, DEFAULT_THEME_COLOR, migrateThemeColor } from '@/utils/theme'
+import { applyThemeColor, DEFAULT_THEME_COLOR, migrateThemeColor } from '@/utils/theme'
 
 // 色彩方案：浅色 / 深色 / 跟随系统
 export type ColorScheme = 'light' | 'dark' | 'auto'
@@ -10,7 +10,6 @@ export type FirstMenuClickMode = 'switch' | 'navigate'
 interface SettingsState {
   themeColor: string
   colorScheme: ColorScheme
-  radius: number // 圆角档位百分比，100 = 默认
   colorWeak: boolean
   showTabsBar: boolean
   rememberTabs: boolean
@@ -30,7 +29,6 @@ export const useSettingsStore = defineStore('settings', {
   state: (): SettingsState => ({
     themeColor: DEFAULT_THEME_COLOR,
     colorScheme: 'light',
-    radius: 100,
     colorWeak: false,
     showTabsBar: true,
     rememberTabs: true,
@@ -73,7 +71,6 @@ export const useSettingsStore = defineStore('settings', {
     applyAll() {
       this.themeColor = migrateThemeColor(this.themeColor)
       applyThemeColor(this.themeColor, this.isDark)
-      applyRadius(this.radius)
       this.applyColorScheme()
       document.documentElement.classList.toggle('color-weak', this.colorWeak)
     },
@@ -81,7 +78,6 @@ export const useSettingsStore = defineStore('settings', {
       this.update({
         themeColor: DEFAULT_THEME_COLOR,
         colorScheme: 'light',
-        radius: 100,
         colorWeak: false,
         showTabsBar: true,
         rememberTabs: true,
@@ -92,15 +88,6 @@ export const useSettingsStore = defineStore('settings', {
   },
   persist: {
     key: 'hostsent_admin_settings',
-    pick: [
-      'themeColor',
-      'colorScheme',
-      'radius',
-      'colorWeak',
-      'showTabsBar',
-      'rememberTabs',
-      'menuAccordion',
-      'firstMenuClick',
-    ],
+    pick: ['themeColor', 'colorScheme', 'colorWeak', 'showTabsBar', 'rememberTabs', 'menuAccordion', 'firstMenuClick'],
   },
 })

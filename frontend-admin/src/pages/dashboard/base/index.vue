@@ -171,19 +171,13 @@ import {
 } from 'tdesign-icons-vue-next'
 import type { PrimaryTableCol } from 'tdesign-vue-next'
 
+import heroImage from '@/assets/images/dashboard-hero.svg'
 import { useUserStore } from '@/store'
 
 defineOptions({ name: 'AdminDashboardBase' })
 
 const userStore = useUserStore()
 const range = ref('7day')
-
-const heroImage =
-  'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=' +
-  encodeURIComponent(
-    'light minimal cloud infrastructure monitoring illustration with servers and dashboard charts, white background, green accent color, flat vector style, professional SaaS hero image, 16:9',
-  ) +
-  '&image_size=landscape_16_9'
 
 const today = new Date().toLocaleDateString('zh-CN', {
   year: 'numeric',

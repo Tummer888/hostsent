@@ -60,21 +60,6 @@
         </t-radio-group>
       </section>
 
-      <!-- 圆角 -->
-      <section class="settings-section">
-        <h4 class="settings-section__title">
-          圆角
-          <span class="settings-section__hint">{{ settings.radius }}%</span>
-        </h4>
-        <t-slider
-          :value="settings.radius"
-          :min="50"
-          :max="200"
-          :step="10"
-          @change="(v: unknown) => settings.update({ radius: Number(v) })"
-        />
-      </section>
-
       <!-- 色弱模式 -->
       <section class="settings-section">
         <div class="settings-row">
@@ -194,12 +179,6 @@ function setColor(hex: string) {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.settings-section__hint {
-  font-weight: 400;
-  font-size: 12px;
-  color: #94a3b8;
 }
 
 .settings-row {

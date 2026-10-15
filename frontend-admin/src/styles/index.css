@@ -1,4 +1,15 @@
-@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
+/* 字体自托管（@fontsource）：此前这里是一条 @import 指向 fonts.googleapis.com，
+   等于把整站样式表挂在一个国内不可达的域名上——实测该域名不可达时（连接黑洞），
+   浏览器 load 事件 150s 都不结束，标签页一直转圈，且这条 @import 会阻塞后面
+   全部设计令牌生效。改成本地打包后首屏不再依赖任何外部域名。
+   只取 latin 子集与实际用到的字重（正文 400/500/600/700，等宽 400/700），
+   避免把全部字重与西里尔/希腊子集都打进产物。 */
+@import '@fontsource/fira-sans/latin-400.css';
+@import '@fontsource/fira-sans/latin-500.css';
+@import '@fontsource/fira-sans/latin-600.css';
+@import '@fontsource/fira-sans/latin-700.css';
+@import '@fontsource/fira-code/latin-400.css';
+@import '@fontsource/fira-code/latin-700.css';
 
 :root {
   /* HostSent Design System tokens — Light theme · Density 9 · Variance 3 · Motion 4

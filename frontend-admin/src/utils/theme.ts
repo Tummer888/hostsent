@@ -168,11 +168,11 @@ export function applyThemeColor(hexInput: string, isDark = false) {
   setVar('--td-brand-color-light-active', scale[2])
 }
 
-// 应用圆角档位：scalePercent 为百分比（100 = 默认 4/6/8/10px）
-export function applyRadius(scalePercent: number) {
-  const f = Math.min(200, Math.max(50, scalePercent || 100)) / 100
-  setVar('--hs-radius-sm', `${Math.round(4 * f)}px`)
-  setVar('--hs-radius-md', `${Math.round(6 * f)}px`)
-  setVar('--hs-radius-lg', `${Math.round(8 * f)}px`)
-  setVar('--hs-radius-xl', `${Math.round(10 * f)}px`)
-}
+// 圆角不再是可调设置：--hs-radius-* 由 styles/index.css 的 :root 单一来源给出
+// （sm/md/lg/xl = 4/6/8/10px），运行时不再覆盖。
+//
+// 历史包袱：这里原有一份 applyRadius(scalePercent)，把档位百分比乘到四个令牌上。
+// 它带来两类问题：一是「设置 → 圆角」滑到 50% 会把 --hs-radius-xl 变成 5px，
+// 全站圆角随之缩水；二是持久化档位与设计稿基线不一致时，同一份代码在不同浏览器
+// 上量出的圆角不同（排查样式问题时极易误判为样式写错）。圆角属于设计基线，
+// 不是用户偏好，故彻底移除缩放，令牌只在 CSS 里定义一次。

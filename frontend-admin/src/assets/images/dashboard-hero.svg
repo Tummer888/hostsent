@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 220" width="420" height="220" role="img" aria-label="云控平台监控示意图">
+  <!--
+    仪表盘首屏插画。
+    此前这里指向第三方 AI 生图接口（trae-api-cn.mchost.guru）的远程图片，
+    该 <img loading="eager"> 会参与 window.load，域名一慢或不可达，
+    登录后的首屏就一直在转圈。改为项目内矢量资源后首屏不再依赖外部域名。
+    配色取设计令牌的语义色：石墨灰主色 + 橙强调色 + 常规语义绿/蓝。
+  -->
+  <defs>
+    <linearGradient id="hero-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f8fafc" />
+      <stop offset="100%" stop-color="#eef2f7" />
+    </linearGradient>
+  </defs>
+
+  <rect width="420" height="220" rx="10" fill="url(#hero-bg)" />
+
+  <!-- 背景：云轮廓 -->
+  <path
+    d="M96 62h12a26 26 0 0 1 50-6 20 20 0 0 1 26 20 16 16 0 0 1-16 16H96a17 17 0 0 1 0-30z"
+    fill="#ffffff"
+    stroke="#e2e8f0"
+    stroke-width="2"
+  />
+
+  <!-- 左侧：机架 -->
+  <rect x="34" y="104" width="88" height="82" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="2" />
+  <rect x="46" y="116" width="64" height="14" rx="4" fill="#2b2f36" />
+  <rect x="46" y="136" width="64" height="14" rx="4" fill="#64748b" />
+  <rect x="46" y="156" width="64" height="14" rx="4" fill="#cbd5e1" />
+  <circle cx="56" cy="123" r="3" fill="#f97316" />
+  <circle cx="56" cy="143" r="3" fill="#22c55e" />
+  <circle cx="56" cy="163" r="3" fill="#94a3b8" />
+
+  <!-- 右侧：监控面板 -->
+  <rect x="142" y="76" width="244" height="110" rx="10" fill="#ffffff" stroke="#e2e8f0" stroke-width="2" />
+  <rect x="142" y="76" width="244" height="26" rx="10" fill="#f1f5f9" />
+  <circle cx="158" cy="89" r="4" fill="#ef4444" />
+  <circle cx="172" cy="89" r="4" fill="#f59e0b" />
+  <circle cx="186" cy="89" r="4" fill="#22c55e" />
+
+  <!-- 折线：资源用量趋势 -->
+  <polyline
+    points="160,164 190,148 216,154 244,126 272,134 300,112 330,120 366,98"
+    fill="none"
+    stroke="#2b2f36"
+    stroke-width="3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <polyline
+    points="160,170 190,162 216,166 244,150 272,156 300,142 330,148 366,134"
+    fill="none"
+    stroke="#f97316"
+    stroke-width="3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-dasharray="6 6"
+  />
+
+  <!-- 柱状：实例容量 -->
+  <g fill="#cbd5e1">
+    <rect x="160" y="176" width="12" height="6" rx="3" />
+    <rect x="180" y="174" width="12" height="8" rx="3" />
+    <rect x="200" y="178" width="12" height="4" rx="3" />
+  </g>
+
+  <!-- 活动点 -->
+  <circle cx="366" cy="98" r="5" fill="#f97316" />
+  <circle cx="366" cy="98" r="10" fill="#f97316" opacity="0.18" />
+</svg>
