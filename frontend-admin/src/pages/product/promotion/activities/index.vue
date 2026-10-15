@@ -72,6 +72,7 @@
         <span class="table-card__meta">共 {{ pagination.total }} 个活动</span>
       </div>
       <t-table
+        size="small"
         row-key="id"
         :data="list"
         :columns="columns"

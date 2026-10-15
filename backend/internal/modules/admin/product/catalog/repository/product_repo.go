@@ -30,6 +30,9 @@ type ProductRepository interface {
 	// 删除守卫用：商品被实例引用时不能删——实例的续费算价与详情页商品信息都靠这行，
 	// 删掉商品会让那些实例后续无法续费（界面上表现为"来源商品已删除"）。
 	CountInstancesByProduct(ctx context.Context, productID uint64) (int64, error)
+	// CategoryExists 判断分类是否存在（建品/导入时校验分类必填用）。
+	// 只认启用中的分类：把商品挂到已停用分类上，前台按分类展示时看不到它。
+	CategoryExists(ctx context.Context, categoryID uint64) (bool, error)
 	ListSpecs(ctx context.Context, productID uint64) ([]model.ProductSpec, error)
 	// FindSpecByCode 按商品 + 规格编码取 SKU（下单/算价用，T4.1）。
 	FindSpecByCode(ctx context.Context, productID uint64, specCode string) (*model.ProductSpec, error)
@@ -102,7 +105,12 @@ func (r *productRepository) List(ctx context.Context, query dto.ProductListQuery
 		like := "%" + keyword + "%"
 		base = base.Where("name ILIKE ? OR code ILIKE ?", like, like)
 	}
-	if query.CategoryID > 0 {
+	// 未分类筛选：口径与分类接口的 uncategorized_count、与列表那一列显示的文字一致
+	// （category_id 为 0，或指向已删除分类）。三者不一致会让运营看到
+	// "导航说 3 个、点进去 2 个"这类对不上的数字。
+	if query.Uncategorized != nil && *query.Uncategorized {
+		base = base.Where("category_id = 0 OR category_id NOT IN (SELECT id FROM product_categories)")
+	} else if query.CategoryID > 0 {
 		// 分类导航点父节点时应看到整棵子树的货：把所选分类展开为「自身 + 全部子孙」再过滤。
 		// 分类表量级很小（几十行），一次读入内存构建父子映射即可，不值得递归 SQL。
 		ids, err := r.categorySubtreeIDs(ctx, query.CategoryID)
@@ -197,6 +205,18 @@ func (r *productRepository) CountInstancesByProduct(ctx context.Context, product
 	err := r.db.WithContext(ctx).Table("instances").
 		Where("sell_product_id = ?", productID).Count(&n).Error
 	return n, err
+}
+
+// CategoryExists 判断分类是否存在且启用（建品/导入时分类必填校验用）。
+// 同样用原生表名，避免商品域反向依赖分类域。
+func (r *productRepository) CategoryExists(ctx context.Context, categoryID uint64) (bool, error) {
+	if categoryID == 0 {
+		return false, nil
+	}
+	var n int64
+	err := r.db.WithContext(ctx).Table("product_categories").
+		Where("id = ? AND status = ?", categoryID, 1).Count(&n).Error
+	return n > 0, err
 }
 
 func (r *productRepository) ListSpecs(ctx context.Context, productID uint64) ([]model.ProductSpec, error) {
@@ -748,8 +768,19 @@ func (r *productRepository) AllConfigGroupsByProductID(ctx context.Context, prod
 }
 
 // SelfConfigParams 读取 source=self 的配置项，返回"平台参数名 → 选中值"（T4.4）。
-// 自营链路里 option_name 即目标平台写参数名（如 area/os/store），sub 的首个可见项为取值；
+// 自营链路里 option_name 即目标平台写参数名（如 area/os/store），sub 的取值即下发给平台的值；
 // source_key 非空时优先作为平台参数名，兼容"展示名 ≠ 平台参数名"的场景。
+//
+// 取值口径（与客户下单时的默认值一致，两处必须同源）：
+//  1. 配置项声明的 default_value（运营在模板/详情页填的"基线值"）；
+//  2. 标了 is_default 的可见子项；
+//  3. 第一个可见子项。
+//
+// 为什么要按这个顺序：早先恒取"第一个可见子项"，而第 1 项往往不是默认值 ——
+// 内存项第一个取值是 6144（6G）、default_value 却是 4096，于是不带选配的开通
+// 与带选配的开通会拿到不同规格（实测故障：商品名写 6G、开出 4G）。
+// 数量型（qty）没有离散取值、子项是名为"系统盘"的占位行，按序号取会把中文标签
+// 当成平台参数下发；default_value 才是那个数字。
 func (r *productRepository) SelfConfigParams(ctx context.Context, productID uint64) (map[string]string, error) {
 	var options []*model.ProductConfigOption
 	if err := r.db.WithContext(ctx).
@@ -771,23 +802,64 @@ func (r *productRepository) SelfConfigParams(ctx context.Context, productID uint
 		if key == "" {
 			continue
 		}
-		value := ""
-		for _, sub := range opt.Subs {
-			if sub.Hidden != 0 {
-				continue
-			}
-			if sub.SourceKey != "" {
-				value = sub.SourceKey
-			} else {
-				value = sub.OptionName
-			}
-			break
-		}
+		value := pickSelfConfigValue(opt)
 		if value != "" {
 			out[key] = value
 		}
 	}
 	return out, nil
+}
+
+// pickSelfConfigValue 取某配置项下发给平台的默认取值（口径见 SelfConfigParams 注释）。
+func pickSelfConfigValue(opt *model.ProductConfigOption) string {
+	subValue := func(sub model.ProductConfigOptionSub) string {
+		if sub.SourceKey != "" {
+			return sub.SourceKey
+		}
+		return sub.OptionName
+	}
+	// 1) 声明的默认值：数量型只有这一条可用（子项是占位行）。
+	if declared := strings.TrimSpace(opt.DefaultValue); declared != "" {
+		// 离散型还要确认它确实在开放取值里，否则会下发一个客户选不到的值。
+		if isSelfQuantityWidget(opt.Widget) {
+			return declared
+		}
+		for _, sub := range opt.Subs {
+			if sub.Hidden != 0 {
+				continue
+			}
+			if subValue(sub) == declared {
+				return declared
+			}
+		}
+	}
+	// 2) 显式标记的默认子项。
+	for _, sub := range opt.Subs {
+		if sub.Hidden != 0 || !sub.IsDefault {
+			continue
+		}
+		if v := subValue(sub); v != "" {
+			return v
+		}
+	}
+	// 3) 第一个可见子项。
+	for _, sub := range opt.Subs {
+		if sub.Hidden != 0 {
+			continue
+		}
+		if v := subValue(sub); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// isSelfQuantityWidget 判断自营配置项是否为数量型控件（客户自己填数字，没有候选列表）。
+//
+// 与 isQuantityWidget 的区别：那个判的是"上游镜像的数量型选项"（以 option_type 为准），
+// 这里判的是本地渲染口径的 widget 字段。
+func isSelfQuantityWidget(widget string) bool {
+	return strings.TrimSpace(widget) == model.ConfigWidgetQty
 }
 
 // SelfConfigOptionRows 读取 source=self 的配置项原始行（含子项）。

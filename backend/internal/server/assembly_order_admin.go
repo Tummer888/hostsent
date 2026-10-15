@@ -258,6 +258,7 @@ func buildAdminOrderConfig(ctx context.Context, catalog catalogservice.ProductSe
 					UnitPriceQuarterly: o.UnitPriceQuarterly,
 					UnitPriceAnnually:  o.UnitPriceAnnually,
 					UnitPriceOnetime:   o.UnitPriceOnetime,
+					Creatable:          o.Creatable,
 					Values:             []userdto.AdminOrderConfigOptionVal{},
 				}
 				for _, v := range o.Values {

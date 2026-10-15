@@ -36,6 +36,9 @@ DCIM_PROVIDER_PREFIX = "e2e-p5-dcim渠道"
 ZJMF_PROVIDER_PREFIX = "e2e-p5-zjmf渠道"
 SELF_PRODUCT_PREFIX = "e2e-p5-self商品"
 UPSTREAM_PRODUCT_PREFIX = "e2e-p5-upstream商品"
+# 商品分类：建品/导入现在要求分类必填（空分类会让商品落进「未分类」，
+# 界面上既显示不出归属、也统计不到），脚本自建一个并跑完删除。
+CATEGORY_PREFIX = "e2e-p5-分类"
 # 链路 A 资源商品：mock 无目录协议端点，按渠道编码（内联为 JSON 字符串）直插
 # resource_products（本脚本是唯一读写该验收渠道的调用方）。挂两条配置组：
 # 单值 CPU 4 核 + 区域默认，模拟"上游固定规格 + 客户选配"的最小形态。
@@ -142,8 +145,17 @@ def cleanup_product(pid):
         print(f"  [WARN] 商品 {pid} 清理失败（HTTP {st}）：{obj}")
 
 
-def cleanup_resources(dcim_provider, zjmf_provider, self_product, upstream_product, rp_id):
-    """清理自建资源：先删商品与资源商品（渠道删除守卫），再删渠道。"""
+def cleanup_category(cid):
+    """删除自建分类：分类下仍有商品时后端会拒绝，所以必须在删商品之后调用。"""
+    if not cid:
+        return
+    st, obj = req("DELETE", f"/admin/product/categories/{cid}", token=admin)
+    if st != 200:
+        print(f"  [WARN] 分类 {cid} 清理失败（HTTP {st}）：{obj}")
+
+
+def cleanup_resources(dcim_provider, zjmf_provider, self_product, upstream_product, rp_id, category_id=None):
+    """清理自建资源：先删商品与资源商品（渠道/分类删除守卫），再删渠道与分类。"""
     for pid in (self_product, upstream_product):
         if pid:
             cleanup_product(pid)
@@ -152,7 +164,8 @@ def cleanup_resources(dcim_provider, zjmf_provider, self_product, upstream_produ
     for pid in (dcim_provider, zjmf_provider):
         if pid:
             cleanup_provider(pid)
-    print("已清理自建渠道、商品与资源商品")
+    cleanup_category(category_id)
+    print("已清理自建渠道、商品、资源商品与分类")
 
 
 def poll_order(token, order_id, want="active", timeout=90):
@@ -217,6 +230,15 @@ if policy_backup is not None:
     force_policy()
     print(f"  已强制 lifecycle auto_enforce=true（原值 {policy_backup}）")
 
+# 分类：建品/导入现在强制必填（空分类会让商品落进「未分类」，导航与列表都归不了位），
+# 所以脚本自建一个分类供两条链路复用，跑完在删完商品之后删除。
+st, obj = req("POST", "/admin/product/categories", token=admin, body={
+    "parent_id": 0, "name": f"{CATEGORY_PREFIX}-{suffix}", "sort_order": 0, "status": 1})
+category_id = dig(obj, "id")
+check("自建商品分类（供两链路商品归属）", st == 200 and bool(category_id), f"HTTP {st} {obj if st != 200 else ''}")
+if not category_id:
+    sys.exit(1)
+
 # 链路 B：自营 dcimcloud 渠道（魔方云 mock）+ self 商品（未挂规格，即时开通）。
 st, obj = req("POST", "/admin/resource/providers", token=admin, body={
     "name": f"{DCIM_PROVIDER_PREFIX}-{suffix}", "provider_type": "dcimcloud",
@@ -225,17 +247,20 @@ st, obj = req("POST", "/admin/resource/providers", token=admin, body={
 dcim_provider = dig(obj, "id")
 check("自建 dcimcloud 渠道（链路 B）", st == 200 and bool(dcim_provider), f"HTTP {st} {obj if st != 200 else ''}")
 if not dcim_provider:
+    cleanup_category(category_id)
     sys.exit(1)
 
 st, obj = req("POST", "/admin/product/products", token=admin, body={
     "code": f"e2e-p5-self-{suffix}", "name": f"{SELF_PRODUCT_PREFIX}-{suffix}",
     "product_type": "cloud_host", "price_model": "monthly", "price": 68.0, "cost_price": 0.0,
     "source_mode": "self", "source_provider_id": dcim_provider, "stock": -1, "status": 1,
+    "category_id": category_id,
     "description": "P5 履约 e2e 自建（跑完清理）"})
 self_product = dig(obj, "id")
 check("自建 self 商品（链路 B，绑 dcimcloud 渠道）", st == 200 and bool(self_product), f"HTTP {st} {obj if st != 200 else ''}")
 if not self_product:
     cleanup_provider(dcim_provider)
+    cleanup_category(category_id)
     sys.exit(1)
 
 # 链路 A：zjmf 渠道（zjmf_api 分支，默认接口类型）+ 直插资源商品 + clone 转售商品。
@@ -248,6 +273,7 @@ check("自建 zjmf 渠道（链路 A，zjmf_api）", st == 200 and bool(zjmf_pro
 if not zjmf_provider:
     cleanup_provider(dcim_provider)
     cleanup_product(self_product)
+    cleanup_category(category_id)
     sys.exit(1)
 
 # 资源商品行（mock 无目录协议端点，只能按渠道编码入库）：单值 CPU 4 核配置组 + 区域默认。
@@ -275,17 +301,20 @@ if not rp_id:
     cleanup_provider(dcim_provider)
     cleanup_product(self_product)
     cleanup_provider(zjmf_provider)
+    cleanup_category(category_id)
     sys.exit(1)
 
 # clone 创建转售商品：source_mode 由 clone 固定为 upstream，Specs 落上游基线。
 st, obj = req("POST", "/admin/product/products/clone", token=admin, body={
     "source_product_id": int(rp_id), "source_provider_id": zjmf_provider,
     "code": f"e2e-p5-up-{suffix}", "name": f"{UPSTREAM_PRODUCT_PREFIX}-{suffix}",
-    "price": 30.0, "cost_price": 30.0, "stock": -1, "status": 1})
+    "price": 30.0, "cost_price": 30.0, "stock": -1, "status": 1,
+    "category_id": category_id})
 upstream_product = dig(obj, "id")
 check("clone 自建转售商品（链路 A）", st == 200 and bool(upstream_product), f"HTTP {st} {obj if st != 200 else ''}")
 if not upstream_product:
-    cleanup_resources(dcim_provider, zjmf_provider, self_product, None, int(rp_id) if rp_id else None)
+    cleanup_resources(dcim_provider, zjmf_provider, self_product, None, int(rp_id) if rp_id else None,
+                      category_id)
     sys.exit(1)
 
 users = {}
@@ -456,7 +485,7 @@ print("上游台账：", json.dumps({k: v for k, v in ledger().items() if k not 
 sql(f"DELETE FROM instances WHERE id IN ({inst_b['id']}, {inst_a['id']})")
 sql(f"DELETE FROM instance_operations WHERE instance_id IN ({inst_b['id']}, {inst_a['id']})")
 cleanup_resources(dcim_provider, zjmf_provider, self_product, upstream_product,
-                  int(rp_id) if rp_id else None)
+                  int(rp_id) if rp_id else None, category_id)
 restore_policy(policy_backup)
 
 if FAILURES:

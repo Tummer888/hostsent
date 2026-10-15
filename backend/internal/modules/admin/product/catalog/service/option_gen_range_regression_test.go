@@ -141,3 +141,129 @@ func TestEnumDefaultStaysWithinOpenValues(t *testing.T) {
 		}
 	})
 }
+
+// D. 长周期加价必须随周期变（用户反馈"换周期加价不变"）。
+//
+// 实测故障：编辑页每个取值只填一个「元/月」，季度/年度恒为 0，
+// priceForCycle 在 0 时回落月价 —— 月付 13 元的内存 8G，年付也只加 13 元。
+// 口径：留空档位按「月价 × 周期月数」折算（季 ×3、年 ×12）；显式填的不动。
+func TestDeriveMissingCyclePrices(t *testing.T) {
+	mk := func(monthly, quarter, annual float64) []optionValue {
+		return []optionValue{{Value: "8192", Monthly: monthly, Quarter: quarter, Annual: annual}}
+	}
+
+	t.Run("留空档位按月数折算", func(t *testing.T) {
+		vs := mk(13, 0, 0)
+		deriveMissingCyclePrices(vs)
+		if vs[0].Quarter != 39 {
+			t.Errorf("季付应 13×3=39，实际 %.2f", vs[0].Quarter)
+		}
+		if vs[0].Annual != 156 {
+			t.Errorf("年付应 13×12=156，实际 %.2f", vs[0].Annual)
+		}
+	})
+
+	t.Run("显式填写的档位不被覆盖", func(t *testing.T) {
+		vs := mk(13, 30, 120) // 运营自己定了更优惠的长周期价
+		deriveMissingCyclePrices(vs)
+		if vs[0].Quarter != 30 || vs[0].Annual != 120 {
+			t.Errorf("显式价应保留，实际 %.2f / %.2f", vs[0].Quarter, vs[0].Annual)
+		}
+	})
+
+	t.Run("月价 0（不加价）不折算", func(t *testing.T) {
+		vs := mk(0, 0, 0)
+		deriveMissingCyclePrices(vs)
+		if vs[0].Quarter != 0 || vs[0].Annual != 0 {
+			t.Errorf("不加价的取值不该被折算，实际 %.2f / %.2f", vs[0].Quarter, vs[0].Annual)
+		}
+	})
+
+	t.Run("一次性不折算（无月数口径）", func(t *testing.T) {
+		vs := mk(13, 0, 0)
+		deriveMissingCyclePrices(vs)
+		if vs[0].Onetime != 0 {
+			t.Errorf("一次性不该被折算，实际 %.2f", vs[0].Onetime)
+		}
+	})
+}
+
+// E. 裸值 label 不得覆盖目录中文名（用户要求区分"传值"与"展示名"）。
+//
+// 实测故障：建品页在平台目录加载前就取过档位，label 被固化成裸值（os 传 "62"），
+// 提交后覆盖掉目录中文名，下单界面只显示 ID。
+func TestOverrideLabelKeepsCatalogName(t *testing.T) {
+	cases := []struct {
+		name       string
+		requested  string
+		value      string
+		catalog    string
+		want       string
+	}{
+		{"裸值等于取值 → 用目录名", "62", "62", "CentOS / CentOS-7.9.2111-x64", "CentOS / CentOS-7.9.2111-x64"},
+		{"裸值等于取值且目录没有 → 用取值", "1", "1", "", "1"},
+		{"请求给了真展示名 → 以请求为准", "6G", "6144", "6G", "6G"},
+		{"请求没给 label → 用目录名", "", "6144", "6G", "6G"},
+	}
+	for _, c := range cases {
+		if got := overrideLabel(c.requested, c.value, c.catalog); got != c.want {
+			t.Errorf("%s：得到 %q，期望 %q", c.name, got, c.want)
+		}
+	}
+}
+
+// F. 数量型（带宽/数据盘/系统盘/IP 数）必须能定价。
+//
+// 实测故障（用户反馈）：后台建品时带宽、数据盘这些项**没法定价** ——
+// 建品页原本没有单价输入，后端的占位 sub 又把四档价格写死成 0，
+// 于是只能建完商品再去详情页补。数量型没有离散取值，价格挂在"每单位"上。
+//
+// 口径同枚举取值：没填的长周期档按「月单价 × 周期月数」折算；显式填的以填的为准。
+func TestRangeOptionUnitPricing(t *testing.T) {
+	t.Run("只填月单价 → 长周期按月数折算", func(t *testing.T) {
+		acc := &optionAccumulator{meta: SpecOptionMeta{OptionKey: "bw", Widget: SpecWidgetQty}}
+		acc.applyOverride(dto.ProductOptionOverride{
+			OptionKey: "bw", MinValue: fptr(10), MaxValue: fptr(100),
+			UnitPriceMonthly: fptr(1.5),
+		})
+		subs := acc.toConfigOption()["sub"].([]map[string]interface{})
+		p := subs[0]["pricings"].([]map[string]interface{})[0]
+		if p["monthly"] != 1.5 {
+			t.Errorf("月单价应 1.5，实际 %v", p["monthly"])
+		}
+		if p["quarterly"] != 4.5 {
+			t.Errorf("季单价应 1.5×3=4.5，实际 %v", p["quarterly"])
+		}
+		if p["annually"] != 18.0 {
+			t.Errorf("年单价应 1.5×12=18，实际 %v", p["annually"])
+		}
+	})
+
+	t.Run("显式填长周期单价 → 不被折算覆盖", func(t *testing.T) {
+		acc := &optionAccumulator{meta: SpecOptionMeta{OptionKey: "system_disk_size", Widget: SpecWidgetQty}}
+		acc.applyOverride(dto.ProductOptionOverride{
+			OptionKey: "system_disk_size", MinValue: fptr(30), MaxValue: fptr(30),
+			UnitPriceMonthly: fptr(2.0), UnitPriceAnnually: fptr(30.0),
+		})
+		subs := acc.toConfigOption()["sub"].([]map[string]interface{})
+		p := subs[0]["pricings"].([]map[string]interface{})[0]
+		if p["annually"] != 30.0 {
+			t.Errorf("显式年单价应保留 30，实际 %v", p["annually"])
+		}
+		if p["monthly"] != 2.0 {
+			t.Errorf("月单价应 2，实际 %v", p["monthly"])
+		}
+	})
+
+	t.Run("没定价 → 保持 0（不加价）", func(t *testing.T) {
+		acc := &optionAccumulator{meta: SpecOptionMeta{OptionKey: "ip_num", Widget: SpecWidgetQty}}
+		acc.applyOverride(dto.ProductOptionOverride{
+			OptionKey: "ip_num", MinValue: fptr(1), MaxValue: fptr(20),
+		})
+		subs := acc.toConfigOption()["sub"].([]map[string]interface{})
+		p := subs[0]["pricings"].([]map[string]interface{})[0]
+		if p["monthly"] != 0.0 || p["annually"] != 0.0 {
+			t.Errorf("未定价应保持 0，实际 %v / %v", p["monthly"], p["annually"])
+		}
+	})
+}

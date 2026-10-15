@@ -60,8 +60,28 @@
               <span class="aside-node" :class="{ 'aside-node--disabled': node.data.status !== 1 }">
                 {{ node.data.name }}{{ node.data.status !== 1 ? '（停用）' : '' }}
               </span>
+              <!--
+                每个分类的商品数：没有这个数，导航只是棵树 —— 运营看不出哪个分类是空的，
+                也无法判断某类要不要合并/删除。数字为 0 时也显示（"空分类"本身就是信息）。
+              -->
+              <span v-if="node.data.status === 1" class="aside-node__count">{{ node.data.count ?? 0 }}</span>
             </template>
           </t-tree>
+
+          <!--
+            「未分类」不是真实分类，没有 ID 可用，因此不进树上、单列一行：
+            它的计数来自后端单独给的桶（category_id 为空或指向已删除分类）。
+            没有这一行，这些商品在导航里完全不可见 —— 点遍所有分类都找不到它们。
+          -->
+          <div
+            v-if="uncategorizedCount"
+            class="aside-unclassified"
+            :class="{ 'is-active': onlyUncategorized }"
+            @click="selectUncategorized"
+          >
+            <span class="aside-unclassified__name">未分类</span>
+            <span class="aside-node__count">{{ uncategorizedCount }}</span>
+          </div>
         </div>
       </aside>
 
@@ -101,6 +121,11 @@
             <div class="table-card__meta products-crumb-wrap">
               <span v-if="activeCategoryPath.length" class="products-crumb">
                 分类：{{ activeCategoryPath.map((n) => n.name).join(' / ') }}
+                <t-link theme="primary" hover="color" @click="selectAllCategories">查看全部</t-link>
+              </span>
+              <!-- 未分类视图也要有面包屑：否则筛选生效了却看不出"在看哪一批"。 -->
+              <span v-else-if="onlyUncategorized" class="products-crumb">
+                分类：未分类
                 <t-link theme="primary" hover="color" @click="selectAllCategories">查看全部</t-link>
               </span>
               <span>共 {{ pagination.total }} 个产品</span>
@@ -336,15 +361,15 @@
             />
             <span class="clone-tip">只列可对接商品目录的渠道，自营平台不在列。</span>
           </div>
-          <div class="clone-field">
+          <div class="clone-field clone-field--required">
             <span class="clone-field__label">归入本地分类</span>
-            <t-select
-              v-model="cloneForm.category_id"
-              :options="categoryOptions"
-              clearable
-              placeholder="不选则落「未分类」"
-            />
-            <span class="clone-tip">不选也能导，导入后再逐个改分类比较费事。</span>
+            <!--
+              分类必填（用户要求）：导入动辄几十上百个商品，留空会整批落进「未分类」——
+              列表那一列显示不出归属、分类导航也统计不到，事后逐个回头补的成本远高于现在选一次。
+              所以去掉 clearable 并在提交前拦一道（服务端同样校验，绕过界面也拦得住）。
+            -->
+            <t-select v-model="cloneForm.category_id" :options="categoryOptions" placeholder="请选择商品分类" />
+            <span class="clone-tip">导入后按该分类归属展示与统计；一个分类下可放多个商品。</span>
           </div>
           <div class="clone-field">
             <span class="clone-field__label">定价（按上游标价）</span>
@@ -530,16 +555,19 @@ const route = useRoute()
 const productList = ref<SaleProductInfo[]>([])
 const loading = ref(false)
 const { isMobile } = useIsMobile()
-const { categoryOptions, categoryName, loadCategories } = useCategoryOptions()
+const { categoryOptions, categoryName, categoryCounts, loadCategories } = useCategoryOptions()
 
 const filters = reactive<{
   keyword: string | undefined
   category_id: number | undefined
+  /** 只看未分类（与 category_id 互斥）：未分类不是一个真实分类 ID */
+  uncategorized: boolean | undefined
   status: number | undefined
   source_mode: string | undefined
 }>({
   keyword: undefined,
   category_id: undefined,
+  uncategorized: undefined,
   status: undefined,
   source_mode: undefined,
 })
@@ -569,6 +597,24 @@ const columns: PrimaryTableCol<SaleProductInfo>[] = [
 const asideTree = ref<SaleProductCategoryInfo[]>([])
 const asideExpanded = ref<Array<string | number>>([])
 const treeKeyword = ref('')
+
+/**
+ * 分类导航的计数与未分类数：与 useCategoryOptions 同一次请求取回，
+ * 但导航树要的是「带计数的节点」（t-tree 从 node.data 读），
+ * 所以这里把计数合并进树节点，而不是让模板去查 map。
+ */
+const uncategorizedCount = ref(0)
+/** 是否正在看「未分类」——它不是真实分类 ID，得单独一个状态位。 */
+const onlyUncategorized = computed(() => filters.uncategorized === true)
+
+/** 递归把「分类 ID → 商品数」写进树节点（字段名 count，供 t-tree 的 slot 读）。 */
+function mergeCategoryCounts(nodes: SaleProductCategoryInfo[]): SaleProductCategoryInfo[] {
+  return nodes.map((node) => ({
+    ...node,
+    count: categoryCounts.value[node.id] ?? 0,
+    children: node.children?.length ? mergeCategoryCounts(node.children) : node.children,
+  }))
+}
 
 // 按名称过滤导航树：仅后代命中时保留「祖先 → 命中项」链
 const filteredAsideTree = computed(() => {
@@ -609,7 +655,9 @@ const activeTreeKeys = computed(() => (filters.category_id ? [filters.category_i
 async function loadCategoryTree() {
   try {
     const data = await getProductCategoryList()
-    asideTree.value = data.items
+    // 计数随树一起下发，但 t-tree 从 node.data 读值，这里并进节点。
+    asideTree.value = mergeCategoryCounts(data.items || [])
+    uncategorizedCount.value = data.uncategorized_count ?? 0
     // 从 URL 直进时展开选中节点的祖先链，否则深层节点看不见
     if (filters.category_id) {
       asideExpanded.value = activeCategoryPath.value.map((n) => n.id)
@@ -626,12 +674,28 @@ function onTreeActive(value: Array<string | number>) {
 
 function selectCategory(id: number | undefined) {
   filters.category_id = id
+  // 选具体分类时清掉「未分类」：两者互斥，留着会让筛选条件自相矛盾
+  filters.uncategorized = undefined
   resetPage()
-  router.replace({ query: { ...route.query, category_id: id ? String(id) : undefined } })
+  router.replace({
+    query: {
+      ...route.query,
+      category_id: id ? String(id) : undefined,
+      uncategorized: undefined,
+    },
+  })
 }
 
 function selectAllCategories() {
   selectCategory(undefined)
+}
+
+/** 只看未分类商品：这些商品没有有效分类归属，不在任何树节点下。 */
+function selectUncategorized() {
+  filters.category_id = undefined
+  filters.uncategorized = true
+  resetPage()
+  router.replace({ query: { ...route.query, category_id: undefined, uncategorized: '1' } })
 }
 
 async function loadProducts() {
@@ -640,6 +704,7 @@ async function loadProducts() {
     const data = await getProductList({
       keyword: filters.keyword,
       category_id: filters.category_id,
+      uncategorized: filters.uncategorized,
       status: filters.status,
       source_mode: filters.source_mode,
       page: pagination.current,
@@ -661,6 +726,7 @@ function handleSearch() {
 function handleResetFilters() {
   filters.keyword = undefined
   filters.category_id = undefined
+  filters.uncategorized = undefined
   filters.status = undefined
   filters.source_mode = undefined
   resetPage()
@@ -1124,6 +1190,12 @@ async function handleCloneConfirm() {
     MessagePlugin.warning('请选择上游提供商并勾选至少一个上游商品')
     return
   }
+  // 分类必填（用户要求）：服务端同样会拦（见 CloneFromUpstreamBatch），
+  // 这里先挡一道是为了把提示落在用户正看着的那个字段上，而不是发完请求才报错。
+  if (!cloneForm.category_id) {
+    MessagePlugin.warning('请选择「归入本地分类」——留空会让整批商品落进「未分类」')
+    return
+  }
   // 上游未定价的商品（价格只挂在配置项、上游还没配活动价）仍可导入，
   // 但要在导入前说清楚：导入后本地售价为 0，需人工补价。
   const unpriced = providerProducts.value.filter(
@@ -1332,6 +1404,8 @@ async function handleSavePrice() {
 onMounted(() => {
   const q = Number(route.query.category_id)
   if (q > 0) filters.category_id = q
+  // 「未分类」是布尔状态（不是分类 ID），从 URL 直进时单独还原。
+  if (route.query.uncategorized === '1') filters.uncategorized = true
   loadCategories()
   loadCategoryTree()
   loadProducts()
@@ -1372,6 +1446,18 @@ watch(
     const next = value && id > 0 ? id : undefined
     if (next !== filters.category_id) {
       filters.category_id = next
+      resetPage()
+    }
+  },
+)
+
+// 「未分类」同样要跟地址栏双向同步：它是页面状态，后退/刷新都该回到同一视图。
+watch(
+  () => route.query.uncategorized,
+  (value) => {
+    const next = value === '1'
+    if (next !== !!filters.uncategorized) {
+      filters.uncategorized = next
       resetPage()
     }
   },
@@ -1694,6 +1780,87 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
 
 .aside-node--disabled {
   color: var(--color-muted-foreground);
+}
+
+/*
+  节点行：名称在左、计数在右。
+  t-tree 的 .t-tree__label 不是 flex（只有 flex:1 + overflow:hidden），
+  而槽内容外面还被 TDesign 又套了一层无类名的 span —— 两处都要设成 flex 行，
+  否则两个 span 会紧挨着排、计数跟着长名字一起被 ellipsis 截掉。
+*/
+.products-aside__tree :deep(.t-tree__label) {
+  display: flex;
+  align-items: center;
+}
+
+/* 槽内容的外层包裹（TDesign 生成，无类名，只能按结构选） */
+.products-aside__tree :deep(.t-tree__label > span) {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 名称独占剩余宽度，把计数推到最右 */
+.products-aside__tree :deep(.t-tree__label) .aside-node {
+  flex: 1;
+  min-width: 0;
+}
+
+/*
+  分类商品数：小号胶囊、等宽数字（多行数字纵向对齐，扫读时不会跳动）。
+  与实例列表的 .kind-nav__count 同款观感 —— 同一后台里"数量"应该是同一种视觉语言。
+  计数为 0 时也渲染：空分类本身就是运营要看到的信息。
+*/
+.aside-node__count {
+  flex: none;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--td-bg-color-container-hover, #f3f4f6);
+  color: var(--td-text-color-secondary, #6b7280);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  line-height: 18px;
+}
+
+/*
+  「未分类」行：不是分类树里的节点，所以手动补一行，缩进对齐树的根节点
+  （t-tree 根节点 label 左侧是展开箭头 + margin，这里用 padding 对齐）。
+  没有它，未分类商品在导航里完全不可见 —— 点遍所有分类都找不到。
+*/
+.aside-unclassified {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* 左内边距对齐树上根节点的文字起始位置（箭头宽度 + label 的 margin-left） */
+  padding: 6px 12px 6px 30px;
+  border-radius: var(--td-radius-default, 3px);
+  cursor: pointer;
+  transition: background var(--hs-duration-fast, 0.2s) var(--hs-ease-out, ease);
+}
+
+.aside-unclassified:hover {
+  background: var(--td-bg-color-container-hover, #f3f4f6);
+}
+
+/* 选中态：与树上节点的 t-is-active 观感一致（浅底 + 主色字 + 加重），
+   只靠底色区分对色觉障碍用户不友好，字重一起变。 */
+.aside-unclassified.is-active {
+  background: var(--td-brand-color-light, #f2f3ff);
+  color: var(--td-brand-color, #0052d9);
+  font-weight: 500;
+}
+
+.aside-unclassified__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
 }
 
 .products-main {

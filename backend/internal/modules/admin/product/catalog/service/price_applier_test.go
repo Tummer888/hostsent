@@ -24,6 +24,8 @@ type fakeProductRepo struct {
 	configOptions []*model.ProductConfigOption
 	// configGroups 供 ConfigGroupsByProductID / AllConfigGroupsByProductID 返回（履约守卫用例）。
 	configGroups []interface{}
+	// categoryExists 供 CategoryExists 返回；nil 表示"分类存在"（见该方法注释）。
+	categoryExists *bool
 }
 
 func (f *fakeProductRepo) List(context.Context, dto.ProductListQuery) ([]model.Product, int64, error) {
@@ -132,6 +134,16 @@ func (f *fakeProductRepo) AllConfigGroupsByProductID(context.Context, uint64) ([
 }
 func (f *fakeProductRepo) CountInstancesByProduct(context.Context, uint64) (int64, error) {
 	return 0, nil
+}
+
+// CategoryExists 默认放行（分类必填校验的测试各自按需覆盖）。
+// 返回「存在」而不是 false：绝大多数用例关心的是别的分支，
+// 让它们因为"分类不存在"提前失败会掩盖真正的断言。
+func (f *fakeProductRepo) CategoryExists(context.Context, uint64) (bool, error) {
+	if f.categoryExists != nil {
+		return *f.categoryExists, nil
+	}
+	return true, nil
 }
 
 // TestApplyConfirmedPriceKeepsSalePriceWithoutMarkup 无加价规则时只更新成本，售价不变。

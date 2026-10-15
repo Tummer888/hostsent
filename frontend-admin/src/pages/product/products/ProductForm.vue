@@ -39,8 +39,13 @@
           <t-form-item label="产品名称" name="name" :rules="[{ required: true, message: '产品名称不能为空' }]">
             <t-input v-model="form.name" placeholder="请输入产品名称" clearable />
           </t-form-item>
-          <t-form-item label="分类" name="category_id">
-            <t-select v-model="form.category_id" clearable placeholder="请选择分类" :options="categoryOptions" />
+          <t-form-item
+            label="分类"
+            name="category_id"
+            :rules="[{ required: true, message: '请选择商品分类' }]"
+          >
+            <!-- 分类必填：留空会让商品落进「未分类」——列表显示不出归属、导航也统计不到。 -->
+            <t-select v-model="form.category_id" placeholder="请选择分类" :options="categoryOptions" />
           </t-form-item>
           <t-form-item label="可售库存">
             <t-input-number v-model="form.stock" :min="-1" theme="column" placeholder="-1 表示不限" />
@@ -99,8 +104,13 @@
             <t-input v-model="form.code" disabled />
             <span class="form-hint">系统与上游用的标识，创建后不可更改。</span>
           </t-form-item>
-          <t-form-item label="分类" name="category_id">
-            <t-select v-model="form.category_id" clearable placeholder="请选择分类" :options="categoryOptions" />
+          <t-form-item
+            label="分类"
+            name="category_id"
+            :rules="[{ required: true, message: '请选择商品分类' }]"
+          >
+            <!-- 分类必填：留空会让商品落进「未分类」——列表显示不出归属、导航也统计不到。 -->
+            <t-select v-model="form.category_id" placeholder="请选择分类" :options="categoryOptions" />
           </t-form-item>
           <t-form-item label="产品类型" name="product_type">
             <t-select v-model="form.product_type" clearable placeholder="请选择类型" :options="productTypeOptions" />
@@ -344,10 +354,18 @@
                   -->
                   <t-alert v-if="selectedTemplateCount > 1" theme="info" class="tpl-multi-tip">
                     <template #message>
-                      已选 <b>{{ selectedTemplateCount }}</b> 个档位 → 将生成 <b>{{ selectedTemplateCount }}</b> 个
-                      SKU（每个档位 1 个）。
+                      已选 <b>{{ selectedTemplateCount }}</b> 个档位 → 将生成 <b>{{ totalSkuCount }}</b> 个 SKU<template
+                        v-if="totalSkuCount !== selectedTemplateCount"
+                        >（含按「SKU 维度」取值组合展开的规格）</template
+                      >。
                       客户可选配置项按<b>参数名跨档位合并</b>：如同一参数在多个档位都开放，客户可选取值取并集；
                       各档位的<b>基线值</b>（CPU/内存/盘）仍按各自档位下发，互不影响。
+                    </template>
+                  </t-alert>
+                  <t-alert v-else-if="totalSkuCount > 1" theme="info" class="tpl-multi-tip">
+                    <template #message>
+                      已选 1 个档位，该档位含「SKU 维度」参数 → 将按取值组合生成
+                      <b>{{ totalSkuCount }}</b> 个独立规格，可分别定价与设库存。
                     </template>
                   </t-alert>
                 </div>
@@ -394,6 +412,15 @@
               <span class="spec-detail__code">
                 SKU <code>{{ previewSpecCode(row) }}</code>
               </span>
+              <t-tag
+                v-if="axisCombinationCount(row) > 1"
+                theme="primary"
+                variant="light"
+                size="small"
+                shape="round"
+              >
+                SKU 维度 → {{ axisCombinationCount(row) }} 个规格
+              </t-tag>
               <t-tag v-if="!row.tpl.platform_params" theme="danger" variant="light" size="small" shape="round">
                 缺平台映射，无法上架
               </t-tag>
@@ -471,46 +498,136 @@
             -->
             <div v-if="row.options.length" class="tpl-options">
               <div class="tpl-options__head">
-                客户可选配置项（模板配了哪些取值就开放哪些，可逐值设加价；「基线值」= 客户不选时开通的那一个）
+                <span>
+                  客户可选配置项
+                  <em class="tpl-options__count">{{ row.options.length }} 项</em>
+                </span>
+                <!--
+                  参数一多（模板 17 有 12 项）全部平铺展开会占满好几屏，逐项找要改的那个很费劲。
+                  默认只显示一行摘要（名称 + 当前配置 + 是否加价），点「展开」才出现输入控件。
+                -->
+                <t-space size="small">
+                  <t-link theme="primary" hover="color" @click="toggleAllOptions(row, true)">全部展开</t-link>
+                  <t-link theme="default" hover="color" @click="toggleAllOptions(row, false)">全部收起</t-link>
+                </t-space>
               </div>
-              <div v-for="opt in row.options" :key="opt.key" class="tpl-opt">
-                <t-checkbox v-model="opt.enabled">
-                  <span class="tpl-opt__name">{{ platformFieldLabel(opt.key) }}</span>
-                  <code class="tpl-opt__key">{{ opt.key }}</code>
-                </t-checkbox>
+              <div v-for="opt in row.options" :key="opt.key" class="tpl-opt" :class="{ 'tpl-opt--open': opt.open }">
+                <div class="tpl-opt__head">
+                  <t-checkbox v-model="opt.enabled" @change="onOptionToggle(opt)">
+                    <span class="tpl-opt__name">{{ platformFieldLabel(opt.key) }}</span>
+                    <code class="tpl-opt__key">{{ opt.key }}</code>
+                  </t-checkbox>
+                  <!-- 一行摘要：不展开也能看清这一项当前是什么状态 -->
+                  <span class="tpl-opt__summary" :class="{ 'is-off': !opt.enabled }">{{ optionSummary(opt) }}</span>
+                  <t-link
+                    v-if="opt.enabled"
+                    theme="default"
+                    hover="color"
+                    class="tpl-opt__toggle"
+                    @click="opt.open = !opt.open"
+                  >
+                    {{ opt.open ? '收起' : '展开' }}
+                  </t-link>
+                </div>
                 <span v-if="!opt.enabled" class="tpl-opt__closed">已关闭：客户不可改，固定按基线值开通</span>
-                <template v-else>
+                <template v-else-if="opt.open">
                   <template v-if="opt.isRange">
-                    <label class="tpl-field tpl-field--inline">
-                      范围
-                      <t-input-number v-model="opt.rangeMin" :min="0" theme="column" />
-                      ~
-                      <t-input-number v-model="opt.rangeMax" :min="0" theme="column" />
-                    </label>
-                    <label class="tpl-field tpl-field--inline">
-                      基线值
-                      <t-input-number
-                        v-model="opt.defaultNumber"
-                        :min="opt.rangeMin ?? 0"
-                        :max="opt.rangeMax ?? undefined"
-                        theme="column"
-                      />
-                    </label>
+                    <div class="tpl-opt__value-block">
+                      <div class="tpl-opt__value">
+                        <label class="tpl-field tpl-field--inline">
+                          范围
+                          <t-input-number v-model="opt.rangeMin" :min="0" theme="column" />
+                          ~
+                          <t-input-number v-model="opt.rangeMax" :min="0" theme="column" />
+                        </label>
+                        <label class="tpl-field tpl-field--inline">
+                          基线值
+                          <t-input-number
+                            v-model="opt.defaultNumber"
+                            :min="opt.rangeMin ?? 0"
+                            :max="opt.rangeMax ?? undefined"
+                            theme="column"
+                          />
+                        </label>
+                        <label class="tpl-field tpl-field--inline">
+                          超出单价（元/{{ opt.unit || '单位' }}）
+                          <t-input-number v-model="opt.unitPrice" :min="0" :precision="2" theme="column" />
+                        </label>
+                        <t-link theme="default" hover="color" @click="opt.showCycles = !opt.showCycles">
+                          {{ opt.showCycles ? '收起长周期' : '长周期单价' }}
+                        </t-link>
+                      </div>
+                      <!--
+                        数量型（带宽/数据盘/系统盘/IP）的价格挂在"每单位"上，不是一个总价：
+                        客户填 50G、超出基线的部分按这个单价加。留空的长周期档位
+                        由后端按「月单价 × 周期月数」折算（与取值加价同一口径）。
+                      -->
+                      <div v-if="opt.showCycles" class="tpl-opt__cycles">
+                        <label class="tpl-field tpl-field--inline">
+                          季付单价
+                          <t-input-number v-model="opt.unitPriceQuarterly" :min="0" :precision="2" theme="column" />
+                        </label>
+                        <label class="tpl-field tpl-field--inline">
+                          年付单价
+                          <t-input-number v-model="opt.unitPriceAnnually" :min="0" :precision="2" theme="column" />
+                        </label>
+                        <label class="tpl-field tpl-field--inline">
+                          一次性单价
+                          <t-input-number v-model="opt.unitPriceOnetime" :min="0" :precision="2" theme="column" />
+                        </label>
+                        <span class="tpl-field__hint">留空 = 月单价 × 周期月数（季 ×3、年 ×12）；一次性不折算</span>
+                      </div>
+                    </div>
                     <span v-if="optRangeError(opt)" class="tpl-opt__error">{{ optRangeError(opt) }}</span>
                   </template>
                   <div v-else class="tpl-opt__values">
-                    <div v-for="v in opt.values" :key="v.value" class="tpl-opt__value">
-                      <t-tag v-if="v.isDefault" theme="primary" variant="light" size="small" shape="round">
-                        基线值
-                      </t-tag>
-                      <t-link v-else theme="default" hover="color" @click="setDefaultValue(opt, v.value)"
-                        >设为基线</t-link
-                      >
-                      <span class="tpl-opt__label"
-                        >{{ v.group ? v.group + ' / ' : '' }}{{ catalogValueLabel(opt.key, v.value) }}</span
-                      >
-                      <t-input-number v-model="v.price" :min="0" :precision="2" theme="column" class="tpl-opt__price" />
-                      <span class="tpl-opt__unit">元/月</span>
+                    <!-- 每个取值一块（取值行 + 可展开的长周期加价）：
+                         长周期输入必须与它所属的取值同块，否则 v-for 的作用域取不到 v。 -->
+                    <div v-for="v in opt.values" :key="v.value" class="tpl-opt__value-block">
+                      <div class="tpl-opt__value">
+                        <t-tag v-if="v.isDefault" theme="primary" variant="light" size="small" shape="round">
+                          基线值
+                        </t-tag>
+                        <t-link v-else theme="default" hover="color" @click="setDefaultValue(opt, v.value)"
+                          >设为基线</t-link
+                        >
+                        <span class="tpl-opt__label"
+                          >{{ v.group ? v.group + ' / ' : '' }}{{ catalogValueLabel(opt.key, v.value) }}</span
+                        >
+                        <t-input-number
+                          v-model="v.price"
+                          :min="0"
+                          :precision="2"
+                          theme="column"
+                          class="tpl-opt__price"
+                        />
+                        <span class="tpl-opt__unit">元/月</span>
+                        <!--
+                          长周期加价：留空即按「月价 × 周期月数」自动折算（后端 deriveMissingCyclePrices）。
+                          默认收起（用户反馈"拥挤"）：多数商品只填月价就够，
+                          三列铺开会让每行很长。
+                        -->
+                        <t-link theme="default" hover="color" @click="v.showCycles = !v.showCycles">
+                          {{ v.showCycles ? '收起长周期' : '长周期加价' }}
+                        </t-link>
+                      </div>
+                      <div v-if="v.showCycles" class="tpl-opt__cycles">
+                        <label class="tpl-field tpl-field--inline">
+                          季付
+                          <t-input-number v-model="v.priceQuarterly" :min="0" :precision="2" theme="column" />
+                        </label>
+                        <label class="tpl-field tpl-field--inline">
+                          年付
+                          <t-input-number v-model="v.priceAnnually" :min="0" :precision="2" theme="column" />
+                        </label>
+                        <label class="tpl-field tpl-field--inline">
+                          一次性
+                          <t-input-number v-model="v.priceOnetime" :min="0" :precision="2" theme="column" />
+                        </label>
+                        <span class="tpl-field__hint">
+                          留空 = 月价 × 周期月数（季付 ×3、年付 ×12）；一次性不折算，留空即按月度
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </template>
@@ -555,8 +672,13 @@
               </t-input>
               <span class="form-hint">系统与上游用的标识，按产品名自动生成，可手工改写；创建后不可更改。</span>
             </t-form-item>
-            <t-form-item label="分类" name="category_id">
-              <t-select v-model="form.category_id" clearable placeholder="请选择分类" :options="categoryOptions" />
+            <t-form-item
+              label="分类"
+              name="category_id"
+              :rules="[{ required: true, message: '请选择商品分类' }]"
+            >
+              <!-- 分类必填：留空会让商品落进「未分类」——列表显示不出归属、导航也统计不到。 -->
+              <t-select v-model="form.category_id" placeholder="请选择分类" :options="categoryOptions" />
             </t-form-item>
             <t-form-item label="产品类型" name="product_type">
               <t-select v-model="form.product_type" clearable placeholder="请选择类型" :options="productTypeOptions" />
@@ -1022,8 +1144,28 @@ const catalogDefaults = ref<{ key: string; label: string; value: string; help?: 
  */
 const catalogValueLabels = ref<Record<string, Record<string, string>>>({})
 
+/** 目录里的单位（option_key → GB/Mbps/个）：范围型标注"元/单位"要用它。 */
+const catalogUnits = ref<Record<string, string>>({})
+
+/** 展示名；目录没有该项时回落取值本身（界面永远有字可显示）。 */
 function catalogValueLabel(optionKey: string, value: string): string {
   return catalogValueLabels.value[optionKey]?.[value] || value
+}
+
+/**
+ * 目录里的展示名，**查不到返回空串**（不回落取值）。
+ *
+ * 与 catalogValueLabel 的区别是"查不到"的处理：界面要回落取值免得空着，
+ * 但提交时必须留空 —— 后端只在 label 非空时才覆盖目录名，
+ * 传裸值（"62"）反而会把后端的「CentOS / CentOS-7.9」盖掉。
+ */
+function catalogLabelOrEmpty(optionKey: string, value: string): string {
+  return catalogValueLabels.value[optionKey]?.[value] || ''
+}
+
+/** 目录里的单位（GB / Mbps / 个）；查不到返回空串，由界面回落"单位"二字。 */
+function catalogUnit(optionKey: string): string {
+  return catalogUnits.value[optionKey] || ''
 }
 
 async function loadCatalogDefaults(providerType: string) {
@@ -1054,10 +1196,16 @@ async function loadCatalogDefaults(providerType: string) {
       }
     }
     catalogValueLabels.value = labels
+    const units: Record<string, string> = {}
+    for (const item of list) {
+      if (item.option_key && item.unit) units[item.option_key] = item.unit
+    }
+    catalogUnits.value = units
   } catch {
     // 目录读不到不影响建品：默认值为辅助信息，非必需。
     catalogDefaults.value = []
     catalogValueLabels.value = {}
+    catalogUnits.value = {}
   }
 }
 
@@ -1118,7 +1266,41 @@ type OptionRow = {
   rangeMin: number
   rangeMax: number
   defaultNumber: number | null
-  values: { value: string; label: string; group: string; price: number; isDefault: boolean }[]
+  /**
+   * 数量型的「超出单价（元/单位）」四档周期价。
+   *
+   * 价格挂在每单位上而不是总价上：客户填 50G，超出基线的部分按这个单价加。
+   * 留空（null）的长周期档位由后端按「月单价 × 周期月数」折算。
+   */
+  unitPrice: number
+  unitPriceQuarterly: number | null
+  unitPriceAnnually: number | null
+  unitPriceOnetime: number | null
+  /** 单位（GB / Mbps / 个），来自平台目录；用于"元/单位"的文案与提示。 */
+  unit: string
+  /** 纯界面状态：是否展开该项的编辑控件（参数多时默认收起，只显示摘要）。 */
+  open?: boolean
+  /** 纯界面状态：是否展开长周期单价（不参与提交）。 */
+  showCycles?: boolean
+  /**
+   * 取值列表。四档加价分开存：
+   * 上游/平台按周期各给一个价（内存 8G 月付 13、年付 156），
+   * 只填"元/月"一个数会让年付订单只加一个月的钱（用户反馈的实测故障：
+   * 换周期后加价不变，年付的 8G 内存仍只加 13 元）。
+   */
+  values: {
+    value: string
+    label: string
+    group: string
+    /** 月度加价（元）；下面三档留空表示"按月度 × 周期月数"自动折算。 */
+    price: number
+    priceQuarterly: number | null
+    priceAnnually: number | null
+    priceOnetime: number | null
+    isDefault: boolean
+    /** 纯界面状态：是否展开长周期加价输入（不参与提交）。 */
+    showCycles?: boolean
+  }[]
 }
 
 type TemplateRow = {
@@ -1158,6 +1340,34 @@ const selectedTemplateCount = computed(() => templateRows.value.filter((r) => r.
 
 /** 已选档位：步骤 3「规格明细」只渲染这些，未勾选的不占版面。 */
 const selectedRows = computed(() => templateRows.value.filter((r) => r.selected))
+
+/**
+ * axisCombinationCount 单个档位按「SKU 维度」展开会生成几个规格。
+ *
+ * 口径与后端 buildAxisPlan 一致：只数标记了 sku_axis 的离散参数，取它们取值数的乘积。
+ * 轴参数不在这里的 options 里（buildOptionRows 已把它们排除），所以直接读模板声明。
+ */
+function axisCombinationCount(row: TemplateRow): number {
+  const sel = (row.tpl.option_selections || {}) as Record<
+    string,
+    { values?: string[]; range?: number[]; sku_axis?: boolean }
+  >
+  let count = 1
+  let hasAxis = false
+  for (const cfg of Object.values(sel)) {
+    if (!cfg?.sku_axis || Array.isArray(cfg.range)) continue
+    const n = (cfg.values || []).length
+    if (n <= 0) continue
+    hasAxis = true
+    count *= n
+  }
+  return hasAxis ? count : 1
+}
+
+/** 本次建品将生成的 SKU 总数：各已选档位的正交组合数之和。 */
+const totalSkuCount = computed(() =>
+  selectedRows.value.reduce((acc, row) => acc + axisCombinationCount(row), 0),
+)
 
 /**
  * 平台默认参数区默认折叠：多数档位模板已带全参数，展开反而造成"填哪个"的困惑。 */
@@ -1293,10 +1503,14 @@ function machineKindError(row: TemplateRow, params: Record<string, unknown>): st
 function buildOptionRows(tpl: SpecTemplateInfo): OptionRow[] {
   const sel = (tpl.option_selections || {}) as Record<
     string,
-    { values?: string[]; range?: number[]; default?: string; group_label?: string }
+    { values?: string[]; range?: number[]; default?: string; group_label?: string; sku_axis?: boolean }
   >
   const out: OptionRow[] = []
   for (const [key, cfg] of Object.entries(sel)) {
+    // 参与 SKU 正交的参数不进客户选配项（T4.7）：它的取值已经落成独立的规格变体，
+    // 客户通过"选规格"来选它。若这里也开放一件同名配置项，客户在配置项里选的取值
+    // 会覆盖 SKU 基线 —— 那正是「商品名 6G、实际开通 4G」的成因。
+    if (cfg?.sku_axis) continue
     if (Array.isArray(cfg?.range) && cfg.range.length === 2) {
       const defStr = cfg.default ?? ''
       const defNum = Number(defStr)
@@ -1307,6 +1521,12 @@ function buildOptionRows(tpl: SpecTemplateInfo): OptionRow[] {
         rangeMin: cfg.range[0],
         rangeMax: cfg.range[1],
         defaultNumber: defStr !== '' && Number.isFinite(defNum) ? defNum : null,
+        unitPrice: 0,
+        unitPriceQuarterly: null,
+        unitPriceAnnually: null,
+        unitPriceOnetime: null,
+        unit: catalogUnit(key) || '',
+        open: false,
         values: [],
       })
       continue
@@ -1316,15 +1536,37 @@ function buildOptionRows(tpl: SpecTemplateInfo): OptionRow[] {
     const hasDeclaredDefault = !!cfg?.default && rawValues.includes(cfg.default)
     const values = rawValues.map((v, idx) => ({
       value: v,
-      // 展示名取平台目录的翻译（6144 → 「6G」）：留空则由后端按目录补，
-      // 但这里显式填上，提交的 option_overrides 才不会用裸值覆盖掉目录里的中文名。
-      label: catalogValueLabel(key, v),
+      // label 留空：展示名由 catalogValueLabel 在渲染/提交时按目录**实时**解析。
+      //
+      // 为什么不在这里烘焙（实测故障）：buildRow 在页面挂载时就跑（loadTemplates），
+      // 而平台目录要等运营选了渠道才加载（loadCatalogDefaults）。烘焙会把还没加载到的
+      // 展示名固化成裸值（os 存成 "62"、area 存成 "1"），且提交时用这个裸值当 label
+      // 覆盖掉后端的目录中文名 —— 下单界面于是只显示 ID。
+      label: '',
       group: cfg?.group_label || '',
       price: 0,
+      priceQuarterly: null,
+      priceAnnually: null,
+      priceOnetime: null,
       isDefault: hasDeclaredDefault ? cfg.default === v : idx === 0,
     }))
-    if (values.length)
-      out.push({ key, enabled: true, isRange: false, rangeMin: 0, rangeMax: 0, defaultNumber: null, values })
+    if (values.length) {
+      out.push({
+        key,
+        enabled: true,
+        isRange: false,
+        rangeMin: 0,
+        rangeMax: 0,
+        defaultNumber: null,
+        unitPrice: 0,
+        unitPriceQuarterly: null,
+        unitPriceAnnually: null,
+        unitPriceOnetime: null,
+        unit: catalogUnit(key) || '',
+        open: false,
+        values,
+      })
+    }
   }
   return out
 }
@@ -1423,16 +1665,30 @@ function buildOptionOverrides(row: TemplateRow): SaleProductOptionOverride[] | u
         min_value: opt.rangeMin,
         max_value: opt.rangeMax,
         default: opt.defaultNumber != null ? String(opt.defaultNumber) : undefined,
+        // 单位加价（元/单位）：不带上就没法给带宽/数据盘定价，只能建完去详情页补。
+        // 留空的档位传 undefined（不是 0），后端据此按月数折算；显式 0 表示不加价。
+        unit_price_monthly: opt.unitPrice,
+        unit_price_quarterly: opt.unitPriceQuarterly ?? undefined,
+        unit_price_annually: opt.unitPriceAnnually ?? undefined,
+        unit_price_onetime: opt.unitPriceOnetime ?? undefined,
         values: [],
       })
       continue
     }
     const values = opt.values.map((v) => ({
       value: v.value,
-      label: v.label,
+      // 展示名按目录实时解析（6144 → 「6G」）。
+      // 目录缺该项时返回 undefined（不是裸值）—— 后端 applyOverride 只在 label 非空时
+      // 才覆盖，留空即保留目录里的中文名；传裸值反而会把好名字盖掉（实测故障）。
+      label: catalogLabelOrEmpty(opt.key, v.value) || undefined,
       group_label: v.group || undefined,
       is_default: v.isDefault,
       price_monthly: v.price,
+      // 留空的档位传 undefined（不是 0）：后端据此按「月价 × 周期月数」折算，
+      // 与运营"只填月价即可"的直觉一致；显式填 0 则表示该周期不加价。
+      price_quarterly: v.priceQuarterly ?? undefined,
+      price_annually: v.priceAnnually ?? undefined,
+      price_onetime: v.priceOnetime ?? undefined,
     }))
     out.push({
       option_key: opt.key,
@@ -1488,6 +1744,37 @@ function optRangeError(opt: OptionRow): string {
     return `基线值 ${def} 不在区间 [${min}, ${max}] 内，客户下单会预填出无效值`
   }
   return ''
+}
+
+/**
+ * optionSummary 未展开时的一行摘要：讲清这一项当前配成什么样。
+ *
+ * 参数多的档位（模板 17 有 12 项）全部展开会占满几屏，逐项找要改的很费劲。
+ * 收起时至少要能看出"范围多少、基线多少、加不加价"，否则得挨个点开才知道。
+ */
+function optionSummary(opt: OptionRow): string {
+  if (opt.isRange) {
+    const range = `${opt.rangeMin ?? 0}~${opt.rangeMax ?? '—'}${opt.unit ? ' ' + opt.unit : ''}`
+    const base = opt.defaultNumber != null ? `，基线 ${opt.defaultNumber}` : ''
+    const price = opt.unitPrice > 0 ? `，超出 ¥${opt.unitPrice}/${opt.unit || '单位'}` : '，不加价'
+    return `${range}${base}${price}`
+  }
+  const base = opt.values.find((v) => v.isDefault)
+  const baseText = base ? `，基线 ${catalogValueLabel(opt.key, base.value)}` : ''
+  const priced = opt.values.filter((v) => v.price > 0).length
+  return `${opt.values.length} 个取值${baseText}，${priced > 0 ? `${priced} 个带加价` : '均不加价'}`
+}
+
+/** 勾选/取消某项：勾上时自动展开（运营勾选多半就是要改它）。 */
+function onOptionToggle(opt: OptionRow) {
+  if (opt.enabled) opt.open = true
+}
+
+/** 整档位批量展开/收起。 */
+function toggleAllOptions(row: TemplateRow, open: boolean) {
+  for (const opt of row.options) {
+    if (opt.enabled) opt.open = open
+  }
 }
 
 /** 收集全部档位的选配项区间错误（提交前统一拦一次）。 */
@@ -2613,9 +2900,24 @@ async function loadProviderNames() {
 }
 
 .tpl-options__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   font-size: 12px;
   color: var(--td-text-color-secondary, #888);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+}
+
+/* 项数徽标：让"这个档位有多少可选参数"一眼可见 */
+.tpl-options__count {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--td-bg-color-container-hover, #f0f1f3);
+  font-style: normal;
+  font-size: 11px;
+  color: var(--td-text-color-secondary, #777);
 }
 
 /* 周期价格一键生成：一行输入 + 生成结果网格。 */
@@ -2764,10 +3066,41 @@ async function loadProviderNames() {
 
 .tpl-opt {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+
+/* 展开态给个底色与描边：一眼看出哪几项正在编辑 */
+.tpl-opt--open {
+  border-color: var(--td-component-stroke, #e7e7e7);
+  background: var(--td-bg-color-container-hover, #fafbfc);
+}
+
+.tpl-opt__head {
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  padding: 4px 0;
+}
+
+/* 摘要：收起时的唯一信息来源，用弱化色但不省略 */
+.tpl-opt__summary {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #888);
+  font-variant-numeric: tabular-nums;
+}
+
+.tpl-opt__summary.is-off {
+  color: var(--td-text-color-placeholder, #bbb);
+}
+
+.tpl-opt__toggle {
+  flex-shrink: 0;
+  font-size: 12px;
 }
 
 .tpl-opt code {
@@ -2776,8 +3109,15 @@ async function loadProviderNames() {
 
 .tpl-opt__values {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 一个取值及其长周期加价：整体成块，展开的长周期输入跟随所属取值 */
+.tpl-opt__value-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .tpl-opt__value {
@@ -2815,6 +3155,18 @@ async function loadProviderNames() {
 .tpl-opt__error {
   font-size: 12px;
   color: var(--td-error-color-6, #d54941);
+}
+
+/* 长周期加价：展开后另起一行，与取值行左对齐缩进 */
+.tpl-opt__cycles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin: 2px 0 4px 64px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--td-bg-color-container-hover, #f7f8fa);
 }
 
 .tpl-field--inline {

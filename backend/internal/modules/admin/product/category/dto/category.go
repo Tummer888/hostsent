@@ -38,11 +38,18 @@ type CategoryInfo struct {
 	SortOrder int    `json:"sort_order"`
 	Status    int    `json:"status"`
 	// CostRate 分类拿货折扣率（0=未配置）；代理折扣的毛利校验基准。
-	CostRate float64         `json:"cost_rate"`
-	Children []*CategoryInfo `json:"children,omitempty"`
+	CostRate float64 `json:"cost_rate"`
+	// ProductCount 该分类**自身的直接商品数**（不含子分类）。
+	// 分类导航要显示每个节点有多少商品；只统计自身，避免父子重复计数。
+	ProductCount int64           `json:"product_count"`
+	Children     []*CategoryInfo `json:"children,omitempty"`
 }
 
 // CategoryListResponse 分类树响应
 type CategoryListResponse struct {
 	Items []*CategoryInfo `json:"items"`
+	// UncategorizedCount 未分类商品数（category_id 为空，或指向已删除的分类）。
+	// 单独给一个桶：这类商品不属于任何节点，遍历分类树算不出来；
+	// 而"未分类有多少个"正是运营决定要不要整理分类的依据。
+	UncategorizedCount int64 `json:"uncategorized_count"`
 }

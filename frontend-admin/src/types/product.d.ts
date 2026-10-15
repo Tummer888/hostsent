@@ -4,6 +4,11 @@ import type { ListMeta } from './common'
 export interface SaleProductListQuery {
   keyword?: string
   category_id?: number
+  /**
+   * 只看未分类（category_id 为空，或指向已删除的分类）。
+   * 与 category_id 互斥：未分类不是一个真实分类 ID。
+   */
+  uncategorized?: boolean
   status?: number
   /** 链路判据（D6）：self 自营 / upstream 上游转售 */
   source_mode?: string
@@ -423,11 +428,18 @@ export interface SaleProductCategoryInfo {
   status: number
   /** 分类级拿货折扣率（doc108）；0 = 未配置。代理折扣的毛利校验基准。 */
   cost_rate?: number
+  /** 该分类**自身**直接挂的商品数（不含子分类）——分类导航的计数 */
+  product_count?: number
   children?: SaleProductCategoryInfo[]
 }
 
 export interface SaleProductCategoryListResponse {
   items: SaleProductCategoryInfo[]
+  /**
+   * 未分类商品数（category_id 为空，或指向已删除的分类）。
+   * 这类商品不属于任何节点，遍历分类树算不出来，所以由后端单独给一个桶。
+   */
+  uncategorized_count?: number
 }
 
 export interface SpecTemplateQuery {
@@ -636,6 +648,16 @@ export interface SpecOptionSelection {
   /** 默认值（与平台写参数口径一致） */
   default?: string
   group_label?: string
+  /**
+   * 参与 SKU 正交展开（T4.7）。
+   *
+   * true = 该参数的每个取值都是一台不同的机器（内存 4G/8G/16G），
+   * 建品时按各轴的取值做笛卡尔积，每个组合生成一个独立 SKU（各自定价与库存）。
+   * 不勾 = 作为客户下单时可调的加配项（带宽滑杆、数据盘大小），不产生新 SKU。
+   *
+   * 只对离散取值有意义：区间型参数客户填的是连续值，枚举不出有限 SKU。
+   */
+  sku_axis?: boolean
 }
 
 /** 配置档勾选的参数 → 勾选结果 */
@@ -655,6 +677,16 @@ export interface SaleProductOptionOverride {
   max_value?: number | null
   sort_order?: number
   values?: SaleProductOptionValue[]
+  /**
+   * 数量型（带宽/数据盘/IP 数）的「超出单价（元/单位）」四档周期价。
+   *
+   * 数量型没有离散取值，价格挂在"每单位"上，不能用 values[].price_monthly 表达。
+   * 留空的档位由后端按「月单价 × 周期月数」折算。
+   */
+  unit_price_monthly?: number
+  unit_price_quarterly?: number
+  unit_price_annually?: number
+  unit_price_onetime?: number
 }
 
 export interface SaleProductOptionValue {

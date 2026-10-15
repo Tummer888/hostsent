@@ -366,10 +366,10 @@
       :header="deleteRow ? `删除${providerUnit} · ${deleteRow.name}` : '删除确认'"
       width="640px"
       :confirm-btn="{
-        content: hasAssociations ? '连带删除全部' : '确认删除',
+        content: canCascadeDelete ? '连带删除全部' : '确认删除',
         theme: 'danger',
         loading: deleteSubmitting,
-        disabled: deleteLoading || deleteBlockedProducts.length > 0,
+        disabled: deleteLoading || deleteBlockedProducts.length > 0 || deleteBoundInstances.length > 0,
       }"
       cancel-btn="取消"
       :on-confirm="confirmDeleteProvider"
@@ -386,6 +386,16 @@
           theme="error"
           class="delete-alert"
           :message="`有 ${deleteBlockedProducts.length} 个上游商品已被销售商品引用，不能连带删除。请先到「商品管理」处理这些销售商品（下架或改绑），再回来删除${providerUnit}。`"
+        />
+        <!--
+          实例挡删除：渠道删掉后实例无法同步/操作，而渠道没有恢复入口 ——
+          实例会永久卡在列表里（用户实测）。因此这里置灰提交并指向处置入口。
+        -->
+        <t-alert
+          v-if="deleteBoundInstances.length"
+          theme="error"
+          class="delete-alert"
+          :message="`该${providerUnit}还绑定着 ${deleteBoundInstances.length} 台未销毁实例，不能删除：删除后这些实例将无法同步/操作，且没有恢复入口。请先到「实例」里处置它们（正常销毁；渠道已不可用时可选「只清本地记录」）。`"
         />
         <t-alert
           v-else-if="hasAssociations"
@@ -423,6 +433,19 @@
           </div>
           <ul class="delete-list">
             <li v-for="item in deleteAssoc.pools" :key="`pool-${item.id}`" class="delete-list__item">
+              <span class="delete-list__name">{{ item.name }}</span>
+              <span v-if="item.subtitle" class="delete-list__sub">{{ item.subtitle }}</span>
+            </li>
+          </ul>
+        </template>
+
+        <template v-if="deleteBoundInstances.length">
+          <div class="delete-section__head">
+            绑定实例
+            <span class="delete-section__count">{{ deleteBoundInstances.length }} 台</span>
+          </div>
+          <ul class="delete-list">
+            <li v-for="item in deleteBoundInstances" :key="`i-${item.id}`" class="delete-list__item">
               <span class="delete-list__name">{{ item.name }}</span>
               <span v-if="item.subtitle" class="delete-list__sub">{{ item.subtitle }}</span>
             </li>
@@ -843,10 +866,19 @@ const deleteAssoc = ref<ProviderAssociations | null>(null)
 const providerUnit = computed(() => (isCompute.value ? '平台' : '渠道'))
 
 const deleteBlockedProducts = computed(() => (deleteAssoc.value?.products || []).filter((item) => item.has_orders > 0))
+/** 该渠道下未销毁的实例：它们挡删除（渠道没了实例就卡死，且渠道无法恢复）。 */
+const deleteBoundInstances = computed(() => deleteAssoc.value?.instances || [])
 const hasAssociations = computed(() => {
   const assoc = deleteAssoc.value
   return !!assoc && (assoc.products.length > 0 || assoc.pools.length > 0)
 })
+/**
+ * 只有在"有商品/资源池**且没有实例**"时才走连带删除。
+ *
+ * 有实例时必须走普通删除：连带删除会连带清掉商品与资源池，而实例不属于
+ * 连带清理范围 —— 渠道被删而实例留下，正是实例卡死的成因。
+ */
+const canCascadeDelete = computed(() => hasAssociations.value && deleteBoundInstances.value.length === 0)
 
 async function openDeleteDialog(row: ProviderInfo) {
   deleteRow.value = row
@@ -868,12 +900,13 @@ async function confirmDeleteProvider() {
   if (!row) return
   deleteSubmitting.value = true
   try {
-    if (hasAssociations.value) {
+    if (canCascadeDelete.value) {
       const result = await deleteProviderCascade(row.id)
       MessagePlugin.success(
         `已删除${providerUnit.value}，并清理上游商品 ${result.deleted_products} 个、资源池 ${result.deleted_pools} 个`,
       )
     } else {
+      // 有实例时走普通删除（服务端会拒绝并告知原因），不做连带清理。
       await deleteProvider(row.id)
       MessagePlugin.success('提供商已删除')
     }

@@ -289,6 +289,13 @@ export interface ProviderAssociations {
   provider_id: number
   products: ProviderAssociationItem[]
   pools: ProviderAssociationItem[]
+  /**
+   * 该渠道下**未销毁**的实例。
+   *
+   * 它们挡删除：渠道删掉后实例无法同步/操作，而渠道没有恢复入口，
+   * 实例会永久卡在列表里（实测：删渠道导致实例卡死）。
+   */
+  instances: ProviderAssociationItem[]
 }
 
 /** 连带删除结果。 */

@@ -46,6 +46,9 @@ PSQL = ["docker", "exec", "backend-postgres-1", "psql", "-U", "hostsent", "-d", 
 # 自建资源统一前缀：清理时按名字前缀定位，不会误伤运营的渠道/商品。
 PROVIDER_PREFIX = "e2e-p6-dcim渠道"
 PRODUCT_PREFIX = "e2e-p6-open商品"
+# 商品分类：建品现在强制必填（留空会落进「未分类」，导航/列表都归不了位），
+# 脚本自建一个分类，跑完在删完商品之后删除（分类下仍有商品时后端会拒绝删除）。
+CATEGORY_PREFIX = "e2e-p6-分类"
 
 PASS = 0
 FAIL = 0
@@ -99,7 +102,7 @@ def admin_req(method, path, token, body=None, timeout=60):
 
 
 def setup_self_product():
-    """管理员登录 + 自建 dcimcloud mock 渠道 + self 商品，返回 (product_id, provider_id, admin_token)。"""
+    """管理员登录 + 自建分类/channel/self 商品，返回 (product_id, provider_id, admin_token, category_id)。"""
     st, obj = admin_req("POST", "/admin/auth/login", None, body={"username": "admin", "password": "123456"})
     admin_token = dig(obj, "token")
     check("管理员登录（自建验收资源用）", st == 200 and bool(admin_token), f"HTTP {st}")
@@ -107,6 +110,13 @@ def setup_self_product():
         sys.exit(1)
 
     suffix = str(random.randint(100000, 999999))
+    st, obj = admin_req("POST", "/admin/product/categories", admin_token, body={
+        "parent_id": 0, "name": f"{CATEGORY_PREFIX}-{suffix}", "sort_order": 0, "status": 1})
+    category_id = dig(obj, "id")
+    check("自建商品分类（供 self 商品归属）", st == 200 and bool(category_id), f"HTTP {st}")
+    if not category_id:
+        sys.exit(1)
+
     st, obj = admin_req("POST", "/admin/resource/providers", admin_token, body={
         "name": f"{PROVIDER_PREFIX}-{suffix}", "provider_type": "dcimcloud",
         "api_endpoint": "http://p5-mock:9099", "status": 1, "des": "P6 开放平台 e2e 自建（跑完清理）",
@@ -120,16 +130,17 @@ def setup_self_product():
         "code": f"e2e-p6-open-{suffix}", "name": f"{PRODUCT_PREFIX}-{suffix}",
         "product_type": "cloud_host", "price_model": "monthly", "price": 100.0, "cost_price": 0.0,
         "source_mode": "self", "source_provider_id": provider_id, "stock": -1, "status": 1,
+        "category_id": category_id,
         "description": "P6 开放平台 e2e 自建（跑完清理）"})
     product_id = dig(obj, "id")
     check("自建 self 商品（open 询价/下单样本）", st == 200 and bool(product_id), f"HTTP {st}")
     if not product_id:
         sys.exit(1)
-    return product_id, provider_id, admin_token
+    return product_id, provider_id, admin_token, category_id
 
 
-def cleanup(product_id, provider_id, admin_token):
-    """清理自建资源：先删续费单与实例（订单开通/续费产生），再删商品，最后删渠道。"""
+def cleanup(product_id, provider_id, admin_token, category_id=None):
+    """清理自建资源：先删续费单与实例（订单开通/续费产生），再删商品，最后删渠道与分类。"""
     if product_id:
         sql(f"DELETE FROM instance_renewals WHERE instance_id IN "
             f"(SELECT id FROM instances WHERE sell_product_id = {product_id})")
@@ -144,7 +155,12 @@ def cleanup(product_id, provider_id, admin_token):
         st, obj = admin_req("DELETE", f"/admin/resource/providers/{provider_id}", admin_token)
         if st != 200:
             print(f"  [WARN] 自建渠道 {provider_id} 清理失败（HTTP {st}）：{obj}")
-    print("已清理自建渠道、商品与开通实例")
+    # 分类最后删：它下面挂着刚删掉的商品，早删会被「分类下仍有商品」的守卫拦下。
+    if category_id and admin_token:
+        st, obj = admin_req("DELETE", f"/admin/product/categories/{category_id}", admin_token)
+        if st != 200:
+            print(f"  [WARN] 自建分类 {category_id} 清理失败（HTTP {st}）：{obj}")
+    print("已清理自建渠道、商品、开通实例与分类")
 
 
 def owner_discount_rate(app_id):
@@ -497,7 +513,7 @@ def main():
     only = args.only
 
     # 自建验收商品与渠道（t61 纯签名用例不依赖商品，但仍提前清理历史残留）。
-    product_id, provider_id, admin_token = setup_self_product()
+    product_id, provider_id, admin_token, category_id = setup_self_product()
     discount = owner_discount_rate(args.app_id)
 
     if only in ("all", "t61"):
@@ -511,7 +527,7 @@ def main():
     if only in ("all", "t64"):
         run_t64(client, product_id)
 
-    cleanup(product_id, provider_id, admin_token)
+    cleanup(product_id, provider_id, admin_token, category_id)
 
     print(f"\n结果：PASS={PASS} FAIL={FAIL}")
     if FAILED:

@@ -138,6 +138,13 @@ type CustomerOption struct {
 	Help         string   `json:"help"`
 	MinValue     *float64 `json:"min_value"`
 	MaxValue     *float64 `json:"max_value"`
+	// Creatable 该选项允许客户填**候选之外**的取值。
+	//
+	// 依据是平台目录的 value_source == manual：这类项平台只给了一个示例值
+	// （port 只声明 auto 随机端口），但文档明确允许填具体端口号（1024~30000）。
+	// 不放开的话，用户侧与代下单界面都只有一个「随机端口」可点，
+	// 想指定端口的客户根本无从填起（用户反馈）。
+	Creatable bool `json:"creatable"`
 	// UnitPrice 数量型选项的「每单位加价」（元，**月度口径**）。枚举型的加价随取值
 	// 逐项下发，数量型没有离散取值可挂价格，故单独给出，供前端实时估算超量加价。
 	//
@@ -281,6 +288,9 @@ type SpecOptionMeta struct {
 	MaxValue     *float64
 	SortOrder    int
 	Values       []SpecOptionValueMeta
+	// Creatable 允许客户填候选之外的取值（平台目录 value_source=manual）。
+	// 依据见 CustomerOption.Creatable 的注释（port 只声明 auto 但可填端口号）。
+	Creatable bool
 }
 
 // SpecOptionValueMeta 取值快照。
@@ -468,6 +478,12 @@ func (s *productService) Create(ctx context.Context, req dto.ProductCreateReques
 	if sourceMode == model.SourceModeUpstream {
 		return nil, errors.New("上游转售商品请在「导入上游商品」中创建（需绑定上游提供商与上游资源商品）")
 	}
+	// 分类必填：商品没有分类时，列表里那一列显示不出归属、分类导航也统计不到，
+	// 只能落进"未分类"那一堆 —— 运营事后要逐个回头补，比建的时候选一下贵得多。
+	// 在服务端挡住而不是只靠前端 required：接口是唯一入口，绕过界面一样会漏。
+	if err := s.validateCategory(ctx, req.CategoryID); err != nil {
+		return nil, err
+	}
 	item := &model.Product{
 		Code:             strings.TrimSpace(req.Code),
 		Name:             strings.TrimSpace(req.Name),
@@ -586,40 +602,82 @@ func (s *productService) precheckSpecTemplates(ctx context.Context, selections [
 	return nil
 }
 
-// generateSpecsFromTemplates 逐个模板生成 SKU（复用 GenerateSpecFromTemplate 的同一套规则）。
+// generateSpecsFromTemplates 逐个模板生成 SKU（T4.7 起支持按轴正交展开）。
+//
+// 两条路径：
+//   - 配置档标了 sku_axis 的参数 → 按取值笛卡尔积展开成多个 SKU（各自独立定价/库存）；
+//   - 其余参数 → 仍作为客户可选配置项（客户下单时就地改，不产生新 SKU）。
+//
 // 任一模板失败即中止并把已生成的数量与原因带回前端，避免错误被静默吞掉。
-// 生成 SKU 后，按档位勾选的多值参数同步生成客户可选配置项（T4.5）。
 func (s *productService) generateSpecsFromTemplates(ctx context.Context, productID uint64, selections []dto.ProductSpecTemplateSelection, operatorID uint64, operatorName string) ([]dto.ProductSpecInfo, error) {
+	product, err := s.repo.FindByID(ctx, productID)
+	if err != nil {
+		return nil, err
+	}
+	// 预解析全部档位：先把每个模板的轴计划算出来，再统一生成。
+	// 不能边生成边累积 axisKeys —— 第一个档位收集客户选配项时，后面档位声明的轴
+	// 还没读到，同一个参数会被前一个档位生成成客户配置项（正是要消灭的双真源）。
+	type templatePlan struct {
+		sel  dto.ProductSpecTemplateSelection
+		tpl  *SpecTemplateSnapshot
+		plan *axisPlan
+	}
+	plans := make([]templatePlan, 0, len(selections))
+	axisKeys := map[string]bool{}
+	for _, sel := range selections {
+		tpl, terr := s.templateReader.SpecTemplateByID(ctx, sel.SpecTemplateID)
+		if terr != nil || tpl == nil {
+			return nil, fmt.Errorf("模板 %d 不存在：%w", sel.SpecTemplateID, terr)
+		}
+		plan, perr := buildAxisPlan(parseOptionSelections(tpl.OptionSelections))
+		if perr != nil {
+			return nil, fmt.Errorf("规格模板「%s」：%w", tpl.Name, perr)
+		}
+		for _, key := range plan.axisKeys() {
+			axisKeys[key] = true
+		}
+		plans = append(plans, templatePlan{sel: sel, tpl: tpl, plan: plan})
+	}
+
 	out := make([]dto.ProductSpecInfo, 0, len(selections))
 	// 客户选配项跨档位合并：多个档位共享同一参数（如都开放 2核/4核）时取并集，
 	// 避免后一个档位覆盖前一个档位开放给客户的取值。
 	merged := map[string]*optionAccumulator{}
 	order := make([]string, 0, 8)
-	for _, sel := range selections {
-		result, err := s.GenerateSpecFromTemplate(ctx, productID, dto.SpecTemplateGenerateRequest{
-			SpecTemplateID: sel.SpecTemplateID,
-			SpecCode:       sel.SpecCode,
-			Name:           sel.Name,
-			Price:          sel.Price,
-			CostPrice:      sel.CostPrice,
-			Stock:          sel.Stock,
-			SpecValues:     sel.SpecValues,
-			PlatformParams: sel.PlatformParams,
-		}, operatorID, operatorName)
-		if err != nil {
-			return out, fmt.Errorf("模板 %d 生成规格失败：%w", sel.SpecTemplateID, err)
+	for _, item := range plans {
+		if !item.plan.Empty() {
+			specs, gerr := s.generateAxisSpecsFromTemplate(ctx, productID, product, item.sel, item.tpl, item.plan, operatorID, operatorName)
+			out = append(out, specs...)
+			if gerr != nil {
+				return out, gerr
+			}
+		} else {
+			result, gerr := s.GenerateSpecFromTemplate(ctx, productID, dto.SpecTemplateGenerateRequest{
+				SpecTemplateID: item.sel.SpecTemplateID,
+				SpecCode:       item.sel.SpecCode,
+				Name:           item.sel.Name,
+				Price:          item.sel.Price,
+				CostPrice:      item.sel.CostPrice,
+				Stock:          item.sel.Stock,
+				SpecValues:     item.sel.SpecValues,
+				PlatformParams: item.sel.PlatformParams,
+			}, operatorID, operatorName)
+			if gerr != nil {
+				return out, fmt.Errorf("模板 %d 生成规格失败：%w", item.sel.SpecTemplateID, gerr)
+			}
+			out = append(out, result.Spec)
 		}
-		out = append(out, result.Spec)
 		// 收集该档位要开放给客户的选配项（目录元数据 + 勾选取值）。
-		tpl, terr := s.templateReader.SpecTemplateByID(ctx, sel.SpecTemplateID)
-		if terr != nil || tpl == nil {
-			continue
-		}
-		s.collectOptionAccumulators(ctx, tpl, merged, &order)
+		// 轴参数在这里被排除：它的取值已经落在 SKU 上，不该再让客户改。
+		s.collectOptionAccumulatorsFiltered(ctx, item.tpl, merged, &order, axisKeys)
 	}
 	// 就地覆盖（建品页可改取值与加价）：以请求为准合并进累加器。
+	// 轴参数的覆盖直接跳过 —— 它是规格维度，改了会让 SKU 与配置档说法不一致。
 	for _, sel := range selections {
 		for _, ov := range sel.OptionOverrides {
+			if axisKeys[ov.OptionKey] {
+				continue
+			}
 			acc := merged[ov.OptionKey]
 			if acc == nil {
 				acc = &optionAccumulator{meta: SpecOptionMeta{OptionKey: ov.OptionKey, Label: ov.Label, Widget: ov.Widget, Unit: ov.Unit}}
@@ -643,6 +701,46 @@ func (s *productService) generateSpecsFromTemplates(ctx context.Context, product
 		Remark: fmt.Sprintf("按配置档生成 %d 个客户选配项", len(order)),
 	})
 	return out, nil
+}
+
+// collectOptionAccumulatorsFiltered 同 collectOptionAccumulators，但跳过正交轴参数。
+//
+// 轴参数的取值属于"选哪个规格"，已由 SKU 承载；再生成一件客户配置项会让同一个参数
+// 出现两个真源（SKU 基线 vs 客户选择），而客户选的会覆盖基线 —— 这正是
+// 「商品名 6G、开出来 4G」那类故障的成因。
+func (s *productService) collectOptionAccumulatorsFiltered(ctx context.Context, tpl *SpecTemplateSnapshot, merged map[string]*optionAccumulator, order *[]string, axisKeys map[string]bool) {
+	sel := parseOptionSelections(tpl.OptionSelections)
+	if len(sel) == 0 {
+		return
+	}
+	if len(axisKeys) > 0 {
+		filtered := make(map[string]optionSelection, len(sel))
+		for k, v := range sel {
+			if axisKeys[k] {
+				continue
+			}
+			filtered[k] = v
+		}
+		if len(filtered) == 0 {
+			return
+		}
+		tpl = &SpecTemplateSnapshot{
+			ID:               tpl.ID,
+			Name:             tpl.Name,
+			ProviderType:     tpl.ProviderType,
+			OptionSelections: mustJSON(filtered),
+		}
+	}
+	s.collectOptionAccumulators(ctx, tpl, merged, order)
+}
+
+// mustJSON 序列化内部结构（失败时返回空串，调用方按"无配置档"处理）。
+func mustJSON(v interface{}) string {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 // collectOptionAccumulators 把某档位勾选的多值参数并入累加器（含目录元数据）。
@@ -1276,6 +1374,10 @@ func (s *productService) UpdateSpec(ctx context.Context, productID, specID uint6
 //  3. 记一条商品变更历史，便于运营追溯"这条 SKU 是哪个模板生成的"。
 //
 // 仅自营链路可用：代理商品的规格由上游决定，不该由本地模板凭空生成。
+//
+// 配置档标了「参与 SKU 正交」时，这里**委托**给轴展开（一次生成多条 SKU）：
+// 否则从详情页手工点"按模板生成"会绕开正交逻辑，凭空多加一条"整档位"规格 ——
+// 它与各轴组合出来的规格重叠但不一致（实测：6 个正交 SKU 之外多出 general-4c6g-100g）。
 func (s *productService) GenerateSpecFromTemplate(ctx context.Context, productID uint64, req dto.SpecTemplateGenerateRequest, operatorID uint64, operatorName string) (*dto.SpecTemplateGenerateResult, error) {
 	product, err := s.repo.FindByID(ctx, productID)
 	if err != nil {
@@ -1294,6 +1396,37 @@ func (s *productService) GenerateSpecFromTemplate(ctx context.Context, productID
 	if err != nil {
 		return nil, fmt.Errorf("规格模板不存在：%w", err)
 	}
+	// 正交档位：展开成多条规格。编码/名称由组合决定，请求里手工指定的 spec_code 不适用
+	// （一个编码无法表达多个规格）。
+	plan, perr := buildAxisPlan(parseOptionSelections(tpl.OptionSelections))
+	if perr != nil {
+		return nil, fmt.Errorf("规格模板「%s」：%w", tpl.Name, perr)
+	}
+	if !plan.Empty() {
+		sel := dto.ProductSpecTemplateSelection{
+			SpecTemplateID: req.SpecTemplateID,
+			Price:          req.Price,
+			CostPrice:      req.CostPrice,
+			Stock:          req.Stock,
+			SpecValues:     req.SpecValues,
+			PlatformParams: req.PlatformParams,
+		}
+		specs, gerr := s.generateAxisSpecsFromTemplate(ctx, productID, product, sel, tpl, plan, operatorID, operatorName)
+		if gerr != nil {
+			return nil, gerr
+		}
+		if len(specs) == 0 {
+			return nil, errors.New("按模板生成规格失败：没有产生任何规格")
+		}
+		// 返回第一条供调用方展示，其余已落库（GeneratedSpecs 由建品路径汇总）。
+		result := &dto.SpecTemplateGenerateResult{Spec: specs[0]}
+		if len(specs) > 1 {
+			result.Notice = fmt.Sprintf(
+				"该档位含「参与 SKU 正交」的参数，已按取值组合生成 %d 个规格（可分别定价、设库存）",
+				len(specs))
+		}
+		return result, nil
+	}
 
 	// SKU 编码：优先取请求（建品页会带出预览值），其次按模板名派生。
 	specCode := strings.TrimSpace(req.SpecCode)
@@ -1309,18 +1442,30 @@ func (s *productService) GenerateSpecFromTemplate(ctx context.Context, productID
 	if specValues == "" {
 		specValues = deriveSpecValuesFromTemplate(tpl)
 	}
+	// 非轴参数的基线对齐到配置档声明的默认值（T4.7）：避免"SKU 基线 6G、
+	// 客户配置项默认 4G"两份真源打架（实测故障：商品名 6G、开通下发 4G）。
+	if aligned, aerr := alignSpecValuesWithOptionDefaults(tpl.ProviderType, specValues, parseOptionSelections(tpl.OptionSelections)); aerr != nil {
+		return nil, aerr
+	} else {
+		specValues = aligned
+	}
 	if err := validateSpecJSON(specValues); err != nil {
 		return nil, err
 	}
+	// 请求未显式给编码时，按**实际取值**派生（含上面刚对齐过的默认值）。
+	// 只在这里做一次：早先重复调用了两次（同一表达式连写），纯属冗余。
 	if strings.TrimSpace(req.SpecCode) == "" {
 		specCode = deriveSpecCodeFromValues(tpl.SpecFamily, specValues, specCode)
 	}
-	if strings.TrimSpace(req.SpecCode) == "" {
-		specCode = deriveSpecCodeFromValues(tpl.SpecFamily, specValues, specCode)
-	}
-	// 派生后仍需判重：编码由取值决定时，同商品下同规格生成的编码会命中已有 SKU。
+	// 编码撞车：改由调用方（建品）决定是否更新既有 SKU，这里不静默加时间戳后缀。
+	//
+	// 为什么删掉时间戳后缀（实测故障）：后缀让每次重跑都生成一个"新"SKU，
+	// 同一套配置堆出 ch-4-c-6g、ch-4-c-6g-12345、ch-4-c-6g-67890 三条记录，
+	// 运营分不清哪条在卖、客户看到重复规格。幂等更新才是正确语义。
 	if existing, ferr := s.repo.FindSpecByCode(ctx, productID, specCode); ferr == nil && existing != nil {
-		specCode = specCode + "-" + strconv.FormatInt(time.Now().Unix()%100000, 10)
+		return nil, fmt.Errorf(
+			"%w：规格编码「%s」已存在。如需按当前模板重新生成，请改用「按轴生成」或先删除该规格",
+			ErrSpecCodeExists, specCode)
 	} else if ferr != nil && !errors.Is(ferr, gorm.ErrRecordNotFound) {
 		return nil, ferr
 	}
@@ -1334,7 +1479,15 @@ func (s *productService) GenerateSpecFromTemplate(ctx context.Context, productID
 		return nil, errors.New("平台参数必须是合法 JSON")
 	}
 
+	// 名称优先级：请求指定 > 名称模板按**实际取值**渲染 > 模板名。
+	//
+	// 为什么名称模板要排在模板名之前（实测故障）：模板名是档位名（"对齐验证档位 6G基线"），
+	// 而实际下发的规格可能已被配置项默认值改写（内存 4096）。直接落模板名会让
+	// 规格名与规格内容不符 —— 客户看到「6G」买到 4G，正是要消灭的那类不一致。
 	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = renderNameTemplate(tpl.NameTemplate, nil, specValues)
+	}
 	if name == "" {
 		name = strings.TrimSpace(tpl.Name)
 	}
@@ -1521,6 +1674,11 @@ func (s *productService) DeleteSpec(ctx context.Context, productID, specID uint6
 // 直接以 clone 模式落库，source_product_id/source_provider_id 绑定上游商品与提供商，
 // 售卖时将按上游商品的规格/构型调上游开通。
 func (s *productService) CloneFromUpstream(ctx context.Context, req dto.ProductCloneRequest, operatorID uint64, operatorName string) (*dto.ProductInfo, error) {
+	// 分类必填（用户要求）：导入时留空会让商品直接落进「未分类」，
+	// 而导入动辄几十上百个，事后逐个补分类的成本远高于导入时选一次。
+	if err := s.validateCategory(ctx, req.CategoryID); err != nil {
+		return nil, err
+	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		name = strings.TrimSpace(req.Code)
@@ -1633,6 +1791,11 @@ func cloneRatio(cost, price float64) float64 {
 // 100（默认）即按上游原价卖，>100 加价，<100 让利；成本固定记代理价（我方实际采购价）。
 // 周期价格矩阵按同口径推导：售价(周期) = 代理价(周期) × 标价/代理价 × pct/100。
 func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.ProductBatchCloneRequest, operatorID uint64, operatorName string) (*dto.ProductBatchCloneResponse, error) {
+	// 分类必填：批量导入一次几十上百个商品，分类留空会整批落进「未分类」。
+	// 在循环外校验一次：分类是整批共用的，不必逐条重复查库。
+	if err := s.validateCategory(ctx, req.CategoryID); err != nil {
+		return nil, err
+	}
 	pct := req.PricePercent
 	if pct <= 0 {
 		pct = 100
@@ -2118,6 +2281,28 @@ func validateConfigGroupSources(groups []interface{}) error {
 				}
 			}
 		}
+	}
+	return nil
+}
+
+// validateCategory 校验商品分类必填且存在（启用中）。
+//
+// 为什么必填：分类为空时列表那一列显示不出归属、分类导航也统计不到，
+// 只能落进"未分类"那一堆；运营事后要逐个回头补，比建的时候选一下贵得多。
+// 在服务端挡住而不是只靠前端 required —— 接口是唯一入口，绕过界面一样会漏。
+//
+// 为什么还要校验"存在"：分类被删过之后，界面缓存里那个分类仍可能被选中提交，
+// 落库就成了指向不存在行的悬空值（界面上表现为"未分类"，但谁也不知道是哪来的）。
+func (s *productService) validateCategory(ctx context.Context, categoryID uint64) error {
+	if categoryID == 0 {
+		return errors.New("请选择商品分类（分类为空会让商品落进「未分类」，无法按分类归属）")
+	}
+	ok, err := s.repo.CategoryExists(ctx, categoryID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("所选分类不存在或已停用，请重新选择")
 	}
 	return nil
 }

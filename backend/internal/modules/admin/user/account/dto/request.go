@@ -6,6 +6,10 @@ type UserListQuery struct {
 	Status   string `form:"status"`
 	Filter   string `form:"filter"`
 	Keyword  string `form:"keyword"`
+	// Sort 列表排序方向，按 ID 排："asc" 正序，"desc" 倒序（默认）。
+	// 只认这两个值，其余一律回落到 desc；排序列固定为 users.id，
+	// 不接受外部传入列名，避免列名拼接进 ORDER BY。
+	Sort string `form:"sort"`
 	// IncludeDeleted 为 true 时连已注销用户一起返回（doc104 §4.3）；
 	// 与 filter=deleted 互斥，前者优先级更高。
 	IncludeDeleted bool `form:"include_deleted"`
@@ -283,6 +287,9 @@ type AdminOrderConfigOption struct {
 	Values             []AdminOrderConfigOptionVal `json:"values"`
 	// Locked 上游固定配置项（只有一个可见取值）：只读展示，不可下发覆盖。
 	Locked bool `json:"locked"`
+	// Creatable 允许填候选之外的取值（平台目录 manual 来源，如端口可填具体端口号）。
+	// 前端据此把下拉换成可输入形态；不允许时只能用候选值。
+	Creatable bool `json:"creatable"`
 }
 
 // AdminOrderConfigOptionVal 一个可选值（含四周期加价）。

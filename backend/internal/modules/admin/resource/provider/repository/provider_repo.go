@@ -21,12 +21,25 @@ type ProviderRepository interface {
 	Create(ctx context.Context, item *model.ResourceProvider) error
 	Update(ctx context.Context, item *model.ResourceProvider) error
 	Delete(ctx context.Context, id uint64) error
-	// CountAssociations 统计提供商关联的商品与资源池数量（删除前检查用）
-	CountAssociations(ctx context.Context, id uint64) (products int64, pools int64, err error)
+	// CountAssociations 统计提供商关联的商品、资源池与**实例**数量（删除前检查用）。
+	//
+	// instances 一并统计：渠道删掉后，绑着它的实例再也无法同步/操作
+	//（渠道查询直接报"不存在"），而渠道没有恢复入口（只有删除）——
+	// 实例会永久卡在列表里（用户实测反馈）。实例数与商品数同理必须挡住。
+	//
+	// placed 是其中**已开通**（provider_instance_id 非空）的台数，用于给出
+	// 可操作的提示：已开通的要"先销毁实例"，未开通的是待开通占位行，
+	// 该去处置来源订单（继续开通或取消），两者的处置入口不同。
+	CountAssociations(ctx context.Context, id uint64) (products int64, pools int64, instances int64, placed int64, err error)
 	// ListAssociationProducts 列出该渠道下的上游商品（删除确认弹窗用：要能看见删的是什么）。
 	ListAssociationProducts(ctx context.Context, id uint64) ([]AssociationItem, error)
 	// ListAssociationPools 列出该渠道下的资源池（同上）。
 	ListAssociationPools(ctx context.Context, id uint64) ([]AssociationItem, error)
+	// ListAssociationInstances 列出该渠道下**未销毁**的实例（删除确认弹窗用）。
+	//
+	// 这些实例是"删渠道前必须先处置"的主体：渠道删除后它们无法同步/操作，
+	// 而渠道没有恢复入口（用户实测：删渠道导致实例永久卡死）。
+	ListAssociationInstances(ctx context.Context, id uint64) ([]AssociationItem, error)
 	// DeleteCascade 连带删除该渠道的商品与资源池（事务内），供"确认后一并清理"。
 	DeleteCascade(ctx context.Context, id uint64) (products int64, pools int64, err error)
 	// CountSalesRefsByResourceProduct 统计某上游商品被多少销售商品引用
@@ -120,17 +133,29 @@ func (r *providerRepository) Delete(ctx context.Context, id uint64) error {
 	return r.db.WithContext(ctx).Delete(&model.ResourceProvider{}, id).Error
 }
 
-func (r *providerRepository) CountAssociations(ctx context.Context, id uint64) (int64, int64, error) {
-	var products, pools int64
+func (r *providerRepository) CountAssociations(ctx context.Context, id uint64) (int64, int64, int64, int64, error) {
+	var products, pools, instances, placed int64
 	if err := r.db.WithContext(ctx).Model(&productmodel.ResourceProduct{}).
 		Where("provider_id = ?", id).Count(&products).Error; err != nil {
-		return 0, 0, err
+		return 0, 0, 0, 0, err
 	}
 	if err := r.db.WithContext(ctx).Model(&model.ResourcePool{}).
 		Where("provider_id = ?", id).Count(&pools).Error; err != nil {
-		return 0, 0, err
+		return 0, 0, 0, 0, err
 	}
-	return products, pools, nil
+	// 只数**未销毁**的实例：已销毁的实例留着历史记录，不该永远挡住渠道清理。
+	if err := r.db.WithContext(ctx).Table("instances").
+		Where("provider_id = ? AND status <> ?", id, "deleted").
+		Count(&instances).Error; err != nil {
+		return 0, 0, 0, 0, err
+	}
+	// 其中已开通的（有渠道侧实例号）：待开通占位行处置方式不同，故分开数。
+	if err := r.db.WithContext(ctx).Table("instances").
+		Where("provider_id = ? AND status <> ? AND COALESCE(provider_instance_id, '') <> ''", id, "deleted").
+		Count(&placed).Error; err != nil {
+		return 0, 0, 0, 0, err
+	}
+	return products, pools, instances, placed, nil
 }
 
 // AssociationItem 关联数据的一行（删除确认弹窗展示用）。
@@ -215,6 +240,47 @@ func poolTypeLabel(poolType string) string {
 	default:
 		return poolType
 	}
+}
+
+// ListAssociationInstances 列出该渠道下未销毁的实例。
+//
+// 副标题给"状态 + 实例号"：运营要能定位是哪几台（去实例页处置）。
+// 只列未销毁的：已销毁的实例留着历史记录，不该永远挡渠道清理
+// （与 CountAssociations 的计数口径一致）。
+func (r *providerRepository) ListAssociationInstances(ctx context.Context, id uint64) ([]AssociationItem, error) {
+	type row struct {
+		ID         uint64
+		InstanceID string
+		Name       string
+		Status     string
+		SourceMode string
+	}
+	var rows []row
+	if err := r.db.WithContext(ctx).Table("instances").
+		Select("id, instance_id, COALESCE(name, '') AS name, COALESCE(status, '') AS status, COALESCE(source_mode, '') AS source_mode").
+		Where("provider_id = ? AND status <> ?", id, "deleted").
+		Order("id asc").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]AssociationItem, 0, len(rows))
+	for _, it := range rows {
+		label := it.Name
+		if label == "" {
+			label = it.InstanceID
+		}
+		sub := it.InstanceID
+		if it.SourceMode == "self" {
+			sub += " · 自营"
+		} else if it.SourceMode == "upstream" {
+			sub += " · 转售"
+		}
+		if it.Status != "" {
+			sub += " · " + it.Status
+		}
+		out = append(out, AssociationItem{ID: it.ID, Name: label, Kind: "instance", Subtitle: sub})
+	}
+	return out, nil
 }
 
 // DeleteCascade 连带删除该渠道的商品与资源池，再删渠道本身（单事务）。

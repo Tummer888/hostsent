@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -186,7 +187,7 @@ func (r *userRepository) List(ctx context.Context, query dto.UserListQuery) ([]m
 		Joins("LEFT JOIN users AS owner ON owner.id = users.owner_user_id").
 		Joins("LEFT JOIN users AS inviter ON inviter.id = users.inviter_user_id").
 		Joins("LEFT JOIN admins AS sales ON sales.id = users.sales_admin_id").
-		Order("users.id DESC").
+		Order(userListOrderClause(query.Sort)).
 		Offset((page - 1) * pageSize).
 		Limit(pageSize).
 		Find(&users).Error; err != nil {
@@ -250,6 +251,18 @@ func userIDs(users []model.User) []uint64 {
 	return ids
 }
 
+// userListOrderClause 用户列表的 ORDER BY 子句。
+//
+// 排序列固定为 users.id，只有方向可调 —— 列名由本函数写死，外部只能传 asc/desc，
+// 不存在把请求参数拼进 SQL 的路径。无法识别的取值（含空串）一律按 DESC，
+// 与列表默认口径（最新注册在前）一致，避免脏参数导致空列表或异常顺序。
+func userListOrderClause(sort string) string {
+	if strings.EqualFold(strings.TrimSpace(sort), "asc") {
+		return "users.id ASC"
+	}
+	return "users.id DESC"
+}
+
 func applyUserFilters(db *gorm.DB, query dto.UserListQuery) *gorm.DB {
 	// 注销态筛选（doc104 §4.3）：
 	//   默认排除已注销；filter=deleted 只看回收站；include_deleted=true 全看。
@@ -268,7 +281,17 @@ func applyUserFilters(db *gorm.DB, query dto.UserListQuery) *gorm.DB {
 	}
 	if keyword := strings.TrimSpace(query.Keyword); keyword != "" {
 		like := "%" + keyword + "%"
-		db = db.Where("users.username ILIKE ? OR users.email ILIKE ? OR users.phone ILIKE ? OR users.real_name ILIKE ?", like, like, like, like)
+		// 纯数字关键词额外按 ID 精确匹配：运营常直接拿用户 ID 查人，而 ID 不在原
+		// 关键词覆盖的四个文本字段里，搜「2730」原本一条都查不出。用等值而非 LIKE，
+		// 避免搜 ID 时把手机号/邮箱里含同一串数字的记录一并带出来。
+		if id, err := strconv.ParseUint(keyword, 10, 64); err == nil {
+			db = db.Where(
+				"users.username ILIKE ? OR users.email ILIKE ? OR users.phone ILIKE ? OR users.real_name ILIKE ? OR users.id = ?",
+				like, like, like, like, id,
+			)
+		} else {
+			db = db.Where("users.username ILIKE ? OR users.email ILIKE ? OR users.phone ILIKE ? OR users.real_name ILIKE ?", like, like, like, like)
+		}
 	}
 	if query.UserLevelID > 0 {
 		db = db.Where("users.user_level_id = ?", query.UserLevelID)

@@ -123,6 +123,11 @@ func (s *productService) CustomerOptions(ctx context.Context, productID uint64) 
 	if len(rows) == 0 {
 		return nil, nil
 	}
+	// 平台目录的「可自由填写」标记：manual 来源的项平台只给了示例值，
+	// 但允许填其它值（port 只声明 auto，文档允许填具体端口号）。
+	// 目录按平台类型读一次、全商品共用；读不到就不放开（宁可不放开，也不能让客户乱填）。
+	creatableKeys := s.creatableOptionKeys(ctx, rows)
+
 	options := make([]CustomerOption, 0, len(rows))
 	for _, row := range rows {
 		if row.Source == catalogmodel.ConfigSourceUpstream && !customerSelectableUpstream(row) {
@@ -143,6 +148,7 @@ func (s *productService) CustomerOptions(ctx context.Context, productID uint64) 
 			OptionKey:    key,
 			Name:         name,
 			Widget:       widget,
+			Creatable:    creatableKeys[row.ProviderType+"\x00"+key],
 			Required:     row.Required,
 			DefaultValue: row.DefaultValue,
 			Unit:         row.Unit,
@@ -305,6 +311,38 @@ func upstreamSubLabel(optionName, source, value string) string {
 		return value
 	}
 	return name
+}
+
+// creatableOptionKeys 取该商品涉及哪些「允许自由填写」的配置项。
+//
+// 键是 providerType\x00optionKey：同一商品可能混用多个平台的项（上游镜像 + 自营），
+// 只用 optionKey 会在跨平台同名参数上串味。
+//
+// 目录读不到时返回空集：宁可不让填，也不能让客户填出平台不认的值。
+// （上游镜像项 source=upstream 不带 ProviderType，不会命中，属预期。）
+func (s *productService) creatableOptionKeys(ctx context.Context, rows []*catalogmodel.ProductConfigOption) map[string]bool {
+	out := map[string]bool{}
+	if s.optionCatalog == nil {
+		return out
+	}
+	seen := map[string]bool{}
+	for _, row := range rows {
+		pt := strings.TrimSpace(row.ProviderType)
+		if pt == "" || seen[pt] {
+			continue
+		}
+		seen[pt] = true
+		list, err := s.optionCatalog.OptionCatalogByProvider(ctx, pt)
+		if err != nil {
+			continue
+		}
+		for _, m := range list {
+			if m.Creatable {
+				out[pt+"\x00"+m.OptionKey] = true
+			}
+		}
+	}
+	return out
 }
 
 // ResolveOptionPricing 按客户选择算加价并归一选择（T4.5）。

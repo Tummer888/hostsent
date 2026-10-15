@@ -3,6 +3,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sort"
 
@@ -37,7 +38,30 @@ func (s *categoryService) List(ctx context.Context, req dto.CategoryListRequest)
 		return nil, err
 	}
 	tree := buildCategoryTree(items)
-	return &dto.CategoryListResponse{Items: tree}, nil
+	// 分类导航要显示每个节点的商品数：没有这个数，运营看不出哪个分类是空的、
+	// 也没法判断"未分类里堆了多少"要不要整理。
+	counts, err := s.repo.CountProductsByCategory(ctx)
+	if err != nil {
+		return nil, err
+	}
+	uncategorized, err := s.repo.CountUncategorizedProducts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	applyProductCounts(tree, counts)
+	return &dto.CategoryListResponse{Items: tree, UncategorizedCount: uncategorized}, nil
+}
+
+// applyProductCounts 把「分类 ID → 商品数」写进树节点（递归到叶子）。
+// 只写节点自身的直接数量，不做父子累加：父节点上的数字代表"名义归属这一层"，
+// 与点它时列表按子树展开的结果不同 —— 累加会让父节点的数字与它展示的列表对不上。
+func applyProductCounts(nodes []*dto.CategoryInfo, counts map[uint64]int64) {
+	for _, node := range nodes {
+		node.ProductCount = counts[node.ID]
+		if len(node.Children) > 0 {
+			applyProductCounts(node.Children, counts)
+		}
+	}
 }
 
 func (s *categoryService) Create(ctx context.Context, req dto.CategoryCreateRequest) (*dto.CategoryInfo, error) {
@@ -93,6 +117,19 @@ func (s *categoryService) Delete(ctx context.Context, id uint64) error {
 	}
 	if exists {
 		return ErrCategoryHasChildren
+	}
+	// 还有商品挂在该分类（或其子树）下时禁止删除。
+	//
+	// 这是「未分类」数据的根源：此前只挡子分类，分类删掉后商品的 category_id
+	// 变成指向不存在行的悬空值 —— 界面上既显示不出分类名、也统计不到，
+	// 运营只能看到一个"凭空消失的分类"和一批说不清归属的商品。
+	// 挡住删除并让他先把商品移走，比事后猜哪些商品成了孤儿要好。
+	used, err := s.repo.CountProductsInSubtree(ctx, id)
+	if err != nil {
+		return err
+	}
+	if used > 0 {
+		return fmt.Errorf("%w（当前有 %d 个商品）", ErrCategoryInUse, used)
 	}
 	return s.repo.Delete(ctx, id)
 }

@@ -6,6 +6,10 @@ import "encoding/json"
 type ProductListQuery struct {
 	Keyword    string `form:"keyword" json:"keyword"`
 	CategoryID uint64 `form:"category_id" json:"category_id"`
+	// Uncategorized 只看「未分类」商品（category_id 为空，或指向已删除的分类）。
+	// 用指针区分「未传」与「显式 false」；置真时与 CategoryID 互斥
+	// ——「未分类」不是一个真实分类 ID，没法用 category_id 表达。
+	Uncategorized *bool `form:"uncategorized" json:"uncategorized"`
 	// Status 状态过滤：用指针区分「未传」与「显式筛 status=0（草稿）」。
 	// 此前用 int + `!= 0` 判断，导致「草稿」筛选条件被当成未传，前端选草稿会返回全部商品。
 	Status     *int   `form:"status" json:"status"`
@@ -83,6 +87,17 @@ type ProductOptionOverride struct {
 	MaxValue   *float64             `json:"max_value"`
 	SortOrder  int                  `json:"sort_order"`
 	Values     []ProductOptionValue `json:"values"`
+	// 数量型（带宽/盘/IP 数）的「超出单价（元/单位）」四档周期价。
+	//
+	// 为什么不复用 Values：数量型没有离散取值，价格挂在"每单位"上而不是"某个取值"上。
+	// 早先只传 min/max，后端把占位 sub 的价格写死成 0 —— 于是带宽、数据盘这些项
+	// 在后台建品时根本没法定价（用户反馈），只能建完后去商品详情页补。
+	//
+	// 指针类型区分「没填」（nil，按月价折算 / 留 0）与「显式填 0」（该周期不加价）。
+	UnitPriceMonthly   *float64 `json:"unit_price_monthly"`
+	UnitPriceQuarterly *float64 `json:"unit_price_quarterly"`
+	UnitPriceAnnually  *float64 `json:"unit_price_annually"`
+	UnitPriceOnetime   *float64 `json:"unit_price_onetime"`
 }
 
 // ProductOptionValue 一个客户可选值及其加价。

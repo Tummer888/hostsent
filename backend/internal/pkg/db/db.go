@@ -3,6 +3,8 @@ package db
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -363,7 +365,193 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 
+	// 悬空商品分类归一为空（历史遗留：删分类时未校验商品占用）。
+	if err := backfillOrphanProductCategories(db); err != nil {
+		return err
+	}
+
+	// SKU 编码/名称与原子取值对齐（T4.7），等价 migrations/113。
+	// 修"名称写 6G、取值是 4G"那类自相矛盾的规格行。
+	if err := alignProductSpecCodeAndName(db); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// alignProductSpecCodeAndName 把「名称/编码里的数字与取值矛盾」的 SKU 修正为实际取值。
+//
+// 起因（实测）：商品 113 名下有一条编码 general-2c4g-30g、名称「通用型2核4G 30G」的规格，
+// 但它的原子取值是 4核8G/60G 盘 —— 编码、名称、取值三者各说各话。成因是旧版建品页
+// 允许就地改取值，而编码/名称是照**模板**派生的，改完就没再重算。
+//
+// 判定口径（严格收紧，只修"数字确实对不上"的行）：
+//   - 名称必须是「纯配置型」（^[^0-9]*数字核数字G），且不含 | · （） 等营销文案；
+//     带文案的名称（「香港|四区·轻量 8-8 9Mbps（4核6G）」）是运营有意起的商品名，不动。
+//   - **名称/编码里的数字与取值矛盾**才改。数字已对、仅编码少个磁盘段这类
+//     "格式不统一但不矛盾"的情况不动 —— 那是历史格式差异，改了会打断运营对编码的记忆。
+//   - 被 orders / order_items 引用的编码整体跳过（改编码会断历史订单引用）。
+//
+// 幂等：重算结果与当前值相同时不写。
+func alignProductSpecCodeAndName(db *gorm.DB) error {
+	if !db.Migrator().HasTable("product_specs") {
+		return nil
+	}
+	// 被订单/订单项引用的编码集合：这些行不动（改了会断历史引用）。
+	referenced := []string{}
+	for _, table := range []string{"orders", "order_items"} {
+		if !db.Migrator().HasTable(table) {
+			continue
+		}
+		var codes []string
+		if err := db.Table(table).
+			Where("spec_code IS NOT NULL AND spec_code <> ''").
+			Distinct().Pluck("spec_code", &codes).Error; err != nil {
+			return err
+		}
+		referenced = append(referenced, codes...)
+	}
+	var rows []struct {
+		ID       uint64
+		SpecCode string
+		Name     string
+		Specs    string
+	}
+	if err := db.Table("product_specs").
+		Select("id, spec_code, name, specs").
+		Where("specs IS NOT NULL AND specs <> ''").
+		Scan(&rows).Error; err != nil {
+		return err
+	}
+	skip := make(map[string]bool, len(referenced))
+	for _, code := range referenced {
+		skip[code] = true
+	}
+	for _, row := range rows {
+		if skip[row.SpecCode] {
+			continue
+		}
+		var specs map[string]any
+		if err := json.Unmarshal([]byte(row.Specs), &specs); err != nil {
+			continue
+		}
+		nextName, nextCode := specAlignTarget(row.SpecCode, row.Name, specs)
+		updates := map[string]any{}
+		if nextName != "" && nextName != row.Name {
+			updates["name"] = nextName
+		}
+		if nextCode != "" && nextCode != row.SpecCode {
+			// 新编码已被同商品另一行占用：只改名称，不动编码。
+			var dup int64
+			if err := db.Table("product_specs").
+				Where("spec_code = ? AND id <> ?", nextCode, row.ID).
+				Count(&dup).Error; err != nil {
+				return err
+			}
+			if dup == 0 {
+				updates["spec_code"] = nextCode
+			}
+		}
+		if len(updates) == 0 {
+			continue
+		}
+		if err := db.Table("product_specs").Where("id = ?", row.ID).Updates(updates).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// specAlignNameRe / specAlignCodeRe 识别"名字/编码里的核数与内存"。
+//   - 名称：^[^0-9]*([0-9]+)核([0-9]+)G —— 纯配置型名称（允许"通用型"这类前缀）；
+//   - 编码：([0-9]+)c([0-9]+)g —— 如 general-2c4g-30g 中的 2c4g。
+var (
+	specAlignNameRe = regexp.MustCompile(`^[^0-9]*([0-9]+)核([0-9]+)G`)
+	specAlignCodeRe = regexp.MustCompile(`([0-9]+)c([0-9]+)g`)
+)
+
+// specAlignTarget 算出某个 SKU 应对齐到的名称与编码；无需改动时返回空串。
+//
+// 只修"数字确实对不上"的行：
+//   - 名称含营销文案（| · （））时整体跳过 —— 那是运营有意起的商品名
+//     （「香港|四区·轻量 8-8 9Mbps（4核6G）」里有区域与机型信息，覆盖会丢信息）；
+//   - 名称/编码里的核数与内存都对得上、只是格式不同（如编码少个磁盘段）时不动 ——
+//     那属于历史格式差异，改了会打断运营对编码的记忆；
+//   - 取值里没有 CPU/内存（推不出正确值）时不动。
+//
+// 纯函数：不碰数据库，便于单测。
+func specAlignTarget(specCode, name string, specs map[string]any) (newName, newCode string) {
+	cpu := intFromAny(specs["compute.cpu"])
+	memMB := intFromAny(specs["compute.memory"])
+	if cpu <= 0 || memMB <= 0 {
+		return "", ""
+	}
+	memGB := memMB / 1024
+	if memGB <= 0 {
+		memGB = 1
+	}
+	if !strings.ContainsAny(name, "|·（）()") {
+		if m := specAlignNameRe.FindStringSubmatch(name); m != nil {
+			if intFromAny(m[1]) != cpu || intFromAny(m[2]) != memGB {
+				newName = fmt.Sprintf("%d核%dG", cpu, memGB)
+			}
+		}
+	}
+	if m := specAlignCodeRe.FindStringSubmatch(specCode); m != nil {
+		if intFromAny(m[1]) != cpu || intFromAny(m[2]) != memGB {
+			family := strings.SplitN(specCode, "-", 2)[0]
+			newCode = fmt.Sprintf("%dc%dg", cpu, memGB)
+			if strings.TrimSpace(family) != "" && family != specCode {
+				newCode = family + "-" + newCode
+			}
+		}
+	}
+	return newName, newCode
+}
+
+// intFromAny 从 JSON 解出的任意数值形态取整数（float64 / json.Number / 字符串）。
+func intFromAny(v any) int {
+	switch t := v.(type) {
+	case float64:
+		return int(t)
+	case int:
+		return t
+	case int64:
+		return int(t)
+	case json.Number:
+		if n, err := t.Int64(); err == nil {
+			return int(n)
+		}
+	case string:
+		if n, err := strconv.Atoi(strings.TrimSpace(t)); err == nil {
+			return n
+		}
+		if f, err := strconv.ParseFloat(strings.TrimSpace(t), 64); err == nil {
+			return int(f)
+		}
+	}
+	return 0
+}
+
+// backfillOrphanProductCategories 把指向「已不存在分类」的商品归一为未分类（category_id=0）。
+//
+// 背景：删除分类此前只挡住"还有子分类"的情况，没管商品占用。分类删掉后，
+// 商品的 category_id 变成指向不存在行的悬空值 —— 界面上既显示不出分类名
+// （列表那一列是空的），也统计不进任何分类（分类导航的数字对不上），
+// 运营只能看到一个"凭空消失的分类"和一批说不清归属的商品。
+//
+// 为什么归一到 0 而不是保留原值：0 是"未分类"的既有表达，列表、筛选、
+// 计数三处都认它；保留悬空值则要继续在三处各写一遍"不在分类表里也算未分类"，
+// 且新建的分类若恰好复用该 ID，商品会被悄悄挂到一个不相干的新分类上。
+//
+// 幂等：只更新 category_id 不在分类表里的行，重跑第二次影响 0 行。
+// 注：无论是否执行过删除守卫（见 category service Delete），这条都值得跑 ——
+// 存量库里可能已经有这类数据。
+func backfillOrphanProductCategories(db *gorm.DB) error {
+	return db.Exec(`
+		UPDATE products SET category_id = 0
+		WHERE category_id <> 0
+		  AND category_id NOT IN (SELECT id FROM product_categories)`).Error
 }
 
 // clampOptionDefaults 把「默认值落在区间之外」的配置项夹回区间内，等价 migrations/111。

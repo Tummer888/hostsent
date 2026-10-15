@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -232,6 +233,71 @@ func (s *specTemplateService) validateOptionSelections(ctx context.Context, prov
 			if !valueSet[v] {
 				return fmt.Errorf("配置项「%s」的取值「%s」不在平台取值库中，请先在「平台配置项」页导入", key, v)
 			}
+		}
+	}
+	return validateSKUAxisSelections(parsed)
+}
+
+// SKU 正交轴数量上限（与 catalog 服务的 buildAxisPlan 同口径，此处只做早期拦截）。
+const (
+	skuAxisMaxCombinations = 64
+	skuAxisMaxPerOption    = 32
+)
+
+// validateSKUAxisSelections 校验标了「参与 SKU 正交」的参数可用于展开规格。
+//
+// 为什么在模板保存时就要拦：轴参数在**建品时**才展开成 SKU，若等到那时才发现
+// "区间型参数不能做轴"，运营已经填完整张表才被打回。这里提前说清约束。
+// 判定规则与 catalog 侧 buildAxisPlan 保持一致（两处都用同一个上限常量）。
+func validateSKUAxisSelections(parsed map[string]json.RawMessage) error {
+	axisCount := 0
+	total := 1
+	keys := make([]string, 0, len(parsed))
+	for key := range parsed {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		var sel struct {
+			Values  []string  `json:"values"`
+			Range   []float64 `json:"range"`
+			SKUAxis bool      `json:"sku_axis"`
+		}
+		if err := json.Unmarshal(parsed[key], &sel); err != nil {
+			continue // 结构非法由上方主流程报错，这里不重复
+		}
+		if !sel.SKUAxis {
+			continue
+		}
+		if len(sel.Range) == 2 {
+			return fmt.Errorf(
+				"配置项「%s」标了「参与 SKU 正交」，但它配的是取值范围（动态区间）。"+
+					"参与正交的参数必须是离散取值（如内存 4G/8G/16G）；"+
+					"带宽、数据盘这类连续量请改为不参与正交，作为客户下单时可调的加配项", key)
+		}
+		values := make([]string, 0, len(sel.Values))
+		seen := map[string]bool{}
+		for _, v := range sel.Values {
+			v = strings.TrimSpace(v)
+			if v == "" || seen[v] {
+				continue
+			}
+			seen[v] = true
+			values = append(values, v)
+		}
+		if len(values) == 0 {
+			return fmt.Errorf("配置项「%s」标了「参与 SKU 正交」，但没有勾选任何取值；请至少勾一个取值，或取消该项的正交标记", key)
+		}
+		if len(values) > skuAxisMaxPerOption {
+			return fmt.Errorf("配置项「%s」勾了 %d 个取值，超出单个正交参数的上限 %d 个", key, len(values), skuAxisMaxPerOption)
+		}
+		axisCount++
+		total *= len(values)
+		if total > skuAxisMaxCombinations {
+			return fmt.Errorf(
+				"参与 SKU 正交的参数组合出 %d 个规格，超出上限 %d 个；"+
+					"请减少参与正交的参数或取值 —— 组合数会随参数个数指数增长",
+				total, skuAxisMaxCombinations)
 		}
 	}
 	return nil

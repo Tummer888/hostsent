@@ -250,8 +250,11 @@ func (s *providerService) Update(ctx context.Context, id uint64, req dto.Provide
 }
 
 func (s *providerService) Delete(ctx context.Context, id uint64) error {
-	products, pools, err := s.repo.CountAssociations(ctx, id)
+	products, pools, _, _, err := s.repo.CountAssociations(ctx, id)
 	if err != nil {
+		return err
+	}
+	if err := s.ensureNoBoundInstances(ctx, id); err != nil {
 		return err
 	}
 	if products > 0 || pools > 0 {
@@ -300,6 +303,35 @@ func (s *providerService) DeletePool(ctx context.Context, id uint64) error {
 	return s.pool.Delete(ctx, id)
 }
 
+// ensureNoBoundInstances 删除渠道前的实例守卫（两条删除路径共用）。
+//
+// 为什么必须挡：渠道删掉后绑着它的实例再也无法同步/操作（渠道查询直接报
+// "不存在"），而渠道**没有恢复入口**（只有删除）—— 实例会永久卡在列表里
+// （用户实测反馈）。这条守卫曾经只在普通删除里有，cascade 路径缺失，
+// 于是从"有关联数据"的入口进去就能绕开（实测复现）。
+//
+// 提示按"已开通 / 待开通"分开给：处置入口不同 —— 前者去实例页销毁，
+// 后者去处置来源订单（继续开通或取消）。
+func (s *providerService) ensureNoBoundInstances(ctx context.Context, id uint64) error {
+	_, _, instances, placed, err := s.repo.CountAssociations(ctx, id)
+	if err != nil {
+		return err
+	}
+	if instances == 0 {
+		return nil
+	}
+	pending := instances - placed
+	switch {
+	case placed > 0 && pending > 0:
+		return fmt.Errorf("该渠道还绑定着 %d 台未销毁实例（其中 %d 台已开通、%d 台待开通）：请先到「实例」里销毁已开通的，并到「订单」里处置待开通的（继续开通或取消）",
+			instances, placed, pending)
+	case placed > 0:
+		return fmt.Errorf("该渠道还绑定着 %d 台已开通实例：请先到「实例」里销毁它们（渠道已不可用时可选择「只清本地记录」）", placed)
+	default:
+		return fmt.Errorf("该渠道还绑定着 %d 台待开通实例（未在渠道侧开通的占位行）：请先到「订单」里处置来源订单（继续开通或取消），或删除这些占位实例", pending)
+	}
+}
+
 // Associations 渠道关联数据详情（删除确认弹窗用）。
 //
 // 存在的意义：原来只报一句"存在 N 个关联商品"，运营无从判断是不是演示数据挡路，
@@ -323,10 +355,15 @@ func (s *providerService) Associations(ctx context.Context, id uint64) (*dto.Pro
 			products[i].HasOrders = n
 		}
 	}
+	instances, err := s.repo.ListAssociationInstances(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 	return &dto.ProviderAssociations{
 		ProviderID: id,
 		Products:   products,
 		Pools:      pools,
+		Instances:  instances,
 	}, nil
 }
 
@@ -342,6 +379,14 @@ func (s *providerService) countProductSalesRefs(ctx context.Context, resourcePro
 func (s *providerService) DeleteWithCascade(ctx context.Context, id uint64) (*dto.ProviderCascadeResult, error) {
 	if _, err := s.repo.FindByID(ctx, id); err != nil {
 		return nil, err
+	}
+	// 实例守卫（与普通删除同一口径）：连带删除同样不能让实例变成孤儿。
+	//
+	// 这条曾经缺失 —— 普通删除有守卫、cascade 没有，于是从"有关联数据"的
+	// 删除入口进去就能绕开，把还挂着实例的渠道删掉，实例随即永久卡死
+	//（实测复现：删掉有 1 台实例的渠道，走 cascade 成功）。
+	if cerr := s.ensureNoBoundInstances(ctx, id); cerr != nil {
+		return nil, cerr
 	}
 	products, err := s.repo.ListAssociationProducts(ctx, id)
 	if err != nil {
@@ -1248,7 +1293,12 @@ func (s *providerService) BuildProviderConfig(ctx context.Context, id uint64) (*
 			// 渠道被删除（软删）后，绑定它的实例/商品仍会来取配置。这里给出可操作的
 			// 明确原因，而不是把 "record not found" 层层包成"上游不可达"——
 			// 后者会让运营以为网络/凭证有问题，实际是渠道没了（实测排查成本很高）。
-			return nil, fmt.Errorf("上游渠道 #%d 不存在或已被删除：绑定该渠道的实例无法同步/操作，请在「资源-渠道管理」恢复或重建该渠道", id)
+			//
+			// 措辞保持中性（"渠道"而不是"上游渠道"）：本包同时服务自营（compute）
+			// 与转售（upstream）两类渠道，自营语境下说"上游"会与"机器由本平台开通"
+			// 直接冲突。需要按链路改写文案的调用方用 errors.Is(ErrProviderMissing) 判定。
+			return nil, fmt.Errorf("%w：渠道 #%d，绑定该渠道的实例无法同步/操作，请在「资源-渠道管理」恢复或重建该渠道",
+				upstream.ErrProviderMissing, id)
 		}
 		return nil, err
 	}

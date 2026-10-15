@@ -247,7 +247,25 @@
           </t-form-item>
 
           <div class="section-hint">
-            已开 <strong>{{ enabledCount }}</strong> 个配置项；多选取值会生成客户可选配置项。
+            已开 <strong>{{ enabledCount }}</strong> 个配置项。标了<strong>「参与 SKU 正交」</strong>的参数按取值生成独立规格；
+            其余多选取值会成为客户下单时可调的加配项。
+          </div>
+
+          <!--
+            正交预览：勾选时看不到组合数就很容易勾出几十个 SKU，
+            建品后才发现页面被撑爆。这里实时算出将生成的规格数与具体组合。
+          -->
+          <div v-if="axisRows().length" class="axis-preview" :class="{ 'axis-preview--error': !!axisCountError() }">
+            <div class="axis-preview__head">
+              <span>
+                SKU 维度 {{ axisRows().length }} 个：{{ axisRows().map((r) => r.spec.label || r.spec.option_key).join(' × ') }}
+              </span>
+              <span class="axis-preview__count">将生成 {{ axisSkuCount() }} 个规格</span>
+            </div>
+            <p v-if="axisCountError()" class="axis-preview__error">{{ axisCountError() }}</p>
+            <p v-else class="axis-preview__hint">
+              每个组合会建一条独立规格，可分别定价、设库存。不参与正交的参数作为客户侧加配项保留。
+            </p>
           </div>
         </template>
 
@@ -376,6 +394,18 @@
                         <t-input v-model="row.groupLabel" placeholder="如 Ubuntu / Windows" />
                       </label>
                     </div>
+                    <!--
+                      参与 SKU 正交：勾上表示"这个参数的每个取值都是一台不同的机器"，
+                      建品时按各轴的取值做笛卡尔积，每个组合独立建一个 SKU（可分别定价与设库存）。
+                      不勾则该参数作为客户下单时可调的加配项在客户侧选择 —— 同一台机器上的差异。
+                    -->
+                    <div class="opt-axis">
+                      <t-checkbox v-model="row.skuAxis">参与 SKU 正交（每个取值生成一个独立规格）</t-checkbox>
+                      <span class="opt-axis__hint">
+                        内存 4G/8G/16G 这类离散规格勾它；带宽、数据盘这类连续可调量不要勾。
+                      </span>
+                    </div>
+                    <p v-if="axisConflict(row)" class="opt-row__error">{{ axisConflict(row) }}</p>
                     <!-- 取值含义：
                          -1/0/auto 这类值光看取值看不出含义，选完就把目录里的说明列出来；
                          数量型没有候选取值，改提示文档给的平台默认口径。 -->
@@ -715,6 +745,8 @@ type OptionRow = {
   defaultNumber: number | null
   default: string
   groupLabel: string
+  /** 参与 SKU 正交展开（T4.7）：该参数的取值是规格维度，不是可调加配项。 */
+  skuAxis: boolean
 }
 
 const dialogVisible = ref(false)
@@ -868,10 +900,11 @@ function resetExpanded() {
 
 /** 收起态的一行摘要：数量型给范围，多选型给标签名。 */
 function rowSummary(row: OptionRow): string {
+  const axisTag = row.skuAxis ? '【SKU 维度】' : ''
   if (isQtyOption(row.spec)) {
     const unit = row.spec.unit ? ` ${row.spec.unit}` : ''
     const def = row.defaultNumber != null ? `，默认 ${row.defaultNumber}${unit}` : ''
-    return `取值范围 ${row.rangeMin} – ${row.rangeMax}${unit}${def}`
+    return `${axisTag}取值范围 ${row.rangeMin} – ${row.rangeMax}${unit}${def}`
   }
   if (!row.values.length) return '已开但未选值，保存时会跳过'
   const labelOf = new Map(valueOptions(row).map((o) => [o.value, o.label]))
@@ -879,7 +912,50 @@ function rowSummary(row: OptionRow): string {
   const head = names.slice(0, 4).join('、')
   const more = names.length > 4 ? ` 等 ${names.length} 项` : ''
   const def = row.default ? `，默认 ${labelOf.get(row.default) || row.default}` : ''
-  return `可选：${head}${more}${def}`
+  return `${axisTag}可选：${head}${more}${def}`
+}
+
+/**
+ * 参与正交的参数列表（有序）。
+ * 这些参数的取值会做笛卡尔积，每个组合生成一个独立 SKU。
+ */
+function axisRows(): OptionRow[] {
+  return rows.value.filter((r) => r.enabled && r.skuAxis && !isQtyOption(r.spec) && r.values.length > 0)
+}
+
+/**
+ * 按当前勾选将生成的 SKU 数量（笛卡尔积）。
+ *
+ * 界面上必须能看到这个数：CPU 8 档 × 内存 11 档 = 88 个 SKU，
+ * 运营勾的时候不会有"指数增长"的直觉，看到数字才会去收敛维度。
+ */
+function axisSkuCount(): number {
+  const axes = axisRows()
+  if (!axes.length) return 1
+  return axes.reduce((acc, r) => acc * r.values.length, 1)
+}
+
+/** 正交组合数是否超出后端上限（与 catalog 服务同口径）。 */
+function axisCountError(): string {
+  const axes = axisRows()
+  if (!axes.length) return ''
+  const count = axisSkuCount()
+  if (count > 64) {
+    return `当前勾选会生成 ${count} 个规格，超出上限 64 个。请减少参与正交的参数或取值 —— 组合数随参数个数指数增长。`
+  }
+  return ''
+}
+
+/** 某参数被标为 SKU 维度后，后端会拒绝区间型；这里提前给出可读原因。 */
+function axisConflict(row: OptionRow): string {
+  if (!row.skuAxis) return ''
+  if (isQtyOption(row.spec)) {
+    return '该参数是数量型（客户填连续值），不能参与 SKU 正交：枚举不出有限个规格。请改为在客户侧作为可调加配项。'
+  }
+  if (!row.values.length) {
+    return '标为 SKU 维度后必须至少勾一个取值，否则无法生成规格。'
+  }
+  return ''
 }
 
 /** rowValuesHelp 已选取值里能查到含义的那些（-1 不开通 / 0 不限量 / auto 随机端口）。 */
@@ -1192,6 +1268,13 @@ function expandKeys(keys: string[]) {
   expandedKeys.value = [...new Set([...expandedKeys.value, ...keys])]
 }
 
+/**
+ * openMultiCpuMem 一键把 CPU 与内存开放成 SKU 正交轴。
+ *
+ * 这正是"不同套餐"的定义场景：4核4G 与 4核8G 是两台不同的机器，
+ * 客户选它等于换规格 —— 因此标为轴，建品时按取值组合各生成一个独立 SKU。
+ * （带宽/数据盘这类同一台机器上的可调量不在此列，仍走客户侧加配项。）
+ */
 function openMultiCpuMem() {
   const cpu = rows.value.find((r) => r.spec.option_key === 'cpu')
   if (cpu) {
@@ -1199,6 +1282,7 @@ function openMultiCpuMem() {
     const preferred = ['2', '4', '8'].filter((v) => (cpu.spec.values || []).some((x) => x.value === v))
     cpu.values = preferred.length ? preferred : cpu.values
     cpu.default = cpu.values[0] || ''
+    cpu.skuAxis = cpu.values.length > 0
   }
   const mem = rows.value.find((r) => r.spec.option_key === 'memory')
   if (mem) {
@@ -1206,8 +1290,15 @@ function openMultiCpuMem() {
     const preferred = ['4096', '8192'].filter((v) => (mem.spec.values || []).some((x) => x.value === v))
     mem.values = preferred.length ? preferred : mem.values
     mem.default = mem.values[0] || ''
+    mem.skuAxis = mem.values.length > 0
   }
-  MessagePlugin.success('已开放 CPU/内存多选，客户侧可在档位内自选')
+  const total = axisSkuCount()
+  const over = axisCountError()
+  if (over) {
+    MessagePlugin.warning(over)
+  } else {
+    MessagePlugin.success(`已把 CPU/内存 设为 SKU 维度：按取值组合将生成 ${total} 个独立规格，可分别定价`)
+  }
   expandKeys(['cpu', 'memory'])
 }
 
@@ -1229,6 +1320,9 @@ function buildOptionSelections(): SpecOptionSelections {
     if (!row.values.length) continue
     out[key] = { values: [...row.values], default: row.default || row.values[0] }
     if (row.groupLabel.trim()) out[key].group_label = row.groupLabel.trim()
+    // 参与正交的轴才写该标记：不勾的项保持 false 语义（不写字段），
+    // 存量配置档的 JSON 因此不受影响。
+    if (row.skuAxis) out[key].sku_axis = true
   }
   return out
 }
@@ -1287,6 +1381,7 @@ function buildRow(spec: OptionSpecInfo, selections: SpecOptionSelections): Optio
     defaultNumber: null,
     default: sel?.default || '',
     groupLabel: sel?.group_label || '',
+    skuAxis: !!sel?.sku_axis,
   }
   if (qty) {
     const defStr = sel?.default || spec.default_value || ''
@@ -1455,6 +1550,18 @@ async function save() {
   const qtyErr = firstQtyRangeError()
   if (qtyErr) {
     MessagePlugin.warning(`「${qtyErr.name}」：${qtyErr.message}`)
+    return
+  }
+  // SKU 正交自检：组合数超限、把数量型参数标成轴，都会在建品时才失败。
+  // 在保存档位这一步就说清，运营不用等建品被打回。
+  const axisCountErr = axisCountError()
+  if (axisCountErr) {
+    MessagePlugin.warning(axisCountErr)
+    return
+  }
+  const axisRowErr = rows.value.find((r) => r.enabled && axisConflict(r))
+  if (axisRowErr) {
+    MessagePlugin.warning(`「${axisRowErr.spec.label || axisRowErr.spec.option_key}」：${axisConflict(axisRowErr)}`)
     return
   }
   // 区域/节点可能配在两处：①「平台映射」的下拉（基线）；②「位置与调度」分组的配置项（客户可选）。
@@ -1799,6 +1906,50 @@ onMounted(() => {
 .opt-row__error {
   margin: 2px 0 0;
   font-size: 12px;
+  color: var(--td-error-color-6, #d54941);
+}
+
+/* 参与 SKU 正交的勾选行：与取值/默认值同层，但视觉上要弱于主输入 */
+.opt-axis {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 6px;
+}
+.opt-axis__hint {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder, #8b8b8b);
+}
+
+/* 正交预览：实时显示将生成多少规格，避免勾出几十个 SKU 才发现 */
+.axis-preview {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--td-brand-color, #0052d9);
+  border-radius: 0 6px 6px 0;
+  background: var(--td-bg-color-container-hover, #f3f3f3);
+}
+.axis-preview--error {
+  border-left-color: var(--td-error-color-6, #d54941);
+}
+.axis-preview__head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  font-size: 13px;
+}
+.axis-preview__count {
+  font-weight: 500;
+}
+.axis-preview__hint,
+.axis-preview__error {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder, #8b8b8b);
+}
+.axis-preview__error {
   color: var(--td-error-color-6, #d54941);
 }
 

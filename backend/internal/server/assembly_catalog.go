@@ -375,6 +375,8 @@ func (a *specOptionCatalogAdapter) OptionCatalogByProvider(ctx context.Context, 
 			MinValue:     info.MinValue,
 			MaxValue:     info.MaxValue,
 			SortOrder:    info.SortOrder,
+			// manual 来源表示"平台只给了示例值，允许填其它值"（端口可填具体端口号）。
+			Creatable: info.ValueSource == "manual",
 		}
 		for _, v := range info.Values {
 			meta.Values = append(meta.Values, catalogservice.SpecOptionValueMeta{

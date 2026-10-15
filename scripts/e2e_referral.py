@@ -29,6 +29,9 @@ FAILURES = []
 
 # 自建验收商品的固定标签：清理时按名字前缀定位，不会误伤运营的商品。
 PRODUCT_PREFIX = "e2e-referral-验收商品"
+# 商品分类：建品现在强制必填（留空会落进「未分类」），脚本自建一个分类，
+# 跑完在删完商品之后删除（分类下仍有商品时后端会拒绝删除）。
+CATEGORY_PREFIX = "e2e-referral-分类"
 # 下单手填价：算价管线优先级最高的 ManualAmount，比率断言只依赖本值。
 PRICE_1, PRICE_2 = 100.0, 200.0
 # 强制写入的返现配置（跑完原样恢复）：首单 10%、后续 5%、最低提现 5 元。
@@ -179,6 +182,29 @@ def cleanup_product(pid):
         print(f"  [WARN] 验收商品 {pid} 清理失败（HTTP {st}）：{obj}")
 
 
+def cleanup_categories():
+    """删除自建分类：必须在删完商品之后调用（分类下仍有商品时后端拒绝删除）。"""
+    st, obj = req("GET", "/admin/product/categories", token=admin)
+    if st != 200:
+        return
+
+    def walk(nodes):
+        for node in nodes or []:
+            if isinstance(node, dict):
+                yield node
+                yield from walk(node.get("children"))
+
+    items = obj.get("data") or {}
+    if isinstance(items, dict):
+        items = items.get("items") or []
+    for node in walk(items if isinstance(items, list) else []):
+        if str(node.get("name") or "").startswith(CATEGORY_PREFIX):
+            cid = node.get("id")
+            st2, obj2 = req("DELETE", f"/admin/product/categories/{cid}", token=admin)
+            if st2 != 200:
+                print(f"  [WARN] 自建分类 {cid} 清理失败（HTTP {st2}）：{obj2}")
+
+
 def cleanup_products():
     st, obj = req("GET", "/admin/product/products?page=1&page_size=200", token=admin)
     if st != 200:
@@ -232,11 +258,20 @@ if saved_configs is not None:
     if st != 200:
         sys.exit(1)
 
-print("== 0.3 自建自营验收商品 ==")
+print("== 0.3 自建分类 + 自营验收商品 ==")
+st, obj = req("POST", "/admin/product/categories", token=admin, body={
+    "parent_id": 0, "name": f"{CATEGORY_PREFIX}-{suffix}", "sort_order": 0, "status": 1})
+CATEGORY_ID = dig(obj, "id")
+check("自建商品分类（供验收商品归属）", st == 200 and bool(CATEGORY_ID), f"HTTP {st} {obj if st != 200 else ''}")
+if not CATEGORY_ID:
+    restore_configs(saved_configs)
+    sys.exit(1)
+
 st, obj = req("POST", "/admin/product/products", token=admin, body={
     "code": PRODUCT_CODE, "name": PRODUCT_NAME, "product_type": "cloud_host",
     "price_model": "fixed", "price": 1.0, "cost_price": 0.0,
     "source_mode": "self", "stock": -1, "status": 1,
+    "category_id": CATEGORY_ID,
     "description": "e2e-referral 验收自建（跑完自动清理）"})
 PRODUCT_ID = dig(obj, "id")
 check("自建商品（self 链路，未绑上游）", st == 200 and bool(PRODUCT_ID), f"HTTP {st} {obj if st != 200 else ''}")
@@ -360,8 +395,9 @@ print(f"样本：A={ua}(id {id_a}, 码 {code_a})  B={ub}(id {id_b})  订单1={or
 
 # 清理自建验收商品与恢复返现配置：无论验收成败都执行，演示库原样归还。
 cleanup_products()
+cleanup_categories()
 restore_configs(saved_configs)
-print("已清理自建验收商品并恢复 referral 配置")
+print("已清理自建验收商品与分类，并恢复 referral 配置")
 
 if FAILURES:
     print(f"结果：{len(FAILURES)} 项失败 → {FAILURES}")

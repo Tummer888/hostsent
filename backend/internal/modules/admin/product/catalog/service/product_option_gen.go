@@ -23,10 +23,12 @@ package service
 
 import (
 	"encoding/json"
+	"math"
 	"sort"
 	"strings"
 
 	"hostsent/backend/internal/modules/admin/product/catalog/dto"
+	"hostsent/backend/internal/pkg/billingcycle"
 )
 
 // 控件类型（与 model.ConfigWidget* / upstream.ConfigWidget* 同口径）。
@@ -55,6 +57,15 @@ type optionSelection struct {
 	Default flexString `json:"default"`
 	// GroupLabel 分组标签（同一参数的取值默认归入哪个分组）。
 	GroupLabel string `json:"group_label"`
+	// SKUAxis 该参数是否参与 SKU 正交展开（T4.7）。
+	//
+	// 勾上表示"这个参数的每个取值都是一台不同的机器"（CPU 4核/8核、内存 4G/8G），
+	// 建品时按它的取值做笛卡尔积，每个组合生成一个独立 SKU（各自定价与库存）。
+	// 不勾则保持现状：作为客户可选配置项，客户下单时就地改，不产生新 SKU。
+	//
+	// 只对离散取值有意义：区间型参数（带宽/数据盘）客户填的是连续值，
+	// 枚举不出有限的 SKU —— 标了也会在 buildAxisPlan 里被拒。
+	SKUAxis bool `json:"sku_axis"`
 }
 
 // flexString 兼容 JSON 字符串与数字两种写法的字符串字段。
@@ -133,6 +144,12 @@ type optionAccumulator struct {
 	isRange bool
 	// explicit 标记该参数是否被建品页显式覆盖过（覆盖后不再受目录默认约束）。
 	explicit bool
+	// 数量型的「超出单价（元/单位）」四档周期价。由建品页 option_overrides 带来；
+	// 全 nil 表示运营没定价（占位 sub 保持 0，与修复前行为一致）。
+	unitPrice  *float64
+	unitQtr    *float64
+	unitAnnual *float64
+	unitOnce   *float64
 }
 
 // addValues 把某档位勾选的取值并入累加器。
@@ -271,6 +288,12 @@ func (a *optionAccumulator) applyOverride(ov dto.ProductOptionOverride) {
 	if d := strings.TrimSpace(ov.Default); d != "" {
 		a.meta.Default = d
 	}
+	// 数量型的四档单位加价（元/单位）；只在该项确实是数量型时生效，见下方 isRange 判定。
+	if ov.UnitPriceMonthly != nil || ov.UnitPriceQuarterly != nil ||
+		ov.UnitPriceAnnually != nil || ov.UnitPriceOnetime != nil {
+		a.unitPrice, a.unitQtr = ov.UnitPriceMonthly, ov.UnitPriceQuarterly
+		a.unitAnnual, a.unitOnce = ov.UnitPriceAnnually, ov.UnitPriceOnetime
+	}
 	// 数量型（带宽/数据盘/系统盘/IP 数）：只有区间、没有离散取值。
 	//
 	// 这里必须把 isRange 标上（实测故障）：建品页把这类项放在 option_overrides 里传过来时
@@ -302,7 +325,7 @@ func (a *optionAccumulator) applyOverride(ov dto.ProductOptionOverride) {
 		a.seen[val] = len(a.values)
 		a.values = append(a.values, optionValue{
 			Value:   val,
-			Label:   firstNonEmptyStr(strings.TrimSpace(v.Label), val),
+			Label:   overrideLabel(strings.TrimSpace(v.Label), val, labelForValue(a.meta, val)),
 			Group:   strings.TrimSpace(v.Group),
 			Help:    strings.TrimSpace(v.Help),
 			Default: v.Default,
@@ -311,6 +334,9 @@ func (a *optionAccumulator) applyOverride(ov dto.ProductOptionOverride) {
 			Annual:  v.PriceAnnually,
 			Quarter: v.PriceQuarterly,
 			Onetime: v.PriceOnetime,
+			// 四档加价中没填的档位由月价按周期月数折算（见 deriveMissingCyclePrices）：
+			// 运营在编辑页只填一个"元/月"，不折算的话长周期会沿用月价 ——
+			// 客户买年付时内存 8G 仍只加 13 元（实测故障，用户反馈「换周期价格不变」）。
 		})
 		if v.Default && a.meta.Default == "" {
 			a.meta.Default = val
@@ -319,6 +345,65 @@ func (a *optionAccumulator) applyOverride(ov dto.ProductOptionOverride) {
 	if hasGroup(a.values) && a.meta.Widget != SpecWidgetQty {
 		a.meta.Widget = SpecWidgetGroupSelect
 	}
+	deriveMissingCyclePrices(a.values)
+}
+
+// deriveMissingCyclePrices 用月度加价补齐缺失的长周期加价。
+//
+// 背景（实测故障）：编辑页每个取值只填一个「元/月」价格，季度/年度/一次性三档
+// 恒为 0，后端 priceForCycle 在 0 时回落月价 —— 于是月付 13 元的内存 8G，
+// 无论客户选年付还是季付，加价都只加 13 元（用户反馈「更换周期后价格没有变动」）。
+//
+// 口径：缺档按「月价 × 周期月数」折算（一个月多少钱 × 几个月），
+// 与商品周期价的"月价 × 月数"一致，也符合"长周期不该比按月买更便宜"的默认预期；
+// 显式填了价（含显式填 0）的档位不动 —— 运营要单独定价或免加价时以他填的为准。
+//
+// 只处理月价 > 0 的取值：月价 0 表示该取值不加价，折算出来还是 0，没必要动。
+func deriveMissingCyclePrices(values []optionValue) {
+	for i := range values {
+		v := &values[i]
+		if v.Monthly <= 0 {
+			continue
+		}
+		if v.Quarter <= 0 {
+			v.Quarter = round2Price(v.Monthly * float64(billingcycleMultiplier(billingcycle.Quarterly)))
+		}
+		if v.Annual <= 0 {
+			v.Annual = round2Price(v.Monthly * float64(billingcycleMultiplier(billingcycle.Annually)))
+		}
+		// 一次性不加折算：它没有"月数"口径（内容与周期无关，如一次性开通费），
+		// 折算成 12 倍反而是错的。留 0 由 priceForCycle 回落月价。
+	}
+}
+
+// billingcycleMultiplier 取周期月数；未知周期返回 1（等价于不折算）。
+func billingcycleMultiplier(code string) int {
+	if m := billingcycle.Multiplier(code); m > 0 {
+		return m
+	}
+	return 1
+}
+
+// round2Price 金额保留两位（与仓库其它算价口径一致）。
+func round2Price(v float64) float64 {
+	return math.Round(v*100) / 100
+}
+
+// overrideLabel 决定某个取值最终用哪个展示名。
+//
+// 背景（实测故障）：建品页会把取值列表连同 label 一起回传。当页面在平台目录加载前
+// 就取过档位（loadTemplates 早于 loadCatalogDefaults），label 会被固化成裸值
+// （os 传 "62"、area 传 "1"），于是后端的目录中文名被这个裸值覆盖，
+// 下单界面只显示 ID。运营的描述是要把「传值」与「展示名」分开：
+// 传值必须原样保留（下发给平台），展示名必须用目录里的中文。
+//
+// 口径：请求里的 label 只有在**不是裸值**时才采纳（即与取值本身不同）；
+// 与取值相同的 label 等于"没给展示名"，回落目录名，目录也没有才用取值。
+func overrideLabel(requested, value, catalogLabel string) string {
+	if requested != "" && requested != value {
+		return requested
+	}
+	return firstNonEmptyStr(catalogLabel, value)
 }
 
 func (a *optionAccumulator) seenEnsure() {
@@ -387,18 +472,47 @@ func (a *optionAccumulator) toConfigOption() map[string]interface{} {
 	// 占位 sub 的名字只用于后端回读，不该出现在客户界面（数量型靠区间渲染步进器）。
 	// 取配置项本身的名称即可；客户端不会把它当可选取值展示。
 	if widget == SpecWidgetQty && len(subs) == 0 {
+		// 单价写进占位 sub：后续所有读取（quantityUnitPriceForCycle → UnitPrice/UnitPriceQuarterly…）
+		// 都从这个 sub 取，写 0 就等于"这项不加价"（修复前的行为，
+		// 导致带宽/数据盘在后台建品时没法定价）。
+		monthly := float64PtrValue(a.unitPrice)
 		subs = append(subs, map[string]interface{}{
 			"option_name": firstNonEmptyStr(a.meta.Label, a.meta.OptionKey),
 			"source":      "self",
 			"source_key":  "",
 			"hidden":      0,
 			"pricings": []map[string]interface{}{{
-				"monthly": 0.0, "annually": 0.0, "quarterly": 0.0, "onetime": 0.0,
+				"monthly":   monthly,
+				"quarterly": derivedUnitPrice(a.unitQtr, monthly, billingcycle.Quarterly),
+				"annually":  derivedUnitPrice(a.unitAnnual, monthly, billingcycle.Annually),
+				"onetime":   float64PtrValue(a.unitOnce),
 			}},
 		})
 	}
 	opt["sub"] = subs
 	return opt
+}
+
+// derivedUnitPrice 取数量型某周期的单位加价。
+//
+// 显式填了就用填的；没填（nil）按「月单价 × 周期月数」折算 —— 与枚举型取值加价
+// 同一口径（deriveMissingCyclePrices），避免年付只被收一个月的加配钱。
+// 月单价为 0（不加价）时折算结果也是 0，不会凭空造出费用。
+func derivedUnitPrice(explicit *float64, monthly float64, cycle string) float64 {
+	if explicit != nil {
+		return *explicit
+	}
+	if monthly <= 0 {
+		return 0
+	}
+	return round2Price(monthly * float64(billingcycleMultiplier(cycle)))
+}
+
+func float64PtrValue(p *float64) float64 {
+	if p == nil {
+		return 0
+	}
+	return round2Price(*p)
 }
 
 // labelForValue 取某取值的中文展示名：优先目录取值库里的标签，其次原值。

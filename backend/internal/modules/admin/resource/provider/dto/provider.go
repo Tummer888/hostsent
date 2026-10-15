@@ -275,6 +275,12 @@ type ProviderAssociations struct {
 	ProviderID uint64                    `json:"provider_id"`
 	Products   []ProviderAssociationItem `json:"products"`
 	Pools      []ProviderAssociationItem `json:"pools"`
+	// Instances 该渠道下**未销毁**的实例（挡删除的主体）。
+	//
+	// 与商品/资源池并列列出：它们同样是"删渠道前必须先处置"的东西，
+	// 只在删除被拒的错误里报一个数字，运营看不到是哪几台（用户实测：
+	// 删渠道后实例卡死，才发现渠道早就没了）。
+	Instances []ProviderAssociationItem `json:"instances"`
 }
 
 // ProviderCascadeResult 连带删除结果。

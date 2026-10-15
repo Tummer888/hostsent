@@ -100,6 +100,7 @@ export function getProductList(params: SaleProductListQuery): Promise<SaleProduc
     params: {
       keyword: params.keyword,
       category_id: params.category_id,
+      uncategorized: params.uncategorized,
       status: params.status,
       source_mode: params.source_mode,
       featured: params.featured,
