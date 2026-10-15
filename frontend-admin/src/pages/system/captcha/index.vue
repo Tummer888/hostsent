@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <SecuredIcon size="22" aria-hidden="true" />
+          <SecuredIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">验证码配置</h2>
@@ -228,22 +228,42 @@
         </div>
 
         <div class="stat-grid">
-          <div class="stat-card stat-card--mini">
-            <span class="stat-label">下发总量</span>
-            <span class="stat-value">{{ totals.total }}</span>
-          </div>
-          <div class="stat-card stat-card--mini">
-            <span class="stat-label">通过量</span>
-            <span class="stat-value">{{ totals.used }}</span>
-          </div>
-          <div class="stat-card stat-card--mini">
-            <span class="stat-label">通过率</span>
-            <span class="stat-value">{{ (totals.passRate * 100).toFixed(1) }}%</span>
-          </div>
-          <div class="stat-card stat-card--mini">
-            <span class="stat-label">短信费用（元）</span>
-            <span class="stat-value">{{ fenToYuan(totals.costFen) }}</span>
-          </div>
+          <article class="stat-card stat-card--blue">
+            <span class="stat-card__icon">
+              <SendIcon size="20" aria-hidden="true" />
+            </span>
+            <div class="stat-card__info">
+              <span class="stat-card__value">{{ totals.total }}</span>
+              <span class="stat-card__label">下发总量</span>
+            </div>
+          </article>
+          <article class="stat-card stat-card--green">
+            <span class="stat-card__icon">
+              <CheckCircleIcon size="20" aria-hidden="true" />
+            </span>
+            <div class="stat-card__info">
+              <span class="stat-card__value">{{ totals.used }}</span>
+              <span class="stat-card__label">通过量</span>
+            </div>
+          </article>
+          <article class="stat-card stat-card--cyan">
+            <span class="stat-card__icon">
+              <PercentIcon size="20" aria-hidden="true" />
+            </span>
+            <div class="stat-card__info">
+              <span class="stat-card__value">{{ (totals.passRate * 100).toFixed(1) }}%</span>
+              <span class="stat-card__label">通过率</span>
+            </div>
+          </article>
+          <article class="stat-card stat-card--orange">
+            <span class="stat-card__icon">
+              <MoneyIcon size="20" aria-hidden="true" />
+            </span>
+            <div class="stat-card__info">
+              <span class="stat-card__value">{{ fenToYuan(totals.costFen) }}</span>
+              <span class="stat-card__label">短信费用（元）</span>
+            </div>
+          </article>
         </div>
 
         <t-table
@@ -407,7 +427,15 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 
-import { AddIcon, RefreshIcon, SecuredIcon } from 'tdesign-icons-vue-next'
+import {
+  AddIcon,
+  CheckCircleIcon,
+  MoneyIcon,
+  PercentIcon,
+  RefreshIcon,
+  SecuredIcon,
+  SendIcon,
+} from 'tdesign-icons-vue-next'
 import {
   DialogPlugin,
   MessagePlugin,
@@ -853,6 +881,12 @@ onMounted(async () => {
 })
 </script>
 
+<style lang="css">
+/* 统计卡片 / 页头徽标统一规格（40px 高饱和实色块）由共享样式表提供；
+   本页根节点带 .system-module，已纳入其 :is() 白名单。 */
+@import '../../stat-card.css';
+</style>
+
 <style lang="css" scoped>
 .main-card {
   padding: var(--space-lg) var(--space-xl);
@@ -984,29 +1018,8 @@ onMounted(async () => {
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-md);
-}
-
-.stat-card--mini {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: var(--space-md);
-  border: 1px solid var(--hs-border-color, #e5e7eb);
-  border-radius: var(--hs-radius-lg, 8px);
-  background: var(--hs-surface-1, #fff);
-}
-
-.stat-label {
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-}
-
-.stat-value {
-  font-size: 22px;
-  font-weight: 600;
-  color: #1f2937;
 }
 
 .rate-ok {

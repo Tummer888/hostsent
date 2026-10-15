@@ -3,7 +3,7 @@
     <div class="page-header">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <UserListIcon size="22" aria-hidden="true" />
+          <UserListIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">员工管理</h2>

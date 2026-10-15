@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <AppIcon size="22" aria-hidden="true" />
+          <AppIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">产品列表</h2>
@@ -98,7 +98,6 @@
 
         <section class="table-card surface-card">
           <div class="table-card__head">
-            <h3 class="card-title">产品列表</h3>
             <div class="table-card__meta products-crumb-wrap">
               <span v-if="activeCategoryPath.length" class="products-crumb">
                 分类：{{ activeCategoryPath.map((n) => n.name).join(' / ') }}
@@ -203,7 +202,6 @@
                   :options="
                     buildMobileActionOptions([
                       { content: '详情', value: 'detail', theme: 'default' },
-                      { content: '编辑', value: 'edit', theme: 'default' },
                       { content: '改价', value: 'price', theme: 'default' },
                       { content: '上架', value: 'publish', hidden: () => row.status === 1, theme: 'success' },
                       { content: '下架', value: 'unpublish', hidden: () => row.status !== 1, theme: 'warning' },
@@ -213,8 +211,12 @@
                   @select="(value) => handleMobileAction(value, row)"
                 />
                 <template v-else>
+                  <!--
+                    「详情」即编辑入口：详情页与编辑页已合并（页面子页导航），
+                    原来并列的「详情 / 编辑」会把同一份内容指向两个地址，
+                    运营点哪个都行、改完还得自己判断该回哪。
+                  -->
                   <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
-                  <t-link theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
                   <t-link theme="primary" hover="color" @click="openPriceDialog(row)">改价</t-link>
                   <t-link v-if="row.status !== 1" theme="primary" hover="color" @click="handlePublish(row)"
                     >上架</t-link
@@ -1186,8 +1188,13 @@ function openDetail(row: SaleProductInfo) {
   router.push(`/product/products/${row.id}`)
 }
 
+/**
+ * 编辑入口已并入详情页（详情/编辑合并为单页 + 子页导航）：
+ * 这里保留一个跳详情页的转发，供历史调用点（如旧代码里的 openEdit）复用，
+ * 避免再拼出 `/edit` 这个已废弃的地址。
+ */
 function openEdit(row: SaleProductInfo) {
-  router.push(`/product/products/${row.id}/edit`)
+  openDetail(row)
 }
 
 async function handlePublish(row: SaleProductInfo) {

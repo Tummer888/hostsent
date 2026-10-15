@@ -20,7 +20,7 @@
         @keydown.space.prevent="toggleStatusFilter(card.status)"
       >
         <span class="stat-card__icon">
-          <component :is="card.icon" size="22" aria-hidden="true" />
+          <component :is="card.icon" size="20" aria-hidden="true" />
         </span>
         <div class="stat-card__info">
           <span class="stat-card__value">{{ card.count }}</span>

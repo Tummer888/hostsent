@@ -1,8 +1,22 @@
 /* ============================================================
-   HostSent · 统一统计卡片样式
-   对齐实例运维台（instances）的卡片格式：
-   白底卡片 + 左上角彩色光晕 + 渐变彩色图标（左） + 大数字/说明（右）
-   通过 :is() 聚合各页面命名空间作用，不影响实例页自身的样式。
+   HostSent · 统一统计卡片规格（全站）
+   ----------------------------------------
+   经验来自「用户管理 → 用户总览」试点页，此处固化为全站基线：
+   - 图标：40px 高饱和实色块 + 白色图形（字形 20px，恰为方块的一半）
+   - 圆角：卡面/背景/边框统一 --hs-radius-xl（默认 10px），与图标块同值；
+     试点页（用户总览）同样读取该令牌，全站同一来源、随圆角档位一起缩放
+     ——圆角要一处一致，而不是照搬试点页 14px 的整卡外观
+   - 文本：数值 21px/700、说明 12px，两行合计约 39px，压在图标高度以内，
+     不再出现「数字+说明」比图标高出一截的下坠感
+   - 卡面：内嵌淡灰底 + 极淡描边（白卡叠白底不能靠阴影分层，改用底色层次）
+   - 深色下实色块整体提亮一档：由 --hs-accent-* 令牌在 html.dark 下整体切换
+
+   配色是固定语义色、不跟随主题主色：绿色卡片不会因主色恰好是绿而出现
+   「绿底绿图」（instances 模块历史上踩过这个坑）。
+   同一页面内各卡片的变体色应尽量互不相同（页面自己负责选色，
+   本文件只提供色板；选色时避免同页复用同一变体）。
+   各页面命名空间经 :is() 聚合。注意：@import 出现在模块样式表顶部，
+   模块自身规则后写会覆盖本文件，因此各模块里残留的旧覆盖必须清掉。
    ============================================================ */
 
 :is(
@@ -13,21 +27,31 @@
   .resource-module,
   .dashboard-page,
   .sales-module,
-  .users-module
+  .users-module,
+  .point-module,
+  .referral-module,
+  .instances-module,
+  .lifecycle-module,
+  .content-module,
+  .notify-module,
+  .log-module,
+  .product-module,
+  .system-page,
+  .system-module
 ) {
-  /* ---------- 骨架 ---------- */
+  /* ---------- 骨架：内嵌淡灰底 + 极淡描边 ---------- */
   .stat-card {
-    --stat-accent: 100, 116, 139;
+    --stat-accent: var(--hs-accent-slate); /* 未指定变体时的中性灰 */
     position: relative;
     overflow: hidden;
     display: flex;
     align-items: center;
-    gap: 16px;
-    min-height: 108px;
-    padding: var(--space-lg) 20px;
-    border: none;
-    border-radius: var(--hs-radius-lg);
-    background: var(--hs-surface-1);
+    gap: 13px;
+    min-height: 84px;
+    padding: 16px 18px;
+    border: 1px solid var(--hs-inset-border);
+    border-radius: var(--hs-radius-xl); /* 10px：与图标块同圆角 */
+    background: var(--hs-inset-1);
     box-shadow: none;
     opacity: 0;
     transform: translateY(8px);
@@ -44,25 +68,13 @@
     animation-delay: 180ms;
   }
 
-  /* ---------- 彩色光晕（左上角，随变体着色） ---------- */
-  .stat-card::before {
-    content: '';
-    position: absolute;
-    width: 150px;
-    height: 150px;
-    left: -30px;
-    top: -30px;
-    border-radius: 999px;
-    pointer-events: none;
-    background: radial-gradient(circle at 45% 45%, rgba(var(--stat-accent), 0.18) 0%, rgba(var(--stat-accent), 0) 72%);
-  }
-
-  /* ---------- 图标（44px 圆角渐变方块，不旋转） ---------- */
-  .stat-card__icon {
+  /* ---------- 图标：40px 高饱和实色块 + 白色图形 ---------- */
+  .stat-card__icon,
+  .stat-card__chip {
     position: relative;
     z-index: 1;
-    width: 44px;
-    height: 44px;
+    width: 40px;
+    height: 40px;
     border-radius: var(--hs-radius-xl);
     display: inline-flex;
     align-items: center;
@@ -71,6 +83,7 @@
     flex-shrink: 0;
     border: none;
     box-shadow: none;
+    background: rgb(var(--stat-accent));
   }
 
   /* ---------- 文本：数字在上、说明在下 ---------- */
@@ -82,12 +95,12 @@
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 4px;
+    gap: 2px;
     min-width: 0;
   }
 
   .stat-card__value {
-    font-size: 26px;
+    font-size: 21px;
     font-weight: 700;
     line-height: 1.1;
     color: var(--color-foreground);
@@ -116,121 +129,90 @@
     letter-spacing: inherit;
   }
 
-  /* ---------- 变体主色（光晕 + 图标渐变） ---------- */
-  .stat-card--default {
-    --stat-accent: 100, 116, 139;
+  /* ---------- 变体主色：高饱和实色，深色提亮由令牌切换 ---------- */
+  .stat-card--default,
+  .stat-card--slate {
+    --stat-accent: var(--hs-accent-slate);
   }
 
   .stat-card--blue,
   .stat-card--info {
-    --stat-accent: 37, 99, 235;
+    --stat-accent: var(--hs-accent-blue);
   }
 
   .stat-card--green,
   .stat-card--success {
-    --stat-accent: 22, 163, 74;
+    --stat-accent: var(--hs-accent-green);
   }
 
   .stat-card--cyan {
-    --stat-accent: 8, 145, 178;
+    --stat-accent: var(--hs-accent-cyan);
   }
 
   .stat-card--orange {
-    --stat-accent: 234, 88, 12;
+    --stat-accent: var(--hs-accent-orange);
   }
 
   .stat-card--red,
   .stat-card--danger {
-    --stat-accent: 220, 38, 38;
+    --stat-accent: var(--hs-accent-red);
   }
 
-  .stat-card--purple {
-    --stat-accent: 124, 58, 237;
+  .stat-card--purple,
+  .stat-card--violet {
+    --stat-accent: var(--hs-accent-purple);
   }
 
   .stat-card--warning {
-    --stat-accent: 217, 119, 6;
+    --stat-accent: var(--hs-accent-warning);
   }
 
   .stat-card--indigo {
-    --stat-accent: 79, 70, 229;
+    --stat-accent: var(--hs-accent-indigo);
   }
 
   .stat-card--teal {
-    --stat-accent: 13, 148, 136;
+    --stat-accent: var(--hs-accent-teal);
   }
 
-  .stat-card__icon--blue,
-  .stat-card__icon--info,
-  .stat-card--blue .stat-card__icon,
-  .stat-card--info .stat-card__icon {
-    background: linear-gradient(135deg, #60a5fa, #2563eb);
+  /* ---------- 可点击卡片（跳列表 / 筛选） ---------- */
+  .stat-card--clickable {
+    cursor: pointer;
+    transition:
+      border-color 160ms var(--hs-ease-out),
+      box-shadow 160ms var(--hs-ease-out),
+      transform 160ms var(--hs-ease-out);
   }
 
-  .stat-card__icon--green,
-  .stat-card__icon--success,
-  .stat-card--green .stat-card__icon,
-  .stat-card--success .stat-card__icon {
-    background: linear-gradient(135deg, var(--td-brand-color-5), var(--color-primary));
+  .stat-card--clickable:hover {
+    border-color: rgba(var(--stat-accent), 0.55);
+    box-shadow: var(--hs-shadow-md);
+    transform: translateY(-2px);
   }
 
-  .stat-card__icon--cyan,
-  .stat-card--cyan .stat-card__icon {
-    background: linear-gradient(135deg, #22d3ee, #0891b2);
+  .stat-card--clickable:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px var(--color-primary),
+      var(--hs-shadow-md);
   }
 
-  .stat-card__icon--orange,
-  .stat-card--orange .stat-card__icon {
-    background: linear-gradient(135deg, #fbbf24, #ea580c);
-  }
-
-  .stat-card__icon--red,
-  .stat-card__icon--danger,
-  .stat-card--red .stat-card__icon,
-  .stat-card--danger .stat-card__icon {
-    background: linear-gradient(135deg, #f87171, #dc2626);
-  }
-
-  .stat-card__icon--purple,
-  .stat-card--purple .stat-card__icon {
-    background: linear-gradient(135deg, #a78bfa, #7c3aed);
-  }
-
-  .stat-card__icon--warning,
-  .stat-card--warning .stat-card__icon {
-    background: linear-gradient(135deg, #fbbf24, #d97706);
-  }
-
-  .stat-card__icon--indigo,
-  .stat-card--indigo .stat-card__icon {
-    background: linear-gradient(135deg, #818cf8, #4f46e5);
-  }
-
-  .stat-card__icon--teal,
-  .stat-card--teal .stat-card__icon {
-    background: linear-gradient(135deg, #2dd4bf, #0d9488);
-  }
-
-  .stat-card__icon--default,
-  .stat-card--default .stat-card__icon {
-    background: linear-gradient(135deg, #94a3b8, #64748b);
-  }
-
-  /* ---------- 响应式 ---------- */
+  /* ---------- 响应式（对齐试点页：图标缩一档、数值同比例缩） ---------- */
   @media (max-width: 768px) {
     .stat-card {
-      min-height: 84px;
+      min-height: 76px;
       padding: 14px 16px;
       gap: 12px;
     }
 
-    .stat-card__icon {
-      width: 40px;
-      height: 40px;
+    .stat-card__icon,
+    .stat-card__chip {
+      width: 38px;
+      height: 38px;
     }
 
     .stat-card__value {
-      font-size: 22px;
+      font-size: 19px;
     }
   }
 
@@ -240,6 +222,28 @@
       opacity: 1;
       transform: none;
     }
+  }
+
+  /* ============================================================
+     页头标题图标（page-header__chip）· 与统计卡图标同规格
+     ----------------------------------------
+     试点页结论：页头徽标与统计卡图标块要落在同一条竖线上，两处尺寸必须一致；
+     页头是页面级标题条，徽标用项目主色（石墨灰）实色块——与统计卡同为
+     「实色块 + 白图形」，但保持中性、不承担指标区分职责。
+     注意：页头左内边距比统计卡少 1px（统计卡还有 1px 描边），
+     两者叠加后才会对齐；各模块 .page-header 的 padding 需与 .stat-card 同步。
+     ============================================================ */
+  .page-header__chip {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--hs-radius-xl);
+    background: rgb(var(--color-primary-rgb));
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: none;
   }
 }
 

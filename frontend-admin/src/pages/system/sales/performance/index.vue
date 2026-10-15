@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <ChartBarIcon size="22" aria-hidden="true" />
+          <ChartBarIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">业绩与排行</h2>
@@ -395,7 +395,7 @@ onMounted(loadAll)
 <style scoped>
 .sales-module .stat-grid {
   display: grid;
-  gap: 16px;
+  gap: var(--space-md);
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 

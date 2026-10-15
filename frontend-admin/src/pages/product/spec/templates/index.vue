@@ -2,7 +2,7 @@
   <div class="page-body product-module">
     <header class="page-header surface-card">
       <div class="page-header__main">
-        <span class="page-header__chip"><AppIcon size="22" aria-hidden="true" /></span>
+        <span class="page-header__chip"><AppIcon size="20" aria-hidden="true" /></span>
         <div class="page-header__text">
           <h2 class="page-header__title">规格模板（配置档）</h2>
           <p class="page-header__desc">
@@ -295,20 +295,57 @@
 
                 <div v-if="row.enabled" class="opt-row__body">
                   <template v-if="isQtyOption(row.spec)">
-                    <div class="opt-inline">
+                    <!--
+                      固定值 / 动态范围 二选一（用户要求）：
+                      这类项多数时候是定死的（如"所有商品系统盘 30G"），只有偶尔才要让客户在区间内调。
+                      原来恒显示"最小/最大/默认值"三个框，填固定值得把同一个数填两遍，
+                      且默认值能填到区间之外（实测故障：带宽区间 [10,100]、默认值 0
+                      → 下单表单预填出 0Mbps）。改成先选模式，固定值只填一个数。
+                    -->
+                    <div class="opt-inline opt-inline--mode">
                       <label class="opt-field">
-                        最小
-                        <t-input-number v-model="row.rangeMin" :min="0" theme="column" />
-                      </label>
-                      <label class="opt-field">
-                        最大
-                        <t-input-number v-model="row.rangeMax" :min="0" theme="column" />
-                      </label>
-                      <label class="opt-field">
-                        默认值
-                        <t-input-number v-model="row.defaultNumber" theme="column" />
+                        取值方式
+                        <t-radio-group
+                          :model-value="isFixedQty(row) ? 'fixed' : 'range'"
+                          variant="default-filled"
+                          size="small"
+                          @change="(v: string | number | boolean) => setQtyMode(row, String(v))"
+                        >
+                          <t-radio-button value="fixed">固定值</t-radio-button>
+                          <t-radio-button value="range">动态范围</t-radio-button>
+                        </t-radio-group>
                       </label>
                     </div>
+                    <div class="opt-inline">
+                      <template v-if="isFixedQty(row)">
+                        <label class="opt-field">
+                          固定值
+                          <t-input-number v-model="row.rangeMin" :min="0" theme="column" />
+                          <span class="opt-field__unit">{{ row.spec.unit || '' }}</span>
+                        </label>
+                      </template>
+                      <template v-else>
+                        <label class="opt-field">
+                          最小
+                          <t-input-number v-model="row.rangeMin" :min="0" theme="column" />
+                        </label>
+                        <label class="opt-field">
+                          最大
+                          <t-input-number v-model="row.rangeMax" :min="0" theme="column" />
+                        </label>
+                        <label class="opt-field">
+                          默认值
+                          <t-input-number
+                            v-model="row.defaultNumber"
+                            :min="row.rangeMin ?? 0"
+                            :max="row.rangeMax ?? undefined"
+                            theme="column"
+                          />
+                        </label>
+                      </template>
+                    </div>
+                    <!-- 默认值必须在区间内：超界会让下单表单预填出客户看不懂的值 -->
+                    <p v-if="qtyRangeError(row)" class="opt-row__error">{{ qtyRangeError(row) }}</p>
                   </template>
                   <template v-else>
                     <t-select
@@ -856,6 +893,57 @@ function isQtyOption(spec: OptionSpecInfo): boolean {
 }
 
 /**
+ * 数量型是否按「固定值」配置：最小 == 最大。
+ *
+ * 用区间相等来表达固定值，而不是新增一个持久化字段——后端 option_selections
+ * 的契约就是 range: [min, max]，相等即固定，不引入第二套口径（也就不用改后端与存量数据）。
+ */
+function isFixedQty(row: OptionRow): boolean {
+  const min = row.rangeMin
+  const max = row.rangeMax
+  return min != null && max != null && Number(min) === Number(max)
+}
+
+/** 切换数量型取值方式：切到「固定值」时把最大对齐到最小（默认值也拉回区间内）。 */
+function setQtyMode(row: OptionRow, mode: string) {
+  if (mode === 'fixed') {
+    row.rangeMax = row.rangeMin ?? 0
+    row.defaultNumber = row.rangeMin ?? 0
+  } else if (row.rangeMin != null && row.rangeMax != null && Number(row.rangeMin) === Number(row.rangeMax)) {
+    // 动态范围：把上限放开一档，否则刚切过去还是固定值，看起来像没生效。
+    row.rangeMax = Number(row.rangeMin) + 1
+  }
+}
+
+/**
+ * 数量型的区间/默认值校验（保存前拦，避免脏配置流到下单表单）。
+ *
+ * 关键一条是默认值必须落在区间内：实测故障里模板带宽区间 [10,100]、默认值却是 0，
+ * 下单表单照默认值预填出 0Mbps，客户看到的带宽等于无效值。
+ */
+function qtyRangeError(row: OptionRow): string {
+  const min = row.rangeMin
+  const max = row.rangeMax
+  if (min == null || max == null) return ''
+  if (Number(min) > Number(max)) return '最小值不能大于最大值'
+  const def = row.defaultNumber
+  if (def != null && (Number(def) < Number(min) || Number(def) > Number(max))) {
+    return `默认值 ${def} 不在区间 [${min}, ${max}] 内，客户下单时会预填出无效值`
+  }
+  return ''
+}
+
+/** 是否存在数量型配置错误（保存前统一拦一次）。 */
+function firstQtyRangeError(): { name: string; message: string } | null {
+  for (const row of rows.value) {
+    if (!row.enabled || !isQtyOption(row.spec)) continue
+    const err = qtyRangeError(row)
+    if (err) return { name: row.spec.label || row.spec.option_key, message: err }
+  }
+  return null
+}
+
+/**
  * valueOptions 配置档里的候选取值。
  * - static：目录声明里的 options（cpu/memory 这类静态枚举）；
  * - manual：库里/目录里带候选值的（port 的 auto），运营还能在控件里新建；
@@ -1100,7 +1188,10 @@ function buildOptionSelections(): SpecOptionSelections {
     if (isQtyOption(row.spec)) {
       const min = row.rangeMin ?? row.spec.min_value ?? 0
       const max = row.rangeMax ?? row.spec.max_value ?? 0
-      const def = row.defaultNumber != null ? String(row.defaultNumber) : row.spec.default_value
+      // 固定值时 min == max，默认值直接取该值：不让"默认值"再成为独立输入，
+      // 从源头消除"默认值落在区间外"（那是下单表单预填出 0 的根因）。
+      const fixed = Number(min) === Number(max)
+      const def = fixed ? String(min) : row.defaultNumber != null ? String(row.defaultNumber) : row.spec.default_value
       out[key] = { range: [Number(min), Number(max)], default: def || undefined }
       continue
     }
@@ -1326,6 +1417,13 @@ async function save() {
     const first = catalogGroups.value[0]
     focusSection(first ? grpTabValue(first.name) : 'basic')
     MessagePlugin.warning('请至少勾选一个配置项，否则该档位无法生成客户可选配置')
+    return
+  }
+  // 数量型的区间/默认值自检：默认值超出区间时下单表单会预填出无效值
+  // （实测故障：带宽区间 [10,100] 默认 0 → 客户看到 0Mbps）。后端也会拦，这里先给可读提示。
+  const qtyErr = firstQtyRangeError()
+  if (qtyErr) {
+    MessagePlugin.warning(`「${qtyErr.name}」：${qtyErr.message}`)
     return
   }
   // 区域/节点可能配在两处：①「平台映射」的下拉（基线）；②「位置与调度」分组的配置项（客户可选）。
@@ -1653,6 +1751,24 @@ onMounted(() => {
   gap: 2px;
   font-size: 12px;
   color: var(--td-text-color-secondary, #666);
+}
+
+/* 取值方式这一行只有一个单选框组，不该按多列网格铺满整行 */
+.opt-inline--mode {
+  grid-template-columns: 1fr;
+}
+
+.opt-field__unit {
+  margin-left: 4px;
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #888);
+}
+
+/* 区间/默认值校验失败：与输入框同列，一眼看到是哪一项配错了 */
+.opt-row__error {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--td-error-color-6, #d54941);
 }
 
 .preview-line {

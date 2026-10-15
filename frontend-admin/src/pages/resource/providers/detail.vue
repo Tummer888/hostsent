@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <CloudIcon size="22" aria-hidden="true" />
+          <CloudIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">{{ detail?.name || '提供商详情' }}</h2>
@@ -165,13 +165,17 @@
               </t-form-item>
             </div>
 
+            <!-- 数量必须带单位：裸 "1 / 15" 读者无从判断是 15GB 还是 15 核，
+                 渠道聚合值来自资源池（GB 口径，见 formatPoolMemory 注释）。 -->
             <t-descriptions v-if="!editing && isCompute" :column="3" bordered size="small" class="resource-summary">
-              <t-descriptions-item label="CPU 配额">{{ detail.used_cpu }} / {{ detail.total_cpu }}</t-descriptions-item>
+              <t-descriptions-item label="CPU 配额">{{ detail.used_cpu }} / {{ detail.total_cpu }} 核</t-descriptions-item>
               <t-descriptions-item label="内存配额"
-                >{{ detail.used_memory }} / {{ detail.total_memory }}</t-descriptions-item
+                >{{ formatPoolMemory(detail.used_memory) }} /
+                {{ formatPoolMemory(detail.total_memory) }}</t-descriptions-item
               >
               <t-descriptions-item label="磁盘配额"
-                >{{ detail.used_disk }} / {{ detail.total_disk }}</t-descriptions-item
+                >{{ formatDisk(detail.used_disk) }} /
+                {{ formatDisk(detail.total_disk) }}</t-descriptions-item
               >
             </t-descriptions>
           </template>
@@ -293,6 +297,7 @@ import {
   updateProvider,
 } from '@/api/admin'
 import type { ProviderField, ProviderInfo, ProviderTypeItem, SyncLogInfo } from '@/types/interface'
+import { formatDisk, formatPoolMemory } from '@/utils/spec-format'
 import PoolPanel from '@/pages/resource/pools/index.vue'
 import CapabilityMatrix from './components/CapabilityMatrix.vue'
 import CredentialFormFields from './components/CredentialFormFields.vue'
@@ -586,10 +591,6 @@ watch(activeTab, (tab) => {
 </style>
 
 <style scoped lang="css">
-.resource-module {
-  --chip-bg: linear-gradient(135deg, var(--color-primary), var(--td-brand-color-8));
-}
-
 .tabs-card,
 .content-card {
   padding: var(--space-lg) 24px;

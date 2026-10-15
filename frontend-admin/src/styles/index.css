@@ -49,6 +49,23 @@
   --hs-surface-1: #ffffff;
   --hs-surface-2: #f8fafc;
   --hs-surface-3: #f1f5f9;
+  /* 内嵌块（统计卡等）底色与描边：白卡面靠「淡灰底 + 极淡描边」分层，不用阴影。
+     来自用户总览试点页（--uo-inset-*），全站共用同一层色。 */
+  --hs-inset-1: #f8fafc;
+  --hs-inset-border: rgba(15, 23, 42, 0.05);
+
+  /* 统计卡图标的高饱和语义色（RGB 三元组，供 rgb(var(--stat-accent)) 使用）。
+     深色主题下在 html.dark 覆盖为提亮一档的值。 */
+  --hs-accent-slate: 100, 116, 139;
+  --hs-accent-blue: 59, 130, 246;
+  --hs-accent-green: 34, 197, 94;
+  --hs-accent-cyan: 6, 182, 212;
+  --hs-accent-orange: 249, 115, 22;
+  --hs-accent-red: 239, 68, 68;
+  --hs-accent-purple: 124, 58, 237;
+  --hs-accent-warning: 217, 119, 6;
+  --hs-accent-indigo: 79, 70, 229;
+  --hs-accent-teal: 13, 148, 136;
 
   /* Spacing scale — Density 9 (compact, 4–24px base) */
   --space-xs: 4px;
@@ -98,6 +115,20 @@ html.dark {
   --hs-surface-1: #0a0a0a;
   --hs-surface-2: #111111;
   --hs-surface-3: #171717;
+  /* 深色下内容区是纯黑：内嵌块比黑底亮一档浮起，描边用极淡白。 */
+  --hs-inset-1: #141414;
+  --hs-inset-border: rgba(255, 255, 255, 0.05);
+  /* 实色图标块在纯黑底上提亮一档：原色偏暗、白图形对比不足。 */
+  --hs-accent-slate: 148, 163, 184;
+  --hs-accent-blue: 96, 165, 250;
+  --hs-accent-green: 74, 222, 128;
+  --hs-accent-cyan: 34, 211, 238;
+  --hs-accent-orange: 251, 146, 60;
+  --hs-accent-red: 248, 113, 113;
+  --hs-accent-purple: 167, 139, 250;
+  --hs-accent-warning: 251, 191, 36;
+  --hs-accent-indigo: 129, 140, 248;
+  --hs-accent-teal: 45, 212, 191;
   color-scheme: dark;
 }
 

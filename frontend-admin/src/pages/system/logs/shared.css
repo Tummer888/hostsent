@@ -3,12 +3,14 @@
    选择器全部以 .log-module 命名空间包裹，避免影响其他模块。
    ============================================================ */
 
+/* 统计卡片 / 页头徽标统一规格（40px 实色块）由共享样式表提供。 */
+@import '../../stat-card.css';
+
 .log-module {
-  --chip-bg: linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8));
   --log-border: var(--td-component-stroke, #e7e9ec);
 }
 
-.log-module .page-body {
+.log-module.page-body {
   display: flex;
   flex-direction: column;
   gap: var(--space-lg);
@@ -33,27 +35,15 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-lg);
-  padding: var(--space-lg) var(--space-xl);
+  padding: var(--space-lg) 20px var(--space-lg) 19px;
   flex-wrap: wrap;
 }
 
 .log-module .page-header__main {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
+  gap: 13px;
   min-width: 0;
-}
-
-.log-module .page-header__chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  color: #fff;
-  background: var(--chip-bg);
-  flex: none;
 }
 
 .log-module .page-header__title {

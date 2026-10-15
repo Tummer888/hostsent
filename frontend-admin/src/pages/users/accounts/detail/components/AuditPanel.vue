@@ -8,7 +8,6 @@
     />
 
     <div class="table-card__head">
-      <h3 class="card-title">操作日志</h3>
       <span class="table-card__meta"> 共 {{ pagination.total }} 条 · 数据源：用户操作审计（按归属账号过滤） </span>
     </div>
 

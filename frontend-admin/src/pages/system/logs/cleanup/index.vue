@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <DeleteIcon size="22" aria-hidden="true" />
+          <DeleteIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">日志清理</h2>
@@ -103,7 +103,6 @@
       <!-- ---------- 清理任务 ---------- -->
       <div v-if="activeTab === 'jobs'" class="tab-body">
         <div class="table-card__head">
-          <h3 class="card-title">清理任务</h3>
           <span class="table-card__meta">
             共 {{ formatNumber(jobsTotal) }} 个
             <template v-if="hasActiveJob"> · 有任务执行中，进度每 3 秒刷新</template>

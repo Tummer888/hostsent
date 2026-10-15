@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <ServiceIcon size="22" aria-hidden="true" />
+          <ServiceIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">工单列表</h2>
@@ -90,7 +90,6 @@
 
     <section class="table-card surface-card">
       <div class="table-card__head">
-        <h3 class="card-title">工单列表</h3>
         <span class="table-card__meta">共 {{ total }} 个工单</span>
       </div>
       <t-table

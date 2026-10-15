@@ -2,7 +2,7 @@
   <div class="page-body product-module">
     <header class="page-header surface-card">
       <div class="page-header__main">
-        <span class="page-header__chip"><AppIcon size="22" aria-hidden="true" /></span>
+        <span class="page-header__chip"><AppIcon size="20" aria-hidden="true" /></span>
         <div class="page-header__text">
           <h2 class="page-header__title">平台配置项</h2>
           <p class="page-header__desc">

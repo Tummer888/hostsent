@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <AppIcon size="22" aria-hidden="true" />
+          <AppIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">{{ order?.order_no || '订单详情' }}</h2>
@@ -248,7 +248,6 @@
         <t-tab-panel value="items" label="订单明细">
           <div class="tabs-section">
             <div class="table-card__head">
-              <h3 class="card-title">订单明细</h3>
               <span class="table-card__meta">共 {{ order?.items?.length ?? 0 }} 项</span>
             </div>
             <!-- 明细改为卡片式：左侧产品与规格，右侧金额大字，按视觉重心分层，
@@ -289,7 +288,6 @@
         <t-tab-panel value="refunds" label="退款记录">
           <div class="tabs-section">
             <div class="table-card__head">
-              <h3 class="card-title">退款记录</h3>
               <span class="table-card__meta">共 {{ order?.refunds?.length ?? 0 }} 条</span>
             </div>
             <t-table

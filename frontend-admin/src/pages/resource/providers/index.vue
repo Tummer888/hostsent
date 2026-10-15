@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <component :is="pageIcon" size="22" aria-hidden="true" />
+          <component :is="pageIcon" size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">{{ pageTitle }}</h2>
@@ -1034,10 +1034,6 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
 </style>
 
 <style scoped lang="css">
-.resource-module {
-  --chip-bg: linear-gradient(135deg, var(--color-primary), var(--td-brand-color-8));
-}
-
 /* 桌面 4 列、中屏 2 列、窄屏 1 列由 FilterCard 的 columns 属性给出。 */
 
 /* —— 连通性：信号格 + 状态标签，列头挂「一键测试」 —— */

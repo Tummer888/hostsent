@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <TagIcon size="22" aria-hidden="true" />
+          <TagIcon size="20" aria-hidden="true" />
         </span>
         <h2 class="page-title">用户等级管理</h2>
       </div>
@@ -473,6 +473,28 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
   gap: 16px;
 }
 
+/* 表头底色：本页根节点虽然带 .users-module，但并未 @import users/shared.css
+   （此前注释里提到该文件只是说明 .field 规则缺失），所以表头样式要在此自足。
+
+   选择器用 `.t-table__header th`：TDesign 把 `t-table__header` 挂在 <thead> 上，
+   <th> 只有按列的 `t-table__th-<colKey>`，写 `.t-table__th` 会匹配 0 个元素。
+
+   白底 + 品牌色叠加层而非半透明色：固定列是 sticky 单元格，
+   半透明底在横向滚动时会让其它列标题透出来。 */
+.level-page :deep(.t-table__header th) {
+  background-color: var(--hs-surface-1);
+  background-image: linear-gradient(rgba(var(--color-primary-rgb), 0.07), rgba(var(--color-primary-rgb), 0.07));
+  color: var(--td-brand-color-8);
+  font-weight: 600;
+  border-bottom-color: var(--td-brand-color-2);
+  white-space: nowrap;
+}
+
+/* 行分隔：偶数行浅底斑马纹，长表格里更容易横向跟踪。 */
+.level-page :deep(.t-table tbody > tr:nth-child(even) > td) {
+  background-color: var(--hs-surface-2);
+}
+
 .surface-card {
   border-radius: var(--hs-radius-lg);
   background: var(--hs-surface-1);
@@ -486,10 +508,10 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
 }
 
 .page-header__chip {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   border-radius: var(--hs-radius-xl);
-  background: linear-gradient(135deg, var(--td-brand-color-6), var(--color-primary));
+  background: rgb(var(--color-primary-rgb));
   color: #ffffff;
   display: inline-flex;
   align-items: center;
@@ -556,7 +578,17 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
 .primary-cell {
   display: flex;
   flex-direction: column;
+  /* 徽章/编码按内容宽度排列：默认的 stretch 会把胶囊徽章拉满整列宽度，
+     图标与文字被推到两端，看起来像一条「很长的等级条」。
+     左对齐后徽章只占自身内容宽度，编码另起一行。 */
+  align-items: flex-start;
   gap: 4px;
+  min-width: 0;
+}
+
+.primary-cell > span {
+  color: var(--color-muted-foreground);
+  font-size: 12px;
 }
 
 .muted {

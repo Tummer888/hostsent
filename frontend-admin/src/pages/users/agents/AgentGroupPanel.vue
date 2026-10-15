@@ -108,7 +108,7 @@
               placeholder="搜索用户名 / 邮箱 / 手机 / 姓名"
               @enter="searchMembers"
             />
-            <t-button theme="primary" variant="outline" @click="searchMembers">查询</t-button>
+            <t-button theme="primary" @click="searchMembers">查询</t-button>
             <t-button
               v-permission="'agent_level:update'"
               theme="danger"
@@ -143,7 +143,7 @@
               placeholder="搜索未归属任何代理分组的账号"
               @enter="searchUnassigned"
             />
-            <t-button theme="primary" variant="outline" @click="searchUnassigned">查询</t-button>
+            <t-button theme="primary" @click="searchUnassigned">查询</t-button>
             <t-button
               v-permission="'agent_level:update'"
               theme="primary"

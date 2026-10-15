@@ -3,7 +3,7 @@
     <div class="page-header">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <UsergroupIcon size="22" aria-hidden="true" />
+          <UsergroupIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2>角色列表</h2>

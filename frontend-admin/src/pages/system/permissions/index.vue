@@ -3,7 +3,7 @@
     <div class="page-header">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <LockOnIcon size="22" aria-hidden="true" />
+          <LockOnIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2>权限分配</h2>

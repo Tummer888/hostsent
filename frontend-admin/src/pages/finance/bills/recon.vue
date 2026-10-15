@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <CheckCircleIcon size="22" aria-hidden="true" />
+          <CheckCircleIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">对账中心</h2>
@@ -31,27 +31,27 @@
 
     <template v-if="result">
       <div class="recon-grid">
-        <div class="stat-card surface-card stat-card--success">
+        <div class="stat-card stat-card--success">
           <span class="stat-card__icon">
-            <SwapIcon size="24" aria-hidden="true" />
+            <SwapIcon size="20" aria-hidden="true" />
           </span>
           <div class="stat-card__info">
             <span class="stat-card__value">¥{{ formatPrice(result.income_total) }}</span>
             <span class="stat-card__label">收入合计</span>
           </div>
         </div>
-        <div class="stat-card surface-card stat-card--red">
+        <div class="stat-card stat-card--red">
           <span class="stat-card__icon">
-            <TimeIcon size="24" aria-hidden="true" />
+            <TimeIcon size="20" aria-hidden="true" />
           </span>
           <div class="stat-card__info">
             <span class="stat-card__value">¥{{ formatPrice(result.expense_total) }}</span>
             <span class="stat-card__label">支出合计</span>
           </div>
         </div>
-        <div class="stat-card surface-card stat-card--blue">
+        <div class="stat-card stat-card--blue">
           <span class="stat-card__icon">
-            <WalletIcon size="24" aria-hidden="true" />
+            <WalletIcon size="20" aria-hidden="true" />
           </span>
           <div class="stat-card__info">
             <span class="stat-card__value">¥{{ formatPrice(result.wallet_balance) }}</span>

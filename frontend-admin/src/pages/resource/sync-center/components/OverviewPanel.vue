@@ -5,7 +5,7 @@
       <article
         v-for="card in cards"
         :key="card.key"
-        class="stat-card surface-card"
+        class="stat-card"
         :class="[`stat-card--${card.theme}`, { 'stat-card--clickable': card.tab }]"
         :role="card.tab ? 'button' : undefined"
         :tabindex="card.tab ? 0 : undefined"
@@ -139,7 +139,7 @@ const cards = computed(() => [
     value: String(props.failedSyncCount),
     hint: props.failedSyncCount > 0 ? '点击查看失败记录' : '近期没有失败的同步运行',
     icon: ErrorCircleIcon,
-    theme: props.failedSyncCount > 0 ? ('danger' as const) : ('info' as const),
+    theme: props.failedSyncCount > 0 ? ('danger' as const) : ('slate' as const),
     tab: 'inbound',
   },
   {
@@ -157,7 +157,7 @@ const cards = computed(() => [
     value: String(props.openFindingCount),
     hint: props.openFindingCount > 0 ? '售价/到期/状态与上游不一致' : '本地与上游一致',
     icon: ServerIcon,
-    theme: props.openFindingCount > 0 ? ('warning' as const) : ('info' as const),
+    theme: props.openFindingCount > 0 ? ('indigo' as const) : ('cyan' as const),
     tab: 'reconcile',
   },
   {
@@ -166,7 +166,7 @@ const cards = computed(() => [
     value: String(pausedCount.value),
     hint: pausedCount.value > 0 ? '已停止调度，需人工恢复' : '没有被熔断的渠道',
     icon: RefreshIcon,
-    theme: pausedCount.value > 0 ? ('danger' as const) : ('info' as const),
+    theme: pausedCount.value > 0 ? ('violet' as const) : ('teal' as const),
     tab: '',
   },
 ])

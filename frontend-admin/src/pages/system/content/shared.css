@@ -4,24 +4,25 @@
    结构与消息中心（notification/shared.css）同构，保持后台视觉一致。
    ============================================================ */
 
+/* 统计卡片 / 页头徽标统一规格（40px 实色块）由共享样式表提供。 */
+@import '../../stat-card.css';
+
 /* ---------- 页面骨架 ---------- */
 .content-module {
-  --chip-bg: linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8));
   --content-green: var(--color-primary, var(--color-primary));
   --content-green-hover: var(--td-brand-color-8);
   --content-green-soft: var(--td-brand-color-1);
   --content-green-border: var(--td-brand-color-2);
 }
 
-.content-module .page-body {
+.content-module.page-body {
   display: flex;
   flex-direction: column;
   gap: var(--space-lg);
 }
 
 /* ---------- 通用卡片 ---------- */
-.content-module .surface-card,
-.content-module .stat-card {
+.content-module .surface-card {
   position: relative;
   border-radius: var(--hs-radius-lg);
   background: var(--hs-surface-1);
@@ -30,8 +31,7 @@
   transform: none;
 }
 
-.content-module .surface-card:hover,
-.content-module .stat-card:hover {
+.content-module .surface-card:hover {
   border-color: var(--td-brand-color-3);
   box-shadow: none !important;
   transform: none;
@@ -43,14 +43,14 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-lg);
-  padding: var(--space-lg) var(--space-xl);
+  padding: var(--space-lg) 20px var(--space-lg) 19px;
   flex-wrap: wrap;
 }
 
 .content-module .page-header__main {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
+  gap: 13px;
   min-width: 0;
 }
 
@@ -59,18 +59,6 @@
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-}
-
-.content-module .page-header__chip {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--hs-radius-xl);
-  background: var(--chip-bg, linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8)));
-  color: #ffffff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
 }
 
 .content-module .page-header__title {

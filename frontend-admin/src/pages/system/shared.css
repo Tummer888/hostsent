@@ -1,11 +1,13 @@
 /* 系统管理页面统一视觉规范 */
+/* 统计卡片 / 页头徽标统一规格（40px 实色块）由共享样式表提供。 */
+@import '../stat-card.css';
+
 .system-page {
   --system-green: var(--color-primary, var(--color-primary));
   --system-green-hover: var(--td-brand-color-8);
   --system-green-soft: var(--td-brand-color-1);
   --system-green-border: var(--td-brand-color-2);
   --system-card-border: #edf3ef;
-  --chip-bg: linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8));
 }
 
 .system-page .surface-card,
@@ -18,7 +20,7 @@
 .system-page .page-header__main {
   display: flex;
   align-items: center;
-  gap: var(--space-md, 16px);
+  gap: 13px;
   min-width: 0;
 }
 
@@ -27,24 +29,6 @@
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-}
-
-.system-page .page-header__chip {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--hs-radius-xl);
-  background: var(--chip-bg, linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8)));
-  color: #ffffff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  box-shadow: none;
-  transition: transform var(--hs-duration-fast) var(--hs-ease-out);
-}
-
-.system-page .page-header__chip:hover {
-  transform: translateY(-1px) scale(1.03);
 }
 
 .system-page .page-header__title {

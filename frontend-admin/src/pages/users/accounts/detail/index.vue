@@ -4,7 +4,7 @@
       <div class="page-header__main">
         <span class="page-header__chip">
           <img v-if="profile?.avatar" class="page-header__avatar" :src="profile.avatar" :alt="profile.username" />
-          <UserIcon v-else size="22" aria-hidden="true" />
+          <UserIcon v-else size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <div class="page-header__title-row">
@@ -23,9 +23,33 @@
               :weight="profile.user_level_weight"
             />
           </div>
-          <p class="page-header__desc">
-            用户 ID {{ userId || '—' }} · {{ profile?.email || '无邮箱' }} · {{ profile?.phone || '无手机号' }}
-          </p>
+          <div class="page-header__meta">
+            <span class="meta-chip" :title="userId ? '点击复制用户 ID' : '用户未加载'" @click="copyUserId">
+              <span class="meta-chip__label">ID</span>
+              <span class="meta-chip__value meta-chip__value--id">{{ userId || '—' }}</span>
+              <CopyIcon class="meta-chip__copy" size="13" aria-hidden="true" />
+            </span>
+            <span
+              class="meta-chip"
+              :class="{ 'meta-chip--empty': !profile?.email }"
+              :title="profile?.email ? '点击复制邮箱' : '未绑定邮箱'"
+              @click="copyProfileField(profile?.email, '邮箱')"
+            >
+              <MailIcon class="meta-chip__icon" size="13" aria-hidden="true" />
+              <span class="meta-chip__value">{{ profile?.email || '无邮箱' }}</span>
+              <CopyIcon v-if="profile?.email" class="meta-chip__copy" size="13" aria-hidden="true" />
+            </span>
+            <span
+              class="meta-chip"
+              :class="{ 'meta-chip--empty': !profile?.phone }"
+              :title="profile?.phone ? '点击复制手机号' : '未绑定手机号'"
+              @click="copyProfileField(profile?.phone, '手机号')"
+            >
+              <MobileIcon class="meta-chip__icon" size="13" aria-hidden="true" />
+              <span class="meta-chip__value">{{ profile?.phone || '无手机号' }}</span>
+              <CopyIcon v-if="profile?.phone" class="meta-chip__copy" size="13" aria-hidden="true" />
+            </span>
+          </div>
         </div>
       </div>
 
@@ -83,7 +107,7 @@
     <section class="stat-grid" aria-label="用户概览统计">
       <article v-for="item in statCards" :key="item.key" class="stat-card" :class="`stat-card--${item.theme}`">
         <span class="stat-card__icon">
-          <component :is="item.icon" size="22" aria-hidden="true" />
+          <component :is="item.icon" size="20" aria-hidden="true" />
         </span>
         <div class="stat-card__info">
           <div class="stat-card__value">{{ item.value }}</div>
@@ -215,6 +239,9 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import {
   ChevronDownIcon,
   CloudIcon,
+  CopyIcon,
+  MailIcon,
+  MobileIcon,
   MoneyIcon,
   RefreshIcon,
   ServiceIcon,
@@ -233,6 +260,7 @@ import { formatAmount, userStatusLabel, userStatusTheme } from '@/pages/users/co
 import LevelBadge from '@/components/level-badge/index.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useUserStore } from '@/store'
+import { copyText } from '@/utils/clipboard'
 
 import ProfilePanel from './components/ProfilePanel.vue'
 import AssetsPanel from './components/AssetsPanel.vue'
@@ -258,6 +286,18 @@ const router = useRouter()
 const { isMobile } = useIsMobile()
 
 const userId = computed(() => Number(route.query.id || 0))
+
+// 页头元信息的快捷复制：运营常要把 ID / 邮箱 / 手机号贴到工单、群或备注里，
+// 手选 ID 这种纯数字很容易选多选少。
+function copyUserId() {
+  if (!userId.value) return
+  void copyText(String(userId.value), '用户 ID')
+}
+
+function copyProfileField(value: string | undefined, label: string) {
+  if (!value) return
+  void copyText(value, label)
+}
 
 const loading = ref(false)
 const profile = ref<UserInfo | null>(null)

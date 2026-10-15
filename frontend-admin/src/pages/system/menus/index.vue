@@ -3,7 +3,7 @@
     <div class="menu-page__header">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <MenuIcon size="22" aria-hidden="true" />
+          <MenuIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="menu-page__title">菜单管理</h2>

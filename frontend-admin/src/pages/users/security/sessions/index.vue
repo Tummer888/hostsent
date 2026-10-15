@@ -104,6 +104,7 @@
 
 <script setup lang="ts">
 import { RefreshIcon } from 'tdesign-icons-vue-next'
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import type { PageInfo, PrimaryTableCol } from 'tdesign-vue-next'
@@ -227,26 +228,81 @@ function handlePageChange(pageInfo: PageInfo) {
 }
 
 async function revokeOne(row: SessionInfo) {
-  await revokeSession(row.id)
-  await loadData()
+  try {
+    await revokeSession(row.id)
+    MessagePlugin.success('会话已失效')
+    await loadData()
+  } catch (error) {
+    MessagePlugin.error((error as Error)?.message || '失效会话失败')
+  }
 }
 
+/**
+ * 批量失效**当前页所有在线会话**。
+ *
+ * 此前这里带一个 `.slice(0, 3)`：按钮文案是「批量失效」，实际只失效前 3 条，
+ * 界面上既不提示也不报错，运营以为整页都踢掉了。该上限来自早期的联调保护，
+ * 不是产品要求；去掉它，改为按当前页实际在线数失效并回显条数。
+ */
 async function batchRevoke() {
-  // 只挑仍在线的会话（库里 active 才是有效会话，online 是旧前端编的值）。
-  const ids = tableData.value
-    .filter((item) => item.status === 'active')
-    .slice(0, 3)
-    .map((item) => item.id)
-  if (!ids.length) return
-  await batchRevokeSessions({ ids })
-  await loadData()
+  const ids = tableData.value.filter((item) => item.status === 'active').map((item) => item.id)
+  if (!ids.length) {
+    MessagePlugin.warning('当前页没有在线会话')
+    return
+  }
+  const dialog = DialogPlugin.confirm({
+    header: '批量失效会话',
+    body: `确认让当前页 ${ids.length} 个在线会话全部失效？这些用户需要重新登录。`,
+    confirmBtn: { content: '确认失效', theme: 'danger' },
+    cancelBtn: { content: '取消' },
+    onConfirm: async () => {
+      try {
+        const result = await batchRevokeSessions({ ids })
+        MessagePlugin.success(`已失效 ${result.items?.length ?? ids.length} 个会话`)
+        dialog.destroy()
+        await loadData()
+      } catch (error) {
+        MessagePlugin.error((error as Error)?.message || '批量失效失败')
+      }
+    },
+    onClose: () => dialog.destroy(),
+  })
 }
 
+/**
+ * 让**当前页第一条会话的账号**全部会话失效。
+ *
+ * 原实现直接取 `tableData[0].user_id` 且无二次确认：用户点「失效用户全部会话」
+ * 时，作用对象是列表首行的账号 —— 这一行既不一定是用户想操作的人，界面上也
+ * 没有任何提示，等于按一个按钮就随机踢掉某个账号（实测副作用：误踢后该用户
+ * 所有终端被迫重新登录）。改为先确认并明确显示用户名与将失效的会话数。
+ */
 async function revokeAll() {
-  const userId = tableData.value[0]?.user_id
-  if (!userId) return
-  await revokeUserAllSessions({ user_id: userId })
-  await loadData()
+  const target = tableData.value[0]
+  if (!target?.user_id) {
+    MessagePlugin.warning('当前页没有可操作的会话')
+    return
+  }
+  const activeCount = tableData.value.filter(
+    (item) => item.user_id === target.user_id && item.status === 'active',
+  ).length
+  const dialog = DialogPlugin.confirm({
+    header: '失效用户全部会话',
+    body: `确认让「${target.username || `用户 #${target.user_id}`}」的全部会话失效？该账号在所有终端都需要重新登录。`,
+    confirmBtn: { content: '确认失效', theme: 'danger' },
+    cancelBtn: { content: '取消' },
+    onConfirm: async () => {
+      try {
+        const result = await revokeUserAllSessions({ user_id: target.user_id })
+        MessagePlugin.success(`已失效 ${result.items?.length ?? activeCount} 个会话`)
+        dialog.destroy()
+        await loadData()
+      } catch (error) {
+        MessagePlugin.error((error as Error)?.message || '失效用户会话失败')
+      }
+    },
+    onClose: () => dialog.destroy(),
+  })
 }
 
 onMounted(() => {

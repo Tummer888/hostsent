@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <GiftIcon size="22" aria-hidden="true" />
+          <GiftIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">积分概览</h2>
@@ -23,7 +23,7 @@
     <section class="wallet-stat-grid">
       <div class="stat-card stat-card--green">
         <span class="stat-card__icon stat-card__icon--green">
-          <GiftIcon size="22" aria-hidden="true" />
+          <GiftIcon size="20" aria-hidden="true" />
         </span>
         <div class="stat-card__info">
           <span class="stat-card__value">{{ formatPoints(overview.total_balance) }}</span>
@@ -32,7 +32,7 @@
       </div>
       <div class="stat-card stat-card--blue">
         <span class="stat-card__icon stat-card__icon--blue">
-          <TrendingUpIcon size="22" aria-hidden="true" />
+          <TrendingUpIcon size="20" aria-hidden="true" />
         </span>
         <div class="stat-card__info">
           <span class="stat-card__value">{{ formatPoints(overview.total_earned) }}</span>
@@ -41,7 +41,7 @@
       </div>
       <div class="stat-card stat-card--orange">
         <span class="stat-card__icon stat-card__icon--orange">
-          <ArrowDownCircleIcon size="22" aria-hidden="true" />
+          <ArrowDownCircleIcon size="20" aria-hidden="true" />
         </span>
         <div class="stat-card__info">
           <span class="stat-card__value">{{ formatPoints(overview.total_spent) }}</span>
@@ -50,7 +50,7 @@
       </div>
       <div class="stat-card stat-card--cyan">
         <span class="stat-card__icon stat-card__icon--cyan">
-          <UserIcon size="22" aria-hidden="true" />
+          <UserIcon size="20" aria-hidden="true" />
         </span>
         <div class="stat-card__info">
           <span class="stat-card__value">{{ formatPoints(overview.account_count) }}</span>

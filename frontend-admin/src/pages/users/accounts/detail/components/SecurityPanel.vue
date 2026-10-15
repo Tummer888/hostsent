@@ -3,7 +3,6 @@
     <t-tabs v-model="subTab" theme="normal" class="sub-tabs">
       <t-tab-panel value="logins" :label="`登录日志（${summary?.login_count ?? 0}）`">
         <div class="table-card__head">
-          <h3 class="card-title">登录日志</h3>
           <span class="table-card__meta">共 {{ loginPagination.total }} 条</span>
         </div>
         <t-table
@@ -54,7 +53,6 @@
 
       <t-tab-panel value="sessions" :label="`在线会话（${summary?.active_session_count ?? 0}）`">
         <div class="table-card__head">
-          <h3 class="card-title">在线会话</h3>
           <div class="head-actions">
             <span class="table-card__meta">共 {{ sessionPagination.total }} 条</span>
             <t-button
@@ -123,7 +121,6 @@
 
       <t-tab-panel value="risks" :label="`风险事件（${summary?.risk_event_count ?? 0}）`">
         <div class="table-card__head">
-          <h3 class="card-title">风险事件</h3>
           <span class="table-card__meta">共 {{ riskPagination.total }} 条</span>
         </div>
         <t-table

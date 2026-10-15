@@ -42,12 +42,6 @@
           </template>
           留存期清理
         </t-button>
-        <t-button class="page-btn page-btn--ghost" variant="outline" :loading="exporting" @click="handleExportCSV">
-          <template #icon>
-            <DownloadIcon aria-hidden="true" />
-          </template>
-          导出 CSV
-        </t-button>
         <t-button class="page-btn" variant="outline" :loading="loading" @click="reload">
           <template #icon>
             <RefreshIcon aria-hidden="true" />
@@ -61,6 +55,9 @@
       统一筛选卡：字段必须是 .filter-card__grid 的直接子元素，窄屏折叠规则
       （:nth-child(n+2) 隐藏）挂在直接子元素上。关键词是最常用的主筛选，
       必须排第一，窄屏才不会被折叠（primary-count=1 只保留它）。
+
+      查询触发分两类：下拉框选完即查（@change，少点一次「查询」），文本框仍是
+      手动点查询或回车 —— 文本要等输完，边打边查既费请求也闪。
     -->
     <FilterCard :primary-count="1">
       <div class="field">
@@ -87,6 +84,7 @@
           filterable
           placeholder="全部状态"
           :options="statusOptions"
+          @change="handleSearch"
         />
       </div>
 
@@ -98,6 +96,7 @@
           clearable
           placeholder="快捷筛选"
           :options="quickFilterOptions"
+          @change="handleSearch"
         />
       </div>
 
@@ -110,6 +109,7 @@
           filterable
           placeholder="全部等级"
           :options="levelOptions"
+          @change="handleSearch"
         />
       </div>
 
@@ -122,6 +122,7 @@
           filterable
           placeholder="全部用户组"
           :options="userGroupFilterOptions"
+          @change="handleSearch"
         />
       </div>
 
@@ -133,6 +134,7 @@
           clearable
           placeholder="全部（含非代理）"
           :options="agentFilterOptions"
+          @change="handleSearch"
         />
       </div>
 
@@ -146,6 +148,7 @@
           placeholder="全部代理等级"
           :options="agentLevelFilterOptions"
           :disabled="filters.is_agent === 'false'"
+          @change="handleSearch"
         />
       </div>
 
@@ -157,6 +160,7 @@
           clearable
           placeholder="全部账号"
           :options="accountTypeOptions"
+          @change="handleSearch"
         />
       </div>
 
@@ -169,6 +173,7 @@
           filterable
           placeholder="全部销售"
           :options="salesFilterOptions"
+          @change="handleSearch"
         />
       </div>
 
@@ -772,11 +777,8 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   DeleteIcon,
-  DownloadIcon,
   ErrorCircleIcon,
-  LogoAndroidIcon,
-  LogoAppleFilledIcon,
-  LogoGithubFilledIcon,
+  LogoAlipayFilledIcon,
   LogoQqIcon,
   LogoWechatStrokeIcon,
   MoreIcon,
@@ -798,7 +800,6 @@ import {
   batchRestoreUsers,
   createUser,
   deleteUser,
-  exportUsers,
   getRoleList,
   getUserDeletionCheck,
   getUserGroupList,
@@ -829,6 +830,7 @@ import LevelBadge from '@/components/level-badge/index.vue'
 import ConfigureOrderDialog from '@/pages/users/accounts/detail/components/ConfigureOrderDialog.vue'
 import { useUserStore } from '@/store'
 import type { SalesCandidateInfo } from '@/types/interface'
+import { copyText } from '@/utils/clipboard'
 import { USER_CONSOLE_URL } from '@/utils/config'
 
 defineOptions({ name: 'UserAccountsList' })
@@ -1020,12 +1022,14 @@ const roleLabelMap: Record<string, string> = {
   unassigned: '未分配',
 }
 
+// 只列系统真正实现的三家（微信 / QQ / 支付宝），与「系统配置 → 第三方登录」
+// 的渠道列表和后端 pkg/oauth/provider 一一对应。此前还挂着 GitHub / Apple /
+// Android 三个静态图标：它们既没有后端 provider，也没有绑定数据的可能，恒定
+// 渲染成灰色，纯属误导；同时漏了已实现的支付宝。
 const oauthProviders = [
   { key: 'wechat', label: '微信', icon: LogoWechatStrokeIcon },
   { key: 'qq', label: 'QQ', icon: LogoQqIcon },
-  { key: 'github', label: 'GitHub', icon: LogoGithubFilledIcon },
-  { key: 'apple', label: 'Apple', icon: LogoAppleFilledIcon },
-  { key: 'android', label: 'Android', icon: LogoAndroidIcon },
+  { key: 'alipay', label: '支付宝', icon: LogoAlipayFilledIcon },
 ] as const
 
 const levelOptions = computed(() => [
@@ -1304,8 +1308,7 @@ async function loadAgentLevelOptions() {
   }
 }
 
-// buildListParams 把筛选状态翻译成列表/导出接口共用的查询参数。
-// 导出必须与列表用同一份参数，否则「界面上筛出来的」和「导出的」会对不上。
+// buildListParams 把筛选状态翻译成列表接口的查询参数。
 function buildListParams(): UserListQuery {
   // 「未归属销售」既可由快捷筛选触发，也可由「归属销售=未归属(0)」触发。
   const onlyUnassigned = filters.filter === 'unassigned_sales' || filters.sales_admin_id === 0
@@ -1323,29 +1326,6 @@ function buildListParams(): UserListQuery {
     sales_admin_id: !onlyUnassigned && filters.sales_admin_id ? filters.sales_admin_id : undefined,
     unassigned_sales: onlyUnassigned ? 'true' : undefined,
     include_deleted: filters.include_deleted || undefined,
-  }
-}
-
-const exporting = ref(false)
-
-async function handleExportCSV() {
-  exporting.value = true
-  try {
-    const response = await exportUsers(buildListParams())
-    const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8' })
-    const objectUrl = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = objectUrl
-    link.download = `users-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(objectUrl)
-    MessagePlugin.success('导出成功')
-  } catch (error) {
-    MessagePlugin.error((error as Error)?.message || '导出失败')
-  } finally {
-    exporting.value = false
   }
 }
 
@@ -1498,45 +1478,6 @@ function formatDateTime(value: string) {
   return date.toLocaleString('zh-CN', {
     hour12: false,
   })
-}
-
-async function copyText(value: string, label: string) {
-  if (!value) return
-  // 优先异步 Clipboard API；移动端浏览器常未授权 clipboard-write 导致
-  // "Write permission denied"，回退到 execCommand('copy')（隐藏 textarea + 手动选区）
-  try {
-    await navigator.clipboard.writeText(value)
-    MessagePlugin.success(`${label}已复制`)
-    return
-  } catch {
-    // 继续走降级方案
-  }
-  try {
-    const textarea = document.createElement('textarea')
-    textarea.value = value
-    textarea.setAttribute('readonly', '')
-    textarea.style.position = 'fixed'
-    textarea.style.top = '-9999px'
-    textarea.style.opacity = '0'
-    document.body.appendChild(textarea)
-    const selection = document.getSelection()
-    const previousRange = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null
-    textarea.select()
-    textarea.setSelectionRange(0, value.length)
-    const ok = document.execCommand('copy')
-    document.body.removeChild(textarea)
-    if (previousRange && selection) {
-      selection.removeAllRanges()
-      selection.addRange(previousRange)
-    }
-    if (ok) {
-      MessagePlugin.success(`${label}已复制`)
-    } else {
-      MessagePlugin.error(`${label}复制失败`)
-    }
-  } catch {
-    MessagePlugin.error(`${label}复制失败`)
-  }
 }
 
 function goUserDetail(row: UserInfo) {
@@ -2356,13 +2297,8 @@ onBeforeUnmount(() => {
   color: #12b7f5;
 }
 
-.oauth-provider-icon--github:not(.oauth-provider-icon--inactive),
-.oauth-provider-icon--apple:not(.oauth-provider-icon--inactive) {
-  color: #111827;
-}
-
-.oauth-provider-icon--android:not(.oauth-provider-icon--inactive) {
-  color: #34a853;
+.oauth-provider-icon--alipay:not(.oauth-provider-icon--inactive) {
+  color: #1677ff;
 }
 
 .action-cell {

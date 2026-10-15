@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <ChartBarIcon size="22" aria-hidden="true" />
+          <ChartBarIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">财务报表</h2>
@@ -42,29 +42,29 @@
     </header>
 
     <section class="wallet-stat-grid">
-      <div class="stat-card surface-card stat-card--success">
-        <span class="stat-card__icon"><MoneyIcon size="24" aria-hidden="true" /></span>
+      <div class="stat-card stat-card--success">
+        <span class="stat-card__icon"><MoneyIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">¥{{ formatPrice(summary.income_total) }}</span>
           <span class="stat-card__label">收入合计</span>
         </div>
       </div>
-      <div class="stat-card surface-card stat-card--red">
-        <span class="stat-card__icon"><MoneyIcon size="24" aria-hidden="true" /></span>
+      <div class="stat-card stat-card--red">
+        <span class="stat-card__icon"><MoneyIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">¥{{ formatPrice(summary.expense_total) }}</span>
           <span class="stat-card__label">支出合计</span>
         </div>
       </div>
-      <div class="stat-card surface-card stat-card--blue">
-        <span class="stat-card__icon"><ChartBarIcon size="24" aria-hidden="true" /></span>
+      <div class="stat-card stat-card--blue">
+        <span class="stat-card__icon"><ChartBarIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">¥{{ formatPrice(summary.net_total) }}</span>
           <span class="stat-card__label">净额</span>
         </div>
       </div>
-      <div class="stat-card surface-card stat-card--orange">
-        <span class="stat-card__icon"><FileIcon size="24" aria-hidden="true" /></span>
+      <div class="stat-card stat-card--orange">
+        <span class="stat-card__icon"><FileIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">{{ summary.tx_count }}</span>
           <span class="stat-card__label">笔数 · 笔均 ¥{{ formatPrice(summary.avg_amount) }}</span>

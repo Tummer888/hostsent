@@ -4,7 +4,7 @@
     <header v-if="!embedded" class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <SwapRightIcon size="22" aria-hidden="true" />
+          <SwapRightIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">任务队列</h2>
@@ -22,12 +22,7 @@
     </header>
 
     <section class="stat-grid">
-      <article
-        v-for="card in statCards"
-        :key="card.key"
-        class="stat-card surface-card"
-        :class="`stat-card--${card.theme}`"
-      >
+      <article v-for="card in statCards" :key="card.key" class="stat-card" :class="`stat-card--${card.theme}`">
         <div class="stat-card__icon">
           <component :is="card.icon" size="20" aria-hidden="true" />
         </div>
@@ -380,7 +375,7 @@ const statCards = computed(() => {
       value: `${s.not_reached}`,
       hint: s.manual > 0 ? `其中待人工 ${s.manual}` : '需排障核对上游接口',
       icon: ErrorCircleIcon,
-      theme: s.not_reached > 0 ? ('danger' as const) : ('info' as const),
+      theme: s.not_reached > 0 ? ('danger' as const) : ('teal' as const),
     },
     {
       key: 'inflight',
@@ -388,7 +383,7 @@ const statCards = computed(() => {
       value: `${s.pending + s.running}`,
       hint: `排队 ${s.pending} · 执行 ${s.running}`,
       icon: TimeIcon,
-      theme: s.pending + s.running > 0 ? ('warning' as const) : ('info' as const),
+      theme: s.pending + s.running > 0 ? ('indigo' as const) : ('slate' as const),
     },
   ]
 })
@@ -609,10 +604,6 @@ defineExpose({ reload: loadTasks })
 </style>
 
 <style scoped lang="css">
-.resource-module {
-  --chip-bg: linear-gradient(135deg, var(--color-primary), var(--td-brand-color-8));
-}
-
 .resource-module .stat-card__hint {
   font-size: 12px;
   color: var(--color-muted-foreground);

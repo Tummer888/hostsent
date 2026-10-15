@@ -8,21 +8,20 @@
 
 /* ---------- 页面骨架 ---------- */
 /* 根节点同时带 .page-body 与 .finance-module，布局必须挂在本类上：
-   写成 `.finance-module .page-body`（后代选择器）时同一元素不匹配，卡片会贴在一起。 */
+   写成 `.finance-module.page-body`（后代选择器）时同一元素不匹配，卡片会贴在一起。 */
 .finance-module {
   --finance-green: var(--color-primary);
   --finance-green-hover: var(--td-brand-color-8);
   --finance-green-soft: var(--td-brand-color-1);
   --finance-green-border: var(--td-brand-color-2);
   --finance-card-border: #edf3ef;
-  --chip-bg: linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8));
 
   display: flex;
   flex-direction: column;
   gap: var(--space-lg);
 }
 
-.finance-module .page-body {
+.finance-module.page-body {
   display: flex;
   flex-direction: column;
   gap: var(--space-lg);
@@ -46,7 +45,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-lg);
-  padding: var(--space-lg) var(--space-xl);
+  padding: var(--space-lg) 20px var(--space-lg) 19px;
   flex-wrap: wrap;
   overflow: hidden;
 }
@@ -58,7 +57,7 @@
 .finance-module .page-header__main {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
+  gap: 13px;
   min-width: 0;
 }
 
@@ -67,24 +66,6 @@
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-}
-
-.finance-module .page-header__chip {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--hs-radius-xl);
-  background: var(--chip-bg);
-  color: #ffffff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  box-shadow: none;
-  transition: transform var(--hs-duration-fast) var(--hs-ease-out);
-}
-
-.finance-module .page-header__chip:hover {
-  transform: translateY(-1px) scale(1.03);
 }
 
 .finance-module .page-header__title {
@@ -236,7 +217,7 @@
 /* ---------- 钱包总览 ---------- */
 .finance-module .wallet-stat-grid {
   display: grid;
-  gap: 16px;
+  gap: var(--space-md);
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 

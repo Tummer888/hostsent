@@ -4,7 +4,7 @@
     <header v-if="!embedded" class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <VerifyIcon size="22" aria-hidden="true" />
+          <VerifyIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">实例对账</h2>
@@ -22,12 +22,7 @@
     </header>
 
     <section class="stat-grid">
-      <article
-        v-for="card in statCards"
-        :key="card.key"
-        class="stat-card surface-card"
-        :class="`stat-card--${card.theme}`"
-      >
+      <article v-for="card in statCards" :key="card.key" class="stat-card" :class="`stat-card--${card.theme}`">
         <div class="stat-card__icon">
           <component :is="card.icon" size="20" aria-hidden="true" />
         </div>
@@ -521,7 +516,7 @@ const statCards = computed(() => {
       value: `${s.danger}`,
       hint: `低于成本 ${s.below_cost} · 到期错位 ${s.expire_early + s.expire_late} · 状态 ${s.status_stale}`,
       icon: ErrorCircleIcon,
-      theme: s.danger > 0 ? ('danger' as const) : ('info' as const),
+      theme: s.danger > 0 ? ('danger' as const) : ('slate' as const),
     },
     {
       key: 'margin',
@@ -542,7 +537,7 @@ const statCards = computed(() => {
       value: `${s.warning}`,
       hint: `薄利 ${s.thin_margin} · 状态漂移 ${s.status_mismatch} · 缺数据 ${s.missing_price + s.missing_expire}`,
       icon: ErrorCircleIcon,
-      theme: s.warning > 0 ? ('warning' as const) : ('info' as const),
+      theme: s.warning > 0 ? ('warning' as const) : ('cyan' as const),
     },
   ]
 })
@@ -727,10 +722,6 @@ defineExpose({ reload })
 </style>
 
 <style scoped lang="css">
-.resource-module {
-  --chip-bg: linear-gradient(135deg, var(--color-primary), var(--td-brand-color-8));
-}
-
 .resource-module .stat-card__hint {
   font-size: 12px;
   color: var(--color-muted-foreground);

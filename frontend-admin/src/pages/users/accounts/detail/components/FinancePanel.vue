@@ -31,7 +31,6 @@
     <t-tabs v-model="subTab" theme="normal" class="sub-tabs">
       <t-tab-panel value="orders" :label="`订单（${info.order_count}）`">
         <div class="table-card__head">
-          <h3 class="card-title">订单记录</h3>
           <span class="table-card__meta">
             共 {{ info.order_count }} 笔 · 已计入消费金额 ¥{{ formatAmount(info.order_total_amount) }}
           </span>
@@ -90,7 +89,6 @@
 
       <t-tab-panel value="bills" :label="`账单（${info.bill_count}）`">
         <div class="table-card__head">
-          <h3 class="card-title">账单记录</h3>
           <span class="table-card__meta"> 共 {{ info.bill_count }} 期 · 未结清 {{ info.unpaid_bill_count }} 期 </span>
         </div>
         <t-table
@@ -146,7 +144,6 @@
 
       <t-tab-panel value="transactions" :label="`资金流水（${info.transaction_count}）`">
         <div class="table-card__head">
-          <h3 class="card-title">资金流水</h3>
           <span class="table-card__meta">共 {{ info.transaction_count }} 条</span>
         </div>
         <t-table

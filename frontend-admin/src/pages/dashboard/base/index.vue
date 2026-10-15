@@ -41,14 +41,9 @@
     </section>
 
     <section class="stat-grid" aria-label="关键指标">
-      <article
-        v-for="stat in statCards"
-        :key="stat.key"
-        class="stat-card surface-card"
-        :class="`stat-card--${stat.variant}`"
-      >
+      <article v-for="stat in statCards" :key="stat.key" class="stat-card" :class="`stat-card--${stat.variant}`">
         <span class="stat-card__icon">
-          <component :is="stat.icon" size="22" aria-hidden="true" />
+          <component :is="stat.icon" size="20" aria-hidden="true" />
         </span>
         <div class="stat-card__info">
           <t-statistic :value="stat.value" :decimal-places="0" :precision="0" class="stat-card__value" />

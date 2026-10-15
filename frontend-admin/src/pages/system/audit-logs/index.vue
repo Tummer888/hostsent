@@ -23,7 +23,7 @@
           <!-- 页头图标 -->
           <template #header-leading>
             <span class="page-header__chip">
-              <HistoryIcon size="22" aria-hidden="true" />
+              <HistoryIcon size="20" aria-hidden="true" />
             </span>
           </template>
           <!-- 页头右侧：导出 CSV（GET blob 下载） -->

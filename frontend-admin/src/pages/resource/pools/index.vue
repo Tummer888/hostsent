@@ -3,7 +3,7 @@
     <header v-if="!isEmbedded" class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <LayersIcon size="22" aria-hidden="true" />
+          <LayersIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">容量与位置监测</h2>
@@ -19,20 +19,42 @@
     </header>
 
     <section v-if="!isEmbedded" class="stat-grid stat-grid--pools">
-      <article
-        v-for="card in statCards"
-        :key="card.key"
-        class="stat-card surface-card"
-        :class="`stat-card--${card.theme}`"
-      >
+      <article v-for="card in statCards" :key="card.key" class="stat-card" :class="`stat-card--${card.theme}`">
         <div class="stat-card__icon">
           <component :is="card.icon" size="20" aria-hidden="true" />
         </div>
         <div class="stat-card__text">
-          <span class="stat-card__value">{{ card.value }}</span>
-          <span class="stat-card__label">{{ card.label }}</span>
+          <!--
+            计数跟在标题后面（用户要求）：原先计数在卡片底部的小字里，
+            与标题隔一行，读数要来回对照。现在「CPU 用量 1 / 8 核」一行读完。
+
+            计数与标题并列而非嵌在标题文本里：共享的 .stat-card__label 带
+            overflow:hidden + ellipsis，嵌进去在窄卡上会被截断。
+          -->
+          <span class="stat-card__title">
+            <span class="stat-card__label">{{ card.label }}</span>
+            <em v-if="card.count" class="stat-card__count">{{ card.count }}</em>
+          </span>
+          <span v-if="card.percent == null" class="stat-card__value">{{ card.value }}</span>
           <span v-if="card.hint" class="stat-card__hint">{{ card.hint }}</span>
         </div>
+        <!--
+          容量类卡片用环形百分比替代原来的大号百分数（用户要求）：
+          一眼看出"用了多少"，且六个卡片的视觉重量一致（计数卡是大号数字，
+          容量卡是同一枚环），不再出现"两个大字"抢视线。
+        -->
+        <span
+          v-if="card.percent != null"
+          class="stat-gauge"
+          :style="gaugeStyle(card.percent)"
+          :title="`${card.label} ${card.percent}%`"
+        >
+          <svg class="stat-gauge__ring" viewBox="0 0 36 36" aria-hidden="true">
+            <circle class="stat-gauge__track" cx="18" cy="18" r="15.5" />
+            <circle class="stat-gauge__fill" cx="18" cy="18" r="15.5" />
+          </svg>
+          <em class="stat-gauge__num">{{ card.percent }}%</em>
+        </span>
       </article>
     </section>
 
@@ -140,7 +162,9 @@
         <template #memory="{ row }">
           <span v-if="row.category === 'location' && !row.aggregated" class="cell-na">不适用</span>
           <div v-else class="spec-cell">
-            <span class="spec-text">{{ formatMemory(row.used_memory) }} / {{ formatMemory(row.total_memory) }}</span>
+            <span class="spec-text"
+              >{{ formatPoolMemory(row.used_memory) }} / {{ formatPoolMemory(row.total_memory) }}</span
+            >
             <t-progress
               :percentage="row.memory_usage_percent"
               :color="usageColor(row.memory_usage_percent)"
@@ -287,7 +311,7 @@
             {{ detailPool.used_cpu }} / {{ detailPool.total_cpu }}（{{ detailPool.cpu_usage_percent }}%）
           </t-descriptions-item>
           <t-descriptions-item label="内存配额">
-            {{ formatMemory(detailPool.used_memory) }} / {{ formatMemory(detailPool.total_memory) }}（{{
+            {{ formatPoolMemory(detailPool.used_memory) }} / {{ formatPoolMemory(detailPool.total_memory) }}（{{
               detailPool.memory_usage_percent
             }}%）
           </t-descriptions-item>
@@ -363,7 +387,9 @@ import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
-import { formatDisk, formatMemory } from '@/utils/spec-format'
+// 池容量用 formatPoolMemory（入参 GB）；formatMemory 是商品/实例链路的 MB 口径，
+// 两者混用会把 15GB 的宿主机显示成「15 MB」（实测故障）。
+import { formatDisk, formatPoolMemory } from '@/utils/spec-format'
 
 defineOptions({ name: 'ResourcePools' })
 
@@ -462,72 +488,115 @@ const isLocationView = computed(() => viewMode.value === 'flat' && filters.categ
 
 // 容量汇总卡片：容量用量取「容量型池」的累加（位置型池没有配额，不计入）。
 // 位置型视图下不渲染 CPU/内存/磁盘三张卡——那里它们的值恒为 0，只会误导。
-const statCards = computed(() => {
+//
+// 卡片结构（用户要求）：计数跟在标题后面（count），容量类用环形百分比（percent）。
+// 计数卡（容量池/告警池/未标注）没有 percent —— 它们的"用量"不是配额占比，
+// 硬算一个百分比只会误导；它们保留大号数值。
+type StatCard = {
+  key: string
+  label: string
+  /** 跟在标题后的计数（如「1 / 8 核」「在线 2」）。空串则不渲染。 */
+  count: string
+  /** 无 percent 时展示的大号数值。 */
+  value: string
+  hint: string
+  icon: unknown
+  theme: 'info' | 'success' | 'danger' | 'warning' | 'cyan' | 'indigo' | 'teal' | 'slate'
+  /** 容量类卡片的使用率（0-100）；计数类为 null。 */
+  percent: number | null
+}
+
+const statCards = computed<StatCard[]>(() => {
   const s = summary.value
-  // 显式声明卡片结构：theme 是联合字面量，不标注会被首元素的 'info' 收窄。
-  const cards: {
-    key: string
-    label: string
-    value: string
-    hint: string
-    icon: unknown
-    theme: 'info' | 'success' | 'danger' | 'warning'
-  }[] = [
+  const cards: StatCard[] = [
     {
       key: 'pools',
       label: '容量池 / 位置项',
+      count: `在线 ${s.online_pools}`,
       value: `${s.capacity_pools} / ${s.location_pools}`,
-      hint: `在线池 ${s.online_pools} 个`,
+      hint: `容量池 ${s.capacity_pools} · 位置项 ${s.location_pools}`,
       icon: LayersIcon,
       theme: 'info',
+      percent: null,
     },
   ]
   if (!isLocationView.value) {
+    const cpuPercent = percent(s.used_cpu, s.total_cpu)
+    const memPercent = percent(s.used_memory, s.total_memory)
+    const diskPercent = percent(s.used_disk, s.total_disk)
     cards.push(
       {
         key: 'cpu',
         label: 'CPU 用量',
-        value: `${percent(s.used_cpu, s.total_cpu)}%`,
-        hint: `${s.used_cpu} / ${s.total_cpu} 核`,
+        count: `${s.used_cpu} / ${s.total_cpu} 核`,
+        value: `${cpuPercent}%`,
+        hint: '',
         icon: ServerIcon,
         theme: 'success' as const,
+        percent: cpuPercent,
       },
       {
         key: 'memory',
         label: '内存用量',
-        value: `${percent(s.used_memory, s.total_memory)}%`,
-        hint: `${formatMemory(s.used_memory)} / ${formatMemory(s.total_memory)}`,
+        count: `${formatPoolMemory(s.used_memory)} / ${formatPoolMemory(s.total_memory)}`,
+        value: `${memPercent}%`,
+        hint: '',
         icon: ServerIcon,
-        theme: 'success' as const,
+        theme: 'cyan' as const,
+        percent: memPercent,
       },
       {
         key: 'disk',
         label: '磁盘用量',
-        value: `${percent(s.used_disk, s.total_disk)}%`,
-        hint: `${formatDisk(s.used_disk)} / ${formatDisk(s.total_disk)}`,
+        count: `${formatDisk(s.used_disk)} / ${formatDisk(s.total_disk)}`,
+        value: `${diskPercent}%`,
+        hint: '',
         icon: CloudDownloadIcon,
-        theme: 'success' as const,
+        theme: 'indigo' as const,
+        percent: diskPercent,
       },
       {
         key: 'alert',
         label: '容量告警池',
+        count: `预警 ${s.warning_pools}`,
         value: `${s.danger_pools}`,
-        hint: `预警池 ${s.warning_pools} 个`,
+        hint: `危险 ${s.danger_pools} · 预警 ${s.warning_pools}`,
         icon: ErrorCircleIcon,
-        theme: s.danger_pools > 0 ? ('danger' as const) : ('info' as const),
+        theme: s.danger_pools > 0 ? ('danger' as const) : ('teal' as const),
+        percent: null,
       },
     )
   }
   cards.push({
     key: 'location',
     label: '未标注位置',
+    count: '',
     value: `${s.unlocated_pools}`,
     hint: '需在上游或渠道补充地域',
     icon: LayersIcon,
-    theme: s.unlocated_pools > 0 ? ('warning' as const) : ('info' as const),
+    theme: s.unlocated_pools > 0 ? ('warning' as const) : ('slate' as const),
+    percent: null,
   })
   return cards
 })
+
+/**
+ * 环形百分比的样式：用 CSS 变量的 stroke-dasharray 画进度。
+ * 圆周长 = 2πr = 2π × 15.5 ≈ 97.39（与模板里的 r=15.5 对应）。
+ * 用 dasharray 而不是旋转两个半圆：一圈只需两个 circle，深浅色与动画都好处理。
+ */
+function gaugeStyle(pct: number): Record<string, string> {
+  const circumference = 2 * Math.PI * 15.5
+  const clamped = Math.min(100, Math.max(0, pct))
+  const filled = (clamped / 100) * circumference
+  return {
+    '--gauge-circumference': `${circumference.toFixed(2)}`,
+    '--gauge-filled': `${filled.toFixed(2)}`,
+    '--gauge-color': usageColor(clamped),
+    // 0% 时用平头，避免圆头在起点画出孤点（读成"用了一点点"）
+    '--gauge-linecap': clamped === 0 ? 'butt' : 'round',
+  }
+}
 
 function percent(used: number, total: number): number {
   if (!total) return 0
@@ -784,10 +853,6 @@ function poolTypeLabel(type?: string): string {
 </style>
 
 <style scoped lang="css">
-.resource-module {
-  --chip-bg: linear-gradient(135deg, var(--color-primary), var(--td-brand-color-8));
-}
-
 /* 6 张容量/位置卡片：3 列两行比默认 4 列更均衡 */
 .resource-module .stat-grid--pools {
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -796,6 +861,80 @@ function poolTypeLabel(type?: string): string {
 .resource-module .stat-card__hint {
   font-size: 12px;
   color: var(--color-muted-foreground);
+}
+
+/* 标题 + 计数同一行：两者基线与间距对齐，窄卡下允许标题省略、计数保留 */
+.resource-module .stat-card__title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.resource-module .stat-card__title .stat-card__label {
+  min-width: 0;
+}
+
+/* 计数跟在标题后面：同字号但加深、等宽数字，形成"标题 + 读数"的一行层级 */
+.resource-module .stat-card__count {
+  flex-shrink: 0;
+  font-style: normal;
+  font-weight: 600;
+  color: var(--color-foreground);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/*
+  环形百分比（用户要求）：容量类卡片右侧一枚小环，替代原来的大号百分数。
+  六个卡片视觉重量因此一致 —— 计数卡是大号数字，容量卡是同一枚环，不再"两个大字"抢视线。
+*/
+.resource-module .stat-gauge {
+  position: relative;
+  z-index: 1;
+  margin-left: auto;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.resource-module .stat-gauge__ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* 从 12 点方向起画，符合仪表盘直觉 */
+  transform: rotate(-90deg);
+}
+
+.resource-module .stat-gauge__track {
+  fill: none;
+  stroke: var(--hs-inset-border, #e5e7eb);
+  stroke-width: 3.2;
+}
+
+.resource-module .stat-gauge__fill {
+  fill: none;
+  stroke: var(--gauge-color, #16a34a);
+  stroke-width: 3.2;
+  /* 0% 时用平头：圆头会在起点画出一个孤点，看着像"用了一点点" */
+  stroke-linecap: var(--gauge-linecap, round);
+  /* 画多长由 gaugeStyle 按用量算好，写进这两个变量 */
+  stroke-dasharray: var(--gauge-filled) var(--gauge-circumference);
+  transition: stroke-dasharray 360ms var(--hs-ease-out, ease-out);
+}
+
+.resource-module .stat-gauge__num {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-foreground);
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 768px) {

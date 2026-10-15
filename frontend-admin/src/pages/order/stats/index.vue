@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <ChartLineBoardIcon size="22" aria-hidden="true" />
+          <ChartLineBoardIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">订单统计</h2>
@@ -20,14 +20,9 @@
     </header>
 
     <section class="stat-grid">
-      <div
-        v-for="stat in metricCards"
-        :key="stat.key"
-        class="stat-card surface-card"
-        :class="`stat-card--${stat.variant}`"
-      >
+      <div v-for="stat in metricCards" :key="stat.key" class="stat-card" :class="`stat-card--${stat.variant}`">
         <span class="stat-card__icon">
-          <component :is="stat.icon" size="22" aria-hidden="true" />
+          <component :is="stat.icon" size="20" aria-hidden="true" />
         </span>
         <div class="stat-card__info">
           <span class="stat-card__value">{{ stat.value }}</span>

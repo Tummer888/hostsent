@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <MoneyIcon size="22" aria-hidden="true" />
+          <MoneyIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">周期价格</h2>
@@ -13,13 +13,13 @@
         </div>
       </div>
       <t-space size="small">
-        <t-button variant="outline" :loading="loading" :disabled="!productId" @click="reload">
+        <t-button variant="outline" :loading="editorLoading" :disabled="!productId" @click="reload">
           <template #icon>
             <RefreshIcon aria-hidden="true" />
           </template>
           刷新
         </t-button>
-        <t-button theme="primary" :loading="saving" :disabled="!productId || !items.length" @click="handleSave">
+        <t-button theme="primary" :loading="editorSaving" :disabled="!productId" @click="handleSave">
           保存矩阵
         </t-button>
       </t-space>
@@ -46,7 +46,7 @@
           clearable
           placeholder="商品级（不区分规格）"
           :disabled="!productId || !specOptions.length"
-          @change="reload"
+          @change="onSpecChange"
         />
       </div>
       <div class="field">
@@ -56,96 +56,15 @@
     </FilterCard>
 
     <section v-if="productId" class="table-card surface-card">
-      <div class="table-card__head">
-        <h3 class="card-title">
-          {{ matrix?.product_name || '周期价格矩阵' }}
-          <t-tag v-if="isUpstream" theme="warning" variant="light" size="small" shape="round" class="head-tag">
-            上游转售
-          </t-tag>
-        </h3>
-        <span class="table-card__meta">{{ cycleHint }}</span>
-      </div>
-
-      <t-alert
-        v-if="isUpstream"
-        theme="info"
-        class="matrix-alert"
-        message="上游商品的价格由上游成本 + 加价规则推导，此处只能启停档位；要改价格请调整上游加价规则或等同步重算。"
+      <!-- 矩阵表本体与商品详情页「价格」页签共用同一组件（口径只有一份）。 -->
+      <PriceMatrixEditor
+        ref="editorRef"
+        :auto-load="false"
+        :product-id="productId || 0"
+        :spec-id="specId"
+        @update:loading="editorLoading = $event"
+        @update:saving="editorSaving = $event"
       />
-
-      <t-table
-        row-key="cycle"
-        :data="items"
-        :columns="columns"
-        :loading="loading"
-        size="small"
-        hover
-        table-layout="fixed"
-        cell-empty-content="—"
-      >
-        <template #cycle="{ row }">
-          <div class="matrix-cell">
-            <span class="cell-strong">{{ row.cycle_name }}</span>
-            <span class="cell-muted">{{ row.cycle }}</span>
-          </div>
-        </template>
-
-        <template #cost_setup_fee="{ row }">
-          <t-input-number
-            v-model="row.cost_setup_fee"
-            :min="0"
-            :precision="2"
-            :disabled="!row.editable"
-            theme="normal"
-            size="small"
-          />
-        </template>
-
-        <template #setup_fee="{ row }">
-          <t-input-number
-            v-model="row.setup_fee"
-            :min="0"
-            :precision="2"
-            :disabled="!row.editable"
-            theme="normal"
-            size="small"
-          />
-        </template>
-
-        <template #cost_price="{ row }">
-          <t-input-number
-            v-model="row.cost_price"
-            :min="0"
-            :precision="2"
-            :disabled="!row.editable"
-            theme="normal"
-            size="small"
-          />
-        </template>
-
-        <template #price="{ row }">
-          <t-input-number
-            v-model="row.price"
-            :min="0"
-            :precision="2"
-            :disabled="!row.editable"
-            theme="normal"
-            size="small"
-          />
-        </template>
-
-        <template #source="{ row }">
-          <t-tag :theme="sourceTheme(row.source)" variant="light" size="small" shape="round">
-            {{ sourceLabel(row.source) }}
-          </t-tag>
-        </template>
-
-        <template #enabled="{ row }">
-          <t-switch v-model="row.status" :custom-value="[1, 0]" @change="() => onToggle(row)" />
-        </template>
-      </t-table>
-
-      <p class="matrix-footnote">停用的档位不会出现在用户端/开放平台的可选周期里，下单时会直接拒绝该周期。</p>
     </section>
 
     <section v-else class="table-card surface-card">
@@ -156,64 +75,28 @@
 
 <script setup lang="ts">
 import FilterCard from '@/components/filter-card/index.vue'
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 
 import { MoneyIcon, RefreshIcon } from 'tdesign-icons-vue-next'
-import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
+import { MessagePlugin } from 'tdesign-vue-next'
 
-import { getProductPriceMatrix, getProductList, getProductSpecs, saveProductPriceMatrix } from '@/api/product'
-import type { ProductPriceItem, ProductPriceMatrix } from '@/types/interface'
+import { getProductList, getProductSpecs } from '@/api/product'
+import PriceMatrixEditor from '@/pages/product/products/PriceMatrixEditor.vue'
 
 defineOptions({ name: 'ProductPricingMatrix' })
 
 const productOptions = ref<{ label: string; value: number }[]>([])
 const specOptions = ref<{ label: string; value: number }[]>([])
 const productLoading = ref(false)
-const loading = ref(false)
-const saving = ref(false)
+// 加载/保存状态由矩阵组件回调上来，页头按钮的 loading 才跟得上。
+const editorLoading = ref(false)
+const editorSaving = ref(false)
 
 const productId = ref<number | undefined>(undefined)
 const specId = ref<number | undefined>(undefined)
 const currency = ref('CNY')
 
-const matrix = ref<ProductPriceMatrix | null>(null)
-const items = ref<ProductPriceItem[]>([])
-
-const isUpstream = computed(() => matrix.value?.source_mode === 'upstream')
-
-const cycleHint = computed(() => {
-  if (!matrix.value) return ''
-  if (isUpstream.value) {
-    return `上游可提供 ${matrix.value.upstream_cycles.length} 档周期`
-  }
-  return `平台全部 ${matrix.value.upstream_cycles.length} 档周期可维护`
-})
-
-const columns: PrimaryTableCol<ProductPriceItem>[] = [
-  { colKey: 'cycle', title: '周期', width: 150 },
-  { colKey: 'cost_setup_fee', title: '初装费成本', width: 140 },
-  { colKey: 'setup_fee', title: '初装费售价', width: 140 },
-  { colKey: 'cost_price', title: '价格成本', width: 140 },
-  { colKey: 'price', title: '售价（折后）', width: 150 },
-  { colKey: 'source', title: '来源', width: 100 },
-  { colKey: 'enabled', title: '启用', width: 90, align: 'center' as const },
-]
-
-function sourceLabel(source: string): string {
-  return { upstream: '上游同步', markup: '加价推导', manual: '人工填写' }[source] || '人工填写'
-}
-function sourceTheme(source: string): 'success' | 'warning' | 'primary' | 'default' {
-  switch (source) {
-    case 'upstream':
-      return 'primary'
-    case 'markup':
-      return 'warning'
-    case 'manual':
-      return 'success'
-    default:
-      return 'default'
-  }
-}
+const editorRef = ref<{ reload: () => Promise<void>; save: () => Promise<boolean> } | null>(null)
 
 async function loadProducts() {
   productLoading.value = true
@@ -242,61 +125,21 @@ async function loadSpecs(id: number) {
 
 async function handleProductChange(value: unknown) {
   const id = typeof value === 'number' ? value : undefined
-  matrix.value = null
-  items.value = []
   if (!id) return
   await loadSpecs(id)
-  await reload()
+  await editorRef.value?.reload()
+}
+
+async function onSpecChange() {
+  await editorRef.value?.reload()
 }
 
 async function reload() {
-  if (!productId.value) return
-  loading.value = true
-  try {
-    const data = await getProductPriceMatrix({
-      product_id: productId.value,
-      spec_id: specId.value,
-      currency: currency.value,
-    })
-    matrix.value = data
-    items.value = data.items || []
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '加载周期价格矩阵失败')
-  } finally {
-    loading.value = false
-  }
-}
-
-// t-switch 绑定 1/0 数值时组件内部会把布尔语义转换一次，这里统一回写为 1/0 保证提交口径稳定。
-function onToggle(row: ProductPriceItem) {
-  row.status = row.status ? 1 : 0
+  await editorRef.value?.reload()
 }
 
 async function handleSave() {
-  if (!productId.value) return
-  saving.value = true
-  try {
-    const data = await saveProductPriceMatrix({
-      product_id: productId.value,
-      spec_id: specId.value,
-      currency: currency.value,
-      items: items.value.map((item) => ({
-        cycle: item.cycle,
-        price: Number(item.price) || 0,
-        cost_price: Number(item.cost_price) || 0,
-        setup_fee: Number(item.setup_fee) || 0,
-        cost_setup_fee: Number(item.cost_setup_fee) || 0,
-        status: item.status ? 1 : 0,
-      })),
-    })
-    matrix.value = data
-    items.value = data.items || []
-    MessagePlugin.success('周期价格已保存')
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '保存失败')
-  } finally {
-    saving.value = false
-  }
+  await editorRef.value?.save()
 }
 
 onMounted(loadProducts)
@@ -304,24 +147,4 @@ onMounted(loadProducts)
 
 <style scoped>
 @import '../../shared.css';
-
-.head-tag {
-  margin-left: 8px;
-}
-
-.matrix-alert {
-  margin: 0 16px 12px;
-}
-
-.matrix-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.matrix-footnote {
-  margin: 12px 16px 4px;
-  color: var(--td-text-color-placeholder);
-  font-size: 12px;
-}
 </style>

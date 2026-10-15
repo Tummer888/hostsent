@@ -12,7 +12,7 @@
     <header class="overview-header surface-card">
       <div class="overview-header__brand">
         <div class="overview-header__badge">
-          <UserIcon size="22" aria-hidden="true" />
+          <UserIcon size="20" aria-hidden="true" />
         </div>
         <div class="overview-header__text">
           <h2 class="overview-header__title">用户总览</h2>
@@ -252,7 +252,7 @@ defineOptions({ name: 'UserOverview' })
 const router = useRouter()
 const settings = useSettingsStore()
 
-type StatVariant = 'blue' | 'violet' | 'green' | 'cyan' | 'orange' | 'red' | 'slate'
+type StatVariant = 'blue' | 'violet' | 'green' | 'cyan' | 'orange' | 'red' | 'slate' | 'indigo' | 'teal'
 
 interface StatCardItem {
   key: keyof UserStatsResponse
@@ -297,9 +297,9 @@ const activity = ref<UserActivityOverviewResponse>({
 
 const listPath = '/users/accounts/list'
 
-// 卡片图标配色对齐参考稿：每个指标一个高饱和实色块，
-// 同族指标（今日新增/活跃用户=绿，待实名=橙，待审核=紫）复用同一色，
-// 「已注销」用中性灰表示已归档的终态。
+// 卡片图标配色对齐参考稿：每个指标一个高饱和实色块。
+// 同一页内各卡片的颜色互不相同（9 个指标用 9 色，含中性灰「已注销」），
+// 避免相邻卡片拿错指标——重复色只留给跨页面的语义对应（如全站「成功/收入」用绿）。
 const statCards = computed<StatCardItem[]>(() => {
   const items: StatCardItem[] = [
     // Row 1
@@ -357,7 +357,7 @@ const statCards = computed<StatCardItem[]>(() => {
     {
       key: 'pending_review',
       title: '待审核',
-      variant: 'violet',
+      variant: 'indigo',
       desc: '等待管理员审核的新注册账号',
       icon: UserUnknownIcon,
       filter: { status: 'pending' },
@@ -387,7 +387,7 @@ const statCards = computed<StatCardItem[]>(() => {
     {
       key: 'active',
       title: '活跃用户',
-      variant: 'green',
+      variant: 'teal',
       desc: '状态为正常可登录的账号',
       icon: UserArrowUpIcon,
       filter: { status: 'active' },
@@ -401,20 +401,75 @@ const statCards = computed<StatCardItem[]>(() => {
 // 环形图配色与统计卡同族：正常=绿、冻结=红、待审核=蓝，
 // 点图例能到对应卡片找到同一个颜色。ECharts 走 canvas 渲染，
 // 不解析 CSS 变量，因此这里按深浅色给出两套实色。
-const chartPalette = computed(() =>
-  settings.isDark
-    ? { normal: '#4ade80', frozen: '#f87171', pending: '#60a5fa', label: '#cbd5e1', legend: '#94a3b8', gap: '#0a0a0a' }
-    : { normal: '#22c55e', frozen: '#ef4444', pending: '#3b82f6', label: '#334155', legend: '#64748b', gap: '#ffffff' },
-)
+// 两套都取各自主题下偏亮的同色号：环面铺开后颜色会被面积压暗，
+// 主色直接用统计卡原值会显得发闷。
+const chartPalette = computed(() => {
+  const dark = settings.isDark
+  return {
+    normal: dark ? '#4ade80' : '#2fd06f',
+    frozen: dark ? '#f87171' : '#fb5c5c',
+    pending: dark ? '#60a5fa' : '#4a9bff',
+    label: dark ? '#cbd5e1' : '#334155',
+    legend: dark ? '#94a3b8' : '#64748b',
+    gap: dark ? '#0a0a0a' : '#ffffff',
+    // 扇区上的斜向条纹：白色提亮，靠透明度出层次。
+    // 深色下主色本身已提亮，条纹再压淡一点，否则整圈会被洗白。
+    stripe: dark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(255, 255, 255, 0.32)',
+    // 打光渐变的亮部/暗部强度：亮部拉高、暗部收窄，
+    // 保证整个环面平均亮度高于主色本身，不再越铺越暗。
+    light: dark ? 0.3 : 0.32,
+    shade: dark ? 0.15 : 0.06,
+  }
+})
+
+// 沿同色系提亮或压暗，供打光渐变使用。
+// 由主色推导而非另写一套色值：改配色时纹理与扇区不会脱节。
+function tint(hex: string, toward: 'light' | 'dark', amount: number) {
+  const n = Number.parseInt(hex.slice(1), 16)
+  const target = toward === 'light' ? 255 : 0
+  const mix = (shift: number) => {
+    const v = (n >> shift) & 255
+    return Math.round(v + (target - v) * amount)
+  }
+  return `#${((mix(16) << 16) | (mix(8) << 8) | mix(0)).toString(16).padStart(6, '0')}`
+}
 
 const statusTotal = computed(() => stats.value.active + stats.value.disabled + stats.value.pending_review)
 
 const statusPieData = computed(() => {
   const c = chartPalette.value
+  // 纯色扇区在大面积下会显得扁平，这里叠两层质感：
+  // ① 沿同色系做亮→暗渐变，形成打光；
+  // ② 白色斜条纹（decal）做纹理，顺带让相邻扇区的边界更好认。
+  const sector = (name: string, value: number, base: string) => ({
+    name,
+    value,
+    itemStyle: {
+      color: {
+        type: 'linear' as const,
+        x: 0,
+        y: 0,
+        x2: 1,
+        y2: 1,
+        colorStops: [
+          { offset: 0, color: tint(base, 'light', c.light) },
+          { offset: 1, color: tint(base, 'dark', c.shade) },
+        ],
+      },
+      decal: {
+        symbol: 'rect',
+        symbolSize: 1,
+        color: c.stripe,
+        dashArrayX: [1, 0],
+        dashArrayY: [2, 5],
+        rotation: -Math.PI / 6,
+      },
+    },
+  })
   return [
-    { name: '正常账号', value: stats.value.active, itemStyle: { color: c.normal } },
-    { name: '冻结账号', value: stats.value.disabled, itemStyle: { color: c.frozen } },
-    { name: '待审核', value: stats.value.pending_review, itemStyle: { color: c.pending } },
+    sector('正常账号', stats.value.active, c.normal),
+    sector('冻结账号', stats.value.disabled, c.frozen),
+    sector('待审核', stats.value.pending_review, c.pending),
   ]
 })
 
@@ -430,13 +485,13 @@ const statusPieOption = computed<EChartsOption>(() => {
       {
         text: '总计',
         left: 'center',
-        top: '36%',
+        top: '35%',
         textStyle: { color: c.legend, fontSize: 12, fontWeight: 400 },
       },
       {
         text: String(statusTotal.value),
         left: 'center',
-        top: '42%',
+        top: '41%',
         textStyle: { color: c.label, fontSize: 22, fontWeight: 700 },
       },
     ],
@@ -444,14 +499,32 @@ const statusPieOption = computed<EChartsOption>(() => {
       {
         name: '用户状态',
         type: 'pie',
-        radius: ['52%', '74%'],
-        center: ['50%', '44%'],
+        // 环径收一档、圆心略下移：外侧标签要占掉环上方约一行半文字的高度，
+        // 原尺寸下顶部的「{b}\\n{c}」文字会越过画布上边缘被裁掉。
+        radius: ['48%', '66%'],
+        center: ['50%', '47%'],
         avoidLabelOverlap: true,
-        itemStyle: { borderRadius: 6, borderColor: c.gap, borderWidth: 2 },
-        label: { show: true, formatter: '{b}\n{c}', fontSize: 12, color: c.label },
+        // 扇区间留白靠 2px 底色描边即可。
+        // 不要在这里配 shadowBlur：zrender 会把阴影样式复制到叠加条纹的
+        // decal 元素上，而 decal 的 shadowColor 会被置空回退成默认黑色，
+        // 于是每根白条纹都拖出一圈灰影，整个环看起来发灰、发脏。
+        itemStyle: {
+          borderRadius: 6,
+          borderColor: c.gap,
+          borderWidth: 2,
+        },
+        // 标签收近并压小行距，浅色下与图例同色，视觉上贴着环走。
+        label: {
+          show: true,
+          formatter: '{b}\n{c}',
+          fontSize: 12,
+          lineHeight: 15,
+          color: c.label,
+        },
+        labelLine: { length: 8, length2: 8 },
+        // 悬浮态只加粗文字，不再叠阴影，避免复现上面的灰影问题。
         emphasis: {
           label: { show: true, fontSize: 14, fontWeight: 'bold' },
-          itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.12)' },
         },
         data: statusPieData.value,
       },
@@ -630,7 +703,9 @@ onMounted(() => {
    用户总览 · 设计语言（本页为试点，后续按此推广到其他页面）
    - 主色：石墨灰（黑）——品牌、标题、导航
    - 图标：高饱和实色圆角方块 + 白色图形（对齐参考稿）
-   - 卡面圆角 14px、图标底 10px
+   - 统计卡/图标块/快捷入口的圆角一律读共享令牌 --hs-radius-xl，
+     与其他页面同源（随设置里的圆角档位一起缩放），本页不再定义私有圆角变量；
+     页面级卡面仍为 14px，与卡内小块有意区分
    - 数字与描述压在 2 行以内，避免「数字+描述」比图标高出一截
    ============================================================ */
 .user-overview-page {
@@ -641,8 +716,17 @@ onMounted(() => {
   --uo-orange: 249, 115, 22;
   --uo-red: 239, 68, 68;
   --uo-slate: 100, 116, 139;
-  --uo-radius-card: 14px;
-  --uo-radius-tile: 10px;
+  --uo-indigo: 79, 70, 229;
+  --uo-teal: 13, 148, 136;
+  /* 内容区是白底，白卡叠白底就只能靠边框区分。改成「卡面白 + 极淡描边」，
+     内嵌的统计卡与快捷入口再压一层淡灰，靠底色层次区分而不是靠边框。 */
+  --uo-card-border: rgba(15, 23, 42, 0.06);
+  --uo-inset-bg: #f8fafc;
+  --uo-inset-bg-hover: #f1f5f9;
+  --uo-inset-border: rgba(15, 23, 42, 0.05);
+  /* 页面级卡面：比卡内小块大一档（默认 10px → 14px，比值 1.4），
+     同样随设置里的圆角档位缩放，避免滑块一动这里冻在原值。 */
+  --uo-radius-card: calc(var(--hs-radius-xl) * 1.4);
   --uo-tile-size: 40px;
 
   position: relative;
@@ -662,15 +746,26 @@ html.dark .user-overview-page {
   --uo-orange: 251, 146, 60;
   --uo-red: 248, 113, 113;
   --uo-slate: 148, 163, 184;
+  --uo-indigo: 129, 140, 248;
+  --uo-teal: 45, 212, 191;
+  /* 深色下内容区是纯黑：卡面比黑底亮一档浮起，内嵌块再亮一档。 */
+  --uo-card-border: rgba(255, 255, 255, 0.07);
+  --uo-inset-bg: #141414;
+  --uo-inset-bg-hover: #1c1c1c;
+  --uo-inset-border: rgba(255, 255, 255, 0.05);
 }
 
+/* 卡面保持白底（与内容区一致），只留一道极淡描边定形，
+   真正的层次交给卡内的淡灰块（统计卡/快捷入口）。 */
 .surface-card {
   position: relative;
   border-radius: var(--uo-radius-card);
-  background: var(--hs-surface-1);
-  border: 1px solid var(--color-border);
+  background: var(--color-card);
+  border: 1px solid var(--uo-card-border);
   box-shadow: none;
-  transition: border-color var(--hs-duration-fast);
+  transition:
+    background-color var(--hs-duration-fast),
+    border-color var(--hs-duration-fast);
 }
 
 /* ---------- 面包屑 ---------- */
@@ -692,29 +787,34 @@ html.dark .user-overview-page {
 }
 
 /* ---------- 页头 ---------- */
+/* 页头是页面级标题条而非内容卡，去掉边框，只靠淡底色与下方内容分层。 */
 .overview-header {
   position: relative;
-  padding: 18px 20px;
+  /* 左内边距比统计卡少 1px：统计卡还有 1px 描边，
+     两者叠加后徽标与统计卡图标块才能落在同一条竖线上。 */
+  padding: 18px 20px 18px 19px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
+  border: none;
 }
 
 .overview-header__brand {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 13px;
   min-width: 0;
 }
 
 /* 页头徽标用项目主色（石墨灰）实色块：与统计卡的「实色块 + 白图形」
-   统一，但保持中性——它是页面标题图标，不承担指标区分职责。 */
+   统一，但保持中性——它是页面标题图标，不承担指标区分职责。
+   尺寸取 --uo-tile-size，与统计卡图标块同宽同高，避免两处图标一大一小。 */
 .overview-header__badge {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--uo-radius-tile);
+  width: var(--uo-tile-size);
+  height: var(--uo-tile-size);
+  border-radius: var(--hs-radius-xl);
   background: rgb(var(--color-primary-rgb));
   color: #ffffff;
   display: inline-flex;
@@ -748,6 +848,8 @@ html.dark .user-overview-page {
   gap: 12px;
 }
 
+/* 统计卡是嵌在页面里的小块，压一层淡灰底与背后的白卡面区分开。
+   圆角与卡内图标块同值（--hs-radius-xl，默认 10px）：一张卡里两处圆角必须一致。 */
 .stat-card {
   --stat-accent: var(--uo-slate);
   display: flex;
@@ -756,6 +858,9 @@ html.dark .user-overview-page {
   min-height: 84px;
   padding: 16px 18px;
   cursor: default;
+  background: var(--uo-inset-bg);
+  border-color: var(--uo-inset-border);
+  border-radius: var(--hs-radius-xl);
   opacity: 0;
   transform: translateY(8px);
   animation: hs-overview-card-in 360ms var(--hs-ease-out) forwards;
@@ -789,12 +894,20 @@ html.dark .user-overview-page {
   --stat-accent: var(--uo-slate);
 }
 
+.stat-card--indigo {
+  --stat-accent: var(--uo-indigo);
+}
+
+.stat-card--teal {
+  --stat-accent: var(--uo-teal);
+}
+
 /* 实色块 + 白色图形：高饱和底色保证 9 个指标一眼可分，
-   白图形在任一底色上的对比度都够（深色模式下 ---accent 已提亮）。 */
+   白图形在任一底色上的对比度都够（深色模式下 --stat-accent 已提亮）。 */
 .stat-card__icon {
   width: var(--uo-tile-size);
   height: var(--uo-tile-size);
-  border-radius: var(--uo-radius-tile);
+  border-radius: var(--hs-radius-xl);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -810,12 +923,12 @@ html.dark .user-overview-page {
   min-width: 0;
 }
 
-/* 数字与描述合起来的行高控制在图标高度以内：字号 21/12、行高 1.15/1.25
-   → 约 24 + 15 = 39px，与 38px 图标齐平，不再出现文本块高于图标的下坠感。 */
+/* 数字与描述合起来的行高控制在图标高度以内：字号 21/12、行高 1.1/1.2
+   → 约 23 + 14 + 2 = 39px，落在 40px 图标之内，不再出现文本块下坠出图标的感觉。 */
 .stat-card__value {
   font-size: 21px;
   font-weight: 700;
-  line-height: 1.15;
+  line-height: 1.1;
   color: var(--color-foreground);
   letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
@@ -825,7 +938,7 @@ html.dark .user-overview-page {
 .stat-card__label {
   color: var(--color-muted-foreground);
   font-size: 12px;
-  line-height: 1.25;
+  line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -939,15 +1052,16 @@ html.dark .user-overview-page {
   align-content: start;
 }
 
+/* 与统计卡同一套淡灰块：落在白色的快捷入口卡面上，靠底色差区分。 */
 .quick-btn {
   --entry-accent: var(--uo-slate);
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 11px 14px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--uo-radius-tile);
-  background: var(--hs-surface-1);
+  border: 1px solid var(--uo-inset-border);
+  border-radius: var(--hs-radius-xl);
+  background: var(--uo-inset-bg);
   cursor: pointer;
   font: inherit;
   color: var(--color-foreground);
@@ -959,16 +1073,17 @@ html.dark .user-overview-page {
 }
 
 .quick-btn:hover {
-  background: var(--hs-surface-2);
+  background: var(--uo-inset-bg-hover);
   border-color: rgba(var(--entry-accent), 0.45);
   transform: translateY(-1px);
 }
 
-/* 与统计卡同一套「实色块 + 白图形」，但尺寸小一档（30px）。 */
+/* 与统计卡同一套「实色块 + 白图形」，但尺寸小一档（30px）；
+   圆角同样走共享令牌（40px 块用 xl，30px 块用 lg），随设置档位缩放。 */
 .quick-btn__icon {
   width: 30px;
   height: 30px;
-  border-radius: 8px;
+  border-radius: var(--hs-radius-lg);
   background: rgb(var(--entry-accent));
   display: inline-flex;
   align-items: center;
@@ -1145,7 +1260,7 @@ html.dark .user-overview-page {
   }
 
   .stat-card__icon {
-    --uo-tile-size: 34px;
+    --uo-tile-size: 38px;
   }
 
   .stat-card__value {

@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <VerifyIcon size="22" aria-hidden="true" />
+          <VerifyIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">实名认证审核</h2>
@@ -140,10 +140,10 @@ const currentMeta = computed(() => TAB_META[activeTab.value])
 }
 
 .page-header__chip {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   border-radius: var(--hs-radius-xl);
-  background: linear-gradient(135deg, var(--td-brand-color-6), var(--color-primary));
+  background: rgb(var(--color-primary-rgb));
   color: #ffffff;
   display: inline-flex;
   align-items: center;

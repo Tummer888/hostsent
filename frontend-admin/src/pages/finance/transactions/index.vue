@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <MoneyIcon size="22" aria-hidden="true" />
+          <MoneyIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">资金流水</h2>
@@ -142,7 +142,7 @@
 
         <template #ref_no="{ row }">
           <t-tooltip v-if="row.ref_no" content="点击复制关联单号">
-            <button type="button" class="ref-cell" @click="copyRefNo(row.ref_no)">
+            <button type="button" class="ref-cell" @click="copyText(row.ref_no, '关联单号')">
               <span class="ref-cell__text">{{ row.ref_no }}</span>
               <CopyIcon size="14" aria-hidden="true" />
             </button>
@@ -193,6 +193,7 @@ import {
 import type { TransactionInfo, TransactionSummary } from '@/types/interface'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { copyText } from '@/utils/clipboard'
 
 defineOptions({ name: 'FinanceTransactions' })
 
@@ -324,16 +325,6 @@ function handleResetFilters() {
   filters.dateRange = []
   pagination.current = 1
   loadTransactions()
-}
-
-/** 关联单号一键复制：对账时要把单号粘到订单/充值/退款页去核对。 */
-async function copyRefNo(refNo: string) {
-  try {
-    await navigator.clipboard.writeText(refNo)
-    MessagePlugin.success('关联单号已复制')
-  } catch {
-    MessagePlugin.warning('复制失败，请手动选择复制')
-  }
 }
 
 /** 导出当前筛选条件的明细 CSV（后端按同一组条件、最多 20000 条）。 */

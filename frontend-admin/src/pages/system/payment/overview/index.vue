@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <MoneyIcon size="22" aria-hidden="true" />
+          <MoneyIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">支付概览</h2>
@@ -28,29 +28,29 @@
     />
 
     <section class="stat-grid">
-      <div class="stat-card surface-card stat-card--success">
-        <span class="stat-card__icon"><MoneyIcon size="24" aria-hidden="true" /></span>
+      <div class="stat-card stat-card--success">
+        <span class="stat-card__icon"><MoneyIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">¥{{ formatPrice(stats.paidAmount) }}</span>
           <span class="stat-card__label">已支付金额</span>
         </div>
       </div>
-      <div class="stat-card surface-card stat-card--orange">
-        <span class="stat-card__icon"><TimeIcon size="24" aria-hidden="true" /></span>
+      <div class="stat-card stat-card--orange">
+        <span class="stat-card__icon"><TimeIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">{{ stats.payingCount }}</span>
           <span class="stat-card__label">待支付 / 支付中</span>
         </div>
       </div>
-      <div class="stat-card surface-card stat-card--blue">
-        <span class="stat-card__icon"><LinkIcon size="24" aria-hidden="true" /></span>
+      <div class="stat-card stat-card--blue">
+        <span class="stat-card__icon"><LinkIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">{{ stats.enabledChannels }} / {{ stats.totalChannels }}</span>
           <span class="stat-card__label">启用渠道 / 全部</span>
         </div>
       </div>
-      <div class="stat-card surface-card stat-card--purple">
-        <span class="stat-card__icon"><UploadIcon size="24" aria-hidden="true" /></span>
+      <div class="stat-card stat-card--purple">
+        <span class="stat-card__icon"><UploadIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">{{ stats.pendingPayouts }}</span>
           <span class="stat-card__label">待处理打款</span>
@@ -418,7 +418,7 @@ onMounted(loadAll)
 <style lang="css" scoped>
 .stat-grid {
   display: grid;
-  gap: 16px;
+  gap: var(--space-md);
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 

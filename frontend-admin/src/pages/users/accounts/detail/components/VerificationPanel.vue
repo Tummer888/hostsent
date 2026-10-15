@@ -8,7 +8,6 @@
     />
 
     <div class="table-card__head">
-      <h3 class="card-title">实名认证记录</h3>
       <span class="table-card__meta">共 {{ pagination.total }} 条 · 全部状态</span>
     </div>
 

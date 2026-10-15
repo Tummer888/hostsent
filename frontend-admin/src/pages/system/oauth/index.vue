@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <LinkIcon size="22" aria-hidden="true" />
+          <LinkIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">第三方登录</h2>
@@ -69,7 +69,12 @@
           <span class="provider-card__label">回调地址</span>
           <div class="provider-card__callback">
             <code class="callback-text">{{ item.callback_url || '—' }}</code>
-            <t-link v-if="item.callback_url" theme="primary" hover="color" @click="copyText(item.callback_url)">
+            <t-link
+              v-if="item.callback_url"
+              theme="primary"
+              hover="color"
+              @click="copyText(item.callback_url, '回调地址')"
+            >
               复制
             </t-link>
           </div>
@@ -145,6 +150,7 @@ import {
 } from '@/api/oauth'
 import CredentialFields from '@/components/credential-fields/index.vue'
 import { useUserStore } from '@/store'
+import { copyText } from '@/utils/clipboard'
 
 defineOptions({ name: 'SystemOAuth' })
 
@@ -260,15 +266,6 @@ async function handleTest(item: OAuthProviderInfo) {
     MessagePlugin.error((error as Error)?.message || '测试请求失败')
   } finally {
     testingProvider.value = ''
-  }
-}
-
-async function copyText(text: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-    MessagePlugin.success('回调地址已复制')
-  } catch {
-    MessagePlugin.warning('浏览器拒绝了剪贴板访问，请手动复制')
   }
 }
 

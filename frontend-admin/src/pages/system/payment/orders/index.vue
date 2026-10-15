@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <OrderIcon size="22" aria-hidden="true" />
+          <OrderIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">支付订单</h2>
@@ -21,22 +21,22 @@
     </header>
 
     <section class="stat-grid">
-      <div class="stat-card surface-card stat-card--success">
-        <span class="stat-card__icon"><MoneyIcon size="24" aria-hidden="true" /></span>
+      <div class="stat-card stat-card--success">
+        <span class="stat-card__icon"><MoneyIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">¥{{ formatPrice(paidAmount) }}</span>
           <span class="stat-card__label">本页已支付金额</span>
         </div>
       </div>
-      <div class="stat-card surface-card stat-card--orange">
-        <span class="stat-card__icon"><TimeIcon size="24" aria-hidden="true" /></span>
+      <div class="stat-card stat-card--orange">
+        <span class="stat-card__icon"><TimeIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">{{ pendingCount }}</span>
           <span class="stat-card__label">本页待支付</span>
         </div>
       </div>
-      <div class="stat-card surface-card stat-card--blue">
-        <span class="stat-card__icon"><OrderIcon size="24" aria-hidden="true" /></span>
+      <div class="stat-card stat-card--blue">
+        <span class="stat-card__icon"><OrderIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">{{ total }}</span>
           <span class="stat-card__label">支付单总数</span>
@@ -536,7 +536,7 @@ onMounted(loadOrders)
 <style lang="css" scoped>
 .stat-grid {
   display: grid;
-  gap: 16px;
+  gap: var(--space-md);
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 

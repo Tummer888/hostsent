@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <UsergroupIcon size="22" aria-hidden="true" />
+          <UsergroupIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">客户归属</h2>
@@ -85,7 +85,6 @@
 
     <section class="table-card surface-card">
       <div class="table-card__head">
-        <h3 class="card-title">归属客户</h3>
         <span class="table-card__meta">共 {{ total }} 位客户</span>
       </div>
 

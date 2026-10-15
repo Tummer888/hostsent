@@ -8,7 +8,6 @@
     />
 
     <div class="table-card__head">
-      <h3 class="card-title">云主机资产</h3>
       <span class="table-card__meta">共 {{ total }} 台</span>
     </div>
 

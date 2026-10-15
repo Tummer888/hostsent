@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <ServiceIcon size="22" aria-hidden="true" />
+          <ServiceIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">{{ ticket?.ticket_no || '工单详情' }}</h2>

@@ -7,22 +7,20 @@
 
 /* ---------- 页面骨架 ---------- */
 .ticket-module {
-  --chip-bg: linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8));
   --ticket-green: var(--color-primary, var(--color-primary));
   --ticket-green-hover: var(--td-brand-color-8);
   --ticket-green-soft: var(--td-brand-color-1);
   --ticket-green-border: var(--td-brand-color-2);
 }
 
-.ticket-module .page-body {
+.ticket-module.page-body {
   display: flex;
   flex-direction: column;
   gap: var(--space-lg);
 }
 
 /* ---------- 通用卡片 ---------- */
-.ticket-module .surface-card,
-.ticket-module .stat-card {
+.ticket-module .surface-card {
   position: relative;
   border-radius: var(--hs-radius-lg);
   background: var(--hs-surface-1);
@@ -31,8 +29,7 @@
   transform: none;
 }
 
-.ticket-module .surface-card:hover,
-.ticket-module .stat-card:hover {
+.ticket-module .surface-card:hover {
   border-color: var(--td-brand-color-3);
   box-shadow: none !important;
   transform: none;
@@ -44,7 +41,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-lg);
-  padding: var(--space-lg) var(--space-xl);
+  padding: var(--space-lg) 20px var(--space-lg) 19px;
   flex-wrap: wrap;
 }
 
@@ -55,7 +52,7 @@
 .ticket-module .page-header__main {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
+  gap: 13px;
   min-width: 0;
 }
 
@@ -64,19 +61,6 @@
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-}
-
-.ticket-module .page-header__chip {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--hs-radius-xl);
-  background: var(--chip-bg, linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8)));
-  color: #ffffff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  box-shadow: none;
 }
 
 .ticket-module .page-header__title {
@@ -194,7 +178,7 @@
 /* ---------- 统计页 ---------- */
 .ticket-module .stat-grid {
   display: grid;
-  gap: 16px;
+  gap: var(--space-md);
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 

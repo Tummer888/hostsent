@@ -8,7 +8,6 @@
     />
 
     <div class="table-card__head">
-      <h3 class="card-title">服务工单</h3>
       <span class="table-card__meta">
         共 {{ pagination.total }} 条<template v-if="summary"> · 处理中 {{ summary.open_ticket_count }} 条</template>
       </span>

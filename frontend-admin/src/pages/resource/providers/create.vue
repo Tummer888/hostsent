@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <AddIcon size="22" aria-hidden="true" />
+          <AddIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">{{ pageTitle }}</h2>
@@ -512,10 +512,6 @@ onMounted(() => {
 </style>
 
 <style scoped lang="css">
-.resource-module {
-  --chip-bg: linear-gradient(135deg, var(--color-primary), var(--td-brand-color-8));
-}
-
 .steps-card,
 .panel-card {
   padding: var(--space-lg) 24px;

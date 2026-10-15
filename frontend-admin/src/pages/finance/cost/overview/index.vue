@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <ChartBarIcon size="22" aria-hidden="true" />
+          <ChartBarIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">成本总览</h2>
@@ -45,36 +45,36 @@
     />
 
     <section class="cost-kpi-grid">
-      <div class="stat-card surface-card stat-card--success">
-        <span class="stat-card__icon"><ArrowRightUpIcon size="24" aria-hidden="true" /></span>
+      <div class="stat-card stat-card--teal">
+        <span class="stat-card__icon"><ArrowRightUpIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">¥{{ formatPrice(overview.service_revenue) }}</span>
           <span class="stat-card__label">服务收入（消费 − 退款）</span>
         </div>
       </div>
-      <div class="stat-card surface-card stat-card--red">
-        <span class="stat-card__icon"><ArrowLeftDownIcon size="24" aria-hidden="true" /></span>
+      <div class="stat-card stat-card--slate">
+        <span class="stat-card__icon"><ArrowLeftDownIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">¥{{ formatPrice(overview.cost_total) }}</span>
           <span class="stat-card__label">成本合计</span>
         </div>
       </div>
-      <div class="stat-card surface-card stat-card--orange">
-        <span class="stat-card__icon"><CloudIcon size="24" aria-hidden="true" /></span>
+      <div class="stat-card stat-card--orange">
+        <span class="stat-card__icon"><CloudIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">¥{{ formatPrice(overview.upstream_cost) }}</span>
           <span class="stat-card__label">上游余额消耗</span>
         </div>
       </div>
-      <div class="stat-card surface-card stat-card--blue">
-        <span class="stat-card__icon"><ServerIcon size="24" aria-hidden="true" /></span>
+      <div class="stat-card stat-card--blue">
+        <span class="stat-card__icon"><ServerIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">¥{{ formatPrice(overview.fixed_cost) }}</span>
           <span class="stat-card__label">成本项配置（母机/人力/机房）</span>
         </div>
       </div>
-      <div class="stat-card surface-card" :class="overview.profit >= 0 ? 'stat-card--success' : 'stat-card--red'">
-        <span class="stat-card__icon"><MoneyIcon size="24" aria-hidden="true" /></span>
+      <div class="stat-card" :class="overview.profit >= 0 ? 'stat-card--success' : 'stat-card--red'">
+        <span class="stat-card__icon"><MoneyIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">¥{{ formatPrice(overview.profit) }}</span>
           <span class="stat-card__label">
@@ -83,8 +83,8 @@
           </span>
         </div>
       </div>
-      <div class="stat-card surface-card" :class="overview.profit >= 0 ? 'stat-card--success' : 'stat-card--red'">
-        <span class="stat-card__icon"><ChartBarIcon size="24" aria-hidden="true" /></span>
+      <div class="stat-card" :class="overview.profit_rate >= 0 ? 'stat-card--indigo' : 'stat-card--warning'">
+        <span class="stat-card__icon"><ChartBarIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">{{ formatRate(overview.profit_rate) }}</span>
           <span class="stat-card__label">
