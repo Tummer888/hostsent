@@ -66,6 +66,9 @@ type AgentLevelRepository interface {
 	AllDiscounts(ctx context.Context) ([]model.AgentLevelDiscount, error)
 	// DeleteDiscount 清除单格（折扣率填 0 = 不打折，等价于删除该格）。
 	DeleteDiscount(ctx context.Context, levelID uint64, targetType string, targetID uint64) error
+	// DeleteDiscountsByTarget 按目标批量清除折扣行（跨全部等级），
+	// 用于清理指向已删除目标的孤儿折扣。
+	DeleteDiscountsByTarget(ctx context.Context, targetType string, targetIDs []uint64) error
 	// ActiveCategories 全部启用中的商品分类（矩阵行 = 全站兜底 + 这些分类），
 	// 让运营在矩阵上能直接给「还没配过任何折扣」的分类配折扣。
 	ActiveCategories(ctx context.Context) ([]CategoryRef, error)
@@ -343,6 +346,16 @@ func (r *agentLevelRepository) ExistingUserIDs(ctx context.Context, userIDs []ui
 func (r *agentLevelRepository) DeleteDiscount(ctx context.Context, levelID uint64, targetType string, targetID uint64) error {
 	return r.db.WithContext(ctx).
 		Where("agent_level_id = ? AND target_type = ? AND target_id = ?", levelID, targetType, targetID).
+		Delete(&model.AgentLevelDiscount{}).Error
+}
+
+// DeleteDiscountsByTarget 跨全部等级清除指向同一批目标的折扣行（孤儿数据清理）。
+func (r *agentLevelRepository) DeleteDiscountsByTarget(ctx context.Context, targetType string, targetIDs []uint64) error {
+	if len(targetIDs) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).
+		Where("target_type = ? AND target_id IN ?", targetType, targetIDs).
 		Delete(&model.AgentLevelDiscount{}).Error
 }
 

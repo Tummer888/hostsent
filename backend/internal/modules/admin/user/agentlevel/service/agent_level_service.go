@@ -283,6 +283,10 @@ func (s *agentLevelService) Matrix(ctx context.Context) (*dto.MatrixResponse, er
 	}
 	sort.Slice(productIDs, func(i, j int) bool { return productIDs[i] < productIDs[j] })
 	var productRows []dto.MatrixRow
+	// 指向已删除商品的孤儿折扣：渲染时跳过，并在本次读取后顺手清掉。
+	// 这些行是 ValidateTargetRefs 上线之前留下的存量数据，算价时永远不会命中
+	// （商品不存在就没人能下单），留着只会让矩阵看起来有坏数据。
+	orphanTargetIDs := make([]uint64, 0)
 	if len(productIDs) > 0 {
 		productNames, err := s.repo.ProductNames(ctx, productIDs)
 		if err != nil {
@@ -296,7 +300,14 @@ func (s *agentLevelService) Matrix(ctx context.Context) (*dto.MatrixResponse, er
 		for _, id := range productIDs {
 			name := productNames[id]
 			if name == "" {
-				name = fmt.Sprintf("商品 #%d（已删除）", id)
+				// 商品已被硬删除，只剩一条指向它的折扣行（products 的软删除会留 deleted_at，
+				// 这里取不到名字说明该行确实不存在了）。
+				//
+				// 不再渲染「商品 #N（已删除）」占位行：那种行点不动、也改不了，
+				// 只会让运营以为矩阵里挂着一堆坏数据。孤儿折扣在算价时本就不会命中
+				// （商品不存在即无人下单），这里清掉它对定价零影响。
+				orphanTargetIDs = append(orphanTargetIDs, id)
+				continue
 			}
 			productRows = append(productRows, dto.MatrixRow{
 				TargetType: model.TargetProduct,
@@ -306,6 +317,11 @@ func (s *agentLevelService) Matrix(ctx context.Context) (*dto.MatrixResponse, er
 				Cells:      s.buildCells(columns, cellIndex, configured, model.TargetProduct, id),
 			})
 		}
+	}
+	// 顺手清理孤儿折扣行（失败不影响本次读取：矩阵已经过滤掉了它们，
+	// 下次读取会再试一次）。
+	if len(orphanTargetIDs) > 0 {
+		_ = s.repo.DeleteDiscountsByTarget(ctx, model.TargetProduct, orphanTargetIDs)
 	}
 	return &dto.MatrixResponse{Columns: columns, Rows: rows, ProductRows: productRows}, nil
 }
@@ -1049,14 +1065,13 @@ func (s *agentLevelService) toInfo(ctx context.Context, item model.AgentLevel, w
 		switch d.TargetType {
 		case model.TargetCategory:
 			name = categoryNames[d.TargetID]
-			if name == "" {
-				name = fmt.Sprintf("分类 #%d（已删除）", d.TargetID)
-			}
 		case model.TargetProduct:
 			name = productNames[d.TargetID]
-			if name == "" {
-				name = fmt.Sprintf("商品 #%d（已删除）", d.TargetID)
-			}
+		}
+		// 目标已不存在（分类/商品被删）时跳过：与矩阵一致，不展示点不动的
+		// 「#N（已删除）」占位项。孤儿行由矩阵读取时统一清理。
+		if d.TargetType != model.TargetAll && name == "" {
+			continue
 		}
 		details = append(details, dto.DiscountItemInfo{
 			TargetType:   d.TargetType,

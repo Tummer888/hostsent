@@ -28,9 +28,6 @@ func translateUserFindErr(err error) error {
 
 type UserService interface {
 	List(ctx context.Context, query dto.UserListQuery) (*dto.UserListResponse, error)
-	// ExportList 导出用户列表（doc104 §3.3 F19）：与 List 共用同一份筛选条件与
-	// 仓储查询，保证「界面上筛出来的」与「导出的」一致；上限 exportLimit 条。
-	ExportList(ctx context.Context, query dto.UserListQuery) ([]dto.UserInfo, error)
 	Create(ctx context.Context, req dto.UserCreateRequest) (*dto.UserInfo, error)
 	FindByID(ctx context.Context, id uint64) (*dto.UserInfo, error)
 	Update(ctx context.Context, id uint64, req dto.UserUpdateRequest) (*dto.UserInfo, error)
@@ -283,26 +280,6 @@ func (s *userService) List(ctx context.Context, query dto.UserListQuery) (*dto.U
 			Total:    total,
 		},
 	}, nil
-}
-
-// exportLimit 单次导出的最大行数。与登录日志/审计日志导出的 1000 条同口径：
-// 用户表是全平台最大的表之一，不设上限的导出会把整库拉进内存。
-const exportLimit = 1000
-
-// ExportList 导出用户列表。复用 List 的仓储查询与筛选语义，
-// 只把分页固定为「第 1 页、最多 exportLimit 条」。
-func (s *userService) ExportList(ctx context.Context, query dto.UserListQuery) ([]dto.UserInfo, error) {
-	query.Page = 1
-	query.PageSize = exportLimit
-	users, _, err := s.repo.List(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-	items := make([]dto.UserInfo, 0, len(users))
-	for _, user := range users {
-		items = append(items, toUserInfo(user))
-	}
-	return items, nil
 }
 
 func (s *userService) Create(ctx context.Context, req dto.UserCreateRequest) (*dto.UserInfo, error) {

@@ -1,5 +1,3 @@
-import type { AxiosResponse } from 'axios'
-
 import type { LoginResponse } from '@/api/auth'
 import { request } from '@/utils/request'
 
@@ -443,32 +441,6 @@ export function getUserList(params: UserListQuery): Promise<UserListResponse> {
   })
 }
 
-/**
- * 导出用户列表 CSV。
- *
- * `_skipResultUnwrap` 是必须的：这个接口返回文件流而不是 `{code,data,message}`
- * 信封，不跳过解包会把 CSV 文本当成业务响应解析。
- */
-export function exportUsers(params: UserListQuery) {
-  return request.get<AxiosResponse<Blob>>({
-    url: '/users/export',
-    params: {
-      status: params.status,
-      filter: params.filter,
-      keyword: params.keyword,
-      user_level_id: params.user_level_id,
-      user_group_id: params.user_group_id,
-      agent_level_id: params.agent_level_id,
-      is_agent: params.is_agent,
-      is_sub_account: params.is_sub_account,
-      sales_admin_id: params.sales_admin_id,
-      unassigned_sales: params.unassigned_sales,
-    },
-    responseType: 'blob',
-    _skipResultUnwrap: true,
-  })
-}
-
 /** 查询指定主账号名下的成员（子账号）及权限（P4-10） */
 export function getUserMembers(id: string | number): Promise<SubAccountMemberListResponse> {
   return request.get<SubAccountMemberListResponse>({
@@ -798,7 +770,11 @@ export interface AdminOrderConfigOption {
   help: string
   min_value: number | null
   max_value: number | null
+  /** 数量型选项的每单位加价（元，月度口径）。长周期用下面三档，见 qtyUnitPrice。 */
   unit_price: number
+  unit_price_quarterly: number
+  unit_price_annually: number
+  unit_price_onetime: number
   values: AdminOrderConfigOptionVal[]
 }
 

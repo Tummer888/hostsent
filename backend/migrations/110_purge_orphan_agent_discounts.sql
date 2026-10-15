@@ -1,0 +1,28 @@
+-- 110_purge_orphan_agent_discounts.sql
+--
+-- 背景：代理等级「④ 生效矩阵」此前会渲染「商品 #N（已删除）」占位行 —— 折扣行
+-- 指向的商品已被硬删除（products 行不存在），矩阵取不到商品名就拼了占位文案。
+-- 这类行点不动、也改不了，只是让运营以为矩阵里挂着坏数据。
+--
+-- 处置：删除指向不存在商品的孤儿折扣行。
+-- 影响范围：仅 agent_level_discounts 里 target_type='product' 且 target_id 在
+-- products 中查无此行的记录。这些折扣在算价时永不会命中（商品不存在即无人能下单），
+-- 因此删除对定价零影响。分类级（target_type='category'）孤儿行不在本次范围内。
+--
+-- 执行方式：与既有数据清理一致 —— 本次已手工对目标库执行；服务端的
+-- agentLevelService.Matrix 也会在读取时顺手清理（见 DeleteDiscountsByTarget），
+-- 所以本文件是对齐依据，且新库不会出现这类数据（ValidateTargetRefs 已阻断写入）。
+-- 注：后端不再渲染占位行这件事不依赖本迁移，即使漏跑也只是少清理几行历史数据。
+--
+-- 幂等：DELETE 本身幂等，重复执行无副作用。
+--
+-- 回滚：孤儿折扣的原始配置无法恢复（目标商品行已不存在，折扣本就无意义）。
+--
+-- DELETE FROM agent_level_discounts d
+--  WHERE d.target_type = 'product'
+--    AND NOT EXISTS (SELECT 1 FROM products p WHERE p.id = d.target_id);
+
+-- 对齐校验：执行后应为 0 行。
+-- SELECT COUNT(*) FROM agent_level_discounts d
+--  WHERE d.target_type = 'product'
+--    AND NOT EXISTS (SELECT 1 FROM products p WHERE p.id = d.target_id);

@@ -265,17 +265,22 @@ type AdminOrderQuoteResponse struct {
 
 // AdminOrderConfigOption 一个客户可选配置项（widget 决定前端渲染方式）。
 type AdminOrderConfigOption struct {
-	OptionKey    string                      `json:"option_key"`
-	Name         string                      `json:"name"`
-	Widget       string                      `json:"widget"`
-	Required     bool                        `json:"required"`
-	DefaultValue string                      `json:"default_value"`
-	Unit         string                      `json:"unit"`
-	Help         string                      `json:"help"`
-	MinValue     *float64                    `json:"min_value"`
-	MaxValue     *float64                    `json:"max_value"`
-	UnitPrice    float64                     `json:"unit_price"`
-	Values       []AdminOrderConfigOptionVal `json:"values"`
+	OptionKey    string   `json:"option_key"`
+	Name         string   `json:"name"`
+	Widget       string   `json:"widget"`
+	Required     bool     `json:"required"`
+	DefaultValue string   `json:"default_value"`
+	Unit         string   `json:"unit"`
+	Help         string   `json:"help"`
+	MinValue     *float64 `json:"min_value"`
+	MaxValue     *float64 `json:"max_value"`
+	UnitPrice    float64  `json:"unit_price"`
+	// 数量型选项的季度 / 年度 / 一次性单位加价；0 表示该周期未单独给价（回落月度）。
+	// 代下单弹窗按当前所选周期挑对应档位估算，只给月度值会让年付预览远低于实付。
+	UnitPriceQuarterly float64                     `json:"unit_price_quarterly"`
+	UnitPriceAnnually  float64                     `json:"unit_price_annually"`
+	UnitPriceOnetime   float64                     `json:"unit_price_onetime"`
+	Values             []AdminOrderConfigOptionVal `json:"values"`
 	// Locked 上游固定配置项（只有一个可见取值）：只读展示，不可下发覆盖。
 	Locked bool `json:"locked"`
 }

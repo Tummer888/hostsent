@@ -55,9 +55,6 @@ func registerAdminUserRoutes(v1 *gin.RouterGroup, app *App) {
 	users.Use(app.adminAuth())
 	{
 		users.GET("", app.perm("system:user:list"), app.userHandler.ListUsers)
-		// 导出必须与列表同权限：能看列表就能导出，且导出走同一套筛选条件。
-		// 静态段 /export 注册在 /:id 之前，避免被参数路由吞掉。
-		users.GET("/export", app.perm("system:user:list"), app.userHandler.ExportUsers)
 		users.POST("", app.perm("user:create"), app.userHandler.CreateUser)
 		users.GET("/stats", app.perm("system:user:list"), app.userHandler.GetStats)
 		// 总览页活动统计（在线用户 / 最近登录用户）。与 /stats 同权限，

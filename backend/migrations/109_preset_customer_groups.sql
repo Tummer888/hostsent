@@ -1,0 +1,30 @@
+-- 109_preset_customer_groups.sql
+--
+-- 背景：用户组管理（用户管理 → 账户管理 → 用户组管理 → 客户分组）此前只有
+-- 「默认用户组」一条，运营要在空列表上从零建组才能开始给客户分层。
+--
+-- 处置：按 code 补齐 5 个预置客户分组（大客户 / 企业客户 / 特别关照客户 /
+-- 渠道代理 / 测试客户），让「客户分层」开箱可用。用户组自 doc108 起是纯分类
+-- （不承载折扣，价格只由代理等级决定），因此本迁移对算价零影响。
+--
+-- 执行方式：与既有数据回填一致 —— 由服务启动期的 Go seed
+-- （internal/pkg/db/db.go 的 seedPresetUserGroups）幂等完成，本文件为记录与对齐
+-- 依据，不由独立 runner 执行。
+--
+-- 幂等：按 code 判断，已存在则跳过；运营改过的名称/描述/排序/状态重启不会被还原
+-- （只增不改）。因此重复执行无副作用。
+--
+-- 回滚：仅涉及预置分组数据，回滚即删除下列 code 的组。
+-- 注意：若已有用户被归入这些组，需先把 users.user_group_id 迁回默认组再删除，
+-- 否则会留下指向不存在分组的悬空引用。
+--
+-- INSERT INTO user_groups (name, code, description, status, sort_order, is_default, created_at, updated_at) VALUES
+--   ('大客户',       'vip',        '长期高消费客户，重点跟进与续费提醒。',                            'active', 10, false, now(), now()),
+--   ('企业客户',     'enterprise', '以企业主体采购的客户，对接人可能非实际使用人。',                  'active', 20, false, now(), now()),
+--   ('特别关照客户', 'watchlist',  '需人工重点跟进或谨慎处置的客户（人工标记，无自动行为）。',        'active', 30, false, now(), now()),
+--   ('渠道代理',     'channel',    '通过渠道或代理商引入的客户，归属需与销售中心保持一致。',          'active', 40, false, now(), now()),
+--   ('测试客户',     'test',       '内部测试与演示账号，不计入正式客户口径。',                        'active', 90, false, now(), now())
+-- ON CONFLICT (code) DO NOTHING;
+
+-- 对齐校验：执行后应有 6 个客户分组（默认用户组 + 上述 5 个）。
+-- SELECT code, name, sort_order, status FROM user_groups ORDER BY sort_order, id;
