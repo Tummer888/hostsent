@@ -30,6 +30,12 @@ type InstanceRow struct {
 	ActorName    string `gorm:"column:actor_name"`
 	ProviderName string `gorm:"column:provider_name"`
 	ProviderType string `gorm:"column:provider_type"`
+	// ChannelAvailable 该实例绑定的渠道是否仍可用（未被删除）。
+	//
+	// 联表计算列（见 instanceSelect）：渠道软删后 p.id 为 NULL。
+	// false 表示实例无法同步/操作，且销毁只能走"只清本地记录"。
+	// 未联表查询（如按 ID 直查）时为 false，调用方需注意区分场景。
+	ChannelAvailable bool `gorm:"column:channel_available"`
 }
 
 // InstanceMark 上游/平台侧实例号（优先 provider_instance_id，回落 instance_id），
@@ -121,6 +127,9 @@ type InstanceRepository interface {
 	// 直接改写就会撞唯一约束（实测 23505）。销毁行不再承载任何上游动作，
 	// 它的 instance_id 仅用于历史展示，加个标注前缀即可让位。
 	FreeInstanceIDForDestroyed(ctx context.Context, instanceID string, keepID uint64) (int64, error)
+	// Purge 物理删除一条**已销毁**的实例记录（连同其运维流水），
+	// 用于把终态行真正从列表里移除。只接受终态行，不触碰渠道。
+	Purge(ctx context.Context, id uint64) (int64, error)
 }
 
 // UpstreamSnapshot 回源拉到的上游实例关键字段（重新关联时回写本地快照）。
@@ -144,10 +153,27 @@ func NewInstanceRepository(db *gorm.DB) InstanceRepository {
 }
 
 // instanceSelect 列表/详情统一投影列。
+// instanceSelect 列表/详情共用的联表取值。
+//
+// channel_available 是**计算列**而不是 instances 上的真实字段，判据是
+// "联表到渠道行且该行未被软删"。
+//
+// 注意必须显式带 p.deleted_at IS NULL：这里的 Joins 是手写 SQL 片段，
+// GORM **不会**替它加软删过滤 —— 只写 p.id IS NOT NULL 会把已删渠道也算成
+// "可用"（实测踩过：三个绑着已删渠道的实例仍报 channel_available=true）。
+//
+// 保留 p.name AS provider_name 不带软删过滤（取到已删渠道的名字）：
+// 运营需要看到"它原本绑的是哪个渠道"才能判断怎么处理。
+//
+// 为什么要下发 channel_available：渠道没了意味着实例无法同步/操作（渠道查询
+// 直接报不存在），而渠道没有恢复入口 —— 这类实例会永久卡在列表里。
+// 列表页要能一眼标出来并给出唯一出路（只清本地记录），故在联表里算，
+// 避免逐台回源渠道。
 const instanceSelect = "instances.*, " +
 	"u.username AS username, u.email AS user_email, u.phone AS user_phone, " +
 	"a.username AS actor_name, " +
-	"p.name AS provider_name, p.provider_type AS provider_type"
+	"p.name AS provider_name, p.provider_type AS provider_type, " +
+	"(p.id IS NOT NULL AND p.deleted_at IS NULL) AS channel_available"
 
 // baseQuery 构造带归属用户/操作人/服务商联表的过滤查询（列表与计数共用）。
 func (r *instanceRepository) baseQuery(ctx context.Context, query *dto.ListQuery) *gorm.DB {
@@ -735,6 +761,51 @@ func (r *instanceRepository) FreeInstanceIDForDestroyed(ctx context.Context, ins
 			"updated_at":           time.Now(),
 		})
 	return res.RowsAffected, res.Error
+}
+
+// Purge 物理删除一条**已销毁**的实例记录（真正把这行从列表里去掉）。
+//
+// 为什么需要它（用户实测反馈）："我是叫将这个实例的整一个记录都删除。"
+// 销毁（Destroy）只把 status 落成 deleted，行仍留在 instances 表里 ——
+// 列表照常显示（只是标成「已销毁」）。运营要清掉一批测试机时，
+// 那些行会永久占着列表，没有任何入口能真正移除。
+//
+// 安全边界（三重，缺一不可）：
+//   - 只允许删除**终态**行（status=deleted 或 lifecycle_stage=destroyed）：
+//     在跑的机器必须先走销毁（那会通知渠道终止机器），不能靠 purge 绕过；
+//   - 不触碰渠道（Purge 是纯本地动作，调用方负责先确认机器已终止）；
+//   - 同事务里删掉该实例的运维流水 —— 否则 instance_operations 会留下
+//     指向已不存在实例的永久孤儿行，审计视图里点进去全是空。
+//
+// 合规取舍：行本身被删了，但**谁在什么时候删了它**仍永久留在 admin_audit_logs
+// （管理端写请求审计中间件自动记录 DELETE），不属"删了就查不到"。
+func (r *instanceRepository) Purge(ctx context.Context, id uint64) (int64, error) {
+	var affected int64
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 条件写在 DELETE 里而不是先查后删：并发下"查完到删之间状态被改回"的窗口
+		// 会让一台在跑的机器被误删（与 ClaimTransition 同一取舍：判据与动作同语句）。
+		res := tx.Where("id = ?", id).
+			Where("status = ? OR coalesce(lifecycle_stage, '') = ?",
+				string(pkgmodel.InstanceStatusDeleted), "destroyed").
+			Delete(&syncmodel.Instance{})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			affected = 0
+			return nil
+		}
+		affected = res.RowsAffected
+		// 流水随主行一起清：留孤儿行会让全局审计视图出现"点进去什么都没有"的记录。
+		if err := tx.Table("instance_operations").Where("instance_id = ?", id).Delete(nil).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return affected, nil
 }
 
 // normalizePage 规整分页参数（默认 20，单页上限 100）。

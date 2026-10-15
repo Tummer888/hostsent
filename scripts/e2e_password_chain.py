@@ -33,6 +33,9 @@ MOCK = ["docker", "exec", "p5-mock", "cat", "/state/last_create.json"]
 # 自建资源统一前缀：清理时按名字前缀定位，不会误伤运营的渠道/商品。
 PROVIDER_PREFIX = "e2e-pwd-mock渠道"
 PRODUCT_PREFIX = "e2e-pwd-验收机"
+# 商品分类：建品现在强制必填（留空会让商品落进「未分类」，导航与列表都归不了位），
+# 脚本自建一个分类，跑完在删完商品之后删除（分类下还有商品时后端会拒绝删除）。
+CATEGORY_PREFIX = "e2e-pwd-分类"
 FAILURES = []
 
 
@@ -95,7 +98,23 @@ st, obj = req("POST", "/admin/auth/login", body={"username": "admin", "password"
 admin = dig(obj, "token")
 check("管理员登录", st == 200 and bool(admin), f"HTTP {st}")
 
-print("== 0. 自建 dcimcloud 渠道 + self 商品 ==")
+def cleanup_category(cid):
+    """删除自建分类：必须在删商品之后调用（分类下仍有商品时后端拒绝删除）。"""
+    if not cid:
+        return
+    st, obj = req("DELETE", f"/admin/product/categories/{cid}", token=admin)
+    if st != 200:
+        print(f"  [WARN] 自建分类 {cid} 清理失败（HTTP {st}）：{obj}")
+
+
+print("== 0. 自建分类 + dcimcloud 渠道 + self 商品 ==")
+st, obj = req("POST", "/admin/product/categories", token=admin, body={
+    "parent_id": 0, "name": f"{CATEGORY_PREFIX}-{suffix}", "sort_order": 0, "status": 1})
+category_id = dig(obj, "id")
+check("自建商品分类（供 self 商品归属）", st == 200 and bool(category_id), f"HTTP {st} {obj if st != 200 else ''}")
+if not category_id:
+    sys.exit(1)
+
 st, obj = req("POST", "/admin/resource/providers", token=admin, body={
     "name": f"{PROVIDER_PREFIX}-{suffix}", "provider_type": "dcimcloud",
     "api_endpoint": "http://p5-mock:9099", "status": 1, "des": "密码链路 e2e 自建（跑完清理）",
@@ -103,18 +122,21 @@ st, obj = req("POST", "/admin/resource/providers", token=admin, body={
 provider_id = dig(obj, "id")
 check("自建 dcimcloud 渠道（指向 p5-mock）", st == 200 and bool(provider_id), f"HTTP {st} {obj if st != 200 else ''}")
 if not provider_id:
+    cleanup_category(category_id)
     sys.exit(1)
 
 st, obj = req("POST", "/admin/product/products", token=admin, body={
     "code": f"e2e-pwd-{suffix}", "name": f"{PRODUCT_PREFIX}-{suffix}",
     "product_type": "cloud_host", "price_model": "fixed", "price": 1.0, "cost_price": 0.0,
     "source_mode": "self", "source_provider_id": provider_id, "stock": -1, "status": 1,
+    "category_id": category_id,
     "config_options": json.dumps({"rootpass": "e2e-rootpass-9xK"}, ensure_ascii=False),
     "description": "密码链路 e2e 自建（跑完清理）"})
 self_product = dig(obj, "id")
 check("自建 self 商品（config_options 带 rootpass）", st == 200 and bool(self_product), f"HTTP {st} {obj if st != 200 else ''}")
 if not self_product:
     req("DELETE", f"/admin/resource/providers/{provider_id}", token=admin)
+    cleanup_category(category_id)
     sys.exit(1)
 
 u = f"pwd{suffix}"
@@ -205,7 +227,7 @@ if inst_id:
         check("重装后「查看密码」== 平台新签发的凭据", revealed3 == reinstall_pwd,
               f"reveal={revealed3!r} reinstall={reinstall_pwd!r}")
 
-# 清理自建资源：先删商品（渠道删除守卫要求无关联商品），再删渠道。
+# 清理自建资源：先删商品（渠道删除守卫要求无关联商品），再删渠道与分类。
 # 渠道软删不报错即视为已删（不额外校验），残留由演示库维护者处置。
 if self_product:
     st, obj = req("DELETE", f"/admin/product/products/{self_product}", token=admin)
@@ -215,7 +237,8 @@ if provider_id:
     st, obj = req("DELETE", f"/admin/resource/providers/{provider_id}", token=admin)
     if st != 200:
         print(f"  [WARN] 自建渠道 {provider_id} 清理失败（HTTP {st}）：{obj}")
-print("已清理自建渠道与商品")
+cleanup_category(category_id)
+print("已清理自建渠道、商品与分类")
 
 print()
 if FAILURES:

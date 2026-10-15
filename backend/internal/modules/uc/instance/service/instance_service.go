@@ -1174,7 +1174,13 @@ func (s *instanceService) applyLiveStatus(ctx context.Context, it *model.Instanc
 	if provider, err := s.buildProvider(ctx, it.ProviderID); err == nil {
 		reportsPower = upstream.SupportsPowerStateReporting(provider)
 	}
-	if reportsPower {
+	// 过渡态还没被上游核实完成时，上游回的是**动作前**的旧值：照抄会把客户刚关的机
+	// 显示回"运行中"（详情轮询每几秒一次，等于动作全程按着旧值不放）。
+	midTransition := false
+	if it.TransitionState != "" && reportsPower {
+		midTransition = !pkgmodel.InstanceTransitionOf(it.TransitionState).SatisfiedBy(string(live.Status))
+	}
+	if reportsPower && !midTransition {
 		info.Status = string(live.Status)
 		info.PowerStatus = powerOf(live.Status)
 	} else {
@@ -1190,10 +1196,11 @@ func (s *instanceService) applyLiveStatus(ctx context.Context, it *model.Instanc
 	if it.TransitionStartedAt != nil {
 		claimedAt = *it.TransitionStartedAt
 	}
-	// 与运维台一致：报电源状态的渠道要"上游确实报出新状态"才算完成；
-	// 不报的渠道指令已受理即算完成（无从核对）。两者都受最短窗口约束。
-	confirmed := reportsPower || it.TransitionUntil != nil
-	if confirmed && !transitionWithinMinHold(it.TransitionState, claimedAt) {
+	// 与运维台一致：报电源状态的渠道要**到达该动作的目标状态**才算完成
+	// （开机→on、关机→off），只是"变了个值"不算 —— 上游还没开始执行时回的旧值
+	// 会把客户的「关机中」提前收尾。不报电源状态的渠道无从核对，指令已受理即算完成。
+	done := !midTransition
+	if done && !transitionWithinMinHold(it.TransitionState, claimedAt) {
 		if err := s.repo.ClearTransitionIfOwner(ctx, it.ID, it.TransitionState); err != nil {
 			if s.logger != nil {
 				s.logger.Warn("清除过渡态失败", zap.Uint64("instance_id", it.ID), zap.Error(err))

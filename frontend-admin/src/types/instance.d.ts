@@ -37,6 +37,13 @@ export interface InstanceItem {
   /** 待开通（未在上游开通）：前端显示「待开通」并只开放「重新开通」。 */
   pending: boolean
   /**
+   * 绑定的渠道是否仍可用（未被删除）。
+   *
+   * false 表示渠道记录已不存在：实例无法同步/操作，销毁只能走
+   * 「只清本地记录」。列表与详情据此标出这类实例并给出唯一出路。
+   */
+  channel_available: boolean
+  /**
    * 是否**转售链路**（source_mode=upstream）：实例对着一个上游资源商品，
    * 才有"上游实例号 / 上游镜像 / 上游各周期价"这些概念，也才有换号与换绑需求。
    *
@@ -478,6 +485,27 @@ export interface InstanceResizeRequest {
 export interface InstanceDestroyRequest {
   confirm_mark: string
   reason?: string
+  /**
+   * 只清本地记录，不通知渠道。
+   *
+   * 仅在实例绑定的渠道**已不可用**（被删除/禁用）时才被服务端接受 ——
+   * 那种实例无法同步/操作，销毁也走不通，否则会永久卡在列表里
+   *（用户实测：渠道被删后实例无法清理）。渠道正常时传它会报错，
+   * 避免造出"本地已销毁、机器还在计费"的烂账。
+   */
+  local_only?: boolean
+}
+
+/**
+ * 删除已销毁的实例记录（物理删除，不可逆）。
+ *
+ * 与 InstanceDestroyRequest 的区别：销毁是业务动作（通知渠道终止机器，
+ * 本地行标成已销毁但保留），删除是记录清理（把那条终态行真正移出列表）。
+ * 服务层只接受终态行 —— 在跑的机器必须先走销毁，否则会绕过"通知渠道终止机器"。
+ */
+export interface InstancePurgeRequest {
+  confirm_mark: string
+  reason?: string
 }
 
 // 批量运维（doc61 P1）：逐台结果三态 —— success / skipped（无需执行）/ failed（真实失败）
@@ -511,6 +539,8 @@ export interface InstanceBatchDestroyRequest {
   ids: number[]
   confirm_marks: Record<string, string>
   reason?: string
+  /** 只清本地记录（见 InstanceDestroyRequest.local_only）：逐台仅在渠道不可用时生效。 */
+  local_only?: boolean
 }
 
 // 与批量运维同一响应形态，便于前端复用同一套逐台结果回显。

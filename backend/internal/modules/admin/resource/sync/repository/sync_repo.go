@@ -290,12 +290,22 @@ func (r *syncRepository) CreatePendingInstance(ctx context.Context, row *model.I
 // 另插一行会留下两条记录、用户会看到一台"待开通"的幽灵机。
 // 命中条件 provider_instance_id = ” 保证只改占位、不改已转正行；
 // 若目标实例号已被别的行占用（早前失败重试留下的行）则不更新，交调用方走常规 upsert。
+//
+// `status <> 'deleted'` 排除**已被运营清除的占位行**：运营在列表里删掉一台开不出来的
+// 占位机，是在表达"这条记录我不再要了"。若此时履约迟到成功仍把它就地转正，就会得到
+// 一台 status=running 但 lifecycle_stage 还是 destroyed 的怪行 —— 而终态行按
+// "终态不复活"规则不再接受回源刷新，这台真机器此后永远刷不出真实状态。
+// 排除后该订单走常规 upsert 落一条**新行**，被删的旧行保持已删除。
 func (r *syncRepository) AdoptPendingInstance(ctx context.Context, orderID uint64, row *model.Instance) (bool, error) {
 	if orderID == 0 || row == nil || row.InstanceID == "" {
 		return false, nil
 	}
 	res := r.db.WithContext(ctx).Model(&model.Instance{}).
 		Where("order_id = ? AND provider_instance_id = ''", orderID).
+		// COALESCE 而非裸 `status <> 'deleted'`：status 为空的历史行在 SQL 三值逻辑下
+		// 会让整个条件求值为 NULL（= 不成立），那些行就再也无法被转正，
+		// 履约成功后会另插一行、留下"待开通"幽灵机 —— 正是本函数要避免的情形。
+		Where("COALESCE(status, '') <> ?", "deleted").
 		Where("NOT EXISTS (SELECT 1 FROM instances x WHERE x.instance_id = ? AND x.id <> instances.id)", row.InstanceID).
 		Updates(adoptPendingUpdates(row))
 	if res.Error != nil {

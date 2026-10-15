@@ -1,14 +1,13 @@
 <template>
   <div class="page-body instances-module">
-    <!-- ============ 页头：只放动作条，不重复身份信息 ============
-      此前这里还有标题（主机名）、电源/服务/来源三个标签、以及"实例标识 · 公网 IP ·
-      归属"一行 —— 与下方主信息区**逐字重复**：同一屏里主机名出现两次、状态出现三次、
-      归属出现三次（用户实测反馈"显示运行中的地方就有三个"）。
-
-      身份与状态统一由主信息区（detail-hero）承担，它是"认机器"的唯一入口；
-      本页头退化为纯动作条，避免运营在两个地方读同一件事、也避免两处不一致
-      （例如页头没跟着刷新时，两处状态会互相矛盾）。 -->
-    <header class="page-header page-header--actions surface-card">
+    <!-- ============ 页头：身份（左）+ 操作（右）同一行 ============
+      布局演进（三轮用户反馈叠加的结果）：
+        ① 最初页头有标题+3 个状态标签+"实例标识·公网 IP·归属"一行，与下方主信息区
+           逐字重复（主机名出现两次、状态三次、归属三次）→ 页头退化为纯动作条；
+        ② 退化后左上一大片留空，观感奇怪（用户实测反馈"不要留空"）→ 现在把身份
+           移回页头与操作并排，主信息区只留交付参数与备注。
+      身份信息在全页仍只出现**一次**（都在这里），不违反①的初衷。 -->
+    <header class="page-header detail-header surface-card">
       <!-- 操作分组：日常 / 电源 / 维护 / 危险，避免十几个按钮平铺挤成一团 -->
       <!--
         操作区：按「用的频率 + 危险度」从左到右排，组间加竖线分隔。
@@ -19,10 +18,109 @@
           · 刷新与同步刷新 —— 只读动作，退到最右的次要位置。
         待开通实例只留「重新开通」：其余动作没有对象，隐藏而不是让它们点了报错。
       -->
+      <!--
+        页头 = 身份（左）+ 操作（右）**同一行**。
+        此前页头只剩操作条、身份在下方主信息区，于是左上一大片留空（用户实测反馈
+        "不要把左上角那里留出留空，这样看起来有一点奇怪"）。
+        现在把主机名/实例号/归属移上来与操作并排，主信息区只保留交付参数与备注。
+      -->
+      <div v-if="instanceData" class="page-header__main">
+        <span class="page-header__chip">
+          <OsIcon :os="instanceData.os" size="lg" />
+        </span>
+        <div class="page-header__text">
+          <div class="page-header__title-row">
+            <h2 class="page-header__title">{{ instanceData.name || '未命名主机' }}</h2>
+            <!--
+              过渡态：紧凑的方形/圆形图标动画（用户要求"改成图标动画，不要长条，
+              观感不好"）。放在主机名之后，与状态标签同排。
+            -->
+            <span
+              v-if="transitionActive"
+              class="transition-badge"
+              :title="`正在${transition?.verb}，${transitionElapsedText}`"
+            >
+              <span class="transition-badge__pulse" aria-hidden="true"></span>
+              <span class="transition-badge__text">正在{{ transition?.verb }}</span>
+              <span class="transition-badge__elapsed">{{ transitionElapsedText }}</span>
+            </span>
+            <t-tag
+              :theme="headlinePower.theme"
+              variant="light"
+              size="small"
+              shape="round"
+              :class="{ 'state-spinning': headlinePower.spinning }"
+            >
+              <LoadingIcon v-if="headlinePower.spinning" size="13" class="state-spin-icon" />
+              {{ headlinePower.label }}
+            </t-tag>
+            <t-tag
+              :theme="headlineService.theme"
+              variant="light"
+              size="small"
+              shape="round"
+              :title="headlineService.detail"
+            >
+              {{ headlineService.label }}
+            </t-tag>
+          </div>
+          <div class="page-header__meta">
+            <span class="hero-id">
+              {{ resale ? '本地实例号' : '实例号' }}
+              <code>{{ instanceData.instance_id || '—' }}</code>
+              <span class="hero-id__tag">{{ resale ? '本系统' : '本平台' }}</span>
+            </span>
+            <span v-if="resale" class="hero-id">
+              上游实例号
+              <template v-if="instanceData.provider_instance_id">
+                <code>{{ instanceData.provider_instance_id }}</code>
+                <span class="hero-id__tag hero-id__tag--upstream">{{ instanceData.provider_name || '上游' }}</span>
+              </template>
+              <template v-else>
+                <code class="hero-id__pending">未开通（占位中）</code>
+              </template>
+              <t-link
+                v-if="hasPerm('instance:relink') && !instanceData.pending"
+                theme="primary"
+                hover="color"
+                class="hero-id__action"
+                @click="openRelinkDialog"
+              >
+                重新关联
+              </t-link>
+            </span>
+            <span class="hero-id hero-id--muted">
+              <span class="hero-id__label">归属</span>
+              <router-link
+                class="hero-user"
+                :to="{ path: '/users/accounts/detail', query: { id: String(instanceData.user_id) } }"
+                >{{ instanceData.username || '—' }}</router-link
+              >
+              <template v-if="instanceData.actor_name">（{{ instanceData.actor_name }} 开通）</template>
+            </span>
+          </div>
+        </div>
+      </div>
+
       <div class="detail-actions">
         <template v-if="isPending">
           <t-button v-permission="'instance:action'" theme="primary" :loading="retrying" @click="handleRetryProvision">
             重新开通
+          </t-button>
+          <!--
+            占位行也要能销毁：它没有上游机器，"销毁"只是清掉这条本地记录
+            （后端 destroyPendingPlaceholder 不调用任何渠道接口）。
+            此前这一段只给「重新开通」，一台永远开不出来的占位机在详情页
+            连清掉都做不到（用户实测反馈："现在直接连删除这个实例的按钮都没有了"）。
+          -->
+          <t-button
+            v-permission="'instance:destroy'"
+            theme="danger"
+            variant="outline"
+            :disabled="!instanceData?.capabilities?.destroy"
+            @click="openDestroyDialog"
+          >
+            销毁实例
           </t-button>
         </template>
         <template v-else>
@@ -49,7 +147,16 @@
             <t-button variant="outline" :disabled="maintenanceDisabled">维护 ▾</t-button>
           </t-dropdown>
 
-          <t-button v-permission="'lifecycle:renew'" variant="outline" @click="openRenewDialog">续费</t-button>
+          <!-- 续费：已销毁的行不给入口 —— 机器已终止，续费会向客户收一笔没有
+               交付物的钱（服务端 ensureRenewable 同样拒绝，这里只是不给出
+               点了必失败的按钮）。 -->
+          <t-button
+            v-if="!isDestroyed"
+            v-permission="'lifecycle:renew'"
+            variant="outline"
+            @click="openRenewDialog"
+            >续费</t-button
+          >
           <t-button
             v-permission="'instance:resize'"
             variant="outline"
@@ -113,21 +220,12 @@
         </span>
       </template>
       <template #message>
-        <div class="transition-alert__body">
-          <span class="transition-alert__text">
-            {{
-              transition?.started_at ? `开始于 ${formatTime(transition.started_at)}，` : ''
-            }}{{ resale ? '上游' : '平台' }}指令为异步执行，通常需要 1–3 分钟。期间电源与维护操作暂时不可用，已完成
-            {{ transitionElapsedText }}。
-          </span>
-          <!--
-            进度条：用户明确要求"从开机变到关机的过程中加一个关机的加载动画"。
-            只转一个小图标不够显眼（一屏里容易漏看），加一条不确定态流动条，
-            让"正在执行"在一眼扫过时就成立。宽度用 CSS 动画而不是真实百分比 ——
-            上游不回报进度（见遗留项 31），画一个假百分比会误导。
-          -->
-          <span class="transition-progress" role="progressbar" :aria-label="`正在${transition?.verb}`"></span>
-        </div>
+        <span>
+          {{
+            transition?.started_at ? `开始于 ${formatTime(transition.started_at)}，` : ''
+          }}{{ resale ? '上游' : '平台' }}指令为异步执行，通常需要 1–3 分钟。期间电源与维护操作暂时不可用，
+          本页每 4 秒自动核对一次上游状态，完成后自动更新（{{ transitionElapsedText }}）。
+        </span>
       </template>
     </t-alert>
     <t-alert v-else-if="transitionOverdue" theme="warning" title="上次操作的结果尚未确认">
@@ -138,6 +236,17 @@
         </span>
       </template>
     </t-alert>
+    <!--
+      终态行（已销毁）单独一条：不能用下面的「部分操作不可用」——
+      那会把"已销毁所以渠道操作都关了"说成"部分功能坏了"，运营会去找渠道恢复。
+      这里直接说清现状与唯一可做的下一步（删除记录）。
+    -->
+    <t-alert
+      v-else-if="isDestroyed"
+      theme="info"
+      title="该实例已销毁"
+      message="渠道侧机器已终止，电源/维护等操作均已关闭。本记录保留用于审计；如需从列表中移除，请使用「危险操作 → 删除记录」。"
+    />
     <t-alert
       v-else-if="instanceData?.capability_error"
       theme="warning"
@@ -153,112 +262,6 @@
       容易让人误以为是空态），改为同一张卡内的分区栅格 + 分隔线。
     -->
     <section v-if="instanceData" class="detail-hero surface-card">
-      <!-- 身份行：主机名（= 平台侧 hostname）+ 两个正交状态 + 云主机 ID -->
-      <header class="hero-head">
-        <div class="hero-identity">
-          <OsIcon :os="instanceData.os" size="lg" />
-          <div class="hero-identity__text">
-            <div class="hero-identity__name">
-              <span class="hero-hostname">{{ instanceData.name || '未命名主机' }}</span>
-              <!--
-                状态 = 两个独立维度，各回答一个问题（本轮修复的核心）：
-                  · 电源维度：这台机器通电了吗（运行中/已关机/重启中…）
-                  · 服务维度：我们卖的账期还有效吗（服务中/即将到期/到期暂停…）
-                此前是一个合成标签并把"关机"写成「已暂停」—— 因为上游把 suspended
-                也映射成 stopped，两者无法区分（用户实测反馈）。
-
-                这里是**全页唯一**的状态展示位：此前页头也挂一份，"运行中"在同屏
-                出现三次（用户实测反馈），且两处可能不同步（页头未刷新时互相矛盾）。
-              -->
-              <t-tag
-                :theme="headlinePower.theme"
-                variant="light"
-                size="small"
-                shape="round"
-                :class="{ 'state-spinning': headlinePower.spinning }"
-              >
-                <LoadingIcon v-if="headlinePower.spinning" size="13" class="state-spin-icon" />
-                {{ headlinePower.label }}
-              </t-tag>
-              <t-tag
-                :theme="headlineService.theme"
-                variant="light"
-                size="small"
-                shape="round"
-                :title="headlineService.detail"
-              >
-                {{ headlineService.label }}
-              </t-tag>
-            </div>
-            <div class="hero-identity__meta">
-              <!--
-                实例号按链路分开表达（用户实测反馈："虽然是我自己的，但它这里会显示
-                上游实例号，这个一看就是有问题"）：
-
-                  · 转售链路（resale）—— 有两个号，必须分清：
-                    本地实例号 instance_id（本系统的主键性质标识，历史流水引用它）
-                    与上游实例号 provider_instance_id（发给上游做电源/控制台/续费/销毁，
-                    上游换机后这个号会变，故提供「重新关联」）。
-
-                  · 自营链路 —— 只有一个号：机器由本平台开通，这个号就是本系统
-                    生成并下发的。显示「上游实例号」会让运营以为背后还有个第三方，
-                    进而去点「重新关联」填一个来路不明的号（后端已拒绝，但界面
-                    本就不该给出这个入口）。
-              -->
-              <span class="hero-id">
-                {{ resale ? '本地实例号' : '实例号' }}
-                <code>{{ instanceData.instance_id || '—' }}</code>
-                <span class="hero-id__tag">{{ resale ? '本系统' : '本平台' }}</span>
-              </span>
-              <span v-if="resale" class="hero-id">
-                上游实例号
-                <template v-if="instanceData.provider_instance_id">
-                  <code>{{ instanceData.provider_instance_id }}</code>
-                  <span class="hero-id__tag hero-id__tag--upstream">{{ instanceData.provider_name || '上游' }}</span>
-                </template>
-                <template v-else>
-                  <code class="hero-id__pending">未开通（占位中）</code>
-                </template>
-                <t-link
-                  v-if="hasPerm('instance:relink') && !instanceData.pending"
-                  theme="primary"
-                  hover="color"
-                  class="hero-id__action"
-                  @click="openRelinkDialog"
-                >
-                  重新关联
-                </t-link>
-              </span>
-              <span class="hero-id hero-id--muted">
-                <!--
-                  归属客户 = 这台机器属于谁（下钻到客户详情）。
-                  用户详情是「下钻页」，路由为 /users/accounts/detail?id=N（query 传参）：
-                  此前这里写成路径参数 /users/accounts/{id}，与任何路由都不匹配 ——
-                  点击后落到空白页（用户实测）。
-
-                  带"归属"二字而不是裸用户名：裸链接夹在一排技术标识（本地号/上游号）
-                  之间看不出是什么（用户实测反馈"归属也有一点重复"）。归属全页只此
-                  一处，概览描述表里的重复项已移除。
-                -->
-                <span class="hero-id__label">归属</span>
-                <router-link
-                  class="hero-user"
-                  :to="{ path: '/users/accounts/detail', query: { id: String(instanceData.user_id) } }"
-                  >{{ instanceData.username || '—' }}</router-link
-                >
-                <template v-if="instanceData.actor_name">（{{ instanceData.actor_name }} 开通）</template>
-              </span>
-            </div>
-          </div>
-        </div>
-        <div class="hero-tags">
-          <t-tag :theme="sourceModeTheme" variant="light" size="small" shape="round">{{ sourceModeLabel }}</t-tag>
-          <t-tag theme="default" variant="light" size="small" shape="round">{{
-            providerTypeLabel(instanceData.provider_type)
-          }}</t-tag>
-        </div>
-      </header>
-
       <!-- 交付参数栅格：配置 / 网络 / 登录 / 系统，四块最常被问的信息 -->
       <div class="hero-grid">
         <!-- 配置 -->
@@ -1491,6 +1494,17 @@
             :message="`销毁后实例与数据不可恢复。请输入实例标识「${instanceData?.instance_id || ''}」以确认。`"
           />
         </t-form-item>
+        <!--
+          渠道已不可用：正常销毁走不通（要通知渠道终止机器，而渠道记录没了），
+          此时唯一出路是只清本地记录。不给出这个选项，实例就永久卡在列表里
+          （用户实测：渠道被删后实例无法清理）。
+        -->
+        <t-form-item v-if="channelGone">
+          <t-alert theme="warning" :message="`该实例绑定的渠道已不可用：无法通知渠道终止机器，只能清除本系统记录。渠道侧机器状态不会被改变，请自行确认上游是否仍在计费。`" />
+        </t-form-item>
+        <t-form-item v-if="channelGone">
+          <t-checkbox v-model="destroyForm.local_only">只清本地记录（不通知渠道）</t-checkbox>
+        </t-form-item>
         <t-form-item label="实例标识确认" name="confirm_mark">
           <t-input v-model="destroyForm.confirm_mark" :placeholder="instanceData?.instance_id || '请输入实例标识'" />
         </t-form-item>
@@ -1499,6 +1513,39 @@
             v-model="destroyForm.reason"
             :autosize="{ minRows: 2, maxRows: 4 }"
             placeholder="选填，请填写销毁原因"
+          />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
+
+    <!--
+      删除记录：只对已销毁的行开放。文案刻意与「销毁」区分 ——
+      销毁会通知渠道终止机器（机器是那个动作的对象），删除只清本地记录。
+    -->
+    <t-dialog
+      v-model:visible="purgeVisible"
+      header="删除实例记录"
+      width="520px"
+      :confirm-btn="{ content: '确认删除', theme: 'danger', disabled: purgeConfirmDisabled }"
+      :cancel-btn="{ content: '取消' }"
+      @confirm="handlePurge"
+      @close="purgeVisible = false"
+    >
+      <t-form label-align="top" :data="purgeForm" @submit.prevent>
+        <t-form-item>
+          <t-alert
+            theme="error"
+            :message="`将永久删除该实例的记录与操作流水，不可恢复。该记录已处于「已销毁」终态，删除不会再通知任何渠道。`"
+          />
+        </t-form-item>
+        <t-form-item label="实例标识确认" name="confirm_mark">
+          <t-input v-model="purgeForm.confirm_mark" :placeholder="instanceData?.instance_id || '请输入实例标识'" />
+        </t-form-item>
+        <t-form-item label="删除原因" name="reason">
+          <t-textarea
+            v-model="purgeForm.reason"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+            placeholder="选填，仅写入管理端审计日志"
           />
         </t-form-item>
       </t-form>
@@ -1841,6 +1888,7 @@ import {
   exitRescueInstance,
   getInstanceBillingContext,
   getInstanceDetail,
+  purgeInstance,
   getInstanceOperations,
   getInstanceRelated,
   getInstanceReinstallImages,
@@ -2040,7 +2088,42 @@ const transitionElapsedText = computed(() => {
   return `已等待 ${min} 分 ${sec % 60} 秒`
 })
 
-// 只在过渡进行中有意义，结束后必须停掉，否则每秒重渲染整个详情页。
+/**
+ * 过渡态自动收尾轮询。
+ *
+ * 这是本轮修的核心缺陷：此前这个定时器**只**让"已等待 N 秒"的数字每秒跳一下，
+ * 从不重新拉取数据 —— 于是过渡态永远不会自己结束，界面一直转圈，直到用户
+ * 手动点「同步上游」（用户实测反馈："加载动画一直在等待中，没有主动拉取上游状态"）。
+ *
+ * 现在做两件事：
+ *   · 每秒 tick 一次，维持"已等待 N 秒"的实时感；
+ *   · 每 POLL_INTERVAL 秒用 live=true 拉一次详情 —— 后端在有过渡态时会回源
+ *     核对并在确认完成后清掉它，界面随之回到真实状态。
+ *
+ * 为什么用详情接口而不是 /sync：详情是只读的，不写操作流水；
+ * /sync 每调用一次都会记一条审计记录，几秒一次会把流水刷爆。
+ */
+const TRANSITION_POLL_MS = 4000
+let transitionPollTimer: number | undefined
+
+async function pollTransition() {
+  // 过渡态在轮询过程中可能已被收尾（active 变 false）→ 停止，避免无谓请求。
+  if (!transitionActive.value) return
+  try {
+    const fresh = await getInstanceDetail(instanceId, true)
+    // 只覆盖与状态相关的字段，不整份替换：避免把用户正在编辑的本地表单状态冲掉
+    //（如备注编辑框、对话框里的选择）。
+    if (instanceData.value) {
+      instanceData.value = { ...instanceData.value, ...fresh }
+    } else {
+      instanceData.value = fresh
+    }
+  } catch {
+    // 轮询失败不打扰用户：网络抖动或后端重启时静默跳过，下一轮再试。
+    // 用户仍可手动「同步上游」。
+  }
+}
+
 watch(transitionActive, (active) => {
   if (active && transitionTimer === undefined) {
     transitionTimer = window.setInterval(() => {
@@ -2050,12 +2133,27 @@ watch(transitionActive, (active) => {
     window.clearInterval(transitionTimer)
     transitionTimer = undefined
   }
-})
+  // 收尾轮询与 tick 分开：tick 每秒（只重算文案），轮询 4 秒（发一次请求）。
+  if (active && transitionPollTimer === undefined) {
+    transitionPollTimer = window.setInterval(() => {
+      void pollTransition()
+    }, TRANSITION_POLL_MS)
+    // 立刻先拉一次：用户刚点完关机，不该等 4 秒才看到第一轮核对。
+    void pollTransition()
+  } else if (!active && transitionPollTimer !== undefined) {
+    window.clearInterval(transitionPollTimer)
+    transitionPollTimer = undefined
+  }
+}, { immediate: true })
 
 onBeforeUnmount(() => {
   if (transitionTimer !== undefined) {
     window.clearInterval(transitionTimer)
     transitionTimer = undefined
+  }
+  if (transitionPollTimer !== undefined) {
+    window.clearInterval(transitionPollTimer)
+    transitionPollTimer = undefined
   }
 })
 
@@ -2386,6 +2484,12 @@ const powerOptions = computed(() => {
 
 // 待开通（尚未在上游开通的占位行）：只开放「重新开通」。
 const isPending = computed(() => !!instanceData.value && !instanceData.value.provider_instance_id)
+// 已销毁（终态）：此时才开放「删除记录」（把这条已无用的行真正移除）。
+const isDestroyed = computed(
+  () =>
+    !!instanceData.value &&
+    (instanceData.value.status === 'deleted' || instanceData.value.lifecycle_stage === 'destroyed'),
+)
 const retrying = ref(false)
 
 // 开通失败横幅：manual=上游已明确拒绝（如余额不足），重试无效需人工；failed=系统自动重试中。
@@ -2539,6 +2643,15 @@ function onBillingPick(data: { value: string; disabled?: boolean }) {
 // 危险操作分组
 const dangerOptions = computed(() => {
   const opts: { content: string; value: string; disabled?: boolean; theme?: string }[] = []
+  // 终态行只留「删除记录」：机器已终止，暂停/销毁都无对象，
+  // 留着它们只会得到两个点不动的灰按钮（用户实测反馈"连删除这个实例的按钮都没有"
+  // 的同一片区域里，真正该有的入口反而被只能点一次的销毁挤住了）。
+  if (isDestroyed.value) {
+    if (hasPerm('instance:destroy')) {
+      opts.push({ content: '删除记录', value: 'purge', theme: 'error' })
+    }
+    return opts
+  }
   if (hasPerm('instance:action') && instanceData.value?.lifecycle_stage === 'suspended') {
     opts.push({ content: '恢复服务', value: 'unsuspend' })
   } else if (hasPerm('instance:action')) {
@@ -2571,6 +2684,9 @@ function onDangerPick(data: { value: string; disabled?: boolean }) {
       break
     case 'destroy':
       openDestroyDialog()
+      break
+    case 'purge':
+      openPurgeDialog()
       break
   }
 }
@@ -3075,7 +3191,20 @@ async function handleResize() {
 // ===== 销毁 =====
 
 const destroyVisible = ref(false)
-const destroyForm = reactive<{ confirm_mark: string; reason: string }>({ confirm_mark: '', reason: '' })
+const destroyForm = reactive<{ confirm_mark: string; reason: string; local_only: boolean }>({
+  confirm_mark: '',
+  reason: '',
+  local_only: false,
+})
+
+/**
+ * 渠道是否已不可用（渠道记录被删除）。
+ *
+ * 用服务端下发的 channel_available 结构化字段，不解析错误文案（文案会被改写）。
+ * 界面据此显出"只清本地记录"这条唯一出路；真正的准入判定在服务端
+ *（渠道可用时传 local_only 会被拒）。
+ */
+const channelGone = computed(() => instanceData.value?.channel_available === false)
 
 const destroyConfirmDisabled = computed(
   () => !instanceData.value?.instance_id || destroyForm.confirm_mark.trim() !== instanceData.value.instance_id,
@@ -3084,6 +3213,9 @@ const destroyConfirmDisabled = computed(
 function openDestroyDialog() {
   destroyForm.confirm_mark = ''
   destroyForm.reason = ''
+  // 渠道正常时默认走"正常销毁"（同时终止渠道侧机器）；渠道已不可用时
+  // 只能只清本地，默认勾上并给出醒目说明。
+  destroyForm.local_only = channelGone.value
   destroyVisible.value = true
 }
 
@@ -3092,12 +3224,47 @@ async function handleDestroy() {
     await destroyInstance(instanceId, {
       confirm_mark: destroyForm.confirm_mark.trim(),
       reason: destroyForm.reason || undefined,
+      local_only: destroyForm.local_only || undefined,
     })
-    MessagePlugin.success('实例已销毁')
+    MessagePlugin.success(destroyForm.local_only ? '已清除本地记录' : '实例已销毁')
     destroyVisible.value = false
     router.push('/instances/list')
   } catch (error) {
     MessagePlugin.error((error as Error).message || '销毁失败')
+  }
+}
+
+// ===== 删除记录（物理删除已销毁的行）=====
+//
+// 与销毁分开两步：销毁会通知渠道终止机器（行保留、标成已销毁），
+// 删除只清本地记录（行真正消失，连带运维流水）。
+const purgeVisible = ref(false)
+const purgeForm = reactive<{ confirm_mark: string; reason: string }>({
+  confirm_mark: '',
+  reason: '',
+})
+
+const purgeConfirmDisabled = computed(
+  () => !instanceData.value?.instance_id || purgeForm.confirm_mark.trim() !== instanceData.value.instance_id,
+)
+
+function openPurgeDialog() {
+  purgeForm.confirm_mark = ''
+  purgeForm.reason = ''
+  purgeVisible.value = true
+}
+
+async function handlePurge() {
+  try {
+    await purgeInstance(instanceId, {
+      confirm_mark: purgeForm.confirm_mark.trim(),
+      reason: purgeForm.reason || undefined,
+    })
+    MessagePlugin.success('实例记录已删除')
+    purgeVisible.value = false
+    router.push('/instances/list')
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '删除失败')
   }
 }
 

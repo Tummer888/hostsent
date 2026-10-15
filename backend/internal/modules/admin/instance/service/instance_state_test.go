@@ -1,11 +1,15 @@
 package service
 
 import (
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"hostsent/backend/internal/modules/admin/instance/repository"
 	pkgmodel "hostsent/backend/internal/pkg/model"
+	"hostsent/backend/internal/pkg/upstream"
 )
 
 // 本节测「电源维度 / 账期维度」的拆分（迁移 108 后的语义修复）。
@@ -190,6 +194,63 @@ func TestTransitionRegistryMinHoldSanity(t *testing.T) {
 	}
 }
 
+// TestTransitionSatisfiedBy 收尾判据必须"到目标"而不是"变了值"。
+//
+// 回归背景（用户实测）：详情轮询每 4 秒回源一次，上游还没开始执行时回的仍是
+// 动作前的旧状态。此前的判据是"上游给了非空状态就算完成"，于是点完关机第一次
+// 轮询就把过渡态清掉，界面从「关机中」跳回「运行中」—— 用户以为关机没生效。
+func TestTransitionSatisfiedBy(t *testing.T) {
+	cases := []struct {
+		name       string
+		state      string
+		upstream   string
+		wantSatisf bool
+	}{
+		{"关机中 + 上游仍报 running → 未完成（不得提前收尾）", pkgmodel.InstanceTransitionStopping, "running", false},
+		{"关机中 + 上游报 stopped → 完成", pkgmodel.InstanceTransitionStopping, "stopped", true},
+		{"开机中 + 上游仍报 stopped → 未完成", pkgmodel.InstanceTransitionStarting, "stopped", false},
+		{"开机中 + 上游报 running → 完成", pkgmodel.InstanceTransitionStarting, "running", true},
+		{"重启中 + 上游报 restarting → 未完成（机器还在转）", pkgmodel.InstanceTransitionRebooting, "restarting", false},
+		{"重启中 + 上游报 running → 完成", pkgmodel.InstanceTransitionRebooting, "running", true},
+		{"上游没给状态 → 未完成（拿不到数据不能假装完成）", pkgmodel.InstanceTransitionStopping, "", false},
+		// 无从核对的动作（重装/改密/救援）：PowerHint 只是展示语义，
+		// 机器全程通电，不能拿"是否 on"当完成信号。
+		{"重装中 + 上游报 running → 不据此判完成", pkgmodel.InstanceTransitionReinstalling, "running", true},
+		{"重置密码中 + 上游报 running → 不据此判完成", pkgmodel.InstanceTransitionResettingPassword, "running", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := pkgmodel.InstanceTransitionOf(tc.state)
+			if got := spec.SatisfiedBy(tc.upstream); got != tc.wantSatisf {
+				t.Errorf("%s.SatisfiedBy(%q) = %v, want %v", tc.state, tc.upstream, got, tc.wantSatisf)
+			}
+		})
+	}
+}
+
+// TestVerifyByPowerOnlyForPowerActions 只有电源动作可以用上游电源状态核对完成。
+//
+// 若把重装也标成可核对（VerifyByPower=true 且 PowerHint="on"），重装刚下发时
+// 上游仍报 running，会被判成"已完成"，过渡态在重装刚开始时就被清掉 ——
+// 界面失去「重装中」提示与重复指令拦截。
+func TestVerifyByPowerOnlyForPowerActions(t *testing.T) {
+	powerActions := map[string]bool{
+		pkgmodel.InstanceTransitionStarting:  true,
+		pkgmodel.InstanceTransitionStopping:  true,
+		pkgmodel.InstanceTransitionRebooting: true,
+	}
+	for _, spec := range pkgmodel.InstanceTransitions() {
+		if spec.VerifyByPower != powerActions[spec.Value] {
+			t.Errorf("%s: VerifyByPower=%v，期望 %v（只有开机/关机/重启可用电源状态核对）",
+				spec.Value, spec.VerifyByPower, powerActions[spec.Value])
+		}
+		// 判可核对的动作必须带电源目标，否则 SatisfiedBy 无从比较。
+		if spec.VerifyByPower && spec.PowerHint == "" {
+			t.Errorf("%s: 标了 VerifyByPower 却没有 PowerHint，收尾判据会失去目标", spec.Value)
+		}
+	}
+}
+
 // TestResaleInstance 链路判据：自营/转售/历史空值三条分支。
 //
 // 这条判据决定界面是否出现「上游实例号」「重新关联」「更换对接商品」，
@@ -254,5 +315,57 @@ func TestSelfInstanceRejectsUpstreamOnlyActions(t *testing.T) {
 	resaleRow.UpstreamProductID = 120
 	if !resaleInstance(resaleRow) {
 		t.Fatal("前置：该行应为转售")
+	}
+}
+
+// TestRewordChannelErrorKeepsBothSentinels 措辞改写后两个哨兵都必须仍可判定。
+//
+// 回归背景：rewordChannelError 曾经**替换**掉 upstream.ErrProviderMissing，
+// 只保留 ErrProviderUnavailable（决定 HTTP 码）。结果"渠道确实没了"这个判据
+// 丢失，销毁时的「只清本地记录」分支永远进不去 —— 渠道被删的实例再也无法清理
+// （实测：加 local_only 后仍然报渠道不可用）。
+func TestRewordChannelErrorKeepsBothSentinels(t *testing.T) {
+	row := &repository.InstanceRow{}
+	row.SourceMode = "self"
+
+	original := fmt.Errorf("%w：渠道 #103，绑定该渠道的实例无法同步/操作", upstream.ErrProviderMissing)
+	got := rewordChannelError(row, original)
+
+	if got == nil {
+		t.Fatal("应返回改写后的错误，不是 nil")
+	}
+	if !errors.Is(got, ErrProviderUnavailable) {
+		t.Error("必须保留 ErrProviderUnavailable（handler 据此映射 20005 错误码）")
+	}
+	if !errors.Is(got, upstream.ErrProviderMissing) {
+		t.Error("必须保留 upstream.ErrProviderMissing（销毁时据此判断能否只清本地记录）")
+	}
+	if !isChannelGone(got) {
+		t.Error("isChannelGone 应能识别改写后的错误 —— 否则 local_only 分支不可达")
+	}
+	// 自营链路的措辞：不说"上游渠道"。
+	if !strings.Contains(got.Error(), "平台渠道") {
+		t.Errorf("自营实例应说「平台渠道」，实际 %q", got.Error())
+	}
+	if strings.Contains(got.Error(), "上游") {
+		t.Errorf("自营实例的提示不得出现「上游」，实际 %q", got.Error())
+	}
+}
+
+// TestIsChannelGoneDistinguishesTransient 网络抖动/凭证错误不得判为"渠道没了"。
+//
+// 那些重试或修凭证即可，若误判成"渠道没了"，运营就会用它把机器只从本地清掉 ——
+// 机器还在渠道侧计费的烂账。
+func TestIsChannelGoneDistinguishesTransient(t *testing.T) {
+	transient := []error{
+		ErrProviderUnavailable,
+		fmt.Errorf("%w: 连接超时", ErrProviderUnavailable),
+		fmt.Errorf("%w: 凭证解密失败", ErrProviderUnavailable),
+		nil,
+	}
+	for _, err := range transient {
+		if isChannelGone(err) {
+			t.Errorf("%v 不应被判为「渠道已不存在」（会造成只清本地的烂账）", err)
+		}
 	}
 }

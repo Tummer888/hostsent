@@ -480,6 +480,34 @@ func (h *InstanceHandler) Destroy(c *gin.Context) {
 	response.SuccessMessage(c, "实例已销毁")
 }
 
+// Purge 删除实例记录（物理删除已销毁的行，连同其运维流水）。
+//
+// 与 Destroy 分开成两个接口：Destroy 会通知渠道终止机器，Purge 只清本地记录。
+// 合并成一个"删除"会让运营以为点了就完事 —— 实际那台机器可能还在渠道侧计费。
+// @Summary 删除已销毁的实例记录（不可逆；需二次确认实例标识）
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Param body body dto.PurgeRequest true "删除确认"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/purge [post]
+func (h *InstanceHandler) Purge(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var req dto.PurgeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	if err := h.svc.Purge(c.Request.Context(), operator(c), id, &req); err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.SuccessMessage(c, "实例记录已删除")
+}
+
 // Reinstall 重装系统。
 // @Summary 重装实例系统（可换镜像；返回平台新签发的初始凭据）
 // @Tags 管理端-实例运维

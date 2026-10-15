@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -42,6 +43,9 @@ type fakeControlProvider struct {
 	suspended  []string
 	terminated []string
 	failStart  bool
+	// getStatus 回源时上游报的电源状态（空 = running）。
+	// 用例借此模拟"指令已下发但上游还没转过去"的中间窗口。
+	getStatus string
 
 	mu          sync.Mutex
 	startCalls  int32 // 每次调用都计数（含失败）
@@ -57,7 +61,11 @@ func (f *fakeControlProvider) Capabilities() upstream.CapabilityDescriptor {
 	return upstream.CapabilityDescriptor{Kind: "compute"}
 }
 func (f *fakeControlProvider) GetInstance(context.Context, string) (*pkgmodel.StandardInstance, error) {
-	return &pkgmodel.StandardInstance{Status: pkgmodel.InstanceStatusRunning}, nil
+	status := pkgmodel.InstanceStatusRunning
+	if f.getStatus != "" {
+		status = pkgmodel.StandardInstanceStatus(f.getStatus)
+	}
+	return &pkgmodel.StandardInstance{Status: status}, nil
 }
 func (f *fakeControlProvider) StartInstance(_ context.Context, id string) error {
 	atomic.AddInt32(&f.startCalls, 1)
@@ -323,6 +331,78 @@ func TestLiveConcurrentPowerDoubleSubmit(t *testing.T) {
 	}
 }
 
+// TestLiveDetailPollFinishesTransitionOnlyOnTarget 详情轮询只在**上游到达目标状态**时收尾。
+//
+// 回归背景（用户实测反馈"加载动画一直在等待中，直到我手动点同步"）：
+//
+//	· 修复前详情轮询根本不回源，过渡态只能等人工点「同步上游」；
+//	· 第一版修复让轮询回源了，但收尾判据是"上游给了非空状态就算完成"——
+//	  上游还没开始执行时回的正是**动作前**的旧值（stopped），于是第一次轮询
+//	  就把「开机中」清掉，还把刚写入的前瞻状态冲回 stopped，界面看起来像
+//	  "开机没生效"。判据必须改成"到达目标（开机→on）"。
+//
+// 用例把 transition_started_at 回拨到窗口之外，让**只有收尾判据**能决定去留 ——
+// 否则最短窗口会把过渡态留住，测不出判据本身的对错。
+func TestLiveDetailPollFinishesTransitionOnlyOnTarget(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(liveInstanceDSN()), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+	ctx := context.Background()
+	mark := time.Now().UnixNano() % 1e6
+
+	id := createOpsInstance(t, db, fmt.Sprintf("p17-poll-%d", mark), "stopped", 0)
+	// 上游尚未转过去：仍报动作前的 stopped（fake 的 GetType 未登记描述符，
+	// 按上游默认"报电源状态"处理，等价于 dcimcloud 链路）。
+	fake := &fakeControlProvider{getStatus: "stopped"}
+	svc := newOpsService(t, db, fake)
+
+	var opsBefore int64
+	db.Raw("SELECT count(*) FROM instance_operations WHERE instance_id = ?", id).Scan(&opsBefore)
+
+	if err := svc.Power(ctx, Operator{Type: "admin"}, id, "on"); err != nil {
+		t.Fatalf("开机下发应成功: %v", err)
+	}
+	// 回拨起点：越过 25s 最短窗口，隔离出"收尾判据"这一个变量。
+	if err := db.Exec("UPDATE instances SET transition_started_at = now() - interval '40 seconds' WHERE id = ?", id).Error; err != nil {
+		t.Fatalf("回拨过渡起点失败: %v", err)
+	}
+
+	// ① 上游还在旧状态：既不能收尾，也不能把前瞻状态冲回 stopped。
+	if _, err := svc.Detail(ctx, id, true); err != nil {
+		t.Fatalf("详情轮询失败: %v", err)
+	}
+	var state string
+	var status string
+	db.Raw("SELECT COALESCE(transition_state,''), status FROM instances WHERE id = ?", id).Row().Scan(&state, &status)
+	if state != pkgmodel.InstanceTransitionStarting {
+		t.Fatalf("上游仍在停机状态时过渡态必须保留（否则界面提前结束「开机中」），实际 %q", state)
+	}
+	if status != string(pkgmodel.InstanceStatusRunning) {
+		t.Fatalf("过渡未完成时应保留前瞻状态 running，实际 %q（回源旧值把它冲掉了）", status)
+	}
+
+	// ② 上游转到目标状态：这次才允许收尾。
+	fake.getStatus = "running"
+	if _, err := svc.Detail(ctx, id, true); err != nil {
+		t.Fatalf("第二次详情轮询失败: %v", err)
+	}
+	db.Raw("SELECT COALESCE(transition_state,'') FROM instances WHERE id = ?", id).Row().Scan(&state)
+	if state != "" {
+		t.Fatalf("上游已到 running（开机目标）应收尾，实际仍为 %q", state)
+	}
+	if status != string(pkgmodel.InstanceStatusRunning) {
+		t.Fatalf("收尾后状态应为 running，实际 %q", status)
+	}
+
+	// ③ 轮询是只读的：两次详情回源不得写操作流水（否则几秒一次会把审计日志刷爆）。
+	var opsAfter int64
+	db.Raw("SELECT count(*) FROM instance_operations WHERE instance_id = ?", id).Scan(&opsAfter)
+	if opsAfter != opsBefore+1 {
+		t.Fatalf("详情轮询不应写流水：期望仅开机那一条（%d），实际 %d 条", opsBefore+1, opsAfter)
+	}
+}
+
 // TestLiveFailedDispatchReleasesClaim 验证"抢到了但下发失败"会把占位还回去。
 //
 // 若不还：实例会被一个从未执行成功的动作锁到窗口超时，运营在 3 分钟内
@@ -360,5 +440,135 @@ func TestLiveFailedDispatchReleasesClaim(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&fake.startCalls); got != 2 {
 		t.Fatalf("应共调用上游 2 次（1 次失败 + 1 次重试成功），实际 %d", got)
+	}
+}
+
+// TestLiveDestroyPendingPlaceholder 待开通占位行必须能被删除，且**不调用任何上游接口**。
+//
+// 回归背景（用户实测反馈）："实例没办法删除，删除的时候报错上游不存在……
+// 现在直接连删除这个实例的按钮都没有了"。
+// 根因有两层：
+//
+//	· 服务层 — Destroy 一进来就 ensureProvisioned(row)，占位行的 provider_instance_id
+//	  为空，于是直接被判"尚未开通"拒绝（报 20006），永远清不掉；
+//	· 详情层 — Detail 对占位行整体关闭能力位（含 destroy），界面因此连按钮都不渲染。
+//
+// 本用例钉住服务层：删除成功、落终态、写清楚"占位行/无渠道侧机器"的流水，
+// 且**一次上游都没调**（用 fake 的调用计数断言 —— 占位行没有机器可终止，
+// 一旦真去调上游就说明路由错了）。
+func TestLiveDestroyPendingPlaceholder(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(liveInstanceDSN()), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+	ctx := context.Background()
+	mark := time.Now().UnixNano() % 1e6
+
+	// 占位行：provider_instance_id 为空（= 未开通）。
+	id := createOpsInstance(t, db, fmt.Sprintf("pending-%d", mark), "creating", 0)
+	if err := db.Exec("UPDATE instances SET provider_instance_id = '' WHERE id = ?", id).Error; err != nil {
+		t.Fatalf("置为占位行失败: %v", err)
+	}
+
+	fake := &fakeControlProvider{}
+	svc := newOpsService(t, db, fake)
+
+	if err := svc.Destroy(ctx, Operator{Type: "admin"}, id, &dto.DestroyRequest{
+		ConfirmMark: fmt.Sprintf("pending-%d", mark), Reason: "占位清理",
+	}); err != nil {
+		t.Fatalf("待开通占位应可销毁，实际报错: %v", err)
+	}
+
+	var status, stage string
+	db.Raw("SELECT status, COALESCE(lifecycle_stage,'') FROM instances WHERE id = ?", id).Row().Scan(&status, &stage)
+	if status != string(pkgmodel.InstanceStatusDeleted) {
+		t.Fatalf("销毁后状态应为 deleted，实际 %q", status)
+	}
+	if stage != "destroyed" {
+		t.Fatalf("销毁后阶段应为 destroyed（否则生命周期推进器仍按在跑机器处置），实际 %q", stage)
+	}
+	// 上游一次都不该被调用：占位行没有机器。
+	if calls := atomic.LoadInt32(&fake.stopCalls) + atomic.LoadInt32(&fake.startCalls) +
+		atomic.LoadInt32(&fake.restartCall); calls != 0 {
+		t.Fatalf("清除占位行不得调用上游接口，实际调用了 %d 次", calls)
+	}
+
+	// 流水必须能让人分清"清了个占位"与"终止了真机器"。
+	var note string
+	// params 是 text 列（存 JSON 字符串），不是 jsonb：用 LIKE 取而不是 ->> 运算符
+	//（后者只对 jsonb/json 生效，对 text 返回 NULL —— 这条用例第一版就踩了这个）。
+	db.Raw(`SELECT COALESCE(params,'') FROM instance_operations
+		WHERE instance_id = ? AND action = 'destroy' ORDER BY id DESC LIMIT 1`, id).Row().Scan(&note)
+	if !strings.Contains(note, "占位") {
+		t.Fatalf("销毁占位的流水应写明这是占位行，实际 note=%q", note)
+	}
+
+	// 渠道不可用的当地实例走的是另一条路（destroyLocalOnly），两者的流水措辞必须不同。
+	if strings.Contains(note, "渠道侧机器状态未知") {
+		t.Errorf("占位行没有渠道侧机器，不应沿用「渠道侧机器状态未知」的措辞：%q", note)
+	}
+}
+
+// TestLivePurgeRequiresTerminalState 删除记录只接受**已销毁**的行。
+//
+// 为什么这条守卫是必须的（用户实测反馈："我是叫将这个实例的整一个记录都删除"）：
+// 运营想要的是"把这条没用的记录从列表里去掉"。若允许对在跑的机器直接记录删除，
+// 就绕过了「销毁」那一步 —— 而销毁才是通知渠道终止机器的动作，
+// 本地删干净、渠道侧还在计费，正是 §destroyLocalOnly 反复强调要防的烂账。
+//
+// 用例同时钉住补偿路径：先销毁（落终态）再删除必须成功，且流水随行一起清掉
+// （留孤儿流水会让全局审计视图出现"点进去什么都没有"的记录）。
+func TestLivePurgeRequiresTerminalState(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(liveInstanceDSN()), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+	ctx := context.Background()
+	mark := time.Now().UnixNano() % 1e6
+	fake := &fakeControlProvider{}
+	svc := newOpsService(t, db, fake)
+
+	// ① 在跑的实例（未销毁）：删除必须被拒。
+	runningID := createOpsInstance(t, db, fmt.Sprintf("p18-run-%d", mark), "running", 0)
+	runMark := fmt.Sprintf("p18-run-%d", mark)
+	err = svc.Purge(ctx, Operator{Type: "admin"}, runningID, &dto.PurgeRequest{ConfirmMark: runMark})
+	if err == nil {
+		t.Fatal("未销毁的实例不得被删除记录：那会绕过「销毁」（通知渠道终止机器）这一步")
+	}
+	if !errors.Is(err, ErrStatusConflict) {
+		t.Fatalf("应以 20003 状态冲突拒绝，实际 %v", err)
+	}
+	// 行必须还在。
+	var n int64
+	db.Raw("SELECT count(*) FROM instances WHERE id = ?", runningID).Scan(&n)
+	if n != 1 {
+		t.Fatal("被拒的删除不得真的删掉行")
+	}
+
+	// ② 先销毁（走正常销毁，fake 记录上游调用）→ 落终态。
+	if err := svc.Destroy(ctx, Operator{Type: "admin"}, runningID, &dto.DestroyRequest{ConfirmMark: runMark}); err != nil {
+		t.Fatalf("销毁应成功: %v", err)
+	}
+	if got := atomic.LoadInt32(&fake.stopCalls); got != 0 {
+		t.Fatalf("本用例的 fake 未实现 InstanceTermination 分派预期，实际 stopCalls=%d", got)
+	}
+
+	// ③ 终态行：删除成功，行与流水一并消失。
+	var opsBefore int64
+	db.Raw("SELECT count(*) FROM instance_operations WHERE instance_id = ?", runningID).Scan(&opsBefore)
+	if opsBefore == 0 {
+		t.Fatal("前置：销毁应写入至少一条流水")
+	}
+	if err := svc.Purge(ctx, Operator{Type: "admin"}, runningID, &dto.PurgeRequest{ConfirmMark: runMark}); err != nil {
+		t.Fatalf("已销毁的行应可删除: %v", err)
+	}
+	db.Raw("SELECT count(*) FROM instances WHERE id = ?", runningID).Scan(&n)
+	if n != 0 {
+		t.Fatal("删除后实例行必须不存在（这正是用户要的「整一个记录都删除」）")
+	}
+	var opsAfter int64
+	db.Raw("SELECT count(*) FROM instance_operations WHERE instance_id = ?", runningID).Scan(&opsAfter)
+	if opsAfter != 0 {
+		t.Fatalf("流水应随行一起清除，实际残留 %d 条（会成为指向不存在实例的孤儿行）", opsAfter)
 	}
 }

@@ -52,13 +52,46 @@ type InstanceTransition struct {
 	// 取值按"用户要等多久才合理"：机器重启/开关机的实际耗时通常在 20-60 秒；
 	// 取比实际略长一点，避免动画刚停用户就以为可以再点。
 	MinHoldSec int `json:"min_hold_sec"`
+	// VerifyByPower 能否用**上游报告的电源状态**核对"这个动作完成了吗"。
+	//
+	// 只有电源动作（开机/关机/重启）可以：它们的目标就是电源状态本身，
+	// 上游说 on 就是开机完成、说 off 就是关机完成，判据客观。
+	//
+	// 重装/改密/救援**不能**：它们的 PowerHint 只表示"机器仍在通电"（展示用），
+	// 与动作是否完成无关 —— 重装期间机器一直是 on，拿它当完成信号会在重装刚
+	// 开始时就把过渡态清掉；反过来若要求"必须看到 running"，却又要等上游把
+	// task/restarting 走完，界面白转最长 900 秒。这类动作只能按
+	// "指令已受理 + 过了最短窗口"收尾。
+	VerifyByPower bool `json:"verify_by_power"`
+}
+
+// SatisfiedBy 上游回源状态是否表明本动作**已经完成**（可以收尾）。
+//
+// 判据是"到了目标"而不是"变了"：关机的前瞻值就是 stopped，若按"与操作前不同"
+// 判断，上游稍后报出 stopped 或任何别的值都会被当成完成 —— 包括上游还没开始执行
+// 时回的 running（那等于说"关机完成"）。按目标核对才不会提前收尾。
+func (t InstanceTransition) SatisfiedBy(upstreamStatus string) bool {
+	if !t.VerifyByPower {
+		// 无从核对的动作：调用方只能按"指令已受理 + 最短窗口"处理。
+		return true
+	}
+	if upstreamStatus == "" {
+		return false
+	}
+	switch t.PowerHint {
+	case "on":
+		return upstreamStatus == string(InstanceStatusRunning)
+	case "off":
+		return upstreamStatus == string(InstanceStatusStopped)
+	}
+	return true
 }
 
 // instanceTransitionRegistry 过渡态登记表（唯一权威定义）。
 var instanceTransitionRegistry = []InstanceTransition{
-	{Value: InstanceTransitionStarting, Label: "开机中", Verb: "开机", PowerHint: "on", TerminalTimeoutSec: 180, MinHoldSec: 25},
-	{Value: InstanceTransitionStopping, Label: "关机中", Verb: "关机", PowerHint: "off", TerminalTimeoutSec: 180, MinHoldSec: 25},
-	{Value: InstanceTransitionRebooting, Label: "重启中", Verb: "重启", PowerHint: "on", TerminalTimeoutSec: 300, MinHoldSec: 40},
+	{Value: InstanceTransitionStarting, Label: "开机中", Verb: "开机", PowerHint: "on", TerminalTimeoutSec: 180, MinHoldSec: 25, VerifyByPower: true},
+	{Value: InstanceTransitionStopping, Label: "关机中", Verb: "关机", PowerHint: "off", TerminalTimeoutSec: 180, MinHoldSec: 25, VerifyByPower: true},
+	{Value: InstanceTransitionRebooting, Label: "重启中", Verb: "重启", PowerHint: "on", TerminalTimeoutSec: 300, MinHoldSec: 40, VerifyByPower: true},
 	{Value: InstanceTransitionReinstalling, Label: "重装中", Verb: "重装系统", PowerHint: "on", TerminalTimeoutSec: 900, MinHoldSec: 180},
 	{Value: InstanceTransitionResettingPassword, Label: "重置密码中", Verb: "重置密码", PowerHint: "", TerminalTimeoutSec: 300, MinHoldSec: 45},
 	{Value: InstanceTransitionRescueEntering, Label: "进入救援中", Verb: "进入救援系统", PowerHint: "", TerminalTimeoutSec: 300, MinHoldSec: 30},

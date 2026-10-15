@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -302,6 +303,69 @@ func TestStatusOfStage(t *testing.T) {
 	for stage, want := range cases {
 		if got := statusOfStage(stage); got != want {
 			t.Errorf("statusOfStage(%q) = %q, want %q", stage, got, want)
+		}
+	}
+}
+
+// TestEnsureRenewableRefusesTerminalInstance 已销毁的实例不得续费。
+//
+// 机器终止后若还能续费，会向客户收一笔没有交付物的钱，并把到期时间往后推
+//（生命周期推进器随后会把这条行当"在跑机器"再处置一次）。status 与
+// lifecycle_stage 任一命中都要拒：历史数据里存在只写了一边的行。
+func TestEnsureRenewableRefusesTerminalInstance(t *testing.T) {
+	cases := []struct {
+		name string
+		inst *syncmodel.Instance
+		want error
+	}{
+		{
+			name: "status=deleted（只写了状态）",
+			inst: &syncmodel.Instance{ID: 1, Status: string(pkgmodel.InstanceStatusDeleted)},
+			want: errInstanceTerminal,
+		},
+		{
+			name: "lifecycle_stage=destroyed（只写了阶段）",
+			inst: &syncmodel.Instance{ID: 2, Status: "running", LifecycleStage: lifecyclemodel.StageDestroyed},
+			want: errInstanceTerminal,
+		},
+		{
+			name: "两者都写",
+			inst: &syncmodel.Instance{
+				ID: 3, Status: string(pkgmodel.InstanceStatusDeleted), LifecycleStage: lifecyclemodel.StageDestroyed,
+			},
+			want: errInstanceTerminal,
+		},
+		{
+			name: "在跑的正常实例",
+			inst: &syncmodel.Instance{ID: 4, Status: string(pkgmodel.InstanceStatusRunning), LifecycleStage: lifecyclemodel.StageActive},
+			want: nil,
+		},
+		{
+			name: "暂停服务的实例仍可续费（恢复服务后即用）",
+			inst: &syncmodel.Instance{ID: 5, Status: string(pkgmodel.InstanceStatusStopped), LifecycleStage: lifecyclemodel.StageSuspended},
+			want: nil,
+		},
+		{
+			name: "nil 实例按不存在处理",
+			inst: nil,
+			want: ErrInstanceNotFound,
+		},
+	}
+	for _, c := range cases {
+		err := ensureRenewable(c.inst)
+		if c.want == nil {
+			if err != nil {
+				t.Errorf("%s：应放行，实际报错 %v", c.name, err)
+			}
+			continue
+		}
+		if !errors.Is(err, c.want) {
+			t.Errorf("%s：应返回 %v，实际 %v", c.name, c.want, err)
+		}
+		// 终态拒绝必须带 20003 状态冲突码（handler 据哨兵映射 HTTP 码）：
+		// 否则前端拿到 500，运营看到的是"服务器错误"而不是"这机器已经销毁了"。
+		if c.want == errInstanceTerminal && !errors.Is(err, ErrStatusNotAllowed) {
+			t.Errorf("%s：终态拒绝必须同时是 ErrStatusNotAllowed，实际 %v", c.name, err)
 		}
 	}
 }

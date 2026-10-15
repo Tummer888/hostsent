@@ -299,25 +299,25 @@
                   {
                     content: '开机',
                     value: 'power-on',
-                    hidden: () => !has('instance:action'),
+                    hidden: () => !has('instance:action') || isRowDestroyed(row),
                     disabled: () => row.power_status === 'on' || poweringId === row.id,
                   },
                   {
                     content: '关机',
                     value: 'power-off',
-                    hidden: () => !has('instance:action'),
+                    hidden: () => !has('instance:action') || isRowDestroyed(row),
                     disabled: () => row.power_status === 'off' || poweringId === row.id,
                   },
                   {
                     content: '重启',
                     value: 'power-reboot',
-                    hidden: () => !has('instance:action'),
+                    hidden: () => !has('instance:action') || isRowDestroyed(row),
                     disabled: () => row.power_status !== 'on' || poweringId === row.id,
                   },
                   {
                     content: '控制台',
                     value: 'vnc',
-                    hidden: () => !has('instance:console'),
+                    hidden: () => !has('instance:console') || isRowDestroyed(row),
                     disabled: () => row.status !== 'running',
                   },
                   {
@@ -329,13 +329,16 @@
                   {
                     content: '同步刷新',
                     value: 'sync',
-                    hidden: () => !has('instance:action') || !!row.pending,
+                    // 已销毁终态：上游那台机器已不存在，同步/电源/暂停全都没有对象。
+                    // 此前只按「是否待开通」过滤，已销毁行照样显示这些项，点了必失败
+                    //（用户实测反馈：列表明明全是「已销毁」的机器，菜单里还有一堆电源按钮）。
+                    hidden: () => !has('instance:action') || !!row.pending || isRowDestroyed(row),
                     disabled: () => syncingId === row.id,
                   },
                   {
                     content: row.lifecycle_stage === 'suspended' ? '恢复服务' : '暂停服务',
                     value: 'toggle-suspend',
-                    hidden: () => !has('instance:action'),
+                    hidden: () => !has('instance:action') || isRowDestroyed(row),
                   },
                   { content: '备注', value: 'remark', hidden: () => !has('instance:action') },
                   {
@@ -344,14 +347,24 @@
                     theme: 'error',
                     hidden: () => !canDestroy || !instanceDestroyable(row),
                   },
+                  {
+                    // 已销毁的行专属：把记录真正从列表里删掉（销毁只把行标成已销毁）。
+                    content: '删除记录',
+                    value: 'purge',
+                    theme: 'error',
+                    hidden: () => !canDestroy || !instancePurgeable(row),
+                  },
                 ])
               "
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
               <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
-              <!-- 待开通实例：只给「重新开通」（重投订单履约，不产生新订单/新账单），
-                   电源/控制台/同步等上游动作没有对象，隐藏而不是点了报错。 -->
+              <!-- 待开通实例：只给「重新开通」（重投订单履约，不产生新订单/新账单）、
+                   备注与销毁。电源/控制台/同步等上游动作没有对象，隐藏而不是点了报错。
+                   销毁必须保留：占位行没有上游机器，"销毁"就是清掉这条本地记录 ——
+                   一台永远开不出来的占位机若连清掉都做不到，就只能去订单侧取消
+                   （用户实测反馈："现在直接连删除这个实例的按钮都没有了"）。 -->
               <template v-if="row.pending">
                 <t-link
                   v-permission="'instance:action'"
@@ -365,6 +378,36 @@
                 <t-link v-permission="'instance:action'" theme="primary" hover="color" @click="openRemarkDialog(row)"
                   >备注</t-link
                 >
+                <t-link
+                  v-if="canDestroy"
+                  theme="danger"
+                  hover="color"
+                  :disabled="actioningId === row.id"
+                  @click="openDestroyDialog(row)"
+                >
+                  销毁
+                </t-link>
+              </template>
+              <!--
+                已销毁行：只留「详情 / 备注 / 删除记录」。
+                机器在上游已不存在，电源/控制台/同步/暂停全都没有对象（点了必失败），
+                因此整组隐藏；而「删除记录」正是清理测试机时最需要的那个入口
+                —— 销毁只把行标成已销毁，行仍占着列表（用户实测反馈：
+                "我是叫将这个实例的整一个记录都删除"）。
+              -->
+              <template v-else-if="isRowDestroyed(row)">
+                <t-link v-permission="'instance:action'" theme="primary" hover="color" @click="openRemarkDialog(row)"
+                  >备注</t-link
+                >
+                <t-link
+                  v-if="canDestroy"
+                  theme="danger"
+                  hover="color"
+                  :disabled="actioningId === row.id"
+                  @click="openPurgeDialog(row)"
+                >
+                  删除记录
+                </t-link>
               </template>
               <template v-else>
                 <t-link
@@ -443,6 +486,20 @@
                       >
                         <span class="danger-text">销毁实例</span>
                       </t-dropdown-item>
+                      <!--
+                        删除记录：已销毁的行专属。销毁只把行标成「已销毁」，行仍留在列表里
+                        （用户实测反馈："我是叫将这个实例的整一个记录都删除"）——
+                        清一批测试机时那些行会永久占位，此前没有任何入口能真正移除它们。
+                        与销毁分开呈现：销毁会通知渠道终止机器，删除只清本地记录，
+                        合并成一个菜单会让人以为"删掉就完事"。
+                      -->
+                      <t-dropdown-item
+                        v-if="canDestroy && instancePurgeable(row)"
+                        :disabled="actioningId === row.id"
+                        @click="openPurgeDialog(row)"
+                      >
+                        <span class="danger-text">删除记录</span>
+                      </t-dropdown-item>
                     </t-dropdown-menu>
                   </t-dropdown>
                 </span>
@@ -511,6 +568,37 @@
       </t-form>
     </t-dialog>
 
+    <!--
+      删除记录：只对已销毁的行开放。文案刻意与「销毁」区分：
+      销毁通知渠道终止机器，删除只清本地记录（不可逆，连带运维流水一起清）。
+    -->
+    <t-dialog
+      v-model:visible="purgeForm.visible"
+      header="删除实例记录"
+      width="520px"
+      :confirm-btn="{ content: '确认删除', theme: 'danger' }"
+      :confirm-disabled="purgeForm.mark.trim() !== purgeForm.instanceMark"
+      :confirm-loading="purgeForm.loading"
+      destroy-on-close
+      @confirm="handlePurge"
+      @close="purgeForm.visible = false"
+    >
+      <t-alert
+        theme="error"
+        class="dlg-alert"
+        :message="`将永久删除 ${purgeForm.name || '该实例'} 的记录与操作流水，不可恢复。该记录已被销毁，删除不会再通知任何渠道。`"
+      />
+      <p class="dlg-confirm-tip">
+        请输入实例标识 <code>{{ purgeForm.instanceMark || '—' }}</code> 以确认：
+      </p>
+      <t-input v-model="purgeForm.mark" :placeholder="purgeForm.instanceMark || '实例标识'" />
+      <t-form label-align="top" class="destroy-reason">
+        <t-form-item label="原因（可选，仅写入管理端审计日志）">
+          <t-input v-model="purgeForm.reason" placeholder="如：测试记录清理" />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
+
     <!-- 批量销毁：逐台列出并要求确认文本，逐台结果回显 -->
     <t-dialog
       v-model:visible="batchDestroy.visible"
@@ -526,6 +614,19 @@
           class="dlg-alert"
           :message="`将从平台删除选中的 ${batchDestroy.targets.length} 台实例，数据全部丢失且不可恢复。勾选全选不等于一键删除：请逐台确认。`"
         />
+        <!--
+          渠道不可用的实例：正常销毁要通知渠道终止机器，而渠道记录没了，
+          走不通。不给出这条出路，它们会永久卡在列表里（用户实测反馈）。
+        -->
+        <t-alert
+          v-if="batchDestroyChannelGoneCount > 0"
+          theme="warning"
+          class="dlg-alert"
+          :message="`其中 ${batchDestroyChannelGoneCount} 台绑定的渠道已不可用：无法通知渠道终止机器，只能清除本系统记录（渠道侧机器状态不会被改变）。`"
+        />
+        <div v-if="batchDestroyChannelGoneCount > 0" class="destroy-actions destroy-actions--left">
+          <t-checkbox v-model="batchDestroy.local_only">对渠道不可用的实例只清本地记录（不通知渠道）</t-checkbox>
+        </div>
         <t-table
           row-key="id"
           :data="batchDestroy.targets"
@@ -539,6 +640,9 @@
             <div>
               <span class="cell-strong">{{ row.name || '—' }}</span>
               <div class="cell-sub">{{ row.instance_mark || '—' }}</div>
+              <t-tag v-if="row.channel_gone" theme="warning" variant="light" size="small" shape="round"
+                >渠道不可用</t-tag
+              >
             </div>
           </template>
           <template #instance_mark="{ row }">
@@ -680,6 +784,7 @@ import {
   batchInstanceAction,
   destroyInstance,
   powerInstance,
+  purgeInstance,
   retryInstanceProvision,
   suspendInstance,
   syncInstance,
@@ -1091,12 +1196,33 @@ async function handleSaveRemark() {
 // 而"清掉一批测试机"恰恰是列表页的高频动作。
 const canDestroy = computed(() => has('instance:destroy'))
 
-// instanceDestroyable 该行能否销毁：占位行（未在上游开通）与已销毁行不出现该入口。
+// instanceDestroyable 该行能否销毁：只有已销毁的行不出现该入口。
+//
+// 待开通占位行**也允许销毁**：它没有上游机器，删除就是清掉这条本地记录
+//（后端 destroyPendingPlaceholder 不调用任何渠道接口）。此前把它一并排除，
+// 结果是永远开不出来的占位机在列表里既清不掉、又没有删除按钮
+//（用户实测反馈："现在直接连删除这个实例的按钮都没有了"）。
 function instanceDestroyable(row: InstanceItem): boolean {
   if (!row.instance_id) return false
-  if (row.status === 'deleted') return false
-  // 待开通占位行没有上游实例号：销毁动作无处可发，走订单侧取消。
-  return !row.pending
+  return row.status !== 'deleted'
+}
+
+// instancePurgeable 该行能否删除记录：只对**已销毁**的行开放。
+//
+// 服务端同样只接受终态行（在跑的机器必须先走销毁，否则会绕过"通知渠道终止机器"）；
+// 前端这一层是为了不给出一个点了必失败的入口 —— 与 canDestroy 一样属于
+// "界面别骗人"，真正的准入判定始终在服务端。
+function instancePurgeable(row: InstanceItem): boolean {
+  if (!row.instance_id) return false
+  return row.status === 'deleted' || row.lifecycle_stage === 'destroyed'
+}
+
+// isRowDestroyed 该行是否处于「已销毁」终态。
+//
+// 用途：隐藏所有上游动作（电源/控制台/同步/暂停）。机器在上游已不存在，
+// 这些动作全都没有对象、点了必失败 —— 已销毁的行只该留「详情/备注/删除记录」。
+function isRowDestroyed(row: InstanceItem): boolean {
+  return row.status === 'deleted' || row.lifecycle_stage === 'destroyed'
 }
 
 const destroyForm = reactive({
@@ -1139,19 +1265,66 @@ async function handleDestroy() {
   }
 }
 
+// ===== 删除记录（物理删除已销毁的行）=====
+//
+// 与销毁分成两个弹窗、两个接口：销毁会通知渠道终止机器（行保留、标成已销毁），
+// 删除只清本地记录（行消失）。两者危险级别与后果都不同，合并成一个入口
+// 会让运营以为"删掉就完事"，而机器可能仍在渠道侧计费。
+const purgeForm = reactive({
+  visible: false,
+  id: 0,
+  name: '',
+  instanceMark: '',
+  mark: '',
+  reason: '',
+  loading: false,
+})
+
+function openPurgeDialog(row: InstanceItem) {
+  purgeForm.id = row.id
+  purgeForm.name = row.name || row.instance_id
+  purgeForm.instanceMark = row.instance_id
+  purgeForm.mark = ''
+  purgeForm.reason = ''
+  purgeForm.visible = true
+}
+
+async function handlePurge() {
+  if (purgeForm.mark.trim() !== purgeForm.instanceMark) {
+    MessagePlugin.warning('请准确输入实例标识以确认')
+    return
+  }
+  purgeForm.loading = true
+  try {
+    await purgeInstance(purgeForm.id, {
+      confirm_mark: purgeForm.mark.trim(),
+      reason: purgeForm.reason || undefined,
+    })
+    MessagePlugin.success('实例记录已删除')
+    purgeForm.visible = false
+    loadAll()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '删除失败')
+  } finally {
+    purgeForm.loading = false
+  }
+}
+
 // 批量销毁：目标与逐台确认文本都先备好，弹窗里逐行确认后一次性提交。
 const batchDestroy = reactive<{
   visible: boolean
-  targets: { id: number; name: string; instance_mark: string; confirm: string }[]
+  targets: { id: number; name: string; instance_mark: string; confirm: string; channel_gone: boolean }[]
   result: InstanceBatchDestroyResponse | null
   done: boolean
   running: boolean
+  local_only: boolean
 }>({
   visible: false,
   targets: [],
   result: null,
   done: false,
   running: false,
+  local_only: false,
 })
 
 // 逐行确认列：每台都要把实例标识抄一遍，复制粘贴不等于确认。
@@ -1165,7 +1338,7 @@ function openBatchDestroyDialog() {
   if (!selectedIds.value.length) return
   const chosen = instanceList.value.filter((row) => selectedIds.value.includes(row.id) && instanceDestroyable(row))
   if (!chosen.length) {
-    MessagePlugin.warning('选中的实例都不可销毁（待开通或已销毁）')
+    MessagePlugin.warning('选中的实例都不可销毁（已销毁）')
     return
   }
   batchDestroy.targets = chosen.map((row) => ({
@@ -1173,11 +1346,30 @@ function openBatchDestroyDialog() {
     name: row.name || row.instance_id,
     instance_mark: row.instance_id,
     confirm: '',
+    channel_gone: rowChannelGone(row),
   }))
+  // 渠道不可用的那几台只能"只清本地记录"；选中项里只要有这类实例，
+  // 就默认勾上该选项（逐台仍由服务端判定：渠道正常的会照常正常销毁）。
+  batchDestroy.local_only = batchDestroy.targets.some((t) => t.channel_gone)
   batchDestroy.result = null
   batchDestroy.done = false
   batchDestroy.visible = true
 }
+
+/**
+ * 该行绑定的渠道是否已不可用（渠道记录被删除）。
+ *
+ * 用服务端下发的 channel_available（联表计算列），不再解析错误文案 ——
+ * 文案会被改写，判据必须来自结构化字段。
+ */
+function rowChannelGone(row: InstanceItem): boolean {
+  return row.channel_available === false
+}
+
+/** 选中项里渠道不可用的台数（弹窗提示用）。 */
+const batchDestroyChannelGoneCount = computed(
+  () => batchDestroy.targets.filter((t) => t.channel_gone).length,
+)
 
 // 全部确认到位才允许提交：少一台就再等一步，不做"部分静默跳过"（用户看不到哪台没删）。
 const batchDestroyReady = computed(
@@ -1198,6 +1390,7 @@ async function handleBatchDestroy() {
     const resp = await batchDestroyInstances({
       ids: batchDestroy.targets.map((t) => t.id),
       confirm_marks: marks,
+      local_only: batchDestroy.local_only || undefined,
     })
     batchDestroy.result = resp
     batchDestroy.done = true
@@ -1341,6 +1534,9 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
       break
     case 'destroy':
       openDestroyDialog(row)
+      break
+    case 'purge':
+      openPurgeDialog(row)
       break
   }
 }

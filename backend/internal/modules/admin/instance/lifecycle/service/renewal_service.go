@@ -20,6 +20,7 @@ import (
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	"hostsent/backend/internal/pkg/billingcycle"
 	"hostsent/backend/internal/pkg/money"
+	pkgmodel "hostsent/backend/internal/pkg/model"
 	"hostsent/backend/internal/pkg/pricing"
 	"hostsent/backend/internal/pkg/upstream"
 )
@@ -361,6 +362,9 @@ func (s *renewalService) AdminRenew(ctx context.Context, adminID, instanceID uin
 		}
 		return nil, err
 	}
+	if err := ensureRenewable(instance); err != nil {
+		return nil, err
+	}
 	if instance.ExpireAt == nil {
 		return nil, ErrStatusNotAllowed
 	}
@@ -629,6 +633,25 @@ func (s *renewalService) CompleteRenewalByOrderID(ctx context.Context, orderID u
 
 // ---- 内部辅助 ----
 
+// errInstanceTerminal 已销毁实例不得续费：机器已终止，续费会向客户收一笔
+// 没有交付物的钱（到期时间还会被推后，下次推进器把它当在跑机器处置）。
+// 单独出一个哨兵而不是复用 ErrStatusNotAllowed，便于调用方与测试断言这一点。
+var errInstanceTerminal = fmt.Errorf("%w：该实例已销毁，不能续费", ErrStatusNotAllowed)
+
+// ensureRenewable 续费准入：已销毁（终态）的实例一律拒绝。
+//
+// status 与 lifecycle_stage 任一命中即拒 —— 与实例域的 isTerminalInstance 同一判据：
+// 历史数据存在只写了一边的行，只认一边会让那些行漏放进来。
+func ensureRenewable(inst *syncmodel.Instance) error {
+	if inst == nil {
+		return ErrInstanceNotFound
+	}
+	if inst.Status == string(pkgmodel.InstanceStatusDeleted) || inst.LifecycleStage == lifecyclemodel.StageDestroyed {
+		return errInstanceTerminal
+	}
+	return nil
+}
+
 // loadOwnedInstance 加载归属用户的实例。
 func (s *renewalService) loadOwnedInstance(ctx context.Context, userID, instanceID uint64) (*lifecyclerepo.InstanceWithUser, error) {
 	instance, err := s.instanceRepo.GetByID(ctx, instanceID)
@@ -640,6 +663,9 @@ func (s *renewalService) loadOwnedInstance(ctx context.Context, userID, instance
 	}
 	if instance.UserID != userID {
 		return nil, ErrPermissionDenied
+	}
+	if err := ensureRenewable(instance); err != nil {
+		return nil, err
 	}
 	return &lifecyclerepo.InstanceWithUser{Instance: *instance}, nil
 }

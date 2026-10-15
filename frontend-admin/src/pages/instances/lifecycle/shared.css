@@ -10,8 +10,6 @@
 .lifecycle-module {
   --lifecycle-green: var(--color-primary, var(--color-primary));
   --lifecycle-green-hover: var(--td-brand-color-8);
-  --lifecycle-green-soft: var(--td-brand-color-1);
-  --lifecycle-green-border: var(--td-brand-color-2);
 }
 
 .lifecycle-module.page-body {
@@ -183,19 +181,8 @@
   color: var(--color-muted-foreground);
 }
 
-/* ---------- TDesign 表格细节优化 ---------- */
-.lifecycle-module .t-table__th {
-  background: var(--td-brand-color-1) !important;
-  color: #3f5848 !important;
-  border-bottom-color: var(--lifecycle-green-border) !important;
-  font-weight: 600 !important;
-}
-
-.lifecycle-module .t-table__tr--hover > .t-table__td,
-.lifecycle-module .t-table__row--hover > .t-table__td {
-  background: rgba(var(--color-primary-rgb), 0.035) !important;
-  transition: background-color var(--hs-duration-fast);
-}
+/* ---------- TDesign 表格细节优化 ----------
+   表头样式已统一到全局 styles/table-head.css（此前的 `.t-table__th` 是死选择器）。 */
 
 .lifecycle-module .t-button--theme-primary {
   border-color: var(--lifecycle-green);

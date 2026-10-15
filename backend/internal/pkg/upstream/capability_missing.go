@@ -9,6 +9,17 @@ import (
 // 调用方应显式提示运维，绝不静默假装完成（doc15 §6.3 / doc17 §4-T5.5）。
 var ErrCapabilityMissing = errors.New("上游平台不支持该能力")
 
+// ErrProviderMissing 实例/商品绑定的渠道记录不存在（已被软删）。
+//
+// 为什么放在 pkg/upstream 而不是渠道服务里：这个判定要在**多个域**之间传递 ——
+// 渠道服务（resource/provider）产生它，实例运维台（instance）需要按实例链路
+// 改写措辞（自营说"平台渠道"、转售说"上游渠道"）。放在两个业务域之间的公共
+// pkg 层，两边都能引用而不产生跨域依赖。
+//
+// 与 ErrCapabilityMissing 的区别：那是"平台在但没这个能力"，这是"平台记录没了"，
+// 运维动作完全不同（后者要去渠道管理恢复/重建渠道）。
+var ErrProviderMissing = errors.New("渠道记录已不存在")
+
 // MissingCapabilityError 携带缺失能力名的可读错误，便于后台直接展示原因。
 type MissingCapabilityError struct {
 	Capability string // 例如 suspend / unsuspend / terminate / renew

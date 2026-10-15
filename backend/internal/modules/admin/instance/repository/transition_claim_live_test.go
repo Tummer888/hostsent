@@ -13,6 +13,7 @@ import (
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func liveClaimDSN() string {
@@ -169,5 +170,61 @@ func TestClearTransitionIfOwner(t *testing.T) {
 	}
 	if state != nil && *state != "" {
 		t.Fatalf("owner 回滚应清空，实际 %q", *state)
+	}
+}
+
+// TestPurgeRefusesNonTerminalAtRepositoryLevel Purge 的终态守卫必须在仓库层也成立。
+//
+// 为什么两层都要（而不是只留服务层）：Purge 是**物理删除**，仓库层是最后一道闸门。
+// 若只有服务层守卫，任何绕过服务层的新调用点（后台任务、脚本、将来新增的批处理）
+// 都能直接把一台在跑的机器从库里抹掉 —— 而"通知渠道终止机器"那一步就永远不会发生，
+// 本地干净、渠道侧继续计费。判据写在 DELETE 语句里（不是先查后删），
+// 并发下"查完到删之间状态被改回"的窗口也随之关闭。
+func TestPurgeRefusesNonTerminalAtRepositoryLevel(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(liveClaimDSN()), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Skipf("无可用测试库：%v", err)
+	}
+	ctx := context.Background()
+	repo := NewInstanceRepository(db)
+	mark := fmt.Sprintf("p18-purge-%d", time.Now().UnixNano()%1e6)
+
+	var id uint64
+	if err := db.Raw(`
+		INSERT INTO instances (instance_id, provider_id, user_id, name, cpu, memory, disk, status,
+			source_mode, provider_instance_id, billing_mode, order_id, created_at, updated_at)
+		VALUES (?, 1, 2, ?, 1, 1024, 20, 'running', 'self', ?, 'monthly', 0, now(), now())
+		RETURNING id`, mark, "p18 仓库层守卫 "+mark, mark).Scan(&id).Error; err != nil {
+		t.Fatalf("造实例失败: %v", err)
+	}
+	t.Cleanup(func() {
+		db.Exec("DELETE FROM instance_operations WHERE instance_id = ?", id)
+		db.Exec("DELETE FROM instances WHERE id = ?", id)
+	})
+
+	// 在跑（非终态）→ 仓库层必须拒绝：影响行数为 0，且行还在。
+	affected, err := repo.Purge(ctx, id)
+	if err != nil {
+		t.Fatalf("Purge 不应报错（拒绝通过 0 行表达）: %v", err)
+	}
+	if affected != 0 {
+		t.Fatalf("非终态行被删除了（affected=%d）：这会绕过「销毁」那一步", affected)
+	}
+	var n int64
+	db.Raw("SELECT count(*) FROM instances WHERE id = ?", id).Scan(&n)
+	if n != 1 {
+		t.Fatal("被拒绝的 Purge 不得真的删掉行")
+	}
+
+	// 落终态后 → 允许删除。
+	if err := db.Exec("UPDATE instances SET status = 'deleted', lifecycle_stage = 'destroyed' WHERE id = ?", id).Error; err != nil {
+		t.Fatalf("置终态失败: %v", err)
+	}
+	affected, err = repo.Purge(ctx, id)
+	if err != nil {
+		t.Fatalf("终态行 Purge 失败: %v", err)
+	}
+	if affected != 1 {
+		t.Fatalf("终态行应被删除，affected=%d", affected)
 	}
 }

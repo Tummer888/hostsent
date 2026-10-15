@@ -51,6 +51,12 @@ type InstanceItem struct {
 	ProviderInstanceID string `json:"provider_instance_id"`
 	// Pending 待开通（尚未在上游开通的占位行）：列表显示「待开通」并只开放「重新开通」。
 	Pending bool `json:"pending"`
+	// ChannelAvailable 绑定的渠道是否仍可用（未被删除）。
+	//
+	// false 表示该实例的渠道记录已不存在：它无法同步/操作（渠道查询直接报
+	// "渠道不存在"），销毁也只能走"只清本地记录"。列表页据此标出这类实例 ——
+	// 不标出来，运营会反复点删除却只得到一句渠道报错（用户实测反馈）。
+	ChannelAvailable bool `json:"channel_available"`
 	// Resale 是否**转售链路**（source_mode=upstream）：实例对着一个上游资源商品，
 	// 因此存在"上游实例号 / 上游镜像 / 上游各周期价"这些概念，也才有换号与换绑需求。
 	//
@@ -706,6 +712,25 @@ type ResizeRequest struct {
 type DestroyRequest struct {
 	ConfirmMark string `json:"confirm_mark" binding:"required"`
 	Reason      string `json:"reason"`
+	// LocalOnly 只清本地记录，不调用渠道（渠道已删除时唯一能走的路）。
+	//
+	// 为什么需要：渠道被软删后**没有恢复入口**（渠道管理只有删除），而实例还绑着
+	// 那个已不存在的渠道 id，于是它的销毁/同步/电源全部失败 —— 实例永久卡在列表里，
+	// 连"清理掉"都做不到（用户实测反馈）。
+	//
+	// 安全性：此字段只在"渠道确实已不可用"时才被接受（服务层校验），
+	// 正常渠道传它一律拒绝 —— 否则会造出"本地已销毁、机器还在上游计费"的烂账。
+	LocalOnly bool `json:"local_only"`
+}
+
+// PurgeRequest 记录清理请求（物理删除已销毁的实例行）。
+//
+// 与 DestroyRequest 的区别：Destroy 是业务动作（通知渠道终止机器后把行标成已销毁），
+// Purge 是记录清理（把那条终态行真正从库里删掉，列表里随之消失）。
+// ConfirmMark 同样必须与实例标识完全一致 —— 不可逆操作，且删掉后连运维流水一并清除。
+type PurgeRequest struct {
+	ConfirmMark string `json:"confirm_mark" binding:"required"`
+	Reason      string `json:"reason"`
 }
 
 // SuspendRequest 暂停请求（T5.5；reason 透传上游暂停原因并落审计）。
@@ -758,6 +783,9 @@ type BatchDestroyRequest struct {
 	// 缺失的实例按"未确认"跳过，不静默执行。
 	ConfirmMarks map[string]string `json:"confirm_marks" binding:"required"`
 	Reason       string            `json:"reason"`
+	// LocalOnly 对**渠道已不可用**的实例只清本地记录（见 DestroyRequest.LocalOnly）。
+	// 渠道正常的实例即使传了也逐台拒绝，不会静默降级。
+	LocalOnly bool `json:"local_only"`
 }
 
 // BatchDestroyItem 批量销毁中的单实例结果。

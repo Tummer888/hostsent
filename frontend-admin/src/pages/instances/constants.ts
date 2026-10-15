@@ -218,7 +218,17 @@ export function powerStateView(input: {
 }): { label: string; theme: string; detail: string; spinning: boolean } {
   const stage = input.lifecycle_stage || ''
   const t = input.transition
-  // 过渡态优先：显示「重启中」并带动画，避免运营以为没生效而重复点击。
+  // 终态优先于过渡态：已销毁的机器不可能还有"正在执行"的动作。
+  //
+  // 为什么必须放在过渡态之前（用户实测反馈）：三台已销毁的测试机状态列全显示
+  // 「重置密码中（结果未确认）」—— 它们销毁时残留了更早一次改密动作的过渡记录，
+  // 而过渡态在展示上优先于终态（那条规则本身是对的：正在跑的动作最该被看到），
+  // 于是陈旧记录把「已销毁」盖住了。服务端已在销毁时清过渡态；这里再兜一层，
+  // 让**已有**的脏数据也能正确显示，不必等下一次写操作。
+  if (stage === 'destroyed' || input.status === 'deleted') {
+    return { label: '已销毁', theme: 'default', detail: '实例已终止，机器不再运行', spinning: false }
+  }
+  // 过渡态：显示「重启中」并带动画，避免运营以为没生效而重复点击。
   if (t && t.state) {
     if (t.overdue) {
       return {
@@ -229,10 +239,6 @@ export function powerStateView(input: {
       }
     }
     return { label: t.label, theme: 'primary', detail: `正在执行：${t.verb}`, spinning: true }
-  }
-  // 终态与未开通：机器还没起来或已不存在，谈"通电"没有意义。
-  if (stage === 'destroyed' || input.status === 'deleted') {
-    return { label: '已销毁', theme: 'default', detail: '实例已终止，机器不再运行', spinning: false }
   }
   if (input.pending) {
     return { label: '待开通', theme: 'warning', detail: '尚未在上游开通，机器还未创建', spinning: false }

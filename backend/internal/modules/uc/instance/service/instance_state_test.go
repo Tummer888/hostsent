@@ -1,11 +1,13 @@
 package service
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"hostsent/backend/internal/modules/uc/instance/model"
 	pkgmodel "hostsent/backend/internal/pkg/model"
+	"hostsent/backend/internal/pkg/upstream"
 )
 
 // TestPowerStateOf 客户侧电源维度映射：只回答"机器通电了吗"。
@@ -129,3 +131,45 @@ func TestToInfoTransitionOverdue(t *testing.T) {
 }
 
 func timePtr(t time.Time) *time.Time { return &t }
+
+// TestCustomerApplyLiveStatusWaitsForTarget 客户侧回源也必须"到目标才算完成"。
+//
+// 与运维台同口径（见 admin 侧 TestLiveDetailPollFinishesTransitionOnlyOnTarget）。
+// 回归背景：详情/列表轮询每几秒回源一次，上游还没开始执行时回的正是**动作前**的旧值；
+// 若按"上游给了非空状态就算完成"，客户点完关机第一次轮询就把「关机中」清掉，
+// 还把刚写入的前瞻状态冲回 running —— 客户以为关机没生效。
+func TestCustomerApplyLiveStatusWaitsForTarget(t *testing.T) {
+	// 上游仍报 stopped（动作前的旧值），本地刚下发"开机"乐观写入 running。
+	upstreamStopped := &pkgmodel.StandardInstance{Status: pkgmodel.InstanceStatusStopped}
+	prov := &slowControlProvider{}
+	started := time.Now().Add(-2 * time.Minute) // 已越过 25s 最短窗口，隔离"收尾判据"这一个变量
+	it := &model.Instance{
+		ID: 1, Status: string(pkgmodel.InstanceStatusRunning), ProviderID: 7,
+		LifecycleStage:      "active",
+		TransitionState:     pkgmodel.InstanceTransitionStarting,
+		TransitionStartedAt: &started,
+	}
+	info := toInfo(it) // 与生产路径一致：Transition 由 toInfo 填充后再交给 applyLiveStatus
+	svc := &instanceService{
+		repo:    &fakeRepo{items: []model.Instance{*it}},
+		resolve: func(context.Context, uint64) (upstream.Provider, error) { return prov, nil },
+	}
+	svc.applyLiveStatus(context.Background(), it, upstreamStopped, &info)
+
+	if info.Status != string(pkgmodel.InstanceStatusRunning) {
+		t.Errorf("过渡未完成时应保留前瞻状态 running，实际 %q（上游旧值把它冲掉了）", info.Status)
+	}
+	if info.Transition == nil {
+		t.Error("上游仍在停机状态时过渡态必须保留，否则界面提前结束「开机中」")
+	}
+
+	// 上游到达目标状态 running：这次才允许收尾。
+	upstreamRunning := &pkgmodel.StandardInstance{Status: pkgmodel.InstanceStatusRunning}
+	svc.applyLiveStatus(context.Background(), it, upstreamRunning, &info)
+	if info.Status != string(pkgmodel.InstanceStatusRunning) {
+		t.Errorf("收尾后状态应为 running，实际 %q", info.Status)
+	}
+	if info.Transition != nil {
+		t.Errorf("上游已到 running（开机目标）应收尾，实际仍为 %+v", info.Transition)
+	}
+}

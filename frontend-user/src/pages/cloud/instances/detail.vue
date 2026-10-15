@@ -59,11 +59,15 @@
         <div class="transition-body">
           <span>
             平台指令为异步执行，通常需要 1–3 分钟。期间电源操作会暂时不可用，已完成
-            {{ transitionElapsedText }}，完成后状态自动更新。
+            {{ transitionElapsedText }}，本页每 4 秒自动核对一次，完成后状态自动更新。
           </span>
-          <!-- 不确定态流动条：客户明确要求"开关机过程中加加载动画"。
-               不画假百分比 —— 平台不回报进度，编一个会误导客户以为能看到剩余时间。 -->
-          <span class="transition-progress" role="progressbar" :aria-label="`正在${transition?.verb}`"></span>
+          <!-- 方形脉冲块（不再用长条）：与运维台同款观感，占用稳定、不随宽度伸展。
+               pulse 是纯装饰，进度语义由 aria-label 承担 —— 平台不回报进度，
+               不画假百分比（编一个会误导客户以为能看到剩余时间）。 -->
+          <span class="transition-pulse-row">
+            <span class="transition-pulse" aria-hidden="true"></span>
+            <span class="transition-pulse-label" role="status">正在{{ transition?.verb }}…</span>
+          </span>
         </div>
       </template>
     </t-alert>
@@ -660,6 +664,21 @@ const transitionElapsedText = computed(() => {
 })
 
 // 只在过渡进行中计时；结束必须停掉，否则每秒重渲染整页。
+//
+// 同时挂一路"自动核对"轮询（本轮新增）：此前这个定时器**只**让"已等待 N 秒"的数字跳动，
+// 从不回源 —— 于是过渡态只能等窗口超时（开机/关机 180 秒）或客户手动点「刷新状态」
+// 才会结束，提示条一直转圈（运维台侧用户实测反馈的原话是"没有主动拉起拉取上游的状态，
+// 它一直在等待中"，客户侧是同一份代码的同一处缺陷）。
+// 复用 refreshInBackground：它的 live=true 回源 + 静默失败语义正好适合后台轮询。
+const TRANSITION_POLL_MS = 4000
+let transitionPollTimer: number | undefined
+
+async function pollTransition() {
+  // 轮询过程中过渡态可能已被收尾（active 变 false）→ 停止，避免无谓请求。
+  if (!transitionActive.value) return
+  await refreshInBackground()
+}
+
 watch(transitionActive, (active) => {
   if (active && transitionTimer === undefined) {
     transitionTimer = window.setInterval(() => {
@@ -669,12 +688,27 @@ watch(transitionActive, (active) => {
     window.clearInterval(transitionTimer)
     transitionTimer = undefined
   }
-})
+  // 收尾轮询与 tick 分开：tick 每秒（只重算文案），轮询 4 秒（发一次请求）。
+  if (active && transitionPollTimer === undefined) {
+    transitionPollTimer = window.setInterval(() => {
+      void pollTransition()
+    }, TRANSITION_POLL_MS)
+    // 立刻先拉一次：客户刚点完关机，不该等 4 秒才看到第一轮核对。
+    void pollTransition()
+  } else if (!active && transitionPollTimer !== undefined) {
+    window.clearInterval(transitionPollTimer)
+    transitionPollTimer = undefined
+  }
+}, { immediate: true })
 
 onBeforeUnmount(() => {
   if (transitionTimer !== undefined) {
     window.clearInterval(transitionTimer)
     transitionTimer = undefined
+  }
+  if (transitionPollTimer !== undefined) {
+    window.clearInterval(transitionPollTimer)
+    transitionPollTimer = undefined
   }
 })
 
@@ -1379,44 +1413,49 @@ async function submitDeleteSnapshot(row: SnapshotInfo) {
   gap: 8px;
 }
 
-.transition-progress {
-  position: relative;
-  display: block;
-  height: 3px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: var(--td-brand-color-2, #d9e7ff);
+/* 方形脉冲块：与运维台同款（缩放 + 透明度呼吸）。
+   替换原先贯穿整宽的流动长条 —— 那种条在信息密集处很突兀（用户反馈"不要长条，观感不好"）。 */
+.transition-pulse-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
 }
 
-.transition-progress::after {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 35%;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--td-brand-color, #0052d9) 45%,
-    var(--td-brand-color, #0052d9) 55%,
-    transparent
-  );
-  animation: hs-progress 1.6s ease-in-out infinite;
+.transition-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--td-brand-color, #0052d9);
+  animation: hs-transition-pulse 1.1s ease-in-out infinite;
+  flex-shrink: 0;
 }
 
-@keyframes hs-progress {
-  0% {
-    left: -35%;
-  }
+/* 与脉冲块同排的短文案（"正在开机…"）。字号比正文略小：
+   它是提示条的补充说明，不该和正文抢注意力。 */
+.transition-pulse-label {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
+}
+
+@keyframes hs-transition-pulse {
+  0%,
   100% {
-    left: 100%;
+    transform: scale(0.7);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .transition-progress::after {
-    left: 32%;
+  .transition-pulse {
     animation: none;
+    transform: scale(1);
+    opacity: 1;
   }
 }
 

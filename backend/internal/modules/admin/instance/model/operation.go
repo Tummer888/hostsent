@@ -28,9 +28,11 @@ const (
 	ActionProvisionRetry = "provision_retry"
 	ActionResize         = "resize"
 	ActionDestroy        = "destroy"
-	ActionRemark         = "remark"
-	ActionSuspend        = "suspend"
-	ActionUnsuspend      = "unsuspend"
+	// ActionPurge 记录清理：把已销毁的实例行**物理删除**（与 destroy 的"标成已销毁"区分）。
+	ActionPurge     = "purge"
+	ActionRemark    = "remark"
+	ActionSuspend   = "suspend"
+	ActionUnsuspend = "unsuspend"
 	// 维护类动作（平台接口实测存在，映射见 dcimcloud/provider.go 头部注释）。
 	ActionReinstall     = "reinstall"      // 重装系统（可换镜像）
 	ActionResetPassword = "reset_password" // 重置登录密码

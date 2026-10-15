@@ -16,6 +16,7 @@ import type {
   InstanceOpsListQuery,
   InstanceOpsListResponse,
   InstancePowerRequest,
+  InstancePurgeRequest,
   InstanceRebindProductRequest,
   InstanceRebindProductResult,
   InstanceRelatedResponse,
@@ -144,6 +145,20 @@ export function resizeInstance(id: number, data: InstanceResizeRequest): Promise
 export function destroyInstance(id: number, data: InstanceDestroyRequest): Promise<string> {
   return request.delete<string>({
     url: `/instances/${id}`,
+    data,
+  })
+}
+
+/**
+ * 删除实例记录（物理删除已销毁的行，连同其运维流水）。
+ *
+ * 与 destroyInstance 分两个接口，是因为它们是两个语义不同的步骤：
+ * 销毁会通知渠道终止机器，删除只清本地记录。合并会让人以为"删掉就完事"，
+ * 而机器可能仍在渠道侧计费。
+ */
+export function purgeInstance(id: number, data: InstancePurgeRequest): Promise<string> {
+  return request.post<string>({
+    url: `/instances/${id}/purge`,
     data,
   })
 }

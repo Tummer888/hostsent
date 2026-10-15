@@ -79,6 +79,9 @@ type InstanceService interface {
 	// RevealCredential 查看实例登录明文密码（高危：写审计流水后才返回）。
 	RevealCredential(ctx context.Context, op Operator, id uint64) (*dto.CredentialRevealResult, error)
 	Destroy(ctx context.Context, op Operator, id uint64, req *dto.DestroyRequest) error
+	// Purge 物理删除一条**已销毁**的实例记录（连同其运维流水）。
+	// 与 Destroy 的两步关系：先 Destroy 终止机器，再 Purge 清掉那条没用的终态行。
+	Purge(ctx context.Context, op Operator, id uint64, req *dto.PurgeRequest) error
 	// Suspend / Unsuspend 暂停/恢复实例（T5.5 按能力分派）。
 	Suspend(ctx context.Context, op Operator, id uint64, reason string) error
 	Unsuspend(ctx context.Context, op Operator, id uint64) error
@@ -392,16 +395,49 @@ func (s *instanceService) Detail(ctx context.Context, id uint64, live bool) (*dt
 	}
 	if live {
 		// 详情页的实时刷新属尽力而为：上游不可用时仍要能看到本地数据。
-		_ = s.refreshUpstream(ctx, row)
+		//
+		// 有进行中的动作时走 refreshUpstreamFromTransition：让**详情轮询本身**
+		// 就能收尾过渡态。否则界面会一直显示「关机中」转圈，直到用户手动点
+		// 「同步上游」（用户实测反馈："加载动画一直在等待中，没有主动拉取上游状态"）。
+		//
+		// 为什么复用详情而不是让前端轮询 /sync：
+		//   · 详情是**只读**，不写 instance_operations 流水；
+		//     /sync 每次都会记一条操作流水，几秒一次的轮询会把审计日志刷爆。
+		//   · 收尾判据（最短占用窗口 + 上游确认）在 refreshUpstreamFromTransition
+		//     里已经实现，这里只需把该实例的过渡态上下文传进去。
+		if row.TransitionState != "" {
+			_ = s.refreshUpstreamFromTransition(ctx, row, "", row.TransitionState, derefTime(row.TransitionStartedAt))
+		} else {
+			_ = s.refreshUpstream(ctx, row)
+		}
 		if fresh, ferr := s.repo.FindByID(ctx, id); ferr == nil {
 			row = fresh
 		}
 	}
 	item := s.toItem(row, defaultExpireWithinDays)
-	caps, capErr := s.capabilities(ctx, row.ProviderID)
+	// 能力位与错误都按**本实例链路**推导：自营实例的渠道被删时提示"平台渠道"
+	// 而不是"上游渠道"（否则与页面其它内容直接冲突，用户实测反馈）。
+	var caps dto.Capabilities
+	var capErr error
+	if provider, perr := s.buildProviderForInstance(ctx, row); perr != nil {
+		capErr = perr
+	} else {
+		caps = capabilitiesOf(provider)
+	}
 	detail := &dto.DetailInfo{InstanceItem: item, Capabilities: caps}
-	// 待开通实例（占位行）：能力位整体关闭并给出原因，避免界面按钮能点但点了必失败。
-	if !provisioned(row) {
+	// 终态行（已销毁）优先于下面两个分支：机器已终止，**所有**渠道动作都没有对象。
+	//
+	// 不这样收口会留下两个会骗人的入口：渠道尚在时 capabilitiesOf 会给出
+	// Destroy=true，菜单里的「销毁实例」能点，点了必然报"实例已销毁"；渠道已删时
+	// capErr 又会建议"恢复该渠道，或选择只清本地记录"—— 对一台已经终止的机器，
+	// 这两条建议一条无效、一条误导（运营可能真去恢复一个再也不会用的渠道）。
+	// 终态行唯一该做的是「删除记录」（界面据 isDestroyed 单独给出）。
+	if isTerminalInstance(row) {
+		detail.Capabilities = dto.Capabilities{}
+		detail.CapabilityError = "该实例已销毁，渠道操作均已关闭；记录保留用于审计，" +
+			"如需从列表移除请使用「危险操作 → 删除记录」"
+	} else if !provisioned(row) {
+		// 待开通实例（占位行）：上游动作能力位整体关闭并给出原因，避免界面按钮能点但点了必失败。
 		detail.Capabilities = dto.Capabilities{}
 		if capErr != nil {
 			detail.CapabilityError = capErr.Error()
@@ -409,6 +445,14 @@ func (s *instanceService) Detail(ctx context.Context, id uint64, live bool) (*dt
 		if detail.CapabilityError == "" {
 			detail.CapabilityError = notProvisionedReason(row)
 		}
+		// **唯一例外：销毁**。占位行的"销毁"只是清掉这条本地记录（没有上游机器可终止），
+		// 因此既不依赖渠道能力，也不会因为"未开通"而失败 —— 早期把它一并关掉，
+		// 导致运营在列表里对一台永远开不出来的占位机连"清掉"都做不到
+		//（用户实测反馈："现在直接连删除这个实例的按钮都没有了"）。
+		//
+		// CapabilityError 仍照常下发（说明其余动作为什么不可用），但界面据
+		// Destroy=true 单独放行删除入口。
+		detail.Capabilities.Destroy = true
 	} else if capErr != nil {
 		detail.CapabilityError = capErr.Error()
 	}
@@ -428,6 +472,56 @@ func (s *instanceService) Detail(ctx context.Context, id uint64, live bool) (*dt
 // provisioned 判断实例是否已在（上游/平台）开通：占位行 provider_instance_id 为空。
 func provisioned(row *repository.InstanceRow) bool {
 	return row != nil && row.ProviderInstanceID != ""
+}
+
+// isTerminalInstance 判断实例是否已到终态（销毁完成）。
+//
+// 与 provisioned 的区别：占位行是"还没开始"，终态行是"已经结束"，两者都
+// 没有渠道动作可做，但界面该给的出路不同（前者「销毁」= 清占位，后者
+// 「删除记录」= 物理移除）。status 与 lifecycle_stage 任一命中即算终态：
+// 正常销毁会同时写两者，但历史数据里存在只写了一边的行（早期版本只更新
+// status），只认一边会让那些行重新长出可点的渠道按钮。
+func isTerminalInstance(row *repository.InstanceRow) bool {
+	if row == nil {
+		return false
+	}
+	return row.Status == string(pkgmodel.InstanceStatusDeleted) || row.LifecycleStage == lifecycleStageDestroyed
+}
+
+// providerLinkLabel 渠道在**本实例语境**下的称呼。
+//
+// 自营实例（source_mode=self，渠道 kind=compute）的机器由本平台开通，
+// 背后没有第三方 —— 对它说"上游渠道"会与页面其它内容直接冲突
+// （用户实测反馈："几个实例明明就是自营的，他这里报错说是上游的渠道问题"）。
+func providerLinkLabel(row *repository.InstanceRow) string {
+	if resaleInstance(row) {
+		return "上游渠道"
+	}
+	return "平台渠道"
+}
+
+// rewordChannelError 把渠道层的错误按本实例链路改写措辞。
+//
+// 渠道服务只知道自己被引用，不知道引用它的实例是自营还是转售，因此那里
+// 输出中性文案（"渠道 #N 不存在或已被删除"）+ ErrProviderMissing 哨兵；
+// 由本层按链路补上"上游/平台"的称呼，让提示与实例的真实链路一致。
+func rewordChannelError(row *repository.InstanceRow, err error) error {
+	if err == nil || row == nil {
+		return err
+	}
+	if errors.Is(err, upstream.ErrProviderMissing) {
+		// 两个哨兵都要包进去：ErrProviderUnavailable 决定 HTTP 错误码（20005），
+		// upstream.ErrProviderMissing 是"渠道确实没了"的判据 —— 调用方
+		//（如销毁时的只清本地记录）要靠它分辨"渠道没了"与"网络抖动"。
+		// 早期实现只包了前者，导致 local_only 分支永远进不去（实测踩过）。
+		//
+		// 文案只保留本层这一句：渠道层的根因标记（"渠道记录已不存在"）在本
+		// 语境下是重复的 —— 这里已经说清"该实例绑定的平台渠道已被删除"。
+		return fmt.Errorf("%w: %w：该实例绑定的%s已被删除，无法执行需要渠道的操作；"+
+			"请在「资源-渠道管理」恢复该渠道，或在确认这台机器无需再管理后选择「只清本地记录」",
+			ErrProviderUnavailable, upstream.ErrProviderMissing, providerLinkLabel(row))
+	}
+	return err
 }
 
 // resaleInstance 判断实例是否走**转售链路**（source_mode=upstream）。
@@ -588,7 +682,7 @@ func (s *instanceService) attachNatAccess(ctx context.Context, row *repository.I
 		// 待开通实例还没有上游实例号，读不到规则属于正常，不当作错误。
 		return
 	}
-	provider, err := s.buildProvider(ctx, row.ProviderID)
+	provider, err := s.buildProviderForInstance(ctx, row)
 	if err != nil {
 		info.Error = err.Error()
 		return
@@ -782,7 +876,7 @@ func (s *instanceService) Power(ctx context.Context, op Operator, id uint64, act
 	}
 
 	before := row.Status
-	provider, err := s.buildProvider(ctx, row.ProviderID)
+	provider, err := s.buildProviderForInstance(ctx, row)
 	if err != nil {
 		s.releaseTransition(ctx, row.ID, transition)
 		s.record(ctx, row, op, logAction, map[string]any{"action": action}, before, before, err)
@@ -1010,7 +1104,7 @@ func (s *instanceService) Reinstall(ctx context.Context, op Operator, id uint64,
 		s.record(ctx, row, op, model.ActionReinstall, nil, row.Status, row.Status, busyErr)
 		return nil, busyErr
 	}
-	provider, err := s.buildProvider(ctx, row.ProviderID)
+	provider, err := s.buildProviderForInstance(ctx, row)
 	if err != nil {
 		s.releaseTransition(ctx, row.ID, pkgmodel.InstanceTransitionReinstalling)
 		s.record(ctx, row, op, model.ActionReinstall, nil, row.Status, row.Status, err)
@@ -1693,7 +1787,7 @@ func (s *instanceService) ReinstallImages(ctx context.Context, id uint64) (*dto.
 	}
 
 	// 来源 2：渠道平台镜像目录（自营平台有已装镜像列表）。
-	if pr, perr := s.buildProvider(ctx, row.ProviderID); perr == nil {
+	if pr, perr := s.buildProviderForInstance(ctx, row); perr == nil {
 		if catalog, ok := pr.(upstream.PlatformResourceReader); ok {
 			if res, cerr := catalog.ListPlatformResources(ctx); cerr == nil && len(res.Images) > 0 {
 				imgs := make([]dto.ReinstallImage, 0, len(res.Images))
@@ -1810,7 +1904,7 @@ func (s *instanceService) RelinkUpstream(ctx context.Context, op Operator, id ui
 		return nil, fmt.Errorf("%w: 上游实例号 %s 已被本系统另一台实例占用，请先处理那台实例", ErrStatusConflict, target)
 	}
 	// 守卫①：上游必须真实存在该实例（不探活就把本地指向虚空）。
-	provider, perr := s.buildProvider(ctx, row.ProviderID)
+	provider, perr := s.buildProviderForInstance(ctx, row)
 	if perr != nil {
 		s.record(ctx, row, op, model.ActionRelinkUpstream, nil, row.Status, row.Status, perr)
 		return nil, perr
@@ -2092,11 +2186,6 @@ func (s *instanceService) Destroy(ctx context.Context, op Operator, id uint64, r
 	if err != nil {
 		return s.wrapNotFound(err)
 	}
-	// 待开通实例（占位行）没有上游实例号：上游侧操作一律拒绝并给出可操作提示
-	// （能力位在 Detail 里已整体关闭，这里是接口层的兜底）。
-	if err := s.ensureProvisioned(row); err != nil {
-		return err
-	}
 	if req == nil {
 		return ErrPermissionDenied
 	}
@@ -2108,10 +2197,43 @@ func (s *instanceService) Destroy(ctx context.Context, op Operator, id uint64, r
 		return fmt.Errorf("%w: 实例已销毁", ErrStatusConflict)
 	}
 
+	// 待开通占位行：**没有上游机器**，因此"销毁"就是清掉这条本地记录 ——
+	// 既不需要渠道，也不该提"上游"。
+	//
+	// 为什么不能沿用下面的 ensureProvisioned 早退（用户实测反馈"实例没办法删除，
+	// 删除时报错上游不存在"）：占位行的 provider_instance_id 为空，早退会把
+	// 「尚未开通」当成拒绝理由，于是运营在实例列表里对一台永远开不出来的占位机
+	// 既点不了销毁、也清不掉，只能去订单侧取消 —— 而占位行恰恰最需要能直接清掉。
+	//
+	// 安全性：这里**不调用任何上游接口**（没有实例号可下发），所以不存在
+	// "本地删了、机器还在计费"的烂账 —— 那正是 §LocalOnly 要防的情形，
+	// 而占位行根本没有机器。开通侧仍是幂等的：占位行被删后若履约迟到成功，
+	// AdoptPendingInstance 未命中会走常规 upsert 重新落一行，不会丢机器。
+	if !provisioned(row) {
+		return s.destroyPendingPlaceholder(ctx, row, op, req)
+	}
+
 	params := map[string]any{"reason": req.Reason}
 	before := row.Status
-	provider, err := s.buildProvider(ctx, row.ProviderID)
+	provider, err := s.buildProviderForInstance(ctx, row)
 	if err != nil {
+		// 渠道已不可用 → 唯一还能做的是"只清本地记录"。
+		//
+		// 为什么必须给这条路：渠道被软删后没有恢复入口，实例还绑着那个不存在的
+		// 渠道 id，销毁/同步/电源全部失败 —— 实例永久卡在列表里（用户实测反馈）。
+		// 但只在**确实不可用**时接受 LocalOnly，且明确写进流水：正常渠道下
+		// 只清本地会造出"本地已销毁、机器还在上游计费"的烂账。
+		if req.LocalOnly && isChannelGone(err) {
+			params["local_only"] = true
+			return s.destroyLocalOnly(ctx, row, op, params, before)
+		}
+		s.record(ctx, row, op, model.ActionDestroy, params, before, before, err)
+		return err
+	}
+	if req.LocalOnly {
+		// 渠道是好的却要求只清本地 → 拒绝，别让运营误操作留下计费烂账。
+		err := fmt.Errorf("%w：该实例的渠道可用，不支持「只清本地记录」；请正常销毁（会同时终止渠道侧机器）",
+			ErrInvalidAction)
 		s.record(ctx, row, op, model.ActionDestroy, params, before, before, err)
 		return err
 	}
@@ -2131,6 +2253,127 @@ func (s *instanceService) Destroy(ctx context.Context, op Operator, id uint64, r
 	// 同步落阶段为终态：只写 status 会让「阶段=active/grace」与「状态=已销毁」长期共存，
 	// 生命周期推进器还会按旧阶段把它当在跑机器重复处置。
 	_ = s.repo.UpdateLifecycleStage(ctx, row.ID, lifecycleStageDestroyed)
+	// 清掉过渡态：已销毁的机器不可能还有"正在执行"的动作。不清会让列表显示
+	// 「重置密码中（结果未确认）」而不是「已销毁」—— 过渡态在展示上优先于终态
+	//（那是对的：正在跑的动作更该看到），于是陈旧的过渡记录把终态盖住了
+	//（用户实测反馈：三台已销毁的测试机状态列全显示「重置密码中」）。
+	_ = s.repo.ClearTransition(ctx, row.ID)
+	s.record(ctx, row, op, model.ActionDestroy, params, before, after, nil)
+	return nil
+}
+
+// destroyPendingPlaceholder 清除"待开通占位"实例记录。
+//
+// 与 destroyLocalOnly 的区别（两者都不能混用）：
+//   - destroyLocalOnly：**机器确实存在于渠道侧**，只是渠道记录被删了没法通知它终止 ——
+//     所以要写明"渠道侧机器状态未知"，提示运营自行确认是否仍在计费；
+//   - 本函数：**机器从来没有被创建过**（provider_instance_id 为空 = 上游开通还没成功），
+//     没有任何渠道侧资源，因此不存在"漏停计费"的风险，也就不需要渠道、不需要 LocalOnly。
+//
+// 为什么不物理删行而是落终态：instance_operations 等审计流水引用这条记录，
+// 物理删除会让历史操作从列表里凭空消失；落 status=deleted 既让它从"在用实例"
+// 里消失，又保住审计可追溯（与 destroyLocalOnly 同一取舍）。
+//
+// 流水里显式写明"占位行、未开通、无渠道侧机器"：事后审计看到一条 destroy 记录时，
+// 必须能分清"清掉了一个占位"与"终止了一台真机器"。
+func (s *instanceService) destroyPendingPlaceholder(ctx context.Context, row *repository.InstanceRow, op Operator, req *dto.DestroyRequest) error {
+	before := row.Status
+	params := map[string]any{"reason": req.Reason}
+	params["note"] = "待开通占位行（尚未在上游开通，不存在渠道侧机器）：仅清除本地记录"
+	// LocalOnly 对占位行是**空操作**，不是错误：它的语义是"不要通知渠道"，
+	// 而占位行根本没有渠道可通知，该意图已自动满足。
+	//
+	// 为什么不拒绝：批量销毁时那个复选框是**整批共用**的（只要批里有一台渠道
+	// 已失效就得勾上），拒绝会让同批里的占位行莫名其妙失败。流水里记下这个标记，
+	// 审计仍能看出运营当时勾了什么。
+	if req.LocalOnly {
+		params["local_only"] = true
+	}
+	after := string(pkgmodel.InstanceStatusDeleted)
+	if err := s.repo.UpdateStatus(ctx, row.ID, after); err != nil {
+		s.record(ctx, row, op, model.ActionDestroy, params, before, before, err)
+		return err
+	}
+	// 阶段一并落终态：否则生命周期推进器仍按旧阶段把它当"在跑机器"重复处置。
+	_ = s.repo.UpdateLifecycleStage(ctx, row.ID, lifecycleStageDestroyed)
+	s.record(ctx, row, op, model.ActionDestroy, params, before, after, nil)
+	return nil
+}
+
+// Purge 物理删除一条**已销毁**的实例记录（连同其运维流水）。
+//
+// 与 Destroy 的区别（用户实测反馈："我是叫将这个实例的整一个记录都删除"）：
+//   - Destroy 是**业务动作**：通知渠道终止机器，然后把本地行标成已销毁（行保留）；
+//   - Purge 是**记录清理**：把那条已经没用的终态行真正从库里删掉，列表里随之消失。
+//
+// 为什么必须是两步而不是一步：在跑的机器若能被一键物理删除，就等于绕过了
+// "通知渠道终止机器"这一步 —— 本地没记录了、渠道侧还在计费（这正是 §destroyLocalOnly
+// 反复强调要防的烂账）。因此 Purge 只接受终态行，且**不接触渠道**。
+//
+// 两次确认（前置状态 + 传入标识）缺一不可：这是不可逆操作，且删掉后
+// 连审计流水都一并清了，事后只能靠 admin_audit_logs 看到"谁删的"。
+func (s *instanceService) Purge(ctx context.Context, op Operator, id uint64, req *dto.PurgeRequest) error {
+	row, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return s.wrapNotFound(err)
+	}
+	if req == nil {
+		return ErrPermissionDenied
+	}
+	mark := strings.TrimSpace(req.ConfirmMark)
+	if mark != row.InstanceID && mark != strconv.FormatUint(row.ID, 10) {
+		return fmt.Errorf("%w: 请准确输入实例标识 %s", ErrPermissionDenied, row.InstanceID)
+	}
+	// 守卫：只有终态行可删。未销毁的机器请先走「销毁」（那才会通知渠道终止机器）。
+	if row.Status != string(pkgmodel.InstanceStatusDeleted) && row.LifecycleStage != lifecycleStageDestroyed {
+		return fmt.Errorf("%w：实例尚未销毁（当前状态 %s），请先执行「销毁实例」终止渠道侧机器，"+
+			"再删除这条记录", ErrStatusConflict, row.Status)
+	}
+	// 记录一条"即将删除"的流水 —— 它会随本轮 Purge 一起被删掉，但
+	// 若 Purge 失败（如数据库异常），这条流水就是唯一的现场证据。
+	s.record(ctx, row, op, model.ActionPurge, map[string]any{"reason": req.Reason},
+		row.Status, row.Status, nil)
+	affected, perr := s.repo.Purge(ctx, id)
+	if perr != nil {
+		return perr
+	}
+	if affected == 0 {
+		// 并发下另一请求已先删掉（或状态在此期间被改回）→ 明确告知，不静默成功。
+		return fmt.Errorf("%w：该实例记录已不存在（可能已被其他管理员删除）", ErrStatusConflict)
+	}
+	return nil
+}
+
+// isChannelGone 判断错误是否属于"渠道记录已不存在/已禁用"这类不可用。
+//
+// 只认这两类：渠道被软删（ErrProviderMissing）与渠道被禁用。网络抖动、
+// 凭证错误不算 —— 那些重试或修凭证即可，不该走"只清本地"这条路。
+func isChannelGone(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, upstream.ErrProviderMissing) {
+		return true
+	}
+	// 渠道被禁用：渠道服务返回的文案里带"已禁用"，这里用哨兵更稳，
+	// 但没有独立哨兵，故按文案判定（已在渠道服务里固定措辞）。
+	return strings.Contains(err.Error(), "已禁用")
+}
+
+// destroyLocalOnly 只清本地记录（渠道已不可用时的唯一出路）。
+//
+// 落终态 + 写清流水：流水里必须能看出"这次没有通知渠道"，否则事后审计
+// 会把一条本地销毁误读成"渠道侧机器也已终止"。
+func (s *instanceService) destroyLocalOnly(ctx context.Context, row *repository.InstanceRow, op Operator, params map[string]any, before string) error {
+	params["note"] = "渠道已不可用，仅清除本地记录；渠道侧机器状态未知"
+	after := string(pkgmodel.InstanceStatusDeleted)
+	if err := s.repo.UpdateStatus(ctx, row.ID, after); err != nil {
+		s.record(ctx, row, op, model.ActionDestroy, params, before, before, err)
+		return err
+	}
+	_ = s.repo.UpdateLifecycleStage(ctx, row.ID, lifecycleStageDestroyed)
+	// 同 Destroy：终态行不该再挂过渡态，否则列表显示「正在…（结果未确认）」而不是「已销毁」。
+	_ = s.repo.ClearTransition(ctx, row.ID)
 	s.record(ctx, row, op, model.ActionDestroy, params, before, after, nil)
 	return nil
 }
@@ -2148,7 +2391,7 @@ func (s *instanceService) Suspend(ctx context.Context, op Operator, id uint64, r
 	}
 	before := row.Status
 	params := map[string]any{"reason": reason}
-	provider, err := s.buildProvider(ctx, row.ProviderID)
+	provider, err := s.buildProviderForInstance(ctx, row)
 	if err != nil {
 		s.record(ctx, row, op, model.ActionSuspend, params, before, before, err)
 		return err
@@ -2181,7 +2424,7 @@ func (s *instanceService) Unsuspend(ctx context.Context, op Operator, id uint64)
 		return err
 	}
 	before := row.Status
-	provider, err := s.buildProvider(ctx, row.ProviderID)
+	provider, err := s.buildProviderForInstance(ctx, row)
 	if err != nil {
 		s.record(ctx, row, op, model.ActionUnsuspend, nil, before, before, err)
 		return err
@@ -2396,7 +2639,9 @@ func (s *instanceService) batchDestroyOne(ctx context.Context, op Operator, id u
 		return item
 	}
 
-	opErr := s.Destroy(ctx, op, id, &dto.DestroyRequest{ConfirmMark: mark, Reason: req.Reason})
+	opErr := s.Destroy(ctx, op, id, &dto.DestroyRequest{
+		ConfirmMark: mark, Reason: req.Reason, LocalOnly: req.LocalOnly,
+	})
 	if after, ferr := s.repo.FindByID(ctx, id); ferr == nil {
 		item.AfterStatus = after.Status
 	} else {
@@ -2652,6 +2897,7 @@ func (s *instanceService) toItem(row *repository.InstanceRow, withinDays int) dt
 		ProviderInstanceID: row.ProviderInstanceID,
 		Pending:            row.ProviderInstanceID == "",
 		Resale:             resaleInstance(row),
+		ChannelAvailable:   row.ChannelAvailable,
 		LifecycleStage:     row.LifecycleStage,
 		// 产品类型归一后再下发：存量空串（迁移 108 回填前）与未知值都走 other，
 		// 与筛选口径一致 —— 前端拿到的每个值都能在导航里找到对应标签。
@@ -2751,6 +2997,15 @@ func (s *instanceService) capabilities(ctx context.Context, providerID uint64) (
 	if err != nil {
 		return dto.Capabilities{}, err
 	}
+	return capabilitiesOf(provider), nil
+}
+
+// capabilitiesOf 由已解析的适配器推导能力位。
+//
+// 抽出来是为了让 Detail 能拿到能力位**同时**按实例链路改写错误措辞：
+// 原来 capabilities 内部只认 providerID，拿不到实例行，于是自营实例也会
+// 拿到"上游渠道已删除"这种与自身链路冲突的文案（用户实测反馈）。
+func capabilitiesOf(provider upstream.Provider) dto.Capabilities {
 	_, ctrl := provider.(upstream.InstanceControl)
 	_, admin := provider.(upstream.InstanceAdministration)
 	_, suspend := provider.(upstream.InstanceSuspension)
@@ -2778,7 +3033,7 @@ func (s *instanceService) capabilities(ctx context.Context, providerID uint64) (
 		AddIP:         hardware || supports(upstream.OpAddIP),
 		AttachDisk:    hardware || supports(upstream.OpAttachDisk),
 		NatAccess:     natReader || supports(upstream.OpNatAccess),
-	}, nil
+	}
 }
 
 // passwordResetter 解析上游并断言重置密码能力。
@@ -2834,6 +3089,9 @@ func (s *instanceService) hardware(ctx context.Context, providerID uint64) (upst
 }
 
 // buildProvider 解析并实例化上游适配器。
+//
+// 注意：本函数拿不到实例行，因此错误里的渠道称呼保持中性；需要按链路改写
+// 措辞的调用方请用 buildProviderForInstance。
 func (s *instanceService) buildProvider(ctx context.Context, providerID uint64) (upstream.Provider, error) {
 	if s.resolve == nil {
 		return nil, ErrProviderUnavailable
@@ -2844,6 +3102,19 @@ func (s *instanceService) buildProvider(ctx context.Context, providerID uint64) 
 	}
 	if provider == nil {
 		return nil, ErrProviderUnavailable
+	}
+	return provider, nil
+}
+
+// buildProviderForInstance 与 buildProvider 相同，但错误文案按实例链路改写
+// （自营实例说"平台渠道"而不是"上游渠道"）。
+func (s *instanceService) buildProviderForInstance(ctx context.Context, row *repository.InstanceRow) (upstream.Provider, error) {
+	if row == nil {
+		return nil, ErrInstanceNotFound
+	}
+	provider, err := s.buildProvider(ctx, row.ProviderID)
+	if err != nil {
+		return nil, rewordChannelError(row, err)
 	}
 	return provider, nil
 }
@@ -2899,7 +3170,7 @@ func (s *instanceService) refreshUpstreamExpecting(ctx context.Context, row *rep
 // 只在"上游确实报出新状态"时清：拿不到数据（接口失败/降级）时保留过渡态，
 // 让界面继续显示"进行中"而不是假装完成了。
 func (s *instanceService) refreshUpstreamFromTransition(ctx context.Context, row *repository.InstanceRow, staleStatus, transition string, claimedAt time.Time) error {
-	provider, err := s.buildProvider(ctx, row.ProviderID)
+	provider, err := s.buildProviderForInstance(ctx, row)
 	if err != nil {
 		return err
 	}
@@ -2918,12 +3189,20 @@ func (s *instanceService) refreshUpstreamFromTransition(ctx context.Context, row
 		}
 	}
 	status := string(inst.Status)
+	// 过渡态是否已被上游**核实完成**（见 InstanceTransition.SatisfiedBy）。
+	// 只有确实到了目标状态才算完成：上游还没开始执行时回的旧值不能当完成信号，
+	// 否则一刷新就提前收尾，界面从「关机中」跳回「运行中」（用户实测反馈）。
+	reportsPower := upstream.SupportsPowerStateReporting(provider)
+	transitionDone := true
+	if transition != "" {
+		transitionDone = !reportsPower || pkgmodel.InstanceTransitionOf(transition).SatisfiedBy(status)
+	}
 	// 终态不复活：本地已判销毁的实例，上游软删未清时仍会返回 running/active，
 	// 照抄会把列表里已销毁的机器显示成"运行中"。终态由本系统认定，回源只刷新其余字段。
 	switch {
 	case row.LifecycleStage == lifecycleStageDestroyed:
 		status = row.Status
-	case !upstream.SupportsPowerStateReporting(provider):
+	case !reportsPower:
 		// **上游不报电源状态**（实测：魔方财务只有 domainstatus=Active 这类服务状态，
 		// 没有机器电源字段）。此时回源值不能用来改写本地 status —— 它答的不是
 		// "机器开着吗"，照抄会把「已关机」冲成「运行中」，运营点完关机一同步
@@ -2933,6 +3212,11 @@ func (s *instanceService) refreshUpstreamFromTransition(ctx context.Context, row
 		// 代价：客户在上游面板自己关机时本地看不出来 —— 这在财务型链路上无法避免
 		//（上游没给这个信息），需要时由运营用「同步上游」看原始数据判断。
 		status = ""
+	case transition != "" && !transitionDone:
+		// 过渡态还在执行（上游尚未转到目标状态）。此时上游回的是**动作前**的旧值，
+		// 照抄会把刚写入的前瞻值冲掉 —— 详情轮询（本路径的主要调用方）每 4 秒一次，
+		// 等于把界面按回"操作前"直到动作真的完成，运营会以为关机没生效。
+		status = ""
 	case staleStatus != "" && status == staleStatus:
 		// 上游还没转到新状态：保留本地刚写入的前瞻值，仅刷新 IP / 原始数据。
 		status = ""
@@ -2941,8 +3225,9 @@ func (s *instanceService) refreshUpstreamFromTransition(ctx context.Context, row
 		return err
 	}
 	// 过渡态收尾：
-	//   · 报电源状态的平台：只有上游确实给出新状态（status 非空）才算执行完；
-	//     仍是旧值说明还在跑，保留过渡态让界面继续显示「重启中」。
+	//   · 报电源状态的平台：只有上游确实到达**该动作的目标状态**才算执行完
+	//     （开机→on、关机→off、重启→回到 on）；仍停在别处说明还在跑，
+	//     保留过渡态让界面继续显示「重启中」。
 	//   · 不报电源状态的平台：status 被我们置空（无从核对），但指令已受理 ——
 	//     可以收尾，界面回到本地已知状态，而不是永远停在「重启中」。
 	//
@@ -2950,10 +3235,8 @@ func (s *instanceService) refreshUpstreamFromTransition(ctx context.Context, row
 	// 上游"确认"了也看不出变化；若一确认就放行，用户几秒后再点一次同样会堆指令
 	//（用户实测反馈"多次重启累积"）。窗口未满时保留过渡态，让拦截持续到动作
 	// 确实已经跑起来为止。
-	if transition != "" && (status != "" || !upstream.SupportsPowerStateReporting(provider)) {
-		if !transitionWithinMinHold(transition, claimedAt) {
-			_ = s.repo.ClearTransition(ctx, row.ID)
-		}
+	if transition != "" && transitionDone && !transitionWithinMinHold(transition, claimedAt) {
+		_ = s.repo.ClearTransition(ctx, row.ID)
 	}
 	return nil
 }

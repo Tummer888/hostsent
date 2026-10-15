@@ -11,7 +11,6 @@
   --instances-green: var(--color-primary, var(--color-primary));
   --instances-green-hover: var(--td-brand-color-8);
   --instances-green-soft: var(--td-brand-color-1);
-  --instances-green-border: var(--td-brand-color-2);
 }
 
 .instances-module.page-body {
@@ -45,12 +44,112 @@
   overflow: hidden;
 }
 
-/* 动作专用页头（main 区已移除、只剩操作条）：不再需要 space-between ——
-   那会把按钮组推到左侧、右侧留一大片空白（页头曾是"身份 + 动作"两栏布局）。
-   改为右对齐，并去掉为两栏预留的左内边距。 */
-.instances-module .page-header--actions {
-  justify-content: flex-end;
-  padding-left: 20px;
+/* 详情页头：身份（左）+ 操作（右）同一行。
+   两栏都在时 space-between 是原本的语义；关键是不能让任意一侧塌成空白 ——
+   身份块给 min-width:0 + 可换行，操作条给 flex-end 吸收剩余宽度。
+   紧凑屏下 flex-wrap 让操作条整体折到第二行（仍右对齐），不留空洞。 */
+.instances-module .detail-header {
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+/* 操作条与身份**并排**（不是折到下一行）。
+   实测：这台页面的操作条自然宽度约 965px，身份块约 545px，两者相加超过
+   1440 视口下的内容宽（约 1021px）—— 若按自然宽度布局，操作条必定整行折到
+   身份下方，左上角虽然填上了，但用户要的"并排"没实现（实测截图确认）。
+   flex: 1 1 0 让操作条以 0 为基准参与伸缩：它永远留在第一行，占满身份块右侧
+   的剩余宽度，按钮在**自己内部**换行（仍右对齐）。于是身份在左、操作在右，
+   同一横带内不再有整块留空。 */
+.instances-module .detail-header .detail-actions {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.instances-module .detail-header .page-header__chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--hs-radius-md);
+  background: var(--instances-green-soft);
+  color: var(--instances-green);
+  flex-shrink: 0;
+}
+
+.instances-module .detail-header .page-header__title {
+  font-size: 18px;
+}
+
+/* 实例号/归属一行：与主机名同列、字号收小，避免抢主标题。 */
+.instances-module .page-header__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+  line-height: 1.6;
+  min-width: 0;
+}
+
+/* ---------- 过渡态徽标（紧凑图标动画） ----------
+   用户反馈："改成一个图标动画，或者改成一个方形的，不要使用长条，观感不是很好"
+   —— 原实现是一条贯穿整宽的流动条，在页头这种信息密集处显得突兀。
+   改为小尺寸脉冲方块 + 文案，放在主机名之后与状态标签同排：
+   占用稳定（不随宽度伸展），一眼能看出"在跑"。 */
+.instances-module .transition-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px 6px;
+  border: 1px solid var(--td-brand-color-3, #c4c5c7);
+  border-radius: var(--hs-radius-md);
+  background: var(--td-brand-color-1, #f2f3f3);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* 方形脉冲块：缩放 + 透明度呼吸。方形（不是长条）是用户明确要求。 */
+.instances-module .transition-badge__pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--instances-green);
+  animation: instances-pulse 1.1s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes instances-pulse {
+  0%,
+  100% {
+    transform: scale(0.7);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+
+.instances-module .transition-badge__text {
+  color: var(--instances-green);
+}
+
+.instances-module .transition-badge__elapsed {
+  color: var(--color-muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 尊重系统的"减少动态效果"偏好：脉冲停掉但仍可见（不隐藏状态）。 */
+@media (prefers-reduced-motion: reduce) {
+  .instances-module .transition-badge__pulse {
+    animation: none;
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .instances-module .page-header__main {
@@ -459,19 +558,8 @@
   color: var(--td-text-color-primary);
 }
 
-/* ---------- TDesign 表格细节优化 ---------- */
-.instances-module .t-table__th {
-  background: var(--instances-green-soft) !important;
-  color: #3f5848 !important;
-  border-bottom-color: var(--instances-green-border) !important;
-  font-weight: 600 !important;
-}
-
-.instances-module .t-table__tr--hover > .t-table__td,
-.instances-module .t-table__row--hover > .t-table__td {
-  background: rgba(var(--color-primary-rgb), 0.035) !important;
-  transition: background-color var(--hs-duration-fast);
-}
+/* ---------- TDesign 表格细节优化 ----------
+   表头样式已统一到全局 styles/table-head.css（此前的 `.t-table__th` 是死选择器）。 */
 
 /*
  * 主色按钮统一到模块绿。**必须排除 text / outline 变体**：
@@ -738,38 +826,6 @@
   overflow: hidden;
 }
 
-/* ---------- 身份行 ---------- */
-.instances-module .hero-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-md);
-  padding: var(--space-lg) var(--space-xl) var(--space-md);
-  flex-wrap: wrap;
-}
-
-.instances-module .hero-identity {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  min-width: 0;
-}
-
-.instances-module .hero-identity__text {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.instances-module .hero-identity__name {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
 /* 主机名是这一屏最该被记住的信息：加大加粗，与下面的元信息拉开层级。 */
 .instances-module .hero-hostname {
   font-size: 19px;
@@ -777,15 +833,6 @@
   line-height: 1.3;
   color: var(--color-foreground);
   word-break: break-all;
-}
-
-.instances-module .hero-identity__meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-lg);
-  flex-wrap: wrap;
-  font-size: 12px;
-  color: var(--color-muted-foreground);
 }
 
 .instances-module .hero-id {
@@ -819,13 +866,6 @@
 
 .instances-module .hero-user:hover {
   text-decoration: underline;
-}
-
-.instances-module .hero-tags {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
 }
 
 /* ---------- 交付参数栅格 ---------- */
@@ -1179,9 +1219,30 @@
   color: var(--color-foreground);
 }
 
+/* 行内跳转链接（"查看客户资料"…）。排版对两类都适用。 */
 .instances-module .inline-link {
   margin-left: 8px;
   font-size: 12px;
+}
+
+/* 裸 <router-link> 只写了 margin/font-size 时，拿到的是**浏览器默认链接色**
+   （#0000EE + 下划线），与设计系统完全脱节 —— 用户实测反馈"跳转标签的样式丢失了"。
+   与同模块的 .hero-user 统一：品牌色、默认不带下划线、悬停才出现。
+
+   `:not(.t-link)`：TDesign 的 <t-link> 同样渲染成 <a>，且本模块另有一处
+   （详情页「来源订单」的「查看」）复用了 .inline-link 类名 —— 不加这个排除，
+   本规则会以更高特异性盖掉它的 theme="primary" 品牌色，把一个刻意的主色链接
+   染成正文色。只修裸链接，不碰组件。 */
+.instances-module .inline-link:not(.t-link) {
+  color: var(--instances-green);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color var(--hs-duration-fast);
+}
+
+.instances-module .inline-link:not(.t-link):hover {
+  color: var(--instances-green-hover);
+  text-decoration: underline;
 }
 
 /* ---------- 配置与财务 ---------- */
@@ -1331,7 +1392,6 @@
     border-bottom: none;
   }
 
-  .instances-module .hero-head,
   .instances-module .hero-cell,
   .instances-module .hero-billing__item,
   .instances-module .hero-note {
@@ -1368,6 +1428,14 @@
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+
+/* 左对齐变体：用于弹窗中的说明性勾选项（如"只清本地记录"），
+   它不是动作按钮，右对齐会让它与下方的提交按钮视觉上混成一排。 */
+.instances-module .destroy-actions--left {
+  justify-content: flex-start;
+  margin-top: 0;
+  margin-bottom: 8px;
 }
 
 /* ---------- 过渡态动画（上游指令执行中） ----------
@@ -1445,54 +1513,6 @@
    用户明确要求"关机/开机的过程中加一个加载动画"：只转一个小图标不够显眼。
    这里用**不确定态**流动条（不是真实百分比）：上游不回报进度，
    画一个假百分比会误导运营以为能看到还剩多久。 */
-.instances-module .transition-alert__body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.instances-module .transition-alert__text {
-  line-height: 1.6;
-}
-
-.instances-module .transition-progress {
-  position: relative;
-  display: block;
-  height: 3px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: var(--td-brand-color-2, #d9e7ff);
-}
-
-.instances-module .transition-progress::after {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 35%;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--td-brand-color, #0052d9) 45%,
-    var(--td-brand-color, #0052d9) 55%,
-    transparent
-  );
-  animation: instances-progress 1.6s ease-in-out infinite;
-}
-
-@keyframes instances-progress {
-  0% {
-    left: -35%;
-  }
-  100% {
-    left: 100%;
-  }
-}
 
 @media (prefers-reduced-motion: reduce) {
-  .instances-module .transition-progress::after {
-    /* 动画停掉后不能留一条透明的空条：改成常显的静态指示。 */
-    left: 32%;
-    animation: none;
-  }
 }

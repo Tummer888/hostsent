@@ -27,8 +27,14 @@ var (
 	ErrPermissionDenied = errors.New("操作未通过安全校验")
 	// ErrStatusConflict 当前状态不允许该操作。
 	ErrStatusConflict = errors.New("当前实例状态不允许该操作")
-	// ErrProviderUnavailable 上游服务商配置不可用。
-	ErrProviderUnavailable = errors.New("上游服务商不可用")
+	// ErrProviderUnavailable 渠道配置不可用（渠道被删/禁用/凭证缺失等）。
+	//
+	// 措辞用中性的"渠道"而不是"上游服务商"：本模块同时覆盖自营（compute，
+	// 机器由本平台开通）与转售（upstream）两类实例 —— 自营实例报"上游服务商
+	// 不可用"与它自己的链路直接冲突（用户实测反馈：
+	// "几个实例明明就是自营的，他这里报错说是上游的渠道问题，有明显的冲突"）。
+	// 需要区分称呼的地方由 rewordChannelError 按实例链路补上"平台/上游"前缀。
+	ErrProviderUnavailable = errors.New("渠道不可用")
 	// ErrInstanceNotProvisioned 实例尚未在上游开通（待开通占位行，provider_instance_id 为空）：
 	// 电源/维护/变配等上游操作无从下手，应先「重新开通」或等待开通完成。
 	ErrInstanceNotProvisioned = errors.New("实例尚未开通（待开通状态），请先点「重新开通」")
