@@ -636,7 +636,7 @@ func backfillUpstreamQuantityOptions(db *gorm.DB) error {
 			WHERE p.deleted_at IS NULL
 			  AND p.source_mode = 'upstream'
 			  AND rp.raw_specs IS NOT NULL AND rp.raw_specs <> ''
-			  AND (o->>'option_type')::int = ANY(`+qtyTypes+`)
+			  AND (o->>'option_type')::int = ANY(` + qtyTypes + `)
 		)
 		UPDATE product_config_options pco
 		SET min_value = opts.qmin,
@@ -677,7 +677,7 @@ func backfillUpstreamQuantityOptions(db *gorm.DB) error {
 			WHERE p.deleted_at IS NULL
 			  AND p.source_mode = 'upstream'
 			  AND rp.raw_specs IS NOT NULL AND rp.raw_specs <> ''
-			  AND (o->>'option_type')::int = ANY(`+qtyTypes+`)
+			  AND (o->>'option_type')::int = ANY(` + qtyTypes + `)
 		)
 		UPDATE product_config_options_sub pcos
 		SET qty_minimum = subs.sqmin,

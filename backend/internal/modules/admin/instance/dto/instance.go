@@ -60,7 +60,7 @@ type InstanceItem struct {
 	//
 	// 前端一律用本字段决定措辞与入口，不要自行拼 source_mode 字符串判等：
 	// 历史行可能有空值，判等容易漏（后端已把空值按更安全的语义归一）。
-	Resale bool `json:"resale"`
+	Resale         bool   `json:"resale"`
 	LifecycleStage string `json:"lifecycle_stage"`
 	// InstanceType 产品类型（cloud_host/cdn/physical/…，迁移 108）：产品线导航与
 	// 「这类实例有几个」的计数依据。未知/空值已由仓储归一为 other。

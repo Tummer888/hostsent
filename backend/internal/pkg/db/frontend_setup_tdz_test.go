@@ -127,7 +127,7 @@ func findSetupTDZ(src string) []string {
 			if dline <= i+1 {
 				continue
 			}
-			if regexp.MustCompile(`\b`+regexp.QuoteMeta(name)+`\b`).MatchString(firstArg) {
+			if regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`).MatchString(firstArg) {
 				out = append(out, "第 "+itoa(i+1)+" 行的 watch 读取了第 "+itoa(dline)+
 					" 行才声明的「"+name+"」")
 			}

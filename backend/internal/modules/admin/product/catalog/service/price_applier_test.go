@@ -43,6 +43,7 @@ func (f *fakeProductRepo) FindByID(_ context.Context, id uint64) (*model.Product
 	}
 	return f.findByID, nil
 }
+
 // FindByCode 按 items 里的编码查（建品查重用）；未命中返回 not found，与真实仓库一致。
 func (f *fakeProductRepo) FindByCode(_ context.Context, code string) (*model.Product, error) {
 	for i := range f.items {

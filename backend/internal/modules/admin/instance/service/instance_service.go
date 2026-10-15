@@ -443,7 +443,7 @@ func provisioned(row *repository.InstanceRow) bool {
 //
 // 兜底：source_mode 为空的历史行（迁移前数据）按"是否绑定了上游镜像"判定 ——
 // 有 upstream_product_id 说明确实对着一个上游资源商品，按对接处理更安全
-//（宁可多给入口，也不要让真正对接的实例失去换绑能力）。
+// （宁可多给入口，也不要让真正对接的实例失去换绑能力）。
 func resaleInstance(row *repository.InstanceRow) bool {
 	if row == nil {
 		return false
