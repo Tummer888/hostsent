@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 
 	"hostsent/backend/internal/modules/admin/product/catalog/dto"
@@ -137,10 +138,19 @@ type CustomerOption struct {
 	Help         string   `json:"help"`
 	MinValue     *float64 `json:"min_value"`
 	MaxValue     *float64 `json:"max_value"`
-	// UnitPrice 数量型选项的「每单位加价」（元）。枚举型的加价随取值逐项下发，
-	// 数量型没有离散取值可挂价格，故单独给出，供前端实时估算超量加价。
-	UnitPrice float64              `json:"unit_price"`
-	Values    []CustomerOptionItem `json:"values"`
+	// UnitPrice 数量型选项的「每单位加价」（元，**月度口径**）。枚举型的加价随取值
+	// 逐项下发，数量型没有离散取值可挂价格，故单独给出，供前端实时估算超量加价。
+	//
+	// 注意：这只是月度基准。长周期必须用下面三档周期单价——
+	// 上游给每个周期各一个单价（系统盘 0.8/月、2.4/季、9.6/年），
+	// 只按月度单价估算会让年付订单少收一截（实测年付只加了一个月的钱）。
+	UnitPrice float64 `json:"unit_price"`
+	// 数量型选项的季度 / 年度 / 一次性单位加价；为 0 表示上游该周期未单独给价，
+	// 前端与后端都按"回落月度单价"处理（见 quantityUnitPriceForCycle）。
+	UnitPriceQuarterly float64              `json:"unit_price_quarterly"`
+	UnitPriceAnnually  float64              `json:"unit_price_annually"`
+	UnitPriceOnetime   float64              `json:"unit_price_onetime"`
+	Values             []CustomerOptionItem `json:"values"`
 }
 
 // CustomerOptionItem 客户可见的一个可选值。
@@ -497,8 +507,19 @@ func (s *productService) Create(ctx context.Context, req dto.ProductCreateReques
 			return nil, err
 		}
 	}
-	if err := s.repo.Create(ctx, item); err != nil {
+	// 建品前查重：products.code 上有唯一索引（idx_catalog_products_code），撞了会直接抛
+	// SQLSTATE 23505。实测故障：运营用前端自动生成的 ch-4-c-6g 再建一个「魔方云 4核6G」时，
+	// 界面只显示一行 SQL 报错，看不出是编码重复。这里在落库前查一遍，给出可读原因。
+	if dup, err := s.repo.FindByCode(ctx, item.Code); err == nil && dup != nil {
+		return nil, fmt.Errorf("%w：编码「%s」已被商品「%s」占用，请修改 SKU 编码",
+			ErrProductCodeExists, item.Code, dup.Name)
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
+	}
+	// 落库兜底：应用层查重挡不住并发竞态（两人同时提交同一编码），
+	// 唯一索引才是最终权威，这一层保证任何漏网情形也只给可读提示。
+	if err := s.repo.Create(ctx, item); err != nil {
+		return nil, translateProductCodeConflict(err, item.Code)
 	}
 	// 记录创建历史
 	_ = s.repo.AddHistory(ctx, &model.ProductHistory{
@@ -1571,8 +1592,17 @@ func (s *productService) CloneFromUpstream(ctx context.Context, req dto.ProductC
 	if item.Status == 0 {
 		item.Status = model.ProductStatusDraft
 	}
+	// 同一个上游商品导入第二次时，编码会与首次导入撞（编码由导入方按商品派生，
+	// 重复导入同一商品必然得到同一个码）。不查重直接插入会让运营看到
+	// SQLSTATE 23505 原文，这里统一翻译成可读提示。
+	if dup, derr := s.repo.FindByCode(ctx, item.Code); derr == nil && dup != nil {
+		return nil, fmt.Errorf("%w：该上游商品已导入过（编码「%s」属于商品「%s」）；如需刷新请到商品详情页同步，或删除后重新导入",
+			ErrProductCodeExists, item.Code, dup.Name)
+	} else if derr != nil && !errors.Is(derr, gorm.ErrRecordNotFound) {
+		return nil, derr
+	}
 	if err := s.repo.Create(ctx, item); err != nil {
-		return nil, err
+		return nil, translateProductCodeConflict(err, item.Code)
 	}
 	if len(cloneGroups) > 0 {
 		_ = s.repo.SaveConfigOptions(ctx, item.ID, cloneGroups)
@@ -1722,6 +1752,33 @@ func (s *productService) CloneFromUpstreamBatch(ctx context.Context, req dto.Pro
 		}
 	}
 	return resp, nil
+}
+
+// translateProductCodeConflict 把「商品编码唯一约束冲突」翻译成可读业务错误。
+//
+// 为什么需要（实测故障）：新建产品时用了已存在的编码，后端把
+// `ERROR: duplicate key value violates unique constraint "idx_catalog_products_code" (SQLSTATE 23505)`
+// 原样返回，前端只显示一行 SQL 报错——运营既不知道错在哪，也不知道下一步做什么。
+//
+// 为什么在查重之后还要这层兜底：查重与插入之间存在竞态窗口（两人同时提交同一编码），
+// 应用层查重挡不住，唯一索引才是最终权威。这层保证任何漏网情形也不会把 SQL 原文抛给运营。
+//
+// 非编码冲突的错误原样返回：不能把其它 23505 误报成商品编码问题。
+func translateProductCodeConflict(err error, code string) error {
+	if !isUniqueViolationOn(err, "idx_catalog_products_code") &&
+		!strings.Contains(err.Error(), "idx_catalog_products_code") {
+		return err
+	}
+	return fmt.Errorf("%w：编码「%s」已被占用，请换一个 SKU 编码", ErrProductCodeExists, code)
+}
+
+// isUniqueViolationOn 判定 PG 唯一约束冲突且约束名匹配。
+func isUniqueViolationOn(err error, constraint string) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23505" && pgErr.ConstraintName == constraint
+	}
+	return false
 }
 
 // batchCloneFailureReason 把建库错误翻译成运营能看懂的原因。
@@ -2257,8 +2314,11 @@ func upstreamConfigOptionOverride(groups interface{}, selections map[string]stri
 	}
 	var parsed []struct {
 		Options []struct {
-			ID  flexInt64 `json:"id"`
-			Sub []struct {
+			ID         flexInt64 `json:"id"`
+			OptionType int       `json:"option_type"`
+			QtyMinimum int       `json:"qty_minimum"`
+			QtyMaximum int       `json:"qty_maximum"`
+			Sub        []struct {
 				// 上游 id 在镜像里可能以数字或字符串下发，解码必须两种都吃得下：
 				// 一处类型不符就会让整个 json.Unmarshal 失败、映射静默变空（选配全丢）。
 				ID flexInt64 `json:"id"`
@@ -2277,6 +2337,25 @@ func upstreamConfigOptionOverride(groups interface{}, selections map[string]stri
 			}
 			chosen, ok := selections[key]
 			if !ok || strings.TrimSpace(chosen) == "" {
+				continue
+			}
+			// 数量型配置项（系统盘/数据盘/带宽/IP…）：上游收的是**数量本身**，
+			// 不是子项 id。上游 ConfigOptions::filterConfigOptions 对 judgeQuantity
+			// 为真的 option_type 直接把该数值夹到 qty_minimum..qty_maximum 后作为取值，
+			// 前端也是拉条/输入框。若照枚举型那样按 sub id 匹配，客户填的 "100"（GB）
+			// 根本不会命中任何子项 —— 参数被丢弃，上游按默认配置开通（白扣一次款）。
+			if isQuantityOption(opt.OptionType) {
+				if n, err := strconv.ParseFloat(strings.TrimSpace(chosen), 64); err == nil {
+					// 按上游同一口径夹取（低于下限取下限、高于上限取上限）：
+					// 报错会把整单卡死，而上游本身就是"越界即夹"，与其行为保持一致。
+					if float64(opt.QtyMinimum) > n {
+						n = float64(opt.QtyMinimum)
+					}
+					if opt.QtyMaximum > 0 && float64(opt.QtyMaximum) < n {
+						n = float64(opt.QtyMaximum)
+					}
+					out[key] = strconv.FormatFloat(n, 'f', -1, 64)
+				}
 				continue
 			}
 			for _, sub := range opt.Sub {

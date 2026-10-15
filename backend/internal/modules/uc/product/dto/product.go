@@ -88,9 +88,16 @@ type Option struct {
 	Help         string   `json:"help"`
 	MinValue     *float64 `json:"min_value"`
 	MaxValue     *float64 `json:"max_value"`
-	// UnitPrice 数量型选项的每单位加价（元）；枚举型加价在 Values 里逐项给出。
-	UnitPrice float64      `json:"unit_price"`
-	Values    []OptionItem `json:"values"`
+	// UnitPrice 数量型选项的每单位加价（元，月度口径）；枚举型加价在 Values 里逐项给出。
+	//
+	// 长周期必须用下面三档：上游每个周期各有单价（系统盘 0.8/月、2.4/季、9.6/年），
+	// 前端按当前所选周期取值估算，只按月度估会让年付预览远低于实付
+	// （用户反馈的"加配硬盘不随年付叠加"）。
+	UnitPrice          float64      `json:"unit_price"`
+	UnitPriceQuarterly float64      `json:"unit_price_quarterly"`
+	UnitPriceAnnually  float64      `json:"unit_price_annually"`
+	UnitPriceOnetime   float64      `json:"unit_price_onetime"`
+	Values             []OptionItem `json:"values"`
 }
 
 // OptionItem 一个可选值及其加价。

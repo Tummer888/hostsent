@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"strconv"
 	"strings"
 
 	"hostsent/backend/internal/modules/admin/product/catalog/dto"
@@ -61,8 +62,11 @@ type upstreamConfigGroup struct {
 
 type upstreamConfigOption struct {
 	OptionName string              `json:"option_name"`
+	OptionType int                 `json:"option_type"`
 	Source     string              `json:"source"`
 	SourceKey  string              `json:"source_key"`
+	QtyMinimum int                 `json:"qty_minimum"`
+	QtyMaximum int                 `json:"qty_maximum"`
 	Sub        []upstreamConfigSub `json:"sub"`
 }
 
@@ -137,13 +141,22 @@ func upstreamOptionLocksFromRaw(groups []upstreamConfigGroup) []dto.ProductUpstr
 			}
 			seen[key] = true
 			subs := visibleUpstreamSubs(opt)
+			// 数量型配置项（系统盘/数据盘/带宽/IP…）不是"固定配置"：上游收的是一个
+			// 可填的数值（qty_minimum..qty_maximum），客户能自行指定容量/数量。
+			// 只有一个价档的数量型项（如数据盘只有一个 0~1024 档）若按"单值即锁定"
+			// 展示，客户会以为这项改不了 —— 实测就是这个表现（数据盘被标成固定配置）。
+			//
+			// 展示值取"可填区间"而不是价档名（价档名多为"数据盘"这类无信息量的词）。
+			isQty := isQuantityOption(opt.OptionType)
 			item := dto.ProductUpstreamOption{
 				OptionName: strings.TrimSpace(opt.OptionName),
 				Key:        key,
-				Locked:     len(subs) <= 1,
+				Locked:     !isQty && len(subs) <= 1,
 				SubCount:   len(subs),
 			}
-			if len(subs) > 0 {
+			if isQty {
+				item.Value = quantityRangeText(opt.QtyMinimum, opt.QtyMaximum)
+			} else if len(subs) > 0 {
 				item.Value = strings.TrimSpace(subs[0].OptionName)
 			}
 			out = append(out, item)
@@ -417,4 +430,18 @@ func rowFloat(row map[string]interface{}, key string) (float64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// quantityRangeText 数量型配置项的展示值（"80 – 1024 GB"这类可填区间）。
+// 用于上游链路展示：让运营/客户一眼看出这项能自己填多少，而不是"someday 固定的"。
+func quantityRangeText(min, max int) string {
+	switch {
+	case min > 0 && max > 0:
+		return strconv.Itoa(min) + " – " + strconv.Itoa(max)
+	case max > 0:
+		return "最大 " + strconv.Itoa(max)
+	case min > 0:
+		return "最小 " + strconv.Itoa(min)
+	}
+	return ""
 }

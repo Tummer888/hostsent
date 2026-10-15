@@ -53,3 +53,31 @@ func TestUpstreamChainForHidesInternalPrices(t *testing.T) {
 
 // 类型断言：接口字段确实挂在 uc ProductInfo 上（前端读取 upstream_chain）。
 var _ = func(p dto.ProductInfo) any { return p.Upstream }
+
+// TestFromAdminCarriesStock 列表映射必须带上商品级库存。
+//
+// 实测故障：fromAdmin 漏了 Stock 一个字段，列表接口里所有商品都成了库存 0，
+// 用户端把「stock === 0」读作已售罄 —— 整个商品列表全部显示「已售罄」且无法购买，
+// 而库存实际有货（详情接口另有赋值，所以只有列表是坏的，更难发现）。
+func TestFromAdminCarriesStock(t *testing.T) {
+	cases := []struct {
+		name  string
+		stock int
+	}{
+		{"不限量（-1）必须原样透出，不能被当成 0/售罄", -1},
+		{"有货", 188},
+		{"售罄", 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := fromAdmin(catalogdto.ProductInfo{ID: 1, Name: "x", Stock: c.stock})
+			if got.Stock != c.stock {
+				t.Errorf("Stock = %d, want %d", got.Stock, c.stock)
+			}
+		})
+	}
+	// 反向断言：不限量不能被压成 0（那正是"全部售罄"的表现）。
+	if got := fromAdmin(catalogdto.ProductInfo{ID: 1, Stock: -1}); got.Stock == 0 {
+		t.Error("不限量被写成 0 会让前台判定为已售罄")
+	}
+}

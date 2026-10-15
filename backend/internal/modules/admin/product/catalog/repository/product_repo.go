@@ -19,6 +19,10 @@ import (
 type ProductRepository interface {
 	List(ctx context.Context, query dto.ProductListQuery) ([]model.Product, int64, error)
 	FindByID(ctx context.Context, id uint64) (*model.Product, error)
+	// FindByCode 按商品编码取商品（建品查重 / 批量导入跳过已导入项用）。
+	// products.code 上有唯一索引（idx_catalog_products_code）：先查后插才能给出
+	// "编码已被占用"的可读提示，否则撞唯一约束会把 SQLSTATE 23505 原文抛给运营。
+	FindByCode(ctx context.Context, code string) (*model.Product, error)
 	Create(ctx context.Context, item *model.Product) error
 	Update(ctx context.Context, item *model.Product) error
 	Delete(ctx context.Context, id uint64) error
@@ -155,6 +159,18 @@ func (r *productRepository) categorySubtreeIDs(ctx context.Context, rootID uint6
 func (r *productRepository) FindByID(ctx context.Context, id uint64) (*model.Product, error) {
 	var item model.Product
 	if err := r.db.WithContext(ctx).First(&item, id).Error; err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
+// FindByCode 按编码查商品；不存在返回 gorm.ErrRecordNotFound。
+//
+// 这是建品查重的依据。注意它只做"尽力而为"的前置检查：真正的唯一性由
+// idx_catalog_products_code 保证，并发下仍可能冲突，上层另有兜底文案。
+func (r *productRepository) FindByCode(ctx context.Context, code string) (*model.Product, error) {
+	var item model.Product
+	if err := r.db.WithContext(ctx).Where("code = ?", strings.TrimSpace(code)).First(&item).Error; err != nil {
 		return nil, err
 	}
 	return &item, nil
@@ -370,9 +386,12 @@ type configSub struct {
 	OptionName string `json:"option_name"`
 	QtyMinimum int    `json:"qty_minimum"`
 	QtyMaximum int    `json:"qty_maximum"`
-	UpstreamID int64  `json:"upstream_id"`
-	Source     string `json:"source,omitempty"`
-	SourceKey  string `json:"source_key,omitempty"`
+	// IsQuantityTier 上游数量型选项的"价档"标记（落库后回读时用），
+	// 区分「这是按量计价的档位」与「这是一个可选取值」。
+	IsQuantityTier bool   `json:"is_quantity_tier,omitempty"`
+	UpstreamID     int64  `json:"upstream_id"`
+	Source         string `json:"source,omitempty"`
+	SourceKey      string `json:"source_key,omitempty"`
 	// GroupLabel/Help/IsDefault 用户侧分组下拉、取值含义与默认选中（T4.5）。
 	GroupLabel string        `json:"group_label,omitempty"`
 	Help       string        `json:"help,omitempty"`
@@ -488,6 +507,50 @@ func (r *productRepository) SaveSelfOptionRows(ctx context.Context, productID ui
 	})
 }
 
+// quantityOptionType 数量型配置项的 option_type 集合。
+//
+// 口径直接对齐上游 common.php::judgeQuantity（4/7/9/11/14/15/16/17/18/19）。
+// 为什么必须按这张表判：上游对数量型选项**不收子项 id 而收数量本身**
+// （ConfigOptions::filterConfigOptions 里 judgeQuantity 为真时直接把数值夹到
+// qty_minimum..qty_maximum 后作为取值下发），前端也把它渲染成拉条/输入框。
+// 若按普通下拉处理，客户只能从几个价档里挑一个 id，既选不了"100G 系统盘"，
+// 下发的 id 也会被上游当成数量解析成错误的值。
+func quantityOptionType(optionType int) bool {
+	switch optionType {
+	case 4, 7, 9, 11, 14, 15, 16, 17, 18, 19:
+		return true
+	}
+	return false
+}
+
+// isQuantityWidget 判断落库的选项是否为数量型（回读时用）。
+//
+// 以 option_type 为准而不是 widget 字符串：widget 是本地渲染口径，历史行可能是
+// select；option_type 来自上游镜像，是"这项到底怎么计价"的权威标记。
+func isQuantityWidget(opt *model.ProductConfigOption) bool {
+	return opt != nil && opt.Source == model.ConfigSourceUpstream && quantityOptionType(opt.OptionType)
+}
+
+// quantityTierFreeMax 数量型选项的免费额度：零价档覆盖到的最大数量。
+//
+// 上游把"档位内含量"表达成一个价格为 0 的价档（如系统盘 80~80 价 0），
+// 客户按该额度开通时加价为 0；超过部分才按有价档计价。
+func quantityTierFreeMax(subs []configSub) int {
+	maxFree := 0
+	for _, s := range subs {
+		if s.Hidden != 0 {
+			continue
+		}
+		if float64(firstPrice(s.Pricings).Monthly) > 0 {
+			continue
+		}
+		if s.QtyMaximum > maxFree {
+			maxFree = s.QtyMaximum
+		}
+	}
+	return maxFree
+}
+
 // buildConfigOptionRows 把解析后的 config_groups 组织为商品配置项（含子项）行，便于落库。
 //
 // upstream_key 落库口径（2026-10-10 修正）：存**上游自身 id**（option.id / sub.id），
@@ -500,6 +563,39 @@ func buildConfigOptionRows(parsed []configGroup, productID uint64) []*model.Prod
 	for _, g := range parsed {
 		for _, opt := range g.Options {
 			source, sourceKey := normalizeConfigSource(opt.Source, opt.SourceKey, opt.UpstreamID, opt.ID)
+			// 数量型选项（系统盘/数据盘/带宽/IP…）：上游给的是「可填的数量区间」，
+			// 不是候选值。落库成带 min/max 的 qty 控件，客户才能填 100G 这样的具体值。
+			//
+			// 只对上游项做这层推导：自营项（source=self）本来就由建品页显式写入
+			// min/max/default 与 widget，这里不该再动它，否则会覆盖运营的配置。
+			isQty := source == model.ConfigSourceUpstream && quantityOptionType(opt.OptionType)
+			minValue := opt.MinValue
+			maxValue := opt.MaxValue
+			defaultValue := opt.DefaultValue
+			widget := opt.Widget
+			if isQty {
+				// 控件必须显式落成 qty：列默认值是 select，留空会让客户侧
+				// 按下拉渲染（只有几个价档、根本填不出 100G），必须在这里定死。
+				widget = model.ConfigWidgetQty
+				if opt.QtyMinimum != 0 || minValue == nil {
+					lo := float64(opt.QtyMinimum)
+					minValue = &lo
+				}
+				if opt.QtyMaximum > 0 {
+					hi := float64(opt.QtyMaximum)
+					maxValue = &hi
+				}
+				// 默认值 = 免费额度（零价档覆盖到的最大数量）：客户不填就是"档位内含量"，
+				// 加价为 0。缺省时按上游口径回落最小值（filterConfigOptions 里
+				// configoptions 取 0/空时用 qty_minimum）。
+				if strings.TrimSpace(defaultValue) == "" {
+					free := quantityTierFreeMax(opt.Sub)
+					if free == 0 {
+						free = opt.QtyMinimum
+					}
+					defaultValue = strconv.Itoa(free)
+				}
+			}
 			option := &model.ProductConfigOption{
 				ProductID:    productID,
 				UpstreamKey:  upstreamCartKey(opt.ID, opt.UpstreamID),
@@ -509,12 +605,12 @@ func buildConfigOptionRows(parsed []configGroup, productID uint64) []*model.Prod
 				OptionType:   intOr(opt.OptionType, 1),
 				ProviderType: opt.ProviderType,
 				OptionKey:    firstNonEmptyStr(opt.OptionKey, sourceKey),
-				Widget:       opt.Widget,
+				Widget:       widget,
 				Required:     opt.Required,
-				DefaultValue: opt.DefaultValue,
+				DefaultValue: defaultValue,
 				WidgetGroup:  opt.WidgetGroup,
-				MinValue:     opt.MinValue,
-				MaxValue:     opt.MaxValue,
+				MinValue:     minValue,
+				MaxValue:     maxValue,
 				Unit:         opt.Unit,
 				Help:         opt.Help,
 				OptionsHelp:  nullableJSONText(opt.OptionsHelp),
@@ -533,6 +629,9 @@ func buildConfigOptionRows(parsed []configGroup, productID uint64) []*model.Prod
 					PriceAnnually:  float64(price.Annually),
 					PriceQuarterly: float64(price.Quarterly),
 					PriceOnetime:   float64(price.Onetime),
+					QtyMinimum:     sub.QtyMinimum,
+					QtyMaximum:     sub.QtyMaximum,
+					IsQuantityTier: isQty,
 					GroupLabel:     sub.GroupLabel,
 					Help:           sub.Help,
 					IsDefault:      sub.IsDefault,
@@ -771,18 +870,31 @@ func buildConfigGroups(options []*model.ProductConfigOption) []interface{} {
 			OptionsHelp:  jsonTextOrEmpty(opt.OptionsHelp),
 			Sub:          make([]configSub, 0, len(opt.Subs)),
 		}
+		// 数量型选项的可填区间回读成 qty_minimum/qty_maximum：适配器按这两个字段
+		// 判定"这是数量变量"（与上游同名同义），丢了就会当成普通可选项下发子项 id。
+		if isQuantityWidget(opt) {
+			if opt.MinValue != nil {
+				copt.QtyMinimum = int(*opt.MinValue)
+			}
+			if opt.MaxValue != nil {
+				copt.QtyMaximum = int(*opt.MaxValue)
+			}
+		}
 		for _, sub := range opt.Subs {
 			copt.Sub = append(copt.Sub, configSub{
-				ID:         sub.UpstreamKey,
-				OptionName: sub.OptionName,
-				UpstreamID: parseIDOrZero(sub.SourceKey),
-				Source:     sub.Source,
-				SourceKey:  sub.SourceKey,
-				GroupLabel: sub.GroupLabel,
-				Help:       sub.Help,
-				IsDefault:  sub.IsDefault,
-				Hidden:     sub.Hidden,
-				SortOrder:  sub.SortOrder,
+				ID:             sub.UpstreamKey,
+				OptionName:     sub.OptionName,
+				QtyMinimum:     sub.QtyMinimum,
+				QtyMaximum:     sub.QtyMaximum,
+				IsQuantityTier: sub.IsQuantityTier,
+				UpstreamID:     parseIDOrZero(sub.SourceKey),
+				Source:         sub.Source,
+				SourceKey:      sub.SourceKey,
+				GroupLabel:     sub.GroupLabel,
+				Help:           sub.Help,
+				IsDefault:      sub.IsDefault,
+				Hidden:         sub.Hidden,
+				SortOrder:      sub.SortOrder,
 				Pricings: []configPrice{{
 					Monthly:   flexFloat(sub.PriceMonthly),
 					Annually:  flexFloat(sub.PriceAnnually),

@@ -429,3 +429,94 @@ func TestUpstreamConfigOptionOverride(t *testing.T) {
 		t.Errorf("非法取值不应产出映射：%+v", bad)
 	}
 }
+
+// TestUpstreamConfigOptionOverrideQuantity 数量型配置项下发的是**数量本身**，不是子项 id。
+//
+// 这是"按量定价"能生效的关键：上游 ConfigOptions::filterConfigOptions 对
+// judgeQuantity 为真的 option_type（4/7/9/11/14/15/16/17/18/19）直接把该数值
+// 夹到 qty_minimum..qty_maximum 后作为取值用。若照枚举型按 sub id 匹配，
+// 客户填的 "100"（GB）不会命中任何子项 —— 参数被丢弃，上游按默认配置开通（白扣款）。
+func TestUpstreamConfigOptionOverrideQuantity(t *testing.T) {
+	groups := []interface{}{map[string]interface{}{
+		"options": []interface{}{
+			// 数量型（系统盘）：区间 80–1024
+			map[string]interface{}{
+				"id":          float64(241017),
+				"option_type": float64(19),
+				"qty_minimum": float64(80),
+				"qty_maximum": float64(1024),
+				"sub":         []interface{}{map[string]interface{}{"id": float64(1036029)}},
+			},
+			// 枚举型（操作系统）：仍按下发取值 id
+			map[string]interface{}{
+				"id":  float64(241014),
+				"sub": []interface{}{map[string]interface{}{"id": float64(565660)}},
+			},
+		},
+	}}
+
+	got := upstreamConfigOptionOverride(groups, map[string]string{
+		"241017": "100",    // 要 100G 系统盘
+		"241014": "565660", // 选某个操作系统
+	})
+	if got["241017"] != "100" {
+		t.Errorf("数量型应下发数量本身，got %#v", got["241017"])
+	}
+	if got["241014"] != "565660" {
+		t.Errorf("枚举型应下发取值 id，got %#v", got["241014"])
+	}
+
+	// 越界按上游口径夹取（上游就是"越界即夹"，报错会把整单卡死）。
+	low := upstreamConfigOptionOverride(groups, map[string]string{"241017": "10"})
+	if low["241017"] != "80" {
+		t.Errorf("低于下限应夹到 min=80，got %#v", low["241017"])
+	}
+	high := upstreamConfigOptionOverride(groups, map[string]string{"241017": "99999"})
+	if high["241017"] != "1024" {
+		t.Errorf("高于上限应夹到 max=1024，got %#v", high["241017"])
+	}
+
+	// 非数字取值不产出映射（避免把脏值当数量下发）。
+	if bad := upstreamConfigOptionOverride(groups, map[string]string{"241017": "abc"}); len(bad) != 0 {
+		t.Errorf("非数字取值不应产出映射：%+v", bad)
+	}
+}
+
+// TestCustomerWidgetQuantityByOptionType option_type 属于上游数量型集合时，
+// 即使没有 min/max 也要判成 qty（历史行只有 option_type 可用）。
+func TestCustomerWidgetQuantityByOptionType(t *testing.T) {
+	for _, tp := range []int{4, 7, 9, 11, 14, 15, 16, 17, 18, 19} {
+		row := &catalogmodel.ProductConfigOption{OptionType: tp}
+		if got := customerWidget(row); got != optionWidgetQty {
+			t.Errorf("option_type=%d 控件 = %q, want qty", tp, got)
+		}
+	}
+	// 操作系统（5）等保持下拉。
+	if got := customerWidget(&catalogmodel.ProductConfigOption{OptionType: 5}); got != optionWidgetSelect {
+		t.Errorf("操作系统应保持 select, got %q", got)
+	}
+}
+
+// TestCustomerSelectableUpstreamQuantity 数量型即使只有一个价档也要开放给客户。
+//
+// 例：数据盘只有一个 0~1024 的 0.8 元/GB 档，按"单值即固定配置"会被滤掉，
+// 客户就完全没法指定盘的大小了。
+func TestCustomerSelectableUpstreamQuantity(t *testing.T) {
+	oneTier := &catalogmodel.ProductConfigOption{
+		OptionType: 14,
+		Subs: []catalogmodel.ProductConfigOptionSub{
+			{OptionName: "数据盘", QtyMinimum: 0, QtyMaximum: 1024, PriceMonthly: 0.8},
+		},
+	}
+	if !customerSelectableUpstream(oneTier) {
+		t.Error("数量型单价档也必须可售（否则客户指定不了容量）")
+	}
+	// 非数量型的单值固定配置仍然锁定。
+	fixed := &catalogmodel.ProductConfigOption{
+		OptionType: 5,
+		Subs:       []catalogmodel.ProductConfigOptionSub{{OptionName: "CentOS"}},
+	}
+	if customerSelectableUpstream(fixed) {
+		t.Error("单值枚举型仍应视为固定配置")
+	}
+}

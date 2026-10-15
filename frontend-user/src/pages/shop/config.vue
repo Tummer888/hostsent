@@ -190,17 +190,34 @@
                   @change="(v: SwitchValue) => setSelectionValue(opt, v)"
                 />
 
-                <!-- 步进器：超出档位内含量才加价 -->
+                <!--
+                  数量型：滑块 + 数值输入（上游按量计价，如系统盘 80–1024G、带宽 75–500M）。
+                  改成滑块是因为这类参数是"连续区间里的一个值"（不是几个候选档），
+                  拉一下就能看到加价怎么变，不用先猜个数字再看价。
+                  输入框保留：填精确值 / 键盘操作仍需要。
+                -->
                 <div v-else-if="optionWidget(opt) === 'qty'" class="config-option__qty">
-                  <t-input-number
+                  <t-slider
+                    class="config-option__slider"
                     :model-value="numberValue(opt)"
                     :min="opt.min_value ?? 0"
                     :max="opt.max_value ?? undefined"
                     :step="1"
-                    theme="normal"
-                    @change="(v: NumericValue) => setSelectionValue(opt, v ?? '')"
+                    :label="false"
+                    @change="(v: SliderValue) => setSelectionValue(opt, v)"
                   />
-                  <span v-if="opt.unit" class="config-option__qty-unit">{{ opt.unit }}</span>
+                  <div class="config-option__qty-input">
+                    <t-input-number
+                      :model-value="numberValue(opt)"
+                      :min="opt.min_value ?? 0"
+                      :max="opt.max_value ?? undefined"
+                      :step="1"
+                      theme="normal"
+                      @change="(v: NumericValue) => setSelectionValue(opt, v ?? '')"
+                    />
+                    <span v-if="opt.unit" class="config-option__qty-unit">{{ opt.unit }}</span>
+                  </div>
+                  <span v-if="qtyRangeHint(opt)" class="config-option__qty-range">{{ qtyRangeHint(opt) }}</span>
                 </div>
 
                 <!-- 文本：主机名/登录密码等自由填写项；密码用遮蔽输入，避免明文示人 -->
@@ -359,6 +376,8 @@ import { htmlToPlainText } from '@/utils/rich-text'
 type SelectValue = string | number | boolean
 type SwitchValue = string | number | boolean
 type NumericValue = number | string | undefined
+// 滑块 change 回调：单选模式给数字，双滑块给数组（这里只用单选模式）。
+type SliderValue = number | number[]
 
 defineOptions({ name: 'ShopConfig' })
 
@@ -506,7 +525,9 @@ function itemAddPrice(opt: ProductOption, it: OptionItem): number {
 function optionSurcharge(opt: ProductOption): number {
   const widget = optionWidget(opt)
   if (widget === 'qty') {
-    const unit = opt.unit_price ?? 0
+    // 单位加价必须按当前周期取：上游每个周期各有单价（系统盘 0.8/月、2.4/季、9.6/年），
+    // 只按月度算会让年付订单的预览价远低于实付（用户反馈的"加配硬盘不随年付叠加"）。
+    const unit = qtyUnitPrice(opt)
     if (unit <= 0) return 0
     const def = opt.default_value !== '' ? Number(opt.default_value) : (opt.min_value ?? 0)
     const base = Number.isNaN(def) ? (opt.min_value ?? 0) : def
@@ -516,6 +537,19 @@ function optionSurcharge(opt: ProductOption): number {
   const chosen = selection.value[opt.option_key] || opt.default_value
   const item = opt.values.find((v) => v.value === chosen)
   return item ? itemAddPrice(opt, item) : 0
+}
+
+/**
+ * 数量型选项在当前周期的每单位加价。
+ * 该周期没有独立单价时回落月度价（与后端 quantityUnitPriceForCycle 同口径），
+ * 保证"前端估算 = 后端实付"，避免预览与下单金额不一致。
+ */
+function qtyUnitPrice(opt: ProductOption): number {
+  const cycle = selectedCycle.value
+  if (cycle === 'quarterly') return opt.unit_price_quarterly || opt.unit_price || 0
+  if (cycle === 'annually') return opt.unit_price_annually || opt.unit_price || 0
+  if (cycle === 'onetime') return opt.unit_price_onetime || opt.unit_price || 0
+  return opt.unit_price || 0
 }
 
 /**
@@ -662,12 +696,47 @@ function setSelection(opt: ProductOption, value: SelectValue) {
 }
 
 /** 统一写入选择：控件回调可能给字符串/数字/布尔，一律按字符串存。 */
-function setSelectionValue(opt: ProductOption, value: SelectValue | NumericValue | null) {
+function setSelectionValue(opt: ProductOption, value: SelectValue | NumericValue | SliderValue | null) {
+  // 滑块在双点位模式下给数组；本页只用单选模式，取首值兜底，避免把 "80,100" 写进选择。
+  const scalar = Array.isArray(value) ? value[0] : value
   selection.value = {
     ...selection.value,
-    [opt.option_key]: value === null || value === undefined ? '' : String(value),
+    [opt.option_key]: scalar === null || scalar === undefined ? '' : String(scalar),
   }
   refreshQuote()
+}
+
+/**
+ * 数量型选项的可填区间提示（如「可填 80 – 1024 GB，默认 80 GB」）。
+ *
+ * 为什么要把默认值和区间都写出来：这类参数按量计价，客户得知道
+ * 「多少是不加价的、最多能加到多少」，否则看到滑块两端不知道该往哪拉。
+ */
+function qtyRangeHint(opt: ProductOption): string {
+  if (optionWidget(opt) !== 'qty') return ''
+  const unit = opt.unit ? ` ${opt.unit}` : ''
+  const min = opt.min_value
+  const max = opt.max_value
+  const def = opt.default_value !== '' ? Number(opt.default_value) : NaN
+  const parts: string[] = []
+  if (min !== null && min !== undefined && max !== null && max !== undefined) {
+    parts.push(`可填 ${min} – ${max}${unit}`)
+  } else if (min !== null && min !== undefined) {
+    parts.push(`最小 ${min}${unit}`)
+  } else if (max !== null && max !== undefined) {
+    parts.push(`最大 ${max}${unit}`)
+  }
+  if (!Number.isNaN(def)) {
+    parts.push(`${def}${unit} 以内不加价`)
+  }
+  // 超出部分的单价随周期变化（上游每周期各一价），把当前周期的价格写出来，
+  // 客户拉滑块时才知道"多出来的这部分按什么价算"。
+  const unitPrice = qtyUnitPrice(opt)
+  if (unitPrice > 0) {
+    const label = selectedCycle.value ? cycleLabel(selectedCycle.value) : ''
+    parts.push(`超出部分 ¥${unitPrice.toFixed(2)}/${opt.unit || '单位'}${label ? `（${label}）` : ''}`)
+  }
+  return parts.filter(Boolean).join('，')
 }
 
 /** 切换规格：周期选项可能收窄，当前周期不在可选内时回落首个。 */
@@ -1033,16 +1102,46 @@ onMounted(async () => {
   color: var(--td-warning-color-6, #d97706);
 }
 
-.config-option__qty,
-.config-option__text {
+/*
+  数量型控件：滑块 + 数值输入并排。
+  滑块占满剩余宽度、输入框固定宽度 —— 让"往右拉 = 加价"这件事一眼可见，
+  同时保留精确输入的入口。
+*/
+.config-option__qty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.config-option__qty-row {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
 }
-
+.config-option__slider {
+  flex: 1;
+  min-width: 0;
+}
+.config-option__qty-input {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.config-option__qty-input :deep(.t-input-number) {
+  width: 128px;
+}
 .config-option__qty-unit {
   font-size: 12px;
   color: var(--color-muted-foreground);
+}
+.config-option__qty-range {
+  font-size: 11.5px;
+  color: var(--color-muted-foreground);
+}
+
+.config-option__text {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
 }
 
 .config-option__help {

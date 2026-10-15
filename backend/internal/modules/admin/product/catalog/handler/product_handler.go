@@ -69,6 +69,12 @@ func (h *ProductHandler) Create(c *gin.Context) {
 	operatorID, operatorName := operatorFromContext(c)
 	resp, err := h.productService.Create(c.Request.Context(), req, operatorID, operatorName)
 	if err != nil {
+		// 编码重复是可纠正的输入问题（换个 SKU 编码即可），用 20001 与其它参数错误同档；
+		// 落 50001 会让前端把它当成服务器故障，运营也只看到一行 SQL 原文。
+		if errors.Is(err, service.ErrProductCodeExists) {
+			response.Error(c, apperrors.New(20001, err.Error()))
+			return
+		}
 		response.Error(c, apperrors.New(50001, err.Error()))
 		return
 	}

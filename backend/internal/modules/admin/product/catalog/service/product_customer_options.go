@@ -55,7 +55,15 @@ func customerSubValue(sub catalogmodel.ProductConfigOptionSub, source string) st
 // customerSelectableUpstream 判断上游配置项是否对客户可选。
 // 上游配置项里只有一个可见取值的属于「固定配置」（锁定项，改不了也开不出来），
 // 由商品详情只读展示，不作为选配项；有多个可见取值的才允许客户在下单时选择。
+//
+// 例外：数量型配置项（系统盘/数据盘/带宽/IP…）按定义就是"客户填一个数值"，
+// 上游按数量收值、按区间计价。这类项即使只有一个价档（如数据盘只有一个
+// 0~1024 的 0.8 元/GB 档）也必须开放给客户 —— 否则客户完全无法指定盘的大小，
+// 只能按默认值开通，等于商品卖不出它该有的形态。
 func customerSelectableUpstream(row *catalogmodel.ProductConfigOption) bool {
+	if isQuantityOption(row.OptionType) {
+		return true
+	}
 	visible := 0
 	for _, sub := range row.Subs {
 		if sub.Hidden != 0 {
@@ -69,6 +77,18 @@ func customerSelectableUpstream(row *catalogmodel.ProductConfigOption) bool {
 	return false
 }
 
+// isQuantityOption 是否为数量型配置项（客户填数值，而不是从候选值里挑一个）。
+//
+// 口径对齐上游 common.php::judgeQuantity（4/7/9/11/14/15/16/17/18/19）。
+// 这类项上游收的是**数量本身**，不是子项 id —— 详见 upstreamConfigOptionOverride。
+func isQuantityOption(optionType int) bool {
+	switch optionType {
+	case 4, 7, 9, 11, 14, 15, 16, 17, 18, 19:
+		return true
+	}
+	return false
+}
+
 // customerWidget 归一控件类型：运营没显式配时按 option_type 与是否有分组推断。
 func customerWidget(row *catalogmodel.ProductConfigOption) string {
 	if strings.TrimSpace(row.Widget) != "" {
@@ -77,13 +97,14 @@ func customerWidget(row *catalogmodel.ProductConfigOption) string {
 	if row.MinValue != nil || row.MaxValue != nil {
 		return optionWidgetQty
 	}
+	if isQuantityOption(row.OptionType) {
+		return optionWidgetQty
+	}
 	switch row.OptionType {
 	case 2:
 		return optionWidgetRadio
 	case 3:
 		return optionWidgetBool
-	case 4:
-		return optionWidgetQty
 	}
 	return optionWidgetSelect
 }
@@ -129,7 +150,12 @@ func (s *productService) CustomerOptions(ctx context.Context, productID uint64) 
 			MaxValue:     row.MaxValue,
 		}
 		if widget == optionWidgetQty {
-			opt.UnitPrice = quantityUnitPrice(row)
+			// 四档单位加价都下发：前端按当前所选周期挑对应的那档估算，
+			// 只给月度值会让年付订单的预览价远低于实付（用户反馈过的"加配不按年叠加"）。
+			opt.UnitPrice = quantityUnitPriceForCycle(row, billingcycle.Monthly)
+			opt.UnitPriceQuarterly = quantityUnitPriceForCycle(row, billingcycle.Quarterly)
+			opt.UnitPriceAnnually = quantityUnitPriceForCycle(row, billingcycle.Annually)
+			opt.UnitPriceOnetime = quantityUnitPriceForCycle(row, billingcycle.Onetime)
 		}
 		grouped := false
 		rawNames := make([]string, 0, len(row.Subs))
@@ -335,7 +361,9 @@ func (s *productService) ResolveOptionPricing(ctx context.Context, productID uin
 				return nil, fmt.Errorf("配置项「%s」不能大于 %v", row.OptionName, *row.MaxValue)
 			}
 			result.Selections[key] = chosen
-			if unit := quantityUnitPrice(row); unit > 0 {
+			// 单位加价按**本单周期**取：上游每个周期各有单价（月 0.8 / 季 2.4 / 年 9.6），
+			// 恒取月价会让长周期订单少收配置费用。
+			if unit := quantityUnitPriceForCycle(row, cycleCode); unit > 0 {
 				// 档位内含量 = 默认值（缺省回落最小值）：客户按默认配置购买时加价为 0。
 				base := 0.0
 				if row.DefaultValue != "" {
@@ -462,15 +490,24 @@ func priceForCycle(sub catalogmodel.ProductConfigOptionSub, cycle string) float6
 	}
 }
 
-// quantityUnitPrice 数量型选项的"每单位加价"：取首个可见子项的月度价（运营约定）。
-func quantityUnitPrice(row *catalogmodel.ProductConfigOption) float64 {
+// quantityUnitPriceForCycle 数量型选项在**指定周期**下的每单位加价。
+//
+// 必须按周期取价（实测故障）：上游给价档的每个周期各有一个单价
+// （系统盘 0.80/月、2.40/季、9.60/年），而原实现恒取 PriceMonthly ——
+// 于是选年付时"套餐主体按年计价、加配的盘却仍只收一个月"，客户少付一大截
+// （实测：数据盘加 20GB，年付应加 192 元，实际只加 16 元）。
+//
+// 回落链与枚举型 priceForCycle 保持一致：该周期无独立价时回落月度价，
+// 避免上游只填了月价的老数据算成 0 元加价。
+func quantityUnitPriceForCycle(row *catalogmodel.ProductConfigOption, cycle string) float64 {
 	for _, sub := range row.Subs {
 		if sub.Hidden != 0 {
 			continue
 		}
-		if sub.PriceMonthly > 0 {
-			return sub.PriceMonthly
+		if sub.PriceMonthly <= 0 && sub.PriceQuarterly <= 0 && sub.PriceAnnually <= 0 && sub.PriceOnetime <= 0 {
+			continue
 		}
+		return priceForCycle(sub, cycle)
 	}
 	return 0
 }

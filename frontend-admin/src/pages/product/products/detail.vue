@@ -1,112 +1,168 @@
 <template>
   <div class="page-body product-module">
+    <!--
+      商品详情（与编辑页合并后的单页形态）。
+
+      为什么合并：原来「详情」只读、「编辑」才能改，运营改一个字段要跳一次页；
+      而且两边各渲染了一遍商品信息（详情用只读描述列表、编辑用表单），同样的字段
+      在两个页面两种样式。现在一页承载全部：顶部是页头 + 页级「保存」，
+      下方用子页导航（页签）分区，每区只保留**一处**编辑入口。
+    -->
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <AppIcon size="22" aria-hidden="true" />
+          <AppIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">{{ product?.name || '产品详情' }}</h2>
-          <p class="page-header__desc">SKU: {{ product?.code || '—' }}</p>
+          <p class="page-header__desc">
+            SKU: {{ product?.code || '—' }}
+            <template v-if="product">
+              · <t-tag :theme="sourceModeTag(product.source_mode).theme" variant="light" size="small" shape="round">
+                {{ sourceModeTag(product.source_mode).text }}
+              </t-tag>
+              <t-tag :theme="statusTag(product.status).theme" variant="light" size="small" shape="round">
+                {{ statusTag(product.status).text }}
+              </t-tag>
+            </template>
+          </p>
         </div>
       </div>
-      <t-space size="small">
-        <t-button variant="outline" :loading="loading" @click="loadDetail">
+      <t-space size="small" class="page-header__actions">
+        <t-button variant="outline" :loading="loading" @click="reloadAll">
           <template #icon>
             <RefreshIcon aria-hidden="true" />
           </template>
           刷新
         </t-button>
         <t-button variant="outline" @click="goBack">返回列表</t-button>
-        <t-button theme="primary" @click="goEdit">编辑</t-button>
+        <!--
+          页级「保存」：一次提交本页所有改动（配置项 → 基础信息 → 价格）。
+          为什么合并成一个：原来详情页只读、编辑页才有保存，合并后如果每个子页各带按钮，
+          运营改了三处要点三次；而三块写的是同一个商品的字段，"一并保存"才符合直觉。
+        -->
+        <t-button v-if="canUpdate" theme="primary" :loading="saving" @click="handleSave">保存</t-button>
       </t-space>
     </header>
 
     <section class="table-card surface-card">
       <t-tabs v-model="activeTab" :default-value="activeTab" theme="normal">
-        <t-tab-panel value="base" label="基本信息">
+        <!-- ══════════ 基本信息 ══════════ -->
+        <t-tab-panel value="basic" label="基本信息">
           <div class="tabs-section">
+            <!-- 可编辑的本体字段：与「商品列表 → 编辑」用的是同一份表单实现（口径只有一处）。 -->
+            <ProductForm ref="basicRef" mode="edit" :initial="product" embedded />
+
+            <!--
+              只读的链路与审计信息：这些字段**不可编辑**（由导入/建品流程决定），
+              但运营改价、对账时要看，所以单独列一块，不与上面的表单重复。
+              原来详情页把可编辑字段也列在只读表里（与编辑表单两套渲染），已去掉。
+            -->
             <t-descriptions v-if="product" :column="2" bordered size="medium" class="detail-desc">
-              <t-descriptions-item label="产品名称">{{ product.name }}</t-descriptions-item>
-              <t-descriptions-item label="SKU 编码">{{ product.code }}</t-descriptions-item>
-              <t-descriptions-item label="分类">{{ categoryName(product.category_id) }}</t-descriptions-item>
-              <t-descriptions-item label="产品类型">{{ product.product_type || '—' }}</t-descriptions-item>
               <t-descriptions-item label="链路">
                 <t-tag :theme="sourceModeTag(product.source_mode).theme" variant="light" size="small" shape="round">
                   {{ sourceModeTag(product.source_mode).text }}
                 </t-tag>
               </t-descriptions-item>
               <t-descriptions-item label="价格模型">{{ priceModelLabel(product.price_model) }}</t-descriptions-item>
-              <t-descriptions-item label="可售库存">
-                <span>{{ product.stock === -1 ? '不限量' : product.stock }}</span>
-                <span v-if="product.source_mode === 'upstream'" class="inline-hint">上游限量商品随目录同步刷新</span>
-              </t-descriptions-item>
-              <t-descriptions-item label="销售价">¥{{ formatPrice(product.price) }}</t-descriptions-item>
-              <t-descriptions-item label="成本价">¥{{ formatPrice(product.cost_price) }}</t-descriptions-item>
-              <t-descriptions-item label="上游加价规则">
-                <span>{{ markupLabel(product.upstream_markup_type, product.upstream_markup_value) }}</span>
-              </t-descriptions-item>
-              <t-descriptions-item label="仅透传上游参数">
-                <t-tag
-                  :theme="product.spec_passthrough ? 'warning' : 'default'"
-                  variant="light"
-                  size="small"
-                  shape="round"
-                >
-                  {{ product.spec_passthrough ? '是' : '否' }}
-                </t-tag>
-              </t-descriptions-item>
-              <t-descriptions-item label="关联上游商品">
-                <span>{{ product.source_product_id ? `#${product.source_product_id}` : '—' }}</span>
-              </t-descriptions-item>
-              <t-descriptions-item label="上游提供商">
-                <span>{{ providerDisplay }}</span>
-              </t-descriptions-item>
-              <t-descriptions-item label="排序">{{ product.sort_order }}</t-descriptions-item>
-              <t-descriptions-item label="状态">
-                <t-tag :theme="statusTag(product.status).theme" variant="light" size="small" shape="round">
-                  {{ statusTag(product.status).text }}
-                </t-tag>
-              </t-descriptions-item>
+              <!-- 上游专属：提供商 / 资源商品 / 加价规则（自营商品没有这三项，直接不渲染） -->
+              <template v-if="isUpstreamChain">
+                <t-descriptions-item label="上游提供商">{{ providerDisplay }}</t-descriptions-item>
+                <t-descriptions-item label="关联上游商品">
+                  <span>{{ product.source_product_id ? `#${product.source_product_id}` : '—' }}</span>
+                </t-descriptions-item>
+                <t-descriptions-item label="上游加价规则">
+                  <span>{{ markupLabel(product.upstream_markup_type, product.upstream_markup_value) }}</span>
+                  <span class="inline-hint">在「价格」子页设百分比规则或逐周期改价</span>
+                </t-descriptions-item>
+                <t-descriptions-item label="仅透传上游参数">
+                  <t-tag
+                    :theme="product.spec_passthrough ? 'warning' : 'default'"
+                    variant="light"
+                    size="small"
+                    shape="round"
+                  >
+                    {{ product.spec_passthrough ? '是' : '否' }}
+                  </t-tag>
+                </t-descriptions-item>
+              </template>
               <t-descriptions-item label="创建时间">{{ formatTime(product.created_at) }}</t-descriptions-item>
               <t-descriptions-item label="更新时间">{{ formatTime(product.updated_at) }}</t-descriptions-item>
-              <t-descriptions-item label="产品描述" :span="2">{{ product.description || '—' }}</t-descriptions-item>
-              <t-descriptions-item label="封面图" :span="2">
-                <img v-if="product.cover_image" class="detail-cover" :src="product.cover_image" alt="产品封面图" />
-                <span v-else>—</span>
-              </t-descriptions-item>
-              <t-descriptions-item label="规格 JSON" :span="2">
-                <pre class="spec-pre">{{ product.specs || '—' }}</pre>
+              <t-descriptions-item v-if="product.specs" label="规格快照 JSON" :span="2">
+                <pre class="spec-pre">{{ product.specs }}</pre>
               </t-descriptions-item>
             </t-descriptions>
             <t-empty v-else description="暂无数据" />
           </div>
         </t-tab-panel>
 
+        <!-- ══════════ 价格 ══════════
+             两条链路的改价方式不同，这里按链路给对应的编辑器：
+               · 上游转售：价格由「上游成本 + 加价规则」推导（UpstreamPriceEditor：
+                 百分比规则跟随上游，或逐周期自定义转人工价，并可同步已开通主机的续费价）；
+               · 自营：直接维护「周期 × 价格」矩阵（PriceMatrixEditor，商品调价页同款）。
+             不把两个编辑器叠在一起：它们改的是同一批周期行，同时出现会让"到底以哪个为准"更模糊。 -->
+        <t-tab-panel value="price" label="价格">
+          <div class="tabs-section">
+            <template v-if="product">
+              <UpstreamPriceEditor
+                v-if="isUpstreamChain"
+                ref="priceRef"
+                embedded
+                :product-id="product.id"
+                :product-name="product.name"
+                :source-product-id="product.source_product_id"
+                :upstream="product.upstream || null"
+                :initial-markup-type="product.upstream_markup_type || ''"
+                :initial-markup-value="product.upstream_markup_value || 0"
+              />
+              <template v-else>
+                <!-- 自营商品可按 SKU 分别定价：先选要维护的规格，默认商品级（不区分规格）。 -->
+                <div class="price-scope">
+                  <span class="price-scope__label">定价范围</span>
+                  <t-select
+                    v-model="priceSpecId"
+                    class="price-scope__select"
+                    :options="priceSpecOptions"
+                    :disabled="!priceSpecOptions.length"
+                    @change="reloadPriceMatrix"
+                  />
+                  <span class="price-scope__hint">
+                    选具体规格则只维护该 SKU 的周期价（其价格优先于商品级）；未拆 SKU 的商品只有商品级。
+                  </span>
+                </div>
+                <PriceMatrixEditor ref="matrixRef" :product-id="product.id" :spec-id="priceSpecId" />
+              </template>
+            </template>
+            <t-skeleton v-else :row-col="[{ width: '100%', height: '160px' }]" animation="gradient" />
+          </div>
+        </t-tab-panel>
+
+        <!-- ══════════ 规格变体（SKU） ══════════ -->
         <t-tab-panel value="specs" label="规格变体（SKU）">
           <div class="tabs-section">
             <div class="table-card__head">
-              <h3 class="card-title">规格变体</h3>
               <t-space size="small">
                 <span class="table-card__meta">共 {{ specs.length }} 个规格</span>
-                <t-button v-if="!isUpstreamChain" size="small" variant="outline" @click="openGenerateDialog">
-                  按规格模板生成
-                </t-button>
-                <t-button size="small" theme="primary" @click="openSpecDialog()">新增规格</t-button>
+                <!-- 上游商品的规格按上游开通，本地不建 SKU（建了也不参与履约）：只展示。 -->
+                <template v-if="canEditSpecs">
+                  <t-button size="small" variant="outline" @click="openGenerateDialog">按规格模板生成</t-button>
+                  <t-button size="small" theme="primary" @click="openSpecDialog()">新增规格</t-button>
+                </template>
               </t-space>
             </div>
             <t-alert
               theme="info"
               :message="
                 isUpstreamChain
-                  ? '代理商品按上游规格开通；此处规格仅供展示。上架门禁要求上游规格完成平台绑定或开启「仅透传」。'
+                  ? '代理商品按上游规格开通；此处规格仅供展示，本地不做增删改。上架门禁要求上游规格完成平台绑定或开启「仅透传」。'
                   : '自营商品上架前，每个启用 SKU 都需满足必填原子且完成平台绑定（绑定状态为「已确认」）。'
               "
             />
             <t-table
               row-key="id"
               :data="specs"
-              :columns="specColumns"
+              :columns="isUpstreamChain ? specColumnsReadOnly : specColumns"
               :loading="loading"
               size="small"
               hover
@@ -134,152 +190,36 @@
                 </t-space>
               </template>
               <template #empty>
-                <t-empty description="暂无规格变体" />
+                <t-empty
+                  :description="
+                    isUpstreamChain ? '上游商品由上游下发规格，本地不建 SKU' : '暂无规格变体，可点「新增规格」或按模板生成'
+                  "
+                />
               </template>
             </t-table>
           </div>
         </t-tab-panel>
 
+        <!-- ══════════ 可选配置项 ══════════
+             自营与上游两种链路共用同一个编辑器（ConfigOptionsEditor），
+             它按行的 source 区分"本地参数"与"上游镜像项"，并对上游行只读映射键。 -->
         <t-tab-panel value="config" label="可选配置项">
           <div class="tabs-section">
-            <div class="table-card__head">
-              <h3 class="card-title">可选配置项</h3>
-              <span class="table-card__meta"> 客户下单时可选的参数；source=self 时按 option_key 直接下发平台 </span>
-            </div>
-            <t-alert
-              theme="info"
-              message="建品勾选档位时已自动生成；此处可改取值、分组与加价。「从平台配置项目录添加」可补参数。"
+            <ConfigOptionsEditor
+              v-if="product"
+              ref="configRef"
+              :product-id="product.id"
+              :upstream="isUpstreamChain"
+              :provider-id="product.source_provider_id"
             />
-
-            <t-space size="small" class="cfg-toolbar">
-              <t-button size="small" theme="primary" variant="outline" @click="openCatalogPicker">
-                从平台配置项目录添加
-              </t-button>
-              <t-button size="small" variant="outline" @click="addBlankOption">新增自定义参数</t-button>
-              <t-button size="small" variant="outline" @click="advancedVisible = !advancedVisible">
-                {{ advancedVisible ? '隐藏' : '显示' }}高级 JSON
-              </t-button>
-            </t-space>
-
-            <t-table
-              row-key="rowKey"
-              :data="configOptionRows"
-              :columns="configColumns"
-              size="small"
-              hover
-              cell-empty-content="—"
-            >
-              <template #opt_key="{ row }">
-                <div class="product-cell">
-                  <span class="cell-strong">{{ row.option_name || '（未命名）' }}</span>
-                  <span class="product-sub"
-                    ><code>{{ row.source_key || row.option_key || '—' }}</code></span
-                  >
-                </div>
-              </template>
-              <template #opt_widget="{ row }">
-                <t-select v-model="row.widget" size="small" :options="widgetOptions" @change="onWidgetChange(row)" />
-              </template>
-              <template #opt_required="{ row }">
-                <t-switch v-model="row.required" size="small" />
-              </template>
-              <template #opt_default="{ row }">
-                <t-input v-model="row.default_value" size="small" placeholder="默认值" />
-              </template>
-              <template #opt_values="{ row }">
-                <t-link theme="primary" hover="color" @click="toggleExpand(row)">
-                  {{ (row.sub || []).length }} 个取值
-                </t-link>
-                <span v-if="row.min_value != null" class="product-sub">
-                  {{ row.min_value }}~{{ row.max_value }} {{ row.unit }}
-                </span>
-              </template>
-              <template #opt_action="{ row }">
-                <div class="action-cell">
-                  <t-link theme="primary" hover="color" @click="toggleExpand(row)">
-                    {{ expandedKey === row.rowKey ? '收起' : '取值' }}
-                  </t-link>
-                  <t-link theme="danger" hover="color" @click="removeConfigOption(row)">删除</t-link>
-                </div>
-              </template>
-              <template #empty><t-empty description="暂无选配项，建品时勾选规格档位会自动生成" /></template>
-            </t-table>
-
-            <!-- 取值明细：展开行内编辑（值/显示名/分组/加价） -->
-            <div v-for="row in configOptionRows" :key="'detail-' + row.rowKey">
-              <div v-if="expandedKey === row.rowKey" class="cfg-detail">
-                <div class="cfg-detail__head">
-                  <span class="cell-strong">{{ row.option_name }} 的取值</span>
-                  <t-button size="small" variant="outline" @click="addSub(row)">添加取值</t-button>
-                </div>
-                <t-table
-                  row-key="subKey"
-                  :data="row.sub || []"
-                  :columns="subColumns"
-                  size="small"
-                  cell-empty-content="—"
-                >
-                  <template #sub_label="{ row: sub }">
-                    <t-input v-model="sub.option_name" size="small" @change="syncAdvancedFromRows" />
-                  </template>
-                  <template #sub_value="{ row: sub }">
-                    <t-input
-                      v-model="sub.source_key"
-                      size="small"
-                      placeholder="下发值"
-                      @change="syncAdvancedFromRows"
-                    />
-                  </template>
-                  <template #sub_group="{ row: sub }">
-                    <t-input
-                      v-model="sub.group_label"
-                      size="small"
-                      placeholder="Ubuntu/Windows"
-                      @change="syncAdvancedFromRows"
-                    />
-                  </template>
-                  <template #sub_price="{ row: sub }">
-                    <t-input-number
-                      :model-value="subPricing(sub).monthly ?? 0"
-                      size="small"
-                      :min="0"
-                      :precision="2"
-                      theme="column"
-                      @change="(v: string | number) => setSubPrice(sub, v)"
-                    />
-                  </template>
-                  <template #sub_default="{ row: sub }">
-                    <t-radio :checked="!!sub.is_default" @change="setSubDefault(row, sub)" />
-                  </template>
-                  <template #sub_action="{ row: sub }">
-                    <t-link theme="danger" hover="color" @click="removeSub(row, sub)">删除</t-link>
-                  </template>
-                </t-table>
-              </div>
-            </div>
-
-            <t-textarea
-              v-if="advancedVisible"
-              v-model="configOptionsText"
-              class="cfg-advanced"
-              :autosize="{ minRows: 8, maxRows: 24 }"
-              placeholder='[{"name":"客户选配","options":[{"option_name":"CPU","source":"self","source_key":"cpu","widget":"radio","sub":[{"option_name":"2核","source":"self","source_key":"2"}]}]}]'
-              @blur="applyAdvancedJSON"
-            />
-
-            <div class="form-footer">
-              <t-button variant="outline" @click="loadConfigOptions">重置</t-button>
-              <t-button theme="primary" :loading="configSaving" @click="saveConfigOptions">保存可选配置项</t-button>
-            </div>
+            <t-skeleton v-else :row-col="[{ width: '100%', height: '160px' }]" animation="gradient" />
           </div>
         </t-tab-panel>
 
-        <!-- 上游对接：仅对接商品展示。把「上游标价 / 代理价 / 折扣 / 固定配置 / 可否续费」
-             与「上游配置项锁定状态」集中在一个页签，运营一眼分清自营与对接两条链路的配置逻辑。 -->
+        <!-- ══════════ 上游对接（仅对接商品） ══════════ -->
         <t-tab-panel v-if="isUpstreamChain" value="upstream" label="上游对接">
           <div class="tabs-section">
             <div class="table-card__head">
-              <h3 class="card-title">上游对接</h3>
               <span class="table-card__meta">上游商品 ID：{{ product?.upstream?.upstream_id || '—' }}</span>
             </div>
 
@@ -412,10 +352,10 @@
           </div>
         </t-tab-panel>
 
+        <!-- ══════════ 变更历史 ══════════ -->
         <t-tab-panel value="history" label="变更历史">
           <div class="tabs-section">
             <div class="table-card__head">
-              <h3 class="card-title">变更历史</h3>
               <span class="table-card__meta">共 {{ history.length }} 条记录</span>
             </div>
             <t-table
@@ -449,7 +389,7 @@
     <t-dialog
       v-model:visible="specDialogVisible"
       :header="specForm.id ? '编辑规格变体' : '新增规格变体'"
-      width="640px"
+      :width="isMobile ? '94vw' : '640px'"
       :confirm-btn="{ loading: specSaving }"
       @confirm="submitSpec"
     >
@@ -513,7 +453,7 @@
     <t-dialog
       v-model:visible="generateVisible"
       header="按规格模板生成规格"
-      width="600px"
+      :width="isMobile ? '94vw' : '600px'"
       :confirm-btn="{ content: '生成', theme: 'primary', loading: generateSaving }"
       @confirm="submitGenerate"
     >
@@ -561,7 +501,7 @@
     <t-dialog
       v-model:visible="bindingDialogVisible"
       :header="`平台绑定 · ${bindingSpec?.spec_code || ''}`"
-      width="680px"
+      :width="isMobile ? '94vw' : '680px'"
       :footer="false"
     >
       <div class="binding-panel">
@@ -634,44 +574,6 @@
         </t-form>
       </div>
     </t-dialog>
-
-    <!-- 平台配置项目录选择器：从目录添加可选配置项 -->
-    <t-dialog
-      v-model:visible="pickerVisible"
-      header="从平台配置项目录添加"
-      width="720px"
-      :footer="false"
-      @close="pickerVisible = false"
-    >
-      <t-alert theme="info" message="目录来自「产品管理 → 规格管理 → 平台配置项」，按商品绑定的平台渠道加载。" />
-      <t-table
-        row-key="option_key"
-        :data="pickerItems"
-        :loading="pickerLoading"
-        :columns="pickerColumns"
-        size="small"
-        hover
-        max-height="420"
-        cell-empty-content="—"
-      >
-        <template #p_option="{ row }">
-          <div class="product-cell">
-            <span class="cell-strong">{{ row.label || row.option_key }}</span>
-            <span class="product-sub">
-              <code>{{ row.option_key }}</code>
-              <t-tag v-if="row.required" theme="error" variant="light" size="small" shape="round">必选</t-tag>
-            </span>
-          </div>
-        </template>
-        <template #p_values="{ row }">
-          <span>{{ (row.values || []).length }} 个取值</span>
-        </template>
-        <template #p_action="{ row }">
-          <t-link theme="primary" hover="color" @click="addFromCatalog(row)">添加</t-link>
-        </template>
-        <template #empty><t-empty description="目录为空，请先到「平台配置项」页同步" /></template>
-      </t-table>
-    </t-dialog>
   </div>
 </template>
 
@@ -687,15 +589,13 @@ import {
   createProductSpec,
   deleteProductSpec,
   generateProductSpecFromTemplate,
-  getOptionCatalog,
-  getProductConfigOptions,
   getProductDetail,
   getProductHistory,
   getProductSpecs,
   getSpecAtomList,
   getSpecBindingList,
   getSpecTemplateList,
-  saveProductConfigOptions,
+  updateProduct,
   updateProductSpec,
   upsertSpecBinding,
 } from '@/api/product'
@@ -714,16 +614,19 @@ import {
   statusTag,
 } from '@/pages/product/constants'
 import { useCategoryOptions } from '@/composables/useCategoryOptions'
+import { useIsMobile } from '@/composables/useIsMobile'
+import { usePermission } from '@/composables/usePermission'
+import ConfigOptionsEditor from './ConfigOptionsEditor.vue'
+import PriceMatrixEditor from './PriceMatrixEditor.vue'
+import ProductForm from './ProductForm.vue'
+import UpstreamPriceEditor from './UpstreamPriceEditor.vue'
 import type {
-  OptionSpecInfo,
   ProviderInfo,
-  SaleProductConfigGroup,
-  SaleProductConfigOption,
-  SaleProductConfigSub,
   SaleProductHistoryInfo,
   SaleProductInfo,
   SaleProductSpecInfo,
   SaleProductSpecRequest,
+  SaleProductUpdateRequest,
   SaleProductUpstreamOption,
   SpecAtomInfo,
   SpecBindingInfo,
@@ -735,6 +638,11 @@ defineOptions({ name: 'ProductProductsDetail' })
 
 const route = useRoute()
 const router = useRouter()
+const { has } = usePermission()
+const { isMobile } = useIsMobile()
+
+/** 写权限：没有 product:update 时不渲染保存按钮与规格增删改入口（后端另有权限校验）。 */
+const canUpdate = has('product:update')
 
 const product = ref<SaleProductInfo | null>(null)
 const specs = ref<SaleProductSpecInfo[]>([])
@@ -744,11 +652,31 @@ const templateOptions = ref<{ label: string; value: number }[]>([])
 // 模板详情（选模板时带出规格参数用）：只用来回填表单，不作为落库依据。
 const specTemplateDetails = ref<SpecTemplateInfo[]>([])
 const loading = ref(false)
-const activeTab = ref('base')
+const saving = ref(false)
+const activeTab = ref('basic')
 
-const { categoryName, loadCategories } = useCategoryOptions()
+// 分类加载：基础信息表单里的「分类」下拉用它（categoryName 由表单自己展示选项文字，此处不需要）。
+const { loadCategories } = useCategoryOptions()
 
 const isUpstreamChain = computed(() => product.value?.source_mode === 'upstream')
+/** 上游商品的规格由上游下发，本地只读展示（与规格页签的提示文案一致）。 */
+const canEditSpecs = computed(() => canUpdate && !isUpstreamChain.value)
+
+// ---------- 子页组件引用（页级保存按顺序调度它们） ----------
+const basicRef = ref<{ prepareBasicPayload: () => (SaleProductUpdateRequest & { code?: string }) | null } | null>(null)
+const configRef = ref<{ reload: () => Promise<void>; save: () => Promise<boolean> } | null>(null)
+const priceRef = ref<{ reload: () => Promise<void>; save: () => Promise<boolean> } | null>(null)
+const matrixRef = ref<{ reload: () => Promise<void>; save: () => Promise<boolean> } | null>(null)
+
+// 自营商品的定价范围（商品级 / 指定 SKU）：与「商品调价 → 周期价格」同口径。
+const priceSpecId = ref<number | undefined>(undefined)
+const priceSpecOptions = computed(() => [
+  { label: '商品级（默认价）', value: 0 },
+  ...specs.value.filter((s) => s.status === 1).map((s) => ({ label: s.name || s.spec_code, value: s.id })),
+])
+function reloadPriceMatrix() {
+  void matrixRef.value?.reload()
+}
 
 /**
  * 上游提供商展示名：商品详情里只有 source_provider_id（裸 ID），
@@ -852,6 +780,9 @@ function upstreamPayTypeLabel(payType: string): string {
   return billingCycleLabel(value)
 }
 
+// ---------- 规格变体 ----------
+
+/** 自营：可增删改。 */
 const specColumns: PrimaryTableCol<SaleProductSpecInfo>[] = [
   { colKey: 'spec_code', title: '规格编码', minWidth: 120 },
   { colKey: 'name', title: '规格名称', minWidth: 120 },
@@ -863,6 +794,9 @@ const specColumns: PrimaryTableCol<SaleProductSpecInfo>[] = [
   { colKey: 'status', title: '状态', width: 70 },
   { colKey: 'op', title: '操作', width: 190 },
 ]
+
+/** 上游转售：只读（去掉操作列，避免"说是仅供参考、实际能删"的自相矛盾）。 */
+const specColumnsReadOnly: PrimaryTableCol<SaleProductSpecInfo>[] = specColumns.filter((c) => c.colKey !== 'op')
 
 const bindingColumns: PrimaryTableCol<SpecBindingInfo>[] = [
   { colKey: 'direction', title: '方向', width: 80 },
@@ -1242,287 +1176,6 @@ async function submitGenerate() {
   }
 }
 
-// ---------- 可选配置项（结构化编辑器）----------
-//
-// 后端仍以 config_groups 数组收发（与上游克隆链路共用），但这里给运营的是表格：
-// 每个参数一行，展开行内改取值/分组/加价。JSON 文本框降级为「高级」入口，
-// 两边通过 rowsToGroups / groupsToRows 双向同步，避免运营手写整段 JSON。
-
-type ConfigSubRow = SaleProductConfigSub & { subKey: string; pricings?: { monthly?: number }[] }
-// 用 Omit 换掉 sub 的类型：表格行需要 subKey 做 row-key，直接用交叉会与基类型里的 sub 冲突。
-type ConfigOptionRow = Omit<SaleProductConfigOption, 'sub'> & { rowKey: string; sub: ConfigSubRow[] }
-
-const configOptionsText = ref('')
-const configSaving = ref(false)
-const advancedVisible = ref(false)
-const expandedKey = ref('')
-const configOptionRows = ref<ConfigOptionRow[]>([])
-
-let rowSeq = 0
-function nextKey(prefix: string): string {
-  rowSeq += 1
-  return `${prefix}-${rowSeq}`
-}
-
-const widgetOptions = [
-  { label: '下拉（可分组）', value: 'select' },
-  { label: '单选（按钮组）', value: 'radio' },
-  { label: '数量（步进器）', value: 'qty' },
-  { label: '开关', value: 'bool' },
-]
-
-const configColumns: PrimaryTableCol<ConfigOptionRow>[] = [
-  { colKey: 'opt_key', title: '参数', minWidth: 180 },
-  { colKey: 'opt_widget', title: '控件', width: 150 },
-  { colKey: 'opt_required', title: '必选', width: 70 },
-  { colKey: 'opt_default', title: '默认值', width: 130 },
-  { colKey: 'opt_values', title: '取值', minWidth: 130 },
-  { colKey: 'opt_action', title: '操作', width: 130, align: 'center' as const },
-]
-
-const subColumns: PrimaryTableCol<ConfigSubRow>[] = [
-  { colKey: 'sub_label', title: '显示名', minWidth: 160 },
-  { colKey: 'sub_value', title: '下发值', width: 120 },
-  { colKey: 'sub_group', title: '分组', width: 130 },
-  { colKey: 'sub_price', title: '加价(元/月)', width: 140 },
-  { colKey: 'sub_default', title: '默认', width: 70 },
-  { colKey: 'sub_action', title: '操作', width: 70, align: 'center' as const },
-]
-
-function groupsToRows(groups: SaleProductConfigGroup[]): ConfigOptionRow[] {
-  const out: ConfigOptionRow[] = []
-  for (const g of groups || []) {
-    for (const opt of g.options || []) {
-      out.push({
-        ...opt,
-        rowKey: nextKey('opt'),
-        sub: (opt.sub || []).map((s) => ({ ...s, subKey: nextKey('sub') })),
-      })
-    }
-  }
-  return out
-}
-
-function subPricing(sub: ConfigSubRow): { monthly?: number } {
-  const p = (sub.pricings || [])[0]
-  return p || {}
-}
-
-function setSubPrice(sub: ConfigSubRow, value: string | number) {
-  const monthly = Number(value) || 0
-  sub.pricings = [{ monthly }]
-  syncAdvancedFromRows()
-}
-
-function setSubDefault(row: ConfigOptionRow, target: ConfigSubRow) {
-  // 每参数只保留一个默认（用户侧预选靠它）。
-  for (const sub of row.sub) sub.is_default = sub.subKey === target.subKey
-  const hit = row.sub.find((s) => s.subKey === target.subKey)
-  row.default_value = hit ? hit.source_key || '' : ''
-  syncAdvancedFromRows()
-}
-
-function addSub(row: ConfigOptionRow) {
-  row.sub = row.sub || []
-  row.sub.push({ option_name: '', source_key: '', source: 'self', group_label: '', hidden: 0, subKey: nextKey('sub') })
-  expandedKey.value = row.rowKey
-  syncAdvancedFromRows()
-}
-
-function removeSub(row: ConfigOptionRow, target: ConfigSubRow) {
-  row.sub = (row.sub || []).filter((s) => s.subKey !== target.subKey)
-  syncAdvancedFromRows()
-}
-
-function addBlankOption() {
-  configOptionRows.value.push({
-    rowKey: nextKey('opt'),
-    option_name: '',
-    option_type: 2,
-    source: 'self',
-    source_key: '',
-    option_key: '',
-    widget: 'radio',
-    required: false,
-    default_value: '',
-    hidden: 0,
-    sort_order: configOptionRows.value.length,
-    sub: [],
-  })
-}
-
-function removeConfigOption(row: ConfigOptionRow) {
-  configOptionRows.value = configOptionRows.value.filter((r) => r.rowKey !== row.rowKey)
-  syncAdvancedFromRows()
-}
-
-/** 先选控件再定 option_type：用户侧按 widget 渲染，option_type 只作兼容口径。 */
-function onWidgetChange(row: ConfigOptionRow) {
-  const map: Record<string, number> = { select: 1, radio: 2, bool: 3, qty: 4 }
-  row.option_type = map[row.widget || 'select'] ?? 1
-  syncAdvancedFromRows()
-}
-
-function toggleExpand(row: ConfigOptionRow) {
-  expandedKey.value = expandedKey.value === row.rowKey ? '' : row.rowKey
-}
-
-/** 把表格行回写成 config_groups（保存与高级 JSON 同步共用）。 */
-function rowsToGroups(): SaleProductConfigGroup[] {
-  const options: SaleProductConfigOption[] = configOptionRows.value.map((row, idx) => ({
-    option_name: row.option_name,
-    option_type: row.option_type ?? 1,
-    source: 'self',
-    source_key: row.source_key || row.option_key || '',
-    provider_type: row.provider_type,
-    option_key: row.option_key || row.source_key || '',
-    widget: row.widget || 'select',
-    required: !!row.required,
-    default_value: row.default_value || '',
-    widget_group: row.widget_group,
-    min_value: row.min_value ?? null,
-    max_value: row.max_value ?? null,
-    unit: row.unit,
-    help: row.help,
-    hidden: row.hidden ?? 0,
-    sort_order: row.sort_order ?? idx,
-    sub: (row.sub || []).map((s, sIdx) => ({
-      option_name: s.option_name,
-      source: 'self',
-      source_key: s.source_key,
-      group_label: s.group_label,
-      is_default: !!s.is_default,
-      hidden: s.hidden ?? 0,
-      sort_order: sIdx,
-      pricings: [{ monthly: subPricing(s).monthly ?? 0 }],
-    })),
-  }))
-  if (!options.length) return []
-  return [{ name: '客户选配', description: '按配置档生成 / 手工维护', options }]
-}
-
-function syncAdvancedFromRows() {
-  const groups = rowsToGroups()
-  configOptionsText.value = groups.length ? JSON.stringify(groups, null, 2) : ''
-}
-
-/** 高级 JSON 编辑后回灌表格（运营手改 JSON 时表格要跟着变）。 */
-function applyAdvancedJSON() {
-  const raw = configOptionsText.value.trim()
-  if (!raw) {
-    configOptionRows.value = []
-    return
-  }
-  try {
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) throw new Error('not array')
-    configOptionRows.value = groupsToRows(parsed as SaleProductConfigGroup[])
-    MessagePlugin.success('已按 JSON 刷新表格')
-  } catch {
-    MessagePlugin.warning('JSON 结构非法（应为 config_groups 数组），表格保持原样')
-  }
-}
-
-async function loadConfigOptions() {
-  try {
-    const groups = await getProductConfigOptions(Number(route.params.id))
-    configOptionRows.value = groupsToRows(groups || [])
-    syncAdvancedFromRows()
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '加载可选配置项失败')
-  }
-}
-
-async function saveConfigOptions() {
-  const groups = rowsToGroups()
-  configSaving.value = true
-  try {
-    await saveProductConfigOptions(Number(route.params.id), groups)
-    MessagePlugin.success('可选配置项已保存')
-    await loadConfigOptions()
-    await loadHistory()
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '保存可选配置项失败')
-  } finally {
-    configSaving.value = false
-  }
-}
-
-// ---------- 从平台配置项目录添加参数 ----------
-
-const pickerVisible = ref(false)
-const pickerLoading = ref(false)
-const pickerItems = ref<OptionSpecInfo[]>([])
-
-const pickerColumns: PrimaryTableCol<OptionSpecInfo>[] = [
-  { colKey: 'p_option', title: '配置项', minWidth: 200 },
-  { colKey: 'p_values', title: '可选值', width: 110 },
-  { colKey: 'unit', title: '单位', width: 80 },
-  { colKey: 'p_action', title: '操作', width: 80, align: 'center' as const },
-]
-
-async function openCatalogPicker() {
-  pickerVisible.value = true
-  pickerLoading.value = true
-  try {
-    // 自营商品用商品绑定的平台渠道反查平台类型；未绑定则列全部平台类型（按 dcimcloud 兜底）。
-    let providerType = ''
-    if (product.value?.source_provider_id) {
-      const data = await getProviderList({ page_size: 100 })
-      const hit = data.items.find((p: ProviderInfo) => p.id === product.value?.source_provider_id)
-      providerType = hit?.provider_type || ''
-    }
-    pickerItems.value = await getOptionCatalog({
-      provider_type: providerType || 'dcimcloud',
-      provider_id: product.value?.source_provider_id,
-    })
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '加载平台配置项目录失败')
-    pickerItems.value = []
-  } finally {
-    pickerLoading.value = false
-  }
-}
-
-function addFromCatalog(spec: OptionSpecInfo) {
-  if (configOptionRows.value.some((r) => (r.option_key || r.source_key) === spec.option_key)) {
-    MessagePlugin.warning(`已存在参数 ${spec.option_key}`)
-    return
-  }
-  const isQty = spec.widget === 'qty' || spec.min_value != null
-  configOptionRows.value.push({
-    rowKey: nextKey('opt'),
-    option_name: spec.label || spec.option_key,
-    option_type: isQty ? 4 : spec.widget === 'radio' ? 2 : 1,
-    source: 'self',
-    source_key: spec.option_key,
-    provider_type: spec.provider_type,
-    option_key: spec.option_key,
-    widget: isQty ? 'qty' : spec.widget || 'select',
-    required: !!spec.required,
-    default_value: spec.default_value || '',
-    widget_group: spec.group_name,
-    min_value: spec.min_value ?? null,
-    max_value: spec.max_value ?? null,
-    unit: spec.unit,
-    help: spec.help,
-    hidden: 0,
-    sort_order: spec.sort_order ?? configOptionRows.value.length,
-    sub: (spec.values || []).map((v) => ({
-      option_name: v.label || v.value,
-      source: 'self',
-      source_key: v.value,
-      group_label: v.group_label || '',
-      is_default: false,
-      hidden: v.status === 'offline' ? 1 : 0,
-      pricings: [{ monthly: 0 }],
-      subKey: nextKey('sub'),
-    })),
-  })
-  syncAdvancedFromRows()
-  MessagePlugin.success(`已添加参数 ${spec.label || spec.option_key}`)
-}
-
 // ---------- 基础数据 ----------
 
 async function loadSpecs() {
@@ -1555,7 +1208,7 @@ async function loadDetail() {
   loading.value = true
   try {
     product.value = await getProductDetail(id)
-    await Promise.all([loadSpecs(), loadHistory(), loadConfigOptions()])
+    await Promise.all([loadSpecs(), loadHistory()])
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载产品详情失败')
   } finally {
@@ -1563,12 +1216,73 @@ async function loadDetail() {
   }
 }
 
-function goBack() {
-  router.push('/product/products')
+/** 刷新：商品本体 + 规格/历史，各子页编辑器各自重载（它们的数据不在 product 里）。 */
+async function reloadAll() {
+  await loadDetail()
+  await Promise.all([configRef.value?.reload(), priceRef.value?.reload(), matrixRef.value?.reload()])
 }
 
-function goEdit() {
-  router.push(`/product/products/${route.params.id}/edit`)
+/**
+ * 页级保存：按「配置项 → 基础信息 → 价格」顺序落库，任一步失败即停并说明**已经存了什么**。
+ *
+ * 顺序的理由：价格放最后。上游商品的加价规则会重算 `products.price`（以及周期矩阵），
+ * 而基础信息表单里的销售价是"进页面那一刻"读到的值；若反过来先存价格、再回传基础信息，
+ * 那个旧值会把刚算好的价格覆盖回去（实测过的"改价保存后又变回去"）。
+ * 先写基础信息、再由价格编辑器覆盖，最终值永远以价格为准 —— 与「矩阵价优先于商品展示价」
+ * 的算价口径一致。
+ */
+async function handleSave() {
+  if (saving.value || !product.value) return
+  const id = Number(route.params.id)
+
+  // 先校验取值（此时用户还看着表单，提示能对应上他在改的东西）。
+  const payload = basicRef.value?.prepareBasicPayload() ?? null
+  if (!payload) {
+    activeTab.value = 'basic'
+    return
+  }
+
+  saving.value = true
+  try {
+    // 1) 可选配置项（独立接口，整表覆盖该商品的配置项行）
+    if (configRef.value) {
+      const ok = await configRef.value.save()
+      if (!ok) {
+        activeTab.value = 'config'
+        MessagePlugin.error('可选配置项未保存成功，基础信息与价格均未提交')
+        return
+      }
+    }
+
+    // 2) 基础信息（更新接口不接受 code，SKU 编码不可变）
+    const { code: _code, ...rest } = payload
+    void _code
+    await updateProduct(id, rest)
+
+    // 3) 价格：上游走加价规则/逐周期自定义，自营走周期矩阵
+    const priceEditor = priceRef.value || matrixRef.value
+    if (priceEditor) {
+      const ok = await priceEditor.save()
+      if (!ok) {
+        activeTab.value = 'price'
+        await loadDetail()
+        MessagePlugin.warning('基础信息与配置项已保存，但价格未保存成功；请修正「价格」子页后重试')
+        return
+      }
+    }
+
+    MessagePlugin.success('已保存')
+    // 保存成功后以服务端数据为准刷新一次：编辑表单与各只读区块都回到落库后的状态。
+    await loadDetail()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+function goBack() {
+  router.push('/product/products')
 }
 
 onMounted(() => {
@@ -1597,14 +1311,6 @@ onMounted(() => {
   color: #334155;
 }
 
-.detail-cover {
-  width: 160px;
-  height: 106px;
-  object-fit: cover;
-  border-radius: var(--hs-radius-lg);
-  border: 1px solid #edf3ef;
-}
-
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1616,6 +1322,33 @@ onMounted(() => {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 8px;
+}
+
+/* 自营商品的价格子页：定价范围（商品级 / 指定 SKU）筛选行 */
+.price-scope {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.price-scope__label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.price-scope__select {
+  width: 240px;
+  max-width: 100%;
+}
+
+.price-scope__hint {
+  flex: 1 1 260px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--td-text-color-secondary, #6b7280);
 }
 
 .atom-hints {
@@ -1653,5 +1386,25 @@ onMounted(() => {
   margin-top: 2px;
   font-size: 12px;
   color: var(--td-text-color-placeholder, #999);
+}
+
+/* 详情页只读信息与可编辑表单之间留出分隔，避免看成一份表单的两半 */
+.detail-desc {
+  margin-top: 16px;
+}
+
+/* 页头按钮：窄屏换行，不与标题挤在一行 */
+@media (max-width: 768px) {
+  .page-header__actions {
+    width: 100%;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .price-scope__select {
+    width: 100%;
+  }
 }
 </style>

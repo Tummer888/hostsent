@@ -215,7 +215,7 @@
       </div>
     </div>
 
-    <div class="upe-footer">
+    <div v-if="!embedded" class="upe-footer">
       <t-button variant="outline" @click="$emit('cancel')">取消</t-button>
       <t-button theme="primary" :loading="saving" @click="handleSave">{{ saveLabel }}</t-button>
     </div>
@@ -248,6 +248,20 @@ const props = defineProps<{
    * 全部销售商品），与商品自身的 id 不是一回事，必须单独传。
    */
   sourceProductId?: number
+  /**
+   * 内嵌到编辑页：隐藏自带的底部按钮，由父页的「保存」统一触发 save()。
+   * 独立弹窗（列表「改价」）保持默认 false，自己带按钮。
+   */
+  embedded?: boolean
+  /**
+   * 商品当前已保存的加价规则（回显用）。
+   *
+   * 必须传：编辑器原来恒以「按上游标价 100%」开局，看不到现状；现在与基础信息合并成
+   * 一个保存按钮后，这个默认值还会被当成"用户的选择"提交，把没动过价格的商品重算一遍。
+   * 传入真实规则 + 脏检查（见 dirty）才能真正回显且只保存改动。
+   */
+  initialMarkupType?: string
+  initialMarkupValue?: number
 }>()
 
 const emit = defineEmits<{
@@ -265,6 +279,35 @@ const saving = ref(false)
 const markupType = ref<'list_percent' | 'percent' | 'fixed'>('list_percent')
 const markupValue = ref(100)
 const percentPresets = [100, 105, 110, 120, 130]
+
+/**
+ * 已保存规则的快照（`类型:数值`）。是否改过用签名比对，不挂 watch。
+ *
+ * 不能用 watch 标记脏：回显时 initMarkupRule 会写这两个 ref，watch 的回调是异步的，
+ * 会在初始化之后才触发，于是"打开编辑页什么都没动"也被判成改过 ——
+ * 合并保存时就会把这个默认规则提交上去，把没动过价格的商品重算一遍。
+ * 签名比对还天然幂等：改了又改回去 = 没改。
+ */
+const markupSnapshot = ref('list_percent:100')
+const markupDirty = computed(() => markupSignature() !== markupSnapshot.value)
+
+function markupSignature(): string {
+  return `${markupType.value}:${Number(markupValue.value) || 0}`
+}
+
+/** 用商品已保存的规则初始化回显（没有规则时保持默认的「按上游标价 100%」）。 */
+function initMarkupRule() {
+  const t = (props.initialMarkupType || '').trim()
+  const v = Number(props.initialMarkupValue) || 0
+  if (t === 'percent' || t === 'fixed' || t === 'list_percent') {
+    markupType.value = t
+    markupValue.value = v
+  } else {
+    markupType.value = 'list_percent'
+    markupValue.value = 100
+  }
+  markupSnapshot.value = markupSignature()
+}
 
 const valueLabel = computed(() => {
   switch (markupType.value) {
@@ -378,6 +421,30 @@ type PriceRow = {
 const rows = ref<PriceRow[]>([])
 const loading = ref(false)
 
+/**
+ * 逐档基线：记录加载时每一档的价格与启停，用于判断"运营真正改过哪几档"。
+ *
+ * 为什么不能只跟整体快照比：两个页签都在同一份数据上，而保存加价规则会
+ * **让后端重算派生行的价格**。若运营同时改了规则与某档价格，先存的规则会把该档
+ * 也重算一遍；此时再整表提交，前端手里那份（规则重算前读到的）旧值就会被当成
+ * "运营显式改价"写进人工行，把规则刚算出的价覆盖掉 —— 运营的改动看着生效、
+ * 实际被自己覆盖。逐档比对后只提交**确实被手改过**的档位，就不会误伤。
+ */
+const priceBaseline = ref<Map<string, { price: number; enabled: boolean }>>(new Map())
+
+/** 真正被手改过的档位（价格或启停与基线不同）。 */
+const editedCycles = computed(() => {
+  const out: PriceRow[] = []
+  for (const row of rows.value) {
+    const base = priceBaseline.value.get(row.cycle)
+    if (!base) continue
+    if ((Number(row.price) || 0) !== base.price || row.enabled !== base.enabled) out.push(row)
+  }
+  return out
+})
+
+const matrixDirty = computed(() => editedCycles.value.length > 0)
+
 const columns = [
   { colKey: 'cycle', title: '计费周期', width: 150 },
   { colKey: 'price', title: '售价（元）', width: 150 },
@@ -405,6 +472,7 @@ async function loadMatrix() {
         setup_fee: Number(item.setup_fee) || 0,
         cost_setup_fee: Number(item.cost_setup_fee) || 0,
       }))
+    priceBaseline.value = new Map(rows.value.map((r) => [r.cycle, { price: Number(r.price) || 0, enabled: r.enabled }]))
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载周期价格失败')
   } finally {
@@ -518,21 +586,91 @@ async function runRenewalSync(): Promise<boolean> {
 // ===== 保存 =====
 const saveLabel = computed(() => (activeMode.value === 'percent' ? '保存加价规则' : '保存周期价格'))
 
+/**
+ * 独立使用（列表「改价」弹窗）时的保存入口：成功后通知父页刷新。
+ * 内嵌到编辑页时父页直接调 save()，与基础信息合成一个保存按钮（见 embedded）。
+ */
 async function handleSave() {
-  if (!props.productId) return
+  const ok = await save()
+  if (ok) emit('saved')
+}
+
+/**
+ * 保存当前方案，返回是否成功。
+ *
+ * 返回值是必须的：编辑页把「基础信息 + 价格」合并成一个保存按钮，价格存失败时
+ * 不能再往下走（否则会出现"提示保存成功、价格其实没存"的错觉）。
+ * 具体失败原因由各方法内部提示，这里只归集成败。
+ *
+ * 内嵌（编辑页）时**只提交真正改过的方案**：两个页签都在同一份数据上，
+ * 合并保存不该因为"当前停在哪一屏"就跳过或重复提交。独立弹窗（列表「改价」）里
+ * 点按钮本身就是明确动作，照旧提交当前页签。
+ */
+async function save(): Promise<boolean> {
+  if (!props.productId) return false
+  // 独立弹窗（列表「改价」）：点按钮本身就是明确动作，照旧提交当前页签。
+  if (!props.embedded) {
+    saving.value = true
+    try {
+      const ok = activeMode.value === 'percent' ? await saveMarkupRule() : await saveMatrix()
+      if (!ok) return false
+      if (syncRenewal.value) await runRenewalSync()
+      return true
+    } finally {
+      saving.value = false
+    }
+  }
+  // 内嵌（编辑页）：只提交真正改过的方案，两个页签都在同一份数据上，
+  // 合并保存不该因为"当前停在哪一屏"就跳过或重复提交。
+  const hasRuleChange = markupDirty.value
+  const hasMatrixChange = matrixDirty.value
+  if (!hasRuleChange && !hasMatrixChange) {
+    // 价格没动过：不算失败，也不发请求，直接把控制权交回父页存基础信息。
+    if (syncRenewal.value) await runRenewalSync()
+    return true
+  }
   saving.value = true
   try {
-    if (activeMode.value === 'percent') {
-      await saveMarkupRule()
-    } else {
-      await saveMatrix()
+    // 两块都改过时：先落规则，再把矩阵重新拉一遍、把运营手改的档位盖回去，最后整表提交。
+    //
+    // 为什么必须重拉：保存规则会让后端按新规则重算派生行的价格。若直接拿页面上
+    // 规则重算**之前**读到的旧值整表提交，那些未手改的档位会因为"与库中现值不同"
+    // 被判成显式改价、写成人工行，把规则刚算出的价覆盖掉（看起来规则没生效）。
+    // 重拉后未改档位与库一致（保持派生），手改档位仍按运营填的值提交（转人工），两边都对。
+    if (hasRuleChange) {
+      const ok = await saveMarkupRule()
+      if (!ok) return false
+      if (hasMatrixChange) {
+        const edits = editedCycles.value.map((r) => ({
+          cycle: r.cycle,
+          price: Number(r.price) || 0,
+          enabled: r.enabled,
+        }))
+        await loadMatrix()
+        applyEdits(edits)
+      }
+    }
+    if (hasMatrixChange) {
+      const ok = await saveMatrix()
+      if (!ok) return false
     }
     if (syncRenewal.value) {
       await runRenewalSync()
     }
-    emit('saved')
+    return true
   } finally {
     saving.value = false
+  }
+}
+
+/** 把运营手改的档位盖回当前表格（规则重算后重拉矩阵时用，避免手改被丢掉）。 */
+function applyEdits(edits: { cycle: string; price: number; enabled: boolean }[]) {
+  const byCycle = new Map(edits.map((e) => [e.cycle, e]))
+  for (const row of rows.value) {
+    const hit = byCycle.get(row.cycle)
+    if (!hit) continue
+    row.price = hit.price
+    row.enabled = hit.enabled
   }
 }
 
@@ -547,11 +685,11 @@ async function saveMarkupRule() {
   const rpID = markupResourceProductID.value
   if (!rpID) {
     MessagePlugin.warning('取不到该商品绑定的上游商品，无法设置加价规则；请改用「自定义各周期价」')
-    return
+    return false
   }
   if (markupType.value !== 'fixed' && !(Number(markupValue.value) > 0)) {
     MessagePlugin.warning('请填写大于 0 的加价数值')
-    return
+    return false
   }
   try {
     const res = await applyUpstreamMarkup({
@@ -562,14 +700,17 @@ async function saveMarkupRule() {
     })
     const affected = res?.affected ?? 0
     MessagePlugin.success(affected > 0 ? res.message || `已按规则重算 ${affected} 个商品售价` : '加价规则已保存')
+    return true
   } catch (error) {
     MessagePlugin.error((error as Error).message || '保存加价规则失败')
-    throw error
+    return false
   }
 }
 
-/** 保存周期矩阵：把当前表格整体提交（后端按周期 upsert，未提交档位删除）。 */
-async function saveMatrix() {
+/** 保存周期矩阵：整表提交（后端按周期 upsert，未提交档位删除，所以必须带上全部档位）。 */
+async function saveMatrix(): Promise<boolean> {
+  // 内嵌（编辑页）合并保存时，表格没动过就不提交 —— 空提交等于把"当前屏"当成用户意图。
+  if (props.embedded && !matrixDirty.value) return true
   const items = rows.value.map((row) => ({
     cycle: row.cycle,
     price: Number(row.price) || 0,
@@ -580,23 +721,25 @@ async function saveMatrix() {
   }))
   if (items.some((i) => i.status === 1 && i.price <= 0)) {
     MessagePlugin.warning('启用中的周期必须填写大于 0 的售价（0 元价上架后客户真能 0 元买）')
-    return
+    return false
   }
   try {
     await saveProductPriceMatrix({ product_id: props.productId, items })
     MessagePlugin.success('周期价格已保存')
     await loadMatrix()
+    return true
   } catch (error) {
     MessagePlugin.error((error as Error).message || '保存周期价格失败')
-    throw error
+    return false
   }
 }
 
 onMounted(() => {
+  initMarkupRule()
   void loadMatrix()
 })
 
-defineExpose({ reload: loadMatrix })
+defineExpose({ reload: loadMatrix, save })
 </script>
 
 <style scoped>

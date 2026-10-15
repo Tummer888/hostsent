@@ -140,7 +140,11 @@ func (s *productService) Get(ctx context.Context, id uint64) (*dto.ProductInfo, 
 					Help:         o.Help,
 					MinValue:     o.MinValue,
 					MaxValue:     o.MaxValue,
-					UnitPrice:    o.UnitPrice,
+					// 四档单位加价照抄：前端按当前周期挑对应档位估算。
+					UnitPrice:          o.UnitPrice,
+					UnitPriceQuarterly: o.UnitPriceQuarterly,
+					UnitPriceAnnually:  o.UnitPriceAnnually,
+					UnitPriceOnetime:   o.UnitPriceOnetime,
 				}
 				for _, v := range o.Values {
 					opt.Values = append(opt.Values, dto.OptionItem{
@@ -177,6 +181,11 @@ func fromAdmin(it catalogdto.ProductInfo) dto.ProductInfo {
 		Specs:       it.Specs,
 		Featured:    it.Featured,
 		CreatedAt:   it.CreatedAt,
+		// Stock 必须带上（实测故障）：漏了这一个字段，列表接口里所有商品都成了
+		// 库存 0 —— 用户端把「stock === 0」读作已售罄，于是整个商品列表全显示
+		// 「已售罄」且无法购买，而库存实际有货。详情接口另有单独赋值，所以只有
+		// 列表是坏的（更难看出问题）。-1 表示不限量，是正常在售状态。
+		Stock: it.Stock,
 	}
 }
 

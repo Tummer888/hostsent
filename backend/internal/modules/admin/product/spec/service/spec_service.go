@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -198,14 +199,31 @@ func (s *specTemplateService) validateOptionSelections(ctx context.Context, prov
 			return fmt.Errorf("配置档含平台 %s 未声明的配置项「%s」", providerType, key)
 		}
 		var sel struct {
-			Values []string  `json:"values"`
-			Range  []float64 `json:"range"`
+			Values  []string  `json:"values"`
+			Range   []float64 `json:"range"`
+			Default string    `json:"default"`
 		}
 		if err := json.Unmarshal(payload, &sel); err != nil {
 			return fmt.Errorf("配置项「%s」的勾选结构非法", key)
 		}
 		if len(sel.Range) == 2 {
-			continue // 数量型只给区间，取值在区间内由平台约束
+			// 数量型：区间内的取值由平台约束，但**默认值必须落在区间内**。
+			//
+			// 这个校验是补一个真实故障（用户反馈）：模板里 带宽 区间填 [10,100]、
+			// 默认值却留 0（编辑器默认值初值），保存时无人拦截，于是生成的下单表单
+			// 预填出 0 —— 客户看到的带宽是 0Mbps，而下限其实是 10。
+			// 默认值出界时下游只会静默取到无效值，校验必须在这里拦住。
+			if def := strings.TrimSpace(sel.Default); def != "" {
+				defNum, perr := strconv.ParseFloat(def, 64)
+				if perr != nil {
+					return fmt.Errorf("配置项「%s」的默认值「%s」不是数字", key, def)
+				}
+				if defNum < sel.Range[0] || defNum > sel.Range[1] {
+					return fmt.Errorf("配置项「%s」的默认值 %v 不在区间 [%v, %v] 内，请改正后再保存",
+						key, defNum, sel.Range[0], sel.Range[1])
+				}
+			}
+			continue
 		}
 		if len(valueSet) == 0 {
 			continue // 目录该参数无受控取值（手工填 ID 类型）：不逐个校验

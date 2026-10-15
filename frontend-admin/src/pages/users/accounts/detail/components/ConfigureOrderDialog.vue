@@ -1,8 +1,18 @@
 <template>
+  <!--
+    代下单弹窗：内容很长（用户/商品 + 规格 + 周期 + 配置项 + 上游固定配置）。
+
+    尺寸口径（用户反馈"高度超出屏幕、要一直往下滚"）：
+      - 宽度拉到 92vw / 上限 1180px：配置项是多列表格型内容，横向有空间就不会每项换行，
+        整体高度也跟着降下来；比单纯压高度更有效。
+      - 高度交给 TDesign 的 dialog 默认上限（视口内），内容自己在 __body 里滚 —— 
+        关键操作（底部按钮）始终可见，不会随内容被推出屏幕。
+      - 窄屏回落 94vw（仓库既有写法）。
+  -->
   <t-dialog
     v-model:visible="visible"
     header="为用户创建订单"
-    width="880px"
+    :width="isMobile ? '94vw' : 'min(1180px, 92vw)'"
     :confirm-btn="confirmBtn"
     :cancel-btn="{ content: '取消' }"
     @confirm="handleSubmit"
@@ -142,17 +152,32 @@
                   @change="(v: string | number | boolean) => setSelectionValue(opt, v)"
                 />
 
-                <!-- 步进器：超出档位内含部分才加价 -->
+                <!--
+                  数量型：滑块 + 数值输入（上游按量计价，如系统盘 80–1024G、带宽 75–500M）。
+                  与用户侧同一形态：拉一下就能看到加价怎么变，不用先猜数字再试。
+                -->
                 <div v-else-if="opt.widget === 'qty'" class="configure-order__qty">
-                  <t-input-number
+                  <t-slider
+                    class="configure-order__slider"
                     :model-value="numberValue(opt)"
                     :min="opt.min_value ?? 0"
                     :max="opt.max_value ?? undefined"
                     :step="1"
-                    theme="normal"
-                    @change="(v: number | string | undefined) => setSelectionValue(opt, v ?? '')"
+                    :label="false"
+                    @change="(v: number | number[]) => setSelectionValue(opt, Array.isArray(v) ? v[0] : v)"
                   />
-                  <span v-if="opt.unit" class="configure-order__qty-unit">{{ opt.unit }}</span>
+                  <div class="configure-order__qty-input">
+                    <t-input-number
+                      :model-value="numberValue(opt)"
+                      :min="opt.min_value ?? 0"
+                      :max="opt.max_value ?? undefined"
+                      :step="1"
+                      theme="normal"
+                      @change="(v: number | string | undefined) => setSelectionValue(opt, v ?? '')"
+                    />
+                    <span v-if="opt.unit" class="configure-order__qty-unit">{{ opt.unit }}</span>
+                  </div>
+                  <span v-if="qtyRangeHint(opt)" class="configure-order__qty-range">{{ qtyRangeHint(opt) }}</span>
                 </div>
 
                 <!-- 文本：主机名/登录密码等自由填写项；密码用遮蔽输入 -->
@@ -301,8 +326,13 @@ import {
   type AdminOrderQuoteResponse,
 } from '@/api/user'
 import { getProductList as getUcProductList } from '@/api/product'
+import { useIsMobile } from '@/composables/useIsMobile'
 
 type SelectValue = string | number | boolean
+
+// 弹窗宽度按视口切：窄屏用 94vw（仓库既有写法），桌面端拉到 min(1180px, 92vw)，
+// 让配置项能多列铺开、整体高度降下来。
+const { isMobile } = useIsMobile()
 
 const props = defineProps<{
   modelValue: boolean
@@ -622,14 +652,53 @@ function boolValues(opt: AdminOrderConfigOption): SelectValue[] {
 }
 
 function numberValue(opt: AdminOrderConfigOption): number {
+  const min = opt.min_value ?? undefined
+  const max = opt.max_value ?? undefined
+  let n: number | undefined
   const raw = selection.value[opt.option_key]
   if (raw !== undefined && raw !== '') {
-    const n = Number(raw)
-    if (!Number.isNaN(n)) return n
+    const parsed = Number(raw)
+    if (!Number.isNaN(parsed)) n = parsed
   }
-  const def = Number(opt.default_value)
-  if (opt.default_value !== '' && !Number.isNaN(def)) return def
-  return opt.min_value ?? 0
+  if (n === undefined) {
+    const def = Number(opt.default_value)
+    if (opt.default_value !== '' && !Number.isNaN(def)) n = def
+  }
+  if (n === undefined) n = min ?? 0
+  // 越界兜底：存量脏值已在数据层修正（migrations/111 + 启动期回填），
+  // 这里再夹一次，任何来源的默认值都不会被原样预填给客户。
+  if (min !== undefined && n < min) n = min
+  if (max !== undefined && n > max) n = max
+  return n
+}
+
+/**
+ * 数量型选项的可填区间提示（如「可填 80 – 1024 GB，80 GB 以内不加价」）。
+ *
+ * 为什么显式写出来：这类参数按量计价，代下单的人得知道
+ * 「多少以内不加价、最多能给到多少」，否则滑块两端没有依据。
+ */
+function qtyRangeHint(opt: AdminOrderConfigOption): string {
+  if (opt.widget !== 'qty') return ''
+  const unit = opt.unit ? ` ${opt.unit}` : ''
+  const parts: string[] = []
+  if (opt.min_value !== null && opt.min_value !== undefined && opt.max_value !== null && opt.max_value !== undefined) {
+    parts.push(`可填 ${opt.min_value} – ${opt.max_value}${unit}`)
+  } else if (opt.min_value !== null && opt.min_value !== undefined) {
+    parts.push(`最小 ${opt.min_value}${unit}`)
+  } else if (opt.max_value !== null && opt.max_value !== undefined) {
+    parts.push(`最大 ${opt.max_value}${unit}`)
+  }
+  const def = opt.default_value !== '' ? Number(opt.default_value) : NaN
+  if (!Number.isNaN(def)) parts.push(`${def}${unit} 以内不加价`)
+  // 超出部分的单价随周期变化（上游每周期各一价），写明当前周期的价格，
+  // 代下单时才知道"多出来的这部分按什么价算"。
+  const unitPrice = qtyUnitPrice(opt)
+  if (unitPrice > 0) {
+    const label = form.billing_cycle ? cycleLabel(form.billing_cycle) : ''
+    parts.push(`超出部分 ¥${unitPrice.toFixed(2)}/${opt.unit || '单位'}${label ? `（${label}）` : ''}`)
+  }
+  return parts.join('，')
 }
 
 function itemLabel(opt: AdminOrderConfigOption, it: AdminOrderConfigOptionVal): string {
@@ -673,7 +742,9 @@ function itemAddPrice(opt: AdminOrderConfigOption, it: AdminOrderConfigOptionVal
 /** 某项当前选择的加价估算（口径与后端 ResolveOptionPricing 一致）。 */
 function optionSurcharge(opt: AdminOrderConfigOption): number {
   if (opt.widget === 'qty') {
-    const unit = opt.unit_price ?? 0
+    // 单位加价必须按当前周期取：上游每个周期各有单价（系统盘 0.8/月、2.4/季、9.6/年），
+    // 只按月度算会让年付订单的预览价远低于实付（用户反馈的"加配硬盘不随年付叠加"）。
+    const unit = qtyUnitPrice(opt)
     if (unit <= 0) return 0
     const def = opt.default_value !== '' ? Number(opt.default_value) : (opt.min_value ?? 0)
     const base = Number.isNaN(def) ? (opt.min_value ?? 0) : def
@@ -683,6 +754,19 @@ function optionSurcharge(opt: AdminOrderConfigOption): number {
   const chosen = selection.value[opt.option_key] || opt.default_value
   const item = opt.values.find((v) => v.value === chosen)
   return item ? itemAddPrice(opt, item) : 0
+}
+
+/**
+ * 数量型选项在当前周期的每单位加价。
+ * 该周期无独立单价时回落月度价（与后端 quantityUnitPriceForCycle 同口径），
+ * 保证弹窗估算与实付一致。
+ */
+function qtyUnitPrice(opt: AdminOrderConfigOption): number {
+  const current = form.billing_cycle
+  if (current === 'quarterly') return opt.unit_price_quarterly || opt.unit_price || 0
+  if (current === 'annually') return opt.unit_price_annually || opt.unit_price || 0
+  if (current === 'onetime') return opt.unit_price_onetime || opt.unit_price || 0
+  return opt.unit_price || 0
 }
 
 /**
@@ -813,6 +897,17 @@ async function handleSubmit() {
 </script>
 
 <style scoped>
+/*
+  内容很长时由 dialog 的 body 滚动，底部按钮不被推出屏幕。
+  TDesign 的 dialog 默认把整块放进视口并按内容撑高，这里给内容区一个上限，
+  超出就在内部滚 —— 弹窗本体的高度因此不会再超过视口。
+*/
+:deep(.t-dialog__body) {
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .configure-order {
   display: flex;
   flex-direction: column;
@@ -947,9 +1042,14 @@ async function handleSubmit() {
   color: var(--color-muted-foreground, #6b7280);
 }
 
+/*
+  配置项多列铺开：弹窗加宽后每列至少 300px，桌面端 1180px 可并 3 列，
+  比单列纵向堆叠矮得多（用户诉求是"别一直往下滚"）。
+  窄屏回落单列（见文件末尾 media query）。
+*/
 .configure-order__options {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 12px;
 }
 
@@ -1010,16 +1110,38 @@ async function handleSubmit() {
   color: var(--color-muted-foreground, #6b7280);
 }
 
-.configure-order__qty,
-.configure-order__text {
+/*
+  数量型控件：滑块 + 数值输入上下排布（与用户侧同形态）。
+*/
+.configure-order__qty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.configure-order__slider {
+  width: 100%;
+}
+.configure-order__qty-input {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-
+.configure-order__qty-input :deep(.t-input-number) {
+  width: 150px;
+}
 .configure-order__qty-unit {
   font-size: 12px;
   color: var(--color-muted-foreground, #6b7280);
+}
+.configure-order__qty-range {
+  font-size: 11.5px;
+  color: var(--color-muted-foreground, #6b7280);
+}
+
+.configure-order__text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .configure-order__fixed {
@@ -1140,5 +1262,22 @@ async function handleSubmit() {
   margin: 8px 0 0;
   font-size: 12px;
   color: var(--td-error-color-6);
+}
+
+/* 窄屏：配置项回落单列，弹窗内容区继续内部滚动（弹窗宽度已由 isMobile 控制）。 */
+@media (max-width: 768px) {
+  .configure-order__options {
+    grid-template-columns: 1fr;
+  }
+  .configure-order__head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .configure-order__price-field {
+    flex-wrap: wrap;
+  }
+  :deep(.t-dialog__body) {
+    max-height: calc(100vh - 180px);
+  }
 }
 </style>

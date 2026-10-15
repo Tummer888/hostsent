@@ -63,6 +63,16 @@ type ProductConfigOptionSub struct {
 	PriceAnnually  float64 `gorm:"column:price_annually;type:decimal(15,2);default:0"`
 	PriceQuarterly float64 `gorm:"column:price_quarterly;type:decimal(15,2);default:0"`
 	PriceOnetime   float64 `gorm:"column:price_onetime;type:decimal(15,2);default:0"`
+	// QtyMinimum / QtyMaximum 该价档覆盖的数量区间（上游 sub 的 qty_minimum/qty_maximum）。
+	//
+	// 数量型配置项（系统盘/数据盘/带宽/IP）在上游是「按量计价」的：每个 sub 表示一个价档，
+	// 声明它从多少到多少单位、每单位多少钱。上游算价（common.php quantityStagePrice）
+	// 就是按这些区间分档累加的，例如系统盘 80G 免费、81G 起每 GB 0.8 元。
+	// 只存选项级 min/max 无法还原分档，故子项也要带上区间（0/0 表示该档不适用区间）。
+	QtyMinimum int `gorm:"column:qty_minimum;default:0"`
+	QtyMaximum int `gorm:"column:qty_maximum;default:0"`
+	// IsQuantityTier 该子项是否为数量价档（数量型选项的 sub 不是"可选项"而是"价档"）。
+	IsQuantityTier bool `gorm:"column:is_quantity_tier;not null;default:false"`
 	// GroupLabel 分组标签（Ubuntu/Windows/CentOS），用户侧分组下拉用。
 	GroupLabel string `gorm:"column:group_label;size:128;not null;default:''"`
 	// Help 该取值的一句话含义（特殊值解释，来自目录项的取值含义表）。

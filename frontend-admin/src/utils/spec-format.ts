@@ -1,19 +1,24 @@
 /**
  * 规格数值展示：统一 CPU / 内存 / 磁盘 / 带宽的单位与精度。
  *
- * 单位口径（与后端一致，见 pkg/model/standard_product.go）：
- *   - 内存：**MB** 存储（8192 = 8GB）；
+ * 单位口径（与后端一致）：
+ *   - 商品/实例内存：**MB** 存储（8192 = 8GB），见 pkg/model/standard_product.go；
+ *   - 资源池容量：**GB** 存储（15 = 15GB），见 pkg/upstream/provider.go 的
+ *     StandardPool 字段注释与 dcimcloud 的 parseSizeGB；
  *   - 磁盘：**GB** 存储（40 = 40GB）；
  *   - 带宽：**Mbps**。
  *
- * 为什么必须集中一处（实测故障）：资源域四个页面各自复制了一份 formatMemory，
+ * 两套内存口径必须分开实现（实测故障）：商品链路的内存是 MB，
+ * 资源池链路是 GB。此前资源池页把 GB 值交给按 MB 实现的 formatMemory，
+ * 15GB 的宿主机显示成「15 MB」，比真实值小三个数量级。
+ *
+ * 为什么集中一处（另一处实测故障）：资源域四个页面各自复制了一份 formatMemory，
  * 实现是"≥1024 就当 TB" —— 那是磁盘口径，用在内存上会把 8GB（8192MB）
  * 显示成「8.0T」。用户看到的就是"内存 8T"这种不可能存在的规格。
- * 内存与磁盘的单位规则不同，必须分开实现、集中维护。
  */
 
 /**
- * 内存展示：入参为 MB（后端存储口径）。
+ * 内存展示：入参为 MB（**商品/实例**链路的存储口径）。
  * 1024MB 以上按 GB 显示（内存都是 2 的幂，取 1024 而非 1000）。
  */
 export function formatMemory(mb: number): string {
@@ -24,6 +29,22 @@ export function formatMemory(mb: number): string {
     return `${Number.isInteger(gb) ? gb : gb.toFixed(1)} GB`
   }
   return `${Math.round(value)} MB`
+}
+
+/**
+ * 资源池内存展示：入参为 **GB**（资源池链路的存储口径，不是 MB）。
+ *
+ * 与 formatMemory 的区别只在口径，不在展示：池容量本来就是 GB 量级，
+ * 不需要 MB→GB 的换算。1024GB 以上按 TB 显示（大宿主机/集群汇总会到 TB）。
+ */
+export function formatPoolMemory(gb: number): string {
+  const value = Number(gb || 0)
+  if (!Number.isFinite(value) || value <= 0) return '—'
+  if (value >= 1024) {
+    const tb = value / 1024
+    return `${Number.isInteger(tb) ? tb : tb.toFixed(1)} TB`
+  }
+  return `${Math.round(value)} GB`
 }
 
 /**

@@ -42,8 +42,15 @@ export interface ProductOption {
   help: string
   min_value: number | null
   max_value: number | null
-  /** 数量型选项的每单位加价（元）；枚举型加价随 Values 逐项给出 */
+  /**
+   * 数量型选项的每单位加价（元）。四档分别给出：长周期必须用对应档位，
+   * 上游每个周期各有单价（如系统盘 0.8/月、2.4/季、9.6/年）。
+   * 为 0 表示上游该周期未单独给价，按月度单价回落（与后端 quantityUnitPriceForCycle 同口径）。
+   */
   unit_price?: number
+  unit_price_quarterly?: number
+  unit_price_annually?: number
+  unit_price_onetime?: number
   values: OptionItem[]
 }
 

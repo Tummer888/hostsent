@@ -12,11 +12,24 @@ export const priceModelOptions = [
   { label: '按月', value: 'monthly' },
 ]
 
+/**
+ * 产品类型选项：商品与实例共用的产品线判据。
+ *
+ * 权威定义在**后端** `backend/internal/pkg/model/product_kind.go` 的 productKindRegistry ——
+ * 实例导航（/instances/types）、实例列表筛选、开通落库都从那里取值。本数组必须与其一致，
+ * 由 `backend/internal/pkg/db/product_kind_align_test.go` 门禁校验：漂移会让商品建出
+ * 实例导航里不存在的类型，那台实例在任何产品线标签下都找不到。
+ *
+ * 新增产品线时改后端登记表 + 这里两处，即可同时出现在商品表单与实例导航中。
+ */
 export const productTypeOptions = [
   { label: '云主机', value: 'cloud_host' },
-  { label: 'IP', value: 'ip' },
+  { label: 'CDN', value: 'cdn' },
+  { label: '物理机', value: 'physical' },
+  { label: 'IP 地址', value: 'ip' },
   { label: '存储', value: 'storage' },
   { label: '带宽', value: 'bandwidth' },
+  { label: '其它', value: 'other' },
 ]
 
 // 链路判据（双链路重构 D6）：source_mode 为唯一判据（P8 起 provision_mode 列已删除）。
