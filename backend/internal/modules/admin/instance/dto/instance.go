@@ -25,6 +25,7 @@ type ListQuery struct {
 	ProviderID       uint64 `form:"provider_id" json:"provider_id"`               // 服务商
 	Status           string `form:"status" json:"status"`                         // 服务状态
 	SourceMode       string `form:"source_mode" json:"source_mode"`               // self/upstream（链路筛选，T1.3）
+	InstanceType     string `form:"instance_type" json:"instance_type"`           // 产品类型筛选（cloud_host/cdn/…，空=全部）
 	ExpireState      string `form:"expire_state" json:"expire_state"`             // all/expiring/expired/none
 	ExpireWithinDays int    `form:"expire_within_days" json:"expire_within_days"` // 临期天数，默认 7
 	Page             int    `form:"page" json:"page"`
@@ -49,24 +50,51 @@ type InstanceItem struct {
 	UpstreamProductID  uint64 `json:"upstream_product_id"`
 	ProviderInstanceID string `json:"provider_instance_id"`
 	// Pending 待开通（尚未在上游开通的占位行）：列表显示「待开通」并只开放「重新开通」。
-	Pending        bool   `json:"pending"`
+	Pending bool `json:"pending"`
+	// Resale 是否**转售链路**（source_mode=upstream）：实例对着一个上游资源商品，
+	// 因此存在"上游实例号 / 上游镜像 / 上游各周期价"这些概念，也才有换号与换绑需求。
+	//
+	// 自营链路（self）为 false：机器由本平台开通，实例号由本系统管理 ——
+	// 页面不应出现「上游实例号」「重新关联」「更换对接商品」这类措辞与入口
+	//（用户实测反馈："虽然是我自己的，但它这里会显示上游实例号，这个一看就是有问题"）。
+	//
+	// 前端一律用本字段决定措辞与入口，不要自行拼 source_mode 字符串判等：
+	// 历史行可能有空值，判等容易漏（后端已把空值按更安全的语义归一）。
+	Resale bool `json:"resale"`
 	LifecycleStage string `json:"lifecycle_stage"`
-	Name           string `json:"name"`
-	CPU            int    `json:"cpu"`
-	Memory         int    `json:"memory"`
-	Disk           int    `json:"disk"`
-	DiskType       string `json:"disk_type"`
-	Bandwidth      int    `json:"bandwidth"`
-	OS             string `json:"os"`
-	Region         string `json:"region"`
-	Zone           string `json:"zone"`
-	Status         string `json:"status"`
-	PowerStatus    string `json:"power_status"`
-	PrivateIP      string `json:"private_ip"`
-	PublicIP       string `json:"public_ip"`
-	BillingMode    string `json:"billing_mode"`
-	ActorUserID    uint64 `json:"actor_user_id"`
-	ActorName      string `json:"actor_name"`
+	// InstanceType 产品类型（cloud_host/cdn/physical/…，迁移 108）：产品线导航与
+	// 「这类实例有几个」的计数依据。未知/空值已由仓储归一为 other。
+	InstanceType string `json:"instance_type"`
+	Name         string `json:"name"`
+	CPU          int    `json:"cpu"`
+	Memory       int    `json:"memory"`
+	Disk         int    `json:"disk"`
+	DiskType     string `json:"disk_type"`
+	Bandwidth    int    `json:"bandwidth"`
+	OS           string `json:"os"`
+	Region       string `json:"region"`
+	Zone         string `json:"zone"`
+	Status       string `json:"status"`
+	PowerStatus  string `json:"power_status"`
+	// PowerState 机器电源维度（on/off/transitioning/unknown）—— **与账期完全无关**。
+	//
+	// 为什么单独给一个字段：status 是混合体（上游把 suspended 也映射成 stopped），
+	// 前端只凭它分不清"手动关机"与"到期暂停"，于是关机被显示成「已暂停」
+	// （用户实测反馈的根因）。电源维度只看机器通没通电；账期维度见 ServiceState。
+	PowerState string `json:"power_state"`
+	// ServiceState 账期/服务维度（active/expiring/expired/grace/suspended/destroyed）。
+	//
+	// 判据：到期时间 + 生命周期阶段，**不看电源状态** —— 关机但未到期的实例，
+	// 服务维度仍是 active（服务在有效期内，只是机器没开）。
+	ServiceState string `json:"service_state"`
+	// Transition 进行中的操作（迁移 112）：nil = 空闲。
+	// 非空时前端显示「重启中」等过渡文案 + 动画，并禁用冲突操作。
+	Transition  *TransitionInfo `json:"transition,omitempty"`
+	PrivateIP   string          `json:"private_ip"`
+	PublicIP    string          `json:"public_ip"`
+	BillingMode string          `json:"billing_mode"`
+	ActorUserID uint64          `json:"actor_user_id"`
+	ActorName   string          `json:"actor_name"`
 	// Remark 管理员内部备注（仅管理端可见）；CustomerRemark 是客户下单填写或自助修改的
 	// 备注（客户在自己界面也看得到）。两者严格分开：混用会让内部备注泄漏给客户。
 	Remark         string `json:"remark"`
@@ -84,6 +112,29 @@ type InstanceItem struct {
 	RenewalPrice *float64 `json:"renewal_price"`
 	CreatedAt    string   `json:"created_at"`
 	UpdatedAt    string   `json:"updated_at"`
+}
+
+// TransitionInfo 进行中的操作（迁移 112）。
+//
+// 上游下发是异步的：接口回"已受理"后机器还要执行几十秒到几分钟。这段窗口里
+// 本地状态不会变，界面无从判断"到底有没有在跑" —— 于是运营反复点同一个按钮。
+// 本结构把"正在做什么、从什么时候开始"如实下发给前端。
+type TransitionInfo struct {
+	// State 落库值：starting/stopping/rebooting/reinstalling/resetting_password/…
+	State string `json:"state"`
+	// Label 展示文案（"重启中"）。
+	Label string `json:"label"`
+	// Verb 动作名（"重启"、"重装系统"），用于提示语。
+	Verb string `json:"verb"`
+	// StartedAt 下发时间（RFC3339，空 = 未知）。
+	StartedAt string `json:"started_at"`
+	// ExpiresAt 过渡窗口截止时间：超过后视为结果未知（界面提示可重新操作）。
+	ExpiresAt string `json:"expires_at"`
+	// Overdue 是否已超过窗口仍未确认。
+	//
+	// 语义不是"失败了"，而是"结果未知"：上游可能还在跑、也可能指令丢了。
+	// 界面据此从"进行中（禁止操作）"切换为"结果未确认（可重试，但提示先同步）"。
+	Overdue bool `json:"overdue"`
 }
 
 // ListResponse 实例列表响应。
@@ -106,6 +157,34 @@ type StatsResponse struct {
 	Error    int64 `json:"error"`
 	Expiring int64 `json:"expiring"`
 	Expired  int64 `json:"expired"`
+}
+
+// InstanceTypeOption 产品线导航的一项（实例运维台顶部的类型标签）。
+//
+// 为什么计数放在这一份响应里而不是让前端逐类型发请求：导航要一次渲染出
+// 「云主机 12 · CDN 0 · 物理机 0」的完整形态，N 个类型就是 N 次往返；
+// 一次 GROUP BY 就能给全，且计数与列表用的是同一批行（不会出现
+// 标签显示 3 条、点进去 2 条的口径差）。
+type InstanceTypeOption struct {
+	// Value 类型值（cloud_host/cdn/…）；"all" 是虚拟的「全部实例」项。
+	Value string `json:"value"`
+	Label string `json:"label"`
+	// Count 该类型的实例数（按 status 过滤后的口径，与列表一致）。
+	Count int64 `json:"count"`
+	// Reserved 是否为预埋类型（登记在册但当前**没有任何实例**）。
+	//
+	// 前端默认不显示预留类型（避免一排永远为 0 的空标签把导航撑长），
+	// 但保留该字段供「全部类型」面板或调试查看 —— 预埋的意义是将来加产品线
+	// 时无需改后端就能出现，而不是现在就把空标签堆满。
+	Reserved bool `json:"reserved"`
+}
+
+// InstanceTypeSummary 产品线导航数据（类型 + 计数 + 总量）。
+type InstanceTypeSummary struct {
+	// Types 按登记顺序排列的类型项（不含 "all"）。
+	Types []InstanceTypeOption `json:"types"`
+	// Total 全部实例数（"全部"标签的计数，含未登记类型的 other 行）。
+	Total int64 `json:"total"`
 }
 
 // Capabilities 上游对当前实例支持的操作能力（前端据此置灰按钮）。

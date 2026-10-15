@@ -69,9 +69,14 @@ func init() {
 	})
 	// 能力描述符（T2.1）：财务型上游目录权威在上游，开通/续费/暂停/终止按 zjmf_api 分支直连。
 	upstream.RegisterDescriptor(ProviderType, upstream.CapabilityDescriptor{
-		Kind:          upstream.KindUpstream,
-		SyncScopes:    []string{upstream.ScopeCatalog, upstream.ScopePrice, upstream.ScopeInstance},
-		BillingCycles: []string{"monthly", "quarterly", "semiannually", "annually", "biennially", "triennially"},
+		Kind: upstream.KindUpstream,
+		// **不报电源状态**：host/header 只有 domainstatus（服务状态：Active/Pending/
+		// Suspended）与 status（账单状态：Paid/Unpaid），没有任何机器电源字段。
+		// 回源若照抄 domainstatus=Active→running，会把本地"已关机"冲成"运行中"——
+		// 运营点完关机、一同步就变回来，以为没生效（实测定位到的真缺陷）。
+		ReportsPowerState: false,
+		SyncScopes:        []string{upstream.ScopeCatalog, upstream.ScopePrice, upstream.ScopeInstance},
+		BillingCycles:     []string{"monthly", "quarterly", "semiannually", "annually", "biennially", "triennially"},
 		Operations: []string{
 			upstream.OpProvision, upstream.OpRenew,
 			upstream.OpStart, upstream.OpStop, upstream.OpRestart, upstream.OpVNC,

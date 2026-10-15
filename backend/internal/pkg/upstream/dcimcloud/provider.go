@@ -65,9 +65,11 @@ func init() {
 	})
 	// 能力描述符（T2.1）：字段级声明本平台能做什么，驱动后台能力矩阵与动态表单。
 	upstream.RegisterDescriptor(ProviderType, upstream.CapabilityDescriptor{
-		Kind:          upstream.KindCompute,
-		SyncScopes:    []string{upstream.ScopePool, upstream.ScopeRegion, upstream.ScopeInstance},
-		BillingCycles: []string{"month", "year", "hour", "day"},
+		Kind: upstream.KindCompute,
+		// 真报电源状态（GET /clouds/{id}/status → on/off/wait_reboot/task）。
+		ReportsPowerState: true,
+		SyncScopes:        []string{upstream.ScopePool, upstream.ScopeRegion, upstream.ScopeInstance},
+		BillingCycles:     []string{"month", "year", "hour", "day"},
 		Operations: []string{
 			upstream.OpProvision, upstream.OpStart, upstream.OpStop, upstream.OpRestart,
 			upstream.OpVNC, upstream.OpResize, upstream.OpDestroy,

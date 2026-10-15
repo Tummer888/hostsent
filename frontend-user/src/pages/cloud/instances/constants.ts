@@ -99,46 +99,157 @@ export function operatorTypeLabel(type: string): string {
 }
 
 /**
- * combineInstanceState 把「服务状态 / 生命周期阶段 / 到期状态」合成一句客户读得懂的结论。
+ * 过渡态（迁移 112）：平台正在执行某个动作，结果尚未确认。
  *
- * 三个字段语义不同：status 来自上游（关机就是 stopped）、lifecycle_stage 是本系统的
- * 到期处置阶段、expire_state 是时间派生。单独看会自相矛盾——宽限期内实例
- * status=running 而 expire_state=expired，只显示 status 会把已过期的机器写成「运行中」。
- * 按处置优先级给唯一结论：已销毁 > 待开通 > 已暂停 > 已过期(宽限) > 正常服务状态。
+ * 客户侧同样需要看到"我点的那下正在跑" —— 否则会以为没生效而反复点重启，
+ * 同一台机器堆多次指令。
  */
-export function combineInstanceState(input: {
+export interface InstanceTransitionView {
+  state: string
+  label: string
+  verb: string
+  started_at?: string
+  expires_at?: string
+  overdue?: boolean
+}
+
+/**
+ * powerStateView 机器电源维度（与账期无关）—— 客户读的版本。
+ *
+ * 【本会话修复的根因】此前把电源状态与账期状态压成一句话，判据是
+ * `stage === 'suspended' || status === 'stopped'`，而上游把 suspended 也映射成
+ * stopped，客户手动关机同样是 stopped —— 于是"我关了机"被显示成「已暂停」。
+ * 现在两个维度分开：这里只答"机器通电了吗"。
+ */
+export function powerStateView(input: {
   status: string
-  lifecycle_stage?: string
-  expire_state?: string
+  power_state?: string
   pending?: boolean
-}): { label: string; theme: string; detail: string } {
+  lifecycle_stage?: string
+  transition?: InstanceTransitionView | null
+}): { label: string; theme: string; detail: string; spinning: boolean } {
   const stage = input.lifecycle_stage || ''
+  const t = input.transition
+  if (t && t.state) {
+    if (t.overdue) {
+      return {
+        label: `${t.label}（结果未确认）`,
+        theme: 'warning',
+        detail: '已超过预计耗时仍未确认，可刷新页面或联系客服核对',
+        spinning: false,
+      }
+    }
+    return { label: t.label, theme: 'primary', detail: `正在${t.verb}，请稍候`, spinning: true }
+  }
   if (stage === 'destroyed' || input.status === 'deleted') {
-    return { label: '已销毁', theme: 'default', detail: '实例已终止，不可恢复' }
+    return { label: '已销毁', theme: 'default', detail: '实例已回收，不可恢复', spinning: false }
   }
   if (input.pending) {
-    return { label: '待开通', theme: 'warning', detail: '尚未开通完成，可在详情页查看原因并重新开通' }
+    return { label: '开通中', theme: 'warning', detail: '正在为你创建实例', spinning: false }
   }
-  if (stage === 'suspended' || input.status === 'stopped') {
-    return {
-      label: '已暂停',
-      theme: 'danger',
-      detail: stage === 'suspended' ? '到期暂停中，续费后自动恢复' : '已关机',
-    }
+  if (stage === 'suspended') {
+    // 到期暂停是平台动作：机器侧通常已被关机，但对客户而言语义是"服务被停"。
+    return { label: '已停止服务', theme: 'danger', detail: '实例已到期暂停，续费后自动恢复运行', spinning: false }
   }
-  if (input.expire_state === 'expired') {
-    return {
-      label: stage === 'grace' ? '已过期·宽限期' : '已过期',
-      theme: 'warning',
-      detail: '已过到期时间，宽限期内仍可服务，请尽快续费',
-    }
+  switch (input.power_state || '') {
+    case 'on':
+      return { label: '运行中', theme: 'success', detail: '实例运行正常', spinning: false }
+    case 'off':
+      return { label: '已关机', theme: 'default', detail: '实例已关机，可点击「开机」启动', spinning: false }
+    case 'transitioning':
+      return { label: '状态同步中', theme: 'primary', detail: '正在获取最新状态', spinning: true }
   }
   const label = instanceStatusLabels[input.status] || input.status || '未知'
   let theme = 'default'
   if (input.status === 'running') theme = 'success'
   else if (input.status === 'creating') theme = 'warning'
   else if (input.status === 'error') theme = 'danger'
-  return { label, theme, detail: input.expire_state === 'expiring' ? '即将到期，请及时续费' : '' }
+  return { label, theme, detail: '', spinning: input.status === 'creating' }
+}
+
+/**
+ * serviceStateView 账期/服务维度（与机器是否开机无关）—— 客户读的版本。
+ *
+ * 关着机但没到期，这里仍是「服务中」：服务在有效期内，只是机器没开。
+ */
+export function serviceStateView(input: {
+  lifecycle_stage?: string
+  expire_state?: string
+  service_state?: string
+  days_left?: number
+}): { label: string; theme: string; detail: string } {
+  const stage = input.lifecycle_stage || ''
+  if (stage === 'destroyed') {
+    return { label: '服务已终止', theme: 'default', detail: '服务已结束' }
+  }
+  if (stage === 'suspended') {
+    return { label: '已到期暂停', theme: 'danger', detail: '续费后可恢复服务' }
+  }
+  switch (input.service_state || '') {
+    case 'expiring': {
+      const d = typeof input.days_left === 'number' ? input.days_left : undefined
+      return {
+        label: '即将到期',
+        theme: 'warning',
+        detail: d !== undefined ? `还剩 ${d} 天，建议提前续费` : '临近到期，建议提前续费',
+      }
+    }
+    case 'expired':
+      return { label: '已过期', theme: 'danger', detail: '已过到期时间，请尽快续费' }
+    case 'grace':
+      return { label: '已过期·宽限期', theme: 'warning', detail: '宽限期内仍可使用，请尽快续费' }
+    case 'active':
+      return { label: '服务中', theme: 'success', detail: '服务在有效期内' }
+  }
+  if (input.expire_state === 'expired') {
+    return { label: stage === 'grace' ? '已过期·宽限期' : '已过期', theme: 'warning', detail: '已过到期时间，请尽快续费' }
+  }
+  if (input.expire_state === 'expiring') {
+    return { label: '即将到期', theme: 'warning', detail: '临近到期，建议提前续费' }
+  }
+  return { label: '服务中', theme: 'success', detail: '服务在有效期内' }
+}
+
+/**
+ * combineInstanceState 一句话客户结论（列表徽标用；详情页用两个维度分开显示）。
+ *
+ * 结论分别取自两个维度，不再出现"关机 → 已暂停"的错误归因：
+ * 终态/开通中 > 过渡中 > 服务异常（到期暂停/过期）> 电源态。
+ */
+export function combineInstanceState(input: {
+  status: string
+  lifecycle_stage?: string
+  expire_state?: string
+  service_state?: string
+  power_state?: string
+  days_left?: number
+  pending?: boolean
+  transition?: InstanceTransitionView | null
+}): { label: string; theme: string; detail: string; spinning: boolean } {
+  const stage = input.lifecycle_stage || ''
+  if (stage === 'destroyed' || input.status === 'deleted') {
+    return { label: '已销毁', theme: 'default', detail: '实例已回收，不可恢复', spinning: false }
+  }
+  if (input.pending) {
+    return { label: '开通中', theme: 'warning', detail: '正在为你创建实例，可在详情页查看进度', spinning: false }
+  }
+  const power = powerStateView(input)
+  if (power.spinning) {
+    return { label: power.label, theme: power.theme, detail: power.detail, spinning: true }
+  }
+  const service = serviceStateView(input)
+  if (stage === 'suspended') {
+    return { label: '已到期暂停', theme: 'danger', detail: service.detail, spinning: false }
+  }
+  if (service.theme === 'danger' || service.theme === 'warning') {
+    return {
+      label: service.label,
+      theme: service.theme,
+      detail: `${power.label} · ${service.detail}`,
+      spinning: false,
+    }
+  }
+  return { label: power.label, theme: power.theme, detail: power.detail, spinning: false }
 }
 
 /**
@@ -152,9 +263,20 @@ export function stateIcon(label: string): string {
   switch (label) {
     case '运行中':
       return 'play-circle'
-    case '已暂停':
+    // 「已关机」用暂停图标：对客户而言"关机"就是服务暂时停着，与「已停止服务」
+    // 区分在于后者是平台因到期停的（文案已说明）。
+    case '已关机':
+    case '已停止服务':
       return 'pause-circle'
-    case '待开通':
+    case '已到期暂停':
+      return 'pause-circle'
+    case '开机中':
+    case '关机中':
+    case '重启中':
+    case '重装中':
+    case '重置密码中（结果未确认）':
+    case '状态同步中':
+    case '开通中':
       return 'time'
     case '已过期':
     case '已过期·宽限期':
@@ -164,6 +286,10 @@ export function stateIcon(label: string): string {
     case '异常':
       return 'close-circle'
     default:
+      // 带"（结果未确认）"后缀的过渡态统一归到时间图标。
+      if (label.startsWith('开机中') || label.startsWith('关机中') || label.startsWith('重启中') || label.startsWith('重装中')) {
+        return 'time'
+      }
       return 'info-circle'
   }
 }

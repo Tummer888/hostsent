@@ -32,6 +32,7 @@ import type {
   InstanceSnapshotInfo,
   InstanceSnapshotRestoreRequest,
   InstanceStatsResponse,
+  InstanceTypeSummary,
   InstanceVNCResponse,
   OperationListQuery,
   OperationListResponse,
@@ -62,6 +63,17 @@ export function getInstanceList(params: InstanceOpsListQuery): Promise<InstanceO
 export function getInstanceStats(): Promise<InstanceStatsResponse> {
   return request.get<InstanceStatsResponse>({
     url: '/instances/stats',
+  })
+}
+
+/**
+ * 产品线导航数据（类型清单 + 各自实例数）。
+ * 类型登记在后端（pkg/model/product_kind.go）；当前没有实例的预埋类型也会返回（reserved=true），
+ * 由前端决定是否显示 —— 这样接入新产品线时无需改前端菜单。
+ */
+export function getInstanceTypes(): Promise<InstanceTypeSummary> {
+  return request.get<InstanceTypeSummary>({
+    url: '/instances/types',
   })
 }
 

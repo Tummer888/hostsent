@@ -17,4 +17,9 @@ var (
 	ErrAlreadyProvisioned        = errors.New("实例已开通，无需重新开通")
 	ErrMetricsUnsupported        = errors.New("当前服务商不提供性能监控")
 	ErrMetricsTypeRequired       = errors.New("请指定要查询的监控类型")
+	// ErrOperationInProgress 该实例上有正在执行的操作（迁移 112 过渡态）：
+	// 拒绝新的电源/维护指令，避免客户连点造成任务累积（用户实测反馈）。
+	//
+	// 文案面向客户：说明"在做什么、要等多久、等不了怎么办"，不暴露内部机制。
+	ErrOperationInProgress = errors.New("该主机上已有正在执行的操作")
 )

@@ -179,45 +179,182 @@ export function lifecycleStageTheme(stage: string): string {
   return lifecycleStageThemes[stage] || defaultTheme
 }
 
-// combineInstanceState 把「服务状态 / 到期阶段 / 到期状态」合成一句人读得懂的结论。
+// ===== 实例状态：两个正交维度 =====
 //
-// 三个字段语义不同（服务状态来自上游、阶段是本系统的到期处置、到期状态是时间派生），
-// 单独看容易互相矛盾——例如宽限期内的实例 status=running 而 expire_state=expired，
-// 列表只显示后者就会写成「运行中（已过期）」。这里按处置优先级给唯一结论：
-// 已销毁 > 已暂停 > 宽限期(已过期仍服务) > 正常服务状态，并保留阶段作为补充说明。
+// 【本轮修复的根因】此前用一个 combineInstanceState 把电源状态与账期状态压成一句话，
+// 判据是 `stage === 'suspended' || status === 'stopped'` —— 而上游把 suspended（到期暂停）
+// 也映射成本地 stopped，手动关机同样是 stopped。两者无法区分，于是「关机」被显示成
+// 「已暂停／到期暂停中」（用户实测反馈）。
+//
+// 现在拆成两个独立维度，各自回答一个问题：
+//   ① 电源维度 powerStateView ：这台机器通电了吗？（运行中 / 已关机 / 重启中 …）
+//   ② 服务维度 serviceStateView：我们卖的这个服务还在有效期内吗？（服务中 / 已过期 / 到期暂停 …）
+// 两者组合出真实处境，例如「已关机 · 服务中」（客户自己关的机，账期正常）、
+// 「运行中 · 已过期」（到期了但客户还没续费、机器也还没被停）。
+
+/** 过渡态（迁移 112）：上游正在执行某个动作，结果尚未确认。 */
+export interface InstanceTransitionView {
+  state: string
+  label: string
+  verb: string
+  started_at?: string
+  expires_at?: string
+  /** 已超过窗口仍未确认：不是失败，是"结果未知"，可重试但应先同步。 */
+  overdue?: boolean
+}
+
+/**
+ * powerStateView 电源维度结论。
+ *
+ * 展示优先级：过渡态 > 运行/关机 > 未知。
+ * 过渡中优先展示，因为那正是运营最需要看到的信息（"我点的那下正在跑"）。
+ */
+export function powerStateView(input: {
+  status: string
+  power_state?: string
+  pending?: boolean
+  lifecycle_stage?: string
+  transition?: InstanceTransitionView | null
+}): { label: string; theme: string; detail: string; spinning: boolean } {
+  const stage = input.lifecycle_stage || ''
+  const t = input.transition
+  // 过渡态优先：显示「重启中」并带动画，避免运营以为没生效而重复点击。
+  if (t && t.state) {
+    if (t.overdue) {
+      return {
+        label: `${t.label}（结果未确认）`,
+        theme: 'warning',
+        detail: `已超过预计耗时仍未确认，请点「同步上游」核对后再决定是否重试`,
+        spinning: false,
+      }
+    }
+    return { label: t.label, theme: 'primary', detail: `正在执行：${t.verb}`, spinning: true }
+  }
+  // 终态与未开通：机器还没起来或已不存在，谈"通电"没有意义。
+  if (stage === 'destroyed' || input.status === 'deleted') {
+    return { label: '已销毁', theme: 'default', detail: '实例已终止，机器不再运行', spinning: false }
+  }
+  if (input.pending) {
+    return { label: '待开通', theme: 'warning', detail: '尚未在上游开通，机器还未创建', spinning: false }
+  }
+  if (stage === 'suspended') {
+    // 到期暂停是我方动作：机器侧通常已被上游关机，但语义是"服务被停"而非"用户关机"。
+    return { label: '已停止服务', theme: 'danger', detail: '到期暂停中，续费后自动恢复运行', spinning: false }
+  }
+  switch (input.power_state || '') {
+    case 'on':
+      return { label: '运行中', theme: 'success', detail: '机器已通电运行', spinning: false }
+    case 'off':
+      // 关键修复：手动关机就是"已关机"，不再写成「已暂停」。
+      return { label: '已关机', theme: 'default', detail: '机器已断电（可由本页「开机」恢复）', spinning: false }
+    case 'transitioning':
+      return { label: '状态同步中', theme: 'primary', detail: '正在从上游获取最新状态', spinning: true }
+  }
+  // 回落到原始 status（创建中/删除中等过渡状态，或后端未下发 power_state 的旧响应）。
+  return {
+    label: instanceStatusLabel(input.status),
+    theme: instanceStatusTheme(input.status),
+    detail: '',
+    spinning: input.status === 'creating' || input.status === 'deleting',
+  }
+}
+
+/**
+ * serviceStateView 服务/账期维度结论（与机器是否开机无关）。
+ *
+ * 一台关机但未到期的实例，这里仍是「服务中」—— 服务在有效期内，只是机器没开。
+ */
+export function serviceStateView(input: {
+  lifecycle_stage?: string
+  expire_state?: string
+  service_state?: string
+  days_left?: number
+}): { label: string; theme: string; detail: string } {
+  const stage = input.lifecycle_stage || ''
+  if (stage === 'destroyed') {
+    return { label: '服务已终止', theme: 'default', detail: '账期终结，不可恢复' }
+  }
+  if (stage === 'suspended') {
+    return { label: '到期暂停', theme: 'danger', detail: '已过宽限期，续费后自动恢复服务' }
+  }
+  switch (input.service_state || '') {
+    case 'expiring': {
+      const d = typeof input.days_left === 'number' ? input.days_left : undefined
+      return {
+        label: '即将到期',
+        theme: 'warning',
+        detail: d !== undefined ? `还剩 ${d} 天，建议提前续费` : '临近到期，建议提前续费',
+      }
+    }
+    case 'expired':
+      return { label: '已过期', theme: 'danger', detail: '已过到期时间，请尽快续费以免服务被停' }
+    case 'grace':
+      return { label: '已过期·宽限期', theme: 'warning', detail: '宽限期内仍可服务，逾期将暂停' }
+    case 'active':
+      return { label: '服务中', theme: 'success', detail: '账期正常' }
+  }
+  // 回落：后端未下发 service_state 时按旧口径推算（兼容旧响应）。
+  if (input.expire_state === 'expired') {
+    return { label: stage === 'grace' ? '已过期·宽限期' : '已过期', theme: 'warning', detail: '已过到期时间，请尽快续费' }
+  }
+  if (input.expire_state === 'expiring') {
+    return { label: '即将到期', theme: 'warning', detail: '临近到期，建议提前续费' }
+  }
+  return { label: '服务中', theme: 'success', detail: '账期正常' }
+}
+
+/**
+ * combineInstanceState 一句话结论（列表徽标用）。
+ *
+ * 保留单一结论是因为列表一行放不下两个标签；但结论现在**分别取自两个维度**，
+ * 不会再出现"关机 → 已暂停"的错误归因：
+ *   终态/待开通 > 过渡中 > 服务异常（到期暂停/过期）> 电源态
+ * 其中"服务异常"优先于电源态：到期暂停的机器即使开着也应当先提示欠费。
+ *
+ * 需要完整画面时请在详情页用 powerStateView + serviceStateView 两个标签。
+ */
 export function combineInstanceState(input: {
   status: string
   lifecycle_stage?: string
   expire_state?: string
-  /** 待开通（尚未在上游开通的占位行）：优先级仅次于终态，避免显示成「创建中」。 */
+  service_state?: string
+  power_state?: string
+  days_left?: number
   pending?: boolean
-}): { label: string; theme: string; detail: string } {
+  transition?: InstanceTransitionView | null
+}): { label: string; theme: string; detail: string; spinning: boolean } {
   const stage = input.lifecycle_stage || ''
   if (stage === 'destroyed' || input.status === 'deleted') {
-    return { label: '已销毁', theme: 'default', detail: '实例已终止，不可恢复' }
+    return { label: '已销毁', theme: 'default', detail: '实例已终止，不可恢复', spinning: false }
   }
   if (input.pending) {
-    return { label: '待开通', theme: 'warning', detail: '尚未在上游开通：可在详情页查看开通失败原因并「重新开通」' }
-  }
-  if (stage === 'suspended' || input.status === 'stopped') {
     return {
-      label: '已暂停',
-      theme: 'danger',
-      detail: stage === 'suspended' ? '到期暂停中，续费后自动恢复' : '已关机',
-    }
-  }
-  if (input.expire_state === 'expired') {
-    return {
-      label: stage === 'grace' ? '已过期·宽限期' : '已过期',
+      label: '待开通',
       theme: 'warning',
-      detail: '已过到期时间，宽限期内仍可服务，请尽快续费',
+      detail: '尚未在上游开通：可在详情页查看开通失败原因并「重新开通」',
+      spinning: false,
     }
   }
-  return {
-    label: instanceStatusLabel(input.status),
-    theme: instanceStatusTheme(input.status),
-    detail: input.expire_state === 'expiring' ? '即将到期' : '',
+  // 过渡中优先于普通电源态：这是"操作正在跑"的反馈。
+  const power = powerStateView(input)
+  if (power.spinning) {
+    return { label: power.label, theme: power.theme, detail: power.detail, spinning: true }
   }
+  // 服务维度异常时以它为准（欠费/过期比"机器开着"更需要运营立刻看到）。
+  const service = serviceStateView(input)
+  if (stage === 'suspended') {
+    return { label: '到期暂停', theme: 'danger', detail: service.detail, spinning: false }
+  }
+  if (service.theme === 'danger' || service.theme === 'warning') {
+    // 机器状态作为补充：让运营知道"虽然过期了，但机器现在还开着/已关"。
+    return {
+      label: service.label,
+      theme: service.theme,
+      detail: `${power.label} · ${service.detail}`,
+      spinning: false,
+    }
+  }
+  return { label: power.label, theme: power.theme, detail: power.detail, spinning: false }
 }
 
 export function enforcementActionLabel(action: string): string {
@@ -267,4 +404,26 @@ export function formatMemory(mb: number): string {
     return `${Number.isInteger(gb) ? gb : gb.toFixed(1)} GB`
   }
   return `${value} MB`
+}
+
+/**
+ * 产品类型展示名（cloud_host → 云主机）。
+ *
+ * 取值与后端登记表（backend/internal/pkg/model/product_kind.go）一一对应，
+ * 由 product_kind_align_test.go 门禁校验。未登记的取值原样返回 ——
+ * 不隐藏信息：显示一个陌生值也比显示空白更容易发现后端多了一条产品线。
+ */
+const productKindLabels: Record<string, string> = {
+  cloud_host: '云主机',
+  cdn: 'CDN',
+  physical: '物理机',
+  ip: 'IP 地址',
+  storage: '存储',
+  bandwidth: '带宽',
+  other: '其它',
+}
+
+export function productKindLabel(value?: string): string {
+  if (!value) return '其它'
+  return productKindLabels[value] || value
 }

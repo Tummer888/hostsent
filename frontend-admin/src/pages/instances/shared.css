@@ -1,19 +1,20 @@
 /* ============================================================
    HostSent · 实例运维台模块共享样式
    所有选择器均以 .instances-module 命名空间包裹，避免影响其他模块。
-   统计卡片沿用 .stat-card 结构，但在此模块内独立定义视觉。
+   统计卡片视觉统一由 ../stat-card.css 提供（40px 高饱和实色块）。
    ============================================================ */
+
+@import '../stat-card.css';
 
 /* ---------- 页面骨架 ---------- */
 .instances-module {
-  --chip-bg: linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8));
   --instances-green: var(--color-primary, var(--color-primary));
   --instances-green-hover: var(--td-brand-color-8);
   --instances-green-soft: var(--td-brand-color-1);
   --instances-green-border: var(--td-brand-color-2);
 }
 
-.instances-module .page-body {
+.instances-module.page-body {
   display: flex;
   flex-direction: column;
   gap: var(--space-lg);
@@ -39,7 +40,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-lg);
-  padding: var(--space-lg) var(--space-xl);
+  padding: var(--space-lg) 20px var(--space-lg) 19px;
   flex-wrap: wrap;
   overflow: hidden;
 }
@@ -47,7 +48,7 @@
 .instances-module .page-header__main {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
+  gap: 13px;
   min-width: 0;
 }
 
@@ -56,19 +57,6 @@
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-}
-
-.instances-module .page-header__chip {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--hs-radius-xl);
-  background: var(--chip-bg, linear-gradient(135deg, var(--td-brand-color-6), var(--td-brand-color-8)));
-  color: #ffffff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  box-shadow: none;
 }
 
 .instances-module .page-header__title {
@@ -290,123 +278,12 @@
 }
 
 /* ---------- 统计卡片 ---------- */
+/* 视觉（40px 高饱和实色块 / 21px 数值）由 ../stat-card.css 统一提供；
+   本模块只保留栅格列数。 */
 .instances-module .stat-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: var(--space-md);
-}
-
-.instances-module .stat-card {
-  --stat-accent: 100, 116, 139;
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  min-height: 108px;
-  padding: var(--space-lg) 20px;
-  border-radius: var(--hs-radius-lg);
-  background: var(--hs-surface-1);
-  box-shadow: none;
-  transition: border-color var(--hs-duration-fast);
-  transform: none;
-}
-
-.instances-module .stat-card::before {
-  content: '';
-  position: absolute;
-  width: 150px;
-  height: 150px;
-  left: -30px;
-  top: -30px;
-  border-radius: 999px;
-  pointer-events: none;
-  background: radial-gradient(circle at 45% 45%, rgba(var(--stat-accent), 0.2) 0%, rgba(var(--stat-accent), 0) 72%);
-}
-
-.instances-module .stat-card:hover {
-  border-color: var(--td-brand-color-3);
-  box-shadow: none;
-  transform: none;
-}
-
-.instances-module .stat-card--default {
-  --stat-accent: 100, 116, 139;
-}
-
-.instances-module .stat-card--success {
-  --stat-accent: 22, 163, 74;
-}
-
-.instances-module .stat-card--info {
-  --stat-accent: 37, 99, 235;
-}
-
-.instances-module .stat-card--warning {
-  --stat-accent: 245, 158, 11;
-}
-
-.instances-module .stat-card--danger {
-  --stat-accent: 239, 68, 68;
-}
-
-.instances-module .stat-card__icon {
-  position: relative;
-  z-index: 1;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--hs-radius-xl);
-  color: #ffffff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  box-shadow: none;
-  background: linear-gradient(135deg, #94a3b8, #64748b);
-}
-
-/*
- * 成功态图标底色：这里曾经用 var(--color-primary)，而本模块的主色变量
- * --instances-green 也取自 --color-primary —— 于是「运行中」卡片的图标
- * 变成绿底白图里的"绿底绿图"，用户看到的就是"图标被背景盖住"。
- * 固定用绿色梯度，与 --stat-accent 的 22,163,74 对齐，不跟随主题主色。
- */
-.instances-module .stat-card--success .stat-card__icon {
-  background: linear-gradient(135deg, #4ade80, #16a34a);
-}
-
-.instances-module .stat-card--info .stat-card__icon {
-  background: linear-gradient(135deg, #60a5fa, #2563eb);
-}
-
-.instances-module .stat-card--warning .stat-card__icon {
-  background: linear-gradient(135deg, #fbbf24, #ea580c);
-}
-
-.instances-module .stat-card--danger .stat-card__icon {
-  background: linear-gradient(135deg, #f87171, #dc2626);
-}
-
-.instances-module .stat-card__info {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.instances-module .stat-card__value {
-  font-size: 26px;
-  font-weight: 700;
-  line-height: 1.1;
-  color: var(--color-foreground);
-  font-variant-numeric: tabular-nums;
-}
-
-.instances-module .stat-card__label {
-  font-size: 12px;
-  color: var(--color-muted-foreground);
 }
 
 /* ---------- 详情页 ---------- */
@@ -625,6 +502,13 @@
   color: var(--td-text-color-secondary, #6b7280);
   font-size: 11px;
   font-weight: 500;
+}
+
+/* "归属"前缀：与"本地实例号/上游实例号"保持同一视觉节奏（都是"标签 + 值"），
+   避免一排标识里冒出一个裸用户名看不出是什么。 */
+.instances-module .hero-id__label {
+  margin-right: 4px;
+  color: var(--td-text-color-placeholder, #9ca3af);
 }
 
 .instances-module .hero-id__tag--upstream {
@@ -1376,4 +1260,131 @@
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+
+/* ---------- 过渡态动画（上游指令执行中） ----------
+
+   背景（用户实测反馈）：上游下发是异步的，机器要几十秒才真的变。
+   期间界面若无任何变化，运营会以为指令没生效而反复点同一个按钮，
+   同一台机器就堆了多次重启/关机。动画是最直接的"在跑"反馈。
+
+   注意选择器两条都要：`<LoadingIcon class="state-spin-icon">` 自身带 t-icon 类，
+   而 `.state-spinning` 加在父级 t-tag 上 —— 前者直接命中图标，后者命中后代。 */
+.instances-module .state-spinning .t-icon,
+.instances-module .state-spin-icon {
+  animation: instances-spin 1.1s linear infinite;
+  transform-origin: center;
+}
+
+@keyframes instances-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 尊重系统的"减少动态效果"偏好：动画停掉，但不隐藏图标
+   （图标本身也承担"正在执行"的语义，只是不动了）。 */
+@media (prefers-reduced-motion: reduce) {
+  .instances-module .state-spinning .t-icon,
+  .instances-module .state-spin-icon {
+    animation: none;
+  }
+}
+
+/* 过渡态提示条的标题：图标与文字横排居中（图标在转，垂直错位会很难看）。 */
+.instances-module .transition-alert__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+/* ---------- 详情页：进行中的动作强调条 ----------
+   比普通 t-alert 更醒目一点：左侧竖条 + 淡底，让"正在执行"在一屏信息里
+   第一眼就能看到（运营来这个页面多半就是为了确认刚才那下生效没有）。
+   颜色用 primary 系而不是警告色：进行中不是异常。 */
+.instances-module .transition-alert {
+  border-left: 3px solid var(--td-brand-color);
+}
+
+/* ---------- 控制台地址弹窗（VNC 占位页被拦截时的兜底） ---------- */
+.instances-module .vnc-blocked {
+  margin-bottom: 12px;
+}
+
+.instances-module .vnc-url {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--td-bg-color-container-hover, #f3f3f3);
+  font-family: var(--hs-font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.instances-module .vnc-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* ---------- 过渡态提示条内的进度动画 ----------
+   用户明确要求"关机/开机的过程中加一个加载动画"：只转一个小图标不够显眼。
+   这里用**不确定态**流动条（不是真实百分比）：上游不回报进度，
+   画一个假百分比会误导运营以为能看到还剩多久。 */
+.instances-module .transition-alert__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.instances-module .transition-alert__text {
+  line-height: 1.6;
+}
+
+.instances-module .transition-progress {
+  position: relative;
+  display: block;
+  height: 3px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--td-brand-color-2, #d9e7ff);
+}
+
+.instances-module .transition-progress::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 35%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--td-brand-color, #0052d9) 45%,
+    var(--td-brand-color, #0052d9) 55%,
+    transparent
+  );
+  animation: instances-progress 1.6s ease-in-out infinite;
+}
+
+@keyframes instances-progress {
+  0% {
+    left: -35%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .instances-module .transition-progress::after {
+    /* 动画停掉后不能留一条透明的空条：改成常显的静态指示。 */
+    left: 32%;
+    animation: none;
+  }
 }

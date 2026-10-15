@@ -11,17 +11,26 @@ type InstanceInfo struct {
 	Name        string `json:"name"`
 	Status      string `json:"status"`       // 服务状态：running/stopped/creating/...
 	PowerStatus string `json:"power_status"` // 电源状态：on/off/unknown
-	OS          string `json:"os"`
-	CPU         int    `json:"cpu"`
-	Memory      int    `json:"memory"`
-	Disk        int    `json:"disk"`
-	DiskType    string `json:"disk_type"`
-	Bandwidth   int    `json:"bandwidth"`
-	Region      string `json:"region"`
-	Zone        string `json:"zone"`
-	PublicIP    string `json:"public_ip"`
-	PrivateIP   string `json:"private_ip"`
-	BillingMode string `json:"billing_mode"`
+	// PowerState 机器电源维度（on/off/transitioning/unknown）—— **与账期完全无关**。
+	//
+	// 与运维台同一口径：status 是混合体（上游把"到期暂停"也映射成 stopped），
+	// 只凭它分不清"客户自己关机"与"到期被停服务"。电源维度只回答"机器通没通电"。
+	// 此前这条信息没有下发，客户端的两个维度拆分只能靠旧启发式兜底。
+	PowerState string `json:"power_state"`
+	// ServiceState 账期/服务维度（active/expiring/expired/grace/suspended/destroyed）。
+	// 判据只看到期时间与生命周期阶段，不看电源 —— 关机但未到期仍是 active。
+	ServiceState string `json:"service_state"`
+	OS           string `json:"os"`
+	CPU          int    `json:"cpu"`
+	Memory       int    `json:"memory"`
+	Disk         int    `json:"disk"`
+	DiskType     string `json:"disk_type"`
+	Bandwidth    int    `json:"bandwidth"`
+	Region       string `json:"region"`
+	Zone         string `json:"zone"`
+	PublicIP     string `json:"public_ip"`
+	PrivateIP    string `json:"private_ip"`
+	BillingMode  string `json:"billing_mode"`
 	// ActorID/ActorName 开通该实例的真实操作人（子账号下单可见，P4-09）
 	ActorID   uint64 `json:"actor_user_id"`
 	ActorName string `json:"actor_name"`
@@ -51,6 +60,31 @@ type InstanceInfo struct {
 	// NatAccess NAT 机型的访问地址（doc122）。NAT 机型没有独立公网 IP，
 	// 客户只能经节点转发地址访问；独立 IP 机型为 nil，前端不渲染该区块。
 	NatAccess *NatAccessInfo `json:"nat_access,omitempty"`
+	// Transition 进行中的操作（迁移 112）：nil = 空闲。
+	//
+	// 非空时前端显示「重启中」等过渡文案 + 动画，并禁用冲突操作。
+	// 客户侧此前完全没有这个信息：下发后就只有一句"指令已发送"，机器要几十秒
+	// 才变，期间再点一次又会堆一条指令（用户实测反馈"任务累积"）。
+	Transition *TransitionInfo `json:"transition,omitempty"`
+}
+
+// TransitionInfo 进行中的操作（与运维台同一结构，客户侧文案一致）。
+//
+// 上游下发是异步的：接口回"已受理"后机器还要执行几十秒到几分钟。这段窗口里
+// status 不会变，界面无从判断"到底有没有在跑" —— 于是客户反复点同一个按钮。
+type TransitionInfo struct {
+	// State 落库值（starting/stopping/rebooting/...）。
+	State string `json:"state"`
+	// Label 展示文案（"重启中"）。
+	Label string `json:"label"`
+	// Verb 动作名（"重启"），用于"正在执行：重启"这类提示。
+	Verb string `json:"verb"`
+	// StartedAt 动作开始时间（RFC3339），界面显示"从什么时候开始"。
+	StartedAt string `json:"started_at,omitempty"`
+	// ExpiresAt 预计完成窗口（RFC3339）。
+	ExpiresAt string `json:"expires_at,omitempty"`
+	// Overdue 已超过窗口仍未确认：不是失败，是"结果未知"，可重试但应先刷新。
+	Overdue bool `json:"overdue"`
 }
 
 // NatAccessInfo NAT 机型的访问地址（用户中心下发）。

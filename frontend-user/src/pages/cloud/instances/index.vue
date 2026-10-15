@@ -108,7 +108,7 @@
                 size="small"
                 theme="success"
                 variant="outline"
-                :disabled="!canPower(row) || row.power_status === 'on'"
+                :disabled="!canPower(row) || row.power_status === 'on' || row.transition"
                 @click="onPower(row, 'on')"
               >
                 开机
@@ -117,7 +117,7 @@
                 size="small"
                 theme="danger"
                 variant="outline"
-                :disabled="!canPower(row) || row.power_status === 'off'"
+                :disabled="!canPower(row) || row.power_status === 'off' || row.transition"
                 @click="onPower(row, 'off')"
               >
                 关机
@@ -173,13 +173,25 @@
           </div>
         </template>
         <template #status="{ row }">
-          <t-tag :theme="stateOf(row).theme" variant="light" size="small" shape="round">
+          <!--
+            徽标 = 电源维度（运行中/已关机/重启中…），小字 = 账期维度（服务中/已过期…）。
+            两个维度分开显示，避免"自己关的机"被写成「已暂停」（本会话修复的根因）。
+          -->
+          <t-tag
+            :theme="powerOf(row).theme"
+            variant="light"
+            size="small"
+            shape="round"
+            :class="{ 'state-spinning': powerOf(row).spinning }"
+          >
             <template #icon>
-              <component :is="stateIconComponent(stateOf(row).label)" />
+              <component :is="stateIconComponent(powerOf(row).label)" />
             </template>
-            {{ stateOf(row).label }}
+            {{ powerOf(row).label }}
           </t-tag>
-          <div v-if="stateOf(row).detail" class="state-detail">{{ stateOf(row).detail }}</div>
+          <div class="state-detail">
+            {{ serviceOf(row).label }}<template v-if="serviceOf(row).detail"> · {{ serviceOf(row).detail }}</template>
+          </div>
         </template>
         <template #expire_at="{ row }">
           <div class="stack-cell">
@@ -199,7 +211,7 @@
               <t-link
                 theme="success"
                 hover="color"
-                :disabled="!canPower(row) || row.power_status === 'on'"
+                :disabled="!canPower(row) || row.power_status === 'on' || row.transition"
                 @click="onPower(row, 'on')"
               >
                 开机
@@ -207,7 +219,7 @@
               <t-link
                 theme="danger"
                 hover="color"
-                :disabled="!canPower(row) || row.power_status === 'off'"
+                :disabled="!canPower(row) || row.power_status === 'off' || row.transition"
                 @click="onPower(row, 'off')"
               >
                 关机
@@ -215,7 +227,7 @@
               <t-link
                 theme="warning"
                 hover="color"
-                :disabled="!canPower(row) || row.power_status !== 'on'"
+                :disabled="!canPower(row) || row.power_status !== 'on' || row.transition"
                 @click="onPower(row, 'reboot')"
               >
                 重启
@@ -270,7 +282,7 @@ import {
   type PowerAction,
 } from '@/api/cloud'
 import { useIsMobile } from '@/composables/useIsMobile'
-import { combineInstanceState, daysLeftText, daysLeftTheme, formatMemory, formatTime, stateIcon } from './constants'
+import { combineInstanceState, daysLeftText, daysLeftTheme, formatMemory, formatTime, powerStateView, serviceStateView, stateIcon } from './constants'
 
 defineOptions({ name: 'InstanceList' })
 
@@ -318,14 +330,36 @@ const filtered = computed(() => {
   return instances.value.filter((r) => r.status === 'stopped' && r.lifecycle_stage !== 'destroyed')
 })
 
-function stateOf(row: InstanceInfo): { label: string; theme: string; detail: string } {
-  // 徽标结论统一交给 combineInstanceState：服务状态与到期阶段单独看会互相矛盾
-  // （宽限期内 status=running 但已过期），这里不再自行拼接。
+function powerOf(row: InstanceInfo) {
+  return powerStateView({
+    status: row.status,
+    power_state: row.power_state,
+    lifecycle_stage: row.lifecycle_stage,
+    pending: row.pending,
+    transition: row.transition,
+  })
+}
+
+function serviceOf(row: InstanceInfo) {
+  return serviceStateView({
+    lifecycle_stage: row.lifecycle_stage,
+    expire_state: row.expire_state,
+    service_state: row.service_state,
+    days_left: row.days_left,
+  })
+}
+
+function stateOf(row: InstanceInfo) {
+  // 一句话结论（筛选与动作可用性判断用）；界面展示走上面两个维度。
   return combineInstanceState({
     status: row.status,
     lifecycle_stage: row.lifecycle_stage,
     expire_state: row.expire_state,
+    service_state: row.service_state,
+    power_state: row.power_state,
+    days_left: row.days_left,
     pending: row.pending,
+    transition: row.transition,
   })
 }
 
@@ -353,6 +387,9 @@ function stateIconComponent(label: string): Component {
 /** 能力位缺省时按可操作处理：旧数据没有 capabilities 字段，不该因此禁用全部按钮。 */
 function canPower(row: InstanceInfo): boolean {
   if (row.pending) return false
+  // 过渡态期间一律禁用：平台正在执行上一个动作，再点会堆指令（用户实测反馈）。
+  // 超时（overdue）后放行 —— 结果未知时让客户能重试。
+  if (row.transition && !row.transition.overdue) return false
   return row.capabilities ? row.capabilities.power : true
 }
 function canConsole(row: InstanceInfo): boolean {
@@ -542,6 +579,39 @@ onMounted(() => load(false))
   font-size: 11px;
   color: var(--color-muted-foreground);
   line-height: 1.4;
+}
+
+/*
+  过渡态动画：平台正在执行动作时图标转起来。
+  客户看不到任何变化就会反复点重启（用户实测反馈），动画是最直接的"在跑"反馈。
+*/
+.state-spinning :deep(.t-icon),
+.state-spinning .t-icon {
+  animation: hs-spin 1.1s linear infinite;
+}
+
+@keyframes hs-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 尊重系统的"减少动态效果"偏好。 */
+@media (prefers-reduced-motion: reduce) {
+  .state-spinning :deep(.t-icon),
+  .state-spinning .t-icon {
+    animation: none;
+  }
+}
+
+.transition-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
 }
 
 .days--danger {

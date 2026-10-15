@@ -396,3 +396,64 @@ func TestParseCloudSpecsFallsBackToLooseMatch(t *testing.T) {
 		t.Errorf("Memory = %d, want 8192（宽松匹配「内存大小」）", spec.Memory)
 	}
 }
+
+// quantityGroups212 美国四区商品（212）的数量型配置项片段：系统盘 80–1024（80 免费、81 起 0.8/GB）。
+const quantityGroups212 = `[
+  {"id":32927,"name":"美国CN2 4核 4G 60M 不限流量配置项组","options":[
+    {"id":241017,"option_name":"system_disk_size|系统盘","option_type":19,"qty_minimum":80,"qty_maximum":1024,"sub":[
+      {"id":1036029,"option_name":"系统盘","qty_minimum":80,"qty_maximum":80,"hidden":0},
+      {"id":1036030,"option_name":"系统盘","qty_minimum":81,"qty_maximum":1024,"hidden":0}]},
+    {"id":241021,"option_name":"data_disk_size|数据盘","option_type":14,"qty_minimum":0,"qty_maximum":1024,"sub":[
+      {"id":1036036,"option_name":"数据盘","qty_minimum":0,"qty_maximum":1024,"hidden":0}]},
+    {"id":241014,"option_name":"os|操作系统","option_type":5,"sub":[
+      {"id":565660,"option_name":"12|CentOS^CentOS-7","hidden":0},
+      {"id":565664,"option_name":"14|Debian^Debian-11","hidden":0}]}
+  ]}
+]`
+
+// TestBuildCartConfigOptionQuantityValueWins 数量型配置项下发的是**数量本身**，
+// 且必须覆盖按配置组铺出的默认价档。
+//
+// 这是"按量定价"能否生效的最后一环：上游 ConfigOptions::filterConfigOptions 对
+// 数量型 option_type 直接把该数值夹到 qty_minimum..qty_maximum 当取值用。
+// 若被配置组铺出的子项 id 覆盖，客户选的 100G 就丢了 —— 上游按默认 80G 开通，
+// 本地却按 100G 收了钱（少开多收）。
+func TestBuildCartConfigOptionQuantityValueWins(t *testing.T) {
+	var groups []ConfigGroup
+	if err := json.Unmarshal([]byte(quantityGroups212), &groups); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	extra := map[string]interface{}{
+		"config_groups": groups,
+		// 客户选：系统盘 100G、数据盘 200G、操作系统 Debian。
+		"configoption": map[string]interface{}{
+			"241017": "100",
+			"241021": "200",
+			"241014": "565664",
+		},
+	}
+	got := buildCartConfigOption(extra)
+	if got["241017"] != "100" {
+		t.Errorf("系统盘应下发数量 100，got %q（被价档 id 覆盖就会按上游默认开通）", got["241017"])
+	}
+	if got["241021"] != "200" {
+		t.Errorf("数据盘应下发数量 200，got %q", got["241021"])
+	}
+	if got["241014"] != "565664" {
+		t.Errorf("枚举型仍应下发取值 id，got %q", got["241014"])
+	}
+}
+
+// TestBuildCartConfigOptionQuantityDefaultsToTier 未选数量型时不显式下发，
+// 由配置组铺出的默认价档兜底（上游按 qty_minimum 处理），避免把 0 当数量送上去。
+func TestBuildCartConfigOptionQuantityDefaultsToTier(t *testing.T) {
+	var groups []ConfigGroup
+	if err := json.Unmarshal([]byte(quantityGroups212), &groups); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	got := buildCartConfigOption(map[string]interface{}{"config_groups": groups})
+	// 未显式选择时按价档铺默认（首个可见子项 id），不能是空、也不能是数字 0。
+	if got["241017"] == "" || got["241017"] == "0" {
+		t.Errorf("未选时应回落价档默认值，got %q", got["241017"])
+	}
+}

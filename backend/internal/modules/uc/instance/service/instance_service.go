@@ -443,6 +443,11 @@ const (
 
 // refreshStatuses 并发回源刷新各实例的运行状态，按实例 ID 返回成功结果。
 // 失败与超预算的实例不出现在返回值里，由调用方回落本地状态。
+//
+// **不报电源状态的渠道（如魔方财务）一律不收进返回值**：那种上游只返回
+// "服务是否激活"（domainstatus），没有机器电源字段，照抄会把客户刚关的机
+// 显示回"运行中"（用户反馈"状态混乱"的根因之一）。让调用方回落到本地值，
+// 正是我们要保留的"我们下发指令后唯一可靠的知识"。
 func (s *instanceService) refreshStatuses(ctx context.Context, items []model.Instance, concurrency int, budget time.Duration) map[uint64]*pkgmodel.StandardInstance {
 	targets := make([]model.Instance, 0, len(items))
 	for _, it := range items {
@@ -474,6 +479,11 @@ func (s *instanceService) refreshStatuses(ctx context.Context, items []model.Ins
 			defer func() { <-sem }()
 			// 并发入口按项目约定兜 panic：单台异常不应击穿整个列表请求。
 			defer safego.Recover(nil)
+			// 不报电源状态的渠道：回源值答的不是"机器开着吗"，不参与状态覆盖。
+			if provider, perr := s.buildProvider(budgetCtx, it.ProviderID); perr != nil ||
+				!upstream.SupportsPowerStateReporting(provider) {
+				return
+			}
 			res, ok := s.refresh(budgetCtx, &it)
 			if !ok {
 				return
@@ -542,14 +552,17 @@ func (s *instanceService) Detail(ctx context.Context, userID, id uint64, live bo
 	// 待开通占位（无上游实例号）：跳过回源（上游还没有这台机器），保持本地信息。
 	if live && s.resolve != nil && it.ProviderInstanceID != "" {
 		if liveInst, ok := s.refresh(ctx, it); ok {
-			info.Status = string(liveInst.Status)
-			info.PowerStatus = powerOf(liveInst.Status)
+			s.applyLiveStatus(ctx, it, liveInst, &info)
 			if liveInst.PublicIP != "" {
 				info.PublicIP = liveInst.PublicIP
 			}
 		}
 	} else {
 		info.PowerStatus = powerOf(statusToModel(it.Status))
+	}
+	// 回源可能刚清掉过渡态（上游已确认）：重新取一次，避免界面继续显示「重启中」。
+	if it.TransitionState == "" {
+		info.Transition = nil
 	}
 	info.Capabilities = s.capabilities(ctx, it)
 	// NAT 机型补齐访问地址（doc122）：NAT 没有独立 IP，public_ip 为空，
@@ -817,9 +830,30 @@ func (s *instanceService) Power(ctx context.Context, userID, id uint64, action s
 	if !ok {
 		return errUnsupportedControl
 	}
+
+	// ---- 过渡态闸门 + 原子抢占（迁移 112，与运维台同一口径）----
+	//
+	// 客户侧此前完全没有这层：下发后只有一句"指令已发送"，机器要几十秒才变，
+	// 期间再点一次就会堆一条指令（用户实测反馈"连续点两次开机，两条都成功"）。
+	//
+	// 顺序很重要：先做友好的占用检查（能说明"在做什么、从几点开始"），
+	// 再原子抢占（真正的互斥，防并发连点），最后才下发。
+	normalized := strings.ToLower(action)
+	if err := ensureNoActiveTransition(it, normalized); err != nil {
+		return err
+	}
+	transition := transitionOfPowerAction(normalized)
+	claimed, claimedAt, cerr := s.claimTransition(ctx, it.ID, transition)
+	if cerr != nil {
+		return errProviderUnavailable
+	}
+	if !claimed {
+		return s.transitionBusyError(ctx, it)
+	}
+
 	hard, hasHard := providerImpl.(upstream.InstancePowerHard)
 	var opErr error
-	switch strings.ToLower(action) {
+	switch normalized {
 	case "on":
 		opErr = control.StartInstance(ctx, it.InstanceID)
 	case "off":
@@ -842,9 +876,13 @@ func (s *instanceService) Power(ctx context.Context, userID, id uint64, action s
 			}
 		}
 	default:
+		s.releaseTransition(ctx, it.ID, transition)
 		return fmt.Errorf("暂不支持的操作: %s", action)
 	}
 	if opErr != nil {
+		// 下发失败：把抢占的占位还回去（仅当仍属于自己），
+		// 否则实例会被一个从未执行的动作锁到窗口超时。
+		s.releaseTransition(ctx, it.ID, transition)
 		return opErr
 	}
 	// 指令下发成功就立刻把预期状态落到本地，用户不必等下一轮回源才能看到变化。
@@ -857,12 +895,128 @@ func (s *instanceService) Power(ctx context.Context, userID, id uint64, action s
 		}
 	}
 	// 尽力回源对齐一次真实状态：拿不到就保留上面落的预期状态。
+	//
+	// 回源同时承担过渡态收尾：上游给出新状态（或该渠道不报电源状态、
+	// 指令已受理即算完成）且已过最短占用窗口时，清掉过渡态。
+	// 窗口内保留 —— 重启是 运行中→运行中 的转场，上游"确认"了也看不出变化，
+	// 一确认就放行会让客户几秒后再点一次同样堆指令。
 	if live, ok := s.refresh(ctx, it); ok && live.Status != "" {
-		if uerr := s.repo.UpdateStatus(ctx, it.ID, string(live.Status)); uerr != nil {
+		if !upstream.SupportsPowerStateReporting(providerImpl) {
+			// 上游不报电源状态：回源值答的不是"机器开着吗"，不能改写本地。
+			// 过渡态按"指令已受理"收尾（见下）。
+		} else if uerr := s.repo.UpdateStatus(ctx, it.ID, string(live.Status)); uerr != nil {
 			s.logUpdateStatusFailure(it, string(live.Status), uerr)
+		}
+		if !transitionWithinMinHold(transition, claimedAt) {
+			if serr := s.repo.ClearTransitionIfOwner(ctx, it.ID, transition); serr != nil && s.logger != nil {
+				s.logger.Warn("清除过渡态失败", zap.Uint64("instance_id", it.ID), zap.Error(serr))
+			}
 		}
 	}
 	return nil
+}
+
+// ensureNoActiveTransition 过渡态闸门：有未确认的动作时拒绝新指令（客户侧）。
+//
+// 两个例外必须放行，否则一次异常会把实例永久锁死：
+//   - 已超时（超过该动作的典型耗时上限）：视为结果未知，放行；
+//   - 开关机方向相反的动作：机器正在关机时点"开机"是常见误操作纠正，
+//     但这里同样按占用拦截 —— 中间态叠加会让最终状态无法判断。
+//
+// 这只是快速失败的友好提示；真正的互斥由 claimTransition 的原子抢占保证。
+func ensureNoActiveTransition(it *model.Instance, action string) error {
+	if it == nil || strings.TrimSpace(it.TransitionState) == "" {
+		return nil
+	}
+	if it.TransitionUntil != nil && time.Now().After(*it.TransitionUntil) {
+		return nil
+	}
+	return transitionBusyErrorFor(it.TransitionState, it.TransitionStartedAt, action)
+}
+
+// claimTransition 原子抢占过渡态。返回 claimed=false 表示已有生效中的动作。
+func (s *instanceService) claimTransition(ctx context.Context, id uint64, state string) (bool, time.Time, error) {
+	if state == "" {
+		return true, time.Time{}, nil
+	}
+	spec := pkgmodel.InstanceTransitionOf(state)
+	now := time.Now()
+	until := now.Add(time.Duration(spec.TerminalTimeoutSec) * time.Second)
+	claimed, err := s.repo.ClaimTransition(ctx, id, state, now, until)
+	if err != nil {
+		return false, now, err
+	}
+	return claimed, now, nil
+}
+
+// transitionOfPowerAction 电源动作 → 过渡态值（与运维台同一映射）。
+//
+// 硬关与普通关机归到同一个过渡态：客户看到的文案都是"关机中"，
+// 区分硬/软对"正在执行"这件事没有意义（区别只在指令语义）。
+func transitionOfPowerAction(normalized string) string {
+	switch normalized {
+	case "on":
+		return pkgmodel.InstanceTransitionStarting
+	case "off", "hard_off":
+		return pkgmodel.InstanceTransitionStopping
+	case "reboot", "hard_reboot":
+		return pkgmodel.InstanceTransitionRebooting
+	default:
+		return ""
+	}
+}
+
+// releaseTransition 下发失败时回滚自己抢到的过渡态（仅当仍属于自己）。
+func (s *instanceService) releaseTransition(ctx context.Context, id uint64, state string) {
+	if state == "" {
+		return
+	}
+	if err := s.repo.ClearTransitionIfOwner(ctx, id, state); err != nil && s.logger != nil {
+		s.logger.Warn("回滚过渡态失败", zap.Uint64("instance_id", id), zap.Error(err))
+	}
+}
+
+// transitionBusyError 抢占失败时的拒绝提示：读最新行拿占用者与开始时间。
+func (s *instanceService) transitionBusyError(ctx context.Context, it *model.Instance) error {
+	if it == nil {
+		return ErrOperationInProgress
+	}
+	if fresh, err := s.repo.FindByUser(ctx, it.UserID, it.ID); err == nil && fresh != nil && fresh.TransitionState != "" {
+		return transitionBusyErrorFor(fresh.TransitionState, fresh.TransitionStartedAt, "")
+	}
+	return transitionBusyErrorFor(it.TransitionState, it.TransitionStartedAt, "")
+}
+
+// transitionBusyErrorFor 组装面向客户的占用提示。
+//
+// 措辞让客户能自己回答三个问题：在做什么、从什么时候开始、还要等多久。
+// 不写"过渡态""锁"这类内部词汇 —— 客户只关心"能不能点、要等多久"。
+func transitionBusyErrorFor(state string, startedAt *time.Time, action string) error {
+	spec := pkgmodel.InstanceTransitionOf(state)
+	_ = action
+	since := ""
+	if startedAt != nil {
+		since = fmt.Sprintf("（%s 开始）", startedAt.Format("15:04:05"))
+	}
+	return fmt.Errorf("%w：正在%s%s，通常需要 1–3 分钟，请等待完成后再操作。若长时间无变化可点「刷新状态」",
+		ErrOperationInProgress, spec.Verb, since)
+}
+
+// transitionWithinMinHold 判断过渡态是否仍在最短占用窗口内（客户侧副本，
+// 与运维台同一规则；uc 包不 import admin 域服务）。
+//
+// true = 还在窗口内，回源后应保留过渡态（不放行重复指令）。
+// 重启是 运行中→运行中 的转场，上游"确认"了也看不出变化；一确认就放行会让
+// 客户几秒后再点一次、同样堆指令（用户实测反馈"任务累积"）。
+func transitionWithinMinHold(state string, claimedAt time.Time) bool {
+	if claimedAt.IsZero() {
+		return false
+	}
+	spec := pkgmodel.InstanceTransitionOf(state)
+	if spec.MinHoldSec <= 0 {
+		return false
+	}
+	return time.Since(claimedAt) < time.Duration(spec.MinHoldSec)*time.Second
 }
 
 // expectedPowerStatus 由动作与当前状态推出落库的预期状态。
@@ -986,12 +1140,94 @@ func toInfo(it *model.Instance) dto.InstanceInfo {
 		DaysLeft:       daysLeft,
 		CreatedAt:      it.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:      it.UpdatedAt.Format(time.RFC3339),
+		Transition:     transitionInfoOf(it),
 	}
+	// 两个正交维度分别下发（与运维台同口径）：电源维度回答"机器通电了吗"，
+	// 服务维度回答"账期还有效吗"。客户端据它们展示两个独立标签，
+	// 不再需要从 status 反推 —— 那是"关机显示成已暂停"的根源。
+	info.PowerState = powerStateOf(it)
+	info.ServiceState = serviceStateOf(it, expireState, daysLeft)
 	// 列表只标记机型、不拉转发地址：地址要逐台请求上游，列表页几十台会把响应拖垮，
 	// 且列表里展示首条地址的价值不大（详情页才需要复制）。只给 is_nat 让前端
 	// 区分"未分配 IP（NAT 机型）"与"未分配 IP（异常）"。
 	if upstream.IsNatInstance(it.RawData) {
 		info.NatAccess = &dto.NatAccessInfo{IsNat: true}
+	}
+	return info
+}
+
+// applyLiveStatus 把回源结果落到下发结构上，并处理过渡态收尾。
+//
+// 与运维台的 refreshUpstreamFromTransition 同口径，两件事必须一起做：
+//
+//  1. **不报电源状态的渠道不得改写本地状态**（实测：魔方财务只返回 domainstatus
+//     "服务是否激活"，没有机器电源字段）。照抄会把客户刚关的机显示回"运行中"，
+//     客户以为关机没生效（用户反馈"状态混乱"的根因之一）。
+//  2. **过渡态收尾**：上游确实给出新状态、且已过最短占用窗口时才清。窗口内保留，
+//     让"重启中"的动画与操作禁用持续到动作确实跑起来为止 —— 否则客户等几秒
+//     看动画停了再点一次，又堆一条重启。
+func (s *instanceService) applyLiveStatus(ctx context.Context, it *model.Instance, live *pkgmodel.StandardInstance, info *dto.InstanceInfo) {
+	if it == nil || live == nil || info == nil {
+		return
+	}
+	reportsPower := true
+	if provider, err := s.buildProvider(ctx, it.ProviderID); err == nil {
+		reportsPower = upstream.SupportsPowerStateReporting(provider)
+	}
+	if reportsPower {
+		info.Status = string(live.Status)
+		info.PowerStatus = powerOf(live.Status)
+	} else {
+		// 保留本地现值（那是我们下发指令后唯一可靠的知识）。
+		info.Status = it.Status
+		info.PowerStatus = powerOf(statusToModel(it.Status))
+	}
+
+	if strings.TrimSpace(it.TransitionState) == "" {
+		return
+	}
+	claimedAt := time.Time{}
+	if it.TransitionStartedAt != nil {
+		claimedAt = *it.TransitionStartedAt
+	}
+	// 与运维台一致：报电源状态的渠道要"上游确实报出新状态"才算完成；
+	// 不报的渠道指令已受理即算完成（无从核对）。两者都受最短窗口约束。
+	confirmed := reportsPower || it.TransitionUntil != nil
+	if confirmed && !transitionWithinMinHold(it.TransitionState, claimedAt) {
+		if err := s.repo.ClearTransitionIfOwner(ctx, it.ID, it.TransitionState); err != nil {
+			if s.logger != nil {
+				s.logger.Warn("清除过渡态失败", zap.Uint64("instance_id", it.ID), zap.Error(err))
+			}
+			return
+		}
+		it.TransitionState = ""
+		it.TransitionStartedAt = nil
+		it.TransitionUntil = nil
+		info.Transition = nil
+	}
+}
+
+// transitionInfoOf 组装过渡态下发结构；无过渡态返回 nil（客户侧副本）。
+//
+// 超时（Overdue）不是失败：机器可能还在执行，只是回执丢了。前端据此把
+// "转圈中"换成"结果未确认，请刷新"，并允许重试 —— 但与运维台一致，
+// 这个"允许"由服务端 ensureNoActiveTransition 的超时放行兜底。
+func transitionInfoOf(it *model.Instance) *dto.TransitionInfo {
+	if it == nil || strings.TrimSpace(it.TransitionState) == "" {
+		return nil
+	}
+	spec := pkgmodel.InstanceTransitionOf(it.TransitionState)
+	info := &dto.TransitionInfo{
+		State: spec.Value,
+		Label: spec.Label,
+		Verb:  spec.Verb,
+	}
+	if it.TransitionStartedAt != nil {
+		info.StartedAt = it.TransitionStartedAt.Format(time.RFC3339)
+	}
+	if it.TransitionUntil != nil {
+		info.ExpiresAt = it.TransitionUntil.Format(time.RFC3339)
+		info.Overdue = time.Now().After(*it.TransitionUntil)
 	}
 	return info
 }
@@ -1013,6 +1249,63 @@ func expireStateOf(expireAt *time.Time) (string, int) {
 		return expireStateExpiring, daysLeft
 	}
 	return expireStateNormal, daysLeft
+}
+
+// powerStateOf 计算**机器电源维度**（与账期无关，客户侧副本）。
+//
+// 判据与运维台 powerStateOf 一致：
+//   - 有进行中的电源类动作 → transitioning（界面显示"重启中"等）
+//   - running → on；stopped → off；其余（创建中/删除中）→ unknown
+//
+// 刻意不看 lifecycle_stage：到期暂停是"服务被停"，不是"机器被关"，
+// 两者在客户端必须能分开说（这正是客户反馈的"状态显示混乱"）。
+func powerStateOf(it *model.Instance) string {
+	if it == nil {
+		return "unknown"
+	}
+	if s := strings.TrimSpace(it.TransitionState); s != "" {
+		if spec := pkgmodel.InstanceTransitionOf(s); spec.PowerHint != "" {
+			// 窗口已过的过渡态不再算"进行中"：结果未知，回落到真实状态判断。
+			if it.TransitionUntil == nil || time.Now().Before(*it.TransitionUntil) {
+				return "transitioning"
+			}
+		}
+	}
+	switch it.Status {
+	case string(pkgmodel.InstanceStatusRunning):
+		return "on"
+	case string(pkgmodel.InstanceStatusStopped):
+		return "off"
+	default:
+		return "unknown"
+	}
+}
+
+// serviceStateOf 计算**账期/服务维度**（与电源无关，客户侧副本）。
+//
+// 优先级：终态 > 我方暂停 > 到期时间派生。判据刻意不看 status ——
+// 一台关机但未到期的实例，服务维度仍是 active（服务在有效期内，只是机器没开）。
+func serviceStateOf(it *model.Instance, expireState string, daysLeft int) string {
+	if it == nil {
+		return "active"
+	}
+	switch it.LifecycleStage {
+	case "destroyed":
+		return "destroyed"
+	case "suspended":
+		return "suspended"
+	}
+	switch expireState {
+	case expireStateExpired:
+		if it.LifecycleStage == "grace" {
+			return "grace"
+		}
+		return "expired"
+	case expireStateExpiring:
+		return "expiring"
+	}
+	_ = daysLeft
+	return "active"
 }
 
 // statusToModel 将实例表状态映射为上游状态枚举（辅助电源展示）。

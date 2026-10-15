@@ -122,6 +122,22 @@ type CapabilityDescriptor struct {
 	RateLimit        RateLimitSpec  `json:"rate_limit"`
 	SupportsPaging   bool           `json:"supports_paging"`
 	FieldDictionary  map[string]any `json:"field_dictionary,omitempty"` // 平台字段字典（D5 预埋，值可含"待核"标记）
+	// ReportsPowerState 本平台是否**真的能报告机器电源状态**（开机/关机）。
+	//
+	// 为什么需要这个能力位：不同上游对"状态"的语义完全不同 ——
+	//   · 魔方云（dcimcloud，KindCompute）：GET /clouds/{id}/status 返回 on/off/wait_reboot，
+	//     这是货真价实的电源状态，回源可以据此改写本地 status；
+	//   · 魔方财务（zjmf，KindUpstream）：host/header 只返回 domainstatus（Active/Pending/
+	//     Suspended）与 status（Paid/Unpaid）—— 前者是**服务/账期**状态（"这个产品还在服务中"），
+	//     后者是**账单**状态；**没有任何机器电源字段**。
+	//
+	// 后果（本轮实测定位到的真缺陷）：财务型渠道下，本地"已关机"会被回源改写成"运行中" ——
+	// 因为 domainstatus=Active 被映射成了 running。运营点了关机、界面显示已关机，
+	// 一刷新/同步就变回运行中，以为关机没生效（用户反馈"状态显示混乱"的根因之一）。
+	//
+	// 因此：本能力位为 false 时，回源**不得**用上游状态覆盖本地的电源状态，
+	// 只刷新 IP / 规格 / 原始数据等其他字段。
+	ReportsPowerState bool `json:"reports_power_state"`
 	// OptionCatalog 本平台支持的可配置项目录（T4.5 规格配置化）：
 	// 每个参数带中文名、必选标记、默认值、取值来源与数量约束，
 	// 驱动后台「平台配置项」与「配置档」界面；为空表示该平台不参与配置化规格。
@@ -263,6 +279,23 @@ func CapabilitiesOf(p Provider) CapabilityDescriptor {
 		d.Operations = append(d.Operations, OpNatAccess)
 	}
 	return d
+}
+
+// SupportsPowerStateReporting 判断该 provider 的 GetInstance 是否返回**真实电源状态**。
+//
+// 默认取描述符的 ReportsPowerState；描述符缺失（自研/测试桩）时保守返回 true ——
+// 保持既有行为（能报就报），避免因为一个未登记的类型静默丢掉状态同步。
+//
+// 调用点：回源刷新前。返回 false 时不得用上游状态覆盖本地 status，
+// 否则财务型渠道下"已关机"会被 domainstatus=Active 冲成"运行中"（实测缺陷）。
+func SupportsPowerStateReporting(p Provider) bool {
+	if p == nil {
+		return true
+	}
+	if d, ok := Descriptor(p.GetType()); ok && d.Kind != "" {
+		return d.ReportsPowerState
+	}
+	return true
 }
 
 // SupportsOperation 某描述符是否声明了某操作（开通前校验/按钮门禁用）。

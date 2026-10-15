@@ -1,40 +1,14 @@
 <template>
   <div class="page-body instances-module">
-    <!-- ============ 页头：身份 + 状态 + 分组操作 ============ -->
-    <header class="page-header surface-card">
-      <div class="page-header__main">
-        <span class="page-header__chip">
-          <ServerIcon size="22" aria-hidden="true" />
-        </span>
-        <div class="page-header__text">
-          <div class="page-header__title-row">
-            <h2 class="page-header__title">{{ instanceData?.name || '实例详情' }}</h2>
-            <t-tag v-if="instanceData" :theme="headlineState.theme" variant="light" size="small" shape="round">
-              {{ headlineState.label }}
-            </t-tag>
-            <t-tag
-              v-if="instanceData?.lifecycle_stage && instanceData.lifecycle_stage !== 'active'"
-              :theme="lifecycleStageTheme(instanceData.lifecycle_stage)"
-              variant="outline"
-              size="small"
-              shape="round"
-            >
-              {{ lifecycleStageLabel(instanceData.lifecycle_stage) }}
-            </t-tag>
-            <t-tag v-if="instanceData" :theme="sourceModeTheme" variant="light" size="small" shape="round">
-              {{ sourceModeLabel }}
-            </t-tag>
-          </div>
-          <p class="page-header__desc">
-            实例标识 {{ instanceData?.instance_id || '—' }}
-            <span class="page-header__sep">·</span>
-            公网 IP {{ instanceData?.public_ip || '—' }}
-            <span class="page-header__sep">·</span>
-            归属 {{ instanceData?.username || '—' }}
-          </p>
-        </div>
-      </div>
+    <!-- ============ 页头：只放动作条，不重复身份信息 ============
+      此前这里还有标题（主机名）、电源/服务/来源三个标签、以及"实例标识 · 公网 IP ·
+      归属"一行 —— 与下方主信息区**逐字重复**：同一屏里主机名出现两次、状态出现三次、
+      归属出现三次（用户实测反馈"显示运行中的地方就有三个"）。
 
+      身份与状态统一由主信息区（detail-hero）承担，它是"认机器"的唯一入口；
+      本页头退化为纯动作条，避免运营在两个地方读同一件事、也避免两处不一致
+      （例如页头没跟着刷新时，两处状态会互相矛盾）。 -->
+    <header class="page-header page-header--actions surface-card">
       <!-- 操作分组：日常 / 电源 / 维护 / 危险，避免十几个按钮平铺挤成一团 -->
       <!--
         操作区：按「用的频率 + 危险度」从左到右排，组间加竖线分隔。
@@ -107,8 +81,13 @@
           :loading="syncing"
           @click="handleSync"
         >
-          <template #icon><RefreshIcon aria-hidden="true" /></template>
-          同步上游
+          <!-- 回源要等平台响应（网络往返 + 远端查询），图标转起来让"正在同步"可见。
+               措辞按链路：自营实例的机器由本平台开通，"同步上游"会让运营以为
+               背后还有个第三方（用户实测反馈同类问题）。 -->
+          <template #icon>
+            <RefreshIcon aria-hidden="true" :class="{ 'state-spin-icon': syncing }" />
+          </template>
+          {{ resale ? '同步上游' : '同步状态' }}
         </t-button>
         <t-button variant="text" :loading="loading" @click="reloadAll">
           <template #icon><RefreshIcon aria-hidden="true" /></template>
@@ -119,6 +98,46 @@
     </header>
 
     <t-alert v-if="isPending" theme="error" :title="provisionAlertTitle" :message="provisionAlertMessage" />
+
+    <!--
+      过渡态提示条（迁移 112）：上游正在执行某个动作时，把"在做什么、从什么时候开始"
+      明确摊开。没有这条提示时，运营看不到任何变化就会反复点同一个按钮，
+      同一台机器堆了多次重启（用户实测反馈）。
+      两个阶段分开措辞：窗口内是"进行中，请等待"；超时后是"结果未确认，先同步"。
+    -->
+    <t-alert v-else-if="transitionActive" theme="info" class="transition-alert">
+      <template #title>
+        <span class="transition-alert__title">
+          <LoadingIcon size="14" class="state-spin-icon" />
+          实例正在{{ transition?.verb }}
+        </span>
+      </template>
+      <template #message>
+        <div class="transition-alert__body">
+          <span class="transition-alert__text">
+            {{
+              transition?.started_at ? `开始于 ${formatTime(transition.started_at)}，` : ''
+            }}{{ resale ? '上游' : '平台' }}指令为异步执行，通常需要 1–3 分钟。期间电源与维护操作暂时不可用，已完成
+            {{ transitionElapsedText }}。
+          </span>
+          <!--
+            进度条：用户明确要求"从开机变到关机的过程中加一个关机的加载动画"。
+            只转一个小图标不够显眼（一屏里容易漏看），加一条不确定态流动条，
+            让"正在执行"在一眼扫过时就成立。宽度用 CSS 动画而不是真实百分比 ——
+            上游不回报进度（见遗留项 31），画一个假百分比会误导。
+          -->
+          <span class="transition-progress" role="progressbar" :aria-label="`正在${transition?.verb}`"></span>
+        </div>
+      </template>
+    </t-alert>
+    <t-alert v-else-if="transitionOverdue" theme="warning" title="上次操作的结果尚未确认">
+      <template #message>
+        <span>
+          {{ transition?.verb }}指令已下发但超过预计耗时仍未确认（可能仍在执行，也可能回执丢失）。
+          请先点「{{ resale ? '同步上游' : '同步状态' }}」核对实际状态，再决定是否需要重新操作。
+        </span>
+      </template>
+    </t-alert>
     <t-alert
       v-else-if="instanceData?.capability_error"
       theme="warning"
@@ -134,39 +153,64 @@
       容易让人误以为是空态），改为同一张卡内的分区栅格 + 分隔线。
     -->
     <section v-if="instanceData" class="detail-hero surface-card">
-      <!-- 身份行：主机名（= 平台侧 hostname）+ 结论标签 + 云主机 ID -->
+      <!-- 身份行：主机名（= 平台侧 hostname）+ 两个正交状态 + 云主机 ID -->
       <header class="hero-head">
         <div class="hero-identity">
           <OsIcon :os="instanceData.os" size="lg" />
           <div class="hero-identity__text">
             <div class="hero-identity__name">
               <span class="hero-hostname">{{ instanceData.name || '未命名主机' }}</span>
-              <t-tag :theme="headlineState.theme" variant="light" size="small" shape="round">
-                {{ headlineState.label }}
-              </t-tag>
+              <!--
+                状态 = 两个独立维度，各回答一个问题（本轮修复的核心）：
+                  · 电源维度：这台机器通电了吗（运行中/已关机/重启中…）
+                  · 服务维度：我们卖的账期还有效吗（服务中/即将到期/到期暂停…）
+                此前是一个合成标签并把"关机"写成「已暂停」—— 因为上游把 suspended
+                也映射成 stopped，两者无法区分（用户实测反馈）。
+
+                这里是**全页唯一**的状态展示位：此前页头也挂一份，"运行中"在同屏
+                出现三次（用户实测反馈），且两处可能不同步（页头未刷新时互相矛盾）。
+              -->
               <t-tag
-                v-if="instanceData.lifecycle_stage && instanceData.lifecycle_stage !== 'active'"
-                :theme="lifecycleStageTheme(instanceData.lifecycle_stage)"
+                :theme="headlinePower.theme"
                 variant="light"
                 size="small"
                 shape="round"
+                :class="{ 'state-spinning': headlinePower.spinning }"
               >
-                {{ lifecycleStageLabel(instanceData.lifecycle_stage) }}
+                <LoadingIcon v-if="headlinePower.spinning" size="13" class="state-spin-icon" />
+                {{ headlinePower.label }}
+              </t-tag>
+              <t-tag
+                :theme="headlineService.theme"
+                variant="light"
+                size="small"
+                shape="round"
+                :title="headlineService.detail"
+              >
+                {{ headlineService.label }}
               </t-tag>
             </div>
             <div class="hero-identity__meta">
               <!--
-                两个 ID 必须分清（用户实测反馈"对云主机 ID 的情况存在混乱"）：
-                  · 本地实例号 instance_id —— 本系统的主键性质标识（占位期是 pending-xxx），
-                    历史流水/日志引用的是它；
-                  · 上游实例号 provider_instance_id —— 发给上游做电源/控制台/续费/销毁的号，
-                    上游换机后这个号会变（见右侧「按上游号重新关联」）。
+                实例号按链路分开表达（用户实测反馈："虽然是我自己的，但它这里会显示
+                上游实例号，这个一看就是有问题"）：
+
+                  · 转售链路（resale）—— 有两个号，必须分清：
+                    本地实例号 instance_id（本系统的主键性质标识，历史流水引用它）
+                    与上游实例号 provider_instance_id（发给上游做电源/控制台/续费/销毁，
+                    上游换机后这个号会变，故提供「重新关联」）。
+
+                  · 自营链路 —— 只有一个号：机器由本平台开通，这个号就是本系统
+                    生成并下发的。显示「上游实例号」会让运营以为背后还有个第三方，
+                    进而去点「重新关联」填一个来路不明的号（后端已拒绝，但界面
+                    本就不该给出这个入口）。
               -->
               <span class="hero-id">
-                本地实例号<code>{{ instanceData.instance_id || '—' }}</code>
-                <span class="hero-id__tag">本系统</span>
+                {{ resale ? '本地实例号' : '实例号' }}
+                <code>{{ instanceData.instance_id || '—' }}</code>
+                <span class="hero-id__tag">{{ resale ? '本系统' : '本平台' }}</span>
               </span>
-              <span class="hero-id">
+              <span v-if="resale" class="hero-id">
                 上游实例号
                 <template v-if="instanceData.provider_instance_id">
                   <code>{{ instanceData.provider_instance_id }}</code>
@@ -187,10 +231,16 @@
               </span>
               <span class="hero-id hero-id--muted">
                 <!--
-                  用户详情是「下钻页」，路由为 /users/accounts/detail?id=N（query 传参）。
+                  归属客户 = 这台机器属于谁（下钻到客户详情）。
+                  用户详情是「下钻页」，路由为 /users/accounts/detail?id=N（query 传参）：
                   此前这里写成路径参数 /users/accounts/{id}，与任何路由都不匹配 ——
                   点击后落到空白页（用户实测）。
+
+                  带"归属"二字而不是裸用户名：裸链接夹在一排技术标识（本地号/上游号）
+                  之间看不出是什么（用户实测反馈"归属也有一点重复"）。归属全页只此
+                  一处，概览描述表里的重复项已移除。
                 -->
+                <span class="hero-id__label">归属</span>
                 <router-link
                   class="hero-user"
                   :to="{ path: '/users/accounts/detail', query: { id: String(instanceData.user_id) } }"
@@ -406,7 +456,7 @@
             >
           </span>
           <span
-            v-else-if="instanceData.upstream && instanceData.order?.upstream_renew_amount"
+            v-else-if="resale && instanceData.upstream && instanceData.order?.upstream_renew_amount"
             class="hero-billing__sub"
           >
             上游 ¥{{ formatPrice(instanceData.order.upstream_renew_amount) }}
@@ -421,18 +471,23 @@
         <t-tab-panel value="overview" label="概览">
           <div class="tabs-section">
             <!--
-              状态细节表：主信息区已展示身份/配置/网络/凭据/系统/备注，
-              这里只留"排查才看"的字段（上游状态原始值、回源时间、到期处置退避），
-              不再重复主信息区已有的内容。
+              明细表：**只放主信息区没有的东西**。
+              主信息区（detail-hero）已经展示：主机名、电源态+服务态、两个实例号、
+              归属客户（含开通人）、配置/网络/凭据/系统、客户与管理员备注、到期时间、
+              付款周期、首付/续费金额、服务商、来源。
+              因此这里刻意**不再**重复状态标签与归属用户名 —— 同屏出现两三次同一信息
+              既啰嗦又容易不一致（用户实测反馈"运行中的地方有三个""归属也重复"）。
+              留下的是"排查才看"的原始值：上游状态码、生命周期阶段、回源时间、
+              客户联系方式（主信息区只给用户名链接，联系方式在这里补全）。
             -->
             <t-descriptions v-if="instanceData" :column="3" size="medium" class="detail-desc">
-              <t-descriptions-item label="服务状态">
-                <t-tag :theme="headlineState.theme" variant="light" size="small" shape="round">
-                  {{ headlineState.label }}
-                </t-tag>
+              <t-descriptions-item label="上游状态">
+                <span class="cell-strong">{{ instanceStatusLabel(instanceData.status) }}</span>
                 <div class="cell-sub">
-                  上游状态 {{ instanceStatusLabel(instanceData.status) }} · 阶段
-                  {{ lifecycleStageLabel(instanceData.lifecycle_stage) }}
+                  原始值 {{ instanceData.status || '—' }} · 阶段
+                  {{ lifecycleStageLabel(instanceData.lifecycle_stage) }}{{
+                    lifecycleNotice ? `（${lifecycleNotice}）` : ''
+                  }}
                 </div>
               </t-descriptions-item>
               <t-descriptions-item label="来源断言">
@@ -445,16 +500,20 @@
                   >（{{ providerTypeLabel(instanceData.provider_type) }}）</span
                 >
               </t-descriptions-item>
-              <t-descriptions-item label="归属账号">
-                <router-link
-                  class="inline-link inline-link--lead"
-                  :to="{ path: '/users/accounts/detail', query: { id: String(instanceData.user_id) } }"
-                >
-                  {{ instanceData.username || '—' }}
-                </router-link>
+              <t-descriptions-item label="客户联系方式">
+                <span v-if="instanceData.user_email || instanceData.user_phone">
+                  <template v-if="instanceData.user_email">{{ instanceData.user_email }}</template
+                  ><template v-if="instanceData.user_email && instanceData.user_phone"> · </template
+                  ><template v-if="instanceData.user_phone">{{ instanceData.user_phone }}</template>
+                </span>
+                <span v-else class="cell-sub">未登记</span>
                 <div class="cell-sub">
-                  {{ instanceData.user_email || '—'
-                  }}<template v-if="instanceData.user_phone"> · {{ instanceData.user_phone }}</template>
+                  <router-link
+                    class="inline-link"
+                    :to="{ path: '/users/accounts/detail', query: { id: String(instanceData.user_id) } }"
+                  >
+                    查看客户资料
+                  </router-link>
                 </div>
               </t-descriptions-item>
               <t-descriptions-item label="最近回源">{{ formatTime(instanceData.last_synced_at) }}</t-descriptions-item>
@@ -549,16 +608,25 @@
               -->
               <div class="info-card info-card--span">
                 <div class="info-card__head">
-                  <h3 class="card-title">商品与对接</h3>
+                  <h3 class="card-title">{{ resale ? '商品与对接' : '商品信息' }}</h3>
                   <div class="info-card__actions">
-                    <!-- 上游换产品（如五区→六区）时，本地商品必须跟着换，否则续费按旧价算 -->
+                    <!--
+                      换绑入口按链路分派（用户实测反馈："我自定的商品，但它还显示
+                      对接商品"）：
+
+                        · 转售链路：上游换产品（五区→六区）时本地商品必须跟着换，
+                          否则续费按旧价算 —— 给出「更换对接商品」。
+                        · 自营链路：没有"对接商品"这回事，入口文案改为
+                          「更换本地商品」；对话框内也不会出现上游镜像选项
+                          （后端候选接口对自营只返回本地商品）。
+                    -->
                     <t-link
                       v-if="hasPerm('instance:billing') && !instanceData?.pending"
                       theme="primary"
                       hover="color"
                       @click="openRebindDialog"
                     >
-                      更换对接商品
+                      {{ resale ? '更换对接商品' : '更换本地商品' }}
                     </t-link>
                     <t-link
                       v-if="instanceData?.product"
@@ -614,7 +682,9 @@
                       >
                         {{ instanceData.product.status === 1 ? '上架' : '下架' }}
                       </t-tag>
-                      <div v-if="upstreamRenamed" class="cell-sub">上游原名：{{ instanceData.upstream?.name }}</div>
+                      <div v-if="resale && upstreamRenamed" class="cell-sub">
+                        上游原名：{{ instanceData.upstream?.name }}
+                      </div>
                     </span>
                   </div>
                   <div class="kv-row">
@@ -622,8 +692,8 @@
                     ><span class="kv-row__v">{{ instanceData.product.code || '—' }}</span>
                   </div>
 
-                  <!-- 对接关系：仅在确实对接上游时才出这几行 -->
-                  <template v-if="instanceData.upstream">
+                  <!-- 对接关系：仅转售链路才有（自营不对接上游镜像商品） -->
+                  <template v-if="resale && instanceData.upstream">
                     <div class="kv-row">
                       <span class="kv-row__k">对接渠道</span>
                       <span class="kv-row__v">
@@ -647,7 +717,7 @@
                       </span>
                     </div>
                   </template>
-                  <div v-else-if="instanceData.product.source_mode === 'upstream'" class="kv-row">
+                  <div v-else-if="resale" class="kv-row">
                     <span class="kv-row__k">对接信息</span>
                     <span class="kv-row__v cell-sub"
                       >本地镜像已不存在（重新导入/清理后常见）：上游价格与对接关系无法回溯</span
@@ -670,7 +740,7 @@
                       <t-tag v-if="grossMarginText" theme="success" variant="light" size="small" shape="round">{{
                         grossMarginText
                       }}</t-tag>
-                      <div v-if="instanceData.upstream" class="cell-sub">
+                      <div v-if="resale && instanceData.upstream" class="cell-sub">
                         商品成本即上游采购价{{
                           upstreamCostDiffers
                             ? `（上游现价 ¥${formatPrice(instanceData.upstream.cost_price)}，与本地不一致，续费前请核对）`
@@ -702,7 +772,7 @@
                   </div>
 
                   <!-- 上游各周期价：对接链路才有，是调价时的唯一依据 -->
-                  <div v-if="instanceData.upstream" class="kv-row kv-row--col">
+                  <div v-if="resale && instanceData.upstream" class="kv-row kv-row--col">
                     <span class="kv-row__k">上游各周期价（标价 / 采购价）</span>
                     <div class="cycle-chips">
                       <span v-for="item in upstreamCycleRows" :key="item.cycle" class="cycle-chip">
@@ -720,7 +790,7 @@
                 <t-empty
                   v-else
                   :description="
-                    instanceData?.source_mode === 'upstream'
+                    resale
                       ? '未找到售出商品记录（上游同步发现的实例，或商品行已删除）'
                       : '该实例非经我方商品开通'
                   "
@@ -842,7 +912,7 @@
                     }}<span class="cell-sub">供应商侧成本，售价见主信息区</span></span
                   >
                 </div>
-                <div v-if="instanceData?.upstream" class="kv-row">
+                <div v-if="resale && instanceData?.upstream" class="kv-row">
                   <span class="kv-row__k">上游续费金额</span>
                   <span class="kv-row__v kv-row__v--strong">{{ upstreamRenewText }}</span>
                 </div>
@@ -861,7 +931,7 @@
                   >
                 </div>
                 <t-alert
-                  v-if="instanceData?.source_mode === 'upstream'"
+                  v-if="resale"
                   theme="warning"
                   class="billing-alert"
                   message="该实例对接上游，到期时间与付款周期的最终口径以上游为准；本地调整需勾选「强制本地调整」，且不会被回源覆盖后保持。"
@@ -881,7 +951,6 @@
         <t-tab-panel value="operations" label="操作记录">
           <div class="tabs-section">
             <div class="table-card__head">
-              <h3 class="card-title">操作记录</h3>
               <span class="table-card__meta">共 {{ opPagination.total }} 条</span>
             </div>
             <t-table
@@ -1147,7 +1216,7 @@
             <template v-if="currentRenewalPriceText"> 当前：{{ currentRenewalPriceText }}</template>
           </div>
         </t-form-item>
-        <t-form-item v-if="instanceData?.source_mode === 'upstream'">
+        <t-form-item v-if="resale">
           <t-checkbox v-model="adjust.force">强制本地调整（该实例为上游对接链路）</t-checkbox>
         </t-form-item>
         <t-form-item label="调整原因">
@@ -1238,10 +1307,22 @@
       destroy-on-close
       @confirm="handleRebind"
     >
+      <!--
+        对话框同样按链路分派（用户实测反馈："自营的商品就不存在更换对接商品"）：
+        自营链路没有上游镜像这一层 —— 不显示上游镜像行、不提供「更换上游镜像」
+        复选框，措辞也去掉"上游"（后端对自营会拒绝该字段，前端不该先给出选项）。
+      -->
       <t-alert
+        v-if="resale"
         theme="warning"
         class="dlg-alert"
         message="更换直接决定**续费算价**与推给上游的配置口径。上游换了商品时，本地商品必须同步换过来，否则两边账单对不上。"
+      />
+      <t-alert
+        v-else
+        theme="info"
+        class="dlg-alert"
+        message="更换只影响**续费算价**与展示口径（该实例为自营链路，机器由本平台开通，不涉及上游）。"
       />
       <t-form label-align="top">
         <t-form-item label="当前绑定">
@@ -1249,7 +1330,7 @@
             本地商品：<b>{{ instanceData?.product?.name || '—' }}</b>
             <template v-if="instanceData?.product?.id">（#{{ instanceData.product.id }}）</template>
           </div>
-          <div class="cell-sub">
+          <div v-if="resale" class="cell-sub">
             上游镜像：<b>{{ instanceData?.upstream?.name || '（未关联）' }}</b>
             <template v-if="instanceData?.upstream"
               >（#{{ instanceData.upstream.resource_product_id }} · 上游号
@@ -1260,10 +1341,16 @@
         <t-form-item label="变更项">
           <t-checkbox-group v-model="rebind.fields">
             <t-checkbox value="sell">更换本地售出商品</t-checkbox>
-            <t-checkbox value="upstream">更换上游镜像</t-checkbox>
+            <t-checkbox v-if="resale" value="upstream">更换上游镜像</t-checkbox>
             <t-checkbox value="renewal_price">同时更新续费价</t-checkbox>
           </t-checkbox-group>
-          <div class="cell-sub">未勾选的项保持不动；三项可分开做（如只换本地商品、上游镜像已经是对的）。</div>
+          <div class="cell-sub">
+            {{
+              resale
+                ? '未勾选的项保持不动；三项可分开做（如只换本地商品、上游镜像已经是对的）。'
+                : '未勾选的项保持不动；自营链路只能更换本地售出商品与续费价。'
+            }}
+          </div>
         </t-form-item>
         <t-form-item v-if="rebind.fields.includes('sell')" label="新的本地售出商品">
           <!-- 选框替代手填 ID：候选由后端给出（含上下架/价格/已配置周期），
@@ -1447,26 +1534,41 @@
       </t-form>
     </t-dialog>
 
+    <!--
+      控制台凭据弹窗：VNC 改为**新标签页**打开（用户反馈：不要用弹窗内嵌）。
+      弹窗内嵌的问题：控制台是独立会话，弹窗关闭即断开；且窗口尺寸受限、
+      无法与实例页并排操作。这里只负责"把密码给运营 + 提示去新标签页"，
+      真正的控制台在浏览器标签页里跑（可固定、可多开、与实例页并排）。
+    -->
     <t-dialog
       v-model:visible="vnc.visible"
-      :header="`远程控制台 · ${instanceData?.name || vnc.name}`"
-      width="80%"
-      :footer="false"
+      header="控制台已在新标签页打开"
+      width="480px"
+      :confirm-btn="{ content: '再次打开', theme: 'primary' }"
+      :cancel-btn="{ content: '知道了' }"
       destroy-on-close
+      @confirm="reopenVnc"
       @close="vnc.visible = false"
     >
-      <div class="vnc-wrap">
-        <div v-if="vnc.password" class="vnc-meta">
-          <span class="vnc-meta__label">控制台密码</span>
-          <code class="vnc-meta__value">{{ vnc.password }}</code>
-          <t-button size="small" variant="text" theme="primary" @click="copyVncPassword">复制</t-button>
-        </div>
-        <iframe v-if="vnc.url && isHttp(vnc.url)" :src="vnc.url" class="vnc-frame" frameborder="0" />
-        <t-empty v-else description="控制台地址无法内嵌显示，请点击打开">
-          <template #action>
-            <t-button theme="primary" @click="openVnc">打开控制台</t-button>
-          </template>
-        </t-empty>
+      <t-alert
+        theme="info"
+        class="dlg-alert"
+        message="控制台是本机远程画面，建议在独立标签页中操作（可固定该标签页，回来不影响会话）。"
+      />
+      <div v-if="vnc.password" class="vnc-meta">
+        <span class="vnc-meta__label">控制台密码</span>
+        <code class="vnc-meta__value">{{ vnc.password }}</code>
+        <t-button size="small" variant="text" theme="primary" @click="copyVncPassword">复制</t-button>
+      </div>
+      <p v-if="vncBlocked" class="vnc-blocked">
+        浏览器拦截了自动打开的新标签页（多为弹窗拦截）。请点击下方按钮手动打开。
+      </p>
+      <div v-if="vnc.url" class="vnc-url">
+        <span class="cell-sub">控制台地址：{{ vnc.url }}</span>
+      </div>
+      <div class="vnc-actions">
+        <t-button v-if="vncBlocked" theme="primary" @click="openVnc">手动打开控制台</t-button>
+        <t-button v-if="!isHttp(vnc.url)" variant="outline" @click="copyVncUrl">复制地址</t-button>
       </div>
     </t-dialog>
 
@@ -1711,7 +1813,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import {
@@ -1721,7 +1823,6 @@ import {
   EditIcon,
   LinkIcon,
   RefreshIcon,
-  ServerIcon,
   UserIcon,
 } from 'tdesign-icons-vue-next'
 import OsIcon from '@/components/OsIcon.vue'
@@ -1762,15 +1863,16 @@ import {
 } from '@/api/instance'
 import { renewInstance } from '@/api/lifecycle'
 import {
-  combineInstanceState,
   expireStateLabel,
   formatMemory,
   formatPrice,
   formatTime,
   instanceStatusLabel,
   lifecycleStageLabel,
-  lifecycleStageTheme,
   operationActionLabel,
+  powerStateView,
+  serviceStateView,
+  type InstanceTransitionView,
   operationResultLabel,
   operatorTypeLabel,
   powerActionLabel,
@@ -1790,6 +1892,7 @@ import type {
   RelatedTicket,
 } from '@/types/interface'
 import { usePermission } from '@/composables/usePermission'
+import { copyText } from '@/utils/clipboard'
 
 defineOptions({ name: 'InstanceDetail' })
 
@@ -1880,25 +1983,117 @@ const billingModeLabel = computed(() => cycleLabel(instanceData.value?.billing_m
 
 const isOnetime = computed(() => instanceData.value?.billing_mode === 'onetime')
 
-// 头部只给一句结论：三个字段（服务状态/到期阶段/到期状态）单独并列会互相矛盾，
-// 例如宽限期内 status=running 而 expire_state=expired。合成规则见 constants.combineInstanceState。
-const headlineState = computed(() =>
-  combineInstanceState({
+// 头部状态标签：**两个维度分开显示**（本轮修复的核心）。
+//
+// 此前是一个合成标签，把"关机"与"到期暂停"压成同一句「已暂停」—— 因为上游把
+// suspended 也映射成 stopped，两者无法区分（用户实测反馈）。
+// 现在头部并排两个标签，各自回答一个问题：
+//   · 电源维度 headlinePower  ：这台机器通电了吗（运行中/已关机/重启中…）
+//   · 服务维度 headlineService：我们卖的服务还在有效期内吗（服务中/已过期/到期暂停…）
+// 组合起来才是完整处境，例如「已关机 · 服务中」= 客户自己关的机，账期正常。
+const headlinePower = computed(() =>
+  powerStateView({
     status: instanceData.value?.status || '',
+    power_state: instanceData.value?.power_state,
     lifecycle_stage: instanceData.value?.lifecycle_stage,
-    expire_state: instanceData.value?.expire_state,
     pending: isPending.value,
+    transition: instanceData.value?.transition,
   }),
 )
 
-// 概览里的一行说明（比头部标签更详细），用于「服务状态」描述项。
+const headlineService = computed(() =>
+  serviceStateView({
+    lifecycle_stage: instanceData.value?.lifecycle_stage,
+    expire_state: instanceData.value?.expire_state,
+    service_state: instanceData.value?.service_state,
+    days_left: instanceData.value?.days_left,
+  }),
+)
 
-const sourceModeLabel = computed(() => (instanceData.value?.source_mode === 'upstream' ? '对接上游' : '自营'))
+/** 过渡态（上游正在执行的动作）：驱动头部提示条与操作禁用。 */
+const transition = computed(() => instanceData.value?.transition || null)
+const transitionActive = computed(() => !!transition.value && !transition.value.overdue)
+const transitionOverdue = computed(() => !!transition.value?.overdue)
 
-const sourceModeTheme = computed(() => (instanceData.value?.source_mode === 'upstream' ? 'warning' : 'success'))
+/**
+ * 已执行时长的实时文案（"已等待 42 秒"）。
+ *
+ * 为什么需要每秒跳动：动画只证明"页面在动"，不证明"指令在跑"。一个每秒递增的
+ * 数字是唯一能让运营确信"系统确实在推进这件事"的证据（这也是上游不回报进度时
+ * 我们唯一能给的确定信息）。没有它，等 30 秒和卡死 30 秒看起来一样，
+ * 用户就会去点第二次（正是要解决的问题）。
+ */
+const transitionTick = ref(0)
+let transitionTimer: number | undefined
+
+const transitionElapsedText = computed(() => {
+  void transitionTick.value // 依赖 tick，确保每秒重算
+  const started = transition.value?.started_at
+  if (!started) return '请稍候'
+  const start = new Date(started).getTime()
+  if (Number.isNaN(start)) return '请稍候'
+  const sec = Math.max(0, Math.floor((Date.now() - start) / 1000))
+  if (sec < 60) return `已等待 ${sec} 秒`
+  const min = Math.floor(sec / 60)
+  return `已等待 ${min} 分 ${sec % 60} 秒`
+})
+
+// 只在过渡进行中有意义，结束后必须停掉，否则每秒重渲染整个详情页。
+watch(transitionActive, (active) => {
+  if (active && transitionTimer === undefined) {
+    transitionTimer = window.setInterval(() => {
+      transitionTick.value += 1
+    }, 1000)
+  } else if (!active && transitionTimer !== undefined) {
+    window.clearInterval(transitionTimer)
+    transitionTimer = undefined
+  }
+})
+
+onBeforeUnmount(() => {
+  if (transitionTimer !== undefined) {
+    window.clearInterval(transitionTimer)
+    transitionTimer = undefined
+  }
+})
+
+/**
+ * 生命周期阶段的补充说明（只在非 active 阶段给）。
+ *
+ * 主信息区的两个状态标签已经表达了"机器通电吗/账期有效吗"，但阶段名本身
+ * （宽限期/已暂停/已销毁）不解释"这意味着什么"。概览的「上游状态」项里
+ * 带上这一句，运营不用去查文档就知道下一步该做什么。
+ */
+const lifecycleNotice = computed(() => {
+  switch (instanceData.value?.lifecycle_stage) {
+    case 'grace':
+      return '已过期但仍在宽限期内，逾期将暂停服务'
+    case 'suspended':
+      return '已暂停服务：续费或手动恢复后可用'
+    case 'destroyed':
+      return '已终止，不可恢复'
+    default:
+      return ''
+  }
+})
+
+/**
+ * 是否转售链路（后端归一后的判据）。
+ *
+ * 为什么统一用它而不是比 source_mode：历史行可能为空，前端自己判等容易漏；
+ * 后端已把空值按更安全的语义归一（有上游镜像即按对接处理）。本页所有
+ * 「上游实例号 / 重新关联 / 更换对接商品 / 上游各周期价」的措辞与入口
+ * 都以它为准 —— 自营实例（resale=false）不得出现这些内容
+ *（用户实测反馈："虽然是我自己的，但它这里会显示上游实例号，这个一看就是有问题"）。
+ */
+const resale = computed(() => instanceData.value?.resale === true)
+
+const sourceModeLabel = computed(() => (resale.value ? '对接上游' : '自营'))
+
+const sourceModeTheme = computed(() => (resale.value ? 'warning' : 'success'))
 
 const sourceModeHint = computed(() =>
-  instanceData.value?.source_mode === 'upstream'
+  resale.value
     ? '商品对接上游转售，实例由上游开通与控制'
     : '自营商品，实例由本平台开通与计费',
 )
@@ -2219,7 +2414,11 @@ async function handleRetryProvision() {
   }
 }
 
-const powerGroupDisabled = computed(() => isPending.value || !instanceData.value?.capabilities?.power)
+// 电源组在过渡态期间禁用：上游指令是异步的，执行窗口内再点会堆指令
+// （用户实测反馈"看不到状态就反复点重启"）。超时后放行，允许重试。
+const powerGroupDisabled = computed(
+  () => isPending.value || !instanceData.value?.capabilities?.power || transitionActive.value,
+)
 
 function onPowerPick(data: { value: string; disabled?: boolean }) {
   if (data.disabled) {
@@ -2252,7 +2451,11 @@ const maintenanceOptions = computed(() => {
   return opts
 })
 
-const maintenanceDisabled = computed(() => isPending.value || maintenanceOptions.value.length === 0)
+// 维护类（重装/重置密码/救援）同样受过渡态约束：这些动作本身就会写过渡态，
+// 且与进行中的动作互斥（重装到一半再点重置密码只会让状态更乱）。
+const maintenanceDisabled = computed(
+  () => isPending.value || maintenanceOptions.value.length === 0 || transitionActive.value,
+)
 
 /**
  * 打开重装弹窗。抽成函数而不是留在下拉的 case 里：主信息区的「操作系统」行
@@ -2641,6 +2844,13 @@ const relinkConfirmDisabled = computed(
 )
 
 function openRelinkDialog() {
+  // 自营链路没有"上游号可换"：入口已按 resale 隐藏，这里再兜一层 ——
+  // 万一被别的路径触发（如快捷键/旧缓存页面），打开一个填了也只有报错的对话框
+  // 比直接提示更让人困惑。
+  if (!resale.value) {
+    MessagePlugin.warning('该实例为自营链路，实例号由本系统管理，无需重新关联')
+    return
+  }
   relink.upstream_instance_id = ''
   relink.confirm_mark = ''
   relink.migrate_instance_id = false
@@ -2751,6 +2961,11 @@ function openRebindDialog() {
 }
 
 async function handleRebind() {
+  // 自营链路不接受上游镜像字段（后端会拒）：把选项收敛在后端口径上，
+  // 避免"前端给选项 → 用户选了 → 提交才报错"这条弯路。
+  if (!resale.value) {
+    rebind.fields = rebind.fields.filter((f) => f !== 'upstream')
+  }
   if (!rebind.fields.length) {
     MessagePlugin.warning('请至少勾选一项要更换的内容')
     return
@@ -2813,9 +3028,7 @@ async function openRevealDialog() {
 }
 
 function copyRevealPassword() {
-  if (!reveal.password) return
-  void navigator.clipboard?.writeText(reveal.password)
-  MessagePlugin.success('密码已复制')
+  void copyText(reveal.password, '密码')
 }
 
 // ===== 变配 =====
@@ -2920,38 +3133,62 @@ async function handleRenew() {
 // ===== 控制台 =====
 
 const vnc = reactive({ visible: false, name: '', url: '', password: '' })
+// vncBlocked 新标签页被浏览器拦截（弹窗拦截）：弹窗里据此给"手动打开"按钮。
+const vncBlocked = ref(false)
 
-/** 复制文本（公网 IP 这类最常被拿走去连的信息）。 */
-async function copyText(text: string, label: string) {
-  if (!text) return
-  try {
-    await navigator.clipboard.writeText(text)
-    MessagePlugin.success(`${label}已复制`)
-  } catch {
-    MessagePlugin.error('复制失败，请手动选择文本')
-  }
-}
-
+// handleVnc 打开远程控制台：**新标签页**，不是弹窗内嵌（用户反馈）。
+//
+// 为什么新标签页更好：控制台是独立会话，弹窗一关就断；标签页可以固定、
+// 可以与实例页并排、可以同时开多台。弹窗在这里只承担"交付控制台密码"。
+//
+// 弹窗拦截：window.open 必须在用户手势的同步链路里调用才不被拦。
+// 但取地址是异步请求（await 之后就脱离手势了），所以这里先开一个空标签页占位，
+// 拿到地址后再填 —— 拿不到就关掉占位页并提示。
 async function handleVnc() {
+  // 同步先开占位标签页（保住用户手势，避免被当广告拦截）。
+  const tab = window.open('', '_blank')
   try {
     const data = await getInstanceVNC(instanceId)
     vnc.name = instanceData.value?.name || instanceData.value?.instance_id || ''
     vnc.url = data.url
     vnc.password = data.password
+    vncBlocked.value = false
+    if (tab && !tab.closed) {
+      tab.location.href = data.url
+    } else {
+      // 占位页被拦截 → 记下来，弹窗里给手动打开按钮。
+      vncBlocked.value = true
+    }
     vnc.visible = true
   } catch (error) {
+    // 取地址失败：把占位页关掉，别留一个白页给运营。
+    if (tab && !tab.closed) tab.close()
     MessagePlugin.error((error as Error).message || '获取控制台地址失败')
   }
 }
 
+/** 重新打开控制台（弹窗的「再次打开」按钮）。 */
+function reopenVnc() {
+  if (vnc.url) {
+    const tab = window.open(vnc.url, '_blank')
+    vncBlocked.value = !tab || tab.closed
+  }
+}
+
+/** 手动打开（占位页被拦截时的兜底）。 */
 function openVnc() {
-  window.open(vnc.url, '_blank')
+  const tab = window.open(vnc.url, '_blank')
+  vncBlocked.value = !tab || tab.closed
+}
+
+// 控制台地址是非 http 时（如 vnc:// 或自定义协议），浏览器不能直接打开，
+// 只能复制交给本地客户端；复制走公共 util 才有降级路径。
+function copyVncUrl() {
+  void copyText(vnc.url, '控制台地址')
 }
 
 function copyVncPassword() {
-  if (!vnc.password) return
-  void navigator.clipboard?.writeText(vnc.password)
-  MessagePlugin.success('控制台密码已复制')
+  void copyText(vnc.password, '控制台密码')
 }
 
 function isHttp(url: string): boolean {

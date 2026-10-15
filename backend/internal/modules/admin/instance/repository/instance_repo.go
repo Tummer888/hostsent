@@ -54,6 +54,8 @@ type InstanceRepository interface {
 	// 同一订单可能有多行（换机/重开历史），取每单最新一行（id 最大）。
 	FindByOrderIDs(ctx context.Context, orderIDs []uint64) (map[uint64]*InstanceRow, error)
 	Stats(ctx context.Context, withinDays int) (*dto.StatsResponse, error)
+	// TypeCounts 按产品类型统计实例数（产品线导航计数；未分类行归 other）。
+	TypeCounts(ctx context.Context) (map[string]int64, error)
 	UpdateRemark(ctx context.Context, id uint64, remark string) error
 	UpdateStatus(ctx context.Context, id uint64, status string) error
 	ApplySync(ctx context.Context, id uint64, status, publicIP, privateIP, rawData string, syncedAt time.Time) error
@@ -64,6 +66,20 @@ type InstanceRepository interface {
 	UpdateDisk(ctx context.Context, id uint64, disk int) error
 	// UpdateLifecycleStage 落库生命周期阶段（T5.4/T5.5：手动暂停/恢复与推进器共用）。
 	UpdateLifecycleStage(ctx context.Context, id uint64, stage string) error
+	// MarkTransition 记录"某操作正在执行"（迁移 112）：上游指令是异步的，
+	// 落库后刷新页面仍能看到「重启中」，并可据此拦截重复指令。
+	MarkTransition(ctx context.Context, id uint64, state string, startedAt, until time.Time) error
+	// ClaimTransition **原子抢占**过渡态：仅当当前没有生效中的过渡态时写入并返回 true。
+	//
+	// 为什么必须"抢占"而不是"先查后写"：先查后写之间存在窗口 —— 用户连点两下，
+	// 两个并发请求会双双通过检查，上游收到两条同样指令（实测复现）。
+	// 这里把判定与写入压进同一条 UPDATE 的 WHERE 里，由数据库保证只有一个赢。
+	ClaimTransition(ctx context.Context, id uint64, state string, startedAt, until time.Time) (bool, error)
+	// ClearTransitionIfOwner 仅当过渡态仍等于 state 时清除（下发失败的回滚用）。
+	// 避免慢请求失败时误清掉后来者已抢占的过渡态。
+	ClearTransitionIfOwner(ctx context.Context, id uint64, state string) error
+	// ClearTransition 清除过渡态（回源确认已生效 / 操作失败 / 超时后人工确认）。
+	ClearTransition(ctx context.Context, id uint64) error
 	// UpdateCredentialPassword 覆盖登录密码密文（重置密码/重装后平台返回新密码时）。
 	// 与开通写入的区别：这里允许覆盖（新密码就是权威值），但仍只收密文。
 	UpdateCredentialPassword(ctx context.Context, id uint64, encrypted string) error
@@ -160,6 +176,19 @@ func (r *instanceRepository) baseQuery(ctx context.Context, query *dto.ListQuery
 	}
 	if sm := strings.TrimSpace(query.SourceMode); sm != "" {
 		db = db.Where("instances.source_mode = ?", sm)
+	}
+	// 产品类型筛选（产品线导航）：空值 = 全部，不做过滤。
+	//
+	// 存量行可能是空串（迁移 108 回填前，或回填时商品也缺类型），这些行按 other 处理 ——
+	// 否则选「其它」看不到它们、选各具体类别也看不到，等于从界面上消失。
+	// 所以 other 这一档要把「未分类」的行一并兜住。
+	if it := strings.TrimSpace(query.InstanceType); it != "" {
+		if it == pkgmodel.ProductKindOther {
+			db = db.Where("COALESCE(NULLIF(TRIM(instances.instance_type), ''), ?) = ?",
+				pkgmodel.ProductKindOther, pkgmodel.ProductKindOther)
+		} else {
+			db = db.Where("instances.instance_type = ?", it)
+		}
 	}
 
 	days := query.ExpireWithinDays
@@ -298,6 +327,32 @@ func (r *instanceRepository) Stats(ctx context.Context, withinDays int) (*dto.St
 	return &out, nil
 }
 
+// TypeCounts 按产品类型统计实例数（产品线导航的计数来源）。
+//
+// 返回 map[类型值]数量。未登记/为空的行归到 other —— 与 baseQuery 的筛选口径一致：
+// 导航里 other 标签的数量必须等于点进去看到的行数，否则运营会以为筛选坏了。
+//
+// 只做一次 GROUP BY 而不是逐类型 COUNT：类型会随产品线扩展变多，
+// N 个类型 N 次查询既慢又容易与列表口径漂移。
+func (r *instanceRepository) TypeCounts(ctx context.Context) (map[string]int64, error) {
+	var rows []struct {
+		Kind  string
+		Count int64
+	}
+	err := r.db.WithContext(ctx).Raw(`
+		SELECT COALESCE(NULLIF(TRIM(instance_type), ''), ?) AS kind, COUNT(*) AS count
+		FROM instances
+		GROUP BY 1`, pkgmodel.ProductKindOther).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[string]int64, len(rows))
+	for _, row := range rows {
+		counts[row.Kind] = row.Count
+	}
+	return counts, nil
+}
+
 // UpdateRemark 更新管理员内部备注。
 func (r *instanceRepository) UpdateRemark(ctx context.Context, id uint64, remark string) error {
 	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
@@ -414,6 +469,74 @@ func (r *instanceRepository) UpdateLifecycleStage(ctx context.Context, id uint64
 	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
 		Where("id = ?", id).
 		Update("lifecycle_stage", stage).Error
+}
+
+// MarkTransition 记录进行中的操作（迁移 112）。
+//
+// 覆盖写而不是追加：一台机器同一时刻只应有一个进行中的动作
+// （新指令在服务层就被过渡态拦截，走到这里说明是合法的新动作）。
+func (r *instanceRepository) MarkTransition(ctx context.Context, id uint64, state string, startedAt, until time.Time) error {
+	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"transition_state":      state,
+			"transition_started_at": startedAt,
+			"transition_until":      until,
+		}).Error
+}
+
+// ClaimTransition 原子抢占过渡态：仅当没有"生效中"的过渡态时写入。
+//
+// WHERE 里的两个条件对应两类可抢占情形：
+//   - transition_state IS NULL：本来空闲；
+//   - transition_until < now：上一个动作已超过典型耗时，视为结果未知，
+//     不该永久锁死实例（与 ensureNoActiveTransition 的超时放行同一口径）。
+//
+// 条件与赋值在同一条 UPDATE 里，由数据库的行锁保证互斥 —— 两个并发的
+// "开机"请求只有一个能拿到 RowsAffected=1，另一个拿到 0 并被服务层拒绝。
+// 这是"用户连点两次都下发成功"的直接修法（先查后写存在检查-执行窗口）。
+func (r *instanceRepository) ClaimTransition(ctx context.Context, id uint64, state string, startedAt, until time.Time) (bool, error) {
+	res := r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("id = ? AND (transition_state IS NULL OR transition_state = '' OR transition_until IS NULL OR transition_until < ?)",
+			id, startedAt).
+		Updates(map[string]any{
+			"transition_state":      state,
+			"transition_started_at": startedAt,
+			"transition_until":      until,
+		})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
+}
+
+// ClearTransitionIfOwner 仅当过渡态仍等于 state 时清除。
+//
+// 用于"抢到了但下发失败"的回滚：如果不加 owner 条件，一个慢请求的失败回滚
+// 可能清掉后来者已成功抢占的过渡态，让界面在动作执行中错误地恢复成空闲。
+func (r *instanceRepository) ClearTransitionIfOwner(ctx context.Context, id uint64, state string) error {
+	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("id = ? AND transition_state = ?", id, state).
+		Updates(map[string]any{
+			"transition_state":      nil,
+			"transition_started_at": nil,
+			"transition_until":      nil,
+		}).Error
+}
+
+// ClearTransition 清除过渡态。
+//
+// 只清非空行（WHERE transition_state IS NOT NULL）：回源确认是高频动作，
+// 绝大多数实例本来就没有过渡态，带上这个条件可以让无谓的行更新不写库
+// （也避免 updated_at 被反复刷新，干扰"最近变更"的判断）。
+func (r *instanceRepository) ClearTransition(ctx context.Context, id uint64) error {
+	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("id = ? AND transition_state IS NOT NULL", id).
+		Updates(map[string]any{
+			"transition_state":      nil,
+			"transition_started_at": nil,
+			"transition_until":      nil,
+		}).Error
 }
 
 // UpdateCredentialPassword 覆盖登录密码密文（重置密码后调用）。

@@ -10,6 +10,8 @@ export interface InstanceOpsListQuery {
   provider_id?: number
   status?: string
   source_mode?: string
+  /** 产品类型筛选（产品线导航）：cloud_host/cdn/…，空 = 全部。 */
+  instance_type?: string
   expire_state?: string
   expire_within_days?: number
   page?: number
@@ -34,7 +36,18 @@ export interface InstanceItem {
   provider_instance_id: string
   /** 待开通（未在上游开通）：前端显示「待开通」并只开放「重新开通」。 */
   pending: boolean
+  /**
+   * 是否**转售链路**（source_mode=upstream）：实例对着一个上游资源商品，
+   * 才有"上游实例号 / 上游镜像 / 上游各周期价"这些概念，也才有换号与换绑需求。
+   *
+   * 自营链路为 false：机器由本平台开通，实例号由本系统管理 ——
+   * 页面不得出现「上游实例号」「重新关联」「更换对接商品」这类措辞与入口。
+   * 一律用本字段判断，不要自行比 source_mode 字符串（历史行可能为空）。
+   */
+  resale: boolean
   lifecycle_stage: string
+  /** 产品类型（cloud_host/cdn/physical/…）：产品线导航与列表标签的判据。 */
+  instance_type: string
   name: string
   cpu: number
   memory: number
@@ -46,6 +59,12 @@ export interface InstanceItem {
   zone: string
   status: string
   power_status: string
+  /** 机器电源维度（on/off/transitioning/unknown），与账期无关。 */
+  power_state?: string
+  /** 账期/服务维度（active/expiring/expired/grace/suspended/destroyed），与电源无关。 */
+  service_state?: string
+  /** 进行中的操作；无则为空。 */
+  transition?: InstanceTransition | null
   private_ip: string
   public_ip: string
   billing_mode: string
@@ -82,6 +101,41 @@ export interface InstanceStatsResponse {
   error: number
   expiring: number
   expired: number
+}
+
+/** 产品线导航的一项（类型 + 该类型实例数）。 */
+export interface InstanceTypeOption {
+  /** 类型值（cloud_host/cdn/…）。 */
+  value: string
+  label: string
+  count: number
+  /** 是否为预埋类型（登记在册但当前没有任何实例）。 */
+  reserved: boolean
+}
+
+/** 产品线导航数据：类型清单（按登记顺序）+ 全部实例数。 */
+export interface InstanceTypeSummary {
+  types: InstanceTypeOption[]
+  total: number
+}
+
+/**
+ * 过渡态（迁移 112）：上游正在执行的动作，结果尚未确认。
+ *
+ * 上游下发是异步的：接口回「已受理」后机器还要跑几十秒到几分钟，这段窗口里
+ * status 不变。有这个字段才能显示「重启中」并拦住重复提交。
+ */
+export interface InstanceTransition {
+  /** 落库值：starting/stopping/rebooting/reinstalling/resetting_password/… */
+  state: string
+  /** 展示文案（"重启中"）。 */
+  label: string
+  /** 动作名（"重启"、"重装系统"）。 */
+  verb: string
+  started_at?: string
+  expires_at?: string
+  /** 已超过窗口仍未确认：不是失败，是"结果未知"，可重试但应先同步。 */
+  overdue?: boolean
 }
 
 export interface InstanceCapabilities {

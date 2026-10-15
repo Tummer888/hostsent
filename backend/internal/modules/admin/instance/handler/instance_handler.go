@@ -122,6 +122,21 @@ func (h *InstanceHandler) Stats(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// InstanceTypes 产品线导航数据（类型清单 + 各自实例数 + 总量）。
+// @Summary 实例产品类型清单
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/types [get]
+func (h *InstanceHandler) InstanceTypes(c *gin.Context) {
+	resp, err := h.svc.InstanceTypes(c.Request.Context())
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
 // Detail 实例详情。
 // @Summary 实例详情（含归属用户/服务商/能力位）
 // @Tags 管理端-实例运维

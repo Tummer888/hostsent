@@ -56,6 +56,8 @@ type Operator struct {
 type InstanceService interface {
 	List(ctx context.Context, query *dto.ListQuery) (*dto.ListResponse, error)
 	Stats(ctx context.Context, query *dto.StatsQuery) (*dto.StatsResponse, error)
+	// InstanceTypes 产品线导航数据（类型清单 + 各自实例数）。
+	InstanceTypes(ctx context.Context) (*dto.InstanceTypeSummary, error)
 	Detail(ctx context.Context, id uint64, live bool) (*dto.DetailInfo, error)
 	Power(ctx context.Context, op Operator, id uint64, action string) error
 	VNC(ctx context.Context, op Operator, id uint64) (*dto.VNCResult, error)
@@ -350,6 +352,34 @@ func (s *instanceService) Stats(ctx context.Context, query *dto.StatsQuery) (*dt
 	return s.repo.Stats(ctx, days)
 }
 
+// InstanceTypes 产品线导航数据：登记的类型 + 各自实例数 + 总量。
+//
+// 返回**全量登记类型**（含当前没有实例的预埋类型，Reserved=true），由前端决定是否显示 ——
+// 后端不做"要不要显示空类型"的产品决策，但要把事实（该类型存在、当前 0 台）如实给出。
+func (s *instanceService) InstanceTypes(ctx context.Context) (*dto.InstanceTypeSummary, error) {
+	counts, err := s.repo.TypeCounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	kinds := pkgmodel.ProductKinds()
+	out := &dto.InstanceTypeSummary{Types: make([]dto.InstanceTypeOption, 0, len(kinds))}
+	var total int64
+	for _, n := range counts {
+		total += n
+	}
+	for _, kind := range kinds {
+		n := counts[kind.Value]
+		out.Types = append(out.Types, dto.InstanceTypeOption{
+			Value:    kind.Value,
+			Label:    kind.Label,
+			Count:    n,
+			Reserved: n == 0,
+		})
+	}
+	out.Total = total
+	return out, nil
+}
+
 // Detail 实例详情；live=true 时先尝试回源刷新（失败降级为本地数据）。
 //
 // 返回内容分五块：实例本体与能力位、来源订单财务口径、售出商品/对接关系、
@@ -398,6 +428,33 @@ func (s *instanceService) Detail(ctx context.Context, id uint64, live bool) (*dt
 // provisioned 判断实例是否已在（上游/平台）开通：占位行 provider_instance_id 为空。
 func provisioned(row *repository.InstanceRow) bool {
 	return row != nil && row.ProviderInstanceID != ""
+}
+
+// resaleInstance 判断实例是否走**转售链路**（source_mode=upstream）。
+//
+// 为什么需要这个判据来管住界面与守卫：自营实例（source_mode=self）用的是本平台
+// 自己的算力渠道，实例号就是本系统生成并下发的号，不存在"上游把机器换了一台、
+// 我们要跟着改号"这回事；而 products 表里也没有"对接商品"这一层。
+//
+// 此前多处只看"实例是否已开通"，于是自营实例的详情页照样显示「上游实例号」
+// 与「重新关联」「更换对接商品」入口 —— 运营照着重关联的提示去填一个"上游号"，
+// 点下去只会得到一句渠道不可用的报错，或者更糟：把一个正确的号改错
+// （用户实测反馈："虽然是我自己的，但它这里会显示上游实例号，这个一看就是有问题"）。
+//
+// 兜底：source_mode 为空的历史行（迁移前数据）按"是否绑定了上游镜像"判定 ——
+// 有 upstream_product_id 说明确实对着一个上游资源商品，按对接处理更安全
+//（宁可多给入口，也不要让真正对接的实例失去换绑能力）。
+func resaleInstance(row *repository.InstanceRow) bool {
+	if row == nil {
+		return false
+	}
+	switch strings.TrimSpace(row.SourceMode) {
+	case "upstream":
+		return true
+	case "self":
+		return false
+	}
+	return row.UpstreamProductID != 0
 }
 
 // notProvisionedReason 待开通实例的说明文案（含履约失败原因，如有）。
@@ -692,20 +749,49 @@ func (s *instanceService) Power(ctx context.Context, op Operator, id uint64, act
 	if err != nil {
 		return err
 	}
+	// 过渡态拦截（迁移 112）：同一台机器上还有未确认的动作时，拒绝新指令。
+	//
+	// 为什么必须拦在服务端：上游下发是异步的，界面上的按钮 loading 只覆盖了
+	// "接口往返"那几秒；真正的执行窗口有几十秒到几分钟。期间运营刷新页面、
+	// 或换个标签页再点一次，前端 loading 完全拦不住 —— 同一台机器会堆多次重启
+	// （用户实测反馈）。服务端的过渡态是唯一能跨页面、跨会话生效的闸门。
+	if err := s.ensureNoActiveTransition(row, logAction); err != nil {
+		s.record(ctx, row, op, logAction, map[string]any{"action": action}, row.Status, row.Status, err)
+		return err
+	}
 	if err := ensurePowerAllowed(row.Status, normalized); err != nil {
 		s.record(ctx, row, op, logAction, map[string]any{"action": action}, row.Status, row.Status, err)
 		return err
 	}
 
+	// **原子抢占过渡态**：先占位再下发，保证并发的重复点击只有一个能到上游。
+	// 放在状态守卫之后：守卫拦掉的请求（已在运行中/已关机）不该占位。
+	//
+	// 抢不到说明另一个并发请求刚抢先（上面那次读到的是旧行，看不到它）。
+	// 此时返回与 ensureNoActiveTransition 同样的提示，让用户知道有人先动手了。
+	transition := transitionOfPowerAction(normalized)
+	claimed, claimedAt, _, cerr := s.claimTransition(ctx, row.ID, transition)
+	if cerr != nil {
+		s.record(ctx, row, op, logAction, map[string]any{"action": action}, row.Status, row.Status, cerr)
+		return cerr
+	}
+	if !claimed {
+		busyErr := s.transitionConflict(ctx, row)
+		s.record(ctx, row, op, logAction, map[string]any{"action": action}, row.Status, row.Status, busyErr)
+		return busyErr
+	}
+
 	before := row.Status
 	provider, err := s.buildProvider(ctx, row.ProviderID)
 	if err != nil {
+		s.releaseTransition(ctx, row.ID, transition)
 		s.record(ctx, row, op, logAction, map[string]any{"action": action}, before, before, err)
 		return err
 	}
 	ctrl, ok := provider.(upstream.InstanceControl)
 	if !ok {
 		err := ErrCapabilityUnsupported
+		s.releaseTransition(ctx, row.ID, transition)
 		s.record(ctx, row, op, logAction, map[string]any{"action": action}, before, before, err)
 		return err
 	}
@@ -742,13 +828,22 @@ func (s *instanceService) Power(ctx context.Context, op Operator, id uint64, act
 	if opErr == nil {
 		after = expectedStatus(normalized, before)
 		_ = s.repo.UpdateStatus(ctx, row.ID, after)
+		// 过渡态已在上面**抢占**写入（claimTransition）—— 抢占那一刻界面就该看到
+		// 「重启中」并拦截重复指令，不必等指令下发完（下发本身也要一个往返）。
+		//
 		// 上游状态有延迟，回源一次让列表与上游对齐；失败不影响本次操作结果。
 		//
 		// staleStatus=before：上游还没转过来时回源拿到的是**操作前的旧状态**，
 		// 此时不能让回源覆盖刚刚写入的前瞻状态 —— 否则「关机」成功后又立刻变回
 		// 「运行中」，紧接着的「开机」被状态守卫判成"实例已在运行中"而失败
 		// （实测：连点关机/开机必定复现，运营以为是 500 报错）。
-		_ = s.refreshUpstreamExpecting(ctx, row, before)
+		//
+		// transition 非空：回源若已确认新状态，说明上游执行完了，可以清过渡态。
+		_ = s.refreshUpstreamFromTransition(ctx, row, before, transition, claimedAt)
+	} else {
+		// 下发失败：把自己抢到的占位还回去（仅当仍属于自己），
+		// 否则实例会被一个从未执行的动作锁到窗口超时。
+		s.releaseTransition(ctx, row.ID, transition)
 	}
 	s.record(ctx, row, op, logAction, map[string]any{"action": action}, before, after, opErr)
 	return opErr
@@ -806,6 +901,22 @@ func (s *instanceService) Sync(ctx context.Context, op Operator, id uint64) (*dt
 		return nil, ErrNothingToSync
 	}
 	sErr := s.refreshUpstream(ctx, row)
+	// 手动同步兼作"过渡态的人工收尾"：运营看到「重启中」一直不消失时点同步，
+	// 就宣告"我已经核对过了"，可以收尾。
+	//
+	// 判据只看"回源成功 + 已过最短占用窗口"：
+	//   · 回源失败 → 保留过渡态（宁可多显示一会儿，也不假装完成）；
+	//   · 窗口内 → 保留，避免"点完立刻点同步"绕过拦截把锁提前拿掉。
+	//
+	// 刻意**不**再要求"状态发生了变化"：下发时已乐观写入目标状态（关机写 stopped），
+	// 回源拿到的往往与它相同，于是"没变化"成了常态 —— 那会让过渡态一直挂到窗口
+	// 超时（实测：开完机点同步，「开机中」不消失，最长要等 3 分钟）。
+	if sErr == nil && row.TransitionState != "" {
+		if fresh, ferr := s.repo.FindByID(ctx, id); ferr == nil && fresh.TransitionState != "" &&
+			!transitionWithinMinHold(fresh.TransitionState, derefTime(fresh.TransitionStartedAt)) {
+			_ = s.repo.ClearTransition(ctx, id)
+		}
+	}
 	after := before
 	if fresh, ferr := s.repo.FindByID(ctx, id); ferr == nil {
 		after = fresh.Status
@@ -882,14 +993,33 @@ func (s *instanceService) Reinstall(ctx context.Context, op Operator, id uint64,
 	if row.Status == string(pkgmodel.InstanceStatusDeleted) {
 		return nil, fmt.Errorf("%w: 实例已销毁，无法重装", ErrStatusConflict)
 	}
+	// 过渡态闸门：重装要重建系统盘，与任何进行中的动作互斥
+	//（重装到一半再叠加一个重装/重启只会让状态更乱，且无法判断最终结果）。
+	if err := s.ensureNoActiveTransition(row, model.ActionReinstall); err != nil {
+		s.record(ctx, row, op, model.ActionReinstall, nil, row.Status, row.Status, err)
+		return nil, err
+	}
+	// 原子抢占（与电源同一口径）：两个并发重装请求只有一个能下发。
+	claimed, _, _, cerr := s.claimTransition(ctx, row.ID, pkgmodel.InstanceTransitionReinstalling)
+	if cerr != nil {
+		s.record(ctx, row, op, model.ActionReinstall, nil, row.Status, row.Status, cerr)
+		return nil, cerr
+	}
+	if !claimed {
+		busyErr := s.transitionConflict(ctx, row)
+		s.record(ctx, row, op, model.ActionReinstall, nil, row.Status, row.Status, busyErr)
+		return nil, busyErr
+	}
 	provider, err := s.buildProvider(ctx, row.ProviderID)
 	if err != nil {
+		s.releaseTransition(ctx, row.ID, pkgmodel.InstanceTransitionReinstalling)
 		s.record(ctx, row, op, model.ActionReinstall, nil, row.Status, row.Status, err)
 		return nil, err
 	}
 	reinstaller, ok := provider.(upstream.InstanceReinstall)
 	if !ok {
 		err := fmt.Errorf("%w: %s", ErrCapabilityUnsupported, "该服务商不支持重装系统")
+		s.releaseTransition(ctx, row.ID, pkgmodel.InstanceTransitionReinstalling)
 		s.record(ctx, row, op, model.ActionReinstall, nil, row.Status, row.Status, err)
 		return nil, err
 	}
@@ -907,6 +1037,7 @@ func (s *instanceService) Reinstall(ctx context.Context, op Operator, id uint64,
 		SystemDiskSize:     req.SystemDiskSize,
 	})
 	if rerr != nil {
+		s.releaseTransition(ctx, row.ID, pkgmodel.InstanceTransitionReinstalling)
 		s.record(ctx, row, op, model.ActionReinstall, params, before, before, rerr)
 		return nil, rerr
 	}
@@ -922,6 +1053,8 @@ func (s *instanceService) Reinstall(ctx context.Context, op Operator, id uint64,
 		}
 	}
 	s.record(ctx, row, op, model.ActionReinstall, params, before, before, nil)
+	// 重装的过渡态已在上面**抢占**写入：界面立即显示「重装中」并拦住重复提交，
+	// 不必等上游回"已受理"（那也是一个往返）。
 	return out, nil
 }
 
@@ -942,8 +1075,26 @@ func (s *instanceService) ResetPassword(ctx context.Context, op Operator, id uin
 	if row.Status == string(pkgmodel.InstanceStatusDeleted) {
 		return fmt.Errorf("%w: 实例已销毁，无法重置密码", ErrStatusConflict)
 	}
+	// 过渡态闸门：重置密码通常伴随强制重启，与进行中的电源动作叠加会让
+	// "最终密码/最终状态是哪个"无法判断。
+	if err := s.ensureNoActiveTransition(row, model.ActionResetPassword); err != nil {
+		s.record(ctx, row, op, model.ActionResetPassword, nil, row.Status, row.Status, err)
+		return err
+	}
+	// 原子抢占：连点两次重置密码同样只允许一个下发。
+	claimed, _, _, cerr := s.claimTransition(ctx, row.ID, pkgmodel.InstanceTransitionResettingPassword)
+	if cerr != nil {
+		s.record(ctx, row, op, model.ActionResetPassword, nil, row.Status, row.Status, cerr)
+		return cerr
+	}
+	if !claimed {
+		busyErr := s.transitionConflict(ctx, row)
+		s.record(ctx, row, op, model.ActionResetPassword, nil, row.Status, row.Status, busyErr)
+		return busyErr
+	}
 	resetter, err := s.passwordResetter(ctx, row.ProviderID)
 	if err != nil {
+		s.releaseTransition(ctx, row.ID, pkgmodel.InstanceTransitionResettingPassword)
 		s.record(ctx, row, op, model.ActionResetPassword, nil, row.Status, row.Status, err)
 		return err
 	}
@@ -951,6 +1102,7 @@ func (s *instanceService) ResetPassword(ctx context.Context, op Operator, id uin
 	// 流水里只记"已重置"，绝不落密码明文。
 	params := map[string]any{"password_changed": true}
 	if perr := resetter.ResetInstancePassword(ctx, row.InstanceMark(), req.Password); perr != nil {
+		s.releaseTransition(ctx, row.ID, pkgmodel.InstanceTransitionResettingPassword)
 		s.record(ctx, row, op, model.ActionResetPassword, params, before, before, perr)
 		return perr
 	}
@@ -959,6 +1111,8 @@ func (s *instanceService) ResetPassword(ctx context.Context, op Operator, id uin
 	// 留存失败不影响重置结果本身（机器上的密码确实改了），只记流水说明查看会不准。
 	params["credential_saved"] = s.saveCredentialPassword(ctx, row, req.Password)
 	s.record(ctx, row, op, model.ActionResetPassword, params, before, before, nil)
+	// 过渡态已在上面**抢占**写入：界面立即显示「重置密码中」并拦住重复提交，
+	// 提示运营这段时间机器可能不可达（比只弹一句"已提交"更贴近实际）。
 	return nil
 }
 
@@ -1633,6 +1787,13 @@ func (s *instanceService) RelinkUpstream(ctx context.Context, op Operator, id ui
 	if req == nil {
 		return nil, ErrInvalidAction
 	}
+	// 自营实例没有"上游号可换"这回事：它的实例号是本系统生成并下发的。
+	// 放行会诱导运营去填一个来路不明的号，把本来正确的机器指到别处。
+	if !resaleInstance(row) {
+		err := fmt.Errorf("%w: 该实例为自营链路（机器由本平台开通），实例号由本系统管理，无需也无法「按上游号重新关联」", ErrInvalidAction)
+		s.record(ctx, row, op, model.ActionRelinkUpstream, nil, row.Status, row.Status, err)
+		return nil, err
+	}
 	target := strings.TrimSpace(req.UpstreamInstanceID)
 	if target == "" {
 		return nil, fmt.Errorf("%w: 请填写上游实例号", ErrInvalidAction)
@@ -1764,6 +1925,12 @@ func (s *instanceService) RebindProduct(ctx context.Context, op Operator, id uin
 	if req.SellProductID == 0 && req.UpstreamProductID == nil && req.RenewalPrice == nil {
 		return nil, fmt.Errorf("%w: 请至少指定要更换的本地商品或上游镜像", ErrInvalidAction)
 	}
+	// 自营实例没有"对接商品"这一层：既没有上游镜像可换，也没有"上游把商品换了"
+	// 这个场景。这里只拒绝**换上游镜像**，换本地商品与改绑定价仍然允许 ——
+	// 自营商品同样会下架/换代，续费口径要能跟着调整。
+	if req.UpstreamProductID != nil && !resaleInstance(row) {
+		return nil, fmt.Errorf("%w: 该实例为自营链路，未对接上游镜像，「更换上游镜像」不适用；如需更换本地售出商品请只勾选该项", ErrInvalidAction)
+	}
 	if s.detail == nil {
 		return nil, ErrCapabilityUnsupported
 	}
@@ -1862,7 +2029,7 @@ func (s *instanceService) RebindCandidates(ctx context.Context, id uint64) (*dto
 	if s.detail == nil {
 		return nil, ErrCapabilityUnsupported
 	}
-	out, cerr := s.detail.RebindCandidates(ctx, row.ProviderID)
+	out, cerr := s.detail.RebindCandidates(ctx, row.ProviderID, resaleInstance(row))
 	if cerr != nil {
 		return nil, cerr
 	}
@@ -2484,35 +2651,46 @@ func (s *instanceService) toItem(row *repository.InstanceRow, withinDays int) dt
 		UpstreamProductID:  row.UpstreamProductID,
 		ProviderInstanceID: row.ProviderInstanceID,
 		Pending:            row.ProviderInstanceID == "",
+		Resale:             resaleInstance(row),
 		LifecycleStage:     row.LifecycleStage,
-		Name:               row.Name,
-		CPU:                row.CPU,
-		Memory:             row.Memory,
-		Disk:               row.Disk,
-		DiskType:           row.DiskType,
-		Bandwidth:          row.Bandwidth,
-		OS:                 row.OS,
-		Region:             row.Region,
-		Zone:               row.Zone,
-		Status:             row.Status,
-		PowerStatus:        powerOf(row.Status),
-		PrivateIP:          row.PrivateIP,
-		PublicIP:           row.PublicIP,
-		BillingMode:        row.BillingMode,
-		ActorUserID:        row.ActorUserID,
-		ActorName:          row.ActorName,
-		Remark:             row.Remark,
-		CustomerRemark:     row.CustomerRemark,
-		ExpireAt:           fmtTimePtr(row.ExpireAt),
-		DaysLeft:           daysLeft,
-		ExpireState:        state,
-		LastSyncedAt:       fmtTimePtr(row.LastSyncedAt),
-		EnforceAttempts:    row.EnforceAttempts,
-		EnforceNextAt:      fmtTimePtr(row.EnforceNextAt),
-		LastEnforceError:   row.LastEnforceError,
-		RenewalPrice:       row.RenewalPrice,
-		CreatedAt:          row.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:          row.UpdatedAt.Format(time.RFC3339),
+		// 产品类型归一后再下发：存量空串（迁移 108 回填前）与未知值都走 other，
+		// 与筛选口径一致 —— 前端拿到的每个值都能在导航里找到对应标签。
+		InstanceType: pkgmodel.NormalizeProductKind(row.InstanceType),
+		Name:         row.Name,
+		CPU:          row.CPU,
+		Memory:       row.Memory,
+		Disk:         row.Disk,
+		DiskType:     row.DiskType,
+		Bandwidth:    row.Bandwidth,
+		OS:           row.OS,
+		Region:       row.Region,
+		Zone:         row.Zone,
+		Status:       row.Status,
+		PowerStatus:  powerOf(row.Status),
+		// 两个正交维度（本轮修复的根因）：电源态答"机器通没通电"，
+		// 服务态答"这个服务还在不在有效期内/有没有被我方暂停"。
+		// 此前前端只凭 status 分不清关机与暂停，把两者压成一句「已暂停」。
+		PowerState:   powerStateOf(row.Status, row.TransitionState),
+		ServiceState: serviceStateOf(row.ExpireAt, row.LifecycleStage, withinDays),
+		// 过渡态：非 nil 表示有未确认的操作在进行（界面显示"重启中"+禁用冲突动作）。
+		Transition:       transitionInfoOf(row.TransitionState, row.TransitionStartedAt, row.TransitionUntil),
+		PrivateIP:        row.PrivateIP,
+		PublicIP:         row.PublicIP,
+		BillingMode:      row.BillingMode,
+		ActorUserID:      row.ActorUserID,
+		ActorName:        row.ActorName,
+		Remark:           row.Remark,
+		CustomerRemark:   row.CustomerRemark,
+		ExpireAt:         fmtTimePtr(row.ExpireAt),
+		DaysLeft:         daysLeft,
+		ExpireState:      state,
+		LastSyncedAt:     fmtTimePtr(row.LastSyncedAt),
+		EnforceAttempts:  row.EnforceAttempts,
+		EnforceNextAt:    fmtTimePtr(row.EnforceNextAt),
+		LastEnforceError: row.LastEnforceError,
+		RenewalPrice:     row.RenewalPrice,
+		CreatedAt:        row.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:        row.UpdatedAt.Format(time.RFC3339),
 	}
 }
 
@@ -2708,9 +2886,26 @@ func (s *instanceService) refreshUpstream(ctx context.Context, row *repository.I
 // 本地刚写的 stopped 会被旧值覆盖，前端列表闪回"运行中"，紧接的开机请求
 // 又因"已在运行中"被拒 —— 表现就是开关机偶发失败。传空串表示不做该保护。
 func (s *instanceService) refreshUpstreamExpecting(ctx context.Context, row *repository.InstanceRow, staleStatus string) error {
-	ctrl, err := s.control(ctx, row.ProviderID)
+	return s.refreshUpstreamFromTransition(ctx, row, staleStatus, "", time.Time{})
+}
+
+// refreshUpstreamFromTransition 回源刷新 + 过渡态收尾。
+//
+// transition 非空表示"本地刚下发过这个动作"；claimedAt 是那次占位的开始时间
+// （判断最短占用窗口用）。回源拿到的新状态若与 staleStatus 不同，说明上游已经
+// 执行完并转过来了 —— 此时顺手清掉过渡态，界面从「重启中」回到「运行中」。
+// 仍等于旧状态则说明还在执行，过渡态保留。
+//
+// 只在"上游确实报出新状态"时清：拿不到数据（接口失败/降级）时保留过渡态，
+// 让界面继续显示"进行中"而不是假装完成了。
+func (s *instanceService) refreshUpstreamFromTransition(ctx context.Context, row *repository.InstanceRow, staleStatus, transition string, claimedAt time.Time) error {
+	provider, err := s.buildProvider(ctx, row.ProviderID)
 	if err != nil {
 		return err
+	}
+	ctrl, ok := provider.(upstream.InstanceControl)
+	if !ok {
+		return ErrCapabilityUnsupported
 	}
 	inst, err := ctrl.GetInstance(ctx, row.InstanceID)
 	if err != nil {
@@ -2725,13 +2920,244 @@ func (s *instanceService) refreshUpstreamExpecting(ctx context.Context, row *rep
 	status := string(inst.Status)
 	// 终态不复活：本地已判销毁的实例，上游软删未清时仍会返回 running/active，
 	// 照抄会把列表里已销毁的机器显示成"运行中"。终态由本系统认定，回源只刷新其余字段。
-	if row.LifecycleStage == lifecycleStageDestroyed {
+	switch {
+	case row.LifecycleStage == lifecycleStageDestroyed:
 		status = row.Status
-	} else if staleStatus != "" && status == staleStatus {
+	case !upstream.SupportsPowerStateReporting(provider):
+		// **上游不报电源状态**（实测：魔方财务只有 domainstatus=Active 这类服务状态，
+		// 没有机器电源字段）。此时回源值不能用来改写本地 status —— 它答的不是
+		// "机器开着吗"，照抄会把「已关机」冲成「运行中」，运营点完关机一同步
+		// 就变回来（用户反馈"状态混乱"的另一根因）。
+		//
+		// 保留本地现值（那是我们下发电源指令后唯一可靠的知识），只刷新 IP / 规格 / 原始数据。
+		// 代价：客户在上游面板自己关机时本地看不出来 —— 这在财务型链路上无法避免
+		//（上游没给这个信息），需要时由运营用「同步上游」看原始数据判断。
+		status = ""
+	case staleStatus != "" && status == staleStatus:
 		// 上游还没转到新状态：保留本地刚写入的前瞻值，仅刷新 IP / 原始数据。
 		status = ""
 	}
-	return s.repo.ApplySync(ctx, row.ID, status, inst.PublicIP, inst.PrivateIP, raw, time.Now())
+	if err := s.repo.ApplySync(ctx, row.ID, status, inst.PublicIP, inst.PrivateIP, raw, time.Now()); err != nil {
+		return err
+	}
+	// 过渡态收尾：
+	//   · 报电源状态的平台：只有上游确实给出新状态（status 非空）才算执行完；
+	//     仍是旧值说明还在跑，保留过渡态让界面继续显示「重启中」。
+	//   · 不报电源状态的平台：status 被我们置空（无从核对），但指令已受理 ——
+	//     可以收尾，界面回到本地已知状态，而不是永远停在「重启中」。
+	//
+	// 但两者都受**最短占用窗口**约束（MinHoldSec）：重启是 运行中→运行中 的转场，
+	// 上游"确认"了也看不出变化；若一确认就放行，用户几秒后再点一次同样会堆指令
+	//（用户实测反馈"多次重启累积"）。窗口未满时保留过渡态，让拦截持续到动作
+	// 确实已经跑起来为止。
+	if transition != "" && (status != "" || !upstream.SupportsPowerStateReporting(provider)) {
+		if !transitionWithinMinHold(transition, claimedAt) {
+			_ = s.repo.ClearTransition(ctx, row.ID)
+		}
+	}
+	return nil
+}
+
+// transitionWithinMinHold 判断过渡态是否仍在自己动作的最短占用窗口内。
+//
+// true = 还在窗口内，调用方应保留过渡态（不放行重复指令）。
+// startedAt 为零值（未记录起点）时返回 false —— 没有起点就无从计算，
+// 按"可以收尾"处理，避免把历史行永久锁住。
+func transitionWithinMinHold(state string, startedAt time.Time) bool {
+	if startedAt.IsZero() {
+		return false
+	}
+	spec := pkgmodel.InstanceTransitionOf(state)
+	if spec.MinHoldSec <= 0 {
+		return false
+	}
+	return time.Since(startedAt) < time.Duration(spec.MinHoldSec)*time.Second
+}
+
+// derefTime 解引用可选时间（nil → 零值），供"没有起点就不计入窗口"的判断使用。
+func derefTime(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
+}
+
+// transitionOfPowerAction 电源动作 → 过渡态值（迁移 112）。
+//
+// 硬关与普通关机归到同一个过渡态：界面文案都是"关机中"，
+// 区分硬/软对"正在执行"这件事没有意义（区别只在指令语义）。
+func transitionOfPowerAction(normalized string) string {
+	switch normalized {
+	case "on":
+		return pkgmodel.InstanceTransitionStarting
+	case "off", "hard_off":
+		return pkgmodel.InstanceTransitionStopping
+	case "reboot", "hard_reboot":
+		return pkgmodel.InstanceTransitionRebooting
+	default:
+		return ""
+	}
+}
+
+// claimTransition **原子抢占**过渡态（迁移 112）。
+//
+// 返回 claimed=true 表示抢到了这个动作的执行权，调用方应下发上游指令；
+// claimed=false 表示已有生效中的动作，必须拒绝本次请求。
+// claimedAt/until 是本次占位的起止时间，调用方据此判断"最短占用窗口"
+// 是否已过（不能读 row —— 那是抢占前的快照，时间列还是旧值）。
+//
+// 为什么必须抢占：上游下发是异步的，界面 loading 只覆盖接口往返那几秒，
+// 真正的执行窗口有几分钟。用户连点两下时，若采用"先查后写"，两个并发请求
+// 会双双通过检查、双双下发 —— 上游堆两条同样指令（实测复现：连点两次开机
+// 两条都成功）。把判定与写入压进同一条 UPDATE 的 WHERE，由数据库行锁保证
+// 只有一个请求赢，这是跨会话、跨页面唯一可靠的闸门。
+func (s *instanceService) claimTransition(ctx context.Context, id uint64, state string) (bool, time.Time, time.Time, error) {
+	if state == "" {
+		return true, time.Time{}, time.Time{}, nil
+	}
+	spec := pkgmodel.InstanceTransitionOf(state)
+	now := time.Now()
+	until := now.Add(time.Duration(spec.TerminalTimeoutSec) * time.Second)
+	claimed, err := s.repo.ClaimTransition(ctx, id, state, now, until)
+	return claimed, now, until, err
+}
+
+// releaseTransition 下发失败时回滚自己抢到的过渡态（仅当仍属于自己）。
+func (s *instanceService) releaseTransition(ctx context.Context, id uint64, state string) {
+	if state == "" {
+		return
+	}
+	_ = s.repo.ClearTransitionIfOwner(ctx, id, state)
+}
+
+// ensureNoActiveTransition 过渡态闸门：有未确认的动作时拒绝新指令。
+//
+// 两个例外必须放行，否则一次异常会把实例永久锁死：
+//   - 已超时（超过该动作的典型耗时上限）：视为结果未知，放行但由界面提示；
+//   - 生命周期推进器的处置动作（暂停/销毁）：那是系统按账期自动做的，
+//     不能因为一个没回执的电源动作就一直延后。
+//
+// 但"手动重复点同一个按钮"必须拦住 —— 那正是用户反馈的问题（多次重启叠加）。
+//
+// 注意这只是**快速失败的友好提示**（能带上"从几点开始"的上下文），
+// 真正的互斥由 claimTransition 的原子抢占保证 —— 两者之间的窗口正是
+// 连点两次能得手的原因，单靠本函数不够。
+func (s *instanceService) ensureNoActiveTransition(row *repository.InstanceRow, logAction string) error {
+	if row == nil || row.TransitionState == "" {
+		return nil
+	}
+	// 超时判定：窗口过后不再拦截（结果未知，交给界面提示与回源纠正）。
+	if row.TransitionUntil != nil && time.Now().After(*row.TransitionUntil) {
+		return nil
+	}
+	return transitionBusyError(row.TransitionState, row.TransitionStartedAt)
+}
+
+// transitionConflict 抢占失败时的拒绝错误：为提示语带上"谁在占用"的上下文。
+//
+// 读一次最新行拿占用者与开始时间（读失败则用调用方给的 state 兜底）——
+// 这样用户看到的仍是「实例正在关机中（14:07:33 开始）」，而不是一句泛泛的"忙"。
+func (s *instanceService) transitionConflict(ctx context.Context, row *repository.InstanceRow) error {
+	if row == nil {
+		return fmt.Errorf("%w：实例上有正在执行的操作，请稍后重试", ErrStatusConflict)
+	}
+	if fresh, err := s.repo.FindByID(ctx, row.ID); err == nil && fresh != nil && fresh.TransitionState != "" {
+		return transitionBusyError(fresh.TransitionState, fresh.TransitionStartedAt)
+	}
+	if row.TransitionState != "" {
+		return transitionBusyError(row.TransitionState, row.TransitionStartedAt)
+	}
+	return fmt.Errorf("%w：实例上有正在执行的操作，请稍后重试", ErrStatusConflict)
+}
+
+// transitionBusyError 过渡态占用时的拒绝提示（与 ensureNoActiveTransition 同一措辞）。
+func transitionBusyError(state string, startedAt *time.Time) error {
+	spec := pkgmodel.InstanceTransitionOf(state)
+	since := ""
+	if startedAt != nil {
+		since = fmt.Sprintf("（%s 开始）", startedAt.Format("15:04:05"))
+	}
+	return fmt.Errorf("%w：实例正在%s%s，请等待完成后再操作；若长时间无变化可点「同步上游」确认",
+		ErrStatusConflict, spec.Label, since)
+}
+
+// powerStateOf 计算**机器电源维度**（与账期无关）。
+//
+// 这是本轮修复的核心：此前前端只拿 status 判状态，而上游把 suspended（到期暂停）
+// 也映射成本地 stopped，手动关机同样是 stopped —— 两者无法区分，于是关机被显示成
+// 「已暂停」。电源维度只回答"机器通没通电"，是否到期/是否被停服务见 serviceStateOf。
+//
+//   - 有进行中的电源类动作 → transitioning（界面显示"重启中"等）
+//   - running → on；stopped → off
+//   - 创建中/删除中/已销毁 → unknown（机器还没起来或已不存在，谈"开机"没意义）
+func powerStateOf(status, transition string) string {
+	if transition != "" {
+		if spec := pkgmodel.InstanceTransitionOf(transition); spec.PowerHint != "" {
+			return "transitioning"
+		}
+	}
+	switch status {
+	case string(pkgmodel.InstanceStatusRunning):
+		return "on"
+	case string(pkgmodel.InstanceStatusStopped):
+		return "off"
+	default:
+		return "unknown"
+	}
+}
+
+// serviceStateOf 计算**账期/服务维度**（与电源无关）。
+//
+// 优先级：终态 > 我方暂停 > 到期时间派生。
+// 判据刻意不看 status：一台关机但未到期的实例，服务维度仍是 active ——
+// 服务在有效期内，只是机器没开（这两件事分开正是本轮的目的）。
+//
+// 到期时间派生（与旧的 expire_state 同口径，保留以兼容存量消费方）：
+//
+//	now < expire_at 且距到期 > withinDays → active
+//	now < expire_at 且距到期 <= withinDays → expiring
+//	now >= expire_at                       → expired（宽限期内阶段为 grace 时归 grace）
+func serviceStateOf(expireAt *time.Time, stage string, withinDays int) string {
+	switch stage {
+	case lifecycleStageDestroyed:
+		return "destroyed"
+	case lifecycleStageSuspended:
+		return "suspended"
+	}
+	if expireAt == nil {
+		return "active"
+	}
+	now := time.Now()
+	if expireAt.After(now) {
+		if !expireAt.After(now.AddDate(0, 0, normalizeDays(withinDays))) {
+			return "expiring"
+		}
+		return "active"
+	}
+	// 已过期：宽限期内给更贴切的 stage 文案（仍可服务，但已进入处置流程）。
+	if stage == "grace" {
+		return "grace"
+	}
+	return "expired"
+}
+
+// transitionInfoOf 组装过渡态下发结构；无过渡态返回 nil。
+func transitionInfoOf(state string, startedAt, until *time.Time) *dto.TransitionInfo {
+	if strings.TrimSpace(state) == "" {
+		return nil
+	}
+	spec := pkgmodel.InstanceTransitionOf(state)
+	info := &dto.TransitionInfo{
+		State:     state,
+		Label:     spec.Label,
+		Verb:      spec.Verb,
+		StartedAt: fmtTimePtr(startedAt),
+		ExpiresAt: fmtTimePtr(until),
+	}
+	if until != nil && time.Now().After(*until) {
+		info.Overdue = true
+	}
+	return info
 }
 
 // normalizeAction 归一化电源动作并返回流水动作名。

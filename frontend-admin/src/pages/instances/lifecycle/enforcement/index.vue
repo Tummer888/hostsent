@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <VerifyIcon size="22" aria-hidden="true" />
+          <VerifyIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">到期处置</h2>
@@ -22,28 +22,28 @@
 
     <section class="stat-grid">
       <div class="stat-card stat-card--info">
-        <span class="stat-card__icon"><TimeIcon size="22" aria-hidden="true" /></span>
+        <span class="stat-card__icon"><TimeIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">{{ preview?.total ?? 0 }}</span>
           <span class="stat-card__label">待处置实例</span>
         </div>
       </div>
       <div class="stat-card stat-card--warning">
-        <span class="stat-card__icon"><PoweroffIcon size="22" aria-hidden="true" /></span>
+        <span class="stat-card__icon"><PoweroffIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">{{ preview?.stage_counts?.suspended ?? 0 }}</span>
           <span class="stat-card__label">将暂停</span>
         </div>
       </div>
       <div class="stat-card stat-card--danger">
-        <span class="stat-card__icon"><DeleteIcon size="22" aria-hidden="true" /></span>
+        <span class="stat-card__icon"><DeleteIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">{{ preview?.stage_counts?.destroyed ?? 0 }}</span>
           <span class="stat-card__label">将销毁</span>
         </div>
       </div>
       <div class="stat-card stat-card--success">
-        <span class="stat-card__icon"><CheckCircleIcon size="22" aria-hidden="true" /></span>
+        <span class="stat-card__icon"><CheckCircleIcon size="20" aria-hidden="true" /></span>
         <div class="stat-card__info">
           <span class="stat-card__value">{{ preview?.stage_counts?.active ?? 0 }}</span>
           <span class="stat-card__label">将恢复服务</span>

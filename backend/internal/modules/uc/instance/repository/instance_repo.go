@@ -41,6 +41,18 @@ type InstanceRepository interface {
 	// UpdateStatus 落库实例服务状态（电源操作下发成功后即时反映到界面）。
 	// 只写 status 一列：这是用户中心对实例的唯一写入点，其余字段归同步/开通链路。
 	UpdateStatus(ctx context.Context, id uint64, status string) error
+
+	// ---- 过渡态（迁移 112，与运维台共用同一组 instances 列）----
+	//
+	// 客户侧的电源/维护操作走的是同一张表、同一批上游接口，因此必须在同一处
+	// 互斥：客户连点两下、或客户点完运营又点，都只能有一个指令真正下发。
+	//
+	// ClaimTransition 原子抢占：仅当没有生效中的过渡态时写入并返回 true。
+	// 判定与写入压在同一条 UPDATE 的 WHERE 里，由数据库保证并发下只有一个赢。
+	ClaimTransition(ctx context.Context, id uint64, state string, startedAt, until time.Time) (bool, error)
+	// ClearTransitionIfOwner 仅当过渡态仍等于 state 时清除（下发失败回滚用），
+	// 避免慢请求的失败回滚误清掉后来者已抢占的占位。
+	ClearTransitionIfOwner(ctx context.Context, id uint64, state string) error
 }
 
 type instanceRepository struct {
@@ -122,6 +134,37 @@ func (r *instanceRepository) Operations(ctx context.Context, instanceID uint64, 
 		return nil, err
 	}
 	return rows, nil
+}
+
+// ClaimTransition 原子抢占过渡态：仅当没有"生效中"的过渡态时写入。
+//
+// WHERE 的两个条件对应两类可抢占情形：本来空闲（NULL/空串），或上一个动作的
+// 窗口已过（结果未知，不该永久锁死实例）。条件与赋值在同一条 UPDATE 里，
+// 由数据库行锁保证互斥 —— 这是客户侧"连点两次都下发"的直接修法。
+func (r *instanceRepository) ClaimTransition(ctx context.Context, id uint64, state string, startedAt, until time.Time) (bool, error) {
+	res := r.db.WithContext(ctx).Model(&model.Instance{}).
+		Where("id = ? AND (transition_state IS NULL OR transition_state = '' OR transition_until IS NULL OR transition_until < ?)",
+			id, startedAt).
+		Updates(map[string]any{
+			"transition_state":      state,
+			"transition_started_at": startedAt,
+			"transition_until":      until,
+		})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
+}
+
+// ClearTransitionIfOwner 仅当过渡态仍等于 state 时清除（下发失败的回滚）。
+func (r *instanceRepository) ClearTransitionIfOwner(ctx context.Context, id uint64, state string) error {
+	return r.db.WithContext(ctx).Model(&model.Instance{}).
+		Where("id = ? AND transition_state = ?", id, state).
+		Updates(map[string]any{
+			"transition_state":      nil,
+			"transition_started_at": nil,
+			"transition_until":      nil,
+		}).Error
 }
 
 // UpdateStatus 落库实例服务状态。

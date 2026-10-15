@@ -44,8 +44,11 @@ func pendingInstanceMark(orderNo string) string {
 type instancePlaceholderPorts struct {
 	// provisionProviderID 该订单会开通到的提供商 ID（0 表示不是可开通机器，不建占位）。
 	provisionProviderID func(ctx context.Context, order *ordermodel.Order) uint64
-	// productLink 商品的链路语义：source_mode 与上游资源商品镜像 ID。
-	productLink func(ctx context.Context, productID uint64) (sourceMode string, sourceProductID uint64)
+	// productLink 商品的链路语义：source_mode、上游资源商品镜像 ID 与产品类型。
+	//
+	// productKind 一并带出：占位行就是这台机器将来的那一行（转正是就地更新），
+	// 类型只能在这里写一次 —— 转正路径不重新读商品，漏了就只能等回填兜底。
+	productLink func(ctx context.Context, productID uint64) (sourceMode string, sourceProductID uint64, productKind string)
 	// create 落库占位行（幂等）。
 	create func(ctx context.Context, row *syncmodel.Instance) error
 }
@@ -61,12 +64,12 @@ func (a *asm) instancePlaceholderHook() func(ctx context.Context, order *ordermo
 			}
 			return preq.ProviderID
 		},
-		productLink: func(ctx context.Context, productID uint64) (string, uint64) {
+		productLink: func(ctx context.Context, productID uint64) (string, uint64, string) {
 			product, err := a.prodCatalogService.FindByID(ctx, productID)
 			if err != nil || product == nil {
-				return "", 0
+				return "", 0, ""
 			}
-			return product.SourceMode, product.SourceProductID
+			return product.SourceMode, product.SourceProductID, product.ProductType
 		},
 		create: a.syncRepo.CreatePendingInstance,
 	}, a.logger)
@@ -92,13 +95,18 @@ func buildInstancePlaceholder(ports instancePlaceholderPorts, logger *zap.Logger
 			return nil
 		}
 		sourceMode := catalogmodel.SourceModeSelf
+		// 产品类型：决定这台机器将来落在实例导航的哪个产品线下。
+		// 商品没登记类型时归一为 other —— 与列表筛选口径一致，保证实例不会"哪个标签都找不到"。
+		productKind := pkgmodel.ProductKindOther
 		var upstreamProductID uint64
 		if ports.productLink != nil {
-			if mode, resourceID := ports.productLink(ctx, order.ProductID); mode != "" || resourceID != 0 {
-				if mode != "" {
-					sourceMode = mode
-				}
-				upstreamProductID = resourceID
+			mode, resourceID, kind := ports.productLink(ctx, order.ProductID)
+			if mode != "" {
+				sourceMode = mode
+			}
+			upstreamProductID = resourceID
+			if kind != "" {
+				productKind = pkgmodel.NormalizeProductKind(kind)
 			}
 		}
 		row := syncmodel.Instance{
@@ -116,6 +124,7 @@ func buildInstancePlaceholder(ports instancePlaceholderPorts, logger *zap.Logger
 			SellProductID:      order.ProductID,
 			UpstreamProductID:  upstreamProductID,
 			ProviderInstanceID: "", // 空 = 尚未在上游开通（转正判据）
+			InstanceType:       productKind,
 			// 续费价绑定随即落占位行：开通失败重试/占位转正都复用这一行，
 			// 在这里写入即可保证"下单时谈定的续费价"不因链路中断而丢失。
 			RenewalPrice: orderRenewalPrice(order),

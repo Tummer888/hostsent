@@ -18,6 +18,16 @@ export interface InstanceCapabilities {
   metrics: boolean
 }
 
+/** 平台正在执行的动作（迁移 112）；overdue=超过预计耗时仍未确认。 */
+export interface InstanceTransition {
+  state: string
+  label: string
+  verb: string
+  started_at?: string
+  expires_at?: string
+  overdue?: boolean
+}
+
 export interface InstanceInfo {
   id: number
   instance_id: string
@@ -25,6 +35,19 @@ export interface InstanceInfo {
   name: string
   status: string // running / stopped / creating / ...
   power_status: string // on / off / unknown
+  /**
+   * 机器电源维度（on/off/transitioning/unknown）—— 与账期无关。
+   * 用它而不是 status：上游把 suspended 也映射成 stopped，只看 status 分不清
+   * "我关的机"和"到期被停服务"。
+   */
+  power_state?: string
+  /** 账期/服务维度（active/expiring/expired/grace/suspended/destroyed）—— 与电源无关。 */
+  service_state?: string
+  /**
+   * 平台正在执行的动作（迁移 112）：非空表示上一个操作还没确认。
+   * 客户侧据此禁用电源按钮并显示「重启中」，避免重复提交。
+   */
+  transition?: InstanceTransition | null
   os: string
   cpu: number
   memory: number

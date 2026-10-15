@@ -3,7 +3,7 @@
     <header class="page-header surface-card">
       <div class="page-header__main">
         <span class="page-header__chip">
-          <ServerIcon size="22" aria-hidden="true" />
+          <ServerIcon size="20" aria-hidden="true" />
         </span>
         <div class="page-header__text">
           <h2 class="page-header__title">实例运维台</h2>
@@ -23,7 +23,7 @@
     <section class="stat-grid">
       <div v-for="stat in metricCards" :key="stat.key" class="stat-card" :class="`stat-card--${stat.variant}`">
         <span class="stat-card__icon">
-          <component :is="stat.icon" size="22" aria-hidden="true" />
+          <component :is="stat.icon" size="20" aria-hidden="true" />
         </span>
         <div class="stat-card__info">
           <span class="stat-card__value">{{ stat.value }}</span>
@@ -31,6 +31,59 @@
         </div>
       </div>
     </section>
+
+    <!--
+      产品线导航：实例按产品类型分组的快速筛选入口。
+      为什么放在筛选卡之上、而不是塞进筛选卡的下拉里：运营进这一页最常见的第一个动作就是
+      "看某一类产品"，常驻标签（带各类型台数）比展开下拉再选更快；后续接入 CDN / 物理机等
+      新产品线时，这里会自动多出标签，无需改菜单结构。
+    -->
+    <nav class="kind-nav surface-card" aria-label="产品线筛选">
+      <button
+        type="button"
+        class="kind-nav__item"
+        :class="{ 'kind-nav__item--active': !filters.instance_type }"
+        @click="selectKind('')"
+      >
+        全部实例
+        <span class="kind-nav__count">{{ kindSummary.total }}</span>
+      </button>
+      <button
+        v-for="kind in visibleKinds"
+        :key="kind.value"
+        type="button"
+        class="kind-nav__item"
+        :class="{ 'kind-nav__item--active': filters.instance_type === kind.value }"
+        @click="selectKind(kind.value)"
+      >
+        {{ kind.label }}
+        <span class="kind-nav__count">{{ kind.count }}</span>
+      </button>
+      <!--
+        预埋产品线（登记在册但当前 0 台）默认收起：一排恒为 0 的标签会稀释真正有数据的项。
+        需要确认"某条产品线是否已接入"时展开看一眼即可。
+      -->
+      <t-link
+        v-if="reservedKinds.length"
+        theme="default"
+        hover="color"
+        class="kind-nav__toggle"
+        @click="showReservedKinds = !showReservedKinds"
+      >
+        {{ showReservedKinds ? '收起预埋类型' : `预埋类型 ${reservedKinds.length} 项` }}
+      </t-link>
+      <template v-if="showReservedKinds">
+        <span
+          v-for="kind in reservedKinds"
+          :key="kind.value"
+          class="kind-nav__item kind-nav__item--reserved"
+          :title="`${kind.label}：已登记类型，当前没有实例（新开通该类型商品后自动出现在这里）`"
+        >
+          {{ kind.label }}
+          <span class="kind-nav__count">0</span>
+        </span>
+      </template>
+    </nav>
 
     <FilterCard>
       <div class="field">
@@ -87,7 +140,6 @@
 
     <section class="table-card surface-card">
       <div class="table-card__head">
-        <h3 class="card-title">实例列表</h3>
         <t-space size="small" align="center">
           <!-- 批量运维（doc61 P1）：勾选后出现动作条，逐台结果在弹窗里回显 -->
           <template v-if="selectedIds.length">
@@ -159,6 +211,19 @@
           </div>
         </template>
 
+        <template #instance_type="{ row }">
+          <!-- 产品类型标签：非云主机（CDN/物理机等）用强调色，云主机保持中性 —— -->
+          <!-- 一眼能在一屏里挑出"不是常规云主机"的那些行。 -->
+          <t-tag
+            size="small"
+            variant="light"
+            shape="round"
+            :theme="row.instance_type && row.instance_type !== 'cloud_host' ? 'warning' : 'default'"
+          >
+            {{ productKindLabel(row.instance_type) }}
+          </t-tag>
+        </template>
+
         <template #spec="{ row }">
           <div>
             <span class="cell-strong">{{ row.cpu }} 核 / {{ formatMemory(row.memory) }} / {{ row.disk }} GB</span>
@@ -190,11 +255,33 @@
 
         <template #status="{ row }">
           <div>
-            <t-tag :theme="combineInstanceState(row).theme" variant="light" size="small" shape="round">
-              {{ combineInstanceState(row).label }}
+            <!--
+              状态徽标 = 电源维度结论（含过渡中）；下方小字给账期维度。
+              两个维度分开写，避免"关机"被误标成"已暂停"（本轮修复的核心）。
+            -->
+            <t-tag
+              :theme="powerStateView(row).theme"
+              variant="light"
+              size="small"
+              shape="round"
+              :class="{ 'state-spinning': powerStateView(row).spinning }"
+            >
+              <LoadingIcon v-if="powerStateView(row).spinning" size="13" class="state-spin-icon" />
+              {{ powerStateView(row).label }}
             </t-tag>
-            <div class="cell-sub" :class="expireClass(row)">{{ expireText(row) }}</div>
-            <div v-if="combineInstanceState(row).detail" class="cell-sub">{{ combineInstanceState(row).detail }}</div>
+            <div
+              class="cell-sub"
+              :class="
+                serviceStateView(row).theme === 'danger'
+                  ? 'expire-danger'
+                  : serviceStateView(row).theme === 'warning'
+                    ? 'expire-warning'
+                    : ''
+              "
+            >
+              {{ serviceStateView(row).label }} · {{ expireText(row) }}
+            </div>
+            <div v-if="powerStateView(row).detail" class="cell-sub">{{ powerStateView(row).detail }}</div>
           </div>
         </template>
 
@@ -575,6 +662,7 @@ import { useRouter } from 'vue-router'
 import {
   CheckCircleIcon,
   ErrorCircleIcon,
+  LoadingIcon,
   RefreshIcon,
   SearchIcon,
   ServerIcon,
@@ -586,6 +674,7 @@ import { DialogPlugin, MessagePlugin, type PageInfo, type PrimaryTableCol } from
 import {
   getInstanceList,
   getInstanceStats,
+  getInstanceTypes,
   getInstanceVNC,
   batchDestroyInstances,
   batchInstanceAction,
@@ -605,6 +694,9 @@ import {
   instanceStatusOptions,
   powerActionLabel,
   powerActionTips,
+  powerStateView,
+  productKindLabel,
+  serviceStateView,
 } from '@/pages/instances/constants'
 import { sourceModeOptions } from '@/pages/product/constants'
 import type {
@@ -613,6 +705,7 @@ import type {
   InstanceBatchDestroyResponse,
   InstanceItem,
   InstanceStatsResponse,
+  InstanceTypeSummary,
 } from '@/types/interface'
 import MobileAction from '@/components/mobile-action/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
@@ -661,6 +754,7 @@ const filters = reactive<{
   provider_id: string | undefined
   status: string | undefined
   source_mode: string | undefined
+  instance_type: string | undefined
   expire_state: string
   expire_within_days: number
 }>({
@@ -670,9 +764,30 @@ const filters = reactive<{
   provider_id: undefined,
   status: undefined,
   source_mode: undefined,
+  instance_type: undefined,
   expire_state: 'all',
   expire_within_days: 7,
 })
+
+// —— 产品线导航 ——
+// 类型清单与计数来自后端一次 GROUP BY（/instances/types）：与列表同口径，
+// 不会出现"标签显示 3 条、点进去 2 条"。类型本身登记在后端（pkg/model/product_kind.go），
+// 将来加产品线只改后端登记表，这里自动多出标签。
+const kindSummary = reactive<InstanceTypeSummary>({ types: [], total: 0 })
+const showReservedKinds = ref(false)
+
+/** 有实例的类型：常驻显示（含「其它」这类兜底档，只要它有数据）。 */
+const visibleKinds = computed(() => kindSummary.types.filter((k) => k.count > 0))
+/** 预埋类型（0 台）：默认收起，展开可确认某条产品线是否已登记。 */
+const reservedKinds = computed(() => kindSummary.types.filter((k) => k.count === 0))
+
+/** 点产品线标签：切换筛选并回到第一页（换了分类再看第 3 页没有意义）。 */
+function selectKind(value: string) {
+  filters.instance_type = value || undefined
+  pagination.current = 1
+  mobilePage.current = 1
+  loadInstances()
+}
 
 const pagination = reactive({
   current: 1,
@@ -692,6 +807,9 @@ const columns = computed<PrimaryTableCol<InstanceItem>[]>(() => {
   const base: PrimaryTableCol<InstanceItem>[] = [
     { colKey: 'name', title: '实例', minWidth: 200 },
     { colKey: 'user', title: '归属用户', minWidth: 170 },
+    // 产品类型列：与顶部产品线导航同一判据。它同时是"这台机器属于哪条产品线"的
+    // 权威展示 —— 上游同步发现的实例没有本地商品，只有这一列能说明它是什么。
+    { colKey: 'instance_type', title: '产品类型', width: 110 },
     { colKey: 'spec', title: '规格', minWidth: 190 },
     { colKey: 'public_ip', title: '公网 IP', width: 140 },
     { colKey: 'provider_name', title: '服务商', minWidth: 130 },
@@ -754,6 +872,7 @@ async function loadInstances() {
       provider_id: filters.provider_id ? Number(filters.provider_id) : undefined,
       status: filters.status,
       source_mode: filters.source_mode,
+      instance_type: filters.instance_type,
       expire_state: filters.expire_state,
       expire_within_days: filters.expire_state === 'expiring' ? filters.expire_within_days : undefined,
       page: pagination.current,
@@ -779,9 +898,22 @@ async function loadStats() {
   }
 }
 
+// loadTypes 拉产品线导航数据（类型清单 + 各自台数）。
+// 与列表/统计并列加载：三类数据各自独立失败，导航拿不到时列表仍可用（只是少了标签）。
+async function loadTypes() {
+  try {
+    const data = await getInstanceTypes()
+    kindSummary.types = data.types || []
+    kindSummary.total = data.total || 0
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '加载产品类型失败')
+  }
+}
+
 function loadAll() {
   loadInstances()
   loadStats()
+  loadTypes()
 }
 
 function handlePageChange(pageInfo: PageInfo) {
@@ -825,6 +957,8 @@ function handleResetFilters() {
   filters.provider_id = undefined
   filters.status = undefined
   filters.source_mode = undefined
+  // 产品线也算筛选条件：重置要一并回到「全部实例」，否则用户会以为筛选坏了。
+  filters.instance_type = undefined
   filters.expire_state = 'all'
   filters.expire_within_days = 7
   pagination.current = 1

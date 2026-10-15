@@ -20,6 +20,11 @@ type fakeRepo struct {
 	// statusWrites 记录 UpdateStatus 调用（顺序即调用顺序）。
 	statusWrites []statusWrite
 	updateErr    error
+	// ---- 过渡态（迁移 112）用例用 ----
+	claims         []string // 抢占记录（顺序即调用顺序）
+	releases       []string // 回滚记录
+	claimErr       error    // 非 nil 时 ClaimTransition 报错
+	transitionHeld bool     // true 时抢不到（模拟另一个请求已占用）
 }
 
 // statusWrite 一次状态写入（供断言）。
@@ -56,6 +61,39 @@ func (f *fakeRepo) UpdateStatus(_ context.Context, id uint64, status string) err
 		}
 	}
 	return f.updateErr
+}
+
+// ClaimTransition 抢占过渡态（测试替身）：记录调用并永远成功，
+// 除非用例显式把 transitionHeld 置上（模拟"另一个请求已抢占"）。
+func (f *fakeRepo) ClaimTransition(_ context.Context, id uint64, state string, startedAt, until time.Time) (bool, error) {
+	if f.claimErr != nil {
+		return false, f.claimErr
+	}
+	if f.transitionHeld {
+		return false, nil
+	}
+	for i := range f.items {
+		if f.items[i].ID == id {
+			f.items[i].TransitionState = state
+			f.items[i].TransitionStartedAt = &startedAt
+			f.items[i].TransitionUntil = &until
+		}
+	}
+	f.claims = append(f.claims, state)
+	return true, nil
+}
+
+// ClearTransitionIfOwner 仅当过渡态仍等于 state 时清除（测试替身）。
+func (f *fakeRepo) ClearTransitionIfOwner(_ context.Context, id uint64, state string) error {
+	for i := range f.items {
+		if f.items[i].ID == id && f.items[i].TransitionState == state {
+			f.items[i].TransitionState = ""
+			f.items[i].TransitionStartedAt = nil
+			f.items[i].TransitionUntil = nil
+		}
+	}
+	f.releases = append(f.releases, state)
+	return nil
 }
 
 // fakeMetricsProvider 只实现 InstanceMetrics：验证监控链路不依赖其它能力。

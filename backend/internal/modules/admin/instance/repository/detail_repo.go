@@ -48,8 +48,11 @@ type InstanceDetailRepository interface {
 	// 对接取其上游镜像（resource_products.raw_specs）的 os 配置子项。
 	ReinstallOSOptions(ctx context.Context, productID uint64) ([]dto.ReinstallImage, bool, error)
 	// RebindCandidates 读更换对接商品的候选项（本地商品 + 同渠道上游镜像）。
+	//
+	// resale=false（自营链路）时不返回上游镜像候选：自营实例不对接上游镜像商品，
+	// 列出来只会让运营误以为"这里也能换"（用户实测反馈）。本地商品候选照给。
 	// providerID 用于把上游镜像候选限定在本实例渠道内 —— 跨渠道换绑后端必拒。
-	RebindCandidates(ctx context.Context, providerID uint64) (*dto.RebindProductCandidates, error)
+	RebindCandidates(ctx context.Context, providerID uint64, resale bool) (*dto.RebindProductCandidates, error)
 }
 
 // ProductCyclePrice 商品某周期的售价与成本（product_prices 一行）。
@@ -354,7 +357,7 @@ func (r *instanceDetailRepository) osImagesFromProductOptions(ctx context.Contex
 // 本地商品：全部未删除商品（跨链路也能换，但前端会按渠道/链路给出提示）；
 // 上游镜像：**仅本实例同渠道**的 resource_products —— 跨渠道换绑会被服务层拒绝
 // （价格与配置口径会错位），所以这里干脆不列出来，运营不会选到必失败的项。
-func (r *instanceDetailRepository) RebindCandidates(ctx context.Context, providerID uint64) (*dto.RebindProductCandidates, error) {
+func (r *instanceDetailRepository) RebindCandidates(ctx context.Context, providerID uint64, resale bool) (*dto.RebindProductCandidates, error) {
 	out := &dto.RebindProductCandidates{
 		SellProducts:     []dto.RebindProductCandidate{},
 		UpstreamProducts: []dto.RebindProductCandidate{},
@@ -417,7 +420,11 @@ func (r *instanceDetailRepository) RebindCandidates(ctx context.Context, provide
 		}
 	}
 
-	// 上游镜像候选：仅同渠道。
+	// 上游镜像候选：仅同渠道，且仅对接链路。
+	if !resale {
+		out.Hint = "该实例为自营链路（机器由本平台开通），不存在对接的上游镜像；这里只列出可更换的本地售出商品。"
+		return out, nil
+	}
 	if providerID != 0 {
 		var upRows []struct {
 			ID         uint64

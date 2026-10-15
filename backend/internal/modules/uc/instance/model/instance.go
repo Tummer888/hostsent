@@ -35,10 +35,22 @@ type Instance struct {
 	// LifecycleStage 生命周期阶段（active/grace/suspended/destroyed）：与服务状态
 	// status 是两个维度——到期停机会把阶段推进到 suspended，status 同时被置 stopped；
 	// 前端要把「到期暂停」与「用户自己关机」区分开，必须两个字段一起看。
-	LifecycleStage string     `gorm:"column:lifecycle_stage;size:20" json:"lifecycle_stage"`
-	CreatedAt      time.Time  `gorm:"autoCreateTime" json:"created_at"`
-	ExpireAt       *time.Time `gorm:"column:expire_at" json:"expire_at"`
-	UpdatedAt      time.Time  `gorm:"autoUpdateTime" json:"updated_at"`
+	LifecycleStage string `gorm:"column:lifecycle_stage;size:20" json:"lifecycle_stage"`
+	// ---- 过渡态（迁移 112，与运维台共用同一组列）----
+	//
+	// 上游指令是异步的：接口回"已受理"后机器还要执行几十秒到几分钟。这段窗口里
+	// status 不会变，客户看不到任何反馈就会反复点同一个按钮（用户实测反馈：
+	// "连续点两次重启/开机，任务累积"）。运维台已用这三列做拦截与动画，
+	// 用户中心此前完全没有 —— 客户侧的重复提交无任何防护。
+	//
+	// TransitionState 进行中的动作（starting/stopping/rebooting/...）；
+	// TransitionUntil 该动作的典型耗时上限，超时视为"结果未知"并放行重试。
+	TransitionState     string     `gorm:"column:transition_state;size:24" json:"transition_state"`
+	TransitionStartedAt *time.Time `gorm:"column:transition_started_at" json:"transition_started_at"`
+	TransitionUntil     *time.Time `gorm:"column:transition_until" json:"transition_until"`
+	CreatedAt           time.Time  `gorm:"autoCreateTime" json:"created_at"`
+	ExpireAt            *time.Time `gorm:"column:expire_at" json:"expire_at"`
+	UpdatedAt           time.Time  `gorm:"autoUpdateTime" json:"updated_at"`
 }
 
 // TableName 指定表名。

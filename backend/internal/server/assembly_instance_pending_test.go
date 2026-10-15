@@ -31,8 +31,8 @@ func TestBuildInstancePlaceholder(t *testing.T) {
 		var got []syncmodel.Instance
 		hook := buildInstancePlaceholder(instancePlaceholderPorts{
 			provisionProviderID: func(context.Context, *ordermodel.Order) uint64 { return 7 },
-			productLink: func(context.Context, uint64) (string, uint64) {
-				return "upstream", 120
+			productLink: func(context.Context, uint64) (string, uint64, string) {
+				return "upstream", 120, "cloud_host"
 			},
 			create: func(_ context.Context, row *syncmodel.Instance) error {
 				got = append(got, *row)
@@ -60,11 +60,42 @@ func TestBuildInstancePlaceholder(t *testing.T) {
 			t.Errorf("链路语义错误: source_mode=%q upstream_product_id=%d sell_product_id=%d",
 				row.SourceMode, row.UpstreamProductID, row.SellProductID)
 		}
+		// 产品类型随商品落到占位行：实例导航按产品线分组，类型只能在这里写一次
+		//（转正路径不重读商品）。
+		if row.InstanceType != "cloud_host" {
+			t.Errorf("产品类型未带上: instance_type=%q, want cloud_host", row.InstanceType)
+		}
 		if row.ExpireAt != nil {
 			t.Error("未开通的占位行不应有账期（否则生命周期推进器会当作到期实例处置）")
 		}
 		if row.CPU != 4 || row.Memory != 4096 || row.OS != "CentOS" {
 			t.Errorf("规格快照未带上: %+v", row)
+		}
+	})
+
+	t.Run("商品缺类型 / 未知类型：归为 other（不会在任何标签页里消失）", func(t *testing.T) {
+		for _, kind := range []string{"", "some_unknown_kind"} {
+			var got []syncmodel.Instance
+			hook := buildInstancePlaceholder(instancePlaceholderPorts{
+				provisionProviderID: func(context.Context, *ordermodel.Order) uint64 { return 7 },
+				productLink: func(context.Context, uint64) (string, uint64, string) {
+					return "self", 0, kind
+				},
+				create: func(_ context.Context, row *syncmodel.Instance) error {
+					got = append(got, *row)
+					return nil
+				},
+			}, nil)
+
+			if err := hook(context.Background(), baseOrder()); err != nil {
+				t.Fatalf("hook err: %v", err)
+			}
+			if len(got) != 1 {
+				t.Fatalf("占位行数 = %d, want 1（kind=%q）", len(got), kind)
+			}
+			if got[0].InstanceType != "other" {
+				t.Errorf("kind=%q 应归一为 other，实际 %q", kind, got[0].InstanceType)
+			}
 		}
 	})
 

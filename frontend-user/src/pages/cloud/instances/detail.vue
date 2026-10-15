@@ -10,11 +10,21 @@
         <div class="page-header__text">
           <h2 class="page-header__title">
             {{ instance.name || instance.instance_id }}
-            <t-tag :theme="state.theme" variant="light" size="small" shape="round">
+            <!-- 电源维度 + 账期维度分开显示：「已关机」与「服务已到期」是两件事 -->
+            <t-tag
+              :theme="powerState.theme"
+              variant="light"
+              size="small"
+              shape="round"
+              :class="{ 'state-spinning': powerState.spinning }"
+            >
               <template #icon>
-                <component :is="stateIconComponent(state.label)" />
+                <component :is="stateIconComponent(powerState.label)" />
               </template>
-              {{ state.label }}
+              {{ powerState.label }}
+            </t-tag>
+            <t-tag :theme="serviceState.theme" variant="light" size="small" shape="round" :title="serviceState.detail">
+              {{ serviceState.label }}
             </t-tag>
           </h2>
           <p class="page-header__desc">
@@ -33,6 +43,31 @@
         </t-button>
       </div>
     </header>
+
+    <!--
+      过渡态提示（迁移 112）：平台正在执行某个动作时明确告知"要等一会儿"。
+      没有这条提示，客户看不到任何变化就会反复点重启（用户实测反馈）。
+    -->
+    <t-alert v-if="transitionActive" theme="info" class="detail-alert">
+      <template #title>
+        <span class="transition-title">
+          <LoadingIcon size="14" class="state-spin-icon" />
+          实例正在{{ transition?.verb }}
+        </span>
+      </template>
+      <template #message>
+        <div class="transition-body">
+          <span>
+            平台指令为异步执行，通常需要 1–3 分钟。期间电源操作会暂时不可用，已完成
+            {{ transitionElapsedText }}，完成后状态自动更新。
+          </span>
+          <!-- 不确定态流动条：客户明确要求"开关机过程中加加载动画"。
+               不画假百分比 —— 平台不回报进度，编一个会误导客户以为能看到剩余时间。 -->
+          <span class="transition-progress" role="progressbar" :aria-label="`正在${transition?.verb}`"></span>
+        </div>
+      </template>
+    </t-alert>
+    <t-alert v-else-if="transitionOverdue" theme="warning" class="detail-alert" message="上次操作的结果尚未确认，请点「刷新状态」核对实际状态后再决定是否重试。" />
 
     <!-- 状态说明：把「为什么是这个状态」写清楚（待开通 / 到期 / 暂停） -->
     <t-alert
@@ -60,22 +95,22 @@
         <span class="action-bar__hint">实例尚未开通完成，开通成功后才能进行电源与控制台操作</span>
       </template>
       <template v-else>
-        <t-button theme="success" :disabled="!caps.power || instance.power_status === 'on'" @click="onPower('on')">
+        <t-button theme="success" :disabled="!caps.power || instance.power_status === 'on' || transitionActive" @click="onPower('on')">
           <template #icon><PlayCircleIcon /></template>
           开机
         </t-button>
-        <t-button theme="danger" :disabled="!caps.power || instance.power_status === 'off'" @click="onPower('off')">
+        <t-button theme="danger" :disabled="!caps.power || instance.power_status === 'off' || transitionActive" @click="onPower('off')">
           <template #icon><PoweroffIcon /></template>
           关机
         </t-button>
-        <t-button theme="warning" :disabled="!caps.power || instance.power_status !== 'on'" @click="onPower('reboot')">
+        <t-button theme="warning" :disabled="!caps.power || instance.power_status !== 'on' || transitionActive" @click="onPower('reboot')">
           <template #icon><RefreshIcon /></template>
           重启
         </t-button>
         <t-button
           theme="danger"
           variant="outline"
-          :disabled="!caps.power || instance.power_status === 'off'"
+          :disabled="!caps.power || instance.power_status === 'off' || transitionActive"
           @click="onPower('hard_off', true)"
         >
           强制关机
@@ -83,7 +118,7 @@
         <t-button
           theme="danger"
           variant="outline"
-          :disabled="!caps.power || instance.power_status !== 'on'"
+          :disabled="!caps.power || instance.power_status !== 'on' || transitionActive"
           @click="onPower('hard_reboot', true)"
         >
           强制重启
@@ -481,7 +516,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, type Component } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { TTable } from '@/plugins/tdesign-heavy'
@@ -497,6 +532,7 @@ import {
   ErrorCircleIcon,
   HardDiskStorageIcon,
   InfoCircleIcon,
+  LoadingIcon,
   PauseCircleIcon,
   PlayCircleIcon,
   PoweroffIcon,
@@ -532,9 +568,10 @@ import {
 import { getVerificationRequirement, sendSecurityVerification, verifySecurityCode } from '@/api/security'
 import {
   billingModeLabel,
-  combineInstanceState,
   daysLeftText,
   daysLeftTheme,
+  powerStateView,
+  serviceStateView,
   formatMemory,
   formatTime,
   operationActionLabel,
@@ -573,15 +610,73 @@ function stateIconComponent(label: string): Component {
 
 const instanceId = computed(() => Number(route.params.id))
 
-/** 状态结论与服务端列表页同源（combineInstanceState），避免同一台机器两处显示不一致。 */
-const state = computed(() =>
-  combineInstanceState({
+/**
+ * 两个正交维度（本会话修复的根因）：此前一个合成标签把"关机"写成「已暂停」，
+ * 因为上游把 suspended 也映射成 stopped，两者无法区分。
+ * 现在电源态答"机器开着吗"，账期态答"服务还在有效期内吗"。
+ */
+const powerState = computed(() =>
+  powerStateView({
     status: instance.value?.status || '',
+    power_state: instance.value?.power_state,
     lifecycle_stage: instance.value?.lifecycle_stage,
-    expire_state: instance.value?.expire_state,
     pending: instance.value?.pending,
+    transition: instance.value?.transition,
   }),
 )
+
+const serviceState = computed(() =>
+  serviceStateView({
+    lifecycle_stage: instance.value?.lifecycle_stage,
+    expire_state: instance.value?.expire_state,
+    service_state: instance.value?.service_state,
+    days_left: instance.value?.days_left,
+  }),
+)
+
+/** 过渡态：正在执行的动作（驱动提示条与按钮禁用）。 */
+const transition = computed(() => instance.value?.transition || null)
+const transitionActive = computed(() => !!transition.value && !transition.value.overdue)
+const transitionOverdue = computed(() => !!transition.value?.overdue)
+
+/**
+ * 已执行时长的实时文案（"已等待 42 秒"）。
+ *
+ * 动画只证明页面在动，不证明指令在跑；每秒递增的数字才是"系统确实在推进"
+ * 的确定信息。没有它，客户分不清"在等"和"卡住了"，就会去点第二次。
+ */
+const transitionTick = ref(0)
+let transitionTimer: number | undefined
+
+const transitionElapsedText = computed(() => {
+  void transitionTick.value
+  const started = transition.value?.started_at
+  if (!started) return '请稍候'
+  const start = new Date(started).getTime()
+  if (Number.isNaN(start)) return '请稍候'
+  const sec = Math.max(0, Math.floor((Date.now() - start) / 1000))
+  if (sec < 60) return `已等待 ${sec} 秒`
+  return `已等待 ${Math.floor(sec / 60)} 分 ${sec % 60} 秒`
+})
+
+// 只在过渡进行中计时；结束必须停掉，否则每秒重渲染整页。
+watch(transitionActive, (active) => {
+  if (active && transitionTimer === undefined) {
+    transitionTimer = window.setInterval(() => {
+      transitionTick.value += 1
+    }, 1000)
+  } else if (!active && transitionTimer !== undefined) {
+    window.clearInterval(transitionTimer)
+    transitionTimer = undefined
+  }
+})
+
+onBeforeUnmount(() => {
+  if (transitionTimer !== undefined) {
+    window.clearInterval(transitionTimer)
+    transitionTimer = undefined
+  }
+})
 
 /** 能力位：缺省（老数据）时按可操作处理，避免整页按钮被禁用。 */
 const caps = computed(() => ({
@@ -1239,6 +1334,63 @@ async function submitDeleteSnapshot(row: SnapshotInfo) {
 <style scoped>
 .detail-page {
   gap: var(--space-lg);
+}
+
+/* ---------- 过渡态提示条（平台正在执行动作） ----------
+   客户明确要求"开关机过程中加加载动画"。转圈图标在标题里，这里补一条
+   流动进度条：一屏里扫一眼就能看到"在跑"，不必逐字读提示。 */
+.transition-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.transition-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.transition-progress {
+  position: relative;
+  display: block;
+  height: 3px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--td-brand-color-2, #d9e7ff);
+}
+
+.transition-progress::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 35%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--td-brand-color, #0052d9) 45%,
+    var(--td-brand-color, #0052d9) 55%,
+    transparent
+  );
+  animation: hs-progress 1.6s ease-in-out infinite;
+}
+
+@keyframes hs-progress {
+  0% {
+    left: -35%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transition-progress::after {
+    left: 32%;
+    animation: none;
+  }
 }
 
 .loading-wrap {
