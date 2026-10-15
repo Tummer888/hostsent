@@ -178,6 +178,33 @@ if inst_id:
     ops = sql(f"SELECT count(*) FROM instance_operations WHERE instance_id={inst_id} AND action='reveal_credential'")
     check("查看密码写入审计流水", int(ops or 0) >= 1, f"流水条数={ops}")
 
+    # 6) 重置密码：新密码即刻成为权威值，「查看密码」必须返回新值而非旧值。
+    new_pwd = "NewPass1234X"
+    st, obj = req("POST", f"/admin/instances/{inst_id}/reset-password", token=admin, body={"password": new_pwd})
+    check("重置密码接口返回成功", st == 200, f"HTTP {st} {obj if st != 200 else ''}")
+    stored2 = sql(f"SELECT credential_password FROM instances WHERE id={inst_id}")
+    check("重置后 instances.credential_password 已覆盖（不再是旧密文）",
+          stored2.startswith("enc:v1:") and stored2 != stored, f"值={stored2[:24]}…")
+    st, obj = req("POST", f"/admin/instances/{inst_id}/credential", token=admin)
+    revealed2 = dig(obj, "password")
+    check("重置后「查看密码」== 新密码（留存同步覆盖）", revealed2 == new_pwd,
+          f"reveal={revealed2!r}")
+
+    # 7) 重装系统：平台新签发初始凭据，一次性返回并同步覆盖留存。
+    st, obj = req("POST", f"/admin/instances/{inst_id}/reinstall", token=admin,
+                  body={"os": "62", "reason": "e2e 重装"})
+    reinstall_pwd = dig(obj, "password")
+    check("重装接口返回成功且一次性下发新凭据", st == 200 and bool(reinstall_pwd),
+          f"HTTP {st} {obj if st != 200 else ''}")
+    if reinstall_pwd:
+        stored3 = sql(f"SELECT credential_password FROM instances WHERE id={inst_id}")
+        check("重装后 instances.credential_password 已覆盖为新凭据",
+              stored3.startswith("enc:v1:") and stored3 != stored2, f"值={stored3[:24]}…")
+        st, obj = req("POST", f"/admin/instances/{inst_id}/credential", token=admin)
+        revealed3 = dig(obj, "password")
+        check("重装后「查看密码」== 平台新签发的凭据", revealed3 == reinstall_pwd,
+              f"reveal={revealed3!r} reinstall={reinstall_pwd!r}")
+
 # 清理自建资源：先删商品（渠道删除守卫要求无关联商品），再删渠道。
 # 渠道软删不报错即视为已删（不额外校验），残留由演示库维护者处置。
 if self_product:

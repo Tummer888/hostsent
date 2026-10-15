@@ -8,7 +8,16 @@
 #
 # 前置：
 #   - backend 容器在 localhost:8080；
-#   - 应用已用 cmd/openapp 创建（owner_user_id 指向真实用户）。
+#   - 应用已用 cmd/openapp 创建（owner_user_id 指向真实用户），
+#     运行时用 --app-id/--app-secret 传入凭证。
+#
+# 环境自愈（不依赖演示库种子）：商品 1 是历史种子约定，演示库换过数据后即漂移。
+# 脚本改为**自建** dcimcloud mock 渠道 + self 商品（询价/下单/实例操作全用它，
+# 走 p5-mock 而非真实上游），跑完清理。owner 折扣率从 DB 动态读取（0.85 断言
+# 跟随当前等级折扣，不硬编码数值）。
+#
+# 注意：tier3 需要 OPEN_APP_ID/OPEN_APP_SECRET，本地未持凭证时无法全量验证；
+# 环境自愈与语法由 CI py_compile 保证，凭证相关断言需在有凭证的环境跑。
 #
 # 分阶段断言（随任务推进逐步扩展）：
 #   t61  签名链路：ping 通过；缺头/错签/时间窗/nonce 重放/IP 白名单/停用各返回固定码
@@ -23,6 +32,8 @@ import argparse
 import hashlib
 import hmac
 import json
+import random
+import subprocess
 import sys
 import time
 import urllib.parse
@@ -30,10 +41,123 @@ import urllib.request
 import uuid
 
 BASE = "http://localhost:8080"
+PSQL = ["docker", "exec", "backend-postgres-1", "psql", "-U", "hostsent", "-d", "hostsent", "-tAc"]
+
+# 自建资源统一前缀：清理时按名字前缀定位，不会误伤运营的渠道/商品。
+PROVIDER_PREFIX = "e2e-p6-dcim渠道"
+PRODUCT_PREFIX = "e2e-p6-open商品"
 
 PASS = 0
 FAIL = 0
 FAILED = []
+
+
+def sql(query):
+    out = subprocess.run(PSQL + [query], capture_output=True, text=True)
+    if out.returncode != 0:
+        raise RuntimeError(out.stderr.strip())
+    return out.stdout.strip()
+
+
+def dig(obj, key):
+    """深度优先查找嵌套响应中的 key（兼容 code/data 信封）。"""
+    if isinstance(obj, dict):
+        if key in obj:
+            return obj[key]
+        for v in obj.values():
+            found = dig(v, key)
+            if found is not None:
+                return found
+    elif isinstance(obj, list):
+        for v in obj:
+            found = dig(v, key)
+            if found is not None:
+                return found
+    return None
+
+
+def q(s):
+    """SQL 字符串字面量（单引号转义）。"""
+    return s.replace("'", "''")
+
+
+def admin_req(method, path, token, body=None, timeout=60):
+    data = json.dumps(body).encode() if body is not None else None
+    r = urllib.request.Request("http://127.0.0.1:8080/api/v1" + path, data=data, method=method)
+    r.add_header("Content-Type", "application/json")
+    if token:
+        r.add_header("Authorization", "Bearer " + token)
+    try:
+        with urllib.request.urlopen(r, timeout=timeout) as resp:
+            raw, status = resp.read().decode(), resp.status
+    except urllib.error.HTTPError as e:
+        raw, status = e.read().decode(), e.code
+    try:
+        return status, json.loads(raw) if raw else None
+    except json.JSONDecodeError:
+        return status, raw
+
+
+def setup_self_product():
+    """管理员登录 + 自建 dcimcloud mock 渠道 + self 商品，返回 (product_id, provider_id, admin_token)。"""
+    st, obj = admin_req("POST", "/admin/auth/login", None, body={"username": "admin", "password": "123456"})
+    admin_token = dig(obj, "token")
+    check("管理员登录（自建验收资源用）", st == 200 and bool(admin_token), f"HTTP {st}")
+    if not admin_token:
+        sys.exit(1)
+
+    suffix = str(random.randint(100000, 999999))
+    st, obj = admin_req("POST", "/admin/resource/providers", admin_token, body={
+        "name": f"{PROVIDER_PREFIX}-{suffix}", "provider_type": "dcimcloud",
+        "api_endpoint": "http://p5-mock:9099", "status": 1, "des": "P6 开放平台 e2e 自建（跑完清理）",
+        "credentials": {"api_key": "e2e", "api_secret": "mock", "account_type": "admin"}})
+    provider_id = dig(obj, "id")
+    check("自建 dcimcloud 渠道（指向 p5-mock）", st == 200 and bool(provider_id), f"HTTP {st}")
+    if not provider_id:
+        sys.exit(1)
+
+    st, obj = admin_req("POST", "/admin/product/products", admin_token, body={
+        "code": f"e2e-p6-open-{suffix}", "name": f"{PRODUCT_PREFIX}-{suffix}",
+        "product_type": "cloud_host", "price_model": "monthly", "price": 100.0, "cost_price": 0.0,
+        "source_mode": "self", "source_provider_id": provider_id, "stock": -1, "status": 1,
+        "description": "P6 开放平台 e2e 自建（跑完清理）"})
+    product_id = dig(obj, "id")
+    check("自建 self 商品（open 询价/下单样本）", st == 200 and bool(product_id), f"HTTP {st}")
+    if not product_id:
+        sys.exit(1)
+    return product_id, provider_id, admin_token
+
+
+def cleanup(product_id, provider_id, admin_token):
+    """清理自建资源：先删续费单与实例（订单开通/续费产生），再删商品，最后删渠道。"""
+    if product_id:
+        sql(f"DELETE FROM instance_renewals WHERE instance_id IN "
+            f"(SELECT id FROM instances WHERE sell_product_id = {product_id})")
+        sql(f"DELETE FROM instance_operations WHERE instance_id IN "
+            f"(SELECT id FROM instances WHERE sell_product_id = {product_id})")
+        sql(f"DELETE FROM instances WHERE sell_product_id = {product_id}")
+    if product_id and admin_token:
+        st, obj = admin_req("DELETE", f"/admin/product/products/{product_id}", admin_token)
+        if st != 200:
+            print(f"  [WARN] 自建商品 {product_id} 清理失败（HTTP {st}）：{obj}")
+    if provider_id and admin_token:
+        st, obj = admin_req("DELETE", f"/admin/resource/providers/{provider_id}", admin_token)
+        if st != 200:
+            print(f"  [WARN] 自建渠道 {provider_id} 清理失败（HTTP {st}）：{obj}")
+    print("已清理自建渠道、商品与开通实例")
+
+
+def owner_discount_rate(app_id):
+    """owner 用户的代理等级 all 折扣率（DB 权威值，断言跟随不硬编码 0.85）。"""
+    row = sql(
+        f"SELECT COALESCE(ad.discount_rate, 0) FROM open_apps oa "
+        f"LEFT JOIN users u ON u.id = oa.owner_user_id "
+        f"LEFT JOIN agent_level_discounts ad ON ad.agent_level_id = u.agent_level_id "
+        f"AND ad.target_type = 'all' WHERE oa.app_id = '{q(app_id)}'")
+    try:
+        return float(row or 0)
+    except ValueError:
+        return 0.0
 
 
 def check(name, cond, detail=""):
@@ -176,7 +300,7 @@ def run_t61(c: OpenClient):
 # T6.2 只读目录与询价
 # ---------------------------------------------------------------------------
 
-def run_t62(c: OpenClient):
+def run_t62(c: OpenClient, product_id: int, discount: float):
     print("== T6.2 只读接口 ==")
 
     status, resp = c.request("GET", "/open/v1/spec-atoms")
@@ -190,12 +314,12 @@ def run_t62(c: OpenClient):
     check("products 返回 0 且非空", code_of(resp) == 0 and len(items) > 0, f"{code_of(resp)} n={len(items)}")
     check("products 不含成本/状态机内部字段",
           all(not ({"cost_price", "status", "provision_mode"} & set(it.keys())) for it in items))
-    target = next((it for it in items if it.get("id") == 1), None)
-    check("商品 1（在售）可见", target is not None, f"{items[:2]}")
+    target = next((it for it in items if it.get("id") == product_id), None)
+    check("自建商品（在售）可见", target is not None, f"{items[:2]}")
 
-    status, resp = c.request("GET", "/open/v1/products/1")
+    status, resp = c.request("GET", f"/open/v1/products/{product_id}")
     detail = resp.get("data") or {}
-    check("商品详情返回 0", code_of(resp) == 0 and detail.get("id") == 1, f"{code_of(resp)}")
+    check("商品详情返回 0", code_of(resp) == 0 and detail.get("id") == product_id, f"{code_of(resp)}")
 
     status, resp = c.request("GET", "/open/v1/products/999999")
     check("不存在商品返回 40404", code_of(resp) == 40404, f"{resp}")
@@ -210,14 +334,17 @@ def run_t62(c: OpenClient):
     check("images 返回 0", code_of(resp) == 0, f"{code_of(resp)}")
     check("images 字段只有 id/name", all(set(i.keys()) <= {"id", "name"} for i in images))
 
-    # 询价（D3：owner 组折扣 0.85；policy item 绑定商品 1）
-    status, resp = c.request("POST", "/open/v1/quote", body={"product_id": 1, "quantity": 1})
+    # 询价（D3：owner 代理等级折扣；折扣率从 DB 动态读取）
+    status, resp = c.request("POST", "/open/v1/quote", body={"product_id": product_id, "quantity": 1})
     quote = resp.get("data") or {}
     check("quote 返回 0 且金额>0", code_of(resp) == 0 and quote.get("final_amount", 0) > 0, f"{resp}")
     original = quote.get("original_amount", 0)
     final = quote.get("final_amount", 0)
-    expected = round(original * 0.85, 2)
-    check(f"quote 实付=原价×0.85（{final} == {expected}）", abs(final - expected) < 0.011, f"{quote}")
+    if discount > 0:
+        expected = round(original * discount, 2)
+        check(f"quote 实付=原价×折扣率 {discount}（{final} == {expected}）", abs(final - expected) < 0.011, f"{quote}")
+    else:
+        check("owner 无代理折扣时实付=原价", abs(final - original) < 0.011, f"{quote}")
     check("quote 不泄露折扣明细字段",
           not ({"discount_amount", "price_policy_id", "discount_source", "price_snapshot"} & set(quote.keys())))
 
@@ -237,24 +364,30 @@ def run_t62_scope_denied(c_readonly: OpenClient):
 # T6.3 代客下单
 # ---------------------------------------------------------------------------
 
-def run_t63(c: OpenClient):
+def run_t63(c: OpenClient, product_id: int, discount: float):
     print("== T6.3 代客下单 ==")
 
     # 正常下单（幂等键 + customer_ref）
     req_id = "e2e-order-" + uuid.uuid4().hex
     status, resp = c.request("POST", "/open/v1/orders",
-                             body={"product_id": 1, "quantity": 1, "customer_ref": "cust-e2e-001"},
+                             body={"product_id": product_id, "quantity": 1, "customer_ref": "cust-e2e-001"},
                              headers_extra={"X-Client-Request-Id": req_id})
     data = resp.get("data") or {}
     order = data.get("order") or {}
     check("下单返回 0 且订单号非空", code_of(resp) == 0 and order.get("order_no"), f"{resp}")
     check("下单后状态为 paid（异步开通）", order.get("status") in ("paid", "provisioning", "active"), f"{order}")
-    check("下单实付=0.85 折扣价", abs(order.get("paid_amount", 0) - round(order.get("original_amount", 0) * 0.85, 2)) < 0.011, f"{order}")
+    if discount > 0:
+        check(f"下单实付=原价×折扣率 {discount}",
+              abs(order.get("paid_amount", 0) - round(order.get("original_amount", 0) * discount, 2)) < 0.011,
+              f"{order}")
+    else:
+        check("owner 无代理折扣时实付=原价",
+              abs(order.get("paid_amount", 0) - order.get("original_amount", 0)) < 0.011, f"{order}")
     check("首次响应 idempotently_replayed=False", data.get("idempotently_replayed") is False, f"{data}")
 
     # 同幂等键重放：返回同一订单、不重复扣款
     status, resp = c.request("POST", "/open/v1/orders",
-                             body={"product_id": 1, "quantity": 1, "customer_ref": "cust-e2e-001"},
+                             body={"product_id": product_id, "quantity": 1, "customer_ref": "cust-e2e-001"},
                              headers_extra={"X-Client-Request-Id": req_id})
     data2 = resp.get("data") or {}
     order2 = data2.get("order") or {}
@@ -262,7 +395,7 @@ def run_t63(c: OpenClient):
     check("重放标记 idempotently_replayed=True", data2.get("idempotently_replayed") is True, f"{data2}")
 
     # 缺幂等键
-    status, resp = c.request("POST", "/open/v1/orders", body={"product_id": 1, "quantity": 1})
+    status, resp = c.request("POST", "/open/v1/orders", body={"product_id": product_id, "quantity": 1})
     check("缺幂等键返回 40001", code_of(resp) == 40001, f"{resp}")
 
     # 失败快照：不存在商品 → 40404；同键重放返回同样 40404（不隐式重执行）
@@ -283,23 +416,45 @@ def run_t63(c: OpenClient):
 # T6.4 实例接口
 # ---------------------------------------------------------------------------
 
-def run_t64(c: OpenClient):
+def wait_instance_provisioned(product_id, secs=90):
+    """等待自建商品的实例完成异步开通（worker 约 2s 轮询）。
+
+    返回 (inst_id, provider_instance_id)。占位行没有上游实例号时电源/暂停/续费
+    都会被 50000 拒绝（ensureProvisioned），因此 t64 的操作断言必须等开通落地。
+    """
+    deadline = time.time() + secs
+    while time.time() < deadline:
+        row = sql(
+            f"SELECT id, provider_instance_id FROM instances "
+            f"WHERE sell_product_id = {product_id} AND provider_instance_id <> '' "
+            f"ORDER BY id DESC LIMIT 1")
+        if row:
+            inst_id, provider_inst_id = row.split("|", 1)
+            return int(inst_id), provider_inst_id.strip()
+        time.sleep(2)
+    return 0, ""
+
+
+def run_t64(c: OpenClient, product_id: int):
     print("== T6.4 实例接口 ==")
 
-    # 等待 T6.3 订单的实例开通完成（异步履约，最多 60s）
+    # 等开通完成（异步履约）：占位行可被列表看到，但上游操作会拒绝，
+    # 必须等 provider_instance_id 落地（worker 约 2s 轮询）再操作。
+    inst_id, provider_inst_id = wait_instance_provisioned(product_id)
+    check("自建商品实例开通落库（provider_instance_id 非空）", inst_id > 0, f"inst={inst_id}")
+
     inst = None
-    for _ in range(30):
+    for _ in range(10):
         status, resp = c.request("GET", "/open/v1/instances", query={"page": 1, "page_size": 50})
         data = resp.get("data") or {}
         items = data.get("items") or []
         inst = next((it for it in items if it.get("order_id") and it.get("source_mode") == "self"), None)
         if inst:
             break
-        time.sleep(2)
+        time.sleep(1)
     check("实例列表可见 T6.3 开通的实例", inst is not None, f"{resp}")
 
-    inst_id = inst["id"] if inst else 0
-    if inst_id:
+    if inst_id and provider_inst_id:
         status, resp = c.request("GET", f"/open/v1/instances/{inst_id}")
         check("实例详情返回 0", code_of(resp) == 0 and (resp.get("data") or {}).get("id") == inst_id, f"{resp}")
 
@@ -341,16 +496,22 @@ def main():
     client = OpenClient(args.app_id, args.app_secret)
     only = args.only
 
+    # 自建验收商品与渠道（t61 纯签名用例不依赖商品，但仍提前清理历史残留）。
+    product_id, provider_id, admin_token = setup_self_product()
+    discount = owner_discount_rate(args.app_id)
+
     if only in ("all", "t61"):
         run_t61(client)
     if only in ("all", "t62"):
-        run_t62(client)
+        run_t62(client, product_id, discount)
         if args.readonly_app_id and args.readonly_app_secret:
             run_t62_scope_denied(OpenClient(args.readonly_app_id, args.readonly_app_secret))
     if only in ("all", "t63"):
-        run_t63(client)
+        run_t63(client, product_id, discount)
     if only in ("all", "t64"):
-        run_t64(client)
+        run_t64(client, product_id)
+
+    cleanup(product_id, provider_id, admin_token)
 
     print(f"\n结果：PASS={PASS} FAIL={FAIL}")
     if FAILED:

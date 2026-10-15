@@ -194,7 +194,6 @@ PATH_NOUN_RULES = [
     ("/api/v1/admin/auth", "管理员登录"),
     ("/api/v1/admin/staff", "员工"),
     ("/api/v1/admin/departments", "部门"),
-    ("/api/v1/admin/users/export", "用户 CSV"),
     ("/api/v1/admin/users/stats", "用户统计"),
     ("/api/v1/admin/users/region-stats", "用户地域分布"),
     ("/api/v1/admin/users/purge", "留存期清理"),

@@ -1,6 +1,6 @@
 {
   "/api/v1/admin/users": {
-    "description": "用户列表。筛选参数与 `/api/v1/admin/users/export` 完全同源，导出即「当前筛出来的一批」。",
+    "description": "用户列表。支持关键词、状态、等级、分组、归属销售等筛选。",
     "parameters": [
       {"$ref": "#/components/parameters/Page"},
       {"$ref": "#/components/parameters/PageSize"},
@@ -31,28 +31,7 @@
       }
     }
   },
-  "/api/v1/admin/users/export": {
-    "description": "需 system:user:list（与列表同权限，能看列表就能导出）。查询参数与列表接口一致，固定取第 1 页、最多 1000 行。\n\n**响应不是 JSON 信封**，而是 `text/csv; charset=utf-8` 文件流（带 UTF-8 BOM）。前端必须用 `responseType: 'blob'` 并跳过统一解包。",
-    "parameters": [
-      {"name": "keyword", "in": "query", "schema": {"type": "string"}},
-      {"name": "status", "in": "query", "schema": {"type": "string"}},
-      {"name": "filter", "in": "query", "schema": {"type": "string"}},
-      {"name": "user_level_id", "in": "query", "schema": {"type": "integer"}},
-      {"name": "user_group_id", "in": "query", "schema": {"type": "integer"}},
-      {"name": "is_sub_account", "in": "query", "schema": {"type": "boolean"}},
-      {"name": "sales_admin_id", "in": "query", "schema": {"type": "integer"}},
-      {"name": "unassigned_sales", "in": "query", "schema": {"type": "string"}},
-      {"name": "last_login_ip_region", "in": "query", "schema": {"type": "string"}},
-      {"name": "include_deleted", "in": "query", "schema": {"type": "boolean"}}
-    ],
-    "responses": {
-      "'200'": {
-        "description": "CSV 文件流",
-        "content": {"text/csv": {"schema": {"type": "string", "format": "binary"}}}
-      }
-    }
-  },
-  "/api/v1/admin/users/stats": {
+    "/api/v1/admin/users/stats": {
     "responses": {
       "'200'": {
         "description": "success",
