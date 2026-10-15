@@ -154,6 +154,9 @@ func registerAdminResourceRoutes(v1 *gin.RouterGroup, app *App) {
 		// 查看明文密码：只读但属敏感信息访问，独立权限码便于收窄。
 		instanceOps.POST("/:id/credential", app.perm("instance:credential"), app.instanceOpsHandler.RevealCredential)
 		instanceOps.DELETE("/:id", app.perm("instance:destroy"), app.adminRequireVerification("instance_destroy"), app.instanceOpsHandler.Destroy)
+		// 删除实例记录（物理删除已销毁的行）：比销毁更彻底，因此拆成独立接口 + 二次验证。
+		// 只接受终态行（服务层守卫）：在跑的机器必须先走销毁，否则会绕过"通知渠道终止机器"。
+		instanceOps.POST("/:id/purge", app.perm("instance:destroy"), app.adminRequireVerification("instance_destroy"), app.instanceOpsHandler.Purge)
 	}
 	lcRenewals := v1.Group("/renewals")
 	lcRenewals.Use(app.adminAuth())

@@ -192,3 +192,91 @@ func TestUpsertInstancesKeepsProviderInstanceID(t *testing.T) {
 		t.Fatalf("非空实例号应被写入：got %q, want 9999213", got.ProviderInstanceID)
 	}
 }
+
+// TestAdoptPendingSkipsDeletedPlaceholder 被运营清除的占位行不得在履约迟到成功时"复活"。
+//
+// 回归背景（本轮）：占位行现在允许被运营直接删除（用户实测"实例没办法删除"）。
+// 而 OpterPendingInstance 的命中条件是 provider_instance_id = ”，被删的占位行同样满足 ——
+// 若不排除，履约迟到成功会把它就地转正成 status=running 但 lifecycle_stage 仍是
+// destroyed 的行；而终态行按"终态不复活"规则不再接受回源刷新，那台真机器
+// 此后永远刷不出真实状态（列表里显示已销毁、实际在跑）。
+//
+// 正确行为：跳过已删除的占位 → 走常规 upsert 落一条**新行**，旧行保持已删除。
+func TestAdoptPendingSkipsDeletedPlaceholder(t *testing.T) {
+	dsn := os.Getenv("LIVE_DB_DSN")
+	if dsn == "" {
+		dsn = "host=127.0.0.1 port=5432 user=hostsent password=hostsent dbname=hostsent sslmode=disable"
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Skipf("无可用测试库：%v", err)
+	}
+	tx := db.Begin()
+	if tx.Error != nil {
+		t.Fatalf("开启事务失败: %v", tx.Error)
+	}
+	defer tx.Rollback()
+
+	ctx := context.Background()
+	repo := NewSyncRepository(tx)
+	const orderID = uint64(9999301)
+
+	placeholder := &syncmodel.Instance{
+		InstanceID:        "pending-LIVETEST-9999301",
+		ProviderID:        7,
+		UserID:            2236,
+		Name:              "live-test-deleted-pending",
+		Status:            "creating",
+		BillingMode:       "monthly",
+		OrderID:           orderID,
+		SourceMode:        "self",
+		SellProductID:     176,
+		UpstreamProductID: 120,
+	}
+	if err := repo.CreatePendingInstance(ctx, placeholder); err != nil {
+		t.Fatalf("建占位失败: %v", err)
+	}
+	// 运营清除该占位行（与 destroyPendingPlaceholder 同样的落库方式）。
+	if err := tx.Model(&syncmodel.Instance{}).
+		Where("order_id = ? AND provider_instance_id = ''", orderID).
+		Updates(map[string]any{"status": "deleted", "lifecycle_stage": "destroyed"}).Error; err != nil {
+		t.Fatalf("标记占位已删除失败: %v", err)
+	}
+
+	// 新行必须清零主键：这里模拟的是"另插一行"（履约侧对未命中占位的走 upsert），
+	// 带着占位行的 ID 会撞 instances_pkey，那是用例构造错误而非产品行为。
+	real := *placeholder
+	real.ID = 0
+	real.InstanceID = "19999301"
+	real.ProviderInstanceID = "19999301"
+	real.Status = "running"
+	adopted, err := repo.AdoptPendingInstance(ctx, orderID, &real)
+	if err != nil {
+		t.Fatalf("转正失败: %v", err)
+	}
+	if adopted {
+		t.Fatal("已删除的占位行不得被就地转正：会得到 status=running 但 stage=destroyed 的怪行，且终态行不再接受回源刷新")
+	}
+	// 旧行保持已删除（运营的删除意图被尊重）。
+	var old syncmodel.Instance
+	if err := tx.Where("instance_id = ?", "pending-LIVETEST-9999301").Take(&old).Error; err != nil {
+		t.Fatalf("回查旧占位失败: %v", err)
+	}
+	if old.Status != "deleted" {
+		t.Fatalf("旧占位应保持 deleted，实际 %q", old.Status)
+	}
+	// 履约侧随后走常规 upsert：机器必须能被记录下来，不能因为占位被删就丢机器。
+	if err := repo.UpsertInstances(ctx, []syncmodel.Instance{real}); err != nil {
+		t.Fatalf("常规 upsert 失败: %v", err)
+	}
+	var fresh syncmodel.Instance
+	if err := tx.Where("instance_id = ?", "19999301").Take(&fresh).Error; err != nil {
+		t.Fatalf("新行未落库：占位删除后履约成功必须仍能记录机器: %v", err)
+	}
+	if fresh.Status != "running" {
+		t.Fatalf("新行状态应为 running，实际 %q", fresh.Status)
+	}
+	if fresh.LifecycleStage == "destroyed" {
+		t.Fatal("新行不得继承已删除占位的 destroyed 阶段（终态不复活规则会让它永远刷不出状态）")
+	}
+}
