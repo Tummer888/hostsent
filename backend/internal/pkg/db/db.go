@@ -54,6 +54,7 @@ import (
 	oauthmodel "hostsent/backend/internal/modules/uc/oauth/model"
 	config "hostsent/backend/internal/pkg/config"
 	"hostsent/backend/internal/pkg/integration"
+	pkgmodel "hostsent/backend/internal/pkg/model"
 	"hostsent/backend/internal/pkg/upstream"
 )
 
@@ -339,17 +340,166 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 
+	// 上游数量型配置项（系统盘/数据盘/带宽/IP…）的区间回填。
+	// 迁移前的导入把 qty_minimum/qty_maximum 丢了（落成普通下拉，只存了几个价档），
+	// 存量商品必须补上区间，否则客户侧仍然只能在下拉里挑价档、填不出 100G。
+	if err := backfillUpstreamQuantityOptions(db); err != nil {
+		return err
+	}
+
 	// 已删渠道遗留的同步调度/游标清理，等价 migrations/106。
 	// 放在 AutoMigrate 之后：软删除的渠道不会因为 AutoMigrate 消失，其调度行也不会。
 	if err := purgeOrphanSyncSchedules(db); err != nil {
 		return err
 	}
 
+	// 实例产品类型回填（产品线导航），等价 migrations/108。
+	if err := backfillInstanceType(db); err != nil {
+		return err
+	}
+
+	// 配置项默认值越界修正（模板 + 商品两层），等价 migrations/111。
+	if err := clampOptionDefaults(db); err != nil {
+		return err
+	}
+
 	return nil
 }
 
-// purgeOrphanSyncSchedules 清理已删渠道（软删除）遗留的同步调度行与增量游标，等价 migrations/106。
+// clampOptionDefaults 把「默认值落在区间之外」的配置项夹回区间内，等价 migrations/111。
 //
+// 背景（用户反馈的真实故障）：自营商品后台代下单时，带宽 / 数据盘预填 0，
+// 而模板里配的区间是 [10,100] / [50,100]。字段没传过来是表象，真相是
+// 默认值本身就越界：编辑器把「默认值」做成独立输入框且初值为 0，运营改了区间
+// 没改默认值，保存时无校验；下单表单再忠实地把 0 预填出来。
+//
+// 两层都要修，缺一层故障仍在：
+//  1. product_spec_templates.option_selections —— 模板抽取的声明（运营下次建品还会照抄）；
+//  2. product_config_options.default_value —— 建品时已快照下来的副本。改模板**不会**
+//     回写到已有商品（生成是一次性的），现有商品 206 的四条脏值就在这一层。
+//
+// 修正口径是 clamp 而不是删值：夹取保留运营"要一个默认值"的意图，只把它挪进合法范围；
+// 删掉会让该项退回"未配置"，客户侧可能看到空值。
+//
+// 幂等：只更新确实越界的行，重跑第二次影响 0 行。
+func clampOptionDefaults(db *gorm.DB) error {
+	// 1) 模板层：option_selections 是 jsonb，逐键重写越界的 default。
+	if db.Migrator().HasTable("product_spec_templates") {
+		if err := db.Exec(`
+			UPDATE product_spec_templates t
+			SET option_selections = (
+				SELECT jsonb_object_agg(
+						   kv.key,
+						   CASE
+							   WHEN jsonb_typeof(kv.value -> 'range') = 'array'
+									AND jsonb_array_length(kv.value -> 'range') = 2
+									AND (kv.value ->> 'default') ~ '^-?[0-9]+(\.[0-9]+)?$'
+									AND (kv.value -> 'range' ->> 0) ~ '^-?[0-9]+(\.[0-9]+)?$'
+									AND (kv.value -> 'range' ->> 1) ~ '^-?[0-9]+(\.[0-9]+)?$'
+									AND (kv.value ->> 'default')::numeric
+										NOT BETWEEN (kv.value -> 'range' ->> 0)::numeric
+												AND (kv.value -> 'range' ->> 1)::numeric
+							   THEN jsonb_set(
+										kv.value,
+										'{default}',
+										to_jsonb(LEAST(
+											GREATEST((kv.value ->> 'default')::numeric,
+													 (kv.value -> 'range' ->> 0)::numeric),
+											(kv.value -> 'range' ->> 1)::numeric
+										))
+									)
+							   ELSE kv.value
+						   END
+					   )
+				FROM jsonb_each(t.option_selections) AS kv(key, value)
+			),
+			    updated_at = now()
+			WHERE t.option_selections IS NOT NULL
+			  AND jsonb_typeof(t.option_selections) = 'object'
+			  AND EXISTS (
+				  SELECT 1
+				  FROM jsonb_each(t.option_selections) AS kv(key, value)
+				  WHERE jsonb_typeof(kv.value -> 'range') = 'array'
+					AND jsonb_array_length(kv.value -> 'range') = 2
+					AND (kv.value ->> 'default') ~ '^-?[0-9]+(\.[0-9]+)?$'
+					AND (kv.value -> 'range' ->> 0) ~ '^-?[0-9]+(\.[0-9]+)?$'
+					AND (kv.value -> 'range' ->> 1) ~ '^-?[0-9]+(\.[0-9]+)?$'
+					AND (kv.value ->> 'default')::numeric
+						NOT BETWEEN (kv.value -> 'range' ->> 0)::numeric AND (kv.value -> 'range' ->> 1)::numeric
+			  )`).Error; err != nil {
+			return err
+		}
+	}
+
+	// 2) 商品层：default_value 是 varchar，区间是 numeric 列，同一套夹取。
+	//    trim_scale 去掉夹取产生的尾零（30.0000 → 30），否则客户侧显示成 "30.0000 GB"。
+	//    第二个条件兜的是本回填早期版本写下的未去零整数（30.0000 已不越界，
+	//    只按越界判定会让它永远停在带尾零的状态）。只对整数值生效，
+	//    形如 "1.50" 的小数默认保持原样 —— 它可能是被逐字符比对的标识串。
+	if db.Migrator().HasTable("product_config_options") {
+		if err := db.Exec(`
+			UPDATE product_config_options
+			SET default_value = trim_scale(LEAST(
+					GREATEST(default_value::numeric, min_value),
+					max_value
+				))::text,
+			    updated_at = now()
+			WHERE default_value ~ '^-?[0-9]+(\.[0-9]+)?$'
+			  AND min_value IS NOT NULL
+			  AND max_value IS NOT NULL
+			  AND (default_value::numeric < min_value
+			       OR default_value::numeric > max_value
+			       OR (default_value::numeric = trunc(default_value::numeric)
+			           AND trim_scale(default_value::numeric)::text <> default_value))`).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// backfillInstanceType 给存量实例补产品类型，等价 migrations/108。
+//
+// 背景：实例列表要按产品线（云主机 / CDN / 物理机…）分组导航，判据落在
+// instances.instance_type。新列由 AutoMigrate 补上，但**只补列不填值** ——
+// 存量行全是空串，导航会只剩一个「全部」。这里从各行的来源商品带出类型。
+//
+// 回填口径（按可信度从高到低，逐级兜底）：
+//  1. sell_product_id → products.product_type（订单开通的实例，最准）；
+//  2. upstream_product_id → resource_products 同渠道下已导入商品的 product_type
+//     （上游同步发现的实例：本地没有售出商品，只能看这台机器对应的镜像有没有被导入过）；
+//  3. 其余（两者皆空，或商品没登记类型）统一 'cloud_host' —— 历史实例全部是云主机，
+//     这是当下的真实分布；将来新类型实例由开通链路写入，不受本次回填影响。
+//
+// 幂等：只处理 instance_type 为空/NULL 的行，重复执行不会覆盖已有值
+// （也不覆盖人工/开通链路写入的正确类型）。
+func backfillInstanceType(db *gorm.DB) error {
+	if !db.Migrator().HasTable("instances") ||
+		!db.Migrator().HasColumn(&syncmodel.Instance{}, "instance_type") {
+		return nil
+	}
+	return db.Exec(`
+		UPDATE instances AS i
+		SET instance_type = COALESCE(
+			NULLIF(TRIM((
+				SELECT p.product_type FROM products AS p
+				WHERE p.id = i.sell_product_id AND p.deleted_at IS NULL
+			)), ''),
+			NULLIF(TRIM((
+				SELECT p3.product_type
+				FROM resource_products AS rp
+				JOIN products AS p3
+				  ON p3.source_product_id = rp.id
+				 AND p3.source_mode = 'upstream'
+				 AND p3.deleted_at IS NULL
+				WHERE rp.id = i.upstream_product_id
+				LIMIT 1
+			)), ''),
+			?
+		)
+		WHERE i.instance_type IS NULL OR TRIM(i.instance_type) = ''`,
+		pkgmodel.ProductKindCloudHost).Error
+}
+
 // 背景（用户反馈）：调度配置页里出现了渠道名对不上号的条目——渠道已被删除，
 // 但它的 sync_schedules 行还在，页面上显示成「渠道 #1」这种裸 ID，看着像配置坏了。
 //
@@ -441,6 +591,103 @@ func backfillResourceProductStock(db *gorm.DB) error {
 	  AND raw_specs <> ''
 	  AND raw_specs::json->>'stock_control' IS NOT NULL
 	  AND stock IS NULL`).Error
+}
+
+// backfillUpstreamQuantityOptions 给存量对接商品补「数量型配置项」的区间与控件。
+//
+// 背景（实测故障）：上游把系统盘/数据盘/带宽/IP 这类配置项定义成"数量型"
+// （option_type ∈ judgeQuantity 的集合），下发的是可填数量的区间（qty_minimum/qty_maximum）
+// 与若干价档；早期导入只落了 option_type 与价档，区间没进 min_value/max_value 列，
+// widget 也停在列默认值 select。结果客户侧把"填 100G 系统盘"渲染成了几个价档的下拉，
+// 既选不了具体容量，下发的值也不对。
+//
+// 口径与 repository.buildConfigOptionRows 完全一致（同一份判定，避免两处漂移）：
+//   - min/max 取该选项的 qty_minimum/qty_maximum（min 为 0 也照样写，0 是合法下限）；
+//   - 默认值取零价档覆盖到的最大数量（"档位内含量"，按此开通不加价）；
+//   - widget 定死 qty，子项补 qty_minimum/qty_maximum 与 is_quantity_tier。
+//
+// 幂等：按上游镜像重算，重跑结果一致；只处理 source=upstream 的行（自营项由运营自己配）。
+// 以 raw_specs 为源而不是已有子表：子表在旧导入里本就缺区间，只能回到镜像取。
+func backfillUpstreamQuantityOptions(db *gorm.DB) error {
+	if !db.Migrator().HasTable("resource_products") ||
+		!db.Migrator().HasTable("product_config_options") ||
+		!db.Migrator().HasColumn(&catalogmodel.ProductConfigOption{}, "min_value") ||
+		!db.Migrator().HasColumn(&catalogmodel.ProductConfigOptionSub{}, "qty_minimum") {
+		return nil
+	}
+	// 数量型 option_type 集合，与 common.php::judgeQuantity 对齐。
+	const qtyTypes = "ARRAY[4,7,9,11,14,15,16,17,18,19]"
+
+	// 1) 选项级区间与控件：从绑定镜像的 config_groups 递归取出 option 的 id/qty/type。
+	if err := db.Exec(`
+		WITH opts AS (
+			SELECT pco.id AS opt_row_id,
+			       (o->>'qty_minimum')::numeric AS qmin,
+			       (o->>'qty_maximum')::numeric AS qmax,
+			       (o->>'option_type')::int AS otype
+			FROM products p
+			JOIN resource_products rp ON rp.id = p.source_product_id
+			CROSS JOIN LATERAL jsonb_array_elements(rp.raw_specs::jsonb -> 'config_groups') AS g
+			CROSS JOIN LATERAL jsonb_array_elements(g -> 'options') AS o
+			JOIN product_config_options pco
+			  ON pco.product_id = p.id
+			 AND pco.source = 'upstream'
+			 AND pco.upstream_key = (o->>'id')::bigint
+			WHERE p.deleted_at IS NULL
+			  AND p.source_mode = 'upstream'
+			  AND rp.raw_specs IS NOT NULL AND rp.raw_specs <> ''
+			  AND (o->>'option_type')::int = ANY(`+qtyTypes+`)
+		)
+		UPDATE product_config_options pco
+		SET min_value = opts.qmin,
+		    max_value = CASE WHEN opts.qmax > 0 THEN opts.qmax ELSE NULL END,
+		    widget = 'qty',
+		    default_value = COALESCE(
+		        NULLIF(pco.default_value, ''),
+		        (SELECT COALESCE(MAX(s.qty_maximum), opts.qmin)::text
+		           FROM product_config_options_sub s
+		          WHERE s.option_id = pco.id AND s.price_monthly = 0 AND s.hidden = 0)
+		    ),
+		    updated_at = NOW()
+		FROM opts
+		WHERE pco.id = opts.opt_row_id
+		  AND (pco.widget IS DISTINCT FROM 'qty' OR pco.min_value IS DISTINCT FROM opts.qmin)`).Error; err != nil {
+		return err
+	}
+
+	// 2) 子项级区间：价档区间必须逐档落库，客户改数量时才能匹配到正确单价。
+	//    这些子项从此是"价档"而非"可选取值"，一并打上 is_quantity_tier。
+	return db.Exec(`
+		WITH subs AS (
+			SELECT pcos.id AS sub_row_id,
+			       (s->>'qty_minimum')::int AS sqmin,
+			       (s->>'qty_maximum')::int AS sqmax
+			FROM products p
+			JOIN resource_products rp ON rp.id = p.source_product_id
+			CROSS JOIN LATERAL jsonb_array_elements(rp.raw_specs::jsonb -> 'config_groups') AS g
+			CROSS JOIN LATERAL jsonb_array_elements(g -> 'options') AS o
+			CROSS JOIN LATERAL jsonb_array_elements(COALESCE(o -> 'sub', '[]'::jsonb)) AS s
+			JOIN product_config_options pco
+			  ON pco.product_id = p.id
+			 AND pco.source = 'upstream'
+			 AND pco.upstream_key = (o->>'id')::bigint
+			JOIN product_config_options_sub pcos
+			  ON pcos.option_id = pco.id
+			 AND pcos.upstream_key = (s->>'id')::bigint
+			WHERE p.deleted_at IS NULL
+			  AND p.source_mode = 'upstream'
+			  AND rp.raw_specs IS NOT NULL AND rp.raw_specs <> ''
+			  AND (o->>'option_type')::int = ANY(`+qtyTypes+`)
+		)
+		UPDATE product_config_options_sub pcos
+		SET qty_minimum = subs.sqmin,
+		    qty_maximum = subs.sqmax,
+		    is_quantity_tier = true
+		FROM subs
+		WHERE pcos.id = subs.sub_row_id
+		  AND (pcos.qty_minimum IS DISTINCT FROM subs.sqmin
+		       OR pcos.qty_maximum IS DISTINCT FROM subs.sqmax
+		       OR pcos.is_quantity_tier IS DISTINCT FROM true)`).Error
 }
 
 // backfillPoolParentLinkage 给存量资源池补上级关联（区域 → 宿主机/存储），等价 migrations/089。
@@ -728,6 +975,9 @@ func SeedDefaults(db *gorm.DB, cfg config.Config) error {
 			return err
 		}
 		if err := seedDefaultUserGroup(tx); err != nil {
+			return err
+		}
+		if err := seedPresetUserGroups(tx); err != nil {
 			return err
 		}
 		if err := backfillUserConsumeTotals(tx); err != nil {
@@ -2140,17 +2390,23 @@ var seedMenuDefaults = []SeedMenu{
 	// 在同一页里以独立页签分开，避免两套数据源看起来重合。
 	{ParentKey: "admin:/resource", Platform: menumodel.PlatformAdmin, Name: "同步状态运维控制台", Type: menumodel.TypeMenu, Path: "/resource/sync-center", Component: "resource/sync-center/index", Icon: "refresh", SortOrder: 3, Status: menumodel.StatusActive},
 	// —— 实例管理（一级菜单，跨用户操作、维护与售后）：见 docs/实施计划/61-实例运维管理台实施计划.md
-	// 云主机实例（原「资源管理 → 实例 → 云主机实例」）迁入本域，路径 /resource/instances → /instances/inventory（doc102 §3.3）。
 	// 父级必须排在子项之前，否则 ParentKey 解析取不到父节点会导致 seed 失败。
+	//
+	// 「云主机实例」（原 /instances/inventory，只读资产视图）已于迁移 108 下线：
+	// 它与「实例运维台」是同一批数据的两个入口（前者只读、后者带全部运维动作），
+	// 运营要在两页之间来回切才能看完一台机器。产品线区分改由运维台内的
+	// 「全部实例 / 云主机 / CDN / …」导航承担（见 /instances/types），
+	// 页面文件、路由与权限映射同步移除；后端只读接口 /resource/instances 保留
+	// 给用户详情的资产面板使用（不从 HTTP 层下线）。
 	{Platform: menumodel.PlatformAdmin, Name: "实例管理", Type: menumodel.TypeDirectory, Path: "/instances", Icon: "server", SortOrder: 4, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "实例运维台", Type: menumodel.TypeMenu, Path: "/instances/list", Component: "instances/index", Icon: "server", SortOrder: 1, Status: menumodel.StatusActive},
-	{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "云主机实例", Type: menumodel.TypeMenu, Path: "/instances/inventory", Component: "resource/instances/index", Icon: "server", SortOrder: 2, Status: menumodel.StatusActive},
 	// 全局操作流水（跨实例审计视图）：谁在什么时候对哪台机器做了什么、成功还是失败。
-	{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "操作流水", Type: menumodel.TypeMenu, Path: "/instances/operations", Component: "instances/operations/index", Icon: "history", SortOrder: 3, Status: menumodel.StatusActive},
+	{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "操作流水", Type: menumodel.TypeMenu, Path: "/instances/operations", Component: "instances/operations/index", Icon: "history", SortOrder: 2, Status: menumodel.StatusActive},
 	// 生命周期与续费（doc60）整域并入本域（迁移 066）：二级目录 + 3 个叶子，
 	// 路径 /lifecycle/* → /instances/lifecycle/*（归属调整，HTTP API / 权限码不变），
 	// 旧路径由 router redirect 兼容。
-	{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "生命周期管理", Type: menumodel.TypeDirectory, Path: "/instances/lifecycle", Icon: "history", SortOrder: 4, Status: menumodel.StatusActive},
+	// 排序 3 补的是迁移 108 下线「云主机实例」后空出来的槽位（原为 4）。
+	{ParentKey: "admin:/instances", Platform: menumodel.PlatformAdmin, Name: "生命周期管理", Type: menumodel.TypeDirectory, Path: "/instances/lifecycle", Icon: "history", SortOrder: 3, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/instances/lifecycle", Platform: menumodel.PlatformAdmin, Name: "到期管理", Type: menumodel.TypeMenu, Path: "/instances/lifecycle/expiring", Component: "instances/lifecycle/expiring/index", Icon: "history", SortOrder: 1, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/instances/lifecycle", Platform: menumodel.PlatformAdmin, Name: "续费记录", Type: menumodel.TypeMenu, Path: "/instances/lifecycle/renewals", Component: "instances/lifecycle/renewals/index", Icon: "order", SortOrder: 2, Status: menumodel.StatusActive},
 	{ParentKey: "admin:/instances/lifecycle", Platform: menumodel.PlatformAdmin, Name: "生命周期策略", Type: menumodel.TypeMenu, Path: "/instances/lifecycle/policy", Component: "instances/lifecycle/policy/index", Icon: "setting", SortOrder: 3, Status: menumodel.StatusActive},
@@ -2829,6 +3085,70 @@ func seedDefaultUserGroup(tx *gorm.DB) error {
 		IsDefault:   true,
 	}
 	return tx.Create(&group).Error
+}
+
+// presetUserGroups 预置客户分组：给运营一套开箱可用的分类骨架。
+//
+// 用户组自 doc108 起是纯分类（不承载折扣，价格只由代理等级决定），
+// 所以预置分组对算价零影响，只是把「客户分层」这件事先摆出来，
+// 免得运营在只有一个「默认用户组」的空列表上从零建组。
+//
+// 只增不改：按 code 判断存在即跳过，运营改过名称/描述/排序/停用后重启不会被还原。
+// 「特别关照」是纯人工标记分组，不带任何自动行为（不自动打折、不自动提权）。
+var presetUserGroups = []usermodel.UserGroup{
+	{
+		Name:        "大客户",
+		Code:        "vip",
+		Description: "长期高消费客户，重点跟进与续费提醒。",
+		Status:      "active",
+		SortOrder:   10,
+	},
+	{
+		Name:        "企业客户",
+		Code:        "enterprise",
+		Description: "以企业主体采购的客户，对接人可能非实际使用人。",
+		Status:      "active",
+		SortOrder:   20,
+	},
+	{
+		Name:        "特别关照客户",
+		Code:        "watchlist",
+		Description: "需人工重点跟进或谨慎处置的客户（人工标记，无自动行为）。",
+		Status:      "active",
+		SortOrder:   30,
+	},
+	{
+		Name:        "渠道代理",
+		Code:        "channel",
+		Description: "通过渠道或代理商引入的客户，归属需与销售中心保持一致。",
+		Status:      "active",
+		SortOrder:   40,
+	},
+	{
+		Name:        "测试客户",
+		Code:        "test",
+		Description: "内部测试与演示账号，不计入正式客户口径。",
+		Status:      "active",
+		SortOrder:   90,
+	},
+}
+
+// seedPresetUserGroups 按 code 补齐预置客户分组（存在即跳过）。
+func seedPresetUserGroups(tx *gorm.DB) error {
+	for _, preset := range presetUserGroups {
+		var existing []usermodel.UserGroup
+		if err := tx.Where("code = ?", preset.Code).Limit(1).Find(&existing).Error; err != nil {
+			return err
+		}
+		if len(existing) > 0 {
+			continue
+		}
+		group := preset
+		if err := tx.Create(&group).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // seedUserLevels 注入默认用户等级（会员成长体系）。

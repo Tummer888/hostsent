@@ -101,6 +101,8 @@ func registerAdminResourceRoutes(v1 *gin.RouterGroup, app *App) {
 	{
 		instanceOps.GET("", app.perm("resource:instance"), app.instanceOpsHandler.List)
 		instanceOps.GET("/stats", app.perm("resource:instance"), app.instanceOpsHandler.Stats)
+		// 产品线导航（类型清单 + 各自实例数）：静态段须先于 /:id。
+		instanceOps.GET("/types", app.perm("resource:instance"), app.instanceOpsHandler.InstanceTypes)
 		// 全局操作流水（跨实例审计视图）：静态段须先于 /:id。
 		instanceOps.GET("/operations", app.perm("resource:instance"), app.instanceOpsHandler.OperationLogs)
 		instanceOps.GET("/:id", app.perm("resource:instance"), app.instanceOpsHandler.Detail)

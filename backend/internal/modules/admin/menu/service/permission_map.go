@@ -40,10 +40,9 @@ var menuPermissionMap = map[string]string{
 	// 已并入本页，旧路径由 router redirect 承接，故这里不再为它们登记菜单权限。
 	"/resource/sync-center": "resource:sync",
 
-	// 实例管理域：运维台与只读资产视图（原 /resource/instances，doc102 §3.3 迁入本域）。
-	"/instances":           "resource:instance",
-	"/instances/list":      "resource:instance",
-	"/instances/inventory": "resource:instance",
+	// 实例管理域：运维台（产品线区分在页内以类型导航切换，见迁移 108）。
+	"/instances":      "resource:instance",
+	"/instances/list": "resource:instance",
 	// 全局操作流水（跨实例审计视图，doc61 P1）。
 	"/instances/operations": "resource:instance",
 	// 生命周期与续费（doc60）整域并入本域（迁移 066）：路径 /lifecycle/* → /instances/lifecycle/*，

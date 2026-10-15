@@ -274,10 +274,11 @@ const routes: Array<RouteRecordRaw> = [
         meta: { title: '实例资源', role: 'admin' },
       },
       {
-        // 云主机实例随「实例」二级目录迁入一级域 /instances（doc102 §3.3），旧路径 redirect。
+        // 云主机实例随「实例」二级目录迁入一级域 /instances（doc102 §3.3），旧路径 redirect；
+        // 该页本身已下线（迁移 108），最终落到实例列表（产品线区分在页内切换）。
         path: 'instances',
         name: 'ResourceInstances',
-        redirect: '/instances/inventory',
+        redirect: '/instances/list',
         meta: { title: '云主机实例', role: 'admin' },
       },
       // —— 运维三件套并入「同步状态运维控制台」（doc120）——
@@ -345,10 +346,14 @@ const routes: Array<RouteRecordRaw> = [
         meta: { title: '创建商品', role: 'admin', permission: 'product:create' },
       },
       {
+        // 「编辑商品」已并入「商品详情」（单页 + 页面子页导航）：
+        // 保留这条路径只为兼容旧书签与外部链接，直接重定向到详情页。
+        // 权限随之改回 product:list —— 详情页本身能查看，未持 product:update 的用户
+        // 只是看不到保存按钮（写接口另有 product:update 校验）。
         path: 'products/:id/edit',
         name: 'ProductProductsEdit',
-        component: () => import('@/pages/product/products/edit.vue'),
-        meta: { title: '编辑商品', role: 'admin', permission: 'product:update' },
+        redirect: (to) => ({ path: `/product/products/${to.params.id}`, query: to.query }),
+        meta: { title: '商品详情', role: 'admin', permission: 'product:list' },
       },
       {
         path: 'products/:id',
@@ -545,10 +550,10 @@ const routes: Array<RouteRecordRaw> = [
         meta: { title: '实例详情', role: 'admin', permission: 'resource:instance', hideInTabs: true },
       },
       {
-        // 云主机实例（只读资产视图）：原「资源管理 → 实例 → 云主机实例」，doc102 §3.3 迁入本域。
+        // 云主机实例（只读资产视图）已于迁移 108 下线：与「实例列表」是同一批数据的两个入口，
+        // 产品线区分改由列表页内的类型导航承担。旧书签仍可用，落到列表页（不再单独成页）。
         path: 'inventory',
-        name: 'InstanceInventory',
-        component: () => import('@/pages/resource/instances/index.vue'),
+        redirect: '/instances/list',
         meta: { title: '云主机实例', role: 'admin', permission: 'resource:instance' },
       },
       {

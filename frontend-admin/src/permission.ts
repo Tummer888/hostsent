@@ -149,7 +149,6 @@ export const navMenu: NavMenuEntry[] = [
     icon: navIcon('server'),
     children: [
       { title: '实例运维台', path: '/instances/list', icon: navIcon('server') },
-      { title: '云主机实例', path: '/instances/inventory', icon: navIcon('server') },
       { title: '操作流水', path: '/instances/operations', icon: navIcon('history') },
       // 生命周期与续费（doc60）已归入本域（迁移 066）：在后端菜单里是「生命周期管理」二级目录，
       // 兜底菜单按本文件「只保留一级域 + 直接子项」的约定压平列出。

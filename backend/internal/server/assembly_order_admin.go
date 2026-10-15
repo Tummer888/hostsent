@@ -253,7 +253,12 @@ func buildAdminOrderConfig(ctx context.Context, catalog catalogservice.ProductSe
 					MinValue:     o.MinValue,
 					MaxValue:     o.MaxValue,
 					UnitPrice:    o.UnitPrice,
-					Values:       []userdto.AdminOrderConfigOptionVal{},
+					// 四档单位加价一并下发：弹窗按所选周期挑对应档位估算，
+					// 只给月度值会让年付/季付预览远低于实付。
+					UnitPriceQuarterly: o.UnitPriceQuarterly,
+					UnitPriceAnnually:  o.UnitPriceAnnually,
+					UnitPriceOnetime:   o.UnitPriceOnetime,
+					Values:             []userdto.AdminOrderConfigOptionVal{},
 				}
 				for _, v := range o.Values {
 					opt.Values = append(opt.Values, userdto.AdminOrderConfigOptionVal{

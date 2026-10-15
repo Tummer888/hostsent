@@ -115,11 +115,13 @@ func buildOrderProvisionDeps(
 			// markRenewalSuccess 误判为链路 B 而静默本地顺延。
 			sourceMode := ""
 			var upstreamProductID uint64
+			var productKind string
 			if product, perr := catalog.FindByID(ctx, order.ProductID); perr == nil && product != nil {
 				sourceMode = product.SourceMode
 				upstreamProductID = product.SourceProductID
+				productKind = product.ProductType
 			}
-			row := buildRecordedInstance(inst, order, sourceMode, upstreamProductID)
+			row := buildRecordedInstance(inst, order, sourceMode, upstreamProductID, productKind)
 			if row.InstanceID == "" {
 				return nil
 			}
@@ -197,8 +199,9 @@ func buildProductSourceModeResolver(catalog catalogservice.ProductService) func(
 // 复用 system 事件避免为一个提示新增模板（与调价待确认一致）。
 
 // buildRecordedInstance 将标准实例转换为同步实例记录（订单履约开通成功后落库）。
-// sourceMode 为商品链路判据（D6），upstreamProductID 为代理商品对应的上游资源商品 ID。
-func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order, sourceMode string, upstreamProductID uint64) syncmodel.Instance {
+// sourceMode 为商品链路判据（D6），upstreamProductID 为代理商品对应的上游资源商品 ID，
+// productKind 为商品产品类型（迁移 108，落到实例的产品线归属）。
+func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order, sourceMode string, upstreamProductID uint64, productKind string) syncmodel.Instance {
 	rawJSON, _ := json.Marshal(inst.RawData)
 	// 规格回落（T4.1）：上游详情拉取失败时适配器只返回最小实例（规格为空），
 	// 此时用订单规格快照（SKU 原子取值 JSON）补齐，保证实例列表能显示下单所选配置。
@@ -238,6 +241,12 @@ func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order
 	if sourceMode == "" {
 		sourceMode = syncmodel.SourceModeSelf
 	}
+	// 商品未登记类型时归 other：与列表筛选口径一致（other 档兜住所有未分类行）。
+	if productKind == "" {
+		productKind = model.ProductKindOther
+	} else {
+		productKind = model.NormalizeProductKind(productKind)
+	}
 	row := syncmodel.Instance{
 		InstanceID: inst.UpstreamID,
 		ProviderID: uint64(inst.ProviderID),
@@ -276,6 +285,9 @@ func buildRecordedInstance(inst *model.StandardInstance, order *ordermodel.Order
 		// （重试复用同一份），因此这里必须原样带走，不能重新生成。
 		// 原样搬运的前提：order.CredentialPassword 已是 enc:v1: 密文（不透明搬运，不解密）。
 		CredentialPassword: order.CredentialPassword,
+		// 产品类型（迁移 108）：实例导航按产品线分组，判据随商品带过来。
+		// 未登记/未知类型归一为 other，避免实例在任何标签页都找不到。
+		InstanceType: productKind,
 	}
 	if !inst.ExpireAt.IsZero() {
 		exp := inst.ExpireAt
