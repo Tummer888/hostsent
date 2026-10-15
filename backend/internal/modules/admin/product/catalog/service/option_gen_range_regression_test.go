@@ -194,11 +194,11 @@ func TestDeriveMissingCyclePrices(t *testing.T) {
 // 提交后覆盖掉目录中文名，下单界面只显示 ID。
 func TestOverrideLabelKeepsCatalogName(t *testing.T) {
 	cases := []struct {
-		name       string
-		requested  string
-		value      string
-		catalog    string
-		want       string
+		name      string
+		requested string
+		value     string
+		catalog   string
+		want      string
 	}{
 		{"裸值等于取值 → 用目录名", "62", "62", "CentOS / CentOS-7.9.2111-x64", "CentOS / CentOS-7.9.2111-x64"},
 		{"裸值等于取值且目录没有 → 用取值", "1", "1", "", "1"},

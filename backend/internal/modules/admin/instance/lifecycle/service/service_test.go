@@ -310,7 +310,7 @@ func TestStatusOfStage(t *testing.T) {
 // TestEnsureRenewableRefusesTerminalInstance 已销毁的实例不得续费。
 //
 // 机器终止后若还能续费，会向客户收一笔没有交付物的钱，并把到期时间往后推
-//（生命周期推进器随后会把这条行当"在跑机器"再处置一次）。status 与
+// （生命周期推进器随后会把这条行当"在跑机器"再处置一次）。status 与
 // lifecycle_stage 任一命中都要拒：历史数据里存在只写了一边的行。
 func TestEnsureRenewableRefusesTerminalInstance(t *testing.T) {
 	cases := []struct {
