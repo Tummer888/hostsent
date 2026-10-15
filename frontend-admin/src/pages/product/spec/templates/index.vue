@@ -950,8 +950,39 @@ function firstQtyRangeError(): { name: string; message: string } | null {
  * - 平台来源（images/areas/nodes/stores）：库里的取值（含分组）。
  * 三处合并去重，不只看 values，否则 manual 项的 options 会整个丢掉（port 就只剩空）。
  */
+/**
+ * parseRawValueLabel 解析平台原始取值名「传值|地区^展示名」→ 展示名。
+ *
+ * 平台目录里的取值名是原始形态（实测样本）：
+ *   `1|CN^香港CN2`      → 取值 1，地区 CN，展示名 香港CN2
+ *   `auto`               → 无竖线，展示名即原值
+ *   `12|CentOS^CentOS-7.6.1810-x64` → 取值 12，展示名 CentOS-7.6.1810-x64
+ *
+ * 与后端 product_customer_options.upstreamSubLabel 同一套口径：
+ * 先取竖线后半段，再取 `^` 后的明细（没明细时取 `^` 前那段）。
+ * 不解析的话编辑器里会显示成「1|CN^默认（1）」，运营既看不懂也没法核对。
+ */
+function parseRawValueLabel(raw: string): string {
+  let name = String(raw || '').trim()
+  if (!name) return ''
+  const bar = name.indexOf('|')
+  if (bar >= 0) name = name.slice(bar + 1).trim()
+  const caret = name.indexOf('^')
+  if (caret >= 0) {
+    const detail = name.slice(caret + 1).trim()
+    name = detail || name.slice(0, caret).trim()
+  }
+  return name
+}
+
 function valueOptions(row: OptionRow): { label: string; value: string }[] {
-  const labelOf = (label: string, value: string) => (label && label !== value ? `${label}（${value}）` : value)
+  // 展示名与传值都要露出来：运营核对的是"传给平台什么、客户看到什么"两件事，
+  // 只显示其一会让对不上的问题查不出来。
+  const labelOf = (label: string, value: string) => {
+    const pretty = parseRawValueLabel(label)
+    if (!pretty) return value
+    return pretty !== value ? `${pretty}（传值 ${value}）` : pretty
+  }
   const out = new Map<string, string>()
   const push = (value: string, label: string) => {
     if (!value || out.has(value)) return

@@ -310,12 +310,19 @@ import { computed, onMounted, ref } from 'vue'
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next'
 
 import { getOptionCatalog, getProductConfigOptions, saveProductConfigOptions } from '@/api/product'
-import type {
-  OptionSpecInfo,
-  SaleProductConfigGroup,
-  SaleProductConfigOption,
-  SaleProductConfigSub,
-} from '@/types/interface'
+import type { OptionSpecInfo } from '@/types/interface'
+import {
+  buildGroups,
+  emptyUnitPrices,
+  groupsToRows,
+  isQuantity,
+  numOf,
+  numOrNull,
+  serializeRows,
+  strOf,
+  type ConfigOptionRow,
+  type ConfigSubRow,
+} from './config-options-mapping'
 
 defineOptions({ name: 'ConfigOptionsEditor' })
 
@@ -332,54 +339,7 @@ const emit = defineEmits<{
   (e: 'update:saving', value: boolean): void
 }>()
 
-/**
- * 服务端原始对象的保底副本：回写时以它为底，只覆盖界面编辑过的字段。
- *
- * 为什么必须留着原对象：`SaleProductConfigOption` 类型里没有 `id`（上游下单键）、
- * 也没有 `qty_minimum/qty_maximum/is_quantity_tier/options_help`；旧实现按类型逐字段
- * 重建对象，这些字段全部被丢掉，于是上游行的映射键与价档边界被静默改写成展示名。
- * 保留原始对象 + 局部覆盖，才能做到「界面没碰的字段一个不丢」。
- */
-type RawRecord = Record<string, unknown>
-
-type SubRow = {
-  subKey: string
-  /** 服务端原始子项对象（新增行为空） */
-  raw?: RawRecord
-  option_name: string
-  source_key: string
-  group_label: string
-  is_default: boolean
-  hidden: number
-  priceMonthly: number
-  priceQuarterly: number
-  priceAnnually: number
-  priceOnetime: number
-  qtyMinimum?: number
-  qtyMaximum?: number
-}
-
-type OptionRow = {
-  rowKey: string
-  /** 服务端原始配置项对象（新增行为空） */
-  raw?: RawRecord
-  option_name: string
-  option_type: number
-  source: string
-  source_key: string
-  option_key: string
-  widget: string
-  required: boolean
-  default_value: string
-  unit: string
-  min_value: number | null
-  max_value: number | null
-  /** 数量型：逐周期超出单价（回写到有价价档上） */
-  unitPrices: { monthly: number; quarterly: number; annually: number; onetime: number }
-  sub: SubRow[]
-}
-
-const rows = ref<OptionRow[]>([])
+const rows = ref<ConfigOptionRow[]>([])
 const expandedKey = ref('')
 const advancedVisible = ref(false)
 const advancedText = ref('')
@@ -414,7 +374,7 @@ const cyclePriceCols = [
   { key: 'onetime' as const, title: '一次性' },
 ]
 
-const columns: PrimaryTableCol<OptionRow>[] = [
+const columns: PrimaryTableCol<ConfigOptionRow>[] = [
   { colKey: 'opt_key', title: '参数', minWidth: 190 },
   { colKey: 'opt_widget', title: '控件', width: 150 },
   { colKey: 'opt_required', title: '必选', width: 70 },
@@ -423,7 +383,7 @@ const columns: PrimaryTableCol<OptionRow>[] = [
   { colKey: 'opt_action', title: '操作', width: 120, align: 'center' as const },
 ]
 
-const subColumns: PrimaryTableCol<SubRow>[] = [
+const subColumns: PrimaryTableCol<ConfigSubRow>[] = [
   { colKey: 'sub_label', title: '显示名', minWidth: 150 },
   { colKey: 'sub_value', title: '下发值', width: 110 },
   { colKey: 'sub_group', title: '分组', width: 120 },
@@ -436,189 +396,19 @@ const subColumns: PrimaryTableCol<SubRow>[] = [
   { colKey: 'sub_action', title: '操作', width: 70, align: 'center' as const },
 ]
 
-const qtyTierColumns: PrimaryTableCol<SubRow>[] = [
+const qtyTierColumns: PrimaryTableCol<ConfigSubRow>[] = [
   { colKey: 'tier_range', title: '数量区间', width: 140 },
   { colKey: 'tier_price', title: '上游单价', minWidth: 240 },
 ]
 
-// ---------- 工具 ----------
-
-/** 数量型配置项的 option_type 集合（与后端 isQuantityOption / 上游 judgeQuantity 同口径）。 */
-const QUANTITY_TYPES = [4, 7, 9, 11, 14, 15, 16, 17, 18, 19]
-function isQuantity(row: OptionRow): boolean {
-  return QUANTITY_TYPES.includes(row.option_type) || row.widget === 'qty'
-}
-
-function numOrNull(v: number | string | undefined): number | null {
-  const n = Number(v)
-  return Number.isFinite(n) ? n : null
-}
-function numOf(v: unknown): number {
-  const n = Number(v)
-  return Number.isFinite(n) ? n : 0
-}
-function strOf(v: unknown): string {
-  return v == null ? '' : String(v)
-}
+/** 数量型价档的单价展示：0 表示该档免费（档位内含量），不显示成 "¥0.00" 免得误读成要收费。 */
 function fmt(v: number): string {
   return v > 0 ? `¥${Number(v).toFixed(2)}` : '免费'
 }
 
-/** 数量型选项的「有价价档」：第一个含正价的子项（与后端 quantityUnitPriceForCycle 同规则）。 */
-function pricedTierOf(row: OptionRow): SubRow | undefined {
-  return row.sub.find(
-    (s) => s.priceMonthly > 0 || s.priceQuarterly > 0 || s.priceAnnually > 0 || s.priceOnetime > 0,
-  )
-}
-
-function emptyUnitPrices() {
-  return { monthly: 0, quarterly: 0, annually: 0, onetime: 0 }
-}
-
-// ---------- 读：服务端 → 行（保留原始对象） ----------
-
-function groupsToRows(groups: SaleProductConfigGroup[]): OptionRow[] {
-  const out: OptionRow[] = []
-  for (const g of groups || []) {
-    for (const opt of (g.options || []) as (SaleProductConfigOption & RawRecord)[]) {
-      const raw = opt as RawRecord
-      const source = strOf(raw.source) || 'self'
-      const subs: SubRow[] = ((opt.sub || []) as (SaleProductConfigSub & RawRecord)[]).map((s) => {
-        const sraw = s as RawRecord
-        const p = ((s.pricings || [])[0] || {}) as Record<string, unknown>
-        return {
-          subKey: nextKey('sub'),
-          raw: sraw,
-          option_name: strOf(s.option_name),
-          source_key: strOf(s.source_key),
-          group_label: strOf(s.group_label),
-          is_default: !!s.is_default,
-          hidden: numOf(s.hidden),
-          priceMonthly: numOf(p.monthly),
-          priceQuarterly: numOf(p.quarterly),
-          priceAnnually: numOf(p.annually),
-          priceOnetime: numOf(p.onetime),
-          qtyMinimum: sraw.qty_minimum == null ? undefined : numOf(sraw.qty_minimum),
-          qtyMaximum: sraw.qty_maximum == null ? undefined : numOf(sraw.qty_maximum),
-        }
-      })
-      const row: OptionRow = {
-        rowKey: nextKey('opt'),
-        raw,
-        option_name: strOf(opt.option_name),
-        option_type: numOf(opt.option_type) || 1,
-        source,
-        source_key: strOf(raw.source_key),
-        option_key: strOf(raw.option_key),
-        widget: strOf(raw.widget) || (QUANTITY_TYPES.includes(numOf(opt.option_type)) ? 'qty' : 'select'),
-        required: !!opt.required,
-        default_value: strOf(opt.default_value),
-        unit: strOf(raw.unit),
-        min_value: raw.min_value == null ? null : numOf(raw.min_value),
-        max_value: raw.max_value == null ? null : numOf(raw.max_value),
-        unitPrices: emptyUnitPrices(),
-        sub: subs,
-      }
-      // 数量型的「超出单价」= 有价价档的单价（免费档保持 0，客户按内含量购买时加价为 0）。
-      const priced = pricedTierOf(row)
-      if (priced) {
-        row.unitPrices = {
-          monthly: priced.priceMonthly,
-          quarterly: priced.priceQuarterly,
-          annually: priced.priceAnnually,
-          onetime: priced.priceOnetime,
-        }
-      }
-      out.push(row)
-    }
-  }
-  return out
-}
-
-// ---------- 写：行 → config_groups（无损合并） ----------
-
-/**
- * 把界面上的行合并回服务端结构。
- *
- * 合并规则（每一条都对应一类「保存一次就丢数据」的历史故障）：
- *   · 选项/子项对象以 `raw` 为底 → `id`(上游下单键)、`upstream_id`、`qty_minimum/qty_maximum`、
- *     `is_quantity_tier`、`options_help`、`provider_type` 等界面没建模的字段原样保留；
- *   · `source` 只在**新增行**上取默认值 self，已有行恒用服务端的来源标注
- *     （旧实现无条件写 self，会把上游行变成自营行，开通时上游配置整体丢失）；
- *   · `pricings` 保留其余周期，只覆盖界面编辑的四个周期价（旧实现压成 [{monthly}]，
- *     把年付/季付单价清零）。
- */
-function buildGroups(): SaleProductConfigGroup[] {
-  const options = rows.value.map((row, idx) => {
-    const base: RawRecord = { ...(row.raw || {}) }
-    base.option_name = row.option_name
-    base.option_type = row.option_type
-    // 已有行沿用服务端来源；新增行是运营手工建的平台参数（self）。
-    base.source = row.raw ? strOf(row.raw.source) || 'self' : 'self'
-    base.source_key = row.source_key
-    base.option_key = row.option_key || row.source_key
-    base.widget = row.widget
-    base.required = !!row.required
-    base.default_value = row.default_value || ''
-    base.unit = row.unit
-    base.sort_order = idx
-    if (isQuantity(row)) {
-      // 数量型的区间是客户可填范围（滑块），落到 min_value/max_value；
-      // 同时回写 qty_minimum/qty_maximum —— 上游适配器按后两者判定"这是数量变量"。
-      base.min_value = row.min_value
-      base.max_value = row.max_value
-      base.qty_minimum = row.min_value == null ? 0 : Math.round(row.min_value)
-      if (row.max_value != null) base.qty_maximum = Math.round(row.max_value)
-    }
-    base.sub = row.sub.map((sub, sIdx) => {
-      const sbase: RawRecord = { ...(sub.raw || {}) }
-      sbase.option_name = sub.option_name
-      sbase.source = sub.raw ? strOf(sub.raw.source) || strOf(base.source) : strOf(base.source) || 'self'
-      sbase.source_key = sub.source_key
-      sbase.group_label = sub.group_label
-      sbase.is_default = !!sub.is_default
-      sbase.hidden = sub.hidden ?? 0
-      sbase.sort_order = sIdx
-      const pricings = Array.isArray(sbase.pricings) && (sbase.pricings as unknown[]).length
-        ? [...(sbase.pricings as Record<string, unknown>[])]
-        : [{}]
-      // 数量型：四个周期价都写到「有价价档」上，免费档保持 0（超出内含量才加价）。
-      // 枚举型：每个取值各写自己的四个周期价（旧实现只保留 monthly，把季/年单价清零）。
-      const priced = isQuantity(row) ? pricedTierOf(row) : undefined
-      const target =
-        priced && priced.subKey === sub.subKey
-          ? { ...row.unitPrices }
-          : isQuantity(row)
-            ? { monthly: 0, quarterly: 0, annually: 0, onetime: 0 }
-            : {
-                monthly: sub.priceMonthly,
-                quarterly: sub.priceQuarterly,
-                annually: sub.priceAnnually,
-                onetime: sub.priceOnetime,
-              }
-      pricings[0] = {
-        ...pricings[0],
-        monthly: target.monthly,
-        quarterly: target.quarterly,
-        annually: target.annually,
-        onetime: target.onetime,
-      }
-      sbase.pricings = pricings
-      return sbase
-    })
-    return base as unknown as SaleProductConfigOption
-  })
-  if (!options.length) return []
-  return [{ name: '客户选配', description: '按配置档生成 / 手工维护', options }]
-}
-
-/** 界面行 → 规范化 JSON：既用于高级 JSON 展示，也用作「是否改过」的比对基线。 */
-function serialize(): string {
-  return JSON.stringify(buildGroups())
-}
-
+/** 规范化 JSON：既用于高级 JSON 展示，也用作「是否改过」的比对基线（见 save）。 */
 function syncAdvancedFromRows() {
-  const groups = buildGroups()
+  const groups = buildGroups(rows.value)
   advancedText.value = groups.length ? JSON.stringify(groups, null, 2) : ''
 }
 
@@ -632,7 +422,7 @@ function applyAdvancedJSON() {
   try {
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) throw new Error('not array')
-    rows.value = groupsToRows(parsed as SaleProductConfigGroup[])
+    rows.value = groupsToRows(parsed)
     MessagePlugin.success('已按 JSON 刷新表格')
   } catch {
     MessagePlugin.warning('JSON 结构非法（应为 config_groups 数组），表格保持原样')
@@ -641,17 +431,17 @@ function applyAdvancedJSON() {
 
 // ---------- 行编辑 ----------
 
-function onWidgetChange(row: OptionRow) {
+function onWidgetChange(row: ConfigOptionRow) {
   const map: Record<string, number> = { select: 1, radio: 2, bool: 3, qty: 4 }
   row.option_type = map[row.widget || 'select'] ?? 1
   syncAdvancedFromRows()
 }
 
-function toggleExpand(row: OptionRow) {
+function toggleExpand(row: ConfigOptionRow) {
   expandedKey.value = expandedKey.value === row.rowKey ? '' : row.rowKey
 }
 
-function addSub(row: OptionRow) {
+function addSub(row: ConfigOptionRow) {
   row.sub.push({
     subKey: nextKey('sub'),
     option_name: '',
@@ -667,11 +457,11 @@ function addSub(row: OptionRow) {
   expandedKey.value = row.rowKey
 }
 
-function removeSub(row: OptionRow, target: SubRow) {
+function removeSub(row: ConfigOptionRow, target: ConfigSubRow) {
   row.sub = row.sub.filter((s) => s.subKey !== target.subKey)
 }
 
-function setSubDefault(row: OptionRow, target: SubRow) {
+function setSubDefault(row: ConfigOptionRow, target: ConfigSubRow) {
   // 每个参数只保留一个默认：用户侧预选靠它，多个默认会导致"看到的默认"与"实际开通"不一致。
   for (const sub of row.sub) sub.is_default = sub.subKey === target.subKey
   if (!isQuantity(row)) {
@@ -699,7 +489,7 @@ function addBlankOption() {
   })
 }
 
-function removeOption(row: OptionRow) {
+function removeOption(row: ConfigOptionRow) {
   rows.value = rows.value.filter((r) => r.rowKey !== row.rowKey)
 }
 
@@ -781,7 +571,7 @@ async function reload() {
   try {
     const groups = await getProductConfigOptions(props.productId)
     rows.value = groupsToRows(groups || [])
-    baseline.value = serialize()
+    baseline.value = serializeRows(rows.value)
     syncAdvancedFromRows()
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载可选配置项失败')
@@ -799,11 +589,11 @@ async function reload() {
  */
 async function save(): Promise<boolean> {
   if (!props.productId) return true
-  if (serialize() === baseline.value) return true
+  if (serializeRows(rows.value) === baseline.value) return true
   saving.value = true
   emit('update:saving', true)
   try {
-    await saveProductConfigOptions(props.productId, buildGroups())
+    await saveProductConfigOptions(props.productId, buildGroups(rows.value) as never)
     MessagePlugin.success('可选配置项已保存')
     await reload()
     return true

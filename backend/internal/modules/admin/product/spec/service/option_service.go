@@ -641,11 +641,41 @@ func toValueItems(items []model.PlatformOptionValue) []dto.OptionValueItem {
 	out := make([]dto.OptionValueItem, 0, len(items))
 	for _, it := range items {
 		out = append(out, dto.OptionValueItem{
-			Label: it.Label, Value: it.Value, GroupLabel: it.GroupLabel,
+			// 目录里的取值名是平台原始形态「传值|地区^展示名」（如 1|CN^香港CN2）。
+			// 直接下发会让编辑器与商品页拿到一串看不懂的原文，统一在出口解析成展示名；
+			// 解析不出来的（如 auto）原样保留，不隐藏信息。
+			Label: displayValueLabel(it.Label, it.Value), Value: it.Value, GroupLabel: it.GroupLabel,
 			ParentValue: it.ParentValue, Status: it.Status, Origin: it.Origin,
 		})
 	}
 	return out
+}
+
+// displayValueLabel 把平台原始取值名解析为可读展示名。
+//
+// 形态与口径对齐 catalog 侧的 upstreamSubLabel（两处必须一致，否则
+// 编辑器与商品页会对同一个取值显示不同名字）：
+// 去掉「传值|」前缀 → 有 `^` 时取其后明细，无明细则取 `^` 前那段。
+// 全空回落取值本身，避免界面出现空选项。
+func displayValueLabel(raw, value string) string {
+	name := strings.TrimSpace(raw)
+	if name == "" {
+		return value
+	}
+	if i := strings.Index(name, "|"); i >= 0 {
+		name = strings.TrimSpace(name[i+1:])
+	}
+	if i := strings.Index(name, "^"); i >= 0 {
+		if detail := strings.TrimSpace(name[i+1:]); detail != "" {
+			name = detail
+		} else {
+			name = strings.TrimSpace(name[:i])
+		}
+	}
+	if name == "" {
+		return value
+	}
+	return name
 }
 
 func optionsToItems(options []upstream.FieldOption) []dto.OptionValueItem {

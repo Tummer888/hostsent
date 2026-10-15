@@ -46,10 +46,42 @@ type optionSelection struct {
 	// Range 数量型区间 [min, max]（长度 2 时生效）。
 	Range []float64 `json:"range"`
 	// Default 默认值（字符串形式，与平台写参数口径一致）。
-	Default string `json:"default"`
+	//
+	// 类型是 flexString 而不是 string：这一列是 jsonb，写入方不止一个 ——
+	// 编辑器写的是字符串 "10"，而 SQL 侧的修正（migrations/111 的 to_jsonb(numeric)）
+	// 与手工 UPDATE 写出来的是数字 10。两种形态都必须能读，
+	// 否则一次类型不符会让**整份 selections 反序列化失败**，
+	// 表现为商品缺失全部配置项（实测故障）。
+	Default flexString `json:"default"`
 	// GroupLabel 分组标签（同一参数的取值默认归入哪个分组）。
 	GroupLabel string `json:"group_label"`
 }
+
+// flexString 兼容 JSON 字符串与数字两种写法的字符串字段。
+//
+// 只用于读配置档这类"多来源写入"的 jsonb，避免为类型差异把整份数据丢掉。
+type flexString string
+
+func (f *flexString) UnmarshalJSON(b []byte) error {
+	s := strings.TrimSpace(string(b))
+	if s == "" || s == "null" {
+		*f = ""
+		return nil
+	}
+	// 字符串：去掉引号并解转义；数字/布尔等：取字面量。
+	if s[0] == '"' {
+		var out string
+		if err := json.Unmarshal(b, &out); err != nil {
+			return err
+		}
+		*f = flexString(out)
+		return nil
+	}
+	*f = flexString(s)
+	return nil
+}
+
+func (f flexString) String() string { return string(f) }
 
 // parseOptionSelections 解析配置档的 option_selections JSON；非法/空返回 nil。
 func parseOptionSelections(raw string) map[string]optionSelection {
@@ -120,7 +152,7 @@ func (a *optionAccumulator) addValues(sel optionSelection, meta SpecOptionMeta) 
 		// 取最宽区间：不同档位给的区间不同时，客户应能选到任意档位允许的值。
 		a.meta.MinValue = a.minValue
 		a.meta.MaxValue = a.maxValue
-		if d := strings.TrimSpace(sel.Default); d != "" {
+		if d := strings.TrimSpace(sel.Default.String()); d != "" {
 			// 数量型的默认值：目录没给默认时用档位声明，保证客户看到的是一个可开通的值。
 			if a.defRange == "" || a.meta.Default == "" {
 				a.meta.Default = d
@@ -131,6 +163,8 @@ func (a *optionAccumulator) addValues(sel optionSelection, meta SpecOptionMeta) 
 		}
 		return
 	}
+	// 档位声明的默认取值（模板 option_selections 的 default）。
+	declDefault := strings.TrimSpace(sel.Default.String())
 	for _, v := range sel.Values {
 		v = strings.TrimSpace(v)
 		if v == "" {
@@ -156,11 +190,36 @@ func (a *optionAccumulator) addValues(sel optionSelection, meta SpecOptionMeta) 
 			Label: labelForValue(meta, v),
 			Group: groupForValue(meta, v, sel.GroupLabel),
 			Help:  optionValueHelp(meta, v),
+			// 档位声明的 default 即"基线值"，标记它让后端 pickEnumValue 有据可依。
+			Default: declDefault != "" && v == declDefault,
 		})
 	}
 	// 控件：目录推荐优先，多取值时按目录能力降级/升级。
 	if a.meta.Widget == "" {
 		a.meta.Widget = SpecWidgetSelect
+	}
+	// 枚举型默认值必须落在**已开放的取值**里（实测故障）：目录的默认值常是
+	// 平台自身口径（snap_num 目录默认 2），而档位只开放了 -1 —— 不校正就会生成
+	// default_value=2 而取值列表只有 -1，客户下单时预选不出任何一项，
+	// 编辑器还显示"平台默认 2"这种客户永远选不到的值。
+	// 口径：档位声明的 default 优先，其次目录默认（仅当它在取值内），最后首个取值。
+	if len(a.values) > 0 {
+		_, declOpen := a.seen[declDefault]
+		_, metaOpen := a.seen[a.meta.Default]
+		switch {
+		case declDefault != "" && declOpen:
+			a.meta.Default = declDefault
+		case a.meta.Default != "" && !metaOpen:
+			// 目录默认值不在开放取值里：清掉，否则客户预选不出任何一项。
+			a.meta.Default = ""
+		}
+		if a.meta.Default == "" {
+			a.meta.Default = a.values[0].Value
+		}
+		// 把最终默认同步到取值标记上：后端 pickEnumValue 与用户侧预选都读它。
+		for i := range a.values {
+			a.values[i].Default = a.values[i].Value == a.meta.Default
+		}
 	}
 	if len(a.values) > 1 && (meta.Widget == SpecWidgetRadio || meta.Widget == SpecWidgetQty) {
 		// 目录说"单选/数量"但档位开放了多个离散值：按按钮组呈现（CPU 2核/4核/8核）。
@@ -211,6 +270,17 @@ func (a *optionAccumulator) applyOverride(ov dto.ProductOptionOverride) {
 	}
 	if d := strings.TrimSpace(ov.Default); d != "" {
 		a.meta.Default = d
+	}
+	// 数量型（带宽/数据盘/系统盘/IP 数）：只有区间、没有离散取值。
+	//
+	// 这里必须把 isRange 标上（实测故障）：建品页把这类项放在 option_overrides 里传过来时
+	// 不带 values，而 buildGroupsFromAccumulators 的保留条件是
+	// 「有取值 或 isRange」—— 不标 isRange 就会被当成"没有取值的单选型"整项丢弃，
+	// 于是生成的商品缺失全部范围型配置项，下单表单里也就没有这些可填项。
+	// 判据用 min/max 是否存在：applyOverride 只在这两个字段有值时才设置它们。
+	if a.meta.MinValue != nil || a.meta.MaxValue != nil {
+		a.isRange = true
+		a.meta.Widget = SpecWidgetQty
 	}
 	if len(ov.Values) == 0 {
 		return
@@ -312,7 +382,10 @@ func (a *optionAccumulator) toConfigOption() map[string]interface{} {
 			}},
 		})
 	}
-	// 数量型没有离散 sub：用一个名为"数量"的占位 sub，取值范围由 min/max 表达。
+	// 数量型没有离散 sub：用一个占位 sub，取值范围由 min/max 表达。
+	//
+	// 占位 sub 的名字只用于后端回读，不该出现在客户界面（数量型靠区间渲染步进器）。
+	// 取配置项本身的名称即可；客户端不会把它当可选取值展示。
 	if widget == SpecWidgetQty && len(subs) == 0 {
 		subs = append(subs, map[string]interface{}{
 			"option_name": firstNonEmptyStr(a.meta.Label, a.meta.OptionKey),

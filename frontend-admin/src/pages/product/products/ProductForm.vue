@@ -1316,7 +1316,9 @@ function buildOptionRows(tpl: SpecTemplateInfo): OptionRow[] {
     const hasDeclaredDefault = !!cfg?.default && rawValues.includes(cfg.default)
     const values = rawValues.map((v, idx) => ({
       value: v,
-      label: v,
+      // 展示名取平台目录的翻译（6144 → 「6G」）：留空则由后端按目录补，
+      // 但这里显式填上，提交的 option_overrides 才不会用裸值覆盖掉目录里的中文名。
+      label: catalogValueLabel(key, v),
       group: cfg?.group_label || '',
       price: 0,
       isDefault: hasDeclaredDefault ? cfg.default === v : idx === 0,

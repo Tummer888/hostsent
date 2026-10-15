@@ -93,7 +93,8 @@
                   <span class="configure-order__option-name">
                     {{ opt.name }}
                     <em v-if="opt.required" class="configure-order__required">必选</em>
-                    <em v-if="opt.unit" class="configure-order__unit">/{{ opt.unit }}</em>
+                    <!-- 单位做成醒目的标签：原来只写「/GB」的小灰字，运营常看不出该填什么单位 -->
+                    <em v-if="opt.unit" class="configure-order__unit-tag">{{ opt.unit }}</em>
                   </span>
                   <span v-if="optionSurcharge(opt) > 0" class="configure-order__option-add">
                     +¥{{ money(optionSurcharge(opt)) }}
@@ -115,9 +116,31 @@
                   </t-option-group>
                 </t-select>
 
-                <!-- 普通下拉 -->
+                <!--
+                  枚举型（单选）：
+                    - 取值少（≤ 6）→ 可选小卡片，一眼看完、一点即中，比下拉少两次交互
+                      （用户要求：像「4核/8核」这种就该是能点选的按钮）；
+                    - 取值多 → 退化为下拉，避免卡片铺满整屏。
+                  两种形态都显示取值加价，运营不必逐个点开确认。
+                -->
+                <div v-else-if="opt.widget === 'radio' && opt.values.length <= 6" class="configure-order__cards">
+                  <button
+                    v-for="it in opt.values"
+                    :key="it.value"
+                    type="button"
+                    class="configure-order__card"
+                    :class="{ 'is-active': selection[opt.option_key] === it.value }"
+                    @click="setSelectionValue(opt, it.value)"
+                  >
+                    <span class="configure-order__card-label">{{ it.label }}</span>
+                    <span v-if="itemAddPrice(opt, it) > 0" class="configure-order__card-price">
+                      +¥{{ money(itemAddPrice(opt, it)) }}
+                    </span>
+                    <span v-else class="configure-order__card-price configure-order__card-price--free">不加价</span>
+                  </button>
+                </div>
                 <t-select
-                  v-else-if="opt.widget === 'select'"
+                  v-else-if="opt.widget === 'radio' || opt.widget === 'select'"
                   :model-value="selection[opt.option_key] || undefined"
                   :style="{ maxWidth: selectMaxWidth(opt) }"
                   :placeholder="placeholder(opt)"
@@ -127,22 +150,6 @@
                 >
                   <t-option v-for="it in opt.values" :key="it.value" :value="it.value" :label="itemLabel(opt, it)" />
                 </t-select>
-
-                <!-- 单选按钮组 -->
-                <t-radio-group
-                  v-else-if="opt.widget === 'radio'"
-                  :model-value="selection[opt.option_key]"
-                  variant="default-filled"
-                  size="small"
-                  @change="(v: string | number | boolean) => setSelectionValue(opt, v)"
-                >
-                  <t-radio-button v-for="it in opt.values" :key="it.value" :value="it.value">
-                    {{ it.label }}
-                    <em v-if="itemAddPrice(opt, it) > 0" class="configure-order__option-add-inline">
-                      +¥{{ money(itemAddPrice(opt, it)) }}
-                    </em>
-                  </t-radio-button>
-                </t-radio-group>
 
                 <!-- 开关 -->
                 <t-switch
@@ -1088,6 +1095,69 @@ async function handleSubmit() {
   font-style: normal;
   font-size: 11px;
   color: var(--color-muted-foreground, #6b7280);
+}
+
+/* 单位标签：单位是"该填什么"的关键信息，做成带底色的标签而不是小灰字 */
+.configure-order__unit-tag {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--td-bg-color-container-hover, #f3f3f3);
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--td-text-color-secondary, #666);
+}
+
+/*
+  枚举取值小卡片：取值少时替代下拉（用户要求「4核/8核」这类应当能直接点选）。
+  与规格卡片同一套视觉语言（选中主色描边），避免界面出现第三种选中态。
+*/
+.configure-order__cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.configure-order__card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 84px;
+  padding: 7px 11px;
+  border: 1px solid var(--td-component-stroke, #dcdcdc);
+  border-radius: 6px;
+  background: var(--td-bg-color-container, #fff);
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.configure-order__card:hover {
+  border-color: var(--td-brand-color-light, #a6c8ff);
+}
+
+.configure-order__card.is-active {
+  border-color: var(--td-brand-color, #0052d9);
+  box-shadow: inset 0 0 0 1px var(--td-brand-color, #0052d9);
+}
+
+.configure-order__card-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--td-text-color-primary);
+}
+
+.configure-order__card-price {
+  font-size: 11px;
+  color: var(--td-warning-color-6, #d97706);
+}
+
+/* 「不加价」用弱化色：它是"无需关注"的信息，不该与加价抢注意力 */
+.configure-order__card-price--free {
+  color: var(--color-muted-foreground, #9ca3af);
 }
 
 .configure-order__option-add {

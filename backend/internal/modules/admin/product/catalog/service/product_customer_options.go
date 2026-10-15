@@ -134,10 +134,11 @@ func (s *productService) CustomerOptions(ctx context.Context, productID uint64) 
 		}
 		widget := customerWidget(row)
 		name := firstNonEmptyStr(row.OptionName, key)
-		// 上游配置项名形如「os|操作系统」，展示侧只留中文说明。
-		if row.Source == catalogmodel.ConfigSourceUpstream {
-			name = upstreamOptionLabel(name, key)
-		}
+		// 「值|展示名」是平台通用写法（上游 configoption 与平台目录取值库都用它），
+		// 与来源无关：自营商品从平台目录带过来的取值同样是「1|CN^默认」这种原始串。
+		// 早先只在 source=upstream 时解析，自营项于是把上游原文直接显示给客户
+		// （实测：数据中心下拉里出现「1|CN^默认」）。
+		name = upstreamOptionLabel(name, key)
 		opt := CustomerOption{
 			OptionKey:    key,
 			Name:         name,
@@ -150,6 +151,10 @@ func (s *productService) CustomerOptions(ctx context.Context, productID uint64) 
 			MaxValue:     row.MaxValue,
 		}
 		if widget == optionWidgetQty {
+			// 数量型没有可选取值，但要给前端一个可读的默认文案（不少商品把默认值
+			// 声明成「不限量」这类语义，数字本身看不出含义）。
+			// 取值列表清空：占位 sub 不是"可选项"，渲染成下拉会误导客户。
+			opt.Values = nil
 			// 四档单位加价都下发：前端按当前所选周期挑对应的那档估算，
 			// 只给月度值会让年付订单的预览价远低于实付（用户反馈过的"加配不按年叠加"）。
 			opt.UnitPrice = quantityUnitPriceForCycle(row, billingcycle.Monthly)
@@ -183,10 +188,11 @@ func (s *productService) CustomerOptions(ctx context.Context, productID uint64) 
 				PriceOnetime:   sub.PriceOnetime,
 			})
 		}
-		// 分组下拉需要分组标签：上游镜像的 config_groups 里没有 group_label，
-		// 但操作系统的取值名自带家族（"12|CentOS^CentOS-7.6.1810-x64"）。
+		// 分组下拉需要分组标签：config_groups 里没有 group_label 时，
+		// 取值名自带家族（"12|CentOS^CentOS-7.6.1810-x64"）也能推出来。
 		// 家族取自**原始取值名**而非展示名（展示名已剥掉家族前缀）。
-		if !grouped && row.Source == catalogmodel.ConfigSourceUpstream {
+		// 同样不限来源：自营商品的镜像取值来自平台目录，形态一致。
+		if !grouped {
 			grouped = labelUpstreamSubGroups(opt.Values, rawNames)
 		}
 		// 有分组标签时升级为分组下拉（操作系统按 Ubuntu/Windows 分组）。
