@@ -819,9 +819,11 @@
                 <div v-if="instanceData?.upstream || instanceData?.product" class="config-legend">
                   <span v-if="instanceData?.product" class="config-legend__item">
                     <span class="config-legend__dot config-legend__dot--local"></span>
-                    本地选配：{{ instanceData.product.name }}<span class="cell-sub">（我们商品里的档位/选配项）</span>
+                    {{ resale ? '本地选配' : '商品选配' }}：{{ instanceData.product.name
+                    }}<span class="cell-sub">（我们商品里的档位/选配项）</span>
                   </span>
-                  <span v-if="instanceData?.upstream" class="config-legend__item">
+                  <!-- 上游选配：仅转售链路才有（自营没有"上游商品钉死的参数"这一层） -->
+                  <span v-if="resale && instanceData?.upstream" class="config-legend__item">
                     <span class="config-legend__dot config-legend__dot--upstream"></span>
                     上游选配：{{ instanceData.upstream.name }}<span class="cell-sub">（上游商品钉死的参数）</span>
                   </span>

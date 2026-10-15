@@ -583,6 +583,16 @@
   .users-module .detail-actions {
     justify-content: flex-start;
   }
+
+  /* 字段栅格窄屏改单列。两列在手机宽度下每列只剩约 112px，再扣掉 84px 的
+     标签宽度，值列只剩十几像素，"pwd986070""2026-10-13 09:21" 这类值会被
+     逐字折断。单列后标签与值仍是左右关系，值列拿到整行宽度。
+     注意：这条规则原先写在 ProfilePanel 的 scoped 样式里，但
+     .info-rows[data-v-x] 与 .users-module .info-rows 特异性相同（0-2-0），
+     同分按源码顺序落败，因此从未生效——响应式规则必须放在本文件里。 */
+  .users-module .info-rows {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 768px) {

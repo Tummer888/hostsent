@@ -52,6 +52,18 @@ export default defineConfig({
       },
     },
   },
+  // 生产构建的本地预演：preview 不继承 server.proxy，需单独声明，
+  // 否则用构建产物核对首屏时 /api/v1 全部 404。
+  preview: {
+    port: 3100,
+    proxy: {
+      '/api/v1': {
+        target: 'http://127.0.0.1:8080',
+        changeOrigin: true,
+        xfwd: true,
+      },
+    },
+  },
   build: {
     rollupOptions: {
       output: {

@@ -312,10 +312,7 @@ const degraded = computed(() => props.degraded)
   margin-bottom: 12px;
 }
 
-/* 窄屏改单列，字段左右关系不变。 */
-@media (max-width: 900px) {
-  .info-rows {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
+/* .info-rows 的窄屏单列规则在 pages/users/shared.css 的响应式段落里。
+   写在 scoped 里会失效：.info-rows[data-v-x] 与 .users-module .info-rows
+   特异性同为 0-2-0，同分时按源码顺序落败。 */
 </style>

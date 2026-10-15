@@ -64,7 +64,7 @@
               <t-tag variant="light" size="small" shape="round">安全阀</t-tag>
             </div>
             <p class="policy-item__desc">
-              开启时（默认）即使总开关已打开，系统也只计算并记录将要执行的动作，不真正下发上游。确认影响面后再关闭本项。
+              开启时（默认）即使总开关已打开，系统也只计算并记录将要执行的动作，不真正下发执行。确认影响面后再关闭本项。
             </p>
             <t-switch v-model="form.enforce_dry_run" :disabled="!form.auto_enforce" />
           </div>

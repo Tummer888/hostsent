@@ -1339,6 +1339,33 @@ async function submitDeleteSnapshot(row: SnapshotInfo) {
 /* ---------- 过渡态提示条（平台正在执行动作） ----------
    客户明确要求"开关机过程中加加载动画"。转圈图标在标题里，这里补一条
    流动进度条：一屏里扫一眼就能看到"在跑"，不必逐字读提示。 */
+
+/* 转圈图标：标题里那个 LoadingIcon 靠这个类转起来。
+   注意它必须定义在本文件的 scoped 块里 —— scoped 样式只对本组件生效，
+   引用 index.vue scoped 块里的同名类是不会生效的（本文件曾因此漏样式，
+   图标一直静止不动；scripts/check_frontend_class_orphans.py 已加门禁）。 */
+.state-spinning .t-icon,
+.state-spin-icon {
+  animation: hs-spin 1.1s linear infinite;
+  transform-origin: center;
+}
+
+@keyframes hs-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .state-spinning .t-icon,
+  .state-spin-icon {
+    animation: none;
+  }
+}
+
 .transition-title {
   display: inline-flex;
   align-items: center;

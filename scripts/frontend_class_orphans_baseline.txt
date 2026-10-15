@@ -1,0 +1,108 @@
+# 前端类名孤儿基线（棘轮：只降不升）
+#
+# 用途：scripts/check_frontend_class_orphans.py 的存量豁免清单。
+#   基线内 = 已知技术债，不阻断 CI；基线外的新增 = 直接 fail。
+#
+# 这些是「模板引用了类名，但当地没有任何 CSS 定义」的位置 —— 用户看到的是
+# 裸样式（无边框/无间距/无布局），而 vue-tsc 与 vite build 都不会报错。
+# 本项目已因此交付过三次缺陷（.state-spinning 动画未生效 / .kind-nav 产品线
+# 导航无样式 / .page-header--actions），故加此门禁。
+#
+# 处理方式：补齐样式，或确认该类名确实不需要样式后从模板移除；
+# 修好后**从本文件删掉对应行**（脚本会提示哪些行已失效）。
+#
+# 注意：本清单含若干"半定义"（如 .form-cell 只有 --full 修饰符、缺基类），
+# 那类同样算孤儿 —— 基类缺样式时布局整块不生效，症状与完全没有样式一样。
+#
+# 生成方式：用检查器自身判定导出（见脚本文件头说明）。
+#
+frontend-admin/src/components/ForcePasswordChangeDialog.vue: force-pwd
+frontend-admin/src/components/OsIcon.vue: os-icon__mark
+frontend-admin/src/components/credential-fields/index.vue: credential-fields
+frontend-admin/src/components/filter-card/index.vue: filter-card__meta
+frontend-admin/src/components/level-badge/index.vue: level-badge__text
+frontend-admin/src/components/rich-editor/index.vue: rich-editor__count
+frontend-admin/src/components/rich-editor/index.vue: rich-editor__hint
+frontend-admin/src/layouts/index.vue: route-view
+frontend-admin/src/pages/finance/points/overview/index.vue: stat-card__icon--blue
+frontend-admin/src/pages/finance/points/overview/index.vue: stat-card__icon--cyan
+frontend-admin/src/pages/finance/points/overview/index.vue: stat-card__icon--green
+frontend-admin/src/pages/finance/points/overview/index.vue: stat-card__icon--orange
+frontend-admin/src/pages/login/components/LoginOTPVerifyDialog.vue: otp-dialog__expire
+frontend-admin/src/pages/order/detail.vue: key-fact__value--status
+frontend-admin/src/pages/order/refunds/detail.vue: evidence-block
+frontend-admin/src/pages/order/refunds/detail.vue: evidence-list
+frontend-admin/src/pages/order/refunds/detail.vue: evidence-upload
+frontend-admin/src/pages/order/refunds/detail.vue: hidden-file-input
+frontend-admin/src/pages/order/refunds/detail.vue: review-form
+frontend-admin/src/pages/product/products/PriceMatrixEditor.vue: price-matrix-editor
+frontend-admin/src/pages/product/products/ProductForm.vue: clone-tip
+frontend-admin/src/pages/product/products/ProductForm.vue: tpl-picker
+frontend-admin/src/pages/product/products/detail.vue: binding-panel
+frontend-admin/src/pages/product/products/index.vue: self-price-form
+frontend-admin/src/pages/resource/pricing/index.vue: page-header__sub
+frontend-admin/src/pages/resource/providers/components/CredentialFormFields.vue: credential-fields
+frontend-admin/src/pages/resource/providers/create.vue: form-section__title
+frontend-admin/src/pages/resource/providers/create.vue: provider-hint
+frontend-admin/src/pages/resource/providers/detail.vue: logs-head__time
+frontend-admin/src/pages/resource/providers/index.vue: muted
+frontend-admin/src/pages/resource/sync-center/components/InboundPanel.vue: inbound-panel
+frontend-admin/src/pages/resource/sync-center/components/SchedulesPanel.vue: filter-card__meta
+frontend-admin/src/pages/resource/sync-center/components/SchedulesPanel.vue: schedules-panel
+frontend-admin/src/pages/system/config/index.vue: form-cell
+frontend-admin/src/pages/system/oauth/index.vue: provider-card__alert
+frontend-admin/src/pages/system/permissions/index.vue: permissions-page
+frontend-admin/src/pages/ticket/detail.vue: user
+frontend-admin/src/pages/ticket/reviews/index.vue: review-card__sender
+frontend-admin/src/pages/users/accounts/groups/index.vue: default
+frontend-admin/src/pages/users/accounts/groups/index.vue: group-cell--primary
+frontend-admin/src/pages/users/accounts/list/index.vue: default
+frontend-admin/src/pages/users/accounts/list/index.vue: text-muted
+frontend-admin/src/pages/users/agents/AgentLevelPanel.vue: matrix-section-cell
+frontend-admin/src/pages/users/agents/AgentLevelPanel.vue: matrix-table__col
+frontend-admin/src/pages/users/agents/SchemePanel.vue: scheme-table__level
+frontend-admin/src/pages/users/agents/SchemePanel.vue: scheme-table__op
+frontend-admin/src/pages/users/overview/index.vue: overview-breadcrumb__item
+frontend-admin/src/pages/users/overview/index.vue: quick-panel
+frontend-admin/src/pages/users/security/SecurityListPage.vue: security-page__actions
+frontend-admin/src/pages/users/verification/list/index.vue: verification-merge-page
+frontend-site/app/components/LegalDocument.vue: content-page
+frontend-site/app/components/home/CtaSection.vue: cta__text
+frontend-site/app/components/home/HeroSection.vue: hero__main
+frontend-site/app/pages/announcements/index.vue: content-page
+frontend-site/app/pages/help/[slug].vue: content-page
+frontend-site/app/pages/help/index.vue: content-page
+frontend-site/app/pages/index.vue: home-page
+frontend-site/app/pages/news/index.vue: content-page
+frontend-site/app/pages/products/[id].vue: detail-info
+frontend-site/app/pages/products/[id].vue: detail-option__name
+frontend-site/app/pages/products/index.vue: products-page
+frontend-user/src/components/announcement-popup/index.vue: ann-popup
+frontend-user/src/components/filter-card/index.vue: filter-card__meta
+frontend-user/src/components/level-badge/index.vue: level-badge__text
+frontend-user/src/components/product-menu/index.vue: is-open
+frontend-user/src/components/product-menu/index.vue: pm-rail__footer
+frontend-user/src/components/product-menu/index.vue: pm-rail__nav
+frontend-user/src/components/side-nav/index.vue: side-nav__group
+frontend-user/src/pages/billing/balance.vue: balance-module
+frontend-user/src/pages/billing/index.vue: sider-group
+frontend-user/src/pages/billing/index.vue: sider-item--group
+frontend-user/src/pages/billing/invoices.vue: invoice-module
+frontend-user/src/pages/billing/payment-methods.vue: payment-methods-module
+frontend-user/src/pages/billing/transactions.vue: tx-module
+frontend-user/src/pages/cart/index.vue: cart-module
+frontend-user/src/pages/dashboard/index.vue: info
+frontend-user/src/pages/dashboard/index.vue: welcome-block
+frontend-user/src/pages/login/components/LoginOTPVerifyDialog.vue: otp-dialog__expire
+frontend-user/src/pages/login/index.vue: third-party-item--loading
+frontend-user/src/pages/member/index.vue: breadcrumb__sep
+frontend-user/src/pages/order/detail.vue: form-hint
+frontend-user/src/pages/order/detail.vue: order-detail-module
+frontend-user/src/pages/order/detail.vue: refund-mode
+frontend-user/src/pages/order/detail.vue: refund-reason
+frontend-user/src/pages/profile/index.vue: ok
+frontend-user/src/pages/profile/index.vue: warn
+frontend-user/src/pages/shop/config.vue: shop-config-module
+frontend-user/src/pages/shop/index.vue: shop-module
+frontend-user/src/pages/support/ticket-detail.vue: desc-item
+frontend-user/src/pages/support/ticket-detail.vue: reply-time

@@ -131,7 +131,7 @@
         <t-form-item>
           <t-alert
             theme="error"
-            :message="`将对实例「${currentRow?.name || currentRow?.instance_mark || ''}」执行${enforcementActionLabel(currentRow?.action || '')}，该动作真实下发上游且不可撤销。`"
+            :message="`将对实例「${currentRow?.name || currentRow?.instance_mark || ''}」执行${enforcementActionLabel(currentRow?.action || '')}，该动作会真实下发执行且不可撤销。`"
           />
         </t-form-item>
         <t-form-item label="执行原因" name="reason">
@@ -178,9 +178,9 @@ const gateMessage = computed(() => {
     return '当前「自动执行阶段动作」已关闭：下表仅为预演，系统不会自动暂停或销毁任何实例。如需开启请到「生命周期策略」页。'
   }
   if (p.dry_run) {
-    return '自动执行已开启但处于「预演模式」：下表为将要执行的动作，系统仍不会真正下发上游。核对无误后可在「生命周期策略」页关闭预演。'
+    return '自动执行已开启但处于「预演模式」：下表为将要执行的动作，系统仍不会真正下发执行。核对无误后可在「生命周期策略」页关闭预演。'
   }
-  return '自动执行已开启且预演模式已关闭：下列动作将由系统真实下发上游，请谨慎确认。'
+  return '自动执行已开启且预演模式已关闭：下列动作将由系统真实下发执行，请谨慎确认。'
 })
 
 const columns: PrimaryTableCol<EnforcementPreviewItem>[] = [

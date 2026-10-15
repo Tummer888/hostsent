@@ -45,6 +45,14 @@
   overflow: hidden;
 }
 
+/* 动作专用页头（main 区已移除、只剩操作条）：不再需要 space-between ——
+   那会把按钮组推到左侧、右侧留一大片空白（页头曾是"身份 + 动作"两栏布局）。
+   改为右对齐，并去掉为两栏预留的左内边距。 */
+.instances-module .page-header--actions {
+  justify-content: flex-end;
+  padding-left: 20px;
+}
+
 .instances-module .page-header__main {
   display: flex;
   align-items: center;
@@ -102,6 +110,106 @@
 @media (max-width: 768px) {
   .instances-module .actions-divider {
     display: none;
+  }
+}
+
+/* ---------- 产品线导航（全部实例 / 云主机 / …） ----------
+   注意：这类"模板用了类名但样式没定义"的情况在本模块已出现过一次
+   （.state-spinning 动画引用缺失），后果是裸样式堆在页面上。
+   新增结构时请把类名与样式一起提交，并检查构建产物里确实有对应规则。 */
+.instances-module .kind-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  padding: 10px 20px;
+}
+
+/* 单个类型标签：按钮语义（可点筛选），视觉上像浅底胶囊。
+   自绘而不是用 t-tag：这里需要 focus/hover/active 三态与真实按钮语义
+   （键盘可达、屏幕阅读器识别为可操作），t-tag 是展示型组件。 */
+.instances-module .kind-nav__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--td-component-border, #e5e7eb);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-foreground);
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 1.5;
+  cursor: pointer;
+  transition:
+    background var(--hs-duration-fast) var(--hs-ease-out),
+    border-color var(--hs-duration-fast) var(--hs-ease-out),
+    color var(--hs-duration-fast) var(--hs-ease-out);
+}
+
+.instances-module .kind-nav__item:hover {
+  border-color: var(--td-brand-color-3, #a6c8ff);
+  color: var(--td-brand-color, #0052d9);
+}
+
+.instances-module .kind-nav__item:focus-visible {
+  outline: 2px solid var(--td-brand-color-4, #78a9ff);
+  outline-offset: 1px;
+}
+
+/* 选中态：浅底 + 主色描边与字色，并加重字重 —— 只靠颜色区分对色觉障碍
+   用户不友好，字形权重一起变。
+   取色沿用模块既有做法（表头、hero-id__tag--upstream 同为 soft 底 + 主色字）：
+   变量名里的 green 是历史命名，实际主色是中性近黑（见 styles/index.css）。 */
+.instances-module .kind-nav__item--active {
+  background: var(--instances-green-soft);
+  border-color: var(--instances-green);
+  color: var(--instances-green);
+  font-weight: 600;
+}
+
+/* 各类型的台数：小号、等宽数字（多行标签纵向对齐），浅底色让数字可扫读。
+   选中态下反色（深底白字）—— 与标签本体形成层次，一眼分出当前筛选项。 */
+.instances-module .kind-nav__count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--td-bg-color-container-hover, #f3f4f6);
+  color: var(--td-text-color-secondary, #6b7280);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  line-height: 18px;
+}
+
+.instances-module .kind-nav__item--active .kind-nav__count {
+  background: var(--instances-green);
+  color: #fff;
+}
+
+/* 预埋类型（0 台）：虚线边框 + 弱化字色，明确表达"已登记但还没实例"，
+   与真实可筛选项区分开 —— 它们是 span 不是 button，本就不该有指针光标。 */
+.instances-module .kind-nav__item--reserved {
+  border-style: dashed;
+  color: var(--color-muted-foreground);
+  cursor: default;
+}
+
+.instances-module .kind-nav__item--reserved .kind-nav__count {
+  background: transparent;
+}
+
+/* 展开/收起入口：推到最右侧，与类型标签拉开距离（它不是筛选项）。 */
+.instances-module .kind-nav__toggle {
+  margin-left: auto;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* 窄屏：标签换行后自动占满，避免右侧的展开入口孤零零挂在一行。 */
+@media (max-width: 640px) {
+  .instances-module .kind-nav__toggle {
+    margin-left: 0;
   }
 }
 
