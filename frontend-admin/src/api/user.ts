@@ -7,6 +7,8 @@ export interface UserListQuery {
   status?: string
   filter?: string
   keyword?: string
+  /** 列表排序方向（按 ID）：'asc' 正序，'desc' 倒序（默认） */
+  sort?: string
   user_level_id?: number
   /** 用户组筛选，0 或空表示不筛选 */
   user_group_id?: number
@@ -430,6 +432,7 @@ export function getUserList(params: UserListQuery): Promise<UserListResponse> {
       status: params.status,
       filter: params.filter,
       keyword: params.keyword,
+      sort: params.sort,
       user_level_id: params.user_level_id,
       user_group_id: params.user_group_id,
       agent_level_id: params.agent_level_id,
@@ -764,6 +767,12 @@ export interface AdminOrderConfigOption {
   name: string
   /** select | group_select | radio | qty | bool | text */
   widget: string
+  /**
+   * 允许填候选之外的取值（平台目录 manual 来源）。
+   * 例如端口只给了一个「随机端口 auto」候选，但平台允许填具体端口号（1024~30000）——
+   * 这类项要渲染成可输入，否则客户想指定端口时无从填起。
+   */
+  creatable?: boolean
   required: boolean
   default_value: string
   unit: string

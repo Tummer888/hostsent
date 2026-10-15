@@ -91,7 +91,7 @@
           variant="outline"
           :disabled="!profile"
           title="为该用户代下单"
-          @click="orderVisible = true"
+          @click="goCreateOrder"
         >
           创建订单
         </t-button>
@@ -208,12 +208,6 @@
       :current-balance="profile?.balance || 0"
       @saved="reloadAggregate"
     />
-    <ConfigureOrderDialog
-      v-model="orderVisible"
-      :user-id="userId"
-      :username="profile?.username || ''"
-      @saved="reloadAll"
-    />
     <RolesDialog
       v-model="rolesVisible"
       :user-id="userId"
@@ -273,7 +267,6 @@ import VerificationPanel from './components/VerificationPanel.vue'
 import EditProfileDialog from './components/EditProfileDialog.vue'
 import ResetPasswordDialog from './components/ResetPasswordDialog.vue'
 import AdjustBalanceDialog from './components/AdjustBalanceDialog.vue'
-import ConfigureOrderDialog from './components/ConfigureOrderDialog.vue'
 import RolesDialog from './components/RolesDialog.vue'
 import SalesAssignDialog from './components/SalesAssignDialog.vue'
 
@@ -327,7 +320,6 @@ watch(activeTab, (tab) => {
 const editVisible = ref(false)
 const resetVisible = ref(false)
 const adjustVisible = ref(false)
-const orderVisible = ref(false)
 const rolesVisible = ref(false)
 const salesVisible = ref(false)
 
@@ -456,6 +448,20 @@ async function toggleStatus() {
 
 function goBack() {
   router.push('/users/accounts/list')
+}
+
+// 代下单改为独立页面（原弹窗内容量过大、关掉即丢填写）。
+// from 带回本页，下单页「返回/取消」可原路退回当前用户详情。
+function goCreateOrder() {
+  if (!userId.value) return
+  router.push({
+    path: '/users/accounts/order-create',
+    query: {
+      id: String(userId.value),
+      name: profile.value?.username || '',
+      from: `/users/accounts/detail?id=${userId.value}`,
+    },
+  })
 }
 
 watch(

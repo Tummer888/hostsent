@@ -52,6 +52,15 @@ const routes: Array<RouteRecordRaw> = [
         meta: { title: '用户详情', role: 'admin', permission: 'user:detail', hideInTabs: true },
       },
       {
+        // 代下单：由用户列表「订单」动作或用户详情「创建订单」进入的下钻页，
+        // 同详情页口径不入侧边栏与标签栏。权限码与后端代下单接口一致（user:create），
+        // 与订单查看权限（order:list）是两个独立授权项。
+        path: 'accounts/order-create',
+        name: 'UserAccountOrderCreate',
+        component: () => import('@/pages/users/accounts/order-create/index.vue'),
+        meta: { title: '为用户创建订单', role: 'admin', permission: 'user:create', hideInTabs: true },
+      },
+      {
         path: 'accounts/groups',
         name: 'UserAccountsGroups',
         component: () => import('@/pages/users/accounts/groups/index.vue'),
