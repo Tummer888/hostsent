@@ -11,8 +11,6 @@
 .content-module {
   --content-green: var(--color-primary, var(--color-primary));
   --content-green-hover: var(--td-brand-color-8);
-  --content-green-soft: var(--td-brand-color-1);
-  --content-green-border: var(--td-brand-color-2);
 }
 
 .content-module.page-body {
@@ -203,19 +201,8 @@
   }
 }
 
-/* ---------- TDesign 细节 ---------- */
-.content-module .t-table__th {
-  background: var(--td-brand-color-1) !important;
-  color: #3f5848 !important;
-  border-bottom-color: var(--content-green-border) !important;
-  font-weight: 600 !important;
-}
-
-.content-module .t-table__tr--hover > .t-table__td,
-.content-module .t-table__row--hover > .t-table__td {
-  background: rgba(var(--color-primary-rgb), 0.035) !important;
-  transition: background-color var(--hs-duration-fast);
-}
+/* ---------- TDesign 细节 ----------
+   表头样式已统一到全局 styles/table-head.css（此前的 `.t-table__th` 是死选择器）。 */
 
 .content-module .t-button--theme-primary {
   border-color: var(--content-green);

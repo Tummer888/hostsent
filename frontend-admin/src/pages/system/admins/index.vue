@@ -80,7 +80,7 @@
 
     <!-- 表格区域 -->
     <t-card :bordered="false" class="table-card">
-      <t-table row-key="id" :data="admins.items" :columns="columns" :loading="loading" hover size="medium">
+      <t-table row-key="id" :data="admins.items" :columns="columns" :loading="loading" hover size="small">
         <template #role="{ row }">
           <t-space size="small" break-line>
             <t-tag v-for="code in roleCodesOf(row)" :key="code" :theme="roleTagTheme(code)" variant="light-outline">

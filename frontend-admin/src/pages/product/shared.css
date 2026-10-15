@@ -234,19 +234,10 @@
   background: var(--td-brand-color-1);
 }
 
-/* ---------- TDesign 表格细节优化 ---------- */
-.product-module .t-table__th {
-  background: var(--product-green-soft) !important;
-  color: #3f5848 !important;
-  border-bottom-color: var(--product-green-border) !important;
-  font-weight: 600 !important;
-}
-
-.product-module .t-table__tr--hover > .t-table__td,
-.product-module .t-table__row--hover > .t-table__td {
-  background: rgba(var(--color-primary-rgb), 0.035) !important;
-  transition: background-color var(--hs-duration-fast);
-}
+/* ---------- TDesign 表格细节优化 ----------
+   表头样式已统一到全局 styles/table-head.css。此前这里写的是 `.t-table__th`，
+   而 TDesign 从不输出这个裸 class（详见该文件说明），规则匹配 0 个元素，
+   页面一直在用默认表头。 */
 
 /* 只给实底按钮上主色：outline/text 变体在 TDesign 里本来就是「浅底 + 主色字」，
    不加 :not() 会被这条规则刷成同样的实底，文字与背景同色等于按钮看不见

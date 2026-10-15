@@ -166,6 +166,7 @@
     destroy-on-close
   >
     <t-table
+      size="small"
       row-key="id"
       :data="hitsData"
       :columns="hitsColumns"

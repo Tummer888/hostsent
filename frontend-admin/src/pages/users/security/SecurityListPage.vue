@@ -214,27 +214,20 @@ const { isMobile } = useIsMobile()
   color: var(--color-muted-foreground);
 }
 
-/* 表头底色：用与用户列表页一致的做法（白底 + 品牌色叠加层），扫视时能一眼
-   定位列边界。选择器必须是 `.t-table__header th` —— TDesign 把 `t-table__header`
-   挂在 <thead> 上，<th> 只有按列的 `t-table__th-<colKey>`；此前写的 `.t-table__th`
-   匹配 0 个元素，底色从未生效（四个安全子页 + 三个实名认证列表页共用本组件）。
-
-   表头需不透明：固定列是 sticky 单元格，半透明底会在横向滚动时透视其它列标题。 */
-.security-page :deep(.t-table__header th) {
-  background-color: var(--hs-surface-1);
-  background-image: linear-gradient(rgba(var(--color-primary-rgb), 0.07), rgba(var(--color-primary-rgb), 0.07));
-  color: var(--td-brand-color-8);
-  font-weight: 600;
-  border-bottom-color: var(--td-brand-color-2);
-}
+/* 表头样式已统一到全局 styles/table-head.css。
+   此前这里是「品牌色 7% 叠加层 + --td-brand-color-8 文字」：叠加层比基准页
+   （用户列表 3%）重一倍多，而 --td-brand-color-8 会跟着主题色走 —— 主题切成蓝色，
+   表头文字就整片变蓝，正是后台里最显眼的那块不一致。 */
 
 /* 行分隔：偶数行浅底斑马纹，长表格里更容易横向跟踪（与用户列表一致）。 */
 .security-page :deep(.t-table tbody > tr:nth-child(even) > td) {
   background-color: var(--hs-surface-2);
 }
 
-.security-page :deep(.t-table__td) {
-  border-color: rgba(15, 23, 42, 0.06);
+/* 行线颜色：原写作 `.t-table__td`（TDesign 不输出该裸 class），从未生效，
+   改为命中真实 <td>。用令牌而非 rgba 硬编码，深色主题下才不会残留浅色描边。 */
+.security-page :deep(.t-table td) {
+  border-bottom-color: var(--color-border);
 }
 
 .security-page__error {

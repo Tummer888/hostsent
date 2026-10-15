@@ -449,15 +449,17 @@ defineExpose({ reload: loadMatrix })
   border-right: none;
 }
 
-/* 表头吸顶：行多了滚动时仍知道每一列是哪个代理分组。 */
+/* 表头吸顶：行多了滚动时仍知道每一列是哪个代理分组。
+   底色由全局 styles/table-head.css 统一（手写表格也纳入），这里只保留吸顶定位。
+   注意别在这里再写 background —— 手写 <table> 的表头底色若在此覆盖，
+   又会与本文件之外的所有表格脱节。 */
 .matrix-table thead th {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: var(--td-bg-color-container-hover, #f8f9fa);
 }
 
-.matrix-table__corner,
+/* 行首列（目标名）吸左：横向滚动时始终知道这一行是什么。 */
 .matrix-table__row-head {
   position: sticky;
   left: 0;
@@ -467,8 +469,14 @@ defineExpose({ reload: loadMatrix })
   max-width: 240px;
 }
 
+/* 左上角同时吸顶 + 吸左，层级最高。底色走全局表头规格（它是表头的一部分，
+   此前与行首列共用一条规则、被刷成行底色，于是表头带在左上角断开一格）。 */
 .matrix-table__corner {
+  position: sticky;
+  left: 0;
   z-index: 3;
+  text-align: left;
+  max-width: 240px;
 }
 
 .col-head {

@@ -982,14 +982,7 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
   border-color: var(--td-brand-color-2);
 }
 
-:deep(.group-table .t-table__header th) {
-  color: var(--color-muted-foreground);
-  /* 同用户列表：表头需不透明，避免固定列在横向滚动时透视其它列标题 */
-  background-color: var(--hs-surface-1);
-  background-image: linear-gradient(rgba(var(--color-primary-rgb), 0.03), rgba(var(--color-primary-rgb), 0.03));
-  font-weight: 600;
-  border-bottom-color: var(--td-brand-color-2);
-}
+/* 表头样式由全局 styles/table-head.css 统一（与用户列表同一规格）。 */
 
 :deep(.group-table .t-table__body td) {
   color: var(--color-foreground);
@@ -997,9 +990,7 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
   vertical-align: middle;
 }
 
-:deep(.group-table .t-table__row--hover td) {
-  background: rgba(var(--color-primary-rgb), 0.03);
-}
+/* 行悬停由全局 styles/table-head.css 统一，此处不再重复定义。 */
 
 :deep(.status-tag) {
   border-radius: var(--hs-radius-xl);

@@ -103,24 +103,12 @@
   box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.1) !important;
 }
 
+/* 表头样式已统一到全局 styles/table-head.css。
+   此前的 `.t-table__th` / `.t-table__td` 都是死选择器：TDesign 的 <th> 只有按列的
+   `t-table__th-<colKey>`，<td> 也没有基础 class，所以「浅绿表头 + 浅绿行线」
+   从未生效过。 */
 .system-page .t-table {
   border-color: var(--system-green-border);
-}
-
-.system-page .t-table__th {
-  color: #3f5848 !important;
-  background: #f8fffa !important;
-  border-bottom-color: var(--system-green-border) !important;
-  font-weight: 600;
-}
-
-.system-page .t-table__td {
-  border-bottom-color: #eef8f1 !important;
-}
-
-.system-page .t-table__tr--hover > .t-table__td,
-.system-page .t-table__row--hover > .t-table__td {
-  background: rgba(var(--color-primary-rgb), 0.035) !important;
 }
 
 .system-page .t-table__pagination {

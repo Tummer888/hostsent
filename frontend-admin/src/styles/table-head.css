@@ -1,0 +1,85 @@
+/* ============================================================
+   HostSent · 统一表格表头规格（全站）
+   ----------------------------------------
+   基准来自「用户列表」页（pages/users/accounts/list）：白底 + 品牌色 3% 叠加层、
+   微灰字、600 字重、品牌色下边框，悬停时换成品牌色 1 号底 + 9 号字。
+
+   为什么需要它：改造前全站表头有四种互不相同的实现，实测同一后台里并存
+   「白底灰字 600」「浅绿底墨绿字」「品牌色 7% 叠加 + 品牌色文字」「TDesign 默认
+   白底浅灰字 400」。其中最刺眼的是把文字色写成 --td-brand-color-8 的几处：
+   该令牌跟随主题色，主题切成蓝/橙以后表头文字跟着变蓝变橙，与其余页面完全脱节。
+
+   另有一类更隐蔽的问题：多数模块写的是 `.模块类 .t-table__th`，但 TDesign 从不
+   输出裸 class `t-table__th`（<th> 上只有按列的 `t-table__th-<colKey>`，
+   `t-table__header` 挂在 <thead> 上），这些选择器匹配 0 个元素 —— 规则从未生效，
+   页面一直是 TDesign 默认灰（实测 /finance/transactions、/system/admins 表头
+   就是 weight 400 的 rgba(0,0,0,.4) 默认值）。本文件按真实结构写，因此必须带上
+   这段说明，否则后来者容易再照着裸 class 加一份同样无效的规则。
+
+   本文件挂在全局（styles/index.css 引入）而不是各模块 shared.css：
+   一是表头样式本就要求全站一致，无模块差异；二是部分表格位于 t-dialog 内，
+   会被 teleport 到 body，模块命名空间的祖先链断裂，按模块收窄反而漏掉它们。
+
+   底色必须不透明：固定列（多选框 / 操作列）是 sticky 单元格，TDesign 给 <th>/<td>
+   的默认值是 `background-color: inherit`，半透明底在横向滚动时会透出其它列标题。
+   因此用「白底 + 品牌色叠加层」——视觉上等价于浅灰底，但对 sticky 单元格是实色。
+   ============================================================ */
+
+.t-table__header th {
+  background-color: var(--hs-surface-1);
+  background-image: linear-gradient(rgba(var(--color-primary-rgb), 0.03), rgba(var(--color-primary-rgb), 0.03));
+  color: var(--color-muted-foreground);
+  font-weight: 600;
+  border-bottom-color: var(--td-brand-color-2);
+  /* 表头一律不换行：列标题折行会把表头撑成两行高，同一页里出现两种表头高度。
+     基准页与 security/levels 等页各自加过 nowrap，这里统一。 */
+  white-space: nowrap;
+  transition:
+    background-color var(--hs-duration-fast),
+    color var(--hs-duration-fast);
+}
+
+/* 悬停：与用户列表一致。不再单独为固定列写 background-color —— 基础规则已给所有
+   th（含 sticky 的固定列）不透明底；若再按 `.t-table__header th.t-table__cell--fixed-left`
+   加一条，多出的类会抬高特异性，把悬停底色永久盖成白底，表现为「鼠标移到多选框列
+   表头没反应」。 */
+.t-table__header th:hover {
+  color: var(--td-brand-color-9);
+  background: var(--td-brand-color-1);
+}
+
+/* 横向内边距统一到基准页的 12px（TDesign 的 small 档是 8px、默认档 16px，实测全站
+   8/12/16 三种并存）。th 与 td 一起改：只改表头会让表头文字与正文字左右各差 4px，
+   窄列上一眼可见。
+
+   跳过勾选列：TDesign 把它们的内边距设为 0，靠子元素铺满以扩大勾选点击区
+   （它自己的 CSS 注释写明了这一点），加内边距会缩小热区。
+
+   限桌面宽度：用户列表等页在 767px 以下主动把内边距收紧到 4px 以便窄屏多显示几列，
+   这条全局规则若不加媒体查询会把那些移动端补偿全部覆盖掉。 */
+@media (min-width: 768px) {
+  .t-table th:not(.t-table__cell-check),
+  .t-table td:not(.t-table__cell-check) {
+    padding-inline: 12px;
+  }
+}
+
+/* 非 TDesign 的手写表格（代理层级矩阵、方案对比）也参与统一，避免同页出现两套表头。
+   这两个组件把 <table> 直接写在模板里，没有 t-table 的类名。 */
+.matrix-table thead th,
+.scheme-table thead th {
+  background-color: var(--hs-surface-1);
+  background-image: linear-gradient(rgba(var(--color-primary-rgb), 0.03), rgba(var(--color-primary-rgb), 0.03));
+  color: var(--color-muted-foreground);
+  font-weight: 600;
+  border-bottom-color: var(--td-brand-color-2);
+}
+
+/* 行悬停：品牌色 3% 叠加层，与基准页（用户列表）一致。
+   用 background-image 而不是 background-color：斑马纹、固定列的不透明底、
+   失败行高亮等都写在 background-color 上，两者叠加而不是互相顶掉。
+   改造前各模块各行其是（0.035 / 0.06 / 硬编码 #f6fcf8 三种），且多数写在
+   `tr:hover > .t-table__td` 这类死选择器上，实际效果是 TDesign 默认灰。 */
+.t-table--hoverable tbody tr:hover > td {
+  background-image: linear-gradient(rgba(var(--color-primary-rgb), 0.03), rgba(var(--color-primary-rgb), 0.03));
+}

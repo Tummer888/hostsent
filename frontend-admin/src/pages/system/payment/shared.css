@@ -286,22 +286,9 @@
   box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.1) !important;
 }
 
-.payment-module .t-table {
-  --td-table-header-bg-color: #f4fbf6;
-  --td-table-row-hover-bg-color: #f6fcf8;
-}
-
-.payment-module .t-table__th {
-  background: #f4fbf6 !important;
-  color: #5d6b7c !important;
-  font-weight: 600 !important;
-  border-bottom-color: var(--payment-green-border) !important;
-}
-
-.payment-module .t-table__tr--hover > .t-table__td {
-  background: #f6fcf8 !important;
-  transition: background-color var(--hs-duration-fast);
-}
+/* 表头与行悬停已统一到全局 styles/table-head.css。
+   此前的 `.t-table__th` 是死选择器（TDesign 不输出该裸 class），
+   `--td-table-header-bg-color` 也不被 TDesign 读取，浅绿表头从未生效。 */
 
 .payment-module .t-table__pagination {
   padding-top: var(--space-md);

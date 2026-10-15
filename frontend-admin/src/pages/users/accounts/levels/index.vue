@@ -44,6 +44,7 @@
 
     <section class="table-panel surface-card">
       <t-table
+        size="small"
         row-key="id"
         :data="tableData"
         :columns="columns"
@@ -473,22 +474,10 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
   gap: 16px;
 }
 
-/* 表头底色：本页根节点虽然带 .users-module，但并未 @import users/shared.css
-   （此前注释里提到该文件只是说明 .field 规则缺失），所以表头样式要在此自足。
-
-   选择器用 `.t-table__header th`：TDesign 把 `t-table__header` 挂在 <thead> 上，
-   <th> 只有按列的 `t-table__th-<colKey>`，写 `.t-table__th` 会匹配 0 个元素。
-
-   白底 + 品牌色叠加层而非半透明色：固定列是 sticky 单元格，
-   半透明底在横向滚动时会让其它列标题透出来。 */
-.level-page :deep(.t-table__header th) {
-  background-color: var(--hs-surface-1);
-  background-image: linear-gradient(rgba(var(--color-primary-rgb), 0.07), rgba(var(--color-primary-rgb), 0.07));
-  color: var(--td-brand-color-8);
-  font-weight: 600;
-  border-bottom-color: var(--td-brand-color-2);
-  white-space: nowrap;
-}
+/* 表头样式已统一到全局 styles/table-head.css（含 nowrap）。
+   此前是「品牌色 7% 叠加层 + --td-brand-color-8 文字」：叠加层比基准页
+   （用户列表 3%）重一倍多，且 --td-brand-color-8 跟随主题色，主题切蓝后表头文字
+   整片变蓝。 */
 
 /* 行分隔：偶数行浅底斑马纹，长表格里更容易横向跟踪。 */
 .level-page :deep(.t-table tbody > tr:nth-child(even) > td) {

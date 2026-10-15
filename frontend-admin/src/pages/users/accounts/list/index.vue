@@ -60,13 +60,13 @@
       手动点查询或回车 —— 文本要等输完，边打边查既费请求也闪。
     -->
     <FilterCard :primary-count="1">
-      <div class="field">
+      <div class="field" :class="{ 'field--active': !!filters.keyword }">
         <span class="field__label">关键词</span>
         <t-input
           v-model="filters.keyword"
           class="unified-control"
           clearable
-          placeholder="搜索用户名 / 姓名 / 邮箱 / 手机号"
+          placeholder="搜索用户名 / 姓名 / 邮箱 / 手机号 / ID"
           @enter="handleSearch"
         >
           <template #prefix-icon>
@@ -75,7 +75,7 @@
         </t-input>
       </div>
 
-      <div v-if="!isRecycleView" class="field">
+      <div v-if="!isRecycleView" class="field" :class="{ 'field--active': !!filters.status }">
         <span class="field__label">用户状态</span>
         <t-select
           v-model="filters.status"
@@ -88,7 +88,7 @@
         />
       </div>
 
-      <div v-if="!isRecycleView" class="field">
+      <div v-if="!isRecycleView" class="field" :class="{ 'field--active': !!filters.filter }">
         <span class="field__label">快捷筛选</span>
         <t-select
           v-model="filters.filter"
@@ -100,7 +100,7 @@
         />
       </div>
 
-      <div class="field">
+      <div class="field" :class="{ 'field--active': filters.user_level_id !== undefined }">
         <span class="field__label">用户等级</span>
         <t-select
           v-model="filters.user_level_id"
@@ -113,7 +113,7 @@
         />
       </div>
 
-      <div class="field">
+      <div class="field" :class="{ 'field--active': filters.user_group_id !== undefined }">
         <span class="field__label">用户组</span>
         <t-select
           v-model="filters.user_group_id"
@@ -126,7 +126,7 @@
         />
       </div>
 
-      <div class="field">
+      <div class="field" :class="{ 'field--active': !!filters.is_agent }">
         <span class="field__label">代理等级</span>
         <t-select
           v-model="filters.is_agent"
@@ -138,7 +138,7 @@
         />
       </div>
 
-      <div class="field">
+      <div class="field" :class="{ 'field--active': filters.agent_level_id !== undefined }">
         <span class="field__label">代理等级归属</span>
         <t-select
           v-model="filters.agent_level_id"
@@ -152,7 +152,7 @@
         />
       </div>
 
-      <div class="field">
+      <div class="field" :class="{ 'field--active': !!filters.is_sub_account }">
         <span class="field__label">账号类型</span>
         <t-select
           v-model="filters.is_sub_account"
@@ -164,7 +164,7 @@
         />
       </div>
 
-      <div class="field">
+      <div class="field" :class="{ 'field--active': filters.sales_admin_id !== undefined }">
         <span class="field__label">归属销售</span>
         <t-select
           v-model="filters.sales_admin_id"
@@ -193,6 +193,18 @@
     <section class="table-panel surface-card">
       <div class="table-panel__head">
         <h3 class="table-panel__title">{{ isRecycleView ? '已注销用户（留存期内可恢复）' : '用户数据' }}</h3>
+        <!-- 移动端：批量模式开关。默认关闭 = 每行一个「操作」按钮；
+             打开后才显示勾选列，把横向空间让给信息列，勾选不再遮挡账号/金额。 -->
+        <t-button
+          v-if="isMobile && canBatchSelect"
+          class="batch-toggle"
+          size="small"
+          :variant="batchMode ? 'base' : 'outline'"
+          :theme="batchMode ? 'primary' : 'default'"
+          @click="toggleBatchMode"
+        >
+          {{ batchMode ? '退出批量' : '批量操作' }}
+        </t-button>
         <t-space v-if="selectedIds.length" size="small">
           <span class="selection-hint">已选 {{ selectedIds.length }} 个</span>
           <template v-if="isRecycleView">
@@ -265,13 +277,6 @@
           @select-change="handleSelectChange"
           @page-change="handlePageChange"
         >
-          <template #title-id>
-            <button type="button" class="id-sort-button" @click="toggleIdSort">
-              <span>ID</span>
-              <component :is="sortOrder === 'asc' ? ArrowUpIcon : ArrowDownIcon" size="14" aria-hidden="true" />
-            </button>
-          </template>
-
           <template #id="{ row }">
             <div class="id-cell">
               <span class="id-cell__value">{{ row.id }}</span>
@@ -418,6 +423,7 @@
               size="small"
               shape="round"
             >
+              <span class="status-tag__dot" aria-hidden="true" />
               {{ statusLabelMap[row.status] || row.status || '未知' }}
             </t-tag>
           </template>
@@ -431,14 +437,18 @@
           </template>
 
           <template #balance="{ row }">
-            <div class="money-cell">
-              <span class="money">{{ formatMoney(row.balance) }}</span>
+            <div class="money-cell money-cell--balance">
+              <span class="money" :class="{ 'money--zero': !Number(row.balance) }">
+                <span class="money__symbol">¥</span>{{ formatMoney(row.balance) }}
+              </span>
             </div>
           </template>
 
           <template #total_consume_amount="{ row }">
-            <div class="money-cell">
-              <span class="money">{{ formatMoney(row.total_consume_amount) }}</span>
+            <div class="money-cell money-cell--consume">
+              <span class="money" :class="{ 'money--zero': !Number(row.total_consume_amount) }">
+                <span class="money__symbol">¥</span>{{ formatMoney(row.total_consume_amount) }}
+              </span>
             </div>
           </template>
 
@@ -467,27 +477,39 @@
                   <template #icon><MoreIcon aria-hidden="true" /></template>
                 </t-button>
               </t-dropdown>
-              <t-space v-else size="small">
+              <t-space v-else size="small" class="action-links">
                 <template v-if="isRecycleView">
-                  <t-link theme="primary" hover="color" @click="goUserDetail(row)">详情</t-link>
+                  <t-link class="action-link action-link--view" hover="color" @click="goUserDetail(row)">详情</t-link>
                   <t-popconfirm content="确认恢复该用户？状态将还原为注销前的状态。" @confirm="restoreUserRow(row)">
-                    <t-link theme="primary" hover="color">恢复</t-link>
+                    <t-link class="action-link action-link--restore" hover="color">恢复</t-link>
                   </t-popconfirm>
                 </template>
                 <template v-else>
-                  <t-link theme="primary" hover="color" @click="goUserDetail(row)">详情</t-link>
-                  <t-link theme="primary" hover="color" @click="handleRecharge(row)">充值</t-link>
-                  <t-link theme="primary" hover="color" @click="handleAddOrder(row)">订单</t-link>
-                  <t-link theme="primary" hover="color" @click="handleImpersonate(row)">登录</t-link>
+                  <t-link class="action-link action-link--view" hover="color" @click="goUserDetail(row)">详情</t-link>
+                  <t-link class="action-link action-link--recharge" hover="color" @click="handleRecharge(row)">
+                    充值
+                  </t-link>
+                  <t-link class="action-link action-link--order" hover="color" @click="handleAddOrder(row)">订单</t-link>
+                  <t-link class="action-link action-link--login" hover="color" @click="handleImpersonate(row)">
+                    登录
+                  </t-link>
                   <t-popconfirm
                     :content="row.status === 'active' ? '确认冻结该用户？' : '确认解冻该用户？'"
                     @confirm="toggleStatus(row)"
                   >
-                    <t-link :theme="row.status === 'active' ? 'warning' : 'primary'" hover="color">
+                    <t-link
+                      :class="[
+                        'action-link',
+                        row.status === 'active' ? 'action-link--freeze' : 'action-link--restore',
+                      ]"
+                      hover="color"
+                    >
                       {{ row.status === 'active' ? '冻结' : '解冻' }}
                     </t-link>
                   </t-popconfirm>
-                  <t-link v-if="canDelete" theme="danger" hover="color" @click="openDeleteDialog(row)">注销</t-link>
+                  <t-link v-if="canDelete" class="action-link action-link--delete" hover="color" @click="openDeleteDialog(row)">
+                    注销
+                  </t-link>
                 </template>
               </t-space>
             </div>
@@ -618,14 +640,6 @@
         </p>
       </t-form>
     </t-dialog>
-
-    <!-- 添加订单：按商品实际可售的规格/周期/配置项渲染（与用户端同源） -->
-    <ConfigureOrderDialog
-      v-model="orderVisible"
-      :user-id="orderForm.user_id"
-      :username="orderForm.username"
-      @saved="reload"
-    />
 
     <!-- 注销确认（doc104 §4.4）：先拉 deletion-check 再弹窗。
          blockers 非空 = 硬阻断（在管实例，force 也绕不过），直接禁用确认按钮；
@@ -769,7 +783,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import {
@@ -825,9 +839,6 @@ import { getSalesCandidates } from '@/api/sales'
 import FilterCard from '@/components/filter-card/index.vue'
 import MobilePagination from '@/components/mobile-pagination/index.vue'
 import LevelBadge from '@/components/level-badge/index.vue'
-// 代下单弹窗（规格/周期/选配项/开通方式）：模板里用了就必须导入，
-// 未注册的组件不会报错、只会静默不渲染，「订单」点了没有任何反应。
-import ConfigureOrderDialog from '@/pages/users/accounts/detail/components/ConfigureOrderDialog.vue'
 import { useUserStore } from '@/store'
 import type { SalesCandidateInfo } from '@/types/interface'
 import { copyText } from '@/utils/clipboard'
@@ -860,6 +871,10 @@ const agentLevelOptions = ref<AgentLevelInfo[]>([])
 const salesOptions = ref<SalesCandidateInfo[]>([])
 const sortOrder = ref<SortOrder>('desc')
 const isMobile = ref(false)
+// 移动端批量模式：默认 false = 每行一个「⋮」操作按钮，勾选列不渲染。
+// 打开后勾选列接管操作列的位置（贴右固定），顶部出现批量动作条。
+// 桌面端不使用该开关，勾选列始终可见（宽屏放得下）。
+const batchMode = ref(false)
 const tableDragRef = ref<HTMLElement | null>(null)
 const activeTableScrollRef = ref<HTMLElement | null>(null)
 const isTableDragging = ref(false)
@@ -1136,19 +1151,57 @@ const activeFilterLabel = computed(() => {
   return ''
 })
 
-const sortedTableData = computed(() => {
-  const orderFactor = sortOrder.value === 'asc' ? 1 : -1
-  return [...tableData.value].sort((left, right) => (Number(left.id || 0) - Number(right.id || 0)) * orderFactor)
-})
+const sortedTableData = computed(() => tableData.value)
+
+// 是否具备批量操作权限（回收站=恢复，列表=冻结/注销）。移动端据此决定
+// 「批量操作」开关是否出现。
+const canBatchSelect = computed(() => (isRecycleView.value ? canRestore.value : canUpdate.value || canDelete.value))
+
+// 移动端批量模式是否真的生效。三个条件缺一不可，且必须由这一个 computed 派生：
+// 列配置里若各写各的判断，一旦 batchMode 残留（例如在批量模式下切到回收站、
+// 而该角色没有恢复权限），勾选列和操作列会同时被判定为「不该出现」，
+// 表格会丢掉整列操作入口 —— 用同一个来源就不会出现这种自相矛盾的组合。
+const mobileBatchActive = computed(() => isMobile.value && batchMode.value && canBatchSelect.value)
 
 const columns = computed<PrimaryTableCol<UserInfo>[]>(() => {
   const base: PrimaryTableCol<UserInfo>[] = []
-  // 行选择列只在有批量操作权限时出现（回收站=恢复，列表=冻结/注销）。
-  if (isRecycleView.value ? canRestore.value : canUpdate.value || canDelete.value) {
+  // 移动端批量模式 = 勾选列顶替操作列的位置（同一格、贴右固定），
+  // 默认态则是每行一个「⋮」按钮。两者不在同一帧出现，所以窄屏始终只有一个
+  // 右侧固定列，信息列能留住宽度。移动端与桌面端的取值方向不同，所以分开判断。
+  const desktopSelect = !isMobile.value && canBatchSelect.value
+  if (mobileBatchActive.value) {
+    // 窄屏：勾选列放在右侧，与默认态的操作列同位置，选中后不再遮挡账号/金额。
+    base.push({ colKey: 'row-select', type: 'multiple', width: 70, fixed: 'right' as const, align: 'center' as const })
+  } else if (desktopSelect) {
+    // 宽屏放得下：勾选列沿用左固定，批量操作随时可用，不需要额外开关。
     base.push({ colKey: 'row-select', type: 'multiple', width: 46, fixed: 'left' as const })
   }
   base.push(
-    { colKey: 'id', title: 'ID', width: 92 },
+    {
+      colKey: 'id',
+      // 表头排序符号：点一下在倒序/正序间切换。
+      // 用 title 渲染函数而不是模板插槽 —— 原来写的 #title-id 不是 TDesign 的
+      // 表头插槽名，插槽内容从未渲染（实测 DOM 里 .id-sort-button 数量为 0），
+      // 表头一直只是一个纯文本「ID」。
+      title: () => {
+        const order = sortOrder.value
+        return h(
+          'button',
+          {
+            type: 'button',
+            class: 'id-sort-button',
+            'aria-label': order === 'asc' ? '按 ID 正序，点击切换为倒序' : '按 ID 倒序，点击切换为正序',
+            title: order === 'asc' ? '当前正序，点击切换为倒序' : '当前倒序，点击切换为正序',
+            onClick: () => void toggleIdSort(),
+          },
+          [
+            h('span', { class: 'id-sort-button__label' }, 'ID'),
+            h(ArrowUpIcon, { size: '14', class: ['id-sort-button__icon', { 'is-asc': order === 'asc' }] }),
+          ],
+        )
+      },
+      width: 92,
+    },
     { colKey: 'username', title: '账号信息', minWidth: 260 },
     { colKey: 'real_name', title: '实名信息', minWidth: 220 },
     { colKey: 'balance', title: '账户余额', width: 130, align: 'right' as const },
@@ -1168,17 +1221,20 @@ const columns = computed<PrimaryTableCol<UserInfo>[]>(() => {
   }
   base.push(
     { colKey: 'last_login_at', title: '最近登录', width: 180 },
-    {
+  )
+  // 操作列在移动端批量模式下不渲染：该位置已由上面的右固定勾选列占用。
+  // 用同一个 mobileBatchActive 判断，保证「勾选列」与「操作列」恰好二选一。
+  if (!mobileBatchActive.value) {
+    base.push({
       colKey: 'action',
       title: '操作',
       width: isMobile.value ? 70 : 260,
       fixed: 'right' as const,
       align: 'center' as const,
-    },
-  )
+    })
+  }
   return base
 })
-
 function syncFiltersFromRoute() {
   const query = route.query as Record<string, string | undefined>
   filters.page = toPositiveInt(query.page, 1)
@@ -1186,6 +1242,8 @@ function syncFiltersFromRoute() {
   filters.status = query.status || ''
   filters.filter = query.filter || ''
   filters.keyword = query.keyword || ''
+  // 排序方向从 URL 还原，只认 asc；其余（含缺失、非法值）一律 desc。
+  sortOrder.value = query.sort === 'asc' ? 'asc' : 'desc'
   filters.user_level_id = query.user_level_id ? Number(query.user_level_id) : undefined
   filters.user_group_id = query.user_group_id ? Number(query.user_group_id) : undefined
   filters.agent_level_id = query.agent_level_id ? Number(query.agent_level_id) : undefined
@@ -1227,6 +1285,8 @@ function buildQuery() {
   }
   if (filters.include_deleted) query.include_deleted = 'true'
   if (filters.keyword) query.keyword = filters.keyword
+  // 只写非默认值，URL 保持干净；desc 是默认，不写。
+  if (sortOrder.value === 'asc') query.sort = 'asc'
   if (filters.user_level_id) query.user_level_id = String(filters.user_level_id)
   if (filters.user_group_id) query.user_group_id = String(filters.user_group_id)
   if (filters.agent_level_id) query.agent_level_id = String(filters.agent_level_id)
@@ -1251,12 +1311,30 @@ async function handleViewChange(value: string | number | boolean) {
   filters.filter = next === 'recycle' ? 'deleted' : ''
   filters.include_deleted = false
   selectedIds.value = []
+  // 两个视图的批量权限不同（列表=冻结/注销，回收站=恢复），切过去后
+  // 原选择已无意义，批量模式也一并退出，避免勾选列在无权限时被留下。
+  batchMode.value = false
   pagination.current = 1
   await replaceRouteQuery()
 }
 
-function toggleIdSort() {
+// 切换 ID 升降序：改的是后端 ORDER BY 的方向，不只是重排当前页 ——
+// 否则翻页后顺序又乱回去。排序列固定在 ID 上，不接受列名参数。
+// 顺序变化后当前选择不再对应同一批可见行，清空，避免误操作到已翻走的用户。
+async function toggleIdSort() {
   sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
+  filters.page = 1
+  pagination.current = 1
+  selectedIds.value = []
+  await replaceRouteQuery()
+}
+
+// 移动端进入/退出批量模式。退出时清空已选：勾选列会从 DOM 消失，
+// 残留的 selectedIds 会让顶部「已选 N 个」和批量按钮继续显示在一个
+// 已经看不见勾选框的界面上，用户没法取消选择。
+function toggleBatchMode() {
+  batchMode.value = !batchMode.value
+  if (!batchMode.value) selectedIds.value = []
 }
 
 function syncViewportState() {
@@ -1326,6 +1404,9 @@ function buildListParams(): UserListQuery {
     sales_admin_id: !onlyUnassigned && filters.sales_admin_id ? filters.sales_admin_id : undefined,
     unassigned_sales: onlyUnassigned ? 'true' : undefined,
     include_deleted: filters.include_deleted || undefined,
+    // 排序由后端执行：只排当前页等于「这一页内看起来是排好的」，
+    // 翻到下一页顺序又乱回去，是比不排更坏的误导。
+    sort: sortOrder.value,
   }
 }
 
@@ -1496,28 +1577,31 @@ function handleRecharge(row: UserInfo) {
 }
 
 // ===== 添加订单 =====
-// 选购细节（规格/周期/配置项/自定义价）都在 ConfigureOrderDialog 里完成，
-// 列表页只负责记住为哪个用户下单并打开弹窗。
-const orderVisible = ref(false)
-const orderForm = reactive<{ user_id: number; username: string }>({ user_id: 0, username: '' })
-
+// 选购细节（商品/规格/周期/配置项/自定义价）在独立的代下单页面完成，
+// 列表页只负责把「给谁下单」带过去。原弹窗内容量过大，已改为整页（见 order-create 页）。
 function handleAddOrder(row: UserInfo) {
-  orderForm.user_id = row.id
-  orderForm.username = row.username
-  orderVisible.value = true
+  router.push({
+    path: '/users/accounts/order-create',
+    query: {
+      id: String(row.id),
+      name: row.username,
+      from: '/users/accounts/list',
+    },
+  })
 }
 
 function buildMobileActionOptions(row: UserInfo) {
   if (isRecycleView.value) {
     return [{ content: '详情', value: 'detail' }, ...(canRestore.value ? [{ content: '恢复', value: 'restore' }] : [])]
   }
+  // 与桌面端操作列同口径：常规动作用默认色，状态变更用 warning，破坏性动作用 error。
   return [
     { content: '详情', value: 'detail' },
     { content: '充值', value: 'recharge' },
     { content: '订单', value: 'order' },
     { content: '登录', value: 'impersonate', disabled: row.status !== 'active' },
-    { content: row.status === 'active' ? '冻结' : '解冻', value: 'toggle-status' },
-    ...(canDelete.value ? [{ content: '注销', value: 'delete' }] : []),
+    { content: row.status === 'active' ? '冻结' : '解冻', value: 'toggle-status', theme: 'warning' },
+    ...(canDelete.value ? [{ content: '注销', value: 'delete', theme: 'error' }] : []),
   ]
 }
 
@@ -2142,7 +2226,32 @@ onBeforeUnmount(() => {
   color: var(--color-muted-foreground);
 }
 
-.id-sort-button {
+/* 已生效的筛选项加一道强调色左边条 + 标签变色：一屏九个下拉框，
+   不标出来就得逐个点开看自己到底筛了什么。 */
+.field--active {
+  position: relative;
+  padding-left: 8px;
+}
+
+.field--active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--color-accent, #f97316);
+}
+
+.field--active .field__label {
+  color: var(--color-foreground);
+}
+
+/* 表头的 ID 排序按钮。必须用 :deep()：该节点由列配置里的 title 渲染函数生成，
+   渲染上下文在 TDesign 的表头组件内，拿不到本组件的 scoped 属性，
+   普通 scoped 规则匹配不到它。 */
+:deep(.id-sort-button) {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -2156,8 +2265,25 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-.id-sort-button:hover {
+:deep(.id-sort-button:hover) {
   color: var(--td-brand-color);
+}
+
+:deep(.id-sort-button:focus-visible) {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* 箭头方向表达排序方向：正序朝上，倒序翻转为朝下。
+   始终用同一个图标 + CSS 翻转，避免按状态换图标导致节点重建、丢失过渡。 */
+:deep(.id-sort-button__icon) {
+  flex-shrink: 0;
+  transition: transform var(--hs-duration-fast) var(--hs-ease-out);
+}
+
+:deep(.id-sort-button__icon:not(.is-asc)) {
+  transform: rotate(180deg);
 }
 
 .table-panel {
@@ -2187,6 +2313,22 @@ onBeforeUnmount(() => {
   margin-bottom: 12px;
 }
 
+/* 移动端批量开关：与标题同行，靠右。批量条（已选 N 个 + 动作按钮）在选中后
+   会出现并与它争同一行空间，所以窄屏允许换行，而不是把按钮压成图标。 */
+.batch-toggle {
+  flex-shrink: 0;
+}
+
+@media (max-width: 767px) {
+  .table-panel__head {
+    flex-wrap: wrap;
+  }
+
+  .batch-toggle {
+    order: 2;
+  }
+}
+
 .error-banner {
   display: flex;
   align-items: center;
@@ -2201,7 +2343,6 @@ onBeforeUnmount(() => {
 
 .id-cell,
 .user-cell,
-.money-cell,
 .user-cell--primary {
   gap: 8px;
 }
@@ -2225,17 +2366,20 @@ onBeforeUnmount(() => {
 }
 
 .id-cell__value {
-  color: var(--color-foreground);
-  font-weight: 700;
+  color: var(--hs-text-mono);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
+/* 用户名是「点进去」的入口，保留主题色链接感；实名/销售归属是身份信息，
+   用前景色加粗即可 —— 原来两者都吃主题色，一列列看过去全是同一种灰。 */
 .user-cell__name {
-  color: var(--td-brand-color-9);
+  color: var(--hs-text-identity);
   font-weight: 700;
 }
 
 .user-cell__name--secondary {
-  color: #0f172a;
+  color: var(--hs-text-identity);
   font-weight: 600;
 }
 
@@ -2254,12 +2398,10 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
-.copy-row__value--email {
-  color: #475569;
-}
-
+/* 邮箱/手机号属技术字段：统一灰阶 + 等宽，和「人」有关的字段（姓名）拉开层次。 */
+.copy-row__value--email,
 .copy-row__value--phone {
-  color: #334155;
+  color: var(--hs-text-tech);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2279,14 +2421,17 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #94a3b8;
+  color: var(--color-muted-foreground);
   transition:
     color 0.2s ease,
     opacity 0.2s ease;
 }
 
+/* 未绑定的渠道降到「几乎只是占位」：深色下 #cbd5e1 反而比绑定态更亮，
+   改用透明度表达「未启用」，明暗两套主题都成立。 */
 .oauth-provider-icon--inactive {
-  color: #cbd5e1;
+  color: var(--color-muted-foreground);
+  opacity: 0.35;
 }
 
 .oauth-provider-icon--wechat:not(.oauth-provider-icon--inactive) {
@@ -2309,6 +2454,56 @@ onBeforeUnmount(() => {
   justify-content: center;
 }
 
+/* 操作列按「动作的危险程度」分色：查看=中性灰、资金/下单=主题色、
+   登录=技术色、解冻/恢复=绿、冻结=橙、注销=红。
+   原先六个动作全是主题色链接，一整列分不出哪个是破坏性操作。
+   悬停一律用 opacity 而不是换色：语义色本身随主题翻转，
+   再写一套 hover 色号等于把明暗两套值在各页重复一遍。 */
+:deep(.action-link) {
+  font-weight: 500;
+  font-size: 13px;
+  transition:
+    color var(--hs-duration-fast),
+    opacity var(--hs-duration-fast);
+}
+
+:deep(.action-link:hover) {
+  color: inherit;
+  opacity: 0.72;
+}
+
+:deep(.action-link--view) {
+  color: var(--color-muted-foreground);
+}
+
+/* 中性/次要动作的悬停要「更醒目」而不是更淡，单独反转一次透明度方向。 */
+:deep(.action-link--view:hover),
+:deep(.action-link--login:hover) {
+  opacity: 1;
+  color: var(--color-foreground);
+}
+
+:deep(.action-link--recharge),
+:deep(.action-link--order) {
+  color: var(--color-primary);
+}
+
+:deep(.action-link--login) {
+  color: var(--hs-text-tech);
+}
+
+:deep(.action-link--restore) {
+  color: var(--hs-status-ok-text);
+}
+
+:deep(.action-link--freeze) {
+  color: var(--hs-status-warn-text);
+}
+
+:deep(.action-link--delete) {
+  color: var(--hs-status-danger-text);
+}
+
 .action-menu-button {
   min-width: 0;
   width: 36px;
@@ -2321,9 +2516,15 @@ onBeforeUnmount(() => {
   height: 32px;
   min-width: 32px;
   padding: 0;
-  color: #475569;
-  background: #ffffff;
+  color: var(--color-muted-foreground);
+  background: var(--hs-surface-1);
   border-color: transparent;
+}
+
+/* 模板里用到但此前全站没有定义过：没有这条规则，「未分组/未归属/非代理」
+   这些占位文案会继承单元格前景色，和真实数据一样黑，看起来像真有值。 */
+.text-muted {
+  color: var(--color-muted-foreground);
 }
 
 /* TDesign 原生 MoreIcon 是描边式三竖点（1em svg），在固定列 flex 压缩下会被
@@ -2339,32 +2540,69 @@ onBeforeUnmount(() => {
 
 /* 固定操作列悬浮于表格内容之上，但必须低于 sticky 顶栏（z-index:5），
    否则窗口下滑时操作列会浮到导航栏之上；表格 sticky 单元默认 z-index:31，
-   这里统一压到 3。 */
+   这里统一压到 3。
+
+   注意类名是双横线：TDesign 实际渲染 .t-table__cell--fixed-left /
+   --fixed-right，旧的单横线写法（.t-table__cell-fixed-left）匹配不到任何元素，
+   左侧勾选列就一直保持默认 z-index:30 —— 移动端下滑时复选框浮到顶部导航之上，
+   正是这条规则没生效导致的。两种写法都留着，兼容依赖单横线类名的旧版本。 */
+:deep(.user-table .t-table__cell--fixed-left),
+:deep(.user-table .t-table__cell--fixed-right),
 :deep(.user-table .t-table__cell-fixed-left),
 :deep(.user-table .t-table__cell-fixed-right),
 :deep(.user-table .t-table__fixed-left),
 :deep(.user-table .t-table__fixed-right),
+:deep(.user-table th.t-table__cell--fixed-left),
+:deep(.user-table td.t-table__cell--fixed-left),
 :deep(.user-table th.t-table__cell--fixed-right),
 :deep(.user-table td.t-table__cell--fixed-right) {
   z-index: 3;
 }
 
 .ip-cell__value {
-  color: #0f172a;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
+  color: var(--hs-text-tech);
+  font-weight: 500;
+  font-family: var(--hs-font-mono);
+  font-size: 12px;
 }
 
+/* 金额按含义分色：余额=可动用资产（绿）、总消费=已支出（橙红）。
+   两者共用 .money 的数字排版（等宽数字、右对齐对齐小数点），
+   只是色相不同 —— 原来两列都是主题色，扫一眼分不出哪个是哪个。 */
 .money {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
   font-variant-numeric: tabular-nums;
-  color: var(--color-primary);
   font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.money__symbol {
+  font-size: 0.85em;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.money-cell--balance .money {
+  color: var(--hs-text-money-in);
+}
+
+.money-cell--consume .money {
+  color: var(--hs-text-money-out);
+}
+
+/* 0 值不抢注意力：金额为 0 时退成灰阶，避免整列「¥0.00」都刷成彩色。 */
+.money-cell .money--zero {
+  color: var(--color-muted-foreground);
+  font-weight: 600;
 }
 
 .time-text {
-  color: #334155;
+  color: var(--hs-text-mono);
   font-size: 12px;
   line-height: 1.6;
+  font-variant-numeric: tabular-nums;
 }
 
 .time-text--muted {
@@ -2484,23 +2722,10 @@ onBeforeUnmount(() => {
   border-color: var(--td-brand-color-2);
 }
 
-:deep(.user-table .t-table__header th) {
-  color: var(--color-muted-foreground);
-  /* 表头必须不透明：固定列（多选框/操作）是 sticky 单元格，自身无背景，
-     半透明底会让横向滚动时其它列标题从底下透出来。用「白底 + 品牌色叠加层」等效原色。 */
-  background-color: var(--hs-surface-1);
-  background-image: linear-gradient(rgba(var(--color-primary-rgb), 0.03), rgba(var(--color-primary-rgb), 0.03));
-  font-weight: 600;
-  border-bottom-color: var(--td-brand-color-2);
-  transition:
-    background-color var(--hs-duration-fast),
-    color var(--hs-duration-fast);
-}
-
-:deep(.user-table .t-table__header th:hover) {
-  color: var(--td-brand-color-9);
-  background: var(--td-brand-color-1);
-}
+/* 表头样式由全局 styles/table-head.css 统一提供，本页即为该规格的基准页
+   （白底 + 品牌色 3% 叠加层、微灰字、600 字重、品牌色下边框）。此前这段规则
+   与全局规格逐字相同地重复了一份，后来者改一处漏一处就会重新分叉，故删除：
+   全局文件里已逐条记录这组取值的理由（含固定列必须不透明的原因）。 */
 
 :deep(.user-table .t-table__body td) {
   color: var(--color-foreground);
@@ -2508,9 +2733,8 @@ onBeforeUnmount(() => {
   vertical-align: middle;
 }
 
-:deep(.user-table .t-table__row--hover td) {
-  background: rgba(var(--color-primary-rgb), 0.03);
-}
+/* 行悬停由全局 styles/table-head.css 统一（同为本页的 3% 品牌色叠加层），
+   此处不再重复定义，否则两层叠加会变成约 6%。 */
 
 :deep(.status-tag) {
   border-radius: var(--hs-radius-xl);
@@ -2518,29 +2742,40 @@ onBeforeUnmount(() => {
   border: 1px solid transparent;
 }
 
+/* 状态点：颜色跟状态走，脱色环境下也能靠位置分辨 */
+:deep(.status-tag__dot) {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: middle;
+}
+
 :deep(.status-tag--active) {
-  color: var(--td-brand-color-8);
-  background: var(--td-brand-color-1);
-  border-color: var(--td-brand-color-3);
+  color: var(--hs-status-ok-text);
+  background: var(--hs-status-ok-bg);
+  border-color: var(--hs-status-ok-border);
 }
 
 :deep(.status-tag--disabled) {
-  color: #b91c1c;
-  background: #fef2f2;
-  border-color: #fecaca;
+  color: var(--hs-status-danger-text);
+  background: var(--hs-status-danger-bg);
+  border-color: var(--hs-status-danger-border);
 }
 
 :deep(.status-tag--pending) {
-  color: #b45309;
-  background: #fffbeb;
-  border-color: #fde68a;
+  color: var(--hs-status-warn-text);
+  background: var(--hs-status-warn-bg);
+  border-color: var(--hs-status-warn-border);
 }
 
 :deep(.status-tag--cancelled),
 :deep(.status-tag--default) {
-  color: #475569;
-  background: #f8fafc;
-  border-color: #e2e8f0;
+  color: var(--hs-status-neutral-text);
+  background: var(--hs-status-neutral-bg);
+  border-color: var(--hs-status-neutral-border);
 }
 
 @media (max-width: 1200px) {

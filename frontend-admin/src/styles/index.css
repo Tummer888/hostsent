@@ -11,6 +11,10 @@
 @import '@fontsource/fira-code/latin-400.css';
 @import '@fontsource/fira-code/latin-700.css';
 
+/* 表格表头全站统一规格。放在全局而非各模块 shared.css：部分表格在 t-dialog 内会被
+   teleport 到 body，模块命名空间祖先链断裂，按模块收窄会漏掉它们。详见该文件说明。 */
+@import './table-head.css';
+
 :root {
   /* HostSent Design System tokens — Light theme · Density 9 · Variance 3 · Motion 4
      主色为石墨灰（黑），强调色为橙；绿色不再是品牌色，仅保留为「成功/运行中」等语义色。 */
@@ -78,6 +82,32 @@
   --hs-accent-indigo: 79, 70, 229;
   --hs-accent-teal: 13, 148, 136;
 
+  /* 语义文字色：表格/详情里的「值」按含义分色，不再一律吃主题色。
+     与 --hs-accent-*（实色块）分开维护：那是「色块上的图形」，
+     这里是「浅底上的文字」，浅色下必须比实色块深一档才够对比度，
+     深色下反过来提亮。两套令牌各自在 html.dark 翻转。 */
+  --hs-text-money-in: #047857; /* 余额/资产等进账语义 */
+  --hs-text-money-out: #c2410c; /* 消费/支出等流出语义 */
+  --hs-text-tech: #475569; /* IP/手机号/邮箱等技术字段 */
+  --hs-text-identity: var(--color-foreground); /* 用户名/实名等身份字段 */
+  --hs-text-mono: var(--color-muted-foreground); /* ID/时间等纯标识 */
+
+  /* 状态胶囊配色（正常/冻结/待审核/已注销）。收在这里而不是各页 scoped 里，
+     是因为深色覆盖没法写在 scoped 的 :deep() 里（html 上没有 scope 属性），
+     放令牌层才能随 html.dark 一起翻转。 */
+  --hs-status-ok-text: #047857;
+  --hs-status-ok-bg: #ecfdf5;
+  --hs-status-ok-border: #a7f3d0;
+  --hs-status-danger-text: #b91c1c;
+  --hs-status-danger-bg: #fef2f2;
+  --hs-status-danger-border: #fecaca;
+  --hs-status-warn-text: #b45309;
+  --hs-status-warn-bg: #fffbeb;
+  --hs-status-warn-border: #fde68a;
+  --hs-status-neutral-text: #475569;
+  --hs-status-neutral-bg: #f8fafc;
+  --hs-status-neutral-border: #e2e8f0;
+
   /* Spacing scale — Density 9 (compact, 4–24px base) */
   --space-xs: 4px;
   --space-sm: 8px;
@@ -140,6 +170,26 @@ html.dark {
   --hs-accent-warning: 251, 191, 36;
   --hs-accent-indigo: 129, 140, 248;
   --hs-accent-teal: 45, 212, 191;
+
+  /* 深色下语义文字色整体提亮：黑底上 #047857 这类深绿几乎不可读。 */
+  --hs-text-money-in: #34d399;
+  --hs-text-money-out: #fb923c;
+  --hs-text-tech: #94a3b8;
+
+  /* 状态胶囊在纯黑底上同样要「浅字深底」反转：浅色下的 #ecfdf5 底色在黑底上
+     会亮成一坨噪点，改为低透明度同色系底 + 提亮的文字色。 */
+  --hs-status-ok-text: #6ee7b7;
+  --hs-status-ok-bg: rgba(16, 185, 129, 0.14);
+  --hs-status-ok-border: rgba(16, 185, 129, 0.32);
+  --hs-status-danger-text: #fca5a5;
+  --hs-status-danger-bg: rgba(239, 68, 68, 0.14);
+  --hs-status-danger-border: rgba(239, 68, 68, 0.32);
+  --hs-status-warn-text: #fcd34d;
+  --hs-status-warn-bg: rgba(245, 158, 11, 0.14);
+  --hs-status-warn-border: rgba(245, 158, 11, 0.32);
+  --hs-status-neutral-text: #cbd5e1;
+  --hs-status-neutral-bg: rgba(148, 163, 184, 0.12);
+  --hs-status-neutral-border: rgba(148, 163, 184, 0.26);
   color-scheme: dark;
 }
 

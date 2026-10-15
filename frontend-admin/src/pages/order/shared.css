@@ -503,37 +503,22 @@
 }
 
 /* ---------- TDesign 表格细节优化 ----------
- * 注意选择器：TDesign 从不输出裸 class `t-table__th` / `t-table__td`
- * （th 上是 `t-table__th-<colKey>`，td 上没有任何基础 class，行 class 是
- * `t-table__row--hover`）。此前按裸 class 写的规则全是死选择器，表头一直是
- * 默认灰、悬停一直是默认灰。这里改为命中真实结构：th 用元素选择器，
- * 悬停用 `tr:hover` 的既有类名。
+ * 表头样式（底色 / 字色 / 字重 / 下边框 / 悬停）已统一到全局 styles/table-head.css，
+ * 本模块不再覆盖。
+ *
+ * 曾经的写法是 `.order-module .t-table th { color: #3f5848; ... }`：选择器有效，但把
+ * 表头文字写成固定的墨绿，其它模块早已改成微灰字，同一后台里两种表头色并存。
  */
-.order-module .t-table th {
-  background: var(--td-brand-color-1) !important;
-  color: #3f5848 !important;
-  border-bottom-color: var(--order-green-border) !important;
-  font-weight: 600 !important;
-}
-
-/* 固定列（多选框 / 操作列）是 sticky 单元格，必须具备不透明底色，
-   否则横向滚动时其它列的内容会从表头/单元格底下透出来。 */
-.order-module .t-table th.t-table__cell--fixed-left,
-.order-module .t-table th.t-table__cell--fixed-right,
 .order-module .t-table td.t-table__cell--fixed-left,
 .order-module .t-table td.t-table__cell--fixed-right {
+  /* 固定列是 sticky 单元格，TDesign 默认 background-color: inherit，
+     不显式给底会让横向滚动时其它列的内容从单元格底下透出来。表头部分的同款处理
+     在全局规格里。 */
   background-color: var(--hs-surface-1);
 }
 
-.order-module .t-table th.t-table__cell--fixed-left,
-.order-module .t-table th.t-table__cell--fixed-right {
-  background-color: var(--td-brand-color-1) !important;
-}
-
-.order-module .t-table--hoverable tbody tr:hover > td {
-  background: rgba(var(--color-primary-rgb), 0.035) !important;
-  transition: background-color var(--hs-duration-fast);
-}
+/* 行悬停由全局 styles/table-head.css 统一（同为品牌色叠加层），
+   此处不再重复定义，否则两层叠加会明显变深。 */
 
 /* 主色按钮统一到模块绿。必须排除 text / outline 变体：TDesign 的 class 是
  * 「variant + theme」两段组合（t-button--variant-outline + t-button--theme-primary），

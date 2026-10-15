@@ -39,9 +39,11 @@
     "vue-router": "^4.4.5"
   },
   "devDependencies": {
+    "@types/compression": "^1.8.1",
     "@vitejs/plugin-vue": "^6.0.10",
     "@vue/eslint-config-prettier": "^10.2.0",
     "@vue/eslint-config-typescript": "^14.9.0",
+    "compression": "^1.8.2",
     "eslint": "^9.39.5",
     "eslint-plugin-vue": "^10.11.1",
     "prettier": "^3.9.10",

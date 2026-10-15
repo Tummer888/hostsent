@@ -675,31 +675,24 @@ onMounted(() => {
   border-radius: var(--hs-radius-xl);
 }
 
-/* Log table */
+/* Log table
+   表头交给全局 styles/table-head.css 统一；下列正文本想做的紧凑字号与失败行高亮
+   此前用了 `.t-table__td`（TDesign 不输出该裸 class），实际全部未生效，
+   这里改为命中真实的 <td> 元素。 */
 .log-table :deep(.t-table) {
   background: transparent;
 }
 
-.log-table :deep(.t-table__body tr:hover > .t-table__td) {
-  background: var(--hs-surface-2) !important;
-}
-
-.log-table :deep(.t-table__th) {
-  background: var(--hs-surface-2);
-  color: var(--color-muted-foreground);
-  font-weight: 600;
-  font-size: 12px;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.log-table :deep(.t-table__td) {
-  color: #334155;
-  border-bottom: 1px solid var(--color-border);
+.log-table :deep(.t-table td) {
+  color: var(--color-foreground);
   font-size: 12.5px;
+  border-bottom: 1px solid var(--color-border);
 }
 
-.log-row--danger :deep(.t-table__td) {
-  background: #fef2f2 !important;
+/* 失败行整行浅红底，提醒扫视时的落脚点。用语义令牌而不是硬编码 #fef2f2：
+   深色主题下那个浅红会亮成一坨，令牌会随 html.dark 翻转。 */
+.log-row--danger :deep(.t-table td) {
+  background: var(--hs-status-danger-bg) !important;
 }
 
 /* Responsive */

@@ -9,8 +9,6 @@
 .ticket-module {
   --ticket-green: var(--color-primary, var(--color-primary));
   --ticket-green-hover: var(--td-brand-color-8);
-  --ticket-green-soft: var(--td-brand-color-1);
-  --ticket-green-border: var(--td-brand-color-2);
 }
 
 .ticket-module.page-body {
@@ -241,19 +239,8 @@
   transition: width var(--hs-duration-base) var(--hs-ease-out);
 }
 
-/* ---------- TDesign 表格细节优化 ---------- */
-.ticket-module .t-table__th {
-  background: var(--td-brand-color-1) !important;
-  color: #3f5848 !important;
-  border-bottom-color: var(--ticket-green-border) !important;
-  font-weight: 600 !important;
-}
-
-.ticket-module .t-table__tr--hover > .t-table__td,
-.ticket-module .t-table__row--hover > .t-table__td {
-  background: rgba(var(--color-primary-rgb), 0.035) !important;
-  transition: background-color var(--hs-duration-fast);
-}
+/* ---------- TDesign 表格细节优化 ----------
+   表头样式已统一到全局 styles/table-head.css（此前的 `.t-table__th` 是死选择器）。 */
 
 .ticket-module .t-button--theme-primary {
   border-color: var(--ticket-green);

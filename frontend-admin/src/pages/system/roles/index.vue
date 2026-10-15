@@ -35,7 +35,7 @@
     </t-card>
 
     <t-card :bordered="false" class="table-card">
-      <t-table row-key="id" :data="pagedRoles" :columns="columns" :loading="loading" hover size="medium">
+      <t-table row-key="id" :data="pagedRoles" :columns="columns" :loading="loading" hover size="small">
         <template #status="{ row }">
           <t-tag :theme="row.status === 'active' ? 'success' : 'danger'" variant="light-outline">
             {{ row.status === 'active' ? '启用' : '禁用' }}

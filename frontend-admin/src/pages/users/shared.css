@@ -11,8 +11,6 @@
      命名已随主题更名，此处保留为 --users-brand-*，语义与用法不变。 */
   --users-brand: var(--color-primary);
   --users-brand-hover: var(--td-brand-color-8);
-  --users-brand-soft: var(--td-brand-color-1);
-  --users-brand-border: var(--td-brand-color-2);
 }
 
 /* 根元素同时带 .page-body 与 .users-module，两选择器命中同一元素时
@@ -497,39 +495,20 @@
 }
 
 /* ---------- 表格 ----------
-   详情页各面板表格此前是一块浅绿表头 + 纯白行，行与行之间只有 1px 浅边框，
-   纵向扫视时容易串行；数字列左对齐导致位数不同的金额参差不齐。 */
-.users-module .t-table__th {
-  background: var(--users-brand-soft) !important;
-  color: var(--color-foreground) !important;
-  border-bottom-color: var(--users-brand-border) !important;
-  font-weight: 600 !important;
-  white-space: nowrap;
-}
+   表头样式（底色 / 字色 / 字重 / 内边距）已统一到全局 styles/table-head.css。
+   这里此前写的是死选择器 `.t-table__th`，浅绿表头从未生效；数值列左对齐导致
+   位数不同的金额参差不齐，因此下面单独处理数值列对齐。 */
 
 /* 行分隔：偶数行给一点底色，形成斑马纹，长表格里更容易横向跟踪。
-   TDesign 的 td 有 background-color: inherit，所以底色要写在 td 上；
-   悬停态用 !important 覆盖，见下一条规则。 */
+   TDesign 的 td 有 background-color: inherit，所以底色要写在 td 上。 */
 .users-module .t-table tbody > tr:nth-child(even) > td {
   background: var(--hs-surface-2);
-}
-
-.users-module .t-table__tr--hover > .t-table__td,
-.users-module .t-table__row--hover > .t-table__td {
-  background: rgba(var(--color-primary-rgb), 0.06) !important;
-  transition: background-color var(--hs-duration-fast);
 }
 
 /* 数值列右对齐 + 等宽数字：金额、余额、IP 等按位对齐，比较同列数值时不用来回找小数点。 */
 .users-module .t-table td.t-align-right,
 .users-module .t-table th.t-align-right {
   font-variant-numeric: tabular-nums;
-}
-
-/* 单元格内边距略放宽，size=small 默认 8px 让相邻列的文字挤在一起。 */
-.users-module .t-table.t-size-s th,
-.users-module .t-table.t-size-s td {
-  padding: var(--td-comp-paddingTB-s) 12px;
 }
 
 /* 首列加重：表格纵向扫视的锚点，通常是实例名 / 订单号 / 成员名。 */
