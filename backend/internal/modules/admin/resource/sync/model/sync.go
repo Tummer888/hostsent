@@ -107,10 +107,33 @@ type Instance struct {
 	// RenewalPrice 绑定的续费单价（元/周期），NULL 表示未绑定、按商品定价实时算。
 	// 后台代客下单可与首次价分开指定（如首次 30、续费 18），绑定后长期有效：
 	// 续费算价优先取本列，商品事后调价不影响这台机器（对单机的价格承诺）。
-	RenewalPrice *float64   `gorm:"column:renewal_price;type:decimal(15,2)"`
-	CreatedAt    time.Time  `gorm:"autoCreateTime"`
-	ExpireAt     *time.Time `gorm:"column:expire_at"`
-	UpdatedAt    time.Time  `gorm:"autoUpdateTime"`
+	RenewalPrice *float64 `gorm:"column:renewal_price;type:decimal(15,2)"`
+	// InstanceType 产品类型（迁移 108）：实例属于哪条产品线（cloud_host/cdn/physical/…）。
+	//
+	// 为什么单独存一列而不是每次联表 products.product_type：实例列表要按产品线筛选并
+	// 给出各类型计数，联表在「上游同步发现、没有本地商品」的行上会筛漏（那些行
+	// sell_product_id 为空，join 不到商品）。列值在开通/占位时从商品带上；
+	// 商品事后改类型不回改已有实例（机器已按当时那条产品线交付并计价）。
+	//
+	// 取值见 pkg/model/product_kind.go；未知/空值统一归一为 other（不置空，
+	// 否则该实例在任何类型标签页里都找不到）。
+	InstanceType string `gorm:"column:instance_type;size:32;index"`
+	// ---- 过渡态追踪（迁移 112）----
+	//
+	// 上游的电源/维护指令是**异步**的：接口只回"已受理"，真正生效要等十几秒到几分钟。
+	// 这段窗口里 status 还是旧值，界面看不出任何变化 —— 运营以为没生效就反复点，
+	// 同一台机器堆了多次重启（用户实测反馈）。落库记录"这台机器上有个操作在进行"，
+	// 才能做到刷新后仍显示「重启中」，且新指令被拦截。
+	//
+	// TransitionState 取值见 pkgmodel.InstanceTransition*；空 = 无进行中操作。
+	TransitionState     string     `gorm:"column:transition_state;size:24"`
+	TransitionStartedAt *time.Time `gorm:"column:transition_started_at"`
+	// TransitionUntil 过渡窗口截止时间。到此仍未回源确认则视为"结果未知"：
+	// 不再拦截新指令（避免永久卡死），但界面会提示上次结果未确认。
+	TransitionUntil *time.Time `gorm:"column:transition_until"`
+	CreatedAt       time.Time  `gorm:"autoCreateTime"`
+	ExpireAt        *time.Time `gorm:"column:expire_at"`
+	UpdatedAt       time.Time  `gorm:"autoUpdateTime"`
 }
 
 // TableName 指定表名
