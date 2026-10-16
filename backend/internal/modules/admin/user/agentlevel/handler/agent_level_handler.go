@@ -31,7 +31,7 @@ func NewAgentLevelHandler(svc service.AgentLevelService) *AgentLevelHandler {
 // @Param page_size query int false "每页数量" default(10)
 // @Param status query string false "状态"
 // @Param keyword query string false "关键词"
-// @Success 200 {object} dto.APIResponse[dto.ListResponse]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/agent-levels [get]
 func (h *AgentLevelHandler) List(c *gin.Context) {
 	var query dto.ListQuery
@@ -52,7 +52,7 @@ func (h *AgentLevelHandler) List(c *gin.Context) {
 // @Tags 代理等级
 // @Produce json
 // @Param id path int true "代理等级ID"
-// @Success 200 {object} dto.APIResponse[dto.Info]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/agent-levels/{id} [get]
 func (h *AgentLevelHandler) Get(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -70,7 +70,7 @@ func (h *AgentLevelHandler) Get(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.CreateRequest true "代理等级参数"
-// @Success 200 {object} dto.APIResponse[dto.Info]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/agent-levels [post]
 func (h *AgentLevelHandler) Create(c *gin.Context) {
 	var req dto.CreateRequest
@@ -93,7 +93,7 @@ func (h *AgentLevelHandler) Create(c *gin.Context) {
 // @Produce json
 // @Param id path int true "代理等级ID"
 // @Param request body dto.UpdateRequest true "代理等级参数"
-// @Success 200 {object} dto.APIResponse[dto.Info]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/agent-levels/{id} [put]
 func (h *AgentLevelHandler) Update(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -115,7 +115,7 @@ func (h *AgentLevelHandler) Update(c *gin.Context) {
 // @Tags 代理等级
 // @Produce json
 // @Param id path int true "代理等级ID"
-// @Success 200 {object} dto.APIResponse[string]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/agent-levels/{id} [delete]
 func (h *AgentLevelHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -132,7 +132,7 @@ func (h *AgentLevelHandler) Delete(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.CellUpdateRequest true "单格参数（折扣率 0 = 清除）"
-// @Success 200 {object} dto.APIResponse[dto.MatrixResponse]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/agent-levels/discount [put]
 func (h *AgentLevelHandler) UpdateCell(c *gin.Context) {
 	var req dto.CellUpdateRequest
@@ -152,7 +152,7 @@ func (h *AgentLevelHandler) UpdateCell(c *gin.Context) {
 // @Summary 代理折扣矩阵（列为等级、行为目标）
 // @Tags 代理等级
 // @Produce json
-// @Success 200 {object} dto.APIResponse[dto.MatrixResponse]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/agent-levels/matrix [get]
 func (h *AgentLevelHandler) Matrix(c *gin.Context) {
 	data, err := h.service.Matrix(c.Request.Context())
@@ -169,7 +169,7 @@ func (h *AgentLevelHandler) Matrix(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.LadderPreviewRequest true "阶梯参数"
-// @Success 200 {object} dto.APIResponse[dto.LadderPreviewResponse]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/agent-levels/ladder/preview [post]
 func (h *AgentLevelHandler) PreviewLadder(c *gin.Context) {
 	var req dto.LadderPreviewRequest
@@ -191,7 +191,7 @@ func (h *AgentLevelHandler) PreviewLadder(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.ApplyLadderRequest true "阶梯参数"
-// @Success 200 {object} dto.APIResponse[dto.MatrixResponse]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/agent-levels/ladder/apply [post]
 func (h *AgentLevelHandler) ApplyLadder(c *gin.Context) {
 	var req dto.ApplyLadderRequest
@@ -221,7 +221,7 @@ func (h *AgentLevelHandler) ApplyLadder(c *gin.Context) {
 // @Param page_size query int false "每页数量" default(10)
 // @Param keyword query string false "关键词"
 // @Param unassigned query bool false "仅列未归属任何分组的账号（忽略 id）"
-// @Success 200 {object} dto.APIResponse[dto.MemberListResponse]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/agent-levels/{id}/members [get]
 func (h *AgentLevelHandler) ListMembers(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -249,7 +249,7 @@ func (h *AgentLevelHandler) ListMembers(c *gin.Context) {
 // @Produce json
 // @Param id path int true "代理分组ID"
 // @Param request body dto.MemberAssignRequest true "成员参数"
-// @Success 200 {object} dto.APIResponse[dto.MemberAssignResponse]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/agent-levels/{id}/members [post]
 func (h *AgentLevelHandler) AssignMembers(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)

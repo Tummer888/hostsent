@@ -91,6 +91,13 @@ func NewAdminHandler(
 
 // —— 公告管理 ——
 
+// ListAnnouncements godoc
+// @Summary 公告列表
+// @Tags 管理端-通知中心
+// @Security BearerAuth
+// @Param request body notifydto.AnnouncementCreateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/announcements [get]
 func (h *AdminHandler) ListAnnouncements(c *gin.Context) {
 	var query notifydto.AnnouncementListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
@@ -105,6 +112,13 @@ func (h *AdminHandler) ListAnnouncements(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// CreateAnnouncement godoc
+// @Summary 新建公告
+// @Tags 管理端-通知中心
+// @Security BearerAuth
+// @Param request body notifydto.AnnouncementCreateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/announcements [post]
 func (h *AdminHandler) CreateAnnouncement(c *gin.Context) {
 	var req notifydto.AnnouncementCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -120,6 +134,14 @@ func (h *AdminHandler) CreateAnnouncement(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// UpdateAnnouncement godoc
+// @Summary 更新公告
+// @Tags 管理端-通知中心
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Param request body notifydto.AnnouncementUpdateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/announcements/{id} [put]
 func (h *AdminHandler) UpdateAnnouncement(c *gin.Context) {
 	id, ok := pathID(c)
 	if !ok {
@@ -138,6 +160,13 @@ func (h *AdminHandler) UpdateAnnouncement(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// PublishAnnouncement godoc
+// @Summary 发布公告
+// @Tags 管理端-通知中心
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/announcements/{id}/publish [post]
 func (h *AdminHandler) PublishAnnouncement(c *gin.Context) {
 	id, ok := pathID(c)
 	if !ok {
@@ -151,6 +180,13 @@ func (h *AdminHandler) PublishAnnouncement(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// OfflineAnnouncement godoc
+// @Summary 下线公告
+// @Tags 管理端-通知中心
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/announcements/{id}/offline [post]
 func (h *AdminHandler) OfflineAnnouncement(c *gin.Context) {
 	id, ok := pathID(c)
 	if !ok {
@@ -164,6 +200,14 @@ func (h *AdminHandler) OfflineAnnouncement(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// DeleteAnnouncement godoc
+// @Summary 删除公告
+// @Tags 管理端-通知中心
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Param request body notifydto.MailTestRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/announcements/{id} [delete]
 func (h *AdminHandler) DeleteAnnouncement(c *gin.Context) {
 	id, ok := pathID(c)
 	if !ok {
@@ -178,6 +222,13 @@ func (h *AdminHandler) DeleteAnnouncement(c *gin.Context) {
 
 // —— 通知记录 ——
 
+// ListRecords godoc
+// @Summary 站内通知列表
+// @Tags 管理端-通知中心
+// @Security BearerAuth
+// @Param request body notifydto.MailTestRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/notifications [get]
 func (h *AdminHandler) ListRecords(c *gin.Context) {
 	var query notifydto.NotificationListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
@@ -192,6 +243,14 @@ func (h *AdminHandler) ListRecords(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// Resend godoc
+// @Summary 重发站内通知
+// @Tags 管理端-通知中心
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Param request body notifydto.MailTestRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/notifications/{id}/resend [post]
 func (h *AdminHandler) Resend(c *gin.Context) {
 	id, ok := pathID(c)
 	if !ok {
@@ -204,6 +263,13 @@ func (h *AdminHandler) Resend(c *gin.Context) {
 	response.SuccessMessage(c, "resent")
 }
 
+// AdminUnreadCount godoc
+// @Summary 管理端未读数
+// @Tags 管理端-通知中心
+// @Security BearerAuth
+// @Param request body notifydto.MailTestRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/notifications/unread-count [get]
 func (h *AdminHandler) AdminUnreadCount(c *gin.Context) {
 	adminID, _ := adminIDFromContext(c)
 	count, err := h.notifySvc.UnreadCount(c.Request.Context(), adminID, "admin")
@@ -214,6 +280,13 @@ func (h *AdminHandler) AdminUnreadCount(c *gin.Context) {
 	response.Success(c, notifydto.UnreadCountResponse{Count: count})
 }
 
+// SendMailTest godoc
+// @Summary 测试邮件发送
+// @Tags 管理端-通知中心
+// @Security BearerAuth
+// @Param request body notifydto.MailTestRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/notifications/mail-test [post]
 func (h *AdminHandler) SendMailTest(c *gin.Context) {
 	var req notifydto.MailTestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -229,6 +302,13 @@ func (h *AdminHandler) SendMailTest(c *gin.Context) {
 
 // —— 通知模板 ——
 
+// ListTemplates godoc
+// @Summary 通知模板列表
+// @Tags 管理端-通知中心
+// @Security BearerAuth
+// @Param request body notifydto.TemplateUpdateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/notification-templates [get]
 func (h *AdminHandler) ListTemplates(c *gin.Context) {
 	items, err := h.templateSvc.List(c.Request.Context())
 	if err != nil {
@@ -238,6 +318,14 @@ func (h *AdminHandler) ListTemplates(c *gin.Context) {
 	response.Success(c, gin.H{"list": items})
 }
 
+// UpdateTemplate godoc
+// @Summary 更新通知模板
+// @Tags 管理端-通知中心
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Param request body notifydto.TemplateUpdateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/notification-templates/{id} [put]
 func (h *AdminHandler) UpdateTemplate(c *gin.Context) {
 	id, ok := pathID(c)
 	if !ok {

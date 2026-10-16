@@ -178,8 +178,10 @@ CI 额外执行（见 `.github/workflows/ci.yml`）：
   （group/sub/flat/mixed/auton/thin/passthru/shared/self），未登记即 CI fail
 - **装配层行数棘轮**：`assembly_*/routes_*` 超过 800 行告警、超过 1200 行 fail，
   拆分标准=每域一个装配文件
-- **openapi 生成器自检**：`python3 scripts/gen_openapi.py` 退出码为门禁——
-  新增路由必须登记 summary/参数规则，`backend/docs/openapi.yaml` 是生成产物勿手改
+- **openapi 注解检查**：CI 执行 `swag init -g cmd/server/main.go -o docs -ot json
+  --v3.1 --parseDependency --parseInternal`，解析失败（类型引用漂移、注解语法错误）即
+  fail；新增 handler 必须带 swag v2 注解（@Summary/@Tags/@Security/@Router），
+  `backend/docs/swagger.json` 是生成产物勿手改
 - **覆盖率**：`go test -cover ./internal/modules/...` 全量报告（只展示）；
   门禁只盯核心链路两包（`scripts/check_coverage.sh`，阈值 70%，棘轮式上调）：
   admin/order/service（下单/退款/开通）与 uc/order/service（用户下单全链路）。

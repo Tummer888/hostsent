@@ -31,8 +31,9 @@ func NewUserGroupHandler(service service.UserGroupService) *UserGroupHandler {
 // @Param page_size query int false "每页数量" default(10)
 // @Param status query string false "用户组状态，如 active/disabled"
 // @Param keyword query string false "关键词，支持名称/编码模糊搜索"
-// @Success 200 {object} dto.APIResponse[dto.UserGroupListResponse]
-// @Router /api/v1/admin/user-groups [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/user-groups [get]
 func (h *UserGroupHandler) List(c *gin.Context) {
 	var query dto.UserGroupListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
@@ -54,8 +55,9 @@ func (h *UserGroupHandler) List(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "用户组ID"
-// @Success 200 {object} dto.APIResponse[dto.UserGroupInfo]
-// @Router /api/v1/admin/user-groups/{id} [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/user-groups/{id} [get]
 func (h *UserGroupHandler) Get(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	item, err := h.service.FindByID(c.Request.Context(), id)
@@ -74,8 +76,9 @@ func (h *UserGroupHandler) Get(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param request body dto.UserGroupCreateRequest true "用户组参数"
-// @Success 200 {object} dto.APIResponse[dto.UserGroupInfo]
-// @Router /api/v1/admin/user-groups [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/user-groups [post]
 func (h *UserGroupHandler) Create(c *gin.Context) {
 	var req dto.UserGroupCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -99,8 +102,9 @@ func (h *UserGroupHandler) Create(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "用户组ID"
 // @Param request body dto.UserGroupUpdateRequest true "用户组参数"
-// @Success 200 {object} dto.APIResponse[dto.UserGroupInfo]
-// @Router /api/v1/admin/user-groups/{id} [put]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/user-groups/{id} [put]
 func (h *UserGroupHandler) Update(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.UserGroupUpdateRequest
@@ -123,8 +127,9 @@ func (h *UserGroupHandler) Update(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "用户组ID"
-// @Success 200 {object} dto.APIResponse[string]
-// @Router /api/v1/admin/user-groups/{id} [delete]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/user-groups/{id} [delete]
 func (h *UserGroupHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err := h.service.Delete(c.Request.Context(), id); err != nil {

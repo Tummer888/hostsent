@@ -29,6 +29,12 @@ func NewPublicHandler(svc *service.Service) *PublicHandler {
 	return &PublicHandler{svc: svc}
 }
 
+// AuthConfig godoc
+// @Summary 登录方式配置
+// @Tags 前台公开
+// @Security BearerAuth
+// @Success 200 {string} string "ok"
+// @Router /api/v1/public/auth-config [get]
 // AuthConfig `/public/auth-config`：前端据此决定是否渲染验证码。
 //
 // 这个接口是必需的：没有它，前端要么永远渲染验证码（默认关时丑且多余），
@@ -65,6 +71,13 @@ func (h *PublicHandler) AuthConfig(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// ImageChallenge godoc
+// @Summary 图形验证码
+// @Tags 前台公开
+// @Security BearerAuth
+// @Param request body dto.SendCodeRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/public/captcha/image [get]
 // ImageChallenge `GET /public/captcha/image`：服务端生成图形码。
 func (h *PublicHandler) ImageChallenge(c *gin.Context) {
 	scene := c.DefaultQuery("scene", model.SceneUserLogin)
@@ -99,6 +112,13 @@ var publicSendScenes = map[string]bool{
 	model.SceneRealnameSubmit: true,
 }
 
+// SendCode godoc
+// @Summary 下发验证码
+// @Tags 前台公开
+// @Security BearerAuth
+// @Param request body dto.SendCodeRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/public/verify-code/send [post]
 // SendCode `POST /public/verify-code/send`：下发 OTP（强频控）。
 func (h *PublicHandler) SendCode(c *gin.Context) {
 	var req dto.SendCodeRequest
@@ -150,6 +170,13 @@ func NewAdminHandler(svc *service.AdminService) *AdminHandler {
 	return &AdminHandler{svc: svc}
 }
 
+// ListProviderTypes godoc
+// @Summary 验证码渠道列表
+// @Tags 管理端-验证码安全
+// @Security BearerAuth
+// @Param request body dto.ProviderUpsertRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/captcha/providers/types [get]
 // ListProviderTypes 可选服务商类型（描述符驱动前端动态表单）。
 func (h *AdminHandler) ListProviderTypes(c *gin.Context) {
 	response.Success(c, h.svc.ProviderTypes())
@@ -165,6 +192,13 @@ func (h *AdminHandler) ListProviders(c *gin.Context) {
 	response.Success(c, items)
 }
 
+// CreateProvider godoc
+// @Summary 新建验证码渠道
+// @Tags 管理端-验证码安全
+// @Security BearerAuth
+// @Param request body dto.ProviderUpsertRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/captcha/providers [post]
 // CreateProvider 新建服务商。
 func (h *AdminHandler) CreateProvider(c *gin.Context) {
 	var req dto.ProviderUpsertRequest
@@ -180,6 +214,14 @@ func (h *AdminHandler) CreateProvider(c *gin.Context) {
 	response.Success(c, item)
 }
 
+// UpdateProvider godoc
+// @Summary 更新验证码渠道
+// @Tags 管理端-验证码安全
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Param request body dto.ProviderUpsertRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/captcha/providers/{id} [put]
 // UpdateProvider 更新服务商。
 func (h *AdminHandler) UpdateProvider(c *gin.Context) {
 	id, ok := parseID(c)
@@ -200,6 +242,7 @@ func (h *AdminHandler) UpdateProvider(c *gin.Context) {
 }
 
 // DeleteProvider 删除服务商（内置 native 不可删除）。
+// @Router /api/v1/admin/captcha/providers/{id} [delete]
 func (h *AdminHandler) DeleteProvider(c *gin.Context) {
 	id, ok := parseID(c)
 	if !ok {
@@ -227,6 +270,13 @@ func (h *AdminHandler) TestProvider(c *gin.Context) {
 	response.SuccessMessage(c, "测试通过")
 }
 
+// ListPolicies godoc
+// @Summary 验证码策略列表
+// @Tags 管理端-验证码安全
+// @Security BearerAuth
+// @Param request body dto.PolicyUpdateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/captcha/policies [get]
 // ListPolicies 场景策略列表。
 func (h *AdminHandler) ListPolicies(c *gin.Context) {
 	items, err := h.svc.ListPolicies(c.Request.Context())
@@ -237,6 +287,14 @@ func (h *AdminHandler) ListPolicies(c *gin.Context) {
 	response.Success(c, items)
 }
 
+// UpdatePolicy godoc
+// @Summary 更新验证码策略
+// @Tags 管理端-验证码安全
+// @Security BearerAuth
+// @Param scene path string true "scene"
+// @Param request body dto.PolicyUpdateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/captcha/policies/{scene} [put]
 // UpdatePolicy 更新场景策略。
 func (h *AdminHandler) UpdatePolicy(c *gin.Context) {
 	scene := strings.TrimSpace(c.Param("scene"))
@@ -257,6 +315,13 @@ func (h *AdminHandler) UpdatePolicy(c *gin.Context) {
 	response.Success(c, item)
 }
 
+// Stats godoc
+// @Summary 验证码统计
+// @Tags 管理端-验证码安全
+// @Security BearerAuth
+// @Param request body dto.SecuritySettingsUpdateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/captcha/stats [get]
 // Stats 统计（按场景聚合下发量/通过率/费用）。
 func (h *AdminHandler) Stats(c *gin.Context) {
 	from := parseTimeQuery(c.Query("from"), time.Now().AddDate(0, 0, -7))
@@ -279,6 +344,13 @@ func NewUserHandler(svc *service.UserService) *UserHandler {
 	return &UserHandler{svc: svc}
 }
 
+// GetSettings godoc
+// @Summary 验证码设置详情
+// @Tags 用户端-验证码安全
+// @Security BearerAuth
+// @Param request body dto.SecuritySettingsUpdateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/uc/security/settings [get]
 // GetSettings 读取用户安全设置（只回 effective）。
 func (h *UserHandler) GetSettings(c *gin.Context) {
 	claims, ok := middleware.GetUserClaims(c)
@@ -294,6 +366,13 @@ func (h *UserHandler) GetSettings(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// UpdateSettings godoc
+// @Summary 更新验证码设置
+// @Tags 用户端-验证码安全
+// @Security BearerAuth
+// @Param request body dto.SecuritySettingsUpdateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/uc/security/settings [put]
 // UpdateSettings 更新用户安全设置（只表达加严；平台强制项被忽略并回显真实值）。
 func (h *UserHandler) UpdateSettings(c *gin.Context) {
 	claims, ok := middleware.GetUserClaims(c)
@@ -314,6 +393,13 @@ func (h *UserHandler) UpdateSettings(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// SendVerification godoc
+// @Summary 下发验证码
+// @Tags 用户端-验证码安全
+// @Security BearerAuth
+// @Param request body dto.SendCodeRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/uc/security/verification/send [post]
 // SendVerification 用户端下发验证码（已登录，目标取账号绑定）。
 func (h *UserHandler) SendVerification(c *gin.Context) {
 	claims, ok := middleware.GetUserClaims(c)
@@ -334,6 +420,13 @@ func (h *UserHandler) SendVerification(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// VerifyCode godoc
+// @Summary 校验关键操作验证
+// @Tags 用户端-验证码安全
+// @Security BearerAuth
+// @Param request body dto.VerifyCodeRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/uc/security/verification/verify [post]
 // VerifyCode 用户端校验验证码并换取票据。
 func (h *UserHandler) VerifyCode(c *gin.Context) {
 	claims, ok := middleware.GetUserClaims(c)
@@ -354,6 +447,12 @@ func (h *UserHandler) VerifyCode(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// OpenVerification godoc
+// @Summary 关键操作验证要求
+// @Tags 用户端-验证码安全
+// @Security BearerAuth
+// @Success 200 {string} string "ok"
+// @Router /api/v1/uc/security/verification/requirement [get]
 // OpenVerification 无票据时查询该场景的验证要求（前端据此弹验证框）。
 func (h *UserHandler) OpenVerification(c *gin.Context) {
 	claims, ok := middleware.GetUserClaims(c)

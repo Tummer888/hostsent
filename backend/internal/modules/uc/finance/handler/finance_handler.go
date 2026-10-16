@@ -132,7 +132,7 @@ func (h *FinanceHandler) Transactions(c *gin.Context) {
 // @Summary 发起充值
 // @Tags 用户中心-财务
 // @Security BearerAuth
-// @Param request body dto.RechargeCreateRequest true "充值参数"
+// @Param request body finrechdto.RechargeCreateRequest true "充值参数"
 // @Success 200 {object} response.Body
 // @Router /api/v1/uc/finance/recharge [post]
 func (h *FinanceHandler) CreateRecharge(c *gin.Context) {
@@ -222,7 +222,7 @@ func (h *FinanceHandler) Bills(c *gin.Context) {
 // @Summary 申请开票
 // @Tags 用户中心-财务
 // @Security BearerAuth
-// @Param request body dto.InvoiceApplyRequest true "开票信息"
+// @Param request body billdto.InvoiceApplyRequest true "开票信息"
 // @Success 200 {object} response.Body
 // @Router /api/v1/uc/finance/invoices [post]
 func (h *FinanceHandler) ApplyInvoice(c *gin.Context) {

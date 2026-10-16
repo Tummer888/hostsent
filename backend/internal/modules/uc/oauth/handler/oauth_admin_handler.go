@@ -28,8 +28,8 @@ func NewAdminHandler(svc service.Service) *AdminHandler {
 // @Tags 系统设置-第三方登录
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} dto.APIResponse[[]dto.ProviderTypeInfo]
-// @Router /api/v1/admin/oauth/provider-types [get]
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/verifications/provider-types [get]
 func (h *AdminHandler) ProviderTypes(c *gin.Context) {
 	success(c, h.svc.ProviderTypes())
 }
@@ -40,7 +40,7 @@ func (h *AdminHandler) ProviderTypes(c *gin.Context) {
 // @Tags 系统设置-第三方登录
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} dto.APIResponse[[]dto.ProviderInfo]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/oauth/providers [get]
 func (h *AdminHandler) ListProviders(c *gin.Context) {
 	data, err := h.svc.ListProviders(c.Request.Context())
@@ -60,7 +60,7 @@ func (h *AdminHandler) ListProviders(c *gin.Context) {
 // @Security BearerAuth
 // @Param provider path string true "渠道标识" Enums(wechat,qq,alipay)
 // @Param request body dto.ProviderUpdateRequest true "渠道配置"
-// @Success 200 {object} dto.APIResponse[dto.ProviderInfo]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/oauth/providers/{provider} [put]
 func (h *AdminHandler) UpdateProvider(c *gin.Context) {
 	provider := c.Param("provider")
@@ -84,7 +84,7 @@ func (h *AdminHandler) UpdateProvider(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param provider path string true "渠道标识"
-// @Success 200 {object} dto.APIResponse[map[string]any]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/oauth/providers/{provider}/test [post]
 func (h *AdminHandler) TestProvider(c *gin.Context) {
 	provider := c.Param("provider")
@@ -107,7 +107,7 @@ func (h *AdminHandler) TestProvider(c *gin.Context) {
 // @Param user_id query int false "用户ID"
 // @Param status query string false "绑定状态"
 // @Param keyword query string false "关键词（用户名/昵称/openid）"
-// @Success 200 {object} dto.APIResponse[dto.BindingListResponse]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/oauth/bindings [get]
 func (h *AdminHandler) ListBindings(c *gin.Context) {
 	var query dto.BindingListQuery

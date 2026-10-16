@@ -32,7 +32,7 @@ func NewMenuHandler(menuService service.MenuService) *MenuHandler {
 // @Tags 菜单管理
 // @Produce json
 // @Param platform query string false "平台：admin(默认) 或 user"
-// @Success 200 {object} dto.APIResponse[[]dto.MenuNode]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/menus/tree [get]
 func (h *MenuHandler) Tree(c *gin.Context) {
 	platform := c.DefaultQuery("platform", "admin")

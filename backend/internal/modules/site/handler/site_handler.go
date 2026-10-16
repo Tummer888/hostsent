@@ -32,7 +32,7 @@ func NewSiteHandler(siteSvc siteservice.SiteService) *SiteHandler {
 // @Tags 官网门户-公开
 // @Produce json
 // @Param limit query int false "返回条数（默认 5，上限 50）"
-// @Success 200 {object} response.Body{data=dto.AnnouncementListResponse}
+// @Success 200 {object} response.Body
 // @Router /api/v1/public/announcements [get]
 func (h *SiteHandler) Announcements(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "5"))
@@ -54,7 +54,7 @@ func (h *SiteHandler) Announcements(c *gin.Context) {
 // @Summary 官网品牌与站点配置
 // @Tags 官网门户-公开
 // @Produce json
-// @Success 200 {object} response.Body{data=dto.SiteContentResponse}
+// @Success 200 {object} response.Body
 // @Router /api/v1/public/site-content [get]
 func (h *SiteHandler) SiteContent(c *gin.Context) {
 	content, err := h.siteSvc.SiteContent(c.Request.Context())
@@ -75,7 +75,7 @@ func (h *SiteHandler) SiteContent(c *gin.Context) {
 // @Tags 官网门户-公开
 // @Produce json
 // @Param id path int true "公告 ID"
-// @Success 200 {object} response.Body{data=dto.AnnouncementItem}
+// @Success 200 {object} response.Body
 // @Router /api/v1/public/announcements/{id} [get]
 func (h *SiteHandler) AnnouncementDetail(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -105,7 +105,7 @@ func (h *SiteHandler) AnnouncementDetail(c *gin.Context) {
 // @Param category_id query int false "分类筛选"
 // @Param page query int false "页码，默认 1"
 // @Param page_size query int false "每页条数，默认 10，上限 50"
-// @Success 200 {object} response.Body{data=dto.ArticleListResponse}
+// @Success 200 {object} response.Body
 // @Router /api/v1/public/articles [get]
 func (h *SiteHandler) Articles(c *gin.Context) {
 	var q sitedto.ArticleListQuery
@@ -129,7 +129,7 @@ func (h *SiteHandler) Articles(c *gin.Context) {
 // @Produce json
 // @Param kind path string true "news/help/terms/privacy"
 // @Param slug path string true "文章标识"
-// @Success 200 {object} response.Body{data=dto.ArticleDetail}
+// @Success 200 {object} response.Body
 // @Router /api/v1/public/articles/{kind}/{slug} [get]
 func (h *SiteHandler) ArticleDetail(c *gin.Context) {
 	kind := strings.TrimSpace(c.Param("kind"))
@@ -156,7 +156,7 @@ func (h *SiteHandler) ArticleDetail(c *gin.Context) {
 // @Tags 官网门户-公开
 // @Produce json
 // @Param kind path string true "terms/privacy"
-// @Success 200 {object} response.Body{data=dto.ArticleDetail}
+// @Success 200 {object} response.Body
 // @Router /api/v1/public/article-singletons/{kind} [get]
 func (h *SiteHandler) SingletonArticle(c *gin.Context) {
 	kind := strings.TrimSpace(c.Param("kind"))
@@ -180,7 +180,7 @@ func (h *SiteHandler) SingletonArticle(c *gin.Context) {
 // @Tags 官网门户-公开
 // @Produce json
 // @Param kind query string true "news/help"
-// @Success 200 {object} response.Body{data=dto.CategoryListResponse}
+// @Success 200 {object} response.Body
 // @Router /api/v1/public/article-categories [get]
 func (h *SiteHandler) ArticleCategories(c *gin.Context) {
 	resp, err := h.siteSvc.ListCategories(c.Request.Context(), c.Query("kind"))
@@ -197,7 +197,7 @@ func (h *SiteHandler) ArticleCategories(c *gin.Context) {
 // @Summary 官网公开友情链接
 // @Tags 官网门户-公开
 // @Produce json
-// @Success 200 {object} response.Body{data=dto.FriendlyLinkListResponse}
+// @Success 200 {object} response.Body
 // @Router /api/v1/public/friendly-links [get]
 func (h *SiteHandler) FriendlyLinks(c *gin.Context) {
 	resp, err := h.siteSvc.ListFriendlyLinks(c.Request.Context())

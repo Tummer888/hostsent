@@ -92,6 +92,13 @@ func writeErr(c *gin.Context, err error) {
 // 目录 / 统计 / 查询
 // ---------------------------------------------------------------------------
 
+// Catalog godoc
+// @Summary 日志来源目录
+// @Tags 管理端-日志中心
+// @Security BearerAuth
+// @Param request body dto.QueryRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/logs/catalog [get]
 // Catalog `GET /admin/logs/catalog`：源目录与列元数据（26 个源共用一套页面）。
 func (h *Handler) Catalog(c *gin.Context) {
 	resp, err := h.query.Catalog(c.Request.Context())
@@ -102,6 +109,13 @@ func (h *Handler) Catalog(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// Stats godoc
+// @Summary 日志统计
+// @Tags 管理端-日志中心
+// @Security BearerAuth
+// @Param request body dto.QueryRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/logs/stats [get]
 // Stats `GET /admin/logs/stats`。
 func (h *Handler) Stats(c *gin.Context) {
 	resp, err := h.query.Stats(c.Request.Context())
@@ -112,6 +126,13 @@ func (h *Handler) Stats(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// Query godoc
+// @Summary 查询日志
+// @Tags 管理端-日志中心
+// @Security BearerAuth
+// @Param request body dto.QueryRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/logs/query [get]
 // Query `GET /admin/logs/query`。
 //
 // 源特有的等值筛选从任意 query 参数取，交给服务层按 FilterColumns 白名单过滤；
@@ -140,6 +161,15 @@ func (h *Handler) Query(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// Detail godoc
+// @Summary 日志详情
+// @Tags 管理端-日志中心
+// @Security BearerAuth
+// @Param source path string true "source"
+// @Param id path int true "id"
+// @Param request body dto.ExportRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/logs/{source}/detail/{id} [get]
 // Detail `GET /admin/logs/:source/detail/:id`。
 func (h *Handler) Detail(c *gin.Context) {
 	source := strings.TrimSpace(c.Param("source"))
@@ -164,6 +194,13 @@ func (h *Handler) Detail(c *gin.Context) {
 // 导出
 // ---------------------------------------------------------------------------
 
+// Export godoc
+// @Summary 导出日志
+// @Tags 管理端-日志中心
+// @Security BearerAuth
+// @Param request body dto.ExportRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/logs/export [post]
 // Export `POST /admin/logs/export`：同步导出，返回 file_id。
 //
 // 导出即留痕：谁、什么时候、导了哪个源、多少行，全部落 log_export_files。
@@ -182,6 +219,12 @@ func (h *Handler) Export(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// ListExportFiles godoc
+// @Summary 日志导出文件列表
+// @Tags 管理端-日志中心
+// @Security BearerAuth
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/logs/export-files [get]
 // ListExportFiles `GET /admin/logs/export-files`。
 func (h *Handler) ListExportFiles(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -203,6 +246,13 @@ func (h *Handler) ListExportFiles(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// DownloadExportFile godoc
+// @Summary 下载日志导出文件
+// @Tags 管理端-日志中心
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/logs/export-files/{id}/download [get]
 // DownloadExportFile `GET /admin/logs/export-files/:id/download`：流式下载。
 //
 // 导出文件含 IP 与上游请求体，下载是敏感操作，路由上挂审计中间件留痕。
@@ -245,6 +295,14 @@ func (h *Handler) DownloadExportFile(c *gin.Context) {
 	c.DataFromReader(200, info.FileSize, "application/octet-stream", file, nil)
 }
 
+// DeleteExportFile godoc
+// @Summary 删除日志导出文件
+// @Tags 管理端-日志中心
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Param request body dto.PolicyUpdateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/logs/export-files/{id} [delete]
 // DeleteExportFile `DELETE /admin/logs/export-files/:id`。
 func (h *Handler) DeleteExportFile(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -263,6 +321,13 @@ func (h *Handler) DeleteExportFile(c *gin.Context) {
 // 保留策略
 // ---------------------------------------------------------------------------
 
+// ListPolicies godoc
+// @Summary 日志留存策略列表
+// @Tags 管理端-日志中心
+// @Security BearerAuth
+// @Param request body dto.PolicyUpdateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/logs/policies [get]
 // ListPolicies `GET /admin/logs/policies`。
 func (h *Handler) ListPolicies(c *gin.Context) {
 	items, err := h.policy.List(c.Request.Context())
@@ -273,6 +338,14 @@ func (h *Handler) ListPolicies(c *gin.Context) {
 	response.Success(c, gin.H{"items": items})
 }
 
+// UpdatePolicy godoc
+// @Summary 更新日志留存策略
+// @Tags 管理端-日志中心
+// @Security BearerAuth
+// @Param source path string true "source"
+// @Param request body dto.PolicyUpdateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/logs/policies/{source} [put]
 // UpdatePolicy `PUT /admin/logs/policies/:source`。
 func (h *Handler) UpdatePolicy(c *gin.Context) {
 	source := strings.TrimSpace(c.Param("source"))
@@ -298,6 +371,13 @@ func (h *Handler) UpdatePolicy(c *gin.Context) {
 // 清理
 // ---------------------------------------------------------------------------
 
+// PreviewCleanup godoc
+// @Summary 预览日志清理
+// @Tags 管理端-日志中心
+// @Security BearerAuth
+// @Param request body dto.CleanupPreviewRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/logs/cleanup/preview [post]
 // PreviewCleanup `POST /admin/logs/cleanup/preview`：预演（不导出不删除）。
 func (h *Handler) PreviewCleanup(c *gin.Context) {
 	var req dto.CleanupPreviewRequest
@@ -314,6 +394,13 @@ func (h *Handler) PreviewCleanup(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// RunCleanup godoc
+// @Summary 执行日志清理
+// @Tags 管理端-日志中心
+// @Security BearerAuth
+// @Param request body dto.CleanupRunRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/logs/cleanup [post]
 // RunCleanup `POST /admin/logs/cleanup`：执行清理（需 DELETE 确认）。
 func (h *Handler) RunCleanup(c *gin.Context) {
 	var req dto.CleanupRunRequest
@@ -331,6 +418,12 @@ func (h *Handler) RunCleanup(c *gin.Context) {
 	response.Success(c, info)
 }
 
+// ListCleanupJobs godoc
+// @Summary 日志清理任务列表
+// @Tags 管理端-日志中心
+// @Security BearerAuth
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/logs/cleanup-jobs [get]
 // ListCleanupJobs `GET /admin/logs/cleanup-jobs`。
 func (h *Handler) ListCleanupJobs(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -350,6 +443,13 @@ func (h *Handler) ListCleanupJobs(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// GetCleanupJob godoc
+// @Summary 日志清理任务详情
+// @Tags 管理端-日志中心
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/logs/cleanup-jobs/{id} [get]
 // GetCleanupJob `GET /admin/logs/cleanup-jobs/:id`。
 func (h *Handler) GetCleanupJob(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -369,6 +469,13 @@ func (h *Handler) GetCleanupJob(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// CancelCleanupJob godoc
+// @Summary 取消日志清理任务
+// @Tags 管理端-日志中心
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/logs/cleanup-jobs/{id}/cancel [post]
 // CancelCleanupJob `POST /admin/logs/cleanup-jobs/:id/cancel`。
 func (h *Handler) CancelCleanupJob(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)

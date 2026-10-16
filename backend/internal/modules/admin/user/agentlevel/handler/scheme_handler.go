@@ -25,7 +25,7 @@ func NewSchemeHandler(groups service.ProductGroupService, schemes service.Discou
 // @Summary 商品分组列表
 // @Tags 商品分组
 // @Produce json
-// @Success 200 {object} dto.APIResponse[dto.ProductGroupListResponse]
+// @Success 200 {object} dto.ProductGroupListResponse
 // @Router /api/v1/admin/agent-levels/product-groups [get]
 func (h *SchemeHandler) ListGroups(c *gin.Context) {
 	data, err := h.groups.List(c.Request.Context())
@@ -42,7 +42,7 @@ func (h *SchemeHandler) ListGroups(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.ProductGroupRequest true "商品分组参数"
-// @Success 200 {object} dto.APIResponse[dto.ProductGroupInfo]
+// @Success 200 {object} dto.ProductGroupInfo
 // @Router /api/v1/admin/agent-levels/product-groups [post]
 func (h *SchemeHandler) CreateGroup(c *gin.Context) {
 	var req dto.ProductGroupRequest
@@ -65,7 +65,7 @@ func (h *SchemeHandler) CreateGroup(c *gin.Context) {
 // @Produce json
 // @Param id path int true "商品分组ID"
 // @Param request body dto.ProductGroupRequest true "商品分组参数"
-// @Success 200 {object} dto.APIResponse[dto.ProductGroupInfo]
+// @Success 200 {object} dto.ProductGroupInfo
 // @Router /api/v1/admin/agent-levels/product-groups/{id} [put]
 func (h *SchemeHandler) UpdateGroup(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -86,7 +86,7 @@ func (h *SchemeHandler) UpdateGroup(c *gin.Context) {
 // @Summary 删除商品分组（被折扣组绑定时拒绝）
 // @Tags 商品分组
 // @Param id path int true "商品分组ID"
-// @Success 200 {object} dto.APIResponse[string]
+// @Success 200 {object} dto.ProductGroupInfo
 // @Router /api/v1/admin/agent-levels/product-groups/{id} [delete]
 func (h *SchemeHandler) DeleteGroup(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -101,7 +101,7 @@ func (h *SchemeHandler) DeleteGroup(c *gin.Context) {
 // @Summary 折扣组列表
 // @Tags 折扣组
 // @Produce json
-// @Success 200 {object} dto.APIResponse[dto.SchemeListResponse]
+// @Success 200 {object} dto.SchemeInfo
 // @Router /api/v1/admin/agent-levels/discount-schemes [get]
 func (h *SchemeHandler) ListSchemes(c *gin.Context) {
 	data, err := h.schemes.List(c.Request.Context())
@@ -118,7 +118,7 @@ func (h *SchemeHandler) ListSchemes(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.SchemeRequest true "折扣组参数"
-// @Success 200 {object} dto.APIResponse[dto.SchemeInfo]
+// @Success 200 {object} dto.SchemeInfo
 // @Router /api/v1/admin/agent-levels/discount-schemes [post]
 func (h *SchemeHandler) CreateScheme(c *gin.Context) {
 	var req dto.SchemeRequest
@@ -141,7 +141,7 @@ func (h *SchemeHandler) CreateScheme(c *gin.Context) {
 // @Produce json
 // @Param id path int true "折扣组ID"
 // @Param request body dto.SchemeRequest true "折扣组参数"
-// @Success 200 {object} dto.APIResponse[dto.SchemeInfo]
+// @Success 200 {object} dto.SchemeInfo
 // @Router /api/v1/admin/agent-levels/discount-schemes/{id} [put]
 func (h *SchemeHandler) UpdateScheme(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -162,7 +162,7 @@ func (h *SchemeHandler) UpdateScheme(c *gin.Context) {
 // @Summary 删除折扣组
 // @Tags 折扣组
 // @Param id path int true "折扣组ID"
-// @Success 200 {object} dto.APIResponse[string]
+// @Success 200 {object} dto.SchemeInfo
 // @Router /api/v1/admin/agent-levels/discount-schemes/{id} [delete]
 func (h *SchemeHandler) DeleteScheme(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -178,7 +178,7 @@ func (h *SchemeHandler) DeleteScheme(c *gin.Context) {
 // @Tags 折扣组
 // @Produce json
 // @Param id path int true "折扣组ID"
-// @Success 200 {object} dto.APIResponse[dto.MatrixResponse]
+// @Success 200 {object} dto.SchemeInfo
 // @Router /api/v1/admin/agent-levels/discount-schemes/{id}/apply [post]
 func (h *SchemeHandler) ApplyScheme(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)

@@ -24,6 +24,13 @@ func NewDepartmentHandler(svc service.DepartmentService) *DepartmentHandler {
 	return &DepartmentHandler{svc: svc}
 }
 
+// List godoc
+// @Summary 部门列表
+// @Tags 管理端-员工组织
+// @Security BearerAuth
+// @Param request body dto.DepartmentSaveRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/departments [get]
 func (h *DepartmentHandler) List(c *gin.Context) {
 	var query dto.DepartmentListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
@@ -38,6 +45,14 @@ func (h *DepartmentHandler) List(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// Get godoc
+// @Summary 部门详情
+// @Tags 管理端-员工组织
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Param request body dto.DepartmentSaveRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/departments/{id} [get]
 func (h *DepartmentHandler) Get(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -53,6 +68,13 @@ func (h *DepartmentHandler) Get(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// Create godoc
+// @Summary 新建部门
+// @Tags 管理端-员工组织
+// @Security BearerAuth
+// @Param request body dto.DepartmentSaveRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/departments [post]
 func (h *DepartmentHandler) Create(c *gin.Context) {
 	var req dto.DepartmentSaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -68,6 +90,14 @@ func (h *DepartmentHandler) Create(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// Update godoc
+// @Summary 更新部门
+// @Tags 管理端-员工组织
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Param request body dto.DepartmentSaveRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/departments/{id} [put]
 func (h *DepartmentHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -88,6 +118,13 @@ func (h *DepartmentHandler) Update(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// Delete godoc
+// @Summary 删除部门
+// @Tags 管理端-员工组织
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/departments/{id} [delete]
 func (h *DepartmentHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

@@ -47,8 +47,9 @@ func operatorID(c *gin.Context) (uint64, error) {
 // @Tags 用户管理
 // @Produce json
 // @Param id path int true "用户ID"
-// @Success 200 {object} dto.APIResponse[dto.UserDeletionCheckResponse]
-// @Router /api/v1/admin/users/{id}/deletion-check [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users/{id}/deletion-check [get]
 func (h *UserDeletionHandler) CheckDeletion(c *gin.Context) {
 	id, ok := parseUserID(c)
 	if !ok {
@@ -70,8 +71,9 @@ func (h *UserDeletionHandler) CheckDeletion(c *gin.Context) {
 // @Produce json
 // @Param id path int true "用户ID"
 // @Param request body dto.UserDeleteRequest true "注销参数"
-// @Success 200 {object} dto.APIResponse[string]
-// @Router /api/v1/admin/users/{id} [delete]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users/{id} [delete]
 func (h *UserDeletionHandler) DeleteUser(c *gin.Context) {
 	id, ok := parseUserID(c)
 	if !ok {
@@ -100,8 +102,9 @@ func (h *UserDeletionHandler) DeleteUser(c *gin.Context) {
 // @Tags 用户管理
 // @Produce json
 // @Param id path int true "用户ID"
-// @Success 200 {object} dto.APIResponse[string]
-// @Router /api/v1/admin/users/{id}/restore [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users/{id}/restore [post]
 func (h *UserDeletionHandler) RestoreUser(c *gin.Context) {
 	id, ok := parseUserID(c)
 	if !ok {
@@ -121,8 +124,9 @@ func (h *UserDeletionHandler) RestoreUser(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.UserBatchDeleteRequest true "批量注销参数"
-// @Success 200 {object} dto.APIResponse[dto.UserBatchResult]
-// @Router /api/v1/admin/users/batch-delete [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users/batch-delete [post]
 func (h *UserDeletionHandler) BatchDeleteUsers(c *gin.Context) {
 	var req dto.UserBatchDeleteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -149,8 +153,9 @@ func (h *UserDeletionHandler) BatchDeleteUsers(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.UserBatchRestoreRequest true "批量恢复参数"
-// @Success 200 {object} dto.APIResponse[dto.UserBatchResult]
-// @Router /api/v1/admin/users/batch-restore [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users/batch-restore [post]
 func (h *UserDeletionHandler) BatchRestoreUsers(c *gin.Context) {
 	var req dto.UserBatchRestoreRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -172,8 +177,9 @@ func (h *UserDeletionHandler) BatchRestoreUsers(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.UserPurgeRequest true "清理参数"
-// @Success 200 {object} dto.APIResponse[dto.UserPurgeResponse]
-// @Router /api/v1/admin/users/purge [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users/purge [post]
 func (h *UserDeletionHandler) PurgeUsers(c *gin.Context) {
 	var req dto.UserPurgeRequest
 	// 空 body 是合法调用（按默认参数跑一轮），因此绑定失败只在有 body 时才算错误。

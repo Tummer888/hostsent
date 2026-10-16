@@ -45,8 +45,9 @@ func userID(c *gin.Context) (uint64, bool) {
 // @Tags 用户中心-实名认证
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} dto.APIResponse[dto.UserStatusResponse]
-// @Router /api/v1/uc/verification [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/uc/verification [get]
 func (h *VerificationUserHandler) Status(c *gin.Context) {
 	uid, ok := userID(c)
 	if !ok {
@@ -68,8 +69,9 @@ func (h *VerificationUserHandler) Status(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param request body dto.SubmitRequest true "实名申请"
-// @Success 200 {object} dto.APIResponse[dto.VerificationInfo]
-// @Router /api/v1/uc/verification [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/uc/verification [post]
 func (h *VerificationUserHandler) Submit(c *gin.Context) {
 	uid, ok := userID(c)
 	if !ok {
@@ -99,7 +101,7 @@ func (h *VerificationUserHandler) Submit(c *gin.Context) {
 // @Security BearerAuth
 // @Param page query int false "页码" default(1)
 // @Param page_size query int false "每页数量" default(10)
-// @Success 200 {object} dto.APIResponse[dto.ListResponse[dto.VerificationInfo]]
+// @Success 200 {object} response.Body
 // @Router /api/v1/uc/verification/applications [get]
 func (h *VerificationUserHandler) ListMine(c *gin.Context) {
 	uid, ok := userID(c)
@@ -123,8 +125,9 @@ func (h *VerificationUserHandler) ListMine(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "申请ID"
-// @Success 200 {object} dto.APIResponse[dto.VerificationDetail]
-// @Router /api/v1/uc/verification/applications/{id} [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/uc/verification/applications/{id} [get]
 func (h *VerificationUserHandler) Detail(c *gin.Context) {
 	uid, ok := userID(c)
 	if !ok {
@@ -149,8 +152,9 @@ func (h *VerificationUserHandler) Detail(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "申请ID"
-// @Success 200 {object} dto.APIResponse[dto.AuthorizeResponse]
-// @Router /api/v1/uc/verification/applications/{id}/authorize [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/uc/verification/applications/{id}/authorize [post]
 func (h *VerificationUserHandler) Authorize(c *gin.Context) {
 	uid, ok := userID(c)
 	if !ok {
@@ -175,8 +179,9 @@ func (h *VerificationUserHandler) Authorize(c *gin.Context) {
 // @Produce json
 // @Param application_id query int true "申请ID"
 // @Param certify_id query string true "核验流水号"
-// @Success 200 {object} dto.APIResponse[string]
-// @Router /api/v1/uc/verification/{provider}/callback [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/uc/verification/{provider}/callback [get]
 func (h *VerificationUserHandler) ProviderCallback(c *gin.Context) {
 	applicationID, err := strconv.ParseUint(strings.TrimSpace(c.Query("application_id")), 10, 64)
 	if err != nil || applicationID == 0 {
@@ -207,8 +212,9 @@ func (h *VerificationUserHandler) ProviderCallback(c *gin.Context) {
 // @Param id path int true "申请ID"
 // @Param document_type formData string true "材料类型" Enums(id_front,id_back,handheld,business_license,authorization)
 // @Param file formData file true "材料文件"
-// @Success 200 {object} dto.APIResponse[dto.DocumentInfo]
-// @Router /api/v1/uc/verification/applications/{id}/documents [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/uc/verification/applications/{id}/documents [post]
 func (h *VerificationUserHandler) UploadDocument(c *gin.Context) {
 	uid, ok := userID(c)
 	if !ok {

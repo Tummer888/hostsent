@@ -29,7 +29,7 @@ func NewUserHandler(svc service.Service) *UserHandler {
 // @Description 只返回「已启用且适配器已注册」的渠道，不含任何凭证
 // @Tags 用户中心-第三方登录
 // @Produce json
-// @Success 200 {object} dto.APIResponse[[]dto.PublicProviderInfo]
+// @Success 200 {object} response.Body
 // @Router /api/v1/uc/oauth/providers [get]
 func (h *UserHandler) Providers(c *gin.Context) {
 	data, err := h.svc.PublicProviders(c.Request.Context())
@@ -47,8 +47,8 @@ func (h *UserHandler) Providers(c *gin.Context) {
 // @Produce json
 // @Param provider path string true "渠道标识" Enums(wechat,qq,alipay)
 // @Param invite_code query string false "邀请码（透传注册归属）"
-// @Success 200 {object} dto.APIResponse[map[string]string]
-// @Router /api/v1/uc/oauth/{provider}/authorize [get]
+// @Success 200 {object} response.Body
+// @Router /api/v1/uc/verification/applications/{id}/authorize [post]
 func (h *UserHandler) Authorize(c *gin.Context) {
 	provider := c.Param("provider")
 	url, err := h.svc.AuthorizeURL(c.Request.Context(), provider, oauthpkg.ModeLogin, 0, c.Query("invite_code"))
@@ -88,7 +88,7 @@ func (h *UserHandler) Callback(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.ExchangeRequest true "票据"
-// @Success 200 {object} dto.APIResponse[dto.ExchangeResponse]
+// @Success 200 {object} response.Body
 // @Router /api/v1/uc/oauth/exchange [post]
 func (h *UserHandler) Exchange(c *gin.Context) {
 	var req dto.ExchangeRequest
@@ -114,7 +114,7 @@ func (h *UserHandler) Exchange(c *gin.Context) {
 // @Tags 用户中心-第三方登录
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} dto.APIResponse[[]dto.MyBindingInfo]
+// @Success 200 {object} response.Body
 // @Router /api/v1/uc/oauth/bindings [get]
 func (h *UserHandler) MyBindings(c *gin.Context) {
 	uid, ok := currentUserID(c)
@@ -136,7 +136,7 @@ func (h *UserHandler) MyBindings(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param provider path string true "渠道标识"
-// @Success 200 {object} dto.APIResponse[map[string]string]
+// @Success 200 {object} response.Body
 // @Router /api/v1/uc/oauth/{provider}/bind-authorize [get]
 func (h *UserHandler) BindAuthorize(c *gin.Context) {
 	uid, ok := currentUserID(c)
@@ -159,7 +159,7 @@ func (h *UserHandler) BindAuthorize(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param provider path string true "渠道标识"
-// @Success 200 {object} dto.APIResponse[string]
+// @Success 200 {object} response.Body
 // @Router /api/v1/uc/oauth/bindings/{provider} [delete]
 func (h *UserHandler) Unbind(c *gin.Context) {
 	uid, ok := currentUserID(c)

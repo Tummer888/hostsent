@@ -31,9 +31,9 @@ func NewAdminHandler(adminService service.AdminService) *AdminHandler {
 // @Accept json
 // @Produce json
 // @Param request body dto.AdminLoginRequest true "登录参数"
-// @Success 200 {object} dto.APIResponse[map[string]any]
-// @Failure 400 {object} dto.APIResponse[map[string]string]
-// @Failure 500 {object} dto.APIResponse[map[string]string]
+// @Success 200 {object} response.Body
+// @Failure 400 {object} response.Body
+// @Failure 500 {object} response.Body
 // @Router /api/v1/admin/auth/login [post]
 func (h *AdminHandler) Login(c *gin.Context) {
 	var req dto.AdminLoginRequest
@@ -59,8 +59,8 @@ func (h *AdminHandler) Login(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.AdminVerifyOTPRequest true "验证参数"
-// @Success 200 {object} dto.APIResponse[map[string]any]
-// @Failure 400 {object} dto.APIResponse[map[string]string]
+// @Success 200 {object} response.Body
+// @Failure 400 {object} response.Body
 // @Router /api/v1/admin/auth/login/verify-otp [post]
 func (h *AdminHandler) VerifyLoginOTP(c *gin.Context) {
 	var req dto.AdminVerifyOTPRequest
@@ -97,9 +97,9 @@ func writeSecurityError(c *gin.Context, err error) {
 // @Tags 管理员认证
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} dto.APIResponse[map[string]any]
-// @Failure 401 {object} dto.APIResponse[map[string]string]
-// @Failure 500 {object} dto.APIResponse[map[string]string]
+// @Success 200 {object} response.Body
+// @Failure 401 {object} response.Body
+// @Failure 500 {object} response.Body
 // @Router /api/v1/admin/auth/me [get]
 func (h *AdminHandler) Me(c *gin.Context) {
 	adminClaims, ok := middleware.GetAdminClaims(c)
@@ -127,6 +127,13 @@ func (h *AdminHandler) Me(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// List godoc
+// @Summary 管理员账号列表
+// @Tags 管理端-认证
+// @Security BearerAuth
+// @Param request body dto.AdminCreateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/auth/admins [get]
 func (h *AdminHandler) List(c *gin.Context) {
 	var query dto.AdminListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
@@ -141,6 +148,13 @@ func (h *AdminHandler) List(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// Create godoc
+// @Summary 新建管理员账号
+// @Tags 管理端-认证
+// @Security BearerAuth
+// @Param request body dto.AdminCreateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/auth/admins [post]
 func (h *AdminHandler) Create(c *gin.Context) {
 	var req dto.AdminCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -155,6 +169,14 @@ func (h *AdminHandler) Create(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// Get godoc
+// @Summary 管理员账号详情
+// @Tags 管理端-认证
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Param request body dto.AdminUpdateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/auth/admins/{id} [get]
 func (h *AdminHandler) Get(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -169,6 +191,14 @@ func (h *AdminHandler) Get(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// Update godoc
+// @Summary 更新管理员账号
+// @Tags 管理端-认证
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Param request body dto.AdminUpdateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/auth/admins/{id} [put]
 func (h *AdminHandler) Update(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -188,6 +218,14 @@ func (h *AdminHandler) Update(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// UpdateStatus godoc
+// @Summary 管理员账号更新状态
+// @Tags 管理端-认证
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Param request body dto.AdminStatusRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/auth/admins/{id}/status [patch]
 func (h *AdminHandler) UpdateStatus(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -206,6 +244,14 @@ func (h *AdminHandler) UpdateStatus(c *gin.Context) {
 	response.Success(c, nil)
 }
 
+// ResetPassword godoc
+// @Summary 重置管理员账号
+// @Tags 管理端-认证
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Param request body dto.AdminResetPasswordRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/auth/admins/{id}/reset-password [post]
 func (h *AdminHandler) ResetPassword(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -224,6 +270,14 @@ func (h *AdminHandler) ResetPassword(c *gin.Context) {
 	response.Success(c, nil)
 }
 
+// Delete godoc
+// @Summary 删除管理员账号
+// @Tags 管理端-认证
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Param request body dto.AdminResignRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/auth/admins/{id} [delete]
 func (h *AdminHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -237,6 +291,14 @@ func (h *AdminHandler) Delete(c *gin.Context) {
 	response.Success(c, nil)
 }
 
+// Resign godoc
+// @Summary 离职员工
+// @Tags 管理端-员工组织
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Param request body dto.AdminResignRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/staff/{id}/resign [post]
 // Resign 员工离职（S1，doc86 §2.1）：置离职标记、禁用账号并交待在途客户。
 func (h *AdminHandler) Resign(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -256,6 +318,14 @@ func (h *AdminHandler) Resign(c *gin.Context) {
 	response.Success(c, nil)
 }
 
+// SetRoles godoc
+// @Summary 管理员账号分配角色
+// @Tags 管理端-认证
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Param request body dto.AdminAssignRolesRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/auth/admins/{id}/roles [put]
 // SetRoles 覆盖式设置员工角色（D2 多角色）。
 func (h *AdminHandler) SetRoles(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -275,6 +345,13 @@ func (h *AdminHandler) SetRoles(c *gin.Context) {
 	response.Success(c, nil)
 }
 
+// ChangePassword godoc
+// @Summary 修改管理员密码
+// @Tags 管理端-认证
+// @Security BearerAuth
+// @Param request body dto.AdminChangePasswordRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/admin/auth/change-password [post]
 // ChangePassword 管理员自助改密（首次登录强制改密走同一接口）。
 func (h *AdminHandler) ChangePassword(c *gin.Context) {
 	adminClaims, ok := middleware.GetAdminClaims(c)

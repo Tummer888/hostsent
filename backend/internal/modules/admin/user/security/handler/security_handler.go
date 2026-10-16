@@ -51,7 +51,7 @@ func operatorID(c *gin.Context) uint64 {
 // @Param login_type query string false "登录类型"
 // @Param ip query string false "IP地址"
 // @Param risk_flag query string false "风险标记"
-// @Success 200 {object} dto.APIResponse[dto.ListResponse[dto.LoginLogInfo]]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/security/login-logs [get]
 func (h *SecurityHandler) ListLoginLogs(c *gin.Context) {
 	var query dto.LoginLogListQuery
@@ -73,8 +73,9 @@ func (h *SecurityHandler) ListLoginLogs(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "日志ID"
-// @Success 200 {object} dto.APIResponse[dto.LoginLogInfo]
-// @Router /api/v1/admin/security/login-logs/{id} [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/security/login-logs/{id} [get]
 func (h *SecurityHandler) GetLoginLog(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	data, err := h.service.GetLoginLog(c.Request.Context(), id)
@@ -151,7 +152,7 @@ func (h *SecurityHandler) ExportLoginLogs(c *gin.Context) {
 // @Param result query string false "结果 success/failed"
 // @Param resource_type query string false "资源类型"
 // @Param resource_id query string false "资源ID"
-// @Success 200 {object} dto.APIResponse[dto.ListResponse[dto.AuditLogInfo]]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/security/audit-logs [get]
 func (h *SecurityHandler) ListAuditLogs(c *gin.Context) {
 	var query dto.AuditLogListQuery
@@ -173,8 +174,9 @@ func (h *SecurityHandler) ListAuditLogs(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "日志ID"
-// @Success 200 {object} dto.APIResponse[dto.AuditLogInfo]
-// @Router /api/v1/admin/security/audit-logs/{id} [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/security/audit-logs/{id} [get]
 func (h *SecurityHandler) GetAuditLog(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	data, err := h.service.GetAuditLog(c.Request.Context(), id)
@@ -255,7 +257,7 @@ func (h *SecurityHandler) ExportAuditLogs(c *gin.Context) {
 // @Param risk_level query string false "风险等级"
 // @Param status query string false "处置状态"
 // @Param keyword query string false "关键词"
-// @Success 200 {object} dto.APIResponse[dto.ListResponse[dto.RiskEventInfo]]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/security/risk-events [get]
 func (h *SecurityHandler) ListRiskEvents(c *gin.Context) {
 	var query dto.RiskEventListQuery
@@ -277,8 +279,9 @@ func (h *SecurityHandler) ListRiskEvents(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "风险事件ID"
-// @Success 200 {object} dto.APIResponse[dto.RiskEventInfo]
-// @Router /api/v1/admin/security/risk-events/{id} [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/security/risk-events/{id} [get]
 func (h *SecurityHandler) GetRiskEvent(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	data, err := h.service.GetRiskEvent(c.Request.Context(), id)
@@ -299,7 +302,7 @@ func (h *SecurityHandler) GetRiskEvent(c *gin.Context) {
 // @Param keyword query string false "关键词"
 // @Param start_time query string false "开始时间"
 // @Param end_time query string false "结束时间"
-// @Success 200 {object} dto.APIResponse[map[string]int64]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/security/risk-events/stats [get]
 func (h *SecurityHandler) CountRiskEvents(c *gin.Context) {
 	var query dto.RiskEventListQuery
@@ -327,8 +330,9 @@ func (h *SecurityHandler) CountRiskEvents(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "风险事件ID"
 // @Param request body dto.RiskEventLevelRequest true "等级与原因"
-// @Success 200 {object} dto.APIResponse[dto.RiskEventInfo]
-// @Router /api/v1/admin/security/risk-events/{id}/level [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/security/risk-events/{id}/level [post]
 func (h *SecurityHandler) UpdateRiskEventLevel(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.RiskEventLevelRequest
@@ -352,8 +356,9 @@ func (h *SecurityHandler) UpdateRiskEventLevel(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "风险事件ID"
 // @Param request body dto.RiskEventHandleRequest false "处理备注"
-// @Success 200 {object} dto.APIResponse[dto.RiskEventInfo]
-// @Router /api/v1/admin/security/risk-events/{id}/ignore [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/security/risk-events/{id}/ignore [post]
 func (h *SecurityHandler) IgnoreRiskEvent(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.RiskEventHandleRequest
@@ -374,8 +379,9 @@ func (h *SecurityHandler) IgnoreRiskEvent(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "风险事件ID"
 // @Param request body dto.RiskEventHandleRequest false "处理备注"
-// @Success 200 {object} dto.APIResponse[dto.RiskEventInfo]
-// @Router /api/v1/admin/security/risk-events/{id}/handle [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/security/risk-events/{id}/handle [post]
 func (h *SecurityHandler) HandleRiskEvent(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.RiskEventHandleRequest
@@ -397,8 +403,9 @@ func (h *SecurityHandler) HandleRiskEvent(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "风险事件ID"
 // @Param request body dto.RiskEventBlacklistRequest false "拉黑维度与原因"
-// @Success 200 {object} dto.APIResponse[dto.BlacklistInfo]
-// @Router /api/v1/admin/security/risk-events/{id}/blacklist [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/security/risk-events/{id}/blacklist [post]
 func (h *SecurityHandler) CreateBlacklistFromRisk(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.RiskEventBlacklistRequest
@@ -422,7 +429,7 @@ func (h *SecurityHandler) CreateBlacklistFromRisk(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "风险事件ID"
 // @Param request body dto.RiskEventRevokeRequest false "处理备注"
-// @Success 200 {object} dto.APIResponse[dto.ListResponse[dto.SessionInfo]]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/security/risk-events/{id}/revoke-sessions [post]
 func (h *SecurityHandler) RevokeSessionsFromRisk(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -442,7 +449,7 @@ func (h *SecurityHandler) RevokeSessionsFromRisk(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "风险事件ID"
-// @Success 200 {object} dto.APIResponse[dto.ListResponse[dto.RiskEventActionInfo]]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/security/risk-events/{id}/actions [get]
 func (h *SecurityHandler) ListRiskEventActions(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -465,7 +472,7 @@ func (h *SecurityHandler) ListRiskEventActions(c *gin.Context) {
 // @Param status query string false "状态"
 // @Param source query string false "来源"
 // @Param keyword query string false "命中值关键词"
-// @Success 200 {object} dto.APIResponse[dto.ListResponse[dto.BlacklistInfo]]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/security/blacklists [get]
 func (h *SecurityHandler) ListBlacklists(c *gin.Context) {
 	var query dto.BlacklistListQuery
@@ -488,8 +495,9 @@ func (h *SecurityHandler) ListBlacklists(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param request body dto.BlacklistCreateRequest true "黑名单参数"
-// @Success 200 {object} dto.APIResponse[dto.BlacklistInfo]
-// @Router /api/v1/admin/security/blacklists [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/security/blacklists [post]
 func (h *SecurityHandler) CreateBlacklist(c *gin.Context) {
 	var req dto.BlacklistCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -510,8 +518,9 @@ func (h *SecurityHandler) CreateBlacklist(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "黑名单ID"
-// @Success 200 {object} dto.APIResponse[dto.BlacklistInfo]
-// @Router /api/v1/admin/security/blacklists/{id} [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/security/blacklists/{id} [get]
 func (h *SecurityHandler) GetBlacklist(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	data, err := h.service.GetBlacklist(c.Request.Context(), id)
@@ -530,8 +539,9 @@ func (h *SecurityHandler) GetBlacklist(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "黑名单ID"
 // @Param request body dto.BlacklistUpdateRequest true "黑名单更新参数"
-// @Success 200 {object} dto.APIResponse[dto.BlacklistInfo]
-// @Router /api/v1/admin/security/blacklists/{id} [put]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/security/blacklists/{id} [put]
 func (h *SecurityHandler) UpdateBlacklist(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.BlacklistUpdateRequest
@@ -555,8 +565,9 @@ func (h *SecurityHandler) UpdateBlacklist(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "黑名单ID"
 // @Param request body dto.BlacklistStatusRequest true "状态参数"
-// @Success 200 {object} dto.APIResponse[dto.BlacklistInfo]
-// @Router /api/v1/admin/security/blacklists/{id}/status [patch]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/security/blacklists/{id}/status [patch]
 func (h *SecurityHandler) UpdateBlacklistStatus(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.BlacklistStatusRequest
@@ -579,8 +590,11 @@ func (h *SecurityHandler) UpdateBlacklistStatus(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "黑名单ID"
-// @Success 200 {object} dto.APIResponse[dto.BlacklistInfo]
-// @Router /api/v1/admin/security/blacklists/{id}/release [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/security/blacklists/{id}/release [post]
+//
+// @Router /api/v1/admin/security/blacklists/{id} [delete]
 func (h *SecurityHandler) ReleaseBlacklist(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	data, err := h.service.ReleaseBlacklist(c.Request.Context(), id, operatorID(c))
@@ -600,7 +614,7 @@ func (h *SecurityHandler) ReleaseBlacklist(c *gin.Context) {
 // @Param id path int true "黑名单ID"
 // @Param page query int false "页码" default(1)
 // @Param page_size query int false "每页数量" default(10)
-// @Success 200 {object} dto.APIResponse[dto.ListResponse[dto.LoginLogInfo]]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/security/blacklists/{id}/hits [get]
 func (h *SecurityHandler) ListBlacklistHits(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -630,7 +644,7 @@ func (h *SecurityHandler) ListBlacklistHits(c *gin.Context) {
 // @Param platform query string false "平台类型"
 // @Param ip query string false "IP地址"
 // @Param risk_flag query string false "风险标记"
-// @Success 200 {object} dto.APIResponse[dto.ListResponse[dto.SessionInfo]]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/security/sessions [get]
 func (h *SecurityHandler) ListSessions(c *gin.Context) {
 	var query dto.SessionListQuery
@@ -652,8 +666,9 @@ func (h *SecurityHandler) ListSessions(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "会话ID"
-// @Success 200 {object} dto.APIResponse[dto.SessionInfo]
-// @Router /api/v1/admin/security/sessions/{id} [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/security/sessions/{id} [get]
 func (h *SecurityHandler) GetSession(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	data, err := h.service.GetSession(c.Request.Context(), id)
@@ -672,8 +687,9 @@ func (h *SecurityHandler) GetSession(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "会话ID"
 // @Param request body dto.SessionRevokeRequest false "失效原因"
-// @Success 200 {object} dto.APIResponse[dto.SessionInfo]
-// @Router /api/v1/admin/security/sessions/{id}/revoke [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/security/sessions/{id}/revoke [post]
 func (h *SecurityHandler) RevokeSession(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.SessionRevokeRequest
@@ -693,7 +709,7 @@ func (h *SecurityHandler) RevokeSession(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param request body dto.SessionBatchRevokeRequest true "批量失效参数"
-// @Success 200 {object} dto.APIResponse[dto.ListResponse[dto.SessionInfo]]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/security/sessions/batch-revoke [post]
 func (h *SecurityHandler) BatchRevokeSessions(c *gin.Context) {
 	var req dto.SessionBatchRevokeRequest
@@ -716,7 +732,7 @@ func (h *SecurityHandler) BatchRevokeSessions(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param request body dto.SessionRevokeUserAllRequest true "用户会话失效参数"
-// @Success 200 {object} dto.APIResponse[dto.ListResponse[dto.SessionInfo]]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/security/sessions/revoke-user-all [post]
 func (h *SecurityHandler) RevokeUserAllSessions(c *gin.Context) {
 	var req dto.SessionRevokeUserAllRequest

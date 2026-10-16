@@ -47,8 +47,9 @@ func (h *UserHandler) SetOrderQuoteReader(reader func(ctx context.Context, userI
 // @Description 获取用户总览统计数据（总用户/今日新增/活跃/冻结/待实名/待审核/用户总余额/已购用户数）
 // @Tags 用户管理
 // @Produce json
-// @Success 200 {object} dto.APIResponse[dto.UserStatsResponse]
-// @Router /api/v1/admin/users/stats [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users/stats [get]
 func (h *UserHandler) GetStats(c *gin.Context) {
 	stats, err := h.userService.GetStats(c.Request.Context())
 	if err != nil {
@@ -65,8 +66,9 @@ func (h *UserHandler) GetStats(c *gin.Context) {
 // @Produce json
 // @Param limit query int false "每张卡片返回条数" default(8)
 // @Param window_hours query int false "最近登录统计窗口（小时）" default(24)
-// @Success 200 {object} dto.APIResponse[dto.UserActivityOverviewResponse]
-// @Router /api/v1/admin/users/activity-overview [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users/activity-overview [get]
 func (h *UserHandler) GetActivityOverview(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	windowHours, _ := strconv.Atoi(c.Query("window_hours"))
@@ -89,8 +91,9 @@ func (h *UserHandler) GetActivityOverview(c *gin.Context) {
 // @Param filter query string false "快捷筛选，如 today/pending_real_name"
 // @Param region query string false "地域筛选"
 // @Param keyword query string false "关键词，支持用户名/姓名/邮箱/手机号模糊搜索"
-// @Success 200 {object} dto.APIResponse[dto.UserListResponse]
-// @Router /api/v1/admin/users [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users [get]
 func (h *UserHandler) ListUsers(c *gin.Context) {
 	var query dto.UserListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
@@ -113,8 +116,9 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.UserCreateRequest true "用户参数"
-// @Success 200 {object} dto.APIResponse[dto.UserInfo]
-// @Router /api/v1/admin/users [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users [post]
 func (h *UserHandler) CreateUser(c *gin.Context) {
 	var req dto.UserCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -135,8 +139,9 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 // @Tags 用户管理
 // @Produce json
 // @Param id path int true "用户ID"
-// @Success 200 {object} dto.APIResponse[dto.UserInfo]
-// @Router /api/v1/admin/users/{id} [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users/{id} [get]
 func (h *UserHandler) GetUser(c *gin.Context) {
 	id, ok := parseUserID(c)
 	if !ok {
@@ -156,8 +161,9 @@ func (h *UserHandler) GetUser(c *gin.Context) {
 // @Tags 用户管理
 // @Produce json
 // @Param id path int true "主账号ID"
-// @Success 200 {object} dto.APIResponse[dto.SubAccountMemberListResponse]
-// @Router /api/v1/admin/users/{id}/members [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users/{id}/members [get]
 func (h *UserHandler) ListMembers(c *gin.Context) {
 	id, ok := parseUserID(c)
 	if !ok {
@@ -179,8 +185,9 @@ func (h *UserHandler) ListMembers(c *gin.Context) {
 // @Produce json
 // @Param id path int true "用户ID"
 // @Param request body dto.UserUpdateRequest true "用户参数"
-// @Success 200 {object} dto.APIResponse[dto.UserInfo]
-// @Router /api/v1/admin/users/{id} [put]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users/{id} [put]
 func (h *UserHandler) UpdateUser(c *gin.Context) {
 	id, ok := parseUserID(c)
 	if !ok {
@@ -207,8 +214,9 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 // @Produce json
 // @Param id path int true "用户ID"
 // @Param request body dto.UserStatusRequest true "状态参数"
-// @Success 200 {object} dto.APIResponse[string]
-// @Router /api/v1/admin/users/{id}/status [patch]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users/{id}/status [patch]
 func (h *UserHandler) UpdateUserStatus(c *gin.Context) {
 	id, ok := parseUserID(c)
 	if !ok {
@@ -234,8 +242,9 @@ func (h *UserHandler) UpdateUserStatus(c *gin.Context) {
 // @Produce json
 // @Param id path int true "用户ID"
 // @Param request body dto.ResetPasswordRequest true "密码参数"
-// @Success 200 {object} dto.APIResponse[string]
-// @Router /api/v1/admin/users/{id}/reset-password [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users/{id}/reset-password [post]
 func (h *UserHandler) ResetPassword(c *gin.Context) {
 	id, ok := parseUserID(c)
 	if !ok {
@@ -261,8 +270,9 @@ func (h *UserHandler) ResetPassword(c *gin.Context) {
 // @Produce json
 // @Param id path int true "用户ID"
 // @Param request body dto.AssignRolesRequest true "角色ID列表"
-// @Success 200 {object} dto.APIResponse[string]
-// @Router /api/v1/admin/users/{id}/roles [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users/{id}/roles [post]
 func (h *UserHandler) AssignRoles(c *gin.Context) {
 	id, ok := parseUserID(c)
 	if !ok {
@@ -285,8 +295,9 @@ func (h *UserHandler) AssignRoles(c *gin.Context) {
 // @Description 以指定用户身份登录，返回用户端 token
 // @Tags 用户管理
 // @Param id path int true "用户ID"
-// @Success 200 {object} dto.APIResponse[dto.ImpersonateResponse]
-// @Router /api/v1/admin/users/{id}/impersonate [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users/{id}/impersonate [post]
 func (h *UserHandler) Impersonate(c *gin.Context) {
 	id, ok := parseUserID(c)
 	if !ok {
@@ -319,8 +330,9 @@ func (h *UserHandler) Impersonate(c *gin.Context) {
 // @Tags 用户管理
 // @Param id path int true "用户ID"
 // @Param request body dto.RechargeRequest true "充值参数"
-// @Success 200 {object} dto.APIResponse[dto.RechargeResponse]
-// @Router /api/v1/admin/users/{id}/recharge [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users/{id}/recharge [post]
 func (h *UserHandler) Recharge(c *gin.Context) {
 	id, ok := parseUserID(c)
 	if !ok {
@@ -352,8 +364,9 @@ func (h *UserHandler) Recharge(c *gin.Context) {
 // @Tags 用户管理
 // @Param id path int true "用户ID"
 // @Param request body dto.AdminCreateOrderRequest true "订单参数"
-// @Success 200 {object} dto.APIResponse[dto.AdminOrderBrief]
-// @Router /api/v1/admin/users/{id}/orders [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users/{id}/orders [post]
 func (h *UserHandler) CreateOrder(c *gin.Context) {
 	id, ok := parseUserID(c)
 	if !ok {
@@ -385,8 +398,9 @@ func (h *UserHandler) CreateOrder(c *gin.Context) {
 // @Description 返回某商品在后台代下单时可选的 SKU、计费周期与客户选配项
 // @Tags 用户管理
 // @Param product_id query int true "商品ID"
-// @Success 200 {object} dto.APIResponse[dto.AdminOrderConfigResponse]
-// @Router /api/v1/admin/users/order-config [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users/order-config [get]
 func (h *UserHandler) OrderConfig(c *gin.Context) {
 	productID, err := strconv.ParseUint(c.Query("product_id"), 10, 64)
 	if err != nil || productID == 0 {
@@ -413,8 +427,9 @@ func (h *UserHandler) OrderConfig(c *gin.Context) {
 // @Produce json
 // @Param id path int true "用户ID"
 // @Param body body dto.AdminOrderQuoteRequest true "算价入参"
-// @Success 200 {object} dto.APIResponse[dto.AdminOrderQuoteResponse]
-// @Router /api/v1/admin/users/{id}/orders/quote [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/users/{id}/orders/quote [post]
 func (h *UserHandler) OrderQuote(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil || id == 0 {

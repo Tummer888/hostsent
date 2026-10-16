@@ -40,6 +40,12 @@ func userIDFromContext(c *gin.Context) (uint64, bool) {
 	return userID, true
 }
 
+// UserUnreadCount godoc
+// @Summary 站内通知未读数
+// @Tags 用户端-消息中心
+// @Security BearerAuth
+// @Success 200 {string} string "ok"
+// @Router /api/v1/uc/notifications/unread-count [get]
 func (h *UserHandler) UserUnreadCount(c *gin.Context) {
 	userID, ok := userIDFromContext(c)
 	if !ok {
@@ -54,6 +60,12 @@ func (h *UserHandler) UserUnreadCount(c *gin.Context) {
 	response.Success(c, notifydto.UnreadCountResponse{Count: count})
 }
 
+// UserList godoc
+// @Summary 站内通知列表
+// @Tags 用户端-消息中心
+// @Security BearerAuth
+// @Success 200 {string} string "ok"
+// @Router /api/v1/uc/notifications [get]
 func (h *UserHandler) UserList(c *gin.Context) {
 	userID, ok := userIDFromContext(c)
 	if !ok {
@@ -70,6 +82,14 @@ func (h *UserHandler) UserList(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// UserDetail godoc
+// @Summary 站内通知详情
+// @Tags 用户端-消息中心
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Param request body notifydto.PreferenceUpdateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/uc/notifications/{id} [get]
 func (h *UserHandler) UserDetail(c *gin.Context) {
 	userID, ok := userIDFromContext(c)
 	if !ok {
@@ -89,6 +109,13 @@ func (h *UserHandler) UserDetail(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// UserReadAll godoc
+// @Summary 站内通知全部标记已读
+// @Tags 用户端-消息中心
+// @Security BearerAuth
+// @Param request body notifydto.PreferenceUpdateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/uc/notifications/read-all [post]
 func (h *UserHandler) UserReadAll(c *gin.Context) {
 	userID, ok := userIDFromContext(c)
 	if !ok {
@@ -102,6 +129,13 @@ func (h *UserHandler) UserReadAll(c *gin.Context) {
 	response.SuccessMessage(c, "all read")
 }
 
+// UserAnnouncements godoc
+// @Summary 我的公告
+// @Tags 用户端-消息中心
+// @Security BearerAuth
+// @Param request body notifydto.PreferenceUpdateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/uc/announcements [get]
 func (h *UserHandler) UserAnnouncements(c *gin.Context) {
 	items, err := h.announceSvc.ListPublished(c.Request.Context(), "user")
 	if err != nil {
@@ -111,6 +145,13 @@ func (h *UserHandler) UserAnnouncements(c *gin.Context) {
 	response.Success(c, gin.H{"list": items})
 }
 
+// UserGetPrefs godoc
+// @Summary 通知偏好
+// @Tags 用户端-消息中心
+// @Security BearerAuth
+// @Param request body notifydto.PreferenceUpdateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/uc/notification-preferences [get]
 func (h *UserHandler) UserGetPrefs(c *gin.Context) {
 	userID, ok := userIDFromContext(c)
 	if !ok {
@@ -125,6 +166,13 @@ func (h *UserHandler) UserGetPrefs(c *gin.Context) {
 	response.Success(c, gin.H{"list": items})
 }
 
+// UserUpdatePrefs godoc
+// @Summary 更新通知偏好
+// @Tags 用户端-消息中心
+// @Security BearerAuth
+// @Param request body notifydto.PreferenceUpdateRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /api/v1/uc/notification-preferences [put]
 func (h *UserHandler) UserUpdatePrefs(c *gin.Context) {
 	userID, ok := userIDFromContext(c)
 	if !ok {

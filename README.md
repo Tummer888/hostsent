@@ -61,7 +61,7 @@ hostsent/
 │   │   └── pkg/              # upstream / payment / oauth / captcha / notifier ...
 │   ├── configs/              # config.yaml（config.example.yaml 为模板，不入库）
 │   ├── migrations/           # 迁移与数据演进记录（见下文「数据库迁移」）
-│   └── docs/openapi.yaml     # 生成的 OpenAPI 文档（勿手改）
+│   └── docs/swagger.json     # 生成的 OpenAPI 3.1 文档（勿手改）
 ├── frontend-admin/           # 管理端（Vite + TDesign，:3000）
 ├── frontend-user/            # 用户端（Vite + TDesign，:3002）
 ├── frontend-site/            # 官网（Nuxt，:3003）
@@ -147,13 +147,13 @@ cd backend && go run ./cmd/server   # 监听 :8080
 
 ## API 文档与 OpenAPI 生成
 
-接口文档为 `backend/docs/openapi.yaml`，由路由注册生成，**不要手工编辑**；改完路由后在 `backend/` 下执行：
+接口文档为 `backend/docs/swagger.json`（原生 OpenAPI 3.1），由 handler 的 swag v2 注解生成，**不要手工编辑**；新增或修改 handler 后在 `backend/` 下执行：
 
 ```bash
-python3 scripts/gen_openapi.py
+~/go/bin/swag init -g cmd/server/main.go -o docs -ot json --v3.1 --parseDependency --parseInternal
 ```
 
-生成器扫描 `internal/server/router.go` 与 `internal/server/assembly_oauth.go`，推导路径、tag、摘要、鉴权方式与权限码；需要补充描述 / 参数 / 请求体时改 `backend/docs/openapi.template.yaml` 或 `backend/scripts/openapi_overrides.json`。有路由漏登记时生成会失败并列出路径，而不是让它静默从文档里消失。
+文档主源是 handler 注解（`@Summary/@Tags/@Security/@Param/@Success/@Router`），请求体类型直接引用方法体绑定的 DTO；swag 解析失败（类型引用漂移等）会非零退出并给出文件行号。CI 中的「OpenAPI annotation check」步骤执行同一命令作为门禁。注意：swag v2.0.0-rc6 的 OAS3 模式只注册第一个 `@securitydefinitions`，多鉴权方案等正式版修复。
 
 ## 测试
 

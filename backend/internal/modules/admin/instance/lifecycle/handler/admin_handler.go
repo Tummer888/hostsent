@@ -114,7 +114,7 @@ func NewLifecycleAdminHandler(lifecycleSvc lifecycleservice.LifecycleService, re
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
 // @Success 200 {object} response.Body
-// @Router /api/v1/admin/lifecycle/renewals [get]
+// @Router /api/v1/admin/renewals [get]
 func (h *LifecycleAdminHandler) ListRenewals(c *gin.Context) {
 	var query lifecycledto.RenewalListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
@@ -135,7 +135,7 @@ func (h *LifecycleAdminHandler) ListRenewals(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "续费记录 ID"
 // @Success 200 {object} response.Body
-// @Router /api/v1/admin/lifecycle/renewals/{id} [get]
+// @Router /api/v1/admin/renewals/{id} [get]
 func (h *LifecycleAdminHandler) GetRenewal(c *gin.Context) {
 	id, ok := pathID(c)
 	if !ok {
@@ -154,7 +154,7 @@ func (h *LifecycleAdminHandler) GetRenewal(c *gin.Context) {
 // @Tags 生命周期管理-到期管理
 // @Security BearerAuth
 // @Param id path int true "实例 ID"
-// @Param body body dto.AdminRenewRequest true "续费请求"
+// @Param body body lifecycledto.AdminRenewRequest true "续费请求"
 // @Success 200 {object} response.Body
 // @Router /api/v1/admin/instances/{id}/renew [post]
 func (h *LifecycleAdminHandler) RenewAdmin(c *gin.Context) {
@@ -195,7 +195,7 @@ func (h *LifecycleAdminHandler) GetPolicy(c *gin.Context) {
 // @Summary 更新生命周期策略
 // @Tags 生命周期管理-策略
 // @Security BearerAuth
-// @Param body body dto.PolicyUpdateRequest true "策略更新请求"
+// @Param body body lifecycledto.PolicyUpdateRequest true "策略更新请求"
 // @Success 200 {object} response.Body
 // @Router /api/v1/admin/lifecycle/policy [put]
 func (h *LifecycleAdminHandler) UpdatePolicy(c *gin.Context) {
@@ -246,7 +246,7 @@ func (h *LifecycleAdminHandler) PreviewEnforcement(c *gin.Context) {
 // @Tags 生命周期管理-到期处置
 // @Security BearerAuth
 // @Param id path int true "实例记录 ID"
-// @Param body body dto.EnforceRequest false "处置原因"
+// @Param body body lifecycledto.EnforceRequest false "处置原因"
 // @Success 200 {object} response.Body
 // @Router /api/v1/admin/lifecycle/enforcement/{id}/run [post]
 func (h *LifecycleAdminHandler) EnforceInstance(c *gin.Context) {

@@ -26,7 +26,7 @@ func NewPermissionHandler(permissionService service.PermissionService) *Permissi
 // @Description 获取目录、菜单、按钮树
 // @Tags 权限管理
 // @Produce json
-// @Success 200 {object} dto.APIResponse[[]dto.PermissionNode]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/permissions/tree [get]
 func (h *PermissionHandler) Tree(c *gin.Context) {
 	tree, err := h.permissionService.Tree(c.Request.Context())
@@ -44,8 +44,9 @@ func (h *PermissionHandler) Tree(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.PermissionCreateRequest true "权限参数"
-// @Success 200 {object} dto.APIResponse[dto.PermissionNode]
-// @Router /api/v1/admin/permissions [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/permissions [post]
 func (h *PermissionHandler) CreatePermission(c *gin.Context) {
 	var req dto.PermissionCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -68,8 +69,9 @@ func (h *PermissionHandler) CreatePermission(c *gin.Context) {
 // @Produce json
 // @Param id path int true "权限ID"
 // @Param request body dto.PermissionUpdateRequest true "权限参数"
-// @Success 200 {object} dto.APIResponse[dto.PermissionNode]
-// @Router /api/v1/admin/permissions/{id} [put]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/permissions/{id} [put]
 func (h *PermissionHandler) UpdatePermission(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.PermissionUpdateRequest
@@ -91,8 +93,9 @@ func (h *PermissionHandler) UpdatePermission(c *gin.Context) {
 // @Tags 权限管理
 // @Produce json
 // @Param id path int true "权限ID"
-// @Success 200 {object} dto.APIResponse[string]
-// @Router /api/v1/admin/permissions/{id} [delete]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/permissions/{id} [delete]
 func (h *PermissionHandler) DeletePermission(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err := h.permissionService.Delete(c.Request.Context(), id); err != nil {

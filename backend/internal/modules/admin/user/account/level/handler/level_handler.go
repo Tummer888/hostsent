@@ -31,8 +31,9 @@ func NewUserLevelHandler(service service.UserLevelService) *UserLevelHandler {
 // @Param page_size query int false "每页数量" default(10)
 // @Param status query string false "状态"
 // @Param keyword query string false "关键词"
-// @Success 200 {object} dto.APIResponse[dto.ListResponse]
-// @Router /api/v1/admin/user-levels [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/user-levels [get]
 func (h *UserLevelHandler) List(c *gin.Context) {
 	var query dto.ListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
@@ -52,8 +53,9 @@ func (h *UserLevelHandler) List(c *gin.Context) {
 // @Tags 用户等级
 // @Produce json
 // @Param id path int true "等级ID"
-// @Success 200 {object} dto.APIResponse[dto.Info]
-// @Router /api/v1/admin/user-levels/{id} [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/user-levels/{id} [get]
 func (h *UserLevelHandler) Get(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	data, err := h.service.FindByID(c.Request.Context(), id)
@@ -70,8 +72,9 @@ func (h *UserLevelHandler) Get(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.CreateRequest true "等级参数"
-// @Success 200 {object} dto.APIResponse[dto.Info]
-// @Router /api/v1/admin/user-levels [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/user-levels [post]
 func (h *UserLevelHandler) Create(c *gin.Context) {
 	var req dto.CreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -93,8 +96,9 @@ func (h *UserLevelHandler) Create(c *gin.Context) {
 // @Produce json
 // @Param id path int true "等级ID"
 // @Param request body dto.UpdateRequest true "等级参数"
-// @Success 200 {object} dto.APIResponse[dto.Info]
-// @Router /api/v1/admin/user-levels/{id} [put]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/user-levels/{id} [put]
 func (h *UserLevelHandler) Update(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.UpdateRequest
@@ -115,8 +119,9 @@ func (h *UserLevelHandler) Update(c *gin.Context) {
 // @Tags 用户等级
 // @Produce json
 // @Param id path int true "等级ID"
-// @Success 200 {object} dto.APIResponse[string]
-// @Router /api/v1/admin/user-levels/{id} [delete]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/user-levels/{id} [delete]
 func (h *UserLevelHandler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err := h.service.Delete(c.Request.Context(), id); err != nil {

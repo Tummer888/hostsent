@@ -41,7 +41,7 @@ func NewVerificationHandler(service service.VerificationService) *VerificationHa
 // @Param keyword query string false "关键词"
 // @Param start_time query string false "开始时间(RFC3339)"
 // @Param end_time query string false "结束时间(RFC3339)"
-// @Success 200 {object} dto.APIResponse[dto.ListResponse[dto.VerificationInfo]]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/verifications/pending [get]
 func (h *VerificationHandler) ListPending(c *gin.Context) {
 	h.list(c, h.service.ListPending)
@@ -52,7 +52,7 @@ func (h *VerificationHandler) ListPending(c *gin.Context) {
 // @Tags 实名认证
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} dto.APIResponse[dto.ListResponse[dto.VerificationInfo]]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/verifications/approved [get]
 func (h *VerificationHandler) ListApproved(c *gin.Context) {
 	h.list(c, h.service.ListApproved)
@@ -63,7 +63,7 @@ func (h *VerificationHandler) ListApproved(c *gin.Context) {
 // @Tags 实名认证
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} dto.APIResponse[dto.ListResponse[dto.VerificationInfo]]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/verifications/rejected [get]
 func (h *VerificationHandler) ListRejected(c *gin.Context) {
 	h.list(c, h.service.ListRejected)
@@ -91,8 +91,9 @@ func (h *VerificationHandler) list(c *gin.Context, fn func(context.Context, dto.
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "申请ID"
-// @Success 200 {object} dto.APIResponse[dto.VerificationDetail]
-// @Router /api/v1/admin/verifications/{id} [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/verifications/{id} [get]
 func (h *VerificationHandler) Detail(c *gin.Context) {
 	id, ok := parseVerificationID(c)
 	if !ok {
@@ -139,7 +140,7 @@ func (h *VerificationHandler) DownloadDocument(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "申请ID"
-// @Success 200 {object} dto.APIResponse[[]dto.ReviewLogInfo]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/verifications/{id}/logs [get]
 func (h *VerificationHandler) ReviewLogs(c *gin.Context) {
 	id, ok := parseVerificationID(c)
@@ -165,8 +166,9 @@ func (h *VerificationHandler) ReviewLogs(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "申请ID"
 // @Param request body dto.ReviewRequest true "审核参数"
-// @Success 200 {object} dto.APIResponse[dto.VerificationInfo]
-// @Router /api/v1/admin/verifications/{id}/approve [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/verifications/{id}/approve [post]
 func (h *VerificationHandler) Approve(c *gin.Context) {
 	h.review(c, h.service.Approve)
 }
@@ -180,8 +182,9 @@ func (h *VerificationHandler) Approve(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "申请ID"
 // @Param request body dto.ReviewRequest true "审核参数"
-// @Success 200 {object} dto.APIResponse[dto.VerificationInfo]
-// @Router /api/v1/admin/verifications/{id}/reject [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/verifications/{id}/reject [post]
 func (h *VerificationHandler) Reject(c *gin.Context) {
 	h.review(c, h.service.Reject)
 }
@@ -195,8 +198,9 @@ func (h *VerificationHandler) Reject(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "申请ID"
 // @Param request body dto.ReviewRequest true "撤销参数"
-// @Success 200 {object} dto.APIResponse[dto.VerificationInfo]
-// @Router /api/v1/admin/verifications/{id}/revoke [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/verifications/{id}/revoke [post]
 func (h *VerificationHandler) Revoke(c *gin.Context) {
 	h.review(c, h.service.Revoke)
 }
@@ -235,8 +239,9 @@ func (h *VerificationHandler) review(c *gin.Context, fn func(context.Context, ui
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "申请ID"
-// @Success 200 {object} dto.APIResponse[dto.ProviderCheckResult]
-// @Router /api/v1/admin/verifications/{id}/provider-check [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/verifications/{id}/provider-check [post]
 func (h *VerificationHandler) ProviderCheck(c *gin.Context) {
 	id, ok := parseVerificationID(c)
 	if !ok {
@@ -261,7 +266,7 @@ func (h *VerificationHandler) ProviderCheck(c *gin.Context) {
 // @Tags 实名认证
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} dto.APIResponse[[]dto.VerificationConfigInfo]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/verifications/configs [get]
 func (h *VerificationHandler) ListConfigs(c *gin.Context) {
 	var query dto.VerificationConfigListQuery
@@ -285,8 +290,11 @@ func (h *VerificationHandler) ListConfigs(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param request body dto.ConfigUpsertRequest true "配置参数"
-// @Success 200 {object} dto.APIResponse[dto.VerificationConfigInfo]
-// @Router /api/v1/admin/verifications/configs [put]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/verifications/configs [put]
+//
+// @Router /api/v1/admin/verifications/configs [post]
 func (h *VerificationHandler) UpsertConfig(c *gin.Context) {
 	var req dto.ConfigUpsertRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -311,8 +319,9 @@ func (h *VerificationHandler) UpsertConfig(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "配置ID"
-// @Success 200 {object} dto.APIResponse[string]
-// @Router /api/v1/admin/verifications/configs/{id} [delete]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/verifications/configs/{id} [delete]
 func (h *VerificationHandler) DeleteConfig(c *gin.Context) {
 	id, ok := parseVerificationID(c)
 	if !ok {
@@ -333,7 +342,7 @@ func (h *VerificationHandler) DeleteConfig(c *gin.Context) {
 // @Tags 实名认证
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} dto.APIResponse[[]dto.ProviderTypeInfo]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/verifications/provider-types [get]
 func (h *VerificationHandler) ProviderTypes(c *gin.Context) {
 	success(c, h.service.ProviderTypes())
@@ -345,7 +354,7 @@ func (h *VerificationHandler) ProviderTypes(c *gin.Context) {
 // @Tags 实名认证
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} dto.APIResponse[[]dto.ProviderInfo]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/verifications/providers [get]
 func (h *VerificationHandler) ListProviders(c *gin.Context) {
 	data, err := h.service.ListProviders(c.Request.Context())
@@ -364,8 +373,11 @@ func (h *VerificationHandler) ListProviders(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param request body dto.ProviderUpsertRequest true "服务商参数"
-// @Success 200 {object} dto.APIResponse[dto.ProviderInfo]
-// @Router /api/v1/admin/verifications/providers [put]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/verifications/providers [put]
+//
+// @Router /api/v1/admin/verifications/providers [post]
 func (h *VerificationHandler) UpsertProvider(c *gin.Context) {
 	var req dto.ProviderUpsertRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -386,8 +398,9 @@ func (h *VerificationHandler) UpsertProvider(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "服务商ID"
-// @Success 200 {object} dto.APIResponse[string]
-// @Router /api/v1/admin/verifications/providers/{id} [delete]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/verifications/providers/{id} [delete]
 func (h *VerificationHandler) DeleteProvider(c *gin.Context) {
 	id, ok := parseVerificationID(c)
 	if !ok {
@@ -407,7 +420,7 @@ func (h *VerificationHandler) DeleteProvider(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "服务商ID"
-// @Success 200 {object} dto.APIResponse[map[string]any]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/verifications/providers/{id}/test [post]
 func (h *VerificationHandler) TestProvider(c *gin.Context) {
 	id, ok := parseVerificationID(c)

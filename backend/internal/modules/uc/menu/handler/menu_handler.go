@@ -29,7 +29,7 @@ func NewMenuHandler(menuService service.MenuService) *MenuHandler {
 // @Produce json
 // @Security BearerAuth
 // @Param platform query string false "兼容参数，无论传值一律返回 user 菜单"
-// @Success 200 {object} response.Body{data=[]dto.MenuNode}
+// @Success 200 {object} response.Body
 // @Failure 401 {object} response.Body
 // @Failure 500 {object} response.Body
 // @Router /api/v1/uc/menus/tree [get]

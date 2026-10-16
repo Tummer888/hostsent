@@ -50,6 +50,18 @@ func (b *Bundle) Gateway() gin.HandlerFunc { return b.gw.Middleware() }
 // RequireScope 声明路由所需能力位。
 func (b *Bundle) RequireScope(scope string) gin.HandlerFunc { return b.gw.RequireScope(scope) }
 
+// Ping godoc
+// @Summary 链路自检
+// @Tags 开放平台
+// @Security BearerAuth
+// @Success 200 {string} string "ok"
+// @Router /open/v1/ping [post]
+// Ping godoc
+// @Summary 链路自检
+// @Tags 开放平台
+// @Security BearerAuth
+// @Success 200 {string} string "ok"
+// @Router /open/v1/ping [post]
 // Ping 链路自检：签名通过即可访问，不占能力位。返回应用身份供联调核对。
 func (b *Bundle) Ping(c *gin.Context) {
 	app := service.AppFromContext(c)
@@ -67,6 +79,12 @@ func (b *Bundle) Ping(c *gin.Context) {
 	})
 }
 
+// ListSpecAtoms godoc
+// @Summary 规格原子目录列表
+// @Tags 开放平台
+// @Security OpenSignature
+// @Success 200 {string} string "ok"
+// @Router /open/v1/spec-atoms [get]
 // ListSpecAtoms GET /open/v1/spec-atoms
 func (b *Bundle) ListSpecAtoms(c *gin.Context) {
 	items, err := b.catalog.ListSpecAtoms(c.Request.Context())
@@ -77,6 +95,13 @@ func (b *Bundle) ListSpecAtoms(c *gin.Context) {
 	response.Success(c, items)
 }
 
+// ListProducts godoc
+// @Summary 商品目录列表
+// @Tags 开放平台
+// @Security OpenSignature
+// @Param request body dto.QuoteRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /open/v1/products [get]
 // ListProducts GET /open/v1/products
 func (b *Bundle) ListProducts(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -92,6 +117,14 @@ func (b *Bundle) ListProducts(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// GetProduct godoc
+// @Summary 商品目录详情
+// @Tags 开放平台
+// @Security OpenSignature
+// @Param id path int true "id"
+// @Param request body dto.QuoteRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /open/v1/products/{id} [get]
 // GetProduct GET /open/v1/products/:id
 func (b *Bundle) GetProduct(c *gin.Context) {
 	id := parseUint64(c.Param("id"))
@@ -107,6 +140,13 @@ func (b *Bundle) GetProduct(c *gin.Context) {
 	response.Success(c, detail)
 }
 
+// ListRegions godoc
+// @Summary 地域目录列表
+// @Tags 开放平台
+// @Security OpenSignature
+// @Param request body dto.QuoteRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /open/v1/regions [get]
 // ListRegions GET /open/v1/regions
 func (b *Bundle) ListRegions(c *gin.Context) {
 	items, err := b.catalog.ListRegions(c.Request.Context())
@@ -117,6 +157,13 @@ func (b *Bundle) ListRegions(c *gin.Context) {
 	response.Success(c, items)
 }
 
+// ListImages godoc
+// @Summary 镜像目录列表
+// @Tags 开放平台
+// @Security OpenSignature
+// @Param request body dto.QuoteRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /open/v1/images [get]
 // ListImages GET /open/v1/images
 func (b *Bundle) ListImages(c *gin.Context) {
 	items, err := b.catalog.ListImages(c.Request.Context())
@@ -127,6 +174,13 @@ func (b *Bundle) ListImages(c *gin.Context) {
 	response.Success(c, items)
 }
 
+// Quote godoc
+// @Summary 询价
+// @Tags 开放平台
+// @Security OpenSignature
+// @Param request body dto.QuoteRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /open/v1/quote [post]
 // Quote POST /open/v1/quote
 func (b *Bundle) Quote(c *gin.Context) {
 	var req dto.QuoteRequest
@@ -143,6 +197,13 @@ func (b *Bundle) Quote(c *gin.Context) {
 	response.Success(c, info)
 }
 
+// CreateOrder godoc
+// @Summary 代客下单
+// @Tags 开放平台
+// @Security OpenSignature
+// @Param request body dto.OpenOrderRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /open/v1/orders [post]
 // CreateOrder POST /open/v1/orders（代客下单，T6.3）
 func (b *Bundle) CreateOrder(c *gin.Context) {
 	var req dto.OpenOrderRequest
@@ -161,6 +222,13 @@ func (b *Bundle) CreateOrder(c *gin.Context) {
 	response.Success(c, result)
 }
 
+// ListInstances godoc
+// @Summary 实例列表
+// @Tags 开放平台
+// @Security OpenSignature
+// @Param request body dto.RenewInstanceRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /open/v1/instances [get]
 // ListInstances GET /open/v1/instances（T6.4）
 func (b *Bundle) ListInstances(c *gin.Context) {
 	app := service.AppFromContext(c)
@@ -174,6 +242,14 @@ func (b *Bundle) ListInstances(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// GetInstance godoc
+// @Summary 实例详情
+// @Tags 开放平台
+// @Security OpenSignature
+// @Param id path int true "id"
+// @Param request body dto.RenewInstanceRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /open/v1/instances/{id} [get]
 // GetInstance GET /open/v1/instances/:id
 func (b *Bundle) GetInstance(c *gin.Context) {
 	app := service.AppFromContext(c)
@@ -190,6 +266,14 @@ func (b *Bundle) GetInstance(c *gin.Context) {
 	response.Success(c, item)
 }
 
+// RenewInstance godoc
+// @Summary 续费实例
+// @Tags 开放平台
+// @Security OpenSignature
+// @Param id path int true "id"
+// @Param request body dto.RenewInstanceRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /open/v1/instances/{id}/renew [post]
 // RenewInstance POST /open/v1/instances/:id/renew
 func (b *Bundle) RenewInstance(c *gin.Context) {
 	var req dto.RenewInstanceRequest
@@ -206,6 +290,14 @@ func (b *Bundle) RenewInstance(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// PowerInstance godoc
+// @Summary 实例电源操作
+// @Tags 开放平台
+// @Security OpenSignature
+// @Param id path int true "id"
+// @Param request body dto.PowerInstanceRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /open/v1/instances/{id}/power [post]
 // PowerInstance POST /open/v1/instances/:id/power
 func (b *Bundle) PowerInstance(c *gin.Context) {
 	var req dto.PowerInstanceRequest
@@ -221,6 +313,14 @@ func (b *Bundle) PowerInstance(c *gin.Context) {
 	response.SuccessMessage(c, "电源操作已执行")
 }
 
+// SuspendInstance godoc
+// @Summary 暂停实例
+// @Tags 开放平台
+// @Security OpenSignature
+// @Param id path int true "id"
+// @Param request body dto.SuspendInstanceRequest true "请求参数"
+// @Success 200 {string} string "ok"
+// @Router /open/v1/instances/{id}/suspend [post]
 // SuspendInstance POST /open/v1/instances/:id/suspend
 func (b *Bundle) SuspendInstance(c *gin.Context) {
 	var req dto.SuspendInstanceRequest
@@ -235,6 +335,13 @@ func (b *Bundle) SuspendInstance(c *gin.Context) {
 	response.SuccessMessage(c, "实例已暂停")
 }
 
+// UnsuspendInstance godoc
+// @Summary 解除暂停实例
+// @Tags 开放平台
+// @Security OpenSignature
+// @Param id path int true "id"
+// @Success 200 {string} string "ok"
+// @Router /open/v1/instances/{id}/unsuspend [post]
 // UnsuspendInstance POST /open/v1/instances/:id/unsuspend
 func (b *Bundle) UnsuspendInstance(c *gin.Context) {
 	app := service.AppFromContext(c)
@@ -245,6 +352,13 @@ func (b *Bundle) UnsuspendInstance(c *gin.Context) {
 	response.SuccessMessage(c, "实例已恢复")
 }
 
+// DeleteInstance godoc
+// @Summary 删除实例
+// @Tags 开放平台
+// @Security BearerAuth
+// @Param id path int true "id"
+// @Success 200 {string} string "ok"
+// @Router /open/v1/instances/{id} [delete]
 // DeleteInstance DELETE /open/v1/instances/:id —— D2 安全边界：显式注册并固定拒绝，
 // 让下游得到明确的「不支持」而不是 404/权限错误（验收专门断言本响应）。
 func (b *Bundle) DeleteInstance(c *gin.Context) {
@@ -253,6 +367,12 @@ func (b *Bundle) DeleteInstance(c *gin.Context) {
 		"销毁不支持：实例销毁仅限平台侧人工操作"))
 }
 
+// ListAuditRequests godoc
+// @Summary 请求审计列表
+// @Tags 开放平台
+// @Security OpenSignature
+// @Success 200 {string} string "ok"
+// @Router /open/v1/audit/requests [get]
 // ListAuditRequests GET /open/v1/audit/requests（T6.6）
 func (b *Bundle) ListAuditRequests(c *gin.Context) {
 	app := service.AppFromContext(c)
@@ -266,6 +386,12 @@ func (b *Bundle) ListAuditRequests(c *gin.Context) {
 	response.Success(c, gin.H{"total": pageResp.Total, "page": pageResp.Page, "page_size": pageResp.PageSize, "items": items})
 }
 
+// ListAuditOrders godoc
+// @Summary 订单审计列表
+// @Tags 开放平台
+// @Security OpenSignature
+// @Success 200 {string} string "ok"
+// @Router /open/v1/audit/orders [get]
 // ListAuditOrders GET /open/v1/audit/orders（T6.6）
 func (b *Bundle) ListAuditOrders(c *gin.Context) {
 	app := service.AppFromContext(c)

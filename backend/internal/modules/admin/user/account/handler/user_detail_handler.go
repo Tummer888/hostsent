@@ -23,9 +23,11 @@ func NewUserDetailHandler(detailService service.UserDetailService) *UserDetailHa
 // @Tags 用户管理
 // @Produce json
 // @Param id path int true "用户ID"
-// @Success 200 {object} dto.APIResponse[dto.UserDetailAggregateResponse]
-// @Failure 400 {object} dto.APIResponse[string] "用户 ID 不合法"
-// @Failure 404 {object} dto.APIResponse[string] "用户不存在"
+// @Success 200 {object} response.Body
+//
+//	@Failure 400 {object} response.Body"用户 ID 不合法"
+//
+// @Failure 404 {object} response.Body"用户不存在"
 // @Router /api/v1/admin/users/{id}/detail-aggregate [get]
 func (h *UserDetailHandler) GetAggregate(c *gin.Context) {
 	id, ok := parseUserID(c)

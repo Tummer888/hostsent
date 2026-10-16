@@ -27,7 +27,7 @@ func NewRoleHandler(roleService service.RoleService) *RoleHandler {
 // @Tags 角色管理
 // @Produce json
 // @Param scope query string false "角色作用域（admin/user），缺省为 admin"
-// @Success 200 {object} dto.APIResponse[[]dto.RoleInfo]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/roles [get]
 func (h *RoleHandler) ListRoles(c *gin.Context) {
 	roles, err := h.roleService.List(c.Request.Context(), c.Query("scope"))
@@ -45,8 +45,9 @@ func (h *RoleHandler) ListRoles(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body dto.RoleCreateRequest true "角色参数"
-// @Success 200 {object} dto.APIResponse[dto.RoleInfo]
-// @Router /api/v1/admin/roles [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/roles [post]
 func (h *RoleHandler) CreateRole(c *gin.Context) {
 	var req dto.RoleCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -67,8 +68,9 @@ func (h *RoleHandler) CreateRole(c *gin.Context) {
 // @Tags 角色管理
 // @Produce json
 // @Param id path int true "角色ID"
-// @Success 200 {object} dto.APIResponse[dto.RoleInfo]
-// @Router /api/v1/admin/roles/{id} [get]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/roles/{id} [get]
 func (h *RoleHandler) GetRole(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	role, err := h.roleService.FindByID(c.Request.Context(), id)
@@ -87,8 +89,9 @@ func (h *RoleHandler) GetRole(c *gin.Context) {
 // @Produce json
 // @Param id path int true "角色ID"
 // @Param request body dto.RoleUpdateRequest true "角色参数"
-// @Success 200 {object} dto.APIResponse[dto.RoleInfo]
-// @Router /api/v1/admin/roles/{id} [put]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/roles/{id} [put]
 func (h *RoleHandler) UpdateRole(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.RoleUpdateRequest
@@ -110,8 +113,9 @@ func (h *RoleHandler) UpdateRole(c *gin.Context) {
 // @Tags 角色管理
 // @Produce json
 // @Param id path int true "角色ID"
-// @Success 200 {object} dto.APIResponse[string]
-// @Router /api/v1/admin/roles/{id} [delete]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/roles/{id} [delete]
 func (h *RoleHandler) DeleteRole(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err := h.roleService.Delete(c.Request.Context(), id); err != nil {
@@ -127,7 +131,7 @@ func (h *RoleHandler) DeleteRole(c *gin.Context) {
 // @Tags 角色管理
 // @Produce json
 // @Param id path int true "角色ID"
-// @Success 200 {object} dto.APIResponse[[]uint64]
+// @Success 200 {object} response.Body
 // @Router /api/v1/admin/roles/{id}/permissions [get]
 func (h *RoleHandler) GetRolePermissions(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -147,8 +151,9 @@ func (h *RoleHandler) GetRolePermissions(c *gin.Context) {
 // @Produce json
 // @Param id path int true "角色ID"
 // @Param request body dto.AssignPermissionsRequest true "权限ID列表"
-// @Success 200 {object} dto.APIResponse[string]
-// @Router /api/v1/admin/roles/{id}/permissions [post]
+// @Success 200 {object} response.Body
+//
+//	@Router /api/v1/admin/roles/{id}/permissions [post]
 func (h *RoleHandler) AssignPermissions(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var req dto.AssignPermissionsRequest

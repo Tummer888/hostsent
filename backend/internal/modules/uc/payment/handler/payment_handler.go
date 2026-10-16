@@ -130,7 +130,7 @@ func (h *PaymentHandler) Preferences(c *gin.Context) {
 // @Summary 保存我的支付方式偏好（默认方式 + 优先级）
 // @Tags 用户中心-支付
 // @Security BearerAuth
-// @Param request body dto.PreferenceSaveRequest true "偏好参数"
+// @Param request body paydto.PreferenceSaveRequest true "偏好参数"
 // @Success 200 {object} response.Body
 // @Router /api/v1/uc/payment/preferences [put]
 func (h *PaymentHandler) SavePreferences(c *gin.Context) {
@@ -176,7 +176,7 @@ func (h *PaymentHandler) Accounts(c *gin.Context) {
 // @Summary 新增收款账户
 // @Tags 用户中心-支付
 // @Security BearerAuth
-// @Param request body dto.PayoutAccountCreateRequest true "账户参数"
+// @Param request body paydto.PayoutAccountCreateRequest true "账户参数"
 // @Success 200 {object} response.Body
 // @Router /api/v1/uc/payment/accounts [post]
 func (h *PaymentHandler) CreateAccount(c *gin.Context) {
