@@ -275,14 +275,42 @@ export interface BillGenerateRequest {
 
 export interface ReconcileResponse {
   period: string
+  /** 收入合计（真实收付口径：剔除冻结/解冻内部划转） */
   income_total: number
+  /** 支出合计（真实收付口径：冻结不计、结算出账计） */
   expense_total: number
   tx_count: number
+  /** 钱包可用余额合计 */
   wallet_balance: number
+  /** 钱包冻结合计 */
+  wallet_frozen: number
+  /** 账实差异 =(收入-支出)-(可用+冻结)；仅为总量参考，判定看 issue_count */
   diff: number
   status: string
   /** 判定容差（元，来自财务配置 finance.recon_tolerance） */
   tolerance: number
+  /** 差异条数 */
+  issue_count: number
+  /** 差异明细（逐户/逐单） */
+  issues: ReconcileIssue[]
+}
+
+/** 单条对账差异 */
+export interface ReconcileIssue {
+  user_id: number
+  username: string
+  /** balance/frozen/income/expense/recharge/refund/orphan_ledger */
+  check: string
+  /** 检查项中文名（后端给出，前端不再维护一份映射） */
+  label: string
+  /** 账户/单据上记的值 */
+  account_value: number
+  /** 台账推出的值 */
+  ledger_value: number
+  /** 差异 = 账户值 - 台账值 */
+  diff: number
+  /** 差异说明与排查方向 */
+  remark: string
 }
 
 // ===== 财务统计（总览 / 报表共用聚合） =====

@@ -147,6 +147,25 @@ export interface ProviderRateLimitSpec {
   burst: number
 }
 
+/** 平台可配置项：下单时能下发给上游的规格参数（CPU/内存/磁盘/带宽…） */
+export interface ConfigOptionSpec {
+  key: string
+  label: string
+  group: string
+  required: boolean
+  default: string
+  widget: string
+  value_source: string
+  options?: ProviderFieldOption[]
+  min_value?: number
+  max_value?: number
+  step?: number
+  unit?: string
+  help?: string
+  options_help?: string
+  multi_value: boolean
+}
+
 /** 渠道路径能力描述符（契约②，与后端 upstream.CapabilityDescriptor 对应） */
 export interface CapabilityDescriptor {
   kind: string
@@ -161,7 +180,10 @@ export interface CapabilityDescriptor {
   signer_type: string
   rate_limit: ProviderRateLimitSpec
   supports_paging: boolean
-  field_dictionary?: Record<string, unknown> | null
+  /** 上游是否真的能报告机器电源状态（false 时回源不覆盖本地开关机状态） */
+  reports_power_state: boolean
+  /** 平台支持的可配置项（驱动「平台配置项」与「配置档」） */
+  option_catalog?: ConfigOptionSpec[] | null
   /** 适配器是否已注册（运行时计算，非落库） */
   implemented: boolean
 }

@@ -55,6 +55,8 @@ type ProviderService interface {
 	BuildProviderConfig(ctx context.Context, id uint64) (*upstream.ProviderConfig, error)
 	// ResumeSync 解除同步熔断并清零失败计数（后台「一键恢复」）
 	ResumeSync(ctx context.Context, id uint64) (*dto.ProviderInfo, error)
+	// SetSyncEnabled 切换同步总开关（只动这一个字段，不清空其他配置）
+	SetSyncEnabled(ctx context.Context, id uint64, enabled bool) (*dto.ProviderInfo, error)
 	// SyncTypeRegistry 把已注册适配器的能力描述符回写到 provider_types 注册表（启动时调用）
 	SyncTypeRegistry(ctx context.Context) error
 	// NormalizeCredentials 把迁移搬入 credentials 的历史值归一为带前缀的密文（启动时调用）
@@ -1229,6 +1231,21 @@ func (s *providerService) ResumeSync(ctx context.Context, id uint64) (*dto.Provi
 		return nil, err
 	}
 	if err := s.repo.ResumeSync(ctx, id); err != nil {
+		return nil, err
+	}
+	return s.FindByID(ctx, id)
+}
+
+// SetSyncEnabled 切换同步总开关。
+//
+// 它是"渠道 × 同步类型"整套调度之上的总闸：关闭后各类型的节奏配置原样保留，
+// 但调度器不再触发（ListDueSchedules 的渠道侧条件之一）。用独立的窄接口而不是
+// 走通用 Update —— 后者是整行替换语义，只传一个开关会把名称/地址/状态一并清空。
+func (s *providerService) SetSyncEnabled(ctx context.Context, id uint64, enabled bool) (*dto.ProviderInfo, error) {
+	if _, err := s.repo.FindByID(ctx, id); err != nil {
+		return nil, err
+	}
+	if err := s.repo.SetSyncEnabled(ctx, id, enabled); err != nil {
 		return nil, err
 	}
 	return s.FindByID(ctx, id)

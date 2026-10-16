@@ -97,7 +97,7 @@
               :options="buildMobileActionOptions([{ content: '明细', value: 'detail', theme: 'default' }])"
               @select="() => openRunDetail(row)"
             />
-            <t-link v-else theme="primary" hover="color" @click="openRunDetail(row)">明细</t-link>
+            <t-link v-else theme="default" hover="color" @click="openRunDetail(row)">明细</t-link>
           </div>
         </template>
         <template #empty>
@@ -833,33 +833,9 @@ onMounted(async () => {
   color: var(--color-muted-foreground);
 }
 
-.cell-strong {
-  font-weight: 600;
-  color: var(--color-foreground);
-}
-
-.cell-num {
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.cell-muted {
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-}
-
 .cell-arrow {
   margin: 0 4px;
   color: var(--color-muted-foreground);
-}
-
-.cell-error {
-  font-size: 12px;
-  color: #dc2626;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 
 .cell-error--wrap {

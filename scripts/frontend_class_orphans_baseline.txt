@@ -44,7 +44,6 @@ frontend-admin/src/pages/resource/pricing/index.vue: page-header__sub
 frontend-admin/src/pages/resource/providers/components/CredentialFormFields.vue: credential-fields
 frontend-admin/src/pages/resource/providers/create.vue: form-section__title
 frontend-admin/src/pages/resource/providers/create.vue: provider-hint
-frontend-admin/src/pages/resource/providers/detail.vue: logs-head__time
 frontend-admin/src/pages/resource/providers/index.vue: muted
 frontend-admin/src/pages/resource/sync-center/components/InboundPanel.vue: inbound-panel
 frontend-admin/src/pages/resource/sync-center/components/SchedulesPanel.vue: filter-card__meta

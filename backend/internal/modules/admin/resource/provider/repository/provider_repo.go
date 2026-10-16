@@ -58,6 +58,8 @@ type ProviderRepository interface {
 	PauseSync(ctx context.Context, providerID uint64, reason string) error
 	// ResumeSync 手动恢复：解除熔断并清零失败计数
 	ResumeSync(ctx context.Context, providerID uint64) error
+	// SetSyncEnabled 只改同步总开关（渠道 × 类型调度的上层闸门）。
+	SetSyncEnabled(ctx context.Context, providerID uint64, enabled bool) error
 	// ListAll 返回全部渠道（含禁用），供启动期凭证归一/注册表同步等批处理使用。
 	ListAll(ctx context.Context) ([]model.ResourceProvider, error)
 	// UpdateCredentials 仅更新 credentials 列，避免全量 Save 覆盖其他并发修改。
@@ -387,6 +389,17 @@ func (r *providerRepository) ResumeSync(ctx context.Context, providerID uint64) 
 			"consecutive_failures": 0,
 			"last_sync_error":      "",
 		}).Error
+}
+
+// SetSyncEnabled 只改同步总开关一个字段。
+//
+// 为什么不用通用 Update：那是"整行替换"语义（Name/APIEndpoint/Status 等无条件赋值），
+// 传半个 body 就会把没带的字段清空。同步总开关需要能单独切换（渠道同步与调度面板里
+// 一键开关），必须有一条只带一个字段也安全的窄路径，故单独开一条。
+func (r *providerRepository) SetSyncEnabled(ctx context.Context, providerID uint64, enabled bool) error {
+	return r.db.WithContext(ctx).Model(&model.ResourceProvider{}).
+		Where("id = ?", providerID).
+		Updates(map[string]interface{}{"sync_enabled": enabled}).Error
 }
 
 func (r *providerRepository) ListAll(ctx context.Context) ([]model.ResourceProvider, error) {

@@ -391,46 +391,14 @@
 }
 
 /* ---------- 操作列 / 单元格辅助 ---------- */
-.instances-module .action-cell {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.instances-module .cell-strong {
-  color: #334155;
-  font-size: 13px;
-  font-weight: 600;
-}
 
 /* 列表里可点击的主机名/用户名：保持既有字重与颜色，只用下划线提示"可点"。
    用描边按钮会让整列变得很重（列表里每行都有），故只做轻量链接化。 */
-.instances-module .cell-link {
-  text-decoration: none;
-  border-bottom: 1px dashed transparent;
-  transition:
-    color var(--hs-duration-fast),
-    border-color var(--hs-duration-fast);
-}
 
+/* 悬停加下划线提示可点（比全局的「仅变色」信息更足），保留本模块的行为。 */
 .instances-module .cell-link:hover {
-  color: var(--instances-green);
-  border-bottom-color: var(--instances-green);
-}
-
-.instances-module .cell-sub {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-  word-break: break-all;
-}
-
-.instances-module .cell-muted {
-  font-size: 12px;
-  color: var(--color-foreground);
-  font-variant-numeric: tabular-nums;
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
 }
 
 .instances-module .provider-cell {
@@ -448,12 +416,6 @@
   color: var(--color-foreground);
 }
 
-.instances-module .cell-error {
-  font-size: 12px;
-  color: var(--color-error, #ef4444);
-  word-break: break-all;
-}
-
 .instances-module .op-error {
   display: inline-block;
   max-width: 100%;
@@ -462,13 +424,7 @@
   white-space: nowrap;
   vertical-align: bottom;
   font-size: 12px;
-  color: var(--color-error, #ef4444);
-}
-
-.instances-module .time-text {
-  color: #334155;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
+  color: var(--hs-status-danger-text);
 }
 
 .instances-module .expire-warning {
@@ -476,7 +432,7 @@
 }
 
 .instances-module .expire-danger {
-  color: var(--color-error, #ef4444);
+  color: var(--hs-status-danger-text);
 }
 
 .instances-module .status-arrow {
@@ -508,7 +464,7 @@
   word-break: break-all;
   font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
   font-size: 12px;
-  color: #334155;
+  color: var(--hs-text-tech);
 }
 
 .instances-module .related-block {
@@ -1103,7 +1059,7 @@
 
 .instances-module .hero-billing__item.hero-billing--danger .hero-billing__value,
 .instances-module .hero-billing__item.hero-billing--danger .hero-billing__sub {
-  color: var(--color-error, #dc2626);
+  color: var(--hs-status-danger-text);
 }
 
 /* ---------- 关联信息（订单 / 商品与对接） ---------- */
@@ -1415,7 +1371,7 @@
 /* ---------- 销毁入口（列表行内 + 批量） ---------- */
 /* 行内下拉里的危险项标红：与上方电源/暂停类动作区分开，避免误点。 */
 .instances-module .danger-text {
-  color: var(--color-error, #ef4444);
+  color: var(--hs-status-danger-text);
 }
 
 .instances-module .destroy-reason {

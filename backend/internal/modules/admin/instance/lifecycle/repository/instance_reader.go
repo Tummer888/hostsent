@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -49,6 +50,8 @@ type InstanceReader interface {
 	UpdateLifecycleStage(ctx context.Context, id uint64, stage string) error
 	// UpdateStageAndStatus 同时落阶段与服务状态（一次状态迁移写一致的两列，防二者分叉）。
 	UpdateStageAndStatus(ctx context.Context, id uint64, stage, status string) error
+	// UpdateSuspendReason 落库暂停原因分类（迁移 114）；传空串表示清除（恢复服务时）。
+	UpdateSuspendReason(ctx context.Context, id uint64, reason string) error
 	// MarkEnforceFailure 记录一次强制执行失败：自增退避计数、写失败原因、设置下次可重试时间。
 	MarkEnforceFailure(ctx context.Context, id uint64, errMsg string, nextAt time.Time, attempts int) error
 	// ClearEnforce 清零退避状态（动作成功或人为重置后调用）。
@@ -158,6 +161,21 @@ func (r *instanceReader) UpdateStageAndStatus(ctx context.Context, id uint64, st
 	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
 		Where("id = ?", id).
 		Updates(map[string]any{"lifecycle_stage": stage, "status": status}).Error
+}
+
+// UpdateSuspendReason 落库暂停原因分类（迁移 114）；传空串清除（恢复服务时）。
+//
+// 推进器是"到期自动暂停"的唯一写入点，界面据此把「到期暂停」与管理员手动暂停
+// （违规/manual）分开显示：客户看到"到期暂停"会去续费，而违规冻结靠续费解决不了。
+// 用 NULL 而不是空串清除，与实例域仓储同一口径（部分索引按 IS NOT NULL 建）。
+func (r *instanceReader) UpdateSuspendReason(ctx context.Context, id uint64, reason string) error {
+	var val any
+	if strings.TrimSpace(reason) != "" {
+		val = reason
+	}
+	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("id = ?", id).
+		Update("suspend_reason", val).Error
 }
 
 // MarkEnforceFailure 记录一次强制执行失败（doc61 §8.4 退避）：

@@ -185,9 +185,13 @@ func (s *statsService) RevenueOf(ctx context.Context, start, end time.Time) (*dt
 	}
 	var consume, refund, commission float64
 	for _, row := range rows {
-		switch row.Type {
-		case transmodel.TxTypeConsume:
+		// 消费口径用 IsConsumeType 判定（consume + 后台代客下单 order），
+		// 与账单、累计消费同源；只认 consume 会漏掉全部代客下单收入。
+		if transmodel.IsConsumeType(row.Type) {
 			consume += row.Expense
+			continue
+		}
+		switch row.Type {
 		case transmodel.TxTypeRefund:
 			refund += row.Income
 		case transmodel.TxTypeCommission:

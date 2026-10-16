@@ -123,6 +123,30 @@
             销毁实例
           </t-button>
         </template>
+        <!--
+          已取消（订单未付款超时/作废）：机器从未开通，且订单已是废单 ——
+          没有「重新开通」（那是给"订单还有效、只是开通失败"的待开通行的），
+          也不该有电源/维护/销毁（没有机器可操作）。只留备注与删除记录：
+          这条行的价值是"这次流失看得见"，清掉它也应当是明确的记录清理动作。
+        -->
+        <template v-else-if="isCancelled">
+          <t-button v-permission="'instance:action'" variant="outline" @click="openRemarkDialog">备注</t-button>
+          <t-dropdown :options="dangerOptions" trigger="click" @click="onDangerPick">
+            <t-button theme="danger" variant="outline" :disabled="dangerDisabled">危险操作 ▾</t-button>
+          </t-dropdown>
+        </template>
+        <!--
+          终态行（已销毁）：这些按钮全部收掉，只留「删除记录」。
+          能力位在服务端已整体关闭，留着的话是一排点不动的灰按钮 ——
+          列表页对同一行只给「详情/备注/删除记录」，详情页不该更啰嗦
+          （用户实测反馈的"连删除按钮都没有"正是这类入口错配）。
+        -->
+        <template v-else-if="isDestroyed">
+          <!-- 危险菜单由 dangerOptions 约束，终态下只含「删除记录」 -->
+          <t-dropdown :options="dangerOptions" trigger="click" @click="onDangerPick">
+            <t-button theme="danger" variant="outline" :disabled="dangerDisabled">危险操作 ▾</t-button>
+          </t-dropdown>
+        </template>
         <template v-else>
           <t-button
             v-permission="'instance:console'"
@@ -181,8 +205,11 @@
         </template>
 
         <span class="actions-divider" aria-hidden="true"></span>
+        <!-- 终态行不给「同步」：已销毁 / 已取消的机器都没有可核对的对象
+             （服务端也会拒绝），点了只会白跑一次回源；已取消的尤其危险 ——
+             它没有实例号，会走到"重投开通"那条路，对着一张废单再投一次。 -->
         <t-button
-          v-if="!isPending"
+          v-if="!isPending && !isDestroyed && !isCancelled"
           v-permission="'instance:action'"
           variant="text"
           :loading="syncing"
@@ -1535,7 +1562,7 @@
         <t-form-item>
           <t-alert
             theme="error"
-            :message="`将永久删除该实例的记录与操作流水，不可恢复。该记录已处于「已销毁」终态，删除不会再通知任何渠道。`"
+            :message="`将永久删除该实例的记录与操作流水，不可恢复。该记录已是终态（已销毁或已取消），删除不会再通知任何渠道。`"
           />
         </t-form-item>
         <t-form-item label="实例标识确认" name="confirm_mark">
@@ -1546,6 +1573,64 @@
             v-model="purgeForm.reason"
             :autosize="{ minRows: 2, maxRows: 4 }"
             placeholder="选填，仅写入管理端审计日志"
+          />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
+
+    <!--
+      修改服务状态：把"暂停/恢复"升级成带**原因**的状态设置。
+      按用户口径，因违规被暂停的实例要显示「违规暂停」并要求客户联系客服
+      （续费解决不了违规），因此原因分类是必选项、且违规必须填说明。
+      「已取消」只对**从未开通**的占位行开放（订单未付款/作废的流失登记）；
+      已开通的机器要停服请走「销毁实例」，不能直接取消。
+    -->
+    <t-dialog
+      v-model:visible="setStateVisible"
+      header="修改服务状态"
+      width="560px"
+      :confirm-btn="{ content: '确认修改', theme: 'primary', disabled: setStateConfirmDisabled }"
+      :cancel-btn="{ content: '取消' }"
+      @confirm="handleSetState"
+      @close="setStateVisible = false"
+    >
+      <t-form label-align="top" :data="setStateForm" @submit.prevent>
+        <t-form-item label="目标状态">
+          <t-radio-group v-model="setStateForm.state">
+            <t-radio value="active">服务中（未到期且未暂停）</t-radio>
+            <t-radio value="suspended">已暂停</t-radio>
+            <t-radio v-if="isPending" value="cancelled">已取消（从未开通）</t-radio>
+          </t-radio-group>
+        </t-form-item>
+        <!-- 暂停原因分类：只在暂停时出现，且决定客户侧看到的文案与下一步 -->
+        <template v-if="setStateForm.state === 'suspended'">
+          <t-form-item label="暂停原因分类">
+            <t-radio-group v-model="setStateForm.reason_class">
+              <t-radio value="violation">违规暂停（客户需联系客服）</t-radio>
+              <t-radio value="manual">其他原因（人工暂停）</t-radio>
+              <t-radio value="expired">到期未续费</t-radio>
+            </t-radio-group>
+          </t-form-item>
+          <t-alert
+            v-if="setStateForm.reason_class === 'violation'"
+            theme="warning"
+            class="dlg-alert"
+            message="违规暂停会在客户侧显示「违规暂停」并提示联系客服 —— 与到期暂停严格区分（续费解决不了违规）。"
+          />
+        </template>
+        <t-alert
+          v-if="setStateForm.state === 'cancelled'"
+          theme="warning"
+          class="dlg-alert"
+          message="该操作把占位行标为「已取消」：这台机器从未开通，取消只是登记流失，不会通知任何渠道。"
+        />
+        <t-form-item label="说明（写入操作流水，供事后核对与客户申诉）">
+          <t-textarea
+            v-model="setStateForm.reason"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+            :placeholder="setStateForm.reason_class === 'violation'
+              ? '违规暂停必填：写明违规事由'
+              : '选填，如：客户申请临时停服'"
           />
         </t-form-item>
       </t-form>
@@ -1889,6 +1974,7 @@ import {
   getInstanceBillingContext,
   getInstanceDetail,
   purgeInstance,
+  setInstanceState,
   getInstanceOperations,
   getInstanceRelated,
   getInstanceReinstallImages,
@@ -2047,6 +2133,9 @@ const headlinePower = computed(() =>
     power_state: instanceData.value?.power_state,
     lifecycle_stage: instanceData.value?.lifecycle_stage,
     pending: isPending.value,
+    // 服务维度也传进来：违规暂停的机器要对客户/运营说"服务被停、联系客服"，
+    // 不能只显示"已关机"（那会让人以为点一下「开机」就能恢复）。
+    service_state: instanceData.value?.service_state,
     transition: instanceData.value?.transition,
   }),
 )
@@ -2111,13 +2200,16 @@ async function pollTransition() {
   if (!transitionActive.value) return
   try {
     const fresh = await getInstanceDetail(instanceId, true)
-    // 只覆盖与状态相关的字段，不整份替换：避免把用户正在编辑的本地表单状态冲掉
-    //（如备注编辑框、对话框里的选择）。
-    if (instanceData.value) {
-      instanceData.value = { ...instanceData.value, ...fresh }
-    } else {
-      instanceData.value = fresh
-    }
+    // 整对象替换，**不要**写成 { ...旧, ...新 }：过渡态收尾时服务端返回的
+    // transition 是 null，而增量合并遇到 null 会照抄 —— 但早先字段带 omitempty
+    // 时该键整块消失，合并就什么也覆盖不了，旧的「关机中」会一直留在界面上
+    //（用户实测反馈："动画一直显示正在关机，每次都要我手动点同步"）。
+    // 整体替换让"服务端没给"与"服务端明确给了 null"行为一致，不再依赖键是否存在。
+    //
+    // 安全性：对话框的表单状态都在 open*Dialog() 里从 instanceData 拷贝到自己的
+    // reactive（remarkForm/destroyForm/purgeForm/renewForm/resizeForm/adjust），
+    // 没有任何输入框直接 v-model 到 instanceData —— 替换不会打断正在填的表单。
+    instanceData.value = fresh
   } catch {
     // 轮询失败不打扰用户：网络抖动或后端重启时静默跳过，下一轮再试。
     // 用户仍可手动「同步上游」。
@@ -2483,12 +2575,30 @@ const powerOptions = computed(() => {
 })
 
 // 待开通（尚未在上游开通的占位行）：只开放「重新开通」。
-const isPending = computed(() => !!instanceData.value && !instanceData.value.provider_instance_id)
-// 已销毁（终态）：此时才开放「删除记录」（把这条已无用的行真正移除）。
+//
+// 必须**排除终态**：占位行被销毁后 provider_instance_id 仍是空（本来就没有号），
+// 单看它会把已销毁的占位判成"待开通"，于是详情页给「重新开通 / 销毁实例」
+// 而没有「删除记录」—— 运营清不掉那行，还可能把一个已决定不要的占位再开一次。
+// 服务端 toItem 的 Pending 用同一判据（两处口径必须一致）。
 const isDestroyed = computed(
   () =>
     !!instanceData.value &&
     (instanceData.value.status === 'deleted' || instanceData.value.lifecycle_stage === 'destroyed'),
+)
+// 已取消（订单未付款超时/作废）：这台机器**从未开通**，但订单已作废 ——
+// 必须与"待开通"分开：待开通的订单还有效（只是开通失败），可以「重新开通」；
+// 已取消的订单已经是废单，再投一次开通是对着废单重试，注定失败。
+const isCancelled = computed(
+  () =>
+    !!instanceData.value &&
+    (instanceData.value.status === 'cancelled' || instanceData.value.lifecycle_stage === 'cancelled'),
+)
+const isPending = computed(
+  () =>
+    !!instanceData.value &&
+    !instanceData.value.provider_instance_id &&
+    !isDestroyed.value &&
+    !isCancelled.value,
 )
 const retrying = ref(false)
 
@@ -2652,10 +2762,26 @@ const dangerOptions = computed(() => {
     }
     return opts
   }
+  // 已取消：机器从未开通、订单已作废 —— 没有"服务"可暂停/恢复，也无需销毁
+  //（渠道侧从来没有机器）。只留「删除记录」，让这次流失被清掉时是显式动作。
+  if (isCancelled.value) {
+    if (hasPerm('instance:destroy')) {
+      opts.push({ content: '删除记录', value: 'purge', theme: 'error' })
+    }
+    return opts
+  }
   if (hasPerm('instance:action') && instanceData.value?.lifecycle_stage === 'suspended') {
     opts.push({ content: '恢复服务', value: 'unsuspend' })
   } else if (hasPerm('instance:action')) {
     opts.push({ content: '暂停服务', value: 'suspend', disabled: !instanceData.value?.capabilities?.suspend })
+  }
+  // 修改服务状态：把"暂停/恢复"升级成**带原因**的状态设置（违规/到期/人工）。
+  //
+  // 为什么不只靠上面那条「暂停服务」：那条不带原因分类，暂停后客户侧只能看到
+  // 笼统的「已暂停」——按用户口径，因违规被停要显示「违规暂停」并要求联系客服，
+  // 而续费解决不了违规。这个入口同时提供「取消」（占位行专用）。
+  if (hasPerm('instance:action')) {
+    opts.push({ content: '修改服务状态…', value: 'setstate' })
   }
   if (hasPerm('instance:destroy')) {
     opts.push({
@@ -2684,6 +2810,9 @@ function onDangerPick(data: { value: string; disabled?: boolean }) {
       break
     case 'destroy':
       openDestroyDialog()
+      break
+    case 'setstate':
+      openSetStateDialog()
       break
     case 'purge':
       openPurgeDialog()
@@ -3243,6 +3372,68 @@ const purgeForm = reactive<{ confirm_mark: string; reason: string }>({
   confirm_mark: '',
   reason: '',
 })
+
+// ===== 修改服务状态（服务中 / 已暂停 / 已取消）=====
+//
+// 与上面「暂停服务」那条的区别：那条是"一个动作"，这条是**带原因的状态设置** ——
+// 违规暂停与到期暂停在客户侧必须显示成不同的文案（前者要把客户引向客服，
+// 后者引向续费），靠原因分类落库（迁移 114）实现。
+//
+// 「已取消」只对从未开通的占位行开放：订单未付款超时/作废，机器从未存在。
+// 已开通的机器要停服必须先销毁（通知渠道终止机器），直接取消会留下计费烂账。
+const setStateVisible = ref(false)
+const setStateForm = reactive<{ state: 'active' | 'suspended' | 'cancelled'; reason_class: string; reason: string }>({
+  state: 'active',
+  reason_class: 'manual',
+  reason: '',
+})
+
+/** 当前实际状态：用于弹窗打开时把选项预置到"与现状不同"的那个，少一次误提交。 */
+function currentServiceState(): 'active' | 'suspended' | 'cancelled' {
+  const stage = instanceData.value?.lifecycle_stage || ''
+  if (stage === 'destroyed') return 'cancelled' // 终态入口不展示，仅兜底
+  if (stage === 'cancelled') return 'cancelled'
+  if (stage === 'suspended') return 'suspended'
+  return 'active'
+}
+
+const setStateConfirmDisabled = computed(() => {
+  // 目标状态与现状相同 → 没有可提交的变化（服务端也会以 20003 拒绝）。
+  if (setStateForm.state === currentServiceState()) return true
+  // 违规暂停必须写说明：事后没人知道"违的是哪条"，客户申诉时也无从核对。
+  if (setStateForm.state === 'suspended' && setStateForm.reason_class === 'violation') {
+    return setStateForm.reason.trim() === ''
+  }
+  return false
+})
+
+function openSetStateDialog() {
+  setStateForm.state = currentServiceState() === 'suspended' ? 'active' : 'suspended'
+  setStateForm.reason_class = 'manual'
+  setStateForm.reason = ''
+  setStateVisible.value = true
+}
+
+async function handleSetState() {
+  try {
+    await setInstanceState(instanceId, {
+      state: setStateForm.state,
+      reason_class: setStateForm.state === 'suspended' ? setStateForm.reason_class : undefined,
+      reason: setStateForm.reason || undefined,
+    })
+    MessagePlugin.success(
+      setStateForm.state === 'active'
+        ? '实例已恢复服务'
+        : setStateForm.state === 'suspended'
+          ? '实例已暂停'
+          : '实例已取消',
+    )
+    setStateVisible.value = false
+    reloadAll()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '修改状态失败')
+  }
+}
 
 const purgeConfirmDisabled = computed(
   () => !instanceData.value?.instance_id || purgeForm.confirm_mark.trim() !== instanceData.value.instance_id,

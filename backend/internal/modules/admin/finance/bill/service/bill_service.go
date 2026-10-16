@@ -141,7 +141,9 @@ func (s *billService) GenerateForUser(ctx context.Context, userID uint64, period
 		return nil, err
 	}
 	// 消费为支出（-），退款为收入（+）。
-	consumeSum, err := s.txRepo.SumByType(ctx, userID, []string{transmodel.TxTypeConsume}, start, end)
+	// 消费类型取 transmodel.ConsumeTypes（consume + 后台代客下单 order）：
+	// 代客下单走 order 类型，此前只认 consume，那部分钱不进账单金额。
+	consumeSum, err := s.txRepo.SumByType(ctx, userID, transmodel.ConsumeTypes, start, end)
 	if err != nil {
 		return nil, err
 	}

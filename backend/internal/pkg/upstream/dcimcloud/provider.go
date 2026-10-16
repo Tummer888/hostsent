@@ -107,24 +107,10 @@ func init() {
 		RateLimit:      upstream.RateLimitSpec{QPS: 5, Burst: 10},
 		SupportsPaging: false,
 		// 平台配置项目录（T4.5）：驱动后台「平台配置项」与「配置档」界面。
+		// 这也是"平台能配哪些参数"的权威清单（字段名 + 中文名 + 取值来源 + 约束），
+		// 原先另有一份 FieldDictionary["write"] 只列裸字段名、无标签与约束，
+		// 在生产链路里没有任何消费方，只会以"平台字段字典"的名目漏进后台界面，故移除。
 		OptionCatalog: optionCatalog(),
-		FieldDictionary: map[string]any{
-			"source": "实测（依据 dcimcloud/provider.go 与 17 号文档 §6.1）",
-			"write": []string{
-				"area", "node", "node_group", "node_priority", "ip_group", "store",
-				"cpu", "memory", "cpu_limit", "cpu_model", "advanced_cpu", "type", "rid",
-				"system_disk_size", "niccard",
-				"bw", "in_bw", "out_bw", "advanced_bw", "network_type", "vpc", "vpc_name",
-				"traffic_type", "traffic_quota", "flow_way", "flow_limit", "reset_flow_day",
-				"bind_mac", "port", "ip_num", "ipv6_num",
-				"os", "nat_acl_limit", "nat_web_limit", "backup_num", "snap_num", "link_clone",
-				"other_data_disk",
-			},
-			"read": []string{"id", "name", "state", "cpu_num", "memory_size", "disk_size",
-				"disk_type", "bandwidth", "private_ip", "public_ip", "region", "zone", "host",
-				"os_image", "created_at", "expire_at"},
-			"note": "读写字段名不对称：写用 cpu/memory/system_disk_size，读用 cpu_num/memory_size/disk_size",
-		},
 	})
 }
 

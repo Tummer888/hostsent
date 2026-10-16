@@ -244,6 +244,33 @@ func (h *ProviderHandler) ResumeSync(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// SetSyncEnabled godoc
+// @Summary 切换渠道同步总开关
+// @Tags 资源管理-上游提供商
+// @Param id path int true "提供商 ID"
+// @Success 200 {object} response.Body
+// @Failure 500 {object} response.Body
+// @Router /api/v1/admin/resource/providers/{id}/sync/enabled [put]
+func (h *ProviderHandler) SetSyncEnabled(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	resp, err := h.providerService.SetSyncEnabled(c.Request.Context(), id, req.Enabled)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, resp)
+}
+
 // ListPools godoc
 // @Summary 查询资源池列表
 // @Tags 资源管理-上游提供商

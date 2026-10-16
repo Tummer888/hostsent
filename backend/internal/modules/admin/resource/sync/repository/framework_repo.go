@@ -32,6 +32,8 @@ type FrameworkRepository interface {
 	CountSchedules(ctx context.Context) (int64, error)
 	CreateSchedule(ctx context.Context, item *model.SyncSchedule) error
 	UpdateScheduleConfig(ctx context.Context, item *model.SyncSchedule) error
+	// AdvanceScheduleNextRun 仅推进 next_run_at（触发时防重入用），不写执行结果。
+	AdvanceScheduleNextRun(ctx context.Context, id uint64, nextRun time.Time) error
 	RecordScheduleRun(ctx context.Context, id uint64, status, errMsg string, lastRun, nextRun time.Time) error
 	DeleteSchedulesByProvider(ctx context.Context, providerID uint64) error
 
@@ -115,6 +117,10 @@ func NewFrameworkRepository(db *gorm.DB) FrameworkRepository {
 // sync_paused / deleted_at）。曾漏判导致熔断与停用的渠道仍被每 60 秒触发、持续刷失败日志
 // （实测 provider 1/16/17 累计数万条）——CheckProviderReady 只能拦住"适配器构建失败"，
 // 拦不住 sync_paused 与已删除渠道。
+//
+// 注意 sync_enabled 的语义已收敛为**渠道总开关**：调度行（scope × 节奏）是"配了什么"，
+// 总开关与 status/sync_paused 是"能不能跑"。因此它必须出现在渠道编辑界面里，
+// 否则会出现"调度页显示启用、实际永不执行"的幻象（实测 provider 7 就是这样）。
 func (r *frameworkRepository) ListDueSchedules(ctx context.Context, now time.Time) ([]model.SyncSchedule, error) {
 	var items []model.SyncSchedule
 	err := r.db.WithContext(ctx).
@@ -169,6 +175,21 @@ func (r *frameworkRepository) UpdateScheduleConfig(ctx context.Context, item *mo
 			"window_end":                 item.WindowEnd,
 			"next_run_at":                item.NextRunAt,
 			"updated_at":                 time.Now(),
+		}).Error
+}
+
+// AdvanceScheduleNextRun 只推进下次到期时间，**不碰执行结果字段**。
+//
+// 用途：调度器在"任务已提交、还没跑完"这一刻把 next_run_at 推到下一周期，避免 60 秒扫描
+// 重复触发同一调度。此时任务并没有执行完，写 last_status/last_run_at 就会把"已触发"
+// 谎报成"已成功"——实测表现为调度页显示成功、而同步日志里一条记录都没有。
+// 真实结果由任务结束时 recordScheduleResult 落库。
+func (r *frameworkRepository) AdvanceScheduleNextRun(ctx context.Context, id uint64, nextRun time.Time) error {
+	return r.db.WithContext(ctx).Model(&model.SyncSchedule{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"next_run_at": nextRun,
+			"updated_at":  time.Now(),
 		}).Error
 }
 

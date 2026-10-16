@@ -97,51 +97,8 @@
       </t-tabs>
     </section>
 
-    <!-- 调度配置弹窗 -->
-    <t-dialog
-      v-model:visible="scheduleDialogVisible"
-      :header="
-        editingSchedule
-          ? `调度配置 · ${editingSchedule.provider_name || '渠道 #' + editingSchedule.provider_id} · ${editingSchedule.scope_name}`
-          : '调度配置'
-      "
-      width="520px"
-      :confirm-btn="{ content: '保存', theme: 'primary', loading: scheduleSaving }"
-      @confirm="handleSaveSchedule"
-      @close="scheduleDialogVisible = false"
-    >
-      <t-form label-align="top" :data="scheduleForm" @submit.prevent>
-        <t-form-item label="同步间隔" :help="intervalHelp">
-          <IntervalField v-model:seconds="scheduleForm.interval_seconds" :min-seconds="30" />
-        </t-form-item>
-        <t-form-item label="全量对账周期" :help="fullIntervalHelp">
-          <IntervalField v-model:seconds="scheduleForm.full_sync_interval_seconds" :min-seconds="300" />
-        </t-form-item>
-        <t-form-item label="优先级" help="数值越大越先触发；多条调度同时到期时按此排序">
-          <t-input-number v-model="scheduleForm.priority" :min="0" theme="column" />
-        </t-form-item>
-        <t-form-item label="启用">
-          <t-switch v-model="scheduleForm.enabled" />
-        </t-form-item>
-        <t-form-item label="允许执行时段" help="限定只在某几个小时之间执行，避开上游业务高峰；关闭表示全天可执行">
-          <t-switch v-model="scheduleForm.window_enabled" @change="handleWindowToggle" />
-        </t-form-item>
-        <t-form-item v-if="scheduleForm.window_enabled" label="时段（小时 0-23）">
-          <t-space align="center">
-            <t-input-number v-model="scheduleForm.window_start" :min="0" :max="23" theme="column" />
-            <span>点 至</span>
-            <t-input-number v-model="scheduleForm.window_end" :min="0" :max="23" theme="column" />
-            <span>点</span>
-          </t-space>
-        </t-form-item>
-        <t-form-item
-          label="立即生效"
-          help="开启后保存即把下次执行时间置空，调度器下一轮扫描（每分钟一次）就会触发，不用等原定周期"
-        >
-          <t-switch v-model="scheduleForm.reset_next_run" />
-        </t-form-item>
-      </t-form>
-    </t-dialog>
+    <!-- 调度配置弹窗：与渠道详情/编辑页共用同一个组件（字段集与保存接口只有一份实现） -->
+    <ScheduleConfigDialog :row="editingSchedule" @saved="schedulesRef?.reload()" />
 
     <!-- 手动触发同步 -->
     <t-dialog
@@ -170,14 +127,14 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { AddIcon, RefreshIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
 
-import { createSyncTask, getProviderList, getSyncScopeMeta, updateSyncSchedule } from '@/api/admin'
+import { createSyncTask, getProviderList, getSyncScopeMeta } from '@/api/admin'
 import type { ProviderInfo, SyncScheduleInfo } from '@/types/interface'
 import { chainKindOptions, hasUpstreamCatalog, normalizeChainKind, type ChainKind } from './chain-kind'
 import InboundPanel from './components/InboundPanel.vue'
-import IntervalField from './components/IntervalField.vue'
 import OutboundPanel from '@/pages/resource/task-queue/index.vue'
 import OverviewPanel from './components/OverviewPanel.vue'
 import ReconcilePanel from '@/pages/resource/reconcile/index.vue'
+import ScheduleConfigDialog from './components/ScheduleConfigDialog.vue'
 import SchedulesPanel from './components/SchedulesPanel.vue'
 
 defineOptions({ name: 'ResourceSyncCenter' })
@@ -341,94 +298,14 @@ async function handleChainChange() {
 
 // ---------- 调度配置弹窗 ----------
 
-const scheduleDialogVisible = ref(false)
-const scheduleSaving = ref(false)
+// 弹窗本体在 ScheduleConfigDialog（渠道详情/编辑页复用同一份实现）：
+// 字段集、校验与保存接口只有一处，避免两页各维护一套字段后口径漂移。
 const editingSchedule = ref<SyncScheduleInfo | null>(null)
-const scheduleForm = reactive({
-  interval_seconds: 3600,
-  full_sync_interval_seconds: 86400,
-  priority: 0,
-  enabled: true,
-  window_enabled: false,
-  window_start: 0,
-  window_end: 6,
-  reset_next_run: false,
-})
 
 const syncingScope = ref('')
 
-/**
- * 两个周期的解释按同步类型分别写。
- *
- * 原来只有一句「目录/价格建议小时级，实例建议分钟级」，用户看不出这两个字段
- * 到底在同步什么、为什么默认值差这么多。按类型给具体建议更省事：
- * 实例状态变化快（开关机、到期），目录与价格变化慢且上游接口更重。
- */
-const intervalHelp = computed(() => {
-  const scope = editingSchedule.value?.scope
-  const base: Record<string, string> = {
-    catalog: '多久拉一次上游商品目录（新增/改配/下架）。目录变动慢，建议 6 小时~1 天。',
-    price: '多久核对一次上游价格。上游调价会进「待确认调价」，建议 6 小时~1 天。',
-    pool: '多久刷新一次资源池容量（CPU/内存/磁盘用量）。建议 1~6 小时。',
-    region: '多久刷新一次区域与节点清单。区域变动很少，建议 1 天。',
-    instance: '多久拉一次实例状态、IP 与到期时间。状态变化快，建议 5~15 分钟。',
-  }
-  const hint = (scope && base[scope]) || '每隔多久向上游拉取一次本类型的数据。'
-  return `${hint} 间隔越短越及时，但上游接口调用越频繁；小于 30 秒会被拒绝。`
-})
-
-const fullIntervalHelp = computed(() => {
-  const scope = editingSchedule.value?.scope
-  const base: Record<string, string> = {
-    catalog: '多久做一次全量对账：找出上游已删除、但我们这边还在的商品并标记下架。建议 1 天。',
-    price: '多久做一次全量价格核对（不只看有变化的）。建议 1 天。',
-    pool: '多久做一次全量池对账：上游已不存在的池会被标记离线。建议 1 天。',
-    region: '多久做一次全量区域对账。建议 1 天。',
-    instance: '多久做一次全量实例对账：上游已不存在的实例会被标记离线。建议 1 天。',
-  }
-  const hint = (scope && base[scope]) || '全量对账的周期。'
-  return `${hint} 它比「同步间隔」慢得多，用来兜住增量同步发现不了的删除类变化；不得小于 5 分钟。`
-})
-
 function openScheduleDialog(row: SyncScheduleInfo) {
   editingSchedule.value = row
-  scheduleForm.interval_seconds = row.interval_seconds
-  scheduleForm.full_sync_interval_seconds = row.full_sync_interval_seconds
-  scheduleForm.priority = row.priority
-  scheduleForm.enabled = row.enabled
-  scheduleForm.window_enabled = row.window_start !== null && row.window_end !== null
-  scheduleForm.window_start = row.window_start ?? 0
-  scheduleForm.window_end = row.window_end ?? 6
-  scheduleForm.reset_next_run = false
-  scheduleDialogVisible.value = true
-}
-
-function handleWindowToggle(value: boolean) {
-  scheduleForm.window_enabled = value
-}
-
-async function handleSaveSchedule() {
-  if (!editingSchedule.value) return
-  scheduleSaving.value = true
-  try {
-    await updateSyncSchedule(editingSchedule.value.id, {
-      interval_seconds: scheduleForm.interval_seconds,
-      full_sync_interval_seconds: scheduleForm.full_sync_interval_seconds,
-      priority: scheduleForm.priority,
-      enabled: scheduleForm.enabled,
-      window_clear: !scheduleForm.window_enabled,
-      window_start: scheduleForm.window_enabled ? scheduleForm.window_start : null,
-      window_end: scheduleForm.window_enabled ? scheduleForm.window_end : null,
-      reset_next_run: scheduleForm.reset_next_run,
-    })
-    MessagePlugin.success('调度配置已保存')
-    scheduleDialogVisible.value = false
-    schedulesRef.value?.reload()
-  } catch (error) {
-    MessagePlugin.error((error as Error).message || '保存调度配置失败')
-  } finally {
-    scheduleSaving.value = false
-  }
 }
 
 // ---------- 手动触发同步 ----------

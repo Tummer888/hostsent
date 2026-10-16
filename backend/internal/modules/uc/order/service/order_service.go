@@ -180,7 +180,6 @@ type orderService struct {
 	pricing         priceResolverPort
 	ensureOpenable  func(ctx context.Context, productID uint64) error // 校验商品是否可即时开通（避免误扣款）
 	isBalanceErr    func(error) bool                                  // 余额不足判定（由装配层提供，避免依赖 admin 错误变量）
-	consumeRecorder func(userID uint64, amount float64)               // 累计消费/等级重算（P3-03，装配层异步化）
 	actorNames      actorNameLookup                                   // 操作人用户名解析（P4-09），可为 nil
 	sku             productSkuPort                                    // SKU 读取与库存（T4.1），可为 nil（无 SKU 的商品照旧下单）
 	optionPricing   optionPricingPort                                 // 选配项校验与计价（T4.5），可为 nil（无选配项的商品照旧下单）
@@ -208,7 +207,11 @@ type actorNameLookup interface {
 }
 
 // NewOrderService 创建用户中心订单服务。
-// consumeRecorder/actorNames 可为 nil（累计消费与等级重算见 P3-03，操作人列见 P4-09）。
+//
+// 这里不再收「累计消费回调」：消费入账已收敛到账务核心（WalletService.SetConsumeRecorder），
+// 由它在扣款流水落库后统一回调。本层再记一次会让累计消费翻倍。
+//
+// actorNames 可为 nil（操作人列见 P4-09）。
 // provisionQueue 为 nil 时回落到同步 orderSvc.Activate（兼容未装配工作池的测试与旧部署）。
 func NewOrderService(
 	catalog productReader,
@@ -217,7 +220,6 @@ func NewOrderService(
 	orderSvc orderActivator,
 	ensureOpenable func(ctx context.Context, productID uint64) error,
 	isBalanceErr func(error) bool,
-	consumeRecorder func(userID uint64, amount float64),
 	actorNames actorNameLookup,
 	orderItems orderItemPort,
 	pricing priceResolverPort,
@@ -228,7 +230,7 @@ func NewOrderService(
 	return &orderService{
 		catalog: catalog, wallet: wallet, orderRepo: orderRepo, orderSvc: orderSvc,
 		ensureOpenable: ensureOpenable, isBalanceErr: isBalanceErr,
-		consumeRecorder: consumeRecorder, actorNames: actorNames,
+		actorNames: actorNames,
 		orderItems: orderItems, pricing: pricing, sku: sku,
 		provisionQueue: provisionQueue, provisionTasks: provisionTasks,
 	}
@@ -570,6 +572,11 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 		}
 	}()
 
+	// 订单号提前生成：余额扣款流水要带上它，账单才能按 order_no 关联回订单
+	// 判断这笔是普通消费还是续费消费（不带的话账面有金额、上面没有业务单据）。
+	// 下游 create 仍用同一个号，不重复生成。
+	orderNo := genOrderNo(userID)
+
 	// 1) 余额扣款（支出方向 -1），返回资金流水。
 	// 渠道支付此刻不扣款：钱在渠道侧，等回调确认到账后再标记 paid。
 	// 流水类型统一为 consume（P0-02）：累计消费聚合依赖 type='consume'，BizType 仍为 order 保证幂等键不变。
@@ -579,7 +586,8 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 			Type:      TxTypeConsume,
 			Direction: -1, // 支出
 			Amount:    amount,
-			BizKey:    fmt.Sprintf("uc-order-%d-%d", userID, time.Now().UnixNano()),
+			OrderNo:   orderNo,
+			BizKey:    orderNo,
 			Remark:    fmt.Sprintf("购买云主机：%s", product.Name),
 		}, userID); err != nil {
 			if s.isBalanceErr != nil && s.isBalanceErr(err) {
@@ -597,7 +605,8 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 	}
 	now := time.Now()
 	order := &dto.OrderRow{
-		OrderNo:     genOrderNo(userID),
+		// 复用扣款流水上记的那个号：两处各生成一次会让订单与流水对不上号。
+		OrderNo:     orderNo,
 		UserID:      userID,
 		ProductID:   product.ID,
 		ProductName: product.Name,
@@ -695,11 +704,9 @@ func (s *orderService) Create(ctx context.Context, userID, actorID uint64, req d
 		return &info, nil
 	}
 
-	// 2.5) 累计消费 + 等级重算（P3-03）：已扣款即计入，开通失败也不回退。
-	//      装配层注入的实现负责异步化与错误日志，不阻塞下单主流程。
-	if s.consumeRecorder != nil {
-		s.consumeRecorder(userID, amount)
-	}
+	// 2.5) 累计消费 + 等级重算：由账务核心在扣款流水落库后回调（见
+	//      WalletService.SetConsumeRecorder），本层不再单独记一次 ——
+	//      同一条扣款在这里和账务核心各记一遍会让累计消费翻倍。
 
 	// 3) 投递开通履约任务（T5.1）：上游开通约 50s，超过 app.write_timeout=10s，
 	//    因此下单只落库 + 投递任务，由进程内工作池异步执行 paid→provisioning→active；

@@ -166,6 +166,21 @@
             >
               批量销毁
             </t-button>
+            <!--
+              批量删除记录：清掉已销毁、还占着列表的那批行（清测试机最常见）。
+              只在**选中项里确实有已销毁行**时才出现 —— 一行都删不了时给按钮等于骗人；
+              混选时弹窗会把不能删的标红并说明原因，而不是静默跳过。
+            -->
+            <t-button
+              v-if="canDestroy && batchPurgeTargetCount > 0"
+              size="small"
+              theme="danger"
+              variant="outline"
+              :loading="batchRunning"
+              @click="openBatchPurgeDialog"
+            >
+              批量删除记录（{{ batchPurgeTargetCount }}）
+            </t-button>
             <t-button size="small" variant="text" @click="clearSelection">清空</t-button>
           </template>
           <span v-else class="table-card__meta">共 {{ total }} 台实例</span>
@@ -359,13 +374,17 @@
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
-              <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
+              <t-link theme="default" hover="color" @click="openDetail(row)">详情</t-link>
               <!-- 待开通实例：只给「重新开通」（重投订单履约，不产生新订单/新账单）、
                    备注与销毁。电源/控制台/同步等上游动作没有对象，隐藏而不是点了报错。
                    销毁必须保留：占位行没有上游机器，"销毁"就是清掉这条本地记录 ——
                    一台永远开不出来的占位机若连清掉都做不到，就只能去订单侧取消
-                   （用户实测反馈："现在直接连删除这个实例的按钮都没有了"）。 -->
-              <template v-if="row.pending">
+                   （用户实测反馈："现在直接连删除这个实例的按钮都没有了"）。
+                   终态判断必须排在 pending **之前**：占位行销毁后 provider_instance_id
+                   依然为空（本来就没有号），先判 pending 会让已销毁的占位重新长出
+                   「重新开通 / 销毁」而没有「删除记录」。服务端 Pending 已同口径排除终态，
+                   这里再判一次是因为 render 分支比数据字段更难回退（见 isRowDestroyed 说明）。 -->
+              <template v-if="row.pending && !isRowDestroyed(row)">
                 <t-link
                   v-permission="'instance:action'"
                   theme="primary"
@@ -389,13 +408,13 @@
                 </t-link>
               </template>
               <!--
-                已销毁行：只留「详情 / 备注 / 删除记录」。
-                机器在上游已不存在，电源/控制台/同步/暂停全都没有对象（点了必失败），
-                因此整组隐藏；而「删除记录」正是清理测试机时最需要的那个入口
-                —— 销毁只把行标成已销毁，行仍占着列表（用户实测反馈：
-                "我是叫将这个实例的整一个记录都删除"）。
+                终态行（已销毁 / 已取消）：只留「详情 / 备注 / 删除记录」。
+                机器在上游已不存在（销毁过、或从未开通），电源/控制台/同步/暂停
+                全都没有对象（点了必失败），因此整组隐藏；「删除记录」是清掉它们
+                唯一的入口 —— 已取消的行没有「销毁」可走（从来没有机器），
+                不给删记录它们会永远留在列表里。
               -->
-              <template v-else-if="isRowDestroyed(row)">
+              <template v-else-if="isRowDestroyed(row) || isRowCancelled(row)">
                 <t-link v-permission="'instance:action'" theme="primary" hover="color" @click="openRemarkDialog(row)"
                   >备注</t-link
                 >
@@ -586,7 +605,7 @@
       <t-alert
         theme="error"
         class="dlg-alert"
-        :message="`将永久删除 ${purgeForm.name || '该实例'} 的记录与操作流水，不可恢复。该记录已被销毁，删除不会再通知任何渠道。`"
+        :message="`将永久删除 ${purgeForm.name || '该实例'} 的记录与操作流水，不可恢复。该记录已是终态（已销毁或已取消），删除不会再通知任何渠道。`"
       />
       <p class="dlg-confirm-tip">
         请输入实例标识 <code>{{ purgeForm.instanceMark || '—' }}</code> 以确认：
@@ -699,6 +718,107 @@
       </div>
     </t-dialog>
 
+    <!--
+      批量删除记录：把已销毁、还占着列表的行一次清掉（清测试机的常见诉求）。
+      与批量销毁同样的"逐台确认"口径 —— 这是物理删除，全选不能等于一键抹掉；
+      混选时不可删除的行会标红说明原因，不会被静默跳过。
+    -->
+    <t-dialog
+      v-model:visible="batchPurge.visible"
+      header="批量删除实例记录"
+      width="720px"
+      :footer="batchPurge.done"
+      destroy-on-close
+      @close="batchPurge.visible = false"
+    >
+      <template v-if="!batchPurge.done">
+        <t-alert
+          theme="error"
+          class="dlg-alert"
+          :message="`将永久删除选中的 ${batchPurgeDeletableCount} 条记录与其操作流水，不可恢复。这些记录均已是终态（已销毁或已取消），删除不会再通知任何渠道。`"
+        />
+        <t-alert
+          v-if="batchPurgeBlockedCount > 0"
+          theme="warning"
+          class="dlg-alert"
+          :message="`其中 ${batchPurgeBlockedCount} 条尚未销毁，无法删除记录：请先对它们执行「销毁」（那才会通知渠道终止机器），本次提交会自动跳过。`"
+        />
+        <t-table
+          row-key="id"
+          :data="batchPurge.targets"
+          :columns="batchPurgeColumns"
+          size="small"
+          :pagination="undefined"
+          table-layout="fixed"
+          cell-empty-content="—"
+        >
+          <template #instance="{ row }">
+            <div>
+              <span class="cell-strong">{{ row.name || '—' }}</span>
+              <div class="cell-sub">{{ row.instance_mark || '—' }}</div>
+            </div>
+          </template>
+          <template #deletable="{ row }">
+            <t-tag v-if="row.deletable" theme="success" variant="light" size="small" shape="round">可删除</t-tag>
+            <t-tag v-else theme="warning" variant="light" size="small" shape="round">未销毁</t-tag>
+          </template>
+          <template #confirm="{ row }">
+            <t-input
+              v-if="row.deletable"
+              v-model="row.confirm"
+              size="small"
+              :placeholder="row.instance_mark"
+            />
+            <span v-else class="cell-muted">—</span>
+          </template>
+        </t-table>
+        <div class="destroy-actions">
+          <t-button variant="outline" @click="batchPurge.visible = false">再想想</t-button>
+          <t-button
+            theme="danger"
+            :disabled="!batchPurgeReady"
+            :loading="batchPurge.running"
+            @click="handleBatchPurge"
+          >
+            确认删除 {{ batchPurgeDeletableCount }} 条记录
+          </t-button>
+        </div>
+      </template>
+      <div v-else class="batch-result">
+        <p class="batch-result__summary">
+          成功 {{ batchPurge.result?.succeeded ?? 0 }} 条 · 跳过 {{ batchPurge.result?.skipped ?? 0 }} 条 · 失败
+          {{ batchPurge.result?.failed ?? 0 }} 条
+        </p>
+        <t-table
+          row-key="id"
+          :data="batchPurge.result?.items ?? []"
+          :columns="batchResultColumns"
+          size="small"
+          :pagination="undefined"
+          table-layout="fixed"
+          cell-empty-content="—"
+        >
+          <template #instance="{ row }">
+            <div>
+              <span class="cell-strong">{{ row.name || '—' }}</span>
+              <div class="cell-sub">{{ row.instance_mark || '—' }}</div>
+            </div>
+          </template>
+          <template #status="{ row }">
+            <t-tag :theme="batchStatusTheme(row.status)" variant="light" size="small" shape="round">
+              {{ batchStatusLabel(row.status) }}
+            </t-tag>
+          </template>
+          <template #message="{ row }">
+            <span :class="{ 'op-error': row.status === 'failed' }" class="cell-muted">{{ row.message || '—' }}</span>
+          </template>
+        </t-table>
+        <div class="destroy-actions">
+          <t-button theme="primary" @click="batchPurge.visible = false">关闭</t-button>
+        </div>
+      </div>
+    </t-dialog>
+
     <t-dialog
       v-model:visible="batchResult.visible"
       :header="`${batchResult.label}结果`"
@@ -760,7 +880,7 @@
 
 <script setup lang="ts">
 import FilterCard from '@/components/filter-card/index.vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import {
@@ -781,6 +901,7 @@ import {
   getInstanceTypes,
   getInstanceVNC,
   batchDestroyInstances,
+  batchPurgeInstances,
   batchInstanceAction,
   destroyInstance,
   powerInstance,
@@ -808,6 +929,7 @@ import type {
   InstanceBatchActionItem,
   InstanceBatchActionResponse,
   InstanceBatchDestroyResponse,
+  InstanceBatchPurgeResponse,
   InstanceItem,
   InstanceStatsResponse,
   InstanceTypeSummary,
@@ -967,6 +1089,73 @@ function expireClass(row: InstanceItem): string {
   return ''
 }
 
+/**
+ * 列表过渡态轮询。
+ *
+ * 为什么列表也需要：过渡态（「关机中」等）的收尾原来只发生在详情回源 / 手动同步 /
+ * 再次下发这几条路径，而列表页既不回源也不写库 —— 刚关完机切到列表，那一行会一直
+ * 显示「关机中」，要有人去点详情或同步才会变（用户实测反馈："开关机状态变化时，
+ * 关机中这个状态长时间滞留"）。
+ *
+ * 服务端已在列表接口里顺带收尾（settleTransitions），这里负责"到点再拉一次"：
+ * 只在本页**存在未确认的过渡态**时轮询，全部收尾后自动停表，不做无谓请求。
+ * 用 loadInstances 而不 isLoading 遮罩：轮询是背景刷新，不该让整表闪 loading。
+ */
+const LIST_TRANSITION_POLL_MS = 5000
+let listTransitionTimer: number | undefined
+
+function hasPendingTransition(): boolean {
+  return instanceList.value.some((row) => !!row.transition && !row.transition.overdue)
+}
+
+function stopListTransitionPoll() {
+  if (listTransitionTimer !== undefined) {
+    window.clearInterval(listTransitionTimer)
+    listTransitionTimer = undefined
+  }
+}
+
+function ensureListTransitionPoll() {
+  if (!hasPendingTransition()) {
+    stopListTransitionPoll()
+    return
+  }
+  if (listTransitionTimer !== undefined) return
+  listTransitionTimer = window.setInterval(() => {
+    // 收尾条件在数据回来后重新判定：没有过渡态了就停表。
+    if (!hasPendingTransition()) {
+      stopListTransitionPoll()
+      return
+    }
+    void refreshInstancesSilently()
+  }, LIST_TRANSITION_POLL_MS)
+}
+
+/** 静默刷新列表（不闪 loading、失败不弹错）：轮询专用。 */
+async function refreshInstancesSilently() {
+  try {
+    const data = await getInstanceList({
+      keyword: filters.keyword,
+      user_keyword: filters.user_keyword,
+      user_id: filters.user_id ? Number(filters.user_id) : undefined,
+      provider_id: filters.provider_id ? Number(filters.provider_id) : undefined,
+      status: filters.status,
+      source_mode: filters.source_mode,
+      instance_type: filters.instance_type,
+      expire_state: filters.expire_state,
+      expire_within_days: filters.expire_state === 'expiring' ? filters.expire_within_days : undefined,
+      page: pagination.current,
+      page_size: pagination.pageSize,
+    })
+    instanceList.value = data.items
+    total.value = data.meta.total
+    pagination.total = data.meta.total
+    mobilePage.total = data.meta.total
+  } catch {
+    // 背景轮询失败不打扰运营：下一轮再试，手动刷新仍然可用。
+  }
+}
+
 async function loadInstances() {
   loading.value = true
   try {
@@ -987,6 +1176,8 @@ async function loadInstances() {
     total.value = data.meta.total
     pagination.total = data.meta.total
     mobilePage.total = data.meta.total
+    // 数据到手后再决定是否需要轮询：有未确认的过渡态就开表，否则保持停表。
+    ensureListTransitionPoll()
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载实例列表失败')
   } finally {
@@ -1214,7 +1405,9 @@ function instanceDestroyable(row: InstanceItem): boolean {
 // "界面别骗人"，真正的准入判定始终在服务端。
 function instancePurgeable(row: InstanceItem): boolean {
   if (!row.instance_id) return false
-  return row.status === 'deleted' || row.lifecycle_stage === 'destroyed'
+  // 两类终态都可清：已销毁（机器跑过、已终止）与已取消（机器从未开通）。
+  // 已取消的行没有机器可销毁，若不给「删除记录」，它们会永远留在列表里。
+  return isRowDestroyed(row) || isRowCancelled(row)
 }
 
 // isRowDestroyed 该行是否处于「已销毁」终态。
@@ -1223,6 +1416,14 @@ function instancePurgeable(row: InstanceItem): boolean {
 // 这些动作全都没有对象、点了必失败 —— 已销毁的行只该留「详情/备注/删除记录」。
 function isRowDestroyed(row: InstanceItem): boolean {
   return row.status === 'deleted' || row.lifecycle_stage === 'destroyed'
+}
+
+// isRowCancelled 该行是否「已取消」（订单未付款超时/作废，机器从未开通）。
+//
+// 与已销毁一样属于终态：不该给「重新开通」（订单已是废单），
+// 也不该给电源/控制台/同步（从来没有机器可操作）。
+function isRowCancelled(row: InstanceItem): boolean {
+  return row.status === 'cancelled' || row.lifecycle_stage === 'cancelled'
 }
 
 const destroyForm = reactive({
@@ -1334,6 +1535,14 @@ const batchDestroyColumns: PrimaryTableCol[] = [
   { colKey: 'confirm', title: '输入实例标识确认', width: 240 },
 ]
 
+// 批量删除记录的逐行确认列：多一列「可删除」说明为什么这台不能删。
+const batchPurgeColumns: PrimaryTableCol[] = [
+  { colKey: 'instance', title: '实例', width: 200 },
+  { colKey: 'instance_mark', title: '实例标识', width: 170 },
+  { colKey: 'deletable', title: '状态', width: 100 },
+  { colKey: 'confirm', title: '输入实例标识确认', width: 220 },
+]
+
 function openBatchDestroyDialog() {
   if (!selectedIds.value.length) return
   const chosen = instanceList.value.filter((row) => selectedIds.value.includes(row.id) && instanceDestroyable(row))
@@ -1403,6 +1612,90 @@ async function handleBatchDestroy() {
   }
 }
 
+/**
+ * 批量删除记录：把已销毁、还占着列表的行一次清掉。
+ *
+ * 与批量销毁的两点不同：
+ *   · 只把**已销毁**的行放进可删除列表（未销毁的标「未销毁」并说明要先销毁），
+ *     因为记录删除绕不过"通知渠道终止机器"那一步 —— 把不可删的行混进来，
+ *     运营会以为一次点击能清理掉所有勾选；
+ *   · 确认进度只按可删除的行算：不可删的行没有确认输入框，不该卡住提交按钮。
+ */
+const batchPurge = reactive<{
+  visible: boolean
+  targets: { id: number; name: string; instance_mark: string; confirm: string; deletable: boolean }[]
+  result: InstanceBatchPurgeResponse | null
+  done: boolean
+  running: boolean
+}>({
+  visible: false,
+  targets: [],
+  result: null,
+  done: false,
+  running: false,
+})
+
+/** 选中项里可删除（已销毁）的条数：批量删除按钮的出现条件。 */
+const batchPurgeTargetCount = computed(
+  () => instanceList.value.filter((r) => selectedIds.value.includes(r.id) && instancePurgeable(r)).length,
+)
+
+const batchPurgeDeletable = computed(() => batchPurge.targets.filter((t) => t.deletable))
+const batchPurgeDeletableCount = computed(() => batchPurgeDeletable.value.length)
+
+/** 选中项里尚未销毁、不能删记录的条数（弹窗提示用）。 */
+const batchPurgeBlockedCount = computed(() => batchPurge.targets.filter((t) => !t.deletable).length)
+
+/** 确认进度只按可删除的行算（不可删的没有输入框）。 */
+const batchPurgeReady = computed(
+  () =>
+    batchPurgeDeletableCount.value > 0 &&
+    batchPurgeDeletable.value.every((t) => t.confirm.trim() === t.instance_mark),
+)
+
+function openBatchPurgeDialog() {
+  batchPurge.targets = instanceList.value
+    .filter((r) => selectedIds.value.includes(r.id))
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      instance_mark: r.instance_id,
+      confirm: '',
+      deletable: instancePurgeable(r),
+    }))
+  batchPurge.result = null
+  batchPurge.done = false
+  batchPurge.visible = true
+}
+
+async function handleBatchPurge() {
+  if (!batchPurgeReady.value) {
+    MessagePlugin.warning('请为可删除的每一台输入实例标识完成确认')
+    return
+  }
+  const marks: Record<string, string> = {}
+  for (const target of batchPurgeDeletable.value) {
+    marks[String(target.id)] = target.confirm.trim()
+  }
+  batchPurge.running = true
+  try {
+    // 只提交可删除的行：未销毁的交给服务端也只会是 skipped，
+    // 前端先过滤能让"跳过"的计数更少、结果表更聚焦。
+    const resp = await batchPurgeInstances({
+      ids: batchPurgeDeletable.value.map((t) => t.id),
+      confirm_marks: marks,
+    })
+    batchPurge.result = resp
+    batchPurge.done = true
+    clearSelection()
+    loadAll()
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '批量删除记录失败')
+  } finally {
+    batchPurge.running = false
+  }
+}
+
 const vnc = reactive({ visible: false, name: '', url: '', password: '' })
 
 async function handleVnc(row: InstanceItem) {
@@ -1426,6 +1719,9 @@ function isHttp(url: string): boolean {
 }
 
 onMounted(loadAll)
+
+// 离开页面必须停掉过渡态轮询：定时器不清会一直发请求（访问过的实例页越多越明显）。
+onBeforeUnmount(stopListTransitionPoll)
 
 // —— 批量运维（doc61 P1）——
 const selectedIds = ref<number[]>([])

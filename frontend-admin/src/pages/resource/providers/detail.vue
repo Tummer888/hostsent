@@ -29,6 +29,7 @@
         <t-tab-panel value="basic" label="基本信息" />
         <t-tab-panel value="capability" label="能力矩阵" />
         <t-tab-panel value="pools" label="资源池" />
+        <t-tab-panel value="schedules" label="同步与调度" />
         <t-tab-panel value="logs" label="同步日志" />
       </t-tabs>
     </section>
@@ -61,13 +62,29 @@
                   <t-input v-if="editing" v-model="formData.region" placeholder="例如：cn-east-1" />
                   <span v-else class="readonly-text">{{ detail.region || '—' }}</span>
                 </t-form-item>
-                <t-form-item label="同步间隔（秒）">
-                  <t-input-number v-if="editing" v-model="formData.sync_interval" :min="0" :step="60" />
-                  <span v-else class="readonly-text">{{ detail.sync_interval }} 秒</span>
+                <!-- 同步节奏不再放基本信息里：它是按同步类型分别配置的（渠道 × 类型），
+                     单放一个"同步间隔（秒）"会让人以为一个数字管所有类型。
+                     这里只保留只读的同步总开关与入口，配置在「同步与调度」页。 -->
+                <t-form-item label="同步总开关">
+                  <span class="readonly-text">
+                    <t-tag
+                      :theme="detail.sync_enabled ? 'success' : 'default'"
+                      variant="light"
+                      size="small"
+                      shape="round"
+                    >
+                      {{ detail.sync_enabled ? '已开启' : '已关闭' }}
+                    </t-tag>
+                    <span v-if="!detail.sync_enabled" class="sync-off-hint">关闭期间所有同步类型都不执行</span>
+                  </span>
                 </t-form-item>
-                <t-form-item label="启用实例同步">
-                  <t-switch v-if="editing" v-model="formData.sync_enabled" />
-                  <span v-else class="readonly-text">{{ detail.sync_enabled ? '启用' : '禁用' }}</span>
+                <t-form-item label="同步节奏">
+                  <span class="readonly-text">
+                    <t-link theme="primary" hover="color" @click="activeTab = 'schedules'">
+                      按同步类型分别配置
+                    </t-link>
+                    <span class="sync-off-hint">（拉取间隔 / 全量对账 / 执行时段）</span>
+                  </span>
                 </t-form-item>
                 <t-form-item label="状态">
                   <span class="readonly-text">
@@ -205,8 +222,20 @@
         <PoolPanel :provider-id="providerId" />
       </template>
 
-      <!-- 同步日志：按当前渠道过滤 /resource/sync/logs，展示最近若干次同步的结果与耗时。
-           日志由同步引擎每完成一个 scope 任务写一行（writeLog），是排障的第一手材料。 -->
+      <!-- 同步与调度：按同步类型逐条配置，与同步运维控制台同一套口径与接口 -->
+      <template v-else-if="activeTab === 'schedules'">
+        <ProviderSchedules
+          v-if="detail"
+          :provider-id="providerId"
+          :sync-enabled="detail.sync_enabled"
+          :unit="isCompute ? '平台' : '渠道'"
+          @update:sync-enabled="handleSyncEnabledChange"
+        />
+      </template>
+
+      <!-- 同步日志：按当前渠道过滤 /resource/sync/logs，一次同步运行写一行（引擎 writeLog），
+           是排障的第一手材料。空态要说清"为什么没有"并给出触发入口 ——
+           只写"暂无日志"会让运营以为是坏了，实际上新渠道本来就是跑过才有记录。 -->
       <template v-else-if="activeTab === 'logs'">
         <div class="logs-head">
           <div class="logs-head__meta">
@@ -229,8 +258,20 @@
               </template>
               刷新
             </t-button>
+            <t-button
+              size="small"
+              theme="primary"
+              :loading="triggering"
+              :disabled="!triggerScope || !detail?.sync_enabled"
+              @click="handleTriggerSync"
+            >
+              立即同步一次
+            </t-button>
           </t-space>
         </div>
+
+        <!-- 渠道侧前置条件没满足时先说原因：否则"点了没日志"看起来像接口坏了。 -->
+        <t-alert v-if="logBlockReason" theme="warning" class="logs-block-alert" :message="logBlockReason" />
 
         <t-table
           row-key="id"
@@ -250,7 +291,12 @@
             </t-tag>
           </template>
           <template #result="{ row }">
-            <span class="cell-num">{{ row.success_count }} / {{ row.total_count }}</span>
+            <!-- 0 / 0 不是失败：该类型本次没有可处理的条目（如渠道下暂无实例），
+                 但任务本身跑通了。不加区分地显示 0/0 会被读成"一条都没成功"。 -->
+            <t-tooltip v-if="row.total_count === 0 && row.status === 'success'" content="本次没有需要同步的条目（任务本身已执行完成）" placement="top">
+              <span class="cell-num cell-muted">{{ row.success_count }} / {{ row.total_count }}</span>
+            </t-tooltip>
+            <span v-else class="cell-num">{{ row.success_count }} / {{ row.total_count }}</span>
           </template>
           <template #status="{ row }">
             <t-tag :theme="logStatusTheme(row.status)" variant="light" size="small" shape="round">
@@ -258,7 +304,7 @@
             </t-tag>
           </template>
           <template #error_message="{ row }">
-            <t-tooltip v-if="row.error_message" :content="row.error_message" placement="top">
+            <t-tooltip v-if="row.error_message" :content="row.error_message" placement="top-left">
               <span class="cell-error">{{ row.error_message }}</span>
             </t-tooltip>
             <span v-else class="cell-muted">—</span>
@@ -267,7 +313,7 @@
             <span class="cell-muted">{{ formatTime(row.created_at) }}</span>
           </template>
           <template #empty>
-            <t-empty description="暂无同步日志（该渠道可能从未触发过同步）" />
+            <t-empty :description="logEmptyText" />
           </template>
         </t-table>
       </template>
@@ -289,9 +335,11 @@ import {
 } from 'tdesign-vue-next'
 
 import {
+  createSyncTask,
   getProviderDetail,
   getProviderTypes,
   getSyncLogList,
+  getSyncScheduleList,
   resumeProviderSync,
   testConnection,
   updateProvider,
@@ -301,6 +349,7 @@ import { formatDisk, formatPoolMemory } from '@/utils/spec-format'
 import PoolPanel from '@/pages/resource/pools/index.vue'
 import CapabilityMatrix from './components/CapabilityMatrix.vue'
 import CredentialFormFields from './components/CredentialFormFields.vue'
+import ProviderSchedules from './components/ProviderSchedules.vue'
 
 defineOptions({ name: 'ResourceProvidersDetail' })
 
@@ -325,12 +374,16 @@ const formRef = ref<FormInstanceFunctions | null>(null)
 
 // —— 同步日志（按当前渠道过滤）——
 // 同步范围（scope）的展示名与配色跟同步中心保持一致，避免同一概念两处叫法不同。
+// 七个 scope 全部映射（后端 upstream.Scope* 全集）：只覆盖前五个的话，
+// image/stock 会以英文原样渲染出来，而"英文键名"正是运营最难判断的形态。
 const SCOPE_LABELS: Record<string, string> = {
   catalog: '商品目录',
   price: '价格',
   pool: '资源池',
   region: '区域',
+  image: '镜像',
   instance: '实例',
+  stock: '库存',
 }
 const LOG_STATUS_LABELS: Record<string, string> = {
   pending: '待执行',
@@ -349,6 +402,11 @@ const logList = ref<SyncLogInfo[]>([])
 const logLoading = ref(false)
 const logStatus = ref<string>('')
 const logTotal = ref(0)
+const triggering = ref(false)
+// 手动触发用当前渠道已配置的第一个同步类型：绝大多数排障场景就是"想立刻看一次结果"，
+// 不必强迫用户先去别处选类型。调度行为空时（渠道刚建/总开关关闭）不显示该按钮。
+const triggerScope = computed(() => scheduleScopes.value[0] || '')
+const scheduleScopes = ref<string[]>([])
 const logPagination = reactive({ current: 1, pageSize: 20, total: 0, showJumper: true })
 const logColumns: PrimaryTableCol<SyncLogInfo>[] = [
   { colKey: 'sync_type', title: '同步范围', width: 110 },
@@ -359,6 +417,31 @@ const logColumns: PrimaryTableCol<SyncLogInfo>[] = [
   { colKey: 'created_at', title: '时间', minWidth: 160 },
 ]
 const logLastAt = computed(() => (logList.value.length ? logList.value[0].created_at : ''))
+
+/**
+ * 没有日志时先解释原因，再让人去动作。
+ *
+ * 实测反馈"同步日志里根本没有显示日志"：新渠道在第一次同步之前本来就是空的，
+ * 但空表的"暂无同步日志"读起来像功能坏了。这里按渠道当前状态给出具体原因
+ * （总开关关闭 / 适配器未接入 / 熔断暂停 / 单纯还没跑过），并在能触发时提供入口。
+ */
+const logBlockReason = computed(() => {
+  if (!detail.value) return ''
+  if (!detail.value.sync_enabled) {
+    return '该渠道的同步总开关已关闭，调度器不会触发任何同步，因此不会有新日志。请在「同步与调度」页开启。'
+  }
+  if (detail.value.sync_paused) {
+    const why = detail.value.last_sync_error === '适配器未实现' ? '适配器未接入' : '连续失败已熔断'
+    return `该渠道同步已暂停（${why}）：${detail.value.last_sync_error || '请先解除暂停'}。可在页头点「恢复同步」后重试。`
+  }
+  return ''
+})
+
+const logEmptyText = computed(() => {
+  if (logBlockReason.value) return '按上方提示处理后，同步日志会在这里出现'
+  if (logStatus.value) return '当前状态筛选下没有记录，试试清空「状态」筛选'
+  return '该渠道还没有执行过同步：可点右上角「立即同步一次」，或等待调度器按节奏触发'
+})
 
 function scopeLabel(scope: string): string {
   return SCOPE_LABELS[scope] || scope || '—'
@@ -404,6 +487,23 @@ async function loadLogs() {
   }
 }
 
+/**
+ * 取该渠道实际可同步的类型，用于「立即同步一次」的目标。
+ *
+ * 走调度接口而不是写死 catalog：自营平台（compute）没有商品目录，
+ * 写死 catalog 会触发一个上游不支持的类型，任务直接 skipped。
+ * 该接口同时会把缺失的调度行补齐（后端懒创建），所以这一步也顺带修好"新建渠道没有调度行"。
+ */
+async function loadScheduleScopes() {
+  if (!providerId.value) return
+  try {
+    const data = await getSyncScheduleList({ provider_id: providerId.value, page: 1, page_size: 100 })
+    scheduleScopes.value = data.items.filter((item) => item.enabled).map((item) => item.scope)
+  } catch {
+    /* 触发目标取不到时不阻塞日志展示（按钮会因无目标而禁用） */
+  }
+}
+
 function reloadLogs() {
   logPagination.current = 1
   loadLogs()
@@ -413,6 +513,21 @@ function handleLogPageChange(pageInfo: PageInfo) {
   logPagination.current = pageInfo.current
   logPagination.pageSize = pageInfo.pageSize
   loadLogs()
+}
+
+// 手动触发一次同步：任务异步执行，稍等一拍再拉日志，否则查到的还是 pending 没有记录。
+async function handleTriggerSync() {
+  if (!triggerScope.value) return
+  triggering.value = true
+  try {
+    await createSyncTask({ provider_id: providerId.value, task_type: triggerScope.value })
+    MessagePlugin.success(`已触发「${scopeLabel(triggerScope.value)}」同步，正在执行…`)
+    setTimeout(loadLogs, 2500)
+  } catch (error) {
+    MessagePlugin.error((error as Error).message || '触发同步失败')
+  } finally {
+    triggering.value = false
+  }
 }
 
 // 凭证字段由渠道能力描述符驱动（落库的脱敏值据此回显）。
@@ -430,8 +545,8 @@ const formData = reactive({
   api_key: '',
   api_secret: '',
   credentials: {} as Record<string, string>,
-  sync_interval: 3600,
-  sync_enabled: false,
+  // sync_enabled 不在这里：它是同步总开关，由「同步与调度」面板经调度接口/渠道接口单独提交，
+  // 本表单只管渠道接入资料，避免同一个字段两个入口互相覆盖。
   status: 1,
   timeout_seconds: 0,
   retry_max: 0,
@@ -470,8 +585,6 @@ async function loadDetail() {
       api_key: '',
       api_secret: '',
       credentials: { ...(detail.value.credentials || {}) },
-      sync_interval: detail.value.sync_interval,
-      sync_enabled: detail.value.sync_enabled,
       status: detail.value.status,
       timeout_seconds: detail.value.timeout_seconds,
       retry_max: detail.value.retry_max,
@@ -517,8 +630,6 @@ async function handleSave() {
       name: formData.name,
       api_endpoint: formData.api_endpoint,
       region: formData.region,
-      sync_enabled: formData.sync_enabled,
-      sync_interval: formData.sync_interval,
       status: formData.status,
       timeout_seconds: formData.timeout_seconds,
       retry_max: formData.retry_max,
@@ -574,6 +685,12 @@ async function handleResumeSync() {
   }
 }
 
+// 同步总开关由子面板提交（只带 sync_enabled 一个字段），这里把详情快照同步过来，
+// 免得「同步健康」「同步总开关」两处标签各显示一份互相矛盾的旧值。
+function handleSyncEnabledChange(value: boolean) {
+  if (detail.value) detail.value.sync_enabled = value
+}
+
 onMounted(() => {
   loadTypes()
   loadDetail()
@@ -582,7 +699,10 @@ onMounted(() => {
 // 切到「同步日志」时才拉取：日志表按 provider 过滤，详情页首屏没必要预载。
 // 从日志页切走再回来会重新拉一次，保证看到的是最新一条同步结果。
 watch(activeTab, (tab) => {
-  if (tab === 'logs') loadLogs()
+  if (tab === 'logs') {
+    loadLogs()
+    void loadScheduleScopes()
+  }
 })
 </script>
 
@@ -611,6 +731,13 @@ watch(activeTab, (tab) => {
   margin-top: 4px;
   font-size: 12px;
   word-break: break-all;
+  color: var(--color-muted-foreground);
+}
+
+/* 只读态跟在标签后面的补充说明（如"关闭期间所有同步类型都不执行"）。 */
+.sync-off-hint {
+  margin-left: 8px;
+  font-size: 12px;
   color: var(--color-muted-foreground);
 }
 
@@ -679,24 +806,18 @@ watch(activeTab, (tab) => {
   color: var(--color-muted-foreground);
 }
 
-.cell-num {
-  font-family: var(--hs-font-mono);
+/* 「最近一次」时间戳比条数更次要，字号再收一档；等宽数字避免刷新时左右跳动。 */
+.logs-head__time {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
-.cell-muted {
-  color: var(--color-muted-foreground);
+/* 渠道侧前置条件未满足时的说明条（总开关关闭/熔断），压在日志表上方。 */
+.logs-block-alert {
+  margin-bottom: var(--space-md);
 }
 
 /* 错误信息单行截断，完整内容走 tooltip（同步失败原因常含上游返回的长 JSON）。 */
-.cell-error {
-  display: inline-block;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: bottom;
-  color: var(--td-error-color);
-}
 
 @media (max-width: 1200px) {
   .form-grid {

@@ -105,7 +105,7 @@
             <t-link v-permission="'lifecycle:renew'" theme="primary" hover="color" @click="openRenew(row)">
               代续费
             </t-link>
-            <t-link theme="primary" hover="color" @click="openInstance(row)">详情</t-link>
+            <t-link theme="default" hover="color" @click="openInstance(row)">详情</t-link>
           </template>
         </template>
         <template #empty>

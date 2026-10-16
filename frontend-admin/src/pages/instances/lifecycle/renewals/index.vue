@@ -339,7 +339,7 @@ onMounted(loadData)
   align-items: flex-start;
   gap: 12px;
   font-size: 13px;
-  color: #334155;
+  color: var(--hs-text-tech);
 }
 .detail-row > span:first-child {
   flex: 0 0 88px;

@@ -230,7 +230,7 @@
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
-              <t-link theme="primary" hover="color" @click="router.push(`/resource/providers/${row.id}`)">详情</t-link>
+              <t-link theme="default" hover="color" @click="router.push(`/resource/providers/${row.id}`)">详情</t-link>
               <t-link theme="primary" hover="color" @click="openEditDialog(row)">编辑</t-link>
               <t-link
                 theme="primary"
@@ -308,18 +308,16 @@
             </div>
           </t-tab-panel>
 
+          <!-- 同步与调度：与「同步运维控制台 → 调度配置」同一套口径（渠道 × 同步类型）。
+               旧版这里是「同步间隔（秒）+ 启用实例同步」两个字段（单间隔模型），
+               与后端实际按 (provider_id, scope) 分行的调度配置对不上。 -->
           <t-tab-panel value="sync" label="同步与调度" :destroy-on-hide="false">
-            <div class="form-grid">
-              <t-form-item label="同步间隔（秒）" name="sync_interval">
-                <t-input-number v-model="formData.sync_interval" :min="0" :step="60" placeholder="默认 3600" />
-              </t-form-item>
-              <t-form-item label="启用实例同步" name="sync_enabled">
-                <t-switch v-model="formData.sync_enabled" />
-              </t-form-item>
-            </div>
-            <t-alert
-              theme="info"
-              message="同步间隔决定调度器多久拉起一次该渠道的同步任务；关闭「启用实例同步」后实例范围不再参与调度。"
+            <ProviderSchedules
+              v-if="editingId !== null"
+              :provider-id="editingId"
+              :sync-enabled="formData.sync_enabled"
+              :unit="providerUnit"
+              @update:sync-enabled="formData.sync_enabled = $event"
             />
           </t-tab-panel>
 
@@ -487,6 +485,7 @@ import { buildMobileActionOptions } from '@/composables/useMobileActions'
 import { useIsMobile } from '@/composables/useIsMobile'
 import CapabilityMatrix from './components/CapabilityMatrix.vue'
 import CredentialFormFields from './components/CredentialFormFields.vue'
+import ProviderSchedules from './components/ProviderSchedules.vue'
 
 defineOptions({ name: 'ResourceProviders' })
 
@@ -998,12 +997,13 @@ async function handleSaveDialog() {
   if (editingId.value === null) return
   submitting.value = true
   try {
+    // 同步总开关与各类型的节奏由「同步与调度」面板各自提交（总开关走本接口但只带该字段，
+    // 节奏走调度接口）。这里不再回传 sync_interval：单间隔模型已由按类型的调度配置取代，
+    // 继续回传会把后端仍在读的渠道级字段写回旧值（后端对 0 值忽略，但语义上不该出现）。
     const payload = {
       name: formData.name,
       api_endpoint: formData.api_endpoint,
       region: formData.region,
-      sync_enabled: formData.sync_enabled,
-      sync_interval: formData.sync_interval,
       status: formData.status,
       ops_console_url: formData.ops_console_url || '',
     } as Parameters<typeof updateProvider>[1]

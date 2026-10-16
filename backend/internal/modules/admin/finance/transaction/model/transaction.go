@@ -28,6 +28,31 @@ const (
 	DirectionExpense int = -1 // 支出
 )
 
+// ConsumeTypes 计入「消费」的流水类型。
+//
+// 之所以要有这张表：消费额、账单、收入统计三处各自写过一遍类型白名单，写法还
+// 不一样 —— 有的只认 consume，漏了后台代客下单的 order，于是同一笔代客下单在
+// 资金流水里有、在累计消费里没有（实测用户 2730：买了 18 元代客单，总消费额
+// 停在 1 元）。把「什么算消费」收敛到一处，新增扣款类型时只改这里。
+//
+// 判定同时要求 direction=expense：refund 等类型可能是收入方向，不该被算进来。
+// settle（冻结结算）不在内：它是提现打款出账，不是买货消费。
+var ConsumeTypes = []string{TxTypeConsume, TxTypeAdminOrder}
+
+// InternalTransferTypes 内部划转：可用余额 ↔ 冻结余额，钱没离开账户，不算真实收付。
+// 对账与统计口径都要剔除，否则提现申请会把「支出」凭空抬高一次。
+var InternalTransferTypes = []string{TxTypeFreeze, TxTypeUnfreeze}
+
+// IsConsumeType 判断某类型是否计入消费口径。
+func IsConsumeType(txType string) bool {
+	for _, t := range ConsumeTypes {
+		if t == txType {
+			return true
+		}
+	}
+	return false
+}
+
 // WalletTransaction 资金流水台账。只增不改不删，落库后不允许更新金额。
 // 以 (user_id, biz_type, ref_no) 唯一约束保证同一来源只记一次账（幂等）。
 type WalletTransaction struct {

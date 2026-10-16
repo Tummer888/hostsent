@@ -75,6 +75,12 @@
           <span class="recon-row__value">¥{{ formatPrice(result.income_total - result.expense_total) }}</span>
         </div>
         <div class="recon-row">
+          <span class="recon-row__label">账户资产（可用+冻结）</span>
+          <span class="recon-row__value">
+            ¥{{ formatPrice(result.wallet_balance + (result.wallet_frozen || 0)) }}
+          </span>
+        </div>
+        <div class="recon-row">
           <span class="recon-row__label">账实差异</span>
           <span class="recon-row__value" :class="result.diff === 0 ? 'recon-diff-ok' : 'recon-diff-bad'">
             ¥{{ formatPrice(result.diff) }}
@@ -84,10 +90,40 @@
           <span class="recon-row__label">对账状态</span>
           <span class="recon-row__value">
             <t-tag :theme="result.status === 'ok' ? 'success' : 'danger'" variant="light" size="small" shape="round">
-              {{ result.status === 'ok' ? '账实相符' : '存在差异' }}
+              {{ result.status === 'ok' ? '账实相符' : `${result.issue_count} 项存在差异` }}
             </t-tag>
           </span>
         </div>
+      </section>
+
+      <!-- 差异明细：总量差额说不出是谁的问题，逐户/逐单才能直接定位 -->
+      <section v-if="result.issues?.length" class="table-card surface-card">
+        <h3 class="card-title">差异明细</h3>
+        <t-table
+          row-key="rowKey"
+          :data="issueRows"
+          :columns="issueColumns"
+          size="small"
+          hover
+          table-layout="fixed"
+        >
+          <template #check="{ row }">
+            <t-tag :theme="issueTheme(row.check)" variant="light" size="small" shape="round">
+              {{ row.label }}
+            </t-tag>
+          </template>
+          <template #user_id="{ row }">
+            <span class="recon-user">{{ row.user_id }}</span>
+            <span v-if="row.username" class="recon-user__name">{{ row.username }}</span>
+          </template>
+          <template #account_value="{ row }">¥{{ formatPrice(row.account_value) }}</template>
+          <template #ledger_value="{ row }">¥{{ formatPrice(row.ledger_value) }}</template>
+          <template #diff="{ row }">
+            <span :class="row.diff === 0 ? 'recon-diff-ok' : 'recon-diff-bad'">
+              {{ row.diff > 0 ? '+' : '' }}{{ formatPrice(row.diff) }}
+            </span>
+          </template>
+        </t-table>
       </section>
     </template>
 
@@ -99,7 +135,7 @@
 
 <script setup lang="ts">
 import FilterCard from '@/components/filter-card/index.vue'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 import { CheckCircleIcon, SwapIcon, TimeIcon, WalletIcon } from 'tdesign-icons-vue-next'
 import { MessagePlugin } from 'tdesign-vue-next'
@@ -114,6 +150,31 @@ const period = ref<string>()
 const loading = ref(false)
 const result = ref<ReconcileResponse | null>(null)
 
+// 差异明细列。表头文案由后端 label 给出，前端只补数值格式化。
+const issueColumns = [
+  { colKey: 'check', title: '检查项', width: 130 },
+  { colKey: 'user_id', title: '用户', width: 180 },
+  { colKey: 'account_value', title: '账面值', width: 130, align: 'right' as const },
+  { colKey: 'ledger_value', title: '台账值', width: 130, align: 'right' as const },
+  { colKey: 'diff', title: '差异', width: 120, align: 'right' as const },
+  { colKey: 'remark', title: '说明', minWidth: 280 },
+]
+
+// 表格需要稳定 row-key；同一用户同一检查项唯一，拼起来即可。
+const issueRows = computed(() =>
+  (result.value?.issues || []).map((item, index) => ({
+    ...item,
+    rowKey: `${item.user_id}-${item.check}-${index}`,
+  })),
+)
+
+// 检查项配色：金额类差异偏红（真金白银对不上），单据类偏黄（多为流程缺口）。
+function issueTheme(check: string): 'danger' | 'warning' | 'default' {
+  if (['balance', 'frozen'].includes(check)) return 'danger'
+  if (['income', 'expense', 'recharge', 'refund', 'orphan_ledger'].includes(check)) return 'warning'
+  return 'default'
+}
+
 async function handleReconcile() {
   loading.value = true
   try {
@@ -121,7 +182,7 @@ async function handleReconcile() {
     if (result.value.status === 'ok') {
       MessagePlugin.success('对账通过，账实相符')
     } else {
-      MessagePlugin.warning('对账存在差异，请核查')
+      MessagePlugin.warning(`对账存在 ${result.value.issue_count} 项差异，请核查明细`)
     }
   } catch (error) {
     MessagePlugin.error((error as Error).message || '对账失败')
@@ -138,4 +199,25 @@ function handleReset() {
 
 <style lang="css">
 @import '../shared.css';
+
+/* 用户列：ID 与用户名同格展示，ID 为主（对账是按账户核的）。 */
+.recon-user {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.recon-user__name {
+  margin-left: 6px;
+  color: var(--color-muted-foreground);
+  font-size: 12px;
+}
+
+.recon-diff-ok {
+  color: var(--hs-status-ok-text);
+}
+
+.recon-diff-bad {
+  color: var(--hs-status-danger-text);
+  font-weight: 600;
+}
 </style>

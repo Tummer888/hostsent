@@ -26,7 +26,6 @@ import (
 	ucorderdto "hostsent/backend/internal/modules/uc/order/dto"
 	ucorderhandler "hostsent/backend/internal/modules/uc/order/handler"
 	ucorderservice "hostsent/backend/internal/modules/uc/order/service"
-	"hostsent/backend/internal/pkg/safego"
 	"hostsent/backend/internal/pkg/storage"
 )
 
@@ -242,11 +241,17 @@ func (a *asm) buildOrder() {
 			// 后台代下单同样锁定销售归属快照（doc86 §3.4）：代客成交也计入销售的业绩与提成。
 			order.SalesAdminID = a.salesBundle.customerService.ResolveForNewOrder(ctx, userID)
 			// 余额支付：扣款 + 标记已支付 + 投递开通任务（T5.1 异步履约）。
+			//
+			// OrderNo 一并落进流水：账单按 wallet_transactions.order_no 关联订单区分
+			// 普通消费与续费消费，不带的话这笔钱在账面上没有业务单据可追。
+			// 此处订单行尚未入库（下面才 Create），但订单号已生成，落的是快照字符串，
+			// 订单创建后即可关联 —— 与余额扣款先于订单落库的既有顺序不冲突。
 			if payMode == "balance" {
 				if _, err := a.walletService.Adjust(ctx, accountdto.AdjustRequest{
 					UserID: userID, Type: transmodel.TxTypeAdminOrder, Direction: -1, Amount: price,
-					BizKey: fmt.Sprintf("admin-order-%d", now.UnixNano()),
-					Remark: fmt.Sprintf("代客下单：%s（%s）", product.Name, cycle),
+					OrderNo: order.OrderNo,
+					BizKey:  order.OrderNo,
+					Remark:  fmt.Sprintf("代客下单：%s（%s）", product.Name, cycle),
 				}, userID); err != nil {
 					if errors.Is(err, finaccountservice.ErrInsufficientBalance) {
 						return nil, errors.New("用户余额不足")
@@ -319,18 +324,6 @@ func (a *asm) buildOrder() {
 	a.ucOrderService = ucorderservice.NewOrderService(a.prodCatalogService, a.walletService, ucOrderRepoAdapter{repo: a.orderRepo}, a.orderService,
 		buildEnsureOpenable(a.prodCatalogService, a.providerService),
 		func(err error) bool { return errors.Is(err, finaccountservice.ErrInsufficientBalance) },
-		func(userID uint64, amount float64) {
-			// 异步执行：不阻塞下单；使用独立 context，避免请求结束后被取消。
-			go func() {
-				defer safego.Recover(a.logger)
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				defer cancel()
-				if err := a.levelUpgradeService.ApplyConsume(ctx, userID, amount); err != nil {
-					a.logger.Warn("user level: apply consume failed",
-						zap.Uint64("user_id", userID), zap.Float64("amount", amount), zap.Error(err))
-				}
-			}()
-		},
 		a.userRepo, // 订单「操作人」列：批量解析 operator_id → 用户名（P4-09）
 		ucOrderItemAdapter{repo: a.orderItemRepo}, // 订单项落库：行级折扣快照（P5-04）
 		a.pricePipeline,      // 统一算价管线（P5-03/P5-04）

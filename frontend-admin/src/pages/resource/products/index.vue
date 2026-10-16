@@ -199,7 +199,7 @@
                   @select="(value) => handleMobileAction(value, row)"
                 />
                 <template v-else>
-                  <t-link theme="primary" hover="color" @click="openDetailDialog(row)">详情</t-link>
+                  <t-link theme="default" hover="color" @click="openDetailDialog(row)">详情</t-link>
                 </template>
               </div>
             </template>
@@ -750,7 +750,7 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
   justify-content: space-between;
   font-size: 13px;
   font-weight: 600;
-  color: #334155;
+  color: var(--hs-text-tech);
   padding: 4px 6px 8px;
 }
 
@@ -774,7 +774,7 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
-  color: #334155;
+  color: var(--hs-text-tech);
 }
 
 .aside-item:hover {
@@ -821,7 +821,7 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
 }
 
 .product-name {
-  color: #334155;
+  color: var(--hs-text-tech);
   font-size: 13px;
   font-weight: 600;
 }
@@ -852,7 +852,7 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
 .price-sale {
   font-size: 13px;
   font-weight: 600;
-  color: #334155;
+  color: var(--hs-text-tech);
 }
 
 .price-sale--missing {

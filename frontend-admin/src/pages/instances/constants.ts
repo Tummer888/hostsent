@@ -8,6 +8,9 @@ export const instanceStatusOptions = [
   { label: '删除中', value: 'deleting' },
   // deleted 由本系统销毁动作写入（上游适配器不产出该值），此前下拉与标签都没有它。
   { label: '已销毁', value: 'deleted' },
+  // cancelled 由订单未付款超时/作废写入（第十九轮）：机器从未开通的流失登记。
+  // 与 deleted 分开筛，是因为两者的运营动作不同 —— 前者查订单，后者查退订链路。
+  { label: '已取消', value: 'cancelled' },
 ]
 
 export const expireStateOptions = [
@@ -214,6 +217,8 @@ export function powerStateView(input: {
   power_state?: string
   pending?: boolean
   lifecycle_stage?: string
+  /** 服务维度（同一次响应下发）：违规暂停要把机器文案换成"服务被停"。 */
+  service_state?: string
   transition?: InstanceTransitionView | null
 }): { label: string; theme: string; detail: string; spinning: boolean } {
   const stage = input.lifecycle_stage || ''
@@ -227,6 +232,10 @@ export function powerStateView(input: {
   // 让**已有**的脏数据也能正确显示，不必等下一次写操作。
   if (stage === 'destroyed' || input.status === 'deleted') {
     return { label: '已销毁', theme: 'default', detail: '实例已终止，机器不再运行', spinning: false }
+  }
+  // 已取消同样是终态：订单未付款/作废，机器从未创建，谈不上"通电状态"。
+  if (stage === 'cancelled' || input.status === 'cancelled') {
+    return { label: '未开通', theme: 'default', detail: '订单未支付或已作废，实例从未创建', spinning: false }
   }
   // 过渡态：显示「重启中」并带动画，避免运营以为没生效而重复点击。
   if (t && t.state) {
@@ -242,6 +251,11 @@ export function powerStateView(input: {
   }
   if (input.pending) {
     return { label: '待开通', theme: 'warning', detail: '尚未在上游开通，机器还未创建', spinning: false }
+  }
+  // 违规暂停：机器可能仍通电，但对客户是"服务被停"且需联系客服 —— 不能让运营
+  // 以为点一下「开机」就能恢复。
+  if (input.service_state === 'suspended_violation') {
+    return { label: '已停止服务', theme: 'danger', detail: '因违规被暂停，客户需联系客服处理', spinning: false }
   }
   if (stage === 'suspended') {
     // 到期暂停是我方动作：机器侧通常已被上游关机，但语义是"服务被停"而非"用户关机"。
@@ -280,10 +294,23 @@ export function serviceStateView(input: {
   if (stage === 'destroyed') {
     return { label: '服务已终止', theme: 'default', detail: '账期终结，不可恢复' }
   }
+  // 已取消：订单未付款超时/作废 —— 这台机器**从未开通**（与"跑过又销毁"不同）。
+  if (stage === 'cancelled') {
+    return { label: '已取消', theme: 'default', detail: '订单未支付或已作废，实例从未开通' }
+  }
+  // 违规暂停必须先于"到期暂停"判断：前者续费解决不了，客户要走客服复核。
+  if (input.service_state === 'suspended_violation') {
+    return { label: '违规暂停', theme: 'danger', detail: '因违规被暂停，请联系客服处理' }
+  }
   if (stage === 'suspended') {
     return { label: '到期暂停', theme: 'danger', detail: '已过宽限期，续费后自动恢复服务' }
   }
   switch (input.service_state || '') {
+    // 尚未开通：没有交付物，不能说成"服务中"。
+    case 'pending':
+      return { label: '待开通', theme: 'warning', detail: '订单已提交，机器尚未开通' }
+    case 'cancelled':
+      return { label: '已取消', theme: 'default', detail: '订单未支付或已作废，实例从未开通' }
     case 'expiring': {
       const d = typeof input.days_left === 'number' ? input.days_left : undefined
       return {
@@ -297,7 +324,7 @@ export function serviceStateView(input: {
     case 'grace':
       return { label: '已过期·宽限期', theme: 'warning', detail: '宽限期内仍可服务，逾期将暂停' }
     case 'active':
-      return { label: '服务中', theme: 'success', detail: '账期正常' }
+      return { label: '服务中', theme: 'success', detail: '未到期且未被暂停' }
   }
   // 回落：后端未下发 service_state 时按旧口径推算（兼容旧响应）。
   if (input.expire_state === 'expired') {
@@ -333,6 +360,16 @@ export function combineInstanceState(input: {
   if (stage === 'destroyed' || input.status === 'deleted') {
     return { label: '已销毁', theme: 'default', detail: '实例已终止，不可恢复', spinning: false }
   }
+  // 已取消排在待开通**之前**：取消后的占位行仍没有上游实例号，
+  // 先判 pending 会把一台"订单已作废"的机器显示成"可在修复后重新开通"。
+  if (stage === 'cancelled' || input.status === 'cancelled') {
+    return {
+      label: '已取消',
+      theme: 'default',
+      detail: '订单未支付或已作废，实例从未开通',
+      spinning: false,
+    }
+  }
   if (input.pending) {
     return {
       label: '待开通',
@@ -346,11 +383,8 @@ export function combineInstanceState(input: {
   if (power.spinning) {
     return { label: power.label, theme: power.theme, detail: power.detail, spinning: true }
   }
-  // 服务维度异常时以它为准（欠费/过期比"机器开着"更需要运营立刻看到）。
+  // 服务维度异常时以它为准（欠费/过期/违规比"机器开着"更需要运营立刻看到）。
   const service = serviceStateView(input)
-  if (stage === 'suspended') {
-    return { label: '到期暂停', theme: 'danger', detail: service.detail, spinning: false }
-  }
   if (service.theme === 'danger' || service.theme === 'warning') {
     // 机器状态作为补充：让运营知道"虽然过期了，但机器现在还开着/已关"。
     return {

@@ -341,7 +341,7 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
 .price-sale {
   font-size: 13px;
   font-weight: 600;
-  color: #334155;
+  color: var(--hs-text-tech);
 }
 
 /* 售罄：上游余量 0，本地不能再卖（下单会被拦） */

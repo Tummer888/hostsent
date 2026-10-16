@@ -145,30 +145,6 @@
 }
 
 /* ---------- 操作列 / 单元格辅助 ---------- */
-.lifecycle-module .action-cell {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.lifecycle-module .cell-strong {
-  color: #334155;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.lifecycle-module .cell-muted {
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-}
-
-.lifecycle-module .time-text {
-  color: #334155;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
 
 .lifecycle-module .product-cell {
   display: flex;

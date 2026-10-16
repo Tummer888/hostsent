@@ -210,7 +210,7 @@
                 :options="buildMobileActionOptions([{ content: '详情', value: 'detail', theme: 'default' }])"
                 @select="() => openDetailDialog(row)"
               />
-              <t-link v-else theme="primary" hover="color" @click="openDetailDialog(row)">详情</t-link>
+              <t-link v-else theme="default" hover="color" @click="openDetailDialog(row)">详情</t-link>
             </div>
           </template>
 
@@ -756,7 +756,7 @@ defineExpose({ reload })
 .persist-days {
   font-size: 13px;
   font-weight: 600;
-  color: #334155;
+  color: var(--hs-text-tech);
   font-variant-numeric: tabular-nums;
 }
 
@@ -773,7 +773,7 @@ defineExpose({ reload })
 }
 
 .subject-name {
-  color: #334155;
+  color: var(--hs-text-tech);
   font-size: 13px;
   font-weight: 600;
 }

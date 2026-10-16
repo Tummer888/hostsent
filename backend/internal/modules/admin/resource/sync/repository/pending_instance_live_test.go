@@ -97,28 +97,37 @@ func TestPendingInstanceLifecycle(t *testing.T) {
 		t.Fatalf("转正字段未写入: %+v", row)
 	}
 
-	// 3) 已转正的行不再被"删除占位"误删（订单取消/关单只清未开通的占位）。
-	deleted, err := repo.DeletePendingInstanceByOrder(ctx, orderID)
+	// 3) 已转正的行不再被"取消占位"误动（订单取消/关单只清未开通的占位）。
+	cancelled, err := repo.CancelPendingInstanceByOrder(ctx, orderID)
 	if err != nil {
-		t.Fatalf("删除占位失败: %v", err)
+		t.Fatalf("取消占位失败: %v", err)
 	}
-	if deleted != 0 {
-		t.Fatal("已开通（已转正）的实例不得被占位清理删除")
+	if cancelled != 0 {
+		t.Fatal("已开通（已转正）的实例不得被占位取消改动")
 	}
 
-	// 4) 未开通的占位：删除生效。
+	// 4) 未开通的占位：标为已取消（不是删行——未付款的流失要在列表里可见）。
 	second := placeholder()
 	second.InstanceID = "pending-LIVETEST-9999202"
 	second.OrderID = 9999202
 	if err := repo.CreatePendingInstance(ctx, second); err != nil {
 		t.Fatalf("建第二个占位失败: %v", err)
 	}
-	deleted, err = repo.DeletePendingInstanceByOrder(ctx, 9999202)
+	cancelled, err = repo.CancelPendingInstanceByOrder(ctx, 9999202)
 	if err != nil {
-		t.Fatalf("删除第二个占位失败: %v", err)
+		t.Fatalf("取消第二个占位失败: %v", err)
 	}
-	if deleted != 1 {
-		t.Fatalf("删除行数 = %d, want 1", deleted)
+	if cancelled != 1 {
+		t.Fatalf("取消行数 = %d, want 1", cancelled)
+	}
+	// 行必须还在，且状态/阶段落 cancelled —— 这是「被取消」能被界面看到的前提。
+	var cancelledRow syncmodel.Instance
+	if err := tx.Where("order_id = ?", uint64(9999202)).Take(&cancelledRow).Error; err != nil {
+		t.Fatalf("取消后应仍能查到该行（删行会让未付款流失在列表里消失）: %v", err)
+	}
+	if cancelledRow.Status != "cancelled" || cancelledRow.LifecycleStage != "cancelled" {
+		t.Fatalf("取消后应为 status=cancelled + stage=cancelled，实际 status=%q stage=%q",
+			cancelledRow.Status, cancelledRow.LifecycleStage)
 	}
 }
 

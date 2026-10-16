@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -506,6 +507,406 @@ func TestLiveDestroyPendingPlaceholder(t *testing.T) {
 	// 渠道不可用的当地实例走的是另一条路（destroyLocalOnly），两者的流水措辞必须不同。
 	if strings.Contains(note, "渠道侧机器状态未知") {
 		t.Errorf("占位行没有渠道侧机器，不应沿用「渠道侧机器状态未知」的措辞：%q", note)
+	}
+}
+
+// TestLivePendingFlagExcludesTerminalPlaceholder 已销毁的占位行不得再被标成「待开通」。
+//
+// 占位行销毁后 provider_instance_id 依然是空（destroyPendingPlaceholder 不写号，
+// 它本来就没有）。只按"号为空"判 Pending，这行会重新显示成「待开通」，
+// 界面给「重新开通 / 销毁实例」而**没有「删除记录」** —— 运营清不掉它，
+// 还可能把一个已决定不要的占位再开通一次（用户实测反馈的"连删除按钮都没有"
+// 在这条路径上复活）。Pending 必须排除终态。
+func TestLivePendingFlagExcludesTerminalPlaceholder(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(liveInstanceDSN()), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+	ctx := context.Background()
+	mark := time.Now().UnixNano() % 1e6
+	fake := &fakeControlProvider{}
+	svc := newOpsService(t, db, fake)
+
+	// 占位行（未开通：provider_instance_id 为空）。
+	id := createOpsInstance(t, db, fmt.Sprintf("pending-%d", mark), "creating", 0)
+	if err := db.Exec("UPDATE instances SET provider_instance_id = '' WHERE id = ?", id).Error; err != nil {
+		t.Fatalf("置为占位行失败: %v", err)
+	}
+	// 前置：未销毁的占位行必须**是**待开通 —— 否则下面的断言会因别的原因通过。
+	row, err := repository.NewInstanceRepository(db).FindByID(ctx, id)
+	if err != nil {
+		t.Fatalf("读取占位行失败: %v", err)
+	}
+	if item := svc.(*instanceService).toItem(row, 7); !item.Pending {
+		t.Fatalf("前置失败：未销毁的占位行应标记 Pending")
+	}
+
+	if err := svc.Destroy(ctx, Operator{Type: "admin"}, id, &dto.DestroyRequest{
+		ConfirmMark: fmt.Sprintf("pending-%d", mark), Reason: "占位清理",
+	}); err != nil {
+		t.Fatalf("待开通占位应可销毁，实际报错: %v", err)
+	}
+
+	row, err = repository.NewInstanceRepository(db).FindByID(ctx, id)
+	if err != nil {
+		t.Fatalf("销毁后读取失败: %v", err)
+	}
+	item := svc.(*instanceService).toItem(row, 7)
+	if item.Pending {
+		t.Fatal("已销毁的占位行不得再标记 Pending：界面会因此只给「重新开通」而没有「删除记录」")
+	}
+	if !isTerminalInstance(row) {
+		t.Fatal("前置：销毁后应是终态行")
+	}
+}
+
+// TestLiveUpstreamActionsRefuseTerminalInstance 已销毁的实例不得再接受任何上游动作。
+//
+// 全部上游动作（电源/控制台/变配/重装/改密/救援/快照/暂停恢复…共 17 个）
+// 都过 ensureProvisioned 这一个收口点，用例从三个代表性入口各打一次：
+// 只看"有没有实例号"是不够的 —— 已销毁的行往往**仍有**实例号（它曾经开通过），
+// 放行后 Power 会给一台不存在的机器发开机指令，上游要么回费解的报错，
+// 要么真的把机器重新拉起来（那是运营已经明确决定不要的机器）。
+func TestLiveUpstreamActionsRefuseTerminalInstance(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(liveInstanceDSN()), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+	ctx := context.Background()
+	mark := time.Now().UnixNano() % 1e6
+	fake := &fakeControlProvider{}
+	svc := newOpsService(t, db, fake)
+
+	// 终态行：**带**实例号（模拟真实销毁后的行）+ 带过期时间（否则会先被别的前置拦下）。
+	id := createOpsInstance(t, db, fmt.Sprintf("p18-term-%d", mark), "running", 0)
+	if err := db.Exec(`UPDATE instances SET status = 'deleted', lifecycle_stage = 'destroyed',
+		expire_at = now() + interval '30 day' WHERE id = ?`, id).Error; err != nil {
+		t.Fatalf("置为终态失败: %v", err)
+	}
+
+	// ① 电源
+	if err := svc.Power(ctx, Operator{Type: "admin"}, id, "on"); err == nil {
+		t.Error("已销毁实例不得接受开机指令：会作用到一台已终止的机器")
+	}
+	// ② 暂停
+	if err := svc.Suspend(ctx, Operator{Type: "admin"}, id, "test", pkgmodel.SuspendReasonManual); err == nil {
+		t.Error("已销毁实例不得接受暂停指令")
+	}
+	// ③ 重置密码
+	if err := svc.ResetPassword(ctx, Operator{Type: "admin"}, id, &dto.ResetPasswordRequest{
+		Password: "Aa123456!",
+	}); err == nil {
+		t.Error("已销毁实例不得接受重置密码指令")
+	}
+
+	// 一次上游调用都不该发生。
+	if calls := atomic.LoadInt32(&fake.stopCalls) + atomic.LoadInt32(&fake.startCalls) +
+		atomic.LoadInt32(&fake.restartCall); calls != 0 {
+		t.Fatalf("终态行的上游动作必须在本地拦下，实际调用了上游 %d 次", calls)
+	}
+}
+
+// TestLiveSyncRefusesTerminalPlaceholder 已销毁的占位行不得被「同步」顺带重投开通。
+//
+// 占位行销毁后 provider_instance_id 仍是空，Sync 的 !provisioned 分支会拿这条行去
+// **重投开通**（那是"余额不足→充值后核对"这条恢复链的设计）—— 用在一条明令销毁的
+// 占位行上，等于把运营刚决定不要的机器又开一次。终态必须排在 !provisioned 之前。
+func TestLiveSyncRefusesTerminalPlaceholder(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(liveInstanceDSN()), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+	ctx := context.Background()
+	mark := time.Now().UnixNano() % 1e6
+	fake := &fakeControlProvider{}
+	svc := newOpsService(t, db, fake)
+
+	id := createOpsInstance(t, db, fmt.Sprintf("pending-sync-%d", mark), "creating", 0)
+	if err := db.Exec(`UPDATE instances SET provider_instance_id = '', status = 'deleted',
+		lifecycle_stage = 'destroyed' WHERE id = ?`, id).Error; err != nil {
+		t.Fatalf("置为已销毁占位行失败: %v", err)
+	}
+
+	_, err = svc.Sync(ctx, Operator{Type: "admin"}, id)
+	if err == nil {
+		t.Fatal("已销毁的占位行不得被同步（会顺带重投开通，把刚清掉的机器又开一次）")
+	}
+	if !errors.Is(err, ErrStatusConflict) {
+		t.Fatalf("应以 20003 状态冲突拒绝，实际 %v", err)
+	}
+}
+
+// TestLiveBatchPurgeSkipsNonTerminalAndUnconfirmed 批量删除记录的两道护栏。
+//
+// 用户实测反馈："实例列表里的批量删除记录按钮，添加一个" —— 清一批测试机时
+// 逐台进详情页删除太慢。但批量入口必须比单实例更保守：
+//
+//	· 未销毁的行**跳过**（不能借批量绕过「销毁」，那一步才会通知渠道终止机器）；
+//	· 没回填确认文本的行**跳过**（全选不等于一键抹除，物理删除不可恢复）。
+func TestLiveBatchPurgeSkipsNonTerminalAndUnconfirmed(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(liveInstanceDSN()), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+	ctx := context.Background()
+	mark := time.Now().UnixNano() % 1e6
+	fake := &fakeControlProvider{}
+	svc := newOpsService(t, db, fake)
+
+	// ① 已销毁 + 有确认 → 成功（这是批量删除的目标场景）。
+	termMark := fmt.Sprintf("p18-bpurge-term-%d", mark)
+	termID := createOpsInstance(t, db, termMark, "running", 0)
+	if err := db.Exec(`UPDATE instances SET status='deleted', lifecycle_stage='destroyed' WHERE id = ?`, termID).Error; err != nil {
+		t.Fatalf("置为终态失败: %v", err)
+	}
+	// ② 未销毁 + 有确认 → 跳过（不得绕过销毁）。
+	runMark := fmt.Sprintf("p18-bpurge-run-%d", mark)
+	runID := createOpsInstance(t, db, runMark, "running", 0)
+	// ③ 已销毁 + 无确认 → 跳过（未逐台确认）。
+	unconfMark := fmt.Sprintf("p18-bpurge-unconf-%d", mark)
+	unconfID := createOpsInstance(t, db, unconfMark, "running", 0)
+	if err := db.Exec(`UPDATE instances SET status='deleted', lifecycle_stage='destroyed' WHERE id = ?`, unconfID).Error; err != nil {
+		t.Fatalf("置为终态失败: %v", err)
+	}
+
+	resp, err := svc.BatchPurge(ctx, Operator{Type: "admin"}, &dto.BatchPurgeRequest{
+		IDs: []uint64{termID, runID, unconfID},
+		ConfirmMarks: map[string]string{
+			strconv.FormatUint(termID, 10): termMark,
+			strconv.FormatUint(runID, 10):  runMark,
+			// unconfID 刻意不填：模拟"只勾选没确认"。
+		},
+		Reason: "批量清理测试记录",
+	})
+	if err != nil {
+		t.Fatalf("批量删除应返回结果而不是整体报错: %v", err)
+	}
+	if resp.Total != 3 || resp.Succeeded != 1 || resp.Skipped != 2 || resp.Failed != 0 {
+		t.Fatalf("期望 total=3 success=1 skip=2 fail=0，实际 total=%d success=%d skip=%d fail=%d",
+			resp.Total, resp.Succeeded, resp.Skipped, resp.Failed)
+	}
+
+	// 已确认的终态行必须真的没了（连同流水）。
+	var n int64
+	db.Raw("SELECT count(*) FROM instances WHERE id = ?", termID).Scan(&n)
+	if n != 0 {
+		t.Error("已确认的终态行应被物理删除")
+	}
+	// 未销毁的行必须还在（批量不能绕过销毁）。
+	db.Raw("SELECT count(*) FROM instances WHERE id = ?", runID).Scan(&n)
+	if n != 1 {
+		t.Error("未销毁的行不得被批量删除：那会绕过「销毁」（通知渠道终止机器）")
+	}
+	// 未确认的终态行也必须还在。
+	db.Raw("SELECT count(*) FROM instances WHERE id = ?", unconfID).Scan(&n)
+	if n != 1 {
+		t.Error("未逐台确认的行不得被删除：全选不等于一键抹除")
+	}
+}
+
+// TestLiveSyncRefusesCancelled 已取消的行不得被「同步」顺带重投开通。
+//
+// 已取消 = 订单未付款超时/作废，订单已是废单、机器从未开通。Sync 对
+// provider_instance_id 为空的行会**重投一次开通核对**（那是"上游充值后本地还
+// 不知道"这条恢复链的设计）—— 用在已取消的行上等于对着一张废单再投一次，
+// 而"待开通"（订单还有效、只是开通失败）才该走那条路。
+func TestLiveSyncRefusesCancelled(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(liveInstanceDSN()), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+	ctx := context.Background()
+	mark := time.Now().UnixNano() % 1e6
+	fake := &fakeControlProvider{}
+	svc := newOpsService(t, db, fake)
+
+	id := createOpsInstance(t, db, fmt.Sprintf("p19-synccan-%d", mark), "creating", 0)
+	if err := db.Exec(`UPDATE instances SET provider_instance_id = '', status = 'cancelled',
+		lifecycle_stage = 'cancelled' WHERE id = ?`, id).Error; err != nil {
+		t.Fatalf("置为已取消失败: %v", err)
+	}
+
+	_, err = svc.Sync(ctx, Operator{Type: "admin"}, id)
+	if err == nil {
+		t.Fatal("已取消的行不得被同步：会走到重投开通，对废单再投一次")
+	}
+	if !errors.Is(err, ErrStatusConflict) {
+		t.Fatalf("应以 20003 状态冲突拒绝，实际 %v", err)
+	}
+
+	// 上游电源类动作同样必须被拒（机器从未存在）。
+	if err := svc.Power(ctx, Operator{Type: "admin"}, id, "on"); err == nil {
+		t.Error("已取消的行不得接受开机指令：机器从未创建")
+	}
+}
+
+// TestLivePurgeAcceptsCancelled 已取消的行也能清掉记录（它没有机器可销毁）。
+//
+// 已取消 = 订单未付款超时/作废，机器**从未开通**：这类行既没有上游机器可终止，
+// 也没有「销毁」这一步可走。若把 cancelled 排除在可删之外，它们会永远留在列表里
+// （用户清测试数据/流失数据时最先撞到这一点）。
+func TestLivePurgeAcceptsCancelled(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(liveInstanceDSN()), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+	ctx := context.Background()
+	mark := time.Now().UnixNano() % 1e6
+	fake := &fakeControlProvider{}
+	svc := newOpsService(t, db, fake)
+
+	id := createOpsInstance(t, db, fmt.Sprintf("p19-cancel-%d", mark), "creating", 0)
+	if err := db.Exec(`UPDATE instances SET provider_instance_id = '', status = 'cancelled',
+		lifecycle_stage = 'cancelled' WHERE id = ?`, id).Error; err != nil {
+		t.Fatalf("置为已取消失败: %v", err)
+	}
+
+	if err := svc.Purge(ctx, Operator{Type: "admin"}, id, &dto.PurgeRequest{
+		ConfirmMark: fmt.Sprintf("p19-cancel-%d", mark), Reason: "清掉未付款流失记录",
+	}); err != nil {
+		t.Fatalf("已取消的行应可删除记录（它没有机器可销毁）: %v", err)
+	}
+	var n int64
+	db.Raw("SELECT count(*) FROM instances WHERE id = ?", id).Scan(&n)
+	if n != 0 {
+		t.Error("删除后该行必须不存在")
+	}
+
+	// 反向：未到终态的行仍必须被拒（不能因为支持了 cancelled 就整体放宽）。
+	runID := createOpsInstance(t, db, fmt.Sprintf("p19-stillrun-%d", mark), "running", 0)
+	err = svc.Purge(ctx, Operator{Type: "admin"}, runID, &dto.PurgeRequest{
+		ConfirmMark: fmt.Sprintf("p19-stillrun-%d", mark),
+	})
+	if err == nil {
+		t.Fatal("未销毁的运行中实例仍不得被删除：那会绕过「销毁」那一步")
+	}
+	if !errors.Is(err, ErrStatusConflict) {
+		t.Fatalf("应以 20003 状态冲突拒绝，实际 %v", err)
+	}
+}
+
+// TestLiveSetServiceStateViolation 管理员「修改服务状态」把违规与到期严格分开。
+//
+// 用户口径：管理员暂停时写明原因，因违规被暂停的实例要显示「有违规」，
+// 而不是笼统的「已暂停」—— 客户看到"到期暂停"会去续费，而续费解决不了违规。
+// 因此违规暂停必须落 suspend_reason=violation，并强制要求填说明（否则事后
+// 没人知道违的是哪条，客户申诉时无从核对）。
+func TestLiveSetServiceStateViolation(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(liveInstanceDSN()), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+	ctx := context.Background()
+	mark := time.Now().UnixNano() % 1e6
+	fake := &fakeControlProvider{}
+	svc := newOpsService(t, db, fake)
+
+	// 已开通的运行中实例（provider_instance_id 非空，走真实上游动作路径）。
+	id := createOpsInstance(t, db, fmt.Sprintf("p19-state-%d", mark), "running", 0)
+	if err := db.Exec(`UPDATE instances SET provider_instance_id = ?, expire_at = now() + interval '30 day' WHERE id = ?`,
+		fmt.Sprintf("p19-state-%d", mark), id).Error; err != nil {
+		t.Fatalf("置为已开通实例失败: %v", err)
+	}
+
+	// ① 违规暂停但没写说明 → 拒绝（合规判定必须留依据）。
+	err = svc.SetServiceState(ctx, Operator{Type: "admin"}, id, &dto.SetStateRequest{
+		State: "suspended", ReasonClass: pkgmodel.SuspendReasonViolation,
+	})
+	if err == nil {
+		t.Fatal("违规暂停必须要求填写说明：不写事后没人知道违的是哪条")
+	}
+	if !errors.Is(err, ErrInvalidAction) {
+		t.Fatalf("应以 20001 入参错误拒绝，实际 %v", err)
+	}
+	// 被拒后不得动上游、不得改库。
+	if got := len(fake.suspended); got != 0 {
+		t.Fatalf("入参被拒时不得下发上游暂停，实际下发 %d 次", got)
+	}
+
+	// ② 带说明的违规暂停 → 成功，且库里的确标成 violation。
+	if err := svc.SetServiceState(ctx, Operator{Type: "admin"}, id, &dto.SetStateRequest{
+		State: "suspended", ReasonClass: pkgmodel.SuspendReasonViolation, Reason: "探测：违规暂停",
+	}); err != nil {
+		t.Fatalf("带说明的违规暂停应成功: %v", err)
+	}
+	var stage, reason string
+	db.Raw("SELECT COALESCE(lifecycle_stage,''), COALESCE(suspend_reason,'') FROM instances WHERE id = ?", id).
+		Row().Scan(&stage, &reason)
+	if stage != "suspended" {
+		t.Errorf("暂停后阶段应为 suspended，实际 %q", stage)
+	}
+	if reason != pkgmodel.SuspendReasonViolation {
+		t.Errorf("暂停原因应为 violation（界面据此显示「违规暂停」），实际 %q", reason)
+	}
+	// 上游确实收到了暂停指令（不是只改本地）。
+	if got := len(fake.suspended); got != 1 {
+		t.Errorf("应下发一次上游暂停，实际 %d 次", got)
+	}
+
+	// ③ 恢复服务 → 暂停原因必须清掉（否则界面显示一个已不成立的暂停理由）。
+	if err := svc.SetServiceState(ctx, Operator{Type: "admin"}, id, &dto.SetStateRequest{State: "active"}); err != nil {
+		t.Fatalf("恢复服务失败: %v", err)
+	}
+	db.Raw("SELECT COALESCE(lifecycle_stage,''), COALESCE(suspend_reason,'') FROM instances WHERE id = ?", id).
+		Row().Scan(&stage, &reason)
+	if stage != "active" {
+		t.Errorf("恢复后阶段应为 active，实际 %q", stage)
+	}
+	if reason != "" {
+		t.Errorf("恢复服务后暂停原因必须清空，实际残留 %q", reason)
+	}
+
+	// ④ 已开通的实例不得被直接「取消」：那会绕过销毁（通知渠道终止机器）。
+	err = svc.SetServiceState(ctx, Operator{Type: "admin"}, id, &dto.SetStateRequest{State: "cancelled"})
+	if err == nil {
+		t.Fatal("已开通的实例不得直接取消：跳过销毁会留下渠道侧仍在计费的机器")
+	}
+	if !errors.Is(err, ErrStatusConflict) {
+		t.Fatalf("应以 20003 状态冲突拒绝，实际 %v", err)
+	}
+}
+
+// TestLiveSetServiceStateCancelPlaceholder 取消只对**从未开通**的占位行开放。
+//
+// 语义：未付款订单超时/作废时机器从未存在，「已取消」是流失登记（不是摧毁动作），
+// 因此不通知任何上游、也不要求逐台确认（区别于销毁/删除记录）。
+func TestLiveSetServiceStateCancelPlaceholder(t *testing.T) {
+	db, err := gorm.Open(postgres.Open(liveInstanceDSN()), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("连接 DB 失败: %v", err)
+	}
+	ctx := context.Background()
+	mark := time.Now().UnixNano() % 1e6
+	fake := &fakeControlProvider{}
+	svc := newOpsService(t, db, fake)
+
+	id := createOpsInstance(t, db, fmt.Sprintf("pending-p19-%d", mark), "creating", 0)
+	if err := db.Exec("UPDATE instances SET provider_instance_id = '' WHERE id = ?", id).Error; err != nil {
+		t.Fatalf("置为占位行失败: %v", err)
+	}
+
+	if err := svc.SetServiceState(ctx, Operator{Type: "admin"}, id, &dto.SetStateRequest{
+		State: "cancelled", Reason: "订单超时未付款",
+	}); err != nil {
+		t.Fatalf("占位行应可取消: %v", err)
+	}
+	var status, stage string
+	db.Raw("SELECT status, COALESCE(lifecycle_stage,'') FROM instances WHERE id = ?", id).Row().Scan(&status, &stage)
+	if status != string(pkgmodel.InstanceStatusCancelled) {
+		t.Errorf("取消后状态应为 cancelled，实际 %q", status)
+	}
+	if stage != "cancelled" {
+		t.Errorf("取消后阶段应为 cancelled，实际 %q", stage)
+	}
+	// 从未存在机器：不得调用任何上游接口。
+	if calls := len(fake.suspended) + len(fake.stopped) + len(fake.started) + len(fake.terminated); calls != 0 {
+		t.Fatalf("取消占位行不得下发任何上游动作，实际 %d 次", calls)
+	}
+
+	// 占位行不得被直接设成「服务中」：它没有交付物可恢复。
+	err = svc.SetServiceState(ctx, Operator{Type: "admin"}, id, &dto.SetStateRequest{State: "active"})
+	if err == nil {
+		t.Error("占位行不得被设成服务中：没有已开通的服务可恢复")
 	}
 }
 

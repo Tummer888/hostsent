@@ -1171,6 +1171,11 @@ func SeedDefaults(db *gorm.DB, cfg config.Config) error {
 		if err := backfillUserConsumeTotals(tx); err != nil {
 			return err
 		}
+		// 钱包累计收支补齐（纯派生聚合，按台账重算）：
+		// 早期版本漏累加过、口径也变过（冻结/解冻算不算收付），让它们与台账对齐。
+		if err := backfillWalletAccountTotals(tx); err != nil {
+			return err
+		}
 		if err := seedDemoVerification(tx); err != nil {
 			return err
 		}
@@ -3546,22 +3551,57 @@ func backfillUserRoles(tx *gorm.DB) error {
 		ON CONFLICT (user_id, role_id) DO NOTHING`, role.ID).Error
 }
 
-// backfillUserConsumeTotals 将 users.total_consume_amount 落列的历史数据补齐（P3-01）。
-// 口径与 P0-02 归一后的 wallet_transactions.type='consume' 一致；仅回填仍为 0 的用户，
-// 幂等且不会覆盖消费升级服务已累加的值。
+// backfillUserConsumeTotals 将 users.total_consume_amount 补齐到台账口径。
+//
+// 口径：wallet_transactions 中所有消费类扣款（type IN consume/order，direction=-1）。
+// 加上 order 是关键：后台代客下单扣款写的是 order 类型，历史实现只认 consume，
+// 于是那部分钱扣了却不算消费（实测用户 2730：买了 18 元代客单，字段停在 1 元）。
+//
+// 只升不降（不覆盖更大的既有值），与「消费升级只升不降」的设计一致：
+// user_level_change_logs 里已经写了升级历史，把累计消费下调可能连带影响等级权益，
+// 那属于需要人工决策的动作，不该由一次启动回填静默完成。差异会由财务对账报出来。
+//
+// 幂等：重算结果与当前值相同时不写（WHERE 已过滤）。
 func backfillUserConsumeTotals(tx *gorm.DB) error {
 	return tx.Exec(`
 		UPDATE users u
 		SET total_consume_amount = stats.total
 		FROM (
-			SELECT user_id, COALESCE(SUM(ABS(amount)), 0) AS total
+			SELECT user_id, COALESCE(SUM(amount), 0) AS total
 			FROM wallet_transactions
-			WHERE type = ?
+			WHERE direction = -1 AND type IN ('consume', 'order')
 			GROUP BY user_id
 		) AS stats
 		WHERE stats.user_id = u.id
-		  AND u.total_consume_amount = 0
-		  AND stats.total > 0`, "consume").Error
+		  AND stats.total > COALESCE(u.total_consume_amount, 0)`).Error
+}
+
+// backfillWalletAccountTotals 将 wallet_accounts 的累计收入/支出补齐到台账口径。
+//
+// 这两列是纯派生聚合（钱包服务每笔变动时自增维护），不是用户的权益依据，
+// 因此可以直接按台账重算：历史上漏累加（早期版本未接线）或重复累加都会在这里纠正。
+//
+// 口径与对账恒等式一致（见 transaction/repository.ReconOffenders）：
+//
+//	total_income  = Σ(direction=1 且非 unfreeze)  解冻是冻结转回可用，不是新增收入
+//	total_expense = Σ(direction=-1 且非 freeze)   冻结只是把钱挪进冻结列，不是真实支出
+//
+// 不碰 balance/frozen：那两列是真金白银的当前状态，若与台账对不上，
+// 说明台账缺记录或有人直改过库，必须人工判断以谁为准，不能由启动流程自动改写。
+func backfillWalletAccountTotals(tx *gorm.DB) error {
+	return tx.Exec(`
+		UPDATE wallet_accounts wa
+		SET total_income = stats.income,
+		    total_expense = stats.expense
+		FROM (
+			SELECT user_id,
+				COALESCE(SUM(CASE WHEN direction = 1 AND type <> 'unfreeze' THEN amount ELSE 0 END), 0) AS income,
+				COALESCE(SUM(CASE WHEN direction = -1 AND type <> 'freeze' THEN amount ELSE 0 END), 0) AS expense
+			FROM wallet_transactions
+			GROUP BY user_id
+		) AS stats
+		WHERE stats.user_id = wa.user_id
+		  AND (wa.total_income <> stats.income OR wa.total_expense <> stats.expense)`).Error
 }
 
 // seedNotificationTemplates 注入通知事件默认模板（doc70 §6.2）。

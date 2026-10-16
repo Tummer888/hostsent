@@ -111,14 +111,11 @@ func init() {
 		},
 		RateLimit:      upstream.RateLimitSpec{QPS: 3, Burst: 6},
 		SupportsPaging: false,
-		FieldDictionary: map[string]any{
-			"source": "实测（依据 zjmf/provider.go 与上游源码 app/zjmf.php、app/common/logic/Host.php）",
-			"paths": []string{"cart/all", "cart/get_product_config", "cart/credit", "credit_record",
-				"v1/transactions/funds", "v1/hosts", "api/product/proinfo",
-				"host/header", "/dcim/on", "/dcim/off", "/dcim/reboot",
-				"/host/renew", "/apply_credit", "/host/cancel", "/provision/default"},
-			"note": "登录换 JWT（Bearer），status=405 表示 JWT 失效需重登；余额=cart/credit；账本=credit_record(消费)+v1/transactions/funds(充值)+v1/hosts(到期金额)（成本管理口径，doc111 §5.2）；续费=host/renew+apply_credit(1001)；暂停/恢复=provision/default func=suspend|unsuspend；终止=host/cancel type=Immediate",
-		},
+		// 说明：这里原先还有一份 FieldDictionary，写着"实测（依据 zjmf/provider.go 与上游源码
+		// app/zjmf.php…）"以及各接口路径、JWT 失效码、账本口径等开发笔记。它除了被后台
+		// 以"平台字段字典"的名目原样渲染出来之外，生产链路没有任何消费方 ——
+		// 适配器实际调用的是 vendor 层已封装的接口，不查这份字典。开发笔记应留在代码注释里，
+		// 不该出现在运营界面，故移除；能力声明只保留可读、可执行的部分。
 	})
 }
 

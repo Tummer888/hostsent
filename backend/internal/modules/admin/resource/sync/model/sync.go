@@ -131,9 +131,18 @@ type Instance struct {
 	// TransitionUntil 过渡窗口截止时间。到此仍未回源确认则视为"结果未知"：
 	// 不再拦截新指令（避免永久卡死），但界面会提示上次结果未确认。
 	TransitionUntil *time.Time `gorm:"column:transition_until"`
-	CreatedAt       time.Time  `gorm:"autoCreateTime"`
-	ExpireAt        *time.Time `gorm:"column:expire_at"`
-	UpdatedAt       time.Time  `gorm:"autoUpdateTime"`
+	// SuspendReason 暂停原因分类（迁移 114，取值见 pkgmodel.SuspendReason*）。
+	//
+	// 为什么单独一列而不是只靠 instance_operations 的流水文本：界面要按原因给
+	// **不同的下一步** —— 到期暂停说"续费即恢复"，违规暂停说"联系客服处理"。
+	// 靠匹配自由文本来分类既脆弱又会被文案改写破坏；自动化路径（推进器复位、
+	// 上游同步）也需要结构化判据。自由文本仍完整保留在流水 params.reason 里。
+	//
+	// 空 = 未暂停，或暂停早于迁移 114（原因未知，界面退化为「已暂停」而不是猜一个）。
+	SuspendReason string     `gorm:"column:suspend_reason;size:24"`
+	CreatedAt     time.Time  `gorm:"autoCreateTime"`
+	ExpireAt      *time.Time `gorm:"column:expire_at"`
+	UpdatedAt     time.Time  `gorm:"autoUpdateTime"`
 }
 
 // TableName 指定表名

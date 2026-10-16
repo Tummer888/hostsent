@@ -38,8 +38,22 @@ const defaultExpireWithinDays = 7
 // 直接 import 会形成循环依赖。
 const (
 	lifecycleStageActive    = "active"
+	lifecycleStageGrace     = "grace"
 	lifecycleStageSuspended = "suspended"
 	lifecycleStageDestroyed = "destroyed"
+	// lifecycleStageCancelled 订单未付款超时/被取消 → 这台机器从未开通（迁移 114 引入的语义）。
+	//
+	// 与 destroyed 的区别：destroyed 是"开通过、后来被销毁"（渠道侧曾有真机器），
+	// cancelled 是"从未开通"（渠道侧从来没有资源，不涉及终止动作）。
+	lifecycleStageCancelled = "cancelled"
+)
+
+// 服务维度的额外取值（见 serviceStateOf）。
+const (
+	// serviceStatePending 尚未开通（占位行）：没有交付物，不能算"服务中"。
+	serviceStatePending = "pending"
+	// serviceStateSuspendedViolation 违规暂停：与到期暂停分开，界面提示联系客服而非续费。
+	serviceStateSuspendedViolation = "suspended_violation"
 )
 
 // ProviderResolver 按提供商 ID 解析上游适配器（装配层注入，与用户中心同签名）。
@@ -83,8 +97,16 @@ type InstanceService interface {
 	// 与 Destroy 的两步关系：先 Destroy 终止机器，再 Purge 清掉那条没用的终态行。
 	Purge(ctx context.Context, op Operator, id uint64, req *dto.PurgeRequest) error
 	// Suspend / Unsuspend 暂停/恢复实例（T5.5 按能力分派）。
-	Suspend(ctx context.Context, op Operator, id uint64, reason string) error
+	//	reasonClass 暂停原因分类（pkgmodel.SuspendReason*）：界面据此把「违规暂停」
+	//	与「到期暂停」分开显示；空则按 manual 处理。
+	Suspend(ctx context.Context, op Operator, id uint64, reason string, reasonClass string) error
 	Unsuspend(ctx context.Context, op Operator, id uint64) error
+	// SetServiceState 管理员直接设置服务状态（active/suspended/cancelled）。
+	//
+	// 与 Suspend/Unsuspend 的关系：那些是"按能力分派的具体动作"，本方法是
+	// **管理端状态入口**，按目标状态分派到前者，额外支持"取消"（占位行专用）。
+	// 只接受可被人工设置的状态，避免直接写 status 造出自相矛盾的行。
+	SetServiceState(ctx context.Context, op Operator, id uint64, req *dto.SetStateRequest) error
 	// 维护类操作（平台接口存在即提供，能力位见 Detail 的 Capabilities）。
 	Reinstall(ctx context.Context, op Operator, id uint64, req *dto.ReinstallRequest) (*dto.ReinstallResult, error)
 	ResetPassword(ctx context.Context, op Operator, id uint64, req *dto.ResetPasswordRequest) error
@@ -101,6 +123,8 @@ type InstanceService interface {
 	BatchAction(ctx context.Context, op Operator, req *dto.BatchActionRequest) (*dto.BatchActionResponse, error)
 	// BatchDestroy 批量销毁：逐台独立执行，每台须带自己的确认文本（不可逆动作的护栏）。
 	BatchDestroy(ctx context.Context, op Operator, req *dto.BatchDestroyRequest) (*dto.BatchDestroyResponse, error)
+	// BatchPurge 批量删除记录：物理删除**已销毁**的行（逐台确认，同样不可逆）。
+	BatchPurge(ctx context.Context, op Operator, req *dto.BatchPurgeRequest) (*dto.BatchPurgeResponse, error)
 	// DisposeOnRefund 退款审核通过后的实例侧处置（doc61 §8 第 2 条，系统操作人）。
 	// 是否动作由 lifecyclpolicy.refund_action 决定（默认 none：不动作）。
 	DisposeOnRefund(ctx context.Context, in *dto.RefundInstanceRequest) error
@@ -305,7 +329,8 @@ func (s *instanceService) DisposeOnRefund(ctx context.Context, in *dto.RefundIns
 			Reason:      reason,
 		})
 	}
-	return s.Suspend(ctx, op, row.ID, reason)
+	// 退款联动是平台按策略自动执行的暂停，归 manual（既不是到期也不是违规）。
+	return s.Suspend(ctx, op, row.ID, reason, pkgmodel.SuspendReasonManual)
 }
 
 // notifyEvent 收口通知：监听器失败只记日志，不影响操作结果。
@@ -325,6 +350,9 @@ func (s *instanceService) List(ctx context.Context, query *dto.ListQuery) (*dto.
 	if err != nil {
 		return nil, err
 	}
+	// 列表顺带收尾过渡态：见 settleTransitions 的说明。
+	// 放在取数之后、组装之前，让本次响应就带上收尾后的真相。
+	s.settleTransitions(ctx, rows)
 	days := normalizeDays(query.ExpireWithinDays)
 	items := make([]dto.InstanceItem, 0, len(rows))
 	for i := range rows {
@@ -344,6 +372,46 @@ func (s *instanceService) List(ctx context.Context, query *dto.ListQuery) (*dto.
 		Items: items,
 		Meta:  dto.ListMeta{Page: page, PageSize: pageSize, Total: total},
 	}, nil
+}
+
+// settleTransitions 清掉"已经跑完但没人去收尾"的过渡态（列表路径）。
+//
+// 为什么列表需要这件事：过渡态靠回源确认来收尾，而收尾只发生在
+// 详情回源 / 手动同步 / 再次下发这几条路径上 —— 列表页既不回源也不写库，
+// 所以刚关完机切到列表，那一行会一直显示「关机中」，直到有人点进详情或点同步
+// （用户实测反馈："开关机状态变化时，关机中这个状态长时间滞留，不会自动刷新"）。
+//
+// 判据只取"已过最短占用窗口"（MinHoldSec），**不**要求上游确认：
+//
+//	· 列表为了性能不做逐台回源（账号下几十台会把请求拖穿网关）；
+//	· 窗口内保留是为了拦住重复下发（见 transitionWithinMinHold），
+//	  窗口一过，过渡态的历史使命就结束了 —— 再挂着只会让界面显示过期的
+//	  "正在执行"，而真正的动作早已结束。
+//
+// 这与手动同步的收尾判据同源（Sync 里那段"只看回源成功 + 已过窗口"）。
+func (s *instanceService) settleTransitions(ctx context.Context, rows []repository.InstanceRow) {
+	for i := range rows {
+		row := &rows[i]
+		if row.TransitionState == "" {
+			continue
+		}
+		if transitionWithinMinHold(row.TransitionState, derefTime(row.TransitionStartedAt)) {
+			continue
+		}
+		if err := s.repo.ClearTransition(ctx, row.ID); err != nil {
+			// 收尾失败不该让列表打不开：保留过渡态只是显示旧一点，
+			// 下一次列表/详情请求会再试。
+			if s.logger != nil {
+				s.logger.Warn("列表收尾过渡态失败",
+					zap.Uint64("instance_id", row.ID), zap.Error(err))
+			}
+			continue
+		}
+		// 同步内存里的行，让本次响应立刻反映收尾结果（不必再查一次库）。
+		row.TransitionState = ""
+		row.TransitionStartedAt = nil
+		row.TransitionUntil = nil
+	}
 }
 
 // Stats 全局概览统计。
@@ -557,9 +625,28 @@ func notProvisionedReason(row *repository.InstanceRow) string {
 	return "实例尚未开通（待开通状态）：开通成功后可在此查看实时状态；若开通失败，原因见「来源订单」区块，修复后可点「重新开通」重试"
 }
 
-// ensureProvisioned 上游操作前置校验：待开通实例（无上游实例号）一律拒绝，
-// 给出可操作的说明而不是把空实例号发到上游换来一个费解的报错。
+// ensureProvisioned 上游操作前置校验。
+//
+// 两类行一律拒绝，且**顺序要紧**：
+//  1. 终态（已销毁）—— 机器已终止，任何上游动作都没有对象。放在最前是因为
+//     已销毁的行往往仍有实例号（曾经开通过），只判"有没有号"会放行；
+//     放行后 Power 会给一台不存在的机器发开机指令，上游回一个费解的报错
+//     （或更糟：某些平台会真的重新拉起一台机器）。
+//  2. 待开通（无上游实例号）—— 给出可操作的说明，而不是把空实例号发到上游。
+//
+// 这里是**唯一**的收口点：全部 17 个上游动作（电源/控制台/变配/重装/改密/
+// 救援进出/快照三件套/带宽/加 IP/挂盘/暂停恢复）都过这一个函数，
+// 在各自方法里重复判断容易漏、也会漂移。
 func (s *instanceService) ensureProvisioned(row *repository.InstanceRow) error {
+	if isTerminalInstance(row) {
+		return fmt.Errorf("%w：该实例已销毁，渠道操作均已关闭", ErrStatusConflict)
+	}
+	// 已取消：订单未付款超时/作废，机器从未开通 —— 任何上游动作都没有对象。
+	// 排在 provisioned 判定之前：已取消的占位行本来就没有实例号，
+	// 若落到下面会返回"尚未开通，请先点重新开通"—— 那是在引导运营去复活一张废单。
+	if row.Status == string(pkgmodel.InstanceStatusCancelled) || row.LifecycleStage == lifecycleStageCancelled {
+		return fmt.Errorf("%w：该实例已取消（订单未支付或已作废），没有可操作的机器", ErrStatusConflict)
+	}
 	if provisioned(row) {
 		return nil
 	}
@@ -974,6 +1061,27 @@ func (s *instanceService) Sync(ctx context.Context, op Operator, id uint64) (*dt
 		return nil, s.wrapNotFound(err)
 	}
 	before := row.Status
+	// 终态行先拦：已销毁的机器没有可核对的对象 —— 终态不复活（见 refreshUpstreamFromTransition
+	// 与 applyLiveStatus），回源结果一律不采纳。
+	//
+	// 必须排在下面 !provisioned 分支**之前**：占位行销毁后 provider_instance_id 仍为空
+	// （它本来就没有号），先走那个分支会拿这条已销毁的占位去**重投开通** ——
+	// 运营刚决定不要的机器又被开一次（实测：合成终态占位点同步返回
+	// "该实例未关联订单，无法重新开通"，那只是因为 order_id=0 才没真的开出来；
+	// 有订单的行会直接把开通任务又投一遍）。
+	if isTerminalInstance(row) {
+		s.record(ctx, row, op, model.ActionSync, nil, before, before, ErrNothingToSync)
+		return nil, fmt.Errorf("%w：该实例已销毁，没有可同步的对象", ErrStatusConflict)
+	}
+	// 已取消的行同样是终态，且**更必须**拦在这里：订单未付款超时/作废后
+	// 订单已是废单，下面的 !provisioned 分支会对着一张废单**重投开通**
+	//（实测：合成已取消行点同步返回"该实例未关联订单，无法重新开通"，
+	// 那只是因为 order_id=0；有订单的行会把开通任务又投一遍）。
+	// 与"待开通"的区别：待开通的订单还有效（只是开通失败），可以重投核对。
+	if row.Status == string(pkgmodel.InstanceStatusCancelled) || row.LifecycleStage == lifecycleStageCancelled {
+		s.record(ctx, row, op, model.ActionSync, nil, before, before, ErrNothingToSync)
+		return nil, fmt.Errorf("%w：该实例已取消（订单未支付或已作废），没有可同步的对象", ErrStatusConflict)
+	}
 	if !provisioned(row) {
 		// 待开通实例：本地还没有上游实例号。但**不代表上游一定没有机器** ——
 		// "余额不足 → 在上游侧充值并付掉账单"这条恢复链里，机器只存在于上游，
@@ -2324,8 +2432,14 @@ func (s *instanceService) Purge(ctx context.Context, op Operator, id uint64, req
 	if mark != row.InstanceID && mark != strconv.FormatUint(row.ID, 10) {
 		return fmt.Errorf("%w: 请准确输入实例标识 %s", ErrPermissionDenied, row.InstanceID)
 	}
-	// 守卫：只有终态行可删。未销毁的机器请先走「销毁」（那才会通知渠道终止机器）。
-	if row.Status != string(pkgmodel.InstanceStatusDeleted) && row.LifecycleStage != lifecycleStageDestroyed {
+	// 守卫：只有**终态**行可删。未销毁的机器请先走「销毁」（那才会通知渠道终止机器）。
+	//
+	// 两类行都算终态：
+	//   · 已销毁（deleted/destroyed）—— 机器跑过、已被终止；
+	//   · 已取消（cancelled）—— 机器**从未开通**（订单未付款/作废），
+	//     渠道侧从来没有资源，删记录同样安全（甚至更安全：连终止都不需要）。
+	// 把 cancelled 排除在外会让这些行永远清不掉（列表里越积越多）。
+	if !isTerminalInstance(row) && row.Status != string(pkgmodel.InstanceStatusCancelled) {
 		return fmt.Errorf("%w：实例尚未销毁（当前状态 %s），请先执行「销毁实例」终止渠道侧机器，"+
 			"再删除这条记录", ErrStatusConflict, row.Status)
 	}
@@ -2379,7 +2493,11 @@ func (s *instanceService) destroyLocalOnly(ctx context.Context, row *repository.
 }
 
 // Suspend 暂停实例（T5.5）：优先平台暂停态，退化关机；缺能力显式报错。
-func (s *instanceService) Suspend(ctx context.Context, op Operator, id uint64, reason string) error {
+//
+// reasonClass 是暂停**原因分类**（pkgmodel.SuspendReason*），空则按 manual 处理。
+// 分类要落库（迁移 114）：界面据此把「违规暂停」与「到期暂停」分开显示 ——
+// 客户看到"到期暂停"会去续费，而续费根本解决不了违规（用户口径）。
+func (s *instanceService) Suspend(ctx context.Context, op Operator, id uint64, reason string, reasonClass string) error {
 	row, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return s.wrapNotFound(err)
@@ -2389,8 +2507,13 @@ func (s *instanceService) Suspend(ctx context.Context, op Operator, id uint64, r
 	if err := s.ensureProvisioned(row); err != nil {
 		return err
 	}
+	// 分类缺省 manual：调用方未指定时按"管理员其他原因暂停"处理，
+	// 不冒充 expired —— 到期暂停是推进器按 expire_at 自动写的，人工点的都不是它。
+	if !pkgmodel.IsValidSuspendReason(reasonClass) {
+		reasonClass = pkgmodel.SuspendReasonManual
+	}
 	before := row.Status
-	params := map[string]any{"reason": reason}
+	params := map[string]any{"reason": reason, "reason_class": reasonClass}
 	provider, err := s.buildProviderForInstance(ctx, row)
 	if err != nil {
 		s.record(ctx, row, op, model.ActionSuspend, params, before, before, err)
@@ -2408,6 +2531,8 @@ func (s *instanceService) Suspend(ctx context.Context, op Operator, id uint64, r
 	_ = s.repo.UpdateStatus(ctx, row.ID, after)
 	// 落阶段（T5.4 语义）：手动暂停同样写 lifecycle_stage，避免推进器重复动作。
 	_ = s.repo.UpdateLifecycleStage(ctx, row.ID, lifecycleStageSuspended)
+	// 落原因分类：界面据它把「违规暂停」与「到期暂停」分开（自续费无法解决违规）。
+	_ = s.repo.UpdateSuspendReason(ctx, row.ID, reasonClass)
 	s.record(ctx, row, op, model.ActionSuspend, params, before, after, nil)
 	return nil
 }
@@ -2437,7 +2562,112 @@ func (s *instanceService) Unsuspend(ctx context.Context, op Operator, id uint64)
 	after := string(pkgmodel.InstanceStatusRunning)
 	_ = s.repo.UpdateStatus(ctx, row.ID, after)
 	_ = s.repo.UpdateLifecycleStage(ctx, row.ID, lifecycleStageActive)
+	// 清暂停原因：服务已恢复，留着原因会让界面显示一个已经不成立的暂停理由
+	//（迁移 114）。恢复是人工显式动作，无论原因是违规还是到期都该清掉 ——
+	// 违规解除本来就是"管理员复核后放行"的语义。
+	_ = s.repo.UpdateSuspendReason(ctx, row.ID, "")
 	s.record(ctx, row, op, model.ActionUnsuspend, nil, before, after, nil)
+	return nil
+}
+
+// SetServiceState 管理员直接设置实例的服务状态（active / suspended / cancelled）。
+//
+// 为什么按目标状态分派、而不直接写 instances.status：
+// 展示状态由 (status, lifecycle_stage, suspend_reason, expire_at) 共同派生，
+// 单独改 status 会造出自相矛盾的行（status=running + stage=destroyed），
+// 而"终态不复活"等规则会让那种行永远刷不回真实状态 —— 本项目已修过同类缺陷。
+// 所以每个目标状态都落成一致的列组合，并复用既有的上游动作路径（流水/事件齐全）。
+//
+// 三个可设置状态各自的语义与前置：
+//
+//	active    —— 服务中。解除暂停（上游 unsuspend + 清 stage/suspend_reason）。
+//	             已销毁的行拒绝：销毁是终态，不该靠改状态复活。
+//	suspended —— 已暂停。下发上游暂停 + 落 stage=suspended + 原因分类。
+//	             占位行拒绝（无上游机器，暂停没有对象；要停请取消）。
+//	cancelled —— 已取消。**只对从未开通的占位行开放**：订单未付款/作废时
+//	             机器从未存在，标 cancelled 让运营看得到流失（用户口径）。
+//	             已开通过的行拒绝：那台机器需要先销毁（通知渠道终止），
+//	             直接标取消会留下"渠道侧还在计费"的烂账。
+func (s *instanceService) SetServiceState(ctx context.Context, op Operator, id uint64, req *dto.SetStateRequest) error {
+	if req == nil {
+		return ErrInvalidAction
+	}
+	row, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return s.wrapNotFound(err)
+	}
+	target := strings.ToLower(strings.TrimSpace(req.State))
+	switch target {
+	case "active", "suspended", "cancelled":
+	default:
+		return fmt.Errorf("%w: 不支持设置状态 %q（可选 active/suspended/cancelled）", ErrInvalidAction, req.State)
+	}
+
+	// 已销毁是终态：任何"改回服务中/暂停"的尝试都拒绝，否则会出现
+	// 一台"运行中"的已销毁机器（渠道侧机器早已终止）。
+	if isTerminalInstance(row) {
+		return fmt.Errorf("%w：该实例已销毁，状态不可再改（如需从列表移除请用「删除记录」）",
+			ErrStatusConflict)
+	}
+
+	switch target {
+	case "active":
+		if !provisioned(row) {
+			return fmt.Errorf("%w：该实例尚未开通，没有可恢复的服务；如需清理请用「取消」或「销毁」",
+				ErrInvalidAction)
+		}
+		// 已处于服务中且没有暂停痕迹：无需上游动作，直接从流水可读性出发拒绝，
+		// 避免留下一条"设置了服务中"但实际什么都没做的记录。
+		if row.LifecycleStage == lifecycleStageActive && row.Status == string(pkgmodel.InstanceStatusRunning) {
+			return fmt.Errorf("%w：该实例当前已是「服务中」", ErrStatusConflict)
+		}
+		return s.Unsuspend(ctx, op, id)
+
+	case "suspended":
+		if !provisioned(row) {
+			return fmt.Errorf("%w：该实例尚未开通，没有可暂停的服务；如需清理请用「取消」",
+				ErrInvalidAction)
+		}
+		reasonClass := req.ReasonClass
+		if !pkgmodel.IsValidSuspendReason(reasonClass) {
+			reasonClass = pkgmodel.SuspendReasonManual
+		}
+		// 违规暂停必须带说明：只落一个 violation 分类而不写原因，
+		// 事后没人知道"违的是哪条"，客户申诉时也无从核对。
+		if reasonClass == pkgmodel.SuspendReasonViolation && strings.TrimSpace(req.Reason) == "" {
+			return fmt.Errorf("%w：违规暂停必须填写原因（写入操作流水，供客户申诉时核对）", ErrInvalidAction)
+		}
+		return s.Suspend(ctx, op, id, req.Reason, reasonClass)
+
+	default: // cancelled
+		if provisioned(row) {
+			return fmt.Errorf("%w：该实例已开通，不能直接取消；请先「销毁实例」终止渠道侧机器，"+
+				"再视需要「删除记录」", ErrStatusConflict)
+		}
+		return s.cancelPendingInstance(ctx, op, row, req.Reason)
+	}
+}
+
+// cancelPendingInstance 把从未开通的占位行标为已取消（订单未付款/作废）。
+//
+// 与 destroyPendingPlaceholder 的区别：
+//   - cancelled：订单没成交（未付款超时/客户取消），**不是**一次"摧毁"动作，只是登记流失；
+//   - destroyed：曾经要开且被终止（可能是客户主动放弃、也可能是运营清理）。
+//
+// 两者在列表上都让行退出"在用"集合，但审计含义不同，故分开落状态。
+func (s *instanceService) cancelPendingInstance(ctx context.Context, op Operator, row *repository.InstanceRow, reason string) error {
+	before := row.Status
+	params := map[string]any{"reason": reason}
+	params["note"] = "占位行（尚未开通）标记为已取消：订单未付款或已作废，渠道侧从未创建机器"
+	if err := s.repo.UpdateStatus(ctx, row.ID, string(pkgmodel.InstanceStatusCancelled)); err != nil {
+		s.record(ctx, row, op, model.ActionSetState, params, before, before, err)
+		return err
+	}
+	_ = s.repo.UpdateLifecycleStage(ctx, row.ID, lifecycleStageCancelled)
+	// 从未开通的机器不可能有进行中的动作：留着过渡态会让列表显示"正在执行"。
+	_ = s.repo.ClearTransition(ctx, row.ID)
+	after := string(pkgmodel.InstanceStatusCancelled)
+	s.record(ctx, row, op, model.ActionSetState, params, before, after, nil)
 	return nil
 }
 
@@ -2518,7 +2748,9 @@ func (s *instanceService) batchOne(ctx context.Context, op Operator, id uint64, 
 	case "sync":
 		_, opErr = s.Sync(ctx, op, id)
 	case "suspend":
-		opErr = s.Suspend(ctx, op, id, req.Reason)
+		// 批量暂停不带原因分类（批量表单没有该字段），统一按 manual 处理：
+		// 与单实例默认一致，不冒充 expired —— 到期暂停是推进器按 expire_at 自动写的。
+		opErr = s.Suspend(ctx, op, id, req.Reason, pkgmodel.SuspendReasonManual)
 	case "unsuspend":
 		opErr = s.Unsuspend(ctx, op, id)
 	}
@@ -2613,6 +2845,104 @@ func (s *instanceService) BatchDestroy(ctx context.Context, op Operator, req *dt
 		resp.Items = append(resp.Items, item)
 	}
 	return resp, nil
+}
+
+// BatchPurge 批量删除**已销毁**的实例记录（物理删除，逐台确认）。
+//
+// 与 BatchDestroy 的关系：销毁是"通知渠道终止机器 + 落终态"，行仍在列表里；
+// 本方法是"把那些已经销毁、留在列表里占位的行真正清掉"（用户实测反馈：
+// "我是叫将这个实例的整一个记录都删除"）。批量入口解决的是清一批测试机
+// 要逐台进详情页删除的麻烦。
+//
+// 护栏与批量销毁同等，甚至更严：
+//   - 逐台确认（ConfirmMarks）：全选不等于一键抹掉；
+//   - 非终态行一律跳过（复用 Purge 的守卫），不会绕过去"通知渠道终止机器"那一步；
+//   - 只支持已销毁的行，所以**不需要** verify/purge 之外的二次验证码（路由与单实例一致）。
+func (s *instanceService) BatchPurge(ctx context.Context, op Operator, req *dto.BatchPurgeRequest) (*dto.BatchPurgeResponse, error) {
+	if req == nil || len(req.IDs) == 0 {
+		return nil, fmt.Errorf("%w: 请先选择要删除的实例记录", ErrBatchDestroyInvalid)
+	}
+	if len(req.IDs) > maxBatchActionIDs {
+		return nil, fmt.Errorf("%w: 单次最多 %d 台", ErrBatchDestroyInvalid, maxBatchActionIDs)
+	}
+
+	// 去重但保持请求顺序，避免同台被处理两次（第二次会因行已不存在而报错，
+	// 让运营看到一条无意义的"失败"）。
+	seen := make(map[uint64]bool, len(req.IDs))
+	ids := make([]uint64, 0, len(req.IDs))
+	for _, id := range req.IDs {
+		if id == 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+
+	resp := &dto.BatchPurgeResponse{Items: make([]dto.BatchPurgeItem, 0, len(ids))}
+	for _, id := range ids {
+		select {
+		case <-ctx.Done():
+			return resp, ctx.Err()
+		default:
+		}
+		item := s.batchPurgeOne(ctx, op, id, req)
+		resp.Total++
+		switch item.Status {
+		case model.ResultSuccess:
+			resp.Succeeded++
+		case model.ResultSkipped:
+			resp.Skipped++
+		default:
+			resp.Failed++
+		}
+		resp.Items = append(resp.Items, item)
+	}
+	return resp, nil
+}
+
+// batchPurgeOne 删除单台的记录并归类结果。
+//
+// 结果归类与批量销毁同口径：状态守卫/权限类错误归 skipped（"这台不该删"不是事故），
+// 其余（数据库异常等）归 failed。
+func (s *instanceService) batchPurgeOne(ctx context.Context, op Operator, id uint64, req *dto.BatchPurgeRequest) dto.BatchPurgeItem {
+	item := dto.BatchPurgeItem{ID: id}
+
+	row, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		item.Status = model.ResultFailed
+		item.Message = "实例不存在"
+		return item
+	}
+	item.InstanceMark = row.InstanceID
+	item.Name = row.Name
+	item.BeforeStatus = row.Status
+
+	// 逐台确认：确认文本按记录 ID 查（前端逐行回填该行的确认值）。
+	mark := strings.TrimSpace(req.ConfirmMarks[strconv.FormatUint(id, 10)])
+	if mark == "" {
+		item.Status = model.ResultSkipped
+		item.AfterStatus = row.Status
+		item.Message = "未逐台确认，已跳过（批量删除记录需为每台回填实例标识）"
+		return item
+	}
+
+	opErr := s.Purge(ctx, op, id, &dto.PurgeRequest{ConfirmMark: mark, Reason: req.Reason})
+	if opErr == nil {
+		item.Status = model.ResultSuccess
+		item.AfterStatus = string(pkgmodel.InstanceStatusDeleted)
+		return item
+	}
+	item.Message = opErr.Error()
+	// 用户填错了确认文本（权限类）与"行不是终态"（状态冲突）都归 skipped：
+	// 它们是"这一台不该/不能删"，不该在结果表里显示成红色失败。
+	if errors.Is(opErr, ErrStatusConflict) || errors.Is(opErr, ErrPermissionDenied) ||
+		errors.Is(opErr, ErrInstanceNotFound) {
+		item.Status = model.ResultSkipped
+		item.AfterStatus = row.Status
+		return item
+	}
+	item.Status = model.ResultFailed
+	return item
 }
 
 // batchDestroyOne 销毁单台并归类结果。
@@ -2895,10 +3225,18 @@ func (s *instanceService) toItem(row *repository.InstanceRow, withinDays int) dt
 		SellProductID:      row.SellProductID,
 		UpstreamProductID:  row.UpstreamProductID,
 		ProviderInstanceID: row.ProviderInstanceID,
-		Pending:            row.ProviderInstanceID == "",
-		Resale:             resaleInstance(row),
-		ChannelAvailable:   row.ChannelAvailable,
-		LifecycleStage:     row.LifecycleStage,
+		// 待开通 = 尚未开通 **且** 未到终态。
+		//
+		// 只按 provider_instance_id 为空判断会漏掉一类行：占位行被「销毁」后
+		// （destroyPendingPlaceholder）provider_instance_id 依然是空 —— 它本来就没有
+		// 上游实例号可填。这种行随即被当成"待开通"，界面给的是
+		// 「重新开通 / 销毁实例」而**没有「删除记录」**，运营清不掉它；
+		// 更糟的是它鼓励把一个已经决定不要的占位再开通一次
+		//（用户实测反馈的"连删除按钮都没有"在这条路径上复活）。
+		Pending:          row.ProviderInstanceID == "" && !isTerminalInstance(row),
+		Resale:           resaleInstance(row),
+		ChannelAvailable: row.ChannelAvailable,
+		LifecycleStage:   row.LifecycleStage,
 		// 产品类型归一后再下发：存量空串（迁移 108 回填前）与未知值都走 other，
 		// 与筛选口径一致 —— 前端拿到的每个值都能在导航里找到对应标签。
 		InstanceType: pkgmodel.NormalizeProductKind(row.InstanceType),
@@ -2917,7 +3255,7 @@ func (s *instanceService) toItem(row *repository.InstanceRow, withinDays int) dt
 		// 服务态答"这个服务还在不在有效期内/有没有被我方暂停"。
 		// 此前前端只凭 status 分不清关机与暂停，把两者压成一句「已暂停」。
 		PowerState:   powerStateOf(row.Status, row.TransitionState),
-		ServiceState: serviceStateOf(row.ExpireAt, row.LifecycleStage, withinDays),
+		ServiceState: serviceStateOf(row.ExpireAt, row.LifecycleStage, row.SuspendReason, row.ProviderInstanceID == "", withinDays),
 		// 过渡态：非 nil 表示有未确认的操作在进行（界面显示"重启中"+禁用冲突动作）。
 		Transition:       transitionInfoOf(row.TransitionState, row.TransitionStartedAt, row.TransitionUntil),
 		PrivateIP:        row.PrivateIP,
@@ -3391,21 +3729,40 @@ func powerStateOf(status, transition string) string {
 
 // serviceStateOf 计算**账期/服务维度**（与电源无关）。
 //
-// 优先级：终态 > 我方暂停 > 到期时间派生。
+// 判据（用户口径，第十九轮修订）：
+//
+//	服务中 = 未到期 且 未被暂停
+//
+// 优先级自高到低，每一步都在排除掉一类"不能算服务中"的行：
+//
+//  1. 终态（destroyed/deleted）→ destroyed：账期已终结，不可恢复
+//  2. 从未开通（占位行）→ pending：**机器还不存在**，谈"服务中"是误导。
+//     这一条是第十九轮修的缺陷：占位行 expire_at 通常在未来，此前落到 active，
+//     界面把一台还没开出来的机器显示成「服务中」。
+//  3. 违规暂停 → suspended_violation：管理员因违规停服。
+//     必须与"到期暂停"分开：客户看到「到期暂停」会去续费，而续费根本解决不了违规。
+//  4. 其他暂停（到期/人工）→ suspended
+//  5. 到期时间派生：active / expiring / expired / grace
+//
 // 判据刻意不看 status：一台关机但未到期的实例，服务维度仍是 active ——
-// 服务在有效期内，只是机器没开（这两件事分开正是本轮的目的）。
-//
-// 到期时间派生（与旧的 expire_state 同口径，保留以兼容存量消费方）：
-//
-//	now < expire_at 且距到期 > withinDays → active
-//	now < expire_at 且距到期 <= withinDays → expiring
-//	now >= expire_at                       → expired（宽限期内阶段为 grace 时归 grace）
-func serviceStateOf(expireAt *time.Time, stage string, withinDays int) string {
+// 服务在有效期内，只是机器没开。
+func serviceStateOf(expireAt *time.Time, stage, suspendReason string, pending bool, withinDays int) string {
 	switch stage {
 	case lifecycleStageDestroyed:
 		return "destroyed"
+	case lifecycleStageCancelled:
+		return "cancelled"
 	case lifecycleStageSuspended:
+		// 违规暂停单独给一个值：界面据此显示「违规暂停」并提示联系客服，
+		// 而不是让客户去续一台因违规被停的机器。
+		if suspendReason == pkgmodel.SuspendReasonViolation {
+			return serviceStateSuspendedViolation
+		}
 		return "suspended"
+	}
+	// 占位行（尚未开通）不参与账期判定：没有交付物就没有"服务中"。
+	if pending {
+		return serviceStatePending
 	}
 	if expireAt == nil {
 		return "active"
@@ -3418,7 +3775,7 @@ func serviceStateOf(expireAt *time.Time, stage string, withinDays int) string {
 		return "active"
 	}
 	// 已过期：宽限期内给更贴切的 stage 文案（仍可服务，但已进入处置流程）。
-	if stage == "grace" {
+	if stage == lifecycleStageGrace {
 		return "grace"
 	}
 	return "expired"

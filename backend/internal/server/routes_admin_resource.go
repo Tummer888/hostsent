@@ -25,6 +25,8 @@ func registerAdminResourceRoutes(v1 *gin.RouterGroup, app *App) {
 			providers.DELETE("/:id/cascade", app.perm("provider:delete"), app.providerHandler.DeleteCascade)
 			providers.POST("/:id/test", app.perm("provider:test"), app.providerHandler.TestConnection)
 			providers.POST("/:id/sync/resume", app.perm("provider:update"), app.providerHandler.ResumeSync)
+			// 同步总开关：只动 sync_enabled 一个字段（通用 PUT 是整行替换，不能用来单切开关）。
+			providers.PUT("/:id/sync/enabled", app.perm("provider:update"), app.providerHandler.SetSyncEnabled)
 			// 平台可售资源目录（区域/节点/存储/镜像）：自营规格模板配置平台参数用。
 			providers.GET("/:id/resources", app.perm("resource:provider"), app.providerHandler.PlatformResources)
 		}
@@ -118,8 +120,15 @@ func registerAdminResourceRoutes(v1 *gin.RouterGroup, app *App) {
 		// 批量销毁：独立权限码 + 二次验证（与单实例销毁同场景），
 		// 且服务层要求逐台确认文本 —— "勾了全选"不能变成"一键删机器"。
 		instanceOps.POST("/batch-destroy", app.perm("instance:destroy"), app.adminRequireVerification("instance_destroy"), app.instanceOpsHandler.BatchDestroy)
+		// 批量删除记录（物理删除已销毁的行）：与单实例删除同一权限与二次验证口径，
+		// 服务层逐台确认 + 只接受终态行 —— 批量不能变成"绕过销毁的一次性抹除"。
+		instanceOps.POST("/batch-purge", app.perm("instance:destroy"), app.adminRequireVerification("instance_destroy"), app.instanceOpsHandler.BatchPurge)
 		instanceOps.POST("/:id/suspend", app.perm("instance:action"), app.instanceOpsHandler.Suspend)
 		instanceOps.POST("/:id/unsuspend", app.perm("instance:action"), app.instanceOpsHandler.Unsuspend)
+		// 管理员修改服务状态（服务中/已暂停/已取消）：面向客户可见的状态变更，
+		// 且"违规暂停"会直接影响客户，因此复用 instance:action 权限；
+		// 服务层按目标状态分派到既有的上游动作路径（流水/事件齐全）。
+		instanceOps.POST("/:id/state", app.perm("instance:action"), app.instanceOpsHandler.SetServiceState)
 		instanceOps.PUT("/:id/remark", app.perm("instance:action"), app.instanceOpsHandler.SetRemark)
 		instanceOps.POST("/:id/vnc", app.perm("instance:console"), app.instanceOpsHandler.VNC)
 		instanceOps.POST("/:id/resize", app.perm("instance:resize"), app.adminRequireVerification("instance_resize"), app.instanceOpsHandler.Resize)

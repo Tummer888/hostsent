@@ -104,7 +104,11 @@
           {{ viewMode === 'group' ? `共 ${total} 个区域（含下属宿主机 / 存储）` : `共 ${total} 个资源池` }}
         </span>
       </div>
-      <t-table
+      <!-- 必须用 t-enhanced-table：只有它带 tree 能力（TdEnhancedTableProps），
+           普通 t-table 会把 tree 当未知属性丢掉，后端返回的 children 一个都不渲染，
+           层级视图就只剩区域父行、子节点整片消失。 -->
+      <t-enhanced-table
+        ref="tableRef"
         row-key="id"
         :data="poolList"
         :columns="columns"
@@ -233,7 +237,7 @@
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
-              <t-link theme="primary" hover="color" @click="openDetailDialog(row)">详情</t-link>
+              <t-link theme="default" hover="color" @click="openDetailDialog(row)">详情</t-link>
               <span v-if="row.provider_ops_url" class="action-gap" />
               <t-link
                 v-if="row.provider_ops_url"
@@ -253,7 +257,7 @@
         <template #empty>
           <t-empty description="暂无资源池数据" />
         </template>
-      </t-table>
+      </t-enhanced-table>
 
       <MobilePagination
         v-if="isMobile"
@@ -369,7 +373,7 @@
 
 <script setup lang="ts">
 import FilterCard from '@/components/filter-card/index.vue'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 
 import {
   CloudDownloadIcon,
@@ -402,6 +406,18 @@ const poolList = ref<PoolInfo[]>([])
 const loading = ref(false)
 const { isMobile } = useIsMobile()
 const total = ref(0)
+
+// 层级视图的展开必须手动做，不能只靠 tree.defaultExpandAll：该开关是一次性的，
+// 组件挂载时 data 还是空数组，useTreeData 的 immediate watcher 已经把它消耗掉
+// （expandAll([]) 后置 isDefaultExpandAllExecute=true），真数据到达只会赋值不再展开。
+// 表现为"树列和展开图标都在、点了才出子行"，首屏看起来像子节点丢了。
+const tableRef = ref<{ expandAll?: (type?: string) => void } | null>(null)
+
+async function expandTreeIfNeeded() {
+  if (viewMode.value !== 'group') return
+  await nextTick()
+  tableRef.value?.expandAll?.()
+}
 const providerOptions = ref<{ label: string; value: number }[]>([])
 const regionOptions = ref<{ label: string; value: string }[]>([])
 
@@ -687,6 +703,7 @@ async function loadPools() {
     mobilePage.total = data.meta.total
     summary.value = data.summary || { ...emptySummary }
     regionOptions.value = (data.regions || []).map((region) => ({ label: region, value: region }))
+    await expandTreeIfNeeded()
   } catch (error) {
     MessagePlugin.error((error as Error).message || '加载资源池列表失败')
   } finally {
@@ -950,7 +967,7 @@ function poolTypeLabel(type?: string): string {
 }
 
 .pool-name {
-  color: #334155;
+  color: var(--hs-text-tech);
   font-size: 13px;
   font-weight: 600;
 }

@@ -19,7 +19,8 @@ import (
 
 // internalTxTypes 冻结/解冻：可用余额 ↔ 冻结余额的内部划转，
 // 不是真实的收入/支出。口径中剔除，否则提现会被 freeze + settle 记两次支出。
-var internalTxTypes = []string{transmodel.TxTypeFreeze, transmodel.TxTypeUnfreeze}
+// 定义收敛到 model.InternalTransferTypes，避免统计与对账各维护一份而漏改。
+var internalTxTypes = transmodel.InternalTransferTypes
 
 // TxAmountRow 金额+笔数聚合行。
 type TxAmountRow struct {

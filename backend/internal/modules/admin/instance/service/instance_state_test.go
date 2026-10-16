@@ -52,25 +52,46 @@ func TestServiceStateOf(t *testing.T) {
 	past := now.AddDate(0, 0, -2)   // 已过期
 
 	cases := []struct {
-		name     string
-		expireAt *time.Time
-		stage    string
-		within   int
-		want     string
+		name      string
+		expireAt  *time.Time
+		stage     string
+		suspendRe string
+		pending   bool
+		within    int
+		want      string
 	}{
-		{"未设到期 → active", nil, "", 7, "active"},
-		{"远未到期 → active", &future, "", 7, "active"},
-		{"临期 → expiring", &soon, "", 7, "expiring"},
-		{"已过期 → expired", &past, "", 7, "expired"},
-		{"宽限期 + 已过期 → grace", &past, "grace", 7, "grace"},
+		{"未设到期 → active", nil, "", "", false, 7, "active"},
+		{"远未到期 → active", &future, "", "", false, 7, "active"},
+		{"临期 → expiring", &soon, "", "", false, 7, "expiring"},
+		{"已过期 → expired", &past, "", "", false, 7, "expired"},
+		{"宽限期 + 已过期 → grace", &past, lifecycleStageGrace, "", false, 7, "grace"},
 		// 关键：到期暂停与已销毁是**阶段**决定的，与到期时间计算无关。
-		{"到期暂停 → suspended（优先级最高）", &future, lifecycleStageSuspended, 7, "suspended"},
-		{"已销毁 → destroyed", &future, lifecycleStageDestroyed, 7, "destroyed"},
-		{"到期暂停覆盖宽限期阶段", &past, lifecycleStageSuspended, 7, "suspended"},
+		{"到期暂停 → suspended（优先级最高）", &future, lifecycleStageSuspended, "", false, 7, "suspended"},
+		{"已销毁 → destroyed", &future, lifecycleStageDestroyed, "", false, 7, "destroyed"},
+		{"到期暂停覆盖宽限期阶段", &past, lifecycleStageSuspended, "", false, 7, "suspended"},
+		// 第十九轮新增：服务中 = 未到期 且 未暂停。
+		//
+		// 占位行（尚未开通）不得显示「服务中」：它的 expire_at 通常在未来，
+		// 此前会落到 active —— 界面把一台还没开出来的机器说成"服务在有效期内"。
+		{"占位行（未开通）→ pending，哪怕未到期", &future, "", "", true, 7, "pending"},
+		{"占位行 + 已到期 → 仍是 pending（没有交付物，不谈账期）", &past, "", "", true, 7, "pending"},
+		// 违规暂停与到期暂停必须分开：客户看到"到期暂停"会去续费，而续费解决不了违规。
+		{"违规暂停 → suspended_violation", &future, lifecycleStageSuspended,
+			pkgmodel.SuspendReasonViolation, false, 7, "suspended_violation"},
+		{"到期自动暂停 → suspended（原因 expired）", &past, lifecycleStageSuspended,
+			pkgmodel.SuspendReasonExpired, false, 7, "suspended"},
+		{"人工暂停 → suspended（原因 manual）", &future, lifecycleStageSuspended,
+			pkgmodel.SuspendReasonManual, false, 7, "suspended"},
+		{"阶段暂停但原因未知（迁移前存量）→ suspended 而不是猜违规", &future,
+			lifecycleStageSuspended, "", false, 7, "suspended"},
+		// 取消：订单未付款超时 —— 机器从未开通。
+		{"已取消 → cancelled", &future, lifecycleStageCancelled, "", true, 7, "cancelled"},
+		{"已取消（即使带到期时间）→ cancelled 优先于账期计算", &past,
+			lifecycleStageCancelled, "", true, 7, "cancelled"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := serviceStateOf(tc.expireAt, tc.stage, tc.within); got != tc.want {
+			if got := serviceStateOf(tc.expireAt, tc.stage, tc.suspendRe, tc.pending, tc.within); got != tc.want {
 				t.Errorf("serviceStateOf(...) = %q, want %q", got, tc.want)
 			}
 		})
@@ -89,7 +110,7 @@ func TestPowerAndServiceAreOrthogonal(t *testing.T) {
 	if got := powerStateOf(string(pkgmodel.InstanceStatusStopped), ""); got != "off" {
 		t.Errorf("关机的电源维度应为 off，实得 %q", got)
 	}
-	if got := serviceStateOf(&future, "", 7); got != "active" {
+	if got := serviceStateOf(&future, "", "", false, 7); got != "active" {
 		t.Errorf("关机不影响账期：应为 active，实得 %q（这正是「关机显示成已暂停」的根因）", got)
 	}
 
@@ -98,13 +119,13 @@ func TestPowerAndServiceAreOrthogonal(t *testing.T) {
 	if got := powerStateOf(string(pkgmodel.InstanceStatusRunning), ""); got != "on" {
 		t.Errorf("运行中的电源维度应为 on，实得 %q", got)
 	}
-	if got := serviceStateOf(&past, "", 7); got != "expired" {
+	if got := serviceStateOf(&past, "", "", false, 7); got != "expired" {
 		t.Errorf("到期不影响电源：应为 expired，实得 %q", got)
 	}
 
 	// ③ 到期暂停：电源维度仍报实际状态（上游通常已关机），服务维度报 suspended。
 	//	 两者组合后才能读出完整语义："机器停了，因为欠费"。
-	if got := serviceStateOf(&past, lifecycleStageSuspended, 7); got != "suspended" {
+	if got := serviceStateOf(&past, lifecycleStageSuspended, "", false, 7); got != "suspended" {
 		t.Errorf("到期暂停的服务维度应为 suspended，实得 %q", got)
 	}
 }

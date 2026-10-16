@@ -74,13 +74,31 @@ type BillListResponse struct {
 // ReconcileResponse 对账结果
 type ReconcileResponse struct {
 	Period        string  `json:"period"`         // 对账账期（空表示全量）
-	IncomeTotal   float64 `json:"income_total"`   // 收入合计
-	ExpenseTotal  float64 `json:"expense_total"`  // 支出合计
+	IncomeTotal   float64 `json:"income_total"`   // 收入合计（真实收付口径，剔除冻结/解冻）
+	ExpenseTotal  float64 `json:"expense_total"`  // 支出合计（真实收付口径，剔除冻结/解冻）
 	TxCount       int64   `json:"tx_count"`       // 流水条数
-	WalletBalance float64 `json:"wallet_balance"` // 钱包当前余额合计
-	Diff          float64 `json:"diff"`           // 账实差异（应为 0）
-	Status        string  `json:"status"`         // ok/suspicious
-	Tolerance     float64 `json:"tolerance"`      // 判定容差（元，财务配置 finance.recon_tolerance）
+	WalletBalance float64 `json:"wallet_balance"` // 钱包可用余额合计
+	WalletFrozen  float64 `json:"wallet_frozen"`  // 钱包冻结合计
+	// Diff 账实差异 = (收入 - 支出) - (可用 + 冻结)，应为 0。
+	// 注意：这只是总量参考；判定看 IssueCount/Issues —— 逐户核对能定位到具体账户，
+	// 总量差额是各户差额的代数和，非 0 时它自己说不清是谁的问题。
+	Diff       float64          `json:"diff"`
+	Status     string           `json:"status"`      // ok/suspicious
+	Tolerance  float64          `json:"tolerance"`   // 判定容差（元，财务配置 finance.recon_tolerance）
+	IssueCount int              `json:"issue_count"` // 差异条数
+	Issues     []ReconcileIssue `json:"issues"`      // 差异明细（逐户/逐单）
+}
+
+// ReconcileIssue 单条对账差异。
+type ReconcileIssue struct {
+	UserID       uint64  `json:"user_id"`
+	Username     string  `json:"username"`
+	Check        string  `json:"check"`         // balance/frozen/income/expense/recharge/refund/orphan_ledger
+	Label        string  `json:"label"`         // 检查项中文名
+	AccountValue float64 `json:"account_value"` // 账户/单据上记的值
+	LedgerValue  float64 `json:"ledger_value"`  // 台账推出的值
+	Diff         float64 `json:"diff"`          // 差异 = 账户值 - 台账值
+	Remark       string  `json:"remark"`        // 差异说明与排查方向
 }
 
 // —— 发票（doc36 §3.3）——

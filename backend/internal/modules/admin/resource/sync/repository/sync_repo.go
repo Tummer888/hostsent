@@ -11,7 +11,12 @@ import (
 	"hostsent/backend/internal/modules/admin/resource/common/providerkind"
 	"hostsent/backend/internal/modules/admin/resource/sync/dto"
 	"hostsent/backend/internal/modules/admin/resource/sync/model"
+	pkgmodel "hostsent/backend/internal/pkg/model"
 )
+
+// lifecycleStageCancelled 与 admin/instance 服务层的同名常量取同一字面量：
+// 两边都从 pkgmodel 的语义派生，避免"两处各写一个字符串"漂移。
+const lifecycleStageCancelled = "cancelled"
 
 // SyncRepository 同步任务/日志/实例仓储接口
 type SyncRepository interface {
@@ -30,8 +35,16 @@ type SyncRepository interface {
 	CreatePendingInstance(ctx context.Context, row *model.Instance) error
 	// AdoptPendingInstance 开通成功：占位行就地转正为真实上游实例，返回是否命中占位行。
 	AdoptPendingInstance(ctx context.Context, orderID uint64, row *model.Instance) (bool, error)
-	// DeletePendingInstanceByOrder 删除订单的占位实例（未支付关单/取消时），返回删除行数。
-	DeletePendingInstanceByOrder(ctx context.Context, orderID uint64) (int64, error)
+	// CancelPendingInstanceByOrder 把订单的占位实例标为「已取消」（未支付关单/用户取消时），
+	// 返回影响行数。只动未转正的行（provider_instance_id 为空）：已开通实例不受影响。
+	//
+	// 语义（用户口径，第十九轮修订）：未付款订单超时/被取消 → 这台机器**从未开通**，
+	// 状态落 cancelled，而不是把行删掉。
+	//
+	// 为什么不再物理删除：删掉之后运营在实例列表里看不到任何痕迹 —— 客户流失
+	//（下了单没付钱）恰恰是最该被看到的数据。留 cancelled 行让"这单没成交"可查，
+	// 也让订单与实例两侧能对上账（订单 closed/cancelled ↔ 实例 cancelled）。
+	CancelPendingInstanceByOrder(ctx context.Context, orderID uint64) (int64, error)
 	CountInstancesByProductUser(ctx context.Context, userID, productID uint64) (int64, error)
 	// ExistingInstanceLinks 同步前回查既有归属（保留自营链路的 user_id/source_mode）。
 	ExistingInstanceLinks(ctx context.Context, instanceIDs []string) (map[string]InstanceLinkage, error)
@@ -346,15 +359,27 @@ func adoptPendingUpdates(row *model.Instance) map[string]any {
 	return updates
 }
 
-// DeletePendingInstanceByOrder 删除某订单的占位实例（未支付订单关单/取消时调用）。
-// 只删尚未转正的行（provider_instance_id 为空）：已开通的实例不因订单状态变化被抹掉。
-func (r *syncRepository) DeletePendingInstanceByOrder(ctx context.Context, orderID uint64) (int64, error) {
+// CancelPendingInstanceByOrder 把某订单的占位实例标为「已取消」（未支付关单/取消时调用）。
+//
+// 只动尚未转正的行（provider_instance_id 为空）：已开通的实例不因订单状态变化被抹掉。
+// 同时清掉过渡态：一台从未开通的机器不可能"正在执行"任何动作。
+func (r *syncRepository) CancelPendingInstanceByOrder(ctx context.Context, orderID uint64) (int64, error) {
 	if orderID == 0 {
 		return 0, nil
 	}
-	res := r.db.WithContext(ctx).
+	res := r.db.WithContext(ctx).Model(&model.Instance{}).
 		Where("order_id = ? AND provider_instance_id = ''", orderID).
-		Delete(&model.Instance{})
+		// 已是终态的行不覆盖：已取消的重复关单不该改写时间戳，
+		// 已转正/已销毁的行更不该被这次写回退（双保险，条件与 WHERE 同源）。
+		Where("COALESCE(status, '') NOT IN ?", []string{"deleted", "cancelled"}).
+		Updates(map[string]any{
+			"status":                string(pkgmodel.InstanceStatusCancelled),
+			"lifecycle_stage":       lifecycleStageCancelled,
+			"transition_state":      nil,
+			"transition_started_at": nil,
+			"transition_until":      nil,
+			"updated_at":            time.Now(),
+		})
 	return res.RowsAffected, res.Error
 }
 

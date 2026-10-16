@@ -63,7 +63,20 @@ type WalletService interface {
 	SettleFrozen(ctx context.Context, req FreezeRequest) (*transmodel.WalletTransaction, error)
 	// SetConfigReader 注入配置读取器（finance.adjust_enabled）：装配层接线
 	SetConfigReader(reader ConfigReader)
+	// SetConsumeRecorder 注入消费入账钩子（累计消费 + 等级重算）：装配层接线
+	SetConsumeRecorder(recorder ConsumeRecorder)
 }
+
+// ConsumeRecorder 消费入账钩子：消费类扣款流水提交后回调。
+//
+// 挂在账务核心而不是各下单入口，是因为「累计消费」必须与台账同源。此前用户端下单、
+// 后台代客下单、续费三条链路各写各的：后台代客下单扣款用的是 order 类型，而累计消费
+// 只认 consume，于是代客单扣了钱却不计消费（实测用户 2730 买了 18 元代客单，总消费额
+// 停在 1 元）。收敛到资金入口后，任何新扣款入口只要走 WalletService 就自动进累计消费，
+// 不再依赖调用方记得补一句。
+//
+// 实现方自行负责异步化与错误处理：账务核心不因钩子失败回滚已提交的资金变动。
+type ConsumeRecorder func(userID uint64, amount float64)
 
 // ConfigReader 读取 system_configs 原文（键不存在返回 ok=false，不报错，沿用装配层注入约定）。
 type ConfigReader func(ctx context.Context, key string) (string, bool, error)
@@ -77,6 +90,8 @@ type walletService struct {
 	txRepo     transrepo.TransactionRepository
 	// configReader 读财务配置；未注入时按「允许调账」处理。
 	configReader ConfigReader
+	// consumeRecorder 消费入账钩子；未注入时跳过累计消费（测试与未接线部署）。
+	consumeRecorder ConsumeRecorder
 }
 
 // NewWalletService 创建账务核心服务。
@@ -87,6 +102,11 @@ func NewWalletService(db *gorm.DB, walletRepo accountrepo.WalletRepository, txRe
 // SetConfigReader 注入配置读取器（装配层提供，避免账务核心 import 系统配置模块）。
 func (s *walletService) SetConfigReader(reader ConfigReader) {
 	s.configReader = reader
+}
+
+// SetConsumeRecorder 注入消费入账钩子（装配层提供，避免账务核心 import 用户等级模块）。
+func (s *walletService) SetConsumeRecorder(recorder ConsumeRecorder) {
+	s.consumeRecorder = recorder
 }
 
 func (s *walletService) Balance(ctx context.Context, userID uint64) (*accountdto.WalletInfo, error) {
@@ -112,6 +132,10 @@ func (s *walletService) Change(ctx context.Context, req ChangeRequest) (*transmo
 	}
 
 	var result *transmodel.WalletTransaction
+	// created 区分「本次真的记了一笔」与「命中幂等键返回已有流水」。
+	// 消费钩子只能在前者触发：重复调用同一 (user_id, biz_type, ref_no) 时
+	// 余额没再扣一次，累计消费自然也不能再涨一次。
+	created := false
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 1. 行锁账户（防止并发超扣）
 		acc, err := s.walletRepo.LockByUser(tx, req.UserID)
@@ -179,12 +203,27 @@ func (s *walletService) Change(ctx context.Context, req ChangeRequest) (*transmo
 			return err
 		}
 		result = record
+		created = true
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+	// 7. 消费入账：事务已提交且本次确为新记账时回调，供累计消费与等级重算。
+	// 放在提交之后（而非事务内）：钩子实现走异步、另开连接，
+	// 在未提交事务里调用会读不到刚写的流水，还可能卡在账户行锁上。
+	if created && req.Direction == transmodel.DirectionExpense && transmodel.IsConsumeType(req.Type) {
+		s.recordConsume(ctx, req.UserID, money.Round2(req.Amount))
+	}
 	return result, nil
+}
+
+// recordConsume 触发消费入账钩子；钩子缺失或未接线时静默跳过，不影响已完成的资金变动。
+func (s *walletService) recordConsume(ctx context.Context, userID uint64, amount float64) {
+	if s.consumeRecorder == nil || amount <= 0 {
+		return
+	}
+	s.consumeRecorder(userID, amount)
 }
 
 // Freeze 冻结：可用余额 → 冻结余额。不计入累计支出，流水方向按支出侧记 0 额
@@ -367,8 +406,9 @@ func (s *walletService) Adjust(ctx context.Context, req accountdto.AdjustRequest
 		Type:       txType,
 		Direction:  req.Direction,
 		Amount:     req.Amount,
+		OrderNo:    req.OrderNo,
 		RefNo:      req.BizKey,
-		BizType:    transmodel.TxTypeAdjust,
+		BizType:    bizTypeForAdjust(txType),
 		Remark:     req.Remark,
 		OperatorID: operatorID,
 	})
@@ -377,6 +417,19 @@ func (s *walletService) Adjust(ctx context.Context, req accountdto.AdjustRequest
 	}
 	info := buildTransactionInfo(*tr, "")
 	return &info, nil
+}
+
+// bizTypeForAdjust 按流水类型派生幂等命名空间。
+//
+// 幂等键是 (user_id, biz_type, ref_no) 三元组，此前不论什么类型都塞 adjust，
+// 于是「人工调账」与「订单扣款」共用同一个命名空间 —— 两者 ref_no 撞车时，
+// 后来的那笔会被当成重复直接丢掉（余额不扣、流水不写，调用方却拿到成功）。
+// 按类型分命名空间后，订单扣款只可能和同一笔订单互相幂等，不会误伤调账。
+func bizTypeForAdjust(txType string) string {
+	if txType == transmodel.TxTypeAdjust {
+		return transmodel.TxTypeAdjust
+	}
+	return txType
 }
 
 // adjustEnabled 人工调账开关：读财务配置（finance.adjust_enabled），

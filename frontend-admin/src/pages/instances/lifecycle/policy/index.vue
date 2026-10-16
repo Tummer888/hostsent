@@ -265,7 +265,7 @@ onMounted(loadPolicy)
   font-size: 13px;
   font-weight: 600;
   background: #fff;
-  color: #334155;
+  color: var(--hs-text-tech);
   border: 1px solid #e2e8f0;
 }
 .policy-flow__node--warn {

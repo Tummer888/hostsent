@@ -109,19 +109,24 @@ type RateLimitSpec struct {
 
 // CapabilityDescriptor 渠道能力描述符（契约②核心结构）。
 type CapabilityDescriptor struct {
-	Kind             string         `json:"kind"`              // upstream | compute
-	SyncScopes       []string       `json:"sync_scopes"`       // Scope* 列表
-	SpecAtoms        []string       `json:"spec_atoms"`        // 本渠道能提供/接受的原子 key
-	BillingCycles    []string       `json:"billing_cycles"`    // month/year/hour/day
-	Operations       []string       `json:"operations"`        // Op* 列表
-	RenewMode        string         `json:"renew_mode"`        // RenewMode*
-	DestroyMode      string         `json:"destroy_mode"`      // DestroyMode*
-	CredentialSchema []Field        `json:"credential_schema"` // 凭证字段（动态表单 + 加密）
-	EndpointSchema   []Field        `json:"endpoint_schema"`   // 接入地址/区域等连接参数
-	SignerType       string         `json:"signer_type"`       // Signer*
-	RateLimit        RateLimitSpec  `json:"rate_limit"`
-	SupportsPaging   bool           `json:"supports_paging"`
-	FieldDictionary  map[string]any `json:"field_dictionary,omitempty"` // 平台字段字典（D5 预埋，值可含"待核"标记）
+	Kind             string        `json:"kind"`              // upstream | compute
+	SyncScopes       []string      `json:"sync_scopes"`       // Scope* 列表
+	SpecAtoms        []string      `json:"spec_atoms"`        // 本渠道能提供/接受的原子 key
+	BillingCycles    []string      `json:"billing_cycles"`    // month/year/hour/day
+	Operations       []string      `json:"operations"`        // Op* 列表
+	RenewMode        string        `json:"renew_mode"`        // RenewMode*
+	DestroyMode      string        `json:"destroy_mode"`      // DestroyMode*
+	CredentialSchema []Field       `json:"credential_schema"` // 凭证字段（动态表单 + 加密）
+	EndpointSchema   []Field       `json:"endpoint_schema"`   // 接入地址/区域等连接参数
+	SignerType       string        `json:"signer_type"`       // Signer*
+	RateLimit        RateLimitSpec `json:"rate_limit"`
+	SupportsPaging   bool          `json:"supports_paging"`
+	// 说明：这里曾有一个 FieldDictionary map[string]any（"平台字段字典"），
+	// 记录平台的写入/读取字段名与开发期备注。它没有生产消费方
+	// （适配器实际调用 vendor 层，不查这张表），却会随描述符漏进后台界面，
+	// 把"依据某某源码实测""doc111 §5.2"这类开发笔记展示给运营，故整体移除。
+	// 平台支持哪些可配置项由下面的 OptionCatalog 声明 —— 带中文名、必选标记、
+	// 取值来源与数量约束，是可供界面直接渲染、且配置档真正引用的那一份。
 	// ReportsPowerState 本平台是否**真的能报告机器电源状态**（开机/关机）。
 	//
 	// 为什么需要这个能力位：不同上游对"状态"的语义完全不同 ——

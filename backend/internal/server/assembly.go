@@ -582,12 +582,44 @@ func (a *asm) buildBundles() {
 		"/oauth/callback", a.logger)
 }
 
+// applyConsumeAsync 异步累计消费并重算等级。
+//
+// 三处消费入账共用一个实现（账务核心扣款回调、渠道支付到账、未走钱包的续费收款），
+// 避免各写一份 goroutine 后行为漂移（超时、panic 兜底、日志字段）。
+// 异步且用独立 context：不阻塞下单/续费主流程，也不因请求结束被取消。
+func (a *asm) applyConsumeAsync(userID uint64, amount float64) {
+	if userID == 0 || amount <= 0 {
+		return
+	}
+	go func() {
+		defer safego.Recover(a.logger)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := a.levelUpgradeService.ApplyConsume(ctx, userID, amount); err != nil {
+			a.logger.Warn("user level: apply consume failed",
+				zap.Uint64("user_id", userID), zap.Float64("amount", amount), zap.Error(err))
+		}
+	}()
+}
+
 // buildWire 收尾接线：积分发放钩子、OnPaid、子账号、开放平台与支付中心、收银台端口与各调度器。
 func (a *asm) buildWire() {
+	// 消费入账统一接线：账务核心每落一笔消费类扣款流水（consume / order），
+	// 就在事务提交后回调这里累计消费并重算等级。
+	//
+	// 三条扣款链路（用户端下单、后台代客下单、续费）因此自动同口径，不再各自
+	// 记得补一句 —— 后台代客下单此前正是漏了这一步：它用 order 类型扣款，
+	// 而累计消费当时只认 consume，钱扣了、消费额不动（实测用户 2730）。
+	//
+	// 异步执行：不阻塞下单与续费主流程；独立 context，避免请求结束即被取消。
+	a.walletService.SetConsumeRecorder(a.applyConsumeAsync)
 	// 续费完成积分：lifecycle 侧独立发放，幂等键为订单号。
 	a.lifecycleRenewalSvc.SetPointEarner(func(ctx context.Context, orderID uint64, orderNo string, userID uint64, amount float64) {
 		a.pointEarner(ctx, userID, "order", orderNo, amount, true)
 	})
+	// 续费侧累计消费：只覆盖未走钱包的收款（人工代续费/渠道支付），
+	// 余额续费由钱包扣款流水统一回调，重复接线会让消费额翻倍 —— 判定在服务层内。
+	a.lifecycleRenewalSvc.SetConsumeRecorder(a.applyConsumeAsync)
 	// 账单结清积分：规则默认关闭，避免与消费积分重复计发。
 	a.billService.SetPointEarner(func(ctx context.Context, userID uint64, billNo string, amount float64) {
 		a.pointEarner(ctx, userID, "bill", billNo, amount, false)
@@ -596,7 +628,10 @@ func (a *asm) buildWire() {
 	// doc70：支付成功后发布通知；doc36：非续费订单在此发放积分（续费积分走 lifecycle 路径，避免重复）。
 	//
 	// 本钩子只在「渠道支付到账」路径触发（MarkPaidByChannel 调用）：余额支付在下单时即扣款，
-	// 其累计消费在下单流程内记账，不会走到这里，因此这里的 ApplyConsume 不会重复累计。
+	// 其累计消费在账务核心回调里记账，不会走到这里，因此这里的累计不会重复。
+	//
+	// 续费订单（RenewalID != 0）不在这里累计：它转交 lifecycle 完成续费，
+	// 由该侧按支付方式判定是否补记（余额续费已由钱包回调计入，见 SetConsumeRecorder）。
 	orderservice.OnPaid = func(ctx context.Context, order *ordermodel.Order) {
 		if order == nil {
 			return
@@ -608,15 +643,7 @@ func (a *asm) buildWire() {
 			}
 		} else {
 			// 渠道支付的订单到账才累计消费并重算等级（下单时未收款，不能提前计入）。
-			go func(userID uint64, amount float64) {
-				defer safego.Recover(a.logger)
-				cctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				defer cancel()
-				if err := a.levelUpgradeService.ApplyConsume(cctx, userID, amount); err != nil {
-					a.logger.Warn("user level: apply consume failed",
-						zap.Uint64("user_id", userID), zap.Float64("amount", amount), zap.Error(err))
-				}
-			}(order.UserID, order.PaidAmount)
+			a.applyConsumeAsync(order.UserID, order.PaidAmount)
 			a.pointEarner(ctx, order.UserID, "order", order.OrderNo, order.PaidAmount, false)
 		}
 		// 发布支付成功通知（doc70）

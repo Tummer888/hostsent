@@ -395,6 +395,12 @@ func (a *LifecycleAdvancer) resetActive(ctx context.Context, inst *syncmodel.Ins
 		a.logger.Error("reset lifecycle stage failed", zap.Uint64("instance_id", inst.ID), zap.Error(err))
 		return
 	}
+	// 清暂停原因：续费后服务已恢复，再留着 {"expired"} 会让界面显示一个
+	// 已经不成立的暂停理由。**只清到期类**（expired）：若这台机同时有违规暂停记录，
+	// 那件事没有随续费消失，不该被这里抹掉（manual/violation 保留，由管理员显式解除）。
+	if inst.SuspendReason == pkgmodel.SuspendReasonExpired {
+		_ = a.instanceRepo.UpdateSuspendReason(ctx, inst.ID, "")
+	}
 	_ = a.instanceRepo.ClearEnforce(ctx, inst.ID)
 	a.record(ctx, inst, "unsuspend", from, lifecyclemodel.StageActive, opErr, "", "")
 	a.logger.Info("lifecycle stage reset to active",
@@ -461,18 +467,37 @@ func (a *LifecycleAdvancer) setStage(ctx context.Context, inst *syncmodel.Instan
 	return a.instanceRepo.UpdateLifecycleStage(ctx, inst.ID, stage)
 }
 
-// setStageWithStatus 落阶段并同步落服务状态。
+// setStageWithStatus 落阶段并同步落服务状态（suspended 时一并落暂停原因分类）。
 //
 // stage 是本系统的到期处置阶段，status 是上游/平台服务状态，两者语义不同但必须
 // 同一次迁移写一致的值：此前推进器只写 stage，导致出现「stage=destroyed 而
 // status=running」——列表把已销毁的机器显示成"运行中"，运维据此就会做错决策。
 // grace 只登记阶段不动 status（宽限期内机器仍在对客服务）。
+//
+// suspended 额外落 suspend_reason=expired（迁移 114）：推进器是**唯一**的
+// "到期自动暂停"写入点，界面据此把「到期暂停」与管理员手动暂停（违规/manual）分开。
+// 不写这一列，界面只能笼统显示「已暂停」——客户不知道该续费还是该联系客服。
 func (a *LifecycleAdvancer) setStageWithStatus(ctx context.Context, inst *syncmodel.Instance, stage string) error {
 	status := statusOfStage(stage)
 	if status == "" {
 		return a.setStage(ctx, inst, stage)
 	}
-	return a.instanceRepo.UpdateStageAndStatus(ctx, inst.ID, stage, status)
+	if err := a.instanceRepo.UpdateStageAndStatus(ctx, inst.ID, stage, status); err != nil {
+		return err
+	}
+	// 原因分类与阶段在同一次迁移里落：分开写会出现"阶段已暂停、原因为空"的
+	// 中间态（界面退化成笼统的「已暂停」）。
+	if stage == lifecyclemodel.StageSuspended {
+		if err := a.instanceRepo.UpdateSuspendReason(ctx, inst.ID, pkgmodel.SuspendReasonExpired); err != nil {
+			// 原因写失败不阻断推进（阶段与状态已落地，那是更重要的语义）：
+			// 界面退化为「已暂停」，下一轮推进仍会补齐原因。
+			if a.logger != nil {
+				a.logger.Warn("write suspend reason failed",
+					zap.Uint64("instance_id", inst.ID), zap.Error(err))
+			}
+		}
+	}
+	return nil
 }
 
 // statusOfStage 到期处置阶段 → 应落的服务状态；grace 与未知阶段返回空串（不改 status）。

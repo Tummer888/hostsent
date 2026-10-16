@@ -122,6 +122,10 @@ func (s *Scheduler) scanOnce(ctx context.Context) (dueN, triggered, skipped int)
 
 // trigger 触发单条调度：创建任务并立刻推进 next_run_at，
 // 避免任务尚在排队时被 60 秒扫描重复触发（任务完成时 recordScheduleResult 会以实际完成时间重算）。
+//
+// 触发时**只推进到期时间，不写执行结果**：任务此刻刚提交，成功与否要等它跑完。
+// 早先这里在触发时就落 last_status=success，于是调度页显示“上次成功”，
+// 而同步日志里一条都没有——把“已触发”谎报成“已完成”，排障时两边对不上。
 func (s *Scheduler) trigger(ctx context.Context, item syncmodel.SyncSchedule) error {
 	_, err := s.engine.StartSync(ctx, item.ProviderID, item.Scope)
 	if err != nil && !errors.Is(err, ErrTaskRunning) {
@@ -134,7 +138,7 @@ func (s *Scheduler) trigger(ctx context.Context, item syncmodel.SyncSchedule) er
 	if item.WindowStart != nil {
 		next = nextWindowStart(next, item.WindowStart, item.WindowEnd)
 	}
-	if err := s.fwRepo.RecordScheduleRun(ctx, item.ID, syncmodel.ScheduleStatusSuccess, "", time.Now(), next); err != nil {
+	if err := s.fwRepo.AdvanceScheduleNextRun(ctx, item.ID, next); err != nil {
 		return err
 	}
 	s.logger.Info("scheduler trigger sync",

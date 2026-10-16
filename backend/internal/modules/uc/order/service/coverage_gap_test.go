@@ -120,7 +120,7 @@ func TestNewOrderServiceWiresAllPorts(t *testing.T) {
 	wallet := &fakeWalletPort{}
 	repo := &fakeOrderRepo{}
 	activator := &fakeOrderActivator{}
-	svc := NewOrderService(catalog, wallet, repo, activator, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	svc := NewOrderService(catalog, wallet, repo, activator, nil, nil, nil, nil, nil, nil, nil, nil)
 	if svc == nil {
 		t.Fatal("构造器应返回服务实例")
 	}

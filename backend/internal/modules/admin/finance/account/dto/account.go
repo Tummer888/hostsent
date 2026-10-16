@@ -19,4 +19,8 @@ type AdjustRequest struct {
 	Amount    float64 `json:"amount" binding:"required"`
 	BizKey    string  `json:"biz_key" binding:"required"` // 幂等键
 	Remark    string  `json:"remark"`
+	// OrderNo 关联订单号（可选）。订单扣款必须带上：账单按
+	// wallet_transactions.order_no 关联订单来区分普通消费与续费消费，
+	// 不带的流水在账面上没有业务单据可追。
+	OrderNo string `json:"order_no"`
 }

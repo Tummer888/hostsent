@@ -208,18 +208,4 @@ function goProvider(row: ProviderInfo) {
   line-height: 1.6;
   color: var(--color-muted-foreground);
 }
-
-.cell-muted {
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-}
-
-.cell-error {
-  font-size: 12px;
-  color: #dc2626;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
 </style>

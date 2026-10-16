@@ -60,7 +60,17 @@ type RenewalService interface {
 	SetPointEarner(hook RenewalPointHook)
 	// SetSalesOwnerResolver 注入续费订单的销售归属解析（装配层调用，doc86 §3.4）
 	SetSalesOwnerResolver(r SalesOwnerResolver)
+	// SetConsumeRecorder 注入累计消费钩子（装配层调用）：仅用于**未走钱包**的续费收款。
+	SetConsumeRecorder(recorder RenewalConsumeRecorder)
 }
+
+// RenewalConsumeRecorder 累计消费钩子（续费侧）。
+//
+// 只在「没经过钱包」的收款路径触发：余额续费由 WalletService 在扣款流水落库后
+// 自行回调（cashier 侧统一计数），这里再记一次就重复了；而人工代续费（线下收款）
+// 与渠道支付的续费订单根本不产生钱包流水，没有这条钩子就永远不计消费 ——
+// 实测这类订单的 paid_amount 有值、total_consume_amount 却纹丝不动。
+type RenewalConsumeRecorder func(userID uint64, amount float64)
 
 // UpstreamRenewer 上游/平台续费执行器（装配层注入，避免生命周期模块依赖 provider 模块）。
 //
@@ -107,12 +117,13 @@ type renewalService struct {
 	orderWriter  lifecyclerepo.OrderWriter
 	orderReader  lifecycleRenewalGetter // 可选：读取订单支付方式
 	walletSvc    accountservice.WalletService
-	pricingSvc   renewalPriceResolver // 可选：统一算价管线（P5-04）
-	cashbackHook RenewalCashbackHook  // 可选：续费完成后的推广返现计提
-	upstream     UpstreamRenewer      // 可选：上游/平台续费执行器（T5.2）
-	renewedHook  RenewedHook          // 可选：续费完成事件（P6/T6.5 开放平台回调）
-	pointHook    RenewalPointHook     // 可选：续费完成后的积分发放（doc36）
-	salesOwner   SalesOwnerResolver   // 可选：续费订单的销售归属解析（doc86 §3.4）
+	pricingSvc   renewalPriceResolver   // 可选：统一算价管线（P5-04）
+	cashbackHook RenewalCashbackHook    // 可选：续费完成后的推广返现计提
+	upstream     UpstreamRenewer        // 可选：上游/平台续费执行器（T5.2）
+	renewedHook  RenewedHook            // 可选：续费完成事件（P6/T6.5 开放平台回调）
+	pointHook    RenewalPointHook       // 可选：续费完成后的积分发放（doc36）
+	consumeHook  RenewalConsumeRecorder // 可选：未走钱包的续费收款累计消费
+	salesOwner   SalesOwnerResolver     // 可选：续费订单的销售归属解析（doc86 §3.4）
 	logger       *zap.Logger
 	// now 时钟。测试可注入固定值；生产走 time.Now。
 	//
@@ -177,6 +188,11 @@ func (s *renewalService) SetRenewedHook(hook RenewedHook) {
 // SetPointEarner 注入续费完成后的积分发放钩子（装配层调用，doc36）。
 func (s *renewalService) SetPointEarner(hook RenewalPointHook) {
 	s.pointHook = hook
+}
+
+// SetConsumeRecorder 注入累计消费钩子（装配层调用）。
+func (s *renewalService) SetConsumeRecorder(recorder RenewalConsumeRecorder) {
+	s.consumeHook = recorder
 }
 
 // SetUpstreamRenewer 注入上游/平台续费执行器（T5.2）。
@@ -834,6 +850,15 @@ func (s *renewalService) markRenewalSuccess(ctx context.Context, renewal *lifecy
 	// 续费完成后的积分发放（doc36）：幂等键为订单号，失败只记日志。
 	if s.pointHook != nil {
 		s.pointHook(ctx, renewal.OrderID, renewal.OrderNo, renewal.UserID, renewal.Amount)
+	}
+	// 累计消费：只补「没走钱包」的收款路径。
+	//
+	// 余额续费（payMethod=balance）在 payRenewalOrder 里经 WalletService 扣款，
+	// 账务核心已在流水落库后回调过累计消费，这里再来一次就是双倍；
+	// 而人工代续费（manual，线下收款）与渠道支付的续费订单不产生钱包流水，
+	// 不补这一步就永远不计消费（实测这类订单 paid_amount 有值、累计消费为 0）。
+	if s.consumeHook != nil && payMethod != ordermodel.PayMethodBalance {
+		s.consumeHook(renewal.UserID, renewal.Amount)
 	}
 	s.logger.Info("renewal completed",
 		zap.String("renewal_no", renewal.RenewalNo),

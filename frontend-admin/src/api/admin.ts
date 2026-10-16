@@ -390,6 +390,19 @@ export function resumeProviderSync(id: number): Promise<ProviderInfo> {
   })
 }
 
+/**
+ * 切换同步总开关。
+ *
+ * 独立接口而不是复用 updateProvider：PUT /providers/:id 是整行替换语义，
+ * 只带一个开关会把名称、地址、状态等未传字段一并清空。
+ */
+export function setProviderSyncEnabled(id: number, enabled: boolean): Promise<ProviderInfo> {
+  return request.put<ProviderInfo>({
+    url: `/resource/providers/${id}/sync/enabled`,
+    data: { enabled },
+  })
+}
+
 /** 平台可售资源目录（区域/节点/存储/镜像）：自营规格模板配置平台参数用 */
 export function getProviderPlatformResources(id: number): Promise<PlatformResources> {
   return request.get<PlatformResources>({
@@ -408,8 +421,18 @@ export function getProviderTypes(): Promise<ProviderTypeItem[]> {
 export function getPoolList(params: PoolListQuery): Promise<PoolListResponse> {
   return request.get<PoolListResponse>({
     url: '/resource/pools',
+    // 必须把全部查询参数透传：资源池页有关键词/地域/类别/告警/层级视图五组筛选，
+    // 漏传时后端按默认口径返回（全部池、平铺），页面上的筛选器点了没反应，
+    // 层级视图也拿不到 children —— 区域行会与自己的子行并排出现在顶层，
+    // 并显示"无子节点 / 不适用"（实测症状）。
     params: {
       provider_id: params.provider_id,
+      keyword: params.keyword,
+      region: params.region,
+      category: params.category,
+      group: params.group,
+      status: params.status,
+      alert: params.alert,
       page: params.page,
       page_size: params.page_size,
     },
