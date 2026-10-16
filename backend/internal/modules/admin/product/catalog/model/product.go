@@ -65,14 +65,23 @@ type Product struct {
 	UpstreamPriceSyncedAt *time.Time `gorm:"column:upstream_price_synced_at"`
 	// SpecPassthrough 代理商品"仅透传"标记（T4.3 / 16 §7.6.3）：上游规格未归一确认时，
 	// 显式声明只透传上游参数、不改写，方可上架（上架门禁据此放行）。
-	SpecPassthrough bool       `gorm:"column:spec_passthrough;not null;default:false"`
-	Featured        bool       `gorm:"column:featured;default:false;index"` // 是否前台推荐（推荐位管理）
-	Stock           int        `gorm:"default:-1"`                          // 库存，-1 表示不限
-	SortOrder       int        `gorm:"column:sort_order;default:0"`         // 排序
-	Status          int        `gorm:"default:0;index"`                     // 状态
-	CreatedAt       time.Time  `gorm:"autoCreateTime"`
-	UpdatedAt       time.Time  `gorm:"autoUpdateTime"`
-	DeletedAt       *time.Time `gorm:"index"`
+	SpecPassthrough bool `gorm:"column:spec_passthrough;not null;default:false"`
+	// SkuAxes 上游转售商品的「SKU 维度」选择（T4.8）：形如 {"cpu":true,"memory":true}，
+	// 键是本地参数名（cpu/memory/system_disk_size…）。
+	//
+	// 为什么存在商品行上而不是配置项行上：配置项由上游镜像生成，SaveConfigOptions 是
+	// **覆盖式**重写（先删后插），任何落在 product_config_options 上的标记都会在下次
+	// 同步/编辑时被抹掉。轴是运营的决策，必须独立于上游镜像存活。
+	// 自营链路的轴标记在规格模板的 option_selections 上（模板是设计期来源），
+	// 上游没有模板，故落在商品行。
+	SkuAxes   string     `gorm:"column:sku_axes;type:text"`
+	Featured  bool       `gorm:"column:featured;default:false;index"` // 是否前台推荐（推荐位管理）
+	Stock     int        `gorm:"default:-1"`                          // 库存，-1 表示不限
+	SortOrder int        `gorm:"column:sort_order;default:0"`         // 排序
+	Status    int        `gorm:"default:0;index"`                     // 状态
+	CreatedAt time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt time.Time  `gorm:"autoUpdateTime"`
+	DeletedAt *time.Time `gorm:"index"`
 }
 
 // TableName 指定表名

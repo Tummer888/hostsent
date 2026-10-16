@@ -241,7 +241,7 @@
                     原来并列的「详情 / 编辑」会把同一份内容指向两个地址，
                     运营点哪个都行、改完还得自己判断该回哪。
                   -->
-                  <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
+                  <t-link theme="default" hover="color" @click="openDetail(row)">详情</t-link>
                   <t-link theme="primary" hover="color" @click="openPriceDialog(row)">改价</t-link>
                   <t-link v-if="row.status !== 1" theme="primary" hover="color" @click="handlePublish(row)"
                     >上架</t-link

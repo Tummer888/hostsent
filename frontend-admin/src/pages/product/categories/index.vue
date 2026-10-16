@@ -544,10 +544,6 @@ onMounted(loadData)
   color: var(--color-foreground);
 }
 
-.cell-muted {
-  color: var(--color-muted-foreground);
-}
-
 .category-actions {
   white-space: nowrap;
 }

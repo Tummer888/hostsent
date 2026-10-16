@@ -37,7 +37,7 @@ func NewProductHandler(productService service.ProductService) *ProductHandler {
 // @Param page_size query int false "每页数量"
 // @Success 200 {object} response.Body
 // @Failure 500 {object} response.Body
-// @Router /api/v1/admin/product/catalog/products [get]
+// @Router /api/v1/admin/product/products [get]
 func (h *ProductHandler) List(c *gin.Context) {
 	var query dto.ProductListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
@@ -59,7 +59,7 @@ func (h *ProductHandler) List(c *gin.Context) {
 // @Param request body dto.ProductCreateRequest true "商品参数"
 // @Success 200 {object} response.Body
 // @Failure 500 {object} response.Body
-// @Router /api/v1/admin/product/catalog/products [post]
+// @Router /api/v1/admin/product/products [post]
 func (h *ProductHandler) Create(c *gin.Context) {
 	var req dto.ProductCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -274,7 +274,7 @@ func (h *ProductHandler) ApplyUpstreamMarkup(c *gin.Context) {
 // @Param id path int true "商品 ID"
 // @Success 200 {object} response.Body
 // @Failure 500 {object} response.Body
-// @Router /api/v1/admin/product/catalog/products/{id} [get]
+// @Router /api/v1/admin/product/products/{id} [get]
 func (h *ProductHandler) Get(c *gin.Context) {
 	id, ok := pathID(c, "id")
 	if !ok {
@@ -295,7 +295,7 @@ func (h *ProductHandler) Get(c *gin.Context) {
 // @Param request body dto.ProductUpdateRequest true "商品参数"
 // @Success 200 {object} response.Body
 // @Failure 500 {object} response.Body
-// @Router /api/v1/admin/product/catalog/products/{id} [put]
+// @Router /api/v1/admin/product/products/{id} [put]
 func (h *ProductHandler) Update(c *gin.Context) {
 	id, ok := pathID(c, "id")
 	if !ok {
@@ -321,7 +321,7 @@ func (h *ProductHandler) Update(c *gin.Context) {
 // @Param id path int true "商品 ID"
 // @Success 200 {object} response.Body
 // @Failure 500 {object} response.Body
-// @Router /api/v1/admin/product/catalog/products/{id} [delete]
+// @Router /api/v1/admin/product/products/{id} [delete]
 func (h *ProductHandler) Delete(c *gin.Context) {
 	id, ok := pathID(c, "id")
 	if !ok {
@@ -341,7 +341,7 @@ func (h *ProductHandler) Delete(c *gin.Context) {
 // @Param id path int true "商品 ID"
 // @Success 200 {object} response.Body
 // @Failure 500 {object} response.Body
-// @Router /api/v1/admin/product/catalog/products/{id}/publish [post]
+// @Router /api/v1/admin/product/products/{id}/publish [post]
 func (h *ProductHandler) Publish(c *gin.Context) {
 	id, ok := pathID(c, "id")
 	if !ok {
@@ -362,7 +362,7 @@ func (h *ProductHandler) Publish(c *gin.Context) {
 // @Param id path int true "商品 ID"
 // @Success 200 {object} response.Body
 // @Failure 500 {object} response.Body
-// @Router /api/v1/admin/product/catalog/products/{id}/unpublish [post]
+// @Router /api/v1/admin/product/products/{id}/unpublish [post]
 func (h *ProductHandler) Unpublish(c *gin.Context) {
 	id, ok := pathID(c, "id")
 	if !ok {
@@ -384,7 +384,7 @@ func (h *ProductHandler) Unpublish(c *gin.Context) {
 // @Param request body dto.ProductPriceRequest true "价格参数"
 // @Success 200 {object} response.Body
 // @Failure 500 {object} response.Body
-// @Router /api/v1/admin/product/catalog/products/{id}/price [put]
+// @Router /api/v1/admin/product/products/{id}/price [put]
 func (h *ProductHandler) UpdatePrice(c *gin.Context) {
 	id, ok := pathID(c, "id")
 	if !ok {
@@ -411,7 +411,7 @@ func (h *ProductHandler) UpdatePrice(c *gin.Context) {
 // @Param request body dto.ProductFeaturedRequest true "推荐参数"
 // @Success 200 {object} response.Body
 // @Failure 500 {object} response.Body
-// @Router /api/v1/admin/product/catalog/products/{id}/featured [post]
+// @Router /api/v1/admin/product/products/{id}/featured [post]
 func (h *ProductHandler) SetFeatured(c *gin.Context) {
 	id, ok := pathID(c, "id")
 	if !ok {
@@ -437,7 +437,7 @@ func (h *ProductHandler) SetFeatured(c *gin.Context) {
 // @Param id path int true "商品 ID"
 // @Success 200 {object} response.Body
 // @Failure 500 {object} response.Body
-// @Router /api/v1/admin/product/catalog/products/{id}/history [get]
+// @Router /api/v1/admin/product/products/{id}/history [get]
 func (h *ProductHandler) ListHistory(c *gin.Context) {
 	id, ok := pathID(c, "id")
 	if !ok {
@@ -457,7 +457,7 @@ func (h *ProductHandler) ListHistory(c *gin.Context) {
 // @Param id path int true "商品 ID"
 // @Success 200 {object} response.Body
 // @Failure 500 {object} response.Body
-// @Router /api/v1/admin/product/catalog/products/{id}/specs [get]
+// @Router /api/v1/admin/product/products/{id}/specs [get]
 func (h *ProductHandler) ListSpecs(c *gin.Context) {
 	id, ok := pathID(c, "id")
 	if !ok {
@@ -478,7 +478,7 @@ func (h *ProductHandler) ListSpecs(c *gin.Context) {
 // @Param id path int true "商品 ID"
 // @Param request body dto.ProductSpecRequest true "规格参数"
 // @Success 200 {object} response.Body
-// @Router /api/v1/admin/product/catalog/products/{id}/specs [post]
+// @Router /api/v1/admin/product/products/{id}/specs [post]
 func (h *ProductHandler) CreateSpec(c *gin.Context) {
 	id, ok := pathID(c, "id")
 	if !ok {
@@ -505,7 +505,7 @@ func (h *ProductHandler) CreateSpec(c *gin.Context) {
 // @Param id path int true "商品 ID"
 // @Param request body dto.SpecTemplateGenerateRequest true "生成参数"
 // @Success 200 {object} response.Body
-// @Router /api/v1/admin/product/catalog/products/{id}/specs/generate [post]
+// @Router /api/v1/admin/product/products/{id}/specs/generate [post]
 func (h *ProductHandler) GenerateSpecFromTemplate(c *gin.Context) {
 	id, ok := pathID(c, "id")
 	if !ok {
@@ -533,7 +533,7 @@ func (h *ProductHandler) GenerateSpecFromTemplate(c *gin.Context) {
 // @Param specId path int true "规格 ID"
 // @Param request body dto.ProductSpecRequest true "规格参数"
 // @Success 200 {object} response.Body
-// @Router /api/v1/admin/product/catalog/products/{id}/specs/{specId} [put]
+// @Router /api/v1/admin/product/products/{id}/specs/{specId} [put]
 func (h *ProductHandler) UpdateSpec(c *gin.Context) {
 	id, ok := pathID(c, "id")
 	if !ok {
@@ -564,7 +564,7 @@ func (h *ProductHandler) UpdateSpec(c *gin.Context) {
 // @Param id path int true "商品 ID"
 // @Param specId path int true "规格 ID"
 // @Success 200 {object} response.Body
-// @Router /api/v1/admin/product/catalog/products/{id}/specs/{specId} [delete]
+// @Router /api/v1/admin/product/products/{id}/specs/{specId} [delete]
 func (h *ProductHandler) DeleteSpec(c *gin.Context) {
 	id, ok := pathID(c, "id")
 	if !ok {
@@ -588,7 +588,7 @@ func (h *ProductHandler) DeleteSpec(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "商品 ID"
 // @Success 200 {object} response.Body
-// @Router /api/v1/admin/product/catalog/products/{id}/config-options [get]
+// @Router /api/v1/admin/product/products/{id}/config-options [get]
 func (h *ProductHandler) ListConfigOptions(c *gin.Context) {
 	id, ok := pathID(c, "id")
 	if !ok {
@@ -609,7 +609,7 @@ func (h *ProductHandler) ListConfigOptions(c *gin.Context) {
 // @Param id path int true "商品 ID"
 // @Param request body dto.ProductConfigOptionsRequest true "配置组"
 // @Success 200 {object} response.Body
-// @Router /api/v1/admin/product/catalog/products/{id}/config-options [put]
+// @Router /api/v1/admin/product/products/{id}/config-options [put]
 func (h *ProductHandler) SaveConfigOptions(c *gin.Context) {
 	id, ok := pathID(c, "id")
 	if !ok {
@@ -647,4 +647,72 @@ func specError(err error) *apperrors.AppError {
 	default:
 		return apperrors.New(50001, err.Error())
 	}
+}
+
+// UpstreamAxisOptions godoc
+// @Summary 查询上游商品的 SKU 维度设置（可做维度的配置项 + 当前选择 + 组合数）
+// @Tags 产品管理-商品
+// @Security BearerAuth
+// @Param id path int true "商品 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/product/products/{id}/upstream-axes [get]
+func (h *ProductHandler) UpstreamAxisOptions(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	resp, err := h.productService.UpstreamAxisOptions(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// SaveUpstreamAxisOptions godoc
+// @Summary 保存上游商品的 SKU 维度选择（不立即生成规格）
+// @Tags 产品管理-商品
+// @Security BearerAuth
+// @Param id path int true "商品 ID"
+// @Param request body dto.UpstreamAxisSaveRequest true "维度选择"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/product/products/{id}/upstream-axes [put]
+func (h *ProductHandler) SaveUpstreamAxisOptions(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	var req dto.UpstreamAxisSaveRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(40001, "参数错误"))
+		return
+	}
+	operatorID, operatorName := operatorFromContext(c)
+	resp, err := h.productService.SaveUpstreamAxisOptions(c.Request.Context(), id, req, operatorID, operatorName)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// GenerateUpstreamAxisSpecs godoc
+// @Summary 按已保存的 SKU 维度展开生成规格（幂等，可重复执行）
+// @Tags 产品管理-商品
+// @Security BearerAuth
+// @Param id path int true "商品 ID"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/product/products/{id}/upstream-axes/generate [post]
+func (h *ProductHandler) GenerateUpstreamAxisSpecs(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	operatorID, operatorName := operatorFromContext(c)
+	resp, err := h.productService.GenerateUpstreamAxisSpecs(c.Request.Context(), id, operatorID, operatorName)
+	if err != nil {
+		response.Error(c, apperrors.New(50001, err.Error()))
+		return
+	}
+	response.Success(c, resp)
 }

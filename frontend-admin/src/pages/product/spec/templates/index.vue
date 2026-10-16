@@ -1749,10 +1749,6 @@ onMounted(() => {
   color: var(--td-text-color-secondary, #888);
 }
 
-.cell-muted {
-  color: var(--td-text-color-placeholder, #bbb);
-}
-
 .opt-row {
   border: 1px solid var(--td-component-border, #e0e0e0);
   border-radius: 6px;

@@ -246,7 +246,7 @@ onMounted(() => {
 .product-module .result-bar__meta {
   font-size: 13px;
   font-weight: 600;
-  color: #334155;
+  color: var(--hs-text-tech);
 }
 
 .product-module .result-bar__hint {

@@ -55,6 +55,11 @@ func registerAdminProductRoutes(v1 *gin.RouterGroup, app *App) {
 			prodProducts.POST("/:id/specs/generate", app.perm("product:update"), app.prodCatalogHandler.GenerateSpecFromTemplate)
 			prodProducts.PUT("/:id/specs/:specId", app.perm("product:update"), app.prodCatalogHandler.UpdateSpec)
 			prodProducts.DELETE("/:id/specs/:specId", app.perm("product:update"), app.prodCatalogHandler.DeleteSpec)
+			// 上游商品的 SKU 维度（T4.8）：选哪些上游配置项作为规格维度，按取值组合展开生成 SKU。
+			// 只对 source_mode=upstream 有意义；自营商品的维度在规格模板的 option_selections 上。
+			prodProducts.GET("/:id/upstream-axes", app.perm("product:list"), app.prodCatalogHandler.UpstreamAxisOptions)
+			prodProducts.PUT("/:id/upstream-axes", app.perm("product:update"), app.prodCatalogHandler.SaveUpstreamAxisOptions)
+			prodProducts.POST("/:id/upstream-axes/generate", app.perm("product:update"), app.prodCatalogHandler.GenerateUpstreamAxisSpecs)
 			// 可配置项维护（T4.4）：source=upstream 走上游配置 id，source=self 直接下发平台参数名。
 			prodProducts.GET("/:id/config-options", app.perm("product:list"), app.prodCatalogHandler.ListConfigOptions)
 			prodProducts.PUT("/:id/config-options", app.perm("product:update"), app.prodCatalogHandler.SaveConfigOptions)

@@ -653,14 +653,8 @@ onMounted(() => {
   gap: 2px;
 }
 
-.cell-strong {
-  font-weight: 600;
-}
-
-.cell-sub {
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-}
+/* .cell-strong / .cell-sub 由全局 styles/table-body.css 统一提供
+   （此处原有两份与之等值的副本）。 */
 
 .scope-cell {
   display: flex;
@@ -668,17 +662,9 @@ onMounted(() => {
   gap: 4px;
 }
 
-.action-cell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
+/* .action-cell 由全局 styles/table-body.css 统一（gap 10px → 8px）。 */
 
-.time-text {
-  font-size: 12px;
-  line-height: 1.6;
-}
+/* .time-text 由全局 styles/table-body.css 统一。 */
 
 @media (max-width: 768px) {
   .form-grid {

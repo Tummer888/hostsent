@@ -31,6 +31,9 @@ import type {
   SpecTemplateGenerateRequest,
   SpecTemplateGenerateResult,
   SpecTemplateListResponse,
+  UpstreamAxisOptionsInfo,
+  UpstreamAxisSaveRequest,
+  UpstreamAxisGenerateResult,
   SpecTemplateQuery,
   SpecTemplateRequest,
   OptionSpecInfo,
@@ -315,6 +318,31 @@ export function createSpecTemplate(data: SpecTemplateRequest): Promise<SpecTempl
 
 export function updateSpecTemplate(id: number, data: SpecTemplateRequest): Promise<SpecTemplateInfo> {
   return request.put<SpecTemplateInfo>({ url: `/product/spec/templates/${id}`, data })
+}
+
+/**
+ * 上游商品的 SKU 维度设置（T4.8）：可做维度的配置项 + 当前选择 + 组合数。
+ *
+ * 为什么独立于规格模板：上游没有模板，维度选择落在商品行（products.sku_axes），
+ * 因为上游配置项是覆盖式重写的，标记放那里会被下次同步抹掉。
+ */
+export function getUpstreamAxisOptions(id: number): Promise<UpstreamAxisOptionsInfo> {
+  return request.get<UpstreamAxisOptionsInfo>({ url: `/product/products/${id}/upstream-axes` })
+}
+
+/** 保存 SKU 维度选择（只存选择，不生成规格）。 */
+export function saveUpstreamAxisOptions(
+  id: number,
+  data: UpstreamAxisSaveRequest,
+): Promise<UpstreamAxisOptionsInfo> {
+  return request.put<UpstreamAxisOptionsInfo>({ url: `/product/products/${id}/upstream-axes`, data })
+}
+
+/** 按已保存的维度展开生成规格（幂等：同组合重跑是更新而非新增）。 */
+export function generateUpstreamAxisSpecs(id: number): Promise<UpstreamAxisGenerateResult> {
+  return request.post<UpstreamAxisGenerateResult>({
+    url: `/product/products/${id}/upstream-axes/generate`,
+  })
 }
 
 export function deleteSpecTemplate(id: number): Promise<string> {

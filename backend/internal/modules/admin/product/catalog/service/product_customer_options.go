@@ -127,10 +127,17 @@ func (s *productService) CustomerOptions(ctx context.Context, productID uint64) 
 	// 但允许填其它值（port 只声明 auto，文档允许填具体端口号）。
 	// 目录按平台类型读一次、全商品共用；读不到就不放开（宁可不放开，也不能让客户乱填）。
 	creatableKeys := s.creatableOptionKeys(ctx, rows)
+	// 已作为 SKU 维度的参数不再开放给客户（T4.8）：它的取值由所选规格决定，
+	// 客户再选一次会覆盖 SKU 的 pin —— 与自营链路同一条规则
+	// （自营侧见 collectOptionAccumulatorsFiltered）。
+	axisKeys := s.axisKeysForProduct(ctx, productID)
 
 	options := make([]CustomerOption, 0, len(rows))
 	for _, row := range rows {
 		if row.Source == catalogmodel.ConfigSourceUpstream && !customerSelectableUpstream(row) {
+			continue
+		}
+		if axisKeys[upstreamOptionKey(row.OptionName)] {
 			continue
 		}
 		key := customerOptionKey(row)
@@ -311,6 +318,19 @@ func upstreamSubLabel(optionName, source, value string) string {
 		return value
 	}
 	return name
+}
+
+// axisKeysForProduct 取该商品已作为 SKU 维度的参数名集合（T4.8）。
+//
+// 只对上游转售商品有意义（轴选择存在 products.sku_axes 上）；自营链路的轴在规格
+// 模板的 option_selections 里，生成配置项时就已排除，这里返回空集即可。
+// 读不到商品时返回空集：宁可多开放一个配置项，也不要因为读失败把正常选项全藏掉。
+func (s *productService) axisKeysForProduct(ctx context.Context, productID uint64) map[string]bool {
+	product, err := s.repo.FindByID(ctx, productID)
+	if err != nil || product == nil || product.SourceMode != catalogmodel.SourceModeUpstream {
+		return map[string]bool{}
+	}
+	return parseUpstreamAxisSelection(product.SkuAxes)
 }
 
 // creatableOptionKeys 取该商品涉及哪些「允许自由填写」的配置项。

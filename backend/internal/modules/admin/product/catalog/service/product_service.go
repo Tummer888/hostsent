@@ -58,6 +58,12 @@ type ProductService interface {
 	ResolveOptionPricing(ctx context.Context, productID uint64, cycle string, selections map[string]string) (*OptionPricing, error)
 	// FindSpec 按商品 + 规格编码取启用中的 SKU（下单/算价用，T4.1）。
 	FindSpec(ctx context.Context, productID uint64, specCode string) (*dto.ProductSpecInfo, error)
+	// UpstreamAxisOptions 列出上游商品可做 SKU 维度的配置项及其当前选择（T4.8）。
+	UpstreamAxisOptions(ctx context.Context, productID uint64) (*dto.UpstreamAxisOptionsInfo, error)
+	// SaveUpstreamAxisOptions 保存 SKU 维度选择（T4.8）：只存选择，不立即生成规格。
+	SaveUpstreamAxisOptions(ctx context.Context, productID uint64, req dto.UpstreamAxisSaveRequest, operatorID uint64, operatorName string) (*dto.UpstreamAxisOptionsInfo, error)
+	// GenerateUpstreamAxisSpecs 按已保存的 SKU 维度展开生成规格（T4.8，幂等）。
+	GenerateUpstreamAxisSpecs(ctx context.Context, productID uint64, operatorID uint64, operatorName string) (*dto.UpstreamAxisGenerateResult, error)
 	// DecrementSpecStock / IncrementSpecStock SKU 库存原子增减（下单扣减、失败回补，T4.1）。
 	DecrementSpecStock(ctx context.Context, specID uint64, qty int) (int64, error)
 	IncrementSpecStock(ctx context.Context, specID uint64, qty int) (int64, error)
@@ -92,6 +98,10 @@ type ProductService interface {
 	// SetCyclePriceWriter 注入周期价格矩阵写入能力（doc25 §5）。
 	// 装配层在价格矩阵服务就绪后调用（构造顺序上 catalog 先于 pricing，故不放构造函数）。
 	SetCyclePriceWriter(w CyclePriceWriter)
+	// SetCyclePriceMatrixWriter 注入「指定 SKU 写周期价」能力（T4.8 上游 SKU 维度展开）。
+	SetCyclePriceMatrixWriter(w CyclePriceMatrixWriter)
+	// SetCyclePriceReader 注入「读基准周期价」能力（T4.8 上游 SKU 维度展开算价基数）。
+	SetCyclePriceReader(r CyclePriceReader)
 	// SetSpecTemplateReader 注入规格模板读取能力（自营链路按模板生成 SKU）。
 	// 同上：模板仓储在装配顺序上晚于 catalog 服务构建。
 	SetSpecTemplateReader(r SpecTemplateReader)
@@ -332,6 +342,22 @@ type CyclePriceWriter interface {
 	ApplyUpstreamPrices(ctx context.Context, productID uint64, rows []CyclePriceRow) error
 }
 
+// CyclePriceMatrixWriter 周期价格矩阵的「指定 SKU 整表写入」能力（T4.8）。
+//
+// 与 CyclePriceWriter 的区别：那个是"按上游成本刷新商品级各周期价"（保留人工行），
+// 这个是"给某个 SKU 写它自己的周期价"（上游 SKU 维度展开时用：基准价 + 该组合加价）。
+// 刻意不合并成一个接口：两者语义与覆盖规则都不同，混用会让"谁覆盖谁"再次变模糊。
+type CyclePriceMatrixWriter interface {
+	// SaveSpecPrices 写入某 SKU 的周期价行（specID != 0）。
+	SaveSpecPrices(ctx context.Context, productID, specID uint64, rows []CyclePriceRow) error
+}
+
+// CyclePriceReader 周期价格矩阵读取能力（T4.8）：上游 SKU 展开需要拿基准周期价。
+type CyclePriceReader interface {
+	// ListPrices 取 (商品, SKU) 的周期价行；specID=0 表示商品级。
+	ListPrices(ctx context.Context, productID, specID uint64) ([]CyclePriceRow, error)
+}
+
 // RenewalPriceSyncer 把商品的周期价同步到已开通实例的续费绑定（装配层实现）。
 //
 // 为什么需要：实例一旦绑定过续费价（instances.renewal_price），就**不再跟随商品调价**——
@@ -376,6 +402,10 @@ type productService struct {
 	bindingWriter SpecBindingWriter
 	// cycleWriter 用于上游调价确认后按周期重算矩阵（doc25 §5）
 	cycleWriter CyclePriceWriter
+	// cycleMatrixWriter 给指定 SKU 写周期价（上游 SKU 维度展开，T4.8）
+	cycleMatrixWriter CyclePriceMatrixWriter
+	// cycleMatrixReader 读基准周期价（上游 SKU 维度展开算价基数，T4.8）
+	cycleMatrixReader CyclePriceReader
 	// renewalSyncer 把周期价同步到已开通实例的续费绑定（装配层注入，可为 nil）
 	renewalSyncer RenewalPriceSyncer
 	// optionCatalog 平台配置项目录（生成客户选配项时取控件元数据与取值）
@@ -400,6 +430,10 @@ func NewProductService(repo repository.ProductRepository, readers ...interface{}
 			s.specRegistrar = v
 		case CyclePriceWriter:
 			s.cycleWriter = v
+		case CyclePriceMatrixWriter:
+			s.cycleMatrixWriter = v
+		case CyclePriceReader:
+			s.cycleMatrixReader = v
 		}
 	}
 	return s
@@ -408,6 +442,16 @@ func NewProductService(repo repository.ProductRepository, readers ...interface{}
 // SetCyclePriceWriter 注入周期价格矩阵写入能力（doc25 §5）。
 func (s *productService) SetCyclePriceWriter(w CyclePriceWriter) {
 	s.cycleWriter = w
+}
+
+// SetCyclePriceMatrixWriter 注入「指定 SKU 写周期价」能力（T4.8 上游 SKU 维度展开）。
+func (s *productService) SetCyclePriceMatrixWriter(w CyclePriceMatrixWriter) {
+	s.cycleMatrixWriter = w
+}
+
+// SetCyclePriceReader 注入「读基准周期价」能力（T4.8）。
+func (s *productService) SetCyclePriceReader(r CyclePriceReader) {
+	s.cycleMatrixReader = r
 }
 
 // SetRenewalPriceSyncer 注入续费价同步能力（装配层调用）。
@@ -2421,10 +2465,16 @@ func (s *productService) BuildProvisionRequest(ctx context.Context, productID ui
 		// 上游对接商品的选配下发格式是 configoption[上游选项id]=上游取值id，适配器按
 		// config_groups 还原（见 zjmf buildCartConfigOption）。这里把「选项id → 所选取值id」
 		// 显式写成 configoption 映射，避免再依赖 "os" 这类本地词汇去猜上游子项。
+		//
+		// 必须**合并**而不是整体赋值（T4.8 实测缺陷）：SKU 的 pin（按 SKU 维度生成的
+		// 组合）也写在 configoption 里，整体赋值会用客户的选配结果把它整份替换掉 ——
+		// 于是"选了 8核 的 SKU"在履约时按客户默认的 4核 开通，规格与订单不符。
+		// 合并顺序：先 pin（SKU 决定），再客户选择（同键以客户为准，但轴参数已从
+		// 可选项中排除，正常不会撞键）。
 		if item.SourceMode == model.SourceModeUpstream && len(clean) > 0 {
 			if raw, ok := opts["config_groups"]; ok {
 				if mapping := upstreamConfigOptionOverride(raw, clean); len(mapping) > 0 {
-					opts["configoption"] = mapping
+					opts["configoption"] = mergeConfigOptionMap(opts["configoption"], mapping)
 				}
 			}
 		}
@@ -2450,10 +2500,17 @@ func (s *productService) sanitizeSelections(ctx context.Context, productID uint6
 	if err != nil || len(rows) == 0 {
 		return selections
 	}
+	axisKeys := s.axisKeysForProduct(ctx, productID)
 	allowed := make(map[string]configSelectionRule, len(rows))
 	for _, row := range rows {
 		// 上游单值固定配置项不是客户可选项，不接受任何选择（锁定守卫另有兜底）。
 		if row.Source == model.ConfigSourceUpstream && !customerSelectableUpstream(row) {
+			continue
+		}
+		// 已作为 SKU 维度的参数不接受客户覆盖（T4.8）：它的取值由所选规格决定，
+		// SKU 的 pin 已写进 configoption；放行会让客户选择覆盖 pin，
+		// 出现"买 8 核规格、按 4 核开通"。与 CustomerOptions 的排除口径一致。
+		if row.Source == model.ConfigSourceUpstream && axisKeys[upstreamOptionKey(row.OptionName)] {
 			continue
 		}
 		key := customerOptionKey(row)
@@ -2476,6 +2533,30 @@ func (s *productService) sanitizeSelections(ctx context.Context, productID uint6
 		// 自由填写型（数量/文本）没有离散候选值：只要键对就放行，
 		// 区间/格式校验在计价与适配器侧完成。枚举型必须命中候选取值，否则丢弃。
 		if rule.freeform || rule.values[v] {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// mergeConfigOptionMap 合并两份 configoption 映射（上游选项id → 取值id）。
+//
+// 为什么需要（T4.8 实测缺陷）：SKU 的轴 pin 与客户的选配结果都写在 opts["configoption"]
+// 上，此前客户选配那一步是整体赋值，会把同 SKU 的 pin 整份替换掉 ——
+// 选了"8核"规格的订单，履约时按客户默认的"4核"开通，规格与订单不符。
+//
+// 语义：以 base（SKU pin）为底，override（客户选择）叠加其上；同键以 override 为准。
+// 轴参数已从客户端可选项中排除，正常情况下两者不会撞键；即便撞了，客户显式选择
+// 也应当赢（那是本次订单的真实意图），但运营可通过"重新生成 SKU"修正维度设置。
+func mergeConfigOptionMap(base, override interface{}) map[string]interface{} {
+	out := map[string]interface{}{}
+	if m, ok := base.(map[string]interface{}); ok {
+		for k, v := range m {
+			out[k] = v
+		}
+	}
+	if m, ok := override.(map[string]interface{}); ok {
+		for k, v := range m {
 			out[k] = v
 		}
 	}

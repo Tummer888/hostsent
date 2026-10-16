@@ -1020,3 +1020,65 @@ export interface PricePolicyListResponse {
   items: PricePolicyInfo[]
   meta: ListMeta
 }
+
+// ============================================================================
+// 上游转售商品的 SKU 维度（T4.8）
+// ============================================================================
+
+/** 一个可做 SKU 维度的取值。 */
+export interface UpstreamAxisValueInfo {
+  /** 上游取值 id（下发时作为 configoption 的值）。 */
+  upstream_sub_id: number
+  /** 展示名（"4核"）。 */
+  label: string
+  /** 上游原始取值名（"4|4核"）。 */
+  raw: string
+  /** 各周期加价（上游口径，元）。 */
+  monthly: number
+  quarterly: number
+  annually: number
+  onetime: number
+}
+
+/** 一个可做 SKU 维度的上游配置项。 */
+export interface UpstreamAxisOptionInfo {
+  /** 本地参数名（cpu / memory / system_disk_size…），保存选择时用它。 */
+  key: string
+  label: string
+  option_name: string
+  /** 上游锁定（仅一个可见取值）：做维度只会产出 1 个规格。 */
+  locked: boolean
+  selected: boolean
+  values: UpstreamAxisValueInfo[]
+  /** 若选上它，组合数会变成多少（界面实时预览）。 */
+  combination_if_selected: number
+}
+
+/** 上游商品的 SKU 维度设置视图。 */
+export interface UpstreamAxisOptionsInfo {
+  product_id: number
+  candidates: UpstreamAxisOptionInfo[]
+  selected_keys: string[]
+  /** 当前选择会生成的规格数（未选任何维度时为 0）。 */
+  combination_count: number
+  /** 组合数上限（界面对照展示）。 */
+  max_combinations: number
+  existing_spec_count: number
+  /** 非空表示当前选择有问题（如某个已保存的维度已失效）。 */
+  notice?: string
+}
+
+/** 保存 SKU 维度选择。 */
+export interface UpstreamAxisSaveRequest {
+  /** 选中的参数名列表；空数组表示取消全部维度。 */
+  keys: string[]
+}
+
+/** 按维度生成规格的结果。 */
+export interface UpstreamAxisGenerateResult {
+  specs: SaleProductSpecInfo[]
+  /** 新增与更新的条数（幂等重跑时 updated 等于总数、created 为 0）。 */
+  created: number
+  updated: number
+  combination_count: number
+}
