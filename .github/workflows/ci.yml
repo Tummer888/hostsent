@@ -125,6 +125,9 @@ jobs:
           go install github.com/swaggo/swag/v2/cmd/swag@v2.0.0
           ~/go/bin/swag init -g cmd/server/main.go -o docs -ot json \
             --v3.1 --parseDependency --parseInternal
+          # 补齐 swag 上游缺陷：OAS3 模式只注册第一个 securitydefinitions，
+          # 生成后注入 OpenSignature 并给 /open/v1/** 挂签名鉴权（幂等）
+          python3 backend/scripts/patch_openapi.py
 
   frontend-admin:
     name: Admin Frontend (vue-tsc + build)

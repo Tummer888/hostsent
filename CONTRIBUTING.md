@@ -181,7 +181,9 @@ CI 额外执行（见 `.github/workflows/ci.yml`）：
 - **openapi 注解检查**：CI 执行 `swag init -g cmd/server/main.go -o docs -ot json
   --v3.1 --parseDependency --parseInternal`，解析失败（类型引用漂移、注解语法错误）即
   fail；新增 handler 必须带 swag v2 注解（@Summary/@Tags/@Security/@Router），
-  `backend/docs/swagger.json` 是生成产物勿手改
+  响应体用具体 DTO（`@Success 200 {object} dto.X`，数组返回用 `{array} dto.Y`）；
+  生成后接 `python3 backend/scripts/patch_openapi.py` 注入 OpenSignature 并给
+  /open/v1/** 挂签名鉴权；`backend/docs/swagger.json` 是生成产物勿手改
 - **覆盖率**：`go test -cover ./internal/modules/...` 全量报告（只展示）；
   门禁只盯核心链路两包（`scripts/check_coverage.sh`，阈值 70%，棘轮式上调）：
   admin/order/service（下单/退款/开通）与 uc/order/service（用户下单全链路）。
