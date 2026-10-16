@@ -925,22 +925,8 @@ onMounted(async () => {
   color: var(--color-muted-foreground);
 }
 
-.cell-strong {
-  font-size: 13px;
-  font-weight: 600;
-  color: #334155;
-}
-
-.cell-muted {
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-}
-
-.time-text {
-  font-size: 12px;
-  color: #334155;
-  font-variant-numeric: tabular-nums;
-}
+/* .time-text 由全局 styles/table-body.css 统一
+   （此处原用 --hs-text-tech，与全站的时间戳色分叉，现统一到 --hs-text-mono）。 */
 
 .error-text {
   color: #dc2626;
@@ -948,14 +934,6 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.action-cell {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  flex-wrap: wrap;
 }
 
 .force-badge {

@@ -138,7 +138,7 @@
             <template v-else>
               <t-link theme="primary" hover="color" @click="openTest(row)">测试发送</t-link>
               <t-link v-if="canManage" theme="primary" hover="color" @click="openEdit(row)">编辑</t-link>
-              <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
+              <t-link theme="default" hover="color" @click="openDetail(row)">详情</t-link>
             </template>
           </div>
         </template>

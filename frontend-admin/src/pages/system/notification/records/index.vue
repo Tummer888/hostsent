@@ -111,7 +111,7 @@
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
-              <t-link theme="primary" hover="color" @click="openDetail(row)">查看</t-link>
+              <t-link theme="default" hover="color" @click="openDetail(row)">查看</t-link>
               <t-link v-if="canResend(row)" theme="warning" hover="color" @click="handleResend(row)"> 重发 </t-link>
             </template>
           </div>
@@ -434,7 +434,7 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
   align-items: flex-start;
   gap: 12px;
   font-size: 13px;
-  color: #334155;
+  color: var(--hs-text-tech);
 }
 .detail-row > span:first-child {
   flex: 0 0 88px;
@@ -451,7 +451,7 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.6;
-  color: #334155;
+  color: var(--hs-text-tech);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 240px;

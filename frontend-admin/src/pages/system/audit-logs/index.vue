@@ -75,7 +75,7 @@
 
           <!-- 行操作：查看详情 -->
           <template #operation="{ row }">
-            <t-link v-if="!isMobile" theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
+            <t-link v-if="!isMobile" theme="default" hover="color" @click="openDetail(row)">详情</t-link>
             <MobileAction
               v-else
               :options="[{ content: '详情', value: 'detail' }]"
@@ -172,7 +172,7 @@
               {{ row.created_at }}
             </template>
             <template #operation="{ row }">
-              <t-link v-if="!isMobile" theme="primary" hover="color" @click="openAdminDetail(row)">详情</t-link>
+              <t-link v-if="!isMobile" theme="default" hover="color" @click="openAdminDetail(row)">详情</t-link>
               <MobileAction
                 v-else
                 :options="[{ content: '详情', value: 'detail' }]"

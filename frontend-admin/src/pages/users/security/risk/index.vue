@@ -143,7 +143,7 @@
           @select="(value) => handleMobileAction(value, row)"
         />
         <t-space v-else size="small" break-line>
-          <t-link theme="primary" @click="openDetail(row)">详情</t-link>
+          <t-link theme="default" @click="openDetail(row)">详情</t-link>
           <t-link v-permission="'security:risk:list'" theme="primary" @click="openLevel(row)">调整等级</t-link>
           <t-link
             v-permission="'security:risk:list'"
@@ -1030,7 +1030,8 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
   margin-left: 6px;
 }
 
-.cell-muted,
+/* .cell-muted 由全局 styles/table-body.css 统一；.detail-muted 是详情区
+   （非表格）的次要文字，保留在此自足。 */
 .detail-muted {
   font-size: 12px;
   color: var(--color-muted-foreground);

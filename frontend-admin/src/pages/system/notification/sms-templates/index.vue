@@ -676,7 +676,7 @@ onMounted(async () => {
   background: var(--hs-surface-2, #f4f6fa);
   font-size: 13px;
   line-height: 1.7;
-  color: #334155;
+  color: var(--hs-text-tech);
   white-space: pre-wrap;
   word-break: break-word;
 }

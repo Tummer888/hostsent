@@ -15,6 +15,9 @@
    teleport 到 body，模块命名空间祖先链断裂，按模块收窄会漏掉它们。详见该文件说明。 */
 @import './table-head.css';
 
+/* 表格主体（操作列 / 单元格文字 / 标签）统一规格，与上一份配套。 */
+@import './table-body.css';
+
 :root {
   /* HostSent Design System tokens — Light theme · Density 9 · Variance 3 · Motion 4
      主色为石墨灰（黑），强调色为橙；绿色不再是品牌色，仅保留为「成功/运行中」等语义色。 */

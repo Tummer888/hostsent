@@ -760,7 +760,7 @@ onMounted(async () => {
   flex-wrap: wrap;
   gap: var(--space-md);
   font-size: 13px;
-  color: #334155;
+  color: var(--hs-text-tech);
 }
 
 .tag-list {

@@ -74,6 +74,9 @@ const info = computed(() => osIconInfo(props.os))
 }
 .os-icon--macos {
   background: #eef1f5;
+  /* 品牌灰，与同一组图标的 windows 蓝 / android 绿并列，不参与主题翻转：
+     这是「品牌章」的配色，不是正文文字，换成会随主题翻转的令牌反而会让
+     三个图标在深色下只有它变色。 */
   color: #334155;
 }
 .os-icon--android {

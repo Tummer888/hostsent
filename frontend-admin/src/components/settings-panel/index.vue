@@ -175,7 +175,7 @@ function setColor(hex: string) {
   margin: 0 0 12px;
   font-size: 13px;
   font-weight: 600;
-  color: #334155;
+  color: var(--hs-text-tech);
   display: flex;
   align-items: center;
   gap: 8px;

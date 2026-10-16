@@ -748,14 +748,6 @@ onMounted(() => {
   color: var(--color-muted-foreground);
 }
 
-.cell-strong {
-  font-weight: 600;
-}
-
-.cell-muted {
-  color: var(--color-muted-foreground);
-}
-
 .error-text {
   color: var(--td-error-color, #d54941);
   overflow: hidden;

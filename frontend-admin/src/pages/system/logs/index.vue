@@ -139,7 +139,7 @@
             </template>
             <template #action="{ row }">
               <div class="action-cell">
-                <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
+                <t-link theme="default" hover="color" @click="openDetail(row)">详情</t-link>
               </div>
             </template>
             <template #empty>

@@ -885,9 +885,10 @@ function handleMobileAction(value: string | number | Record<string, unknown>, ro
   font-weight: 600;
 }
 
-.sort-text,
-.time-text {
-  color: #334155;
+/* .sort-text 是排序提示文字（非时间戳），保留本页自己的配色；
+   .time-text 已由全局 styles/table-body.css 统一，从此处拆出。 */
+.sort-text {
+  color: var(--hs-text-tech);
   font-size: 12px;
   line-height: 1.6;
 }

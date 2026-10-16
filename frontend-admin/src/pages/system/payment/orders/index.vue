@@ -156,7 +156,7 @@
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
-              <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
+              <t-link theme="default" hover="color" @click="openDetail(row)">详情</t-link>
               <t-link v-if="isManualPending(row) && canOperate" theme="success" hover="color" @click="openConfirm(row)"
                 >确认到账</t-link
               >

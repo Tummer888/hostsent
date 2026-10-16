@@ -71,7 +71,7 @@
             <span class="time-text">{{ formatDateTime(row.created_at) }}</span>
           </template>
           <template #op="{ row }">
-            <t-link theme="primary" hover="color" @click="goOrderDetail(row.id)">详情</t-link>
+            <t-link theme="default" hover="color" @click="goOrderDetail(row.id)">详情</t-link>
           </template>
           <template #empty>
             <t-empty description="该用户暂无订单" />

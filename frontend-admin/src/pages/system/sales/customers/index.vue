@@ -793,6 +793,6 @@ onMounted(() => {
 .sales-module .history-item__reason {
   margin: 0;
   font-size: 13px;
-  color: #334155;
+  color: var(--hs-text-tech);
 }
 </style>

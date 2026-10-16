@@ -132,30 +132,6 @@
 }
 
 /* ---------- 操作列 / 单元格辅助 ---------- */
-.content-module .action-cell {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.content-module .cell-strong {
-  color: #334155;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.content-module .cell-muted {
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-}
-
-.content-module .time-text {
-  color: #334155;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
 
 .content-module .product-cell {
   display: flex;
@@ -257,7 +233,7 @@
 
 .content-module .category-node__name {
   font-weight: 600;
-  color: #334155;
+  color: var(--hs-text-tech);
 }
 
 .content-module .category-node__meta {

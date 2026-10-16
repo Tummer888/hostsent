@@ -139,7 +139,7 @@
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
-              <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
+              <t-link theme="default" hover="color" @click="openDetail(row)">详情</t-link>
               <t-link
                 v-if="canRetry && deliveryRetryable(row.send_status)"
                 theme="warning"
@@ -540,7 +540,7 @@ onMounted(loadData)
 .detail-text {
   margin: 0;
   font-size: 13px;
-  color: #334155;
+  color: var(--hs-text-tech);
 }
 
 .detail-content {
@@ -550,7 +550,7 @@ onMounted(loadData)
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.6;
-  color: #334155;
+  color: var(--hs-text-tech);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 260px;

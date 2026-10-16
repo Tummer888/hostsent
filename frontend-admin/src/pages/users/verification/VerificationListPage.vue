@@ -685,10 +685,6 @@ onMounted(() => {
   color: var(--color-muted-foreground);
 }
 
-.cell-strong {
-  font-weight: 600;
-}
-
 @media (max-width: 768px) {
   .detail-grid {
     grid-template-columns: 1fr;

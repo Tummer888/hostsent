@@ -2104,14 +2104,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 
-.cell-sub {
-  display: block;
-  font-size: 12px;
-  color: var(--color-muted-foreground);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+/* .cell-sub 由全局 styles/table-body.css 统一（本页的截断写法已收进规范）。 */
 
 .danger-note {
   padding: 10px 12px;
@@ -2446,13 +2439,9 @@ onBeforeUnmount(() => {
   color: #1677ff;
 }
 
-.action-cell {
-  display: flex;
-  width: 100%;
-  gap: 6px;
-  align-items: center;
-  justify-content: center;
-}
+/* .action-cell 由全局 styles/table-body.css 统一（width:100% + gap:8px + 居中）。
+   本页原有副本用 gap:6px，但链接实际包在 t-space size="small" 里，渲染间距是 8px，
+   与全局规格一致，故删除副本。 */
 
 /* 操作列按「动作的危险程度」分色：查看=中性灰、资金/下单=主题色、
    登录=技术色、解冻/恢复=绿、冻结=橙、注销=红。
@@ -2598,12 +2587,7 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
-.time-text {
-  color: var(--hs-text-mono);
-  font-size: 12px;
-  line-height: 1.6;
-  font-variant-numeric: tabular-nums;
-}
+/* .time-text 由全局 styles/table-body.css 统一（本页原本逐字重复了一份）。 */
 
 .time-text--muted {
   color: var(--color-muted-foreground);

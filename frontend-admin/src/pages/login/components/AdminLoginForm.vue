@@ -547,7 +547,7 @@ onMounted(async () => {
 }
 
 :deep(.t-form__label) {
-  color: #334155;
+  color: var(--hs-text-tech);
   font-size: 12.5px;
   font-weight: 500;
   padding-bottom: 4px;

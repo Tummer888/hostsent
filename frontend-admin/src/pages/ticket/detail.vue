@@ -668,7 +668,7 @@ onMounted(loadDetail)
   white-space: pre-wrap;
   word-break: break-all;
   font-size: 13px;
-  color: #334155;
+  color: var(--hs-text-tech);
   line-height: 1.7;
 }
 
@@ -707,7 +707,7 @@ onMounted(loadDetail)
 .reply-header .sender {
   font-size: 12px;
   font-weight: 600;
-  color: #334155;
+  color: var(--hs-text-tech);
 }
 
 .reply-header .time {
@@ -733,7 +733,7 @@ onMounted(loadDetail)
 .reply-content {
   font-size: 13px;
   line-height: 1.7;
-  color: #334155;
+  color: var(--hs-text-tech);
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -831,7 +831,7 @@ onMounted(loadDetail)
 .review-dialog__quote {
   font-size: 13px;
   line-height: 1.7;
-  color: #334155;
+  color: var(--hs-text-tech);
   white-space: pre-wrap;
   word-break: break-word;
   background: var(--hs-surface-2);
@@ -926,7 +926,7 @@ onMounted(loadDetail)
 .log-item__action {
   font-size: 13px;
   font-weight: 600;
-  color: #334155;
+  color: var(--hs-text-tech);
 }
 
 .log-item__operator {

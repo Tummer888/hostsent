@@ -1,0 +1,239 @@
+/* ============================================================
+   HostSent · 统一表格主体规格（操作列 / 单元格文字 / 标签）
+   ----------------------------------------
+   与 table-head.css 配套：那份管表头，这份管表头以下的所有内容。
+   基准同样来自「用户列表」页（pages/users/accounts/list）。
+
+   改造前的实际状况（实测，非推测）：
+   1) 操作列链接在基准页是 13px/500 重、语义分色（查看=中性灰、资金=主题色、
+      登录=技术色、恢复=绿、冻结=橙、注销=红），悬停用 opacity；其它模块直接用
+      TDesign 的 theme，渲染成 14px/400 重与 TDesign 自带的橙 rgb(227,115,24)、
+      绿 rgb(43,164,113)、红 rgb(213,73,65)。同一后台里同一个「删除」是两种红、
+      同一个「详情」是两种灰、字号与字重也不同。
+   2) `.cell-strong` / `.cell-muted` / `.cell-sub` 这组单元格辅助类，被 26 个文件
+      各自复制了一份定义，且副本之间已经分叉：`cell-strong` 有 #334155/13px/600、
+      var(--color-foreground)/13px/600、500 重三种；`cell-muted`（名字叫 muted）
+      有 var(--color-foreground) 与 var(--color-muted-foreground) 两种取值 ——
+      前者等于把「次要文字」刷成正文黑，同一个类在不同页表现相反。
+   3) #334155 这类 slate 硬编码在深色主题下渲染成 rgb(51,65,85)（近黑底上几乎
+      不可读，实测确认）；`var(--color-error, …)` 引用的 --color-error
+      从未定义，8 处全部走 fallback，不随主题翻转。
+
+   取值一律用设计令牌而非硬编码色号：语义文字色（--hs-text-*）与状态色
+   （--hs-status-*）已在 styles/index.css 里成套定义并随 html.dark 翻转，
+   硬编码色号正是上面第 2、3 条问题的根源。
+   ============================================================ */
+
+/* ---------- 数据单元格 ---------- */
+.t-table__body td {
+  color: var(--color-foreground);
+  /* 行线用 --color-border：基准页用的是更浅的品牌色 1 号，但它同时给偶数行加了
+     斑马纹底色来保证纵向可跟踪；其它模块没有斑马纹，直接照搬会把行与行之间
+     分不清。--color-border 是项目通行的分隔线令牌，两者都安全。 */
+  border-bottom-color: var(--color-border);
+  /* 单元格内元素高度不一时（标签 + 文字 + 复制按钮）统一垂直居中，
+     避免同一行的文字一个贴顶一个居中。 */
+  vertical-align: middle;
+}
+
+/* ---------- 单元格文字层级 ----------
+   三档：强强调（主标识）/ 次要（辅助说明）/ 等宽（ID、IP、密钥）。
+   这些类名此前在 26 个文件里各有一份定义（见文件头第 2 条），现收在此处唯一一份，
+   模块里的副本已删除 —— 它们唯一的作用就是让同一个类在不同页长得不一样。 */
+.cell-strong {
+  color: var(--color-foreground);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cell-muted {
+  color: var(--color-muted-foreground);
+  font-size: 12px;
+}
+
+/* 主字段下方的次要说明（邮箱、备注、归属等）。
+   收进单行截断：这类文本长度不可控，不截断会在窄列里把行高撑成两行，
+   同一页出现两种行高（基准页本来就带这套截断，此处推广到全站）。 */
+.cell-sub {
+  display: block;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 等宽用于 ID / IP / 单号 / 密钥：位数对齐后便于逐位比对。 */
+.cell-mono {
+  font-family: var(--hs-font-mono);
+  font-size: 12px;
+  color: var(--color-foreground);
+  word-break: break-all;
+}
+
+/* 数值列：等宽数字，位数不同的金额/数量按位对齐。 */
+.cell-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 时间戳/单号这类纯标识文字。此前 10 个模块各写一份，取值分三种
+   （#334155 / var(--color-foreground) / --td-text-color-secondary）：
+   同一个「次要时间」在不同页一个偏灰一个偏黑。统一用 --hs-text-mono
+   （浅色 #64748b / 深色 #9ca3af），它是为「纯标识」定义的令牌，随主题翻转。
+   注意有 5 处硬编码 #334155：浅色下尚可，深色下渲染成 rgb(51,65,85)，
+   在近黑底上几乎不可读，此处一并收敛。 */
+.time-text {
+  color: var(--hs-text-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 价格/金额主数值：比正文重一档，用于列表里的「多少钱」。
+   原写法硬编码 #334155，深色下同样不可读；改用前景色，两套主题都成立。 */
+.price-main {
+  color: var(--color-foreground);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 单行截断（长 URL、长错误信息）。 */
+.cell-ellipsis {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+/* 单元格内的失败原因：用状态色令牌而不是 #dc2626 / #ef4444，
+   深色主题下才会翻成可读的浅红。 */
+.cell-error {
+  font-size: 12px;
+  color: var(--hs-status-danger-text);
+  word-break: break-all;
+}
+
+/* 单元格内的跳转链接（实例名、订单号等点进详情的入口）。 */
+.cell-link {
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: color var(--hs-duration-fast);
+}
+
+.cell-link:hover {
+  color: var(--td-brand-color-8);
+}
+
+/* 与 cell-strong 组合时（实例名这类主标识）保持前景色，不刷成主题色：
+   否则一列主标识全变成同一种品牌色，与基准页「身份字段用前景色加粗」的做法相悖。 */
+.cell-link.cell-strong {
+  color: var(--color-foreground);
+}
+
+/* ---------- 操作列 ----------
+   容器此前在 10 个模块里各写一份，gap 有 6 / 10 / 12px 三种。基准页实际渲染出的
+   间距是 8px（它把链接包在 t-space size="small" 里，那是 8px），此处统一到 8px，
+   各模块直接放链接也能得到同样间距。
+
+   width: 100% 是固定操作列需要的：操作列是 sticky 单元格，容器不撑满时
+   justify-content: center 只在内容宽度内居中，视觉上会偏左。 */
+.action-cell {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 操作按钮/链接的字号与字重统一到基准页的 13px / 500。
+   只作用于操作列内部：表格其它位置的数据链接（名称、单号）保持正文字号，
+   它们属于数据本身，不是动作。 */
+.action-cell .t-link {
+  font-size: 13px;
+  font-weight: 500;
+  transition:
+    color var(--hs-duration-fast),
+    opacity var(--hs-duration-fast);
+}
+
+/* 悬停统一用 opacity 而不是换一套色号：语义色本身随主题翻转，
+   再写一套 hover 色号等于把明暗两套值复制到每个模块。 */
+.action-cell .t-link:hover {
+  color: inherit;
+  opacity: 0.72;
+}
+
+/* 语义分色：把 TDesign 的 theme 映射到项目的语义令牌，一处定义、全站一致。
+   这样各页模板里既有的 theme="danger" / "warning" / "success" 会自动落到
+   与基准页相同的配色上，不必逐个改模板。
+   主题色不再直接吃 --td-brand-color：它跟随主题色，主题切橙后整列动作都变橙
+   （与表头那次「蓝色表头」是同一个成因）。 */
+.action-cell .t-link--theme-primary {
+  color: var(--color-primary);
+}
+
+.action-cell .t-link--theme-danger {
+  color: var(--hs-status-danger-text);
+}
+
+.action-cell .t-link--theme-warning {
+  color: var(--hs-status-warn-text);
+}
+
+.action-cell .t-link--theme-success {
+  color: var(--hs-status-ok-text);
+}
+
+/* 中性动作（查看 / 详情 / 明细）：基准页给的是微灰字，悬停时反而要更醒目，
+   因此单独把透明度方向反转一次。 */
+.action-cell .t-link--theme-default,
+.action-cell .action-link--view {
+  color: var(--color-muted-foreground);
+}
+
+.action-cell .t-link--theme-default:hover,
+.action-cell .action-link--view:hover {
+  color: var(--color-foreground);
+  opacity: 1;
+}
+
+/* ---------- 语义动作类 ----------
+   基准页用语义类而不是 theme（查看 / 资金 / 登录 / 恢复 / 冻结 / 注销），
+   因为它的动作比 theme 的四档更细：资金动作用主题色、登录用技术色，
+   这两者在 theme 里没有对应档位。两套写法在此收敛到同一组令牌，
+   无论模板写 theme 还是写语义类，落到的颜色都一样。 */
+.action-cell .action-link--recharge,
+.action-cell .action-link--order {
+  color: var(--color-primary);
+}
+
+.action-cell .action-link--login {
+  color: var(--hs-text-tech);
+}
+
+.action-cell .action-link--restore {
+  color: var(--hs-status-ok-text);
+}
+
+.action-cell .action-link--freeze {
+  color: var(--hs-status-warn-text);
+}
+
+.action-cell .action-link--delete {
+  color: var(--hs-status-danger-text);
+}
+
+/* ---------- 表格内的标签 ----------
+   基准页的状态胶囊是 10px 圆角 + 600 字重；其它模块用 TDesign 默认标签，
+   是 12px 圆角 + 400 字重。此处把表格内的标签统一到基准页规格。
+   仅改几何：颜色仍走 TDesign 的语义 theme（成功/警告/危险），
+   它们本身已经是语义化且全站一致的颜色，再映射一层只会让表格内外的
+   同一个标签出现两种绿。 */
+.t-table__body .t-tag {
+  border-radius: var(--hs-radius-xl);
+  font-weight: 600;
+}

@@ -168,7 +168,7 @@
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
-              <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
+              <t-link theme="default" hover="color" @click="openDetail(row)">详情</t-link>
               <t-link v-if="canClaim(row)" theme="primary" hover="color" @click="handleClaim(row)">认领</t-link>
               <t-link
                 v-if="isClosable(row) && has('ticket:close')"

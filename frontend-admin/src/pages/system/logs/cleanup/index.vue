@@ -163,7 +163,7 @@
           </template>
           <template #action="{ row }">
             <div class="action-cell">
-              <t-link theme="primary" hover="color" @click="openJobDetail(row)">详情</t-link>
+              <t-link theme="default" hover="color" @click="openJobDetail(row)">详情</t-link>
               <t-link
                 v-if="canCleanup && cleanupStatusActive(row.status)"
                 theme="danger"

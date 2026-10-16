@@ -298,7 +298,7 @@ onMounted(loadQueue)
 .review-card__content {
   font-size: 13px;
   line-height: 1.7;
-  color: #334155;
+  color: var(--hs-text-tech);
   white-space: pre-wrap;
   word-break: break-word;
   background: var(--hs-surface-2);
@@ -350,7 +350,7 @@ onMounted(loadQueue)
 .review-dialog__quote {
   font-size: 13px;
   line-height: 1.7;
-  color: #334155;
+  color: var(--hs-text-tech);
   white-space: pre-wrap;
   word-break: break-word;
   background: var(--hs-surface-2);

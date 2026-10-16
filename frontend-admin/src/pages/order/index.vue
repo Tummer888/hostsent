@@ -232,7 +232,7 @@
               @select="(value) => handleMobileAction(value, row)"
             />
             <template v-else>
-              <t-link theme="primary" hover="color" @click="openDetail(row)">详情</t-link>
+              <t-link theme="default" hover="color" @click="openDetail(row)">详情</t-link>
               <t-link v-if="isCancellable(row)" theme="danger" hover="color" @click="handleCancel(row)">取消</t-link>
               <t-link v-if="isRefundable(row)" theme="warning" hover="color" @click="openRefundDialog(row)"
                 >退款</t-link
