@@ -406,6 +406,10 @@ func (s *instanceService) List(ctx context.Context, userID uint64, query dto.Lis
 			out[i].PowerStatus = powerOf(statusToModel(items[i].Status))
 			countSummary(&summary, out[i])
 		}
+		// 收尾必须在这个早退分支里也执行：客户列表的**默认**请求就是 live=false
+		//（首屏刻意不回源，见前端 onMounted 的说明），把收尾放在下面的回源段
+		// 等于"只有手动刷新时才收尾"，而用户反馈的正是"我不刷新它就一直在那儿转"。
+		s.settleTransitions(ctx, items, out)
 		return &dto.ListResponse{Items: out, Total: int64(len(out)), Summary: summary}, nil
 	}
 
@@ -427,7 +431,45 @@ func (s *instanceService) List(ctx context.Context, userID uint64, query dto.Lis
 		}
 		countSummary(&summary, out[i])
 	}
+	// 收尾"已经跑完但没人收尾"的过渡态：见 settleTransitions 的说明。
+	s.settleTransitions(ctx, items, out)
 	return &dto.ListResponse{Items: out, Total: int64(len(out)), Summary: summary}, nil
+}
+
+// settleTransitions 清掉已过最短占用窗口的过渡态，并同步到本次响应。
+//
+// 与运维台同口径：过渡态靠回源确认来收尾，而收尾只发生在
+// 详情回源 / 手动同步 / 再次下发这几条路径上 —— 客户停留的列表页
+// 既不回源（魔方财务这类渠道本来也不报电源状态、收不到确认）也不写库，
+// 于是刚关完机回到列表，那一行会一直显示「关机中」，要手动刷新才更新
+// （用户实测反馈："客户侧开关机状态变化时，开机中/关机中的状态长时间滞留"）。
+//
+// 判据只看"已过最短占用窗口"（MinHoldSec），不要求上游确认：
+// 窗口内保留是为了拦重复下发；窗口一过，动作早已结束，再挂着只会显示过期的
+// "正在执行"。这与手动同步的收尾判据同源。
+func (s *instanceService) settleTransitions(ctx context.Context, items []model.Instance, out []dto.InstanceInfo) {
+	for i := range items {
+		state := items[i].TransitionState
+		if state == "" {
+			continue
+		}
+		claimedAt := time.Time{}
+		if items[i].TransitionStartedAt != nil {
+			claimedAt = *items[i].TransitionStartedAt
+		}
+		if transitionWithinMinHold(state, claimedAt) {
+			continue
+		}
+		// 仅当仍属于自己时清除：并发下另一请求可能刚抢到**新的**过渡态，
+		// 无条件清会把那个还在跑的动作的展示提前抹掉（与下发失败回滚同一考量）。
+		if err := s.repo.ClearTransitionIfOwner(ctx, items[i].ID, state); err != nil {
+			if s.logger != nil {
+				s.logger.Warn("列表收尾过渡态失败", zap.Uint64("instance_id", items[i].ID), zap.Error(err))
+			}
+			continue
+		}
+		out[i].Transition = nil
+	}
 }
 
 // 实时回源的并发度与总预算。
@@ -1290,8 +1332,9 @@ func powerStateOf(it *model.Instance) string {
 
 // serviceStateOf 计算**账期/服务维度**（与电源无关，客户侧副本）。
 //
-// 优先级：终态 > 我方暂停 > 到期时间派生。判据刻意不看 status ——
-// 一台关机但未到期的实例，服务维度仍是 active（服务在有效期内，只是机器没开）。
+// 判据（与运维台同口径，用户第十九轮修订）：服务中 = 未到期 且 未被暂停。
+// 判据刻意不看 status —— 一台关机但未到期的实例，服务维度仍是 active
+// （服务在有效期内，只是机器没开）。
 func serviceStateOf(it *model.Instance, expireState string, daysLeft int) string {
 	if it == nil {
 		return "active"
@@ -1299,8 +1342,20 @@ func serviceStateOf(it *model.Instance, expireState string, daysLeft int) string
 	switch it.LifecycleStage {
 	case "destroyed":
 		return "destroyed"
+	case "cancelled":
+		// 订单未付款超时/作废：这台机器从未开通（不是"跑过又没了"）。
+		return "cancelled"
 	case "suspended":
+		// 违规暂停与到期暂停分开：客户看到"到期暂停"会去续费，
+		// 而续费解决不了违规 —— 那是要联系客服复核的事。
+		if it.SuspendReason == pkgmodel.SuspendReasonViolation {
+			return "suspended_violation"
+		}
 		return "suspended"
+	}
+	// 占位行（尚未开通）不参与账期判定：没有交付物就没有"服务中"。
+	if it.ProviderInstanceID == "" {
+		return "pending"
 	}
 	switch expireState {
 	case expireStateExpired:

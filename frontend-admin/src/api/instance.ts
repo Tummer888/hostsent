@@ -10,6 +10,8 @@ import type {
   InstanceBatchActionResponse,
   InstanceBatchDestroyRequest,
   InstanceBatchDestroyResponse,
+  InstanceBatchPurgeRequest,
+  InstanceBatchPurgeResponse,
   InstanceCredentialReveal,
   InstanceDestroyRequest,
   InstanceDetail,
@@ -17,6 +19,7 @@ import type {
   InstanceOpsListResponse,
   InstancePowerRequest,
   InstancePurgeRequest,
+  InstanceSetStateRequest,
   InstanceRebindProductRequest,
   InstanceRebindProductResult,
   InstanceRelatedResponse,
@@ -163,10 +166,27 @@ export function purgeInstance(id: number, data: InstancePurgeRequest): Promise<s
   })
 }
 
-export function suspendInstance(id: number, reason?: string): Promise<string> {
+export function suspendInstance(id: number, reason?: string, reasonClass?: string): Promise<string> {
   return request.post<string>({
     url: `/instances/${id}/suspend`,
-    data: { reason },
+    data: { reason, reason_class: reasonClass },
+  })
+}
+
+/**
+ * 修改实例服务状态（服务中 / 已暂停 / 已取消）。
+ *
+ * 与 suspend/unsuspend 的分工：那两个是"具体动作"，本接口是**状态入口** ——
+ * 按目标状态分派到对应动作，并额外支持"取消"（占位行专用）。
+ * 服务层只接受这三个可被人工设置的状态，避免直接写 status 造出自相矛盾的行。
+ */
+export function setInstanceState(
+  id: number,
+  data: InstanceSetStateRequest,
+): Promise<string> {
+  return request.post<string>({
+    url: `/instances/${id}/state`,
+    data,
   })
 }
 
@@ -199,6 +219,18 @@ export function batchDestroyInstances(
 ): Promise<InstanceBatchDestroyResponse> {
   return request.post<InstanceBatchDestroyResponse>({
     url: '/instances/batch-destroy',
+    data,
+    headers: verifyTicket ? { 'X-Verify-Ticket': verifyTicket } : undefined,
+  })
+}
+
+// 批量删除记录（物理删除已销毁的行）：与批量销毁同一逐台确认口径
+export function batchPurgeInstances(
+  data: InstanceBatchPurgeRequest,
+  verifyTicket?: string,
+): Promise<InstanceBatchPurgeResponse> {
+  return request.post<InstanceBatchPurgeResponse>({
+    url: '/instances/batch-purge',
     data,
     headers: verifyTicket ? { 'X-Verify-Ticket': verifyTicket } : undefined,
   })

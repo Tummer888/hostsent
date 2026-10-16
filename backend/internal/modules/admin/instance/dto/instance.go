@@ -93,9 +93,15 @@ type InstanceItem struct {
 	// 判据：到期时间 + 生命周期阶段，**不看电源状态** —— 关机但未到期的实例，
 	// 服务维度仍是 active（服务在有效期内，只是机器没开）。
 	ServiceState string `json:"service_state"`
-	// Transition 进行中的操作（迁移 112）：nil = 空闲。
+	// Transition 进行中的操作（迁移 112）：null = 空闲。
 	// 非空时前端显示「重启中」等过渡文案 + 动画，并禁用冲突操作。
-	Transition  *TransitionInfo `json:"transition,omitempty"`
+	//
+	// 刻意**不加 omitempty**：过渡态收尾时这个键必须仍出现在响应里（值为 null）。
+	// 前端详情轮询是增量合并（{...旧, ...新}），而"键不存在"在合并里什么都不覆盖 ——
+	// 键被省略时，旧的「关机中」对象会一直留在界面上：status 已随回源更新成
+	// 已关机（概览看得到），头部动画却继续转，直到手动点「同步」（整对象替换）
+	// 才消失（用户实测反馈"一直显示正在关机，每次都要我手动点同步"）。
+	Transition  *TransitionInfo `json:"transition"`
 	PrivateIP   string          `json:"private_ip"`
 	PublicIP    string          `json:"public_ip"`
 	BillingMode string          `json:"billing_mode"`
@@ -735,7 +741,14 @@ type PurgeRequest struct {
 
 // SuspendRequest 暂停请求（T5.5；reason 透传上游暂停原因并落审计）。
 type SuspendRequest struct {
+	// Reason 自由文本说明（写入操作流水，审计用）。
 	Reason string `json:"reason"`
+	// ReasonClass 原因分类（expired/violation/manual，见 pkgmodel.SuspendReason*）。
+	//
+	// 与 Reason 的分工：分类决定**界面怎么显示、给什么下一步提示**
+	//（违规暂停提示联系客服，到期暂停提示续费即恢复），自由文本只进流水。
+	// 空值按 manual 处理 —— 不冒充 expired（到期暂停由推进器按 expire_at 自动写）。
+	ReasonClass string `json:"reason_class"`
 }
 
 // BatchActionRequest 批量运维请求（doc61 P1：列表页多选后一次性下发）。
@@ -807,6 +820,60 @@ type BatchDestroyResponse struct {
 	Failed    int                `json:"failed"`
 	Skipped   int                `json:"skipped"`
 	Items     []BatchDestroyItem `json:"items"`
+}
+
+// BatchPurgeRequest 批量删除记录（物理删除**已销毁**的行）。
+//
+// 与批量销毁同样要求逐台确认（ConfirmMarks），理由更强：销毁至少还把行留在列表里，
+// 而这里是**物理删除**，删了连审计入口都没了。全选不能等于一键抹掉，
+// 必须为每台回填实例标识。
+type BatchPurgeRequest struct {
+	IDs []uint64 `json:"ids" binding:"required"`
+	// ConfirmMarks 实例标识 → 该实例的确认文本（须等于实例标识或记录 ID）。
+	// 缺失的实例按"未确认"跳过，不静默执行。
+	ConfirmMarks map[string]string `json:"confirm_marks" binding:"required"`
+	Reason       string            `json:"reason"`
+}
+
+// BatchPurgeItem 批量删除记录中的单实例结果（沿用三态便于前端复用回显表）。
+type BatchPurgeItem struct {
+	ID           uint64 `json:"id"`
+	InstanceMark string `json:"instance_mark"`
+	Name         string `json:"name"`
+	// Status 复用批量运维三态：success / skipped / failed。
+	Status       string `json:"status"`
+	Message      string `json:"message"`
+	BeforeStatus string `json:"before_status"`
+	AfterStatus  string `json:"after_status"`
+}
+
+// BatchPurgeResponse 批量删除记录响应。
+type BatchPurgeResponse struct {
+	Total     int              `json:"total"`
+	Succeeded int              `json:"succeeded"`
+	Failed    int              `json:"failed"`
+	Skipped   int              `json:"skipped"`
+	Items     []BatchPurgeItem `json:"items"`
+}
+
+// SetStateRequest 管理员直接设置实例的服务状态。
+//
+// 为什么给的是**语义动作**而不是"随便填一个 status 字符串"：
+// instances 的展示状态由 (status, lifecycle_stage, suspend_reason, expire_at) 共同派生，
+// 单独改 status 会造出自相矛盾的行（如 status=running + stage=destroyed）—— 那正是
+// 本项目反复修过的一类缺陷（推进器只写阶段不写状态、显示"运行中"的其实已销毁）。
+// 因此这里只接受三个可被人工设置的状态，每个都由服务层落成一致的列组合。
+type SetStateRequest struct {
+	// State 目标状态，取值：
+	//	active    —— 服务中（未到期且未暂停）：会解除上游暂停并清暂停原因
+	//	suspended —— 已暂停：会下发上游暂停，需带 ReasonClass 说明原因
+	//	cancelled —— 已取消：仅用于**从未开通**的占位行（订单未付款/作废）
+	State string `json:"state" binding:"required"`
+	// ReasonClass 暂停原因分类（suspended 时使用）：expired / violation / manual。
+	// 空按 manual 处理。violation 会让客户侧显示「违规暂停」并提示联系客服。
+	ReasonClass string `json:"reason_class"`
+	// Reason 自由文本说明（写入操作流水，审计用）。
+	Reason string `json:"reason"`
 }
 
 // RemarkRequest 管理员备注请求。

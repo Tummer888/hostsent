@@ -503,9 +503,43 @@ export interface InstanceDestroyRequest {
  * 本地行标成已销毁但保留），删除是记录清理（把那条终态行真正移出列表）。
  * 服务层只接受终态行 —— 在跑的机器必须先走销毁，否则会绕过"通知渠道终止机器"。
  */
+/**
+ * 修改实例服务状态（管理端「修改状态」入口）。
+ *
+ * 为什么给语义状态而不是"随便填一个 status"：展示状态由
+ * (status, lifecycle_stage, suspend_reason, expire_at) 共同派生，
+ * 单独改 status 会造出自相矛盾的行（如 status=running + stage=destroyed）。
+ */
+export interface InstanceSetStateRequest {
+  /** 目标状态：active（服务中）/ suspended（已暂停）/ cancelled（已取消，仅占位行）。 */
+  state: 'active' | 'suspended' | 'cancelled'
+  /** 暂停原因分类：expired / violation（违规）/ manual。仅 suspended 时使用。 */
+  reason_class?: string
+  /** 自由文本说明（写入操作流水，审计用）。违规暂停必填。 */
+  reason?: string
+}
+
 export interface InstancePurgeRequest {
   confirm_mark: string
   reason?: string
+}
+
+// 批量删除记录（物理删除已销毁的行）：与批量销毁同一逐台确认口径。
+//
+// 为什么不能只给"全选 + 一个确认词"：删除是物理抹除，连审计入口都不再存在。
+// 每台都必须回填自己的实例标识，确认动作逐台落到具体某一行上。
+export interface InstanceBatchPurgeRequest {
+  ids: number[]
+  confirm_marks: Record<string, string>
+  reason?: string
+}
+
+export interface InstanceBatchPurgeResponse {
+  total: number
+  succeeded: number
+  failed: number
+  skipped: number
+  items: InstanceBatchActionItem[]
 }
 
 // 批量运维（doc61 P1）：逐台结果三态 —— success / skipped（无需执行）/ failed（真实失败）

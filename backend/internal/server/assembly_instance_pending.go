@@ -153,11 +153,15 @@ func buildInstancePlaceholder(ports instancePlaceholderPorts, logger *zap.Logger
 	}
 }
 
-// buildInstancePlaceholderReleaser 构造「订单作废即删占位实例」钩子：
-// 未支付订单超时关单/用户取消时调用。只删未转正的占位行，已开通实例不受影响。
+// buildInstancePlaceholderReleaser 构造「订单作废即取消占位实例」钩子：
+// 未支付订单超时关单/用户取消时调用。只动未转正的占位行，已开通实例不受影响。
+//
+// 语义是"标为已取消"而不是"删掉"（用户口径）：未付款的订单没成交，
+// 这台机器从未开通 —— 落 cancelled 让运营在实例列表里看得到这次流失，
+// 删掉则等于把"客户下了单没付钱"这条信息抹掉。
 func (a *asm) buildInstancePlaceholderReleaser() func(ctx context.Context, orderID uint64) (int64, error) {
 	return func(ctx context.Context, orderID uint64) (int64, error) {
-		return a.syncRepo.DeletePendingInstanceByOrder(ctx, orderID)
+		return a.syncRepo.CancelPendingInstanceByOrder(ctx, orderID)
 	}
 }
 

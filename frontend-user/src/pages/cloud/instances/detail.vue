@@ -625,6 +625,9 @@ const powerState = computed(() =>
     power_state: instance.value?.power_state,
     lifecycle_stage: instance.value?.lifecycle_stage,
     pending: instance.value?.pending,
+    // 服务维度也传进来：违规暂停要对客户说"服务被停、联系客服"，
+    // 不能只显示"已关机"（那会让客户反复点「开机」并以为平台坏了）。
+    service_state: instance.value?.service_state,
     transition: instance.value?.transition,
   }),
 )

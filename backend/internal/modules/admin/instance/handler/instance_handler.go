@@ -368,6 +368,31 @@ func (h *InstanceHandler) SetRemark(c *gin.Context) {
 	response.SuccessMessage(c, "备注已保存")
 }
 
+// SetServiceState 管理员修改实例服务状态。
+// @Summary 修改实例服务状态（服务中 / 已暂停 / 已取消）
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param id path int true "实例记录 ID"
+// @Param body body dto.SetStateRequest true "目标状态与原因"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/{id}/state [post]
+func (h *InstanceHandler) SetServiceState(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var req dto.SetStateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	if err := h.svc.SetServiceState(c.Request.Context(), operator(c), id, &req); err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.SuccessMessage(c, "实例状态已更新")
+}
+
 // Suspend 暂停实例。
 // @Summary 暂停实例（T5.5：优先平台暂停态，缺能力显式报错）
 // @Tags 管理端-实例运维
@@ -387,7 +412,7 @@ func (h *InstanceHandler) Suspend(c *gin.Context) {
 		response.Error(c, apperrors.New(20001, err.Error()))
 		return
 	}
-	if err := h.svc.Suspend(c.Request.Context(), operator(c), id, req.Reason); err != nil {
+	if err := h.svc.Suspend(c.Request.Context(), operator(c), id, req.Reason, req.ReasonClass); err != nil {
 		response.Error(c, writeError(err))
 		return
 	}
@@ -448,6 +473,27 @@ func (h *InstanceHandler) BatchDestroy(c *gin.Context) {
 		return
 	}
 	resp, err := h.svc.BatchDestroy(c.Request.Context(), operator(c), &req)
+	if err != nil {
+		response.Error(c, writeError(err))
+		return
+	}
+	response.Success(c, resp)
+}
+
+// BatchPurge 批量删除实例记录。
+// @Summary 批量删除已销毁实例的记录（物理删除，需逐台确认）
+// @Tags 管理端-实例运维
+// @Security BearerAuth
+// @Param body body dto.BatchPurgeRequest true "逐台确认文本"
+// @Success 200 {object} response.Body
+// @Router /api/v1/admin/instances/batch-purge [post]
+func (h *InstanceHandler) BatchPurge(c *gin.Context) {
+	var req dto.BatchPurgeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, apperrors.New(20001, err.Error()))
+		return
+	}
+	resp, err := h.svc.BatchPurge(c.Request.Context(), operator(c), &req)
 	if err != nil {
 		response.Error(c, writeError(err))
 		return

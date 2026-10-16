@@ -54,6 +54,8 @@ const (
 	ActionRelinkUpstream = "relink_upstream"
 	// ActionRebindProduct 更换实例绑定的本地售出商品（上游换产品后同步调整本地归属）。
 	ActionRebindProduct = "rebind_product"
+	// ActionSetState 管理员直接设置服务状态（暂停/恢复/取消，见 SetServiceState）。
+	ActionSetState = "set_state"
 )
 
 // 操作结果。

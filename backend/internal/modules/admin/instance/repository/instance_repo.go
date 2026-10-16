@@ -72,6 +72,12 @@ type InstanceRepository interface {
 	UpdateDisk(ctx context.Context, id uint64, disk int) error
 	// UpdateLifecycleStage 落库生命周期阶段（T5.4/T5.5：手动暂停/恢复与推进器共用）。
 	UpdateLifecycleStage(ctx context.Context, id uint64, stage string) error
+	// UpdateSuspendReason 落库暂停原因分类（迁移 114）；传空串表示清除（恢复服务时）。
+	//
+	// 与 UpdateLifecycleStage 分成两次写而不是合并：暂停原因只在"进入暂停"与
+	// "解除暂停"两个语义点上变，而阶段会被生命周期推进器频繁改写 ——
+	// 合并会让推进器推进阶段时顺手把原因清掉（只有恢复服务才该清）。
+	UpdateSuspendReason(ctx context.Context, id uint64, reason string) error
 	// MarkTransition 记录"某操作正在执行"（迁移 112）：上游指令是异步的，
 	// 落库后刷新页面仍能看到「重启中」，并可据此拦截重复指令。
 	MarkTransition(ctx context.Context, id uint64, state string, startedAt, until time.Time) error
@@ -497,6 +503,20 @@ func (r *instanceRepository) UpdateLifecycleStage(ctx context.Context, id uint64
 		Update("lifecycle_stage", stage).Error
 }
 
+// UpdateSuspendReason 落库暂停原因分类（迁移 114）。
+//
+// 用 NULL 清除（而不是空串）：查询"哪些行被暂停"的部分索引与 `IS NOT NULL`
+// 判据都按 NULL 写，空串会让"已恢复服务"的行看起来仍带着一个空原因。
+func (r *instanceRepository) UpdateSuspendReason(ctx context.Context, id uint64, reason string) error {
+	var val any
+	if strings.TrimSpace(reason) != "" {
+		val = reason
+	}
+	return r.db.WithContext(ctx).Model(&syncmodel.Instance{}).
+		Where("id = ?", id).
+		Update("suspend_reason", val).Error
+}
+
 // MarkTransition 记录进行中的操作（迁移 112）。
 //
 // 覆盖写而不是追加：一台机器同一时刻只应有一个进行中的动作
@@ -784,9 +804,14 @@ func (r *instanceRepository) Purge(ctx context.Context, id uint64) (int64, error
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 条件写在 DELETE 里而不是先查后删：并发下"查完到删之间状态被改回"的窗口
 		// 会让一台在跑的机器被误删（与 ClaimTransition 同一取舍：判据与动作同语句）。
+		//
+		// 与服务层守卫同一组终态：已销毁（deleted/destroyed）+ 已取消（cancelled，
+		// 机器从未开通）。两处必须同步，否则服务层放行、仓库层删不掉，
+		// 用户看到的是一条静默失败（affected=0 → "记录已不存在"）。
 		res := tx.Where("id = ?", id).
-			Where("status = ? OR coalesce(lifecycle_stage, '') = ?",
-				string(pkgmodel.InstanceStatusDeleted), "destroyed").
+			Where("status IN ? OR coalesce(lifecycle_stage, '') IN ?",
+				[]string{string(pkgmodel.InstanceStatusDeleted), string(pkgmodel.InstanceStatusCancelled)},
+				[]string{"destroyed", "cancelled"}).
 			Delete(&syncmodel.Instance{})
 		if res.Error != nil {
 			return res.Error

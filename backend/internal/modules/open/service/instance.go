@@ -13,12 +13,13 @@ import (
 	syncmodel "hostsent/backend/internal/modules/admin/resource/sync/model"
 	"hostsent/backend/internal/modules/open/dto"
 	openrepo "hostsent/backend/internal/modules/open/repository"
+	pkgmodel "hostsent/backend/internal/pkg/model"
 )
 
 // OpsController 实例电源/暂停控制（复用实例运维台，含运维审计与上游能力分派）。
 type OpsController interface {
 	Power(ctx context.Context, op instanceservice.Operator, id uint64, action string) error
-	Suspend(ctx context.Context, op instanceservice.Operator, id uint64, reason string) error
+	Suspend(ctx context.Context, op instanceservice.Operator, id uint64, reason string, reasonClass string) error
 	Unsuspend(ctx context.Context, op instanceservice.Operator, id uint64) error
 }
 
@@ -113,11 +114,14 @@ func (s *OpenInstanceService) Power(ctx context.Context, app *openrepo.ResolvedA
 }
 
 // Suspend 暂停实例（D2：开放接口提供的最重处置，无销毁）。
+//
+// 原因分类固定 manual：调用方是外部集成方，不该由它们把客户标成「违规」
+// （那是本平台的管理判定，需要人工复核）。它们传的 reason 文本仍完整进流水。
 func (s *OpenInstanceService) Suspend(ctx context.Context, app *openrepo.ResolvedApp, instanceID uint64, reason string) error {
 	if _, err := s.deps.Repo.FindByIDForUser(ctx, instanceID, app.App.OwnerUserID); err != nil {
 		return mapInstanceErr(err)
 	}
-	return mapInstanceErr(s.deps.Ops.Suspend(ctx, openOperator(app), instanceID, reason))
+	return mapInstanceErr(s.deps.Ops.Suspend(ctx, openOperator(app), instanceID, reason, pkgmodel.SuspendReasonManual))
 }
 
 // Unsuspend 恢复实例。

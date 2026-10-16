@@ -48,9 +48,14 @@ type Instance struct {
 	TransitionState     string     `gorm:"column:transition_state;size:24" json:"transition_state"`
 	TransitionStartedAt *time.Time `gorm:"column:transition_started_at" json:"transition_started_at"`
 	TransitionUntil     *time.Time `gorm:"column:transition_until" json:"transition_until"`
-	CreatedAt           time.Time  `gorm:"autoCreateTime" json:"created_at"`
-	ExpireAt            *time.Time `gorm:"column:expire_at" json:"expire_at"`
-	UpdatedAt           time.Time  `gorm:"autoUpdateTime" json:"updated_at"`
+	// SuspendReason 暂停原因分类（迁移 114，取值见 pkgmodel.SuspendReason*）：
+	// expired=到期自动暂停 / violation=违规暂停 / manual=管理员其他原因。
+	// 客户侧据它区分显示「到期暂停」（续费即恢复）与「违规暂停」（需联系客服）。
+	// 空 = 未暂停或原因未知（迁移前存量）。
+	SuspendReason string     `gorm:"column:suspend_reason;size:24" json:"suspend_reason"`
+	CreatedAt     time.Time  `gorm:"autoCreateTime" json:"created_at"`
+	ExpireAt      *time.Time `gorm:"column:expire_at" json:"expire_at"`
+	UpdatedAt     time.Time  `gorm:"autoUpdateTime" json:"updated_at"`
 }
 
 // TableName 指定表名。

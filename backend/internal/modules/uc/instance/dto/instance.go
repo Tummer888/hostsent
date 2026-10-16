@@ -65,7 +65,11 @@ type InstanceInfo struct {
 	// 非空时前端显示「重启中」等过渡文案 + 动画，并禁用冲突操作。
 	// 客户侧此前完全没有这个信息：下发后就只有一句"指令已发送"，机器要几十秒
 	// 才变，期间再点一次又会堆一条指令（用户实测反馈"任务累积"）。
-	Transition *TransitionInfo `json:"transition,omitempty"`
+	//
+	// 刻意**不加 omitempty**：过渡态收尾时必须回传 null 而不是省略该键，
+	// 否则任何"增量合并"式的刷新都无法把已结束的过渡态抹掉（客户端列表
+	// 与详情共用同一份数据，见运维台同名字段的说明）。
+	Transition *TransitionInfo `json:"transition"`
 }
 
 // TransitionInfo 进行中的操作（与运维台同一结构，客户侧文案一致）。

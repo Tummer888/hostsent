@@ -253,7 +253,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, type Component } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, type Component } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { TTable } from '@/plugins/tdesign-heavy'
@@ -405,6 +405,8 @@ async function load(live = false) {
     const res = await listInstances({ live })
     instances.value = res.data.items || []
     summary.value = res.data.summary || { ...EMPTY_SUMMARY, total: instances.value.length }
+    // 数据到手后再决定是否需要轮询：有未确认的过渡态就开表，否则保持停表。
+    ensureListTransitionPoll()
   } catch (error) {
     // 必须自己兜住失败：请求拦截器只弹提示并 reject，这里不 catch 会让
     // 整个 setup 抛未处理异常，首屏直接空白（用户实测的"数据都为空"）。
@@ -502,6 +504,58 @@ function goDetail(row: InstanceInfo) {
  * 回源只用于"想确认此刻真实状态"的场景，交给刷新按钮。
  */
 onMounted(() => load(false))
+
+/**
+ * 过渡态轮询（「开机中/关机中」的自动收尾）。
+ *
+ * 为什么列表需要：过渡态原来是"详情页轮询/手动刷新"才会收尾的，客户停留在列表时
+ * 没有任何东西去核对 —— 刚点完关机回到列表，那一行会一直显示「关机中」，
+ * 长时间不更新（用户实测反馈："客户侧开关机状态变化时，开机中/关机中的状态
+ * 长时间滞留，不会自动刷新"）。
+ *
+ * 服务端已在列表接口里顺带收尾（settleTransitions），这里只负责"到点再拉一次"：
+ * 仅在**存在未确认的过渡态**时轮询，全部收尾后自动停表；且用 load(false) ——
+ * 收尾是本地库的事，不需要为此对每台机器回源上游（那正是首屏卡死的原因）。
+ */
+const LIST_TRANSITION_POLL_MS = 5000
+let listTransitionTimer: number | undefined
+
+function stopListTransitionPoll() {
+  if (listTransitionTimer !== undefined) {
+    window.clearInterval(listTransitionTimer)
+    listTransitionTimer = undefined
+  }
+}
+
+function ensureListTransitionPoll() {
+  const pending = instances.value.some((row) => !!row.transition && !row.transition.overdue)
+  if (!pending) {
+    stopListTransitionPoll()
+    return
+  }
+  if (listTransitionTimer !== undefined) return
+  listTransitionTimer = window.setInterval(async () => {
+    // 轻量刷新：只重取列表本身，不碰监控图表与操作记录（那些与过渡态无关）。
+    await loadSilently()
+    // 收尾后自动停表：没有未确认的过渡态就不再发请求。
+    if (!instances.value.some((row) => !!row.transition && !row.transition.overdue)) {
+      stopListTransitionPoll()
+    }
+  }, LIST_TRANSITION_POLL_MS)
+}
+
+/** 静默重取列表：不闪 loading、失败不弹错（轮询专用）。 */
+async function loadSilently() {
+  try {
+    const res = await listInstances({ live: false })
+    instances.value = res.data.items || []
+    summary.value = res.data.summary || { ...EMPTY_SUMMARY, total: instances.value.length }
+  } catch {
+    // 背景轮询失败静默跳过：客户仍可手动「刷新」。
+  }
+}
+
+onBeforeUnmount(stopListTransitionPoll)
 </script>
 
 <style scoped>

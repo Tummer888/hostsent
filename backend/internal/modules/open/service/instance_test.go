@@ -12,6 +12,7 @@ import (
 	"hostsent/backend/internal/modules/open/dto"
 	openrepo "hostsent/backend/internal/modules/open/repository"
 	apperrors "hostsent/backend/internal/pkg/errors"
+	pkgmodel "hostsent/backend/internal/pkg/model"
 )
 
 type stubInstanceRepo struct {
@@ -38,9 +39,11 @@ func (s *stubInstanceRepo) FindByIDForUser(_ context.Context, id, userID uint64)
 type stubOps struct {
 	powerActions []string
 	suspendIDs   []uint64
-	unsuspendIDs []uint64
-	err          error
-	lastOperator instanceservice.Operator
+	// suspendReasonClass 记录开放接口传下来的原因分类（应恒为 manual）。
+	suspendReasonClass string
+	unsuspendIDs       []uint64
+	err                error
+	lastOperator       instanceservice.Operator
 }
 
 func (s *stubOps) Power(_ context.Context, op instanceservice.Operator, id uint64, action string) error {
@@ -49,7 +52,10 @@ func (s *stubOps) Power(_ context.Context, op instanceservice.Operator, id uint6
 	_ = id
 	return s.err
 }
-func (s *stubOps) Suspend(_ context.Context, op instanceservice.Operator, id uint64, _ string) error {
+
+// reasonClass 也收下：开放接口固定传 manual（它不该把客户标成"违规"）。
+func (s *stubOps) Suspend(_ context.Context, op instanceservice.Operator, id uint64, _ string, reasonClass string) error {
+	s.suspendReasonClass = reasonClass
 	s.lastOperator = op
 	s.suspendIDs = append(s.suspendIDs, id)
 	return s.err
@@ -173,5 +179,20 @@ func TestDestroyExplicitlyUnsupported(t *testing.T) {
 	ae, ok := err.(*apperrors.AppError)
 	if !ok || ae.Code != CodeOpenUnsupported {
 		t.Fatalf("destroy must be fixed 40009, got %v", err)
+	}
+}
+
+// TestOpenSuspendNeverMarksViolation 开放接口的暂停恒定归为 manual。
+//
+// 违规暂停是**本平台的管理判定**（客户侧会显示「违规暂停」并要求联系客服），
+// 不该由外部集成方通过开放接口打标 —— 那等于让第三方替平台做合规判定。
+// 它们传的 reason 文本仍完整进流水，只是分类不由它们决定。
+func TestOpenSuspendNeverMarksViolation(t *testing.T) {
+	svc, _, ops, _ := instanceFixture()
+	if err := svc.Suspend(context.Background(), appFixture(), 9, "外部系统请求停服"); err != nil {
+		t.Fatalf("暂停失败: %v", err)
+	}
+	if ops.suspendReasonClass != pkgmodel.SuspendReasonManual {
+		t.Errorf("开放接口暂停应固定 manual，实际 %q（第三方不应能替平台标记违规）", ops.suspendReasonClass)
 	}
 }

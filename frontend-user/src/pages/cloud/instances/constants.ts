@@ -126,6 +126,8 @@ export function powerStateView(input: {
   power_state?: string
   pending?: boolean
   lifecycle_stage?: string
+  /** 服务维度（同一次响应下发）：违规暂停要把机器文案换成"服务被停"。 */
+  service_state?: string
   transition?: InstanceTransitionView | null
 }): { label: string; theme: string; detail: string; spinning: boolean } {
   const stage = input.lifecycle_stage || ''
@@ -144,8 +146,16 @@ export function powerStateView(input: {
   if (stage === 'destroyed' || input.status === 'deleted') {
     return { label: '已销毁', theme: 'default', detail: '实例已回收，不可恢复', spinning: false }
   }
+  // 已取消：订单未付款/作废，机器从未创建 —— 谈不上"通电状态"。
+  if (stage === 'cancelled' || input.status === 'cancelled') {
+    return { label: '未开通', theme: 'default', detail: '订单未支付或已作废，实例未创建', spinning: false }
+  }
   if (input.pending) {
     return { label: '开通中', theme: 'warning', detail: '正在为你创建实例', spinning: false }
+  }
+  // 违规暂停：机器侧可能仍通电，但对客户是"服务被停"且需联系客服。
+  if (input.service_state === 'suspended_violation') {
+    return { label: '已停止服务', theme: 'danger', detail: '因违规被暂停，请联系客服处理', spinning: false }
   }
   if (stage === 'suspended') {
     // 到期暂停是平台动作：机器侧通常已被关机，但对客户而言语义是"服务被停"。
@@ -182,10 +192,23 @@ export function serviceStateView(input: {
   if (stage === 'destroyed') {
     return { label: '服务已终止', theme: 'default', detail: '服务已结束' }
   }
+  // 已取消：订单未付款超时/作废 —— 这台机器从未开通。
+  if (stage === 'cancelled') {
+    return { label: '已取消', theme: 'default', detail: '订单未支付或已作废，实例未开通' }
+  }
+  // 违规暂停必须先于"到期暂停"判断：前者续费解决不了，要走客服处理。
+  if (input.service_state === 'suspended_violation') {
+    return { label: '违规暂停', theme: 'danger', detail: '因违规被暂停，请联系客服处理' }
+  }
   if (stage === 'suspended') {
     return { label: '已到期暂停', theme: 'danger', detail: '续费后可恢复服务' }
   }
   switch (input.service_state || '') {
+    // 尚未开通：没有交付物，不能说成"服务中"。
+    case 'pending':
+      return { label: '待开通', theme: 'warning', detail: '订单已提交，实例正在创建' }
+    case 'cancelled':
+      return { label: '已取消', theme: 'default', detail: '订单未支付或已作废，实例未开通' }
     case 'expiring': {
       const d = typeof input.days_left === 'number' ? input.days_left : undefined
       return {
@@ -230,6 +253,11 @@ export function combineInstanceState(input: {
   if (stage === 'destroyed' || input.status === 'deleted') {
     return { label: '已销毁', theme: 'default', detail: '实例已回收，不可恢复', spinning: false }
   }
+  // 已取消排在"开通中"之前：取消后的行仍没有上游实例号，
+  // 先判 pending 会把一张已作废的订单显示成"正在为你创建实例"。
+  if (stage === 'cancelled' || input.status === 'cancelled') {
+    return { label: '已取消', theme: 'default', detail: '订单未支付或已作废，实例未开通', spinning: false }
+  }
   if (input.pending) {
     return { label: '开通中', theme: 'warning', detail: '正在为你创建实例，可在详情页查看进度', spinning: false }
   }
@@ -238,9 +266,6 @@ export function combineInstanceState(input: {
     return { label: power.label, theme: power.theme, detail: power.detail, spinning: true }
   }
   const service = serviceStateView(input)
-  if (stage === 'suspended') {
-    return { label: '已到期暂停', theme: 'danger', detail: service.detail, spinning: false }
-  }
   if (service.theme === 'danger' || service.theme === 'warning') {
     return {
       label: service.label,
